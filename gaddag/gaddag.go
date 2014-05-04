@@ -34,6 +34,89 @@ type Gaddag struct {
 
 const SeparationToken = '^'
 
+// NumArcs counts the number of 1-bits in the arc bit vector.
+func NumArcs(arcBitVector uint32) uint8 {
+	var count uint8
+	for arcBitVector > 0 {
+		if (arcBitVector & 1) == 1 {
+			count++
+		}
+		arcBitVector >>= 1
+	}
+	return count
+}
+
+// convertNodeData - The data array in the GADDAG has node indices
+// instead of element indices, since I made this with
+// github.com/domino14/ujamaa. This function converts all node indices
+// to element indices. At some point I will make a GADDAG maker in Go
+// and output the GADDAG in proper format.
+func convertNodeData(data []uint32, numNodes uint32) {
+	// A map where the keys are node indices and the values are element
+	// indices.
+	var nodeIdx uint32
+	var nArcs uint8
+	nodeElMap := make(map[uint32]uint32)
+	// consts for state machine
+	const (
+		_BIT_VECTOR = iota
+		_LETTER_SET = iota
+		_NODE_IDXS  = iota
+	)
+	state := _BIT_VECTOR
+	for idx, val := range data {
+		switch state {
+		case _BIT_VECTOR:
+			nodeElMap[nodeIdx] = uint32(idx)
+			state = _LETTER_SET
+			nArcs = NumArcs(val)
+			if nArcs > 27 || nArcs < 0 {
+				panic("WTF")
+			}
+		case _LETTER_SET:
+			if nArcs == 0 {
+				state = _BIT_VECTOR
+				nodeIdx++
+			} else {
+				state = _NODE_IDXS
+			}
+		case _NODE_IDXS:
+			nArcs--
+			if nArcs == 0 {
+				state = _BIT_VECTOR
+				nodeIdx++
+			}
+		}
+	}
+	if nodeIdx != numNodes {
+		fmt.Println(nodeIdx, numNodes)
+		panic("Didn't count right!")
+	}
+	// Now that we have built up our map, let's start again and overwrite
+	// the data array in the proper spots.
+	state = _BIT_VECTOR
+	for idx, val := range data {
+		switch state {
+		case _BIT_VECTOR:
+			state = _LETTER_SET
+			nArcs = NumArcs(val)
+		case _LETTER_SET:
+			if nArcs == 0 {
+				state = _BIT_VECTOR
+			} else {
+				state = _NODE_IDXS
+			}
+		case _NODE_IDXS:
+			nArcs--
+			if nArcs == 0 {
+				state = _BIT_VECTOR
+			}
+			data[idx] = nodeElMap[data[idx]]
+		}
+	}
+
+}
+
 // LoadGaddag loads a gaddag from a file and returns a pointer to its
 // root node.
 func LoadGaddag(filename string) []uint32 {
@@ -49,6 +132,8 @@ func LoadGaddag(filename string) []uint32 {
 	gaddag.Data = make([]uint32, gaddag.Elements)
 	binary.Read(file, binary.LittleEndian, &gaddag.Data)
 	file.Close()
+	convertNodeData(gaddag.Data, gaddag.Nodes)
+	fmt.Println("Converted and processed GADDAG.")
 	return gaddag.Data
 }
 
@@ -60,4 +145,18 @@ func LoadGaddag(filename string) []uint32 {
 func ContainsLetter(gaddagData []uint32, nodeIdx uint32, letter byte) bool {
 	// nodeIdx + 1 is the index of NODE_LETTERSET
 	return (gaddagData[nodeIdx+1] & (1 << (letter - 'A'))) != 0
+}
+
+// ABVToString converts the arc bit vector to a string, for debugging.
+func ABVToString(bitVector uint32) string {
+	s := ""
+	for i := uint8(0); i < 26; i++ {
+		if (bitVector & (1 << i)) != 0 {
+			s += string(i + 'A')
+		}
+	}
+	if (bitVector & (1 << 26)) != 0 {
+		s += string(SeparationToken)
+	}
+	return s
 }

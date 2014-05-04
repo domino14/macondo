@@ -12,11 +12,12 @@ import (
 	"github.com/domino14/gorilla/gaddag"
 	"github.com/domino14/gorilla/movegen"
 	"strings"
+	"time"
 )
 
 const (
-	modeBuild   = iota
-	modeAnagram = iota
+	ModeBuild   = iota
+	ModeAnagram = iota
 )
 
 var answerSet map[string]bool
@@ -31,24 +32,24 @@ func anagramGen(gaddagData []uint32, pos int8, word string, rack []uint8,
 		return
 	}
 	// For all letters except the blank
-	for i = 0; i < 26; i++ {
+	for i = 0; i < movegen.NumTotalLetters-1; i++ {
 		if rack[i] > 0 {
 			// Letter i + 'A' is on this rack. Temporarily remove it.
 			rack[i]--
 			anagramGoOn(gaddagData, pos, i+'A', word, rack,
-				movegen.NextNode(gaddagData, nodeIdx, i+'A'), nodeIdx, mode)
+				movegen.NextNodeIdx(gaddagData, nodeIdx, i+'A'), nodeIdx, mode)
 			// Re-add letter
 			rack[i]++
 		}
 	}
 	// Check if there is a blank.
-	if rack[26] > 0 {
-		// For each blank:
-		for k = 0; k < 26; k++ {
-			rack[26]--
+	if rack[movegen.BlankPosition] > 0 {
+		// For each letter that the blank could be:
+		for k = 0; k < movegen.NumTotalLetters-1; k++ {
+			rack[movegen.BlankPosition]--
 			anagramGoOn(gaddagData, pos, k+'A', word, rack,
-				movegen.NextNode(gaddagData, nodeIdx, k+'A'), nodeIdx, mode)
-			rack[26]++
+				movegen.NextNodeIdx(gaddagData, nodeIdx, k+'A'), nodeIdx, mode)
+			rack[movegen.BlankPosition]++
 		}
 	}
 }
@@ -59,32 +60,32 @@ func anagramGen(gaddagData []uint32, pos int8, word string, rack []uint8,
 func anagramGoOn(gaddagData []uint32, pos int8, L byte, word string,
 	rack []uint8, newNodeIdx uint32, oldNodeIdx uint32, mode uint8) {
 	if pos <= 0 {
-		word := string(L) + word
+		wordC := string(L) + word
 		if gaddag.ContainsLetter(gaddagData, oldNodeIdx, L) {
-			if mode == modeBuild || (mode == modeAnagram &&
-				movegen.LettersRemain(rack)) {
-				addPlay(word)
+			if mode == ModeBuild || (mode == ModeAnagram &&
+				!movegen.LettersRemain(rack)) {
+				addPlay(wordC)
 			}
 		}
 		if newNodeIdx != 0 {
-			anagramGen(gaddagData, pos-1, word, rack, newNodeIdx, mode)
-			newNodeIdx = movegen.NextNode(gaddagData, newNodeIdx,
+			anagramGen(gaddagData, pos-1, wordC, rack, newNodeIdx, mode)
+			newNodeIdx = movegen.NextNodeIdx(gaddagData, newNodeIdx,
 				gaddag.SeparationToken)
 			// Now shift direction.
 			if newNodeIdx != 0 {
-				anagramGen(gaddagData, 1, word, rack, newNodeIdx, mode)
+				anagramGen(gaddagData, 1, wordC, rack, newNodeIdx, mode)
 			}
 		}
 	} else if pos > 0 {
-		word := word + string(L)
+		wordC := word + string(L)
 		if gaddag.ContainsLetter(gaddagData, oldNodeIdx, L) {
-			if mode == modeBuild || (mode == modeAnagram &&
-				movegen.LettersRemain(rack)) {
-				addPlay(word)
+			if mode == ModeBuild || (mode == ModeAnagram &&
+				!movegen.LettersRemain(rack)) {
+				addPlay(wordC)
 			}
 		}
 		if newNodeIdx != 0 {
-			anagramGen(gaddagData, pos+1, word, rack, newNodeIdx, mode)
+			anagramGen(gaddagData, pos+1, wordC, rack, newNodeIdx, mode)
 		}
 	}
 }
@@ -92,11 +93,11 @@ func anagramGoOn(gaddagData []uint32, pos int8, L byte, word string,
 // turnStringIntoRack Turns a given rack into a uint8 slice of 27 integers,
 // one for each letter of the alphabet (blank is the 27th).
 func turnStringIntoRack(str string) []uint8 {
-	rack := make([]uint8, 27)
+	rack := make([]uint8, movegen.NumTotalLetters)
 	str = strings.ToUpper(str)
 	for _, c := range str {
-		if c == '?' {
-			rack[26]++
+		if c == '_' {
+			rack[movegen.BlankPosition]++
 		} else {
 			rack[c-'A']++
 		}
@@ -109,15 +110,15 @@ func addPlay(word string) {
 }
 
 // Anagram anagrams or builds the passed in string.
-func Anagram(gaddagData []uint32, str string, mode string) {
+func Anagram(gaddagData []uint32, str string, mode uint8) {
 	answerSet = make(map[string]bool)
 	rack := turnStringIntoRack(str)
 	initWord := ""
-	switch mode {
-	case "anagram":
-		anagramGen(gaddagData, 0, initWord, rack, 0, modeAnagram)
-	case "build":
-		anagramGen(gaddagData, 0, initWord, rack, 0, modeBuild)
-	}
+	t0 := time.Now()
+	anagramGen(gaddagData, 0, initWord, rack, 0, mode)
+	t1 := time.Now()
 	fmt.Println(answerSet)
+	fmt.Println(len(answerSet), "answers")
+	fmt.Printf("The call took %v to run.\n", t1.Sub(t0))
+
 }
