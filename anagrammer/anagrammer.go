@@ -8,6 +8,7 @@
 package anagrammer
 
 import (
+	//"bytes"
 	"fmt"
 	"github.com/domino14/gorilla/gaddag"
 	"github.com/domino14/gorilla/movegen"
@@ -20,36 +21,45 @@ const (
 	ModeAnagram = iota
 )
 
+type Rack struct {
+	rack  []uint8
+	count uint8
+}
+
 var answerSet map[string]bool
 
 // anagramGen This is a simplified version of the "Gen" function from
 // the original GADDAG paper. Once we build out the actual GADDAG move
 // generator, we should replace this function with the GADDAG Gen.
-func anagramGen(gaddagData []uint32, pos int8, word string, rack []uint8,
+func anagramGen(gaddagData []uint32, pos int8, word string, rack *Rack,
 	nodeIdx uint32, mode uint8) {
 	var i, k uint8
-	if !movegen.LettersRemain(rack) {
+	if rack.count == 0 {
 		return
 	}
 	// For all letters except the blank
 	for i = 0; i < movegen.NumTotalLetters-1; i++ {
-		if rack[i] > 0 {
+		if rack.rack[i] > 0 {
 			// Letter i + 'A' is on this rack. Temporarily remove it.
-			rack[i]--
+			rack.rack[i]--
+			rack.count--
 			anagramGoOn(gaddagData, pos, i+'A', word, rack,
 				movegen.NextNodeIdx(gaddagData, nodeIdx, i+'A'), nodeIdx, mode)
 			// Re-add letter
-			rack[i]++
+			rack.rack[i]++
+			rack.count++
 		}
 	}
 	// Check if there is a blank.
-	if rack[movegen.BlankPosition] > 0 {
+	if rack.rack[movegen.BlankPosition] > 0 {
 		// For each letter that the blank could be:
 		for k = 0; k < movegen.NumTotalLetters-1; k++ {
-			rack[movegen.BlankPosition]--
+			rack.rack[movegen.BlankPosition]--
+			rack.count--
 			anagramGoOn(gaddagData, pos, k+'A', word, rack,
 				movegen.NextNodeIdx(gaddagData, nodeIdx, k+'A'), nodeIdx, mode)
-			rack[movegen.BlankPosition]++
+			rack.rack[movegen.BlankPosition]++
+			rack.count++
 		}
 	}
 }
@@ -58,51 +68,53 @@ func anagramGen(gaddagData []uint32, pos int8, word string, rack []uint8,
 // the original GADDAG paper. Once we build out the actual GADDAG move
 // generator, we should replace this function with the GADDAG GoOn.
 func anagramGoOn(gaddagData []uint32, pos int8, L byte, word string,
-	rack []uint8, newNodeIdx uint32, oldNodeIdx uint32, mode uint8) {
+	rack *Rack, newNodeIdx uint32, oldNodeIdx uint32, mode uint8) {
 	if pos <= 0 {
-		wordC := string(L) + word
+		word := string(L) + word
 		if gaddag.ContainsLetter(gaddagData, oldNodeIdx, L) {
-			if mode == ModeBuild || (mode == ModeAnagram &&
-				!movegen.LettersRemain(rack)) {
-				addPlay(wordC)
+			if mode == ModeBuild || (mode == ModeAnagram && rack.count == 0) {
+				addPlay(word)
 			}
 		}
 		if newNodeIdx != 0 {
-			anagramGen(gaddagData, pos-1, wordC, rack, newNodeIdx, mode)
+			anagramGen(gaddagData, pos-1, word, rack, newNodeIdx, mode)
 			newNodeIdx = movegen.NextNodeIdx(gaddagData, newNodeIdx,
 				gaddag.SeparationToken)
 			// Now shift direction.
 			if newNodeIdx != 0 {
-				anagramGen(gaddagData, 1, wordC, rack, newNodeIdx, mode)
+				anagramGen(gaddagData, 1, word, rack, newNodeIdx, mode)
 			}
 		}
 	} else if pos > 0 {
-		wordC := word + string(L)
+		word := word + string(L)
 		if gaddag.ContainsLetter(gaddagData, oldNodeIdx, L) {
-			if mode == ModeBuild || (mode == ModeAnagram &&
-				!movegen.LettersRemain(rack)) {
-				addPlay(wordC)
+			if mode == ModeBuild || (mode == ModeAnagram && rack.count == 0) {
+				addPlay(word)
 			}
 		}
 		if newNodeIdx != 0 {
-			anagramGen(gaddagData, pos+1, wordC, rack, newNodeIdx, mode)
+			anagramGen(gaddagData, pos+1, word, rack, newNodeIdx, mode)
 		}
 	}
 }
 
 // turnStringIntoRack Turns a given rack into a uint8 slice of 27 integers,
 // one for each letter of the alphabet (blank is the 27th).
-func turnStringIntoRack(str string) []uint8 {
+func turnStringIntoRack(str string) Rack {
 	rack := make([]uint8, movegen.NumTotalLetters)
 	str = strings.ToUpper(str)
+	ct := 0
 	for _, c := range str {
 		if c == '_' {
 			rack[movegen.BlankPosition]++
 		} else {
 			rack[c-'A']++
 		}
+		ct++
 	}
-	return rack
+	r := Rack{rack, uint8(ct)}
+
+	return r
 }
 
 func addPlay(word string) {
@@ -115,7 +127,7 @@ func Anagram(gaddagData []uint32, str string, mode uint8) {
 	rack := turnStringIntoRack(str)
 	initWord := ""
 	t0 := time.Now()
-	anagramGen(gaddagData, 0, initWord, rack, 0, mode)
+	anagramGen(gaddagData, 0, initWord, &rack, 0, mode)
 	t1 := time.Now()
 	fmt.Println(answerSet)
 	fmt.Println(len(answerSet), "answers")
