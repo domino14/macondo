@@ -30,14 +30,10 @@ func LettersRemain(rack []uint8) bool {
 // the next node was not found.
 func NextNodeIdx(gaddagData []uint32, nodeIdx uint32, letter byte) uint32 {
 	// First check to see if an arc occurs for this letter.
-	//fmt.Println(gaddagData[:100])
 	arcBitVector := gaddagData[nodeIdx]
-	//fmt.Println("Entered NextNodeIdx, searching for", string(letter),
-	//	"node index:", nodeIdx, "arcs:", gaddag.ABVToString(arcBitVector))
 	nodeIdx += 1 // Start nodeIdx right before the very first arc
 	if letter == gaddag.SeparationToken {
 		if ((1 << (NumTotalLetters - 1)) & arcBitVector) == 0 {
-			//fmt.Println("   return 0, sep token")
 			return 0
 		}
 		arcs := gaddag.NumArcs(arcBitVector)
@@ -45,7 +41,6 @@ func NextNodeIdx(gaddagData []uint32, nodeIdx uint32, letter byte) uint32 {
 		return gaddagData[nodeIdx+uint32(arcs)]
 	} else {
 		if ((1 << (letter - 'A')) & arcBitVector) == 0 {
-			//fmt.Println("   return 0", letter, "not in arc bit vector")
 			return 0
 		}
 	}
@@ -55,7 +50,5 @@ func NextNodeIdx(gaddagData []uint32, nodeIdx uint32, letter byte) uint32 {
 			nodeIdx++
 		}
 	}
-	//fmt.Println("   nodeIdx became", nodeIdx, "for letter", string(letter),
-	///	" return", gaddagData[nodeIdx])
 	return gaddagData[nodeIdx]
 }
