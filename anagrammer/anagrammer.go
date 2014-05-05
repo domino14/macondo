@@ -33,6 +33,7 @@ var answerSet map[string]bool
 func anagramGen(gaddagData []uint32, pos int8, word []byte, rack *Rack,
 	nodeIdx uint32, mode uint8) {
 	var i, k uint8
+	var letter byte
 	if rack.count == 0 {
 		return
 	}
@@ -42,8 +43,9 @@ func anagramGen(gaddagData []uint32, pos int8, word []byte, rack *Rack,
 			// Letter i + 'A' is on this rack. Temporarily remove it.
 			rack.rack[i]--
 			rack.count--
-			anagramGoOn(gaddagData, pos, i+'A', word, rack,
-				movegen.NextNodeIdx(gaddagData, nodeIdx, i+'A'), nodeIdx, mode)
+			letter = i + 'A'
+			anagramGoOn(gaddagData, pos, letter, word, rack,
+				movegen.NextNodeIdx(gaddagData, nodeIdx, letter), nodeIdx, mode)
 			// Re-add letter
 			rack.rack[i]++
 			rack.count++
@@ -55,8 +57,9 @@ func anagramGen(gaddagData []uint32, pos int8, word []byte, rack *Rack,
 		for k = 0; k < movegen.NumTotalLetters-1; k++ {
 			rack.rack[movegen.BlankPosition]--
 			rack.count--
-			anagramGoOn(gaddagData, pos, k+'A', word, rack,
-				movegen.NextNodeIdx(gaddagData, nodeIdx, k+'A'), nodeIdx, mode)
+			letter = k + 'A'
+			anagramGoOn(gaddagData, pos, letter, word, rack,
+				movegen.NextNodeIdx(gaddagData, nodeIdx, letter), nodeIdx, mode)
 			rack.rack[movegen.BlankPosition]++
 			rack.count++
 		}
@@ -70,7 +73,7 @@ func anagramGoOn(gaddagData []uint32, pos int8, L byte, word []byte,
 	rack *Rack, newNodeIdx uint32, oldNodeIdx uint32, mode uint8) {
 	if pos <= 0 {
 		// word <- L | word
-		word = append(append([]byte(nil), L), word...)
+		word = append([]byte{L}, word...)
 
 		if gaddag.ContainsLetter(gaddagData, oldNodeIdx, L) {
 			if mode == ModeBuild || (mode == ModeAnagram && rack.count == 0) {
