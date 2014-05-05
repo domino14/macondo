@@ -8,7 +8,6 @@
 package anagrammer
 
 import (
-	//"bytes"
 	"fmt"
 	"github.com/domino14/gorilla/gaddag"
 	"github.com/domino14/gorilla/movegen"
@@ -31,7 +30,7 @@ var answerSet map[string]bool
 // anagramGen This is a simplified version of the "Gen" function from
 // the original GADDAG paper. Once we build out the actual GADDAG move
 // generator, we should replace this function with the GADDAG Gen.
-func anagramGen(gaddagData []uint32, pos int8, word string, rack *Rack,
+func anagramGen(gaddagData []uint32, pos int8, word []byte, rack *Rack,
 	nodeIdx uint32, mode uint8) {
 	var i, k uint8
 	if rack.count == 0 {
@@ -67,10 +66,12 @@ func anagramGen(gaddagData []uint32, pos int8, word string, rack *Rack,
 // anagramGoOn This is a simplified version of the "GoOn" function from
 // the original GADDAG paper. Once we build out the actual GADDAG move
 // generator, we should replace this function with the GADDAG GoOn.
-func anagramGoOn(gaddagData []uint32, pos int8, L byte, word string,
+func anagramGoOn(gaddagData []uint32, pos int8, L byte, word []byte,
 	rack *Rack, newNodeIdx uint32, oldNodeIdx uint32, mode uint8) {
 	if pos <= 0 {
-		word := string(L) + word
+		// word <- L | word
+		word = append(append([]byte(nil), L), word...)
+
 		if gaddag.ContainsLetter(gaddagData, oldNodeIdx, L) {
 			if mode == ModeBuild || (mode == ModeAnagram && rack.count == 0) {
 				addPlay(word)
@@ -86,7 +87,8 @@ func anagramGoOn(gaddagData []uint32, pos int8, L byte, word string,
 			}
 		}
 	} else if pos > 0 {
-		word := word + string(L)
+		// word <- word | L
+		word = append(word, L)
 		if gaddag.ContainsLetter(gaddagData, oldNodeIdx, L) {
 			if mode == ModeBuild || (mode == ModeAnagram && rack.count == 0) {
 				addPlay(word)
@@ -117,17 +119,17 @@ func turnStringIntoRack(str string) Rack {
 	return r
 }
 
-func addPlay(word string) {
-	answerSet[word] = true
+func addPlay(word []byte) {
+	answerSet[string(word)] = true
 }
 
 // Anagram anagrams or builds the passed in string.
 func Anagram(gaddagData []uint32, str string, mode uint8) {
 	answerSet = make(map[string]bool)
 	rack := turnStringIntoRack(str)
-	initWord := ""
 	t0 := time.Now()
-	anagramGen(gaddagData, 0, initWord, &rack, 0, mode)
+
+	anagramGen(gaddagData, 0, []byte(nil), &rack, 0, mode)
 	t1 := time.Now()
 	fmt.Println(answerSet)
 	fmt.Println(len(answerSet), "answers")
