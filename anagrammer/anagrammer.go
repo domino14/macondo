@@ -27,6 +27,14 @@ type Rack struct {
 
 var answerSet map[string]bool
 
+// anagram This function is used for anagramming or building. We want to use
+// this instead of the gen/goOn because it is much faster.
+func anagram(gaddagData []uint32, nodeIdx uint32, prefix []byte, rack *Rack,
+	mode uint8) {
+	// Go through all arc children.
+	//for nextNodeIdx :=
+}
+
 // anagramGen This is a simplified version of the "Gen" function from
 // the original GADDAG paper. Once we build out the actual GADDAG move
 // generator, we should replace this function with the GADDAG Gen.

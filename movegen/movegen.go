@@ -52,3 +52,18 @@ func NextNodeIdx(gaddagData []uint32, nodeIdx uint32, letter byte) uint32 {
 	}
 	return gaddagData[nodeIdx]
 }
+
+func NodeChildIdxs(gaddagData []uint32, nodeIdx uint32) (
+	children []uint32, letters []byte) {
+	arcBitVector := gaddagData[nodeIdx]
+
+}
+
+// IMPORTANT NOTE: The Gordon GADDAG algorithm is somewhat inefficient because
+// it goes through all letters on the rack. Then for every letter, it has to
+// call the NextNodeIdx or similar function above, which has for loops that
+// search for the next child.
+// Instead, we need a data structure where the nodes have pointers to their
+// "children" or "siblings" on the arcs; we then iterate through all the
+// "siblings" and see if their letters are on the rack. This should be
+// significantly faster if the data structure is fast.
