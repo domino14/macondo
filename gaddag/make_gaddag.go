@@ -25,7 +25,6 @@ type Node struct {
 type Arc struct {
 	Letter      byte
 	Destination *Node
-	Source      *Node
 }
 
 type ArcPtrSlice []*Arc
@@ -67,13 +66,13 @@ func createNode() *Node {
 }
 
 // Does the node contain the uppercase letter in its letter set?
-func containsLetter(node *Node, letter byte) bool {
+func (node *Node) containsLetter(letter byte) bool {
 	return node.LetterSet&(1<<(letter-'A')) != 0
 }
 
 // For a node, compute a bit vector indicating a letter for each arc
 // that follows it, and store it in the node.
-func computeArcBitVector(node *Node) {
+func (node *Node) computeArcBitVector() {
 	var add uint32
 	node.ArcBitVector = 0
 	for j := uint8(0); j < node.NumArcs; j++ {
@@ -89,7 +88,7 @@ func computeArcBitVector(node *Node) {
 }
 
 // Does the Node contain an arc for the letter c? Return the arc if so.
-func containsArc(state *Node, c byte) *Arc {
+func (state *Node) containsArc(c byte) *Arc {
 	for i := uint8(0); i < state.NumArcs; i++ {
 		if state.Arcs[i].Letter == c {
 			return state.Arcs[i]
@@ -100,20 +99,18 @@ func containsArc(state *Node, c byte) *Arc {
 
 // Creates an arc from node named "from", and returns the new node that
 // this arc points to (or if to is not NULL, it returns that).
-func createArc(from *Node, c byte, to *Node) *Node {
+func (from *Node) createArcFrom(c byte, to *Node) *Node {
 	var newNode *Node
 	if to == nil {
 		newNode = createNode()
 	} else {
 		newNode = to
 	}
-	newArc := Arc{' ', nil, nil}
+	newArc := Arc{c, nil}
 	allocArcs++
 	from.Arcs = append(from.Arcs, &newArc)
 	from.NumArcs++
 	newArc.Destination = newNode
-	newArc.Letter = c
-	newArc.Source = from
 	return newNode
 }
 
@@ -121,11 +118,11 @@ func createArc(from *Node, c byte, to *Node) *Node {
 // resets state to the node this arc leads to. Every state has an array
 // of Arc pointers. We need to create the array if it doesn't exist.
 // Returns the created or existing *Node
-func addArc(state *Node, c byte) *Node {
+func (state *Node) addArc(c byte) *Node {
 	var nextNode *Node
-	existingArc := containsArc(state, c)
+	existingArc := state.containsArc(c)
 	if existingArc == nil {
-		nextNode = createArc(state, c, nil)
+		nextNode = state.createArcFrom(c, nil)
 	} else {
 		nextNode = existingArc.Destination
 	}
@@ -133,9 +130,9 @@ func addArc(state *Node, c byte) *Node {
 }
 
 // Add arc from state to c1 and add c2 to this arc's letter set.
-func addFinalArc(state *Node, c1 byte, c2 byte) *Node {
-	nextNode := addArc(state, c1)
-	if containsLetter(nextNode, c2) {
+func (state *Node) addFinalArc(c1 byte, c2 byte) *Node {
+	nextNode := state.addArc(c1)
+	if nextNode.containsLetter(c2) {
 		log.Fatal("Containsletter", nextNode, c2)
 	}
 	bit := uint32(1 << (c2 - 'A'))
@@ -145,8 +142,8 @@ func addFinalArc(state *Node, c1 byte, c2 byte) *Node {
 
 // Add an arc from state to forceState for c (an error occurs if an arc
 // from st for c already exists going to any other state).
-func forceArc(state *Node, c byte, forceState *Node) {
-	arc := containsArc(state, c)
+func (state *Node) forceArc(c byte, forceState *Node) {
+	arc := state.containsArc(c)
 	if arc != nil {
 		if arc.Destination != forceState {
 			log.Fatal("Arc already existed pointing elsewhere")
@@ -155,11 +152,18 @@ func forceArc(state *Node, c byte, forceState *Node) {
 			return
 		}
 	}
-	if createArc(state, c, forceState) != forceState {
-		log.Fatal("createArc did not equal forceState")
+	if state.createArcFrom(c, forceState) != forceState {
+		log.Fatal("createArcFrom did not equal forceState")
 	}
 }
 
+// Minimizes the gaddag in nodeArr. nodeArr contains an array of *Node
+func minimizeGaddag() {
+
+}
+
+// Saves the GADDAG to a file. The GADDAG at this point is in the global
+// nodeArr array.
 func saveGaddag(filename string) {
 	var numElements uint32
 	numElements = allocStates*2 + allocArcs
@@ -173,7 +177,7 @@ func saveGaddag(filename string) {
 		log.Fatal("Node array and allocStates don't match!")
 	}
 	for _, node := range nodeArr {
-		computeArcBitVector(node)
+		node.computeArcBitVector()
 		binary.Write(file, binary.LittleEndian, node.ArcBitVector)
 		binary.Write(file, binary.LittleEndian, node.LetterSet)
 		sort.Sort(ArcPtrSlice(node.Arcs))
@@ -197,35 +201,36 @@ func GenerateGaddag(filename string) {
 	fmt.Println("Read", len(words), "words")
 	for idx, word := range words {
 		if idx%10000 == 0 {
-			fmt.Println(idx, "...\n")
+			fmt.Printf("%d...\n", idx)
 		}
 		st := initialState
 		// Create path for anan-1...a1:
 		n := len(word)
 		for j := n - 1; j >= 2; j-- {
-			st = addArc(st, word[j])
+			st = st.addArc(word[j])
 		}
-		st = addFinalArc(st, word[1], word[0])
+		st = st.addFinalArc(word[1], word[0])
 
 		// Create path for an-1...a1^an
 		st = initialState
 		for j := n - 2; j >= 0; j-- {
-			st = addArc(st, word[j])
+			st = st.addArc(word[j])
 		}
-		st = addFinalArc(st, SeparationToken, word[n-1])
+		st = st.addFinalArc(SeparationToken, word[n-1])
 
 		// Partially minimize remaining paths.
 		for m := n - 3; m >= 0; m-- {
 			forceSt := st
 			st = initialState
 			for j := m; j >= 0; j-- {
-				st = addArc(st, word[j])
+				st = st.addArc(word[j])
 			}
-			st = addArc(st, SeparationToken)
-			forceArc(st, word[m+1], forceSt)
+			st = st.addArc(SeparationToken)
+			st.forceArc(word[m+1], forceSt)
 		}
 	}
 	fmt.Printf("Allocated arcs: %d states: %d\n", allocArcs, allocStates)
+	minimizeGaddag()
 	saveGaddag("out.gaddag")
 	fmt.Println("Saved gaddag to out.gaddag")
 }
