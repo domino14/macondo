@@ -1,6 +1,6 @@
-// // Package gaddag implements the GADDAG, a pretty cool data structure
-// // invented by Steven Gordon.
-// package gaddag
+// Package gaddag implements the GADDAG, a pretty cool data structure
+// invented by Steven Gordon.
+package gaddag
 
 // import (
 // 	"encoding/binary"
@@ -9,8 +9,8 @@
 // 	"os"
 // )
 
-// // SeparationToken is the GADDAG separation token.
-// const SeparationToken = '^'
+// SeparationToken is the GADDAG separation token.
+const SeparationToken = '^'
 
 // // A Gaddag has Elements elements in the array Data. Each element is
 // // a uint32.
