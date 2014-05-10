@@ -2,10 +2,10 @@ package main
 
 import (
 	"fmt"
-	//"github.com/domino14/gorilla/anagrammer"
-	//"github.com/domino14/gorilla/gaddag"
-	"github.com/gorilla/rpc"
-	"github.com/gorilla/rpc/json"
+	//"github.com/domino14/macondo/anagrammer"
+	"github.com/domino14/macondo/gaddag"
+	"github.com/gorilla/rpc/v2"
+	"github.com/gorilla/rpc/v2/json2"
 	"html/template"
 	"net/http"
 )
@@ -24,21 +24,6 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
 	renderTemplate(w, "index")
 }
 
-type HelloArgs struct {
-	Who string
-}
-
-type HelloReply struct {
-	Message string
-}
-
-type HelloService struct{}
-
-func (h *HelloService) Say(r *http.Request, args *HelloArgs, reply *HelloReply) error {
-	reply.Message = "Hello, " + args.Who + "!"
-	return nil
-}
-
 func main() {
 	http.HandleFunc("/", mainHandler)
 	http.HandleFunc("/static/", func(w http.ResponseWriter, r *http.Request) {
@@ -46,8 +31,8 @@ func main() {
 	})
 	fmt.Println("Listening on http://localhost:8088/")
 	s := rpc.NewServer()
-	s.RegisterCodec(json.NewCodec(), "application/json")
-	s.RegisterService(new(HelloService), "")
+	s.RegisterCodec(json2.NewCodec(), "application/json")
+	s.RegisterService(new(gaddag.GaddagService), "")
 	http.Handle("/rpc", s)
 	http.ListenAndServe(":8088", nil)
 

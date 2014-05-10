@@ -2,10 +2,48 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Gorilla Interface</title>
+    <title>Macondo Interface</title>
+    <script src="/static/extern/jquery-2.1.1.js"></script>
+    <script src="/static/extern/jquery.jsonrpc.js"></script>
+    <script src="/static/extern/underscore.js"></script>
     <script src="/static/main.js"></script>
 </head>
 <body>
     <h1>Hey world</h1>
+    <P>
+    <label>Method<input type="text" name="method-name" id="input-method-name" style="width:300px;"/></label></P>
+    <P>
+    <label>Args (Use {} and proper JSON)<input type="text" name="args" id="input-args" style="width:300px;"/></label></P>
+    <P>
+    <button type="button" id="submit-rpc">Submit</button>
+    </P>
+    <P>
+    <textarea style="height: 200px; width:300px;" id="textarea-results"></textarea>
+    </P>
 </body>
 </html>
+
+<!--
+ * Getting Started
+
+The simplest way to configure jsonRPC is via the setup method
+
+$.jsonRPC.setup({
+  endPoint: '/rpc',
+  namespace: 'datagraph'
+});
+This will set a default endpoint and namespace for all subsequent requests.
+
+Once you've configured an end point, making requests is a matter of
+
+$.jsonRPC.request('method.name', {
+  params: params,
+  success: function(result) {
+    // Do something with the result here
+    // It comes back as an RPC 2.0 compatible response object
+  },
+  error: function(result) {
+    // Result is an RPC 2.0 compatible response object
+  }
+});
+ -->
