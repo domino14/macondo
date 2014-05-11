@@ -19,6 +19,10 @@ type Node struct {
 	ArcBitVector    uint32
 	LetterSet       uint32
 	SerializedIndex uint32
+	// Utility fields, for minimizing GADDAG at the end:
+	visited bool
+	copyOf  *Node
+	depth   uint8
 }
 
 // Arc is also a temporary type.
@@ -27,16 +31,21 @@ type Arc struct {
 	Destination *Node
 }
 
+// Gaddag is a temporary structure to hold the nodes in sequential order prior
+// to writing them to file. It should not be used after making the gaddag.
+type Gaddag struct {
+	NodeArr     []*Node
+	AllocStates uint32
+	AllocArcs   uint32
+}
+
+var gaddag Gaddag
+
 type ArcPtrSlice []*Arc
 
 func (a ArcPtrSlice) Len() int           { return len(a) }
 func (a ArcPtrSlice) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ArcPtrSlice) Less(i, j int) bool { return a[i].Letter < a[j].Letter }
-
-// This is a temporary array to hold the nodes in sequential order prior
-// to writing them to file. It should not be used after making the gaddag.
-var nodeArr []*Node
-var allocStates, allocArcs uint32
 
 func getWords(filename string) []string {
 	words := []string{}
@@ -58,10 +67,11 @@ func getWords(filename string) []string {
 }
 
 // Create a new node and store it in the node array.
-func createNode() *Node {
-	newNode := Node{[]*Arc{}, 0, 0, 0, allocStates}
-	nodeArr = append(nodeArr, &newNode)
-	allocStates++
+func (g *Gaddag) createNode() *Node {
+	newNode := Node{}
+	newNode.SerializedIndex = g.AllocStates
+	g.NodeArr = append(g.NodeArr, &newNode)
+	g.AllocStates++
 	return &newNode
 }
 
@@ -102,12 +112,12 @@ func (state *Node) containsArc(c byte) *Arc {
 func (from *Node) createArcFrom(c byte, to *Node) *Node {
 	var newNode *Node
 	if to == nil {
-		newNode = createNode()
+		newNode = gaddag.createNode()
 	} else {
 		newNode = to
 	}
 	newArc := Arc{c, nil}
-	allocArcs++
+	gaddag.AllocArcs++
 	from.Arcs = append(from.Arcs, &newArc)
 	from.NumArcs++
 	newArc.Destination = newNode
@@ -157,26 +167,21 @@ func (state *Node) forceArc(c byte, forceState *Node) {
 	}
 }
 
-// Minimizes the gaddag in nodeArr. nodeArr contains an array of *Node
-func minimizeGaddag() {
-
-}
-
 // Saves the GADDAG to a file. The GADDAG at this point is in the global
 // nodeArr array.
 func saveGaddag(filename string) {
 	var numElements uint32
-	numElements = allocStates*2 + allocArcs
+	numElements = gaddag.AllocStates*2 + gaddag.AllocArcs
 	file, err := os.Create(filename)
 	if err != nil {
 		log.Fatal("Could not create file: ", err)
 	}
 	binary.Write(file, binary.LittleEndian, numElements)
-	binary.Write(file, binary.LittleEndian, allocStates)
-	if uint32(len(nodeArr)) != allocStates {
+	binary.Write(file, binary.LittleEndian, gaddag.AllocStates)
+	if uint32(len(gaddag.NodeArr)) != gaddag.AllocStates {
 		log.Fatal("Node array and allocStates don't match!")
 	}
-	for _, node := range nodeArr {
+	for _, node := range gaddag.NodeArr {
 		node.computeArcBitVector()
 		binary.Write(file, binary.LittleEndian, node.ArcBitVector)
 		binary.Write(file, binary.LittleEndian, node.LetterSet)
@@ -190,14 +195,12 @@ func saveGaddag(filename string) {
 }
 
 func GenerateGaddag(filename string) {
-	nodeArr = []*Node{}
-	allocStates = 0
-	allocArcs = 0
+	gaddag = Gaddag{[]*Node{}, 0, 0}
 	words := getWords(filename)
 	if words == nil {
 		return
 	}
-	initialState := createNode()
+	initialState := gaddag.createNode()
 	fmt.Println("Read", len(words), "words")
 	for idx, word := range words {
 		if idx%10000 == 0 {
@@ -229,7 +232,8 @@ func GenerateGaddag(filename string) {
 			st.forceArc(word[m+1], forceSt)
 		}
 	}
-	fmt.Printf("Allocated arcs: %d states: %d\n", allocArcs, allocStates)
+	fmt.Printf("Allocated arcs: %d states: %d\n", gaddag.AllocArcs,
+		gaddag.AllocStates)
 	minimizeGaddag()
 	saveGaddag("out.gaddag")
 	fmt.Println("Saved gaddag to out.gaddag")
