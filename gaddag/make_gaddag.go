@@ -14,15 +14,16 @@ import (
 // Node is a temporary type used in the creation of a GADDAG.
 // It will not be used when loading the GADDAG.
 type Node struct {
-	Arcs            []*Arc
-	NumArcs         uint8
-	ArcBitVector    uint32
-	LetterSet       uint32
-	SerializedIndex uint32
+	Arcs         []*Arc
+	NumArcs      uint8
+	ArcBitVector uint32
+	LetterSet    uint32
 	// Utility fields, for minimizing GADDAG at the end:
-	visited bool
-	copyOf  *Node
-	depth   uint8
+	visited   bool
+	copyOf    *Node
+	depth     uint8
+	letterSum uint32
+	index     uint32
 }
 
 // Arc is also a temporary type.
@@ -69,7 +70,6 @@ func getWords(filename string) []string {
 // Create a new node and store it in the node array.
 func (g *Gaddag) createNode() *Node {
 	newNode := Node{}
-	newNode.SerializedIndex = g.AllocStates
 	g.NodeArr = append(g.NodeArr, &newNode)
 	g.AllocStates++
 	return &newNode
@@ -167,31 +167,29 @@ func (state *Node) forceArc(c byte, forceState *Node) {
 	}
 }
 
-// Saves the GADDAG to a file. The GADDAG at this point is in the global
-// nodeArr array.
-func saveGaddag(filename string) {
+// Saves the GADDAG to a file.
+func (g *Gaddag) Save(filename string) {
 	var numElements uint32
-	numElements = gaddag.AllocStates*2 + gaddag.AllocArcs
+	numElements = g.AllocStates*2 + g.AllocArcs
 	file, err := os.Create(filename)
 	if err != nil {
 		log.Fatal("Could not create file: ", err)
 	}
 	binary.Write(file, binary.LittleEndian, numElements)
-	binary.Write(file, binary.LittleEndian, gaddag.AllocStates)
-	if uint32(len(gaddag.NodeArr)) != gaddag.AllocStates {
+	binary.Write(file, binary.LittleEndian, g.AllocStates)
+	if uint32(len(g.NodeArr)) != g.AllocStates {
 		log.Fatal("Node array and allocStates don't match!")
 	}
-	for _, node := range gaddag.NodeArr {
+	for _, node := range g.NodeArr {
 		node.computeArcBitVector()
 		binary.Write(file, binary.LittleEndian, node.ArcBitVector)
 		binary.Write(file, binary.LittleEndian, node.LetterSet)
-		sort.Sort(ArcPtrSlice(node.Arcs))
 		for _, arc := range node.Arcs {
-			binary.Write(file, binary.LittleEndian,
-				arc.Destination.SerializedIndex)
+			binary.Write(file, binary.LittleEndian, arc.Destination.index)
 		}
 	}
 	file.Close()
+	fmt.Println("Saved gaddag to", filename)
 }
 
 func GenerateGaddag(filename string) {
@@ -234,7 +232,11 @@ func GenerateGaddag(filename string) {
 	}
 	fmt.Printf("Allocated arcs: %d states: %d\n", gaddag.AllocArcs,
 		gaddag.AllocStates)
-	minimizeGaddag()
-	saveGaddag("out.gaddag")
-	fmt.Println("Saved gaddag to out.gaddag")
+	// We need to also sort the arcs alphabetically prior to minimization/
+	// serialization.
+	for _, node := range gaddag.NodeArr {
+		sort.Sort(ArcPtrSlice(node.Arcs))
+	}
+	gaddag.Minimize()
+	gaddag.Save("out.gaddag")
 }
