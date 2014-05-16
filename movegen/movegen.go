@@ -2,7 +2,7 @@
 // heavy use of the GADDAG.
 package movegen
 
-import "github.com/domino14/gorilla/gaddag"
+import "github.com/domino14/macondo/gaddag"
 
 //import "fmt"
 
@@ -53,11 +53,11 @@ func NextNodeIdx(gaddagData []uint32, nodeIdx uint32, letter byte) uint32 {
 	return gaddagData[nodeIdx]
 }
 
-func NodeChildIdxs(gaddagData []uint32, nodeIdx uint32) (
-	children []uint32, letters []byte) {
-	arcBitVector := gaddagData[nodeIdx]
+// func NodeChildIdxs(gaddagData []uint32, nodeIdx uint32) (
+// 	children []uint32, letters []byte) {
+// 	arcBitVector := gaddagData[nodeIdx]
 
-}
+// }
 
 // IMPORTANT NOTE: The Gordon GADDAG algorithm is somewhat inefficient because
 // it goes through all letters on the rack. Then for every letter, it has to

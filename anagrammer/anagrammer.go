@@ -9,8 +9,8 @@ package anagrammer
 
 import (
 	"fmt"
-	"github.com/domino14/gorilla/gaddag"
-	"github.com/domino14/gorilla/movegen"
+	"github.com/domino14/macondo/gaddag"
+	"github.com/domino14/macondo/movegen"
 	"strings"
 	"time"
 )
@@ -114,6 +114,7 @@ func anagramGoOn(gaddagData []uint32, pos int8, L byte, word []byte,
 // turnStringIntoRack Turns a given rack into a uint8 slice of 27 integers,
 // one for each letter of the alphabet (blank is the 27th).
 func turnStringIntoRack(str string) Rack {
+	fmt.Println("Turning", str, "into rack")
 	rack := make([]uint8, movegen.NumTotalLetters)
 	str = strings.ToUpper(str)
 	ct := 0
@@ -126,7 +127,7 @@ func turnStringIntoRack(str string) Rack {
 		ct++
 	}
 	r := Rack{rack, uint8(ct)}
-
+	fmt.Println(r)
 	return r
 }
 
@@ -142,7 +143,6 @@ func Anagram(gaddagData []uint32, str string, mode uint8) {
 
 	anagramGen(gaddagData, 0, []byte(nil), &rack, 0, mode)
 	t1 := time.Now()
-	fmt.Println(answerSet)
 	fmt.Println(len(answerSet), "answers")
 	fmt.Printf("The call took %v to run.\n", t1.Sub(t0))
 

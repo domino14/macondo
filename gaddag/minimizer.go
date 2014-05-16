@@ -41,7 +41,6 @@ func (g *Gaddag) Minimize() {
 				// If there's only 1 or 0 nodes, nothing to compare against.
 				continue
 			}
-			fmt.Println("Depth", i, "Bucket", j, "nNodes:", nNodes)
 			for idx1, n1 := range narr[:nNodes-1] {
 				if n1.copyOf != nil {
 					continue
@@ -132,6 +131,8 @@ func calculateDepth(node *Node) uint8 {
 	return node.depth
 }
 
+// Calculates sums of all letters and those of children. This is done to
+// bucket the nodes during minimization.
 func calculateSums(node *Node) uint32 {
 	if node.NumArcs == 0 {
 		node.letterSum = 0

@@ -11,9 +11,17 @@
 <body>
     <h1>Hey world</h1>
     <P>
-    <label>Method<input type="text" name="method-name" id="input-method-name" style="width:300px;"/></label></P>
+    <label>Method
+    <select id="input-method-name" style="width:300px;">
+      <option>GaddagService.Generate</option>
+      <option>GaddagService.Load</option>
+      <option>AnagramService.Anagram</option>
+    </select>
+    </label></P>
     <P>
-    <label>Args (Use {} and proper JSON)<input type="text" name="args" id="input-args" style="width:300px;"/></label></P>
+    <label>Args (Use {} and proper JSON)
+      <input type="text" name="args" id="input-args" style="width:300px;"/>
+    </label></P>
     <P>
     <button type="button" id="submit-rpc">Submit</button>
     </P>
@@ -22,28 +30,3 @@
     </P>
 </body>
 </html>
-
-<!--
- * Getting Started
-
-The simplest way to configure jsonRPC is via the setup method
-
-$.jsonRPC.setup({
-  endPoint: '/rpc',
-  namespace: 'datagraph'
-});
-This will set a default endpoint and namespace for all subsequent requests.
-
-Once you've configured an end point, making requests is a matter of
-
-$.jsonRPC.request('method.name', {
-  params: params,
-  success: function(result) {
-    // Do something with the result here
-    // It comes back as an RPC 2.0 compatible response object
-  },
-  error: function(result) {
-    // Result is an RPC 2.0 compatible response object
-  }
-});
- -->

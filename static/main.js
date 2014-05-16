@@ -4,6 +4,8 @@
   // On DOM initialize:
   $(function() {
     var $results;
+    $('#input-args').val(
+      '{"Filename": "/Users/Cesar/coding/ujamaa/words/OWL2.txt"}');
     $results = $('#textarea-results');
     $.jsonRPC.setup({
       endPoint: '/rpc'

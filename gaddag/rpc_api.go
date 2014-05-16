@@ -13,9 +13,20 @@ type GaddagServiceReply struct {
 
 type GaddagService struct{}
 
+type RPCGaddag []uint32
+
+var RpcGaddag RPCGaddag
+
 func (g *GaddagService) Generate(r *http.Request, args *GaddagServiceArgs,
 	reply *GaddagServiceReply) error {
 	GenerateGaddag(args.Filename)
+	reply.Message = "Done"
+	return nil
+}
+
+func (g *GaddagService) Load(r *http.Request, args *GaddagServiceArgs,
+	reply *GaddagServiceReply) error {
+	RpcGaddag = LoadGaddag(args.Filename)
 	reply.Message = "Done"
 	return nil
 }
