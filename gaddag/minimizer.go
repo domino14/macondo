@@ -17,8 +17,9 @@ const (
 // It uses these values to sort the nodes into a two-dimensional array, to
 // greatly minimize the number of required comparisons.
 func (g *Gaddag) Minimize() {
-	calculateDepth(g.NodeArr[0])
-	calculateSums(g.NodeArr[0])
+	fmt.Println("Minimizing...")
+	calculateDepth(g.Root)
+	calculateSums(g.Root)
 	// Two nodes are the same if they have the same letter sets, the same
 	// arc letters, and all their children are the same. To narrow down the
 	// number of direct comparisons we have to make, let's bucket our nodes.
@@ -26,12 +27,16 @@ func (g *Gaddag) Minimize() {
 	for i := 0; i < MAX_DEPTH; i++ {
 		bucket[i] = make([]NodeArr, LETTER_BUCKETS)
 	}
-	for idx, node := range g.NodeArr {
+	visits := 0
+	traverseTreeAndExecute(g.Root, func(node *Node) {
 		key := node.letterSum % LETTER_BUCKETS
-		bucket[node.depth-1][key] = append(bucket[node.depth-1][key], node)
-		// Let's also number every node sequentially for later.
-		node.index = uint32(idx)
-	}
+		if !node.visited {
+			bucket[node.depth-1][key] = append(bucket[node.depth-1][key], node)
+			visits++
+		}
+		node.visited = true
+	})
+	fmt.Println("Visited", visits, "nodes")
 	for i := 0; i < MAX_DEPTH; i++ {
 		fmt.Println("Depth", i, "...")
 		for j := 0; j < LETTER_BUCKETS; j++ {
@@ -56,24 +61,24 @@ func (g *Gaddag) Minimize() {
 			}
 		}
 	}
-	// Now that we have a lot of identical nodes, let's merge.
-	newArr := []*Node{}
-	indicesAppended := make(map[uint32]bool)
-	for _, node := range g.NodeArr {
+	g.AllocArcs = uint32(0)
+	nodeArr := []*Node{}
+	nodesAppended := make(map[*Node]bool)
+	traverseTreeAndExecute(g.Root, func(node *Node) {
 		if node.copyOf != nil {
-			if indicesAppended[node.copyOf.index] == false {
-				newArr = append(newArr, node.copyOf)
-				indicesAppended[node.copyOf.index] = true
+			if nodesAppended[node.copyOf] == false {
+				nodeArr = append(nodeArr, node.copyOf)
+				nodesAppended[node.copyOf] = true
 			}
 		} else {
-			newArr = append(newArr, node)
+			if nodesAppended[node] == false {
+				nodeArr = append(nodeArr, node)
+				nodesAppended[node] = true
+			}
 		}
-	}
-	// And renumber all nodes in newArr
-	g.NodeArr = newArr
-	g.AllocArcs = uint32(0)
-	for idx, node := range g.NodeArr {
-		node.index = uint32(idx)
+	})
+
+	for _, node := range nodeArr {
 		g.AllocArcs += uint32(node.NumArcs)
 		// Look through arcs to see if any point to a node copy; point to
 		// original if so.
@@ -81,14 +86,14 @@ func (g *Gaddag) Minimize() {
 			if arc.Destination.copyOf != nil {
 				arc.Destination = arc.Destination.copyOf
 				if arc.Destination.copyOf != nil {
-					panic("There should not be a chain of copies!")
+					panic("Chain of nodes - something went wrong!")
 				}
 			}
 		}
 	}
-	g.AllocStates = uint32(len(g.NodeArr))
-
-	fmt.Println("Number of arcs, nodes now:", g.AllocArcs, g.AllocStates)
+	g.Root = nodeArr[0]
+	fmt.Println("Done minimizing. Number of arcs:", g.AllocArcs, len(nodeArr))
+	//874624 460900
 }
 
 // Equals compares two nodes. They are the same if they have the same
@@ -127,7 +132,6 @@ func calculateDepth(node *Node) uint8 {
 		}
 	}
 	node.depth = 1 + maxDepth
-	node.visited = true
 	return node.depth
 }
 
