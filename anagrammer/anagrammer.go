@@ -119,7 +119,7 @@ func Anagram(gaddagData []uint32, str string, mode uint8) {
 	t0 := time.Now()
 	anagram(gaddagData, 0, []byte(nil), &rack, mode)
 	t1 := time.Now()
-	fmt.Println(answerSet)
+	//fmt.Println(answerSet)
 	fmt.Println(len(answerSet), "answers")
 	fmt.Printf("The call took %v to run.\n", t1.Sub(t0))
 
