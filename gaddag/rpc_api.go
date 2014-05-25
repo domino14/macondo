@@ -6,6 +6,7 @@ import "net/http"
 type GaddagServiceArgs struct {
 	Filename string
 	Minimize bool
+	Debug    bool
 }
 
 type GaddagServiceReply struct {
@@ -28,6 +29,10 @@ func (g *GaddagService) Generate(r *http.Request, args *GaddagServiceArgs,
 func (g *GaddagService) Load(r *http.Request, args *GaddagServiceArgs,
 	reply *GaddagServiceReply) error {
 	RpcGaddag = LoadGaddag(args.Filename)
+	if args.Debug {
+		// Go is so cool.
+		SimpleGaddag(RpcGaddag).Analyzer()
+	}
 	reply.Message = "Done"
 	return nil
 }

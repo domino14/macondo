@@ -48,3 +48,10 @@ func (g SimpleGaddag) ArcToIdxLetter(arcIdx uint32) (uint32, byte) {
 	}
 	return g[arcIdx] & ((1 << LetterBitLoc) - 1), letter
 }
+
+// Extracts the LetterSet and NumArcs from the node, and returns.
+func (g SimpleGaddag) ExtractNodeParams(nodeIdx uint32) (uint32, byte) {
+	numArcs := byte(g[nodeIdx] >> NumArcsBitLoc)
+	letterSet := g[nodeIdx] & ((1 << NumArcsBitLoc) - 1)
+	return letterSet, numArcs
+}

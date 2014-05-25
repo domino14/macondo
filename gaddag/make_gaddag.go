@@ -174,10 +174,7 @@ func (g *Gaddag) serializeElements() {
 		if !node.visited {
 			node.visited = true
 			// Represent node as a 32-bit number
-			serialized = node.LetterSet + (uint32(node.NumArcs) << 27)
-			if g.Root == node {
-				fmt.Println("Serialized is", serialized)
-			}
+			serialized = node.LetterSet + uint32(node.NumArcs)<<NumArcsBitLoc
 			g.SerializedElements = append(g.SerializedElements, serialized)
 			node.indexInSerialized = count
 			count++
@@ -187,7 +184,7 @@ func (g *Gaddag) serializeElements() {
 					// XXX: Hard-coded letter here, need lex params
 					letter = 26
 				}
-				serialized = (letter << 24) // + a placeholder for index
+				serialized = letter << LetterBitLoc
 				missingElements[count] = arc.Destination
 				count++
 				g.SerializedElements = append(g.SerializedElements, serialized)
