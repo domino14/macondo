@@ -27,18 +27,24 @@ type Rack struct {
 
 var answerSet map[string]bool
 
-// anagram This function is used for anagramming or building. We want to use
-// this instead of the gen/goOn because it is much faster.
+// The main anagram logic.
+// This function could be faster if we got rid of the inner for-loop below.
+// However we would need a new data structure (with no LetterSets) for this.
+// Hopefully this GADDAG will still be fast when doing move generation
+// (compared to Quackle).
 func anagram(g gaddag.SimpleGaddag, nodeIdx uint32, prefix []byte,
 	rack *Rack, mode uint8) {
 	// Go through all arc children.
-	_, numArcs := g.ExtractNodeParams(nodeIdx)
-	for i := byte(1); i <= numArcs; i++ {
-		nextNodeIdx, letter := g.ArcToIdxLetter(nodeIdx + uint32(i))
+	var numArcs, letter, rackPos, i, j byte
+	var newPrefix []byte
+	var nextNodeIdx, letterSet uint32
+	numArcs = byte(g[nodeIdx] >> gaddag.NumArcsBitLoc)
+	for i = byte(1); i <= numArcs; i++ {
+		nextNodeIdx, letter = g.ArcToIdxLetter(nodeIdx + uint32(i))
 		if letter == gaddag.SeparationToken {
 			break
 		}
-		rackPos := letter - 'A'
+		rackPos = letter - 'A'
 		if rack.rack[rackPos] == 0 {
 			if rack.rack[movegen.BlankPosition] == 0 {
 				continue
@@ -48,12 +54,13 @@ func anagram(g gaddag.SimpleGaddag, nodeIdx uint32, prefix []byte,
 		}
 		rack.rack[rackPos]--
 		rack.count--
-		newPrefix := []byte{letter}
+		newPrefix = []byte{letter}
 		newPrefix = append(newPrefix, prefix...)
 		// Now check the LetterSet of this new node and add plays.
 		// This is kind of awkward.
-		letterSet, _ := g.ExtractNodeParams(nextNodeIdx)
-		for j := uint8(0); j < 26; j++ {
+		letterSet = g[nextNodeIdx] & ((1 << gaddag.NumArcsBitLoc) - 1)
+		// This stupid loop is slow.
+		for j = uint8(0); j < 26; j++ {
 			if letterSet&(1<<j) != 0 {
 				if mode == ModeAnagram &&
 					(rack.rack[j] == 1 || rack.rack[movegen.BlankPosition] == 1) &&
