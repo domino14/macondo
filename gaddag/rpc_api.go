@@ -5,6 +5,7 @@ import "net/http"
 
 type GaddagServiceArgs struct {
 	Filename string
+	Minimize bool
 }
 
 type GaddagServiceReply struct {
@@ -19,7 +20,7 @@ var RpcGaddag RPCGaddag
 
 func (g *GaddagService) Generate(r *http.Request, args *GaddagServiceArgs,
 	reply *GaddagServiceReply) error {
-	GenerateGaddag(args.Filename)
+	GenerateGaddag(args.Filename, args.Minimize)
 	reply.Message = "Done"
 	return nil
 }

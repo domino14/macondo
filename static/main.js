@@ -4,8 +4,23 @@
   // On DOM initialize:
   $(function() {
     var $results;
-    $('#input-args').val(
-      '{"Filename": "/Users/Cesar/coding/ujamaa/words/OWL2.txt"}');
+
+    $('#input-method-name').change(function() {
+      var method = $('#input-method-name').val();
+      if (method === 'AnagramService.Anagram') {
+        $('#input-args').val('{"Mode": "build", "Letters": "AEROLITH"}');
+      } else if (method === 'GaddagService.Generate') {
+        $('#input-args').val([
+          '{"Filename": "/Users/Cesar/coding/ujamaa/words/OWL2.txt",',
+          ' "Minimize": true}'
+        ].join(''));
+      } else if (method === 'GaddagService.Load') {
+        $('#input-args').val(
+          '{"Filename": "/Users/Cesar/coding/ujamaa/words/OWL2.gaddag"}');
+      }
+    });
+
+
     $results = $('#textarea-results');
     $.jsonRPC.setup({
       endPoint: '/rpc'
@@ -37,6 +52,8 @@
       });
     });
 
+    // Trigger change event.
+    $('#input-method-name').change();
 
   });
 

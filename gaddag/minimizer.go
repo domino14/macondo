@@ -92,7 +92,8 @@ func (g *Gaddag) Minimize() {
 		}
 	}
 	g.Root = nodeArr[0]
-	fmt.Println("Done minimizing. Number of arcs:", g.AllocArcs, len(nodeArr))
+	g.AllocStates = uint32(len(nodeArr))
+	fmt.Println("Number of arcs, nodes now:", g.AllocArcs, g.AllocStates)
 	//874624 460900
 }
 

@@ -158,29 +158,6 @@ func traverseTreeAndExecute(node *Node, fn nodeTraversalFn) {
 	}
 }
 
-// Finds common letter sets by traversing down the gaddag.
-func (g *Gaddag) findCommonLetterSets() (map[uint32]uint16, []uint32) {
-	letterSets := make(map[uint32]uint16)
-	letterSetSlice := make([]uint32, 10)
-	count := uint16(0)
-
-	traverseTreeAndExecute(g.Root, func(node *Node) {
-		if _, ok := letterSets[node.LetterSet]; !ok {
-			letterSets[node.LetterSet] = count
-			letterSetSlice = append(letterSetSlice, node.LetterSet)
-			count += 1
-		}
-	})
-	if int(count) != len(letterSets) {
-		log.Fatal("Counts do not match!")
-	}
-	if len(letterSets) > (1 << 16) {
-		log.Fatal("Way too many unique letter sets")
-	}
-	return letterSets, letterSetSlice
-
-}
-
 // Serializes the elements of the gaddag into the SerializedElements array.
 func (g *Gaddag) serializeElements() {
 	fmt.Println("Serializing elements...")
@@ -239,7 +216,7 @@ func (g *Gaddag) Save(filename string) {
 	fmt.Println("Saved gaddag to", filename)
 }
 
-func GenerateGaddag(filename string) {
+func GenerateGaddag(filename string, minimize bool) {
 	gaddag = Gaddag{}
 	words := getWords(filename)
 	if words == nil {
@@ -284,6 +261,10 @@ func GenerateGaddag(filename string) {
 	traverseTreeAndExecute(gaddag.Root, func(node *Node) {
 		sort.Sort(ArcPtrSlice(node.Arcs))
 	})
-	gaddag.Minimize()
+	if minimize {
+		gaddag.Minimize()
+	} else {
+		fmt.Println("Not minimizing; saving to disk.")
+	}
 	gaddag.Save("out.gaddag")
 }
