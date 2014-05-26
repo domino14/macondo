@@ -60,15 +60,17 @@ func anagram(g gaddag.SimpleGaddag, nodeIdx uint32, prefix []byte,
 		// This is kind of awkward.
 		letterSet = g[nextNodeIdx] & ((1 << gaddag.NumArcsBitLoc) - 1)
 		// This stupid loop is slow.
-		for j = uint8(0); j < 26; j++ {
-			if letterSet&(1<<j) != 0 {
-				if mode == ModeAnagram &&
-					(rack.rack[j] == 1 || rack.rack[movegen.BlankPosition] == 1) &&
-					rack.count == 1 {
-					addPlay(append([]byte{j + 'A'}, newPrefix...))
-				} else if mode == ModeBuild &&
-					(rack.rack[j] != 0 || rack.rack[movegen.BlankPosition] != 0) {
-					addPlay(append([]byte{j + 'A'}, newPrefix...))
+		if letterSet != 0 {
+			for j = uint8(0); j < 26; j++ {
+				if letterSet&(1<<j) != 0 {
+					if mode == ModeAnagram &&
+						(rack.rack[j] == 1 || rack.rack[movegen.BlankPosition] == 1) &&
+						rack.count == 1 {
+						addPlay(append([]byte{j + 'A'}, newPrefix...))
+					} else if mode == ModeBuild &&
+						(rack.rack[j] != 0 || rack.rack[movegen.BlankPosition] != 0) {
+						addPlay(append([]byte{j + 'A'}, newPrefix...))
+					}
 				}
 			}
 		}
