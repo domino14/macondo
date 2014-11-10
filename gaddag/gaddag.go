@@ -10,7 +10,14 @@ import (
 )
 
 // A SimpleGaddag is just a slice of 32-bit elements.
-// TODO: document schema here.
+// It is created by serializeElements in make_gaddag.go.
+// Schema:
+// a set of [node] [arcs...]
+// Where node is a 32-bit number: LetterSet + NumArcs << NumArcsBitLoc
+// Each arc is a 32-bit number: letter << LetterBitLoc + index of next node,
+// where letter is from 0 to 26, and the index of the node is the index of the
+// element in the SimpleGaddag array.
+// If the node has no arcs, the arc array is empty.
 type SimpleGaddag []uint32
 
 // SeparationToken is the GADDAG separation token.
