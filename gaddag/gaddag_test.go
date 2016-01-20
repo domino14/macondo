@@ -56,6 +56,7 @@ var findWordTests = []testpair{
 	{"BAREFITD", false},
 	{"KAFF", false},
 	{"FF", false},
+	{"ABRACADABRA", true},
 	{"EEE", false},
 	{"ABC", false},
 	{"ABCD", false},
@@ -79,7 +80,8 @@ var findWordTests = []testpair{
 }
 
 func TestFindPrefix(t *testing.T) {
-	gd := LoadGaddag("/Users/cesar/coding/gocode/src/github.com/domino14/macondo/out.gaddag")
+	GenerateGaddag("/Users/cesar/coding/webolith/words/OWL2.txt", false, true)
+	gd := LoadGaddag("out.gaddag")
 	for _, pair := range findPrefixTests {
 		found := FindPrefix(gd, pair.prefix)
 		if found != pair.found {
@@ -90,7 +92,8 @@ func TestFindPrefix(t *testing.T) {
 }
 
 func TestFindWord(t *testing.T) {
-	gd := LoadGaddag("/Users/cesar/coding/gocode/src/github.com/domino14/macondo/out.gaddag")
+	GenerateGaddag("/Users/cesar/coding/webolith/words/OWL2.txt", false, true)
+	gd := LoadGaddag("out.gaddag")
 	for _, pair := range findWordTests {
 		found := FindWord(gd, pair.prefix)
 		if found != pair.found {

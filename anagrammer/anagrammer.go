@@ -33,14 +33,15 @@ var answerSet map[string]bool
 // Hopefully this GADDAG will still be fast when doing move generation
 // (compared to Quackle).
 func anagram(g gaddag.SimpleGaddag, nodeIdx uint32, prefix []byte,
-	rack *Rack, mode uint8) {
+	rack *Rack, mode uint8, alphabet *Alphabet) {
 	// Go through all arc children.
-	var numArcs, letter, rackPos, i, j byte
+	var numArcs, rackPos, i, j byte
 	var newPrefix []byte
 	var nextNodeIdx, letterSet uint32
+	var letter rune
 	numArcs = byte(g[nodeIdx] >> gaddag.NumArcsBitLoc)
 	for i = byte(1); i <= numArcs; i++ {
-		nextNodeIdx, letter = g.ArcToIdxLetter(nodeIdx + uint32(i))
+		nextNodeIdx, letter = g.ArcToIdxLetter(nodeIdx+uint32(i), alphabet)
 		if letter == gaddag.SeparationToken {
 			break
 		}
@@ -58,7 +59,8 @@ func anagram(g gaddag.SimpleGaddag, nodeIdx uint32, prefix []byte,
 		newPrefix = append(newPrefix, prefix...)
 		// Now check the LetterSet of this new node and add plays.
 		// This is kind of awkward.
-		letterSet = g[nextNodeIdx] & ((1 << gaddag.NumArcsBitLoc) - 1)
+		//letterSet = g[nextNodeIdx] & ((1 << gaddag.NumArcsBitLoc) - 1)
+		letterSet = g.GetLetterSet(nextNodeIdx)
 		// This stupid loop is slow.
 		if letterSet != 0 {
 			for j = uint8(0); j < 26; j++ {
@@ -75,7 +77,7 @@ func anagram(g gaddag.SimpleGaddag, nodeIdx uint32, prefix []byte,
 			}
 		}
 
-		anagram(g, nextNodeIdx, newPrefix, rack, mode)
+		anagram(g, nextNodeIdx, newPrefix, rack, mode, alphabet)
 		// Restore letter to rack.
 		rack.rack[rackPos]++
 		rack.count++
@@ -126,7 +128,8 @@ func Anagram(gaddagData []uint32, str string, mode uint8) {
 	answerSet = make(map[string]bool)
 	rack := turnStringIntoRack(str)
 	t0 := time.Now()
-	anagram(gaddagData, 0, []byte(nil), &rack, mode)
+	alphabet := gaddag.SimpleGaddag(gaddagData).GetAlphabet()
+	anagram(gaddagData, 0, []byte(nil), &rack, mode, alphabet)
 	t1 := time.Now()
 	//fmt.Println(answerSet)
 	fmt.Println(len(answerSet), "answers")
