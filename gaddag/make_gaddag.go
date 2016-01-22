@@ -60,7 +60,7 @@ func getWords(filename string) ([]string, *Alphabet) {
 		// Split line into spaces.
 		fields := strings.Fields(scanner.Text())
 		if len(fields) > 0 {
-			word := fields[0]
+			word := strings.ToUpper(fields[0])
 			words = append(words, word)
 			err := alphabet.update(word)
 			if err != nil {

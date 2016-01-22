@@ -1,25 +1,32 @@
 // Utility functions for doing cool things with gaddags.
 package gaddag
 
-import "log"
+import "strings"
+import _ "log"
+
+// prepare the str for finding by inserting a ^
+func prepareForFind(str string) []rune {
+	str = strings.ToUpper(str)
+	runes := []rune(str)
+	runes = append(runes[:1], append([]rune{'^'}, runes[1:]...)...)
+	return runes
+}
 
 // FindPrefix returns a boolean indicating if the prefix is in the GADDAG.
 // This function is meant to be exported.
-// We should just look for first_letter^rest_of_word
 func FindPrefix(g SimpleGaddag, prefix string) bool {
 	// XXX: Too repetitive, should get and save alphabet only once in the
 	// g structure.
 	alphabet := g.GetAlphabet()
-	newString := []rune(string(prefix[0]) + string(SeparationToken) +
-		prefix[1:])
-	return findPartialWord(g, g.GetRootNodeIndex(), newString, 0, alphabet)
+
+	return findPartialWord(g, g.GetRootNodeIndex(),
+		prepareForFind(prefix), 0, alphabet)
 }
 
 func FindWord(g SimpleGaddag, word string) bool {
 	// XXX: See above note on alphabet.
 	alphabet := g.GetAlphabet()
-	newWord := []rune(string(word[0]) + string(SeparationToken) + word[1:])
-	return findWord(g, g.GetRootNodeIndex(), newWord, 0, alphabet)
+	return findWord(g, g.GetRootNodeIndex(), prepareForFind(word), 0, alphabet)
 }
 
 // findPartialWord returns a boolean indicating if the given partial word is
@@ -30,7 +37,6 @@ func findPartialWord(g SimpleGaddag, nodeIdx uint32, partialWord []rune,
 	var numArcs, i byte
 	var letter rune
 	var nextNodeIdx uint32
-
 	if curPrefixIdx == uint8(len(partialWord)) {
 		// If we're here, we're going to get an index error - we will
 		// assume we found the word since we have not returned false
@@ -77,7 +83,6 @@ func findWord(g SimpleGaddag, nodeIdx uint32, word []rune, curIdx uint8,
 			}
 		}
 	} else {
-		log.Println("[DEBUG] Looking for letter set", string(word[curIdx]))
 		return g.InLetterSet(word[curIdx], nodeIdx, alphabet)
 	}
 	if !found {

@@ -12,20 +12,17 @@ import (
 // A SimpleGaddag is just a slice of 32-bit elements.
 // It is created by serializeElements in make_gaddag.go.
 // Schema:
+// [alphabetlength] [letters...] (up to 31)
+// [lettersetlength] [lettersets] (binary bit masks, this is why limiting
+//  to 31 letters), then
 // a set of [node] [arcs...]
-// Where node is a 32-bit number: LetterSet + NumArcs << NumArcsBitLoc
-// Each arc is a 32-bit number: letter << LetterBitLoc + index of next node,
-// where letter is from 0 to 26, and the index of the node is the index of the
+// Where node is a 32-bit number: LetterSetIdx + (NumArcs << NumArcsBitLoc)
+// Each arc is a 32-bit number: (letter << LetterBitLoc) + index of next node,
+// where letter is an index from 0 to 31 into alphabet (except for 31, which
+// is the SeparationToken), and the index of the node is the index of the
 // element in the SimpleGaddag array.
+//
 // If the node has no arcs, the arc array is empty.
-
-// XXX: This serialization format needs to be changed. We need more info:
-// 	- We should store unique letter sets in a separate chunk of memory.
-// 	Otherwise we only have space to store a 27-letter letter set, including
-// 	the separation token(27 bits + 5 bits to represent a maximum of 32 arcs)
-// 	- We should store a mapping of alphabet to code. Alphabet can contain
-// 	at most 31 runes right now, so code should run from 0 - 30 (separation
-// 	token would be 31 in that case)
 
 type SimpleGaddag []uint32
 

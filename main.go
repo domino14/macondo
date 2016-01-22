@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"github.com/domino14/macondo/anagrammer"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/gorilla/rpc/v2"
 	"github.com/gorilla/rpc/v2/json2"
@@ -33,7 +32,6 @@ func main() {
 	s := rpc.NewServer()
 	s.RegisterCodec(json2.NewCodec(), "application/json")
 	s.RegisterService(new(gaddag.GaddagService), "")
-	s.RegisterService(new(anagrammer.AnagramService), "")
 	http.Handle("/rpc", s)
 	http.ListenAndServe(":8088", nil)
 

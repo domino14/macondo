@@ -1,0 +1,26 @@
+0x2 0x4e 0x4f 0x3 0x0 0x2 0x1 0x2000000 0xa 0x100000d 0x1000000 0x1f00000c 0x1 0x2
+
+
+0   2 Alphabet
+1        N
+2        O
+
+3   3 Lettersets
+4        ø
+5        O
+6        N
+    Nodes
+7        LetterSet ø, 2 arcs                        0x2000000
+8        Arc#1, letter N, next node 10              0xa
+9        Arc#2, letter O, next node 13              0x100000d
+10       LetterSet ø, 1 arc                         0X1000000
+11       Arc#1, letter ^, next node 12              0x1f0000c
+12       Letterset O, no arcs                       0x1
+13       Letterset N, no arcs                       0x2
+
+Paths:
+
+[ø]--N--[ø]--^--[O]         N^O
+ |
+ O--[N]                     ON
+

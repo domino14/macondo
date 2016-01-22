@@ -78,6 +78,19 @@ func TestFindWordSmallSpanish(t *testing.T) {
 
 }
 
+func TestFindWordSmallSpanish2(t *testing.T) {
+	gd := GenerateGaddag("test_files/ñu.txt", false, false)
+	gd.serializeElements()
+	t.Logf("%#x", gd.SerializedElements)
+	for _, word := range []string{"ÑU", "ÑUS", "ÑAME"} {
+		found := FindWord(gd.SerializedElements, word)
+		if !found {
+			t.Errorf("Did not find word %v :(", word)
+		}
+	}
+
+}
+
 func TestFindWordSmallEnglish(t *testing.T) {
 	gd := GenerateGaddag("test_files/dogs.txt", false, false)
 	gd.serializeElements()
@@ -95,5 +108,37 @@ func TestFindWordSmallEnglish2(t *testing.T) {
 	found := FindWord(gd.SerializedElements, "NO")
 	if !found {
 		t.Error("Did not find NO :(")
+	}
+}
+
+func TestFindPrefixSmallEnglish2(t *testing.T) {
+	gd := GenerateGaddag("test_files/no.txt", true, false)
+	gd.serializeElements()
+	t.Logf("%#x", gd.SerializedElements)
+	found := FindPrefix(gd.SerializedElements, "O")
+	if found {
+		t.Error("Found O :(")
+	}
+	found = FindPrefix(gd.SerializedElements, "N")
+	if !found {
+		t.Error("!Found N :(")
+	}
+	found = FindPrefix(gd.SerializedElements, "ON")
+	if found {
+		t.Error("Found ON :(")
+	}
+	found = FindPrefix(gd.SerializedElements, "NO")
+	if !found {
+		t.Error("!Found NO :(")
+	}
+}
+
+func TestFindPrefixSmallEnglish(t *testing.T) {
+	gd := GenerateGaddag("test_files/dogs.txt", false, false)
+	gd.serializeElements()
+	t.Logf("%#x", gd.SerializedElements)
+	found := FindPrefix(gd.SerializedElements, "OG")
+	if found {
+		t.Error("Found OG :(")
 	}
 }
