@@ -21,7 +21,7 @@ func (g SimpleGaddag) Analyzer() {
 		} else if state == "arc" {
 			arcs--
 			// XXX: FIX CALL:
-			nodeIdx, letter := g.ArcToIdxLetter(i, nil)
+			nodeIdx, letter := g.ArcToIdxLetter(i)
 
 			fmt.Printf("%d ARC\tNodeIdx: %d\tLetter: %s\tRaw:%b (%d)\n", i, nodeIdx,
 				string(letter), g[i], g[i])

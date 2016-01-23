@@ -50,14 +50,14 @@ func LoadGaddag(filename string) []uint32 {
 
 // Finds the index of the node pointed to by this arc and
 // returns it and the letter.
-func (g SimpleGaddag) ArcToIdxLetter(arcIdx uint32, alphabet *Alphabet) (
+func (g SimpleGaddag) ArcToIdxLetter(arcIdx uint32) (
 	uint32, rune) {
 	var rn rune
 	letterCode := byte(g[arcIdx] >> LetterBitLoc)
 	if letterCode == MaxAlphabetSize {
 		rn = SeparationToken
 	} else {
-		rn = alphabet.letters[letterCode]
+		rn = rune(g[letterCode+1])
 	}
 	return g[arcIdx] & ((1 << LetterBitLoc) - 1), rn
 }
@@ -81,6 +81,19 @@ func (g SimpleGaddag) InLetterSet(letter rune, nodeIdx uint32,
 		return false
 	}
 	return letterSet&(1<<idx) != 0
+}
+
+// LetterSetAsRunes returns the letter set of the node at `nodeIdx` as
+// a slice of runes.
+func (g SimpleGaddag) LetterSetAsRunes(nodeIdx uint32, alphabet *Alphabet) []rune {
+	letterSet := g.GetLetterSet(nodeIdx)
+	runes := []rune{}
+	for idx := byte(0); idx < SeparationToken; idx++ {
+		if letterSet&(1<<idx) != 0 {
+			runes = append(runes, alphabet.letters[idx])
+		}
+	}
+	return runes
 }
 
 // GetRootNodeIndex gets the index of the root node.

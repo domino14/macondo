@@ -109,6 +109,10 @@ func TestFindWordSmallEnglish2(t *testing.T) {
 	if !found {
 		t.Error("Did not find NO :(")
 	}
+	found = FindWord(gd.SerializedElements, "ON")
+	if found {
+		t.Error("Found ON :(")
+	}
 }
 
 func TestFindPrefixSmallEnglish2(t *testing.T) {

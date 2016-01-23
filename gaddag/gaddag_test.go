@@ -1,6 +1,7 @@
 package gaddag
 
 import "testing"
+import _ "log"
 
 type testpair struct {
 	prefix string
@@ -166,5 +167,85 @@ func TestFindSpanishWordMinimize(t *testing.T) {
 			t.Error("For", pair.prefix, "expected", pair.found, "got", found)
 		}
 
+	}
+}
+
+type hookpair struct {
+	word  string
+	hooks string
+}
+
+var backHookTests = []hookpair{
+	{"HOUSE", "DLRS"},
+	{"HOUSED", ""},
+	{"AB", "AOSY"},
+	{"BA", "ADGHLMNPRSTY"},
+	{"CINEMATOGRAPHER", ""}, // stupid 15s
+	{"TELESTIC", "HS"},
+	{"CHAO", "S"},
+	{"ABASDSDF", ""},
+	{"ILL", "SY"},
+	{"KITTEN", "S"},
+	{"LADYFINGER", "S"},
+	{"ABYS", "MS"},
+	{"ABYSS", ""},
+	{"VOLUME", "DS"},
+}
+
+var frontHookTests = []hookpair{
+	{"HOUSE", "C"},
+	{"FIREFLY", ""},
+	{"AB", "CDFGJKLNSTW"},
+	{"BA", "AO"},
+	{"DOG", ""},
+	{"FASFSDFASDAS", ""},
+	{"SATIN", "I"},
+	{"CONICITY", "I"},
+	{"INCITES", "Z"},
+	{"ASTRONOMICALLY", "G"},
+}
+
+type innerhooktest struct {
+	word  string
+	front bool
+	back  bool
+}
+
+var innerHookTests = []innerhooktest{
+	{"HOUSE", false, false},
+	{"ICONICITY", true, false},
+	{"ASTHENOSPHERES", false, true},
+	{"FLAMINGO", false, true},
+	{"REVOLUTIONARILY", true, false},
+	{"EVOLUTIONARILY", false, false},
+	{"ABA", true, true},
+	{"KURUS", true, true},
+	{"KUMYS", false, false},
+	{"MELLS", true, true},
+	{"MACK", false, true},
+}
+
+func TestFindHooks(t *testing.T) {
+	GenerateGaddag("/Users/cesar/coding/webolith/words/OWL2.txt", true, true)
+	gd := LoadGaddag("out.gaddag")
+	for _, pair := range backHookTests {
+		hooks := string(FindHooks(gd, pair.word, BackHooks))
+		if hooks != pair.hooks {
+			t.Error("For", pair.word, "expected", pair.hooks, "found", hooks)
+		}
+	}
+	for _, pair := range frontHookTests {
+		hooks := string(FindHooks(gd, pair.word, FrontHooks))
+		if hooks != pair.hooks {
+			t.Error("For", pair.word, "expected", pair.hooks, "found", hooks)
+		}
+	}
+	for _, test := range innerHookTests {
+		frontInner := FindInnerHook(gd, test.word, FrontInnerHook)
+		backInner := FindInnerHook(gd, test.word, BackInnerHook)
+		if frontInner != test.front || backInner != test.back {
+			t.Error("For", test.word, "expected", test.front, test.back, "got",
+				frontInner, backInner)
+		}
 	}
 }
