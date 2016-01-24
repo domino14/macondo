@@ -15,18 +15,11 @@ func prepareForFind(str string) []rune {
 // FindPrefix returns a boolean indicating if the prefix is in the GADDAG.
 // This function is meant to be exported.
 func FindPrefix(g SimpleGaddag, prefix string) bool {
-	// XXX: Too repetitive, should get and save alphabet only once in the
-	// g structure.
-	alphabet := g.GetAlphabet()
-
-	return findPartialWord(g, g.GetRootNodeIndex(),
-		prepareForFind(prefix), 0, alphabet)
+	return findPartialWord(g, g.GetRootNodeIndex(), prepareForFind(prefix), 0)
 }
 
 func FindWord(g SimpleGaddag, word string) bool {
-	// XXX: See above note on alphabet.
-	alphabet := g.GetAlphabet()
-	found, _ := findWord(g, g.GetRootNodeIndex(), prepareForFind(word), 0, alphabet)
+	found, _ := findWord(g, g.GetRootNodeIndex(), prepareForFind(word), 0)
 	return found
 }
 
@@ -52,20 +45,18 @@ func FindInnerHook(g SimpleGaddag, word string, hookType int) bool {
 }
 
 func FindHooks(g SimpleGaddag, word string, hookType int) []rune {
-	alphabet := g.GetAlphabet()
-
 	var runes []rune
 	if hookType == BackHooks {
 		runes = prepareForFind(word)
 	} else if hookType == FrontHooks {
 		runes = reverse(word)
 	}
-	found, nodeIdx := findWord(g, g.GetRootNodeIndex(), runes, 0, alphabet)
+	found, nodeIdx := findWord(g, g.GetRootNodeIndex(), runes, 0)
 	if !found {
 		return nil
 	}
 	hooks := []rune{}
-	numArcs := byte(g[nodeIdx] >> NumArcsBitLoc)
+	numArcs := byte(g.arr[nodeIdx] >> NumArcsBitLoc)
 	// Look for the last letter as an arc.
 	found = false
 	var nextNodeIdx uint32
@@ -82,7 +73,7 @@ func FindHooks(g SimpleGaddag, word string, hookType int) []rune {
 		return hooks // Empty - no hooks.
 	}
 	// nextNodeIdx's letter set is all the hooks.
-	return g.LetterSetAsRunes(nextNodeIdx, alphabet)
+	return g.LetterSetAsRunes(nextNodeIdx)
 }
 
 func reverse(word string) []rune {
@@ -99,7 +90,7 @@ func reverse(word string) []rune {
 // in the GADDAG. The partial word has already been flipped by FindPrefix
 // above.
 func findPartialWord(g SimpleGaddag, nodeIdx uint32, partialWord []rune,
-	curPrefixIdx uint8, alphabet *Alphabet) bool {
+	curPrefixIdx uint8) bool {
 	var numArcs, i byte
 	var letter rune
 	var nextNodeIdx uint32
@@ -110,7 +101,7 @@ func findPartialWord(g SimpleGaddag, nodeIdx uint32, partialWord []rune,
 		return true
 	}
 
-	numArcs = byte(g[nodeIdx] >> NumArcsBitLoc)
+	numArcs = byte(g.arr[nodeIdx] >> NumArcsBitLoc)
 	found := false
 	for i = byte(1); i <= numArcs; i++ {
 		nextNodeIdx, letter = g.ArcToIdxLetter(nodeIdx + uint32(i))
@@ -123,17 +114,17 @@ func findPartialWord(g SimpleGaddag, nodeIdx uint32, partialWord []rune,
 		if curPrefixIdx == uint8(len(partialWord)-1) {
 			// If we didn't find the prefix, it could be a word and thus be
 			// in the letter set.
-			return g.InLetterSet(partialWord[curPrefixIdx], nodeIdx, alphabet)
+			return g.InLetterSet(partialWord[curPrefixIdx], nodeIdx)
 		} else {
 			return false
 		}
 	}
 	curPrefixIdx++
-	return findPartialWord(g, nextNodeIdx, partialWord, curPrefixIdx, alphabet)
+	return findPartialWord(g, nextNodeIdx, partialWord, curPrefixIdx)
 }
 
-func findWord(g SimpleGaddag, nodeIdx uint32, word []rune, curIdx uint8,
-	alphabet *Alphabet) (bool, uint32) {
+func findWord(g SimpleGaddag, nodeIdx uint32, word []rune, curIdx uint8) (
+	bool, uint32) {
 	var numArcs, i byte
 	var letter rune
 	var nextNodeIdx uint32
@@ -141,10 +132,10 @@ func findWord(g SimpleGaddag, nodeIdx uint32, word []rune, curIdx uint8,
 	if curIdx == uint8(len(word)-1) {
 		// log.Println("checking letter set last Letter", string(letter),
 		// 	"nodeIdx", nodeIdx, "word", string(word))
-		return g.InLetterSet(word[curIdx], nodeIdx, alphabet), nodeIdx
+		return g.InLetterSet(word[curIdx], nodeIdx), nodeIdx
 	}
 
-	numArcs = byte(g[nodeIdx] >> NumArcsBitLoc)
+	numArcs = byte(g.arr[nodeIdx] >> NumArcsBitLoc)
 	found := false
 	for i = byte(1); i <= numArcs; i++ {
 		nextNodeIdx, letter = g.ArcToIdxLetter(nodeIdx + uint32(i))
@@ -160,5 +151,5 @@ func findWord(g SimpleGaddag, nodeIdx uint32, word []rune, curIdx uint8,
 		return false, 0
 	}
 	curIdx++
-	return findWord(g, nextNodeIdx, word, curIdx, alphabet)
+	return findWord(g, nextNodeIdx, word, curIdx)
 }

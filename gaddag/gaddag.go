@@ -9,7 +9,7 @@ import (
 	"os"
 )
 
-// A SimpleGaddag is just a slice of 32-bit elements.
+// A SimpleGaddag.arr is just a slice of 32-bit elements.
 // It is created by serializeElements in make_gaddag.go.
 // Schema:
 // [alphabetlength] [letters...] (up to 31)
@@ -24,7 +24,10 @@ import (
 //
 // If the node has no arcs, the arc array is empty.
 
-type SimpleGaddag []uint32
+type SimpleGaddag struct {
+	arr      []uint32
+	alphabet *Alphabet
+}
 
 // SeparationToken is the GADDAG separation token.
 const SeparationToken = '^'
@@ -32,7 +35,7 @@ const NumArcsBitLoc = 24
 const LetterBitLoc = 24
 
 // LoadGaddag loads a gaddag from a file and returns the slice of nodes.
-func LoadGaddag(filename string) []uint32 {
+func LoadGaddag(filename string) SimpleGaddag {
 	var elements uint32
 	var data []uint32
 	fmt.Println("Loading", filename, "...")
@@ -45,7 +48,9 @@ func LoadGaddag(filename string) []uint32 {
 	data = make([]uint32, elements)
 	binary.Read(file, binary.LittleEndian, &data)
 	file.Close()
-	return data
+	g := SimpleGaddag{arr: data}
+	g.SetAlphabet()
+	return g
 }
 
 // Finds the index of the node pointed to by this arc and
@@ -53,30 +58,29 @@ func LoadGaddag(filename string) []uint32 {
 func (g SimpleGaddag) ArcToIdxLetter(arcIdx uint32) (
 	uint32, rune) {
 	var rn rune
-	letterCode := byte(g[arcIdx] >> LetterBitLoc)
+	letterCode := byte(g.arr[arcIdx] >> LetterBitLoc)
 	if letterCode == MaxAlphabetSize {
 		rn = SeparationToken
 	} else {
-		rn = rune(g[letterCode+1])
+		rn = rune(g.arr[letterCode+1])
 	}
-	return g[arcIdx] & ((1 << LetterBitLoc) - 1), rn
+	return g.arr[arcIdx] & ((1 << LetterBitLoc) - 1), rn
 }
 
 // GetLetterSet gets the letter set of the node at nodeIdx.
 func (g SimpleGaddag) GetLetterSet(nodeIdx uint32) uint32 {
-	letterSetCode := g[nodeIdx] & ((1 << NumArcsBitLoc) - 1)
+	letterSetCode := g.arr[nodeIdx] & ((1 << NumArcsBitLoc) - 1)
 	// Look in the letter set list for this code. We use g[0] because
 	// that contains the offset in `g` where the letter sets begin.
 	// (See serialization code).
-	return g[letterSetCode+2+g[0]]
+	return g.arr[letterSetCode+2+g.arr[0]]
 }
 
 // InLetterSet returns whether the `letter` is in the node at `nodeIdx`'s
 // letter set.
-func (g SimpleGaddag) InLetterSet(letter rune, nodeIdx uint32,
-	alphabet *Alphabet) bool {
+func (g SimpleGaddag) InLetterSet(letter rune, nodeIdx uint32) bool {
 	letterSet := g.GetLetterSet(nodeIdx)
-	idx, ok := alphabet.vals[letter]
+	idx, ok := g.alphabet.vals[letter]
 	if !ok { // The ^ character, likely, when looking up single-letter words.
 		return false
 	}
@@ -85,12 +89,12 @@ func (g SimpleGaddag) InLetterSet(letter rune, nodeIdx uint32,
 
 // LetterSetAsRunes returns the letter set of the node at `nodeIdx` as
 // a slice of runes.
-func (g SimpleGaddag) LetterSetAsRunes(nodeIdx uint32, alphabet *Alphabet) []rune {
+func (g SimpleGaddag) LetterSetAsRunes(nodeIdx uint32) []rune {
 	letterSet := g.GetLetterSet(nodeIdx)
 	runes := []rune{}
 	for idx := byte(0); idx < SeparationToken; idx++ {
 		if letterSet&(1<<idx) != 0 {
-			runes = append(runes, alphabet.letters[idx])
+			runes = append(runes, g.alphabet.letters[idx])
 		}
 	}
 	return runes
@@ -98,22 +102,23 @@ func (g SimpleGaddag) LetterSetAsRunes(nodeIdx uint32, alphabet *Alphabet) []run
 
 // GetRootNodeIndex gets the index of the root node.
 func (g SimpleGaddag) GetRootNodeIndex() uint32 {
-	alphabetLength := g[0]
-	letterSets := g[alphabetLength+1]
+	alphabetLength := g.arr[0]
+	letterSets := g.arr[alphabetLength+1]
 	return letterSets + alphabetLength + 2
 }
 
-// GetAlphabet recreates the Alphabet structure stored in this SimpleGaddag.
-func (g SimpleGaddag) GetAlphabet() *Alphabet {
+// GetAlphabet recreates the Alphabet structure stored in this SimpleGaddag,
+// and stores it in g.alphabet
+func (g *SimpleGaddag) SetAlphabet() {
 	alphabet := Alphabet{}
 	alphabet.Init()
 	// The very first element of the array is the alphabet size.
-	numRunes := g[0]
+	numRunes := g.arr[0]
 	for i := uint32(0); i < numRunes; i++ {
-		alphabet.vals[rune(g[i+1])] = i
-		alphabet.letters[byte(i)] = rune(g[i+1])
+		alphabet.vals[rune(g.arr[i+1])] = i
+		alphabet.letters[byte(i)] = rune(g.arr[i+1])
 	}
-	return &alphabet
+	g.alphabet = &alphabet
 }
 
 // Extracts the LetterSet and NumArcs from the node, and returns.
