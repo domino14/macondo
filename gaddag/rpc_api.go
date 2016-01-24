@@ -15,24 +15,20 @@ type GaddagServiceReply struct {
 
 type GaddagService struct{}
 
-type RPCGaddag []uint32
-
-var RpcGaddag RPCGaddag
-
 func (g *GaddagService) Generate(r *http.Request, args *GaddagServiceArgs,
 	reply *GaddagServiceReply) error {
-	GenerateGaddag(args.Filename, args.Minimize)
+	GenerateGaddag(args.Filename, args.Minimize, true)
 	reply.Message = "Done"
 	return nil
 }
 
-func (g *GaddagService) Load(r *http.Request, args *GaddagServiceArgs,
-	reply *GaddagServiceReply) error {
-	RpcGaddag = LoadGaddag(args.Filename)
-	if args.Debug {
-		// Go is so cool.
-		SimpleGaddag(RpcGaddag).Analyzer()
-	}
-	reply.Message = "Done"
-	return nil
-}
+// func (g *GaddagService) Load(r *http.Request, args *GaddagServiceArgs,
+// 	reply *GaddagServiceReply) error {
+// 	RpcGaddag = LoadGaddag(args.Filename)
+// 	if args.Debug {
+// 		// Go is so cool.
+// 		SimpleGaddag(RpcGaddag).Analyzer()
+// 	}
+// 	reply.Message = "Done"
+// 	return nil
+// }

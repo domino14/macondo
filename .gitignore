@@ -1,3 +1,5 @@
 *.sublime-workspace
 *.gaddag
 .DS_Store
+macondo
+*~
