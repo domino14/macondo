@@ -270,9 +270,10 @@ func GenerateDawg(filename string, minimize bool, writeToFile bool) *Gaddag {
 		// Create path for anan-1...a1:
 		wordRunes := []rune(word)
 		n := len(wordRunes)
-		for j := 0; j < n-1; j++ {
+		for j := 0; j < n-2; j++ {
 			st = st.addArc(wordRunes[j], gaddag)
 		}
+
 		st = st.addFinalArc(wordRunes[n-2], wordRunes[n-1], gaddag)
 	}
 	log.Printf("[INFO] Allocated arcs: %d states: %d\n", gaddag.AllocArcs,
