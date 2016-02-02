@@ -29,6 +29,8 @@ type SimpleGaddag struct {
 	alphabet *Alphabet
 }
 
+type SimpleDawg SimpleGaddag
+
 // SeparationToken is the GADDAG separation token.
 const SeparationToken = '^'
 const NumArcsBitLoc = 24
@@ -119,6 +121,10 @@ func (g *SimpleGaddag) SetAlphabet() {
 		alphabet.letters[byte(i)] = rune(g.arr[i+1])
 	}
 	g.alphabet = &alphabet
+}
+
+func (g SimpleGaddag) GetAlphabet() *Alphabet {
+	return g.alphabet
 }
 
 // Extracts the LetterSet and NumArcs from the node, and returns.

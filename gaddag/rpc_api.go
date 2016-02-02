@@ -13,6 +13,8 @@ type GaddagServiceReply struct {
 	Message string
 }
 
+var RpcDawg SimpleDawg
+
 type GaddagService struct{}
 
 func (g *GaddagService) Generate(r *http.Request, args *GaddagServiceArgs,
@@ -22,13 +24,16 @@ func (g *GaddagService) Generate(r *http.Request, args *GaddagServiceArgs,
 	return nil
 }
 
-// func (g *GaddagService) Load(r *http.Request, args *GaddagServiceArgs,
-// 	reply *GaddagServiceReply) error {
-// 	RpcGaddag = LoadGaddag(args.Filename)
-// 	if args.Debug {
-// 		// Go is so cool.
-// 		SimpleGaddag(RpcGaddag).Analyzer()
-// 	}
-// 	reply.Message = "Done"
-// 	return nil
-// }
+func (g *GaddagService) GenerateDawg(r *http.Request, args *GaddagServiceArgs,
+	reply *GaddagServiceReply) error {
+	GenerateDawg(args.Filename, args.Minimize, true)
+	reply.Message = "Done"
+	return nil
+}
+
+func (g *GaddagService) LoadDawg(r *http.Request, args *GaddagServiceArgs,
+	reply *GaddagServiceReply) error {
+	RpcDawg = SimpleDawg(LoadGaddag(args.Filename))
+	reply.Message = "Done"
+	return nil
+}

@@ -249,3 +249,18 @@ func TestFindHooks(t *testing.T) {
 		}
 	}
 }
+
+func TestFindWordDawgMinimize(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+	GenerateDawg("/Users/cesar/coding/webolith/words/OWL2.txt", true, true)
+	d := LoadGaddag("out.dawg")
+	for _, pair := range findWordTests {
+		found := FindWordDawg(d, pair.prefix)
+		if found != pair.found {
+			t.Error("For", pair.prefix, "expected", pair.found, "got", found)
+		}
+
+	}
+}
