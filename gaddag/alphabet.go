@@ -46,6 +46,22 @@ func (a *Alphabet) Init() {
 	a.letters = make(map[byte]rune)
 }
 
+// Return the 'value' of this rune in the alphabet; i.e. a number from
+// 0 to 31
+func (a Alphabet) Val(r rune) uint32 {
+	return a.vals[r]
+}
+
+// Return the letter that this position in the alphabet corresponds to.
+func (a Alphabet) Letter(b byte) rune {
+	return a.letters[b]
+}
+
+// Return the number of letters in this alphabet.
+func (a Alphabet) NumLetters() uint8 {
+	return uint8(len(a.letters))
+}
+
 func (a *Alphabet) genLetterSlice() {
 	a.letterSlice = []rune{}
 	for rn, _ := range a.vals {

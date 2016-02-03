@@ -102,6 +102,10 @@ func (g SimpleGaddag) LetterSetAsRunes(nodeIdx uint32) []rune {
 	return runes
 }
 
+func (g SimpleGaddag) NumArcs(nodeIdx uint32) byte {
+	return byte(g.arr[nodeIdx] >> NumArcsBitLoc)
+}
+
 // GetRootNodeIndex gets the index of the root node.
 func (g SimpleGaddag) GetRootNodeIndex() uint32 {
 	alphabetLength := g.arr[0]
@@ -109,7 +113,7 @@ func (g SimpleGaddag) GetRootNodeIndex() uint32 {
 	return letterSets + alphabetLength + 2
 }
 
-// GetAlphabet recreates the Alphabet structure stored in this SimpleGaddag,
+// SetAlphabet recreates the Alphabet structure stored in this SimpleGaddag,
 // and stores it in g.alphabet
 func (g *SimpleGaddag) SetAlphabet() {
 	alphabet := Alphabet{}
