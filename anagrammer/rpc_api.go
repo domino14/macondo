@@ -7,8 +7,8 @@ import (
 )
 
 type AnagramServiceArgs struct {
-	Rack string
-	Mode string
+	Letters string
+	Mode    string
 }
 
 type AnagramServiceReply struct {
@@ -29,7 +29,7 @@ func (a *AnagramService) Anagram(r *http.Request, args *AnagramServiceArgs,
 	if args.Mode == "exact" {
 		mode = ModeExact
 	}
-	sols := Anagram(args.Rack, gaddag.RpcDawg, mode)
+	sols := Anagram(args.Letters, gaddag.RpcDawg, mode)
 	reply.Words = sols
 	return nil
 }

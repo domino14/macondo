@@ -1,3 +1,9 @@
+// Package anagrammer uses a DAWG instead of a GADDAG to simplify the
+// algorithm and make it potentially faster - we don't need a GADDAG
+// to generate anagrams/subanagrams.
+//
+// This package generates anagrams and subanagrams and has an RPC
+// interface.
 package anagrammer
 
 import (
