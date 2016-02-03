@@ -250,6 +250,52 @@ func (g *Gaddag) Save(filename string) {
 	log.Println("[INFO] Saved gaddag to", filename)
 }
 
+// GenerateDawg makes a GADDAG with only one permutation of letters
+// allowed per word, the spelled-out permutation. We still treat it for
+// all intents and purposes as a GADDAG, but note that it only has one path!
+func GenerateDawg(filename string, minimize bool, writeToFile bool) *Gaddag {
+	gaddag := &Gaddag{}
+	words, alphabet := getWords(filename)
+	if words == nil {
+		return gaddag
+	}
+	gaddag.Root = gaddag.createNode()
+	gaddag.Alphabet = alphabet
+	log.Println("[INFO] Read", len(words), "words")
+	for idx, word := range words {
+		if idx%10000 == 0 {
+			log.Printf("[DEBUG] %d...\n", idx)
+		}
+		st := gaddag.Root
+		// Create path for anan-1...a1:
+		wordRunes := []rune(word)
+		n := len(wordRunes)
+		for j := 0; j < n-2; j++ {
+			st = st.addArc(wordRunes[j], gaddag)
+		}
+
+		st = st.addFinalArc(wordRunes[n-2], wordRunes[n-1], gaddag)
+	}
+	log.Printf("[INFO] Allocated arcs: %d states: %d\n", gaddag.AllocArcs,
+		gaddag.AllocStates)
+	// We need to also sort the arcs alphabetically prior to minimization/
+	// serialization.
+	traverseTreeAndExecute(gaddag.Root, func(node *Node) {
+		sort.Sort(ArcPtrSlice(node.Arcs))
+	})
+	if minimize {
+		gaddag.Minimize()
+	} else {
+		log.Println("[INFO] Not minimizing.")
+	}
+	if writeToFile {
+		gaddag.Save("out.dawg")
+	}
+	return gaddag
+}
+
+// GenerateGaddag makes a GADDAG out of the filename, and optionally
+// minimizes it and/or writes it to file.
 func GenerateGaddag(filename string, minimize bool, writeToFile bool) *Gaddag {
 	gaddag := &Gaddag{}
 	words, alphabet := getWords(filename)

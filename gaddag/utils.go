@@ -23,6 +23,13 @@ func FindWord(g SimpleGaddag, word string) bool {
 	return found
 }
 
+// Finds a word in a SimpleGaddag that is a DAWG. The word can just be
+// found verbatim.
+func FindWordDawg(g SimpleGaddag, word string) bool {
+	found, _ := findWord(g, g.GetRootNodeIndex(), []rune(word), 0)
+	return found
+}
+
 const (
 	BackHooks      = 0
 	FrontHooks     = 1

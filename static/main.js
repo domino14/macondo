@@ -1,4 +1,4 @@
-/* global jQuery, _, console*/
+/* global jQuery, _, console, JSON */
 (function($, _) {
   "use strict";
   // On DOM initialize:
@@ -14,9 +14,14 @@
           '{"Filename": "/Users/Cesar/coding/ujamaa/words/OWL2.txt",',
           ' "Minimize": true}'
         ].join(''));
-      } else if (method === 'GaddagService.Load') {
+      } else if (method === 'GaddagService.LoadDawg') {
         $('#input-args').val(
-          '{"Filename": "/Users/Cesar/coding/ujamaa/words/OWL2.gaddag"}');
+          '{"Filename": "/Users/Cesar/coding/ujamaa/words/OWL2.dawg"}');
+      } else if (method === 'GaddagService.GenerateDawg') {
+        $('#input-args').val([
+          '{"Filename": "/Users/Cesar/coding/ujamaa/words/OWL2.txt",',
+          ' "Minimize": true}'
+        ].join(''));
       }
     });
 
