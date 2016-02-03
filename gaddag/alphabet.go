@@ -48,8 +48,12 @@ func (a *Alphabet) Init() {
 
 // Return the 'value' of this rune in the alphabet; i.e. a number from
 // 0 to 31
-func (a Alphabet) Val(r rune) uint32 {
-	return a.vals[r]
+func (a Alphabet) Val(r rune) (uint32, error) {
+	val, ok := a.vals[r]
+	if ok {
+		return val, nil
+	}
+	return 0, fmt.Errorf("Letter %v not found in alphabet", r)
 }
 
 // Return the letter that this position in the alphabet corresponds to.

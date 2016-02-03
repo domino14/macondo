@@ -8,6 +8,7 @@ import (
 
 type AnagramServiceArgs struct {
 	Rack string
+	Mode string
 }
 
 type AnagramServiceReply struct {
@@ -24,7 +25,11 @@ func (a *AnagramService) Anagram(r *http.Request, args *AnagramServiceArgs,
 	if gaddag.SimpleGaddag(gaddag.RpcDawg).GetAlphabet() == nil {
 		return errors.New("Please load a DAWG first.")
 	}
-	sols := Anagram(args.Rack, gaddag.RpcDawg)
+	mode := ModeBuild
+	if args.Mode == "exact" {
+		mode = ModeExact
+	}
+	sols := Anagram(args.Rack, gaddag.RpcDawg, mode)
 	reply.Words = sols
 	return nil
 }

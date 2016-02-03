@@ -3,12 +3,21 @@ package anagrammer
 import (
 	"github.com/domino14/macondo/gaddag"
 	_ "log"
+	"strings"
 )
 
 const BlankPos = 31
 
-func Anagram(letters string, dawg gaddag.SimpleDawg) []string {
-	answers := []string{}
+type AnagramMode int
+
+const (
+	ModeBuild AnagramMode = iota
+	ModeExact
+)
+
+func Anagram(letters string, dawg gaddag.SimpleDawg, mode AnagramMode) []string {
+	letters = strings.ToUpper(letters)
+	answers := make(map[string]bool)
 	answerChan := make(chan string)
 	runes := []rune(letters)
 	gd := gaddag.SimpleGaddag(dawg)
@@ -17,33 +26,45 @@ func Anagram(letters string, dawg gaddag.SimpleDawg) []string {
 	rack := make([]uint8, 32)
 	for _, r := range runes {
 		if r != '?' {
-			rack[alphabet.Val(r)] += 1
+			idx, err := alphabet.Val(r)
+			if err == nil {
+				rack[idx] += 1
+			}
 		} else {
 			rack[BlankPos] += 1
 		}
 	}
 	go func() {
-		anagram(rack, gd, gd.GetRootNodeIndex(), answerChan, "", alphabet)
+		anagram(rack, gd, gd.GetRootNodeIndex(), answerChan, "", alphabet,
+			mode, len(runes))
 		close(answerChan)
 	}()
-
+	// Use a map to throw away duplicate answers (can happen with blanks)
 	for answer := range answerChan {
-		answers = append(answers, answer)
+		answers[answer] = true
 	}
-	return answers
+	// Turn the answers map into a string array.
+	answerStrings := make([]string, len(answers))
+	i := 0
+	for k := range answers {
+		answerStrings[i] = k
+		i++
+	}
+	return answerStrings
 }
 
-func anagramHelper(letterCode byte, dawg gaddag.SimpleGaddag,
+func anagramHelper(letter rune, dawg gaddag.SimpleGaddag,
 	alphabet *gaddag.Alphabet, nodeIdx uint32, answers chan string,
-	rack []uint8, answerSoFar string) {
+	rack []uint8, answerSoFar string, mode AnagramMode, numTotalLetters int) {
 
 	var nextNodeIdx uint32
 	var nextLetter rune
-	letter := alphabet.Letter(letterCode)
-	//log.Println(prefix, "Rack is now", rack, "letter", string(letter))
+
 	if dawg.InLetterSet(letter, nodeIdx) {
-		//	log.Println(prefix, string(letter), "in letter set")
-		answers <- answerSoFar + string(letter)
+		if mode == ModeBuild || (mode == ModeExact &&
+			len([]rune(answerSoFar+string(letter))) == numTotalLetters) {
+			answers <- answerSoFar + string(letter)
+		}
 	}
 
 	numArcs := dawg.NumArcs(nodeIdx)
@@ -51,21 +72,34 @@ func anagramHelper(letterCode byte, dawg gaddag.SimpleGaddag,
 		nextNodeIdx, nextLetter = dawg.ArcToIdxLetter(nodeIdx + uint32(i))
 		if letter == nextLetter {
 			anagram(rack, dawg, nextNodeIdx, answers,
-				answerSoFar+string(letter), alphabet)
+				answerSoFar+string(letter), alphabet, mode,
+				numTotalLetters)
 		}
 	}
 }
 
 func anagram(rack []uint8, dawg gaddag.SimpleGaddag, nodeIdx uint32,
-	answers chan string, answerSoFar string, alphabet *gaddag.Alphabet) {
+	answers chan string, answerSoFar string, alphabet *gaddag.Alphabet,
+	mode AnagramMode, numTotalLetters int) {
 
 	for idx, val := range rack {
 		if val == 0 {
 			continue
 		}
 		rack[idx] -= 1
-		anagramHelper(byte(idx), dawg, alphabet, nodeIdx, answers, rack,
-			answerSoFar)
+		if idx == BlankPos {
+			nlet := alphabet.NumLetters()
+			for i := byte(0); i < nlet; i++ {
+				letter := alphabet.Letter(i)
+				anagramHelper(letter, dawg, alphabet, nodeIdx, answers, rack,
+					answerSoFar, mode, numTotalLetters)
+			}
+		} else {
+			letter := alphabet.Letter(byte(idx))
+			anagramHelper(letter, dawg, alphabet, nodeIdx, answers, rack,
+				answerSoFar, mode, numTotalLetters)
+		}
+
 		rack[idx] += 1
 	}
 }
