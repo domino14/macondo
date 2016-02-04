@@ -55,6 +55,7 @@ var spanishExactTests = []testpair{
 	{"CINEMATOGRAPHER", 0},
 	{"KERYGMA", 0}, // K is not in spanish alphabet though
 	{"LOCOFOCO", 0},
+	{"ACENORS", 26}, //!
 	{"VIVIFIC", 0},
 	{"123?????", 3},
 	{"ÑUBLADO", 1},

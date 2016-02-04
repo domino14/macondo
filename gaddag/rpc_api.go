@@ -4,16 +4,13 @@ package gaddag
 import "net/http"
 
 type GaddagServiceArgs struct {
-	Filename string
-	Minimize bool
-	Debug    bool
+	Filename string `json:"filename"`
+	Minimize bool   `json:"minimize"`
 }
 
 type GaddagServiceReply struct {
-	Message string
+	Message string `json:"message"`
 }
-
-var RpcDawg SimpleDawg
 
 type GaddagService struct{}
 
@@ -31,9 +28,9 @@ func (g *GaddagService) GenerateDawg(r *http.Request, args *GaddagServiceArgs,
 	return nil
 }
 
-func (g *GaddagService) LoadDawg(r *http.Request, args *GaddagServiceArgs,
-	reply *GaddagServiceReply) error {
-	RpcDawg = SimpleDawg(LoadGaddag(args.Filename))
-	reply.Message = "Done"
-	return nil
-}
+// func (g *GaddagService) LoadDawg(r *http.Request, args *GaddagServiceArgs,
+// 	reply *GaddagServiceReply) error {
+// 	RpcDawg = SimpleDawg(LoadGaddag(args.Filename))
+// 	reply.Message = "Done"
+// 	return nil
+// }

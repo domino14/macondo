@@ -8,9 +8,24 @@ package anagrammer
 
 import (
 	"github.com/domino14/macondo/gaddag"
-	_ "log"
+	"log"
 	"strings"
 )
+
+// Later make a flag.
+const DawgPath = "/Users/Cesar/coding/webolith/words/"
+
+func init() {
+	// Load the DAWGs into memory.
+	lexica := []string{"America", "CSW15", "FISE"}
+	Dawgs = make(map[string]gaddag.SimpleDawg)
+	for _, lex := range lexica {
+		filename := DawgPath + lex + ".dawg"
+		Dawgs[lex] = gaddag.SimpleDawg(gaddag.LoadGaddag(filename))
+	}
+	log.Println("Loaded DAWGs")
+
+}
 
 const BlankPos = 31
 
@@ -20,6 +35,8 @@ const (
 	ModeBuild AnagramMode = iota
 	ModeExact
 )
+
+var Dawgs map[string]gaddag.SimpleDawg
 
 func Anagram(letters string, dawg gaddag.SimpleDawg, mode AnagramMode) []string {
 	letters = strings.ToUpper(letters)
