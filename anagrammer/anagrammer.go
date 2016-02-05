@@ -39,7 +39,6 @@ const (
 var Dawgs map[string]gaddag.SimpleDawg
 
 type AnagramStruct struct {
-	rack       []uint8
 	answerChan chan string
 	mode       AnagramMode
 	numLetters int
@@ -66,14 +65,13 @@ func Anagram(letters string, dawg gaddag.SimpleDawg, mode AnagramMode) []string 
 	}
 
 	ahs := &AnagramStruct{
-		rack:       rack,
 		answerChan: answerChan,
 		mode:       mode,
 		numLetters: len(runes),
 	}
 
 	go func() {
-		anagram(ahs, gd, gd.GetRootNodeIndex(), alphabet, "")
+		anagram(ahs, gd, gd.GetRootNodeIndex(), alphabet, "", rack)
 		close(ahs.answerChan)
 	}()
 	// Use a map to throw away duplicate answers (can happen with blanks)
@@ -91,7 +89,8 @@ func Anagram(letters string, dawg gaddag.SimpleDawg, mode AnagramMode) []string 
 }
 
 func anagramHelper(letter rune, gd gaddag.SimpleGaddag, ahs *AnagramStruct,
-	nodeIdx uint32, alphabet *gaddag.Alphabet, answerSoFar string) {
+	nodeIdx uint32, alphabet *gaddag.Alphabet, answerSoFar string,
+	rack []uint8) {
 
 	var nextNodeIdx uint32
 	var nextLetter rune
@@ -108,29 +107,32 @@ func anagramHelper(letter rune, gd gaddag.SimpleGaddag, ahs *AnagramStruct,
 	for i := byte(1); i <= numArcs; i++ {
 		nextNodeIdx, nextLetter = gd.ArcToIdxLetter(nodeIdx + uint32(i))
 		if letter == nextLetter {
-			anagram(ahs, gd, nextNodeIdx, alphabet, answerSoFar+string(letter))
+			anagram(ahs, gd, nextNodeIdx, alphabet, answerSoFar+string(letter),
+				rack)
 		}
 	}
 }
 
 func anagram(ahs *AnagramStruct, gd gaddag.SimpleGaddag, nodeIdx uint32,
-	alphabet *gaddag.Alphabet, answerSoFar string) {
-	for idx, val := range ahs.rack {
+	alphabet *gaddag.Alphabet, answerSoFar string, rack []uint8) {
+	for idx, val := range rack {
 		if val == 0 {
 			continue
 		}
-		ahs.rack[idx] -= 1
+		rack[idx] -= 1
 		if idx == BlankPos {
 			nlet := alphabet.NumLetters()
 			for i := byte(0); i < nlet; i++ {
 				letter := alphabet.Letter(i)
-				anagramHelper(letter, gd, ahs, nodeIdx, alphabet, answerSoFar)
+				anagramHelper(letter, gd, ahs, nodeIdx, alphabet, answerSoFar,
+					rack)
 			}
 		} else {
 			letter := alphabet.Letter(byte(idx))
-			anagramHelper(letter, gd, ahs, nodeIdx, alphabet, answerSoFar)
+			anagramHelper(letter, gd, ahs, nodeIdx, alphabet, answerSoFar,
+				rack)
 		}
 
-		ahs.rack[idx] += 1
+		rack[idx] += 1
 	}
 }
