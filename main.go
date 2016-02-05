@@ -59,6 +59,9 @@ func main() {
 	s.RegisterService(new(gaddag.GaddagService), "")
 	s.RegisterService(new(anagrammer.AnagramService), "")
 	http.Handle("/rpc", s)
-	http.ListenAndServe(":8088", nil)
+	err := http.ListenAndServe(":8088", nil)
+	if err != nil {
+		log.Fatalln(err)
+	}
 
 }
