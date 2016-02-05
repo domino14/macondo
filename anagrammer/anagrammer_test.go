@@ -1,6 +1,7 @@
 package anagrammer
 
 import "testing"
+
 import "github.com/domino14/macondo/gaddag"
 
 type testpair struct {
@@ -102,7 +103,7 @@ func TestAnagramSpanish(t *testing.T) {
 }
 
 func BenchmarkAnagramBlanks(b *testing.B) {
-	// 58967374 ns/op
+	// ~ 59 ms per op on my macbook pro.
 	for i := 0; i < b.N; i++ {
 		Anagram("RETINA??", Dawgs["CSW15"], ModeExact)
 	}
