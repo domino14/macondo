@@ -12,15 +12,12 @@ import (
 	"strings"
 )
 
-// Later make a flag.
-const DawgPath = "/Users/Cesar/coding/webolith/words/"
-
-func init() {
+func LoadDawgs(dawgPath string) {
 	// Load the DAWGs into memory.
 	lexica := []string{"America", "CSW15", "FISE"}
 	Dawgs = make(map[string]gaddag.SimpleDawg)
 	for _, lex := range lexica {
-		filename := DawgPath + lex + ".dawg"
+		filename := dawgPath + lex + ".dawg"
 		Dawgs[lex] = gaddag.SimpleDawg(gaddag.LoadGaddag(filename))
 	}
 	log.Println("Loaded DAWGs")
