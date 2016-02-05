@@ -1,6 +1,7 @@
 package anagrammer
 
 import "testing"
+
 import "github.com/domino14/macondo/gaddag"
 
 type testpair struct {
@@ -55,6 +56,7 @@ var spanishExactTests = []testpair{
 	{"CINEMATOGRAPHER", 0},
 	{"KERYGMA", 0}, // K is not in spanish alphabet though
 	{"LOCOFOCO", 0},
+	{"ACENORS", 26}, //!
 	{"VIVIFIC", 0},
 	{"123?????", 3},
 	{"ÑUBLADO", 1},
@@ -97,5 +99,12 @@ func TestAnagramSpanish(t *testing.T) {
 		if len(answers) != pair.num {
 			t.Error("For", pair.rack, "expected", pair.num, "got", answers)
 		}
+	}
+}
+
+func BenchmarkAnagramBlanks(b *testing.B) {
+	// ~ 59 ms per op on my macbook pro.
+	for i := 0; i < b.N; i++ {
+		Anagram("RETINA??", Dawgs["CSW15"], ModeExact)
 	}
 }

@@ -8,19 +8,19 @@
     $('#input-method-name').change(function() {
       var method = $('#input-method-name').val();
       if (method === 'AnagramService.Anagram') {
-        $('#input-args').val('{"Mode": "build", "Letters": "AEROLITH"}');
+        $('#input-args').val('{"mode": "build", "letters": "AEROLITH"}');
       } else if (method === 'GaddagService.Generate') {
         $('#input-args').val([
-          '{"Filename": "/Users/Cesar/coding/ujamaa/words/OWL2.txt",',
-          ' "Minimize": true}'
+          '{"filename": "/Users/Cesar/coding/ujamaa/words/OWL2.txt",',
+          ' "minimize": true}'
         ].join(''));
       } else if (method === 'GaddagService.LoadDawg') {
         $('#input-args').val(
-          '{"Filename": "/Users/Cesar/coding/ujamaa/words/OWL2.dawg"}');
+          '{"filename": "/Users/Cesar/coding/ujamaa/words/OWL2.dawg"}');
       } else if (method === 'GaddagService.GenerateDawg') {
         $('#input-args').val([
-          '{"Filename": "/Users/Cesar/coding/ujamaa/words/OWL2.txt",',
-          ' "Minimize": true}'
+          '{"filename": "/Users/Cesar/coding/ujamaa/words/OWL2.txt",',
+          ' "minimize": true}'
         ].join(''));
       }
     });
