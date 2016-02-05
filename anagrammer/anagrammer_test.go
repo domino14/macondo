@@ -100,3 +100,10 @@ func TestAnagramSpanish(t *testing.T) {
 		}
 	}
 }
+
+func BenchmarkAnagramBlanks(b *testing.B) {
+	// 58967374 ns/op
+	for i := 0; i < b.N; i++ {
+		Anagram("RETINA??", Dawgs["CSW15"], ModeExact)
+	}
+}
