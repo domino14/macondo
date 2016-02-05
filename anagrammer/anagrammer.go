@@ -84,9 +84,10 @@ func anagramHelper(letter rune, dawg gaddag.SimpleGaddag,
 	var nextLetter rune
 
 	if dawg.InLetterSet(letter, nodeIdx) {
+		toCheck := answerSoFar + string(letter)
 		if mode == ModeBuild || (mode == ModeExact &&
-			len([]rune(answerSoFar+string(letter))) == numTotalLetters) {
-			answers <- answerSoFar + string(letter)
+			len([]rune(toCheck)) == numTotalLetters) {
+			answers <- toCheck
 		}
 	}
 
