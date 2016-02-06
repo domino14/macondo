@@ -29,8 +29,7 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
-var dawgPath = flag.String("dawgpath", "/Users/Cesar/coding/webolith/words/",
-	"path for dawgs")
+var dawgPath = flag.String("dawgpath", "", "path for dawgs")
 
 func main() {
 	flag.Parse()

@@ -1,0 +1,7 @@
+macondo:
+  build: .
+  volumes:
+    - /Users/Cesar/coding/webolith/words:/dawgs
+  command: ./macondo -dawgpath=/dawgs/
+  ports:
+    - 8088:8088

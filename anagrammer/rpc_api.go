@@ -51,6 +51,18 @@ type BlankChallengeReply struct {
 	NumAnswers   int         `json:"numAnswers"`
 }
 
+type BuildChallengeArgs struct {
+	WordLength   int    `json:"wordLength"`
+	Lexicon      string `json:"lexicon"`
+	MinSolutions int    `json:"minSolutions"`
+	MaxSolutions int    `json:"maxSolutions"`
+}
+
+type BuildChallengeReply struct {
+	Question   *Question `json:"question"`
+	NumAnswers int       `json:"numAnswers"`
+}
+
 func (a *AnagramService) BlankChallenge(r *http.Request, args *BlankChallengeArgs,
 	reply *BlankChallengeReply) error {
 
@@ -61,6 +73,19 @@ func (a *AnagramService) BlankChallenge(r *http.Request, args *BlankChallengeArg
 	blanks, numAnswers := GenerateBlanks(args, dawg)
 	reply.Questions = blanks
 	reply.NumQuestions = len(blanks)
+	reply.NumAnswers = numAnswers
+	return nil
+}
+
+func (a *AnagramService) BuildChallenge(r *http.Request, args *BuildChallengeArgs,
+	reply *BuildChallengeReply) error {
+
+	dawg, ok := Dawgs[args.Lexicon]
+	if !ok {
+		return fmt.Errorf("Lexicon %v not found", args.Lexicon)
+	}
+	question, numAnswers := GenerateBuildChallenge(args, dawg)
+	reply.Question = question
 	reply.NumAnswers = numAnswers
 	return nil
 }

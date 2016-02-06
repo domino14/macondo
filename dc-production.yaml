@@ -1,0 +1,3 @@
+macondo:
+  volumes:
+    - /home/ubuntu/dawgs:/dawgs

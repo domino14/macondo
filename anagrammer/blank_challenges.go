@@ -11,14 +11,8 @@ import (
 
 const BlankCharacter = '?'
 
-// Generate a list of blank word challenges given the parameters in
-// args.
-
-type Question struct {
-	Q string   `json:"q"`
-	A []string `json:"a"`
-}
-
+// GenerateBlanks - Generate a list of blank word challenges given the
+// parameters in args.
 func GenerateBlanks(args *BlankChallengeArgs, dawg gaddag.SimpleDawg) (
 	[]*Question, int) {
 	var dist lexicon.LetterDistribution
@@ -85,12 +79,20 @@ func genRack(dist lexicon.LetterDistribution, wordLength, blanks int) []rune {
 	// it's a bag of runes.
 	rack := make([]rune, wordLength)
 	idx := 0
-	for idx < wordLength-blanks {
+	draw := func(avoidBlanks bool) rune {
 		var tile rune
-		for tile, _ = bag.Draw(); tile == BlankCharacter; {
+		if avoidBlanks {
+			for tile, _ = bag.Draw(); tile == BlankCharacter; {
+				tile, _ = bag.Draw()
+			}
+		} else {
 			tile, _ = bag.Draw()
 		}
-		rack[idx] = tile
+		return tile
+	}
+	for idx < wordLength-blanks {
+		// Avoid blanks on draw if user specifies a number of blanks.
+		rack[idx] = draw(blanks != 0)
 		idx++
 	}
 	for ; idx < wordLength; idx++ {
