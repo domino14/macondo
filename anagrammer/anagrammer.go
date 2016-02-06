@@ -14,7 +14,7 @@ import (
 
 func LoadDawgs(dawgPath string) {
 	// Load the DAWGs into memory.
-	lexica := []string{"America", "CSW15", "FISE"}
+	lexica := []string{"America", "CSW15", "FISE09"}
 	Dawgs = make(map[string]gaddag.SimpleDawg)
 	for _, lex := range lexica {
 		filename := dawgPath + lex + ".dawg"
