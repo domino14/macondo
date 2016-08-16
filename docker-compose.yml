@@ -1,7 +1,9 @@
 macondo:
   build: .
   volumes:
-    - /Users/Cesar/coding/webolith/words:/dawgs
+    - ./dawgs:/dawgs
   command: ./macondo -dawgpath=/dawgs/
   ports:
     - 8088:8088
+  environment:
+    VIRTUAL_HOST: macondo.docker

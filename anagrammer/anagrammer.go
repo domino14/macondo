@@ -9,6 +9,7 @@ package anagrammer
 import (
 	"github.com/domino14/macondo/gaddag"
 	"log"
+	"os"
 	"strings"
 )
 
@@ -18,10 +19,13 @@ func LoadDawgs(dawgPath string) {
 	Dawgs = make(map[string]gaddag.SimpleDawg)
 	for _, lex := range lexica {
 		filename := dawgPath + lex + ".dawg"
+		if _, err := os.Stat(filename); os.IsNotExist(err) {
+			log.Println("[ERROR] File", filename, "did not exist. Continuing...")
+			continue
+		}
+
 		Dawgs[lex] = gaddag.SimpleDawg(gaddag.LoadGaddag(filename))
 	}
-	log.Println("Loaded DAWGs")
-
 }
 
 const BlankPos = 31
