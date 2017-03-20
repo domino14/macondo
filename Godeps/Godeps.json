@@ -1,0 +1,15 @@
+{
+	"ImportPath": "github.com/domino14/macondo",
+	"GoVersion": "go1.8",
+	"GodepVersion": "v79",
+	"Deps": [
+		{
+			"ImportPath": "github.com/gorilla/rpc/v2",
+			"Rev": "22c016f3df3febe0c1f6727598b6389507e03a18"
+		},
+		{
+			"ImportPath": "github.com/gorilla/rpc/v2/json2",
+			"Rev": "22c016f3df3febe0c1f6727598b6389507e03a18"
+		}
+	]
+}
