@@ -52,10 +52,12 @@ type BlankChallengeReply struct {
 }
 
 type BuildChallengeArgs struct {
-	WordLength   int    `json:"wordLength"`
-	Lexicon      string `json:"lexicon"`
-	MinSolutions int    `json:"minSolutions"`
-	MaxSolutions int    `json:"maxSolutions"`
+	WordLength            int    `json:"wordLength"`
+	MinWordLength         int    `json:"minWordLength"`
+	RequireLengthSolution bool   `json:"requireLengthSolution"`
+	Lexicon               string `json:"lexicon"`
+	MinSolutions          int    `json:"minSolutions"`
+	MaxSolutions          int    `json:"maxSolutions"`
 }
 
 type BuildChallengeReply struct {
@@ -85,6 +87,9 @@ func (a *AnagramService) BuildChallenge(r *http.Request, args *BuildChallengeArg
 		return fmt.Errorf("Lexicon %v not found", args.Lexicon)
 	}
 	question, numAnswers := GenerateBuildChallenge(args, dawg)
+	if question == nil {
+		return fmt.Errorf("Exceeded max number of tries.")
+	}
 	reply.Question = question
 	reply.NumAnswers = numAnswers
 	return nil

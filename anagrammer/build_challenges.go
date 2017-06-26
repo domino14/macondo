@@ -8,7 +8,7 @@ import (
 
 // Generate a build challenge with given args.
 // As an additional condition, letters must anagram exactly to at least
-// one word.
+// one word, if that argument is passed in.
 func GenerateBuildChallenge(args *BuildChallengeArgs, dawg gaddag.SimpleDawg) (
 	*Question, int) {
 	var dist lexicon.LetterDistribution
@@ -20,20 +20,38 @@ func GenerateBuildChallenge(args *BuildChallengeArgs, dawg gaddag.SimpleDawg) (
 	tries := 0
 	var w lexicon.Word
 	var answers []string
-	for true {
+	var meetingCriteria []string
+	success := false
+	// Try 10000 times. In very rare cases we might not generate a challenge
+	// meeting the criteria, and we'd like to exit cleanly instead of get
+	// stuck in an infinite loop.
+	for tries < 10000 {
 		rack := genRack(dist, args.WordLength, 0)
 		tries += 1
 		answers = Anagram(string(rack), dawg, ModeExact)
-		if len(answers) == 0 {
+		if len(answers) == 0 && args.RequireLengthSolution {
 			continue
 		}
 		answers = Anagram(string(rack), dawg, ModeBuild)
-		if len(answers) < args.MinSolutions || len(answers) > args.MaxSolutions {
+		if len(answers) < args.MinSolutions {
+			continue
+		}
+		meetingCriteria = []string{}
+		for _, answer := range answers {
+			if len(answer) >= args.MinWordLength {
+				meetingCriteria = append(meetingCriteria, answer)
+			}
+		}
+		if len(meetingCriteria) < args.MinSolutions || len(meetingCriteria) > args.MaxSolutions {
 			continue
 		}
 		w = lexicon.Word{Word: string(rack), Dist: dist}
+		success = true
 		break
 	}
 	log.Println("[DEBUG]", tries, "tries")
-	return &Question{Q: w.MakeAlphagram(), A: answers}, len(answers)
+	if !success {
+		return nil, 0
+	}
+	return &Question{Q: w.MakeAlphagram(), A: meetingCriteria}, len(meetingCriteria)
 }
