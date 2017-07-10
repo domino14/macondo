@@ -20,7 +20,7 @@ func TestBag(t *testing.T) {
 		}
 		tileMap[tile] += 1
 	}
-	if !reflect.DeepEqual(tileMap, ld.distribution) {
+	if !reflect.DeepEqual(tileMap, ld.Distribution) {
 		t.Error("Distribution and tilemap were not identical.")
 	}
 	_, err := bag.Draw()

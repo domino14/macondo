@@ -1,13 +1,15 @@
 package lexicon
 
 import (
-	"github.com/domino14/macondo/gaddag"
+	"log"
 	"math/rand"
 	"time"
+
+	"github.com/domino14/macondo/gaddag"
 )
 
 type LetterDistribution struct {
-	distribution map[rune]uint8
+	Distribution map[rune]uint8
 	SortOrder    map[rune]int
 	numLetters   int
 }
@@ -40,7 +42,7 @@ func (ld LetterDistribution) MakeBag() Bag {
 	rand.Seed(time.Now().UnixNano())
 	bag := make([]rune, ld.numLetters)
 	idx := 0
-	for rn, val := range ld.distribution {
+	for rn, val := range ld.Distribution {
 		for j := uint8(0); j < val; j++ {
 			bag[idx] = rn
 			idx += 1
@@ -80,7 +82,7 @@ func (l *LexiconInfo) Initialize() {
 	maxFrequency := uint8(0)
 	totalLetters := uint8(0)
 	r := uint8(1)
-	for _, value := range l.LetterDistribution.distribution {
+	for _, value := range l.LetterDistribution.Distribution {
 		freq := value
 		totalLetters += freq
 		if freq > maxFrequency {
@@ -103,10 +105,11 @@ func (l *LexiconInfo) Initialize() {
 		}
 		l.subChooseCombos[i] = subList
 	}
+	log.Printf("Initialized: %v", l.subChooseCombos)
 }
 
 // Calculate the number of combinations for an alphagram.
-func (l *LexiconInfo) Combinations(alphagram string) uint64 {
+func (l *LexiconInfo) Combinations(alphagram string, withBlanks bool) uint64 {
 	// Adapted from GPL Zyzzyva's calculation code.
 	letters := make([]rune, 0)
 	counts := make([]uint8, 0)
@@ -124,7 +127,7 @@ func (l *LexiconInfo) Combinations(alphagram string) uint64 {
 			letters = append(letters, letter)
 			counts = append(counts, 1)
 			combos = append(combos,
-				l.subChooseCombos[l.LetterDistribution.distribution[letter]])
+				l.subChooseCombos[l.LetterDistribution.Distribution[letter]])
 
 		}
 	}
@@ -136,10 +139,13 @@ func (l *LexiconInfo) Combinations(alphagram string) uint64 {
 		thisCombo *= combos[i][counts[i]]
 	}
 	totalCombos += thisCombo
+	if !withBlanks {
+		return totalCombos
+	}
 	// Calculate combinations with one blank
 	for i := 0; i < numLetters; i++ {
 		counts[i]--
-		thisCombo = l.subChooseCombos[l.LetterDistribution.distribution['?']][1]
+		thisCombo = l.subChooseCombos[l.LetterDistribution.Distribution['?']][1]
 		for j := 0; j < numLetters; j++ {
 			thisCombo *= combos[j][counts[j]]
 		}
@@ -154,7 +160,7 @@ func (l *LexiconInfo) Combinations(alphagram string) uint64 {
 				continue
 			}
 			counts[j]--
-			thisCombo = l.subChooseCombos[l.LetterDistribution.distribution['?']][2]
+			thisCombo = l.subChooseCombos[l.LetterDistribution.Distribution['?']][2]
 
 			for k := 0; k < numLetters; k++ {
 				thisCombo *= combos[k][counts[k]]

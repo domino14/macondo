@@ -33,7 +33,7 @@ func TestCalcCombinations(t *testing.T) {
 	lexInfo.Initialize()
 
 	for _, pair := range combinationsTests {
-		combinations := lexInfo.Combinations(pair.alphagram)
+		combinations := lexInfo.Combinations(pair.alphagram, true)
 		if combinations != pair.combinations {
 			t.Error("For", pair.alphagram, "expected", pair.combinations,
 				"got", combinations)
@@ -49,7 +49,7 @@ func TestSpanishCombos(t *testing.T) {
 	lexInfo.Initialize()
 
 	for _, pair := range spanishCombinationsTests {
-		combinations := lexInfo.Combinations(pair.alphagram)
+		combinations := lexInfo.Combinations(pair.alphagram, true)
 		if combinations != pair.combinations {
 			t.Error("For", pair.alphagram, "expected", pair.combinations,
 				"got", combinations)
