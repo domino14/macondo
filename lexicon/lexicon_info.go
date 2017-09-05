@@ -1,7 +1,6 @@
 package lexicon
 
 import (
-	"log"
 	"math/rand"
 	"time"
 
@@ -10,6 +9,7 @@ import (
 
 type LetterDistribution struct {
 	Distribution map[rune]uint8
+	PointValues  map[rune]uint8
 	SortOrder    map[rune]int
 	numLetters   int
 }
@@ -21,8 +21,14 @@ func EnglishLetterDistribution() LetterDistribution {
 		'Q': 1, 'R': 6, 'S': 4, 'T': 6, 'U': 4, 'V': 2, 'W': 2, 'X': 1,
 		'Y': 2, 'Z': 1, '?': 2,
 	}
-	return LetterDistribution{dist, makeSortMap("ABCDEFGHIJKLMNOPQRSTUVWXYZ?"),
-		100}
+	ptValues := map[rune]uint8{
+		'A': 1, 'B': 3, 'C': 3, 'D': 2, 'E': 1, 'F': 4, 'G': 2, 'H': 4,
+		'I': 1, 'J': 8, 'K': 5, 'L': 1, 'M': 3, 'N': 1, 'O': 1, 'P': 3,
+		'Q': 10, 'R': 1, 'S': 1, 'T': 1, 'U': 1, 'V': 4, 'W': 4, 'X': 8,
+		'Y': 4, 'Z': 10, '?': 0,
+	}
+	return LetterDistribution{dist, ptValues,
+		makeSortMap("ABCDEFGHIJKLMNOPQRSTUVWXYZ?"), 100}
 }
 
 func SpanishLetterDistribution() LetterDistribution {
@@ -33,7 +39,14 @@ func SpanishLetterDistribution() LetterDistribution {
 		'Q': 1, 'R': 5, 'S': 6, 'T': 4, 'U': 5, 'V': 1, 'X': 1, 'Y': 1,
 		'Z': 1, '?': 2,
 	}
-	return LetterDistribution{dist, makeSortMap("ABC1DEFGHIJL2MNÑOPQR3STUVXYZ?"),
+	ptValues := map[rune]uint8{
+		'1': 5, '2': 8, '3': 8, // 1: CH, 2: LL, 3: RR
+		'A': 1, 'B': 3, 'C': 3, 'D': 2, 'E': 1, 'F': 4, 'G': 2, 'H': 4,
+		'I': 1, 'J': 8, 'L': 1, 'M': 3, 'N': 1, 'Ñ': 8, 'O': 1, 'P': 3,
+		'Q': 5, 'R': 1, 'S': 1, 'T': 1, 'U': 1, 'V': 4, 'X': 8, 'Y': 4,
+		'Z': 10, '?': 0,
+	}
+	return LetterDistribution{dist, nil, makeSortMap("ABC1DEFGHIJL2MNÑOPQR3STUVXYZ?"),
 		100}
 }
 
@@ -105,7 +118,6 @@ func (l *LexiconInfo) Initialize() {
 		}
 		l.subChooseCombos[i] = subList
 	}
-	log.Printf("Initialized: %v", l.subChooseCombos)
 }
 
 // Calculate the number of combinations for an alphagram.
