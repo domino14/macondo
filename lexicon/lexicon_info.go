@@ -46,8 +46,8 @@ func SpanishLetterDistribution() LetterDistribution {
 		'Q': 5, 'R': 1, 'S': 1, 'T': 1, 'U': 1, 'V': 4, 'X': 8, 'Y': 4,
 		'Z': 10, '?': 0,
 	}
-	return LetterDistribution{dist, nil, makeSortMap("ABC1DEFGHIJL2MNÑOPQR3STUVXYZ?"),
-		100}
+	return LetterDistribution{dist, ptValues,
+		makeSortMap("ABC1DEFGHIJL2MNÑOPQR3STUVXYZ?"), 100}
 }
 
 // Bag returns a shuffled bag of tiles.
