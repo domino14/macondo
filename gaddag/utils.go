@@ -19,6 +19,9 @@ func FindPrefix(g SimpleGaddag, prefix string) bool {
 }
 
 func FindWord(g SimpleGaddag, word string) bool {
+	if g.arr == nil {
+		return false
+	}
 	found, _ := findWord(g, g.GetRootNodeIndex(), prepareForFind(word), 0)
 	return found
 }
@@ -26,6 +29,9 @@ func FindWord(g SimpleGaddag, word string) bool {
 // Finds a word in a SimpleGaddag that is a DAWG. The word can just be
 // found verbatim.
 func FindWordDawg(g SimpleGaddag, word string) bool {
+	if g.arr == nil {
+		return false
+	}
 	found, _ := findWord(g, g.GetRootNodeIndex(), []rune(word), 0)
 	return found
 }

@@ -43,7 +43,8 @@ func LoadGaddag(filename string) SimpleGaddag {
 	fmt.Println("Loading", filename, "...")
 	file, err := os.Open(filename)
 	if err != nil {
-		log.Fatalln("Could not open gaddag", err)
+		log.Println("[ERROR] Could not open gaddag", err)
+		return SimpleGaddag{}
 	}
 	binary.Read(file, binary.LittleEndian, &elements)
 	fmt.Println("Elements", elements)
