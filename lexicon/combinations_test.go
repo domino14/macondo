@@ -44,7 +44,7 @@ func TestCalcCombinations(t *testing.T) {
 
 func TestSpanishCombos(t *testing.T) {
 	lexInfo := LexiconInfo{
-		LexiconName:        "FISE",
+		LexiconName:        "FISE09",
 		LetterDistribution: SpanishLetterDistribution()}
 	lexInfo.Initialize()
 

@@ -16,7 +16,7 @@ const BlankCharacter = '?'
 func GenerateBlanks(args *BlankChallengeArgs, dawg gaddag.SimpleDawg) (
 	[]*Question, int) {
 	var dist lexicon.LetterDistribution
-	if args.Lexicon == "FISE" {
+	if args.Lexicon == "FISE09" {
 		dist = lexicon.SpanishLetterDistribution()
 	} else {
 		dist = lexicon.EnglishLetterDistribution()

@@ -159,7 +159,7 @@ func TestFindSpanishWordMinimize(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping test in short mode")
 	}
-	GenerateGaddag("/Users/cesar/coding/webolith/words/FISE.txt", true, true)
+	GenerateGaddag("/Users/cesar/coding/webolith/words/FISE09.txt", true, true)
 	gd := LoadGaddag("out.gaddag")
 	for _, pair := range findSpanishWordTests {
 		found := FindWord(gd, pair.prefix)

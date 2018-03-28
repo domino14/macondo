@@ -36,8 +36,8 @@ func TestRacks(t *testing.T) {
 // func TestGenBlanks(t *testing.T) {
 // 	dist := []lexicon.SpanishLetterDistribution()
 // 	bcArgs := &BlankChallengeArgs{
-// 		WordLength: 7, NumQuestions: 25, Lexicon: "FISE", MaxSolutions: 5,
+// 		WordLength: 7, NumQuestions: 25, Lexicon: "FISE09", MaxSolutions: 5,
 // 		Num2Blanks: 1,
 // 	}
-// 	GenerateBlanks(bcArgs, Dawgs["FISE"])
+// 	GenerateBlanks(bcArgs, Dawgs["FISE09"])
 // }

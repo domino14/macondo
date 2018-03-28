@@ -85,7 +85,7 @@ func TestAnagram(t *testing.T) {
 }
 
 func TestAnagramSpanish(t *testing.T) {
-	gaddag.GenerateDawg("/Users/cesar/coding/webolith/words/FISE.txt", true,
+	gaddag.GenerateDawg("/Users/cesar/coding/webolith/words/FISE09.txt", true,
 		true)
 	d := gaddag.SimpleDawg(gaddag.LoadGaddag("out.dawg"))
 	for _, pair := range spanishBuildTests {

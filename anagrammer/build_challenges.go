@@ -12,7 +12,7 @@ import (
 func GenerateBuildChallenge(args *BuildChallengeArgs, dawg gaddag.SimpleDawg) (
 	*Question, int) {
 	var dist lexicon.LetterDistribution
-	if args.Lexicon == "FISE" {
+	if args.Lexicon == "FISE09" {
 		dist = lexicon.SpanishLetterDistribution()
 	} else {
 		dist = lexicon.EnglishLetterDistribution()
