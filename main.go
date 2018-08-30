@@ -3,15 +3,26 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/domino14/macondo/anagrammer"
-	"github.com/domino14/macondo/gaddag"
-	"github.com/gorilla/rpc/v2"
-	"github.com/gorilla/rpc/v2/json2"
 	"html/template"
 	"log"
 	"net/http"
 	"os"
 	"runtime/pprof"
+	"time"
+
+	"github.com/domino14/macondo/anagrammer"
+	"github.com/domino14/macondo/gaddag"
+	"github.com/gorilla/rpc/v2"
+	"github.com/gorilla/rpc/v2/json2"
+)
+
+const (
+	// BlankQuestionsTimeout - how much time to give blank challenge
+	// generator before giving up
+	BlankQuestionsTimeout = 5000 * time.Millisecond
+	// BuildQuestionsTimeout - how much time to give build challenge
+	// generator before giving up
+	BuildQuestionsTimeout = 10000 * time.Millisecond
 )
 
 var templates = template.Must(template.ParseFiles(
@@ -30,6 +41,11 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
 
 var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 var dawgPath = flag.String("dawgpath", "", "path for dawgs")
+
+func addTimeout(i *rpc.RequestInfo) *http.Request {
+	ctx := context.
+	i.Request.WithContext(context.)
+}
 
 func main() {
 	flag.Parse()
@@ -57,6 +73,10 @@ func main() {
 	s.RegisterCodec(json2.NewCodec(), "application/json")
 	s.RegisterService(new(gaddag.GaddagService), "")
 	s.RegisterService(new(anagrammer.AnagramService), "")
+	// Need to set rpc v2 to master to use the following, in the dep toml file :/
+	// This allows us to modify the request and optionally add a context
+	// timeout.
+	s.RegisterInterceptFunc(addTimeout)
 	http.Handle("/rpc", s)
 	err := http.ListenAndServe(":8088", nil)
 	if err != nil {
