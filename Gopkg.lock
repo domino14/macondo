@@ -2,17 +2,17 @@
 
 
 [[projects]]
-  branch = "master"
   name = "github.com/gorilla/rpc"
   packages = [
     "v2",
     "v2/json2"
   ]
-  revision = "5c1378103183095acc1b9289ac1475e3bc1e818e"
+  revision = "22c016f3df3febe0c1f6727598b6389507e03a18"
+  version = "v1.1.0"
 
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "fbdb8f65bfe3f1175f9dd2b71c8347427b765fbe7da92021c0fd26cfca936f7e"
+  inputs-digest = "51455e174cd9826b8ad81148ec62c1aa2d2dbb715f179fefdaeb9629153eef44"
   solver-name = "gps-cdcl"
   solver-version = 1

@@ -7,11 +7,10 @@
 package anagrammer
 
 import (
+	"github.com/domino14/macondo/gaddag"
 	"log"
 	"os"
 	"strings"
-
-	"github.com/domino14/macondo/gaddag"
 )
 
 func LoadDawgs(dawgPath string) {
@@ -59,10 +58,10 @@ func Anagram(letters string, dawg gaddag.SimpleDawg, mode AnagramMode) []string 
 		if r != '?' {
 			idx, err := alphabet.Val(r)
 			if err == nil {
-				rack[idx]++
+				rack[idx] += 1
 			}
 		} else {
-			rack[BlankPos]++
+			rack[BlankPos] += 1
 		}
 	}
 
@@ -121,7 +120,7 @@ func anagram(ahs *AnagramStruct, gd gaddag.SimpleGaddag, nodeIdx uint32,
 		if val == 0 {
 			continue
 		}
-		rack[idx]--
+		rack[idx] -= 1
 		if idx == BlankPos {
 			nlet := alphabet.NumLetters()
 			for i := byte(0); i < nlet; i++ {
@@ -135,6 +134,6 @@ func anagram(ahs *AnagramStruct, gd gaddag.SimpleGaddag, nodeIdx uint32,
 				rack)
 		}
 
-		rack[idx]++
+		rack[idx] += 1
 	}
 }

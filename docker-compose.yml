@@ -1,0 +1,15 @@
+version: "3"
+services:
+  macondo:
+    build: .
+    volumes:
+      - ./dawgs:/dawgs
+    command: ./macondo -dawgpath=/dawgs/
+    ports:
+      - 8088:8088
+    networks:
+      - webolith_aeronet
+
+networks:
+  webolith_aeronet:
+    external: true

@@ -1,10 +1,9 @@
 package anagrammer
 
 import (
-	"log"
-
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/lexicon"
+	"log"
 )
 
 // Generate a build challenge with given args.
@@ -28,7 +27,7 @@ func GenerateBuildChallenge(args *BuildChallengeArgs, dawg gaddag.SimpleDawg) (
 	// stuck in an infinite loop.
 	for tries < 10000 {
 		rack := genRack(dist, args.WordLength, 0)
-		tries++
+		tries += 1
 		answers = Anagram(string(rack), dawg, ModeExact)
 		if len(answers) == 0 && args.RequireLengthSolution {
 			continue

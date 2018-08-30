@@ -4,10 +4,9 @@ package anagrammer
 
 import (
 	"fmt"
-	"log"
-
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/lexicon"
+	"log"
 )
 
 const BlankCharacter = '?'
@@ -34,7 +33,7 @@ func GenerateBlanks(args *BlankChallengeArgs, dawg gaddag.SimpleDawg) (
 	// an answer has already been generated.
 	try := func(nBlanks int) (*Question, error) {
 		rack := genRack(dist, args.WordLength, nBlanks)
-		tries++
+		tries += 1
 		answers := Anagram(string(rack), dawg, ModeExact)
 		if len(answers) == 0 || len(answers) > args.MaxSolutions {
 			// Try again!
@@ -60,7 +59,7 @@ func GenerateBlanks(args *BlankChallengeArgs, dawg gaddag.SimpleDawg) (
 			continue
 		}
 		questions[qIndex] = q
-		qIndex++
+		qIndex += 1
 	}
 	for qIndex < args.NumQuestions {
 		q, tryErr := try(2)
@@ -68,7 +67,7 @@ func GenerateBlanks(args *BlankChallengeArgs, dawg gaddag.SimpleDawg) (
 			continue
 		}
 		questions[qIndex] = q
-		qIndex++
+		qIndex += 1
 	}
 	log.Println(tries, "tries")
 	return questions, len(answerMap)
