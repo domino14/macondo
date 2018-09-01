@@ -27,9 +27,9 @@ const (
 
 var templates = template.Must(template.ParseFiles(
 	"templates/index.html"))
-var AuthorizationKey = os.Getenv("AUTH_KEY")
 
-type middleware func(next http.HandlerFunc) http.HandlerFunc
+// AuthorizationKey is used for non-user exposed methods
+var AuthorizationKey = os.Getenv("AUTH_KEY")
 
 func renderTemplate(w http.ResponseWriter, tmpl string) {
 	err := templates.ExecuteTemplate(w, tmpl+".html", nil)
@@ -50,15 +50,16 @@ func init() {
 
 var dawgPath = flag.String("dawgpath", "", "path for dawgs")
 
-func withOptionalAuth(next http.Handler) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+func withOptionalAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// TODO somehow inspect body of request here; not every method
+		// needs to be protected
 		if r.Header.Get("X-Authorization-Key") != AuthorizationKey {
-			http.Error(w, "missing key", http.StatusUnauthorized)
+			http.Error(w, "missing or incorrect key", http.StatusUnauthorized)
 			return
 		}
-
 		next.ServeHTTP(w, r)
-	}
+	})
 }
 
 func addTimeout(i *rpc.RequestInfo) *http.Request {
@@ -75,6 +76,8 @@ func addTimeout(i *rpc.RequestInfo) *http.Request {
 
 	}
 	if shouldModify {
+		// It's ok to not call cancel here (actually i'm not able to)
+		// when timeout expires cancel is implicitly called.
 		ctx, _ := context.WithTimeout(context.Background(), timeout)
 		return i.Request.WithContext(ctx)
 	}
