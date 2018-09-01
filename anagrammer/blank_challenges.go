@@ -17,29 +17,26 @@ const BlankCharacter = '?'
 // to generate a challenge with too many or too few answers, or if
 // an answer has already been generated.
 func try(nBlanks int, dist lexicon.LetterDistribution, wordLength int,
-	dawg gaddag.SimpleDawg, maxSolutions int, answerMap map[string]bool,
-	questionChan chan *Question, errChan chan error) bool {
+	dawg gaddag.SimpleDawg, maxSolutions int, answerMap map[string]bool) (
+	*Question, error) {
 
 	rack := genRack(dist, wordLength, nBlanks)
 	answers := Anagram(string(rack), dawg, ModeExact)
 	if len(answers) == 0 || len(answers) > maxSolutions {
 		// Try again!
-		errChan <- fmt.Errorf("too many or few answers: %v %v",
+		return nil, fmt.Errorf("too many or few answers: %v %v",
 			len(answers), string(rack))
-		return false
 	}
 	for _, answer := range answers {
 		if answerMap[answer] {
-			errChan <- fmt.Errorf("duplicate answer %v", answer)
-			return false
+			return nil, fmt.Errorf("duplicate answer %v", answer)
 		}
 	}
 	for _, answer := range answers {
 		answerMap[answer] = true
 	}
 	w := lexicon.Word{Word: string(rack), Dist: dist}
-	questionChan <- &Question{Q: w.MakeAlphagram(), A: answers}
-	return true
+	return &Question{Q: w.MakeAlphagram(), A: answers}, nil
 }
 
 // GenerateBlanks - Generate a list of blank word challenges given the
@@ -57,47 +54,46 @@ func GenerateBlanks(ctx context.Context, args *BlankChallengeArgs,
 	// Handle 2-blank challenges at the end.
 	// First gen 1-blank challenges.
 	answerMap := make(map[string]bool)
-	questionChan := make(chan *Question)
-	errChan := make(chan error)
+
 	questions := []*Question{}
 	qIndex := 0
 
-	go func() {
-		for qIndex < args.NumQuestions-args.Num2Blanks {
-			success := try(1, dist, args.WordLength, dawg, args.MaxSolutions,
-				answerMap, questionChan, errChan)
-			tries++
-			if !success {
-				continue
-			}
-			qIndex++
-		}
-		for qIndex < args.NumQuestions {
-			success := try(2, dist, args.WordLength, dawg, args.MaxSolutions,
-				answerMap, questionChan, errChan)
-			tries++
-			if !success {
-				continue
-			}
-			qIndex++
-		}
+	defer func() {
+		log.Println("[DEBUG] Leaving GenerateBlanks")
 	}()
+
+	doIteration := func() (*Question, error) {
+		if qIndex < args.NumQuestions-args.Num2Blanks {
+			question, err := try(1, dist, args.WordLength, dawg, args.MaxSolutions,
+				answerMap)
+			tries++
+			return question, err
+		} else if qIndex < args.NumQuestions {
+			question, err := try(2, dist, args.WordLength, dawg, args.MaxSolutions,
+				answerMap)
+			tries++
+			return question, err
+		}
+		return nil, fmt.Errorf("iteration failed?")
+	}
 
 	for {
 		select {
 		case <-ctx.Done():
 			return nil, 0, ctx.Err()
 
-		case q := <-questionChan:
-			questions = append(questions, q)
+		default:
+			question, err := doIteration()
+			if err != nil {
+				log.Printf("[DEBUG] %v", err)
+				continue
+			}
+			questions = append(questions, question)
 			if len(questions) == args.NumQuestions {
-				log.Println(tries, "tries")
+				log.Printf("[DEBUG] %v tries", tries)
 				return questions, len(answerMap), nil
 			}
-		case e := <-errChan:
-			log.Printf("[DEBUG] %v", e)
 		}
-
 	}
 
 }

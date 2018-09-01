@@ -16,6 +16,7 @@ type GaddagService struct{}
 
 func (g *GaddagService) Generate(r *http.Request, args *GaddagServiceArgs,
 	reply *GaddagServiceReply) error {
+
 	GenerateGaddag(args.Filename, args.Minimize, true)
 	reply.Message = "Done"
 	return nil

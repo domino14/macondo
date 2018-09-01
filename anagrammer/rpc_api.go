@@ -90,9 +90,9 @@ func (a *AnagramService) BuildChallenge(r *http.Request, args *BuildChallengeArg
 	if !ok {
 		return fmt.Errorf("Lexicon %v not found", args.Lexicon)
 	}
-	question, numAnswers := GenerateBuildChallenge(args, dawg)
-	if question == nil {
-		return fmt.Errorf("Exceeded max number of tries.")
+	question, numAnswers, err := GenerateBuildChallenge(r.Context(), args, dawg)
+	if err != nil {
+		return err
 	}
 	reply.Question = question
 	reply.NumAnswers = numAnswers

@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/domino14/macondo/anagrammer"
@@ -26,6 +27,9 @@ const (
 
 var templates = template.Must(template.ParseFiles(
 	"templates/index.html"))
+var AuthorizationKey = os.Getenv("AUTH_KEY")
+
+type middleware func(next http.HandlerFunc) http.HandlerFunc
 
 func renderTemplate(w http.ResponseWriter, tmpl string) {
 	err := templates.ExecuteTemplate(w, tmpl+".html", nil)
@@ -38,12 +42,43 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
 	renderTemplate(w, "index")
 }
 
+func init() {
+	if AuthorizationKey == "" {
+		panic("No auth key defined")
+	}
+}
+
 var dawgPath = flag.String("dawgpath", "", "path for dawgs")
 
+func withOptionalAuth(next http.Handler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Authorization-Key") != AuthorizationKey {
+			http.Error(w, "missing key", http.StatusUnauthorized)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	}
+}
+
 func addTimeout(i *rpc.RequestInfo) *http.Request {
-	// what do i do with the cancel function?
-	ctx, _ := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	return i.Request.WithContext(ctx)
+	var timeout time.Duration
+	shouldModify := false
+	switch i.Method {
+	case "AnagramService.BlankChallenge":
+		timeout = 1500 * time.Millisecond
+		shouldModify = true
+	case "AnagramService.BuildChallenge":
+		log.Printf("Setting timeout to 5000 ms")
+		timeout = 5000 * time.Millisecond
+		shouldModify = true
+
+	}
+	if shouldModify {
+		ctx, _ := context.WithTimeout(context.Background(), timeout)
+		return i.Request.WithContext(ctx)
+	}
+	return i.Request
 }
 
 func main() {
@@ -63,7 +98,7 @@ func main() {
 	// This allows us to modify the request and optionally add a context
 	// timeout.
 	s.RegisterInterceptFunc(addTimeout)
-	http.Handle("/rpc", s)
+	http.Handle("/rpc", withOptionalAuth(s))
 	err := http.ListenAndServe(":8088", nil)
 	if err != nil {
 		log.Fatalln(err)
