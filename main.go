@@ -1,13 +1,12 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"html/template"
 	"log"
 	"net/http"
-	"os"
-	"runtime/pprof"
 	"time"
 
 	"github.com/domino14/macondo/anagrammer"
@@ -39,31 +38,18 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
 	renderTemplate(w, "index")
 }
 
-var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 var dawgPath = flag.String("dawgpath", "", "path for dawgs")
 
 func addTimeout(i *rpc.RequestInfo) *http.Request {
-	ctx := context.
-	i.Request.WithContext(context.)
+	// what do i do with the cancel function?
+	ctx, _ := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	return i.Request.WithContext(ctx)
 }
 
 func main() {
 	flag.Parse()
 	anagrammer.LoadDawgs(*dawgPath)
-	if *cpuprofile != "" {
-		f, err := os.Create(*cpuprofile)
-		if err != nil {
-			log.Fatal(err)
-		}
-		pprof.StartCPUProfile(f)
-		bcArgs := &anagrammer.BlankChallengeArgs{
-			WordLength: 8, NumQuestions: 25, Lexicon: "America", MaxSolutions: 5,
-			Num2Blanks: 2,
-		}
-		anagrammer.GenerateBlanks(bcArgs, anagrammer.Dawgs["America"])
-		defer pprof.StopCPUProfile()
-		return
-	}
+
 	http.HandleFunc("/", mainHandler)
 	http.HandleFunc("/static/", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, r.URL.Path[1:])

@@ -1,11 +1,8 @@
 package anagrammer
 
 import (
-	"context"
 	"fmt"
-	"log"
 	"net/http"
-	"time"
 )
 
 type AnagramServiceArgs struct {
@@ -71,19 +68,15 @@ type BuildChallengeReply struct {
 func (a *AnagramService) BlankChallenge(r *http.Request, args *BlankChallengeArgs,
 	reply *BlankChallengeReply) error {
 
-	to, cancel := context.WithTimeout(r.Context(), time.Millisecond*50)
-	defer cancel()
-	rCopy := r.WithContext(to)
-	select {
-	case <-to.Done():
-		log.Println("Timeout is done")
-		log.Println(to.Err())
-	}
 	dawg, ok := Dawgs[args.Lexicon]
 	if !ok {
 		return fmt.Errorf("Lexicon %v not found", args.Lexicon)
 	}
-	blanks, numAnswers := GenerateBlanks(args, dawg)
+
+	blanks, numAnswers, err := GenerateBlanks(r.Context(), args, dawg)
+	if err != nil {
+		return err
+	}
 	reply.Questions = blanks
 	reply.NumQuestions = len(blanks)
 	reply.NumAnswers = numAnswers
