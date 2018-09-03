@@ -47,6 +47,7 @@ type AnagramStruct struct {
 }
 
 func Anagram(letters string, dawg gaddag.SimpleDawg, mode AnagramMode) []string {
+
 	letters = strings.ToUpper(letters)
 	answers := make(map[string]bool)
 	answerChan := make(chan string)

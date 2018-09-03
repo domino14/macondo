@@ -1,14 +1,29 @@
 package anagrammer
 
 import (
+	"errors"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
+	"strings"
+	"time"
 )
 
+// AuthorizationKey is used for non-user exposed methods
+var AuthorizationKey = os.Getenv("AUTH_KEY")
+
+func init() {
+	if AuthorizationKey == "" {
+		panic("No auth key defined")
+	}
+}
+
 type AnagramServiceArgs struct {
-	Lexicon string `json:"lexicon"`
-	Letters string `json:"letters"`
-	Mode    string `json:"mode"`
+	Lexicon   string `json:"lexicon"`
+	Letters   string `json:"letters"`
+	Mode      string `json:"mode"`
+	AuthToken string `json:"authToken"`
 }
 
 type AnagramServiceReply struct {
@@ -22,6 +37,8 @@ func (a *AnagramService) Anagram(r *http.Request, args *AnagramServiceArgs,
 	reply *AnagramServiceReply) error {
 	// We cast to a SimpleGaddag here because only that one has
 	// GetAlphabet defined.
+	start := time.Now()
+
 	dawg, ok := Dawgs[args.Lexicon]
 	if !ok {
 		return fmt.Errorf("Lexicon %v not found", args.Lexicon)
@@ -30,9 +47,20 @@ func (a *AnagramService) Anagram(r *http.Request, args *AnagramServiceArgs,
 	if args.Mode == "exact" {
 		mode = ModeExact
 	}
+
+	if strings.Count(args.Letters, "?") > 2 {
+		if args.AuthToken != AuthorizationKey {
+			return errors.New("query too complex")
+		}
+	}
+
 	sols := Anagram(args.Letters, dawg, mode)
 	reply.Words = sols
 	reply.NumWords = len(sols)
+
+	elapsed := time.Since(start)
+	log.Printf("Anagram took %s", elapsed)
+
 	return nil
 }
 

@@ -7,7 +7,6 @@ import (
 	"html/template"
 	"log"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/domino14/macondo/anagrammer"
@@ -28,9 +27,6 @@ const (
 var templates = template.Must(template.ParseFiles(
 	"templates/index.html"))
 
-// AuthorizationKey is used for non-user exposed methods
-var AuthorizationKey = os.Getenv("AUTH_KEY")
-
 func renderTemplate(w http.ResponseWriter, tmpl string) {
 	err := templates.ExecuteTemplate(w, tmpl+".html", nil)
 	if err != nil {
@@ -42,25 +38,7 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
 	renderTemplate(w, "index")
 }
 
-func init() {
-	if AuthorizationKey == "" {
-		panic("No auth key defined")
-	}
-}
-
 var dawgPath = flag.String("dawgpath", "", "path for dawgs")
-
-func withOptionalAuth(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// TODO somehow inspect body of request here; not every method
-		// needs to be protected
-		if r.Header.Get("X-Authorization-Key") != AuthorizationKey {
-			http.Error(w, "missing or incorrect key", http.StatusUnauthorized)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
 
 func addTimeout(i *rpc.RequestInfo) *http.Request {
 	var timeout time.Duration
@@ -71,9 +49,6 @@ func addTimeout(i *rpc.RequestInfo) *http.Request {
 		timeout = 1500 * time.Millisecond
 		shouldModify = true
 	case "AnagramService.BuildChallenge":
-		timeout = 5000 * time.Millisecond
-		shouldModify = true
-	case "AnagramService.Anagram":
 		timeout = 5000 * time.Millisecond
 		shouldModify = true
 	}
@@ -103,7 +78,7 @@ func main() {
 	// This allows us to modify the request and optionally add a context
 	// timeout.
 	s.RegisterInterceptFunc(addTimeout)
-	http.Handle("/rpc", withOptionalAuth(s))
+	http.Handle("/rpc", s)
 	err := http.ListenAndServe(":8088", nil)
 	if err != nil {
 		log.Fatalln(err)
