@@ -64,21 +64,23 @@ func withOptionalAuth(next http.Handler) http.Handler {
 
 func addTimeout(i *rpc.RequestInfo) *http.Request {
 	var timeout time.Duration
+	var ctx context.Context
 	shouldModify := false
 	switch i.Method {
 	case "AnagramService.BlankChallenge":
 		timeout = 1500 * time.Millisecond
 		shouldModify = true
 	case "AnagramService.BuildChallenge":
-		log.Printf("Setting timeout to 5000 ms")
 		timeout = 5000 * time.Millisecond
 		shouldModify = true
-
+	case "AnagramService.Anagram":
+		timeout = 5000 * time.Millisecond
+		shouldModify = true
 	}
 	if shouldModify {
 		// It's ok to not call cancel here (actually i'm not able to)
 		// when timeout expires cancel is implicitly called.
-		ctx, _ := context.WithTimeout(context.Background(), timeout)
+		ctx, _ = context.WithTimeout(context.Background(), timeout)
 		return i.Request.WithContext(ctx)
 	}
 	return i.Request
