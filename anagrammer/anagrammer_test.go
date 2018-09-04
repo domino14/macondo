@@ -1,8 +1,13 @@
 package anagrammer
 
-import "testing"
+import (
+	"os"
+	"testing"
 
-import "github.com/domino14/macondo/gaddag"
+	"github.com/domino14/macondo/gaddag"
+)
+
+var LexiconDir = os.Getenv("LEXICON_DIR")
 
 type testpair struct {
 	rack string
@@ -66,7 +71,7 @@ var spanishExactTests = []testpair{
 }
 
 func TestAnagram(t *testing.T) {
-	gaddag.GenerateDawg("/Users/cesar/coding/webolith/words/OWL2.txt", true,
+	gaddag.GenerateDawg(LexiconDir+"OWL2.txt", true,
 		true)
 	d := gaddag.SimpleDawg(gaddag.LoadGaddag("out.dawg"))
 	for _, pair := range buildTests {
@@ -85,7 +90,7 @@ func TestAnagram(t *testing.T) {
 }
 
 func TestAnagramSpanish(t *testing.T) {
-	gaddag.GenerateDawg("/Users/cesar/coding/webolith/words/FISE09.txt", true,
+	gaddag.GenerateDawg(LexiconDir+"FISE09.txt", true,
 		true)
 	d := gaddag.SimpleDawg(gaddag.LoadGaddag("out.dawg"))
 	for _, pair := range spanishBuildTests {

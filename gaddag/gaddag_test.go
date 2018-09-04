@@ -1,7 +1,12 @@
 package gaddag
 
-import "testing"
-import _ "log"
+import (
+	_ "log"
+	"os"
+	"testing"
+)
+
+var LexiconDir = os.Getenv("LEXICON_DIR")
 
 type testpair struct {
 	prefix string
@@ -129,7 +134,7 @@ func TestFindPrefixMinimize(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping test in short mode")
 	}
-	GenerateGaddag("/Users/cesar/coding/webolith/words/OWL2.txt", true, true)
+	GenerateGaddag(LexiconDir+"OWL2.txt", true, true)
 	gd := LoadGaddag("out.gaddag")
 	for _, pair := range findPrefixTests {
 		found := FindPrefix(gd, pair.prefix)
@@ -144,7 +149,7 @@ func TestFindWordMinimize(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping test in short mode")
 	}
-	GenerateGaddag("/Users/cesar/coding/webolith/words/OWL2.txt", true, true)
+	GenerateGaddag(LexiconDir+"OWL2.txt", true, true)
 	gd := LoadGaddag("out.gaddag")
 	for _, pair := range findWordTests {
 		found := FindWord(gd, pair.prefix)
@@ -159,7 +164,7 @@ func TestFindSpanishWordMinimize(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping test in short mode")
 	}
-	GenerateGaddag("/Users/cesar/coding/webolith/words/FISE09.txt", true, true)
+	GenerateGaddag(LexiconDir+"FISE09.txt", true, true)
 	gd := LoadGaddag("out.gaddag")
 	for _, pair := range findSpanishWordTests {
 		found := FindWord(gd, pair.prefix)
@@ -226,7 +231,7 @@ var innerHookTests = []innerhooktest{
 }
 
 func TestFindHooks(t *testing.T) {
-	GenerateGaddag("/Users/cesar/coding/webolith/words/OWL2.txt", true, true)
+	GenerateGaddag(LexiconDir+"OWL2.txt", true, true)
 	gd := LoadGaddag("out.gaddag")
 	for _, pair := range backHookTests {
 		hooks := string(FindHooks(gd, pair.word, BackHooks))
@@ -251,7 +256,7 @@ func TestFindHooks(t *testing.T) {
 }
 
 func TestFindWordDawgMinimize(t *testing.T) {
-	GenerateDawg("/Users/cesar/coding/webolith/words/OWL2.txt", true, true)
+	GenerateDawg(LexiconDir+"OWL2.txt", true, true)
 	d := LoadGaddag("out.dawg")
 	for _, pair := range findWordTests {
 		found := FindWordDawg(d, pair.prefix)
