@@ -27,7 +27,7 @@ var findPrefixTests = []testpair{
 	{"BAREFITD", false},
 	{"KAFF", true},
 	{"FF", false},
-	{"EEE", false},
+	{"EEE", true}, // EEEW!
 	{"ABC", true},
 	{"ABCD", false},
 	{"FIREFANG", true},
@@ -130,12 +130,22 @@ var findSpanishWordTests = []testpair{
 	{"2AMATIUJ", false},
 }
 
+func TestMain(m *testing.M) {
+	GenerateGaddag(LexiconDir+"America.txt", true, true)
+	os.Rename("out.gaddag", "/tmp/gen_america.gaddag")
+	GenerateDawg(LexiconDir+"America.txt", true, true)
+	os.Rename("out.dawg", "/tmp/gen_america.dawg")
+	GenerateGaddag(LexiconDir+"FISE09.txt", true, true)
+	os.Rename("out.gaddag", "/tmp/gen_fise09.gaddag")
+
+	os.Exit(m.Run())
+}
+
 func TestFindPrefixMinimize(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping test in short mode")
 	}
-	GenerateGaddag(LexiconDir+"OWL2.txt", true, true)
-	gd := LoadGaddag("out.gaddag")
+	gd := LoadGaddag("/tmp/gen_america.gaddag")
 	for _, pair := range findPrefixTests {
 		found := FindPrefix(gd, pair.prefix)
 		if found != pair.found {
@@ -149,8 +159,7 @@ func TestFindWordMinimize(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping test in short mode")
 	}
-	GenerateGaddag(LexiconDir+"OWL2.txt", true, true)
-	gd := LoadGaddag("out.gaddag")
+	gd := LoadGaddag("/tmp/gen_america.gaddag")
 	for _, pair := range findWordTests {
 		found := FindWord(gd, pair.prefix)
 		if found != pair.found {
@@ -164,8 +173,7 @@ func TestFindSpanishWordMinimize(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping test in short mode")
 	}
-	GenerateGaddag(LexiconDir+"FISE09.txt", true, true)
-	gd := LoadGaddag("out.gaddag")
+	gd := LoadGaddag("/tmp/gen_fise09.gaddag")
 	for _, pair := range findSpanishWordTests {
 		found := FindWord(gd, pair.prefix)
 		if found != pair.found {
@@ -181,7 +189,7 @@ type hookpair struct {
 }
 
 var backHookTests = []hookpair{
-	{"HOUSE", "DLRS"},
+	{"HOUSE", "DLRSY"},
 	{"HOUSED", ""},
 	{"AB", "AOSY"},
 	{"BA", "ADGHLMNPRSTY"},
@@ -231,8 +239,7 @@ var innerHookTests = []innerhooktest{
 }
 
 func TestFindHooks(t *testing.T) {
-	GenerateGaddag(LexiconDir+"OWL2.txt", true, true)
-	gd := LoadGaddag("out.gaddag")
+	gd := LoadGaddag("/tmp/gen_america.gaddag")
 	for _, pair := range backHookTests {
 		hooks := string(FindHooks(gd, pair.word, BackHooks))
 		if hooks != pair.hooks {
@@ -256,8 +263,7 @@ func TestFindHooks(t *testing.T) {
 }
 
 func TestFindWordDawgMinimize(t *testing.T) {
-	GenerateDawg(LexiconDir+"OWL2.txt", true, true)
-	d := LoadGaddag("out.dawg")
+	d := LoadGaddag("/tmp/gen_america.dawg")
 	for _, pair := range findWordTests {
 		found := FindWordDawg(d, pair.prefix)
 		if found != pair.found {

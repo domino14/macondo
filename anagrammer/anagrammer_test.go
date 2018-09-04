@@ -15,19 +15,19 @@ type testpair struct {
 }
 
 var buildTests = []testpair{
-	{"aehilort", 269},
-	{"CINEMATOGRAPHER", 3015},
-	{"AEINRST", 262},
-	{"KERYGMA", 88},
-	{"LOCOFOCO", 14},
+	{"aehilort", 275},
+	{"CINEMATOGRAPHER", 3142},
+	{"AEINRST", 276},
+	{"KERYGMA", 92},
+	{"LOCOFOCO", 16},
 	{"VIVIFIC", 2},
 	{"ZYZZYVA", 6},
 	{"HHHHHHHH", 0},
-	{"OCTOROON", 34},
-	{"FIREFANG????", 53618},
-	{"AEINST??", 9246},
-	{"ZZZZ?", 3},
-	{"???", 1116},
+	{"OCTOROON", 36},
+	{"FIREFANG????", 56184},
+	{"AEINST??", 9650},
+	{"ZZZZ?", 4},
+	{"???", 1186},
 }
 var exactTests = []testpair{
 	{"AEHILORT", 1},
@@ -39,9 +39,9 @@ var exactTests = []testpair{
 	{"HHHHHHHH", 0},
 	{"OCTOROON", 1},
 	{"FIREFANG????", 2},
-	{"AEINST??", 247},
+	{"AEINST??", 264},
 	{"ZZZZ?", 0},
-	{"???", 1015},
+	{"???", 1081},
 }
 
 var spanishBuildTests = []testpair{
@@ -71,19 +71,19 @@ var spanishExactTests = []testpair{
 }
 
 func TestAnagram(t *testing.T) {
-	gaddag.GenerateDawg(LexiconDir+"OWL2.txt", true,
+	gaddag.GenerateDawg(LexiconDir+"America.txt", true,
 		true)
 	d := gaddag.SimpleDawg(gaddag.LoadGaddag("out.dawg"))
 	for _, pair := range buildTests {
 		answers := Anagram(pair.rack, d, ModeBuild)
 		if len(answers) != pair.num {
-			t.Error("For", pair.rack, "expected", pair.num, "got", answers)
+			t.Error("For", pair.rack, "expected", pair.num, "got", len(answers))
 		}
 	}
 	for _, pair := range exactTests {
 		answers := Anagram(pair.rack, d, ModeExact)
 		if len(answers) != pair.num {
-			t.Error("For", pair.rack, "expected", pair.num, "got", answers)
+			t.Error("For", pair.rack, "expected", pair.num, "got", len(answers))
 		}
 	}
 
@@ -96,13 +96,13 @@ func TestAnagramSpanish(t *testing.T) {
 	for _, pair := range spanishBuildTests {
 		answers := Anagram(pair.rack, d, ModeBuild)
 		if len(answers) != pair.num {
-			t.Error("For", pair.rack, "expected", pair.num, "got", answers)
+			t.Error("For", pair.rack, "expected", pair.num, "got", len(answers))
 		}
 	}
 	for _, pair := range spanishExactTests {
 		answers := Anagram(pair.rack, d, ModeExact)
 		if len(answers) != pair.num {
-			t.Error("For", pair.rack, "expected", pair.num, "got", answers)
+			t.Error("For", pair.rack, "expected", pair.num, "got", len(answers))
 		}
 	}
 }
