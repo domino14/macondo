@@ -5,7 +5,7 @@ version: 2
 jobs:
   build:
     environment:
-      LEXICON_DIR: /opt/db
+      LEXICON_DIR: /opt/db/
       AUTH_KEY: abcdef
     docker:
       # specify the version
