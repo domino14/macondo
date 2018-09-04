@@ -26,6 +26,12 @@ jobs:
       - add_ssh_keys:
           fingerprints:
             - "ad:9e:01:fa:fa:e7:03:a4:49:74:98:91:52:a8:dc:3c"
+      - run:
+          name: Install git and ssh
+          command: apk update && apk upgrade && apk add git openssh
+      - run:
+          name: Install ssl
+          command: apk add --update ca-certificates openssl && update-ca-certificates
       - run: if [ ! -n "$(grep "^bitbucket.org " ~/.ssh/known_hosts)" ]; then ssh-keyscan bitbucket.org >> ~/.ssh/known_hosts 2>/dev/null; fi
       - run:
           name: Clone word dbs Webolith repo
