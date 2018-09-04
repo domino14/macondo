@@ -9,7 +9,7 @@ jobs:
       AUTH_KEY: abcdef
     docker:
       # specify the version
-      - image: circleci/golang:1.9
+      - image: golang:alpine
 
       # Specify service dependencies here if necessary
       # CircleCI maintains a library of pre-built images
@@ -35,5 +35,3 @@ jobs:
       - run: mv /opt/webolith-word-dbs/*.db $LEXICON_DIR
       # specify any bash command here prefixed with `run: `
       - run: go test -v ./...
-
-      # something to get it to build
