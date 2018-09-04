@@ -38,6 +38,6 @@ jobs:
           command: git clone git@bitbucket.org:cesar_del_solar/webolith-word-dbs.git /opt/webolith-word-dbs
       - run: mkdir $LEXICON_DIR
       - run: cd /opt/webolith-word-dbs && tar xzvf dbs.tar.gz
-      - run: mv /opt/webolith-word-dbs/*.db $LEXICON_DIR
+      - run: mv /opt/webolith-word-dbs/*.txt $LEXICON_DIR
       # specify any bash command here prefixed with `run: `
       - run: go test -v ./...
