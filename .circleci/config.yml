@@ -32,7 +32,6 @@ jobs:
       - run:
           name: Install ssl
           command: apk add --update ca-certificates openssl && update-ca-certificates
-      - run: mkdir ~/.ssh
       - run: if [ ! -n "$(grep "^bitbucket.org " ~/.ssh/known_hosts)" ]; then ssh-keyscan bitbucket.org >> ~/.ssh/known_hosts 2>/dev/null; fi
       - run:
           name: Clone word dbs Webolith repo
