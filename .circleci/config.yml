@@ -91,7 +91,7 @@ jobs:
           name: Clone private Webolith repo
           command: git clone git@bitbucket.org:cesar_del_solar/webolith-private.git /opt/webolith-private
       - run: fab create_k8s_configs_macondo:prod
-      # - run: fab deploy_macondo:prod
+      - run: fab deploy_macondo:prod
 
 workflows:
   version: 2
