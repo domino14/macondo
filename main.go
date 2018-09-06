@@ -18,10 +18,10 @@ import (
 const (
 	// BlankQuestionsTimeout - how much time to give blank challenge
 	// generator before giving up
-	BlankQuestionsTimeout = 5000 * time.Millisecond
+	BlankQuestionsTimeout = 2500 * time.Millisecond
 	// BuildQuestionsTimeout - how much time to give build challenge
 	// generator before giving up
-	BuildQuestionsTimeout = 10000 * time.Millisecond
+	BuildQuestionsTimeout = 5000 * time.Millisecond
 )
 
 var templates = template.Must(template.ParseFiles(
@@ -46,10 +46,10 @@ func addTimeout(i *rpc.RequestInfo) *http.Request {
 	shouldModify := false
 	switch i.Method {
 	case "AnagramService.BlankChallenge":
-		timeout = 1500 * time.Millisecond
+		timeout = BlankQuestionsTimeout
 		shouldModify = true
 	case "AnagramService.BuildChallenge":
-		timeout = 5000 * time.Millisecond
+		timeout = BuildQuestionsTimeout
 		shouldModify = true
 	}
 	if shouldModify {
