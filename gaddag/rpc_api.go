@@ -2,6 +2,7 @@
 package gaddag
 
 import (
+	"crypto/subtle"
 	"errors"
 	"net/http"
 	"os"
@@ -31,7 +32,7 @@ type GaddagService struct{}
 func (g *GaddagService) Generate(r *http.Request, args *GaddagServiceArgs,
 	reply *GaddagServiceReply) error {
 
-	if args.AuthToken != AuthorizationKey {
+	if subtle.ConstantTimeCompare([]byte(args.AuthToken), []byte(AuthorizationKey)) != 1 {
 		return errors.New("missing or bad auth token")
 	}
 
@@ -43,7 +44,7 @@ func (g *GaddagService) Generate(r *http.Request, args *GaddagServiceArgs,
 func (g *GaddagService) GenerateDawg(r *http.Request, args *GaddagServiceArgs,
 	reply *GaddagServiceReply) error {
 
-	if args.AuthToken != AuthorizationKey {
+	if subtle.ConstantTimeCompare([]byte(args.AuthToken), []byte(AuthorizationKey)) != 1 {
 		return errors.New("missing or bad auth token")
 	}
 

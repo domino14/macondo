@@ -1,6 +1,7 @@
 package anagrammer
 
 import (
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"log"
@@ -49,7 +50,7 @@ func (a *AnagramService) Anagram(r *http.Request, args *AnagramServiceArgs,
 	}
 
 	if strings.Count(args.Letters, "?") > 2 {
-		if args.AuthToken != AuthorizationKey {
+		if subtle.ConstantTimeCompare([]byte(args.AuthToken), []byte(AuthorizationKey)) != 1 {
 			return errors.New("query too complex")
 		}
 	}
