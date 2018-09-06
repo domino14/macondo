@@ -5,26 +5,41 @@
   $(function() {
     var $results;
 
+    var defaultArgs = {
+      'AnagramService.Anagram': {
+        mode: 'build',
+        letters: 'AEROLITH',
+        lexicon: 'America'
+      },
+      'GaddagService.Generate': {
+        filename: '/Users/Cesar/coding/ujamaa/words/OWL2.txt',
+        minimize: true
+      },
+      'GaddagService.GenerateDawg': {
+        filename: '/Users/Cesar/coding/ujamaa/words/OWL2.txt',
+        minimize: true
+      },
+      'AnagramService.BlankChallenge': {
+        wordLength: 7,
+        numQuestions: 25,
+        lexicon: 'America',
+        maxSolutions: 10,
+        num2Blanks: 2
+      },
+      'AnagramService.BuildChallenge': {
+        wordLength: 7,
+        minWordLength: 4,
+        requireLengthSolution: true,
+        lexicon: 'America',
+        minSolutions: 30,
+        maxSolutions: 100
+      }
+    };
+
     $('#input-method-name').change(function() {
       var method = $('#input-method-name').val();
-      if (method === 'AnagramService.Anagram') {
-        $('#input-args').val('{"mode": "build", "letters": "AEROLITH"}');
-      } else if (method === 'GaddagService.Generate') {
-        $('#input-args').val([
-          '{"filename": "/Users/Cesar/coding/ujamaa/words/OWL2.txt",',
-          ' "minimize": true}'
-        ].join(''));
-      } else if (method === 'GaddagService.LoadDawg') {
-        $('#input-args').val(
-          '{"filename": "/Users/Cesar/coding/ujamaa/words/OWL2.dawg"}');
-      } else if (method === 'GaddagService.GenerateDawg') {
-        $('#input-args').val([
-          '{"filename": "/Users/Cesar/coding/ujamaa/words/OWL2.txt",',
-          ' "minimize": true}'
-        ].join(''));
-      }
+      $('#input-args').val(JSON.stringify(defaultArgs[method]));
     });
-
 
     $results = $('#textarea-results');
     $.jsonRPC.setup({

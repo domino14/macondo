@@ -20,7 +20,7 @@ func TestRacks(t *testing.T) {
 					numBlanks := 0
 					for j := 0; j < len(rack); j++ {
 						if rack[j] == BlankCharacter {
-							numBlanks += 1
+							numBlanks++
 						}
 					}
 					if numBlanks != n {

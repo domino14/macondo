@@ -3,18 +3,47 @@
 package anagrammer
 
 import (
+	"context"
 	"fmt"
+	"log"
+
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/lexicon"
-	"log"
 )
 
 const BlankCharacter = '?'
 
+// try tries to generate challenges. It returns an error if it fails
+// to generate a challenge with too many or too few answers, or if
+// an answer has already been generated.
+func try(nBlanks int, dist lexicon.LetterDistribution, wordLength int,
+	dawg gaddag.SimpleDawg, maxSolutions int, answerMap map[string]bool) (
+	*Question, error) {
+
+	rack := genRack(dist, wordLength, nBlanks)
+	answers := Anagram(string(rack), dawg, ModeExact)
+	if len(answers) == 0 || len(answers) > maxSolutions {
+		// Try again!
+		return nil, fmt.Errorf("too many or few answers: %v %v",
+			len(answers), string(rack))
+	}
+	for _, answer := range answers {
+		if answerMap[answer] {
+			return nil, fmt.Errorf("duplicate answer %v", answer)
+		}
+	}
+	for _, answer := range answers {
+		answerMap[answer] = true
+	}
+	w := lexicon.Word{Word: string(rack), Dist: dist}
+	return &Question{Q: w.MakeAlphagram(), A: answers}, nil
+}
+
 // GenerateBlanks - Generate a list of blank word challenges given the
 // parameters in args.
-func GenerateBlanks(args *BlankChallengeArgs, dawg gaddag.SimpleDawg) (
-	[]*Question, int) {
+func GenerateBlanks(ctx context.Context, args *BlankChallengeArgs,
+	dawg gaddag.SimpleDawg) ([]*Question, int, error) {
+
 	var dist lexicon.LetterDistribution
 	if args.Lexicon == "FISE09" {
 		dist = lexicon.SpanishLetterDistribution()
@@ -25,52 +54,48 @@ func GenerateBlanks(args *BlankChallengeArgs, dawg gaddag.SimpleDawg) (
 	// Handle 2-blank challenges at the end.
 	// First gen 1-blank challenges.
 	answerMap := make(map[string]bool)
-	questions := make([]*Question, args.NumQuestions)
+
+	questions := []*Question{}
 	qIndex := 0
 
-	// try tries to generate challenges. It returns an error if it fails
-	// to generate a challenge with too many or too few answers, or if
-	// an answer has already been generated.
-	try := func(nBlanks int) (*Question, error) {
-		rack := genRack(dist, args.WordLength, nBlanks)
-		tries += 1
-		answers := Anagram(string(rack), dawg, ModeExact)
-		if len(answers) == 0 || len(answers) > args.MaxSolutions {
-			// Try again!
-			return nil, fmt.Errorf("Too many or few answers! %v %v",
-				len(answers), string(rack))
+	defer func() {
+		log.Println("[DEBUG] Leaving GenerateBlanks")
+	}()
+
+	doIteration := func() (*Question, error) {
+		if qIndex < args.NumQuestions-args.Num2Blanks {
+			question, err := try(1, dist, args.WordLength, dawg, args.MaxSolutions,
+				answerMap)
+			tries++
+			return question, err
+		} else if qIndex < args.NumQuestions {
+			question, err := try(2, dist, args.WordLength, dawg, args.MaxSolutions,
+				answerMap)
+			tries++
+			return question, err
 		}
-		for _, answer := range answers {
-			if answerMap[answer] {
-				return nil, fmt.Errorf("Duplicate answer %v!", answer)
-			}
-		}
-		for _, answer := range answers {
-			answerMap[answer] = true
-		}
-		w := lexicon.Word{Word: string(rack), Dist: dist}
-		return &Question{Q: w.MakeAlphagram(), A: answers}, nil
+		return nil, fmt.Errorf("iteration failed?")
 	}
 
-	for qIndex < args.NumQuestions-args.Num2Blanks {
-		q, tryErr := try(1)
-		if tryErr != nil {
-			log.Println("[DEBUG]", tryErr)
-			continue
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, 0, ctx.Err()
+
+		default:
+			question, err := doIteration()
+			if err != nil {
+				log.Printf("[DEBUG] %v", err)
+				continue
+			}
+			questions = append(questions, question)
+			if len(questions) == args.NumQuestions {
+				log.Printf("[DEBUG] %v tries", tries)
+				return questions, len(answerMap), nil
+			}
 		}
-		questions[qIndex] = q
-		qIndex += 1
 	}
-	for qIndex < args.NumQuestions {
-		q, tryErr := try(2)
-		if tryErr != nil {
-			continue
-		}
-		questions[qIndex] = q
-		qIndex += 1
-	}
-	log.Println(tries, "tries")
-	return questions, len(answerMap)
+
 }
 
 // genRack - Generate a random rack using `dist` and with `blanks` blanks.

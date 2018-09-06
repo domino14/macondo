@@ -29,6 +29,10 @@
   name = "github.com/gorilla/rpc"
   version = "1.1.0"
 
+[[override]]
+  name = "github.com/gorilla/rpc"
+  branch = "master"
+
 [prune]
   go-tests = true
   unused-packages = true
