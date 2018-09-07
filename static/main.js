@@ -43,7 +43,7 @@
 
     $results = $('#textarea-results');
     $.jsonRPC.setup({
-      endPoint: '/rpc'
+      endPoint: '/macondo/rpc'
     });
     $('#submit-rpc').click(function() {
       var methodName, args;
