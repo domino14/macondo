@@ -61,7 +61,6 @@ func GenerateBlanks(ctx context.Context, args *BlankChallengeArgs,
 	defer func() {
 		log.Println("[DEBUG] Leaving GenerateBlanks")
 	}()
-
 	doIteration := func() (*Question, error) {
 		if qIndex < args.NumQuestions-args.Num2Blanks {
 			question, err := try(1, dist, args.WordLength, dawg, args.MaxSolutions,
@@ -89,6 +88,7 @@ func GenerateBlanks(ctx context.Context, args *BlankChallengeArgs,
 				continue
 			}
 			questions = append(questions, question)
+			qIndex++
 			if len(questions) == args.NumQuestions {
 				log.Printf("[DEBUG] %v tries", tries)
 				return questions, len(answerMap), nil

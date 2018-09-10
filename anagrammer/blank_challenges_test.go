@@ -1,7 +1,13 @@
 package anagrammer
 
-import "testing"
-import "github.com/domino14/macondo/lexicon"
+import (
+	"context"
+	"strings"
+	"testing"
+
+	"github.com/domino14/macondo/gaddag"
+	"github.com/domino14/macondo/lexicon"
+)
 
 func TestRacks(t *testing.T) {
 	dists := []lexicon.LetterDistribution{
@@ -33,11 +39,39 @@ func TestRacks(t *testing.T) {
 	}
 }
 
-// func TestGenBlanks(t *testing.T) {
-// 	dist := []lexicon.SpanishLetterDistribution()
-// 	bcArgs := &BlankChallengeArgs{
-// 		WordLength: 7, NumQuestions: 25, Lexicon: "FISE09", MaxSolutions: 5,
-// 		Num2Blanks: 1,
-// 	}
-// 	GenerateBlanks(bcArgs, Dawgs["FISE09"])
-// }
+func TestGenBlanks(t *testing.T) {
+	gaddag.GenerateDawg(LexiconDir+"America.txt", true, true)
+	d := gaddag.SimpleDawg(gaddag.LoadGaddag("out.dawg"))
+
+	ctx := context.Background()
+	bcArgs := &BlankChallengeArgs{
+		WordLength: 7, NumQuestions: 25, Lexicon: "America", MaxSolutions: 5,
+		Num2Blanks: 6,
+	}
+	qs, sols, err := GenerateBlanks(ctx, bcArgs, d)
+	if err != nil {
+		t.Errorf("GenBlanks returned an error: %v", err)
+	}
+	actualSols := 0
+	num2Blanks := 0
+	if len(qs) != bcArgs.NumQuestions {
+		t.Errorf("Generated %v questions, expected %v", len(qs), bcArgs.NumQuestions)
+	}
+	for _, q := range qs {
+		if strings.Count(q.Q, "?") == 2 {
+			num2Blanks++
+		}
+		if len(q.A) > bcArgs.MaxSolutions {
+			t.Errorf("Number of solutions was %v, expected <= %v", len(q.A),
+				bcArgs.MaxSolutions)
+		}
+		actualSols += len(q.A)
+	}
+	if num2Blanks != bcArgs.Num2Blanks {
+		t.Errorf("Expected %v 2-blank questions, got %v", bcArgs.Num2Blanks,
+			num2Blanks)
+	}
+	if actualSols != sols {
+		t.Errorf("Expected %v solutions, got %v solutions", sols, actualSols)
+	}
+}
