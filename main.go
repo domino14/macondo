@@ -18,7 +18,7 @@ import (
 const (
 	// BlankQuestionsTimeout - how much time to give blank challenge
 	// generator before giving up
-	BlankQuestionsTimeout = 2500 * time.Millisecond
+	BlankQuestionsTimeout = 5000 * time.Millisecond
 	// BuildQuestionsTimeout - how much time to give build challenge
 	// generator before giving up
 	BuildQuestionsTimeout = 5000 * time.Millisecond

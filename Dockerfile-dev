@@ -1,0 +1,7 @@
+FROM golang:alpine
+ENV GOPATH=/go
+ADD . /go/src/github.com/domino14/macondo
+WORKDIR /go/src/github.com/domino14/macondo
+
+EXPOSE 8088
+CMD go run main.go -dawgpath=/dawgs/
