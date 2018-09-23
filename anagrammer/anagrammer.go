@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/domino14/macondo/gaddag"
 )
@@ -41,7 +42,7 @@ const (
 var Dawgs map[string]gaddag.SimpleDawg
 
 type AnagramStruct struct {
-	answerChan chan string
+	answerList []string
 	mode       AnagramMode
 	numLetters int
 }
@@ -49,8 +50,8 @@ type AnagramStruct struct {
 func Anagram(letters string, dawg gaddag.SimpleDawg, mode AnagramMode) []string {
 
 	letters = strings.ToUpper(letters)
-	answers := make(map[string]bool)
-	answerChan := make(chan string)
+	answers := make(map[string]struct{})
+	answerList := []string{}
 	runes := []rune(letters)
 	gd := gaddag.SimpleGaddag(dawg)
 	alphabet := gd.GetAlphabet()
@@ -68,19 +69,28 @@ func Anagram(letters string, dawg gaddag.SimpleDawg, mode AnagramMode) []string 
 	}
 
 	ahs := &AnagramStruct{
-		answerChan: answerChan,
+		answerList: answerList,
 		mode:       mode,
 		numLetters: len(runes),
 	}
-
+	stopChan := make(chan struct{})
+	start := time.Now()
 	go func() {
 		anagram(ahs, gd, gd.GetRootNodeIndex(), alphabet, "", rack)
-		close(ahs.answerChan)
+		close(stopChan)
 	}()
+	<-stopChan
+
+	empty := struct{}{}
 	// Use a map to throw away duplicate answers (can happen with blanks)
-	for answer := range ahs.answerChan {
-		answers[answer] = true
+	// This seems to be significantly faster than allowing the anagramming
+	// goroutine to write directly to a map.
+	for _, answer := range ahs.answerList {
+		answers[answer] = empty
 	}
+	elapsed := time.Since(start)
+	log.Printf("Anagramming itself took %s", elapsed)
+
 	// Turn the answers map into a string array.
 	answerStrings := make([]string, len(answers))
 	i := 0
@@ -102,7 +112,7 @@ func anagramHelper(letter rune, gd gaddag.SimpleGaddag, ahs *AnagramStruct,
 		toCheck := answerSoFar + string(letter)
 		if ahs.mode == ModeBuild || (ahs.mode == ModeExact &&
 			len([]rune(toCheck)) == ahs.numLetters) {
-			ahs.answerChan <- toCheck
+			ahs.answerList = append(ahs.answerList, toCheck)
 		}
 	}
 

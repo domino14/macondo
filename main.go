@@ -7,6 +7,9 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"runtime/pprof"
 	"time"
 
 	"github.com/domino14/macondo/anagrammer"
@@ -65,6 +68,13 @@ func main() {
 	flag.Parse()
 	anagrammer.LoadDawgs(*dawgPath)
 
+	f, err := os.Create("profile.ppf")
+	if err != nil {
+		log.Fatal(err)
+	}
+	pprof.StartCPUProfile(f)
+	defer pprof.StopCPUProfile()
+
 	http.HandleFunc("/", mainHandler)
 	http.HandleFunc("/static/", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, r.URL.Path[1:])
@@ -79,9 +89,26 @@ func main() {
 	// timeout.
 	s.RegisterInterceptFunc(addTimeout)
 	http.Handle("/rpc", s)
-	err := http.ListenAndServe(":8088", nil)
-	if err != nil {
-		log.Fatalln(err)
+
+	server := &http.Server{Addr: ":8088", Handler: nil}
+
+	go func() {
+		if err := server.ListenAndServe(); err != nil {
+			// handle err
+		}
+	}()
+
+	// Setting up signal capturing
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt)
+
+	// Waiting for SIGINT (pkill -2)
+	<-stop
+
+	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+	if err := server.Shutdown(ctx); err != nil {
+		// handle err
 	}
 
+	log.Println("Exiting...")
 }
