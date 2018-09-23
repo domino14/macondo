@@ -42,6 +42,7 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 var dawgPath = flag.String("dawgpath", "", "path for dawgs")
+var profilePath = flag.String("profilepath", "", "path for profile")
 
 func addTimeout(i *rpc.RequestInfo) *http.Request {
 	var timeout time.Duration
@@ -68,12 +69,14 @@ func main() {
 	flag.Parse()
 	anagrammer.LoadDawgs(*dawgPath)
 
-	f, err := os.Create("profile.ppf")
-	if err != nil {
-		log.Fatal(err)
+	if *profilePath != "" {
+		f, err := os.Create(*profilePath)
+		if err != nil {
+			log.Fatal(err)
+		}
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
 	}
-	pprof.StartCPUProfile(f)
-	defer pprof.StopCPUProfile()
 
 	http.HandleFunc("/", mainHandler)
 	http.HandleFunc("/static/", func(w http.ResponseWriter, r *http.Request) {

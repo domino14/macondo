@@ -82,10 +82,19 @@ func (g SimpleGaddag) GetLetterSet(nodeIdx uint32) uint32 {
 // InLetterSet returns whether the `letter` is in the node at `nodeIdx`'s
 // letter set.
 func (g SimpleGaddag) InLetterSet(letter rune, nodeIdx uint32) bool {
-	letterSet := g.GetLetterSet(nodeIdx)
-	idx, ok := g.alphabet.vals[letter]
-	if !ok { // The ^ character, likely, when looking up single-letter words.
+	if letter == SeparationToken {
 		return false
+	}
+	var idx uint32
+	letterSet := g.GetLetterSet(nodeIdx)
+	if g.alphabet.athruz {
+		idx = uint32(letter) - uint32('A')
+	} else {
+		var ok bool
+		idx, ok = g.alphabet.vals[letter]
+		if !ok { // The ^ character, likely, when looking up single-letter words.
+			return false
+		}
 	}
 	return letterSet&(1<<idx) != 0
 }
@@ -121,11 +130,21 @@ func (g *SimpleGaddag) SetAlphabet() {
 	alphabet.Init()
 	// The very first element of the array is the alphabet size.
 	numRunes := g.arr[0]
+	athruz := false
+	runeCt := uint32(65)
 	for i := uint32(0); i < numRunes; i++ {
 		alphabet.vals[rune(g.arr[i+1])] = i
 		alphabet.letters[byte(i)] = rune(g.arr[i+1])
+		if runeCt == g.arr[i+1] {
+			runeCt++
+		}
 	}
+	if runeCt == uint32(91) {
+		athruz = true
+	}
+	alphabet.athruz = athruz
 	g.alphabet = &alphabet
+	log.Printf("Alphabet athruz is %v", alphabet.athruz)
 }
 
 func (g SimpleGaddag) GetAlphabet() *Alphabet {

@@ -14,16 +14,22 @@ const (
 
 type LetterSlice []rune
 
-// This file defines an alphabet.
+// Alphabet defines an alphabet.
 // For now, don't create gaddags for alphabets with more than 31 unique
 // runes. Our file format will not yet support it.
-// The vals map has uint32 values for simplicity in serialization. It's ok
-// to waste a few bytes here and there...
 type Alphabet struct {
-	vals        map[rune]uint32
-	letters     map[byte]rune
+	// vals is a map of the actual physical letter rune (like 'A') to a
+	// number representing it, from 0 to MaxAlphabetSize.
+	// The vals map has uint32 values for simplicity in serialization. It's ok
+	// to waste a few bytes here and there...
+	vals map[rune]uint32
+	// letters is a map of the 0 to MaxAlphabetSize value back to a letter.
+	letters map[byte]rune
+
 	letterSlice LetterSlice
 	curIdx      uint32
+	// true if alphabet contains just A through Z with no gaps in between.
+	athruz bool
 }
 
 // update the alphabet map.
@@ -31,12 +37,12 @@ func (a *Alphabet) update(word string) error {
 	for _, char := range word {
 		if _, ok := a.vals[char]; !ok {
 			a.vals[char] = a.curIdx
-			a.curIdx += 1
+			a.curIdx++
 		}
 	}
 
 	if a.curIdx == MaxAlphabetSize {
-		return fmt.Errorf("Exceeded max alphabet size.")
+		return fmt.Errorf("exceeded max alphabet size")
 	}
 	return nil
 }
@@ -68,7 +74,7 @@ func (a Alphabet) NumLetters() uint8 {
 
 func (a *Alphabet) genLetterSlice() {
 	a.letterSlice = []rune{}
-	for rn, _ := range a.vals {
+	for rn := range a.vals {
 		a.letterSlice = append(a.letterSlice, rn)
 	}
 	sort.Sort(a.letterSlice)

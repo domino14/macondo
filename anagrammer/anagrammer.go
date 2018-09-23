@@ -30,7 +30,7 @@ func LoadDawgs(dawgPath string) {
 	}
 }
 
-const BlankPos = 31
+const BlankPos = gaddag.MaxAlphabetSize
 
 type AnagramMode int
 
@@ -56,7 +56,7 @@ func Anagram(letters string, dawg gaddag.SimpleDawg, mode AnagramMode) []string 
 	gd := gaddag.SimpleGaddag(dawg)
 	alphabet := gd.GetAlphabet()
 	// 31 maximum letters allowed. rack[31] will be the blank.
-	rack := make([]uint8, 32)
+	rack := make([]uint8, gaddag.MaxAlphabetSize+1)
 	for _, r := range runes {
 		if r != '?' {
 			idx, err := alphabet.Val(r)
