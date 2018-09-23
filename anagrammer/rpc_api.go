@@ -49,7 +49,7 @@ func (a *AnagramService) Anagram(r *http.Request, args *AnagramServiceArgs,
 		mode = ModeExact
 	}
 
-	if strings.Count(args.Letters, "?") > 2 {
+	if strings.Count(args.Letters, "?") > 4 {
 		if subtle.ConstantTimeCompare([]byte(args.AuthToken), []byte(AuthorizationKey)) != 1 {
 			return errors.New("query too complex")
 		}

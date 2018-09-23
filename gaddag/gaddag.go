@@ -25,8 +25,9 @@ import (
 // If the node has no arcs, the arc array is empty.
 
 type SimpleGaddag struct {
-	arr      []uint32
-	alphabet *Alphabet
+	arr        []uint32
+	alphabet   *Alphabet
+	numLetters uint32
 }
 
 type SimpleDawg SimpleGaddag
@@ -76,6 +77,8 @@ func (g SimpleGaddag) GetLetterSet(nodeIdx uint32) uint32 {
 	// Look in the letter set list for this code. We use g[0] because
 	// that contains the offset in `g` where the letter sets begin.
 	// (See serialization code).
+	// Note: for some reason g.numLetters seems to be a little slower
+	// than g.arr[0].
 	return g.arr[letterSetCode+2+g.arr[0]]
 }
 
@@ -118,7 +121,7 @@ func (g SimpleGaddag) NumArcs(nodeIdx uint32) byte {
 
 // GetRootNodeIndex gets the index of the root node.
 func (g SimpleGaddag) GetRootNodeIndex() uint32 {
-	alphabetLength := g.arr[0]
+	alphabetLength := g.numLetters
 	letterSets := g.arr[alphabetLength+1]
 	return letterSets + alphabetLength + 2
 }
@@ -144,6 +147,7 @@ func (g *SimpleGaddag) SetAlphabet() {
 	}
 	alphabet.athruz = athruz
 	g.alphabet = &alphabet
+	g.numLetters = numRunes
 	log.Printf("Alphabet athruz is %v", alphabet.athruz)
 }
 
