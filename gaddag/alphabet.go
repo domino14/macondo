@@ -55,6 +55,9 @@ func (a *Alphabet) Init() {
 // Return the 'value' of this rune in the alphabet; i.e. a number from
 // 0 to 31
 func (a Alphabet) Val(r rune) (uint32, error) {
+	if a.athruz {
+		return uint32(r - 'A'), nil
+	}
 	val, ok := a.vals[r]
 	if ok {
 		return val, nil
@@ -64,6 +67,9 @@ func (a Alphabet) Val(r rune) (uint32, error) {
 
 // Return the letter that this position in the alphabet corresponds to.
 func (a Alphabet) Letter(b byte) rune {
+	if a.athruz {
+		return rune(b) + 'A'
+	}
 	return a.letters[b]
 }
 
