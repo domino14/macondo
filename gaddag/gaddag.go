@@ -90,8 +90,9 @@ func (g SimpleGaddag) InLetterSet(letter rune, nodeIdx uint32) bool {
 	}
 	var idx uint32
 	letterSet := g.GetLetterSet(nodeIdx)
+
 	if g.alphabet.athruz {
-		idx = uint32(letter) - uint32('A')
+		idx = uint32(letter - 'A')
 	} else {
 		var ok bool
 		idx, ok = g.alphabet.vals[letter]
