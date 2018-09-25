@@ -29,7 +29,7 @@ func LoadDawgs(dawgPath string) {
 	}
 }
 
-const BlankPos = 31
+const BlankPos = gaddag.MaxAlphabetSize
 
 type AnagramMode int
 
@@ -41,7 +41,7 @@ const (
 var Dawgs map[string]gaddag.SimpleDawg
 
 type AnagramStruct struct {
-	answerChan chan string
+	answerList []string
 	mode       AnagramMode
 	numLetters int
 }
@@ -49,13 +49,12 @@ type AnagramStruct struct {
 func Anagram(letters string, dawg gaddag.SimpleDawg, mode AnagramMode) []string {
 
 	letters = strings.ToUpper(letters)
-	answers := make(map[string]bool)
-	answerChan := make(chan string)
+	answerList := []string{}
 	runes := []rune(letters)
 	gd := gaddag.SimpleGaddag(dawg)
 	alphabet := gd.GetAlphabet()
 	// 31 maximum letters allowed. rack[31] will be the blank.
-	rack := make([]uint8, 32)
+	rack := make([]uint8, gaddag.MaxAlphabetSize+1)
 	for _, r := range runes {
 		if r != '?' {
 			idx, err := alphabet.Val(r)
@@ -68,19 +67,33 @@ func Anagram(letters string, dawg gaddag.SimpleDawg, mode AnagramMode) []string 
 	}
 
 	ahs := &AnagramStruct{
-		answerChan: answerChan,
+		answerList: answerList,
 		mode:       mode,
 		numLetters: len(runes),
 	}
+	stopChan := make(chan struct{})
 
 	go func() {
 		anagram(ahs, gd, gd.GetRootNodeIndex(), alphabet, "", rack)
-		close(ahs.answerChan)
+		close(stopChan)
 	}()
+	<-stopChan
+
+	return dedupeAnswers(ahs.answerList)
+	//return ahs.answerList
+}
+
+func dedupeAnswers(answerList []string) []string {
 	// Use a map to throw away duplicate answers (can happen with blanks)
-	for answer := range ahs.answerChan {
-		answers[answer] = true
+	// This seems to be significantly faster than allowing the anagramming
+	// goroutine to write directly to a map.
+	empty := struct{}{}
+	answers := make(map[string]struct{})
+
+	for _, answer := range answerList {
+		answers[answer] = empty
 	}
+
 	// Turn the answers map into a string array.
 	answerStrings := make([]string, len(answers))
 	i := 0
@@ -102,7 +115,7 @@ func anagramHelper(letter rune, gd gaddag.SimpleGaddag, ahs *AnagramStruct,
 		toCheck := answerSoFar + string(letter)
 		if ahs.mode == ModeBuild || (ahs.mode == ModeExact &&
 			len([]rune(toCheck)) == ahs.numLetters) {
-			ahs.answerChan <- toCheck
+			ahs.answerList = append(ahs.answerList, toCheck)
 		}
 	}
 
@@ -118,6 +131,7 @@ func anagramHelper(letter rune, gd gaddag.SimpleGaddag, ahs *AnagramStruct,
 
 func anagram(ahs *AnagramStruct, gd gaddag.SimpleGaddag, nodeIdx uint32,
 	alphabet *gaddag.Alphabet, answerSoFar string, rack []uint8) {
+
 	for idx, val := range rack {
 		if val == 0 {
 			continue
@@ -126,6 +140,7 @@ func anagram(ahs *AnagramStruct, gd gaddag.SimpleGaddag, nodeIdx uint32,
 		if idx == BlankPos {
 			nlet := alphabet.NumLetters()
 			for i := byte(0); i < nlet; i++ {
+
 				letter := alphabet.Letter(i)
 				anagramHelper(letter, gd, ahs, nodeIdx, alphabet, answerSoFar,
 					rack)

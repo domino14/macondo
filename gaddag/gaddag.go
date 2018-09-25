@@ -25,8 +25,9 @@ import (
 // If the node has no arcs, the arc array is empty.
 
 type SimpleGaddag struct {
-	arr      []uint32
-	alphabet *Alphabet
+	arr        []uint32
+	alphabet   *Alphabet
+	numLetters uint32
 }
 
 type SimpleDawg SimpleGaddag
@@ -76,16 +77,28 @@ func (g SimpleGaddag) GetLetterSet(nodeIdx uint32) uint32 {
 	// Look in the letter set list for this code. We use g[0] because
 	// that contains the offset in `g` where the letter sets begin.
 	// (See serialization code).
+	// Note: for some reason g.numLetters seems to be a little slower
+	// than g.arr[0].
 	return g.arr[letterSetCode+2+g.arr[0]]
 }
 
 // InLetterSet returns whether the `letter` is in the node at `nodeIdx`'s
 // letter set.
 func (g SimpleGaddag) InLetterSet(letter rune, nodeIdx uint32) bool {
-	letterSet := g.GetLetterSet(nodeIdx)
-	idx, ok := g.alphabet.vals[letter]
-	if !ok { // The ^ character, likely, when looking up single-letter words.
+	if letter == SeparationToken {
 		return false
+	}
+	var idx uint32
+	letterSet := g.GetLetterSet(nodeIdx)
+
+	if g.alphabet.athruz {
+		idx = uint32(letter - 'A')
+	} else {
+		var ok bool
+		idx, ok = g.alphabet.vals[letter]
+		if !ok { // The ^ character, likely, when looking up single-letter words.
+			return false
+		}
 	}
 	return letterSet&(1<<idx) != 0
 }
@@ -109,7 +122,7 @@ func (g SimpleGaddag) NumArcs(nodeIdx uint32) byte {
 
 // GetRootNodeIndex gets the index of the root node.
 func (g SimpleGaddag) GetRootNodeIndex() uint32 {
-	alphabetLength := g.arr[0]
+	alphabetLength := g.numLetters
 	letterSets := g.arr[alphabetLength+1]
 	return letterSets + alphabetLength + 2
 }
@@ -121,11 +134,22 @@ func (g *SimpleGaddag) SetAlphabet() {
 	alphabet.Init()
 	// The very first element of the array is the alphabet size.
 	numRunes := g.arr[0]
+	athruz := false
+	runeCt := uint32(65)
 	for i := uint32(0); i < numRunes; i++ {
 		alphabet.vals[rune(g.arr[i+1])] = i
 		alphabet.letters[byte(i)] = rune(g.arr[i+1])
+		if runeCt == g.arr[i+1] {
+			runeCt++
+		}
 	}
+	if runeCt == uint32(91) {
+		athruz = true
+	}
+	alphabet.athruz = athruz
 	g.alphabet = &alphabet
+	g.numLetters = numRunes
+	log.Printf("Alphabet athruz is %v", alphabet.athruz)
 }
 
 func (g SimpleGaddag) GetAlphabet() *Alphabet {
