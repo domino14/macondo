@@ -16,7 +16,7 @@ var AuthorizationKey = os.Getenv("AUTH_KEY")
 
 func init() {
 	if AuthorizationKey == "" {
-		panic("No auth key defined")
+		log.Printf("[ERROR] No auth key defined")
 	}
 }
 
