@@ -4,6 +4,7 @@ package gaddag
 import (
 	"crypto/subtle"
 	"errors"
+	"log"
 	"net/http"
 	"os"
 )
@@ -13,7 +14,7 @@ var AuthorizationKey = os.Getenv("AUTH_KEY")
 
 func init() {
 	if AuthorizationKey == "" {
-		panic("No auth key defined")
+		log.Printf("No auth key defined")
 	}
 }
 
