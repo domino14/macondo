@@ -36,6 +36,7 @@ type AnagramMode int
 const (
 	ModeBuild AnagramMode = iota
 	ModeExact
+	ModePattern
 )
 
 var Dawgs map[string]gaddag.SimpleDawg

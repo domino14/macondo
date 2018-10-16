@@ -19,7 +19,7 @@ func FindPrefix(g SimpleGaddag, prefix string) bool {
 }
 
 func FindWord(g SimpleGaddag, word string) bool {
-	if g.arr == nil {
+	if g.Arr == nil {
 		return false
 	}
 	found, _ := findWord(g, g.GetRootNodeIndex(), prepareForFind(word), 0)
@@ -29,7 +29,7 @@ func FindWord(g SimpleGaddag, word string) bool {
 // Finds a word in a SimpleGaddag that is a DAWG. The word can just be
 // found verbatim.
 func FindWordDawg(g SimpleGaddag, word string) bool {
-	if g.arr == nil {
+	if g.Arr == nil {
 		return false
 	}
 	found, _ := findWord(g, g.GetRootNodeIndex(), []rune(word), 0)
@@ -69,7 +69,7 @@ func FindHooks(g SimpleGaddag, word string, hookType int) []rune {
 		return nil
 	}
 	hooks := []rune{}
-	numArcs := byte(g.arr[nodeIdx] >> NumArcsBitLoc)
+	numArcs := byte(g.Arr[nodeIdx] >> NumArcsBitLoc)
 	// Look for the last letter as an arc.
 	found = false
 	var nextNodeIdx uint32
@@ -114,7 +114,7 @@ func findPartialWord(g SimpleGaddag, nodeIdx uint32, partialWord []rune,
 		return true
 	}
 
-	numArcs = byte(g.arr[nodeIdx] >> NumArcsBitLoc)
+	numArcs = byte(g.Arr[nodeIdx] >> NumArcsBitLoc)
 	found := false
 	for i = byte(1); i <= numArcs; i++ {
 		nextNodeIdx, letter = g.ArcToIdxLetter(nodeIdx + uint32(i))
@@ -148,7 +148,7 @@ func findWord(g SimpleGaddag, nodeIdx uint32, word []rune, curIdx uint8) (
 		return g.InLetterSet(word[curIdx], nodeIdx), nodeIdx
 	}
 
-	numArcs = byte(g.arr[nodeIdx] >> NumArcsBitLoc)
+	numArcs = byte(g.Arr[nodeIdx] >> NumArcsBitLoc)
 	found := false
 	for i = byte(1); i <= numArcs; i++ {
 		nextNodeIdx, letter = g.ArcToIdxLetter(nodeIdx + uint32(i))

@@ -1,22 +1,22 @@
 0x2 0x4e 0x4f 0x3 0x0 0x2 0x1 0x2000000 0xa 0x100000d 0x1000000 0x1f00000c 0x1 0x2
 
 
-0   2 Alphabet
-1        N
-2        O
+0   2 Alphabet          0x00000002
+1        N              0x0000004e
+2        O              0x0000004f
 
-3   3 Lettersets
-4        ø
-5        O
-6        N
+3   3 Lettersets        0x00000003
+4        ø              0x00000000
+5        O              0x00000002
+6        N              0x00000001
     Nodes
-7        LetterSet ø, 2 arcs                        0x2000000
-8        Arc#1, letter N, next node 10              0xa
-9        Arc#2, letter O, next node 13              0x100000d
-10       LetterSet ø, 1 arc                         0X1000000
-11       Arc#1, letter ^, next node 12              0x1f0000c
-12       Letterset O, no arcs                       0x1
-13       Letterset N, no arcs                       0x2
+7  NODE  2 arcs, LetterSet ø                        0x02|000000
+8        Arc#1, letter N, next node 10              0x00|00000a
+9        Arc#2, letter O, next node 13              0x01|00000d
+10 NODE  1 arc, LetterSet ø                         0X01|000000
+11       Arc#1, letter ^, next node 12              0x1f|00000c
+12 NODE  no arcs, Letterset O                       0x00|000001
+13 NODE  no arcs, Letterset N                       0x00|000002
 
 Paths:
 
