@@ -8,8 +8,8 @@ type NodeArr []*Node
 type NodeBucket [][]NodeArr
 
 const (
-	MAX_DEPTH      = 16
-	LETTER_BUCKETS = 100
+	MaxDepth      = 16
+	LetterBuckets = 100
 )
 
 // Minimize is a method to minimize the passed-in GADDAG!
@@ -23,13 +23,13 @@ func (g *Gaddag) Minimize() {
 	// Two nodes are the same if they have the same letter sets, the same
 	// arc letters, and all their children are the same. To narrow down the
 	// number of direct comparisons we have to make, let's bucket our nodes.
-	bucket := make(NodeBucket, MAX_DEPTH) // Max depth
-	for i := 0; i < MAX_DEPTH; i++ {
-		bucket[i] = make([]NodeArr, LETTER_BUCKETS)
+	bucket := make(NodeBucket, MaxDepth) // Max depth
+	for i := 0; i < MaxDepth; i++ {
+		bucket[i] = make([]NodeArr, LetterBuckets)
 	}
 	visits := 0
 	traverseTreeAndExecute(g.Root, func(node *Node) {
-		key := node.letterSum % LETTER_BUCKETS
+		key := node.letterSum % LetterBuckets
 		if !node.visited {
 			bucket[node.depth-1][key] = append(bucket[node.depth-1][key], node)
 			visits++
@@ -37,9 +37,9 @@ func (g *Gaddag) Minimize() {
 		node.visited = true
 	})
 	fmt.Println("Visited", visits, "nodes")
-	for i := 0; i < MAX_DEPTH; i++ {
+	for i := 0; i < MaxDepth; i++ {
 		fmt.Println("Depth", i, "...")
-		for j := 0; j < LETTER_BUCKETS; j++ {
+		for j := 0; j < LetterBuckets; j++ {
 			narr := bucket[i][j]
 			nNodes := len(narr)
 			if nNodes < 2 {

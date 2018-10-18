@@ -1,5 +1,11 @@
 // Package movegen contains all the move-generating functions. It makes
 // heavy use of the GADDAG.
+// Implementation notes:
+// Using Gordon's GADDAG algorithm with some minor speed changes. Similar to
+// the A&J DAWG algorithm, we should not be doing "for each letter allowed
+// on this square", as that is a for loop through every letter in the rack.
+// Instead, we should go through the node siblings in the Gen algorithm,
+// and check their presence in the cross-sets.
 package movegen
 
 import "github.com/domino14/macondo/gaddag"
@@ -28,8 +34,20 @@ func LettersRemain(rack []uint8) bool {
 }
 
 type GordonGenerator struct {
-	gaddag gaddag.SimpleGaddag
-	board  GameBoard
+	gaddag   gaddag.SimpleGaddag
+	board    GameBoard
+	vertical bool // Are we generating moves vertically or not?
+	// The move generator works by generating moves starting at an anchor
+	// square. curAnchorRow and curAnchorCol are the 0-based coordinates
+	// of the current anchor square.
+	curAnchorRow uint8
+	curAnchorCol uint8
+}
+
+func (gen *GordonGenerator) GenAll(rack []string, board GameBoard) {
+	gen.board = board
+	gen.curAnchorRow = 7
+	gen.curAnchorCol = 7
 }
 
 // NextNodeIdx is analogous to NextArc in the Gordon paper. The main difference
@@ -65,17 +83,91 @@ func (gen GordonGenerator) NextNodeIdx(nodeIdx uint32, letter rune) uint32 {
 	return 0
 }
 
+// XXX REWRITE THIS ASAP; THIS WONT WORK FOR ANYTHING OTHER THAN ENGLISH
+func crossAllowed(cross uint32, letter rune) bool {
+	idx := letter - 'A'
+	return cross&(1<<uint32(idx)) != 0
+}
+
 // Gen is an implementation of the Gordon Gen function.
 // pos is the offset from an anchor square.
-func (gen *GordonGenerator) Gen(pos, word, rack, arc) {
+func (gen *GordonGenerator) Gen(pos uint8, word string, rack *Rack,
+	nodeIdx uint32) {
+
+	curRow := gen.curAnchorRow
+	curCol := gen.curAnchorCol
+
+	var crossSet uint32
+
+	if gen.vertical {
+		curRow += pos
+	} else {
+		curCol += pos
+	}
+
 	// If a letter L is already on this square, then GoOn...
+	curSquare := gen.board[curRow][curCol]
+	curLetter := curSquare.letter
+
+	if gen.vertical {
+		crossSet = curSquare.hcrossSet
+	} else {
+		crossSet = curSquare.vcrossSet
+	}
+
+	if curLetter != ' ' {
+		nnIdx := NextNodeIdx(nodeIdx, curLetter)
+		if nnIdx != 0 {
+			gen.GoOn(pos, curLetter, word, nnIdx)
+		}
+	} else if !rack.empty {
+		// Instead of doing the loop in the Gordon Gen algorithm, we should
+		// just go through the node's children and test them independently
+		// against the cross set. Note that some of these children could be
+		// the SeparationToken
+		arcs := uint32(gen.gaddag.NumArcs(nodeIdx))
+		for i := nodeIdx + 1; i <= nodeIdx+arcs; i++ {
+			nnIdx, nextLetter := gen.gaddag.ArcToIdxLetter(gen.gaddag.Arr[i])
+			if nextLetter == gaddag.SeparationToken {
+				break
+			}
+			// The letter must be on the rack AND it must be allowed in the
+			// cross-set.
+			if !(rack.contains(nextLetter) && crossAllowed(crossSet, nextLetter)) {
+				continue
+			}
+			rack.take(nextLetter)
+			gen.GoOn(pos, nextLetter, word, nnIdx)
+			rack.add(nextLetter)
+		}
+		// Check for the blanks meow.
+		if rack.contains(BlankCharacter) {
+			// Just go through all the children; they're all acceptable if they're
+			// in the cross-set.
+			for i := nodeIdx + 1; i <= nodeIdx+arcs; i++ {
+				nnIdx, nextLetter := gen.gaddag.ArcToIdxLetter(gen.gaddag.Arr[i])
+				if nextLetter == gaddag.SeparationToken {
+					break
+				}
+				if !crossAllowed(crossSet, nextLetter) {
+					continue
+				}
+				rack.take(BlankCharacter)
+				gen.GoOn(pos, L)
+
+			}
+		}
+
+		gen.GoOn()
+	}
 
 }
-func (gen *GordonGenerator) GoOn(pos, L, word, rack, NewArc, OldArc) {
 
-}
+// func (gen *GordonGenerator) GoOn(pos, L, word, rack, NewArc, OldArc) {
 
-// IMPORTANT NOTE: The Gordon GADDAG algorithm is somewhat inefficient because
+// }
+
+// For future?: The Gordon GADDAG algorithm is somewhat inefficient because
 // it goes through all letters on the rack. Then for every letter, it has to
 // call the NextNodeIdx or similar function above, which has for loops that
 // search for the next child.

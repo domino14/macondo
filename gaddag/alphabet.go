@@ -9,14 +9,23 @@ import (
 const (
 	// MaxAlphabetSize is the maximum size of the alphabet, and is also
 	// the "code" for the separation token.
-	MaxAlphabetSize = 31
+	// It should be below 64 so that it can fit in one 64-bit word.
+	// Gwich'in Scrabble has 62 separate letters, including the blank.
+	// Lojban has even more, but that's a weird constructed language.
+	MaxAlphabetSize = 50
 )
 
-type LetterSlice []rune
+type letterSlice []rune
+
+// MachineLetter is a machine-only representation of a letter. It goes from
+// 0 to the maximum alphabet size.
+type MachineLetter uint8
+
+// MachineWord is a slice of MachineLetter; it is a machine-only representation
+// of a word.
+type MachineWord []MachineLetter
 
 // Alphabet defines an alphabet.
-// For now, don't create gaddags for alphabets with more than 31 unique
-// runes. Our file format will not yet support it.
 type Alphabet struct {
 	// vals is a map of the actual physical letter rune (like 'A') to a
 	// number representing it, from 0 to MaxAlphabetSize.
@@ -26,10 +35,8 @@ type Alphabet struct {
 	// letters is a map of the 0 to MaxAlphabetSize value back to a letter.
 	letters map[byte]rune
 
-	letterSlice LetterSlice
+	letterSlice letterSlice
 	curIdx      uint32
-	// true if alphabet contains just A through Z with no gaps in between.
-	athruz bool
 }
 
 // update the alphabet map.
@@ -47,17 +54,15 @@ func (a *Alphabet) update(word string) error {
 	return nil
 }
 
+// Init initializes the alphabet data structures
 func (a *Alphabet) Init() {
 	a.vals = make(map[rune]uint32)
 	a.letters = make(map[byte]rune)
 }
 
-// Return the 'value' of this rune in the alphabet; i.e. a number from
-// 0 to 31
+// Val returns the 'value' of this rune in the alphabet; i.e a number from
+// 0 to max size
 func (a Alphabet) Val(r rune) (uint32, error) {
-	if a.athruz {
-		return uint32(r - 'A'), nil
-	}
 	val, ok := a.vals[r]
 	if ok {
 		return val, nil
@@ -65,15 +70,12 @@ func (a Alphabet) Val(r rune) (uint32, error) {
 	return 0, fmt.Errorf("Letter %v not found in alphabet", r)
 }
 
-// Return the letter that this position in the alphabet corresponds to.
+// Letter returns the letter that this position in the alphabet corresponds to.
 func (a Alphabet) Letter(b byte) rune {
-	if a.athruz {
-		return rune(b) + 'A'
-	}
 	return a.letters[b]
 }
 
-// Return the number of letters in this alphabet.
+// NumLetters returns the number of letters in this alphabet.
 func (a Alphabet) NumLetters() uint8 {
 	return uint8(len(a.letters))
 }
@@ -100,6 +102,7 @@ func (a *Alphabet) Reconcile() {
 	a.genLetterSlice()
 }
 
+// Serialize serializes the alphabet into a slice of 32-bit integers.
 func (a *Alphabet) Serialize() []uint32 {
 	els := []uint32{}
 	// Append the size first, then the individual elements.
@@ -112,9 +115,9 @@ func (a *Alphabet) Serialize() []uint32 {
 	return els
 }
 
-func (a LetterSlice) Len() int           { return len(a) }
-func (a LetterSlice) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a LetterSlice) Less(i, j int) bool { return a[i] < a[j] }
+func (a letterSlice) Len() int           { return len(a) }
+func (a letterSlice) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a letterSlice) Less(i, j int) bool { return a[i] < a[j] }
 
 /*
 

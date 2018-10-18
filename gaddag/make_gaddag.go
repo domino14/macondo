@@ -15,7 +15,7 @@ import (
 type Node struct {
 	Arcs      []*Arc
 	NumArcs   uint8
-	LetterSet uint32
+	LetterSet uint64
 	// Utility fields, for minimizing GADDAG at the end:
 	visited           bool
 	copyOf            *Node

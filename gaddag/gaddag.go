@@ -12,23 +12,24 @@ import (
 // SimpleGaddag is the result of loading the gaddag back into
 // memory. Rather than contain an entire tree of linked nodes, arcs, etc
 // it will be easier and faster to do bitwise operations on a 32-bit array.
-// A SimpleGaddag.Arr is just a slice of 32-bit elements.
+// A SimpleGaddag.Arr is just a slice of 32-bit (or 64-bit) elements.
 // It is created by serializeElements in make_gaddag.go.
 // Schema:
-// [alphabetlength] [letters...] (up to 31)
-// [lettersetlength] [lettersets] (binary bit masks, this is why limiting
-//  to 31 letters), then
+// [alphabetlength] [letters...] (up to 60+?)
+// [lettersetlength] [lettersets] (64-bit binary bit masks)
 // a set of [node] [arcs...]
 // Where node is a 32-bit number: LetterSetIdx + (NumArcs << NumArcsBitLoc)
 // Each arc is a 32-bit number: (letter << LetterBitLoc) + index of next node,
-// where letter is an index from 0 to 31 into alphabet (except for 31, which
-// is the SeparationToken), and the index of the node is the index of the
-// element in the SimpleGaddag array.
+// where letter is an index from 0 to MaxAlphabetSize into alphabet (except for
+// MaxAlphabetSize, which is the SeparationToken), and the index of the node is
+// the index of the element in the SimpleGaddag array.
 //
 // If the node has no arcs, the arc array is empty.
 type SimpleGaddag struct {
-	// Arr is just a slice of 32-bit elements.
-	Arr        []uint32
+	// Arr is just a slice of 32-bit elements, the node array.
+	Arr []uint32
+	// The bit-mask letter sets
+	LetterSets []uint64
 	alphabet   *Alphabet
 	numLetters uint32
 }
@@ -36,7 +37,7 @@ type SimpleGaddag struct {
 type SimpleDawg SimpleGaddag
 
 // SeparationToken is the GADDAG separation token.
-const SeparationToken = '^'
+const SeparationToken = MaxAlphabetSize
 
 // NumArcsBitLoc is the bit location where the number of arcs start.
 // A Node has a number of arcs and a letterSet

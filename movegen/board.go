@@ -8,7 +8,14 @@ type BonusSquare rune
 type Square struct {
 	letter rune
 	bonus  BonusSquare
-	// cross-sets, cross-scores in future
+
+	// hcrossSet from the Appel&Jacobson paper; simply a bit mask of letters
+	// that are allowed on this square.
+	hcrossSet uint32
+	vcrossSet uint32
+	// the scores of the tiles on either side of this square.
+	hcrossScore uint32
+	vcrossScore uint32
 }
 
 // A GameBoard is the main board structure. It contains all of the Squares,
@@ -48,7 +55,7 @@ func init() {
 		` -   "   "   - `,
 		`=  '   =   '  =`,
 	}
-	GameBoard = strToBoard(crosswordGame)
+	GlobalBoard = strToBoard(crosswordGame)
 }
 
 func strToBoard(desc []string) GameBoard {
