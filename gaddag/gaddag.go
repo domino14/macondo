@@ -27,9 +27,9 @@ import (
 // If the node has no arcs, the arc array is empty.
 type SimpleGaddag struct {
 	// Arr is just a slice of 32-bit elements, the node array.
-	Arr []uint32
+	Nodes []uint32
 	// The bit-mask letter sets
-	LetterSets []uint64
+	LetterSets []LetterSet
 	alphabet   *Alphabet
 	numLetters uint32
 }
@@ -37,7 +37,7 @@ type SimpleGaddag struct {
 type SimpleDawg SimpleGaddag
 
 // SeparationToken is the GADDAG separation token.
-const SeparationToken = MaxAlphabetSize
+const SeparationToken = '^'
 
 // NumArcsBitLoc is the bit location where the number of arcs start.
 // A Node has a number of arcs and a letterSet
@@ -71,8 +71,7 @@ func LoadGaddag(filename string) SimpleGaddag {
 
 // ArcToIdxLetter finds the index of the node pointed to by this arc and
 // returns it and the letter.
-func (g SimpleGaddag) ArcToIdxLetter(arcIdx uint32) (
-	uint32, rune) {
+func (g SimpleGaddag) ArcToIdxLetter(arcIdx uint32) (uint32, MachineLetter) {
 	var rn rune
 	letterCode := byte(g.Arr[arcIdx] >> LetterBitLoc)
 	if letterCode == MaxAlphabetSize {
@@ -96,37 +95,26 @@ func (g SimpleGaddag) GetLetterSet(nodeIdx uint32) uint32 {
 
 // InLetterSet returns whether the `letter` is in the node at `nodeIdx`'s
 // letter set.
-func (g SimpleGaddag) InLetterSet(letter rune, nodeIdx uint32) bool {
-	if letter == SeparationToken {
+func (g SimpleGaddag) InLetterSet(letter MachineLetter, nodeIdx uint32) bool {
+	if letter == MaxAlphabetSize {
 		return false
 	}
-	var idx uint32
 	letterSet := g.GetLetterSet(nodeIdx)
-
-	if g.alphabet.athruz {
-		idx = uint32(letter - 'A')
-	} else {
-		var ok bool
-		idx, ok = g.alphabet.vals[letter]
-		if !ok { // The ^ character, likely, when looking up single-letter words.
-			return false
-		}
-	}
-	return letterSet&(1<<idx) != 0
+	return letterSet&(1<<letter) != 0
 }
 
 // LetterSetAsRunes returns the letter set of the node at `nodeIdx` as
 // a slice of runes.
-func (g SimpleGaddag) LetterSetAsRunes(nodeIdx uint32) []rune {
-	letterSet := g.GetLetterSet(nodeIdx)
-	runes := []rune{}
-	for idx := byte(0); idx < SeparationToken; idx++ {
-		if letterSet&(1<<idx) != 0 {
-			runes = append(runes, g.alphabet.letters[idx])
-		}
-	}
-	return runes
-}
+// func (g SimpleGaddag) LetterSetAsRunes(nodeIdx uint32) []rune {
+// 	letterSet := g.GetLetterSet(nodeIdx)
+// 	runes := []rune{}
+// 	for idx := byte(0); idx < SeparationToken; idx++ {
+// 		if letterSet&(1<<idx) != 0 {
+// 			runes = append(runes, g.alphabet.letters[idx])
+// 		}
+// 	}
+// 	return runes
+// }
 
 func (g SimpleGaddag) NumArcs(nodeIdx uint32) byte {
 	return byte(g.Arr[nodeIdx] >> NumArcsBitLoc)
@@ -134,9 +122,7 @@ func (g SimpleGaddag) NumArcs(nodeIdx uint32) byte {
 
 // GetRootNodeIndex gets the index of the root node.
 func (g SimpleGaddag) GetRootNodeIndex() uint32 {
-	alphabetLength := g.numLetters
-	letterSets := g.Arr[alphabetLength+1]
-	return letterSets + alphabetLength + 2
+	return 0
 }
 
 // SetAlphabet recreates the Alphabet structure stored in this SimpleGaddag,

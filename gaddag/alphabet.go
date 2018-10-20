@@ -29,14 +29,13 @@ type MachineWord []MachineLetter
 type Alphabet struct {
 	// vals is a map of the actual physical letter rune (like 'A') to a
 	// number representing it, from 0 to MaxAlphabetSize.
-	// The vals map has uint32 values for simplicity in serialization. It's ok
-	// to waste a few bytes here and there...
-	vals map[rune]uint32
+
+	vals map[rune]uint8
 	// letters is a map of the 0 to MaxAlphabetSize value back to a letter.
-	letters map[byte]rune
+	letters map[uint8]rune
 
 	letterSlice letterSlice
-	curIdx      uint32
+	curIdx      uint8
 }
 
 // update the alphabet map.
@@ -56,13 +55,13 @@ func (a *Alphabet) update(word string) error {
 
 // Init initializes the alphabet data structures
 func (a *Alphabet) Init() {
-	a.vals = make(map[rune]uint32)
-	a.letters = make(map[byte]rune)
+	a.vals = make(map[rune]uint8)
+	a.letters = make(map[uint8]rune)
 }
 
 // Val returns the 'value' of this rune in the alphabet; i.e a number from
 // 0 to max size
-func (a Alphabet) Val(r rune) (uint32, error) {
+func (a Alphabet) Val(r rune) (uint8, error) {
 	val, ok := a.vals[r]
 	if ok {
 		return val, nil
@@ -90,7 +89,7 @@ func (a *Alphabet) genLetterSlice() {
 	// These maps are now deterministic. Renumber them according to
 	// sort order.
 	for idx, rn := range a.letterSlice {
-		a.vals[rn] = uint32(idx)
+		a.vals[rn] = uint8(idx)
 		a.letters[byte(idx)] = rn
 	}
 }
