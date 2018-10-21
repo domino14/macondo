@@ -232,7 +232,7 @@ func (g *Gaddag) serializeElements() {
 	g.serializeAlphabet()
 	letterSets := g.serializeLetterSets()
 	count := uint32(0)
-	g.SerializedNodes = make([]uint32, 1)
+	g.SerializedNodes = []uint32{}
 	missingElements := make(map[uint32]*Node)
 	traverseTreeAndExecute(g.Root, func(node *Node) {
 		if !node.visited {
@@ -255,7 +255,7 @@ func (g *Gaddag) serializeElements() {
 						panic(err)
 					}
 				}
-				serialized = uint32(letterCode << LetterBitLoc)
+				serialized = uint32(letterCode) << LetterBitLoc
 				missingElements[count] = arc.Destination
 				count++
 				g.SerializedNodes = append(g.SerializedNodes, serialized)
@@ -286,6 +286,7 @@ func (g *Gaddag) Save(filename string, magicNumber string) {
 	log.Printf("[INFO] Wrote letter sets (num = %v)", g.NumLetterSets)
 	binary.Write(file, binary.BigEndian, uint32(len(g.SerializedNodes)))
 	binary.Write(file, binary.BigEndian, g.SerializedNodes)
+	log.Printf("[INFO] Wrote nodes (num = %v)", len(g.SerializedNodes))
 	file.Close()
 	log.Println("[INFO] Saved gaddag to", filename)
 }
