@@ -1,6 +1,6 @@
 // This has utility functions for minimizing the GADDAG.
 
-package gaddag
+package gaddagmaker
 
 import "fmt"
 

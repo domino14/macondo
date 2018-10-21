@@ -1,4 +1,4 @@
-package gaddag
+package alphabet
 
 import (
 	"fmt"
@@ -14,6 +14,10 @@ const (
 	// Lojban has even more, but that's a weird constructed language.
 	MaxAlphabetSize = 50
 )
+
+// LetterSet is a bit mask of acceptable letters, with indices from 0 to
+// the maximum alphabet size.
+type LetterSet uint64
 
 type letterSlice []rune
 
@@ -38,8 +42,12 @@ type Alphabet struct {
 	curIdx      uint8
 }
 
+func (a Alphabet) CurIdx() uint8 {
+	return a.curIdx
+}
+
 // update the alphabet map.
-func (a *Alphabet) update(word string) error {
+func (a *Alphabet) Update(word string) error {
 	for _, char := range word {
 		if _, ok := a.vals[char]; !ok {
 			a.vals[char] = a.curIdx
@@ -72,6 +80,14 @@ func (a Alphabet) Val(r rune) (uint8, error) {
 // Letter returns the letter that this position in the alphabet corresponds to.
 func (a Alphabet) Letter(b byte) rune {
 	return a.letters[b]
+}
+
+func (a Alphabet) Letters() map[uint8]rune {
+	return a.letters
+}
+
+func (a Alphabet) Vals() map[rune]uint8 {
+	return a.vals
 }
 
 // NumLetters returns the number of letters in this alphabet.

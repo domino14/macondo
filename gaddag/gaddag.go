@@ -26,7 +26,7 @@ import (
 //
 // If the node has no arcs, the arc array is empty.
 type SimpleGaddag struct {
-	// Arr is just a slice of 32-bit elements, the node array.
+	// Nodes is just a slice of 32-bit elements, the node array.
 	Nodes []uint32
 	// The bit-mask letter sets
 	LetterSets []LetterSet
@@ -35,19 +35,6 @@ type SimpleGaddag struct {
 }
 
 type SimpleDawg SimpleGaddag
-
-// SeparationToken is the GADDAG separation token.
-const SeparationToken = '^'
-
-// NumArcsBitLoc is the bit location where the number of arcs start.
-// A Node has a number of arcs and a letterSet
-const NumArcsBitLoc = 24
-const LetterSetBitMask = (1 << NumArcsBitLoc) - 1
-
-// LetterBitLoc is the location where the letter starts.
-// An Arc has a letter and a next node.
-const LetterBitLoc = 24
-const NodeIdxBitMask = (1 << LetterBitLoc) - 1
 
 // LoadGaddag loads a gaddag from a file and returns the slice of nodes.
 func LoadGaddag(filename string) SimpleGaddag {
@@ -59,6 +46,8 @@ func LoadGaddag(filename string) SimpleGaddag {
 		log.Println("[ERROR] Could not open gaddag", err)
 		return SimpleGaddag{}
 	}
+	file.Read
+
 	binary.Read(file, binary.LittleEndian, &elements)
 	fmt.Println("Elements", elements)
 	data = make([]uint32, elements)

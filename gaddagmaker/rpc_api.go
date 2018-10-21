@@ -1,5 +1,5 @@
 // This is the RPC API for the gaddag package.
-package gaddag
+package gaddagmaker
 
 import (
 	"crypto/subtle"
