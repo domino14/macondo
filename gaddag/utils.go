@@ -1,14 +1,18 @@
 // Utility functions for doing cool things with gaddags.
 package gaddag
 
-import "strings"
-import _ "log"
+import (
+	"log"
+	"strings"
+
+	"github.com/domino14/macondo/alphabet"
+)
 
 // prepare the str for finding by inserting a ^
 func prepareForFind(str string) []rune {
 	str = strings.ToUpper(str)
 	runes := []rune(str)
-	runes = append(runes[:1], append([]rune{'^'}, runes[1:]...)...)
+	runes = append(runes[:1], append([]rune{alphabet.SeparationToken}, runes[1:]...)...)
 	return runes
 }
 
@@ -19,7 +23,7 @@ func FindPrefix(g SimpleGaddag, prefix string) bool {
 }
 
 func FindWord(g SimpleGaddag, word string) bool {
-	if g.Arr == nil {
+	if g.Nodes == nil {
 		return false
 	}
 	found, _ := findWord(g, g.GetRootNodeIndex(), prepareForFind(word), 0)
@@ -29,7 +33,7 @@ func FindWord(g SimpleGaddag, word string) bool {
 // Finds a word in a SimpleGaddag that is a DAWG. The word can just be
 // found verbatim.
 func FindWordDawg(g SimpleGaddag, word string) bool {
-	if g.Arr == nil {
+	if g.Nodes == nil {
 		return false
 	}
 	found, _ := findWord(g, g.GetRootNodeIndex(), []rune(word), 0)
@@ -69,14 +73,14 @@ func FindHooks(g SimpleGaddag, word string, hookType int) []rune {
 		return nil
 	}
 	hooks := []rune{}
-	numArcs := byte(g.Arr[nodeIdx] >> NumArcsBitLoc)
+	numArcs := g.NumArcs(nodeIdx)
 	// Look for the last letter as an arc.
 	found = false
 	var nextNodeIdx uint32
-	var letter rune
+	var mletter alphabet.MachineLetter
 	for i := byte(1); i <= numArcs; i++ {
-		nextNodeIdx, letter = g.ArcToIdxLetter(nodeIdx + uint32(i))
-		if letter == runes[len(runes)-1] {
+		nextNodeIdx, mletter = g.ArcToIdxLetter(nodeIdx + uint32(i))
+		if g.alphabet.Letter(mletter) == runes[len(runes)-1] {
 			found = true
 			break
 		}
@@ -105,7 +109,7 @@ func reverse(word string) []rune {
 func findPartialWord(g SimpleGaddag, nodeIdx uint32, partialWord []rune,
 	curPrefixIdx uint8) bool {
 	var numArcs, i byte
-	var letter rune
+	var mletter alphabet.MachineLetter
 	var nextNodeIdx uint32
 	if curPrefixIdx == uint8(len(partialWord)) {
 		// If we're here, we're going to get an index error - we will
@@ -114,11 +118,11 @@ func findPartialWord(g SimpleGaddag, nodeIdx uint32, partialWord []rune,
 		return true
 	}
 
-	numArcs = byte(g.Arr[nodeIdx] >> NumArcsBitLoc)
+	numArcs = g.NumArcs(nodeIdx)
 	found := false
 	for i = byte(1); i <= numArcs; i++ {
-		nextNodeIdx, letter = g.ArcToIdxLetter(nodeIdx + uint32(i))
-		if letter == partialWord[curPrefixIdx] {
+		nextNodeIdx, mletter = g.ArcToIdxLetter(nodeIdx + uint32(i))
+		if g.alphabet.Letter(mletter) == partialWord[curPrefixIdx] {
 			found = true
 			break
 		}
@@ -127,10 +131,13 @@ func findPartialWord(g SimpleGaddag, nodeIdx uint32, partialWord []rune,
 		if curPrefixIdx == uint8(len(partialWord)-1) {
 			// If we didn't find the prefix, it could be a word and thus be
 			// in the letter set.
-			return g.InLetterSet(partialWord[curPrefixIdx], nodeIdx)
-		} else {
-			return false
+			ml, err := g.alphabet.Val(partialWord[curPrefixIdx])
+			if err != nil {
+				panic("1.Unexpected err: " + err.Error())
+			}
+			return g.InLetterSet(ml, nodeIdx)
 		}
+		return false
 	}
 	curPrefixIdx++
 	return findPartialWord(g, nextNodeIdx, partialWord, curPrefixIdx)
@@ -139,20 +146,30 @@ func findPartialWord(g SimpleGaddag, nodeIdx uint32, partialWord []rune,
 func findWord(g SimpleGaddag, nodeIdx uint32, word []rune, curIdx uint8) (
 	bool, uint32) {
 	var numArcs, i byte
-	var letter rune
+	var letter alphabet.MachineLetter
 	var nextNodeIdx uint32
 
 	if curIdx == uint8(len(word)-1) {
 		// log.Println("checking letter set last Letter", string(letter),
 		// 	"nodeIdx", nodeIdx, "word", string(word))
-		return g.InLetterSet(word[curIdx], nodeIdx), nodeIdx
+		ml, err := g.alphabet.Val(word[curIdx])
+		if err != nil {
+			log.Printf("[ERROR] %v", err)
+			return false, 0
+		}
+		return g.InLetterSet(ml, nodeIdx), nodeIdx
 	}
 
-	numArcs = byte(g.Arr[nodeIdx] >> NumArcsBitLoc)
+	numArcs = g.NumArcs(nodeIdx)
 	found := false
 	for i = byte(1); i <= numArcs; i++ {
 		nextNodeIdx, letter = g.ArcToIdxLetter(nodeIdx + uint32(i))
-		if letter == word[curIdx] {
+		curml, err := g.alphabet.Val(word[curIdx])
+		if err != nil {
+			log.Printf("[ERROR] %v", err)
+			return false, 0
+		}
+		if letter == curml {
 			// log.Println("Letter", string(letter), "this node idx", nodeIdx,
 			// 	"next node idx", nextNodeIdx, "word", string(word))
 			found = true

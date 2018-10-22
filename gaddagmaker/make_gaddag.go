@@ -17,9 +17,6 @@ const (
 	DawgMagicNumber   = "cdwg"
 )
 
-// SeparationToken is the GADDAG separation token.
-const SeparationToken = '^'
-
 // NumArcsBitLoc is the bit location where the number of arcs start.
 // A Node has a number of arcs and a letterSet
 const NumArcsBitLoc = 24
@@ -237,7 +234,7 @@ func (g *Gaddag) serializeElements() {
 	traverseTreeAndExecute(g.Root, func(node *Node) {
 		if !node.visited {
 			var serialized uint32
-			var letterCode uint8
+			var letterCode alphabet.MachineLetter
 			var err error
 			node.visited = true
 			// Represent node as a 32-bit number
@@ -247,7 +244,7 @@ func (g *Gaddag) serializeElements() {
 			node.indexInSerialized = count
 			count++
 			for _, arc := range node.Arcs {
-				if arc.Letter == SeparationToken {
+				if arc.Letter == alphabet.SeparationToken {
 					letterCode = alphabet.MaxAlphabetSize
 				} else {
 					letterCode, err = g.Alphabet.Val(arc.Letter)
@@ -339,12 +336,12 @@ func GenerateDawg(filename string, minimize bool, writeToFile bool) *Gaddag {
 // minimizes it and/or writes it to file.
 func GenerateGaddag(filename string, minimize bool, writeToFile bool) *Gaddag {
 	gaddag := &Gaddag{}
-	words, alphabet := getWords(filename)
+	words, alph := getWords(filename)
 	if words == nil {
 		return gaddag
 	}
 	gaddag.Root = gaddag.createNode()
-	gaddag.Alphabet = alphabet
+	gaddag.Alphabet = alph
 	log.Println("[INFO] Read", len(words), "words")
 	for idx, word := range words {
 		if idx%10000 == 0 {
@@ -364,7 +361,7 @@ func GenerateGaddag(filename string, minimize bool, writeToFile bool) *Gaddag {
 		for j := n - 2; j >= 0; j-- {
 			st = st.addArc(wordRunes[j], gaddag)
 		}
-		st = st.addFinalArc(SeparationToken, wordRunes[n-1], gaddag)
+		st = st.addFinalArc(alphabet.SeparationToken, wordRunes[n-1], gaddag)
 
 		// Partially minimize remaining paths.
 		for m := n - 3; m >= 0; m-- {
@@ -373,7 +370,7 @@ func GenerateGaddag(filename string, minimize bool, writeToFile bool) *Gaddag {
 			for j := m; j >= 0; j-- {
 				st = st.addArc(wordRunes[j], gaddag)
 			}
-			st = st.addArc(SeparationToken, gaddag)
+			st = st.addArc(alphabet.SeparationToken, gaddag)
 			st.forceArc(wordRunes[m+1], forceSt, gaddag)
 		}
 	}

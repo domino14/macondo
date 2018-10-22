@@ -3,6 +3,8 @@ package gaddagmaker
 import (
 	"reflect"
 	"testing"
+
+	"github.com/domino14/macondo/alphabet"
 )
 
 func TestGenAlphabet(t *testing.T) {
@@ -11,7 +13,7 @@ func TestGenAlphabet(t *testing.T) {
 	if gd.Alphabet.CurIdx() != 12 {
 		t.Errorf("curIdx should be 12, is %v", gd.Alphabet.CurIdx())
 	}
-	if !reflect.DeepEqual(gd.Alphabet.Letters(), map[uint8]rune{
+	if !reflect.DeepEqual(gd.Alphabet.Letters(), map[alphabet.MachineLetter]rune{
 		0:  '3',
 		1:  'A',
 		2:  'C',
@@ -28,7 +30,7 @@ func TestGenAlphabet(t *testing.T) {
 		t.Errorf("letters did not match: %v", gd.Alphabet.Letters())
 	}
 
-	expectedMap := map[rune]uint8{
+	expectedMap := map[rune]alphabet.MachineLetter{
 		'3': 0,
 		'A': 1,
 		'C': 2,
@@ -66,102 +68,7 @@ func TestGenGaddag(t *testing.T) {
 	}
 }
 
-func TestGenNo(t *testing.T) {
-	gd := GenerateGaddag("test_files/no.txt", false, false)
-	gd.Save("no.gaddag", GaddagMagicNumber)
-}
-
-// func TestFindWordSmallSpanish(t *testing.T) {
-// 	gd := GenerateGaddag("test_files/little_spanish.txt", false, false)
-// 	gd.serializeElements()
-// 	g := SimpleGaddag{arr: gd.SerializedElements}
-// 	g.SetAlphabet()
-// 	t.Logf("%#x", gd.SerializedElements)
-// 	for _, word := range []string{"AÑO", "COMER", "COMIDA", "COMIDAS",
-// 		"CO3AL"} {
-// 		found := FindWord(g, word)
-// 		if !found {
-// 			t.Errorf("Did not find word %v :(", word)
-// 		}
-// 	}
-
-// }
-
-// func TestFindWordSmallSpanish2(t *testing.T) {
-// 	gd := GenerateGaddag("test_files/ñu.txt", false, false)
-// 	gd.serializeElements()
-// 	g := SimpleGaddag{arr: gd.SerializedElements}
-// 	g.SetAlphabet()
-// 	t.Logf("%#x", gd.SerializedElements)
-// 	for _, word := range []string{"ÑU", "ÑUS", "ÑAME"} {
-// 		found := FindWord(g, word)
-// 		if !found {
-// 			t.Errorf("Did not find word %v :(", word)
-// 		}
-// 	}
-
-// }
-
-// func TestFindWordSmallEnglish(t *testing.T) {
-// 	gd := GenerateGaddag("test_files/dogs.txt", false, false)
-// 	gd.serializeElements()
-// 	g := SimpleGaddag{arr: gd.SerializedElements}
-// 	g.SetAlphabet()
-// 	t.Logf("%#x", gd.SerializedElements)
-// 	found := FindWord(g, "DOG")
-// 	if !found {
-// 		t.Error("Did not find DOG :(")
-// 	}
-// }
-
-// func TestFindWordSmallEnglish2(t *testing.T) {
+// func TestGenNo(t *testing.T) {
 // 	gd := GenerateGaddag("test_files/no.txt", false, false)
-// 	gd.serializeElements()
-// 	g := SimpleGaddag{arr: gd.SerializedElements}
-// 	g.SetAlphabet()
-// 	t.Logf("%#x", gd.SerializedElements)
-// 	found := FindWord(g, "NO")
-// 	if !found {
-// 		t.Error("Did not find NO :(")
-// 	}
-// 	found = FindWord(g, "ON")
-// 	if found {
-// 		t.Error("Found ON :(")
-// 	}
-// }
-
-// func TestFindPrefixSmallEnglish2(t *testing.T) {
-// 	gd := GenerateGaddag("test_files/no.txt", true, false)
-// 	gd.serializeElements()
-// 	g := SimpleGaddag{arr: gd.SerializedElements}
-// 	g.SetAlphabet()
-// 	t.Logf("%#x", gd.SerializedElements)
-// 	found := FindPrefix(g, "O")
-// 	if found {
-// 		t.Error("Found O :(")
-// 	}
-// 	found = FindPrefix(g, "N")
-// 	if !found {
-// 		t.Error("!Found N :(")
-// 	}
-// 	found = FindPrefix(g, "ON")
-// 	if found {
-// 		t.Error("Found ON :(")
-// 	}
-// 	found = FindPrefix(g, "NO")
-// 	if !found {
-// 		t.Error("!Found NO :(")
-// 	}
-// }
-
-// func TestFindPrefixSmallEnglish(t *testing.T) {
-// 	gd := GenerateGaddag("test_files/dogs.txt", false, false)
-// 	gd.serializeElements()
-// 	g := SimpleGaddag{arr: gd.SerializedElements}
-// 	g.SetAlphabet()
-// 	t.Logf("%#x", gd.SerializedElements)
-// 	found := FindPrefix(g, "OG")
-// 	if found {
-// 		t.Error("Found OG :(")
-// 	}
+// 	gd.Save("no.gaddag", GaddagMagicNumber)
 // }

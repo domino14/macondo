@@ -1,9 +1,11 @@
 package gaddag
 
 import (
-	_ "log"
+	"log"
 	"os"
 	"testing"
+
+	"github.com/domino14/macondo/gaddagmaker"
 )
 
 var LexiconDir = os.Getenv("LEXICON_DIR")
@@ -13,7 +15,7 @@ type testpair struct {
 	found  bool
 }
 
-// OWL2 tests
+// OWL3 tests
 var findPrefixTests = []testpair{
 	{"ZYZZ", true},
 	{"ZYZZZ", false},
@@ -131,11 +133,12 @@ var findSpanishWordTests = []testpair{
 }
 
 func TestMain(m *testing.M) {
-	GenerateGaddag(LexiconDir+"America.txt", true, true)
+	log.Printf("here meow")
+	gaddagmaker.GenerateGaddag(LexiconDir+"America.txt", true, true)
 	os.Rename("out.gaddag", "/tmp/gen_america.gaddag")
-	GenerateDawg(LexiconDir+"America.txt", true, true)
+	gaddagmaker.GenerateDawg(LexiconDir+"America.txt", true, true)
 	os.Rename("out.dawg", "/tmp/gen_america.dawg")
-	GenerateGaddag(LexiconDir+"FISE09.txt", true, true)
+	gaddagmaker.GenerateGaddag(LexiconDir+"FISE09.txt", true, true)
 	os.Rename("out.gaddag", "/tmp/gen_fise09.gaddag")
 
 	os.Exit(m.Run())
@@ -270,5 +273,95 @@ func TestFindWordDawgMinimize(t *testing.T) {
 			t.Error("For", pair.prefix, "expected", pair.found, "got", found)
 		}
 
+	}
+}
+
+func TestFindWordSmallSpanish(t *testing.T) {
+	gaddagmaker.GenerateGaddag("../gaddagmaker/test_files/little_spanish.txt", false, true)
+	os.Rename("out.gaddag", "/tmp/little_spanish.gaddag")
+
+	gd := LoadGaddag("/tmp/little_spanish.gaddag")
+
+	for _, word := range []string{"AÑO", "COMER", "COMIDA", "COMIDAS",
+		"CO3AL"} {
+		found := FindWord(gd, word)
+		if !found {
+			t.Errorf("Did not find word %v :(", word)
+		}
+	}
+
+}
+
+func TestFindWordSmallSpanish2(t *testing.T) {
+	gaddagmaker.GenerateGaddag("../gaddagmaker/test_files/ñu.txt", false, true)
+	os.Rename("out.gaddag", "/tmp/ñu.gaddag")
+	gd := LoadGaddag("/tmp/ñu.gaddag")
+
+	for _, word := range []string{"ÑU", "ÑUS", "ÑAME"} {
+		found := FindWord(gd, word)
+		if !found {
+			t.Errorf("Did not find word %v :(", word)
+		}
+	}
+
+}
+
+func TestFindWordSmallEnglish(t *testing.T) {
+	gaddagmaker.GenerateGaddag("../gaddagmaker/test_files/dogs.txt", false, true)
+	os.Rename("out.gaddag", "/tmp/dogs.gaddag")
+	gd := LoadGaddag("/tmp/dogs.gaddag")
+
+	found := FindWord(gd, "DOG")
+	if !found {
+		t.Error("Did not find DOG :(")
+	}
+}
+
+func TestFindWordSmallEnglish2(t *testing.T) {
+	gaddagmaker.GenerateGaddag("../gaddagmaker/test_files/no.txt", false, true)
+	os.Rename("out.gaddag", "/tmp/no.gaddag")
+	gd := LoadGaddag("/tmp/no.gaddag")
+
+	found := FindWord(gd, "NO")
+	if !found {
+		t.Error("Did not find NO :(")
+	}
+	found = FindWord(gd, "ON")
+	if found {
+		t.Error("Found ON :(")
+	}
+}
+
+func TestFindPrefixSmallEnglish2(t *testing.T) {
+	gaddagmaker.GenerateGaddag("../gaddagmaker/test_files/no.txt", false, true)
+	os.Rename("out.gaddag", "/tmp/no.gaddag")
+	gd := LoadGaddag("/tmp/no.gaddag")
+
+	found := FindPrefix(gd, "O")
+	if found {
+		t.Error("Found O :(")
+	}
+	found = FindPrefix(gd, "N")
+	if !found {
+		t.Error("!Found N :(")
+	}
+	found = FindPrefix(gd, "ON")
+	if found {
+		t.Error("Found ON :(")
+	}
+	found = FindPrefix(gd, "NO")
+	if !found {
+		t.Error("!Found NO :(")
+	}
+}
+
+func TestFindPrefixSmallEnglish(t *testing.T) {
+	gaddagmaker.GenerateGaddag("../gaddagmaker/test_files/dogs.txt", false, true)
+	os.Rename("out.gaddag", "/tmp/dogs.gaddag")
+	gd := LoadGaddag("/tmp/dogs.gaddag")
+
+	found := FindPrefix(gd, "OG")
+	if found {
+		t.Error("Found OG :(")
 	}
 }

@@ -1,8 +1,9 @@
 00000000: 6367 6467 0000 0002 0000 004e 0000 004f  cgdg.......N...O
 00000010: 0000 0003 0000 0000 0000 0000 0000 0000  ................
-00000020: 0000 0002 0000 0000 0000 0001 0000 0008  ................
-00000030: 0000 0000 0200 0003 0000 0006 0000 0000  ................
-00000040: 0100 0005 0000 0000 0000 0001 0000 0002  ................
+00000020: 0000 0002 0000 0000 0000 0001 0000 0007  ................
+00000030: 0200 0000 0000 0003 0100 0006 0100 0000  ................
+00000040: 3200 0005 0000 0001 0000 0002            2...........
+
 
 first four bytes: cgdg magic number
 
@@ -17,28 +18,19 @@ next four: 0000 0002 -- 32-bit #, length of alphabet
 0000 0000 0000 0002 -- LetterSet O
 0000 0000 0000 0001 -- LetterSet N
 
-0000 0008 -- 8 nodes
+0000 0007 -- 7 nodes
 
-
-
-
-
-0   2 Alphabet          0x00000002
-1        N              0x0000004e
-2        O              0x0000004f
-
-3   3 Lettersets        0x00000003
-4        ø              0x00000000
-5        O              0x00000002
-6        N              0x00000001
     Nodes
-7  NODE  2 arcs, LetterSet ø                        0x02|000000
-8        Arc#1, letter N, next node 10              0x00|00000a
-9        Arc#2, letter O, next node 13              0x01|00000d
-10 NODE  1 arc, LetterSet ø                         0X01|000000
-11       Arc#1, letter ^, next node 12              0x1f|00000c
-12 NODE  no arcs, Letterset O                       0x00|000001
-13 NODE  no arcs, Letterset N                       0x00|000002
+0 NODE  2 arcs, LetterSet ø                         0x02|000000
+1       Arc#1, letter N, next node 3                0x00|000003
+2       Arc#2, letter O, next node 6                0x01|000006
+3 NODE  1 arc, LetterSet ø                          0X01|000000
+4       Arc#1, letter ^, next node 5                0x32|000005
+5 NODE  no arcs, Letterset O                        0x00|000001
+6 NODE  no arcs, Letterset N                        0x00|000002
+
+Note that the letter ^ is represented by 0x32, which is 50 (our max
+alphabet size)
 
 Paths:
 
