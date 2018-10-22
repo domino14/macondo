@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/domino14/macondo/gaddag"
+	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/lexicon"
 )
 
@@ -40,7 +41,7 @@ func TestRacks(t *testing.T) {
 }
 
 func TestGenBlanks(t *testing.T) {
-	gaddag.GenerateDawg(LexiconDir+"America.txt", true, true)
+	gaddagmaker.GenerateDawg(LexiconDir+"America.txt", true, true)
 	d := gaddag.SimpleDawg(gaddag.LoadGaddag("out.dawg"))
 
 	ctx := context.Background()

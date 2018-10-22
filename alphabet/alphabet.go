@@ -21,7 +21,9 @@ const (
 // the maximum alphabet size.
 type LetterSet uint64
 
-type letterSlice []rune
+// LetterSlice is a slice of runes. We make it a separate type for ease in
+// defining sort functions on it.
+type LetterSlice []rune
 
 // MachineLetter is a machine-only representation of a letter. It goes from
 // 0 to the maximum alphabet size.
@@ -30,6 +32,15 @@ type MachineLetter uint8
 // MachineWord is a slice of MachineLetter; it is a machine-only representation
 // of a word.
 type MachineWord []MachineLetter
+
+// UserVisible turns the passed-in machine word into a user-visible string.
+func (mw MachineWord) UserVisible(alph *Alphabet) string {
+	runes := make([]rune, len(mw))
+	for i, l := range mw {
+		runes[i] = alph.Letter(l)
+	}
+	return string(runes)
+}
 
 // Alphabet defines an alphabet.
 type Alphabet struct {
@@ -40,7 +51,7 @@ type Alphabet struct {
 	// letters is a map of the 0 to MaxAlphabetSize value back to a letter.
 	letters map[MachineLetter]rune
 
-	letterSlice letterSlice
+	letterSlice LetterSlice
 	curIdx      MachineLetter
 }
 
@@ -153,9 +164,9 @@ func FromSlice(arr []uint32) *Alphabet {
 	return alphabet
 }
 
-func (a letterSlice) Len() int           { return len(a) }
-func (a letterSlice) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a letterSlice) Less(i, j int) bool { return a[i] < a[j] }
+func (a LetterSlice) Len() int           { return len(a) }
+func (a LetterSlice) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a LetterSlice) Less(i, j int) bool { return a[i] < a[j] }
 
 /*
 
