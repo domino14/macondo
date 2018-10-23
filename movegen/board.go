@@ -4,9 +4,6 @@ import (
 	"github.com/domino14/macondo/alphabet"
 )
 
-// EmptySquareMarker is is a MachineLetter representation of an empty square
-const EmptySquareMarker = alphabet.MaxAlphabetSize + 1
-
 // A BonusSquare is a bonus square (duh)
 type BonusSquare rune
 

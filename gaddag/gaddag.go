@@ -14,9 +14,10 @@ import (
 // SimpleGaddag is the result of loading the gaddag back into
 // memory. Rather than contain an entire tree of linked nodes, arcs, etc
 // it will be easier and faster to do bitwise operations on a 32-bit array.
-// A SimpleGaddag.Arr is just a slice of 32-bit (or 64-bit) elements.
+// A SimpleGaddag.Nodes is just a slice of 32-bit elements.
 // It is created by serializeElements in make_gaddag.go.
-// Schema:
+// File Schema:
+// [4-byte magic number]
 // [alphabetlength] [letters...] (up to 60+?)
 // [lettersetlength] [lettersets] (64-bit binary bit masks)
 // a set of [node] [arcs...]
@@ -24,7 +25,7 @@ import (
 // Each arc is a 32-bit number: (letter << LetterBitLoc) + index of next node,
 // where letter is an index from 0 to MaxAlphabetSize into alphabet (except for
 // MaxAlphabetSize, which is the SeparationToken), and the index of the node is
-// the index of the element in the SimpleGaddag array.
+// the index of the element in the SimpleGaddag.Nodes array.
 //
 // If the node has no arcs, the arc array is empty.
 type SimpleGaddag struct {

@@ -31,8 +31,9 @@ type GordonGenerator struct {
 	// The move generator works by generating moves starting at an anchor
 	// square. curAnchorRow and curAnchorCol are the 0-based coordinates
 	// of the current anchor square.
-	curAnchorRow uint8
-	curAnchorCol uint8
+	curAnchorRow int8
+	curAnchorCol int8
+	tilesPlayed  uint8
 }
 
 func (gen *GordonGenerator) GenAll(rack []string, board GameBoard) {
@@ -76,7 +77,7 @@ func crossAllowed(cross uint64, letter alphabet.MachineLetter) bool {
 
 // Gen is an implementation of the Gordon Gen function.
 // pos is the offset from an anchor square.
-func (gen *GordonGenerator) Gen(pos uint8, word string, rack *Rack,
+func (gen *GordonGenerator) Gen(pos int8, word string, rack *Rack,
 	nodeIdx uint32) {
 
 	curRow := gen.curAnchorRow
@@ -100,7 +101,7 @@ func (gen *GordonGenerator) Gen(pos uint8, word string, rack *Rack,
 		crossSet = curSquare.vcrossSet
 	}
 
-	if curLetter != ' ' {
+	if curLetter != EmptySquareMarker {
 		nnIdx := gen.NextNodeIdx(nodeIdx, curLetter)
 		if nnIdx != 0 {
 			gen.GoOn(pos, curLetter, word, nnIdx)
@@ -123,8 +124,10 @@ func (gen *GordonGenerator) Gen(pos uint8, word string, rack *Rack,
 				continue
 			}
 			rack.take(nextLetter)
+			gen.tilesPlayed++
 			gen.GoOn(pos, nextLetter, word, nnIdx)
 			rack.add(nextLetter)
+			gen.tilesPlayed--
 		}
 		// Check for the blanks meow.
 		if rack.contains(BlankPos) {
@@ -139,8 +142,10 @@ func (gen *GordonGenerator) Gen(pos uint8, word string, rack *Rack,
 					continue
 				}
 				rack.take(BlankPos)
-				gen.GoOn(pos, nextLetter, word, nnIdx)
+				gen.tilesPlayed++
+				gen.GoOn(pos, nextLetter.Blank(), word, nnIdx)
 				rack.add(BlankPos)
+				gen.tilesPlayed--
 
 			}
 		}
@@ -148,13 +153,31 @@ func (gen *GordonGenerator) Gen(pos uint8, word string, rack *Rack,
 
 }
 
-func (gen *GordonGenerator) GoOn(pos uint8, L alphabet.MachineLetter, word string,
+func (gen *GordonGenerator) GoOn(pos int8, L alphabet.MachineLetter, word string,
 	NewNodeIdx uint32) {
 
-	// Do nothing for now.
 	if pos <= 0 {
+		curRow := gen.curAnchorRow
+		curCol := gen.curAnchorCol
+		var leftRow, leftCol int8
+		if gen.vertical {
+			curRow += pos
+			leftRow = curRow - 1
+		} else {
+			curCol += pos
+			leftCol = curCol - 1
+		}
+
 		word = string(L) + word
 		// if L on OldArc and no letter directly left, then record play.
+		// L is on OldArc otherwise we would not be in this function.
+		letterDirectlyLeft := false
+		// roomToLeft is true unless we are right at the edge of the board.
+		roomToLeft := true
+
+		// Check to see if there is a letter directly to the left.
+		if leftRow
+
 	} else {
 
 	}

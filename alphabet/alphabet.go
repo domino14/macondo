@@ -13,6 +13,9 @@ const (
 	// Gwich'in Scrabble has 62 separate letters, including the blank.
 	// Lojban has even more, but that's a weird constructed language.
 	MaxAlphabetSize = 50
+	// BlankOffset is the offset at which letters with a code >= offset
+	// represent blanks.
+	BlankOffset = 100
 	// SeparationToken is the GADDAG separation token.
 	SeparationToken = '^'
 )
@@ -28,6 +31,13 @@ type LetterSlice []rune
 // MachineLetter is a machine-only representation of a letter. It goes from
 // 0 to the maximum alphabet size.
 type MachineLetter uint8
+
+// Blank blankifies a letter; i.e. it adds the BlankOffset to it.
+// It returns a new MachineLetter; it does not modify the one that is passed
+// in!
+func (ml MachineLetter) Blank() MachineLetter {
+	return ml + BlankOffset
+}
 
 // MachineWord is a slice of MachineLetter; it is a machine-only representation
 // of a word.
