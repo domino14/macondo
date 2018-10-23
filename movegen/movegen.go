@@ -8,24 +8,15 @@
 // and check their presence in the cross-sets.
 package movegen
 
-import "github.com/domino14/macondo/gaddag"
-
-//import "fmt"
-
-// NOTE: THIS ONLY WORKS FOR ENGLISH. In order to rewrite for Spanish,
-// and other lexica, we need to disassociate the concept of letters
-// entirely until the very end (display time).
-// All "letters" should just be numbers from 0 to NumTotalLetters - 1.
-// The sorting can be by Unicode code point or whatever we choose.
-const (
-	NumTotalLetters = 27 // includes blank
-	BlankPosition   = 26 // The blank is located at this position in a rack.
+import (
+	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/gaddag"
 )
 
 // LettersRemain returns true if there is at least one letter in the
 // rack, 0 otherwise.
 func LettersRemain(rack []uint8) bool {
-	for i := 0; i < NumTotalLetters; i++ {
+	for i := 0; i < alphabet.MaxAlphabetSize; i++ {
 		if rack[i] > 0 {
 			return true
 		}
@@ -60,33 +51,27 @@ func (gen *GordonGenerator) GenAll(rack []string, board GameBoard) {
 // Note: This is a non-deterministic algorithm. However, using a 2-D table
 // of nodes/arcs did not speed it up (actually it might have even been slower)
 // This is probably due to larger memory usage being cache-inefficient.
-func (gen GordonGenerator) NextNodeIdx(nodeIdx uint32, letter rune) uint32 {
-	var i byte
+func (gen GordonGenerator) NextNodeIdx(nodeIdx uint32, letter alphabet.MachineLetter) uint32 {
 	arcs := uint32(gen.gaddag.NumArcs(nodeIdx))
 	if arcs == 0 {
 		return 0
 	}
 	for i := nodeIdx + 1; i <= nodeIdx+arcs; i++ {
-		idx, nextLetter := gen.gaddag.ArcToIdxLetter(gen.gaddag.Arr[i])
+		idx, nextLetter := gen.gaddag.ArcToIdxLetter(gen.gaddag.Nodes[i])
 		if nextLetter == letter {
 			return idx
 		}
 		if nextLetter > letter {
-			// Since it's sorted alphabetically we know it won't be in the arc
+			// Since it's sorted numerically we know it won't be in the arc
 			// list, so exit the loop early.
-			// Note: This even applies to the SeparationToken ^, which may have
-			// been serendipitously chosen to be lexicographically larger than
-			// the A-Z alphabet.
 			return 0
 		}
 	}
 	return 0
 }
 
-// XXX REWRITE THIS ASAP; THIS WONT WORK FOR ANYTHING OTHER THAN ENGLISH
-func crossAllowed(cross uint32, letter rune) bool {
-	idx := letter - 'A'
-	return cross&(1<<uint32(idx)) != 0
+func crossAllowed(cross uint64, letter alphabet.MachineLetter) bool {
+	return cross&(1<<uint8(letter)) != 0
 }
 
 // Gen is an implementation of the Gordon Gen function.
@@ -97,7 +82,7 @@ func (gen *GordonGenerator) Gen(pos uint8, word string, rack *Rack,
 	curRow := gen.curAnchorRow
 	curCol := gen.curAnchorCol
 
-	var crossSet uint32
+	var crossSet uint64
 
 	if gen.vertical {
 		curRow += pos
@@ -116,7 +101,7 @@ func (gen *GordonGenerator) Gen(pos uint8, word string, rack *Rack,
 	}
 
 	if curLetter != ' ' {
-		nnIdx := NextNodeIdx(nodeIdx, curLetter)
+		nnIdx := gen.NextNodeIdx(nodeIdx, curLetter)
 		if nnIdx != 0 {
 			gen.GoOn(pos, curLetter, word, nnIdx)
 		}
@@ -127,8 +112,9 @@ func (gen *GordonGenerator) Gen(pos uint8, word string, rack *Rack,
 		// the SeparationToken
 		arcs := uint32(gen.gaddag.NumArcs(nodeIdx))
 		for i := nodeIdx + 1; i <= nodeIdx+arcs; i++ {
-			nnIdx, nextLetter := gen.gaddag.ArcToIdxLetter(gen.gaddag.Arr[i])
-			if nextLetter == gaddag.SeparationToken {
+			nnIdx, nextLetter := gen.gaddag.ArcToIdxLetter(gen.gaddag.Nodes[i])
+			if nextLetter == alphabet.MaxAlphabetSize {
+				// The Separation token.
 				break
 			}
 			// The letter must be on the rack AND it must be allowed in the
@@ -141,31 +127,38 @@ func (gen *GordonGenerator) Gen(pos uint8, word string, rack *Rack,
 			rack.add(nextLetter)
 		}
 		// Check for the blanks meow.
-		if rack.contains(BlankCharacter) {
+		if rack.contains(BlankPos) {
 			// Just go through all the children; they're all acceptable if they're
 			// in the cross-set.
 			for i := nodeIdx + 1; i <= nodeIdx+arcs; i++ {
-				nnIdx, nextLetter := gen.gaddag.ArcToIdxLetter(gen.gaddag.Arr[i])
-				if nextLetter == gaddag.SeparationToken {
-					break
+				nnIdx, nextLetter := gen.gaddag.ArcToIdxLetter(gen.gaddag.Nodes[i])
+				if nextLetter == alphabet.MaxAlphabetSize {
+					// The separation token
 				}
 				if !crossAllowed(crossSet, nextLetter) {
 					continue
 				}
-				rack.take(BlankCharacter)
-				gen.GoOn(pos, L)
+				rack.take(BlankPos)
+				gen.GoOn(pos, nextLetter, word, nnIdx)
+				rack.add(BlankPos)
 
 			}
 		}
-
-		gen.GoOn()
 	}
 
 }
 
-// func (gen *GordonGenerator) GoOn(pos, L, word, rack, NewArc, OldArc) {
+func (gen *GordonGenerator) GoOn(pos uint8, L alphabet.MachineLetter, word string,
+	NewNodeIdx uint32) {
 
-// }
+	// Do nothing for now.
+	if pos <= 0 {
+		word = string(L) + word
+		// if L on OldArc and no letter directly left, then record play.
+	} else {
+
+	}
+}
 
 // For future?: The Gordon GADDAG algorithm is somewhat inefficient because
 // it goes through all letters on the rack. Then for every letter, it has to

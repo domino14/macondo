@@ -1,18 +1,25 @@
 package movegen
 
+import (
+	"github.com/domino14/macondo/alphabet"
+)
+
+// EmptySquareMarker is is a MachineLetter representation of an empty square
+const EmptySquareMarker = alphabet.MaxAlphabetSize + 1
+
 // A BonusSquare is a bonus square (duh)
 type BonusSquare rune
 
 // A Square is a single square in a game board. It contains the bonus markings,
 // if any, a letter, if any (' ' if empty), and any cross-sets and cross-scores
 type Square struct {
-	letter rune
+	letter alphabet.MachineLetter
 	bonus  BonusSquare
 
 	// hcrossSet from the Appel&Jacobson paper; simply a bit mask of letters
 	// that are allowed on this square.
-	hcrossSet uint32
-	vcrossSet uint32
+	hcrossSet uint64
+	vcrossSet uint64
 	// the scores of the tiles on either side of this square.
 	hcrossScore uint32
 	vcrossScore uint32
@@ -64,7 +71,7 @@ func strToBoard(desc []string) GameBoard {
 	for _, s := range desc {
 		row := []Square{}
 		for _, c := range s {
-			row = append(row, Square{letter: ' ', bonus: BonusSquare(c)})
+			row = append(row, Square{letter: EmptySquareMarker, bonus: BonusSquare(c)})
 		}
 		rows = append(rows, row)
 	}

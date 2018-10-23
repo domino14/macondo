@@ -13,6 +13,7 @@ import (
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
+	"github.com/domino14/macondo/movegen"
 )
 
 func LoadDawgs(dawgPath string) {
@@ -54,17 +55,8 @@ func Anagram(letters string, dawg gaddag.SimpleDawg, mode AnagramMode) []string 
 	answerList := []string{}
 	runes := []rune(letters)
 	gd := gaddag.SimpleGaddag(dawg)
-	rack := make([]uint8, alphabet.MaxAlphabetSize+1)
-	for _, r := range runes {
-		if r != '?' {
-			idx, err := gd.GetAlphabet().Val(r)
-			if err == nil {
-				rack[idx]++
-			}
-		} else {
-			rack[BlankPos]++
-		}
-	}
+	rack := &movegen.Rack{}
+	rack.Initialize(letters, gd.GetAlphabet())
 
 	ahs := &AnagramStruct{
 		answerList: answerList,
@@ -104,7 +96,7 @@ func dedupeAndTransformAnswers(answerList []string, alph *alphabet.Alphabet) []s
 }
 
 func anagramHelper(letter alphabet.MachineLetter, gd gaddag.SimpleGaddag,
-	ahs *AnagramStruct, nodeIdx uint32, answerSoFar string, rack []uint8) {
+	ahs *AnagramStruct, nodeIdx uint32, answerSoFar string, rack *movegen.Rack) {
 
 	var nextNodeIdx uint32
 	var nextLetter alphabet.MachineLetter
@@ -128,13 +120,13 @@ func anagramHelper(letter alphabet.MachineLetter, gd gaddag.SimpleGaddag,
 }
 
 func anagram(ahs *AnagramStruct, gd gaddag.SimpleGaddag, nodeIdx uint32,
-	answerSoFar string, rack []uint8) {
+	answerSoFar string, rack *movegen.Rack) {
 
-	for idx, val := range rack {
+	for idx, val := range rack.LetArr {
 		if val == 0 {
 			continue
 		}
-		rack[idx]--
+		rack.LetArr[idx]--
 		if idx == BlankPos {
 			nlet := alphabet.MachineLetter(gd.GetAlphabet().NumLetters())
 			for i := alphabet.MachineLetter(0); i < nlet; i++ {
@@ -145,6 +137,6 @@ func anagram(ahs *AnagramStruct, gd gaddag.SimpleGaddag, nodeIdx uint32,
 			anagramHelper(letter, gd, ahs, nodeIdx, answerSoFar, rack)
 		}
 
-		rack[idx]++
+		rack.LetArr[idx]++
 	}
 }
