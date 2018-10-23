@@ -41,9 +41,6 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
 	renderTemplate(w, "index")
 }
 
-var dawgPath = flag.String("dawgpath", "", "path for dawgs")
-var profilePath = flag.String("profilepath", "", "path for profile")
-
 func addTimeout(i *rpc.RequestInfo) *http.Request {
 	var timeout time.Duration
 	var ctx context.Context
@@ -65,6 +62,11 @@ func addTimeout(i *rpc.RequestInfo) *http.Request {
 	return i.Request
 }
 
+var dawgPath = flag.String("dawgpath", "", "path for dawgs")
+var profilePath = flag.String("profilepath", "", "path for profile")
+var noproxy = flag.Bool("noproxy", false,
+	"set this to true if running locally (no reverse proxy)")
+
 func main() {
 	flag.Parse()
 	anagrammer.LoadDawgs(*dawgPath)
@@ -77,10 +79,16 @@ func main() {
 		pprof.StartCPUProfile(f)
 		defer pprof.StopCPUProfile()
 	}
+	appendPath := ""
+	if *noproxy {
+		appendPath = "/macondo"
+	}
 
 	http.HandleFunc("/", mainHandler)
-	http.HandleFunc("/static/", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, r.URL.Path[1:])
+	http.HandleFunc(appendPath+"/static/", func(w http.ResponseWriter, r *http.Request) {
+		pathToServe := r.URL.Path[1+len(appendPath):]
+		log.Printf("[DEBUG] Serving file, path=%v", pathToServe)
+		http.ServeFile(w, r, pathToServe)
 	})
 	fmt.Println("Listening on http://localhost:8088/")
 	s := rpc.NewServer()
@@ -91,7 +99,7 @@ func main() {
 	// This allows us to modify the request and optionally add a context
 	// timeout.
 	s.RegisterInterceptFunc(addTimeout)
-	http.Handle("/rpc", s)
+	http.Handle(appendPath+"/rpc", s)
 
 	server := &http.Server{Addr: ":8088", Handler: nil}
 
