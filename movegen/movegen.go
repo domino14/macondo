@@ -13,6 +13,18 @@ import (
 	"github.com/domino14/macondo/gaddag"
 )
 
+type MoveType uint8
+
+const (
+	MoveTypePlay MoveType = iota
+	MoveTypeExchange
+	MoveTypePass
+	MoveTypePhonyTilesReturned
+
+	MoveTypeEndgameTiles
+	MoveTypeLostTileScore
+)
+
 // LettersRemain returns true if there is at least one letter in the
 // rack, 0 otherwise.
 func LettersRemain(rack []uint8) bool {
@@ -22,6 +34,17 @@ func LettersRemain(rack []uint8) bool {
 		}
 	}
 	return false
+}
+
+type Move struct {
+	action   MoveType
+	score    int8
+	desc     string
+	word     alphabet.MachineWord
+	rowStart uint8
+	colStart uint8
+	vertical bool
+	bingo    bool
 }
 
 type GordonGenerator struct {
@@ -34,6 +57,7 @@ type GordonGenerator struct {
 	curAnchorRow int8
 	curAnchorCol int8
 	tilesPlayed  uint8
+	plays        []Move
 }
 
 func (gen *GordonGenerator) GenAll(rack []string, board GameBoard) {
@@ -77,7 +101,7 @@ func crossAllowed(cross uint64, letter alphabet.MachineLetter) bool {
 
 // Gen is an implementation of the Gordon Gen function.
 // pos is the offset from an anchor square.
-func (gen *GordonGenerator) Gen(pos int8, word string, rack *Rack,
+func (gen *GordonGenerator) Gen(pos int8, word alphabet.MachineWord, rack *Rack,
 	nodeIdx uint32) {
 
 	curRow := gen.curAnchorRow
@@ -153,7 +177,7 @@ func (gen *GordonGenerator) Gen(pos int8, word string, rack *Rack,
 
 }
 
-func (gen *GordonGenerator) GoOn(pos int8, L alphabet.MachineLetter, word string,
+func (gen *GordonGenerator) GoOn(pos int8, L alphabet.MachineLetter, word alphabet.MachineWord,
 	NewNodeIdx uint32) {
 
 	if pos <= 0 {
@@ -168,19 +192,39 @@ func (gen *GordonGenerator) GoOn(pos int8, L alphabet.MachineLetter, word string
 			leftCol = curCol - 1
 		}
 
-		word = string(L) + word
+		word = alphabet.MachineWord(L) + word
 		// if L on OldArc and no letter directly left, then record play.
-		// L is on OldArc otherwise we would not be in this function.
 		letterDirectlyLeft := false
 		// roomToLeft is true unless we are right at the edge of the board.
 		roomToLeft := true
 
 		// Check to see if there is a letter directly to the left.
-		if leftRow
+		if leftRow >= 0 && leftCol >= 0 {
+			if gen.board[leftRow][leftCol].letter != EmptySquareMarker {
+				// There is a letter to the left.
+				letterDirectlyLeft = true
+			}
+		}
+
+		if gen.gaddag.InLetterSet(L, NewNodeIdx) && !letterDirectlyLeft {
+			gen.RecordPlay(word)
+		}
 
 	} else {
 
 	}
+}
+
+func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord) {
+	play := Move{
+		action:   MoveTypePlay,
+		score:    17,
+		desc:     "foo",
+		word:     word,
+		vertical: gen.vertical,
+		bingo:    gen.tilesPlayed == 7,
+	}
+	gen.plays = append(gen.plays, play)
 }
 
 // For future?: The Gordon GADDAG algorithm is somewhat inefficient because

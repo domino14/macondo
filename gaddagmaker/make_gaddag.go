@@ -108,6 +108,7 @@ func (node *Node) containsLetter(letter rune, g *Gaddag) bool {
 	if err != nil {
 		panic("Unexpected error: " + err.Error())
 	}
+	log.Printf("[DEBUG] checking in letter set %v", val)
 	return node.LetterSet&(1<<val) != 0
 }
 
@@ -301,6 +302,8 @@ func GenerateDawg(filename string, minimize bool, writeToFile bool) *Gaddag {
 	gaddag.Alphabet = alphabet
 	log.Println("[INFO] Read", len(words), "words")
 	for idx, word := range words {
+		log.Printf("[DEBUG] Tryna add %v", word)
+
 		if idx%10000 == 0 {
 			log.Printf("[DEBUG] %d...\n", idx)
 		}

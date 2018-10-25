@@ -39,15 +39,17 @@ func (ml MachineLetter) Blank() MachineLetter {
 	return ml + BlankOffset
 }
 
-// MachineWord is a slice of MachineLetter; it is a machine-only representation
-// of a word.
-type MachineWord []MachineLetter
+// MachineWord is a string; it is a machine-only representation of a word.
+// The individual runes in the string are not user-readable; they start at 0.
+// We use a string instead of a []MachineLetter to give us some of the syntactic
+// sugar and optimizations that Golang strings use.
+type MachineWord string
 
 // UserVisible turns the passed-in machine word into a user-visible string.
 func (mw MachineWord) UserVisible(alph *Alphabet) string {
 	runes := make([]rune, len(mw))
 	for i, l := range mw {
-		runes[i] = alph.Letter(l)
+		runes[i] = alph.Letter(MachineLetter(l))
 	}
 	return string(runes)
 }
