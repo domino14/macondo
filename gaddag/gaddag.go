@@ -99,7 +99,7 @@ func (g SimpleGaddag) GetLetterSet(nodeIdx uint32) alphabet.LetterSet {
 // InLetterSet returns whether the `letter` is in the node at `nodeIdx`'s
 // letter set.
 func (g SimpleGaddag) InLetterSet(letter alphabet.MachineLetter, nodeIdx uint32) bool {
-	if letter == alphabet.MaxAlphabetSize {
+	if letter == alphabet.SeparationMachineLetter {
 		return false
 	}
 	letterSet := g.GetLetterSet(nodeIdx)

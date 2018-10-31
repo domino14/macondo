@@ -246,7 +246,7 @@ func (g *Gaddag) serializeElements() {
 			count++
 			for _, arc := range node.Arcs {
 				if arc.Letter == alphabet.SeparationToken {
-					letterCode = alphabet.MaxAlphabetSize
+					letterCode = alphabet.SeparationMachineLetter
 				} else {
 					letterCode, err = g.Alphabet.Val(arc.Letter)
 					if err != nil {

@@ -13,6 +13,9 @@ const (
 	// Gwich'in Scrabble has 62 separate letters, including the blank.
 	// Lojban has even more, but that's a weird constructed language.
 	MaxAlphabetSize = 50
+	// SeparationMachineLetter is the "MachineLetter" corresponding to
+	// the separation token. It is set at the max alphabet size.
+	SeparationMachineLetter = MaxAlphabetSize
 	// BlankOffset is the offset at which letters with a code >= offset
 	// represent blanks.
 	BlankOffset = 100
@@ -96,7 +99,7 @@ func (a *Alphabet) Init() {
 // 0 to max size
 func (a Alphabet) Val(r rune) (MachineLetter, error) {
 	if r == SeparationToken {
-		return MaxAlphabetSize, nil
+		return SeparationMachineLetter, nil
 	}
 	val, ok := a.vals[r]
 	if ok {
@@ -107,7 +110,7 @@ func (a Alphabet) Val(r rune) (MachineLetter, error) {
 
 // Letter returns the letter that this position in the alphabet corresponds to.
 func (a Alphabet) Letter(b MachineLetter) rune {
-	if b == MaxAlphabetSize {
+	if b == SeparationMachineLetter {
 		return SeparationToken
 	}
 	return a.letters[b]

@@ -58,19 +58,15 @@ type GordonGenerator struct {
 	curAnchorCol int8
 
 	vertical bool // Are we generating moves vertically or not?
-	// The move generator works by generating moves starting at an anchor
-	// square. curAnchorRow and curAnchorCol are the 0-based coordinates
-	// of the current anchor square.
-	curAnchorRow int8
-	// curAnchorCol int8
+
 	tilesPlayed uint8
 	plays       []Move
 }
 
 func (gen *GordonGenerator) GenAll(rack []string, board GameBoard) {
 	gen.board = board
-	gen.curAnchorRow = 7
-	gen.curAnchorCol = 7
+	// gen.curAnchorRow = 7
+	// gen.curAnchorCol = 7
 }
 
 // NextNodeIdx is analogous to NextArc in the Gordon paper. The main difference
@@ -108,22 +104,13 @@ func crossAllowed(cross uint64, letter alphabet.MachineLetter) bool {
 
 // Gen is an implementation of the Gordon Gen function.
 // pos is the offset from an anchor square.
-func (gen *GordonGenerator) Gen(pos int8, word alphabet.MachineWord, rack *Rack,
+func (gen *GordonGenerator) Gen(col int8, word alphabet.MachineWord, rack *Rack,
 	nodeIdx uint32) {
-
-	curRow := gen.curAnchorRow
-	curCol := gen.curAnchorCol
 
 	var crossSet uint64
 
-	if gen.vertical {
-		curRow += pos
-	} else {
-		curCol += pos
-	}
-
 	// If a letter L is already on this square, then GoOn...
-	curSquare := gen.board.squares[curRow][curCol]
+	curSquare := gen.curRow[col]
 	curLetter := curSquare.letter
 
 	if gen.vertical {
@@ -135,7 +122,7 @@ func (gen *GordonGenerator) Gen(pos int8, word alphabet.MachineWord, rack *Rack,
 	if curLetter != EmptySquareMarker {
 		nnIdx := gen.NextNodeIdx(nodeIdx, curLetter)
 		if nnIdx != 0 {
-			gen.GoOn(pos, curLetter, word, nnIdx)
+			gen.GoOn(col, curLetter, word, rack, nnIdx)
 		}
 	} else if !rack.empty {
 		// Instead of doing the loop in the Gordon Gen algorithm, we should
@@ -145,7 +132,7 @@ func (gen *GordonGenerator) Gen(pos int8, word alphabet.MachineWord, rack *Rack,
 		arcs := uint32(gen.gaddag.NumArcs(nodeIdx))
 		for i := nodeIdx + 1; i <= nodeIdx+arcs; i++ {
 			nnIdx, nextLetter := gen.gaddag.ArcToIdxLetter(gen.gaddag.Nodes[i])
-			if nextLetter == alphabet.MaxAlphabetSize {
+			if nextLetter == alphabet.SeparationMachineLetter {
 				// The Separation token.
 				break
 			}
@@ -156,7 +143,7 @@ func (gen *GordonGenerator) Gen(pos int8, word alphabet.MachineWord, rack *Rack,
 			}
 			rack.take(nextLetter)
 			gen.tilesPlayed++
-			gen.GoOn(pos, nextLetter, word, nnIdx)
+			gen.GoOn(col, nextLetter, word, rack, nnIdx)
 			rack.add(nextLetter)
 			gen.tilesPlayed--
 		}
@@ -174,7 +161,7 @@ func (gen *GordonGenerator) Gen(pos int8, word alphabet.MachineWord, rack *Rack,
 				}
 				rack.take(BlankPos)
 				gen.tilesPlayed++
-				gen.GoOn(pos, nextLetter.Blank(), word, nnIdx)
+				gen.GoOn(col, nextLetter.Blank(), word, rack, nnIdx)
 				rack.add(BlankPos)
 				gen.tilesPlayed--
 
@@ -184,21 +171,11 @@ func (gen *GordonGenerator) Gen(pos int8, word alphabet.MachineWord, rack *Rack,
 
 }
 
-func (gen *GordonGenerator) GoOn(pos int8, L alphabet.MachineLetter, word alphabet.MachineWord,
-	NewNodeIdx uint32) {
+func (gen *GordonGenerator) GoOn(curCol int8, L alphabet.MachineLetter, word alphabet.MachineWord,
+	rack *Rack, newNodeIdx uint32) {
 
-	if pos <= 0 {
-		curRow := gen.curAnchorRow
-		curCol := gen.curAnchorCol
-		var leftRow, leftCol int8
-		if gen.vertical {
-			curRow += pos
-			leftRow = curRow - 1
-		} else {
-			curCol += pos
-			leftCol = curCol - 1
-		}
-
+	if curCol <= gen.curAnchorCol {
+		leftCol := gen.curAnchorCol - 1
 		word = alphabet.MachineWord(L) + word
 		// if L on OldArc and no letter directly left, then record play.
 		letterDirectlyLeft := false
@@ -206,19 +183,38 @@ func (gen *GordonGenerator) GoOn(pos int8, L alphabet.MachineLetter, word alphab
 		//roomToLeft := true
 
 		// Check to see if there is a letter directly to the left.
-		if leftRow >= 0 && leftCol >= 0 {
-			if gen.board.squares[leftRow][leftCol].letter != EmptySquareMarker {
+		if leftCol >= 0 {
+			if gen.curRow[leftCol].letter != EmptySquareMarker {
 				// There is a letter to the left.
 				letterDirectlyLeft = true
 			}
 		}
 
-		if gen.gaddag.InLetterSet(L, NewNodeIdx) && !letterDirectlyLeft {
+		if gen.gaddag.InLetterSet(L, newNodeIdx) && !letterDirectlyLeft {
 			gen.RecordPlay(word)
+		}
+		// Keep generating prefixes if there is room to the left
+		if curCol > 0 {
+			gen.Gen(curCol-1, word, rack, newNodeIdx)
+		}
+		// Then shift direction.
+		// Get the index of the SeparationToken
+		separationNodeIdx := gen.NextNodeIdx(newNodeIdx, alphabet.SeparationMachineLetter)
+		// Check for no letter directly left AND room to the right.
+		if separationNodeIdx != 0 && !letterDirectlyLeft && curCol < int8(len(gen.curRow)-1) {
+			gen.Gen(gen.curAnchorCol+1, word, rack, separationNodeIdx)
 		}
 
 	} else {
-
+		word = word + alphabet.MachineWord(L)
+		noLetterDirectlyRight := curCol == int8(len(gen.curRow)-1) || gen.curRow[curCol+1].letter == EmptySquareMarker
+		if gen.gaddag.InLetterSet(L, newNodeIdx) && noLetterDirectlyRight {
+			gen.RecordPlay(word)
+		}
+		if curCol < int8(len(gen.curRow)-1) {
+			// There is room to the right
+			gen.Gen(curCol+1, word, rack, newNodeIdx)
+		}
 	}
 }
 
