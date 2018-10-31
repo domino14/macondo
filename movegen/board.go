@@ -26,7 +26,10 @@ type Square struct {
 // with bonuses or filled letters, as well as cross-sets and cross-scores
 // for computation. (See Appel & Jacobson paper for definition of the latter
 // two terms)
-type GameBoard [][]Square
+type GameBoard struct {
+	squares    [][]*Square
+	transposed bool
+}
 
 const (
 	// Bonus3WS Come on man I'm not going to put a comment for each of these
@@ -42,35 +45,27 @@ var GlobalBoard GameBoard
 
 // This will have to be rewritten later to take in configurable boards.
 func init() {
-	crosswordGame := []string{
-		`=  '   =   '  =`,
-		` -   "   "   - `,
-		`  -   ' '   -  `,
-		`'  -   '   -  '`,
-		`    -     -    `,
-		` "   "   "   " `,
-		`  '   ' '   '  `,
-		`=  '   -   '  =`,
-		`  '   ' '   '  `,
-		` "   "   "   " `,
-		`    -     -    `,
-		`'  -   '   -  '`,
-		`  -   ' '   -  `,
-		` -   "   "   - `,
-		`=  '   =   '  =`,
-	}
-	GlobalBoard = strToBoard(crosswordGame)
+	GlobalBoard = strToBoard(CrosswordGameBoard)
 }
 
 func strToBoard(desc []string) GameBoard {
 	// Turns an array of strings into the GameBoard structure type.
-	rows := [][]Square{}
+	rows := [][]*Square{}
 	for _, s := range desc {
-		row := []Square{}
+		row := []*Square{}
 		for _, c := range s {
-			row = append(row, Square{letter: EmptySquareMarker, bonus: BonusSquare(c)})
+			row = append(row, &Square{letter: EmptySquareMarker, bonus: BonusSquare(c)})
 		}
 		rows = append(rows, row)
 	}
-	return GameBoard(rows)
+	return GameBoard{squares: rows}
+}
+
+func (g *GameBoard) transpose() {
+	n := len(g.squares)
+	for i := 0; i < n; i++ {
+		for j := i + 1; j < n; j++ {
+			g.squares[i][j], g.squares[j][i] = g.squares[j][i], g.squares[i][j]
+		}
+	}
 }

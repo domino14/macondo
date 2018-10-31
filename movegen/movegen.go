@@ -48,16 +48,23 @@ type Move struct {
 }
 
 type GordonGenerator struct {
-	gaddag   gaddag.SimpleGaddag
-	board    GameBoard
+	gaddag gaddag.SimpleGaddag
+	board  GameBoard
+	// curRow is the current row for which we are generating moves. Note
+	// that we are always thinking in terms of rows, and columns are the
+	// current anchor column. In order to generate vertical moves, we just
+	// transpose the `board`.
+	curRow       []*Square
+	curAnchorCol int8
+
 	vertical bool // Are we generating moves vertically or not?
 	// The move generator works by generating moves starting at an anchor
 	// square. curAnchorRow and curAnchorCol are the 0-based coordinates
 	// of the current anchor square.
 	curAnchorRow int8
-	curAnchorCol int8
-	tilesPlayed  uint8
-	plays        []Move
+	// curAnchorCol int8
+	tilesPlayed uint8
+	plays       []Move
 }
 
 func (gen *GordonGenerator) GenAll(rack []string, board GameBoard) {
@@ -116,7 +123,7 @@ func (gen *GordonGenerator) Gen(pos int8, word alphabet.MachineWord, rack *Rack,
 	}
 
 	// If a letter L is already on this square, then GoOn...
-	curSquare := gen.board[curRow][curCol]
+	curSquare := gen.board.squares[curRow][curCol]
 	curLetter := curSquare.letter
 
 	if gen.vertical {
@@ -196,11 +203,11 @@ func (gen *GordonGenerator) GoOn(pos int8, L alphabet.MachineLetter, word alphab
 		// if L on OldArc and no letter directly left, then record play.
 		letterDirectlyLeft := false
 		// roomToLeft is true unless we are right at the edge of the board.
-		roomToLeft := true
+		//roomToLeft := true
 
 		// Check to see if there is a letter directly to the left.
 		if leftRow >= 0 && leftCol >= 0 {
-			if gen.board[leftRow][leftCol].letter != EmptySquareMarker {
+			if gen.board.squares[leftRow][leftCol].letter != EmptySquareMarker {
 				// There is a letter to the left.
 				letterDirectlyLeft = true
 			}
