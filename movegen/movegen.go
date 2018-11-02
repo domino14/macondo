@@ -126,6 +126,8 @@ func crossAllowed(cross uint64, letter alphabet.MachineLetter) bool {
 func (gen *GordonGenerator) Gen(col int8, word alphabet.MachineWord, rack *Rack,
 	nodeIdx uint32) {
 
+	log.Printf("[DEBUG] Entered Gen, col=%v", col)
+
 	var crossSet uint64
 
 	// If a letter L is already on this square, then GoOn...
@@ -150,17 +152,26 @@ func (gen *GordonGenerator) Gen(col int8, word alphabet.MachineWord, rack *Rack,
 		// just go through the node's children and test them independently
 		// against the cross set. Note that some of these children could be
 		// the SeparationToken
-		log.Printf("[DEBUG] Rack is still not empty")
 		arcs := uint32(gen.gaddag.NumArcs(nodeIdx))
+		log.Printf("[DEBUG] Rack is still not empty, examining %v arcs",
+			arcs)
+
+		// The problem is here that we are not trying letters that could be
+		// in the letterset and in the rack.
+
 		for i := nodeIdx + 1; i <= nodeIdx+arcs; i++ {
+			log.Printf("[DEBUG] Trying arc/node %v, col=%v", i, col)
 			nnIdx, nextLetter := gen.gaddag.ArcToIdxLetter(i)
 			if nextLetter == alphabet.SeparationMachineLetter {
 				// The Separation token.
+				log.Printf("[DEBUG] Separation, bye")
 				break
 			}
 			// The letter must be on the rack AND it must be allowed in the
 			// cross-set.
 			if !(rack.contains(nextLetter) && crossAllowed(crossSet, nextLetter)) {
+				log.Printf("[DEBUG] Letter %v not acceptable",
+					nextLetter.UserVisible(gen.gaddag.GetAlphabet()))
 				continue
 			}
 			rack.take(nextLetter)
@@ -193,9 +204,8 @@ func (gen *GordonGenerator) Gen(col int8, word alphabet.MachineWord, rack *Rack,
 
 			}
 		}
-	} else {
-		log.Printf("[DEBUG] Exiting Gen algorithm")
 	}
+	log.Printf("[DEBUG] Leaving Gen function")
 
 }
 
@@ -236,8 +246,9 @@ func (gen *GordonGenerator) GoOn(curCol int8, L alphabet.MachineLetter, word alp
 		// Then shift direction.
 		// Get the index of the SeparationToken
 		separationNodeIdx := gen.NextNodeIdx(newNodeIdx, alphabet.SeparationMachineLetter)
-		// Check for no letter directly left AND room to the right.
-		if separationNodeIdx != 0 && noLetterDirectlyLeft && curCol < int8(len(gen.curRow)-1) {
+		// Check for no letter directly left AND room to the right (of the anchor
+		// square)
+		if separationNodeIdx != 0 && noLetterDirectlyLeft && gen.curAnchorCol < int8(len(gen.curRow)-1) {
 			log.Printf("[DEBUG] Shift direction, calling Gen with col=%v, word=%v nodeIdx=%v",
 				gen.curAnchorCol+1, word.UserVisible(gen.gaddag.GetAlphabet()), separationNodeIdx)
 			gen.Gen(gen.curAnchorCol+1, word, rack, separationNodeIdx)
