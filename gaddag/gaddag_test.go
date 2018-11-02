@@ -1,7 +1,6 @@
 package gaddag
 
 import (
-	"log"
 	"os"
 	"testing"
 
@@ -133,7 +132,6 @@ var findSpanishWordTests = []testpair{
 }
 
 func TestMain(m *testing.M) {
-	log.Printf("here meow")
 	gaddagmaker.GenerateGaddag(LexiconDir+"America.txt", true, true)
 	os.Rename("out.gaddag", "/tmp/gen_america.gaddag")
 	gaddagmaker.GenerateDawg(LexiconDir+"America.txt", true, true)

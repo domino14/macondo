@@ -86,6 +86,7 @@ func LoadGaddag(filename string) SimpleGaddag {
 // ArcToIdxLetter finds the index of the node pointed to by this arc and
 // returns it and the letter.
 func (g SimpleGaddag) ArcToIdxLetter(arcIdx uint32) (uint32, alphabet.MachineLetter) {
+	// log.Printf("[DEBUG] ArcToIdxLetter called with %v", arcIdx)
 	letterCode := alphabet.MachineLetter(g.Nodes[arcIdx] >> gaddagmaker.LetterBitLoc)
 	return g.Nodes[arcIdx] & gaddagmaker.NodeIdxBitMask, letterCode
 }

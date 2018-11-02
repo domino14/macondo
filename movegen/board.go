@@ -1,7 +1,15 @@
 package movegen
 
 import (
+	"fmt"
+
 	"github.com/domino14/macondo/alphabet"
+)
+
+const (
+	// TrivialCrossSet allows every possible letter. It is the default
+	// state of a square.
+	TrivialCrossSet = (1 << alphabet.MaxAlphabetSize) - 1
 )
 
 // A BonusSquare is a bonus square (duh)
@@ -22,6 +30,10 @@ type Square struct {
 	vcrossScore uint32
 }
 
+func (s Square) String() string {
+	return fmt.Sprintf("<(%v) (%s)>", s.letter, string(s.bonus))
+}
+
 // A GameBoard is the main board structure. It contains all of the Squares,
 // with bonuses or filled letters, as well as cross-sets and cross-scores
 // for computation. (See Appel & Jacobson paper for definition of the latter
@@ -38,15 +50,6 @@ const (
 	Bonus2LS BonusSquare = '\''
 	Bonus2WS BonusSquare = '-'
 )
-
-// This is THE game board structure. This will be replaced by something better
-// (actually it has to be, in order to work well with multi-threading)
-var GlobalBoard GameBoard
-
-// This will have to be rewritten later to take in configurable boards.
-func init() {
-	GlobalBoard = strToBoard(CrosswordGameBoard)
-}
 
 func strToBoard(desc []string) GameBoard {
 	// Turns an array of strings into the GameBoard structure type.
@@ -66,6 +69,27 @@ func (g *GameBoard) transpose() {
 	for i := 0; i < n; i++ {
 		for j := i + 1; j < n; j++ {
 			g.squares[i][j], g.squares[j][i] = g.squares[j][i], g.squares[i][j]
+		}
+	}
+}
+
+func (g *GameBoard) setAllCrosses() {
+	// Assume square board. This should be an assertion somewhere.
+	n := len(g.squares)
+	for i := 0; i < n; i++ {
+		for j := 0; j < n; j++ {
+			g.squares[i][j].hcrossSet = TrivialCrossSet
+			g.squares[i][j].vcrossSet = TrivialCrossSet
+		}
+	}
+}
+
+func (g *GameBoard) clearAllCrosses() {
+	n := len(g.squares)
+	for i := 0; i < n; i++ {
+		for j := 0; j < n; j++ {
+			g.squares[i][j].hcrossSet = 0
+			g.squares[i][j].vcrossSet = 0
 		}
 	}
 }
