@@ -12,19 +12,22 @@ const BlankCharacter = '?'
 // BlankPos is the position of the blank in the rack.
 const BlankPos = alphabet.MaxAlphabetSize
 
+// Rack is a machine-friendly representation of a user's rack.
 type Rack struct {
 	// letArr is an array of letter codes from 0 to MaxAlphabetSize.
 	// The blank can go at the MaxAlphabetSize place.
-	LetArr     []uint8
-	empty      bool
-	numLetters uint8
-	alphabet   *alphabet.Alphabet
-	repr       string
+	LetArr        []alphabet.MachineLetter
+	empty         bool
+	numLetters    uint8
+	alphabet      *alphabet.Alphabet
+	repr          string
+	uniqueLetters map[alphabet.MachineLetter]uint8
 }
 
 // Initialize a rack from a string
 func (r *Rack) Initialize(rack string, a *alphabet.Alphabet) {
-	r.LetArr = make([]uint8, alphabet.MaxAlphabetSize+1)
+	r.LetArr = make([]alphabet.MachineLetter, alphabet.MaxAlphabetSize+1)
+	r.uniqueLetters = make(map[alphabet.MachineLetter]uint8)
 	r.alphabet = a
 	for _, c := range rack {
 		if c != BlankCharacter {
