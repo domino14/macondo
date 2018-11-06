@@ -97,7 +97,7 @@ func crossAllowed(cross uint64, letter alphabet.MachineLetter) bool {
 func (gen *GordonGenerator) Gen(col int8, word alphabet.MachineWord, rack *Rack,
 	nodeIdx uint32) {
 
-	log.Printf("[DEBUG] Entered Gen, col=%v", col)
+	log.Printf("[DEBUG] Entered Gen, col=%v, rack map=%v", col, rack.uniqueLetters)
 
 	var crossSet uint64
 
