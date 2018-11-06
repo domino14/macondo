@@ -159,6 +159,14 @@ func (gen *GordonGenerator) Gen(col int8, word alphabet.MachineWord, rack *Rack,
 		// The problem is here that we are not trying letters that could be
 		// in the letterset and in the rack.
 
+		// for ml := range rack.uniqueLetters {
+		// 	if ml != BlankPos {
+		// 		nnIdx, nextLetter := gen.gaddag.ArcToIdxLetter(ml)
+		// 	} else {
+
+		// 	}
+		// }
+
 		for i := nodeIdx + 1; i <= nodeIdx+arcs; i++ {
 			log.Printf("[DEBUG] Trying arc/node %v, col=%v", i, col)
 			nnIdx, nextLetter := gen.gaddag.ArcToIdxLetter(i)

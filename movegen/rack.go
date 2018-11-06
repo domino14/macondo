@@ -31,14 +31,16 @@ func (r *Rack) Initialize(rack string, a *alphabet.Alphabet) {
 	r.alphabet = a
 	for _, c := range rack {
 		if c != BlankCharacter {
-			idx, err := a.Val(c)
+			ml, err := a.Val(c)
 			if err == nil {
-				r.LetArr[idx]++
+				r.LetArr[ml]++
+				r.uniqueLetters[ml]++
 			} else {
 				log.Println("[ERROR] Rack has an illegal character: " + string(c))
 			}
 		} else {
 			r.LetArr[BlankPos]++
+			r.uniqueLetters[alphabet.MaxAlphabetSize]++
 		}
 	}
 	if len(rack) > 0 {
@@ -52,8 +54,13 @@ func (r *Rack) take(letter alphabet.MachineLetter) {
 	// it doesn't check if it's there!
 	if letter == BlankPos {
 		r.LetArr[BlankPos]--
+		r.uniqueLetters[alphabet.MaxAlphabetSize]--
 	} else {
 		r.LetArr[letter]--
+		r.uniqueLetters[letter]--
+		if r.uniqueLetters[letter] == 0 {
+			delete(r.uniqueLetters, letter)
+		}
 	}
 	r.numLetters--
 	if r.numLetters == 0 {
@@ -64,8 +71,10 @@ func (r *Rack) take(letter alphabet.MachineLetter) {
 func (r *Rack) add(letter alphabet.MachineLetter) {
 	if letter == BlankPos {
 		r.LetArr[BlankPos]++
+		r.uniqueLetters[alphabet.MaxAlphabetSize]++
 	} else {
 		r.LetArr[letter]++
+		r.uniqueLetters[letter]++
 	}
 	r.numLetters++
 	if r.empty {

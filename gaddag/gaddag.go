@@ -11,6 +11,21 @@ import (
 	"github.com/domino14/macondo/gaddagmaker"
 )
 
+// SimpleNode is what makes up the nodes in the SimpleGaddag. Note: these
+// don't correspond to the "states" in the Gordon paper. Instead, states and
+// arcs are combined into one structure. We create a map of arcs in order
+// to speed up access.
+type SimpleNode struct {
+	// Val is the actual 32-bit value stored in the node.
+	// We don't need to break it out here.
+	Val uint32
+	// Arcs contains a map for nodes that are "states". For nodes that are arcs,
+	// or for states that have no arcs coming out of them, this map would be nil.
+	// The uint32 is simply the index of the destination node in the slice of
+	// SimpleNodes.
+	Arcs map[alphabet.MachineLetter]uint32
+}
+
 // SimpleGaddag is the result of loading the gaddag back into
 // memory. Rather than contain an entire tree of linked nodes, arcs, etc
 // it will be easier and faster to do bitwise operations on a 32-bit array.
@@ -30,12 +45,13 @@ import (
 // If the node has no arcs, the arc array is empty.
 type SimpleGaddag struct {
 	// Nodes is just a slice of 32-bit elements, the node array.
-	Nodes []uint32
+	Nodes []SimpleNode
 	// The bit-mask letter sets
 	LetterSets []alphabet.LetterSet
 	alphabet   *alphabet.Alphabet
 }
 
+// A SimpleDawg is just a SimpleGaddag with fewer paths.
 type SimpleDawg SimpleGaddag
 
 // Ensure the magic number matches.
@@ -78,22 +94,52 @@ func LoadGaddag(filename string) SimpleGaddag {
 	binary.Read(file, binary.BigEndian, &nodes)
 	file.Close()
 
-	g := SimpleGaddag{Nodes: nodes, LetterSets: letterSets,
+	g := SimpleGaddag{Nodes: toNodeSlice(nodes), LetterSets: letterSets,
 		alphabet: alphabet.FromSlice(alphabetArr)}
 	return g
+}
+
+// Turn the slice of ints into a nodes and arcs connected structure
+func toNodeSlice(nodes []uint32) []SimpleNode {
+	simpleNodes := make([]SimpleNode, len(nodes))
+	isState := true
+	var curNodeIdx uint32
+	curArcsToGo := uint32(0)
+	for idx := range simpleNodes {
+		simpleNodes[idx].Val = nodes[idx]
+		if isState {
+			// States have a map of arcs (possibly nil)
+			curArcsToGo = nodes[idx] >> gaddagmaker.NumArcsBitLoc
+			if curArcsToGo > 0 {
+				simpleNodes[idx].Arcs = make(map[alphabet.MachineLetter]uint32)
+				curNodeIdx = uint32(idx)
+				isState = false
+			}
+		} else {
+			// This is an arc. Modify the "current node"'s arc map.
+			dest, ml := nodes[idx]&gaddagmaker.NodeIdxBitMask,
+				alphabet.MachineLetter(nodes[idx]>>gaddagmaker.LetterBitLoc)
+			simpleNodes[curNodeIdx].Arcs[ml] = dest
+			curArcsToGo--
+			if curArcsToGo == 0 {
+				isState = true
+			}
+		}
+	}
+	return simpleNodes
 }
 
 // ArcToIdxLetter finds the index of the node pointed to by this arc and
 // returns it and the letter.
 func (g SimpleGaddag) ArcToIdxLetter(arcIdx uint32) (uint32, alphabet.MachineLetter) {
 	// log.Printf("[DEBUG] ArcToIdxLetter called with %v", arcIdx)
-	letterCode := alphabet.MachineLetter(g.Nodes[arcIdx] >> gaddagmaker.LetterBitLoc)
-	return g.Nodes[arcIdx] & gaddagmaker.NodeIdxBitMask, letterCode
+	letterCode := alphabet.MachineLetter(g.Nodes[arcIdx].Val >> gaddagmaker.LetterBitLoc)
+	return g.Nodes[arcIdx].Val & gaddagmaker.NodeIdxBitMask, letterCode
 }
 
 // GetLetterSet gets the letter set of the node at nodeIdx.
 func (g SimpleGaddag) GetLetterSet(nodeIdx uint32) alphabet.LetterSet {
-	letterSetCode := g.Nodes[nodeIdx] & gaddagmaker.LetterSetBitMask
+	letterSetCode := g.Nodes[nodeIdx].Val & gaddagmaker.LetterSetBitMask
 	return g.LetterSets[letterSetCode]
 }
 
@@ -122,7 +168,10 @@ func (g SimpleGaddag) LetterSetAsRunes(nodeIdx uint32) []rune {
 
 // NumArcs is simply the number of arcs for the given node.
 func (g SimpleGaddag) NumArcs(nodeIdx uint32) byte {
-	return byte(g.Nodes[nodeIdx] >> gaddagmaker.NumArcsBitLoc)
+	if g.Nodes[nodeIdx].Arcs == nil {
+		return 0
+	}
+	return byte(len(g.Nodes[nodeIdx].Arcs))
 }
 
 // GetRootNodeIndex gets the index of the root node.

@@ -68,6 +68,24 @@ func TestGenGaddag(t *testing.T) {
 	}
 }
 
+func TestGenGaddagMinimize(t *testing.T) {
+	gd := GenerateGaddag("test_files/little_spanish.txt", true, false)
+	gd.serializeElements()
+	// 12 elements in the alphabet
+	if gd.SerializedAlphabet[0] != 12 {
+		t.Errorf("Did not match: %v", gd.SerializedAlphabet[0])
+	}
+
+	// a specific alphabet value. it's always [3] because of sorting.
+	if gd.SerializedAlphabet[3] != 'C' {
+		t.Errorf("Did not match: %c", gd.SerializedAlphabet[3])
+	}
+	// The number of unique letter sets for this lexicon.
+	if gd.NumLetterSets != 7 {
+		t.Errorf("Did not match: %v", gd.NumLetterSets)
+	}
+}
+
 // func TestGenNo(t *testing.T) {
 // 	gd := GenerateGaddag("test_files/no.txt", false, false)
 // 	gd.Save("no.gaddag", GaddagMagicNumber)

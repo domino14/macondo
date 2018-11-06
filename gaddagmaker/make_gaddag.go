@@ -30,9 +30,9 @@ const NodeIdxBitMask = (1 << LetterBitLoc) - 1
 // Node is a temporary type used in the creation of a GADDAG.
 // It will not be used when loading the GADDAG.
 type Node struct {
-	Arcs      []*Arc
-	NumArcs   uint8
-	LetterSet alphabet.LetterSet
+	arcs      []*Arc
+	numArcs   uint8
+	letterSet alphabet.LetterSet
 	// Utility fields, for minimizing GADDAG at the end:
 	visited           bool
 	copyOf            *Node
@@ -43,8 +43,8 @@ type Node struct {
 
 // Arc is also a temporary type.
 type Arc struct {
-	Letter      rune
-	Destination *Node
+	letter      rune
+	destination *Node
 }
 
 // Gaddag is a temporary structure to hold the nodes in sequential order prior
@@ -65,7 +65,7 @@ type ArcPtrSlice []*Arc
 
 func (a ArcPtrSlice) Len() int           { return len(a) }
 func (a ArcPtrSlice) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a ArcPtrSlice) Less(i, j int) bool { return a[i].Letter < a[j].Letter }
+func (a ArcPtrSlice) Less(i, j int) bool { return a[i].letter < a[j].letter }
 
 func getWords(filename string) ([]string, *alphabet.Alphabet) {
 	words := []string{}
@@ -108,14 +108,14 @@ func (node *Node) containsLetter(letter rune, g *Gaddag) bool {
 	if err != nil {
 		panic("Unexpected error: " + err.Error())
 	}
-	return node.LetterSet&(1<<val) != 0
+	return node.letterSet&(1<<val) != 0
 }
 
 // Does the Node contain an arc for the letter c? Return the arc if so.
 func (node *Node) containsArc(c rune) *Arc {
-	for i := uint8(0); i < node.NumArcs; i++ {
-		if node.Arcs[i].Letter == c {
-			return node.Arcs[i]
+	for i := uint8(0); i < node.numArcs; i++ {
+		if node.arcs[i].letter == c {
+			return node.arcs[i]
 		}
 	}
 	return nil
@@ -132,9 +132,9 @@ func (node *Node) createArcFrom(c rune, to *Node, g *Gaddag) *Node {
 	}
 	newArc := Arc{c, nil}
 	g.AllocArcs++
-	node.Arcs = append(node.Arcs, &newArc)
-	node.NumArcs++
-	newArc.Destination = newNode
+	node.arcs = append(node.arcs, &newArc)
+	node.numArcs++
+	newArc.destination = newNode
 	return newNode
 }
 
@@ -148,7 +148,7 @@ func (node *Node) addArc(c rune, g *Gaddag) *Node {
 	if existingArc == nil {
 		nextNode = node.createArcFrom(c, nil, g)
 	} else {
-		nextNode = existingArc.Destination
+		nextNode = existingArc.destination
 	}
 	return nextNode
 }
@@ -165,7 +165,7 @@ func (node *Node) addFinalArc(c1 rune, c2 rune, g *Gaddag) *Node {
 		panic(err)
 	}
 	bit := alphabet.LetterSet(1 << letterVal)
-	nextNode.LetterSet |= bit
+	nextNode.letterSet |= bit
 	return nextNode
 }
 
@@ -174,7 +174,7 @@ func (node *Node) addFinalArc(c1 rune, c2 rune, g *Gaddag) *Node {
 func (node *Node) forceArc(c rune, forceState *Node, g *Gaddag) {
 	arc := node.containsArc(c)
 	if arc != nil {
-		if arc.Destination != forceState {
+		if arc.destination != forceState {
 			log.Fatal("[ERROR] Arc already existed pointing elsewhere")
 		} else {
 			// Don't create the arc if it already exists; redundant.
@@ -190,8 +190,8 @@ type nodeTraversalFn func(*Node)
 
 func traverseTreeAndExecute(node *Node, fn nodeTraversalFn) {
 	fn(node)
-	for _, arc := range node.Arcs {
-		traverseTreeAndExecute(arc.Destination, fn)
+	for _, arc := range node.arcs {
+		traverseTreeAndExecute(arc.destination, fn)
 	}
 }
 
@@ -211,10 +211,10 @@ func (g *Gaddag) serializeLetterSets() map[alphabet.LetterSet]uint32 {
 	serializedLetterSets := []alphabet.LetterSet{}
 	traverseTreeAndExecute(g.Root, func(node *Node) {
 		node.visited = false
-		if _, ok := letterSets[node.LetterSet]; !ok {
-			letterSets[node.LetterSet] = letterSetIdx
+		if _, ok := letterSets[node.letterSet]; !ok {
+			letterSets[node.letterSet] = letterSetIdx
 			letterSetIdx++
-			serializedLetterSets = append(serializedLetterSets, node.LetterSet)
+			serializedLetterSets = append(serializedLetterSets, node.letterSet)
 		}
 	})
 	log.Println("[INFO] Number of unique letter sets", len(letterSets))
@@ -238,22 +238,22 @@ func (g *Gaddag) serializeElements() {
 			var err error
 			node.visited = true
 			// Represent node as a 32-bit number
-			serialized = letterSets[node.LetterSet] +
-				uint32(node.NumArcs)<<NumArcsBitLoc
+			serialized = letterSets[node.letterSet] +
+				uint32(node.numArcs)<<NumArcsBitLoc
 			g.SerializedNodes = append(g.SerializedNodes, serialized)
 			node.indexInSerialized = count
 			count++
-			for _, arc := range node.Arcs {
-				if arc.Letter == alphabet.SeparationToken {
+			for _, arc := range node.arcs {
+				if arc.letter == alphabet.SeparationToken {
 					letterCode = alphabet.SeparationMachineLetter
 				} else {
-					letterCode, err = g.Alphabet.Val(arc.Letter)
+					letterCode, err = g.Alphabet.Val(arc.letter)
 					if err != nil {
 						panic(err)
 					}
 				}
 				serialized = uint32(letterCode) << LetterBitLoc
-				missingElements[count] = arc.Destination
+				missingElements[count] = arc.destination
 				count++
 				g.SerializedNodes = append(g.SerializedNodes, serialized)
 			}
@@ -320,7 +320,7 @@ func GenerateDawg(filename string, minimize bool, writeToFile bool) *Gaddag {
 	// We need to also sort the arcs alphabetically prior to minimization/
 	// serialization.
 	traverseTreeAndExecute(gaddag.Root, func(node *Node) {
-		sort.Sort(ArcPtrSlice(node.Arcs))
+		sort.Sort(ArcPtrSlice(node.arcs))
 	})
 	if minimize {
 		gaddag.Minimize()
@@ -380,7 +380,7 @@ func GenerateGaddag(filename string, minimize bool, writeToFile bool) *Gaddag {
 	// We need to also sort the arcs alphabetically prior to minimization/
 	// serialization.
 	traverseTreeAndExecute(gaddag.Root, func(node *Node) {
-		sort.Sort(ArcPtrSlice(node.Arcs))
+		sort.Sort(ArcPtrSlice(node.arcs))
 	})
 	if minimize {
 		gaddag.Minimize()
