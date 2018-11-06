@@ -133,7 +133,7 @@ func TestGenThroughSmall(t *testing.T) {
 	generator.Gen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
 		gd.GetRootNodeIndex())
 	// it should generate SOVRANTY
-	if len(generator.plays) != 2 {
+	if len(generator.plays) != 1 {
 		t.Errorf("Generated %v plays, expected len=%v", generator.plays, 2)
 	}
 }

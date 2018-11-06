@@ -88,35 +88,6 @@ func (gen *GordonGenerator) GenAll(rack []string, board GameBoard) {
 	// gen.curAnchorCol = 7
 }
 
-// NextNodeIdx is analogous to NextArc in the Gordon paper. The main difference
-// is that in Gordon, the initial state is an arc pointing to the first
-// node. In our implementation of the GADDAG, the initial state is that
-// first node. So we have to think in terms of the node that was pointed
-// to, rather than the pointing arc. There is something slightly wrong with
-// the paper as it does not seem possible to implement in exactly Gordon's way
-// without running into issues. (See my notes in my `ujamaa` repo in gaddag.h)
-// Note: This is a non-deterministic algorithm. However, using a 2-D table
-// of nodes/arcs did not speed it up (actually it might have even been slower)
-// This is probably due to larger memory usage being cache-inefficient.
-func (gen GordonGenerator) NextNodeIdx(nodeIdx uint32, letter alphabet.MachineLetter) uint32 {
-	arcs := uint32(gen.gaddag.NumArcs(nodeIdx))
-	if arcs == 0 {
-		return 0
-	}
-	for i := nodeIdx + 1; i <= nodeIdx+arcs; i++ {
-		idx, nextLetter := gen.gaddag.ArcToIdxLetter(i)
-		if nextLetter == letter {
-			return idx
-		}
-		if nextLetter > letter {
-			// Since it's sorted numerically we know it won't be in the arc
-			// list, so exit the loop early.
-			return 0
-		}
-	}
-	return 0
-}
-
 func crossAllowed(cross uint64, letter alphabet.MachineLetter) bool {
 	return cross&(1<<uint8(letter)) != 0
 }
@@ -141,7 +112,7 @@ func (gen *GordonGenerator) Gen(col int8, word alphabet.MachineWord, rack *Rack,
 	}
 
 	if curLetter != EmptySquareMarker {
-		nnIdx := gen.NextNodeIdx(nodeIdx, curLetter)
+		nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, curLetter)
 		log.Printf("[DEBUG] Tryna find letter, Calling GoOn with col=%v, letter=%v, nodeIdx=%v",
 			col, curLetter.UserVisible(gen.gaddag.GetAlphabet()), nnIdx)
 
@@ -152,66 +123,83 @@ func (gen *GordonGenerator) Gen(col int8, word alphabet.MachineWord, rack *Rack,
 		// just go through the node's children and test them independently
 		// against the cross set. Note that some of these children could be
 		// the SeparationToken
-		arcs := uint32(gen.gaddag.NumArcs(nodeIdx))
-		log.Printf("[DEBUG] Rack is still not empty, examining %v arcs",
-			arcs)
+		// arcs := uint32(gen.gaddag.NumArcs(nodeIdx))
+		// log.Printf("[DEBUG] Rack is still not empty, examining %v arcs",
+		// 	arcs)
 
 		// The problem is here that we are not trying letters that could be
 		// in the letterset and in the rack.
 
-		// for ml := range rack.uniqueLetters {
-		// 	if ml != BlankPos {
-		// 		nnIdx, nextLetter := gen.gaddag.ArcToIdxLetter(ml)
-		// 	} else {
+		for ml := range rack.uniqueLetters {
+			if ml != BlankPos {
+				if crossAllowed(crossSet, ml) {
+					nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, ml)
+					rack.take(ml)
+					gen.tilesPlayed++
+					gen.GoOn(col, ml, word, rack, nnIdx, nodeIdx)
+					rack.add(ml)
+					gen.tilesPlayed--
+				}
+			} else {
+				// It's a blank. Loop only through letters in the cross-set.
+				for i := uint8(0); i < gen.gaddag.GetAlphabet().NumLetters(); i++ {
+					if crossAllowed(crossSet, alphabet.MachineLetter(i)) {
+						nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, alphabet.MachineLetter(i))
+						rack.take(BlankPos)
+						gen.tilesPlayed++
+						gen.GoOn(col, alphabet.MachineLetter(i).Blank(), word, rack, nnIdx, nodeIdx)
+						rack.add(BlankPos)
+						gen.tilesPlayed--
+					}
+				}
+			}
+		}
+
+		// for i := nodeIdx + 1; i <= nodeIdx+arcs; i++ {
+		// 	log.Printf("[DEBUG] Trying arc/node %v, col=%v", i, col)
+		// 	nnIdx, nextLetter := gen.gaddag.ArcToIdxLetter(i)
+		// 	if nextLetter == alphabet.SeparationMachineLetter {
+		// 		// The Separation token.
+		// 		log.Printf("[DEBUG] Separation, bye")
+		// 		break
+		// 	}
+		// 	// The letter must be on the rack AND it must be allowed in the
+		// 	// cross-set.
+		// 	if !(rack.contains(nextLetter) && crossAllowed(crossSet, nextLetter)) {
+		// 		log.Printf("[DEBUG] Letter %v not acceptable",
+		// 			nextLetter.UserVisible(gen.gaddag.GetAlphabet()))
+		// 		continue
+		// 	}
+		// 	rack.take(nextLetter)
+		// 	gen.tilesPlayed++
+		// 	log.Printf("[DEBUG] Calling GoOn with col=%v, letter=%v, nodeIdx=%v",
+		// 		col, nextLetter.UserVisible(gen.gaddag.GetAlphabet()), nnIdx)
+		// 	gen.GoOn(col, nextLetter, word, rack, nnIdx, nodeIdx)
+		// 	rack.add(nextLetter)
+		// 	gen.tilesPlayed--
+		// }
+		// // Check for the blanks meow.
+		// if rack.contains(BlankPos) {
+		// 	// Just go through all the children; they're all acceptable if they're
+		// 	// in the cross-set.
+		// 	log.Printf("[DEBUG] There is a blank.")
+		// 	for i := nodeIdx + 1; i <= nodeIdx+arcs; i++ {
+		// 		nnIdx, nextLetter := gen.gaddag.ArcToIdxLetter(i)
+		// 		if nextLetter == alphabet.MaxAlphabetSize {
+		// 			// The separation token
+		// 			continue
+		// 		}
+		// 		if !crossAllowed(crossSet, nextLetter) {
+		// 			continue
+		// 		}
+		// 		rack.take(BlankPos)
+		// 		gen.tilesPlayed++
+		// 		gen.GoOn(col, nextLetter.Blank(), word, rack, nnIdx, nodeIdx)
+		// 		rack.add(BlankPos)
+		// 		gen.tilesPlayed--
 
 		// 	}
 		// }
-
-		for i := nodeIdx + 1; i <= nodeIdx+arcs; i++ {
-			log.Printf("[DEBUG] Trying arc/node %v, col=%v", i, col)
-			nnIdx, nextLetter := gen.gaddag.ArcToIdxLetter(i)
-			if nextLetter == alphabet.SeparationMachineLetter {
-				// The Separation token.
-				log.Printf("[DEBUG] Separation, bye")
-				break
-			}
-			// The letter must be on the rack AND it must be allowed in the
-			// cross-set.
-			if !(rack.contains(nextLetter) && crossAllowed(crossSet, nextLetter)) {
-				log.Printf("[DEBUG] Letter %v not acceptable",
-					nextLetter.UserVisible(gen.gaddag.GetAlphabet()))
-				continue
-			}
-			rack.take(nextLetter)
-			gen.tilesPlayed++
-			log.Printf("[DEBUG] Calling GoOn with col=%v, letter=%v, nodeIdx=%v",
-				col, nextLetter.UserVisible(gen.gaddag.GetAlphabet()), nnIdx)
-			gen.GoOn(col, nextLetter, word, rack, nnIdx, nodeIdx)
-			rack.add(nextLetter)
-			gen.tilesPlayed--
-		}
-		// Check for the blanks meow.
-		if rack.contains(BlankPos) {
-			// Just go through all the children; they're all acceptable if they're
-			// in the cross-set.
-			log.Printf("[DEBUG] There is a blank.")
-			for i := nodeIdx + 1; i <= nodeIdx+arcs; i++ {
-				nnIdx, nextLetter := gen.gaddag.ArcToIdxLetter(i)
-				if nextLetter == alphabet.MaxAlphabetSize {
-					// The separation token
-					continue
-				}
-				if !crossAllowed(crossSet, nextLetter) {
-					continue
-				}
-				rack.take(BlankPos)
-				gen.tilesPlayed++
-				gen.GoOn(col, nextLetter.Blank(), word, rack, nnIdx, nodeIdx)
-				rack.add(BlankPos)
-				gen.tilesPlayed--
-
-			}
-		}
 	}
 	log.Printf("[DEBUG] Leaving Gen function")
 
@@ -253,7 +241,7 @@ func (gen *GordonGenerator) GoOn(curCol int8, L alphabet.MachineLetter, word alp
 		}
 		// Then shift direction.
 		// Get the index of the SeparationToken
-		separationNodeIdx := gen.NextNodeIdx(newNodeIdx, alphabet.SeparationMachineLetter)
+		separationNodeIdx := gen.gaddag.NextNodeIdx(newNodeIdx, alphabet.SeparationMachineLetter)
 		// Check for no letter directly left AND room to the right (of the anchor
 		// square)
 		if separationNodeIdx != 0 && noLetterDirectlyLeft && gen.curAnchorCol < int8(len(gen.curRow)-1) {

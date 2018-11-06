@@ -166,6 +166,21 @@ func (g SimpleGaddag) LetterSetAsRunes(nodeIdx uint32) []rune {
 	return runes
 }
 
+// NextNodeIdx is analogous to NextArc in the Gordon paper. The main difference
+// is that in Gordon, the initial state is an arc pointing to the first
+// node. In our implementation of the GADDAG, the initial state is that
+// first node. So we have to think in terms of the node that was pointed
+// to, rather than the pointing arc. There is something slightly wrong with
+// the paper as it does not seem possible to implement in exactly Gordon's way
+// without running into issues. (See my notes in my `ujamaa` repo in gaddag.h)
+func (g SimpleGaddag) NextNodeIdx(nodeIdx uint32, letter alphabet.MachineLetter) uint32 {
+	if g.Nodes[nodeIdx].Arcs == nil {
+		return 0
+	}
+	// Note: This will automatically return the zero value if the letter is not found.
+	return g.Nodes[nodeIdx].Arcs[letter]
+}
+
 // NumArcs is simply the number of arcs for the given node.
 func (g SimpleGaddag) NumArcs(nodeIdx uint32) byte {
 	if g.Nodes[nodeIdx].Arcs == nil {
