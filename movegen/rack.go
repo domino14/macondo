@@ -55,6 +55,9 @@ func (r *Rack) take(letter alphabet.MachineLetter) {
 	if letter == BlankPos {
 		r.LetArr[BlankPos]--
 		r.uniqueLetters[alphabet.MaxAlphabetSize]--
+		if r.uniqueLetters[alphabet.MaxAlphabetSize] == 0 {
+			delete(r.uniqueLetters, alphabet.MaxAlphabetSize)
+		}
 	} else {
 		r.LetArr[letter]--
 		r.uniqueLetters[letter]--

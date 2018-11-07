@@ -159,3 +159,23 @@ func BenchmarkAnagramFourBlanks(b *testing.B) {
 		Anagram("AEINST????", d, ModeExact)
 	}
 }
+
+func TestBuildFourBlanks(t *testing.T) {
+	gaddagmaker.GenerateDawg(LexiconDir+"America.txt", true, true)
+	d := gaddag.SimpleDawg(gaddag.LoadGaddag("out.dawg"))
+	answers := Anagram("AEINST????", d, ModeBuild)
+	expected := 61711
+	if len(answers) != expected {
+		t.Errorf("Expected %v answers, got %v", expected, len(answers))
+	}
+}
+
+func TestAnagramFourBlanks(t *testing.T) {
+	gaddagmaker.GenerateDawg(LexiconDir+"America.txt", true, true)
+	d := gaddag.SimpleDawg(gaddag.LoadGaddag("out.dawg"))
+	answers := Anagram("AEINST????", d, ModeExact)
+	expected := 863
+	if len(answers) != expected {
+		t.Errorf("Expected %v answers, got %v", expected, len(answers))
+	}
+}

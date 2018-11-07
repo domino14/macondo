@@ -127,21 +127,23 @@ func (gen *GordonGenerator) Gen(col int8, word alphabet.MachineWord, rack *Rack,
 		// log.Printf("[DEBUG] Rack is still not empty, examining %v arcs",
 		// 	arcs)
 
-		// The problem is here that we are not trying letters that could be
-		// in the letterset and in the rack.
-
 		for ml := range rack.uniqueLetters {
+			log.Printf("[DEBUG] Taking ml %v", ml.UserVisible(gen.gaddag.GetAlphabet()))
 			if ml != BlankPos {
 				if crossAllowed(crossSet, ml) {
 					nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, ml)
 					rack.take(ml)
 					gen.tilesPlayed++
+
+					log.Printf("[DEBUG] Calling GoOn with col=%v letter=%v nnIdx=%v nodeIdx=%v",
+						col, ml.UserVisible(gen.gaddag.GetAlphabet()), nnIdx, nodeIdx)
 					gen.GoOn(col, ml, word, rack, nnIdx, nodeIdx)
 					rack.add(ml)
 					gen.tilesPlayed--
 				}
 			} else {
 				// It's a blank. Loop only through letters in the cross-set.
+				log.Printf("[DEBUG] There's a blank")
 				for i := uint8(0); i < gen.gaddag.GetAlphabet().NumLetters(); i++ {
 					if crossAllowed(crossSet, alphabet.MachineLetter(i)) {
 						nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, alphabet.MachineLetter(i))
@@ -221,14 +223,15 @@ func (gen *GordonGenerator) GoOn(curCol int8, L alphabet.MachineLetter, word alp
 		log.Printf("[DEBUG] leftCol=%v, noLetterDirectlyLeft=%v",
 			curCol-1, noLetterDirectlyLeft)
 		if noLetterDirectlyLeft {
-			log.Printf("[DEBUG] Checking wordiness of %v", word.UserVisible(
-				gen.gaddag.GetAlphabet()))
+			log.Printf("[DEBUG] Checking if %v is in letterset, word so far %v",
+				L.UserVisible(gen.gaddag.GetAlphabet()), word.UserVisible(
+					gen.gaddag.GetAlphabet()))
 		}
 		if gen.gaddag.InLetterSet(L, oldNodeIdx) && noLetterDirectlyLeft {
-			log.Printf("[DEBUG] 'Twas a word!")
-			gen.RecordPlay(word)
+			gen.RecordPlay(word, curCol)
 		}
 		if newNodeIdx == 0 {
+			log.Printf("[DEBUG] newNodeIdx=0, returning from GoOn")
 			return
 		}
 		// Keep generating prefixes if there is room to the left
@@ -256,12 +259,12 @@ func (gen *GordonGenerator) GoOn(curCol int8, L alphabet.MachineLetter, word alp
 			gen.curRow[curCol+1].letter == EmptySquareMarker)
 		log.Printf("[DEBUG] No letter directly right: %v", noLetterDirectlyRight)
 		if noLetterDirectlyRight {
-			log.Printf("[DEBUG] Checking if in letter set: %v %v -> %v",
-				L.UserVisible(gen.gaddag.GetAlphabet()), oldNodeIdx, gen.gaddag.InLetterSet(L, oldNodeIdx))
+			log.Printf("[DEBUG] Checking if %v is in letterset, word so far %v",
+				L.UserVisible(gen.gaddag.GetAlphabet()), word.UserVisible(
+					gen.gaddag.GetAlphabet()))
 		}
 		if gen.gaddag.InLetterSet(L, oldNodeIdx) && noLetterDirectlyRight {
-			log.Printf("[DEBUG] Should record %v", word.UserVisible(gen.gaddag.GetAlphabet()))
-			gen.RecordPlay(word)
+			gen.RecordPlay(word, curCol-int8(len(word))+1)
 		}
 		if newNodeIdx != 0 && curCol < int8(len(gen.curRow)-1) {
 			// There is room to the right
@@ -272,7 +275,7 @@ func (gen *GordonGenerator) GoOn(curCol int8, L alphabet.MachineLetter, word alp
 	}
 }
 
-func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord) {
+func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startCol int8) {
 	play := Move{
 		action:   MoveTypePlay,
 		score:    17,
@@ -281,8 +284,11 @@ func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord) {
 		vertical: gen.vertical,
 		bingo:    gen.tilesPlayed == 7,
 		alph:     gen.gaddag.GetAlphabet(),
+		colStart: uint8(startCol),
 	}
 	gen.plays = append(gen.plays, play)
+	log.Printf("[DEBUG] Recorded play %v, startcol %v",
+		word.UserVisible(gen.gaddag.GetAlphabet()), startCol)
 }
 
 // For future?: The Gordon GADDAG algorithm is somewhat inefficient because

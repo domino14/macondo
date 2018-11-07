@@ -173,12 +173,25 @@ func (g SimpleGaddag) LetterSetAsRunes(nodeIdx uint32) []rune {
 // to, rather than the pointing arc. There is something slightly wrong with
 // the paper as it does not seem possible to implement in exactly Gordon's way
 // without running into issues. (See my notes in my `ujamaa` repo in gaddag.h)
+// func (g SimpleGaddag) NextNodeIdx(nodeIdx uint32, letter alphabet.MachineLetter) uint32 {
+// 	if g.Nodes[nodeIdx].Arcs == nil {
+// 		return 0
+// 	}
+// 	// Note: This will automatically return the zero value if the letter is not found.
+// 	return g.Nodes[nodeIdx].Arcs[letter]
+// }
+
+// XXX: Temporary loop implementation. Replace with above.
 func (g SimpleGaddag) NextNodeIdx(nodeIdx uint32, letter alphabet.MachineLetter) uint32 {
-	if g.Nodes[nodeIdx].Arcs == nil {
-		return 0
+
+	numArcs := g.NumArcs(nodeIdx)
+	for i := nodeIdx + 1; i <= uint32(numArcs)+nodeIdx; i++ {
+		ml := alphabet.MachineLetter(g.Nodes[i].Val >> gaddagmaker.LetterBitLoc)
+		if letter == ml {
+			return g.Nodes[i].Val & gaddagmaker.NodeIdxBitMask
+		}
 	}
-	// Note: This will automatically return the zero value if the letter is not found.
-	return g.Nodes[nodeIdx].Arcs[letter]
+	return 0
 }
 
 // NumArcs is simply the number of arcs for the given node.
