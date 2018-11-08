@@ -41,20 +41,22 @@ func LettersRemain(rack []uint8) bool {
 }
 
 type Move struct {
-	action   MoveType
-	score    int8
-	desc     string
-	word     alphabet.MachineWord
-	rowStart uint8
-	colStart uint8
-	vertical bool
-	bingo    bool
-	alph     *alphabet.Alphabet
+	action      MoveType
+	score       int8
+	desc        string
+	word        alphabet.MachineWord
+	rowStart    uint8
+	colStart    uint8
+	vertical    bool
+	bingo       bool
+	tilesPlayed uint8
+	alph        *alphabet.Alphabet
 }
 
 func (m Move) String() string {
-	return fmt.Sprintf("<action: %v word: %v bingo: %v>",
-		m.action, m.word.UserVisible(m.alph), m.bingo)
+	return fmt.Sprintf("<action: %v col: %v word: %v bingo: %v tp: %v>",
+		m.action, m.colStart, m.word.UserVisible(m.alph), m.bingo,
+		m.tilesPlayed)
 }
 
 type GordonGenerator struct {
@@ -127,15 +129,6 @@ func (gen *GordonGenerator) Gen(col int8, word alphabet.MachineWord, rack *Rack,
 		gen.GoOn(col, curLetter, word, rack, nnIdx, nodeIdx, recCtr+1)
 
 	} else if !rack.empty {
-		// Instead of doing the loop in the Gordon Gen algorithm, we should
-		// just go through the node's children and test them independently
-		// against the cross set. Note that some of these children could be
-		// the SeparationToken
-		// arcs := uint32(gen.gaddag.NumArcs(nodeIdx))
-		// log.Printf("[DEBUG] Rack is still not empty, examining %v arcs",
-		// 	arcs)
-
-		// XXX: Cannot modify unique letters in same loop!!
 		uniqLetters := []alphabet.MachineLetter{}
 		for ml := range rack.uniqueLetters {
 			uniqLetters = append(uniqLetters, ml)
@@ -296,14 +289,15 @@ func (gen *GordonGenerator) GoOn(curCol int8, L alphabet.MachineLetter, word alp
 
 func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startCol int8) {
 	play := Move{
-		action:   MoveTypePlay,
-		score:    17,
-		desc:     "foo",
-		word:     word,
-		vertical: gen.vertical,
-		bingo:    gen.tilesPlayed == 7,
-		alph:     gen.gaddag.GetAlphabet(),
-		colStart: uint8(startCol),
+		action:      MoveTypePlay,
+		score:       17,
+		desc:        "foo",
+		word:        word,
+		vertical:    gen.vertical,
+		bingo:       gen.tilesPlayed == 7,
+		tilesPlayed: gen.tilesPlayed,
+		alph:        gen.gaddag.GetAlphabet(),
+		colStart:    uint8(startCol),
 	}
 	gen.plays = append(gen.plays, play)
 	log.Printf("[DEBUG] Recorded play %v, startcol %v",

@@ -138,6 +138,47 @@ func TestGenThroughSmall(t *testing.T) {
 	}
 }
 
+func TestGenThroughLarger(t *testing.T) {
+	rack := &Rack{}
+	gd := gaddag.LoadGaddag(LexiconDir + "America.gaddag")
+	rack.Initialize("ING", gd.GetAlphabet())
+
+	generator := newGordonGenerator(gd)
+	generator.curAnchorCol = 7
+
+	setBoardRow(generator.board, 2, "  LAUGH", gd.GetAlphabet())
+	generator.curRow = generator.board.squares[2]
+	generator.Gen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
+		gd.GetRootNodeIndex())
+	// it should generate LAUGHING
+	if len(generator.plays) != 1 {
+		t.Errorf("Generated %v (%v) plays, expected len=%v", generator.plays,
+			len(generator.plays), 1)
+	}
+}
+
+func TestGenThroughSimple(t *testing.T) {
+	rack := &Rack{}
+	gd := gaddag.LoadGaddag(LexiconDir + "America.gaddag")
+	rack.Initialize("ZA", gd.GetAlphabet())
+
+	generator := newGordonGenerator(gd)
+	// Anchors on the left are ON the leftmost letter.
+	generator.curAnchorCol = 2
+
+	setBoardRow(generator.board, 4, "  BE", gd.GetAlphabet())
+	generator.curRow = generator.board.squares[4]
+	log.Printf("Current row: %v", generator.curRow)
+	generator.Gen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
+		gd.GetRootNodeIndex())
+	// it should generate nothing
+
+	if len(generator.plays) != 0 {
+		t.Errorf("Generated %v plays (%v), expected len=%v", generator.plays,
+			len(generator.plays), 0)
+	}
+}
+
 func TestGenThrough(t *testing.T) {
 	rack := &Rack{}
 	gd := gaddag.LoadGaddag(LexiconDir + "America.gaddag")
@@ -154,6 +195,7 @@ func TestGenThrough(t *testing.T) {
 	// it should generate WAPPENSCHAWING
 
 	if len(generator.plays) != 1 {
-		t.Errorf("Generated %v plays, expected len=%v", generator.plays, 1)
+		t.Errorf("Generated %v plays (%v), expected len=%v", generator.plays,
+			len(generator.plays), 1)
 	}
 }
