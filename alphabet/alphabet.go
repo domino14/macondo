@@ -58,7 +58,7 @@ type MachineWord string
 func (mw MachineWord) UserVisible(alph *Alphabet) string {
 	runes := make([]rune, len(mw))
 	for i, l := range mw {
-		if l > BlankOffset {
+		if l >= BlankOffset {
 			runes[i] = unicode.ToLower(alph.Letter(MachineLetter(l - BlankOffset)))
 		} else {
 			runes[i] = alph.Letter(MachineLetter(l))

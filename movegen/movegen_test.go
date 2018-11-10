@@ -7,9 +7,10 @@ import (
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
+	"github.com/domino14/macondo/gaddagmaker"
 )
 
-var LexiconDir = os.Getenv("GADDAG_DIR")
+var LexiconDir = os.Getenv("LEXICON_DIR")
 
 func setBoardRow(board GameBoard, rowNum int8, letters string, alph *alphabet.Alphabet) {
 	// Set the row in board to the passed in letters array.
@@ -24,13 +25,19 @@ func setBoardRow(board GameBoard, rowNum int8, letters string, alph *alphabet.Al
 	}
 }
 
+func TestMain(m *testing.M) {
+	gaddagmaker.GenerateGaddag(LexiconDir+"America.txt", true, true)
+	os.Rename("out.gaddag", "/tmp/gen_america.gaddag")
+	os.Exit(m.Run())
+}
+
 // This is going to be a big file; it tests the main move generation
 // recursive algorithm
 
 func TestGenBase(t *testing.T) {
 	// Sanity check. A board with no cross checks should generate nothing.
 	rack := &Rack{}
-	gd := gaddag.LoadGaddag(LexiconDir + "America.gaddag")
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	rack.Initialize("AEINRST", gd.GetAlphabet())
 
 	generator := newGordonGenerator(gd)
@@ -48,11 +55,11 @@ func TestGenBase(t *testing.T) {
 
 func TestGenFrontHook(t *testing.T) {
 	rack := &Rack{}
-	gd := gaddag.LoadGaddag(LexiconDir + "America.gaddag")
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	rack.Initialize("P", gd.GetAlphabet())
 
 	generator := newGordonGenerator(gd)
-	generator.curAnchorCol = 4
+	generator.curAnchorCol = 11
 
 	setBoardRow(generator.board, 2, "     REGNANT", gd.GetAlphabet())
 	generator.curRow = generator.board.squares[2]
@@ -67,11 +74,11 @@ func TestGenFrontHook(t *testing.T) {
 
 func TestGenBackHook(t *testing.T) {
 	rack := &Rack{}
-	gd := gaddag.LoadGaddag(LexiconDir + "America.gaddag")
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	rack.Initialize("O", gd.GetAlphabet())
 
 	generator := newGordonGenerator(gd)
-	generator.curAnchorCol = 10
+	generator.curAnchorCol = 9
 
 	setBoardRow(generator.board, 2, "  PORTOLAN", gd.GetAlphabet())
 	generator.curRow = generator.board.squares[2]
@@ -86,11 +93,11 @@ func TestGenBackHook(t *testing.T) {
 
 func TestGenBackHook2(t *testing.T) {
 	rack := &Rack{}
-	gd := gaddag.LoadGaddag(LexiconDir + "America.gaddag")
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	rack.Initialize("S", gd.GetAlphabet())
 
 	generator := newGordonGenerator(gd)
-	generator.curAnchorCol = 10
+	generator.curAnchorCol = 9
 
 	setBoardRow(generator.board, 2, "  PORTOLAN", gd.GetAlphabet())
 	generator.curRow = generator.board.squares[2]
@@ -104,11 +111,11 @@ func TestGenBackHook2(t *testing.T) {
 
 func TestGenBackHookBlank(t *testing.T) {
 	rack := &Rack{}
-	gd := gaddag.LoadGaddag(LexiconDir + "America.gaddag")
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	rack.Initialize("?", gd.GetAlphabet())
 
 	generator := newGordonGenerator(gd)
-	generator.curAnchorCol = 10
+	generator.curAnchorCol = 9
 
 	setBoardRow(generator.board, 2, "  PORTOLAN", gd.GetAlphabet())
 	generator.curRow = generator.board.squares[2]
@@ -122,11 +129,11 @@ func TestGenBackHookBlank(t *testing.T) {
 
 func TestGenThroughSmall(t *testing.T) {
 	rack := &Rack{}
-	gd := gaddag.LoadGaddag(LexiconDir + "America.gaddag")
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	rack.Initialize("TY", gd.GetAlphabet())
 
 	generator := newGordonGenerator(gd)
-	generator.curAnchorCol = 8
+	generator.curAnchorCol = 7
 
 	setBoardRow(generator.board, 2, "  SOVRAN", gd.GetAlphabet())
 	generator.curRow = generator.board.squares[2]
@@ -140,11 +147,11 @@ func TestGenThroughSmall(t *testing.T) {
 
 func TestGenThroughLarger(t *testing.T) {
 	rack := &Rack{}
-	gd := gaddag.LoadGaddag(LexiconDir + "America.gaddag")
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	rack.Initialize("ING", gd.GetAlphabet())
 
 	generator := newGordonGenerator(gd)
-	generator.curAnchorCol = 7
+	generator.curAnchorCol = 6
 
 	setBoardRow(generator.board, 2, "  LAUGH", gd.GetAlphabet())
 	generator.curRow = generator.board.squares[2]
@@ -159,12 +166,12 @@ func TestGenThroughLarger(t *testing.T) {
 
 func TestGenThroughSimple(t *testing.T) {
 	rack := &Rack{}
-	gd := gaddag.LoadGaddag(LexiconDir + "America.gaddag")
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	rack.Initialize("ZA", gd.GetAlphabet())
 
 	generator := newGordonGenerator(gd)
 	// Anchors on the left are ON the leftmost letter.
-	generator.curAnchorCol = 2
+	generator.curAnchorCol = 3
 
 	setBoardRow(generator.board, 4, "  BE", gd.GetAlphabet())
 	generator.curRow = generator.board.squares[4]
@@ -181,11 +188,11 @@ func TestGenThroughSimple(t *testing.T) {
 
 func TestGenThrough(t *testing.T) {
 	rack := &Rack{}
-	gd := gaddag.LoadGaddag(LexiconDir + "America.gaddag")
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	rack.Initialize("AENPPSW", gd.GetAlphabet())
 
 	generator := newGordonGenerator(gd)
-	generator.curAnchorCol = 7
+	generator.curAnchorCol = 14
 
 	setBoardRow(generator.board, 4, "        CHAWING", gd.GetAlphabet())
 	generator.curRow = generator.board.squares[4]

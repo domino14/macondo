@@ -10,7 +10,7 @@ import (
 
 func TestRackInitialize(t *testing.T) {
 	rack := &Rack{}
-	gd := gaddag.LoadGaddag(LexiconDir + "America.gaddag")
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	rack.Initialize("AENPPSW", gd.GetAlphabet())
 
 	if !reflect.DeepEqual(rack.uniqueLetters, map[alphabet.MachineLetter]uint8{
@@ -27,7 +27,7 @@ func TestRackInitialize(t *testing.T) {
 
 func TestRackTake(t *testing.T) {
 	rack := &Rack{}
-	gd := gaddag.LoadGaddag(LexiconDir + "America.gaddag")
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	rack.Initialize("AENPPSW", gd.GetAlphabet())
 	rack.take(alphabet.MachineLetter(15))
 	if !reflect.DeepEqual(rack.uniqueLetters, map[alphabet.MachineLetter]uint8{
@@ -54,7 +54,7 @@ func TestRackTake(t *testing.T) {
 
 func TestRackTakeAll(t *testing.T) {
 	rack := &Rack{}
-	gd := gaddag.LoadGaddag(LexiconDir + "America.gaddag")
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	rack.Initialize("AENPPSW", gd.GetAlphabet())
 	rack.take(alphabet.MachineLetter(15))
 	rack.take(alphabet.MachineLetter(15))
@@ -70,7 +70,7 @@ func TestRackTakeAll(t *testing.T) {
 
 func TestRackTakeAndAdd(t *testing.T) {
 	rack := &Rack{}
-	gd := gaddag.LoadGaddag(LexiconDir + "America.gaddag")
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	rack.Initialize("AENPPSW", gd.GetAlphabet())
 	rack.take(alphabet.MachineLetter(15))
 	rack.take(alphabet.MachineLetter(15))

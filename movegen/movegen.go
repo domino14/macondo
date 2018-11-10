@@ -1,11 +1,14 @@
 // Package movegen contains all the move-generating functions. It makes
 // heavy use of the GADDAG.
 // Implementation notes:
-// Using Gordon's GADDAG algorithm with some minor speed changes. Similar to
-// the A&J DAWG algorithm, we should not be doing "for each letter allowed
-// on this square", as that is a for loop through every letter in the rack.
-// Instead, we should go through the node siblings in the Gen algorithm,
-// and check their presence in the cross-sets.
+// - Is the specification in the paper a bit buggy? Basically, if I assume
+// an anchor is the leftmost tile of a word, the way the algorithm works,
+// it will create words blindly. For example, if I have a word FIRE on the
+// board, and I have the letter E on my rack, and I specify F as the anchor,
+// it will create the word EF! (Ignoring the fact that IRE is on the board)
+// You can see this by just stepping through the algorithm.
+// It seems that anchors can only be on the rightmost tile of a word
+
 package movegen
 
 import (
@@ -153,14 +156,17 @@ func (gen *GordonGenerator) Gen(col int8, word alphabet.MachineWord, rack *Rack,
 				}
 			} else {
 				// It's a blank. Loop only through letters in the cross-set.
-				log.Printf("[DEBUG] There's a blank")
 				for i := uint8(0); i < gen.gaddag.GetAlphabet().NumLetters(); i++ {
 					if crossAllowed(crossSet, alphabet.MachineLetter(i)) {
 						nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, alphabet.MachineLetter(i))
 						rack.take(BlankPos)
+						log.Printf("[DEBUG]%v Take the blank", spaces)
+
 						gen.tilesPlayed++
 						gen.GoOn(col, alphabet.MachineLetter(i).Blank(), word, rack, nnIdx, nodeIdx, recCtr+1)
 						rack.add(BlankPos)
+						log.Printf("[DEBUG]%v Put the blank back", spaces)
+
 						gen.tilesPlayed--
 					}
 				}
@@ -239,7 +245,7 @@ func (gen *GordonGenerator) GoOn(curCol int8, L alphabet.MachineLetter, word alp
 				spaces, L.UserVisible(gen.gaddag.GetAlphabet()), word.UserVisible(
 					gen.gaddag.GetAlphabet()))
 		}
-		if gen.gaddag.InLetterSet(L, oldNodeIdx) && noLetterDirectlyLeft {
+		if gen.gaddag.InLetterSet(L, oldNodeIdx) && noLetterDirectlyLeft && gen.tilesPlayed > 0 {
 			gen.RecordPlay(word, curCol)
 		}
 		if newNodeIdx == 0 {
@@ -275,7 +281,7 @@ func (gen *GordonGenerator) GoOn(curCol int8, L alphabet.MachineLetter, word alp
 				spaces, L.UserVisible(gen.gaddag.GetAlphabet()), word.UserVisible(
 					gen.gaddag.GetAlphabet()))
 		}
-		if gen.gaddag.InLetterSet(L, oldNodeIdx) && noLetterDirectlyRight {
+		if gen.gaddag.InLetterSet(L, oldNodeIdx) && noLetterDirectlyRight && gen.tilesPlayed > 0 {
 			gen.RecordPlay(word, curCol-int8(len(word))+1)
 		}
 		if newNodeIdx != 0 && curCol < int8(len(gen.curRow)-1) {

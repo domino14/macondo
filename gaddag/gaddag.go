@@ -149,8 +149,12 @@ func (g SimpleGaddag) InLetterSet(letter alphabet.MachineLetter, nodeIdx uint32)
 	if letter == alphabet.SeparationMachineLetter {
 		return false
 	}
+	ltc := letter
+	if letter >= alphabet.BlankOffset {
+		ltc = letter - alphabet.BlankOffset
+	}
 	letterSet := g.GetLetterSet(nodeIdx)
-	return letterSet&(1<<letter) != 0
+	return letterSet&(1<<ltc) != 0
 }
 
 // LetterSetAsRunes returns the letter set of the node at `nodeIdx` as

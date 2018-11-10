@@ -132,7 +132,6 @@ var findSpanishWordTests = []testpair{
 }
 
 func TestMain(m *testing.M) {
-	os.Exit(m.Run())
 
 	gaddagmaker.GenerateGaddag(LexiconDir+"America.txt", true, true)
 	os.Rename("out.gaddag", "/tmp/gen_america.gaddag")
@@ -140,6 +139,7 @@ func TestMain(m *testing.M) {
 	os.Rename("out.dawg", "/tmp/gen_america.dawg")
 	gaddagmaker.GenerateGaddag(LexiconDir+"FISE09.txt", true, true)
 	os.Rename("out.gaddag", "/tmp/gen_fise09.gaddag")
+	os.Exit(m.Run())
 
 }
 
