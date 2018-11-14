@@ -106,7 +106,7 @@ func (a *Alphabet) Init() {
 }
 
 // Val returns the 'value' of this rune in the alphabet; i.e a number from
-// 0 to max size
+// 0 to maxsize + blank offset. Takes into account blanks (lowercase letters).
 func (a Alphabet) Val(r rune) (MachineLetter, error) {
 	if r == SeparationToken {
 		return SeparationMachineLetter, nil
@@ -115,7 +115,13 @@ func (a Alphabet) Val(r rune) (MachineLetter, error) {
 	if ok {
 		return val, nil
 	}
-	return 0, fmt.Errorf("Letter %v not found in alphabet", r)
+	if r == unicode.ToLower(r) {
+		val, ok = a.vals[unicode.ToUpper(r)]
+		if ok {
+			return val + BlankOffset, nil
+		}
+	}
+	return 0, fmt.Errorf("Letter `%v` not found in alphabet", r)
 }
 
 // Letter returns the letter that this position in the alphabet corresponds to.
