@@ -2,10 +2,15 @@ package movegen
 
 import (
 	"fmt"
-	"log"
-	"regexp"
 
 	"github.com/domino14/macondo/alphabet"
+)
+
+type Direction uint8
+
+const (
+	HorizontalDirection Direction = iota
+	VerticalDirection
 )
 
 // A BonusSquare is a bonus square (duh)
@@ -52,6 +57,14 @@ func (s Square) DisplayString(alph *alphabet.Alphabet) string {
 	}
 	return fmt.Sprintf("[%v%v%v]", s.letter.UserVisible(alph), hadisp, vadisp)
 
+}
+
+func (s *Square) setCrossSet(cs CrossSet, dir Direction) {
+	if dir == HorizontalDirection {
+		s.hcrossSet = cs
+	} else if dir == VerticalDirection {
+		s.vcrossSet = cs
+	}
 }
 
 // A GameBoard is the main board structure. It contains all of the Squares,
@@ -169,41 +182,29 @@ func (g *GameBoard) updateAllAnchors() {
 	}
 }
 
-func (g *GameBoard) toDisplayText(alph *alphabet.Alphabet) string {
-	var str string
+func (g *GameBoard) genAllCrossSets() {
+	// Generate all cross-sets. Basically go through the entire board;
+	// our anchor algorithm doesn't quite match the one in the Gordon
+	// paper.
+
+	// We should do this for both transpositions of the board.
+
 	n := g.dim()
 	for i := 0; i < n; i++ {
-		row := ""
 		for j := 0; j < n; j++ {
-			row = row + g.squares[i][j].DisplayString(alph)
+			if g.squares[i][j].letter == EmptySquareMarker {
+				g.squares[i][j].hcrossSet = CrossSet(0)
+				g.squares[i][j].vcrossSet = CrossSet(0)
+			} else {
+				g.genCrossSet(i, j)
+			}
 		}
-		str = str + row + "\n\n"
 	}
-	return str
 }
 
-func (g *GameBoard) setFromPlaintext(qText string, alph *alphabet.Alphabet) {
-	// Take a Quackle Plaintext Board and turn it into an internal structure.
-	// (Another alternative later is to implement GCG)
-	regex := regexp.MustCompile(`\|([[:print:]]+)\|`)
-	result := regex.FindAllStringSubmatch(qText, -1)
-	if len(result) != 15 {
-		panic("Wrongly implemented")
-	}
-	var err error
-	for i := range result {
-		// result[i][1] has the string
-		for j, ch := range result[i][1] {
-			if j%2 != 0 {
-				continue
-			}
-			g.squares[i][j/2].letter, err = alph.Val(ch)
-			log.Println("the letter was", g.squares[i][j/2], "error was", err)
-			if err != nil {
-				// Ignore the error; we are passing in a space or another
-				// board marker.
-				g.squares[i][j/2].letter = EmptySquareMarker
-			}
-		}
-	}
+func (g *GameBoard) genCrossSet(row int, col int) {
+	// This function is always called for empty squares.
+	// If there's no tile adjacent to this square in any direction,
+	// every letter is allowed.
+	if g.squares[row][col]
 }
