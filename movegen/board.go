@@ -193,6 +193,18 @@ func (g *GameBoard) genAllCrossSets() {
 	for i := 0; i < n; i++ {
 		for j := 0; j < n; j++ {
 			if g.squares[i][j].letter == EmptySquareMarker {
+				// We are setting the vertical cross-set since we're
+				// horizontal.
+				g.squares[i][j].setCrossSet(CrossSet(0), VerticalDirection)
+			} else {
+				g.genCrossSet(i, j)
+			}
+		}
+	}
+	g.transpose()
+	for i := 0; i < n; i++ {
+		for j := 0; j < n; j++ {
+			if g.squares[i][j].letter == EmptySquareMarker {
 				g.squares[i][j].hcrossSet = CrossSet(0)
 				g.squares[i][j].vcrossSet = CrossSet(0)
 			} else {
@@ -200,6 +212,9 @@ func (g *GameBoard) genAllCrossSets() {
 			}
 		}
 	}
+	// And transpose back to the original orientation.
+	g.transpose()
+
 }
 
 func (g *GameBoard) genCrossSet(row int, col int) {
