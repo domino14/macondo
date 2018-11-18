@@ -192,7 +192,7 @@ func (g *GameBoard) genAllCrossSets() {
 	n := g.dim()
 	for i := 0; i < n; i++ {
 		for j := 0; j < n; j++ {
-			if g.squares[i][j].letter == EmptySquareMarker {
+			if g.squares[i][j].letter != EmptySquareMarker {
 				// We are setting the vertical cross-set since we're
 				// horizontal.
 				g.squares[i][j].setCrossSet(CrossSet(0), VerticalDirection)
@@ -204,9 +204,8 @@ func (g *GameBoard) genAllCrossSets() {
 	g.transpose()
 	for i := 0; i < n; i++ {
 		for j := 0; j < n; j++ {
-			if g.squares[i][j].letter == EmptySquareMarker {
-				g.squares[i][j].hcrossSet = CrossSet(0)
-				g.squares[i][j].vcrossSet = CrossSet(0)
+			if g.squares[i][j].letter != EmptySquareMarker {
+				g.squares[i][j].setCrossSet(CrossSet(0), HorizontalDirection)
 			} else {
 				g.genCrossSet(i, j)
 			}
@@ -221,5 +220,12 @@ func (g *GameBoard) genCrossSet(row int, col int) {
 	// This function is always called for empty squares.
 	// If there's no tile adjacent to this square in any direction,
 	// every letter is allowed.
-	if g.squares[row][col]
+
+	// When we find a tile, traverse it horizontally in both directions.
+	if col > 0 {
+		for i := col - 1; i >= 0; i-- {
+
+		}
+	}
+
 }
