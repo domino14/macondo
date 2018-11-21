@@ -40,7 +40,19 @@ type MachineLetter uint8
 // It returns a new MachineLetter; it does not modify the one that is passed
 // in!
 func (ml MachineLetter) Blank() MachineLetter {
-	return ml + BlankOffset
+	if ml < BlankOffset {
+		return ml + BlankOffset
+	}
+	return ml
+}
+
+// Unblank is the opposite of the above function; it removes the blank offset
+// from a letter.
+func (ml MachineLetter) Unblank() MachineLetter {
+	if ml >= BlankOffset {
+		return ml - BlankOffset
+	}
+	return ml
 }
 
 // UserVisible turns the passed-in machine letter into a user-visible string.

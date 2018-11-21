@@ -45,3 +45,11 @@ Paths:
                                                         E   I T
 
 ESUOHC
+
+HOUSE:
+
+ESUOH
+SUOH^E
+UOH^SE
+OH^USE
+H^OUSE

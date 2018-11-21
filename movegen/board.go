@@ -6,11 +6,17 @@ import (
 	"github.com/domino14/macondo/alphabet"
 )
 
-type Direction uint8
+type BoardDirection uint8
+type WordDirection int
 
 const (
-	HorizontalDirection Direction = iota
+	HorizontalDirection BoardDirection = iota
 	VerticalDirection
+)
+
+const (
+	LeftDirection  WordDirection = -1
+	RightDirection WordDirection = 1
 )
 
 // A BonusSquare is a bonus square (duh)
@@ -59,12 +65,16 @@ func (s Square) DisplayString(alph *alphabet.Alphabet) string {
 
 }
 
-func (s *Square) setCrossSet(cs CrossSet, dir Direction) {
+func (s *Square) setCrossSet(cs CrossSet, dir BoardDirection) {
 	if dir == HorizontalDirection {
 		s.hcrossSet = cs
 	} else if dir == VerticalDirection {
 		s.vcrossSet = cs
 	}
+}
+
+func (s *Square) isEmpty() bool {
+	return s.letter == EmptySquareMarker
 }
 
 // A GameBoard is the main board structure. It contains all of the Squares,
@@ -182,50 +192,36 @@ func (g *GameBoard) updateAllAnchors() {
 	}
 }
 
-func (g *GameBoard) genAllCrossSets() {
-	// Generate all cross-sets. Basically go through the entire board;
-	// our anchor algorithm doesn't quite match the one in the Gordon
-	// paper.
-
-	// We should do this for both transpositions of the board.
-
-	n := g.dim()
-	for i := 0; i < n; i++ {
-		for j := 0; j < n; j++ {
-			if g.squares[i][j].letter != EmptySquareMarker {
-				// We are setting the vertical cross-set since we're
-				// horizontal.
-				g.squares[i][j].setCrossSet(CrossSet(0), VerticalDirection)
-			} else {
-				g.genCrossSet(i, j)
-			}
-		}
-	}
-	g.transpose()
-	for i := 0; i < n; i++ {
-		for j := 0; j < n; j++ {
-			if g.squares[i][j].letter != EmptySquareMarker {
-				g.squares[i][j].setCrossSet(CrossSet(0), HorizontalDirection)
-			} else {
-				g.genCrossSet(i, j)
-			}
-		}
-	}
-	// And transpose back to the original orientation.
-	g.transpose()
-
+func (g *GameBoard) posExists(row int, col int) bool {
+	d := g.dim()
+	return row >= 0 && row < d && col >= 0 && col < d
 }
 
-func (g *GameBoard) genCrossSet(row int, col int) {
-	// This function is always called for empty squares.
-	// If there's no tile adjacent to this square in any direction,
-	// every letter is allowed.
-
-	// When we find a tile, traverse it horizontally in both directions.
-	if col > 0 {
-		for i := col - 1; i >= 0; i-- {
-
+// leftAndRightEmpty returns true if the squares at col - 1 and col + 1
+// on this row are empty, checking carefully for boundary conditions.
+func (g *GameBoard) leftAndRightEmpty(row int, col int) bool {
+	if g.posExists(row, col-1) {
+		if !g.squares[row][col-1].isEmpty() {
+			return false
 		}
 	}
-
+	if g.posExists(row, col+1) {
+		if !g.squares[row][col+1].isEmpty() {
+			return false
+		}
+	}
+	return true
 }
+
+//      ^
+// HOUSE
+
+// wordEdge finds the edge of a word on the board, returning the column.
+func (g *GameBoard) wordEdge(row int, col int, dir WordDirection) int {
+	for g.posExists(row, col) && !g.squares[row][col].isEmpty() {
+		col += int(dir)
+	}
+	return col - int(dir)
+}
+
+// func (g *GameBoard) traverseWordPart

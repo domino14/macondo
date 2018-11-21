@@ -261,6 +261,140 @@ func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startCol int8)
 		word.UserVisible(gen.gaddag.GetAlphabet()), startCol)
 }
 
+func (gen *GordonGenerator) traverseWordPart(row int, col int, dir WordDirection) (uint32, bool) {
+	// Traverse the "word part" in the given direction. Return the index
+	// of the node in the gaddag for the last letter, and a boolean
+	// indicating if the gaddag path was valid.
+	nodeIdx := gen.gaddag.GetRootNodeIndex()
+	i := 0
+	for gen.board.posExists(row, col+i) {
+		ml := gen.board.squares[row][col+i].letter
+		if ml == EmptySquareMarker {
+			break
+		}
+		nodeIdx = gen.gaddag.NextNodeIdx(nodeIdx, ml.Unblank())
+		if nodeIdx == 0 {
+			// There is no path in the gaddag for this word part; this
+			// can occur if a phony was played and stayed on the board
+			// and the phony has no extensions.
+			return nodeIdx, false
+		}
+		i += int(dir)
+	}
+	return nodeIdx, true
+}
+
+func (gen *GordonGenerator) genAllCrossSets() {
+	// Generate all cross-sets. Basically go through the entire board;
+	// our anchor algorithm doesn't quite match the one in the Gordon
+	// paper.
+
+	// We should do this for both transpositions of the board.
+
+	n := gen.board.dim()
+	for i := 0; i < n; i++ {
+		for j := 0; j < n; j++ {
+			if gen.board.squares[i][j].letter != EmptySquareMarker {
+				// We are setting the vertical cross-set since we're
+				// horizontal.
+				gen.board.squares[i][j].setCrossSet(CrossSet(0), VerticalDirection)
+			} else {
+				gen.genCrossSet(i, j, VerticalDirection)
+			}
+		}
+	}
+	gen.board.transpose()
+	for i := 0; i < n; i++ {
+		for j := 0; j < n; j++ {
+			if gen.board.squares[i][j].letter != EmptySquareMarker {
+				gen.board.squares[i][j].setCrossSet(CrossSet(0), HorizontalDirection)
+			} else {
+				gen.genCrossSet(i, j, HorizontalDirection)
+			}
+		}
+	}
+	// And transpose back to the original orientation.
+	gen.board.transpose()
+}
+
+func (gen *GordonGenerator) genCrossSet(row int, col int, dir BoardDirection) {
+	// This function is always called for empty squares.
+	// If there's no tile adjacent to this square in any direction,
+	// every letter is allowed.
+	if gen.board.leftAndRightEmpty(row, col) {
+		gen.board.squares[row][col].setCrossSet(TrivialCrossSet, dir)
+		return
+	}
+	// If we are here, there is a letter to the left, to the right, or both.
+	// start from the right and go backwards.
+
+	rightCol := gen.board.wordEdge(row, col, RightDirection)
+	if rightCol < col {
+		// This means the right was always empty; we only want to go left.
+		lNodeIdx, lPathValid := gen.traverseWordPart(row, col, LeftDirection)
+		if !lPathValid {
+			// There's a phony on the board with no extensions, blank the
+			// cross-set.
+			gen.board.squares[row][col].setCrossSet(CrossSet(0), dir)
+			return
+		}
+		// Otherwise, we have a left node index.
+		sIdx := gen.gaddag.NextNodeIdx(lNodeIdx, alphabet.SeparationMachineLetter)
+		// Take the letter set of this sIdx as the cross-set.
+
+	} else {
+		// Otherwise, the right is not empty. Check if the left is empty,
+		// if so we just traverse right, otherwise, we try every letter.
+	}
+
+	lNodeIdx, lPathValid := gen.traverseWordPart(row, col, -1)
+	rNodeIdx, rPathValid := gen.traverseWordPart(row, col, 1)
+
+	if !lPathValid || !rPathValid {
+		gen.board.squares[row][col].setCrossSet(CrossSet(0), dir)
+		return
+	}
+	if nodeIdx == 0 {
+		// If we are here, the path was not invalid; there was just no
+		// prefix to the left.
+
+		// We shoud look right, I guess.
+	}
+	if !pathValid {
+		gen.board.squares[row][col].setCrossSet(CrossSet(0), dir)
+		return
+	}
+
+	prefix := alphabet.MachineWord("")
+
+	if col > 0 {
+		for i := col - 1; i >= 0; i-- {
+			if gen.board.squares[row][i].letter == EmptySquareMarker {
+				break
+			}
+			prefix = alphabet.MachineWord(gen.board.squares[row][i].letter.Unblank()) +
+				prefix
+		}
+	}
+	// Go right.
+	suffix := alphabet.MachineWord("")
+	if col < gen.board.dim()-1 {
+		for i := col + 1; i < gen.board.dim(); i++ {
+			if gen.board.squares[row][i].letter == EmptySquareMarker {
+				break
+			}
+			suffix = suffix + alphabet.MachineWord(
+				gen.board.squares[row][i].letter.Unblank())
+		}
+	}
+	if len(prefix) == 0 && len(suffix) == 0 {
+		gen.board.squares[row][col].setCrossSet(TrivialCrossSet, dir)
+		return
+	}
+	// Otherwise, traverse prefix through to suffix.
+
+}
+
 // For future?: The Gordon GADDAG algorithm is somewhat inefficient because
 // it goes through all letters on the rack. Then for every letter, it has to
 // call the NextNodeIdx or similar function above, which has for loops that
