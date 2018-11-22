@@ -21,6 +21,18 @@ func (c *CrossSet) set(letter alphabet.MachineLetter) {
 	*c = *c | (1 << letter)
 }
 
+func crossSetFromString(letters string, alph *alphabet.Alphabet) CrossSet {
+	c := CrossSet(0)
+	for _, l := range letters {
+		v, err := alph.Val(l)
+		if err != nil {
+			panic("Letter error: " + string(l))
+		}
+		c.set(v)
+	}
+	return c
+}
+
 func (c *CrossSet) setAll() {
 	*c = TrivialCrossSet
 }

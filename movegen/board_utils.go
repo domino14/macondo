@@ -1,7 +1,6 @@
 package movegen
 
 import (
-	"log"
 	"regexp"
 
 	"github.com/domino14/macondo/alphabet"
@@ -36,7 +35,6 @@ func (g *GameBoard) setFromPlaintext(qText string, alph *alphabet.Alphabet) {
 				continue
 			}
 			g.squares[i][j/2].letter, err = alph.Val(ch)
-			log.Println("the letter was", g.squares[i][j/2], "error was", err)
 			if err != nil {
 				// Ignore the error; we are passing in a space or another
 				// board marker.

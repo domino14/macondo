@@ -1,7 +1,6 @@
 package movegen
 
 import (
-	"fmt"
 	"log"
 	"os"
 	"testing"
@@ -398,11 +397,37 @@ func TestRowGen(t *testing.T) {
 	}
 }
 
-func TestMatt(t *testing.T) {
+type crossSetTestCase struct {
+	row      int
+	col      int
+	crossSet CrossSet
+}
+
+func TestGenCrossSet(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	generator := newGordonGenerator(gd)
 	setBoardToGame(generator, gd.GetAlphabet(), VsMatt)
-	generator.board.updateAllAnchors()
-	fmt.Println(generator.board.toDisplayText(gd.GetAlphabet()))
-	t.Errorf("bye")
+	alph := gd.GetAlphabet()
+	var testCases = []crossSetTestCase{
+		{10, 10, crossSetFromString("E", alph)},
+		{2, 4, crossSetFromString("DKHLRSV", alph)},
+		{8, 7, crossSetFromString("S", alph)},
+		// suffix - no hooks:
+		{12, 8, crossSetFromString("", alph)},
+		// prefix - no hooks:
+		{3, 1, crossSetFromString("", alph)},
+		// prefix and suffix, no path
+		{6, 8, crossSetFromString("", alph)},
+		// More in-between
+		{2, 10, crossSetFromString("M", alph)},
+	}
+
+	for _, tc := range testCases {
+		generator.genCrossSet(tc.row, tc.col, VerticalDirection)
+		if generator.board.squares[tc.row][tc.col].vcrossSet != tc.crossSet {
+			t.Errorf("For row=%v col=%v, Expected cross-set to be %v, got %v",
+				tc.row, tc.col, tc.crossSet,
+				generator.board.squares[tc.row][tc.col].vcrossSet)
+		}
+	}
 }

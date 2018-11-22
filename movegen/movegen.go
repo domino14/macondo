@@ -18,6 +18,7 @@ import (
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
+	"github.com/domino14/macondo/gaddagmaker"
 )
 
 type MoveType uint8
@@ -261,26 +262,33 @@ func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startCol int8)
 		word.UserVisible(gen.gaddag.GetAlphabet()), startCol)
 }
 
-func (gen *GordonGenerator) traverseWordPart(row int, col int, dir WordDirection) (uint32, bool) {
+func (gen *GordonGenerator) traverseWordPart(row int, col int, nodeIdx uint32,
+	dir WordDirection, checkLetterSet bool) (uint32, bool) {
 	// Traverse the "word part" in the given direction. Return the index
 	// of the node in the gaddag for the last letter, and a boolean
 	// indicating if the gaddag path was valid.
-	nodeIdx := gen.gaddag.GetRootNodeIndex()
+	log.Printf("[DEBUG] traverseWordPart called with row=%v col=%v nodeIdx=%v dir=%v",
+		row, col, nodeIdx, dir)
 	i := 0
 	for gen.board.posExists(row, col+i) {
 		ml := gen.board.squares[row][col+i].letter
 		if ml == EmptySquareMarker {
+			log.Printf("[DEBUG] Col %v empty, breaking", col+i)
 			break
 		}
 		nodeIdx = gen.gaddag.NextNodeIdx(nodeIdx, ml.Unblank())
 		if nodeIdx == 0 {
 			// There is no path in the gaddag for this word part; this
 			// can occur if a phony was played and stayed on the board
-			// and the phony has no extensions.
+			// and the phony has no extensions for example, or if it's
+			// a real word with no further extensions.
+			log.Printf("[DEBUG] No path")
 			return nodeIdx, false
 		}
 		i += int(dir)
 	}
+	log.Printf("[DEBUG] Found path all the way to end. nodeIdx=%v", nodeIdx)
+
 	return nodeIdx, true
 }
 
@@ -322,77 +330,70 @@ func (gen *GordonGenerator) genCrossSet(row int, col int, dir BoardDirection) {
 	// If there's no tile adjacent to this square in any direction,
 	// every letter is allowed.
 	if gen.board.leftAndRightEmpty(row, col) {
+		log.Printf("[DEBUG] Left and right were empty, row %v col %v", row, col)
 		gen.board.squares[row][col].setCrossSet(TrivialCrossSet, dir)
 		return
 	}
 	// If we are here, there is a letter to the left, to the right, or both.
 	// start from the right and go backwards.
-
-	rightCol := gen.board.wordEdge(row, col, RightDirection)
-	if rightCol < col {
+	rightCol := gen.board.wordEdge(row, col+1, RightDirection)
+	if rightCol == col {
 		// This means the right was always empty; we only want to go left.
-		lNodeIdx, lPathValid := gen.traverseWordPart(row, col, LeftDirection)
+		log.Printf("[DEBUG] Right was empty, go left")
+		lNodeIdx, lPathValid := gen.traverseWordPart(row, col-1,
+			gen.gaddag.GetRootNodeIndex(), LeftDirection, false)
 		if !lPathValid {
-			// There's a phony on the board with no extensions, blank the
-			// cross-set.
+			// There are no further extensions to the word on the board,
+			// which may also be a phony.
 			gen.board.squares[row][col].setCrossSet(CrossSet(0), dir)
 			return
 		}
 		// Otherwise, we have a left node index.
 		sIdx := gen.gaddag.NextNodeIdx(lNodeIdx, alphabet.SeparationMachineLetter)
 		// Take the letter set of this sIdx as the cross-set.
-
+		letterSet := gen.gaddag.GetLetterSet(sIdx)
+		// Miraculously, letter sets and cross sets are compatible.
+		gen.board.squares[row][col].setCrossSet(CrossSet(letterSet), dir)
 	} else {
 		// Otherwise, the right is not empty. Check if the left is empty,
 		// if so we just traverse right, otherwise, we try every letter.
-	}
+		leftCol := gen.board.wordEdge(row, col-1, LeftDirection)
+		// Start at the right col and work back to this square.
+		lNodeIdx, lPathValid := gen.traverseWordPart(row, rightCol,
+			gen.gaddag.GetRootNodeIndex(), LeftDirection, false)
+		if !lPathValid {
+			gen.board.squares[row][col].setCrossSet(CrossSet(0), dir)
+			return
+		}
+		if leftCol == col {
+			// The left is empty, but the right isn't.
+			// The cross-set is just the letter set of the letter directly
+			// to our right.
+			log.Printf("[DEBUG] Left was empty, set letterset")
 
-	lNodeIdx, lPathValid := gen.traverseWordPart(row, col, -1)
-	rNodeIdx, rPathValid := gen.traverseWordPart(row, col, 1)
+			letterSet := gen.gaddag.GetLetterSet(lNodeIdx)
+			gen.board.squares[row][col].setCrossSet(CrossSet(letterSet), dir)
+		} else {
+			// Both the left and the right have a tile. Go through the
+			// siblings, from the right, to see what nodes lead to the left.
+			log.Printf("[DEBUG] Both right and left have a tile")
 
-	if !lPathValid || !rPathValid {
-		gen.board.squares[row][col].setCrossSet(CrossSet(0), dir)
-		return
-	}
-	if nodeIdx == 0 {
-		// If we are here, the path was not invalid; there was just no
-		// prefix to the left.
+			numArcs := gen.gaddag.NumArcs(lNodeIdx)
+			crossSet := gen.board.squares[row][col].getCrossSet(dir)
+			*crossSet = CrossSet(0)
 
-		// We shoud look right, I guess.
-	}
-	if !pathValid {
-		gen.board.squares[row][col].setCrossSet(CrossSet(0), dir)
-		return
-	}
-
-	prefix := alphabet.MachineWord("")
-
-	if col > 0 {
-		for i := col - 1; i >= 0; i-- {
-			if gen.board.squares[row][i].letter == EmptySquareMarker {
-				break
+			for i := lNodeIdx + 1; i <= uint32(numArcs)+lNodeIdx; i++ {
+				ml := alphabet.MachineLetter(gen.gaddag.Nodes[i].Val >>
+					gaddagmaker.LetterBitLoc)
+				nnIdx := gen.gaddag.Nodes[i].Val & gaddagmaker.NodeIdxBitMask
+				_, success := gen.traverseWordPart(row, col-1, nnIdx, LeftDirection,
+					true)
+				if success {
+					crossSet.set(ml)
+				}
 			}
-			prefix = alphabet.MachineWord(gen.board.squares[row][i].letter.Unblank()) +
-				prefix
 		}
 	}
-	// Go right.
-	suffix := alphabet.MachineWord("")
-	if col < gen.board.dim()-1 {
-		for i := col + 1; i < gen.board.dim(); i++ {
-			if gen.board.squares[row][i].letter == EmptySquareMarker {
-				break
-			}
-			suffix = suffix + alphabet.MachineWord(
-				gen.board.squares[row][i].letter.Unblank())
-		}
-	}
-	if len(prefix) == 0 && len(suffix) == 0 {
-		gen.board.squares[row][col].setCrossSet(TrivialCrossSet, dir)
-		return
-	}
-	// Otherwise, traverse prefix through to suffix.
-
 }
 
 // For future?: The Gordon GADDAG algorithm is somewhat inefficient because

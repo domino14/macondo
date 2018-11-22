@@ -73,6 +73,15 @@ func (s *Square) setCrossSet(cs CrossSet, dir BoardDirection) {
 	}
 }
 
+func (s *Square) getCrossSet(dir BoardDirection) *CrossSet {
+	if dir == HorizontalDirection {
+		return &s.hcrossSet
+	} else if dir == VerticalDirection {
+		return &s.vcrossSet
+	}
+	return nil
+}
+
 func (s *Square) isEmpty() bool {
 	return s.letter == EmptySquareMarker
 }
