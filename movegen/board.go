@@ -31,8 +31,8 @@ type Square struct {
 	hcrossSet CrossSet
 	vcrossSet CrossSet
 	// the scores of the tiles on either side of this square.
-	hcrossScore uint32
-	vcrossScore uint32
+	hcrossScore int
+	vcrossScore int
 	hAnchor     bool
 	vAnchor     bool
 }
@@ -73,6 +73,14 @@ func (s *Square) setCrossSet(cs CrossSet, dir BoardDirection) {
 	}
 }
 
+func (s *Square) setCrossScore(score int, dir BoardDirection) {
+	if dir == HorizontalDirection {
+		s.hcrossScore = score
+	} else if dir == VerticalDirection {
+		s.vcrossScore = score
+	}
+}
+
 func (s *Square) getCrossSet(dir BoardDirection) *CrossSet {
 	if dir == HorizontalDirection {
 		return &s.hcrossSet
@@ -80,6 +88,15 @@ func (s *Square) getCrossSet(dir BoardDirection) *CrossSet {
 		return &s.vcrossSet
 	}
 	return nil
+}
+
+func (s *Square) getCrossScore(dir BoardDirection) int {
+	if dir == HorizontalDirection {
+		return s.hcrossScore
+	} else if dir == VerticalDirection {
+		return s.vcrossScore
+	}
+	return 0
 }
 
 func (s *Square) isEmpty() bool {
@@ -123,6 +140,10 @@ func (g *GameBoard) dim() int {
 
 func (g *GameBoard) getCrossSet(row int, col int, dir BoardDirection) CrossSet {
 	return *g.squares[row][col].getCrossSet(dir) // the actual value
+}
+
+func (g *GameBoard) getCrossScore(row int, col int, dir BoardDirection) int {
+	return g.squares[row][col].getCrossScore(dir)
 }
 
 func (g *GameBoard) transpose() {
@@ -225,9 +246,6 @@ func (g *GameBoard) leftAndRightEmpty(row int, col int) bool {
 	}
 	return true
 }
-
-//      ^
-// HOUSE
 
 // wordEdge finds the edge of a word on the board, returning the column.
 func (g *GameBoard) wordEdge(row int, col int, dir WordDirection) int {

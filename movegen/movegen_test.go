@@ -230,6 +230,7 @@ type crossSetTestCase struct {
 	col      int
 	crossSet CrossSet
 	dir      BoardDirection
+	score    int
 }
 
 func TestGenCrossSetLoadedGame(t *testing.T) {
@@ -239,17 +240,17 @@ func TestGenCrossSetLoadedGame(t *testing.T) {
 	alph := gd.GetAlphabet()
 	// All vertical for now.
 	var testCases = []crossSetTestCase{
-		{10, 10, crossSetFromString("E", alph), VerticalDirection},
-		{2, 4, crossSetFromString("DKHLRSV", alph), VerticalDirection},
-		{8, 7, crossSetFromString("S", alph), VerticalDirection},
+		{10, 10, crossSetFromString("E", alph), VerticalDirection, 11},
+		{2, 4, crossSetFromString("DKHLRSV", alph), VerticalDirection, 9},
+		{8, 7, crossSetFromString("S", alph), VerticalDirection, 11},
 		// suffix - no hooks:
-		{12, 8, crossSetFromString("", alph), VerticalDirection},
+		{12, 8, crossSetFromString("", alph), VerticalDirection, 11},
 		// prefix - no hooks:
-		{3, 1, crossSetFromString("", alph), VerticalDirection},
+		{3, 1, crossSetFromString("", alph), VerticalDirection, 10},
 		// prefix and suffix, no path
-		{6, 8, crossSetFromString("", alph), VerticalDirection},
+		{6, 8, crossSetFromString("", alph), VerticalDirection, 5},
 		// More in-between
-		{2, 10, crossSetFromString("M", alph), VerticalDirection},
+		{2, 10, crossSetFromString("M", alph), VerticalDirection, 2},
 	}
 
 	for _, tc := range testCases {
@@ -259,6 +260,11 @@ func TestGenCrossSetLoadedGame(t *testing.T) {
 				tc.row, tc.col, tc.crossSet,
 				generator.board.squares[tc.row][tc.col].vcrossSet)
 		}
+		if generator.board.squares[tc.row][tc.col].vcrossScore != tc.score {
+			t.Errorf("For row=%v col=%v, Expected cross-score to be %v, got %v",
+				tc.row, tc.col, tc.score,
+				generator.board.squares[tc.row][tc.col].vcrossScore)
+		}
 	}
 }
 
@@ -266,6 +272,7 @@ type crossSetEdgeTestCase struct {
 	col         int
 	rowContents string
 	crossSet    CrossSet
+	score       int
 }
 
 func TestGenCrossSetEdges(t *testing.T) {
@@ -273,18 +280,22 @@ func TestGenCrossSetEdges(t *testing.T) {
 	generator := newGordonGenerator(gd)
 	alph := gd.GetAlphabet()
 	var testCases = []crossSetEdgeTestCase{
-		{0, " A", crossSetFromString("ABDFHKLMNPTYZ", alph)},
-		{1, "A", crossSetFromString("ABDEGHILMNRSTWXY", alph)},
-		{13, "              F", crossSetFromString("EIO", alph)},
-		{14, "             F ", crossSetFromString("AE", alph)},
-		{14, "          WECH ", crossSetFromString("T", alph)}, // phony!
-		{14, "           ZZZ ", crossSetFromString("", alph)},
-		{14, "       ZYZZYVA ", crossSetFromString("S", alph)},
-		{14, "        ZYZZYV ", crossSetFromString("A", alph)}, // phony!
-		{14, "       Z Z Y A ", crossSetFromString("ABDEGHILMNRSTWXY", alph)},
-		{12, "       z z Y A ", crossSetFromString("E", alph)},
-		{14, "OxYpHeNbUTAzON ", crossSetFromString("E", alph)},
-		{6, "OXYPHE BUTAZONE", crossSetFromString("N", alph)},
+		{0, " A", crossSetFromString("ABDFHKLMNPTYZ", alph), 1},
+		{1, "A", crossSetFromString("ABDEGHILMNRSTWXY", alph), 1},
+		{13, "              F", crossSetFromString("EIO", alph), 4},
+		{14, "             F ", crossSetFromString("AE", alph), 4},
+		{14, "          WECH ", crossSetFromString("T", alph), 12}, // phony!
+		{14, "           ZZZ ", crossSetFromString("", alph), 30},
+		{14, "       ZYZZYVA ", crossSetFromString("S", alph), 43},
+		{14, "        ZYZZYV ", crossSetFromString("A", alph), 42}, // phony!
+		{14, "       Z Z Y A ", crossSetFromString("ABDEGHILMNRSTWXY", alph), 1},
+		{12, "       z z Y A ", crossSetFromString("E", alph), 5},
+		{14, "OxYpHeNbUTAzON ", crossSetFromString("E", alph), 15},
+		{6, "OXYPHE BUTAZONE", crossSetFromString("N", alph), 40},
+		// Should still calculate score correctly despite no gaddag path.
+		{0, " YHJKTKHKTLV", crossSetFromString("", alph), 42},
+		{14, "   YHJKTKHKTLV ", crossSetFromString("", alph), 42},
+		{6, "YHJKTK HKTLV", crossSetFromString("", alph), 42},
 	}
 	row := 4
 	for _, tc := range testCases {
@@ -294,6 +305,11 @@ func TestGenCrossSetEdges(t *testing.T) {
 			t.Errorf("For row=%v col=%v, Expected cross-set to be %v, got %v",
 				row, tc.col, tc.crossSet,
 				generator.board.squares[row][tc.col].vcrossSet)
+		}
+		if generator.board.squares[row][tc.col].vcrossScore != tc.score {
+			t.Errorf("For row=%v col=%v, Expected cross-score to be %v, got %v",
+				row, tc.col, tc.score,
+				generator.board.squares[row][tc.col].vcrossScore)
 		}
 	}
 }
@@ -306,18 +322,18 @@ func TestGenAllCrossSets(t *testing.T) {
 	setBoardToGame(generator, gd.GetAlphabet(), VsEd)
 	generator.genAllCrossSets()
 	var testCases = []crossSetTestCase{
-		{8, 8, crossSetFromString("OS", alph), VerticalDirection},
-		{8, 8, crossSetFromString("S", alph), HorizontalDirection},
-		{5, 11, crossSetFromString("S", alph), VerticalDirection},
-		{5, 11, crossSetFromString("AO", alph), HorizontalDirection},
-		{8, 13, crossSetFromString("AEOU", alph), VerticalDirection},
-		{8, 13, crossSetFromString("AEIMOUY", alph), HorizontalDirection},
-		{9, 13, crossSetFromString("HMNPST", alph), VerticalDirection},
-		{9, 13, TrivialCrossSet, HorizontalDirection},
-		{14, 14, TrivialCrossSet, VerticalDirection},
-		{14, 14, TrivialCrossSet, HorizontalDirection},
-		{12, 12, CrossSet(0), VerticalDirection},
-		{12, 12, CrossSet(0), HorizontalDirection},
+		{8, 8, crossSetFromString("OS", alph), VerticalDirection, 8},
+		{8, 8, crossSetFromString("S", alph), HorizontalDirection, 9},
+		{5, 11, crossSetFromString("S", alph), VerticalDirection, 5},
+		{5, 11, crossSetFromString("AO", alph), HorizontalDirection, 2},
+		{8, 13, crossSetFromString("AEOU", alph), VerticalDirection, 1},
+		{8, 13, crossSetFromString("AEIMOUY", alph), HorizontalDirection, 3},
+		{9, 13, crossSetFromString("HMNPST", alph), VerticalDirection, 1},
+		{9, 13, TrivialCrossSet, HorizontalDirection, 0},
+		{14, 14, TrivialCrossSet, VerticalDirection, 0},
+		{14, 14, TrivialCrossSet, HorizontalDirection, 0},
+		{12, 12, CrossSet(0), VerticalDirection, 0},
+		{12, 12, CrossSet(0), HorizontalDirection, 0},
 	}
 
 	for idx, tc := range testCases {
@@ -327,21 +343,28 @@ func TestGenAllCrossSets(t *testing.T) {
 				idx, tc.row, tc.col, tc.crossSet,
 				generator.board.getCrossSet(tc.row, tc.col, tc.dir))
 		}
+		if generator.board.getCrossScore(tc.row, tc.col, tc.dir) != tc.score {
+			t.Errorf("For row=%v col=%v, Expected cross-score to be %v, got %v",
+				tc.row, tc.col, tc.score,
+				generator.board.getCrossScore(tc.row, tc.col, tc.dir))
+		}
 	}
 	// This one has more nondeterministic (in-between LR) crosssets
 	setBoardToGame(generator, gd.GetAlphabet(), VsMatt)
 	generator.genAllCrossSets()
 	testCases = []crossSetTestCase{
-		{8, 7, crossSetFromString("S", alph), VerticalDirection},
-		{8, 7, crossSetFromString("", alph), HorizontalDirection},
-		{5, 11, crossSetFromString("BGOPRTWX", alph), VerticalDirection},
-		{5, 11, crossSetFromString("", alph), HorizontalDirection},
-		{8, 13, TrivialCrossSet, VerticalDirection},
-		{8, 13, TrivialCrossSet, HorizontalDirection},
-		{11, 4, crossSetFromString("DRS", alph), VerticalDirection},
-		{11, 4, crossSetFromString("CGM", alph), HorizontalDirection},
-		{2, 2, TrivialCrossSet, VerticalDirection},
-		{2, 2, crossSetFromString("AEI", alph), HorizontalDirection},
+		{8, 7, crossSetFromString("S", alph), VerticalDirection, 11},
+		{8, 7, crossSetFromString("", alph), HorizontalDirection, 12},
+		{5, 11, crossSetFromString("BGOPRTWX", alph), VerticalDirection, 2},
+		{5, 11, crossSetFromString("", alph), HorizontalDirection, 15},
+		{8, 13, TrivialCrossSet, VerticalDirection, 0},
+		{8, 13, TrivialCrossSet, HorizontalDirection, 0},
+		{11, 4, crossSetFromString("DRS", alph), VerticalDirection, 6},
+		{11, 4, crossSetFromString("CGM", alph), HorizontalDirection, 1},
+		{2, 2, TrivialCrossSet, VerticalDirection, 0},
+		{2, 2, crossSetFromString("AEI", alph), HorizontalDirection, 2},
+		{7, 12, crossSetFromString("AEIOY", alph), VerticalDirection, 0}, // it's a blank
+		{7, 12, TrivialCrossSet, HorizontalDirection, 0},
 	}
 	for idx, tc := range testCases {
 		// Compare values
@@ -349,6 +372,11 @@ func TestGenAllCrossSets(t *testing.T) {
 			t.Errorf("Test=%v For row=%v col=%v, Expected cross-set to be %v, got %v",
 				idx, tc.row, tc.col, tc.crossSet,
 				generator.board.getCrossSet(tc.row, tc.col, tc.dir))
+		}
+		if generator.board.getCrossScore(tc.row, tc.col, tc.dir) != tc.score {
+			t.Errorf("For row=%v col=%v, Expected cross-score to be %v, got %v",
+				tc.row, tc.col, tc.score,
+				generator.board.getCrossScore(tc.row, tc.col, tc.dir))
 		}
 	}
 }

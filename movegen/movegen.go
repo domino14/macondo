@@ -77,6 +77,7 @@ type GordonGenerator struct {
 
 	tilesPlayed uint8
 	plays       []Move
+	bag         *Bag
 }
 
 func newGordonGenerator(gd gaddag.SimpleGaddag) *GordonGenerator {
@@ -84,7 +85,9 @@ func newGordonGenerator(gd gaddag.SimpleGaddag) *GordonGenerator {
 		gaddag: gd,
 		board:  strToBoard(CrosswordGameBoard),
 		plays:  []Move{},
+		bag:    new(Bag),
 	}
+	gen.bag.Init()
 	gen.board.setAllCrosses()
 	return gen
 }
@@ -262,6 +265,19 @@ func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startCol int8)
 		word.UserVisible(gen.gaddag.GetAlphabet()), startCol)
 }
 
+func (gen *GordonGenerator) traverseBackwardsForScore(row int, col int) int {
+	score := 0
+	for gen.board.posExists(row, col) {
+		ml := gen.board.squares[row][col].letter
+		if ml == EmptySquareMarker {
+			break
+		}
+		score += gen.bag.score(ml)
+		col--
+	}
+	return score
+}
+
 func (gen *GordonGenerator) traverseBackwards(row int, col int, nodeIdx uint32,
 	checkLetterSet bool, leftMostCol int) (uint32, bool) {
 	// Traverse the letters on the board backwards (left). Return the index
@@ -278,6 +294,7 @@ func (gen *GordonGenerator) traverseBackwards(row int, col int, nodeIdx uint32,
 			log.Printf("[DEBUG] Col %v empty, breaking", col)
 			break
 		}
+
 		log.Printf("[DEBUG] Relevant letter is %v", ml.UserVisible(gen.gaddag.GetAlphabet()))
 
 		if checkLetterSet && col == leftMostCol {
@@ -322,6 +339,7 @@ func (gen *GordonGenerator) genAllCrossSets() {
 				// We are setting the vertical cross-set since we're
 				// horizontal.
 				gen.board.squares[i][j].setCrossSet(CrossSet(0), VerticalDirection)
+				gen.board.squares[i][j].setCrossScore(0, VerticalDirection)
 			} else {
 				gen.genCrossSet(i, j, VerticalDirection)
 			}
@@ -332,6 +350,7 @@ func (gen *GordonGenerator) genAllCrossSets() {
 		for j := 0; j < n; j++ {
 			if gen.board.squares[i][j].letter != EmptySquareMarker {
 				gen.board.squares[i][j].setCrossSet(CrossSet(0), HorizontalDirection)
+				gen.board.squares[i][j].setCrossScore(0, HorizontalDirection)
 			} else {
 				gen.genCrossSet(i, j, HorizontalDirection)
 			}
@@ -348,6 +367,7 @@ func (gen *GordonGenerator) genCrossSet(row int, col int, dir BoardDirection) {
 	if gen.board.leftAndRightEmpty(row, col) {
 		log.Printf("[DEBUG] Left and right were empty, row %v col %v", row, col)
 		gen.board.squares[row][col].setCrossSet(TrivialCrossSet, dir)
+		gen.board.squares[row][col].setCrossScore(0, dir)
 		return
 	}
 	// If we are here, there is a letter to the left, to the right, or both.
@@ -358,6 +378,9 @@ func (gen *GordonGenerator) genCrossSet(row int, col int, dir BoardDirection) {
 		log.Printf("[DEBUG] Right was empty, go left")
 		lNodeIdx, lPathValid := gen.traverseBackwards(row, col-1,
 			gen.gaddag.GetRootNodeIndex(), false, 0)
+		score := gen.traverseBackwardsForScore(row, col-1)
+		gen.board.squares[row][col].setCrossScore(score, dir)
+
 		if !lPathValid {
 			// There are no further extensions to the word on the board,
 			// which may also be a phony.
@@ -377,6 +400,9 @@ func (gen *GordonGenerator) genCrossSet(row int, col int, dir BoardDirection) {
 		// Start at the right col and work back to this square.
 		lNodeIdx, lPathValid := gen.traverseBackwards(row, rightCol,
 			gen.gaddag.GetRootNodeIndex(), false, 0)
+		scoreR := gen.traverseBackwardsForScore(row, rightCol)
+		scoreL := gen.traverseBackwardsForScore(row, col-1)
+		gen.board.squares[row][col].setCrossScore(scoreR+scoreL, dir)
 		if !lPathValid {
 			gen.board.squares[row][col].setCrossSet(CrossSet(0), dir)
 			return
@@ -397,7 +423,6 @@ func (gen *GordonGenerator) genCrossSet(row int, col int, dir BoardDirection) {
 			numArcs := gen.gaddag.NumArcs(lNodeIdx)
 			crossSet := gen.board.squares[row][col].getCrossSet(dir)
 			*crossSet = CrossSet(0)
-
 			for i := lNodeIdx + 1; i <= uint32(numArcs)+lNodeIdx; i++ {
 				ml := alphabet.MachineLetter(gen.gaddag.Nodes[i].Val >>
 					gaddagmaker.LetterBitLoc)
