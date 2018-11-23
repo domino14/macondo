@@ -65,217 +65,42 @@ func TestGenBase(t *testing.T) {
 	}
 }
 
-func TestGenFrontHook(t *testing.T) {
-	rack := &Rack{}
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	rack.Initialize("P", gd.GetAlphabet())
-
-	generator := newGordonGenerator(gd)
-	generator.curAnchorCol = 11
-
-	setBoardRow(generator.board, 2, "     REGNANT", gd.GetAlphabet())
-	generator.curRow = generator.board.squares[2]
-	generator.Gen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
-		gd.GetRootNodeIndex())
-	// it should generate PREGNANT
-
-	if len(generator.plays) != 1 {
-		t.Errorf("Generated %v plays, expected len=%v", generator.plays, 1)
-	}
+type SimpleGenTestCase struct {
+	rack          string
+	curAnchorCol  int8
+	row           int8
+	rowString     string
+	expectedPlays int
 }
 
-func TestGenBackHook(t *testing.T) {
+func TestSimpleRowGen(t *testing.T) {
 	rack := &Rack{}
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	rack.Initialize("O", gd.GetAlphabet())
 
-	generator := newGordonGenerator(gd)
-	generator.curAnchorCol = 9
-
-	setBoardRow(generator.board, 2, "  PORTOLAN", gd.GetAlphabet())
-	generator.curRow = generator.board.squares[2]
-	generator.Gen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
-		gd.GetRootNodeIndex())
-	// it should generate PORTOLANO
-	// NALOTROP^O
-	if len(generator.plays) != 1 {
-		t.Errorf("Generated %v plays, expected len=%v", generator.plays, 1)
+	var cases = []SimpleGenTestCase{
+		{"P", 11, 2, "     REGNANT", 1},
+		{"O", 9, 2, "  PORTOLAN", 1},
+		{"S", 9, 2, "  PORTOLAN", 1},
+		{"?", 9, 2, "  PORTOLAN", 2},
+		{"TY", 7, 2, "  SOVRAN", 1},
+		{"ING", 6, 2, "  LAUGH", 1},
+		{"ZA", 3, 4, "  BE", 0},
+		{"AENPPSW", 14, 4, "        CHAWING", 1}, // wappenschawing
+		{"ABEHINT", 9, 4, "   THERMOS  A", 2},    // nethermost hithermost
+		{"ABEHITT", 8, 4, "  THERMOS A   ", 1},   // thermostat
+		{"TT", 10, 4, "  THERMOS A   ", 3},       // thermostat, at, att
 	}
-}
-
-func TestGenBackHook2(t *testing.T) {
-	rack := &Rack{}
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	rack.Initialize("S", gd.GetAlphabet())
-
-	generator := newGordonGenerator(gd)
-	generator.curAnchorCol = 9
-
-	setBoardRow(generator.board, 2, "  PORTOLAN", gd.GetAlphabet())
-	generator.curRow = generator.board.squares[2]
-	generator.Gen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
-		gd.GetRootNodeIndex())
-	// it should generate PORTOLANS
-	if len(generator.plays) != 1 {
-		t.Errorf("Generated %v plays, expected len=%v", generator.plays, 1)
-	}
-}
-
-func TestGenBackHookBlank(t *testing.T) {
-	rack := &Rack{}
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	rack.Initialize("?", gd.GetAlphabet())
-
-	generator := newGordonGenerator(gd)
-	generator.curAnchorCol = 9
-
-	setBoardRow(generator.board, 2, "  PORTOLAN", gd.GetAlphabet())
-	generator.curRow = generator.board.squares[2]
-	generator.Gen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
-		gd.GetRootNodeIndex())
-	// it should generate PORTOLANO and PORTOLANS
-	if len(generator.plays) != 2 {
-		t.Errorf("Generated %v plays, expected len=%v", generator.plays, 2)
-	}
-}
-
-func TestGenThroughSmall(t *testing.T) {
-	rack := &Rack{}
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	rack.Initialize("TY", gd.GetAlphabet())
-
-	generator := newGordonGenerator(gd)
-	generator.curAnchorCol = 7
-
-	setBoardRow(generator.board, 2, "  SOVRAN", gd.GetAlphabet())
-	generator.curRow = generator.board.squares[2]
-	generator.Gen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
-		gd.GetRootNodeIndex())
-	// it should generate SOVRANTY
-	if len(generator.plays) != 1 {
-		t.Errorf("Generated %v plays, expected len=%v", generator.plays, 2)
-	}
-}
-
-func TestGenThroughLarger(t *testing.T) {
-	rack := &Rack{}
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	rack.Initialize("ING", gd.GetAlphabet())
-
-	generator := newGordonGenerator(gd)
-	generator.curAnchorCol = 6
-
-	setBoardRow(generator.board, 2, "  LAUGH", gd.GetAlphabet())
-	generator.curRow = generator.board.squares[2]
-	generator.Gen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
-		gd.GetRootNodeIndex())
-	// it should generate LAUGHING
-	if len(generator.plays) != 1 {
-		t.Errorf("Generated %v (%v) plays, expected len=%v", generator.plays,
-			len(generator.plays), 1)
-	}
-}
-
-func TestGenThroughSimple(t *testing.T) {
-	rack := &Rack{}
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	rack.Initialize("ZA", gd.GetAlphabet())
-
-	generator := newGordonGenerator(gd)
-	// Anchors on the left are ON the leftmost letter.
-	generator.curAnchorCol = 3
-
-	setBoardRow(generator.board, 4, "  BE", gd.GetAlphabet())
-	generator.curRow = generator.board.squares[4]
-	log.Printf("Current row: %v", generator.curRow)
-	generator.Gen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
-		gd.GetRootNodeIndex())
-	// it should generate nothing
-
-	if len(generator.plays) != 0 {
-		t.Errorf("Generated %v plays (%v), expected len=%v", generator.plays,
-			len(generator.plays), 0)
-	}
-}
-
-func TestGenThrough(t *testing.T) {
-	rack := &Rack{}
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	rack.Initialize("AENPPSW", gd.GetAlphabet())
-
-	generator := newGordonGenerator(gd)
-	generator.curAnchorCol = 14
-
-	setBoardRow(generator.board, 4, "        CHAWING", gd.GetAlphabet())
-	generator.curRow = generator.board.squares[4]
-	log.Printf("Current row: %v", generator.curRow)
-	generator.Gen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
-		gd.GetRootNodeIndex())
-	// it should generate WAPPENSCHAWING
-
-	if len(generator.plays) != 1 {
-		t.Errorf("Generated %v plays (%v), expected len=%v", generator.plays,
-			len(generator.plays), 1)
-	}
-}
-
-func TestGenThroughBothWays(t *testing.T) {
-	rack := &Rack{}
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	rack.Initialize("ABEHINT", gd.GetAlphabet())
-
-	generator := newGordonGenerator(gd)
-	generator.curAnchorCol = 9
-
-	setBoardRow(generator.board, 4, "   THERMOS  A", gd.GetAlphabet())
-	generator.curRow = generator.board.squares[4]
-	generator.Gen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
-		gd.GetRootNodeIndex())
-	// it should generate NETHERMOST and HITHERMOST
-
-	if len(generator.plays) != 2 {
-		t.Errorf("Generated %v plays (%v), expected len=%v", generator.plays,
-			len(generator.plays), 1)
-	}
-}
-
-func TestGenThroughInBetween(t *testing.T) {
-	rack := &Rack{}
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	rack.Initialize("ABEHITT", gd.GetAlphabet())
-
-	generator := newGordonGenerator(gd)
-	generator.curAnchorCol = 8 // anchor on the letter S
-
-	setBoardRow(generator.board, 4, "  THERMOS A   ", gd.GetAlphabet())
-	generator.curRow = generator.board.squares[4]
-	log.Printf("Current row: %v", generator.curRow)
-	generator.Gen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
-		gd.GetRootNodeIndex())
-	// it should generate THERMOSTAT
-
-	if len(generator.plays) != 1 {
-		t.Errorf("Generated %v plays (%v), expected len=%v", generator.plays,
-			len(generator.plays), 1)
-	}
-}
-func TestGenThroughInBetweenRightAnchor(t *testing.T) {
-	rack := &Rack{}
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	rack.Initialize("TT", gd.GetAlphabet())
-
-	generator := newGordonGenerator(gd)
-	generator.curAnchorCol = 10 // anchor on the letter A
-
-	setBoardRow(generator.board, 4, "  THERMOS A   ", gd.GetAlphabet())
-	generator.curRow = generator.board.squares[4]
-	generator.Gen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
-		gd.GetRootNodeIndex())
-	// it should generate THERMOSTAT, AT, and ATT from the A
-
-	if len(generator.plays) != 3 {
-		t.Errorf("Generated %v plays (%v), expected len=%v", generator.plays,
-			len(generator.plays), 1)
+	for _, tc := range cases {
+		generator := newGordonGenerator(gd)
+		generator.curAnchorCol = tc.curAnchorCol
+		rack.Initialize(tc.rack, gd.GetAlphabet())
+		setBoardRow(generator.board, tc.row, tc.rowString, gd.GetAlphabet())
+		generator.curRow = generator.board.squares[tc.row]
+		generator.Gen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
+			gd.GetRootNodeIndex())
+		if len(generator.plays) != tc.expectedPlays {
+			t.Errorf("Generated %v plays, expected %v", generator.plays, tc.expectedPlays)
+		}
 	}
 }
 
@@ -347,10 +172,10 @@ cesar: Turn 10
  6|  "       " G O   L O     "  |
  7|    '       O R ' E T A '    |
  8|=     '     J A B S   b     =|
- 9|    '     Q I   '     A '    |
-10|  "       I   N   "   N   "  |
-11|      R e S P O N D - D      |
-12|' H O E       V       O     '|
+ 9|    '     Q I   '     A '    | 1
+10|  "       I   N   "   N   "  | 1
+11|      R e S P O N D - D      | 11
+12|' H O E       V       O     '| 1
 13|  E N C O M I A '     N -    |
 14|  -       "   T   "       -  |
 15|=     V E N G E D     '     =|
@@ -404,29 +229,31 @@ type crossSetTestCase struct {
 	row      int
 	col      int
 	crossSet CrossSet
+	dir      BoardDirection
 }
 
-func TestGenCrossSet(t *testing.T) {
+func TestGenCrossSetLoadedGame(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	generator := newGordonGenerator(gd)
 	setBoardToGame(generator, gd.GetAlphabet(), VsMatt)
 	alph := gd.GetAlphabet()
+	// All vertical for now.
 	var testCases = []crossSetTestCase{
-		{10, 10, crossSetFromString("E", alph)},
-		{2, 4, crossSetFromString("DKHLRSV", alph)},
-		{8, 7, crossSetFromString("S", alph)},
+		{10, 10, crossSetFromString("E", alph), VerticalDirection},
+		{2, 4, crossSetFromString("DKHLRSV", alph), VerticalDirection},
+		{8, 7, crossSetFromString("S", alph), VerticalDirection},
 		// suffix - no hooks:
-		{12, 8, crossSetFromString("", alph)},
+		{12, 8, crossSetFromString("", alph), VerticalDirection},
 		// prefix - no hooks:
-		{3, 1, crossSetFromString("", alph)},
+		{3, 1, crossSetFromString("", alph), VerticalDirection},
 		// prefix and suffix, no path
-		{6, 8, crossSetFromString("", alph)},
+		{6, 8, crossSetFromString("", alph), VerticalDirection},
 		// More in-between
-		{2, 10, crossSetFromString("M", alph)},
+		{2, 10, crossSetFromString("M", alph), VerticalDirection},
 	}
 
 	for _, tc := range testCases {
-		generator.genCrossSet(tc.row, tc.col, VerticalDirection)
+		generator.genCrossSet(tc.row, tc.col, tc.dir)
 		if generator.board.squares[tc.row][tc.col].vcrossSet != tc.crossSet {
 			t.Errorf("For row=%v col=%v, Expected cross-set to be %v, got %v",
 				tc.row, tc.col, tc.crossSet,
@@ -467,6 +294,61 @@ func TestGenCrossSetEdges(t *testing.T) {
 			t.Errorf("For row=%v col=%v, Expected cross-set to be %v, got %v",
 				row, tc.col, tc.crossSet,
 				generator.board.squares[row][tc.col].vcrossSet)
+		}
+	}
+}
+
+func TestGenAllCrossSets(t *testing.T) {
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	alph := gd.GetAlphabet()
+
+	generator := newGordonGenerator(gd)
+	setBoardToGame(generator, gd.GetAlphabet(), VsEd)
+	generator.genAllCrossSets()
+	var testCases = []crossSetTestCase{
+		{8, 8, crossSetFromString("OS", alph), VerticalDirection},
+		{8, 8, crossSetFromString("S", alph), HorizontalDirection},
+		{5, 11, crossSetFromString("S", alph), VerticalDirection},
+		{5, 11, crossSetFromString("AO", alph), HorizontalDirection},
+		{8, 13, crossSetFromString("AEOU", alph), VerticalDirection},
+		{8, 13, crossSetFromString("AEIMOUY", alph), HorizontalDirection},
+		{9, 13, crossSetFromString("HMNPST", alph), VerticalDirection},
+		{9, 13, TrivialCrossSet, HorizontalDirection},
+		{14, 14, TrivialCrossSet, VerticalDirection},
+		{14, 14, TrivialCrossSet, HorizontalDirection},
+		{12, 12, CrossSet(0), VerticalDirection},
+		{12, 12, CrossSet(0), HorizontalDirection},
+	}
+
+	for idx, tc := range testCases {
+		// Compare values
+		if generator.board.getCrossSet(tc.row, tc.col, tc.dir) != tc.crossSet {
+			t.Errorf("Test=%v For row=%v col=%v, Expected cross-set to be %v, got %v",
+				idx, tc.row, tc.col, tc.crossSet,
+				generator.board.getCrossSet(tc.row, tc.col, tc.dir))
+		}
+	}
+	// This one has more nondeterministic (in-between LR) crosssets
+	setBoardToGame(generator, gd.GetAlphabet(), VsMatt)
+	generator.genAllCrossSets()
+	testCases = []crossSetTestCase{
+		{8, 7, crossSetFromString("S", alph), VerticalDirection},
+		{8, 7, crossSetFromString("", alph), HorizontalDirection},
+		{5, 11, crossSetFromString("BGOPRTWX", alph), VerticalDirection},
+		{5, 11, crossSetFromString("", alph), HorizontalDirection},
+		{8, 13, TrivialCrossSet, VerticalDirection},
+		{8, 13, TrivialCrossSet, HorizontalDirection},
+		{11, 4, crossSetFromString("DRS", alph), VerticalDirection},
+		{11, 4, crossSetFromString("CGM", alph), HorizontalDirection},
+		{2, 2, TrivialCrossSet, VerticalDirection},
+		{2, 2, crossSetFromString("AEI", alph), HorizontalDirection},
+	}
+	for idx, tc := range testCases {
+		// Compare values
+		if generator.board.getCrossSet(tc.row, tc.col, tc.dir) != tc.crossSet {
+			t.Errorf("Test=%v For row=%v col=%v, Expected cross-set to be %v, got %v",
+				idx, tc.row, tc.col, tc.crossSet,
+				generator.board.getCrossSet(tc.row, tc.col, tc.dir))
 		}
 	}
 }

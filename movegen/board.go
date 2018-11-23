@@ -121,6 +121,10 @@ func (g *GameBoard) dim() int {
 	return len(g.squares)
 }
 
+func (g *GameBoard) getCrossSet(row int, col int, dir BoardDirection) CrossSet {
+	return *g.squares[row][col].getCrossSet(dir) // the actual value
+}
+
 func (g *GameBoard) transpose() {
 	n := g.dim()
 	for i := 0; i < n; i++ {
