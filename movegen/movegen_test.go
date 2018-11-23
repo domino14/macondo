@@ -22,6 +22,9 @@ var LexiconDir = os.Getenv("LEXICON_DIR")
 func setBoardRow(board GameBoard, rowNum int8, letters string, alph *alphabet.Alphabet) {
 	// Set the row in board to the passed in letters array.
 	var err error
+	for idx := 0; idx < board.dim(); idx++ {
+		board.squares[rowNum][idx].letter = EmptySquareMarker
+	}
 	for idx, r := range letters {
 		if r != ' ' {
 			board.squares[rowNum][idx].letter, err = alph.Val(r)
@@ -428,6 +431,42 @@ func TestGenCrossSet(t *testing.T) {
 			t.Errorf("For row=%v col=%v, Expected cross-set to be %v, got %v",
 				tc.row, tc.col, tc.crossSet,
 				generator.board.squares[tc.row][tc.col].vcrossSet)
+		}
+	}
+}
+
+type crossSetEdgeTestCase struct {
+	col         int
+	rowContents string
+	crossSet    CrossSet
+}
+
+func TestGenCrossSetEdges(t *testing.T) {
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	generator := newGordonGenerator(gd)
+	alph := gd.GetAlphabet()
+	var testCases = []crossSetEdgeTestCase{
+		{0, " A", crossSetFromString("ABDFHKLMNPTYZ", alph)},
+		{1, "A", crossSetFromString("ABDEGHILMNRSTWXY", alph)},
+		{13, "              F", crossSetFromString("EIO", alph)},
+		{14, "             F ", crossSetFromString("AE", alph)},
+		{14, "          WECH ", crossSetFromString("T", alph)}, // phony!
+		{14, "           ZZZ ", crossSetFromString("", alph)},
+		{14, "       ZYZZYVA ", crossSetFromString("S", alph)},
+		{14, "        ZYZZYV ", crossSetFromString("A", alph)}, // phony!
+		{14, "       Z Z Y A ", crossSetFromString("ABDEGHILMNRSTWXY", alph)},
+		{12, "       z z Y A ", crossSetFromString("E", alph)},
+		{14, "OxYpHeNbUTAzON ", crossSetFromString("E", alph)},
+		{6, "OXYPHE BUTAZONE", crossSetFromString("N", alph)},
+	}
+	row := 4
+	for _, tc := range testCases {
+		setBoardRow(generator.board, int8(row), tc.rowContents, alph)
+		generator.genCrossSet(row, tc.col, VerticalDirection)
+		if generator.board.squares[row][tc.col].vcrossSet != tc.crossSet {
+			t.Errorf("For row=%v col=%v, Expected cross-set to be %v, got %v",
+				row, tc.col, tc.crossSet,
+				generator.board.squares[row][tc.col].vcrossSet)
 		}
 	}
 }
