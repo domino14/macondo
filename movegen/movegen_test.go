@@ -15,6 +15,7 @@ type VsWho uint8
 const (
 	VsEd VsWho = iota
 	VsMatt
+	VsJeremy
 )
 
 var LexiconDir = os.Getenv("LEXICON_DIR")
@@ -96,8 +97,11 @@ func TestSimpleRowGen(t *testing.T) {
 		{"ABEHINT", 9, 4, "   THERMOS  A", 2},    // nethermost hithermost
 		{"ABEHITT", 8, 4, "  THERMOS A   ", 1},   // anchor on s: thermostat
 		{"TT", 10, 4, "  THERMOS A   ", 3},       // anchor on a: thermostat, at, att
+		{"A", 1, 4, " B", 1},
+		{"A", 1, 4, " b", 1},
 	}
 	for idx, tc := range cases {
+		log.Printf("Case %v", idx)
 		generator := newGordonGenerator(gd)
 		generator.curAnchorCol = tc.curAnchorCol
 		rack.Initialize(tc.rack, gd.GetAlphabet())
@@ -189,6 +193,29 @@ cesar: Turn 10
 15|=     V E N G E D     '     =|
    ------------------------------
 `, alph)
+	} else if game == VsJeremy {
+		// tourney, 2018 nov Manhattan vs Jeremy H
+		generator.board.setFromPlaintext(`
+jeremy hall: Turn 13
+   A B C D E F G H I J K L M N O   -> jeremy hall              DDESW??   299
+   ------------------------------     cesar                    AHIILR    352
+ 1|=     '       N       '     M| --Tracking-----------------------------------
+ 2|  -       Z O O N "       A A| AHIILR  6
+ 3|    -       ' B '       - U N|
+ 4|'   S -       L       L A D Y|
+ 5|    T   -     E     Q I   I  |
+ 6|  " A     P O R N "     N O R|
+ 7|    B I C E '   A A   D A   E|
+ 8|=     '     G U V S   O P   F|
+ 9|    '       '   E T   L A   U|
+10|  "       J       R   E   U T|
+11|        V O T E   I - R   N E|
+12|'     -   G   M I C K I E S '|
+13|    -       F E ' T   T H E W|
+14|  -       " O R   "   E   X I|
+15|=     '     O Y       '     G|
+   ------------------------------
+`, alph)
 	}
 }
 
@@ -215,6 +242,25 @@ func TestUpdateAnchors(t *testing.T) {
 }
 
 func TestRowGen(t *testing.T) {
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	generator := newGordonGenerator(gd)
+	setBoardToGame(generator, gd.GetAlphabet(), VsEd)
+	generator.board.updateAllAnchors()
+
+	rack := &Rack{}
+	rack.Initialize("AAEIRST", gd.GetAlphabet())
+	generator.curRowIdx = 4
+	generator.curAnchorCol = 8
+	generator.Gen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
+		gd.GetRootNodeIndex())
+	// Should generate AIRGLOWS and REGLOWS only
+	if len(generator.plays) != 2 {
+		t.Errorf("Generated %v plays (%v), expected len=%v", generator.plays,
+			len(generator.plays), 2)
+	}
+}
+
+func TestRowGenWithBlanks(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	generator := newGordonGenerator(gd)
 	setBoardToGame(generator, gd.GetAlphabet(), VsEd)
@@ -445,7 +491,22 @@ func TestGenMoveJustOnce(t *testing.T) {
 	}
 }
 
-func TestGenAllMoves(t *testing.T) {
+func TestGenAllMovesSingleTile(t *testing.T) {
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	alph := gd.GetAlphabet()
+
+	generator := newGordonGenerator(gd)
+	setBoardToGame(generator, alph, VsMatt)
+	generator.board.updateAllAnchors()
+	generator.genAllCrossSets()
+	generator.GenAll("A")
+	if len(generator.plays) != 24 {
+		t.Errorf("Expected %v, got %v (%v) plays", 24, generator.plays,
+			len(generator.plays))
+	}
+}
+
+func TestGenAllMovesFullRack(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 
@@ -454,8 +515,81 @@ func TestGenAllMoves(t *testing.T) {
 	generator.board.updateAllAnchors()
 	generator.genAllCrossSets()
 	generator.GenAll("AABDELT")
+	// There should be 673 unique plays
+	if len(generator.plays) != 673 {
+		t.Errorf("Expected %v, got %v (%v) plays", 673, generator.plays,
+			len(generator.plays))
+	}
+}
 
-	log.Println(generator.plays)
-	log.Println(len(generator.plays))
-	// t.Errorf("fail")
+func TestGenAllMovesFullRackAgain(t *testing.T) {
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	alph := gd.GetAlphabet()
+
+	generator := newGordonGenerator(gd)
+	setBoardToGame(generator, alph, VsEd)
+	generator.board.updateAllAnchors()
+	generator.genAllCrossSets()
+	generator.GenAll("AFGIIIS")
+	// There should be 219 unique plays
+	if len(generator.plays) != 219 {
+		t.Errorf("Expected %v, got %v (%v) plays", 219, generator.plays,
+			len(generator.plays))
+	}
+}
+
+func TestGenAllMovesSingleBlank(t *testing.T) {
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	alph := gd.GetAlphabet()
+
+	generator := newGordonGenerator(gd)
+	setBoardToGame(generator, alph, VsEd)
+	generator.board.updateAllAnchors()
+	generator.genAllCrossSets()
+	generator.GenAll("?")
+	// There should be 166 unique plays. Quackle does not generate all blank
+	// plays, even when told to generate all plays!!
+	if len(generator.plays) != 166 {
+		t.Errorf("Expected %v, got %v (%v) plays", 166, generator.plays,
+			len(generator.plays))
+	}
+}
+func TestGenAllMovesTwoBlanksOnly(t *testing.T) {
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	alph := gd.GetAlphabet()
+
+	generator := newGordonGenerator(gd)
+	setBoardToGame(generator, alph, VsEd)
+	generator.board.updateAllAnchors()
+	generator.genAllCrossSets()
+	generator.GenAll("??")
+	// Quackle generates 1827 unique plays. (my movegen generates 1958)
+	// With one blank (the test above), Quackle generates 35 moves, I generate
+	// 166 by hand. The difference is 131. It seems Quackle does not generate
+	// all plays for one blank, only the first one alphabetically for every position.
+	// The difference between 1827 and 1958 is also 131, so I think this is
+	// ok.
+	if len(generator.plays) != 1958 {
+		t.Errorf("Expected %v, got %v (%v) plays", 1958, generator.plays,
+			len(generator.plays))
+	}
+}
+
+func TestGenAllMovesWithBlanks(t *testing.T) {
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	alph := gd.GetAlphabet()
+
+	generator := newGordonGenerator(gd)
+	setBoardToGame(generator, alph, VsJeremy)
+	generator.board.updateAllAnchors()
+	generator.genAllCrossSets()
+	generator.GenAll("DDESW??")
+	// If I do DDESW? in quackle i generate 1483 moves. My movegen generates
+	// 1586, possibly by the same logic as the above.
+	// If I add 103 to the Quackle-generated 8194 moves for both blanks (DDESW??)
+	// I get 8297, so there should be 8297 unique plays
+	if len(generator.plays) != 8297 {
+		t.Errorf("Expected %v, got %v (%v) plays", 8297, generator.plays,
+			len(generator.plays))
+	}
 }

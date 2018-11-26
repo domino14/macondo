@@ -2,7 +2,6 @@ package movegen
 
 import (
 	"fmt"
-	"log"
 	"strconv"
 
 	"github.com/domino14/macondo/alphabet"
@@ -23,8 +22,8 @@ type Move struct {
 }
 
 func (m Move) String() string {
-	return fmt.Sprintf("<action: %v row: %v col: %v word: %v bingo: %v tp: %v vert: %v>",
-		m.action, m.rowStart, m.colStart, m.word.UserVisible(m.alph), m.bingo,
+	return fmt.Sprintf("<action: %v word: %v %v bingo: %v tp: %v vert: %v>",
+		m.action, m.coords, m.word.UserVisible(m.alph), m.bingo,
 		m.tilesPlayed, m.vertical)
 }
 
@@ -34,7 +33,8 @@ func (m Move) uniqueKey() string {
 	// However, if only one tile has been played, we should only consider
 	// horizontal plays
 	if m.tilesPlayed != 1 {
-		return fmt.Sprintf("%v%v", m.coords, m.word)
+		// XXX: CHANGE THE USERVISIBLE AFTER DEBUGGING!!
+		return fmt.Sprintf("%v%v", m.coords, m.word.UserVisible(m.alph))
 	}
 	// Find the tile.
 	var playedTile rune
@@ -46,30 +46,31 @@ func (m Move) uniqueKey() string {
 			break
 		}
 	}
-	log.Printf("[DEBUG] Played tile was %v", playedTile)
 	var row, col uint8
 	row = m.rowStart
 	col = m.colStart
 	// We want to get the coordinate of the tile that is on the board itself.
 	if m.vertical {
-		col += uint8(idx)
-	} else {
+		row, col = col, row
 		row += uint8(idx)
+	} else {
+		col += uint8(idx)
 	}
-	key := fmt.Sprintf("%v%v", toBoardGameCoords(row, col, m.vertical), playedTile)
-	log.Printf("[DEBUG] Calculated key %v", key)
+	key := fmt.Sprintf("%v-%v-%v", row, col, playedTile)
 	return key
 }
 
 func toBoardGameCoords(row uint8, col uint8, vertical bool) string {
-	colCoords := rune('A' + col)
+	if vertical {
+		row, col = col, row
+	}
+	colCoords := string(rune('A' + col))
 	rowCoords := strconv.Itoa(int(row + 1))
 	var coords string
 	if vertical {
-		col, row = row, col
-		coords = string(colCoords) + rowCoords
+		coords = colCoords + rowCoords
 	} else {
-		coords = rowCoords + string(colCoords)
+		coords = rowCoords + colCoords
 	}
 	return coords
 }

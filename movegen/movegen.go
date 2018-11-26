@@ -133,7 +133,7 @@ func (gen *GordonGenerator) Gen(col int8, word alphabet.MachineWord, rack *Rack,
 	}
 
 	if !curSquare.isEmpty() {
-		nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, curLetter)
+		nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, curLetter.Unblank())
 		log.Printf("[DEBUG]%v Tryna find letter, Calling GoOn with col=%v, letter=%v, nodeIdx=%v",
 			spaces, col, curLetter.UserVisible(gen.gaddag.GetAlphabet()), nnIdx)
 
@@ -211,9 +211,9 @@ func (gen *GordonGenerator) GoOn(curCol int8, L alphabet.MachineLetter, word alp
 		log.Printf("[DEBUG]%v leftCol=%v, noLetterDirectlyLeft=%v",
 			spaces, curCol-1, noLetterDirectlyLeft)
 		if noLetterDirectlyLeft {
-			log.Printf("[DEBUG]%v Checking if %v is in letterset, word so far %v",
+			log.Printf("[DEBUG]%v <Checking if %v is in letterset, word so far %v, chk %v",
 				spaces, L.UserVisible(gen.gaddag.GetAlphabet()), word.UserVisible(
-					gen.gaddag.GetAlphabet()))
+					gen.gaddag.GetAlphabet()), gen.gaddag.InLetterSet(L, oldNodeIdx))
 		}
 		if gen.gaddag.InLetterSet(L, oldNodeIdx) && noLetterDirectlyLeft && gen.tilesPlayed > 0 {
 			gen.RecordPlay(word, curCol)
@@ -259,7 +259,7 @@ func (gen *GordonGenerator) GoOn(curCol int8, L alphabet.MachineLetter, word alp
 			gen.board.squares[gen.curRowIdx][curCol+1].isEmpty()
 		log.Printf("[DEBUG]%v No letter directly right: %v", spaces, noLetterDirectlyRight)
 		if noLetterDirectlyRight {
-			log.Printf("[DEBUG]%v Checking if %v is in letterset, word so far %v",
+			log.Printf("[DEBUG]%v >Checking if %v is in letterset, word so far %v",
 				spaces, L.UserVisible(gen.gaddag.GetAlphabet()), word.UserVisible(
 					gen.gaddag.GetAlphabet()))
 		}
