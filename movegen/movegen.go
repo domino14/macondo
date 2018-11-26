@@ -12,9 +12,6 @@
 package movegen
 
 import (
-	"log"
-	"strings"
-
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
@@ -92,9 +89,6 @@ func (gen *GordonGenerator) GenAll(letters string) {
 			gen.lastAnchorCol = 100
 			for col := int8(0); col < dim; col++ {
 				if gen.board.squares[row][col].anchor(dir) {
-					log.Printf("[DEBUG] row=%v col=%v is an anchor, calling gen",
-						row, col)
-
 					gen.curAnchorCol = col
 					gen.Gen(col, alphabet.MachineWord(""), rack,
 						gen.gaddag.GetRootNodeIndex())
@@ -103,22 +97,12 @@ func (gen *GordonGenerator) GenAll(letters string) {
 			}
 		}
 		gen.board.transpose()
-		log.Printf("[DEBUG] Transposing")
 	}
 }
 
 // Gen is an implementation of the Gordon Gen function.
 func (gen *GordonGenerator) Gen(col int8, word alphabet.MachineWord, rack *Rack,
-	nodeIdx uint32, recCtrs ...int) {
-	var recCtr int
-	if len(recCtrs) > 0 {
-		recCtr = recCtrs[0]
-	} else {
-		recCtr = 0
-	}
-	spaces := strings.Repeat(" ", recCtr)
-
-	log.Printf("[DEBUG]%v Entered Gen, col=%v, rack map=%v", spaces, col, rack.uniqueLetters)
+	nodeIdx uint32) {
 
 	var crossSet CrossSet
 
@@ -134,10 +118,7 @@ func (gen *GordonGenerator) Gen(col int8, word alphabet.MachineWord, rack *Rack,
 
 	if !curSquare.isEmpty() {
 		nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, curLetter.Unblank())
-		log.Printf("[DEBUG]%v Tryna find letter, Calling GoOn with col=%v, letter=%v, nodeIdx=%v",
-			spaces, col, curLetter.UserVisible(gen.gaddag.GetAlphabet()), nnIdx)
-
-		gen.GoOn(col, curLetter, word, rack, nnIdx, nodeIdx, recCtr+1)
+		gen.GoOn(col, curLetter, word, rack, nnIdx, nodeIdx)
 
 	} else if !rack.empty {
 		uniqLetters := []alphabet.MachineLetter{}
@@ -148,20 +129,11 @@ func (gen *GordonGenerator) Gen(col int8, word alphabet.MachineWord, rack *Rack,
 		for _, ml := range uniqLetters {
 			if ml != BlankPos {
 				if crossSet.allowed(ml) {
-					log.Printf("[DEBUG]%v ml %v was allowed in crossSet %v (row=%v col=%v)",
-						spaces, ml.UserVisible(gen.gaddag.GetAlphabet()), crossSet, gen.curRowIdx, col)
 					nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, ml)
-					log.Printf("[DEBUG]%v Taking ml %v", spaces, ml.UserVisible(gen.gaddag.GetAlphabet()))
-
 					rack.take(ml)
 					gen.tilesPlayed++
-
-					log.Printf("[DEBUG]%v Calling GoOn with col=%v letter=%v nnIdx=%v nodeIdx=%v",
-						spaces, col, ml.UserVisible(gen.gaddag.GetAlphabet()), nnIdx, nodeIdx)
-					gen.GoOn(col, ml, word, rack, nnIdx, nodeIdx, recCtr+1)
+					gen.GoOn(col, ml, word, rack, nnIdx, nodeIdx)
 					rack.add(ml)
-					log.Printf("[DEBUG]%v Put ml %v back", spaces, ml.UserVisible(gen.gaddag.GetAlphabet()))
-
 					gen.tilesPlayed--
 				}
 			} else {
@@ -170,12 +142,10 @@ func (gen *GordonGenerator) Gen(col int8, word alphabet.MachineWord, rack *Rack,
 					if crossSet.allowed(alphabet.MachineLetter(i)) {
 						nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, alphabet.MachineLetter(i))
 						rack.take(BlankPos)
-						log.Printf("[DEBUG]%v Take the blank", spaces)
 
 						gen.tilesPlayed++
-						gen.GoOn(col, alphabet.MachineLetter(i).Blank(), word, rack, nnIdx, nodeIdx, recCtr+1)
+						gen.GoOn(col, alphabet.MachineLetter(i).Blank(), word, rack, nnIdx, nodeIdx)
 						rack.add(BlankPos)
-						log.Printf("[DEBUG]%v Put the blank back", spaces)
 
 						gen.tilesPlayed--
 					}
@@ -183,20 +153,14 @@ func (gen *GordonGenerator) Gen(col int8, word alphabet.MachineWord, rack *Rack,
 			}
 		}
 	}
-	log.Printf("[DEBUG]%v Leaving Gen function", spaces)
-
 }
 
 // GoOn is an implementation of the Gordon GoOn function.
 func (gen *GordonGenerator) GoOn(curCol int8, L alphabet.MachineLetter, word alphabet.MachineWord,
-	rack *Rack, newNodeIdx uint32, oldNodeIdx uint32, recCtr int) {
-
-	spaces := strings.Repeat(" ", recCtr)
+	rack *Rack, newNodeIdx uint32, oldNodeIdx uint32) {
 
 	if curCol <= gen.curAnchorCol {
-		log.Printf("[DEBUG]%vcurRowIdx=%v curCol=%v", spaces, gen.curRowIdx, curCol)
 		if !gen.board.squares[gen.curRowIdx][curCol].isEmpty() {
-			log.Printf("[DEBUG]%vNot empty, appending marker to word", spaces)
 			word = alphabet.MachineWord(alphabet.PlayedThroughMarker) + word
 		} else {
 			word = alphabet.MachineWord(L) + word
@@ -207,33 +171,19 @@ func (gen *GordonGenerator) GoOn(curCol int8, L alphabet.MachineLetter, word alp
 		noLetterDirectlyLeft := curCol == 0 || gen.board.squares[gen.curRowIdx][curCol-1].isEmpty()
 
 		// Check to see if there is a letter directly to the left.
-
-		log.Printf("[DEBUG]%v leftCol=%v, noLetterDirectlyLeft=%v",
-			spaces, curCol-1, noLetterDirectlyLeft)
-		if noLetterDirectlyLeft {
-			log.Printf("[DEBUG]%v <Checking if %v is in letterset, word so far %v, chk %v",
-				spaces, L.UserVisible(gen.gaddag.GetAlphabet()), word.UserVisible(
-					gen.gaddag.GetAlphabet()), gen.gaddag.InLetterSet(L, oldNodeIdx))
-		}
 		if gen.gaddag.InLetterSet(L, oldNodeIdx) && noLetterDirectlyLeft && gen.tilesPlayed > 0 {
 			gen.RecordPlay(word, curCol)
 		}
 		if newNodeIdx == 0 {
-			log.Printf("[DEBUG]%v newNodeIdx=0, returning from GoOn", spaces)
 			return
 		}
 		// Keep generating prefixes if there is room to the left, and don't
 		// revisit an anchor we just saw.
-		log.Printf("[DEBUG] Lastanchorcol=%v curAnchorCol=%v", gen.lastAnchorCol,
-			gen.curAnchorCol)
 		// This seems to work because we always shift direction afterwards, so we're
 		// only looking at the first of a consecutive set of anchors going backwards,
 		// and then always looking forward from then on.
 		if curCol > 0 && gen.lastAnchorCol != gen.curAnchorCol-1 {
-			log.Printf("[DEBUG]%v Room to left, Calling Gen with col=%v, word=%v, nodeIdx=%v",
-				spaces, curCol-1, word.UserVisible(gen.gaddag.GetAlphabet()), newNodeIdx)
-
-			gen.Gen(curCol-1, word, rack, newNodeIdx, recCtr)
+			gen.Gen(curCol-1, word, rack, newNodeIdx)
 		}
 		// Then shift direction.
 		// Get the index of the SeparationToken
@@ -241,15 +191,11 @@ func (gen *GordonGenerator) GoOn(curCol int8, L alphabet.MachineLetter, word alp
 		// Check for no letter directly left AND room to the right (of the anchor
 		// square)
 		if separationNodeIdx != 0 && noLetterDirectlyLeft && gen.curAnchorCol < int8(gen.board.dim()-1) {
-			log.Printf("[DEBUG]%v Shift direction, calling Gen with col=%v, word=%v nodeIdx=%v",
-				spaces, gen.curAnchorCol+1, word.UserVisible(gen.gaddag.GetAlphabet()), separationNodeIdx)
-			gen.Gen(gen.curAnchorCol+1, word, rack, separationNodeIdx, recCtr)
+			gen.Gen(gen.curAnchorCol+1, word, rack, separationNodeIdx)
 		}
 
 	} else {
-		log.Printf("[DEBUG] Checking squares at %v, %v", gen.curRowIdx, curCol)
 		if !gen.board.squares[gen.curRowIdx][curCol].isEmpty() {
-			log.Printf("[DEBUG]%v->Not empty, appending marker to word", spaces)
 			word += alphabet.MachineWord(alphabet.PlayedThroughMarker)
 		} else {
 			word += alphabet.MachineWord(L)
@@ -257,27 +203,26 @@ func (gen *GordonGenerator) GoOn(curCol int8, L alphabet.MachineLetter, word alp
 
 		noLetterDirectlyRight := curCol == int8(gen.board.dim()-1) ||
 			gen.board.squares[gen.curRowIdx][curCol+1].isEmpty()
-		log.Printf("[DEBUG]%v No letter directly right: %v", spaces, noLetterDirectlyRight)
-		if noLetterDirectlyRight {
-			log.Printf("[DEBUG]%v >Checking if %v is in letterset, word so far %v",
-				spaces, L.UserVisible(gen.gaddag.GetAlphabet()), word.UserVisible(
-					gen.gaddag.GetAlphabet()))
-		}
 		if gen.gaddag.InLetterSet(L, oldNodeIdx) && noLetterDirectlyRight && gen.tilesPlayed > 0 {
 			gen.RecordPlay(word, curCol-int8(len(word))+1)
 		}
 		if newNodeIdx != 0 && curCol < int8(gen.board.dim()-1) {
 			// There is room to the right
-			log.Printf("[DEBUG]%v Room to right, calling Gen with col=%v, word=%v newNodeIdx=%v",
-				spaces, curCol+1, word.UserVisible(gen.gaddag.GetAlphabet()), newNodeIdx)
-			gen.Gen(curCol+1, word, rack, newNodeIdx, recCtr)
+			gen.Gen(curCol+1, word, rack, newNodeIdx)
 		}
 	}
 }
 
 // RecordPlay records a play.
 func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startCol int8) {
-	coords := toBoardGameCoords(uint8(gen.curRowIdx), uint8(startCol), gen.vertical)
+	row := uint8(gen.curRowIdx)
+	col := uint8(startCol)
+	if gen.vertical {
+		// We flip it here because we only generate vertical moves when we transpose
+		// the board, so the row and col are actually transposed.
+		row, col = col, row
+	}
+	coords := toBoardGameCoords(row, col, gen.vertical)
 
 	play := Move{
 		action:      MoveTypePlay,
@@ -293,8 +238,6 @@ func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startCol int8)
 		coords:      coords,
 	}
 	gen.plays[play.uniqueKey()] = play
-	log.Printf("[DEBUG] Recorded play %v, startcol %v",
-		word.UserVisible(gen.gaddag.GetAlphabet()), startCol)
 }
 
 func (gen *GordonGenerator) traverseBackwardsForScore(row int, col int) int {
@@ -318,21 +261,14 @@ func (gen *GordonGenerator) traverseBackwards(row int, col int, nodeIdx uint32,
 	// If checkLetterSet is true, then we traverse until leftMostCol+1 and
 	// check the letter set of this node to see if it includes the letter
 	// at leftMostCol
-	log.Printf("[DEBUG] traverseBackwards called with row=%v col=%v nodeIdx=%v lmc=%v",
-		row, col, nodeIdx, leftMostCol)
 	for gen.board.posExists(row, col) {
 		ml := gen.board.squares[row][col].letter
 		if ml == alphabet.EmptySquareMarker {
-			log.Printf("[DEBUG] Col %v empty, breaking", col)
 			break
 		}
 
-		log.Printf("[DEBUG] Relevant letter is %v", ml.UserVisible(gen.gaddag.GetAlphabet()))
-
 		if checkLetterSet && col == leftMostCol {
-			log.Printf("[DEBUG] Checking letter set, col=%v", col)
 			if gen.gaddag.InLetterSet(ml, nodeIdx) {
-				log.Printf("[DEBUG] In letter set = True")
 				return nodeIdx, true
 			}
 			// Give up early; if we're checking letter sets we only care about
@@ -346,13 +282,11 @@ func (gen *GordonGenerator) traverseBackwards(row int, col int, nodeIdx uint32,
 			// can occur if a phony was played and stayed on the board
 			// and the phony has no extensions for example, or if it's
 			// a real word with no further extensions.
-			log.Printf("[DEBUG] No path")
 			return nodeIdx, false
 		}
 
 		col--
 	}
-	log.Printf("[DEBUG] Found path all the way to end. nodeIdx=%v", nodeIdx)
 
 	return nodeIdx, true
 }
@@ -395,7 +329,6 @@ func (gen *GordonGenerator) genCrossSet(row int, col int, dir BoardDirection) {
 	// If there's no tile adjacent to this square in any direction,
 	// every letter is allowed.
 	if gen.board.leftAndRightEmpty(row, col) {
-		log.Printf("[DEBUG] Left and right were empty, row %v col %v", row, col)
 		gen.board.squares[row][col].setCrossSet(TrivialCrossSet, dir)
 		gen.board.squares[row][col].setCrossScore(0, dir)
 		return
@@ -405,7 +338,6 @@ func (gen *GordonGenerator) genCrossSet(row int, col int, dir BoardDirection) {
 	rightCol := gen.board.wordEdge(row, col+1, RightDirection)
 	if rightCol == col {
 		// This means the right was always empty; we only want to go left.
-		log.Printf("[DEBUG] Right was empty, go left")
 		lNodeIdx, lPathValid := gen.traverseBackwards(row, col-1,
 			gen.gaddag.GetRootNodeIndex(), false, 0)
 		score := gen.traverseBackwardsForScore(row, col-1)
@@ -441,15 +373,11 @@ func (gen *GordonGenerator) genCrossSet(row int, col int, dir BoardDirection) {
 			// The left is empty, but the right isn't.
 			// The cross-set is just the letter set of the letter directly
 			// to our right.
-			log.Printf("[DEBUG] Left was empty, set letterset")
-
 			letterSet := gen.gaddag.GetLetterSet(lNodeIdx)
 			gen.board.squares[row][col].setCrossSet(CrossSet(letterSet), dir)
 		} else {
 			// Both the left and the right have a tile. Go through the
 			// siblings, from the right, to see what nodes lead to the left.
-			log.Printf("[DEBUG] Both right and left have a tile")
-
 			numArcs := gen.gaddag.NumArcs(lNodeIdx)
 			crossSet := gen.board.squares[row][col].getCrossSet(dir)
 			*crossSet = CrossSet(0)
@@ -460,12 +388,9 @@ func (gen *GordonGenerator) genCrossSet(row int, col int, dir BoardDirection) {
 					continue
 				}
 				nnIdx := gen.gaddag.Nodes[i].Val & gaddagmaker.NodeIdxBitMask
-				log.Printf("[DEBUG] Trying letter %v", ml.UserVisible(gen.gaddag.GetAlphabet()))
 				_, success := gen.traverseBackwards(row, col-1, nnIdx, true,
 					leftCol)
 				if success {
-					log.Printf("[DEBUG] Found in letter set, adding %v",
-						ml.UserVisible(gen.gaddag.GetAlphabet()))
 					crossSet.set(ml)
 				}
 			}

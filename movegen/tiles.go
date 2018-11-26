@@ -1,8 +1,6 @@
 package movegen
 
 import (
-	"log"
-
 	"github.com/domino14/macondo/alphabet"
 )
 
@@ -39,6 +37,5 @@ func (b *Bag) score(ml alphabet.MachineLetter) int {
 	if ml >= alphabet.BlankOffset {
 		return b.scores[b.numUniqueTiles-1]
 	}
-	log.Printf("[DEBUG] Looking up machine letter %v", ml)
 	return b.scores[ml]
 }

@@ -152,7 +152,6 @@ func (g SimpleGaddag) InLetterSet(letter alphabet.MachineLetter, nodeIdx uint32)
 	ltc := letter
 	if letter >= alphabet.BlankOffset {
 		ltc = letter - alphabet.BlankOffset
-		log.Printf("[DEBUG] Had to take away blank...%v -> %v", letter, ltc)
 	}
 	letterSet := g.GetLetterSet(nodeIdx)
 	return letterSet&(1<<ltc) != 0

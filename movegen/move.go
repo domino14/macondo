@@ -33,8 +33,7 @@ func (m Move) uniqueKey() string {
 	// However, if only one tile has been played, we should only consider
 	// horizontal plays
 	if m.tilesPlayed != 1 {
-		// XXX: CHANGE THE USERVISIBLE AFTER DEBUGGING!!
-		return fmt.Sprintf("%v%v", m.coords, m.word.UserVisible(m.alph))
+		return fmt.Sprintf("%v%v", m.coords, m.word)
 	}
 	// Find the tile.
 	var playedTile rune
@@ -61,9 +60,6 @@ func (m Move) uniqueKey() string {
 }
 
 func toBoardGameCoords(row uint8, col uint8, vertical bool) string {
-	if vertical {
-		row, col = col, row
-	}
 	colCoords := string(rune('A' + col))
 	rowCoords := strconv.Itoa(int(row + 1))
 	var coords string

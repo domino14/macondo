@@ -593,3 +593,45 @@ func TestGenAllMovesWithBlanks(t *testing.T) {
 			len(generator.plays))
 	}
 }
+
+func BenchmarkGenFullRack(b *testing.B) {
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	alph := gd.GetAlphabet()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		// 4.1 ms per operation on my macbook pro!! not bad!!
+		generator := newGordonGenerator(gd)
+		setBoardToGame(generator, alph, VsMatt)
+		generator.board.updateAllAnchors()
+		generator.genAllCrossSets()
+		generator.GenAll("AABDELT")
+	}
+}
+
+func BenchmarkGenOneBlank(b *testing.B) {
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	alph := gd.GetAlphabet()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		// 26.1 ms per operation on my macbook pro.
+		generator := newGordonGenerator(gd)
+		setBoardToGame(generator, alph, VsJeremy)
+		generator.board.updateAllAnchors()
+		generator.genAllCrossSets()
+		generator.GenAll("ADDESW?")
+	}
+}
+
+func BenchmarkGenBothBlanks(b *testing.B) {
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	alph := gd.GetAlphabet()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		// ~81-85 ms per operation on my macbook pro.
+		generator := newGordonGenerator(gd)
+		setBoardToGame(generator, alph, VsJeremy)
+		generator.board.updateAllAnchors()
+		generator.genAllCrossSets()
+		generator.GenAll("DDESW??")
+	}
+}
