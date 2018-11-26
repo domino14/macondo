@@ -22,6 +22,16 @@ const (
 	BlankOffset = 100
 	// SeparationToken is the GADDAG separation token.
 	SeparationToken = '^'
+	// EmptySquareMarker is a MachineLetter representation of an empty square
+	EmptySquareMarker = MaxAlphabetSize + 1
+	// PlayedThroughMarker is a MachineLetter representation of a filled-in square
+	// that was played through.
+	PlayedThroughMarker = MaxAlphabetSize + 2
+	// ASCIIPlayedThrough is a somewhat user-friendly representation of a
+	// played-through letter, used mostly for debug purposes.
+	// Note that in order to actually be visible on a computer screen, we
+	// should use `(`and `)` around letters already on a board.
+	ASCIIPlayedThrough = '.'
 )
 
 // LetterSet is a bit mask of acceptable letters, with indices from 0 to
@@ -72,6 +82,8 @@ func (mw MachineWord) UserVisible(alph *Alphabet) string {
 	for i, l := range mw {
 		if l >= BlankOffset {
 			runes[i] = unicode.ToLower(alph.Letter(MachineLetter(l - BlankOffset)))
+		} else if l == PlayedThroughMarker {
+			runes[i] = ASCIIPlayedThrough
 		} else {
 			runes[i] = alph.Letter(MachineLetter(l))
 		}

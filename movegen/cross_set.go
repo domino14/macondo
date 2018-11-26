@@ -10,7 +10,13 @@ const (
 	TrivialCrossSet = (1 << alphabet.MaxAlphabetSize) - 1
 )
 
-// A CrossSet is a bit mask of letters that are allowed on a square.
+// A CrossSet is a bit mask of letters that are allowed on a square. It is
+// inherently directional, as it depends on which direction we are generating
+// moves in. If we are generating moves HORIZONTALLY, we check in the
+// VERTICAL cross set to make sure we can play a letter there.
+// Therefore, a VERTICAL cross set is created by looking at the tile(s)
+// above and/or below the relevant square and seeing what letters lead to
+// valid words.
 type CrossSet uint64
 
 func (c CrossSet) allowed(letter alphabet.MachineLetter) bool {

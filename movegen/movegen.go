@@ -12,7 +12,6 @@
 package movegen
 
 import (
-	"fmt"
 	"log"
 	"strings"
 
@@ -44,25 +43,6 @@ func LettersRemain(rack []uint8) bool {
 	return false
 }
 
-type Move struct {
-	action      MoveType
-	score       int8
-	desc        string
-	word        alphabet.MachineWord
-	rowStart    uint8
-	colStart    uint8
-	vertical    bool
-	bingo       bool
-	tilesPlayed uint8
-	alph        *alphabet.Alphabet
-}
-
-func (m Move) String() string {
-	return fmt.Sprintf("<action: %v col: %v word: %v bingo: %v tp: %v>",
-		m.action, m.colStart, m.word.UserVisible(m.alph), m.bingo,
-		m.tilesPlayed)
-}
-
 type GordonGenerator struct {
 	gaddag gaddag.SimpleGaddag
 	board  GameBoard
@@ -70,13 +50,14 @@ type GordonGenerator struct {
 	// that we are always thinking in terms of rows, and columns are the
 	// current anchor column. In order to generate vertical moves, we just
 	// transpose the `board`.
-	curRow       []*Square
-	curAnchorCol int8
+	curRowIdx     int8
+	curAnchorCol  int8
+	lastAnchorCol int8
 
 	vertical bool // Are we generating moves vertically or not?
 
 	tilesPlayed uint8
-	plays       []Move
+	plays       map[string]Move
 	bag         *Bag
 }
 
@@ -84,7 +65,7 @@ func newGordonGenerator(gd gaddag.SimpleGaddag) *GordonGenerator {
 	gen := &GordonGenerator{
 		gaddag: gd,
 		board:  strToBoard(CrosswordGameBoard),
-		plays:  []Move{},
+		plays:  make(map[string]Move),
 		bag:    new(Bag),
 	}
 	gen.bag.Init()
@@ -92,10 +73,38 @@ func newGordonGenerator(gd gaddag.SimpleGaddag) *GordonGenerator {
 	return gen
 }
 
-func (gen *GordonGenerator) GenAll(rack []string, board GameBoard) {
-	gen.board = board
-	// gen.curAnchorRow = 7
-	// gen.curAnchorCol = 7
+// GenAll generates all moves on the board. It assumes anchors have already
+// been updated, as well as cross-sets / cross-scores.
+func (gen *GordonGenerator) GenAll(letters string) {
+	// gen.board.updateAllAnchors()
+	rack := &Rack{}
+	rack.Initialize(letters, gen.gaddag.GetAlphabet())
+	dim := int8(gen.board.dim())
+	gen.plays = make(map[string]Move)
+	orientations := []BoardDirection{HorizontalDirection, VerticalDirection}
+	// Once for each orientation
+	for idx, dir := range orientations {
+		gen.vertical = idx%2 != 0
+		for row := int8(0); row < dim; row++ {
+			gen.curRowIdx = row
+			// A bit of a hack. Set this to a large number at the beginning of
+			// every loop
+			gen.lastAnchorCol = 100
+			for col := int8(0); col < dim; col++ {
+				if gen.board.squares[row][col].anchor(dir) {
+					log.Printf("[DEBUG] row=%v col=%v is an anchor, calling gen",
+						row, col)
+
+					gen.curAnchorCol = col
+					gen.Gen(col, alphabet.MachineWord(""), rack,
+						gen.gaddag.GetRootNodeIndex())
+					gen.lastAnchorCol = col
+				}
+			}
+		}
+		gen.board.transpose()
+		log.Printf("[DEBUG] Transposing")
+	}
 }
 
 // Gen is an implementation of the Gordon Gen function.
@@ -114,7 +123,7 @@ func (gen *GordonGenerator) Gen(col int8, word alphabet.MachineWord, rack *Rack,
 	var crossSet CrossSet
 
 	// If a letter L is already on this square, then GoOn...
-	curSquare := gen.curRow[col]
+	curSquare := gen.board.squares[gen.curRowIdx][col]
 	curLetter := curSquare.letter
 
 	if gen.vertical {
@@ -123,7 +132,7 @@ func (gen *GordonGenerator) Gen(col int8, word alphabet.MachineWord, rack *Rack,
 		crossSet = curSquare.vcrossSet
 	}
 
-	if curLetter != EmptySquareMarker {
+	if !curSquare.isEmpty() {
 		nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, curLetter)
 		log.Printf("[DEBUG]%v Tryna find letter, Calling GoOn with col=%v, letter=%v, nodeIdx=%v",
 			spaces, col, curLetter.UserVisible(gen.gaddag.GetAlphabet()), nnIdx)
@@ -139,6 +148,8 @@ func (gen *GordonGenerator) Gen(col int8, word alphabet.MachineWord, rack *Rack,
 		for _, ml := range uniqLetters {
 			if ml != BlankPos {
 				if crossSet.allowed(ml) {
+					log.Printf("[DEBUG]%v ml %v was allowed in crossSet %v (row=%v col=%v)",
+						spaces, ml.UserVisible(gen.gaddag.GetAlphabet()), crossSet, gen.curRowIdx, col)
 					nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, ml)
 					log.Printf("[DEBUG]%v Taking ml %v", spaces, ml.UserVisible(gen.gaddag.GetAlphabet()))
 
@@ -183,12 +194,17 @@ func (gen *GordonGenerator) GoOn(curCol int8, L alphabet.MachineLetter, word alp
 	spaces := strings.Repeat(" ", recCtr)
 
 	if curCol <= gen.curAnchorCol {
-		word = alphabet.MachineWord(L) + word
+		log.Printf("[DEBUG]%vcurRowIdx=%v curCol=%v", spaces, gen.curRowIdx, curCol)
+		if !gen.board.squares[gen.curRowIdx][curCol].isEmpty() {
+			log.Printf("[DEBUG]%vNot empty, appending marker to word", spaces)
+			word = alphabet.MachineWord(alphabet.PlayedThroughMarker) + word
+		} else {
+			word = alphabet.MachineWord(L) + word
+		}
 		// if L on OldArc and no letter directly left, then record play.
 		// roomToLeft is true unless we are right at the edge of the board.
 		//roomToLeft := true
-		noLetterDirectlyLeft := (curCol == 0 ||
-			gen.curRow[curCol-1].letter == EmptySquareMarker)
+		noLetterDirectlyLeft := curCol == 0 || gen.board.squares[gen.curRowIdx][curCol-1].isEmpty()
 
 		// Check to see if there is a letter directly to the left.
 
@@ -206,9 +222,14 @@ func (gen *GordonGenerator) GoOn(curCol int8, L alphabet.MachineLetter, word alp
 			log.Printf("[DEBUG]%v newNodeIdx=0, returning from GoOn", spaces)
 			return
 		}
-		// Keep generating prefixes if there is room to the left
-
-		if curCol > 0 {
+		// Keep generating prefixes if there is room to the left, and don't
+		// revisit an anchor we just saw.
+		log.Printf("[DEBUG] Lastanchorcol=%v curAnchorCol=%v", gen.lastAnchorCol,
+			gen.curAnchorCol)
+		// This seems to work because we always shift direction afterwards, so we're
+		// only looking at the first of a consecutive set of anchors going backwards,
+		// and then always looking forward from then on.
+		if curCol > 0 && gen.lastAnchorCol != gen.curAnchorCol-1 {
 			log.Printf("[DEBUG]%v Room to left, Calling Gen with col=%v, word=%v, nodeIdx=%v",
 				spaces, curCol-1, word.UserVisible(gen.gaddag.GetAlphabet()), newNodeIdx)
 
@@ -226,9 +247,16 @@ func (gen *GordonGenerator) GoOn(curCol int8, L alphabet.MachineLetter, word alp
 		}
 
 	} else {
-		word = word + alphabet.MachineWord(L)
-		noLetterDirectlyRight := (curCol == int8(gen.board.dim()-1) ||
-			gen.curRow[curCol+1].letter == EmptySquareMarker)
+		log.Printf("[DEBUG] Checking squares at %v, %v", gen.curRowIdx, curCol)
+		if !gen.board.squares[gen.curRowIdx][curCol].isEmpty() {
+			log.Printf("[DEBUG]%v->Not empty, appending marker to word", spaces)
+			word += alphabet.MachineWord(alphabet.PlayedThroughMarker)
+		} else {
+			word += alphabet.MachineWord(L)
+		}
+
+		noLetterDirectlyRight := curCol == int8(gen.board.dim()-1) ||
+			gen.board.squares[gen.curRowIdx][curCol+1].isEmpty()
 		log.Printf("[DEBUG]%v No letter directly right: %v", spaces, noLetterDirectlyRight)
 		if noLetterDirectlyRight {
 			log.Printf("[DEBUG]%v Checking if %v is in letterset, word so far %v",
@@ -249,6 +277,8 @@ func (gen *GordonGenerator) GoOn(curCol int8, L alphabet.MachineLetter, word alp
 
 // RecordPlay records a play.
 func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startCol int8) {
+	coords := toBoardGameCoords(uint8(gen.curRowIdx), uint8(startCol), gen.vertical)
+
 	play := Move{
 		action:      MoveTypePlay,
 		score:       17,
@@ -259,8 +289,10 @@ func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startCol int8)
 		tilesPlayed: gen.tilesPlayed,
 		alph:        gen.gaddag.GetAlphabet(),
 		colStart:    uint8(startCol),
+		rowStart:    uint8(gen.curRowIdx),
+		coords:      coords,
 	}
-	gen.plays = append(gen.plays, play)
+	gen.plays[play.uniqueKey()] = play
 	log.Printf("[DEBUG] Recorded play %v, startcol %v",
 		word.UserVisible(gen.gaddag.GetAlphabet()), startCol)
 }
@@ -269,7 +301,7 @@ func (gen *GordonGenerator) traverseBackwardsForScore(row int, col int) int {
 	score := 0
 	for gen.board.posExists(row, col) {
 		ml := gen.board.squares[row][col].letter
-		if ml == EmptySquareMarker {
+		if ml == alphabet.EmptySquareMarker {
 			break
 		}
 		score += gen.bag.score(ml)
@@ -290,7 +322,7 @@ func (gen *GordonGenerator) traverseBackwards(row int, col int, nodeIdx uint32,
 		row, col, nodeIdx, leftMostCol)
 	for gen.board.posExists(row, col) {
 		ml := gen.board.squares[row][col].letter
-		if ml == EmptySquareMarker {
+		if ml == alphabet.EmptySquareMarker {
 			log.Printf("[DEBUG] Col %v empty, breaking", col)
 			break
 		}
@@ -335,24 +367,22 @@ func (gen *GordonGenerator) genAllCrossSets() {
 	n := gen.board.dim()
 	for i := 0; i < n; i++ {
 		for j := 0; j < n; j++ {
-			if gen.board.squares[i][j].letter != EmptySquareMarker {
-				// We are setting the vertical cross-set since we're
-				// horizontal.
-				gen.board.squares[i][j].setCrossSet(CrossSet(0), VerticalDirection)
-				gen.board.squares[i][j].setCrossScore(0, VerticalDirection)
+			if !gen.board.squares[i][j].isEmpty() {
+				gen.board.squares[i][j].setCrossSet(CrossSet(0), HorizontalDirection)
+				gen.board.squares[i][j].setCrossScore(0, HorizontalDirection)
 			} else {
-				gen.genCrossSet(i, j, VerticalDirection)
+				gen.genCrossSet(i, j, HorizontalDirection)
 			}
 		}
 	}
 	gen.board.transpose()
 	for i := 0; i < n; i++ {
 		for j := 0; j < n; j++ {
-			if gen.board.squares[i][j].letter != EmptySquareMarker {
-				gen.board.squares[i][j].setCrossSet(CrossSet(0), HorizontalDirection)
-				gen.board.squares[i][j].setCrossScore(0, HorizontalDirection)
+			if !gen.board.squares[i][j].isEmpty() {
+				gen.board.squares[i][j].setCrossSet(CrossSet(0), VerticalDirection)
+				gen.board.squares[i][j].setCrossScore(0, VerticalDirection)
 			} else {
-				gen.genCrossSet(i, j, HorizontalDirection)
+				gen.genCrossSet(i, j, VerticalDirection)
 			}
 		}
 	}

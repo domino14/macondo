@@ -58,7 +58,7 @@ func (s Square) DisplayString(alph *alphabet.Alphabet) string {
 	} else {
 		bonusdisp = " "
 	}
-	if s.letter == EmptySquareMarker {
+	if s.letter == alphabet.EmptySquareMarker {
 		return fmt.Sprintf("[%v%v%v]", bonusdisp, hadisp, vadisp)
 	}
 	return fmt.Sprintf("[%v%v%v]", s.letter.UserVisible(alph), hadisp, vadisp)
@@ -100,7 +100,14 @@ func (s *Square) getCrossScore(dir BoardDirection) int {
 }
 
 func (s *Square) isEmpty() bool {
-	return s.letter == EmptySquareMarker
+	return s.letter == alphabet.EmptySquareMarker
+}
+
+func (s *Square) anchor(dir BoardDirection) bool {
+	if dir == HorizontalDirection {
+		return s.hAnchor
+	}
+	return s.vAnchor
 }
 
 // A GameBoard is the main board structure. It contains all of the Squares,
@@ -126,7 +133,7 @@ func strToBoard(desc []string) GameBoard {
 	for _, s := range desc {
 		row := []*Square{}
 		for _, c := range s {
-			row = append(row, &Square{letter: EmptySquareMarker, bonus: BonusSquare(c)})
+			row = append(row, &Square{letter: alphabet.EmptySquareMarker, bonus: BonusSquare(c)})
 		}
 		rows = append(rows, row)
 	}
@@ -178,18 +185,18 @@ func (g *GameBoard) clearAllCrosses() {
 func (g *GameBoard) updateAnchors(row int, col int) {
 	var tileAbove, tileBelow, tileLeft, tileRight, tileHere bool
 	if row > 0 {
-		tileAbove = g.squares[row-1][col].letter != EmptySquareMarker
+		tileAbove = !g.squares[row-1][col].isEmpty()
 	}
 	if col > 0 {
-		tileLeft = g.squares[row][col-1].letter != EmptySquareMarker
+		tileLeft = !g.squares[row][col-1].isEmpty()
 	}
 	if row < g.dim()-1 {
-		tileBelow = g.squares[row+1][col].letter != EmptySquareMarker
+		tileBelow = !g.squares[row+1][col].isEmpty()
 	}
 	if col < g.dim()-1 {
-		tileRight = g.squares[row][col+1].letter != EmptySquareMarker
+		tileRight = !g.squares[row][col+1].isEmpty()
 	}
-	tileHere = g.squares[row][col].letter != EmptySquareMarker
+	tileHere = !g.squares[row][col].isEmpty()
 	if tileHere {
 		// The current square is not empty. It should only be an anchor
 		// if it is the rightmost square of a word (actually, squares to

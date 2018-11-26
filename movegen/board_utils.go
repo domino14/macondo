@@ -38,7 +38,7 @@ func (g *GameBoard) setFromPlaintext(qText string, alph *alphabet.Alphabet) {
 			if err != nil {
 				// Ignore the error; we are passing in a space or another
 				// board marker.
-				g.squares[i][j/2].letter = EmptySquareMarker
+				g.squares[i][j/2].letter = alphabet.EmptySquareMarker
 			}
 		}
 	}
