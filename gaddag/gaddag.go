@@ -23,7 +23,7 @@ type SimpleNode struct {
 	// or for states that have no arcs coming out of them, this map would be nil.
 	// The uint32 is simply the index of the destination node in the slice of
 	// SimpleNodes.
-	Arcs map[alphabet.MachineLetter]uint32
+	// Arcs map[alphabet.MachineLetter]uint32
 }
 
 // SimpleGaddag is the result of loading the gaddag back into
@@ -103,7 +103,7 @@ func LoadGaddag(filename string) SimpleGaddag {
 func toNodeSlice(nodes []uint32) []SimpleNode {
 	simpleNodes := make([]SimpleNode, len(nodes))
 	isState := true
-	var curNodeIdx uint32
+	// var curNodeIdx uint32
 	curArcsToGo := uint32(0)
 	for idx := range simpleNodes {
 		simpleNodes[idx].Val = nodes[idx]
@@ -111,15 +111,15 @@ func toNodeSlice(nodes []uint32) []SimpleNode {
 			// States have a map of arcs (possibly nil)
 			curArcsToGo = nodes[idx] >> gaddagmaker.NumArcsBitLoc
 			if curArcsToGo > 0 {
-				simpleNodes[idx].Arcs = make(map[alphabet.MachineLetter]uint32)
-				curNodeIdx = uint32(idx)
+				// simpleNodes[idx].Arcs = make(map[alphabet.MachineLetter]uint32)
+				// curNodeIdx = uint32(idx)
 				isState = false
 			}
 		} else {
 			// This is an arc. Modify the "current node"'s arc map.
-			dest, ml := nodes[idx]&gaddagmaker.NodeIdxBitMask,
-				alphabet.MachineLetter(nodes[idx]>>gaddagmaker.LetterBitLoc)
-			simpleNodes[curNodeIdx].Arcs[ml] = dest
+			// dest, ml := nodes[idx]&gaddagmaker.NodeIdxBitMask,
+			// 	alphabet.MachineLetter(nodes[idx]>>gaddagmaker.LetterBitLoc)
+			// simpleNodes[curNodeIdx].Arcs[ml] = dest
 			curArcsToGo--
 			if curArcsToGo == 0 {
 				isState = true
@@ -200,10 +200,11 @@ func (g SimpleGaddag) NextNodeIdx(nodeIdx uint32, letter alphabet.MachineLetter)
 
 // NumArcs is simply the number of arcs for the given node.
 func (g SimpleGaddag) NumArcs(nodeIdx uint32) byte {
-	if g.Nodes[nodeIdx].Arcs == nil {
-		return 0
-	}
-	return byte(len(g.Nodes[nodeIdx].Arcs))
+	// if g.Nodes[nodeIdx].Arcs == nil {
+	// 	return 0
+	// }
+	// return byte(len(g.Nodes[nodeIdx].Arcs))
+	return byte(g.Nodes[nodeIdx].Val >> gaddagmaker.NumArcsBitLoc)
 }
 
 // GetRootNodeIndex gets the index of the root node.
