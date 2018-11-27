@@ -11,21 +11,6 @@ import (
 	"github.com/domino14/macondo/gaddagmaker"
 )
 
-// SimpleNode is what makes up the nodes in the SimpleGaddag. Note: these
-// don't correspond to the "states" in the Gordon paper. Instead, states and
-// arcs are combined into one structure. We create a map of arcs in order
-// to speed up access.
-type SimpleNode struct {
-	// Val is the actual 32-bit value stored in the node.
-	// We don't need to break it out here.
-	Val uint32
-	// Arcs contains a map for nodes that are "states". For nodes that are arcs,
-	// or for states that have no arcs coming out of them, this map would be nil.
-	// The uint32 is simply the index of the destination node in the slice of
-	// SimpleNodes.
-	// Arcs map[alphabet.MachineLetter]uint32
-}
-
 // SimpleGaddag is the result of loading the gaddag back into
 // memory. Rather than contain an entire tree of linked nodes, arcs, etc
 // it will be easier and faster to do bitwise operations on a 32-bit array.
@@ -45,7 +30,7 @@ type SimpleNode struct {
 // If the node has no arcs, the arc array is empty.
 type SimpleGaddag struct {
 	// Nodes is just a slice of 32-bit elements, the node array.
-	Nodes []SimpleNode
+	Nodes []uint32
 	// The bit-mask letter sets
 	LetterSets []alphabet.LetterSet
 	alphabet   *alphabet.Alphabet
@@ -94,52 +79,22 @@ func LoadGaddag(filename string) SimpleGaddag {
 	binary.Read(file, binary.BigEndian, &nodes)
 	file.Close()
 
-	g := SimpleGaddag{Nodes: toNodeSlice(nodes), LetterSets: letterSets,
+	g := SimpleGaddag{Nodes: nodes, LetterSets: letterSets,
 		alphabet: alphabet.FromSlice(alphabetArr)}
 	return g
-}
-
-// Turn the slice of ints into a nodes and arcs connected structure
-func toNodeSlice(nodes []uint32) []SimpleNode {
-	simpleNodes := make([]SimpleNode, len(nodes))
-	isState := true
-	// var curNodeIdx uint32
-	curArcsToGo := uint32(0)
-	for idx := range simpleNodes {
-		simpleNodes[idx].Val = nodes[idx]
-		if isState {
-			// States have a map of arcs (possibly nil)
-			curArcsToGo = nodes[idx] >> gaddagmaker.NumArcsBitLoc
-			if curArcsToGo > 0 {
-				// simpleNodes[idx].Arcs = make(map[alphabet.MachineLetter]uint32)
-				// curNodeIdx = uint32(idx)
-				isState = false
-			}
-		} else {
-			// This is an arc. Modify the "current node"'s arc map.
-			// dest, ml := nodes[idx]&gaddagmaker.NodeIdxBitMask,
-			// 	alphabet.MachineLetter(nodes[idx]>>gaddagmaker.LetterBitLoc)
-			// simpleNodes[curNodeIdx].Arcs[ml] = dest
-			curArcsToGo--
-			if curArcsToGo == 0 {
-				isState = true
-			}
-		}
-	}
-	return simpleNodes
 }
 
 // ArcToIdxLetter finds the index of the node pointed to by this arc and
 // returns it and the letter.
 func (g SimpleGaddag) ArcToIdxLetter(arcIdx uint32) (uint32, alphabet.MachineLetter) {
 	// log.Printf("[DEBUG] ArcToIdxLetter called with %v", arcIdx)
-	letterCode := alphabet.MachineLetter(g.Nodes[arcIdx].Val >> gaddagmaker.LetterBitLoc)
-	return g.Nodes[arcIdx].Val & gaddagmaker.NodeIdxBitMask, letterCode
+	letterCode := alphabet.MachineLetter(g.Nodes[arcIdx] >> gaddagmaker.LetterBitLoc)
+	return g.Nodes[arcIdx] & gaddagmaker.NodeIdxBitMask, letterCode
 }
 
 // GetLetterSet gets the letter set of the node at nodeIdx.
 func (g SimpleGaddag) GetLetterSet(nodeIdx uint32) alphabet.LetterSet {
-	letterSetCode := g.Nodes[nodeIdx].Val & gaddagmaker.LetterSetBitMask
+	letterSetCode := g.Nodes[nodeIdx] & gaddagmaker.LetterSetBitMask
 	return g.LetterSets[letterSetCode]
 }
 
@@ -170,13 +125,9 @@ func (g SimpleGaddag) LetterSetAsRunes(nodeIdx uint32) []rune {
 	return runes
 }
 
-// NextNodeIdx is analogous to NextArc in the Gordon paper. The main difference
-// is that in Gordon, the initial state is an arc pointing to the first
-// node. In our implementation of the GADDAG, the initial state is that
-// first node. So we have to think in terms of the node that was pointed
-// to, rather than the pointing arc. There is something slightly wrong with
-// the paper as it does not seem possible to implement in exactly Gordon's way
-// without running into issues. (See my notes in my `ujamaa` repo in gaddag.h)
+// Note: This commented-out implementation makes the whole thing _slower_
+// even though it should be O(1) lookups. Tells you something about speed
+// of maps.
 // func (g SimpleGaddag) NextNodeIdx(nodeIdx uint32, letter alphabet.MachineLetter) uint32 {
 // 	if g.Nodes[nodeIdx].Arcs == nil {
 // 		return 0
@@ -185,14 +136,19 @@ func (g SimpleGaddag) LetterSetAsRunes(nodeIdx uint32) []rune {
 // 	return g.Nodes[nodeIdx].Arcs[letter]
 // }
 
-// XXX: Temporary loop implementation. Replace with above.
+// NextNodeIdx is analogous to NextArc in the Gordon paper. The main difference
+// is that in Gordon, the initial state is an arc pointing to the first
+// node. In our implementation of the GADDAG, the initial state is that
+// first node. So we have to think in terms of the node that was pointed
+// to, rather than the pointing arc. There is something slightly wrong with
+// the paper as it does not seem possible to implement in exactly Gordon's way
+// without running into issues. (See my notes in my `ujamaa` repo in gaddag.h)
 func (g SimpleGaddag) NextNodeIdx(nodeIdx uint32, letter alphabet.MachineLetter) uint32 {
-
 	numArcs := g.NumArcs(nodeIdx)
 	for i := nodeIdx + 1; i <= uint32(numArcs)+nodeIdx; i++ {
-		ml := alphabet.MachineLetter(g.Nodes[i].Val >> gaddagmaker.LetterBitLoc)
+		ml := alphabet.MachineLetter(g.Nodes[i] >> gaddagmaker.LetterBitLoc)
 		if letter == ml {
-			return g.Nodes[i].Val & gaddagmaker.NodeIdxBitMask
+			return g.Nodes[i] & gaddagmaker.NodeIdxBitMask
 		}
 	}
 	return 0
@@ -204,7 +160,7 @@ func (g SimpleGaddag) NumArcs(nodeIdx uint32) byte {
 	// 	return 0
 	// }
 	// return byte(len(g.Nodes[nodeIdx].Arcs))
-	return byte(g.Nodes[nodeIdx].Val >> gaddagmaker.NumArcsBitLoc)
+	return byte(g.Nodes[nodeIdx] >> gaddagmaker.NumArcsBitLoc)
 }
 
 // GetRootNodeIndex gets the index of the root node.

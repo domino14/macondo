@@ -16,6 +16,7 @@ const (
 	VsEd VsWho = iota
 	VsMatt
 	VsJeremy
+	VsOxy
 )
 
 var LexiconDir = os.Getenv("LEXICON_DIR")
@@ -214,6 +215,29 @@ jeremy hall: Turn 13
 13|    -       F E ' T   T H E W|
 14|  -       " O R   "   E   X I|
 15|=     '     O Y       '     G|
+   ------------------------------
+`, alph)
+	} else if game == VsOxy {
+		// lol
+		generator.board.setFromPlaintext(`
+cesar: Turn 11
+   A B C D E F G H I J K L M N O      rubin                    ADDELOR   345
+   ------------------------------  -> cesar                    OXPBAZE   129
+ 1|= P A C I F Y I N G   '     =| --Tracking-----------------------------------
+ 2|  I S     "       "       -  | ADDELORRRTVV  12
+ 3|Y E -       '   '       -    |
+ 4|' R E Q U A L I F I E D     '|
+ 5|H   L   -           -        |
+ 6|E D S     "       "       "  |
+ 7|N O '     T '   '       '    |
+ 8|= R A I N W A S H I N G     =|
+ 9|U M '     O '   '       '    |
+10|T "   E   O       "       "  |
+11|  W A K E n E R S   -        |
+12|' O n E T I M E       -     '|
+13|O O T     E ' B '       -    |
+14|N -       "   U   "       -  |
+15|= J A C U L A T I N G '     =|
    ------------------------------
 `, alph)
 	}
@@ -520,6 +544,12 @@ func TestGenAllMovesFullRack(t *testing.T) {
 		t.Errorf("Expected %v, got %v (%v) plays", 673, generator.plays,
 			len(generator.plays))
 	}
+	highestScores := []int{38, 36, 36, 34, 34, 33, 30, 30, 30, 28}
+	for idx, score := range highestScores {
+		if generator.sortedPlays[idx].score != score {
+			t.Errorf("Expected %v, got %v", score, generator.sortedPlays[idx].score)
+		}
+	}
 }
 
 func TestGenAllMovesFullRackAgain(t *testing.T) {
@@ -592,6 +622,23 @@ func TestGenAllMovesWithBlanks(t *testing.T) {
 		t.Errorf("Expected %v, got %v (%v) plays", 8297, generator.plays,
 			len(generator.plays))
 	}
+	if generator.sortedPlays[0].score != 106 { // hEaDW(OR)DS!
+		t.Errorf("Expected %v, got %v", 106, generator.sortedPlays[0].score)
+	}
+}
+
+func TestGiantTwentySevenTimer(t *testing.T) {
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	alph := gd.GetAlphabet()
+
+	generator := newGordonGenerator(gd)
+	setBoardToGame(generator, alph, VsOxy)
+	generator.board.updateAllAnchors()
+	generator.genAllCrossSets()
+	generator.GenAll("ABEOPXZ")
+	if generator.sortedPlays[0].score != 1780 { // oxyphenbutazone
+		t.Errorf("Expected %v, got %v", 1780, generator.sortedPlays[0].score)
+	}
 }
 
 func BenchmarkGenFullRack(b *testing.B) {
@@ -606,6 +653,10 @@ func BenchmarkGenFullRack(b *testing.B) {
 		generator.genAllCrossSets()
 		generator.GenAll("AABDELT")
 	}
+	// 745 2-ply iterations in Quackle in 30 secs with 15 moves:
+	// 2*15*745 = 22350 movegens = 745 movegens/sec
+	// mine is 244 movegens/sec... let's speed it up :/
+	// (although will still be better with multicore)
 }
 
 func BenchmarkGenOneBlank(b *testing.B) {

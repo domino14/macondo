@@ -120,10 +120,13 @@ type GameBoard struct {
 }
 
 const (
-	// Bonus3WS Come on man I'm not going to put a comment for each of these
+	// Bonus3WS is a triple word score
 	Bonus3WS BonusSquare = '='
+	// Bonus3LS is a triple letter score
 	Bonus3LS BonusSquare = '"'
+	// Bonus2LS is a double letter score
 	Bonus2LS BonusSquare = '\''
+	// Bonus2WS is a double word score
 	Bonus2WS BonusSquare = '-'
 )
 
@@ -143,6 +146,14 @@ func strToBoard(desc []string) GameBoard {
 // All of these functions assume the board is square.
 func (g *GameBoard) dim() int {
 	return len(g.squares)
+}
+
+func (g *GameBoard) getBonus(row int, col int) BonusSquare {
+	return g.squares[row][col].bonus
+}
+
+func (g *GameBoard) getLetter(row int, col int) alphabet.MachineLetter {
+	return g.squares[row][col].letter
 }
 
 func (g *GameBoard) getCrossSet(row int, col int, dir BoardDirection) CrossSet {

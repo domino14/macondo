@@ -12,21 +12,11 @@
 package movegen
 
 import (
+	"sort"
+
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
-)
-
-type MoveType uint8
-
-const (
-	MoveTypePlay MoveType = iota
-	MoveTypeExchange
-	MoveTypePass
-	MoveTypePhonyTilesReturned
-
-	MoveTypeEndgameTiles
-	MoveTypeLostTileScore
 )
 
 // LettersRemain returns true if there is at least one letter in the
@@ -55,6 +45,7 @@ type GordonGenerator struct {
 
 	tilesPlayed uint8
 	plays       map[string]Move
+	sortedPlays []Move
 	bag         *Bag
 }
 
@@ -98,6 +89,12 @@ func (gen *GordonGenerator) GenAll(letters string) {
 		}
 		gen.board.transpose()
 	}
+	// Sort all plays by score XXX: later equity/win%/whatever
+	gen.sortedPlays = []Move{}
+	for _, m := range gen.plays {
+		gen.sortedPlays = append(gen.sortedPlays, m)
+	}
+	sort.Sort(ByScore(gen.sortedPlays))
 }
 
 // Gen is an implementation of the Gordon Gen function.
@@ -121,6 +118,8 @@ func (gen *GordonGenerator) Gen(col int8, word alphabet.MachineWord, rack *Rack,
 		gen.GoOn(col, curLetter, word, rack, nnIdx, nodeIdx)
 
 	} else if !rack.empty {
+		// We copy the array here to avoid modifying the rack.uniqueLetters
+		// in place (with the rack.take / rack.add)
 		uniqLetters := []alphabet.MachineLetter{}
 		for ml := range rack.uniqueLetters {
 			uniqLetters = append(uniqLetters, ml)
@@ -142,11 +141,9 @@ func (gen *GordonGenerator) Gen(col int8, word alphabet.MachineWord, rack *Rack,
 					if crossSet.allowed(alphabet.MachineLetter(i)) {
 						nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, alphabet.MachineLetter(i))
 						rack.take(BlankPos)
-
 						gen.tilesPlayed++
 						gen.GoOn(col, alphabet.MachineLetter(i).Blank(), word, rack, nnIdx, nodeIdx)
 						rack.add(BlankPos)
-
 						gen.tilesPlayed--
 					}
 				}
@@ -226,7 +223,7 @@ func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startCol int8)
 
 	play := Move{
 		action:      MoveTypePlay,
-		score:       17,
+		score:       gen.scoreMove(word, startCol),
 		desc:        "foo",
 		word:        word,
 		vertical:    gen.vertical,
@@ -238,6 +235,70 @@ func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startCol int8)
 		coords:      coords,
 	}
 	gen.plays[play.uniqueKey()] = play
+}
+
+func (gen *GordonGenerator) scoreMove(word alphabet.MachineWord, col int8) int {
+
+	var dir BoardDirection
+	var ls int
+	if gen.vertical {
+		dir = HorizontalDirection
+	} else {
+		dir = VerticalDirection
+	}
+	mainWordScore := 0
+	crossScores := 0
+	bingoBonus := 0
+	if gen.tilesPlayed == 7 {
+		bingoBonus = 50
+	}
+	wordMultiplier := 1
+
+	for idx, rn := range word {
+		ml := alphabet.MachineLetter(rn)
+		bonusSq := gen.board.getBonus(int(gen.curRowIdx), int(col)+idx)
+		letterMultiplier := 1
+		thisWordMultiplier := 1
+		freshTile := false
+		if ml == alphabet.PlayedThroughMarker {
+			ml = gen.board.getLetter(int(gen.curRowIdx), int(col)+idx)
+		} else {
+			freshTile = true
+			// Only count bonus if we are putting a fresh tile on it.
+			switch bonusSq {
+			case Bonus3WS:
+				wordMultiplier *= 3
+				thisWordMultiplier = 3
+			case Bonus2WS:
+				wordMultiplier *= 2
+				thisWordMultiplier = 2
+			case Bonus2LS:
+				letterMultiplier = 2
+			case Bonus3LS:
+				letterMultiplier = 3
+			}
+			// else all the multipliers are 1.
+		}
+		cs := gen.board.squares[gen.curRowIdx][int(col)+idx].getCrossScore(dir)
+
+		if ml >= alphabet.BlankOffset {
+			// letter score is 0
+			ls = 0
+		} else {
+			ls = gen.bag.scores[ml]
+		}
+
+		mainWordScore += ls * letterMultiplier
+		// We only add cross scores if the cross set of this square is non-trivial
+		// (i.e. we have to be making an across word). Note that it's not enough
+		// to check that the cross-score is 0 because we could have a blank.
+		if freshTile && gen.board.getCrossSet(int(gen.curRowIdx),
+			int(col)+idx, dir) != TrivialCrossSet {
+
+			crossScores += ls*letterMultiplier*thisWordMultiplier + cs*thisWordMultiplier
+		}
+	}
+	return mainWordScore*wordMultiplier + crossScores + bingoBonus
 }
 
 func (gen *GordonGenerator) traverseBackwardsForScore(row int, col int) int {
@@ -382,12 +443,12 @@ func (gen *GordonGenerator) genCrossSet(row int, col int, dir BoardDirection) {
 			crossSet := gen.board.squares[row][col].getCrossSet(dir)
 			*crossSet = CrossSet(0)
 			for i := lNodeIdx + 1; i <= uint32(numArcs)+lNodeIdx; i++ {
-				ml := alphabet.MachineLetter(gen.gaddag.Nodes[i].Val >>
+				ml := alphabet.MachineLetter(gen.gaddag.Nodes[i] >>
 					gaddagmaker.LetterBitLoc)
 				if ml == alphabet.SeparationMachineLetter {
 					continue
 				}
-				nnIdx := gen.gaddag.Nodes[i].Val & gaddagmaker.NodeIdxBitMask
+				nnIdx := gen.gaddag.Nodes[i] & gaddagmaker.NodeIdxBitMask
 				_, success := gen.traverseBackwards(row, col-1, nnIdx, true,
 					leftCol)
 				if success {
