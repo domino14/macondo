@@ -44,8 +44,8 @@ func (a ByScore) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ByScore) Less(i, j int) bool { return a[i].score > a[j].score }
 
 func (m Move) String() string {
-	return fmt.Sprintf("<action: %v word: %v %v score: %v tp: %v vert: %v>",
-		m.action, m.coords, m.word.UserVisible(m.alph), m.score,
+	return fmt.Sprintf("<action: %v word: %v %v (%v) score: %v tp: %v vert: %v>",
+		m.action, m.coords, m.word, m.word.UserVisible(m.alph), m.score,
 		m.tilesPlayed, m.vertical)
 }
 
@@ -58,9 +58,9 @@ func (m Move) uniqueKey() string {
 		return fmt.Sprintf("%v%v", m.coords, m.word)
 	}
 	// Find the tile.
-	var playedTile rune
+	var playedTile alphabet.MachineLetter
 	var idx int
-	var c rune
+	var c alphabet.MachineLetter
 	for idx, c = range m.word {
 		if c != alphabet.PlayedThroughMarker {
 			playedTile = c

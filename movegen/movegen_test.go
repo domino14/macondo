@@ -636,6 +636,10 @@ func TestGiantTwentySevenTimer(t *testing.T) {
 	generator.board.updateAllAnchors()
 	generator.genAllCrossSets()
 	generator.GenAll("ABEOPXZ")
+	if len(generator.plays) != 519 {
+		t.Errorf("Expected %v, got %v (%v) plays", 519, generator.plays,
+			len(generator.plays))
+	}
 	if generator.sortedPlays[0].score != 1780 { // oxyphenbutazone
 		t.Errorf("Expected %v, got %v", 1780, generator.sortedPlays[0].score)
 	}

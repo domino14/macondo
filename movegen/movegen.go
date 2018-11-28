@@ -43,19 +43,19 @@ type GordonGenerator struct {
 
 	vertical bool // Are we generating moves vertically or not?
 
-	tilesPlayed uint8
-	plays       map[string]Move
-	sortedPlays []Move
-	bag         *Bag
+	tilesPlayed        uint8
+	plays              map[string]Move
+	sortedPlays        []Move
+	bag                *Bag
 	numPossibleLetters uint8
 }
 
 func newGordonGenerator(gd gaddag.SimpleGaddag) *GordonGenerator {
 	gen := &GordonGenerator{
-		gaddag: gd,
-		board:  strToBoard(CrosswordGameBoard),
-		plays:  make(map[string]Move),
-		bag:    new(Bag),
+		gaddag:             gd,
+		board:              strToBoard(CrosswordGameBoard),
+		plays:              make(map[string]Move),
+		bag:                new(Bag),
 		numPossibleLetters: gd.GetAlphabet().NumLetters(),
 	}
 	gen.bag.Init()
@@ -83,8 +83,8 @@ func (gen *GordonGenerator) GenAll(letters string) {
 			for col := int8(0); col < dim; col++ {
 				if gen.board.squares[row][col].anchor(dir) {
 					gen.curAnchorCol = col
-					gen.Gen(col, alphabet.MachineWord(""), rack,
-						gen.gaddag.GetRootNodeIndex())
+					gen.Gen(col, alphabet.MachineWord([]alphabet.MachineLetter{}),
+						rack, gen.gaddag.GetRootNodeIndex())
 					gen.lastAnchorCol = col
 				}
 			}
@@ -123,31 +123,31 @@ func (gen *GordonGenerator) Gen(col int8, word alphabet.MachineWord, rack *Rack,
 		for ml := alphabet.MachineLetter(0); ml < alphabet.MachineLetter(gen.numPossibleLetters); ml++ {
 			if rack.LetArr[ml] == 0 {
 				continue
-		}
-				if crossSet.allowed(ml) {
-					nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, ml)
-					rack.take(ml)
-					gen.tilesPlayed++
-					gen.GoOn(col, ml, word, rack, nnIdx, nodeIdx)
-					rack.add(ml)
-					gen.tilesPlayed--
-				}
+			}
+			if crossSet.allowed(ml) {
+				nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, ml)
+				rack.take(ml)
+				gen.tilesPlayed++
+				gen.GoOn(col, ml, word, rack, nnIdx, nodeIdx)
+				rack.add(ml)
+				gen.tilesPlayed--
+			}
 
 		}
 
 		if rack.LetArr[BlankPos] > 0 {
-				// It's a blank. Loop only through letters in the cross-set.
+			// It's a blank. Loop only through letters in the cross-set.
 			for i := uint8(0); i < gen.numPossibleLetters; i++ {
-					if crossSet.allowed(alphabet.MachineLetter(i)) {
-						nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, alphabet.MachineLetter(i))
-						rack.take(BlankPos)
-						gen.tilesPlayed++
-						gen.GoOn(col, alphabet.MachineLetter(i).Blank(), word, rack, nnIdx, nodeIdx)
-						rack.add(BlankPos)
-						gen.tilesPlayed--
-					}
+				if crossSet.allowed(alphabet.MachineLetter(i)) {
+					nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, alphabet.MachineLetter(i))
+					rack.take(BlankPos)
+					gen.tilesPlayed++
+					gen.GoOn(col, alphabet.MachineLetter(i).Blank(), word, rack, nnIdx, nodeIdx)
+					rack.add(BlankPos)
+					gen.tilesPlayed--
 				}
 			}
+		}
 
 	}
 }
@@ -220,12 +220,13 @@ func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startCol int8)
 		row, col = col, row
 	}
 	coords := toBoardGameCoords(row, col, gen.vertical)
-
+	wordCopy := make([]alphabet.MachineLetter, len(word))
+	copy(wordCopy, word)
 	play := Move{
 		action:      MoveTypePlay,
 		score:       gen.scoreMove(word, startCol),
 		desc:        "foo",
-		word:        word,
+		word:        wordCopy,
 		vertical:    gen.vertical,
 		bingo:       gen.tilesPlayed == 7,
 		tilesPlayed: gen.tilesPlayed,

@@ -65,9 +65,15 @@ func (ml MachineLetter) Unblank() MachineLetter {
 	return ml
 }
 
-// UserVisible turns the passed-in machine letter into a user-visible string.
-func (ml MachineLetter) UserVisible(alph *Alphabet) string {
-	return MachineWord(string(ml)).UserVisible(alph)
+// UserVisible turns the passed-in machine letter into a user-visible rune.
+func (ml MachineLetter) UserVisible(alph *Alphabet) rune {
+	if ml >= BlankOffset {
+		return unicode.ToLower(alph.Letter(ml - BlankOffset))
+	} else if ml == PlayedThroughMarker {
+		return ASCIIPlayedThrough
+	} else {
+		return alph.Letter(ml)
+	}
 }
 
 // MachineWord is an array of MachineLetters
@@ -77,13 +83,7 @@ type MachineWord []MachineLetter
 func (mw MachineWord) UserVisible(alph *Alphabet) string {
 	runes := make([]rune, len(mw))
 	for i, l := range mw {
-		if l >= BlankOffset {
-			runes[i] = unicode.ToLower(alph.Letter(l - BlankOffset))
-		} else if l == PlayedThroughMarker {
-			runes[i] = ASCIIPlayedThrough
-		} else {
-			runes[i] = alph.Letter(l)
-		}
+		runes[i] = l.UserVisible(alph)
 	}
 	return string(runes)
 }
