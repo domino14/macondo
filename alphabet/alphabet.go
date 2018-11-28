@@ -70,22 +70,19 @@ func (ml MachineLetter) UserVisible(alph *Alphabet) string {
 	return MachineWord(string(ml)).UserVisible(alph)
 }
 
-// MachineWord is a string; it is a machine-only representation of a word.
-// The individual runes in the string are not user-readable; they start at 0.
-// We use a string instead of a []MachineLetter to give us some of the syntactic
-// sugar and optimizations that Golang strings use.
-type MachineWord string
+// MachineWord is an array of MachineLetters
+type MachineWord []MachineLetter
 
 // UserVisible turns the passed-in machine word into a user-visible string.
 func (mw MachineWord) UserVisible(alph *Alphabet) string {
 	runes := make([]rune, len(mw))
 	for i, l := range mw {
 		if l >= BlankOffset {
-			runes[i] = unicode.ToLower(alph.Letter(MachineLetter(l - BlankOffset)))
+			runes[i] = unicode.ToLower(alph.Letter(l - BlankOffset))
 		} else if l == PlayedThroughMarker {
 			runes[i] = ASCIIPlayedThrough
 		} else {
-			runes[i] = alph.Letter(MachineLetter(l))
+			runes[i] = alph.Letter(l)
 		}
 	}
 	return string(runes)

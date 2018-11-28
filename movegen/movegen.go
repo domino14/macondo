@@ -47,6 +47,7 @@ type GordonGenerator struct {
 	plays       map[string]Move
 	sortedPlays []Move
 	bag         *Bag
+	numPossibleLetters uint8
 }
 
 func newGordonGenerator(gd gaddag.SimpleGaddag) *GordonGenerator {
@@ -55,6 +56,7 @@ func newGordonGenerator(gd gaddag.SimpleGaddag) *GordonGenerator {
 		board:  strToBoard(CrosswordGameBoard),
 		plays:  make(map[string]Move),
 		bag:    new(Bag),
+		numPossibleLetters: gd.GetAlphabet().NumLetters(),
 	}
 	gen.bag.Init()
 	gen.board.setAllCrosses()
@@ -118,15 +120,10 @@ func (gen *GordonGenerator) Gen(col int8, word alphabet.MachineWord, rack *Rack,
 		gen.GoOn(col, curLetter, word, rack, nnIdx, nodeIdx)
 
 	} else if !rack.empty {
-		// We copy the array here to avoid modifying the rack.uniqueLetters
-		// in place (with the rack.take / rack.add)
-		uniqLetters := []alphabet.MachineLetter{}
-		for ml := range rack.uniqueLetters {
-			uniqLetters = append(uniqLetters, ml)
+		for ml := alphabet.MachineLetter(0); ml < alphabet.MachineLetter(gen.numPossibleLetters); ml++ {
+			if rack.LetArr[ml] == 0 {
+				continue
 		}
-
-		for _, ml := range uniqLetters {
-			if ml != BlankPos {
 				if crossSet.allowed(ml) {
 					nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, ml)
 					rack.take(ml)
@@ -135,9 +132,12 @@ func (gen *GordonGenerator) Gen(col int8, word alphabet.MachineWord, rack *Rack,
 					rack.add(ml)
 					gen.tilesPlayed--
 				}
-			} else {
+
+		}
+
+		if rack.LetArr[BlankPos] > 0 {
 				// It's a blank. Loop only through letters in the cross-set.
-				for i := uint8(0); i < gen.gaddag.GetAlphabet().NumLetters(); i++ {
+			for i := uint8(0); i < gen.numPossibleLetters; i++ {
 					if crossSet.allowed(alphabet.MachineLetter(i)) {
 						nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, alphabet.MachineLetter(i))
 						rack.take(BlankPos)
@@ -148,7 +148,7 @@ func (gen *GordonGenerator) Gen(col int8, word alphabet.MachineWord, rack *Rack,
 					}
 				}
 			}
-		}
+
 	}
 }
 
@@ -158,9 +158,9 @@ func (gen *GordonGenerator) GoOn(curCol int8, L alphabet.MachineLetter, word alp
 
 	if curCol <= gen.curAnchorCol {
 		if !gen.board.squares[gen.curRowIdx][curCol].isEmpty() {
-			word = alphabet.MachineWord(alphabet.PlayedThroughMarker) + word
+			word = append([]alphabet.MachineLetter{alphabet.PlayedThroughMarker}, word...)
 		} else {
-			word = alphabet.MachineWord(L) + word
+			word = append([]alphabet.MachineLetter{L}, word...)
 		}
 		// if L on OldArc and no letter directly left, then record play.
 		// roomToLeft is true unless we are right at the edge of the board.
@@ -193,9 +193,9 @@ func (gen *GordonGenerator) GoOn(curCol int8, L alphabet.MachineLetter, word alp
 
 	} else {
 		if !gen.board.squares[gen.curRowIdx][curCol].isEmpty() {
-			word += alphabet.MachineWord(alphabet.PlayedThroughMarker)
+			word = append(word, alphabet.PlayedThroughMarker)
 		} else {
-			word += alphabet.MachineWord(L)
+			word = append(word, L)
 		}
 
 		noLetterDirectlyRight := curCol == int8(gen.board.dim()-1) ||

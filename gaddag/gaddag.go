@@ -150,6 +150,11 @@ func (g SimpleGaddag) NextNodeIdx(nodeIdx uint32, letter alphabet.MachineLetter)
 		if letter == ml {
 			return g.Nodes[i] & gaddagmaker.NodeIdxBitMask
 		}
+		if ml > letter {
+			// Since the arcs are sorted by machine letter, break if
+			// we hit one that is bigger than what we are looking for.
+			break
+		}
 	}
 	return 0
 }

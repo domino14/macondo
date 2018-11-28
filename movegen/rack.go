@@ -16,31 +16,28 @@ const BlankPos = alphabet.MaxAlphabetSize
 type Rack struct {
 	// letArr is an array of letter codes from 0 to MaxAlphabetSize.
 	// The blank can go at the MaxAlphabetSize place.
-	LetArr        []alphabet.MachineLetter
-	empty         bool
-	numLetters    uint8
-	alphabet      *alphabet.Alphabet
-	repr          string
-	uniqueLetters map[alphabet.MachineLetter]uint8
+	LetArr     []alphabet.MachineLetter
+	empty      bool
+	numLetters uint8
+	alphabet   *alphabet.Alphabet
+	repr       string
+	// letterIdxs []uint8
 }
 
 // Initialize a rack from a string
 func (r *Rack) Initialize(rack string, a *alphabet.Alphabet) {
 	r.LetArr = make([]alphabet.MachineLetter, alphabet.MaxAlphabetSize+1)
-	r.uniqueLetters = make(map[alphabet.MachineLetter]uint8)
 	r.alphabet = a
 	for _, c := range rack {
 		if c != BlankCharacter {
 			ml, err := a.Val(c)
 			if err == nil {
 				r.LetArr[ml]++
-				r.uniqueLetters[ml]++
 			} else {
 				log.Println("[ERROR] Rack has an illegal character: " + string(c))
 			}
 		} else {
 			r.LetArr[BlankPos]++
-			r.uniqueLetters[alphabet.MaxAlphabetSize]++
 		}
 	}
 	if len(rack) > 0 {
@@ -54,16 +51,8 @@ func (r *Rack) take(letter alphabet.MachineLetter) {
 	// it doesn't check if it's there!
 	if letter == BlankPos {
 		r.LetArr[BlankPos]--
-		r.uniqueLetters[alphabet.MaxAlphabetSize]--
-		if r.uniqueLetters[alphabet.MaxAlphabetSize] == 0 {
-			delete(r.uniqueLetters, alphabet.MaxAlphabetSize)
-		}
 	} else {
 		r.LetArr[letter]--
-		r.uniqueLetters[letter]--
-		if r.uniqueLetters[letter] == 0 {
-			delete(r.uniqueLetters, letter)
-		}
 	}
 	r.numLetters--
 	if r.numLetters == 0 {
@@ -74,10 +63,8 @@ func (r *Rack) take(letter alphabet.MachineLetter) {
 func (r *Rack) add(letter alphabet.MachineLetter) {
 	if letter == BlankPos {
 		r.LetArr[BlankPos]++
-		r.uniqueLetters[alphabet.MaxAlphabetSize]++
 	} else {
 		r.LetArr[letter]++
-		r.uniqueLetters[letter]++
 	}
 	r.numLetters++
 	if r.empty {

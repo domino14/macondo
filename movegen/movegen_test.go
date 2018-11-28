@@ -646,7 +646,7 @@ func BenchmarkGenFullRack(b *testing.B) {
 	alph := gd.GetAlphabet()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		// 4.1 ms per operation on my macbook pro!! not bad!!
+		// 1.87 ms per operation on my macbook pro!! not bad!!
 		generator := newGordonGenerator(gd)
 		setBoardToGame(generator, alph, VsMatt)
 		generator.board.updateAllAnchors()
@@ -664,7 +664,7 @@ func BenchmarkGenOneBlank(b *testing.B) {
 	alph := gd.GetAlphabet()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		// 26.1 ms per operation on my macbook pro.
+		// 10.9 ms per operation on my macbook pro.
 		generator := newGordonGenerator(gd)
 		setBoardToGame(generator, alph, VsJeremy)
 		generator.board.updateAllAnchors()
@@ -678,7 +678,7 @@ func BenchmarkGenBothBlanks(b *testing.B) {
 	alph := gd.GetAlphabet()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		// ~81-85 ms per operation on my macbook pro.
+		// ~35ms per operation on my macbook pro.
 		generator := newGordonGenerator(gd)
 		setBoardToGame(generator, alph, VsJeremy)
 		generator.board.updateAllAnchors()
