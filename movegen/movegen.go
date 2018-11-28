@@ -44,8 +44,7 @@ type GordonGenerator struct {
 	vertical bool // Are we generating moves vertically or not?
 
 	tilesPlayed        uint8
-	plays              map[string]Move
-	sortedPlays        []Move
+	plays              []*Move
 	bag                *Bag
 	numPossibleLetters uint8
 }
@@ -54,7 +53,6 @@ func newGordonGenerator(gd gaddag.SimpleGaddag) *GordonGenerator {
 	gen := &GordonGenerator{
 		gaddag:             gd,
 		board:              strToBoard(CrosswordGameBoard),
-		plays:              make(map[string]Move),
 		bag:                new(Bag),
 		numPossibleLetters: gd.GetAlphabet().NumLetters(),
 	}
@@ -69,7 +67,7 @@ func (gen *GordonGenerator) GenAll(letters string) {
 	rack := &Rack{}
 	rack.Initialize(letters, gen.gaddag.GetAlphabet())
 	dim := int8(gen.board.dim())
-	gen.plays = make(map[string]Move)
+	gen.plays = []*Move{}
 	orientations := []BoardDirection{HorizontalDirection, VerticalDirection}
 	// Once for each orientation
 	for idx, dir := range orientations {
@@ -90,12 +88,7 @@ func (gen *GordonGenerator) GenAll(letters string) {
 		}
 		gen.board.transpose()
 	}
-	// Sort all plays by score XXX: later equity/win%/whatever
-	gen.sortedPlays = []Move{}
-	for _, m := range gen.plays {
-		gen.sortedPlays = append(gen.sortedPlays, m)
-	}
-	sort.Sort(ByScore(gen.sortedPlays))
+	gen.dedupeAndSortPlays()
 }
 
 // Gen is an implementation of the Gordon Gen function.
@@ -221,7 +214,7 @@ func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startCol int8)
 	coords := toBoardGameCoords(row, col, gen.vertical)
 	wordCopy := make([]alphabet.MachineLetter, len(word))
 	copy(wordCopy, word)
-	play := Move{
+	play := &Move{
 		action:      MoveTypePlay,
 		score:       gen.scoreMove(word, startCol),
 		desc:        "foo",
@@ -234,7 +227,30 @@ func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startCol int8)
 		rowStart:    uint8(gen.curRowIdx),
 		coords:      coords,
 	}
-	gen.plays[play.uniqueKey()] = play
+	gen.plays = append(gen.plays, play)
+}
+
+func (gen *GordonGenerator) dedupeAndSortPlays() {
+	dupeMap := map[int]*Move{}
+
+	i := 0 // output index
+
+	for _, m := range gen.plays {
+		if m.tilesPlayed == 1 {
+			uniqKey := m.uniqueSingleTileKey()
+			if _, ok := dupeMap[uniqKey]; !ok {
+				dupeMap[uniqKey] = m
+				gen.plays[i] = m
+				i++
+			}
+		} else {
+			gen.plays[i] = m
+			i++
+		}
+	}
+	// Everything after element i is duplicate plays.
+	gen.plays = gen.plays[:i]
+	sort.Sort(ByScore(gen.plays))
 }
 
 func (gen *GordonGenerator) scoreMove(word alphabet.MachineWord, col int8) int {

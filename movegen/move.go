@@ -37,7 +37,7 @@ type Move struct {
 	alph        *alphabet.Alphabet
 }
 
-type ByScore []Move
+type ByScore []*Move
 
 func (a ByScore) Len() int           { return len(a) }
 func (a ByScore) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
@@ -49,24 +49,16 @@ func (m Move) String() string {
 		m.tilesPlayed, m.vertical)
 }
 
-func (m Move) uniqueKey() string {
-	// Create a unique key for this play. In most cases, this will just be
-	// the row/col position and the word string.
-	// However, if only one tile has been played, we should only consider
-	// horizontal plays
-	if m.tilesPlayed != 1 {
-		return fmt.Sprintf("%v%v", m.coords, m.word)
-	}
+func (m Move) uniqueSingleTileKey() int {
 	// Find the tile.
-	var playedTile alphabet.MachineLetter
 	var idx int
-	var c alphabet.MachineLetter
-	for idx, c = range m.word {
-		if c != alphabet.PlayedThroughMarker {
-			playedTile = c
+	var ml alphabet.MachineLetter
+	for idx, ml = range m.word {
+		if ml != alphabet.PlayedThroughMarker {
 			break
 		}
 	}
+
 	var row, col uint8
 	row = m.rowStart
 	col = m.colStart
@@ -77,8 +69,9 @@ func (m Move) uniqueKey() string {
 	} else {
 		col += uint8(idx)
 	}
-	key := fmt.Sprintf("%v-%v-%v", row, col, playedTile)
-	return key
+	// A unique, fast to compute key for this play.
+	return int(row) + alphabet.MaxAlphabetSize*int(col) +
+		alphabet.MaxAlphabetSize*alphabet.MaxAlphabetSize*int(ml)
 }
 
 func toBoardGameCoords(row uint8, col uint8, vertical bool) string {

@@ -37,13 +37,6 @@ func setBoardRow(board GameBoard, rowNum int8, letters string, alph *alphabet.Al
 	}
 }
 
-func getOnlyMove(moves map[string]Move) *Move {
-	for _, move := range moves {
-		return &move
-	}
-	return nil
-}
-
 func TestMain(m *testing.M) {
 	if _, err := os.Stat("/tmp/gen_america.gaddag"); os.IsNotExist(err) {
 		gaddagmaker.GenerateGaddag(LexiconDir+"America.txt", true, true)
@@ -137,7 +130,7 @@ func TestGenThroughBothWaysAllowedLetters(t *testing.T) {
 		t.Errorf("Generated %v plays (%v), expected len=%v", generator.plays,
 			len(generator.plays), 1)
 	}
-	m := getOnlyMove(generator.plays)
+	m := generator.plays[0]
 	if m.word.UserVisible(gd.GetAlphabet()) != "HI.......T" {
 		t.Errorf("Got the wrong word: %v", m.word.UserVisible(gd.GetAlphabet()))
 	}
@@ -320,7 +313,7 @@ func TestOtherRowGen(t *testing.T) {
 		t.Errorf("Generated %v plays (%v), expected len=%v", generator.plays,
 			len(generator.plays), 1)
 	}
-	m := getOnlyMove(generator.plays)
+	m := generator.plays[0]
 	if m.word.UserVisible(gd.GetAlphabet()) != "A......" {
 		t.Errorf("Expected proper play-through markers (A......), got %v",
 			m.word.UserVisible(gd.GetAlphabet()))
@@ -546,8 +539,8 @@ func TestGenAllMovesFullRack(t *testing.T) {
 	}
 	highestScores := []int{38, 36, 36, 34, 34, 33, 30, 30, 30, 28}
 	for idx, score := range highestScores {
-		if generator.sortedPlays[idx].score != score {
-			t.Errorf("Expected %v, got %v", score, generator.sortedPlays[idx].score)
+		if generator.plays[idx].score != score {
+			t.Errorf("Expected %v, got %v", score, generator.plays[idx].score)
 		}
 	}
 }
@@ -622,8 +615,8 @@ func TestGenAllMovesWithBlanks(t *testing.T) {
 		t.Errorf("Expected %v, got %v (%v) plays", 8297, generator.plays,
 			len(generator.plays))
 	}
-	if generator.sortedPlays[0].score != 106 { // hEaDW(OR)DS!
-		t.Errorf("Expected %v, got %v", 106, generator.sortedPlays[0].score)
+	if generator.plays[0].score != 106 { // hEaDW(OR)DS!
+		t.Errorf("Expected %v, got %v", 106, generator.plays[0].score)
 	}
 }
 
@@ -640,8 +633,8 @@ func TestGiantTwentySevenTimer(t *testing.T) {
 		t.Errorf("Expected %v, got %v (%v) plays", 519, generator.plays,
 			len(generator.plays))
 	}
-	if generator.sortedPlays[0].score != 1780 { // oxyphenbutazone
-		t.Errorf("Expected %v, got %v", 1780, generator.sortedPlays[0].score)
+	if generator.plays[0].score != 1780 { // oxyphenbutazone
+		t.Errorf("Expected %v, got %v", 1780, generator.plays[0].score)
 	}
 }
 
@@ -650,17 +643,13 @@ func BenchmarkGenFullRack(b *testing.B) {
 	alph := gd.GetAlphabet()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		// 1.87 ms per operation on my macbook pro!! not bad!!
+		// 930 μs per operation on my macbook pro!! amazing!!!
 		generator := newGordonGenerator(gd)
 		setBoardToGame(generator, alph, VsMatt)
 		generator.board.updateAllAnchors()
 		generator.genAllCrossSets()
 		generator.GenAll("AABDELT")
 	}
-	// 745 2-ply iterations in Quackle in 30 secs with 15 moves:
-	// 2*15*745 = 22350 movegens = 745 movegens/sec
-	// mine is 244 movegens/sec... let's speed it up :/
-	// (although will still be better with multicore)
 }
 
 func BenchmarkGenOneBlank(b *testing.B) {
@@ -668,7 +657,7 @@ func BenchmarkGenOneBlank(b *testing.B) {
 	alph := gd.GetAlphabet()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		// 10.9 ms per operation on my macbook pro.
+		// 5.43 ms per operation on my macbook pro.
 		generator := newGordonGenerator(gd)
 		setBoardToGame(generator, alph, VsJeremy)
 		generator.board.updateAllAnchors()
@@ -682,7 +671,7 @@ func BenchmarkGenBothBlanks(b *testing.B) {
 	alph := gd.GetAlphabet()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		// ~35ms per operation on my macbook pro.
+		// ~16.48ms per operation on my macbook pro.
 		generator := newGordonGenerator(gd)
 		setBoardToGame(generator, alph, VsJeremy)
 		generator.board.updateAllAnchors()
