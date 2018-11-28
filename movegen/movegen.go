@@ -66,7 +66,6 @@ func newGordonGenerator(gd gaddag.SimpleGaddag) *GordonGenerator {
 // GenAll generates all moves on the board. It assumes anchors have already
 // been updated, as well as cross-sets / cross-scores.
 func (gen *GordonGenerator) GenAll(letters string) {
-	// gen.board.updateAllAnchors()
 	rack := &Rack{}
 	rack.Initialize(letters, gen.gaddag.GetAlphabet())
 	dim := int8(gen.board.dim())
@@ -179,7 +178,7 @@ func (gen *GordonGenerator) GoOn(curCol int8, L alphabet.MachineLetter, word alp
 		// This seems to work because we always shift direction afterwards, so we're
 		// only looking at the first of a consecutive set of anchors going backwards,
 		// and then always looking forward from then on.
-		if curCol > 0 && gen.lastAnchorCol != gen.curAnchorCol-1 {
+		if curCol > 0 && curCol-1 != gen.lastAnchorCol {
 			gen.Gen(curCol-1, word, rack, newNodeIdx)
 		}
 		// Then shift direction.
