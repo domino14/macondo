@@ -8,7 +8,6 @@
 // it will create the word EF! (Ignoring the fact that IRE is on the board)
 // You can see this by just stepping through the algorithm.
 // It seems that anchors can only be on the rightmost tile of a word
-
 package movegen
 
 import (
@@ -30,6 +29,9 @@ func LettersRemain(rack []uint8) bool {
 	return false
 }
 
+// GordonGenerator is the main move generation struct. It implements
+// Steven A. Gordon's algorithm from his paper "A faster Scrabble Move Generation
+// Algorithm"
 type GordonGenerator struct {
 	gaddag gaddag.SimpleGaddag
 	board  GameBoard
@@ -474,12 +476,3 @@ func (gen *GordonGenerator) genCrossSet(row int, col int, dir BoardDirection) {
 		}
 	}
 }
-
-// For future?: The Gordon GADDAG algorithm is somewhat inefficient because
-// it goes through all letters on the rack. Then for every letter, it has to
-// call the NextNodeIdx or similar function above, which has for loops that
-// search for the next child.
-// Instead, we need a data structure where the nodes have pointers to their
-// "children" or "siblings" on the arcs; we then iterate through all the
-// "siblings" and see if their letters are on the rack. This should be
-// significantly faster if the data structure is fast.

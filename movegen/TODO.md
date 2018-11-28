@@ -1,8 +1,9 @@
-- generate all plays
+- [x] generate all plays
     - initial play must hit center square
-    - deduplicate
-- score all generated plays and sort
+    - [x] deduplicate
+- [x] score all generated plays and sort
 - allow for comp v comp games
+    - cross-sets and cross-scores recalculated after every play
     - output to gcg
     - pick highest scoring move, log, create ultraleaves
 
