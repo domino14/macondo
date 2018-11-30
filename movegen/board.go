@@ -117,6 +117,7 @@ func (s *Square) anchor(dir BoardDirection) bool {
 type GameBoard struct {
 	squares    [][]*Square
 	transposed bool
+	hasTiles   bool // has at least one tile been played?
 }
 
 const (
@@ -237,11 +238,18 @@ func (g *GameBoard) updateAnchors(row int, col int) {
 
 func (g *GameBoard) updateAllAnchors() {
 	n := g.dim()
-	for i := 0; i < n; i++ {
-		for j := 0; j < n; j++ {
-			g.updateAnchors(i, j)
+	if g.hasTiles {
+		for i := 0; i < n; i++ {
+			for j := 0; j < n; j++ {
+				g.updateAnchors(i, j)
+			}
 		}
+	} else {
+		rc := int(n / 2)
+		// If the board is empty, set just one anchor, in the center square.
+		g.squares[rc][rc].hAnchor = true
 	}
+
 }
 
 func (g *GameBoard) posExists(row int, col int) bool {

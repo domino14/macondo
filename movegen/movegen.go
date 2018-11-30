@@ -16,18 +16,8 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
+	"github.com/domino14/macondo/lexicon"
 )
-
-// LettersRemain returns true if there is at least one letter in the
-// rack, 0 otherwise.
-func LettersRemain(rack []uint8) bool {
-	for i := 0; i < alphabet.MaxAlphabetSize; i++ {
-		if rack[i] > 0 {
-			return true
-		}
-	}
-	return false
-}
 
 // GordonGenerator is the main move generation struct. It implements
 // Steven A. Gordon's algorithm from his paper "A faster Scrabble Move Generation
@@ -47,18 +37,21 @@ type GordonGenerator struct {
 
 	tilesPlayed        uint8
 	plays              []*Move
-	bag                *Bag
+	bag                lexicon.Bag
 	numPossibleLetters uint8
 }
 
-func newGordonGenerator(gd gaddag.SimpleGaddag) *GordonGenerator {
+// NewGordonGenerator returns a Gordon move generator.
+func NewGordonGenerator(gd gaddag.SimpleGaddag) *GordonGenerator {
+	// Can change later
+	dist := lexicon.EnglishLetterDistribution()
+	bag := dist.MakeBag(gd.GetAlphabet())
 	gen := &GordonGenerator{
 		gaddag:             gd,
 		board:              strToBoard(CrosswordGameBoard),
-		bag:                new(Bag),
+		bag:                bag,
 		numPossibleLetters: gd.GetAlphabet().NumLetters(),
 	}
-	gen.bag.Init()
 	gen.board.setAllCrosses()
 	return gen
 }
@@ -129,15 +122,15 @@ func (gen *GordonGenerator) Gen(col int8, word alphabet.MachineWord, rack *Rack,
 
 		}
 
-		if rack.LetArr[BlankPos] > 0 {
+		if rack.LetArr[alphabet.BlankMachineLetter] > 0 {
 			// It's a blank. Loop only through letters in the cross-set.
 			for i := uint8(0); i < gen.numPossibleLetters; i++ {
 				if crossSet.allowed(alphabet.MachineLetter(i)) {
 					nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, alphabet.MachineLetter(i))
-					rack.take(BlankPos)
+					rack.take(alphabet.BlankMachineLetter)
 					gen.tilesPlayed++
 					gen.GoOn(col, alphabet.MachineLetter(i).Blank(), word, rack, nnIdx, nodeIdx)
-					rack.add(BlankPos)
+					rack.add(alphabet.BlankMachineLetter)
 					gen.tilesPlayed--
 				}
 			}
@@ -303,7 +296,7 @@ func (gen *GordonGenerator) scoreMove(word alphabet.MachineWord, col int8) int {
 			// letter score is 0
 			ls = 0
 		} else {
-			ls = gen.bag.scores[ml]
+			ls = gen.bag.score(ml)
 		}
 
 		mainWordScore += ls * letterMultiplier
@@ -475,4 +468,9 @@ func (gen *GordonGenerator) genCrossSet(row int, col int, dir BoardDirection) {
 			}
 		}
 	}
+}
+
+// Plays returns the generator's generated plays.
+func (gen *GordonGenerator) Plays() []*Move {
+	return gen.plays
 }

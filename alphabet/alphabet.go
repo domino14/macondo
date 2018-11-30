@@ -17,6 +17,11 @@ const (
 	// SeparationMachineLetter is the "MachineLetter" corresponding to
 	// the separation token. It is set at the max alphabet size.
 	SeparationMachineLetter = MaxAlphabetSize
+	// BlankMachineLetter is the MachineLetter corresponding to the
+	// blank. It is also set at the max alphabet size. Based on the context
+	// in which it is used, it should not be confused with the
+	// SeparationMachineLetter above.
+	BlankMachineLetter = MaxAlphabetSize
 	// BlankOffset is the offset at which letters with a code >= offset
 	// represent blanks.
 	BlankOffset = 100
@@ -219,10 +224,3 @@ func FromSlice(arr []uint32) *Alphabet {
 func (a LetterSlice) Len() int           { return len(a) }
 func (a LetterSlice) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a LetterSlice) Less(i, j int) bool { return a[i] < a[j] }
-
-/*
-
-func (a ArcPtrSlice) Len() int           { return len(a) }
-func (a ArcPtrSlice) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a ArcPtrSlice) Less(i, j int) bool { return a[i].Letter < a[j].Letter }
-*/

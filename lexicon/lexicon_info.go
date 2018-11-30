@@ -4,9 +4,12 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/domino14/macondo/alphabet"
+
 	"github.com/domino14/macondo/gaddag"
 )
 
+// LetterDistribution encodes the tile distribution for the relevant game.
 type LetterDistribution struct {
 	Distribution map[rune]uint8
 	PointValues  map[rune]uint8
@@ -50,23 +53,37 @@ func SpanishLetterDistribution() LetterDistribution {
 		makeSortMap("ABC1DEFGHIJL2MNÑOPQR3STUVXYZ?"), 100}
 }
 
-// Bag returns a shuffled bag of tiles.
-func (ld LetterDistribution) MakeBag() Bag {
+// MakeBag returns a shuffled bag of tiles.
+func (ld LetterDistribution) MakeBag(alphabet *alphabet.Alphabet) Bag {
 	rand.Seed(time.Now().UnixNano())
 	bag := make([]rune, ld.numLetters)
 	idx := 0
 	for rn, val := range ld.Distribution {
 		for j := uint8(0); j < val; j++ {
 			bag[idx] = rn
-			idx += 1
+			idx++
 		}
 	}
-	// shuffle
-	for i := range bag {
-		j := rand.Intn(i + 1)
-		bag[i], bag[j] = bag[j], bag[i]
+	// Make an array of scores in alphabet order
+	scores := make([]int, len(ld.Distribution))
+	for rn, ptVal := range ld.PointValues {
+		if rn == '?' {
+			scores[len(ld.Distribution)-1] = int(ptVal)
+			continue
+		}
+		// Otherwise look it up in the alphabet.
+		ml, err := alphabet.Val(rn)
+		if err != nil {
+			panic("Wrongly initialized")
+		}
+		scores[ml] = int(ptVal)
 	}
-	b := Bag{tiles: bag, idx: 0}
+	b := Bag{
+		tiles:          bag,
+		numUniqueTiles: len(ld.Distribution),
+		alphabet:       alphabet,
+		scores:         scores}
+	b.Shuffle()
 	return b
 }
 
@@ -184,10 +201,3 @@ func (l *LexiconInfo) Combinations(alphagram string, withBlanks bool) uint64 {
 	}
 	return totalCombos
 }
-
-// func (l *lexiconInfo) blankCombinations(numBlanks uint8, counts []uint8,
-//  combos [][]uint64) uint64 {
-//  for i := 0; i < numLetters; i++ {
-
-//  }
-// }
