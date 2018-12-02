@@ -1,4 +1,4 @@
-package movegen
+package board
 
 import (
 	"regexp"
@@ -8,7 +8,7 @@ import (
 
 func (g *GameBoard) toDisplayText(alph *alphabet.Alphabet) string {
 	var str string
-	n := g.dim()
+	n := g.Dim()
 	for i := 0; i < n; i++ {
 		row := ""
 		for j := 0; j < n; j++ {
@@ -19,7 +19,7 @@ func (g *GameBoard) toDisplayText(alph *alphabet.Alphabet) string {
 	return str
 }
 
-func (g *GameBoard) setFromPlaintext(qText string, alph *alphabet.Alphabet) {
+func (g *GameBoard) SetFromPlaintext(qText string, alph *alphabet.Alphabet) {
 	// Take a Quackle Plaintext Board and turn it into an internal structure.
 	// (Another alternative later is to implement GCG)
 	regex := regexp.MustCompile(`\|([[:print:]]+)\|`)

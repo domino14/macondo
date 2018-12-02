@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/lexicon"
 )
@@ -20,7 +21,7 @@ func try(nBlanks int, dist lexicon.LetterDistribution, wordLength int,
 	dawg gaddag.SimpleDawg, maxSolutions int, answerMap map[string]bool) (
 	*Question, error) {
 
-	rack := genRack(dist, wordLength, nBlanks)
+	rack := genRack(dist, wordLength, nBlanks, dawg.GetAlphabet())
 	answers := Anagram(string(rack), dawg, ModeExact)
 	if len(answers) == 0 || len(answers) > maxSolutions {
 		// Try again!
@@ -99,21 +100,22 @@ func GenerateBlanks(ctx context.Context, args *BlankChallengeArgs,
 }
 
 // genRack - Generate a random rack using `dist` and with `blanks` blanks.
-func genRack(dist lexicon.LetterDistribution, wordLength, blanks int) []rune {
-	bag := dist.MakeBag()
+func genRack(dist lexicon.LetterDistribution, wordLength, blanks int,
+	alph *alphabet.Alphabet) []rune {
+	bag := dist.MakeBag(alph)
 	// it's a bag of runes.
 	rack := make([]rune, wordLength)
 	idx := 0
 	draw := func(avoidBlanks bool) rune {
-		var tile rune
+		var tiles []rune
 		if avoidBlanks {
-			for tile, _ = bag.Draw(); tile == BlankCharacter; {
-				tile, _ = bag.Draw()
+			for tiles, _ = bag.Draw(1); tiles[0] == BlankCharacter; {
+				tiles, _ = bag.Draw(1)
 			}
 		} else {
-			tile, _ = bag.Draw()
+			tiles, _ = bag.Draw(1)
 		}
-		return tile
+		return tiles[0]
 	}
 	for idx < wordLength-blanks {
 		// Avoid blanks on draw if user specifies a number of blanks.

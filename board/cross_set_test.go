@@ -1,4 +1,4 @@
-package movegen
+package board
 
 import (
 	"testing"
@@ -36,7 +36,7 @@ func TestCrossSetAllowed(t *testing.T) {
 	}
 
 	for _, pair := range allowedTests {
-		allowed := cs.allowed(pair.l)
+		allowed := cs.Allowed(pair.l)
 		if allowed != pair.allowed {
 			t.Errorf("For %v, expected %v, got %v", pair.l, pair.allowed,
 				allowed)

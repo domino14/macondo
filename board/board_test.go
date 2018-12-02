@@ -1,4 +1,4 @@
-package movegen
+package board
 
 import "testing"
 
@@ -8,9 +8,9 @@ func BenchmarkBoardTranspose(b *testing.B) {
 	// So 6 for a 2-ply iteration; assuming 1000 iterations, this is still
 	// about 1.6 milliseconds, so we should use board transposition instead
 	// of repetitive code.
-	board := strToBoard(CrosswordGameBoard)
+	board := MakeBoard(CrosswordGameBoard)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		board.transpose()
+		board.Transpose()
 	}
 }

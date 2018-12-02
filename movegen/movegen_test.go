@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
 )
@@ -21,18 +22,19 @@ const (
 
 var LexiconDir = os.Getenv("LEXICON_DIR")
 
-func setBoardRow(board GameBoard, rowNum int8, letters string, alph *alphabet.Alphabet) {
+func setBoardRow(board board.GameBoard, rowNum int8, letters string, alph *alphabet.Alphabet) {
 	// Set the row in board to the passed in letters array.
-	var err error
-	for idx := 0; idx < board.dim(); idx++ {
-		board.squares[rowNum][idx].letter = alphabet.EmptySquareMarker
+	for idx := 0; idx < board.Dim(); idx++ {
+		board.SetLetter(int(rowNum), idx, alphabet.EmptySquareMarker)
 	}
 	for idx, r := range letters {
 		if r != ' ' {
-			board.squares[rowNum][idx].letter, err = alph.Val(r)
+			letter, err := alph.Val(r)
 			if err != nil {
 				log.Fatalf(err.Error())
 			}
+			board.SetLetter(int(rowNum), idx, letter)
+
 		}
 	}
 }
@@ -55,7 +57,7 @@ func TestGenBase(t *testing.T) {
 	rack.Initialize("AEINRST", gd.GetAlphabet())
 
 	generator := NewGordonGenerator(gd)
-	generator.board.clearAllCrosses()
+	generator.board.ClearAllCrosses()
 	generator.curAnchorCol = 8
 	// Row 4 for shiz and gig
 	generator.curRowIdx = 4
@@ -121,8 +123,8 @@ func TestGenThroughBothWaysAllowedLetters(t *testing.T) {
 	setBoardRow(generator.board, 4, "   THERMOS  A", gd.GetAlphabet())
 	generator.curRowIdx = 4
 	ml, _ := gd.GetAlphabet().Val('I')
-	generator.board.squares[generator.curRowIdx][2].vcrossSet.clear()
-	generator.board.squares[generator.curRowIdx][2].vcrossSet.set(ml)
+	generator.board.ClearCrossSet(int(generator.curRowIdx), 2, board.VerticalDirection)
+	generator.board.SetCrossSetLetter(int(generator.curRowIdx), 2, board.VerticalDirection, ml)
 	generator.Gen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
 		gd.GetRootNodeIndex())
 	// it should generate HITHERMOST only
@@ -143,7 +145,7 @@ func setBoardToGame(generator *GordonGenerator, alph *alphabet.Alphabet,
 
 		// club games - 20150127vEd, beginning of turn 8
 		// Quackle generates 219 total unique moves with a rack of AFGIIIS
-		generator.board.setFromPlaintext(`
+		generator.board.SetFromPlaintext(`
 cesar: Turn 8
    A B C D E F G H I J K L M N O   -> cesar                    AFGIIIS   182
    ------------------------------     ed                       ADEILNV   226
@@ -166,7 +168,7 @@ cesar: Turn 8
 `, alph)
 	} else if game == VsMatt {
 		// tourney, 2018 Lake George vs Matt G
-		generator.board.setFromPlaintext(`
+		generator.board.SetFromPlaintext(`
 cesar: Turn 10
    A B C D E F G H I J K L M N O      matt g                   AEEHIIL   341
    ------------------------------  -> cesar                    AABDELT   318
@@ -189,7 +191,7 @@ cesar: Turn 10
 `, alph)
 	} else if game == VsJeremy {
 		// tourney, 2018 nov Manhattan vs Jeremy H
-		generator.board.setFromPlaintext(`
+		generator.board.SetFromPlaintext(`
 jeremy hall: Turn 13
    A B C D E F G H I J K L M N O   -> jeremy hall              DDESW??   299
    ------------------------------     cesar                    AHIILR    352
@@ -212,7 +214,7 @@ jeremy hall: Turn 13
 `, alph)
 	} else if game == VsOxy {
 		// lol
-		generator.board.setFromPlaintext(`
+		generator.board.SetFromPlaintext(`
 cesar: Turn 11
    A B C D E F G H I J K L M N O      rubin                    ADDELOR   345
    ------------------------------  -> cesar                    OXPBAZE   129
@@ -241,18 +243,18 @@ func TestUpdateAnchors(t *testing.T) {
 	generator := NewGordonGenerator(gd)
 	setBoardToGame(generator, gd.GetAlphabet(), VsEd)
 
-	generator.board.updateAllAnchors()
+	generator.board.UpdateAllAnchors()
 
-	if generator.board.squares[3][3].hAnchor ||
-		generator.board.squares[3][3].vAnchor {
+	if generator.board.IsAnchor(3, 3, board.HorizontalDirection) ||
+		generator.board.IsAnchor(3, 3, board.VerticalDirection) {
 		t.Errorf("Should not be an anchor at all")
 	}
-	if !generator.board.squares[12][12].hAnchor ||
-		!generator.board.squares[12][12].vAnchor {
+	if !generator.board.IsAnchor(12, 12, board.HorizontalDirection) ||
+		!generator.board.IsAnchor(12, 12, board.VerticalDirection) {
 		t.Errorf("Should be a two-way anchor")
 	}
-	if !generator.board.squares[4][3].vAnchor ||
-		generator.board.squares[4][3].hAnchor {
+	if !generator.board.IsAnchor(4, 3, board.VerticalDirection) ||
+		generator.board.IsAnchor(4, 3, board.HorizontalDirection) {
 		t.Errorf("Should be a vertical but not horizontal anchor")
 	}
 	// I could do more but it's all right for now?
@@ -262,7 +264,7 @@ func TestRowGen(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	generator := NewGordonGenerator(gd)
 	setBoardToGame(generator, gd.GetAlphabet(), VsEd)
-	generator.board.updateAllAnchors()
+	generator.board.UpdateAllAnchors()
 
 	rack := &Rack{}
 	rack.Initialize("AAEIRST", gd.GetAlphabet())
@@ -281,7 +283,7 @@ func TestRowGenWithBlanks(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	generator := NewGordonGenerator(gd)
 	setBoardToGame(generator, gd.GetAlphabet(), VsEd)
-	generator.board.updateAllAnchors()
+	generator.board.UpdateAllAnchors()
 
 	rack := &Rack{}
 	rack.Initialize("AAEIRST", gd.GetAlphabet())
@@ -300,7 +302,7 @@ func TestOtherRowGen(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	generator := NewGordonGenerator(gd)
 	setBoardToGame(generator, gd.GetAlphabet(), VsMatt)
-	generator.board.updateAllAnchors()
+	generator.board.UpdateAllAnchors()
 
 	rack := &Rack{}
 	rack.Initialize("A", gd.GetAlphabet())
@@ -323,8 +325,8 @@ func TestOtherRowGen(t *testing.T) {
 type crossSetTestCase struct {
 	row      int
 	col      int
-	crossSet CrossSet
-	dir      BoardDirection
+	crossSet board.CrossSet
+	dir      board.BoardDirection
 	score    int
 }
 
@@ -335,30 +337,31 @@ func TestGenCrossSetLoadedGame(t *testing.T) {
 	alph := gd.GetAlphabet()
 	// All horizontal for now.
 	var testCases = []crossSetTestCase{
-		{10, 10, crossSetFromString("E", alph), HorizontalDirection, 11},
-		{2, 4, crossSetFromString("DKHLRSV", alph), HorizontalDirection, 9},
-		{8, 7, crossSetFromString("S", alph), HorizontalDirection, 11},
+		{10, 10, board.CrossSetFromString("E", alph), board.HorizontalDirection, 11},
+		{2, 4, board.CrossSetFromString("DKHLRSV", alph), board.HorizontalDirection, 9},
+		{8, 7, board.CrossSetFromString("S", alph), board.HorizontalDirection, 11},
 		// suffix - no hooks:
-		{12, 8, CrossSet(0), HorizontalDirection, 11},
+		{12, 8, board.CrossSet(0), board.HorizontalDirection, 11},
 		// prefix - no hooks:
-		{3, 1, CrossSet(0), HorizontalDirection, 10},
+		{3, 1, board.CrossSet(0), board.HorizontalDirection, 10},
 		// prefix and suffix, no path
-		{6, 8, CrossSet(0), HorizontalDirection, 5},
+		{6, 8, board.CrossSet(0), board.HorizontalDirection, 5},
 		// More in-between
-		{2, 10, crossSetFromString("M", alph), HorizontalDirection, 2},
+		{2, 10, board.CrossSetFromString("M", alph), board.HorizontalDirection, 2},
 	}
 
 	for _, tc := range testCases {
-		generator.genCrossSet(tc.row, tc.col, tc.dir)
-		if generator.board.squares[tc.row][tc.col].hcrossSet != tc.crossSet {
+		generator.board.GenCrossSet(tc.row, tc.col, tc.dir, generator.gaddag,
+			generator.bag)
+		if generator.board.GetCrossSet(tc.row, tc.col, board.HorizontalDirection) != tc.crossSet {
 			t.Errorf("For row=%v col=%v, Expected cross-set to be %v, got %v",
 				tc.row, tc.col, tc.crossSet,
-				generator.board.squares[tc.row][tc.col].hcrossSet)
+				generator.board.GetCrossSet(tc.row, tc.col, board.HorizontalDirection))
 		}
-		if generator.board.squares[tc.row][tc.col].hcrossScore != tc.score {
+		if generator.board.GetCrossScore(tc.row, tc.col, board.HorizontalDirection) != tc.score {
 			t.Errorf("For row=%v col=%v, Expected cross-score to be %v, got %v",
 				tc.row, tc.col, tc.score,
-				generator.board.squares[tc.row][tc.col].hcrossScore)
+				generator.board.GetCrossScore(tc.row, tc.col, board.HorizontalDirection))
 		}
 	}
 }
@@ -366,7 +369,7 @@ func TestGenCrossSetLoadedGame(t *testing.T) {
 type crossSetEdgeTestCase struct {
 	col         int
 	rowContents string
-	crossSet    CrossSet
+	crossSet    board.CrossSet
 	score       int
 }
 
@@ -375,36 +378,37 @@ func TestGenCrossSetEdges(t *testing.T) {
 	generator := NewGordonGenerator(gd)
 	alph := gd.GetAlphabet()
 	var testCases = []crossSetEdgeTestCase{
-		{0, " A", crossSetFromString("ABDFHKLMNPTYZ", alph), 1},
-		{1, "A", crossSetFromString("ABDEGHILMNRSTWXY", alph), 1},
-		{13, "              F", crossSetFromString("EIO", alph), 4},
-		{14, "             F ", crossSetFromString("AE", alph), 4},
-		{14, "          WECH ", crossSetFromString("T", alph), 12}, // phony!
-		{14, "           ZZZ ", CrossSet(0), 30},
-		{14, "       ZYZZYVA ", crossSetFromString("S", alph), 43},
-		{14, "        ZYZZYV ", crossSetFromString("A", alph), 42}, // phony!
-		{14, "       Z Z Y A ", crossSetFromString("ABDEGHILMNRSTWXY", alph), 1},
-		{12, "       z z Y A ", crossSetFromString("E", alph), 5},
-		{14, "OxYpHeNbUTAzON ", crossSetFromString("E", alph), 15},
-		{6, "OXYPHE BUTAZONE", crossSetFromString("N", alph), 40},
+		{0, " A", board.CrossSetFromString("ABDFHKLMNPTYZ", alph), 1},
+		{1, "A", board.CrossSetFromString("ABDEGHILMNRSTWXY", alph), 1},
+		{13, "              F", board.CrossSetFromString("EIO", alph), 4},
+		{14, "             F ", board.CrossSetFromString("AE", alph), 4},
+		{14, "          WECH ", board.CrossSetFromString("T", alph), 12}, // phony!
+		{14, "           ZZZ ", board.CrossSet(0), 30},
+		{14, "       ZYZZYVA ", board.CrossSetFromString("S", alph), 43},
+		{14, "        ZYZZYV ", board.CrossSetFromString("A", alph), 42}, // phony!
+		{14, "       Z Z Y A ", board.CrossSetFromString("ABDEGHILMNRSTWXY", alph), 1},
+		{12, "       z z Y A ", board.CrossSetFromString("E", alph), 5},
+		{14, "OxYpHeNbUTAzON ", board.CrossSetFromString("E", alph), 15},
+		{6, "OXYPHE BUTAZONE", board.CrossSetFromString("N", alph), 40},
 		// Should still calculate score correctly despite no gaddag path.
-		{0, " YHJKTKHKTLV", CrossSet(0), 42},
-		{14, "   YHJKTKHKTLV ", CrossSet(0), 42},
-		{6, "YHJKTK HKTLV", CrossSet(0), 42},
+		{0, " YHJKTKHKTLV", board.CrossSet(0), 42},
+		{14, "   YHJKTKHKTLV ", board.CrossSet(0), 42},
+		{6, "YHJKTK HKTLV", board.CrossSet(0), 42},
 	}
 	row := 4
 	for _, tc := range testCases {
 		setBoardRow(generator.board, int8(row), tc.rowContents, alph)
-		generator.genCrossSet(row, tc.col, HorizontalDirection)
-		if generator.board.squares[row][tc.col].hcrossSet != tc.crossSet {
+		generator.board.GenCrossSet(row, tc.col, board.HorizontalDirection,
+			generator.gaddag, generator.bag)
+		if generator.board.GetCrossSet(row, tc.col, board.HorizontalDirection) != tc.crossSet {
 			t.Errorf("For row=%v col=%v, Expected cross-set to be %v, got %v",
 				row, tc.col, tc.crossSet,
-				generator.board.squares[row][tc.col].hcrossSet)
+				generator.board.GetCrossSet(row, tc.col, board.HorizontalDirection))
 		}
-		if generator.board.squares[row][tc.col].hcrossScore != tc.score {
+		if generator.board.GetCrossScore(row, tc.col, board.HorizontalDirection) != tc.score {
 			t.Errorf("For row=%v col=%v, Expected cross-score to be %v, got %v",
 				row, tc.col, tc.score,
-				generator.board.squares[row][tc.col].hcrossScore)
+				generator.board.GetCrossScore(row, tc.col, board.HorizontalDirection))
 		}
 	}
 }
@@ -415,67 +419,67 @@ func TestGenAllCrossSets(t *testing.T) {
 
 	generator := NewGordonGenerator(gd)
 	setBoardToGame(generator, gd.GetAlphabet(), VsEd)
-	generator.genAllCrossSets()
+	generator.board.GenAllCrossSets(gd, generator.bag)
 	var testCases = []crossSetTestCase{
-		{8, 8, crossSetFromString("OS", alph), HorizontalDirection, 8},
-		{8, 8, crossSetFromString("S", alph), VerticalDirection, 9},
-		{5, 11, crossSetFromString("S", alph), HorizontalDirection, 5},
-		{5, 11, crossSetFromString("AO", alph), VerticalDirection, 2},
-		{8, 13, crossSetFromString("AEOU", alph), HorizontalDirection, 1},
-		{8, 13, crossSetFromString("AEIMOUY", alph), VerticalDirection, 3},
-		{9, 13, crossSetFromString("HMNPST", alph), HorizontalDirection, 1},
-		{9, 13, TrivialCrossSet, VerticalDirection, 0},
-		{14, 14, TrivialCrossSet, HorizontalDirection, 0},
-		{14, 14, TrivialCrossSet, VerticalDirection, 0},
-		{12, 12, CrossSet(0), HorizontalDirection, 0},
-		{12, 12, CrossSet(0), VerticalDirection, 0},
+		{8, 8, board.CrossSetFromString("OS", alph), board.HorizontalDirection, 8},
+		{8, 8, board.CrossSetFromString("S", alph), board.VerticalDirection, 9},
+		{5, 11, board.CrossSetFromString("S", alph), board.HorizontalDirection, 5},
+		{5, 11, board.CrossSetFromString("AO", alph), board.VerticalDirection, 2},
+		{8, 13, board.CrossSetFromString("AEOU", alph), board.HorizontalDirection, 1},
+		{8, 13, board.CrossSetFromString("AEIMOUY", alph), board.VerticalDirection, 3},
+		{9, 13, board.CrossSetFromString("HMNPST", alph), board.HorizontalDirection, 1},
+		{9, 13, board.TrivialCrossSet, board.VerticalDirection, 0},
+		{14, 14, board.TrivialCrossSet, board.HorizontalDirection, 0},
+		{14, 14, board.TrivialCrossSet, board.VerticalDirection, 0},
+		{12, 12, board.CrossSet(0), board.HorizontalDirection, 0},
+		{12, 12, board.CrossSet(0), board.VerticalDirection, 0},
 	}
 
 	for idx, tc := range testCases {
 		// Compare values
-		if generator.board.getCrossSet(tc.row, tc.col, tc.dir) != tc.crossSet {
+		if generator.board.GetCrossSet(tc.row, tc.col, tc.dir) != tc.crossSet {
 			t.Errorf("Test=%v For row=%v col=%v, Expected cross-set to be %v, got %v",
 				idx, tc.row, tc.col, tc.crossSet,
-				generator.board.getCrossSet(tc.row, tc.col, tc.dir))
+				generator.board.GetCrossSet(tc.row, tc.col, tc.dir))
 		}
-		if generator.board.getCrossScore(tc.row, tc.col, tc.dir) != tc.score {
+		if generator.board.GetCrossScore(tc.row, tc.col, tc.dir) != tc.score {
 			t.Errorf("For row=%v col=%v, Expected cross-score to be %v, got %v",
 				tc.row, tc.col, tc.score,
-				generator.board.getCrossScore(tc.row, tc.col, tc.dir))
+				generator.board.GetCrossScore(tc.row, tc.col, tc.dir))
 		}
 	}
 	// This one has more nondeterministic (in-between LR) crosssets
 	setBoardToGame(generator, gd.GetAlphabet(), VsMatt)
-	generator.genAllCrossSets()
+	generator.board.GenAllCrossSets(gd, generator.bag)
 	testCases = []crossSetTestCase{
-		{8, 7, crossSetFromString("S", alph), HorizontalDirection, 11},
-		{8, 7, CrossSet(0), VerticalDirection, 12},
-		{5, 11, crossSetFromString("BGOPRTWX", alph), HorizontalDirection, 2},
-		{5, 11, CrossSet(0), VerticalDirection, 15},
-		{8, 13, TrivialCrossSet, HorizontalDirection, 0},
-		{8, 13, TrivialCrossSet, VerticalDirection, 0},
-		{11, 4, crossSetFromString("DRS", alph), HorizontalDirection, 6},
-		{11, 4, crossSetFromString("CGM", alph), VerticalDirection, 1},
-		{2, 2, TrivialCrossSet, HorizontalDirection, 0},
-		{2, 2, crossSetFromString("AEI", alph), VerticalDirection, 2},
-		{7, 12, crossSetFromString("AEIOY", alph), HorizontalDirection, 0}, // it's a blank
-		{7, 12, TrivialCrossSet, VerticalDirection, 0},
-		{11, 8, CrossSet(0), HorizontalDirection, 4},
-		{11, 8, crossSetFromString("AEOU", alph), VerticalDirection, 1},
-		{1, 8, crossSetFromString("AEO", alph), HorizontalDirection, 1},
-		{1, 8, crossSetFromString("DFHLMNRSTX", alph), VerticalDirection, 1},
+		{8, 7, board.CrossSetFromString("S", alph), board.HorizontalDirection, 11},
+		{8, 7, board.CrossSet(0), board.VerticalDirection, 12},
+		{5, 11, board.CrossSetFromString("BGOPRTWX", alph), board.HorizontalDirection, 2},
+		{5, 11, board.CrossSet(0), board.VerticalDirection, 15},
+		{8, 13, board.TrivialCrossSet, board.HorizontalDirection, 0},
+		{8, 13, board.TrivialCrossSet, board.VerticalDirection, 0},
+		{11, 4, board.CrossSetFromString("DRS", alph), board.HorizontalDirection, 6},
+		{11, 4, board.CrossSetFromString("CGM", alph), board.VerticalDirection, 1},
+		{2, 2, board.TrivialCrossSet, board.HorizontalDirection, 0},
+		{2, 2, board.CrossSetFromString("AEI", alph), board.VerticalDirection, 2},
+		{7, 12, board.CrossSetFromString("AEIOY", alph), board.HorizontalDirection, 0}, // it's a blank
+		{7, 12, board.TrivialCrossSet, board.VerticalDirection, 0},
+		{11, 8, board.CrossSet(0), board.HorizontalDirection, 4},
+		{11, 8, board.CrossSetFromString("AEOU", alph), board.VerticalDirection, 1},
+		{1, 8, board.CrossSetFromString("AEO", alph), board.HorizontalDirection, 1},
+		{1, 8, board.CrossSetFromString("DFHLMNRSTX", alph), board.VerticalDirection, 1},
 	}
 	for idx, tc := range testCases {
 		// Compare values
-		if generator.board.getCrossSet(tc.row, tc.col, tc.dir) != tc.crossSet {
+		if generator.board.GetCrossSet(tc.row, tc.col, tc.dir) != tc.crossSet {
 			t.Errorf("Test=%v For row=%v col=%v, Expected cross-set to be %v, got %v",
 				idx, tc.row, tc.col, tc.crossSet,
-				generator.board.getCrossSet(tc.row, tc.col, tc.dir))
+				generator.board.GetCrossSet(tc.row, tc.col, tc.dir))
 		}
-		if generator.board.getCrossScore(tc.row, tc.col, tc.dir) != tc.score {
+		if generator.board.GetCrossScore(tc.row, tc.col, tc.dir) != tc.score {
 			t.Errorf("For row=%v col=%v, Expected cross-score to be %v, got %v",
 				tc.row, tc.col, tc.score,
-				generator.board.getCrossScore(tc.row, tc.col, tc.dir))
+				generator.board.GetCrossScore(tc.row, tc.col, tc.dir))
 		}
 	}
 }
@@ -486,9 +490,9 @@ func TestGenMoveJustOnce(t *testing.T) {
 
 	generator := NewGordonGenerator(gd)
 	setBoardToGame(generator, alph, VsMatt)
-	generator.board.updateAllAnchors()
-	generator.genAllCrossSets()
-	generator.board.transpose()
+	generator.board.UpdateAllAnchors()
+	generator.board.GenAllCrossSets(gd, generator.bag)
+	generator.board.Transpose()
 
 	rack := &Rack{}
 	rack.Initialize("AELT", gd.GetAlphabet())
@@ -514,8 +518,8 @@ func TestGenAllMovesSingleTile(t *testing.T) {
 
 	generator := NewGordonGenerator(gd)
 	setBoardToGame(generator, alph, VsMatt)
-	generator.board.updateAllAnchors()
-	generator.genAllCrossSets()
+	generator.board.UpdateAllAnchors()
+	generator.board.GenAllCrossSets(gd, generator.bag)
 	generator.GenAll("A")
 	if len(generator.plays) != 24 {
 		t.Errorf("Expected %v, got %v (%v) plays", 24, generator.plays,
@@ -529,8 +533,8 @@ func TestGenAllMovesFullRack(t *testing.T) {
 
 	generator := NewGordonGenerator(gd)
 	setBoardToGame(generator, alph, VsMatt)
-	generator.board.updateAllAnchors()
-	generator.genAllCrossSets()
+	generator.board.UpdateAllAnchors()
+	generator.board.GenAllCrossSets(gd, generator.bag)
 	generator.GenAll("AABDELT")
 	// There should be 673 unique plays
 	if len(generator.plays) != 673 {
@@ -551,8 +555,8 @@ func TestGenAllMovesFullRackAgain(t *testing.T) {
 
 	generator := NewGordonGenerator(gd)
 	setBoardToGame(generator, alph, VsEd)
-	generator.board.updateAllAnchors()
-	generator.genAllCrossSets()
+	generator.board.UpdateAllAnchors()
+	generator.board.GenAllCrossSets(gd, generator.bag)
 	generator.GenAll("AFGIIIS")
 	// There should be 219 unique plays
 	if len(generator.plays) != 219 {
@@ -567,8 +571,8 @@ func TestGenAllMovesSingleBlank(t *testing.T) {
 
 	generator := NewGordonGenerator(gd)
 	setBoardToGame(generator, alph, VsEd)
-	generator.board.updateAllAnchors()
-	generator.genAllCrossSets()
+	generator.board.UpdateAllAnchors()
+	generator.board.GenAllCrossSets(gd, generator.bag)
 	generator.GenAll("?")
 	// There should be 166 unique plays. Quackle does not generate all blank
 	// plays, even when told to generate all plays!!
@@ -583,8 +587,8 @@ func TestGenAllMovesTwoBlanksOnly(t *testing.T) {
 
 	generator := NewGordonGenerator(gd)
 	setBoardToGame(generator, alph, VsEd)
-	generator.board.updateAllAnchors()
-	generator.genAllCrossSets()
+	generator.board.UpdateAllAnchors()
+	generator.board.GenAllCrossSets(gd, generator.bag)
 	generator.GenAll("??")
 	// Quackle generates 1827 unique plays. (my movegen generates 1958)
 	// With one blank (the test above), Quackle generates 35 moves, I generate
@@ -604,8 +608,8 @@ func TestGenAllMovesWithBlanks(t *testing.T) {
 
 	generator := NewGordonGenerator(gd)
 	setBoardToGame(generator, alph, VsJeremy)
-	generator.board.updateAllAnchors()
-	generator.genAllCrossSets()
+	generator.board.UpdateAllAnchors()
+	generator.board.GenAllCrossSets(gd, generator.bag)
 	generator.GenAll("DDESW??")
 	// If I do DDESW? in quackle i generate 1483 moves. My movegen generates
 	// 1586, possibly by the same logic as the above.
@@ -626,8 +630,8 @@ func TestGiantTwentySevenTimer(t *testing.T) {
 
 	generator := NewGordonGenerator(gd)
 	setBoardToGame(generator, alph, VsOxy)
-	generator.board.updateAllAnchors()
-	generator.genAllCrossSets()
+	generator.board.UpdateAllAnchors()
+	generator.board.GenAllCrossSets(gd, generator.bag)
 	generator.GenAll("ABEOPXZ")
 	if len(generator.plays) != 519 {
 		t.Errorf("Expected %v, got %v (%v) plays", 519, generator.plays,
@@ -641,7 +645,7 @@ func TestGiantTwentySevenTimer(t *testing.T) {
 func TestGenerateEmptyBoard(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	generator := NewGordonGenerator(gd)
-	generator.board.updateAllAnchors()
+	generator.board.UpdateAllAnchors()
 	generator.GenAll("DEGORV?")
 	if len(generator.plays) != 3313 {
 		t.Errorf("Expected %v, got %v (%v) plays", 3313, generator.plays,
@@ -658,7 +662,7 @@ func BenchmarkGenEmptyBoard(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		// 1.67ms per operation
 		generator := NewGordonGenerator(gd)
-		generator.board.updateAllAnchors()
+		generator.board.UpdateAllAnchors()
 		generator.GenAll("AEINRST")
 	}
 }
@@ -671,8 +675,8 @@ func BenchmarkGenFullRack(b *testing.B) {
 		// 930 μs per operation on my macbook pro!! amazing!!!
 		generator := NewGordonGenerator(gd)
 		setBoardToGame(generator, alph, VsMatt)
-		generator.board.updateAllAnchors()
-		generator.genAllCrossSets()
+		generator.board.UpdateAllAnchors()
+		generator.board.GenAllCrossSets(gd, generator.bag)
 		generator.GenAll("AABDELT")
 	}
 }
@@ -685,8 +689,8 @@ func BenchmarkGenOneBlank(b *testing.B) {
 		// 5.43 ms per operation on my macbook pro.
 		generator := NewGordonGenerator(gd)
 		setBoardToGame(generator, alph, VsJeremy)
-		generator.board.updateAllAnchors()
-		generator.genAllCrossSets()
+		generator.board.UpdateAllAnchors()
+		generator.board.GenAllCrossSets(gd, generator.bag)
 		generator.GenAll("ADDESW?")
 	}
 }
@@ -699,8 +703,8 @@ func BenchmarkGenBothBlanks(b *testing.B) {
 		// ~16.48ms per operation on my macbook pro.
 		generator := NewGordonGenerator(gd)
 		setBoardToGame(generator, alph, VsJeremy)
-		generator.board.updateAllAnchors()
-		generator.genAllCrossSets()
+		generator.board.UpdateAllAnchors()
+		generator.board.GenAllCrossSets(gd, generator.bag)
 		generator.GenAll("DDESW??")
 	}
 }

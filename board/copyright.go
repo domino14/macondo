@@ -1,4 +1,4 @@
-package movegen
+package board
 
 var (
 	// CrosswordGameBoard is a board for a fun Crossword Game, featuring lots

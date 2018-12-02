@@ -19,7 +19,7 @@ func TestRacks(t *testing.T) {
 		for l := 7; l <= 8; l++ {
 			for n := 1; n <= 2; n++ {
 				for i := 0; i < 10000; i++ {
-					rack := genRack(dist, l, n)
+					rack := genRack(dist, l, n, nil)
 					if len(rack) != l {
 						t.Errorf("Len rack should have been %v, was %v",
 							l, len(rack))

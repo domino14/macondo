@@ -177,6 +177,10 @@ func (g SimpleGaddag) GetAlphabet() *alphabet.Alphabet {
 	return g.alphabet
 }
 
+func (g SimpleDawg) GetAlphabet() *alphabet.Alphabet {
+	return g.alphabet
+}
+
 // Extracts the LetterSet and NumArcs from the node, and returns.
 // func (g SimpleGaddag) ExtractNodeParams(nodeIdx uint32) (uint32, byte) {
 // 	numArcs := byte(g[nodeIdx] >> NumArcsBitLoc)

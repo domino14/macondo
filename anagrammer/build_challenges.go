@@ -24,7 +24,7 @@ func GenerateBuildChallenge(ctx context.Context, args *BuildChallengeArgs,
 	tries := 0
 
 	doIteration := func() (*Question, error) {
-		rack := genRack(dist, args.WordLength, 0)
+		rack := genRack(dist, args.WordLength, 0, dawg.GetAlphabet())
 		tries++
 		answers := Anagram(string(rack), dawg, ModeExact)
 		if len(answers) == 0 && args.RequireLengthSolution {
