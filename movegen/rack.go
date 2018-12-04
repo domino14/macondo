@@ -60,3 +60,20 @@ func (r *Rack) add(letter alphabet.MachineLetter) {
 		r.empty = false
 	}
 }
+
+func (r *Rack) tilesOn(numPossibleLetters int) alphabet.MachineWord {
+	if r.empty {
+		return alphabet.MachineWord([]alphabet.MachineLetter{})
+	}
+	letters := make([]alphabet.MachineLetter, r.numLetters)
+	ct := 0
+	for i := 0; i < numPossibleLetters; i++ {
+		if r.LetArr[i] > 0 {
+			for j := alphabet.MachineLetter(0); j < r.LetArr[i]; j++ {
+				letters[ct] = j
+				ct++
+			}
+		}
+	}
+	return alphabet.MachineWord(letters)
+}

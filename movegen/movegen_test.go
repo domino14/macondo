@@ -56,7 +56,7 @@ func TestGenBase(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	rack.Initialize("AEINRST", gd.GetAlphabet())
 
-	generator := NewGordonGenerator(gd)
+	generator := newGordonGenHardcode(gd)
 	generator.board.ClearAllCrosses()
 	generator.curAnchorCol = 8
 	// Row 4 for shiz and gig
@@ -98,7 +98,7 @@ func TestSimpleRowGen(t *testing.T) {
 	}
 	for idx, tc := range cases {
 		log.Printf("Case %v", idx)
-		generator := NewGordonGenerator(gd)
+		generator := newGordonGenHardcode(gd)
 		generator.curAnchorCol = tc.curAnchorCol
 		rack.Initialize(tc.rack, gd.GetAlphabet())
 		setBoardRow(generator.board, tc.row, tc.rowString, gd.GetAlphabet())
@@ -117,7 +117,7 @@ func TestGenThroughBothWaysAllowedLetters(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	rack.Initialize("ABEHINT", gd.GetAlphabet())
 
-	generator := NewGordonGenerator(gd)
+	generator := newGordonGenHardcode(gd)
 	generator.curAnchorCol = 9
 
 	setBoardRow(generator.board, 4, "   THERMOS  A", gd.GetAlphabet())
@@ -133,8 +133,8 @@ func TestGenThroughBothWaysAllowedLetters(t *testing.T) {
 			len(generator.plays), 1)
 	}
 	m := generator.plays[0]
-	if m.word.UserVisible(gd.GetAlphabet()) != "HI.......T" {
-		t.Errorf("Got the wrong word: %v", m.word.UserVisible(gd.GetAlphabet()))
+	if m.tiles.UserVisible(gd.GetAlphabet()) != "HI.......T" {
+		t.Errorf("Got the wrong word: %v", m.tiles.UserVisible(gd.GetAlphabet()))
 	}
 }
 
@@ -240,7 +240,7 @@ cesar: Turn 11
 
 func TestUpdateAnchors(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	generator := NewGordonGenerator(gd)
+	generator := newGordonGenHardcode(gd)
 	setBoardToGame(generator, gd.GetAlphabet(), VsEd)
 
 	generator.board.UpdateAllAnchors()
@@ -262,7 +262,7 @@ func TestUpdateAnchors(t *testing.T) {
 
 func TestRowGen(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	generator := NewGordonGenerator(gd)
+	generator := newGordonGenHardcode(gd)
 	setBoardToGame(generator, gd.GetAlphabet(), VsEd)
 	generator.board.UpdateAllAnchors()
 
@@ -281,7 +281,7 @@ func TestRowGen(t *testing.T) {
 
 func TestRowGenWithBlanks(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	generator := NewGordonGenerator(gd)
+	generator := newGordonGenHardcode(gd)
 	setBoardToGame(generator, gd.GetAlphabet(), VsEd)
 	generator.board.UpdateAllAnchors()
 
@@ -300,7 +300,7 @@ func TestRowGenWithBlanks(t *testing.T) {
 
 func TestOtherRowGen(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	generator := NewGordonGenerator(gd)
+	generator := newGordonGenHardcode(gd)
 	setBoardToGame(generator, gd.GetAlphabet(), VsMatt)
 	generator.board.UpdateAllAnchors()
 
@@ -316,9 +316,9 @@ func TestOtherRowGen(t *testing.T) {
 			len(generator.plays), 1)
 	}
 	m := generator.plays[0]
-	if m.word.UserVisible(gd.GetAlphabet()) != "A......" {
+	if m.tiles.UserVisible(gd.GetAlphabet()) != "A......" {
 		t.Errorf("Expected proper play-through markers (A......), got %v",
-			m.word.UserVisible(gd.GetAlphabet()))
+			m.tiles.UserVisible(gd.GetAlphabet()))
 	}
 }
 
@@ -332,7 +332,7 @@ type crossSetTestCase struct {
 
 func TestGenCrossSetLoadedGame(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	generator := NewGordonGenerator(gd)
+	generator := newGordonGenHardcode(gd)
 	setBoardToGame(generator, gd.GetAlphabet(), VsMatt)
 	alph := gd.GetAlphabet()
 	// All horizontal for now.
@@ -375,7 +375,7 @@ type crossSetEdgeTestCase struct {
 
 func TestGenCrossSetEdges(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	generator := NewGordonGenerator(gd)
+	generator := newGordonGenHardcode(gd)
 	alph := gd.GetAlphabet()
 	var testCases = []crossSetEdgeTestCase{
 		{0, " A", board.CrossSetFromString("ABDFHKLMNPTYZ", alph), 1},
@@ -417,7 +417,7 @@ func TestGenAllCrossSets(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 
-	generator := NewGordonGenerator(gd)
+	generator := newGordonGenHardcode(gd)
 	setBoardToGame(generator, gd.GetAlphabet(), VsEd)
 	generator.board.GenAllCrossSets(gd, generator.bag)
 	var testCases = []crossSetTestCase{
@@ -488,7 +488,7 @@ func TestGenMoveJustOnce(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 
-	generator := NewGordonGenerator(gd)
+	generator := newGordonGenHardcode(gd)
 	setBoardToGame(generator, alph, VsMatt)
 	generator.board.UpdateAllAnchors()
 	generator.board.GenAllCrossSets(gd, generator.bag)
@@ -516,7 +516,7 @@ func TestGenAllMovesSingleTile(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 
-	generator := NewGordonGenerator(gd)
+	generator := newGordonGenHardcode(gd)
 	setBoardToGame(generator, alph, VsMatt)
 	generator.board.UpdateAllAnchors()
 	generator.board.GenAllCrossSets(gd, generator.bag)
@@ -531,7 +531,7 @@ func TestGenAllMovesFullRack(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 
-	generator := NewGordonGenerator(gd)
+	generator := newGordonGenHardcode(gd)
 	setBoardToGame(generator, alph, VsMatt)
 	generator.board.UpdateAllAnchors()
 	generator.board.GenAllCrossSets(gd, generator.bag)
@@ -553,7 +553,7 @@ func TestGenAllMovesFullRackAgain(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 
-	generator := NewGordonGenerator(gd)
+	generator := newGordonGenHardcode(gd)
 	setBoardToGame(generator, alph, VsEd)
 	generator.board.UpdateAllAnchors()
 	generator.board.GenAllCrossSets(gd, generator.bag)
@@ -569,7 +569,7 @@ func TestGenAllMovesSingleBlank(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 
-	generator := NewGordonGenerator(gd)
+	generator := newGordonGenHardcode(gd)
 	setBoardToGame(generator, alph, VsEd)
 	generator.board.UpdateAllAnchors()
 	generator.board.GenAllCrossSets(gd, generator.bag)
@@ -585,7 +585,7 @@ func TestGenAllMovesTwoBlanksOnly(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 
-	generator := NewGordonGenerator(gd)
+	generator := newGordonGenHardcode(gd)
 	setBoardToGame(generator, alph, VsEd)
 	generator.board.UpdateAllAnchors()
 	generator.board.GenAllCrossSets(gd, generator.bag)
@@ -606,7 +606,7 @@ func TestGenAllMovesWithBlanks(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 
-	generator := NewGordonGenerator(gd)
+	generator := newGordonGenHardcode(gd)
 	setBoardToGame(generator, alph, VsJeremy)
 	generator.board.UpdateAllAnchors()
 	generator.board.GenAllCrossSets(gd, generator.bag)
@@ -628,7 +628,7 @@ func TestGiantTwentySevenTimer(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 
-	generator := NewGordonGenerator(gd)
+	generator := newGordonGenHardcode(gd)
 	setBoardToGame(generator, alph, VsOxy)
 	generator.board.UpdateAllAnchors()
 	generator.board.GenAllCrossSets(gd, generator.bag)
@@ -644,7 +644,7 @@ func TestGiantTwentySevenTimer(t *testing.T) {
 
 func TestGenerateEmptyBoard(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	generator := NewGordonGenerator(gd)
+	generator := newGordonGenHardcode(gd)
 	generator.board.UpdateAllAnchors()
 	generator.GenAll("DEGORV?")
 	if len(generator.plays) != 3313 {
@@ -656,12 +656,32 @@ func TestGenerateEmptyBoard(t *testing.T) {
 	}
 }
 
+func TestGenerateNoPlays(t *testing.T) {
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	alph := gd.GetAlphabet()
+
+	generator := newGordonGenHardcode(gd)
+	setBoardToGame(generator, alph, VsJeremy)
+	generator.board.UpdateAllAnchors()
+	generator.board.GenAllCrossSets(gd, generator.bag)
+	generator.GenAll("V")
+	// V won't play anywhere
+	if len(generator.plays) != 1 {
+		t.Errorf("Expected %v, got %v (%v) plays", 1, generator.plays,
+			len(generator.plays))
+	}
+	if generator.plays[0].action != MoveTypePass {
+		t.Errorf("Expected %v, got %v", MoveTypePass, generator.plays[0].action)
+	}
+
+}
+
 func BenchmarkGenEmptyBoard(b *testing.B) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		// 1.67ms per operation
-		generator := NewGordonGenerator(gd)
+		generator := newGordonGenHardcode(gd)
 		generator.board.UpdateAllAnchors()
 		generator.GenAll("AEINRST")
 	}
@@ -673,7 +693,7 @@ func BenchmarkGenFullRack(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		// 930 μs per operation on my macbook pro!! amazing!!!
-		generator := NewGordonGenerator(gd)
+		generator := newGordonGenHardcode(gd)
 		setBoardToGame(generator, alph, VsMatt)
 		generator.board.UpdateAllAnchors()
 		generator.board.GenAllCrossSets(gd, generator.bag)
@@ -687,7 +707,7 @@ func BenchmarkGenOneBlank(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		// 5.43 ms per operation on my macbook pro.
-		generator := NewGordonGenerator(gd)
+		generator := newGordonGenHardcode(gd)
 		setBoardToGame(generator, alph, VsJeremy)
 		generator.board.UpdateAllAnchors()
 		generator.board.GenAllCrossSets(gd, generator.bag)
@@ -701,10 +721,22 @@ func BenchmarkGenBothBlanks(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		// ~16.48ms per operation on my macbook pro.
-		generator := NewGordonGenerator(gd)
+		generator := newGordonGenHardcode(gd)
 		setBoardToGame(generator, alph, VsJeremy)
 		generator.board.UpdateAllAnchors()
 		generator.board.GenAllCrossSets(gd, generator.bag)
 		generator.GenAll("DDESW??")
+	}
+}
+func BenchmarkGenCrossSets(b *testing.B) {
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	alph := gd.GetAlphabet()
+	b.ResetTimer()
+	// 159 us
+	for i := 0; i < b.N; i++ {
+		generator := newGordonGenHardcode(gd)
+		setBoardToGame(generator, alph, VsOxy)
+		generator.board.UpdateAllAnchors()
+		generator.board.GenAllCrossSets(gd, generator.bag)
 	}
 }

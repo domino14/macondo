@@ -28,7 +28,7 @@ type GordonGenerator struct {
 	// curRow is the current row for which we are generating moves. Note
 	// that we are always thinking in terms of rows, and columns are the
 	// current anchor column. In order to generate vertical moves, we just
-	// transpose the `board`.g
+	// transpose the `board`.
 	curRowIdx     int8
 	curAnchorCol  int8
 	lastAnchorCol int8
@@ -41,14 +41,26 @@ type GordonGenerator struct {
 	numPossibleLetters uint8
 }
 
-// NewGordonGenerator returns a Gordon move generator.
-func NewGordonGenerator(gd gaddag.SimpleGaddag) *GordonGenerator {
+func newGordonGenHardcode(gd gaddag.SimpleGaddag) *GordonGenerator {
 	// Can change later
 	dist := lexicon.EnglishLetterDistribution()
 	bag := dist.MakeBag(gd.GetAlphabet())
 	gen := &GordonGenerator{
 		gaddag:             gd,
 		board:              board.MakeBoard(board.CrosswordGameBoard),
+		bag:                bag,
+		numPossibleLetters: gd.GetAlphabet().NumLetters(),
+	}
+	gen.board.SetAllCrosses()
+	return gen
+}
+
+// NewGordonGenerator returns a Gordon move generator.
+func NewGordonGenerator(gd gaddag.SimpleGaddag, bag lexicon.Bag,
+	board board.GameBoard) *GordonGenerator {
+	gen := &GordonGenerator{
+		gaddag:             gd,
+		board:              board,
 		bag:                bag,
 		numPossibleLetters: gd.GetAlphabet().NumLetters(),
 	}
@@ -158,7 +170,7 @@ func (gen *GordonGenerator) GoOn(curCol int8, L alphabet.MachineLetter, word alp
 
 		// Check to see if there is a letter directly to the left.
 		if gen.gaddag.InLetterSet(L, oldNodeIdx) && noLetterDirectlyLeft && gen.tilesPlayed > 0 {
-			gen.RecordPlay(word, curCol)
+			gen.RecordPlay(word, curCol, rack)
 		}
 		if newNodeIdx == 0 {
 			return
@@ -190,7 +202,7 @@ func (gen *GordonGenerator) GoOn(curCol int8, L alphabet.MachineLetter, word alp
 		noLetterDirectlyRight := curCol == int8(gen.board.Dim()-1) ||
 			gen.board.GetSquare(int(gen.curRowIdx), int(curCol+1)).IsEmpty()
 		if gen.gaddag.InLetterSet(L, oldNodeIdx) && noLetterDirectlyRight && gen.tilesPlayed > 0 {
-			gen.RecordPlay(word, curCol-int8(len(word))+1)
+			gen.RecordPlay(word, curCol-int8(len(word))+1, rack)
 		}
 		if newNodeIdx != 0 && curCol < int8(gen.board.Dim()-1) {
 			// There is room to the right
@@ -200,7 +212,8 @@ func (gen *GordonGenerator) GoOn(curCol int8, L alphabet.MachineLetter, word alp
 }
 
 // RecordPlay records a play.
-func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startCol int8) {
+func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startCol int8,
+	rack *Rack) {
 	row := uint8(gen.curRowIdx)
 	col := uint8(startCol)
 	if gen.vertical {
@@ -215,7 +228,8 @@ func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startCol int8)
 		action:      MoveTypePlay,
 		score:       gen.scoreMove(word, startCol),
 		desc:        "foo",
-		word:        wordCopy,
+		tiles:       wordCopy,
+		leave:       rack.tilesOn(gen.numPossibleLetters),
 		vertical:    gen.vertical,
 		bingo:       gen.tilesPlayed == 7,
 		tilesPlayed: gen.tilesPlayed,
@@ -248,14 +262,17 @@ func (gen *GordonGenerator) dedupeAndSortPlays() {
 	// Everything after element i is duplicate plays.
 	gen.plays = gen.plays[:i]
 	sort.Sort(ByScore(gen.plays))
+
+	if len(gen.plays) == 0 {
+		gen.plays = append(gen.plays, generatePassMove())
+	}
 }
 
 func (gen *GordonGenerator) crossDirection() board.BoardDirection {
 	if gen.vertical {
 		return board.HorizontalDirection
-	} else {
-		return board.VerticalDirection
 	}
+	return board.VerticalDirection
 }
 
 func (gen *GordonGenerator) scoreMove(word alphabet.MachineWord, col int8) int {

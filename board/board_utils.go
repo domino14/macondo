@@ -6,6 +6,8 @@ import (
 	"github.com/domino14/macondo/alphabet"
 )
 
+var boardPlaintextRegex = regexp.MustCompile(`\|([[:print:]]+)\|`)
+
 func (g *GameBoard) toDisplayText(alph *alphabet.Alphabet) string {
 	var str string
 	n := g.Dim()
@@ -22,8 +24,7 @@ func (g *GameBoard) toDisplayText(alph *alphabet.Alphabet) string {
 func (g *GameBoard) SetFromPlaintext(qText string, alph *alphabet.Alphabet) {
 	// Take a Quackle Plaintext Board and turn it into an internal structure.
 	// (Another alternative later is to implement GCG)
-	regex := regexp.MustCompile(`\|([[:print:]]+)\|`)
-	result := regex.FindAllStringSubmatch(qText, -1)
+	result := boardPlaintextRegex.FindAllStringSubmatch(qText, -1)
 	if len(result) != 15 {
 		panic("Wrongly implemented")
 	}

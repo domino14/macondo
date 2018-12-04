@@ -7,7 +7,9 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/gaddag"
+	"github.com/domino14/macondo/lexicon"
 	"github.com/domino14/macondo/movegen"
 )
 
@@ -16,26 +18,44 @@ type XWordGame struct {
 	// The movegen has the tilebag in it. Maybe eventually we will move it.
 	movegen *movegen.GordonGenerator
 	players []Player
+	board   board.GameBoard
+	bag     lexicon.Bag
+	gaddag  gaddag.SimpleGaddag
 }
 
 // Init initializes the crossword game and seeds the random number generator.
 func (game *XWordGame) Init(gd gaddag.SimpleGaddag) {
-	game.movegen = movegen.NewGordonGenerator(gd)
-	game.players = []Player{
-		{&movegen.Rack{}, "player1"},
-		{&movegen.Rack{}, "player2"},
-	}
+
+	game.board = board.MakeBoard(board.CrosswordGameBoard)
+	dist := lexicon.EnglishLetterDistribution()
+	game.bag = dist.MakeBag(gd.GetAlphabet())
+	game.gaddag = gd
+	game.movegen = movegen.NewGordonGenerator(gd, game.bag, game.board)
+
 	rand.Seed(time.Now().UTC().UnixNano())
 }
 
 // StartGame determines a starting player and deals out the first set of tiles.
 func (game *XWordGame) StartGame() {
-	// game.movegen.
+	game.players = []Player{
+		{"", "player1"},
+		{"", "player2"},
+	}
+	game.board.UpdateAllAnchors()
+	for i := 0; i < 2; i++ {
+		rack, _ := game.bag.Draw(7)
+		game.players[i].rack = string(rack)
+	}
 }
 
-// PlayBestTurn generates the best move for the player and plays it on the
-// board.
-func (game *XWordGame) PlayBestTurn(playerID int) {
+// PlayBestStaticTurn generates the best static move for the player and
+// plays it on the board.
+func (game *XWordGame) PlayBestStaticTurn(playerID int) {
+	game.movegen.GenAll(game.players[playerID].rack)
+	game.PlayMove(game.movegen.Plays()[0])
+}
+
+func (game *XWordGame) PlayMove(move *movegen.Move) {
 
 }
 

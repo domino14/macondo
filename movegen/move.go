@@ -28,7 +28,8 @@ type Move struct {
 	equity      int
 	desc        string
 	coords      string
-	word        alphabet.MachineWord
+	tiles       alphabet.MachineWord
+	leave       alphabet.MachineWord
 	rowStart    uint8
 	colStart    uint8
 	vertical    bool
@@ -37,23 +38,39 @@ type Move struct {
 	alph        *alphabet.Alphabet
 }
 
+// ByScore is a helper type to help sort moves by score.
 type ByScore []*Move
 
 func (a ByScore) Len() int           { return len(a) }
 func (a ByScore) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ByScore) Less(i, j int) bool { return a[i].score > a[j].score }
 
+// ByEquity is a helper type to help sort moves by equity.
+type ByEquity []*Move
+
+func (a ByEquity) Len() int           { return len(a) }
+func (a ByEquity) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByEquity) Less(i, j int) bool { return a[i].equity > a[j].equity }
+
 func (m Move) String() string {
-	return fmt.Sprintf("<action: %v word: %v %v (%v) score: %v tp: %v vert: %v>",
-		m.action, m.coords, m.word, m.word.UserVisible(m.alph), m.score,
-		m.tilesPlayed, m.vertical)
+	switch m.action {
+	case MoveTypePlay:
+		return fmt.Sprintf(
+			"<action: play word: %v %v (%v) score: %v tp: %v vert: %v>",
+			m.coords, m.tiles, m.tiles.UserVisible(m.alph), m.score,
+			m.tilesPlayed, m.vertical)
+	case MoveTypePass:
+		return fmt.Sprint("<action: pass>")
+	}
+	return fmt.Sprint("<Unhandled move>")
+
 }
 
 func (m Move) uniqueSingleTileKey() int {
 	// Find the tile.
 	var idx int
 	var ml alphabet.MachineLetter
-	for idx, ml = range m.word {
+	for idx, ml = range m.tiles {
 		if ml != alphabet.PlayedThroughMarker {
 			break
 		}
@@ -84,4 +101,10 @@ func toBoardGameCoords(row uint8, col uint8, vertical bool) string {
 		coords = rowCoords + colCoords
 	}
 	return coords
+}
+
+func generatePassMove() *Move {
+	return &Move{
+		action: MoveTypePass,
+	}
 }
