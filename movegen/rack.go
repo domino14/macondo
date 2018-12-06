@@ -13,7 +13,7 @@ const BlankCharacter = '?'
 type Rack struct {
 	// letArr is an array of letter codes from 0 to MaxAlphabetSize.
 	// The blank can go at the MaxAlphabetSize place.
-	LetArr     []alphabet.MachineLetter
+	LetArr     []int
 	empty      bool
 	numLetters uint8
 	alphabet   *alphabet.Alphabet
@@ -23,7 +23,7 @@ type Rack struct {
 
 // Initialize a rack from a string
 func (r *Rack) Initialize(rack string, a *alphabet.Alphabet) {
-	r.LetArr = make([]alphabet.MachineLetter, alphabet.MaxAlphabetSize+1)
+	r.LetArr = make([]int, alphabet.MaxAlphabetSize+1)
 	r.alphabet = a
 	for _, c := range rack {
 		if c != BlankCharacter {
@@ -67,12 +67,19 @@ func (r *Rack) tilesOn(numPossibleLetters int) alphabet.MachineWord {
 	}
 	letters := make([]alphabet.MachineLetter, r.numLetters)
 	ct := 0
-	for i := 0; i < numPossibleLetters; i++ {
+	var i alphabet.MachineLetter
+	for i = 0; i < alphabet.MachineLetter(numPossibleLetters); i++ {
 		if r.LetArr[i] > 0 {
-			for j := alphabet.MachineLetter(0); j < r.LetArr[i]; j++ {
-				letters[ct] = j
+			for j := 0; j < r.LetArr[i]; j++ {
+				letters[ct] = i
 				ct++
 			}
+		}
+	}
+	if r.LetArr[alphabet.BlankMachineLetter] > 0 {
+		for j := 0; j < r.LetArr[alphabet.BlankMachineLetter]; j++ {
+			letters[ct] = alphabet.BlankMachineLetter
+			ct++
 		}
 	}
 	return alphabet.MachineWord(letters)

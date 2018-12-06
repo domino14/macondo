@@ -229,7 +229,7 @@ func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startCol int8,
 		score:       gen.scoreMove(word, startCol),
 		desc:        "foo",
 		tiles:       wordCopy,
-		leave:       rack.tilesOn(gen.numPossibleLetters),
+		leave:       rack.tilesOn(int(gen.numPossibleLetters)),
 		vertical:    gen.vertical,
 		bingo:       gen.tilesPlayed == 7,
 		tilesPlayed: gen.tilesPlayed,
@@ -238,6 +238,7 @@ func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startCol int8,
 		rowStart:    uint8(gen.curRowIdx),
 		coords:      coords,
 	}
+
 	gen.plays = append(gen.plays, play)
 }
 

@@ -76,9 +76,10 @@ func (ml MachineLetter) UserVisible(alph *Alphabet) rune {
 		return unicode.ToLower(alph.Letter(ml - BlankOffset))
 	} else if ml == PlayedThroughMarker {
 		return ASCIIPlayedThrough
-	} else {
-		return alph.Letter(ml)
+	} else if ml == BlankMachineLetter {
+		return '?'
 	}
+	return alph.Letter(ml)
 }
 
 // MachineWord is an array of MachineLetters
