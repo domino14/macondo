@@ -1,4 +1,4 @@
-package movegen
+package move
 
 import "testing"
 

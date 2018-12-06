@@ -56,7 +56,12 @@ func (game *XWordGame) PlayBestStaticTurn(playerID int) {
 }
 
 func (game *XWordGame) PlayMove(move *movegen.Move) {
-
+	switch move.Action() {
+	case movegen.MoveTypePlay:
+		game.board.PlayMove(move)
+	case movegen.MoveTypePass:
+		// something here.
+	}
 }
 
 /*

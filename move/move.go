@@ -1,4 +1,4 @@
-package movegen
+package move
 
 import (
 	"fmt"
@@ -66,7 +66,39 @@ func (m Move) String() string {
 
 }
 
-func (m Move) uniqueSingleTileKey() int {
+func (m Move) Action() MoveType {
+	return m.action
+}
+
+func (m Move) TilesPlayed() uint8 {
+	return m.tilesPlayed
+}
+
+func NewScoringMove(score int, tiles alphabet.MachineWord,
+	leave alphabet.MachineWord, vertical bool, tilesPlayed uint8,
+	alph *alphabet.Alphabet, rowStart uint8, colStart uint8, coords string) *Move {
+
+	move := &Move{
+		action: MoveTypePlay, score: score, tiles: tiles, leave: leave, vertical: vertical,
+		bingo: tilesPlayed == 7, tilesPlayed: tilesPlayed, alph: alph,
+		rowStart: rowStart, colStart: colStart, coords: coords,
+	}
+	return move
+}
+
+func (m Move) Score() int {
+	return m.score
+}
+
+func (m Move) Leave() alphabet.MachineWord {
+	return m.leave
+}
+
+func (m Move) Tiles() alphabet.MachineWord {
+	return m.tiles
+}
+
+func (m Move) UniqueSingleTileKey() int {
 	// Find the tile.
 	var idx int
 	var ml alphabet.MachineLetter
@@ -91,7 +123,11 @@ func (m Move) uniqueSingleTileKey() int {
 		alphabet.MaxAlphabetSize*alphabet.MaxAlphabetSize*int(ml)
 }
 
-func toBoardGameCoords(row uint8, col uint8, vertical bool) string {
+func (m *Move) CoordsAndVertical() (uint8, uint8, bool) {
+	return m.rowStart, m.colStart, m.vertical
+}
+
+func ToBoardGameCoords(row uint8, col uint8, vertical bool) string {
 	colCoords := string(rune('A' + col))
 	rowCoords := strconv.Itoa(int(row + 1))
 	var coords string
@@ -103,7 +139,7 @@ func toBoardGameCoords(row uint8, col uint8, vertical bool) string {
 	return coords
 }
 
-func generatePassMove() *Move {
+func NewPassMove() *Move {
 	return &Move{
 		action: MoveTypePass,
 	}

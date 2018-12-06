@@ -1,6 +1,10 @@
 package board
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/domino14/macondo/move"
+)
 
 func BenchmarkBoardTranspose(b *testing.B) {
 	// Roughly 270 ns per transpose on my 2013 macbook pro. Two transpositions
@@ -13,4 +17,8 @@ func BenchmarkBoardTranspose(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		board.Transpose()
 	}
+}
+
+func TestPlayMove(t *testing.T) {
+	move := move.NewScoringMove()
 }

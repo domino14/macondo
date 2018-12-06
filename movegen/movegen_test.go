@@ -9,6 +9,7 @@ import (
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
+	"github.com/domino14/macondo/move"
 )
 
 type VsWho uint8
@@ -133,11 +134,11 @@ func TestGenThroughBothWaysAllowedLetters(t *testing.T) {
 			len(generator.plays), 1)
 	}
 	m := generator.plays[0]
-	if m.tiles.UserVisible(gd.GetAlphabet()) != "HI.......T" {
-		t.Errorf("Got the wrong word: %v", m.tiles.UserVisible(gd.GetAlphabet()))
+	if m.Tiles().UserVisible(gd.GetAlphabet()) != "HI.......T" {
+		t.Errorf("Got the wrong word: %v", m.Tiles().UserVisible(gd.GetAlphabet()))
 	}
-	if m.leave.UserVisible(gd.GetAlphabet()) != "ABEN" {
-		t.Errorf("Got the wrong leave: %v", m.leave.UserVisible(gd.GetAlphabet()))
+	if m.Leave().UserVisible(gd.GetAlphabet()) != "ABEN" {
+		t.Errorf("Got the wrong leave: %v", m.Leave().UserVisible(gd.GetAlphabet()))
 	}
 }
 
@@ -281,13 +282,13 @@ func TestRowGen(t *testing.T) {
 		t.Errorf("Generated %v plays (%v), expected len=%v", generator.plays,
 			len(generator.plays), 2)
 	}
-	if generator.plays[0].leave.UserVisible(gd.GetAlphabet()) != "AEST" {
+	if generator.plays[0].Leave().UserVisible(gd.GetAlphabet()) != "AEST" {
 		t.Errorf("Leave was wrong: %v",
-			generator.plays[0].leave.UserVisible(gd.GetAlphabet()))
+			generator.plays[0].Leave().UserVisible(gd.GetAlphabet()))
 	}
-	if generator.plays[1].leave.UserVisible(gd.GetAlphabet()) != "AAIST" {
+	if generator.plays[1].Leave().UserVisible(gd.GetAlphabet()) != "AAIST" {
 		t.Errorf("Leave was wrong: %v",
-			generator.plays[0].leave.UserVisible(gd.GetAlphabet()))
+			generator.plays[0].Leave().UserVisible(gd.GetAlphabet()))
 	}
 }
 
@@ -309,9 +310,9 @@ func TestOtherRowGen(t *testing.T) {
 			len(generator.plays), 1)
 	}
 	m := generator.plays[0]
-	if m.tiles.UserVisible(gd.GetAlphabet()) != "A......" {
+	if m.Tiles().UserVisible(gd.GetAlphabet()) != "A......" {
 		t.Errorf("Expected proper play-through markers (A......), got %v",
-			m.tiles.UserVisible(gd.GetAlphabet()))
+			m.Tiles().UserVisible(gd.GetAlphabet()))
 	}
 }
 
@@ -536,8 +537,8 @@ func TestGenAllMovesFullRack(t *testing.T) {
 	}
 	highestScores := []int{38, 36, 36, 34, 34, 33, 30, 30, 30, 28}
 	for idx, score := range highestScores {
-		if generator.plays[idx].score != score {
-			t.Errorf("Expected %v, got %v", score, generator.plays[idx].score)
+		if generator.plays[idx].Score() != score {
+			t.Errorf("Expected %v, got %v", score, generator.plays[idx].Score())
 		}
 	}
 }
@@ -612,32 +613,32 @@ func TestGenAllMovesWithBlanks(t *testing.T) {
 		t.Errorf("Expected %v, got %v (%v) plays", 8297, generator.plays,
 			len(generator.plays))
 	}
-	if generator.plays[0].score != 106 { // hEaDW(OR)DS!
-		t.Errorf("Expected %v, got %v", 106, generator.plays[0].score)
+	if generator.plays[0].Score() != 106 { // hEaDW(OR)DS!
+		t.Errorf("Expected %v, got %v", 106, generator.plays[0].Score())
 	}
-	if generator.plays[0].leave.UserVisible(alph) != "" {
+	if generator.plays[0].Leave().UserVisible(alph) != "" {
 		t.Errorf("Expected bingo leave to be empty!")
 	}
-	if generator.plays[1].leave.UserVisible(alph) != "S" {
+	if generator.plays[1].Leave().UserVisible(alph) != "S" {
 		t.Errorf("Expected second-highest play to keep an S, leave was: %v",
-			generator.plays[1].leave.UserVisible(alph))
+			generator.plays[1].Leave().UserVisible(alph))
 	}
 	// There are 7 plays worth 32 pts.
 	rewards := 0
 	for i := 2; i < 9; i++ {
-		if generator.plays[i].score != 32 {
+		if generator.plays[i].Score() != 32 {
 			t.Errorf("Expected play to be worth 32 pts.")
 		}
-		if generator.plays[i].tiles.UserVisible(alph) == "rEW..DS" {
+		if generator.plays[i].Tiles().UserVisible(alph) == "rEW..DS" {
 			rewards = i
 		}
 	}
 	if rewards == 0 {
 		t.Errorf("shoulda found rewards")
 	}
-	if generator.plays[rewards].leave.UserVisible(alph) != "D?" {
+	if generator.plays[rewards].Leave().UserVisible(alph) != "D?" {
 		t.Errorf("Leave was wrong, got %v",
-			generator.plays[rewards].leave.UserVisible(alph))
+			generator.plays[rewards].Leave().UserVisible(alph))
 	}
 }
 
@@ -654,10 +655,10 @@ func TestGiantTwentySevenTimer(t *testing.T) {
 		t.Errorf("Expected %v, got %v (%v) plays", 519, generator.plays,
 			len(generator.plays))
 	}
-	if generator.plays[0].score != 1780 { // oxyphenbutazone
-		t.Errorf("Expected %v, got %v", 1780, generator.plays[0].score)
+	if generator.plays[0].Score() != 1780 { // oxyphenbutazone
+		t.Errorf("Expected %v, got %v", 1780, generator.plays[0].Score())
 	}
-	if generator.plays[0].leave.UserVisible(alph) != "" {
+	if generator.plays[0].Leave().UserVisible(alph) != "" {
 		t.Errorf("Expected bingo leave to be empty!")
 	}
 }
@@ -671,10 +672,10 @@ func TestGenerateEmptyBoard(t *testing.T) {
 		t.Errorf("Expected %v, got %v (%v) plays", 3313, generator.plays,
 			len(generator.plays))
 	}
-	if generator.plays[0].score != 80 { // overdog
-		t.Errorf("Expected %v, got %v", 80, generator.plays[0].score)
+	if generator.plays[0].Score() != 80 { // overdog
+		t.Errorf("Expected %v, got %v", 80, generator.plays[0].Score())
 	}
-	if generator.plays[0].leave.UserVisible(gd.GetAlphabet()) != "" {
+	if generator.plays[0].Leave().UserVisible(gd.GetAlphabet()) != "" {
 		t.Errorf("Expected bingo leave to be empty!")
 	}
 }
@@ -693,8 +694,8 @@ func TestGenerateNoPlays(t *testing.T) {
 		t.Errorf("Expected %v, got %v (%v) plays", 1, generator.plays,
 			len(generator.plays))
 	}
-	if generator.plays[0].action != MoveTypePass {
-		t.Errorf("Expected %v, got %v", MoveTypePass, generator.plays[0].action)
+	if generator.plays[0].Action() != move.MoveTypePass {
+		t.Errorf("Expected %v, got %v", move.MoveTypePass, generator.plays[0].Action())
 	}
 
 }

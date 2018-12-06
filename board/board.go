@@ -6,6 +6,7 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/lexicon"
+	"github.com/domino14/macondo/move"
 )
 
 type BoardDirection uint8
@@ -363,4 +364,23 @@ func (g *GameBoard) traverseBackwards(row int, col int, nodeIdx uint32,
 	}
 
 	return nodeIdx, true
+}
+
+// PlayMove plays a move on a board.
+func (g *GameBoard) PlayMove(move *move.Move) {
+	// Place tiles on the board, and regenerate cross-sets and cross-points.
+	// recalculate anchors tooo
+	rowStart, colStart, vertical := move.CoordsAndVertical()
+	var row, col uint8
+	for idx, tile := range move.Tiles() {
+		if tile == alphabet.PlayedThroughMarker {
+			continue
+		}
+		if vertical {
+			row = rowStart + uint8(idx)
+		} else {
+			col = colStart + uint8(idx)
+		}
+		g.squares[row][col].letter = tile
+	}
 }
