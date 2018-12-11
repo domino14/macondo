@@ -53,7 +53,6 @@ func (c *CrossSet) clear() {
 
 func (b *GameBoard) updateCrossSetsForMove(m *move.Move) {
 	// rowStart, colStart, vertical := m.CoordsAndVertical()
-
 }
 
 // GenAllCrossSets generates all cross-sets. It goes through the entire

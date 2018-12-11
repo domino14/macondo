@@ -1,6 +1,7 @@
 package board
 
 import (
+	"log"
 	"regexp"
 
 	"github.com/domino14/macondo/alphabet"
@@ -43,6 +44,23 @@ func (g *GameBoard) SetFromPlaintext(qText string, alph *alphabet.Alphabet) {
 			} else {
 				g.hasTiles = true
 			}
+		}
+	}
+}
+
+func (b *GameBoard) SetRow(rowNum int8, letters string, alph *alphabet.Alphabet) {
+	// Set the row in board to the passed in letters array.
+	for idx := 0; idx < b.Dim(); idx++ {
+		b.SetLetter(int(rowNum), idx, alphabet.EmptySquareMarker)
+	}
+	for idx, r := range letters {
+		if r != ' ' {
+			letter, err := alph.Val(r)
+			if err != nil {
+				log.Fatalf(err.Error())
+			}
+			b.SetLetter(int(rowNum), idx, letter)
+
 		}
 	}
 }

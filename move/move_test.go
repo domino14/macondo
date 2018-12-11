@@ -22,7 +22,7 @@ var coordTests = []coordTestStruct{
 
 func TestToBoardGameCoords(t *testing.T) {
 	for _, tc := range coordTests {
-		calc := toBoardGameCoords(tc.row, tc.col, tc.vertical)
+		calc := ToBoardGameCoords(tc.row, tc.col, tc.vertical)
 		if calc != tc.output {
 			t.Errorf("For row=%v col=%v vertical=%v got %v, expected %v",
 				tc.row, tc.col, tc.vertical, calc, tc.output)
