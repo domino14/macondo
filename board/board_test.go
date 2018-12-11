@@ -2,8 +2,6 @@ package board
 
 import (
 	"testing"
-
-	"github.com/domino14/macondo/move"
 )
 
 func BenchmarkBoardTranspose(b *testing.B) {
@@ -20,5 +18,5 @@ func BenchmarkBoardTranspose(b *testing.B) {
 }
 
 func TestPlayMove(t *testing.T) {
-	move := move.NewScoringMove()
+	// move := move.NewScoringMove()
 }

@@ -5,6 +5,7 @@ import (
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/lexicon"
+	"github.com/domino14/macondo/move"
 )
 
 const (
@@ -50,6 +51,11 @@ func (c *CrossSet) clear() {
 	*c = 0
 }
 
+func (b *GameBoard) updateCrossSetsForMove(m *move.Move) {
+	// rowStart, colStart, vertical := m.CoordsAndVertical()
+
+}
+
 // GenAllCrossSets generates all cross-sets. It goes through the entire
 // board; our anchor algorithm doesn't quite match the one in the Gordon
 // paper.
@@ -59,23 +65,13 @@ func (b *GameBoard) GenAllCrossSets(gaddag gaddag.SimpleGaddag, bag lexicon.Bag)
 	n := b.Dim()
 	for i := 0; i < n; i++ {
 		for j := 0; j < n; j++ {
-			if !b.squares[i][j].IsEmpty() {
-				b.squares[i][j].setCrossSet(CrossSet(0), HorizontalDirection)
-				b.squares[i][j].setCrossScore(0, HorizontalDirection)
-			} else {
-				b.GenCrossSet(i, j, HorizontalDirection, gaddag, bag)
-			}
+			b.GenCrossSet(i, j, HorizontalDirection, gaddag, bag)
 		}
 	}
 	b.Transpose()
 	for i := 0; i < n; i++ {
 		for j := 0; j < n; j++ {
-			if !b.squares[i][j].IsEmpty() {
-				b.squares[i][j].setCrossSet(CrossSet(0), VerticalDirection)
-				b.squares[i][j].setCrossScore(0, VerticalDirection)
-			} else {
-				b.GenCrossSet(i, j, VerticalDirection, gaddag, bag)
-			}
+			b.GenCrossSet(i, j, VerticalDirection, gaddag, bag)
 		}
 	}
 	// And transpose back to the original orientation.
@@ -87,6 +83,11 @@ func (b *GameBoard) GenCrossSet(row int, col int, dir BoardDirection,
 	// This function is always called for empty squares.
 	// If there's no tile adjacent to this square in any direction,
 	// every letter is allowed.
+	if !b.squares[row][col].IsEmpty() {
+		b.squares[row][col].setCrossSet(CrossSet(0), dir)
+		b.squares[row][col].setCrossScore(0, dir)
+		return
+	}
 	if b.leftAndRightEmpty(row, col) {
 		b.squares[row][col].setCrossSet(TrivialCrossSet, dir)
 		b.squares[row][col].setCrossScore(0, dir)

@@ -106,6 +106,23 @@ func (s *Square) getCrossScore(dir BoardDirection) int {
 	return 0
 }
 
+func (s *Square) setAnchor(dir BoardDirection, transpose bool) {
+	// is there a smarter way of doing this?
+	if !transpose {
+		if dir == HorizontalDirection {
+			s.hAnchor = true
+		} else if dir == VerticalDirection {
+			s.vAnchor = true
+		}
+	} else {
+		if dir == HorizontalDirection {
+			s.vAnchor = true
+		} else if dir == VerticalDirection {
+			s.hAnchor = true
+		}
+	}
+}
+
 func (s *Square) IsEmpty() bool {
 	return s.letter == alphabet.EmptySquareMarker
 }
@@ -198,6 +215,7 @@ func (g *GameBoard) Transpose() {
 			g.squares[i][j], g.squares[j][i] = g.squares[j][i], g.squares[i][j]
 		}
 	}
+	g.transposed = !g.transposed
 }
 
 // SetAllCrosses sets the cross sets of every square to every acceptable letter.
@@ -222,6 +240,7 @@ func (g *GameBoard) ClearAllCrosses() {
 		}
 	}
 }
+
 func (g *GameBoard) updateAnchors(row int, col int) {
 	var tileAbove, tileBelow, tileLeft, tileRight, tileHere bool
 	if row > 0 {
@@ -244,22 +263,22 @@ func (g *GameBoard) updateAnchors(row int, col int) {
 		// Gordon does not have this requirement, but the algorithm does
 		// not work if we don't do this)
 		if !tileRight {
-			g.squares[row][col].hAnchor = true
+			g.squares[row][col].setAnchor(HorizontalDirection, g.transposed)
 		}
 		// Apply the transverse logic too for the vertical anchor.
 		if !tileBelow {
-			g.squares[row][col].vAnchor = true
+			g.squares[row][col].setAnchor(VerticalDirection, g.transposed)
 		}
 	} else {
 		// If the square is empty, it should only be an anchor if the
 		// squares to its left and right are empty, and one of the squares
 		// in the top and bottom are NOT empty.
 		if !tileLeft && !tileRight && (tileAbove || tileBelow) {
-			g.squares[row][col].hAnchor = true
+			g.squares[row][col].setAnchor(HorizontalDirection, g.transposed)
 		}
 		// (And apply the transverse logic for the vertical anchor)
 		if !tileAbove && !tileBelow && (tileLeft || tileRight) {
-			g.squares[row][col].vAnchor = true
+			g.squares[row][col].setAnchor(VerticalDirection, g.transposed)
 		}
 	}
 }
@@ -366,13 +385,45 @@ func (g *GameBoard) traverseBackwards(row int, col int, nodeIdx uint32,
 	return nodeIdx, true
 }
 
+func (g *GameBoard) updateAnchorsForMove(m *move.Move) {
+	row, col, vertical := m.CoordsAndVertical()
+	if vertical {
+		// Transpose the board to simplify the logic a bit.
+		g.Transpose()
+		col, row = row, col
+	}
+
+	// Update anchors all around the play.
+	for i := col; i < uint8(len(m.Tiles()))+col; i++ {
+		g.updateAnchors(int(row), int(i))
+		if row > 0 {
+			g.updateAnchors(int(row-1), int(i))
+		}
+		if int(row) < g.Dim() {
+			g.updateAnchors(int(row+1), int(i))
+		}
+	}
+
+	if col-1 >= 0 {
+		g.updateAnchors(int(row), int(col-1))
+	}
+	if len(m.Tiles())+int(col) < g.Dim() {
+		g.updateAnchors(int(row), int(col)+len(m.Tiles()))
+	}
+
+	// Transpose the board back if the move was vertical.
+	if vertical {
+		g.Transpose()
+	}
+}
+
 // PlayMove plays a move on a board.
-func (g *GameBoard) PlayMove(move *move.Move) {
+func (g *GameBoard) PlayMove(m *move.Move) {
 	// Place tiles on the board, and regenerate cross-sets and cross-points.
 	// recalculate anchors tooo
-	rowStart, colStart, vertical := move.CoordsAndVertical()
+	rowStart, colStart, vertical := m.CoordsAndVertical()
 	var row, col uint8
-	for idx, tile := range move.Tiles() {
+	for idx, tile := range m.Tiles() {
 		if tile == alphabet.PlayedThroughMarker {
 			continue
 		}
@@ -383,4 +434,8 @@ func (g *GameBoard) PlayMove(move *move.Move) {
 		}
 		g.squares[row][col].letter = tile
 	}
+	// Calculate anchors.
+	g.updateAnchorsForMove(m)
+	// Calculate cross-sets.
+	g.updateCrossSetsForMove(m)
 }

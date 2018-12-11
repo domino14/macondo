@@ -10,6 +10,7 @@ import (
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/lexicon"
+	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 )
 
@@ -55,12 +56,13 @@ func (game *XWordGame) PlayBestStaticTurn(playerID int) {
 	game.PlayMove(game.movegen.Plays()[0])
 }
 
-func (game *XWordGame) PlayMove(move *movegen.Move) {
-	switch move.Action() {
-	case movegen.MoveTypePlay:
-		game.board.PlayMove(move)
-	case movegen.MoveTypePass:
+func (game *XWordGame) PlayMove(m *move.Move) {
+	switch m.Action() {
+	case move.MoveTypePlay:
+		game.board.PlayMove(m)
+	case move.MoveTypePass:
 		// something here.
+
 	}
 }
 
