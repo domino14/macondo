@@ -116,28 +116,6 @@ func TestGenThroughBothWaysAllowedLetters(t *testing.T) {
 	}
 }
 
-func TestUpdateAnchors(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	generator := newGordonGenHardcode(gd)
-	generator.board.SetBoardToGame(gd.GetAlphabet(), board.VsEd)
-
-	generator.board.UpdateAllAnchors()
-
-	if generator.board.IsAnchor(3, 3, board.HorizontalDirection) ||
-		generator.board.IsAnchor(3, 3, board.VerticalDirection) {
-		t.Errorf("Should not be an anchor at all")
-	}
-	if !generator.board.IsAnchor(12, 12, board.HorizontalDirection) ||
-		!generator.board.IsAnchor(12, 12, board.VerticalDirection) {
-		t.Errorf("Should be a two-way anchor")
-	}
-	if !generator.board.IsAnchor(4, 3, board.VerticalDirection) ||
-		generator.board.IsAnchor(4, 3, board.HorizontalDirection) {
-		t.Errorf("Should be a vertical but not horizontal anchor")
-	}
-	// I could do more but it's all right for now?
-}
-
 func TestRowGen(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	generator := newGordonGenHardcode(gd)
@@ -462,17 +440,5 @@ func BenchmarkGenBothBlanks(b *testing.B) {
 		generator.board.UpdateAllAnchors()
 		generator.board.GenAllCrossSets(gd, generator.bag)
 		generator.GenAll("DDESW??")
-	}
-}
-func BenchmarkGenCrossSets(b *testing.B) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	alph := gd.GetAlphabet()
-	b.ResetTimer()
-	// 159 us
-	for i := 0; i < b.N; i++ {
-		generator := newGordonGenHardcode(gd)
-		generator.board.SetBoardToGame(alph, board.VsOxy)
-		generator.board.UpdateAllAnchors()
-		generator.board.GenAllCrossSets(gd, generator.bag)
 	}
 }

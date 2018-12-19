@@ -1,8 +1,12 @@
 package board
 
 import (
+	"fmt"
+	"log"
 	"os"
 	"testing"
+
+	"github.com/domino14/macondo/move"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
@@ -209,6 +213,8 @@ func TestGenAllCrossSets(t *testing.T) {
 		{11, 8, CrossSetFromString("AEOU", alph), VerticalDirection, 1},
 		{1, 8, CrossSetFromString("AEO", alph), HorizontalDirection, 1},
 		{1, 8, CrossSetFromString("DFHLMNRSTX", alph), VerticalDirection, 1},
+		{10, 10, CrossSetFromString("E", alph), HorizontalDirection, 11},
+		{10, 10, TrivialCrossSet, VerticalDirection, 0},
 	}
 	for idx, tc := range testCases {
 		// Compare values
@@ -223,4 +229,137 @@ func TestGenAllCrossSets(t *testing.T) {
 				b.GetCrossScore(tc.row, tc.col, tc.dir))
 		}
 	}
+}
+
+func TestBoardsEqual(t *testing.T) {
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	alph := gd.GetAlphabet()
+	dist := lexicon.EnglishLetterDistribution()
+	bag := dist.MakeBag(gd.GetAlphabet())
+
+	b := MakeBoard(CrosswordGameBoard)
+	b.SetBoardToGame(alph, VsMatt)
+	b.GenAllCrossSets(gd, bag)
+
+	c := MakeBoard(CrosswordGameBoard)
+	c.SetBoardToGame(alph, VsMatt)
+	c.GenAllCrossSets(gd, bag)
+
+	if !b.equals(c) {
+		log.Printf("Boards should be identical but they aren't")
+	}
+}
+
+func TestUpdateCrossSetsForMove(t *testing.T) {
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	alph := gd.GetAlphabet()
+	dist := lexicon.EnglishLetterDistribution()
+	bag := dist.MakeBag(gd.GetAlphabet())
+	b := MakeBoard(CrosswordGameBoard)
+	b.SetBoardToGame(alph, VsMatt)
+	b.GenAllCrossSets(gd, bag)
+	b.UpdateAllAnchors()
+
+	// create a move.
+	m := move.NewScoringMove(
+		38,
+		alphabet.MachineWord([]alphabet.MachineLetter{19, 0, 4, 11}), // TAEL
+		alphabet.MachineWord([]alphabet.MachineLetter{0, 1, 3}),
+		true,
+		4,
+		alph,
+		8, 10, "K9")
+	b.PlayMove(m, gd, bag)
+
+	// Create an identical board, but generate cross-sets for the entire
+	// board after placing the letters "manually".
+
+	c := MakeBoard(CrosswordGameBoard)
+	c.SetBoardToGame(alph, VsMatt)
+	c.squares[8][10].letter = 19
+	c.squares[9][10].letter = 0
+	c.squares[10][10].letter = 4
+	c.squares[11][10].letter = 11
+	c.GenAllCrossSets(gd, bag)
+	c.UpdateAllAnchors()
+
+	if !b.equals(c) {
+		t.Errorf("Boards did not equal each other")
+	}
+}
+
+func TestUpdateSingleCrossSet(t *testing.T) {
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	alph := gd.GetAlphabet()
+	dist := lexicon.EnglishLetterDistribution()
+	bag := dist.MakeBag(gd.GetAlphabet())
+	b := MakeBoard(CrosswordGameBoard)
+	b.SetBoardToGame(alph, VsMatt)
+	b.GenAllCrossSets(gd, bag)
+
+	b.squares[8][10].letter = 19
+	b.squares[9][10].letter = 0
+	b.squares[10][10].letter = 4
+	b.squares[11][10].letter = 11
+	fmt.Println(b.toDisplayText(alph))
+	b.GenCrossSet(7, 10, HorizontalDirection, gd, bag)
+	b.Transpose()
+	b.GenCrossSet(10, 7, VerticalDirection, gd, bag)
+	b.Transpose()
+
+	if b.GetCrossSet(7, 10, HorizontalDirection) != CrossSet(0) {
+		t.Errorf("Expected 0, was %v",
+			b.GetCrossSet(7, 10, HorizontalDirection))
+	}
+	if b.GetCrossSet(7, 10, VerticalDirection) != CrossSet(0) {
+		t.Errorf("Expected 0, was %v",
+			b.GetCrossSet(7, 10, VerticalDirection))
+	}
+}
+
+func BenchmarkGenAnchorsAndCrossSets(b *testing.B) {
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	alph := gd.GetAlphabet()
+	dist := lexicon.EnglishLetterDistribution()
+	bag := dist.MakeBag(alph)
+	board := MakeBoard(CrosswordGameBoard)
+	board.SetBoardToGame(alph, VsOxy)
+	b.ResetTimer()
+
+	// 38 us
+	for i := 0; i < b.N; i++ {
+		board.UpdateAllAnchors()
+		board.GenAllCrossSets(gd, bag)
+	}
+}
+
+func BenchmarkMakePlay(b *testing.B) {
+	// Mostly, benchmark the progressive generation of anchors and cross-sets
+	// (as opposed to generating all of them from scratch)
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	alph := gd.GetAlphabet()
+	dist := lexicon.EnglishLetterDistribution()
+	bag := dist.MakeBag(gd.GetAlphabet())
+	board := MakeBoard(CrosswordGameBoard)
+	board.SetBoardToGame(alph, VsMatt)
+	board.GenAllCrossSets(gd, bag)
+	board.UpdateAllAnchors()
+
+	// create a move.
+	m := move.NewScoringMove(
+		38,
+		alphabet.MachineWord([]alphabet.MachineLetter{19, 0, 4, 11}), // TAEL
+		alphabet.MachineWord([]alphabet.MachineLetter{0, 1, 3}),
+		true,
+		4,
+		alph,
+		8, 10, "K9")
+
+	b.ResetTimer()
+	// 2.7 us; more than 10x faster than regenerating all anchors every time.
+	// seems worth it.
+	for i := 0; i < b.N; i++ {
+		board.PlayMove(m, gd, bag)
+	}
+
 }

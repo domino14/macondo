@@ -2,6 +2,7 @@ package board
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
@@ -11,6 +12,15 @@ import (
 
 type BoardDirection uint8
 type WordDirection int
+
+func (bd BoardDirection) String() string {
+	if bd == HorizontalDirection {
+		return "(horizontal)"
+	} else if bd == VerticalDirection {
+		return "(vertical)"
+	}
+	return "none"
+}
 
 const (
 	HorizontalDirection BoardDirection = iota
@@ -44,11 +54,61 @@ func (s Square) String() string {
 	return fmt.Sprintf("<(%v) (%s)>", s.letter, string(s.bonus))
 }
 
+func (s *Square) equals(s2 *Square) bool {
+	if s.bonus != s2.bonus {
+		log.Printf("Bonuses not equal")
+		return false
+	}
+	if s.letter != s2.letter {
+		log.Printf("Letters not equal")
+		return false
+	}
+	if s.hcrossSet != s2.hcrossSet {
+		log.Printf("horiz cross-sets not equal: %v %v", s.hcrossSet, s2.hcrossSet)
+		return false
+	}
+	if s.vcrossSet != s2.vcrossSet {
+		log.Printf("vert cross-sets not equal: %v %v", s.vcrossSet, s2.vcrossSet)
+		return false
+	}
+	if s.hcrossScore != s2.hcrossScore {
+		log.Printf("horiz cross-scores not equal: %v %v", s.hcrossScore, s2.hcrossScore)
+		return false
+	}
+	if s.vcrossScore != s2.vcrossScore {
+		log.Printf("vert cross-scores not equal: %v %v", s.vcrossScore, s2.vcrossScore)
+		return false
+	}
+	if s.hAnchor != s2.hAnchor {
+		log.Printf("horiz anchors not equal: %v %v", s.hAnchor, s2.hAnchor)
+		return false
+	}
+	if s.vAnchor != s2.vAnchor {
+		log.Printf("vert anchors not equal: %v %v", s.vAnchor, s2.vAnchor)
+		return false
+	}
+	return true
+}
+
 func (s Square) Letter() alphabet.MachineLetter {
 	return s.letter
 }
 
 func (s Square) DisplayString(alph *alphabet.Alphabet) string {
+	var bonusdisp string
+	if s.bonus != ' ' {
+		bonusdisp = string(s.bonus)
+	} else {
+		bonusdisp = "."
+	}
+	if s.letter == alphabet.EmptySquareMarker {
+		return bonusdisp
+	}
+	return string(s.letter.UserVisible(alph))
+
+}
+
+func (s Square) BadDisplayString(alph *alphabet.Alphabet) string {
 	var hadisp, vadisp, bonusdisp string
 	if s.hAnchor {
 		hadisp = "→"
@@ -106,21 +166,17 @@ func (s *Square) getCrossScore(dir BoardDirection) int {
 	return 0
 }
 
-func (s *Square) setAnchor(dir BoardDirection, transpose bool) {
-	// is there a smarter way of doing this?
-	if !transpose {
-		if dir == HorizontalDirection {
-			s.hAnchor = true
-		} else if dir == VerticalDirection {
-			s.vAnchor = true
-		}
-	} else {
-		if dir == HorizontalDirection {
-			s.vAnchor = true
-		} else if dir == VerticalDirection {
-			s.hAnchor = true
-		}
+func (s *Square) setAnchor(dir BoardDirection) {
+	if dir == HorizontalDirection {
+		s.hAnchor = true
+	} else if dir == VerticalDirection {
+		s.vAnchor = true
 	}
+}
+
+func (s *Square) resetAnchors() {
+	s.hAnchor = false
+	s.vAnchor = false
 }
 
 func (s *Square) IsEmpty() bool {
@@ -241,7 +297,13 @@ func (g *GameBoard) ClearAllCrosses() {
 	}
 }
 
-func (g *GameBoard) updateAnchors(row int, col int) {
+func (g *GameBoard) updateAnchors(row int, col int, vertical bool) {
+	if vertical {
+		// This helps simplify the updateAnchorsForMove algorithm.
+		row, col = col, row
+	}
+	// Always reset the anchors before applying anything else.
+	g.squares[row][col].resetAnchors()
 	var tileAbove, tileBelow, tileLeft, tileRight, tileHere bool
 	if row > 0 {
 		tileAbove = !g.squares[row-1][col].IsEmpty()
@@ -263,22 +325,22 @@ func (g *GameBoard) updateAnchors(row int, col int) {
 		// Gordon does not have this requirement, but the algorithm does
 		// not work if we don't do this)
 		if !tileRight {
-			g.squares[row][col].setAnchor(HorizontalDirection, g.transposed)
+			g.squares[row][col].setAnchor(HorizontalDirection)
 		}
 		// Apply the transverse logic too for the vertical anchor.
 		if !tileBelow {
-			g.squares[row][col].setAnchor(VerticalDirection, g.transposed)
+			g.squares[row][col].setAnchor(VerticalDirection)
 		}
 	} else {
 		// If the square is empty, it should only be an anchor if the
-		// squares to its left and right are empty, and one of the squares
-		// in the top and bottom are NOT empty.
+		// squares to its left and right are empty, and at least one of
+		// the squares in the top and bottom are NOT empty.
 		if !tileLeft && !tileRight && (tileAbove || tileBelow) {
-			g.squares[row][col].setAnchor(HorizontalDirection, g.transposed)
+			g.squares[row][col].setAnchor(HorizontalDirection)
 		}
 		// (And apply the transverse logic for the vertical anchor)
 		if !tileAbove && !tileBelow && (tileLeft || tileRight) {
-			g.squares[row][col].setAnchor(VerticalDirection, g.transposed)
+			g.squares[row][col].setAnchor(VerticalDirection)
 		}
 	}
 }
@@ -288,7 +350,7 @@ func (g *GameBoard) UpdateAllAnchors() {
 	if g.hasTiles {
 		for i := 0; i < n; i++ {
 			for j := 0; j < n; j++ {
-				g.updateAnchors(i, j)
+				g.updateAnchors(i, j, false)
 			}
 		}
 	} else {
@@ -326,6 +388,7 @@ func (g *GameBoard) leftAndRightEmpty(row int, col int) bool {
 }
 
 // wordEdge finds the edge of a word on the board, returning the column.
+//
 func (g *GameBoard) wordEdge(row int, col int, dir WordDirection) int {
 	for g.posExists(row, col) && !g.squares[row][col].IsEmpty() {
 		col += int(dir)
@@ -387,38 +450,44 @@ func (g *GameBoard) traverseBackwards(row int, col int, nodeIdx uint32,
 
 func (g *GameBoard) updateAnchorsForMove(m *move.Move) {
 	row, col, vertical := m.CoordsAndVertical()
+	// if vertical {
+	// 	// Transpose the board to simplify the logic a bit.
+	// 	g.Transpose()
+	// 	col, row = row, col
+	// }
+
 	if vertical {
-		// Transpose the board to simplify the logic a bit.
-		g.Transpose()
+		// Transpose the logic, but NOT the board. The updateAnchors function
+		// assumes the board is not transposed.
 		col, row = row, col
 	}
 
 	// Update anchors all around the play.
 	for i := col; i < uint8(len(m.Tiles()))+col; i++ {
-		g.updateAnchors(int(row), int(i))
+		g.updateAnchors(int(row), int(i), vertical)
 		if row > 0 {
-			g.updateAnchors(int(row-1), int(i))
+			g.updateAnchors(int(row-1), int(i), vertical)
 		}
-		if int(row) < g.Dim() {
-			g.updateAnchors(int(row+1), int(i))
+		if int(row) < g.Dim()-1 {
+			g.updateAnchors(int(row+1), int(i), vertical)
 		}
 	}
 
 	if col-1 >= 0 {
-		g.updateAnchors(int(row), int(col-1))
+		g.updateAnchors(int(row), int(col-1), vertical)
 	}
 	if len(m.Tiles())+int(col) < g.Dim() {
-		g.updateAnchors(int(row), int(col)+len(m.Tiles()))
+		g.updateAnchors(int(row), int(col)+len(m.Tiles()), vertical)
 	}
 
 	// Transpose the board back if the move was vertical.
-	if vertical {
-		g.Transpose()
-	}
+	// if vertical {
+	// 	g.Transpose()
+	// }
 }
 
 // PlayMove plays a move on a board.
-func (g *GameBoard) PlayMove(m *move.Move) {
+func (g *GameBoard) PlayMove(m *move.Move, gd gaddag.SimpleGaddag, bag lexicon.Bag) {
 	// Place tiles on the board, and regenerate cross-sets and cross-points.
 	// recalculate anchors tooo
 	rowStart, colStart, vertical := m.CoordsAndVertical()
@@ -429,13 +498,15 @@ func (g *GameBoard) PlayMove(m *move.Move) {
 		}
 		if vertical {
 			row = rowStart + uint8(idx)
+			col = colStart
 		} else {
 			col = colStart + uint8(idx)
+			row = rowStart
 		}
 		g.squares[row][col].letter = tile
 	}
 	// Calculate anchors.
 	g.updateAnchorsForMove(m)
 	// Calculate cross-sets.
-	g.updateCrossSetsForMove(m)
+	g.updateCrossSetsForMove(m, gd, bag)
 }

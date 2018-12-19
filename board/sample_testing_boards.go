@@ -1,15 +1,23 @@
 package board
 
+// This file contains some sample filled boards, used solely for testing.
+
 import "github.com/domino14/macondo/alphabet"
 
-// This file contains some sample filled boards, used solely for testing.
+// VsWho is an enumeration
 type VsWho uint8
 
 const (
+	// VsEd was a game I played against Ed, under club games 20150127vEd
 	VsEd VsWho = iota
+	// VsMatt was a game I played against Matt Graham, 2018 Lake George tourney
 	VsMatt
+	// VsJeremy was a game I played against Jeremy Hall, 2018-11 Manhattan tourney
 	VsJeremy
+	// VsOxy is a constructed game that has a gigantic play available.
 	VsOxy
+	// VsMatt2, 2018-11 Manhattan tourney
+	VsMatt2
 )
 
 // SetBoardToGame sets the board to a specific game in progress. It is used to
@@ -17,8 +25,6 @@ const (
 func (b *GameBoard) SetBoardToGame(alph *alphabet.Alphabet, game VsWho) {
 	// Set the board to a game
 	if game == VsEd {
-
-		// club games - 20150127vEd, beginning of turn 8
 		// Quackle generates 219 total unique moves with a rack of AFGIIIS
 		b.SetFromPlaintext(`
 cesar: Turn 8
@@ -42,7 +48,6 @@ cesar: Turn 8
    ------------------------------
 `, alph)
 	} else if game == VsMatt {
-		// tourney, 2018 Lake George vs Matt G
 		b.SetFromPlaintext(`
 cesar: Turn 10
    A B C D E F G H I J K L M N O      matt g                   AEEHIIL   341
@@ -65,7 +70,6 @@ cesar: Turn 10
    ------------------------------
 `, alph)
 	} else if game == VsJeremy {
-		// tourney, 2018 nov Manhattan vs Jeremy H
 		b.SetFromPlaintext(`
 jeremy hall: Turn 13
    A B C D E F G H I J K L M N O   -> jeremy hall              DDESW??   299
@@ -108,6 +112,28 @@ cesar: Turn 11
 13|O O T     E ' B '       -    |
 14|N -       "   U   "       -  |
 15|= J A C U L A T I N G '     =|
+   ------------------------------
+`, alph)
+	} else if game == VsMatt2 {
+		b.SetFromPlaintext(`
+cesar: Turn 8
+   A B C D E F G H I J K L M N O   -> cesar                    EEILNT?   237
+   ------------------------------     matt graham              EIJPSTW   171
+ 1|=     '       =       '     R| --Tracking-----------------------------------
+ 2|  -       "       "     Q - E| AABCDDDEEEEEHIIIIJLLLMNOPRSSSTTTUUVWWY  38
+ 3|    T I G E R   '     H I   I|
+ 4|'     -     O F       U     N|
+ 5|        O C E A N   P R A N K|
+ 6|  "       "   B A Z A R   "  |
+ 7|    '       '   '     A '    |
+ 8|=     '       M O O N Y     =|
+ 9|    '       D I F       '    |
+10|  "       V E G   "       "  |
+11|        -     S A n T O O R  |
+12|'     -       '     O X     '|
+13|    -       ' A G U E   -    |
+14|  -       "       "       -  |
+15|=     '       =       '     =|
    ------------------------------
 `, alph)
 	}

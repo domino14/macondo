@@ -15,11 +15,11 @@ func (g *GameBoard) toDisplayText(alph *alphabet.Alphabet) string {
 	for i := 0; i < n; i++ {
 		row := ""
 		for j := 0; j < n; j++ {
-			row = row + g.squares[i][j].DisplayString(alph)
+			row = row + g.squares[i][j].DisplayString(alph) + " "
 		}
-		str = str + row + "\n\n"
+		str = str + row + "\n"
 	}
-	return str
+	return "\n" + str
 }
 
 func (g *GameBoard) SetFromPlaintext(qText string, alph *alphabet.Alphabet) {
@@ -63,4 +63,22 @@ func (b *GameBoard) SetRow(rowNum int8, letters string, alph *alphabet.Alphabet)
 
 		}
 	}
+}
+
+// Two boards are equal if all the squares are equal. This includes anchors,
+// letters, and cross-sets.
+func (b *GameBoard) equals(b2 GameBoard) bool {
+	if b.Dim() != b2.Dim() {
+		return false
+	}
+	for row := 0; row < b.Dim(); row++ {
+		for col := 0; col < b.Dim(); col++ {
+			if !b.GetSquare(row, col).equals(b2.GetSquare(row, col)) {
+				log.Printf("> Not equal, row %v col %v", row, col)
+				return false
+			}
+		}
+	}
+
+	return true
 }
