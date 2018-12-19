@@ -282,8 +282,9 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 	bag := dist.MakeBag(gd.GetAlphabet())
 
 	type updateCrossesForMoveTestCase struct {
-		testGame VsWho
-		m        *move.Move
+		testGame        VsWho
+		m               *move.Move
+		userVisibleWord string
 	}
 
 	var testCases = []updateCrossesForMoveTestCase{
@@ -294,7 +295,7 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 			true,
 			4,
 			alph,
-			8, 10, "K9")},
+			8, 10, "K9"), "TAEL"},
 		// Test right edge of board
 		{VsMatt2, move.NewScoringMove(
 			77,
@@ -304,7 +305,7 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 			true,
 			7,
 			alph,
-			7, 14, "O8")},
+			7, 14, "O8"), "TENsILE"},
 		// Test through tiles
 		{VsOxy, move.NewScoringMove(
 			1780,
@@ -315,7 +316,21 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 			7,
 			alph,
 			0, 0, "A1",
-		)},
+		), "OXYPHENBUTAZONE"},
+		// Test top of board, horizontal
+		{VsJeremy, move.NewScoringMove(
+			14,
+			alphabet.MachineWord([]alphabet.MachineLetter{
+				18, 52, 114, 22, 4, 3,
+			}),
+			alphabet.MachineWord([]alphabet.MachineLetter{
+				3, 50,
+			}),
+			false,
+			5,
+			alph,
+			0, 6, "1G",
+		), "SNoWED"},
 	}
 
 	// create a move.
@@ -325,7 +340,7 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 		b.GenAllCrossSets(gd, bag)
 		b.UpdateAllAnchors()
 		b.PlayMove(tc.m, gd, bag)
-
+		log.Printf(b.toDisplayText(alph))
 		// Create an identical board, but generate cross-sets for the entire
 		// board after placing the letters "manually".
 		c := MakeBoard(CrosswordGameBoard)
@@ -336,6 +351,23 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 
 		if !b.equals(c) {
 			t.Errorf("idx: %v - Boards did not equal each other", idx)
+		}
+
+		for i, c := range tc.userVisibleWord {
+			row, col, vertical := tc.m.CoordsAndVertical()
+			var rowInc, colInc int
+			if vertical {
+				rowInc = i
+				colInc = 0
+			} else {
+				rowInc = 0
+				colInc = i
+			}
+			uv := b.squares[row+rowInc][col+colInc].letter.UserVisible(alph)
+			if uv != c {
+				t.Errorf("idx: %v - Fail - expected %v (%c), got %v (%c) (row=%v col=%v)",
+					idx, c, c, uv, uv, row, col+i)
+			}
 		}
 	}
 
