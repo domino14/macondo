@@ -140,7 +140,7 @@ func TestGenCrossSetEdges(t *testing.T) {
 	}
 	row := 4
 	for _, tc := range testCases {
-		b.SetRow(int8(row), tc.rowContents, alph)
+		b.SetRow(row, tc.rowContents, alph)
 		b.GenCrossSet(row, tc.col, HorizontalDirection, gd, bag)
 		if b.GetCrossSet(row, tc.col, HorizontalDirection) != tc.crossSet {
 			t.Errorf("For row=%v col=%v, Expected cross-set to be %v, got %v",
@@ -250,42 +250,95 @@ func TestBoardsEqual(t *testing.T) {
 	}
 }
 
+func TestPlaceMoveTiles(t *testing.T) {
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	b := MakeBoard(CrosswordGameBoard)
+	alph := gd.GetAlphabet()
+
+	b.SetBoardToGame(alph, VsOxy)
+
+	m := move.NewScoringMove(
+		1780,
+		alphabet.MachineWord([]alphabet.MachineLetter{
+			14, 23, 52, 15, 52, 52, 52, 1, 52, 52, 0, 25, 52, 52, 4}),
+		alphabet.MachineWord([]alphabet.MachineLetter{}),
+		true,
+		7,
+		alph,
+		0, 0, "A1",
+	)
+	b.placeMoveTiles(m)
+	for i, c := range "OXYPHENBUTAZONE" {
+		if b.squares[i][0].letter.UserVisible(alph) != c {
+			t.Errorf("Fail")
+		}
+	}
+}
+
 func TestUpdateCrossSetsForMove(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 	dist := lexicon.EnglishLetterDistribution()
 	bag := dist.MakeBag(gd.GetAlphabet())
-	b := MakeBoard(CrosswordGameBoard)
-	b.SetBoardToGame(alph, VsMatt)
-	b.GenAllCrossSets(gd, bag)
-	b.UpdateAllAnchors()
+
+	type updateCrossesForMoveTestCase struct {
+		testGame VsWho
+		m        *move.Move
+	}
+
+	var testCases = []updateCrossesForMoveTestCase{
+		{VsMatt, move.NewScoringMove(
+			38,
+			alphabet.MachineWord([]alphabet.MachineLetter{19, 0, 4, 11}), // TAEL
+			alphabet.MachineWord([]alphabet.MachineLetter{0, 1, 3}),
+			true,
+			4,
+			alph,
+			8, 10, "K9")},
+		// Test right edge of board
+		{VsMatt2, move.NewScoringMove(
+			77,
+			// TENsILE
+			alphabet.MachineWord([]alphabet.MachineLetter{19, 4, 13, 118, 8, 11, 4}),
+			alphabet.MachineWord([]alphabet.MachineLetter{}),
+			true,
+			7,
+			alph,
+			7, 14, "O8")},
+		// Test through tiles
+		{VsOxy, move.NewScoringMove(
+			1780,
+			alphabet.MachineWord([]alphabet.MachineLetter{
+				14, 23, 52, 15, 52, 52, 52, 1, 52, 52, 0, 25, 52, 52, 4}),
+			alphabet.MachineWord([]alphabet.MachineLetter{}),
+			true,
+			7,
+			alph,
+			0, 0, "A1",
+		)},
+	}
 
 	// create a move.
-	m := move.NewScoringMove(
-		38,
-		alphabet.MachineWord([]alphabet.MachineLetter{19, 0, 4, 11}), // TAEL
-		alphabet.MachineWord([]alphabet.MachineLetter{0, 1, 3}),
-		true,
-		4,
-		alph,
-		8, 10, "K9")
-	b.PlayMove(m, gd, bag)
+	for idx, tc := range testCases {
+		b := MakeBoard(CrosswordGameBoard)
+		b.SetBoardToGame(alph, tc.testGame)
+		b.GenAllCrossSets(gd, bag)
+		b.UpdateAllAnchors()
+		b.PlayMove(tc.m, gd, bag)
 
-	// Create an identical board, but generate cross-sets for the entire
-	// board after placing the letters "manually".
+		// Create an identical board, but generate cross-sets for the entire
+		// board after placing the letters "manually".
+		c := MakeBoard(CrosswordGameBoard)
+		c.SetBoardToGame(alph, tc.testGame)
+		c.placeMoveTiles(tc.m)
+		c.GenAllCrossSets(gd, bag)
+		c.UpdateAllAnchors()
 
-	c := MakeBoard(CrosswordGameBoard)
-	c.SetBoardToGame(alph, VsMatt)
-	c.squares[8][10].letter = 19
-	c.squares[9][10].letter = 0
-	c.squares[10][10].letter = 4
-	c.squares[11][10].letter = 11
-	c.GenAllCrossSets(gd, bag)
-	c.UpdateAllAnchors()
-
-	if !b.equals(c) {
-		t.Errorf("Boards did not equal each other")
+		if !b.equals(c) {
+			t.Errorf("idx: %v - Boards did not equal each other", idx)
+		}
 	}
+
 }
 
 func TestUpdateSingleCrossSet(t *testing.T) {

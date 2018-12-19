@@ -48,7 +48,7 @@ func (g *GameBoard) SetFromPlaintext(qText string, alph *alphabet.Alphabet) {
 	}
 }
 
-func (b *GameBoard) SetRow(rowNum int8, letters string, alph *alphabet.Alphabet) {
+func (b *GameBoard) SetRow(rowNum int, letters string, alph *alphabet.Alphabet) {
 	// Set the row in board to the passed in letters array.
 	for idx := 0; idx < b.Dim(); idx++ {
 		b.SetLetter(int(rowNum), idx, alphabet.EmptySquareMarker)

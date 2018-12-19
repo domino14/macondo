@@ -30,11 +30,11 @@ type Move struct {
 	coords      string
 	tiles       alphabet.MachineWord
 	leave       alphabet.MachineWord
-	rowStart    uint8
-	colStart    uint8
+	rowStart    int
+	colStart    int
 	vertical    bool
 	bingo       bool
-	tilesPlayed uint8
+	tilesPlayed int
 	alph        *alphabet.Alphabet
 }
 
@@ -70,13 +70,13 @@ func (m Move) Action() MoveType {
 	return m.action
 }
 
-func (m Move) TilesPlayed() uint8 {
+func (m Move) TilesPlayed() int {
 	return m.tilesPlayed
 }
 
 func NewScoringMove(score int, tiles alphabet.MachineWord,
-	leave alphabet.MachineWord, vertical bool, tilesPlayed uint8,
-	alph *alphabet.Alphabet, rowStart uint8, colStart uint8, coords string) *Move {
+	leave alphabet.MachineWord, vertical bool, tilesPlayed int,
+	alph *alphabet.Alphabet, rowStart int, colStart int, coords string) *Move {
 
 	move := &Move{
 		action: MoveTypePlay, score: score, tiles: tiles, leave: leave, vertical: vertical,
@@ -108,26 +108,26 @@ func (m Move) UniqueSingleTileKey() int {
 		}
 	}
 
-	var row, col uint8
+	var row, col int
 	row = m.rowStart
 	col = m.colStart
 	// We want to get the coordinate of the tile that is on the board itself.
 	if m.vertical {
 		row, col = col, row
-		row += uint8(idx)
+		row += idx
 	} else {
-		col += uint8(idx)
+		col += idx
 	}
 	// A unique, fast to compute key for this play.
-	return int(row) + alphabet.MaxAlphabetSize*int(col) +
+	return row + alphabet.MaxAlphabetSize*col +
 		alphabet.MaxAlphabetSize*alphabet.MaxAlphabetSize*int(ml)
 }
 
-func (m *Move) CoordsAndVertical() (uint8, uint8, bool) {
+func (m *Move) CoordsAndVertical() (int, int, bool) {
 	return m.rowStart, m.colStart, m.vertical
 }
 
-func ToBoardGameCoords(row uint8, col uint8, vertical bool) string {
+func ToBoardGameCoords(row int, col int, vertical bool) string {
 	colCoords := string(rune('A' + col))
 	rowCoords := strconv.Itoa(int(row + 1))
 	var coords string

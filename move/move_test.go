@@ -3,8 +3,8 @@ package move
 import "testing"
 
 type coordTestStruct struct {
-	row      uint8
-	col      uint8
+	row      int
+	col      int
 	vertical bool
 	output   string
 }

@@ -46,8 +46,8 @@ func TestGenBase(t *testing.T) {
 
 type SimpleGenTestCase struct {
 	rack          string
-	curAnchorCol  int8
-	row           int8
+	curAnchorCol  int
+	row           int
 	rowString     string
 	expectedPlays int
 }
@@ -185,7 +185,7 @@ func TestGenMoveJustOnce(t *testing.T) {
 	generator.curRowIdx = 10
 	generator.vertical = true
 	generator.lastAnchorCol = 100
-	for anchorCol := int8(8); anchorCol <= int8(12); anchorCol++ {
+	for anchorCol := 8; anchorCol <= 12; anchorCol++ {
 		generator.curAnchorCol = anchorCol
 		generator.Gen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
 			gd.GetRootNodeIndex())

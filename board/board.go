@@ -362,7 +362,7 @@ func (g *GameBoard) UpdateAllAnchors() {
 
 // IsAnchor returns whether the row/col pair is an anchor in the given
 // direction.
-func (g *GameBoard) IsAnchor(row int8, col int8, dir BoardDirection) bool {
+func (g *GameBoard) IsAnchor(row int, col int, dir BoardDirection) bool {
 	return g.squares[row][col].anchor(dir)
 }
 
@@ -463,21 +463,21 @@ func (g *GameBoard) updateAnchorsForMove(m *move.Move) {
 	}
 
 	// Update anchors all around the play.
-	for i := col; i < uint8(len(m.Tiles()))+col; i++ {
-		g.updateAnchors(int(row), int(i), vertical)
+	for i := col; i < len(m.Tiles())+col; i++ {
+		g.updateAnchors(row, i, vertical)
 		if row > 0 {
-			g.updateAnchors(int(row-1), int(i), vertical)
+			g.updateAnchors(row-1, i, vertical)
 		}
-		if int(row) < g.Dim()-1 {
-			g.updateAnchors(int(row+1), int(i), vertical)
+		if row < g.Dim()-1 {
+			g.updateAnchors(row+1, i, vertical)
 		}
 	}
 
 	if col-1 >= 0 {
-		g.updateAnchors(int(row), int(col-1), vertical)
+		g.updateAnchors(row, col-1, vertical)
 	}
-	if len(m.Tiles())+int(col) < g.Dim() {
-		g.updateAnchors(int(row), int(col)+len(m.Tiles()), vertical)
+	if len(m.Tiles())+col < g.Dim() {
+		g.updateAnchors(row, col+len(m.Tiles()), vertical)
 	}
 
 	// Transpose the board back if the move was vertical.
@@ -486,25 +486,29 @@ func (g *GameBoard) updateAnchorsForMove(m *move.Move) {
 	// }
 }
 
-// PlayMove plays a move on a board.
-func (g *GameBoard) PlayMove(m *move.Move, gd gaddag.SimpleGaddag, bag lexicon.Bag) {
-	// Place tiles on the board, and regenerate cross-sets and cross-points.
-	// recalculate anchors tooo
+func (g *GameBoard) placeMoveTiles(m *move.Move) {
 	rowStart, colStart, vertical := m.CoordsAndVertical()
-	var row, col uint8
+	var row, col int
 	for idx, tile := range m.Tiles() {
 		if tile == alphabet.PlayedThroughMarker {
 			continue
 		}
 		if vertical {
-			row = rowStart + uint8(idx)
+			row = rowStart + idx
 			col = colStart
 		} else {
-			col = colStart + uint8(idx)
+			col = colStart + idx
 			row = rowStart
 		}
 		g.squares[row][col].letter = tile
 	}
+}
+
+// PlayMove plays a move on a board.
+func (g *GameBoard) PlayMove(m *move.Move, gd gaddag.SimpleGaddag, bag lexicon.Bag) {
+	// Place tiles on the board, and regenerate cross-sets and cross-points.
+	// recalculate anchors tooo
+	g.placeMoveTiles(m)
 	// Calculate anchors.
 	g.updateAnchorsForMove(m)
 	// Calculate cross-sets.
