@@ -16,7 +16,7 @@ const (
 	VsJeremy
 	// VsOxy is a constructed game that has a gigantic play available.
 	VsOxy
-	// VsMatt2, 2018-11 Manhattan tourney
+	// VsMatt2 at the 2018-11 Manhattan tourney
 	VsMatt2
 )
 

@@ -331,6 +331,18 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 			alph,
 			0, 6, "1G",
 		), "SNoWED"},
+		// Test bottom of board, horizontal
+		{VsJeremy, move.NewScoringMove(
+			11,
+			alphabet.MachineWord([]alphabet.MachineLetter{
+				5, 52, 52, 4, 17,
+			}),
+			alphabet.MachineWord([]alphabet.MachineLetter{}),
+			false,
+			4,
+			alph,
+			14, 5, "15F",
+		), "FOYER"},
 	}
 
 	// create a move.

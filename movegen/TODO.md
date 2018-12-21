@@ -3,12 +3,14 @@
     - [x] deduplicate
     - [ ] generate exchanges
 - [x] score all generated plays and sort
-- [ ] First major-ish refactor:
-    - [ ] utilize the "lexicon" package and move tile drawing there
-    - [ ] separate out the board into another package, maybe move cross-set and cross-scores there.
+- [x] First major-ish refactor:
+    - [x] utilize the "lexicon" package and move tile drawing there
+    - [x] separate out the board into another package, maybe move cross-set and cross-scores there.
 - allow for comp v comp games
-    - cross-sets and cross-scores recalculated after every play
-    - output to gcg
-    - pick highest scoring move, log, create ultraleaves
+    - [x] cross-sets and cross-scores recalculated after every play
+    - [ ] output to gcg
+    - [x] pick highest scoring move
+    - [ ] log,
+    - [ ] create ultraleaves
 
 - script with Lua?

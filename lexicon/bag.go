@@ -16,6 +16,16 @@ type Bag struct {
 	scores []int
 }
 
+// DrawAtMost draws at most n tiles from the bag. It can draw fewer if there
+// are fewer tiles than n, and even draw no tiles at all :o
+func (b *Bag) DrawAtMost(n int) []rune {
+	if n > len(b.tiles) {
+		n = len(b.tiles)
+	}
+	drawn, _ := b.Draw(n)
+	return drawn
+}
+
 // Draw draws n tiles from the bag.
 func (b *Bag) Draw(n int) ([]rune, error) {
 	if n > len(b.tiles) {
@@ -56,4 +66,8 @@ func (b *Bag) Score(ml alphabet.MachineLetter) int {
 		return b.scores[b.numUniqueTiles-1]
 	}
 	return b.scores[ml]
+}
+
+func (b *Bag) TilesRemaining() int {
+	return len(b.tiles)
 }

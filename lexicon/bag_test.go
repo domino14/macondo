@@ -60,6 +60,37 @@ func TestDraw(t *testing.T) {
 	}
 }
 
+func TestDrawAtMost(t *testing.T) {
+	ld := EnglishLetterDistribution()
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	bag := ld.MakeBag(gd.GetAlphabet())
+
+	for i := 0; i < 14; i++ {
+		letters, _ := bag.Draw(7)
+		if len(letters) != 7 {
+			t.Errorf("Length was %v, expected 7", len(letters))
+		}
+	}
+	if bag.TilesRemaining() != 2 {
+		t.Errorf("TilesRemaining was %v, expected 2", bag.TilesRemaining())
+	}
+	letters := bag.DrawAtMost(7)
+	if len(letters) != 2 {
+		t.Errorf("Length was %v, expected 2", len(letters))
+	}
+	if bag.TilesRemaining() != 0 {
+		t.Errorf("TilesRemaining was %v, expected 0", bag.TilesRemaining())
+	}
+	// Try to draw one more time.
+	letters = bag.DrawAtMost(7)
+	if len(letters) != 0 {
+		t.Errorf("Length was %v, expected 0", len(letters))
+	}
+	if bag.TilesRemaining() != 0 {
+		t.Errorf("TilesRemaining was %v, expected 0", bag.TilesRemaining())
+	}
+}
+
 func TestExchange(t *testing.T) {
 	ld := EnglishLetterDistribution()
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")

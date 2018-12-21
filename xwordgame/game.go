@@ -4,6 +4,7 @@
 package xwordgame
 
 import (
+	"log"
 	"math/rand"
 	"time"
 
@@ -19,9 +20,11 @@ type XWordGame struct {
 	// The movegen has the tilebag in it. Maybe eventually we will move it.
 	movegen *movegen.GordonGenerator
 	players []Player
+	onturn  int // player index
 	board   board.GameBoard
 	bag     lexicon.Bag
 	gaddag  gaddag.SimpleGaddag
+	playing bool
 }
 
 // Init initializes the crossword game and seeds the random number generator.
@@ -47,6 +50,7 @@ func (game *XWordGame) StartGame() {
 		rack, _ := game.bag.Draw(7)
 		game.players[i].rack = string(rack)
 	}
+	game.onturn = 0
 }
 
 // PlayBestStaticTurn generates the best static move for the player and
@@ -56,25 +60,19 @@ func (game *XWordGame) PlayBestStaticTurn(playerID int) {
 	game.PlayMove(game.movegen.Plays()[0])
 }
 
+// PlayMove plays a move.
 func (game *XWordGame) PlayMove(m *move.Move) {
 	switch m.Action() {
 	case move.MoveTypePlay:
 		game.board.PlayMove(m, game.gaddag, game.bag)
+		log.Printf("[DEBUG] Player %v played %v", game.onturn, m)
+		// Draw new tiles.
+		rack := game.bag.DrawAtMost(m.TilesPlayed())
 	case move.MoveTypePass:
 		// something here.
+		log.Printf("[DEBUG] Player %v passed", game.onturn)
 
 	}
-}
+	game.onturn = (game.onturn + 1) % len(game.players)
 
-/*
-Suggested organization:
-	Rack - can probably stay in movegen, it seems fairly integral to the
-		concept of 'move generation', but also leaning towards separating
-	Board - should be standalone, many things need a board
-	Move - probably standalone, since there are types of moves that don't
-		involve the movegen at all (pass, challenge, +5)
-	CrossSet - part of the board
-	Bag - Use the bag in the lexicon directory; the concept of runes is ok!
-		The movegen/gaddag/alphabet packages basically translate runes into
-		MachineLetters. But the bag and rack don't need to be MachineLetters.
-*/
+}
