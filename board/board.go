@@ -274,6 +274,10 @@ func (g *GameBoard) Transpose() {
 	g.transposed = !g.transposed
 }
 
+func (g *GameBoard) IsTransposed() bool {
+	return g.transposed
+}
+
 // SetAllCrosses sets the cross sets of every square to every acceptable letter.
 func (g *GameBoard) SetAllCrosses() {
 	// Assume square board. This should be an assertion somewhere.
@@ -450,11 +454,6 @@ func (g *GameBoard) traverseBackwards(row int, col int, nodeIdx uint32,
 
 func (g *GameBoard) updateAnchorsForMove(m *move.Move) {
 	row, col, vertical := m.CoordsAndVertical()
-	// if vertical {
-	// 	// Transpose the board to simplify the logic a bit.
-	// 	g.Transpose()
-	// 	col, row = row, col
-	// }
 
 	if vertical {
 		// Transpose the logic, but NOT the board. The updateAnchors function
@@ -480,10 +479,6 @@ func (g *GameBoard) updateAnchorsForMove(m *move.Move) {
 		g.updateAnchors(row, col+len(m.Tiles()), vertical)
 	}
 
-	// Transpose the board back if the move was vertical.
-	// if vertical {
-	// 	g.Transpose()
-	// }
 }
 
 func (g *GameBoard) placeMoveTiles(m *move.Move) {

@@ -9,7 +9,7 @@ import (
 
 var boardPlaintextRegex = regexp.MustCompile(`\|([[:print:]]+)\|`)
 
-func (g *GameBoard) toDisplayText(alph *alphabet.Alphabet) string {
+func (g *GameBoard) ToDisplayText(alph *alphabet.Alphabet) string {
 	var str string
 	n := g.Dim()
 	for i := 0; i < n; i++ {

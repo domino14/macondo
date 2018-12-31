@@ -13,7 +13,12 @@ type Bag struct {
 	tiles          []rune
 	alphabet       *alphabet.Alphabet
 	// scores is a slice of ordered scores, in machine letter order.
-	scores []int
+	scores     []int
+	randomizer *rand.Rand
+}
+
+func (b *Bag) SetRandomizer(r *rand.Rand) {
+	b.randomizer = r
 }
 
 // DrawAtMost draws at most n tiles from the bag. It can draw fewer if there
@@ -42,7 +47,7 @@ func (b *Bag) Draw(n int) ([]rune, error) {
 
 // Shuffle shuffles the bag.
 func (b *Bag) Shuffle() {
-	rand.Shuffle(len(b.tiles), func(i, j int) {
+	b.randomizer.Shuffle(len(b.tiles), func(i, j int) {
 		b.tiles[i], b.tiles[j] = b.tiles[j], b.tiles[i]
 	})
 }

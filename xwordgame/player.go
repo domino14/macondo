@@ -6,6 +6,7 @@ package xwordgame
 
 // A Player plays crossword game.
 type Player struct {
-	rack string
-	name string
+	rack   string
+	name   string
+	points int
 }

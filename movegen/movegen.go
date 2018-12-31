@@ -45,7 +45,7 @@ type GordonGenerator struct {
 func newGordonGenHardcode(gd gaddag.SimpleGaddag) *GordonGenerator {
 	// Can change later
 	dist := lexicon.EnglishLetterDistribution()
-	bag := dist.MakeBag(gd.GetAlphabet())
+	bag := dist.MakeBag(gd.GetAlphabet(), true)
 	gen := &GordonGenerator{
 		gaddag:             gd,
 		board:              board.MakeBoard(board.CrosswordGameBoard),
@@ -227,8 +227,7 @@ func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startCol int,
 	copy(wordCopy, word)
 	play := move.NewScoringMove(gen.scoreMove(word, startCol),
 		wordCopy, rack.tilesOn(gen.numPossibleLetters), gen.vertical,
-		gen.tilesPlayed, gen.gaddag.GetAlphabet(), gen.curRowIdx,
-		startCol, coords)
+		gen.tilesPlayed, gen.gaddag.GetAlphabet(), row, col, coords)
 
 	gen.plays = append(gen.plays, play)
 }
@@ -253,7 +252,16 @@ func (gen *GordonGenerator) dedupeAndSortPlays() {
 	}
 	// Everything after element i is duplicate plays.
 	gen.plays = gen.plays[:i]
-	sort.Sort(move.ByScore(gen.plays))
+
+	sort.Slice(gen.plays, func(i, j int) bool {
+		if gen.plays[i].Score() > gen.plays[j].Score() {
+			return true
+		}
+		if gen.plays[i].Score() < gen.plays[j].Score() {
+			return false
+		}
+		return gen.plays[i].BoardCoords() < gen.plays[j].BoardCoords()
+	})
 
 	if len(gen.plays) == 0 {
 		gen.plays = append(gen.plays, move.NewPassMove())

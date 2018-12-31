@@ -38,20 +38,6 @@ type Move struct {
 	alph        *alphabet.Alphabet
 }
 
-// ByScore is a helper type to help sort moves by score.
-type ByScore []*Move
-
-func (a ByScore) Len() int           { return len(a) }
-func (a ByScore) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a ByScore) Less(i, j int) bool { return a[i].score > a[j].score }
-
-// ByEquity is a helper type to help sort moves by equity.
-type ByEquity []*Move
-
-func (a ByEquity) Len() int           { return len(a) }
-func (a ByEquity) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a ByEquity) Less(i, j int) bool { return a[i].equity > a[j].equity }
-
 func (m Move) String() string {
 	switch m.action {
 	case MoveTypePlay:
@@ -125,6 +111,10 @@ func (m Move) UniqueSingleTileKey() int {
 
 func (m *Move) CoordsAndVertical() (int, int, bool) {
 	return m.rowStart, m.colStart, m.vertical
+}
+
+func (m *Move) BoardCoords() string {
+	return m.coords
 }
 
 func ToBoardGameCoords(row int, col int, vertical bool) string {

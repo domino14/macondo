@@ -74,7 +74,7 @@ func TestGenCrossSetLoadedGame(t *testing.T) {
 	b := MakeBoard(CrosswordGameBoard)
 	alph := gd.GetAlphabet()
 	dist := lexicon.EnglishLetterDistribution()
-	bag := dist.MakeBag(gd.GetAlphabet())
+	bag := dist.MakeBag(gd.GetAlphabet(), true)
 	b.SetBoardToGame(alph, VsMatt)
 	// All horizontal for now.
 	var testCases = []crossSetTestCase{
@@ -117,7 +117,7 @@ func TestGenCrossSetEdges(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 	dist := lexicon.EnglishLetterDistribution()
-	bag := dist.MakeBag(gd.GetAlphabet())
+	bag := dist.MakeBag(gd.GetAlphabet(), true)
 	b := MakeBoard(CrosswordGameBoard)
 
 	var testCases = []crossSetEdgeTestCase{
@@ -159,7 +159,7 @@ func TestGenAllCrossSets(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 	dist := lexicon.EnglishLetterDistribution()
-	bag := dist.MakeBag(gd.GetAlphabet())
+	bag := dist.MakeBag(gd.GetAlphabet(), true)
 	b := MakeBoard(CrosswordGameBoard)
 	b.SetBoardToGame(alph, VsEd)
 
@@ -235,7 +235,7 @@ func TestBoardsEqual(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 	dist := lexicon.EnglishLetterDistribution()
-	bag := dist.MakeBag(gd.GetAlphabet())
+	bag := dist.MakeBag(gd.GetAlphabet(), true)
 
 	b := MakeBoard(CrosswordGameBoard)
 	b.SetBoardToGame(alph, VsMatt)
@@ -279,7 +279,7 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 	dist := lexicon.EnglishLetterDistribution()
-	bag := dist.MakeBag(gd.GetAlphabet())
+	bag := dist.MakeBag(gd.GetAlphabet(), true)
 
 	type updateCrossesForMoveTestCase struct {
 		testGame        VsWho
@@ -352,7 +352,7 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 		b.GenAllCrossSets(gd, bag)
 		b.UpdateAllAnchors()
 		b.PlayMove(tc.m, gd, bag)
-		log.Printf(b.toDisplayText(alph))
+		log.Printf(b.ToDisplayText(alph))
 		// Create an identical board, but generate cross-sets for the entire
 		// board after placing the letters "manually".
 		c := MakeBoard(CrosswordGameBoard)
@@ -389,7 +389,7 @@ func TestUpdateSingleCrossSet(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 	dist := lexicon.EnglishLetterDistribution()
-	bag := dist.MakeBag(gd.GetAlphabet())
+	bag := dist.MakeBag(gd.GetAlphabet(), true)
 	b := MakeBoard(CrosswordGameBoard)
 	b.SetBoardToGame(alph, VsMatt)
 	b.GenAllCrossSets(gd, bag)
@@ -398,7 +398,7 @@ func TestUpdateSingleCrossSet(t *testing.T) {
 	b.squares[9][10].letter = 0
 	b.squares[10][10].letter = 4
 	b.squares[11][10].letter = 11
-	fmt.Println(b.toDisplayText(alph))
+	fmt.Println(b.ToDisplayText(alph))
 	b.GenCrossSet(7, 10, HorizontalDirection, gd, bag)
 	b.Transpose()
 	b.GenCrossSet(10, 7, VerticalDirection, gd, bag)
@@ -418,7 +418,7 @@ func BenchmarkGenAnchorsAndCrossSets(b *testing.B) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 	dist := lexicon.EnglishLetterDistribution()
-	bag := dist.MakeBag(alph)
+	bag := dist.MakeBag(alph, true)
 	board := MakeBoard(CrosswordGameBoard)
 	board.SetBoardToGame(alph, VsOxy)
 	b.ResetTimer()
@@ -436,7 +436,7 @@ func BenchmarkMakePlay(b *testing.B) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 	dist := lexicon.EnglishLetterDistribution()
-	bag := dist.MakeBag(gd.GetAlphabet())
+	bag := dist.MakeBag(gd.GetAlphabet(), true)
 	board := MakeBoard(CrosswordGameBoard)
 	board.SetBoardToGame(alph, VsMatt)
 	board.GenAllCrossSets(gd, bag)

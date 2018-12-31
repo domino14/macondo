@@ -22,7 +22,7 @@ func TestMain(m *testing.M) {
 func TestBag(t *testing.T) {
 	ld := EnglishLetterDistribution()
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	bag := ld.MakeBag(gd.GetAlphabet())
+	bag := ld.MakeBag(gd.GetAlphabet(), true)
 	if len(bag.tiles) != ld.numLetters {
 		t.Error("Tile bag and letter distribution do not match.")
 	}
@@ -49,7 +49,7 @@ func TestBag(t *testing.T) {
 func TestDraw(t *testing.T) {
 	ld := EnglishLetterDistribution()
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	bag := ld.MakeBag(gd.GetAlphabet())
+	bag := ld.MakeBag(gd.GetAlphabet(), true)
 
 	letters, _ := bag.Draw(7)
 	if len(letters) != 7 {
@@ -63,7 +63,7 @@ func TestDraw(t *testing.T) {
 func TestDrawAtMost(t *testing.T) {
 	ld := EnglishLetterDistribution()
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	bag := ld.MakeBag(gd.GetAlphabet())
+	bag := ld.MakeBag(gd.GetAlphabet(), true)
 
 	for i := 0; i < 14; i++ {
 		letters, _ := bag.Draw(7)
@@ -94,7 +94,7 @@ func TestDrawAtMost(t *testing.T) {
 func TestExchange(t *testing.T) {
 	ld := EnglishLetterDistribution()
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	bag := ld.MakeBag(gd.GetAlphabet())
+	bag := ld.MakeBag(gd.GetAlphabet(), true)
 
 	letters, _ := bag.Draw(7)
 	newLetters, _ := bag.Exchange(letters[:5])
@@ -105,3 +105,15 @@ func TestExchange(t *testing.T) {
 		t.Errorf("Length was %v, expected 93", len(bag.tiles))
 	}
 }
+
+// func TestBagDeterminism(t *testing.T) {
+// 	ld := EnglishLetterDistribution()
+// 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+// 	bag := ld.MakeBag(gd.GetAlphabet(), false)
+// 	bag.randomizer = rand.New(rand.NewSource(1234567))
+// 	bag.Shuffle()
+// 	letters, _ := bag.Draw(7)
+// 	if string(letters) != "ENYJTIE" {
+// 		t.Errorf("Expected letters to be %v, got %v", "ENYJTIE", string(letters))
+// 	}
+// }

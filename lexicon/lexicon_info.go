@@ -53,9 +53,8 @@ func SpanishLetterDistribution() LetterDistribution {
 		makeSortMap("ABC1DEFGHIJL2MNÑOPQR3STUVXYZ?"), 100}
 }
 
-// MakeBag returns a shuffled bag of tiles.
-func (ld LetterDistribution) MakeBag(alphabet *alphabet.Alphabet) Bag {
-	rand.Seed(time.Now().UnixNano())
+// MakeBag returns a bag of tiles.
+func (ld LetterDistribution) MakeBag(alphabet *alphabet.Alphabet, shuffle bool) Bag {
 	bag := make([]rune, ld.numLetters)
 	idx := 0
 	for rn, val := range ld.Distribution {
@@ -87,8 +86,12 @@ func (ld LetterDistribution) MakeBag(alphabet *alphabet.Alphabet) Bag {
 		tiles:          bag,
 		numUniqueTiles: len(ld.Distribution),
 		alphabet:       alphabet,
-		scores:         scores}
-	b.Shuffle()
+		scores:         scores,
+	}
+	if shuffle {
+		b.randomizer = rand.New(rand.NewSource(time.Now().UnixNano()))
+		b.Shuffle()
+	}
 	return b
 }
 
