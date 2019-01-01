@@ -1,5 +1,37 @@
 package movegen
 
+import (
+	"testing"
+
+	"github.com/domino14/macondo/gaddag"
+	"github.com/domino14/macondo/lexicon"
+)
+
+func TestScoreOn(t *testing.T) {
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	alph := gd.GetAlphabet()
+	dist := lexicon.EnglishLetterDistribution()
+	bag := dist.MakeBag(gd.GetAlphabet(), true)
+	type racktest struct {
+		rack string
+		pts  int
+	}
+	testCases := []racktest{
+		{"ABCDEFG", 16},
+		{"XYZ", 22},
+		{"??", 0},
+		{"?QWERTY", 21},
+		{"RETINAO", 7},
+	}
+	for _, tc := range testCases {
+		r := RackFromString(tc.rack, alph)
+		score := r.ScoreOn(int(alph.NumLetters()), bag)
+		if score != tc.pts {
+			t.Errorf("For %v, expected %v, got %v", tc.rack, tc.pts, score)
+		}
+	}
+}
+
 // func TestRackInitialize(t *testing.T) {
 // 	rack := &Rack{}
 // 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")

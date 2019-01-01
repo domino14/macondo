@@ -38,7 +38,7 @@ type GordonGenerator struct {
 
 	tilesPlayed        int
 	plays              []*move.Move
-	bag                lexicon.Bag
+	bag                *lexicon.Bag
 	numPossibleLetters int
 }
 
@@ -57,7 +57,7 @@ func newGordonGenHardcode(gd gaddag.SimpleGaddag) *GordonGenerator {
 }
 
 // NewGordonGenerator returns a Gordon move generator.
-func NewGordonGenerator(gd gaddag.SimpleGaddag, bag lexicon.Bag,
+func NewGordonGenerator(gd gaddag.SimpleGaddag, bag *lexicon.Bag,
 	board board.GameBoard) *GordonGenerator {
 	gen := &GordonGenerator{
 		gaddag:             gd,
@@ -71,9 +71,7 @@ func NewGordonGenerator(gd gaddag.SimpleGaddag, bag lexicon.Bag,
 
 // GenAll generates all moves on the board. It assumes anchors have already
 // been updated, as well as cross-sets / cross-scores.
-func (gen *GordonGenerator) GenAll(letters string) {
-	rack := &Rack{}
-	rack.Initialize(letters, gen.gaddag.GetAlphabet())
+func (gen *GordonGenerator) GenAll(rack *Rack) {
 	dim := gen.board.Dim()
 	gen.plays = []*move.Move{}
 	orientations := []board.BoardDirection{
@@ -226,7 +224,7 @@ func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startCol int,
 	wordCopy := make([]alphabet.MachineLetter, len(word))
 	copy(wordCopy, word)
 	play := move.NewScoringMove(gen.scoreMove(word, startCol),
-		wordCopy, rack.tilesOn(gen.numPossibleLetters), gen.vertical,
+		wordCopy, rack.TilesOn(gen.numPossibleLetters), gen.vertical,
 		gen.tilesPlayed, gen.gaddag.GetAlphabet(), row, col, coords)
 
 	gen.plays = append(gen.plays, play)

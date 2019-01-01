@@ -54,7 +54,7 @@ func SpanishLetterDistribution() LetterDistribution {
 }
 
 // MakeBag returns a bag of tiles.
-func (ld LetterDistribution) MakeBag(alphabet *alphabet.Alphabet, shuffle bool) Bag {
+func (ld LetterDistribution) MakeBag(alphabet *alphabet.Alphabet, shuffle bool) *Bag {
 	bag := make([]rune, ld.numLetters)
 	idx := 0
 	for rn, val := range ld.Distribution {
@@ -82,7 +82,7 @@ func (ld LetterDistribution) MakeBag(alphabet *alphabet.Alphabet, shuffle bool) 
 			scores[ml] = int(ptVal)
 		}
 	}
-	b := Bag{
+	b := &Bag{
 		tiles:          bag,
 		numUniqueTiles: len(ld.Distribution),
 		alphabet:       alphabet,

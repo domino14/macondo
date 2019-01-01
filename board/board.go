@@ -301,6 +301,22 @@ func (g *GameBoard) ClearAllCrosses() {
 	}
 }
 
+// Clear clears the board.
+func (g *GameBoard) Clear() {
+	n := g.Dim()
+	for i := 0; i < n; i++ {
+		for j := 0; j < n; j++ {
+			g.squares[i][j].letter = alphabet.EmptySquareMarker
+		}
+	}
+	g.hasTiles = false
+	// We set all crosses because every letter is technically allowed
+	// on every cross-set at the very beginning.
+	g.SetAllCrosses()
+	g.UpdateAllAnchors()
+
+}
+
 func (g *GameBoard) updateAnchors(row int, col int, vertical bool) {
 	if vertical {
 		// This helps simplify the updateAnchorsForMove algorithm.
@@ -400,7 +416,7 @@ func (g *GameBoard) wordEdge(row int, col int, dir WordDirection) int {
 	return col - int(dir)
 }
 
-func (g *GameBoard) traverseBackwardsForScore(row int, col int, bag lexicon.Bag) int {
+func (g *GameBoard) traverseBackwardsForScore(row int, col int, bag *lexicon.Bag) int {
 	score := 0
 	for g.posExists(row, col) {
 		ml := g.squares[row][col].letter
@@ -500,7 +516,7 @@ func (g *GameBoard) placeMoveTiles(m *move.Move) {
 }
 
 // PlayMove plays a move on a board.
-func (g *GameBoard) PlayMove(m *move.Move, gd gaddag.SimpleGaddag, bag lexicon.Bag) {
+func (g *GameBoard) PlayMove(m *move.Move, gd gaddag.SimpleGaddag, bag *lexicon.Bag) {
 	// Place tiles on the board, and regenerate cross-sets and cross-points.
 	// recalculate anchors tooo
 	g.placeMoveTiles(m)
@@ -508,4 +524,7 @@ func (g *GameBoard) PlayMove(m *move.Move, gd gaddag.SimpleGaddag, bag lexicon.B
 	g.updateAnchorsForMove(m)
 	// Calculate cross-sets.
 	g.updateCrossSetsForMove(m, gd, bag)
+	if !g.hasTiles {
+		g.hasTiles = true
+	}
 }

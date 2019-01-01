@@ -55,8 +55,7 @@ func Anagram(letters string, dawg gaddag.SimpleDawg, mode AnagramMode) []string 
 	answerList := []string{}
 	runes := []rune(letters)
 	gd := gaddag.SimpleGaddag(dawg)
-	rack := &movegen.Rack{}
-	rack.Initialize(letters, gd.GetAlphabet())
+	rack := movegen.RackFromString(letters, gd.GetAlphabet())
 
 	ahs := &AnagramStruct{
 		answerList: answerList,

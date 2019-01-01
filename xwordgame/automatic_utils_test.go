@@ -21,7 +21,7 @@ func TestCompVsCompStatic(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	game := &XWordGame{}
 	game.CompVsCompStatic(gd)
-	if game.turn < 6 {
-		t.Errorf("Expected game.turn < 6, got %v", game.turn)
+	if game.turnnum < 6 {
+		t.Errorf("Expected game.turnnum < 6, got %v", game.turnnum)
 	}
 }

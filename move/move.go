@@ -99,7 +99,6 @@ func (m Move) UniqueSingleTileKey() int {
 	col = m.colStart
 	// We want to get the coordinate of the tile that is on the board itself.
 	if m.vertical {
-		row, col = col, row
 		row += idx
 	} else {
 		col += idx

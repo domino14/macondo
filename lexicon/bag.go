@@ -76,3 +76,7 @@ func (b *Bag) Score(ml alphabet.MachineLetter) int {
 func (b *Bag) TilesRemaining() int {
 	return len(b.tiles)
 }
+
+func (b *Bag) GetAlphabet() *alphabet.Alphabet {
+	return b.alphabet
+}

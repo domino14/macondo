@@ -4,6 +4,7 @@ import (
 	"log"
 
 	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/lexicon"
 )
 
 // BlankCharacter is the rune that represents a blank internally
@@ -21,13 +22,29 @@ type Rack struct {
 	// letterIdxs []uint8
 }
 
-// Initialize a rack from a string
-func (r *Rack) Initialize(rack string, a *alphabet.Alphabet) {
-	r.LetArr = make([]int, alphabet.MaxAlphabetSize+1)
+func (r *Rack) String() string {
+	return r.TilesOn(int(r.alphabet.NumLetters())).UserVisible(r.alphabet)
+}
+
+// RackFromString creates a Rack from a string and an alphabet
+func RackFromString(rack string, a *alphabet.Alphabet) *Rack {
+	r := &Rack{}
 	r.alphabet = a
+	r.Set(rack)
+	return r
+}
+
+// Set sets the rack from a string.
+func (r *Rack) Set(rack string) {
+	if r.LetArr == nil {
+		r.LetArr = make([]int, alphabet.MaxAlphabetSize+1)
+	} else {
+		r.clear()
+	}
+
 	for _, c := range rack {
 		if c != BlankCharacter {
-			ml, err := a.Val(c)
+			ml, err := r.alphabet.Val(c)
 			if err == nil {
 				r.LetArr[ml]++
 			} else {
@@ -41,6 +58,15 @@ func (r *Rack) Initialize(rack string, a *alphabet.Alphabet) {
 		r.empty = false
 	}
 	r.numLetters = uint8(len(rack))
+}
+
+func (r *Rack) clear() {
+	// Clear the rack
+	for i := 0; i < alphabet.MaxAlphabetSize+1; i++ {
+		r.LetArr[i] = 0
+	}
+	r.empty = true
+	r.numLetters = 0
 }
 
 func (r *Rack) take(letter alphabet.MachineLetter) {
@@ -61,7 +87,8 @@ func (r *Rack) add(letter alphabet.MachineLetter) {
 	}
 }
 
-func (r *Rack) tilesOn(numPossibleLetters int) alphabet.MachineWord {
+// TilesOn returns the MachineLetters of the rack's current tiles.
+func (r *Rack) TilesOn(numPossibleLetters int) alphabet.MachineWord {
 	if r.empty {
 		return alphabet.MachineWord([]alphabet.MachineLetter{})
 	}
@@ -83,4 +110,21 @@ func (r *Rack) tilesOn(numPossibleLetters int) alphabet.MachineWord {
 		}
 	}
 	return alphabet.MachineWord(letters)
+}
+
+// ScoreOn returns the total score of the tiles on this rack.
+func (r *Rack) ScoreOn(numPossibleLetters int, bag *lexicon.Bag) int {
+	score := 0
+	var i alphabet.MachineLetter
+	for i = 0; i < alphabet.MachineLetter(numPossibleLetters); i++ {
+		if r.LetArr[i] > 0 {
+			score += bag.Score(i) * r.LetArr[i]
+		}
+	}
+	return score
+}
+
+// NumTiles returns the current number of tiles on this rack.
+func (r *Rack) NumTiles() uint8 {
+	return r.numLetters
 }

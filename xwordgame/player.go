@@ -1,12 +1,14 @@
 package xwordgame
 
+import "github.com/domino14/macondo/movegen"
+
 // type XWordPlayer interface {
 
 // }
 
 // A Player plays crossword game.
 type Player struct {
-	rack   string
+	rack   *movegen.Rack
 	name   string
 	points int
 }
