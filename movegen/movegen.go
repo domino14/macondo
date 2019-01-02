@@ -45,7 +45,7 @@ type GordonGenerator struct {
 func newGordonGenHardcode(gd gaddag.SimpleGaddag) *GordonGenerator {
 	// Can change later
 	dist := lexicon.EnglishLetterDistribution()
-	bag := dist.MakeBag(gd.GetAlphabet(), true)
+	bag := dist.MakeBag(gd.GetAlphabet())
 	gen := &GordonGenerator{
 		gaddag:             gd,
 		board:              board.MakeBoard(board.CrosswordGameBoard),
@@ -251,15 +251,16 @@ func (gen *GordonGenerator) dedupeAndSortPlays() {
 	// Everything after element i is duplicate plays.
 	gen.plays = gen.plays[:i]
 
-	sort.Slice(gen.plays, func(i, j int) bool {
-		if gen.plays[i].Score() > gen.plays[j].Score() {
-			return true
-		}
-		if gen.plays[i].Score() < gen.plays[j].Score() {
-			return false
-		}
-		return gen.plays[i].BoardCoords() < gen.plays[j].BoardCoords()
-	})
+	sort.Sort(move.ByScore(gen.plays))
+	// sort.Slice(gen.plays, func(i, j int) bool {
+	// 	if gen.plays[i].Score() > gen.plays[j].Score() {
+	// 		return true
+	// 	}
+	// 	if gen.plays[i].Score() < gen.plays[j].Score() {
+	// 		return false
+	// 	}
+	// 	return gen.plays[i].BoardCoords() < gen.plays[j].BoardCoords()
+	// })
 
 	if len(gen.plays) == 0 {
 		gen.plays = append(gen.plays, move.NewPassMove())

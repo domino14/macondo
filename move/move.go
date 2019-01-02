@@ -38,6 +38,13 @@ type Move struct {
 	alph        *alphabet.Alphabet
 }
 
+// ByScore is a helper type to help sort moves by score.
+type ByScore []*Move
+
+func (a ByScore) Len() int           { return len(a) }
+func (a ByScore) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByScore) Less(i, j int) bool { return a[i].score > a[j].score }
+
 func (m Move) String() string {
 	switch m.action {
 	case MoveTypePlay:

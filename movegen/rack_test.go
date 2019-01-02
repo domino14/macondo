@@ -11,7 +11,7 @@ func TestScoreOn(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 	dist := lexicon.EnglishLetterDistribution()
-	bag := dist.MakeBag(gd.GetAlphabet(), true)
+	bag := dist.MakeBag(gd.GetAlphabet())
 	type racktest struct {
 		rack string
 		pts  int

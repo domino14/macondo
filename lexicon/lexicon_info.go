@@ -1,9 +1,6 @@
 package lexicon
 
 import (
-	"math/rand"
-	"time"
-
 	"github.com/domino14/macondo/alphabet"
 
 	"github.com/domino14/macondo/gaddag"
@@ -54,7 +51,7 @@ func SpanishLetterDistribution() LetterDistribution {
 }
 
 // MakeBag returns a bag of tiles.
-func (ld LetterDistribution) MakeBag(alphabet *alphabet.Alphabet, shuffle bool) *Bag {
+func (ld LetterDistribution) MakeBag(alphabet *alphabet.Alphabet) *Bag {
 	bag := make([]rune, ld.numLetters)
 	idx := 0
 	for rn, val := range ld.Distribution {
@@ -88,10 +85,8 @@ func (ld LetterDistribution) MakeBag(alphabet *alphabet.Alphabet, shuffle bool) 
 		alphabet:       alphabet,
 		scores:         scores,
 	}
-	if shuffle {
-		b.randomizer = rand.New(rand.NewSource(time.Now().UnixNano()))
-		b.Shuffle()
-	}
+	b.Shuffle()
+
 	return b
 }
 

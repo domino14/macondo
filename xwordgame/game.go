@@ -41,12 +41,8 @@ func (game *XWordGame) Init(gd gaddag.SimpleGaddag) {
 	game.numPossibleLetters = int(gd.GetAlphabet().NumLetters())
 	game.board = board.MakeBoard(board.CrosswordGameBoard)
 	dist := lexicon.EnglishLetterDistribution()
-	game.bag = dist.MakeBag(gd.GetAlphabet(), false)
-	game.bag.SetRandomizer(game.randomizer)
-	// The randomizer seems to have no effect on this shuffle (it's not
-	// deterministic). Oh well.
-	// XXX: Rewrite shuffle to be deterministic based on seed for testing.
-	game.bag.Shuffle()
+	game.bag = dist.MakeBag(gd.GetAlphabet())
+
 	game.gaddag = gd
 	game.movegen = movegen.NewGordonGenerator(gd, game.bag, game.board)
 	game.players = []Player{

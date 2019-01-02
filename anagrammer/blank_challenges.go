@@ -102,7 +102,7 @@ func GenerateBlanks(ctx context.Context, args *BlankChallengeArgs,
 // genRack - Generate a random rack using `dist` and with `blanks` blanks.
 func genRack(dist lexicon.LetterDistribution, wordLength, blanks int,
 	alph *alphabet.Alphabet) []rune {
-	bag := dist.MakeBag(alph, true)
+	bag := dist.MakeBag(alph)
 	// it's a bag of runes.
 	rack := make([]rune, wordLength)
 	idx := 0
