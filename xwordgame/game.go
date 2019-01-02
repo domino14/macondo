@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/endgame"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/lexicon"
 	"github.com/domino14/macondo/move"
@@ -29,6 +30,7 @@ type XWordGame struct {
 	scorelessTurns     int
 	randomizer         *rand.Rand
 	numPossibleLetters int
+	endgameSolver      *endgame.Solver
 }
 
 // Init initializes the crossword game and seeds the random number generator.
@@ -73,14 +75,14 @@ func (game *XWordGame) StartGame() {
 // PlayBestStaticTurn generates the best static move for the player and
 // plays it on the board.
 func (game *XWordGame) PlayBestStaticTurn(playerID int) {
-	log.Printf("[DEBUG] %v: Playing best static turn for player %v (rack %v)",
-		game.turnnum,
-		playerID,
-		game.players[playerID].rack.TilesOn(game.numPossibleLetters).UserVisible(
-			game.gaddag.GetAlphabet()))
+	// log.Printf("[DEBUG] %v: Playing best static turn for player %v (rack %v)",
+	// 	game.turnnum,
+	// 	playerID,
+	// 	game.players[playerID].rack.TilesOn(game.numPossibleLetters).UserVisible(
+	// 		game.gaddag.GetAlphabet()))
 	game.movegen.GenAll(game.players[playerID].rack)
-	log.Printf("[DEBUG] Generated %v moves, best static is %v",
-		len(game.movegen.Plays()), game.movegen.Plays()[0])
+	// log.Printf("[DEBUG] Generated %v moves, best static is %v",
+	// 	len(game.movegen.Plays()), game.movegen.Plays()[0])
 	game.PlayMove(game.movegen.Plays()[0])
 	game.turnnum++
 }
@@ -95,22 +97,23 @@ func (game *XWordGame) PlayMove(m *move.Move) {
 			game.scorelessTurns = 0
 		}
 		game.players[game.onturn].points += score
-		log.Printf("[DEBUG] Player %v played %v", game.onturn, m)
+		// log.Printf("[DEBUG] Player %v played %v", game.onturn, m)
 		// Draw new tiles.
 		drew := game.bag.DrawAtMost(m.TilesPlayed())
 		rack := string(drew) + m.Leave().UserVisible(game.gaddag.GetAlphabet())
 		game.players[game.onturn].rack.Set(rack)
 
 		if game.players[game.onturn].rack.NumTiles() == 0 {
-			log.Printf("[DEBUG] Player %v played off all their tiles. Game over!",
-				game.onturn)
+			// log.Printf("[DEBUG] Player %v played off all their tiles. Game over!",
+			// 	game.onturn)
 			game.playing = false
 			unplayedPts := game.calculateRackPts((game.onturn+1)%len(game.players)) * 2
-			log.Printf("[DEBUG] Player %v gets %v points from unplayed tiles",
-				game.onturn, unplayedPts)
+			// log.Printf("[DEBUG] Player %v gets %v points from unplayed tiles",
+			// 	game.onturn, unplayedPts)
+			game.players[game.onturn].points += unplayedPts
 		} else {
-			log.Printf("[DEBUG] Player %v drew new tiles: %v, rack is now %v",
-				game.onturn, string(drew), rack)
+			// log.Printf("[DEBUG] Player %v drew new tiles: %v, rack is now %v",
+			// 	game.onturn, string(drew), rack)
 		}
 	case move.MoveTypePass:
 		log.Printf("[DEBUG] Player %v passed", game.onturn)
