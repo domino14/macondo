@@ -12,8 +12,6 @@ import (
 	"github.com/domino14/macondo/lexicon"
 )
 
-const BlankCharacter = '?'
-
 // try tries to generate challenges. It returns an error if it fails
 // to generate a challenge with too many or too few answers, or if
 // an answer has already been generated.
@@ -109,7 +107,7 @@ func genRack(dist lexicon.LetterDistribution, wordLength, blanks int,
 	draw := func(avoidBlanks bool) rune {
 		var tiles []rune
 		if avoidBlanks {
-			for tiles, _ = bag.Draw(1); tiles[0] == BlankCharacter; {
+			for tiles, _ = bag.Draw(1); tiles[0] == alphabet.BlankToken; {
 				tiles, _ = bag.Draw(1)
 			}
 		} else {
@@ -123,7 +121,7 @@ func genRack(dist lexicon.LetterDistribution, wordLength, blanks int,
 		idx++
 	}
 	for ; idx < wordLength; idx++ {
-		rack[idx] = BlankCharacter
+		rack[idx] = alphabet.BlankToken
 	}
 	return rack
 }

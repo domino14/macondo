@@ -37,6 +37,8 @@ const (
 	// Note that in order to actually be visible on a computer screen, we
 	// should use `(`and `)` around letters already on a board.
 	ASCIIPlayedThrough = '.'
+
+	BlankToken = '?'
 )
 
 // LetterSet is a bit mask of acceptable letters, with indices from 0 to
@@ -82,6 +84,18 @@ func (ml MachineLetter) UserVisible(alph *Alphabet) rune {
 	return alph.Letter(ml)
 }
 
+// IsVowel returns true for vowels. Note that this needs an alphabet.
+func (ml MachineLetter) IsVowel(alph *Alphabet) bool {
+	ml = ml.Unblank()
+	rn := alph.Letter(ml)
+	switch rn {
+	case 'A', 'E', 'I', 'O', 'U':
+		return true
+	default:
+		return false
+	}
+}
+
 // MachineWord is an array of MachineLetters
 type MachineWord []MachineLetter
 
@@ -92,6 +106,19 @@ func (mw MachineWord) UserVisible(alph *Alphabet) string {
 		runes[i] = l.UserVisible(alph)
 	}
 	return string(runes)
+}
+
+// ToMachineWord creates a MachineWord from the given string.
+func ToMachineWord(word string, alph *Alphabet) (MachineWord, error) {
+	letters := make([]MachineLetter, len(word))
+	for idx, ch := range word {
+		ml, err := alph.Val(ch)
+		if err != nil {
+			return nil, err
+		}
+		letters[idx] = ml
+	}
+	return MachineWord(letters), nil
 }
 
 // Alphabet defines an alphabet.
@@ -138,6 +165,9 @@ func (a Alphabet) Val(r rune) (MachineLetter, error) {
 	if r == SeparationToken {
 		return SeparationMachineLetter, nil
 	}
+	if r == BlankToken {
+		return BlankMachineLetter, nil
+	}
 	val, ok := a.vals[r]
 	if ok {
 		return val, nil
@@ -147,6 +177,9 @@ func (a Alphabet) Val(r rune) (MachineLetter, error) {
 		if ok {
 			return val + BlankOffset, nil
 		}
+	}
+	if r == ASCIIPlayedThrough {
+		return PlayedThroughMarker, nil
 	}
 	return 0, fmt.Errorf("Letter `%v` not found in alphabet", r)
 }

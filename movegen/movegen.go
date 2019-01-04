@@ -40,6 +40,7 @@ type GordonGenerator struct {
 	plays              []*move.Move
 	bag                *lexicon.Bag
 	numPossibleLetters int
+	leaveMap           LeaveMap
 }
 
 func newGordonGenHardcode(gd gaddag.SimpleGaddag) *GordonGenerator {
@@ -51,6 +52,7 @@ func newGordonGenHardcode(gd gaddag.SimpleGaddag) *GordonGenerator {
 		board:              board.MakeBoard(board.CrosswordGameBoard),
 		bag:                bag,
 		numPossibleLetters: int(gd.GetAlphabet().NumLetters()),
+		leaveMap:           loadLeaves(gd.LexiconName()),
 	}
 	gen.board.SetAllCrosses()
 	return gen
@@ -59,11 +61,13 @@ func newGordonGenHardcode(gd gaddag.SimpleGaddag) *GordonGenerator {
 // NewGordonGenerator returns a Gordon move generator.
 func NewGordonGenerator(gd gaddag.SimpleGaddag, bag *lexicon.Bag,
 	board board.GameBoard) *GordonGenerator {
+
 	gen := &GordonGenerator{
 		gaddag:             gd,
 		board:              board,
 		bag:                bag,
 		numPossibleLetters: int(gd.GetAlphabet().NumLetters()),
+		leaveMap:           loadLeaves(gd.LexiconName()),
 	}
 	gen.board.SetAllCrosses()
 	return gen
@@ -223,10 +227,14 @@ func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startCol int,
 	coords := move.ToBoardGameCoords(row, col, gen.vertical)
 	wordCopy := make([]alphabet.MachineLetter, len(word))
 	copy(wordCopy, word)
-	play := move.NewScoringMove(gen.scoreMove(word, startCol),
-		wordCopy, rack.TilesOn(gen.numPossibleLetters), gen.vertical,
-		gen.tilesPlayed, gen.gaddag.GetAlphabet(), row, col, coords)
 
+	leave := rack.TilesOn(gen.numPossibleLetters)
+	alph := gen.gaddag.GetAlphabet()
+	play := move.NewScoringMove(gen.scoreMove(word, startCol),
+		wordCopy, leave, gen.vertical,
+		gen.tilesPlayed, alph, row, col, coords)
+
+	play.SetEquity(calculateEquity(play, gen.leaveMap, gen.board.IsEmpty()))
 	gen.plays = append(gen.plays, play)
 }
 
@@ -251,16 +259,13 @@ func (gen *GordonGenerator) dedupeAndSortPlays() {
 	// Everything after element i is duplicate plays.
 	gen.plays = gen.plays[:i]
 
-	sort.Sort(move.ByScore(gen.plays))
-	// sort.Slice(gen.plays, func(i, j int) bool {
-	// 	if gen.plays[i].Score() > gen.plays[j].Score() {
-	// 		return true
-	// 	}
-	// 	if gen.plays[i].Score() < gen.plays[j].Score() {
-	// 		return false
-	// 	}
-	// 	return gen.plays[i].BoardCoords() < gen.plays[j].BoardCoords()
-	// })
+	sort.Slice(gen.plays, func(i, j int) bool {
+		return gen.plays[i].Equity() > gen.plays[j].Equity()
+		// if gen.plays[i].Score() != gen.plays[j].Score() {
+		// 	return gen.plays[i].Score() > gen.plays[j].Score()
+		// }
+		// return gen.plays[i].BoardCoords() < gen.plays[j].BoardCoords()
+	})
 
 	if len(gen.plays) == 0 {
 		gen.plays = append(gen.plays, move.NewPassMove())
@@ -336,4 +341,49 @@ func (gen *GordonGenerator) scoreMove(word alphabet.MachineWord, col int) int {
 // Plays returns the generator's generated plays.
 func (gen *GordonGenerator) Plays() []*move.Move {
 	return gen.plays
+}
+
+func calculateEquity(play *move.Move, lm LeaveMap, boardEmpty bool) float64 {
+	// If the leave is not present in the map, this is just 0 + score.
+	leave := play.Leave()
+	score := play.Score()
+
+	adjustment := 0.0
+	if boardEmpty {
+		adjustment += placementAdjustment(play)
+	}
+
+	// also need a pre-endgame adjustment that biases towards leaving
+	// one in the bag, etc.
+	return lm[MachineWordString(leave)] + float64(score) + adjustment
+}
+
+func placementAdjustment(play *move.Move) float64 {
+	// Very simply just checks how many vowels are overlapping bonus squares.
+	// This only gets considered when the board is empty.
+	row, col, vertical := play.CoordsAndVertical()
+	var start, end int
+	start = col
+	if vertical {
+		start = row
+	}
+	end = start + play.TilesPlayed()
+
+	j := start
+	penalty := 0.0
+	vPenalty := -0.7 // VERY ROUGH approximation from Maven paper.
+	for j < end {
+		if play.Tiles()[j-start].IsVowel(play.Alphabet()) {
+			switch j {
+			case 2, 6, 8, 12:
+				// row/col below/above have a 2LS. note this only works
+				// for specific board configurations
+				penalty += vPenalty
+			default:
+
+			}
+		}
+		j++
+	}
+	return penalty
 }

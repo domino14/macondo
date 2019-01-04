@@ -257,16 +257,7 @@ func TestPlaceMoveTiles(t *testing.T) {
 
 	b.SetBoardToGame(alph, VsOxy)
 
-	m := move.NewScoringMove(
-		1780,
-		alphabet.MachineWord([]alphabet.MachineLetter{
-			14, 23, 52, 15, 52, 52, 52, 1, 52, 52, 0, 25, 52, 52, 4}),
-		alphabet.MachineWord([]alphabet.MachineLetter{}),
-		true,
-		7,
-		alph,
-		0, 0, "A1",
-	)
+	m := move.NewScoringMoveSimple(1780, "A1", "OX.P...B..AZ..E", "", alph)
 	b.placeMoveTiles(m)
 	for i, c := range "OXYPHENBUTAZONE" {
 		if b.squares[i][0].letter.UserVisible(alph) != c {
@@ -288,61 +279,16 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 	}
 
 	var testCases = []updateCrossesForMoveTestCase{
-		{VsMatt, move.NewScoringMove(
-			38,
-			alphabet.MachineWord([]alphabet.MachineLetter{19, 0, 4, 11}), // TAEL
-			alphabet.MachineWord([]alphabet.MachineLetter{0, 1, 3}),
-			true,
-			4,
-			alph,
-			8, 10, "K9"), "TAEL"},
+		{VsMatt, move.NewScoringMoveSimple(38, "K9", "TAEL", "ABD", alph), "TAEL"},
 		// Test right edge of board
-		{VsMatt2, move.NewScoringMove(
-			77,
-			// TENsILE
-			alphabet.MachineWord([]alphabet.MachineLetter{19, 4, 13, 118, 8, 11, 4}),
-			alphabet.MachineWord([]alphabet.MachineLetter{}),
-			true,
-			7,
-			alph,
-			7, 14, "O8"), "TENsILE"},
+		{VsMatt2, move.NewScoringMoveSimple(77, "O8", "TENsILE", "", alph), "TENsILE"},
 		// Test through tiles
-		{VsOxy, move.NewScoringMove(
-			1780,
-			alphabet.MachineWord([]alphabet.MachineLetter{
-				14, 23, 52, 15, 52, 52, 52, 1, 52, 52, 0, 25, 52, 52, 4}),
-			alphabet.MachineWord([]alphabet.MachineLetter{}),
-			true,
-			7,
-			alph,
-			0, 0, "A1",
-		), "OXYPHENBUTAZONE"},
+		{VsOxy, move.NewScoringMoveSimple(1780, "A1", "OX.P...B..AZ..E", "", alph),
+			"OXYPHENBUTAZONE"},
 		// Test top of board, horizontal
-		{VsJeremy, move.NewScoringMove(
-			14,
-			alphabet.MachineWord([]alphabet.MachineLetter{
-				18, 52, 114, 22, 4, 3,
-			}),
-			alphabet.MachineWord([]alphabet.MachineLetter{
-				3, 50,
-			}),
-			false,
-			5,
-			alph,
-			0, 6, "1G",
-		), "SNoWED"},
+		{VsJeremy, move.NewScoringMoveSimple(14, "1G", "S.oWED", "D?", alph), "SNoWED"},
 		// Test bottom of board, horizontal
-		{VsJeremy, move.NewScoringMove(
-			11,
-			alphabet.MachineWord([]alphabet.MachineLetter{
-				5, 52, 52, 4, 17,
-			}),
-			alphabet.MachineWord([]alphabet.MachineLetter{}),
-			false,
-			4,
-			alph,
-			14, 5, "15F",
-		), "FOYER"},
+		{VsJeremy, move.NewScoringMoveSimple(11, "15F", "F..ER", "", alph), "FOYER"},
 	}
 
 	// create a move.

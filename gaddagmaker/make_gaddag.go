@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"log"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -59,6 +60,7 @@ type Gaddag struct {
 	SerializedLetterSets []alphabet.LetterSet
 	SerializedNodes      []uint32
 	Alphabet             *alphabet.Alphabet
+	lexiconName          string
 }
 
 type ArcPtrSlice []*Arc
@@ -275,6 +277,11 @@ func (g *Gaddag) Save(filename string, magicNumber string) {
 	}
 	// Save it in a compressed format.
 	file.WriteString(magicNumber)
+
+	log.Printf("[INFO] Writing lexicon name: %v", g.lexiconName)
+	bts := []byte(g.lexiconName)
+	binary.Write(file, binary.BigEndian, uint8(len(bts)))
+	binary.Write(file, binary.BigEndian, bts)
 	log.Println("[INFO] Writing serialized elements")
 	binary.Write(file, binary.BigEndian, g.SerializedAlphabet)
 	log.Printf("[INFO] Wrote alphabet (size = %v)", g.SerializedAlphabet[0])
@@ -297,6 +304,7 @@ func GenerateDawg(filename string, minimize bool, writeToFile bool) *Gaddag {
 	if words == nil {
 		return gaddag
 	}
+	gaddag.lexiconName = strings.Split(filepath.Base(filename), ".")[0]
 	gaddag.Root = gaddag.createNode()
 	gaddag.Alphabet = alphabet
 	log.Println("[INFO] Read", len(words), "words")
@@ -341,6 +349,7 @@ func GenerateGaddag(filename string, minimize bool, writeToFile bool) *Gaddag {
 	if words == nil {
 		return gaddag
 	}
+	gaddag.lexiconName = strings.Split(filepath.Base(filename), ".")[0]
 	gaddag.Root = gaddag.createNode()
 	gaddag.Alphabet = alph
 	log.Println("[INFO] Read", len(words), "words")

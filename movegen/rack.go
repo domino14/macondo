@@ -7,9 +7,6 @@ import (
 	"github.com/domino14/macondo/lexicon"
 )
 
-// BlankCharacter is the rune that represents a blank internally
-const BlankCharacter = '?'
-
 // Rack is a machine-friendly representation of a user's rack.
 type Rack struct {
 	// letArr is an array of letter codes from 0 to MaxAlphabetSize.
@@ -43,15 +40,11 @@ func (r *Rack) Set(rack string) {
 	}
 
 	for _, c := range rack {
-		if c != BlankCharacter {
-			ml, err := r.alphabet.Val(c)
-			if err == nil {
-				r.LetArr[ml]++
-			} else {
-				log.Println("[ERROR] Rack has an illegal character: " + string(c))
-			}
+		ml, err := r.alphabet.Val(c)
+		if err == nil {
+			r.LetArr[ml]++
 		} else {
-			r.LetArr[alphabet.BlankMachineLetter]++
+			log.Println("[ERROR] Rack has an illegal character: " + string(c))
 		}
 	}
 	if len(rack) > 0 {

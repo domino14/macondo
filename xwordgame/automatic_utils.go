@@ -14,8 +14,8 @@ func (game *XWordGame) CompVsCompStatic(gd gaddag.SimpleGaddag) {
 	game.StartGame()
 	for game.playing {
 		game.PlayBestStaticTurn(game.onturn)
-		// log.Printf("Turn %v", game.turnnum)
-		// log.Println(game.board.ToDisplayText(game.gaddag.GetAlphabet()))
+		log.Printf("Turn %v", game.turnnum)
+		log.Println(game.board.ToDisplayText(game.gaddag.GetAlphabet()))
 	}
 	log.Printf("[DEBUG] Game over. Score: %v - %v", game.players[0].points,
 		game.players[1].points)

@@ -90,7 +90,7 @@ func (s *Square) equals(s2 *Square) bool {
 	return true
 }
 
-func (s Square) Letter() alphabet.MachineLetter {
+func (s *Square) Letter() alphabet.MachineLetter {
 	return s.letter
 }
 
@@ -315,6 +315,11 @@ func (g *GameBoard) Clear() {
 	g.SetAllCrosses()
 	g.UpdateAllAnchors()
 
+}
+
+// IsEmpty returns if the board is empty.
+func (g *GameBoard) IsEmpty() bool {
+	return !g.hasTiles
 }
 
 func (g *GameBoard) updateAnchors(row int, col int, vertical bool) {

@@ -25,3 +25,12 @@ func TestCompVsCompStatic(t *testing.T) {
 		t.Errorf("Expected game.turnnum < 6, got %v", game.turnnum)
 	}
 }
+
+func BenchmarkCompVsCompStatic(b *testing.B) {
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		game := &XWordGame{}
+		game.CompVsCompStatic(gd)
+	}
+}

@@ -2,6 +2,8 @@ package move
 
 import (
 	"fmt"
+	"log"
+	"regexp"
 	"strconv"
 
 	"github.com/domino14/macondo/alphabet"
@@ -25,7 +27,7 @@ const (
 type Move struct {
 	action      MoveType
 	score       int
-	equity      int
+	equity      float64
 	desc        string
 	coords      string
 	tiles       alphabet.MachineWord
@@ -38,14 +40,14 @@ type Move struct {
 	alph        *alphabet.Alphabet
 }
 
-// ByScore is a helper type to help sort moves by score.
-type ByScore []*Move
+var reVertical, reHorizontal *regexp.Regexp
 
-func (a ByScore) Len() int           { return len(a) }
-func (a ByScore) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a ByScore) Less(i, j int) bool { return a[i].score > a[j].score }
+func init() {
+	reVertical = regexp.MustCompile(`^(?P<col>[A-Z])(?P<row>[0-9]+)$`)
+	reHorizontal = regexp.MustCompile(`^(?P<row>[0-9]+)(?P<col>[A-Z])$`)
+}
 
-func (m Move) String() string {
+func (m *Move) String() string {
 	switch m.action {
 	case MoveTypePlay:
 		return fmt.Sprintf(
@@ -59,14 +61,16 @@ func (m Move) String() string {
 
 }
 
-func (m Move) Action() MoveType {
+func (m *Move) Action() MoveType {
 	return m.action
 }
 
-func (m Move) TilesPlayed() int {
+// TilesPlayed returns the number of tiles played by this move.
+func (m *Move) TilesPlayed() int {
 	return m.tilesPlayed
 }
 
+// NewScoringMove creates a scoring *Move and returns it.
 func NewScoringMove(score int, tiles alphabet.MachineWord,
 	leave alphabet.MachineWord, vertical bool, tilesPlayed int,
 	alph *alphabet.Alphabet, rowStart int, colStart int, coords string) *Move {
@@ -79,19 +83,74 @@ func NewScoringMove(score int, tiles alphabet.MachineWord,
 	return move
 }
 
-func (m Move) Score() int {
+// NewScoringMoveSimple takes in user-visible strings. Consider moving to this
+// (it is a little slower, though, so maybe only for tests)
+func NewScoringMoveSimple(score int, coords string, word string, leave string,
+	alph *alphabet.Alphabet) *Move {
+
+	row, col, vertical := fromBoardGameCoords(coords)
+
+	tiles, err := alphabet.ToMachineWord(word, alph)
+	if err != nil {
+		log.Printf("[ERROR] %v", err.Error())
+		return nil
+	}
+	leaveMW, err := alphabet.ToMachineWord(leave, alph)
+	if err != nil {
+		log.Printf("[ERROR] %v", err.Error())
+		return nil
+	}
+	tilesPlayed := 0
+	for _, t := range tiles {
+		if t != alphabet.PlayedThroughMarker {
+			tilesPlayed++
+		}
+	}
+
+	move := &Move{
+		action:      MoveTypePlay,
+		score:       score,
+		tiles:       tiles,
+		leave:       leaveMW,
+		vertical:    vertical,
+		bingo:       tilesPlayed == 7,
+		tilesPlayed: tilesPlayed,
+		alph:        alph,
+		rowStart:    row,
+		colStart:    col,
+		coords:      coords,
+	}
+	return move
+}
+
+// Alphabet is the alphabet used by this move
+func (m *Move) Alphabet() *alphabet.Alphabet {
+	return m.alph
+}
+
+// Equity is the equity of this move.
+func (m *Move) Equity() float64 {
+	return m.equity
+}
+
+// SetEquity sets the equity of this move. It is calculated outside this package.
+func (m *Move) SetEquity(e float64) {
+	m.equity = e
+}
+
+func (m *Move) Score() int {
 	return m.score
 }
 
-func (m Move) Leave() alphabet.MachineWord {
+func (m *Move) Leave() alphabet.MachineWord {
 	return m.leave
 }
 
-func (m Move) Tiles() alphabet.MachineWord {
+func (m *Move) Tiles() alphabet.MachineWord {
 	return m.tiles
 }
 
-func (m Move) UniqueSingleTileKey() int {
+func (m *Move) UniqueSingleTileKey() int {
 	// Find the tile.
 	var idx int
 	var ml alphabet.MachineLetter
@@ -123,6 +182,8 @@ func (m *Move) BoardCoords() string {
 	return m.coords
 }
 
+// ToBoardGameCoords onverts the row, col, and orientation of the play to
+// a coordinate like 5F or G4.
 func ToBoardGameCoords(row int, col int, vertical bool) string {
 	colCoords := string(rune('A' + col))
 	rowCoords := strconv.Itoa(int(row + 1))
@@ -133,6 +194,29 @@ func ToBoardGameCoords(row int, col int, vertical bool) string {
 		coords = rowCoords + colCoords
 	}
 	return coords
+}
+
+// fromBoardGameCoords does the inverse operation of ToBoardGameCoords above.
+func fromBoardGameCoords(c string) (int, int, bool) {
+	vMatches := reVertical.FindStringSubmatch(c)
+	var row, col int
+	var vertical bool
+	if len(vMatches) == 3 {
+		// It's vertical
+		row, _ = strconv.Atoi(vMatches[2])
+		col = int(vMatches[1][0] - 'A')
+		vertical = true
+		return row - 1, col, vertical
+	}
+	hMatches := reHorizontal.FindStringSubmatch(c)
+	if len(hMatches) == 3 {
+		row, _ = strconv.Atoi(hMatches[1])
+		col = int(hMatches[2][0] - 'A')
+		vertical = false
+		return row - 1, col, vertical
+	}
+
+	return 0, 0, false
 }
 
 func NewPassMove() *Move {

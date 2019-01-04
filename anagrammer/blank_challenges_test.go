@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/lexicon"
@@ -26,7 +27,7 @@ func TestRacks(t *testing.T) {
 					}
 					numBlanks := 0
 					for j := 0; j < len(rack); j++ {
-						if rack[j] == BlankCharacter {
+						if rack[j] == alphabet.BlankToken {
 							numBlanks++
 						}
 					}

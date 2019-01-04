@@ -4,6 +4,7 @@
 package xwordgame
 
 import (
+	"fmt"
 	"log"
 	"math/rand"
 	"time"
@@ -46,8 +47,8 @@ func (game *XWordGame) Init(gd gaddag.SimpleGaddag) {
 	game.gaddag = gd
 	game.movegen = movegen.NewGordonGenerator(gd, game.bag, game.board)
 	game.players = []Player{
-		{nil, "player1", 0},
-		{nil, "player2", 0},
+		{nil, "", "player1", 0},
+		{nil, "", "player2", 0},
 	}
 }
 
@@ -56,6 +57,7 @@ func (game *XWordGame) StartGame() {
 	game.board.Clear()
 	for i := 0; i < 2; i++ {
 		rack, _ := game.bag.Draw(7)
+		game.players[i].rackLetters = string(rack)
 		if game.players[i].rack == nil {
 			game.players[i].rack = movegen.RackFromString(string(rack),
 				game.gaddag.GetAlphabet())
@@ -79,7 +81,14 @@ func (game *XWordGame) PlayBestStaticTurn(playerID int) {
 	game.movegen.GenAll(game.players[playerID].rack)
 	// log.Printf("[DEBUG] Generated %v moves, best static is %v",
 	// 	len(game.movegen.Plays()), game.movegen.Plays()[0])
+	// log before playing move
+
+	fmt.Printf("%v,%v,%v\n", game.players[playerID].rackLetters,
+		game.movegen.Plays()[0].Score(),
+		game.bag.TilesRemaining())
+
 	game.PlayMove(game.movegen.Plays()[0])
+
 	game.turnnum++
 }
 
@@ -98,6 +107,7 @@ func (game *XWordGame) PlayMove(m *move.Move) {
 		drew := game.bag.DrawAtMost(m.TilesPlayed())
 		rack := string(drew) + m.Leave().UserVisible(game.gaddag.GetAlphabet())
 		game.players[game.onturn].rack.Set(rack)
+		game.players[game.onturn].rackLetters = rack
 
 		if game.players[game.onturn].rack.NumTiles() == 0 {
 			// log.Printf("[DEBUG] Player %v played off all their tiles. Game over!",

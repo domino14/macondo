@@ -18,6 +18,8 @@ import (
 // It is created by serializeElements in make_gaddag.go.
 // File Schema:
 // [4-byte magic number]
+// [1-byte length (LX_LEN)]
+// [utf-8 encoded bytes with lexicon name, length of bytes being LX_LEN]
 // [alphabetlength] [letters...] (up to 60+?)
 // [lettersetlength] [lettersets] (64-bit binary bit masks)
 // a set of [node] [arcs...]
@@ -32,8 +34,9 @@ type SimpleGaddag struct {
 	// Nodes is just a slice of 32-bit elements, the node array.
 	Nodes []uint32
 	// The bit-mask letter sets
-	LetterSets []alphabet.LetterSet
-	alphabet   *alphabet.Alphabet
+	LetterSets  []alphabet.LetterSet
+	alphabet    *alphabet.Alphabet
+	lexiconName string
 }
 
 // A SimpleDawg is just a SimpleGaddag with fewer paths.
@@ -61,6 +64,12 @@ func LoadGaddag(filename string) SimpleGaddag {
 		return SimpleGaddag{}
 	}
 
+	var lexNameLen uint8
+	binary.Read(file, binary.BigEndian, &lexNameLen)
+	lexName := make([]byte, lexNameLen)
+	binary.Read(file, binary.BigEndian, &lexName)
+	log.Printf("[INFO] Read lexicon name: '%v'", string(lexName))
+
 	var alphabetSize, lettersetSize, nodeSize uint32
 
 	binary.Read(file, binary.BigEndian, &alphabetSize)
@@ -80,7 +89,8 @@ func LoadGaddag(filename string) SimpleGaddag {
 	file.Close()
 
 	g := SimpleGaddag{Nodes: nodes, LetterSets: letterSets,
-		alphabet: alphabet.FromSlice(alphabetArr)}
+		alphabet:    alphabet.FromSlice(alphabetArr),
+		lexiconName: string(lexName)}
 	return g
 }
 
@@ -173,8 +183,16 @@ func (g SimpleGaddag) GetRootNodeIndex() uint32 {
 	return 0
 }
 
+// GetAlphabet returns the alphabet for this gaddag.
 func (g SimpleGaddag) GetAlphabet() *alphabet.Alphabet {
 	return g.alphabet
+}
+
+// LexiconName returns the name of the lexicon. The name is not encoded in
+// the gaddag itself, but in the name of the file. Hopefully this isn't a big
+// problem.
+func (g SimpleGaddag) LexiconName() string {
+	return g.lexiconName
 }
 
 func (g SimpleDawg) GetAlphabet() *alphabet.Alphabet {
