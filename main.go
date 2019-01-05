@@ -14,6 +14,7 @@ import (
 
 	"github.com/domino14/macondo/anagrammer"
 	"github.com/domino14/macondo/gaddagmaker"
+	"github.com/domino14/macondo/xwordgame"
 	"github.com/gorilla/rpc/v2"
 	"github.com/gorilla/rpc/v2/json2"
 )
@@ -95,6 +96,7 @@ func main() {
 	s.RegisterCodec(json2.NewCodec(), "application/json")
 	s.RegisterService(new(gaddagmaker.GaddagService), "")
 	s.RegisterService(new(anagrammer.AnagramService), "")
+	s.RegisterService(new(xwordgame.CompVCompService), "")
 	// Need to set rpc v2 to master to use the following, in the dep toml file :/
 	// This allows us to modify the request and optionally add a context
 	// timeout.

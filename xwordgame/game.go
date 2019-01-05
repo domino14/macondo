@@ -6,8 +6,6 @@ package xwordgame
 import (
 	"fmt"
 	"log"
-	"math/rand"
-	"time"
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/endgame"
@@ -29,16 +27,13 @@ type XWordGame struct {
 	gaddag             gaddag.SimpleGaddag
 	playing            bool
 	scorelessTurns     int
-	randomizer         *rand.Rand
 	numPossibleLetters int
 	endgameSolver      *endgame.Solver
+	logchan            chan string
 }
 
 // Init initializes the crossword game and seeds the random number generator.
 func (game *XWordGame) Init(gd gaddag.SimpleGaddag) {
-
-	seed := time.Now().UTC().UnixNano()
-	game.randomizer = rand.New(rand.NewSource(seed))
 	game.numPossibleLetters = int(gd.GetAlphabet().NumLetters())
 	game.board = board.MakeBoard(board.CrosswordGameBoard)
 	dist := lexicon.EnglishLetterDistribution()
@@ -83,10 +78,12 @@ func (game *XWordGame) PlayBestStaticTurn(playerID int) {
 	// 	len(game.movegen.Plays()), game.movegen.Plays()[0])
 	// log before playing move
 
-	fmt.Printf("%v,%v,%v\n", game.players[playerID].rackLetters,
-		game.movegen.Plays()[0].Score(),
-		game.bag.TilesRemaining())
-
+	if game.logchan != nil {
+		game.logchan <- fmt.Sprintf("%v,%v,%v\n",
+			game.players[playerID].rackLetters,
+			game.movegen.Plays()[0].Score(),
+			game.bag.TilesRemaining())
+	}
 	game.PlayMove(game.movegen.Plays()[0])
 
 	game.turnnum++
