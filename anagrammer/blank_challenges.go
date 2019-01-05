@@ -16,7 +16,7 @@ import (
 // to generate a challenge with too many or too few answers, or if
 // an answer has already been generated.
 func try(nBlanks int, dist lexicon.LetterDistribution, wordLength int,
-	dawg gaddag.SimpleDawg, maxSolutions int, answerMap map[string]bool) (
+	dawg *gaddag.SimpleGaddag, maxSolutions int, answerMap map[string]bool) (
 	*Question, error) {
 
 	rack := genRack(dist, wordLength, nBlanks, dawg.GetAlphabet())
@@ -41,7 +41,7 @@ func try(nBlanks int, dist lexicon.LetterDistribution, wordLength int,
 // GenerateBlanks - Generate a list of blank word challenges given the
 // parameters in args.
 func GenerateBlanks(ctx context.Context, args *BlankChallengeArgs,
-	dawg gaddag.SimpleDawg) ([]*Question, int, error) {
+	dawg *gaddag.SimpleGaddag) ([]*Question, int, error) {
 
 	var dist lexicon.LetterDistribution
 	if args.Lexicon == "FISE09" {

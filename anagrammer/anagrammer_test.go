@@ -94,7 +94,7 @@ func wordlistToSet(wl []string) map[string]struct{} {
 
 func TestSimpleAnagram(t *testing.T) {
 	gaddagmaker.GenerateDawg("test_files/small.txt", true, true)
-	d := gaddag.SimpleDawg(gaddag.LoadGaddag("out.dawg"))
+	d := gaddag.LoadGaddag("out.dawg")
 	for _, pair := range simpleAnagramTests {
 		answers := Anagram(pair.rack, d, ModeExact)
 		if !reflect.DeepEqual(wordlistToSet(answers), pair.answers) {
@@ -106,7 +106,7 @@ func TestSimpleAnagram(t *testing.T) {
 func TestAnagram(t *testing.T) {
 	gaddagmaker.GenerateDawg(LexiconDir+"America.txt", true,
 		true)
-	d := gaddag.SimpleDawg(gaddag.LoadGaddag("out.dawg"))
+	d := gaddag.LoadGaddag("out.dawg")
 	for _, pair := range buildTests {
 		answers := Anagram(pair.rack, d, ModeBuild)
 		if len(answers) != pair.num {
@@ -125,7 +125,7 @@ func TestAnagram(t *testing.T) {
 func TestAnagramSpanish(t *testing.T) {
 	gaddagmaker.GenerateDawg(LexiconDir+"FISE09.txt", true,
 		true)
-	d := gaddag.SimpleDawg(gaddag.LoadGaddag("out.dawg"))
+	d := gaddag.LoadGaddag("out.dawg")
 	for _, pair := range spanishBuildTests {
 		answers := Anagram(pair.rack, d, ModeBuild)
 		if len(answers) != pair.num {
@@ -143,7 +143,7 @@ func TestAnagramSpanish(t *testing.T) {
 func BenchmarkAnagramBlanks(b *testing.B) {
 	// ~ 21.33 ms per op on my macbook pro.
 	gaddagmaker.GenerateDawg(LexiconDir+"CSW15.txt", true, true)
-	d := gaddag.SimpleDawg(gaddag.LoadGaddag("out.dawg"))
+	d := gaddag.LoadGaddag("out.dawg")
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		Anagram("RETINA??", d, ModeExact)
@@ -153,7 +153,7 @@ func BenchmarkAnagramBlanks(b *testing.B) {
 func BenchmarkAnagramFourBlanks(b *testing.B) {
 	// ~ 453.6ms
 	gaddagmaker.GenerateDawg(LexiconDir+"America.txt", true, true)
-	d := gaddag.SimpleDawg(gaddag.LoadGaddag("out.dawg"))
+	d := gaddag.LoadGaddag("out.dawg")
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		Anagram("AEINST????", d, ModeExact)
@@ -162,7 +162,7 @@ func BenchmarkAnagramFourBlanks(b *testing.B) {
 
 func TestBuildFourBlanks(t *testing.T) {
 	gaddagmaker.GenerateDawg(LexiconDir+"America.txt", true, true)
-	d := gaddag.SimpleDawg(gaddag.LoadGaddag("out.dawg"))
+	d := gaddag.LoadGaddag("out.dawg")
 	answers := Anagram("AEINST????", d, ModeBuild)
 	expected := 61711
 	if len(answers) != expected {
@@ -172,7 +172,7 @@ func TestBuildFourBlanks(t *testing.T) {
 
 func TestAnagramFourBlanks(t *testing.T) {
 	gaddagmaker.GenerateDawg(LexiconDir+"America.txt", true, true)
-	d := gaddag.SimpleDawg(gaddag.LoadGaddag("out.dawg"))
+	d := gaddag.LoadGaddag("out.dawg")
 	answers := Anagram("AEINST????", d, ModeExact)
 	expected := 863
 	if len(answers) != expected {

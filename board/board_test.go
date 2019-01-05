@@ -41,7 +41,3 @@ func TestUpdateAnchors(t *testing.T) {
 	}
 	// I could do more but it's all right for now?
 }
-
-func TestPlayMove(t *testing.T) {
-	// move := move.NewScoringMove()
-}

@@ -105,7 +105,7 @@ type LexiconInfo struct {
 	DescriptiveName    string
 	LetterDistribution LetterDistribution
 	subChooseCombos    [][]uint64
-	Gaddag             gaddag.SimpleGaddag
+	Gaddag             *gaddag.SimpleGaddag
 }
 
 // Initialize the LexiconInfo data structure for a new lexicon,

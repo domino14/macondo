@@ -43,7 +43,7 @@ func TestRacks(t *testing.T) {
 
 func TestGenBlanks(t *testing.T) {
 	gaddagmaker.GenerateDawg(LexiconDir+"America.txt", true, true)
-	d := gaddag.SimpleDawg(gaddag.LoadGaddag("out.dawg"))
+	d := gaddag.LoadGaddag("out.dawg")
 
 	ctx := context.Background()
 	bcArgs := &BlankChallengeArgs{

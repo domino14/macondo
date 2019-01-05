@@ -13,7 +13,7 @@ import (
 // As an additional condition, letters must anagram exactly to at least
 // one word, if that argument is passed in.
 func GenerateBuildChallenge(ctx context.Context, args *BuildChallengeArgs,
-	dawg gaddag.SimpleDawg) (*Question, int, error) {
+	dawg *gaddag.SimpleGaddag) (*Question, int, error) {
 
 	var dist lexicon.LetterDistribution
 	if args.Lexicon == "FISE09" {

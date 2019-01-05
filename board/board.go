@@ -441,7 +441,7 @@ func (g *GameBoard) traverseBackwardsForScore(row int, col int, bag *lexicon.Bag
 
 func (g *GameBoard) traverseBackwards(row int, col int, nodeIdx uint32,
 	checkLetterSet bool, leftMostCol int,
-	gaddag gaddag.SimpleGaddag) (uint32, bool) {
+	gaddag *gaddag.SimpleGaddag) (uint32, bool) {
 	// Traverse the letters on the board backwards (left). Return the index
 	// of the node in the gaddag for the left-most letter, and a boolean
 	// indicating if the gaddag path was valid.
@@ -526,7 +526,7 @@ func (g *GameBoard) placeMoveTiles(m *move.Move) {
 }
 
 // PlayMove plays a move on a board.
-func (g *GameBoard) PlayMove(m *move.Move, gd gaddag.SimpleGaddag, bag *lexicon.Bag) {
+func (g *GameBoard) PlayMove(m *move.Move, gd *gaddag.SimpleGaddag, bag *lexicon.Bag) {
 	// Place tiles on the board, and regenerate cross-sets and cross-points.
 	// recalculate anchors tooo
 	g.placeMoveTiles(m)

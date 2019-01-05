@@ -39,9 +39,6 @@ type SimpleGaddag struct {
 	lexiconName string
 }
 
-// A SimpleDawg is just a SimpleGaddag with fewer paths.
-type SimpleDawg SimpleGaddag
-
 // Ensure the magic number matches.
 func compareMagic(bytes [4]uint8) bool {
 	cast := string(bytes[:])
@@ -49,19 +46,19 @@ func compareMagic(bytes [4]uint8) bool {
 }
 
 // LoadGaddag loads a gaddag from a file and returns the slice of nodes.
-func LoadGaddag(filename string) SimpleGaddag {
+func LoadGaddag(filename string) *SimpleGaddag {
 	log.Println("Loading", filename, "...")
 	file, err := os.Open(filename)
 	if err != nil {
 		log.Println("[ERROR] Could not open gaddag", err)
-		return SimpleGaddag{}
+		return nil
 	}
 	var magicStr [4]uint8
 	binary.Read(file, binary.BigEndian, &magicStr)
 
 	if !compareMagic(magicStr) {
 		log.Println("[ERROR] Magic number does not match")
-		return SimpleGaddag{}
+		return nil
 	}
 
 	var lexNameLen uint8
@@ -88,7 +85,7 @@ func LoadGaddag(filename string) SimpleGaddag {
 	binary.Read(file, binary.BigEndian, &nodes)
 	file.Close()
 
-	g := SimpleGaddag{Nodes: nodes, LetterSets: letterSets,
+	g := &SimpleGaddag{Nodes: nodes, LetterSets: letterSets,
 		alphabet:    alphabet.FromSlice(alphabetArr),
 		lexiconName: string(lexName)}
 	return g
@@ -96,21 +93,21 @@ func LoadGaddag(filename string) SimpleGaddag {
 
 // ArcToIdxLetter finds the index of the node pointed to by this arc and
 // returns it and the letter.
-func (g SimpleGaddag) ArcToIdxLetter(arcIdx uint32) (uint32, alphabet.MachineLetter) {
+func (g *SimpleGaddag) ArcToIdxLetter(arcIdx uint32) (uint32, alphabet.MachineLetter) {
 	// log.Printf("[DEBUG] ArcToIdxLetter called with %v", arcIdx)
 	letterCode := alphabet.MachineLetter(g.Nodes[arcIdx] >> gaddagmaker.LetterBitLoc)
 	return g.Nodes[arcIdx] & gaddagmaker.NodeIdxBitMask, letterCode
 }
 
 // GetLetterSet gets the letter set of the node at nodeIdx.
-func (g SimpleGaddag) GetLetterSet(nodeIdx uint32) alphabet.LetterSet {
+func (g *SimpleGaddag) GetLetterSet(nodeIdx uint32) alphabet.LetterSet {
 	letterSetCode := g.Nodes[nodeIdx] & gaddagmaker.LetterSetBitMask
 	return g.LetterSets[letterSetCode]
 }
 
 // InLetterSet returns whether the `letter` is in the node at `nodeIdx`'s
 // letter set.
-func (g SimpleGaddag) InLetterSet(letter alphabet.MachineLetter, nodeIdx uint32) bool {
+func (g *SimpleGaddag) InLetterSet(letter alphabet.MachineLetter, nodeIdx uint32) bool {
 	if letter == alphabet.SeparationMachineLetter {
 		return false
 	}
@@ -124,7 +121,7 @@ func (g SimpleGaddag) InLetterSet(letter alphabet.MachineLetter, nodeIdx uint32)
 
 // LetterSetAsRunes returns the letter set of the node at `nodeIdx` as
 // a slice of runes.
-func (g SimpleGaddag) LetterSetAsRunes(nodeIdx uint32) []rune {
+func (g *SimpleGaddag) LetterSetAsRunes(nodeIdx uint32) []rune {
 	letterSet := g.GetLetterSet(nodeIdx)
 	runes := []rune{}
 	for idx := alphabet.MachineLetter(0); idx < alphabet.MaxAlphabetSize; idx++ {
@@ -153,7 +150,7 @@ func (g SimpleGaddag) LetterSetAsRunes(nodeIdx uint32) []rune {
 // to, rather than the pointing arc. There is something slightly wrong with
 // the paper as it does not seem possible to implement in exactly Gordon's way
 // without running into issues. (See my notes in my `ujamaa` repo in gaddag.h)
-func (g SimpleGaddag) NextNodeIdx(nodeIdx uint32, letter alphabet.MachineLetter) uint32 {
+func (g *SimpleGaddag) NextNodeIdx(nodeIdx uint32, letter alphabet.MachineLetter) uint32 {
 	numArcs := g.NumArcs(nodeIdx)
 	for i := nodeIdx + 1; i <= uint32(numArcs)+nodeIdx; i++ {
 		ml := alphabet.MachineLetter(g.Nodes[i] >> gaddagmaker.LetterBitLoc)
@@ -170,7 +167,7 @@ func (g SimpleGaddag) NextNodeIdx(nodeIdx uint32, letter alphabet.MachineLetter)
 }
 
 // NumArcs is simply the number of arcs for the given node.
-func (g SimpleGaddag) NumArcs(nodeIdx uint32) byte {
+func (g *SimpleGaddag) NumArcs(nodeIdx uint32) byte {
 	// if g.Nodes[nodeIdx].Arcs == nil {
 	// 	return 0
 	// }
@@ -179,24 +176,20 @@ func (g SimpleGaddag) NumArcs(nodeIdx uint32) byte {
 }
 
 // GetRootNodeIndex gets the index of the root node.
-func (g SimpleGaddag) GetRootNodeIndex() uint32 {
+func (g *SimpleGaddag) GetRootNodeIndex() uint32 {
 	return 0
 }
 
 // GetAlphabet returns the alphabet for this gaddag.
-func (g SimpleGaddag) GetAlphabet() *alphabet.Alphabet {
+func (g *SimpleGaddag) GetAlphabet() *alphabet.Alphabet {
 	return g.alphabet
 }
 
 // LexiconName returns the name of the lexicon. The name is not encoded in
 // the gaddag itself, but in the name of the file. Hopefully this isn't a big
 // problem.
-func (g SimpleGaddag) LexiconName() string {
+func (g *SimpleGaddag) LexiconName() string {
 	return g.lexiconName
-}
-
-func (g SimpleDawg) GetAlphabet() *alphabet.Alphabet {
-	return g.alphabet
 }
 
 // Extracts the LetterSet and NumArcs from the node, and returns.

@@ -18,11 +18,11 @@ func prepareForFind(str string) []rune {
 
 // FindPrefix returns a boolean indicating if the prefix is in the GADDAG.
 // This function is meant to be exported.
-func FindPrefix(g SimpleGaddag, prefix string) bool {
+func FindPrefix(g *SimpleGaddag, prefix string) bool {
 	return findPartialWord(g, g.GetRootNodeIndex(), prepareForFind(prefix), 0)
 }
 
-func FindWord(g SimpleGaddag, word string) bool {
+func FindWord(g *SimpleGaddag, word string) bool {
 	if g.Nodes == nil {
 		return false
 	}
@@ -32,7 +32,7 @@ func FindWord(g SimpleGaddag, word string) bool {
 
 // Finds a word in a SimpleGaddag that is a DAWG. The word can just be
 // found verbatim.
-func FindWordDawg(g SimpleGaddag, word string) bool {
+func FindWordDawg(g *SimpleGaddag, word string) bool {
 	if g.Nodes == nil {
 		return false
 	}
@@ -50,7 +50,7 @@ const (
 // FindInnerHook finds whether the word has a back or front "inner hook",
 // that is, whether if you remove the back or front letter, you can still
 // make a word.
-func FindInnerHook(g SimpleGaddag, word string, hookType int) bool {
+func FindInnerHook(g *SimpleGaddag, word string, hookType int) bool {
 	runes := []rune(word)
 	if hookType == BackInnerHook {
 		word = string(runes[:len(runes)-1])
@@ -61,7 +61,7 @@ func FindInnerHook(g SimpleGaddag, word string, hookType int) bool {
 	return found
 }
 
-func FindHooks(g SimpleGaddag, word string, hookType int) []rune {
+func FindHooks(g *SimpleGaddag, word string, hookType int) []rune {
 	var runes []rune
 	if hookType == BackHooks {
 		runes = prepareForFind(word)
@@ -106,7 +106,7 @@ func reverse(word string) []rune {
 // findPartialWord returns a boolean indicating if the given partial word is
 // in the GADDAG. The partial word has already been flipped by FindPrefix
 // above.
-func findPartialWord(g SimpleGaddag, nodeIdx uint32, partialWord []rune,
+func findPartialWord(g *SimpleGaddag, nodeIdx uint32, partialWord []rune,
 	curPrefixIdx uint8) bool {
 	var numArcs, i byte
 	var mletter alphabet.MachineLetter
@@ -143,7 +143,7 @@ func findPartialWord(g SimpleGaddag, nodeIdx uint32, partialWord []rune,
 	return findPartialWord(g, nextNodeIdx, partialWord, curPrefixIdx)
 }
 
-func findWord(g SimpleGaddag, nodeIdx uint32, word []rune, curIdx uint8) (
+func findWord(g *SimpleGaddag, nodeIdx uint32, word []rune, curIdx uint8) (
 	bool, uint32) {
 	var numArcs, i byte
 	var letter alphabet.MachineLetter

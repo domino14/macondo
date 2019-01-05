@@ -23,7 +23,7 @@ func init() {
 }
 
 // CompVsCompStatic plays out a game to the end using best static turns.
-func (game *XWordGame) CompVsCompStatic(gd gaddag.SimpleGaddag) {
+func (game *XWordGame) CompVsCompStatic(gd *gaddag.SimpleGaddag) {
 	game.Init(gd)
 	game.playFullStatic()
 	log.Printf("[DEBUG] Game over. Score: %v - %v", game.players[0].points,
@@ -40,7 +40,60 @@ func (game *XWordGame) playFullStatic() {
 	}
 }
 
-func StartCompVCompStaticGames(gd gaddag.SimpleGaddag, numGames int, threads int,
+// type Job struct{}
+
+// type Worker struct {
+// 	id         int
+// 	jobQueue   chan Job
+// 	workerPool chan chan Job
+// 	quitChan   chan bool
+// 	logChan    chan string
+// 	gd         *gaddag.SimpleGaddag
+// }
+
+// func NewWorker(id int, workerPool chan chan Job, gd *gaddag.SimpleGaddag,
+// 	logchan chan string) Worker {
+// 	return Worker{
+// 		id:         id,
+// 		jobQueue:   make(chan Job),
+// 		workerPool: workerPool,
+// 		quitChan:   make(chan bool),
+// 		gd:         gd,
+// 		logChan:    logchan,
+// 	}
+// }
+
+// func (w Worker) start() {
+// 	go func() {
+// 		game := XWordGame{logchan: w.logChan}
+// 		game.Init(w.gd)
+
+// 		for {
+// 			// Add my jobQueue to the worker pool.
+// 			w.workerPool <- w.jobQueue
+
+// 			select {
+// 			case job := <-w.jobQueue:
+// 				// Dispatcher has added a job to my jobQueue.
+// 				game.playFullStatic()
+// 			case <-w.quitChan:
+// 				// We have been asked to stop.
+// 				fmt.Printf("worker%d stopping\n", w.id)
+// 				return
+// 			}
+// 		}
+// 	}()
+// }
+
+// func (w Worker) stop() {
+// 	go func() {
+// 		w.quitChan <- true
+// 	}()
+// }
+
+type Job struct{}
+
+func StartCompVCompStaticGames(gd *gaddag.SimpleGaddag, numGames int, threads int,
 	outputFilename string) error {
 
 	if IsPlaying.Value() > 0 {
@@ -53,47 +106,39 @@ func StartCompVCompStaticGames(gd gaddag.SimpleGaddag, numGames int, threads int
 	}
 
 	CVCCounter.Set(0)
-	jobChan := make(chan struct{}, 100)
+	jobs := make(chan Job, 100)
 	logChan := make(chan string, 100)
 	var wg sync.WaitGroup
+	wg.Add(threads)
 
-	worker := func(jobChan <-chan struct{}, id int) {
-		defer func() {
-			IsPlaying.Add(-1)
+	for i := 1; i <= threads; i++ {
+		go func(i int) {
 			defer wg.Done()
-			log.Printf("Exiting worker %v goroutine!", id)
-		}()
-		IsPlaying.Add(1)
-		wg.Add(1)
-		game := XWordGame{logchan: logChan, gamechan: nil}
-		game.Init(gd)
-
-		for range jobChan {
-			game.playFullStatic()
-			// log.Printf("[DEBUG] Game over. Score: %v - %v",
-			// 	game.players[0].points,
-			// 	game.players[1].points)
-			CVCCounter.Add(1)
-		}
+			game := XWordGame{logchan: logChan}
+			game.Init(gd)
+			IsPlaying.Add(1)
+			for range jobs {
+				game.playFullStatic()
+				CVCCounter.Add(1)
+			}
+			IsPlaying.Add(-1)
+		}(i)
 	}
 
 	go func() {
 		for i := 1; i < numGames+1; i++ {
-			jobChan <- struct{}{}
+			jobs <- Job{}
 			if i%1000 == 0 {
-				log.Printf("%v games played...", i)
+				log.Printf("Queued %v jobs", i)
 			}
 		}
-		close(jobChan)
+		close(jobs)
+		log.Printf("Finished queueing all jobs.")
 		wg.Wait()
-		// Wait until all games are done, and then close the log channel.
+		log.Printf("All games finished.")
 		close(logChan)
-		log.Printf("Exiting feeder goroutine!")
+		log.Printf("Exiting feeder subroutine!")
 	}()
-
-	for i := 0; i < threads; i++ {
-		go worker(jobChan, i)
-	}
 
 	go func() {
 		for msg := range logChan {
@@ -104,4 +149,47 @@ func StartCompVCompStaticGames(gd gaddag.SimpleGaddag, numGames int, threads int
 	}()
 
 	return nil
+
+	// logChan := make(chan string, 100)
+	// var wg sync.WaitGroup
+
+	// worker := func(jobChan <-chan struct{}, id int) {
+	// 	defer func() {
+	// 		IsPlaying.Add(-1)
+	// 		defer wg.Done()
+	// 		log.Printf("Exiting worker %v goroutine!", id)
+	// 	}()
+	// 	IsPlaying.Add(1)
+	// 	wg.Add(1)
+	// 	game := XWordGame{logchan: logChan, gamechan: nil}
+	// 	game.Init(gd)
+
+	// 	for range jobChan {
+	// 		game.playFullStatic()
+	// 		// log.Printf("[DEBUG] Game over. Score: %v - %v",
+	// 		// 	game.players[0].points,
+	// 		// 	game.players[1].points)
+	// 		CVCCounter.Add(1)
+	// 	}
+	// }
+
+	// go func() {
+	// 	for i := 1; i < numGames+1; i++ {
+	// 		jobChan <- struct{}{}
+	// 		if i%1000 == 0 {
+	// 			log.Printf("%v games played...", i)
+	// 		}
+	// 	}
+	// 	close(jobChan)
+	// 	wg.Wait()
+	// 	// Wait until all games are done, and then close the log channel.
+	// 	close(logChan)
+	// 	log.Printf("Exiting feeder goroutine!")
+	// }()
+
+	// for i := 0; i < threads; i++ {
+	// 	go worker(jobChan, i)
+	// }
+
+	// return nil
 }

@@ -19,7 +19,7 @@ import (
 func LoadDawgs(dawgPath string) {
 	// Load the DAWGs into memory.
 	lexica := []string{"America", "CSW15", "FISE09", "osps38"}
-	Dawgs = make(map[string]gaddag.SimpleDawg)
+	Dawgs = make(map[string]*gaddag.SimpleGaddag)
 	for _, lex := range lexica {
 		filename := dawgPath + lex + ".dawg"
 		if _, err := os.Stat(filename); os.IsNotExist(err) {
@@ -27,7 +27,7 @@ func LoadDawgs(dawgPath string) {
 			continue
 		}
 
-		Dawgs[lex] = gaddag.SimpleDawg(gaddag.LoadGaddag(filename))
+		Dawgs[lex] = gaddag.LoadGaddag(filename)
 	}
 }
 
@@ -41,7 +41,7 @@ const (
 	ModePattern
 )
 
-var Dawgs map[string]gaddag.SimpleDawg
+var Dawgs map[string]*gaddag.SimpleGaddag
 
 type AnagramStruct struct {
 	answerList []string
@@ -49,12 +49,11 @@ type AnagramStruct struct {
 	numLetters int
 }
 
-func Anagram(letters string, dawg gaddag.SimpleDawg, mode AnagramMode) []string {
+func Anagram(letters string, gd *gaddag.SimpleGaddag, mode AnagramMode) []string {
 
 	letters = strings.ToUpper(letters)
 	answerList := []string{}
 	runes := []rune(letters)
-	gd := gaddag.SimpleGaddag(dawg)
 	rack := movegen.RackFromString(letters, gd.GetAlphabet())
 
 	ahs := &AnagramStruct{
@@ -94,7 +93,7 @@ func dedupeAndTransformAnswers(answerList []string, alph *alphabet.Alphabet) []s
 	return answerStrings
 }
 
-func anagramHelper(letter alphabet.MachineLetter, gd gaddag.SimpleGaddag,
+func anagramHelper(letter alphabet.MachineLetter, gd *gaddag.SimpleGaddag,
 	ahs *AnagramStruct, nodeIdx uint32, answerSoFar string, rack *movegen.Rack) {
 
 	var nextNodeIdx uint32
@@ -118,7 +117,7 @@ func anagramHelper(letter alphabet.MachineLetter, gd gaddag.SimpleGaddag,
 	}
 }
 
-func anagram(ahs *AnagramStruct, gd gaddag.SimpleGaddag, nodeIdx uint32,
+func anagram(ahs *AnagramStruct, gd *gaddag.SimpleGaddag, nodeIdx uint32,
 	answerSoFar string, rack *movegen.Rack) {
 
 	for idx, val := range rack.LetArr {

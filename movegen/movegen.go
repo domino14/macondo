@@ -24,7 +24,7 @@ import (
 // Steven A. Gordon's algorithm from his paper "A faster Scrabble Move Generation
 // Algorithm"
 type GordonGenerator struct {
-	gaddag gaddag.SimpleGaddag
+	gaddag *gaddag.SimpleGaddag
 	board  board.GameBoard
 	// curRow is the current row for which we are generating moves. Note
 	// that we are always thinking in terms of rows, and columns are the
@@ -43,7 +43,7 @@ type GordonGenerator struct {
 	leaveMap           LeaveMap
 }
 
-func newGordonGenHardcode(gd gaddag.SimpleGaddag) *GordonGenerator {
+func newGordonGenHardcode(gd *gaddag.SimpleGaddag) *GordonGenerator {
 	// Can change later
 	dist := lexicon.EnglishLetterDistribution()
 	bag := dist.MakeBag(gd.GetAlphabet())
@@ -59,7 +59,7 @@ func newGordonGenHardcode(gd gaddag.SimpleGaddag) *GordonGenerator {
 }
 
 // NewGordonGenerator returns a Gordon move generator.
-func NewGordonGenerator(gd gaddag.SimpleGaddag, bag *lexicon.Bag,
+func NewGordonGenerator(gd *gaddag.SimpleGaddag, bag *lexicon.Bag,
 	board board.GameBoard) *GordonGenerator {
 
 	gen := &GordonGenerator{

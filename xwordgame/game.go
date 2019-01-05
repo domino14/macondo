@@ -23,7 +23,7 @@ type XWordGame struct {
 	turnnum            int
 	board              board.GameBoard
 	bag                *lexicon.Bag
-	gaddag             gaddag.SimpleGaddag
+	gaddag             *gaddag.SimpleGaddag
 	playing            bool
 	scorelessTurns     int
 	numPossibleLetters int
@@ -33,7 +33,7 @@ type XWordGame struct {
 }
 
 // Init initializes the crossword game and seeds the random number generator.
-func (game *XWordGame) Init(gd gaddag.SimpleGaddag) {
+func (game *XWordGame) Init(gd *gaddag.SimpleGaddag) {
 	game.numPossibleLetters = int(gd.GetAlphabet().NumLetters())
 	game.board = board.MakeBoard(board.CrosswordGameBoard)
 
