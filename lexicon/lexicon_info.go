@@ -51,7 +51,7 @@ func SpanishLetterDistribution() LetterDistribution {
 }
 
 // MakeBag returns a bag of tiles.
-func (ld LetterDistribution) MakeBag(alphabet *alphabet.Alphabet) *Bag {
+func (ld LetterDistribution) MakeBag(alph *alphabet.Alphabet) *Bag {
 	bag := make([]rune, ld.numLetters)
 	idx := 0
 	for rn, val := range ld.Distribution {
@@ -62,27 +62,27 @@ func (ld LetterDistribution) MakeBag(alphabet *alphabet.Alphabet) *Bag {
 	}
 	// Make an array of scores in alphabet order
 	scores := make([]int, len(ld.Distribution))
-	for rn, ptVal := range ld.PointValues {
-		if rn == '?' {
-			scores[len(ld.Distribution)-1] = int(ptVal)
-			continue
-		}
-		// Otherwise look it up in the alphabet. The alphabet is required for
-		// the move generator, but is optional for things such as the blank
-		// and build challenge generators, since it is only used to determine
-		// tile scores.
-		if alphabet != nil {
-			ml, err := alphabet.Val(rn)
+	// Look it up in the alphabet. The alphabet is required for
+	// the move generator, but is optional for things such as the blank
+	// and build challenge generators, since it is only used to determine
+	// tile scores.
+	if alph != nil {
+		for rn, ptVal := range ld.PointValues {
+			ml, err := alph.Val(rn)
 			if err != nil {
 				panic("Wrongly initialized")
+			}
+			if ml == alphabet.BlankMachineLetter {
+				ml = alphabet.MachineLetter(len(ld.Distribution) - 1)
 			}
 			scores[ml] = int(ptVal)
 		}
 	}
 	b := &Bag{
 		tiles:          bag,
+		initialTiles:   append([]rune(nil), bag...), // copy of bag
 		numUniqueTiles: len(ld.Distribution),
-		alphabet:       alphabet,
+		alphabet:       alph,
 		scores:         scores,
 	}
 	b.Shuffle()

@@ -25,12 +25,19 @@ func init() {
 // CompVsCompStatic plays out a game to the end using best static turns.
 func (game *XWordGame) CompVsCompStatic(gd gaddag.SimpleGaddag) {
 	game.Init(gd)
+	game.playFullStatic()
+	log.Printf("[DEBUG] Game over. Score: %v - %v", game.players[0].points,
+		game.players[1].points)
+}
+
+func (game *XWordGame) playFullStatic() {
 	game.StartGame()
 	for game.playing {
 		game.PlayBestStaticTurn(game.onturn)
 	}
-	log.Printf("[DEBUG] Game over. Score: %v - %v", game.players[0].points,
-		game.players[1].points)
+	if game.gamechan != nil {
+		game.gamechan <- game.board.ToDisplayText(game.gaddag.GetAlphabet())
+	}
 }
 
 func StartCompVCompStaticGames(gd gaddag.SimpleGaddag, numGames int, threads int,
@@ -40,31 +47,38 @@ func StartCompVCompStaticGames(gd gaddag.SimpleGaddag, numGames int, threads int
 		return errors.New("games are already being played, please wait till complete")
 	}
 
-	file, err := os.Create(outputFilename)
+	logfile, err := os.Create(outputFilename)
 	if err != nil {
 		return err
 	}
+
 	CVCCounter.Set(0)
 	jobChan := make(chan struct{}, 100)
 	logChan := make(chan string, 100)
 	var wg sync.WaitGroup
 
-	worker := func(jobChan <-chan struct{}) {
+	worker := func(jobChan <-chan struct{}, id int) {
 		defer func() {
 			IsPlaying.Add(-1)
 			defer wg.Done()
+			log.Printf("Exiting worker %v goroutine!", id)
 		}()
 		IsPlaying.Add(1)
 		wg.Add(1)
+		game := XWordGame{logchan: logChan, gamechan: nil}
+		game.Init(gd)
+
 		for range jobChan {
-			game := XWordGame{logchan: logChan}
-			game.CompVsCompStatic(gd)
+			game.playFullStatic()
+			// log.Printf("[DEBUG] Game over. Score: %v - %v",
+			// 	game.players[0].points,
+			// 	game.players[1].points)
 			CVCCounter.Add(1)
 		}
 	}
 
 	go func() {
-		for i := 0; i < numGames; i++ {
+		for i := 1; i < numGames+1; i++ {
 			jobChan <- struct{}{}
 			if i%1000 == 0 {
 				log.Printf("%v games played...", i)
@@ -74,17 +88,19 @@ func StartCompVCompStaticGames(gd gaddag.SimpleGaddag, numGames int, threads int
 		wg.Wait()
 		// Wait until all games are done, and then close the log channel.
 		close(logChan)
+		log.Printf("Exiting feeder goroutine!")
 	}()
 
 	for i := 0; i < threads; i++ {
-		go worker(jobChan)
+		go worker(jobChan, i)
 	}
 
 	go func() {
 		for msg := range logChan {
-			file.WriteString(msg)
+			logfile.WriteString(msg)
 		}
-		file.Close()
+		logfile.Close()
+		log.Printf("Exiting turn logger goroutine!")
 	}()
 
 	return nil

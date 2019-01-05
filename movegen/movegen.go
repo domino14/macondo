@@ -73,6 +73,12 @@ func NewGordonGenerator(gd gaddag.SimpleGaddag, bag *lexicon.Bag,
 	return gen
 }
 
+// Reset resets the generator by clearing the board and refilling the bag.
+func (gen *GordonGenerator) Reset() {
+	gen.board.Clear()
+	gen.bag.Refill()
+}
+
 // GenAll generates all moves on the board. It assumes anchors have already
 // been updated, as well as cross-sets / cross-scores.
 func (gen *GordonGenerator) GenAll(rack *Rack) {

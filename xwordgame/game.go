@@ -5,7 +5,6 @@ package xwordgame
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/endgame"
@@ -30,12 +29,14 @@ type XWordGame struct {
 	numPossibleLetters int
 	endgameSolver      *endgame.Solver
 	logchan            chan string
+	gamechan           chan string
 }
 
 // Init initializes the crossword game and seeds the random number generator.
 func (game *XWordGame) Init(gd gaddag.SimpleGaddag) {
 	game.numPossibleLetters = int(gd.GetAlphabet().NumLetters())
 	game.board = board.MakeBoard(board.CrosswordGameBoard)
+
 	dist := lexicon.EnglishLetterDistribution()
 	game.bag = dist.MakeBag(gd.GetAlphabet())
 
@@ -47,12 +48,14 @@ func (game *XWordGame) Init(gd gaddag.SimpleGaddag) {
 	}
 }
 
-// StartGame determines a starting player and deals out the first set of tiles.
+// StartGame resets everything and deals out the first set of tiles.
 func (game *XWordGame) StartGame() {
-	game.board.Clear()
+	game.movegen.Reset()
+
 	for i := 0; i < 2; i++ {
 		rack, _ := game.bag.Draw(7)
 		game.players[i].rackLetters = string(rack)
+		game.players[i].points = 0
 		if game.players[i].rack == nil {
 			game.players[i].rack = movegen.RackFromString(string(rack),
 				game.gaddag.GetAlphabet())
@@ -119,11 +122,11 @@ func (game *XWordGame) PlayMove(m *move.Move) {
 			// 	game.onturn, string(drew), rack)
 		}
 	case move.MoveTypePass:
-		log.Printf("[DEBUG] Player %v passed", game.onturn)
+		// log.Printf("[DEBUG] Player %v passed", game.onturn)
 		game.scorelessTurns++
 	}
 	if game.scorelessTurns == 6 {
-		log.Printf("[DEBUG] Game ended after 6 scoreless turns")
+		// log.Printf("[DEBUG] Game ended after 6 scoreless turns")
 		game.playing = false
 	}
 	game.onturn = (game.onturn + 1) % len(game.players)

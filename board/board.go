@@ -379,6 +379,11 @@ func (g *GameBoard) UpdateAllAnchors() {
 			}
 		}
 	} else {
+		for i := 0; i < n; i++ {
+			for j := 0; j < n; j++ {
+				g.squares[i][j].resetAnchors()
+			}
+		}
 		rc := int(n / 2)
 		// If the board is empty, set just one anchor, in the center square.
 		g.squares[rc][rc].hAnchor = true

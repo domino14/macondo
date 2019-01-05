@@ -10,10 +10,17 @@ import (
 // A Bag is the bag o'tiles!
 type Bag struct {
 	numUniqueTiles int
+	initialTiles   []rune
 	tiles          []rune
 	alphabet       *alphabet.Alphabet
 	// scores is a slice of ordered scores, in machine letter order.
 	scores []int
+}
+
+// Refill refills the bag.
+func (b *Bag) Refill() {
+	b.tiles = append([]rune(nil), b.initialTiles...)
+	b.Shuffle()
 }
 
 // DrawAtMost draws at most n tiles from the bag. It can draw fewer if there
