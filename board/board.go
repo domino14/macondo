@@ -212,7 +212,7 @@ const (
 )
 
 // MakeBoard creates a board from a description string.
-func MakeBoard(desc []string) GameBoard {
+func MakeBoard(desc []string) *GameBoard {
 	// Turns an array of strings into the GameBoard structure type.
 	rows := [][]*Square{}
 	for _, s := range desc {
@@ -222,7 +222,7 @@ func MakeBoard(desc []string) GameBoard {
 		}
 		rows = append(rows, row)
 	}
-	return GameBoard{squares: rows}
+	return &GameBoard{squares: rows}
 }
 
 // Dim is the dimension of the board. It assumes the board is square.

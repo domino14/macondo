@@ -385,41 +385,6 @@ func TestGenerateNoPlays(t *testing.T) {
 
 }
 
-func TestPlacementAdjustment(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	alph := gd.GetAlphabet()
-
-	vowelPenalty := -0.7
-
-	var cases = []struct {
-		pos     string
-		word    string
-		penalty float64
-	}{
-		{"H8", "TUX", vowelPenalty},
-		{"H7", "TUX", 0.0},
-		{"H6", "TUX", vowelPenalty},
-		{"H5", "EUOI", vowelPenalty},
-		{"H6", "EUOI", vowelPenalty * 2},
-		{"H7", "EUOI", vowelPenalty * 2},
-		{"H8", "EUOI", vowelPenalty},
-		{"8D", "MAYBE", 0.0},
-		{"8H", "MAYBE", vowelPenalty},
-		{"8D", "MaYBe", 0.0},
-		{"8H", "MaYBe", vowelPenalty},
-	}
-
-	for _, tc := range cases {
-		move := move.NewScoringMoveSimple(42, /* score doesn't matter */
-			tc.pos, tc.word, "", alph)
-		adj := placementAdjustment(move)
-		if adj != tc.penalty {
-			t.Errorf("For %v %v, expected %v, got %v", tc.pos, tc.word,
-				tc.penalty, adj)
-		}
-	}
-}
-
 func BenchmarkGenEmptyBoard(b *testing.B) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()

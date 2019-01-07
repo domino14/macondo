@@ -5,6 +5,9 @@ package xwordgame
 
 import (
 	"fmt"
+	"log"
+
+	"github.com/domino14/macondo/strategy"
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/endgame"
@@ -21,7 +24,7 @@ type XWordGame struct {
 	players            []Player
 	onturn             int // player index
 	turnnum            int
-	board              board.GameBoard
+	board              *board.GameBoard
 	bag                *lexicon.Bag
 	gaddag             *gaddag.SimpleGaddag
 	playing            bool
@@ -41,7 +44,12 @@ func (game *XWordGame) Init(gd *gaddag.SimpleGaddag) {
 	game.bag = dist.MakeBag(gd.GetAlphabet())
 
 	game.gaddag = gd
-	game.movegen = movegen.NewGordonGenerator(gd, game.bag, game.board)
+	strategy := &strategy.SimpleSynergyStrategy{}
+	if err := strategy.Init(gd.LexiconName(), gd.GetAlphabet()); err != nil {
+		log.Printf("[ERROR] Strategy was not initialized: %v", err)
+	}
+
+	game.movegen = movegen.NewGordonGenerator(gd, game.bag, game.board, strategy)
 	game.players = []Player{
 		{nil, "", "player1", 0},
 		{nil, "", "player2", 0},
@@ -102,7 +110,8 @@ func (game *XWordGame) PlayMove(m *move.Move) {
 			game.scorelessTurns = 0
 		}
 		game.players[game.onturn].points += score
-		// log.Printf("[DEBUG] Player %v played %v", game.onturn, m)
+		// log.Printf("[DEBUG] Player %v played %v for %v points (equity %v, total score %v)", game.onturn, m,
+		// 	score, m.Equity(), game.players[game.onturn].points)
 		// Draw new tiles.
 		drew := game.bag.DrawAtMost(m.TilesPlayed())
 		rack := string(drew) + m.Leave().UserVisible(game.gaddag.GetAlphabet())

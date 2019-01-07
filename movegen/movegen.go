@@ -18,6 +18,7 @@ import (
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/lexicon"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/strategy"
 )
 
 // GordonGenerator is the main move generation struct. It implements
@@ -25,7 +26,7 @@ import (
 // Algorithm"
 type GordonGenerator struct {
 	gaddag *gaddag.SimpleGaddag
-	board  board.GameBoard
+	board  *board.GameBoard
 	// curRow is the current row for which we are generating moves. Note
 	// that we are always thinking in terms of rows, and columns are the
 	// current anchor column. In order to generate vertical moves, we just
@@ -39,20 +40,21 @@ type GordonGenerator struct {
 	tilesPlayed        int
 	plays              []*move.Move
 	bag                *lexicon.Bag
+	strategy           strategy.Strategizer
 	numPossibleLetters int
-	leaveMap           LeaveMap
 }
 
 func newGordonGenHardcode(gd *gaddag.SimpleGaddag) *GordonGenerator {
 	// Can change later
 	dist := lexicon.EnglishLetterDistribution()
 	bag := dist.MakeBag(gd.GetAlphabet())
+	strategy := &strategy.NoLeaveStrategy{}
 	gen := &GordonGenerator{
 		gaddag:             gd,
 		board:              board.MakeBoard(board.CrosswordGameBoard),
 		bag:                bag,
 		numPossibleLetters: int(gd.GetAlphabet().NumLetters()),
-		leaveMap:           loadLeaves(gd.LexiconName()),
+		strategy:           strategy,
 	}
 	gen.board.SetAllCrosses()
 	return gen
@@ -60,14 +62,14 @@ func newGordonGenHardcode(gd *gaddag.SimpleGaddag) *GordonGenerator {
 
 // NewGordonGenerator returns a Gordon move generator.
 func NewGordonGenerator(gd *gaddag.SimpleGaddag, bag *lexicon.Bag,
-	board board.GameBoard) *GordonGenerator {
+	board *board.GameBoard, strategy strategy.Strategizer) *GordonGenerator {
 
 	gen := &GordonGenerator{
 		gaddag:             gd,
 		board:              board,
 		bag:                bag,
 		numPossibleLetters: int(gd.GetAlphabet().NumLetters()),
-		leaveMap:           loadLeaves(gd.LexiconName()),
+		strategy:           strategy,
 	}
 	gen.board.SetAllCrosses()
 	return gen
@@ -240,7 +242,7 @@ func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startCol int,
 		wordCopy, leave, gen.vertical,
 		gen.tilesPlayed, alph, row, col, coords)
 
-	play.SetEquity(calculateEquity(play, gen.leaveMap, gen.board.IsEmpty()))
+	play.SetEquity(gen.strategy.Equity(play, gen.board))
 	gen.plays = append(gen.plays, play)
 }
 
@@ -347,49 +349,4 @@ func (gen *GordonGenerator) scoreMove(word alphabet.MachineWord, col int) int {
 // Plays returns the generator's generated plays.
 func (gen *GordonGenerator) Plays() []*move.Move {
 	return gen.plays
-}
-
-func calculateEquity(play *move.Move, lm LeaveMap, boardEmpty bool) float64 {
-	// If the leave is not present in the map, this is just 0 + score.
-	leave := play.Leave()
-	score := play.Score()
-
-	adjustment := 0.0
-	if boardEmpty {
-		adjustment += placementAdjustment(play)
-	}
-
-	// also need a pre-endgame adjustment that biases towards leaving
-	// one in the bag, etc.
-	return lm[MachineWordString(leave)] + float64(score) + adjustment
-}
-
-func placementAdjustment(play *move.Move) float64 {
-	// Very simply just checks how many vowels are overlapping bonus squares.
-	// This only gets considered when the board is empty.
-	row, col, vertical := play.CoordsAndVertical()
-	var start, end int
-	start = col
-	if vertical {
-		start = row
-	}
-	end = start + play.TilesPlayed()
-
-	j := start
-	penalty := 0.0
-	vPenalty := -0.7 // VERY ROUGH approximation from Maven paper.
-	for j < end {
-		if play.Tiles()[j-start].IsVowel(play.Alphabet()) {
-			switch j {
-			case 2, 6, 8, 12:
-				// row/col below/above have a 2LS. note this only works
-				// for specific board configurations
-				penalty += vPenalty
-			default:
-
-			}
-		}
-		j++
-	}
-	return penalty
 }

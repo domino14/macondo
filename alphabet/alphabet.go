@@ -51,7 +51,7 @@ type LetterSlice []rune
 
 // MachineLetter is a machine-only representation of a letter. It goes from
 // 0 to the maximum alphabet size.
-type MachineLetter uint8
+type MachineLetter byte
 
 // Blank blankifies a letter; i.e. it adds the BlankOffset to it.
 // It returns a new MachineLetter; it does not modify the one that is passed
@@ -110,6 +110,15 @@ func (mw MachineWord) UserVisible(alph *Alphabet) string {
 
 // ToMachineWord creates a MachineWord from the given string.
 func ToMachineWord(word string, alph *Alphabet) (MachineWord, error) {
+	mls, err := ToMachineLetters(word, alph)
+	if err != nil {
+		return nil, err
+	}
+	return MachineWord(mls), nil
+}
+
+// ToMachineLetters creates an array of MachineLetters from the given string.
+func ToMachineLetters(word string, alph *Alphabet) ([]MachineLetter, error) {
 	letters := make([]MachineLetter, len(word))
 	for idx, ch := range word {
 		ml, err := alph.Val(ch)
@@ -118,7 +127,21 @@ func ToMachineWord(word string, alph *Alphabet) (MachineWord, error) {
 		}
 		letters[idx] = ml
 	}
-	return MachineWord(letters), nil
+	return letters, nil
+}
+
+// ToMachineOnlyString creates a non-printable string from the underlying
+// slice of MachineLetters. This is used to make it hashable for map usage.
+func ToMachineOnlyString(word string, alph *Alphabet) (string, error) {
+	letters := make([]byte, len(word))
+	for idx, ch := range word {
+		ml, err := alph.Val(ch)
+		if err != nil {
+			return "", err
+		}
+		letters[idx] = byte(ml)
+	}
+	return string(letters), nil
 }
 
 // Alphabet defines an alphabet.
