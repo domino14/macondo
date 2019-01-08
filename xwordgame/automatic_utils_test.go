@@ -2,6 +2,7 @@ package xwordgame
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/domino14/macondo/gaddag"
@@ -12,7 +13,7 @@ var LexiconDir = os.Getenv("LEXICON_DIR")
 
 func TestMain(m *testing.M) {
 	if _, err := os.Stat("/tmp/gen_america.gaddag"); os.IsNotExist(err) {
-		gaddagmaker.GenerateGaddag(LexiconDir+"America.txt", true, true)
+		gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "America.txt"), true, true)
 		os.Rename("out.gaddag", "/tmp/gen_america.gaddag")
 	}
 	os.Exit(m.Run())

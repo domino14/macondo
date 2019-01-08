@@ -2,6 +2,7 @@ package anagrammer
 
 import (
 	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -104,7 +105,7 @@ func TestSimpleAnagram(t *testing.T) {
 }
 
 func TestAnagram(t *testing.T) {
-	gaddagmaker.GenerateDawg(LexiconDir+"America.txt", true,
+	gaddagmaker.GenerateDawg(filepath.Join(LexiconDir, "America.txt"), true,
 		true)
 	d := gaddag.LoadGaddag("out.dawg")
 	for _, pair := range buildTests {
@@ -123,7 +124,7 @@ func TestAnagram(t *testing.T) {
 }
 
 func TestAnagramSpanish(t *testing.T) {
-	gaddagmaker.GenerateDawg(LexiconDir+"FISE09.txt", true,
+	gaddagmaker.GenerateDawg(filepath.Join(LexiconDir, "FISE09.txt"), true,
 		true)
 	d := gaddag.LoadGaddag("out.dawg")
 	for _, pair := range spanishBuildTests {
@@ -142,7 +143,7 @@ func TestAnagramSpanish(t *testing.T) {
 
 func BenchmarkAnagramBlanks(b *testing.B) {
 	// ~ 21.33 ms per op on my macbook pro.
-	gaddagmaker.GenerateDawg(LexiconDir+"CSW15.txt", true, true)
+	gaddagmaker.GenerateDawg(filepath.Join(LexiconDir, "CSW15.txt"), true, true)
 	d := gaddag.LoadGaddag("out.dawg")
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -152,7 +153,7 @@ func BenchmarkAnagramBlanks(b *testing.B) {
 
 func BenchmarkAnagramFourBlanks(b *testing.B) {
 	// ~ 453.6ms
-	gaddagmaker.GenerateDawg(LexiconDir+"America.txt", true, true)
+	gaddagmaker.GenerateDawg(filepath.Join(LexiconDir, "America.txt"), true, true)
 	d := gaddag.LoadGaddag("out.dawg")
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -161,7 +162,7 @@ func BenchmarkAnagramFourBlanks(b *testing.B) {
 }
 
 func TestBuildFourBlanks(t *testing.T) {
-	gaddagmaker.GenerateDawg(LexiconDir+"America.txt", true, true)
+	gaddagmaker.GenerateDawg(filepath.Join(LexiconDir, "America.txt"), true, true)
 	d := gaddag.LoadGaddag("out.dawg")
 	answers := Anagram("AEINST????", d, ModeBuild)
 	expected := 61711
@@ -171,7 +172,7 @@ func TestBuildFourBlanks(t *testing.T) {
 }
 
 func TestAnagramFourBlanks(t *testing.T) {
-	gaddagmaker.GenerateDawg(LexiconDir+"America.txt", true, true)
+	gaddagmaker.GenerateDawg(filepath.Join(LexiconDir, "America.txt"), true, true)
 	d := gaddag.LoadGaddag("out.dawg")
 	answers := Anagram("AEINST????", d, ModeExact)
 	expected := 863

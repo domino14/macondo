@@ -3,6 +3,7 @@ package movegen
 import (
 	"log"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/domino14/macondo/alphabet"
@@ -10,16 +11,40 @@ import (
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/move"
+	"github.com/stretchr/testify/assert"
 )
 
 var LexiconDir = os.Getenv("LEXICON_DIR")
 
 func TestMain(m *testing.M) {
 	if _, err := os.Stat("/tmp/gen_america.gaddag"); os.IsNotExist(err) {
-		gaddagmaker.GenerateGaddag(LexiconDir+"America.txt", true, true)
+		gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "America.txt"),
+			true, true)
 		os.Rename("out.gaddag", "/tmp/gen_america.gaddag")
 	}
 	os.Exit(m.Run())
+}
+
+func Filter(moves []*move.Move, f func(*move.Move) bool) []*move.Move {
+	ms := make([]*move.Move, 0)
+	for _, m := range moves {
+		if f(m) {
+			ms = append(ms, m)
+		}
+	}
+	return ms
+}
+
+func scoringPlays(moves []*move.Move) []*move.Move {
+	return Filter(moves, func(m *move.Move) bool {
+		return m.Action() == move.MoveTypePlay
+	})
+}
+
+func nonScoringPlays(moves []*move.Move) []*move.Move {
+	return Filter(moves, func(m *move.Move) bool {
+		return m.Action() != move.MoveTypePlay
+	})
 }
 
 // This is going to be a big file; it tests the main move generation
@@ -199,10 +224,7 @@ func TestGenAllMovesSingleTile(t *testing.T) {
 	generator.board.UpdateAllAnchors()
 	generator.board.GenAllCrossSets(gd, generator.bag)
 	generator.GenAll(RackFromString("A", alph))
-	if len(generator.plays) != 24 {
-		t.Errorf("Expected %v, got %v (%v) plays", 24, generator.plays,
-			len(generator.plays))
-	}
+	assert.Equal(t, 24, len(scoringPlays(generator.plays)))
 }
 
 func TestGenAllMovesFullRack(t *testing.T) {
@@ -214,16 +236,13 @@ func TestGenAllMovesFullRack(t *testing.T) {
 	generator.board.UpdateAllAnchors()
 	generator.board.GenAllCrossSets(gd, generator.bag)
 	generator.GenAll(RackFromString("AABDELT", alph))
-	// There should be 673 unique plays
-	if len(generator.plays) != 673 {
-		t.Errorf("Expected %v, got %v (%v) plays", 673, generator.plays,
-			len(generator.plays))
-	}
+	// There should be 673 unique scoring plays, 95 exchanges and 1 pass.
+	assert.Equal(t, 673, len(scoringPlays(generator.plays)))
+	assert.Equal(t, 96, len(nonScoringPlays(generator.plays)))
+
 	highestScores := []int{38, 36, 36, 34, 34, 33, 30, 30, 30, 28}
 	for idx, score := range highestScores {
-		if generator.plays[idx].Score() != score {
-			t.Errorf("Expected %v, got %v", score, generator.plays[idx].Score())
-		}
+		assert.Equal(t, score, generator.plays[idx].Score())
 	}
 }
 
@@ -237,10 +256,8 @@ func TestGenAllMovesFullRackAgain(t *testing.T) {
 	generator.board.GenAllCrossSets(gd, generator.bag)
 	generator.GenAll(RackFromString("AFGIIIS", alph))
 	// There should be 219 unique plays
-	if len(generator.plays) != 219 {
-		t.Errorf("Expected %v, got %v (%v) plays", 219, generator.plays,
-			len(generator.plays))
-	}
+	assert.Equal(t, 219, len(scoringPlays(generator.plays)))
+	assert.Equal(t, 64, len(nonScoringPlays(generator.plays)))
 }
 
 func TestGenAllMovesSingleBlank(t *testing.T) {
@@ -254,10 +271,9 @@ func TestGenAllMovesSingleBlank(t *testing.T) {
 	generator.GenAll(RackFromString("?", alph))
 	// There should be 166 unique plays. Quackle does not generate all blank
 	// plays, even when told to generate all plays!!
-	if len(generator.plays) != 166 {
-		t.Errorf("Expected %v, got %v (%v) plays", 166, generator.plays,
-			len(generator.plays))
-	}
+	assert.Equal(t, 166, len(scoringPlays(generator.plays)))
+	// Exch ? and pass
+	assert.Equal(t, 2, len(nonScoringPlays(generator.plays)))
 }
 func TestGenAllMovesTwoBlanksOnly(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
@@ -274,10 +290,8 @@ func TestGenAllMovesTwoBlanksOnly(t *testing.T) {
 	// all plays for one blank, only the first one alphabetically for every position.
 	// The difference between 1827 and 1958 is also 131, so I think this is
 	// ok.
-	if len(generator.plays) != 1958 {
-		t.Errorf("Expected %v, got %v (%v) plays", 1958, generator.plays,
-			len(generator.plays))
-	}
+	assert.Equal(t, 1958, len(scoringPlays(generator.plays)))
+	assert.Equal(t, 3, len(nonScoringPlays(generator.plays)))
 }
 
 func TestGenAllMovesWithBlanks(t *testing.T) {
@@ -293,37 +307,20 @@ func TestGenAllMovesWithBlanks(t *testing.T) {
 	// 1586, possibly by the same logic as the above.
 	// If I add 103 to the Quackle-generated 8194 moves for both blanks (DDESW??)
 	// I get 8297, so there should be 8297 unique plays
-	if len(generator.plays) != 8297 {
-		t.Errorf("Expected %v, got %v (%v) plays", 8297, generator.plays,
-			len(generator.plays))
-	}
-	if generator.plays[0].Score() != 106 { // hEaDW(OR)DS!
-		t.Errorf("Expected %v, got %v", 106, generator.plays[0].Score())
-	}
-	if generator.plays[0].Leave().UserVisible(alph) != "" {
-		t.Errorf("Expected bingo leave to be empty!")
-	}
-	if generator.plays[1].Leave().UserVisible(alph) != "S" {
-		t.Errorf("Expected second-highest play to keep an S, leave was: %v",
-			generator.plays[1].Leave().UserVisible(alph))
-	}
+	assert.Equal(t, 8297, len(scoringPlays(generator.plays)))
+	assert.Equal(t, 106, generator.plays[0].Score()) // hEaDW(OR)DS!
+	assert.Equal(t, "", generator.plays[0].Leave().UserVisible(alph))
+	assert.Equal(t, "S", generator.plays[1].Leave().UserVisible(alph))
 	// There are 7 plays worth 32 pts.
 	rewards := 0
 	for i := 2; i < 9; i++ {
-		if generator.plays[i].Score() != 32 {
-			t.Errorf("Expected play to be worth 32 pts.")
-		}
+		assert.Equal(t, 32, generator.plays[i].Score())
 		if generator.plays[i].Tiles().UserVisible(alph) == "rEW..DS" {
 			rewards = i
 		}
 	}
-	if rewards == 0 {
-		t.Errorf("shoulda found rewards")
-	}
-	if generator.plays[rewards].Leave().UserVisible(alph) != "D?" {
-		t.Errorf("Leave was wrong, got %v",
-			generator.plays[rewards].Leave().UserVisible(alph))
-	}
+	assert.NotEqual(t, 0, rewards)
+	assert.Equal(t, "D?", generator.plays[rewards].Leave().UserVisible(alph))
 }
 
 func TestGiantTwentySevenTimer(t *testing.T) {
@@ -335,16 +332,10 @@ func TestGiantTwentySevenTimer(t *testing.T) {
 	generator.board.UpdateAllAnchors()
 	generator.board.GenAllCrossSets(gd, generator.bag)
 	generator.GenAll(RackFromString("ABEOPXZ", alph))
-	if len(generator.plays) != 519 {
-		t.Errorf("Expected %v, got %v (%v) plays", 519, generator.plays,
-			len(generator.plays))
-	}
-	if generator.plays[0].Score() != 1780 { // oxyphenbutazone
-		t.Errorf("Expected %v, got %v", 1780, generator.plays[0].Score())
-	}
-	if generator.plays[0].Leave().UserVisible(alph) != "" {
-		t.Errorf("Expected bingo leave to be empty!")
-	}
+	assert.Equal(t, 519, len(scoringPlays(generator.plays)))
+	assert.Equal(t, 128, len(nonScoringPlays(generator.plays)))
+	assert.Equal(t, 1780, generator.plays[0].Score()) // oxyphenbutazone
+	assert.Equal(t, "", generator.plays[0].Leave().UserVisible(alph))
 }
 
 func TestGenerateEmptyBoard(t *testing.T) {
@@ -353,16 +344,10 @@ func TestGenerateEmptyBoard(t *testing.T) {
 	generator := newGordonGenHardcode(gd)
 	generator.board.UpdateAllAnchors()
 	generator.GenAll(RackFromString("DEGORV?", alph))
-	if len(generator.plays) != 3313 {
-		t.Errorf("Expected %v, got %v (%v) plays", 3313, generator.plays,
-			len(generator.plays))
-	}
-	if generator.plays[0].Score() != 80 { // overdog
-		t.Errorf("Expected %v, got %v", 80, generator.plays[0].Score())
-	}
-	if generator.plays[0].Leave().UserVisible(alph) != "" {
-		t.Errorf("Expected bingo leave to be empty!")
-	}
+	assert.Equal(t, 3313, len(scoringPlays(generator.plays)))
+	assert.Equal(t, 128, len(nonScoringPlays(generator.plays)))
+	assert.Equal(t, 80, generator.plays[0].Score())
+	assert.Equal(t, "", generator.plays[0].Leave().UserVisible(alph))
 }
 
 func TestGenerateNoPlays(t *testing.T) {
@@ -375,14 +360,9 @@ func TestGenerateNoPlays(t *testing.T) {
 	generator.board.GenAllCrossSets(gd, generator.bag)
 	generator.GenAll(RackFromString("V", alph))
 	// V won't play anywhere
-	if len(generator.plays) != 1 {
-		t.Errorf("Expected %v, got %v (%v) plays", 1, generator.plays,
-			len(generator.plays))
-	}
-	if generator.plays[0].Action() != move.MoveTypePass {
-		t.Errorf("Expected %v, got %v", move.MoveTypePass, generator.plays[0].Action())
-	}
-
+	assert.Equal(t, 0, len(scoringPlays(generator.plays)))
+	assert.Equal(t, 2, len(nonScoringPlays(generator.plays)))
+	assert.Equal(t, move.MoveTypePass, generator.plays[0].Action())
 }
 
 func BenchmarkGenEmptyBoard(b *testing.B) {

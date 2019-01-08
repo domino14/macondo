@@ -2,6 +2,7 @@ package gaddag
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/domino14/macondo/gaddagmaker"
@@ -133,11 +134,11 @@ var findSpanishWordTests = []testpair{
 
 func TestMain(m *testing.M) {
 
-	gaddagmaker.GenerateGaddag(LexiconDir+"America.txt", true, true)
+	gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "America.txt"), true, true)
 	os.Rename("out.gaddag", "/tmp/gen_america.gaddag")
-	gaddagmaker.GenerateDawg(LexiconDir+"America.txt", true, true)
+	gaddagmaker.GenerateDawg(filepath.Join(LexiconDir, "America.txt"), true, true)
 	os.Rename("out.dawg", "/tmp/gen_america.dawg")
-	gaddagmaker.GenerateGaddag(LexiconDir+"FISE09.txt", true, true)
+	gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "FISE09.txt"), true, true)
 	os.Rename("out.gaddag", "/tmp/gen_fise09.gaddag")
 	os.Exit(m.Run())
 

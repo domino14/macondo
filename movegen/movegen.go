@@ -108,6 +108,7 @@ func (gen *GordonGenerator) GenAll(rack *Rack) {
 		gen.board.Transpose()
 	}
 	gen.dedupeAndSortPlays()
+	gen.addPassAndExchangeMoves(rack)
 }
 
 // Gen is an implementation of the Gordon Gen function.
@@ -269,15 +270,7 @@ func (gen *GordonGenerator) dedupeAndSortPlays() {
 
 	sort.Slice(gen.plays, func(i, j int) bool {
 		return gen.plays[i].Equity() > gen.plays[j].Equity()
-		// if gen.plays[i].Score() != gen.plays[j].Score() {
-		// 	return gen.plays[i].Score() > gen.plays[j].Score()
-		// }
-		// return gen.plays[i].BoardCoords() < gen.plays[j].BoardCoords()
 	})
-
-	if len(gen.plays) == 0 {
-		gen.plays = append(gen.plays, move.NewPassMove())
-	}
 }
 
 func (gen *GordonGenerator) crossDirection() board.BoardDirection {
@@ -349,4 +342,45 @@ func (gen *GordonGenerator) scoreMove(word alphabet.MachineWord, col int) int {
 // Plays returns the generator's generated plays.
 func (gen *GordonGenerator) Plays() []*move.Move {
 	return gen.plays
+}
+
+func (gen *GordonGenerator) addPassAndExchangeMoves(rack *Rack) {
+	passMove := move.NewPassMove()
+	passMove.SetEquity(gen.strategy.Equity(passMove, gen.board))
+	gen.plays = append(gen.plays, passMove)
+
+	// No exchange moves should be generated if the bag has fewer than 7 tiles.
+	if gen.bag.TilesRemaining() < 7 {
+		return
+	}
+
+	alph := gen.gaddag.GetAlphabet()
+	// Generate all exchange moves.
+	exchMap := make(map[string]*move.Move)
+	// Create a list of all machine letters
+	mw := rack.TilesOn(gen.numPossibleLetters)
+	powersetSize := 1 << uint(len(mw))
+	index := 1
+	for index < powersetSize {
+		// These are arrays of MachineLetter. We make them specifically `byte`
+		// here (it's a type alias) because otherwise it's a giant pain to
+		// convert []MachineLetter to a string for the map.
+		var subset []alphabet.MachineLetter
+		var leave []alphabet.MachineLetter
+		for j, elem := range mw {
+			if index&(1<<uint(j)) > 0 {
+				subset = append(subset, elem)
+			} else {
+				leave = append(leave, elem)
+			}
+		}
+
+		move := move.NewExchangeMove(subset, leave, alph)
+		exchMap[alphabet.MachineWord(subset).String()] = move
+		index++
+	}
+	for _, mv := range exchMap {
+		mv.SetEquity(gen.strategy.Equity(mv, gen.board))
+		gen.plays = append(gen.plays, mv)
+	}
 }

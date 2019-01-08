@@ -67,7 +67,7 @@ func (b *GameBoard) SetRow(rowNum int, letters string, alph *alphabet.Alphabet) 
 
 // Two boards are equal if all the squares are equal. This includes anchors,
 // letters, and cross-sets.
-func (b *GameBoard) equals(b2 GameBoard) bool {
+func (b *GameBoard) equals(b2 *GameBoard) bool {
 	if b.Dim() != b2.Dim() {
 		return false
 	}

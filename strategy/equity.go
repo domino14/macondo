@@ -141,6 +141,9 @@ func (sss SimpleSynergyStrategy) lookup(leave alphabet.MachineWord) float64 {
 func placementAdjustment(play *move.Move) float64 {
 	// Very simply just checks how many vowels are overlapping bonus squares.
 	// This only gets considered when the board is empty.
+	if play.Action() != move.MoveTypePlay {
+		return 0
+	}
 	row, col, vertical := play.CoordsAndVertical()
 	var start, end int
 	start = col

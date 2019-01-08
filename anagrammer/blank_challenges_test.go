@@ -2,6 +2,7 @@ package anagrammer
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -42,7 +43,7 @@ func TestRacks(t *testing.T) {
 }
 
 func TestGenBlanks(t *testing.T) {
-	gaddagmaker.GenerateDawg(LexiconDir+"America.txt", true, true)
+	gaddagmaker.GenerateDawg(filepath.Join(LexiconDir, "America.txt"), true, true)
 	d := gaddag.LoadGaddag("out.dawg")
 
 	ctx := context.Background()

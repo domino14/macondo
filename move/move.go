@@ -51,11 +51,16 @@ func (m *Move) String() string {
 	switch m.action {
 	case MoveTypePlay:
 		return fmt.Sprintf(
-			"<action: play word: %v %v (%v) score: %v tp: %v leave: %v>",
-			m.coords, m.tiles, m.tiles.UserVisible(m.alph), m.score,
+			"<action: play word: %v %v score: %v tp: %v leave: %v>",
+			m.coords, m.tiles.UserVisible(m.alph), m.score,
 			m.tilesPlayed, m.leave.UserVisible(m.alph))
 	case MoveTypePass:
 		return fmt.Sprint("<action: pass>")
+	case MoveTypeExchange:
+		return fmt.Sprintf(
+			"<action: exchange %v score: %v tp: %v leave: %v>",
+			m.tiles.UserVisible(m.alph), m.score, m.tilesPlayed,
+			m.leave.UserVisible(m.alph))
 	}
 	return fmt.Sprint("<Unhandled move>")
 
@@ -119,6 +124,20 @@ func NewScoringMoveSimple(score int, coords string, word string, leave string,
 		rowStart:    row,
 		colStart:    col,
 		coords:      coords,
+	}
+	return move
+}
+
+// NewExchangeMove creates an exchange.
+func NewExchangeMove(tiles alphabet.MachineWord, leave alphabet.MachineWord,
+	alph *alphabet.Alphabet) *Move {
+	move := &Move{
+		action:      MoveTypeExchange,
+		score:       0,
+		tiles:       tiles,
+		leave:       leave,
+		tilesPlayed: len(tiles), // tiles exchanged, really..
+		alph:        alph,
 	}
 	return move
 }

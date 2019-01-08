@@ -108,6 +108,16 @@ func (mw MachineWord) UserVisible(alph *Alphabet) string {
 	return string(runes)
 }
 
+// String() returns a non-printable string version of this machineword. This
+// is useful for hashing purposes.
+func (mw MachineWord) String() string {
+	bytes := make([]byte, len(mw))
+	for i, l := range mw {
+		bytes[i] = byte(l)
+	}
+	return string(bytes)
+}
+
 // ToMachineWord creates a MachineWord from the given string.
 func ToMachineWord(word string, alph *Alphabet) (MachineWord, error) {
 	mls, err := ToMachineLetters(word, alph)
@@ -130,8 +140,8 @@ func ToMachineLetters(word string, alph *Alphabet) ([]MachineLetter, error) {
 	return letters, nil
 }
 
-// ToMachineOnlyString creates a non-printable string from the underlying
-// slice of MachineLetters. This is used to make it hashable for map usage.
+// ToMachineOnlyString creates a non-printable string from the given word.
+// This is used to make it hashable for map usage.
 func ToMachineOnlyString(word string, alph *Alphabet) (string, error) {
 	letters := make([]byte, len(word))
 	for idx, ch := range word {
