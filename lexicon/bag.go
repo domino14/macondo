@@ -8,6 +8,7 @@ import (
 )
 
 // A Bag is the bag o'tiles!
+// XXX: The bag should be full of MachineLetter, not runes.
 type Bag struct {
 	numUniqueTiles int
 	initialTiles   []rune

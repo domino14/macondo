@@ -51,19 +51,33 @@ func (m *Move) String() string {
 	switch m.action {
 	case MoveTypePlay:
 		return fmt.Sprintf(
-			"<action: play word: %v %v score: %v tp: %v leave: %v>",
+			"<action: play word: %v %v score: %v tp: %v leave: %v equity: %.3f>",
 			m.coords, m.tiles.UserVisible(m.alph), m.score,
-			m.tilesPlayed, m.leave.UserVisible(m.alph))
+			m.tilesPlayed, m.leave.UserVisible(m.alph), m.equity)
 	case MoveTypePass:
-		return fmt.Sprint("<action: pass>")
+		return fmt.Sprintf("<action: pass equity: %.3f>", m.equity)
 	case MoveTypeExchange:
 		return fmt.Sprintf(
-			"<action: exchange %v score: %v tp: %v leave: %v>",
+			"<action: exchange %v score: %v tp: %v leave: %v equity: %.3f>",
 			m.tiles.UserVisible(m.alph), m.score, m.tilesPlayed,
-			m.leave.UserVisible(m.alph))
+			m.leave.UserVisible(m.alph), m.equity)
 	}
 	return fmt.Sprint("<Unhandled move>")
 
+}
+
+// ShortDescription provides a short description, useful for logging or
+// user display.
+func (m *Move) ShortDescription() string {
+	switch m.action {
+	case MoveTypePlay:
+		return fmt.Sprintf("%v %v", m.coords, m.tiles.UserVisible(m.alph))
+	case MoveTypePass:
+		return "(Pass)"
+	case MoveTypeExchange:
+		return fmt.Sprintf("(exch %v)", m.tiles.UserVisible(m.alph))
+	}
+	return fmt.Sprint("UNHANDLED")
 }
 
 func (m *Move) Action() MoveType {
@@ -238,8 +252,10 @@ func fromBoardGameCoords(c string) (int, int, bool) {
 	return 0, 0, false
 }
 
-func NewPassMove() *Move {
+// NewPassMove creates a pass with the given leave.
+func NewPassMove(leave alphabet.MachineWord) *Move {
 	return &Move{
 		action: MoveTypePass,
+		leave:  leave,
 	}
 }

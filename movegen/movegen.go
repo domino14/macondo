@@ -107,8 +107,8 @@ func (gen *GordonGenerator) GenAll(rack *Rack) {
 		}
 		gen.board.Transpose()
 	}
-	gen.dedupeAndSortPlays()
 	gen.addPassAndExchangeMoves(rack)
+	gen.dedupeAndSortPlays()
 }
 
 // Gen is an implementation of the Gordon Gen function.
@@ -253,7 +253,7 @@ func (gen *GordonGenerator) dedupeAndSortPlays() {
 	i := 0 // output index
 
 	for _, m := range gen.plays {
-		if m.TilesPlayed() == 1 {
+		if m.Action() == move.MoveTypePlay && m.TilesPlayed() == 1 {
 			uniqKey := m.UniqueSingleTileKey()
 			if _, ok := dupeMap[uniqKey]; !ok {
 				dupeMap[uniqKey] = m
@@ -345,7 +345,9 @@ func (gen *GordonGenerator) Plays() []*move.Move {
 }
 
 func (gen *GordonGenerator) addPassAndExchangeMoves(rack *Rack) {
-	passMove := move.NewPassMove()
+	tilesOnRack := rack.TilesOn(gen.numPossibleLetters)
+
+	passMove := move.NewPassMove(tilesOnRack)
 	passMove.SetEquity(gen.strategy.Equity(passMove, gen.board))
 	gen.plays = append(gen.plays, passMove)
 
@@ -358,8 +360,7 @@ func (gen *GordonGenerator) addPassAndExchangeMoves(rack *Rack) {
 	// Generate all exchange moves.
 	exchMap := make(map[string]*move.Move)
 	// Create a list of all machine letters
-	mw := rack.TilesOn(gen.numPossibleLetters)
-	powersetSize := 1 << uint(len(mw))
+	powersetSize := 1 << uint(len(tilesOnRack))
 	index := 1
 	for index < powersetSize {
 		// These are arrays of MachineLetter. We make them specifically `byte`
@@ -367,7 +368,7 @@ func (gen *GordonGenerator) addPassAndExchangeMoves(rack *Rack) {
 		// convert []MachineLetter to a string for the map.
 		var subset []alphabet.MachineLetter
 		var leave []alphabet.MachineLetter
-		for j, elem := range mw {
+		for j, elem := range tilesOnRack {
 			if index&(1<<uint(j)) > 0 {
 				subset = append(subset, elem)
 			} else {

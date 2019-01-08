@@ -105,3 +105,20 @@ func TestPlacementAdjustment(t *testing.T) {
 		assert.Equal(t, tc.penalty, adj)
 	}
 }
+
+func TestShouldExchange(t *testing.T) {
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+
+	sss := SimpleSynergyStrategy{}
+	sss.Init("America", gd.GetAlphabet())
+
+	//	rack := "COTTTV?"
+	// leave1 assumes we exchange TTV
+	leave1, _ := alphabet.ToMachineWord("COT?", gd.GetAlphabet())
+	// leave2 assumes we play TOT
+	leave2, _ := alphabet.ToMachineWord("CTV?", gd.GetAlphabet())
+	// The equity of leave1 is greater than the equity of leave2 by at
+	// least 7 pts.
+	assert.True(t, sss.lookup(leave1) > (sss.lookup(leave2)+6+1))
+
+}

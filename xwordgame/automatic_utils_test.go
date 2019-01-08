@@ -1,8 +1,10 @@
 package xwordgame
 
 import (
+	"log"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/domino14/macondo/gaddag"
@@ -20,8 +22,25 @@ func TestMain(m *testing.M) {
 }
 func TestCompVsCompStatic(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	game := &XWordGame{}
-	game.CompVsCompStatic(gd)
+	logchan := make(chan string)
+	game := &XWordGame{logchan: logchan}
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+		game.CompVsCompStatic(gd)
+		close(logchan)
+	}()
+
+	go func() {
+		for msg := range logchan {
+			log.Printf("From logchan: %v", msg)
+		}
+	}()
+
+	wg.Wait()
+
 	if game.turnnum < 6 {
 		t.Errorf("Expected game.turnnum < 6, got %v", game.turnnum)
 	}
