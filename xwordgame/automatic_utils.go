@@ -53,6 +53,7 @@ func StartCompVCompStaticGames(gd *gaddag.SimpleGaddag, numGames int, threads in
 	if err != nil {
 		return err
 	}
+	log.Printf("[DEBUG] Starting %v games, %v threads", numGames, threads)
 
 	CVCCounter.Set(0)
 	jobs := make(chan Job, 100)
@@ -90,7 +91,7 @@ func StartCompVCompStaticGames(gd *gaddag.SimpleGaddag, numGames int, threads in
 	}()
 
 	go func() {
-		logfile.WriteString("playerID,gameID,turn,rack,play,score,totalscore,leave,equity,tilesremaining")
+		logfile.WriteString("playerID,gameID,turn,rack,play,score,totalscore,leave,equity,tilesremaining\n")
 		for msg := range logChan {
 			logfile.WriteString(msg)
 		}
