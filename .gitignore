@@ -8,3 +8,4 @@ macondo
 *.diff
 *.png
 *.ipynb_checkpoints/
+log*.csv

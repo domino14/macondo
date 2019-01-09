@@ -1,9 +1,6 @@
 package board
 
 import (
-	"fmt"
-	"log"
-
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/lexicon"
@@ -32,197 +29,38 @@ const (
 	RightDirection WordDirection = 1
 )
 
-// A BonusSquare is a bonus square (duh)
-type BonusSquare rune
-
-// A Square is a single square in a game board. It contains the bonus markings,
-// if any, a letter, if any (' ' if empty), and any cross-sets and cross-scores
-type Square struct {
-	letter alphabet.MachineLetter
-	bonus  BonusSquare
-
-	hcrossSet CrossSet
-	vcrossSet CrossSet
-	// the scores of the tiles on either side of this square.
-	hcrossScore int
-	vcrossScore int
-	hAnchor     bool
-	vAnchor     bool
-}
-
-func (s Square) String() string {
-	return fmt.Sprintf("<(%v) (%s)>", s.letter, string(s.bonus))
-}
-
-func (s *Square) equals(s2 *Square) bool {
-	if s.bonus != s2.bonus {
-		log.Printf("Bonuses not equal")
-		return false
-	}
-	if s.letter != s2.letter {
-		log.Printf("Letters not equal")
-		return false
-	}
-	if s.hcrossSet != s2.hcrossSet {
-		log.Printf("horiz cross-sets not equal: %v %v", s.hcrossSet, s2.hcrossSet)
-		return false
-	}
-	if s.vcrossSet != s2.vcrossSet {
-		log.Printf("vert cross-sets not equal: %v %v", s.vcrossSet, s2.vcrossSet)
-		return false
-	}
-	if s.hcrossScore != s2.hcrossScore {
-		log.Printf("horiz cross-scores not equal: %v %v", s.hcrossScore, s2.hcrossScore)
-		return false
-	}
-	if s.vcrossScore != s2.vcrossScore {
-		log.Printf("vert cross-scores not equal: %v %v", s.vcrossScore, s2.vcrossScore)
-		return false
-	}
-	if s.hAnchor != s2.hAnchor {
-		log.Printf("horiz anchors not equal: %v %v", s.hAnchor, s2.hAnchor)
-		return false
-	}
-	if s.vAnchor != s2.vAnchor {
-		log.Printf("vert anchors not equal: %v %v", s.vAnchor, s2.vAnchor)
-		return false
-	}
-	return true
-}
-
-func (s *Square) Letter() alphabet.MachineLetter {
-	return s.letter
-}
-
-func (s Square) DisplayString(alph *alphabet.Alphabet) string {
-	var bonusdisp string
-	if s.bonus != ' ' {
-		bonusdisp = string(s.bonus)
-	} else {
-		bonusdisp = "."
-	}
-	if s.letter == alphabet.EmptySquareMarker {
-		return bonusdisp
-	}
-	return string(s.letter.UserVisible(alph))
-
-}
-
-func (s Square) BadDisplayString(alph *alphabet.Alphabet) string {
-	var hadisp, vadisp, bonusdisp string
-	if s.hAnchor {
-		hadisp = "→"
-	} else {
-		hadisp = " "
-	}
-	if s.vAnchor {
-		vadisp = "↓"
-	} else {
-		vadisp = " "
-	}
-	if s.bonus != 0 {
-		bonusdisp = string(s.bonus)
-	} else {
-		bonusdisp = " "
-	}
-	if s.letter == alphabet.EmptySquareMarker {
-		return fmt.Sprintf("[%v%v%v]", bonusdisp, hadisp, vadisp)
-	}
-	return fmt.Sprintf("[%v%v%v]", s.letter.UserVisible(alph), hadisp, vadisp)
-
-}
-
-func (s *Square) setCrossSet(cs CrossSet, dir BoardDirection) {
-	if dir == HorizontalDirection {
-		s.hcrossSet = cs
-	} else if dir == VerticalDirection {
-		s.vcrossSet = cs
-	}
-}
-
-func (s *Square) setCrossScore(score int, dir BoardDirection) {
-	if dir == HorizontalDirection {
-		s.hcrossScore = score
-	} else if dir == VerticalDirection {
-		s.vcrossScore = score
-	}
-}
-
-func (s *Square) getCrossSet(dir BoardDirection) *CrossSet {
-	if dir == HorizontalDirection {
-		return &s.hcrossSet
-	} else if dir == VerticalDirection {
-		return &s.vcrossSet
-	}
-	return nil
-}
-
-func (s *Square) getCrossScore(dir BoardDirection) int {
-	if dir == HorizontalDirection {
-		return s.hcrossScore
-	} else if dir == VerticalDirection {
-		return s.vcrossScore
-	}
-	return 0
-}
-
-func (s *Square) setAnchor(dir BoardDirection) {
-	if dir == HorizontalDirection {
-		s.hAnchor = true
-	} else if dir == VerticalDirection {
-		s.vAnchor = true
-	}
-}
-
-func (s *Square) resetAnchors() {
-	s.hAnchor = false
-	s.vAnchor = false
-}
-
-func (s *Square) IsEmpty() bool {
-	return s.letter == alphabet.EmptySquareMarker
-}
-
-func (s *Square) anchor(dir BoardDirection) bool {
-	if dir == HorizontalDirection {
-		return s.hAnchor
-	}
-	return s.vAnchor
-}
-
 // A GameBoard is the main board structure. It contains all of the Squares,
 // with bonuses or filled letters, as well as cross-sets and cross-scores
 // for computation. (See Appel & Jacobson paper for definition of the latter
 // two terms)
 type GameBoard struct {
-	squares    [][]*Square
-	transposed bool
-	hasTiles   bool // has at least one tile been played?
+	squares     [][]*Square
+	transposed  bool
+	tilesPlayed int
+	// squaresBackup is a "backup" of the squares. It is not necessarily
+	// the most recent one. If we wish to run deep-ply sims we will need
+	// to be able to go back to the original board often.
+	squaresBackup     [][]*Square
+	tilesPlayedBackup int
 }
-
-const (
-	// Bonus3WS is a triple word score
-	Bonus3WS BonusSquare = '='
-	// Bonus3LS is a triple letter score
-	Bonus3LS BonusSquare = '"'
-	// Bonus2LS is a double letter score
-	Bonus2LS BonusSquare = '\''
-	// Bonus2WS is a double word score
-	Bonus2WS BonusSquare = '-'
-)
 
 // MakeBoard creates a board from a description string.
 func MakeBoard(desc []string) *GameBoard {
 	// Turns an array of strings into the GameBoard structure type.
 	rows := [][]*Square{}
+	rowsCopy := [][]*Square{}
 	for _, s := range desc {
 		row := []*Square{}
+		rowCopy := []*Square{}
 		for _, c := range s {
 			row = append(row, &Square{letter: alphabet.EmptySquareMarker, bonus: BonusSquare(c)})
+			rowCopy = append(rowCopy, &Square{letter: alphabet.EmptySquareMarker, bonus: BonusSquare(c)})
 		}
 		rows = append(rows, row)
+		rowsCopy = append(rowsCopy, rowCopy)
 	}
-	return &GameBoard{squares: rows}
+	g := &GameBoard{squares: rows, squaresBackup: rowsCopy}
+	return g
 }
 
 // Dim is the dimension of the board. It assumes the board is square.
@@ -309,17 +147,16 @@ func (g *GameBoard) Clear() {
 			g.squares[i][j].letter = alphabet.EmptySquareMarker
 		}
 	}
-	g.hasTiles = false
+	g.tilesPlayed = 0
 	// We set all crosses because every letter is technically allowed
 	// on every cross-set at the very beginning.
 	g.SetAllCrosses()
 	g.UpdateAllAnchors()
-
 }
 
 // IsEmpty returns if the board is empty.
 func (g *GameBoard) IsEmpty() bool {
-	return !g.hasTiles
+	return g.tilesPlayed == 0
 }
 
 func (g *GameBoard) updateAnchors(row int, col int, vertical bool) {
@@ -372,7 +209,7 @@ func (g *GameBoard) updateAnchors(row int, col int, vertical bool) {
 
 func (g *GameBoard) UpdateAllAnchors() {
 	n := g.Dim()
-	if g.hasTiles {
+	if g.tilesPlayed > 0 {
 		for i := 0; i < n; i++ {
 			for j := 0; j < n; j++ {
 				g.updateAnchors(i, j, false)
@@ -525,16 +362,56 @@ func (g *GameBoard) placeMoveTiles(m *move.Move) {
 	}
 }
 
-// PlayMove plays a move on a board.
-func (g *GameBoard) PlayMove(m *move.Move, gd *gaddag.SimpleGaddag, bag *lexicon.Bag) {
-	// Place tiles on the board, and regenerate cross-sets and cross-points.
-	// recalculate anchors tooo
+func (g *GameBoard) unplaceMoveTiles(m *move.Move) {
+	rowStart, colStart, vertical := m.CoordsAndVertical()
+	var row, col int
+	for idx, tile := range m.Tiles() {
+		if tile == alphabet.PlayedThroughMarker {
+			continue
+		}
+		if vertical {
+			row = rowStart + idx
+			col = colStart
+		} else {
+			col = colStart + idx
+			row = rowStart
+		}
+		g.squares[row][col].letter = alphabet.EmptySquareMarker
+	}
+}
+
+func (g *GameBoard) backupBoard() {
+	for ridx, r := range g.squares {
+		for cidx, c := range r {
+			g.squaresBackup[ridx][cidx].copyFrom(c)
+		}
+	}
+	g.tilesPlayedBackup = g.tilesPlayed
+}
+
+// PlayMove plays a move on a board. It must place tiles on the board,
+// regenerate cross-sets and cross-points, and recalculate anchors.
+func (g *GameBoard) PlayMove(m *move.Move, gd *gaddag.SimpleGaddag, bag *lexicon.Bag,
+	backup bool) {
+	// First back up the old board.
+	if backup {
+		g.backupBoard()
+	}
 	g.placeMoveTiles(m)
 	// Calculate anchors.
 	g.updateAnchorsForMove(m)
 	// Calculate cross-sets.
 	g.updateCrossSetsForMove(m, gd, bag)
-	if !g.hasTiles {
-		g.hasTiles = true
+	g.tilesPlayed += m.TilesPlayed()
+}
+
+// RestoreFromBackup restores the squares of this board from the backupBoard.
+func (g *GameBoard) RestoreFromBackup() {
+
+	for ridx, r := range g.squaresBackup {
+		for cidx, c := range r {
+			g.squares[ridx][cidx].copyFrom(c)
+		}
 	}
+	g.tilesPlayedBackup = g.tilesPlayed
 }

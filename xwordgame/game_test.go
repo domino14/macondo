@@ -1,7 +1,6 @@
 package xwordgame
 
 import (
-	"log"
 	"testing"
 
 	"github.com/domino14/macondo/gaddag"
@@ -11,7 +10,7 @@ import (
 )
 
 func TestGenBestStaticTurn(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd := gaddag.LoadGaddag("/tmp/gen_america2018.gaddag")
 	game := &XWordGame{}
 
 	game.Init(gd)
@@ -19,12 +18,11 @@ func TestGenBestStaticTurn(t *testing.T) {
 
 	game.players[0].rack = movegen.RackFromString("DRRIRDF", game.alph)
 	game.movegen.GenAll(game.players[0].rack)
-	// XXX: Fix this test. It doesn't work because our evaluator is not very good.
-	// assert.Equal(t, move.MoveTypeExchange, game.movegen.Plays()[0].Action())
+	assert.Equal(t, move.MoveTypeExchange, game.movegen.Plays()[0].Action())
 }
 
 func TestGenBestStaticTurn2(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd := gaddag.LoadGaddag("/tmp/gen_america2018.gaddag")
 	game := &XWordGame{}
 
 	game.Init(gd)
@@ -32,6 +30,29 @@ func TestGenBestStaticTurn2(t *testing.T) {
 
 	game.players[0].rack = movegen.RackFromString("COTTTV?", game.alph)
 	game.movegen.GenAll(game.players[0].rack)
-	log.Println(game.movegen.Plays())
 	assert.Equal(t, move.MoveTypeExchange, game.movegen.Plays()[0].Action())
+}
+
+func TestGenBestStaticTurn3(t *testing.T) {
+	gd := gaddag.LoadGaddag("/tmp/gen_america2018.gaddag")
+	game := &XWordGame{}
+
+	game.Init(gd)
+	game.movegen.Reset()
+
+	game.players[0].rack = movegen.RackFromString("INNRUVW", game.alph)
+	game.movegen.GenAll(game.players[0].rack)
+	// assert.Equal(t, move.MoveTypeExchange, game.movegen.Plays()[0].Action())
+}
+
+func TestGenBestStaticTurn4(t *testing.T) {
+	gd := gaddag.LoadGaddag("/tmp/gen_america2018.gaddag")
+	game := &XWordGame{}
+
+	game.Init(gd)
+	game.movegen.Reset()
+	// this rack has so much equity that the player might pass.
+	game.players[0].rack = movegen.RackFromString("CDEERS?", game.alph)
+	game.movegen.GenAll(game.players[0].rack)
+	assert.Equal(t, move.MoveTypeEndgameTiles, game.movegen.Plays()[0].Action())
 }

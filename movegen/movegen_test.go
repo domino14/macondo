@@ -238,7 +238,7 @@ func TestGenAllMovesFullRack(t *testing.T) {
 	generator.GenAll(RackFromString("AABDELT", alph))
 	// There should be 673 unique scoring plays, 95 exchanges and 1 pass.
 	assert.Equal(t, 673, len(scoringPlays(generator.plays)))
-	assert.Equal(t, 96, len(nonScoringPlays(generator.plays)))
+	assert.Equal(t, 95, len(nonScoringPlays(generator.plays)))
 
 	highestScores := []int{38, 36, 36, 34, 34, 33, 30, 30, 30, 28}
 	for idx, score := range highestScores {
@@ -257,7 +257,7 @@ func TestGenAllMovesFullRackAgain(t *testing.T) {
 	generator.GenAll(RackFromString("AFGIIIS", alph))
 	// There should be 219 unique plays
 	assert.Equal(t, 219, len(scoringPlays(generator.plays)))
-	assert.Equal(t, 64, len(nonScoringPlays(generator.plays)))
+	assert.Equal(t, 63, len(nonScoringPlays(generator.plays)))
 }
 
 func TestGenAllMovesSingleBlank(t *testing.T) {
@@ -272,8 +272,8 @@ func TestGenAllMovesSingleBlank(t *testing.T) {
 	// There should be 166 unique plays. Quackle does not generate all blank
 	// plays, even when told to generate all plays!!
 	assert.Equal(t, 166, len(scoringPlays(generator.plays)))
-	// Exch ? and pass
-	assert.Equal(t, 2, len(nonScoringPlays(generator.plays)))
+	// Exch ?
+	assert.Equal(t, 1, len(nonScoringPlays(generator.plays)))
 }
 func TestGenAllMovesTwoBlanksOnly(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
@@ -291,7 +291,7 @@ func TestGenAllMovesTwoBlanksOnly(t *testing.T) {
 	// The difference between 1827 and 1958 is also 131, so I think this is
 	// ok.
 	assert.Equal(t, 1958, len(scoringPlays(generator.plays)))
-	assert.Equal(t, 3, len(nonScoringPlays(generator.plays)))
+	assert.Equal(t, 2, len(nonScoringPlays(generator.plays)))
 }
 
 func TestGenAllMovesWithBlanks(t *testing.T) {
@@ -333,7 +333,7 @@ func TestGiantTwentySevenTimer(t *testing.T) {
 	generator.board.GenAllCrossSets(gd, generator.bag)
 	generator.GenAll(RackFromString("ABEOPXZ", alph))
 	assert.Equal(t, 519, len(scoringPlays(generator.plays)))
-	assert.Equal(t, 128, len(nonScoringPlays(generator.plays)))
+	assert.Equal(t, 127, len(nonScoringPlays(generator.plays)))
 	assert.Equal(t, 1780, generator.plays[0].Score()) // oxyphenbutazone
 	assert.Equal(t, "", generator.plays[0].Leave().UserVisible(alph))
 }
@@ -345,7 +345,7 @@ func TestGenerateEmptyBoard(t *testing.T) {
 	generator.board.UpdateAllAnchors()
 	generator.GenAll(RackFromString("DEGORV?", alph))
 	assert.Equal(t, 3313, len(scoringPlays(generator.plays)))
-	assert.Equal(t, 128, len(nonScoringPlays(generator.plays)))
+	assert.Equal(t, 127, len(nonScoringPlays(generator.plays)))
 	assert.Equal(t, 80, generator.plays[0].Score())
 	assert.Equal(t, "", generator.plays[0].Leave().UserVisible(alph))
 }

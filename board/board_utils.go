@@ -29,6 +29,7 @@ func (g *GameBoard) SetFromPlaintext(qText string, alph *alphabet.Alphabet) {
 	if len(result) != 15 {
 		panic("Wrongly implemented")
 	}
+	g.tilesPlayed = 0
 	var err error
 	for i := range result {
 		// result[i][1] has the string
@@ -42,7 +43,7 @@ func (g *GameBoard) SetFromPlaintext(qText string, alph *alphabet.Alphabet) {
 				// board marker.
 				g.squares[i][j/2].letter = alphabet.EmptySquareMarker
 			} else {
-				g.hasTiles = true
+				g.tilesPlayed++
 			}
 		}
 	}

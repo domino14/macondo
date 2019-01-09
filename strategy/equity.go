@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
-	"unsafe"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
@@ -25,7 +24,7 @@ var DataDir = os.Getenv("DATA_DIR")
 type Strategizer interface {
 	// Init initializes the strategizer, by doing things such as loading parameters
 	// from disk.
-	Init(lexiconName string, alph *alphabet.Alphabet) error
+	Init(lexiconName string, alph *alphabet.Alphabet, leavefile string) error
 	// Equity is a catch-all term for most post-score adjustments that
 	// need to be made. It includes first-turn placement heuristic,
 	// leave calculations, any pre-endgame timing heuristics, and more.
@@ -47,20 +46,10 @@ type SimpleSynergyStrategy struct {
 	leaveMap SynergyLeaveMap
 }
 
-// ByteSliceToString is used when you really want to convert a slice
-// of bytes to a string without incurring overhead. It is only safe
-// to use if you really know the byte slice is not going to change
-// in the lifetime of the string
-func ByteSliceToString(bs []byte) string {
-	// This is copied from runtime. It relies on the string
-	// header being a prefix of the slice header!
-	return *(*string)(unsafe.Pointer(&bs))
-}
-
-func (sss *SimpleSynergyStrategy) Init(lexiconName string, alph *alphabet.Alphabet) error {
+func (sss *SimpleSynergyStrategy) Init(lexiconName string, alph *alphabet.Alphabet,
+	leavefile string) error {
 	leaveMap := map[string]SynergyAndEV{}
-	file, err := os.Open(filepath.Join(DataDir, lexiconName,
-		"leave_values_010619_v2.csv"))
+	file, err := os.Open(filepath.Join(DataDir, lexiconName, leavefile))
 	if err != nil {
 		return err
 	}
@@ -81,11 +70,11 @@ func (sss *SimpleSynergyStrategy) Init(lexiconName string, alph *alphabet.Alphab
 		if err != nil {
 			log.Fatal(err)
 		}
-		ev, err := strconv.ParseFloat(record[3], 64)
+		ev, err := strconv.ParseFloat(record[4], 64)
 		if err != nil {
 			log.Fatal(err)
 		}
-		synergy, err := strconv.ParseFloat(record[4], 64)
+		synergy, err := strconv.ParseFloat(record[5], 64)
 		if err != nil {
 			// Single tiles don't have synergy.
 			synergy = 0
@@ -121,7 +110,7 @@ func (sss SimpleSynergyStrategy) lookup(leave alphabet.MachineWord) float64 {
 			return leave[i] < leave[j]
 		})
 	}
-	if len(leave) <= 2 {
+	if len(leave) <= 3 {
 		return sss.leaveMap[string(leave)].ev
 	}
 	// Otherwise, do a rough calculation using pairwise synergies.
@@ -171,7 +160,7 @@ func placementAdjustment(play *move.Move) float64 {
 	return penalty
 }
 
-func (nls *NoLeaveStrategy) Init(lexiconName string, alph *alphabet.Alphabet) error {
+func (nls *NoLeaveStrategy) Init(string, *alphabet.Alphabet, string) error {
 	return nil
 }
 

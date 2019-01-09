@@ -1,7 +1,7 @@
 - [x] generate all plays
     - [x] initial play must hit center square
     - [x] deduplicate
-    - [ ] generate exchanges
+    - [x] generate exchanges
 - [x] score all generated plays and sort
 - [x] First major-ish refactor:
     - [x] utilize the "lexicon" package and move tile drawing there
@@ -10,7 +10,7 @@
     - [x] cross-sets and cross-scores recalculated after every play
     - [ ] output to gcg
     - [x] pick highest scoring move
-    - [ ] log,
+    - [x] log,
     - [ ] create ultraleaves
 
 - script with Lua?

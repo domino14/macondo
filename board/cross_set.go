@@ -86,9 +86,6 @@ func (b *GameBoard) updateCrossSetsForMove(m *move.Move, gd *gaddag.SimpleGaddag
 		}
 	}
 
-	// Our cross set generation logic relies on the words we are traversing
-	// being horizontal, so we transpose the board if the move is horizontal
-	// (since the across words would then be vertical otherwise).
 	if vertical {
 		calcForAcross(row, col, HorizontalDirection)
 		b.Transpose()

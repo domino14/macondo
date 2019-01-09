@@ -19,6 +19,10 @@ import (
 	"github.com/domino14/macondo/movegen"
 )
 
+const (
+	LeaveFile = "leave_values_010919_v4.csv"
+)
+
 // XWordGame encapsulates the various components of a crossword game.
 type XWordGame struct {
 	// The movegen has the tilebag in it. Maybe eventually we will move it.
@@ -50,7 +54,7 @@ func (game *XWordGame) Init(gd *gaddag.SimpleGaddag) {
 	game.gaddag = gd
 	game.alph = gd.GetAlphabet()
 	strategy := &strategy.SimpleSynergyStrategy{}
-	if err := strategy.Init(gd.LexiconName(), game.alph); err != nil {
+	if err := strategy.Init(gd.LexiconName(), game.alph, LeaveFile); err != nil {
 		log.Printf("[ERROR] Strategy was not initialized: %v", err)
 	}
 
@@ -93,7 +97,7 @@ func (game *XWordGame) PlayBestStaticTurn(playerID int) {
 	game.PlayMove(bestPlay)
 
 	if game.logchan != nil {
-		game.logchan <- fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v,%v,%.3f,%v\n",
+		game.logchan <- fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v,%v,%v,%.3f,%v\n",
 			playerID,
 			game.uuid,
 			game.turnnum,
@@ -101,6 +105,7 @@ func (game *XWordGame) PlayBestStaticTurn(playerID int) {
 			bestPlay.ShortDescription(),
 			bestPlay.Score(),
 			game.players[playerID].points,
+			bestPlay.TilesPlayed(),
 			bestPlay.Leave().UserVisible(game.alph),
 			bestPlay.Equity(),
 			tilesRemaining)
@@ -112,7 +117,7 @@ func (game *XWordGame) PlayBestStaticTurn(playerID int) {
 func (game *XWordGame) PlayMove(m *move.Move) {
 	switch m.Action() {
 	case move.MoveTypePlay:
-		game.board.PlayMove(m, game.gaddag, game.bag)
+		game.board.PlayMove(m, game.gaddag, game.bag, false)
 		score := m.Score()
 		if score != 0 {
 			game.scorelessTurns = 0

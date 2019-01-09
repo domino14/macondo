@@ -18,6 +18,8 @@ const (
 	VsOxy
 	// VsMatt2 at the 2018-11 Manhattan tourney
 	VsMatt2
+	// VsRoy at the 2011 California Open
+	VsRoy
 )
 
 // SetBoardToGame sets the board to a specific game in progress. It is used to
@@ -134,6 +136,28 @@ cesar: Turn 8
 13|    -       ' A G U E   -    |
 14|  -       "       "       -  |
 15|=     '       =       '     =|
+   ------------------------------
+`, alph)
+	} else if game == VsRoy {
+		b.SetFromPlaintext(`
+cesar: Turn 10
+   A B C D E F G H I J K L M N O      roy                      WZ        427
+   ------------------------------  -> cesar                    EFHIKOQ   331
+ 1|=     '       =     L U R I D| --Tracking-----------------------------------
+ 2|  - O     "       "       - I| WZ  2
+ 3|    U       '   P R I C E R S|
+ 4|O U T R A T E S       O     T|
+ 5|    V   -           - u     E|
+ 6|G " I   C O L O N I A L   " N|
+ 7|A   E S     '   '     T '   D|
+ 8|N     E       U P B Y E     E|
+ 9|J   ' R     M   ' O   R '   D|
+10|A B   E N " A G A V E S   "  |
+11|  L   N O   F   M I X        |
+12|' I   A N   I '   D   -     '|
+13|  G A T E W A Y s       -    |
+14|  H   E   "       "       -  |
+15|= T   '       =       '     =|
    ------------------------------
 `, alph)
 	}

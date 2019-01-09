@@ -347,10 +347,14 @@ func (gen *GordonGenerator) Plays() []*move.Move {
 func (gen *GordonGenerator) addPassAndExchangeMoves(rack *Rack) {
 	tilesOnRack := rack.TilesOn(gen.numPossibleLetters)
 
-	passMove := move.NewPassMove(tilesOnRack)
-	passMove.SetEquity(gen.strategy.Equity(passMove, gen.board))
-	gen.plays = append(gen.plays, passMove)
-
+	// Only add a pass move if nothing else is possible. Note: in endgames,
+	// we will have to add a pass move another way (if it's a strategic pass).
+	// Probably in the endgame package.
+	if len(gen.plays) == 0 {
+		passMove := move.NewPassMove(tilesOnRack)
+		passMove.SetEquity(gen.strategy.Equity(passMove, gen.board))
+		gen.plays = append(gen.plays, passMove)
+	}
 	// No exchange moves should be generated if the bag has fewer than 7 tiles.
 	if gen.bag.TilesRemaining() < 7 {
 		return

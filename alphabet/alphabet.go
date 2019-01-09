@@ -80,6 +80,8 @@ func (ml MachineLetter) UserVisible(alph *Alphabet) rune {
 		return ASCIIPlayedThrough
 	} else if ml == BlankMachineLetter {
 		return '?'
+	} else if ml == EmptySquareMarker {
+		return ' '
 	}
 	return alph.Letter(ml)
 }
