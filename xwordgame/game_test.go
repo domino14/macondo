@@ -54,5 +54,5 @@ func TestGenBestStaticTurn4(t *testing.T) {
 	// this rack has so much equity that the player might pass.
 	game.players[0].rack = movegen.RackFromString("CDEERS?", game.alph)
 	game.movegen.GenAll(game.players[0].rack)
-	assert.Equal(t, move.MoveTypeEndgameTiles, game.movegen.Plays()[0].Action())
+	assert.Equal(t, move.MoveTypePlay, game.movegen.Plays()[0].Action())
 }
