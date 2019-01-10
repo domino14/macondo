@@ -77,7 +77,7 @@ func TestGenCrossSetLoadedGame(t *testing.T) {
 	alph := gd.GetAlphabet()
 	dist := lexicon.EnglishLetterDistribution()
 	bag := dist.MakeBag(gd.GetAlphabet())
-	b.SetBoardToGame(alph, VsMatt)
+	b.SetToGame(alph, VsMatt)
 	// All horizontal for now.
 	var testCases = []crossSetTestCase{
 		{10, 10, CrossSetFromString("E", alph), HorizontalDirection, 11},
@@ -163,7 +163,7 @@ func TestGenAllCrossSets(t *testing.T) {
 	dist := lexicon.EnglishLetterDistribution()
 	bag := dist.MakeBag(gd.GetAlphabet())
 	b := MakeBoard(CrosswordGameBoard)
-	b.SetBoardToGame(alph, VsEd)
+	b.SetToGame(alph, VsEd)
 
 	b.GenAllCrossSets(gd, bag)
 
@@ -196,7 +196,7 @@ func TestGenAllCrossSets(t *testing.T) {
 		}
 	}
 	// This one has more nondeterministic (in-between LR) crosssets
-	b.SetBoardToGame(alph, VsMatt)
+	b.SetToGame(alph, VsMatt)
 	b.GenAllCrossSets(gd, bag)
 	testCases = []crossSetTestCase{
 		{8, 7, CrossSetFromString("S", alph), HorizontalDirection, 11},
@@ -240,11 +240,11 @@ func TestBoardsEqual(t *testing.T) {
 	bag := dist.MakeBag(gd.GetAlphabet())
 
 	b := MakeBoard(CrosswordGameBoard)
-	b.SetBoardToGame(alph, VsMatt)
+	b.SetToGame(alph, VsMatt)
 	b.GenAllCrossSets(gd, bag)
 
 	c := MakeBoard(CrosswordGameBoard)
-	c.SetBoardToGame(alph, VsMatt)
+	c.SetToGame(alph, VsMatt)
 	c.GenAllCrossSets(gd, bag)
 
 	if !b.equals(c) {
@@ -257,7 +257,7 @@ func TestPlaceMoveTiles(t *testing.T) {
 	b := MakeBoard(CrosswordGameBoard)
 	alph := gd.GetAlphabet()
 
-	b.SetBoardToGame(alph, VsOxy)
+	b.SetToGame(alph, VsOxy)
 
 	m := move.NewScoringMoveSimple(1780, "A1", "OX.P...B..AZ..E", "", alph)
 	b.placeMoveTiles(m)
@@ -271,7 +271,7 @@ func TestUnplaceMoveTiles(t *testing.T) {
 	b := MakeBoard(CrosswordGameBoard)
 	alph := gd.GetAlphabet()
 
-	b.SetBoardToGame(alph, VsOxy)
+	b.SetToGame(alph, VsOxy)
 
 	m := move.NewScoringMoveSimple(1780, "A1", "OX.P...B..AZ..E", "", alph)
 	b.placeMoveTiles(m)
@@ -309,7 +309,7 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 	// create a move.
 	for _, tc := range testCases {
 		b := MakeBoard(CrosswordGameBoard)
-		b.SetBoardToGame(alph, tc.testGame)
+		b.SetToGame(alph, tc.testGame)
 		b.GenAllCrossSets(gd, bag)
 		b.UpdateAllAnchors()
 		b.PlayMove(tc.m, gd, bag, false)
@@ -317,7 +317,7 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 		// Create an identical board, but generate cross-sets for the entire
 		// board after placing the letters "manually".
 		c := MakeBoard(CrosswordGameBoard)
-		c.SetBoardToGame(alph, tc.testGame)
+		c.SetToGame(alph, tc.testGame)
 		c.placeMoveTiles(tc.m)
 		c.GenAllCrossSets(gd, bag)
 		c.UpdateAllAnchors()
@@ -363,7 +363,7 @@ func TestRestoreFromBackup(t *testing.T) {
 	// create a move.
 	for _, tc := range testCases {
 		b := MakeBoard(CrosswordGameBoard)
-		b.SetBoardToGame(alph, tc.testGame)
+		b.SetToGame(alph, tc.testGame)
 		b.GenAllCrossSets(gd, bag)
 		b.UpdateAllAnchors()
 		b.PlayMove(tc.m, gd, bag, true) // also backs up the move
@@ -372,7 +372,7 @@ func TestRestoreFromBackup(t *testing.T) {
 		// Create an identical board. We want to make sure nothing changed
 		// after the rollback.
 		c := MakeBoard(CrosswordGameBoard)
-		c.SetBoardToGame(alph, tc.testGame)
+		c.SetToGame(alph, tc.testGame)
 		c.GenAllCrossSets(gd, bag)
 		c.UpdateAllAnchors()
 		assert.True(t, b.equals(c))
@@ -385,7 +385,7 @@ func TestUpdateSingleCrossSet(t *testing.T) {
 	dist := lexicon.EnglishLetterDistribution()
 	bag := dist.MakeBag(gd.GetAlphabet())
 	b := MakeBoard(CrosswordGameBoard)
-	b.SetBoardToGame(alph, VsMatt)
+	b.SetToGame(alph, VsMatt)
 	b.GenAllCrossSets(gd, bag)
 
 	b.squares[8][10].letter = 19
@@ -414,7 +414,7 @@ func BenchmarkGenAnchorsAndCrossSets(b *testing.B) {
 	dist := lexicon.EnglishLetterDistribution()
 	bag := dist.MakeBag(alph)
 	board := MakeBoard(CrosswordGameBoard)
-	board.SetBoardToGame(alph, VsOxy)
+	board.SetToGame(alph, VsOxy)
 	b.ResetTimer()
 
 	// 38 us
@@ -432,7 +432,7 @@ func BenchmarkMakePlay(b *testing.B) {
 	dist := lexicon.EnglishLetterDistribution()
 	bag := dist.MakeBag(gd.GetAlphabet())
 	board := MakeBoard(CrosswordGameBoard)
-	board.SetBoardToGame(alph, VsMatt)
+	board.SetToGame(alph, VsMatt)
 	board.GenAllCrossSets(gd, bag)
 	board.UpdateAllAnchors()
 

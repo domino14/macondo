@@ -1,6 +1,8 @@
 package lexicon
 
 import (
+	"log"
+
 	"github.com/domino14/macondo/alphabet"
 
 	"github.com/domino14/macondo/gaddag"
@@ -52,35 +54,34 @@ func SpanishLetterDistribution() LetterDistribution {
 
 // MakeBag returns a bag of tiles.
 func (ld LetterDistribution) MakeBag(alph *alphabet.Alphabet) *Bag {
-	bag := make([]rune, ld.numLetters)
+	bag := make([]alphabet.MachineLetter, ld.numLetters)
 	idx := 0
 	for rn, val := range ld.Distribution {
 		for j := uint8(0); j < val; j++ {
-			bag[idx] = rn
+			val, err := alph.Val(rn)
+			if err != nil {
+				log.Fatalf("Attempt to initialize bag failed: %v", err)
+			}
+			bag[idx] = val
 			idx++
 		}
 	}
 	// Make an array of scores in alphabet order
 	scores := make([]int, len(ld.Distribution))
-	// Look it up in the alphabet. The alphabet is required for
-	// the move generator, but is optional for things such as the blank
-	// and build challenge generators, since it is only used to determine
-	// tile scores.
-	if alph != nil {
-		for rn, ptVal := range ld.PointValues {
-			ml, err := alph.Val(rn)
-			if err != nil {
-				panic("Wrongly initialized")
-			}
-			if ml == alphabet.BlankMachineLetter {
-				ml = alphabet.MachineLetter(len(ld.Distribution) - 1)
-			}
-			scores[ml] = int(ptVal)
+	for rn, ptVal := range ld.PointValues {
+		ml, err := alph.Val(rn)
+		if err != nil {
+			panic("Wrongly initialized")
 		}
+		if ml == alphabet.BlankMachineLetter {
+			ml = alphabet.MachineLetter(len(ld.Distribution) - 1)
+		}
+		scores[ml] = int(ptVal)
 	}
+
 	b := &Bag{
 		tiles:          bag,
-		initialTiles:   append([]rune(nil), bag...), // copy of bag
+		initialTiles:   append([]alphabet.MachineLetter(nil), bag...), // copy of bag
 		numUniqueTiles: len(ld.Distribution),
 		alphabet:       alph,
 		scores:         scores,

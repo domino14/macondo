@@ -72,12 +72,12 @@ func (game *XWordGame) StartGame() {
 
 	for i := 0; i < 2; i++ {
 		rack, _ := game.bag.Draw(7)
-		game.players[i].rackLetters = string(rack)
+		game.players[i].rackLetters = alphabet.MachineWord(rack).UserVisible(game.alph)
 		game.players[i].points = 0
 		if game.players[i].rack == nil {
-			game.players[i].rack = movegen.RackFromString(string(rack), game.alph)
+			game.players[i].rack = movegen.RackFromMachineLetters(rack, game.alph)
 		} else {
-			game.players[i].rack.Set(string(rack))
+			game.players[i].rack.Set(rack)
 		}
 	}
 	game.onturn = 0
@@ -127,9 +127,9 @@ func (game *XWordGame) PlayMove(m *move.Move) {
 		// 	score, m.Equity(), game.players[game.onturn].points)
 		// Draw new tiles.
 		drew := game.bag.DrawAtMost(m.TilesPlayed())
-		rack := string(drew) + m.Leave().UserVisible(game.gaddag.GetAlphabet())
+		rack := append(drew, []alphabet.MachineLetter(m.Leave())...)
 		game.players[game.onturn].rack.Set(rack)
-		game.players[game.onturn].rackLetters = rack
+		game.players[game.onturn].rackLetters = alphabet.MachineWord(rack).UserVisible(game.alph)
 
 		if game.players[game.onturn].rack.NumTiles() == 0 {
 			// log.Printf("[DEBUG] Player %v played off all their tiles. Game over!",
@@ -149,13 +149,13 @@ func (game *XWordGame) PlayMove(m *move.Move) {
 
 	case move.MoveTypeExchange:
 		// XXX: Gross; the bag should be full of MachineLetter.
-		drew, err := game.bag.Exchange([]rune(m.Tiles().UserVisible(game.alph)))
+		drew, err := game.bag.Exchange([]alphabet.MachineLetter(m.Tiles()))
 		if err != nil {
 			panic(err)
 		}
-		rack := string(drew) + m.Leave().UserVisible(game.gaddag.GetAlphabet())
+		rack := append(drew, []alphabet.MachineLetter(m.Leave())...)
 		game.players[game.onturn].rack.Set(rack)
-		game.players[game.onturn].rackLetters = rack
+		game.players[game.onturn].rackLetters = alphabet.MachineWord(rack).UserVisible(game.alph)
 		game.scorelessTurns++
 	}
 	if game.scorelessTurns == 6 {

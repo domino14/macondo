@@ -20,15 +20,18 @@ const (
 	VsMatt2
 	// VsRoy at the 2011 California Open
 	VsRoy
+	// VsMacondo1 is poor_endgame_timing.gcg
+	VsMacondo1
 )
 
-// SetBoardToGame sets the board to a specific game in progress. It is used to
+// SetToGame sets the board to a specific game in progress. It is used to
 // generate test cases.
-func (b *GameBoard) SetBoardToGame(alph *alphabet.Alphabet, game VsWho) {
+func (b *GameBoard) SetToGame(alph *alphabet.Alphabet, game VsWho) *TilesInPlay {
 	// Set the board to a game
-	if game == VsEd {
+	switch game {
+	case VsEd:
 		// Quackle generates 219 total unique moves with a rack of AFGIIIS
-		b.SetFromPlaintext(`
+		return b.SetFromPlaintext(`
 cesar: Turn 8
    A B C D E F G H I J K L M N O   -> cesar                    AFGIIIS   182
    ------------------------------     ed                       ADEILNV   226
@@ -49,8 +52,8 @@ cesar: Turn 8
 15|=     '       =       '     =|
    ------------------------------
 `, alph)
-	} else if game == VsMatt {
-		b.SetFromPlaintext(`
+	case VsMatt:
+		return b.SetFromPlaintext(`
 cesar: Turn 10
    A B C D E F G H I J K L M N O      matt g                   AEEHIIL   341
    ------------------------------  -> cesar                    AABDELT   318
@@ -71,8 +74,8 @@ cesar: Turn 10
 15|=     V E N G E D     '     =|
    ------------------------------
 `, alph)
-	} else if game == VsJeremy {
-		b.SetFromPlaintext(`
+	case VsJeremy:
+		return b.SetFromPlaintext(`
 jeremy hall: Turn 13
    A B C D E F G H I J K L M N O   -> jeremy hall              DDESW??   299
    ------------------------------     cesar                    AHIILR    352
@@ -93,9 +96,9 @@ jeremy hall: Turn 13
 15|=     '     O Y       '     G|
    ------------------------------
 `, alph)
-	} else if game == VsOxy {
+	case VsOxy:
 		// lol
-		b.SetFromPlaintext(`
+		return b.SetFromPlaintext(`
 cesar: Turn 11
    A B C D E F G H I J K L M N O      rubin                    ADDELOR   345
    ------------------------------  -> cesar                    OXPBAZE   129
@@ -116,8 +119,8 @@ cesar: Turn 11
 15|= J A C U L A T I N G '     =|
    ------------------------------
 `, alph)
-	} else if game == VsMatt2 {
-		b.SetFromPlaintext(`
+	case VsMatt2:
+		return b.SetFromPlaintext(`
 cesar: Turn 8
    A B C D E F G H I J K L M N O   -> cesar                    EEILNT?   237
    ------------------------------     matt graham              EIJPSTW   171
@@ -138,8 +141,8 @@ cesar: Turn 8
 15|=     '       =       '     =|
    ------------------------------
 `, alph)
-	} else if game == VsRoy {
-		b.SetFromPlaintext(`
+	case VsRoy:
+		return b.SetFromPlaintext(`
 cesar: Turn 10
    A B C D E F G H I J K L M N O      roy                      WZ        427
    ------------------------------  -> cesar                    EFHIKOQ   331
@@ -160,5 +163,28 @@ cesar: Turn 10
 15|= T   '       =       '     =|
    ------------------------------
 `, alph)
+	case VsMacondo1:
+		return b.SetFromPlaintext(`
+teich: Turn 12
+   A B C D E F G H I J K L M N O      cesar                    ENNR      379
+   ------------------------------  -> teich                    APRS?     469
+ 1|J O Y E D     =       '     =| --Tracking-----------------------------------
+ 2|U - E L   V       "       -  | ENNR  4
+ 3|G   W O   I '   '       -    |
+ 4|A I   P   G   '       -     '|
+ 5|    F E T A         -        |
+ 6|  Y I R R S       C       "  |
+ 7|    L   I   O B I A     '    |
+ 8|U     H A I K A   L   '     =|
+ 9|N   Z   L   '   ' O F   '    |
+10|I T E M I S E D   T O     "  |
+11|T   B A N     E   T O        |
+12|E   R U G     V   e D -     '|
+13|  H A D     ' O '       -    |
+14|W E       "   I N Q U E S T  |
+15|E X E C       R       M O A N|
+   ------------------------------
+`, alph)
 	}
+	return nil
 }

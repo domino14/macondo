@@ -32,11 +32,12 @@ func TestBag(t *testing.T) {
 	for range bag.tiles {
 		tiles, err := bag.Draw(1)
 		numTiles++
-		t.Logf("Drew a %v! , %v", string(tiles[0]), numTiles)
+		uv := tiles[0].UserVisible(gd.GetAlphabet())
+		t.Logf("Drew a %c! , %v", uv, numTiles)
 		if err != nil {
 			t.Error("Error drawing from tile bag.")
 		}
-		tileMap[tiles[0]]++
+		tileMap[uv]++
 	}
 	if !reflect.DeepEqual(tileMap, ld.Distribution) {
 		t.Error("Distribution and tilemap were not identical.")

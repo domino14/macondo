@@ -8,11 +8,10 @@ import (
 )
 
 // A Bag is the bag o'tiles!
-// XXX: The bag should be full of MachineLetter, not runes.
 type Bag struct {
 	numUniqueTiles int
-	initialTiles   []rune
-	tiles          []rune
+	initialTiles   []alphabet.MachineLetter
+	tiles          []alphabet.MachineLetter
 	alphabet       *alphabet.Alphabet
 	// scores is a slice of ordered scores, in machine letter order.
 	scores []int
@@ -20,13 +19,13 @@ type Bag struct {
 
 // Refill refills the bag.
 func (b *Bag) Refill() {
-	b.tiles = append([]rune(nil), b.initialTiles...)
+	b.tiles = append([]alphabet.MachineLetter(nil), b.initialTiles...)
 	b.Shuffle()
 }
 
 // DrawAtMost draws at most n tiles from the bag. It can draw fewer if there
 // are fewer tiles than n, and even draw no tiles at all :o
-func (b *Bag) DrawAtMost(n int) []rune {
+func (b *Bag) DrawAtMost(n int) []alphabet.MachineLetter {
 	if n > len(b.tiles) {
 		n = len(b.tiles)
 	}
@@ -35,12 +34,12 @@ func (b *Bag) DrawAtMost(n int) []rune {
 }
 
 // Draw draws n tiles from the bag.
-func (b *Bag) Draw(n int) ([]rune, error) {
+func (b *Bag) Draw(n int) ([]alphabet.MachineLetter, error) {
 	if n > len(b.tiles) {
 		return nil, fmt.Errorf("tried to draw %v tiles, tile bag has %v",
 			n, len(b.tiles))
 	}
-	drawn := make([]rune, n)
+	drawn := make([]alphabet.MachineLetter, n)
 	for i := 0; i < n; i++ {
 		drawn[i] = b.tiles[i]
 	}
@@ -56,7 +55,7 @@ func (b *Bag) Shuffle() {
 }
 
 // Exchange exchanges the junk in your rack with new tiles.
-func (b *Bag) Exchange(letters []rune) ([]rune, error) {
+func (b *Bag) Exchange(letters []alphabet.MachineLetter) ([]alphabet.MachineLetter, error) {
 	newTiles, err := b.Draw(len(letters))
 	if err != nil {
 		return nil, err
@@ -82,4 +81,21 @@ func (b *Bag) TilesRemaining() int {
 
 func (b *Bag) GetAlphabet() *alphabet.Alphabet {
 	return b.alphabet
+}
+
+func (b *Bag) remove(t alphabet.MachineLetter) {
+	for idx, tile := range b.tiles {
+		if tile == t {
+			b.tiles[idx] = b.tiles[len(b.tiles)-1]
+			b.tiles = b.tiles[:len(b.tiles)-1]
+			return
+		}
+	}
+}
+
+// RemoveTiles removes the given tiles from the bag.
+func (b *Bag) RemoveTiles(tiles []alphabet.MachineLetter) {
+	for _, t := range tiles {
+		b.remove(t)
+	}
 }

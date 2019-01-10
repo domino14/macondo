@@ -23,16 +23,23 @@ func (r *Rack) String() string {
 	return r.TilesOn(int(r.alphabet.NumLetters())).UserVisible(r.alphabet)
 }
 
+// RackFromMachineLetters creates a rack from a list of machine letters.
+func RackFromMachineLetters(mls []alphabet.MachineLetter, a *alphabet.Alphabet) *Rack {
+	r := &Rack{}
+	r.alphabet = a
+	r.Set(mls)
+	return r
+}
+
 // RackFromString creates a Rack from a string and an alphabet
 func RackFromString(rack string, a *alphabet.Alphabet) *Rack {
 	r := &Rack{}
 	r.alphabet = a
-	r.Set(rack)
+	r.setFromStr(rack)
 	return r
 }
 
-// Set sets the rack from a string.
-func (r *Rack) Set(rack string) {
+func (r *Rack) setFromStr(rack string) {
 	if r.LetArr == nil {
 		r.LetArr = make([]int, alphabet.MaxAlphabetSize+1)
 	} else {
@@ -51,6 +58,22 @@ func (r *Rack) Set(rack string) {
 		r.empty = false
 	}
 	r.numLetters = uint8(len(rack))
+}
+
+// Set sets the rack from a list of machine letters
+func (r *Rack) Set(mls []alphabet.MachineLetter) {
+	if r.LetArr == nil {
+		r.LetArr = make([]int, alphabet.MaxAlphabetSize+1)
+	} else {
+		r.clear()
+	}
+	for _, ml := range mls {
+		r.LetArr[ml]++
+	}
+	if len(mls) > 0 {
+		r.empty = false
+	}
+	r.numLetters = uint8(len(mls))
 }
 
 func (r *Rack) clear() {

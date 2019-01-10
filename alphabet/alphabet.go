@@ -216,7 +216,7 @@ func (a Alphabet) Val(r rune) (MachineLetter, error) {
 	if r == ASCIIPlayedThrough {
 		return PlayedThroughMarker, nil
 	}
-	return 0, fmt.Errorf("Letter `%v` not found in alphabet", r)
+	return 0, fmt.Errorf("Letter `%c` not found in alphabet", r)
 }
 
 // Letter returns the letter that this position in the alphabet corresponds to.

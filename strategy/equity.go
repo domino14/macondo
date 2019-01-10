@@ -85,6 +85,7 @@ func (sss *SimpleSynergyStrategy) Init(lexiconName string, alph *alphabet.Alphab
 		}
 	}
 	sss.leaveMap = SynergyLeaveMap(leaveMap)
+	log.Printf("Loaded strategy from %v", file.Name())
 	return nil
 }
 

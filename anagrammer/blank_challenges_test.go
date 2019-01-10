@@ -2,33 +2,41 @@ package anagrammer
 
 import (
 	"context"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
-	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/lexicon"
 )
 
 func TestRacks(t *testing.T) {
+	eng := gaddag.LoadGaddag("/tmp/gen_america.dawg")
+	span := gaddag.LoadGaddag("/tmp/gen_fise09.dawg")
+	engAlph := eng.GetAlphabet()
+	spanAlph := span.GetAlphabet()
 	dists := []lexicon.LetterDistribution{
 		lexicon.EnglishLetterDistribution(),
 		lexicon.SpanishLetterDistribution(),
 	}
-	for _, dist := range dists {
+	for distIdx, dist := range dists {
 		for l := 7; l <= 8; l++ {
 			for n := 1; n <= 2; n++ {
+				var alph *alphabet.Alphabet
+				if distIdx == 0 {
+					alph = engAlph
+				} else {
+					alph = spanAlph
+				}
 				for i := 0; i < 10000; i++ {
-					rack := genRack(dist, l, n, nil)
+					rack := genRack(dist, l, n, alph)
 					if len(rack) != l {
 						t.Errorf("Len rack should have been %v, was %v",
 							l, len(rack))
 					}
 					numBlanks := 0
 					for j := 0; j < len(rack); j++ {
-						if rack[j] == alphabet.BlankToken {
+						if rack[j] == alphabet.BlankMachineLetter {
 							numBlanks++
 						}
 					}
@@ -43,8 +51,7 @@ func TestRacks(t *testing.T) {
 }
 
 func TestGenBlanks(t *testing.T) {
-	gaddagmaker.GenerateDawg(filepath.Join(LexiconDir, "America.txt"), true, true)
-	d := gaddag.LoadGaddag("out.dawg")
+	d := gaddag.LoadGaddag("/tmp/gen_america.dawg")
 
 	ctx := context.Background()
 	bcArgs := &BlankChallengeArgs{

@@ -11,6 +11,7 @@
 package movegen
 
 import (
+	"log"
 	"sort"
 
 	"github.com/domino14/macondo/alphabet"
@@ -388,4 +389,18 @@ func (gen *GordonGenerator) addPassAndExchangeMoves(rack *Rack) {
 		mv.SetEquity(gen.strategy.Equity(mv, gen.board))
 		gen.plays = append(gen.plays, mv)
 	}
+}
+
+func (gen *GordonGenerator) SetBoardToGame(alph *alphabet.Alphabet, game board.VsWho) {
+	tilesPlayedAndInRacks := gen.board.SetToGame(alph, game)
+	// Update bag. This is a slowish operation, but this type of function
+	// will not be used in a context that requires the utmost speed.
+	gen.bag.RemoveTiles(tilesPlayedAndInRacks.OnBoard)
+	gen.bag.RemoveTiles(tilesPlayedAndInRacks.Rack1)
+	gen.bag.RemoveTiles(tilesPlayedAndInRacks.Rack2)
+	log.Println("***", tilesPlayedAndInRacks)
+
+	gen.board.UpdateAllAnchors()
+	gen.board.GenAllCrossSets(gen.gaddag, gen.bag)
+	log.Printf("Length of bag %v", gen.bag.TilesRemaining())
 }
