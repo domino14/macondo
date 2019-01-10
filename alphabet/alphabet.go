@@ -37,7 +37,7 @@ const (
 	// Note that in order to actually be visible on a computer screen, we
 	// should use `(`and `)` around letters already on a board.
 	ASCIIPlayedThrough = '.'
-
+	// BlankToken is the user-friendly representation of a blank.
 	BlankToken = '?'
 )
 
@@ -61,6 +61,11 @@ func (ml MachineLetter) Blank() MachineLetter {
 		return ml + BlankOffset
 	}
 	return ml
+}
+
+// IsBlanked returns true if this is the blank version of a letter.
+func (ml MachineLetter) IsBlanked() bool {
+	return ml >= BlankOffset
 }
 
 // Unblank is the opposite of the above function; it removes the blank offset
@@ -118,6 +123,15 @@ func (mw MachineWord) String() string {
 		bytes[i] = byte(l)
 	}
 	return string(bytes)
+}
+
+// Score returns the score of this word given the bag.
+func (mw MachineWord) Score(bag *Bag) int {
+	score := 0
+	for _, c := range mw {
+		score += bag.Score(c)
+	}
+	return score
 }
 
 // ToMachineWord creates a MachineWord from the given string.

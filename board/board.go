@@ -3,7 +3,6 @@ package board
 import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
-	"github.com/domino14/macondo/lexicon"
 	"github.com/domino14/macondo/move"
 )
 
@@ -263,7 +262,7 @@ func (g *GameBoard) wordEdge(row int, col int, dir WordDirection) int {
 	return col - int(dir)
 }
 
-func (g *GameBoard) traverseBackwardsForScore(row int, col int, bag *lexicon.Bag) int {
+func (g *GameBoard) traverseBackwardsForScore(row int, col int, bag *alphabet.Bag) int {
 	score := 0
 	for g.posExists(row, col) {
 		ml := g.squares[row][col].letter
@@ -391,7 +390,7 @@ func (g *GameBoard) backupBoard() {
 
 // PlayMove plays a move on a board. It must place tiles on the board,
 // regenerate cross-sets and cross-points, and recalculate anchors.
-func (g *GameBoard) PlayMove(m *move.Move, gd *gaddag.SimpleGaddag, bag *lexicon.Bag,
+func (g *GameBoard) PlayMove(m *move.Move, gd *gaddag.SimpleGaddag, bag *alphabet.Bag,
 	backup bool) {
 	// First back up the old board.
 	if backup {

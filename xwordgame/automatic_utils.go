@@ -91,7 +91,7 @@ func StartCompVCompStaticGames(gd *gaddag.SimpleGaddag, numGames int, threads in
 	}()
 
 	go func() {
-		logfile.WriteString("playerID,gameID,turn,rack,play,score,totalscore,leave,equity,tilesremaining\n")
+		logfile.WriteString("playerID,gameID,turn,rack,play,score,totalscore,tilesplayed,leave,equity,tilesremaining\n")
 		for msg := range logChan {
 			logfile.WriteString(msg)
 		}

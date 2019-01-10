@@ -8,7 +8,6 @@ import (
 	"github.com/domino14/macondo/alphabet"
 
 	"github.com/domino14/macondo/gaddag"
-	"github.com/domino14/macondo/lexicon"
 )
 
 // GenerateBuildChallenge generates a build challenge with given args.
@@ -17,11 +16,11 @@ import (
 func GenerateBuildChallenge(ctx context.Context, args *BuildChallengeArgs,
 	dawg *gaddag.SimpleGaddag) (*Question, int, error) {
 
-	var dist lexicon.LetterDistribution
+	var dist alphabet.LetterDistribution
 	if args.Lexicon == "FISE09" {
-		dist = lexicon.SpanishLetterDistribution()
+		dist = alphabet.SpanishLetterDistribution()
 	} else {
-		dist = lexicon.EnglishLetterDistribution()
+		dist = alphabet.EnglishLetterDistribution()
 	}
 	tries := 0
 	alph := dawg.GetAlphabet()
@@ -48,7 +47,7 @@ func GenerateBuildChallenge(ctx context.Context, args *BuildChallengeArgs,
 			return nil, fmt.Errorf("answers (%v) not match criteria: %v - %v",
 				len(meetingCriteria), args.MinSolutions, args.MaxSolutions)
 		}
-		w := lexicon.Word{Word: rack.UserVisible(alph), Dist: dist}
+		w := alphabet.Word{Word: rack.UserVisible(alph), Dist: dist}
 		return &Question{Q: w.MakeAlphagram(), A: meetingCriteria}, nil
 	}
 

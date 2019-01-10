@@ -5,7 +5,6 @@ package xwordgame
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/strategy"
@@ -14,7 +13,6 @@ import (
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/endgame"
 	"github.com/domino14/macondo/gaddag"
-	"github.com/domino14/macondo/lexicon"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 )
@@ -31,7 +29,7 @@ type XWordGame struct {
 	onturn             int // player index
 	turnnum            int
 	board              *board.GameBoard
-	bag                *lexicon.Bag
+	bag                *alphabet.Bag
 	gaddag             *gaddag.SimpleGaddag
 	alph               *alphabet.Alphabet
 	playing            bool
@@ -48,21 +46,20 @@ func (game *XWordGame) Init(gd *gaddag.SimpleGaddag) {
 	game.numPossibleLetters = int(gd.GetAlphabet().NumLetters())
 	game.board = board.MakeBoard(board.CrosswordGameBoard)
 
-	dist := lexicon.EnglishLetterDistribution()
+	dist := alphabet.EnglishLetterDistribution()
 	game.bag = dist.MakeBag(gd.GetAlphabet())
 
 	game.gaddag = gd
 	game.alph = gd.GetAlphabet()
-	strategy := &strategy.SimpleSynergyStrategy{}
-	if err := strategy.Init(gd.LexiconName(), game.alph, LeaveFile); err != nil {
-		log.Printf("[ERROR] Strategy was not initialized: %v", err)
+	game.players = []Player{
+		{alphabet.NewRack(game.alph), "", "player1", 0},
+		{alphabet.NewRack(game.alph), "", "player2", 0},
 	}
 
+	strategy := strategy.NewSimpleSynergyStrategy(game.bag, gd.LexiconName(), game.alph,
+		LeaveFile)
+
 	game.movegen = movegen.NewGordonGenerator(gd, game.bag, game.board, strategy)
-	game.players = []Player{
-		{nil, "", "player1", 0},
-		{nil, "", "player2", 0},
-	}
 }
 
 // StartGame resets everything and deals out the first set of tiles.
@@ -74,11 +71,7 @@ func (game *XWordGame) StartGame() {
 		rack, _ := game.bag.Draw(7)
 		game.players[i].rackLetters = alphabet.MachineWord(rack).UserVisible(game.alph)
 		game.players[i].points = 0
-		if game.players[i].rack == nil {
-			game.players[i].rack = movegen.RackFromMachineLetters(rack, game.alph)
-		} else {
-			game.players[i].rack.Set(rack)
-		}
+		game.players[i].rack.Set(rack)
 	}
 	game.onturn = 0
 	game.turnnum = 0
@@ -88,6 +81,8 @@ func (game *XWordGame) StartGame() {
 // PlayBestStaticTurn generates the best static move for the player and
 // plays it on the board.
 func (game *XWordGame) PlayBestStaticTurn(playerID int) {
+	opp := (playerID + 1) % len(game.players)
+	game.movegen.SetOppRack(game.players[opp].rack)
 	game.movegen.GenAll(game.players[playerID].rack)
 	bestPlay := game.movegen.Plays()[0]
 	// save rackLetters for logging.

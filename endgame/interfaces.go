@@ -1,9 +1,9 @@
 package endgame
 
 import (
+	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/gaddag"
-	"github.com/domino14/macondo/lexicon"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 )
@@ -12,6 +12,6 @@ import (
 // solver maximizes spread.
 type Solver interface {
 	Init(board *board.GameBoard, movegen *movegen.GordonGenerator,
-		bag *lexicon.Bag, gd *gaddag.SimpleGaddag)
-	Solve(playerOnTurn, opponent *movegen.Rack) *move.Move
+		bag *alphabet.Bag, gd *gaddag.SimpleGaddag)
+	Solve(playerOnTurn, opponent *alphabet.Rack) *move.Move
 }

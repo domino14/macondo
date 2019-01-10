@@ -4,7 +4,6 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
-	"github.com/domino14/macondo/lexicon"
 	"github.com/domino14/macondo/move"
 )
 
@@ -52,7 +51,7 @@ func (c *CrossSet) clear() {
 }
 
 func (b *GameBoard) updateCrossSetsForMove(m *move.Move, gd *gaddag.SimpleGaddag,
-	bag *lexicon.Bag) {
+	bag *alphabet.Bag) {
 
 	row, col, vertical := m.CoordsAndVertical()
 	// Every tile placed by this new move creates new "across" words, and we need
@@ -106,7 +105,7 @@ func (b *GameBoard) updateCrossSetsForMove(m *move.Move, gd *gaddag.SimpleGaddag
 // board; our anchor algorithm doesn't quite match the one in the Gordon
 // paper.
 // We do this for both transpositions of the board.
-func (b *GameBoard) GenAllCrossSets(gaddag *gaddag.SimpleGaddag, bag *lexicon.Bag) {
+func (b *GameBoard) GenAllCrossSets(gaddag *gaddag.SimpleGaddag, bag *alphabet.Bag) {
 
 	n := b.Dim()
 	for i := 0; i < n; i++ {
@@ -126,7 +125,7 @@ func (b *GameBoard) GenAllCrossSets(gaddag *gaddag.SimpleGaddag, bag *lexicon.Ba
 
 // GenCrossSet generates a cross-set for each individual square.
 func (b *GameBoard) GenCrossSet(row int, col int, dir BoardDirection,
-	gaddag *gaddag.SimpleGaddag, bag *lexicon.Bag) {
+	gaddag *gaddag.SimpleGaddag, bag *alphabet.Bag) {
 
 	if row < 0 || row >= b.Dim() || col < 0 || col >= b.Dim() {
 		return

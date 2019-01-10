@@ -1,11 +1,7 @@
-package lexicon
+package alphabet
 
 import (
 	"log"
-
-	"github.com/domino14/macondo/alphabet"
-
-	"github.com/domino14/macondo/gaddag"
 )
 
 // LetterDistribution encodes the tile distribution for the relevant game.
@@ -53,8 +49,8 @@ func SpanishLetterDistribution() LetterDistribution {
 }
 
 // MakeBag returns a bag of tiles.
-func (ld LetterDistribution) MakeBag(alph *alphabet.Alphabet) *Bag {
-	bag := make([]alphabet.MachineLetter, ld.numLetters)
+func (ld LetterDistribution) MakeBag(alph *Alphabet) *Bag {
+	bag := make([]MachineLetter, ld.numLetters)
 	idx := 0
 	for rn, val := range ld.Distribution {
 		for j := uint8(0); j < val; j++ {
@@ -73,19 +69,12 @@ func (ld LetterDistribution) MakeBag(alph *alphabet.Alphabet) *Bag {
 		if err != nil {
 			panic("Wrongly initialized")
 		}
-		if ml == alphabet.BlankMachineLetter {
-			ml = alphabet.MachineLetter(len(ld.Distribution) - 1)
+		if ml == BlankMachineLetter {
+			ml = MachineLetter(len(ld.Distribution) - 1)
 		}
 		scores[ml] = int(ptVal)
 	}
-
-	b := &Bag{
-		tiles:          bag,
-		initialTiles:   append([]alphabet.MachineLetter(nil), bag...), // copy of bag
-		numUniqueTiles: len(ld.Distribution),
-		alphabet:       alph,
-		scores:         scores,
-	}
+	b := NewBag(bag, len(ld.Distribution), alph, scores)
 	b.Shuffle()
 
 	return b
@@ -106,7 +95,6 @@ type LexiconInfo struct {
 	DescriptiveName    string
 	LetterDistribution LetterDistribution
 	subChooseCombos    [][]uint64
-	Gaddag             *gaddag.SimpleGaddag
 }
 
 // Initialize the LexiconInfo data structure for a new lexicon,

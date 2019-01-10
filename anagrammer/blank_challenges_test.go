@@ -7,7 +7,6 @@ import (
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
-	"github.com/domino14/macondo/lexicon"
 )
 
 func TestRacks(t *testing.T) {
@@ -15,9 +14,9 @@ func TestRacks(t *testing.T) {
 	span := gaddag.LoadGaddag("/tmp/gen_fise09.dawg")
 	engAlph := eng.GetAlphabet()
 	spanAlph := span.GetAlphabet()
-	dists := []lexicon.LetterDistribution{
-		lexicon.EnglishLetterDistribution(),
-		lexicon.SpanishLetterDistribution(),
+	dists := []alphabet.LetterDistribution{
+		alphabet.EnglishLetterDistribution(),
+		alphabet.SpanishLetterDistribution(),
 	}
 	for distIdx, dist := range dists {
 		for l := 7; l <= 8; l++ {

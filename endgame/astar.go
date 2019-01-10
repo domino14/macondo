@@ -5,8 +5,8 @@ package endgame
 import (
 	"sort"
 
+	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
-	"github.com/domino14/macondo/lexicon"
 
 	"github.com/domino14/macondo/board"
 
@@ -47,15 +47,15 @@ func newTreeNode(move *move.Move, children []*move.Move) *TreeNode {
 // I'll learn something.
 type AStarSolver struct {
 	movegen          *movegen.GordonGenerator
-	playerOnTurnRack *movegen.Rack
-	opponentRack     *movegen.Rack
+	playerOnTurnRack *alphabet.Rack
+	opponentRack     *alphabet.Rack
 	board            *board.GameBoard
 	gd               *gaddag.SimpleGaddag
-	bag              *lexicon.Bag
+	bag              *alphabet.Bag
 }
 
 func (a *AStarSolver) Init(board *board.GameBoard, movegen *movegen.GordonGenerator,
-	bag *lexicon.Bag, gd *gaddag.SimpleGaddag) {
+	bag *alphabet.Bag, gd *gaddag.SimpleGaddag) {
 
 	a.board = board
 	a.movegen = movegen
@@ -64,7 +64,7 @@ func (a *AStarSolver) Init(board *board.GameBoard, movegen *movegen.GordonGenera
 }
 
 // Solve returns the best move.
-// func (a *AStarSolver) Solve(board *board.GameBoard, playerOnTurn, opponent *movegen.Rack,
+// func (a *AStarSolver) Solve(board *board.GameBoard, playerOnTurn, opponent *alphabet.Rack,
 // 	movegen *movegen.GordonGenerator) *move.Move {
 
 // 	// Start by building the tree.
@@ -85,7 +85,7 @@ func (a *AStarSolver) Init(board *board.GameBoard, movegen *movegen.GordonGenera
 // 	return nil
 // }
 
-func (a *AStarSolver) heuristicEstimate(node *TreeNode, opponentRack *movegen.Rack) int {
+func (a *AStarSolver) heuristicEstimate(node *TreeNode, opponentRack *alphabet.Rack) int {
 	// Calculate a heuristic estimate for the cost from the node to any goal.
 	// A goal is just a finished endgame. Obviously we want the best one.
 	// Define cost as CostConstant - spread. That way it can be minimized.

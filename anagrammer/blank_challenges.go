@@ -9,13 +9,12 @@ import (
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
-	"github.com/domino14/macondo/lexicon"
 )
 
 // try tries to generate challenges. It returns an error if it fails
 // to generate a challenge with too many or too few answers, or if
 // an answer has already been generated.
-func try(nBlanks int, dist lexicon.LetterDistribution, wordLength int,
+func try(nBlanks int, dist alphabet.LetterDistribution, wordLength int,
 	dawg *gaddag.SimpleGaddag, maxSolutions int, answerMap map[string]bool) (
 	*Question, error) {
 
@@ -35,7 +34,7 @@ func try(nBlanks int, dist lexicon.LetterDistribution, wordLength int,
 	for _, answer := range answers {
 		answerMap[answer] = true
 	}
-	w := lexicon.Word{Word: rack.UserVisible(alph), Dist: dist}
+	w := alphabet.Word{Word: rack.UserVisible(alph), Dist: dist}
 	return &Question{Q: w.MakeAlphagram(), A: answers}, nil
 }
 
@@ -44,11 +43,11 @@ func try(nBlanks int, dist lexicon.LetterDistribution, wordLength int,
 func GenerateBlanks(ctx context.Context, args *BlankChallengeArgs,
 	dawg *gaddag.SimpleGaddag) ([]*Question, int, error) {
 
-	var dist lexicon.LetterDistribution
+	var dist alphabet.LetterDistribution
 	if args.Lexicon == "FISE09" {
-		dist = lexicon.SpanishLetterDistribution()
+		dist = alphabet.SpanishLetterDistribution()
 	} else {
-		dist = lexicon.EnglishLetterDistribution()
+		dist = alphabet.EnglishLetterDistribution()
 	}
 	tries := 0
 	// Handle 2-blank challenges at the end.
@@ -99,7 +98,7 @@ func GenerateBlanks(ctx context.Context, args *BlankChallengeArgs,
 }
 
 // genRack - Generate a random rack using `dist` and with `blanks` blanks.
-func genRack(dist lexicon.LetterDistribution, wordLength, blanks int,
+func genRack(dist alphabet.LetterDistribution, wordLength, blanks int,
 	alph *alphabet.Alphabet) []alphabet.MachineLetter {
 	bag := dist.MakeBag(alph)
 	// it's a bag of machine letters.

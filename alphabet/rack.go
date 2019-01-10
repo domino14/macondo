@@ -1,10 +1,7 @@
-package movegen
+package alphabet
 
 import (
 	"log"
-
-	"github.com/domino14/macondo/alphabet"
-	"github.com/domino14/macondo/lexicon"
 )
 
 // Rack is a machine-friendly representation of a user's rack.
@@ -14,25 +11,22 @@ type Rack struct {
 	LetArr     []int
 	empty      bool
 	numLetters uint8
-	alphabet   *alphabet.Alphabet
+	alphabet   *Alphabet
 	repr       string
 	// letterIdxs []uint8
+}
+
+// NewRack creates a brand new rack structure with an alphabet.
+func NewRack(alph *Alphabet) *Rack {
+	return &Rack{alphabet: alph}
 }
 
 func (r *Rack) String() string {
 	return r.TilesOn(int(r.alphabet.NumLetters())).UserVisible(r.alphabet)
 }
 
-// RackFromMachineLetters creates a rack from a list of machine letters.
-func RackFromMachineLetters(mls []alphabet.MachineLetter, a *alphabet.Alphabet) *Rack {
-	r := &Rack{}
-	r.alphabet = a
-	r.Set(mls)
-	return r
-}
-
 // RackFromString creates a Rack from a string and an alphabet
-func RackFromString(rack string, a *alphabet.Alphabet) *Rack {
+func RackFromString(rack string, a *Alphabet) *Rack {
 	r := &Rack{}
 	r.alphabet = a
 	r.setFromStr(rack)
@@ -41,7 +35,7 @@ func RackFromString(rack string, a *alphabet.Alphabet) *Rack {
 
 func (r *Rack) setFromStr(rack string) {
 	if r.LetArr == nil {
-		r.LetArr = make([]int, alphabet.MaxAlphabetSize+1)
+		r.LetArr = make([]int, MaxAlphabetSize+1)
 	} else {
 		r.clear()
 	}
@@ -61,9 +55,9 @@ func (r *Rack) setFromStr(rack string) {
 }
 
 // Set sets the rack from a list of machine letters
-func (r *Rack) Set(mls []alphabet.MachineLetter) {
+func (r *Rack) Set(mls []MachineLetter) {
 	if r.LetArr == nil {
-		r.LetArr = make([]int, alphabet.MaxAlphabetSize+1)
+		r.LetArr = make([]int, MaxAlphabetSize+1)
 	} else {
 		r.clear()
 	}
@@ -78,14 +72,14 @@ func (r *Rack) Set(mls []alphabet.MachineLetter) {
 
 func (r *Rack) clear() {
 	// Clear the rack
-	for i := 0; i < alphabet.MaxAlphabetSize+1; i++ {
+	for i := 0; i < MaxAlphabetSize+1; i++ {
 		r.LetArr[i] = 0
 	}
 	r.empty = true
 	r.numLetters = 0
 }
 
-func (r *Rack) take(letter alphabet.MachineLetter) {
+func (r *Rack) Take(letter MachineLetter) {
 	// this function should only be called if there is a letter on the rack
 	// it doesn't check if it's there!
 	r.LetArr[letter]--
@@ -95,7 +89,7 @@ func (r *Rack) take(letter alphabet.MachineLetter) {
 	}
 }
 
-func (r *Rack) add(letter alphabet.MachineLetter) {
+func (r *Rack) Add(letter MachineLetter) {
 	r.LetArr[letter]++
 	r.numLetters++
 	if r.empty {
@@ -104,14 +98,14 @@ func (r *Rack) add(letter alphabet.MachineLetter) {
 }
 
 // TilesOn returns the MachineLetters of the rack's current tiles.
-func (r *Rack) TilesOn(numPossibleLetters int) alphabet.MachineWord {
+func (r *Rack) TilesOn(numPossibleLetters int) MachineWord {
 	if r.empty {
-		return alphabet.MachineWord([]alphabet.MachineLetter{})
+		return MachineWord([]MachineLetter{})
 	}
-	letters := make([]alphabet.MachineLetter, r.numLetters)
+	letters := make([]MachineLetter, r.numLetters)
 	ct := 0
-	var i alphabet.MachineLetter
-	for i = 0; i < alphabet.MachineLetter(numPossibleLetters); i++ {
+	var i MachineLetter
+	for i = 0; i < MachineLetter(numPossibleLetters); i++ {
 		if r.LetArr[i] > 0 {
 			for j := 0; j < r.LetArr[i]; j++ {
 				letters[ct] = i
@@ -119,20 +113,20 @@ func (r *Rack) TilesOn(numPossibleLetters int) alphabet.MachineWord {
 			}
 		}
 	}
-	if r.LetArr[alphabet.BlankMachineLetter] > 0 {
-		for j := 0; j < r.LetArr[alphabet.BlankMachineLetter]; j++ {
-			letters[ct] = alphabet.BlankMachineLetter
+	if r.LetArr[BlankMachineLetter] > 0 {
+		for j := 0; j < r.LetArr[BlankMachineLetter]; j++ {
+			letters[ct] = BlankMachineLetter
 			ct++
 		}
 	}
-	return alphabet.MachineWord(letters)
+	return MachineWord(letters)
 }
 
 // ScoreOn returns the total score of the tiles on this rack.
-func (r *Rack) ScoreOn(numPossibleLetters int, bag *lexicon.Bag) int {
+func (r *Rack) ScoreOn(numPossibleLetters int, bag *Bag) int {
 	score := 0
-	var i alphabet.MachineLetter
-	for i = 0; i < alphabet.MachineLetter(numPossibleLetters); i++ {
+	var i MachineLetter
+	for i = 0; i < MachineLetter(numPossibleLetters); i++ {
 		if r.LetArr[i] > 0 {
 			score += bag.Score(i) * r.LetArr[i]
 		}
@@ -143,4 +137,8 @@ func (r *Rack) ScoreOn(numPossibleLetters int, bag *lexicon.Bag) int {
 // NumTiles returns the current number of tiles on this rack.
 func (r *Rack) NumTiles() uint8 {
 	return r.numLetters
+}
+
+func (r *Rack) Empty() bool {
+	return r.empty
 }
