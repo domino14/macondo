@@ -316,7 +316,8 @@ func TestGiantTwentySevenTimer(t *testing.T) {
 	generator.SetBoardToGame(gd.GetAlphabet(), board.VsOxy)
 	generator.GenAll(alphabet.RackFromString("ABEOPXZ", alph))
 	assert.Equal(t, 519, len(scoringPlays(generator.plays)))
-	assert.Equal(t, 127, len(nonScoringPlays(generator.plays)))
+	// Bag has 5 tiles so no exchanges should be generated.
+	assert.Equal(t, 0, len(nonScoringPlays(generator.plays)))
 	assert.Equal(t, 1780, generator.plays[0].Score()) // oxyphenbutazone
 	assert.Equal(t, "", generator.plays[0].Leave().UserVisible(alph))
 }
