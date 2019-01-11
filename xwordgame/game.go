@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	LeaveFile = "leave_values_010919_v4.csv"
+	LeaveFile = "leave_values_011019_v5.csv"
 )
 
 // XWordGame encapsulates the various components of a crossword game.
