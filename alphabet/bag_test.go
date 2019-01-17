@@ -1,29 +1,24 @@
-package lexicon
+package alphabet
 
 import (
-	"os"
-	"path/filepath"
 	"reflect"
 	"testing"
 
-	"github.com/domino14/macondo/gaddag"
-	"github.com/domino14/macondo/gaddagmaker"
+	"github.com/stretchr/testify/assert"
 )
 
-var LexiconDir = os.Getenv("LEXICON_DIR")
-
-func TestMain(m *testing.M) {
-	if _, err := os.Stat("/tmp/gen_america.gaddag"); os.IsNotExist(err) {
-		gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "America.txt"), true, true)
-		os.Rename("out.gaddag", "/tmp/gen_america.gaddag")
-	}
-	os.Exit(m.Run())
+func defaultEnglishAlphabet() *Alphabet {
+	return FromSlice([]uint32{
+		'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K',
+		'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V',
+		'W', 'X', 'Y', 'Z',
+	})
 }
 
 func TestBag(t *testing.T) {
 	ld := EnglishLetterDistribution()
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	bag := ld.MakeBag(gd.GetAlphabet())
+	alph := defaultEnglishAlphabet()
+	bag := ld.MakeBag(alph)
 	if len(bag.tiles) != ld.numLetters {
 		t.Error("Tile bag and letter distribution do not match.")
 	}
@@ -32,11 +27,12 @@ func TestBag(t *testing.T) {
 	for range bag.tiles {
 		tiles, err := bag.Draw(1)
 		numTiles++
-		t.Logf("Drew a %v! , %v", string(tiles[0]), numTiles)
+		uv := tiles[0].UserVisible(alph)
+		t.Logf("Drew a %c! , %v", uv, numTiles)
 		if err != nil {
 			t.Error("Error drawing from tile bag.")
 		}
-		tileMap[tiles[0]]++
+		tileMap[uv]++
 	}
 	if !reflect.DeepEqual(tileMap, ld.Distribution) {
 		t.Error("Distribution and tilemap were not identical.")
@@ -49,8 +45,8 @@ func TestBag(t *testing.T) {
 
 func TestDraw(t *testing.T) {
 	ld := EnglishLetterDistribution()
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	bag := ld.MakeBag(gd.GetAlphabet())
+	alph := defaultEnglishAlphabet()
+	bag := ld.MakeBag(alph)
 
 	letters, _ := bag.Draw(7)
 	if len(letters) != 7 {
@@ -63,8 +59,8 @@ func TestDraw(t *testing.T) {
 
 func TestDrawAtMost(t *testing.T) {
 	ld := EnglishLetterDistribution()
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	bag := ld.MakeBag(gd.GetAlphabet())
+	alph := defaultEnglishAlphabet()
+	bag := ld.MakeBag(alph)
 
 	for i := 0; i < 14; i++ {
 		letters, _ := bag.Draw(7)
@@ -94,15 +90,29 @@ func TestDrawAtMost(t *testing.T) {
 
 func TestExchange(t *testing.T) {
 	ld := EnglishLetterDistribution()
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	bag := ld.MakeBag(gd.GetAlphabet())
+	alph := defaultEnglishAlphabet()
+	bag := ld.MakeBag(alph)
 
 	letters, _ := bag.Draw(7)
 	newLetters, _ := bag.Exchange(letters[:5])
-	if len(newLetters) != 5 {
-		t.Errorf("Length was %v, expected 5", len(newLetters))
+	assert.Equal(t, 5, len(newLetters))
+	assert.Equal(t, 93, len(bag.tiles))
+
+}
+
+func TestRemoveTiles(t *testing.T) {
+	ld := EnglishLetterDistribution()
+	alph := defaultEnglishAlphabet()
+	bag := ld.MakeBag(alph)
+	assert.Equal(t, 100, len(bag.tiles))
+	toRemove := []MachineLetter{
+		9, 14, 24, 4, 3, 20, 4, 11, 21, 6, 22, 14, 8, 0, 8, 15, 6, 5, 4,
+		19, 0, 24, 8, 17, 17, 18, 2, 11, 8, 14, 1, 8, 0, 20, 7, 0, 8, 10,
+		0, 11, 13, 25, 11, 14, 5, 8, 19, 4, 12, 8, 18, 4, 3, 19, 14, 19,
+		1, 0, 13, 4, 19, 14, 4, 17, 20, 6, 21, 104, 3, 7, 0, 3, 14, 22,
+		4, 8, 13, 16, 20, 4, 18, 19, 4, 23, 4, 2, 17, 12, 14, 0, 13,
 	}
-	if len(bag.tiles) != 93 {
-		t.Errorf("Length was %v, expected 93", len(bag.tiles))
-	}
+	assert.Equal(t, 91, len(toRemove))
+	bag.RemoveTiles(toRemove)
+	assert.Equal(t, len(bag.tiles), 9)
 }

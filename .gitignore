@@ -6,6 +6,6 @@ macondo
 *~
 .vscode/
 *.diff
-*.csv
 *.png
 *.ipynb_checkpoints/
+log*.csv

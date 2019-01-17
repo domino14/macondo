@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
-	"unsafe"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
@@ -23,13 +22,11 @@ var DataDir = os.Getenv("DATA_DIR")
 // Strategizer is an interface used by the movegen (and possibly other places)
 // to apply strategical calculations.
 type Strategizer interface {
-	// Init initializes the strategizer, by doing things such as loading parameters
-	// from disk.
-	Init(lexiconName string, alph *alphabet.Alphabet) error
 	// Equity is a catch-all term for most post-score adjustments that
 	// need to be made. It includes first-turn placement heuristic,
 	// leave calculations, any pre-endgame timing heuristics, and more.
-	Equity(play *move.Move, board *board.GameBoard) float64
+	Equity(play *move.Move, board *board.GameBoard, bag *alphabet.Bag,
+		oppRack *alphabet.Rack) float64
 }
 
 // NoLeaveStrategy does not take leave into account at all.
@@ -44,23 +41,17 @@ type ExhaustiveLeaveStrategy struct{}
 // The details of this calculation are in the /notebooks directory in this
 // repo.
 type SimpleSynergyStrategy struct {
-	leaveMap SynergyLeaveMap
+	leaveMap           SynergyLeaveMap
+	bag                *alphabet.Bag
+	numPossibleLetters int
 }
 
-// ByteSliceToString is used when you really want to convert a slice
-// of bytes to a string without incurring overhead. It is only safe
-// to use if you really know the byte slice is not going to change
-// in the lifetime of the string
-func ByteSliceToString(bs []byte) string {
-	// This is copied from runtime. It relies on the string
-	// header being a prefix of the slice header!
-	return *(*string)(unsafe.Pointer(&bs))
-}
-
-func (sss *SimpleSynergyStrategy) Init(lexiconName string, alph *alphabet.Alphabet) error {
+// Init initializes the strategizer, by doing things such as loading parameters
+// from disk.
+func (sss *SimpleSynergyStrategy) Init(lexiconName string, alph *alphabet.Alphabet,
+	leavefile string) error {
 	leaveMap := map[string]SynergyAndEV{}
-	file, err := os.Open(filepath.Join(DataDir, lexiconName,
-		"leave_values_010619_v2.csv"))
+	file, err := os.Open(filepath.Join(DataDir, lexiconName, leavefile))
 	if err != nil {
 		return err
 	}
@@ -81,11 +72,11 @@ func (sss *SimpleSynergyStrategy) Init(lexiconName string, alph *alphabet.Alphab
 		if err != nil {
 			log.Fatal(err)
 		}
-		ev, err := strconv.ParseFloat(record[3], 64)
+		ev, err := strconv.ParseFloat(record[4], 64)
 		if err != nil {
 			log.Fatal(err)
 		}
-		synergy, err := strconv.ParseFloat(record[4], 64)
+		synergy, err := strconv.ParseFloat(record[5], 64)
 		if err != nil {
 			// Single tiles don't have synergy.
 			synergy = 0
@@ -96,23 +87,44 @@ func (sss *SimpleSynergyStrategy) Init(lexiconName string, alph *alphabet.Alphab
 		}
 	}
 	sss.leaveMap = SynergyLeaveMap(leaveMap)
+	log.Printf("Loaded strategy from %v", file.Name())
 	return nil
 }
 
-func (sss SimpleSynergyStrategy) Equity(play *move.Move, board *board.GameBoard) float64 {
+func NewSimpleSynergyStrategy(bag *alphabet.Bag, lexiconName string,
+	alph *alphabet.Alphabet, leaveFilename string) *SimpleSynergyStrategy {
+	strategy := &SimpleSynergyStrategy{
+		bag:                bag,
+		numPossibleLetters: int(bag.GetAlphabet().NumLetters()),
+	}
+	err := strategy.Init(lexiconName, alph, leaveFilename)
+	if err != nil {
+		log.Printf("[ERROR] Initializing strategy: %v", err)
+		return nil
+	}
+	return strategy
+}
+
+func (sss SimpleSynergyStrategy) Equity(play *move.Move, board *board.GameBoard,
+	bag *alphabet.Bag, oppRack *alphabet.Rack) float64 {
 	leave := play.Leave()
 	score := play.Score()
 
-	adjustment := 0.0
+	leaveAdjustment := 0.0
+	otherAdjustments := 0.0
 	if board.IsEmpty() {
-		adjustment += placementAdjustment(play)
+		otherAdjustments += placementAdjustment(play)
 	}
-
-	leaveLookup := sss.lookup(leave)
+	if bag.TilesRemaining() == 0 {
+		otherAdjustments += endgameAdjustment(play, oppRack, sss.bag, sss.numPossibleLetters)
+	} else {
+		// the leave doesn't matter if the bag is empty
+		leaveAdjustment = sss.lookup(leave)
+	}
 
 	// also need a pre-endgame adjustment that biases towards leaving
 	// one in the bag, etc.
-	return leaveLookup + float64(score) + adjustment
+	return float64(score) + leaveAdjustment + otherAdjustments
 }
 
 func (sss SimpleSynergyStrategy) lookup(leave alphabet.MachineWord) float64 {
@@ -121,7 +133,7 @@ func (sss SimpleSynergyStrategy) lookup(leave alphabet.MachineWord) float64 {
 			return leave[i] < leave[j]
 		})
 	}
-	if len(leave) <= 2 {
+	if len(leave) <= 3 {
 		return sss.leaveMap[string(leave)].ev
 	}
 	// Otherwise, do a rough calculation using pairwise synergies.
@@ -171,11 +183,22 @@ func placementAdjustment(play *move.Move) float64 {
 	return penalty
 }
 
-func (nls *NoLeaveStrategy) Init(lexiconName string, alph *alphabet.Alphabet) error {
-	return nil
+func endgameAdjustment(play *move.Move, oppRack *alphabet.Rack, bag *alphabet.Bag,
+	numLetters int) float64 {
+	if len(play.Leave()) != 0 {
+		// This play is not going out. We should penalize it by our own score
+		// plus some constant. XXX: Determine this in a better way.
+		return -float64(play.Leave().Score(bag))*2 - 10
+	}
+	// Otherwise, this play goes out. Apply opp rack.
+	if oppRack == nil {
+		return 0
+	}
+	return 2 * float64(oppRack.ScoreOn(numLetters, bag))
 }
 
-func (nls *NoLeaveStrategy) Equity(play *move.Move, board *board.GameBoard) float64 {
+func (nls *NoLeaveStrategy) Equity(play *move.Move, board *board.GameBoard,
+	bag *alphabet.Bag, oppRack *alphabet.Rack) float64 {
 	score := play.Score()
 	adjustment := 0.0
 	if board.IsEmpty() {

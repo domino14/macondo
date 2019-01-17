@@ -37,7 +37,7 @@ const (
 	// Note that in order to actually be visible on a computer screen, we
 	// should use `(`and `)` around letters already on a board.
 	ASCIIPlayedThrough = '.'
-
+	// BlankToken is the user-friendly representation of a blank.
 	BlankToken = '?'
 )
 
@@ -63,6 +63,11 @@ func (ml MachineLetter) Blank() MachineLetter {
 	return ml
 }
 
+// IsBlanked returns true if this is the blank version of a letter.
+func (ml MachineLetter) IsBlanked() bool {
+	return ml >= BlankOffset
+}
+
 // Unblank is the opposite of the above function; it removes the blank offset
 // from a letter.
 func (ml MachineLetter) Unblank() MachineLetter {
@@ -80,6 +85,8 @@ func (ml MachineLetter) UserVisible(alph *Alphabet) rune {
 		return ASCIIPlayedThrough
 	} else if ml == BlankMachineLetter {
 		return '?'
+	} else if ml == EmptySquareMarker {
+		return ' '
 	}
 	return alph.Letter(ml)
 }
@@ -116,6 +123,15 @@ func (mw MachineWord) String() string {
 		bytes[i] = byte(l)
 	}
 	return string(bytes)
+}
+
+// Score returns the score of this word given the bag.
+func (mw MachineWord) Score(bag *Bag) int {
+	score := 0
+	for _, c := range mw {
+		score += bag.Score(c)
+	}
+	return score
 }
 
 // ToMachineWord creates a MachineWord from the given string.
@@ -214,7 +230,7 @@ func (a Alphabet) Val(r rune) (MachineLetter, error) {
 	if r == ASCIIPlayedThrough {
 		return PlayedThroughMarker, nil
 	}
-	return 0, fmt.Errorf("Letter `%v` not found in alphabet", r)
+	return 0, fmt.Errorf("Letter `%c` not found in alphabet", r)
 }
 
 // Letter returns the letter that this position in the alphabet corresponds to.

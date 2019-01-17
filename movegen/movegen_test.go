@@ -53,7 +53,7 @@ func nonScoringPlays(moves []*move.Move) []*move.Move {
 func TestGenBase(t *testing.T) {
 	// Sanity check. A board with no cross checks should generate nothing.
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	rack := RackFromString("AEINRST", gd.GetAlphabet())
+	rack := alphabet.RackFromString("AEINRST", gd.GetAlphabet())
 
 	generator := newGordonGenHardcode(gd)
 	generator.board.ClearAllCrosses()
@@ -98,7 +98,7 @@ func TestSimpleRowGen(t *testing.T) {
 		log.Printf("Case %v", idx)
 		generator := newGordonGenHardcode(gd)
 		generator.curAnchorCol = tc.curAnchorCol
-		rack := RackFromString(tc.rack, gd.GetAlphabet())
+		rack := alphabet.RackFromString(tc.rack, gd.GetAlphabet())
 		generator.board.SetRow(tc.row, tc.rowString, gd.GetAlphabet())
 		generator.curRowIdx = tc.row
 		generator.Gen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
@@ -112,7 +112,7 @@ func TestSimpleRowGen(t *testing.T) {
 func TestGenThroughBothWaysAllowedLetters(t *testing.T) {
 	// Basically, allow HITHERMOST but not NETHERMOST.
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	rack := RackFromString("ABEHINT", gd.GetAlphabet())
+	rack := alphabet.RackFromString("ABEHINT", gd.GetAlphabet())
 
 	generator := newGordonGenHardcode(gd)
 	generator.curAnchorCol = 9
@@ -141,10 +141,9 @@ func TestGenThroughBothWaysAllowedLetters(t *testing.T) {
 func TestRowGen(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	generator := newGordonGenHardcode(gd)
-	generator.board.SetBoardToGame(gd.GetAlphabet(), board.VsEd)
-	generator.board.UpdateAllAnchors()
+	generator.SetBoardToGame(gd.GetAlphabet(), board.VsEd)
 
-	rack := RackFromString("AAEIRST", gd.GetAlphabet())
+	rack := alphabet.RackFromString("AAEIRST", gd.GetAlphabet())
 	generator.curRowIdx = 4
 	generator.curAnchorCol = 8
 	generator.Gen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
@@ -168,10 +167,9 @@ func TestRowGen(t *testing.T) {
 func TestOtherRowGen(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	generator := newGordonGenHardcode(gd)
-	generator.board.SetBoardToGame(gd.GetAlphabet(), board.VsMatt)
-	generator.board.UpdateAllAnchors()
+	generator.SetBoardToGame(gd.GetAlphabet(), board.VsMatt)
 
-	rack := RackFromString("A", gd.GetAlphabet())
+	rack := alphabet.RackFromString("A", gd.GetAlphabet())
 	generator.curRowIdx = 14
 	generator.curAnchorCol = 8
 	generator.Gen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
@@ -193,12 +191,10 @@ func TestGenMoveJustOnce(t *testing.T) {
 	alph := gd.GetAlphabet()
 
 	generator := newGordonGenHardcode(gd)
-	generator.board.SetBoardToGame(alph, board.VsMatt)
-	generator.board.UpdateAllAnchors()
-	generator.board.GenAllCrossSets(gd, generator.bag)
+	generator.SetBoardToGame(alph, board.VsMatt)
 	generator.board.Transpose()
 
-	rack := RackFromString("AELT", gd.GetAlphabet())
+	rack := alphabet.RackFromString("AELT", gd.GetAlphabet())
 	// We want to generate TAEL parallel to ABANDON (making RESPONDED)
 	// See VsMatt board definition above.
 	generator.curRowIdx = 10
@@ -220,10 +216,8 @@ func TestGenAllMovesSingleTile(t *testing.T) {
 	alph := gd.GetAlphabet()
 
 	generator := newGordonGenHardcode(gd)
-	generator.board.SetBoardToGame(alph, board.VsMatt)
-	generator.board.UpdateAllAnchors()
-	generator.board.GenAllCrossSets(gd, generator.bag)
-	generator.GenAll(RackFromString("A", alph))
+	generator.SetBoardToGame(alph, board.VsMatt)
+	generator.GenAll(alphabet.RackFromString("A", alph))
 	assert.Equal(t, 24, len(scoringPlays(generator.plays)))
 }
 
@@ -232,13 +226,11 @@ func TestGenAllMovesFullRack(t *testing.T) {
 	alph := gd.GetAlphabet()
 
 	generator := newGordonGenHardcode(gd)
-	generator.board.SetBoardToGame(alph, board.VsMatt)
-	generator.board.UpdateAllAnchors()
-	generator.board.GenAllCrossSets(gd, generator.bag)
-	generator.GenAll(RackFromString("AABDELT", alph))
+	generator.SetBoardToGame(alph, board.VsMatt)
+	generator.GenAll(alphabet.RackFromString("AABDELT", alph))
 	// There should be 673 unique scoring plays, 95 exchanges and 1 pass.
 	assert.Equal(t, 673, len(scoringPlays(generator.plays)))
-	assert.Equal(t, 96, len(nonScoringPlays(generator.plays)))
+	assert.Equal(t, 95, len(nonScoringPlays(generator.plays)))
 
 	highestScores := []int{38, 36, 36, 34, 34, 33, 30, 30, 30, 28}
 	for idx, score := range highestScores {
@@ -251,13 +243,11 @@ func TestGenAllMovesFullRackAgain(t *testing.T) {
 	alph := gd.GetAlphabet()
 
 	generator := newGordonGenHardcode(gd)
-	generator.board.SetBoardToGame(alph, board.VsEd)
-	generator.board.UpdateAllAnchors()
-	generator.board.GenAllCrossSets(gd, generator.bag)
-	generator.GenAll(RackFromString("AFGIIIS", alph))
+	generator.SetBoardToGame(alph, board.VsEd)
+	generator.GenAll(alphabet.RackFromString("AFGIIIS", alph))
 	// There should be 219 unique plays
 	assert.Equal(t, 219, len(scoringPlays(generator.plays)))
-	assert.Equal(t, 64, len(nonScoringPlays(generator.plays)))
+	assert.Equal(t, 63, len(nonScoringPlays(generator.plays)))
 }
 
 func TestGenAllMovesSingleBlank(t *testing.T) {
@@ -265,25 +255,21 @@ func TestGenAllMovesSingleBlank(t *testing.T) {
 	alph := gd.GetAlphabet()
 
 	generator := newGordonGenHardcode(gd)
-	generator.board.SetBoardToGame(alph, board.VsEd)
-	generator.board.UpdateAllAnchors()
-	generator.board.GenAllCrossSets(gd, generator.bag)
-	generator.GenAll(RackFromString("?", alph))
+	generator.SetBoardToGame(alph, board.VsEd)
+	generator.GenAll(alphabet.RackFromString("?", alph))
 	// There should be 166 unique plays. Quackle does not generate all blank
 	// plays, even when told to generate all plays!!
 	assert.Equal(t, 166, len(scoringPlays(generator.plays)))
-	// Exch ? and pass
-	assert.Equal(t, 2, len(nonScoringPlays(generator.plays)))
+	// Exch ?
+	assert.Equal(t, 1, len(nonScoringPlays(generator.plays)))
 }
 func TestGenAllMovesTwoBlanksOnly(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 
 	generator := newGordonGenHardcode(gd)
-	generator.board.SetBoardToGame(alph, board.VsEd)
-	generator.board.UpdateAllAnchors()
-	generator.board.GenAllCrossSets(gd, generator.bag)
-	generator.GenAll(RackFromString("??", alph))
+	generator.SetBoardToGame(alph, board.VsEd)
+	generator.GenAll(alphabet.RackFromString("??", alph))
 	// Quackle generates 1827 unique plays. (my movegen generates 1958)
 	// With one blank (the test above), Quackle generates 35 moves, I generate
 	// 166 by hand. The difference is 131. It seems Quackle does not generate
@@ -291,7 +277,7 @@ func TestGenAllMovesTwoBlanksOnly(t *testing.T) {
 	// The difference between 1827 and 1958 is also 131, so I think this is
 	// ok.
 	assert.Equal(t, 1958, len(scoringPlays(generator.plays)))
-	assert.Equal(t, 3, len(nonScoringPlays(generator.plays)))
+	assert.Equal(t, 2, len(nonScoringPlays(generator.plays)))
 }
 
 func TestGenAllMovesWithBlanks(t *testing.T) {
@@ -299,15 +285,14 @@ func TestGenAllMovesWithBlanks(t *testing.T) {
 	alph := gd.GetAlphabet()
 
 	generator := newGordonGenHardcode(gd)
-	generator.board.SetBoardToGame(gd.GetAlphabet(), board.VsJeremy)
-	generator.board.UpdateAllAnchors()
-	generator.board.GenAllCrossSets(gd, generator.bag)
-	generator.GenAll(RackFromString("DDESW??", alph))
+	generator.SetBoardToGame(gd.GetAlphabet(), board.VsJeremy)
+	generator.GenAll(alphabet.RackFromString("DDESW??", alph))
 	// If I do DDESW? in quackle i generate 1483 moves. My movegen generates
 	// 1586, possibly by the same logic as the above.
 	// If I add 103 to the Quackle-generated 8194 moves for both blanks (DDESW??)
 	// I get 8297, so there should be 8297 unique plays
 	assert.Equal(t, 8297, len(scoringPlays(generator.plays)))
+	assert.Equal(t, 0, len(nonScoringPlays(generator.plays)))
 	assert.Equal(t, 106, generator.plays[0].Score()) // hEaDW(OR)DS!
 	assert.Equal(t, "", generator.plays[0].Leave().UserVisible(alph))
 	assert.Equal(t, "S", generator.plays[1].Leave().UserVisible(alph))
@@ -328,12 +313,11 @@ func TestGiantTwentySevenTimer(t *testing.T) {
 	alph := gd.GetAlphabet()
 
 	generator := newGordonGenHardcode(gd)
-	generator.board.SetBoardToGame(gd.GetAlphabet(), board.VsOxy)
-	generator.board.UpdateAllAnchors()
-	generator.board.GenAllCrossSets(gd, generator.bag)
-	generator.GenAll(RackFromString("ABEOPXZ", alph))
+	generator.SetBoardToGame(gd.GetAlphabet(), board.VsOxy)
+	generator.GenAll(alphabet.RackFromString("ABEOPXZ", alph))
 	assert.Equal(t, 519, len(scoringPlays(generator.plays)))
-	assert.Equal(t, 128, len(nonScoringPlays(generator.plays)))
+	// Bag has 5 tiles so no exchanges should be generated.
+	assert.Equal(t, 0, len(nonScoringPlays(generator.plays)))
 	assert.Equal(t, 1780, generator.plays[0].Score()) // oxyphenbutazone
 	assert.Equal(t, "", generator.plays[0].Leave().UserVisible(alph))
 }
@@ -343,9 +327,9 @@ func TestGenerateEmptyBoard(t *testing.T) {
 	alph := gd.GetAlphabet()
 	generator := newGordonGenHardcode(gd)
 	generator.board.UpdateAllAnchors()
-	generator.GenAll(RackFromString("DEGORV?", alph))
+	generator.GenAll(alphabet.RackFromString("DEGORV?", alph))
 	assert.Equal(t, 3313, len(scoringPlays(generator.plays)))
-	assert.Equal(t, 128, len(nonScoringPlays(generator.plays)))
+	assert.Equal(t, 127, len(nonScoringPlays(generator.plays)))
 	assert.Equal(t, 80, generator.plays[0].Score())
 	assert.Equal(t, "", generator.plays[0].Leave().UserVisible(alph))
 }
@@ -355,13 +339,11 @@ func TestGenerateNoPlays(t *testing.T) {
 	alph := gd.GetAlphabet()
 
 	generator := newGordonGenHardcode(gd)
-	generator.board.SetBoardToGame(alph, board.VsJeremy)
-	generator.board.UpdateAllAnchors()
-	generator.board.GenAllCrossSets(gd, generator.bag)
-	generator.GenAll(RackFromString("V", alph))
+	generator.SetBoardToGame(alph, board.VsJeremy)
+	generator.GenAll(alphabet.RackFromString("V", alph))
 	// V won't play anywhere
 	assert.Equal(t, 0, len(scoringPlays(generator.plays)))
-	assert.Equal(t, 2, len(nonScoringPlays(generator.plays)))
+	assert.Equal(t, 1, len(nonScoringPlays(generator.plays)))
 	assert.Equal(t, move.MoveTypePass, generator.plays[0].Action())
 }
 
@@ -373,7 +355,7 @@ func BenchmarkGenEmptyBoard(b *testing.B) {
 		// 1.67ms per operation
 		generator := newGordonGenHardcode(gd)
 		generator.board.UpdateAllAnchors()
-		generator.GenAll(RackFromString("AEINRST", alph))
+		generator.GenAll(alphabet.RackFromString("AEINRST", alph))
 	}
 }
 
@@ -384,10 +366,8 @@ func BenchmarkGenFullRack(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		// 930 μs per operation on my macbook pro!! amazing!!!
 		generator := newGordonGenHardcode(gd)
-		generator.board.SetBoardToGame(alph, board.VsMatt)
-		generator.board.UpdateAllAnchors()
-		generator.board.GenAllCrossSets(gd, generator.bag)
-		generator.GenAll(RackFromString("AABDELT", alph))
+		generator.SetBoardToGame(alph, board.VsMatt)
+		generator.GenAll(alphabet.RackFromString("AABDELT", alph))
 	}
 }
 
@@ -398,10 +378,8 @@ func BenchmarkGenOneBlank(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		// 5.43 ms per operation on my macbook pro.
 		generator := newGordonGenHardcode(gd)
-		generator.board.SetBoardToGame(alph, board.VsJeremy)
-		generator.board.UpdateAllAnchors()
-		generator.board.GenAllCrossSets(gd, generator.bag)
-		generator.GenAll(RackFromString("ADDESW?", alph))
+		generator.SetBoardToGame(alph, board.VsJeremy)
+		generator.GenAll(alphabet.RackFromString("ADDESW?", alph))
 	}
 }
 
@@ -412,9 +390,7 @@ func BenchmarkGenBothBlanks(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		// ~16.48ms per operation on my macbook pro.
 		generator := newGordonGenHardcode(gd)
-		generator.board.SetBoardToGame(alph, board.VsJeremy)
-		generator.board.UpdateAllAnchors()
-		generator.board.GenAllCrossSets(gd, generator.bag)
-		generator.GenAll(RackFromString("DDESW??", alph))
+		generator.SetBoardToGame(alph, board.VsJeremy)
+		generator.GenAll(alphabet.RackFromString("DDESW??", alph))
 	}
 }

@@ -8,11 +8,11 @@ import (
 	"testing"
 
 	"github.com/domino14/macondo/move"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
-	"github.com/domino14/macondo/lexicon"
 )
 
 var LexiconDir = os.Getenv("LEXICON_DIR")
@@ -74,9 +74,9 @@ func TestGenCrossSetLoadedGame(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	b := MakeBoard(CrosswordGameBoard)
 	alph := gd.GetAlphabet()
-	dist := lexicon.EnglishLetterDistribution()
+	dist := alphabet.EnglishLetterDistribution()
 	bag := dist.MakeBag(gd.GetAlphabet())
-	b.SetBoardToGame(alph, VsMatt)
+	b.SetToGame(alph, VsMatt)
 	// All horizontal for now.
 	var testCases = []crossSetTestCase{
 		{10, 10, CrossSetFromString("E", alph), HorizontalDirection, 11},
@@ -117,7 +117,7 @@ type crossSetEdgeTestCase struct {
 func TestGenCrossSetEdges(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
-	dist := lexicon.EnglishLetterDistribution()
+	dist := alphabet.EnglishLetterDistribution()
 	bag := dist.MakeBag(gd.GetAlphabet())
 	b := MakeBoard(CrosswordGameBoard)
 
@@ -159,10 +159,10 @@ func TestGenCrossSetEdges(t *testing.T) {
 func TestGenAllCrossSets(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
-	dist := lexicon.EnglishLetterDistribution()
+	dist := alphabet.EnglishLetterDistribution()
 	bag := dist.MakeBag(gd.GetAlphabet())
 	b := MakeBoard(CrosswordGameBoard)
-	b.SetBoardToGame(alph, VsEd)
+	b.SetToGame(alph, VsEd)
 
 	b.GenAllCrossSets(gd, bag)
 
@@ -195,7 +195,7 @@ func TestGenAllCrossSets(t *testing.T) {
 		}
 	}
 	// This one has more nondeterministic (in-between LR) crosssets
-	b.SetBoardToGame(alph, VsMatt)
+	b.SetToGame(alph, VsMatt)
 	b.GenAllCrossSets(gd, bag)
 	testCases = []crossSetTestCase{
 		{8, 7, CrossSetFromString("S", alph), HorizontalDirection, 11},
@@ -235,15 +235,15 @@ func TestGenAllCrossSets(t *testing.T) {
 func TestBoardsEqual(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
-	dist := lexicon.EnglishLetterDistribution()
+	dist := alphabet.EnglishLetterDistribution()
 	bag := dist.MakeBag(gd.GetAlphabet())
 
 	b := MakeBoard(CrosswordGameBoard)
-	b.SetBoardToGame(alph, VsMatt)
+	b.SetToGame(alph, VsMatt)
 	b.GenAllCrossSets(gd, bag)
 
 	c := MakeBoard(CrosswordGameBoard)
-	c.SetBoardToGame(alph, VsMatt)
+	c.SetToGame(alph, VsMatt)
 	c.GenAllCrossSets(gd, bag)
 
 	if !b.equals(c) {
@@ -256,28 +256,41 @@ func TestPlaceMoveTiles(t *testing.T) {
 	b := MakeBoard(CrosswordGameBoard)
 	alph := gd.GetAlphabet()
 
-	b.SetBoardToGame(alph, VsOxy)
+	b.SetToGame(alph, VsOxy)
 
 	m := move.NewScoringMoveSimple(1780, "A1", "OX.P...B..AZ..E", "", alph)
 	b.placeMoveTiles(m)
 	for i, c := range "OXYPHENBUTAZONE" {
-		if b.squares[i][0].letter.UserVisible(alph) != c {
-			t.Errorf("Fail")
-		}
+		assert.Equal(t, c, b.squares[i][0].letter.UserVisible(alph))
 	}
+}
+
+func TestUnplaceMoveTiles(t *testing.T) {
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	b := MakeBoard(CrosswordGameBoard)
+	alph := gd.GetAlphabet()
+
+	b.SetToGame(alph, VsOxy)
+
+	m := move.NewScoringMoveSimple(1780, "A1", "OX.P...B..AZ..E", "", alph)
+	b.placeMoveTiles(m)
+	b.unplaceMoveTiles(m)
+	for i, c := range "  Y HEN UT  ON" {
+		assert.Equal(t, c, b.squares[i][0].letter.UserVisible(alph))
+	}
+}
+
+type updateCrossesForMoveTestCase struct {
+	testGame        VsWho
+	m               *move.Move
+	userVisibleWord string
 }
 
 func TestUpdateCrossSetsForMove(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
-	dist := lexicon.EnglishLetterDistribution()
+	dist := alphabet.EnglishLetterDistribution()
 	bag := dist.MakeBag(gd.GetAlphabet())
-
-	type updateCrossesForMoveTestCase struct {
-		testGame        VsWho
-		m               *move.Move
-		userVisibleWord string
-	}
 
 	var testCases = []updateCrossesForMoveTestCase{
 		{VsMatt, move.NewScoringMoveSimple(38, "K9", "TAEL", "ABD", alph), "TAEL"},
@@ -293,24 +306,22 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 	}
 
 	// create a move.
-	for idx, tc := range testCases {
+	for _, tc := range testCases {
 		b := MakeBoard(CrosswordGameBoard)
-		b.SetBoardToGame(alph, tc.testGame)
+		b.SetToGame(alph, tc.testGame)
 		b.GenAllCrossSets(gd, bag)
 		b.UpdateAllAnchors()
-		b.PlayMove(tc.m, gd, bag)
+		b.PlayMove(tc.m, gd, bag, false)
 		log.Printf(b.ToDisplayText(alph))
 		// Create an identical board, but generate cross-sets for the entire
 		// board after placing the letters "manually".
 		c := MakeBoard(CrosswordGameBoard)
-		c.SetBoardToGame(alph, tc.testGame)
+		c.SetToGame(alph, tc.testGame)
 		c.placeMoveTiles(tc.m)
 		c.GenAllCrossSets(gd, bag)
 		c.UpdateAllAnchors()
 
-		if !b.equals(c) {
-			t.Errorf("idx: %v - Boards did not equal each other", idx)
-		}
+		assert.True(t, b.equals(c))
 
 		for i, c := range tc.userVisibleWord {
 			row, col, vertical := tc.m.CoordsAndVertical()
@@ -323,22 +334,57 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 				colInc = i
 			}
 			uv := b.squares[row+rowInc][col+colInc].letter.UserVisible(alph)
-			if uv != c {
-				t.Errorf("idx: %v - Fail - expected %v (%c), got %v (%c) (row=%v col=%v)",
-					idx, c, c, uv, uv, row, col+i)
-			}
+			assert.Equal(t, c, uv)
 		}
 	}
+}
 
+func TestRestoreFromBackup(t *testing.T) {
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	alph := gd.GetAlphabet()
+	dist := alphabet.EnglishLetterDistribution()
+	bag := dist.MakeBag(gd.GetAlphabet())
+
+	// The same test cases as in the test above.
+	var testCases = []updateCrossesForMoveTestCase{
+		{VsMatt, move.NewScoringMoveSimple(38, "K9", "TAEL", "ABD", alph), "TAEL"},
+		// Test right edge of board
+		{VsMatt2, move.NewScoringMoveSimple(77, "O8", "TENsILE", "", alph), "TENsILE"},
+		// Test through tiles
+		{VsOxy, move.NewScoringMoveSimple(1780, "A1", "OX.P...B..AZ..E", "", alph),
+			"OXYPHENBUTAZONE"},
+		// Test top of board, horizontal
+		{VsJeremy, move.NewScoringMoveSimple(14, "1G", "S.oWED", "D?", alph), "SNoWED"},
+		// Test bottom of board, horizontal
+		{VsJeremy, move.NewScoringMoveSimple(11, "15F", "F..ER", "", alph), "FOYER"},
+	}
+
+	// create a move.
+	for _, tc := range testCases {
+		b := MakeBoard(CrosswordGameBoard)
+		b.SetToGame(alph, tc.testGame)
+		b.GenAllCrossSets(gd, bag)
+		b.UpdateAllAnchors()
+		b.PlayMove(tc.m, gd, bag, true) // also backs up the move
+		b.RestoreFromBackup()
+
+		// Create an identical board. We want to make sure nothing changed
+		// after the rollback.
+		c := MakeBoard(CrosswordGameBoard)
+		c.SetToGame(alph, tc.testGame)
+		c.GenAllCrossSets(gd, bag)
+		c.UpdateAllAnchors()
+		assert.True(t, b.equals(c))
+	}
 }
 
 func TestUpdateSingleCrossSet(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
-	dist := lexicon.EnglishLetterDistribution()
+	dist := alphabet.EnglishLetterDistribution()
 	bag := dist.MakeBag(gd.GetAlphabet())
 	b := MakeBoard(CrosswordGameBoard)
-	b.SetBoardToGame(alph, VsMatt)
+	b.SetToGame(alph, VsMatt)
 	b.GenAllCrossSets(gd, bag)
 
 	b.squares[8][10].letter = 19
@@ -364,10 +410,10 @@ func TestUpdateSingleCrossSet(t *testing.T) {
 func BenchmarkGenAnchorsAndCrossSets(b *testing.B) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
-	dist := lexicon.EnglishLetterDistribution()
+	dist := alphabet.EnglishLetterDistribution()
 	bag := dist.MakeBag(alph)
 	board := MakeBoard(CrosswordGameBoard)
-	board.SetBoardToGame(alph, VsOxy)
+	board.SetToGame(alph, VsOxy)
 	b.ResetTimer()
 
 	// 38 us
@@ -382,10 +428,10 @@ func BenchmarkMakePlay(b *testing.B) {
 	// (as opposed to generating all of them from scratch)
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
-	dist := lexicon.EnglishLetterDistribution()
+	dist := alphabet.EnglishLetterDistribution()
 	bag := dist.MakeBag(gd.GetAlphabet())
 	board := MakeBoard(CrosswordGameBoard)
-	board.SetBoardToGame(alph, VsMatt)
+	board.SetToGame(alph, VsMatt)
 	board.GenAllCrossSets(gd, bag)
 	board.UpdateAllAnchors()
 
@@ -403,7 +449,7 @@ func BenchmarkMakePlay(b *testing.B) {
 	// 2.7 us; more than 10x faster than regenerating all anchors every time.
 	// seems worth it.
 	for i := 0; i < b.N; i++ {
-		board.PlayMove(m, gd, bag)
+		board.PlayMove(m, gd, bag, false)
 	}
 
 }
