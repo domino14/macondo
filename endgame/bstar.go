@@ -3,5 +3,3 @@
 // See "The B* Tree Search Algorithm: A Best-First Proof Procedure"
 // by Hans Berliner
 package endgame
-
-type Solver struct{}

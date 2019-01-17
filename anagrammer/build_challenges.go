@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/domino14/macondo/alphabet"
+
 	"github.com/domino14/macondo/gaddag"
-	"github.com/domino14/macondo/lexicon"
 )
 
 // GenerateBuildChallenge generates a build challenge with given args.
@@ -15,22 +16,23 @@ import (
 func GenerateBuildChallenge(ctx context.Context, args *BuildChallengeArgs,
 	dawg *gaddag.SimpleGaddag) (*Question, int, error) {
 
-	var dist lexicon.LetterDistribution
+	var dist alphabet.LetterDistribution
 	if args.Lexicon == "FISE09" {
-		dist = lexicon.SpanishLetterDistribution()
+		dist = alphabet.SpanishLetterDistribution()
 	} else {
-		dist = lexicon.EnglishLetterDistribution()
+		dist = alphabet.EnglishLetterDistribution()
 	}
 	tries := 0
+	alph := dawg.GetAlphabet()
 
 	doIteration := func() (*Question, error) {
-		rack := genRack(dist, args.WordLength, 0, dawg.GetAlphabet())
+		rack := alphabet.MachineWord(genRack(dist, args.WordLength, 0, alph))
 		tries++
-		answers := Anagram(string(rack), dawg, ModeExact)
+		answers := Anagram(rack.UserVisible(alph), dawg, ModeExact)
 		if len(answers) == 0 && args.RequireLengthSolution {
-			return nil, fmt.Errorf("exact required and not found: %v", string(rack))
+			return nil, fmt.Errorf("exact required and not found: %v", rack.UserVisible(alph))
 		}
-		answers = Anagram(string(rack), dawg, ModeBuild)
+		answers = Anagram(rack.UserVisible(alph), dawg, ModeBuild)
 		if len(answers) < args.MinSolutions {
 			return nil, fmt.Errorf("total answers fewer than min solutions: %v < %v",
 				len(answers), args.MinSolutions)
@@ -45,7 +47,7 @@ func GenerateBuildChallenge(ctx context.Context, args *BuildChallengeArgs,
 			return nil, fmt.Errorf("answers (%v) not match criteria: %v - %v",
 				len(meetingCriteria), args.MinSolutions, args.MaxSolutions)
 		}
-		w := lexicon.Word{Word: string(rack), Dist: dist}
+		w := alphabet.Word{Word: rack.UserVisible(alph), Dist: dist}
 		return &Question{Q: w.MakeAlphagram(), A: meetingCriteria}, nil
 	}
 

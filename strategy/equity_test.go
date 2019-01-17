@@ -16,18 +16,18 @@ import (
 var LexiconDir = os.Getenv("LEXICON_DIR")
 
 func TestMain(m *testing.M) {
-	if _, err := os.Stat("/tmp/gen_america.gaddag"); os.IsNotExist(err) {
-		gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "America.txt"), true, true)
-		os.Rename("out.gaddag", "/tmp/gen_america.gaddag")
+	if _, err := os.Stat("/tmp/gen_america2018.gaddag"); os.IsNotExist(err) {
+		gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "America2018.txt"), true, true)
+		os.Rename("out.gaddag", "/tmp/gen_america2018.gaddag")
 	}
 	os.Exit(m.Run())
 }
 
 func TestCreateLeaveMap(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd := gaddag.LoadGaddag("/tmp/gen_america2018.gaddag")
 
 	sss := SimpleSynergyStrategy{}
-	err := sss.Init("America", gd.GetAlphabet())
+	err := sss.Init("America2018", gd.GetAlphabet(), "leave_values_010919_v4.csv")
 	assert.Nil(t, err)
 
 	type testcase struct {
@@ -37,10 +37,9 @@ func TestCreateLeaveMap(t *testing.T) {
 	}
 
 	for _, tc := range []testcase{
-		// the Q is worth -1.4250594492829194 (lol)
-		{"Q", 0, -1.4250594492829194},
-		{"FO", 0.49861204019961036, 0.2284590808105662},
-		{"??", 0.16499348055292984, 38.98224629850245},
+		{"Q", 0, -4.049634765297462},
+		{"FO", 0.6130525209743425, -1.9677355130602692},
+		{"??", -9.455016582289886, 22.01544689734004},
 	} {
 		leave, _ := alphabet.ToMachineOnlyString(tc.leave, gd.GetAlphabet())
 		assert.Equal(t, SynergyAndEV{
@@ -52,10 +51,10 @@ func TestCreateLeaveMap(t *testing.T) {
 }
 
 func TestSimpleSynergyLookup(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd := gaddag.LoadGaddag("/tmp/gen_america2018.gaddag")
 
 	sss := SimpleSynergyStrategy{}
-	sss.Init("America", gd.GetAlphabet())
+	sss.Init("America2018", gd.GetAlphabet(), "leave_values_010919_v4.csv")
 
 	type testcase struct {
 		leave string
@@ -64,10 +63,10 @@ func TestSimpleSynergyLookup(t *testing.T) {
 
 	for _, tc := range []testcase{
 		{"", 0},
-		{"Q", -1.4250594492829194},
-		{"RE", 4.75999566616953},
-		{"ENARS", 18.136184658534305},
-		{"AATA", -8.205913901558304},
+		{"Q", -4.049634765297462},
+		{"RE", 4.790123765017576},
+		{"ENARS", 15.304076461857065},
+		{"AATA", -12.145087426808537},
 	} {
 		leave, _ := alphabet.ToMachineWord(tc.leave, gd.GetAlphabet())
 		assert.Equal(t, tc.ev, sss.lookup(leave))
@@ -75,7 +74,7 @@ func TestSimpleSynergyLookup(t *testing.T) {
 }
 
 func TestPlacementAdjustment(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd := gaddag.LoadGaddag("/tmp/gen_america2018.gaddag")
 	alph := gd.GetAlphabet()
 
 	vowelPenalty := -0.7
@@ -107,10 +106,10 @@ func TestPlacementAdjustment(t *testing.T) {
 }
 
 func TestShouldExchange(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd := gaddag.LoadGaddag("/tmp/gen_america2018.gaddag")
 
 	sss := SimpleSynergyStrategy{}
-	sss.Init("America", gd.GetAlphabet())
+	sss.Init("America2018", gd.GetAlphabet(), "leave_values_010919_v4.csv")
 
 	//	rack := "COTTTV?"
 	// leave1 assumes we exchange TTV

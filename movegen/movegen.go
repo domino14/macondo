@@ -11,12 +11,12 @@
 package movegen
 
 import (
+	"log"
 	"sort"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/gaddag"
-	"github.com/domino14/macondo/lexicon"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/strategy"
 )
@@ -39,14 +39,16 @@ type GordonGenerator struct {
 
 	tilesPlayed        int
 	plays              []*move.Move
-	bag                *lexicon.Bag
+	bag                *alphabet.Bag
 	strategy           strategy.Strategizer
 	numPossibleLetters int
+	// The opponent's rack is here. We use this sometimes in the strategizer.
+	oppRack *alphabet.Rack
 }
 
 func newGordonGenHardcode(gd *gaddag.SimpleGaddag) *GordonGenerator {
 	// Can change later
-	dist := lexicon.EnglishLetterDistribution()
+	dist := alphabet.EnglishLetterDistribution()
 	bag := dist.MakeBag(gd.GetAlphabet())
 	strategy := &strategy.NoLeaveStrategy{}
 	gen := &GordonGenerator{
@@ -61,7 +63,7 @@ func newGordonGenHardcode(gd *gaddag.SimpleGaddag) *GordonGenerator {
 }
 
 // NewGordonGenerator returns a Gordon move generator.
-func NewGordonGenerator(gd *gaddag.SimpleGaddag, bag *lexicon.Bag,
+func NewGordonGenerator(gd *gaddag.SimpleGaddag, bag *alphabet.Bag,
 	board *board.GameBoard, strategy strategy.Strategizer) *GordonGenerator {
 
 	gen := &GordonGenerator{
@@ -81,9 +83,15 @@ func (gen *GordonGenerator) Reset() {
 	gen.bag.Refill()
 }
 
+// SetOppRack sets the opponent's rack to the passed-in value. This is used
+// to compute equity for plays that go out.
+func (gen *GordonGenerator) SetOppRack(r *alphabet.Rack) {
+	gen.oppRack = r
+}
+
 // GenAll generates all moves on the board. It assumes anchors have already
 // been updated, as well as cross-sets / cross-scores.
-func (gen *GordonGenerator) GenAll(rack *Rack) {
+func (gen *GordonGenerator) GenAll(rack *alphabet.Rack) {
 	dim := gen.board.Dim()
 	gen.plays = []*move.Move{}
 	orientations := []board.BoardDirection{
@@ -112,7 +120,7 @@ func (gen *GordonGenerator) GenAll(rack *Rack) {
 }
 
 // Gen is an implementation of the Gordon Gen function.
-func (gen *GordonGenerator) Gen(col int, word alphabet.MachineWord, rack *Rack,
+func (gen *GordonGenerator) Gen(col int, word alphabet.MachineWord, rack *alphabet.Rack,
 	nodeIdx uint32) {
 
 	var csDirection board.BoardDirection
@@ -131,17 +139,17 @@ func (gen *GordonGenerator) Gen(col int, word alphabet.MachineWord, rack *Rack,
 		nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, curLetter.Unblank())
 		gen.GoOn(col, curLetter, word, rack, nnIdx, nodeIdx)
 
-	} else if !rack.empty {
+	} else if !rack.Empty() {
 		for ml := alphabet.MachineLetter(0); ml < alphabet.MachineLetter(gen.numPossibleLetters); ml++ {
 			if rack.LetArr[ml] == 0 {
 				continue
 			}
 			if crossSet.Allowed(ml) {
 				nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, ml)
-				rack.take(ml)
+				rack.Take(ml)
 				gen.tilesPlayed++
 				gen.GoOn(col, ml, word, rack, nnIdx, nodeIdx)
-				rack.add(ml)
+				rack.Add(ml)
 				gen.tilesPlayed--
 			}
 
@@ -152,10 +160,10 @@ func (gen *GordonGenerator) Gen(col int, word alphabet.MachineWord, rack *Rack,
 			for i := 0; i < gen.numPossibleLetters; i++ {
 				if crossSet.Allowed(alphabet.MachineLetter(i)) {
 					nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, alphabet.MachineLetter(i))
-					rack.take(alphabet.BlankMachineLetter)
+					rack.Take(alphabet.BlankMachineLetter)
 					gen.tilesPlayed++
 					gen.GoOn(col, alphabet.MachineLetter(i).Blank(), word, rack, nnIdx, nodeIdx)
-					rack.add(alphabet.BlankMachineLetter)
+					rack.Add(alphabet.BlankMachineLetter)
 					gen.tilesPlayed--
 				}
 			}
@@ -166,7 +174,7 @@ func (gen *GordonGenerator) Gen(col int, word alphabet.MachineWord, rack *Rack,
 
 // GoOn is an implementation of the Gordon GoOn function.
 func (gen *GordonGenerator) GoOn(curCol int, L alphabet.MachineLetter, word alphabet.MachineWord,
-	rack *Rack, newNodeIdx uint32, oldNodeIdx uint32) {
+	rack *alphabet.Rack, newNodeIdx uint32, oldNodeIdx uint32) {
 
 	if curCol <= gen.curAnchorCol {
 		if !gen.board.GetSquare(gen.curRowIdx, curCol).IsEmpty() {
@@ -225,7 +233,7 @@ func (gen *GordonGenerator) GoOn(curCol int, L alphabet.MachineLetter, word alph
 
 // RecordPlay records a play.
 func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startCol int,
-	rack *Rack) {
+	rack *alphabet.Rack) {
 	row := gen.curRowIdx
 	col := startCol
 	if gen.vertical {
@@ -243,7 +251,7 @@ func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startCol int,
 		wordCopy, leave, gen.vertical,
 		gen.tilesPlayed, alph, row, col, coords)
 
-	play.SetEquity(gen.strategy.Equity(play, gen.board))
+	play.SetEquity(gen.strategy.Equity(play, gen.board, gen.bag, gen.oppRack))
 	gen.plays = append(gen.plays, play)
 }
 
@@ -344,13 +352,17 @@ func (gen *GordonGenerator) Plays() []*move.Move {
 	return gen.plays
 }
 
-func (gen *GordonGenerator) addPassAndExchangeMoves(rack *Rack) {
+func (gen *GordonGenerator) addPassAndExchangeMoves(rack *alphabet.Rack) {
 	tilesOnRack := rack.TilesOn(gen.numPossibleLetters)
 
-	passMove := move.NewPassMove(tilesOnRack)
-	passMove.SetEquity(gen.strategy.Equity(passMove, gen.board))
-	gen.plays = append(gen.plays, passMove)
-
+	// Only add a pass move if nothing else is possible. Note: in endgames,
+	// we will have to add a pass move another way (if it's a strategic pass).
+	// Probably in the endgame package.
+	if len(gen.plays) == 0 {
+		passMove := move.NewPassMove(tilesOnRack)
+		passMove.SetEquity(gen.strategy.Equity(passMove, gen.board, gen.bag, gen.oppRack))
+		gen.plays = append(gen.plays, passMove)
+	}
 	// No exchange moves should be generated if the bag has fewer than 7 tiles.
 	if gen.bag.TilesRemaining() < 7 {
 		return
@@ -381,7 +393,20 @@ func (gen *GordonGenerator) addPassAndExchangeMoves(rack *Rack) {
 		index++
 	}
 	for _, mv := range exchMap {
-		mv.SetEquity(gen.strategy.Equity(mv, gen.board))
+		mv.SetEquity(gen.strategy.Equity(mv, gen.board, gen.bag, gen.oppRack))
 		gen.plays = append(gen.plays, mv)
 	}
+}
+
+func (gen *GordonGenerator) SetBoardToGame(alph *alphabet.Alphabet, game board.VsWho) {
+	tilesPlayedAndInRacks := gen.board.SetToGame(alph, game)
+	// Update bag. This is a slowish operation, but this type of function
+	// will not be used in a context that requires the utmost speed.
+	gen.bag.RemoveTiles(tilesPlayedAndInRacks.OnBoard)
+	gen.bag.RemoveTiles(tilesPlayedAndInRacks.Rack1)
+	gen.bag.RemoveTiles(tilesPlayedAndInRacks.Rack2)
+
+	gen.board.UpdateAllAnchors()
+	gen.board.GenAllCrossSets(gen.gaddag, gen.bag)
+	log.Printf("Length of bag %v", gen.bag.TilesRemaining())
 }

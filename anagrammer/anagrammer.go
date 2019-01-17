@@ -13,7 +13,6 @@ import (
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
-	"github.com/domino14/macondo/movegen"
 )
 
 func LoadDawgs(dawgPath string) {
@@ -54,7 +53,7 @@ func Anagram(letters string, gd *gaddag.SimpleGaddag, mode AnagramMode) []string
 	letters = strings.ToUpper(letters)
 	answerList := []string{}
 	runes := []rune(letters)
-	rack := movegen.RackFromString(letters, gd.GetAlphabet())
+	rack := alphabet.RackFromString(letters, gd.GetAlphabet())
 
 	ahs := &AnagramStruct{
 		answerList: answerList,
@@ -94,7 +93,7 @@ func dedupeAndTransformAnswers(answerList []string, alph *alphabet.Alphabet) []s
 }
 
 func anagramHelper(letter alphabet.MachineLetter, gd *gaddag.SimpleGaddag,
-	ahs *AnagramStruct, nodeIdx uint32, answerSoFar string, rack *movegen.Rack) {
+	ahs *AnagramStruct, nodeIdx uint32, answerSoFar string, rack *alphabet.Rack) {
 
 	var nextNodeIdx uint32
 	var nextLetter alphabet.MachineLetter
@@ -118,7 +117,7 @@ func anagramHelper(letter alphabet.MachineLetter, gd *gaddag.SimpleGaddag,
 }
 
 func anagram(ahs *AnagramStruct, gd *gaddag.SimpleGaddag, nodeIdx uint32,
-	answerSoFar string, rack *movegen.Rack) {
+	answerSoFar string, rack *alphabet.Rack) {
 
 	for idx, val := range rack.LetArr {
 		if val == 0 {

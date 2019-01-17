@@ -5,7 +5,6 @@ package xwordgame
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/strategy"
@@ -14,9 +13,12 @@ import (
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/endgame"
 	"github.com/domino14/macondo/gaddag"
-	"github.com/domino14/macondo/lexicon"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
+)
+
+const (
+	LeaveFile = "leave_values_011019_v5.csv"
 )
 
 // XWordGame encapsulates the various components of a crossword game.
@@ -27,7 +29,7 @@ type XWordGame struct {
 	onturn             int // player index
 	turnnum            int
 	board              *board.GameBoard
-	bag                *lexicon.Bag
+	bag                *alphabet.Bag
 	gaddag             *gaddag.SimpleGaddag
 	alph               *alphabet.Alphabet
 	playing            bool
@@ -44,21 +46,20 @@ func (game *XWordGame) Init(gd *gaddag.SimpleGaddag) {
 	game.numPossibleLetters = int(gd.GetAlphabet().NumLetters())
 	game.board = board.MakeBoard(board.CrosswordGameBoard)
 
-	dist := lexicon.EnglishLetterDistribution()
+	dist := alphabet.EnglishLetterDistribution()
 	game.bag = dist.MakeBag(gd.GetAlphabet())
 
 	game.gaddag = gd
 	game.alph = gd.GetAlphabet()
-	strategy := &strategy.SimpleSynergyStrategy{}
-	if err := strategy.Init(gd.LexiconName(), game.alph); err != nil {
-		log.Printf("[ERROR] Strategy was not initialized: %v", err)
+	game.players = []Player{
+		{alphabet.NewRack(game.alph), "", "player1", 0},
+		{alphabet.NewRack(game.alph), "", "player2", 0},
 	}
 
+	strategy := strategy.NewSimpleSynergyStrategy(game.bag, gd.LexiconName(), game.alph,
+		LeaveFile)
+
 	game.movegen = movegen.NewGordonGenerator(gd, game.bag, game.board, strategy)
-	game.players = []Player{
-		{nil, "", "player1", 0},
-		{nil, "", "player2", 0},
-	}
 }
 
 // StartGame resets everything and deals out the first set of tiles.
@@ -68,13 +69,9 @@ func (game *XWordGame) StartGame() {
 
 	for i := 0; i < 2; i++ {
 		rack, _ := game.bag.Draw(7)
-		game.players[i].rackLetters = string(rack)
+		game.players[i].rackLetters = alphabet.MachineWord(rack).UserVisible(game.alph)
 		game.players[i].points = 0
-		if game.players[i].rack == nil {
-			game.players[i].rack = movegen.RackFromString(string(rack), game.alph)
-		} else {
-			game.players[i].rack.Set(string(rack))
-		}
+		game.players[i].rack.Set(rack)
 	}
 	game.onturn = 0
 	game.turnnum = 0
@@ -84,6 +81,8 @@ func (game *XWordGame) StartGame() {
 // PlayBestStaticTurn generates the best static move for the player and
 // plays it on the board.
 func (game *XWordGame) PlayBestStaticTurn(playerID int) {
+	opp := (playerID + 1) % len(game.players)
+	game.movegen.SetOppRack(game.players[opp].rack)
 	game.movegen.GenAll(game.players[playerID].rack)
 	bestPlay := game.movegen.Plays()[0]
 	// save rackLetters for logging.
@@ -93,7 +92,7 @@ func (game *XWordGame) PlayBestStaticTurn(playerID int) {
 	game.PlayMove(bestPlay)
 
 	if game.logchan != nil {
-		game.logchan <- fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v,%v,%.3f,%v\n",
+		game.logchan <- fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v,%v,%v,%.3f,%v\n",
 			playerID,
 			game.uuid,
 			game.turnnum,
@@ -101,6 +100,7 @@ func (game *XWordGame) PlayBestStaticTurn(playerID int) {
 			bestPlay.ShortDescription(),
 			bestPlay.Score(),
 			game.players[playerID].points,
+			bestPlay.TilesPlayed(),
 			bestPlay.Leave().UserVisible(game.alph),
 			bestPlay.Equity(),
 			tilesRemaining)
@@ -112,7 +112,7 @@ func (game *XWordGame) PlayBestStaticTurn(playerID int) {
 func (game *XWordGame) PlayMove(m *move.Move) {
 	switch m.Action() {
 	case move.MoveTypePlay:
-		game.board.PlayMove(m, game.gaddag, game.bag)
+		game.board.PlayMove(m, game.gaddag, game.bag, false)
 		score := m.Score()
 		if score != 0 {
 			game.scorelessTurns = 0
@@ -122,9 +122,9 @@ func (game *XWordGame) PlayMove(m *move.Move) {
 		// 	score, m.Equity(), game.players[game.onturn].points)
 		// Draw new tiles.
 		drew := game.bag.DrawAtMost(m.TilesPlayed())
-		rack := string(drew) + m.Leave().UserVisible(game.gaddag.GetAlphabet())
+		rack := append(drew, []alphabet.MachineLetter(m.Leave())...)
 		game.players[game.onturn].rack.Set(rack)
-		game.players[game.onturn].rackLetters = rack
+		game.players[game.onturn].rackLetters = alphabet.MachineWord(rack).UserVisible(game.alph)
 
 		if game.players[game.onturn].rack.NumTiles() == 0 {
 			// log.Printf("[DEBUG] Player %v played off all their tiles. Game over!",
@@ -144,13 +144,13 @@ func (game *XWordGame) PlayMove(m *move.Move) {
 
 	case move.MoveTypeExchange:
 		// XXX: Gross; the bag should be full of MachineLetter.
-		drew, err := game.bag.Exchange([]rune(m.Tiles().UserVisible(game.alph)))
+		drew, err := game.bag.Exchange([]alphabet.MachineLetter(m.Tiles()))
 		if err != nil {
 			panic(err)
 		}
-		rack := string(drew) + m.Leave().UserVisible(game.gaddag.GetAlphabet())
+		rack := append(drew, []alphabet.MachineLetter(m.Leave())...)
 		game.players[game.onturn].rack.Set(rack)
-		game.players[game.onturn].rackLetters = rack
+		game.players[game.onturn].rackLetters = alphabet.MachineWord(rack).UserVisible(game.alph)
 		game.scorelessTurns++
 	}
 	if game.scorelessTurns == 6 {

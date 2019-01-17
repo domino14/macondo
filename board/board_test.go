@@ -23,7 +23,7 @@ func TestUpdateAnchors(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 
 	b := MakeBoard(CrosswordGameBoard)
-	b.SetBoardToGame(gd.GetAlphabet(), VsEd)
+	b.SetToGame(gd.GetAlphabet(), VsEd)
 
 	b.UpdateAllAnchors()
 

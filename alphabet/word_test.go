@@ -1,6 +1,8 @@
-package lexicon
+package alphabet
 
-import "testing"
+import (
+	"testing"
+)
 
 type alphagramtestpair struct {
 	word      string

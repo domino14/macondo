@@ -6,6 +6,7 @@ jobs:
   build:
     environment:
       LEXICON_DIR: /opt/db/
+      DATA_DIR: /opt/data/
       AUTH_KEY: abcdef
     docker:
       # specify the version
@@ -39,6 +40,7 @@ jobs:
       - run: mkdir $LEXICON_DIR
       - run: cd /opt/webolith-word-dbs && tar xzvf dbs.tar.gz
       - run: mv /opt/webolith-word-dbs/*.txt $LEXICON_DIR
+      - run: cp -r /go/src/github.com/domino14/macondo/data $DATA_DIR
       # specify any bash command here prefixed with `run: `
       - run: go test -v ./...
 
