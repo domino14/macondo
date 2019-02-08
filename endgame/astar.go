@@ -82,6 +82,11 @@ func (a *AStarSolver) Init(board *board.GameBoard, movegen *movegen.GordonGenera
 // 	// For each node, the total cost of getting from the start node to the goal
 // 	// by passing by that node. That value is partly known, partly heuristic.
 // 	fScore := map[*TreeNode]int{startNode: a.heuristicEstimate(startNode, opponent)}
+
+// 	for len(openSet) > 0 {
+
+// 	}
+
 // 	return nil
 // }
 

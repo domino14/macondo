@@ -11,7 +11,6 @@
 package movegen
 
 import (
-	"log"
 	"sort"
 
 	"github.com/domino14/macondo/alphabet"
@@ -19,6 +18,13 @@ import (
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/strategy"
+)
+
+type SortBy int
+
+const (
+	SortByScore SortBy = iota
+	SortByEquity
 )
 
 // GordonGenerator is the main move generation struct. It implements
@@ -43,7 +49,8 @@ type GordonGenerator struct {
 	strategy           strategy.Strategizer
 	numPossibleLetters int
 	// The opponent's rack is here. We use this sometimes in the strategizer.
-	oppRack *alphabet.Rack
+	oppRack          *alphabet.Rack
+	sortingParameter SortBy
 }
 
 func newGordonGenHardcode(gd *gaddag.SimpleGaddag) *GordonGenerator {
@@ -57,6 +64,7 @@ func newGordonGenHardcode(gd *gaddag.SimpleGaddag) *GordonGenerator {
 		bag:                bag,
 		numPossibleLetters: int(gd.GetAlphabet().NumLetters()),
 		strategy:           strategy,
+		sortingParameter:   SortByEquity,
 	}
 	gen.board.SetAllCrosses()
 	return gen
@@ -72,6 +80,7 @@ func NewGordonGenerator(gd *gaddag.SimpleGaddag, bag *alphabet.Bag,
 		bag:                bag,
 		numPossibleLetters: int(gd.GetAlphabet().NumLetters()),
 		strategy:           strategy,
+		sortingParameter:   SortByEquity,
 	}
 	gen.board.SetAllCrosses()
 	return gen
@@ -81,6 +90,14 @@ func NewGordonGenerator(gd *gaddag.SimpleGaddag, bag *alphabet.Bag,
 func (gen *GordonGenerator) Reset() {
 	gen.board.Clear()
 	gen.bag.Refill()
+	gen.sortingParameter = SortByEquity
+}
+
+// SetSortingParameter tells the play sorter to sort by score, equity, or
+// perhaps other things. This is useful for the endgame solver, which does
+// not care about equity.
+func (gen *GordonGenerator) SetSortingParameter(s SortBy) {
+	gen.sortingParameter = s
 }
 
 // SetOppRack sets the opponent's rack to the passed-in value. This is used
@@ -251,7 +268,9 @@ func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startCol int,
 		wordCopy, leave, gen.vertical,
 		gen.tilesPlayed, alph, row, col, coords)
 
-	play.SetEquity(gen.strategy.Equity(play, gen.board, gen.bag, gen.oppRack))
+	if gen.sortingParameter == SortByEquity {
+		play.SetEquity(gen.strategy.Equity(play, gen.board, gen.bag, gen.oppRack))
+	}
 	gen.plays = append(gen.plays, play)
 }
 
@@ -276,9 +295,17 @@ func (gen *GordonGenerator) dedupeAndSortPlays() {
 	// Everything after element i is duplicate plays.
 	gen.plays = gen.plays[:i]
 
-	sort.Slice(gen.plays, func(i, j int) bool {
-		return gen.plays[i].Equity() > gen.plays[j].Equity()
-	})
+	switch gen.sortingParameter {
+	case SortByEquity:
+		sort.Slice(gen.plays, func(i, j int) bool {
+			return gen.plays[i].Equity() > gen.plays[j].Equity()
+		})
+	case SortByScore:
+		sort.Slice(gen.plays, func(i, j int) bool {
+			return gen.plays[i].Score() > gen.plays[j].Score()
+		})
+	}
+
 }
 
 func (gen *GordonGenerator) crossDirection() board.BoardDirection {
@@ -408,5 +435,4 @@ func (gen *GordonGenerator) SetBoardToGame(alph *alphabet.Alphabet, game board.V
 
 	gen.board.UpdateAllAnchors()
 	gen.board.GenAllCrossSets(gen.gaddag, gen.bag)
-	log.Printf("Length of bag %v", gen.bag.TilesRemaining())
 }
