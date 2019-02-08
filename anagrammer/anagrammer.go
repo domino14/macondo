@@ -9,6 +9,7 @@ package anagrammer
 import (
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/domino14/macondo/alphabet"
@@ -17,10 +18,10 @@ import (
 
 func LoadDawgs(dawgPath string) {
 	// Load the DAWGs into memory.
-	lexica := []string{"America", "CSW15", "FISE09", "osps38"}
+	lexica := []string{"America", "NWL18", "CSW15", "FISE2"}
 	Dawgs = make(map[string]*gaddag.SimpleGaddag)
 	for _, lex := range lexica {
-		filename := dawgPath + lex + ".dawg"
+		filename := filepath.Join(dawgPath, lex+".dawg")
 		if _, err := os.Stat(filename); os.IsNotExist(err) {
 			log.Println("[ERROR] File", filename, "did not exist. Continuing...")
 			continue
