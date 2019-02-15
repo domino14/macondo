@@ -4,156 +4,192 @@ package gaddag
 
 import (
 	"encoding/binary"
-	"fmt"
 	"log"
 	"os"
+
+	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/gaddagmaker"
 )
 
-// A SimpleGaddag.arr is just a slice of 32-bit elements.
+// SimpleGaddag is the result of loading the gaddag back into
+// memory. Rather than contain an entire tree of linked nodes, arcs, etc
+// it will be easier and faster to do bitwise operations on a 32-bit array.
+// A SimpleGaddag.Nodes is just a slice of 32-bit elements.
 // It is created by serializeElements in make_gaddag.go.
-// Schema:
-// [alphabetlength] [letters...] (up to 31)
-// [lettersetlength] [lettersets] (binary bit masks, this is why limiting
-//  to 31 letters), then
+// File Schema:
+// [4-byte magic number]
+// [1-byte length (LX_LEN)]
+// [utf-8 encoded bytes with lexicon name, length of bytes being LX_LEN]
+// [alphabetlength] [letters...] (up to 60+?)
+// [lettersetlength] [lettersets] (64-bit binary bit masks)
 // a set of [node] [arcs...]
 // Where node is a 32-bit number: LetterSetIdx + (NumArcs << NumArcsBitLoc)
 // Each arc is a 32-bit number: (letter << LetterBitLoc) + index of next node,
-// where letter is an index from 0 to 31 into alphabet (except for 31, which
-// is the SeparationToken), and the index of the node is the index of the
-// element in the SimpleGaddag array.
+// where letter is an index from 0 to MaxAlphabetSize into alphabet (except for
+// MaxAlphabetSize, which is the SeparationToken), and the index of the node is
+// the index of the element in the SimpleGaddag.Nodes array.
 //
 // If the node has no arcs, the arc array is empty.
-
 type SimpleGaddag struct {
-	arr        []uint32
-	alphabet   *Alphabet
-	numLetters uint32
+	// Nodes is just a slice of 32-bit elements, the node array.
+	Nodes []uint32
+	// The bit-mask letter sets
+	LetterSets  []alphabet.LetterSet
+	alphabet    *alphabet.Alphabet
+	lexiconName string
 }
 
-type SimpleDawg SimpleGaddag
-
-// SeparationToken is the GADDAG separation token.
-const SeparationToken = '^'
-const NumArcsBitLoc = 24
-const LetterBitLoc = 24
+// Ensure the magic number matches.
+func compareMagic(bytes [4]uint8) bool {
+	cast := string(bytes[:])
+	return cast == gaddagmaker.GaddagMagicNumber || cast == gaddagmaker.DawgMagicNumber
+}
 
 // LoadGaddag loads a gaddag from a file and returns the slice of nodes.
-func LoadGaddag(filename string) SimpleGaddag {
-	var elements uint32
-	var data []uint32
-	fmt.Println("Loading", filename, "...")
+func LoadGaddag(filename string) *SimpleGaddag {
+	log.Println("Loading", filename, "...")
 	file, err := os.Open(filename)
 	if err != nil {
 		log.Println("[ERROR] Could not open gaddag", err)
-		return SimpleGaddag{}
+		return nil
 	}
-	binary.Read(file, binary.LittleEndian, &elements)
-	fmt.Println("Elements", elements)
-	data = make([]uint32, elements)
-	binary.Read(file, binary.LittleEndian, &data)
+	var magicStr [4]uint8
+	binary.Read(file, binary.BigEndian, &magicStr)
+
+	if !compareMagic(magicStr) {
+		log.Println("[ERROR] Magic number does not match")
+		return nil
+	}
+
+	var lexNameLen uint8
+	binary.Read(file, binary.BigEndian, &lexNameLen)
+	lexName := make([]byte, lexNameLen)
+	binary.Read(file, binary.BigEndian, &lexName)
+	log.Printf("[INFO] Read lexicon name: '%v'", string(lexName))
+
+	var alphabetSize, lettersetSize, nodeSize uint32
+
+	binary.Read(file, binary.BigEndian, &alphabetSize)
+	log.Println("[DEBUG] Alphabet size: ", alphabetSize)
+	alphabetArr := make([]uint32, alphabetSize)
+	binary.Read(file, binary.BigEndian, &alphabetArr)
+
+	binary.Read(file, binary.BigEndian, &lettersetSize)
+	log.Println("[DEBUG] LetterSet size: ", lettersetSize)
+	letterSets := make([]alphabet.LetterSet, lettersetSize)
+	binary.Read(file, binary.BigEndian, letterSets)
+
+	binary.Read(file, binary.BigEndian, &nodeSize)
+	log.Println("[DEBUG] Nodes size: ", nodeSize)
+	nodes := make([]uint32, nodeSize)
+	binary.Read(file, binary.BigEndian, &nodes)
 	file.Close()
-	g := SimpleGaddag{arr: data}
-	g.SetAlphabet()
+
+	g := &SimpleGaddag{Nodes: nodes, LetterSets: letterSets,
+		alphabet:    alphabet.FromSlice(alphabetArr),
+		lexiconName: string(lexName)}
 	return g
 }
 
-// Finds the index of the node pointed to by this arc and
+// ArcToIdxLetter finds the index of the node pointed to by this arc and
 // returns it and the letter.
-func (g SimpleGaddag) ArcToIdxLetter(arcIdx uint32) (
-	uint32, rune) {
-	var rn rune
-	letterCode := byte(g.arr[arcIdx] >> LetterBitLoc)
-	if letterCode == MaxAlphabetSize {
-		rn = SeparationToken
-	} else {
-		rn = rune(g.arr[letterCode+1])
-	}
-	return g.arr[arcIdx] & ((1 << LetterBitLoc) - 1), rn
+func (g *SimpleGaddag) ArcToIdxLetter(arcIdx uint32) (uint32, alphabet.MachineLetter) {
+	// log.Printf("[DEBUG] ArcToIdxLetter called with %v", arcIdx)
+	letterCode := alphabet.MachineLetter(g.Nodes[arcIdx] >> gaddagmaker.LetterBitLoc)
+	return g.Nodes[arcIdx] & gaddagmaker.NodeIdxBitMask, letterCode
 }
 
 // GetLetterSet gets the letter set of the node at nodeIdx.
-func (g SimpleGaddag) GetLetterSet(nodeIdx uint32) uint32 {
-	letterSetCode := g.arr[nodeIdx] & ((1 << NumArcsBitLoc) - 1)
-	// Look in the letter set list for this code. We use g[0] because
-	// that contains the offset in `g` where the letter sets begin.
-	// (See serialization code).
-	// Note: for some reason g.numLetters seems to be a little slower
-	// than g.arr[0].
-	return g.arr[letterSetCode+2+g.arr[0]]
+func (g *SimpleGaddag) GetLetterSet(nodeIdx uint32) alphabet.LetterSet {
+	letterSetCode := g.Nodes[nodeIdx] & gaddagmaker.LetterSetBitMask
+	return g.LetterSets[letterSetCode]
 }
 
 // InLetterSet returns whether the `letter` is in the node at `nodeIdx`'s
 // letter set.
-func (g SimpleGaddag) InLetterSet(letter rune, nodeIdx uint32) bool {
-	if letter == SeparationToken {
+func (g *SimpleGaddag) InLetterSet(letter alphabet.MachineLetter, nodeIdx uint32) bool {
+	if letter == alphabet.SeparationMachineLetter {
 		return false
 	}
-	var idx uint32
-	letterSet := g.GetLetterSet(nodeIdx)
-
-	if g.alphabet.athruz {
-		idx = uint32(letter - 'A')
-	} else {
-		var ok bool
-		idx, ok = g.alphabet.vals[letter]
-		if !ok { // The ^ character, likely, when looking up single-letter words.
-			return false
-		}
+	ltc := letter
+	if letter >= alphabet.BlankOffset {
+		ltc = letter - alphabet.BlankOffset
 	}
-	return letterSet&(1<<idx) != 0
+	letterSet := g.GetLetterSet(nodeIdx)
+	return letterSet&(1<<ltc) != 0
 }
 
 // LetterSetAsRunes returns the letter set of the node at `nodeIdx` as
 // a slice of runes.
-func (g SimpleGaddag) LetterSetAsRunes(nodeIdx uint32) []rune {
+func (g *SimpleGaddag) LetterSetAsRunes(nodeIdx uint32) []rune {
 	letterSet := g.GetLetterSet(nodeIdx)
 	runes := []rune{}
-	for idx := byte(0); idx < SeparationToken; idx++ {
+	for idx := alphabet.MachineLetter(0); idx < alphabet.MaxAlphabetSize; idx++ {
 		if letterSet&(1<<idx) != 0 {
-			runes = append(runes, g.alphabet.letters[idx])
+			runes = append(runes, g.alphabet.Letter(idx))
 		}
 	}
 	return runes
 }
 
-func (g SimpleGaddag) NumArcs(nodeIdx uint32) byte {
-	return byte(g.arr[nodeIdx] >> NumArcsBitLoc)
+// Note: This commented-out implementation makes the whole thing _slower_
+// even though it should be O(1) lookups. Tells you something about speed
+// of maps.
+// func (g SimpleGaddag) NextNodeIdx(nodeIdx uint32, letter alphabet.MachineLetter) uint32 {
+// 	if g.Nodes[nodeIdx].Arcs == nil {
+// 		return 0
+// 	}
+// 	// Note: This will automatically return the zero value if the letter is not found.
+// 	return g.Nodes[nodeIdx].Arcs[letter]
+// }
+
+// NextNodeIdx is analogous to NextArc in the Gordon paper. The main difference
+// is that in Gordon, the initial state is an arc pointing to the first
+// node. In our implementation of the GADDAG, the initial state is that
+// first node. So we have to think in terms of the node that was pointed
+// to, rather than the pointing arc. There is something slightly wrong with
+// the paper as it does not seem possible to implement in exactly Gordon's way
+// without running into issues. (See my notes in my `ujamaa` repo in gaddag.h)
+func (g *SimpleGaddag) NextNodeIdx(nodeIdx uint32, letter alphabet.MachineLetter) uint32 {
+	numArcs := g.NumArcs(nodeIdx)
+	for i := nodeIdx + 1; i <= uint32(numArcs)+nodeIdx; i++ {
+		ml := alphabet.MachineLetter(g.Nodes[i] >> gaddagmaker.LetterBitLoc)
+		if letter == ml {
+			return g.Nodes[i] & gaddagmaker.NodeIdxBitMask
+		}
+		if ml > letter {
+			// Since the arcs are sorted by machine letter, break if
+			// we hit one that is bigger than what we are looking for.
+			break
+		}
+	}
+	return 0
+}
+
+// NumArcs is simply the number of arcs for the given node.
+func (g *SimpleGaddag) NumArcs(nodeIdx uint32) byte {
+	// if g.Nodes[nodeIdx].Arcs == nil {
+	// 	return 0
+	// }
+	// return byte(len(g.Nodes[nodeIdx].Arcs))
+	return byte(g.Nodes[nodeIdx] >> gaddagmaker.NumArcsBitLoc)
 }
 
 // GetRootNodeIndex gets the index of the root node.
-func (g SimpleGaddag) GetRootNodeIndex() uint32 {
-	alphabetLength := g.numLetters
-	letterSets := g.arr[alphabetLength+1]
-	return letterSets + alphabetLength + 2
+func (g *SimpleGaddag) GetRootNodeIndex() uint32 {
+	return 0
 }
 
-// SetAlphabet recreates the Alphabet structure stored in this SimpleGaddag,
-// and stores it in g.alphabet
-func (g *SimpleGaddag) SetAlphabet() {
-	alphabet := Alphabet{}
-	alphabet.Init()
-	// The very first element of the array is the alphabet size.
-	numRunes := g.arr[0]
-	athruz := false
-	runeCt := uint32(65)
-	for i := uint32(0); i < numRunes; i++ {
-		alphabet.vals[rune(g.arr[i+1])] = i
-		alphabet.letters[byte(i)] = rune(g.arr[i+1])
-		if runeCt == g.arr[i+1] {
-			runeCt++
-		}
-	}
-	if runeCt == uint32(91) {
-		athruz = true
-	}
-	alphabet.athruz = athruz
-	g.alphabet = &alphabet
-	g.numLetters = numRunes
-	log.Printf("Alphabet athruz is %v", alphabet.athruz)
-}
-
-func (g SimpleGaddag) GetAlphabet() *Alphabet {
+// GetAlphabet returns the alphabet for this gaddag.
+func (g *SimpleGaddag) GetAlphabet() *alphabet.Alphabet {
 	return g.alphabet
+}
+
+// LexiconName returns the name of the lexicon. The name is not encoded in
+// the gaddag itself, but in the name of the file. Hopefully this isn't a big
+// problem.
+func (g *SimpleGaddag) LexiconName() string {
+	return g.lexiconName
 }
 
 // Extracts the LetterSet and NumArcs from the node, and returns.

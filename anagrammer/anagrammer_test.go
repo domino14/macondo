@@ -2,9 +2,12 @@ package anagrammer
 
 import (
 	"os"
+	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/domino14/macondo/gaddag"
+	"github.com/domino14/macondo/gaddagmaker"
 )
 
 var LexiconDir = os.Getenv("LEXICON_DIR")
@@ -70,29 +73,73 @@ var spanishExactTests = []testpair{
 	{"WKWKWWKWKWKW", 0},
 }
 
+type wordtestpair struct {
+	rack    string
+	answers map[string]struct{}
+}
+
+var simpleAnagramTests = []wordtestpair{
+	{"AEHILORT", wordlistToSet([]string{"AEROLITH"})},
+	{"ADEEMMO?", wordlistToSet([]string{"HOMEMADE", "GAMODEME"})},
+	// {"X?", wordlistToSet([]string{"AX", "EX", "XI", "OX", "XU"})},
+	{"UX", wordlistToSet([]string{"XU"})},
+}
+
+func wordlistToSet(wl []string) map[string]struct{} {
+	m := make(map[string]struct{})
+	for _, w := range wl {
+		m[w] = struct{}{}
+	}
+	return m
+}
+
+func TestMain(m *testing.M) {
+	if _, err := os.Stat("/tmp/gen_america.dawg"); os.IsNotExist(err) {
+		gaddagmaker.GenerateDawg(filepath.Join(LexiconDir, "America.txt"), true, true)
+		os.Rename("out.dawg", "/tmp/gen_america.dawg")
+	}
+	if _, err := os.Stat("/tmp/gen_fise09.dawg"); os.IsNotExist(err) {
+		gaddagmaker.GenerateDawg(filepath.Join(LexiconDir, "FISE09.txt"), true, true)
+		os.Rename("out.dawg", "/tmp/gen_fise09.dawg")
+	}
+	if _, err := os.Stat("/tmp/gen_csw15.dawg"); os.IsNotExist(err) {
+		gaddagmaker.GenerateDawg(filepath.Join(LexiconDir, "CSW15.txt"), true, true)
+		os.Rename("out.dawg", "/tmp/gen_csw15.dawg")
+	}
+
+	os.Exit(m.Run())
+}
+
+func TestSimpleAnagram(t *testing.T) {
+	gaddagmaker.GenerateDawg("test_files/small.txt", true, true)
+	d := gaddag.LoadGaddag("out.dawg")
+	for _, pair := range simpleAnagramTests {
+		answers := Anagram(pair.rack, d, ModeExact)
+		if !reflect.DeepEqual(wordlistToSet(answers), pair.answers) {
+			t.Error("For", pair.rack, "expected", pair.answers, "got", answers)
+		}
+	}
+}
+
 func TestAnagram(t *testing.T) {
-	gaddag.GenerateDawg(LexiconDir+"America.txt", true,
-		true)
-	d := gaddag.SimpleDawg(gaddag.LoadGaddag("out.dawg"))
+	d := gaddag.LoadGaddag("/tmp/gen_america.dawg")
 	for _, pair := range buildTests {
 		answers := Anagram(pair.rack, d, ModeBuild)
 		if len(answers) != pair.num {
-			t.Error("For", pair.rack, "expected", pair.num, "got", len(answers))
+			t.Error("For", pair.rack, "expected", pair.num, "got", len(answers), answers)
 		}
 	}
 	for _, pair := range exactTests {
 		answers := Anagram(pair.rack, d, ModeExact)
 		if len(answers) != pair.num {
-			t.Error("For", pair.rack, "expected", pair.num, "got", len(answers))
+			t.Error("For", pair.rack, "expected", pair.num, "got", len(answers), answers)
 		}
 	}
 
 }
 
 func TestAnagramSpanish(t *testing.T) {
-	gaddag.GenerateDawg(LexiconDir+"FISE09.txt", true,
-		true)
-	d := gaddag.SimpleDawg(gaddag.LoadGaddag("out.dawg"))
+	d := gaddag.LoadGaddag("/tmp/gen_fise09.dawg")
 	for _, pair := range spanishBuildTests {
 		answers := Anagram(pair.rack, d, ModeBuild)
 		if len(answers) != pair.num {
@@ -108,8 +155,37 @@ func TestAnagramSpanish(t *testing.T) {
 }
 
 func BenchmarkAnagramBlanks(b *testing.B) {
-	// ~ 59 ms per op on my macbook pro.
+	// ~ 21.33 ms per op on my macbook pro.
+	d := gaddag.LoadGaddag("/tmp/gen_csw15.dawg")
+	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		Anagram("RETINA??", Dawgs["CSW15"], ModeExact)
+		Anagram("RETINA??", d, ModeExact)
+	}
+}
+
+func BenchmarkAnagramFourBlanks(b *testing.B) {
+	// ~ 453.6ms
+	d := gaddag.LoadGaddag("/tmp/gen_america.dawg")
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		Anagram("AEINST????", d, ModeExact)
+	}
+}
+
+func TestBuildFourBlanks(t *testing.T) {
+	d := gaddag.LoadGaddag("/tmp/gen_america.dawg")
+	answers := Anagram("AEINST????", d, ModeBuild)
+	expected := 61711
+	if len(answers) != expected {
+		t.Errorf("Expected %v answers, got %v", expected, len(answers))
+	}
+}
+
+func TestAnagramFourBlanks(t *testing.T) {
+	d := gaddag.LoadGaddag("/tmp/gen_america.dawg")
+	answers := Anagram("AEINST????", d, ModeExact)
+	expected := 863
+	if len(answers) != expected {
+		t.Errorf("Expected %v answers, got %v", expected, len(answers))
 	}
 }

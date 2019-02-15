@@ -7,25 +7,24 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
-	"github.com/domino14/macondo/lexicon"
 )
-
-const BlankCharacter = '?'
 
 // try tries to generate challenges. It returns an error if it fails
 // to generate a challenge with too many or too few answers, or if
 // an answer has already been generated.
-func try(nBlanks int, dist lexicon.LetterDistribution, wordLength int,
-	dawg gaddag.SimpleDawg, maxSolutions int, answerMap map[string]bool) (
+func try(nBlanks int, dist alphabet.LetterDistribution, wordLength int,
+	dawg *gaddag.SimpleGaddag, maxSolutions int, answerMap map[string]bool) (
 	*Question, error) {
 
-	rack := genRack(dist, wordLength, nBlanks)
-	answers := Anagram(string(rack), dawg, ModeExact)
+	alph := dawg.GetAlphabet()
+	rack := alphabet.MachineWord(genRack(dist, wordLength, nBlanks, alph))
+	answers := Anagram(rack.UserVisible(alph), dawg, ModeExact)
 	if len(answers) == 0 || len(answers) > maxSolutions {
 		// Try again!
 		return nil, fmt.Errorf("too many or few answers: %v %v",
-			len(answers), string(rack))
+			len(answers), rack.UserVisible(alph))
 	}
 	for _, answer := range answers {
 		if answerMap[answer] {
@@ -35,20 +34,20 @@ func try(nBlanks int, dist lexicon.LetterDistribution, wordLength int,
 	for _, answer := range answers {
 		answerMap[answer] = true
 	}
-	w := lexicon.Word{Word: string(rack), Dist: dist}
+	w := alphabet.Word{Word: rack.UserVisible(alph), Dist: dist}
 	return &Question{Q: w.MakeAlphagram(), A: answers}, nil
 }
 
 // GenerateBlanks - Generate a list of blank word challenges given the
 // parameters in args.
 func GenerateBlanks(ctx context.Context, args *BlankChallengeArgs,
-	dawg gaddag.SimpleDawg) ([]*Question, int, error) {
+	dawg *gaddag.SimpleGaddag) ([]*Question, int, error) {
 
-	var dist lexicon.LetterDistribution
+	var dist alphabet.LetterDistribution
 	if args.Lexicon == "FISE09" {
-		dist = lexicon.SpanishLetterDistribution()
+		dist = alphabet.SpanishLetterDistribution()
 	} else {
-		dist = lexicon.EnglishLetterDistribution()
+		dist = alphabet.EnglishLetterDistribution()
 	}
 	tries := 0
 	// Handle 2-blank challenges at the end.
@@ -99,21 +98,22 @@ func GenerateBlanks(ctx context.Context, args *BlankChallengeArgs,
 }
 
 // genRack - Generate a random rack using `dist` and with `blanks` blanks.
-func genRack(dist lexicon.LetterDistribution, wordLength, blanks int) []rune {
-	bag := dist.MakeBag()
-	// it's a bag of runes.
-	rack := make([]rune, wordLength)
+func genRack(dist alphabet.LetterDistribution, wordLength, blanks int,
+	alph *alphabet.Alphabet) []alphabet.MachineLetter {
+	bag := dist.MakeBag(alph)
+	// it's a bag of machine letters.
+	rack := make([]alphabet.MachineLetter, wordLength)
 	idx := 0
-	draw := func(avoidBlanks bool) rune {
-		var tile rune
+	draw := func(avoidBlanks bool) alphabet.MachineLetter {
+		var tiles []alphabet.MachineLetter
 		if avoidBlanks {
-			for tile, _ = bag.Draw(); tile == BlankCharacter; {
-				tile, _ = bag.Draw()
+			for tiles, _ = bag.Draw(1); tiles[0] == alphabet.BlankMachineLetter; {
+				tiles, _ = bag.Draw(1)
 			}
 		} else {
-			tile, _ = bag.Draw()
+			tiles, _ = bag.Draw(1)
 		}
-		return tile
+		return tiles[0]
 	}
 	for idx < wordLength-blanks {
 		// Avoid blanks on draw if user specifies a number of blanks.
@@ -121,7 +121,7 @@ func genRack(dist lexicon.LetterDistribution, wordLength, blanks int) []rune {
 		idx++
 	}
 	for ; idx < wordLength; idx++ {
-		rack[idx] = BlankCharacter
+		rack[idx] = alphabet.BlankMachineLetter
 	}
 	return rack
 }

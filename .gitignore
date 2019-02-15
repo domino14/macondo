@@ -4,3 +4,8 @@
 .DS_Store
 macondo
 *~
+.vscode/
+*.diff
+*.png
+*.ipynb_checkpoints/
+log*.csv

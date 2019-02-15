@@ -1,25 +1,29 @@
 // Utility functions for doing cool things with gaddags.
 package gaddag
 
-import "strings"
-import _ "log"
+import (
+	"log"
+	"strings"
+
+	"github.com/domino14/macondo/alphabet"
+)
 
 // prepare the str for finding by inserting a ^
 func prepareForFind(str string) []rune {
 	str = strings.ToUpper(str)
 	runes := []rune(str)
-	runes = append(runes[:1], append([]rune{'^'}, runes[1:]...)...)
+	runes = append(runes[:1], append([]rune{alphabet.SeparationToken}, runes[1:]...)...)
 	return runes
 }
 
 // FindPrefix returns a boolean indicating if the prefix is in the GADDAG.
 // This function is meant to be exported.
-func FindPrefix(g SimpleGaddag, prefix string) bool {
+func FindPrefix(g *SimpleGaddag, prefix string) bool {
 	return findPartialWord(g, g.GetRootNodeIndex(), prepareForFind(prefix), 0)
 }
 
-func FindWord(g SimpleGaddag, word string) bool {
-	if g.arr == nil {
+func FindWord(g *SimpleGaddag, word string) bool {
+	if g.Nodes == nil {
 		return false
 	}
 	found, _ := findWord(g, g.GetRootNodeIndex(), prepareForFind(word), 0)
@@ -28,8 +32,8 @@ func FindWord(g SimpleGaddag, word string) bool {
 
 // Finds a word in a SimpleGaddag that is a DAWG. The word can just be
 // found verbatim.
-func FindWordDawg(g SimpleGaddag, word string) bool {
-	if g.arr == nil {
+func FindWordDawg(g *SimpleGaddag, word string) bool {
+	if g.Nodes == nil {
 		return false
 	}
 	found, _ := findWord(g, g.GetRootNodeIndex(), []rune(word), 0)
@@ -46,7 +50,7 @@ const (
 // FindInnerHook finds whether the word has a back or front "inner hook",
 // that is, whether if you remove the back or front letter, you can still
 // make a word.
-func FindInnerHook(g SimpleGaddag, word string, hookType int) bool {
+func FindInnerHook(g *SimpleGaddag, word string, hookType int) bool {
 	runes := []rune(word)
 	if hookType == BackInnerHook {
 		word = string(runes[:len(runes)-1])
@@ -57,7 +61,7 @@ func FindInnerHook(g SimpleGaddag, word string, hookType int) bool {
 	return found
 }
 
-func FindHooks(g SimpleGaddag, word string, hookType int) []rune {
+func FindHooks(g *SimpleGaddag, word string, hookType int) []rune {
 	var runes []rune
 	if hookType == BackHooks {
 		runes = prepareForFind(word)
@@ -69,14 +73,14 @@ func FindHooks(g SimpleGaddag, word string, hookType int) []rune {
 		return nil
 	}
 	hooks := []rune{}
-	numArcs := byte(g.arr[nodeIdx] >> NumArcsBitLoc)
+	numArcs := g.NumArcs(nodeIdx)
 	// Look for the last letter as an arc.
 	found = false
 	var nextNodeIdx uint32
-	var letter rune
+	var mletter alphabet.MachineLetter
 	for i := byte(1); i <= numArcs; i++ {
-		nextNodeIdx, letter = g.ArcToIdxLetter(nodeIdx + uint32(i))
-		if letter == runes[len(runes)-1] {
+		nextNodeIdx, mletter = g.ArcToIdxLetter(nodeIdx + uint32(i))
+		if g.alphabet.Letter(mletter) == runes[len(runes)-1] {
 			found = true
 			break
 		}
@@ -102,10 +106,10 @@ func reverse(word string) []rune {
 // findPartialWord returns a boolean indicating if the given partial word is
 // in the GADDAG. The partial word has already been flipped by FindPrefix
 // above.
-func findPartialWord(g SimpleGaddag, nodeIdx uint32, partialWord []rune,
+func findPartialWord(g *SimpleGaddag, nodeIdx uint32, partialWord []rune,
 	curPrefixIdx uint8) bool {
 	var numArcs, i byte
-	var letter rune
+	var mletter alphabet.MachineLetter
 	var nextNodeIdx uint32
 	if curPrefixIdx == uint8(len(partialWord)) {
 		// If we're here, we're going to get an index error - we will
@@ -114,11 +118,11 @@ func findPartialWord(g SimpleGaddag, nodeIdx uint32, partialWord []rune,
 		return true
 	}
 
-	numArcs = byte(g.arr[nodeIdx] >> NumArcsBitLoc)
+	numArcs = g.NumArcs(nodeIdx)
 	found := false
 	for i = byte(1); i <= numArcs; i++ {
-		nextNodeIdx, letter = g.ArcToIdxLetter(nodeIdx + uint32(i))
-		if letter == partialWord[curPrefixIdx] {
+		nextNodeIdx, mletter = g.ArcToIdxLetter(nodeIdx + uint32(i))
+		if g.alphabet.Letter(mletter) == partialWord[curPrefixIdx] {
 			found = true
 			break
 		}
@@ -127,32 +131,45 @@ func findPartialWord(g SimpleGaddag, nodeIdx uint32, partialWord []rune,
 		if curPrefixIdx == uint8(len(partialWord)-1) {
 			// If we didn't find the prefix, it could be a word and thus be
 			// in the letter set.
-			return g.InLetterSet(partialWord[curPrefixIdx], nodeIdx)
-		} else {
-			return false
+			ml, err := g.alphabet.Val(partialWord[curPrefixIdx])
+			if err != nil {
+				panic("1.Unexpected err: " + err.Error())
+			}
+			return g.InLetterSet(ml, nodeIdx)
 		}
+		return false
 	}
 	curPrefixIdx++
 	return findPartialWord(g, nextNodeIdx, partialWord, curPrefixIdx)
 }
 
-func findWord(g SimpleGaddag, nodeIdx uint32, word []rune, curIdx uint8) (
+func findWord(g *SimpleGaddag, nodeIdx uint32, word []rune, curIdx uint8) (
 	bool, uint32) {
 	var numArcs, i byte
-	var letter rune
+	var letter alphabet.MachineLetter
 	var nextNodeIdx uint32
 
 	if curIdx == uint8(len(word)-1) {
 		// log.Println("checking letter set last Letter", string(letter),
 		// 	"nodeIdx", nodeIdx, "word", string(word))
-		return g.InLetterSet(word[curIdx], nodeIdx), nodeIdx
+		ml, err := g.alphabet.Val(word[curIdx])
+		if err != nil {
+			log.Printf("[ERROR] %v", err)
+			return false, 0
+		}
+		return g.InLetterSet(ml, nodeIdx), nodeIdx
 	}
 
-	numArcs = byte(g.arr[nodeIdx] >> NumArcsBitLoc)
+	numArcs = g.NumArcs(nodeIdx)
 	found := false
 	for i = byte(1); i <= numArcs; i++ {
 		nextNodeIdx, letter = g.ArcToIdxLetter(nodeIdx + uint32(i))
-		if letter == word[curIdx] {
+		curml, err := g.alphabet.Val(word[curIdx])
+		if err != nil {
+			log.Printf("[ERROR] %v", err)
+			return false, 0
+		}
+		if letter == curml {
 			// log.Println("Letter", string(letter), "this node idx", nodeIdx,
 			// 	"next node idx", nextNodeIdx, "word", string(word))
 			found = true

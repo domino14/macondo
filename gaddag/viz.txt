@@ -1,22 +1,36 @@
-0x2 0x4e 0x4f 0x3 0x0 0x2 0x1 0x2000000 0xa 0x100000d 0x1000000 0x1f00000c 0x1 0x2
+00000000: 6367 6467 0000 0002 0000 004e 0000 004f  cgdg.......N...O
+00000010: 0000 0003 0000 0000 0000 0000 0000 0000  ................
+00000020: 0000 0002 0000 0000 0000 0001 0000 0007  ................
+00000030: 0200 0000 0000 0003 0100 0006 0100 0000  ................
+00000040: 3200 0005 0000 0001 0000 0002            2...........
 
 
-0   2 Alphabet
-1        N
-2        O
+first four bytes: cgdg magic number
 
-3   3 Lettersets
-4        ø
-5        O
-6        N
+next four: 0000 0002 -- 32-bit #, length of alphabet
+
+0000 004e -- the letter N
+0000 004f -- the letter O
+
+0000 0003 -- 3 Letter sets
+
+0000 0000 0000 0000 -- LetterSet ø
+0000 0000 0000 0002 -- LetterSet O
+0000 0000 0000 0001 -- LetterSet N
+
+0000 0007 -- 7 nodes
+
     Nodes
-7        LetterSet ø, 2 arcs                        0x2000000
-8        Arc#1, letter N, next node 10              0xa
-9        Arc#2, letter O, next node 13              0x100000d
-10       LetterSet ø, 1 arc                         0X1000000
-11       Arc#1, letter ^, next node 12              0x1f0000c
-12       Letterset O, no arcs                       0x1
-13       Letterset N, no arcs                       0x2
+0 NODE  2 arcs, LetterSet ø                         0x02|000000
+1       Arc#1, letter N, next node 3                0x00|000003
+2       Arc#2, letter O, next node 6                0x01|000006
+3 NODE  1 arc, LetterSet ø                          0X01|000000
+4       Arc#1, letter ^, next node 5                0x32|000005
+5 NODE  no arcs, Letterset O                        0x00|000001
+6 NODE  no arcs, Letterset N                        0x00|000002
+
+Note that the letter ^ is represented by 0x32, which is 50 (our max
+alphabet size)
 
 Paths:
 
@@ -31,3 +45,11 @@ Paths:
                                                         E   I T
 
 ESUOHC
+
+HOUSE:
+
+ESUOH
+SUOH^E
+UOH^SE
+OH^USE
+H^OUSE
