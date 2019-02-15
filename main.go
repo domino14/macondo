@@ -101,7 +101,9 @@ func main() {
 	// This allows us to modify the request and optionally add a context
 	// timeout.
 	s.RegisterInterceptFunc(addTimeout)
-	http.Handle(appendPath+"/rpc", s)
+
+	http.Handle("/rpc", s)
+	http.Handle("/macondo/rpc", s)
 
 	server := &http.Server{Addr: ":8088", Handler: nil}
 
