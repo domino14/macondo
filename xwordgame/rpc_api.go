@@ -1,6 +1,7 @@
 package xwordgame
 
 import (
+	"crypto/subtle"
 	"errors"
 	"net/http"
 	"os"
@@ -21,6 +22,7 @@ type CompVCompServiceArgs struct {
 	// Assume GADDAG_DIR is a defined env var where we can find gaddags etc.
 
 	LexiconName string `json:"lexiconName"`
+	AuthToken   string `json:"authToken"`
 }
 
 type CompVCompServiceReply struct {
@@ -31,6 +33,10 @@ type CompVCompService struct{}
 
 func (c *CompVCompService) Play(r *http.Request, args *CompVCompServiceArgs,
 	reply *CompVCompServiceReply) error {
+
+	if subtle.ConstantTimeCompare([]byte(args.AuthToken), []byte(AuthorizationKey)) != 1 {
+		return errors.New("missing or bad auth token")
+	}
 
 	gd := gaddag.LoadGaddag(path.Join(GaddagDir, args.LexiconName+".gaddag"))
 	if gd.Nodes == nil {
