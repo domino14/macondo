@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
@@ -44,7 +45,7 @@ func GenerateBlanks(ctx context.Context, args *BlankChallengeArgs,
 	dawg *gaddag.SimpleGaddag) ([]*Question, int, error) {
 
 	var dist alphabet.LetterDistribution
-	if args.Lexicon == "FISE09" {
+	if strings.Contains(args.Lexicon, "FISE") {
 		dist = alphabet.SpanishLetterDistribution()
 	} else {
 		dist = alphabet.EnglishLetterDistribution()
@@ -100,6 +101,7 @@ func GenerateBlanks(ctx context.Context, args *BlankChallengeArgs,
 // genRack - Generate a random rack using `dist` and with `blanks` blanks.
 func genRack(dist alphabet.LetterDistribution, wordLength, blanks int,
 	alph *alphabet.Alphabet) []alphabet.MachineLetter {
+
 	bag := dist.MakeBag(alph)
 	// it's a bag of machine letters.
 	rack := make([]alphabet.MachineLetter, wordLength)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/domino14/macondo/alphabet"
 
@@ -17,7 +18,7 @@ func GenerateBuildChallenge(ctx context.Context, args *BuildChallengeArgs,
 	dawg *gaddag.SimpleGaddag) (*Question, int, error) {
 
 	var dist alphabet.LetterDistribution
-	if args.Lexicon == "FISE09" {
+	if strings.Contains(args.Lexicon, "FISE") {
 		dist = alphabet.SpanishLetterDistribution()
 	} else {
 		dist = alphabet.EnglishLetterDistribution()
