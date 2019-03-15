@@ -22,6 +22,8 @@ const (
 	VsRoy
 	// VsMacondo1 is poor_endgame_timing.gcg
 	VsMacondo1
+	// JDvsNB is a test for endgames
+	JDvsNB
 )
 
 // SetToGame sets the board to a specific game in progress. It is used to
@@ -185,6 +187,31 @@ teich: Turn 12
 15|E X E C       R       M O A N|
    ------------------------------
 `, alph)
+
+	case JDvsNB:
+		return b.SetFromPlaintext(`
+Nathan Benedict: Turn 14
+   A B C D E F G H I J K L M N O   -> Nathan Benedict          RR        365
+   ------------------------------     JD                       LN        510
+ 1|G R R L       d     Q '     =| --Tracking-----------------------------------
+ 2|  E       J   E   G I     -  | LN  2
+ 3|  M M   L A ' N Y E     -    |
+ 4|'   O B I     O O N   -     '|
+ 5|    K I P     T   I F        |
+ 6|  W E T A "   I   T O     "  |
+ 7|S O ' C     ' V ' O B   '    |
+ 8|U T   H E D G E   R   ' V   =|
+ 9|I   '     U '   '       E    |
+10|  "       P       F A A N "  |
+11|    C   - E N T A Y L E D    |
+12|W   H O A S   A       - I   '|
+13|E   I       ' T '       N    |
+14|D A Z E D "   O   "     g -  |
+15|S     X I     U     U R S A E|
+   ------------------------------
+`, alph)
+
 	}
+
 	return nil
 }

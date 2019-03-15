@@ -163,5 +163,5 @@ func (game *XWordGame) PlayMove(m *move.Move) {
 func (game *XWordGame) calculateRackPts(onturn int) int {
 	// Calculate the number of pts on the player with the `onturn` rack.
 	rack := game.players[onturn].rack
-	return rack.ScoreOn(game.numPossibleLetters, game.bag)
+	return rack.ScoreOn(game.bag)
 }

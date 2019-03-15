@@ -85,7 +85,7 @@ func (ml MachineLetter) UserVisible(alph *Alphabet) rune {
 	} else if ml == PlayedThroughMarker {
 		return ASCIIPlayedThrough
 	} else if ml == BlankMachineLetter {
-		return '?'
+		return BlankToken
 	} else if ml == EmptySquareMarker {
 		return ' '
 	}
@@ -124,6 +124,17 @@ func (mw MachineWord) String() string {
 		bytes[i] = byte(l)
 	}
 	return string(bytes)
+}
+
+// HashableToUserVisible converts a non-printable representation of a machine
+// word to a printable one. The machine word is not required as an argument,
+// just the non-printable string.
+func HashableToUserVisible(s string, alph *Alphabet) string {
+	runes := make([]rune, len(s))
+	for i, l := range s {
+		runes[i] = alph.Letter(MachineLetter(l))
+	}
+	return string(runes)
 }
 
 // Score returns the score of this word given the bag.

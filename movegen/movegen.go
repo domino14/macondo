@@ -262,7 +262,7 @@ func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startCol int,
 	wordCopy := make([]alphabet.MachineLetter, len(word))
 	copy(wordCopy, word)
 
-	leave := rack.TilesOn(gen.numPossibleLetters)
+	leave := rack.TilesOn()
 	alph := gen.gaddag.GetAlphabet()
 	play := move.NewScoringMove(gen.scoreMove(word, startCol),
 		wordCopy, leave, gen.vertical,
@@ -380,7 +380,7 @@ func (gen *GordonGenerator) Plays() []*move.Move {
 }
 
 func (gen *GordonGenerator) addPassAndExchangeMoves(rack *alphabet.Rack) {
-	tilesOnRack := rack.TilesOn(gen.numPossibleLetters)
+	tilesOnRack := rack.TilesOn()
 
 	// Only add a pass move if nothing else is possible. Note: in endgames,
 	// we will have to add a pass move another way (if it's a strategic pass).

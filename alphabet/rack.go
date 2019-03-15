@@ -21,8 +21,14 @@ func NewRack(alph *Alphabet) *Rack {
 	return &Rack{alphabet: alph}
 }
 
+// Hashable returns a hashable representation of this rack, that is
+// not necessarily user-friendly.
+func (r *Rack) Hashable() string {
+	return r.TilesOn().String()
+}
+
 func (r *Rack) String() string {
-	return r.TilesOn(int(r.alphabet.NumLetters())).UserVisible(r.alphabet)
+	return r.TilesOn().UserVisible(r.alphabet)
 }
 
 // RackFromString creates a Rack from a string and an alphabet
@@ -98,11 +104,12 @@ func (r *Rack) Add(letter MachineLetter) {
 }
 
 // TilesOn returns the MachineLetters of the rack's current tiles.
-func (r *Rack) TilesOn(numPossibleLetters int) MachineWord {
+func (r *Rack) TilesOn() MachineWord {
 	if r.empty {
 		return MachineWord([]MachineLetter{})
 	}
 	letters := make([]MachineLetter, r.numLetters)
+	numPossibleLetters := r.alphabet.NumLetters()
 	ct := 0
 	var i MachineLetter
 	for i = 0; i < MachineLetter(numPossibleLetters); i++ {
@@ -123,9 +130,10 @@ func (r *Rack) TilesOn(numPossibleLetters int) MachineWord {
 }
 
 // ScoreOn returns the total score of the tiles on this rack.
-func (r *Rack) ScoreOn(numPossibleLetters int, bag *Bag) int {
+func (r *Rack) ScoreOn(bag *Bag) int {
 	score := 0
 	var i MachineLetter
+	numPossibleLetters := r.alphabet.NumLetters()
 	for i = 0; i < MachineLetter(numPossibleLetters); i++ {
 		if r.LetArr[i] > 0 {
 			score += bag.Score(i) * r.LetArr[i]
