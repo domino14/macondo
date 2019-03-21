@@ -113,31 +113,6 @@ func TestCanBePlayedWith(t *testing.T) {
 
 }
 
-func TestTilesUsedForWord(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_csw15.gaddag")
-	alph := gd.GetAlphabet()
-
-	type tutest struct {
-		play  string
-		tiles string
-	}
-	tilesUsedTests := []tutest{
-		{".....ULARY", "ALRUY"},
-		{"OX.P...B..AZ..E", "ABEOPXZ"},
-		// blanks
-		{".....ULArY", "ALUY?"},
-		{".....ULarY", "LUY??"},
-		{"COoKIES", "CEIKOS?"},
-		{"COOKIES", "CEIKOOS"},
-	}
-
-	for _, tt := range tilesUsedTests {
-		mv := move.NewScoringMoveSimple(30, "B3", tt.play, "", alph)
-		tilesUsed := tilesUsedForWord(mv.Tiles())
-		assert.Equal(t, tt.tiles, tilesUsed.UserVisible(alph))
-	}
-}
-
 func TestGeneratePlayTables(t *testing.T) {
 	gd := gaddag.LoadGaddag("/tmp/gen_csw15.gaddag")
 	b := board.MakeBoard(board.CrosswordGameBoard)

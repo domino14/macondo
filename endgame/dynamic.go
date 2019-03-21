@@ -132,7 +132,7 @@ func (s *DynamicProgSolver) generatePlayTables(rack *alphabet.Rack,
 	// Add base case
 	s.addBaseCase(*pt, rack)
 
-	for n := 1; n <= 7; n++ {
+	for n := 1; n <= 3; n++ {
 		for _, play := range plays {
 			s.addPlayEvaluation(rack, plays, play, *pt, n)
 		}
@@ -148,18 +148,22 @@ func (s *DynamicProgSolver) addPlayEvaluation(rack *alphabet.Rack, plays []*move
 	// assuming that N − 1 turns remain. The value of a rack in N turns
 	// is the largest value of that function over all possible moves."
 
+	// log.Println(numTurns, "Call addPlayEvaluation for", play, rack.TilesOn().UserVisible(
+	// 	s.gd.GetAlphabet()))
 	eval := s.rackEvaluation(play.Leave(), numTurns-1, plays, pt)
+	// log.Println("The evaluation of the leave", play.Leave().UserVisible(
+	// 	s.gd.GetAlphabet()), "with N", numTurns-1, "was", eval)
 	if eval == nil {
 		// Not a possible evaluation, I guess
 		return
 	}
 	value := play.Score() + eval.value
 
-	// We now add to the table the value of the rack used to make this play,
-	// if it is the highest so far.
-	rackToAdd := tilesUsedForWord(play.Tiles()).String()
+	rackToAdd := rack.Hashable()
 
 	entry, exists := pt.get(rackToAdd, numTurns)
+	// log.Println("The value is then", value, "and should add the rack",
+	// 	alphabet.HashableToUserVisible(rackToAdd, s.gd.GetAlphabet()), numTurns)
 	if !exists || entry.value < value {
 		pt.addEntry(rackToAdd, numTurns, value, play)
 	}
@@ -175,10 +179,16 @@ func (s *DynamicProgSolver) rackEvaluation(rack alphabet.MachineWord, numTurns i
 	//		of the leave with numTurns -1. This is an evaluation.
 	// 3. take the maximum of all the evaluations. This is the rack evaluation;
 	// 		store and return this.
+	// log.Println("Trying to call rackEvaluation with",
+	// 	rack.UserVisible(s.gd.GetAlphabet()), numTurns)
 
 	if entry, ok := pt.get(rack.String(), numTurns); ok {
 		return entry
 	}
+	// XXX why does uncommenting this give the wrong results?
+	// if len(rack) == 0 && numTurns == 0 {
+	// 	return nil
+	// }
 
 	if numTurns == 0 {
 		value := -2 * rack.Score(s.bag)
@@ -194,8 +204,12 @@ func (s *DynamicProgSolver) rackEvaluation(rack alphabet.MachineWord, numTurns i
 		if !playable {
 			continue
 		}
+		leaveValue := 0
 		leaveEvaluation := s.rackEvaluation(leave, numTurns-1, plays, pt)
-		value := play.Score() + leaveEvaluation.value
+		if leaveEvaluation != nil {
+			leaveValue = leaveEvaluation.value
+		}
+		value := play.Score() + leaveValue
 		if value > maxValue {
 			maxValue = value
 			maxPlay = play
@@ -206,25 +220,6 @@ func (s *DynamicProgSolver) rackEvaluation(rack alphabet.MachineWord, numTurns i
 		return nil
 	}
 	return pt.addEntry(rack.String(), numTurns, maxValue, maxPlay)
-}
-
-func tilesUsedForWord(playWord alphabet.MachineWord) alphabet.MachineWord {
-	// return the rack used to play this word.
-	rack := make(alphabet.MachineWord, 0)
-	for _, letter := range playWord {
-		if letter == alphabet.PlayedThroughMarker {
-			continue
-		}
-		if letter.IsBlanked() {
-			rack = append(rack, alphabet.BlankMachineLetter)
-		} else {
-			rack = append(rack, letter)
-		}
-	}
-	sort.Slice(rack, func(a, b int) bool {
-		return rack[a] < rack[b]
-	})
-	return rack
 }
 
 func canBePlayedWith(playWord alphabet.MachineWord, rack alphabet.MachineWord) (
@@ -285,5 +280,4 @@ func (s *DynamicProgSolver) addBaseCase(pt playTable, rack *alphabet.Rack) {
 	score := rack.ScoreOn(s.bag)
 	rackRepr := rack.Hashable()
 	pt.addEntry(rackRepr, 0, -score*2, nil)
-	log.Println("After adding, ", len(pt))
 }
