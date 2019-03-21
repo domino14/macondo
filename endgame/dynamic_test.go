@@ -1,7 +1,6 @@
 package endgame
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -122,14 +121,37 @@ func TestGeneratePlayTables(t *testing.T) {
 
 	generator := movegen.NewGordonGenerator(gd, bag, b, &strategy.NoLeaveStrategy{})
 	generator.SetBoardToGame(alph, board.JDvsNB)
-
-	rack := alphabet.RackFromString("RR", alph)
-
-	generator.GenAll(rack)
-
 	s := new(DynamicProgSolver)
 	s.Init(b, generator, bag, gd)
-	s.generatePlayTables(rack, generator.Plays(), OurPlayTable)
-	fmt.Println(s.playTableOurs.Printable(alph))
-	assert.False(t, true)
+
+	ourRack := alphabet.RackFromString("RR", alph)
+	theirRack := alphabet.RackFromString("LN", alph)
+
+	s.Solve(ourRack, theirRack)
+
+	assert.Equal(t, 2, len(s.playTableOurs))
+
+	singleR := alphabet.RackFromString("R", alph)
+
+	assert.Equal(t, -4, s.playTableOurs[ourRack.Hashable()][0].value)
+	assert.Equal(t, 5, s.playTableOurs[ourRack.Hashable()][1].value)
+	assert.Equal(t, 8, s.playTableOurs[ourRack.Hashable()][2].value)
+	assert.Equal(t, -2, s.playTableOurs[singleR.Hashable()][0].value)
+	assert.Equal(t, 4, s.playTableOurs[singleR.Hashable()][1].value)
+
+	singleL := alphabet.RackFromString("L", alph)
+	singleN := alphabet.RackFromString("N", alph)
+	assert.Equal(t, 3, len(s.playTableOpp))
+
+	assert.Equal(t, -4, s.playTableOpp[theirRack.Hashable()][0].value)
+	assert.Equal(t, 3, s.playTableOpp[theirRack.Hashable()][1].value)
+	assert.Equal(t, 9, s.playTableOpp[theirRack.Hashable()][2].value)
+	assert.Equal(t, -2, s.playTableOpp[singleL.Hashable()][0].value)
+	assert.Equal(t, 4, s.playTableOpp[singleL.Hashable()][1].value)
+	assert.Equal(t, -2, s.playTableOpp[singleN.Hashable()][0].value)
+	assert.Equal(t, 5, s.playTableOpp[singleN.Hashable()][1].value)
+}
+
+func TestSolve(t *testing.T) {
+
 }

@@ -117,6 +117,8 @@ func (s *DynamicProgSolver) Solve(playerOnTurn, opponent *alphabet.Rack) *move.M
 
 	// Go down the list of play tables now to determine the best play.
 
+	s.minimaxPlayTables(playerOnTurn, opponent)
+
 	return nil
 }
 
@@ -290,4 +292,45 @@ func (s *DynamicProgSolver) addBaseCase(pt playTable, rack *alphabet.Rack) {
 	score := rack.ScoreOn(s.bag)
 	rackRepr := rack.Hashable()
 	pt.addEntry(rackRepr, 0, -score*2, nil)
+}
+
+func (s *DynamicProgSolver) minimaxPlayTables(playerOnTurn, opponent *alphabet.Rack) {
+	// how to minimax?
+	// assume Player 1 plays 9 moves (for now, i don't know how to come up
+	// with this number) and player 2 plays 8.
+	// We iterate down from E(a,b) with large values of a and b.
+	// If a = b+1, Player 2 can switch from E(a,b) to E(a­1,b) if it
+	// improves the net margin in P2's favor.
+	// If a = b, Player 1 can switch from E(a,b) to E(a,b­1) if it
+	// improves the net margin in P1's favor.
+
+	a, b := 9, 8
+	selectedA := a
+	selectedB := b
+
+	ourRack := playerOnTurn.Hashable()
+	oppRack := playerOnTurn.Hashable()
+
+	maxSpread := VeryLowEvaluation
+
+	curPlayer := 0
+	for {
+		ourEntry := s.playTableOurs[ourRack][a]
+		theirEntry := s.playTableOpp[oppRack][b]
+		if ourEntry == nil || theirEntry == nil {
+			// does not exist; continue.
+			if a == b {
+				a--
+			} else {
+				b--
+			}
+		}
+		spread := ourEntry.value - theirEntry.value
+		if spread > maxSpread {
+			maxSpread = spread
+		}
+		curPlayer = (curPlayer + 1) % 2
+
+	}
+
 }
