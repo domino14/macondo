@@ -42,6 +42,10 @@ func (pt *playTable) addEntry(rackRepr string, outIn int, value int,
 		value: value,
 	}
 	*pt = t
+	log.Printf("Adding an entry: %v, len(rack): %v, outIn: %v, value: %v, move: %v",
+		alphabet.HashableToUserVisible(rackRepr, alphabet.StandardEnglishLanguageAlphabet()),
+		len(rackRepr), outIn, value, move)
+
 	return outIns[outIn]
 }
 
@@ -132,7 +136,7 @@ func (s *DynamicProgSolver) generatePlayTables(rack *alphabet.Rack,
 	// Add base case
 	s.addBaseCase(*pt, rack)
 
-	for n := 1; n <= 3; n++ {
+	for n := 1; n <= 7; n++ {
 		for _, play := range plays {
 			s.addPlayEvaluation(rack, plays, play, *pt, n)
 		}
@@ -150,14 +154,20 @@ func (s *DynamicProgSolver) addPlayEvaluation(rack *alphabet.Rack, plays []*move
 
 	// log.Println(numTurns, "Call addPlayEvaluation for", play, rack.TilesOn().UserVisible(
 	// 	s.gd.GetAlphabet()))
+	if numTurns > int(rack.NumTiles()) {
+		// XXX: Account for passes later.
+		return
+	}
+
 	eval := s.rackEvaluation(play.Leave(), numTurns-1, plays, pt)
 	// log.Println("The evaluation of the leave", play.Leave().UserVisible(
 	// 	s.gd.GetAlphabet()), "with N", numTurns-1, "was", eval)
-	if eval == nil {
-		// Not a possible evaluation, I guess
-		return
+
+	leaveValue := 0
+	if eval != nil {
+		leaveValue = eval.value
 	}
-	value := play.Score() + eval.value
+	value := play.Score() + leaveValue
 
 	rackToAdd := rack.Hashable()
 
@@ -185,10 +195,10 @@ func (s *DynamicProgSolver) rackEvaluation(rack alphabet.MachineWord, numTurns i
 	if entry, ok := pt.get(rack.String(), numTurns); ok {
 		return entry
 	}
-	// XXX why does uncommenting this give the wrong results?
-	// if len(rack) == 0 && numTurns == 0 {
-	// 	return nil
-	// }
+
+	if len(rack) == 0 && numTurns == 0 {
+		return nil
+	}
 
 	if numTurns == 0 {
 		value := -2 * rack.Score(s.bag)

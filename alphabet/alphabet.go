@@ -195,6 +195,18 @@ type Alphabet struct {
 	curIdx      MachineLetter
 }
 
+// StandardEnglishLanguageAlphabet generates an Alphabet for English-language
+// crossword games. It is a helper function intended to be used mostly for
+// testing purposes. Well-formed GADDAGs should have the alphabet encoded
+// for them.
+func StandardEnglishLanguageAlphabet() *Alphabet {
+	a := &Alphabet{}
+	a.Init()
+	a.Update("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+	a.Reconcile()
+	return a
+}
+
 func (a Alphabet) CurIdx() MachineLetter {
 	return a.curIdx
 }
