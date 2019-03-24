@@ -299,9 +299,9 @@ func (s *DynamicProgSolver) minimaxPlayTables(playerOnTurn, opponent *alphabet.R
 	// assume Player 1 plays 9 moves (for now, i don't know how to come up
 	// with this number) and player 2 plays 8.
 	// We iterate down from E(a,b) with large values of a and b.
-	// If a = b+1, Player 2 can switch from E(a,b) to E(a­1,b) if it
+	// If a = b+1, Player 2 can switch from E(a,b) to E(a-1,b) if it
 	// improves the net margin in P2's favor.
-	// If a = b, Player 1 can switch from E(a,b) to E(a,b­1) if it
+	// If a = b, Player 1 can switch from E(a,b) to E(a,b-1) if it
 	// improves the net margin in P1's favor.
 
 	a, b := 9, 8
@@ -328,9 +328,15 @@ func (s *DynamicProgSolver) minimaxPlayTables(playerOnTurn, opponent *alphabet.R
 		spread := ourEntry.value - theirEntry.value
 		if spread > maxSpread {
 			maxSpread = spread
+			selectedA = a
+			selectedB = b
 		}
 		curPlayer = (curPlayer + 1) % 2
 
 	}
+
+}
+
+func (s *DynamicProgSolver) minimaxSingleSequence() {
 
 }
