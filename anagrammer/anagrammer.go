@@ -16,18 +16,32 @@ import (
 	"github.com/domino14/macondo/gaddag"
 )
 
+type dawgInfo struct {
+	dawg *gaddag.SimpleGaddag
+	dist alphabet.LetterDistribution
+}
+
+var Dawgs map[string]*dawgInfo
+
 func LoadDawgs(dawgPath string) {
 	// Load the DAWGs into memory.
 	lexica := []string{"NWL18", "CSW15", "FISE2", "OSPS38"}
-	Dawgs = make(map[string]*gaddag.SimpleGaddag)
+	Dawgs = make(map[string]*dawgInfo)
 	for _, lex := range lexica {
 		filename := filepath.Join(dawgPath, lex+".dawg")
 		if _, err := os.Stat(filename); os.IsNotExist(err) {
 			log.Println("[ERROR] File", filename, "did not exist. Continuing...")
 			continue
 		}
-
-		Dawgs[lex] = gaddag.LoadGaddag(filename)
+		Dawgs[lex] = &dawgInfo{}
+		Dawgs[lex].dawg = gaddag.LoadGaddag(filename)
+		if strings.Contains(lex, "FISE") {
+			Dawgs[lex].dist = alphabet.SpanishLetterDistribution()
+		} else if strings.Contains(lex, "OSPS") {
+			Dawgs[lex].dist = alphabet.PolishLetterDistribution()
+		} else {
+			Dawgs[lex].dist = alphabet.EnglishLetterDistribution()
+		}
 	}
 }
 
@@ -41,8 +55,6 @@ const (
 	ModePattern
 )
 
-var Dawgs map[string]*gaddag.SimpleGaddag
-
 type AnagramStruct struct {
 	answerList []string
 	mode       AnagramMode
@@ -54,7 +66,8 @@ func Anagram(letters string, gd *gaddag.SimpleGaddag, mode AnagramMode) []string
 	letters = strings.ToUpper(letters)
 	answerList := []string{}
 	runes := []rune(letters)
-	rack := alphabet.RackFromString(letters, gd.GetAlphabet())
+	alph := gd.GetAlphabet()
+	rack := alphabet.RackFromString(letters, alph)
 
 	ahs := &AnagramStruct{
 		answerList: answerList,
@@ -69,7 +82,7 @@ func Anagram(letters string, gd *gaddag.SimpleGaddag, mode AnagramMode) []string
 	}()
 	<-stopChan
 
-	return dedupeAndTransformAnswers(ahs.answerList, gd.GetAlphabet())
+	return dedupeAndTransformAnswers(ahs.answerList, alph)
 	//return ahs.answerList
 }
 

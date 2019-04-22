@@ -40,7 +40,7 @@ func (a *AnagramService) Anagram(r *http.Request, args *AnagramServiceArgs,
 	// GetAlphabet defined.
 	start := time.Now()
 
-	dawg, ok := Dawgs[args.Lexicon]
+	dinfo, ok := Dawgs[args.Lexicon]
 	if !ok {
 		return fmt.Errorf("Lexicon %v not found", args.Lexicon)
 	}
@@ -55,7 +55,7 @@ func (a *AnagramService) Anagram(r *http.Request, args *AnagramServiceArgs,
 		}
 	}
 
-	sols := Anagram(args.Letters, dawg, mode)
+	sols := Anagram(args.Letters, dinfo.dawg, mode)
 	reply.Words = sols
 	reply.NumWords = len(sols)
 
@@ -97,12 +97,12 @@ type BuildChallengeReply struct {
 func (a *AnagramService) BlankChallenge(r *http.Request, args *BlankChallengeArgs,
 	reply *BlankChallengeReply) error {
 
-	dawg, ok := Dawgs[args.Lexicon]
+	dawginfo, ok := Dawgs[args.Lexicon]
 	if !ok {
 		return fmt.Errorf("Lexicon %v not found", args.Lexicon)
 	}
 
-	blanks, numAnswers, err := GenerateBlanks(r.Context(), args, dawg)
+	blanks, numAnswers, err := GenerateBlanks(r.Context(), args, dawginfo)
 	if err != nil {
 		return err
 	}
@@ -115,11 +115,11 @@ func (a *AnagramService) BlankChallenge(r *http.Request, args *BlankChallengeArg
 func (a *AnagramService) BuildChallenge(r *http.Request, args *BuildChallengeArgs,
 	reply *BuildChallengeReply) error {
 
-	dawg, ok := Dawgs[args.Lexicon]
+	dawginfo, ok := Dawgs[args.Lexicon]
 	if !ok {
 		return fmt.Errorf("Lexicon %v not found", args.Lexicon)
 	}
-	question, numAnswers, err := GenerateBuildChallenge(r.Context(), args, dawg)
+	question, numAnswers, err := GenerateBuildChallenge(r.Context(), args, dawginfo)
 	if err != nil {
 		return err
 	}
