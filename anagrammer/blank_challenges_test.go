@@ -57,7 +57,10 @@ func TestGenBlanks(t *testing.T) {
 		WordLength: 7, NumQuestions: 25, Lexicon: "America", MaxSolutions: 5,
 		Num2Blanks: 6,
 	}
-	qs, sols, err := GenerateBlanks(ctx, bcArgs, d)
+	qs, sols, err := GenerateBlanks(ctx, bcArgs, &dawgInfo{
+		dawg: d,
+		dist: alphabet.EnglishLetterDistribution(),
+	})
 	if err != nil {
 		t.Errorf("GenBlanks returned an error: %v", err)
 	}

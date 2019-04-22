@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strings"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
@@ -42,14 +41,8 @@ func try(nBlanks int, dist alphabet.LetterDistribution, wordLength int,
 // GenerateBlanks - Generate a list of blank word challenges given the
 // parameters in args.
 func GenerateBlanks(ctx context.Context, args *BlankChallengeArgs,
-	dawg *gaddag.SimpleGaddag) ([]*Question, int, error) {
+	dinfo *dawgInfo) ([]*Question, int, error) {
 
-	var dist alphabet.LetterDistribution
-	if strings.Contains(args.Lexicon, "FISE") {
-		dist = alphabet.SpanishLetterDistribution()
-	} else {
-		dist = alphabet.EnglishLetterDistribution()
-	}
 	tries := 0
 	// Handle 2-blank challenges at the end.
 	// First gen 1-blank challenges.
@@ -63,13 +56,13 @@ func GenerateBlanks(ctx context.Context, args *BlankChallengeArgs,
 	}()
 	doIteration := func() (*Question, error) {
 		if qIndex < args.NumQuestions-args.Num2Blanks {
-			question, err := try(1, dist, args.WordLength, dawg, args.MaxSolutions,
-				answerMap)
+			question, err := try(1, dinfo.dist, args.WordLength, dinfo.dawg,
+				args.MaxSolutions, answerMap)
 			tries++
 			return question, err
 		} else if qIndex < args.NumQuestions {
-			question, err := try(2, dist, args.WordLength, dawg, args.MaxSolutions,
-				answerMap)
+			question, err := try(2, dinfo.dist, args.WordLength, dinfo.dawg,
+				args.MaxSolutions, answerMap)
 			tries++
 			return question, err
 		}
