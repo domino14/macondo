@@ -9,7 +9,7 @@ type NodeBucket [][]NodeArr
 
 const (
 	MaxDepth      = 16
-	LetterBuckets = 100
+	LetterBuckets = 997
 )
 
 // Minimize is a method to minimize the passed-in GADDAG!
