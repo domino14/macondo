@@ -25,7 +25,7 @@ var Dawgs map[string]*dawgInfo
 
 func LoadDawgs(dawgPath string) {
 	// Load the DAWGs into memory.
-	lexica := []string{"NWL18", "CSW15", "FISE2", "OSPS38"}
+	lexica := []string{"NWL18", "CSW15", "FISE2", "OSPS40"}
 	Dawgs = make(map[string]*dawgInfo)
 	for _, lex := range lexica {
 		filename := filepath.Join(dawgPath, lex+".dawg")
