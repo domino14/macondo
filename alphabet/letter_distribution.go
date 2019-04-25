@@ -9,6 +9,7 @@ type LetterDistribution struct {
 	Distribution map[rune]uint8
 	PointValues  map[rune]uint8
 	SortOrder    map[rune]int
+	Vowels       []rune
 	numLetters   int
 }
 
@@ -26,7 +27,8 @@ func EnglishLetterDistribution() LetterDistribution {
 		'Y': 4, 'Z': 10, '?': 0,
 	}
 	return LetterDistribution{dist, ptValues,
-		makeSortMap("ABCDEFGHIJKLMNOPQRSTUVWXYZ?"), 100}
+		makeSortMap("ABCDEFGHIJKLMNOPQRSTUVWXYZ?"),
+		[]rune{'A', 'E', 'I', 'O', 'U'}, 100}
 }
 
 func SpanishLetterDistribution() LetterDistribution {
@@ -45,7 +47,8 @@ func SpanishLetterDistribution() LetterDistribution {
 		'Z': 10, '?': 0,
 	}
 	return LetterDistribution{dist, ptValues,
-		makeSortMap("ABC1DEFGHIJL2MNÑOPQR3STUVXYZ?"), 100}
+		makeSortMap("ABC1DEFGHIJL2MNÑOPQR3STUVXYZ?"),
+		[]rune{'A', 'E', 'I', 'O', 'U'}, 100}
 }
 
 func PolishLetterDistribution() LetterDistribution {
@@ -64,7 +67,8 @@ func PolishLetterDistribution() LetterDistribution {
 		'Ą': 5, 'Ę': 5, 'Ó': 5, 'Ś': 5, 'Ż': 5, 'Ć': 6, 'Ń': 7, 'Ź': 9,
 	}
 	return LetterDistribution{dist, ptValues,
-		makeSortMap("AĄBCĆDEĘFGHIJKLŁMNŃOÓPRSŚTUWYZŹŻ?"), 100}
+		makeSortMap("AĄBCĆDEĘFGHIJKLŁMNŃOÓPRSŚTUWYZŹŻ?"),
+		[]rune{'A', 'Ą', 'E', 'Ę', 'I', 'O', 'Ó', 'U', 'Y'}, 100}
 }
 
 // MakeBag returns a bag of tiles.
