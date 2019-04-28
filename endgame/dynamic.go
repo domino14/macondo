@@ -117,7 +117,7 @@ func (s *DynamicProgSolver) Solve(playerOnTurn, opponent *alphabet.Rack) *move.M
 
 	// Go down the list of play tables now to determine the best play.
 
-	s.minimaxPlayTables(playerOnTurn, opponent)
+	// s.minimaxPlayTables(playerOnTurn, opponent)
 
 	return nil
 }
@@ -170,6 +170,7 @@ func (s *DynamicProgSolver) addPlayEvaluation(rack *alphabet.Rack, plays []*move
 		leaveValue = eval.value
 	}
 	value := play.Score() + leaveValue
+	play.SetValuation(value)
 
 	rackToAdd := rack.Hashable()
 
@@ -305,8 +306,8 @@ func (s *DynamicProgSolver) minimaxPlayTables(playerOnTurn, opponent *alphabet.R
 	// improves the net margin in P1's favor.
 
 	a, b := 9, 8
-	selectedA := a
-	selectedB := b
+	// selectedA := a
+	// selectedB := b
 
 	ourRack := playerOnTurn.Hashable()
 	oppRack := playerOnTurn.Hashable()
@@ -328,8 +329,8 @@ func (s *DynamicProgSolver) minimaxPlayTables(playerOnTurn, opponent *alphabet.R
 		spread := ourEntry.value - theirEntry.value
 		if spread > maxSpread {
 			maxSpread = spread
-			selectedA = a
-			selectedB = b
+			// selectedA = a
+			// selectedB = b
 		}
 		curPlayer = (curPlayer + 1) % 2
 
@@ -337,6 +338,22 @@ func (s *DynamicProgSolver) minimaxPlayTables(playerOnTurn, opponent *alphabet.R
 
 }
 
-func (s *DynamicProgSolver) minimaxSingleSequence() {
+func (s *DynamicProgSolver) minimaxSingleSequence(node, depth, maximizingPlayer) {
+	/*
+	       if depth = 0 or node is a terminal node then
+	           return the heuristic value of node
+	       if maximizingPlayer then
+	           value := −∞
+	           for each child of node do
+	               value := max(value, minimax(child, depth − 1, FALSE))
+	           return value
+	       else (* minimizing player *)
+	           value := +∞
+	           for each child of node do
+	               value := min(value, minimax(child, depth − 1, TRUE))
+	   		return value
+
+	   		call with minimax(origin, depth, TRUE)
+	*/
 
 }

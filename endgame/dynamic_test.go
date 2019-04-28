@@ -1,6 +1,7 @@
 package endgame
 
 import (
+	"log"
 	"os"
 	"path/filepath"
 	"testing"
@@ -24,6 +25,10 @@ func TestMain(m *testing.M) {
 	if _, err := os.Stat("/tmp/gen_csw15.gaddag"); os.IsNotExist(err) {
 		gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "CSW15.txt"), true, true)
 		os.Rename("out.gaddag", "/tmp/gen_csw15.gaddag")
+	}
+	if _, err := os.Stat("/tmp/gen_america.gaddag"); os.IsNotExist(err) {
+		gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "America.txt"), true, true)
+		os.Rename("out.gaddag", "/tmp/gen_america.gaddag")
 	}
 	os.Exit(m.Run())
 }
@@ -153,5 +158,27 @@ func TestGeneratePlayTables(t *testing.T) {
 }
 
 func TestSolve(t *testing.T) {
+	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	b := board.MakeBoard(board.CrosswordGameBoard)
+	alph := gd.GetAlphabet()
+	dist := alphabet.EnglishLetterDistribution()
+	bag := dist.MakeBag(alph)
+
+	generator := movegen.NewGordonGenerator(gd, bag, b, &strategy.NoLeaveStrategy{})
+	generator.SetBoardToGame(alph, board.VsRoy)
+	s := new(DynamicProgSolver)
+	s.Init(b, generator, bag, gd)
+
+	ourRack := alphabet.RackFromString("EFHIKOQ", alph)
+	theirRack := alphabet.RackFromString("WZ", alph)
+
+	s.Solve(ourRack, theirRack)
+
+	log.Println(s.playTableOurs.Printable(alph))
+
+	log.Println("----")
+	log.Println(s.playTableOpp.Printable(alph))
+
+	assert.True(t, false)
 
 }

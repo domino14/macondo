@@ -72,3 +72,25 @@ function over all possible moves.
     R       1   max (table above where N = 1 and we play one R) = 4
     RR      2   max (table above where N = 2) = 8
 ```
+
+Interpretation of Maven paper:
+
+```
+It is impractical to build a table of all possible racks that we hold versus all possible racks that our opponent holds, as there are up to 128 possible racks for each side. But fortunately we do not need the full set. Simply knowing what one side can achieve within N turns (for N = 0, . . . , 7) is sufficient.
+```
+
+Strange that this is "impractical" as 128 racks isn't that many, even 20+ years ago? But I think the point is that we only need to keep track of the main rack itself plus the N = 0 to 7. So we have a lot of extraneous entries in our table?
+
+```
+For every move that can be played out of each rack we compute the score of that move plus the evaluation of the remaining tiles assuming that N − 1 turns remain. The value of a rack in N turns is the largest value of that function over all possible moves.
+The beauty of this algorithm is that we can statically determine how many turns it will take a given rack to play out. If we wish to know whether DERTTT will play out in N moves, we simply check to see whether there are 0 tiles left if DERTTT has N moves to play.
+```
+
+The very last sentence refers to the first sentence. The score of that move plus the evaluation of the remaining tiles with N-1 turns. So if DERTTT has N moves to play, the evaluation of the remaining tiles would not exist since the remaining tiles would be 0? Should our table keep track of how many tiles are left for each N?
+
+```
+Now assume that MAVEN moves first, holding DERTTT and the opponent has EJVY. What is the outcome? MAVEN starts by computing the result assuming that DERTTT will play eight moves (and EJVY will play seven moves). That gives us one sequence which we will minimax to determine the right answer.
+```
+
+DERTTT will play eight moves (two are possibly passes). What is the sequence we are minimaxing here? Based on the fact that we only have two tables with the full racks (DERTTT and EJVY only, no subracks), and descending Ns, the minimax algorithm is simple enough. Every node for player 2 that is at or below EJVY(7) is a child of the DERTTT(8) node. (?)
+So we are only minimaxing one ply deep. I think.

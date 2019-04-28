@@ -38,6 +38,7 @@ type Move struct {
 	bingo       bool
 	tilesPlayed int
 	alph        *alphabet.Alphabet
+	valuation   int
 }
 
 var reVertical, reHorizontal *regexp.Regexp
@@ -169,6 +170,17 @@ func (m *Move) Equity() float64 {
 // SetEquity sets the equity of this move. It is calculated outside this package.
 func (m *Move) SetEquity(e float64) {
 	m.equity = e
+}
+
+// Valuation is the "value" of this move. This is an internal value that is used
+// in calculating endgames and other such metrics.
+func (m *Move) Valuation() int {
+	return m.valuation
+}
+
+// SetValuation sets the valuation of this move. It is calculated outside of this package.
+func (m *Move) SetValuation(v int) {
+	m.valuation = v
 }
 
 func (m *Move) Score() int {
