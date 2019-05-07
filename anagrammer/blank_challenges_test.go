@@ -14,7 +14,7 @@ func TestRacks(t *testing.T) {
 	span := gaddag.LoadGaddag("/tmp/gen_fise09.dawg")
 	engAlph := eng.GetAlphabet()
 	spanAlph := span.GetAlphabet()
-	dists := []alphabet.LetterDistribution{
+	dists := []*alphabet.LetterDistribution{
 		alphabet.EnglishLetterDistribution(),
 		alphabet.SpanishLetterDistribution(),
 	}

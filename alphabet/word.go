@@ -6,7 +6,7 @@ import (
 
 type Word struct {
 	Word    string
-	Dist    LetterDistribution
+	Dist    *LetterDistribution
 	letters []rune
 }
 

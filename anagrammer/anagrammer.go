@@ -18,10 +18,18 @@ import (
 
 type dawgInfo struct {
 	dawg *gaddag.SimpleGaddag
-	dist alphabet.LetterDistribution
+	dist *alphabet.LetterDistribution
 }
 
 var Dawgs map[string]*dawgInfo
+
+func (di *dawgInfo) GetDawg() *gaddag.SimpleGaddag {
+	return di.dawg
+}
+
+func (di *dawgInfo) GetDist() *alphabet.LetterDistribution {
+	return di.dist
+}
 
 func LoadDawgs(dawgPath string) {
 	// Load the DAWGs into memory.

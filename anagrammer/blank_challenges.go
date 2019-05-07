@@ -14,7 +14,7 @@ import (
 // try tries to generate challenges. It returns an error if it fails
 // to generate a challenge with too many or too few answers, or if
 // an answer has already been generated.
-func try(nBlanks int, dist alphabet.LetterDistribution, wordLength int,
+func try(nBlanks int, dist *alphabet.LetterDistribution, wordLength int,
 	dawg *gaddag.SimpleGaddag, maxSolutions int, answerMap map[string]bool) (
 	*Question, error) {
 
@@ -92,7 +92,7 @@ func GenerateBlanks(ctx context.Context, args *BlankChallengeArgs,
 }
 
 // genRack - Generate a random rack using `dist` and with `blanks` blanks.
-func genRack(dist alphabet.LetterDistribution, wordLength, blanks int,
+func genRack(dist *alphabet.LetterDistribution, wordLength, blanks int,
 	alph *alphabet.Alphabet) []alphabet.MachineLetter {
 
 	bag := dist.MakeBag(alph)

@@ -13,7 +13,7 @@ type LetterDistribution struct {
 	numLetters   int
 }
 
-func EnglishLetterDistribution() LetterDistribution {
+func EnglishLetterDistribution() *LetterDistribution {
 	dist := map[rune]uint8{
 		'A': 9, 'B': 2, 'C': 2, 'D': 4, 'E': 12, 'F': 2, 'G': 3, 'H': 2,
 		'I': 9, 'J': 1, 'K': 1, 'L': 4, 'M': 2, 'N': 6, 'O': 8, 'P': 2,
@@ -26,12 +26,12 @@ func EnglishLetterDistribution() LetterDistribution {
 		'Q': 10, 'R': 1, 'S': 1, 'T': 1, 'U': 1, 'V': 4, 'W': 4, 'X': 8,
 		'Y': 4, 'Z': 10, '?': 0,
 	}
-	return LetterDistribution{dist, ptValues,
+	return &LetterDistribution{dist, ptValues,
 		makeSortMap("ABCDEFGHIJKLMNOPQRSTUVWXYZ?"),
 		[]rune{'A', 'E', 'I', 'O', 'U'}, 100}
 }
 
-func SpanishLetterDistribution() LetterDistribution {
+func SpanishLetterDistribution() *LetterDistribution {
 	dist := map[rune]uint8{
 		'1': 1, '2': 1, '3': 1, // 1: CH, 2: LL, 3: RR
 		'A': 12, 'B': 2, 'C': 4, 'D': 5, 'E': 12, 'F': 1, 'G': 2, 'H': 2,
@@ -46,12 +46,12 @@ func SpanishLetterDistribution() LetterDistribution {
 		'Q': 5, 'R': 1, 'S': 1, 'T': 1, 'U': 1, 'V': 4, 'X': 8, 'Y': 4,
 		'Z': 10, '?': 0,
 	}
-	return LetterDistribution{dist, ptValues,
+	return &LetterDistribution{dist, ptValues,
 		makeSortMap("ABC1DEFGHIJL2MNÑOPQR3STUVXYZ?"),
 		[]rune{'A', 'E', 'I', 'O', 'U'}, 100}
 }
 
-func PolishLetterDistribution() LetterDistribution {
+func PolishLetterDistribution() *LetterDistribution {
 	dist := map[rune]uint8{
 		'A': 9, 'B': 2, 'C': 3, 'D': 3, 'E': 7, 'F': 1, 'G': 2, 'H': 2,
 		'I': 8, 'J': 2, 'K': 3, 'L': 3, 'Ł': 2, 'M': 3, 'N': 5, 'O': 6,
@@ -66,13 +66,13 @@ func PolishLetterDistribution() LetterDistribution {
 		'?': 0,
 		'Ą': 5, 'Ę': 5, 'Ó': 5, 'Ś': 5, 'Ż': 5, 'Ć': 6, 'Ń': 7, 'Ź': 9,
 	}
-	return LetterDistribution{dist, ptValues,
+	return &LetterDistribution{dist, ptValues,
 		makeSortMap("AĄBCĆDEĘFGHIJKLŁMNŃOÓPRSŚTUWYZŹŻ?"),
 		[]rune{'A', 'Ą', 'E', 'Ę', 'I', 'O', 'Ó', 'U', 'Y'}, 100}
 }
 
 // MakeBag returns a bag of tiles.
-func (ld LetterDistribution) MakeBag(alph *Alphabet) *Bag {
+func (ld *LetterDistribution) MakeBag(alph *Alphabet) *Bag {
 	bag := make([]MachineLetter, ld.numLetters)
 	idx := 0
 	for rn, val := range ld.Distribution {

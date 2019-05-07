@@ -16,18 +16,18 @@ import (
 var LexiconDir = os.Getenv("LEXICON_DIR")
 
 func TestMain(m *testing.M) {
-	if _, err := os.Stat("/tmp/gen_america2018.gaddag"); os.IsNotExist(err) {
-		gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "America2018.txt"), true, true)
-		os.Rename("out.gaddag", "/tmp/gen_america2018.gaddag")
+	if _, err := os.Stat("/tmp/gen_nwl18.gaddag"); os.IsNotExist(err) {
+		gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "NWL18.txt"), true, true)
+		os.Rename("out.gaddag", "/tmp/gen_nwl18.gaddag")
 	}
 	os.Exit(m.Run())
 }
 
 func TestCreateLeaveMap(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america2018.gaddag")
+	gd := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
 
 	sss := SimpleSynergyStrategy{}
-	err := sss.Init("America2018", gd.GetAlphabet(), "leave_values_010919_v4.csv")
+	err := sss.Init("NWL18", gd.GetAlphabet(), "leave_values_010919_v4.csv")
 	assert.Nil(t, err)
 
 	type testcase struct {
@@ -51,10 +51,10 @@ func TestCreateLeaveMap(t *testing.T) {
 }
 
 func TestSimpleSynergyLookup(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america2018.gaddag")
+	gd := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
 
 	sss := SimpleSynergyStrategy{}
-	sss.Init("America2018", gd.GetAlphabet(), "leave_values_010919_v4.csv")
+	sss.Init("NWL18", gd.GetAlphabet(), "leave_values_010919_v4.csv")
 
 	type testcase struct {
 		leave string
@@ -74,7 +74,7 @@ func TestSimpleSynergyLookup(t *testing.T) {
 }
 
 func TestPlacementAdjustment(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america2018.gaddag")
+	gd := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
 	alph := gd.GetAlphabet()
 
 	vowelPenalty := -0.7
@@ -106,10 +106,10 @@ func TestPlacementAdjustment(t *testing.T) {
 }
 
 func TestShouldExchange(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america2018.gaddag")
+	gd := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
 
 	sss := SimpleSynergyStrategy{}
-	sss.Init("America2018", gd.GetAlphabet(), "leave_values_010919_v4.csv")
+	sss.Init("NWL18", gd.GetAlphabet(), "leave_values_010919_v4.csv")
 
 	//	rack := "COTTTV?"
 	// leave1 assumes we exchange TTV
