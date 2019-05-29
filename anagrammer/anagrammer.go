@@ -18,23 +18,39 @@ import (
 
 type dawgInfo struct {
 	dawg *gaddag.SimpleGaddag
-	dist alphabet.LetterDistribution
+	dist *alphabet.LetterDistribution
 }
 
 var Dawgs map[string]*dawgInfo
 
+func (di *dawgInfo) GetDawg() *gaddag.SimpleGaddag {
+	return di.dawg
+}
+
+func (di *dawgInfo) GetDist() *alphabet.LetterDistribution {
+	return di.dist
+}
+
 func LoadDawgs(dawgPath string) {
 	// Load the DAWGs into memory.
-	lexica := []string{"NWL18", "CSW15", "FISE2", "OSPS40"}
-	Dawgs = make(map[string]*dawgInfo)
-	for _, lex := range lexica {
-		filename := filepath.Join(dawgPath, lex+".dawg")
-		if _, err := os.Stat(filename); os.IsNotExist(err) {
-			log.Println("[ERROR] File", filename, "did not exist. Continuing...")
-			continue
+	var dawgs []string
+	err := filepath.Walk(dawgPath, func(path string, info os.FileInfo, err error) error {
+		if filepath.Ext(path) != ".dawg" {
+			return nil
 		}
+		dawgs = append(dawgs, path)
+		return nil
+	})
+	if err != nil {
+		panic(err)
+	}
+	log.Println("[DEBUG] Found files in directory:", dawgs)
+	Dawgs = make(map[string]*dawgInfo)
+	for _, filename := range dawgs {
+		dawg := gaddag.LoadGaddag(filename)
+		lex := dawg.LexiconName()
 		Dawgs[lex] = &dawgInfo{}
-		Dawgs[lex].dawg = gaddag.LoadGaddag(filename)
+		Dawgs[lex].dawg = dawg
 		if strings.Contains(lex, "FISE") {
 			Dawgs[lex].dist = alphabet.SpanishLetterDistribution()
 		} else if strings.Contains(lex, "OSPS") {

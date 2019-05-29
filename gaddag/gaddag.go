@@ -185,9 +185,7 @@ func (g *SimpleGaddag) GetAlphabet() *alphabet.Alphabet {
 	return g.alphabet
 }
 
-// LexiconName returns the name of the lexicon. The name is not encoded in
-// the gaddag itself, but in the name of the file. Hopefully this isn't a big
-// problem.
+// LexiconName returns the name of the lexicon.
 func (g *SimpleGaddag) LexiconName() string {
 	return g.lexiconName
 }

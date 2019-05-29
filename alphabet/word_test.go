@@ -6,7 +6,7 @@ import (
 
 type alphagramtestpair struct {
 	word      string
-	dist      LetterDistribution
+	dist      *LetterDistribution
 	alphagram string
 }
 

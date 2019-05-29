@@ -11,10 +11,10 @@ import (
 
 func TestRacks(t *testing.T) {
 	eng := gaddag.LoadGaddag("/tmp/gen_america.dawg")
-	span := gaddag.LoadGaddag("/tmp/gen_fise09.dawg")
+	span := gaddag.LoadGaddag("/tmp/gen_fise2.dawg")
 	engAlph := eng.GetAlphabet()
 	spanAlph := span.GetAlphabet()
-	dists := []alphabet.LetterDistribution{
+	dists := []*alphabet.LetterDistribution{
 		alphabet.EnglishLetterDistribution(),
 		alphabet.SpanishLetterDistribution(),
 	}

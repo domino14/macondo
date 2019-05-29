@@ -48,14 +48,14 @@ var exactTests = []testpair{
 }
 
 var spanishBuildTests = []testpair{
-	{"AEHILORT", 319},
-	{"CINEMATOGRAPHER", 7792},
-	{"KERYGMA", 41}, // K is not in spanish alphabet though
+	{"AEHILORT", 313},
+	{"CINEMATOGRAPHER", 7765},
+	{"KERYGMA", 42}, // K is not in spanish alphabet though
 	{"LOCOFOCO", 14},
 	{"VIVIFIC", 3},
-	{"123?????", 21943},
-	{"ÑUBLADO", 64},
-	{"CA1AÑEA", 30},
+	{"123?????", 21808},
+	{"ÑUBLADO", 65},
+	{"CA1AÑEA", 25},
 	{"WKWKKWKWWK", 0},
 }
 
@@ -98,9 +98,9 @@ func TestMain(m *testing.M) {
 		gaddagmaker.GenerateDawg(filepath.Join(LexiconDir, "America.txt"), true, true)
 		os.Rename("out.dawg", "/tmp/gen_america.dawg")
 	}
-	if _, err := os.Stat("/tmp/gen_fise09.dawg"); os.IsNotExist(err) {
-		gaddagmaker.GenerateDawg(filepath.Join(LexiconDir, "FISE09.txt"), true, true)
-		os.Rename("out.dawg", "/tmp/gen_fise09.dawg")
+	if _, err := os.Stat("/tmp/gen_fise2.dawg"); os.IsNotExist(err) {
+		gaddagmaker.GenerateDawg(filepath.Join(LexiconDir, "FISE2.txt"), true, true)
+		os.Rename("out.dawg", "/tmp/gen_fise2.dawg")
 	}
 	if _, err := os.Stat("/tmp/gen_csw15.dawg"); os.IsNotExist(err) {
 		gaddagmaker.GenerateDawg(filepath.Join(LexiconDir, "CSW15.txt"), true, true)
@@ -139,7 +139,7 @@ func TestAnagram(t *testing.T) {
 }
 
 func TestAnagramSpanish(t *testing.T) {
-	d := gaddag.LoadGaddag("/tmp/gen_fise09.dawg")
+	d := gaddag.LoadGaddag("/tmp/gen_fise2.dawg")
 	for _, pair := range spanishBuildTests {
 		answers := Anagram(pair.rack, d, ModeBuild)
 		if len(answers) != pair.num {
