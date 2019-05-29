@@ -48,14 +48,14 @@ var exactTests = []testpair{
 }
 
 var spanishBuildTests = []testpair{
-	{"AEHILORT", 319},
-	{"CINEMATOGRAPHER", 7792},
-	{"KERYGMA", 41}, // K is not in spanish alphabet though
+	{"AEHILORT", 313},
+	{"CINEMATOGRAPHER", 7765},
+	{"KERYGMA", 42}, // K is not in spanish alphabet though
 	{"LOCOFOCO", 14},
 	{"VIVIFIC", 3},
-	{"123?????", 21943},
-	{"ÑUBLADO", 64},
-	{"CA1AÑEA", 30},
+	{"123?????", 21808},
+	{"ÑUBLADO", 65},
+	{"CA1AÑEA", 25},
 	{"WKWKKWKWWK", 0},
 }
 

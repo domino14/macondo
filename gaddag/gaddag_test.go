@@ -103,7 +103,7 @@ var findSpanishWordTests = []testpair{
 	{"FF", false},
 	{"ABRACADABRA", true},
 	{"EEE", false},
-	{"ABC", false},
+	{"ABC", true},
 	{"ABCD", false},
 	{"FIREFANG", false},
 	{"AÑO", true},
@@ -123,7 +123,7 @@ var findSpanishWordTests = []testpair{
 	{"ZZ", false},
 	{"ZZZ", false},
 	{"ZZZS", false},
-	{"CASITA", false},
+	{"CASITA", true},
 	{"ÑU", true},
 	{"ÑUBLADO", true},
 	{"PARIR", true},
@@ -145,9 +145,6 @@ func TestMain(m *testing.M) {
 }
 
 func TestFindPrefixMinimize(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping test in short mode")
-	}
 	gd := LoadGaddag("/tmp/gen_america.gaddag")
 	for _, pair := range findPrefixTests {
 		found := FindPrefix(gd, pair.prefix)
@@ -159,9 +156,6 @@ func TestFindPrefixMinimize(t *testing.T) {
 }
 
 func TestFindWordMinimize(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping test in short mode")
-	}
 	gd := LoadGaddag("/tmp/gen_america.gaddag")
 	for _, pair := range findWordTests {
 		found := FindWord(gd, pair.prefix)
@@ -173,9 +167,6 @@ func TestFindWordMinimize(t *testing.T) {
 }
 
 func TestFindSpanishWordMinimize(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping test in short mode")
-	}
 	gd := LoadGaddag("/tmp/gen_fise2.gaddag")
 	for _, pair := range findSpanishWordTests {
 		found := FindWord(gd, pair.prefix)
