@@ -33,13 +33,12 @@ jobs:
       - run:
           name: Install ssl
           command: apk add --update ca-certificates openssl && update-ca-certificates
-      - run: if [ ! -n "$(grep "^bitbucket.org " ~/.ssh/known_hosts)" ]; then ssh-keyscan bitbucket.org >> ~/.ssh/known_hosts 2>/dev/null; fi
+      # - run: if [ ! -n "$(grep "^bitbucket.org " ~/.ssh/known_hosts)" ]; then ssh-keyscan bitbucket.org >> ~/.ssh/known_hosts 2>/dev/null; fi
       - run:
-          name: Clone word dbs Webolith repo
-          command: git clone git@bitbucket.org:cesar_del_solar/webolith-word-dbs.git /opt/webolith-word-dbs
+          name: Clone lexicon repo
+          command: git clone git@github.com:domino14/word-game-lexica /opt/word-game-lexica
       - run: mkdir $LEXICON_DIR
-      - run: cd /opt/webolith-word-dbs && tar xzvf dbs.tar.gz
-      - run: mv /opt/webolith-word-dbs/*.txt $LEXICON_DIR
+      - run: mv /opt/word-game-lexica/*.txt $LEXICON_DIR
       - run: cp -r /go/src/github.com/domino14/macondo/data $DATA_DIR
       # specify any bash command here prefixed with `run: `
       - run: go test -v ./...
