@@ -12,7 +12,6 @@ import (
 	"runtime/pprof"
 	"time"
 
-	"github.com/domino14/macondo/anagrammer"
 	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/xwordgame"
 	"github.com/gorilla/rpc/v2"
@@ -63,14 +62,12 @@ func addTimeout(i *rpc.RequestInfo) *http.Request {
 	return i.Request
 }
 
-var dawgPath = flag.String("dawgpath", "", "path for dawgs")
 var profilePath = flag.String("profilepath", "", "path for profile")
 var noproxy = flag.Bool("noproxy", false,
 	"set this to true if running locally (no reverse proxy)")
 
 func main() {
 	flag.Parse()
-	anagrammer.LoadDawgs(*dawgPath)
 
 	if *profilePath != "" {
 		f, err := os.Create(*profilePath)
@@ -95,7 +92,6 @@ func main() {
 	s := rpc.NewServer()
 	s.RegisterCodec(json2.NewCodec(), "application/json")
 	s.RegisterService(new(gaddagmaker.GaddagService), "")
-	s.RegisterService(new(anagrammer.AnagramService), "")
 	s.RegisterService(new(xwordgame.CompVCompService), "")
 	// Need to set rpc v2 to master to use the following, in the dep toml file :/
 	// This allows us to modify the request and optionally add a context
