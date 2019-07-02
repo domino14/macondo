@@ -261,7 +261,7 @@ func (a *Alphabet) genLetterSlice() {
 		a.letterSlice = append(a.letterSlice, rn)
 	}
 	sort.Sort(a.letterSlice)
-	fmt.Println("After sorting", a.letterSlice)
+	log.Debug().Msgf("After sorting: %v", a.letterSlice)
 	// These maps are now deterministic. Renumber them according to
 	// sort order.
 	for idx, rn := range a.letterSlice {
@@ -273,7 +273,7 @@ func (a *Alphabet) genLetterSlice() {
 // Reconcile will take a populated alphabet, sort the glyphs, and re-index
 // the numbers.
 func (a *Alphabet) Reconcile() {
-	fmt.Println("[DEBUG] Reconciling alphabet")
+	log.Debug().Msg("Reconciling alphabet")
 	a.genLetterSlice()
 }
 
