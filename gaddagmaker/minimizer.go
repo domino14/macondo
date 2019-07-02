@@ -2,7 +2,9 @@
 
 package gaddagmaker
 
-import "fmt"
+import (
+	"github.com/rs/zerolog/log"
+)
 
 type NodeArr []*Node
 type NodeBucket [][]NodeArr
@@ -17,7 +19,7 @@ const (
 // It uses these values to sort the nodes into a two-dimensional array, to
 // greatly minimize the number of required comparisons.
 func (g *Gaddag) Minimize() {
-	fmt.Println("Minimizing...")
+	log.Debug().Msg("Minimizing...")
 	calculateDepth(g.Root)
 	calculateSums(g.Root)
 	// Two nodes are the same if they have the same letter sets, the same
@@ -36,9 +38,9 @@ func (g *Gaddag) Minimize() {
 		}
 		node.visited = true
 	})
-	fmt.Println("Visited", visits, "nodes")
+	log.Debug().Msgf("Visited %v nodes", visits)
 	for i := 0; i < MaxDepth; i++ {
-		fmt.Println("Depth", i, "...")
+		log.Debug().Msgf("Depth %v...", i)
 		for j := 0; j < LetterBuckets; j++ {
 			narr := bucket[i][j]
 			nNodes := len(narr)
@@ -93,7 +95,7 @@ func (g *Gaddag) Minimize() {
 	}
 	g.Root = nodeArr[0]
 	g.AllocStates = uint32(len(nodeArr))
-	fmt.Println("Number of arcs, nodes now:", g.AllocArcs, g.AllocStates)
+	log.Debug().Msgf("Number of arcs, nodes now: %v, %v", g.AllocArcs, g.AllocStates)
 	//874624 460900
 }
 
