@@ -13,7 +13,7 @@ import (
 )
 
 func TestGenBestStaticTurn(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
 	game := &XWordGame{}
 
 	game.Init(gd)
@@ -25,7 +25,7 @@ func TestGenBestStaticTurn(t *testing.T) {
 }
 
 func TestGenBestStaticTurn2(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
 	game := &XWordGame{}
 
 	game.Init(gd)
@@ -37,7 +37,7 @@ func TestGenBestStaticTurn2(t *testing.T) {
 }
 
 func TestGenBestStaticTurn3(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
 	game := &XWordGame{}
 
 	game.Init(gd)
@@ -49,7 +49,7 @@ func TestGenBestStaticTurn3(t *testing.T) {
 }
 
 func TestGenBestStaticTurn4(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
 	game := &XWordGame{}
 
 	game.Init(gd)
@@ -61,7 +61,7 @@ func TestGenBestStaticTurn4(t *testing.T) {
 }
 
 func TestGenBestStaticTurn5(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
 	game := &XWordGame{}
 
 	game.Init(gd)
@@ -75,7 +75,7 @@ func TestGenBestStaticTurn5(t *testing.T) {
 }
 
 func TestGenBestStaticTurn6(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
 	game := &XWordGame{}
 
 	game.Init(gd)

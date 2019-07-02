@@ -1,7 +1,7 @@
 package alphabet
 
 import (
-	"log"
+	"github.com/rs/zerolog/log"
 )
 
 // Rack is a machine-friendly representation of a user's rack.
@@ -45,7 +45,7 @@ func (r *Rack) setFromStr(rack string) {
 		if err == nil {
 			r.LetArr[ml]++
 		} else {
-			log.Println("[ERROR] Rack has an illegal character: " + string(c))
+			log.Error().Msgf("Rack has an illegal character: %v", string(c))
 		}
 	}
 	if len(rack) > 0 {

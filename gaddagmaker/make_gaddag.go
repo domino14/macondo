@@ -4,18 +4,20 @@ package gaddagmaker
 import (
 	"bufio"
 	"encoding/binary"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/rs/zerolog/log"
+
 	"github.com/domino14/macondo/alphabet"
 )
 
 const (
-	GaddagMagicNumber = "cgdg"
-	DawgMagicNumber   = "cdwg"
+	GaddagMagicNumber      = "cgdg"
+	DawgMagicNumber        = "cdwg"
+	ReverseDawgMagicNumber = "rdwg"
 )
 
 // NumArcsBitLoc is the bit location where the number of arcs start.
@@ -75,7 +77,7 @@ func getWords(filename string) ([]string, *alphabet.Alphabet) {
 	alphabet.Init()
 	file, err := os.Open(filename)
 	if err != nil {
-		log.Println("[WARN] Filename", filename, "not found")
+		log.Warn().Msgf("Filename %v not found", filename)
 		return nil, &alphabet
 	}
 	scanner := bufio.NewScanner(file)
@@ -159,7 +161,7 @@ func (node *Node) addArc(c rune, g *Gaddag) *Node {
 func (node *Node) addFinalArc(c1 rune, c2 rune, g *Gaddag) *Node {
 	nextNode := node.addArc(c1, g)
 	if nextNode.containsLetter(c2, g) {
-		log.Fatal("[ERROR] Containsletter", nextNode, c2)
+		log.Fatal().Msgf("Containsletter %v %v", nextNode, c2)
 	}
 
 	letterVal, err := g.Alphabet.Val(c2)
@@ -177,14 +179,14 @@ func (node *Node) forceArc(c rune, forceState *Node, g *Gaddag) {
 	arc := node.containsArc(c)
 	if arc != nil {
 		if arc.destination != forceState {
-			log.Fatal("[ERROR] Arc already existed pointing elsewhere")
+			log.Fatal().Msg("Arc already existed pointing elsewhere")
 		} else {
 			// Don't create the arc if it already exists; redundant.
 			return
 		}
 	}
 	if node.createArcFrom(c, forceState, g) != forceState {
-		log.Fatal("[ERROR] createArcFrom did not equal forceState")
+		log.Fatal().Msg("createArcFrom did not equal forceState")
 	}
 }
 
@@ -219,7 +221,7 @@ func (g *Gaddag) serializeLetterSets() map[alphabet.LetterSet]uint32 {
 			serializedLetterSets = append(serializedLetterSets, node.letterSet)
 		}
 	})
-	log.Println("[INFO] Number of unique letter sets", len(letterSets))
+	log.Info().Msgf("Number of unique letter sets: %v", len(letterSets))
 	g.NumLetterSets = uint32(len(letterSets))
 	g.SerializedLetterSets = serializedLetterSets
 	return letterSets
@@ -227,7 +229,7 @@ func (g *Gaddag) serializeLetterSets() map[alphabet.LetterSet]uint32 {
 
 // Serializes the elements of the gaddag into the various arrays.
 func (g *Gaddag) serializeElements() {
-	log.Println("[INFO] Serializing elements...")
+	log.Info().Msgf("Serializing elements...")
 	g.serializeAlphabet()
 	letterSets := g.serializeLetterSets()
 	count := uint32(0)
@@ -265,7 +267,7 @@ func (g *Gaddag) serializeElements() {
 	for idx, node := range missingElements {
 		g.SerializedNodes[idx] += node.indexInSerialized
 	}
-	log.Println("[INFO] Assigned", len(missingElements), "missing elements.")
+	log.Info().Msgf("Assigned %v missing elements.", len(missingElements))
 }
 
 // Save saves the GADDAG or DAWG to a file.
@@ -273,32 +275,32 @@ func (g *Gaddag) Save(filename string, magicNumber string) {
 	g.serializeElements()
 	file, err := os.Create(filename)
 	if err != nil {
-		log.Fatal("[ERROR] Could not create file: ", err)
+		log.Fatal().Err(err).Msg("Could not create file")
 	}
 	// Save it in a compressed format.
 	file.WriteString(magicNumber)
 
-	log.Printf("[INFO] Writing lexicon name: %v", g.lexiconName)
+	log.Info().Msgf("Writing lexicon name: %v", g.lexiconName)
 	bts := []byte(g.lexiconName)
 	binary.Write(file, binary.BigEndian, uint8(len(bts)))
 	binary.Write(file, binary.BigEndian, bts)
-	log.Println("[INFO] Writing serialized elements")
+	log.Info().Msg("Writing serialized elements")
 	binary.Write(file, binary.BigEndian, g.SerializedAlphabet)
-	log.Printf("[INFO] Wrote alphabet (size = %v)", g.SerializedAlphabet[0])
+	log.Info().Msgf("Wrote alphabet (size = %v)", g.SerializedAlphabet[0])
 	binary.Write(file, binary.BigEndian, g.NumLetterSets)
 	binary.Write(file, binary.BigEndian, g.SerializedLetterSets)
-	log.Printf("[INFO] Wrote letter sets (num = %v)", g.NumLetterSets)
+	log.Info().Msgf("Wrote letter sets (num = %v)", g.NumLetterSets)
 	binary.Write(file, binary.BigEndian, uint32(len(g.SerializedNodes)))
 	binary.Write(file, binary.BigEndian, g.SerializedNodes)
-	log.Printf("[INFO] Wrote nodes (num = %v)", len(g.SerializedNodes))
+	log.Info().Msgf("Wrote nodes (num = %v)", len(g.SerializedNodes))
 	file.Close()
-	log.Println("[INFO] Saved gaddag to", filename)
+	log.Info().Msgf("Saved gaddag to %v", filename)
 }
 
 // GenerateDawg makes a GADDAG with only one permutation of letters
 // allowed per word, the spelled-out permutation. We still treat it for
 // all intents and purposes as a GADDAG, but note that it only has one path!
-func GenerateDawg(filename string, minimize bool, writeToFile bool) *Gaddag {
+func GenerateDawg(filename string, minimize bool, writeToFile bool, reverse bool) *Gaddag {
 	gaddag := &Gaddag{}
 	words, alphabet := getWords(filename)
 	if words == nil {
@@ -307,15 +309,26 @@ func GenerateDawg(filename string, minimize bool, writeToFile bool) *Gaddag {
 	gaddag.lexiconName = strings.Split(filepath.Base(filename), ".")[0]
 	gaddag.Root = gaddag.createNode()
 	gaddag.Alphabet = alphabet
-	log.Println("[INFO] Read", len(words), "words")
+	log.Info().Msgf("Read %v words", len(words))
+	if reverse {
+		log.Info().Msgf("Generating reverse dawg")
+	}
+
 	for idx, word := range words {
 
 		if idx%10000 == 0 {
-			log.Printf("[DEBUG] %d...\n", idx)
+			log.Debug().Msgf("%d...", idx)
 		}
 		st := gaddag.Root
 		// Create path for a1..an-1:
 		wordRunes := []rune(word)
+
+		if reverse {
+			for left, right := 0, len(wordRunes)-1; left < right; left, right = left+1, right-1 {
+				wordRunes[left], wordRunes[right] = wordRunes[right], wordRunes[left]
+			}
+		}
+
 		n := len(wordRunes)
 		for j := 0; j < n-2; j++ {
 			st = st.addArc(wordRunes[j], gaddag)
@@ -323,7 +336,7 @@ func GenerateDawg(filename string, minimize bool, writeToFile bool) *Gaddag {
 
 		st = st.addFinalArc(wordRunes[n-2], wordRunes[n-1], gaddag)
 	}
-	log.Printf("[INFO] Allocated arcs: %d states: %d\n", gaddag.AllocArcs,
+	log.Info().Msgf("Allocated arcs: %d states: %d", gaddag.AllocArcs,
 		gaddag.AllocStates)
 	// We need to also sort the arcs alphabetically prior to minimization/
 	// serialization.
@@ -333,10 +346,14 @@ func GenerateDawg(filename string, minimize bool, writeToFile bool) *Gaddag {
 	if minimize {
 		gaddag.Minimize()
 	} else {
-		log.Println("[INFO] Not minimizing.")
+		log.Info().Msg("Not minimizing.")
 	}
 	if writeToFile {
-		gaddag.Save("out.dawg", DawgMagicNumber)
+		mn := DawgMagicNumber
+		if reverse {
+			mn = ReverseDawgMagicNumber
+		}
+		gaddag.Save("out.dawg", mn)
 	}
 	return gaddag
 }
@@ -352,10 +369,10 @@ func GenerateGaddag(filename string, minimize bool, writeToFile bool) *Gaddag {
 	gaddag.lexiconName = strings.Split(filepath.Base(filename), ".")[0]
 	gaddag.Root = gaddag.createNode()
 	gaddag.Alphabet = alph
-	log.Println("[INFO] Read", len(words), "words")
+	log.Info().Msgf("Read %v words", len(words))
 	for idx, word := range words {
 		if idx%10000 == 0 {
-			log.Printf("[DEBUG] %d...\n", idx)
+			log.Debug().Msgf("%d...", idx)
 		}
 		st := gaddag.Root
 		// Create path for anan-1...a1:
@@ -384,7 +401,7 @@ func GenerateGaddag(filename string, minimize bool, writeToFile bool) *Gaddag {
 			st.forceArc(wordRunes[m+1], forceSt, gaddag)
 		}
 	}
-	log.Printf("[INFO] Allocated arcs: %d states: %d\n", gaddag.AllocArcs,
+	log.Info().Msgf("Allocated arcs: %d states: %d", gaddag.AllocArcs,
 		gaddag.AllocStates)
 	// We need to also sort the arcs alphabetically prior to minimization/
 	// serialization.
@@ -394,7 +411,7 @@ func GenerateGaddag(filename string, minimize bool, writeToFile bool) *Gaddag {
 	if minimize {
 		gaddag.Minimize()
 	} else {
-		log.Println("[INFO] Not minimizing.")
+		log.Info().Msg("Not minimizing.")
 	}
 	if writeToFile {
 		gaddag.Save("out.gaddag", GaddagMagicNumber)

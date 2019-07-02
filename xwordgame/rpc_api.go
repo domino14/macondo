@@ -38,7 +38,7 @@ func (c *CompVCompService) Play(r *http.Request, args *CompVCompServiceArgs,
 		return errors.New("missing or bad auth token")
 	}
 
-	gd := gaddag.LoadGaddag(path.Join(GaddagDir, args.LexiconName+".gaddag"))
+	gd, _ := gaddag.LoadGaddag(path.Join(GaddagDir, args.LexiconName+".gaddag"))
 	if gd.Nodes == nil {
 		return errors.New("GADDAG did not seem to exist")
 	}

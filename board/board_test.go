@@ -20,7 +20,7 @@ func BenchmarkBoardTranspose(b *testing.B) {
 }
 
 func TestUpdateAnchors(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 
 	b := MakeBoard(CrosswordGameBoard)
 	b.SetToGame(gd.GetAlphabet(), VsEd)

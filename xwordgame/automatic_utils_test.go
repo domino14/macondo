@@ -21,7 +21,7 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 func TestCompVsCompStatic(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
 	logchan := make(chan string)
 	game := &XWordGame{logchan: logchan}
 	var wg sync.WaitGroup
@@ -47,7 +47,7 @@ func TestCompVsCompStatic(t *testing.T) {
 }
 
 func BenchmarkCompVsCompStatic(b *testing.B) {
-	gd := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		game := &XWordGame{}
@@ -56,7 +56,7 @@ func BenchmarkCompVsCompStatic(b *testing.B) {
 }
 
 func BenchmarkPlayFullStatic(b *testing.B) {
-	gd := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
 	game := &XWordGame{}
 	game.Init(gd)
 	for i := 0; i < b.N; i++ {

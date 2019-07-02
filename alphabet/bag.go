@@ -2,8 +2,9 @@ package alphabet
 
 import (
 	"fmt"
-	"log"
 	"math/rand"
+
+	"github.com/rs/zerolog/log"
 )
 
 // A Bag is the bag o'tiles!
@@ -90,7 +91,7 @@ func (b *Bag) remove(t MachineLetter) {
 			return
 		}
 	}
-	log.Fatalf("Tile %c not found in bag", t)
+	log.Fatal().Msgf("Tile %c not found in bag", t)
 }
 
 // RemoveTiles removes the given tiles from the bag.
@@ -102,7 +103,7 @@ func (b *Bag) RemoveTiles(tiles []MachineLetter) {
 			b.remove(t)
 		}
 	}
-	log.Printf("Removed %v tiles", len(tiles))
+	log.Debug().Msgf("Removed %v tiles", len(tiles))
 }
 
 func NewBag(tiles []MachineLetter, numUniqueTiles int,

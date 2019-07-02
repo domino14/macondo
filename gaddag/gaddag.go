@@ -4,8 +4,10 @@ package gaddag
 
 import (
 	"encoding/binary"
-	"log"
+	"errors"
 	"os"
+
+	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddagmaker"
@@ -40,61 +42,36 @@ type SimpleGaddag struct {
 }
 
 // Ensure the magic number matches.
-func compareMagic(bytes [4]uint8) bool {
+func compareMagicGaddag(bytes [4]uint8) bool {
 	cast := string(bytes[:])
-	return cast == gaddagmaker.GaddagMagicNumber || cast == gaddagmaker.DawgMagicNumber
+	return cast == gaddagmaker.GaddagMagicNumber
 }
 
-// LoadGaddag loads a gaddag from a file and returns the slice of nodes.
-func LoadGaddag(filename string) *SimpleGaddag {
-	log.Println("Loading", filename, "...")
+// LoadGaddag loads a gaddag from a file and returns a *SimpleGaddag structure.
+func LoadGaddag(filename string) (*SimpleGaddag, error) {
+	log.Debug().Msgf("Loading %v ...", filename)
 	file, err := os.Open(filename)
 	if err != nil {
-		log.Println("[ERROR] Could not open gaddag", err)
-		return nil
+		return nil, err
 	}
 	var magicStr [4]uint8
 	binary.Read(file, binary.BigEndian, &magicStr)
 
-	if !compareMagic(magicStr) {
-		log.Println("[ERROR] Magic number does not match")
-		return nil
+	if !compareMagicGaddag(magicStr) {
+		return nil, errors.New("magic number does not match gaddag")
 	}
 
-	var lexNameLen uint8
-	binary.Read(file, binary.BigEndian, &lexNameLen)
-	lexName := make([]byte, lexNameLen)
-	binary.Read(file, binary.BigEndian, &lexName)
-	log.Printf("[INFO] Read lexicon name: '%v'", string(lexName))
-
-	var alphabetSize, lettersetSize, nodeSize uint32
-
-	binary.Read(file, binary.BigEndian, &alphabetSize)
-	log.Println("[DEBUG] Alphabet size: ", alphabetSize)
-	alphabetArr := make([]uint32, alphabetSize)
-	binary.Read(file, binary.BigEndian, &alphabetArr)
-
-	binary.Read(file, binary.BigEndian, &lettersetSize)
-	log.Println("[DEBUG] LetterSet size: ", lettersetSize)
-	letterSets := make([]alphabet.LetterSet, lettersetSize)
-	binary.Read(file, binary.BigEndian, letterSets)
-
-	binary.Read(file, binary.BigEndian, &nodeSize)
-	log.Println("[DEBUG] Nodes size: ", nodeSize)
-	nodes := make([]uint32, nodeSize)
-	binary.Read(file, binary.BigEndian, &nodes)
-	file.Close()
+	nodes, letterSets, alphabetArr, lexName := loadCommonDagStructure(file)
 
 	g := &SimpleGaddag{Nodes: nodes, LetterSets: letterSets,
 		alphabet:    alphabet.FromSlice(alphabetArr),
 		lexiconName: string(lexName)}
-	return g
+	return g, nil
 }
 
 // ArcToIdxLetter finds the index of the node pointed to by this arc and
 // returns it and the letter.
 func (g *SimpleGaddag) ArcToIdxLetter(arcIdx uint32) (uint32, alphabet.MachineLetter) {
-	// log.Printf("[DEBUG] ArcToIdxLetter called with %v", arcIdx)
 	letterCode := alphabet.MachineLetter(g.Nodes[arcIdx] >> gaddagmaker.LetterBitLoc)
 	return g.Nodes[arcIdx] & gaddagmaker.NodeIdxBitMask, letterCode
 }
