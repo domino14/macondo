@@ -38,6 +38,9 @@ func LoadDawgs(dawgPath string) {
 		if filepath.Ext(path) != ".dawg" {
 			return nil
 		}
+		if strings.Contains(path, "-r.dawg") {
+			return nil
+		}
 		dawgs = append(dawgs, path)
 		return nil
 	})
