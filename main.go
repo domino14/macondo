@@ -12,7 +12,6 @@ import (
 	"runtime/pprof"
 	"time"
 
-	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/xwordgame"
 	"github.com/gorilla/rpc/v2"
 	"github.com/gorilla/rpc/v2/json2"
@@ -91,7 +90,6 @@ func main() {
 	fmt.Println("Listening on http://localhost:8088/")
 	s := rpc.NewServer()
 	s.RegisterCodec(json2.NewCodec(), "application/json")
-	s.RegisterService(new(gaddagmaker.GaddagService), "")
 	s.RegisterService(new(xwordgame.CompVCompService), "")
 	// Need to set rpc v2 to master to use the following, in the dep toml file :/
 	// This allows us to modify the request and optionally add a context
@@ -99,7 +97,6 @@ func main() {
 	s.RegisterInterceptFunc(addTimeout)
 
 	http.Handle("/rpc", s)
-	http.Handle("/macondo/rpc", s)
 
 	server := &http.Server{Addr: ":8088", Handler: nil}
 

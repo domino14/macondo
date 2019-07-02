@@ -13,7 +13,6 @@ func main() {
 	filename := flag.String("filename", "", "filename of the word list")
 
 	flag.Parse()
-	var maker func(string, bool, bool) *gaddagmaker.Gaddag
 	if *structtype == "gaddag" {
 		gaddagmaker.GenerateGaddag(*filename, *minimize, true)
 	} else if *structtype == "dawg" {
