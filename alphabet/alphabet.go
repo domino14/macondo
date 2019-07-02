@@ -2,9 +2,10 @@ package alphabet
 
 import (
 	"fmt"
-	"log"
 	"sort"
 	"unicode"
+
+	"github.com/rs/zerolog/log"
 )
 
 const (
@@ -285,7 +286,7 @@ func (a *Alphabet) Serialize() []uint32 {
 		// Append the rune
 		els = append(els, uint32(rn))
 	}
-	log.Println("[DEBUG] Serializing", els)
+	log.Debug().Msgf("Serializing %v", els)
 	return els
 }
 

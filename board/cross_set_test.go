@@ -71,7 +71,7 @@ type crossSetTestCase struct {
 }
 
 func TestGenCrossSetLoadedGame(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	b := MakeBoard(CrosswordGameBoard)
 	alph := gd.GetAlphabet()
 	dist := alphabet.EnglishLetterDistribution()
@@ -115,7 +115,7 @@ type crossSetEdgeTestCase struct {
 }
 
 func TestGenCrossSetEdges(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 	dist := alphabet.EnglishLetterDistribution()
 	bag := dist.MakeBag(gd.GetAlphabet())
@@ -157,7 +157,7 @@ func TestGenCrossSetEdges(t *testing.T) {
 }
 
 func TestGenAllCrossSets(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 	dist := alphabet.EnglishLetterDistribution()
 	bag := dist.MakeBag(gd.GetAlphabet())
@@ -233,7 +233,7 @@ func TestGenAllCrossSets(t *testing.T) {
 }
 
 func TestBoardsEqual(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 	dist := alphabet.EnglishLetterDistribution()
 	bag := dist.MakeBag(gd.GetAlphabet())
@@ -252,7 +252,7 @@ func TestBoardsEqual(t *testing.T) {
 }
 
 func TestPlaceMoveTiles(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	b := MakeBoard(CrosswordGameBoard)
 	alph := gd.GetAlphabet()
 
@@ -266,7 +266,7 @@ func TestPlaceMoveTiles(t *testing.T) {
 }
 
 func TestUnplaceMoveTiles(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	b := MakeBoard(CrosswordGameBoard)
 	alph := gd.GetAlphabet()
 
@@ -287,7 +287,7 @@ type updateCrossesForMoveTestCase struct {
 }
 
 func TestUpdateCrossSetsForMove(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 	dist := alphabet.EnglishLetterDistribution()
 	bag := dist.MakeBag(gd.GetAlphabet())
@@ -340,7 +340,7 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 }
 
 func TestRestoreFromBackup(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 	dist := alphabet.EnglishLetterDistribution()
 	bag := dist.MakeBag(gd.GetAlphabet())
@@ -379,7 +379,7 @@ func TestRestoreFromBackup(t *testing.T) {
 }
 
 func TestUpdateSingleCrossSet(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 	dist := alphabet.EnglishLetterDistribution()
 	bag := dist.MakeBag(gd.GetAlphabet())
@@ -408,7 +408,7 @@ func TestUpdateSingleCrossSet(t *testing.T) {
 }
 
 func BenchmarkGenAnchorsAndCrossSets(b *testing.B) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 	dist := alphabet.EnglishLetterDistribution()
 	bag := dist.MakeBag(alph)
@@ -426,7 +426,7 @@ func BenchmarkGenAnchorsAndCrossSets(b *testing.B) {
 func BenchmarkMakePlay(b *testing.B) {
 	// Mostly, benchmark the progressive generation of anchors and cross-sets
 	// (as opposed to generating all of them from scratch)
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 	dist := alphabet.EnglishLetterDistribution()
 	bag := dist.MakeBag(gd.GetAlphabet())

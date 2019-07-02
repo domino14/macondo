@@ -7,23 +7,23 @@
 package anagrammer
 
 import (
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
+	"github.com/rs/zerolog/log"
 )
 
 type dawgInfo struct {
-	dawg *gaddag.SimpleGaddag
+	dawg *gaddag.SimpleDawg
 	dist *alphabet.LetterDistribution
 }
 
 var Dawgs map[string]*dawgInfo
 
-func (di *dawgInfo) GetDawg() *gaddag.SimpleGaddag {
+func (di *dawgInfo) GetDawg() *gaddag.SimpleDawg {
 	return di.dawg
 }
 
@@ -44,10 +44,10 @@ func LoadDawgs(dawgPath string) {
 	if err != nil {
 		panic(err)
 	}
-	log.Println("[DEBUG] Found files in directory:", dawgs)
+	log.Debug().Msgf("Found files in directory: %v", dawgs)
 	Dawgs = make(map[string]*dawgInfo)
 	for _, filename := range dawgs {
-		dawg := gaddag.LoadGaddag(filename)
+		dawg, _ := gaddag.LoadDawg(filename)
 		lex := dawg.LexiconName()
 		Dawgs[lex] = &dawgInfo{}
 		Dawgs[lex].dawg = dawg
@@ -77,12 +77,12 @@ type AnagramStruct struct {
 	numLetters int
 }
 
-func Anagram(letters string, gd *gaddag.SimpleGaddag, mode AnagramMode) []string {
+func Anagram(letters string, d *gaddag.SimpleDawg, mode AnagramMode) []string {
 
 	letters = strings.ToUpper(letters)
 	answerList := []string{}
 	runes := []rune(letters)
-	alph := gd.GetAlphabet()
+	alph := d.GetAlphabet()
 	rack := alphabet.RackFromString(letters, alph)
 
 	ahs := &AnagramStruct{
@@ -93,7 +93,7 @@ func Anagram(letters string, gd *gaddag.SimpleGaddag, mode AnagramMode) []string
 	stopChan := make(chan struct{})
 
 	go func() {
-		anagram(ahs, gd, gd.GetRootNodeIndex(), "", rack)
+		anagram(ahs, d, d.GetRootNodeIndex(), "", rack)
 		close(stopChan)
 	}()
 	<-stopChan
@@ -122,13 +122,13 @@ func dedupeAndTransformAnswers(answerList []string, alph *alphabet.Alphabet) []s
 	return answerStrings
 }
 
-func anagramHelper(letter alphabet.MachineLetter, gd *gaddag.SimpleGaddag,
+func anagramHelper(letter alphabet.MachineLetter, d *gaddag.SimpleDawg,
 	ahs *AnagramStruct, nodeIdx uint32, answerSoFar string, rack *alphabet.Rack) {
 
 	var nextNodeIdx uint32
 	var nextLetter alphabet.MachineLetter
 
-	if gd.InLetterSet(letter, nodeIdx) {
+	if d.InLetterSet(letter, nodeIdx) {
 		toCheck := answerSoFar + string(letter)
 		if ahs.mode == ModeBuild || (ahs.mode == ModeExact &&
 			len(toCheck) == ahs.numLetters) {
@@ -137,16 +137,16 @@ func anagramHelper(letter alphabet.MachineLetter, gd *gaddag.SimpleGaddag,
 		}
 	}
 
-	numArcs := gd.NumArcs(nodeIdx)
+	numArcs := d.NumArcs(nodeIdx)
 	for i := byte(1); i <= numArcs; i++ {
-		nextNodeIdx, nextLetter = gd.ArcToIdxLetter(nodeIdx + uint32(i))
+		nextNodeIdx, nextLetter = d.ArcToIdxLetter(nodeIdx + uint32(i))
 		if letter == nextLetter {
-			anagram(ahs, gd, nextNodeIdx, answerSoFar+string(letter), rack)
+			anagram(ahs, d, nextNodeIdx, answerSoFar+string(letter), rack)
 		}
 	}
 }
 
-func anagram(ahs *AnagramStruct, gd *gaddag.SimpleGaddag, nodeIdx uint32,
+func anagram(ahs *AnagramStruct, d *gaddag.SimpleDawg, nodeIdx uint32,
 	answerSoFar string, rack *alphabet.Rack) {
 
 	for idx, val := range rack.LetArr {
@@ -155,13 +155,13 @@ func anagram(ahs *AnagramStruct, gd *gaddag.SimpleGaddag, nodeIdx uint32,
 		}
 		rack.LetArr[idx]--
 		if idx == BlankPos {
-			nlet := alphabet.MachineLetter(gd.GetAlphabet().NumLetters())
+			nlet := alphabet.MachineLetter(d.GetAlphabet().NumLetters())
 			for i := alphabet.MachineLetter(0); i < nlet; i++ {
-				anagramHelper(i, gd, ahs, nodeIdx, answerSoFar, rack)
+				anagramHelper(i, d, ahs, nodeIdx, answerSoFar, rack)
 			}
 		} else {
 			letter := alphabet.MachineLetter(idx)
-			anagramHelper(letter, gd, ahs, nodeIdx, answerSoFar, rack)
+			anagramHelper(letter, d, ahs, nodeIdx, answerSoFar, rack)
 		}
 
 		rack.LetArr[idx]++

@@ -24,7 +24,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestCreateLeaveMap(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
 
 	sss := SimpleSynergyStrategy{}
 	err := sss.Init("NWL18", gd.GetAlphabet(), "leave_values_010919_v4.csv")
@@ -51,7 +51,7 @@ func TestCreateLeaveMap(t *testing.T) {
 }
 
 func TestSimpleSynergyLookup(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
 
 	sss := SimpleSynergyStrategy{}
 	sss.Init("NWL18", gd.GetAlphabet(), "leave_values_010919_v4.csv")
@@ -74,7 +74,7 @@ func TestSimpleSynergyLookup(t *testing.T) {
 }
 
 func TestPlacementAdjustment(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
 	alph := gd.GetAlphabet()
 
 	vowelPenalty := -0.7
@@ -106,7 +106,7 @@ func TestPlacementAdjustment(t *testing.T) {
 }
 
 func TestShouldExchange(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
 
 	sss := SimpleSynergyStrategy{}
 	sss.Init("NWL18", gd.GetAlphabet(), "leave_values_010919_v4.csv")

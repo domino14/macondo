@@ -52,7 +52,7 @@ func nonScoringPlays(moves []*move.Move) []*move.Move {
 
 func TestGenBase(t *testing.T) {
 	// Sanity check. A board with no cross checks should generate nothing.
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	rack := alphabet.RackFromString("AEINRST", gd.GetAlphabet())
 
 	generator := newGordonGenHardcode(gd)
@@ -77,7 +77,7 @@ type SimpleGenTestCase struct {
 }
 
 func TestSimpleRowGen(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 
 	var cases = []SimpleGenTestCase{
 		{"P", 11, 2, "     REGNANT", 1},
@@ -111,7 +111,7 @@ func TestSimpleRowGen(t *testing.T) {
 
 func TestGenThroughBothWaysAllowedLetters(t *testing.T) {
 	// Basically, allow HITHERMOST but not NETHERMOST.
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	rack := alphabet.RackFromString("ABEHINT", gd.GetAlphabet())
 
 	generator := newGordonGenHardcode(gd)
@@ -139,7 +139,7 @@ func TestGenThroughBothWaysAllowedLetters(t *testing.T) {
 }
 
 func TestRowGen(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	generator := newGordonGenHardcode(gd)
 	generator.SetBoardToGame(gd.GetAlphabet(), board.VsEd)
 
@@ -165,7 +165,7 @@ func TestRowGen(t *testing.T) {
 }
 
 func TestOtherRowGen(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	generator := newGordonGenHardcode(gd)
 	generator.SetBoardToGame(gd.GetAlphabet(), board.VsMatt)
 
@@ -187,7 +187,7 @@ func TestOtherRowGen(t *testing.T) {
 }
 
 func TestGenMoveJustOnce(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 
 	generator := newGordonGenHardcode(gd)
@@ -212,7 +212,7 @@ func TestGenMoveJustOnce(t *testing.T) {
 }
 
 func TestGenAllMovesSingleTile(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 
 	generator := newGordonGenHardcode(gd)
@@ -222,7 +222,7 @@ func TestGenAllMovesSingleTile(t *testing.T) {
 }
 
 func TestGenAllMovesFullRack(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 
 	generator := newGordonGenHardcode(gd)
@@ -239,7 +239,7 @@ func TestGenAllMovesFullRack(t *testing.T) {
 }
 
 func TestGenAllMovesFullRackAgain(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 
 	generator := newGordonGenHardcode(gd)
@@ -251,7 +251,7 @@ func TestGenAllMovesFullRackAgain(t *testing.T) {
 }
 
 func TestGenAllMovesSingleBlank(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 
 	generator := newGordonGenHardcode(gd)
@@ -264,7 +264,7 @@ func TestGenAllMovesSingleBlank(t *testing.T) {
 	assert.Equal(t, 1, len(nonScoringPlays(generator.plays)))
 }
 func TestGenAllMovesTwoBlanksOnly(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 
 	generator := newGordonGenHardcode(gd)
@@ -281,7 +281,7 @@ func TestGenAllMovesTwoBlanksOnly(t *testing.T) {
 }
 
 func TestGenAllMovesWithBlanks(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 
 	generator := newGordonGenHardcode(gd)
@@ -309,7 +309,7 @@ func TestGenAllMovesWithBlanks(t *testing.T) {
 }
 
 func TestGiantTwentySevenTimer(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 
 	generator := newGordonGenHardcode(gd)
@@ -323,7 +323,7 @@ func TestGiantTwentySevenTimer(t *testing.T) {
 }
 
 func TestGenerateEmptyBoard(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 	generator := newGordonGenHardcode(gd)
 	generator.board.UpdateAllAnchors()
@@ -335,7 +335,7 @@ func TestGenerateEmptyBoard(t *testing.T) {
 }
 
 func TestGenerateNoPlays(t *testing.T) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 
 	generator := newGordonGenHardcode(gd)
@@ -348,7 +348,7 @@ func TestGenerateNoPlays(t *testing.T) {
 }
 
 func BenchmarkGenEmptyBoard(b *testing.B) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -360,7 +360,7 @@ func BenchmarkGenEmptyBoard(b *testing.B) {
 }
 
 func BenchmarkGenFullRack(b *testing.B) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -372,7 +372,7 @@ func BenchmarkGenFullRack(b *testing.B) {
 }
 
 func BenchmarkGenOneBlank(b *testing.B) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -384,7 +384,7 @@ func BenchmarkGenOneBlank(b *testing.B) {
 }
 
 func BenchmarkGenBothBlanks(b *testing.B) {
-	gd := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

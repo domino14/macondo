@@ -1,8 +1,6 @@
 package alphabet
 
-import (
-	"log"
-)
+import "github.com/rs/zerolog/log"
 
 // LetterDistribution encodes the tile distribution for the relevant game.
 type LetterDistribution struct {
@@ -79,7 +77,7 @@ func (ld *LetterDistribution) MakeBag(alph *Alphabet) *Bag {
 		for j := uint8(0); j < val; j++ {
 			val, err := alph.Val(rn)
 			if err != nil {
-				log.Fatalf("Attempt to initialize bag failed: %v", err)
+				log.Fatal().Msgf("Attempt to initialize bag failed: %v", err)
 			}
 			bag[idx] = val
 			idx++
