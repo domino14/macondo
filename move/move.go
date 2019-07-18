@@ -107,7 +107,7 @@ func NewScoringMove(score int, tiles alphabet.MachineWord,
 func NewScoringMoveSimple(score int, coords string, word string, leave string,
 	alph *alphabet.Alphabet) *Move {
 
-	row, col, vertical := fromBoardGameCoords(coords)
+	row, col, vertical := FromBoardGameCoords(coords)
 
 	tiles, err := alphabet.ToMachineWord(word, alph)
 	if err != nil {
@@ -229,8 +229,8 @@ func ToBoardGameCoords(row int, col int, vertical bool) string {
 	return coords
 }
 
-// fromBoardGameCoords does the inverse operation of ToBoardGameCoords above.
-func fromBoardGameCoords(c string) (int, int, bool) {
+// FromBoardGameCoords does the inverse operation of ToBoardGameCoords above.
+func FromBoardGameCoords(c string) (int, int, bool) {
 	vMatches := reVertical.FindStringSubmatch(c)
 	var row, col int
 	var vertical bool
