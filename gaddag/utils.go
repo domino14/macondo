@@ -82,6 +82,11 @@ func reverse(word string) []rune {
 	return runes
 }
 
+// FindPrefix finds a partial word in the Dawg.
+func FindPrefix(d *SimpleDawg, prefix string) bool {
+	return findPartialWord(d, d.GetRootNodeIndex(), []rune(strings.ToUpper(prefix)), 0)
+}
+
 // findPartialWord returns a boolean indicating if the given partial word is
 // in the dawg.
 // above.
