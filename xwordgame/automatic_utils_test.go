@@ -21,7 +21,10 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 func TestCompVsCompStatic(t *testing.T) {
-	gd, _ := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	if err != nil {
+		t.Errorf("expected err to be nil, got %v", err)
+	}
 	logchan := make(chan string)
 	game := &XWordGame{logchan: logchan}
 	var wg sync.WaitGroup
