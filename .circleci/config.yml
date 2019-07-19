@@ -5,7 +5,7 @@ version: 2
 jobs:
   build:
     environment:
-      LEXICON_PATH: /opt/db/
+      LEXICON_PATH: /opt/lexica/
       DATA_DIR: /opt/data/
       AUTH_KEY: abcdef
     docker:
@@ -30,7 +30,7 @@ jobs:
       - run: mv /opt/word-game-lexica/*.txt $LEXICON_PATH
       - run: cp -r /opt/macondo/data $DATA_DIR
       - run: go build
-      - run: go test -v ./...
+      - run: go test ./...
 
 workflows:
   version: 2
