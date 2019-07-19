@@ -40,7 +40,7 @@ jobs:
       - run: mkdir $LEXICON_PATH
       - run: mv /opt/word-game-lexica/*.txt $LEXICON_PATH
       - run: cp -r /go/src/github.com/domino14/macondo/data $DATA_DIR
-      # specify any bash command here prefixed with `run: `
+      - run: go build
       - run: go test -v ./...
 
 workflows:
