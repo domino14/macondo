@@ -13,7 +13,7 @@ import (
 )
 
 func TestGenBestStaticTurn(t *testing.T) {
-	gd, err := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
+	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
 	if err != nil {
 		t.Errorf("expected err to be nil, got %v", err)
 	}
@@ -28,7 +28,7 @@ func TestGenBestStaticTurn(t *testing.T) {
 }
 
 func TestGenBestStaticTurn2(t *testing.T) {
-	gd, err := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
+	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
 	if err != nil {
 		t.Errorf("expected err to be nil, got %v", err)
 	}
@@ -43,7 +43,7 @@ func TestGenBestStaticTurn2(t *testing.T) {
 }
 
 func TestGenBestStaticTurn3(t *testing.T) {
-	gd, err := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
+	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
 	if err != nil {
 		t.Errorf("expected err to be nil, got %v", err)
 	}
@@ -58,7 +58,7 @@ func TestGenBestStaticTurn3(t *testing.T) {
 }
 
 func TestGenBestStaticTurn4(t *testing.T) {
-	gd, err := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
+	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
 	if err != nil {
 		t.Errorf("expected err to be nil, got %v", err)
 	}
@@ -73,7 +73,7 @@ func TestGenBestStaticTurn4(t *testing.T) {
 }
 
 func TestGenBestStaticTurn5(t *testing.T) {
-	gd, err := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
+	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
 	if err != nil {
 		t.Errorf("expected err to be nil, got %v", err)
 	}
@@ -90,7 +90,7 @@ func TestGenBestStaticTurn5(t *testing.T) {
 }
 
 func TestGenBestStaticTurn6(t *testing.T) {
-	gd, err := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
+	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
 	if err != nil {
 		t.Errorf("expected err to be nil, got %v", err)
 	}
