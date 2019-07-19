@@ -1,7 +1,7 @@
 FROM golang:alpine
 ENV GOPATH=/go
-ADD . /go/src/github.com/domino14/macondo
-WORKDIR /go/src/github.com/domino14/macondo
+ADD . /opt/macondo
+WORKDIR /opt/macondo
 RUN go build
 
 EXPOSE 8088

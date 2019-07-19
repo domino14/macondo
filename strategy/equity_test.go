@@ -13,18 +13,18 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-var LexiconDir = os.Getenv("LEXICON_DIR")
+var LexiconDir = os.Getenv("LEXICON_PATH")
 
 func TestMain(m *testing.M) {
-	if _, err := os.Stat("/tmp/gen_nwl18.gaddag"); os.IsNotExist(err) {
+	if _, err := os.Stat("/tmp/nwl18.gaddag"); os.IsNotExist(err) {
 		gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "NWL18.txt"), true, true)
-		os.Rename("out.gaddag", "/tmp/gen_nwl18.gaddag")
+		os.Rename("out.gaddag", "/tmp/nwl18.gaddag")
 	}
 	os.Exit(m.Run())
 }
 
 func TestCreateLeaveMap(t *testing.T) {
-	gd, _ := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
 
 	sss := SimpleSynergyStrategy{}
 	err := sss.Init("NWL18", gd.GetAlphabet(), "leave_values_010919_v4.csv")
@@ -51,7 +51,7 @@ func TestCreateLeaveMap(t *testing.T) {
 }
 
 func TestSimpleSynergyLookup(t *testing.T) {
-	gd, _ := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
 
 	sss := SimpleSynergyStrategy{}
 	sss.Init("NWL18", gd.GetAlphabet(), "leave_values_010919_v4.csv")
@@ -74,7 +74,7 @@ func TestSimpleSynergyLookup(t *testing.T) {
 }
 
 func TestPlacementAdjustment(t *testing.T) {
-	gd, _ := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
 	alph := gd.GetAlphabet()
 
 	vowelPenalty := -0.7
@@ -106,7 +106,7 @@ func TestPlacementAdjustment(t *testing.T) {
 }
 
 func TestShouldExchange(t *testing.T) {
-	gd, _ := gaddag.LoadGaddag("/tmp/gen_nwl18.gaddag")
+	gd, _ := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
 
 	sss := SimpleSynergyStrategy{}
 	sss.Init("NWL18", gd.GetAlphabet(), "leave_values_010919_v4.csv")
