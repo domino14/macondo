@@ -11,7 +11,7 @@ import (
 	"github.com/domino14/macondo/gaddagmaker"
 )
 
-var LexiconDir = os.Getenv("LEXICON_DIR")
+var LexiconDir = os.Getenv("LEXICON_PATH")
 
 func TestMain(m *testing.M) {
 	if _, err := os.Stat("/tmp/nwl18.gaddag"); os.IsNotExist(err) {

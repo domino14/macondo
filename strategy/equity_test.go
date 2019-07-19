@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-var LexiconDir = os.Getenv("LEXICON_DIR")
+var LexiconDir = os.Getenv("LEXICON_PATH")
 
 func TestMain(m *testing.M) {
 	if _, err := os.Stat("/tmp/gen_nwl18.gaddag"); os.IsNotExist(err) {

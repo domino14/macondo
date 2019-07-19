@@ -8,7 +8,7 @@ import (
 	"github.com/domino14/macondo/gaddagmaker"
 )
 
-var LexiconDir = os.Getenv("LEXICON_DIR")
+var LexiconDir = os.Getenv("LEXICON_PATH")
 
 type testpair struct {
 	prefix string
