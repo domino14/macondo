@@ -8,7 +8,7 @@ import (
 	"github.com/domino14/macondo/movegen"
 )
 
-// Solver is an interface for an endgame solver. The scores don't matter, this
+// Solver is an interface for an endgame solver. The scores don't matter, the
 // solver maximizes spread.
 type Solver interface {
 	Init(board *board.GameBoard, movegen *movegen.GordonGenerator,
