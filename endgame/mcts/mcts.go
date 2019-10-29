@@ -36,7 +36,10 @@ type Solver struct {
 	bag     *alphabet.Bag
 
 	totalNodes int
+	nodes      map[stateHistory]*mctsNode
 }
+
+type stateHistory string
 
 type mctsNode struct {
 	move *move.Move // or a description, to save space?
@@ -64,4 +67,19 @@ func (s *Solver) Init(board *board.GameBoard, movegen *movegen.GordonGenerator,
 // Solve solves the endgame.
 func (s *Solver) Solve(playerOnTurn, opponent *alphabet.Rack) *move.Move {
 	return nil
+}
+
+func (s *Solver) makeMCTSNode(board *board.Board, rack *alphabet.Rack,
+	hash stateHistory) {
+	// Make a mctsNode from the given board position.
+	if n := s.nodes[hash]; n == nil {
+		// Generate all moves for the current player.
+		s.movegen.GenAll(rack)
+		node := &mctsNode{
+			parent:          nil,
+			move:            nil,
+			state:           state,
+			unexpandedPlays: genPlays,
+		}
+	}
 }

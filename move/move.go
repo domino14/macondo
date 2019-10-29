@@ -29,7 +29,7 @@ type Move struct {
 	score       int
 	equity      float64
 	desc        string
-	coords      string
+	coords      string //25 so far
 	tiles       alphabet.MachineWord
 	leave       alphabet.MachineWord
 	rowStart    int
