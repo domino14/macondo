@@ -1,4 +1,4 @@
-package xwordgame
+package automatic
 
 import (
 	"context"

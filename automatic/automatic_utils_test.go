@@ -1,4 +1,4 @@
-package xwordgame
+package automatic
 
 import (
 	"log"
@@ -26,13 +26,13 @@ func TestCompVsCompStatic(t *testing.T) {
 		t.Errorf("expected err to be nil, got %v", err)
 	}
 	logchan := make(chan string)
-	game := &XWordGame{logchan: logchan}
+	runner := &GameRunner{logchan: logchan}
 	var wg sync.WaitGroup
 	wg.Add(1)
 
 	go func() {
 		defer wg.Done()
-		game.CompVsCompStatic(gd)
+		runner.CompVsCompStatic(gd)
 		close(logchan)
 	}()
 
@@ -44,8 +44,8 @@ func TestCompVsCompStatic(t *testing.T) {
 
 	wg.Wait()
 
-	if game.turnnum < 6 {
-		t.Errorf("Expected game.turnnum < 6, got %v", game.turnnum)
+	if runner.game.Turn() < 6 {
+		t.Errorf("Expected game.turnnum < 6, got %v", runner.game.Turn())
 	}
 }
 
@@ -53,16 +53,16 @@ func BenchmarkCompVsCompStatic(b *testing.B) {
 	gd, _ := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		game := &XWordGame{}
-		game.CompVsCompStatic(gd)
+		runner := &GameRunner{}
+		runner.CompVsCompStatic(gd)
 	}
 }
 
 func BenchmarkPlayFullStatic(b *testing.B) {
 	gd, _ := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
-	game := &XWordGame{}
-	game.Init(gd)
+	runner := &GameRunner{}
+	runner.Init(gd)
 	for i := 0; i < b.N; i++ {
-		game.playFullStatic()
+		runner.playFullStatic()
 	}
 }

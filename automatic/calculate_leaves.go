@@ -1,4 +1,4 @@
-package xwordgame
+package automatic
 
 // Leave calculation code. Rough methodology:
 // 1) Collect rack, score, tiles in bag for many millions of racks (see automatic_utils.go)
