@@ -16,16 +16,20 @@ import (
         return the heuristic value of node
     if maximizingPlayer then
         value := −∞
-        for each child of node do
-            value := max(value, alphabeta(child, depth − 1, α, β, FALSE))
+		for each child of node do
+			play(child)
+			value := max(value, alphabeta(child, depth − 1, α, β, FALSE))
+			unplayLastMove()
             α := max(α, value)
             if α ≥ β then
                 break (* β cut-off *)
         return value
     else
         value := +∞
-        for each child of node do
-            value := min(value, alphabeta(child, depth − 1, α, β, TRUE))
+		for each child of node do
+			play(child)
+			value := min(value, alphabeta(child, depth − 1, α, β, TRUE))
+			unplayLastMove()
             β := min(β, value)
             if α ≥ β then
                 break (* α cut-off *)

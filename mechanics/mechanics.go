@@ -128,6 +128,22 @@ func (g *XWordGame) PlayMove(m *move.Move) {
 	g.turnnum++
 }
 
+// UnplayLastMove is a tricky but crucial function for any sort of simming /
+// minimax search / etc. It restores the state after playing a move, without
+// having to store a giant amount of data. The alternative is to store the entire
+// game state with every node which quickly becomes unfeasible.
+func (g *XWordGame) UnplayLastMove() {
+	// Things that need to be restored after a move:
+	// The current user turn
+	// The bag tiles
+	// The board state (including cross-checks / anchors)
+	// The scores
+	// The player racks
+	// The clock (in the future? May never be needed)
+	// The scoreless turns
+	// Turn number
+}
+
 func (g *XWordGame) calculateRackPts(onturn int) int {
 	// Calculate the number of pts on the player with the `onturn` rack.
 	rack := g.players[onturn].rack
