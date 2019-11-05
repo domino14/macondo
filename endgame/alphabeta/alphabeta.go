@@ -4,8 +4,7 @@ package alphabeta
 
 import (
 	"github.com/domino14/macondo/alphabet"
-	"github.com/domino14/macondo/board"
-	"github.com/domino14/macondo/gaddag"
+	"github.com/domino14/macondo/mechanics"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/rs/zerolog/log"
@@ -43,9 +42,7 @@ const (
 // Solver implements the minimax + alphabeta algorithm.
 type Solver struct {
 	movegen    *movegen.GordonGenerator
-	board      *board.GameBoard
-	gd         *gaddag.SimpleGaddag
-	bag        *alphabet.Bag
+	game       *mechanics.XWordGame
 	totalNodes int
 }
 
@@ -102,14 +99,9 @@ func (g *gameNode) calculateValue() {
 }
 
 // Init initializes the solver
-func (s *Solver) Init(board *board.GameBoard, movegen *movegen.GordonGenerator,
-	bag *alphabet.Bag, gd *gaddag.SimpleGaddag) {
-
-	s.board = board
+func (s *Solver) Init(movegen *movegen.GordonGenerator, game *mechanics.XWordGame) {
 	s.movegen = movegen
-	s.bag = bag
-	s.gd = gd
-
+	s.game = game
 	s.totalNodes = 0
 }
 

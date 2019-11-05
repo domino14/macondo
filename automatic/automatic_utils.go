@@ -34,7 +34,7 @@ func (r *GameRunner) playFullStatic() {
 	r.StartGame()
 	for r.game.Playing() {
 		log.Printf("[DEBUG] turn %v", r.game.Turn())
-		r.PlayBestStaticTurn(r.game.Turn())
+		r.PlayBestStaticTurn(r.game.PlayerOnTurn())
 	}
 	if r.gamechan != nil {
 		r.gamechan <- r.game.Board().ToDisplayText(r.game.Alphabet())

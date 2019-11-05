@@ -22,7 +22,8 @@ type player struct {
 	points      int
 }
 
-// XWordGame encapsulates the various components of a crossword game
+// XWordGame encapsulates the various components of a crossword game. At
+// any given time it can be thought of as the current state of a game.
 type XWordGame struct {
 	onturn             int
 	turnnum            int
@@ -165,8 +166,14 @@ func (g *XWordGame) Uuid() uuid.UUID {
 	return g.uuid
 }
 
+// Turn returns the current turn number.
 func (g *XWordGame) Turn() int {
 	return g.turnnum
+}
+
+// PlayerOnTurn returns the current player index whose turn it is.
+func (g *XWordGame) PlayerOnTurn() int {
+	return g.onturn
 }
 
 func (g *XWordGame) Playing() bool {

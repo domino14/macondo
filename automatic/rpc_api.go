@@ -3,6 +3,7 @@ package automatic
 import (
 	"context"
 	"errors"
+	"log"
 	"os"
 	"path"
 
@@ -15,6 +16,7 @@ var LexiconPath = os.Getenv("LEXICON_PATH")
 type Server struct{}
 
 func (s *Server) Play(ctx context.Context, args *pb.PlayRequest) (*pb.PlayResponse, error) {
+	log.Println("Got args", args)
 
 	gd, _ := gaddag.LoadGaddag(path.Join(LexiconPath, "gaddag", args.LexiconName+".gaddag"))
 	if gd.Nodes == nil {
