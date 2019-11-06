@@ -10,6 +10,7 @@ import (
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/move"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 )
 
 // A player plays crossword game. This is a very minimal structure that only
@@ -85,10 +86,12 @@ func copyPlayers(players []*player) []*player {
 	// Make a deep copy of the player slice.
 	p := make([]*player, len(players))
 	for idx := range players {
-		p[idx].name = players[idx].name
-		p[idx].points = players[idx].points
-		p[idx].rack = players[idx].rack.Copy()
-		p[idx].rackLetters = players[idx].rackLetters
+		p[idx] = &player{
+			name:        players[idx].name,
+			points:      players[idx].points,
+			rack:        players[idx].rack.Copy(),
+			rackLetters: players[idx].rackLetters,
+		}
 	}
 	return p
 }
@@ -99,6 +102,8 @@ func (g *XWordGame) PlayMove(m *move.Move, backup bool) {
 	// This allows us to backtrack / undo moves for simulations/etc.
 
 	if backup {
+		log.Debug().Msgf("Going to play move %v, backing up state players %v, %v", m,
+			g.players[0], g.players[1])
 		g.stBackup.playing = g.playing // probably true, lol
 		g.stBackup.scorelessTurns = g.scorelessTurns
 		g.stBackup.lastWasPass = m.Action() == move.MoveTypePass
@@ -213,6 +218,15 @@ func (g *XWordGame) Board() *board.GameBoard {
 
 func (g *XWordGame) SetRackFor(playerID int, rack *alphabet.Rack) {
 	g.players[playerID].rack = rack
+	g.players[playerID].rackLetters = rack.String()
+}
+
+func (g *XWordGame) SetPointsFor(playerID int, pts int) {
+	g.players[playerID].points = pts
+}
+
+func (g *XWordGame) SetNameFor(playerID int, name string) {
+	g.players[playerID].name = name
 }
 
 func (g *XWordGame) RackFor(playerID int) *alphabet.Rack {
@@ -241,8 +255,16 @@ func (g *XWordGame) PlayerOnTurn() int {
 	return g.onturn
 }
 
+func (g *XWordGame) SetPlayerOnTurn(playerID int) {
+	g.onturn = playerID
+}
+
 func (g *XWordGame) Playing() bool {
 	return g.playing
+}
+
+func (g *XWordGame) SetPlaying(p bool) {
+	g.playing = p
 }
 
 func (g *XWordGame) Alphabet() *alphabet.Alphabet {

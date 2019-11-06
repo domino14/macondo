@@ -80,6 +80,7 @@ func (g *gameNode) value(s *Solver) int {
 		g.calculateValue(s)
 		g.calculatedValue = true
 	}
+	log.Debug().Msgf("heuristic value of node %v is %v", g, g.heuristicValue)
 	return g.heuristicValue
 }
 
@@ -132,6 +133,8 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α int, β int,
 	if depth == 0 || !s.game.Playing() {
 		// s.game.Playing() happens if the game is over; i.e. if the
 		// current node is terminal.
+		log.Debug().Msgf("ending recursion, depth: %v, playing: %v",
+			depth, s.game.Playing())
 		return node.move, node.value(s)
 	}
 	// Generate children if they don't exist.

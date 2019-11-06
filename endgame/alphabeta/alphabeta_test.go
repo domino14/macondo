@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/rs/zerolog/log"
+
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/gaddag"
@@ -14,7 +16,7 @@ import (
 	"github.com/domino14/macondo/strategy"
 )
 
-var LexiconDir = os.Getenv("LEXICON_DIR")
+var LexiconDir = os.Getenv("LEXICON_PATH")
 
 func TestMain(m *testing.M) {
 	if _, err := os.Stat("/tmp/gen_america.gaddag"); os.IsNotExist(err) {
@@ -25,7 +27,10 @@ func TestMain(m *testing.M) {
 }
 
 func TestSolveComplex(t *testing.T) {
-	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, err := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	if err != nil {
+		t.Errorf("Expected error to be nil, got %v", err)
+	}
 	dist := alphabet.EnglishLetterDistribution()
 
 	game := &mechanics.XWordGame{}
@@ -45,5 +50,13 @@ func TestSolveComplex(t *testing.T) {
 	s.Init(generator, game)
 	ourRack := alphabet.RackFromString("EFHIKOQ", alph)
 	theirRack := alphabet.RackFromString("WZ", alph)
-	// game.
+	game.SetRackFor(1, ourRack)
+	game.SetRackFor(0, theirRack)
+	game.SetPointsFor(1, 331)
+	game.SetPointsFor(0, 427)
+	game.SetPlayerOnTurn(1)
+	game.SetPlaying(true)
+	m := s.Solve()
+	log.Info().Msgf("move: %v", m)
+	t.Fail()
 }
