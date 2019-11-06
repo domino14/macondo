@@ -3,7 +3,6 @@
 package alphabeta
 
 import (
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/mechanics"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
@@ -54,14 +53,7 @@ type Solver struct {
 // to be reconstructed.
 type gameNode struct {
 	// the move corresponding to the node is the move that is being evaluated.
-	move *move.Move
-	// each node has an entire representation of the game state, prior to making
-	// the `move`. This may have to be changed if there are memory concerns.
-	// state *board.GameBoard
-	// the `rack` that this move is made from.
-	rack *alphabet.Rack
-	// the opponent's rack
-	oppRack         *alphabet.Rack
+	move            *move.Move
 	heuristicValue  int
 	calculatedValue bool
 	parent          *gameNode
@@ -83,23 +75,22 @@ func min(x, y int) int {
 	return y
 }
 
-func (g *gameNode) isTerminal() bool {
-
-	return false
-}
-
-func (g *gameNode) value() int {
+func (g *gameNode) value(s *Solver) int {
 	if !g.calculatedValue {
-		g.calculateValue()
+		g.calculateValue(s)
 		g.calculatedValue = true
 	}
 	return g.heuristicValue
 }
 
-func (g *gameNode) calculateValue() {
+func (g *gameNode) calculateValue(s *Solver) {
 	// calculate the heuristic value of this node, and store it.
-	// if the player is out it's easy.
-	g.heuristicValue = 2
+	// Right now the heuristic is JUST going to be the current spread.
+	// note that because of the way we track state, it is the state
+	// in the solver right now.
+	player := s.game.PlayerOnTurn()
+	otherPlayer := (player + 1) % (s.game.NumPlayers())
+	g.heuristicValue = s.game.PointsFor(player) - s.game.PointsFor(otherPlayer)
 }
 
 // Init initializes the solver
@@ -109,29 +100,26 @@ func (s *Solver) Init(movegen *movegen.GordonGenerator, game *mechanics.XWordGam
 	s.totalNodes = 0
 }
 
-func (s *Solver) generateMoves(rack *alphabet.Rack, oppRack *alphabet.Rack,
-	parent *gameNode) []*gameNode {
-	s.movegen.GenAll(rack)
+func (s *Solver) generateChildrenNodes(parent *gameNode) []*gameNode {
+	s.movegen.GenAll(s.game.RackFor(s.game.PlayerOnTurn()))
 	children := []*gameNode{}
 	for _, m := range s.movegen.Plays() {
 		children = append(children, &gameNode{
-			move:    m,
-			rack:    rack,
-			oppRack: oppRack,
-			parent:  parent,
+			move:   m,
+			parent: parent,
 		})
 	}
 	return children
 }
 
-// Solve solves the endgame
-func (s *Solver) Solve(playerOnTurn, opponent *alphabet.Rack) *move.Move {
+// Solve solves the endgame given the current state of s.game, for the
+// current player whose turn it is in that state.
+func (s *Solver) Solve() *move.Move {
 	// Generate children moves.
-	s.movegen.SetSortingParameter(movegen.SortByScore)
+	s.movegen.SetSortingParameter(movegen.SortByEndgameHeuristic)
 	defer s.movegen.SetSortingParameter(movegen.SortByEquity)
-	s.movegen.GenAll(playerOnTurn)
+
 	n := &gameNode{}
-	n.children = s.generateMoves(playerOnTurn, opponent, n)
 	// Look 6 plies for now. This might still be very slow.
 	m, v := s.alphabeta(n, 6, -Infinity, Infinity, true)
 	log.Debug().Msgf("m %v, v %v", m, v)
@@ -141,19 +129,24 @@ func (s *Solver) Solve(playerOnTurn, opponent *alphabet.Rack) *move.Move {
 func (s *Solver) alphabeta(node *gameNode, depth int, α int, β int,
 	maximizingPlayer bool) (*move.Move, int) {
 
-	if depth == 0 || node.isTerminal() {
-		return node.move, node.value()
+	if depth == 0 || !s.game.Playing() {
+		// s.game.Playing() happens if the game is over; i.e. if the
+		// current node is terminal.
+		return node.move, node.value(s)
 	}
 	// Generate children if they don't exist.
 	if node.children == nil {
-		node.children = s.generateMoves(node.rack, node.oppRack, node)
+		node.children = s.generateChildrenNodes(node)
 	}
 
 	if maximizingPlayer {
 		value := -Infinity
 		var tm *move.Move
 		for _, child := range node.children {
+			// Play the child
+			s.game.PlayMove(child.move, true)
 			m, v := s.alphabeta(child, depth-1, α, β, false)
+			s.game.UnplayLastMove()
 			if v > value {
 				value = v
 				tm = m
@@ -169,7 +162,9 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α int, β int,
 	value := Infinity
 	var tm *move.Move
 	for _, child := range node.children {
+		s.game.PlayMove(child.move, true)
 		m, v := s.alphabeta(child, depth-1, α, β, true)
+		s.game.UnplayLastMove()
 		if v < value {
 			value = v
 			tm = m

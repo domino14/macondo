@@ -25,6 +25,7 @@ type SortBy int
 const (
 	SortByScore SortBy = iota
 	SortByEquity
+	SortByEndgameHeuristic
 )
 
 // GordonGenerator is the main move generation struct. It implements
@@ -302,6 +303,18 @@ func (gen *GordonGenerator) dedupeAndSortPlays() {
 		})
 	case SortByScore:
 		sort.Slice(gen.plays, func(i, j int) bool {
+			return gen.plays[i].Score() > gen.plays[j].Score()
+		})
+	case SortByEndgameHeuristic:
+		// Good fast endgame heuristics:
+		// Gets rid of the most tiles, scores the most
+		// Harder to calculate:
+		// keeps an out in two spots, blocks opp's highest / best play, or
+		// their only spot for a certain tile.
+		sort.Slice(gen.plays, func(i, j int) bool {
+			if gen.plays[i].Score() == gen.plays[j].Score() {
+				return gen.plays[i].TilesPlayed() > gen.plays[j].TilesPlayed()
+			}
 			return gen.plays[i].Score() > gen.plays[j].Score()
 		})
 	}

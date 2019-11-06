@@ -15,6 +15,8 @@ type Bag struct {
 	alphabet       *Alphabet
 	// scores is a slice of ordered scores, in machine letter order.
 	scores []int
+
+	backupTiles []MachineLetter
 }
 
 // Refill refills the bag.
@@ -25,16 +27,16 @@ func (b *Bag) Refill() {
 
 // DrawAtMost draws at most n tiles from the bag. It can draw fewer if there
 // are fewer tiles than n, and even draw no tiles at all :o
-func (b *Bag) DrawAtMost(n int) []MachineLetter {
+func (b *Bag) DrawAtMost(n int, backup bool) []MachineLetter {
 	if n > len(b.tiles) {
 		n = len(b.tiles)
 	}
-	drawn, _ := b.Draw(n)
+	drawn, _ := b.Draw(n, backup)
 	return drawn
 }
 
 // Draw draws n tiles from the bag.
-func (b *Bag) Draw(n int) ([]MachineLetter, error) {
+func (b *Bag) Draw(n int, backup bool) ([]MachineLetter, error) {
 	if n > len(b.tiles) {
 		return nil, fmt.Errorf("tried to draw %v tiles, tile bag has %v",
 			n, len(b.tiles))
@@ -42,6 +44,12 @@ func (b *Bag) Draw(n int) ([]MachineLetter, error) {
 	drawn := make([]MachineLetter, n)
 	for i := 0; i < n; i++ {
 		drawn[i] = b.tiles[i]
+	}
+	if backup {
+		if len(b.tiles) > 0 {
+			b.backupTiles = make([]MachineLetter, len(b.tiles))
+			copy(b.backupTiles, b.tiles)
+		}
 	}
 	b.tiles = b.tiles[n:]
 	return drawn, nil
@@ -55,8 +63,8 @@ func (b *Bag) Shuffle() {
 }
 
 // Exchange exchanges the junk in your rack with new tiles.
-func (b *Bag) Exchange(letters []MachineLetter) ([]MachineLetter, error) {
-	newTiles, err := b.Draw(len(letters))
+func (b *Bag) Exchange(letters []MachineLetter, backup bool) ([]MachineLetter, error) {
+	newTiles, err := b.Draw(len(letters), backup)
 	if err != nil {
 		return nil, err
 	}
@@ -106,6 +114,13 @@ func (b *Bag) RemoveTiles(tiles []MachineLetter) {
 	log.Debug().Msgf("Removed %v tiles", len(tiles))
 }
 
+func (b *Bag) RestoreFromBackup() {
+	if len(b.backupTiles) > 0 {
+		b.tiles = make([]MachineLetter, len(b.backupTiles))
+		copy(b.tiles, b.backupTiles)
+	}
+}
+
 func NewBag(tiles []MachineLetter, numUniqueTiles int,
 	alphabet *Alphabet, scores []int) *Bag {
 
@@ -115,5 +130,7 @@ func NewBag(tiles []MachineLetter, numUniqueTiles int,
 		numUniqueTiles: numUniqueTiles,
 		alphabet:       alphabet,
 		scores:         scores,
+
+		backupTiles: nil,
 	}
 }

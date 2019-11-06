@@ -31,6 +31,19 @@ func (r *Rack) String() string {
 	return r.TilesOn().UserVisible(r.alphabet)
 }
 
+// Copy returns a deep copy of this rack
+func (r *Rack) Copy() *Rack {
+	n := &Rack{
+		empty:      r.empty,
+		numLetters: r.numLetters,
+		alphabet:   r.alphabet,
+		repr:       r.repr,
+	}
+	n.LetArr = make([]int, len(r.LetArr))
+	copy(n.LetArr, r.LetArr)
+	return n
+}
+
 // RackFromString creates a Rack from a string and an alphabet
 func RackFromString(rack string, a *Alphabet) *Rack {
 	r := &Rack{}
