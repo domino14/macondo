@@ -133,10 +133,14 @@ func (b *Bag) Copy() *Bag {
 	}
 }
 
-// CopyFrom copies back the tiles from another bag into this bag. It
-// is a shallow copy.
+// CopyFrom copies back the tiles from another bag into this bag.
 func (b *Bag) CopyFrom(other *Bag) {
-	// It's ok to make this a shallow copy. The GC will work its magic.
-	// Only copy tiles over; the other stuff is assumed to be fine.
-	b.tiles = other.tiles
+	// This is a deep copy and can be kind of wasteful, but we don't use
+	// the bag often.
+	if len(other.tiles) == 0 {
+		b.tiles = []MachineLetter{}
+		return
+	}
+	b.tiles = make([]MachineLetter, len(other.tiles))
+	copy(b.tiles, other.tiles)
 }

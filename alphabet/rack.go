@@ -44,6 +44,15 @@ func (r *Rack) Copy() *Rack {
 	return n
 }
 
+func (r *Rack) CopyFrom(other *Rack) {
+	r.empty = other.empty
+	r.numLetters = other.numLetters
+	r.alphabet = other.alphabet
+	r.repr = other.repr
+	// These will always be the same size: MaxAlphabetSize + 1
+	copy(r.LetArr, other.LetArr)
+}
+
 // RackFromString creates a Rack from a string and an alphabet
 func RackFromString(rack string, a *Alphabet) *Rack {
 	r := &Rack{}

@@ -82,14 +82,14 @@ func newGordonGenHardcode(gd *gaddag.SimpleGaddag) *GordonGenerator {
 }
 
 // NewGordonGenerator returns a Gordon move generator.
-func NewGordonGenerator(gd *gaddag.SimpleGaddag, bag *alphabet.Bag,
-	board *board.GameBoard, strategy strategy.Strategizer) *GordonGenerator {
+func NewGordonGenerator(game *mechanics.XWordGame, strategy strategy.Strategizer) *GordonGenerator {
 
 	gen := &GordonGenerator{
-		gaddag:             gd,
-		board:              board,
-		bag:                bag,
-		numPossibleLetters: int(gd.GetAlphabet().NumLetters()),
+		game:               game,
+		gaddag:             game.Gaddag(),
+		board:              game.Board(),
+		bag:                game.Bag(),
+		numPossibleLetters: int(game.Alphabet().NumLetters()),
 		strategy:           strategy,
 		sortingParameter:   SortByEquity,
 	}

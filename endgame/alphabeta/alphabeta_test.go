@@ -38,7 +38,7 @@ func TestSolveComplex(t *testing.T) {
 
 	generator := movegen.NewGordonGenerator(
 		// The strategy doesn't matter right here
-		gd, game.Bag(), game.Board(), &strategy.NoLeaveStrategy{},
+		game, &strategy.NoLeaveStrategy{},
 	)
 	alph := game.Alphabet()
 	// XXX: Refactor this; we should have something like:

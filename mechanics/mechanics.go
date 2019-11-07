@@ -24,6 +24,8 @@ type player struct {
 	points      int
 }
 
+type players []player
+
 // XWordGame encapsulates the various components of a crossword game. At
 // any given time it can be thought of as the current state of a game.
 type XWordGame struct {
@@ -36,7 +38,7 @@ type XWordGame struct {
 	playing            bool
 	scorelessTurns     int
 	numPossibleLetters int
-	players            []*player
+	players            players
 	uuid               uuid.UUID
 
 	stateStack []*backedupState
@@ -63,7 +65,7 @@ type backedupState struct {
 	bag            *alphabet.Bag
 	playing        bool
 	scorelessTurns int
-	players        []*player
+	players        players
 	lastWasPass    bool
 }
 
@@ -74,9 +76,9 @@ func (g *XWordGame) Init(gd *gaddag.SimpleGaddag, dist *alphabet.LetterDistribut
 	g.alph = gd.GetAlphabet()
 	g.bag = dist.MakeBag(g.alph)
 	g.gaddag = gd
-	g.players = []*player{
-		&player{alphabet.NewRack(g.alph), "", "player1", 0},
-		&player{alphabet.NewRack(g.alph), "", "player2", 0},
+	g.players = []player{
+		{alphabet.NewRack(g.alph), "", "player1", 0},
+		{alphabet.NewRack(g.alph), "", "player2", 0},
 	}
 	// The strategy and move generator are not part of the "game mechanics".
 	// These should be a level up. This module is just for the gameplay side
@@ -99,11 +101,22 @@ func (g *XWordGame) StartGame() {
 	g.playing = true
 }
 
-func copyPlayers(players []*player) []*player {
+func (ps *players) copyFrom(other players) {
+	for idx := range other {
+		// Note: this ugly pointer nonsense is purely to make this as fast
+		// as possible and avoid allocations.
+		(*ps)[idx].rack.CopyFrom(other[idx].rack)
+		(*ps)[idx].rackLetters = other[idx].rackLetters
+		(*ps)[idx].name = other[idx].name
+		(*ps)[idx].points = other[idx].points
+	}
+}
+
+func copyPlayers(ps players) players {
 	// Make a deep copy of the player slice.
-	p := make([]*player, len(players))
-	for idx, porig := range players {
-		p[idx] = &player{
+	p := make([]player, len(ps))
+	for idx, porig := range ps {
+		p[idx] = player{
 			name:        porig.name,
 			points:      porig.points,
 			rack:        porig.rack.Copy(),
@@ -204,25 +217,28 @@ func (g *XWordGame) UnplayLastMove() {
 	g.turnnum--
 	g.onturn = (g.onturn + (len(g.players) - 1)) % len(g.players)
 
-	// Do a shallow assignment here, since it was a deep copy.
-	// We don't need to copy it back.
 	g.board.CopyFrom(b.board)
 	g.bag.CopyFrom(b.bag)
 	g.playing = b.playing
-	g.players = copyPlayers(b.players)
+	g.players.copyFrom(b.players)
 	g.scorelessTurns = b.scorelessTurns
 }
 
 func (g *XWordGame) backupState() {
-	st := &backedupState{
-		board:          g.board.Copy(),
-		bag:            g.bag.Copy(),
-		playing:        g.playing,
-		scorelessTurns: g.scorelessTurns,
-		players:        copyPlayers(g.players),
-	}
-
-	g.stateStack[g.stackPtr] = st
+	// st := &backedupState{
+	// 	board:          g.board.Copy(),
+	// 	bag:            g.bag.Copy(),
+	// 	playing:        g.playing,
+	// 	scorelessTurns: g.scorelessTurns,
+	// 	players:        copyPlayers(g.players),
+	// }
+	st := g.stateStack[g.stackPtr]
+	// Copy directly.
+	st.board.CopyFrom(g.board)
+	st.bag.CopyFrom(g.bag)
+	st.playing = g.playing
+	st.scorelessTurns = g.scorelessTurns
+	st.players.copyFrom(g.players)
 	g.stackPtr++
 }
 
@@ -305,4 +321,15 @@ func (g *XWordGame) Alphabet() *alphabet.Alphabet {
 
 func (g *XWordGame) SetStateStackLength(l int) {
 	g.stateStack = make([]*backedupState, l)
+	for idx := range g.stateStack {
+		// Initialize each element of the stack now to avoid having
+		// allocations and GC.
+		g.stateStack[idx] = &backedupState{
+			board:          g.board.Copy(),
+			bag:            g.bag.Copy(),
+			playing:        g.playing,
+			scorelessTurns: g.scorelessTurns,
+			players:        copyPlayers(g.players),
+		}
+	}
 }

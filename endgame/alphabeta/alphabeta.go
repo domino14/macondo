@@ -41,7 +41,7 @@ const (
 	// Infinity is 10 million.
 	Infinity = 10000000
 	// Plies - how many to use for minimax
-	Plies = 6
+	Plies = 4
 )
 
 // Solver implements the minimax + alphabeta algorithm.
