@@ -5,12 +5,13 @@
 package mechanics
 
 import (
+	"fmt"
+
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/move"
 	"github.com/google/uuid"
-	"github.com/rs/zerolog/log"
 )
 
 // A player plays crossword game. This is a very minimal structure that only
@@ -38,11 +39,27 @@ type XWordGame struct {
 	players            []*player
 	uuid               uuid.UUID
 
-	stBackup *backedupState
+	stateStack []*backedupState
+}
+
+// String returns a helpful string representation of this state.
+func (s *XWordGame) String() string {
+	ret := ""
+	for idx, p := range s.players {
+		if idx == s.onturn {
+			ret += "*"
+		}
+		ret += fmt.Sprintf("%v holding %v (%v)", p.name, p.rackLetters,
+			p.points)
+		ret += " - "
+	}
+	ret += fmt.Sprintf(" | pl=%v slt=%v", s.playing, s.scorelessTurns)
+	return ret
 }
 
 type backedupState struct {
-	// board, bag are handled separately.
+	board          *board.GameBoard
+	bag            *alphabet.Bag
 	playing        bool
 	scorelessTurns int
 	players        []*player
@@ -63,7 +80,7 @@ func (g *XWordGame) Init(gd *gaddag.SimpleGaddag, dist *alphabet.LetterDistribut
 	// The strategy and move generator are not part of the "game mechanics".
 	// These should be a level up. This module is just for the gameplay side
 	// of things, taking turns, logic, etc.
-	g.stBackup = &backedupState{}
+	g.stateStack = make([]*backedupState, 0)
 }
 
 // StartGame resets everything and deals out the first set of tiles.
@@ -72,7 +89,7 @@ func (g *XWordGame) StartGame() {
 	// reset movegen outside of this function.
 
 	for i := 0; i < len(g.players); i++ {
-		rack, _ := g.bag.Draw(7, false)
+		rack, _ := g.bag.Draw(7)
 		g.players[i].rackLetters = alphabet.MachineWord(rack).UserVisible(g.alph)
 		g.players[i].points = 0
 		g.players[i].rack.Set(rack)
@@ -85,12 +102,12 @@ func (g *XWordGame) StartGame() {
 func copyPlayers(players []*player) []*player {
 	// Make a deep copy of the player slice.
 	p := make([]*player, len(players))
-	for idx := range players {
+	for idx, porig := range players {
 		p[idx] = &player{
-			name:        players[idx].name,
-			points:      players[idx].points,
-			rack:        players[idx].rack.Copy(),
-			rackLetters: players[idx].rackLetters,
+			name:        porig.name,
+			points:      porig.points,
+			rack:        porig.rack.Copy(),
+			rackLetters: porig.rackLetters,
 		}
 	}
 	return p
@@ -102,19 +119,12 @@ func (g *XWordGame) PlayMove(m *move.Move, backup bool) {
 	// This allows us to backtrack / undo moves for simulations/etc.
 
 	if backup {
-		log.Debug().Msgf("Going to play move %v, backing up state players %v, %v", m,
-			g.players[0], g.players[1])
-		g.stBackup.playing = g.playing // probably true, lol
-		g.stBackup.scorelessTurns = g.scorelessTurns
-		g.stBackup.lastWasPass = m.Action() == move.MoveTypePass
-		if m.Action() != move.MoveTypePass {
-			g.stBackup.players = copyPlayers(g.players)
-		}
+		g.backupState()
 	}
 
 	switch m.Action() {
 	case move.MoveTypePlay:
-		g.board.PlayMove(m, g.gaddag, g.bag, backup)
+		g.board.PlayMove(m, g.gaddag, g.bag)
 
 		score := m.Score()
 		if score != 0 {
@@ -124,7 +134,7 @@ func (g *XWordGame) PlayMove(m *move.Move, backup bool) {
 		// log.Printf("[DEBUG] Player %v played %v for %v points (equity %v, total score %v)", game.onturn, m,
 		// 	score, m.Equity(), game.players[game.onturn].points)
 		// Draw new tiles.
-		drew := g.bag.DrawAtMost(m.TilesPlayed(), backup)
+		drew := g.bag.DrawAtMost(m.TilesPlayed())
 		rack := append(drew, []alphabet.MachineLetter(m.Leave())...)
 		g.players[g.onturn].rack.Set(rack)
 		g.players[g.onturn].rackLetters = alphabet.MachineWord(rack).UserVisible(g.alph)
@@ -147,7 +157,7 @@ func (g *XWordGame) PlayMove(m *move.Move, backup bool) {
 
 	case move.MoveTypeExchange:
 		// XXX: Gross; the bag should be full of MachineLetter.
-		drew, err := g.bag.Exchange([]alphabet.MachineLetter(m.Tiles()), backup)
+		drew, err := g.bag.Exchange([]alphabet.MachineLetter(m.Tiles()))
 		if err != nil {
 			panic(err)
 		}
@@ -184,18 +194,36 @@ func (g *XWordGame) UnplayLastMove() {
 	// [x] The scoreless turns
 	// [x] Turn number
 
+	// Pop the last element, essentially.
+	b := g.stateStack[len(g.stateStack)-1]
+	g.stateStack = g.stateStack[:len(g.stateStack)-1]
+
 	// Turn number and on turn do not need to be restored from backup
 	// as they're assumed to increase logically after every turn. Just
 	// decrease them.
 	g.turnnum--
 	g.onturn = (g.onturn + (len(g.players) - 1)) % len(g.players)
-	g.board.RestoreFromBackup()
-	g.playing = g.stBackup.playing
-	g.scorelessTurns = g.stBackup.scorelessTurns
-	if !g.stBackup.lastWasPass {
-		g.players = copyPlayers(g.stBackup.players)
-		g.bag.RestoreFromBackup()
+
+	// Do a shallow assignment here, since it was a deep copy.
+	// We don't need to copy it back.
+	// GC should hopefully kill things when not needed.
+	// XXX: This could be an opportunity for speedup.
+	g.board.CopyFrom(b.board)
+	g.bag.CopyFrom(b.bag)
+	g.playing = b.playing
+	g.players = copyPlayers(b.players)
+	g.scorelessTurns = b.scorelessTurns
+}
+
+func (g *XWordGame) backupState() {
+	st := &backedupState{
+		board:          g.board.Copy(),
+		bag:            g.bag.Copy(),
+		playing:        g.playing,
+		scorelessTurns: g.scorelessTurns,
+		players:        copyPlayers(g.players),
 	}
+	g.stateStack = append(g.stateStack, st)
 }
 
 func (g *XWordGame) calculateRackPts(onturn int) int {

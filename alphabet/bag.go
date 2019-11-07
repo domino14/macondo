@@ -15,8 +15,6 @@ type Bag struct {
 	alphabet       *Alphabet
 	// scores is a slice of ordered scores, in machine letter order.
 	scores []int
-
-	backupTiles []MachineLetter
 }
 
 // Refill refills the bag.
@@ -27,16 +25,16 @@ func (b *Bag) Refill() {
 
 // DrawAtMost draws at most n tiles from the bag. It can draw fewer if there
 // are fewer tiles than n, and even draw no tiles at all :o
-func (b *Bag) DrawAtMost(n int, backup bool) []MachineLetter {
+func (b *Bag) DrawAtMost(n int) []MachineLetter {
 	if n > len(b.tiles) {
 		n = len(b.tiles)
 	}
-	drawn, _ := b.Draw(n, backup)
+	drawn, _ := b.Draw(n)
 	return drawn
 }
 
 // Draw draws n tiles from the bag.
-func (b *Bag) Draw(n int, backup bool) ([]MachineLetter, error) {
+func (b *Bag) Draw(n int) ([]MachineLetter, error) {
 	if n > len(b.tiles) {
 		return nil, fmt.Errorf("tried to draw %v tiles, tile bag has %v",
 			n, len(b.tiles))
@@ -44,12 +42,6 @@ func (b *Bag) Draw(n int, backup bool) ([]MachineLetter, error) {
 	drawn := make([]MachineLetter, n)
 	for i := 0; i < n; i++ {
 		drawn[i] = b.tiles[i]
-	}
-	if backup {
-		if len(b.tiles) > 0 {
-			b.backupTiles = make([]MachineLetter, len(b.tiles))
-			copy(b.backupTiles, b.tiles)
-		}
 	}
 	b.tiles = b.tiles[n:]
 	return drawn, nil
@@ -63,8 +55,8 @@ func (b *Bag) Shuffle() {
 }
 
 // Exchange exchanges the junk in your rack with new tiles.
-func (b *Bag) Exchange(letters []MachineLetter, backup bool) ([]MachineLetter, error) {
-	newTiles, err := b.Draw(len(letters), backup)
+func (b *Bag) Exchange(letters []MachineLetter) ([]MachineLetter, error) {
+	newTiles, err := b.Draw(len(letters))
 	if err != nil {
 		return nil, err
 	}
@@ -114,13 +106,6 @@ func (b *Bag) RemoveTiles(tiles []MachineLetter) {
 	log.Debug().Msgf("Removed %v tiles", len(tiles))
 }
 
-func (b *Bag) RestoreFromBackup() {
-	if len(b.backupTiles) > 0 {
-		b.tiles = make([]MachineLetter, len(b.backupTiles))
-		copy(b.tiles, b.backupTiles)
-	}
-}
-
 func NewBag(tiles []MachineLetter, numUniqueTiles int,
 	alphabet *Alphabet, scores []int) *Bag {
 
@@ -130,7 +115,29 @@ func NewBag(tiles []MachineLetter, numUniqueTiles int,
 		numUniqueTiles: numUniqueTiles,
 		alphabet:       alphabet,
 		scores:         scores,
-
-		backupTiles: nil,
 	}
+}
+
+// Copy copies to a new bag and returns it. Note that the initialTiles,
+// alphabet, and scores are only shallowly copied. This is fine because
+// we don't ever expect these to change after initialization.
+func (b *Bag) Copy() *Bag {
+	tiles := make([]MachineLetter, len(b.tiles))
+	copy(tiles, b.tiles)
+
+	return &Bag{
+		tiles:          tiles,
+		initialTiles:   b.initialTiles,
+		numUniqueTiles: b.numUniqueTiles,
+		alphabet:       b.alphabet,
+		scores:         b.scores,
+	}
+}
+
+// CopyFrom copies back the tiles from another bag into this bag. It
+// is a shallow copy.
+func (b *Bag) CopyFrom(other *Bag) {
+	// It's ok to make this a shallow copy. The GC will work its magic.
+	// Only copy tiles over; the other stuff is assumed to be fine.
+	b.tiles = other.tiles
 }

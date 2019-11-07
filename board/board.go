@@ -1,10 +1,6 @@
 package board
 
 import (
-	"crypto/md5"
-	"fmt"
-	"strings"
-
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/move"
@@ -40,32 +36,23 @@ type GameBoard struct {
 	squares     [][]*Square
 	transposed  bool
 	tilesPlayed int
-	// squaresBackup is a "backup" of the squares. It is not necessarily
-	// the most recent one. If we wish to run deep-ply sims we will need
-	// to be able to go back to the original board often.
-	squaresBackup     [][]*Square
-	tilesPlayedBackup int
 
-	playHistory       []string
-	playHistoryBackup []string
+	// playHistory       []string
+	// playHistoryBackup []string
 }
 
 // MakeBoard creates a board from a description string.
 func MakeBoard(desc []string) *GameBoard {
 	// Turns an array of strings into the GameBoard structure type.
 	rows := [][]*Square{}
-	rowsCopy := [][]*Square{}
 	for _, s := range desc {
 		row := []*Square{}
-		rowCopy := []*Square{}
 		for _, c := range s {
 			row = append(row, &Square{letter: alphabet.EmptySquareMarker, bonus: BonusSquare(c)})
-			rowCopy = append(rowCopy, &Square{letter: alphabet.EmptySquareMarker, bonus: BonusSquare(c)})
 		}
 		rows = append(rows, row)
-		rowsCopy = append(rowsCopy, rowCopy)
 	}
-	g := &GameBoard{squares: rows, squaresBackup: rowsCopy}
+	g := &GameBoard{squares: rows}
 	return g
 }
 
@@ -386,25 +373,12 @@ func (g *GameBoard) unplaceMoveTiles(m *move.Move) {
 	}
 }
 
-func (g *GameBoard) backupBoard() {
-	for ridx, r := range g.squares {
-		for cidx, c := range r {
-			g.squaresBackup[ridx][cidx].copyFrom(c)
-		}
-	}
-	g.tilesPlayedBackup = g.tilesPlayed
-	g.playHistoryBackup = append([]string{}, g.playHistory...)
-}
-
 // PlayMove plays a move on a board. It must place tiles on the board,
 // regenerate cross-sets and cross-points, and recalculate anchors.
-func (g *GameBoard) PlayMove(m *move.Move, gd *gaddag.SimpleGaddag, bag *alphabet.Bag,
-	backup bool) {
-	// First back up the old board.
-	if backup {
-		g.backupBoard()
-	}
-	g.playHistory = append(g.playHistory, m.ShortDescription())
+func (g *GameBoard) PlayMove(m *move.Move, gd *gaddag.SimpleGaddag,
+	bag *alphabet.Bag) {
+
+	// g.playHistory = append(g.playHistory, m.ShortDescription())
 	if m.Action() != move.MoveTypePlay {
 		return
 	}
@@ -417,22 +391,22 @@ func (g *GameBoard) PlayMove(m *move.Move, gd *gaddag.SimpleGaddag, bag *alphabe
 }
 
 // RestoreFromBackup restores the squares of this board from the backupBoard.
-func (g *GameBoard) RestoreFromBackup() {
+// func (g *GameBoard) RestoreFromBackup() {
 
-	for ridx, r := range g.squaresBackup {
-		for cidx, c := range r {
-			g.squares[ridx][cidx].copyFrom(c)
-		}
-	}
-	g.tilesPlayed = g.tilesPlayedBackup
-	g.playHistory = append([]string{}, g.playHistoryBackup...)
-}
+// 	for ridx, r := range g.squaresBackup {
+// 		for cidx, c := range r {
+// 			g.squares[ridx][cidx].copyFrom(c)
+// 		}
+// 	}
+// 	g.tilesPlayed = g.tilesPlayedBackup
+// 	g.playHistory = append([]string{}, g.playHistoryBackup...)
+// }
 
 // GameHash returns a "Hash" of this game's play history.
-func (g *GameBoard) GameHash() string {
-	joined := strings.Join(g.playHistory, ",")
-	return fmt.Sprintf("%x", md5.Sum([]byte(joined)))
-}
+// func (g *GameBoard) GameHash() string {
+// 	joined := strings.Join(g.playHistory, ",")
+// 	return fmt.Sprintf("%x", md5.Sum([]byte(joined)))
+// }
 
 // Copy returns a deep copy of this board.
 func (g *GameBoard) Copy() *GameBoard {
@@ -451,6 +425,17 @@ func (g *GameBoard) Copy() *GameBoard {
 	newg.squares = squares
 	newg.transposed = g.transposed
 	newg.tilesPlayed = g.tilesPlayed
-	newg.playHistory = append([]string{}, g.playHistory...)
+	// newg.playHistory = append([]string{}, g.playHistory...)
 	return newg
+}
+
+// CopyFrom copies the squares and other info from b back into g.
+func (g *GameBoard) CopyFrom(b *GameBoard) {
+	for ridx, r := range b.squares {
+		for cidx, c := range r {
+			g.squares[ridx][cidx].copyFrom(c)
+		}
+	}
+	g.transposed = b.transposed
+	g.tilesPlayed = b.tilesPlayed
 }
