@@ -431,11 +431,9 @@ func (g *GameBoard) Copy() *GameBoard {
 
 // CopyFrom copies the squares and other info from b back into g.
 func (g *GameBoard) CopyFrom(b *GameBoard) {
-	for ridx, r := range b.squares {
-		for cidx, c := range r {
-			g.squares[ridx][cidx].copyFrom(c)
-		}
-	}
+	// OK to be a shallow copy. Deep copies are only for backup;
+	// when restoring from stack can modify at will.
+	g.squares = b.squares
 	g.transposed = b.transposed
 	g.tilesPlayed = b.tilesPlayed
 }

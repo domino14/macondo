@@ -34,6 +34,7 @@ func TestSolveComplex(t *testing.T) {
 
 	game := &mechanics.XWordGame{}
 	game.Init(gd, dist)
+	game.SetStateStackLength(Plies)
 
 	generator := movegen.NewGordonGenerator(
 		// The strategy doesn't matter right here

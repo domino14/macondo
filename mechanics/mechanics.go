@@ -40,6 +40,7 @@ type XWordGame struct {
 	uuid               uuid.UUID
 
 	stateStack []*backedupState
+	stackPtr   int
 }
 
 // String returns a helpful string representation of this state.
@@ -80,7 +81,6 @@ func (g *XWordGame) Init(gd *gaddag.SimpleGaddag, dist *alphabet.LetterDistribut
 	// The strategy and move generator are not part of the "game mechanics".
 	// These should be a level up. This module is just for the gameplay side
 	// of things, taking turns, logic, etc.
-	g.stateStack = make([]*backedupState, 0)
 }
 
 // StartGame resets everything and deals out the first set of tiles.
@@ -195,8 +195,8 @@ func (g *XWordGame) UnplayLastMove() {
 	// [x] Turn number
 
 	// Pop the last element, essentially.
-	b := g.stateStack[len(g.stateStack)-1]
-	g.stateStack = g.stateStack[:len(g.stateStack)-1]
+	b := g.stateStack[g.stackPtr-1]
+	g.stackPtr--
 
 	// Turn number and on turn do not need to be restored from backup
 	// as they're assumed to increase logically after every turn. Just
@@ -206,8 +206,6 @@ func (g *XWordGame) UnplayLastMove() {
 
 	// Do a shallow assignment here, since it was a deep copy.
 	// We don't need to copy it back.
-	// GC should hopefully kill things when not needed.
-	// XXX: This could be an opportunity for speedup.
 	g.board.CopyFrom(b.board)
 	g.bag.CopyFrom(b.bag)
 	g.playing = b.playing
@@ -223,7 +221,9 @@ func (g *XWordGame) backupState() {
 		scorelessTurns: g.scorelessTurns,
 		players:        copyPlayers(g.players),
 	}
-	g.stateStack = append(g.stateStack, st)
+
+	g.stateStack[g.stackPtr] = st
+	g.stackPtr++
 }
 
 func (g *XWordGame) calculateRackPts(onturn int) int {
@@ -297,4 +297,8 @@ func (g *XWordGame) SetPlaying(p bool) {
 
 func (g *XWordGame) Alphabet() *alphabet.Alphabet {
 	return g.alph
+}
+
+func (g *XWordGame) SetStateStackLength(l int) {
+	g.stateStack = make([]*backedupState, l)
 }

@@ -41,7 +41,7 @@ const (
 	// Infinity is 10 million.
 	Infinity = 10000000
 	// Plies - how many to use for minimax
-	Plies = 7
+	Plies = 6
 )
 
 // Solver implements the minimax + alphabeta algorithm.
@@ -120,6 +120,7 @@ func (s *Solver) generateChildrenNodes(parent *gameNode) []*gameNode {
 			parent: parent,
 		})
 	}
+	s.totalNodes += len(children)
 	return children
 }
 
@@ -155,6 +156,7 @@ func (s *Solver) Solve() *move.Move {
 			break
 		}
 	}
+	log.Debug().Msgf("Number of expanded nodes: %v", s.totalNodes)
 
 	return m
 }
