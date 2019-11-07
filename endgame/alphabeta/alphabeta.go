@@ -41,7 +41,7 @@ const (
 	// Infinity is 10 million.
 	Infinity = 10000000
 	// Plies - how many to use for minimax
-	Plies = 6
+	Plies = 7
 )
 
 // Solver implements the minimax + alphabeta algorithm.
@@ -139,14 +139,23 @@ func (s *Solver) Solve() *move.Move {
 
 	// Look 6 plies for now. This might still be very slow.
 	m, v := s.alphabeta(n, Plies, -Infinity, Infinity, true)
-	log.Debug().Msgf("root %p, value %v", n, v)
-
-	for _, child := range n.children {
-		log.Debug().Msgf("child %p (%v): value %v", child, child.move, child.heuristicValue)
-		// for _, c2 := range child.children {
-		// 	log.Debug().Msgf("--> child %p (%v): value %v", c2, c2.move, c2.heuristicValue)
-		// }
+	log.Debug().Msgf("Best spread found: %v", v)
+	log.Debug().Msgf("Best variant found:")
+	// Go down tree and find best variation:
+	parent := n
+	for {
+		for _, child := range parent.children {
+			if child.heuristicValue == v {
+				log.Debug().Msgf("%v", child.move)
+				parent = child
+				break
+			}
+		}
+		if len(parent.children) == 0 || parent.children == nil {
+			break
+		}
 	}
+
 	return m
 }
 

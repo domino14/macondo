@@ -1,11 +1,10 @@
 package alphabeta
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
@@ -56,7 +55,7 @@ func TestSolveComplex(t *testing.T) {
 	game.SetPointsFor(0, 427)
 	game.SetPlayerOnTurn(1)
 	game.SetPlaying(true)
-	m := s.Solve()
-	log.Info().Msgf("move: %v", m)
+	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
+	s.Solve()
 	t.Fail()
 }
