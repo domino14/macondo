@@ -103,7 +103,6 @@ func (b *Bag) RemoveTiles(tiles []MachineLetter) {
 			b.remove(t)
 		}
 	}
-	log.Debug().Msgf("Removed %v tiles", len(tiles))
 }
 
 func NewBag(tiles []MachineLetter, numUniqueTiles int,

@@ -16,6 +16,7 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/gaddag"
+	"github.com/domino14/macondo/mechanics"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/strategy"
 )
@@ -32,8 +33,9 @@ const (
 // Steven A. Gordon's algorithm from his paper "A faster Scrabble Move Generation
 // Algorithm"
 type GordonGenerator struct {
-	gaddag *gaddag.SimpleGaddag
-	board  *board.GameBoard
+	// game holds the board, bag, i.e. the structures needed for the generator
+	// to do its job.
+	game *mechanics.XWordGame
 	// curRow is the current row for which we are generating moves. Note
 	// that we are always thinking in terms of rows, and columns are the
 	// current anchor column. In order to generate vertical moves, we just
@@ -46,7 +48,6 @@ type GordonGenerator struct {
 
 	tilesPlayed        int
 	plays              []*move.Move
-	bag                *alphabet.Bag
 	strategy           strategy.Strategizer
 	numPossibleLetters int
 	// The opponent's rack is here. We use this sometimes in the strategizer.
@@ -57,40 +58,36 @@ type GordonGenerator struct {
 func newGordonGenHardcode(gd *gaddag.SimpleGaddag) *GordonGenerator {
 	// Can change later
 	dist := alphabet.EnglishLetterDistribution()
-	bag := dist.MakeBag(gd.GetAlphabet())
 	strategy := &strategy.NoLeaveStrategy{}
+	game := &mechanics.XWordGame{}
+	game.Init(gd, dist)
 	gen := &GordonGenerator{
-		gaddag:             gd,
-		board:              board.MakeBoard(board.CrosswordGameBoard),
-		bag:                bag,
+		game:               game,
 		numPossibleLetters: int(gd.GetAlphabet().NumLetters()),
 		strategy:           strategy,
 		sortingParameter:   SortByEquity,
 	}
-	gen.board.SetAllCrosses()
+	gen.game.Board().SetAllCrosses()
 	return gen
 }
 
 // NewGordonGenerator returns a Gordon move generator.
-func NewGordonGenerator(gd *gaddag.SimpleGaddag, bag *alphabet.Bag,
-	board *board.GameBoard, strategy strategy.Strategizer) *GordonGenerator {
+func NewGordonGenerator(game *mechanics.XWordGame, strategy strategy.Strategizer) *GordonGenerator {
 
 	gen := &GordonGenerator{
-		gaddag:             gd,
-		board:              board,
-		bag:                bag,
-		numPossibleLetters: int(gd.GetAlphabet().NumLetters()),
+		game:               game,
+		numPossibleLetters: int(game.Alphabet().NumLetters()),
 		strategy:           strategy,
 		sortingParameter:   SortByEquity,
 	}
-	gen.board.SetAllCrosses()
+	gen.game.Board().SetAllCrosses()
 	return gen
 }
 
 // Reset resets the generator by clearing the board and refilling the bag.
 func (gen *GordonGenerator) Reset() {
-	gen.board.Clear()
-	gen.bag.Refill()
+	gen.game.Board().Clear()
+	gen.game.Bag().Refill()
 	gen.sortingParameter = SortByEquity
 }
 
@@ -110,7 +107,7 @@ func (gen *GordonGenerator) SetOppRack(r *alphabet.Rack) {
 // GenAll generates all moves on the board. It assumes anchors have already
 // been updated, as well as cross-sets / cross-scores.
 func (gen *GordonGenerator) GenAll(rack *alphabet.Rack) {
-	dim := gen.board.Dim()
+	dim := gen.game.Board().Dim()
 	gen.plays = []*move.Move{}
 	orientations := []board.BoardDirection{
 		board.HorizontalDirection, board.VerticalDirection}
@@ -123,15 +120,15 @@ func (gen *GordonGenerator) GenAll(rack *alphabet.Rack) {
 			// every loop
 			gen.lastAnchorCol = 100
 			for col := 0; col < dim; col++ {
-				if gen.board.IsAnchor(row, col, dir) {
+				if gen.game.Board().IsAnchor(row, col, dir) {
 					gen.curAnchorCol = col
 					gen.Gen(col, alphabet.MachineWord([]alphabet.MachineLetter{}),
-						rack, gen.gaddag.GetRootNodeIndex())
+						rack, gen.game.Gaddag().GetRootNodeIndex())
 					gen.lastAnchorCol = col
 				}
 			}
 		}
-		gen.board.Transpose()
+		gen.game.Board().Transpose()
 	}
 	gen.addPassAndExchangeMoves(rack)
 	gen.dedupeAndSortPlays()
@@ -143,7 +140,7 @@ func (gen *GordonGenerator) Gen(col int, word alphabet.MachineWord, rack *alphab
 
 	var csDirection board.BoardDirection
 	// If a letter L is already on this square, then GoOn...
-	curSquare := gen.board.GetSquare(gen.curRowIdx, col)
+	curSquare := gen.game.Board().GetSquare(gen.curRowIdx, col)
 	curLetter := curSquare.Letter()
 
 	if gen.vertical {
@@ -151,10 +148,10 @@ func (gen *GordonGenerator) Gen(col int, word alphabet.MachineWord, rack *alphab
 	} else {
 		csDirection = board.VerticalDirection
 	}
-	crossSet := gen.board.GetCrossSet(gen.curRowIdx, col, csDirection)
+	crossSet := gen.game.Board().GetCrossSet(gen.curRowIdx, col, csDirection)
 
 	if !curSquare.IsEmpty() {
-		nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, curLetter.Unblank())
+		nnIdx := gen.game.Gaddag().NextNodeIdx(nodeIdx, curLetter.Unblank())
 		gen.GoOn(col, curLetter, word, rack, nnIdx, nodeIdx)
 
 	} else if !rack.Empty() {
@@ -163,7 +160,7 @@ func (gen *GordonGenerator) Gen(col int, word alphabet.MachineWord, rack *alphab
 				continue
 			}
 			if crossSet.Allowed(ml) {
-				nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, ml)
+				nnIdx := gen.game.Gaddag().NextNodeIdx(nodeIdx, ml)
 				rack.Take(ml)
 				gen.tilesPlayed++
 				gen.GoOn(col, ml, word, rack, nnIdx, nodeIdx)
@@ -177,7 +174,7 @@ func (gen *GordonGenerator) Gen(col int, word alphabet.MachineWord, rack *alphab
 			// It's a blank. Loop only through letters in the cross-set.
 			for i := 0; i < gen.numPossibleLetters; i++ {
 				if crossSet.Allowed(alphabet.MachineLetter(i)) {
-					nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, alphabet.MachineLetter(i))
+					nnIdx := gen.game.Gaddag().NextNodeIdx(nodeIdx, alphabet.MachineLetter(i))
 					rack.Take(alphabet.BlankMachineLetter)
 					gen.tilesPlayed++
 					gen.GoOn(col, alphabet.MachineLetter(i).Blank(), word, rack, nnIdx, nodeIdx)
@@ -195,7 +192,7 @@ func (gen *GordonGenerator) GoOn(curCol int, L alphabet.MachineLetter, word alph
 	rack *alphabet.Rack, newNodeIdx uint32, oldNodeIdx uint32) {
 
 	if curCol <= gen.curAnchorCol {
-		if !gen.board.GetSquare(gen.curRowIdx, curCol).IsEmpty() {
+		if !gen.game.Board().GetSquare(gen.curRowIdx, curCol).IsEmpty() {
 			word = append([]alphabet.MachineLetter{alphabet.PlayedThroughMarker}, word...)
 		} else {
 			word = append([]alphabet.MachineLetter{L}, word...)
@@ -204,10 +201,10 @@ func (gen *GordonGenerator) GoOn(curCol int, L alphabet.MachineLetter, word alph
 		// roomToLeft is true unless we are right at the edge of the board.
 		//roomToLeft := true
 		noLetterDirectlyLeft := curCol == 0 ||
-			gen.board.GetSquare(gen.curRowIdx, curCol-1).IsEmpty()
+			gen.game.Board().GetSquare(gen.curRowIdx, curCol-1).IsEmpty()
 
 		// Check to see if there is a letter directly to the left.
-		if gen.gaddag.InLetterSet(L, oldNodeIdx) && noLetterDirectlyLeft && gen.tilesPlayed > 0 {
+		if gen.game.Gaddag().InLetterSet(L, oldNodeIdx) && noLetterDirectlyLeft && gen.tilesPlayed > 0 {
 			gen.RecordPlay(word, curCol, rack)
 		}
 		if newNodeIdx == 0 {
@@ -223,26 +220,26 @@ func (gen *GordonGenerator) GoOn(curCol int, L alphabet.MachineLetter, word alph
 		}
 		// Then shift direction.
 		// Get the index of the SeparationToken
-		separationNodeIdx := gen.gaddag.NextNodeIdx(newNodeIdx, alphabet.SeparationMachineLetter)
+		separationNodeIdx := gen.game.Gaddag().NextNodeIdx(newNodeIdx, alphabet.SeparationMachineLetter)
 		// Check for no letter directly left AND room to the right (of the anchor
 		// square)
-		if separationNodeIdx != 0 && noLetterDirectlyLeft && gen.curAnchorCol < gen.board.Dim()-1 {
+		if separationNodeIdx != 0 && noLetterDirectlyLeft && gen.curAnchorCol < gen.game.Board().Dim()-1 {
 			gen.Gen(gen.curAnchorCol+1, word, rack, separationNodeIdx)
 		}
 
 	} else {
-		if !gen.board.GetSquare(gen.curRowIdx, curCol).IsEmpty() {
+		if !gen.game.Board().GetSquare(gen.curRowIdx, curCol).IsEmpty() {
 			word = append(word, alphabet.PlayedThroughMarker)
 		} else {
 			word = append(word, L)
 		}
 
-		noLetterDirectlyRight := curCol == gen.board.Dim()-1 ||
-			gen.board.GetSquare(gen.curRowIdx, curCol+1).IsEmpty()
-		if gen.gaddag.InLetterSet(L, oldNodeIdx) && noLetterDirectlyRight && gen.tilesPlayed > 0 {
+		noLetterDirectlyRight := curCol == gen.game.Board().Dim()-1 ||
+			gen.game.Board().GetSquare(gen.curRowIdx, curCol+1).IsEmpty()
+		if gen.game.Gaddag().InLetterSet(L, oldNodeIdx) && noLetterDirectlyRight && gen.tilesPlayed > 0 {
 			gen.RecordPlay(word, curCol-len(word)+1, rack)
 		}
-		if newNodeIdx != 0 && curCol < gen.board.Dim()-1 {
+		if newNodeIdx != 0 && curCol < gen.game.Board().Dim()-1 {
 			// There is room to the right
 			gen.Gen(curCol+1, word, rack, newNodeIdx)
 		}
@@ -264,13 +261,13 @@ func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startCol int,
 	copy(wordCopy, word)
 
 	leave := rack.TilesOn()
-	alph := gen.gaddag.GetAlphabet()
+	alph := gen.game.Gaddag().GetAlphabet()
 	play := move.NewScoringMove(gen.scoreMove(word, startCol),
 		wordCopy, leave, gen.vertical,
 		gen.tilesPlayed, alph, row, col, coords)
 
 	if gen.sortingParameter == SortByEquity {
-		play.SetEquity(gen.strategy.Equity(play, gen.board, gen.bag, gen.oppRack))
+		play.SetEquity(gen.strategy.Equity(play, gen.game.Board(), gen.game.Bag(), gen.oppRack))
 	}
 	gen.plays = append(gen.plays, play)
 }
@@ -342,12 +339,12 @@ func (gen *GordonGenerator) scoreMove(word alphabet.MachineWord, col int) int {
 
 	for idx, rn := range word {
 		ml := alphabet.MachineLetter(rn)
-		bonusSq := gen.board.GetBonus(gen.curRowIdx, col+idx)
+		bonusSq := gen.game.Board().GetBonus(gen.curRowIdx, col+idx)
 		letterMultiplier := 1
 		thisWordMultiplier := 1
 		freshTile := false
 		if ml == alphabet.PlayedThroughMarker {
-			ml = gen.board.GetLetter(gen.curRowIdx, col+idx)
+			ml = gen.game.Board().GetLetter(gen.curRowIdx, col+idx)
 		} else {
 			freshTile = true
 			// Only count bonus if we are putting a fresh tile on it.
@@ -365,20 +362,20 @@ func (gen *GordonGenerator) scoreMove(word alphabet.MachineWord, col int) int {
 			}
 			// else all the multipliers are 1.
 		}
-		cs := gen.board.GetCrossScore(gen.curRowIdx, col+idx, dir)
+		cs := gen.game.Board().GetCrossScore(gen.curRowIdx, col+idx, dir)
 
 		if ml >= alphabet.BlankOffset {
 			// letter score is 0
 			ls = 0
 		} else {
-			ls = gen.bag.Score(ml)
+			ls = gen.game.Bag().Score(ml)
 		}
 
 		mainWordScore += ls * letterMultiplier
 		// We only add cross scores if the cross set of this square is non-trivial
 		// (i.e. we have to be making an across word). Note that it's not enough
 		// to check that the cross-score is 0 because we could have a blank.
-		if freshTile && gen.board.GetCrossSet(gen.curRowIdx,
+		if freshTile && gen.game.Board().GetCrossSet(gen.curRowIdx,
 			col+idx, dir) != board.TrivialCrossSet {
 
 			crossScores += ls*letterMultiplier*thisWordMultiplier + cs*thisWordMultiplier
@@ -400,15 +397,15 @@ func (gen *GordonGenerator) addPassAndExchangeMoves(rack *alphabet.Rack) {
 	// Probably in the endgame package.
 	if len(gen.plays) == 0 {
 		passMove := move.NewPassMove(tilesOnRack)
-		passMove.SetEquity(gen.strategy.Equity(passMove, gen.board, gen.bag, gen.oppRack))
+		passMove.SetEquity(gen.strategy.Equity(passMove, gen.game.Board(), gen.game.Bag(), gen.oppRack))
 		gen.plays = append(gen.plays, passMove)
 	}
 	// No exchange moves should be generated if the bag has fewer than 7 tiles.
-	if gen.bag.TilesRemaining() < 7 {
+	if gen.game.Bag().TilesRemaining() < 7 {
 		return
 	}
 
-	alph := gen.gaddag.GetAlphabet()
+	alph := gen.game.Gaddag().GetAlphabet()
 	// Generate all exchange moves.
 	exchMap := make(map[string]*move.Move)
 	// Create a list of all machine letters
@@ -433,19 +430,19 @@ func (gen *GordonGenerator) addPassAndExchangeMoves(rack *alphabet.Rack) {
 		index++
 	}
 	for _, mv := range exchMap {
-		mv.SetEquity(gen.strategy.Equity(mv, gen.board, gen.bag, gen.oppRack))
+		mv.SetEquity(gen.strategy.Equity(mv, gen.game.Board(), gen.game.Bag(), gen.oppRack))
 		gen.plays = append(gen.plays, mv)
 	}
 }
 
 func (gen *GordonGenerator) SetBoardToGame(alph *alphabet.Alphabet, game board.VsWho) {
-	tilesPlayedAndInRacks := gen.board.SetToGame(alph, game)
+	tilesPlayedAndInRacks := gen.game.Board().SetToGame(alph, game)
 	// Update bag. This is a slowish operation, but this type of function
 	// will not be used in a context that requires the utmost speed.
-	gen.bag.RemoveTiles(tilesPlayedAndInRacks.OnBoard)
-	gen.bag.RemoveTiles(tilesPlayedAndInRacks.Rack1)
-	gen.bag.RemoveTiles(tilesPlayedAndInRacks.Rack2)
+	gen.game.Bag().RemoveTiles(tilesPlayedAndInRacks.OnBoard)
+	gen.game.Bag().RemoveTiles(tilesPlayedAndInRacks.Rack1)
+	gen.game.Bag().RemoveTiles(tilesPlayedAndInRacks.Rack2)
 
-	gen.board.UpdateAllAnchors()
-	gen.board.GenAllCrossSets(gen.gaddag, gen.bag)
+	gen.game.Board().UpdateAllAnchors()
+	gen.game.Board().GenAllCrossSets(gen.game.Gaddag(), gen.game.Bag())
 }

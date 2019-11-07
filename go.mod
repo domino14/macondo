@@ -7,3 +7,5 @@ require (
 	github.com/stretchr/testify v1.3.0
 	github.com/twitchtv/twirp v5.7.0+incompatible
 )
+
+go 1.13

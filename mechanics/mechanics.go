@@ -244,6 +244,10 @@ func (g *XWordGame) Board() *board.GameBoard {
 	return g.board
 }
 
+func (g *XWordGame) Gaddag() *gaddag.SimpleGaddag {
+	return g.gaddag
+}
+
 func (g *XWordGame) SetRackFor(playerID int, rack *alphabet.Rack) {
 	g.players[playerID].rack = rack
 	g.players[playerID].rackLetters = rack.String()
