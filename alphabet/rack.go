@@ -18,7 +18,7 @@ type Rack struct {
 
 // NewRack creates a brand new rack structure with an alphabet.
 func NewRack(alph *Alphabet) *Rack {
-	return &Rack{alphabet: alph}
+	return &Rack{alphabet: alph, LetArr: make([]int, MaxAlphabetSize+1)}
 }
 
 // Hashable returns a hashable representation of this rack, that is
@@ -67,7 +67,6 @@ func (r *Rack) setFromStr(rack string) {
 	} else {
 		r.clear()
 	}
-
 	for _, c := range rack {
 		ml, err := r.alphabet.Val(c)
 		if err == nil {
@@ -84,11 +83,7 @@ func (r *Rack) setFromStr(rack string) {
 
 // Set sets the rack from a list of machine letters
 func (r *Rack) Set(mls []MachineLetter) {
-	if r.LetArr == nil {
-		r.LetArr = make([]int, MaxAlphabetSize+1)
-	} else {
-		r.clear()
-	}
+	r.clear()
 	for _, ml := range mls {
 		r.LetArr[ml]++
 	}
