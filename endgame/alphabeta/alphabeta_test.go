@@ -107,3 +107,42 @@ func TestSolveOther(t *testing.T) {
 	fmt.Println("Value found", v)
 	t.Fail()
 }
+
+func TestSolveOther2(t *testing.T) {
+	plies := 8
+
+	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	if err != nil {
+		t.Errorf("Expected error to be nil, got %v", err)
+	}
+	dist := alphabet.EnglishLetterDistribution()
+
+	game := &mechanics.XWordGame{}
+	game.Init(gd, dist)
+	game.SetStateStackLength(plies)
+
+	generator := movegen.NewGordonGenerator(
+		// The strategy doesn't matter right here
+		game, &strategy.NoLeaveStrategy{},
+	)
+	alph := game.Alphabet()
+	// XXX: Refactor this; we should have something like:
+	// game.LoadFromGCG(path, turnnum)
+	// That should set the board, the player racks, scores, etc - the whole state
+	// Instead we have to do this manually here:
+	generator.SetBoardToGame(alph, board.VsAlec2)
+	s := new(Solver)
+	s.Init(generator, game)
+	ourRack := alphabet.RackFromString("DGILOR", alph)
+	theirRack := alphabet.RackFromString("ENQR", alph)
+	game.SetRackFor(1, ourRack)
+	game.SetRackFor(0, theirRack)
+	game.SetPointsFor(1, 383)
+	game.SetPointsFor(0, 438)
+	game.SetPlayerOnTurn(1)
+	game.SetPlaying(true)
+	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
+	v, _ := s.Solve(plies)
+	fmt.Println("Value found", v)
+	t.Fail()
+}
