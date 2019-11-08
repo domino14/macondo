@@ -24,6 +24,8 @@ const (
 	VsMacondo1
 	// JDvsNB is a test for endgames
 	JDvsNB
+	// VsAlec at the 2019 Nationals
+	VsAlec
 )
 
 // SetToGame sets the board to a specific game in progress. It is used to
@@ -211,6 +213,28 @@ Nathan Benedict: Turn 14
    ------------------------------
 `, alph)
 
+	case VsAlec:
+		return b.SetFromPlaintext(`
+cesar: Turn 11
+   A B C D E F G H I J K L M N O      alec                     EGNOQR    420
+   ------------------------------  -> cesar                    DGILOPR   369
+ 1|=     '       L       '     =| --Tracking-----------------------------------
+ 2|  -       "   A   J       -  | EGNOQR  6
+ 3|    -       ' T W I N E R    |
+ 4|'     A       E   V O T E R '|
+ 5|  B U R A N   E   E -        |
+ 6|  "   c H U T N E Y S     "  |
+ 7|    ' A     '   '       '    |
+ 8|W O O D       S       '     =|
+ 9|E   ' I F   ' L '       '    |
+10|I "   A A "   E   "       "  |
+11|R   C   U   P A M   -        |
+12|D   A L G U A Z I l   -     C|
+13|O   N   H   V E X       F   Y|
+14|E - T     K I   T O O N I E S|
+15|S     ' M I D I       ' B   T|
+   ------------------------------
+`, alph)
 	}
 
 	return nil

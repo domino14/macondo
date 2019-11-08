@@ -22,6 +22,10 @@ func TestMain(m *testing.M) {
 		gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "America.txt"), true, true)
 		os.Rename("out.gaddag", "/tmp/gen_america.gaddag")
 	}
+	if _, err := os.Stat("/tmp/nwl18.gaddag"); os.IsNotExist(err) {
+		gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "NWL18.txt"), true, true)
+		os.Rename("out.gaddag", "/tmp/nwl18.gaddag")
+	}
 	os.Exit(m.Run())
 }
 
@@ -62,6 +66,44 @@ func TestSolveComplex(t *testing.T) {
 	v, _ := s.Solve(plies)
 	if v != 6 {
 		t.Errorf("Expected to find a 6-pt win, found a spread of %v", v)
-
 	}
+}
+
+func TestSolveOther(t *testing.T) {
+	plies := 8
+
+	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	if err != nil {
+		t.Errorf("Expected error to be nil, got %v", err)
+	}
+	dist := alphabet.EnglishLetterDistribution()
+
+	game := &mechanics.XWordGame{}
+	game.Init(gd, dist)
+	game.SetStateStackLength(plies)
+
+	generator := movegen.NewGordonGenerator(
+		// The strategy doesn't matter right here
+		game, &strategy.NoLeaveStrategy{},
+	)
+	alph := game.Alphabet()
+	// XXX: Refactor this; we should have something like:
+	// game.LoadFromGCG(path, turnnum)
+	// That should set the board, the player racks, scores, etc - the whole state
+	// Instead we have to do this manually here:
+	generator.SetBoardToGame(alph, board.VsAlec)
+	s := new(Solver)
+	s.Init(generator, game)
+	ourRack := alphabet.RackFromString("DGILOPR", alph)
+	theirRack := alphabet.RackFromString("EGNOQR", alph)
+	game.SetRackFor(1, ourRack)
+	game.SetRackFor(0, theirRack)
+	game.SetPointsFor(1, 369)
+	game.SetPointsFor(0, 420)
+	game.SetPlayerOnTurn(1)
+	game.SetPlaying(true)
+	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
+	v, _ := s.Solve(plies)
+	fmt.Println("Value found", v)
+	t.Fail()
 }
