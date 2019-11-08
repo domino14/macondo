@@ -3,6 +3,9 @@
 package alphabeta
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/domino14/macondo/mechanics"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
@@ -109,8 +112,8 @@ func (s *Solver) Init(movegen *movegen.GordonGenerator, game *mechanics.XWordGam
 }
 
 func (s *Solver) generateChildrenNodes(parent *gameNode) []*gameNode {
-	// fmt.Printf("Generating children nodes for parent %v, board %v",
-	// 	parent, s.game.Board().ToDisplayText(s.game.Alphabet()))
+	fmt.Printf("Generating children nodes for parent %v, board %v",
+		parent, s.game.Board().ToDisplayText(s.game.Alphabet()))
 	s.movegen.GenAll(s.game.RackFor(s.game.PlayerOnTurn()))
 	// fmt.Println(s.movegen.Plays())
 	children := []*gameNode{}
@@ -164,12 +167,12 @@ func (s *Solver) Solve() *move.Move {
 func (s *Solver) alphabeta(node *gameNode, depth int, α int, β int,
 	maximizingPlayer bool) (*move.Move, int) {
 
-	// depthDbg := strings.Repeat(" ", depth)
+	depthDbg := strings.Repeat(" ", depth)
 
 	if depth == 0 || !s.game.Playing() {
 		// s.game.Playing() happens if the game is over; i.e. if the
 		// current node is terminal.
-		// log.Debug().Msgf("%vending recursion, depth: %v, playing: %v", depthDbg, depth, s.game.Playing())
+		log.Debug().Msgf("%vending recursion, depth: %v, playing: %v", depthDbg, depth, s.game.Playing())
 		return node.move, node.value(s, maximizingPlayer)
 	}
 	// Generate children if they don't exist.
@@ -182,14 +185,13 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α int, β int,
 		var tm *move.Move
 		for _, child := range node.children {
 			// Play the child
-			// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
+			log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
 			s.game.PlayMove(child.move, true)
 			// log.Debug().Msgf("%vState is now %v", depthDbg,
 			// s.game.String())
 			m, v := s.alphabeta(child, depth-1, α, β, false)
 			s.game.UnplayLastMove()
-			// log.Debug().Msgf("%vAfter unplay, state is now %v", depthDbg,
-			// s.game.String())
+			log.Debug().Msgf("%vAfter unplay, state is now %v", depthDbg, s.game.String())
 			if v > value {
 				value = v
 				tm = m
@@ -209,14 +211,13 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α int, β int,
 	value := Infinity
 	var tm *move.Move
 	for _, child := range node.children {
-		// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
+		log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
 		s.game.PlayMove(child.move, true)
 		// log.Debug().Msgf("%vState is now %v", depthDbg,
 		// s.game.String())
 		m, v := s.alphabeta(child, depth-1, α, β, true)
 		s.game.UnplayLastMove()
-		// log.Debug().Msgf("%vAfter unplay, state is now %v", depthDbg,
-		// s.game.String())
+		log.Debug().Msgf("%vAfter unplay, state is now %v", depthDbg, s.game.String())
 		if v < value {
 			value = v
 			tm = m
