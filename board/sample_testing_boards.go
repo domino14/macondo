@@ -28,6 +28,10 @@ const (
 	VsAlec
 	// VsAlec2 same game as above just a couple turns later.
 	VsAlec2
+	// VsJoey from Lake George 2019
+	VsJoey
+	// VsCanik from 2019 Nationals
+	VsCanik
 )
 
 // SetToGame sets the board to a specific game in progress. It is used to
@@ -258,6 +262,52 @@ cesar: Turn 12
 13|O   N   H   V E X       F   Y|
 14|E - T     K I   T O O N I E S|
 15|S     ' M I D I       ' B   T|
+   ------------------------------
+`, alph)
+
+	case VsJoey:
+		return b.SetFromPlaintext(`
+Joey: Turn 11
+   A B C D E F G H I J K L M N O      Cesar                    DIV       412
+   ------------------------------  -> Joey                     AEFILMR   371
+ 1|A I D E R     U       '     =| --Tracking-----------------------------------
+ 2|b - E   E "   N   Z       -  | DIV  3
+ 3|A W N   T   ' M ' A T T -    |
+ 4|L I   C O B L E     O W     '|
+ 5|O P     U     E     A A      |
+ 6|N E     C U S T A R D S   Q  |
+ 7|E R ' O H   '   '   I   ' U  |
+ 8|S     K     F O B   E R G O T|
+ 9|    '     H E X Y L S   ' I  |
+10|  "     J I N     "       N  |
+11|    G O O P     N A I V E s T|
+12|' D I R E     '       -     '|
+13|    G A Y   '   '       -    |
+14|  -       "       "       -  |
+15|=     '       =       '     =|
+   ------------------------------
+`, alph)
+
+	case VsCanik:
+		return b.SetFromPlaintext(`
+cesar: Turn 12
+   A B C D E F G H I J K L M N O      canik                    DEHILOR   389
+   ------------------------------  -> cesar                    BGIV      384
+ 1|=     '       =   A   P I X Y| --Tracking-----------------------------------
+ 2|  -       "       S   L   -  | DEHILOR  7
+ 3|    T o W N L E T S   O -    |
+ 4|'     -       '   U   D A   R|
+ 5|      G E R A N I A L   U   I|
+ 6|  "       "       g     T " C|
+ 7|    '       '   W E     O B I|
+ 8|=     '     E M U     '   O N|
+ 9|    '       A I D       G O  |
+10|  "       H U N   "     E T  |
+11|        Z A   T     -   M E  |
+12|' Q   F A K E Y       J O E S|
+13|F I V E   E '   '     I T   C|
+14|  -       S P O R R A N   - A|
+15|=     '     O R E     N     D|
    ------------------------------
 `, alph)
 

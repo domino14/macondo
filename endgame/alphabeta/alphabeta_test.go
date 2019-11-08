@@ -70,6 +70,8 @@ func TestSolveComplex(t *testing.T) {
 }
 
 func TestSolveOther(t *testing.T) {
+	// This is an extremely complex endgame; 8 plies takes over an hour
+	// and consumes > 30 GB of memory. It seems to be a loss no matter what.
 	plies := 8
 
 	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
@@ -109,6 +111,8 @@ func TestSolveOther(t *testing.T) {
 }
 
 func TestSolveOther2(t *testing.T) {
+	// An attempt to solve the game from above after a turn in. It's still
+	// a loss; this goes a bit faster.
 	plies := 8
 
 	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
@@ -139,6 +143,89 @@ func TestSolveOther2(t *testing.T) {
 	game.SetRackFor(0, theirRack)
 	game.SetPointsFor(1, 383)
 	game.SetPointsFor(0, 438)
+	game.SetPlayerOnTurn(1)
+	game.SetPlaying(true)
+	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
+	v, _ := s.Solve(plies)
+	fmt.Println("Value found", v)
+	t.Fail()
+}
+
+func TestSolveOther3(t *testing.T) {
+	// This endgame seems to require 8 plies to solve (maybe 7). Otherwise
+	// it loses.
+	plies := 7
+
+	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	if err != nil {
+		t.Errorf("Expected error to be nil, got %v", err)
+	}
+	dist := alphabet.EnglishLetterDistribution()
+
+	game := &mechanics.XWordGame{}
+	game.Init(gd, dist)
+	game.SetStateStackLength(plies)
+
+	generator := movegen.NewGordonGenerator(
+		// The strategy doesn't matter right here
+		game, &strategy.NoLeaveStrategy{},
+	)
+	alph := game.Alphabet()
+	// XXX: Refactor this; we should have something like:
+	// game.LoadFromGCG(path, turnnum)
+	// That should set the board, the player racks, scores, etc - the whole state
+	// Instead we have to do this manually here:
+	generator.SetBoardToGame(alph, board.VsJoey)
+	s := new(Solver)
+	s.Init(generator, game)
+	ourRack := alphabet.RackFromString("DIV", alph)
+	theirRack := alphabet.RackFromString("AEFILMR", alph)
+	game.SetRackFor(0, ourRack)
+	game.SetRackFor(1, theirRack)
+	game.SetPointsFor(0, 412)
+	game.SetPointsFor(1, 371)
+	game.SetPlayerOnTurn(1)
+	game.SetPlaying(true)
+	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
+	v, _ := s.Solve(plies)
+	fmt.Println("Value found", v)
+	t.Fail()
+}
+
+func TestSolveStandard(t *testing.T) {
+	// This endgame is solved with at least 3 plies. Most endgames should
+	// start with 3 plies (so the first player can do an out in 2) and
+	// then proceed with iterative deepening.
+	plies := 3
+
+	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	if err != nil {
+		t.Errorf("Expected error to be nil, got %v", err)
+	}
+	dist := alphabet.EnglishLetterDistribution()
+
+	game := &mechanics.XWordGame{}
+	game.Init(gd, dist)
+	game.SetStateStackLength(plies)
+
+	generator := movegen.NewGordonGenerator(
+		// The strategy doesn't matter right here
+		game, &strategy.NoLeaveStrategy{},
+	)
+	alph := game.Alphabet()
+	// XXX: Refactor this; we should have something like:
+	// game.LoadFromGCG(path, turnnum)
+	// That should set the board, the player racks, scores, etc - the whole state
+	// Instead we have to do this manually here:
+	generator.SetBoardToGame(alph, board.VsCanik)
+	s := new(Solver)
+	s.Init(generator, game)
+	ourRack := alphabet.RackFromString("BGIV", alph)
+	theirRack := alphabet.RackFromString("DEHILOR", alph)
+	game.SetRackFor(1, ourRack)
+	game.SetRackFor(0, theirRack)
+	game.SetPointsFor(1, 384)
+	game.SetPointsFor(0, 389)
 	game.SetPlayerOnTurn(1)
 	game.SetPlaying(true)
 	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
