@@ -40,8 +40,6 @@ alphabeta(origin, depth, −∞, +∞, TRUE)
 const (
 	// Infinity is 10 million.
 	Infinity = 10000000
-	// Plies - how many to use for minimax
-	Plies = 6
 )
 
 // Solver implements the minimax + alphabeta algorithm.
@@ -126,7 +124,7 @@ func (s *Solver) generateChildrenNodes(parent *gameNode) []*gameNode {
 
 // Solve solves the endgame given the current state of s.game, for the
 // current player whose turn it is in that state.
-func (s *Solver) Solve() *move.Move {
+func (s *Solver) Solve(plies int) (int, *move.Move) {
 	// Generate children moves.
 	s.movegen.SetSortingParameter(movegen.SortByEndgameHeuristic)
 	defer s.movegen.SetSortingParameter(movegen.SortByEquity)
@@ -139,14 +137,18 @@ func (s *Solver) Solve() *move.Move {
 	// however we treat the children as those actual moves themselves.
 
 	// Look 6 plies for now. This might still be very slow.
-	m, v := s.alphabeta(n, Plies, -Infinity, Infinity, true)
+	v := s.alphabeta(n, plies, -Infinity, Infinity, true)
 	log.Debug().Msgf("Best spread found: %v", v)
 	log.Debug().Msgf("Best variant found:")
+	var m *move.Move
 	// Go down tree and find best variation:
 	parent := n
 	for {
 		for _, child := range parent.children {
 			if child.heuristicValue == v {
+				if m == nil {
+					m = child.move
+				}
 				log.Debug().Msgf("%v", child.move)
 				parent = child
 				break
@@ -158,11 +160,11 @@ func (s *Solver) Solve() *move.Move {
 	}
 	log.Debug().Msgf("Number of expanded nodes: %v", s.totalNodes)
 
-	return m
+	return v, m
 }
 
 func (s *Solver) alphabeta(node *gameNode, depth int, α int, β int,
-	maximizingPlayer bool) (*move.Move, int) {
+	maximizingPlayer bool) int {
 
 	// depthDbg := strings.Repeat(" ", depth)
 
@@ -170,7 +172,7 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α int, β int,
 		// s.game.Playing() happens if the game is over; i.e. if the
 		// current node is terminal.
 		// log.Debug().Msgf("%vending recursion, depth: %v, playing: %v", depthDbg, depth, s.game.Playing())
-		return node.move, node.value(s, maximizingPlayer)
+		return node.value(s, maximizingPlayer)
 	}
 	// Generate children if they don't exist.
 	if node.children == nil {
@@ -179,19 +181,17 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α int, β int,
 
 	if maximizingPlayer {
 		value := -Infinity
-		var tm *move.Move
 		for _, child := range node.children {
 			// Play the child
 			// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
 			s.game.PlayMove(child.move, true)
 			// log.Debug().Msgf("%vState is now %v", depthDbg,
 			// s.game.String())
-			m, v := s.alphabeta(child, depth-1, α, β, false)
+			v := s.alphabeta(child, depth-1, α, β, false)
 			s.game.UnplayLastMove()
 			// log.Debug().Msgf("%vAfter unplay, state is now %v", depthDbg, s.game.String())
 			if v > value {
 				value = v
-				tm = m
 				// log.Debug().Msgf("%vFound a better move: %v (%v)", depthDbg, value, tm)
 			}
 			α = max(α, value)
@@ -202,22 +202,20 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α int, β int,
 		}
 		node.calculatedValue = true
 		node.heuristicValue = value
-		return tm, value
+		return value
 	}
 	// Otherwise, not maximizing
 	value := Infinity
-	var tm *move.Move
 	for _, child := range node.children {
 		// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
 		s.game.PlayMove(child.move, true)
 		// log.Debug().Msgf("%vState is now %v", depthDbg,
 		// s.game.String())
-		m, v := s.alphabeta(child, depth-1, α, β, true)
+		v := s.alphabeta(child, depth-1, α, β, true)
 		s.game.UnplayLastMove()
 		// log.Debug().Msgf("%vAfter unplay, state is now %v", depthDbg, s.game.String())
 		if v < value {
 			value = v
-			tm = m
 			// log.Debug().Msgf("%vFound a worse move: %v (%v)", depthDbg, value, tm)
 		}
 		β = min(β, value)
@@ -228,6 +226,5 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α int, β int,
 	}
 	node.calculatedValue = true
 	node.heuristicValue = value
-	return tm, value
-
+	return value
 }

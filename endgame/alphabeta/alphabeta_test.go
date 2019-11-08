@@ -26,6 +26,8 @@ func TestMain(m *testing.M) {
 }
 
 func TestSolveComplex(t *testing.T) {
+	plies := 5
+
 	gd, err := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
@@ -34,7 +36,7 @@ func TestSolveComplex(t *testing.T) {
 
 	game := &mechanics.XWordGame{}
 	game.Init(gd, dist)
-	game.SetStateStackLength(Plies)
+	game.SetStateStackLength(plies)
 
 	generator := movegen.NewGordonGenerator(
 		// The strategy doesn't matter right here
@@ -57,6 +59,9 @@ func TestSolveComplex(t *testing.T) {
 	game.SetPlayerOnTurn(1)
 	game.SetPlaying(true)
 	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
-	s.Solve()
-	t.Fail()
+	v, _ := s.Solve(plies)
+	if v != 6 {
+		t.Errorf("Expected to find a 6-pt win, found a spread of %v", v)
+
+	}
 }
