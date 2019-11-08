@@ -38,7 +38,7 @@ type XWordGame struct {
 	playing            bool
 	scorelessTurns     int
 	numPossibleLetters int
-	players            players
+	players            []*player
 	uuid               uuid.UUID
 
 	stateStack []*backedupState
@@ -65,7 +65,7 @@ type backedupState struct {
 	bag            *alphabet.Bag
 	playing        bool
 	scorelessTurns int
-	players        players
+	players        []*player
 	lastWasPass    bool
 }
 
@@ -76,9 +76,9 @@ func (g *XWordGame) Init(gd *gaddag.SimpleGaddag, dist *alphabet.LetterDistribut
 	g.alph = gd.GetAlphabet()
 	g.bag = dist.MakeBag(g.alph)
 	g.gaddag = gd
-	g.players = []player{
-		{alphabet.NewRack(g.alph), "", "player1", 0},
-		{alphabet.NewRack(g.alph), "", "player2", 0},
+	g.players = []*player{
+		&player{alphabet.NewRack(g.alph), "", "player1", 0},
+		&player{alphabet.NewRack(g.alph), "", "player2", 0},
 	}
 	// The strategy and move generator are not part of the "game mechanics".
 	// These should be a level up. This module is just for the gameplay side
@@ -112,11 +112,11 @@ func (ps *players) copyFrom(other players) {
 	}
 }
 
-func copyPlayers(ps players) players {
+func copyPlayers(ps []*player) []*player {
 	// Make a deep copy of the player slice.
-	p := make([]player, len(ps))
+	p := make([]*player, len(ps))
 	for idx, porig := range ps {
-		p[idx] = player{
+		p[idx] = &player{
 			name:        porig.name,
 			points:      porig.points,
 			rack:        porig.rack.Copy(),
@@ -220,7 +220,7 @@ func (g *XWordGame) UnplayLastMove() {
 	g.board.CopyFrom(b.board)
 	g.bag.CopyFrom(b.bag)
 	g.playing = b.playing
-	g.players.copyFrom(b.players)
+	g.players = copyPlayers(b.players)
 	g.scorelessTurns = b.scorelessTurns
 }
 
@@ -238,7 +238,7 @@ func (g *XWordGame) backupState() {
 	st.bag.CopyFrom(g.bag)
 	st.playing = g.playing
 	st.scorelessTurns = g.scorelessTurns
-	st.players.copyFrom(g.players)
+	st.players = copyPlayers(g.players)
 	g.stackPtr++
 }
 
