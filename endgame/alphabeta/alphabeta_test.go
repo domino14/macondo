@@ -72,6 +72,7 @@ func TestSolveComplex(t *testing.T) {
 func TestSolveOther(t *testing.T) {
 	// This is an extremely complex endgame; 8 plies takes over an hour
 	// and consumes > 30 GB of memory. It seems to be a loss no matter what.
+	t.Skip()
 	plies := 8
 
 	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
@@ -113,6 +114,7 @@ func TestSolveOther(t *testing.T) {
 func TestSolveOther2(t *testing.T) {
 	// An attempt to solve the game from above after a turn in. It's still
 	// a loss; this goes a bit faster.
+	t.Skip()
 	plies := 8
 
 	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
@@ -152,8 +154,8 @@ func TestSolveOther2(t *testing.T) {
 }
 
 func TestSolveOther3(t *testing.T) {
-	// This endgame seems to require 8 plies to solve (maybe 7). Otherwise
-	// it loses.
+	// This endgame seems to require >= 7 plies to solve. Otherwise it loses.
+	t.Skip()
 	plies := 7
 
 	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
@@ -189,7 +191,9 @@ func TestSolveOther3(t *testing.T) {
 	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
 	v, _ := s.Solve(plies)
 	fmt.Println("Value found", v)
-	t.Fail()
+	if v < 0 {
+		t.Errorf("Expected > 0, %v was", v)
+	}
 }
 
 func TestSolveStandard(t *testing.T) {
@@ -231,5 +235,7 @@ func TestSolveStandard(t *testing.T) {
 	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
 	v, _ := s.Solve(plies)
 	fmt.Println("Value found", v)
-	t.Fail()
+	if v < 0 {
+		t.Errorf("Expected > 0, %v was", v)
+	}
 }
