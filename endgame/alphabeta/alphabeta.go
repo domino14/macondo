@@ -56,7 +56,6 @@ type gameNode struct {
 	move            *move.Move
 	heuristicValue  int
 	calculatedValue bool
-	parent          *gameNode
 	children        []*gameNode // children should be null until expanded.
 }
 
@@ -95,6 +94,12 @@ func (g *gameNode) calculateValue(s *Solver, maximizing bool) {
 
 	g.heuristicValue = s.game.PointsFor(player) - s.game.PointsFor(otherPlayer)
 	if !maximizing {
+		// The maximizing player is always "us" - the player that we are
+		// solving the endgame for. So if this not the maximizing node,
+		// we want to negate the heuristic value, as it needs to be as
+		// negative as possible relative to "us". I know, minimax is
+		// hard to reason about, but I think this makes sense. At least
+		// it seems to work.
 		g.heuristicValue = -g.heuristicValue
 	}
 }
@@ -114,8 +119,13 @@ func (s *Solver) generateChildrenNodes(parent *gameNode) []*gameNode {
 	children := []*gameNode{}
 	for _, m := range s.movegen.Plays() {
 		children = append(children, &gameNode{
-			move:   m,
-			parent: parent,
+			move: m,
+		})
+	}
+
+	if len(s.movegen.Plays()) > 0 && s.movegen.Plays()[0].Action() != move.MoveTypePass {
+		children = append(children, &gameNode{
+			move: move.NewPassMove(s.game.RackFor(s.game.PlayerOnTurn()).TilesOn()),
 		})
 	}
 	s.totalNodes += len(children)
@@ -128,7 +138,7 @@ func (s *Solver) Solve(plies int) (int, *move.Move) {
 	// Generate children moves.
 	s.movegen.SetSortingParameter(movegen.SortByEndgameHeuristic)
 	defer s.movegen.SetSortingParameter(movegen.SortByEquity)
-
+	log.Debug().Msgf("Attempting to solve endgame with %v plies...", plies)
 	// technically the children are the actual board _states_ but
 	// we don't keep track of those exactly
 	n := &gameNode{}
@@ -175,13 +185,36 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α int, β int,
 		return node.value(s, maximizingPlayer)
 	}
 	// Generate children if they don't exist.
+	// if node.children == nil {
+	// 	node.children = s.generateChildrenNodes(node)
+	// }
+	var plays []*move.Move
 	if node.children == nil {
-		node.children = s.generateChildrenNodes(node)
+		s.movegen.GenAll(s.game.RackFor(s.game.PlayerOnTurn()))
+		plays = s.movegen.Plays()
+		if len(plays) > 0 && plays[0].Action() != move.MoveTypePass {
+			// movegen doesn't generate a pass move if unneeded (actually, I'm not
+			// totally sure why). So generate it here, as sometimes a pass is beneficial
+			// in the endgame.
+			plays = append(plays, move.NewPassMove(s.game.RackFor(s.game.PlayerOnTurn()).TilesOn()))
+		}
+	}
+	childGenerator := func() func() (*gameNode, bool) {
+		idx := -1
+		return func() (*gameNode, bool) {
+			idx++
+			if idx == len(plays) {
+				return nil, false
+			}
+			s.totalNodes++
+			return &gameNode{move: plays[idx]}, true
+		}
 	}
 
 	if maximizingPlayer {
 		value := -Infinity
-		for _, child := range node.children {
+		iter := childGenerator()
+		for child, ok := iter(); ok; child, ok = iter() {
 			// Play the child
 			// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
 			s.game.PlayMove(child.move, true)
@@ -199,6 +232,7 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α int, β int,
 				// log.Debug().Msgf("%vBeta cut-off: %v>=%v", depthDbg, α, β)
 				break // beta cut-off
 			}
+			node.children = append(node.children, child)
 		}
 		node.calculatedValue = true
 		node.heuristicValue = value
@@ -206,7 +240,8 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α int, β int,
 	}
 	// Otherwise, not maximizing
 	value := Infinity
-	for _, child := range node.children {
+	iter := childGenerator()
+	for child, ok := iter(); ok; child, ok = iter() {
 		// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
 		s.game.PlayMove(child.move, true)
 		// log.Debug().Msgf("%vState is now %v", depthDbg,
@@ -223,6 +258,7 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α int, β int,
 			// log.Debug().Msgf("%valpha cut-off: %v>=%v", depthDbg, α, β)
 			break // alpha cut-off
 		}
+		node.children = append(node.children, child)
 	}
 	node.calculatedValue = true
 	node.heuristicValue = value

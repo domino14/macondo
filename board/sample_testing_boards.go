@@ -32,6 +32,8 @@ const (
 	VsJoey
 	// VsCanik from 2019 Nationals
 	VsCanik
+	// JoeVsPaul, sample endgame given in the Maven paper
+	JoeVsPaul
 )
 
 // SetToGame sets the board to a specific game in progress. It is used to
@@ -308,6 +310,29 @@ cesar: Turn 12
 13|F I V E   E '   '     I T   C|
 14|  -       S P O R R A N   - A|
 15|=     '     O R E     N     D|
+   ------------------------------
+`, alph)
+
+	case JoeVsPaul:
+		return b.SetFromPlaintext(`
+joe: Turn 12
+   A B C D E F G H I J K L M N O      joe                      ILMZ      296
+   ------------------------------  -> paul                     ?AEINRU   296
+ 1|=     '   B E R G S   '     =| --Tracking-----------------------------------
+ 2|  -     P A       U       -  | ILMZ 4
+ 3|    Q A I D '   ' R     -    |
+ 4|'     B E E   '   F   T S K '|
+ 5|  P   E T     V I A T I C    |
+ 6|M A   T A W       c     H "  |
+ 7|E S '     I S   ' E     A    |
+ 8|A T   F O L I A       ' V   =|
+ 9|L I ' L   E X   E       '    |
+10|  N   O   D     N "   Y   "  |
+11|  G N U -   C   J E T E      |
+12|'   E R     O H O     N     '|
+13|    O       G O Y       -    |
+14|  I N D O W   U   "       -  |
+15|=     ' D O R R       '     =|
    ------------------------------
 `, alph)
 
