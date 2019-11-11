@@ -34,6 +34,8 @@ const (
 	VsCanik
 	// JoeVsPaul, sample endgame given in the Maven paper
 	JoeVsPaul
+	// VsJoel from Manhattan November 2019
+	VsJoel
 )
 
 // SetToGame sets the board to a specific game in progress. It is used to
@@ -316,16 +318,16 @@ cesar: Turn 12
 	case JoeVsPaul:
 		return b.SetFromPlaintext(`
 joe: Turn 12
-   A B C D E F G H I J K L M N O      joe                      ILMZ      296
-   ------------------------------  -> paul                     ?AEINRU   296
+   A B C D E F G H I J K L M N O      joe                      LZ        296
+   ------------------------------  -> paul                     ?AEIR     296
  1|=     '   B E R G S   '     =| --Tracking-----------------------------------
  2|  -     P A       U       -  | ILMZ 4
- 3|    Q A I D '   ' R     -    |
+ 3|    Q A I D '   U R N   -    |
  4|'     B E E   '   F   T S K '|
  5|  P   E T     V I A T I C    |
  6|M A   T A W       c     H "  |
  7|E S '     I S   ' E     A    |
- 8|A T   F O L I A       ' V   =|
+ 8|A T   F O L I A       ' V I M|
  9|L I ' L   E X   E       '    |
 10|  N   O   D     N "   Y   "  |
 11|  G N U -   C   J E T E      |
@@ -333,6 +335,29 @@ joe: Turn 12
 13|    O       G O Y       -    |
 14|  I N D O W   U   "       -  |
 15|=     ' D O R R       '     =|
+   ------------------------------
+`, alph)
+
+	case VsJoel:
+		return b.SetFromPlaintext(`
+cesar: Turn 11
+   A B C D E F G H I J K L M N O      joel s                   EIQSS     393
+   ------------------------------  -> cesar                    AAFIRTW   373
+ 1|= L E M N I S C I     L   E R| --Tracking-----------------------------------
+ 2|  -       "   O   P A I N T  | EIQSS  5
+ 3|    -   A   ' L ' R A V E    |
+ 4|W E D G E     Z   I   R     '|
+ 5|        R   J A U N T E d    |
+ 6|  "     O X O     K       "  |
+ 7|    Y O B   '   P       '    |
+ 8|=     F A U N A E     '     =|
+ 9|    '   T   '   G U Y   '    |
+10|  "       " B E S T E a D "  |
+11|        -     T     H I E    |
+12|'     -       H       - V U G|
+13|    C O R M O I D       -    |
+14|  -       "   O   "       -  |
+15|=     '       N O N I D E A L|
    ------------------------------
 `, alph)
 

@@ -159,7 +159,7 @@ func TestSolveOther2(t *testing.T) {
 
 func TestSolveOther3(t *testing.T) {
 	// This endgame seems to require >= 7 plies to solve. Otherwise it loses.
-	t.Skip()
+	// t.Skip()
 	plies := 7
 
 	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
@@ -244,11 +244,54 @@ func TestSolveStandard(t *testing.T) {
 	}
 }
 
+func TestSolveStandard2(t *testing.T) {
+	// Another standard 3-ply endgame.
+	plies := 3
+
+	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	if err != nil {
+		t.Errorf("Expected error to be nil, got %v", err)
+	}
+	dist := alphabet.EnglishLetterDistribution()
+
+	game := &mechanics.XWordGame{}
+	game.Init(gd, dist)
+	game.SetStateStackLength(plies)
+
+	generator := movegen.NewGordonGenerator(
+		// The strategy doesn't matter right here
+		game, &strategy.NoLeaveStrategy{},
+	)
+	alph := game.Alphabet()
+	// XXX: Refactor this; we should have something like:
+	// game.LoadFromGCG(path, turnnum)
+	// That should set the board, the player racks, scores, etc - the whole state
+	// Instead we have to do this manually here:
+	generator.SetBoardToGame(alph, board.VsJoel)
+	s := new(Solver)
+	s.Init(generator, game)
+	ourRack := alphabet.RackFromString("AAFIRTW", alph)
+	theirRack := alphabet.RackFromString("EIQSS", alph)
+	game.SetRackFor(1, ourRack)
+	game.SetRackFor(0, theirRack)
+	game.SetPointsFor(1, 373)
+	game.SetPointsFor(0, 393)
+	game.SetPlayerOnTurn(1)
+	game.SetPlaying(true)
+	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
+	v, _ := s.Solve(plies)
+	fmt.Println("Value found", v)
+	if v < 0 {
+		t.Errorf("Expected > 0, %v was", v)
+	}
+	t.Fail()
+}
+
 func TestSolveMaven(t *testing.T) {
 	// This endgame is the one in maven. Start by pre-playing TSK as
 	// they suggest.
 	// XXX: This is hopelessly slow and won't run with 8 plies.
-	plies := 4
+	plies := 9
 
 	gd, err := gaddag.LoadGaddag("/tmp/ospd1.gaddag")
 	if err != nil {
@@ -272,8 +315,8 @@ func TestSolveMaven(t *testing.T) {
 	generator.SetBoardToGame(alph, board.JoeVsPaul)
 	s := new(Solver)
 	s.Init(generator, game)
-	ourRack := alphabet.RackFromString("?AEINRU", alph)
-	theirRack := alphabet.RackFromString("ILMZ", alph)
+	ourRack := alphabet.RackFromString("?AEIR", alph)
+	theirRack := alphabet.RackFromString("LZ", alph)
 	game.SetRackFor(1, ourRack)
 	game.SetRackFor(0, theirRack)
 	game.SetPointsFor(1, 300)

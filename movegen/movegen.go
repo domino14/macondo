@@ -29,6 +29,13 @@ const (
 	SortByEndgameHeuristic
 )
 
+type sharedThreaded struct {
+	curRowIdx     int
+	curAnchorCol  int
+	lastAnchorCol int
+	rack          *alphabet.Rack
+}
+
 // GordonGenerator is the main move generation struct. It implements
 // Steven A. Gordon's algorithm from his paper "A faster Scrabble Move Generation
 // Algorithm"
@@ -40,9 +47,9 @@ type GordonGenerator struct {
 	// that we are always thinking in terms of rows, and columns are the
 	// current anchor column. In order to generate vertical moves, we just
 	// transpose the `board`.
-	curRowIdx     int
-	curAnchorCol  int
-	lastAnchorCol int
+	// curRowIdx     int
+	// curAnchorCol  int
+	// lastAnchorCol int
 
 	vertical bool // Are we generating moves vertically or not?
 
@@ -60,6 +67,12 @@ type GordonGenerator struct {
 	gaddag *gaddag.SimpleGaddag
 	board  *board.GameBoard
 	bag    *alphabet.Bag
+
+	// If in multi-threaded mode, the shared variables that are modified are
+	// the "tilesPlayed", the curRowIdx, curAnchorCol, lastAnchorCol, and the
+	// passed-in rack. So every thread should have its own.
+	threads int
+	shared  []*sharedThreaded
 }
 
 func newGordonGenHardcode(gd *gaddag.SimpleGaddag) *GordonGenerator {
@@ -76,8 +89,11 @@ func newGordonGenHardcode(gd *gaddag.SimpleGaddag) *GordonGenerator {
 		numPossibleLetters: int(gd.GetAlphabet().NumLetters()),
 		strategy:           strategy,
 		sortingParameter:   SortByEquity,
+		threads:            1,
 	}
 	gen.board.SetAllCrosses()
+	gen.InitSharedStructs()
+
 	return gen
 }
 
@@ -92,9 +108,24 @@ func NewGordonGenerator(game *mechanics.XWordGame, strategy strategy.Strategizer
 		numPossibleLetters: int(game.Alphabet().NumLetters()),
 		strategy:           strategy,
 		sortingParameter:   SortByEquity,
+		threads:            1,
 	}
 	gen.board.SetAllCrosses()
+	gen.InitSharedStructs()
+
 	return gen
+}
+
+func (gen *GordonGenerator) SetThreads(t int) {
+	gen.threads = t
+	gen.InitSharedStructs()
+}
+
+func (gen *GordonGenerator) InitSharedStructs() {
+	gen.shared = make([]*sharedThreaded, gen.threads)
+	for idx := range gen.shared {
+		gen.shared[idx] = &sharedThreaded{rack: &alphabet.Rack{}}
+	}
 }
 
 // Reset resets the generator by clearing the board and refilling the bag.
@@ -124,6 +155,7 @@ func (gen *GordonGenerator) GenAll(rack *alphabet.Rack) {
 	gen.plays = []*move.Move{}
 	orientations := []board.BoardDirection{
 		board.HorizontalDirection, board.VerticalDirection}
+
 	// Once for each orientation
 	for idx, dir := range orientations {
 		gen.vertical = idx%2 != 0
@@ -145,6 +177,24 @@ func (gen *GordonGenerator) GenAll(rack *alphabet.Rack) {
 	}
 	gen.addPassAndExchangeMoves(rack)
 	gen.dedupeAndSortPlays()
+}
+
+func (gen *GordonGenerator) genOrientation(rack *alphabet.Rack) {
+	dim := gen.board.Dim()
+
+	work := make([][]int, gen.threads)
+
+	for row := 0; row < dim; row++ {
+		thread := dim % gen.threads
+		work[thread] = append(work[thread], row)
+	}
+	stop := make(chan struct{}, gen.threads)
+	for t := range work {
+		// Spawn off a goroutine.
+		go func() {
+
+		}()
+	}
 }
 
 // Gen is an implementation of the Gordon Gen function.
