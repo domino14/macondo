@@ -33,8 +33,7 @@ func (r *GameRunner) Init(gd *gaddag.SimpleGaddag) {
 	r.game.Init(gd, alphabet.EnglishLetterDistribution())
 	strategy := strategy.NewSimpleSynergyStrategy(r.game.Bag(), gd.LexiconName(),
 		gd.GetAlphabet(), LeaveFile)
-	r.movegen = movegen.NewGordonGenerator(gd, r.game.Bag(), r.game.Board(),
-		strategy)
+	r.movegen = movegen.NewGordonGenerator(r.game, strategy)
 }
 
 func (r *GameRunner) StartGame() {
@@ -53,7 +52,7 @@ func (r *GameRunner) PlayBestStaticTurn(playerID int) {
 	rackLetters := r.game.RackLettersFor(playerID)
 	tilesRemaining := r.game.Bag().TilesRemaining()
 
-	r.game.PlayMove(bestPlay)
+	r.game.PlayMove(bestPlay, false)
 
 	if r.logchan != nil {
 		r.logchan <- fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v,%v,%v,%.3f,%v\n",

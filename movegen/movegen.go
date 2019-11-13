@@ -11,6 +11,7 @@
 package movegen
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/domino14/macondo/alphabet"
@@ -29,11 +30,21 @@ const (
 	SortByEndgameHeuristic
 )
 
+type play struct {
+	startRow    int
+	startCol    int
+	word        alphabet.MachineWord
+	leave       alphabet.MachineWord
+	tilesPlayed int
+}
+
 type sharedThreaded struct {
 	curRowIdx     int
 	curAnchorCol  int
 	lastAnchorCol int
+	tilesPlayed   int
 	rack          *alphabet.Rack
+	latestPlay    *play // to avoid excess allocations
 }
 
 // GordonGenerator is the main move generation struct. It implements
@@ -47,9 +58,9 @@ type GordonGenerator struct {
 	// that we are always thinking in terms of rows, and columns are the
 	// current anchor column. In order to generate vertical moves, we just
 	// transpose the `board`.
-	// curRowIdx     int
-	// curAnchorCol  int
-	// lastAnchorCol int
+	curRowIdx     int
+	curAnchorCol  int
+	lastAnchorCol int
 
 	vertical bool // Are we generating moves vertically or not?
 
@@ -124,7 +135,7 @@ func (gen *GordonGenerator) SetThreads(t int) {
 func (gen *GordonGenerator) InitSharedStructs() {
 	gen.shared = make([]*sharedThreaded, gen.threads)
 	for idx := range gen.shared {
-		gen.shared[idx] = &sharedThreaded{rack: &alphabet.Rack{}}
+		gen.shared[idx] = &sharedThreaded{rack: &alphabet.Rack{}, latestPlay: &play{}}
 	}
 }
 
@@ -151,7 +162,7 @@ func (gen *GordonGenerator) SetOppRack(r *alphabet.Rack) {
 // GenAll generates all moves on the board. It assumes anchors have already
 // been updated, as well as cross-sets / cross-scores.
 func (gen *GordonGenerator) GenAll(rack *alphabet.Rack) {
-	dim := gen.board.Dim()
+	fmt.Println("CALLED GENALL")
 	gen.plays = []*move.Move{}
 	orientations := []board.BoardDirection{
 		board.HorizontalDirection, board.VerticalDirection}
@@ -159,19 +170,10 @@ func (gen *GordonGenerator) GenAll(rack *alphabet.Rack) {
 	// Once for each orientation
 	for idx, dir := range orientations {
 		gen.vertical = idx%2 != 0
-		for row := 0; row < dim; row++ {
-			gen.curRowIdx = row
-			// A bit of a hack. Set this to a large number at the beginning of
-			// every loop
-			gen.lastAnchorCol = 100
-			for col := 0; col < dim; col++ {
-				if gen.board.IsAnchor(row, col, dir) {
-					gen.curAnchorCol = col
-					gen.Gen(col, alphabet.MachineWord([]alphabet.MachineLetter{}),
-						rack, gen.gaddag.GetRootNodeIndex())
-					gen.lastAnchorCol = col
-				}
-			}
+		if gen.threads > 1 {
+			gen.genByOrientationThreaded(rack, dir)
+		} else {
+			gen.genByOrientationThreaded(rack, dir)
 		}
 		gen.board.Transpose()
 	}
@@ -179,21 +181,22 @@ func (gen *GordonGenerator) GenAll(rack *alphabet.Rack) {
 	gen.dedupeAndSortPlays()
 }
 
-func (gen *GordonGenerator) genOrientation(rack *alphabet.Rack) {
+func (gen *GordonGenerator) genByOrientation(rack *alphabet.Rack, dir board.BoardDirection) {
 	dim := gen.board.Dim()
 
-	work := make([][]int, gen.threads)
-
 	for row := 0; row < dim; row++ {
-		thread := dim % gen.threads
-		work[thread] = append(work[thread], row)
-	}
-	stop := make(chan struct{}, gen.threads)
-	for t := range work {
-		// Spawn off a goroutine.
-		go func() {
-
-		}()
+		gen.curRowIdx = row
+		// A bit of a hack. Set this to a large number at the beginning of
+		// every loop
+		gen.lastAnchorCol = 100
+		for col := 0; col < dim; col++ {
+			if gen.board.IsAnchor(row, col, dir) {
+				gen.curAnchorCol = col
+				gen.Gen(col, alphabet.MachineWord([]alphabet.MachineLetter{}),
+					rack, gen.gaddag.GetRootNodeIndex())
+				gen.lastAnchorCol = col
+			}
+		}
 	}
 }
 
@@ -268,7 +271,7 @@ func (gen *GordonGenerator) GoOn(curCol int, L alphabet.MachineLetter, word alph
 
 		// Check to see if there is a letter directly to the left.
 		if gen.gaddag.InLetterSet(L, oldNodeIdx) && noLetterDirectlyLeft && gen.tilesPlayed > 0 {
-			gen.RecordPlay(word, curCol, rack)
+			gen.RecordPlay(word, gen.curRowIdx, curCol, rack.TilesOn(), gen.tilesPlayed)
 		}
 		if newNodeIdx == 0 {
 			return
@@ -300,7 +303,7 @@ func (gen *GordonGenerator) GoOn(curCol int, L alphabet.MachineLetter, word alph
 		noLetterDirectlyRight := curCol == gen.board.Dim()-1 ||
 			gen.board.GetSquare(gen.curRowIdx, curCol+1).IsEmpty()
 		if gen.gaddag.InLetterSet(L, oldNodeIdx) && noLetterDirectlyRight && gen.tilesPlayed > 0 {
-			gen.RecordPlay(word, curCol-len(word)+1, rack)
+			gen.RecordPlay(word, gen.curRowIdx, curCol-len(word)+1, rack.TilesOn(), gen.tilesPlayed)
 		}
 		if newNodeIdx != 0 && curCol < gen.board.Dim()-1 {
 			// There is room to the right
@@ -310,9 +313,9 @@ func (gen *GordonGenerator) GoOn(curCol int, L alphabet.MachineLetter, word alph
 }
 
 // RecordPlay records a play.
-func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startCol int,
-	rack *alphabet.Rack) {
-	row := gen.curRowIdx
+func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startRow, startCol int,
+	leave alphabet.MachineWord, tilesPlayed int) {
+	row := startRow
 	col := startCol
 	if gen.vertical {
 		// We flip it here because we only generate vertical moves when we transpose
@@ -322,12 +325,11 @@ func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startCol int,
 	coords := move.ToBoardGameCoords(row, col, gen.vertical)
 	wordCopy := make([]alphabet.MachineLetter, len(word))
 	copy(wordCopy, word)
-
-	leave := rack.TilesOn()
+	fmt.Println("MADE WORD COPY", wordCopy, startRow, startCol, leave, tilesPlayed)
 	alph := gen.gaddag.GetAlphabet()
-	play := move.NewScoringMove(gen.scoreMove(word, startCol),
+	play := move.NewScoringMove(gen.scoreMove(word, startRow, startCol, tilesPlayed),
 		wordCopy, leave, gen.vertical,
-		gen.tilesPlayed, alph, row, col, coords)
+		tilesPlayed, alph, row, col, coords)
 
 	if gen.sortingParameter == SortByEquity {
 		play.SetEquity(gen.strategy.Equity(play, gen.board, gen.bag, gen.oppRack))
@@ -388,26 +390,27 @@ func (gen *GordonGenerator) crossDirection() board.BoardDirection {
 	return board.VerticalDirection
 }
 
-func (gen *GordonGenerator) scoreMove(word alphabet.MachineWord, col int) int {
+func (gen *GordonGenerator) scoreMove(word alphabet.MachineWord, row, col, tilesPlayed int) int {
 	dir := gen.crossDirection()
 	var ls int
 
 	mainWordScore := 0
 	crossScores := 0
 	bingoBonus := 0
-	if gen.tilesPlayed == 7 {
+	if tilesPlayed == 7 {
 		bingoBonus = 50
 	}
 	wordMultiplier := 1
 
 	for idx, rn := range word {
 		ml := alphabet.MachineLetter(rn)
-		bonusSq := gen.board.GetBonus(gen.curRowIdx, col+idx)
+		fmt.Printf("Converted %v into %v\n", rn, ml)
+		bonusSq := gen.board.GetBonus(row, col+idx)
 		letterMultiplier := 1
 		thisWordMultiplier := 1
 		freshTile := false
 		if ml == alphabet.PlayedThroughMarker {
-			ml = gen.board.GetLetter(gen.curRowIdx, col+idx)
+			ml = gen.board.GetLetter(row, col+idx)
 		} else {
 			freshTile = true
 			// Only count bonus if we are putting a fresh tile on it.
@@ -425,22 +428,22 @@ func (gen *GordonGenerator) scoreMove(word alphabet.MachineWord, col int) int {
 			}
 			// else all the multipliers are 1.
 		}
-		cs := gen.board.GetCrossScore(gen.curRowIdx, col+idx, dir)
-
+		cs := gen.board.GetCrossScore(row, col+idx, dir)
+		fmt.Printf("GOT CROSS SCORE %v\n", cs)
+		fmt.Printf("About to check ml %v\n", ml)
 		if ml >= alphabet.BlankOffset {
 			// letter score is 0
 			ls = 0
 		} else {
 			ls = gen.bag.Score(ml)
 		}
+		fmt.Printf("AND NOW CHECKED IT %v\n", ls)
 
 		mainWordScore += ls * letterMultiplier
 		// We only add cross scores if the cross set of this square is non-trivial
 		// (i.e. we have to be making an across word). Note that it's not enough
 		// to check that the cross-score is 0 because we could have a blank.
-		if freshTile && gen.board.GetCrossSet(gen.curRowIdx,
-			col+idx, dir) != board.TrivialCrossSet {
-
+		if freshTile && gen.board.GetCrossSet(row, col+idx, dir) != board.TrivialCrossSet {
 			crossScores += ls*letterMultiplier*thisWordMultiplier + cs*thisWordMultiplier
 		}
 	}

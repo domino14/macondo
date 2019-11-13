@@ -219,6 +219,7 @@ func TestGenAllMovesSingleTile(t *testing.T) {
 	generator.SetBoardToGame(alph, board.VsMatt)
 	generator.GenAll(alphabet.RackFromString("A", alph))
 	assert.Equal(t, 24, len(scoringPlays(generator.plays)))
+	// t.Fail()
 }
 
 func TestGenAllMovesFullRack(t *testing.T) {

@@ -72,6 +72,7 @@ func (b *Bag) Score(ml MachineLetter) int {
 	if ml >= BlankOffset || ml == BlankMachineLetter {
 		return b.scores[b.numUniqueTiles-1]
 	}
+	fmt.Printf("TRYING TO LOOK UP SCORE FOR %v (%v)\n", ml, b.scores)
 	return b.scores[ml]
 }
 

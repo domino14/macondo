@@ -50,6 +50,9 @@ func (r *Rack) CopyFrom(other *Rack) {
 	r.alphabet = other.alphabet
 	r.repr = other.repr
 	// These will always be the same size: MaxAlphabetSize + 1
+	if r.LetArr == nil {
+		r.LetArr = make([]int, MaxAlphabetSize+1)
+	}
 	copy(r.LetArr, other.LetArr)
 }
 
