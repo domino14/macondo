@@ -56,12 +56,15 @@ func (gen *GordonGenerator) genByOrientationThreaded(rack *alphabet.Rack,
 					}
 				}
 			}
+
+			fmt.Println("All done with processing goroutine ", t)
 		}(t)
 	}
 	go func(stopChan chan struct{}) {
 		for {
 			select {
 			case <-stop:
+				fmt.Println("Got a stop, returning...")
 				return
 			case t := <-playChan:
 				play := gen.shared[t].latestPlay

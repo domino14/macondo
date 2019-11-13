@@ -335,13 +335,14 @@ func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startRow, star
 		play.SetEquity(gen.strategy.Equity(play, gen.board, gen.bag, gen.oppRack))
 	}
 	gen.plays = append(gen.plays, play)
+	fmt.Printf("play length %v\n", len(gen.plays))
 }
 
 func (gen *GordonGenerator) dedupeAndSortPlays() {
 	dupeMap := map[int]*move.Move{}
 
 	i := 0 // output index
-
+	fmt.Println("Play length pre-dedupe", len(gen.plays))
 	for _, m := range gen.plays {
 		if m.Action() == move.MoveTypePlay && m.TilesPlayed() == 1 {
 			uniqKey := m.UniqueSingleTileKey()
@@ -380,6 +381,7 @@ func (gen *GordonGenerator) dedupeAndSortPlays() {
 			return gen.plays[i].Score() > gen.plays[j].Score()
 		})
 	}
+	fmt.Println("Generated play length post-dedupe", len(gen.plays))
 
 }
 
