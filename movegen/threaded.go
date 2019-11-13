@@ -1,7 +1,6 @@
 package movegen
 
 import (
-	"fmt"
 	"sync"
 
 	"github.com/domino14/macondo/alphabet"
@@ -30,50 +29,42 @@ func (gen *GordonGenerator) genByOrientationThreaded(rack *alphabet.Rack,
 
 	var wg sync.WaitGroup
 	stop := make(chan struct{})
-	playChan := make(chan int)
-	fmt.Println("WORK", work)
+	playChan := make(chan *play, 10)
+	wg.Add(len(work))
 	for t := range work {
 		// t is the thread index in the slice.
 		// Spawn off a goroutine.
-		wg.Add(1)
 		gen.shared[t].rack.CopyFrom(rack)
 		gen.shared[t].tilesPlayed = 0
 		go func(t int) {
 			defer wg.Done()
 
 			for _, row := range work[t] {
-				fmt.Println("ROW", row, "T", t)
 				gen.shared[t].curRowIdx = row
 				gen.shared[t].lastAnchorCol = 100
 				for col := 0; col < dim; col++ {
 					if gen.board.IsAnchor(row, col, dir) {
-						fmt.Println("COL IS ANCHOR", col)
 						gen.shared[t].curAnchorCol = col
 						gen.genThreaded(col, alphabet.MachineWord([]alphabet.MachineLetter{}),
 							gen.shared[t].rack, gen.gaddag.GetRootNodeIndex(), t, playChan)
 						gen.shared[t].lastAnchorCol = col
-						fmt.Println("LATAS")
 					}
 				}
 			}
 
-			fmt.Println("All done with processing goroutine ", t)
 		}(t)
 	}
-	go func(stopChan chan struct{}) {
+	go func(stopChan chan struct{}, playChan chan *play) {
 		for {
 			select {
 			case <-stop:
-				fmt.Println("Got a stop, returning...")
 				return
-			case t := <-playChan:
-				play := gen.shared[t].latestPlay
-				fmt.Println("THE PLAY TO RECORD IS", play)
-				gen.RecordPlay(play.word, play.startRow, play.startCol,
-					play.leave, play.tilesPlayed)
+			case p := <-playChan:
+				gen.RecordPlay(p.word, p.startRow, p.startCol,
+					p.leave, p.tilesPlayed)
 			}
 		}
-	}(stop)
+	}(stop, playChan)
 
 	wg.Wait()
 	// Make the play-recording goroutine stop.
@@ -83,7 +74,7 @@ func (gen *GordonGenerator) genByOrientationThreaded(rack *alphabet.Rack,
 
 // genThreaded is an implementation of the Gordon Gen function using threads
 func (gen *GordonGenerator) genThreaded(col int, word alphabet.MachineWord,
-	rack *alphabet.Rack, nodeIdx uint32, t int, playChan chan int) {
+	rack *alphabet.Rack, nodeIdx uint32, t int, playChan chan *play) {
 
 	var csDirection board.BoardDirection
 	curRowIdx := gen.shared[t].curRowIdx
@@ -136,10 +127,18 @@ func (gen *GordonGenerator) genThreaded(col int, word alphabet.MachineWord,
 	}
 }
 
+func copyWord(word []alphabet.MachineLetter) []alphabet.MachineLetter {
+	// append does not actually create a new slice. If we need a new slice
+	// for thread safety, we need to call this function.
+	w := make([]alphabet.MachineLetter, len(word))
+	copy(w, word)
+	return w
+}
+
 // goOnThreaded is an implementation of the Gordon GoOn function.
 func (gen *GordonGenerator) goOnThreaded(curCol int, L alphabet.MachineLetter, word alphabet.MachineWord,
 	rack *alphabet.Rack, newNodeIdx uint32, oldNodeIdx uint32, t int,
-	playChan chan int) {
+	playChan chan *play) {
 
 	curRowIdx := gen.shared[t].curRowIdx
 	curAnchorCol := gen.shared[t].curAnchorCol
@@ -158,13 +157,11 @@ func (gen *GordonGenerator) goOnThreaded(curCol int, L alphabet.MachineLetter, w
 
 		// Check to see if there is a letter directly to the left.
 		if gen.gaddag.InLetterSet(L, oldNodeIdx) && noLetterDirectlyLeft && tilesPlayed > 0 {
-			gen.shared[t].latestPlay.startRow = curRowIdx
-			gen.shared[t].latestPlay.startCol = curCol
-			gen.shared[t].latestPlay.word = word
-			gen.shared[t].latestPlay.leave = rack.TilesOn()
-			gen.shared[t].latestPlay.tilesPlayed = tilesPlayed
-			fmt.Println("ONE", gen.shared[t].latestPlay)
-			playChan <- t
+			p := &play{
+				startRow: curRowIdx, startCol: curCol, word: copyWord(word),
+				leave: rack.TilesOn(), tilesPlayed: tilesPlayed,
+			}
+			playChan <- p
 		}
 		if newNodeIdx == 0 {
 			return
@@ -196,14 +193,11 @@ func (gen *GordonGenerator) goOnThreaded(curCol int, L alphabet.MachineLetter, w
 		noLetterDirectlyRight := curCol == gen.board.Dim()-1 ||
 			gen.board.GetSquare(curRowIdx, curCol+1).IsEmpty()
 		if gen.gaddag.InLetterSet(L, oldNodeIdx) && noLetterDirectlyRight && tilesPlayed > 0 {
-			gen.shared[t].latestPlay.startRow = curRowIdx
-			gen.shared[t].latestPlay.startCol = curCol - len(word) + 1
-			gen.shared[t].latestPlay.word = word
-			gen.shared[t].latestPlay.leave = rack.TilesOn()
-			gen.shared[t].latestPlay.tilesPlayed = tilesPlayed
-			fmt.Println("TWO", gen.shared[t].latestPlay)
-
-			playChan <- t
+			p := &play{
+				startRow: curRowIdx, startCol: curCol - len(word) + 1, word: copyWord(word),
+				leave: rack.TilesOn(), tilesPlayed: tilesPlayed,
+			}
+			playChan <- p
 		}
 		if newNodeIdx != 0 && curCol < gen.board.Dim()-1 {
 			// There is room to the right

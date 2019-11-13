@@ -38,13 +38,16 @@ type play struct {
 	tilesPlayed int
 }
 
+func (p *play) String() string {
+	return fmt.Sprintf("(%v, %v): %x (%x)", p.startRow, p.startCol, p.word, p.leave)
+}
+
 type sharedThreaded struct {
 	curRowIdx     int
 	curAnchorCol  int
 	lastAnchorCol int
 	tilesPlayed   int
 	rack          *alphabet.Rack
-	latestPlay    *play // to avoid excess allocations
 }
 
 // GordonGenerator is the main move generation struct. It implements
@@ -135,7 +138,7 @@ func (gen *GordonGenerator) SetThreads(t int) {
 func (gen *GordonGenerator) InitSharedStructs() {
 	gen.shared = make([]*sharedThreaded, gen.threads)
 	for idx := range gen.shared {
-		gen.shared[idx] = &sharedThreaded{rack: &alphabet.Rack{}, latestPlay: &play{}}
+		gen.shared[idx] = &sharedThreaded{rack: &alphabet.Rack{}}
 	}
 }
 
@@ -162,7 +165,6 @@ func (gen *GordonGenerator) SetOppRack(r *alphabet.Rack) {
 // GenAll generates all moves on the board. It assumes anchors have already
 // been updated, as well as cross-sets / cross-scores.
 func (gen *GordonGenerator) GenAll(rack *alphabet.Rack) {
-	fmt.Println("CALLED GENALL")
 	gen.plays = []*move.Move{}
 	orientations := []board.BoardDirection{
 		board.HorizontalDirection, board.VerticalDirection}
@@ -325,7 +327,6 @@ func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startRow, star
 	coords := move.ToBoardGameCoords(row, col, gen.vertical)
 	wordCopy := make([]alphabet.MachineLetter, len(word))
 	copy(wordCopy, word)
-	fmt.Println("MADE WORD COPY", wordCopy, startRow, startCol, leave, tilesPlayed)
 	alph := gen.gaddag.GetAlphabet()
 	play := move.NewScoringMove(gen.scoreMove(word, startRow, startCol, tilesPlayed),
 		wordCopy, leave, gen.vertical,
@@ -335,14 +336,12 @@ func (gen *GordonGenerator) RecordPlay(word alphabet.MachineWord, startRow, star
 		play.SetEquity(gen.strategy.Equity(play, gen.board, gen.bag, gen.oppRack))
 	}
 	gen.plays = append(gen.plays, play)
-	fmt.Printf("play length %v\n", len(gen.plays))
 }
 
 func (gen *GordonGenerator) dedupeAndSortPlays() {
 	dupeMap := map[int]*move.Move{}
 
 	i := 0 // output index
-	fmt.Println("Play length pre-dedupe", len(gen.plays))
 	for _, m := range gen.plays {
 		if m.Action() == move.MoveTypePlay && m.TilesPlayed() == 1 {
 			uniqKey := m.UniqueSingleTileKey()
@@ -381,7 +380,6 @@ func (gen *GordonGenerator) dedupeAndSortPlays() {
 			return gen.plays[i].Score() > gen.plays[j].Score()
 		})
 	}
-	fmt.Println("Generated play length post-dedupe", len(gen.plays))
 
 }
 
@@ -406,7 +404,6 @@ func (gen *GordonGenerator) scoreMove(word alphabet.MachineWord, row, col, tiles
 
 	for idx, rn := range word {
 		ml := alphabet.MachineLetter(rn)
-		fmt.Printf("Converted %v into %v\n", rn, ml)
 		bonusSq := gen.board.GetBonus(row, col+idx)
 		letterMultiplier := 1
 		thisWordMultiplier := 1
@@ -431,15 +428,12 @@ func (gen *GordonGenerator) scoreMove(word alphabet.MachineWord, row, col, tiles
 			// else all the multipliers are 1.
 		}
 		cs := gen.board.GetCrossScore(row, col+idx, dir)
-		fmt.Printf("GOT CROSS SCORE %v\n", cs)
-		fmt.Printf("About to check ml %v\n", ml)
 		if ml >= alphabet.BlankOffset {
 			// letter score is 0
 			ls = 0
 		} else {
 			ls = gen.bag.Score(ml)
 		}
-		fmt.Printf("AND NOW CHECKED IT %v\n", ls)
 
 		mainWordScore += ls * letterMultiplier
 		// We only add cross scores if the cross set of this square is non-trivial
