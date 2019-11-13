@@ -15,6 +15,10 @@ import (
 
 // We use channels and other async constructs here.
 
+// Note: Post-implementation this BARELY provides a speed-boost with 4
+// threads instead of 1. Think of something like 19 ms vs 15 ms.
+// Consider deleting this and implementing multi-threaded move finding
+// higher up.
 func (gen *GordonGenerator) genByOrientationThreaded(rack *alphabet.Rack,
 	dir board.BoardDirection) {
 

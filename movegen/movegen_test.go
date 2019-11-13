@@ -348,6 +348,10 @@ func TestGenerateNoPlays(t *testing.T) {
 	assert.Equal(t, move.MoveTypePass, generator.plays[0].Action())
 }
 
+// Note about the comments on the following benchmarks:
+// The benchmarks are at least half as fast now. This largely comes
+// from the sorting / equity stuff that wasn't there before.
+
 func BenchmarkGenEmptyBoard(b *testing.B) {
 	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()

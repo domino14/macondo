@@ -85,6 +85,8 @@ type GordonGenerator struct {
 	// If in multi-threaded mode, the shared variables that are modified are
 	// the "tilesPlayed", the curRowIdx, curAnchorCol, lastAnchorCol, and the
 	// passed-in rack. So every thread should have its own.
+	// Note: threading appears to provide a very minimal speed benefit this
+	// far down. Consider moving it higher up (for example during sims).
 	threads int
 	shared  []*sharedThreaded
 }
