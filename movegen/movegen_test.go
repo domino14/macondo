@@ -349,7 +349,7 @@ func TestGenerateNoPlays(t *testing.T) {
 }
 
 // Note about the comments on the following benchmarks:
-// The benchmarks are at least half as fast now. This largely comes
+// The benchmarks are a bit slower now. This largely comes
 // from the sorting / equity stuff that wasn't there before.
 
 func BenchmarkGenEmptyBoard(b *testing.B) {

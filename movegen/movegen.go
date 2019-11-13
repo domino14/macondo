@@ -108,8 +108,6 @@ func newGordonGenHardcode(gd *gaddag.SimpleGaddag) *GordonGenerator {
 		threads:            1,
 	}
 	gen.board.SetAllCrosses()
-	gen.InitSharedStructs()
-
 	return gen
 }
 
@@ -127,21 +125,7 @@ func NewGordonGenerator(game *mechanics.XWordGame, strategy strategy.Strategizer
 		threads:            1,
 	}
 	gen.board.SetAllCrosses()
-	gen.InitSharedStructs()
-
 	return gen
-}
-
-func (gen *GordonGenerator) SetThreads(t int) {
-	gen.threads = t
-	gen.InitSharedStructs()
-}
-
-func (gen *GordonGenerator) InitSharedStructs() {
-	gen.shared = make([]*sharedThreaded, gen.threads)
-	for idx := range gen.shared {
-		gen.shared[idx] = &sharedThreaded{rack: &alphabet.Rack{}}
-	}
 }
 
 // Reset resets the generator by clearing the board and refilling the bag.
@@ -174,11 +158,7 @@ func (gen *GordonGenerator) GenAll(rack *alphabet.Rack) {
 	// Once for each orientation
 	for idx, dir := range orientations {
 		gen.vertical = idx%2 != 0
-		if gen.threads > 1 {
-			gen.genByOrientationThreaded(rack, dir)
-		} else {
-			gen.genByOrientationThreaded(rack, dir)
-		}
+		gen.genByOrientation(rack, dir)
 		gen.board.Transpose()
 	}
 	gen.addPassAndExchangeMoves(rack)
