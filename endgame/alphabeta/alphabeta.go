@@ -3,6 +3,7 @@
 package alphabeta
 
 import (
+	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/mechanics"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
@@ -47,6 +48,10 @@ type Solver struct {
 	movegen    *movegen.GordonGenerator
 	game       *mechanics.XWordGame
 	totalNodes int
+
+	// Some helpful variables to avoid big allocations
+	sideToMovePlayed []bool
+	otherSidePlayed  []bool
 }
 
 // a game node has to have enough information to allow the game and turns
@@ -109,6 +114,16 @@ func (s *Solver) Init(movegen *movegen.GordonGenerator, game *mechanics.XWordGam
 	s.movegen = movegen
 	s.game = game
 	s.totalNodes = 0
+
+	s.sideToMovePlayed = make([]bool, alphabet.MaxAlphabetSize+1)
+	s.otherSidePlayed = make([]bool, alphabet.MaxAlphabetSize+1)
+}
+
+func (s *Solver) clearStuckTables() {
+	for i := 0; i < alphabet.MaxAlphabetSize+1; i++ {
+		s.sideToMovePlayed[i] = false
+		s.otherSidePlayed[i] = false
+	}
 }
 
 func (s *Solver) generateChildrenNodes(parent *gameNode) []*gameNode {
@@ -132,13 +147,110 @@ func (s *Solver) generateChildrenNodes(parent *gameNode) []*gameNode {
 	return children
 }
 
+// Given the plays and the given rack, return a list of tiles that were
+// never played.
+func (s *Solver) computeStuck(plays []*move.Move, rack *alphabet.Rack,
+	stuckBitArray []bool) []alphabet.MachineLetter {
+
+	stuck := []alphabet.MachineLetter{}
+	for _, play := range plays {
+		for _, t := range play.Tiles() {
+			idx, ok := t.IntrinsicTileIdx()
+			if ok {
+				stuckBitArray[idx] = true
+			}
+		}
+	}
+	for _, ml := range rack.TilesOn() {
+		idx, ok := ml.IntrinsicTileIdx()
+		if ok {
+			if !stuckBitArray[idx] {
+				// this tile was never played.
+				stuck = append(stuck, idx)
+			}
+		}
+	}
+	return stuck
+}
+
+// Returns whether `play` blocks `other`
+func blocks(play *move.Move, other *move.Move) bool {
+	// `play` blocks `other` if any square in `play` occupies any square
+	// covered by `other`, or adjacent to it, or hooks onto a word formed
+	// by `other`
+
+	// rules of thumb:
+	// - look at `other`'s  tiles played
+	// - blocks if any tiles in `play` are ABOVE, BELOW, LEFT, RIGHT, or ON
+	//      any PLAYED tiles by other
+	// - blocks if any tiles in `play` are directly LEFT or RIGHT of the entire
+	//     word formed by other (if the word is horizontal) or
+	//     UP/DOWN if the word is vertical
+
+}
+
+func (s *Solver) generateRefTables() {
+	stmRack := s.game.RackFor(s.game.PlayerOnTurn())
+	pnot := (s.game.PlayerOnTurn() + 1) % s.game.NumPlayers()
+	otherRack := s.game.RackFor(pnot)
+	numTilesOnRack := stmRack.NumTiles()
+	bag := s.game.Bag()
+	s.movegen.GenAll(stmRack)
+	sideToMovePlays := s.movegen.Plays()
+
+	// NB: Something that I could do here is only take opp's
+	// X highest plays for these tables.
+
+	s.movegen.SetSortingParameter(movegen.SortByScore)
+	defer s.movegen.SetSortingParameter(movegen.SortByNone)
+	s.movegen.GenAll(otherRack)
+	otherSidePlays := s.movegen.Plays()
+
+	// Compute for which tiles we are stuck
+	s.clearStuckTables()
+	sideToMoveStuck := s.computeStuck(sideToMovePlays, stmRack,
+		s.sideToMovePlayed)
+	otherSideStuck := s.computeStuck(otherSidePlays, otherRack,
+		s.otherSidePlayed)
+
+	for _, play := range sideToMovePlays {
+
+		if play.TilesPlayed() == int(numTilesOnRack) {
+			// Value is the score of this play plus 2 * the score on
+			// opponent's rack (we're going out; general Crossword Game rules)
+			play.SetValuation(2*otherRack.ScoreOn(bag) + play.Score())
+		} else {
+			// subtract off the score of the opponent's highest scoring move
+			// that is not blocked.
+			var oScore int
+			var oLeave alphabet.MachineWord
+			for _, o := range otherSidePlays {
+				if blocks(play, o) {
+					continue
+				}
+				oScore = o.Score()
+				oLeave = o.Leave()
+			}
+
+			play.SetValuation(play.Score() - oScore +
+				leaveAdjustment(play.Leave(), oLeave, sideToMoveStuck, otherSideStuck))
+
+			// What if all the plays were blocked?
+		}
+	}
+
+}
+
 // Solve solves the endgame given the current state of s.game, for the
 // current player whose turn it is in that state.
 func (s *Solver) Solve(plies int) (int, *move.Move) {
 	// Generate children moves.
-	s.movegen.SetSortingParameter(movegen.SortByEndgameHeuristic)
+	s.movegen.SetSortingParameter(movegen.SortByNone)
 	defer s.movegen.SetSortingParameter(movegen.SortByEquity)
 	log.Debug().Msgf("Attempting to solve endgame with %v plies...", plies)
+
+	s.generateRefTables()
+
 	// technically the children are the actual board _states_ but
 	// we don't keep track of those exactly
 	n := &gameNode{}
@@ -146,7 +258,6 @@ func (s *Solver) Solve(plies int) (int, *move.Move) {
 	// the children of these nodes are the board states after every move.
 	// however we treat the children as those actual moves themselves.
 
-	// Look 6 plies for now. This might still be very slow.
 	v := s.alphabeta(n, plies, -Infinity, Infinity, true)
 	log.Debug().Msgf("Best spread found: %v", v)
 	log.Debug().Msgf("Best variant found:")

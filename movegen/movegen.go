@@ -11,7 +11,6 @@
 package movegen
 
 import (
-	"fmt"
 	"sort"
 
 	"github.com/domino14/macondo/alphabet"
@@ -27,20 +26,8 @@ type SortBy int
 const (
 	SortByScore SortBy = iota
 	SortByEquity
-	SortByEndgameHeuristic
+	SortByNone
 )
-
-type play struct {
-	startRow    int
-	startCol    int
-	word        alphabet.MachineWord
-	leave       alphabet.MachineWord
-	tilesPlayed int
-}
-
-func (p *play) String() string {
-	return fmt.Sprintf("(%v, %v): %x (%x)", p.startRow, p.startCol, p.word, p.leave)
-}
 
 type sharedThreaded struct {
 	curRowIdx     int
@@ -349,18 +336,10 @@ func (gen *GordonGenerator) dedupeAndSortPlays() {
 		sort.Slice(gen.plays, func(i, j int) bool {
 			return gen.plays[i].Score() > gen.plays[j].Score()
 		})
-	case SortByEndgameHeuristic:
-		// Good fast endgame heuristics:
-		// Gets rid of the most tiles, scores the most
-		// Harder to calculate:
-		// keeps an out in two spots, blocks opp's highest / best play, or
-		// their only spot for a certain tile.
-		sort.Slice(gen.plays, func(i, j int) bool {
-			if gen.plays[i].Score() == gen.plays[j].Score() {
-				return gen.plays[i].TilesPlayed() > gen.plays[j].TilesPlayed()
-			}
-			return gen.plays[i].Score() > gen.plays[j].Score()
-		})
+	case SortByNone:
+		// Do not sort the plays. It is assumed that we will sort plays
+		// elsewhere (for example, a dedicated endgame engine)
+		break
 	}
 
 }

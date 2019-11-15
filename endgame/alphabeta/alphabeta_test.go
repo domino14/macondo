@@ -159,7 +159,7 @@ func TestSolveOther2(t *testing.T) {
 
 func TestSolveOther3(t *testing.T) {
 	// This endgame seems to require >= 7 plies to solve. Otherwise it loses.
-	// t.Skip()
+	t.Skip()
 	plies := 7
 
 	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
@@ -198,6 +198,7 @@ func TestSolveOther3(t *testing.T) {
 	if v < 0 {
 		t.Errorf("Expected > 0, %v was", v)
 	}
+	t.Fail()
 }
 
 func TestSolveStandard(t *testing.T) {

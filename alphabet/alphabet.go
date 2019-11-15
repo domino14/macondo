@@ -92,6 +92,21 @@ func (ml MachineLetter) UserVisible(alph *Alphabet) rune {
 	return alph.Letter(ml)
 }
 
+// IntrinsicTileIdx returns the index that this tile would have in a
+// rack's LetArr. If it is not a letter (for example a played-thru marker)
+// will return false as the second arg. It essentially checks whether
+// the relevant ml is an actual played tile or not.
+func (ml MachineLetter) IntrinsicTileIdx() (MachineLetter, bool) {
+	if ml >= BlankOffset || ml == BlankMachineLetter {
+		return MaxAlphabetSize, true
+	} else if ml == PlayedThroughMarker || ml == EmptySquareMarker {
+		// It's unideal to return 0 here, since that's a valid machine
+		// letter, but the caller should check the boolean value!
+		return 0, false
+	}
+	return ml, true
+}
+
 // IsVowel returns true for vowels. Note that this needs an alphabet.
 func (ml MachineLetter) IsVowel(alph *Alphabet) bool {
 	ml = ml.Unblank()
