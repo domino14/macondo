@@ -314,10 +314,13 @@ func (gen *GordonGenerator) dedupeAndSortPlays() {
 	for _, m := range gen.plays {
 		if m.Action() == move.MoveTypePlay && m.TilesPlayed() == 1 {
 			uniqKey := m.UniqueSingleTileKey()
-			if _, ok := dupeMap[uniqKey]; !ok {
+			if dupe, ok := dupeMap[uniqKey]; !ok {
 				dupeMap[uniqKey] = m
 				gen.plays[i] = m
 				i++
+			} else {
+				dupe.SetDupe(m)
+				m.SetDupe(dupe)
 			}
 		} else {
 			gen.plays[i] = m

@@ -107,6 +107,18 @@ func (ml MachineLetter) IntrinsicTileIdx() (MachineLetter, bool) {
 	return ml, true
 }
 
+// IsPlayedTile returns true if this represents a tile that was actually
+// played on the board. It has to be an assigned blank or a letter, not
+// a played-through-marker.
+func (ml MachineLetter) IsPlayedTile() bool {
+	if ml >= BlankOffset {
+		return true
+	} else if ml == PlayedThroughMarker || ml == EmptySquareMarker || ml == BlankMachineLetter {
+		return false
+	}
+	return true
+}
+
 // IsVowel returns true for vowels. Note that this needs an alphabet.
 func (ml MachineLetter) IsVowel(alph *Alphabet) bool {
 	ml = ml.Unblank()
@@ -341,6 +353,16 @@ func FromSlice(arr []uint32) *Alphabet {
 		alphabet.letters[MachineLetter(i)] = rune(arr[i])
 	}
 	return alphabet
+}
+
+// EnglishAlphabet returns an alphabet that corresponds to the English
+// alphabet. This function should be used for testing. In production
+// we will load the alphabet from the gaddag.
+func EnglishAlphabet() *Alphabet {
+	return FromSlice([]uint32{
+		'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
+		'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
+	})
 }
 
 func (a LetterSlice) Len() int           { return len(a) }

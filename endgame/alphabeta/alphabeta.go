@@ -50,8 +50,14 @@ type Solver struct {
 	totalNodes int
 
 	// Some helpful variables to avoid big allocations
-	sideToMovePlayed []bool
-	otherSidePlayed  []bool
+	// stm: side-to-move  ots: other side
+	stmPlayed []bool
+	otsPlayed []bool
+	// Rectangle lists for side-to-move and other-side
+	stmBlockingRects []rect
+	otsBlockingRects []rect
+	stmRectIndex     int
+	otsRectIndex     int
 }
 
 // a game node has to have enough information to allow the game and turns
@@ -115,14 +121,16 @@ func (s *Solver) Init(movegen *movegen.GordonGenerator, game *mechanics.XWordGam
 	s.game = game
 	s.totalNodes = 0
 
-	s.sideToMovePlayed = make([]bool, alphabet.MaxAlphabetSize+1)
-	s.otherSidePlayed = make([]bool, alphabet.MaxAlphabetSize+1)
+	s.stmPlayed = make([]bool, alphabet.MaxAlphabetSize+1)
+	s.otsPlayed = make([]bool, alphabet.MaxAlphabetSize+1)
+	s.stmBlockingRects = make([]rect, 10)
+	s.otsBlockingRects = make([]rect, 10)
 }
 
 func (s *Solver) clearStuckTables() {
 	for i := 0; i < alphabet.MaxAlphabetSize+1; i++ {
-		s.sideToMovePlayed[i] = false
-		s.otherSidePlayed[i] = false
+		s.stmPlayed[i] = false
+		s.otsPlayed[i] = false
 	}
 }
 
@@ -173,20 +181,9 @@ func (s *Solver) computeStuck(plays []*move.Move, rack *alphabet.Rack,
 	return stuck
 }
 
-// Returns whether `play` blocks `other`
-func blocks(play *move.Move, other *move.Move) bool {
-	// `play` blocks `other` if any square in `play` occupies any square
-	// covered by `other`, or adjacent to it, or hooks onto a word formed
-	// by `other`
-
-	// rules of thumb:
-	// - look at `other`'s  tiles played
-	// - blocks if any tiles in `play` are ABOVE, BELOW, LEFT, RIGHT, or ON
-	//      any PLAYED tiles by other
-	// - blocks if any tiles in `play` are directly LEFT or RIGHT of the entire
-	//     word formed by other (if the word is horizontal) or
-	//     UP/DOWN if the word is vertical
-
+func leaveAdjustment(myLeave, oppLeave alphabet.MachineWord,
+	myStuck, otherStuck []alphabet.MachineLetter) int {
+	return 0
 }
 
 func (s *Solver) generateRefTables() {
@@ -209,9 +206,9 @@ func (s *Solver) generateRefTables() {
 	// Compute for which tiles we are stuck
 	s.clearStuckTables()
 	sideToMoveStuck := s.computeStuck(sideToMovePlays, stmRack,
-		s.sideToMovePlayed)
+		s.stmPlayed)
 	otherSideStuck := s.computeStuck(otherSidePlays, otherRack,
-		s.otherSidePlayed)
+		s.otsPlayed)
 
 	for _, play := range sideToMovePlays {
 
@@ -225,7 +222,7 @@ func (s *Solver) generateRefTables() {
 			var oScore int
 			var oLeave alphabet.MachineWord
 			for _, o := range otherSidePlays {
-				if blocks(play, o) {
+				if s.blocks(play, o) {
 					continue
 				}
 				oScore = o.Score()

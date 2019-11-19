@@ -39,6 +39,9 @@ type Move struct {
 	tilesPlayed int
 	alph        *alphabet.Alphabet
 	valuation   int
+	// If this move has a duplicate, it will be here. It only applies
+	// for single-tile plays.
+	dupeOf *Move
 }
 
 var reVertical, reHorizontal *regexp.Regexp
@@ -185,6 +188,18 @@ func (m *Move) SetValuation(v int) {
 
 func (m *Move) Score() int {
 	return m.score
+}
+
+func (m *Move) SetDupe(o *Move) {
+	m.dupeOf = o
+}
+
+func (m *Move) HasDupe() bool {
+	return m.dupeOf != nil
+}
+
+func (m *Move) Dupe() *Move {
+	return m.dupeOf
 }
 
 func (m *Move) Leave() alphabet.MachineWord {
