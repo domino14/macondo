@@ -29,14 +29,6 @@ const (
 	SortByNone
 )
 
-type sharedThreaded struct {
-	curRowIdx     int
-	curAnchorCol  int
-	lastAnchorCol int
-	tilesPlayed   int
-	rack          *alphabet.Rack
-}
-
 // GordonGenerator is the main move generation struct. It implements
 // Steven A. Gordon's algorithm from his paper "A faster Scrabble Move Generation
 // Algorithm"
@@ -68,14 +60,6 @@ type GordonGenerator struct {
 	gaddag *gaddag.SimpleGaddag
 	board  *board.GameBoard
 	bag    *alphabet.Bag
-
-	// If in multi-threaded mode, the shared variables that are modified are
-	// the "tilesPlayed", the curRowIdx, curAnchorCol, lastAnchorCol, and the
-	// passed-in rack. So every thread should have its own.
-	// Note: threading appears to provide a very minimal speed benefit this
-	// far down. Consider moving it higher up (for example during sims).
-	threads int
-	shared  []*sharedThreaded
 }
 
 func newGordonGenHardcode(gd *gaddag.SimpleGaddag) *GordonGenerator {
@@ -92,7 +76,6 @@ func newGordonGenHardcode(gd *gaddag.SimpleGaddag) *GordonGenerator {
 		numPossibleLetters: int(gd.GetAlphabet().NumLetters()),
 		strategy:           strategy,
 		sortingParameter:   SortByEquity,
-		threads:            1,
 	}
 	gen.board.SetAllCrosses()
 	return gen
@@ -109,7 +92,6 @@ func NewGordonGenerator(game *mechanics.XWordGame, strategy strategy.Strategizer
 		numPossibleLetters: int(game.Alphabet().NumLetters()),
 		strategy:           strategy,
 		sortingParameter:   SortByEquity,
-		threads:            1,
 	}
 	gen.board.SetAllCrosses()
 	return gen

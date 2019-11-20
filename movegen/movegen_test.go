@@ -360,6 +360,22 @@ func TestGenerateDupes(t *testing.T) {
 	assert.True(t, s[0].HasDupe())
 }
 
+func TestRowEquivalent(t *testing.T) {
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	alph := gd.GetAlphabet()
+	generator := newGordonGenHardcode(gd)
+	generator.SetBoardToGame(alph, board.TestDupe)
+
+	generator2 := newGordonGenHardcode(gd)
+	generator2.board.SetRow(7, " INCITES", alph)
+	generator2.board.SetRow(8, "IS", alph)
+	generator2.board.SetRow(9, "T", alph)
+	generator2.board.UpdateAllAnchors()
+	generator2.board.GenAllCrossSets(gd, generator2.bag)
+
+	assert.True(t, generator.board.Equals(generator2.board))
+}
+
 // Note about the comments on the following benchmarks:
 // The benchmarks are a bit slower now. This largely comes
 // from the sorting / equity stuff that wasn't there before.

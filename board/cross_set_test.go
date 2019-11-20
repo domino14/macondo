@@ -246,7 +246,7 @@ func TestBoardsEqual(t *testing.T) {
 	c.SetToGame(alph, VsMatt)
 	c.GenAllCrossSets(gd, bag)
 
-	if !b.equals(c) {
+	if !b.Equals(c) {
 		log.Printf("Boards should be identical but they aren't")
 	}
 }
@@ -321,7 +321,7 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 		c.GenAllCrossSets(gd, bag)
 		c.UpdateAllAnchors()
 
-		assert.True(t, b.equals(c))
+		assert.True(t, b.Equals(c))
 
 		for i, c := range tc.userVisibleWord {
 			row, col, vertical := tc.m.CoordsAndVertical()
@@ -374,7 +374,7 @@ func TestRestoreFromBackup(t *testing.T) {
 		c.SetToGame(alph, tc.testGame)
 		c.GenAllCrossSets(gd, bag)
 		c.UpdateAllAnchors()
-		assert.True(t, b.equals(c))
+		assert.True(t, b.Equals(c))
 	}
 }
 

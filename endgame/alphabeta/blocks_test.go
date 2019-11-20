@@ -47,7 +47,43 @@ func TestBlocks(t *testing.T) {
 	b := board.MakeBoard(board.CrosswordGameBoard)
 	b.SetRow(3, row, alph)
 	fmt.Println(b.ToDisplayText(alph))
-	is.Fail()
+
+	type testcase struct {
+		stmPlay *move.Move
+		otsPlay *move.Move
+		blocks  bool
+	}
+	s := &Solver{}
+	s.Init(nil, nil)
+
+	sups := move.NewScoringMoveSimple(0, "4C", "...S", "", alph)
+	supination := move.NewScoringMoveSimple(0, "4C", "...IN..I..", "", alph)
+	supinations := move.NewScoringMoveSimple(0, "4C", "...IN..I..S", "", alph)
+	attone := move.NewScoringMoveSimple(0, "4H", "..T..E", "", alph)
+	up := move.NewScoringMoveSimple(0, "E3", "U.", "", alph)
+	cat := move.NewScoringMoveSimple(0, "4G", "C..", "", alph)
+
+	testcases := []testcase{
+		{sups, supination, true},
+		{supination, sups, true},
+		{sups, supinations, true},
+		{supinations, sups, true},
+		{sups, attone, false},
+		{attone, sups, false},
+		{up, supination, false},
+		{supination, up, false},
+		{up, sups, false},
+		{sups, up, false},
+		{cat, sups, true},
+		{sups, cat, true},
+		{cat, attone, true},
+		{attone, cat, true},
+	}
+
+	for _, tc := range testcases {
+		log.Debug().Msgf("trying %v blocks %v, expect %v", tc.stmPlay, tc.otsPlay, tc.blocks)
+		is.True(s.blocks(tc.stmPlay, tc.otsPlay) == tc.blocks)
+	}
 }
 
 func TestComplexBlocks(t *testing.T) {
@@ -84,6 +120,10 @@ func TestComplexBlocks(t *testing.T) {
 	its := move.NewScoringMoveSimple(0, "13D", "ITS", "", alph)
 	betas := move.NewScoringMoveSimple(0, "11E", "....S", "", alph)
 	so := move.NewScoringMoveSimple(0, "I11", "S.", "", alph)
+	as := move.NewScoringMoveSimple(0, "J11", "A.", "", alph)
+	of := move.NewScoringMoveSimple(0, "I12", ".F", "", alph)
+	ar := move.NewScoringMoveSimple(0, "11J", "AR", "", alph)
+	sha := move.NewScoringMoveSimple(0, "12C", "S..", "", alph)
 	betas.SetDupe(so)
 	so.SetDupe(betas)
 
@@ -96,6 +136,30 @@ func TestComplexBlocks(t *testing.T) {
 		{halitoses, it, false},
 		{its, halitoses, true},
 		{halitoses, its, true},
+		{betas, as, true},
+		{as, betas, true},
+		{betas, of, true},
+		{of, betas, true},
+		{betas, ar, true},
+		{ar, betas, true},
+		{betas, so, true},
+		{so, betas, true},
+		{so, as, true},
+		{as, so, true},
+		{so, of, true},
+		{of, so, true},
+		{so, ar, true},
+		{ar, so, true},
+		{sha, halitoses, true},
+		{halitoses, sha, true},
+		{halitoses, halitoses, true},
+		{hebetate, hebetate, true},
+		{za, za, true},
+		{it, it, true},
+		{its, its, true},
+		{of, of, true},
+		{so, so, true},
+		{sha, sha, true},
 	}
 	for _, tc := range testcases {
 		log.Debug().Msgf("trying %v blocks %v, expect %v", tc.stmPlay, tc.otsPlay, tc.blocks)
