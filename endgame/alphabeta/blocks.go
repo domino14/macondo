@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/domino14/macondo/move"
+	"github.com/rs/zerolog/log"
 )
 
 type rect struct {
@@ -42,31 +43,61 @@ func (s *Solver) setBlockingRectangles(play *move.Move, stm bool) {
 
 	r, c, vert := play.CoordsAndVertical()
 	playLength := len(play.Tiles())
+	// Note: for the side to move, we only care about rectangles that are
+	// on the tile positions themselves. For the other side, we make
+	// bigger rectangles. This is assuming we are calling this algorithm
+	// with (side to move play) blocks (other side play).
 	// Figure out the orthogonal rectangles first.
 	for idx, t := range play.Tiles() {
 		addRect := false
 		if vert {
 			if t.IsPlayedTile() && tly == -Infinity {
 				tly = r + idx // start right on the first tile
-				tlx = c - 1   // need to account for adjacent squares
+				if !stm {
+					tlx = c - 1 // need to account for adjacent squares
+				} else {
+					tlx = c
+				}
 			}
 			// If we are at the end of a contiguous group (or of the whole
 			// word)
 			if tly != -Infinity && (!t.IsPlayedTile() || idx == playLength-1) {
-				bry = r + idx - 1 // end right at the contiguous group
-				brx = c + 1
+				if idx == playLength-1 {
+					// end right at the actual play
+					bry = r + idx
+				} else {
+					bry = r + idx - 1 // end right at the contiguous group
+				}
+				if !stm {
+					brx = c + 1
+				} else {
+					brx = c
+				}
 				addRect = true
 			}
 		} else {
+			// this code sucks :/
 			if t.IsPlayedTile() && tlx == -Infinity {
 				tlx = c + idx
-				tly = r - 1
+				if !stm {
+					tly = r - 1
+				} else {
+					tly = r
+				}
 			}
 			// If we are at the end of a contiguous group (or of the whole
 			// word)
 			if tlx != -Infinity && (!t.IsPlayedTile() || idx == playLength-1) {
-				brx = c + idx - 1
-				bry = r + 1
+				if idx == playLength-1 {
+					brx = c + idx
+				} else {
+					brx = c + idx - 1
+				}
+				if !stm {
+					bry = r + 1
+				} else {
+					bry = r
+				}
 				addRect = true
 			}
 		}
@@ -77,15 +108,24 @@ func (s *Solver) setBlockingRectangles(play *move.Move, stm bool) {
 		}
 	}
 	// Then make one-square rectangles on word edges, in the direction
-	// of the word.
-	if vert {
-		s.addRectangle(c, r-1, c, r-1, stm)
-		s.addRectangle(c, r+playLength, c, r+playLength, stm)
-	} else {
-		s.addRectangle(c-1, r, c-1, r, stm)
-		s.addRectangle(c+playLength, r, c+playLength, r, stm)
+	// of the word, ONLY if the whole WORD starts or ends with PLAYED tiles.
+	// (And only if we're not on the side to move)
+	// We don't need to cover the actual played tiles because the
+	// orthogonal rectangles above do this.
+	if stm {
+		return
 	}
-	// XXX 	handle single-tile plays that make two plays at once.
+	tlx, tly = -Infinity, -Infinity
+	playedTileOnEdge := play.Tiles()[0].IsPlayedTile() || play.Tiles()[playLength-1].IsPlayedTile()
+	if playedTileOnEdge {
+		if vert {
+			s.addRectangle(c, r-1, c, r-1, stm)
+			s.addRectangle(c, r+playLength, c, r+playLength, stm)
+		} else {
+			s.addRectangle(c-1, r, c-1, r, stm)
+			s.addRectangle(c+playLength, r, c+playLength, r, stm)
+		}
+	}
 }
 
 // Returns whether `play` blocks `other`
@@ -118,17 +158,17 @@ func (s *Solver) blocks(play *move.Move, other *move.Move) bool {
 	if play.HasDupe() {
 		s.setBlockingRectangles(play.Dupe(), true)
 	}
-	fmt.Println("Blocking rects for stm play", play, s.stmBlockingRects[0:s.stmRectIndex])
+	log.Debug().Msgf("Blocking rects for stm play %v: %v", play, s.stmBlockingRects[0:s.stmRectIndex])
 	s.setBlockingRectangles(other, false)
 	if other.HasDupe() {
 		s.setBlockingRectangles(other.Dupe(), false)
 	}
-	fmt.Println("Blocking rects for ots play", other, s.otsBlockingRects[0:s.otsRectIndex])
+	log.Debug().Msgf("Blocking rects for ots play %v: %v", other, s.otsBlockingRects[0:s.otsRectIndex])
 
 	for i := 0; i < s.stmRectIndex; i++ {
 		for j := 0; j < s.otsRectIndex; j++ {
 			if rectanglesIntersect(s.stmBlockingRects[i], s.otsBlockingRects[j]) {
-				fmt.Println("Rectangles intersect", s.stmBlockingRects[i], s.otsBlockingRects[j])
+				log.Debug().Msgf("Rectangles intersect: %v, %v", s.stmBlockingRects[i], s.otsBlockingRects[j])
 				return true
 			}
 		}

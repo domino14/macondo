@@ -7,6 +7,7 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/move"
 	"github.com/matryer/is"
+	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/board"
 )
@@ -67,6 +68,7 @@ func TestComplexBlocks(t *testing.T) {
 	// BETAS/SO should be blocked by AS on the first S of OSES, or by OF from
 	//   the O in OSES, or by AR/AS/RE overlapping the SE in OSES, e.g.
 	// (S)HA blocks (HA)LIT(OSES)
+	// all plays should block themselves!
 	type testcase struct {
 		stmPlay *move.Move
 		otsPlay *move.Move
@@ -74,18 +76,30 @@ func TestComplexBlocks(t *testing.T) {
 	}
 	s := &Solver{}
 	s.Init(nil, nil)
+
+	hebetate := move.NewScoringMoveSimple(0, "11C", "HE....TE", "", alph)
+	halitoses := move.NewScoringMoveSimple(0, "12D", "..LIT....", "", alph)
+	za := move.NewScoringMoveSimple(0, "H10", "Z.", "", alph)
+	it := move.NewScoringMoveSimple(0, "13D", "IT", "", alph)
+	its := move.NewScoringMoveSimple(0, "13D", "ITS", "", alph)
+	betas := move.NewScoringMoveSimple(0, "11E", "....S", "", alph)
+	so := move.NewScoringMoveSimple(0, "I11", "S.", "", alph)
+	betas.SetDupe(so)
+	so.SetDupe(betas)
+
 	testcases := []testcase{
-		{move.NewScoringMoveSimple(0, "12D", "..LIT....", "", alph),
-			move.NewScoringMoveSimple(0, "11C", "HE....TE", "", alph), false},
-		{move.NewScoringMoveSimple(0, "11C", "HE....TE", "", alph),
-			move.NewScoringMoveSimple(0, "12D", "..LIT....", "", alph), false},
-		{move.NewScoringMoveSimple(0, "H10", "Z.", "", alph),
-			move.NewScoringMoveSimple(0, "12D", "..LIT....", "", alph), true},
-		{move.NewScoringMoveSimple(0, "12D", "..LIT....", "", alph),
-			move.NewScoringMoveSimple(0, "H10", "Z.", "", alph), true},
+		{halitoses, hebetate, false},
+		{hebetate, halitoses, false},
+		{za, halitoses, true},
+		{halitoses, za, true},
+		{it, halitoses, false},
+		{halitoses, it, false},
+		{its, halitoses, true},
+		{halitoses, its, true},
 	}
 	for _, tc := range testcases {
-		fmt.Println("trying", tc.stmPlay, "blocks", tc.otsPlay, "expect", tc.blocks)
+		log.Debug().Msgf("trying %v blocks %v, expect %v", tc.stmPlay, tc.otsPlay, tc.blocks)
 		is.True(s.blocks(tc.stmPlay, tc.otsPlay) == tc.blocks)
 	}
+	// is.Fail()
 }

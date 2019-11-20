@@ -1,8 +1,10 @@
 package board
 
 import (
+	"fmt"
 	"log"
 	"regexp"
+	"strings"
 
 	"github.com/domino14/macondo/alphabet"
 )
@@ -19,8 +21,14 @@ var userRackRegex = regexp.MustCompile(`(?U)[[:print:]]+\s+([A-Z\?]*)\s+-?[0-9]+
 func (g *GameBoard) ToDisplayText(alph *alphabet.Alphabet) string {
 	var str string
 	n := g.Dim()
+	row := "   "
 	for i := 0; i < n; i++ {
-		row := ""
+		row = row + string('A'+i) + " "
+	}
+	str = str + row + "\n"
+	str = str + "   " + strings.Repeat("-", 30) + "\n"
+	for i := 0; i < n; i++ {
+		row := fmt.Sprintf("%2d|", i+1)
 		for j := 0; j < n; j++ {
 			row = row + g.squares[i][j].DisplayString(alph) + " "
 		}

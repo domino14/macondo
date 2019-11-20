@@ -148,6 +148,7 @@ func (gen *GordonGenerator) GenAll(rack *alphabet.Rack) {
 		gen.genByOrientation(rack, dir)
 		gen.board.Transpose()
 	}
+
 	gen.addPassAndExchangeMoves(rack)
 	gen.dedupeAndSortPlays()
 }

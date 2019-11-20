@@ -36,6 +36,8 @@ const (
 	JoeVsPaul
 	// VsJoel from Manhattan November 2019
 	VsJoel
+
+	TestDupe
 )
 
 // SetToGame sets the board to a specific game in progress. It is used to
@@ -361,6 +363,28 @@ cesar: Turn 11
    ------------------------------
 `, alph)
 
+	case TestDupe:
+		return b.SetFromPlaintext(`
+New Player 1: Turn 2
+   A B C D E F G H I J K L M N O      Quackle                  AHIJNRR   76
+   ------------------------------  -> New Player 1             Z         4
+ 1|=     '       =       '     =| --Tracking-----------------------------------
+ 2|  -       "       "       -  | ??AAAAAAAAABBCDDDDEEEEEEEEEEEFFGGGHHIIIIIIJK
+ 3|    -       '   '       -    | LLLLMMNNNNNOOOOOOOOPPQRRRRRRSSTTTTUUUUVVWWXY
+ 4|'     -       '       -     '| Y  89
+ 5|        -           -        |
+ 6|  "       "       "       "  |
+ 7|    '       '   '       '    |
+ 8|= I N C I T E S       '     =|
+ 9|I S '       '   '       '    |
+10|T "       "       "       "  |
+11|        -           -        |
+12|'     -       '       -     '|
+13|    -       '   '       -    |
+14|  -       "       "       -  |
+15|=     '       =       '     =|
+   ------------------------------
+`, alph)
 	}
 
 	return nil

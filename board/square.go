@@ -96,7 +96,7 @@ func (s Square) DisplayString(alph *alphabet.Alphabet) string {
 	if s.bonus != ' ' {
 		bonusdisp = string(s.bonus)
 	} else {
-		bonusdisp = "."
+		bonusdisp = "\u00b7"
 	}
 	if s.letter == alphabet.EmptySquareMarker {
 		return bonusdisp

@@ -348,6 +348,18 @@ func TestGenerateNoPlays(t *testing.T) {
 	assert.Equal(t, move.MoveTypePass, generator.plays[0].Action())
 }
 
+func TestGenerateDupes(t *testing.T) {
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	alph := gd.GetAlphabet()
+	generator := newGordonGenHardcode(gd)
+	generator.SetBoardToGame(alph, board.TestDupe)
+
+	generator.GenAll(alphabet.RackFromString("Z", alph))
+	s := scoringPlays(generator.plays)
+	assert.Equal(t, 1, len(s))
+	assert.True(t, s[0].HasDupe())
+}
+
 // Note about the comments on the following benchmarks:
 // The benchmarks are a bit slower now. This largely comes
 // from the sorting / equity stuff that wasn't there before.
