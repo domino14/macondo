@@ -35,93 +35,90 @@ func (s *Solver) addRectangle(tlx, tly, brx, bry int, stm bool) {
 	}
 }
 
-func (s *Solver) setBlockingRectangles(play *move.Move, stm bool) {
-	tlx := -Infinity
-	tly := -Infinity
-	brx := -Infinity
-	bry := -Infinity
+func rectTransform(col, row int, startIdx, endIdx int, vertical, wide bool) (
+	tlx, tly, brx, bry int) {
+	// Given a top-left col/row, an index to start from, a direction, width,
+	// and a length, return the relevant rectangle.
+	wAdd := 0
+	if wide {
+		wAdd = 1
+	}
+	if vertical {
+		tlx, brx = col-wAdd, col+wAdd
+		tly, bry = row+startIdx, row+endIdx
+	} else {
+		tly, bry = row-wAdd, row+wAdd
+		tlx, brx = col+startIdx, col+endIdx
+	}
+	return
+}
 
+func (s *Solver) setOrthogonalBlockingRects(play *move.Move, stm, wide bool) {
 	r, c, vert := play.CoordsAndVertical()
 	playLength := len(play.Tiles())
-	// Note: for the other side, we only care about rectangles that are
-	// on the tile positions themselves. For the side to move, we make
-	// bigger rectangles. This is assuming we are calling this algorithm
-	// with (side to move play) blocks (other side play).
-	// Figure out the orthogonal rectangles first.
+
+	startIdx := -Infinity
+	endIdx := -Infinity
 	for idx, t := range play.Tiles() {
 		addRect := false
-		if vert {
-			if t.IsPlayedTile() && tly == -Infinity {
-				tly = r + idx // start right on the first tile
-				if stm {
-					tlx = c - 1 // need to account for adjacent squares
-				} else {
-					tlx = c
-				}
+
+		if t.IsPlayedTile() && startIdx == -Infinity {
+			startIdx = idx
+		}
+		// At the end of a contiguous group of tiles:
+		if startIdx != -Infinity && (!t.IsPlayedTile() || idx == playLength-1) {
+			if idx == playLength-1 && t.IsPlayedTile() {
+				// end right at the actual play
+				endIdx = idx
+			} else {
+				endIdx = idx - 1
 			}
-			// If we are at the end of a contiguous group (or of the whole
-			// word)
-			if tly != -Infinity && (!t.IsPlayedTile() || idx == playLength-1) {
-				if idx == playLength-1 && t.IsPlayedTile() {
-					// end right at the actual play
-					bry = r + idx
-				} else {
-					bry = r + idx - 1 // end right at the contiguous group
-				}
-				if stm {
-					brx = c + 1
-				} else {
-					brx = c
-				}
-				addRect = true
-			}
-		} else {
-			// this code sucks :/
-			if t.IsPlayedTile() && tlx == -Infinity {
-				tlx = c + idx
-				if stm {
-					tly = r - 1
-				} else {
-					tly = r
-				}
-			}
-			// If we are at the end of a contiguous group (or of the whole
-			// word)
-			if tlx != -Infinity && (!t.IsPlayedTile() || idx == playLength-1) {
-				if idx == playLength-1 && t.IsPlayedTile() {
-					brx = c + idx
-				} else {
-					brx = c + idx - 1
-				}
-				if stm {
-					bry = r + 1
-				} else {
-					bry = r
-				}
-				addRect = true
-			}
+			addRect = true
 		}
 		if addRect {
+			tlx, tly, brx, bry := rectTransform(c, r, startIdx, endIdx, vert, wide)
 			s.addRectangle(tlx, tly, brx, bry, stm)
-			tlx = -Infinity
-			tly = -Infinity
+			startIdx, endIdx = -Infinity, -Infinity
 		}
 	}
+}
+
+func (s *Solver) setSTMBlockingRectangles(play *move.Move) {
+	s.setOrthogonalBlockingRects(play, true, false)
+}
+
+func (s *Solver) setOTSBlockingRectangles(play *move.Move, stmPlay *move.Move) {
+	// set wide orthogonal rectangles here
+	s.setOrthogonalBlockingRects(play, false, true)
 	// Then make one-square rectangles on word edges, in the direction
-	// of the word, if we're on the side to move.
+	// of the word.
 	// We don't need to cover the actual played tiles because the
 	// orthogonal rectangles above do this.
-
-	if !stm {
-		return
-	}
+	r, c, vert := play.CoordsAndVertical()
+	playLength := len(play.Tiles())
 
 	if vert {
-		s.addRectangle(c, r-1, c, r-1, stm)
-		s.addRectangle(c, r+playLength, c, r+playLength, stm)
+		s.addRectangle(c, r-1, c, r-1, false)
+		s.addRectangle(c, r+playLength, c, r+playLength, false)
 	} else {
-		s.addRectangle(c-1, r, c-1, r, stm)
-		s.addRectangle(c+playLength, r, c+playLength, r, stm)
+		s.addRectangle(c-1, r, c-1, r, false)
+		s.addRectangle(c+playLength, r, c+playLength, r, false)
+	}
+
+	// In order to account for hooks, we need to actually explore the
+	// stmPlay and add blocking rectangles for it here, ONLY if the
+	// two plays have different directions.
+	sr, sc, svert := stmPlay.CoordsAndVertical()
+	if svert == vert {
+		return
+	}
+	splayLength := len(stmPlay.Tiles())
+	if svert {
+		s.addRectangle(sc, sr-1, sc, sr-1, true)
+		s.addRectangle(sc, sr+splayLength, sc, sr+splayLength, true)
+	} else {
+		s.addRectangle(sc-1, sr, sc-1, sr, true)
+		s.addRectangle(sc+splayLength, sr, sc+splayLength, sr, true)
 	}
 }
 
@@ -132,15 +129,19 @@ func (s *Solver) blocks(play *move.Move, other *move.Move) bool {
 	// by `other`
 	s.stmRectIndex = 0
 	s.otsRectIndex = 0
-	s.setBlockingRectangles(play, true)
-	if play.HasDupe() {
-		s.setBlockingRectangles(play.Dupe(), true)
+
+	// How to model this:
+	// For the `side to move` to block an `other side` play, we can draw
+	// minimal rectangles around every PLAYED tile for the `side to move`,
+	// and  draw bigger rectangles for the `other side` and figure out
+	// if there are intersections.
+
+	s.setSTMBlockingRectangles(play)
+	s.setOTSBlockingRectangles(other, play)
+	if other.HasDupe() {
+		s.setOTSBlockingRectangles(other.Dupe(), play)
 	}
 	log.Debug().Msgf("Blocking rects for stm play %v: %v", play, s.stmBlockingRects[0:s.stmRectIndex])
-	s.setBlockingRectangles(other, false)
-	if other.HasDupe() {
-		s.setBlockingRectangles(other.Dupe(), false)
-	}
 	log.Debug().Msgf("Blocking rects for ots play %v: %v", other, s.otsBlockingRects[0:s.otsRectIndex])
 
 	for i := 0; i < s.stmRectIndex; i++ {
