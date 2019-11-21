@@ -191,6 +191,7 @@ func (s *Solver) generateRefTables() {
 	pnot := (s.game.PlayerOnTurn() + 1) % s.game.NumPlayers()
 	otherRack := s.game.RackFor(pnot)
 	numTilesOnRack := stmRack.NumTiles()
+	board := s.game.Board()
 	bag := s.game.Bag()
 	s.movegen.GenAll(stmRack)
 	sideToMovePlays := s.movegen.Plays()
@@ -222,7 +223,7 @@ func (s *Solver) generateRefTables() {
 			var oScore int
 			var oLeave alphabet.MachineWord
 			for _, o := range otherSidePlays {
-				if s.blocks(play, o) {
+				if s.blocks(play, o, board) {
 					continue
 				}
 				oScore = o.Score()

@@ -39,6 +39,12 @@ func TestRectanglesIntersect(t *testing.T) {
 
 }
 
+type blocktestcase struct {
+	stmPlay *move.Move
+	otsPlay *move.Move
+	blocks  bool
+}
+
 func TestBlocks(t *testing.T) {
 	is := is.New(t)
 	row := "  SUP  AT ON  " // SUPS does not block ATTONE, etc.
@@ -48,11 +54,6 @@ func TestBlocks(t *testing.T) {
 	b.SetRow(3, row, alph)
 	fmt.Println(b.ToDisplayText(alph))
 
-	type testcase struct {
-		stmPlay *move.Move
-		otsPlay *move.Move
-		blocks  bool
-	}
 	s := &Solver{}
 	s.Init(nil, nil)
 
@@ -63,7 +64,7 @@ func TestBlocks(t *testing.T) {
 	up := move.NewScoringMoveSimple(0, "E3", "U.", "", alph)
 	cat := move.NewScoringMoveSimple(0, "4G", "C..", "", alph)
 
-	testcases := []testcase{
+	testcases := []blocktestcase{
 		{sups, supination, true},
 		{supination, sups, true},
 		{sups, supinations, true},
@@ -82,7 +83,7 @@ func TestBlocks(t *testing.T) {
 
 	for _, tc := range testcases {
 		log.Debug().Msgf("trying %v blocks %v, expect %v", tc.stmPlay, tc.otsPlay, tc.blocks)
-		is.True(s.blocks(tc.stmPlay, tc.otsPlay) == tc.blocks)
+		is.True(s.blocks(tc.stmPlay, tc.otsPlay, b) == tc.blocks)
 	}
 }
 
@@ -105,11 +106,7 @@ func TestComplexBlocks(t *testing.T) {
 	//   the O in OSES, or by AR/AS/RE overlapping the SE in OSES, e.g.
 	// (S)HA blocks (HA)LIT(OSES)
 	// all plays should block themselves!
-	type testcase struct {
-		stmPlay *move.Move
-		otsPlay *move.Move
-		blocks  bool
-	}
+
 	s := &Solver{}
 	s.Init(nil, nil)
 
@@ -127,7 +124,7 @@ func TestComplexBlocks(t *testing.T) {
 	betas.SetDupe(so)
 	so.SetDupe(betas)
 
-	testcases := []testcase{
+	testcases := []blocktestcase{
 		{halitoses, hebetate, false},
 		{hebetate, halitoses, false},
 		{za, halitoses, true},
@@ -163,7 +160,77 @@ func TestComplexBlocks(t *testing.T) {
 	}
 	for _, tc := range testcases {
 		log.Debug().Msgf("trying %v blocks %v, expect %v", tc.stmPlay, tc.otsPlay, tc.blocks)
-		is.True(s.blocks(tc.stmPlay, tc.otsPlay) == tc.blocks)
+		is.True(s.blocks(tc.stmPlay, tc.otsPlay, b) == tc.blocks)
 	}
 	// is.Fail()
+}
+func TestMoreComplexBlocks(t *testing.T) {
+	is := is.New(t)
+	row1 := "    BETA      "
+	row2 := "   HA   OSES  "
+	row3 := "    AMEER     "
+	alph := alphabet.EnglishAlphabet()
+	b := board.MakeBoard(board.CrosswordGameBoard)
+	b.SetRow(10, row1, alph)
+	b.SetRow(11, row2, alph)
+	b.SetRow(12, row3, alph)
+	fmt.Println(b.ToDisplayText(alph))
+	s := &Solver{}
+	s.Init(nil, nil)
+
+	hebetate := move.NewScoringMoveSimple(0, "11C", "HE....TE", "", alph)
+	halitoses := move.NewScoringMoveSimple(0, "12D", "..LIT....", "", alph)
+	za := move.NewScoringMoveSimple(0, "H10", "Z.", "", alph)
+	it := move.NewScoringMoveSimple(0, "14F", "IT", "", alph)
+	its := move.NewScoringMoveSimple(0, "14F", "ITS", "", alph)
+	betas := move.NewScoringMoveSimple(0, "11E", "....S", "", alph)
+	sor := move.NewScoringMoveSimple(0, "I11", "S..", "", alph)
+	as := move.NewScoringMoveSimple(0, "J11", "A.", "", alph)
+	sha := move.NewScoringMoveSimple(0, "12C", "S..", "", alph)
+	ort := move.NewScoringMoveSimple(0, "I12", "..T", "", alph)
+
+	betas.SetDupe(sor)
+	sor.SetDupe(betas)
+
+	testcases := []blocktestcase{
+		{halitoses, hebetate, false},
+		{hebetate, halitoses, false},
+		{za, halitoses, true},
+		{halitoses, za, true},
+		{it, halitoses, true},
+		{halitoses, it, true},
+		{its, halitoses, true},
+		{halitoses, its, true},
+		{betas, as, true},
+		{as, betas, true},
+		{betas, ort, true},
+		{ort, betas, true},
+		{betas, sor, true},
+		{sor, betas, true},
+		{sor, as, true},
+		{as, sor, true},
+		{sor, ort, true},
+		{ort, sor, true},
+		{hebetate, ort, true},
+		{ort, hebetate, true},
+		{sha, halitoses, true},
+		{halitoses, sha, true},
+		{halitoses, halitoses, true},
+		{hebetate, hebetate, true},
+		{za, za, true},
+		{it, it, true},
+		{its, its, true},
+		{ort, ort, true},
+		{sor, sor, true},
+		{sha, sha, true},
+		{hebetate, it, false},
+		{it, hebetate, false},
+		{hebetate, its, false},
+		{its, hebetate, false},
+	}
+	for _, tc := range testcases {
+		log.Debug().Msgf("trying %v blocks %v, expect %v", tc.stmPlay, tc.otsPlay, tc.blocks)
+		is.True(s.blocks(tc.stmPlay, tc.otsPlay, b) == tc.blocks)
+	}
+
 }

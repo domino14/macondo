@@ -3,6 +3,9 @@ package alphabeta
 import (
 	"fmt"
 
+	"github.com/domino14/macondo/alphabet"
+
+	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/move"
 	"github.com/rs/zerolog/log"
 )
@@ -87,7 +90,7 @@ func (s *Solver) setSTMBlockingRectangles(play *move.Move) {
 	s.setOrthogonalBlockingRects(play, true, false)
 }
 
-func (s *Solver) setOTSBlockingRectangles(play *move.Move, stmPlay *move.Move) {
+func (s *Solver) setOTSBlockingRectangles(play *move.Move) {
 	// set wide orthogonal rectangles here
 	s.setOrthogonalBlockingRects(play, false, true)
 	// Then make one-square rectangles on word edges, in the direction
@@ -108,25 +111,70 @@ func (s *Solver) setOTSBlockingRectangles(play *move.Move, stmPlay *move.Move) {
 	// In order to account for hooks, we need to actually explore the
 	// stmPlay and add blocking rectangles for it here, ONLY if the
 	// two plays have different directions.
-	sr, sc, svert := stmPlay.CoordsAndVertical()
-	if svert == vert {
-		return
-	}
-	splayLength := len(stmPlay.Tiles())
-	if svert {
-		s.addRectangle(sc, sr-1, sc, sr-1, true)
-		s.addRectangle(sc, sr+splayLength, sc, sr+splayLength, true)
-	} else {
-		s.addRectangle(sc-1, sr, sc-1, sr, true)
-		s.addRectangle(sc+splayLength, sr, sc+splayLength, sr, true)
+	// sr, sc, svert := stmPlay.CoordsAndVertical()
+	// if svert == vert {
+	// 	return
+	// }
+	// splayLength := len(stmPlay.Tiles())
+	// if svert {
+	// 	s.addRectangle(sc, sr-1, sc, sr-1, true)
+	// 	s.addRectangle(sc, sr+splayLength, sc, sr+splayLength, true)
+	// } else {
+	// 	s.addRectangle(sc-1, sr, sc-1, sr, true)
+	// 	s.addRectangle(sc+splayLength, sr, sc+splayLength, sr, true)
+	// }
+}
+
+func (s *Solver) setHookBlockingRectangles(play *move.Move, board *board.GameBoard) {
+
+	// determine all words formed by `other`
+	// for every cross word:
+	//    - draw rectangles at each edge of the cross word
+	r, c, vert := play.CoordsAndVertical()
+	for idx, t := range play.Tiles() {
+		if !t.IsPlayedTile() {
+			continue
+		}
+		// Search up and down (or sideways)
+		var x int
+
+		if !vert {
+			for x = r - 1; x >= 0; x-- {
+				if board.GetLetter(x, idx+c) == alphabet.EmptySquareMarker {
+					break
+				}
+			}
+			s.addRectangle(idx+c, x, idx+c, x, false)
+			for x = r + 1; x < board.Dim(); x++ {
+				if board.GetLetter(x, idx+c) == alphabet.EmptySquareMarker {
+					break
+				}
+			}
+			s.addRectangle(idx+c, x, idx+c, x, false)
+		} else {
+			for x = c - 1; x >= 0; x-- {
+				if board.GetLetter(idx+r, c) == alphabet.EmptySquareMarker {
+					break
+				}
+			}
+			s.addRectangle(x, idx+r, x, idx+r, false)
+			for x = c + 1; x < board.Dim(); x++ {
+				if board.GetLetter(x, idx+c) == alphabet.EmptySquareMarker {
+					break
+				}
+			}
+			s.addRectangle(x, idx+r, x, idx+r, false)
+		}
+
 	}
 }
 
 // Returns whether `play` blocks `other`
-func (s *Solver) blocks(play *move.Move, other *move.Move) bool {
+func (s *Solver) blocks(play *move.Move, other *move.Move, board *board.GameBoard) bool {
 	// `play` blocks `other` if any square in `play` occupies any square
 	// covered by `other`, or adjacent to it, or hooks onto a word formed
 	// by `other`
+
 	s.stmRectIndex = 0
 	s.otsRectIndex = 0
 
@@ -137,10 +185,11 @@ func (s *Solver) blocks(play *move.Move, other *move.Move) bool {
 	// if there are intersections.
 
 	s.setSTMBlockingRectangles(play)
-	s.setOTSBlockingRectangles(other, play)
+	s.setOTSBlockingRectangles(other)
 	if other.HasDupe() {
-		s.setOTSBlockingRectangles(other.Dupe(), play)
+		s.setOTSBlockingRectangles(other.Dupe())
 	}
+
 	log.Debug().Msgf("Blocking rects for stm play %v: %v", play, s.stmBlockingRects[0:s.stmRectIndex])
 	log.Debug().Msgf("Blocking rects for ots play %v: %v", other, s.otsBlockingRects[0:s.otsRectIndex])
 
@@ -152,6 +201,20 @@ func (s *Solver) blocks(play *move.Move, other *move.Move) bool {
 			}
 		}
 	}
+	// If we haven't found a block yet, look for hooks.
+	s.otsRectIndex = 0
+	s.setHookBlockingRectangles(other, board)
+	log.Debug().Msgf("Blocking rects for ots play (after hook search) %v: %v", other, s.otsBlockingRects[0:s.otsRectIndex])
+
+	for i := 0; i < s.stmRectIndex; i++ {
+		for j := 0; j < s.otsRectIndex; j++ {
+			if rectanglesIntersect(s.stmBlockingRects[i], s.otsBlockingRects[j]) {
+				log.Debug().Msgf("Rectangles intersect: %v, %v", s.stmBlockingRects[i], s.otsBlockingRects[j])
+				return true
+			}
+		}
+	}
+
 	return false
 
 }
