@@ -214,18 +214,20 @@ func leaveAdjustment(myLeave, oppLeave alphabet.MachineWord,
 
 	if len(myStuck) > 0 {
 		// Opp gets all my tiles
-		oppAdjustment = float64(b * alphabet.MachineWord(myStuck).Score(bag))
+		stuckValue := alphabet.MachineWord(myStuck).Score(bag)
+		oppAdjustment = float64(b * stuckValue)
 		// Opp can also one-tile me:
 		oppAdjustment += c * float64(oppLeave.Score(bag))
 		// But I can also one-tile:
-		oppAdjustment -= d * float64(myLeave.Score(bag))
+		oppAdjustment -= d * float64(myLeave.Score(bag)-stuckValue)
 	}
 	if len(otherStuck) > 0 {
 		// Same as above in reverse. In practice a lot of this will end up
 		// nearly canceling out.
-		myAdjustment = float64(b * alphabet.MachineWord(otherStuck).Score(bag))
+		stuckValue := alphabet.MachineWord(otherStuck).Score(bag)
+		myAdjustment = float64(b * stuckValue)
 		myAdjustment += c * float64(myLeave.Score(bag))
-		myAdjustment -= d * float64(oppLeave.Score(bag))
+		myAdjustment -= d * float64(oppLeave.Score(bag)-stuckValue)
 	}
 	return int(myAdjustment - oppAdjustment)
 }
@@ -256,7 +258,7 @@ func (s *Solver) generateSTMPlays() []*move.Move {
 		s.otsPlayed)
 
 	for _, play := range sideToMovePlays {
-
+		// log.Debug().Msgf("Evaluating play %v", play)
 		if play.TilesPlayed() == int(numTilesOnRack) {
 			// Value is the score of this play plus 2 * the score on
 			// opponent's rack (we're going out; general Crossword Game rules)
@@ -272,8 +274,10 @@ func (s *Solver) generateSTMPlays() []*move.Move {
 					continue
 				}
 				blockedAll = false
+				// log.Debug().Msgf("Highest unblocked play: %v", o)
 				oScore = o.Score()
 				oLeave = o.Leave()
+				break
 			}
 			if blockedAll {
 				// If all the plays are blocked, then the other side's
@@ -282,10 +286,11 @@ func (s *Solver) generateSTMPlays() []*move.Move {
 				oLeave = otherRack.TilesOn()
 				otherSideStuck = oLeave
 			}
-
-			play.SetValuation(play.Score() - oScore +
-				leaveAdjustment(play.Leave(), oLeave, sideToMoveStuck, otherSideStuck,
-					bag))
+			adjust := leaveAdjustment(play.Leave(), oLeave, sideToMoveStuck, otherSideStuck,
+				bag)
+			play.SetValuation(play.Score() - oScore + adjust)
+			// log.Debug().Msgf("Setting evaluation to %v - %v + %v = %v", play.Score(),
+			// 	oScore, adjust, play.Valuation())
 		}
 	}
 	// Finally sort by valuation.

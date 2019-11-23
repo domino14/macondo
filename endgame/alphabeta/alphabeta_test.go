@@ -375,7 +375,6 @@ func TestStuck(t *testing.T) {
 	is.Equal(otsStuck[0].UserVisible(alph), 'Q')
 }
 
-
 func TestValuation(t *testing.T) {
 	is := is.New(t)
 	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
@@ -406,8 +405,8 @@ func TestValuation(t *testing.T) {
 	game.SetPlaying(true)
 
 	plays := s.generateSTMPlays()
-	for _, p := range plays[:10] {
-		fmt.Println(p)
-	}
-	is.Fail()
+	// This is subject to change depending on the C & D values, but
+	// it's roughly accurate
+	is.Equal(plays[0].Valuation(), 36)
+	is.Equal(plays[0].Tiles().UserVisible(alph), "DO..R.")
 }
