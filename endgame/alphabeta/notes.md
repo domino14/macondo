@@ -32,3 +32,7 @@ TestSolveOther3 (vs Joey)
 
 - Number of expanded nodes: 2201887 (7x fewer!!!)
   ~30 seconds roughly on iMac
+
+TestSolveComplex has more nodes (407080 vs 272205 and is more than twice as slow)
+
+TestSolveOther2 has about the same number of nodes (11657284 vs 11740313) and is also more than twice as slow (about 2.2x) .. :(

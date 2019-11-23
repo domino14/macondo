@@ -119,7 +119,6 @@ func TestSolveOther(t *testing.T) {
 func TestSolveOther2(t *testing.T) {
 	// An attempt to solve the game from above after a turn in. It's still
 	// a loss; this goes a bit faster.
-	t.Skip()
 	plies := 8
 
 	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
@@ -292,7 +291,6 @@ func TestSolveStandard2(t *testing.T) {
 func TestSolveMaven(t *testing.T) {
 	// This endgame is the one in maven. Start by pre-playing TSK as
 	// they suggest.
-	// XXX: This is hopelessly slow and won't run with 8 plies.
 	t.Skip()
 	plies := 9
 

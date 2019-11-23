@@ -38,7 +38,7 @@ type Move struct {
 	bingo       bool
 	tilesPlayed int
 	alph        *alphabet.Alphabet
-	valuation   int
+	valuation   float64
 	// If this move has a duplicate, it will be here. It only applies
 	// for single-tile plays.
 	dupeOf *Move
@@ -55,7 +55,7 @@ func (m *Move) String() string {
 	switch m.action {
 	case MoveTypePlay:
 		return fmt.Sprintf(
-			"<action: play word: %v %v score: %v tp: %v leave: %v equity: %.3f valu: %d>",
+			"<action: play word: %v %v score: %v tp: %v leave: %v equity: %.3f valu: %.3f>",
 			m.coords, m.tiles.UserVisible(m.alph), m.score,
 			m.tilesPlayed, m.leave.UserVisible(m.alph), m.equity, m.valuation)
 	case MoveTypePass:
@@ -177,12 +177,12 @@ func (m *Move) SetEquity(e float64) {
 
 // Valuation is the "value" of this move. This is an internal value that is used
 // in calculating endgames and other such metrics.
-func (m *Move) Valuation() int {
+func (m *Move) Valuation() float64 {
 	return m.valuation
 }
 
 // SetValuation sets the valuation of this move. It is calculated outside of this package.
-func (m *Move) SetValuation(v int) {
+func (m *Move) SetValuation(v float64) {
 	m.valuation = v
 }
 

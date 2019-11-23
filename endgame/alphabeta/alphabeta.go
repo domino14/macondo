@@ -184,22 +184,14 @@ func (s *Solver) computeStuck(plays []*move.Move, rack *alphabet.Rack,
 }
 
 func leaveAdjustment(myLeave, oppLeave alphabet.MachineWord,
-	myStuck, otherStuck []alphabet.MachineLetter, bag *alphabet.Bag) int {
+	myStuck, otherStuck []alphabet.MachineLetter, bag *alphabet.Bag) float64 {
 	if len(myStuck) == 0 && len(otherStuck) == 0 {
 		// Neither player is stuck so the adjustment is sum(stm)
 		// minus 2 * sum(ots). This prioritizes moves as if the side to move
 		// can play out in two.
 		// XXX: this formula doesn't make sense to me. Change to
 		// + instead of - for now.
-		return myLeave.Score(bag) + 2*oppLeave.Score(bag)
-		// mymove: FIB, leave AELMR
-		// oppmove: QI, leave DV
-		// FIB: leave AELMR, opp DV
-		// AELMR score - 2 * DV score = 7 - 14 = -7
-
-		// mymove: TIMER, leave AFL
-		// oppmove: DIB leave V
-		// AFL score - 2 * V, score =  6 - 8 = -2
+		return float64(myLeave.Score(bag) + 2*oppLeave.Score(bag))
 	}
 	var oppAdjustment, myAdjustment float64
 	// Otherwise at least one player is stuck.
@@ -229,7 +221,7 @@ func leaveAdjustment(myLeave, oppLeave alphabet.MachineWord,
 		myAdjustment += c * float64(myLeave.Score(bag))
 		myAdjustment -= d * float64(oppLeave.Score(bag)-stuckValue)
 	}
-	return int(myAdjustment - oppAdjustment)
+	return myAdjustment - oppAdjustment
 }
 
 func (s *Solver) generateSTMPlays() []*move.Move {
@@ -262,7 +254,7 @@ func (s *Solver) generateSTMPlays() []*move.Move {
 		if play.TilesPlayed() == int(numTilesOnRack) {
 			// Value is the score of this play plus 2 * the score on
 			// opponent's rack (we're going out; general Crossword Game rules)
-			play.SetValuation(play.Score() + 2*otherRack.ScoreOn(bag))
+			play.SetValuation(float64(play.Score() + 2*otherRack.ScoreOn(bag)))
 		} else {
 			// subtract off the score of the opponent's highest scoring move
 			// that is not blocked.
@@ -288,7 +280,7 @@ func (s *Solver) generateSTMPlays() []*move.Move {
 			}
 			adjust := leaveAdjustment(play.Leave(), oLeave, sideToMoveStuck, otherSideStuck,
 				bag)
-			play.SetValuation(play.Score() - oScore + adjust)
+			play.SetValuation(float64(play.Score()-oScore) + adjust)
 			// log.Debug().Msgf("Setting evaluation to %v - %v + %v = %v", play.Score(),
 			// 	oScore, adjust, play.Valuation())
 		}
