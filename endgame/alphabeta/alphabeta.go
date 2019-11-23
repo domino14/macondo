@@ -43,6 +43,9 @@ alphabeta(origin, depth, −∞, +∞, TRUE)
 const (
 	// Infinity is 10 million.
 	Infinity = 10000000
+	// TwoPlyOppSearchLimit is how many plays to consider for opponent
+	// for the evaluation function.
+	TwoPlyOppSearchLimit = 30
 )
 
 // Solver implements the minimax + alphabeta algorithm.
@@ -240,7 +243,9 @@ func (s *Solver) generateSTMPlays() []*move.Move {
 	s.movegen.SetSortingParameter(movegen.SortByScore)
 	defer s.movegen.SetSortingParameter(movegen.SortByNone)
 	s.movegen.GenAll(otherRack)
-	otherSidePlays := s.movegen.Plays()
+
+	toConsider := min(TwoPlyOppSearchLimit, len(s.movegen.Plays()))
+	otherSidePlays := s.movegen.Plays()[:toConsider]
 
 	// Compute for which tiles we are stuck
 	s.clearStuckTables()
