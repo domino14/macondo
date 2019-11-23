@@ -22,3 +22,5 @@ TestSolveStandard2:
 SheppardSort:
 
 TestSolveStandard2:
+- Number of expanded nodes: 61909
+About 4 times slower...

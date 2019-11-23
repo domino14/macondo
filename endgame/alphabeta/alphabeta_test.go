@@ -13,6 +13,7 @@ import (
 	"github.com/domino14/macondo/mechanics"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/strategy"
+	"github.com/matryer/is"
 )
 
 var LexiconDir = os.Getenv("LEXICON_PATH")
@@ -292,6 +293,7 @@ func TestSolveMaven(t *testing.T) {
 	// This endgame is the one in maven. Start by pre-playing TSK as
 	// they suggest.
 	// XXX: This is hopelessly slow and won't run with 8 plies.
+	t.Skip()
 	plies := 9
 
 	gd, err := gaddag.LoadGaddag("/tmp/ospd1.gaddag")
@@ -331,4 +333,81 @@ func TestSolveMaven(t *testing.T) {
 	// 	t.Errorf("Expected > 0, %v was", v)
 	// }
 	t.Fail()
+}
+
+func TestStuck(t *testing.T) {
+	is := is.New(t)
+	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	if err != nil {
+		t.Errorf("Expected error to be nil, got %v", err)
+	}
+	dist := alphabet.EnglishLetterDistribution()
+
+	game := &mechanics.XWordGame{}
+	game.Init(gd, dist)
+
+	generator := movegen.NewGordonGenerator(
+		// The strategy doesn't matter right here
+		game, &strategy.NoLeaveStrategy{},
+	)
+	alph := game.Alphabet()
+	generator.SetBoardToGame(alph, board.VsAlec)
+
+	s := new(Solver)
+	s.Init(generator, game)
+	ourRack := alphabet.RackFromString("DGILOPR", alph)
+	theirRack := alphabet.RackFromString("EGNOQR", alph)
+	game.SetRackFor(1, ourRack)
+	game.SetRackFor(0, theirRack)
+	game.SetPointsFor(1, 369)
+	game.SetPointsFor(0, 420)
+	game.SetPlayerOnTurn(1)
+	game.SetPlaying(true)
+	s.clearStuckTables()
+	s.movegen.GenAll(ourRack)
+	stmPlays := s.movegen.Plays()
+	s.movegen.GenAll(theirRack)
+	otsPlays := s.movegen.Plays()
+	stmStuck := s.computeStuck(stmPlays, ourRack, s.stmPlayed)
+	otsStuck := s.computeStuck(otsPlays, theirRack, s.otsPlayed)
+	is.Equal(len(stmStuck), 0)
+	is.Equal(len(otsStuck), 1)
+	is.Equal(otsStuck[0].UserVisible(alph), 'Q')
+}
+
+
+func TestValuation(t *testing.T) {
+	is := is.New(t)
+	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	if err != nil {
+		t.Errorf("Expected error to be nil, got %v", err)
+	}
+	dist := alphabet.EnglishLetterDistribution()
+
+	game := &mechanics.XWordGame{}
+	game.Init(gd, dist)
+
+	generator := movegen.NewGordonGenerator(
+		// The strategy doesn't matter right here
+		game, &strategy.NoLeaveStrategy{},
+	)
+	alph := game.Alphabet()
+	generator.SetBoardToGame(alph, board.VsAlec)
+
+	s := new(Solver)
+	s.Init(generator, game)
+	ourRack := alphabet.RackFromString("DGILOPR", alph)
+	theirRack := alphabet.RackFromString("EGNOQR", alph)
+	game.SetRackFor(1, ourRack)
+	game.SetRackFor(0, theirRack)
+	game.SetPointsFor(1, 369)
+	game.SetPointsFor(0, 420)
+	game.SetPlayerOnTurn(1)
+	game.SetPlaying(true)
+
+	plays := s.generateSTMPlays()
+	for _, p := range plays[:10] {
+		fmt.Println(p)
+	}
+	is.Fail()
 }

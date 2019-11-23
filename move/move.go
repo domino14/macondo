@@ -55,9 +55,9 @@ func (m *Move) String() string {
 	switch m.action {
 	case MoveTypePlay:
 		return fmt.Sprintf(
-			"<action: play word: %v %v score: %v tp: %v leave: %v equity: %.3f>",
+			"<action: play word: %v %v score: %v tp: %v leave: %v equity: %.3f valu: %d>",
 			m.coords, m.tiles.UserVisible(m.alph), m.score,
-			m.tilesPlayed, m.leave.UserVisible(m.alph), m.equity)
+			m.tilesPlayed, m.leave.UserVisible(m.alph), m.equity, m.valuation)
 	case MoveTypePass:
 		return fmt.Sprintf("<action: pass equity: %.3f>", m.equity)
 	case MoveTypeExchange:
