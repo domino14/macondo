@@ -125,8 +125,8 @@ func (s *Solver) Init(movegen *movegen.GordonGenerator, game *mechanics.XWordGam
 
 	s.stmPlayed = make([]bool, alphabet.MaxAlphabetSize+1)
 	s.otsPlayed = make([]bool, alphabet.MaxAlphabetSize+1)
-	s.stmBlockingRects = make([]rect, 15)
-	s.otsBlockingRects = make([]rect, 10)
+	s.stmBlockingRects = make([]rect, 20)
+	s.otsBlockingRects = make([]rect, 25)
 }
 
 func (s *Solver) clearStuckTables() {
