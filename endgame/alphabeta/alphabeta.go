@@ -3,6 +3,8 @@
 package alphabeta
 
 import (
+	"sort"
+
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/mechanics"
 	"github.com/domino14/macondo/move"
@@ -123,7 +125,7 @@ func (s *Solver) Init(movegen *movegen.GordonGenerator, game *mechanics.XWordGam
 
 	s.stmPlayed = make([]bool, alphabet.MaxAlphabetSize+1)
 	s.otsPlayed = make([]bool, alphabet.MaxAlphabetSize+1)
-	s.stmBlockingRects = make([]rect, 10)
+	s.stmBlockingRects = make([]rect, 15)
 	s.otsBlockingRects = make([]rect, 10)
 }
 
@@ -182,11 +184,53 @@ func (s *Solver) computeStuck(plays []*move.Move, rack *alphabet.Rack,
 }
 
 func leaveAdjustment(myLeave, oppLeave alphabet.MachineWord,
-	myStuck, otherStuck []alphabet.MachineLetter) int {
-	return 0
+	myStuck, otherStuck []alphabet.MachineLetter, bag *alphabet.Bag) int {
+	if len(myStuck) == 0 && len(otherStuck) == 0 {
+		// Neither player is stuck so the adjustment is sum(stm)
+		// minus 2 * sum(ots). This prioritizes moves as if the side to move
+		// can play out in two.
+		// XXX: this formula doesn't make sense to me. Change to
+		// + instead of - for now.
+		return myLeave.Score(bag) + 2*oppLeave.Score(bag)
+		// mymove: FIB, leave AELMR
+		// oppmove: QI, leave DV
+		// FIB: leave AELMR, opp DV
+		// AELMR score - 2 * DV score = 7 - 14 = -7
+
+		// mymove: TIMER, leave AFL
+		// oppmove: DIB leave V
+		// AFL score - 2 * V, score =  6 - 8 = -2
+	}
+	var oppAdjustment, myAdjustment float64
+	// Otherwise at least one player is stuck.
+	b := 2
+	// Opp gets first dibs on next moves, so c > d here
+	c := 1.75
+	d := 1.25
+
+	if len(myStuck) > 0 && len(otherStuck) > 0 {
+		b = 1
+	}
+
+	if len(myStuck) > 0 {
+		// Opp gets all my tiles
+		oppAdjustment = float64(b * alphabet.MachineWord(myStuck).Score(bag))
+		// Opp can also one-tile me:
+		oppAdjustment += c * float64(oppLeave.Score(bag))
+		// But I can also one-tile:
+		oppAdjustment -= d * float64(myLeave.Score(bag))
+	}
+	if len(otherStuck) > 0 {
+		// Same as above in reverse. In practice a lot of this will end up
+		// nearly canceling out.
+		myAdjustment = float64(b * alphabet.MachineWord(otherStuck).Score(bag))
+		myAdjustment += c * float64(myLeave.Score(bag))
+		myAdjustment -= d * float64(oppLeave.Score(bag))
+	}
+	return int(myAdjustment - oppAdjustment)
 }
 
-func (s *Solver) generateRefTables() {
+func (s *Solver) generateSTMPlays() []*move.Move {
 	stmRack := s.game.RackFor(s.game.PlayerOnTurn())
 	pnot := (s.game.PlayerOnTurn() + 1) % s.game.NumPlayers()
 	otherRack := s.game.RackFor(pnot)
@@ -216,27 +260,39 @@ func (s *Solver) generateRefTables() {
 		if play.TilesPlayed() == int(numTilesOnRack) {
 			// Value is the score of this play plus 2 * the score on
 			// opponent's rack (we're going out; general Crossword Game rules)
-			play.SetValuation(2*otherRack.ScoreOn(bag) + play.Score())
+			play.SetValuation(play.Score() + 2*otherRack.ScoreOn(bag))
 		} else {
 			// subtract off the score of the opponent's highest scoring move
 			// that is not blocked.
 			var oScore int
 			var oLeave alphabet.MachineWord
+			blockedAll := true
 			for _, o := range otherSidePlays {
 				if s.blocks(play, o, board) {
 					continue
 				}
+				blockedAll = false
 				oScore = o.Score()
 				oLeave = o.Leave()
 			}
+			if blockedAll {
+				// If all the plays are blocked, then the other side's
+				// leave is literally all the tiles they have.
+				// XXX: we also count them as stuck with all their tiles then.
+				oLeave = otherRack.TilesOn()
+				otherSideStuck = oLeave
+			}
 
 			play.SetValuation(play.Score() - oScore +
-				leaveAdjustment(play.Leave(), oLeave, sideToMoveStuck, otherSideStuck))
-
-			// What if all the plays were blocked?
+				leaveAdjustment(play.Leave(), oLeave, sideToMoveStuck, otherSideStuck,
+					bag))
 		}
 	}
-
+	// Finally sort by valuation.
+	sort.Slice(sideToMovePlays, func(i, j int) bool {
+		return sideToMovePlays[i].Valuation() > sideToMovePlays[j].Valuation()
+	})
+	return sideToMovePlays
 }
 
 // Solve solves the endgame given the current state of s.game, for the
@@ -246,8 +302,6 @@ func (s *Solver) Solve(plies int) (int, *move.Move) {
 	s.movegen.SetSortingParameter(movegen.SortByNone)
 	defer s.movegen.SetSortingParameter(movegen.SortByEquity)
 	log.Debug().Msgf("Attempting to solve endgame with %v plies...", plies)
-
-	s.generateRefTables()
 
 	// technically the children are the actual board _states_ but
 	// we don't keep track of those exactly
@@ -293,14 +347,10 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α int, β int,
 		// log.Debug().Msgf("%vending recursion, depth: %v, playing: %v", depthDbg, depth, s.game.Playing())
 		return node.value(s, maximizingPlayer)
 	}
-	// Generate children if they don't exist.
-	// if node.children == nil {
-	// 	node.children = s.generateChildrenNodes(node)
-	// }
+
 	var plays []*move.Move
 	if node.children == nil {
-		s.movegen.GenAll(s.game.RackFor(s.game.PlayerOnTurn()))
-		plays = s.movegen.Plays()
+		plays = s.generateSTMPlays()
 		if len(plays) > 0 && plays[0].Action() != move.MoveTypePass {
 			// movegen doesn't generate a pass move if unneeded (actually, I'm not
 			// totally sure why). So generate it here, as sometimes a pass is beneficial

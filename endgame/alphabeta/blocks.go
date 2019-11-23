@@ -7,7 +7,6 @@ import (
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/move"
-	"github.com/rs/zerolog/log"
 )
 
 type rect struct {
@@ -159,7 +158,7 @@ func (s *Solver) setHookBlockingRectangles(play *move.Move, board *board.GameBoa
 			}
 			s.addRectangle(x, idx+r, x, idx+r, false)
 			for x = c + 1; x < board.Dim(); x++ {
-				if board.GetLetter(x, idx+c) == alphabet.EmptySquareMarker {
+				if board.GetLetter(idx+r, c) == alphabet.EmptySquareMarker {
 					break
 				}
 			}
@@ -190,13 +189,13 @@ func (s *Solver) blocks(play *move.Move, other *move.Move, board *board.GameBoar
 		s.setOTSBlockingRectangles(other.Dupe())
 	}
 
-	log.Debug().Msgf("Blocking rects for stm play %v: %v", play, s.stmBlockingRects[0:s.stmRectIndex])
-	log.Debug().Msgf("Blocking rects for ots play %v: %v", other, s.otsBlockingRects[0:s.otsRectIndex])
+	// log.Debug().Msgf("Blocking rects for stm play %v: %v", play, s.stmBlockingRects[0:s.stmRectIndex])
+	// log.Debug().Msgf("Blocking rects for ots play %v: %v", other, s.otsBlockingRects[0:s.otsRectIndex])
 
 	for i := 0; i < s.stmRectIndex; i++ {
 		for j := 0; j < s.otsRectIndex; j++ {
 			if rectanglesIntersect(s.stmBlockingRects[i], s.otsBlockingRects[j]) {
-				log.Debug().Msgf("Rectangles intersect: %v, %v", s.stmBlockingRects[i], s.otsBlockingRects[j])
+				// log.Debug().Msgf("Rectangles intersect: %v, %v", s.stmBlockingRects[i], s.otsBlockingRects[j])
 				return true
 			}
 		}
@@ -204,12 +203,12 @@ func (s *Solver) blocks(play *move.Move, other *move.Move, board *board.GameBoar
 	// If we haven't found a block yet, look for hooks.
 	s.otsRectIndex = 0
 	s.setHookBlockingRectangles(other, board)
-	log.Debug().Msgf("Blocking rects for ots play (after hook search) %v: %v", other, s.otsBlockingRects[0:s.otsRectIndex])
+	// log.Debug().Msgf("Blocking rects for ots play (after hook search) %v: %v", other, s.otsBlockingRects[0:s.otsRectIndex])
 
 	for i := 0; i < s.stmRectIndex; i++ {
 		for j := 0; j < s.otsRectIndex; j++ {
 			if rectanglesIntersect(s.stmBlockingRects[i], s.otsBlockingRects[j]) {
-				log.Debug().Msgf("Rectangles intersect: %v, %v", s.stmBlockingRects[i], s.otsBlockingRects[j])
+				// log.Debug().Msgf("Rectangles intersect: %v, %v", s.stmBlockingRects[i], s.otsBlockingRects[j])
 				return true
 			}
 		}
