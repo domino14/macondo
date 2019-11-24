@@ -46,17 +46,17 @@ type XWordGame struct {
 }
 
 // String returns a helpful string representation of this state.
-func (s *XWordGame) String() string {
+func (g *XWordGame) String() string {
 	ret := ""
-	for idx, p := range s.players {
-		if idx == s.onturn {
+	for idx, p := range g.players {
+		if idx == g.onturn {
 			ret += "*"
 		}
 		ret += fmt.Sprintf("%v holding %v (%v)", p.name, p.rackLetters,
 			p.points)
 		ret += " - "
 	}
-	ret += fmt.Sprintf(" | pl=%v slt=%v", s.playing, s.scorelessTurns)
+	ret += fmt.Sprintf(" | pl=%v slt=%v", g.playing, g.scorelessTurns)
 	return ret
 }
 
@@ -296,6 +296,12 @@ func (g *XWordGame) Uuid() uuid.UUID {
 // Turn returns the current turn number.
 func (g *XWordGame) Turn() int {
 	return g.turnnum
+}
+
+// CurrentSpread returns the spread of the current game state.
+func (g *XWordGame) CurrentSpread() int {
+	other := (g.onturn + 1) % len(g.players)
+	return g.players[g.onturn].points - g.players[other].points
 }
 
 // PlayerOnTurn returns the current player index whose turn it is.

@@ -268,7 +268,7 @@ func TestSolveStandard2(t *testing.T) {
 	// game.LoadFromGCG(path, turnnum)
 	// That should set the board, the player racks, scores, etc - the whole state
 	// Instead we have to do this manually here:
-	generator.SetBoardToGame(alph, board.VsJoel)
+	generator.SetBoardToGame(alph, 	board.VsJoel)
 	s := new(Solver)
 	s.Init(generator, game)
 	ourRack := alphabet.RackFromString("AAFIRTW", alph)

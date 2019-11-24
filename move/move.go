@@ -38,7 +38,7 @@ type Move struct {
 	bingo       bool
 	tilesPlayed int
 	alph        *alphabet.Alphabet
-	valuation   float64
+	valuation   float32
 	// If this move has a duplicate, it will be here. It only applies
 	// for single-tile plays.
 	dupeOf *Move
@@ -177,12 +177,12 @@ func (m *Move) SetEquity(e float64) {
 
 // Valuation is the "value" of this move. This is an internal value that is used
 // in calculating endgames and other such metrics.
-func (m *Move) Valuation() float64 {
+func (m *Move) Valuation() float32 {
 	return m.valuation
 }
 
 // SetValuation sets the valuation of this move. It is calculated outside of this package.
-func (m *Move) SetValuation(v float64) {
+func (m *Move) SetValuation(v float32) {
 	m.valuation = v
 }
 

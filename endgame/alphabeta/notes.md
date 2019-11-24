@@ -1,4 +1,4 @@
-Optimization notes for the alpha beta minimax algorithm.
+    Optimization notes for the alpha beta minimax algorithm.
 
 TestSolveStandard2 (vs Joel)
 
