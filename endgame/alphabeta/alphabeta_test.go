@@ -247,7 +247,7 @@ func TestSolveStandard(t *testing.T) {
 
 func TestSolveStandard2(t *testing.T) {
 	// Another standard 3-ply endgame.
-	plies := 3
+	plies := 4
 
 	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
 	if err != nil {
@@ -268,7 +268,7 @@ func TestSolveStandard2(t *testing.T) {
 	// game.LoadFromGCG(path, turnnum)
 	// That should set the board, the player racks, scores, etc - the whole state
 	// Instead we have to do this manually here:
-	generator.SetBoardToGame(alph, 	board.VsJoel)
+	generator.SetBoardToGame(alph, board.VsJoel)
 	s := new(Solver)
 	s.Init(generator, game)
 	ourRack := alphabet.RackFromString("AAFIRTW", alph)
@@ -402,9 +402,9 @@ func TestValuation(t *testing.T) {
 	game.SetPlayerOnTurn(1)
 	game.SetPlaying(true)
 
-	plays := s.generateSTMPlays()
+	plays := s.generateSTMPlays(false)
 	// This is subject to change depending on the C & D values, but
 	// it's roughly accurate
-	is.Equal(plays[0].Valuation(), 36)
+	is.Equal(plays[0].Valuation(), float32(36.5))
 	is.Equal(plays[0].Tiles().UserVisible(alph), "DO..R.")
 }

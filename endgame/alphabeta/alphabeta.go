@@ -105,19 +105,19 @@ func (g *gameNode) calculateValue(s *Solver, maximizing, gameOver bool) {
 	// If the game is over, the value should just be the spread change.
 
 	// log.Debug().Msgf("Need to calculate value for %v. Player on turn %v, maximizing %v", g.move, s.game.PlayerOnTurn(), maximizing)
-	if true {
-		// Technically no one is on turn, but the player not on turn is
+	player := s.game.PlayerOnTurn()
+	if gameOver {
+		// Technically no one is on turn, but the player NOT on turn is
 		// the one that just ended the game.
 		// The initial spread is always from the maximizing point of view.
-		player := s.game.PlayerOnTurn()
 		otherPlayer := (player + 1) % (s.game.NumPlayers())
 		// Note that because of the way we track state, it is the state
 		// in the solver right now; that's why the game node doesn't matter
 		// right here:
-		g.heuristicValue = float32(s.initialSpread + s.game.PointsFor(player) - s.game.PointsFor(otherPlayer))
-
+		g.heuristicValue = float32(
+			s.game.PointsFor(player) - s.game.PointsFor(otherPlayer) - s.initialSpread)
 	} else {
-		g.heuristicValue = float32(s.initialSpread) + g.move.Valuation()
+		g.heuristicValue = s.game.ValuationSpread(player) - float32(s.initialSpread)
 	}
 	if !maximizing {
 		// The maximizing player is always "us" - the player that we are
@@ -237,7 +237,7 @@ func leaveAdjustment(myLeave, oppLeave alphabet.MachineWord,
 	return myAdjustment - oppAdjustment
 }
 
-func (s *Solver) generateSTMPlays() []*move.Move {
+func (s *Solver) generateSTMPlays(maximizingPlayer bool) []*move.Move {
 	stmRack := s.game.RackFor(s.game.PlayerOnTurn())
 	pnot := (s.game.PlayerOnTurn() + 1) % s.game.NumPlayers()
 	otherRack := s.game.RackFor(pnot)
@@ -266,13 +266,16 @@ func (s *Solver) generateSTMPlays() []*move.Move {
 		s.stmPlayed)
 	otherSideStuck := s.computeStuck(otherSidePlays, otherRack,
 		s.otsPlayed)
-
+	multiplier := float32(1.0)
+	// if maximizingPlayer {
+	// 	multiplier = -multiplier
+	// }
 	for _, play := range sideToMovePlays {
 		// log.Debug().Msgf("Evaluating play %v", play)
 		if play.TilesPlayed() == int(numTilesOnRack) {
 			// Value is the score of this play plus 2 * the score on
 			// opponent's rack (we're going out; general Crossword Game rules)
-			play.SetValuation(float32(play.Score() + 2*otherRack.ScoreOn(bag)))
+			play.SetValuation(multiplier * float32(play.Score()+2*otherRack.ScoreOn(bag)))
 		} else {
 			// subtract off the score of the opponent's highest scoring move
 			// that is not blocked.
@@ -298,7 +301,7 @@ func (s *Solver) generateSTMPlays() []*move.Move {
 			}
 			adjust := leaveAdjustment(play.Leave(), oLeave, sideToMoveStuck, otherSideStuck,
 				bag)
-			play.SetValuation(float32(play.Score()-oScore) + adjust)
+			play.SetValuation(multiplier * (float32(play.Score()-oScore) + adjust))
 			// log.Debug().Msgf("Setting evaluation to %v - %v + %v = %v", play.Score(),
 			// 	oScore, adjust, play.Valuation())
 		}
@@ -326,8 +329,12 @@ func (s *Solver) Solve(plies int) (float32, *move.Move) {
 	// however we treat the children as those actual moves themsselves.
 
 	// Before solving, compute the base spread.
-	s.initialSpread = s.game.CurrentSpread()
-	log.Debug().Msgf("Spread at beginning of endgame: %v", s.initialSpread)
+	// Note this is negative of what it is. It's because even though
+	// we start with maximizing = true, by the time we get to the first
+	// ply, we calculate the "value" of the node from the other player's
+	// point of view. This algorithm is annoying and hard to understand.
+	s.initialSpread = -s.game.CurrentSpread()
+	log.Debug().Msgf("Spread at beginning of endgame: %v", -s.initialSpread)
 	v := s.alphabeta(n, plies, float32(-Infinity), float32(Infinity), true)
 	log.Debug().Msgf("Best spread found: %v", v)
 	log.Debug().Msgf("Best variant found:")
@@ -336,8 +343,8 @@ func (s *Solver) Solve(plies int) (float32, *move.Move) {
 	parent := n
 	for {
 		for _, child := range parent.children {
-			log.Debug().Msgf("Found heuristic value for child: %v (%v)", child.move,
-				child.heuristicValue)
+			// log.Debug().Msgf("Found heuristic value for child: %v (%v)", child.move,
+			// 	child.heuristicValue)
 			if child.heuristicValue == v {
 				if m == nil {
 					m = child.move
@@ -370,7 +377,7 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α float32, β float32,
 
 	var plays []*move.Move
 	if node.children == nil {
-		plays = s.generateSTMPlays()
+		plays = s.generateSTMPlays(maximizingPlayer)
 		if len(plays) > 0 && plays[0].Action() != move.MoveTypePass {
 			// movegen doesn't generate a pass move if unneeded (actually, I'm not
 			// totally sure why). So generate it here, as sometimes a pass is beneficial

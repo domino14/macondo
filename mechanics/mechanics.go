@@ -18,10 +18,11 @@ import (
 // keeps track of things such as rack and points. We will use a more overarching
 // Player structure elsewhere with strategy, endgame solver, etc.
 type player struct {
-	rack        *alphabet.Rack
-	rackLetters string // user-visible for ease in logging
-	name        string
-	points      int
+	rack         *alphabet.Rack
+	rackLetters  string // user-visible for ease in logging
+	name         string
+	points       int
+	valuationPts float32
 }
 
 type players []player
@@ -77,8 +78,8 @@ func (g *XWordGame) Init(gd *gaddag.SimpleGaddag, dist *alphabet.LetterDistribut
 	g.bag = dist.MakeBag(g.alph)
 	g.gaddag = gd
 	g.players = []player{
-		{alphabet.NewRack(g.alph), "", "player1", 0},
-		{alphabet.NewRack(g.alph), "", "player2", 0},
+		{alphabet.NewRack(g.alph), "", "player1", 0, 0},
+		{alphabet.NewRack(g.alph), "", "player2", 0, 0},
 	}
 	// The strategy and move generator are not part of the "game mechanics".
 	// These should be a level up. This module is just for the gameplay side
@@ -94,6 +95,7 @@ func (g *XWordGame) StartGame() {
 		rack, _ := g.bag.Draw(7)
 		g.players[i].rackLetters = alphabet.MachineWord(rack).UserVisible(g.alph)
 		g.players[i].points = 0
+		g.players[i].valuationPts = 0
 		g.players[i].rack.Set(rack)
 	}
 	g.onturn = 0
@@ -109,6 +111,7 @@ func (ps *players) copyFrom(other players) {
 		(*ps)[idx].rackLetters = other[idx].rackLetters
 		(*ps)[idx].name = other[idx].name
 		(*ps)[idx].points = other[idx].points
+		(*ps)[idx].valuationPts = other[idx].valuationPts
 	}
 }
 
@@ -117,10 +120,11 @@ func copyPlayers(ps players) players {
 	p := make([]player, len(ps))
 	for idx, porig := range ps {
 		p[idx] = player{
-			name:        porig.name,
-			points:      porig.points,
-			rack:        porig.rack.Copy(),
-			rackLetters: porig.rackLetters,
+			name:         porig.name,
+			points:       porig.points,
+			valuationPts: porig.valuationPts,
+			rack:         porig.rack.Copy(),
+			rackLetters:  porig.rackLetters,
 		}
 	}
 	return p
@@ -144,6 +148,7 @@ func (g *XWordGame) PlayMove(m *move.Move, backup bool) {
 			g.scorelessTurns = 0
 		}
 		g.players[g.onturn].points += score
+		g.players[g.onturn].valuationPts += m.Valuation()
 		// log.Printf("[DEBUG] Player %v played %v for %v points (equity %v, total score %v)", game.onturn, m,
 		// 	score, m.Equity(), game.players[game.onturn].points)
 		// Draw new tiles.
@@ -302,6 +307,15 @@ func (g *XWordGame) Turn() int {
 func (g *XWordGame) CurrentSpread() int {
 	other := (g.onturn + 1) % len(g.players)
 	return g.players[g.onturn].points - g.players[other].points
+}
+
+// ValuationSpread is a function that computes the "spread of the valuations"
+// of the plays made by playerID and otherPlayer. Since the game is not over
+// yet, we have to treat these valuations as fake points that they have scored,
+// for the purposes of attempting to compute a good endgame.
+func (g *XWordGame) ValuationSpread(playerID int) float32 {
+	other := (playerID + 1) % len(g.players)
+	return g.players[g.onturn].valuationPts - g.players[other].valuationPts
 }
 
 // PlayerOnTurn returns the current player index whose turn it is.
