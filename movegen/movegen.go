@@ -29,6 +29,13 @@ const (
 	SortByNone
 )
 
+// MoveGenerator is a generic interface for generating moves.
+type MoveGenerator interface {
+	GenAll(rack *alphabet.Rack)
+	SetSortingParameter(s SortBy)
+	Plays() []*move.Move
+}
+
 // GordonGenerator is the main move generation struct. It implements
 // Steven A. Gordon's algorithm from his paper "A faster Scrabble Move Generation
 // Algorithm"

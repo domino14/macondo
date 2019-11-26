@@ -27,6 +27,7 @@ func (r *Rack) Hashable() string {
 	return r.TilesOn().String()
 }
 
+// String returns a user-visible version of this rack.
 func (r *Rack) String() string {
 	return r.TilesOn().UserVisible(r.alphabet)
 }

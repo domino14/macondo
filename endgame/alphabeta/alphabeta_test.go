@@ -11,6 +11,7 @@ import (
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/mechanics"
+	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/strategy"
 	"github.com/matryer/is"
@@ -35,7 +36,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestSolveComplex(t *testing.T) {
-	plies := 5
+	plies := 7
 
 	gd, err := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	if err != nil {
@@ -205,7 +206,7 @@ func TestSolveStandard(t *testing.T) {
 	// This endgame is solved with at least 3 plies. Most endgames should
 	// start with 3 plies (so the first player can do an out in 2) and
 	// then proceed with iterative deepening.
-	plies := 3
+	plies := 2
 
 	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
 	if err != nil {
@@ -247,7 +248,7 @@ func TestSolveStandard(t *testing.T) {
 
 func TestSolveStandard2(t *testing.T) {
 	// Another standard 3-ply endgame.
-	plies := 4
+	plies := 3
 
 	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
 	if err != nil {
@@ -407,4 +408,84 @@ func TestValuation(t *testing.T) {
 	// it's roughly accurate
 	is.Equal(plays[0].Valuation(), float32(36.5))
 	is.Equal(plays[0].Tiles().UserVisible(alph), "DO..R.")
+}
+
+type TestGenerator struct {
+	plays []*move.Move
+	alph  *alphabet.Alphabet
+}
+
+func (t *TestGenerator) GenAll(rack *alphabet.Rack) {
+	if rack.String() == "BGIV" {
+		t.plays = []*move.Move{
+			move.NewScoringMoveSimple(24, "1G", "VIG.", "B", t.alph),
+			move.NewScoringMoveSimple(9, "G7", "B...", "GIV", t.alph),
+		}
+	} else if rack.String() == "DEHILOR" {
+		t.plays = []*move.Move{
+			move.NewScoringMoveSimple(33, "2J", ".O.DI", "EHLR", t.alph),
+			move.NewScoringMoveSimple(30, "4A", "HOER", "DIL", t.alph),
+			move.NewScoringMoveSimple(25, "K7", "DHOLE", "IR", t.alph),
+		}
+	} else if rack.String() == "B" {
+		t.plays = []*move.Move{
+			move.NewScoringMoveSimple(9, "G7", "B...", "GIV", t.alph),
+			move.NewScoringMoveSimple(4, "G5", ".B", "GIV", t.alph),
+		}
+	} else if rack.String() == "GIV" {
+		t.plays = []*move.Move{
+			move.NewScoringMoveSimple(24, "1G", "VIG.", "", t.alph),
+		}
+	} else {
+		panic("Unexpected rack: " + rack.String())
+	}
+}
+
+func (t *TestGenerator) SetSortingParameter(s movegen.SortBy) { /* noop */ }
+
+func (t *TestGenerator) Plays() []*move.Move {
+	return t.plays
+}
+
+func TestMinimalCase(t *testing.T) {
+	// XXX: PASSES ARE MISEVALUATED.
+	plies := 2
+
+	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	if err != nil {
+		t.Errorf("Expected error to be nil, got %v", err)
+	}
+	dist := alphabet.EnglishLetterDistribution()
+
+	game := &mechanics.XWordGame{}
+	game.Init(gd, dist)
+	game.SetStateStackLength(plies)
+	alph := game.Alphabet()
+
+	generator := &TestGenerator{alph: alph}
+	// XXX: Refactor this; we should have something like:
+	// game.LoadFromGCG(path, turnnum)
+	// That should set the board, the player racks, scores, etc - the whole state
+	// Instead we have to do this manually here:
+	tilesPlayedAndInRacks := game.Board().SetToGame(alph, board.VsCanik)
+	game.Bag().RemoveTiles(tilesPlayedAndInRacks.OnBoard)
+	game.Bag().RemoveTiles(tilesPlayedAndInRacks.Rack1)
+	game.Bag().RemoveTiles(tilesPlayedAndInRacks.Rack2)
+
+	s := new(Solver)
+	s.Init(generator, game)
+	ourRack := alphabet.RackFromString("BGIV", alph)
+	theirRack := alphabet.RackFromString("DEHILOR", alph)
+	game.SetRackFor(1, ourRack)
+	game.SetRackFor(0, theirRack)
+	game.SetPointsFor(1, 384)
+	game.SetPointsFor(0, 389)
+	game.SetPlayerOnTurn(1)
+	game.SetPlaying(true)
+	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
+	v, _ := s.Solve(plies)
+	fmt.Println("Value found", v)
+	if v < 0 {
+		t.Errorf("Expected > 0, %v was", v)
+	}
 }

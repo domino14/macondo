@@ -50,7 +50,7 @@ const (
 
 // Solver implements the minimax + alphabeta algorithm.
 type Solver struct {
-	movegen       *movegen.GordonGenerator
+	movegen       movegen.MoveGenerator
 	game          *mechanics.XWordGame
 	totalNodes    int
 	initialSpread int
@@ -106,6 +106,7 @@ func (g *gameNode) calculateValue(s *Solver, maximizing, gameOver bool) {
 
 	// log.Debug().Msgf("Need to calculate value for %v. Player on turn %v, maximizing %v", g.move, s.game.PlayerOnTurn(), maximizing)
 	player := s.game.PlayerOnTurn()
+	initialSpread := s.initialSpread
 	if gameOver {
 		// Technically no one is on turn, but the player NOT on turn is
 		// the one that just ended the game.
@@ -115,9 +116,11 @@ func (g *gameNode) calculateValue(s *Solver, maximizing, gameOver bool) {
 		// in the solver right now; that's why the game node doesn't matter
 		// right here:
 		g.heuristicValue = float32(
-			s.game.PointsFor(player) - s.game.PointsFor(otherPlayer) - s.initialSpread)
+			s.game.PointsFor(player) - s.game.PointsFor(otherPlayer) - initialSpread)
 	} else {
-		g.heuristicValue = s.game.ValuationSpread(player) - float32(s.initialSpread)
+		g.heuristicValue = s.game.EndgameSpreadEstimate(player, maximizing) - float32(initialSpread)
+		// log.Debug().Msgf("Calculating heuristic value of %v as %v - %v",
+		// 	g.move, s.game.EndgameSpreadEstimate(player), float32(initialSpread))
 	}
 	if !maximizing {
 		// The maximizing player is always "us" - the player that we are
@@ -127,11 +130,12 @@ func (g *gameNode) calculateValue(s *Solver, maximizing, gameOver bool) {
 		// hard to reason about, but I think this makes sense. At least
 		// it seems to work.
 		g.heuristicValue = -g.heuristicValue
+		log.Debug().Msg("Negating since not maximizing player")
 	}
 }
 
 // Init initializes the solver
-func (s *Solver) Init(movegen *movegen.GordonGenerator, game *mechanics.XWordGame) {
+func (s *Solver) Init(movegen movegen.MoveGenerator, game *mechanics.XWordGame) {
 	s.movegen = movegen
 	s.game = game
 	s.totalNodes = 0
@@ -204,7 +208,24 @@ func leaveAdjustment(myLeave, oppLeave alphabet.MachineWord,
 		// can play out in two.
 		// XXX: this formula doesn't make sense to me. Change to
 		// + instead of - for now.
-		return float32(myLeave.Score(bag) + 2*oppLeave.Score(bag))
+		// XXX: this should be completely different if the oppLeave is
+		// empty! it means the opp will go out so this adjustment should
+		// not favor us.
+		log.Debug().Msgf("Calculating adjustment; myLeave, oppLeave (%v %v)",
+			myLeave.UserVisible(alphabet.EnglishAlphabet()),
+			oppLeave.UserVisible(alphabet.EnglishAlphabet()))
+		var adjustment float32
+		if len(oppLeave) == 0 {
+			// The opponent went out with their play, so our adjustment
+			// is negative:
+			adjustment = -2 * float32(myLeave.Score(bag))
+		} else {
+			// Otherwise, the opponent did not go out. We pretend that
+			// we are going to go out next turn (for face value, I suppose?),
+			// and get twice our opp's rack.
+			adjustment = float32(myLeave.Score(bag) + 2*oppLeave.Score(bag))
+		}
+		return adjustment
 	}
 	var oppAdjustment, myAdjustment float32
 	// Otherwise at least one player is stuck.
@@ -238,6 +259,7 @@ func leaveAdjustment(myLeave, oppLeave alphabet.MachineWord,
 }
 
 func (s *Solver) generateSTMPlays(maximizingPlayer bool) []*move.Move {
+	log.Debug().Msgf("Generating stm plays for maximizing %v", maximizingPlayer)
 	stmRack := s.game.RackFor(s.game.PlayerOnTurn())
 	pnot := (s.game.PlayerOnTurn() + 1) % s.game.NumPlayers()
 	otherRack := s.game.RackFor(pnot)
@@ -266,16 +288,13 @@ func (s *Solver) generateSTMPlays(maximizingPlayer bool) []*move.Move {
 		s.stmPlayed)
 	otherSideStuck := s.computeStuck(otherSidePlays, otherRack,
 		s.otsPlayed)
-	multiplier := float32(1.0)
-	// if maximizingPlayer {
-	// 	multiplier = -multiplier
-	// }
+
 	for _, play := range sideToMovePlays {
-		// log.Debug().Msgf("Evaluating play %v", play)
+		log.Debug().Msgf("Evaluating play %v", play)
 		if play.TilesPlayed() == int(numTilesOnRack) {
 			// Value is the score of this play plus 2 * the score on
 			// opponent's rack (we're going out; general Crossword Game rules)
-			play.SetValuation(multiplier * float32(play.Score()+2*otherRack.ScoreOn(bag)))
+			play.SetValuation(float32(play.Score() + 2*otherRack.ScoreOn(bag)))
 		} else {
 			// subtract off the score of the opponent's highest scoring move
 			// that is not blocked.
@@ -287,7 +306,7 @@ func (s *Solver) generateSTMPlays(maximizingPlayer bool) []*move.Move {
 					continue
 				}
 				blockedAll = false
-				// log.Debug().Msgf("Highest unblocked play: %v", o)
+				log.Debug().Msgf("Highest unblocked play: %v", o)
 				oScore = o.Score()
 				oLeave = o.Leave()
 				break
@@ -301,9 +320,9 @@ func (s *Solver) generateSTMPlays(maximizingPlayer bool) []*move.Move {
 			}
 			adjust := leaveAdjustment(play.Leave(), oLeave, sideToMoveStuck, otherSideStuck,
 				bag)
-			play.SetValuation(multiplier * (float32(play.Score()-oScore) + adjust))
-			// log.Debug().Msgf("Setting evaluation to %v - %v + %v = %v", play.Score(),
-			// 	oScore, adjust, play.Valuation())
+			play.SetValuation(float32(play.Score()-oScore) + adjust)
+			log.Debug().Msgf("Setting evaluation of %v to (%v - %v + %v) = %v",
+				play, play.Score(), oScore, adjust, play.Valuation())
 		}
 	}
 	// Finally sort by valuation.
@@ -342,6 +361,7 @@ func (s *Solver) Solve(plies int) (float32, *move.Move) {
 	// Go down tree and find best variation:
 	parent := n
 	for {
+		parent.printChildren()
 		for _, child := range parent.children {
 			// log.Debug().Msgf("Found heuristic value for child: %v (%v)", child.move,
 			// 	child.heuristicValue)
