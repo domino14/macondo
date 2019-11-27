@@ -12,18 +12,16 @@ import (
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/move"
 	"github.com/google/uuid"
-	"github.com/rs/zerolog/log"
 )
 
 // A player plays crossword game. This is a very minimal structure that only
 // keeps track of things such as rack and points. We will use a more overarching
 // Player structure elsewhere with strategy, endgame solver, etc.
 type player struct {
-	rack                 *alphabet.Rack
-	rackLetters          string // user-visible for ease in logging
-	name                 string
-	points               int
-	endgameScoreEstimate float32
+	rack        *alphabet.Rack
+	rackLetters string // user-visible for ease in logging
+	name        string
+	points      int
 }
 
 type players []player
@@ -79,8 +77,8 @@ func (g *XWordGame) Init(gd *gaddag.SimpleGaddag, dist *alphabet.LetterDistribut
 	g.bag = dist.MakeBag(g.alph)
 	g.gaddag = gd
 	g.players = []player{
-		{alphabet.NewRack(g.alph), "", "player1", 0, 0},
-		{alphabet.NewRack(g.alph), "", "player2", 0, 0},
+		{alphabet.NewRack(g.alph), "", "player1", 0},
+		{alphabet.NewRack(g.alph), "", "player2", 0},
 	}
 	// The strategy and move generator are not part of the "game mechanics".
 	// These should be a level up. This module is just for the gameplay side
@@ -96,7 +94,6 @@ func (g *XWordGame) StartGame() {
 		rack, _ := g.bag.Draw(7)
 		g.players[i].rackLetters = alphabet.MachineWord(rack).UserVisible(g.alph)
 		g.players[i].points = 0
-		g.players[i].endgameScoreEstimate = 0
 		g.players[i].rack.Set(rack)
 	}
 	g.onturn = 0
@@ -112,7 +109,6 @@ func (ps *players) copyFrom(other players) {
 		(*ps)[idx].rackLetters = other[idx].rackLetters
 		(*ps)[idx].name = other[idx].name
 		(*ps)[idx].points = other[idx].points
-		(*ps)[idx].endgameScoreEstimate = other[idx].endgameScoreEstimate
 	}
 }
 
@@ -121,11 +117,10 @@ func copyPlayers(ps players) players {
 	p := make([]player, len(ps))
 	for idx, porig := range ps {
 		p[idx] = player{
-			name:                 porig.name,
-			points:               porig.points,
-			endgameScoreEstimate: porig.endgameScoreEstimate,
-			rack:                 porig.rack.Copy(),
-			rackLetters:          porig.rackLetters,
+			name:        porig.name,
+			points:      porig.points,
+			rack:        porig.rack.Copy(),
+			rackLetters: porig.rackLetters,
 		}
 	}
 	return p
@@ -148,14 +143,9 @@ func (g *XWordGame) PlayMove(m *move.Move, backup bool) {
 		if score != 0 {
 			g.scorelessTurns = 0
 		}
-		// Note that the play's valuation is already an estimate of the #
-		// additional points that can be scored by the very END of the game.
-		// Therefore, it should not be added to previous "valuation" points,
-		// but to the actual score.
-		g.players[g.onturn].endgameScoreEstimate = /*float32(g.players[g.onturn].points+score) + */ m.Valuation()
 		g.players[g.onturn].points += score
-		log.Debug().Msgf("Player %v played %v for %v points (total score %v, endgame score estimate %v)",
-			g.onturn, m, score, g.players[g.onturn].points, g.players[g.onturn].endgameScoreEstimate)
+		// log.Debug().Msgf("Player %v played %v for %v points (total score %v)",
+		// 	g.onturn, m, score, g.players[g.onturn].points)
 		// Draw new tiles.
 		drew := g.bag.DrawAtMost(m.TilesPlayed())
 		rack := append(drew, []alphabet.MachineLetter(m.Leave())...)
@@ -281,7 +271,6 @@ func (g *XWordGame) SetRackFor(playerID int, rack *alphabet.Rack) {
 
 func (g *XWordGame) SetPointsFor(playerID int, pts int) {
 	g.players[playerID].points = pts
-	g.players[playerID].endgameScoreEstimate = float32(pts)
 }
 
 func (g *XWordGame) SetNameFor(playerID int, name string) {
@@ -313,19 +302,6 @@ func (g *XWordGame) Turn() int {
 func (g *XWordGame) CurrentSpread() int {
 	other := (g.onturn + 1) % len(g.players)
 	return g.players[g.onturn].points - g.players[other].points
-}
-
-// EndgameSpreadEstimate is a function that computes the "spread of the valuations"
-// of the plays made by playerID and otherPlayer. Since the game is not over
-// yet, we have to treat these valuations as fake points that they have scored,
-// for the purposes of attempting to compute a good endgame.
-func (g *XWordGame) EndgameSpreadEstimate(playerID int, max bool) float32 {
-	if max {
-		return -g.players[playerID].endgameScoreEstimate
-	}
-	return g.players[playerID].endgameScoreEstimate
-	// other := (playerID + 1) % len(g.players)
-	// return g.players[playerID].endgameScoreEstimate - g.players[other].endgameScoreEstimate
 }
 
 // PlayerOnTurn returns the current player index whose turn it is.

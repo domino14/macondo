@@ -46,6 +46,9 @@ const (
 	// TwoPlyOppSearchLimit is how many plays to consider for opponent
 	// for the evaluation function.
 	TwoPlyOppSearchLimit = 30
+	// FutureAdjustment weighs the value of future points less than
+	// present points, to allow for the possibility of being blocked.
+	FutureAdjustment = float32(0.75)
 )
 
 // Solver implements the minimax + alphabeta algorithm.
@@ -118,7 +121,14 @@ func (g *gameNode) calculateValue(s *Solver, maximizing, gameOver bool) {
 		g.heuristicValue = float32(
 			s.game.PointsFor(player) - s.game.PointsFor(otherPlayer) - initialSpread)
 	} else {
-		g.heuristicValue = s.game.EndgameSpreadEstimate(player, maximizing) - float32(initialSpread)
+		// The valuation is already an estimate of the overall gain or loss
+		// in spread for this move (if taken to the end of the game).
+		moveVal := g.move.Valuation()
+		if maximizing {
+			moveVal = -moveVal
+		}
+		g.heuristicValue = moveVal - float32(initialSpread)
+		// g.heuristicValue = s.game.EndgameSpreadEstimate(player, maximizing) - float32(initialSpread)
 		// log.Debug().Msgf("Calculating heuristic value of %v as %v - %v",
 		// 	g.move, s.game.EndgameSpreadEstimate(player), float32(initialSpread))
 	}
@@ -130,7 +140,7 @@ func (g *gameNode) calculateValue(s *Solver, maximizing, gameOver bool) {
 		// hard to reason about, but I think this makes sense. At least
 		// it seems to work.
 		g.heuristicValue = -g.heuristicValue
-		log.Debug().Msg("Negating since not maximizing player")
+		// log.Debug().Msg("Negating since not maximizing player")
 	}
 }
 
@@ -151,27 +161,6 @@ func (s *Solver) clearStuckTables() {
 		s.stmPlayed[i] = false
 		s.otsPlayed[i] = false
 	}
-}
-
-func (s *Solver) generateChildrenNodes(parent *gameNode) []*gameNode {
-	// fmt.Printf("Generating children nodes for parent %v, board %v",
-	// 	parent, s.game.Board().ToDisplayText(s.game.Alphabet()))
-	s.movegen.GenAll(s.game.RackFor(s.game.PlayerOnTurn()))
-	// fmt.Println(s.movegen.Plays())
-	children := []*gameNode{}
-	for _, m := range s.movegen.Plays() {
-		children = append(children, &gameNode{
-			move: m,
-		})
-	}
-
-	if len(s.movegen.Plays()) > 0 && s.movegen.Plays()[0].Action() != move.MoveTypePass {
-		children = append(children, &gameNode{
-			move: move.NewPassMove(s.game.RackFor(s.game.PlayerOnTurn()).TilesOn()),
-		})
-	}
-	s.totalNodes += len(children)
-	return children
 }
 
 // Given the plays and the given rack, return a list of tiles that were
@@ -208,12 +197,9 @@ func leaveAdjustment(myLeave, oppLeave alphabet.MachineWord,
 		// can play out in two.
 		// XXX: this formula doesn't make sense to me. Change to
 		// + instead of - for now.
-		// XXX: this should be completely different if the oppLeave is
-		// empty! it means the opp will go out so this adjustment should
-		// not favor us.
-		log.Debug().Msgf("Calculating adjustment; myLeave, oppLeave (%v %v)",
-			myLeave.UserVisible(alphabet.EnglishAlphabet()),
-			oppLeave.UserVisible(alphabet.EnglishAlphabet()))
+		// log.Debug().Msgf("Calculating adjustment; myLeave, oppLeave (%v %v)",
+		// 	myLeave.UserVisible(alphabet.EnglishAlphabet()),
+		// 	oppLeave.UserVisible(alphabet.EnglishAlphabet()))
 		var adjustment float32
 		if len(oppLeave) == 0 {
 			// The opponent went out with their play, so our adjustment
@@ -258,8 +244,18 @@ func leaveAdjustment(myLeave, oppLeave alphabet.MachineWord,
 	return myAdjustment - oppAdjustment
 }
 
+func (s *Solver) addPass(plays []*move.Move, ponturn int) []*move.Move {
+	if len(plays) > 0 && plays[0].Action() != move.MoveTypePass {
+		// movegen doesn't generate a pass move if unneeded (actually, I'm not
+		// totally sure why). So generate it here, as sometimes a pass is beneficial
+		// in the endgame.
+		plays = append(plays, move.NewPassMove(s.game.RackFor(ponturn).TilesOn()))
+	}
+	return plays
+}
+
 func (s *Solver) generateSTMPlays(maximizingPlayer bool) []*move.Move {
-	log.Debug().Msgf("Generating stm plays for maximizing %v", maximizingPlayer)
+	// log.Debug().Msgf("Generating stm plays for maximizing %v", maximizingPlayer)
 	stmRack := s.game.RackFor(s.game.PlayerOnTurn())
 	pnot := (s.game.PlayerOnTurn() + 1) % s.game.NumPlayers()
 	otherRack := s.game.RackFor(pnot)
@@ -267,10 +263,10 @@ func (s *Solver) generateSTMPlays(maximizingPlayer bool) []*move.Move {
 	board := s.game.Board()
 	bag := s.game.Bag()
 	s.movegen.GenAll(stmRack)
-	sideToMovePlays := s.movegen.Plays()
+	sideToMovePlays := s.addPass(s.movegen.Plays(), s.game.PlayerOnTurn())
 
-	// NB: Something that I could do here is only take opp's
-	// X highest plays for these tables.
+	// log.Debug().Msgf("stm %v (%v), ots %v (%v)",
+	// 	s.game.PlayerOnTurn(), stmRack.String(), pnot, otherRack.String())
 
 	s.movegen.SetSortingParameter(movegen.SortByScore)
 	defer s.movegen.SetSortingParameter(movegen.SortByNone)
@@ -280,7 +276,7 @@ func (s *Solver) generateSTMPlays(maximizingPlayer bool) []*move.Move {
 	if TwoPlyOppSearchLimit < toConsider {
 		toConsider = TwoPlyOppSearchLimit
 	}
-	otherSidePlays := s.movegen.Plays()[:toConsider]
+	otherSidePlays := s.addPass(s.movegen.Plays()[:toConsider], pnot)
 
 	// Compute for which tiles we are stuck
 	s.clearStuckTables()
@@ -290,7 +286,7 @@ func (s *Solver) generateSTMPlays(maximizingPlayer bool) []*move.Move {
 		s.otsPlayed)
 
 	for _, play := range sideToMovePlays {
-		log.Debug().Msgf("Evaluating play %v", play)
+		// log.Debug().Msgf("Evaluating play %v", play)
 		if play.TilesPlayed() == int(numTilesOnRack) {
 			// Value is the score of this play plus 2 * the score on
 			// opponent's rack (we're going out; general Crossword Game rules)
@@ -306,7 +302,7 @@ func (s *Solver) generateSTMPlays(maximizingPlayer bool) []*move.Move {
 					continue
 				}
 				blockedAll = false
-				log.Debug().Msgf("Highest unblocked play: %v", o)
+				// log.Debug().Msgf("Highest unblocked play: %v", o)
 				oScore = o.Score()
 				oLeave = o.Leave()
 				break
@@ -320,9 +316,10 @@ func (s *Solver) generateSTMPlays(maximizingPlayer bool) []*move.Move {
 			}
 			adjust := leaveAdjustment(play.Leave(), oLeave, sideToMoveStuck, otherSideStuck,
 				bag)
-			play.SetValuation(float32(play.Score()-oScore) + adjust)
-			log.Debug().Msgf("Setting evaluation of %v to (%v - %v + %v) = %v",
-				play, play.Score(), oScore, adjust, play.Valuation())
+
+			play.SetValuation(float32(play.Score()-oScore) + FutureAdjustment*adjust)
+			// log.Debug().Msgf("Setting evaluation of %v to (%v - %v + %v) = %v",
+			// 	play, play.Score(), oScore, adjust, play.Valuation())
 		}
 	}
 	// Finally sort by valuation.
@@ -361,10 +358,10 @@ func (s *Solver) Solve(plies int) (float32, *move.Move) {
 	// Go down tree and find best variation:
 	parent := n
 	for {
-		parent.printChildren()
+		// parent.printChildren()
 		for _, child := range parent.children {
-			// log.Debug().Msgf("Found heuristic value for child: %v (%v)", child.move,
-			// 	child.heuristicValue)
+			log.Debug().Msgf("Found heuristic value for child: %v (%v)", child.move,
+				child.heuristicValue)
 			if child.heuristicValue == v {
 				if m == nil {
 					m = child.move
@@ -391,19 +388,15 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α float32, β float32,
 	if depth == 0 || !s.game.Playing() {
 		// s.game.Playing() happens if the game is over; i.e. if the
 		// current node is terminal.
-		// log.Debug().Msgf("%vending recursion, depth: %v, playing: %v", depthDbg, depth, s.game.Playing())
-		return node.value(s, maximizingPlayer, !s.game.Playing())
+		val := node.value(s, maximizingPlayer, !s.game.Playing())
+		// log.Debug().Msgf("ending recursion, depth: %v, playing: %v, node: %v val: %v",
+		// 	depth, s.game.Playing(), node.move, val)
+		return val
 	}
 
 	var plays []*move.Move
 	if node.children == nil {
 		plays = s.generateSTMPlays(maximizingPlayer)
-		if len(plays) > 0 && plays[0].Action() != move.MoveTypePass {
-			// movegen doesn't generate a pass move if unneeded (actually, I'm not
-			// totally sure why). So generate it here, as sometimes a pass is beneficial
-			// in the endgame.
-			plays = append(plays, move.NewPassMove(s.game.RackFor(s.game.PlayerOnTurn()).TilesOn()))
-		}
 	}
 	childGenerator := func() func() (*gameNode, bool) {
 		idx := -1

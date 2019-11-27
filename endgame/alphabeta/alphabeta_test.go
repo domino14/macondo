@@ -429,8 +429,8 @@ func (t *TestGenerator) GenAll(rack *alphabet.Rack) {
 		}
 	} else if rack.String() == "B" {
 		t.plays = []*move.Move{
-			move.NewScoringMoveSimple(9, "G7", "B...", "GIV", t.alph),
-			move.NewScoringMoveSimple(4, "G5", ".B", "GIV", t.alph),
+			move.NewScoringMoveSimple(9, "G7", "B...", "", t.alph),
+			move.NewScoringMoveSimple(4, "G5", ".B", "", t.alph),
 		}
 	} else if rack.String() == "GIV" {
 		t.plays = []*move.Move{
@@ -485,7 +485,7 @@ func TestMinimalCase(t *testing.T) {
 	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
 	v, _ := s.Solve(plies)
 	fmt.Println("Value found", v)
-	if v < 0 {
-		t.Errorf("Expected > 0, %v was", v)
+	if v > 0 {
+		t.Errorf("Expected < 0, %v was", v)
 	}
 }
