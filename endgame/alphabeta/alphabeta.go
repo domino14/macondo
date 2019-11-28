@@ -48,15 +48,16 @@ const (
 	TwoPlyOppSearchLimit = 30
 	// FutureAdjustment weighs the value of future points less than
 	// present points, to allow for the possibility of being blocked.
-	FutureAdjustment = float32(0.000001)
+	FutureAdjustment = float32(0.75)
 )
 
 // Solver implements the minimax + alphabeta algorithm.
 type Solver struct {
-	movegen       movegen.MoveGenerator
-	game          *mechanics.XWordGame
-	totalNodes    int
-	initialSpread int
+	movegen          movegen.MoveGenerator
+	game             *mechanics.XWordGame
+	totalNodes       int
+	initialSpread    int
+	maximizingPlayer int // This is the player who we call this function for.
 
 	disablePruning bool
 	rootNode       *gameNode
@@ -107,28 +108,45 @@ func (g *gameNode) value(s *Solver, maximizing bool, gameOver bool) float32 {
 
 func (g *gameNode) calculateValue(s *Solver, maximizing, gameOver bool) {
 	// calculate the heuristic value of this node, and store it.
-	// If the game is over, the value should just be the spread change.
-
+	// we start with a max node. At 1-ply (and all odd plies), maximizing
+	// is always false.
 	// log.Debug().Msgf("Need to calculate value for %v. Player on turn %v, maximizing %v", g.move, s.game.PlayerOnTurn(), maximizing)
-	player := s.game.PlayerOnTurn()
-	initialSpread := -s.initialSpread
+
+	// Because calculateValue is called after PlayMove has been called,
+	// the "playerOnTurn" is actually not the player who made the move
+	// whose value we are calculating.
+	opponent := s.game.PlayerOnTurn()
+	playerWhoMadeMove := (opponent + 1) % (s.game.NumPlayers())
+
+	// The initial spread is always from the maximizing point of view.
+	initialSpread := s.initialSpread
+	spreadNow := s.game.PointsFor(playerWhoMadeMove) - s.game.PointsFor(opponent)
+	if playerWhoMadeMove != s.maximizingPlayer {
+		spreadNow = -spreadNow
+	}
+
+	// If the game is over, the value should just be the spread change.
 	if gameOver {
 		// Technically no one is on turn, but the player NOT on turn is
 		// the one that just ended the game.
-		// The initial spread is always from the maximizing point of view.
-		otherPlayer := (player + 1) % (s.game.NumPlayers())
 		// Note that because of the way we track state, it is the state
 		// in the solver right now; that's why the game node doesn't matter
 		// right here:
-		g.heuristicValue = float32(
-			s.game.PointsFor(player) - s.game.PointsFor(otherPlayer) - initialSpread)
+		g.heuristicValue = float32(spreadNow - initialSpread)
 	} else {
 		// The valuation is already an estimate of the overall gain or loss
 		// in spread for this move (if taken to the end of the game).
-		// `player` is NOT the one that just made a move. Flip the valuation
-		// here to make it analogous to the situation above when the game ends.
-		val := -g.move.Valuation()
-		g.heuristicValue = val - float32(initialSpread)
+
+		// `player` is NOT the one that just made a move.
+		ptValue := g.move.Score()
+		// don't double-count score; it's already in the valuation:
+		moveVal := g.move.Valuation() - float32(ptValue)
+		// if maximizing {
+		// 	moveVal = -moveVal
+		// }
+		// What is the spread right now? The valuation should be relative
+		// to that.
+		g.heuristicValue = float32(spreadNow) + moveVal - float32(initialSpread)
 		// g.heuristicValue = s.game.EndgameSpreadEstimate(player, maximizing) - float32(initialSpread)
 		// log.Debug().Msgf("Calculating heuristic value of %v as %v - %v",
 		// 	g.move, s.game.EndgameSpreadEstimate(player), float32(initialSpread))
@@ -140,7 +158,7 @@ func (g *gameNode) calculateValue(s *Solver, maximizing, gameOver bool) {
 		// negative as possible relative to "us". I know, minimax is
 		// hard to reason about, but I think this makes sense. At least
 		// it seems to work.
-		g.heuristicValue = -g.heuristicValue
+		// g.heuristicValue = -g.heuristicValue
 		// log.Debug().Msg("Negating since not maximizing player")
 	}
 }
@@ -346,13 +364,10 @@ func (s *Solver) Solve(plies int) (float32, *move.Move) {
 	// the children of these nodes are the board states after every move.
 	// however we treat the children as those actual moves themsselves.
 
-	// Before solving, compute the base spread.
-	// Note this is negative of what it is. It's because even though
-	// we start with maximizing = true, by the time we get to the first
-	// ply, we calculate the "value" of the node from the other player's
-	// point of view. This algorithm is annoying and hard to understand.
 	s.initialSpread = s.game.CurrentSpread()
+	s.maximizingPlayer = s.game.PlayerOnTurn()
 	log.Debug().Msgf("Spread at beginning of endgame: %v", s.initialSpread)
+	log.Debug().Msgf("Maximizing player is: %v", s.maximizingPlayer)
 	v := s.alphabeta(n, plies, float32(-Infinity), float32(Infinity), true)
 	log.Debug().Msgf("Best spread found: %v", v)
 	log.Debug().Msgf("Best variant found:")

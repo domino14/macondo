@@ -544,9 +544,60 @@ func TestMinimalCase2(t *testing.T) {
 	game.SetPlaying(true)
 	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
 	v, _ := s.Solve(plies)
+	fmt.Println("Value found", v)
+
 	// dot := &dotfile{}
 	// genDotFile(s.rootNode, dot)
+	// saveDotFile(s.rootNode, dot, "out.dot")
+
+	if v != 11 {
+		t.Errorf("Expected 11-pt spread swing, found %v", v)
+	}
+
+}
+
+func TestMinimalCase3(t *testing.T) {
+	// Identical to case 2 but the players are flipped. This should
+	// make absolutely no difference.
+	plies := 3
+
+	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	if err != nil {
+		t.Errorf("Expected error to be nil, got %v", err)
+	}
+	dist := alphabet.EnglishLetterDistribution()
+
+	game := &mechanics.XWordGame{}
+	game.Init(gd, dist)
+	game.SetStateStackLength(plies)
+	alph := game.Alphabet()
+
+	generator := &TestGenerator{alph: alph}
+	// XXX: Refactor this; we should have something like:
+	// game.LoadFromGCG(path, turnnum)
+	// That should set the board, the player racks, scores, etc - the whole state
+	// Instead we have to do this manually here:
+	tilesPlayedAndInRacks := game.Board().SetToGame(alph, board.VsCanik)
+	game.Bag().RemoveTiles(tilesPlayedAndInRacks.OnBoard)
+	game.Bag().RemoveTiles(tilesPlayedAndInRacks.Rack1)
+	game.Bag().RemoveTiles(tilesPlayedAndInRacks.Rack2)
+
+	s := new(Solver)
+	s.Init(generator, game)
+	ourRack := alphabet.RackFromString("BGIV", alph)
+	theirRack := alphabet.RackFromString("DEHILOR", alph)
+	game.SetRackFor(0, ourRack)
+	game.SetRackFor(1, theirRack)
+	game.SetPointsFor(0, 384)
+	game.SetPointsFor(1, 389)
+	game.SetPlayerOnTurn(0)
+	game.SetPlaying(true)
+	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
+	v, _ := s.Solve(plies)
 	fmt.Println("Value found", v)
+
+	// dot := &dotfile{}
+	// genDotFile(s.rootNode, dot)
 	// saveDotFile(s.rootNode, dot, "out.dot")
 
 	if v != 11 {
