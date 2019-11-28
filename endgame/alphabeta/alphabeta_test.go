@@ -436,6 +436,20 @@ func (t *TestGenerator) GenAll(rack *alphabet.Rack) {
 		t.plays = []*move.Move{
 			move.NewScoringMoveSimple(24, "1G", "VIG.", "", t.alph),
 		}
+	} else if rack.String() == "DIL" {
+		t.plays = []*move.Move{
+			move.NewScoringMoveSimple(21, "A13", ".ID", "L", t.alph),
+			move.NewScoringMoveSimple(12, "2B", "LID", "", t.alph),
+		}
+	} else if rack.String() == "EHLR" {
+		t.plays = []*move.Move{
+			move.NewScoringMoveSimple(27, "A13", ".EH", "LR", t.alph),
+			move.NewScoringMoveSimple(23, "N14", "HE", "LR", t.alph),
+		}
+	} else if rack.String() == "IR" {
+		t.plays = []*move.Move{
+			move.NewScoringMoveSimple(18, "A13", ".IR", "", t.alph),
+		}
 	} else {
 		panic("Unexpected rack: " + rack.String())
 	}
@@ -448,7 +462,6 @@ func (t *TestGenerator) Plays() []*move.Move {
 }
 
 func TestMinimalCase(t *testing.T) {
-	// XXX: PASSES ARE MISEVALUATED.
 	plies := 2
 
 	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
@@ -487,5 +500,52 @@ func TestMinimalCase(t *testing.T) {
 	fmt.Println("Value found", v)
 	if v > 0 {
 		t.Errorf("Expected < 0, %v was", v)
+	}
+}
+
+func TestMinimalCase2(t *testing.T) {
+	// 3 instead of two plies. it should find the endgame
+	plies := 3
+
+	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	if err != nil {
+		t.Errorf("Expected error to be nil, got %v", err)
+	}
+	dist := alphabet.EnglishLetterDistribution()
+
+	game := &mechanics.XWordGame{}
+	game.Init(gd, dist)
+	game.SetStateStackLength(plies)
+	alph := game.Alphabet()
+
+	generator := &TestGenerator{alph: alph}
+	// XXX: Refactor this; we should have something like:
+	// game.LoadFromGCG(path, turnnum)
+	// That should set the board, the player racks, scores, etc - the whole state
+	// Instead we have to do this manually here:
+	tilesPlayedAndInRacks := game.Board().SetToGame(alph, board.VsCanik)
+	game.Bag().RemoveTiles(tilesPlayedAndInRacks.OnBoard)
+	game.Bag().RemoveTiles(tilesPlayedAndInRacks.Rack1)
+	game.Bag().RemoveTiles(tilesPlayedAndInRacks.Rack2)
+
+	s := new(Solver)
+	s.Init(generator, game)
+	ourRack := alphabet.RackFromString("BGIV", alph)
+	theirRack := alphabet.RackFromString("DEHILOR", alph)
+	game.SetRackFor(1, ourRack)
+	game.SetRackFor(0, theirRack)
+	game.SetPointsFor(1, 384)
+	game.SetPointsFor(0, 389)
+	game.SetPlayerOnTurn(1)
+	game.SetPlaying(true)
+	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
+	v, _ := s.Solve(plies)
+	dot := &dotfile{}
+	genDotFile(s.rootNode, dot)
+	fmt.Println("Value found", v)
+	saveDotFile(s.rootNode, dot, "out.dot")
+
+	if v != 3 {
+		t.Errorf("Expected 3-pt win, found %v", v)
 	}
 }

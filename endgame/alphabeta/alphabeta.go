@@ -58,6 +58,8 @@ type Solver struct {
 	totalNodes    int
 	initialSpread int
 
+	disablePruning bool
+	rootNode       *gameNode
 	// Some helpful variables to avoid big allocations
 	// stm: side-to-move  ots: other side
 	stmPlayed []bool
@@ -123,6 +125,8 @@ func (g *gameNode) calculateValue(s *Solver, maximizing, gameOver bool) {
 	} else {
 		// The valuation is already an estimate of the overall gain or loss
 		// in spread for this move (if taken to the end of the game).
+
+		// `player` is NOT the one that just made a move.
 		moveVal := g.move.Valuation()
 		if maximizing {
 			moveVal = -moveVal
@@ -340,6 +344,7 @@ func (s *Solver) Solve(plies int) (float32, *move.Move) {
 	// technically the children are the actual board _states_ but
 	// we don't keep track of those exactly
 	n := &gameNode{}
+	s.rootNode = n
 	// the root node is basically the board state prior to making any moves.
 	// the children of these nodes are the board states after every move.
 	// however we treat the children as those actual moves themsselves.
@@ -356,7 +361,7 @@ func (s *Solver) Solve(plies int) (float32, *move.Move) {
 	log.Debug().Msgf("Best variant found:")
 	var m *move.Move
 	// Go down tree and find best variation:
-	parent := n
+	parent := s.rootNode
 	for {
 		// parent.printChildren()
 		for _, child := range parent.children {
@@ -426,10 +431,11 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α float32, β float32,
 				value = v
 				// log.Debug().Msgf("%vFound a better move: %v (%v)", depthDbg, value, tm)
 			}
-			α = max(α, value)
-			if α >= β {
-				// log.Debug().Msgf("%vBeta cut-off: %v>=%v", depthDbg, α, β)
-				break // beta cut-off
+			if !s.disablePruning {
+				α = max(α, value)
+				if α >= β {
+					break // beta cut-off
+				}
 			}
 			node.children = append(node.children, child)
 		}
@@ -452,10 +458,11 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α float32, β float32,
 			value = v
 			// log.Debug().Msgf("%vFound a worse move: %v (%v)", depthDbg, value, tm)
 		}
-		β = min(β, value)
-		if α >= β {
-			// log.Debug().Msgf("%valpha cut-off: %v>=%v", depthDbg, α, β)
-			break // alpha cut-off
+		if !s.disablePruning {
+			β = min(β, value)
+			if α >= β {
+				break // alpha cut-off
+			}
 		}
 		node.children = append(node.children, child)
 	}
