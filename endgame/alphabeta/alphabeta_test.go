@@ -36,7 +36,9 @@ func TestMain(m *testing.M) {
 }
 
 func TestSolveComplex(t *testing.T) {
-	plies := 7
+	// XXX: Seems to work, but at 4-ply it finds a losing sequence
+	// (a worse one than at 3-ply)
+	plies := 6
 
 	gd, err := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	if err != nil {
@@ -70,8 +72,8 @@ func TestSolveComplex(t *testing.T) {
 	game.SetPlaying(true)
 	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
 	v, _ := s.Solve(plies)
-	if v != 6 {
-		t.Errorf("Expected to find a 6-pt win, found a spread of %v", v)
+	if v != 102 {
+		t.Errorf("Expected to find a 102-pt spread swing, found a swing of %v", v)
 	}
 }
 
