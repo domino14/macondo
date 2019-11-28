@@ -498,6 +498,10 @@ func TestMinimalCase(t *testing.T) {
 	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
 	v, _ := s.Solve(plies)
 	fmt.Println("Value found", v)
+	dot := &dotfile{}
+	genDotFile(s.rootNode, dot)
+	saveDotFile(s.rootNode, dot, "out.dot")
+
 	if v > 0 {
 		t.Errorf("Expected < 0, %v was", v)
 	}
@@ -540,12 +544,12 @@ func TestMinimalCase2(t *testing.T) {
 	game.SetPlaying(true)
 	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
 	v, _ := s.Solve(plies)
-	dot := &dotfile{}
-	genDotFile(s.rootNode, dot)
+	// dot := &dotfile{}
+	// genDotFile(s.rootNode, dot)
 	fmt.Println("Value found", v)
-	saveDotFile(s.rootNode, dot, "out.dot")
+	// saveDotFile(s.rootNode, dot, "out.dot")
 
-	if v != 3 {
-		t.Errorf("Expected 3-pt win, found %v", v)
+	if v != 11 {
+		t.Errorf("Expected 11-pt spread swing, found %v", v)
 	}
 }

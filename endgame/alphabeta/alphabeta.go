@@ -48,7 +48,7 @@ const (
 	TwoPlyOppSearchLimit = 30
 	// FutureAdjustment weighs the value of future points less than
 	// present points, to allow for the possibility of being blocked.
-	FutureAdjustment = float32(0.75)
+	FutureAdjustment = float32(0.000001)
 )
 
 // Solver implements the minimax + alphabeta algorithm.
@@ -111,7 +111,7 @@ func (g *gameNode) calculateValue(s *Solver, maximizing, gameOver bool) {
 
 	// log.Debug().Msgf("Need to calculate value for %v. Player on turn %v, maximizing %v", g.move, s.game.PlayerOnTurn(), maximizing)
 	player := s.game.PlayerOnTurn()
-	initialSpread := s.initialSpread
+	initialSpread := -s.initialSpread
 	if gameOver {
 		// Technically no one is on turn, but the player NOT on turn is
 		// the one that just ended the game.
@@ -125,13 +125,10 @@ func (g *gameNode) calculateValue(s *Solver, maximizing, gameOver bool) {
 	} else {
 		// The valuation is already an estimate of the overall gain or loss
 		// in spread for this move (if taken to the end of the game).
-
-		// `player` is NOT the one that just made a move.
-		moveVal := g.move.Valuation()
-		if maximizing {
-			moveVal = -moveVal
-		}
-		g.heuristicValue = moveVal - float32(initialSpread)
+		// `player` is NOT the one that just made a move. Flip the valuation
+		// here to make it analogous to the situation above when the game ends.
+		val := -g.move.Valuation()
+		g.heuristicValue = val - float32(initialSpread)
 		// g.heuristicValue = s.game.EndgameSpreadEstimate(player, maximizing) - float32(initialSpread)
 		// log.Debug().Msgf("Calculating heuristic value of %v as %v - %v",
 		// 	g.move, s.game.EndgameSpreadEstimate(player), float32(initialSpread))
@@ -354,8 +351,8 @@ func (s *Solver) Solve(plies int) (float32, *move.Move) {
 	// we start with maximizing = true, by the time we get to the first
 	// ply, we calculate the "value" of the node from the other player's
 	// point of view. This algorithm is annoying and hard to understand.
-	s.initialSpread = -s.game.CurrentSpread()
-	log.Debug().Msgf("Spread at beginning of endgame: %v", -s.initialSpread)
+	s.initialSpread = s.game.CurrentSpread()
+	log.Debug().Msgf("Spread at beginning of endgame: %v", s.initialSpread)
 	v := s.alphabeta(n, plies, float32(-Infinity), float32(Infinity), true)
 	log.Debug().Msgf("Best spread found: %v", v)
 	log.Debug().Msgf("Best variant found:")
