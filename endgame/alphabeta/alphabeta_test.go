@@ -36,9 +36,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestSolveComplex(t *testing.T) {
-	// XXX: Seems to work, but at 4-ply it finds a losing sequence
-	// (a worse one than at 3-ply)
-	plies := 6
+	plies := 7
 
 	gd, err := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	if err != nil {
@@ -72,8 +70,8 @@ func TestSolveComplex(t *testing.T) {
 	game.SetPlaying(true)
 	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
 	v, _ := s.Solve(plies)
-	if v != 102 {
-		t.Errorf("Expected to find a 102-pt spread swing, found a swing of %v", v)
+	if v != 116 {
+		t.Errorf("Expected to find a 116-pt spread swing, found a swing of %v", v)
 	}
 }
 
@@ -208,7 +206,7 @@ func TestSolveStandard(t *testing.T) {
 	// This endgame is solved with at least 3 plies. Most endgames should
 	// start with 3 plies (so the first player can do an out in 2) and
 	// then proceed with iterative deepening.
-	plies := 2
+	plies := 3
 
 	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
 	if err != nil {
@@ -493,7 +491,7 @@ func TestMinimalCase(t *testing.T) {
 	theirRack := alphabet.RackFromString("DEHILOR", alph)
 	game.SetRackFor(1, ourRack)
 	game.SetRackFor(0, theirRack)
-	game.SetPointsFor(1, 384)
+	game.SetPointsFor(1, 294) // was 384
 	game.SetPointsFor(0, 389)
 	game.SetPlayerOnTurn(1)
 	game.SetPlaying(true)
@@ -504,8 +502,8 @@ func TestMinimalCase(t *testing.T) {
 	genDotFile(s.rootNode, dot)
 	saveDotFile(s.rootNode, dot, "out.dot")
 
-	if v > 0 {
-		t.Errorf("Expected < 0, %v was", v)
+	if v < 0 {
+		t.Errorf("Expected > 0, %v was", v)
 	}
 }
 

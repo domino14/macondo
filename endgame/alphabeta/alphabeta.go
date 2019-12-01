@@ -48,7 +48,7 @@ const (
 	TwoPlyOppSearchLimit = 30
 	// FutureAdjustment weighs the value of future points less than
 	// present points, to allow for the possibility of being blocked.
-	FutureAdjustment = float32(0.75)
+	FutureAdjustment = float32(1.0)
 )
 
 // Solver implements the minimax + alphabeta algorithm.
@@ -97,16 +97,16 @@ func min(x, y float32) float32 {
 	return y
 }
 
-func (g *gameNode) value(s *Solver, maximizing bool, gameOver bool) float32 {
+func (g *gameNode) value(s *Solver, gameOver bool) float32 {
 	if !g.calculatedValue {
-		g.calculateValue(s, maximizing, gameOver)
+		g.calculateValue(s, gameOver)
 		g.calculatedValue = true
 	}
 	// log.Debug().Msgf("heuristic value of node %p is %v", g, g.heuristicValue)
 	return g.heuristicValue
 }
 
-func (g *gameNode) calculateValue(s *Solver, maximizing, gameOver bool) {
+func (g *gameNode) calculateValue(s *Solver, gameOver bool) {
 	// calculate the heuristic value of this node, and store it.
 	// we start with a max node. At 1-ply (and all odd plies), maximizing
 	// is always false.
@@ -121,8 +121,11 @@ func (g *gameNode) calculateValue(s *Solver, maximizing, gameOver bool) {
 	// The initial spread is always from the maximizing point of view.
 	initialSpread := s.initialSpread
 	spreadNow := s.game.PointsFor(playerWhoMadeMove) - s.game.PointsFor(opponent)
+	negateHeurVal := false
 	if playerWhoMadeMove != s.maximizingPlayer {
-		spreadNow = -spreadNow
+		// spreadNow = -spreadNow
+		initialSpread = -initialSpread
+		negateHeurVal = true
 	}
 
 	// If the game is over, the value should just be the spread change.
@@ -141,24 +144,23 @@ func (g *gameNode) calculateValue(s *Solver, maximizing, gameOver bool) {
 		ptValue := g.move.Score()
 		// don't double-count score; it's already in the valuation:
 		moveVal := g.move.Valuation() - float32(ptValue)
-		// if maximizing {
-		// 	moveVal = -moveVal
-		// }
 		// What is the spread right now? The valuation should be relative
 		// to that.
+		// log.Debug().Msgf("calculating heur value for %v as %v + %v - %v",
+		// 	g.move, spreadNow, moveVal, initialSpread)
 		g.heuristicValue = float32(spreadNow) + moveVal - float32(initialSpread)
 		// g.heuristicValue = s.game.EndgameSpreadEstimate(player, maximizing) - float32(initialSpread)
 		// log.Debug().Msgf("Calculating heuristic value of %v as %v - %v",
 		// 	g.move, s.game.EndgameSpreadEstimate(player), float32(initialSpread))
 	}
-	if !maximizing {
+	if negateHeurVal {
 		// The maximizing player is always "us" - the player that we are
 		// solving the endgame for. So if this not the maximizing node,
 		// we want to negate the heuristic value, as it needs to be as
 		// negative as possible relative to "us". I know, minimax is
 		// hard to reason about, but I think this makes sense. At least
 		// it seems to work.
-		// g.heuristicValue = -g.heuristicValue
+		g.heuristicValue = -g.heuristicValue
 		// log.Debug().Msg("Negating since not maximizing player")
 	}
 }
@@ -405,7 +407,7 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α float32, β float32,
 	if depth == 0 || !s.game.Playing() {
 		// s.game.Playing() happens if the game is over; i.e. if the
 		// current node is terminal.
-		val := node.value(s, maximizingPlayer, !s.game.Playing())
+		val := node.value(s, !s.game.Playing())
 		// log.Debug().Msgf("ending recursion, depth: %v, playing: %v, node: %v val: %v",
 		// 	depth, s.game.Playing(), node.move, val)
 		return val
