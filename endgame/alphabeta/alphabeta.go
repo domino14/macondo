@@ -61,8 +61,9 @@ type Solver struct {
 	initialSpread    int
 	maximizingPlayer int // This is the player who we call this function for.
 
-	disablePruning bool
-	rootNode       *gameNode
+	iterativeDeepeningOn bool
+	disablePruning       bool
+	rootNode             *gameNode
 	// Some helpful variables to avoid big allocations
 	// stm: side-to-move  ots: other side
 	stmPlayed []bool
@@ -168,6 +169,7 @@ func (s *Solver) Init(movegen movegen.MoveGenerator, game *mechanics.XWordGame) 
 	s.movegen = movegen
 	s.game = game
 	s.totalNodes = 0
+	s.iterativeDeepeningOn = true
 
 	s.stmPlayed = make([]bool, alphabet.MaxAlphabetSize+1)
 	s.otsPlayed = make([]bool, alphabet.MaxAlphabetSize+1)
@@ -390,15 +392,32 @@ func (s *Solver) Solve(plies int) (float32, *move.Move) {
 	s.maximizingPlayer = s.game.PlayerOnTurn()
 	log.Debug().Msgf("Spread at beginning of endgame: %v", s.initialSpread)
 	log.Debug().Msgf("Maximizing player is: %v", s.maximizingPlayer)
-	v := s.alphabeta(n, plies, float32(-Infinity), float32(Infinity), true)
-	log.Debug().Msgf("Best spread found: %v", v)
-	log.Debug().Msgf("Best variant found:")
+	var bestV float32
+	// XXX: We're going to need some sort of channel here to control
+	// deepening and propagate results.
+	if s.iterativeDeepeningOn {
+		log.Debug().Msgf("Using iterative deepening with %v max plies", plies)
+		for p := 1; p <= plies; p++ {
+			bestV = s.alphabeta(n, p, float32(-Infinity), float32(Infinity), true)
+
+			// Sort our plays by heuristic value for the next iteration, so that
+			// more promising nodes are searched first.
+			sort.Slice(s.rootNode.children, func(i, j int) bool {
+				return s.rootNode.children[i].heuristicValue >
+					s.rootNode.children[j].heuristicValue
+			})
+			log.Debug().Msgf("Spread swing estimate found after %v plies: %v", p, bestV)
+		}
+	} else {
+		bestV = s.alphabeta(n, plies, float32(-Infinity), float32(Infinity), true)
+	}
+	log.Debug().Msgf("Best spread found: %v", bestV)
 	// Go down tree and find best variation:
-	bestSeq := s.findBestSequence(v)
+	bestSeq := s.findBestSequence(bestV)
 	log.Debug().Msgf("Number of expanded nodes: %v", s.totalNodes)
 	log.Debug().Msgf("Best sequence: %v", bestSeq)
 
-	return v, bestSeq[0]
+	return bestV, bestSeq[0]
 }
 
 func (s *Solver) alphabeta(node *gameNode, depth int, α float32, β float32,

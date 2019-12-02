@@ -199,47 +199,6 @@ func TestSolveOther3(t *testing.T) {
 	}
 }
 
-func TestIterativeDeepening(t *testing.T) {
-	plies := 7
-
-	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
-	if err != nil {
-		t.Errorf("Expected error to be nil, got %v", err)
-	}
-	dist := alphabet.EnglishLetterDistribution()
-
-	game := &mechanics.XWordGame{}
-	game.Init(gd, dist)
-	game.SetStateStackLength(plies)
-
-	generator := movegen.NewGordonGenerator(
-		// The strategy doesn't matter right here
-		game, &strategy.NoLeaveStrategy{},
-	)
-	alph := game.Alphabet()
-	// XXX: Refactor this; we should have something like:
-	// game.LoadFromGCG(path, turnnum)
-	// That should set the board, the player racks, scores, etc - the whole state
-	// Instead we have to do this manually here:
-	generator.SetBoardToGame(alph, board.VsJoey)
-	s := new(Solver)
-	s.Init(generator, game)
-	ourRack := alphabet.RackFromString("DIV", alph)
-	theirRack := alphabet.RackFromString("AEFILMR", alph)
-	game.SetRackFor(0, ourRack)
-	game.SetRackFor(1, theirRack)
-	game.SetPointsFor(0, 412)
-	game.SetPointsFor(1, 371)
-	game.SetPlayerOnTurn(1)
-	game.SetPlaying(true)
-	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
-	v, _ := s.deepen(plies)
-	fmt.Println("Value found", v)
-	if v < 0 {
-		t.Errorf("Expected > 0, %v was", v)
-	}
-}
-
 func TestSolveStandard(t *testing.T) {
 	// This endgame is solved with at least 3 plies. Most endgames should
 	// start with 3 plies (so the first player can do an out in 2) and
