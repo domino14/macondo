@@ -36,7 +36,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestSolveComplex(t *testing.T) {
-	plies := 7
+	plies := 6
 
 	gd, err := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	if err != nil {
@@ -203,7 +203,7 @@ func TestSolveStandard(t *testing.T) {
 	// This endgame is solved with at least 3 plies. Most endgames should
 	// start with 3 plies (so the first player can do an out in 2) and
 	// then proceed with iterative deepening.
-	plies := 3
+	plies := 7
 
 	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
 	if err != nil {
@@ -227,6 +227,7 @@ func TestSolveStandard(t *testing.T) {
 	generator.SetBoardToGame(alph, board.VsCanik)
 	s := new(Solver)
 	s.Init(generator, game)
+	s.iterativeDeepeningOn = false
 	ourRack := alphabet.RackFromString("BGIV", alph)
 	theirRack := alphabet.RackFromString("DEHILOR", alph)
 	game.SetRackFor(1, ourRack)
