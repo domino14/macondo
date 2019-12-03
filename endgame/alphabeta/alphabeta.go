@@ -3,6 +3,7 @@
 package alphabeta
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/domino14/macondo/alphabet"
@@ -79,9 +80,16 @@ type Solver struct {
 // to be reconstructed.
 type gameNode struct {
 	// the move corresponding to the node is the move that is being evaluated.
-	move           *move.Move
-	heuristicValue float32
-	children       []*gameNode // children should be null until expanded.
+	move               *move.Move
+	parent             *gameNode
+	valueWasCalculated bool
+	heuristicValue     float32
+	children           []*gameNode // children should be null until expanded.
+}
+
+func (g *gameNode) String() string {
+	return fmt.Sprintf("<gamenode move %v, heuristicVal %v, nchild %v>", g.move,
+		g.heuristicValue, len(g.children))
 }
 
 // max returns the larger of x or y.
@@ -350,22 +358,15 @@ func (s *Solver) generateSTMPlays(maximizingPlayer bool) []*move.Move {
 	return sideToMovePlays
 }
 
-func (s *Solver) findBestSequence(moveVal float32) []*move.Move {
+func (s *Solver) findBestSequence(endNode *gameNode) []*move.Move {
 	// findBestSequence assumes we have already run alphabeta / iterative deepening
 	seq := []*move.Move{}
-	parent := s.rootNode
+
+	child := endNode
 	for {
-		// parent.printChildren()
-		for _, child := range parent.children {
-			// log.Debug().Msgf("Found heuristic value for child: %v (%v)", child.move,
-			// 	child.heuristicValue)
-			if child.heuristicValue == moveVal {
-				seq = append(seq, child.move)
-				parent = child
-				break
-			}
-		}
-		if len(parent.children) == 0 || parent.children == nil {
+		seq = append([]*move.Move{child.move}, seq...)
+		child = child.parent
+		if child == nil || child.move == nil {
 			break
 		}
 	}
@@ -393,27 +394,31 @@ func (s *Solver) Solve(plies int) (float32, *move.Move) {
 	log.Debug().Msgf("Spread at beginning of endgame: %v", s.initialSpread)
 	log.Debug().Msgf("Maximizing player is: %v", s.maximizingPlayer)
 	var bestV float32
+	var bestNode *gameNode
 	// XXX: We're going to need some sort of channel here to control
 	// deepening and propagate results.
 	if s.iterativeDeepeningOn {
 		log.Debug().Msgf("Using iterative deepening with %v max plies", plies)
 		for p := 1; p <= plies; p++ {
-			bestV = s.alphabeta(n, p, float32(-Infinity), float32(Infinity), true)
-
+			n := &gameNode{}
+			s.rootNode = n
+			bestV, bestNode = s.alphabeta(n, p, float32(-Infinity), float32(Infinity), true)
+			bestSeq := s.findBestSequence(bestNode)
 			// Sort our plays by heuristic value for the next iteration, so that
 			// more promising nodes are searched first.
 			sort.Slice(s.rootNode.children, func(i, j int) bool {
 				return s.rootNode.children[i].heuristicValue >
 					s.rootNode.children[j].heuristicValue
 			})
-			log.Debug().Msgf("Spread swing estimate found after %v plies: %v", p, bestV)
+			log.Debug().Msgf("Spread swing estimate found after %v plies: %v (seq %v)",
+				p, bestV, bestSeq)
 		}
 	} else {
-		bestV = s.alphabeta(n, plies, float32(-Infinity), float32(Infinity), true)
+		bestV, bestNode = s.alphabeta(n, plies, float32(-Infinity), float32(Infinity), true)
 	}
 	log.Debug().Msgf("Best spread found: %v", bestV)
 	// Go down tree and find best variation:
-	bestSeq := s.findBestSequence(bestV)
+	bestSeq := s.findBestSequence(bestNode)
 	log.Debug().Msgf("Number of expanded nodes: %v", s.totalNodes)
 	log.Debug().Msgf("Best sequence: %v", bestSeq)
 
@@ -421,7 +426,7 @@ func (s *Solver) Solve(plies int) (float32, *move.Move) {
 }
 
 func (s *Solver) alphabeta(node *gameNode, depth int, α float32, β float32,
-	maximizingPlayer bool) float32 {
+	maximizingPlayer bool) (float32, *gameNode) {
 
 	// depthDbg := strings.Repeat(" ", depth)
 
@@ -431,7 +436,7 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α float32, β float32,
 		val := node.value(s, !s.game.Playing())
 		// log.Debug().Msgf("ending recursion, depth: %v, playing: %v, node: %v val: %v",
 		// 	depth, s.game.Playing(), node.move, val)
-		return val
+		return val, node
 	}
 
 	var plays []*move.Move
@@ -448,41 +453,44 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α float32, β float32,
 			return node.children[j].heuristicValue > node.children[i].heuristicValue
 		})
 	}
-	childGenerator := func() func() (*gameNode, bool, bool) {
+	childGenerator := func() func() (*gameNode, bool) {
 		idx := -1
-		return func() (*gameNode, bool, bool) {
+		// node, node is new
+		return func() (*gameNode, bool) {
 			idx++
 
 			if len(plays) == 0 {
 				// No plays were generated. This happens during iterative
 				// deepening, when we re-use previously generated nodes.
 				if idx == len(node.children) {
-					return nil, false, false
+					return nil, false
 				}
-				return node.children[idx], true, false
+				return node.children[idx], false
 			}
 			if idx == len(plays) {
-				return nil, false, false
+				return nil, false
 			}
 			s.totalNodes++
-			return &gameNode{move: plays[idx]}, true, true
+			return &gameNode{move: plays[idx], parent: node}, true
 		}
 	}
 
 	if maximizingPlayer {
 		value := float32(-Infinity)
+		var winningNode *gameNode
 		iter := childGenerator()
-		for child, ok, newNode := iter(); ok; child, ok, newNode = iter() {
+		for child, newNode := iter(); child != nil; child, newNode = iter() {
 			// Play the child
 			// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
 			s.game.PlayMove(child.move, true)
 			// log.Debug().Msgf("%vState is now %v", depthDbg,
 			// s.game.String())
-			v := s.alphabeta(child, depth-1, α, β, false)
+			v, wn := s.alphabeta(child, depth-1, α, β, false)
 			s.game.UnplayLastMove()
 			// log.Debug().Msgf("%vAfter unplay, state is now %v", depthDbg, s.game.String())
 			if v > value {
 				value = v
+				winningNode = wn
 				// log.Debug().Msgf("%vFound a better move: %v (%v)", depthDbg, value, tm)
 			}
 			if !s.disablePruning {
@@ -496,21 +504,23 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α float32, β float32,
 			}
 		}
 		node.heuristicValue = value
-		return value
+		return value, winningNode
 	}
 	// Otherwise, not maximizing
 	value := float32(Infinity)
+	var winningNode *gameNode
 	iter := childGenerator()
-	for child, ok, newNode := iter(); ok; child, ok, newNode = iter() {
+	for child, newNode := iter(); child != nil; child, newNode = iter() {
 		// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
 		s.game.PlayMove(child.move, true)
 		// log.Debug().Msgf("%vState is now %v", depthDbg,
 		// s.game.String())
-		v := s.alphabeta(child, depth-1, α, β, true)
+		v, wn := s.alphabeta(child, depth-1, α, β, true)
 		s.game.UnplayLastMove()
 		// log.Debug().Msgf("%vAfter unplay, state is now %v", depthDbg, s.game.String())
 		if v < value {
 			value = v
+			winningNode = wn
 			// log.Debug().Msgf("%vFound a worse move: %v (%v)", depthDbg, value, tm)
 		}
 		if !s.disablePruning {
@@ -524,5 +534,5 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α float32, β float32,
 		}
 	}
 	node.heuristicValue = value
-	return value
+	return value, winningNode
 }

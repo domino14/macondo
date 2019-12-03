@@ -36,7 +36,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestSolveComplex(t *testing.T) {
-	plies := 6
+	plies := 7
 
 	gd, err := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	if err != nil {
@@ -203,7 +203,7 @@ func TestSolveStandard(t *testing.T) {
 	// This endgame is solved with at least 3 plies. Most endgames should
 	// start with 3 plies (so the first player can do an out in 2) and
 	// then proceed with iterative deepening.
-	plies := 7
+	plies := 4
 
 	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
 	if err != nil {
@@ -227,7 +227,6 @@ func TestSolveStandard(t *testing.T) {
 	generator.SetBoardToGame(alph, board.VsCanik)
 	s := new(Solver)
 	s.Init(generator, game)
-	s.iterativeDeepeningOn = false
 	ourRack := alphabet.RackFromString("BGIV", alph)
 	theirRack := alphabet.RackFromString("DEHILOR", alph)
 	game.SetRackFor(1, ourRack)
@@ -239,8 +238,8 @@ func TestSolveStandard(t *testing.T) {
 	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
 	v, _ := s.Solve(plies)
 	fmt.Println("Value found", v)
-	if v < 0 {
-		t.Errorf("Expected > 0, %v was", v)
+	if v != 11 {
+		t.Errorf("Expected 11, was %v", v)
 	}
 }
 
@@ -284,13 +283,12 @@ func TestSolveStandard2(t *testing.T) {
 	if v < 0 {
 		t.Errorf("Expected > 0, %v was", v)
 	}
-	t.Fail()
 }
 
 func TestSolveMaven(t *testing.T) {
 	// This endgame is the one in maven. Start by pre-playing TSK as
 	// they suggest.
-	t.Skip()
+	// t.Skip()
 	plies := 9
 
 	gd, err := gaddag.LoadGaddag("/tmp/ospd1.gaddag")
@@ -418,21 +416,26 @@ func (t *TestGenerator) GenAll(rack *alphabet.Rack) {
 		t.plays = []*move.Move{
 			move.NewScoringMoveSimple(24, "1G", "VIG.", "B", t.alph),
 			move.NewScoringMoveSimple(9, "G7", "B...", "GIV", t.alph),
+			move.NewScoringMoveSimple(18, "2B", "VIG", "B", t.alph),
+			move.NewScoringMoveSimple(9, "13K", "B..", "GIV", t.alph),
 		}
 	} else if rack.String() == "DEHILOR" {
 		t.plays = []*move.Move{
 			move.NewScoringMoveSimple(33, "2J", ".O.DI", "EHLR", t.alph),
 			move.NewScoringMoveSimple(30, "4A", "HOER", "DIL", t.alph),
 			move.NewScoringMoveSimple(25, "K7", "DHOLE", "IR", t.alph),
+			move.NewScoringMoveSimple(21, "1G", "HIL.", "DEOR", t.alph),
 		}
 	} else if rack.String() == "B" {
 		t.plays = []*move.Move{
 			move.NewScoringMoveSimple(9, "G7", "B...", "", t.alph),
 			move.NewScoringMoveSimple(4, "G5", ".B", "", t.alph),
+			move.NewScoringMoveSimple(9, "13K", "B..", "", t.alph),
 		}
 	} else if rack.String() == "GIV" {
 		t.plays = []*move.Move{
 			move.NewScoringMoveSimple(24, "1G", "VIG.", "", t.alph),
+			move.NewScoringMoveSimple(18, "2B", "VIG", "", t.alph),
 		}
 	} else if rack.String() == "DIL" {
 		t.plays = []*move.Move{
@@ -447,6 +450,10 @@ func (t *TestGenerator) GenAll(rack *alphabet.Rack) {
 	} else if rack.String() == "IR" {
 		t.plays = []*move.Move{
 			move.NewScoringMoveSimple(18, "A13", ".IR", "", t.alph),
+		}
+	} else if rack.String() == "DEOR" {
+		t.plays = []*move.Move{
+			move.NewScoringMoveSimple(8, "J10", "ORDE.", "", t.alph),
 		}
 	} else {
 		panic("Unexpected rack: " + rack.String())
@@ -601,4 +608,54 @@ func TestMinimalCase3(t *testing.T) {
 	if v != 11 {
 		t.Errorf("Expected 11-pt spread swing, found %v", v)
 	}
+}
+
+func TestMinimalCase4(t *testing.T) {
+	// 5 plies; should still find the correct endgame. Note that this uses
+	// iterative deepening by default.
+	plies := 5
+
+	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	if err != nil {
+		t.Errorf("Expected error to be nil, got %v", err)
+	}
+	dist := alphabet.EnglishLetterDistribution()
+
+	game := &mechanics.XWordGame{}
+	game.Init(gd, dist)
+	game.SetStateStackLength(plies)
+	alph := game.Alphabet()
+
+	generator := &TestGenerator{alph: alph}
+	// XXX: Refactor this; we should have something like:
+	// game.LoadFromGCG(path, turnnum)
+	// That should set the board, the player racks, scores, etc - the whole state
+	// Instead we have to do this manually here:
+	tilesPlayedAndInRacks := game.Board().SetToGame(alph, board.VsCanik)
+	game.Bag().RemoveTiles(tilesPlayedAndInRacks.OnBoard)
+	game.Bag().RemoveTiles(tilesPlayedAndInRacks.Rack1)
+	game.Bag().RemoveTiles(tilesPlayedAndInRacks.Rack2)
+
+	s := new(Solver)
+	s.Init(generator, game)
+	ourRack := alphabet.RackFromString("BGIV", alph)
+	theirRack := alphabet.RackFromString("DEHILOR", alph)
+	game.SetRackFor(1, ourRack)
+	game.SetRackFor(0, theirRack)
+	game.SetPointsFor(1, 384)
+	game.SetPointsFor(0, 389)
+	game.SetPlayerOnTurn(1)
+	game.SetPlaying(true)
+	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
+	v, _ := s.Solve(plies)
+	fmt.Println("Value found", v)
+
+	// dot := &dotfile{}
+	// genDotFile(s.rootNode, dot)
+	// saveDotFile(s.rootNode, dot, "out.dot")
+
+	if v != 11 {
+		t.Errorf("Expected 11-pt spread swing, found %v", v)
+	}
+
 }
