@@ -283,7 +283,7 @@ func (s *Solver) addPass(plays []*move.Move, ponturn int) []*move.Move {
 	return plays
 }
 
-func (s *Solver) generateSTMPlays(maximizingPlayer bool) []*move.Move {
+func (s *Solver) generateSTMPlays() []*move.Move {
 	// log.Debug().Msgf("Generating stm plays for maximizing %v", maximizingPlayer)
 	stmRack := s.game.RackFor(s.game.PlayerOnTurn())
 	pnot := (s.game.PlayerOnTurn() + 1) % s.game.NumPlayers()
@@ -373,6 +373,13 @@ func (s *Solver) findBestSequence(endNode *gameNode) []*move.Move {
 	return seq
 }
 
+func (s *Solver) clearChildrenValues(node *gameNode) {
+	for _, n := range node.children {
+		// XXX: 0 is still a value; this is not good
+		n.heuristicValue = 0
+	}
+}
+
 // Solve solves the endgame given the current state of s.game, for the
 // current player whose turn it is in that state.
 func (s *Solver) Solve(plies int) (float32, *move.Move) {
@@ -400,8 +407,8 @@ func (s *Solver) Solve(plies int) (float32, *move.Move) {
 	if s.iterativeDeepeningOn {
 		log.Debug().Msgf("Using iterative deepening with %v max plies", plies)
 		for p := 1; p <= plies; p++ {
-			n := &gameNode{}
-			s.rootNode = n
+			// n := &gameNode{}
+			// s.rootNode = n
 			bestV, bestNode = s.alphabeta(n, p, float32(-Infinity), float32(Infinity), true)
 			bestSeq := s.findBestSequence(bestNode)
 			// Sort our plays by heuristic value for the next iteration, so that
@@ -410,6 +417,7 @@ func (s *Solver) Solve(plies int) (float32, *move.Move) {
 				return s.rootNode.children[i].heuristicValue >
 					s.rootNode.children[j].heuristicValue
 			})
+			// s.clearChildrenValues(s.rootNode)
 			log.Debug().Msgf("Spread swing estimate found after %v plies: %v (seq %v)",
 				p, bestV, bestSeq)
 		}
@@ -421,6 +429,20 @@ func (s *Solver) Solve(plies int) (float32, *move.Move) {
 	bestSeq := s.findBestSequence(bestNode)
 	log.Debug().Msgf("Number of expanded nodes: %v", s.totalNodes)
 	log.Debug().Msgf("Best sequence: %v", bestSeq)
+
+	// Some more debugging info
+
+	child := bestNode
+	for {
+		log.Debug().Msgf("Children of %v:", child.parent)
+		child = child.parent
+		if child.children != nil {
+			log.Debug().Msgf("They are %v", child.children)
+		}
+		if child == nil || child.move == nil {
+			break
+		}
+	}
 
 	return bestV, bestSeq[0]
 }
@@ -441,7 +463,7 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α float32, β float32,
 
 	var plays []*move.Move
 	if node.children == nil {
-		plays = s.generateSTMPlays(maximizingPlayer)
+		plays = s.generateSTMPlays()
 	} else {
 		sort.Slice(node.children, func(i, j int) bool {
 			// If the plays exist already, sort them by value so more
@@ -452,10 +474,11 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α float32, β float32,
 			}
 			return node.children[j].heuristicValue > node.children[i].heuristicValue
 		})
+		// s.clearChildrenValues(node)
 	}
+
 	childGenerator := func() func() (*gameNode, bool) {
 		idx := -1
-		// node, node is new
 		return func() (*gameNode, bool) {
 			idx++
 
@@ -467,6 +490,7 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α float32, β float32,
 				}
 				return node.children[idx], false
 			}
+			// Plays were generated; return brand new nodes.
 			if idx == len(plays) {
 				return nil, false
 			}
