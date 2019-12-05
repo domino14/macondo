@@ -125,6 +125,7 @@ func TestSolveOther(t *testing.T) {
 func TestSolveOther2(t *testing.T) {
 	// An attempt to solve the game from above after a turn in. It's still
 	// a loss; this goes a bit faster.
+	t.Skip()
 	plies := 8
 
 	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
@@ -164,6 +165,7 @@ func TestSolveOther2(t *testing.T) {
 }
 
 func TestSolveOther3(t *testing.T) {
+	t.Skip()
 	plies := 7
 
 	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
@@ -294,7 +296,7 @@ func TestSolveStandard2(t *testing.T) {
 func TestSolveMaven(t *testing.T) {
 	// This endgame is the one in maven. Start by pre-playing TSK as
 	// they suggest.
-	// t.Skip()
+	t.Skip()
 	plies := 9
 
 	gd, err := gaddag.LoadGaddag("/tmp/ospd1.gaddag")
@@ -667,7 +669,8 @@ func TestMinimalCase4(t *testing.T) {
 }
 
 func TestAnotherOneTiler(t *testing.T) {
-	plies := 5 // plies := 8  why is quackle so much faster at this endgame?
+	t.Skip()
+	plies := 8 // why is quackle so much faster at this endgame?
 
 	gd, err := gaddag.LoadGaddag("/tmp/csw19.gaddag")
 	if err != nil {
@@ -706,5 +709,5 @@ func TestAnotherOneTiler(t *testing.T) {
 	// if v < 0 {
 	// 	t.Errorf("Expected > 0, %v was", v)
 	// }
-	t.Fail()
+	// t.Fail()
 }

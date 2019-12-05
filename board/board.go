@@ -36,9 +36,6 @@ type GameBoard struct {
 	squares     [][]*Square
 	transposed  bool
 	tilesPlayed int
-
-	// playHistory       []string
-	// playHistoryBackup []string
 }
 
 // MakeBoard creates a board from a description string.
