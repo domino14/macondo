@@ -318,6 +318,7 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 		c := MakeBoard(CrosswordGameBoard)
 		c.SetToGame(alph, tc.testGame)
 		c.placeMoveTiles(tc.m)
+		c.tilesPlayed += tc.m.TilesPlayed()
 		c.GenAllCrossSets(gd, bag)
 		c.UpdateAllAnchors()
 
