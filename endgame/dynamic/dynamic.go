@@ -170,7 +170,7 @@ func (s *DynamicProgSolver) addPlayEvaluation(rack *alphabet.Rack, plays []*move
 		leaveValue = eval.value
 	}
 	value := play.Score() + leaveValue
-	play.SetValuation(value)
+	play.SetValuation(float32(value))
 
 	rackToAdd := rack.Hashable()
 
@@ -338,22 +338,22 @@ func (s *DynamicProgSolver) minimaxPlayTables(playerOnTurn, opponent *alphabet.R
 
 }
 
-func (s *DynamicProgSolver) minimaxSingleSequence(node, depth, maximizingPlayer) {
-	/*
-	       if depth = 0 or node is a terminal node then
-	           return the heuristic value of node
-	       if maximizingPlayer then
-	           value := −∞
-	           for each child of node do
-	               value := max(value, minimax(child, depth − 1, FALSE))
-	           return value
-	       else (* minimizing player *)
-	           value := +∞
-	           for each child of node do
-	               value := min(value, minimax(child, depth − 1, TRUE))
-	   		return value
+// func (s *DynamicProgSolver) minimaxSingleSequence(node, depth, maximizingPlayer) {
+// 	/*
+// 	       if depth = 0 or node is a terminal node then
+// 	           return the heuristic value of node
+// 	       if maximizingPlayer then
+// 	           value := −∞
+// 	           for each child of node do
+// 	               value := max(value, minimax(child, depth − 1, FALSE))
+// 	           return value
+// 	       else (* minimizing player *)
+// 	           value := +∞
+// 	           for each child of node do
+// 	               value := min(value, minimax(child, depth − 1, TRUE))
+// 	   		return value
 
-	   		call with minimax(origin, depth, TRUE)
-	*/
+// 	   		call with minimax(origin, depth, TRUE)
+// 	*/
 
-}
+// }

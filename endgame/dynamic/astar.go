@@ -90,18 +90,18 @@ func (a *AStarSolver) Init(board *board.GameBoard, movegen *movegen.GordonGenera
 // 	return nil
 // }
 
-func (a *AStarSolver) heuristicEstimate(node *TreeNode, opponentRack *alphabet.Rack) int {
-	// Calculate a heuristic estimate for the cost from the node to any goal.
-	// A goal is just a finished endgame. Obviously we want the best one.
-	// Define cost as CostConstant - spread. That way it can be minimized.
+// func (a *AStarSolver) heuristicEstimate(node *TreeNode, opponentRack *alphabet.Rack) int {
+// 	// Calculate a heuristic estimate for the cost from the node to any goal.
+// 	// A goal is just a finished endgame. Obviously we want the best one.
+// 	// Define cost as CostConstant - spread. That way it can be minimized.
 
-	firstMoveScore := node.children[0].move.Score()
-	// A decent spread heuristic can be obtained from the opponent's
-	// highest-score reply to this move. ¯\_(ツ)_/¯
-	a.board.PlayMove(node.children[0].move, a.gd, a.bag, true)
-	a.movegen.GenAll(opponentRack)
-	node.children[0].children = newChildrenNodes(a.movegen.Plays())
-	replyMoveScore := node.children[0].children[0].move.Score()
-	a.board.RestoreFromBackup()
-	return CostConstant - (firstMoveScore - replyMoveScore)
-}
+// 	// firstMoveScore := node.children[0].move.Score()
+// 	// A decent spread heuristic can be obtained from the opponent's
+// 	// highest-score reply to this move. ¯\_(ツ)_/¯
+// 	// a.board.PlayMove(node.children[0].move, a.gd, a.bag, true)
+// 	// a.movegen.GenAll(opponentRack)
+// 	// node.children[0].children = newChildrenNodes(a.movegen.Plays())
+// 	// replyMoveScore := node.children[0].children[0].move.Score()
+// 	// a.board.RestoreFromBackup()
+// 	// return CostConstant - (firstMoveScore - replyMoveScore)
+// }
