@@ -62,6 +62,7 @@ type Solver struct {
 	initialSpread    int
 	maximizingPlayer int // This is the player who we call this function for.
 
+	simpleEvaluation     bool
 	iterativeDeepeningOn bool
 	disablePruning       bool
 	rootNode             *gameNode
@@ -291,9 +292,21 @@ func (s *Solver) generateSTMPlays() []*move.Move {
 	numTilesOnRack := stmRack.NumTiles()
 	board := s.game.Board()
 	bag := s.game.Bag()
+
 	s.movegen.GenAll(stmRack)
 	sideToMovePlays := s.addPass(s.movegen.Plays(), s.game.PlayerOnTurn())
 
+	if s.simpleEvaluation {
+		// A simple evaluation function is a very dumb, but fast, function
+		// of score and tiles played. /shrug
+		for _, m := range s.movegen.Plays() {
+			m.SetValuation(float32(m.Score() + m.TilesPlayed()))
+		}
+		sort.Slice(sideToMovePlays, func(i, j int) bool {
+			return sideToMovePlays[i].Valuation() > sideToMovePlays[j].Valuation()
+		})
+		return sideToMovePlays
+	}
 	// log.Debug().Msgf("stm %v (%v), ots %v (%v)",
 	// 	s.game.PlayerOnTurn(), stmRack.String(), pnot, otherRack.String())
 

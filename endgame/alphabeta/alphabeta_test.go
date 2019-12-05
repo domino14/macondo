@@ -32,11 +32,16 @@ func TestMain(m *testing.M) {
 		gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "pseudo_twl1979.txt"), true, true)
 		os.Rename("out.gaddag", "/tmp/ospd1.gaddag")
 	}
+	if _, err := os.Stat("/tmp/csw19.gaddag"); os.IsNotExist(err) {
+		gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "CSW19.txt"), true, true)
+		os.Rename("out.gaddag", "/tmp/csw19.gaddag")
+	}
 	os.Exit(m.Run())
 }
 
 func TestSolveComplex(t *testing.T) {
-	plies := 7
+	t.Skip()
+	plies := 8
 
 	gd, err := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	if err != nil {
@@ -70,8 +75,8 @@ func TestSolveComplex(t *testing.T) {
 	game.SetPlaying(true)
 	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
 	v, _ := s.Solve(plies)
-	if v != 116 {
-		t.Errorf("Expected to find a 116-pt spread swing, found a swing of %v", v)
+	if v != 122 {
+		t.Errorf("Expected to find a 122-pt spread swing, found a swing of %v", v)
 	}
 }
 
@@ -659,4 +664,47 @@ func TestMinimalCase4(t *testing.T) {
 		t.Errorf("Expected 11-pt spread swing, found %v", v)
 	}
 
+}
+
+func TestAnotherOneTiler(t *testing.T) {
+	plies := 5 // plies := 8  why is quackle so much faster at this endgame?
+
+	gd, err := gaddag.LoadGaddag("/tmp/csw19.gaddag")
+	if err != nil {
+		t.Errorf("Expected error to be nil, got %v", err)
+	}
+	dist := alphabet.EnglishLetterDistribution()
+
+	game := &mechanics.XWordGame{}
+	game.Init(gd, dist)
+	game.SetStateStackLength(plies)
+
+	generator := movegen.NewGordonGenerator(
+		// The strategy doesn't matter right here
+		game, &strategy.NoLeaveStrategy{},
+	)
+	alph := game.Alphabet()
+	// XXX: Refactor this; we should have something like:
+	// game.LoadFromGCG(path, turnnum)
+	// That should set the board, the player racks, scores, etc - the whole state
+	// Instead we have to do this manually here:
+	generator.SetBoardToGame(alph, board.EldarVsNigel)
+	s := new(Solver)
+	s.Init(generator, game)
+	// s.simpleEvaluation = true
+	ourRack := alphabet.RackFromString("AEEIRUW", alph)
+	theirRack := alphabet.RackFromString("V", alph)
+	game.SetRackFor(0, ourRack)
+	game.SetRackFor(1, theirRack)
+	game.SetPointsFor(0, 410)
+	game.SetPointsFor(1, 409)
+	game.SetPlayerOnTurn(0)
+	game.SetPlaying(true)
+	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
+	v, _ := s.Solve(plies)
+	fmt.Println("Value found", v)
+	// if v < 0 {
+	// 	t.Errorf("Expected > 0, %v was", v)
+	// }
+	t.Fail()
 }

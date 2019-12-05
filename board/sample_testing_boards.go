@@ -36,7 +36,8 @@ const (
 	JoeVsPaul
 	// VsJoel from Manhattan November 2019
 	VsJoel
-
+	// Endgame from 2019 Worlds
+	EldarVsNigel
 	TestDupe
 )
 
@@ -383,6 +384,29 @@ New Player 1: Turn 2
 13|    -       '   '       -    |
 14|  -       "       "       -  |
 15|=     '       =       '     =|
+   ------------------------------
+`, alph)
+
+	case EldarVsNigel:
+		return b.SetFromPlaintext(`
+Nigel Richards: Turn 11
+   A B C D E F G H I J K L M N O   -> Nigel Richards           AEEIRUW   410
+   ------------------------------     David Eldar              V         409
+ 1|=     ' E X O D E     '     =| --Tracking-----------------------------------
+ 2|  D O F F " K E R A T I N - U| V  1
+ 3|  O H O     '   '       Y E N|
+ 4|' P O O J A   B       M E W S|
+ 5|        - S Q U I N T Y     A|
+ 6|  "     R H I N O " e     " V|
+ 7|    B       ' C '   R   '   E|
+ 8|G O A T   D   E     Z I N   d|
+ 9|  U R A C I L S '   E   '    |
+10|  P I G   S       " T     "  |
+11|    L   - R         T        |
+12|'   L -   A   G E N I I     '|
+13|    A     T ' L '       -    |
+14|  -       E   A   "       -  |
+15|=     '   D   M       '     =|
    ------------------------------
 `, alph)
 	}
