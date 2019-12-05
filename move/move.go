@@ -39,6 +39,8 @@ type Move struct {
 	tilesPlayed int
 	alph        *alphabet.Alphabet
 	valuation   float32
+	// visited is used during endgame iterative deepening.
+	visited bool
 	// If this move has a duplicate, it will be here. It only applies
 	// for single-tile plays.
 	dupeOf *Move
@@ -201,6 +203,9 @@ func (m *Move) HasDupe() bool {
 func (m *Move) Dupe() *Move {
 	return m.dupeOf
 }
+
+func (m *Move) SetVisited(v bool) { m.visited = v }
+func (m *Move) Visited() bool     { return m.visited }
 
 func (m *Move) Leave() alphabet.MachineWord {
 	return m.leave

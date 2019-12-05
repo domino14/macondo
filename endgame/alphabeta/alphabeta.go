@@ -80,11 +80,11 @@ type Solver struct {
 // to be reconstructed.
 type gameNode struct {
 	// the move corresponding to the node is the move that is being evaluated.
-	move               *move.Move
-	parent             *gameNode
-	valueWasCalculated bool
-	heuristicValue     float32
-	children           []*gameNode // children should be null until expanded.
+	move           *move.Move
+	parent         *gameNode
+	heuristicValue float32
+	children       []*gameNode // children should be null until expanded.
+	generatedPlays []*move.Move
 }
 
 func (g *gameNode) String() string {
@@ -339,7 +339,7 @@ func (s *Solver) generateSTMPlays() []*move.Move {
 			if blockedAll {
 				// If all the plays are blocked, then the other side's
 				// leave is literally all the tiles they have.
-				// XXX: we also count them as stuck with all their tiles then.
+				// we also count them as stuck with all their tiles then.
 				oLeave = otherRack.TilesOn()
 				otherSideStuck = oLeave
 			}
@@ -357,6 +357,66 @@ func (s *Solver) generateSTMPlays() []*move.Move {
 	})
 	return sideToMovePlays
 }
+func (s *Solver) childGenerator(node *gameNode, maximizingPlayer bool) func() (
+	*gameNode, bool) {
+
+	var plays []*move.Move
+	if node.children == nil {
+		plays = s.generateSTMPlays()
+		node.generatedPlays = plays
+	} else {
+		sort.Slice(node.children, func(i, j int) bool {
+			// If the plays exist already, sort them by value so more
+			// promising nodes are visited first. This would happen
+			// during iterative deepening.
+			if maximizingPlayer {
+				return node.children[i].heuristicValue > node.children[j].heuristicValue
+			}
+			return node.children[j].heuristicValue > node.children[i].heuristicValue
+		})
+		// Mark all the moves as not visited.
+		for _, child := range node.children {
+			child.move.SetVisited(false)
+		}
+		// s.clearChildrenValues(node)
+	}
+
+	gen := func() func() (*gameNode, bool) {
+		idx := -1
+		idxInPlays := -1
+		return func() (*gameNode, bool) {
+			idx++
+
+			if len(plays) == 0 {
+				// No plays were generated. This happens during iterative
+				// deepening, when we re-use previously generated nodes.
+				if idx == len(node.children) {
+					// Try to get a new node from plays we haven't yet
+					// considered, if any.
+					for i := idxInPlays + 1; i < len(node.generatedPlays); i++ {
+						if node.generatedPlays[i].Visited() {
+							continue
+						}
+						// Brand new node.
+						idxInPlays = i
+						node.generatedPlays[i].SetVisited(true)
+						return &gameNode{move: node.generatedPlays[i], parent: node}, true
+					}
+					return nil, false
+				}
+				node.children[idx].move.SetVisited(true)
+				return node.children[idx], false
+			}
+			// Plays were generated; return brand new nodes.
+			if idx == len(plays) {
+				return nil, false
+			}
+			s.totalNodes++
+			return &gameNode{move: plays[idx], parent: node}, true
+		}
+	}
+	return gen()
+}
 
 func (s *Solver) findBestSequence(endNode *gameNode) []*move.Move {
 	// findBestSequence assumes we have already run alphabeta / iterative deepening
@@ -364,20 +424,18 @@ func (s *Solver) findBestSequence(endNode *gameNode) []*move.Move {
 
 	child := endNode
 	for {
+		// log.Debug().Msgf("Children of %v:", child.parent)
 		seq = append([]*move.Move{child.move}, seq...)
 		child = child.parent
+		// if child.children != nil {
+		// 	log.Debug().Msgf("They are %v (generatedPlays=%v)",
+		// 		child.children, len(child.generatedPlays))
+		// }
 		if child == nil || child.move == nil {
 			break
 		}
 	}
 	return seq
-}
-
-func (s *Solver) clearChildrenValues(node *gameNode) {
-	for _, n := range node.children {
-		// XXX: 0 is still a value; this is not good
-		n.heuristicValue = 0
-	}
 }
 
 // Solve solves the endgame given the current state of s.game, for the
@@ -413,10 +471,10 @@ func (s *Solver) Solve(plies int) (float32, *move.Move) {
 			bestSeq := s.findBestSequence(bestNode)
 			// Sort our plays by heuristic value for the next iteration, so that
 			// more promising nodes are searched first.
-			sort.Slice(s.rootNode.children, func(i, j int) bool {
-				return s.rootNode.children[i].heuristicValue >
-					s.rootNode.children[j].heuristicValue
-			})
+			// sort.Slice(s.rootNode.children, func(i, j int) bool {
+			// 	return s.rootNode.children[i].heuristicValue >
+			// 		s.rootNode.children[j].heuristicValue
+			// })
 			// s.clearChildrenValues(s.rootNode)
 			log.Debug().Msgf("Spread swing estimate found after %v plies: %v (seq %v)",
 				p, bestV, bestSeq)
@@ -429,20 +487,6 @@ func (s *Solver) Solve(plies int) (float32, *move.Move) {
 	bestSeq := s.findBestSequence(bestNode)
 	log.Debug().Msgf("Number of expanded nodes: %v", s.totalNodes)
 	log.Debug().Msgf("Best sequence: %v", bestSeq)
-
-	// Some more debugging info
-
-	child := bestNode
-	for {
-		log.Debug().Msgf("Children of %v:", child.parent)
-		child = child.parent
-		if child.children != nil {
-			log.Debug().Msgf("They are %v", child.children)
-		}
-		if child == nil || child.move == nil {
-			break
-		}
-	}
 
 	return bestV, bestSeq[0]
 }
@@ -461,48 +505,10 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α float32, β float32,
 		return val, node
 	}
 
-	var plays []*move.Move
-	if node.children == nil {
-		plays = s.generateSTMPlays()
-	} else {
-		sort.Slice(node.children, func(i, j int) bool {
-			// If the plays exist already, sort them by value so more
-			// promising nodes are visited first. This would happen
-			// during iterative deepening.
-			if maximizingPlayer {
-				return node.children[i].heuristicValue > node.children[j].heuristicValue
-			}
-			return node.children[j].heuristicValue > node.children[i].heuristicValue
-		})
-		// s.clearChildrenValues(node)
-	}
-
-	childGenerator := func() func() (*gameNode, bool) {
-		idx := -1
-		return func() (*gameNode, bool) {
-			idx++
-
-			if len(plays) == 0 {
-				// No plays were generated. This happens during iterative
-				// deepening, when we re-use previously generated nodes.
-				if idx == len(node.children) {
-					return nil, false
-				}
-				return node.children[idx], false
-			}
-			// Plays were generated; return brand new nodes.
-			if idx == len(plays) {
-				return nil, false
-			}
-			s.totalNodes++
-			return &gameNode{move: plays[idx], parent: node}, true
-		}
-	}
-
 	if maximizingPlayer {
 		value := float32(-Infinity)
 		var winningNode *gameNode
-		iter := childGenerator()
+		iter := s.childGenerator(node, maximizingPlayer)
 		for child, newNode := iter(); child != nil; child, newNode = iter() {
 			// Play the child
 			// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
@@ -533,7 +539,7 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α float32, β float32,
 	// Otherwise, not maximizing
 	value := float32(Infinity)
 	var winningNode *gameNode
-	iter := childGenerator()
+	iter := s.childGenerator(node, maximizingPlayer)
 	for child, newNode := iter(); child != nil; child, newNode = iter() {
 		// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
 		s.game.PlayMove(child.move, true)
