@@ -29,7 +29,7 @@ type Move struct {
 	score       int
 	equity      float64
 	desc        string
-	coords      string
+	coords      string //25 so far
 	tiles       alphabet.MachineWord
 	leave       alphabet.MachineWord
 	rowStart    int
@@ -38,6 +38,12 @@ type Move struct {
 	bingo       bool
 	tilesPlayed int
 	alph        *alphabet.Alphabet
+	valuation   float32
+	// visited is used during endgame iterative deepening.
+	visited bool
+	// If this move has a duplicate, it will be here. It only applies
+	// for single-tile plays.
+	dupeOf *Move
 }
 
 var reVertical, reHorizontal *regexp.Regexp
@@ -51,11 +57,11 @@ func (m *Move) String() string {
 	switch m.action {
 	case MoveTypePlay:
 		return fmt.Sprintf(
-			"<action: play word: %v %v score: %v tp: %v leave: %v equity: %.3f>",
+			"<action: play word: %v %v score: %v tp: %v leave: %v equity: %.3f valu: %.3f>",
 			m.coords, m.tiles.UserVisible(m.alph), m.score,
-			m.tilesPlayed, m.leave.UserVisible(m.alph), m.equity)
+			m.tilesPlayed, m.leave.UserVisible(m.alph), m.equity, m.valuation)
 	case MoveTypePass:
-		return fmt.Sprintf("<action: pass equity: %.3f>", m.equity)
+		return fmt.Sprintf("<action: pass equity: %.3f valu: %.3f>", m.equity, m.valuation)
 	case MoveTypeExchange:
 		return fmt.Sprintf(
 			"<action: exchange %v score: %v tp: %v leave: %v equity: %.3f>",
@@ -171,9 +177,35 @@ func (m *Move) SetEquity(e float64) {
 	m.equity = e
 }
 
+// Valuation is the "value" of this move. This is an internal value that is used
+// in calculating endgames and other such metrics.
+func (m *Move) Valuation() float32 {
+	return m.valuation
+}
+
+// SetValuation sets the valuation of this move. It is calculated outside of this package.
+func (m *Move) SetValuation(v float32) {
+	m.valuation = v
+}
+
 func (m *Move) Score() int {
 	return m.score
 }
+
+func (m *Move) SetDupe(o *Move) {
+	m.dupeOf = o
+}
+
+func (m *Move) HasDupe() bool {
+	return m.dupeOf != nil
+}
+
+func (m *Move) Dupe() *Move {
+	return m.dupeOf
+}
+
+func (m *Move) SetVisited(v bool) { m.visited = v }
+func (m *Move) Visited() bool     { return m.visited }
 
 func (m *Move) Leave() alphabet.MachineWord {
 	return m.leave

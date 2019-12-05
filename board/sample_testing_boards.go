@@ -22,6 +22,23 @@ const (
 	VsRoy
 	// VsMacondo1 is poor_endgame_timing.gcg
 	VsMacondo1
+	// JDvsNB is a test for endgames
+	JDvsNB
+	// VsAlec at the 2019 Nationals
+	VsAlec
+	// VsAlec2 same game as above just a couple turns later.
+	VsAlec2
+	// VsJoey from Lake George 2019
+	VsJoey
+	// VsCanik from 2019 Nationals
+	VsCanik
+	// JoeVsPaul, sample endgame given in the Maven paper
+	JoeVsPaul
+	// VsJoel from Manhattan November 2019
+	VsJoel
+	// Endgame from 2019 Worlds
+	EldarVsNigel
+	TestDupe
 )
 
 // SetToGame sets the board to a specific game in progress. It is used to
@@ -185,6 +202,214 @@ teich: Turn 12
 15|E X E C       R       M O A N|
    ------------------------------
 `, alph)
+
+	case JDvsNB:
+		return b.SetFromPlaintext(`
+Nathan Benedict: Turn 14
+   A B C D E F G H I J K L M N O   -> Nathan Benedict          RR        365
+   ------------------------------     JD                       LN        510
+ 1|G R R L       d     Q '     =| --Tracking-----------------------------------
+ 2|  E       J   E   G I     -  | LN  2
+ 3|  M M   L A ' N Y E     -    |
+ 4|'   O B I     O O N   -     '|
+ 5|    K I P     T   I F        |
+ 6|  W E T A "   I   T O     "  |
+ 7|S O ' C     ' V ' O B   '    |
+ 8|U T   H E D G E   R   ' V   =|
+ 9|I   '     U '   '       E    |
+10|  "       P       F A A N "  |
+11|    C   - E N T A Y L E D    |
+12|W   H O A S   A       - I   '|
+13|E   I       ' T '       N    |
+14|D A Z E D "   O   "     g -  |
+15|S     X I     U     U R S A E|
+   ------------------------------
+`, alph)
+
+	case VsAlec:
+		return b.SetFromPlaintext(`
+cesar: Turn 11
+   A B C D E F G H I J K L M N O      alec                     EGNOQR    420
+   ------------------------------  -> cesar                    DGILOPR   369
+ 1|=     '       L       '     =| --Tracking-----------------------------------
+ 2|  -       "   A   J       -  | EGNOQR  6
+ 3|    -       ' T W I N E R    |
+ 4|'     A       E   V O T E R '|
+ 5|  B U R A N   E   E -        |
+ 6|  "   c H U T N E Y S     "  |
+ 7|    ' A     '   '       '    |
+ 8|W O O D       S       '     =|
+ 9|E   ' I F   ' L '       '    |
+10|I "   A A "   E   "       "  |
+11|R   C   U   P A M   -        |
+12|D   A L G U A Z I l   -     C|
+13|O   N   H   V E X       F   Y|
+14|E - T     K I   T O O N I E S|
+15|S     ' M I D I       ' B   T|
+   ------------------------------
+`, alph)
+
+	case VsAlec2:
+		return b.SetFromPlaintext(`
+cesar: Turn 12
+   A B C D E F G H I J K L M N O      alec                     ENQR      438
+   ------------------------------  -> cesar                    DGILOR    383
+ 1|=     '       L       '     =| --Tracking-----------------------------------
+ 2|  -       "   A   J O G   -  | ENQR  4
+ 3|    -       ' T W I N E R    |
+ 4|'     A       E   V O T E R '|
+ 5|  B U R A N   E   E -        |
+ 6|  "   c H U T N E Y S     "  |
+ 7|    P A     '   '       '    |
+ 8|W O O D       S       '     =|
+ 9|E   ' I F   ' L '       '    |
+10|I "   A A "   E   "       "  |
+11|R   C   U   P A M   -        |
+12|D   A L G U A Z I l   -     C|
+13|O   N   H   V E X       F   Y|
+14|E - T     K I   T O O N I E S|
+15|S     ' M I D I       ' B   T|
+   ------------------------------
+`, alph)
+
+	case VsJoey:
+		return b.SetFromPlaintext(`
+Joey: Turn 11
+   A B C D E F G H I J K L M N O      Cesar                    DIV       412
+   ------------------------------  -> Joey                     AEFILMR   371
+ 1|A I D E R     U       '     =| --Tracking-----------------------------------
+ 2|b - E   E "   N   Z       -  | DIV  3
+ 3|A W N   T   ' M ' A T T -    |
+ 4|L I   C O B L E     O W     '|
+ 5|O P     U     E     A A      |
+ 6|N E     C U S T A R D S   Q  |
+ 7|E R ' O H   '   '   I   ' U  |
+ 8|S     K     F O B   E R G O T|
+ 9|    '     H E X Y L S   ' I  |
+10|  "     J I N     "       N  |
+11|    G O O P     N A I V E s T|
+12|' D I R E     '       -     '|
+13|    G A Y   '   '       -    |
+14|  -       "       "       -  |
+15|=     '       =       '     =|
+   ------------------------------
+`, alph)
+
+	case VsCanik:
+		return b.SetFromPlaintext(`
+cesar: Turn 12
+   A B C D E F G H I J K L M N O      canik                    DEHILOR   389
+   ------------------------------  -> cesar                    BGIV      384
+ 1|=     '       =   A   P I X Y| --Tracking-----------------------------------
+ 2|  -       "       S   L   -  | DEHILOR  7
+ 3|    T o W N L E T S   O -    |
+ 4|'     -       '   U   D A   R|
+ 5|      G E R A N I A L   U   I|
+ 6|  "       "       g     T " C|
+ 7|    '       '   W E     O B I|
+ 8|=     '     E M U     '   O N|
+ 9|    '       A I D       G O  |
+10|  "       H U N   "     E T  |
+11|        Z A   T     -   M E  |
+12|' Q   F A K E Y       J O E S|
+13|F I V E   E '   '     I T   C|
+14|  -       S P O R R A N   - A|
+15|=     '     O R E     N     D|
+   ------------------------------
+`, alph)
+
+	case JoeVsPaul:
+		return b.SetFromPlaintext(`
+joe: Turn 12
+   A B C D E F G H I J K L M N O      joe                      LZ        296
+   ------------------------------  -> paul                     ?AEIR     296
+ 1|=     '   B E R G S   '     =| --Tracking-----------------------------------
+ 2|  -     P A       U       -  | ILMZ 4
+ 3|    Q A I D '   U R N   -    |
+ 4|'     B E E   '   F   T S K '|
+ 5|  P   E T     V I A T I C    |
+ 6|M A   T A W       c     H "  |
+ 7|E S '     I S   ' E     A    |
+ 8|A T   F O L I A       ' V I M|
+ 9|L I ' L   E X   E       '    |
+10|  N   O   D     N "   Y   "  |
+11|  G N U -   C   J E T E      |
+12|'   E R     O H O     N     '|
+13|    O       G O Y       -    |
+14|  I N D O W   U   "       -  |
+15|=     ' D O R R       '     =|
+   ------------------------------
+`, alph)
+
+	case VsJoel:
+		return b.SetFromPlaintext(`
+cesar: Turn 11
+   A B C D E F G H I J K L M N O      joel s                   EIQSS     393
+   ------------------------------  -> cesar                    AAFIRTW   373
+ 1|= L E M N I S C I     L   E R| --Tracking-----------------------------------
+ 2|  -       "   O   P A I N T  | EIQSS  5
+ 3|    -   A   ' L ' R A V E    |
+ 4|W E D G E     Z   I   R     '|
+ 5|        R   J A U N T E d    |
+ 6|  "     O X O     K       "  |
+ 7|    Y O B   '   P       '    |
+ 8|=     F A U N A E     '     =|
+ 9|    '   T   '   G U Y   '    |
+10|  "       " B E S T E a D "  |
+11|        -     T     H I E    |
+12|'     -       H       - V U G|
+13|    C O R M O I D       -    |
+14|  -       "   O   "       -  |
+15|=     '       N O N I D E A L|
+   ------------------------------
+`, alph)
+
+	case TestDupe:
+		return b.SetFromPlaintext(`
+New Player 1: Turn 2
+   A B C D E F G H I J K L M N O      Quackle                  AHIJNRR   76
+   ------------------------------  -> New Player 1             Z         4
+ 1|=     '       =       '     =| --Tracking-----------------------------------
+ 2|  -       "       "       -  | ??AAAAAAAAABBCDDDDEEEEEEEEEEEFFGGGHHIIIIIIJK
+ 3|    -       '   '       -    | LLLLMMNNNNNOOOOOOOOPPQRRRRRRSSTTTTUUUUVVWWXY
+ 4|'     -       '       -     '| Y  89
+ 5|        -           -        |
+ 6|  "       "       "       "  |
+ 7|    '       '   '       '    |
+ 8|= I N C I T E S       '     =|
+ 9|I S '       '   '       '    |
+10|T "       "       "       "  |
+11|        -           -        |
+12|'     -       '       -     '|
+13|    -       '   '       -    |
+14|  -       "       "       -  |
+15|=     '       =       '     =|
+   ------------------------------
+`, alph)
+
+	case EldarVsNigel:
+		return b.SetFromPlaintext(`
+Nigel Richards: Turn 11
+   A B C D E F G H I J K L M N O   -> Nigel Richards           AEEIRUW   410
+   ------------------------------     David Eldar              V         409
+ 1|=     ' E X O D E     '     =| --Tracking-----------------------------------
+ 2|  D O F F " K E R A T I N - U| V  1
+ 3|  O H O     '   '       Y E N|
+ 4|' P O O J A   B       M E W S|
+ 5|        - S Q U I N T Y     A|
+ 6|  "     R H I N O " e     " V|
+ 7|    B       ' C '   R   '   E|
+ 8|G O A T   D   E     Z I N   d|
+ 9|  U R A C I L S '   E   '    |
+10|  P I G   S       " T     "  |
+11|    L   - R         T        |
+12|'   L -   A   G E N I I     '|
+13|    A     T ' L '       -    |
+14|  -       E   A   "       -  |
+15|=     '   D   M       '     =|
+   ------------------------------
+`, alph)
 	}
+
 	return nil
 }

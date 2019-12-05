@@ -12,8 +12,8 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	"github.com/domino14/macondo/automatic"
 	"github.com/domino14/macondo/rpc/autoplayer"
-	"github.com/domino14/macondo/xwordgame"
 )
 
 const (
@@ -33,7 +33,7 @@ func main() {
 		pprof.StartCPUProfile(f)
 		defer pprof.StopCPUProfile()
 	}
-	autoplayerServer := &xwordgame.Server{}
+	autoplayerServer := &automatic.Server{}
 	handler := autoplayer.NewAutoPlayerServer(autoplayerServer, nil)
 
 	srv := &http.Server{Addr: ":8088", Handler: handler}

@@ -103,7 +103,6 @@ func (b *Bag) RemoveTiles(tiles []MachineLetter) {
 			b.remove(t)
 		}
 	}
-	log.Debug().Msgf("Removed %v tiles", len(tiles))
 }
 
 func NewBag(tiles []MachineLetter, numUniqueTiles int,
@@ -116,4 +115,32 @@ func NewBag(tiles []MachineLetter, numUniqueTiles int,
 		alphabet:       alphabet,
 		scores:         scores,
 	}
+}
+
+// Copy copies to a new bag and returns it. Note that the initialTiles,
+// alphabet, and scores are only shallowly copied. This is fine because
+// we don't ever expect these to change after initialization.
+func (b *Bag) Copy() *Bag {
+	tiles := make([]MachineLetter, len(b.tiles))
+	copy(tiles, b.tiles)
+
+	return &Bag{
+		tiles:          tiles,
+		initialTiles:   b.initialTiles,
+		numUniqueTiles: b.numUniqueTiles,
+		alphabet:       b.alphabet,
+		scores:         b.scores,
+	}
+}
+
+// CopyFrom copies back the tiles from another bag into this bag.
+func (b *Bag) CopyFrom(other *Bag) {
+	// This is a deep copy and can be kind of wasteful, but we don't use
+	// the bag often.
+	if len(other.tiles) == 0 {
+		b.tiles = []MachineLetter{}
+		return
+	}
+	b.tiles = make([]MachineLetter, len(other.tiles))
+	copy(b.tiles, other.tiles)
 }

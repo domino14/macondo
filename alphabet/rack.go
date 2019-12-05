@@ -18,11 +18,43 @@ type Rack struct {
 
 // NewRack creates a brand new rack structure with an alphabet.
 func NewRack(alph *Alphabet) *Rack {
-	return &Rack{alphabet: alph}
+	return &Rack{alphabet: alph, LetArr: make([]int, MaxAlphabetSize+1)}
 }
 
+// Hashable returns a hashable representation of this rack, that is
+// not necessarily user-friendly.
+func (r *Rack) Hashable() string {
+	return r.TilesOn().String()
+}
+
+// String returns a user-visible version of this rack.
 func (r *Rack) String() string {
-	return r.TilesOn(int(r.alphabet.NumLetters())).UserVisible(r.alphabet)
+	return r.TilesOn().UserVisible(r.alphabet)
+}
+
+// Copy returns a deep copy of this rack
+func (r *Rack) Copy() *Rack {
+	n := &Rack{
+		empty:      r.empty,
+		numLetters: r.numLetters,
+		alphabet:   r.alphabet,
+		repr:       r.repr,
+	}
+	n.LetArr = make([]int, len(r.LetArr))
+	copy(n.LetArr, r.LetArr)
+	return n
+}
+
+func (r *Rack) CopyFrom(other *Rack) {
+	r.empty = other.empty
+	r.numLetters = other.numLetters
+	r.alphabet = other.alphabet
+	r.repr = other.repr
+	// These will always be the same size: MaxAlphabetSize + 1
+	if r.LetArr == nil {
+		r.LetArr = make([]int, MaxAlphabetSize+1)
+	}
+	copy(r.LetArr, other.LetArr)
 }
 
 // RackFromString creates a Rack from a string and an alphabet
@@ -39,7 +71,6 @@ func (r *Rack) setFromStr(rack string) {
 	} else {
 		r.clear()
 	}
-
 	for _, c := range rack {
 		ml, err := r.alphabet.Val(c)
 		if err == nil {
@@ -56,11 +87,7 @@ func (r *Rack) setFromStr(rack string) {
 
 // Set sets the rack from a list of machine letters
 func (r *Rack) Set(mls []MachineLetter) {
-	if r.LetArr == nil {
-		r.LetArr = make([]int, MaxAlphabetSize+1)
-	} else {
-		r.clear()
-	}
+	r.clear()
 	for _, ml := range mls {
 		r.LetArr[ml]++
 	}
@@ -98,11 +125,12 @@ func (r *Rack) Add(letter MachineLetter) {
 }
 
 // TilesOn returns the MachineLetters of the rack's current tiles.
-func (r *Rack) TilesOn(numPossibleLetters int) MachineWord {
+func (r *Rack) TilesOn() MachineWord {
 	if r.empty {
 		return MachineWord([]MachineLetter{})
 	}
 	letters := make([]MachineLetter, r.numLetters)
+	numPossibleLetters := r.alphabet.NumLetters()
 	ct := 0
 	var i MachineLetter
 	for i = 0; i < MachineLetter(numPossibleLetters); i++ {
@@ -123,9 +151,10 @@ func (r *Rack) TilesOn(numPossibleLetters int) MachineWord {
 }
 
 // ScoreOn returns the total score of the tiles on this rack.
-func (r *Rack) ScoreOn(numPossibleLetters int, bag *Bag) int {
+func (r *Rack) ScoreOn(bag *Bag) int {
 	score := 0
 	var i MachineLetter
+	numPossibleLetters := r.alphabet.NumLetters()
 	for i = 0; i < MachineLetter(numPossibleLetters); i++ {
 		if r.LetArr[i] > 0 {
 			score += bag.Score(i) * r.LetArr[i]

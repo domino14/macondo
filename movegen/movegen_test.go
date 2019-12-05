@@ -56,7 +56,7 @@ func TestGenBase(t *testing.T) {
 	rack := alphabet.RackFromString("AEINRST", gd.GetAlphabet())
 
 	generator := newGordonGenHardcode(gd)
-	generator.board.ClearAllCrosses()
+	generator.game.Board().ClearAllCrosses()
 	generator.curAnchorCol = 8
 	// Row 4 for shiz and gig
 	generator.curRowIdx = 4
@@ -99,7 +99,7 @@ func TestSimpleRowGen(t *testing.T) {
 		generator := newGordonGenHardcode(gd)
 		generator.curAnchorCol = tc.curAnchorCol
 		rack := alphabet.RackFromString(tc.rack, gd.GetAlphabet())
-		generator.board.SetRow(tc.row, tc.rowString, gd.GetAlphabet())
+		generator.game.Board().SetRow(tc.row, tc.rowString, gd.GetAlphabet())
 		generator.curRowIdx = tc.row
 		generator.Gen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
 			gd.GetRootNodeIndex())
@@ -117,11 +117,11 @@ func TestGenThroughBothWaysAllowedLetters(t *testing.T) {
 	generator := newGordonGenHardcode(gd)
 	generator.curAnchorCol = 9
 
-	generator.board.SetRow(4, "   THERMOS  A", gd.GetAlphabet())
+	generator.game.Board().SetRow(4, "   THERMOS  A", gd.GetAlphabet())
 	generator.curRowIdx = 4
 	ml, _ := gd.GetAlphabet().Val('I')
-	generator.board.ClearCrossSet(int(generator.curRowIdx), 2, board.VerticalDirection)
-	generator.board.SetCrossSetLetter(int(generator.curRowIdx), 2, board.VerticalDirection, ml)
+	generator.game.Board().ClearCrossSet(int(generator.curRowIdx), 2, board.VerticalDirection)
+	generator.game.Board().SetCrossSetLetter(int(generator.curRowIdx), 2, board.VerticalDirection, ml)
 	generator.Gen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
 		gd.GetRootNodeIndex())
 	// it should generate HITHERMOST only
@@ -192,7 +192,7 @@ func TestGenMoveJustOnce(t *testing.T) {
 
 	generator := newGordonGenHardcode(gd)
 	generator.SetBoardToGame(alph, board.VsMatt)
-	generator.board.Transpose()
+	generator.game.Board().Transpose()
 
 	rack := alphabet.RackFromString("AELT", gd.GetAlphabet())
 	// We want to generate TAEL parallel to ABANDON (making RESPONDED)
@@ -219,6 +219,7 @@ func TestGenAllMovesSingleTile(t *testing.T) {
 	generator.SetBoardToGame(alph, board.VsMatt)
 	generator.GenAll(alphabet.RackFromString("A", alph))
 	assert.Equal(t, 24, len(scoringPlays(generator.plays)))
+	// t.Fail()
 }
 
 func TestGenAllMovesFullRack(t *testing.T) {
@@ -326,7 +327,7 @@ func TestGenerateEmptyBoard(t *testing.T) {
 	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
 	generator := newGordonGenHardcode(gd)
-	generator.board.UpdateAllAnchors()
+	generator.game.Board().UpdateAllAnchors()
 	generator.GenAll(alphabet.RackFromString("DEGORV?", alph))
 	assert.Equal(t, 3313, len(scoringPlays(generator.plays)))
 	assert.Equal(t, 127, len(nonScoringPlays(generator.plays)))
@@ -347,6 +348,38 @@ func TestGenerateNoPlays(t *testing.T) {
 	assert.Equal(t, move.MoveTypePass, generator.plays[0].Action())
 }
 
+func TestGenerateDupes(t *testing.T) {
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	alph := gd.GetAlphabet()
+	generator := newGordonGenHardcode(gd)
+	generator.SetBoardToGame(alph, board.TestDupe)
+
+	generator.GenAll(alphabet.RackFromString("Z", alph))
+	s := scoringPlays(generator.plays)
+	assert.Equal(t, 1, len(s))
+	assert.True(t, s[0].HasDupe())
+}
+
+func TestRowEquivalent(t *testing.T) {
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	alph := gd.GetAlphabet()
+	generator := newGordonGenHardcode(gd)
+	generator.SetBoardToGame(alph, board.TestDupe)
+
+	generator2 := newGordonGenHardcode(gd)
+	generator2.board.SetRow(7, " INCITES", alph)
+	generator2.board.SetRow(8, "IS", alph)
+	generator2.board.SetRow(9, "T", alph)
+	generator2.board.UpdateAllAnchors()
+	generator2.board.GenAllCrossSets(gd, generator2.bag)
+
+	assert.True(t, generator.board.Equals(generator2.board))
+}
+
+// Note about the comments on the following benchmarks:
+// The benchmarks are a bit slower now. This largely comes
+// from the sorting / equity stuff that wasn't there before.
+
 func BenchmarkGenEmptyBoard(b *testing.B) {
 	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	alph := gd.GetAlphabet()
@@ -354,7 +387,7 @@ func BenchmarkGenEmptyBoard(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		// 1.67ms per operation
 		generator := newGordonGenHardcode(gd)
-		generator.board.UpdateAllAnchors()
+		generator.game.Board().UpdateAllAnchors()
 		generator.GenAll(alphabet.RackFromString("AEINRST", alph))
 	}
 }

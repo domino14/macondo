@@ -85,11 +85,38 @@ func (ml MachineLetter) UserVisible(alph *Alphabet) rune {
 	} else if ml == PlayedThroughMarker {
 		return ASCIIPlayedThrough
 	} else if ml == BlankMachineLetter {
-		return '?'
+		return BlankToken
 	} else if ml == EmptySquareMarker {
 		return ' '
 	}
 	return alph.Letter(ml)
+}
+
+// IntrinsicTileIdx returns the index that this tile would have in a
+// rack's LetArr. If it is not a letter (for example a played-thru marker)
+// will return false as the second arg. It essentially checks whether
+// the relevant ml is an actual played tile or not.
+func (ml MachineLetter) IntrinsicTileIdx() (MachineLetter, bool) {
+	if ml >= BlankOffset || ml == BlankMachineLetter {
+		return MaxAlphabetSize, true
+	} else if ml == PlayedThroughMarker || ml == EmptySquareMarker {
+		// It's unideal to return 0 here, since that's a valid machine
+		// letter, but the caller should check the boolean value!
+		return 0, false
+	}
+	return ml, true
+}
+
+// IsPlayedTile returns true if this represents a tile that was actually
+// played on the board. It has to be an assigned blank or a letter, not
+// a played-through-marker.
+func (ml MachineLetter) IsPlayedTile() bool {
+	if ml >= BlankOffset {
+		return true
+	} else if ml == PlayedThroughMarker || ml == EmptySquareMarker || ml == BlankMachineLetter {
+		return false
+	}
+	return true
 }
 
 // IsVowel returns true for vowels. Note that this needs an alphabet.
@@ -124,6 +151,17 @@ func (mw MachineWord) String() string {
 		bytes[i] = byte(l)
 	}
 	return string(bytes)
+}
+
+// HashableToUserVisible converts a non-printable representation of a machine
+// word to a printable one. The machine word is not required as an argument,
+// just the non-printable string.
+func HashableToUserVisible(s string, alph *Alphabet) string {
+	runes := make([]rune, len(s))
+	for i, l := range s {
+		runes[i] = alph.Letter(MachineLetter(l))
+	}
+	return string(runes)
 }
 
 // Score returns the score of this word given the bag.
@@ -182,6 +220,18 @@ type Alphabet struct {
 
 	letterSlice LetterSlice
 	curIdx      MachineLetter
+}
+
+// StandardEnglishLanguageAlphabet generates an Alphabet for English-language
+// crossword games. It is a helper function intended to be used mostly for
+// testing purposes. Well-formed GADDAGs should have the alphabet encoded
+// for them.
+func StandardEnglishLanguageAlphabet() *Alphabet {
+	a := &Alphabet{}
+	a.Init()
+	a.Update("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+	a.Reconcile()
+	return a
 }
 
 func (a Alphabet) CurIdx() MachineLetter {
@@ -303,6 +353,16 @@ func FromSlice(arr []uint32) *Alphabet {
 		alphabet.letters[MachineLetter(i)] = rune(arr[i])
 	}
 	return alphabet
+}
+
+// EnglishAlphabet returns an alphabet that corresponds to the English
+// alphabet. This function should be used for testing. In production
+// we will load the alphabet from the gaddag.
+func EnglishAlphabet() *Alphabet {
+	return FromSlice([]uint32{
+		'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
+		'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
+	})
 }
 
 func (a LetterSlice) Len() int           { return len(a) }

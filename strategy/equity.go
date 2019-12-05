@@ -41,9 +41,8 @@ type ExhaustiveLeaveStrategy struct{}
 // The details of this calculation are in the /notebooks directory in this
 // repo.
 type SimpleSynergyStrategy struct {
-	leaveMap           SynergyLeaveMap
-	bag                *alphabet.Bag
-	numPossibleLetters int
+	leaveMap SynergyLeaveMap
+	bag      *alphabet.Bag
 }
 
 // Init initializes the strategizer, by doing things such as loading parameters
@@ -94,8 +93,7 @@ func (sss *SimpleSynergyStrategy) Init(lexiconName string, alph *alphabet.Alphab
 func NewSimpleSynergyStrategy(bag *alphabet.Bag, lexiconName string,
 	alph *alphabet.Alphabet, leaveFilename string) *SimpleSynergyStrategy {
 	strategy := &SimpleSynergyStrategy{
-		bag:                bag,
-		numPossibleLetters: int(bag.GetAlphabet().NumLetters()),
+		bag: bag,
 	}
 	err := strategy.Init(lexiconName, alph, leaveFilename)
 	if err != nil {
@@ -116,7 +114,7 @@ func (sss SimpleSynergyStrategy) Equity(play *move.Move, board *board.GameBoard,
 		otherAdjustments += placementAdjustment(play)
 	}
 	if bag.TilesRemaining() == 0 {
-		otherAdjustments += endgameAdjustment(play, oppRack, sss.bag, sss.numPossibleLetters)
+		otherAdjustments += endgameAdjustment(play, oppRack, sss.bag)
 	} else {
 		// the leave doesn't matter if the bag is empty
 		leaveAdjustment = sss.lookup(leave)
@@ -183,8 +181,7 @@ func placementAdjustment(play *move.Move) float64 {
 	return penalty
 }
 
-func endgameAdjustment(play *move.Move, oppRack *alphabet.Rack, bag *alphabet.Bag,
-	numLetters int) float64 {
+func endgameAdjustment(play *move.Move, oppRack *alphabet.Rack, bag *alphabet.Bag) float64 {
 	if len(play.Leave()) != 0 {
 		// This play is not going out. We should penalize it by our own score
 		// plus some constant. XXX: Determine this in a better way.
@@ -194,7 +191,7 @@ func endgameAdjustment(play *move.Move, oppRack *alphabet.Rack, bag *alphabet.Ba
 	if oppRack == nil {
 		return 0
 	}
-	return 2 * float64(oppRack.ScoreOn(numLetters, bag))
+	return 2 * float64(oppRack.ScoreOn(bag))
 }
 
 func (nls *NoLeaveStrategy) Equity(play *move.Move, board *board.GameBoard,

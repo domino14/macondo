@@ -1,6 +1,6 @@
-package xwordgame
+package automatic
 
-// Data collection for XWordGame. Allow computer vs computer games, etc.
+// Data collection for automatic game. Allow computer vs computer games, etc.
 
 import (
 	"errors"
@@ -23,20 +23,21 @@ func init() {
 }
 
 // CompVsCompStatic plays out a game to the end using best static turns.
-func (game *XWordGame) CompVsCompStatic(gd *gaddag.SimpleGaddag) {
-	game.Init(gd)
-	game.playFullStatic()
-	log.Printf("[DEBUG] Game over. Score: %v - %v", game.players[0].points,
-		game.players[1].points)
+func (r *GameRunner) CompVsCompStatic(gd *gaddag.SimpleGaddag) {
+	r.Init(gd)
+	r.playFullStatic()
+	log.Printf("[DEBUG] Game over. Score: %v - %v", r.game.PointsFor(0),
+		r.game.PointsFor(1))
 }
 
-func (game *XWordGame) playFullStatic() {
-	game.StartGame()
-	for game.playing {
-		game.PlayBestStaticTurn(game.onturn)
+func (r *GameRunner) playFullStatic() {
+	r.StartGame()
+	for r.game.Playing() {
+		log.Printf("[DEBUG] turn %v", r.game.Turn())
+		r.PlayBestStaticTurn(r.game.PlayerOnTurn())
 	}
-	if game.gamechan != nil {
-		game.gamechan <- game.board.ToDisplayText(game.gaddag.GetAlphabet())
+	if r.gamechan != nil {
+		r.gamechan <- r.game.Board().ToDisplayText(r.game.Alphabet())
 	}
 }
 
@@ -64,11 +65,11 @@ func StartCompVCompStaticGames(gd *gaddag.SimpleGaddag, numGames int, threads in
 	for i := 1; i <= threads; i++ {
 		go func(i int) {
 			defer wg.Done()
-			game := XWordGame{logchan: logChan}
-			game.Init(gd)
+			r := GameRunner{logchan: logChan}
+			r.Init(gd)
 			IsPlaying.Add(1)
 			for range jobs {
-				game.playFullStatic()
+				r.playFullStatic()
 				CVCCounter.Add(1)
 			}
 			IsPlaying.Add(-1)

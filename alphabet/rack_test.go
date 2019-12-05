@@ -26,7 +26,7 @@ func TestScoreOn(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		r := RackFromString(tc.rack, alph)
-		score := r.ScoreOn(int(alph.NumLetters()), bag)
+		score := r.ScoreOn(bag)
 		if score != tc.pts {
 			t.Errorf("For %v, expected %v, got %v", tc.rack, tc.pts, score)
 		}

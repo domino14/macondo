@@ -1,8 +1,10 @@
 package board
 
 import (
+	"fmt"
 	"log"
 	"regexp"
+	"strings"
 
 	"github.com/domino14/macondo/alphabet"
 )
@@ -19,8 +21,14 @@ var userRackRegex = regexp.MustCompile(`(?U)[[:print:]]+\s+([A-Z\?]*)\s+-?[0-9]+
 func (g *GameBoard) ToDisplayText(alph *alphabet.Alphabet) string {
 	var str string
 	n := g.Dim()
+	row := "   "
 	for i := 0; i < n; i++ {
-		row := ""
+		row = row + string('A'+i) + " "
+	}
+	str = str + row + "\n"
+	str = str + "   " + strings.Repeat("-", 30) + "\n"
+	for i := 0; i < n; i++ {
+		row := fmt.Sprintf("%2d|", i+1)
 		for j := 0; j < n; j++ {
 			row = row + g.squares[i][j].DisplayString(alph) + " "
 		}
@@ -100,20 +108,23 @@ func (b *GameBoard) SetRow(rowNum int, letters string, alph *alphabet.Alphabet) 
 				log.Fatalf(err.Error())
 			}
 			b.SetLetter(int(rowNum), idx, letter)
-
+			b.tilesPlayed++
 		}
 	}
 }
 
-// Two boards are equal if all the squares are equal. This includes anchors,
-// letters, and cross-sets.
-func (b *GameBoard) equals(b2 *GameBoard) bool {
-	if b.Dim() != b2.Dim() {
+// Equals checks the boards for equality. Two boards are equal if all
+// the squares are equal. This includes anchors, letters, and cross-sets.
+func (g *GameBoard) Equals(g2 *GameBoard) bool {
+	if g.Dim() != g2.Dim() {
 		return false
 	}
-	for row := 0; row < b.Dim(); row++ {
-		for col := 0; col < b.Dim(); col++ {
-			if !b.GetSquare(row, col).equals(b2.GetSquare(row, col)) {
+	if g.tilesPlayed != g2.tilesPlayed {
+		return false
+	}
+	for row := 0; row < g.Dim(); row++ {
+		for col := 0; col < g.Dim(); col++ {
+			if !g.GetSquare(row, col).equals(g2.GetSquare(row, col)) {
 				log.Printf("> Not equal, row %v col %v", row, col)
 				return false
 			}
