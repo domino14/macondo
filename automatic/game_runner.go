@@ -21,7 +21,7 @@ const (
 // GameRunner is the master struct here for the automatic game logic.
 type GameRunner struct {
 	game          *mechanics.XWordGame
-	movegen       movegen.MoveGenerator
+	movegen       *movegen.GordonGenerator
 	logchan       chan string
 	gamechan      chan string
 	endgameSolver *endgame.Solver
