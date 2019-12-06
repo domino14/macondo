@@ -146,11 +146,17 @@ func (mw MachineWord) UserVisible(alph *Alphabet) string {
 // String() returns a non-printable string version of this machineword. This
 // is useful for hashing purposes.
 func (mw MachineWord) String() string {
+	return string(mw.Bytes())
+}
+
+// Bytes converts the machine word to bytes. Also useful for
+// hashing purposes.
+func (mw MachineWord) Bytes() []byte {
 	bytes := make([]byte, len(mw))
 	for i, l := range mw {
 		bytes[i] = byte(l)
 	}
-	return string(bytes)
+	return bytes
 }
 
 // HashableToUserVisible converts a non-printable representation of a machine
@@ -220,18 +226,6 @@ type Alphabet struct {
 
 	letterSlice LetterSlice
 	curIdx      MachineLetter
-}
-
-// StandardEnglishLanguageAlphabet generates an Alphabet for English-language
-// crossword games. It is a helper function intended to be used mostly for
-// testing purposes. Well-formed GADDAGs should have the alphabet encoded
-// for them.
-func StandardEnglishLanguageAlphabet() *Alphabet {
-	a := &Alphabet{}
-	a.Init()
-	a.Update("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
-	a.Reconcile()
-	return a
 }
 
 func (a Alphabet) CurIdx() MachineLetter {

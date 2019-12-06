@@ -669,8 +669,8 @@ func TestMinimalCase4(t *testing.T) {
 }
 
 func TestAnotherOneTiler(t *testing.T) {
-	t.Skip()
-	plies := 8 // why is quackle so much faster at this endgame?
+	// t.Skip()
+	plies := 5 // why is quackle so much faster at this endgame?
 
 	gd, err := gaddag.LoadGaddag("/tmp/csw19.gaddag")
 	if err != nil {
@@ -694,6 +694,7 @@ func TestAnotherOneTiler(t *testing.T) {
 	generator.SetBoardToGame(alph, board.EldarVsNigel)
 	s := new(Solver)
 	s.Init(generator, game)
+	// s.iterativeDeepeningOn = false
 	// s.simpleEvaluation = true
 	ourRack := alphabet.RackFromString("AEEIRUW", alph)
 	theirRack := alphabet.RackFromString("V", alph)

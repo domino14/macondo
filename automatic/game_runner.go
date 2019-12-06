@@ -15,13 +15,13 @@ import (
 )
 
 const (
-	LeaveFile = "leave_values_011019_v5.csv"
+	LeaveFile = "leave_values_112719.csv"
 )
 
 // GameRunner is the master struct here for the automatic game logic.
 type GameRunner struct {
 	game          *mechanics.XWordGame
-	movegen       *movegen.GordonGenerator
+	movegen       movegen.MoveGenerator
 	logchan       chan string
 	gamechan      chan string
 	endgameSolver *endgame.Solver
@@ -31,7 +31,7 @@ type GameRunner struct {
 func (r *GameRunner) Init(gd *gaddag.SimpleGaddag) {
 	r.game = &mechanics.XWordGame{}
 	r.game.Init(gd, alphabet.EnglishLetterDistribution())
-	strategy := strategy.NewSimpleSynergyStrategy(r.game.Bag(), gd.LexiconName(),
+	strategy := strategy.NewExhaustiveLeaveStrategy(r.game.Bag(), gd.LexiconName(),
 		gd.GetAlphabet(), LeaveFile)
 	r.movegen = movegen.NewGordonGenerator(r.game, strategy)
 }
