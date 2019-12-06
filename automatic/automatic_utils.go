@@ -5,9 +5,10 @@ package automatic
 import (
 	"errors"
 	"expvar"
-	"log"
 	"os"
 	"sync"
+
+	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/gaddag"
 )
@@ -26,14 +27,14 @@ func init() {
 func (r *GameRunner) CompVsCompStatic(gd *gaddag.SimpleGaddag) {
 	r.Init(gd)
 	r.playFullStatic()
-	log.Printf("[DEBUG] Game over. Score: %v - %v", r.game.PointsFor(0),
+	log.Debug().Msgf("Game over. Score: %v - %v", r.game.PointsFor(0),
 		r.game.PointsFor(1))
 }
 
 func (r *GameRunner) playFullStatic() {
 	r.StartGame()
 	for r.game.Playing() {
-		log.Printf("[DEBUG] turn %v", r.game.Turn())
+		// log.Printf("[DEBUG] turn %v", r.game.Turn())
 		r.PlayBestStaticTurn(r.game.PlayerOnTurn())
 	}
 	if r.gamechan != nil {
@@ -54,7 +55,7 @@ func StartCompVCompStaticGames(gd *gaddag.SimpleGaddag, numGames int, threads in
 	if err != nil {
 		return err
 	}
-	log.Printf("[DEBUG] Starting %v games, %v threads", numGames, threads)
+	log.Debug().Msgf("Starting %v games, %v threads", numGames, threads)
 
 	CVCCounter.Set(0)
 	jobs := make(chan Job, 100)
@@ -84,11 +85,11 @@ func StartCompVCompStaticGames(gd *gaddag.SimpleGaddag, numGames int, threads in
 			}
 		}
 		close(jobs)
-		log.Printf("Finished queueing all jobs.")
+		log.Info().Msg("Finished queueing all jobs.")
 		wg.Wait()
-		log.Printf("All games finished.")
+		log.Info().Msg("All games finished.")
 		close(logChan)
-		log.Printf("Exiting feeder subroutine!")
+		log.Info().Msg("Exiting feeder subroutine!")
 	}()
 
 	go func() {
@@ -97,7 +98,7 @@ func StartCompVCompStaticGames(gd *gaddag.SimpleGaddag, numGames int, threads in
 			logfile.WriteString(msg)
 		}
 		logfile.Close()
-		log.Printf("Exiting turn logger goroutine!")
+		log.Info().Msg("Exiting turn logger goroutine!")
 	}()
 
 	return nil

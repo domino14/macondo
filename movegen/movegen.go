@@ -32,6 +32,8 @@ const (
 // MoveGenerator is a generic interface for generating moves.
 type MoveGenerator interface {
 	GenAll(rack *alphabet.Rack)
+	Reset()
+	SetOppRack(rack *alphabet.Rack)
 	SetSortingParameter(s SortBy)
 	Plays() []*move.Move
 }

@@ -43,7 +43,7 @@ func (pt *playTable) addEntry(rackRepr string, outIn int, value int,
 	}
 	*pt = t
 	log.Printf("Adding an entry: %v, len(rack): %v, outIn: %v, value: %v, move: %v",
-		alphabet.HashableToUserVisible(rackRepr, alphabet.StandardEnglishLanguageAlphabet()),
+		alphabet.HashableToUserVisible(rackRepr, alphabet.EnglishAlphabet()),
 		len(rackRepr), outIn, value, move)
 
 	return outIns[outIn]
