@@ -3,6 +3,7 @@ module github.com/domino14/macondo
 require (
 	github.com/alecthomas/mph v0.0.0-20190930022807-712982e3d8a2
 	github.com/alecthomas/unsafeslice v0.0.0-20190825002529-d95de1041e15 // indirect
+	github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e
 	github.com/golang/protobuf v1.3.2
 	github.com/google/uuid v1.1.1
 	github.com/matryer/is v1.2.0

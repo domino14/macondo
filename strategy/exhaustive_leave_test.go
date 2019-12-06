@@ -7,11 +7,11 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestCreateLeaveMPH(t *testing.T) {
+func TestLeaveMPH(t *testing.T) {
 	t.Skip()
 	els := ExhaustiveLeaveStrategy{}
 	alph := alphabet.EnglishAlphabet()
-	err := els.Init("NWL18", alph, "leave_values_112719.csv")
+	err := els.Init("NWL18", alph, "leave_values_112719.idx.gz")
 	assert.Nil(t, err)
 
 	type testcase struct {
@@ -32,13 +32,4 @@ func TestCreateLeaveMPH(t *testing.T) {
 		leave, _ := alphabet.ToMachineLetters(tc.leave, alph)
 		assert.InEpsilon(t, tc.ev, els.lookup(leave), 0.00001)
 	}
-}
-
-func TestMoveBlanksToEnd(t *testing.T) {
-	assert.Equal(t, moveBlanksToEnd("?"), "?")
-	assert.Equal(t, moveBlanksToEnd("I?"), "I?")
-	assert.Equal(t, moveBlanksToEnd("?AB?C"), "ABC??")
-	assert.Equal(t, moveBlanksToEnd("??"), "??")
-	assert.Equal(t, moveBlanksToEnd("?FED"), "FED?")
-	assert.Equal(t, moveBlanksToEnd("X?X"), "XX?")
 }
