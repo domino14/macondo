@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	LeaveFile = "leave_values_112719.csv"
+	LeaveFile = "leave_values_112719.idx.gz"
 )
 
 // GameRunner is the master struct here for the automatic game logic.
