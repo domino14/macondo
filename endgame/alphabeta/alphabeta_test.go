@@ -474,6 +474,10 @@ func (t *TestGenerator) Plays() []*move.Move {
 	return t.plays
 }
 
+func (t *TestGenerator) Reset() {}
+
+func (t *TestGenerator) SetOppRack(rack *alphabet.Rack) {}
+
 func TestMinimalCase(t *testing.T) {
 	plies := 2
 
