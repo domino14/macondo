@@ -1,4 +1,4 @@
-package io
+package gcgio
 
 import (
 	"encoding/json"

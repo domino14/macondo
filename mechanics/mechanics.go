@@ -14,17 +14,20 @@ import (
 	"github.com/google/uuid"
 )
 
-// A player plays crossword game. This is a very minimal structure that only
+// A Player plays crossword game. This is a very minimal structure that only
 // keeps track of things such as rack and points. We will use a more overarching
 // Player structure elsewhere with strategy, endgame solver, etc.
-type player struct {
+type Player struct {
+	Nickname     string `json:"nick"`
+	RealName     string `json:"real_name"`
+	PlayerNumber uint8  `json:"p_number"`
+
 	rack        *alphabet.Rack
-	rackLetters string // user-visible for ease in logging
-	name        string
+	rackLetters string
 	points      int
 }
 
-type players []player
+type players []*Player
 
 // XWordGame encapsulates the various components of a crossword game. At
 // any given time it can be thought of as the current state of a game.
@@ -40,6 +43,7 @@ type XWordGame struct {
 	numPossibleLetters int
 	players            players
 	uuid               uuid.UUID
+	turnHistory        []Turn
 
 	stateStack []*backedupState
 	stackPtr   int
@@ -52,7 +56,7 @@ func (g *XWordGame) String() string {
 		if idx == g.onturn {
 			ret += "*"
 		}
-		ret += fmt.Sprintf("%v holding %v (%v)", p.name, p.rackLetters,
+		ret += fmt.Sprintf("%v holding %v (%v)", p.Nickname, p.rackLetters,
 			p.points)
 		ret += " - "
 	}
@@ -76,9 +80,9 @@ func (g *XWordGame) Init(gd *gaddag.SimpleGaddag, dist *alphabet.LetterDistribut
 	g.alph = gd.GetAlphabet()
 	g.bag = dist.MakeBag(g.alph)
 	g.gaddag = gd
-	g.players = []player{
-		{alphabet.NewRack(g.alph), "", "player1", 0},
-		{alphabet.NewRack(g.alph), "", "player2", 0},
+	g.players = []*Player{
+		&Player{"player1", "player1", 0, alphabet.NewRack(g.alph), "", 0},
+		&Player{"player2", "player2", 1, alphabet.NewRack(g.alph), "", 0},
 	}
 	// The strategy and move generator are not part of the "game mechanics".
 	// These should be a level up. This module is just for the gameplay side
@@ -107,27 +111,46 @@ func (ps *players) copyFrom(other players) {
 		// as possible and avoid allocations.
 		(*ps)[idx].rack.CopyFrom(other[idx].rack)
 		(*ps)[idx].rackLetters = other[idx].rackLetters
-		(*ps)[idx].name = other[idx].name
+		(*ps)[idx].Nickname = other[idx].Nickname
+		(*ps)[idx].RealName = other[idx].RealName
+		(*ps)[idx].PlayerNumber = other[idx].PlayerNumber
 		(*ps)[idx].points = other[idx].points
 	}
 }
 
 func copyPlayers(ps players) players {
 	// Make a deep copy of the player slice.
-	p := make([]player, len(ps))
+	p := make([]*Player, len(ps))
 	for idx, porig := range ps {
-		p[idx] = player{
-			name:        porig.name,
-			points:      porig.points,
-			rack:        porig.rack.Copy(),
-			rackLetters: porig.rackLetters,
+		p[idx] = &Player{
+			Nickname:     porig.Nickname,
+			RealName:     porig.RealName,
+			PlayerNumber: porig.PlayerNumber,
+			points:       porig.points,
+			rack:         porig.rack.Copy(),
+			rackLetters:  porig.rackLetters,
 		}
 	}
 	return p
 }
 
+// UpdateTurnHistory should be called after PlayMove, but only for places
+// where we are interacting with the game. Note that PlayMove also gets
+// called when doing sims / endgame lookups, so we don't want to be doing
+// expensive updates and backups on turn history during these moments.
+func (g *XWordGame) UpdateTurnHistory(m *move.Move) {
+	// switch m.Action() {
+	// case move.MoveTypePlay:
+	// 	g.turnHistory = append(g.turnHistory, newPlacementTurn(m, g.players[pnum]))
+	// case move.MoveTypePass:
+	// 	g.turnHistory = append(g.turnHistory, newPassTurn(m))
+	// case move.MoveTypeExchange:
+	// 	g.turnHistory = append(g.turnHistory, newExchangeTurn(m))
+	// }
+}
+
 // PlayMove plays a move on the board.
-func (g *XWordGame) PlayMove(m *move.Move, backup bool) {
+func (g *XWordGame) PlayMove(m *move.Move, pnum int, backup bool) {
 	// If backup is on, we should back up a lot of the relevant state.
 	// This allows us to backtrack / undo moves for simulations/etc.
 
@@ -135,10 +158,11 @@ func (g *XWordGame) PlayMove(m *move.Move, backup bool) {
 		g.backupState()
 	}
 
+	// Note that we are not backing up the turn history. This would be kind
+	// of expensive and unneeded; we only use backup with sims and the like.
 	switch m.Action() {
 	case move.MoveTypePlay:
 		g.board.PlayMove(m, g.gaddag, g.bag)
-
 		score := m.Score()
 		if score != 0 {
 			g.scorelessTurns = 0
@@ -179,6 +203,7 @@ func (g *XWordGame) PlayMove(m *move.Move, backup bool) {
 		g.players[g.onturn].rackLetters = alphabet.MachineWord(rack).UserVisible(g.alph)
 		g.scorelessTurns++
 	}
+
 	if g.scorelessTurns == 6 {
 		// log.Printf("[DEBUG] Game ended after 6 scoreless turns")
 		g.playing = false
@@ -206,6 +231,7 @@ func (g *XWordGame) UnplayLastMove() {
 	// The clock (in the future? May never be needed)
 	// [x] The scoreless turns
 	// [x] Turn number
+	// [x] Turn history
 
 	// Pop the last element, essentially.
 	b := g.stateStack[g.stackPtr-1]
@@ -213,7 +239,7 @@ func (g *XWordGame) UnplayLastMove() {
 
 	// Turn number and on turn do not need to be restored from backup
 	// as they're assumed to increase logically after every turn. Just
-	// decrease them.
+	// decrease them. Similarly, pop the turn history.
 	g.turnnum--
 	g.onturn = (g.onturn + (len(g.players) - 1)) % len(g.players)
 
@@ -271,10 +297,6 @@ func (g *XWordGame) SetRackFor(playerID int, rack *alphabet.Rack) {
 
 func (g *XWordGame) SetPointsFor(playerID int, pts int) {
 	g.players[playerID].points = pts
-}
-
-func (g *XWordGame) SetNameFor(playerID int, name string) {
-	g.players[playerID].name = name
 }
 
 func (g *XWordGame) RackFor(playerID int) *alphabet.Rack {

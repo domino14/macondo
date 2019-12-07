@@ -1,6 +1,6 @@
-// Package io implements a GCG parser. It might also implement
+// Package gcgio implements a GCG parser. It might also implement
 // other io methods.
-package io
+package gcgio
 
 import (
 	"fmt"
@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/domino14/macondo/mechanics"
 	"github.com/domino14/macondo/move"
 	"github.com/rs/zerolog/log"
 )
@@ -42,76 +43,18 @@ func init() {
 	}
 }
 
-type Turn interface {
-	AppendNote(string)
-}
-
-type BaseTurn struct {
-	Nickname   string `json:"nick"`
-	Note       string `json:"note"`
-	Rack       string `json:"rack"`
-	Type       string `json:"type"`
-	Cumulative int    `json:"cumul"`
-}
-
-func (bt *BaseTurn) AppendNote(note string) {
-	bt.Note = bt.Note + note
-}
-
-type TilePlacementTurn struct {
-	BaseTurn
-	Row       uint8  `json:"row"`
-	Column    uint8  `json:"col"`
-	Direction string `json:"dir,omitempty"`
-	Position  string `json:"pos,omitempty"`
-	Play      string `json:"play,omitempty"`
-	Score     int    `json:"score"`
-}
-
-type PassingTurn struct {
-	BaseTurn
-	Exchanged string `json:"exchanged,omitempty"`
-}
-
-type ScoreAdditionTurn struct {
-	BaseTurn
-	Bonus         int `json:"bonus,omitempty"`
-	EndRackPoints int `json:"score"`
-}
-
-type ScoreSubtractionTurn struct {
-	BaseTurn
-	LostScore int `json:"lost_score"`
-}
-
-type Player struct {
-	Nickname     string `json:"nick"`
-	RealName     string `json:"real_name"`
-	PlayerNumber uint8  `json:"p_number"`
-}
-
-// A GameRepr is a representation of the GCG that is compatible with Macondo.
-type GameRepr struct {
-	Turns       []Turn   `json:"turns"`
-	Players     []Player `json:"players"`
-	Version     int      `json:"version"`
-	OriginalGCG string   `json:"originalGCG"`
-	Lexicon     string   `json:"lexicon,omitempty"`
-	lastToken   Token
-}
-
-func addTurn(token Token, match []string, gameRepr *GameRepr) {
+func addTurn(token Token, match []string, gameRepr *mechanics.GameRepr) {
 	switch token {
 	case PlayerToken:
 		pn, _ := strconv.Atoi(match[1])
-		gameRepr.Players = append(gameRepr.Players, Player{
+		gameRepr.Players = append(gameRepr.Players, &mechanics.Player{
 			Nickname:     match[2],
 			RealName:     match[3],
 			PlayerNumber: uint8(pn),
 		})
 		return
 	case MoveToken:
-		turn := &TilePlacementTurn{}
+		turn := &mechanics.TilePlacementTurn{}
 		turn.Nickname = match[1]
 		turn.Rack = match[2]
 		turn.Position = match[3]
@@ -137,7 +80,7 @@ func addTurn(token Token, match []string, gameRepr *GameRepr) {
 		gameRepr.Lexicon = match[1]
 		return
 	case LostChallengeToken:
-		turn := &ScoreSubtractionTurn{}
+		turn := &mechanics.ScoreSubtractionTurn{}
 		turn.Nickname = match[1]
 		turn.Rack = match[2]
 		score, _ := strconv.Atoi(match[3])
@@ -147,7 +90,7 @@ func addTurn(token Token, match []string, gameRepr *GameRepr) {
 		gameRepr.Turns = append(gameRepr.Turns, turn)
 
 	case PassToken:
-		turn := &PassingTurn{}
+		turn := &mechanics.PassingTurn{}
 		turn.Nickname = match[1]
 		turn.Rack = match[2]
 		turn.Cumulative, _ = strconv.Atoi(match[3])
@@ -155,7 +98,7 @@ func addTurn(token Token, match []string, gameRepr *GameRepr) {
 		gameRepr.Turns = append(gameRepr.Turns, turn)
 
 	case ChallengeBonusToken, EndRackPointsToken:
-		turn := &ScoreAdditionTurn{}
+		turn := &mechanics.ScoreAdditionTurn{}
 		turn.Nickname = match[1]
 		turn.Rack = match[2]
 		if token == ChallengeBonusToken {
@@ -168,7 +111,7 @@ func addTurn(token Token, match []string, gameRepr *GameRepr) {
 		gameRepr.Turns = append(gameRepr.Turns, turn)
 
 	case ExchangeToken:
-		turn := &PassingTurn{}
+		turn := &mechanics.PassingTurn{}
 		turn.Nickname = match[1]
 		turn.Rack = match[2]
 		turn.Exchanged = match[3]
@@ -179,14 +122,17 @@ func addTurn(token Token, match []string, gameRepr *GameRepr) {
 	}
 }
 
-func parseLine(line string, gameRepr *GameRepr) error {
+func parseLine(line string, gameRepr *mechanics.GameRepr, lastToken Token) (
+	Token, error) {
+
 	foundMatch := false
+
 	for token, rx := range GCGRegexes {
 		match := rx.FindStringSubmatch(line)
 		if match != nil {
 			foundMatch = true
 			addTurn(token, match, gameRepr)
-			gameRepr.lastToken = token
+			lastToken = token
 			break
 		}
 	}
@@ -194,26 +140,28 @@ func parseLine(line string, gameRepr *GameRepr) error {
 		log.Debug().Msgf("Found no match for line '%v'", line)
 
 		// maybe it's a multi-line note.
-		if gameRepr.lastToken == NoteToken {
+		if lastToken == NoteToken {
 			lastTurnIdx := len(gameRepr.Turns) - 1
 			gameRepr.Turns[lastTurnIdx].AppendNote("\n" + line)
-			return nil
+			return lastToken, nil
 		}
 		// ignore empty lines
 		if strings.TrimSpace(line) == "" {
-			return nil
+			return lastToken, nil
 		}
-		return fmt.Errorf("no match found for line '%v'", line)
+		return lastToken, fmt.Errorf("no match found for line '%v'", line)
 	}
-	return nil
+	return lastToken, nil
 }
 
-func parseString(gcg string) (*GameRepr, error) {
+func parseString(gcg string) (*mechanics.GameRepr, error) {
 	lines := strings.Split(gcg, "\n")
-	grep := &GameRepr{Turns: []Turn{}, Players: []Player{}, Version: 1,
-		OriginalGCG: strings.TrimSpace(gcg)}
+	grep := &mechanics.GameRepr{Turns: []mechanics.Turn{}, Players: []*mechanics.Player{},
+		Version: 1, OriginalGCG: strings.TrimSpace(gcg)}
+	var lastToken Token
+	var err error
 	for _, line := range lines {
-		err := parseLine(line, grep)
+		lastToken, err = parseLine(line, grep, lastToken)
 		if err != nil {
 			return nil, err
 		}
@@ -221,8 +169,8 @@ func parseString(gcg string) (*GameRepr, error) {
 	return grep, nil
 }
 
-// Parse a GCG file.
-func ParseGCG(filename string) (*GameRepr, error) {
+// ParseGCG parses a GCG file into a GameRepr.
+func ParseGCG(filename string) (*mechanics.GameRepr, error) {
 	data, err := ioutil.ReadFile(filename)
 	if err != nil {
 		return nil, err

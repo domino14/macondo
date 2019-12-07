@@ -1,4 +1,4 @@
-package io
+package gcgio
 
 // A Token is an event in a GCG file.
 type Token uint8

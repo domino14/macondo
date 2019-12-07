@@ -8,7 +8,7 @@ import (
 	"syscall"
 
 	"github.com/chzyer/readline"
-	macondoio "github.com/domino14/macondo/io"
+	"github.com/domino14/macondo/gcgio"
 	"github.com/rs/zerolog/log"
 )
 
@@ -24,6 +24,7 @@ func filterInput(r rune) (rune, bool) {
 func usage(w io.Writer) {
 	io.WriteString(w, "commands:\n")
 	io.WriteString(w, "\tload <path/to/gcg> - load a .gcg file\n")
+	io.WriteString(w, "\tsetlex <lexicon> - set a lexicon (NWL18, CSW19, and maybe others)\n")
 	io.WriteString(w, "\tn - next play\n")
 	io.WriteString(w, "\tb - previous play\n")
 	io.WriteString(w, "\tturn <n> - go to turn <n>\n")
@@ -76,12 +77,13 @@ readlineLoop:
 		switch {
 		case strings.HasPrefix(line, "load "):
 			filepath := line[5:]
-			game, err := macondoio.ParseGCG(filepath)
+			game, err := gcgio.ParseGCG(filepath)
 			if err != nil {
 				showMessage(err.Error(), l.Stderr())
 				break
 			}
 			log.Debug().Msgf("Loaded game repr; players: %v", game.Players)
+
 		case line == "bye" || line == "exit":
 			sig <- syscall.SIGINT
 			break readlineLoop
