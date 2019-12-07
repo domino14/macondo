@@ -150,7 +150,7 @@ func (g *XWordGame) UpdateTurnHistory(m *move.Move) {
 }
 
 // PlayMove plays a move on the board.
-func (g *XWordGame) PlayMove(m *move.Move, pnum int, backup bool) {
+func (g *XWordGame) PlayMove(m *move.Move, backup bool) {
 	// If backup is on, we should back up a lot of the relevant state.
 	// This allows us to backtrack / undo moves for simulations/etc.
 
@@ -202,6 +202,12 @@ func (g *XWordGame) PlayMove(m *move.Move, pnum int, backup bool) {
 		g.players[g.onturn].rack.Set(rack)
 		g.players[g.onturn].rackLetters = alphabet.MachineWord(rack).UserVisible(g.alph)
 		g.scorelessTurns++
+
+	case move.MoveTypeChallengeBonus:
+		g.players[g.onturn].points += m.Score()
+		// This is a special move type that doesn't change the onturn
+		// or the number of turns.
+		return
 	}
 
 	if g.scorelessTurns == 6 {

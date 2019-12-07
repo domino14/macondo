@@ -17,6 +17,7 @@ const (
 	MoveTypeExchange
 	MoveTypePass
 	MoveTypePhonyTilesReturned
+	MoveTypeChallengeBonus
 
 	MoveTypeEndgameTiles
 	MoveTypeLostTileScore

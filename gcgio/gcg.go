@@ -14,7 +14,12 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-var GCGRegexes map[Token]*regexp.Regexp
+type gcgdatum struct {
+	token Token
+	regex *regexp.Regexp
+}
+
+var GCGRegexes []gcgdatum
 
 const (
 	PlayerRegex         = `#player(?P<p_number>[1-2])\s+(?P<nick>\S+)\s+(?P<real_name>.+)`
@@ -23,23 +28,28 @@ const (
 	LexiconRegex        = `#lexicon (?P<lexicon>.+)`
 	LostChallengeRegex  = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+--\s+-(?P<lost_score>\d+)\s+(?P<cumul>\d+)`
 	PassRegex           = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+-\s+\+0\s+(?P<cumul>\d+)`
-	ChallengeBonusRegex = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+\(challenge\)\s+\+(?P<bonus>\d+)\s+(?P<cumul>\d+)`
+	ChallengeBonusRegex = `>(?P<nick>\S+):\s+(?P<rack>\S*)\s+\(challenge\)\s+\+(?P<bonus>\d+)\s+(?P<cumul>\d+)`
 	ExchangeRegex       = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+-(?P<exchanged>\S+)\s+\+0\s+(?P<cumul>\d+)`
 	EndRackPointsRegex  = `>(?P<nick>\S+):\s+\((?P<rack>\S+)\)\s+\+(?P<score>\d+)\s+(?P<cumul>\d+)`
 )
 
-// init initializes the regexp map.
+// init initializes the regexp list.
 func init() {
-	GCGRegexes = map[Token]*regexp.Regexp{
-		PlayerToken:         regexp.MustCompile(PlayerRegex),
-		MoveToken:           regexp.MustCompile(MoveRegex),
-		NoteToken:           regexp.MustCompile(NoteRegex),
-		LexiconToken:        regexp.MustCompile(LexiconRegex),
-		LostChallengeToken:  regexp.MustCompile(LostChallengeRegex),
-		PassToken:           regexp.MustCompile(PassRegex),
-		ChallengeBonusToken: regexp.MustCompile(ChallengeBonusRegex),
-		ExchangeToken:       regexp.MustCompile(ExchangeRegex),
-		EndRackPointsToken:  regexp.MustCompile(EndRackPointsRegex),
+	// Important note: ChallengeBonusRegex is defined BEFORE EndRackPointsRegex.
+	// That is because a line like  `>frentz:  (challenge) +5 534`  matches
+	// both regexes. This can probably be avoided by being more strict about
+	// what type of characters the rack can be, etc.
+
+	GCGRegexes = []gcgdatum{
+		gcgdatum{PlayerToken, regexp.MustCompile(PlayerRegex)},
+		gcgdatum{MoveToken, regexp.MustCompile(MoveRegex)},
+		gcgdatum{NoteToken, regexp.MustCompile(NoteRegex)},
+		gcgdatum{LexiconToken, regexp.MustCompile(LexiconRegex)},
+		gcgdatum{LostChallengeToken, regexp.MustCompile(LostChallengeRegex)},
+		gcgdatum{PassToken, regexp.MustCompile(PassRegex)},
+		gcgdatum{ChallengeBonusToken, regexp.MustCompile(ChallengeBonusRegex)},
+		gcgdatum{ExchangeToken, regexp.MustCompile(ExchangeRegex)},
+		gcgdatum{EndRackPointsToken, regexp.MustCompile(EndRackPointsRegex)},
 	}
 }
 
@@ -127,12 +137,12 @@ func parseLine(line string, gameRepr *mechanics.GameRepr, lastToken Token) (
 
 	foundMatch := false
 
-	for token, rx := range GCGRegexes {
-		match := rx.FindStringSubmatch(line)
+	for _, datum := range GCGRegexes {
+		match := datum.regex.FindStringSubmatch(line)
 		if match != nil {
 			foundMatch = true
-			addTurn(token, match, gameRepr)
-			lastToken = token
+			addTurn(datum.token, match, gameRepr)
+			lastToken = datum.token
 			break
 		}
 	}
