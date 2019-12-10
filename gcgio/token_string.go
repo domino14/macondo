@@ -4,7 +4,8 @@ package gcgio
 type Token uint8
 
 const (
-	PlayerToken Token = iota
+	UndefinedToken Token = iota
+	PlayerToken
 	MoveToken
 	NoteToken
 	LexiconToken
@@ -13,10 +14,14 @@ const (
 	ChallengeBonusToken
 	ExchangeToken
 	EndRackPointsToken
+	TimePenaltyToken
+	LastRackPenaltyToken
 )
 
 func (i Token) String() string {
 	switch i {
+	case UndefinedToken:
+		return ""
 	case PlayerToken:
 		return ""
 	case MoveToken:
@@ -35,6 +40,10 @@ func (i Token) String() string {
 		return "exchange"
 	case EndRackPointsToken:
 		return "end_rack_points"
+	case TimePenaltyToken:
+		return "time_penalty"
+	case LastRackPenaltyToken:
+		return "end_rack_penalty"
 	}
 	return ""
 }

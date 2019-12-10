@@ -2,11 +2,19 @@ package mechanics
 
 import "github.com/domino14/macondo/move"
 
-type Turn interface {
+// A Turn is literally just an array of events. Most turns will have just
+// one event attached to them.
+type Turn []Event
+
+// An Event is an atom of play, such as a scoring move or the return of
+// phoney tiles after an unsuccessful challenge.
+type Event interface {
 	AppendNote(string)
+	GetRack() string
+	GetNickname() string
 }
 
-type BaseTurn struct {
+type BaseEvent struct {
 	Nickname   string `json:"nick"`
 	Note       string `json:"note"`
 	Rack       string `json:"rack"`
@@ -15,12 +23,20 @@ type BaseTurn struct {
 	move       *move.Move
 }
 
-func (bt *BaseTurn) AppendNote(note string) {
-	bt.Note = bt.Note + note
+func (be *BaseEvent) AppendNote(note string) {
+	be.Note = be.Note + note
 }
 
-type TilePlacementTurn struct {
-	BaseTurn
+func (be *BaseEvent) GetRack() string {
+	return be.Rack
+}
+
+func (be *BaseEvent) GetNickname() string {
+	return be.Nickname
+}
+
+type TilePlacementEvent struct {
+	BaseEvent
 	Row       uint8  `json:"row"`
 	Column    uint8  `json:"col"`
 	Direction string `json:"dir,omitempty"`
@@ -29,24 +45,18 @@ type TilePlacementTurn struct {
 	Score     int    `json:"score"`
 }
 
-type PassingTurn struct {
-	BaseTurn
+type PassingEvent struct {
+	BaseEvent
 	Exchanged string `json:"exchanged,omitempty"`
 }
 
-type ScoreAdditionTurn struct {
-	BaseTurn
+type ScoreAdditionEvent struct {
+	BaseEvent
 	Bonus         int `json:"bonus,omitempty"`
 	EndRackPoints int `json:"score"`
 }
 
-type ScoreSubtractionTurn struct {
-	BaseTurn
+type ScoreSubtractionEvent struct {
+	BaseEvent
 	LostScore int `json:"lost_score"`
 }
-
-// func newPlacementTurn(m *move.Move, player *Player) TilePlacementTurn{
-// 	tpt := &TilePlacementTurn{}
-// 	tpt.Nickname = player.Nickname
-// 	tpt.Rack = m.
-// }

@@ -21,6 +21,7 @@ const (
 
 	MoveTypeEndgameTiles
 	MoveTypeLostTileScore
+	MoveTypeLostScoreOnTime
 )
 
 // Move is a move. It can have a score, position, equity, etc. It doesn't
@@ -159,6 +160,24 @@ func NewExchangeMove(tiles alphabet.MachineWord, leave alphabet.MachineWord,
 		leave:       leave,
 		tilesPlayed: len(tiles), // tiles exchanged, really..
 		alph:        alph,
+	}
+	return move
+}
+
+func NewBonusScoreMove(t MoveType, tiles alphabet.MachineWord, score int) *Move {
+	move := &Move{
+		action: t,
+		score:  score,
+		tiles:  tiles,
+	}
+	return move
+}
+
+func NewLostScoreMove(t MoveType, tiles alphabet.MachineWord, score int) *Move {
+	move := &Move{
+		action: t,
+		tiles:  tiles,
+		score:  -score,
 	}
 	return move
 }

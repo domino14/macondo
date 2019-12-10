@@ -65,11 +65,74 @@ func StateFromRepr(repr *GameRepr, defaultLexicon string, turnnum int) *XWordGam
 	return game
 }
 
-func (g *XWordGame) PlayGameToTurn(repr *GameRepr, turnnum int) {
-	// for t := 0; t < turnnum; t++ {
-	// 	m := genMove(repr.Turns[t], g.alph)
+func (g *XWordGame) playTurn(repr *GameRepr, turnnum int) []alphabet.MachineLetter {
 
-	// }
+	playedTiles := []alphabet.MachineLetter(nil)
+
+	for evtIdx := range repr.Turns[turnnum] {
+
+		m := genMove(repr.Turns[turnnum][evtIdx], g.alph)
+
+		switch m.Action() {
+		case move.MoveTypePlay:
+			g.board.PlayMove(m, g.gaddag, g.bag)
+			g.players[g.onturn].points += m.Score()
+			// Add tiles to playedTilesList
+			for _, t := range m.Tiles() {
+				if t != alphabet.PlayedThroughMarker {
+					// Note that if a blank is played, the blanked letter
+					// is added to the played tiles (and not the blank itself)
+					// The RemoveTiles function below handles this later.
+					playedTiles = append(playedTiles, t)
+				}
+			}
+		case move.MoveTypeChallengeBonus, move.MoveTypeEndgameTiles,
+			move.MoveTypePhonyTilesReturned, move.MoveTypeLostTileScore,
+			move.MoveTypeLostScoreOnTime:
+
+			// The score should already have the proper sign at creation time.
+			g.players[g.onturn].points += m.Score()
+		case move.MoveTypeExchange, move.MoveTypePass:
+			// Nothing.
+		}
+
+	}
+
+	g.onturn = (g.onturn + 1) % len(g.players)
+	g.turnnum++
+	return playedTiles
+}
+
+func (g *XWordGame) PlayGameToTurn(repr *GameRepr, turnnum int) {
+	g.board.Clear()
+	g.bag.Refill()
+	g.players.resetScore()
+	g.turnnum = 0
+	g.onturn = 0
+	playedTiles := []alphabet.MachineLetter(nil)
+	var t int
+	for t = 0; t < turnnum; t++ {
+		addlTiles := g.playTurn(repr, t)
+		playedTiles = append(playedTiles, addlTiles...)
+	}
+	var err error
+	var rack alphabet.MachineWord
+
+	if t < len(repr.Turns)-1 {
+		rack, err = alphabet.ToMachineWord(repr.Turns[t][0].GetRack(), g.alph)
+		if err != nil {
+			log.Error().Err(err).Msg("")
+			return
+		}
+	}
+
+	// Now update the bag.
+	// XXX: the RemoveTiles function is not smart, and thus expensive
+	// It should not be used in any sort of simulation.
+	g.bag.RemoveTiles(playedTiles)
+
+	// What is the rack of the player on turn now?
+	g.bag.RemoveTiles(rack)
 }
 
 // Calculate the leave from the rack and the made play.
@@ -95,34 +158,31 @@ func leave(rack alphabet.MachineWord, play alphabet.MachineWord) alphabet.Machin
 	return leave
 }
 
-// Generate a move from a turn
-func genMove(t Turn, alph *alphabet.Alphabet) *move.Move {
+// Generate a move from an event
+func genMove(e Event, alph *alphabet.Alphabet) *move.Move {
 	// Have to use type assertions here, but that's OK...
 	var m *move.Move
-	switch v := t.(type) {
-	case *TilePlacementTurn:
+
+	rack, err := alphabet.ToMachineWord(e.GetRack(), alph)
+	if err != nil {
+		log.Error().Err(err).Msg("")
+		return nil
+	}
+
+	switch v := e.(type) {
+	case *TilePlacementEvent:
 		// Calculate tiles, leave, tilesPlayed
 		tiles, err := alphabet.ToMachineWord(v.Play, alph)
 		if err != nil {
 			log.Error().Err(err).Msg("")
 			return nil
 		}
-		rack, err := alphabet.ToMachineWord(v.Rack, alph)
-		if err != nil {
-			log.Error().Err(err).Msg("")
-			return nil
-		}
+
 		leaveMW := leave(rack, tiles)
 		m = move.NewScoringMove(v.Score, tiles, leaveMW, v.Direction == "v",
 			len(rack)-len(leaveMW), alph, int(v.Row), int(v.Column), v.Position)
 
-	case *PassingTurn:
-		rack, err := alphabet.ToMachineWord(v.Rack, alph)
-		if err != nil {
-			log.Error().Err(err).Msg("")
-			return nil
-		}
-
+	case *PassingEvent:
 		if len(v.Exchanged) > 0 {
 			tiles, err := alphabet.ToMachineWord(v.Exchanged, alph)
 			if err != nil {
@@ -135,9 +195,38 @@ func genMove(t Turn, alph *alphabet.Alphabet) *move.Move {
 			m = move.NewPassMove(rack)
 		}
 
-	case *ScoreAdditionTurn:
+	case *ScoreAdditionEvent:
+		if v.Bonus > 0 {
+			// Challenge bonus
+			// hmm
+			m = move.NewBonusScoreMove(move.MoveTypeChallengeBonus,
+				rack, v.Bonus)
 
-	case *ScoreSubtractionTurn:
+		} else {
+			// Endgame points
+			m = move.NewBonusScoreMove(move.MoveTypeEndgameTiles,
+				rack, v.EndRackPoints)
+		}
+	case *ScoreSubtractionEvent:
+		// This either happens for:
+		// - game over after 6 passes
+		// - phony came off the board
+		// - international rules at the end of a game
+		// - time penalty
+		var mt move.MoveType
+		// XXX: these are strings because we can't import from gcgio module
+		// otherwise there's a circular import. That means I probably
+		// screwed something up with the design.
+		if v.Type == "lost_challenge" {
+			mt = move.MoveTypePhonyTilesReturned
+		} else if v.Type == "end_rack_penalty" {
+			mt = move.MoveTypeLostTileScore
+		} else if v.Type == "time_penalty" {
+			mt = move.MoveTypeLostScoreOnTime
+		}
+		m = move.NewLostScoreMove(mt, rack, v.LostScore)
+	default:
+		log.Error().Msgf("Unhandled event %v", e)
 
 	}
 	return m

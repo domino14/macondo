@@ -29,6 +29,16 @@ type Player struct {
 
 type players []*Player
 
+func (p *Player) resetScore() {
+	p.points = 0
+}
+
+func (p players) resetScore() {
+	for idx := range p {
+		p[idx].resetScore()
+	}
+}
+
 // XWordGame encapsulates the various components of a crossword game. At
 // any given time it can be thought of as the current state of a game.
 type XWordGame struct {
@@ -149,7 +159,9 @@ func (g *XWordGame) UpdateTurnHistory(m *move.Move) {
 	// }
 }
 
-// PlayMove plays a move on the board.
+// PlayMove plays a move on the board. This function is meant to be used
+// by simulators as it implements a subset of possible moves. It doesnt
+// implement special things like challenge bonuses, etc.
 func (g *XWordGame) PlayMove(m *move.Move, backup bool) {
 	// If backup is on, we should back up a lot of the relevant state.
 	// This allows us to backtrack / undo moves for simulations/etc.
@@ -177,23 +189,16 @@ func (g *XWordGame) PlayMove(m *move.Move, backup bool) {
 		g.players[g.onturn].rackLetters = alphabet.MachineWord(rack).UserVisible(g.alph)
 
 		if g.players[g.onturn].rack.NumTiles() == 0 {
-			// log.Printf("[DEBUG] Player %v played off all their tiles. Game over!",
-			// 	game.onturn)
 			g.playing = false
 			unplayedPts := g.calculateRackPts((g.onturn+1)%len(g.players)) * 2
-			// log.Printf("[DEBUG] Player %v gets %v points from unplayed tiles",
-			// 	game.onturn, unplayedPts)
 			g.players[g.onturn].points += unplayedPts
-		} else {
-			// log.Printf("[DEBUG] Player %v drew new tiles: %v, rack is now %v",
-			// 	game.onturn, string(drew), rack)
 		}
+
 	case move.MoveTypePass:
 		// log.Printf("[DEBUG] Player %v passed", game.onturn)
 		g.scorelessTurns++
 
 	case move.MoveTypeExchange:
-		// XXX: Gross; the bag should be full of MachineLetter.
 		drew, err := g.bag.Exchange([]alphabet.MachineLetter(m.Tiles()))
 		if err != nil {
 			panic(err)
@@ -202,12 +207,6 @@ func (g *XWordGame) PlayMove(m *move.Move, backup bool) {
 		g.players[g.onturn].rack.Set(rack)
 		g.players[g.onturn].rackLetters = alphabet.MachineWord(rack).UserVisible(g.alph)
 		g.scorelessTurns++
-
-	case move.MoveTypeChallengeBonus:
-		g.players[g.onturn].points += m.Score()
-		// This is a special move type that doesn't change the onturn
-		// or the number of turns.
-		return
 	}
 
 	if g.scorelessTurns == 6 {
