@@ -9,6 +9,7 @@ import (
 
 	"github.com/chzyer/readline"
 	"github.com/domino14/macondo/gcgio"
+	"github.com/domino14/macondo/mechanics"
 	"github.com/rs/zerolog/log"
 )
 
@@ -58,7 +59,10 @@ func shellLoop(sig chan os.Signal) {
 		panic(err)
 	}
 	defer l.Close()
-
+	var curGameState *mechanics.XWordGame
+	var curGameRepr *mechanics.GameRepr
+	var curTurnNum int
+	var delta int
 readlineLoop:
 	for {
 		line, err := l.Readline()
@@ -77,12 +81,34 @@ readlineLoop:
 		switch {
 		case strings.HasPrefix(line, "load "):
 			filepath := line[5:]
-			game, err := gcgio.ParseGCG(filepath)
+			curGameRepr, err = gcgio.ParseGCG(filepath)
 			if err != nil {
 				showMessage(err.Error(), l.Stderr())
 				break
 			}
-			log.Debug().Msgf("Loaded game repr; players: %v", game.Players)
+			curTurnNum = 0
+			log.Debug().Msgf("Loaded game repr; players: %v", curGameRepr.Players)
+			curGameState = mechanics.StateFromRepr(curGameRepr, "NWL18", curTurnNum)
+			showMessage(curGameState.ToDisplayText(), l.Stderr())
+
+		case line == "n" || line == "p":
+			if curGameState == nil {
+				showMessage("Please load a game first with the `load` command",
+					l.Stderr())
+				break
+			}
+			if line == "n" {
+				delta = 1
+			} else {
+				delta = -1
+			}
+			err := curGameState.PlayGameToTurn(curGameRepr, curTurnNum+delta)
+			if err != nil {
+				showMessage(err.Error(), l.Stderr())
+				break
+			}
+			curTurnNum += delta
+			showMessage(curGameState.ToDisplayText(), l.Stderr())
 
 		case line == "bye" || line == "exit":
 			sig <- syscall.SIGINT

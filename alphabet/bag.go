@@ -47,6 +47,12 @@ func (b *Bag) Draw(n int) ([]MachineLetter, error) {
 	return drawn, nil
 }
 
+func (b *Bag) Peek() []MachineLetter {
+	ret := make([]MachineLetter, len(b.tiles))
+	copy(ret, b.tiles)
+	return ret
+}
+
 // Shuffle shuffles the bag.
 func (b *Bag) Shuffle() {
 	rand.Shuffle(len(b.tiles), func(i, j int) {

@@ -1,8 +1,11 @@
 package mechanics
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/domino14/macondo/move"
 
@@ -57,10 +60,12 @@ func StateFromRepr(repr *GameRepr, defaultLexicon string, turnnum int) *XWordGam
 	game.Init(gd, dist)
 	// strategy := strategy.NewExhaustiveLeaveStrategy(game.Bag(), gd.LexiconName(),
 	// 	gd.GetAlphabet(), LeaveFile)
-	game.players = players(repr.Players)
-	if turnnum == -1 {
-		turnnum = len(repr.Turns)
+	for idx := range repr.Players {
+		game.players[idx].Nickname = repr.Players[idx].Nickname
+		game.players[idx].RealName = repr.Players[idx].RealName
+		game.players[idx].PlayerNumber = repr.Players[idx].PlayerNumber
 	}
+
 	game.PlayGameToTurn(repr, turnnum)
 	return game
 }
@@ -103,13 +108,17 @@ func (g *XWordGame) playTurn(repr *GameRepr, turnnum int) []alphabet.MachineLett
 	return playedTiles
 }
 
-func (g *XWordGame) PlayGameToTurn(repr *GameRepr, turnnum int) {
+func (g *XWordGame) PlayGameToTurn(repr *GameRepr, turnnum int) error {
 	g.board.Clear()
 	g.bag.Refill()
 	g.players.resetScore()
 	g.turnnum = 0
 	g.onturn = 0
 	playedTiles := []alphabet.MachineLetter(nil)
+	if turnnum < 0 || turnnum > len(repr.Turns) {
+		return fmt.Errorf("game has %v turns, you have chosen a turn outside the range",
+			len(repr.Turns))
+	}
 	var t int
 	for t = 0; t < turnnum; t++ {
 		addlTiles := g.playTurn(repr, t)
@@ -118,12 +127,16 @@ func (g *XWordGame) PlayGameToTurn(repr *GameRepr, turnnum int) {
 	var err error
 	var rack alphabet.MachineWord
 
-	if t < len(repr.Turns)-1 {
+	if t < len(repr.Turns) {
 		rack, err = alphabet.ToMachineWord(repr.Turns[t][0].GetRack(), g.alph)
 		if err != nil {
 			log.Error().Err(err).Msg("")
-			return
+			return err
 		}
+		g.players[g.onturn].rack.Set(rack)
+		g.players[g.onturn].rackLetters = alphabet.MachineWord(rack).UserVisible(g.alph)
+		g.players[g.onturn].rack.Set([]alphabet.MachineLetter(nil))
+		g.players[(g.onturn+1)%2].rackLetters = ""
 	}
 
 	// Now update the bag.
@@ -133,6 +146,50 @@ func (g *XWordGame) PlayGameToTurn(repr *GameRepr, turnnum int) {
 
 	// What is the rack of the player on turn now?
 	g.bag.RemoveTiles(rack)
+	return nil
+}
+
+func (g *XWordGame) ToDisplayText() string {
+	bt := g.Board().ToDisplayText(g.alph)
+	// We need to insert rack, player, bag strings into the above string.
+	bts := strings.Split(bt, "\n")
+	hpadding := 3
+	vpadding := 1
+	for p := 0; p < len(g.players); p++ {
+		bts[p+vpadding] = bts[p+vpadding] + strings.Repeat(" ", hpadding) +
+			g.players[p].stateString(g.onturn == p)
+	}
+	bag := g.bag.Peek()
+
+	bts[vpadding+3] = bts[vpadding+3] + strings.Repeat(" ", hpadding) +
+		fmt.Sprintf("Bag + unseen: (%d)", len(bag))
+	vpadding = 6
+	sort.Slice(bag, func(i, j int) bool {
+		return bag[i] < bag[j]
+	})
+
+	bagDisp := []string{}
+	cCtr := 0
+	bagStr := ""
+	for i := 0; i < len(bag); i++ {
+		bagStr += string(bag[i].UserVisible(g.alph)) + " "
+		cCtr++
+		if cCtr == 15 {
+			bagDisp = append(bagDisp, bagStr)
+			bagStr = ""
+			cCtr = 0
+		}
+	}
+	if bagStr != "" {
+		bagDisp = append(bagDisp, bagStr)
+	}
+
+	for p := vpadding; p < vpadding+len(bagDisp); p++ {
+		bts[p] = bts[p] + strings.Repeat(" ", hpadding) + bagDisp[p-vpadding]
+	}
+
+	return strings.Join(bts, "\n")
+
 }
 
 // Calculate the leave from the rack and the made play.

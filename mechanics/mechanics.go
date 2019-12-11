@@ -33,6 +33,14 @@ func (p *Player) resetScore() {
 	p.points = 0
 }
 
+func (p Player) stateString(myturn bool) string {
+	onturn := ""
+	if myturn {
+		onturn = "-> "
+	}
+	return fmt.Sprintf("%4v%10v%9v %4v", onturn, p.Nickname, p.rackLetters, p.points)
+}
+
 func (p players) resetScore() {
 	for idx := range p {
 		p[idx].resetScore()
