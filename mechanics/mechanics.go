@@ -38,7 +38,7 @@ func (p Player) stateString(myturn bool) string {
 	if myturn {
 		onturn = "-> "
 	}
-	return fmt.Sprintf("%4v%10v%9v %4v", onturn, p.Nickname, p.rackLetters, p.points)
+	return fmt.Sprintf("%4v%20v%9v %4v", onturn, p.Nickname, p.rackLetters, p.points)
 }
 
 func (p players) resetScore() {

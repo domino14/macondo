@@ -4,6 +4,7 @@ package gcgio
 
 import (
 	"fmt"
+	"io"
 	"io/ioutil"
 	"regexp"
 	"strconv"
@@ -265,6 +266,14 @@ func parseString(gcg string) (*mechanics.GameRepr, error) {
 		}
 	}
 	return grep, nil
+}
+
+func ParseGCGFromReader(reader io.Reader) (*mechanics.GameRepr, error) {
+	data, err := ioutil.ReadAll(reader)
+	if err != nil {
+		return nil, err
+	}
+	return parseString(string(data))
 }
 
 // ParseGCG parses a GCG file into a GameRepr.

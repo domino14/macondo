@@ -1,0 +1,17 @@
+load - Load a GCG from disk or cross-tables.com
+
+Example usage:
+
+    load /Users/cesar/vs_jesse.gcg
+
+You can also use a cross-tables game ID and it will correctly load
+the game:
+
+    load xt 19009
+
+The above will load the cross-tables game located at
+https://www.cross-tables.com/annotated.php?u=19009
+
+This command will load a game into memory. You can then step through the
+game with the `n`, `b`, and `turn` commands, generate plays, simulate,
+solve endgames, and more.
