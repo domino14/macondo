@@ -285,7 +285,7 @@ func (s *Solver) addPass(plays []*move.Move, ponturn int) []*move.Move {
 }
 
 func (s *Solver) generateSTMPlays() []*move.Move {
-	// log.Debug().Msgf("Generating stm plays for maximizing %v", maximizingPlayer)
+	// STM means side-to-move
 	stmRack := s.game.RackFor(s.game.PlayerOnTurn())
 	pnot := (s.game.PlayerOnTurn() + 1) % s.game.NumPlayers()
 	otherRack := s.game.RackFor(pnot)
@@ -296,6 +296,7 @@ func (s *Solver) generateSTMPlays() []*move.Move {
 	s.movegen.GenAll(stmRack)
 	sideToMovePlays := s.addPass(s.movegen.Plays(), s.game.PlayerOnTurn())
 
+	// log.Debug().Msgf("stm plays %v", sideToMovePlays)
 	if s.simpleEvaluation {
 		// A simple evaluation function is a very dumb, but fast, function
 		// of score and tiles played. /shrug
@@ -578,4 +579,12 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α float32, β float32,
 	}
 	node.heuristicValue = value
 	return value, winningNode
+}
+
+func (s *Solver) SetIterativeDeepening(i bool) {
+	s.iterativeDeepeningOn = i
+}
+
+func (s *Solver) SetSimpleEvaluator(i bool) {
+	s.simpleEvaluation = i
 }

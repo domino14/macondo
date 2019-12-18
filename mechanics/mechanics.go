@@ -33,6 +33,11 @@ func (p *Player) resetScore() {
 	p.points = 0
 }
 
+func (p *Player) setRack(rack []alphabet.MachineLetter, alph *alphabet.Alphabet) {
+	p.rack.Set(rack)
+	p.rackLetters = alphabet.MachineWord(rack).UserVisible(alph)
+}
+
 func (p Player) stateString(myturn bool) string {
 	onturn := ""
 	if myturn {
@@ -114,9 +119,8 @@ func (g *XWordGame) StartGame() {
 
 	for i := 0; i < len(g.players); i++ {
 		rack, _ := g.bag.Draw(7)
-		g.players[i].rackLetters = alphabet.MachineWord(rack).UserVisible(g.alph)
+		g.players[i].setRack(rack, g.alph)
 		g.players[i].points = 0
-		g.players[i].rack.Set(rack)
 	}
 	g.onturn = 0
 	g.turnnum = 0
@@ -193,8 +197,7 @@ func (g *XWordGame) PlayMove(m *move.Move, backup bool) {
 		// Draw new tiles.
 		drew := g.bag.DrawAtMost(m.TilesPlayed())
 		rack := append(drew, []alphabet.MachineLetter(m.Leave())...)
-		g.players[g.onturn].rack.Set(rack)
-		g.players[g.onturn].rackLetters = alphabet.MachineWord(rack).UserVisible(g.alph)
+		g.players[g.onturn].setRack(rack, g.alph)
 
 		if g.players[g.onturn].rack.NumTiles() == 0 {
 			g.playing = false
@@ -212,8 +215,7 @@ func (g *XWordGame) PlayMove(m *move.Move, backup bool) {
 			panic(err)
 		}
 		rack := append(drew, []alphabet.MachineLetter(m.Leave())...)
-		g.players[g.onturn].rack.Set(rack)
-		g.players[g.onturn].rackLetters = alphabet.MachineWord(rack).UserVisible(g.alph)
+		g.players[g.onturn].setRack(rack, g.alph)
 		g.scorelessTurns++
 	}
 

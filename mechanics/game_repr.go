@@ -36,8 +36,7 @@ type GameRepr struct {
 
 // StateFromRepr takes in a game representation and a turn number, and
 // outputs a full XWordGame state at that turn number. turnnum can be
-// equal to any number from -1 to the full number of turns minus 1.
-// When -1, it will default to the end of the game (the last turn).
+// equal to any number from 0 to the full number of turns.
 // Turns start at 0 for the purposes of this API.
 func StateFromRepr(repr *GameRepr, defaultLexicon string, turnnum int) *XWordGame {
 	game := &XWordGame{}
@@ -73,36 +72,45 @@ func StateFromRepr(repr *GameRepr, defaultLexicon string, turnnum int) *XWordGam
 func (g *XWordGame) playTurn(repr *GameRepr, turnnum int) []alphabet.MachineLetter {
 
 	playedTiles := []alphabet.MachineLetter(nil)
-
-	for evtIdx := range repr.Turns[turnnum] {
-
-		m := genMove(repr.Turns[turnnum][evtIdx], g.alph)
-
-		switch m.Action() {
-		case move.MoveTypePlay:
-			g.board.PlayMove(m, g.gaddag, g.bag)
-			g.players[g.onturn].points += m.Score()
-			// Add tiles to playedTilesList
-			for _, t := range m.Tiles() {
-				if t != alphabet.PlayedThroughMarker {
-					// Note that if a blank is played, the blanked letter
-					// is added to the played tiles (and not the blank itself)
-					// The RemoveTiles function below handles this later.
-					playedTiles = append(playedTiles, t)
-				}
-			}
-		case move.MoveTypeChallengeBonus, move.MoveTypeEndgameTiles,
-			move.MoveTypePhonyTilesReturned, move.MoveTypeLostTileScore,
-			move.MoveTypeLostScoreOnTime:
-
-			// The score should already have the proper sign at creation time.
-			g.players[g.onturn].points += m.Score()
-		case move.MoveTypeExchange, move.MoveTypePass:
-			// Nothing.
+	challengedOffPlay := false
+	// Check for the special case where a player played a phony that was
+	// challenged off. We don't want to process this at all.
+	if len(repr.Turns[turnnum]) == 2 {
+		if repr.Turns[turnnum][0].GetType() == RegMove &&
+			repr.Turns[turnnum][1].GetType() == LostChallenge {
+			challengedOffPlay = true
 		}
-
 	}
+	if !challengedOffPlay {
+		for evtIdx := range repr.Turns[turnnum] {
+			m := genMove(repr.Turns[turnnum][evtIdx], g.alph)
 
+			switch m.Action() {
+			case move.MoveTypePlay:
+
+				g.board.PlayMove(m, g.gaddag, g.bag)
+				g.players[g.onturn].points += m.Score()
+				// Add tiles to playedTilesList
+				for _, t := range m.Tiles() {
+					if t != alphabet.PlayedThroughMarker {
+						// Note that if a blank is played, the blanked letter
+						// is added to the played tiles (and not the blank itself)
+						// The RemoveTiles function below handles this later.
+						playedTiles = append(playedTiles, t)
+					}
+				}
+			case move.MoveTypeChallengeBonus, move.MoveTypeEndgameTiles,
+				move.MoveTypePhonyTilesReturned, move.MoveTypeLostTileScore,
+				move.MoveTypeLostScoreOnTime:
+
+				// The score should already have the proper sign at creation time.
+				g.players[g.onturn].points += m.Score()
+			case move.MoveTypeExchange, move.MoveTypePass:
+				// Nothing.
+			}
+
+		}
+	}
 	g.onturn = (g.onturn + 1) % len(g.players)
 	g.turnnum++
 	return playedTiles
@@ -114,6 +122,7 @@ func (g *XWordGame) PlayGameToTurn(repr *GameRepr, turnnum int) error {
 	g.players.resetScore()
 	g.turnnum = 0
 	g.onturn = 0
+	g.playing = true
 	playedTiles := []alphabet.MachineLetter(nil)
 	if turnnum < 0 || turnnum > len(repr.Turns) {
 		return fmt.Errorf("game has %v turns, you have chosen a turn outside the range",
@@ -123,21 +132,21 @@ func (g *XWordGame) PlayGameToTurn(repr *GameRepr, turnnum int) error {
 	for t = 0; t < turnnum; t++ {
 		addlTiles := g.playTurn(repr, t)
 		playedTiles = append(playedTiles, addlTiles...)
+		log.Debug().Msgf("played turn %v (%v) and added tiles %v", t, repr.Turns[t],
+			alphabet.MachineWord(addlTiles).UserVisible(g.alph))
 	}
 	var err error
 	var rack alphabet.MachineWord
-
+	var oppRack alphabet.MachineWord
+	notOnTurn := (g.onturn + 1) % 2
 	if t < len(repr.Turns) {
 		rack, err = alphabet.ToMachineWord(repr.Turns[t][0].GetRack(), g.alph)
 		if err != nil {
 			log.Error().Err(err).Msg("")
 			return err
 		}
-		g.players[g.onturn].rack.Set(rack)
-		g.players[g.onturn].rackLetters = alphabet.MachineWord(rack).UserVisible(g.alph)
-		g.players[g.onturn].rack.Set([]alphabet.MachineLetter(nil))
-		g.players[(g.onturn+1)%2].rackLetters = ""
 	}
+	g.players[g.onturn].setRack(rack, g.alph)
 
 	// Now update the bag.
 	// XXX: the RemoveTiles function is not smart, and thus expensive
@@ -146,23 +155,43 @@ func (g *XWordGame) PlayGameToTurn(repr *GameRepr, turnnum int) error {
 
 	// What is the rack of the player on turn now?
 	g.bag.RemoveTiles(rack)
+
+	// Rack of the other player. This only matters when the bag is empty.
+	if len(rack) > 0 && g.bag.TilesRemaining() <= 7 {
+		// bag is actually empty; draw everything for the opp.
+		oppRack = g.bag.Peek()
+		g.bag.RemoveTiles(oppRack)
+	}
+	g.players[notOnTurn].setRack(oppRack, g.alph)
+	if g.turnnum == len(repr.Turns) {
+		g.playing = false
+	}
 	return nil
 }
 
-func (g *XWordGame) ToDisplayText() string {
+func addText(lines []string, row int, hpad int, text string) {
+	str := lines[row]
+	str += strings.Repeat(" ", hpad)
+	str += text
+	lines[row] = str
+}
+
+// ToDisplayText turns the current state of the game into a displayable
+// string. It takes in an additional game representation, which is used
+// to display more in-depth turn information.
+func (g *XWordGame) ToDisplayText(repr *GameRepr) string {
 	bt := g.Board().ToDisplayText(g.alph)
 	// We need to insert rack, player, bag strings into the above string.
 	bts := strings.Split(bt, "\n")
 	hpadding := 3
 	vpadding := 1
+	bagColCount := 20
 	for p := 0; p < len(g.players); p++ {
-		bts[p+vpadding] = bts[p+vpadding] + strings.Repeat(" ", hpadding) +
-			g.players[p].stateString(g.onturn == p)
+		addText(bts, p+vpadding, hpadding, g.players[p].stateString(g.onturn == p))
 	}
 	bag := g.bag.Peek()
+	addText(bts, vpadding+3, hpadding, fmt.Sprintf("Bag + unseen: (%d)", len(bag)))
 
-	bts[vpadding+3] = bts[vpadding+3] + strings.Repeat(" ", hpadding) +
-		fmt.Sprintf("Bag + unseen: (%d)", len(bag))
 	vpadding = 6
 	sort.Slice(bag, func(i, j int) bool {
 		return bag[i] < bag[j]
@@ -174,7 +203,7 @@ func (g *XWordGame) ToDisplayText() string {
 	for i := 0; i < len(bag); i++ {
 		bagStr += string(bag[i].UserVisible(g.alph)) + " "
 		cCtr++
-		if cCtr == 15 {
+		if cCtr == bagColCount {
 			bagDisp = append(bagDisp, bagStr)
 			bagStr = ""
 			cCtr = 0
@@ -185,7 +214,19 @@ func (g *XWordGame) ToDisplayText() string {
 	}
 
 	for p := vpadding; p < vpadding+len(bagDisp); p++ {
-		bts[p] = bts[p] + strings.Repeat(" ", hpadding) + bagDisp[p-vpadding]
+		addText(bts, p, hpadding, bagDisp[p-vpadding])
+	}
+
+	vpadding = 13
+
+	if g.turnnum-1 >= 0 {
+		addText(bts, vpadding, hpadding, repr.Turns[g.turnnum-1].summary())
+	}
+
+	vpadding = 15
+
+	if !g.playing {
+		addText(bts, vpadding, hpadding, "Game is over.")
 	}
 
 	return strings.Join(bts, "\n")
@@ -199,9 +240,18 @@ func leave(rack alphabet.MachineWord, play alphabet.MachineWord) alphabet.Machin
 		rackmls[t]++
 	}
 	for _, t := range play {
+		if t == alphabet.PlayedThroughMarker {
+			continue
+		}
+		if t.IsBlanked() {
+			t = alphabet.BlankMachineLetter
+		}
 		if rackmls[t] != 0 {
 			// It should never be 0 unless the GCG is malformed somehow.
 			rackmls[t]--
+		} else {
+			log.Error().Msgf("Tile in play but not in rack: %v %v",
+				string(t.UserVisible(alphabet.EnglishAlphabet())), rackmls[t])
 		}
 	}
 	leave := []alphabet.MachineLetter{}
@@ -271,14 +321,12 @@ func genMove(e Event, alph *alphabet.Alphabet) *move.Move {
 		// - international rules at the end of a game
 		// - time penalty
 		var mt move.MoveType
-		// XXX: these are strings because we can't import from gcgio module
-		// otherwise there's a circular import. That means I probably
-		// screwed something up with the design.
-		if v.Type == "lost_challenge" {
+
+		if v.Type == LostChallenge {
 			mt = move.MoveTypePhonyTilesReturned
-		} else if v.Type == "end_rack_penalty" {
+		} else if v.Type == EndRackPenalty {
 			mt = move.MoveTypeLostTileScore
-		} else if v.Type == "time_penalty" {
+		} else if v.Type == TimePenalty {
 			mt = move.MoveTypeLostScoreOnTime
 		}
 		m = move.NewLostScoreMove(mt, rack, v.LostScore)

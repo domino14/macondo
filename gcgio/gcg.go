@@ -15,6 +15,24 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// A Token is an event in a GCG file.
+type Token uint8
+
+const (
+	UndefinedToken Token = iota
+	PlayerToken
+	MoveToken
+	NoteToken
+	LexiconToken
+	LostChallengeToken
+	PassToken
+	ChallengeBonusToken
+	ExchangeToken
+	EndRackPointsToken
+	TimePenaltyToken
+	LastRackPenaltyToken
+)
+
 type gcgdatum struct {
 	token Token
 	regex *regexp.Regexp
@@ -99,7 +117,7 @@ func (p *parser) addEventOrPragma(token Token, match []string, gameRepr *mechani
 		}
 		evt.Row = uint8(row)
 		evt.Column = uint8(col)
-		evt.Type = token.String()
+		evt.Type = mechanics.RegMove
 		turn := []mechanics.Event{}
 		turn = append(turn, evt)
 
@@ -126,7 +144,7 @@ func (p *parser) addEventOrPragma(token Token, match []string, gameRepr *mechani
 		if err != nil {
 			return err
 		}
-		evt.Type = token.String()
+		evt.Type = mechanics.LostChallenge
 		// This can not be a stand-alone turn; it must be added to the last
 		// turn.
 		lastTurnIdx := len(gameRepr.Turns) - 1
@@ -144,7 +162,7 @@ func (p *parser) addEventOrPragma(token Token, match []string, gameRepr *mechani
 		if err != nil {
 			return err
 		}
-		evt.Type = token.String()
+		evt.Type = mechanics.TimePenalty
 		lastTurnIdx := len(gameRepr.Turns) - 1
 		gameRepr.Turns[lastTurnIdx] = append(gameRepr.Turns[lastTurnIdx], evt)
 
@@ -164,7 +182,7 @@ func (p *parser) addEventOrPragma(token Token, match []string, gameRepr *mechani
 		if err != nil {
 			return err
 		}
-		evt.Type = token.String()
+		evt.Type = mechanics.EndRackPenalty
 		lastTurnIdx := len(gameRepr.Turns) - 1
 		gameRepr.Turns[lastTurnIdx] = append(gameRepr.Turns[lastTurnIdx], evt)
 
@@ -176,7 +194,7 @@ func (p *parser) addEventOrPragma(token Token, match []string, gameRepr *mechani
 		if err != nil {
 			return err
 		}
-		evt.Type = token.String()
+		evt.Type = mechanics.Pass
 		turn := []mechanics.Event{evt}
 		gameRepr.Turns = append(gameRepr.Turns, turn)
 
@@ -196,7 +214,11 @@ func (p *parser) addEventOrPragma(token Token, match []string, gameRepr *mechani
 		if err != nil {
 			return err
 		}
-		evt.Type = token.String()
+		if token == ChallengeBonusToken {
+			evt.Type = mechanics.ChallengeBonus
+		} else if token == EndRackPointsToken {
+			evt.Type = mechanics.EndRackPts
+		}
 		lastTurnIdx := len(gameRepr.Turns) - 1
 		gameRepr.Turns[lastTurnIdx] = append(gameRepr.Turns[lastTurnIdx], evt)
 
@@ -209,7 +231,7 @@ func (p *parser) addEventOrPragma(token Token, match []string, gameRepr *mechani
 		if err != nil {
 			return err
 		}
-		evt.Type = token.String()
+		evt.Type = mechanics.Exchange
 		turn := []mechanics.Event{evt}
 		gameRepr.Turns = append(gameRepr.Turns, turn)
 

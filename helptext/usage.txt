@@ -7,9 +7,9 @@ commands:
     gen [n] - generate n plays and sort by equity; n defaults to 15
     add <play> - add a play, that looks like coords play (e.g. 10J FOO)
     sim [plies] - start simulation, default to two-ply
-    endgame [p<maxplies>] [idoff] [sev] - run endgame, search to maxplies (4 is default)
-      idoff - turn off iterative deepening,
-      sev - use simple eval func (faster but less accurate)
+    endgame [maxplies] [id] [simple] - run endgame, search to maxplies (4 is default)
+      id (1 or 0) - turn on or off iterative deepening (on by default)
+      simple (1 or 0) - use simple eval func (faster but less accurate, off by default)
     solvepeg [params...] - solve pre-endgame only usable if there are 1 or 2 tiles in the bag
       takes in same parameters as endgame
 

@@ -117,9 +117,11 @@ func (b *GameBoard) SetRow(rowNum int, letters string, alph *alphabet.Alphabet) 
 // the squares are equal. This includes anchors, letters, and cross-sets.
 func (g *GameBoard) Equals(g2 *GameBoard) bool {
 	if g.Dim() != g2.Dim() {
+		log.Printf("Dims don't match: %v %v", g.Dim(), g2.Dim())
 		return false
 	}
 	if g.tilesPlayed != g2.tilesPlayed {
+		log.Printf("Tiles played don't match: %v %v", g.tilesPlayed, g2.tilesPlayed)
 		return false
 	}
 	for row := 0; row < g.Dim(); row++ {

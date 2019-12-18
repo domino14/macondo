@@ -55,6 +55,7 @@ func init() {
 	reHorizontal = regexp.MustCompile(`^(?P<row>[0-9]+)(?P<col>[A-Z])$`)
 }
 
+// String provides a string just for debugging purposes.
 func (m *Move) String() string {
 	switch m.action {
 	case MoveTypePlay:

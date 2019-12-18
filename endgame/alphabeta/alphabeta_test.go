@@ -10,6 +10,7 @@ import (
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
+	"github.com/domino14/macondo/gcgio"
 	"github.com/domino14/macondo/mechanics"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
@@ -20,21 +21,15 @@ import (
 var LexiconDir = os.Getenv("LEXICON_PATH")
 
 func TestMain(m *testing.M) {
-	if _, err := os.Stat("/tmp/gen_america.gaddag"); os.IsNotExist(err) {
-		gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "America.txt"), true, true)
-		os.Rename("out.gaddag", "/tmp/gen_america.gaddag")
-	}
-	if _, err := os.Stat("/tmp/nwl18.gaddag"); os.IsNotExist(err) {
-		gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "NWL18.txt"), true, true)
-		os.Rename("out.gaddag", "/tmp/nwl18.gaddag")
-	}
-	if _, err := os.Stat("/tmp/ospd1.gaddag"); os.IsNotExist(err) {
-		gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "pseudo_twl1979.txt"), true, true)
-		os.Rename("out.gaddag", "/tmp/ospd1.gaddag")
-	}
-	if _, err := os.Stat("/tmp/csw19.gaddag"); os.IsNotExist(err) {
-		gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "CSW19.txt"), true, true)
-		os.Rename("out.gaddag", "/tmp/csw19.gaddag")
+	for _, lex := range []string{"America", "NWL18", "pseudo_twl1979", "CSW19"} {
+		gdgPath := filepath.Join(LexiconDir, "gaddag", lex+".gaddag")
+		if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
+			gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, lex+".txt"), true, true)
+			err = os.Rename("out.gaddag", gdgPath)
+			if err != nil {
+				panic(err)
+			}
+		}
 	}
 	os.Exit(m.Run())
 }
@@ -714,5 +709,34 @@ func TestAnotherOneTiler(t *testing.T) {
 	// if v < 0 {
 	// 	t.Errorf("Expected > 0, %v was", v)
 	// }
+	// t.Fail()
+}
+
+func TestFromGCG(t *testing.T) {
+	plies := 1
+
+	curGameRepr, err := gcgio.ParseGCG("../../gcgio/testdata/vs_frentz.gcg")
+	if err != nil {
+		t.Errorf("Got error %v", err)
+	}
+	game := mechanics.StateFromRepr(curGameRepr, "CSW19", 0)
+	game.SetStateStackLength(plies)
+	err = game.PlayGameToTurn(curGameRepr, 21)
+	if err != nil {
+		t.Errorf("Error playing to turn %v", err)
+	}
+	generator := movegen.NewGordonGenerator(
+		// The strategy doesn't matter right here
+		game, &strategy.NoLeaveStrategy{},
+	)
+	s := new(Solver)
+	s.Init(generator, game)
+	// s.iterativeDeepeningOn = false
+	// s.simpleEvaluation = true
+	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
+	v, _ := s.Solve(plies)
+	if v != 99 {
+		t.Errorf("Expected 99, was %v", v)
+	}
 	// t.Fail()
 }
