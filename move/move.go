@@ -2,9 +2,10 @@ package move
 
 import (
 	"fmt"
-	"log"
 	"regexp"
 	"strconv"
+
+	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/alphabet"
 )
@@ -60,14 +61,18 @@ func (m *Move) String() string {
 	switch m.action {
 	case MoveTypePlay:
 		return fmt.Sprintf(
-			"<action: play word: %v %v score: %v tp: %v leave: %v equity: %.3f valu: %.3f>",
+			"<%p action: play word: %v %v score: %v tp: %v leave: %v equity: %.3f valu: %.3f>",
+			m,
 			m.coords, m.tiles.UserVisible(m.alph), m.score,
 			m.tilesPlayed, m.leave.UserVisible(m.alph), m.equity, m.valuation)
 	case MoveTypePass:
-		return fmt.Sprintf("<action: pass equity: %.3f valu: %.3f>", m.equity, m.valuation)
+		return fmt.Sprintf("<%p action: pass leave: %v equity: %.3f valu: %.3f>",
+			m,
+			m.leave.UserVisible(m.alph), m.equity, m.valuation)
 	case MoveTypeExchange:
 		return fmt.Sprintf(
-			"<action: exchange %v score: %v tp: %v leave: %v equity: %.3f>",
+			"<%p action: exchange %v score: %v tp: %v leave: %v equity: %.3f>",
+			m,
 			m.tiles.UserVisible(m.alph), m.score, m.tilesPlayed,
 			m.leave.UserVisible(m.alph), m.equity)
 	}
@@ -120,12 +125,12 @@ func NewScoringMoveSimple(score int, coords string, word string, leave string,
 
 	tiles, err := alphabet.ToMachineWord(word, alph)
 	if err != nil {
-		log.Printf("[ERROR] %v", err.Error())
+		log.Error().Err(err).Msg("")
 		return nil
 	}
 	leaveMW, err := alphabet.ToMachineWord(leave, alph)
 	if err != nil {
-		log.Printf("[ERROR] %v", err.Error())
+		log.Error().Err(err).Msg("")
 		return nil
 	}
 	tilesPlayed := 0
@@ -306,9 +311,10 @@ func FromBoardGameCoords(c string) (int, int, bool) {
 }
 
 // NewPassMove creates a pass with the given leave.
-func NewPassMove(leave alphabet.MachineWord) *Move {
+func NewPassMove(leave alphabet.MachineWord, alph *alphabet.Alphabet) *Move {
 	return &Move{
 		action: MoveTypePass,
 		leave:  leave,
+		alph:   alph,
 	}
 }

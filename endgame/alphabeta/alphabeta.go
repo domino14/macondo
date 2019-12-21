@@ -3,7 +3,6 @@
 package alphabeta
 
 import (
-	"fmt"
 	"sort"
 
 	"github.com/domino14/macondo/alphabet"
@@ -77,22 +76,6 @@ type Solver struct {
 	otsRectIndex     int
 }
 
-// a game node has to have enough information to allow the game and turns
-// to be reconstructed.
-type gameNode struct {
-	// the move corresponding to the node is the move that is being evaluated.
-	move           *move.Move
-	parent         *gameNode
-	heuristicValue float32
-	children       []*gameNode // children should be null until expanded.
-	generatedPlays []*move.Move
-}
-
-func (g *gameNode) String() string {
-	return fmt.Sprintf("<gamenode move %v, heuristicVal %v, nchild %v>", g.move,
-		g.heuristicValue, len(g.children))
-}
-
 // max returns the larger of x or y.
 func max(x, y float32) float32 {
 	if x < y {
@@ -106,71 +89,6 @@ func min(x, y float32) float32 {
 		return x
 	}
 	return y
-}
-
-func (g *gameNode) value(s *Solver, gameOver bool) float32 {
-	g.calculateValue(s, gameOver)
-	// log.Debug().Msgf("heuristic value of node %p is %v", g, g.heuristicValue)
-	return g.heuristicValue
-}
-
-func (g *gameNode) calculateValue(s *Solver, gameOver bool) {
-	// calculate the heuristic value of this node, and store it.
-	// we start with a max node. At 1-ply (and all odd plies), maximizing
-	// is always false.
-	// log.Debug().Msgf("Need to calculate value for %v. Player on turn %v, maximizing %v", g.move, s.game.PlayerOnTurn(), maximizing)
-
-	// Because calculateValue is called after PlayMove has been called,
-	// the "playerOnTurn" is actually not the player who made the move
-	// whose value we are calculating.
-	opponent := s.game.PlayerOnTurn()
-	playerWhoMadeMove := (opponent + 1) % (s.game.NumPlayers())
-
-	// The initial spread is always from the maximizing point of view.
-	initialSpread := s.initialSpread
-	spreadNow := s.game.PointsFor(playerWhoMadeMove) - s.game.PointsFor(opponent)
-	negateHeurVal := false
-	if playerWhoMadeMove != s.maximizingPlayer {
-		// spreadNow = -spreadNow
-		initialSpread = -initialSpread
-		negateHeurVal = true
-	}
-
-	// If the game is over, the value should just be the spread change.
-	if gameOver {
-		// Technically no one is on turn, but the player NOT on turn is
-		// the one that just ended the game.
-		// Note that because of the way we track state, it is the state
-		// in the solver right now; that's why the game node doesn't matter
-		// right here:
-		g.heuristicValue = float32(spreadNow - initialSpread)
-	} else {
-		// The valuation is already an estimate of the overall gain or loss
-		// in spread for this move (if taken to the end of the game).
-
-		// `player` is NOT the one that just made a move.
-		ptValue := g.move.Score()
-		// don't double-count score; it's already in the valuation:
-		moveVal := g.move.Valuation() - float32(ptValue)
-		// What is the spread right now? The valuation should be relative
-		// to that.
-		// log.Debug().Msgf("calculating heur value for %v as %v + %v - %v",
-		// 	g.move, spreadNow, moveVal, initialSpread)
-		g.heuristicValue = float32(spreadNow) + moveVal - float32(initialSpread)
-		// g.heuristicValue = s.game.EndgameSpreadEstimate(player, maximizing) - float32(initialSpread)
-		// log.Debug().Msgf("Calculating heuristic value of %v as %v - %v",
-		// 	g.move, s.game.EndgameSpreadEstimate(player), float32(initialSpread))
-	}
-	if negateHeurVal {
-		// The maximizing player is always "us" - the player that we are
-		// solving the endgame for. So if this not the maximizing node,
-		// we want to negate the heuristic value, as it needs to be as
-		// negative as possible relative to "us". I know, minimax is
-		// hard to reason about, but I think this makes sense. At least
-		// it seems to work.
-		g.heuristicValue = -g.heuristicValue
-		// log.Debug().Msg("Negating since not maximizing player")
-	}
 }
 
 // Init initializes the solver
@@ -279,7 +197,7 @@ func (s *Solver) addPass(plays []*move.Move, ponturn int) []*move.Move {
 		// movegen doesn't generate a pass move if unneeded (actually, I'm not
 		// totally sure why). So generate it here, as sometimes a pass is beneficial
 		// in the endgame.
-		plays = append(plays, move.NewPassMove(s.game.RackFor(ponturn).TilesOn()))
+		plays = append(plays, move.NewPassMove(s.game.RackFor(ponturn).TilesOn(), s.game.Alphabet()))
 	}
 	return plays
 }
@@ -301,7 +219,7 @@ func (s *Solver) generateSTMPlays() []*move.Move {
 		// A simple evaluation function is a very dumb, but fast, function
 		// of score and tiles played. /shrug
 		for _, m := range s.movegen.Plays() {
-			m.SetValuation(float32(m.Score() + m.TilesPlayed()))
+			m.SetValuation(float32(m.Score() + 3*m.TilesPlayed()))
 		}
 		sort.Slice(sideToMovePlays, func(i, j int) bool {
 			return sideToMovePlays[i].Valuation() > sideToMovePlays[j].Valuation()
@@ -371,6 +289,7 @@ func (s *Solver) generateSTMPlays() []*move.Move {
 	})
 	return sideToMovePlays
 }
+
 func (s *Solver) childGenerator(node *gameNode, maximizingPlayer bool) func() (
 	*gameNode, bool) {
 
@@ -421,10 +340,11 @@ func (s *Solver) childGenerator(node *gameNode, maximizingPlayer bool) func() (
 				node.children[idx].move.SetVisited(true)
 				return node.children[idx], false
 			}
-			// Plays were generated; return brand new nodes.
 			if idx == len(plays) {
 				return nil, false
 			}
+
+			// Otherwise, plays were generated; return brand new nodes.
 			s.totalNodes++
 			return &gameNode{move: plays[idx], parent: node}, true
 		}
@@ -438,6 +358,9 @@ func (s *Solver) findBestSequence(endNode *gameNode) []*move.Move {
 
 	child := endNode
 	for {
+		if !child.move.Visited() {
+			log.Debug().Msgf("This child %v not visited!", child)
+		}
 		// log.Debug().Msgf("Children of %v:", child.parent)
 		seq = append([]*move.Move{child.move}, seq...)
 		child = child.parent
@@ -479,8 +402,8 @@ func (s *Solver) Solve(plies int) (float32, *move.Move) {
 	if s.iterativeDeepeningOn {
 		log.Debug().Msgf("Using iterative deepening with %v max plies", plies)
 		for p := 1; p <= plies; p++ {
-			// n := &gameNode{}
-			// s.rootNode = n
+			log.Debug().Msgf("Spread at beginning of endgame: %v", s.game.CurrentSpread())
+			log.Debug().Msgf("Maximizing player is: %v", s.game.PlayerOnTurn())
 			bestV, bestNode = s.alphabeta(n, p, float32(-Infinity), float32(Infinity), true)
 			bestSeq := s.findBestSequence(bestNode)
 			// Sort our plays by heuristic value for the next iteration, so that
@@ -509,7 +432,6 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α float32, β float32,
 	maximizingPlayer bool) (float32, *gameNode) {
 
 	// depthDbg := strings.Repeat(" ", depth)
-
 	if depth == 0 || !s.game.Playing() {
 		// s.game.Playing() happens if the game is over; i.e. if the
 		// current node is terminal.
@@ -527,6 +449,7 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α float32, β float32,
 			// Play the child
 			// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
 			s.game.PlayMove(child.move, true)
+			child.move.SetVisited(true)
 			// log.Debug().Msgf("%vState is now %v", depthDbg,
 			// s.game.String())
 			v, wn := s.alphabeta(child, depth-1, α, β, false)
@@ -557,6 +480,7 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α float32, β float32,
 	for child, newNode := iter(); child != nil; child, newNode = iter() {
 		// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
 		s.game.PlayMove(child.move, true)
+		child.move.SetVisited(true)
 		// log.Debug().Msgf("%vState is now %v", depthDbg,
 		// s.game.String())
 		v, wn := s.alphabeta(child, depth-1, α, β, true)

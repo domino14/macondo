@@ -412,7 +412,7 @@ func (gen *GordonGenerator) addPassAndExchangeMoves(rack *alphabet.Rack) {
 	// we will have to add a pass move another way (if it's a strategic pass).
 	// Probably in the endgame package.
 	if len(gen.plays) == 0 {
-		passMove := move.NewPassMove(tilesOnRack)
+		passMove := move.NewPassMove(tilesOnRack, rack.Alphabet())
 		passMove.SetEquity(gen.strategy.Equity(passMove, gen.board, gen.bag, gen.oppRack))
 		gen.plays = append(gen.plays, passMove)
 	}

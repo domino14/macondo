@@ -716,6 +716,142 @@ func TestAnotherOneTiler(t *testing.T) {
 	// t.Fail()
 }
 
+func TestYetAnotherOneTiler(t *testing.T) {
+	t.Skip()
+	plies := 10
+
+	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	if err != nil {
+		t.Errorf("Expected error to be nil, got %v", err)
+	}
+	dist := alphabet.EnglishLetterDistribution()
+
+	game := &mechanics.XWordGame{}
+	game.Init(gd, dist)
+	game.SetStateStackLength(plies)
+
+	generator := movegen.NewGordonGenerator(
+		// The strategy doesn't matter right here
+		game, &strategy.NoLeaveStrategy{},
+	)
+	alph := game.Alphabet()
+	// XXX: Refactor this; we should have something like:
+	// game.LoadFromGCG(path, turnnum)
+	// That should set the board, the player racks, scores, etc - the whole state
+	// Instead we have to do this manually here:
+	generator.SetBoardToGame(alph, board.NoahVsMishu)
+	s := new(Solver)
+	s.Init(generator, game)
+	// s.iterativeDeepeningOn = false
+	// s.simpleEvaluation = true
+	ourRack := alphabet.RackFromString("AEIINTY", alph)
+	theirRack := alphabet.RackFromString("CLLPR", alph)
+	game.SetRackFor(0, ourRack)
+	game.SetRackFor(1, theirRack)
+	game.SetPointsFor(0, 327)
+	game.SetPointsFor(1, 368)
+	game.SetPlayerOnTurn(0)
+	game.SetPlaying(true)
+	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
+	v, _ := s.Solve(plies)
+	fmt.Println("Value found", v)
+	// if v < 0 {
+	// 	t.Errorf("Expected > 0, %v was", v)
+	// }
+	t.Fail()
+}
+
+func TestYetAnotherOneTiler2(t *testing.T) {
+	// t.Skip()
+	plies := 5
+
+	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	if err != nil {
+		t.Errorf("Expected error to be nil, got %v", err)
+	}
+	dist := alphabet.EnglishLetterDistribution()
+
+	game := &mechanics.XWordGame{}
+	game.Init(gd, dist)
+	game.SetStateStackLength(plies)
+
+	generator := movegen.NewGordonGenerator(
+		// The strategy doesn't matter right here
+		game, &strategy.NoLeaveStrategy{},
+	)
+	alph := game.Alphabet()
+	// XXX: Refactor this; we should have something like:
+	// game.LoadFromGCG(path, turnnum)
+	// That should set the board, the player racks, scores, etc - the whole state
+	// Instead we have to do this manually here:
+	generator.SetBoardToGame(alph, board.NoahVsMishu2)
+	s := new(Solver)
+	s.Init(generator, game)
+	s.disablePruning = true
+	s.iterativeDeepeningOn = false
+	s.simpleEvaluation = true
+	ourRack := alphabet.RackFromString("AEIINY", alph)
+	theirRack := alphabet.RackFromString("LLPR", alph)
+	game.SetRackFor(0, ourRack)
+	game.SetRackFor(1, theirRack)
+	game.SetPointsFor(0, 334)
+	game.SetPointsFor(1, 374)
+	game.SetPlayerOnTurn(0)
+	game.SetPlaying(true)
+	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
+	v, _ := s.Solve(plies)
+	fmt.Println("Value found", v)
+	// if v < 0 {
+	// 	t.Errorf("Expected > 0, %v was", v)
+	// }
+	t.Fail()
+}
+
+func TestYetAnotherOneTiler3(t *testing.T) {
+	t.Skip()
+	plies := 6
+
+	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	if err != nil {
+		t.Errorf("Expected error to be nil, got %v", err)
+	}
+	dist := alphabet.EnglishLetterDistribution()
+
+	game := &mechanics.XWordGame{}
+	game.Init(gd, dist)
+	game.SetStateStackLength(plies)
+
+	generator := movegen.NewGordonGenerator(
+		// The strategy doesn't matter right here
+		game, &strategy.NoLeaveStrategy{},
+	)
+	alph := game.Alphabet()
+	// XXX: Refactor this; we should have something like:
+	// game.LoadFromGCG(path, turnnum)
+	// That should set the board, the player racks, scores, etc - the whole state
+	// Instead we have to do this manually here:
+	generator.SetBoardToGame(alph, board.NoahVsMishu3)
+	s := new(Solver)
+	s.Init(generator, game)
+	// s.iterativeDeepeningOn = false
+	// s.simpleEvaluation = true
+	ourRack := alphabet.RackFromString("AEIY", alph)
+	theirRack := alphabet.RackFromString("LLP", alph)
+	game.SetRackFor(0, ourRack)
+	game.SetRackFor(1, theirRack)
+	game.SetPointsFor(0, 339)
+	game.SetPointsFor(1, 381)
+	game.SetPlayerOnTurn(0)
+	game.SetPlaying(true)
+	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
+	v, _ := s.Solve(plies)
+	fmt.Println("Value found", v)
+	// if v < 0 {
+	// 	t.Errorf("Expected > 0, %v was", v)
+	// }
+	t.Fail()
+}
+
 func TestFromGCG(t *testing.T) {
 	plies := 1
 

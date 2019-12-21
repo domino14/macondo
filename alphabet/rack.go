@@ -171,3 +171,7 @@ func (r *Rack) NumTiles() uint8 {
 func (r *Rack) Empty() bool {
 	return r.empty
 }
+
+func (r *Rack) Alphabet() *Alphabet {
+	return r.alphabet
+}

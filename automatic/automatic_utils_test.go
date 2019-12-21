@@ -1,11 +1,14 @@
 package automatic
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
+
+	"github.com/domino14/macondo/alphabet"
 
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
@@ -33,6 +36,7 @@ func TestCompVsCompStatic(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		runner.CompVsCompStatic(gd)
+		fmt.Println(runner.game.Board().ToDisplayText(alphabet.EnglishAlphabet()))
 		close(logchan)
 	}()
 
