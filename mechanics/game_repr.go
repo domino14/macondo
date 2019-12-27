@@ -120,6 +120,7 @@ func (g *XWordGame) PlayGameToTurn(repr *GameRepr, turnnum int) error {
 	g.board.Clear()
 	g.bag.Refill()
 	g.players.resetScore()
+	log.Debug().Msgf("info for sq 0, 0: %v", g.board.GetSquare(0, 0).Info())
 	g.turnnum = 0
 	g.onturn = 0
 	g.playing = true

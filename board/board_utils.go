@@ -40,8 +40,10 @@ func (g *GameBoard) ToDisplayText(alph *alphabet.Alphabet) string {
 // SetFromPlaintext sets the board from the given plaintext board.
 // It returns a list of all played machine letters (tiles) so that the
 // caller can reconcile the tile bag appropriately.
-func (g *GameBoard) SetFromPlaintext(qText string,
+func (g *GameBoard) setFromPlaintext(qText string,
 	alph *alphabet.Alphabet) *TilesInPlay {
+
+	g.Clear()
 	tilesInPlay := &TilesInPlay{}
 	// Take a Quackle Plaintext Board and turn it into an internal structure.
 	// (Another alternative later is to implement GCG)

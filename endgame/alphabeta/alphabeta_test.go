@@ -729,6 +729,7 @@ func TestFromGCG(t *testing.T) {
 		// The strategy doesn't matter right here
 		game, &strategy.NoLeaveStrategy{},
 	)
+
 	s := new(Solver)
 	s.Init(generator, game)
 	// s.iterativeDeepeningOn = false

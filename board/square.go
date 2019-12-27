@@ -52,10 +52,17 @@ func (s Square) String() string {
 	bonus := string(s.bonus)
 	if ColorSupport {
 		if s.bonus == Bonus3WS {
-			bonus = fmt.Sprintf("\033[31m%s\033[0m", s.bonus)
+			bonus = fmt.Sprintf("\033[31m%s\033[39m", string(s.bonus))
 		}
 	}
 	return fmt.Sprintf("<(%v) (%s)>", s.letter, bonus)
+}
+
+func (s Square) Info() string {
+	return fmt.Sprintf("[let %v bonus %v hc %v vc %v hcs %v vcs %v ha %v va %v]",
+		s.letter, s.bonus, s.hcrossSet, s.vcrossSet, s.hcrossScore, s.vcrossScore,
+		s.hAnchor, s.vAnchor,
+	)
 }
 
 func (s *Square) copyFrom(s2 *Square) {

@@ -4,51 +4,14 @@ package board
 
 import "github.com/domino14/macondo/alphabet"
 
-// VsWho is an enumeration
-type VsWho uint8
+// VsWho is a string representation of a board.
+type VsWho string
 
 const (
 	// VsEd was a game I played against Ed, under club games 20150127vEd
-	VsEd VsWho = iota
-	// VsMatt was a game I played against Matt Graham, 2018 Lake George tourney
-	VsMatt
-	// VsJeremy was a game I played against Jeremy Hall, 2018-11 Manhattan tourney
-	VsJeremy
-	// VsOxy is a constructed game that has a gigantic play available.
-	VsOxy
-	// VsMatt2 at the 2018-11 Manhattan tourney
-	VsMatt2
-	// VsRoy at the 2011 California Open
-	VsRoy
-	// VsMacondo1 is poor_endgame_timing.gcg
-	VsMacondo1
-	// JDvsNB is a test for endgames
-	JDvsNB
-	// VsAlec at the 2019 Nationals
-	VsAlec
-	// VsAlec2 same game as above just a couple turns later.
-	VsAlec2
-	// VsJoey from Lake George 2019
-	VsJoey
-	// VsCanik from 2019 Nationals
-	VsCanik
-	// JoeVsPaul, sample endgame given in the Maven paper
-	JoeVsPaul
-	// VsJoel from Manhattan November 2019
-	VsJoel
-	// Endgame from 2019 Worlds
-	EldarVsNigel
-	TestDupe
-)
+	// Quackle generates 219 total unique moves with a rack of AFGIIIS
 
-// SetToGame sets the board to a specific game in progress. It is used to
-// generate test cases.
-func (b *GameBoard) SetToGame(alph *alphabet.Alphabet, game VsWho) *TilesInPlay {
-	// Set the board to a game
-	switch game {
-	case VsEd:
-		// Quackle generates 219 total unique moves with a rack of AFGIIIS
-		return b.SetFromPlaintext(`
+	VsEd VsWho = `
 cesar: Turn 8
    A B C D E F G H I J K L M N O   -> cesar                    AFGIIIS   182
    ------------------------------     ed                       ADEILNV   226
@@ -68,9 +31,9 @@ cesar: Turn 8
 14|  -       "       "       -  |
 15|=     '       =       '     =|
    ------------------------------
-`, alph)
-	case VsMatt:
-		return b.SetFromPlaintext(`
+`
+	// VsMatt was a game I played against Matt Graham, 2018 Lake George tourney
+	VsMatt = `
 cesar: Turn 10
    A B C D E F G H I J K L M N O      matt g                   AEEHIIL   341
    ------------------------------  -> cesar                    AABDELT   318
@@ -90,9 +53,9 @@ cesar: Turn 10
 14|  -       "   T   "       -  |
 15|=     V E N G E D     '     =|
    ------------------------------
-`, alph)
-	case VsJeremy:
-		return b.SetFromPlaintext(`
+`
+	// VsJeremy was a game I played against Jeremy Hall, 2018-11 Manhattan tourney
+	VsJeremy = `
 jeremy hall: Turn 13
    A B C D E F G H I J K L M N O   -> jeremy hall              DDESW??   299
    ------------------------------     cesar                    AHIILR    352
@@ -112,10 +75,9 @@ jeremy hall: Turn 13
 14|  -       " O R   "   E   X I|
 15|=     '     O Y       '     G|
    ------------------------------
-`, alph)
-	case VsOxy:
-		// lol
-		return b.SetFromPlaintext(`
+`
+	// VsOxy is a constructed game that has a gigantic play available.
+	VsOxy = `
 cesar: Turn 11
    A B C D E F G H I J K L M N O      rubin                    ADDELOR   345
    ------------------------------  -> cesar                    OXPBAZE   129
@@ -135,9 +97,9 @@ cesar: Turn 11
 14|N -       "   U   "       -  |
 15|= J A C U L A T I N G '     =|
    ------------------------------
-`, alph)
-	case VsMatt2:
-		return b.SetFromPlaintext(`
+`
+	// VsMatt2 at the 2018-11 Manhattan tourney
+	VsMatt2 = `
 cesar: Turn 8
    A B C D E F G H I J K L M N O   -> cesar                    EEILNT?   237
    ------------------------------     matt graham              EIJPSTW   171
@@ -157,9 +119,9 @@ cesar: Turn 8
 14|  -       "       "       -  |
 15|=     '       =       '     =|
    ------------------------------
-`, alph)
-	case VsRoy:
-		return b.SetFromPlaintext(`
+`
+	// VsRoy at the 2011 California Open
+	VsRoy = `
 cesar: Turn 10
    A B C D E F G H I J K L M N O      roy                      WZ        427
    ------------------------------  -> cesar                    EFHIKOQ   331
@@ -179,9 +141,9 @@ cesar: Turn 10
 14|  H   E   "       "       -  |
 15|= T   '       =       '     =|
    ------------------------------
-`, alph)
-	case VsMacondo1:
-		return b.SetFromPlaintext(`
+`
+	// VsMacondo1 is poor_endgame_timing.gcg
+	VsMacondo1 = `
 teich: Turn 12
    A B C D E F G H I J K L M N O      cesar                    ENNR      379
    ------------------------------  -> teich                    APRS?     469
@@ -201,10 +163,9 @@ teich: Turn 12
 14|W E       "   I N Q U E S T  |
 15|E X E C       R       M O A N|
    ------------------------------
-`, alph)
-
-	case JDvsNB:
-		return b.SetFromPlaintext(`
+`
+	// JDvsNB is a test for endgames
+	JDvsNB = `
 Nathan Benedict: Turn 14
    A B C D E F G H I J K L M N O   -> Nathan Benedict          RR        365
    ------------------------------     JD                       LN        510
@@ -224,10 +185,9 @@ Nathan Benedict: Turn 14
 14|D A Z E D "   O   "     g -  |
 15|S     X I     U     U R S A E|
    ------------------------------
-`, alph)
-
-	case VsAlec:
-		return b.SetFromPlaintext(`
+`
+	// VsAlec at the 2019 Nationals
+	VsAlec = `
 cesar: Turn 11
    A B C D E F G H I J K L M N O      alec                     EGNOQR    420
    ------------------------------  -> cesar                    DGILOPR   369
@@ -247,10 +207,9 @@ cesar: Turn 11
 14|E - T     K I   T O O N I E S|
 15|S     ' M I D I       ' B   T|
    ------------------------------
-`, alph)
-
-	case VsAlec2:
-		return b.SetFromPlaintext(`
+`
+	// VsAlec2 same game as above just a couple turns later.
+	VsAlec2 = `
 cesar: Turn 12
    A B C D E F G H I J K L M N O      alec                     ENQR      438
    ------------------------------  -> cesar                    DGILOR    383
@@ -270,10 +229,9 @@ cesar: Turn 12
 14|E - T     K I   T O O N I E S|
 15|S     ' M I D I       ' B   T|
    ------------------------------
-`, alph)
-
-	case VsJoey:
-		return b.SetFromPlaintext(`
+`
+	// VsJoey from Lake George 2019
+	VsJoey = `
 Joey: Turn 11
    A B C D E F G H I J K L M N O      Cesar                    DIV       412
    ------------------------------  -> Joey                     AEFILMR   371
@@ -293,10 +251,9 @@ Joey: Turn 11
 14|  -       "       "       -  |
 15|=     '       =       '     =|
    ------------------------------
-`, alph)
-
-	case VsCanik:
-		return b.SetFromPlaintext(`
+`
+	// VsCanik from 2019 Nationals
+	VsCanik = `
 cesar: Turn 12
    A B C D E F G H I J K L M N O      canik                    DEHILOR   389
    ------------------------------  -> cesar                    BGIV      384
@@ -316,10 +273,9 @@ cesar: Turn 12
 14|  -       S P O R R A N   - A|
 15|=     '     O R E     N     D|
    ------------------------------
-`, alph)
-
-	case JoeVsPaul:
-		return b.SetFromPlaintext(`
+`
+	// JoeVsPaul, sample endgame given in the Maven paper
+	JoeVsPaul = `
 joe: Turn 12
    A B C D E F G H I J K L M N O      joe                      LZ        296
    ------------------------------  -> paul                     ?AEIR     296
@@ -339,10 +295,9 @@ joe: Turn 12
 14|  I N D O W   U   "       -  |
 15|=     ' D O R R       '     =|
    ------------------------------
-`, alph)
-
-	case VsJoel:
-		return b.SetFromPlaintext(`
+`
+	// VsJoel from Manhattan November 2019
+	VsJoel = `
 cesar: Turn 11
    A B C D E F G H I J K L M N O      joel s                   EIQSS     393
    ------------------------------  -> cesar                    AAFIRTW   373
@@ -362,33 +317,9 @@ cesar: Turn 11
 14|  -       "   O   "       -  |
 15|=     '       N O N I D E A L|
    ------------------------------
-`, alph)
-
-	case TestDupe:
-		return b.SetFromPlaintext(`
-New Player 1: Turn 2
-   A B C D E F G H I J K L M N O      Quackle                  AHIJNRR   76
-   ------------------------------  -> New Player 1             Z         4
- 1|=     '       =       '     =| --Tracking-----------------------------------
- 2|  -       "       "       -  | ??AAAAAAAAABBCDDDDEEEEEEEEEEEFFGGGHHIIIIIIJK
- 3|    -       '   '       -    | LLLLMMNNNNNOOOOOOOOPPQRRRRRRSSTTTTUUUUVVWWXY
- 4|'     -       '       -     '| Y  89
- 5|        -           -        |
- 6|  "       "       "       "  |
- 7|    '       '   '       '    |
- 8|= I N C I T E S       '     =|
- 9|I S '       '   '       '    |
-10|T "       "       "       "  |
-11|        -           -        |
-12|'     -       '       -     '|
-13|    -       '   '       -    |
-14|  -       "       "       -  |
-15|=     '       =       '     =|
-   ------------------------------
-`, alph)
-
-	case EldarVsNigel:
-		return b.SetFromPlaintext(`
+`
+	// Endgame from 2019 Worlds
+	EldarVsNigel = `
 Nigel Richards: Turn 11
    A B C D E F G H I J K L M N O   -> Nigel Richards           AEEIRUW   410
    ------------------------------     David Eldar              V         409
@@ -408,8 +339,33 @@ Nigel Richards: Turn 11
 14|  -       E   A   "       -  |
 15|=     '   D   M       '     =|
    ------------------------------
-`, alph)
-	}
+`
+	TestDupe = `
+New Player 1: Turn 2
+   A B C D E F G H I J K L M N O      Quackle                  AHIJNRR   76
+   ------------------------------  -> New Player 1             Z         4
+ 1|=     '       =       '     =| --Tracking-----------------------------------
+ 2|  -       "       "       -  | ??AAAAAAAAABBCDDDDEEEEEEEEEEEFFGGGHHIIIIIIJK
+ 3|    -       '   '       -    | LLLLMMNNNNNOOOOOOOOPPQRRRRRRSSTTTTUUUUVVWWXY
+ 4|'     -       '       -     '| Y  89
+ 5|        -           -        |
+ 6|  "       "       "       "  |
+ 7|    '       '   '       '    |
+ 8|= I N C I T E S       '     =|
+ 9|I S '       '   '       '    |
+10|T "       "       "       "  |
+11|        -           -        |
+12|'     -       '       -     '|
+13|    -       '   '       -    |
+14|  -       "       "       -  |
+15|=     '       =       '     =|
+   ------------------------------
+`
+)
 
-	return nil
+// SetToGame sets the board to a specific game in progress. It is used to
+// generate test cases.
+func (b *GameBoard) SetToGame(alph *alphabet.Alphabet, game VsWho) *TilesInPlay {
+	// Set the board to a game
+	return b.setFromPlaintext(string(game), alph)
 }

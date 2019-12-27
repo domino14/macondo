@@ -40,8 +40,11 @@ func TestPlayToTurn(t *testing.T) {
 15|=   S T E R I L E     '     =|
    ------------------------------
 `
+
 	b := board.MakeBoard(board.CrosswordGameBoard)
-	b.SetFromPlaintext(expectedBoardConfig, game.Alphabet())
+	b.SetToGame(game.Alphabet(), board.VsWho(expectedBoardConfig))
+	b.UpdateAllAnchors()
+	b.GenAllCrossSets(game.Gaddag(), game.Bag())
 
 	assert.True(t, b.Equals(game.Board()))
 }
