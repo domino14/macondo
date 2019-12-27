@@ -1,14 +1,33 @@
 package mechanics_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/gcgio"
 	"github.com/domino14/macondo/mechanics"
 )
+
+var LexiconDir = os.Getenv("LEXICON_PATH")
+
+func TestMain(m *testing.M) {
+	for _, lex := range []string{"America", "NWL18", "pseudo_twl1979", "CSW19"} {
+		gdgPath := filepath.Join(LexiconDir, "gaddag", lex+".gaddag")
+		if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
+			gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, lex+".txt"), true, true)
+			err = os.Rename("out.gaddag", gdgPath)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
+	os.Exit(m.Run())
+}
 
 func TestPlayToTurn(t *testing.T) {
 	curGameRepr, err := gcgio.ParseGCG("../gcgio/testdata/vs_frentz.gcg")

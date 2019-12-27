@@ -34,11 +34,15 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+func GaddagFromLexicon(lex string) (*gaddag.SimpleGaddag, error) {
+	return gaddag.LoadGaddag(filepath.Join(LexiconDir, "gaddag", lex+".gaddag"))
+}
+
 func TestSolveComplex(t *testing.T) {
 	t.Skip()
 	plies := 8
 
-	gd, err := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, err := GaddagFromLexicon("America")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
@@ -81,7 +85,7 @@ func TestSolveOther(t *testing.T) {
 	t.Skip()
 	plies := 8
 
-	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	gd, err := GaddagFromLexicon("NWL18")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
@@ -123,7 +127,7 @@ func TestSolveOther2(t *testing.T) {
 	t.Skip()
 	plies := 8
 
-	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	gd, err := GaddagFromLexicon("NWL18")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
@@ -163,7 +167,7 @@ func TestSolveOther3(t *testing.T) {
 	t.Skip()
 	plies := 7
 
-	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	gd, err := GaddagFromLexicon("NWL18")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
@@ -207,7 +211,7 @@ func TestSolveStandard(t *testing.T) {
 	// then proceed with iterative deepening.
 	plies := 4
 
-	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	gd, err := GaddagFromLexicon("NWL18")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
@@ -250,7 +254,7 @@ func TestSolveStandard2(t *testing.T) {
 	// Another standard 3-ply endgame.
 	plies := 3
 
-	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	gd, err := GaddagFromLexicon("NWL18")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
@@ -294,7 +298,7 @@ func TestSolveMaven(t *testing.T) {
 	t.Skip()
 	plies := 9
 
-	gd, err := gaddag.LoadGaddag("/tmp/ospd1.gaddag")
+	gd, err := GaddagFromLexicon("pseudo_twl1979")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
@@ -335,7 +339,7 @@ func TestSolveMaven(t *testing.T) {
 
 func TestStuck(t *testing.T) {
 	is := is.New(t)
-	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	gd, err := GaddagFromLexicon("NWL18")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
@@ -375,7 +379,7 @@ func TestStuck(t *testing.T) {
 
 func TestValuation(t *testing.T) {
 	is := is.New(t)
-	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	gd, err := GaddagFromLexicon("NWL18")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
@@ -476,7 +480,7 @@ func (t *TestGenerator) SetOppRack(rack *alphabet.Rack) {}
 func TestMinimalCase(t *testing.T) {
 	plies := 2
 
-	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	gd, err := GaddagFromLexicon("NWL18")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
@@ -523,7 +527,7 @@ func TestMinimalCase2(t *testing.T) {
 	// 3 instead of two plies. it should find the endgame
 	plies := 3
 
-	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	gd, err := GaddagFromLexicon("NWL18")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
@@ -573,7 +577,7 @@ func TestMinimalCase3(t *testing.T) {
 	// make absolutely no difference.
 	plies := 3
 
-	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	gd, err := GaddagFromLexicon("NWL18")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
@@ -622,7 +626,7 @@ func TestMinimalCase4(t *testing.T) {
 	// iterative deepening by default.
 	plies := 5
 
-	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	gd, err := GaddagFromLexicon("NWL18")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
@@ -671,7 +675,7 @@ func TestAnotherOneTiler(t *testing.T) {
 	// t.Skip()
 	plies := 5 // why is quackle so much faster at this endgame?
 
-	gd, err := gaddag.LoadGaddag("/tmp/csw19.gaddag")
+	gd, err := GaddagFromLexicon("CSW19")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
