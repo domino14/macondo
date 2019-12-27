@@ -86,7 +86,6 @@ func newGordonGenHardcode(gd *gaddag.SimpleGaddag) *GordonGenerator {
 		strategy:           strategy,
 		sortingParameter:   SortByEquity,
 	}
-	gen.board.SetAllCrosses()
 	return gen
 }
 
@@ -102,7 +101,6 @@ func NewGordonGenerator(game *mechanics.XWordGame, strategy strategy.Strategizer
 		strategy:           strategy,
 		sortingParameter:   SortByEquity,
 	}
-	gen.board.SetAllCrosses()
 	return gen
 }
 

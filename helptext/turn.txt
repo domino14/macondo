@@ -1,0 +1,10 @@
+turn <n> - Skip to turn <n> in a game.
+
+Examples:
+    turn 3
+    turn 25
+
+You must have a game loaded into memory with the `load` command or similar.
+
+A turn can consist of one or more events. Some example multi-event turns are
+plays that are challenged off, or end-of-game tile bonuses.

@@ -1,4 +1,4 @@
-package io
+package gcgio
 
 import (
 	"encoding/json"
@@ -47,5 +47,17 @@ func TestParseOtherGCG(t *testing.T) {
 	repr, err := json.Marshal(gamerepr)
 	assert.Nil(t, err)
 
+	assert.JSONEq(t, expected, string(repr))
+}
+
+func TestParseGCGWithChallengeBonus(t *testing.T) {
+	gamerepr, err := ParseGCG("./testdata/vs_frentz.gcg")
+	expected := slurp("./testdata/vs_frentz.json")
+
+	assert.Nil(t, err)
+	assert.NotNil(t, gamerepr)
+
+	repr, err := json.Marshal(gamerepr)
+	assert.Nil(t, err)
 	assert.JSONEq(t, expected, string(repr))
 }

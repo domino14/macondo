@@ -2,9 +2,15 @@ package board
 
 import (
 	"fmt"
-	"log"
+	"os"
+
+	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/alphabet"
+)
+
+var (
+	ColorSupport = os.Getenv("MACONDO_COLOR") == "on"
 )
 
 // A BonusSquare is a bonus square (duh)
@@ -36,8 +42,27 @@ type Square struct {
 	vAnchor     bool
 }
 
+func init() {
+	if ColorSupport {
+		log.Debug().Msg("Terminal color support is on.")
+	}
+}
+
 func (s Square) String() string {
-	return fmt.Sprintf("<(%v) (%s)>", s.letter, string(s.bonus))
+	bonus := string(s.bonus)
+	if ColorSupport {
+		if s.bonus == Bonus3WS {
+			bonus = fmt.Sprintf("\033[31m%s\033[39m", string(s.bonus))
+		}
+	}
+	return fmt.Sprintf("<(%v) (%s)>", s.letter, bonus)
+}
+
+func (s Square) Info() string {
+	return fmt.Sprintf("[let %v bonus %v hc %v vc %v hcs %v vcs %v ha %v va %v]",
+		s.letter, s.bonus, s.hcrossSet, s.vcrossSet, s.hcrossScore, s.vcrossScore,
+		s.hAnchor, s.vAnchor,
+	)
 }
 
 func (s *Square) copyFrom(s2 *Square) {
@@ -53,35 +78,35 @@ func (s *Square) copyFrom(s2 *Square) {
 
 func (s *Square) equals(s2 *Square) bool {
 	if s.bonus != s2.bonus {
-		log.Printf("Bonuses not equal")
+		log.Debug().Msg("Bonuses not equal")
 		return false
 	}
 	if s.letter != s2.letter {
-		log.Printf("Letters not equal")
+		log.Debug().Msg("Letters not equal")
 		return false
 	}
 	if s.hcrossSet != s2.hcrossSet {
-		log.Printf("horiz cross-sets not equal: %v %v", s.hcrossSet, s2.hcrossSet)
+		log.Debug().Msgf("horiz cross-sets not equal: %v %v", s.hcrossSet, s2.hcrossSet)
 		return false
 	}
 	if s.vcrossSet != s2.vcrossSet {
-		log.Printf("vert cross-sets not equal: %v %v", s.vcrossSet, s2.vcrossSet)
+		log.Debug().Msgf("vert cross-sets not equal: %v %v", s.vcrossSet, s2.vcrossSet)
 		return false
 	}
 	if s.hcrossScore != s2.hcrossScore {
-		log.Printf("horiz cross-scores not equal: %v %v", s.hcrossScore, s2.hcrossScore)
+		log.Debug().Msgf("horiz cross-scores not equal: %v %v", s.hcrossScore, s2.hcrossScore)
 		return false
 	}
 	if s.vcrossScore != s2.vcrossScore {
-		log.Printf("vert cross-scores not equal: %v %v", s.vcrossScore, s2.vcrossScore)
+		log.Debug().Msgf("vert cross-scores not equal: %v %v", s.vcrossScore, s2.vcrossScore)
 		return false
 	}
 	if s.hAnchor != s2.hAnchor {
-		log.Printf("horiz anchors not equal: %v %v", s.hAnchor, s2.hAnchor)
+		log.Debug().Msgf("horiz anchors not equal: %v %v", s.hAnchor, s2.hAnchor)
 		return false
 	}
 	if s.vAnchor != s2.vAnchor {
-		log.Printf("vert anchors not equal: %v %v", s.vAnchor, s2.vAnchor)
+		log.Debug().Msgf("vert anchors not equal: %v %v", s.vAnchor, s2.vAnchor)
 		return false
 	}
 	return true

@@ -1,0 +1,5 @@
+n - Step backwards in a game
+
+You must have a game loaded into memory with the `load` command or similar.
+
+The `p` command steps backwards one turn. To step forwards, try `n`.

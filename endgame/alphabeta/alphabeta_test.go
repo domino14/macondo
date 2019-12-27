@@ -10,6 +10,7 @@ import (
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
+	"github.com/domino14/macondo/gcgio"
 	"github.com/domino14/macondo/mechanics"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
@@ -20,30 +21,28 @@ import (
 var LexiconDir = os.Getenv("LEXICON_PATH")
 
 func TestMain(m *testing.M) {
-	if _, err := os.Stat("/tmp/gen_america.gaddag"); os.IsNotExist(err) {
-		gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "America.txt"), true, true)
-		os.Rename("out.gaddag", "/tmp/gen_america.gaddag")
-	}
-	if _, err := os.Stat("/tmp/nwl18.gaddag"); os.IsNotExist(err) {
-		gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "NWL18.txt"), true, true)
-		os.Rename("out.gaddag", "/tmp/nwl18.gaddag")
-	}
-	if _, err := os.Stat("/tmp/ospd1.gaddag"); os.IsNotExist(err) {
-		gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "pseudo_twl1979.txt"), true, true)
-		os.Rename("out.gaddag", "/tmp/ospd1.gaddag")
-	}
-	if _, err := os.Stat("/tmp/csw19.gaddag"); os.IsNotExist(err) {
-		gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "CSW19.txt"), true, true)
-		os.Rename("out.gaddag", "/tmp/csw19.gaddag")
+	for _, lex := range []string{"America", "NWL18", "pseudo_twl1979", "CSW19"} {
+		gdgPath := filepath.Join(LexiconDir, "gaddag", lex+".gaddag")
+		if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
+			gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, lex+".txt"), true, true)
+			err = os.Rename("out.gaddag", gdgPath)
+			if err != nil {
+				panic(err)
+			}
+		}
 	}
 	os.Exit(m.Run())
+}
+
+func GaddagFromLexicon(lex string) (*gaddag.SimpleGaddag, error) {
+	return gaddag.LoadGaddag(filepath.Join(LexiconDir, "gaddag", lex+".gaddag"))
 }
 
 func TestSolveComplex(t *testing.T) {
 	t.Skip()
 	plies := 8
 
-	gd, err := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, err := GaddagFromLexicon("America")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
@@ -86,7 +85,7 @@ func TestSolveOther(t *testing.T) {
 	t.Skip()
 	plies := 8
 
-	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	gd, err := GaddagFromLexicon("NWL18")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
@@ -128,7 +127,7 @@ func TestSolveOther2(t *testing.T) {
 	t.Skip()
 	plies := 8
 
-	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	gd, err := GaddagFromLexicon("NWL18")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
@@ -168,7 +167,7 @@ func TestSolveOther3(t *testing.T) {
 	t.Skip()
 	plies := 7
 
-	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	gd, err := GaddagFromLexicon("NWL18")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
@@ -212,7 +211,7 @@ func TestSolveStandard(t *testing.T) {
 	// then proceed with iterative deepening.
 	plies := 4
 
-	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	gd, err := GaddagFromLexicon("NWL18")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
@@ -255,7 +254,7 @@ func TestSolveStandard2(t *testing.T) {
 	// Another standard 3-ply endgame.
 	plies := 3
 
-	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	gd, err := GaddagFromLexicon("NWL18")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
@@ -299,7 +298,7 @@ func TestSolveMaven(t *testing.T) {
 	t.Skip()
 	plies := 9
 
-	gd, err := gaddag.LoadGaddag("/tmp/ospd1.gaddag")
+	gd, err := GaddagFromLexicon("pseudo_twl1979")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
@@ -340,7 +339,7 @@ func TestSolveMaven(t *testing.T) {
 
 func TestStuck(t *testing.T) {
 	is := is.New(t)
-	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	gd, err := GaddagFromLexicon("NWL18")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
@@ -380,7 +379,7 @@ func TestStuck(t *testing.T) {
 
 func TestValuation(t *testing.T) {
 	is := is.New(t)
-	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	gd, err := GaddagFromLexicon("NWL18")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
@@ -481,7 +480,7 @@ func (t *TestGenerator) SetOppRack(rack *alphabet.Rack) {}
 func TestMinimalCase(t *testing.T) {
 	plies := 2
 
-	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	gd, err := GaddagFromLexicon("NWL18")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
@@ -528,7 +527,7 @@ func TestMinimalCase2(t *testing.T) {
 	// 3 instead of two plies. it should find the endgame
 	plies := 3
 
-	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	gd, err := GaddagFromLexicon("NWL18")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
@@ -578,7 +577,7 @@ func TestMinimalCase3(t *testing.T) {
 	// make absolutely no difference.
 	plies := 3
 
-	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	gd, err := GaddagFromLexicon("NWL18")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
@@ -627,7 +626,7 @@ func TestMinimalCase4(t *testing.T) {
 	// iterative deepening by default.
 	plies := 5
 
-	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	gd, err := GaddagFromLexicon("NWL18")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
@@ -676,7 +675,7 @@ func TestAnotherOneTiler(t *testing.T) {
 	// t.Skip()
 	plies := 5 // why is quackle so much faster at this endgame?
 
-	gd, err := gaddag.LoadGaddag("/tmp/csw19.gaddag")
+	gd, err := GaddagFromLexicon("CSW19")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
@@ -714,5 +713,35 @@ func TestAnotherOneTiler(t *testing.T) {
 	// if v < 0 {
 	// 	t.Errorf("Expected > 0, %v was", v)
 	// }
+	// t.Fail()
+}
+
+func TestFromGCG(t *testing.T) {
+	plies := 1
+
+	curGameRepr, err := gcgio.ParseGCG("../../gcgio/testdata/vs_frentz.gcg")
+	if err != nil {
+		t.Errorf("Got error %v", err)
+	}
+	game := mechanics.StateFromRepr(curGameRepr, "CSW19", 0)
+	game.SetStateStackLength(plies)
+	err = game.PlayGameToTurn(curGameRepr, 21)
+	if err != nil {
+		t.Errorf("Error playing to turn %v", err)
+	}
+	generator := movegen.NewGordonGenerator(
+		// The strategy doesn't matter right here
+		game, &strategy.NoLeaveStrategy{},
+	)
+
+	s := new(Solver)
+	s.Init(generator, game)
+	// s.iterativeDeepeningOn = false
+	// s.simpleEvaluation = true
+	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
+	v, _ := s.Solve(plies)
+	if v != 99 {
+		t.Errorf("Expected 99, was %v", v)
+	}
 	// t.Fail()
 }
