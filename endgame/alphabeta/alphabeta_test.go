@@ -720,7 +720,7 @@ func TestYetAnotherOneTiler(t *testing.T) {
 	t.Skip()
 	plies := 10
 
-	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	gd, err := GaddagFromLexicon("NWL18")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
@@ -763,9 +763,9 @@ func TestYetAnotherOneTiler(t *testing.T) {
 
 func TestYetAnotherOneTiler2(t *testing.T) {
 	// t.Skip()
-	plies := 5
+	plies := 7
 
-	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	gd, err := GaddagFromLexicon("NWL18")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
@@ -787,9 +787,9 @@ func TestYetAnotherOneTiler2(t *testing.T) {
 	generator.SetBoardToGame(alph, board.NoahVsMishu2)
 	s := new(Solver)
 	s.Init(generator, game)
-	s.disablePruning = true
+	// s.disablePruning = true
 	s.iterativeDeepeningOn = false
-	s.simpleEvaluation = true
+	// s.simpleEvaluation = true
 	ourRack := alphabet.RackFromString("AEIINY", alph)
 	theirRack := alphabet.RackFromString("LLPR", alph)
 	game.SetRackFor(0, ourRack)
@@ -811,7 +811,7 @@ func TestYetAnotherOneTiler3(t *testing.T) {
 	t.Skip()
 	plies := 6
 
-	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	gd, err := GaddagFromLexicon("NWL18")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}

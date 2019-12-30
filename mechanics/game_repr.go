@@ -299,7 +299,7 @@ func genMove(e Event, alph *alphabet.Alphabet) *move.Move {
 			leaveMW := leave(rack, tiles)
 			m = move.NewExchangeMove(tiles, leaveMW, alph)
 		} else {
-			m = move.NewPassMove(rack)
+			m = move.NewPassMove(rack, alph)
 		}
 
 	case *ScoreAdditionEvent:

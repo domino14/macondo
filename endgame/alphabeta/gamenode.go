@@ -89,4 +89,5 @@ func (g *gameNode) calculateValue(s *Solver, gameOver bool) {
 
 func (g *gameNode) serialize() []int32 {
 	// Climb down tree and serialize nodes.
+	return nil
 }

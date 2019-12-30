@@ -1,4 +1,4 @@
-package main
+package shell
 
 import (
 	"io"
@@ -7,7 +7,7 @@ import (
 
 func usage(w io.Writer) {
 
-	dat, err := ioutil.ReadFile("./helptext/usage.txt")
+	dat, err := ioutil.ReadFile("./shell/helptext/usage.txt")
 	if err != nil {
 		io.WriteString(w, "Error loading helptext: "+err.Error())
 		return
@@ -17,7 +17,7 @@ func usage(w io.Writer) {
 }
 
 func usageTopic(w io.Writer, topic string) {
-	dat, err := ioutil.ReadFile("./helptext/" + topic + ".txt")
+	dat, err := ioutil.ReadFile("./shell/helptext/" + topic + ".txt")
 
 	if err != nil {
 		io.WriteString(w, "There is no help text for the topic "+topic+"\n")

@@ -2,7 +2,7 @@ commands:
     load <path/to/gcg> - load a .gcg file
     setlex <lexicon> - set a lexicon (NWL18, CSW19, and maybe others)
     n - next play
-    b - previous play
+    p - previous play
     turn <n> - go to turn <n>
     gen [n] - generate n plays and sort by equity; n defaults to 15
     add <play> - add a play, that looks like coords play (e.g. 10J FOO)
@@ -10,6 +10,9 @@ commands:
     endgame [maxplies] [id] [simple] - run endgame, search to maxplies (4 is default)
       id (1 or 0) - turn on or off iterative deepening (on by default)
       simple (1 or 0) - use simple eval func (faster but less accurate, off by default)
+    mode [modename] - macondo can be in a number of a different modes. The default
+      mode is 'standard'. In other modes, other commands are accepted. See
+      `help mode` for a list of modes.
     solvepeg [params...] - solve pre-endgame only usable if there are 1 or 2 tiles in the bag
       takes in same parameters as endgame
 
