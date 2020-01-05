@@ -3,12 +3,17 @@
 package gcgio
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"golang.org/x/text/encoding/charmap"
+	"golang.org/x/text/transform"
 
 	"github.com/domino14/macondo/mechanics"
 	"github.com/domino14/macondo/move"
@@ -21,6 +26,7 @@ type Token uint8
 const (
 	UndefinedToken Token = iota
 	PlayerToken
+	EncodingToken
 	MoveToken
 	NoteToken
 	LexiconToken
@@ -45,6 +51,7 @@ const (
 	MoveRegex               = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+(?P<pos>\w+)\s+(?P<play>[\w\\.]+)\s+\+(?P<score>\d+)\s+(?P<cumul>\d+)`
 	NoteRegex               = `#note (?P<note>.+)`
 	LexiconRegex            = `#lexicon (?P<lexicon>.+)`
+	CharacterEncodingRegex  = `#character-encoding (?P<encoding>.+)`
 	LostChallengeRegex      = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+--\s+-(?P<lost_score>\d+)\s+(?P<cumul>\d+)`
 	PassRegex               = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+-\s+\+0\s+(?P<cumul>\d+)`
 	ChallengeBonusRegex     = `>(?P<nick>\S+):\s+(?P<rack>\S*)\s+\(challenge\)\s+\+(?P<bonus>\d+)\s+(?P<cumul>\d+)`
@@ -53,6 +60,8 @@ const (
 	TimePenaltyRegex        = `>(?P<nick>\S+):\s+(?P<rack>\S*)\s+\(time\)\s+\-(?P<penalty>\d+)\s+(?P<cumul>\d+)`
 	PtsLostForLastRackRegex = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+\((?P<rack>\S+)\)\s+\-(?P<penalty>\d+)\s+(?P<cumul>\d+)`
 )
+
+var compiledEncodingRegexp *regexp.Regexp
 
 type parser struct {
 	lastToken Token
@@ -65,8 +74,11 @@ func init() {
 	// both regexes. This can probably be avoided by being more strict about
 	// what type of characters the rack can be, etc.
 
+	compiledEncodingRegexp = regexp.MustCompile(CharacterEncodingRegex)
+
 	GCGRegexes = []gcgdatum{
 		gcgdatum{PlayerToken, regexp.MustCompile(PlayerRegex)},
+		gcgdatum{EncodingToken, compiledEncodingRegexp},
 		gcgdatum{MoveToken, regexp.MustCompile(MoveRegex)},
 		gcgdatum{NoteToken, regexp.MustCompile(NoteRegex)},
 		gcgdatum{LexiconToken, regexp.MustCompile(LexiconRegex)},
@@ -95,6 +107,8 @@ func (p *parser) addEventOrPragma(token Token, match []string, gameRepr *mechani
 			PlayerNumber: uint8(pn),
 		})
 		return nil
+	case EncodingToken:
+		return errors.New("encoding line must be first line in file if present")
 	case MoveToken:
 		evt := &mechanics.TilePlacementEvent{}
 		evt.Nickname = match[1]
@@ -274,35 +288,102 @@ func (p *parser) parseLine(line string, gameRepr *mechanics.GameRepr) error {
 	return nil
 }
 
-func parseString(gcg string) (*mechanics.GameRepr, error) {
-	parser := &parser{}
+// func parseString(gcg string) (*mechanics.GameRepr, error) {
+// 	parser := &parser{}
 
-	lines := strings.Split(gcg, "\n")
+// 	lines := strings.Split(gcg, "\n")
+// 	grep := &mechanics.GameRepr{Turns: []mechanics.Turn{}, Players: []*mechanics.Player{},
+// 		Version: 1, OriginalGCG: strings.TrimSpace(gcg)}
+// 	var err error
+// 	for _, line := range lines {
+// 		err = parser.parseLine(line, grep)
+// 		if err != nil {
+// 			return nil, err
+// 		}
+// 	}
+// 	return grep, nil
+// }
+
+func encodingOrFirstLine(reader io.Reader) (string, string, error) {
+	// Read either the encoding of the file, or the first line,
+	// whichever is available.
+	const BufSize = 128
+	buf := make([]byte, BufSize)
+	n := 0
+	for {
+		// non buffered byte-by-byte
+		if _, err := reader.Read(buf[n : n+1]); err != nil {
+			return "", "", err
+		}
+		if buf[n] == 0xa || n == BufSize { // reached CR or size limit
+			firstLine := string(buf[:n])
+			match := compiledEncodingRegexp.FindStringSubmatch(firstLine)
+			if match != nil {
+				enc := strings.ToLower(match[1])
+				if enc != "utf-8" && enc != "utf8" {
+					return "", "", errors.New("unhandled character encoding " + enc)
+				}
+				// Otherwise, switch to utf8 mode; which means we require no transform
+				// since Go does UTF-8 by default.
+				return "utf8", "", nil
+			}
+			// Not an encoding line
+			return "", firstLine, nil
+		} else {
+			n++
+		}
+	}
+}
+
+func ParseGCGFromReader(reader io.Reader) (*mechanics.GameRepr, error) {
+
 	grep := &mechanics.GameRepr{Turns: []mechanics.Turn{}, Players: []*mechanics.Player{},
-		Version: 1, OriginalGCG: strings.TrimSpace(gcg)}
+		Version: 1}
 	var err error
-	for _, line := range lines {
+	parser := &parser{}
+	originalGCG := ""
+
+	// Determine encoding from first line
+	// Try to match to an encoding pragma line. If it doesn't exist,
+	// the encoding is ISO 8859-1 per spec.
+	enc, firstLine, err := encodingOrFirstLine(reader)
+	if err != nil {
+		return nil, err
+	}
+	var scanner *bufio.Scanner
+	if enc != "utf8" {
+		gcgEncoding := charmap.ISO8859_1
+		r := transform.NewReader(reader, gcgEncoding.NewDecoder())
+		scanner = bufio.NewScanner(r)
+	} else {
+		scanner = bufio.NewScanner(reader)
+	}
+	if firstLine != "" {
+		err = parser.parseLine(firstLine, grep)
+		if err != nil {
+			return nil, err
+		}
+		originalGCG += firstLine + "\n"
+	}
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		fmt.Println("SCANNED LINE", line)
 		err = parser.parseLine(line, grep)
 		if err != nil {
 			return nil, err
 		}
+		originalGCG += line + "\n"
 	}
+	grep.OriginalGCG = strings.TrimSpace(originalGCG)
 	return grep, nil
-}
-
-func ParseGCGFromReader(reader io.Reader) (*mechanics.GameRepr, error) {
-	data, err := ioutil.ReadAll(reader)
-	if err != nil {
-		return nil, err
-	}
-	return parseString(string(data))
 }
 
 // ParseGCG parses a GCG file into a GameRepr.
 func ParseGCG(filename string) (*mechanics.GameRepr, error) {
-	data, err := ioutil.ReadFile(filename)
+	f, err := os.Open(filename)
 	if err != nil {
 		return nil, err
 	}
-	return parseString(string(data))
+	return ParseGCGFromReader(f)
 }

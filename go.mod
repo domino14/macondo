@@ -12,6 +12,7 @@ require (
 	github.com/rs/zerolog v1.14.3
 	github.com/stretchr/testify v1.4.0
 	github.com/twitchtv/twirp v5.7.0+incompatible
+	golang.org/x/text v0.3.2
 )
 
 go 1.13

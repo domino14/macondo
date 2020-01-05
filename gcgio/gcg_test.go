@@ -61,3 +61,25 @@ func TestParseGCGWithChallengeBonus(t *testing.T) {
 	assert.Nil(t, err)
 	assert.JSONEq(t, expected, string(repr))
 }
+
+func TestParseSpecialChar(t *testing.T) {
+	gamerepr, err := ParseGCG("./testdata/name_iso8859-1.gcg")
+	assert.Nil(t, err)
+	assert.NotNil(t, gamerepr)
+	assert.Equal(t, "césar", gamerepr.Players[0].Nickname)
+}
+
+func TestParseSpecialUTF8NoHeader(t *testing.T) {
+	gamerepr, err := ParseGCG("./testdata/name_utf8_noheader.gcg")
+	assert.Nil(t, err)
+	assert.NotNil(t, gamerepr)
+	// Since there was no encoding header, the name gets all messed up:
+	assert.Equal(t, "cÃ©sar", gamerepr.Players[0].Nickname)
+}
+
+func TestParseSpecialUTF8WithHeader(t *testing.T) {
+	gamerepr, err := ParseGCG("./testdata/name_utf8_with_header.gcg")
+	assert.Nil(t, err)
+	assert.NotNil(t, gamerepr)
+	assert.Equal(t, "césar", gamerepr.Players[0].Nickname)
+}
