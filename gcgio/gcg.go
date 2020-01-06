@@ -376,7 +376,6 @@ func ParseGCGFromReader(reader io.Reader) (*mechanics.GameRepr, error) {
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		fmt.Println("SCANNED LINE", line)
 		err = parser.parseLine(line, grep)
 		if err != nil {
 			return nil, err

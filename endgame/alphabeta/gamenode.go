@@ -17,6 +17,26 @@ type gameNode struct {
 	generatedPlays []*move.Move
 }
 
+func (g *gameNode) Children() []*gameNode {
+	return g.children
+}
+
+func (g *gameNode) Parent() *gameNode {
+	return g.parent
+}
+
+func (g *gameNode) HeuristicValue() float32 {
+	return g.heuristicValue
+}
+
+func (g *gameNode) Move() *move.Move {
+	return g.move
+}
+
+func (g *gameNode) GeneratedPlays() []*move.Move {
+	return g.generatedPlays
+}
+
 func (g *gameNode) String() string {
 	return fmt.Sprintf("<gamenode move %v, heuristicVal %v, nchild %v>", g.move,
 		g.heuristicValue, len(g.children))

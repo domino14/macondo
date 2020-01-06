@@ -5,9 +5,9 @@ import (
 	"io/ioutil"
 )
 
-func usage(w io.Writer) {
+func usage(w io.Writer, mode string) {
 
-	dat, err := ioutil.ReadFile("./shell/helptext/usage.txt")
+	dat, err := ioutil.ReadFile("./shell/helptext/usage-" + mode + ".txt")
 	if err != nil {
 		io.WriteString(w, "Error loading helptext: "+err.Error())
 		return

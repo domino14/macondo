@@ -228,6 +228,34 @@ func (sc *ShellController) endgameDebugModeSwitch(line string, sig chan os.Signa
 	switch {
 	case strings.HasPrefix(line, "mode"):
 		sc.modeSelector(line)
+
+	case strings.HasPrefix(line, "help"):
+		if strings.TrimSpace(line) == "help" {
+			usage(sc.l.Stderr(), "endgamedebug")
+		} else {
+			showMessage("No additional info is available for this mode", sc.l.Stderr())
+		}
+
+	case line == "l":
+		// List the current level of nodes
+		showMessage("Listing nodes", sc.l.Stderr())
+
+	case line == "u":
+		// List the current level of nodes
+		showMessage("Go up a level", sc.l.Stderr())
+
+	case line == "i":
+		// List the current level of nodes
+		showMessage("Info about the current node", sc.l.Stderr())
+
+	case strings.HasPrefix(line, "s"):
+		nodeID, err := strconv.Atoi(line[:1])
+		if err != nil {
+			showMessage("Error: "+err.Error(), sc.l.Stderr())
+			return nil
+		}
+		showMessage(fmt.Sprintf("Stepping into node %d", nodeID), sc.l.Stderr())
+
 	default:
 		log.Debug().Msgf("you said: %v", strconv.Quote(line))
 	}
@@ -326,7 +354,7 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		return errors.New("sending quit signal")
 	case strings.HasPrefix(line, "help"):
 		if strings.TrimSpace(line) == "help" {
-			usage(sc.l.Stderr())
+			usage(sc.l.Stderr(), "standard")
 		} else {
 			helptopic := strings.SplitN(line, " ", 2)
 			usageTopic(sc.l.Stderr(), helptopic[1])

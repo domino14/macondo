@@ -512,3 +512,7 @@ func (s *Solver) SetIterativeDeepening(i bool) {
 func (s *Solver) SetSimpleEvaluator(i bool) {
 	s.simpleEvaluation = i
 }
+
+func (s *Solver) RootNode() *gameNode {
+	return s.rootNode
+}
