@@ -327,11 +327,19 @@ func encodingOrFirstLine(reader io.Reader) (string, string, error) {
 				// since Go does UTF-8 by default.
 				return "utf8", "", nil
 			}
-			// Not an encoding line
-			return "", firstLine, nil
-		} else {
-			n++
+			// Not an encoding line. We should ocnvert the raw bytes into the default
+			// GCG encoding, which is ISO 8859-1.
+			decoder := charmap.ISO8859_1.NewDecoder()
+			result, _, err := transform.Bytes(decoder, buf)
+			if err != nil {
+				return "", "", err
+			}
+			// We can stringify the result now, as the transformed bytes will
+			// be UTF-8
+			return "", string(result), nil
 		}
+		n++
+
 	}
 }
 

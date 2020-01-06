@@ -67,6 +67,7 @@ func TestParseSpecialChar(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, gamerepr)
 	assert.Equal(t, "césar", gamerepr.Players[0].Nickname)
+	assert.Equal(t, "hércules", gamerepr.Players[1].Nickname)
 }
 
 func TestParseSpecialUTF8NoHeader(t *testing.T) {
@@ -82,4 +83,10 @@ func TestParseSpecialUTF8WithHeader(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, gamerepr)
 	assert.Equal(t, "césar", gamerepr.Players[0].Nickname)
+}
+
+func TestParseUnsupportedEncoding(t *testing.T) {
+	gamerepr, err := ParseGCG("./testdata/name_weird_encoding_with_header.gcg")
+	assert.NotNil(t, err)
+	assert.Nil(t, gamerepr)
 }
