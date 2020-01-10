@@ -341,26 +341,36 @@ func genMove(e Event, alph *alphabet.Alphabet) *move.Move {
 
 // AddTurnFromPlay creates a new Turn, and adds it at the turn ID. It
 // additionally truncates all moves after this one.
-func (r *GameRepr) AddTurnFromPlay(turn int, m *move.Move) error {
+func (r *GameRepr) AddTurnFromPlay(turnnum int, m *move.Move) error {
 	var nick string
+	var playerid int
 	// Figure out whose turn it is.
-	if turn < len(r.Turns) {
-		nick = r.Turns[turn][0].GetNickname()
+	if turnnum < len(r.Turns) {
+		nick = r.Turns[turnnum][0].GetNickname()
+		playerid = turnnum % 2
 	} else {
 		return errors.New("have not implemented yet")
 	}
 
-	turn := []Event{}
+	turnToAdd := []Event{}
 	switch m.Action() {
 	case move.MoveTypePlay:
-		evt := TilePlacementEvent{}
+		evt := &TilePlacementEvent{}
 		evt.Nickname = nick
-		evt.Rack = m.BoardCoords
+		evt.Rack = m.FullRack()
+		evt.Position = m.BoardCoords()
+		evt.Play = m.Tiles().UserVisible(m.Alphabet())
+		evt.Score = m.Score()
+		evt.Cumulative = r.Players[playerid].points + evt.Score
+		evt.Type = RegMove
+		turnToAdd = append(turnToAdd, evt)
 
 	case move.MoveTypePass:
 
 	case move.MoveTypeExchange:
 
 	}
-
+	r.Turns[turnnum] = turnToAdd
+	r.Turns = r.Turns[:turnnum+1]
+	return nil
 }

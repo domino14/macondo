@@ -3,6 +3,7 @@ package move
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 
 	"github.com/rs/zerolog/log"
@@ -92,6 +93,28 @@ func (m *Move) ShortDescription() string {
 		return fmt.Sprintf("(exch %v)", m.tiles.UserVisible(m.alph))
 	}
 	return fmt.Sprint("UNHANDLED")
+}
+
+// FullRack returns the entire rack that the move was made from. This
+// can be calculated from the tiles it uses and the leave.
+func (m *Move) FullRack() string {
+	rack := []rune(m.leave.UserVisible(m.alph))
+	for _, ml := range m.tiles {
+		switch {
+		case ml >= alphabet.BlankOffset:
+			rack = append(rack, alphabet.BlankToken)
+		case ml == alphabet.PlayedThroughMarker || ml == alphabet.BlankMachineLetter ||
+			ml == alphabet.EmptySquareMarker:
+			// do nothing
+
+		default:
+			rack = append(rack, m.alph.Letter(ml))
+		}
+	}
+	sort.Slice(rack, func(i, j int) bool {
+		return rack[i] < rack[j]
+	})
+	return string(rack)
 }
 
 func (m *Move) Action() MoveType {

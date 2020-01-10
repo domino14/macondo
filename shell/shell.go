@@ -123,13 +123,12 @@ func loadGCG(filepath string) (*mechanics.XWordGame, *mechanics.GameRepr, movege
 	return curGameState, curGameRepr, generator, nil
 }
 
-func setToTurn(turnnum int, curGameState *mechanics.XWordGame,
-	curGameRepr *mechanics.GameRepr) error {
+func (sc *ShellController) setToTurn(turnnum int) error {
 
-	if curGameState == nil {
+	if sc.curGameState == nil {
 		return errors.New("please load a game first with the `load` command")
 	}
-	err := curGameState.PlayGameToTurn(curGameRepr, turnnum)
+	err := sc.curGameState.PlayGameToTurn(sc.curGameRepr, turnnum)
 	if err != nil {
 		return err
 	}
@@ -141,7 +140,7 @@ func moveTableHeader() string {
 }
 
 func MoveTableRow(idx int, m *move.Move, alph *alphabet.Alphabet) string {
-	return fmt.Sprintf("%d: %-20s%-7s%-6d%-6.2f\n", idx+1,
+	return fmt.Sprintf("%d: %-20s%-7s%-6d%-6.2f", idx+1,
 		m.ShortDescription(), m.Leave().UserVisible(alph), m.Score(), m.Equity())
 }
 
@@ -247,18 +246,18 @@ func (sc *ShellController) addPlay(line string) error {
 		// Play the actual move on the board, draw tiles, etc.
 		// sc.curGameState.PlayMove(sc.curGenPlays[playID], false)
 		// Modify the game repr.
-		sc.curGameRepr.AddTurnFromPlay(sc.curTurnNum, sc.curGenPlays[playID]))
-
-		sc.curTurnNum++
+		sc.curGameRepr.AddTurnFromPlay(sc.curTurnNum, sc.curGenPlays[playID])
+		sc.setToTurn(sc.curTurnNum + 1)
 	} else if len(cmd) == 3 {
-		coords := cmd[1]
-		word := cmd[2]
+		// coords := cmd[1]
+		// word := cmd[2]
 		// Handle exchange/pass later.
 		// Remember to handle leaves correctly in this case, since
 		// a player-entered move will not contain a rack leave.
 	} else {
 		return errors.New("unrecognized arguments to `add`")
 	}
+	return nil
 }
 
 func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) error {
@@ -282,7 +281,7 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		} else {
 			delta = -1
 		}
-		err := setToTurn(sc.curTurnNum+delta, sc.curGameState, sc.curGameRepr)
+		err := sc.setToTurn(sc.curTurnNum + delta)
 		if err != nil {
 			showMessage("Error: "+err.Error(), sc.l.Stderr())
 			break
@@ -297,7 +296,7 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			sc.showError(err)
 			break
 		}
-		err = setToTurn(t, sc.curGameState, sc.curGameRepr)
+		err = sc.setToTurn(t)
 		if err != nil {
 			sc.showError(err)
 			break
