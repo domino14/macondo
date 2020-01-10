@@ -1,16 +1,16 @@
 package mechanics
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
-	"github.com/domino14/macondo/move"
-
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
+	"github.com/domino14/macondo/move"
 	"github.com/rs/zerolog/log"
 )
 
@@ -217,6 +217,8 @@ func (g *XWordGame) ToDisplayText(repr *GameRepr) string {
 		addText(bts, p, hpadding, bagDisp[p-vpadding])
 	}
 
+	addText(bts, 12, hpadding, fmt.Sprintf("Turn %d:", g.turnnum))
+
 	vpadding = 13
 
 	if g.turnnum-1 >= 0 {
@@ -335,4 +337,30 @@ func genMove(e Event, alph *alphabet.Alphabet) *move.Move {
 
 	}
 	return m
+}
+
+// AddTurnFromPlay creates a new Turn, and adds it at the turn ID. It
+// additionally truncates all moves after this one.
+func (r *GameRepr) AddTurnFromPlay(turn int, m *move.Move) error {
+	var nick string
+	// Figure out whose turn it is.
+	if turn < len(r.Turns) {
+		nick = r.Turns[turn][0].GetNickname()
+	} else {
+		return errors.New("have not implemented yet")
+	}
+
+	turn := []Event{}
+	switch m.Action() {
+	case move.MoveTypePlay:
+		evt := TilePlacementEvent{}
+		evt.Nickname = nick
+		evt.Rack = m.BoardCoords
+
+	case move.MoveTypePass:
+
+	case move.MoveTypeExchange:
+
+	}
+
 }

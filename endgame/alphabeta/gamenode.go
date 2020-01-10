@@ -8,47 +8,47 @@ import (
 
 // a game node has to have enough information to allow the game and turns
 // to be reconstructed.
-type gameNode struct {
+type GameNode struct {
 	// the move corresponding to the node is the move that is being evaluated.
 	move           *move.Move
-	parent         *gameNode
+	parent         *GameNode
 	heuristicValue float32
-	children       []*gameNode // children should be null until expanded.
+	children       []*GameNode // children should be null until expanded.
 	generatedPlays []*move.Move
 }
 
-func (g *gameNode) Children() []*gameNode {
+func (g *GameNode) Children() []*GameNode {
 	return g.children
 }
 
-func (g *gameNode) Parent() *gameNode {
+func (g *GameNode) Parent() *GameNode {
 	return g.parent
 }
 
-func (g *gameNode) HeuristicValue() float32 {
+func (g *GameNode) HeuristicValue() float32 {
 	return g.heuristicValue
 }
 
-func (g *gameNode) Move() *move.Move {
+func (g *GameNode) Move() *move.Move {
 	return g.move
 }
 
-func (g *gameNode) GeneratedPlays() []*move.Move {
+func (g *GameNode) GeneratedPlays() []*move.Move {
 	return g.generatedPlays
 }
 
-func (g *gameNode) String() string {
+func (g *GameNode) String() string {
 	return fmt.Sprintf("<gamenode move %v, heuristicVal %v, nchild %v>", g.move,
 		g.heuristicValue, len(g.children))
 }
 
-func (g *gameNode) value(s *Solver, gameOver bool) float32 {
+func (g *GameNode) value(s *Solver, gameOver bool) float32 {
 	g.calculateValue(s, gameOver)
 	// log.Debug().Msgf("heuristic value of node %p is %v", g, g.heuristicValue)
 	return g.heuristicValue
 }
 
-func (g *gameNode) calculateValue(s *Solver, gameOver bool) {
+func (g *GameNode) calculateValue(s *Solver, gameOver bool) {
 	// calculate the heuristic value of this node, and store it.
 	// we start with a max node. At 1-ply (and all odd plies), maximizing
 	// is always false.
@@ -107,7 +107,7 @@ func (g *gameNode) calculateValue(s *Solver, gameOver bool) {
 	}
 }
 
-func (g *gameNode) serialize() []int32 {
+func (g *GameNode) serialize() []int32 {
 	// Climb down tree and serialize nodes.
 	return nil
 }

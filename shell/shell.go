@@ -30,12 +30,15 @@ type Mode int
 type ShellController struct {
 	l *readline.Instance
 
-	curGameState *mechanics.XWordGame
-	curGameRepr  *mechanics.GameRepr
-	curTurnNum   int
-	gen          movegen.MoveGenerator
-	endgameGen   movegen.MoveGenerator
-	curMode      Mode
+	curGameState   *mechanics.XWordGame
+	curGameRepr    *mechanics.GameRepr
+	curTurnNum     int
+	gen            movegen.MoveGenerator
+	endgameGen     movegen.MoveGenerator
+	curMode        Mode
+	endgameSolver  *alphabeta.Solver
+	curEndgameNode *alphabeta.GameNode
+	curGenPlays    []*move.Move
 }
 
 const (
@@ -137,26 +140,24 @@ func moveTableHeader() string {
 	return "Move                Leave  Score Equity\n"
 }
 
-func MoveTableRow(m *move.Move, alph *alphabet.Alphabet) string {
-	return fmt.Sprintf("%-20s%-7s%-6d%-6.2f\n",
+func MoveTableRow(idx int, m *move.Move, alph *alphabet.Alphabet) string {
+	return fmt.Sprintf("%d: %-20s%-7s%-6d%-6.2f\n", idx+1,
 		m.ShortDescription(), m.Leave().UserVisible(alph), m.Score(), m.Equity())
 }
 
-func genMovesAndDisplay(curGameState *mechanics.XWordGame, gen movegen.MoveGenerator,
-	numPlays int, w io.Writer) {
+func (sc *ShellController) genMovesAndDisplay(numPlays int) {
 
-	alph := curGameState.Alphabet()
-	curRack := curGameState.RackFor(curGameState.PlayerOnTurn())
-	gen.GenAll(curRack)
-	var plays []*move.Move
-	if len(gen.Plays()) > numPlays {
-		plays = gen.Plays()[:numPlays]
+	alph := sc.curGameState.Alphabet()
+	curRack := sc.curGameState.RackFor(sc.curGameState.PlayerOnTurn())
+	sc.gen.GenAll(curRack)
+	if len(sc.gen.Plays()) > numPlays {
+		sc.curGenPlays = sc.gen.Plays()[:numPlays]
 	} else {
-		plays = gen.Plays()
+		sc.curGenPlays = sc.gen.Plays()
 	}
-	io.WriteString(w, moveTableHeader())
-	for _, p := range plays {
-		io.WriteString(w, MoveTableRow(p, alph))
+	sc.showMessage(moveTableHeader())
+	for i, p := range sc.curGenPlays {
+		sc.showMessage(MoveTableRow(i, p, alph))
 	}
 }
 
@@ -167,6 +168,9 @@ func endgameArgs(line string) (plies int, deepening bool, simple bool, err error
 
 	cmd := strings.Fields(line)
 	if len(cmd) == 1 {
+		if line != "endgame" {
+			err = errors.New("could not understand your endgame arguments")
+		}
 		return
 	}
 	if len(cmd) > 1 {
@@ -209,6 +213,14 @@ func modeFromStr(mode string) (Mode, error) {
 	return InvalidMode, errors.New("mode " + mode + " is not a valid choice")
 }
 
+func (sc *ShellController) showMessage(msg string) {
+	showMessage(msg, sc.l.Stderr())
+}
+
+func (sc *ShellController) showError(err error) {
+	sc.showMessage("Error: " + err.Error())
+}
+
 func (sc *ShellController) modeSelector(line string) {
 	mode := strings.SplitN(line, " ", 2)
 	if len(mode) != 2 {
@@ -224,42 +236,29 @@ func (sc *ShellController) modeSelector(line string) {
 	sc.curMode = m
 }
 
-func (sc *ShellController) endgameDebugModeSwitch(line string, sig chan os.Signal) error {
-	switch {
-	case strings.HasPrefix(line, "mode"):
-		sc.modeSelector(line)
-
-	case strings.HasPrefix(line, "help"):
-		if strings.TrimSpace(line) == "help" {
-			usage(sc.l.Stderr(), "endgamedebug")
-		} else {
-			showMessage("No additional info is available for this mode", sc.l.Stderr())
-		}
-
-	case line == "l":
-		// List the current level of nodes
-		showMessage("Listing nodes", sc.l.Stderr())
-
-	case line == "u":
-		// List the current level of nodes
-		showMessage("Go up a level", sc.l.Stderr())
-
-	case line == "i":
-		// List the current level of nodes
-		showMessage("Info about the current node", sc.l.Stderr())
-
-	case strings.HasPrefix(line, "s"):
-		nodeID, err := strconv.Atoi(line[:1])
+func (sc *ShellController) addPlay(line string) error {
+	cmd := strings.Fields(line)
+	if len(cmd) == 2 && strings.HasPrefix(cmd[1], "#") {
+		// Add play that was generated.
+		playID, err := strconv.Atoi(cmd[1][1:])
 		if err != nil {
-			showMessage("Error: "+err.Error(), sc.l.Stderr())
-			return nil
+			return err
 		}
-		showMessage(fmt.Sprintf("Stepping into node %d", nodeID), sc.l.Stderr())
+		// Play the actual move on the board, draw tiles, etc.
+		// sc.curGameState.PlayMove(sc.curGenPlays[playID], false)
+		// Modify the game repr.
+		sc.curGameRepr.AddTurnFromPlay(sc.curTurnNum, sc.curGenPlays[playID]))
 
-	default:
-		log.Debug().Msgf("you said: %v", strconv.Quote(line))
+		sc.curTurnNum++
+	} else if len(cmd) == 3 {
+		coords := cmd[1]
+		word := cmd[2]
+		// Handle exchange/pass later.
+		// Remember to handle leaves correctly in this case, since
+		// a player-entered move will not contain a rack leave.
+	} else {
+		return errors.New("unrecognized arguments to `add`")
 	}
-	return nil
 }
 
 func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) error {
@@ -275,7 +274,7 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			break
 		}
 		sc.curTurnNum = 0
-		showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr), sc.l.Stderr())
+		sc.showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr))
 
 	case line == "n" || line == "p":
 		if line == "n" {
@@ -289,22 +288,22 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			break
 		}
 		sc.curTurnNum += delta
-		showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr), sc.l.Stderr())
+		sc.showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr))
 
 	case strings.HasPrefix(line, "turn "):
 		turnnum := line[5:]
 		t, err := strconv.Atoi(turnnum)
 		if err != nil {
-			showMessage(err.Error(), sc.l.Stderr())
+			sc.showError(err)
 			break
 		}
 		err = setToTurn(t, sc.curGameState, sc.curGameRepr)
 		if err != nil {
-			showMessage("Error: "+err.Error(), sc.l.Stderr())
+			sc.showError(err)
 			break
 		}
 		sc.curTurnNum = t
-		showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr), sc.l.Stderr())
+		sc.showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr))
 
 	case strings.HasPrefix(line, "gen"):
 		var numPlays int
@@ -315,14 +314,19 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			fc := strings.SplitN(line, " ", 2)
 			numPlays, err = strconv.Atoi(fc[1])
 			if err != nil {
-				showMessage("Error: "+err.Error(), sc.l.Stderr())
+				sc.showError(err)
 				break
 			}
 		}
 		if sc.curGameState != nil {
-			genMovesAndDisplay(sc.curGameState, sc.gen, numPlays, sc.l.Stderr())
+			sc.genMovesAndDisplay(numPlays)
 		}
 
+	case strings.HasPrefix(line, "add "):
+		err := sc.addPlay(line)
+		if err != nil {
+			sc.showError(err)
+		}
 	case strings.HasPrefix(line, "endgame"):
 		if sc.curGameState == nil {
 			showMessage("please load a game first with the `load` command", sc.l.Stderr())
@@ -340,14 +344,14 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		sc.endgameGen = movegen.NewGordonGenerator(
 			sc.curGameState, &strategy.NoLeaveStrategy{})
 
-		s := new(alphabeta.Solver)
-		s.Init(sc.endgameGen, sc.curGameState)
-		s.SetIterativeDeepening(deepening)
-		s.SetSimpleEvaluator(simpleEval)
+		sc.endgameSolver = new(alphabeta.Solver)
+		sc.endgameSolver.Init(sc.endgameGen, sc.curGameState)
+		sc.endgameSolver.SetIterativeDeepening(deepening)
+		sc.endgameSolver.SetSimpleEvaluator(simpleEval)
 
 		showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr), sc.l.Stderr())
 
-		s.Solve(plies)
+		sc.endgameSolver.Solve(plies)
 
 	case line == "bye" || line == "exit":
 		sig <- syscall.SIGINT

@@ -64,7 +64,7 @@ type Solver struct {
 	simpleEvaluation     bool
 	iterativeDeepeningOn bool
 	disablePruning       bool
-	rootNode             *gameNode
+	rootNode             *GameNode
 	// Some helpful variables to avoid big allocations
 	// stm: side-to-move  ots: other side
 	stmPlayed []bool
@@ -290,8 +290,8 @@ func (s *Solver) generateSTMPlays() []*move.Move {
 	return sideToMovePlays
 }
 
-func (s *Solver) childGenerator(node *gameNode, maximizingPlayer bool) func() (
-	*gameNode, bool) {
+func (s *Solver) childGenerator(node *GameNode, maximizingPlayer bool) func() (
+	*GameNode, bool) {
 
 	var plays []*move.Move
 	if node.children == nil {
@@ -314,10 +314,10 @@ func (s *Solver) childGenerator(node *gameNode, maximizingPlayer bool) func() (
 		// s.clearChildrenValues(node)
 	}
 
-	gen := func() func() (*gameNode, bool) {
+	gen := func() func() (*GameNode, bool) {
 		idx := -1
 		idxInPlays := -1
-		return func() (*gameNode, bool) {
+		return func() (*GameNode, bool) {
 			idx++
 
 			if len(plays) == 0 {
@@ -333,7 +333,7 @@ func (s *Solver) childGenerator(node *gameNode, maximizingPlayer bool) func() (
 						// Brand new node.
 						idxInPlays = i
 						node.generatedPlays[i].SetVisited(true)
-						return &gameNode{move: node.generatedPlays[i], parent: node}, true
+						return &GameNode{move: node.generatedPlays[i], parent: node}, true
 					}
 					return nil, false
 				}
@@ -346,13 +346,13 @@ func (s *Solver) childGenerator(node *gameNode, maximizingPlayer bool) func() (
 
 			// Otherwise, plays were generated; return brand new nodes.
 			s.totalNodes++
-			return &gameNode{move: plays[idx], parent: node}, true
+			return &GameNode{move: plays[idx], parent: node}, true
 		}
 	}
 	return gen()
 }
 
-func (s *Solver) findBestSequence(endNode *gameNode) []*move.Move {
+func (s *Solver) findBestSequence(endNode *GameNode) []*move.Move {
 	// findBestSequence assumes we have already run alphabeta / iterative deepening
 	seq := []*move.Move{}
 
@@ -385,7 +385,7 @@ func (s *Solver) Solve(plies int) (float32, *move.Move) {
 
 	// technically the children are the actual board _states_ but
 	// we don't keep track of those exactly
-	n := &gameNode{}
+	n := &GameNode{}
 	s.rootNode = n
 	// the root node is basically the board state prior to making any moves.
 	// the children of these nodes are the board states after every move.
@@ -396,7 +396,7 @@ func (s *Solver) Solve(plies int) (float32, *move.Move) {
 	log.Debug().Msgf("Spread at beginning of endgame: %v", s.initialSpread)
 	log.Debug().Msgf("Maximizing player is: %v", s.maximizingPlayer)
 	var bestV float32
-	var bestNode *gameNode
+	var bestNode *GameNode
 	// XXX: We're going to need some sort of channel here to control
 	// deepening and propagate results.
 	if s.iterativeDeepeningOn {
@@ -428,8 +428,8 @@ func (s *Solver) Solve(plies int) (float32, *move.Move) {
 	return bestV, bestSeq[0]
 }
 
-func (s *Solver) alphabeta(node *gameNode, depth int, α float32, β float32,
-	maximizingPlayer bool) (float32, *gameNode) {
+func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
+	maximizingPlayer bool) (float32, *GameNode) {
 
 	// depthDbg := strings.Repeat(" ", depth)
 	if depth == 0 || !s.game.Playing() {
@@ -443,7 +443,7 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α float32, β float32,
 
 	if maximizingPlayer {
 		value := float32(-Infinity)
-		var winningNode *gameNode
+		var winningNode *GameNode
 		iter := s.childGenerator(node, maximizingPlayer)
 		for child, newNode := iter(); child != nil; child, newNode = iter() {
 			// Play the child
@@ -475,7 +475,7 @@ func (s *Solver) alphabeta(node *gameNode, depth int, α float32, β float32,
 	}
 	// Otherwise, not maximizing
 	value := float32(Infinity)
-	var winningNode *gameNode
+	var winningNode *GameNode
 	iter := s.childGenerator(node, maximizingPlayer)
 	for child, newNode := iter(); child != nil; child, newNode = iter() {
 		// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
@@ -513,6 +513,6 @@ func (s *Solver) SetSimpleEvaluator(i bool) {
 	s.simpleEvaluation = i
 }
 
-func (s *Solver) RootNode() *gameNode {
+func (s *Solver) RootNode() *GameNode {
 	return s.rootNode
 }
