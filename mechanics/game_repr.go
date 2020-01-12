@@ -84,7 +84,7 @@ func (g *XWordGame) playTurn(repr *GameRepr, turnnum int) []alphabet.MachineLett
 	if !challengedOffPlay {
 		for evtIdx := range repr.Turns[turnnum] {
 			m := genMove(repr.Turns[turnnum][evtIdx], g.alph)
-
+			log.Debug().Msgf("Generated move %v from evt %v", m, repr.Turns[turnnum][evtIdx])
 			switch m.Action() {
 			case move.MoveTypePlay:
 

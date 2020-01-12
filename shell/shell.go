@@ -243,11 +243,17 @@ func (sc *ShellController) addPlay(line string) error {
 		if err != nil {
 			return err
 		}
+
+		idx := playID - 1 // since playID starts from 1
+		if idx < 0 || idx > len(sc.curGenPlays)-1 {
+			return errors.New("play outside range")
+		}
 		// Play the actual move on the board, draw tiles, etc.
 		// sc.curGameState.PlayMove(sc.curGenPlays[playID], false)
 		// Modify the game repr.
-		sc.curGameRepr.AddTurnFromPlay(sc.curTurnNum, sc.curGenPlays[playID])
+		sc.curGameRepr.AddTurnFromPlay(sc.curTurnNum, sc.curGenPlays[idx])
 		sc.setToTurn(sc.curTurnNum + 1)
+		sc.showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr))
 	} else if len(cmd) == 3 {
 		// coords := cmd[1]
 		// word := cmd[2]
