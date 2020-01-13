@@ -101,6 +101,17 @@ type TilePlacementEvent struct {
 	Score     int    `json:"score"`
 }
 
+func (tp *TilePlacementEvent) CalculateCoordsFromPosition() {
+	row, col, vertical := move.FromBoardGameCoords(tp.Position)
+	if vertical {
+		tp.Direction = "v"
+	} else {
+		tp.Direction = "h"
+	}
+	tp.Row = uint8(row)
+	tp.Column = uint8(col)
+}
+
 type PassingEvent struct {
 	BaseEvent
 	Exchanged string `json:"exchanged,omitempty"`

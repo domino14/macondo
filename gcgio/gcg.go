@@ -16,7 +16,6 @@ import (
 	"golang.org/x/text/transform"
 
 	"github.com/domino14/macondo/mechanics"
-	"github.com/domino14/macondo/move"
 	"github.com/rs/zerolog/log"
 )
 
@@ -123,14 +122,7 @@ func (p *parser) addEventOrPragma(token Token, match []string, gameRepr *mechani
 		if err != nil {
 			return err
 		}
-		row, col, vertical := move.FromBoardGameCoords(evt.Position)
-		if vertical {
-			evt.Direction = "v"
-		} else {
-			evt.Direction = "h"
-		}
-		evt.Row = uint8(row)
-		evt.Column = uint8(col)
+		evt.CalculateCoordsFromPosition()
 		evt.Type = mechanics.RegMove
 		turn := []mechanics.Event{}
 		turn = append(turn, evt)

@@ -84,7 +84,6 @@ func (g *XWordGame) playTurn(repr *GameRepr, turnnum int) []alphabet.MachineLett
 	if !challengedOffPlay {
 		for evtIdx := range repr.Turns[turnnum] {
 			m := genMove(repr.Turns[turnnum][evtIdx], g.alph)
-			log.Debug().Msgf("Generated move %v from evt %v", m, repr.Turns[turnnum][evtIdx])
 			switch m.Action() {
 			case move.MoveTypePlay:
 
@@ -157,15 +156,30 @@ func (g *XWordGame) PlayGameToTurn(repr *GameRepr, turnnum int) error {
 	g.bag.RemoveTiles(rack)
 
 	// Rack of the other player. This only matters when the bag is empty.
+	// We need to set this in other for the endgame player to work properly.
 	if len(rack) > 0 && g.bag.TilesRemaining() <= 7 {
 		// bag is actually empty; draw everything for the opp.
 		oppRack = g.bag.Peek()
 		g.bag.RemoveTiles(oppRack)
-	}
-	g.players[notOnTurn].setRack(oppRack, g.alph)
-	if g.turnnum == len(repr.Turns) {
+		log.Debug().Msgf("Removed %v tiles for oppRack", oppRack.UserVisible(alphabet.EnglishAlphabet()))
+	} else if len(rack) == 0 && len(oppRack) == 0 {
+		// game over
 		g.playing = false
 	}
+	g.players[notOnTurn].setRack(oppRack, g.alph)
+
+	// Check if the game is over.
+	// log.Debug().Msg("Checking if game is over...")
+	// if g.bag.TilesRemaining() == 0 {
+	// 	log.Debug().Msg("Bag is empty")
+	// 	for _, p := range g.players {
+	// 		log.Debug().Msgf("Player %v has %v tiles", p, p.rack.NumTiles())
+	// 		if p.rack.NumTiles() == 0 {
+	// 			g.playing = false
+	// 			break
+	// 		}
+	// 	}
+	// }
 	return nil
 }
 
@@ -363,6 +377,7 @@ func (r *GameRepr) AddTurnFromPlay(turnnum int, m *move.Move) error {
 		evt.Score = m.Score()
 		evt.Cumulative = r.Players[playerid].points + evt.Score
 		evt.Type = RegMove
+		evt.CalculateCoordsFromPosition()
 		turnToAdd = append(turnToAdd, evt)
 
 	case move.MoveTypePass:

@@ -136,11 +136,11 @@ func (sc *ShellController) setToTurn(turnnum int) error {
 }
 
 func moveTableHeader() string {
-	return "Move                Leave  Score Equity\n"
+	return "     Move                Leave  Score Equity\n"
 }
 
 func MoveTableRow(idx int, m *move.Move, alph *alphabet.Alphabet) string {
-	return fmt.Sprintf("%d: %-20s%-7s%-6d%-6.2f", idx+1,
+	return fmt.Sprintf("%3d: %-20s%-7s%-6d%-6.2f", idx+1,
 		m.ShortDescription(), m.Leave().UserVisible(alph), m.Score(), m.Equity())
 }
 
