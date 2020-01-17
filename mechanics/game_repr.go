@@ -134,52 +134,76 @@ func (g *XWordGame) PlayGameToTurn(repr *GameRepr, turnnum int) error {
 		// log.Debug().Msgf("played turn %v (%v) and added tiles %v", t, repr.Turns[t],
 		// 	alphabet.MachineWord(addlTiles).UserVisible(g.alph))
 	}
+
+	// Now update the bag.
+	err := g.reconcileTiles(repr, playedTiles, t)
+	if err != nil {
+		return err
+	}
+
+	// Check if the game is over.
+	log.Debug().Msg("Checking if game is over...")
+	if g.bag.TilesRemaining() == 0 {
+		log.Debug().Msg("Bag is empty")
+		for _, p := range g.players {
+			log.Debug().Msgf("Player %v has %v tiles", p, p.rack.NumTiles())
+			if p.rack.NumTiles() == 0 {
+				g.playing = false
+				break
+			}
+		}
+	}
+	return nil
+}
+
+func (g *XWordGame) reconcileTiles(repr *GameRepr, playedTiles []alphabet.MachineLetter, turn int) error {
+	// Reconcile tiles in the bag, and in players' racks.
+
+	// XXX: the RemoveTiles function is not smart, and thus expensive
+	// It should not be used in any sort of simulation.
+	g.bag.RemoveTiles(playedTiles)
+	// Determine the latest rack available. Sometimes a game representation
+	// ends before the game itself is over, so we need to make sure
+	// we don't mistakenly give the other player all the remaining tiles, etc
+
 	var err error
 	var rack alphabet.MachineWord
 	var oppRack alphabet.MachineWord
 	notOnTurn := (g.onturn + 1) % 2
-	if t < len(repr.Turns) {
-		rack, err = alphabet.ToMachineWord(repr.Turns[t][0].GetRack(), g.alph)
+	if turn < len(repr.Turns) {
+		// Find the rack of the player currently on turn; after playing
+		// turns up to this point.
+		rack, err = alphabet.ToMachineWord(repr.Turns[turn][0].GetRack(), g.alph)
+
 		if err != nil {
-			log.Error().Err(err).Msg("")
 			return err
 		}
+	} else {
+		// The game might or might not be over, but we've hit the end
+		// of the recorded turns. Try to calculate partial rack from the
+		// information that we do have.
+		if turn-2 >= 0 {
+			evt := repr.Turns[turn-2][0]
+			rack = evt.GetMove().Leave()
+		}
+		// XXX: Check what happens right before the bag gets empty,
+		// this logic might be suspect. We need to "draw" to replenish
+		// our rack first.
 	}
+
+	log.Debug().Msgf("My rack is %v", rack.UserVisible(g.alph))
 	g.players[g.onturn].setRack(rack, g.alph)
 
-	// Now update the bag.
-	// XXX: the RemoveTiles function is not smart, and thus expensive
-	// It should not be used in any sort of simulation.
-	g.bag.RemoveTiles(playedTiles)
-
-	// What is the rack of the player on turn now?
 	g.bag.RemoveTiles(rack)
-
 	// Rack of the other player. This only matters when the bag is empty.
 	// We need to set this in other for the endgame player to work properly.
-	if len(rack) > 0 && g.bag.TilesRemaining() <= 7 {
+	if g.bag.TilesRemaining() <= 7 {
 		// bag is actually empty; draw everything for the opp.
 		oppRack = g.bag.Peek()
 		g.bag.RemoveTiles(oppRack)
 		log.Debug().Msgf("Removed %v tiles for oppRack", oppRack.UserVisible(alphabet.EnglishAlphabet()))
-	} else if len(rack) == 0 && len(oppRack) == 0 {
-		// game over
-		g.playing = false
 	}
 	g.players[notOnTurn].setRack(oppRack, g.alph)
-
-	// Check if the game is over.
-	// log.Debug().Msg("Checking if game is over...")
-	// if g.bag.TilesRemaining() == 0 {
-	// 	log.Debug().Msg("Bag is empty")
-	// 	for _, p := range g.players {
-	// 		log.Debug().Msgf("Player %v has %v tiles", p, p.rack.NumTiles())
-	// 		if p.rack.NumTiles() == 0 {
-	// 			g.playing = false
-	// 			break
-	// 		}
-	// 	}
-	// }
 	return nil
 }
 
@@ -201,7 +225,8 @@ func (g *XWordGame) ToDisplayText(repr *GameRepr) string {
 	vpadding := 1
 	bagColCount := 20
 	for p := 0; p < len(g.players); p++ {
-		addText(bts, p+vpadding, hpadding, g.players[p].stateString(g.onturn == p))
+		addText(bts, p+vpadding, hpadding,
+			g.players[p].stateString(g.playing && g.onturn == p))
 	}
 	bag := g.bag.Peek()
 	addText(bts, vpadding+3, hpadding, fmt.Sprintf("Bag + unseen: (%d)", len(bag)))
@@ -284,6 +309,9 @@ func leave(rack alphabet.MachineWord, play alphabet.MachineWord) alphabet.Machin
 // Generate a move from an event
 func genMove(e Event, alph *alphabet.Alphabet) *move.Move {
 	// Have to use type assertions here, but that's OK...
+	if e.GetMove() != nil {
+		return e.GetMove()
+	}
 	var m *move.Move
 
 	rack, err := alphabet.ToMachineWord(e.GetRack(), alph)
@@ -302,6 +330,9 @@ func genMove(e Event, alph *alphabet.Alphabet) *move.Move {
 		}
 
 		leaveMW := leave(rack, tiles)
+		log.Debug().Msgf("calculated leave %v from rack %v, tiles %v",
+			leaveMW.UserVisible(alph), rack.UserVisible(alph),
+			tiles.UserVisible(alph))
 		m = move.NewScoringMove(v.Score, tiles, leaveMW, v.Direction == "v",
 			len(rack)-len(leaveMW), alph, int(v.Row), int(v.Column), v.Position)
 
@@ -350,6 +381,7 @@ func genMove(e Event, alph *alphabet.Alphabet) *move.Move {
 		log.Error().Msgf("Unhandled event %v", e)
 
 	}
+	e.SetMove(m)
 	return m
 }
 
@@ -387,5 +419,6 @@ func (r *GameRepr) AddTurnFromPlay(turnnum int, m *move.Move) error {
 	}
 	r.Turns[turnnum] = turnToAdd
 	r.Turns = r.Turns[:turnnum+1]
+	log.Debug().Msgf("turns are now: %v", r.Turns)
 	return nil
 }

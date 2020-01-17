@@ -51,6 +51,10 @@ type Event interface {
 	GetRack() string
 	GetNickname() string
 	GetType() EventType
+	// GetMove gets the move associated with this event, if any.
+	GetMove() *move.Move
+	// SetMove sets the move associated with this event.
+	SetMove(*move.Move)
 }
 
 type EventType string
@@ -89,6 +93,14 @@ func (be *BaseEvent) GetNickname() string {
 
 func (be *BaseEvent) GetType() EventType {
 	return be.Type
+}
+
+func (be *BaseEvent) GetMove() *move.Move {
+	return be.move
+}
+
+func (be *BaseEvent) SetMove(m *move.Move) {
+	be.move = m
 }
 
 type TilePlacementEvent struct {
