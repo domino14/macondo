@@ -116,6 +116,11 @@ func (g *XWordGame) playTurn(repr *GameRepr, turnnum int) []alphabet.MachineLett
 }
 
 func (g *XWordGame) PlayGameToTurn(repr *GameRepr, turnnum int) error {
+	if turnnum < 0 || turnnum > len(repr.Turns) {
+		return fmt.Errorf("game has %v turns, you have chosen a turn outside the range",
+			len(repr.Turns))
+	}
+
 	g.board.Clear()
 	g.bag.Refill()
 	g.players.resetScore()
@@ -123,10 +128,6 @@ func (g *XWordGame) PlayGameToTurn(repr *GameRepr, turnnum int) error {
 	g.onturn = 0
 	g.playing = true
 	playedTiles := []alphabet.MachineLetter(nil)
-	if turnnum < 0 || turnnum > len(repr.Turns) {
-		return fmt.Errorf("game has %v turns, you have chosen a turn outside the range",
-			len(repr.Turns))
-	}
 	var t int
 	for t = 0; t < turnnum; t++ {
 		addlTiles := g.playTurn(repr, t)
@@ -390,12 +391,17 @@ func genMove(e Event, alph *alphabet.Alphabet) *move.Move {
 func (r *GameRepr) AddTurnFromPlay(turnnum int, m *move.Move) error {
 	var nick string
 	var playerid int
+	var appendPlay bool
 	// Figure out whose turn it is.
 	if turnnum < len(r.Turns) {
 		nick = r.Turns[turnnum][0].GetNickname()
 		playerid = turnnum % 2
+	} else if turnnum == len(r.Turns) {
+		playerid = turnnum % 2
+		nick = r.Players[playerid].Nickname
+		appendPlay = true
 	} else {
-		return errors.New("have not implemented yet")
+		return errors.New("unexpected turn number")
 	}
 
 	turnToAdd := []Event{}
@@ -410,6 +416,7 @@ func (r *GameRepr) AddTurnFromPlay(turnnum int, m *move.Move) error {
 		evt.Cumulative = r.Players[playerid].points + evt.Score
 		evt.Type = RegMove
 		evt.CalculateCoordsFromPosition()
+		evt.SetMove(m)
 		turnToAdd = append(turnToAdd, evt)
 
 	case move.MoveTypePass:
@@ -417,8 +424,12 @@ func (r *GameRepr) AddTurnFromPlay(turnnum int, m *move.Move) error {
 	case move.MoveTypeExchange:
 
 	}
-	r.Turns[turnnum] = turnToAdd
-	r.Turns = r.Turns[:turnnum+1]
+	if appendPlay {
+		r.Turns = append(r.Turns, turnToAdd)
+	} else {
+		r.Turns[turnnum] = turnToAdd
+		r.Turns = r.Turns[:turnnum+1]
+	}
 	log.Debug().Msgf("turns are now: %v", r.Turns)
 	return nil
 }

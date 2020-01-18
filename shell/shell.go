@@ -132,6 +132,8 @@ func (sc *ShellController) setToTurn(turnnum int) error {
 	if err != nil {
 		return err
 	}
+	log.Debug().Msgf("Set to turn %v", turnnum)
+	sc.curTurnNum = turnnum
 	return nil
 }
 
@@ -251,7 +253,11 @@ func (sc *ShellController) addPlay(line string) error {
 		// Play the actual move on the board, draw tiles, etc.
 		// sc.curGameState.PlayMove(sc.curGenPlays[playID], false)
 		// Modify the game repr.
-		sc.curGameRepr.AddTurnFromPlay(sc.curTurnNum, sc.curGenPlays[idx])
+		err = sc.curGameRepr.AddTurnFromPlay(sc.curTurnNum, sc.curGenPlays[idx])
+		if err != nil {
+			return err
+		}
+		log.Debug().Msgf("Added turn at turn num %v", sc.curTurnNum)
 		sc.setToTurn(sc.curTurnNum + 1)
 		sc.showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr))
 	} else if len(cmd) == 3 {
@@ -292,7 +298,6 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			showMessage("Error: "+err.Error(), sc.l.Stderr())
 			break
 		}
-		sc.curTurnNum += delta
 		sc.showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr))
 
 	case strings.HasPrefix(line, "turn "):
@@ -307,7 +312,6 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			sc.showError(err)
 			break
 		}
-		sc.curTurnNum = t
 		sc.showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr))
 
 	case strings.HasPrefix(line, "gen"):

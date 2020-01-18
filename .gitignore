@@ -9,3 +9,4 @@ macondo
 *.png
 *.ipynb_checkpoints/
 log*.csv
+*.swp

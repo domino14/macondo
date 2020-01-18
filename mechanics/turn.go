@@ -103,6 +103,11 @@ func (be *BaseEvent) SetMove(m *move.Move) {
 	be.move = m
 }
 
+func (be *BaseEvent) String() string {
+	return fmt.Sprintf("<evt type: %v nick: %v move: %v>",
+		be.Type, be.Nickname, be.move)
+}
+
 type TilePlacementEvent struct {
 	BaseEvent
 	Row       uint8  `json:"row"`
