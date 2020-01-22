@@ -285,6 +285,15 @@ func (g *XWordGame) backupState() {
 	g.stackPtr++
 }
 
+// CreateAndScorePlacementMove creates a *move.Move from the coords and
+// given tiles. It scores the move, calculates the leave, etc. This should
+// be used when a person is interacting with the interface.
+func (g *XWordGame) CreateAndScorePlacementMove(coords string, tiles string) *move.Move {
+
+	//	row, col, vertical := move.FromBoardGameCoords(coords)
+	return nil
+}
+
 func (g *XWordGame) calculateRackPts(onturn int) int {
 	// Calculate the number of pts on the player with the `onturn` rack.
 	rack := g.players[onturn].rack

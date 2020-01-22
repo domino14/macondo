@@ -387,6 +387,68 @@ func (g *GameBoard) PlayMove(m *move.Move, gd *gaddag.SimpleGaddag,
 	g.tilesPlayed += m.TilesPlayed()
 }
 
+// ScoreWord scores the move at the given row and column. Note that this
+// function is called when the board is potentially transposed, so we
+// assume the row stays static as we iterate through the letters of the
+// word.
+func (g *GameBoard) ScoreWord(word alphabet.MachineWord, row, col, tilesPlayed int, crossDir BoardDirection, bag *alphabet.Bag) int {
+
+	// letterScore:
+	var ls int
+
+	mainWordScore := 0
+	crossScores := 0
+	bingoBonus := 0
+	if tilesPlayed == 7 {
+		bingoBonus = 50
+	}
+	wordMultiplier := 1
+
+	for idx, rn := range word {
+		ml := alphabet.MachineLetter(rn)
+		bonusSq := g.GetBonus(row, col+idx)
+		letterMultiplier := 1
+		thisWordMultiplier := 1
+		freshTile := false
+		if ml == alphabet.PlayedThroughMarker {
+			ml = g.GetLetter(row, col+idx)
+		} else {
+			freshTile = true
+			// Only count bonus if we are putting a fresh tile on it.
+			switch bonusSq {
+			case Bonus3WS:
+				wordMultiplier *= 3
+				thisWordMultiplier = 3
+			case Bonus2WS:
+				wordMultiplier *= 2
+				thisWordMultiplier = 2
+			case Bonus2LS:
+				letterMultiplier = 2
+			case Bonus3LS:
+				letterMultiplier = 3
+			}
+			// else all the multipliers are 1.
+		}
+		cs := g.GetCrossScore(row, col+idx, crossDir)
+		if ml >= alphabet.BlankOffset {
+			// letter score is 0
+			ls = 0
+		} else {
+			ls = bag.Score(ml)
+		}
+
+		mainWordScore += ls * letterMultiplier
+		// We only add cross scores if the cross set of this square is non-trivial
+		// (i.e. we have to be making an across word). Note that it's not enough
+		// to check that the cross-score is 0 because we could have a blank.
+		if freshTile && g.GetCrossSet(row, col+idx, crossDir) != TrivialCrossSet {
+			crossScores += ls*letterMultiplier*thisWordMultiplier + cs*thisWordMultiplier
+		}
+	}
+	return mainWordScore*wordMultiplier + crossScores + bingoBonus
+
+}
+
 // RestoreFromBackup restores the squares of this board from the backupBoard.
 // func (g *GameBoard) RestoreFromBackup() {
 

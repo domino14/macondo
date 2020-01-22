@@ -251,7 +251,6 @@ func (sc *ShellController) addPlay(line string) error {
 			return errors.New("play outside range")
 		}
 		// Play the actual move on the board, draw tiles, etc.
-		// sc.curGameState.PlayMove(sc.curGenPlays[playID], false)
 		// Modify the game repr.
 		err = sc.curGameRepr.AddTurnFromPlay(sc.curTurnNum, sc.curGenPlays[idx])
 		if err != nil {
@@ -261,8 +260,9 @@ func (sc *ShellController) addPlay(line string) error {
 		sc.setToTurn(sc.curTurnNum + 1)
 		sc.showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr))
 	} else if len(cmd) == 3 {
-		// coords := cmd[1]
-		// word := cmd[2]
+		coords := cmd[1]
+		word := cmd[2]
+
 		// Handle exchange/pass later.
 		// Remember to handle leaves correctly in this case, since
 		// a player-entered move will not contain a rack leave.
