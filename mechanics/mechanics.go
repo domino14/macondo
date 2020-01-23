@@ -288,10 +288,45 @@ func (g *XWordGame) backupState() {
 // CreateAndScorePlacementMove creates a *move.Move from the coords and
 // given tiles. It scores the move, calculates the leave, etc. This should
 // be used when a person is interacting with the interface.
-func (g *XWordGame) CreateAndScorePlacementMove(coords string, tiles string) *move.Move {
+func (g *XWordGame) CreateAndScorePlacementMove(coords string, tiles string, rack string) (*move.Move, error) {
 
-	//	row, col, vertical := move.FromBoardGameCoords(coords)
-	return nil
+	// score the move
+	row, col, vertical := move.FromBoardGameCoords(coords)
+
+	// Notes: the cross direction is in the opposite direction that the
+	// play is actually in. Additionally, we transpose the board if
+	// the play is vertical, due to how the scoring routine works.
+	// We transpose it back at the end.
+	crossDir := board.VerticalDirection
+	if vertical {
+		crossDir = board.HorizontalDirection
+		g.Board().Transpose()
+		defer g.Board().Transpose()
+	}
+	// convert tiles to MachineWord
+	mw, err := alphabet.ToMachineWord(tiles, g.alph)
+	if err != nil {
+		return nil, err
+	}
+	rackmw, err := alphabet.ToMachineWord(rack, g.alph)
+	if err != nil {
+		return nil, err
+	}
+	tilesPlayed := 0
+	for _, m := range mw {
+		if m.IsPlayedTile() {
+			tilesPlayed++
+		}
+	}
+	leavemw, err := leave(rackmw, mw)
+	if err != nil {
+		return nil, err
+	}
+	score := g.Board().ScoreWord(mw, row, col, tilesPlayed, crossDir, g.Bag())
+	m := move.NewScoringMove(score, mw, leavemw, vertical, tilesPlayed,
+		g.alph, row, col, coords)
+	return m, nil
+
 }
 
 func (g *XWordGame) calculateRackPts(onturn int) int {

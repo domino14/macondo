@@ -262,8 +262,20 @@ func (sc *ShellController) addPlay(line string) error {
 	} else if len(cmd) == 3 {
 		coords := cmd[1]
 		word := cmd[2]
-
+		rack := sc.curGameRepr.Turns[sc.curTurnNum][0].GetRack()
+		move, err := sc.curGameState.CreateAndScorePlacementMove(coords, word, rack)
+		if err != nil {
+			return err
+		}
+		err = sc.curGameRepr.AddTurnFromPlay(sc.curTurnNum, move)
+		if err != nil {
+			return err
+		}
+		log.Debug().Msgf("Added turn at turn num %v", sc.curTurnNum)
+		sc.setToTurn(sc.curTurnNum + 1)
+		sc.showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr))
 		// Handle exchange/pass later.
+
 		// Remember to handle leaves correctly in this case, since
 		// a player-entered move will not contain a rack leave.
 	} else {

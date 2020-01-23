@@ -276,7 +276,7 @@ func (g *XWordGame) ToDisplayText(repr *GameRepr) string {
 }
 
 // Calculate the leave from the rack and the made play.
-func leave(rack alphabet.MachineWord, play alphabet.MachineWord) alphabet.MachineWord {
+func leave(rack alphabet.MachineWord, play alphabet.MachineWord) (alphabet.MachineWord, error) {
 	rackmls := map[alphabet.MachineLetter]int{}
 	for _, t := range rack {
 		rackmls[t]++
@@ -292,7 +292,7 @@ func leave(rack alphabet.MachineWord, play alphabet.MachineWord) alphabet.Machin
 			// It should never be 0 unless the GCG is malformed somehow.
 			rackmls[t]--
 		} else {
-			log.Error().Msgf("Tile in play but not in rack: %v %v",
+			return nil, fmt.Errorf("Tile in play but not in rack: %v %v",
 				string(t.UserVisible(alphabet.EnglishAlphabet())), rackmls[t])
 		}
 	}
@@ -304,7 +304,7 @@ func leave(rack alphabet.MachineWord, play alphabet.MachineWord) alphabet.Machin
 			}
 		}
 	}
-	return leave
+	return leave, nil
 }
 
 // Generate a move from an event
@@ -330,7 +330,11 @@ func genMove(e Event, alph *alphabet.Alphabet) *move.Move {
 			return nil
 		}
 
-		leaveMW := leave(rack, tiles)
+		leaveMW, err := leave(rack, tiles)
+		if err != nil {
+			log.Error().Err(err).Msg("")
+			return nil
+		}
 		log.Debug().Msgf("calculated leave %v from rack %v, tiles %v",
 			leaveMW.UserVisible(alph), rack.UserVisible(alph),
 			tiles.UserVisible(alph))
@@ -344,7 +348,11 @@ func genMove(e Event, alph *alphabet.Alphabet) *move.Move {
 				log.Error().Err(err).Msg("")
 				return nil
 			}
-			leaveMW := leave(rack, tiles)
+			leaveMW, err := leave(rack, tiles)
+			if err != nil {
+				log.Error().Err(err).Msg("")
+				return nil
+			}
 			m = move.NewExchangeMove(tiles, leaveMW, alph)
 		} else {
 			m = move.NewPassMove(rack, alph)
