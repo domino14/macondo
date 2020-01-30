@@ -12,7 +12,15 @@ import (
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/move"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 )
+
+// PlayerInfo contains basic information about the player.
+type PlayerInfo struct {
+	Nickname     string `json:"nick"`
+	RealName     string `json:"real_name"`
+	PlayerNumber uint8  `json:"p_number"`
+}
 
 // A Player plays crossword game. This is a very minimal structure that only
 // keeps track of things such as rack and points. We will use a more overarching
@@ -33,7 +41,8 @@ func (p *Player) resetScore() {
 	p.points = 0
 }
 
-func (p *Player) setRack(rack []alphabet.MachineLetter, alph *alphabet.Alphabet) {
+func (p *Player) SetRack(rack []alphabet.MachineLetter, alph *alphabet.Alphabet) {
+	log.Debug().Msgf("set rack called, player %v rack %v, p.rack %v", p, rack, p.rack)
 	p.rack.Set(rack)
 	p.rackLetters = alphabet.MachineWord(rack).UserVisible(alph)
 }
@@ -109,6 +118,7 @@ func (g *XWordGame) Init(gd *gaddag.SimpleGaddag, dist *alphabet.LetterDistribut
 		&Player{"player1", "player1", 0, alphabet.NewRack(g.alph), "", 0},
 		&Player{"player2", "player2", 1, alphabet.NewRack(g.alph), "", 0},
 	}
+	log.Debug().Msg("Initialized XWordGame structure")
 	// The strategy and move generator are not part of the "game mechanics".
 	// These should be a level up. This module is just for the gameplay side
 	// of things, taking turns, logic, etc.
@@ -121,7 +131,7 @@ func (g *XWordGame) StartGame() {
 
 	for i := 0; i < len(g.players); i++ {
 		rack, _ := g.bag.Draw(7)
-		g.players[i].setRack(rack, g.alph)
+		g.players[i].SetRack(rack, g.alph)
 		g.players[i].points = 0
 	}
 	g.onturn = 0
@@ -199,7 +209,7 @@ func (g *XWordGame) PlayMove(m *move.Move, backup bool) {
 		// Draw new tiles.
 		drew := g.bag.DrawAtMost(m.TilesPlayed())
 		rack := append(drew, []alphabet.MachineLetter(m.Leave())...)
-		g.players[g.onturn].setRack(rack, g.alph)
+		g.players[g.onturn].SetRack(rack, g.alph)
 
 		if g.players[g.onturn].rack.NumTiles() == 0 {
 			g.playing = false
@@ -217,7 +227,7 @@ func (g *XWordGame) PlayMove(m *move.Move, backup bool) {
 			panic(err)
 		}
 		rack := append(drew, []alphabet.MachineLetter(m.Leave())...)
-		g.players[g.onturn].setRack(rack, g.alph)
+		g.players[g.onturn].SetRack(rack, g.alph)
 		g.scorelessTurns++
 	}
 
@@ -290,19 +300,8 @@ func (g *XWordGame) backupState() {
 // be used when a person is interacting with the interface.
 func (g *XWordGame) CreateAndScorePlacementMove(coords string, tiles string, rack string) (*move.Move, error) {
 
-	// score the move
 	row, col, vertical := move.FromBoardGameCoords(coords)
 
-	// Notes: the cross direction is in the opposite direction that the
-	// play is actually in. Additionally, we transpose the board if
-	// the play is vertical, due to how the scoring routine works.
-	// We transpose it back at the end.
-	crossDir := board.VerticalDirection
-	if vertical {
-		crossDir = board.HorizontalDirection
-		g.Board().Transpose()
-		defer g.Board().Transpose()
-	}
 	// convert tiles to MachineWord
 	mw, err := alphabet.ToMachineWord(tiles, g.alph)
 	if err != nil {
@@ -322,7 +321,29 @@ func (g *XWordGame) CreateAndScorePlacementMove(coords string, tiles string, rac
 	if err != nil {
 		return nil, err
 	}
+	err = g.Board().ErrorIfIllegalPlay(row, col, vertical, mw)
+	if err != nil {
+		return nil, err
+	}
+	// Notes: the cross direction is in the opposite direction that the
+	// play is actually in. Additionally, we transpose the board if
+	// the play is vertical, due to how the scoring routine works.
+	// We transpose it back at the end.
+	crossDir := board.VerticalDirection
+	if vertical {
+		crossDir = board.HorizontalDirection
+		row, col = col, row
+		g.Board().Transpose()
+	}
+
+	// ScoreWord assumes the play is always horizontal, so we have to
+	// do the transpositions beforehand.
 	score := g.Board().ScoreWord(mw, row, col, tilesPlayed, crossDir, g.Bag())
+	// reset row, col back for the actual creation of the play.
+	if vertical {
+		row, col = col, row
+		g.Board().Transpose()
+	}
 	m := move.NewScoringMove(score, mw, leavemw, vertical, tilesPlayed,
 		g.alph, row, col, coords)
 	return m, nil

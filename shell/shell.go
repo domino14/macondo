@@ -237,6 +237,20 @@ func (sc *ShellController) modeSelector(line string) {
 	sc.curMode = m
 }
 
+func (sc *ShellController) addRack(rack string) error {
+	// Set current player on turn's rack.
+	playerid := sc.curTurnNum % 2
+
+	alph := sc.curGameState.Alphabet()
+	mwRack, err := alphabet.ToMachineWord(rack, alph)
+	if err != nil {
+		return err
+	}
+	log.Debug().Msgf("Want to set player rack to %v, playerid %v, player %v", mwRack, playerid, sc.curGameRepr.Players[playerid])
+	sc.curGameRepr.Players[playerid].SetRack(mwRack, alph)
+	return nil
+}
+
 func (sc *ShellController) addPlay(line string) error {
 	cmd := strings.Fields(line)
 	if len(cmd) == 2 && strings.HasPrefix(cmd[1], "#") {
@@ -262,6 +276,10 @@ func (sc *ShellController) addPlay(line string) error {
 	} else if len(cmd) == 3 {
 		coords := cmd[1]
 		word := cmd[2]
+		if sc.curTurnNum >= len(sc.curGameRepr.Turns) {
+			return errors.New("no turn exists; please use the `rack` " +
+				"command to add a new turn")
+		}
 		rack := sc.curGameRepr.Turns[sc.curTurnNum][0].GetRack()
 		move, err := sc.curGameState.CreateAndScorePlacementMove(coords, word, rack)
 		if err != nil {
@@ -320,6 +338,15 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			break
 		}
 		err = sc.setToTurn(t)
+		if err != nil {
+			sc.showError(err)
+			break
+		}
+		sc.showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr))
+
+	case strings.HasPrefix(line, "rack "):
+		rack := line[5:]
+		err := sc.addRack(rack)
 		if err != nil {
 			sc.showError(err)
 			break

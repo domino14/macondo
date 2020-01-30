@@ -5,6 +5,7 @@ commands:
     p - previous play
     turn <n> - go to turn <n>
     gen [n] - generate n plays and sort by equity; n defaults to 15
+    rack <rack> - add a new turn to the game and set the player rack
     add <play> - add a play, that looks like coords play (e.g. 10J FOO)
     sim [plies] - start simulation, default to two-ply
     endgame [maxplies] [id] [simple] - run endgame, search to maxplies (4 is default)

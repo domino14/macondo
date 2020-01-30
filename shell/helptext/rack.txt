@@ -1,0 +1,12 @@
+rack <rack> - Set the player on turn's rack to the given rack.
+
+Usage:
+    
+    rack FOO
+    rack BAR?BAZ
+
+This command checks whether the rack is actually possible to add, given
+the unseen pool, and will fail if the rack is illegal.
+
+If this is called in the middle of a game, every turn afterwards will
+be deleted.

@@ -26,10 +26,10 @@ const (
 // more of an instantaneous state of the game at any given time. It is
 // therefore possible to determine the state from any turn in a GameRepr.
 type GameRepr struct {
-	Turns       []Turn    `json:"turns"`
-	Players     []*Player `json:"players"`
-	Version     int       `json:"version"`
-	OriginalGCG string    `json:"originalGCG"`
+	Turns       []Turn       `json:"turns"`
+	Players     []PlayerInfo `json:"players"`
+	Version     int          `json:"version"`
+	OriginalGCG string       `json:"originalGCG"`
 	// Based on lexica, we will determine an alphabet.
 	Lexicon string `json:"lexicon,omitempty"`
 }
@@ -193,7 +193,7 @@ func (g *XWordGame) reconcileTiles(repr *GameRepr, playedTiles []alphabet.Machin
 	}
 
 	log.Debug().Msgf("My rack is %v", rack.UserVisible(g.alph))
-	g.players[g.onturn].setRack(rack, g.alph)
+	g.players[g.onturn].SetRack(rack, g.alph)
 
 	g.bag.RemoveTiles(rack)
 	// Rack of the other player. This only matters when the bag is empty.
@@ -204,7 +204,7 @@ func (g *XWordGame) reconcileTiles(repr *GameRepr, playedTiles []alphabet.Machin
 		g.bag.RemoveTiles(oppRack)
 		log.Debug().Msgf("Removed %v tiles for oppRack", oppRack.UserVisible(alphabet.EnglishAlphabet()))
 	}
-	g.players[notOnTurn].setRack(oppRack, g.alph)
+	g.players[notOnTurn].SetRack(oppRack, g.alph)
 	return nil
 }
 

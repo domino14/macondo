@@ -1,6 +1,8 @@
 package board
 
 import (
+	"errors"
+
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/move"
@@ -387,11 +389,47 @@ func (g *GameBoard) PlayMove(m *move.Move, gd *gaddag.SimpleGaddag,
 	g.tilesPlayed += m.TilesPlayed()
 }
 
+// ErrorIfIllegalPlay returns an error if the play is illegal, or nil otherwise.
+// We are not checking the actual validity of the word, but whether it is a
+// legal Crossword Game move.
+func (g *GameBoard) ErrorIfIllegalPlay(row, col int, vertical bool,
+	word alphabet.MachineWord) error {
+
+	ri, ci := 0, 1
+	if vertical {
+		ri, ci = ci, ri
+	}
+	// XXX: Need to check if the play actually connects to other tiles.
+	for idx, rn := range word {
+		newrow, newcol := row+(ri*idx), col+(ri*idx)
+		if newrow < 0 || newrow >= g.Dim() || newcol < 0 || newcol >= g.Dim() {
+			return errors.New("play extends off of the board")
+		}
+		ml := alphabet.MachineLetter(rn)
+		if ml == alphabet.PlayedThroughMarker {
+			ml = g.GetLetter(newrow, newcol)
+			if ml == alphabet.EmptySquareMarker {
+				return errors.New("a played-through marker was specified, but " +
+					"there is no tile at the given location")
+			}
+		} else {
+			ml = g.GetLetter(newrow, newcol)
+			if ml != alphabet.EmptySquareMarker {
+				return errors.New("tried to play through a letter already on " +
+					"the board; please use the played-through marker (.) instead")
+			}
+		}
+	}
+	return nil
+
+}
+
 // ScoreWord scores the move at the given row and column. Note that this
 // function is called when the board is potentially transposed, so we
 // assume the row stays static as we iterate through the letters of the
 // word.
-func (g *GameBoard) ScoreWord(word alphabet.MachineWord, row, col, tilesPlayed int, crossDir BoardDirection, bag *alphabet.Bag) int {
+func (g *GameBoard) ScoreWord(word alphabet.MachineWord, row, col, tilesPlayed int,
+	crossDir BoardDirection, bag *alphabet.Bag) int {
 
 	// letterScore:
 	var ls int
