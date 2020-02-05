@@ -240,19 +240,30 @@ func (sc *ShellController) modeSelector(line string) {
 func (sc *ShellController) addRack(rack string) error {
 	// Set current player on turn's rack.
 	playerid := sc.curTurnNum % 2
-
-	alph := sc.curGameState.Alphabet()
-	mwRack, err := alphabet.ToMachineWord(rack, alph)
-	if err != nil {
-		return err
-	}
-	log.Debug().Msgf("Want to set player rack to %v, playerid %v, player %v", mwRack, playerid, sc.curGameRepr.Players[playerid])
-	sc.curGameRepr.Players[playerid].SetRack(mwRack, alph)
+	sc.curGameState.SetRackFor(playerid, alphabet.RackFromString(rack, sc.curGameState.Alphabet()))
 	return nil
 }
 
 func (sc *ShellController) addPlay(line string) error {
 	cmd := strings.Fields(line)
+	var playerid int
+	var nick string
+	var appendPlay bool
+	var m *move.Move
+	var cumul int
+	var err error
+	// Figure out whose turn it is.
+
+	playerid = sc.curTurnNum % 2
+	if sc.curTurnNum < len(sc.curGameRepr.Turns) {
+		nick = sc.curGameRepr.Turns[sc.curTurnNum][0].GetNickname()
+	} else if sc.curTurnNum == len(sc.curGameRepr.Turns) {
+		nick = sc.curGameRepr.Players[playerid].Nickname
+		appendPlay = true
+	} else {
+		return errors.New("unexpected turn number")
+	}
+
 	if len(cmd) == 2 && strings.HasPrefix(cmd[1], "#") {
 		// Add play that was generated.
 		playID, err := strconv.Atoi(cmd[1][1:])
@@ -264,42 +275,34 @@ func (sc *ShellController) addPlay(line string) error {
 		if idx < 0 || idx > len(sc.curGenPlays)-1 {
 			return errors.New("play outside range")
 		}
-		// Play the actual move on the board, draw tiles, etc.
-		// Modify the game repr.
-		err = sc.curGameRepr.AddTurnFromPlay(sc.curTurnNum, sc.curGenPlays[idx])
-		if err != nil {
-			return err
-		}
-		log.Debug().Msgf("Added turn at turn num %v", sc.curTurnNum)
-		sc.setToTurn(sc.curTurnNum + 1)
-		sc.showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr))
+		cumul = sc.curGameState.PointsFor(playerid) + m.Score()
+		m = sc.curGenPlays[idx]
 	} else if len(cmd) == 3 {
 		coords := cmd[1]
 		word := cmd[2]
-		if sc.curTurnNum >= len(sc.curGameRepr.Turns) {
-			return errors.New("no turn exists; please use the `rack` " +
-				"command to add a new turn")
-		}
-		rack := sc.curGameRepr.Turns[sc.curTurnNum][0].GetRack()
-		move, err := sc.curGameState.CreateAndScorePlacementMove(coords, word, rack)
-		if err != nil {
-			return err
-		}
-		err = sc.curGameRepr.AddTurnFromPlay(sc.curTurnNum, move)
-		if err != nil {
-			return err
-		}
-		log.Debug().Msgf("Added turn at turn num %v", sc.curTurnNum)
-		sc.setToTurn(sc.curTurnNum + 1)
-		sc.showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr))
-		// Handle exchange/pass later.
 
-		// Remember to handle leaves correctly in this case, since
-		// a player-entered move will not contain a rack leave.
+		rack := sc.curGameState.RackFor(playerid).String()
+		m, err = sc.curGameState.CreateAndScorePlacementMove(coords, word, rack)
+		if err != nil {
+			return err
+		}
+		// Handle exchange/pass later.
 	} else {
 		return errors.New("unrecognized arguments to `add`")
 	}
+
+	// Play the actual move on the board, draw tiles, etc.
+	// Modify the game repr.
+	err = sc.curGameRepr.AddTurnFromPlay(sc.curTurnNum, m, nick, cumul, appendPlay)
+	if err != nil {
+		return err
+	}
+	log.Debug().Msgf("Added turn at turn num %v", sc.curTurnNum)
+	sc.setToTurn(sc.curTurnNum + 1)
+	sc.showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr))
+
 	return nil
+
 }
 
 func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) error {

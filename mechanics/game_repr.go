@@ -1,7 +1,6 @@
 package mechanics
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -60,9 +59,7 @@ func StateFromRepr(repr *GameRepr, defaultLexicon string, turnnum int) *XWordGam
 	// strategy := strategy.NewExhaustiveLeaveStrategy(game.Bag(), gd.LexiconName(),
 	// 	gd.GetAlphabet(), LeaveFile)
 	for idx := range repr.Players {
-		game.players[idx].Nickname = repr.Players[idx].Nickname
-		game.players[idx].RealName = repr.Players[idx].RealName
-		game.players[idx].PlayerNumber = repr.Players[idx].PlayerNumber
+		game.players[idx].info = repr.Players[idx]
 	}
 
 	game.PlayGameToTurn(repr, turnnum)
@@ -396,22 +393,7 @@ func genMove(e Event, alph *alphabet.Alphabet) *move.Move {
 
 // AddTurnFromPlay creates a new Turn, and adds it at the turn ID. It
 // additionally truncates all moves after this one.
-func (r *GameRepr) AddTurnFromPlay(turnnum int, m *move.Move) error {
-	var nick string
-	var playerid int
-	var appendPlay bool
-	// Figure out whose turn it is.
-	if turnnum < len(r.Turns) {
-		nick = r.Turns[turnnum][0].GetNickname()
-		playerid = turnnum % 2
-	} else if turnnum == len(r.Turns) {
-		playerid = turnnum % 2
-		nick = r.Players[playerid].Nickname
-		appendPlay = true
-	} else {
-		return errors.New("unexpected turn number")
-	}
-
+func (r *GameRepr) AddTurnFromPlay(turnnum int, m *move.Move, nick string, cumul int, appendPlay bool) error {
 	turnToAdd := []Event{}
 	switch m.Action() {
 	case move.MoveTypePlay:
@@ -421,7 +403,7 @@ func (r *GameRepr) AddTurnFromPlay(turnnum int, m *move.Move) error {
 		evt.Position = m.BoardCoords()
 		evt.Play = m.Tiles().UserVisible(m.Alphabet())
 		evt.Score = m.Score()
-		evt.Cumulative = r.Players[playerid].points + evt.Score
+		evt.Cumulative = cumul
 		evt.Type = RegMove
 		evt.CalculateCoordsFromPosition()
 		evt.SetMove(m)

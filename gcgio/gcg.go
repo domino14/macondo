@@ -100,7 +100,7 @@ func (p *parser) addEventOrPragma(token Token, match []string, gameRepr *mechani
 		if err != nil {
 			return err
 		}
-		gameRepr.Players = append(gameRepr.Players, &mechanics.Player{
+		gameRepr.Players = append(gameRepr.Players, mechanics.PlayerInfo{
 			Nickname:     match[2],
 			RealName:     match[3],
 			PlayerNumber: uint8(pn),
@@ -337,7 +337,7 @@ func encodingOrFirstLine(reader io.Reader) (string, string, error) {
 
 func ParseGCGFromReader(reader io.Reader) (*mechanics.GameRepr, error) {
 
-	grep := &mechanics.GameRepr{Turns: []mechanics.Turn{}, Players: []*mechanics.Player{},
+	grep := &mechanics.GameRepr{Turns: []mechanics.Turn{}, Players: []mechanics.PlayerInfo{},
 		Version: 1}
 	var err error
 	parser := &parser{}
