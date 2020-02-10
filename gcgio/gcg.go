@@ -371,15 +371,16 @@ func ParseGCG(filename string) (*mechanics.GameRepr, error) {
 	return ParseGCGFromReader(f)
 }
 
-func writeGCGHeader(s strings.Builder) {
+func writeGCGHeader(s *strings.Builder) {
 	s.WriteString("#character-encoding UTF-8\n")
+	log.Debug().Msg("wrote encoding")
 }
 
-func writePlayer(s strings.Builder, p mechanics.PlayerInfo) {
-	s.WriteString(fmt.Sprintf("#player%d %v %v\n", p.PlayerNumber, p.Nickname, p.RealName))
+func writePlayer(s *strings.Builder, p mechanics.PlayerInfo) {
+	fmt.Fprintf(s, "#player%d %v %v\n", p.PlayerNumber, p.Nickname, p.RealName)
 }
 
-func writeEvent(s strings.Builder, evt mechanics.Event) {
+func writeEvent(s *strings.Builder, evt mechanics.Event) {
 
 	nick := evt.GetNickname()
 	rack := evt.GetRack()
@@ -391,45 +392,44 @@ func writeEvent(s strings.Builder, evt mechanics.Event) {
 	case mechanics.RegMove:
 		// sevt = specific event
 		sevt := evt.(*mechanics.TilePlacementEvent)
-		fmt.Fprintf(&s, ">%v: %v %v %v +%d %d\n",
+		fmt.Fprintf(s, ">%v: %v %v %v +%d %d\n",
 			nick, rack, sevt.Position, sevt.Play, sevt.Score, sevt.Cumulative,
 		)
 	case mechanics.LostChallenge:
 		sevt := evt.(*mechanics.ScoreSubtractionEvent)
 		// >emely: DEIILTZ -- -24 55
 
-		fmt.Fprintf(&s, ">%v: %v -- -%d %d\n",
+		fmt.Fprintf(s, ">%v: %v -- -%d %d\n",
 			nick, rack, sevt.LostScore, sevt.Cumulative)
 
 	case mechanics.Pass:
 		// >Randy: U - +0 380
 		sevt := evt.(*mechanics.PassingEvent)
 
-		s.WriteString(fmt.Sprintf(">%v: (%v) - +0 %d\n",
-			nick, rack, sevt.Cumulative))
+		fmt.Fprintf(s, ">%v: (%v) - +0 %d\n", nick, rack, sevt.Cumulative)
 	case mechanics.ChallengeBonus:
 		// >Joel: DROWNUG (challenge) +5 289
 		sevt := evt.(*mechanics.ScoreAdditionEvent)
-		s.WriteString(fmt.Sprintf(">%v: %v (challenge) +%d %d\n",
-			nick, rack, sevt.Bonus, sevt.Cumulative))
+		fmt.Fprintf(s, ">%v: %v (challenge) +%d %d\n",
+			nick, rack, sevt.Bonus, sevt.Cumulative)
 
 	case mechanics.EndRackPts:
 		// >Dave: (G) +4 539
 		sevt := evt.(*mechanics.ScoreAdditionEvent)
-		s.WriteString(fmt.Sprintf(">%v: (%v) +%d %d\n",
-			nick, rack, sevt.EndRackPoints, sevt.Cumulative))
+		fmt.Fprintf(s, ">%v: (%v) +%d %d\n",
+			nick, rack, sevt.EndRackPoints, sevt.Cumulative)
 
 	case mechanics.Exchange:
 		// >Marlon: SEQSPO? -QO +0 268
 		sevt := evt.(*mechanics.PassingEvent)
-		s.WriteString(fmt.Sprintf(">%v: %v -%v +0 %d\n",
-			nick, rack, sevt.Exchanged, sevt.Cumulative))
+		fmt.Fprintf(s, ">%v: %v -%v +0 %d\n",
+			nick, rack, sevt.Exchanged, sevt.Cumulative)
 
 	}
 
 }
 
-func writeTurn(s strings.Builder, t mechanics.Turn) {
+func writeTurn(s *strings.Builder, t mechanics.Turn) {
 	for _, evt := range t {
 		writeEvent(s, evt)
 	}
@@ -439,13 +439,13 @@ func writeTurn(s strings.Builder, t mechanics.Turn) {
 func GameReprToGCG(r *mechanics.GameRepr) string {
 
 	var str strings.Builder
-	writeGCGHeader(str)
+	writeGCGHeader(&str)
 	for _, player := range r.Players {
-		writePlayer(str, player)
+		writePlayer(&str, player)
 	}
 
 	for _, turn := range r.Turns {
-		writeTurn(str, turn)
+		writeTurn(&str, turn)
 	}
 
 	return str.String()

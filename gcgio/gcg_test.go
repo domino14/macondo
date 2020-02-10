@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -99,5 +100,12 @@ func TestToGCG(t *testing.T) {
 
 	gcgstr := GameReprToGCG(gamerepr)
 
-	assert.Equal(t, gcgstr, slurp("./testdata/doug_v_emely.gcg"))
+	// ignore encoding line:
+	linesNew := strings.Split(gcgstr, "\n")[1:]
+	linesOld := strings.Split(slurp("./testdata/doug_v_emely.gcg"), "\n")
+
+	assert.Equal(t, len(linesNew), len(linesOld))
+	for idx, ln := range linesNew {
+		assert.Equal(t, strings.Fields(ln), strings.Fields(linesOld[idx]))
+	}
 }
