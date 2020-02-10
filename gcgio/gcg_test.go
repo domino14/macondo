@@ -90,3 +90,14 @@ func TestParseUnsupportedEncoding(t *testing.T) {
 	assert.NotNil(t, err)
 	assert.Nil(t, gamerepr)
 }
+
+func TestToGCG(t *testing.T) {
+	gamerepr, err := ParseGCG("./testdata/doug_v_emely.gcg")
+
+	assert.Nil(t, err)
+	assert.NotNil(t, gamerepr)
+
+	gcgstr := GameReprToGCG(gamerepr)
+
+	assert.Equal(t, gcgstr, slurp("./testdata/doug_v_emely.gcg"))
+}

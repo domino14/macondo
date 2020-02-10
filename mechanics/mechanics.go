@@ -50,7 +50,6 @@ func (p *Player) resetScore() {
 }
 
 func (p *Player) SetRack(rack []alphabet.MachineLetter, alph *alphabet.Alphabet) {
-	log.Debug().Msgf("set rack called, player %v rack %v, p.rack %v", p, rack, p.rack)
 	p.rack.Set(rack)
 	p.rackLetters = alphabet.MachineWord(rack).UserVisible(alph)
 }

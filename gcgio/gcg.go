@@ -280,22 +280,6 @@ func (p *parser) parseLine(line string, gameRepr *mechanics.GameRepr) error {
 	return nil
 }
 
-// func parseString(gcg string) (*mechanics.GameRepr, error) {
-// 	parser := &parser{}
-
-// 	lines := strings.Split(gcg, "\n")
-// 	grep := &mechanics.GameRepr{Turns: []mechanics.Turn{}, Players: []*mechanics.Player{},
-// 		Version: 1, OriginalGCG: strings.TrimSpace(gcg)}
-// 	var err error
-// 	for _, line := range lines {
-// 		err = parser.parseLine(line, grep)
-// 		if err != nil {
-// 			return nil, err
-// 		}
-// 	}
-// 	return grep, nil
-// }
-
 func encodingOrFirstLine(reader io.Reader) (string, string, error) {
 	// Read either the encoding of the file, or the first line,
 	// whichever is available.
@@ -385,4 +369,84 @@ func ParseGCG(filename string) (*mechanics.GameRepr, error) {
 		return nil, err
 	}
 	return ParseGCGFromReader(f)
+}
+
+func writeGCGHeader(s strings.Builder) {
+	s.WriteString("#character-encoding UTF-8\n")
+}
+
+func writePlayer(s strings.Builder, p mechanics.PlayerInfo) {
+	s.WriteString(fmt.Sprintf("#player%d %v %v\n", p.PlayerNumber, p.Nickname, p.RealName))
+}
+
+func writeEvent(s strings.Builder, evt mechanics.Event) {
+
+	nick := evt.GetNickname()
+	rack := evt.GetRack()
+	evtType := evt.GetType()
+
+	// XXX HANDLE MORE TYPES (e.g. time penalty at some point, end rack
+	// penalty for international rules)
+	switch evtType {
+	case mechanics.RegMove:
+		// sevt = specific event
+		sevt := evt.(*mechanics.TilePlacementEvent)
+		fmt.Fprintf(&s, ">%v: %v %v %v +%d %d\n",
+			nick, rack, sevt.Position, sevt.Play, sevt.Score, sevt.Cumulative,
+		)
+	case mechanics.LostChallenge:
+		sevt := evt.(*mechanics.ScoreSubtractionEvent)
+		// >emely: DEIILTZ -- -24 55
+
+		fmt.Fprintf(&s, ">%v: %v -- -%d %d\n",
+			nick, rack, sevt.LostScore, sevt.Cumulative)
+
+	case mechanics.Pass:
+		// >Randy: U - +0 380
+		sevt := evt.(*mechanics.PassingEvent)
+
+		s.WriteString(fmt.Sprintf(">%v: (%v) - +0 %d\n",
+			nick, rack, sevt.Cumulative))
+	case mechanics.ChallengeBonus:
+		// >Joel: DROWNUG (challenge) +5 289
+		sevt := evt.(*mechanics.ScoreAdditionEvent)
+		s.WriteString(fmt.Sprintf(">%v: %v (challenge) +%d %d\n",
+			nick, rack, sevt.Bonus, sevt.Cumulative))
+
+	case mechanics.EndRackPts:
+		// >Dave: (G) +4 539
+		sevt := evt.(*mechanics.ScoreAdditionEvent)
+		s.WriteString(fmt.Sprintf(">%v: (%v) +%d %d\n",
+			nick, rack, sevt.EndRackPoints, sevt.Cumulative))
+
+	case mechanics.Exchange:
+		// >Marlon: SEQSPO? -QO +0 268
+		sevt := evt.(*mechanics.PassingEvent)
+		s.WriteString(fmt.Sprintf(">%v: %v -%v +0 %d\n",
+			nick, rack, sevt.Exchanged, sevt.Cumulative))
+
+	}
+
+}
+
+func writeTurn(s strings.Builder, t mechanics.Turn) {
+	for _, evt := range t {
+		writeEvent(s, evt)
+	}
+}
+
+// ToGCG returns a string GCG representation of the GameRepr.
+func GameReprToGCG(r *mechanics.GameRepr) string {
+
+	var str strings.Builder
+	writeGCGHeader(str)
+	for _, player := range r.Players {
+		writePlayer(str, player)
+	}
+
+	for _, turn := range r.Turns {
+		writeTurn(str, turn)
+	}
+
+	return str.String()
 }
