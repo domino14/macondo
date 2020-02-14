@@ -423,3 +423,54 @@ func (r *GameRepr) AddTurnFromPlay(turnnum int, m *move.Move, nick string, cumul
 	log.Debug().Msgf("turns are now: %v", r.Turns)
 	return nil
 }
+
+// AppendScoringMoveAt is a utility function to append a scoring
+// move to the game history at the given turn. The caller can provide
+// coordinates and the move; this function scores and keeps track of the
+// board state properly, modifying the state appropriately.
+func AppendScoringMoveAt(state *XWordGame, repr *GameRepr,
+	turnnum int, coords, word string) error {
+
+	err := state.PlayGameToTurn(repr, turnnum)
+	if err != nil {
+		return err
+	}
+	playerid, nick, appendPlay := whoseMove(repr, turnnum)
+	rack := state.RackFor(playerid).String()
+
+	m, err := state.CreateAndScorePlacementMove(coords, word, rack)
+	if err != nil {
+		return err
+	}
+	cumul := state.PointsFor(playerid) + m.Score()
+	return repr.AddTurnFromPlay(turnnum, m, nick, cumul, appendPlay)
+}
+
+func AppendMoveAt(state *XWordGame, repr *GameRepr, turnnum int, m *move.Move) error {
+
+	err := state.PlayGameToTurn(repr, turnnum)
+	if err != nil {
+		return err
+	}
+
+	playerid, nick, appendPlay := whoseMove(repr, turnnum)
+
+	cumul := state.PointsFor(playerid) + m.Score()
+	return repr.AddTurnFromPlay(turnnum, m, nick, cumul, appendPlay)
+
+}
+
+func whoseMove(repr *GameRepr, turnnum int) (int, string, bool) {
+	var playerid int
+	var nick string
+	var appendPlay bool
+
+	playerid = turnnum % 2
+	if turnnum < len(repr.Turns) {
+		nick = repr.Turns[turnnum][0].GetNickname()
+	} else if turnnum == len(repr.Turns) {
+		nick = repr.Players[playerid].Nickname
+		appendPlay = true
+	}
+	return playerid, nick, appendPlay
+}

@@ -807,42 +807,31 @@ func TestYetAnotherOneTiler2(t *testing.T) {
 	t.Fail()
 }
 
-func TestYetAnotherOneTiler3(t *testing.T) {
-	t.Skip()
-	plies := 6
+// Test that iterative deepening actually works properly.
+func TestProperIterativeDeepening(t *testing.T) {
+	//t.Skip()
+	plies := 7
 
-	gd, err := GaddagFromLexicon("NWL18")
+	curGameRepr, err := gcgio.ParseGCG("../../gcgio/testdata/noah_vs_mishu.gcg")
 	if err != nil {
-		t.Errorf("Expected error to be nil, got %v", err)
+		t.Errorf("Got error %v", err)
 	}
-	dist := alphabet.EnglishLetterDistribution()
-
-	game := &mechanics.XWordGame{}
-	game.Init(gd, dist)
+	game := mechanics.StateFromRepr(curGameRepr, "NWL18", 0)
 	game.SetStateStackLength(plies)
+	err = game.PlayGameToTurn(curGameRepr, 28)
+	if err != nil {
+		t.Errorf("Error playing to turn %v", err)
+	}
+	// Make a few plays:
 
 	generator := movegen.NewGordonGenerator(
 		// The strategy doesn't matter right here
 		game, &strategy.NoLeaveStrategy{},
 	)
-	alph := game.Alphabet()
-	// XXX: Refactor this; we should have something like:
-	// game.LoadFromGCG(path, turnnum)
-	// That should set the board, the player racks, scores, etc - the whole state
-	// Instead we have to do this manually here:
-	generator.SetBoardToGame(alph, board.NoahVsMishu3)
 	s := new(Solver)
 	s.Init(generator, game)
 	// s.iterativeDeepeningOn = false
 	// s.simpleEvaluation = true
-	ourRack := alphabet.RackFromString("AEIY", alph)
-	theirRack := alphabet.RackFromString("LLP", alph)
-	game.SetRackFor(0, ourRack)
-	game.SetRackFor(1, theirRack)
-	game.SetPointsFor(0, 339)
-	game.SetPointsFor(1, 381)
-	game.SetPlayerOnTurn(0)
-	game.SetPlaying(true)
 	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
 	v, _ := s.Solve(plies)
 	fmt.Println("Value found", v)
