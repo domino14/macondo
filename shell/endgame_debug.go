@@ -23,7 +23,9 @@ func (sc *ShellController) endgameDebugModeSwitch(line string, sig chan os.Signa
 
 	case line == "l":
 		// List the current level of nodes
-		sc.curEndgameNode = sc.endgameSolver.RootNode()
+		if sc.curEndgameNode == nil {
+			sc.curEndgameNode = sc.endgameSolver.RootNode()
+		}
 
 		sc.showMessage(sc.curEndgameNode.String())
 		sc.showMessage("Children:")
@@ -36,6 +38,10 @@ func (sc *ShellController) endgameDebugModeSwitch(line string, sig chan os.Signa
 
 	case line == "u":
 		// List the current level of nodes
+		if sc.curEndgameNode == nil {
+			sc.showMessage("Can't go up any farther")
+			break
+		}
 		sc.curEndgameNode = sc.curEndgameNode.Parent()
 		if sc.curEndgameNode != nil {
 			sc.showMessage(sc.curEndgameNode.String())
