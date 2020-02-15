@@ -377,7 +377,7 @@ func (s *Solver) findBestSequence(endNode *GameNode) []*move.Move {
 
 // Solve solves the endgame given the current state of s.game, for the
 // current player whose turn it is in that state.
-func (s *Solver) Solve(plies int) (float32, *move.Move) {
+func (s *Solver) Solve(plies int) (float32, []*move.Move) {
 	// Generate children moves.
 	s.movegen.SetSortingParameter(movegen.SortByNone)
 	defer s.movegen.SetSortingParameter(movegen.SortByEquity)
@@ -425,7 +425,7 @@ func (s *Solver) Solve(plies int) (float32, *move.Move) {
 	log.Debug().Msgf("Number of expanded nodes: %v", s.totalNodes)
 	log.Debug().Msgf("Best sequence: %v", bestSeq)
 
-	return bestV, bestSeq[0]
+	return bestV, bestSeq
 }
 
 func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
