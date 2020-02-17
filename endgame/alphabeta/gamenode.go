@@ -90,6 +90,11 @@ func (g *GameNode) calculateValue(s *Solver, gameOver bool) {
 		// to that.
 		// log.Debug().Msgf("calculating heur value for %v as %v + %v - %v",
 		// 	g.move, spreadNow, moveVal, initialSpread)
+		if g.move.Action() == move.MoveTypePass {
+			// Hack to make sure we don't unnecessarily pass when opp
+			// is stuck.
+			moveVal -= float32(0.001)
+		}
 		g.heuristicValue = float32(spreadNow) + moveVal - float32(initialSpread)
 		// g.heuristicValue = s.game.EndgameSpreadEstimate(player, maximizing) - float32(initialSpread)
 		// log.Debug().Msgf("Calculating heuristic value of %v as %v - %v",

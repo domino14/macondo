@@ -806,9 +806,11 @@ func TestProperIterativeDeepening(t *testing.T) {
 	}
 }
 
+// Almost identical to previous test, except plies is 8. This should
+// not break it!
 func TestProperIterativeDeepening2(t *testing.T) {
-	// t.Skip()
-	plies := 7
+	//t.Skip()
+	plies := 8
 
 	curGameRepr, err := gcgio.ParseGCG("../../gcgio/testdata/noah_vs_mishu.gcg")
 	if err != nil {
@@ -819,21 +821,35 @@ func TestProperIterativeDeepening2(t *testing.T) {
 	// Make a few plays:
 	mechanics.AppendScoringMoveAt(game, curGameRepr, 28, "H7", "T...")
 	mechanics.AppendScoringMoveAt(game, curGameRepr, 29, "N5", "C...")
-	game.PlayGameToTurn(curGameRepr, 30)
+	mechanics.AppendScoringMoveAt(game, curGameRepr, 30, "10A", ".IN")
+	mechanics.AppendScoringMoveAt(game, curGameRepr, 31, "13L", "...R")
+
+	err = game.PlayGameToTurn(curGameRepr, 32)
+	if err != nil {
+		t.Errorf("Error playing to turn %v", err)
+	}
+
+	if game.PointsFor(0) != 339 {
+		t.Errorf("Points wrong: %v", game.PointsFor(0))
+	}
+	if game.PointsFor(1) != 381 {
+		t.Errorf("Points wrong: %v", game.PointsFor(1))
+	}
+
 	generator := movegen.NewGordonGenerator(
 		// The strategy doesn't matter right here
 		game, &strategy.NoLeaveStrategy{},
 	)
 	s := new(Solver)
 	s.Init(generator, game)
-	//s.iterativeDeepeningOn = false
 	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
-	v, _ := s.Solve(plies)
-	fmt.Println("Value found", v)
-	// if v < 0 {
-	// 	t.Errorf("Expected > 0, %v was", v)
-	// }
-	t.Fail()
+	v, seq := s.Solve(plies)
+	if v != 44 {
+		t.Errorf("Spread is wrong: %v", v)
+	}
+	if len(seq) != 5 {
+		t.Errorf("Sequence is wrong: %v", seq)
+	}
 }
 
 func TestFromGCG(t *testing.T) {
