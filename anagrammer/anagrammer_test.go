@@ -6,6 +6,11 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/rs/zerolog/log"
+
+	"github.com/domino14/macondo/alphabet"
+	"github.com/matryer/is"
+
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
 )
@@ -106,7 +111,10 @@ func TestMain(m *testing.M) {
 		gaddagmaker.GenerateDawg(filepath.Join(LexiconDir, "CSW15.txt"), true, true, false)
 		os.Rename("out.dawg", "/tmp/gen_csw15.dawg")
 	}
-
+	if _, err := os.Stat("/tmp/gen_csw19.dawg"); os.IsNotExist(err) {
+		gaddagmaker.GenerateDawg(filepath.Join(LexiconDir, "CSW19.txt"), true, true, false)
+		os.Rename("out.dawg", "/tmp/gen_csw19.dawg")
+	}
 	os.Exit(m.Run())
 }
 
@@ -188,4 +196,54 @@ func TestAnagramFourBlanks(t *testing.T) {
 	if len(answers) != expected {
 		t.Errorf("Expected %v answers, got %v", expected, len(answers))
 	}
+}
+
+func TestMakeRack(t *testing.T) {
+	rack := "AE[JQXZ]NR?[KY]?"
+	alph := alphabet.EnglishAlphabet()
+	rw, err := makeRack(rack, alph)
+	is := is.New(t)
+	is.NoErr(err)
+	is.Equal(rw.rack, alphabet.RackFromString("AENR??", alph))
+	is.Equal(rw.numLetters, 8)
+	is.Equal(rw.rangeBlanks, []rangeBlank{
+		{1, []alphabet.MachineLetter{9, 16, 23, 25}},
+		{1, []alphabet.MachineLetter{10, 24}},
+	})
+}
+
+func TestAnagramRangeSmall(t *testing.T) {
+	is := is.New(t)
+	d, _ := gaddag.LoadDawg("/tmp/gen_csw19.dawg")
+	answers := Anagram("[JQXZ]A", d, ModeExact)
+	log.Info().Msgf("answers: %v", answers)
+
+	is.Equal(len(answers), 3)
+}
+
+func TestAnagramRangeSmall2(t *testing.T) {
+	is := is.New(t)
+	d, _ := gaddag.LoadDawg("/tmp/gen_csw19.dawg")
+	answers := Anagram("[AEIOU][JQXZ]", d, ModeExact)
+	log.Info().Msgf("answers: %v", answers)
+
+	is.Equal(len(answers), 11)
+}
+
+func TestAnagramRangeSmallOrderDoesntMatter(t *testing.T) {
+	is := is.New(t)
+	d, _ := gaddag.LoadDawg("/tmp/gen_csw19.dawg")
+	answers := Anagram("[JQXZ][AEIOU]", d, ModeExact)
+	log.Info().Msgf("answers: %v", answers)
+
+	is.Equal(len(answers), 11)
+}
+
+func TestAnagramRange(t *testing.T) {
+	is := is.New(t)
+	d, _ := gaddag.LoadDawg("/tmp/gen_csw19.dawg")
+	answers := Anagram("AE[JQXZ]NR?[KY]?", d, ModeExact)
+	log.Info().Msgf("answers: %v", answers)
+
+	is.Equal(len(answers), 8)
 }
