@@ -162,10 +162,11 @@ func (sc *ShellController) genMovesAndDisplay(numPlays int) {
 	}
 }
 
-func endgameArgs(line string) (plies int, deepening bool, simple bool, err error) {
+func endgameArgs(line string) (plies int, deepening, simple, disablePruning bool, err error) {
 	deepening = true
 	plies = 4
 	simple = false
+	disablePruning = false
 
 	cmd := strings.Fields(line)
 	if len(cmd) == 1 {
@@ -197,7 +198,15 @@ func endgameArgs(line string) (plies int, deepening bool, simple bool, err error
 		simple = sp == 1
 	}
 	if len(cmd) > 4 {
-		err = errors.New("endgame only takes 4 arguments")
+		var d int
+		d, err = strconv.Atoi(cmd[4])
+		if err != nil {
+			return
+		}
+		disablePruning = d == 1
+	}
+	if len(cmd) > 5 {
+		err = errors.New("endgame only takes 5 arguments")
 		return
 	}
 	return
@@ -383,13 +392,13 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			showMessage("please load a game first with the `load` command", sc.l.Stderr())
 			break
 		}
-		plies, deepening, simpleEval, err := endgameArgs(line)
+		plies, deepening, simpleEval, disablePruning, err := endgameArgs(line)
 		if err != nil {
 			showMessage("Error: "+err.Error(), sc.l.Stderr())
 			break
 		}
-		showMessage(fmt.Sprintf("plies %v, deepening %v, simpleEval %v",
-			plies, deepening, simpleEval), sc.l.Stderr())
+		showMessage(fmt.Sprintf("plies %v, deepening %v, simpleEval %v, pruningDisabled %v",
+			plies, deepening, simpleEval, disablePruning), sc.l.Stderr())
 
 		sc.curGameState.SetStateStackLength(plies)
 		sc.endgameGen = movegen.NewGordonGenerator(
@@ -399,6 +408,7 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		sc.endgameSolver.Init(sc.endgameGen, sc.curGameState)
 		sc.endgameSolver.SetIterativeDeepening(deepening)
 		sc.endgameSolver.SetSimpleEvaluator(simpleEval)
+		sc.endgameSolver.SetPruningDisabled(disablePruning)
 
 		showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr), sc.l.Stderr())
 
