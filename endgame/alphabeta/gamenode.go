@@ -6,6 +6,8 @@ import (
 	"github.com/domino14/macondo/move"
 )
 
+const PerTurnPenalty = float32(0.001)
+
 // a game node has to have enough information to allow the game and turns
 // to be reconstructed.
 type GameNode struct {
@@ -42,13 +44,13 @@ func (g *GameNode) String() string {
 		g.heuristicValue, len(g.children))
 }
 
-func (g *GameNode) value(s *Solver, gameOver bool) float32 {
-	g.calculateValue(s, gameOver)
+func (g *GameNode) value(s *Solver) float32 {
+	g.calculateValue(s)
 	// log.Debug().Msgf("heuristic value of node %p is %v", g, g.heuristicValue)
 	return g.heuristicValue
 }
 
-func (g *GameNode) calculateValue(s *Solver, gameOver bool) {
+func (g *GameNode) calculateValue(s *Solver) {
 	// calculate the heuristic value of this node, and store it.
 	// we start with a max node. At 1-ply (and all odd plies), maximizing
 	// is always false.
@@ -69,7 +71,7 @@ func (g *GameNode) calculateValue(s *Solver, gameOver bool) {
 		initialSpread = -initialSpread
 		negateHeurVal = true
 	}
-
+	gameOver := !s.game.Playing()
 	// If the game is over, the value should just be the spread change.
 	if gameOver {
 		// Technically no one is on turn, but the player NOT on turn is
@@ -78,6 +80,12 @@ func (g *GameNode) calculateValue(s *Solver, gameOver bool) {
 		// in the solver right now; that's why the game node doesn't matter
 		// right here:
 		g.heuristicValue = float32(spreadNow - initialSpread)
+		// The following is a hack to make sure game is not lengthened
+		// by things such as meaningless passes (for example, a pass
+		// when the opponent is stuck). We assign a very small penalty
+		// for every turn taken; small enough to not affect the
+		// overall minimax algorithm.
+		g.heuristicValue -= (float32(s.game.Turn()) * PerTurnPenalty)
 	} else {
 		// The valuation is already an estimate of the overall gain or loss
 		// in spread for this move (if taken to the end of the game).
@@ -90,11 +98,6 @@ func (g *GameNode) calculateValue(s *Solver, gameOver bool) {
 		// to that.
 		// log.Debug().Msgf("calculating heur value for %v as %v + %v - %v",
 		// 	g.move, spreadNow, moveVal, initialSpread)
-		if g.move.Action() == move.MoveTypePass {
-			// Hack to make sure we don't unnecessarily pass when opp
-			// is stuck.
-			moveVal -= float32(0.001)
-		}
 		g.heuristicValue = float32(spreadNow) + moveVal - float32(initialSpread)
 		// g.heuristicValue = s.game.EndgameSpreadEstimate(player, maximizing) - float32(initialSpread)
 		// log.Debug().Msgf("Calculating heuristic value of %v as %v - %v",

@@ -776,6 +776,8 @@ func TestProperIterativeDeepening(t *testing.T) {
 	mechanics.AppendScoringMoveAt(game, curGameRepr, 28, "H7", "T...")
 	mechanics.AppendScoringMoveAt(game, curGameRepr, 29, "N5", "C...")
 	mechanics.AppendScoringMoveAt(game, curGameRepr, 30, "10A", ".IN")
+	// Note that this is not right; user should play the P off at 6I,
+	// but this is for testing purposes only:
 	mechanics.AppendScoringMoveAt(game, curGameRepr, 31, "13L", "...R")
 
 	err = game.PlayGameToTurn(curGameRepr, 32)
@@ -802,6 +804,9 @@ func TestProperIterativeDeepening(t *testing.T) {
 		t.Errorf("Spread is wrong: %v", v)
 	}
 	if len(seq) != 5 {
+		// In particular, the sequence should start with 6I A.
+		// Player on turn needs to block the P spot. Anything else
+		// shows a serious bug.
 		t.Errorf("Sequence is wrong: %v", seq)
 	}
 }

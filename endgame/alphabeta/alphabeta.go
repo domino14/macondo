@@ -435,7 +435,7 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 	if depth == 0 || !s.game.Playing() {
 		// s.game.Playing() happens if the game is over; i.e. if the
 		// current node is terminal.
-		val := node.value(s, !s.game.Playing())
+		val := node.value(s)
 		// log.Debug().Msgf("ending recursion, depth: %v, playing: %v, node: %v val: %v",
 		// 	depth, s.game.Playing(), node.move, val)
 		return val, node
@@ -511,6 +511,10 @@ func (s *Solver) SetIterativeDeepening(i bool) {
 
 func (s *Solver) SetSimpleEvaluator(i bool) {
 	s.simpleEvaluation = i
+}
+
+func (s *Solver) SetPruningDisabled(i bool) {
+	s.disablePruning = i
 }
 
 func (s *Solver) RootNode() *GameNode {
