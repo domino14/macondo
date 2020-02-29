@@ -342,6 +342,9 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		}
 		sc.showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr))
 
+	case line == "s":
+		sc.showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr))
+
 	case strings.HasPrefix(line, "turn "):
 		turnnum := line[5:]
 		t, err := strconv.Atoi(turnnum)
@@ -404,6 +407,9 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		sc.endgameGen = movegen.NewGordonGenerator(
 			sc.curGameState, &strategy.NoLeaveStrategy{})
 
+		// clear out the last value of this endgame node; gc should
+		// delete the tree.
+		sc.curEndgameNode = nil
 		sc.endgameSolver = new(alphabeta.Solver)
 		sc.endgameSolver.Init(sc.endgameGen, sc.curGameState)
 		sc.endgameSolver.SetIterativeDeepening(deepening)
