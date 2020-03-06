@@ -319,15 +319,10 @@ func (s *Solver) childGenerator(node *GameNode, maximizingPlayer bool) func() (
 		idxInPlays := -1
 		return func() (*GameNode, bool) {
 			idx++
-
-			// XXX: Is this condition right? maybe we should check
-			// for iterative deepening on, instead.
 			if len(plays) == 0 {
 
 				// No plays were generated. This happens during iterative
 				// deepening, when we re-use previously generated nodes.
-				// XXX: is this right? how do we know that children
-				// and generatedPlays are sorted the same way?
 				if idx == len(node.children) {
 					// Try to get a new node from plays we haven't yet
 					// considered, if any.
@@ -337,12 +332,13 @@ func (s *Solver) childGenerator(node *GameNode, maximizingPlayer bool) func() (
 						}
 						// Brand new node.
 						idxInPlays = i
-						node.generatedPlays[i].SetVisited(true)
+						// node.generatedPlays[i].SetVisited(true)
+						s.totalNodes++
 						return &GameNode{move: node.generatedPlays[i], parent: node}, true
 					}
 					return nil, false
 				}
-				node.children[idx].move.SetVisited(true)
+				// node.children[idx].move.SetVisited(true)
 				return node.children[idx], false
 			}
 			if idx == len(plays) {
