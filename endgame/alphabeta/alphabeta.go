@@ -320,9 +320,14 @@ func (s *Solver) childGenerator(node *GameNode, maximizingPlayer bool) func() (
 		return func() (*GameNode, bool) {
 			idx++
 
+			// XXX: Is this condition right? maybe we should check
+			// for iterative deepening on, instead.
 			if len(plays) == 0 {
+
 				// No plays were generated. This happens during iterative
 				// deepening, when we re-use previously generated nodes.
+				// XXX: is this right? how do we know that children
+				// and generatedPlays are sorted the same way?
 				if idx == len(node.children) {
 					// Try to get a new node from plays we haven't yet
 					// considered, if any.
@@ -385,8 +390,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move) {
 
 	// technically the children are the actual board _states_ but
 	// we don't keep track of those exactly
-	n := &GameNode{}
-	s.rootNode = n
+	s.rootNode = &GameNode{}
 	// the root node is basically the board state prior to making any moves.
 	// the children of these nodes are the board states after every move.
 	// however we treat the children as those actual moves themsselves.
@@ -404,7 +408,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move) {
 		for p := 1; p <= plies; p++ {
 			log.Debug().Msgf("Spread at beginning of endgame: %v", s.game.CurrentSpread())
 			log.Debug().Msgf("Maximizing player is: %v", s.game.PlayerOnTurn())
-			bestV, bestNode = s.alphabeta(n, p, float32(-Infinity), float32(Infinity), true)
+			bestV, bestNode = s.alphabeta(s.rootNode, p, float32(-Infinity), float32(Infinity), true)
 			bestSeq := s.findBestSequence(bestNode)
 			// Sort our plays by heuristic value for the next iteration, so that
 			// more promising nodes are searched first.
@@ -417,7 +421,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move) {
 				p, bestV, bestSeq)
 		}
 	} else {
-		bestV, bestNode = s.alphabeta(n, plies, float32(-Infinity), float32(Infinity), true)
+		bestV, bestNode = s.alphabeta(s.rootNode, plies, float32(-Infinity), float32(Infinity), true)
 	}
 	log.Debug().Msgf("Best spread found: %v", bestV)
 	// Go down tree and find best variation:
