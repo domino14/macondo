@@ -3,6 +3,7 @@ package gaddag
 import (
 	"encoding/binary"
 	"errors"
+	"io"
 
 	"os"
 
@@ -30,32 +31,31 @@ func (s *SimpleDawg) Reverse() bool {
 	return s.reverse
 }
 
-func loadCommonDagStructure(file *os.File) ([]uint32, []alphabet.LetterSet,
+func loadCommonDagStructure(stream io.Reader) ([]uint32, []alphabet.LetterSet,
 	[]uint32, []byte) {
 
 	var lexNameLen uint8
-	binary.Read(file, binary.BigEndian, &lexNameLen)
+	binary.Read(stream, binary.BigEndian, &lexNameLen)
 	lexName := make([]byte, lexNameLen)
-	binary.Read(file, binary.BigEndian, &lexName)
+	binary.Read(stream, binary.BigEndian, &lexName)
 	log.Debug().Msgf("Read lexicon name: '%v'", string(lexName))
 
 	var alphabetSize, lettersetSize, nodeSize uint32
 
-	binary.Read(file, binary.BigEndian, &alphabetSize)
+	binary.Read(stream, binary.BigEndian, &alphabetSize)
 	log.Debug().Msgf("Alphabet size: %v", alphabetSize)
 	alphabetArr := make([]uint32, alphabetSize)
-	binary.Read(file, binary.BigEndian, &alphabetArr)
+	binary.Read(stream, binary.BigEndian, &alphabetArr)
 
-	binary.Read(file, binary.BigEndian, &lettersetSize)
+	binary.Read(stream, binary.BigEndian, &lettersetSize)
 	log.Debug().Msgf("LetterSet size: %v", lettersetSize)
 	letterSets := make([]alphabet.LetterSet, lettersetSize)
-	binary.Read(file, binary.BigEndian, letterSets)
+	binary.Read(stream, binary.BigEndian, letterSets)
 
-	binary.Read(file, binary.BigEndian, &nodeSize)
+	binary.Read(stream, binary.BigEndian, &nodeSize)
 	log.Debug().Msgf("Nodes size: %v", nodeSize)
 	nodes := make([]uint32, nodeSize)
-	binary.Read(file, binary.BigEndian, &nodes)
-	file.Close()
+	binary.Read(stream, binary.BigEndian, &nodes)
 	return nodes, letterSets, alphabetArr, lexName
 }
 
@@ -66,6 +66,7 @@ func LoadDawg(filename string) (*SimpleDawg, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer file.Close()
 	var magicStr [4]uint8
 	binary.Read(file, binary.BigEndian, &magicStr)
 	if !compareMagicDawg(magicStr) {

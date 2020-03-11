@@ -9,7 +9,7 @@ import (
 
 func TestGenAlphabet(t *testing.T) {
 	gd := GenerateGaddag("test_files/little_spanish.txt", false, false)
-	gd.serializeElements()
+	gd.SerializeElements()
 	if gd.Alphabet.CurIdx() != 12 {
 		t.Errorf("curIdx should be 12, is %v", gd.Alphabet.CurIdx())
 	}
@@ -52,7 +52,7 @@ func TestGenAlphabet(t *testing.T) {
 
 func TestGenGaddag(t *testing.T) {
 	gd := GenerateGaddag("test_files/little_spanish.txt", false, false)
-	gd.serializeElements()
+	gd.SerializeElements()
 	// 12 elements in the alphabet
 	if gd.SerializedAlphabet[0] != 12 {
 		t.Errorf("Did not match: %v", gd.SerializedAlphabet[0])
@@ -70,7 +70,7 @@ func TestGenGaddag(t *testing.T) {
 
 func TestGenGaddagMinimize(t *testing.T) {
 	gd := GenerateGaddag("test_files/little_spanish.txt", true, false)
-	gd.serializeElements()
+	gd.SerializeElements()
 	// 12 elements in the alphabet
 	if gd.SerializedAlphabet[0] != 12 {
 		t.Errorf("Did not match: %v", gd.SerializedAlphabet[0])

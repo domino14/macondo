@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/domino14/macondo/alphabet"
@@ -885,4 +886,80 @@ func TestFromGCG(t *testing.T) {
 		t.Errorf("Expected 99, was %v", v)
 	}
 	// t.Fail()
+}
+
+// Test iterative deepening on a game, using a very minimal dictionary.
+// This is written for debug purposes because I can't figure out wtf is
+// wrong with my code.
+func TestMinimalIterativeDeepening(t *testing.T) {
+	//t.Skip()
+	plies := 9
+	// Basically ignore the first two "words", they are only here so that
+	// the bag initializer doesn't complain about missing letters.
+	reducedDict := `BCFGJKMNO
+QUVWXZHT
+AI
+AS
+ED
+ES
+LA
+LAY
+LEY
+LI
+PI
+RYE
+TI`
+
+	gd := gaddag.GaddagToSimpleGaddag(
+		gaddagmaker.GenerateGaddagFromStream(strings.NewReader(reducedDict), "TESTENG"))
+
+	curGameRepr, err := gcgio.ParseGCG("../../gcgio/testdata/noah_vs_mishu.gcg")
+	if err != nil {
+		t.Errorf("Got error %v", err)
+	}
+	game := mechanics.StateFromRepr(curGameRepr, "NWL18", 0)
+	// Use the gaddag we just created, instead of "NWL18":
+	fmt.Println("Replacing gaddag")
+	game.Init(gd, alphabet.EnglishLetterDistribution())
+	game.SetStateStackLength(plies)
+	// Make a few plays:
+	mechanics.AppendScoringMoveAt(game, curGameRepr, 28, "H7", "T...")
+	mechanics.AppendScoringMoveAt(game, curGameRepr, 29, "N5", "C...")
+	mechanics.AppendScoringMoveAt(game, curGameRepr, 30, "10A", ".IN")
+	// Note that this is not right; user should play the P off at 6I,
+	// but this is for testing purposes only:
+	mechanics.AppendScoringMoveAt(game, curGameRepr, 31, "13L", "...R")
+
+	err = game.PlayGameToTurn(curGameRepr, 32)
+	if err != nil {
+		t.Errorf("Error playing to turn %v", err)
+	}
+
+	if game.PointsFor(0) != 339 {
+		t.Errorf("Points wrong: %v", game.PointsFor(0))
+	}
+	if game.PointsFor(1) != 381 {
+		t.Errorf("Points wrong: %v", game.PointsFor(1))
+	}
+
+	generator := movegen.NewGordonGenerator(
+		// The strategy doesn't matter right here
+		game, &strategy.NoLeaveStrategy{},
+	)
+	s := new(Solver)
+	s.Init(generator, game)
+	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
+	v, seq := s.Solve(plies)
+	if v != 44 {
+		t.Errorf("Spread is wrong: %v", v)
+	}
+	if len(seq) != 5 {
+		// In particular, the sequence should start with 6I A.
+		// Player on turn needs to block the P spot. Anything else
+		// shows a serious bug.
+		t.Errorf("Sequence is wrong: %v", seq)
+	}
+	dot := &dotfile{}
+	genDotFile(s.rootNode, dot)
+	saveDotFile(s.rootNode, dot, "out.dot")
 }

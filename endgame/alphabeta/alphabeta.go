@@ -293,6 +293,7 @@ func (s *Solver) generateSTMPlays() []*move.Move {
 func (s *Solver) childGenerator(node *GameNode, maximizingPlayer bool) func() (
 	*GameNode, bool) {
 
+	// log.Debug().Msgf("Trying to generate children for node %v", node)
 	var plays []*move.Move
 	if node.children == nil {
 		plays = s.generateSTMPlays()
@@ -333,12 +334,15 @@ func (s *Solver) childGenerator(node *GameNode, maximizingPlayer bool) func() (
 						// Brand new node.
 						idxInPlays = i
 						// node.generatedPlays[i].SetVisited(true)
+						// log.Debug().Msg("totalNodes incremented inside ID loop")
 						s.totalNodes++
 						return &GameNode{move: node.generatedPlays[i], parent: node}, true
 					}
+					// log.Debug().Msgf("no more children of %v to return", node)
 					return nil, false
 				}
 				// node.children[idx].move.SetVisited(true)
+				// log.Debug().Msgf("Returning an already existing child of %v: %v", node, node.children[idx])
 				return node.children[idx], false
 			}
 			if idx == len(plays) {
@@ -346,6 +350,8 @@ func (s *Solver) childGenerator(node *GameNode, maximizingPlayer bool) func() (
 			}
 
 			// Otherwise, plays were generated; return brand new nodes.
+			// log.Debug().Msgf("totalNodes incremented outside ID loop. Returning %v (parent %v)",
+			// 	plays[idx], node)
 			s.totalNodes++
 			return &GameNode{move: plays[idx], parent: node}, true
 		}
@@ -423,7 +429,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move) {
 	// Go down tree and find best variation:
 	bestSeq := s.findBestSequence(bestNode)
 	log.Debug().Msgf("Number of expanded nodes: %v", s.totalNodes)
-	log.Debug().Msgf("Best sequence: %v", bestSeq)
+	log.Debug().Msgf("Best sequence: (len=%v) %v", len(bestSeq), bestSeq)
 
 	return bestV, bestSeq
 }
@@ -460,14 +466,14 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 				winningNode = wn
 				// log.Debug().Msgf("%vFound a better move: %v (%v)", depthDbg, value, tm)
 			}
+			if newNode {
+				node.children = append(node.children, child)
+			}
 			if !s.disablePruning {
 				α = max(α, value)
 				if α >= β {
 					break // beta cut-off
 				}
-			}
-			if newNode {
-				node.children = append(node.children, child)
 			}
 		}
 		node.heuristicValue = value
@@ -491,14 +497,14 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 			winningNode = wn
 			// log.Debug().Msgf("%vFound a worse move: %v (%v)", depthDbg, value, tm)
 		}
+		if newNode {
+			node.children = append(node.children, child)
+		}
 		if !s.disablePruning {
 			β = min(β, value)
 			if α >= β {
 				break // alpha cut-off
 			}
-		}
-		if newNode {
-			node.children = append(node.children, child)
 		}
 	}
 	node.heuristicValue = value
