@@ -407,7 +407,7 @@ func TestValuation(t *testing.T) {
 	game.SetPlayerOnTurn(1)
 	game.SetPlaying(true)
 
-	plays := s.generateSTMPlays()
+	plays := s.generateSTMPlays(nil)
 	// This is subject to change depending on the C & D values, but
 	// it's roughly accurate
 	is.Equal(plays[0].Valuation(), float32(36.5))
@@ -893,7 +893,7 @@ func TestFromGCG(t *testing.T) {
 // wrong with my code.
 func TestMinimalIterativeDeepening(t *testing.T) {
 	//t.Skip()
-	plies := 9
+	plies := 8
 	// Basically ignore the first two "words", they are only here so that
 	// the bag initializer doesn't complain about missing letters.
 	reducedDict := `BCFGJKMNO

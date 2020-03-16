@@ -8,13 +8,43 @@ import (
 
 const PerTurnPenalty = float32(0.001)
 
+type nodeValue struct {
+	value          float32
+	knownEnd       bool
+	sequenceLength int
+}
+
+func (nv nodeValue) String() string {
+	return fmt.Sprintf("<val: %v seqLength: %v knownEnd: %v>", nv.value,
+		nv.sequenceLength, nv.knownEnd)
+}
+
+func (nv *nodeValue) negate() {
+	nv.value = -nv.value
+}
+
+func (nv nodeValue) less(other nodeValue) bool {
+	if nv.value != other.value {
+		return nv.value < other.value
+	}
+	// Second tie-breaker is whether this is a known end or a speculative one.
+	if nv.knownEnd != other.knownEnd {
+		// basically, we are less than other if we are an unknown end
+		// and other is a known end
+		return !nv.knownEnd && other.knownEnd
+	}
+	// Third tie-breaker is length of sequence, favoring shorter sequences
+	return nv.sequenceLength > other.sequenceLength
+
+}
+
 // a game node has to have enough information to allow the game and turns
 // to be reconstructed.
 type GameNode struct {
 	// the move corresponding to the node is the move that is being evaluated.
 	move           *move.Move
 	parent         *GameNode
-	heuristicValue float32
+	heuristicValue nodeValue
 	children       []*GameNode // children should be null until expanded.
 	generatedPlays []*move.Move
 }
@@ -25,10 +55,6 @@ func (g *GameNode) Children() []*GameNode {
 
 func (g *GameNode) Parent() *GameNode {
 	return g.parent
-}
-
-func (g *GameNode) HeuristicValue() float32 {
-	return g.heuristicValue
 }
 
 func (g *GameNode) Move() *move.Move {
@@ -44,7 +70,7 @@ func (g *GameNode) String() string {
 		g.heuristicValue, len(g.children))
 }
 
-func (g *GameNode) value(s *Solver) float32 {
+func (g *GameNode) value(s *Solver) nodeValue {
 	g.calculateValue(s)
 	// log.Debug().Msgf("heuristic value of node %p is %v", g, g.heuristicValue)
 	return g.heuristicValue
@@ -79,13 +105,10 @@ func (g *GameNode) calculateValue(s *Solver) {
 		// Note that because of the way we track state, it is the state
 		// in the solver right now; that's why the game node doesn't matter
 		// right here:
-		g.heuristicValue = float32(spreadNow - initialSpread)
-		// The following is a hack to make sure game is not lengthened
-		// by things such as meaningless passes (for example, a pass
-		// when the opponent is stuck). We assign a very small penalty
-		// for every turn taken; small enough to not affect the
-		// overall minimax algorithm.
-		g.heuristicValue -= (float32(s.game.Turn()) * PerTurnPenalty)
+		g.heuristicValue = nodeValue{
+			value:          float32(spreadNow - initialSpread),
+			knownEnd:       true,
+			sequenceLength: 0}
 	} else {
 		// The valuation is already an estimate of the overall gain or loss
 		// in spread for this move (if taken to the end of the game).
@@ -98,7 +121,10 @@ func (g *GameNode) calculateValue(s *Solver) {
 		// to that.
 		// log.Debug().Msgf("calculating heur value for %v as %v + %v - %v",
 		// 	g.move, spreadNow, moveVal, initialSpread)
-		g.heuristicValue = float32(spreadNow) + moveVal - float32(initialSpread)
+		g.heuristicValue = nodeValue{
+			value:          float32(spreadNow) + moveVal - float32(initialSpread),
+			knownEnd:       false,
+			sequenceLength: 0}
 		// g.heuristicValue = s.game.EndgameSpreadEstimate(player, maximizing) - float32(initialSpread)
 		// log.Debug().Msgf("Calculating heuristic value of %v as %v - %v",
 		// 	g.move, s.game.EndgameSpreadEstimate(player), float32(initialSpread))
@@ -110,7 +136,7 @@ func (g *GameNode) calculateValue(s *Solver) {
 		// negative as possible relative to "us". I know, minimax is
 		// hard to reason about, but I think this makes sense. At least
 		// it seems to work.
-		g.heuristicValue = -g.heuristicValue
+		g.heuristicValue.negate()
 		// log.Debug().Msg("Negating since not maximizing player")
 	}
 }

@@ -202,7 +202,7 @@ func (s *Solver) addPass(plays []*move.Move, ponturn int) []*move.Move {
 	return plays
 }
 
-func (s *Solver) generateSTMPlays() []*move.Move {
+func (s *Solver) generateSTMPlays(parent *GameNode) []*move.Move {
 	// STM means side-to-move
 	stmRack := s.game.RackFor(s.game.PlayerOnTurn())
 	pnot := (s.game.PlayerOnTurn() + 1) % s.game.NumPlayers()
@@ -296,7 +296,7 @@ func (s *Solver) childGenerator(node *GameNode, maximizingPlayer bool) func() (
 	// log.Debug().Msgf("Trying to generate children for node %v", node)
 	var plays []*move.Move
 	if node.children == nil {
-		plays = s.generateSTMPlays()
+		plays = s.generateSTMPlays(node)
 		node.generatedPlays = plays
 	} else {
 		sort.Slice(node.children, func(i, j int) bool {
@@ -304,9 +304,9 @@ func (s *Solver) childGenerator(node *GameNode, maximizingPlayer bool) func() (
 			// promising nodes are visited first. This would happen
 			// during iterative deepening.
 			if maximizingPlayer {
-				return node.children[i].heuristicValue > node.children[j].heuristicValue
+				return node.children[j].heuristicValue.less(node.children[i].heuristicValue)
 			}
-			return node.children[j].heuristicValue > node.children[i].heuristicValue
+			return node.children[i].heuristicValue.less(node.children[j].heuristicValue)
 		})
 		// Mark all the moves as not visited.
 		for _, child := range node.children {
@@ -410,7 +410,8 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move) {
 		for p := 1; p <= plies; p++ {
 			log.Debug().Msgf("Spread at beginning of endgame: %v", s.game.CurrentSpread())
 			log.Debug().Msgf("Maximizing player is: %v", s.game.PlayerOnTurn())
-			bestV, bestNode = s.alphabeta(s.rootNode, p, float32(-Infinity), float32(Infinity), true)
+			bestNode = s.alphabeta(s.rootNode, p, float32(-Infinity), float32(Infinity), true)
+			bestV = bestNode.heuristicValue.value
 			bestSeq := s.findBestSequence(bestNode)
 			// Sort our plays by heuristic value for the next iteration, so that
 			// more promising nodes are searched first.
@@ -423,9 +424,10 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move) {
 				p, bestV, bestSeq)
 		}
 	} else {
-		bestV, bestNode = s.alphabeta(s.rootNode, plies, float32(-Infinity), float32(Infinity), true)
+		bestNode = s.alphabeta(s.rootNode, plies, float32(-Infinity), float32(Infinity), true)
+		bestV = bestNode.heuristicValue.value
 	}
-	log.Debug().Msgf("Best spread found: %v", bestV)
+	log.Debug().Msgf("Best spread found: %v", bestNode.heuristicValue.value)
 	// Go down tree and find best variation:
 	bestSeq := s.findBestSequence(bestNode)
 	log.Debug().Msgf("Number of expanded nodes: %v", s.totalNodes)
@@ -435,16 +437,16 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move) {
 }
 
 func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
-	maximizingPlayer bool) (float32, *GameNode) {
+	maximizingPlayer bool) *GameNode {
 
 	// depthDbg := strings.Repeat(" ", depth)
 	if depth == 0 || !s.game.Playing() {
 		// s.game.Playing() happens if the game is over; i.e. if the
 		// current node is terminal.
-		val := node.value(s)
+		node.calculateValue(s)
 		// log.Debug().Msgf("ending recursion, depth: %v, playing: %v, node: %v val: %v",
 		// 	depth, s.game.Playing(), node.move, val)
-		return val, node
+		return node
 	}
 
 	if maximizingPlayer {
@@ -458,11 +460,12 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 			child.move.SetVisited(true)
 			// log.Debug().Msgf("%vState is now %v", depthDbg,
 			// s.game.String())
-			v, wn := s.alphabeta(child, depth-1, α, β, false)
+			wn := s.alphabeta(child, depth-1, α, β, false)
 			s.game.UnplayLastMove()
 			// log.Debug().Msgf("%vAfter unplay, state is now %v", depthDbg, s.game.String())
-			if v > value {
-				value = v
+
+			if wn.heuristicValue.value > value {
+				value = wn.heuristicValue.value
 				winningNode = wn
 				// log.Debug().Msgf("%vFound a better move: %v (%v)", depthDbg, value, tm)
 			}
@@ -476,8 +479,10 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 				}
 			}
 		}
-		node.heuristicValue = value
-		return value, winningNode
+		node.heuristicValue = nodeValue{
+			value: value, knownEnd: winningNode.heuristicValue.knownEnd,
+			sequenceLength: -depth}
+		return winningNode
 	}
 	// Otherwise, not maximizing
 	value := float32(Infinity)
@@ -489,11 +494,11 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 		child.move.SetVisited(true)
 		// log.Debug().Msgf("%vState is now %v", depthDbg,
 		// s.game.String())
-		v, wn := s.alphabeta(child, depth-1, α, β, true)
+		wn := s.alphabeta(child, depth-1, α, β, true)
 		s.game.UnplayLastMove()
 		// log.Debug().Msgf("%vAfter unplay, state is now %v", depthDbg, s.game.String())
-		if v < value {
-			value = v
+		if wn.heuristicValue.value < value {
+			value = wn.heuristicValue.value
 			winningNode = wn
 			// log.Debug().Msgf("%vFound a worse move: %v (%v)", depthDbg, value, tm)
 		}
@@ -507,8 +512,10 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 			}
 		}
 	}
-	node.heuristicValue = value
-	return value, winningNode
+	node.heuristicValue = nodeValue{
+		value: value, knownEnd: winningNode.heuristicValue.knownEnd,
+		sequenceLength: -depth}
+	return winningNode
 }
 
 func (s *Solver) SetIterativeDeepening(i bool) {
