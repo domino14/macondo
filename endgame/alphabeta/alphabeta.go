@@ -59,6 +59,7 @@ type Solver struct {
 	game             *mechanics.XWordGame
 	totalNodes       int
 	initialSpread    int
+	initialTurnNum   int
 	maximizingPlayer int // This is the player who we call this function for.
 
 	simpleEvaluation     bool
@@ -398,6 +399,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move) {
 	// however we treat the children as those actual moves themsselves.
 
 	s.initialSpread = s.game.CurrentSpread()
+	s.initialTurnNum = s.game.Turn()
 	s.maximizingPlayer = s.game.PlayerOnTurn()
 	log.Debug().Msgf("Spread at beginning of endgame: %v", s.initialSpread)
 	log.Debug().Msgf("Maximizing player is: %v", s.maximizingPlayer)
@@ -481,7 +483,7 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 		}
 		node.heuristicValue = nodeValue{
 			value: value, knownEnd: winningNode.heuristicValue.knownEnd,
-			sequenceLength: -depth}
+			sequenceLength: winningNode.heuristicValue.sequenceLength}
 		return winningNode
 	}
 	// Otherwise, not maximizing
@@ -514,7 +516,7 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 	}
 	node.heuristicValue = nodeValue{
 		value: value, knownEnd: winningNode.heuristicValue.knownEnd,
-		sequenceLength: -depth}
+		sequenceLength: winningNode.heuristicValue.sequenceLength}
 	return winningNode
 }
 

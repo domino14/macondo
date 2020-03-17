@@ -108,7 +108,7 @@ func (g *GameNode) calculateValue(s *Solver) {
 		g.heuristicValue = nodeValue{
 			value:          float32(spreadNow - initialSpread),
 			knownEnd:       true,
-			sequenceLength: 0}
+			sequenceLength: s.game.Turn() - s.initialTurnNum}
 	} else {
 		// The valuation is already an estimate of the overall gain or loss
 		// in spread for this move (if taken to the end of the game).
@@ -124,7 +124,7 @@ func (g *GameNode) calculateValue(s *Solver) {
 		g.heuristicValue = nodeValue{
 			value:          float32(spreadNow) + moveVal - float32(initialSpread),
 			knownEnd:       false,
-			sequenceLength: 0}
+			sequenceLength: s.game.Turn() - s.initialTurnNum}
 		// g.heuristicValue = s.game.EndgameSpreadEstimate(player, maximizing) - float32(initialSpread)
 		// log.Debug().Msgf("Calculating heuristic value of %v as %v - %v",
 		// 	g.move, s.game.EndgameSpreadEstimate(player), float32(initialSpread))
