@@ -292,8 +292,8 @@ func encodingOrFirstLine(reader io.Reader) (string, string, error) {
 			return "", "", err
 		}
 		if buf[n] == 0xa || n == BufSize { // reached CR or size limit
-			firstLine := string(buf[:n])
-			match := compiledEncodingRegexp.FindStringSubmatch(firstLine)
+			firstLine := buf[:n]
+			match := compiledEncodingRegexp.FindStringSubmatch(string(firstLine))
 			if match != nil {
 				enc := strings.ToLower(match[1])
 				if enc != "utf-8" && enc != "utf8" {
@@ -306,7 +306,7 @@ func encodingOrFirstLine(reader io.Reader) (string, string, error) {
 			// Not an encoding line. We should ocnvert the raw bytes into the default
 			// GCG encoding, which is ISO 8859-1.
 			decoder := charmap.ISO8859_1.NewDecoder()
-			result, _, err := transform.Bytes(decoder, buf)
+			result, _, err := transform.Bytes(decoder, firstLine)
 			if err != nil {
 				return "", "", err
 			}

@@ -673,7 +673,8 @@ func TestMinimalCase4(t *testing.T) {
 }
 
 func TestAnotherOneTiler(t *testing.T) {
-	// t.Skip()
+	t.Skip() // for now. Quackle actually finds a better endgame play, but
+	// I might need to let this run all night.
 	plies := 5 // why is quackle so much faster at this endgame?
 
 	gd, err := GaddagFromLexicon("CSW19")
