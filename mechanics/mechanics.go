@@ -111,6 +111,7 @@ type backedupState struct {
 	scorelessTurns int
 	players        players
 	lastWasPass    bool
+	onturn         int
 }
 
 // Init initializes the crossword game and seeds the random number generator.
@@ -282,6 +283,23 @@ func (g *XWordGame) UnplayLastMove() {
 	g.scorelessTurns = b.scorelessTurns
 }
 
+// ResetToFirstState unplays all moves on the stack.
+func (g *XWordGame) ResetToFirstState() {
+	// This is like a fast-backward -- it unplays all of the moves on the
+	// stack.
+
+	b := g.stateStack[0]
+	g.onturn = b.onturn
+	g.turnnum -= g.stackPtr
+	g.stackPtr = 0
+
+	g.board.CopyFrom(b.board)
+	g.bag.CopyFrom(b.bag)
+	g.playing = b.playing
+	g.players.copyFrom(b.players)
+	g.scorelessTurns = b.scorelessTurns
+}
+
 func (g *XWordGame) backupState() {
 	// st := &backedupState{
 	// 	board:          g.board.Copy(),
@@ -297,6 +315,7 @@ func (g *XWordGame) backupState() {
 	st.playing = g.playing
 	st.scorelessTurns = g.scorelessTurns
 	st.players.copyFrom(g.players)
+	st.onturn = g.onturn
 	g.stackPtr++
 }
 
