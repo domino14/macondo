@@ -7,10 +7,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/domino14/macondo/move"
-
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
+	"github.com/domino14/macondo/move"
 	"github.com/rs/zerolog/log"
 )
 
@@ -26,10 +25,10 @@ const (
 // more of an instantaneous state of the game at any given time. It is
 // therefore possible to determine the state from any turn in a GameRepr.
 type GameRepr struct {
-	Turns       []Turn    `json:"turns"`
-	Players     []*Player `json:"players"`
-	Version     int       `json:"version"`
-	OriginalGCG string    `json:"originalGCG"`
+	Turns       []Turn       `json:"turns"`
+	Players     []PlayerInfo `json:"players"`
+	Version     int          `json:"version"`
+	OriginalGCG string       `json:"originalGCG"`
 	// Based on lexica, we will determine an alphabet.
 	Lexicon string `json:"lexicon,omitempty"`
 }
@@ -60,9 +59,7 @@ func StateFromRepr(repr *GameRepr, defaultLexicon string, turnnum int) *XWordGam
 	// strategy := strategy.NewExhaustiveLeaveStrategy(game.Bag(), gd.LexiconName(),
 	// 	gd.GetAlphabet(), LeaveFile)
 	for idx := range repr.Players {
-		game.players[idx].Nickname = repr.Players[idx].Nickname
-		game.players[idx].RealName = repr.Players[idx].RealName
-		game.players[idx].PlayerNumber = repr.Players[idx].PlayerNumber
+		game.players[idx].info = repr.Players[idx]
 	}
 
 	game.PlayGameToTurn(repr, turnnum)
@@ -84,7 +81,6 @@ func (g *XWordGame) playTurn(repr *GameRepr, turnnum int) []alphabet.MachineLett
 	if !challengedOffPlay {
 		for evtIdx := range repr.Turns[turnnum] {
 			m := genMove(repr.Turns[turnnum][evtIdx], g.alph)
-
 			switch m.Action() {
 			case move.MoveTypePlay:
 
@@ -117,6 +113,11 @@ func (g *XWordGame) playTurn(repr *GameRepr, turnnum int) []alphabet.MachineLett
 }
 
 func (g *XWordGame) PlayGameToTurn(repr *GameRepr, turnnum int) error {
+	if turnnum < 0 || turnnum > len(repr.Turns) {
+		return fmt.Errorf("game has %v turns, you have chosen a turn outside the range",
+			len(repr.Turns))
+	}
+
 	g.board.Clear()
 	g.bag.Refill()
 	g.players.resetScore()
@@ -124,10 +125,6 @@ func (g *XWordGame) PlayGameToTurn(repr *GameRepr, turnnum int) error {
 	g.onturn = 0
 	g.playing = true
 	playedTiles := []alphabet.MachineLetter(nil)
-	if turnnum < 0 || turnnum > len(repr.Turns) {
-		return fmt.Errorf("game has %v turns, you have chosen a turn outside the range",
-			len(repr.Turns))
-	}
 	var t int
 	for t = 0; t < turnnum; t++ {
 		addlTiles := g.playTurn(repr, t)
@@ -135,37 +132,76 @@ func (g *XWordGame) PlayGameToTurn(repr *GameRepr, turnnum int) error {
 		// log.Debug().Msgf("played turn %v (%v) and added tiles %v", t, repr.Turns[t],
 		// 	alphabet.MachineWord(addlTiles).UserVisible(g.alph))
 	}
+
+	// Now update the bag.
+	err := g.reconcileTiles(repr, playedTiles, t)
+	if err != nil {
+		return err
+	}
+
+	// Check if the game is over.
+	log.Debug().Msg("Checking if game is over...")
+	if g.bag.TilesRemaining() == 0 {
+		log.Debug().Msg("Bag is empty")
+		for _, p := range g.players {
+			log.Debug().Msgf("Player %v has %v tiles", p, p.rack.NumTiles())
+			if p.rack.NumTiles() == 0 {
+				g.playing = false
+				break
+			}
+		}
+	}
+	return nil
+}
+
+func (g *XWordGame) reconcileTiles(repr *GameRepr, playedTiles []alphabet.MachineLetter, turn int) error {
+	// Reconcile tiles in the bag, and in players' racks.
+
+	// XXX: the RemoveTiles function is not smart, and thus expensive
+	// It should not be used in any sort of simulation.
+	g.bag.RemoveTiles(playedTiles)
+	// Determine the latest rack available. Sometimes a game representation
+	// ends before the game itself is over, so we need to make sure
+	// we don't mistakenly give the other player all the remaining tiles, etc
+
 	var err error
 	var rack alphabet.MachineWord
 	var oppRack alphabet.MachineWord
 	notOnTurn := (g.onturn + 1) % 2
-	if t < len(repr.Turns) {
-		rack, err = alphabet.ToMachineWord(repr.Turns[t][0].GetRack(), g.alph)
+	if turn < len(repr.Turns) {
+		// Find the rack of the player currently on turn; after playing
+		// turns up to this point.
+		rack, err = alphabet.ToMachineWord(repr.Turns[turn][0].GetRack(), g.alph)
+
 		if err != nil {
-			log.Error().Err(err).Msg("")
 			return err
 		}
+	} else {
+		// The game might or might not be over, but we've hit the end
+		// of the recorded turns. Try to calculate partial rack from the
+		// information that we do have.
+		if turn-2 >= 0 {
+			evt := repr.Turns[turn-2][0]
+			rack = evt.GetMove().Leave()
+		}
+		// XXX: Check what happens right before the bag gets empty,
+		// this logic might be suspect. We need to "draw" to replenish
+		// our rack first.
 	}
-	g.players[g.onturn].setRack(rack, g.alph)
 
-	// Now update the bag.
-	// XXX: the RemoveTiles function is not smart, and thus expensive
-	// It should not be used in any sort of simulation.
-	g.bag.RemoveTiles(playedTiles)
+	log.Debug().Msgf("My rack is %v", rack.UserVisible(g.alph))
+	g.players[g.onturn].SetRack(rack, g.alph)
 
-	// What is the rack of the player on turn now?
 	g.bag.RemoveTiles(rack)
-
 	// Rack of the other player. This only matters when the bag is empty.
-	if len(rack) > 0 && g.bag.TilesRemaining() <= 7 {
+	// We need to set this in other for the endgame player to work properly.
+	if g.bag.TilesRemaining() <= 7 {
 		// bag is actually empty; draw everything for the opp.
 		oppRack = g.bag.Peek()
 		g.bag.RemoveTiles(oppRack)
+		log.Debug().Msgf("Removed %v tiles for oppRack", oppRack.UserVisible(alphabet.EnglishAlphabet()))
 	}
-	g.players[notOnTurn].setRack(oppRack, g.alph)
-	if g.turnnum == len(repr.Turns) {
-		g.playing = false
-	}
+	g.players[notOnTurn].SetRack(oppRack, g.alph)
 	return nil
 }
 
@@ -187,7 +223,8 @@ func (g *XWordGame) ToDisplayText(repr *GameRepr) string {
 	vpadding := 1
 	bagColCount := 20
 	for p := 0; p < len(g.players); p++ {
-		addText(bts, p+vpadding, hpadding, g.players[p].stateString(g.onturn == p))
+		addText(bts, p+vpadding, hpadding,
+			g.players[p].stateString(g.playing && g.onturn == p))
 	}
 	bag := g.bag.Peek()
 	addText(bts, vpadding+3, hpadding, fmt.Sprintf("Bag + unseen: (%d)", len(bag)))
@@ -217,6 +254,8 @@ func (g *XWordGame) ToDisplayText(repr *GameRepr) string {
 		addText(bts, p, hpadding, bagDisp[p-vpadding])
 	}
 
+	addText(bts, 12, hpadding, fmt.Sprintf("Turn %d:", g.turnnum))
+
 	vpadding = 13
 
 	if g.turnnum-1 >= 0 {
@@ -234,7 +273,7 @@ func (g *XWordGame) ToDisplayText(repr *GameRepr) string {
 }
 
 // Calculate the leave from the rack and the made play.
-func leave(rack alphabet.MachineWord, play alphabet.MachineWord) alphabet.MachineWord {
+func leave(rack alphabet.MachineWord, play alphabet.MachineWord) (alphabet.MachineWord, error) {
 	rackmls := map[alphabet.MachineLetter]int{}
 	for _, t := range rack {
 		rackmls[t]++
@@ -250,7 +289,7 @@ func leave(rack alphabet.MachineWord, play alphabet.MachineWord) alphabet.Machin
 			// It should never be 0 unless the GCG is malformed somehow.
 			rackmls[t]--
 		} else {
-			log.Error().Msgf("Tile in play but not in rack: %v %v",
+			return nil, fmt.Errorf("Tile in play but not in rack: %v %v",
 				string(t.UserVisible(alphabet.EnglishAlphabet())), rackmls[t])
 		}
 	}
@@ -262,12 +301,15 @@ func leave(rack alphabet.MachineWord, play alphabet.MachineWord) alphabet.Machin
 			}
 		}
 	}
-	return leave
+	return leave, nil
 }
 
 // Generate a move from an event
 func genMove(e Event, alph *alphabet.Alphabet) *move.Move {
 	// Have to use type assertions here, but that's OK...
+	if e.GetMove() != nil {
+		return e.GetMove()
+	}
 	var m *move.Move
 
 	rack, err := alphabet.ToMachineWord(e.GetRack(), alph)
@@ -285,7 +327,14 @@ func genMove(e Event, alph *alphabet.Alphabet) *move.Move {
 			return nil
 		}
 
-		leaveMW := leave(rack, tiles)
+		leaveMW, err := leave(rack, tiles)
+		if err != nil {
+			log.Error().Err(err).Msg("")
+			return nil
+		}
+		log.Debug().Msgf("calculated leave %v from rack %v, tiles %v",
+			leaveMW.UserVisible(alph), rack.UserVisible(alph),
+			tiles.UserVisible(alph))
 		m = move.NewScoringMove(v.Score, tiles, leaveMW, v.Direction == "v",
 			len(rack)-len(leaveMW), alph, int(v.Row), int(v.Column), v.Position)
 
@@ -296,10 +345,14 @@ func genMove(e Event, alph *alphabet.Alphabet) *move.Move {
 				log.Error().Err(err).Msg("")
 				return nil
 			}
-			leaveMW := leave(rack, tiles)
+			leaveMW, err := leave(rack, tiles)
+			if err != nil {
+				log.Error().Err(err).Msg("")
+				return nil
+			}
 			m = move.NewExchangeMove(tiles, leaveMW, alph)
 		} else {
-			m = move.NewPassMove(rack)
+			m = move.NewPassMove(rack, alph)
 		}
 
 	case *ScoreAdditionEvent:
@@ -334,5 +387,90 @@ func genMove(e Event, alph *alphabet.Alphabet) *move.Move {
 		log.Error().Msgf("Unhandled event %v", e)
 
 	}
+	e.SetMove(m)
 	return m
+}
+
+// AddTurnFromPlay creates a new Turn, and adds it at the turn ID. It
+// additionally truncates all moves after this one.
+func (r *GameRepr) AddTurnFromPlay(turnnum int, m *move.Move, nick string, cumul int, appendPlay bool) error {
+	turnToAdd := []Event{}
+	switch m.Action() {
+	case move.MoveTypePlay:
+		evt := &TilePlacementEvent{}
+		evt.Nickname = nick
+		evt.Rack = m.FullRack()
+		evt.Position = m.BoardCoords()
+		evt.Play = m.Tiles().UserVisible(m.Alphabet())
+		evt.Score = m.Score()
+		evt.Cumulative = cumul
+		evt.Type = RegMove
+		evt.CalculateCoordsFromPosition()
+		evt.SetMove(m)
+		turnToAdd = append(turnToAdd, evt)
+
+	case move.MoveTypePass:
+
+	case move.MoveTypeExchange:
+
+	}
+	if appendPlay {
+		r.Turns = append(r.Turns, turnToAdd)
+	} else {
+		r.Turns[turnnum] = turnToAdd
+		r.Turns = r.Turns[:turnnum+1]
+	}
+	log.Debug().Msgf("turns are now: %v", r.Turns)
+	return nil
+}
+
+// AppendScoringMoveAt is a utility function to append a scoring
+// move to the game history at the given turn. The caller can provide
+// coordinates and the move; this function scores and keeps track of the
+// board state properly, modifying the state appropriately.
+func AppendScoringMoveAt(state *XWordGame, repr *GameRepr,
+	turnnum int, coords, word string) error {
+
+	err := state.PlayGameToTurn(repr, turnnum)
+	if err != nil {
+		return err
+	}
+	playerid, nick, appendPlay := whoseMove(repr, turnnum)
+	rack := state.RackFor(playerid).String()
+
+	m, err := state.CreateAndScorePlacementMove(coords, word, rack)
+	if err != nil {
+		return err
+	}
+	cumul := state.PointsFor(playerid) + m.Score()
+	return repr.AddTurnFromPlay(turnnum, m, nick, cumul, appendPlay)
+}
+
+func AppendMoveAt(state *XWordGame, repr *GameRepr, turnnum int, m *move.Move) error {
+
+	err := state.PlayGameToTurn(repr, turnnum)
+	if err != nil {
+		return err
+	}
+
+	playerid, nick, appendPlay := whoseMove(repr, turnnum)
+
+	cumul := state.PointsFor(playerid) + m.Score()
+	return repr.AddTurnFromPlay(turnnum, m, nick, cumul, appendPlay)
+
+}
+
+func whoseMove(repr *GameRepr, turnnum int) (int, string, bool) {
+	var playerid int
+	var nick string
+	var appendPlay bool
+
+	playerid = turnnum % 2
+	if turnnum < len(repr.Turns) {
+		nick = repr.Turns[turnnum][0].GetNickname()
+	} else if turnnum == len(repr.Turns) {
+		nick = repr.Players[playerid].Nickname
+		appendPlay = true
+	}
+	return playerid, nick, appendPlay
 }

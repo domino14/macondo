@@ -12,7 +12,7 @@ type dotfile struct {
 	directives   []string
 }
 
-func genDotFile(n *gameNode, d *dotfile) {
+func genDotFile(n *GameNode, d *dotfile) {
 	if len(n.children) == 0 {
 		// terminal node
 		// decl := fmt.Sprintf("%p [label=\"%v\nV: %v\"];",
@@ -35,7 +35,7 @@ func genDotFile(n *gameNode, d *dotfile) {
 	}
 }
 
-func saveDotFile(root *gameNode, d *dotfile, outFile string) {
+func saveDotFile(root *GameNode, d *dotfile, outFile string) {
 	out := ""
 	out += fmt.Sprintf("digraph {\n")
 	out += fmt.Sprintf(" n_%p [label=\"(root)\"]\n", root)

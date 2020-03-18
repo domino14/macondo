@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -60,4 +61,51 @@ func TestParseGCGWithChallengeBonus(t *testing.T) {
 	repr, err := json.Marshal(gamerepr)
 	assert.Nil(t, err)
 	assert.JSONEq(t, expected, string(repr))
+}
+
+func TestParseSpecialChar(t *testing.T) {
+	gamerepr, err := ParseGCG("./testdata/name_iso8859-1.gcg")
+	assert.Nil(t, err)
+	assert.NotNil(t, gamerepr)
+	assert.Equal(t, "césar", gamerepr.Players[0].Nickname)
+	assert.Equal(t, "hércules", gamerepr.Players[1].Nickname)
+}
+
+func TestParseSpecialUTF8NoHeader(t *testing.T) {
+	gamerepr, err := ParseGCG("./testdata/name_utf8_noheader.gcg")
+	assert.Nil(t, err)
+	assert.NotNil(t, gamerepr)
+	// Since there was no encoding header, the name gets all messed up:
+	assert.Equal(t, "cÃ©sar", gamerepr.Players[0].Nickname)
+}
+
+func TestParseSpecialUTF8WithHeader(t *testing.T) {
+	gamerepr, err := ParseGCG("./testdata/name_utf8_with_header.gcg")
+	assert.Nil(t, err)
+	assert.NotNil(t, gamerepr)
+	assert.Equal(t, "césar", gamerepr.Players[0].Nickname)
+}
+
+func TestParseUnsupportedEncoding(t *testing.T) {
+	gamerepr, err := ParseGCG("./testdata/name_weird_encoding_with_header.gcg")
+	assert.NotNil(t, err)
+	assert.Nil(t, gamerepr)
+}
+
+func TestToGCG(t *testing.T) {
+	gamerepr, err := ParseGCG("./testdata/doug_v_emely.gcg")
+
+	assert.Nil(t, err)
+	assert.NotNil(t, gamerepr)
+
+	gcgstr := GameReprToGCG(gamerepr)
+
+	// ignore encoding line:
+	linesNew := strings.Split(gcgstr, "\n")[1:]
+	linesOld := strings.Split(slurp("./testdata/doug_v_emely.gcg"), "\n")
+
+	assert.Equal(t, len(linesNew), len(linesOld))
+	for idx, ln := range linesNew {
+		assert.Equal(t, strings.Fields(ln), strings.Fields(linesOld[idx]))
+	}
 }

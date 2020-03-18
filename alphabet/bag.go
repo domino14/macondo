@@ -100,7 +100,8 @@ func (b *Bag) remove(t MachineLetter) {
 	log.Fatal().Msgf("Tile %c not found in bag", t)
 }
 
-// RemoveTiles removes the given tiles from the bag.
+// RemoveTiles removes the given tiles from the bag. XXX: This is an
+// inefficient function; rewrite if we use in a simulation.
 func (b *Bag) RemoveTiles(tiles []MachineLetter) {
 	for _, t := range tiles {
 		if t.IsBlanked() {

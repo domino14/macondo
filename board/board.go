@@ -1,9 +1,12 @@
 package board
 
 import (
+	"errors"
+
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/move"
+	"github.com/rs/zerolog/log"
 )
 
 type BoardDirection uint8
@@ -385,6 +388,105 @@ func (g *GameBoard) PlayMove(m *move.Move, gd *gaddag.SimpleGaddag,
 	// Calculate cross-sets.
 	g.updateCrossSetsForMove(m, gd, bag)
 	g.tilesPlayed += m.TilesPlayed()
+}
+
+// ErrorIfIllegalPlay returns an error if the play is illegal, or nil otherwise.
+// We are not checking the actual validity of the word, but whether it is a
+// legal Crossword Game move.
+func (g *GameBoard) ErrorIfIllegalPlay(row, col int, vertical bool,
+	word alphabet.MachineWord) error {
+
+	ri, ci := 0, 1
+	if vertical {
+		ri, ci = ci, ri
+	}
+	// XXX: Need to check if the play actually connects to other tiles.
+	for idx, ml := range word {
+		newrow, newcol := row+(ri*idx), col+(ci*idx)
+		if newrow < 0 || newrow >= g.Dim() || newcol < 0 || newcol >= g.Dim() {
+			return errors.New("play extends off of the board")
+		}
+		log.Debug().Msgf("Checking idx %d, ml %d, row %v, col %v", idx, ml, newrow, newcol)
+
+		if ml == alphabet.PlayedThroughMarker {
+			ml = g.GetLetter(newrow, newcol)
+			if ml == alphabet.EmptySquareMarker {
+				return errors.New("a played-through marker was specified, but " +
+					"there is no tile at the given location")
+			}
+		} else {
+			ml = g.GetLetter(newrow, newcol)
+			if ml != alphabet.EmptySquareMarker {
+				return errors.New("tried to play through a letter already on " +
+					"the board; please use the played-through marker (.) instead")
+			}
+		}
+	}
+	return nil
+
+}
+
+// ScoreWord scores the move at the given row and column. Note that this
+// function is called when the board is potentially transposed, so we
+// assume the row stays static as we iterate through the letters of the
+// word.
+func (g *GameBoard) ScoreWord(word alphabet.MachineWord, row, col, tilesPlayed int,
+	crossDir BoardDirection, bag *alphabet.Bag) int {
+
+	// letterScore:
+	var ls int
+
+	mainWordScore := 0
+	crossScores := 0
+	bingoBonus := 0
+	if tilesPlayed == 7 {
+		bingoBonus = 50
+	}
+	wordMultiplier := 1
+
+	for idx, rn := range word {
+		ml := alphabet.MachineLetter(rn)
+		bonusSq := g.GetBonus(row, col+idx)
+		letterMultiplier := 1
+		thisWordMultiplier := 1
+		freshTile := false
+		if ml == alphabet.PlayedThroughMarker {
+			ml = g.GetLetter(row, col+idx)
+		} else {
+			freshTile = true
+			// Only count bonus if we are putting a fresh tile on it.
+			switch bonusSq {
+			case Bonus3WS:
+				wordMultiplier *= 3
+				thisWordMultiplier = 3
+			case Bonus2WS:
+				wordMultiplier *= 2
+				thisWordMultiplier = 2
+			case Bonus2LS:
+				letterMultiplier = 2
+			case Bonus3LS:
+				letterMultiplier = 3
+			}
+			// else all the multipliers are 1.
+		}
+		cs := g.GetCrossScore(row, col+idx, crossDir)
+		if ml >= alphabet.BlankOffset {
+			// letter score is 0
+			ls = 0
+		} else {
+			ls = bag.Score(ml)
+		}
+
+		mainWordScore += ls * letterMultiplier
+		// We only add cross scores if the cross set of this square is non-trivial
+		// (i.e. we have to be making an across word). Note that it's not enough
+		// to check that the cross-score is 0 because we could have a blank.
+		if freshTile && g.GetCrossSet(row, col+idx, crossDir) != TrivialCrossSet {
+			crossScores += ls*letterMultiplier*thisWordMultiplier + cs*thisWordMultiplier
+		}
+	}
+	return mainWordScore*wordMultiplier + crossScores + bingoBonus
+
 }
 
 // RestoreFromBackup restores the squares of this board from the backupBoard.

@@ -1,0 +1,12 @@
+mode - change the mode of Macondo. Macondo can be in various different
+modes. Some of these are used for debugging or seeing more information.
+
+Example usage:
+
+    mode standard
+    mode endgamedebug
+
+List of modes:
+    standard - the default mode of Macondo.
+    endgamedebug - If in this mode, you can explore the endgame tree and
+        see info about the various nodes in it.

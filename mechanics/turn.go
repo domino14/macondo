@@ -51,6 +51,10 @@ type Event interface {
 	GetRack() string
 	GetNickname() string
 	GetType() EventType
+	// GetMove gets the move associated with this event, if any.
+	GetMove() *move.Move
+	// SetMove sets the move associated with this event.
+	SetMove(*move.Move)
 }
 
 type EventType string
@@ -91,6 +95,19 @@ func (be *BaseEvent) GetType() EventType {
 	return be.Type
 }
 
+func (be *BaseEvent) GetMove() *move.Move {
+	return be.move
+}
+
+func (be *BaseEvent) SetMove(m *move.Move) {
+	be.move = m
+}
+
+func (be *BaseEvent) String() string {
+	return fmt.Sprintf("<evt type: %v nick: %v move: %v>",
+		be.Type, be.Nickname, be.move)
+}
+
 type TilePlacementEvent struct {
 	BaseEvent
 	Row       uint8  `json:"row"`
@@ -99,6 +116,17 @@ type TilePlacementEvent struct {
 	Position  string `json:"pos,omitempty"`
 	Play      string `json:"play,omitempty"`
 	Score     int    `json:"score"`
+}
+
+func (tp *TilePlacementEvent) CalculateCoordsFromPosition() {
+	row, col, vertical := move.FromBoardGameCoords(tp.Position)
+	if vertical {
+		tp.Direction = "v"
+	} else {
+		tp.Direction = "h"
+	}
+	tp.Row = uint8(row)
+	tp.Column = uint8(col)
 }
 
 type PassingEvent struct {

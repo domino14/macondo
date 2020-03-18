@@ -10,7 +10,6 @@ type VsWho string
 const (
 	// VsEd was a game I played against Ed, under club games 20150127vEd
 	// Quackle generates 219 total unique moves with a rack of AFGIIIS
-
 	VsEd VsWho = `
 cesar: Turn 8
    A B C D E F G H I J K L M N O   -> cesar                    AFGIIIS   182
@@ -359,6 +358,71 @@ New Player 1: Turn 2
 13|    -       '   '       -    |
 14|  -       "       "       -  |
 15|=     '       =       '     =|
+   ------------------------------
+`
+
+	NoahVsMishu = `
+whatnoloan: Turn 15
+   A B C D E F G H I J K L M N O   -> whatnoloan               AEIINTY   327
+   ------------------------------     mishu7                   CLLPR     368
+ 1|=     '       =     W H E T S| --Tracking-----------------------------------
+ 2|  -       "       "   O   -  | CLLPR  5
+ 3|    -       '   ' G L U G    |
+ 4|'     -       '       S     '|
+ 5|        -         R - E      |
+ 6|  "       "       I   D A I S|
+ 7|    '       '   ' A G   B O A|
+ 8|f     '     V O X   A T O N Y|
+ 9|I   '       ' F I V E R '    |
+10|R "       W E T   "   E   "  |
+11|E       Z A     M O A N E D  |
+12|L     B I D   Q I     C     '|
+13|O   J U N   '   M U   H O E  |
+14|c -   R E T U N E S     I F  |
+15|K N A P       O R E A D   T =|
+   ------------------------------
+`
+
+	NoahVsMishu2 = `
+whatnoloan: Turn 15
+   A B C D E F G H I J K L M N O   -> whatnoloan               AEIINY    334
+   ------------------------------     mishu7                   LLPR      374
+ 1|=     '       =     W H E T S| --Tracking-----------------------------------
+ 2|  -       "       "   O   -  | LLPR  4
+ 3|    -       '   ' G L U G    |
+ 4|'     -       '       S     '|
+ 5|        -         R - E   C  |
+ 6|  "       "       I   D A I S|
+ 7|    '       ' T ' A G   B O A|
+ 8|f     '     V O X   A T O N Y|
+ 9|I   '       ' F I V E R '    |
+10|R "       W E T   "   E   "  |
+11|E       Z A     M O A N E D  |
+12|L     B I D   Q I     C     '|
+13|O   J U N   '   M U   H O E  |
+14|c -   R E T U N E S     I F  |
+15|K N A P       O R E A D   T =|
+   ------------------------------
+`
+	NoahVsMishu3 = `
+whatnoloan: Turn 15
+   A B C D E F G H I J K L M N O   -> whatnoloan               AEIY      339
+   ------------------------------     mishu7                   LLP       381
+ 1|=     '       =     W H E T S| --Tracking-----------------------------------
+ 2|  -       "       "   O   -  | LLP  4
+ 3|    -       '   ' G L U G    |
+ 4|'     -       '       S     '|
+ 5|        -         R - E   C  |
+ 6|  "       "       I   D A I S|
+ 7|    '       ' T ' A G   B O A|
+ 8|f     '     V O X   A T O N Y|
+ 9|I   '       ' F I V E R '    |
+10|R I N     W E T   "   E   "  |
+11|E       Z A     M O A N E D  |
+12|L     B I D   Q I     C     '|
+13|O   J U N   '   M U   H O E R|
+14|c -   R E T U N E S     I F  |
+15|K N A P       O R E A D   T =|
    ------------------------------
 `
 )

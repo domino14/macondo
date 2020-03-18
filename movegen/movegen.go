@@ -345,59 +345,8 @@ func (gen *GordonGenerator) crossDirection() board.BoardDirection {
 }
 
 func (gen *GordonGenerator) scoreMove(word alphabet.MachineWord, row, col, tilesPlayed int) int {
-	dir := gen.crossDirection()
-	var ls int
 
-	mainWordScore := 0
-	crossScores := 0
-	bingoBonus := 0
-	if tilesPlayed == 7 {
-		bingoBonus = 50
-	}
-	wordMultiplier := 1
-
-	for idx, rn := range word {
-		ml := alphabet.MachineLetter(rn)
-		bonusSq := gen.board.GetBonus(row, col+idx)
-		letterMultiplier := 1
-		thisWordMultiplier := 1
-		freshTile := false
-		if ml == alphabet.PlayedThroughMarker {
-			ml = gen.board.GetLetter(row, col+idx)
-		} else {
-			freshTile = true
-			// Only count bonus if we are putting a fresh tile on it.
-			switch bonusSq {
-			case board.Bonus3WS:
-				wordMultiplier *= 3
-				thisWordMultiplier = 3
-			case board.Bonus2WS:
-				wordMultiplier *= 2
-				thisWordMultiplier = 2
-			case board.Bonus2LS:
-				letterMultiplier = 2
-			case board.Bonus3LS:
-				letterMultiplier = 3
-			}
-			// else all the multipliers are 1.
-		}
-		cs := gen.board.GetCrossScore(row, col+idx, dir)
-		if ml >= alphabet.BlankOffset {
-			// letter score is 0
-			ls = 0
-		} else {
-			ls = gen.bag.Score(ml)
-		}
-
-		mainWordScore += ls * letterMultiplier
-		// We only add cross scores if the cross set of this square is non-trivial
-		// (i.e. we have to be making an across word). Note that it's not enough
-		// to check that the cross-score is 0 because we could have a blank.
-		if freshTile && gen.board.GetCrossSet(row, col+idx, dir) != board.TrivialCrossSet {
-			crossScores += ls*letterMultiplier*thisWordMultiplier + cs*thisWordMultiplier
-		}
-	}
-	return mainWordScore*wordMultiplier + crossScores + bingoBonus
+	return gen.board.ScoreWord(word, row, col, tilesPlayed, gen.crossDirection(), gen.bag)
 }
 
 // Plays returns the generator's generated plays.
@@ -412,7 +361,7 @@ func (gen *GordonGenerator) addPassAndExchangeMoves(rack *alphabet.Rack) {
 	// we will have to add a pass move another way (if it's a strategic pass).
 	// Probably in the endgame package.
 	if len(gen.plays) == 0 {
-		passMove := move.NewPassMove(tilesOnRack)
+		passMove := move.NewPassMove(tilesOnRack, rack.Alphabet())
 		passMove.SetEquity(gen.strategy.Equity(passMove, gen.board, gen.bag, gen.oppRack))
 		gen.plays = append(gen.plays, passMove)
 	}

@@ -14,6 +14,7 @@ import (
 
 	"github.com/domino14/macondo/automatic"
 	"github.com/domino14/macondo/rpc/autoplayer"
+	"github.com/domino14/macondo/shell"
 )
 
 const (
@@ -55,7 +56,8 @@ func main() {
 		close(idleConnsClosed)
 	}()
 
-	go shellLoop(sig)
+	sc := shell.NewShellController()
+	go sc.Loop(sig)
 
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal().Err(err).Msg("")

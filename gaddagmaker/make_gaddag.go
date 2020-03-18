@@ -4,6 +4,8 @@ package gaddagmaker
 import (
 	"bufio"
 	"encoding/binary"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -71,16 +73,22 @@ func (a ArcPtrSlice) Len() int           { return len(a) }
 func (a ArcPtrSlice) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ArcPtrSlice) Less(i, j int) bool { return a[i].letter < a[j].letter }
 
-func getWords(filename string) ([]string, *alphabet.Alphabet) {
-	words := []string{}
-	alphabet := alphabet.Alphabet{}
-	alphabet.Init()
+func getWordsFromFile(filename string) ([]string, *alphabet.Alphabet) {
 	file, err := os.Open(filename)
 	if err != nil {
 		log.Warn().Msgf("Filename %v not found", filename)
-		return nil, &alphabet
+		return nil, nil
 	}
-	scanner := bufio.NewScanner(file)
+	words, alphabet := getWords(file)
+	file.Close()
+	return words, alphabet
+}
+
+func getWords(stream io.Reader) ([]string, *alphabet.Alphabet) {
+	words := []string{}
+	alphabet := &alphabet.Alphabet{}
+	alphabet.Init()
+	scanner := bufio.NewScanner(stream)
 	for scanner.Scan() {
 		// Split line into spaces.
 		fields := strings.Fields(scanner.Text())
@@ -93,9 +101,8 @@ func getWords(filename string) ([]string, *alphabet.Alphabet) {
 			}
 		}
 	}
-	file.Close()
 	alphabet.Reconcile()
-	return words, &alphabet
+	return words, alphabet
 }
 
 // Create a new node and store it in the node array.
@@ -228,7 +235,7 @@ func (g *Gaddag) serializeLetterSets() map[alphabet.LetterSet]uint32 {
 }
 
 // Serializes the elements of the gaddag into the various arrays.
-func (g *Gaddag) serializeElements() {
+func (g *Gaddag) SerializeElements() {
 	log.Info().Msgf("Serializing elements...")
 	g.serializeAlphabet()
 	letterSets := g.serializeLetterSets()
@@ -272,29 +279,32 @@ func (g *Gaddag) serializeElements() {
 
 // Save saves the GADDAG or DAWG to a file.
 func (g *Gaddag) Save(filename string, magicNumber string) {
-	g.serializeElements()
+	g.SerializeElements()
 	file, err := os.Create(filename)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Could not create file")
 	}
-	// Save it in a compressed format.
 	file.WriteString(magicNumber)
-
-	log.Info().Msgf("Writing lexicon name: %v", g.lexiconName)
-	bts := []byte(g.lexiconName)
-	binary.Write(file, binary.BigEndian, uint8(len(bts)))
-	binary.Write(file, binary.BigEndian, bts)
-	log.Info().Msg("Writing serialized elements")
-	binary.Write(file, binary.BigEndian, g.SerializedAlphabet)
-	log.Info().Msgf("Wrote alphabet (size = %v)", g.SerializedAlphabet[0])
-	binary.Write(file, binary.BigEndian, g.NumLetterSets)
-	binary.Write(file, binary.BigEndian, g.SerializedLetterSets)
-	log.Info().Msgf("Wrote letter sets (num = %v)", g.NumLetterSets)
-	binary.Write(file, binary.BigEndian, uint32(len(g.SerializedNodes)))
-	binary.Write(file, binary.BigEndian, g.SerializedNodes)
-	log.Info().Msgf("Wrote nodes (num = %v)", len(g.SerializedNodes))
+	g.Write(file)
 	file.Close()
 	log.Info().Msgf("Saved gaddag to %v", filename)
+}
+
+// Write writes serialized elements to the given stream.
+func (g *Gaddag) Write(stream io.Writer) {
+	log.Info().Msgf("Writing lexicon name: %v", g.lexiconName)
+	bts := []byte(g.lexiconName)
+	binary.Write(stream, binary.BigEndian, uint8(len(bts)))
+	binary.Write(stream, binary.BigEndian, bts)
+	log.Info().Msg("Writing serialized elements")
+	binary.Write(stream, binary.BigEndian, g.SerializedAlphabet)
+	log.Info().Msgf("Wrote alphabet (size = %v)", g.SerializedAlphabet[0])
+	binary.Write(stream, binary.BigEndian, g.NumLetterSets)
+	binary.Write(stream, binary.BigEndian, g.SerializedLetterSets)
+	log.Info().Msgf("Wrote letter sets (num = %v)", g.NumLetterSets)
+	binary.Write(stream, binary.BigEndian, uint32(len(g.SerializedNodes)))
+	binary.Write(stream, binary.BigEndian, g.SerializedNodes)
+	log.Info().Msgf("Wrote nodes (num = %v)", len(g.SerializedNodes))
 }
 
 // GenerateDawg makes a GADDAG with only one permutation of letters
@@ -302,7 +312,7 @@ func (g *Gaddag) Save(filename string, magicNumber string) {
 // all intents and purposes as a GADDAG, but note that it only has one path!
 func GenerateDawg(filename string, minimize bool, writeToFile bool, reverse bool) *Gaddag {
 	gaddag := &Gaddag{}
-	words, alphabet := getWords(filename)
+	words, alphabet := getWordsFromFile(filename)
 	if words == nil {
 		return gaddag
 	}
@@ -358,15 +368,16 @@ func GenerateDawg(filename string, minimize bool, writeToFile bool, reverse bool
 	return gaddag
 }
 
-// GenerateGaddag makes a GADDAG out of the filename, and optionally
-// minimizes it and/or writes it to file.
-func GenerateGaddag(filename string, minimize bool, writeToFile bool) *Gaddag {
+func genGaddag(stream io.Reader, lexName string, minimize bool, writeToFile bool) *Gaddag {
+
 	gaddag := &Gaddag{}
-	words, alph := getWords(filename)
+	words, alph := getWords(stream)
+	fmt.Println("WORDS ARE", words, "ALPH IS", alph)
 	if words == nil {
 		return gaddag
 	}
-	gaddag.lexiconName = strings.Split(filepath.Base(filename), ".")[0]
+
+	gaddag.lexiconName = lexName
 	gaddag.Root = gaddag.createNode()
 	gaddag.Alphabet = alph
 	log.Info().Msgf("Read %v words", len(words))
@@ -417,4 +428,23 @@ func GenerateGaddag(filename string, minimize bool, writeToFile bool) *Gaddag {
 		gaddag.Save("out.gaddag", GaddagMagicNumber)
 	}
 	return gaddag
+
+}
+
+// GenerateGaddag makes a GADDAG out of the filename, and optionally
+// minimizes it and/or writes it to file.
+func GenerateGaddag(filename string, minimize bool, writeToFile bool) *Gaddag {
+	file, err := os.Open(filename)
+	if err != nil {
+		log.Warn().Msgf("Filename %v not found", filename)
+		return nil
+	}
+	defer file.Close()
+
+	return genGaddag(file, strings.Split(filepath.Base(filename), ".")[0],
+		minimize, writeToFile)
+}
+
+func GenerateGaddagFromStream(stream io.Reader, lexName string) *Gaddag {
+	return genGaddag(stream, lexName, true, false)
 }

@@ -3,6 +3,7 @@
 package gaddag
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"os"
@@ -47,6 +48,21 @@ func compareMagicGaddag(bytes [4]uint8) bool {
 	return cast == gaddagmaker.GaddagMagicNumber
 }
 
+func GaddagToSimpleGaddag(g *gaddagmaker.Gaddag) *SimpleGaddag {
+	g.SerializeElements()
+	// Write to buffer
+	buf := new(bytes.Buffer)
+	g.Write(buf)
+	// Then read from the bytes
+	readBuf := bytes.NewBuffer(buf.Bytes())
+	nodes, letterSets, alphabetArr, lexName := loadCommonDagStructure(readBuf)
+
+	sg := &SimpleGaddag{Nodes: nodes, LetterSets: letterSets,
+		alphabet:    alphabet.FromSlice(alphabetArr),
+		lexiconName: string(lexName)}
+	return sg
+}
+
 // LoadGaddag loads a gaddag from a file and returns a *SimpleGaddag structure.
 func LoadGaddag(filename string) (*SimpleGaddag, error) {
 	log.Debug().Msgf("Loading %v ...", filename)
@@ -54,6 +70,7 @@ func LoadGaddag(filename string) (*SimpleGaddag, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer file.Close()
 	var magicStr [4]uint8
 	binary.Read(file, binary.BigEndian, &magicStr)
 

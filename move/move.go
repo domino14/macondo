@@ -2,9 +2,11 @@ package move
 
 import (
 	"fmt"
-	"log"
 	"regexp"
+	"sort"
 	"strconv"
+
+	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/alphabet"
 )
@@ -60,14 +62,18 @@ func (m *Move) String() string {
 	switch m.action {
 	case MoveTypePlay:
 		return fmt.Sprintf(
-			"<action: play word: %v %v score: %v tp: %v leave: %v equity: %.3f valu: %.3f>",
+			"<%p action: play word: %v %v score: %v tp: %v leave: %v equity: %.3f valu: %.3f>",
+			m,
 			m.coords, m.tiles.UserVisible(m.alph), m.score,
 			m.tilesPlayed, m.leave.UserVisible(m.alph), m.equity, m.valuation)
 	case MoveTypePass:
-		return fmt.Sprintf("<action: pass equity: %.3f valu: %.3f>", m.equity, m.valuation)
+		return fmt.Sprintf("<%p action: pass leave: %v equity: %.3f valu: %.3f>",
+			m,
+			m.leave.UserVisible(m.alph), m.equity, m.valuation)
 	case MoveTypeExchange:
 		return fmt.Sprintf(
-			"<action: exchange %v score: %v tp: %v leave: %v equity: %.3f>",
+			"<%p action: exchange %v score: %v tp: %v leave: %v equity: %.3f>",
+			m,
 			m.tiles.UserVisible(m.alph), m.score, m.tilesPlayed,
 			m.leave.UserVisible(m.alph), m.equity)
 	}
@@ -87,6 +93,28 @@ func (m *Move) ShortDescription() string {
 		return fmt.Sprintf("(exch %v)", m.tiles.UserVisible(m.alph))
 	}
 	return fmt.Sprint("UNHANDLED")
+}
+
+// FullRack returns the entire rack that the move was made from. This
+// can be calculated from the tiles it uses and the leave.
+func (m *Move) FullRack() string {
+	rack := []rune(m.leave.UserVisible(m.alph))
+	for _, ml := range m.tiles {
+		switch {
+		case ml >= alphabet.BlankOffset:
+			rack = append(rack, alphabet.BlankToken)
+		case ml == alphabet.PlayedThroughMarker || ml == alphabet.BlankMachineLetter ||
+			ml == alphabet.EmptySquareMarker:
+			// do nothing
+
+		default:
+			rack = append(rack, m.alph.Letter(ml))
+		}
+	}
+	sort.Slice(rack, func(i, j int) bool {
+		return rack[i] < rack[j]
+	})
+	return string(rack)
 }
 
 func (m *Move) Action() MoveType {
@@ -120,12 +148,12 @@ func NewScoringMoveSimple(score int, coords string, word string, leave string,
 
 	tiles, err := alphabet.ToMachineWord(word, alph)
 	if err != nil {
-		log.Printf("[ERROR] %v", err.Error())
+		log.Error().Err(err).Msg("")
 		return nil
 	}
 	leaveMW, err := alphabet.ToMachineWord(leave, alph)
 	if err != nil {
-		log.Printf("[ERROR] %v", err.Error())
+		log.Error().Err(err).Msg("")
 		return nil
 	}
 	tilesPlayed := 0
@@ -306,9 +334,10 @@ func FromBoardGameCoords(c string) (int, int, bool) {
 }
 
 // NewPassMove creates a pass with the given leave.
-func NewPassMove(leave alphabet.MachineWord) *Move {
+func NewPassMove(leave alphabet.MachineWord, alph *alphabet.Alphabet) *Move {
 	return &Move{
 		action: MoveTypePass,
 		leave:  leave,
+		alph:   alph,
 	}
 }
