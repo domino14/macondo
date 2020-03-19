@@ -1,7 +1,5 @@
 package alphabet
 
-import "github.com/rs/zerolog/log"
-
 // LetterDistribution encodes the tile distribution for the relevant game.
 type LetterDistribution struct {
 	Distribution map[rune]uint8
@@ -71,18 +69,7 @@ func PolishLetterDistribution() *LetterDistribution {
 
 // MakeBag returns a bag of tiles.
 func (ld *LetterDistribution) MakeBag(alph *Alphabet) *Bag {
-	bag := make([]MachineLetter, ld.numLetters)
-	idx := 0
-	for rn, val := range ld.Distribution {
-		for j := uint8(0); j < val; j++ {
-			val, err := alph.Val(rn)
-			if err != nil {
-				log.Fatal().Msgf("Attempt to initialize bag failed: %v", err)
-			}
-			bag[idx] = val
-			idx++
-		}
-	}
+
 	// Make an array of scores in alphabet order
 	scores := make([]int, len(ld.Distribution))
 	for rn, ptVal := range ld.PointValues {
@@ -95,7 +82,7 @@ func (ld *LetterDistribution) MakeBag(alph *Alphabet) *Bag {
 		}
 		scores[ml] = int(ptVal)
 	}
-	b := NewBag(bag, len(ld.Distribution), alph, scores)
+	b := NewBag(ld, len(ld.Distribution), alph, scores)
 	b.Shuffle()
 
 	return b

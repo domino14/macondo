@@ -97,7 +97,7 @@ func (els ExhaustiveLeaveStrategy) lookup(leave alphabet.MachineWord) float32 {
 		})
 	}
 	if len(leave) <= 6 {
-		// log.Debug().Msgf("Need to look up leave for %v", leave.UserVisible(alphabet.EnglishAlphabet()))
+		log.Debug().Msgf("Need to look up leave for %v", leave.UserVisible(alphabet.EnglishAlphabet()))
 		val := els.leaveValues.Get(leave.Bytes())
 		// log.Debug().Msgf("Value was %v", val)
 		return float32FromBytes(val)

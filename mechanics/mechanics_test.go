@@ -67,3 +67,15 @@ func TestPlayToTurn(t *testing.T) {
 
 	assert.True(t, b.Equals(game.Board()))
 }
+
+func TestSetRandomRack(t *testing.T) {
+	curGameRepr, err := gcgio.ParseGCG("../gcgio/testdata/vs_frentz.gcg")
+	if err != nil {
+		t.Errorf("Got error %v", err)
+	}
+	game := mechanics.StateFromRepr(curGameRepr, "CSW19", 0)
+	err = game.PlayGameToTurn(curGameRepr, 21)
+	if err != nil {
+		t.Errorf("Error playing to turn %v", err)
+	}
+}

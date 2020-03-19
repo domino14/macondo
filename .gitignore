@@ -10,3 +10,8 @@ macondo
 *.ipynb_checkpoints/
 log*.csv
 *.swp
+*.out
+*.svg
+*.dot
+*.test
+*.csv.gz

@@ -5,7 +5,10 @@
 package mechanics
 
 import (
+	crypto_rand "crypto/rand"
+	"encoding/binary"
 	"fmt"
+	math_rand "math/rand"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
@@ -14,6 +17,16 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 )
+
+func init() {
+	// Seed the pseudorandomizer with an actually random number.
+	var b [8]byte
+	_, err := crypto_rand.Read(b[:])
+	if err != nil {
+		panic("cannot seed math/rand package with cryptographically secure random number generator")
+	}
+	math_rand.Seed(int64(binary.LittleEndian.Uint64(b[:])))
+}
 
 // PlayerInfo contains basic information about the player.
 type PlayerInfo struct {
@@ -114,7 +127,7 @@ type backedupState struct {
 	onturn         int
 }
 
-// Init initializes the crossword game and seeds the random number generator.
+// Init initializes the crossword game.
 func (g *XWordGame) Init(gd *gaddag.SimpleGaddag, dist *alphabet.LetterDistribution) {
 	g.numPossibleLetters = int(gd.GetAlphabet().NumLetters())
 	g.board = board.MakeBoard(board.CrosswordGameBoard)
@@ -127,7 +140,6 @@ func (g *XWordGame) Init(gd *gaddag.SimpleGaddag, dist *alphabet.LetterDistribut
 		newPlayer("player1", "player1", 0, g.alph),
 		newPlayer("player2", "player2", 1, g.alph),
 	}
-
 	log.Debug().Msg("Initialized XWordGame structure")
 	// The strategy and move generator are not part of the "game mechanics".
 	// These should be a level up. This module is just for the gameplay side
@@ -396,9 +408,28 @@ func (g *XWordGame) Gaddag() *gaddag.SimpleGaddag {
 	return g.gaddag
 }
 
-func (g *XWordGame) SetRackFor(playerID int, rack *alphabet.Rack) {
+// SetRackFor sets the player's current rack. It throws an error if
+// the rack is impossible to set from the current bag. It puts tiles
+// back in the bag if needed.
+func (g *XWordGame) SetRackFor(playerID int, rack *alphabet.Rack) error {
+	log.Debug().Msgf("Trying to set rack for %v, rack = %v",
+		playerID, rack.String())
+	g.Bag().PutBack(g.RackFor(playerID).TilesOn())
+	err := g.Bag().RemoveTiles(rack.TilesOn())
+	if err != nil {
+		return err
+	}
+
 	g.players[playerID].rack = rack
 	g.players[playerID].rackLetters = rack.String()
+	return nil
+}
+
+// SetRandomRack sets the player's rack to a random rack drawn from the bag.
+// It tosses the current rack back in first. This is used for simulations.
+func (g *XWordGame) SetRandomRack(playerID int) {
+	rack := g.Bag().Redraw(g.RackFor(playerID).TilesOn())
+	g.players[playerID].SetRack(rack, g.alph)
 }
 
 func (g *XWordGame) SetPointsFor(playerID int, pts int) {
@@ -430,6 +461,13 @@ func (g *XWordGame) Turn() int {
 func (g *XWordGame) CurrentSpread() int {
 	other := (g.onturn + 1) % len(g.players)
 	return g.players[g.onturn].points - g.players[other].points
+}
+
+// SpreadFor returns the spread for the current player. This is only
+// compatible with two players.
+func (g *XWordGame) SpreadFor(playerID int) int {
+	other := (playerID + 1) % len(g.players)
+	return g.players[playerID].points - g.players[other].points
 }
 
 // PlayerOnTurn returns the current player index whose turn it is.

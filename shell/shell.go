@@ -249,8 +249,7 @@ func (sc *ShellController) modeSelector(line string) {
 func (sc *ShellController) addRack(rack string) error {
 	// Set current player on turn's rack.
 	playerid := sc.curTurnNum % 2
-	sc.curGameState.SetRackFor(playerid, alphabet.RackFromString(rack, sc.curGameState.Alphabet()))
-	return nil
+	return sc.curGameState.SetRackFor(playerid, alphabet.RackFromString(rack, sc.curGameState.Alphabet()))
 }
 
 func (sc *ShellController) addPlay(line string) error {

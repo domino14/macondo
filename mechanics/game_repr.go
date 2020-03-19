@@ -157,14 +157,14 @@ func (g *XWordGame) PlayGameToTurn(repr *GameRepr, turnnum int) error {
 func (g *XWordGame) reconcileTiles(repr *GameRepr, playedTiles []alphabet.MachineLetter, turn int) error {
 	// Reconcile tiles in the bag, and in players' racks.
 
-	// XXX: the RemoveTiles function is not smart, and thus expensive
-	// It should not be used in any sort of simulation.
-	g.bag.RemoveTiles(playedTiles)
+	var err error
+	err = g.bag.RemoveTiles(playedTiles)
+	if err != nil {
+		return err
+	}
 	// Determine the latest rack available. Sometimes a game representation
 	// ends before the game itself is over, so we need to make sure
 	// we don't mistakenly give the other player all the remaining tiles, etc
-
-	var err error
 	var rack alphabet.MachineWord
 	var oppRack alphabet.MachineWord
 	notOnTurn := (g.onturn + 1) % 2
@@ -192,13 +192,19 @@ func (g *XWordGame) reconcileTiles(repr *GameRepr, playedTiles []alphabet.Machin
 	log.Debug().Msgf("My rack is %v", rack.UserVisible(g.alph))
 	g.players[g.onturn].SetRack(rack, g.alph)
 
-	g.bag.RemoveTiles(rack)
+	err = g.bag.RemoveTiles(rack)
+	if err != nil {
+		return err
+	}
 	// Rack of the other player. This only matters when the bag is empty.
 	// We need to set this in other for the endgame player to work properly.
 	if g.bag.TilesRemaining() <= 7 {
 		// bag is actually empty; draw everything for the opp.
 		oppRack = g.bag.Peek()
-		g.bag.RemoveTiles(oppRack)
+		err = g.bag.RemoveTiles(oppRack)
+		if err != nil {
+			return err
+		}
 		log.Debug().Msgf("Removed %v tiles for oppRack", oppRack.UserVisible(alphabet.EnglishAlphabet()))
 	}
 	g.players[notOnTurn].SetRack(oppRack, g.alph)
@@ -332,9 +338,9 @@ func genMove(e Event, alph *alphabet.Alphabet) *move.Move {
 			log.Error().Err(err).Msg("")
 			return nil
 		}
-		log.Debug().Msgf("calculated leave %v from rack %v, tiles %v",
-			leaveMW.UserVisible(alph), rack.UserVisible(alph),
-			tiles.UserVisible(alph))
+		// log.Debug().Msgf("calculated leave %v from rack %v, tiles %v",
+		// 	leaveMW.UserVisible(alph), rack.UserVisible(alph),
+		// 	tiles.UserVisible(alph))
 		m = move.NewScoringMove(v.Score, tiles, leaveMW, v.Direction == "v",
 			len(rack)-len(leaveMW), alph, int(v.Row), int(v.Column), v.Position)
 
