@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/matryer/is"
 )
 
 func defaultEnglishAlphabet() *Alphabet {
@@ -89,22 +89,23 @@ func TestDrawAtMost(t *testing.T) {
 }
 
 func TestExchange(t *testing.T) {
+	is := is.New(t)
 	ld := EnglishLetterDistribution()
 	alph := defaultEnglishAlphabet()
 	bag := ld.MakeBag(alph)
 
 	letters, _ := bag.Draw(7)
 	newLetters, _ := bag.Exchange(letters[:5])
-	assert.Equal(t, 5, len(newLetters))
-	assert.Equal(t, 93, len(bag.tiles))
-
+	is.Equal(len(newLetters), 5)
+	is.Equal(len(bag.tiles), 93)
 }
 
 func TestRemoveTiles(t *testing.T) {
+	is := is.New(t)
 	ld := EnglishLetterDistribution()
 	alph := defaultEnglishAlphabet()
 	bag := ld.MakeBag(alph)
-	assert.Equal(t, 100, len(bag.tiles))
+	is.Equal(len(bag.tiles), 100)
 	toRemove := []MachineLetter{
 		9, 14, 24, 4, 3, 20, 4, 11, 21, 6, 22, 14, 8, 0, 8, 15, 6, 5, 4,
 		19, 0, 24, 8, 17, 17, 18, 2, 11, 8, 14, 1, 8, 0, 20, 7, 0, 8, 10,
@@ -112,7 +113,7 @@ func TestRemoveTiles(t *testing.T) {
 		1, 0, 13, 4, 19, 14, 4, 17, 20, 6, 21, 104, 3, 7, 0, 3, 14, 22,
 		4, 8, 13, 16, 20, 4, 18, 19, 4, 23, 4, 2, 17, 12, 14, 0, 13,
 	}
-	assert.Equal(t, 91, len(toRemove))
+	is.Equal(len(toRemove), 91)
 	bag.RemoveTiles(toRemove)
-	assert.Equal(t, len(bag.tiles), 9)
+	is.Equal(len(bag.tiles), 9)
 }

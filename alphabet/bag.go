@@ -139,15 +139,15 @@ func (b *Bag) remove(t MachineLetter) {
 	b.tileMap[t]--
 }
 
-// reconcileTiles reconciles the bag slice with the tile map.
-func (b *Bag) reconcileTiles(numTilesInBag int) {
+// rebuildTileSlice reconciles the bag slice with the tile map.
+func (b *Bag) rebuildTileSlice(numTilesInBag int) {
 	log.Debug().Msgf("reconciling tiles, num in bag are %v, map %v",
 		numTilesInBag, b.tileMap)
-	tiles := make([]MachineLetter, numTilesInBag)
+	b.tiles = make([]MachineLetter, numTilesInBag)
 	idx := 0
 	for let, ct := range b.tileMap {
 		for j := uint8(0); j < ct; j++ {
-			tiles[idx] = let
+			b.tiles[idx] = let
 			idx++
 		}
 	}
@@ -174,7 +174,7 @@ func (b *Bag) RemoveTiles(tiles []MachineLetter) error {
 			b.remove(t)
 		}
 	}
-	b.reconcileTiles(len(b.tiles) - len(tiles))
+	b.rebuildTileSlice(len(b.tiles) - len(tiles))
 	return nil
 }
 

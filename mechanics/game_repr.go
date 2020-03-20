@@ -158,7 +158,9 @@ func (g *XWordGame) reconcileTiles(repr *GameRepr, playedTiles []alphabet.Machin
 	// Reconcile tiles in the bag, and in players' racks.
 
 	var err error
+	log.Debug().Msgf("Removing tiles played: %v", playedTiles)
 	err = g.bag.RemoveTiles(playedTiles)
+	log.Debug().Msgf("Error was %v", err)
 	if err != nil {
 		return err
 	}
@@ -183,13 +185,15 @@ func (g *XWordGame) reconcileTiles(repr *GameRepr, playedTiles []alphabet.Machin
 		if turn-2 >= 0 {
 			evt := repr.Turns[turn-2][0]
 			rack = evt.GetMove().Leave()
+			log.Debug().Msgf("Hit end of recorded turns. Possible rack %v",
+				rack.UserVisible(g.alph))
 		}
 		// XXX: Check what happens right before the bag gets empty,
 		// this logic might be suspect. We need to "draw" to replenish
 		// our rack first.
 	}
 
-	log.Debug().Msgf("My rack is %v", rack.UserVisible(g.alph))
+	log.Debug().Msgf("My rack is %v, removing it from bag", rack.UserVisible(g.alph))
 	g.players[g.onturn].SetRack(rack, g.alph)
 
 	err = g.bag.RemoveTiles(rack)
