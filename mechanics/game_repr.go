@@ -170,6 +170,7 @@ func (g *XWordGame) reconcileTiles(repr *GameRepr, playedTiles []alphabet.Machin
 	var rack alphabet.MachineWord
 	var oppRack alphabet.MachineWord
 	notOnTurn := (g.onturn + 1) % 2
+	onTurnDrawBag := false
 	if turn < len(repr.Turns) {
 		// Find the rack of the player currently on turn; after playing
 		// turns up to this point.
@@ -185,33 +186,51 @@ func (g *XWordGame) reconcileTiles(repr *GameRepr, playedTiles []alphabet.Machin
 		if turn-2 >= 0 {
 			evt := repr.Turns[turn-2][0]
 			rack = evt.GetMove().Leave()
-			log.Debug().Msgf("Hit end of recorded turns. Possible rack %v",
-				rack.UserVisible(g.alph))
+			log.Debug().Msgf("Hit end of recorded turns. Possible rack %v, Tiles in bag %v",
+				rack.UserVisible(g.alph), g.bag.TilesRemaining())
 		}
-		// XXX: Check what happens right before the bag gets empty,
-		// this logic might be suspect. We need to "draw" to replenish
-		// our rack first.
+		if g.bag.TilesRemaining() <= 7 {
+			// If we are in this situation, then this player should draw
+			// all the remaining tiles, as they would have drawn them at
+			// the end of their turn.
+			onTurnDrawBag = true
+			log.Debug().Msg("Setting onturndrawbag to true")
+		}
 	}
 
-	log.Debug().Msgf("My rack is %v, removing it from bag", rack.UserVisible(g.alph))
-	g.players[g.onturn].SetRack(rack, g.alph)
-
-	err = g.bag.RemoveTiles(rack)
-	if err != nil {
-		return err
-	}
-	// Rack of the other player. This only matters when the bag is empty.
-	// We need to set this in other for the endgame player to work properly.
+	// Potentially set rack of the other player. This only matters when the bag
+	// is empty. We need to set this in other for the endgame player to work
+	// properly.
+	var myRack alphabet.MachineWord
 	if g.bag.TilesRemaining() <= 7 {
-		// bag is actually empty; draw everything for the opp.
-		oppRack = g.bag.Peek()
-		err = g.bag.RemoveTiles(oppRack)
+		// bag is actually empty; draw everything.
+		if onTurnDrawBag {
+			myRack = g.bag.Peek()
+			err = g.bag.RemoveTiles(myRack)
+			if err != nil {
+				return err
+			}
+			log.Debug().Msgf("Removed %v tiles for my rack", myRack.UserVisible(alphabet.EnglishAlphabet()))
+		} else {
+			oppRack = g.bag.Peek()
+			err = g.bag.RemoveTiles(oppRack)
+			if err != nil {
+				return err
+			}
+			log.Debug().Msgf("Removed %v tiles for oppRack", oppRack.UserVisible(alphabet.EnglishAlphabet()))
+		}
+	}
+	g.players[notOnTurn].SetRack(oppRack, g.alph)
+	if !onTurnDrawBag {
+		log.Debug().Msgf("My rack is %v, removing it from bag", rack.UserVisible(g.alph))
+		g.players[g.onturn].SetRack(rack, g.alph)
+
+		err = g.bag.RemoveTiles(rack)
 		if err != nil {
 			return err
 		}
-		log.Debug().Msgf("Removed %v tiles for oppRack", oppRack.UserVisible(alphabet.EnglishAlphabet()))
 	}
-	g.players[notOnTurn].SetRack(oppRack, g.alph)
+
 	return nil
 }
 

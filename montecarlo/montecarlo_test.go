@@ -87,7 +87,7 @@ func TestLongerSim(t *testing.T) {
 	simmer := &Simmer{}
 	simmer.Init(generator, game)
 	timeout, cancel := context.WithTimeout(
-		context.Background(), 5000*time.Millisecond)
+		context.Background(), 100*time.Second)
 	defer cancel()
 	simmer.Simulate(timeout, plays, plies)
 
