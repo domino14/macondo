@@ -3,6 +3,7 @@ package strategy
 import (
 	"compress/gzip"
 	"encoding/binary"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -88,6 +89,13 @@ func (els ExhaustiveLeaveStrategy) Equity(play *move.Move, board *board.GameBoar
 }
 
 func (els ExhaustiveLeaveStrategy) lookup(leave alphabet.MachineWord) float32 {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("Recovered from panic; leave was %v\n", leave.UserVisible(alphabet.EnglishAlphabet()))
+			// Panic anyway; the recover was just to figure out which leave did it.
+			panic("panicking anyway")
+		}
+	}()
 	if len(leave) == 0 {
 		return 0
 	}

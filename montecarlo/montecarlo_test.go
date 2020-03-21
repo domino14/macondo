@@ -58,11 +58,11 @@ func TestSimSingleIteration(t *testing.T) {
 
 	// Board should be reset back to empty after the simulation.
 	is.True(game.Board().IsEmpty())
-	fmt.Println(simmer.printStats())
-	is.True(false)
+	// fmt.Println(simmer.printStats())
 }
 
 func TestLongerSim(t *testing.T) {
+	t.Skip()
 	is := is.New(t)
 	plies := 2
 	gd, err := GaddagFromLexicon("NWL18")

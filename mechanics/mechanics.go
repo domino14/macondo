@@ -417,6 +417,7 @@ func (g *XWordGame) SetRackFor(playerID int, rack *alphabet.Rack) error {
 	g.Bag().PutBack(g.RackFor(playerID).TilesOn())
 	err := g.Bag().RemoveTiles(rack.TilesOn())
 	if err != nil {
+		log.Error().Msgf("Unable to set rack: %v", err)
 		return err
 	}
 
@@ -459,20 +460,24 @@ func (g *XWordGame) Turn() int {
 
 // CurrentSpread returns the spread of the current game state.
 func (g *XWordGame) CurrentSpread() int {
-	other := (g.onturn + 1) % len(g.players)
+	other := g.notOnTurn()
 	return g.players[g.onturn].points - g.players[other].points
 }
 
 // SpreadFor returns the spread for the current player. This is only
 // compatible with two players.
 func (g *XWordGame) SpreadFor(playerID int) int {
-	other := (playerID + 1) % len(g.players)
+	other := g.notOnTurn()
 	return g.players[playerID].points - g.players[other].points
 }
 
 // PlayerOnTurn returns the current player index whose turn it is.
 func (g *XWordGame) PlayerOnTurn() int {
 	return g.onturn
+}
+
+func (g *XWordGame) notOnTurn() int {
+	return (g.onturn + 1) % len(g.players)
 }
 
 func (g *XWordGame) SetPlayerOnTurn(playerID int) {
@@ -504,4 +509,25 @@ func (g *XWordGame) SetStateStackLength(l int) {
 			players:        copyPlayers(g.players),
 		}
 	}
+}
+
+// AssignUndrawnLetters assigns the unseen letters in the bag to the player
+// currently not on turn, only if they have an empty rack.
+func (g *XWordGame) AssignUndrawnLetters() error {
+	// This function should be used by the endgame engine in situations where
+	// the racks of opponents are not known ahead of time.
+	other := g.notOnTurn()
+	if g.RackFor(other).NumTiles() != 0 {
+		log.Debug().Msgf("Rack for %v is already %v", other, g.RackFor(other).String())
+		return nil
+	}
+	bag := g.Bag().Peek()
+
+	if len(bag) > 7 {
+		return fmt.Errorf("there are more than 7 tiles in the bag! (%v)", len(bag))
+	}
+	rack := alphabet.NewRack(g.Alphabet())
+	rack.Set(bag)
+	g.SetRackFor(other, rack)
+	return nil
 }

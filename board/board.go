@@ -6,7 +6,6 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/move"
-	"github.com/rs/zerolog/log"
 )
 
 type BoardDirection uint8
@@ -406,7 +405,6 @@ func (g *GameBoard) ErrorIfIllegalPlay(row, col int, vertical bool,
 		if newrow < 0 || newrow >= g.Dim() || newcol < 0 || newcol >= g.Dim() {
 			return errors.New("play extends off of the board")
 		}
-		log.Debug().Msgf("Checking idx %d, ml %d, row %v, col %v", idx, ml, newrow, newcol)
 
 		if ml == alphabet.PlayedThroughMarker {
 			ml = g.GetLetter(newrow, newcol)
