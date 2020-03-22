@@ -168,7 +168,7 @@ func (s *Simmer) simSingleIteration(plays []*move.Move, plies int) {
 			}
 		}
 
-		s.game.CurrentSpread()
+		// s.game.CurrentSpread()
 
 		// Restore the game state from backup.
 		// log.Debug().Msgf("Reset board to beginning")

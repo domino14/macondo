@@ -99,8 +99,9 @@ func (s *Solver) Init(movegen movegen.MoveGenerator, game *mechanics.XWordGame) 
 	s.totalNodes = 0
 	s.iterativeDeepeningOn = true
 
-	s.game.AssignUndrawnLetters()
-
+	if s.game != nil {
+		s.game.AssignUndrawnLetters()
+	}
 	s.stmPlayed = make([]bool, alphabet.MaxAlphabetSize+1)
 	s.otsPlayed = make([]bool, alphabet.MaxAlphabetSize+1)
 	s.stmBlockingRects = make([]rect, 20)

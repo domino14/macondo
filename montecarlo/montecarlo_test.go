@@ -62,7 +62,7 @@ func TestSimSingleIteration(t *testing.T) {
 }
 
 func TestLongerSim(t *testing.T) {
-	t.Skip()
+	// t.Skip()
 	is := is.New(t)
 	plies := 2
 	gd, err := GaddagFromLexicon("NWL18")
