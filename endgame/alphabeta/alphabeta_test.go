@@ -57,17 +57,15 @@ func TestSolveComplex(t *testing.T) {
 		game, &strategy.NoLeaveStrategy{},
 	)
 	alph := game.Alphabet()
-	// XXX: Refactor this; we should have something like:
-	// game.LoadFromGCG(path, turnnum)
-	// That should set the board, the player racks, scores, etc - the whole state
-	// Instead we have to do this manually here:
-	generator.SetBoardToGame(alph, board.VsRoy)
-	s := new(Solver)
-	s.Init(generator, game)
 	ourRack := alphabet.RackFromString("EFHIKOQ", alph)
 	theirRack := alphabet.RackFromString("WZ", alph)
 	game.SetRackFor(1, ourRack)
 	game.SetRackFor(0, theirRack)
+
+	generator.SetBoardToGame(alph, board.VsRoy)
+	s := new(Solver)
+	s.Init(generator, game)
+
 	game.SetPointsFor(1, 331)
 	game.SetPointsFor(0, 427)
 	game.SetPlayerOnTurn(1)
@@ -100,17 +98,15 @@ func TestSolveOther(t *testing.T) {
 		game, &strategy.NoLeaveStrategy{},
 	)
 	alph := game.Alphabet()
-	// XXX: Refactor this; we should have something like:
-	// game.LoadFromGCG(path, turnnum)
-	// That should set the board, the player racks, scores, etc - the whole state
-	// Instead we have to do this manually here:
-	generator.SetBoardToGame(alph, board.VsAlec)
-	s := new(Solver)
-	s.Init(generator, game)
 	ourRack := alphabet.RackFromString("DGILOPR", alph)
 	theirRack := alphabet.RackFromString("EGNOQR", alph)
 	game.SetRackFor(1, ourRack)
 	game.SetRackFor(0, theirRack)
+
+	generator.SetBoardToGame(alph, board.VsAlec)
+	s := new(Solver)
+	s.Init(generator, game)
+
 	game.SetPointsFor(1, 369)
 	game.SetPointsFor(0, 420)
 	game.SetPlayerOnTurn(1)
@@ -142,17 +138,14 @@ func TestSolveOther2(t *testing.T) {
 		game, &strategy.NoLeaveStrategy{},
 	)
 	alph := game.Alphabet()
-	// XXX: Refactor this; we should have something like:
-	// game.LoadFromGCG(path, turnnum)
-	// That should set the board, the player racks, scores, etc - the whole state
-	// Instead we have to do this manually here:
-	generator.SetBoardToGame(alph, board.VsAlec2)
-	s := new(Solver)
-	s.Init(generator, game)
 	ourRack := alphabet.RackFromString("DGILOR", alph)
 	theirRack := alphabet.RackFromString("ENQR", alph)
 	game.SetRackFor(1, ourRack)
 	game.SetRackFor(0, theirRack)
+	generator.SetBoardToGame(alph, board.VsAlec2)
+	s := new(Solver)
+	s.Init(generator, game)
+
 	game.SetPointsFor(1, 383)
 	game.SetPointsFor(0, 438)
 	game.SetPlayerOnTurn(1)
@@ -182,17 +175,14 @@ func TestSolveOther3(t *testing.T) {
 		game, &strategy.NoLeaveStrategy{},
 	)
 	alph := game.Alphabet()
-	// XXX: Refactor this; we should have something like:
-	// game.LoadFromGCG(path, turnnum)
-	// That should set the board, the player racks, scores, etc - the whole state
-	// Instead we have to do this manually here:
-	generator.SetBoardToGame(alph, board.VsJoey)
-	s := new(Solver)
-	s.Init(generator, game)
 	ourRack := alphabet.RackFromString("DIV", alph)
 	theirRack := alphabet.RackFromString("AEFILMR", alph)
 	game.SetRackFor(0, ourRack)
 	game.SetRackFor(1, theirRack)
+	generator.SetBoardToGame(alph, board.VsJoey)
+	s := new(Solver)
+	s.Init(generator, game)
+
 	game.SetPointsFor(0, 412)
 	game.SetPointsFor(1, 371)
 	game.SetPlayerOnTurn(1)
@@ -226,20 +216,15 @@ func TestSolveStandard(t *testing.T) {
 		game, &strategy.NoLeaveStrategy{},
 	)
 	alph := game.Alphabet()
-	// XXX: Refactor this; we should have something like:
-	// game.LoadFromGCG(path, turnnum)
-	// That should set the board, the player racks, scores, etc - the whole state
-	// Instead we have to do this manually here:
+	ourRack := alphabet.RackFromString("BGIV", alph)
+	theirRack := alphabet.RackFromString("DEHILOR", alph)
+	game.SetRackFor(1, ourRack)
+	game.SetRackFor(0, theirRack)
 
 	generator.SetBoardToGame(alph, board.VsCanik)
 
 	s := new(Solver)
 	s.Init(generator, game)
-
-	ourRack := alphabet.RackFromString("BGIV", alph)
-	theirRack := alphabet.RackFromString("DEHILOR", alph)
-	game.SetRackFor(1, ourRack)
-	game.SetRackFor(0, theirRack)
 
 	game.SetPointsFor(1, 384)
 	game.SetPointsFor(0, 389)
@@ -273,17 +258,14 @@ func TestSolveStandard2(t *testing.T) {
 		game, &strategy.NoLeaveStrategy{},
 	)
 	alph := game.Alphabet()
-	// XXX: Refactor this; we should have something like:
-	// game.LoadFromGCG(path, turnnum)
-	// That should set the board, the player racks, scores, etc - the whole state
-	// Instead we have to do this manually here:
-	generator.SetBoardToGame(alph, board.VsJoel)
-	s := new(Solver)
-	s.Init(generator, game)
 	ourRack := alphabet.RackFromString("AAFIRTW", alph)
 	theirRack := alphabet.RackFromString("EIQSS", alph)
 	game.SetRackFor(1, ourRack)
 	game.SetRackFor(0, theirRack)
+
+	generator.SetBoardToGame(alph, board.VsJoel)
+	s := new(Solver)
+	s.Init(generator, game)
 	game.SetPointsFor(1, 373)
 	game.SetPointsFor(0, 393)
 	game.SetPlayerOnTurn(1)
@@ -317,17 +299,16 @@ func TestSolveMaven(t *testing.T) {
 		game, &strategy.NoLeaveStrategy{},
 	)
 	alph := game.Alphabet()
-	// XXX: Refactor this; we should have something like:
-	// game.LoadFromGCG(path, turnnum)
-	// That should set the board, the player racks, scores, etc - the whole state
-	// Instead we have to do this manually here:
+	ourRack := alphabet.RackFromString("?AEIR", alph)
+	theirRack := alphabet.RackFromString("LZ", alph)
+
+	game.SetRackFor(1, ourRack)
+	game.SetRackFor(0, theirRack)
+
 	generator.SetBoardToGame(alph, board.JoeVsPaul)
 	s := new(Solver)
 	s.Init(generator, game)
-	ourRack := alphabet.RackFromString("?AEIR", alph)
-	theirRack := alphabet.RackFromString("LZ", alph)
-	game.SetRackFor(1, ourRack)
-	game.SetRackFor(0, theirRack)
+
 	game.SetPointsFor(1, 300)
 	game.SetPointsFor(0, 300)
 	game.SetPlayerOnTurn(1)
@@ -358,13 +339,13 @@ func TestStuck(t *testing.T) {
 	)
 	alph := game.Alphabet()
 	generator.SetBoardToGame(alph, board.VsAlec)
-
-	s := new(Solver)
-	s.Init(generator, game)
 	ourRack := alphabet.RackFromString("DGILOPR", alph)
 	theirRack := alphabet.RackFromString("EGNOQR", alph)
 	game.SetRackFor(1, ourRack)
 	game.SetRackFor(0, theirRack)
+	s := new(Solver)
+	s.Init(generator, game)
+
 	game.SetPointsFor(1, 369)
 	game.SetPointsFor(0, 420)
 	game.SetPlayerOnTurn(1)
@@ -397,14 +378,15 @@ func TestValuation(t *testing.T) {
 		game, &strategy.NoLeaveStrategy{},
 	)
 	alph := game.Alphabet()
-	generator.SetBoardToGame(alph, board.VsAlec)
-
-	s := new(Solver)
-	s.Init(generator, game)
 	ourRack := alphabet.RackFromString("DGILOPR", alph)
 	theirRack := alphabet.RackFromString("EGNOQR", alph)
 	game.SetRackFor(1, ourRack)
 	game.SetRackFor(0, theirRack)
+	generator.SetBoardToGame(alph, board.VsAlec)
+
+	s := new(Solver)
+	s.Init(generator, game)
+
 	game.SetPointsFor(1, 369)
 	game.SetPointsFor(0, 420)
 	game.SetPlayerOnTurn(1)
@@ -496,8 +478,10 @@ func TestMinimalCase(t *testing.T) {
 	alph := game.Alphabet()
 
 	generator := &TestGenerator{alph: alph}
-	// XXX: Refactor this; we should have something like:
-	// game.LoadFromGCG(path, turnnum)
+	ourRack := alphabet.RackFromString("BGIV", alph)
+	theirRack := alphabet.RackFromString("DEHILOR", alph)
+	game.SetRackFor(1, ourRack)
+	game.SetRackFor(0, theirRack)
 	// That should set the board, the player racks, scores, etc - the whole state
 	// Instead we have to do this manually here:
 	tilesPlayedAndInRacks := game.Board().SetToGame(alph, board.VsCanik)
@@ -507,10 +491,7 @@ func TestMinimalCase(t *testing.T) {
 
 	s := new(Solver)
 	s.Init(generator, game)
-	ourRack := alphabet.RackFromString("BGIV", alph)
-	theirRack := alphabet.RackFromString("DEHILOR", alph)
-	game.SetRackFor(1, ourRack)
-	game.SetRackFor(0, theirRack)
+
 	game.SetPointsFor(1, 294) // was 384
 	game.SetPointsFor(0, 389)
 	game.SetPlayerOnTurn(1)
@@ -543,6 +524,11 @@ func TestMinimalCase2(t *testing.T) {
 	alph := game.Alphabet()
 
 	generator := &TestGenerator{alph: alph}
+	ourRack := alphabet.RackFromString("BGIV", alph)
+	theirRack := alphabet.RackFromString("DEHILOR", alph)
+	game.SetRackFor(1, ourRack)
+	game.SetRackFor(0, theirRack)
+
 	// XXX: Refactor this; we should have something like:
 	// game.LoadFromGCG(path, turnnum)
 	// That should set the board, the player racks, scores, etc - the whole state
@@ -554,10 +540,7 @@ func TestMinimalCase2(t *testing.T) {
 
 	s := new(Solver)
 	s.Init(generator, game)
-	ourRack := alphabet.RackFromString("BGIV", alph)
-	theirRack := alphabet.RackFromString("DEHILOR", alph)
-	game.SetRackFor(1, ourRack)
-	game.SetRackFor(0, theirRack)
+
 	game.SetPointsFor(1, 384)
 	game.SetPointsFor(0, 389)
 	game.SetPlayerOnTurn(1)
@@ -591,7 +574,10 @@ func TestMinimalCase3(t *testing.T) {
 	game.Init(gd, dist)
 	game.SetStateStackLength(plies)
 	alph := game.Alphabet()
-
+	ourRack := alphabet.RackFromString("BGIV", alph)
+	theirRack := alphabet.RackFromString("DEHILOR", alph)
+	game.SetRackFor(0, ourRack)
+	game.SetRackFor(1, theirRack)
 	generator := &TestGenerator{alph: alph}
 	// XXX: Refactor this; we should have something like:
 	// game.LoadFromGCG(path, turnnum)
@@ -604,10 +590,7 @@ func TestMinimalCase3(t *testing.T) {
 
 	s := new(Solver)
 	s.Init(generator, game)
-	ourRack := alphabet.RackFromString("BGIV", alph)
-	theirRack := alphabet.RackFromString("DEHILOR", alph)
-	game.SetRackFor(0, ourRack)
-	game.SetRackFor(1, theirRack)
+
 	game.SetPointsFor(0, 384)
 	game.SetPointsFor(1, 389)
 	game.SetPlayerOnTurn(0)
@@ -640,7 +623,10 @@ func TestMinimalCase4(t *testing.T) {
 	game.Init(gd, dist)
 	game.SetStateStackLength(plies)
 	alph := game.Alphabet()
-
+	ourRack := alphabet.RackFromString("BGIV", alph)
+	theirRack := alphabet.RackFromString("DEHILOR", alph)
+	game.SetRackFor(1, ourRack)
+	game.SetRackFor(0, theirRack)
 	generator := &TestGenerator{alph: alph}
 	// XXX: Refactor this; we should have something like:
 	// game.LoadFromGCG(path, turnnum)
@@ -653,10 +639,7 @@ func TestMinimalCase4(t *testing.T) {
 
 	s := new(Solver)
 	s.Init(generator, game)
-	ourRack := alphabet.RackFromString("BGIV", alph)
-	theirRack := alphabet.RackFromString("DEHILOR", alph)
-	game.SetRackFor(1, ourRack)
-	game.SetRackFor(0, theirRack)
+
 	game.SetPointsFor(1, 384)
 	game.SetPointsFor(0, 389)
 	game.SetPlayerOnTurn(1)
@@ -695,6 +678,10 @@ func TestAnotherOneTiler(t *testing.T) {
 		game, &strategy.NoLeaveStrategy{},
 	)
 	alph := game.Alphabet()
+	ourRack := alphabet.RackFromString("AEEIRUW", alph)
+	theirRack := alphabet.RackFromString("V", alph)
+	game.SetRackFor(0, ourRack)
+	game.SetRackFor(1, theirRack)
 	// XXX: Refactor this; we should have something like:
 	// game.LoadFromGCG(path, turnnum)
 	// That should set the board, the player racks, scores, etc - the whole state
@@ -704,10 +691,7 @@ func TestAnotherOneTiler(t *testing.T) {
 	s.Init(generator, game)
 	// s.iterativeDeepeningOn = false
 	// s.simpleEvaluation = true
-	ourRack := alphabet.RackFromString("AEEIRUW", alph)
-	theirRack := alphabet.RackFromString("V", alph)
-	game.SetRackFor(0, ourRack)
-	game.SetRackFor(1, theirRack)
+
 	game.SetPointsFor(0, 410)
 	game.SetPointsFor(1, 409)
 	game.SetPlayerOnTurn(0)
@@ -740,19 +724,15 @@ func TestYetAnotherOneTiler(t *testing.T) {
 		game, &strategy.NoLeaveStrategy{},
 	)
 	alph := game.Alphabet()
-	// XXX: Refactor this; we should have something like:
-	// game.LoadFromGCG(path, turnnum)
-	// That should set the board, the player racks, scores, etc - the whole state
-	// Instead we have to do this manually here:
-	generator.SetBoardToGame(alph, board.NoahVsMishu)
-	s := new(Solver)
-	s.Init(generator, game)
-	// s.iterativeDeepeningOn = false
-	// s.simpleEvaluation = true
+
 	ourRack := alphabet.RackFromString("AEIINTY", alph)
 	theirRack := alphabet.RackFromString("CLLPR", alph)
 	game.SetRackFor(0, ourRack)
 	game.SetRackFor(1, theirRack)
+	generator.SetBoardToGame(alph, board.NoahVsMishu)
+	s := new(Solver)
+	s.Init(generator, game)
+
 	game.SetPointsFor(0, 327)
 	game.SetPointsFor(1, 368)
 	game.SetPlayerOnTurn(0)
@@ -824,9 +804,6 @@ func TestProperIterativeDeepening(t *testing.T) {
 		}
 	}
 }
-
-// Almost identical to previous test, except plies is 8. This should
-// not break it!
 
 func TestFromGCG(t *testing.T) {
 	plies := 1

@@ -405,8 +405,8 @@ func (gen *GordonGenerator) SetBoardToGame(alph *alphabet.Alphabet, game board.V
 	// Update bag. This is a slowish operation, but this type of function
 	// will not be used in a context that requires the utmost speed.
 	gen.bag.RemoveTiles(tilesPlayedAndInRacks.OnBoard)
-	// gen.bag.RemoveTiles(tilesPlayedAndInRacks.Rack1)
-	// gen.bag.RemoveTiles(tilesPlayedAndInRacks.Rack2)
+	gen.bag.RemoveTiles(tilesPlayedAndInRacks.Rack1)
+	gen.bag.RemoveTiles(tilesPlayedAndInRacks.Rack2)
 
 	gen.board.UpdateAllAnchors()
 	gen.board.GenAllCrossSets(gen.gaddag, gen.bag)
