@@ -124,7 +124,7 @@ func (r *Rack) Add(letter MachineLetter) {
 	}
 }
 
-// TilesOn returns the MachineLetters of the rack's current tiles.
+// TilesOn returns the MachineLetters of the rack's current tiles. It is alphabetized.
 func (r *Rack) TilesOn() MachineWord {
 	if r.empty {
 		return MachineWord([]MachineLetter{})

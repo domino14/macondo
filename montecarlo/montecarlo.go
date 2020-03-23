@@ -5,12 +5,15 @@ package montecarlo
 import (
 	"context"
 	"fmt"
+	"io"
 	"math"
 	"strings"
 
 	"github.com/domino14/macondo/mechanics"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
+	"github.com/rs/zerolog/log"
+	"gopkg.in/yaml.v2"
 )
 
 /*
@@ -45,6 +48,23 @@ type Statistic struct {
 	newM float64
 	oldS float64
 	newS float64
+}
+
+// LogIteration is a struct meant for serializing to a log-file, for debug
+// and other purposes.
+type LogIteration struct {
+	Iteration int       `json:"iteration" yaml:"iteration"`
+	Plays     []LogPlay `json:"plays" yaml:"plays"`
+}
+
+// LogPlay is a single play.
+type LogPlay struct {
+	Play string `json:"play" yaml:"play"`
+	Rack string `json:"rack" yaml:"rack"`
+	Pts  int    `json:"pts" yaml:"pts"`
+	// Although this is a recursive structure we don't really use it
+	// recursively.
+	Plies []LogPlay `json:"plies,omitempty" yaml:"plies,omitempty"`
 }
 
 func (s *Statistic) push(score int) {
@@ -96,11 +116,17 @@ type Simmer struct {
 	// The plays being simmed:
 	plays []*move.Move
 	stats [][]*Statistic
+
+	logStream io.Writer
 }
 
 func (s *Simmer) Init(movegen movegen.MoveGenerator, game *mechanics.XWordGame) {
 	s.movegen = movegen
 	s.game = game
+}
+
+func (s *Simmer) SetLogStream(l io.Writer) {
+	s.logStream = l
 }
 
 func (s *Simmer) resetStats(plies, numPlays int) {
@@ -153,27 +179,42 @@ func (s *Simmer) simSingleIteration(plays []*move.Move, plies int) {
 	// shuffles the bag!
 	opp := (s.initialPlayer + 1) % s.game.NumPlayers()
 	s.game.SetRandomRack(opp)
+	logIter := LogIteration{Iteration: s.iterationCount + 1, Plays: []LogPlay{}}
 
 	for parentIdx, play := range plays {
+		logPlay := LogPlay{Play: play.ShortDescription(), Rack: play.FullRack(), Pts: play.Score()}
+
+		// logIter.Plays = append(logIter.Plays)
 		// Play the move, and back up the game state.
 		// log.Debug().Msgf("Playing move %v", play)
 		s.game.PlayMove(play, true)
 		for ply := 0; ply < plies; ply++ {
 			// Each ply is a player taking a turn
 			if s.game.Playing() {
+
 				bestPlay := s.bestStaticTurn(s.game.PlayerOnTurn())
 				// log.Debug().Msgf("Ply %v, Best play: %v", ply+1, bestPlay)
 				s.game.PlayMove(bestPlay, false)
+				plyChild := LogPlay{Play: bestPlay.ShortDescription(), Rack: bestPlay.FullRack(), Pts: bestPlay.Score()}
+				logPlay.Plies = append(logPlay.Plies, plyChild)
 				s.addSpreadStat(bestPlay, parentIdx, ply, s.game.SpreadFor(s.initialPlayer))
 			}
 		}
-
 		// s.game.CurrentSpread()
-
 		// Restore the game state from backup.
 		// log.Debug().Msgf("Reset board to beginning")
 		s.game.ResetToFirstState()
+		logIter.Plays = append(logIter.Plays, logPlay)
 	}
+	if s.logStream != nil {
+		out, err := yaml.Marshal([]LogIteration{logIter})
+		if err != nil {
+			log.Error().Err(err).Msg("marshalling log")
+			return
+		}
+		s.logStream.Write(out)
+	}
+
 }
 
 func (s *Simmer) bestStaticTurn(playerID int) *move.Move {

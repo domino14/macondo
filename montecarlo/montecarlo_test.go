@@ -45,8 +45,6 @@ func TestSimSingleIteration(t *testing.T) {
 	strategy := strategy.NewExhaustiveLeaveStrategy(game.Bag(), gd.LexiconName(),
 		gd.GetAlphabet(), LeaveFile)
 	generator := movegen.NewGordonGenerator(game, strategy)
-	generator.Reset()
-	game.SetRackFor(0, alphabet.RackFromString("AAADERW", gd.GetAlphabet()))
 	generator.GenAll(game.RackFor(0))
 	plays := generator.Plays()[:10]
 
@@ -54,6 +52,7 @@ func TestSimSingleIteration(t *testing.T) {
 	simmer.Init(generator, game)
 	simmer.resetStats(plies, len(plays))
 	simmer.plays = plays
+	game.SetRackFor(0, alphabet.RackFromString("AAADERW", gd.GetAlphabet()))
 	simmer.simSingleIteration(plays, plies)
 
 	// Board should be reset back to empty after the simulation.
@@ -66,37 +65,72 @@ func TestLongerSim(t *testing.T) {
 	is := is.New(t)
 	plies := 2
 	gd, err := GaddagFromLexicon("NWL18")
-	if err != nil {
-		t.Errorf("Expected error to be nil, got %v", err)
-	}
+	is.NoErr(err)
 	dist := alphabet.EnglishLetterDistribution()
 
 	game := &mechanics.XWordGame{}
 	game.Init(gd, dist)
-	// This will deal a random rack to players:
-	game.StartGame()
+
 	strategy := strategy.NewExhaustiveLeaveStrategy(game.Bag(), gd.LexiconName(),
 		gd.GetAlphabet(), LeaveFile)
 	generator := movegen.NewGordonGenerator(game, strategy)
-	generator.Reset()
-	// This is the prototypical Maven sim rack. AWA should sim best.
+	// This will start the game and deal a random rack to players:
+	game.StartGame()
+	// Overwrite rack we are simming for. This is the prototypical Maven sim rack.
+	// AWA should sim best.
 	game.SetRackFor(0, alphabet.RackFromString("AAADERW", gd.GetAlphabet()))
 	generator.GenAll(game.RackFor(0))
 	plays := generator.Plays()[:10]
-
 	simmer := &Simmer{}
 	simmer.Init(generator, game)
+
 	timeout, cancel := context.WithTimeout(
-		context.Background(), 100*time.Second)
+		context.Background(), 10*time.Second)
 	defer cancel()
+
+	f, err := os.Create("/tmp/simlog")
+	is.NoErr(err)
+	defer f.Close()
+	simmer.logStream = f
+
 	simmer.Simulate(timeout, plays, plies)
 
 	// Board should be reset back to empty after the simulation.
 	is.True(game.Board().IsEmpty())
 	fmt.Println(simmer.printStats())
 	fmt.Println("Total iterations", simmer.iterationCount)
-	is.True(false)
 }
+
+// func TestDrawingAssumptions(t *testing.T) {
+// 	// Test that we are actually drawing from a sane bag.
+// 	// is := is.New(t)
+// 	plies := 2
+// 	gd, err := GaddagFromLexicon("NWL18")
+// 	if err != nil {
+// 		t.Errorf("Expected error to be nil, got %v", err)
+// 	}
+// 	dist := alphabet.EnglishLetterDistribution()
+
+// 	game := &mechanics.XWordGame{}
+// 	game.Init(gd, dist)
+// 	strategy := strategy.NewExhaustiveLeaveStrategy(game.Bag(), gd.LexiconName(),
+// 		gd.GetAlphabet(), LeaveFile)
+// 	generator := movegen.NewGordonGenerator(game, strategy)
+
+// 	// Deal out racks.
+// 	game.StartGame()
+// 	game.SetRackFor(0, alphabet.RackFromString("AAADERW", gd.GetAlphabet()))
+
+// 	simmer := &Simmer{}
+// 	simmer.Init(generator, game)
+// 	generator.GenAll(game.RackFor(0))
+// 	plays := generator.Plays()[:10]
+// 	simmer.resetStats(plies, len(plays))
+// 	simmer.plays = plays
+
+// 	simmer.simSingleIteration(plays, plies)
+
+// }
 
 func fuzzyEqual(a, b float64) bool {
 	return math.Abs(a-b) < Epsilon

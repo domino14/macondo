@@ -13,6 +13,7 @@ require (
 	github.com/stretchr/testify v1.4.0
 	github.com/twitchtv/twirp v5.7.0+incompatible
 	golang.org/x/text v0.3.2
+	gopkg.in/yaml.v2 v2.2.8
 )
 
 go 1.13
