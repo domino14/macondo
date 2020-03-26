@@ -80,7 +80,7 @@ func (els ExhaustiveLeaveStrategy) Equity(play *move.Move, board *board.GameBoar
 		otherAdjustments += endgameAdjustment(play, oppRack, els.bag)
 	} else {
 		// the leave doesn't matter if the bag is empty
-		leaveAdjustment = float64(els.lookup(leave))
+		leaveAdjustment = float64(els.LeaveValue(leave))
 	}
 
 	// also need a pre-endgame adjustment that biases towards leaving
@@ -88,7 +88,7 @@ func (els ExhaustiveLeaveStrategy) Equity(play *move.Move, board *board.GameBoar
 	return float64(score) + leaveAdjustment + otherAdjustments
 }
 
-func (els ExhaustiveLeaveStrategy) lookup(leave alphabet.MachineWord) float32 {
+func (els ExhaustiveLeaveStrategy) LeaveValue(leave alphabet.MachineWord) float32 {
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Printf("Recovered from panic; leave was %v\n", leave.UserVisible(alphabet.EnglishAlphabet()))

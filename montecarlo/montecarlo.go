@@ -12,6 +12,7 @@ import (
 	"github.com/domino14/macondo/mechanics"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
+	"github.com/domino14/macondo/strategy"
 	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v2"
 )
@@ -39,9 +40,7 @@ import (
 type Statistic struct {
 	move            *move.Move
 	bingos          int
-	maxPlies        int
 	totalIterations int
-	totalScore      int
 
 	// For Welford's algorithm:
 	oldM float64
@@ -62,20 +61,22 @@ type LogPlay struct {
 	Play string `json:"play" yaml:"play"`
 	Rack string `json:"rack" yaml:"rack"`
 	Pts  int    `json:"pts" yaml:"pts"`
+	// Leftover is the equity of the leftover tiles at the end of the sim.
+	Leftover float32 `json:"left,omitempty" yaml:"left,omitempty"`
 	// Although this is a recursive structure we don't really use it
 	// recursively.
 	Plies []LogPlay `json:"plies,omitempty" yaml:"plies,omitempty"`
 }
 
-func (s *Statistic) push(score int) {
+func (s *Statistic) push(val float64) {
 	s.totalIterations++
 	if s.totalIterations == 1 {
-		s.oldM = float64(score)
-		s.newM = float64(score)
+		s.oldM = val
+		s.newM = val
 		s.oldS = 0
 	} else {
-		s.newM = s.oldM + (float64(score)-s.oldM)/float64(s.totalIterations)
-		s.newS = s.oldS + (float64(score)-s.oldM)*(float64(score)-s.newM)
+		s.newM = s.oldM + (val-s.oldM)/float64(s.totalIterations)
+		s.newS = s.oldS + (val-s.oldM)*(val-s.newM)
 		s.oldM = s.newM
 		s.oldS = s.newS
 	}
@@ -107,6 +108,7 @@ func (s *Statistic) bingopct() float64 {
 type Simmer struct {
 	movegen       movegen.MoveGenerator
 	game          *mechanics.XWordGame
+	strategy      strategy.Strategizer
 	initialSpread int
 	maxPlies      int
 	// initialPlayer is the player for whom we are simming.
@@ -114,15 +116,20 @@ type Simmer struct {
 	iterationCount int
 	threads        int
 	// The plays being simmed:
-	plays []*move.Move
-	stats [][]*Statistic
+	// The order of the stats are the same as the order of the plays.
+	// Note that this means that any sorting we do must be done on a copy,
+	// or client-side somehow.
+	plays       []*move.Move
+	scoreStats  [][]*Statistic
+	equityStats []*Statistic
 
 	logStream io.Writer
 }
 
-func (s *Simmer) Init(movegen movegen.MoveGenerator, game *mechanics.XWordGame) {
+func (s *Simmer) Init(movegen movegen.MoveGenerator, game *mechanics.XWordGame, strategy strategy.Strategizer) {
 	s.movegen = movegen
 	s.game = game
+	s.strategy = strategy
 }
 
 func (s *Simmer) SetLogStream(l io.Writer) {
@@ -135,27 +142,36 @@ func (s *Simmer) resetStats(plies, numPlays int) {
 	s.game.SetStateStackLength(plies)
 	s.initialSpread = s.game.CurrentSpread()
 	s.initialPlayer = s.game.PlayerOnTurn()
-	s.stats = make([][]*Statistic, numPlays)
+	s.scoreStats = make([][]*Statistic, numPlays)
+	s.equityStats = make([]*Statistic, numPlays)
 	for i := 0; i < numPlays; i++ {
-		s.stats[i] = make([]*Statistic, plies)
+		s.scoreStats[i] = make([]*Statistic, plies)
 	}
 }
 
-func (s *Simmer) addSpreadStat(play *move.Move, pidx, ply, spread int) {
+func (s *Simmer) addScoreStat(play *move.Move, pidx, ply int) {
 	// log.Debug().Msgf("Adding a stat for %v (pidx %v ply %v)", play, pidx, ply)
 	var bingos int
 	if play.TilesPlayed() == 7 {
 		bingos = 1
 	}
-	if s.stats[pidx][ply] == nil {
-		s.stats[pidx][ply] = &Statistic{
+	if s.scoreStats[pidx][ply] == nil {
+		s.scoreStats[pidx][ply] = &Statistic{
 			move: play,
 		}
 	}
 
-	stat := s.stats[pidx][ply]
+	stat := s.scoreStats[pidx][ply]
 	stat.bingos += bingos
-	stat.push(play.Score())
+	stat.push(float64(play.Score()))
+}
+
+func (s *Simmer) addEquityStat(play *move.Move, pidx int, spread int, leftover float32) {
+	if s.equityStats[pidx] == nil {
+		s.equityStats[pidx] = &Statistic{move: play}
+	}
+	stat := s.equityStats[pidx]
+	stat.push(float64(spread) + float64(leftover))
 }
 
 // Simulate sims all the plays.
@@ -183,26 +199,43 @@ func (s *Simmer) simSingleIteration(plays []*move.Move, plies int) {
 
 	for parentIdx, play := range plays {
 		logPlay := LogPlay{Play: play.ShortDescription(), Rack: play.FullRack(), Pts: play.Score()}
-
+		// equity of the leftover tiles at the end of the sim
+		leftover := float32(0.0)
 		// logIter.Plays = append(logIter.Plays)
 		// Play the move, and back up the game state.
 		// log.Debug().Msgf("Playing move %v", play)
 		s.game.PlayMove(play, true)
 		for ply := 0; ply < plies; ply++ {
 			// Each ply is a player taking a turn
+			onTurn := s.game.PlayerOnTurn()
 			if s.game.Playing() {
+				// Assume there are exactly two players.
 
-				bestPlay := s.bestStaticTurn(s.game.PlayerOnTurn())
+				bestPlay := s.bestStaticTurn(onTurn)
 				// log.Debug().Msgf("Ply %v, Best play: %v", ply+1, bestPlay)
 				s.game.PlayMove(bestPlay, false)
+				// log.Debug().Msgf("Score is now %v", s.game.Score())
 				plyChild := LogPlay{Play: bestPlay.ShortDescription(), Rack: bestPlay.FullRack(), Pts: bestPlay.Score()}
+
+				if ply == plies-2 || ply == plies-1 {
+					// It's either OUR last turn or OPP's last turn.
+					// Calculate equity of leftover tiles.
+					plyChild.Leftover = s.strategy.LeaveValue(bestPlay.Leave())
+					// log.Debug().Msgf("Calculated leftover %v", plyChild.Leftover)
+					if onTurn == s.initialPlayer {
+						leftover += plyChild.Leftover
+					} else {
+						leftover -= plyChild.Leftover
+					}
+				}
+
 				logPlay.Plies = append(logPlay.Plies, plyChild)
-				s.addSpreadStat(bestPlay, parentIdx, ply, s.game.SpreadFor(s.initialPlayer))
+				s.addScoreStat(bestPlay, parentIdx, ply)
 			}
 		}
-		// s.game.CurrentSpread()
-		// Restore the game state from backup.
-		// log.Debug().Msgf("Reset board to beginning")
+		// log.Debug().Msgf("Spread for initial player: %v, leftover: %v",
+		// 	s.game.SpreadFor(s.initialPlayer), leftover)
+		s.addEquityStat(play, parentIdx, s.game.SpreadFor(s.initialPlayer), leftover)
 		s.game.ResetToFirstState()
 		logIter.Plays = append(logIter.Plays, logPlay)
 	}
@@ -230,6 +263,15 @@ func (s *Simmer) bestStaticTurn(playerID int) *move.Move {
 func (s *Simmer) printStats() string {
 	stats := ""
 	// Return a string representation of the stats
+
+	stats += fmt.Sprintf("%20v%8v\n", "Play", "Equity")
+
+	for playIdx, play := range s.plays {
+		stats += fmt.Sprintf("%20v%8.3f\n", play.ShortDescription(),
+			s.equityStats[playIdx].mean())
+	}
+	stats += "\n Details per play \n"
+
 	for ply := 0; ply < s.maxPlies; ply++ {
 		who := "You"
 		if ply%2 == 0 {
@@ -239,9 +281,9 @@ func (s *Simmer) printStats() string {
 			ply+1, who, "Play", "Mean", "Stdev", "Bingo %", strings.Repeat("-", 44))
 		for playIdx, play := range s.plays {
 			stats += fmt.Sprintf("%20v%8.3f%8.3f%8.3f\n",
-				play.ShortDescription(), s.stats[playIdx][ply].mean(),
-				s.stats[playIdx][ply].stdev(),
-				s.stats[playIdx][ply].bingopct())
+				play.ShortDescription(), s.scoreStats[playIdx][ply].mean(),
+				s.scoreStats[playIdx][ply].stdev(),
+				s.scoreStats[playIdx][ply].bingopct())
 		}
 		stats += "\n"
 	}

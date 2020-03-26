@@ -31,6 +31,8 @@ type Strategizer interface {
 	// leave calculations, any pre-endgame timing heuristics, and more.
 	Equity(play *move.Move, board *board.GameBoard, bag *alphabet.Bag,
 		oppRack *alphabet.Rack) float64
+
+	LeaveValue(leave alphabet.MachineWord) float32
 }
 
 // NoLeaveStrategy does not take leave into account at all.

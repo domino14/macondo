@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 	"time"
 
@@ -40,24 +41,27 @@ func TestSimSingleIteration(t *testing.T) {
 
 	game := &mechanics.XWordGame{}
 	game.Init(gd, dist)
-	// This will deal a random rack to players:
-	game.StartGame()
+
 	strategy := strategy.NewExhaustiveLeaveStrategy(game.Bag(), gd.LexiconName(),
 		gd.GetAlphabet(), LeaveFile)
 	generator := movegen.NewGordonGenerator(game, strategy)
+
+	// This will deal a random rack to players:
+	game.StartGame()
+	// Overwrite the first rack
+	game.SetRackFor(0, alphabet.RackFromString("AAADERW", gd.GetAlphabet()))
 	generator.GenAll(game.RackFor(0))
 	plays := generator.Plays()[:10]
-
 	simmer := &Simmer{}
-	simmer.Init(generator, game)
+	simmer.Init(generator, game, strategy)
 	simmer.resetStats(plies, len(plays))
 	simmer.plays = plays
-	game.SetRackFor(0, alphabet.RackFromString("AAADERW", gd.GetAlphabet()))
+
 	simmer.simSingleIteration(plays, plies)
 
 	// Board should be reset back to empty after the simulation.
 	is.True(game.Board().IsEmpty())
-	// fmt.Println(simmer.printStats())
+	fmt.Println(simmer.printStats())
 }
 
 func TestLongerSim(t *testing.T) {
@@ -82,7 +86,7 @@ func TestLongerSim(t *testing.T) {
 	generator.GenAll(game.RackFor(0))
 	plays := generator.Plays()[:10]
 	simmer := &Simmer{}
-	simmer.Init(generator, game)
+	simmer.Init(generator, game, strategy)
 
 	timeout, cancel := context.WithTimeout(
 		context.Background(), 10*time.Second)
@@ -97,8 +101,15 @@ func TestLongerSim(t *testing.T) {
 
 	// Board should be reset back to empty after the simulation.
 	is.True(game.Board().IsEmpty())
-	fmt.Println(simmer.printStats())
-	fmt.Println("Total iterations", simmer.iterationCount)
+	// fmt.Println(simmer.printStats())
+	// fmt.Println("Total iterations", simmer.iterationCount)
+
+	// Sort by equity
+	sort.Slice(simmer.equityStats, func(i, j int) bool {
+		return simmer.equityStats[i].mean() < simmer.equityStats[j].mean()
+	})
+	// AWA wins
+	is.Equal(simmer.equityStats[9].move.Tiles().UserVisible(gd.GetAlphabet()), "AWA")
 }
 
 // func TestDrawingAssumptions(t *testing.T) {
@@ -153,7 +164,7 @@ func TestRunningStat(t *testing.T) {
 	for _, c := range cases {
 		s := &Statistic{}
 		for _, score := range c.scores {
-			s.push(score)
+			s.push(float64(score))
 		}
 		is.True(fuzzyEqual(s.mean(), c.mean))
 		is.True(fuzzyEqual(s.stdev(), c.stdev))

@@ -91,7 +91,7 @@ func (sss SimpleSynergyStrategy) Equity(play *move.Move, board *board.GameBoard,
 		otherAdjustments += endgameAdjustment(play, oppRack, sss.bag)
 	} else {
 		// the leave doesn't matter if the bag is empty
-		leaveAdjustment = sss.lookup(leave)
+		leaveAdjustment = float64(sss.LeaveValue(leave))
 	}
 
 	// also need a pre-endgame adjustment that biases towards leaving
@@ -99,14 +99,14 @@ func (sss SimpleSynergyStrategy) Equity(play *move.Move, board *board.GameBoard,
 	return float64(score) + leaveAdjustment + otherAdjustments
 }
 
-func (sss SimpleSynergyStrategy) lookup(leave alphabet.MachineWord) float64 {
+func (sss SimpleSynergyStrategy) LeaveValue(leave alphabet.MachineWord) float32 {
 	if len(leave) > 1 {
 		sort.Slice(leave, func(i, j int) bool {
 			return leave[i] < leave[j]
 		})
 	}
 	if len(leave) <= 3 {
-		return sss.leaveMap[string(leave)].ev
+		return float32(sss.leaveMap[string(leave)].ev)
 	}
 	// Otherwise, do a rough calculation using pairwise synergies.
 	leaveval := 0.0
@@ -119,7 +119,7 @@ func (sss SimpleSynergyStrategy) lookup(leave alphabet.MachineWord) float64 {
 			leaveval += sss.leaveMap[string(tolookup)].synergy
 		}
 	}
-	return leaveval
+	return float32(leaveval)
 }
 
 func (nls *NoLeaveStrategy) Equity(play *move.Move, board *board.GameBoard,
@@ -130,4 +130,8 @@ func (nls *NoLeaveStrategy) Equity(play *move.Move, board *board.GameBoard,
 		adjustment += placementAdjustment(play)
 	}
 	return float64(score) + adjustment
+}
+
+func (nls *NoLeaveStrategy) LeaveValue(leave alphabet.MachineWord) float32 {
+	return float32(0.0)
 }

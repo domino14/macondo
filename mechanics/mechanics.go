@@ -449,6 +449,14 @@ func (g *XWordGame) PointsFor(playerID int) int {
 	return g.players[playerID].points
 }
 
+func (g *XWordGame) Score() string {
+	score := ""
+	for _, player := range g.players {
+		score += fmt.Sprintf(" [%v - %v] ", player.info.Nickname, player.points)
+	}
+	return score
+}
+
 func (g *XWordGame) Uuid() uuid.UUID {
 	return g.uuid
 }
@@ -467,7 +475,7 @@ func (g *XWordGame) CurrentSpread() int {
 // SpreadFor returns the spread for the current player. This is only
 // compatible with two players.
 func (g *XWordGame) SpreadFor(playerID int) int {
-	other := g.notOnTurn()
+	other := (playerID + 1) % len(g.players)
 	return g.players[playerID].points - g.players[other].points
 }
 
