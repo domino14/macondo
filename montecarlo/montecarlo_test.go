@@ -6,7 +6,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"sort"
 	"testing"
 	"time"
 
@@ -54,13 +53,13 @@ func TestSimSingleIteration(t *testing.T) {
 	plays := generator.Plays()[:10]
 	simmer := &Simmer{}
 	simmer.Init(generator, game, strategy)
-	simmer.resetStats(plies, len(plays))
-	simmer.plays = plays
+	simmer.resetStats(plies, plays)
 
-	simmer.simSingleIteration(plays, plies)
+	simmer.simSingleIteration(plies)
 
 	// Board should be reset back to empty after the simulation.
 	is.True(game.Board().IsEmpty())
+	simmer.sortPlaysByEquity()
 	fmt.Println(simmer.printStats())
 }
 
@@ -101,15 +100,10 @@ func TestLongerSim(t *testing.T) {
 
 	// Board should be reset back to empty after the simulation.
 	is.True(game.Board().IsEmpty())
-	// fmt.Println(simmer.printStats())
-	// fmt.Println("Total iterations", simmer.iterationCount)
-
-	// Sort by equity
-	sort.Slice(simmer.equityStats, func(i, j int) bool {
-		return simmer.equityStats[i].mean() < simmer.equityStats[j].mean()
-	})
-	// AWA wins
-	is.Equal(simmer.equityStats[9].move.Tiles().UserVisible(gd.GetAlphabet()), "AWA")
+	fmt.Println(simmer.printStats())
+	fmt.Println("Total iterations", simmer.iterationCount)
+	// AWA wins (note that the print above also sorts the plays by equity)
+	is.Equal(simmer.plays[0].play.Tiles().UserVisible(gd.GetAlphabet()), "AWA")
 }
 
 // func TestDrawingAssumptions(t *testing.T) {
