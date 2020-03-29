@@ -431,5 +431,7 @@ whatnoloan: Turn 15
 // generate test cases.
 func (b *GameBoard) SetToGame(alph *alphabet.Alphabet, game VsWho) *TilesInPlay {
 	// Set the board to a game
-	return b.setFromPlaintext(string(game), alph)
+	tip := b.setFromPlaintext(string(game), alph)
+	b.UpdateAllAnchors()
+	return tip
 }

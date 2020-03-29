@@ -2,14 +2,17 @@ package alphabet
 
 // LetterDistribution encodes the tile distribution for the relevant game.
 type LetterDistribution struct {
-	Distribution map[rune]uint8
-	PointValues  map[rune]uint8
-	SortOrder    map[rune]int
-	Vowels       []rune
-	numLetters   int
+	alph             *Alphabet
+	Distribution     map[rune]uint8
+	PointValues      map[rune]uint8
+	SortOrder        map[rune]int
+	Vowels           []rune
+	numUniqueLetters int
+	numLetters       int
+	scores           []int
 }
 
-func EnglishLetterDistribution() *LetterDistribution {
+func EnglishLetterDistribution(alph *Alphabet) *LetterDistribution {
 	dist := map[rune]uint8{
 		'A': 9, 'B': 2, 'C': 2, 'D': 4, 'E': 12, 'F': 2, 'G': 3, 'H': 2,
 		'I': 9, 'J': 1, 'K': 1, 'L': 4, 'M': 2, 'N': 6, 'O': 8, 'P': 2,
@@ -22,12 +25,11 @@ func EnglishLetterDistribution() *LetterDistribution {
 		'Q': 10, 'R': 1, 'S': 1, 'T': 1, 'U': 1, 'V': 4, 'W': 4, 'X': 8,
 		'Y': 4, 'Z': 10, '?': 0,
 	}
-	return &LetterDistribution{dist, ptValues,
-		makeSortMap("ABCDEFGHIJKLMNOPQRSTUVWXYZ?"),
-		[]rune{'A', 'E', 'I', 'O', 'U'}, 100}
+	return newLetterDistribution(alph, dist, ptValues, makeSortMap("ABCDEFGHIJKLMNOPQRSTUVWXYZ?"),
+		[]rune{'A', 'E', 'I', 'O', 'U'})
 }
 
-func SpanishLetterDistribution() *LetterDistribution {
+func SpanishLetterDistribution(alph *Alphabet) *LetterDistribution {
 	dist := map[rune]uint8{
 		'1': 1, '2': 1, '3': 1, // 1: CH, 2: LL, 3: RR
 		'A': 12, 'B': 2, 'C': 4, 'D': 5, 'E': 12, 'F': 1, 'G': 2, 'H': 2,
@@ -42,12 +44,12 @@ func SpanishLetterDistribution() *LetterDistribution {
 		'Q': 5, 'R': 1, 'S': 1, 'T': 1, 'U': 1, 'V': 4, 'X': 8, 'Y': 4,
 		'Z': 10, '?': 0,
 	}
-	return &LetterDistribution{dist, ptValues,
+	return newLetterDistribution(alph, dist, ptValues,
 		makeSortMap("ABC1DEFGHIJL2MNÑOPQR3STUVXYZ?"),
-		[]rune{'A', 'E', 'I', 'O', 'U'}, 100}
+		[]rune{'A', 'E', 'I', 'O', 'U'})
 }
 
-func PolishLetterDistribution() *LetterDistribution {
+func PolishLetterDistribution(alph *Alphabet) *LetterDistribution {
 	dist := map[rune]uint8{
 		'A': 9, 'B': 2, 'C': 3, 'D': 3, 'E': 7, 'F': 1, 'G': 2, 'H': 2,
 		'I': 8, 'J': 2, 'K': 3, 'L': 3, 'Ł': 2, 'M': 3, 'N': 5, 'O': 6,
@@ -62,30 +64,62 @@ func PolishLetterDistribution() *LetterDistribution {
 		'?': 0,
 		'Ą': 5, 'Ę': 5, 'Ó': 5, 'Ś': 5, 'Ż': 5, 'Ć': 6, 'Ń': 7, 'Ź': 9,
 	}
-	return &LetterDistribution{dist, ptValues,
+	return newLetterDistribution(alph, dist, ptValues,
 		makeSortMap("AĄBCĆDEĘFGHIJKLŁMNŃOÓPRSŚTUWYZŹŻ?"),
-		[]rune{'A', 'Ą', 'E', 'Ę', 'I', 'O', 'Ó', 'U', 'Y'}, 100}
+		[]rune{'A', 'Ą', 'E', 'Ę', 'I', 'O', 'Ó', 'U', 'Y'})
 }
 
-// MakeBag returns a bag of tiles.
-func (ld *LetterDistribution) MakeBag(alph *Alphabet) *Bag {
+func newLetterDistribution(alph *Alphabet, dist map[rune]uint8,
+	ptValues map[rune]uint8, sortOrder map[rune]int, vowels []rune) *LetterDistribution {
 
-	// Make an array of scores in alphabet order
-	scores := make([]int, len(ld.Distribution))
-	for rn, ptVal := range ld.PointValues {
+	numTotalLetters := 0
+	numUniqueLetters := len(dist)
+	for _, v := range dist {
+		numTotalLetters += int(v)
+	}
+	// Make an array of scores in alphabet order. This will allow for
+	// fast lookups in move generators, etc, vs looking up a map.
+	scores := make([]int, numUniqueLetters)
+	for rn, ptVal := range ptValues {
 		ml, err := alph.Val(rn)
 		if err != nil {
 			panic("Wrongly initialized")
 		}
 		if ml == BlankMachineLetter {
-			ml = MachineLetter(len(ld.Distribution) - 1)
+			ml = MachineLetter(numUniqueLetters - 1)
 		}
 		scores[ml] = int(ptVal)
 	}
-	b := NewBag(ld, len(ld.Distribution), alph, scores)
+
+	return &LetterDistribution{
+		alph:             alph,
+		Distribution:     dist,
+		PointValues:      ptValues,
+		SortOrder:        sortOrder,
+		Vowels:           vowels,
+		numUniqueLetters: numUniqueLetters,
+		numLetters:       numTotalLetters,
+		scores:           scores,
+	}
+
+}
+
+// MakeBag returns a bag of tiles.
+func (ld *LetterDistribution) MakeBag() *Bag {
+
+	b := NewBag(ld, ld.alph)
 	b.Shuffle()
 
 	return b
+}
+
+// Score gives the score of the given machine letter. This is used by the
+// move generator to score plays more rapidly than looking up a map.
+func (ld *LetterDistribution) Score(ml MachineLetter) int {
+	if ml >= BlankOffset || ml == BlankMachineLetter {
+		return ld.scores[ld.numUniqueLetters-1]
+	}
+	return ld.scores[ml]
 }
 
 func makeSortMap(order string) map[rune]int {

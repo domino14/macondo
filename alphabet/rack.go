@@ -151,13 +151,13 @@ func (r *Rack) TilesOn() MachineWord {
 }
 
 // ScoreOn returns the total score of the tiles on this rack.
-func (r *Rack) ScoreOn(bag *Bag) int {
+func (r *Rack) ScoreOn(ld *LetterDistribution) int {
 	score := 0
 	var i MachineLetter
 	numPossibleLetters := r.alphabet.NumLetters()
 	for i = 0; i < MachineLetter(numPossibleLetters); i++ {
 		if r.LetArr[i] > 0 {
-			score += bag.Score(i) * r.LetArr[i]
+			score += ld.Score(i) * r.LetArr[i]
 		}
 	}
 	return score

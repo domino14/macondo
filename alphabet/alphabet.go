@@ -170,11 +170,11 @@ func HashableToUserVisible(s string, alph *Alphabet) string {
 	return string(runes)
 }
 
-// Score returns the score of this word given the bag.
-func (mw MachineWord) Score(bag *Bag) int {
+// Score returns the score of this word given the ld.
+func (mw MachineWord) Score(ld *LetterDistribution) int {
 	score := 0
 	for _, c := range mw {
-		score += bag.Score(c)
+		score += ld.Score(c)
 	}
 	return score
 }
@@ -356,6 +356,17 @@ func EnglishAlphabet() *Alphabet {
 	return FromSlice([]uint32{
 		'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
 		'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
+	})
+}
+
+// SpanishAlphabet returns an alphabet that corresponds to the Spanish
+// alphabet. This function should be used for testing. In production
+// we will load the alphabet from the gaddag.
+func SpanishAlphabet() *Alphabet {
+	return FromSlice([]uint32{
+		'1', '2', '3',
+		'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'L', 'M',
+		'N', 'Ñ', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
 	})
 }
 

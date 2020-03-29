@@ -10,14 +10,11 @@ import (
 
 // A Bag is the bag o'tiles!
 type Bag struct {
-	numUniqueTiles int
-	initialTiles   []MachineLetter
-	tiles          []MachineLetter
-	initialTileMap map[MachineLetter]uint8
-	tileMap        map[MachineLetter]uint8
-	alphabet       *Alphabet
-	// scores is a slice of ordered scores, in machine letter order.
-	scores []int
+	initialTiles       []MachineLetter
+	tiles              []MachineLetter
+	initialTileMap     map[MachineLetter]uint8
+	tileMap            map[MachineLetter]uint8
+	letterDistribution *LetterDistribution
 }
 
 func copyTileMap(orig map[MachineLetter]uint8) map[MachineLetter]uint8 {
@@ -115,21 +112,8 @@ func (b *Bag) hasRack(letters []MachineLetter) bool {
 	return true
 }
 
-// Score gives the score of the given machine letter. This is used by the
-// move generator to score plays more rapidly than looking up a map.
-func (b *Bag) Score(ml MachineLetter) int {
-	if ml >= BlankOffset || ml == BlankMachineLetter {
-		return b.scores[b.numUniqueTiles-1]
-	}
-	return b.scores[ml]
-}
-
 func (b *Bag) TilesRemaining() int {
 	return len(b.tiles)
-}
-
-func (b *Bag) GetAlphabet() *Alphabet {
-	return b.alphabet
 }
 
 func (b *Bag) remove(t MachineLetter) {
@@ -178,8 +162,7 @@ func (b *Bag) RemoveTiles(tiles []MachineLetter) error {
 	return nil
 }
 
-func NewBag(ld *LetterDistribution, numUniqueTiles int,
-	alph *Alphabet, scores []int) *Bag {
+func NewBag(ld *LetterDistribution, alph *Alphabet) *Bag {
 
 	tiles := make([]MachineLetter, ld.numLetters)
 	tileMap := map[MachineLetter]uint8{}
@@ -198,18 +181,16 @@ func NewBag(ld *LetterDistribution, numUniqueTiles int,
 	}
 
 	return &Bag{
-		tiles:          tiles,
-		tileMap:        tileMap,
-		initialTiles:   append([]MachineLetter(nil), tiles...),
-		initialTileMap: copyTileMap(tileMap),
-		numUniqueTiles: numUniqueTiles,
-		alphabet:       alph,
-		scores:         scores,
+		tiles:              tiles,
+		tileMap:            tileMap,
+		initialTiles:       append([]MachineLetter(nil), tiles...),
+		initialTileMap:     copyTileMap(tileMap),
+		letterDistribution: ld,
 	}
 }
 
-// Copy copies to a new bag and returns it. Note that the initialTiles,
-// alphabet, and scores are only shallowly copied. This is fine because
+// Copy copies to a new bag and returns it. Note that the initialTiles
+// are only shallowly copied. This is fine because
 // we don't ever expect these to change after initialization.
 func (b *Bag) Copy() *Bag {
 	tiles := make([]MachineLetter, len(b.tiles))
@@ -221,16 +202,17 @@ func (b *Bag) Copy() *Bag {
 	}
 
 	return &Bag{
-		tiles:          tiles,
-		tileMap:        tileMap,
-		initialTiles:   b.initialTiles,
-		numUniqueTiles: b.numUniqueTiles,
-		alphabet:       b.alphabet,
-		scores:         b.scores,
+		tiles:              tiles,
+		tileMap:            tileMap,
+		initialTiles:       b.initialTiles,
+		letterDistribution: b.letterDistribution,
 	}
 }
 
-// CopyFrom copies back the tiles from another bag into this bag.
+// CopyFrom copies back the tiles from another bag into this bag. The caller
+// of this function is responsible for ensuring `other` has the other
+// structures we need! (letter distribution, etc).
+// It should have been created from the Copy function above.
 func (b *Bag) CopyFrom(other *Bag) {
 	// This is a deep copy and can be kind of wasteful, but we don't use
 	// the bag often.
@@ -242,4 +224,8 @@ func (b *Bag) CopyFrom(other *Bag) {
 	b.tiles = make([]MachineLetter, len(other.tiles))
 	copy(b.tiles, other.tiles)
 	b.tileMap = copyTileMap(other.tileMap)
+}
+
+func (b *Bag) LetterDistribution() *LetterDistribution {
+	return b.letterDistribution
 }

@@ -7,18 +7,10 @@ import (
 	"github.com/matryer/is"
 )
 
-func defaultEnglishAlphabet() *Alphabet {
-	return FromSlice([]uint32{
-		'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K',
-		'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V',
-		'W', 'X', 'Y', 'Z',
-	})
-}
-
 func TestBag(t *testing.T) {
-	ld := EnglishLetterDistribution()
-	alph := defaultEnglishAlphabet()
-	bag := ld.MakeBag(alph)
+	alph := EnglishAlphabet()
+	ld := EnglishLetterDistribution(alph)
+	bag := ld.MakeBag()
 	if len(bag.tiles) != ld.numLetters {
 		t.Error("Tile bag and letter distribution do not match.")
 	}
@@ -44,9 +36,9 @@ func TestBag(t *testing.T) {
 }
 
 func TestDraw(t *testing.T) {
-	ld := EnglishLetterDistribution()
-	alph := defaultEnglishAlphabet()
-	bag := ld.MakeBag(alph)
+	alph := EnglishAlphabet()
+	ld := EnglishLetterDistribution(alph)
+	bag := ld.MakeBag()
 
 	letters, _ := bag.Draw(7)
 	if len(letters) != 7 {
@@ -58,9 +50,9 @@ func TestDraw(t *testing.T) {
 }
 
 func TestDrawAtMost(t *testing.T) {
-	ld := EnglishLetterDistribution()
-	alph := defaultEnglishAlphabet()
-	bag := ld.MakeBag(alph)
+	alph := EnglishAlphabet()
+	ld := EnglishLetterDistribution(alph)
+	bag := ld.MakeBag()
 
 	for i := 0; i < 14; i++ {
 		letters, _ := bag.Draw(7)
@@ -90,9 +82,9 @@ func TestDrawAtMost(t *testing.T) {
 
 func TestExchange(t *testing.T) {
 	is := is.New(t)
-	ld := EnglishLetterDistribution()
-	alph := defaultEnglishAlphabet()
-	bag := ld.MakeBag(alph)
+	alph := EnglishAlphabet()
+	ld := EnglishLetterDistribution(alph)
+	bag := ld.MakeBag()
 
 	letters, _ := bag.Draw(7)
 	newLetters, _ := bag.Exchange(letters[:5])
@@ -102,9 +94,9 @@ func TestExchange(t *testing.T) {
 
 func TestRemoveTiles(t *testing.T) {
 	is := is.New(t)
-	ld := EnglishLetterDistribution()
-	alph := defaultEnglishAlphabet()
-	bag := ld.MakeBag(alph)
+	alph := EnglishAlphabet()
+	ld := EnglishLetterDistribution(alph)
+	bag := ld.MakeBag()
 	is.Equal(len(bag.tiles), 100)
 	toRemove := []MachineLetter{
 		9, 14, 24, 4, 3, 20, 4, 11, 21, 6, 22, 14, 8, 0, 8, 15, 6, 5, 4,

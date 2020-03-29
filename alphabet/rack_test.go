@@ -10,9 +10,8 @@ import (
 var LexiconDir = os.Getenv("LEXICON_PATH")
 
 func TestScoreOn(t *testing.T) {
-	alph := defaultEnglishAlphabet()
-	dist := EnglishLetterDistribution()
-	bag := dist.MakeBag(alph)
+	alph := EnglishAlphabet()
+	ld := EnglishLetterDistribution(alph)
 	type racktest struct {
 		rack string
 		pts  int
@@ -26,7 +25,7 @@ func TestScoreOn(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		r := RackFromString(tc.rack, alph)
-		score := r.ScoreOn(bag)
+		score := r.ScoreOn(ld)
 		if score != tc.pts {
 			t.Errorf("For %v, expected %v, got %v", tc.rack, tc.pts, score)
 		}
@@ -34,7 +33,7 @@ func TestScoreOn(t *testing.T) {
 }
 
 func TestRackFromString(t *testing.T) {
-	alph := defaultEnglishAlphabet()
+	alph := EnglishAlphabet()
 	rack := RackFromString("AENPPSW", alph)
 
 	expected := make([]int, MaxAlphabetSize+1)
@@ -50,7 +49,7 @@ func TestRackFromString(t *testing.T) {
 }
 
 func TestRackTake(t *testing.T) {
-	alph := defaultEnglishAlphabet()
+	alph := EnglishAlphabet()
 	rack := RackFromString("AENPPSW", alph)
 	rack.Take(MachineLetter(15))
 	expected := make([]int, MaxAlphabetSize+1)
@@ -69,7 +68,7 @@ func TestRackTake(t *testing.T) {
 }
 
 func TestRackTakeAll(t *testing.T) {
-	alph := defaultEnglishAlphabet()
+	alph := EnglishAlphabet()
 	rack := RackFromString("AENPPSW", alph)
 
 	rack.Take(MachineLetter(15))
@@ -85,7 +84,7 @@ func TestRackTakeAll(t *testing.T) {
 }
 
 func TestRackTakeAndAdd(t *testing.T) {
-	alph := defaultEnglishAlphabet()
+	alph := EnglishAlphabet()
 	rack := RackFromString("AENPPSW", alph)
 
 	rack.Take(MachineLetter(15))

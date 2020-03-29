@@ -131,10 +131,8 @@ type backedupState struct {
 func (g *XWordGame) Init(gd *gaddag.SimpleGaddag, dist *alphabet.LetterDistribution) {
 	g.numPossibleLetters = int(gd.GetAlphabet().NumLetters())
 	g.board = board.MakeBoard(board.CrosswordGameBoard)
-	// Call Clear to set all crosses.
-	g.board.Clear()
 	g.alph = gd.GetAlphabet()
-	g.bag = dist.MakeBag(g.alph)
+	g.bag = dist.MakeBag()
 	g.gaddag = gd
 	g.players = []*Player{
 		newPlayer("player1", "player1", 0, g.alph),

@@ -51,7 +51,7 @@ func (c *CrossSet) clear() {
 }
 
 func (b *GameBoard) updateCrossSetsForMove(m *move.Move, gd *gaddag.SimpleGaddag,
-	bag *alphabet.Bag) {
+	ld *alphabet.LetterDistribution) {
 
 	row, col, vertical := m.CoordsAndVertical()
 	// Every tile placed by this new move creates new "across" words, and we need
@@ -70,10 +70,10 @@ func (b *GameBoard) updateCrossSetsForMove(m *move.Move, gd *gaddag.SimpleGaddag
 			// of the word.
 			rightCol := b.wordEdge(int(row), int(colStart), RightDirection)
 			leftCol := b.wordEdge(int(row), int(colStart), LeftDirection)
-			b.GenCrossSet(int(row), int(rightCol)+1, csd, gd, bag)
-			b.GenCrossSet(int(row), int(leftCol)-1, csd, gd, bag)
+			b.GenCrossSet(int(row), int(rightCol)+1, csd, gd, ld)
+			b.GenCrossSet(int(row), int(leftCol)-1, csd, gd, ld)
 			// This should clear the cross set on the just played tile.
-			b.GenCrossSet(int(row), int(colStart), csd, gd, bag)
+			b.GenCrossSet(int(row), int(colStart), csd, gd, ld)
 		}
 	}
 
@@ -81,7 +81,7 @@ func (b *GameBoard) updateCrossSetsForMove(m *move.Move, gd *gaddag.SimpleGaddag
 	calcForSelf := func(rowStart int, colStart int, csd BoardDirection) {
 		// Generate cross-sets on either side of the word.
 		for col := int(colStart) - 1; col <= int(colStart)+len(m.Tiles()); col++ {
-			b.GenCrossSet(int(rowStart), col, csd, gd, bag)
+			b.GenCrossSet(int(rowStart), col, csd, gd, ld)
 		}
 	}
 
@@ -105,18 +105,18 @@ func (b *GameBoard) updateCrossSetsForMove(m *move.Move, gd *gaddag.SimpleGaddag
 // board; our anchor algorithm doesn't quite match the one in the Gordon
 // paper.
 // We do this for both transpositions of the board.
-func (b *GameBoard) GenAllCrossSets(gaddag *gaddag.SimpleGaddag, bag *alphabet.Bag) {
+func (b *GameBoard) GenAllCrossSets(gaddag *gaddag.SimpleGaddag, ld *alphabet.LetterDistribution) {
 
 	n := b.Dim()
 	for i := 0; i < n; i++ {
 		for j := 0; j < n; j++ {
-			b.GenCrossSet(i, j, HorizontalDirection, gaddag, bag)
+			b.GenCrossSet(i, j, HorizontalDirection, gaddag, ld)
 		}
 	}
 	b.Transpose()
 	for i := 0; i < n; i++ {
 		for j := 0; j < n; j++ {
-			b.GenCrossSet(i, j, VerticalDirection, gaddag, bag)
+			b.GenCrossSet(i, j, VerticalDirection, gaddag, ld)
 		}
 	}
 	// And transpose back to the original orientation.
@@ -125,7 +125,7 @@ func (b *GameBoard) GenAllCrossSets(gaddag *gaddag.SimpleGaddag, bag *alphabet.B
 
 // GenCrossSet generates a cross-set for each individual square.
 func (b *GameBoard) GenCrossSet(row int, col int, dir BoardDirection,
-	gaddag *gaddag.SimpleGaddag, bag *alphabet.Bag) {
+	gaddag *gaddag.SimpleGaddag, ld *alphabet.LetterDistribution) {
 
 	if row < 0 || row >= b.Dim() || col < 0 || col >= b.Dim() {
 		return
@@ -152,7 +152,7 @@ func (b *GameBoard) GenCrossSet(row int, col int, dir BoardDirection,
 		// This means the right was always empty; we only want to go left.
 		lNodeIdx, lPathValid := b.traverseBackwards(row, col-1,
 			gaddag.GetRootNodeIndex(), false, 0, gaddag)
-		score := b.traverseBackwardsForScore(row, col-1, bag)
+		score := b.traverseBackwardsForScore(row, col-1, ld)
 		b.squares[row][col].setCrossScore(score, dir)
 
 		if !lPathValid {
@@ -175,8 +175,8 @@ func (b *GameBoard) GenCrossSet(row int, col int, dir BoardDirection,
 		// Start at the right col and work back to this square.
 		lNodeIdx, lPathValid := b.traverseBackwards(row, rightCol,
 			gaddag.GetRootNodeIndex(), false, 0, gaddag)
-		scoreR := b.traverseBackwardsForScore(row, rightCol, bag)
-		scoreL := b.traverseBackwardsForScore(row, col-1, bag)
+		scoreR := b.traverseBackwardsForScore(row, rightCol, ld)
+		scoreL := b.traverseBackwardsForScore(row, col-1, ld)
 		b.squares[row][col].setCrossScore(scoreR+scoreL, dir)
 		if !lPathValid {
 			b.squares[row][col].setCrossSet(CrossSet(0), dir)

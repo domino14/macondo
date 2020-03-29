@@ -41,8 +41,6 @@ func StateFromRepr(repr *GameRepr, defaultLexicon string, turnnum int) *XWordGam
 	game := &XWordGame{}
 
 	gdFilename := filepath.Join(LexiconPath, "gaddag", repr.Lexicon+".gaddag")
-	// XXX: Later make this lexicon-dependent.
-	dist := alphabet.EnglishLetterDistribution()
 
 	gd, err := gaddag.LoadGaddag(gdFilename)
 	if err != nil {
@@ -55,6 +53,8 @@ func StateFromRepr(repr *GameRepr, defaultLexicon string, turnnum int) *XWordGam
 				"the LEXICON_PATH environment variable is correct.")
 		}
 	}
+	// XXX: Later make this lexicon-dependent.
+	dist := alphabet.EnglishLetterDistribution(gd.GetAlphabet())
 	game.Init(gd, dist)
 	// strategy := strategy.NewExhaustiveLeaveStrategy(game.Bag(), gd.LexiconName(),
 	// 	gd.GetAlphabet(), LeaveFile)
