@@ -8,7 +8,7 @@ commands:
     gen [n] - generate n plays and sort by equity; n defaults to 15
     rack <rack> - add a new turn to the game and set the player rack
     add <play> - add a play, that looks like coords play (e.g. 10J FOO)
-    sim [plies] - start simulation, default to two-ply
+    sim [plies] [options] - start simulation, default to two-ply
     endgame [maxplies] [id] [simple] [disablePruning] - run endgame, search to maxplies (4 is default)
       id (1 or 0) - turn on or off iterative deepening (on by default)
       simple (1 or 0) - use simple eval func (faster but less accurate, off by default)

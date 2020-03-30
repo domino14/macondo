@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -9,9 +10,11 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/domino14/macondo/ai/player"
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/montecarlo"
 
 	"github.com/chzyer/readline"
 	"github.com/rs/zerolog/log"
@@ -27,14 +30,24 @@ import (
 
 const (
 	LeaveFile = "leave_values_112719.idx.gz"
+
+	SimLog = "/tmp/simlog"
 )
 
 type ShellController struct {
 	l *readline.Instance
 
-	curGameState   *mechanics.XWordGame
-	curGameRepr    *mechanics.GameRepr
-	aiplayer       player.AIPlayer
+	curGameState *mechanics.XWordGame
+	curGameRepr  *mechanics.GameRepr
+	aiplayer     player.AIPlayer
+
+	simmer        *montecarlo.Simmer
+	simCtx        context.Context
+	simCancel     context.CancelFunc
+	simTicker     *time.Ticker
+	simTickerDone chan bool
+	simLogFile    *os.File
+
 	curTurnNum     int
 	gen            movegen.MoveGenerator
 	curMode        Mode
@@ -124,6 +137,9 @@ func (sc *ShellController) loadGCG(filepath string) error {
 	sc.aiplayer = player.NewRawEquityPlayer(strategy)
 	sc.gen = movegen.NewGordonGenerator(sc.curGameState.Gaddag(),
 		sc.curGameState.Board(), sc.curGameState.Bag().LetterDistribution())
+
+	sc.simmer = &montecarlo.Simmer{}
+	sc.simmer.Init(sc.gen, sc.curGameState, sc.aiplayer)
 
 	return nil
 }
@@ -403,6 +419,10 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			numPlays = 15
 		} else {
 			fc := strings.SplitN(line, " ", 2)
+			if len(fc) == 1 {
+				sc.showError(errors.New("wrong format for `gen` command"))
+				break
+			}
 			numPlays, err = strconv.Atoi(fc[1])
 			if err != nil {
 				sc.showError(err)
@@ -411,6 +431,90 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		}
 		if sc.curGameState != nil {
 			sc.genMovesAndDisplay(numPlays)
+		}
+
+	case strings.HasPrefix(line, "sim"):
+		var plies int
+		var err error
+		if sc.simmer == nil {
+			sc.showError(errors.New("simmer stop"))
+			break
+		}
+		if strings.TrimSpace(line) == "sim" {
+			plies = 2
+		} else {
+			fc := strings.SplitN(line, " ", 2)
+			if len(fc) == 1 {
+				sc.showError(errors.New("wrong format for `gen` command"))
+			}
+			if fc[1] == "log" {
+				sc.simLogFile, err = os.Create(SimLog)
+				if err != nil {
+					sc.showError(err)
+					break
+				}
+				sc.simmer.SetLogStream(sc.simLogFile)
+				sc.showMessage("sim will log to " + SimLog)
+				break
+			} else if fc[1] == "stop" {
+				if !sc.simmer.IsSimming() {
+					sc.showError(errors.New("no running sim to stop"))
+					break
+				}
+				sc.simTicker.Stop()
+				sc.simTickerDone <- true
+				sc.simCancel()
+				if sc.simLogFile != nil {
+					err := sc.simLogFile.Close()
+					if err != nil {
+						sc.showError(err)
+						break
+					}
+				}
+				break
+			} else if fc[1] == "details" {
+				sc.showMessage(sc.simmer.ScoreDetails())
+				break
+			} else if fc[1] == "show" {
+				sc.showMessage(sc.simmer.EquityStats())
+				break
+			} else {
+				plies, err = strconv.Atoi(fc[1])
+				if err != nil {
+					sc.showError(err)
+					break
+				}
+			}
+		}
+		if len(sc.curGenPlays) == 0 {
+			sc.showError(errors.New("please generate some plays first"))
+			break
+		}
+		if sc.simmer.IsSimming() {
+			sc.showError(errors.New("simming already, please do a `sim stop` first"))
+			break
+		}
+
+		if sc.curGameState != nil {
+			sc.simCtx, sc.simCancel = context.WithCancel(context.Background())
+			sc.simTicker = time.NewTicker(15 * time.Second)
+			sc.simTickerDone = make(chan bool)
+
+			go sc.simmer.Simulate(sc.simCtx, sc.curGenPlays, plies)
+
+			go func() {
+				for {
+					select {
+					case <-sc.simTickerDone:
+						return
+					case <-sc.simTicker.C:
+						log.Info().Msgf("Simmer is at %v iterations...",
+							sc.simmer.Iterations())
+					}
+				}
+			}()
+
+			sc.showMessage("Simulation started. Please do `sim show` and `sim details` to see more info")
 		}
 
 	case strings.HasPrefix(line, "add "):
@@ -471,6 +575,7 @@ func (sc *ShellController) Loop(sig chan os.Signal) {
 	defer sc.l.Close()
 
 	for {
+
 		line, err := sc.l.Readline()
 		if err == readline.ErrInterrupt {
 			if len(line) == 0 {

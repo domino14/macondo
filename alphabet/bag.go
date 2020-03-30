@@ -141,7 +141,7 @@ func (b *Bag) rebuildTileSlice(numTilesInBag int) {
 // and draw a new rack.
 func (b *Bag) Redraw(currentRack []MachineLetter) []MachineLetter {
 	b.PutBack(currentRack)
-	return b.DrawAtMost(len(currentRack))
+	return b.DrawAtMost(7)
 }
 
 // RemoveTiles removes the given tiles from the bag, and returns an error

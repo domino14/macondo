@@ -140,8 +140,8 @@ type Simmer struct {
 	initialPlayer  int
 	iterationCount int
 	threads        int
-
-	plays []*SimmedPlay
+	simming        bool
+	plays          []*SimmedPlay
 
 	logStream io.Writer
 }
@@ -174,8 +174,17 @@ func (s *Simmer) resetStats(plies int, plays []*move.Move) {
 
 }
 
+func (s *Simmer) IsSimming() bool {
+	return s.simming
+}
+
 // Simulate sims all the plays.
 func (s *Simmer) Simulate(ctx context.Context, plays []*move.Move, plies int) error {
+	s.simming = true
+	defer func() {
+		s.simming = false
+		log.Info().Msgf("Simulation ended after %v iterations", s.iterationCount)
+	}()
 	s.resetStats(plies, plays)
 
 	for {
@@ -188,6 +197,10 @@ func (s *Simmer) Simulate(ctx context.Context, plays []*move.Move, plies int) er
 			// Do nothing
 		}
 	}
+}
+
+func (s *Simmer) Iterations() int {
+	return s.iterationCount
 }
 
 func (s *Simmer) simSingleIteration(plies int) {
@@ -274,20 +287,26 @@ func (s *Simmer) sortPlaysByEquity() {
 }
 
 func (s *Simmer) printStats() string {
+	return s.EquityStats() + "\n Details per play \n" + s.ScoreDetails()
+}
+
+func (s *Simmer) EquityStats() string {
 	stats := ""
 
 	s.sortPlaysByEquity()
-
-	// Return a string representation of the stats
-
 	stats += fmt.Sprintf("%20v%8v\n", "Play", "Equity")
 
 	for _, play := range s.plays {
 		stats += fmt.Sprintf("%20v%8.3f\n", play.play.ShortDescription(),
 			play.equityStats.mean())
 	}
-	stats += "\n Details per play \n"
+	stats += fmt.Sprintf("Iterations: %v\n", s.iterationCount)
+	return stats
+}
 
+func (s *Simmer) ScoreDetails() string {
+	stats := ""
+	s.sortPlaysByEquity()
 	for ply := 0; ply < s.maxPlies; ply++ {
 		who := "You"
 		if ply%2 == 0 {
@@ -303,5 +322,7 @@ func (s *Simmer) printStats() string {
 		}
 		stats += "\n"
 	}
+	stats += fmt.Sprintf("Iterations: %v\n", s.iterationCount)
+
 	return stats
 }
