@@ -4,40 +4,37 @@ import (
 	"log"
 	"testing"
 
+	"github.com/matryer/is"
+
 	"github.com/domino14/macondo/board"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/move"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestGenBestStaticTurn(t *testing.T) {
+	is := is.New(t)
 	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
-	if err != nil {
-		t.Errorf("expected err to be nil, got %v", err)
-	}
+	is.NoErr(err)
 	r := &GameRunner{}
 
 	r.Init(gd)
-	r.movegen.Reset()
 	r.game.SetRackFor(0, alphabet.RackFromString("DRRIRDF", gd.GetAlphabet()))
-	r.movegen.GenAll(r.game.RackFor(0))
-	assert.Equal(t, move.MoveTypeExchange, r.movegen.Plays()[0].Action())
+	bestPlay := r.genBestStaticTurn(0)
+	is.Equal(move.MoveTypeExchange, bestPlay.Action())
 }
 
 func TestGenBestStaticTurn2(t *testing.T) {
+	is := is.New(t)
 	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
-	if err != nil {
-		t.Errorf("expected err to be nil, got %v", err)
-	}
+	is.NoErr(err)
 	r := &GameRunner{}
 
 	r.Init(gd)
-	r.movegen.Reset()
 	r.game.SetRackFor(0, alphabet.RackFromString("COTTTV?", gd.GetAlphabet()))
-	r.movegen.GenAll(r.game.RackFor(0))
-	assert.Equal(t, move.MoveTypeExchange, r.movegen.Plays()[0].Action())
+	bestPlay := r.genBestStaticTurn(0)
+	is.Equal(move.MoveTypeExchange, bestPlay.Action())
 }
 
 // func TestGenBestStaticTurn3(t *testing.T) {
@@ -56,18 +53,16 @@ func TestGenBestStaticTurn2(t *testing.T) {
 // }
 
 func TestGenBestStaticTurn4(t *testing.T) {
+	is := is.New(t)
 	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
-	if err != nil {
-		t.Errorf("expected err to be nil, got %v", err)
-	}
+	is.NoErr(err)
 	r := &GameRunner{}
 
 	r.Init(gd)
-	r.movegen.Reset()
 	// this rack has so much equity that the player might pass/exchange.
 	r.game.SetRackFor(0, alphabet.RackFromString("CDEERS?", gd.GetAlphabet()))
-	r.movegen.GenAll(r.game.RackFor(0))
-	assert.Equal(t, move.MoveTypePlay, r.movegen.Plays()[0].Action())
+	bestPlay := r.genBestStaticTurn(0)
+	is.Equal(move.MoveTypePlay, bestPlay.Action())
 }
 
 // func TestGenBestStaticTurn5(t *testing.T) {
@@ -88,18 +83,19 @@ func TestGenBestStaticTurn4(t *testing.T) {
 // }
 
 func TestGenBestStaticTurn6(t *testing.T) {
+	is := is.New(t)
 	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
-	if err != nil {
-		t.Errorf("expected err to be nil, got %v", err)
-	}
+	is.NoErr(err)
 	r := &GameRunner{}
 
 	r.Init(gd)
-	r.movegen.SetBoardToGame(gd.GetAlphabet(), board.VsMacondo1)
+	tilesInPlay := r.game.Board().SetToGame(gd.GetAlphabet(), board.VsMacondo1)
+	r.game.Board().GenAllCrossSets(gd, r.game.Bag().LetterDistribution())
+	r.game.Bag().RemoveTiles(tilesInPlay.OnBoard)
 	r.game.SetRackFor(0, alphabet.RackFromString("APRS?", gd.GetAlphabet()))
-
-	r.movegen.SetOppRack(alphabet.RackFromString("ENNR", gd.GetAlphabet()))
-	r.movegen.GenAll(r.game.RackFor(0))
+	r.game.SetRackFor(1, alphabet.RackFromString("ENNR", gd.GetAlphabet()))
+	is.Equal(r.game.Bag().TilesRemaining(), 0)
+	bestPlay := r.genBestStaticTurn(0)
 	log.Println(r.movegen.Plays())
-	assert.Equal(t, "F10 .cARPS", r.movegen.Plays()[0].ShortDescription())
+	is.Equal("F10 .cARPS", bestPlay.ShortDescription())
 }

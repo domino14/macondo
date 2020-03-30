@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/domino14/macondo/ai/player"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/mechanics"
@@ -36,23 +37,23 @@ func TestSimSingleIteration(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
-	dist := alphabet.EnglishLetterDistribution()
+	dist := alphabet.EnglishLetterDistribution(gd.GetAlphabet())
 
 	game := &mechanics.XWordGame{}
 	game.Init(gd, dist)
 
 	strategy := strategy.NewExhaustiveLeaveStrategy(game.Bag(), gd.LexiconName(),
 		gd.GetAlphabet(), LeaveFile)
-	generator := movegen.NewGordonGenerator(game, strategy)
+	generator := movegen.NewGordonGenerator(gd, game.Board(), dist)
 
 	// This will deal a random rack to players:
 	game.StartGame()
 	// Overwrite the first rack
 	game.SetRackFor(0, alphabet.RackFromString("AAADERW", gd.GetAlphabet()))
-	generator.GenAll(game.RackFor(0))
+	generator.GenAll(game.RackFor(0), false)
 	plays := generator.Plays()[:10]
 	simmer := &Simmer{}
-	simmer.Init(generator, game, strategy)
+	simmer.Init(generator, game, player.NewRawEquityPlayer(strategy))
 	simmer.resetStats(plies, plays)
 
 	simmer.simSingleIteration(plies)
@@ -69,26 +70,29 @@ func TestLongerSim(t *testing.T) {
 	plies := 2
 	gd, err := GaddagFromLexicon("NWL18")
 	is.NoErr(err)
-	dist := alphabet.EnglishLetterDistribution()
+	dist := alphabet.EnglishLetterDistribution(gd.GetAlphabet())
 
 	game := &mechanics.XWordGame{}
 	game.Init(gd, dist)
 
 	strategy := strategy.NewExhaustiveLeaveStrategy(game.Bag(), gd.LexiconName(),
 		gd.GetAlphabet(), LeaveFile)
-	generator := movegen.NewGordonGenerator(game, strategy)
+	generator := movegen.NewGordonGenerator(gd, game.Board(), dist)
 	// This will start the game and deal a random rack to players:
 	game.StartGame()
 	// Overwrite rack we are simming for. This is the prototypical Maven sim rack.
 	// AWA should sim best.
 	game.SetRackFor(0, alphabet.RackFromString("AAADERW", gd.GetAlphabet()))
-	generator.GenAll(game.RackFor(0))
-	plays := generator.Plays()[:10]
+	aiplayer := player.NewRawEquityPlayer(strategy)
+	generator.GenAll(game.RackFor(0), false)
+	aiplayer.AssignEquity(generator.Plays(), game.Board(), game.Bag(),
+		game.RackFor(1))
+	plays := aiplayer.TopPlays(generator.Plays(), 10)
 	simmer := &Simmer{}
-	simmer.Init(generator, game, strategy)
+	simmer.Init(generator, game, aiplayer)
 
 	timeout, cancel := context.WithTimeout(
-		context.Background(), 10*time.Second)
+		context.Background(), 15*time.Second)
 	defer cancel()
 
 	f, err := os.Create("/tmp/simlog")

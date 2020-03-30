@@ -104,6 +104,10 @@ func newLetterDistribution(alph *Alphabet, dist map[rune]uint8,
 
 }
 
+func (ld *LetterDistribution) NumTotalTiles() int {
+	return ld.numLetters
+}
+
 // MakeBag returns a bag of tiles.
 func (ld *LetterDistribution) MakeBag() *Bag {
 

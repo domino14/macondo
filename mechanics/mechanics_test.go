@@ -59,7 +59,7 @@ func TestPlayToTurn(t *testing.T) {
 	b := board.MakeBoard(board.CrosswordGameBoard)
 	b.SetToGame(game.Alphabet(), board.VsWho(expectedBoardConfig))
 	b.UpdateAllAnchors()
-	b.GenAllCrossSets(game.Gaddag(), game.Bag())
+	b.GenAllCrossSets(game.Gaddag(), game.Bag().LetterDistribution())
 	is.True(b.Equals(game.Board()))
 }
 

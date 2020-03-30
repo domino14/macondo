@@ -10,10 +10,10 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/domino14/macondo/ai/player"
 	"github.com/domino14/macondo/mechanics"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
-	"github.com/domino14/macondo/strategy"
 	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v2"
 )
@@ -61,7 +61,7 @@ type LogPlay struct {
 	Rack string `json:"rack" yaml:"rack"`
 	Pts  int    `json:"pts" yaml:"pts"`
 	// Leftover is the equity of the leftover tiles at the end of the sim.
-	Leftover float32 `json:"left,omitempty" yaml:"left,omitempty"`
+	Leftover float64 `json:"left,omitempty" yaml:"left,omitempty"`
 	// Although this is a recursive structure we don't really use it
 	// recursively.
 	Plies []LogPlay `json:"plies,omitempty" yaml:"plies,omitempty,flow"`
@@ -123,16 +123,17 @@ func (sp *SimmedPlay) addScoreStat(play *move.Move, ply int) {
 	sp.bingoStats[ply].push(float64(bingos))
 }
 
-func (sp *SimmedPlay) addEquityStat(spread int, leftover float32) {
-	sp.equityStats.push(float64(spread) + float64(leftover))
-	sp.leftoverStats.push(float64(leftover))
+func (sp *SimmedPlay) addEquityStat(spread int, leftover float64) {
+	sp.equityStats.push(float64(spread) + leftover)
+	sp.leftoverStats.push(leftover)
 }
 
 // Simmer implements the actual look-ahead search
 type Simmer struct {
-	movegen       movegen.MoveGenerator
-	game          *mechanics.XWordGame
-	strategy      strategy.Strategizer
+	movegen  movegen.MoveGenerator
+	game     *mechanics.XWordGame
+	aiplayer player.AIPlayer
+
 	initialSpread int
 	maxPlies      int
 	// initialPlayer is the player for whom we are simming.
@@ -145,10 +146,12 @@ type Simmer struct {
 	logStream io.Writer
 }
 
-func (s *Simmer) Init(movegen movegen.MoveGenerator, game *mechanics.XWordGame, strategy strategy.Strategizer) {
+func (s *Simmer) Init(movegen movegen.MoveGenerator, game *mechanics.XWordGame,
+	aiplayer player.AIPlayer) {
+
 	s.movegen = movegen
 	s.game = game
-	s.strategy = strategy
+	s.aiplayer = aiplayer
 }
 
 func (s *Simmer) SetLogStream(l io.Writer) {
@@ -204,7 +207,7 @@ func (s *Simmer) simSingleIteration(plies int) {
 				Pts:  simmedPlay.play.Score()}
 		}
 		// equity of the leftover tiles at the end of the sim
-		leftover := float32(0.0)
+		leftover := float64(0.0)
 		// logIter.Plays = append(logIter.Plays)
 		// Play the move, and back up the game state.
 		// log.Debug().Msgf("Playing move %v", play)
@@ -225,7 +228,7 @@ func (s *Simmer) simSingleIteration(plies int) {
 				if ply == plies-2 || ply == plies-1 {
 					// It's either OUR last turn or OPP's last turn.
 					// Calculate equity of leftover tiles.
-					thisLeftover := s.strategy.LeaveValue(bestPlay.Leave())
+					thisLeftover := s.aiplayer.Strategizer().LeaveValue(bestPlay.Leave())
 					if s.logStream != nil {
 						plyChild.Leftover = thisLeftover
 					}
@@ -256,17 +259,10 @@ func (s *Simmer) simSingleIteration(plies int) {
 		}
 		s.logStream.Write(out)
 	}
-
 }
 
 func (s *Simmer) bestStaticTurn(playerID int) *move.Move {
-	// log.Debug().Msgf("playing best static turn for player %v", playerID)
-	opp := (playerID + 1) % s.game.NumPlayers()
-	s.movegen.SetOppRack(s.game.RackFor(opp))
-	s.movegen.GenAll(s.game.RackFor(playerID))
-
-	bestPlay := s.movegen.Plays()[0]
-	return bestPlay
+	return player.GenBestStaticTurn(s.game, s.movegen, s.aiplayer, playerID)
 }
 
 func (s *Simmer) sortPlaysByEquity() {

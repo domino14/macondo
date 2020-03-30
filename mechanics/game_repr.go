@@ -84,7 +84,7 @@ func (g *XWordGame) playTurn(repr *GameRepr, turnnum int) []alphabet.MachineLett
 			switch m.Action() {
 			case move.MoveTypePlay:
 
-				g.board.PlayMove(m, g.gaddag, g.bag)
+				g.board.PlayMove(m, g.gaddag, g.bag.LetterDistribution())
 				g.players[g.onturn].points += m.Score()
 				// Add tiles to playedTilesList
 				for _, t := range m.Tiles() {

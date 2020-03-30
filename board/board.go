@@ -57,6 +57,10 @@ func MakeBoard(desc []string) *GameBoard {
 	return g
 }
 
+func (g *GameBoard) TilesPlayed() int {
+	return g.tilesPlayed
+}
+
 // Dim is the dimension of the board. It assumes the board is square.
 func (g *GameBoard) Dim() int {
 	return len(g.squares)

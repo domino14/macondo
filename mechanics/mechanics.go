@@ -214,7 +214,7 @@ func (g *XWordGame) PlayMove(m *move.Move, backup bool) {
 	// of expensive and unneeded; we only use backup with sims and the like.
 	switch m.Action() {
 	case move.MoveTypePlay:
-		g.board.PlayMove(m, g.gaddag, g.bag)
+		g.board.PlayMove(m, g.gaddag, g.bag.LetterDistribution())
 		score := m.Score()
 		if score != 0 {
 			g.scorelessTurns = 0
@@ -372,7 +372,7 @@ func (g *XWordGame) CreateAndScorePlacementMove(coords string, tiles string, rac
 
 	// ScoreWord assumes the play is always horizontal, so we have to
 	// do the transpositions beforehand.
-	score := g.Board().ScoreWord(mw, row, col, tilesPlayed, crossDir, g.Bag())
+	score := g.Board().ScoreWord(mw, row, col, tilesPlayed, crossDir, g.bag.LetterDistribution())
 	// reset row, col back for the actual creation of the play.
 	if vertical {
 		row, col = col, row
@@ -387,7 +387,7 @@ func (g *XWordGame) CreateAndScorePlacementMove(coords string, tiles string, rac
 func (g *XWordGame) calculateRackPts(onturn int) int {
 	// Calculate the number of pts on the player with the `onturn` rack.
 	rack := g.players[onturn].rack
-	return rack.ScoreOn(g.bag)
+	return rack.ScoreOn(g.bag.LetterDistribution())
 }
 
 func (g *XWordGame) NumPlayers() int {

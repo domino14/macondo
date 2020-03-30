@@ -1,7 +1,6 @@
 package alphabet
 
 import (
-	"errors"
 	"fmt"
 	"math/rand"
 
@@ -149,7 +148,8 @@ func (b *Bag) Redraw(currentRack []MachineLetter) []MachineLetter {
 // if it can't.
 func (b *Bag) RemoveTiles(tiles []MachineLetter) error {
 	if !b.hasRack(tiles) {
-		return errors.New("cannot remove the tiles from the bag, as they are not in the bag")
+		return fmt.Errorf("cannot remove the tiles %v from the bag, as they are not in the bag",
+			MachineWord(tiles).UserVisible(b.LetterDistribution().alph))
 	}
 	for _, t := range tiles {
 		if t.IsBlanked() {

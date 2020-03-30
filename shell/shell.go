@@ -10,6 +10,9 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/domino14/macondo/ai/player"
+	"github.com/domino14/macondo/board"
+
 	"github.com/chzyer/readline"
 	"github.com/rs/zerolog/log"
 
@@ -26,20 +29,21 @@ const (
 	LeaveFile = "leave_values_112719.idx.gz"
 )
 
-type Mode int
 type ShellController struct {
 	l *readline.Instance
 
 	curGameState   *mechanics.XWordGame
 	curGameRepr    *mechanics.GameRepr
+	aiplayer       player.AIPlayer
 	curTurnNum     int
 	gen            movegen.MoveGenerator
-	endgameGen     movegen.MoveGenerator
 	curMode        Mode
 	endgameSolver  *alphabeta.Solver
 	curEndgameNode *alphabeta.GameNode
 	curGenPlays    []*move.Move
 }
+
+type Mode int
 
 const (
 	StandardMode Mode = iota
@@ -78,49 +82,50 @@ func NewShellController() *ShellController {
 	return &ShellController{l: l}
 }
 
-func loadGCG(filepath string) (*mechanics.XWordGame, *mechanics.GameRepr, movegen.MoveGenerator, error) {
-	var curGameRepr *mechanics.GameRepr
+func (sc *ShellController) loadGCG(filepath string) error {
 	var err error
 	// Try to parse filepath as a network path.
 	if strings.HasPrefix(filepath, "xt ") {
 		xtgcg := strings.Split(filepath, " ")
 
 		if len(xtgcg) != 2 {
-			return nil, nil, nil, fmt.Errorf(
+			return fmt.Errorf(
 				"if using a cross-tables id must provide in the format xt <game_id>")
 		}
 		idstr := xtgcg[1]
 		id, err := strconv.Atoi(idstr)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("badly formatted game ID")
+			return fmt.Errorf("badly formatted game ID")
 		}
 		prefix := strconv.Itoa(id / 100)
 		xtpath := "https://www.cross-tables.com/annotated/selfgcg/" + prefix +
 			"/anno" + idstr + ".gcg"
 		resp, err := http.Get(xtpath)
 		if err != nil {
-			return nil, nil, nil, err
+			return err
 		}
 		defer resp.Body.Close()
 
-		curGameRepr, err = gcgio.ParseGCGFromReader(resp.Body)
+		sc.curGameRepr, err = gcgio.ParseGCGFromReader(resp.Body)
 
 	} else {
-		curGameRepr, err = gcgio.ParseGCG(filepath)
+		sc.curGameRepr, err = gcgio.ParseGCG(filepath)
 		if err != nil {
-			return nil, nil, nil, err
+			return err
 		}
 	}
-	log.Debug().Msgf("Loaded game repr; players: %v", curGameRepr.Players)
-	curGameState := mechanics.StateFromRepr(curGameRepr, "NWL18", 0)
+	log.Debug().Msgf("Loaded game repr; players: %v", sc.curGameRepr.Players)
+	sc.curGameState = mechanics.StateFromRepr(sc.curGameRepr, "NWL18", 0)
 
-	strategy := strategy.NewExhaustiveLeaveStrategy(curGameState.Bag(),
-		curGameState.Gaddag().LexiconName(),
-		curGameState.Gaddag().GetAlphabet(), LeaveFile)
+	strategy := strategy.NewExhaustiveLeaveStrategy(sc.curGameState.Bag(),
+		sc.curGameState.Gaddag().LexiconName(),
+		sc.curGameState.Gaddag().GetAlphabet(), LeaveFile)
 
-	generator := movegen.NewGordonGenerator(curGameState, strategy)
+	sc.aiplayer = player.NewRawEquityPlayer(strategy)
+	sc.gen = movegen.NewGordonGenerator(sc.curGameState.Gaddag(),
+		sc.curGameState.Board(), sc.curGameState.Bag().LetterDistribution())
 
-	return curGameState, curGameRepr, generator, nil
+	return nil
 }
 
 func (sc *ShellController) setToTurn(turnnum int) error {
@@ -146,16 +151,40 @@ func MoveTableRow(idx int, m *move.Move, alph *alphabet.Alphabet) string {
 		m.ShortDescription(), m.Leave().UserVisible(alph), m.Score(), m.Equity())
 }
 
+func exchangeAllowed(board *board.GameBoard, ld *alphabet.LetterDistribution) bool {
+	// Instead of checking if the bag has 7 or more tiles, we check that the
+	// board has 80 tiles on it or more.
+	// We do this because during an interactive setup like this one, it's
+	// likely that racks are not assigned to each player every turn.
+
+	desiredNumber := ld.NumTotalTiles() - 14 - 7
+	if board.TilesPlayed() > desiredNumber {
+		return false
+	}
+	return true
+}
+
 func (sc *ShellController) genMovesAndDisplay(numPlays int) {
 
 	alph := sc.curGameState.Alphabet()
 	curRack := sc.curGameState.RackFor(sc.curGameState.PlayerOnTurn())
-	sc.gen.GenAll(curRack)
-	if len(sc.gen.Plays()) > numPlays {
-		sc.curGenPlays = sc.gen.Plays()[:numPlays]
-	} else {
-		sc.curGenPlays = sc.gen.Plays()
+	opp := (sc.curGameState.PlayerOnTurn() + 1) % sc.curGameState.NumPlayers()
+	oppRack := sc.curGameState.RackFor(opp)
+	if oppRack.NumTiles() == 0 && sc.curGameState.Bag().TilesRemaining() <= 7 {
+		log.Debug().Msg("Assigning remainder of unseen tiles to opponent...")
+		oppRack = alphabet.NewRack(sc.curGameState.Alphabet())
+		oppRack.Set(sc.curGameState.Bag().Peek())
 	}
+
+	canExchange := exchangeAllowed(sc.curGameState.Board(),
+		sc.curGameState.Bag().LetterDistribution())
+	sc.gen.GenAll(curRack, canExchange)
+
+	// Assign equity to plays, and only show the top ones.
+	sc.aiplayer.AssignEquity(sc.gen.Plays(), sc.curGameState.Board(),
+		sc.curGameState.Bag(), oppRack)
+	sc.curGenPlays = sc.aiplayer.TopPlays(sc.gen.Plays(), numPlays)
+
 	sc.showMessage(moveTableHeader())
 	for i, p := range sc.curGenPlays {
 		sc.showMessage(MoveTableRow(i, p, alph))
@@ -315,12 +344,12 @@ func (sc *ShellController) addPlay(line string) error {
 
 func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) error {
 	var delta int
-	var err error
 
 	switch {
 	case strings.HasPrefix(line, "load "):
 		filepath := line[5:]
-		sc.curGameState, sc.curGameRepr, sc.gen, err = loadGCG(filepath)
+		err := sc.loadGCG(filepath)
+
 		if err != nil {
 			showMessage("Error: "+err.Error(), sc.l.Stderr())
 			break
@@ -403,14 +432,12 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			plies, deepening, simpleEval, disablePruning), sc.l.Stderr())
 
 		sc.curGameState.SetStateStackLength(plies)
-		sc.endgameGen = movegen.NewGordonGenerator(
-			sc.curGameState, &strategy.NoLeaveStrategy{})
 
 		// clear out the last value of this endgame node; gc should
 		// delete the tree.
 		sc.curEndgameNode = nil
 		sc.endgameSolver = new(alphabeta.Solver)
-		sc.endgameSolver.Init(sc.endgameGen, sc.curGameState)
+		sc.endgameSolver.Init(sc.gen, sc.curGameState)
 		sc.endgameSolver.SetIterativeDeepening(deepening)
 		sc.endgameSolver.SetSimpleEvaluator(simpleEval)
 		sc.endgameSolver.SetPruningDisabled(disablePruning)

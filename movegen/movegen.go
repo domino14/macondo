@@ -28,9 +28,7 @@ const (
 
 // MoveGenerator is a generic interface for generating moves.
 type MoveGenerator interface {
-	GenAll(rack *alphabet.Rack)
-	Reset()
-	SetOppRack(rack *alphabet.Rack)
+	GenAll(rack *alphabet.Rack, addExchange bool)
 	SetSortingParameter(s SortBy)
 	Plays() []*move.Move
 }
@@ -52,9 +50,7 @@ type GordonGenerator struct {
 	tilesPlayed        int
 	plays              []*move.Move
 	numPossibleLetters int
-	// The opponent's rack is here. We use this sometimes in the strategizer.
-	oppRack          *alphabet.Rack
-	sortingParameter SortBy
+	sortingParameter   SortBy
 
 	// These are pointers to the actual structures in `game`. They are
 	// duplicated here to speed up the algorithm, since we access them
@@ -84,12 +80,6 @@ func NewGordonGenerator(gd *gaddag.SimpleGaddag, board *board.GameBoard,
 // not care about equity.
 func (gen *GordonGenerator) SetSortingParameter(s SortBy) {
 	gen.sortingParameter = s
-}
-
-// SetOppRack sets the opponent's rack to the passed-in value. This is used
-// to compute equity for plays that go out.
-func (gen *GordonGenerator) SetOppRack(r *alphabet.Rack) {
-	gen.oppRack = r
 }
 
 // GenAll generates all moves on the board. It assumes anchors have already

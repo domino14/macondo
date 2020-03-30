@@ -19,6 +19,25 @@ import (
 
 var DataDir = os.Getenv("DATA_DIR")
 
+// SynergyAndEV encapsulates synergy, and, well, EV.
+type SynergyAndEV struct {
+	synergy float64
+	ev      float64
+}
+
+// SynergyLeaveMap gets created from a csv file of leaves. See the notebooks
+// directory for generation code.
+type SynergyLeaveMap map[string]SynergyAndEV
+
+// SimpleSynergyStrategy uses a strategy borne of a simple synergy calculation,
+// based on a few million computer vs computer games.
+// The details of this calculation are in the /notebooks directory in this
+// repo.
+type SimpleSynergyStrategy struct {
+	leaveMap SynergyLeaveMap
+	bag      *alphabet.Bag
+}
+
 // Init initializes the strategizer, by doing things such as loading parameters
 // from disk.
 func (sss *SimpleSynergyStrategy) Init(lexiconName string, alph *alphabet.Alphabet,
@@ -88,7 +107,7 @@ func (sss SimpleSynergyStrategy) Equity(play *move.Move, board *board.GameBoard,
 		otherAdjustments += placementAdjustment(play)
 	}
 	if bag.TilesRemaining() == 0 {
-		otherAdjustments += endgameAdjustment(play, oppRack, sss.bag)
+		otherAdjustments += endgameAdjustment(play, oppRack, sss.bag.LetterDistribution())
 	} else {
 		// the leave doesn't matter if the bag is empty
 		leaveAdjustment = float64(sss.LeaveValue(leave))
@@ -99,14 +118,14 @@ func (sss SimpleSynergyStrategy) Equity(play *move.Move, board *board.GameBoard,
 	return float64(score) + leaveAdjustment + otherAdjustments
 }
 
-func (sss SimpleSynergyStrategy) LeaveValue(leave alphabet.MachineWord) float32 {
+func (sss SimpleSynergyStrategy) LeaveValue(leave alphabet.MachineWord) float64 {
 	if len(leave) > 1 {
 		sort.Slice(leave, func(i, j int) bool {
 			return leave[i] < leave[j]
 		})
 	}
 	if len(leave) <= 3 {
-		return float32(sss.leaveMap[string(leave)].ev)
+		return sss.leaveMap[string(leave)].ev
 	}
 	// Otherwise, do a rough calculation using pairwise synergies.
 	leaveval := 0.0
@@ -119,19 +138,5 @@ func (sss SimpleSynergyStrategy) LeaveValue(leave alphabet.MachineWord) float32 
 			leaveval += sss.leaveMap[string(tolookup)].synergy
 		}
 	}
-	return float32(leaveval)
-}
-
-func (nls *NoLeaveStrategy) Equity(play *move.Move, board *board.GameBoard,
-	bag *alphabet.Bag, oppRack *alphabet.Rack) float64 {
-	score := play.Score()
-	adjustment := 0.0
-	if board.IsEmpty() {
-		adjustment += placementAdjustment(play)
-	}
-	return float64(score) + adjustment
-}
-
-func (nls *NoLeaveStrategy) LeaveValue(leave alphabet.MachineWord) float32 {
-	return float32(0.0)
+	return leaveval
 }
