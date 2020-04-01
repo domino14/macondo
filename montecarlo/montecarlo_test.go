@@ -56,7 +56,7 @@ func TestSimSingleIteration(t *testing.T) {
 	simmer.Init(generator, game, player.NewRawEquityPlayer(strategy))
 	simmer.resetStats(plies, plays)
 
-	simmer.simSingleIteration(plies)
+	simmer.simSingleIteration(plies, 0, 1, nil)
 
 	// Board should be reset back to empty after the simulation.
 	is.True(game.Board().IsEmpty())
@@ -99,6 +99,7 @@ func TestLongerSim(t *testing.T) {
 	is.NoErr(err)
 	defer f.Close()
 	simmer.logStream = f
+	simmer.SetThreads(3)
 
 	simmer.Simulate(timeout, plays, plies)
 

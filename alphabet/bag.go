@@ -205,6 +205,7 @@ func (b *Bag) Copy() *Bag {
 		tiles:              tiles,
 		tileMap:            tileMap,
 		initialTiles:       b.initialTiles,
+		initialTileMap:     b.initialTileMap,
 		letterDistribution: b.letterDistribution,
 	}
 }

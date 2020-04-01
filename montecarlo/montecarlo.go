@@ -9,6 +9,9 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/domino14/macondo/ai/player"
 	"github.com/domino14/macondo/mechanics"
@@ -53,6 +56,7 @@ type Statistic struct {
 type LogIteration struct {
 	Iteration int       `json:"iteration" yaml:"iteration"`
 	Plays     []LogPlay `json:"plays" yaml:"plays"`
+	Thread    int       `json:"thread" yaml:"thread"`
 }
 
 // LogPlay is a single play.
@@ -100,6 +104,7 @@ func (s *Statistic) stdev() float64 {
 }
 
 type SimmedPlay struct {
+	sync.Mutex
 	play          *move.Move
 	scoreStats    []Statistic
 	bingoStats    []Statistic
@@ -118,7 +123,8 @@ func (sp *SimmedPlay) addScoreStat(play *move.Move, ply int) {
 	if play.TilesPlayed() == 7 {
 		bingos = 1
 	}
-
+	sp.Lock()
+	defer sp.Unlock()
 	sp.scoreStats[ply].push(float64(play.Score()))
 	sp.bingoStats[ply].push(float64(bingos))
 }
@@ -130,9 +136,9 @@ func (sp *SimmedPlay) addEquityStat(spread int, leftover float64) {
 
 // Simmer implements the actual look-ahead search
 type Simmer struct {
-	movegen  movegen.MoveGenerator
-	game     *mechanics.XWordGame
-	aiplayer player.AIPlayer
+	movegens   []movegen.MoveGenerator
+	gameCopies []*mechanics.XWordGame
+	aiplayer   player.AIPlayer
 
 	initialSpread int
 	maxPlies      int
@@ -140,30 +146,52 @@ type Simmer struct {
 	initialPlayer  int
 	iterationCount int
 	threads        int
-	simming        bool
-	plays          []*SimmedPlay
+
+	simming bool
+	plays   []*SimmedPlay
 
 	logStream io.Writer
 }
 
-func (s *Simmer) Init(movegen movegen.MoveGenerator, game *mechanics.XWordGame,
+func (s *Simmer) Init(gen movegen.MoveGenerator, game *mechanics.XWordGame,
 	aiplayer player.AIPlayer) {
 
-	s.movegen = movegen
-	s.game = game
+	s.movegens = []movegen.MoveGenerator{gen}
+	s.gameCopies = []*mechanics.XWordGame{game}
 	s.aiplayer = aiplayer
+	s.threads = 1
+}
+
+func (s *Simmer) SetThreads(threads int) {
+	s.threads = threads
 }
 
 func (s *Simmer) SetLogStream(l io.Writer) {
 	s.logStream = l
 }
 
+func (s *Simmer) makeGameCopies() {
+	// Use the first one as the source of truth.
+	s.gameCopies = s.gameCopies[:1]
+	for i := 1; i < s.threads; i++ {
+		s.gameCopies = append(s.gameCopies, s.gameCopies[0].Copy())
+	}
+	s.movegens = s.movegens[:1]
+	for i := 1; i < s.threads; i++ {
+		s.movegens = append(s.movegens,
+			movegen.NewGordonGenerator(s.gameCopies[0].Gaddag(),
+				s.gameCopies[i].Board(), s.gameCopies[0].Bag().LetterDistribution()))
+	}
+}
+
 func (s *Simmer) resetStats(plies int, plays []*move.Move) {
 	s.iterationCount = 0
 	s.maxPlies = plies
-	s.game.SetStateStackLength(plies)
-	s.initialSpread = s.game.CurrentSpread()
-	s.initialPlayer = s.game.PlayerOnTurn()
+	for _, g := range s.gameCopies {
+		g.SetStateStackLength(plies)
+	}
+	s.initialSpread = s.gameCopies[0].CurrentSpread()
+	s.initialPlayer = s.gameCopies[0].PlayerOnTurn()
 	s.plays = make([]*SimmedPlay, len(plays))
 	for idx, play := range plays {
 		s.plays[idx] = &SimmedPlay{}
@@ -185,30 +213,112 @@ func (s *Simmer) Simulate(ctx context.Context, plays []*move.Move, plies int) er
 		s.simming = false
 		log.Info().Msgf("Simulation ended after %v iterations", s.iterationCount)
 	}()
+	s.makeGameCopies()
 	s.resetStats(plies, plays)
 
-	for {
-		s.simSingleIteration(plies)
-		s.iterationCount++
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			// Do nothing
+	// use an errgroup here and listen for a ctx done outside this loop, but
+	// in another goroutine.
+	// protect the simmed play statistics with a mutex.
+	log.Debug().Msgf("Simulating with %v threads", s.threads)
+	syncChan := make(chan bool, s.threads)
+	logChan := make(chan []byte)
+	done := make(chan bool)
+
+	ctrl := errgroup.Group{}
+	writer := errgroup.Group{}
+
+	ctrl.Go(func() error {
+		defer func() {
+			log.Debug().Msgf("Sim controller thread exiting")
+		}()
+		for {
+			select {
+			case <-ctx.Done():
+				log.Debug().Msgf("Context is done: %v", ctx.Err())
+				for t := 0; t < s.threads; t++ {
+					syncChan <- true
+				}
+				log.Debug().Msgf("Sent sync messages to children threads...")
+				// we should not quit until the sim children are done!
+				return ctx.Err()
+			default:
+				// Do nothing
+			}
 		}
+	})
+
+	if s.logStream != nil {
+
+		writer.Go(func() error {
+			defer func() {
+				log.Debug().Msgf("Writer routine exiting")
+			}()
+			for {
+				select {
+				case bytes := <-logChan:
+					s.logStream.Write(bytes)
+				case <-done:
+					// Ok, actually quit now.
+					log.Debug().Msgf("Got quit signal...")
+					return nil
+				}
+			}
+		})
 	}
+
+	var iterMutex sync.Mutex
+	g := errgroup.Group{}
+	for t := 0; t < s.threads; t++ {
+		t := t
+		g.Go(func() error {
+			defer func() {
+				log.Debug().Msgf("Thread %v exiting sim", t)
+			}()
+			log.Debug().Msgf("Thread %v starting sim", t)
+			for {
+
+				iterMutex.Lock()
+				iterNum := s.iterationCount + 1
+				s.iterationCount++
+				iterMutex.Unlock()
+
+				s.simSingleIteration(plies, t, iterNum, logChan)
+				select {
+				case v := <-syncChan:
+					log.Debug().Msgf("Thread %v got sync msg %v", t, v)
+					return nil
+				default:
+					// Do nothing
+				}
+			}
+		})
+	}
+
+	// Wait for threads in errgroup:
+	err := g.Wait()
+	log.Debug().Msgf("errgroup returned err %v", err)
+
+	// Writer thread will exit now:
+	if s.logStream != nil {
+		close(done)
+		writer.Wait()
+	}
+
+	ctrlErr := ctrl.Wait()
+	log.Debug().Msgf("ctrl errgroup returned err %v", ctrlErr)
+	return ctrlErr
 }
 
 func (s *Simmer) Iterations() int {
 	return s.iterationCount
 }
 
-func (s *Simmer) simSingleIteration(plies int) {
+func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan chan []byte) {
 	// Give opponent a random rack from the bag. Note that this also
 	// shuffles the bag!
-	opp := (s.initialPlayer + 1) % s.game.NumPlayers()
-	s.game.SetRandomRack(opp)
-	logIter := LogIteration{Iteration: s.iterationCount + 1, Plays: []LogPlay{}}
+	opp := (s.initialPlayer + 1) % s.gameCopies[thread].NumPlayers()
+	s.gameCopies[thread].SetRandomRack(opp)
+	logIter := LogIteration{Iteration: iterationCount, Plays: []LogPlay{}, Thread: thread}
 
 	var logPlay LogPlay
 	var plyChild LogPlay
@@ -224,16 +334,16 @@ func (s *Simmer) simSingleIteration(plies int) {
 		// logIter.Plays = append(logIter.Plays)
 		// Play the move, and back up the game state.
 		// log.Debug().Msgf("Playing move %v", play)
-		s.game.PlayMove(simmedPlay.play, true)
+		s.gameCopies[thread].PlayMove(simmedPlay.play, true)
 		for ply := 0; ply < plies; ply++ {
 			// Each ply is a player taking a turn
-			onTurn := s.game.PlayerOnTurn()
-			if s.game.Playing() {
+			onTurn := s.gameCopies[thread].PlayerOnTurn()
+			if s.gameCopies[thread].Playing() {
 				// Assume there are exactly two players.
 
-				bestPlay := s.bestStaticTurn(onTurn)
+				bestPlay := s.bestStaticTurn(onTurn, thread)
 				// log.Debug().Msgf("Ply %v, Best play: %v", ply+1, bestPlay)
-				s.game.PlayMove(bestPlay, false)
+				s.gameCopies[thread].PlayMove(bestPlay, false)
 				// log.Debug().Msgf("Score is now %v", s.game.Score())
 				if s.logStream != nil {
 					plyChild = LogPlay{Play: bestPlay.ShortDescription(), Rack: bestPlay.FullRack(), Pts: bestPlay.Score()}
@@ -260,8 +370,8 @@ func (s *Simmer) simSingleIteration(plies int) {
 		}
 		// log.Debug().Msgf("Spread for initial player: %v, leftover: %v",
 		// 	s.game.SpreadFor(s.initialPlayer), leftover)
-		simmedPlay.addEquityStat(s.game.SpreadFor(s.initialPlayer), leftover)
-		s.game.ResetToFirstState()
+		simmedPlay.addEquityStat(s.gameCopies[thread].SpreadFor(s.initialPlayer), leftover)
+		s.gameCopies[thread].ResetToFirstState()
 		logIter.Plays = append(logIter.Plays, logPlay)
 	}
 	if s.logStream != nil {
@@ -270,12 +380,12 @@ func (s *Simmer) simSingleIteration(plies int) {
 			log.Error().Err(err).Msg("marshalling log")
 			return
 		}
-		s.logStream.Write(out)
+		logChan <- out
 	}
 }
 
-func (s *Simmer) bestStaticTurn(playerID int) *move.Move {
-	return player.GenBestStaticTurn(s.game, s.movegen, s.aiplayer, playerID)
+func (s *Simmer) bestStaticTurn(playerID, thread int) *move.Move {
+	return player.GenBestStaticTurn(s.gameCopies[thread], s.movegens[thread], s.aiplayer, playerID)
 }
 
 func (s *Simmer) sortPlaysByEquity() {

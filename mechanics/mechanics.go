@@ -96,9 +96,8 @@ type XWordGame struct {
 	numPossibleLetters int
 	players            players
 	uuid               uuid.UUID
-	turnHistory        []Turn
 
-	stateStack []*backedupState
+	stateStack []*stateBackup
 	stackPtr   int
 }
 
@@ -117,7 +116,7 @@ func (g *XWordGame) String() string {
 	return ret
 }
 
-type backedupState struct {
+type stateBackup struct {
 	board          *board.GameBoard
 	bag            *alphabet.Bag
 	playing        bool
@@ -182,21 +181,6 @@ func copyPlayers(ps players) players {
 		}
 	}
 	return p
-}
-
-// UpdateTurnHistory should be called after PlayMove, but only for places
-// where we are interacting with the game. Note that PlayMove also gets
-// called when doing sims / endgame lookups, so we don't want to be doing
-// expensive updates and backups on turn history during these moments.
-func (g *XWordGame) UpdateTurnHistory(m *move.Move) {
-	// switch m.Action() {
-	// case move.MoveTypePlay:
-	// 	g.turnHistory = append(g.turnHistory, newPlacementTurn(m, g.players[pnum]))
-	// case move.MoveTypePass:
-	// 	g.turnHistory = append(g.turnHistory, newPassTurn(m))
-	// case move.MoveTypeExchange:
-	// 	g.turnHistory = append(g.turnHistory, newExchangeTurn(m))
-	// }
 }
 
 // PlayMove plays a move on the board. This function is meant to be used
@@ -503,11 +487,11 @@ func (g *XWordGame) Alphabet() *alphabet.Alphabet {
 }
 
 func (g *XWordGame) SetStateStackLength(l int) {
-	g.stateStack = make([]*backedupState, l)
+	g.stateStack = make([]*stateBackup, l)
 	for idx := range g.stateStack {
 		// Initialize each element of the stack now to avoid having
 		// allocations and GC.
-		g.stateStack[idx] = &backedupState{
+		g.stateStack[idx] = &stateBackup{
 			board:          g.board.Copy(),
 			bag:            g.bag.Copy(),
 			playing:        g.playing,
@@ -515,6 +499,31 @@ func (g *XWordGame) SetStateStackLength(l int) {
 			players:        copyPlayers(g.players),
 		}
 	}
+}
+
+// Copy creates a deep copy of XWordGame for the most part. The gaddag and
+// alphabet are not deep-copied because these are not expected to change.
+func (g *XWordGame) Copy() *XWordGame {
+
+	copy := &XWordGame{
+		onturn:             g.onturn,
+		turnnum:            g.turnnum,
+		board:              g.board.Copy(),
+		bag:                g.bag.Copy(),
+		gaddag:             g.gaddag,
+		alph:               g.alph,
+		playing:            g.playing,
+		scorelessTurns:     g.scorelessTurns,
+		numPossibleLetters: g.numPossibleLetters,
+		players:            copyPlayers(g.players),
+		uuid:               g.uuid,
+		// stackPtr only changes during a sim, etc. This Copy should
+		// only be called at the beginning of everything.
+		stackPtr: 0,
+	}
+	// Also set the copy's stack.
+	copy.SetStateStackLength(len(g.stateStack))
+	return copy
 }
 
 // AssignUndrawnLetters assigns the unseen letters in the bag to the player
