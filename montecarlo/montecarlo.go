@@ -239,7 +239,6 @@ func (s *Simmer) Simulate(ctx context.Context, plays []*move.Move, plies int) er
 					syncChan <- true
 				}
 				log.Debug().Msgf("Sent sync messages to children threads...")
-				// we should not quit until the sim children are done!
 				return ctx.Err()
 			default:
 				// Do nothing
@@ -370,7 +369,7 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 		}
 		// log.Debug().Msgf("Spread for initial player: %v, leftover: %v",
 		// 	s.game.SpreadFor(s.initialPlayer), leftover)
-		simmedPlay.addEquityStat(s.gameCopies[thread].SpreadFor(s.initialPlayer), leftover)
+		simmedPlay.addEquityStat(s.gameCopies[thread].SpreadFor(s.initialPlayer)-s.initialSpread, leftover)
 		s.gameCopies[thread].ResetToFirstState()
 		logIter.Plays = append(logIter.Plays, logPlay)
 	}
