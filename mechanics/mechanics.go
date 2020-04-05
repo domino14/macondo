@@ -124,6 +124,7 @@ type stateBackup struct {
 	players        players
 	lastWasPass    bool
 	onturn         int
+	turnnum        int
 }
 
 // Init initializes the crossword game.
@@ -141,6 +142,13 @@ func (g *XWordGame) Init(gd *gaddag.SimpleGaddag, dist *alphabet.LetterDistribut
 	// The strategy and move generator are not part of the "game mechanics".
 	// These should be a level up. This module is just for the gameplay side
 	// of things, taking turns, logic, etc.
+}
+
+// SetGaddag assumes the distribution is the same. XXX this all needs to be fixed.
+func (g *XWordGame) SetGaddag(gd *gaddag.SimpleGaddag) {
+	g.gaddag = gd
+	g.alph = gd.GetAlphabet()
+	g.numPossibleLetters = int(gd.GetAlphabet().NumLetters())
 }
 
 // StartGame resets everything and deals out the first set of tiles.
@@ -266,7 +274,7 @@ func (g *XWordGame) UnplayLastMove() {
 
 	// Turn number and on turn do not need to be restored from backup
 	// as they're assumed to increase logically after every turn. Just
-	// decrease them. Similarly, pop the turn history.
+	// decrease them.
 	g.turnnum--
 	g.onturn = (g.onturn + (len(g.players) - 1)) % len(g.players)
 
@@ -284,7 +292,7 @@ func (g *XWordGame) ResetToFirstState() {
 
 	b := g.stateStack[0]
 	g.onturn = b.onturn
-	g.turnnum -= g.stackPtr
+	g.turnnum = b.turnnum
 	g.stackPtr = 0
 
 	g.board.CopyFrom(b.board)
@@ -310,6 +318,7 @@ func (g *XWordGame) backupState() {
 	st.scorelessTurns = g.scorelessTurns
 	st.players.copyFrom(g.players)
 	st.onturn = g.onturn
+	st.turnnum = g.turnnum
 	g.stackPtr++
 }
 

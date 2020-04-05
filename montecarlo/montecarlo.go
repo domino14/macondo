@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -136,9 +137,12 @@ func (sp *SimmedPlay) addEquityStat(spread int, leftover float64) {
 
 // Simmer implements the actual look-ahead search
 type Simmer struct {
-	movegens   []movegen.MoveGenerator
+	origGame *mechanics.XWordGame
+
 	gameCopies []*mechanics.XWordGame
-	aiplayer   player.AIPlayer
+	movegens   []movegen.MoveGenerator
+
+	aiplayer player.AIPlayer
 
 	initialSpread int
 	maxPlies      int
@@ -153,13 +157,10 @@ type Simmer struct {
 	logStream io.Writer
 }
 
-func (s *Simmer) Init(gen movegen.MoveGenerator, game *mechanics.XWordGame,
-	aiplayer player.AIPlayer) {
-
-	s.movegens = []movegen.MoveGenerator{gen}
-	s.gameCopies = []*mechanics.XWordGame{game}
+func (s *Simmer) Init(game *mechanics.XWordGame, aiplayer player.AIPlayer) {
+	s.origGame = game
 	s.aiplayer = aiplayer
-	s.threads = 1
+	s.threads = int(math.Max(1, float64(runtime.NumCPU()-1)))
 }
 
 func (s *Simmer) SetThreads(threads int) {
@@ -171,17 +172,16 @@ func (s *Simmer) SetLogStream(l io.Writer) {
 }
 
 func (s *Simmer) makeGameCopies() {
-	// Use the first one as the source of truth.
-	s.gameCopies = s.gameCopies[:1]
-	for i := 1; i < s.threads; i++ {
-		s.gameCopies = append(s.gameCopies, s.gameCopies[0].Copy())
-	}
-	s.movegens = s.movegens[:1]
-	for i := 1; i < s.threads; i++ {
+	s.gameCopies = []*mechanics.XWordGame{}
+	s.movegens = []movegen.MoveGenerator{}
+	for i := 0; i < s.threads; i++ {
+		s.gameCopies = append(s.gameCopies, s.origGame.Copy())
 		s.movegens = append(s.movegens,
-			movegen.NewGordonGenerator(s.gameCopies[0].Gaddag(),
-				s.gameCopies[i].Board(), s.gameCopies[0].Bag().LetterDistribution()))
+			movegen.NewGordonGenerator(s.gameCopies[i].Gaddag(),
+				s.gameCopies[i].Board(), s.gameCopies[i].Bag().LetterDistribution()))
+
 	}
+
 }
 
 func (s *Simmer) resetStats(plies int, plays []*move.Move) {

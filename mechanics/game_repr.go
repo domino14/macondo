@@ -56,8 +56,6 @@ func StateFromRepr(repr *GameRepr, defaultLexicon string, turnnum int) *XWordGam
 	// XXX: Later make this lexicon-dependent.
 	dist := alphabet.EnglishLetterDistribution(gd.GetAlphabet())
 	game.Init(gd, dist)
-	// strategy := strategy.NewExhaustiveLeaveStrategy(game.Bag(), gd.LexiconName(),
-	// 	gd.GetAlphabet(), LeaveFile)
 	for idx := range repr.Players {
 		game.players[idx].info = repr.Players[idx]
 	}
@@ -388,6 +386,7 @@ func genMove(e Event, alph *alphabet.Alphabet) *move.Move {
 // additionally truncates all moves after this one.
 func (r *GameRepr) AddTurnFromPlay(turnnum int, m *move.Move, nick string, cumul int, appendPlay bool) error {
 	turnToAdd := []Event{}
+	// XXX: Need to add a challenge bonus event and an endrack points event.
 	switch m.Action() {
 	case move.MoveTypePlay:
 		evt := &TilePlacementEvent{}
@@ -403,9 +402,22 @@ func (r *GameRepr) AddTurnFromPlay(turnnum int, m *move.Move, nick string, cumul
 		turnToAdd = append(turnToAdd, evt)
 
 	case move.MoveTypePass:
-
+		evt := &PassingEvent{}
+		evt.Nickname = nick
+		evt.Rack = m.FullRack()
+		evt.Cumulative = cumul
+		evt.Type = Pass
+		evt.SetMove(m)
+		turnToAdd = append(turnToAdd, evt)
 	case move.MoveTypeExchange:
-
+		evt := &PassingEvent{}
+		evt.Nickname = nick
+		evt.Rack = m.FullRack()
+		evt.Exchanged = m.Tiles().UserVisible(m.Alphabet())
+		evt.Cumulative = cumul
+		evt.Type = Exchange
+		evt.SetMove(m)
+		turnToAdd = append(turnToAdd, evt)
 	}
 	if appendPlay {
 		r.Turns = append(r.Turns, turnToAdd)

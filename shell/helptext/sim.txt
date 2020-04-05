@@ -3,6 +3,7 @@ sim [plies] [options] - Start or stop a Monte Carlo simulation
 Example:
     sim 2
     sim 3
+    sim 3 3
     sim stop
     sim show
     sim details
@@ -13,6 +14,10 @@ A list of plays must have been generated or added in another way already.
 If the argument is a number, it is interpreted as a number of plies. Otherwise,
 use `stop` to stop a running simulation, `show` to show the plays ranked
 by equity so far, and `details` to see more per-ply details of each play.
+
+Adding a second number (as in sim 3 3 above) interprets the second number
+as the number of threads to use for the simulation. This number defaults
+to the greater or 1 or your number of CPUs minus 1.
 
 Before starting a simulation, you can also do `sim log` to write the log
 to a temporary file.

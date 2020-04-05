@@ -51,15 +51,23 @@ func TestSimSingleIteration(t *testing.T) {
 	// Overwrite the first rack
 	game.SetRackFor(0, alphabet.RackFromString("AAADERW", gd.GetAlphabet()))
 	generator.GenAll(game.RackFor(0), false)
+	oldOppRack := game.RackFor(1).String()
 	plays := generator.Plays()[:10]
 	simmer := &Simmer{}
-	simmer.Init(generator, game, player.NewRawEquityPlayer(strategy))
+	simmer.Init(game, player.NewRawEquityPlayer(strategy))
+	simmer.makeGameCopies()
 	simmer.resetStats(plies, plays)
 
 	simmer.simSingleIteration(plies, 0, 1, nil)
 
 	// Board should be reset back to empty after the simulation.
+	is.True(simmer.gameCopies[0].Board().IsEmpty())
+	is.Equal(simmer.gameCopies[0].Turn(), 0)
+	is.Equal(simmer.gameCopies[0].RackFor(0).String(), "AAADERW")
+	// The original game shouldn't change at all.
+	is.Equal(game.RackFor(1).String(), oldOppRack)
 	is.True(game.Board().IsEmpty())
+
 	simmer.sortPlaysByEquity()
 	fmt.Println(simmer.printStats())
 }
@@ -89,7 +97,7 @@ func TestLongerSim(t *testing.T) {
 		game.RackFor(1))
 	plays := aiplayer.TopPlays(generator.Plays(), 10)
 	simmer := &Simmer{}
-	simmer.Init(generator, game, aiplayer)
+	simmer.Init(game, aiplayer)
 
 	timeout, cancel := context.WithTimeout(
 		context.Background(), 15*time.Second)
@@ -109,6 +117,7 @@ func TestLongerSim(t *testing.T) {
 	fmt.Println("Total iterations", simmer.iterationCount)
 	// AWA wins (note that the print above also sorts the plays by equity)
 	is.Equal(simmer.plays[0].play.Tiles().UserVisible(gd.GetAlphabet()), "AWA")
+	is.Equal(simmer.gameCopies[0].Turn(), 0)
 }
 
 // func TestDrawingAssumptions(t *testing.T) {
