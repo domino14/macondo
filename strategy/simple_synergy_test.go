@@ -69,7 +69,7 @@ func TestSimpleSynergyLookup(t *testing.T) {
 		{"AATA", -12.145087426808537},
 	} {
 		leave, _ := alphabet.ToMachineWord(tc.leave, gd.GetAlphabet())
-		assert.Equal(t, tc.ev, sss.lookup(leave))
+		assert.Equal(t, tc.ev, sss.LeaveValue(leave))
 	}
 }
 
@@ -118,6 +118,6 @@ func TestShouldExchange(t *testing.T) {
 	leave2, _ := alphabet.ToMachineWord("CTV?", gd.GetAlphabet())
 	// The equity of leave1 is greater than the equity of leave2 by at
 	// least 7 pts.
-	assert.True(t, sss.lookup(leave1) > (sss.lookup(leave2)+6+1))
+	assert.True(t, sss.LeaveValue(leave1) > (sss.LeaveValue(leave2)+6+1))
 
 }

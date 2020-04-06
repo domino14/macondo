@@ -5,12 +5,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/gcgio"
 	"github.com/domino14/macondo/mechanics"
+	"github.com/matryer/is"
 )
 
 var LexiconDir = os.Getenv("LEXICON_PATH")
@@ -30,15 +29,12 @@ func TestMain(m *testing.M) {
 }
 
 func TestPlayToTurn(t *testing.T) {
+	is := is.New(t)
 	curGameRepr, err := gcgio.ParseGCG("../gcgio/testdata/vs_frentz.gcg")
-	if err != nil {
-		t.Errorf("Got error %v", err)
-	}
+	is.NoErr(err)
 	game := mechanics.StateFromRepr(curGameRepr, "CSW19", 0)
 	err = game.PlayGameToTurn(curGameRepr, 21)
-	if err != nil {
-		t.Errorf("Error playing to turn %v", err)
-	}
+	is.NoErr(err)
 	expectedBoardConfig := `
    A B C D E F G H I J K L M N O
    ------------------------------
@@ -63,7 +59,33 @@ func TestPlayToTurn(t *testing.T) {
 	b := board.MakeBoard(board.CrosswordGameBoard)
 	b.SetToGame(game.Alphabet(), board.VsWho(expectedBoardConfig))
 	b.UpdateAllAnchors()
-	b.GenAllCrossSets(game.Gaddag(), game.Bag())
+	b.GenAllCrossSets(game.Gaddag(), game.Bag().LetterDistribution())
+	is.True(b.Equals(game.Board()))
+}
 
-	assert.True(t, b.Equals(game.Board()))
+func TestSetRandomRack(t *testing.T) {
+	is := is.New(t)
+	curGameRepr, err := gcgio.ParseGCG("../gcgio/testdata/vs_frentz.gcg")
+	is.NoErr(err)
+	game := mechanics.StateFromRepr(curGameRepr, "CSW19", 0)
+	err = game.PlayGameToTurn(curGameRepr, 21)
+	is.NoErr(err)
+	// The rack should be a subset of MARLINS + AHNTT
+	possibleLetters := map[rune]bool{
+		'M': true, 'A': true, 'R': true, 'L': true, 'I': true, 'N': true, 'S': true,
+		'H': true, 'T': true,
+	}
+
+	uniqueRacks := map[string]bool{}
+
+	for i := 0; i < 1000; i++ {
+		game.SetRandomRack(1)
+
+		rack := game.RackFor(1)
+		for _, l := range rack.String() {
+			is.True(possibleLetters[l])
+		}
+		uniqueRacks[rack.String()] = true
+	}
+	is.True(len(uniqueRacks) > 200)
 }

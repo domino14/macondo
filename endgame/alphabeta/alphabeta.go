@@ -99,6 +99,9 @@ func (s *Solver) Init(movegen movegen.MoveGenerator, game *mechanics.XWordGame) 
 	s.totalNodes = 0
 	s.iterativeDeepeningOn = true
 
+	if s.game != nil {
+		s.game.AssignUndrawnLetters()
+	}
 	s.stmPlayed = make([]bool, alphabet.MaxAlphabetSize+1)
 	s.otsPlayed = make([]bool, alphabet.MaxAlphabetSize+1)
 	s.stmBlockingRects = make([]rect, 20)
@@ -139,7 +142,7 @@ func (s *Solver) computeStuck(plays []*move.Move, rack *alphabet.Rack,
 }
 
 func leaveAdjustment(myLeave, oppLeave alphabet.MachineWord,
-	myStuck, otherStuck []alphabet.MachineLetter, bag *alphabet.Bag) float32 {
+	myStuck, otherStuck []alphabet.MachineLetter, ld *alphabet.LetterDistribution) float32 {
 	if len(myStuck) == 0 && len(otherStuck) == 0 {
 		// Neither player is stuck so the adjustment is sum(stm)
 		// minus 2 * sum(ots). This prioritizes moves as if the side to move
@@ -153,12 +156,12 @@ func leaveAdjustment(myLeave, oppLeave alphabet.MachineWord,
 		if len(oppLeave) == 0 {
 			// The opponent went out with their play, so our adjustment
 			// is negative:
-			adjustment = -2 * float32(myLeave.Score(bag))
+			adjustment = -2 * float32(myLeave.Score(ld))
 		} else {
 			// Otherwise, the opponent did not go out. We pretend that
 			// we are going to go out next turn (for face value, I suppose?),
 			// and get twice our opp's rack.
-			adjustment = float32(myLeave.Score(bag) + 2*oppLeave.Score(bag))
+			adjustment = float32(myLeave.Score(ld) + 2*oppLeave.Score(ld))
 		}
 		return adjustment
 	}
@@ -175,20 +178,20 @@ func leaveAdjustment(myLeave, oppLeave alphabet.MachineWord,
 
 	if len(myStuck) > 0 {
 		// Opp gets all my tiles
-		stuckValue := alphabet.MachineWord(myStuck).Score(bag)
+		stuckValue := alphabet.MachineWord(myStuck).Score(ld)
 		oppAdjustment = float32(b * stuckValue)
 		// Opp can also one-tile me:
-		oppAdjustment += c * float32(oppLeave.Score(bag))
+		oppAdjustment += c * float32(oppLeave.Score(ld))
 		// But I can also one-tile:
-		oppAdjustment -= d * float32(myLeave.Score(bag)-stuckValue)
+		oppAdjustment -= d * float32(myLeave.Score(ld)-stuckValue)
 	}
 	if len(otherStuck) > 0 {
 		// Same as above in reverse. In practice a lot of this will end up
 		// nearly canceling out.
-		stuckValue := alphabet.MachineWord(otherStuck).Score(bag)
+		stuckValue := alphabet.MachineWord(otherStuck).Score(ld)
 		myAdjustment = float32(b * stuckValue)
-		myAdjustment += c * float32(myLeave.Score(bag))
-		myAdjustment -= d * float32(oppLeave.Score(bag)-stuckValue)
+		myAdjustment += c * float32(myLeave.Score(ld))
+		myAdjustment -= d * float32(oppLeave.Score(ld)-stuckValue)
 	}
 	return myAdjustment - oppAdjustment
 }
@@ -210,9 +213,9 @@ func (s *Solver) generateSTMPlays(parent *GameNode) []*move.Move {
 	otherRack := s.game.RackFor(pnot)
 	numTilesOnRack := stmRack.NumTiles()
 	board := s.game.Board()
-	bag := s.game.Bag()
+	ld := s.game.Bag().LetterDistribution()
 
-	s.movegen.GenAll(stmRack)
+	s.movegen.GenAll(stmRack, false)
 	sideToMovePlays := s.addPass(s.movegen.Plays(), s.game.PlayerOnTurn())
 
 	// log.Debug().Msgf("stm plays %v", sideToMovePlays)
@@ -232,7 +235,7 @@ func (s *Solver) generateSTMPlays(parent *GameNode) []*move.Move {
 
 	s.movegen.SetSortingParameter(movegen.SortByScore)
 	defer s.movegen.SetSortingParameter(movegen.SortByNone)
-	s.movegen.GenAll(otherRack)
+	s.movegen.GenAll(otherRack, false)
 
 	toConsider := len(s.movegen.Plays())
 	if TwoPlyOppSearchLimit < toConsider {
@@ -252,7 +255,7 @@ func (s *Solver) generateSTMPlays(parent *GameNode) []*move.Move {
 		if play.TilesPlayed() == int(numTilesOnRack) {
 			// Value is the score of this play plus 2 * the score on
 			// opponent's rack (we're going out; general Crossword Game rules)
-			play.SetValuation(float32(play.Score() + 2*otherRack.ScoreOn(bag)))
+			play.SetValuation(float32(play.Score() + 2*otherRack.ScoreOn(ld)))
 		} else {
 			// subtract off the score of the opponent's highest scoring move
 			// that is not blocked.
@@ -277,7 +280,7 @@ func (s *Solver) generateSTMPlays(parent *GameNode) []*move.Move {
 				otherSideStuck = oLeave
 			}
 			adjust := leaveAdjustment(play.Leave(), oLeave, sideToMoveStuck, otherSideStuck,
-				bag)
+				ld)
 
 			play.SetValuation(float32(play.Score()-oScore) + FutureAdjustment*adjust)
 			// log.Debug().Msgf("Setting evaluation of %v to (%v - %v + %v) = %v",
@@ -388,7 +391,7 @@ func (s *Solver) findBestSequence(endNode *GameNode) []*move.Move {
 func (s *Solver) Solve(plies int) (float32, []*move.Move) {
 	// Generate children moves.
 	s.movegen.SetSortingParameter(movegen.SortByNone)
-	defer s.movegen.SetSortingParameter(movegen.SortByEquity)
+	defer s.movegen.SetSortingParameter(movegen.SortByScore)
 	log.Debug().Msgf("Attempting to solve endgame with %v plies...", plies)
 
 	// technically the children are the actual board _states_ but

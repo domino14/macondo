@@ -1,14 +1,22 @@
 package shell
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
+
+	"github.com/domino14/macondo/ai/player"
+	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/gaddag"
+	"github.com/domino14/macondo/montecarlo"
 
 	"github.com/chzyer/readline"
 	"github.com/rs/zerolog/log"
@@ -22,24 +30,38 @@ import (
 	"github.com/domino14/macondo/strategy"
 )
 
+var LexiconPath = os.Getenv("LEXICON_PATH")
+
 const (
-	LeaveFile = "leave_values_112719.idx.gz"
+	DefaultLexicon = "NWL18"
+	LeaveFile      = "leave_values_112719.idx.gz"
+
+	SimLog = "/tmp/simlog"
 )
 
-type Mode int
 type ShellController struct {
 	l *readline.Instance
 
-	curGameState   *mechanics.XWordGame
-	curGameRepr    *mechanics.GameRepr
+	curGameState *mechanics.XWordGame
+	curGameRepr  *mechanics.GameRepr
+	aiplayer     player.AIPlayer
+
+	simmer        *montecarlo.Simmer
+	simCtx        context.Context
+	simCancel     context.CancelFunc
+	simTicker     *time.Ticker
+	simTickerDone chan bool
+	simLogFile    *os.File
+
 	curTurnNum     int
 	gen            movegen.MoveGenerator
-	endgameGen     movegen.MoveGenerator
 	curMode        Mode
 	endgameSolver  *alphabeta.Solver
 	curEndgameNode *alphabeta.GameNode
 	curGenPlays    []*move.Move
 }
+
+type Mode int
 
 const (
 	StandardMode Mode = iota
@@ -78,49 +100,60 @@ func NewShellController() *ShellController {
 	return &ShellController{l: l}
 }
 
-func loadGCG(filepath string) (*mechanics.XWordGame, *mechanics.GameRepr, movegen.MoveGenerator, error) {
-	var curGameRepr *mechanics.GameRepr
+func (sc *ShellController) initGameDataStructures() {
+	strategy := strategy.NewExhaustiveLeaveStrategy(sc.curGameState.Bag(),
+		sc.curGameState.Gaddag().LexiconName(),
+		sc.curGameState.Gaddag().GetAlphabet(), LeaveFile)
+
+	sc.aiplayer = player.NewRawEquityPlayer(strategy)
+	sc.gen = movegen.NewGordonGenerator(sc.curGameState.Gaddag(),
+		sc.curGameState.Board(), sc.curGameState.Bag().LetterDistribution())
+
+	sc.simmer = &montecarlo.Simmer{}
+	sc.simmer.Init(sc.curGameState, sc.aiplayer)
+}
+
+func (sc *ShellController) loadGCG(filepath string) error {
 	var err error
 	// Try to parse filepath as a network path.
 	if strings.HasPrefix(filepath, "xt ") {
 		xtgcg := strings.Split(filepath, " ")
 
 		if len(xtgcg) != 2 {
-			return nil, nil, nil, fmt.Errorf(
+			return fmt.Errorf(
 				"if using a cross-tables id must provide in the format xt <game_id>")
 		}
 		idstr := xtgcg[1]
 		id, err := strconv.Atoi(idstr)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("badly formatted game ID")
+			return fmt.Errorf("badly formatted game ID")
 		}
 		prefix := strconv.Itoa(id / 100)
 		xtpath := "https://www.cross-tables.com/annotated/selfgcg/" + prefix +
 			"/anno" + idstr + ".gcg"
 		resp, err := http.Get(xtpath)
 		if err != nil {
-			return nil, nil, nil, err
+			return err
 		}
 		defer resp.Body.Close()
 
-		curGameRepr, err = gcgio.ParseGCGFromReader(resp.Body)
+		sc.curGameRepr, err = gcgio.ParseGCGFromReader(resp.Body)
+		if err != nil {
+			return err
+		}
 
 	} else {
-		curGameRepr, err = gcgio.ParseGCG(filepath)
+		sc.curGameRepr, err = gcgio.ParseGCG(filepath)
 		if err != nil {
-			return nil, nil, nil, err
+			return err
 		}
 	}
-	log.Debug().Msgf("Loaded game repr; players: %v", curGameRepr.Players)
-	curGameState := mechanics.StateFromRepr(curGameRepr, "NWL18", 0)
+	log.Debug().Msgf("Loaded game repr; players: %v", sc.curGameRepr.Players)
+	sc.curGameState = mechanics.StateFromRepr(sc.curGameRepr, "NWL18", 0)
 
-	strategy := strategy.NewExhaustiveLeaveStrategy(curGameState.Bag(),
-		curGameState.Gaddag().LexiconName(),
-		curGameState.Gaddag().GetAlphabet(), LeaveFile)
+	sc.initGameDataStructures()
 
-	generator := movegen.NewGordonGenerator(curGameState, strategy)
-
-	return curGameState, curGameRepr, generator, nil
+	return nil
 }
 
 func (sc *ShellController) setToTurn(turnnum int) error {
@@ -146,16 +179,40 @@ func MoveTableRow(idx int, m *move.Move, alph *alphabet.Alphabet) string {
 		m.ShortDescription(), m.Leave().UserVisible(alph), m.Score(), m.Equity())
 }
 
+func exchangeAllowed(board *board.GameBoard, ld *alphabet.LetterDistribution) bool {
+	// Instead of checking if the bag has 7 or more tiles, we check that the
+	// board has 80 tiles on it or more.
+	// We do this because during an interactive setup like this one, it's
+	// likely that racks are not assigned to each player every turn.
+
+	desiredNumber := ld.NumTotalTiles() - 14 - 7
+	if board.TilesPlayed() > desiredNumber {
+		return false
+	}
+	return true
+}
+
 func (sc *ShellController) genMovesAndDisplay(numPlays int) {
 
 	alph := sc.curGameState.Alphabet()
 	curRack := sc.curGameState.RackFor(sc.curGameState.PlayerOnTurn())
-	sc.gen.GenAll(curRack)
-	if len(sc.gen.Plays()) > numPlays {
-		sc.curGenPlays = sc.gen.Plays()[:numPlays]
-	} else {
-		sc.curGenPlays = sc.gen.Plays()
+	opp := (sc.curGameState.PlayerOnTurn() + 1) % sc.curGameState.NumPlayers()
+	oppRack := sc.curGameState.RackFor(opp)
+	if oppRack.NumTiles() == 0 && sc.curGameState.Bag().TilesRemaining() <= 7 {
+		log.Debug().Msg("Assigning remainder of unseen tiles to opponent...")
+		oppRack = alphabet.NewRack(sc.curGameState.Alphabet())
+		oppRack.Set(sc.curGameState.Bag().Peek())
 	}
+
+	canExchange := exchangeAllowed(sc.curGameState.Board(),
+		sc.curGameState.Bag().LetterDistribution())
+	sc.gen.GenAll(curRack, canExchange)
+
+	// Assign equity to plays, and only show the top ones.
+	sc.aiplayer.AssignEquity(sc.gen.Plays(), sc.curGameState.Board(),
+		sc.curGameState.Bag(), oppRack)
+	sc.curGenPlays = sc.aiplayer.TopPlays(sc.gen.Plays(), numPlays)
+
 	sc.showMessage(moveTableHeader())
 	for i, p := range sc.curGenPlays {
 		sc.showMessage(MoveTableRow(i, p, alph))
@@ -249,8 +306,7 @@ func (sc *ShellController) modeSelector(line string) {
 func (sc *ShellController) addRack(rack string) error {
 	// Set current player on turn's rack.
 	playerid := sc.curTurnNum % 2
-	sc.curGameState.SetRackFor(playerid, alphabet.RackFromString(rack, sc.curGameState.Alphabet()))
-	return nil
+	return sc.curGameState.SetRackFor(playerid, alphabet.RackFromString(rack, sc.curGameState.Alphabet()))
 }
 
 func (sc *ShellController) addPlay(line string) error {
@@ -284,8 +340,8 @@ func (sc *ShellController) addPlay(line string) error {
 		if idx < 0 || idx > len(sc.curGenPlays)-1 {
 			return errors.New("play outside range")
 		}
-		cumul = sc.curGameState.PointsFor(playerid) + m.Score()
 		m = sc.curGenPlays[idx]
+		cumul = sc.curGameState.PointsFor(playerid) + m.Score()
 	} else if len(cmd) == 3 {
 		coords := cmd[1]
 		word := cmd[2]
@@ -316,14 +372,39 @@ func (sc *ShellController) addPlay(line string) error {
 
 func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) error {
 	var delta int
-	var err error
 
 	switch {
+	case line == "new":
+		gdFilename := filepath.Join(LexiconPath, "gaddag", DefaultLexicon+".gaddag")
+
+		gd, err := gaddag.LoadGaddag(gdFilename)
+		if err != nil {
+			sc.showError(err)
+			break
+		}
+		// XXX: Need to make this not default
+		dist := alphabet.EnglishLetterDistribution(gd.GetAlphabet())
+		sc.curGameState = &mechanics.XWordGame{}
+		sc.curGameState.Init(gd, dist)
+		sc.initGameDataStructures()
+		sc.curGameState.SetPlaying(true)
+		sc.curTurnNum = 0
+		sc.curGameRepr = &mechanics.GameRepr{
+			Turns: []mechanics.Turn{},
+			Players: []mechanics.PlayerInfo{
+				mechanics.PlayerInfo{Nickname: "player1", RealName: "Player 1", PlayerNumber: 1},
+				mechanics.PlayerInfo{Nickname: "player2", RealName: "Player 2", PlayerNumber: 2},
+			},
+			Version: 1}
+
+		sc.showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr))
+
 	case strings.HasPrefix(line, "load "):
 		filepath := line[5:]
-		sc.curGameState, sc.curGameRepr, sc.gen, err = loadGCG(filepath)
+		err := sc.loadGCG(filepath)
+
 		if err != nil {
-			showMessage("Error: "+err.Error(), sc.l.Stderr())
+			sc.showError(err)
 			break
 		}
 		sc.curTurnNum = 0
@@ -337,7 +418,7 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		}
 		err := sc.setToTurn(sc.curTurnNum + delta)
 		if err != nil {
-			showMessage("Error: "+err.Error(), sc.l.Stderr())
+			sc.showError(err)
 			break
 		}
 		sc.showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr))
@@ -361,12 +442,23 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 
 	case strings.HasPrefix(line, "rack "):
 		rack := line[5:]
-		err := sc.addRack(rack)
+		err := sc.addRack(strings.ToUpper(rack))
 		if err != nil {
 			sc.showError(err)
 			break
 		}
 		sc.showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr))
+
+	case strings.HasPrefix(line, "setlex "):
+		lex := line[7:]
+		gdFilename := filepath.Join(LexiconPath, "gaddag", lex+".gaddag")
+		gd, err := gaddag.LoadGaddag(gdFilename)
+		if err != nil {
+			sc.showError(err)
+			break
+		}
+		sc.curGameState.SetGaddag(gd)
+		sc.showMessage("Lexicon set to " + lex)
 
 	case strings.HasPrefix(line, "gen"):
 		var numPlays int
@@ -375,6 +467,10 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			numPlays = 15
 		} else {
 			fc := strings.SplitN(line, " ", 2)
+			if len(fc) == 1 {
+				sc.showError(errors.New("wrong format for `gen` command"))
+				break
+			}
 			numPlays, err = strconv.Atoi(fc[1])
 			if err != nil {
 				sc.showError(err)
@@ -383,6 +479,99 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		}
 		if sc.curGameState != nil {
 			sc.genMovesAndDisplay(numPlays)
+		}
+
+	case strings.HasPrefix(line, "sim"):
+		var plies, threads int
+		var err error
+		if sc.simmer == nil {
+			sc.showError(errors.New("load a game or something"))
+			break
+		}
+		if strings.TrimSpace(line) == "sim" {
+			plies = 2
+		} else {
+			fc := strings.Split(line, " ")
+			if len(fc) == 1 {
+				sc.showError(errors.New("wrong format for `sim` command"))
+			}
+			if fc[1] == "log" {
+				sc.simLogFile, err = os.Create(SimLog)
+				if err != nil {
+					sc.showError(err)
+					break
+				}
+				sc.simmer.SetLogStream(sc.simLogFile)
+				sc.showMessage("sim will log to " + SimLog)
+				break
+			} else if fc[1] == "stop" {
+				if !sc.simmer.IsSimming() {
+					sc.showError(errors.New("no running sim to stop"))
+					break
+				}
+				sc.simTicker.Stop()
+				sc.simTickerDone <- true
+				sc.simCancel()
+				if sc.simLogFile != nil {
+					err := sc.simLogFile.Close()
+					if err != nil {
+						sc.showError(err)
+						break
+					}
+				}
+				break
+			} else if fc[1] == "details" {
+				sc.showMessage(sc.simmer.ScoreDetails())
+				break
+			} else if fc[1] == "show" {
+				sc.showMessage(sc.simmer.EquityStats())
+				break
+			} else if len(fc) == 2 || len(fc) == 3 {
+				if len(fc) == 2 {
+					plies, err = strconv.Atoi(fc[1])
+					if err != nil {
+						sc.showError(err)
+						break
+					}
+				}
+				// The second number is the number of sim threads
+				threads, err = strconv.Atoi(fc[2])
+				if err != nil {
+					sc.showError(err)
+					break
+				}
+				sc.simmer.SetThreads(threads)
+			}
+		}
+		if len(sc.curGenPlays) == 0 {
+			sc.showError(errors.New("please generate some plays first"))
+			break
+		}
+		if sc.simmer.IsSimming() {
+			sc.showError(errors.New("simming already, please do a `sim stop` first"))
+			break
+		}
+
+		if sc.curGameState != nil {
+			sc.simCtx, sc.simCancel = context.WithCancel(context.Background())
+			sc.simTicker = time.NewTicker(15 * time.Second)
+			sc.simTickerDone = make(chan bool)
+
+			go sc.simmer.Simulate(sc.simCtx, sc.curGenPlays, plies)
+
+			go func() {
+				for {
+					select {
+					case <-sc.simTickerDone:
+						return
+					case <-sc.simTicker.C:
+						log.Info().Msgf("Simmer is at %v iterations...",
+							sc.simmer.Iterations())
+					}
+				}
+			}()
+
+			sc.showMessage("Simulation started. Please do `sim show` and `sim details` to see more info")
 		}
 
 	case strings.HasPrefix(line, "add "):
@@ -404,14 +593,12 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			plies, deepening, simpleEval, disablePruning), sc.l.Stderr())
 
 		sc.curGameState.SetStateStackLength(plies)
-		sc.endgameGen = movegen.NewGordonGenerator(
-			sc.curGameState, &strategy.NoLeaveStrategy{})
 
 		// clear out the last value of this endgame node; gc should
 		// delete the tree.
 		sc.curEndgameNode = nil
 		sc.endgameSolver = new(alphabeta.Solver)
-		sc.endgameSolver.Init(sc.endgameGen, sc.curGameState)
+		sc.endgameSolver.Init(sc.gen, sc.curGameState)
 		sc.endgameSolver.SetIterativeDeepening(deepening)
 		sc.endgameSolver.SetSimpleEvaluator(simpleEval)
 		sc.endgameSolver.SetPruningDisabled(disablePruning)
@@ -445,6 +632,7 @@ func (sc *ShellController) Loop(sig chan os.Signal) {
 	defer sc.l.Close()
 
 	for {
+
 		line, err := sc.l.Readline()
 		if err == readline.ErrInterrupt {
 			if len(line) == 0 {

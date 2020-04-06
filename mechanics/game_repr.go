@@ -41,8 +41,6 @@ func StateFromRepr(repr *GameRepr, defaultLexicon string, turnnum int) *XWordGam
 	game := &XWordGame{}
 
 	gdFilename := filepath.Join(LexiconPath, "gaddag", repr.Lexicon+".gaddag")
-	// XXX: Later make this lexicon-dependent.
-	dist := alphabet.EnglishLetterDistribution()
 
 	gd, err := gaddag.LoadGaddag(gdFilename)
 	if err != nil {
@@ -55,9 +53,9 @@ func StateFromRepr(repr *GameRepr, defaultLexicon string, turnnum int) *XWordGam
 				"the LEXICON_PATH environment variable is correct.")
 		}
 	}
+	// XXX: Later make this lexicon-dependent.
+	dist := alphabet.EnglishLetterDistribution(gd.GetAlphabet())
 	game.Init(gd, dist)
-	// strategy := strategy.NewExhaustiveLeaveStrategy(game.Bag(), gd.LexiconName(),
-	// 	gd.GetAlphabet(), LeaveFile)
 	for idx := range repr.Players {
 		game.players[idx].info = repr.Players[idx]
 	}
@@ -84,7 +82,7 @@ func (g *XWordGame) playTurn(repr *GameRepr, turnnum int) []alphabet.MachineLett
 			switch m.Action() {
 			case move.MoveTypePlay:
 
-				g.board.PlayMove(m, g.gaddag, g.bag)
+				g.board.PlayMove(m, g.gaddag, g.bag.LetterDistribution())
 				g.players[g.onturn].points += m.Score()
 				// Add tiles to playedTilesList
 				for _, t := range m.Tiles() {
@@ -141,33 +139,46 @@ func (g *XWordGame) PlayGameToTurn(repr *GameRepr, turnnum int) error {
 
 	// Check if the game is over.
 	log.Debug().Msg("Checking if game is over...")
-	if g.bag.TilesRemaining() == 0 {
+	// Note that tiles remaining are also unseen tiles.
+	if g.bag.TilesRemaining() <= 7 {
+		// All players must have empty racks. This normally doesn't make sense
+		// in real Scrabble, but the way a GCG works, it only tracks one person's
+		// tiles at a time. For simplicity, we assume tiles are always in the bag
+		// if unseen!
+		allEmpty := true
+
 		log.Debug().Msg("Bag is empty")
 		for _, p := range g.players {
 			log.Debug().Msgf("Player %v has %v tiles", p, p.rack.NumTiles())
-			if p.rack.NumTiles() == 0 {
-				g.playing = false
+			if p.rack.NumTiles() != 0 {
+				allEmpty = false
 				break
 			}
+		}
+		if allEmpty {
+			log.Debug().Msg("Game is over")
+			g.playing = false
 		}
 	}
 	return nil
 }
 
 func (g *XWordGame) reconcileTiles(repr *GameRepr, playedTiles []alphabet.MachineLetter, turn int) error {
-	// Reconcile tiles in the bag, and in players' racks.
+	// Reconcile tiles in the bag.
 
-	// XXX: the RemoveTiles function is not smart, and thus expensive
-	// It should not be used in any sort of simulation.
-	g.bag.RemoveTiles(playedTiles)
+	var err error
+	log.Debug().Msgf("Removing tiles played: %v", playedTiles)
+	err = g.bag.RemoveTiles(playedTiles)
+	log.Debug().Msgf("Error was %v", err)
+	if err != nil {
+		return err
+	}
 	// Determine the latest rack available. Sometimes a game representation
 	// ends before the game itself is over, so we need to make sure
 	// we don't mistakenly give the other player all the remaining tiles, etc
-
-	var err error
 	var rack alphabet.MachineWord
-	var oppRack alphabet.MachineWord
 	notOnTurn := (g.onturn + 1) % 2
+
 	if turn < len(repr.Turns) {
 		// Find the rack of the player currently on turn; after playing
 		// turns up to this point.
@@ -176,33 +187,13 @@ func (g *XWordGame) reconcileTiles(repr *GameRepr, playedTiles []alphabet.Machin
 		if err != nil {
 			return err
 		}
-	} else {
-		// The game might or might not be over, but we've hit the end
-		// of the recorded turns. Try to calculate partial rack from the
-		// information that we do have.
-		if turn-2 >= 0 {
-			evt := repr.Turns[turn-2][0]
-			rack = evt.GetMove().Leave()
-		}
-		// XXX: Check what happens right before the bag gets empty,
-		// this logic might be suspect. We need to "draw" to replenish
-		// our rack first.
 	}
-
-	log.Debug().Msgf("My rack is %v", rack.UserVisible(g.alph))
+	// Always empty the opponent's rack, so it doesn't display.
+	g.players[notOnTurn].SetRack([]alphabet.MachineLetter{}, g.alph)
+	log.Debug().Msgf("My rack is %v, removing it from bag", rack.UserVisible(g.alph))
 	g.players[g.onturn].SetRack(rack, g.alph)
 
-	g.bag.RemoveTiles(rack)
-	// Rack of the other player. This only matters when the bag is empty.
-	// We need to set this in other for the endgame player to work properly.
-	if g.bag.TilesRemaining() <= 7 {
-		// bag is actually empty; draw everything for the opp.
-		oppRack = g.bag.Peek()
-		g.bag.RemoveTiles(oppRack)
-		log.Debug().Msgf("Removed %v tiles for oppRack", oppRack.UserVisible(alphabet.EnglishAlphabet()))
-	}
-	g.players[notOnTurn].SetRack(oppRack, g.alph)
-	return nil
+	return g.bag.RemoveTiles(rack)
 }
 
 func addText(lines []string, row int, hpad int, text string) {
@@ -332,9 +323,9 @@ func genMove(e Event, alph *alphabet.Alphabet) *move.Move {
 			log.Error().Err(err).Msg("")
 			return nil
 		}
-		log.Debug().Msgf("calculated leave %v from rack %v, tiles %v",
-			leaveMW.UserVisible(alph), rack.UserVisible(alph),
-			tiles.UserVisible(alph))
+		// log.Debug().Msgf("calculated leave %v from rack %v, tiles %v",
+		// 	leaveMW.UserVisible(alph), rack.UserVisible(alph),
+		// 	tiles.UserVisible(alph))
 		m = move.NewScoringMove(v.Score, tiles, leaveMW, v.Direction == "v",
 			len(rack)-len(leaveMW), alph, int(v.Row), int(v.Column), v.Position)
 
@@ -395,6 +386,7 @@ func genMove(e Event, alph *alphabet.Alphabet) *move.Move {
 // additionally truncates all moves after this one.
 func (r *GameRepr) AddTurnFromPlay(turnnum int, m *move.Move, nick string, cumul int, appendPlay bool) error {
 	turnToAdd := []Event{}
+	// XXX: Need to add a challenge bonus event and an endrack points event.
 	switch m.Action() {
 	case move.MoveTypePlay:
 		evt := &TilePlacementEvent{}
@@ -410,9 +402,22 @@ func (r *GameRepr) AddTurnFromPlay(turnnum int, m *move.Move, nick string, cumul
 		turnToAdd = append(turnToAdd, evt)
 
 	case move.MoveTypePass:
-
+		evt := &PassingEvent{}
+		evt.Nickname = nick
+		evt.Rack = m.FullRack()
+		evt.Cumulative = cumul
+		evt.Type = Pass
+		evt.SetMove(m)
+		turnToAdd = append(turnToAdd, evt)
 	case move.MoveTypeExchange:
-
+		evt := &PassingEvent{}
+		evt.Nickname = nick
+		evt.Rack = m.FullRack()
+		evt.Exchanged = m.Tiles().UserVisible(m.Alphabet())
+		evt.Cumulative = cumul
+		evt.Type = Exchange
+		evt.SetMove(m)
+		turnToAdd = append(turnToAdd, evt)
 	}
 	if appendPlay {
 		r.Turns = append(r.Turns, turnToAdd)
@@ -420,57 +425,45 @@ func (r *GameRepr) AddTurnFromPlay(turnnum int, m *move.Move, nick string, cumul
 		r.Turns[turnnum] = turnToAdd
 		r.Turns = r.Turns[:turnnum+1]
 	}
-	log.Debug().Msgf("turns are now: %v", r.Turns)
+	log.Debug().Msgf("turns are now: len: %v, turns: %v", len(r.Turns), r.Turns)
 	return nil
 }
 
-// AppendScoringMoveAt is a utility function to append a scoring
-// move to the game history at the given turn. The caller can provide
-// coordinates and the move; this function scores and keeps track of the
-// board state properly, modifying the state appropriately.
-func AppendScoringMoveAt(state *XWordGame, repr *GameRepr,
-	turnnum int, coords, word string) error {
+// PlayAndAppendScoringMove is a utility function to append a scoring
+// move to the game history, as well as play it on the board.
+// The caller can provide coordinates and the move; this function
+// scores and keeps track of the board state properly, modifying the
+// state appropriately.
+func PlayAndAppendScoringMove(state *XWordGame, repr *GameRepr,
+	coords, word string) error {
 
-	err := state.PlayGameToTurn(repr, turnnum)
+	playerid := state.PlayerOnTurn()
+	nick := state.players[playerid].info.Nickname
+
+	m, err := PlayScoringMove(state, coords, word)
 	if err != nil {
+		log.Error().Msgf("Trying to play move, err was %v", err)
 		return err
 	}
-	playerid, nick, appendPlay := whoseMove(repr, turnnum)
+
+	cumul := state.PointsFor(playerid) + m.Score()
+	// Pass in 0 as the turnnum; it gets ignored as we are appending the play
+	// at the end.``
+	return repr.AddTurnFromPlay(0, m, nick, cumul, true)
+}
+
+// PlayScoringMove plays a move on a board that is described by the
+// coordinates and word only. It returns the move.
+func PlayScoringMove(state *XWordGame, coords, word string) (*move.Move, error) {
+	playerid := state.PlayerOnTurn()
 	rack := state.RackFor(playerid).String()
 
 	m, err := state.CreateAndScorePlacementMove(coords, word, rack)
 	if err != nil {
-		return err
+		log.Error().Msgf("Trying to create and score move, err was %v", err)
+		return nil, err
 	}
-	cumul := state.PointsFor(playerid) + m.Score()
-	return repr.AddTurnFromPlay(turnnum, m, nick, cumul, appendPlay)
-}
-
-func AppendMoveAt(state *XWordGame, repr *GameRepr, turnnum int, m *move.Move) error {
-
-	err := state.PlayGameToTurn(repr, turnnum)
-	if err != nil {
-		return err
-	}
-
-	playerid, nick, appendPlay := whoseMove(repr, turnnum)
-
-	cumul := state.PointsFor(playerid) + m.Score()
-	return repr.AddTurnFromPlay(turnnum, m, nick, cumul, appendPlay)
-
-}
-
-func whoseMove(repr *GameRepr, turnnum int) (int, string, bool) {
-	var playerid int
-	var nick string
-	var appendPlay bool
-
-	playerid = turnnum % 2
-	if turnnum < len(repr.Turns) {
-		nick = repr.Turns[turnnum][0].GetNickname()
-	} else if turnnum == len(repr.Turns) {
-		nick = repr.Players[playerid].Nickname
-		appendPlay = true
-	}
-	return playerid, nick, appendPlay
+	// Actually make the play on the board:
+	state.PlayMove(m, false)
+	return m, nil
 }

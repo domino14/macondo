@@ -5,7 +5,10 @@
 package mechanics
 
 import (
+	crypto_rand "crypto/rand"
+	"encoding/binary"
 	"fmt"
+	math_rand "math/rand"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
@@ -14,6 +17,16 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 )
+
+func init() {
+	// Seed the pseudorandomizer with an actually random number.
+	var b [8]byte
+	_, err := crypto_rand.Read(b[:])
+	if err != nil {
+		panic("cannot seed math/rand package with cryptographically secure random number generator")
+	}
+	math_rand.Seed(int64(binary.LittleEndian.Uint64(b[:])))
+}
 
 // PlayerInfo contains basic information about the player.
 type PlayerInfo struct {
@@ -83,9 +96,8 @@ type XWordGame struct {
 	numPossibleLetters int
 	players            players
 	uuid               uuid.UUID
-	turnHistory        []Turn
 
-	stateStack []*backedupState
+	stateStack []*stateBackup
 	stackPtr   int
 }
 
@@ -104,33 +116,39 @@ func (g *XWordGame) String() string {
 	return ret
 }
 
-type backedupState struct {
+type stateBackup struct {
 	board          *board.GameBoard
 	bag            *alphabet.Bag
 	playing        bool
 	scorelessTurns int
 	players        players
 	lastWasPass    bool
+	onturn         int
+	turnnum        int
 }
 
-// Init initializes the crossword game and seeds the random number generator.
+// Init initializes the crossword game.
 func (g *XWordGame) Init(gd *gaddag.SimpleGaddag, dist *alphabet.LetterDistribution) {
 	g.numPossibleLetters = int(gd.GetAlphabet().NumLetters())
 	g.board = board.MakeBoard(board.CrosswordGameBoard)
-	// Call Clear to set all crosses.
-	g.board.Clear()
 	g.alph = gd.GetAlphabet()
-	g.bag = dist.MakeBag(g.alph)
+	g.bag = dist.MakeBag()
 	g.gaddag = gd
 	g.players = []*Player{
 		newPlayer("player1", "player1", 0, g.alph),
 		newPlayer("player2", "player2", 1, g.alph),
 	}
-
 	log.Debug().Msg("Initialized XWordGame structure")
 	// The strategy and move generator are not part of the "game mechanics".
 	// These should be a level up. This module is just for the gameplay side
 	// of things, taking turns, logic, etc.
+}
+
+// SetGaddag assumes the distribution is the same. XXX this all needs to be fixed.
+func (g *XWordGame) SetGaddag(gd *gaddag.SimpleGaddag) {
+	g.gaddag = gd
+	g.alph = gd.GetAlphabet()
+	g.numPossibleLetters = int(gd.GetAlphabet().NumLetters())
 }
 
 // StartGame resets everything and deals out the first set of tiles.
@@ -173,21 +191,6 @@ func copyPlayers(ps players) players {
 	return p
 }
 
-// UpdateTurnHistory should be called after PlayMove, but only for places
-// where we are interacting with the game. Note that PlayMove also gets
-// called when doing sims / endgame lookups, so we don't want to be doing
-// expensive updates and backups on turn history during these moments.
-func (g *XWordGame) UpdateTurnHistory(m *move.Move) {
-	// switch m.Action() {
-	// case move.MoveTypePlay:
-	// 	g.turnHistory = append(g.turnHistory, newPlacementTurn(m, g.players[pnum]))
-	// case move.MoveTypePass:
-	// 	g.turnHistory = append(g.turnHistory, newPassTurn(m))
-	// case move.MoveTypeExchange:
-	// 	g.turnHistory = append(g.turnHistory, newExchangeTurn(m))
-	// }
-}
-
 // PlayMove plays a move on the board. This function is meant to be used
 // by simulators as it implements a subset of possible moves. It doesnt
 // implement special things like challenge bonuses, etc.
@@ -203,7 +206,7 @@ func (g *XWordGame) PlayMove(m *move.Move, backup bool) {
 	// of expensive and unneeded; we only use backup with sims and the like.
 	switch m.Action() {
 	case move.MoveTypePlay:
-		g.board.PlayMove(m, g.gaddag, g.bag)
+		g.board.PlayMove(m, g.gaddag, g.bag.LetterDistribution())
 		score := m.Score()
 		if score != 0 {
 			g.scorelessTurns = 0
@@ -271,9 +274,26 @@ func (g *XWordGame) UnplayLastMove() {
 
 	// Turn number and on turn do not need to be restored from backup
 	// as they're assumed to increase logically after every turn. Just
-	// decrease them. Similarly, pop the turn history.
+	// decrease them.
 	g.turnnum--
 	g.onturn = (g.onturn + (len(g.players) - 1)) % len(g.players)
+
+	g.board.CopyFrom(b.board)
+	g.bag.CopyFrom(b.bag)
+	g.playing = b.playing
+	g.players.copyFrom(b.players)
+	g.scorelessTurns = b.scorelessTurns
+}
+
+// ResetToFirstState unplays all moves on the stack.
+func (g *XWordGame) ResetToFirstState() {
+	// This is like a fast-backward -- it unplays all of the moves on the
+	// stack.
+
+	b := g.stateStack[0]
+	g.onturn = b.onturn
+	g.turnnum = b.turnnum
+	g.stackPtr = 0
 
 	g.board.CopyFrom(b.board)
 	g.bag.CopyFrom(b.bag)
@@ -297,6 +317,8 @@ func (g *XWordGame) backupState() {
 	st.playing = g.playing
 	st.scorelessTurns = g.scorelessTurns
 	st.players.copyFrom(g.players)
+	st.onturn = g.onturn
+	st.turnnum = g.turnnum
 	g.stackPtr++
 }
 
@@ -343,7 +365,7 @@ func (g *XWordGame) CreateAndScorePlacementMove(coords string, tiles string, rac
 
 	// ScoreWord assumes the play is always horizontal, so we have to
 	// do the transpositions beforehand.
-	score := g.Board().ScoreWord(mw, row, col, tilesPlayed, crossDir, g.Bag())
+	score := g.Board().ScoreWord(mw, row, col, tilesPlayed, crossDir, g.bag.LetterDistribution())
 	// reset row, col back for the actual creation of the play.
 	if vertical {
 		row, col = col, row
@@ -358,7 +380,7 @@ func (g *XWordGame) CreateAndScorePlacementMove(coords string, tiles string, rac
 func (g *XWordGame) calculateRackPts(onturn int) int {
 	// Calculate the number of pts on the player with the `onturn` rack.
 	rack := g.players[onturn].rack
-	return rack.ScoreOn(g.bag)
+	return rack.ScoreOn(g.bag.LetterDistribution())
 }
 
 func (g *XWordGame) NumPlayers() int {
@@ -377,9 +399,29 @@ func (g *XWordGame) Gaddag() *gaddag.SimpleGaddag {
 	return g.gaddag
 }
 
-func (g *XWordGame) SetRackFor(playerID int, rack *alphabet.Rack) {
+// SetRackFor sets the player's current rack. It throws an error if
+// the rack is impossible to set from the current bag. It puts tiles
+// back in the bag if needed.
+func (g *XWordGame) SetRackFor(playerID int, rack *alphabet.Rack) error {
+	log.Debug().Msgf("Trying to set rack for %v, rack = %v",
+		playerID, rack.String())
+	g.Bag().PutBack(g.RackFor(playerID).TilesOn())
+	err := g.Bag().RemoveTiles(rack.TilesOn())
+	if err != nil {
+		log.Error().Msgf("Unable to set rack: %v", err)
+		return err
+	}
+
 	g.players[playerID].rack = rack
 	g.players[playerID].rackLetters = rack.String()
+	return nil
+}
+
+// SetRandomRack sets the player's rack to a random rack drawn from the bag.
+// It tosses the current rack back in first. This is used for simulations.
+func (g *XWordGame) SetRandomRack(playerID int) {
+	rack := g.Bag().Redraw(g.RackFor(playerID).TilesOn())
+	g.players[playerID].SetRack(rack, g.alph)
 }
 
 func (g *XWordGame) SetPointsFor(playerID int, pts int) {
@@ -398,6 +440,14 @@ func (g *XWordGame) PointsFor(playerID int) int {
 	return g.players[playerID].points
 }
 
+func (g *XWordGame) Score() string {
+	score := ""
+	for _, player := range g.players {
+		score += fmt.Sprintf(" [%v - %v] ", player.info.Nickname, player.points)
+	}
+	return score
+}
+
 func (g *XWordGame) Uuid() uuid.UUID {
 	return g.uuid
 }
@@ -409,13 +459,24 @@ func (g *XWordGame) Turn() int {
 
 // CurrentSpread returns the spread of the current game state.
 func (g *XWordGame) CurrentSpread() int {
-	other := (g.onturn + 1) % len(g.players)
+	other := g.notOnTurn()
 	return g.players[g.onturn].points - g.players[other].points
+}
+
+// SpreadFor returns the spread for the current player. This is only
+// compatible with two players.
+func (g *XWordGame) SpreadFor(playerID int) int {
+	other := (playerID + 1) % len(g.players)
+	return g.players[playerID].points - g.players[other].points
 }
 
 // PlayerOnTurn returns the current player index whose turn it is.
 func (g *XWordGame) PlayerOnTurn() int {
 	return g.onturn
+}
+
+func (g *XWordGame) notOnTurn() int {
+	return (g.onturn + 1) % len(g.players)
 }
 
 func (g *XWordGame) SetPlayerOnTurn(playerID int) {
@@ -435,11 +496,11 @@ func (g *XWordGame) Alphabet() *alphabet.Alphabet {
 }
 
 func (g *XWordGame) SetStateStackLength(l int) {
-	g.stateStack = make([]*backedupState, l)
+	g.stateStack = make([]*stateBackup, l)
 	for idx := range g.stateStack {
 		// Initialize each element of the stack now to avoid having
 		// allocations and GC.
-		g.stateStack[idx] = &backedupState{
+		g.stateStack[idx] = &stateBackup{
 			board:          g.board.Copy(),
 			bag:            g.bag.Copy(),
 			playing:        g.playing,
@@ -447,4 +508,50 @@ func (g *XWordGame) SetStateStackLength(l int) {
 			players:        copyPlayers(g.players),
 		}
 	}
+}
+
+// Copy creates a deep copy of XWordGame for the most part. The gaddag and
+// alphabet are not deep-copied because these are not expected to change.
+func (g *XWordGame) Copy() *XWordGame {
+
+	copy := &XWordGame{
+		onturn:             g.onturn,
+		turnnum:            g.turnnum,
+		board:              g.board.Copy(),
+		bag:                g.bag.Copy(),
+		gaddag:             g.gaddag,
+		alph:               g.alph,
+		playing:            g.playing,
+		scorelessTurns:     g.scorelessTurns,
+		numPossibleLetters: g.numPossibleLetters,
+		players:            copyPlayers(g.players),
+		uuid:               g.uuid,
+		// stackPtr only changes during a sim, etc. This Copy should
+		// only be called at the beginning of everything.
+		stackPtr: 0,
+	}
+	// Also set the copy's stack.
+	copy.SetStateStackLength(len(g.stateStack))
+	return copy
+}
+
+// AssignUndrawnLetters assigns the unseen letters in the bag to the player
+// currently not on turn, only if they have an empty rack.
+func (g *XWordGame) AssignUndrawnLetters() error {
+	// This function should be used by the endgame engine in situations where
+	// the racks of opponents are not known ahead of time.
+	other := g.notOnTurn()
+	if g.RackFor(other).NumTiles() != 0 {
+		log.Debug().Msgf("Rack for %v is already %v", other, g.RackFor(other).String())
+		return nil
+	}
+	bag := g.Bag().Peek()
+
+	if len(bag) > 7 {
+		return fmt.Errorf("there are more than 7 tiles in the bag! (%v)", len(bag))
+	}
+	rack := alphabet.NewRack(g.Alphabet())
+	rack.Set(bag)
+	g.SetRackFor(other, rack)
+	return nil
 }

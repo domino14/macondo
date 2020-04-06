@@ -56,11 +56,11 @@ func LoadDawgs(dawgPath string) {
 		Dawgs[lex] = &dawgInfo{}
 		Dawgs[lex].dawg = dawg
 		if strings.Contains(lex, "FISE") {
-			Dawgs[lex].dist = alphabet.SpanishLetterDistribution()
+			Dawgs[lex].dist = alphabet.SpanishLetterDistribution(dawg.GetAlphabet())
 		} else if strings.Contains(lex, "OSPS") {
-			Dawgs[lex].dist = alphabet.PolishLetterDistribution()
+			Dawgs[lex].dist = alphabet.PolishLetterDistribution(dawg.GetAlphabet())
 		} else {
-			Dawgs[lex].dist = alphabet.EnglishLetterDistribution()
+			Dawgs[lex].dist = alphabet.EnglishLetterDistribution(dawg.GetAlphabet())
 		}
 	}
 }

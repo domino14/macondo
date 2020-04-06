@@ -6,7 +6,6 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/move"
-	"github.com/rs/zerolog/log"
 )
 
 type BoardDirection uint8
@@ -53,7 +52,13 @@ func MakeBoard(desc []string) *GameBoard {
 		rows = append(rows, row)
 	}
 	g := &GameBoard{squares: rows}
+	// Call Clear to set all crosses.
+	g.Clear()
 	return g
+}
+
+func (g *GameBoard) TilesPlayed() int {
+	return g.tilesPlayed
 }
 
 // Dim is the dimension of the board. It assumes the board is square.
@@ -256,14 +261,14 @@ func (g *GameBoard) wordEdge(row int, col int, dir WordDirection) int {
 	return col - int(dir)
 }
 
-func (g *GameBoard) traverseBackwardsForScore(row int, col int, bag *alphabet.Bag) int {
+func (g *GameBoard) traverseBackwardsForScore(row int, col int, ld *alphabet.LetterDistribution) int {
 	score := 0
 	for g.posExists(row, col) {
 		ml := g.squares[row][col].letter
 		if ml == alphabet.EmptySquareMarker {
 			break
 		}
-		score += bag.Score(ml)
+		score += ld.Score(ml)
 		col--
 	}
 	return score
@@ -376,7 +381,7 @@ func (g *GameBoard) unplaceMoveTiles(m *move.Move) {
 // PlayMove plays a move on a board. It must place tiles on the board,
 // regenerate cross-sets and cross-points, and recalculate anchors.
 func (g *GameBoard) PlayMove(m *move.Move, gd *gaddag.SimpleGaddag,
-	bag *alphabet.Bag) {
+	ld *alphabet.LetterDistribution) {
 
 	// g.playHistory = append(g.playHistory, m.ShortDescription())
 	if m.Action() != move.MoveTypePlay {
@@ -386,7 +391,7 @@ func (g *GameBoard) PlayMove(m *move.Move, gd *gaddag.SimpleGaddag,
 	// Calculate anchors.
 	g.updateAnchorsForMove(m)
 	// Calculate cross-sets.
-	g.updateCrossSetsForMove(m, gd, bag)
+	g.updateCrossSetsForMove(m, gd, ld)
 	g.tilesPlayed += m.TilesPlayed()
 }
 
@@ -406,7 +411,6 @@ func (g *GameBoard) ErrorIfIllegalPlay(row, col int, vertical bool,
 		if newrow < 0 || newrow >= g.Dim() || newcol < 0 || newcol >= g.Dim() {
 			return errors.New("play extends off of the board")
 		}
-		log.Debug().Msgf("Checking idx %d, ml %d, row %v, col %v", idx, ml, newrow, newcol)
 
 		if ml == alphabet.PlayedThroughMarker {
 			ml = g.GetLetter(newrow, newcol)
@@ -431,7 +435,7 @@ func (g *GameBoard) ErrorIfIllegalPlay(row, col int, vertical bool,
 // assume the row stays static as we iterate through the letters of the
 // word.
 func (g *GameBoard) ScoreWord(word alphabet.MachineWord, row, col, tilesPlayed int,
-	crossDir BoardDirection, bag *alphabet.Bag) int {
+	crossDir BoardDirection, ld *alphabet.LetterDistribution) int {
 
 	// letterScore:
 	var ls int
@@ -474,7 +478,7 @@ func (g *GameBoard) ScoreWord(word alphabet.MachineWord, row, col, tilesPlayed i
 			// letter score is 0
 			ls = 0
 		} else {
-			ls = bag.Score(ml)
+			ls = ld.Score(ml)
 		}
 
 		mainWordScore += ls * letterMultiplier

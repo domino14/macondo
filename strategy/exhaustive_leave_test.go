@@ -30,6 +30,6 @@ func TestLeaveMPH(t *testing.T) {
 		{"SATINE", 32.356318409092445},
 	} {
 		leave, _ := alphabet.ToMachineLetters(tc.leave, alph)
-		assert.InEpsilon(t, tc.ev, els.lookup(leave), 0.00001)
+		assert.InEpsilon(t, tc.ev, els.LeaveValue(leave), 0.00001)
 	}
 }
