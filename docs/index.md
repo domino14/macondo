@@ -41,18 +41,18 @@ Features we will add in the future:
 ### How to install
 
 1. Navigate here:
-   https://github.com/domino14/macondo/releases
+   [https://github.com/domino14/macondo/releases](https://github.com/domino14/macondo/releases)
 
-2. Download the latest file that looks like `macondo-darwin.tar.gz`. Right now it is **Mac-only**. If you are savvy with compilers, you can build your own Windows or Linux version with `go`. Untar it to your desired directory.
+2) Download the latest file that looks like `macondo-darwin.tar.gz`. Right now it is **Mac-only**. If you are savvy with compilers, you can build your own Windows or Linux version with `go`. Untar it to your desired directory.
 
-3. You will need a lexicon gaddag. The default lexicon right now is NWL18, but we will add more in the near future. You can build a gaddag using the make_gaddag executable found in the tarball.
+3) You will need a lexicon gaddag. The default lexicon right now is NWL18, but we will add more in the near future. You can build a gaddag using the make_gaddag executable found in the tarball.
 
    - Usage: `./make_gaddag -filename NWL18.txt`
 
-The lexicon can be downloaded from NASPA if you're a NASPA member.
+   - The lexicon can be downloaded from NASPA if you're a NASPA member.
 
-    - The command above will generate a file named out.gaddag
-    - Move this file to your ./data/lexica/gaddag/NWL18.gaddag in your untarred directory
+   - The command above will generate a file named out.gaddag
+   - Move this file to your ./data/lexica/gaddag/NWL18.gaddag in your untarred directory
 
 4. Try opening the `macondo` executable. Your Mac might complain, especially if you're using Catalina. You can open it anyway by going to your Settings -> Security & Privacy -> General and click "Allow anyway" next to macondo. I swear it's not a virus.
 
@@ -61,3 +61,7 @@ The lexicon can be downloaded from NASPA if you're a NASPA member.
 1. Type in `help` for commands
 
 2. Note that many commands are very primitive. I did not want to expand this shell interface too much as I expect the actual interface to be a GUI. As such there are things that you probably shouldn't do, like sim a position and generate other positions at the same time.
+
+3. See this quick video tutorial. Note that this can quickly go out of date. I'll make another tutorial when a GUI is ready.
+
+[https://youtu.be/07Dpa-oTTFY](https://youtu.be/07Dpa-oTTFY)
