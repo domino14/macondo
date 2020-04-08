@@ -16,3 +16,4 @@ log*.csv
 *.test
 *.csv.gz
 data/lexica
+*.tar.gz
