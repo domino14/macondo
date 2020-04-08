@@ -2,11 +2,13 @@ package automatic
 
 import (
 	"log"
+	"os"
 	"testing"
 
 	"github.com/matryer/is"
 
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/config"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
@@ -17,7 +19,7 @@ func TestGenBestStaticTurn(t *testing.T) {
 	is := is.New(t)
 	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
 	is.NoErr(err)
-	r := &GameRunner{}
+	r := &GameRunner{config: &config.Config{StrategyParamsPath: os.Getenv("STRATEGY_PARAMS_PATH")}}
 
 	r.Init(gd)
 	r.game.SetRackFor(0, alphabet.RackFromString("DRRIRDF", gd.GetAlphabet()))
@@ -29,7 +31,7 @@ func TestGenBestStaticTurn2(t *testing.T) {
 	is := is.New(t)
 	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
 	is.NoErr(err)
-	r := &GameRunner{}
+	r := &GameRunner{config: &config.Config{StrategyParamsPath: os.Getenv("STRATEGY_PARAMS_PATH")}}
 
 	r.Init(gd)
 	r.game.SetRackFor(0, alphabet.RackFromString("COTTTV?", gd.GetAlphabet()))
@@ -56,7 +58,7 @@ func TestGenBestStaticTurn4(t *testing.T) {
 	is := is.New(t)
 	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
 	is.NoErr(err)
-	r := &GameRunner{}
+	r := &GameRunner{config: &config.Config{StrategyParamsPath: os.Getenv("STRATEGY_PARAMS_PATH")}}
 
 	r.Init(gd)
 	// this rack has so much equity that the player might pass/exchange.
@@ -86,7 +88,7 @@ func TestGenBestStaticTurn6(t *testing.T) {
 	is := is.New(t)
 	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
 	is.NoErr(err)
-	r := &GameRunner{}
+	r := &GameRunner{config: &config.Config{StrategyParamsPath: os.Getenv("STRATEGY_PARAMS_PATH")}}
 
 	r.Init(gd)
 	tilesInPlay := r.game.Board().SetToGame(gd.GetAlphabet(), board.VsMacondo1)

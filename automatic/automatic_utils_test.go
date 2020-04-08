@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/config"
 
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
@@ -29,7 +30,9 @@ func TestCompVsCompStatic(t *testing.T) {
 		t.Errorf("expected err to be nil, got %v", err)
 	}
 	logchan := make(chan string)
-	runner := &GameRunner{logchan: logchan}
+	runner := &GameRunner{logchan: logchan, config: &config.Config{
+		StrategyParamsPath: os.Getenv("STRATEGY_PARAMS_PATH"),
+	}}
 	var wg sync.WaitGroup
 	wg.Add(1)
 
