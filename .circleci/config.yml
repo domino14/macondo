@@ -6,7 +6,7 @@ jobs:
   build:
     environment:
       LEXICON_PATH: /opt/lexica/
-      DATA_DIR: /opt/data/
+      STRATEGY_PARAMS_PATH: /opt/data/strategy
       AUTH_KEY: abcdef
     docker:
       - image: golang:alpine
@@ -29,7 +29,7 @@ jobs:
       - run: mkdir $LEXICON_PATH
       - run: mkdir $LEXICON_PATH/gaddag
       - run: mv /opt/word-game-lexica/*.txt $LEXICON_PATH
-      - run: cp -r /opt/macondo/data $DATA_DIR
+      - run: cp -r /opt/macondo/data /opt/data
       - run: go build
       - run: go test ./...
 

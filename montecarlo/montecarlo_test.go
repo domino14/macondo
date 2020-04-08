@@ -22,8 +22,6 @@ import (
 var LexiconDir = os.Getenv("LEXICON_PATH")
 
 const (
-	LeaveFile = "leave_values_112719.idx.gz"
-
 	Epsilon = 1e-6
 )
 
@@ -57,7 +55,7 @@ func TestSimSingleIteration(t *testing.T) {
 	game.Init(gd, dist)
 
 	strategy := strategy.NewExhaustiveLeaveStrategy(game.Bag(), gd.LexiconName(),
-		gd.GetAlphabet(), LeaveFile)
+		gd.GetAlphabet(), os.Getenv("STRATEGY_PARAMS_PATH"))
 	generator := movegen.NewGordonGenerator(gd, game.Board(), dist)
 
 	// This will deal a random rack to players:
@@ -98,7 +96,7 @@ func TestLongerSim(t *testing.T) {
 	game.Init(gd, dist)
 
 	strategy := strategy.NewExhaustiveLeaveStrategy(game.Bag(), gd.LexiconName(),
-		gd.GetAlphabet(), LeaveFile)
+		gd.GetAlphabet(), "./data")
 	generator := movegen.NewGordonGenerator(gd, game.Board(), dist)
 	// This will start the game and deal a random rack to players:
 	game.StartGame()
