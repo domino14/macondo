@@ -96,7 +96,7 @@ func TestLongerSim(t *testing.T) {
 	game.Init(gd, dist)
 
 	strategy := strategy.NewExhaustiveLeaveStrategy(game.Bag(), gd.LexiconName(),
-		gd.GetAlphabet(), "./data")
+		gd.GetAlphabet(), os.Getenv("STRATEGY_PARAMS_PATH"))
 	generator := movegen.NewGordonGenerator(gd, game.Board(), dist)
 	// This will start the game and deal a random rack to players:
 	game.StartGame()
