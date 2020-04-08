@@ -18,6 +18,10 @@ import (
 	"github.com/domino14/macondo/move"
 )
 
+const (
+	LeaveFilename = "leaves.idx.gz"
+)
+
 // ExhaustiveLeaveStrategy should apply an equity calculation for all leaves
 // exhaustively.
 type ExhaustiveLeaveStrategy struct {
@@ -32,15 +36,15 @@ func float32FromBytes(bytes []byte) float32 {
 }
 
 func (els *ExhaustiveLeaveStrategy) Init(lexiconName string, alph *alphabet.Alphabet,
-	leavefile string) error {
+	strategyDir string) error {
 
-	file, err := os.Open(filepath.Join(DataDir, lexiconName, leavefile))
+	file, err := os.Open(filepath.Join(strategyDir, lexiconName, LeaveFilename))
 	if err != nil {
 		return err
 	}
 	defer file.Close()
 	var gz *gzip.Reader
-	if strings.HasSuffix(leavefile, ".gz") {
+	if strings.HasSuffix(LeaveFilename, ".gz") {
 		gz, err = gzip.NewReader(file)
 		defer gz.Close()
 	}
@@ -58,11 +62,11 @@ func (els *ExhaustiveLeaveStrategy) Init(lexiconName string, alph *alphabet.Alph
 }
 
 func NewExhaustiveLeaveStrategy(bag *alphabet.Bag, lexiconName string,
-	alph *alphabet.Alphabet, leaveFilename string) *ExhaustiveLeaveStrategy {
+	alph *alphabet.Alphabet, strategyDir string) *ExhaustiveLeaveStrategy {
 
 	strategy := &ExhaustiveLeaveStrategy{bag: bag}
 
-	err := strategy.Init(lexiconName, alph, leaveFilename)
+	err := strategy.Init(lexiconName, alph, strategyDir)
 	if err != nil {
 		log.Error().Err(err).Msg("initializing strategy")
 		return nil

@@ -3,6 +3,7 @@ package automatic
 // Data collection for automatic game. Allow computer vs computer games, etc.
 
 import (
+	"context"
 	"errors"
 	"expvar"
 	"os"
@@ -44,7 +45,7 @@ func (r *GameRunner) playFullStatic() {
 
 type Job struct{}
 
-func StartCompVCompStaticGames(gd *gaddag.SimpleGaddag, numGames int, threads int,
+func StartCompVCompStaticGames(ctx context.Context, gd *gaddag.SimpleGaddag, numGames int, threads int,
 	outputFilename string) error {
 
 	if IsPlaying.Value() > 0 {
@@ -82,6 +83,15 @@ func StartCompVCompStaticGames(gd *gaddag.SimpleGaddag, numGames int, threads in
 			jobs <- Job{}
 			if i%1000 == 0 {
 				log.Printf("Queued %v jobs", i)
+			}
+			select {
+			case <-ctx.Done():
+				// exit early
+				log.Info().Msg("Got stop signal, exiting soon...")
+				break
+			default:
+				// do nothing
+
 			}
 		}
 		close(jobs)

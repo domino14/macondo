@@ -6,13 +6,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"runtime/pprof"
 	"syscall"
 	"time"
 
 	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/automatic"
+	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/rpc/autoplayer"
 	"github.com/domino14/macondo/shell"
 )
@@ -24,16 +24,9 @@ const (
 var profilePath = flag.String("profilepath", "", "path for profile")
 
 func main() {
-	flag.Parse()
-
-	if *profilePath != "" {
-		f, err := os.Create(*profilePath)
-		if err != nil {
-			log.Fatal().Err(err).Msg("")
-		}
-		pprof.StartCPUProfile(f)
-		defer pprof.StopCPUProfile()
-	}
+	cfg := &config.Config{}
+	cfg.Load(os.Args[1:])
+	log.Debug().Msgf("Loaded config: %v", cfg)
 	autoplayerServer := &automatic.Server{}
 	handler := autoplayer.NewAutoPlayerServer(autoplayerServer, nil)
 
@@ -56,7 +49,7 @@ func main() {
 		close(idleConnsClosed)
 	}()
 
-	sc := shell.NewShellController()
+	sc := shell.NewShellController(cfg)
 	go sc.Loop(sig)
 
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

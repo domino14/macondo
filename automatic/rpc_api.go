@@ -23,7 +23,7 @@ func (s *Server) Play(ctx context.Context, args *pb.PlayRequest) (*pb.PlayRespon
 		return nil, errors.New("GADDAG did not seem to exist")
 	}
 
-	err := StartCompVCompStaticGames(gd, int(args.NumGames), int(args.NumCores),
+	err := StartCompVCompStaticGames(ctx, gd, int(args.NumGames), int(args.NumCores),
 		args.OutputFile)
 	if err != nil {
 		return nil, err

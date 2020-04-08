@@ -14,6 +14,7 @@ commands:
       id (1 or 0) - turn on or off iterative deepening (on by default)
       simple (1 or 0) - use simple eval func (faster but less accurate, off by default)
       disablePruning (1 or 0) - disable alpha/beta pruning (should only use for debugging purposes)
+    autoplay [options] - start comp v comp autoplay
     mode [modename] - macondo can be in a number of a different modes. The default
       mode is 'standard'. In other modes, other commands are accepted. See
       `help mode` for a list of modes.
