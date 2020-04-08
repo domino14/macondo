@@ -17,7 +17,9 @@ import (
 	"github.com/domino14/macondo/move"
 )
 
-var DataDir = os.Getenv("DATA_DIR")
+const (
+	SynergyFile = "synergies.csv"
+)
 
 // SynergyAndEV encapsulates synergy, and, well, EV.
 type SynergyAndEV struct {
@@ -41,9 +43,9 @@ type SimpleSynergyStrategy struct {
 // Init initializes the strategizer, by doing things such as loading parameters
 // from disk.
 func (sss *SimpleSynergyStrategy) Init(lexiconName string, alph *alphabet.Alphabet,
-	leavefile string) error {
+	strategyDir string) error {
 	leaveMap := map[string]SynergyAndEV{}
-	file, err := os.Open(filepath.Join(DataDir, lexiconName, leavefile))
+	file, err := os.Open(filepath.Join(strategyDir, lexiconName, SynergyFile))
 	if err != nil {
 		return err
 	}
@@ -84,11 +86,11 @@ func (sss *SimpleSynergyStrategy) Init(lexiconName string, alph *alphabet.Alphab
 }
 
 func NewSimpleSynergyStrategy(bag *alphabet.Bag, lexiconName string,
-	alph *alphabet.Alphabet, leaveFilename string) *SimpleSynergyStrategy {
+	alph *alphabet.Alphabet, strategyDir string) *SimpleSynergyStrategy {
 	strategy := &SimpleSynergyStrategy{
 		bag: bag,
 	}
-	err := strategy.Init(lexiconName, alph, leaveFilename)
+	err := strategy.Init(lexiconName, alph, strategyDir)
 	if err != nil {
 		log.Printf("[ERROR] Initializing strategy: %v", err)
 		return nil

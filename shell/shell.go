@@ -8,39 +8,37 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
-	"github.com/domino14/macondo/ai/player"
-	"github.com/domino14/macondo/board"
-	"github.com/domino14/macondo/gaddag"
-	"github.com/domino14/macondo/montecarlo"
-
 	"github.com/chzyer/readline"
 	"github.com/rs/zerolog/log"
 
+	"github.com/domino14/macondo/ai/player"
 	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/automatic"
+	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/endgame/alphabeta"
+	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gcgio"
 	"github.com/domino14/macondo/mechanics"
+	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/strategy"
 )
 
-var LexiconPath = os.Getenv("LEXICON_PATH")
-
 const (
-	DefaultLexicon = "NWL18"
-	LeaveFile      = "leave_values_112719.idx.gz"
-
 	SimLog = "/tmp/simlog"
 )
 
 type ShellController struct {
-	l *readline.Instance
+	l      *readline.Instance
+	config *config.Config
 
 	curGameState *mechanics.XWordGame
 	curGameRepr  *mechanics.GameRepr
@@ -52,6 +50,11 @@ type ShellController struct {
 	simTicker     *time.Ticker
 	simTickerDone chan bool
 	simLogFile    *os.File
+
+	gameRunnerCtx     context.Context
+	gameRunnerCancel  context.CancelFunc
+	gameRunnerRunning bool
+	gameRunnerTicker  *time.Ticker
 
 	curTurnNum     int
 	gen            movegen.MoveGenerator
@@ -83,7 +86,7 @@ func showMessage(msg string, w io.Writer) {
 	io.WriteString(w, "\n")
 }
 
-func NewShellController() *ShellController {
+func NewShellController(cfg *config.Config) *ShellController {
 	l, err := readline.NewEx(&readline.Config{
 		Prompt:          "\033[31mmacondo>\033[0m ",
 		HistoryFile:     "/tmp/readline.tmp",
@@ -97,13 +100,14 @@ func NewShellController() *ShellController {
 	if err != nil {
 		panic(err)
 	}
-	return &ShellController{l: l}
+	return &ShellController{l: l, config: cfg}
 }
 
 func (sc *ShellController) initGameDataStructures() {
 	strategy := strategy.NewExhaustiveLeaveStrategy(sc.curGameState.Bag(),
 		sc.curGameState.Gaddag().LexiconName(),
-		sc.curGameState.Gaddag().GetAlphabet(), LeaveFile)
+		sc.curGameState.Gaddag().GetAlphabet(),
+		sc.config.StrategyParamsPath)
 
 	sc.aiplayer = player.NewRawEquityPlayer(strategy)
 	sc.gen = movegen.NewGordonGenerator(sc.curGameState.Gaddag(),
@@ -149,7 +153,7 @@ func (sc *ShellController) loadGCG(filepath string) error {
 		}
 	}
 	log.Debug().Msgf("Loaded game repr; players: %v", sc.curGameRepr.Players)
-	sc.curGameState = mechanics.StateFromRepr(sc.curGameRepr, "NWL18", 0)
+	sc.curGameState = mechanics.StateFromRepr(sc.curGameRepr, sc.config, 0)
 
 	sc.initGameDataStructures()
 
@@ -375,15 +379,15 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 
 	switch {
 	case line == "new":
-		gdFilename := filepath.Join(LexiconPath, "gaddag", DefaultLexicon+".gaddag")
+		gdFilename := filepath.Join(sc.config.LexiconPath,
+			"gaddag", sc.config.DefaultLexicon+".gaddag")
 
 		gd, err := gaddag.LoadGaddag(gdFilename)
 		if err != nil {
 			sc.showError(err)
 			break
 		}
-		// XXX: Need to make this not default
-		dist := alphabet.EnglishLetterDistribution(gd.GetAlphabet())
+		dist := alphabet.NamedLetterDistribution(sc.config.DefaultLetterDistribution, gd.GetAlphabet())
 		sc.curGameState = &mechanics.XWordGame{}
 		sc.curGameState.Init(gd, dist)
 		sc.initGameDataStructures()
@@ -451,7 +455,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 
 	case strings.HasPrefix(line, "setlex "):
 		lex := line[7:]
-		gdFilename := filepath.Join(LexiconPath, "gaddag", lex+".gaddag")
+		gdFilename := filepath.Join(
+			sc.config.LexiconPath, "gaddag", lex+".gaddag")
 		gd, err := gaddag.LoadGaddag(gdFilename)
 		if err != nil {
 			sc.showError(err)
@@ -480,6 +485,49 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		if sc.curGameState != nil {
 			sc.genMovesAndDisplay(numPlays)
 		}
+
+	case strings.HasPrefix(line, "autoplay"):
+		var logfile string
+		if strings.TrimSpace(line) == "autoplay" {
+			logfile = "/tmp/autoplay.txt"
+		} else {
+			fields := strings.Split(line, " ")
+			if len(fields) == 1 {
+				sc.showError(errors.New("wrong format for `autoplay` command"))
+				break
+			}
+			if fields[1] == "stop" {
+				if !sc.gameRunnerRunning {
+					sc.showError(errors.New("automatic game runner is not running"))
+					break
+				} else {
+					sc.gameRunnerCancel()
+					sc.gameRunnerRunning = false
+					break
+				}
+			} else {
+				// It's a filename
+				logfile = fields[1]
+			}
+		}
+		if sc.gameRunnerRunning {
+			sc.showError(errors.New("please stop automatic game runner before running another one"))
+			break
+		}
+		// XXX Refactor this
+
+		gdFilename := filepath.Join(sc.config.LexiconPath, "gaddag", sc.config.DefaultLexicon+".gaddag")
+
+		gd, err := gaddag.LoadGaddag(gdFilename)
+		if err != nil {
+			sc.showError(err)
+			break
+		}
+		sc.showMessage("automatic game runner will log to " + logfile)
+		sc.gameRunnerCtx, sc.gameRunnerCancel = context.WithCancel(context.Background())
+		automatic.StartCompVCompStaticGames(sc.gameRunnerCtx, sc.config, gd, 1e9, runtime.NumCPU(), logfile)
+		sc.gameRunnerRunning = true
+		sc.showMessage("Started automatic game runner...")
 
 	case strings.HasPrefix(line, "sim"):
 		var plies, threads int

@@ -10,6 +10,7 @@ import (
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/gcgio"
@@ -17,13 +18,18 @@ import (
 	"github.com/domino14/macondo/movegen"
 )
 
-var LexiconDir = os.Getenv("LEXICON_PATH")
+var DefaultConfig = config.Config{
+	StrategyParamsPath:        os.Getenv("STRATEGY_PARAMS_PATH"),
+	LexiconPath:               os.Getenv("LEXICON_PATH"),
+	DefaultLexicon:            "NWL18",
+	DefaultLetterDistribution: "English",
+}
 
 func TestMain(m *testing.M) {
 	for _, lex := range []string{"America", "NWL18", "pseudo_twl1979", "CSW19"} {
-		gdgPath := filepath.Join(LexiconDir, "gaddag", lex+".gaddag")
+		gdgPath := filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag")
 		if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
-			gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, lex+".txt"), true, true)
+			gaddagmaker.GenerateGaddag(filepath.Join(DefaultConfig.LexiconPath, lex+".txt"), true, true)
 			err = os.Rename("out.gaddag", gdgPath)
 			if err != nil {
 				panic(err)
@@ -34,7 +40,7 @@ func TestMain(m *testing.M) {
 }
 
 func GaddagFromLexicon(lex string) (*gaddag.SimpleGaddag, error) {
-	return gaddag.LoadGaddag(filepath.Join(LexiconDir, "gaddag", lex+".gaddag"))
+	return gaddag.LoadGaddag(filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag"))
 }
 
 func setUpSolver(lex string, bvs board.VsWho, plies int, rack1, rack2 string,
@@ -660,7 +666,7 @@ func TestProperIterativeDeepening(t *testing.T) {
 
 		curGameRepr, err := gcgio.ParseGCG("../../gcgio/testdata/noah_vs_mishu.gcg")
 		is.NoErr(err)
-		game := mechanics.StateFromRepr(curGameRepr, "NWL18", 0)
+		game := mechanics.StateFromRepr(curGameRepr, &DefaultConfig, 0)
 		game.SetStateStackLength(plies)
 
 		err = game.PlayGameToTurn(curGameRepr, 28)
@@ -699,7 +705,9 @@ func TestFromGCG(t *testing.T) {
 
 	curGameRepr, err := gcgio.ParseGCG("../../gcgio/testdata/vs_frentz.gcg")
 	is.NoErr(err)
-	game := mechanics.StateFromRepr(curGameRepr, "CSW19", 0)
+	newConfig := DefaultConfig
+	newConfig.DefaultLexicon = "CSW19"
+	game := mechanics.StateFromRepr(curGameRepr, &newConfig, 0)
 	game.SetStateStackLength(plies)
 	err = game.PlayGameToTurn(curGameRepr, 21)
 	is.NoErr(err)

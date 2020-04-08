@@ -27,7 +27,7 @@ func TestCreateLeaveMap(t *testing.T) {
 	gd, _ := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
 
 	sss := SimpleSynergyStrategy{}
-	err := sss.Init("NWL18", gd.GetAlphabet(), "leave_values_010919_v4.csv")
+	err := sss.Init("NWL18", gd.GetAlphabet(), os.Getenv("STRATEGY_PARAMS_PATH"))
 	assert.Nil(t, err)
 
 	type testcase struct {
@@ -37,9 +37,9 @@ func TestCreateLeaveMap(t *testing.T) {
 	}
 
 	for _, tc := range []testcase{
-		{"Q", 0, -4.049634765297462},
-		{"FO", 0.6130525209743425, -1.9677355130602692},
-		{"??", -9.455016582289886, 22.01544689734004},
+		{"Q", 0, -3.851598152839678},
+		{"FO", 0.5903362902528926, -2.0042880231909947},
+		{"??", 2.1299333487373246, 36.72988086895313},
 	} {
 		leave, _ := alphabet.ToMachineOnlyString(tc.leave, gd.GetAlphabet())
 		assert.Equal(t, SynergyAndEV{
@@ -54,7 +54,7 @@ func TestSimpleSynergyLookup(t *testing.T) {
 	gd, _ := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
 
 	sss := SimpleSynergyStrategy{}
-	sss.Init("NWL18", gd.GetAlphabet(), "leave_values_010919_v4.csv")
+	sss.Init("NWL18", gd.GetAlphabet(), os.Getenv("STRATEGY_PARAMS_PATH"))
 
 	type testcase struct {
 		leave string
@@ -63,10 +63,10 @@ func TestSimpleSynergyLookup(t *testing.T) {
 
 	for _, tc := range []testcase{
 		{"", 0},
-		{"Q", -4.049634765297462},
-		{"RE", 4.790123765017576},
-		{"ENARS", 15.304076461857065},
-		{"AATA", -12.145087426808537},
+		{"Q", -3.851598152839678},
+		{"RE", 4.753307163163512},
+		{"ENARS", 16.266798445483687},
+		{"AATA", -12.25123534684355},
 	} {
 		leave, _ := alphabet.ToMachineWord(tc.leave, gd.GetAlphabet())
 		assert.Equal(t, tc.ev, sss.LeaveValue(leave))
@@ -109,7 +109,7 @@ func TestShouldExchange(t *testing.T) {
 	gd, _ := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
 
 	sss := SimpleSynergyStrategy{}
-	sss.Init("NWL18", gd.GetAlphabet(), "leave_values_010919_v4.csv")
+	sss.Init("NWL18", gd.GetAlphabet(), os.Getenv("STRATEGY_PARAMS_PATH"))
 
 	//	rack := "COTTTV?"
 	// leave1 assumes we exchange TTV

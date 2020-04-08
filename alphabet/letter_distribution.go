@@ -1,5 +1,7 @@
 package alphabet
 
+import "strings"
+
 // LetterDistribution encodes the tile distribution for the relevant game.
 type LetterDistribution struct {
 	alph             *Alphabet
@@ -67,6 +69,20 @@ func PolishLetterDistribution(alph *Alphabet) *LetterDistribution {
 	return newLetterDistribution(alph, dist, ptValues,
 		makeSortMap("AĄBCĆDEĘFGHIJKLŁMNŃOÓPRSŚTUWYZŹŻ?"),
 		[]rune{'A', 'Ą', 'E', 'Ę', 'I', 'O', 'Ó', 'U', 'Y'})
+}
+
+func NamedLetterDistribution(name string, alph *Alphabet) *LetterDistribution {
+	name = strings.ToLower(name)
+	switch name {
+	case "english":
+		return EnglishLetterDistribution(alph)
+	case "spanish":
+		return SpanishLetterDistribution(alph)
+	case "polish":
+		return PolishLetterDistribution(alph)
+	default:
+		return nil
+	}
 }
 
 func newLetterDistribution(alph *Alphabet, dist map[rune]uint8,

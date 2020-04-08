@@ -10,11 +10,12 @@ import (
 	"fmt"
 	math_rand "math/rand"
 
+	"github.com/lithammer/shortuuid/v3"
+
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/move"
-	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 )
 
@@ -95,7 +96,7 @@ type XWordGame struct {
 	scorelessTurns     int
 	numPossibleLetters int
 	players            players
-	uuid               uuid.UUID
+	uuid               string
 
 	stateStack []*stateBackup
 	stackPtr   int
@@ -153,7 +154,7 @@ func (g *XWordGame) SetGaddag(gd *gaddag.SimpleGaddag) {
 
 // StartGame resets everything and deals out the first set of tiles.
 func (g *XWordGame) StartGame() {
-	g.uuid = uuid.New()
+	g.uuid = shortuuid.New()
 	// reset movegen outside of this function.
 
 	for i := 0; i < len(g.players); i++ {
@@ -448,7 +449,7 @@ func (g *XWordGame) Score() string {
 	return score
 }
 
-func (g *XWordGame) Uuid() uuid.UUID {
+func (g *XWordGame) Uuid() string {
 	return g.uuid
 }
 

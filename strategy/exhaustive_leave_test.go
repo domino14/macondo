@@ -1,6 +1,7 @@
 package strategy
 
 import (
+	"os"
 	"testing"
 
 	"github.com/domino14/macondo/alphabet"
@@ -11,7 +12,7 @@ func TestLeaveMPH(t *testing.T) {
 	t.Skip()
 	els := ExhaustiveLeaveStrategy{}
 	alph := alphabet.EnglishAlphabet()
-	err := els.Init("NWL18", alph, "leave_values_112719.idx.gz")
+	err := els.Init("NWL18", alph, os.Getenv("STRATEGY_PARAMS_PATH"))
 	assert.Nil(t, err)
 
 	type testcase struct {

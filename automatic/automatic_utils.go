@@ -3,6 +3,7 @@ package automatic
 // Data collection for automatic game. Allow computer vs computer games, etc.
 
 import (
+	"context"
 	"errors"
 	"expvar"
 	"os"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddag"
 )
 
@@ -44,8 +46,8 @@ func (r *GameRunner) playFullStatic() {
 
 type Job struct{}
 
-func StartCompVCompStaticGames(gd *gaddag.SimpleGaddag, numGames int, threads int,
-	outputFilename string) error {
+func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
+	gd *gaddag.SimpleGaddag, numGames int, threads int, outputFilename string) error {
 
 	if IsPlaying.Value() > 0 {
 		return errors.New("games are already being played, please wait till complete")
@@ -66,7 +68,7 @@ func StartCompVCompStaticGames(gd *gaddag.SimpleGaddag, numGames int, threads in
 	for i := 1; i <= threads; i++ {
 		go func(i int) {
 			defer wg.Done()
-			r := GameRunner{logchan: logChan}
+			r := GameRunner{logchan: logChan, config: cfg}
 			r.Init(gd)
 			IsPlaying.Add(1)
 			for range jobs {
@@ -78,12 +80,23 @@ func StartCompVCompStaticGames(gd *gaddag.SimpleGaddag, numGames int, threads in
 	}
 
 	go func() {
+	gameLoop:
 		for i := 1; i < numGames+1; i++ {
 			jobs <- Job{}
 			if i%1000 == 0 {
 				log.Printf("Queued %v jobs", i)
 			}
+			select {
+			case <-ctx.Done():
+				// exit early
+				log.Info().Msg("Got stop signal, exiting soon...")
+				break gameLoop
+			default:
+				// do nothing
+
+			}
 		}
+
 		close(jobs)
 		log.Info().Msg("Finished queueing all jobs.")
 		wg.Wait()

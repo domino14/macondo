@@ -2,22 +2,15 @@ package mechanics
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/move"
 	"github.com/rs/zerolog/log"
-)
-
-var LexiconPath = os.Getenv("LEXICON_PATH")
-
-// XXX: Make a config class that contains all these values.
-const (
-	LeaveFile = "leave_values_112719.idx.gz"
 )
 
 // A GameRepr is a user- and machine-friendly representation of a full
@@ -37,24 +30,30 @@ type GameRepr struct {
 // outputs a full XWordGame state at that turn number. turnnum can be
 // equal to any number from 0 to the full number of turns.
 // Turns start at 0 for the purposes of this API.
-func StateFromRepr(repr *GameRepr, defaultLexicon string, turnnum int) *XWordGame {
+// XXX: Refactor this whole thing. State should be a simple game position.
+// GameRepr should really be more of the main struct, and renamed to
+// something like XWordGame. It should store history. It should have a
+// simple save function to serialize to GCG, and should load itself
+// from a GCG.
+func StateFromRepr(repr *GameRepr, cfg *config.Config, turnnum int) *XWordGame {
 	game := &XWordGame{}
 
-	gdFilename := filepath.Join(LexiconPath, "gaddag", repr.Lexicon+".gaddag")
+	gdFilename := filepath.Join(cfg.LexiconPath, "gaddag", repr.Lexicon+".gaddag")
 
 	gd, err := gaddag.LoadGaddag(gdFilename)
 	if err != nil {
 		log.Warn().Msgf("The loaded file contained no lexicon information. "+
-			"Defaulting to %v (use loadlex to override)", defaultLexicon)
-		gd, err = gaddag.LoadGaddag(filepath.Join(LexiconPath, "gaddag",
-			defaultLexicon+".gaddag"))
+			"Defaulting to %v (use loadlex to override)", cfg.DefaultLexicon)
+		gd, err = gaddag.LoadGaddag(filepath.Join(cfg.LexiconPath, "gaddag",
+			cfg.DefaultLexicon+".gaddag"))
 		if err != nil {
 			log.Fatal().Msgf("Could not load default lexicon; please be sure " +
 				"the LEXICON_PATH environment variable is correct.")
 		}
 	}
-	// XXX: Later make this lexicon-dependent.
-	dist := alphabet.EnglishLetterDistribution(gd.GetAlphabet())
+	// XXX: GCG should also contain letter distribution info; i.e. what
+	// type of board it's an annotation for.
+	dist := alphabet.NamedLetterDistribution(cfg.DefaultLetterDistribution, gd.GetAlphabet())
 	game.Init(gd, dist)
 	for idx := range repr.Players {
 		game.players[idx].info = repr.Players[idx]
