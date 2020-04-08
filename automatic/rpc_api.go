@@ -7,13 +7,14 @@ import (
 	"os"
 	"path"
 
+	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddag"
 	pb "github.com/domino14/macondo/rpc/autoplayer"
 )
 
 var LexiconPath = os.Getenv("LEXICON_PATH")
 
-type Server struct{}
+type Server struct{ Config *config.Config }
 
 func (s *Server) Play(ctx context.Context, args *pb.PlayRequest) (*pb.PlayResponse, error) {
 	log.Println("Got args", args)
@@ -23,7 +24,7 @@ func (s *Server) Play(ctx context.Context, args *pb.PlayRequest) (*pb.PlayRespon
 		return nil, errors.New("GADDAG did not seem to exist")
 	}
 
-	err := StartCompVCompStaticGames(ctx, gd, int(args.NumGames), int(args.NumCores),
+	err := StartCompVCompStaticGames(ctx, s.Config, gd, int(args.NumGames), int(args.NumCores),
 		args.OutputFile)
 	if err != nil {
 		return nil, err

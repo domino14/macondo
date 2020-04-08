@@ -27,7 +27,7 @@ func main() {
 	cfg := &config.Config{}
 	cfg.Load(os.Args[1:])
 	log.Debug().Msgf("Loaded config: %v", cfg)
-	autoplayerServer := &automatic.Server{}
+	autoplayerServer := &automatic.Server{Config: cfg}
 	handler := autoplayer.NewAutoPlayerServer(autoplayerServer, nil)
 
 	srv := &http.Server{Addr: ":8088", Handler: handler}

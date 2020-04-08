@@ -11,6 +11,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddag"
 )
 
@@ -45,8 +46,8 @@ func (r *GameRunner) playFullStatic() {
 
 type Job struct{}
 
-func StartCompVCompStaticGames(ctx context.Context, gd *gaddag.SimpleGaddag, numGames int, threads int,
-	outputFilename string) error {
+func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
+	gd *gaddag.SimpleGaddag, numGames int, threads int, outputFilename string) error {
 
 	if IsPlaying.Value() > 0 {
 		return errors.New("games are already being played, please wait till complete")
@@ -67,7 +68,7 @@ func StartCompVCompStaticGames(ctx context.Context, gd *gaddag.SimpleGaddag, num
 	for i := 1; i <= threads; i++ {
 		go func(i int) {
 			defer wg.Done()
-			r := GameRunner{logchan: logChan}
+			r := GameRunner{logchan: logChan, config: cfg}
 			r.Init(gd)
 			IsPlaying.Add(1)
 			for range jobs {

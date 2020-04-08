@@ -523,7 +523,7 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		}
 		sc.showMessage("automatic game runner will log to " + logfile)
 		sc.gameRunnerCtx, sc.gameRunnerCancel = context.WithCancel(context.Background())
-		automatic.StartCompVCompStaticGames(sc.gameRunnerCtx, gd, 1e9, runtime.NumCPU(), logfile)
+		automatic.StartCompVCompStaticGames(sc.gameRunnerCtx, sc.config, gd, 1e9, runtime.NumCPU(), logfile)
 		sc.showMessage("Started automatic game runner...")
 
 	case strings.HasPrefix(line, "sim"):

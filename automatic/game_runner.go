@@ -8,6 +8,7 @@ import (
 
 	"github.com/domino14/macondo/ai/player"
 	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/endgame"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/mechanics"
@@ -16,14 +17,12 @@ import (
 	"github.com/domino14/macondo/strategy"
 )
 
-const (
-	LeaveFile = "leave_values_112719.idx.gz"
-)
-
 // GameRunner is the master struct here for the automatic game logic.
 type GameRunner struct {
-	game          *mechanics.XWordGame
-	movegen       *movegen.GordonGenerator
+	game    *mechanics.XWordGame
+	movegen movegen.MoveGenerator
+
+	config        *config.Config
 	logchan       chan string
 	gamechan      chan string
 	endgameSolver *endgame.Solver
@@ -37,7 +36,7 @@ func (r *GameRunner) Init(gd *gaddag.SimpleGaddag) {
 	ld := alphabet.EnglishLetterDistribution(gd.GetAlphabet())
 	r.game.Init(gd, ld)
 	strategy := strategy.NewExhaustiveLeaveStrategy(r.game.Bag(), gd.LexiconName(),
-		gd.GetAlphabet(), LeaveFile)
+		gd.GetAlphabet(), r.config.StrategyParamsPath)
 	r.movegen = movegen.NewGordonGenerator(gd, r.game.Board(), ld)
 	r.aiplayers[0] = player.NewRawEquityPlayer(strategy)
 	r.aiplayers[1] = player.NewRawEquityPlayer(strategy)
