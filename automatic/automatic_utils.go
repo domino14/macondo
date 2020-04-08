@@ -80,6 +80,7 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	}
 
 	go func() {
+	gameLoop:
 		for i := 1; i < numGames+1; i++ {
 			jobs <- Job{}
 			if i%1000 == 0 {
@@ -89,12 +90,13 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 			case <-ctx.Done():
 				// exit early
 				log.Info().Msg("Got stop signal, exiting soon...")
-				break
+				break gameLoop
 			default:
 				// do nothing
 
 			}
 		}
+
 		close(jobs)
 		log.Info().Msg("Finished queueing all jobs.")
 		wg.Wait()
