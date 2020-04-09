@@ -8,13 +8,13 @@ But for now, it is in **pre-alpha**, so download and use at your own risk. It do
 
 Quick tutorial video: [https://youtu.be/07Dpa-oTTFY](https://youtu.be/07Dpa-oTTFY)
 
-[The Macondo team](/team.html)
+[The Macondo team](/macondo/team.html)
 
-[Change Log](/changelog.html)
+[Change Log](/macondo/changelog.html)
 
-[How it works](/howitworks.html)
+[How it works](/macondo/howitworks.html)
 
-[Why the name Macondo?](/name.html)
+[Why the name Macondo?](/macondo/name.html)
 
 ## How to install
 
