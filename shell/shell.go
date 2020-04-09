@@ -196,6 +196,13 @@ func exchangeAllowed(board *board.GameBoard, ld *alphabet.LetterDistribution) bo
 	return true
 }
 
+func (sc *ShellController) printEndgameSequence(moves []*move.Move) {
+	sc.showMessage("Best sequence:")
+	for idx, move := range moves {
+		sc.showMessage(fmt.Sprintf("%d) %v", idx+1, move.ShortDescription()))
+	}
+}
+
 func (sc *ShellController) genMovesAndDisplay(numPlays int) {
 
 	alph := sc.curGameState.Alphabet()
@@ -310,6 +317,9 @@ func (sc *ShellController) modeSelector(line string) {
 func (sc *ShellController) addRack(rack string) error {
 	// Set current player on turn's rack.
 	playerid := sc.curTurnNum % 2
+	if sc.curGameState == nil {
+		return errors.New("please start a game first")
+	}
 	return sc.curGameState.SetRackFor(playerid, alphabet.RackFromString(rack, sc.curGameState.Alphabet()))
 }
 
@@ -333,29 +343,55 @@ func (sc *ShellController) addPlay(line string) error {
 		return errors.New("unexpected turn number")
 	}
 
-	if len(cmd) == 2 && strings.HasPrefix(cmd[1], "#") {
-		// Add play that was generated.
-		playID, err := strconv.Atoi(cmd[1][1:])
-		if err != nil {
-			return err
+	if len(cmd) == 2 {
+		if strings.HasPrefix(cmd[1], "#") {
+			// Add play that was generated.
+			playID, err := strconv.Atoi(cmd[1][1:])
+			if err != nil {
+				return err
+			}
+
+			idx := playID - 1 // since playID starts from 1
+			if idx < 0 || idx > len(sc.curGenPlays)-1 {
+				return errors.New("play outside range")
+			}
+			m = sc.curGenPlays[idx]
+			cumul = sc.curGameState.PointsFor(playerid) + m.Score()
+		} else if cmd[1] == "pass" {
+			rack := sc.curGameState.RackFor(playerid)
+			m = move.NewPassMove(rack.TilesOn(), sc.curGameState.Alphabet())
+			cumul = sc.curGameState.PointsFor(playerid)
+		} else {
+			return errors.New("unrecognized arguments to `add`")
 		}
 
-		idx := playID - 1 // since playID starts from 1
-		if idx < 0 || idx > len(sc.curGenPlays)-1 {
-			return errors.New("play outside range")
-		}
-		m = sc.curGenPlays[idx]
-		cumul = sc.curGameState.PointsFor(playerid) + m.Score()
 	} else if len(cmd) == 3 {
 		coords := cmd[1]
 		word := cmd[2]
 
-		rack := sc.curGameState.RackFor(playerid).String()
-		m, err = sc.curGameState.CreateAndScorePlacementMove(coords, word, rack)
-		if err != nil {
-			return err
+		if coords == "exchange" {
+
+			rack := sc.curGameState.RackFor(playerid)
+			tiles, err := alphabet.ToMachineWord(word, sc.curGameState.Alphabet())
+			if err != nil {
+				return err
+			}
+			leaveMW, err := mechanics.Leave(rack.TilesOn(), tiles)
+			if err != nil {
+				return err
+			}
+
+			m = move.NewExchangeMove(tiles, leaveMW, sc.curGameState.Alphabet())
+			cumul = sc.curGameState.PointsFor(playerid)
+		} else {
+
+			rack := sc.curGameState.RackFor(playerid).String()
+			m, err = sc.curGameState.CreateAndScorePlacementMove(coords, word, rack)
+			if err != nil {
+				return err
+			}
 		}
-		// Handle exchange/pass later.
+
 	} else {
 		return errors.New("unrecognized arguments to `add`")
 	}
@@ -582,13 +618,15 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 						break
 					}
 				}
-				// The second number is the number of sim threads
-				threads, err = strconv.Atoi(fc[2])
-				if err != nil {
-					sc.showError(err)
-					break
+				if len(fc) == 3 {
+					// The second number is the number of sim threads
+					threads, err = strconv.Atoi(fc[2])
+					if err != nil {
+						sc.showError(err)
+						break
+					}
+					sc.simmer.SetThreads(threads)
 				}
-				sc.simmer.SetThreads(threads)
 			}
 		}
 		if len(sc.curGenPlays) == 0 {
@@ -646,14 +684,21 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		// delete the tree.
 		sc.curEndgameNode = nil
 		sc.endgameSolver = new(alphabeta.Solver)
-		sc.endgameSolver.Init(sc.gen, sc.curGameState)
+		err = sc.endgameSolver.Init(sc.gen, sc.curGameState)
+		if err != nil {
+			sc.showError(err)
+			break
+		}
 		sc.endgameSolver.SetIterativeDeepening(deepening)
 		sc.endgameSolver.SetSimpleEvaluator(simpleEval)
 		sc.endgameSolver.SetPruningDisabled(disablePruning)
 
 		showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr), sc.l.Stderr())
 
-		sc.endgameSolver.Solve(plies)
+		val, seq := sc.endgameSolver.Solve(plies)
+
+		sc.showMessage(fmt.Sprintf("Best sequence has a spread difference of %v", val))
+		sc.printEndgameSequence(seq)
 
 	case line == "bye" || line == "exit":
 		sig <- syscall.SIGINT

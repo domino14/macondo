@@ -3,6 +3,7 @@ package config
 import "github.com/namsral/flag"
 
 type Config struct {
+	Debug                     bool
 	StrategyParamsPath        string
 	LexiconPath               string
 	DefaultLexicon            string
@@ -11,6 +12,7 @@ type Config struct {
 
 func (c *Config) Load(args []string) error {
 	fs := flag.NewFlagSet("macondo", flag.ContinueOnError)
+	fs.BoolVar(&c.Debug, "debug", false, "debug logging on")
 	fs.StringVar(&c.StrategyParamsPath, "strategy-params-path", "./data/strategy", "directory holding strategy files")
 	fs.StringVar(&c.LexiconPath, "lexicon-path", "./data/lexica", "directory holding lexicon files")
 	fs.StringVar(&c.DefaultLexicon, "default-lexicon", "NWL18", "the default lexicon to use")

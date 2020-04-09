@@ -1,6 +1,7 @@
 package mechanics
 
 import (
+	"bytes"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -195,11 +196,34 @@ func (g *XWordGame) reconcileTiles(repr *GameRepr, playedTiles []alphabet.Machin
 	return g.bag.RemoveTiles(rack)
 }
 
+func SplitSubN(s string, n int) []string {
+	sub := ""
+	subs := []string{}
+
+	runes := bytes.Runes([]byte(s))
+	l := len(runes)
+	for i, r := range runes {
+		sub = sub + string(r)
+		if (i+1)%n == 0 {
+			subs = append(subs, sub)
+			sub = ""
+		} else if (i + 1) == l {
+			subs = append(subs, sub)
+		}
+	}
+
+	return subs
+}
+
 func addText(lines []string, row int, hpad int, text string) {
-	str := lines[row]
-	str += strings.Repeat(" ", hpad)
-	str += text
-	lines[row] = str
+	maxTextSize := 42
+	sp := SplitSubN(text, maxTextSize)
+
+	for _, chunk := range sp {
+		str := lines[row] + strings.Repeat(" ", hpad) + chunk
+		lines[row] = str
+		row++
+	}
 }
 
 // ToDisplayText turns the current state of the game into a displayable
@@ -252,7 +276,7 @@ func (g *XWordGame) ToDisplayText(repr *GameRepr) string {
 		addText(bts, vpadding, hpadding, repr.Turns[g.turnnum-1].summary())
 	}
 
-	vpadding = 15
+	vpadding = 17
 
 	if !g.playing {
 		addText(bts, vpadding, hpadding, "Game is over.")
@@ -263,7 +287,7 @@ func (g *XWordGame) ToDisplayText(repr *GameRepr) string {
 }
 
 // Calculate the leave from the rack and the made play.
-func leave(rack alphabet.MachineWord, play alphabet.MachineWord) (alphabet.MachineWord, error) {
+func Leave(rack alphabet.MachineWord, play alphabet.MachineWord) (alphabet.MachineWord, error) {
 	rackmls := map[alphabet.MachineLetter]int{}
 	for _, t := range rack {
 		rackmls[t]++
@@ -317,7 +341,7 @@ func genMove(e Event, alph *alphabet.Alphabet) *move.Move {
 			return nil
 		}
 
-		leaveMW, err := leave(rack, tiles)
+		leaveMW, err := Leave(rack, tiles)
 		if err != nil {
 			log.Error().Err(err).Msg("")
 			return nil
@@ -335,7 +359,7 @@ func genMove(e Event, alph *alphabet.Alphabet) *move.Move {
 				log.Error().Err(err).Msg("")
 				return nil
 			}
-			leaveMW, err := leave(rack, tiles)
+			leaveMW, err := Leave(rack, tiles)
 			if err != nil {
 				log.Error().Err(err).Msg("")
 				return nil

@@ -1,21 +1,21 @@
 add [params] - Add a play to the current board, and commit it.
 
 Example:
-   add #3 
+   add #3
    add 3J FOO
    add K5 BAR.D
    add exchange ABC
+   add pass
 
 The first example, add #3, adds the play numbered "3" in the output of
-a "gen" command. 
+a "gen" command.
 
 The second and third example take in a set of coordinates and letters.
 If the number is first, the play is horizontal, otherwise, it is vertical,
 as in standard Crossword Game notation.
 
 When specifying a play that goes through a letter already on the board,
-you can specify either a period (.) for the letter, or the actual letter
-itself. Macondo accepts either format.
+you must specify a period (.) for the letter.
 
 The fourth example adds an exchange of three tiles. Specify the blank as ?.
 

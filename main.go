@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/automatic"
@@ -26,7 +27,14 @@ var profilePath = flag.String("profilepath", "", "path for profile")
 func main() {
 	cfg := &config.Config{}
 	cfg.Load(os.Args[1:])
-	log.Debug().Msgf("Loaded config: %v", cfg)
+	log.Info().Msgf("Loaded config: %v", cfg)
+
+	if cfg.Debug {
+		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	} else {
+		zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	}
+
 	autoplayerServer := &automatic.Server{Config: cfg}
 	handler := autoplayer.NewAutoPlayerServer(autoplayerServer, nil)
 
