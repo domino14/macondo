@@ -345,7 +345,7 @@ func (g *XWordGame) CreateAndScorePlacementMove(coords string, tiles string, rac
 			tilesPlayed++
 		}
 	}
-	leavemw, err := leave(rackmw, mw)
+	leavemw, err := Leave(rackmw, mw)
 	if err != nil {
 		return nil, err
 	}
@@ -549,7 +549,7 @@ func (g *XWordGame) AssignUndrawnLetters() error {
 	bag := g.Bag().Peek()
 
 	if len(bag) > 7 {
-		return fmt.Errorf("there are more than 7 tiles in the bag! (%v)", len(bag))
+		return fmt.Errorf("there are more than 7 unseen tiles! (%v)", len(bag))
 	}
 	rack := alphabet.NewRack(g.Alphabet())
 	rack.Set(bag)

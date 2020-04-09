@@ -93,19 +93,23 @@ func min(x, y float32) float32 {
 }
 
 // Init initializes the solver
-func (s *Solver) Init(movegen movegen.MoveGenerator, game *mechanics.XWordGame) {
+func (s *Solver) Init(movegen movegen.MoveGenerator, game *mechanics.XWordGame) error {
 	s.movegen = movegen
 	s.game = game
 	s.totalNodes = 0
 	s.iterativeDeepeningOn = true
 
 	if s.game != nil {
-		s.game.AssignUndrawnLetters()
+		err := s.game.AssignUndrawnLetters()
+		if err != nil {
+			return err
+		}
 	}
 	s.stmPlayed = make([]bool, alphabet.MaxAlphabetSize+1)
 	s.otsPlayed = make([]bool, alphabet.MaxAlphabetSize+1)
 	s.stmBlockingRects = make([]rect, 20)
 	s.otsBlockingRects = make([]rect, 25)
+	return nil
 }
 
 func (s *Solver) clearStuckTables() {
@@ -425,14 +429,15 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move) {
 			// 		s.rootNode.children[j].heuristicValue
 			// })
 			// s.clearChildrenValues(s.rootNode)
-			log.Debug().Msgf("Spread swing estimate found after %v plies: %v (seq %v)",
-				p, bestV, bestSeq)
+			log.Info().Msgf("Spread swing estimate found after %v plies: %v",
+				p, bestV)
+			log.Debug().Msgf("Best seq so far is %v", bestSeq)
 		}
 	} else {
 		bestNode = s.alphabeta(s.rootNode, plies, float32(-Infinity), float32(Infinity), true)
 		bestV = bestNode.heuristicValue.value
 	}
-	log.Debug().Msgf("Best spread found: %v", bestNode.heuristicValue.value)
+	log.Info().Msgf("Best spread found: %v", bestNode.heuristicValue.value)
 	// Go down tree and find best variation:
 	bestSeq := s.findBestSequence(bestNode)
 	log.Debug().Msgf("Number of expanded nodes: %v", s.totalNodes)
