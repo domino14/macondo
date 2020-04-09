@@ -18,7 +18,7 @@ Points + Spread Difference + Leftover Difference
 
 ### Example:
 
-Your opening rack is `AEINQST`. You score 22 for `8G QI`. Your opponent responds with `H8 (I)NTIFADA` for 98 pts. You drew `UU` to your beautiful leave of `AENST` so Macondo picks `(Q)UA` for 18 pts.
+Your opening rack is `AEINQST`. You score 22 for `8G QI`. Your opponent responds with `H8 (I)NTIFADA` for 98 pts. You drew `UU` to your beautiful leave of `AENST` so Macondo picks `(Q)UA` for 18 pts, keeping `ENSTU`, your "leftover" leave.
 
 The equity of this iteration is:
 
@@ -26,7 +26,7 @@ The equity of this iteration is:
 
     - Spread difference: 22 - 98 + 18 = -58
 
-    - Equity of ENSTU (12.6 at this time, but will change) **minus** Equity of blank leave (0) = 12.6
+    - Equity of ENSTU (12.6 at this time, but will change) **minus** Equity of empty leave (0) = 12.6
 
     = -23.4
 
