@@ -16,15 +16,24 @@ import (
 var LexiconDir = os.Getenv("LEXICON_PATH")
 
 func TestMain(m *testing.M) {
-	if _, err := os.Stat("/tmp/nwl18.gaddag"); os.IsNotExist(err) {
+	gdgPath := filepath.Join(LexiconDir, "gaddag", "NWL18.gaddag")
+	if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
 		gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "NWL18.txt"), true, true)
-		os.Rename("out.gaddag", "/tmp/nwl18.gaddag")
+		err = os.Rename("out.gaddag", gdgPath)
+		if err != nil {
+			panic(err)
+		}
 	}
+
 	os.Exit(m.Run())
 }
 
+func GaddagFromLexicon(lex string) (*gaddag.SimpleGaddag, error) {
+	return gaddag.LoadGaddag(filepath.Join(LexiconDir, "gaddag", lex+".gaddag"))
+}
+
 func TestCreateLeaveMap(t *testing.T) {
-	gd, _ := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
+	gd, _ := GaddagFromLexicon("NWL18")
 
 	sss := SimpleSynergyStrategy{}
 	err := sss.Init("NWL18", gd.GetAlphabet(), os.Getenv("STRATEGY_PARAMS_PATH"))

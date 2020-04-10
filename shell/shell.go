@@ -104,7 +104,7 @@ func NewShellController(cfg *config.Config) *ShellController {
 }
 
 func (sc *ShellController) initGameDataStructures() {
-	strategy := strategy.NewExhaustiveLeaveStrategy(sc.curGameState.Bag(),
+	strategy := strategy.NewExhaustiveLeaveStrategy(
 		sc.curGameState.Gaddag().LexiconName(),
 		sc.curGameState.Gaddag().GetAlphabet(),
 		sc.config.StrategyParamsPath)

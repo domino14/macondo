@@ -26,7 +26,6 @@ const (
 // exhaustively.
 type ExhaustiveLeaveStrategy struct {
 	leaveValues *mph.CHD
-	bag         *alphabet.Bag
 }
 
 func float32FromBytes(bytes []byte) float32 {
@@ -61,10 +60,10 @@ func (els *ExhaustiveLeaveStrategy) Init(lexiconName string, alph *alphabet.Alph
 	return nil
 }
 
-func NewExhaustiveLeaveStrategy(bag *alphabet.Bag, lexiconName string,
+func NewExhaustiveLeaveStrategy(lexiconName string,
 	alph *alphabet.Alphabet, strategyDir string) *ExhaustiveLeaveStrategy {
 
-	strategy := &ExhaustiveLeaveStrategy{bag: bag}
+	strategy := &ExhaustiveLeaveStrategy{}
 
 	err := strategy.Init(lexiconName, alph, strategyDir)
 	if err != nil {
@@ -76,6 +75,7 @@ func NewExhaustiveLeaveStrategy(bag *alphabet.Bag, lexiconName string,
 
 func (els ExhaustiveLeaveStrategy) Equity(play *move.Move, board *board.GameBoard,
 	bag *alphabet.Bag, oppRack *alphabet.Rack) float64 {
+
 	leave := play.Leave()
 	score := play.Score()
 
@@ -88,7 +88,7 @@ func (els ExhaustiveLeaveStrategy) Equity(play *move.Move, board *board.GameBoar
 		otherAdjustments += placementAdjustment(play)
 	}
 	if bag.TilesRemaining() == 0 {
-		otherAdjustments += endgameAdjustment(play, oppRack, els.bag.LetterDistribution())
+		otherAdjustments += endgameAdjustment(play, oppRack, bag.LetterDistribution())
 	} else {
 		// the leave doesn't matter if the bag is empty
 		leaveAdjustment = els.LeaveValue(leave)

@@ -425,6 +425,28 @@ whatnoloan: Turn 15
 15|K N A P       O R E A D   T =|
    ------------------------------
 `
+
+	MavenVsMacondo = `
+maven: Turn 23
+   A B C D E F G H I J K L M N O      player1               EO      448
+   ------------------------------  -> player2               AEEORS? 278
+ 1|D   V ' B E Z I Q u E '     W| --Tracking-----------------------------------
+ 2|J U I C E R       " L O U I E| EO  2
+ 3|I   V   G '     F A   H M   A|
+ 4|N   A H       ' E L   -   U N|
+ 5|S     U -         O P     R E|
+ 6|  "   E D "       F A     I D|
+ 7|    '   R   M I L T Y   ' N  |
+ 8|=     B I G O T     O C T A D|
+ 9|    T   N A '   '   R   ' R  |
+10|  " O   K I       "       Y  |
+11|    W O S T         -        |
+12|'   N -   S P A E I N G     '|
+13|    L       ' A X       -    |
+14|  - E     "       "       -  |
+15|=   T '       =       '     =|
+   ------------------------------
+`
 )
 
 // SetToGame sets the board to a specific game in progress. It is used to

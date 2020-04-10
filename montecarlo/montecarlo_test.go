@@ -54,7 +54,7 @@ func TestSimSingleIteration(t *testing.T) {
 	game := &mechanics.XWordGame{}
 	game.Init(gd, dist)
 
-	strategy := strategy.NewExhaustiveLeaveStrategy(game.Bag(), gd.LexiconName(),
+	strategy := strategy.NewExhaustiveLeaveStrategy(gd.LexiconName(),
 		gd.GetAlphabet(), os.Getenv("STRATEGY_PARAMS_PATH"))
 	generator := movegen.NewGordonGenerator(gd, game.Board(), dist)
 
@@ -95,7 +95,7 @@ func TestLongerSim(t *testing.T) {
 	game := &mechanics.XWordGame{}
 	game.Init(gd, dist)
 
-	strategy := strategy.NewExhaustiveLeaveStrategy(game.Bag(), gd.LexiconName(),
+	strategy := strategy.NewExhaustiveLeaveStrategy(gd.LexiconName(),
 		gd.GetAlphabet(), os.Getenv("STRATEGY_PARAMS_PATH"))
 	generator := movegen.NewGordonGenerator(gd, game.Board(), dist)
 	// This will start the game and deal a random rack to players:

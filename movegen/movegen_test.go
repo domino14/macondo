@@ -311,6 +311,25 @@ func TestGenAllMovesFullRackAgain(t *testing.T) {
 	assert.Equal(t, 63, len(nonScoringPlays(generator.plays)))
 }
 
+// func TestGenMoveWithOverlaps(t *testing.T) {
+// 	gd, err := GaddagFromLexicon("America")
+// 	if err != nil {
+// 		t.Errorf("Expected error to be nil, got %v", err)
+// 	}
+// 	alph := gd.GetAlphabet()
+
+// 	bd := board.MakeBoard(board.CrosswordGameBoard)
+// 	ld := alphabet.EnglishLetterDistribution(gd.GetAlphabet())
+// 	generator := NewGordonGenerator(gd, bd, ld)
+// 	bd.SetToGame(gd.GetAlphabet(), board.MavenVsMacondo)
+// 	bd.GenAllCrossSets(gd, ld)
+// 	fmt.Println(bd.ToDisplayText(alph))
+
+// 	generator.GenAll(alphabet.RackFromString("AEEORS?", alph), true)
+// 	fmt.Println(generator.Plays())
+// 	assert.True(t, false)
+// }
+
 func TestGenAllMovesSingleBlank(t *testing.T) {
 	gd, err := GaddagFromLexicon("America")
 	if err != nil {

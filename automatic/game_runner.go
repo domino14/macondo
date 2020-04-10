@@ -35,7 +35,7 @@ func (r *GameRunner) Init(gd *gaddag.SimpleGaddag) {
 	// XXX: This needs to be configurable.
 	ld := alphabet.EnglishLetterDistribution(gd.GetAlphabet())
 	r.game.Init(gd, ld)
-	strategy := strategy.NewExhaustiveLeaveStrategy(r.game.Bag(), gd.LexiconName(),
+	strategy := strategy.NewExhaustiveLeaveStrategy(gd.LexiconName(),
 		gd.GetAlphabet(), r.config.StrategyParamsPath)
 	r.movegen = movegen.NewGordonGenerator(gd, r.game.Board(), ld)
 	r.aiplayers[0] = player.NewRawEquityPlayer(strategy)
