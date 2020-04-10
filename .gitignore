@@ -7,6 +7,7 @@ macondo
 .vscode/
 *.diff
 *.png
+!docs/assets/*.png
 *.ipynb_checkpoints/
 log*.csv
 *.swp

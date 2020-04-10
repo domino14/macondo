@@ -4,4 +4,5 @@ The following people have helped during the development of Macondo. They have pr
 
 - Morris Greenberg
 - Adam Henderson
+- Brian Sheppard
 - Erickson Smith
