@@ -12,10 +12,12 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/domino14/macondo/game"
+
 	"golang.org/x/text/encoding/charmap"
 	"golang.org/x/text/transform"
 
-	"github.com/domino14/macondo/mechanics"
+	pb "github.com/domino14/macondo/rpc/api/proto"
 	"github.com/rs/zerolog/log"
 )
 
@@ -25,11 +27,15 @@ type Token uint8
 const (
 	UndefinedToken Token = iota
 	PlayerToken
+	TitleToken
+	DescriptionToken
+	Rack1Token
+	Rack2Token
 	EncodingToken
 	MoveToken
 	NoteToken
 	LexiconToken
-	LostChallengeToken
+	PhonyTilesReturnedToken
 	PassToken
 	ChallengeBonusToken
 	ExchangeToken
@@ -47,11 +53,15 @@ var GCGRegexes []gcgdatum
 
 const (
 	PlayerRegex             = `#player(?P<p_number>[1-2])\s+(?P<nick>\S+)\s+(?P<real_name>.+)`
+	TitleRegex              = `#title\s*(?P<title>.*)`
+	DescriptionRegex        = `#description\s*(?P<description>.*)`
+	Rack1Regex              = `#rack1 (?P<rack>\S+)`
+	Rack2Regex              = `#rack2 (?P<rack>\S+)`
 	MoveRegex               = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+(?P<pos>\w+)\s+(?P<play>[\w\\.]+)\s+\+(?P<score>\d+)\s+(?P<cumul>\d+)`
 	NoteRegex               = `#note (?P<note>.+)`
 	LexiconRegex            = `#lexicon (?P<lexicon>.+)`
 	CharacterEncodingRegex  = `#character-encoding (?P<encoding>.+)`
-	LostChallengeRegex      = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+--\s+-(?P<lost_score>\d+)\s+(?P<cumul>\d+)`
+	PhonyTilesReturnedRegex = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+--\s+-(?P<lost_score>\d+)\s+(?P<cumul>\d+)`
 	PassRegex               = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+-\s+\+0\s+(?P<cumul>\d+)`
 	ChallengeBonusRegex     = `>(?P<nick>\S+):\s+(?P<rack>\S*)\s+\(challenge\)\s+\+(?P<bonus>\d+)\s+(?P<cumul>\d+)`
 	ExchangeRegex           = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+-(?P<exchanged>\S+)\s+\+0\s+(?P<cumul>\d+)`
@@ -77,11 +87,15 @@ func init() {
 
 	GCGRegexes = []gcgdatum{
 		gcgdatum{PlayerToken, regexp.MustCompile(PlayerRegex)},
+		gcgdatum{TitleToken, regexp.MustCompile(TitleRegex)},
+		gcgdatum{DescriptionToken, regexp.MustCompile(DescriptionRegex)},
+		gcgdatum{Rack1Token, regexp.MustCompile(Rack1Regex)},
+		gcgdatum{Rack2Token, regexp.MustCompile(Rack2Regex)},
 		gcgdatum{EncodingToken, compiledEncodingRegexp},
 		gcgdatum{MoveToken, regexp.MustCompile(MoveRegex)},
 		gcgdatum{NoteToken, regexp.MustCompile(NoteRegex)},
 		gcgdatum{LexiconToken, regexp.MustCompile(LexiconRegex)},
-		gcgdatum{LostChallengeToken, regexp.MustCompile(LostChallengeRegex)},
+		gcgdatum{PhonyTilesReturnedToken, regexp.MustCompile(PhonyTilesReturnedRegex)},
 		gcgdatum{PassToken, regexp.MustCompile(PassRegex)},
 		gcgdatum{ChallengeBonusToken, regexp.MustCompile(ChallengeBonusRegex)},
 		gcgdatum{ExchangeToken, regexp.MustCompile(ExchangeRegex)},
@@ -91,7 +105,15 @@ func init() {
 	}
 }
 
-func (p *parser) addEventOrPragma(token Token, match []string, gameRepr *mechanics.GameRepr) error {
+func matchToInt32(str string) (int32, error) {
+	x, err := strconv.ParseInt(str, 10, 32)
+	if err != nil {
+		return 0, err
+	}
+	return int32(x), nil
+}
+
+func (p *parser) addEventOrPragma(token Token, match []string, gameHistory *pb.GameHistory) error {
 	var err error
 
 	switch token {
@@ -100,146 +122,142 @@ func (p *parser) addEventOrPragma(token Token, match []string, gameRepr *mechani
 		if err != nil {
 			return err
 		}
-		gameRepr.Players = append(gameRepr.Players, mechanics.PlayerInfo{
-			Nickname:     match[2],
-			RealName:     match[3],
-			PlayerNumber: uint8(pn),
+		gameHistory.Players = append(gameHistory.Players, &pb.PlayerInfo{
+			Nickname: match[2],
+			RealName: match[3],
+			Number:   int32(pn),
 		})
+
 		return nil
+	case TitleToken:
+		gameHistory.Title = match[1]
+		return nil
+	case DescriptionToken:
+		gameHistory.Description = match[1]
 	case EncodingToken:
 		return errors.New("encoding line must be first line in file if present")
 	case MoveToken:
-		evt := &mechanics.TilePlacementEvent{}
+		evt := &pb.GameEvent{}
 		evt.Nickname = match[1]
 		evt.Rack = match[2]
 		evt.Position = match[3]
-		evt.Play = match[4]
-		evt.Score, err = strconv.Atoi(match[5])
+		evt.PlayedTiles = match[4]
+		evt.Score, err = matchToInt32(match[5])
 		if err != nil {
 			return err
 		}
-		evt.Cumulative, err = strconv.Atoi(match[6])
+		evt.Cumulative, err = matchToInt32(match[6])
 		if err != nil {
 			return err
 		}
-		evt.CalculateCoordsFromPosition()
-		evt.Type = mechanics.RegMove
-		turn := []mechanics.Event{}
-		turn = append(turn, evt)
-
-		gameRepr.Turns = append(gameRepr.Turns, turn)
+		game.CalculateCoordsFromStringPosition(evt)
+		evt.Type = pb.GameEvent_TILE_PLACEMENT_MOVE
+		evts := []*pb.GameEvent{evt}
+		turn := &pb.GameTurn{Events: evts}
+		gameHistory.Turns = append(gameHistory.Turns, turn)
 
 	case NoteToken:
-		lastTurnIdx := len(gameRepr.Turns) - 1
-		lastEvtIdx := len(gameRepr.Turns[lastTurnIdx]) - 1
-		gameRepr.Turns[lastTurnIdx][lastEvtIdx].AppendNote(match[1])
+		lastTurnIdx := len(gameHistory.Turns) - 1
+		lastEvtIdx := len(gameHistory.Turns[lastTurnIdx].Events) - 1
+		gameHistory.Turns[lastTurnIdx].Events[lastEvtIdx].Note += match[1]
 		return nil
 	case LexiconToken:
-		gameRepr.Lexicon = match[1]
+		gameHistory.Lexicon = match[1]
 		return nil
-	case LostChallengeToken:
-		evt := &mechanics.ScoreSubtractionEvent{}
+	case PhonyTilesReturnedToken, TimePenaltyToken:
+		evt := &pb.GameEvent{}
 		evt.Nickname = match[1]
 		evt.Rack = match[2]
-		score, err := strconv.Atoi(match[3])
+
+		score, err := matchToInt32(match[3])
 		if err != nil {
 			return err
 		}
 		evt.LostScore = score
-		evt.Cumulative, err = strconv.Atoi(match[4])
+		evt.Cumulative, err = matchToInt32(match[4])
 		if err != nil {
 			return err
 		}
-		evt.Type = mechanics.LostChallenge
 		// This can not be a stand-alone turn; it must be added to the last
 		// turn.
-		lastTurnIdx := len(gameRepr.Turns) - 1
-		gameRepr.Turns[lastTurnIdx] = append(gameRepr.Turns[lastTurnIdx], evt)
-	case TimePenaltyToken:
-		evt := &mechanics.ScoreSubtractionEvent{}
-		evt.Nickname = match[1]
-		evt.Rack = match[2]
-		score, err := strconv.Atoi(match[3])
-		if err != nil {
-			return err
+		lastTurnIdx := len(gameHistory.Turns) - 1
+		gameHistory.Turns[lastTurnIdx].Events = append(gameHistory.Turns[lastTurnIdx].Events, evt)
+		if token == PhonyTilesReturnedToken {
+			evt.Type = pb.GameEvent_PHONY_TILES_RETURNED
+		} else if token == TimePenaltyToken {
+			evt.Type = pb.GameEvent_TIME_PENALTY
 		}
-		evt.LostScore = score
-		evt.Cumulative, err = strconv.Atoi(match[4])
-		if err != nil {
-			return err
-		}
-		evt.Type = mechanics.TimePenalty
-		lastTurnIdx := len(gameRepr.Turns) - 1
-		gameRepr.Turns[lastTurnIdx] = append(gameRepr.Turns[lastTurnIdx], evt)
 
 	case LastRackPenaltyToken:
-		evt := &mechanics.ScoreSubtractionEvent{}
+		evt := &pb.GameEvent{}
 		evt.Nickname = match[1]
 		evt.Rack = match[2]
 		if evt.Rack != match[3] {
 			return fmt.Errorf("last rack penalty event malformed")
 		}
-		score, err := strconv.Atoi(match[4])
+		score, err := matchToInt32(match[4])
 		if err != nil {
 			return err
 		}
 		evt.LostScore = score
-		evt.Cumulative, err = strconv.Atoi(match[5])
+		evt.Cumulative, err = matchToInt32(match[5])
 		if err != nil {
 			return err
 		}
-		evt.Type = mechanics.EndRackPenalty
-		lastTurnIdx := len(gameRepr.Turns) - 1
-		gameRepr.Turns[lastTurnIdx] = append(gameRepr.Turns[lastTurnIdx], evt)
+		evt.Type = pb.GameEvent_END_RACK_PENALTY
+		lastTurnIdx := len(gameHistory.Turns) - 1
+		gameHistory.Turns[lastTurnIdx].Events = append(gameHistory.Turns[lastTurnIdx].Events, evt)
 
 	case PassToken:
-		evt := &mechanics.PassingEvent{}
+		evt := &pb.GameEvent{}
 		evt.Nickname = match[1]
 		evt.Rack = match[2]
-		evt.Cumulative, err = strconv.Atoi(match[3])
+		evt.Cumulative, err = matchToInt32(match[3])
 		if err != nil {
 			return err
 		}
-		evt.Type = mechanics.Pass
-		turn := []mechanics.Event{evt}
-		gameRepr.Turns = append(gameRepr.Turns, turn)
+		evt.Type = pb.GameEvent_PASS
+		evts := []*pb.GameEvent{evt}
+		turn := &pb.GameTurn{Events: evts}
+		gameHistory.Turns = append(gameHistory.Turns, turn)
 
 	case ChallengeBonusToken, EndRackPointsToken:
-		evt := &mechanics.ScoreAdditionEvent{}
+		evt := &pb.GameEvent{}
 		evt.Nickname = match[1]
 		evt.Rack = match[2]
 		if token == ChallengeBonusToken {
-			evt.Bonus, err = strconv.Atoi(match[3])
+			evt.Bonus, err = matchToInt32(match[3])
 		} else {
-			evt.EndRackPoints, err = strconv.Atoi(match[3])
+			evt.EndRackPts, err = matchToInt32(match[3])
 		}
 		if err != nil {
 			return err
 		}
-		evt.Cumulative, err = strconv.Atoi(match[4])
+		evt.Cumulative, err = matchToInt32(match[4])
 		if err != nil {
 			return err
 		}
 		if token == ChallengeBonusToken {
-			evt.Type = mechanics.ChallengeBonus
+			evt.Type = pb.GameEvent_CHALLENGE_BONUS
 		} else if token == EndRackPointsToken {
-			evt.Type = mechanics.EndRackPts
+			evt.Type = pb.GameEvent_END_RACK_PTS
 		}
-		lastTurnIdx := len(gameRepr.Turns) - 1
-		gameRepr.Turns[lastTurnIdx] = append(gameRepr.Turns[lastTurnIdx], evt)
+		lastTurnIdx := len(gameHistory.Turns) - 1
+		gameHistory.Turns[lastTurnIdx].Events = append(gameHistory.Turns[lastTurnIdx].Events, evt)
 
 	case ExchangeToken:
-		evt := &mechanics.PassingEvent{}
+		evt := &pb.GameEvent{}
 		evt.Nickname = match[1]
 		evt.Rack = match[2]
 		evt.Exchanged = match[3]
-		evt.Cumulative, err = strconv.Atoi(match[4])
+		evt.Cumulative, err = matchToInt32(match[4])
 		if err != nil {
 			return err
 		}
-		evt.Type = mechanics.Exchange
-		turn := []mechanics.Event{evt}
-		gameRepr.Turns = append(gameRepr.Turns, turn)
+		evt.Type = pb.GameEvent_EXCHANGE
+		evts := []*pb.GameEvent{evt}
+		turn := &pb.GameTurn{Events: evts}
+		gameHistory.Turns = append(gameHistory.Turns, turn)
 
 	}
 	return nil

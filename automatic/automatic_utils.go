@@ -57,7 +57,7 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	if err != nil {
 		return err
 	}
-	log.Debug().Msgf("Starting %v games, %v threads", numGames, threads)
+	log.Info().Msgf("Starting %v games, %v threads", numGames, threads)
 
 	CVCCounter.Set(0)
 	jobs := make(chan Job, 100)
@@ -84,7 +84,7 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 		for i := 1; i < numGames+1; i++ {
 			jobs <- Job{}
 			if i%1000 == 0 {
-				log.Printf("Queued %v jobs", i)
+				log.Info().Msgf("Queued %v jobs", i)
 			}
 			select {
 			case <-ctx.Done():

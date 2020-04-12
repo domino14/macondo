@@ -1,0 +1,162 @@
+syntax = "proto3";
+
+// GameHistory encodes a whole history of a game, and it should also encode
+// the initial board and tile configuration, etc. It can be considered
+// to be an instantiation of a GCG file.
+message GameHistory {
+  repeated GameTurn turns = 1;
+  repeated PlayerInfo players = 2;
+  int32 version = 3;
+  string original_gcg = 4;
+  string lexicon = 5;
+  string uuid = 6;
+  string title = 7;
+  string description = 8;
+}
+
+// A GamePosition is a single turn of a GameHistory, and contains the state
+// associated with that turn. However, a GameHistory does not contain an
+// array of GamePosition. It instead contains an array of GameTurn; such
+// an array can be used to instantiate GamePositions for every turn.
+message GamePosition {
+  int32 onturn = 1;
+  int32 turnnum = 2;
+  bool playing = 3;
+  int32 scoreless_turns = 4;
+  int32 num_possible_letters = 5;
+  repeated PlayerState players = 6;
+}
+
+// This should be merged into Move.
+message GameEvent {
+  enum Type {
+    TILE_PLACEMENT_MOVE = 0;
+    PHONY_TILES_RETURNED = 1;
+    PASS = 2;
+    CHALLENGE_BONUS = 3;
+    EXCHANGE = 4;
+    END_RACK_PTS = 5;
+    TIME_PENALTY = 6;
+    // Only for international rules:
+    END_RACK_PENALTY = 7;
+  }
+
+  enum Direction {
+    HORIZONTAL = 0;
+    VERTICAL = 1;
+  }
+  string nickname = 1;
+  string note = 2;
+  string rack = 3;
+  Type type = 4;
+  int32 cumulative = 5;
+  int32 row = 6;
+  int32 column = 7;
+  Direction direction = 8;
+  string position = 9;
+  string played_tiles = 10;
+  // An event will not have all of these; it depends on the type of the event.
+  string exchanged = 11;
+  int32 score = 12;
+  int32 bonus = 13;
+  int32 end_rack_pts = 14;
+  int32 lost_score = 15;
+
+  bool is_bingo = 16;
+}
+
+message GameTurn { repeated GameEvent events = 1; }
+
+message PlayerInfo {
+  string nickname = 1;
+  string real_name = 2;
+  int32 number = 3;
+}
+
+message PlayerState {
+  PlayerInfo info = 1;
+  int32 score = 2;
+  string rack_letters = 3;
+}
+
+message SetRackRequest {
+  string game_uuid = 1;
+  int32 turnnum = 2;
+  string rack_letters = 3;
+}
+
+message NewGameRequest { repeated PlayerInfo players = 1; }
+
+message LoadGCGRequest { string gcg = 1; }
+
+message GenMovesRequest {
+  string game_uuid = 1;
+  int32 turnnum = 2;
+  int32 num_moves = 3;
+}
+message MoveList { repeated GameEvent moves = 1; }
+
+message MoveStatistic {
+  double mean = 1;
+  double stdev = 2;
+  double total_samples = 3;
+}
+
+message SimulatedMove {
+  GameEvent move = 1;
+  // Per-ply statistics
+  repeated MoveStatistic score_stats = 2;
+  repeated MoveStatistic bingo_stats = 3;
+  // Per-simulation statistics
+  // Equity =  spread_stats + leftover_stats + any board consideration?
+  MoveStatistic spread_stats = 4;
+  MoveStatistic leftover_stats = 5;
+  MoveStatistic equity_stats = 6;
+  MoveStatistic win_stats = 7;
+}
+
+message SimulateMovesRequest {
+  string game_uuid = 1;
+  int32 turnnum = 2;
+  repeated GameEvent moves = 3;
+  int32 cores = 4;
+  int32 plies = 5;
+}
+// Only one simulation can be going on at any given time. This will probably
+// still be the case if I expose that in a multiplayer server, although
+// the way simulation will work there is likely to be in-browser (Emscripten
+// style) or something similar. So there's no need to provide a simulation ID.
+message StopSimulationRequest {}
+
+message SimulateAcknowledgement {}
+
+message GetSimStatsRequest {}
+
+message SimStatsResponse { repeated SimulatedMove moves = 1; }
+
+// AnnotatedGameViewer is a service that will have access to annotated games,
+// and can examine positions. It can also step through positions, overwrite
+// positions, simulate specific turns, generate moves, and more.
+service GameAnnotationService {
+  rpc NewGame(NewGameRequest) returns (GameHistory);
+
+  rpc LoadGCG(LoadGCGRequest) returns (GameHistory);
+
+  // Functions such as stepping forward, stepping backwards, going to a
+  // specific turn should be handled only by the front-end. This is because
+  // GameHistory has all the info necessary to reconstruct this state.
+  // (Or at least, they shouldn't be RPC calls. They can just modify the
+  //  GamePosition accordingly)
+
+  // SetRack sets the rack for a specific game position and returns an all
+  // new GameHistory.
+  rpc SetRack(SetRackRequest) returns (GameHistory);
+
+  rpc GenerateMoves(GenMovesRequest) returns (GameEvent);
+
+  rpc SimulateMoves(SimulateMovesRequest) returns (SimulateAcknowledgement);
+
+  rpc StopSimulation(StopSimulationRequest) returns (SimStatsResponse);
+
+  rpc GetSimulationStats(GetSimStatsRequest) returns (SimStatsResponse);
+}
