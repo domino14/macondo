@@ -59,7 +59,7 @@ message GameEvent {
   string exchanged = 11;
   int32 score = 12;
   int32 bonus = 13;
-  int32 end_rack_pts = 14;
+  int32 end_rack_points = 14;
   int32 lost_score = 15;
 
   bool is_bingo = 16;

@@ -26,79 +26,79 @@ func slurp(filename string) string {
 }
 
 func TestParseGCG(t *testing.T) {
-	gamerepr, err := ParseGCG("./testdata/vs_andy.gcg")
+	history, err := ParseGCG("./testdata/vs_andy.gcg")
 	expected := slurp("./testdata/vs_andy.json")
 
 	assert.Nil(t, err)
-	assert.NotNil(t, gamerepr)
+	assert.NotNil(t, history)
 
-	repr, err := json.Marshal(gamerepr)
+	repr, err := json.Marshal(history)
 	assert.Nil(t, err)
 
 	assert.JSONEq(t, expected, string(repr))
 }
 
 func TestParseOtherGCG(t *testing.T) {
-	gamerepr, err := ParseGCG("./testdata/doug_v_emely.gcg")
+	history, err := ParseGCG("./testdata/doug_v_emely.gcg")
 	expected := slurp("./testdata/doug_v_emely.json")
 
 	assert.Nil(t, err)
-	assert.NotNil(t, gamerepr)
+	assert.NotNil(t, history)
 
-	repr, err := json.Marshal(gamerepr)
+	repr, err := json.Marshal(history)
 	assert.Nil(t, err)
 
 	assert.JSONEq(t, expected, string(repr))
 }
 
 func TestParseGCGWithChallengeBonus(t *testing.T) {
-	gamerepr, err := ParseGCG("./testdata/vs_frentz.gcg")
+	history, err := ParseGCG("./testdata/vs_frentz.gcg")
 	expected := slurp("./testdata/vs_frentz.json")
 
 	assert.Nil(t, err)
-	assert.NotNil(t, gamerepr)
+	assert.NotNil(t, history)
 
-	repr, err := json.Marshal(gamerepr)
+	repr, err := json.Marshal(history)
 	assert.Nil(t, err)
 	assert.JSONEq(t, expected, string(repr))
 }
 
 func TestParseSpecialChar(t *testing.T) {
-	gamerepr, err := ParseGCG("./testdata/name_iso8859-1.gcg")
+	history, err := ParseGCG("./testdata/name_iso8859-1.gcg")
 	assert.Nil(t, err)
-	assert.NotNil(t, gamerepr)
-	assert.Equal(t, "césar", gamerepr.Players[0].Nickname)
-	assert.Equal(t, "hércules", gamerepr.Players[1].Nickname)
+	assert.NotNil(t, history)
+	assert.Equal(t, "césar", history.Players[0].Nickname)
+	assert.Equal(t, "hércules", history.Players[1].Nickname)
 }
 
 func TestParseSpecialUTF8NoHeader(t *testing.T) {
-	gamerepr, err := ParseGCG("./testdata/name_utf8_noheader.gcg")
+	history, err := ParseGCG("./testdata/name_utf8_noheader.gcg")
 	assert.Nil(t, err)
-	assert.NotNil(t, gamerepr)
+	assert.NotNil(t, history)
 	// Since there was no encoding header, the name gets all messed up:
-	assert.Equal(t, "cÃ©sar", gamerepr.Players[0].Nickname)
+	assert.Equal(t, "cÃ©sar", history.Players[0].Nickname)
 }
 
 func TestParseSpecialUTF8WithHeader(t *testing.T) {
-	gamerepr, err := ParseGCG("./testdata/name_utf8_with_header.gcg")
+	history, err := ParseGCG("./testdata/name_utf8_with_header.gcg")
 	assert.Nil(t, err)
-	assert.NotNil(t, gamerepr)
-	assert.Equal(t, "césar", gamerepr.Players[0].Nickname)
+	assert.NotNil(t, history)
+	assert.Equal(t, "césar", history.Players[0].Nickname)
 }
 
 func TestParseUnsupportedEncoding(t *testing.T) {
-	gamerepr, err := ParseGCG("./testdata/name_weird_encoding_with_header.gcg")
+	history, err := ParseGCG("./testdata/name_weird_encoding_with_header.gcg")
 	assert.NotNil(t, err)
-	assert.Nil(t, gamerepr)
+	assert.Nil(t, history)
 }
 
 func TestToGCG(t *testing.T) {
-	gamerepr, err := ParseGCG("./testdata/doug_v_emely.gcg")
+	history, err := ParseGCG("./testdata/doug_v_emely.gcg")
 
 	assert.Nil(t, err)
-	assert.NotNil(t, gamerepr)
+	assert.NotNil(t, history)
 
-	gcgstr := GameReprToGCG(gamerepr)
+	gcgstr := GameHistoryToGCG(history)
 
 	// ignore encoding line:
 	linesNew := strings.Split(gcgstr, "\n")[1:]
