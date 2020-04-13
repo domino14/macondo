@@ -85,7 +85,14 @@ message SetRackRequest {
   string rack_letters = 3;
 }
 
-message NewGameRequest { repeated PlayerInfo players = 1; }
+message NewGameRequest {
+  repeated PlayerInfo players = 1;
+  repeated string board_layout = 2;
+  string lexicon = 3;
+  string letter_distribution = 4;
+  // Perhaps an eventual protobuf field that contains a custom letter
+  // distribution, as the above should just be a name ("english", etc).
+}
 
 message LoadGCGRequest { string gcg = 1; }
 
