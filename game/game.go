@@ -104,7 +104,7 @@ func NewGame(cfg *config.Config, players []*pb.PlayerInfo, boardLayout []string,
 	// 4. set position playerRacks to be the player racks, and the position
 	//   internal pb struct for the racks to be the string repr of these
 	// 5. add position to game.positions
-	// 6. return game.
+	// 6. return game
 
 	first := game.randSource.Intn(2)
 	second := (first + 1) % 2
@@ -114,6 +114,6 @@ func NewGame(cfg *config.Config, players []*pb.PlayerInfo, boardLayout []string,
 		players[first], players[second] = players[second], players[first]
 	}
 
-	game.board =
+	position.board = board.MakeBoard(boardLayout)
 
 }
