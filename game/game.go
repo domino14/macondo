@@ -3,6 +3,10 @@
 package game
 
 import (
+	crypto_rand "crypto/rand"
+	"encoding/binary"
+	"math/rand"
+
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
@@ -43,6 +47,9 @@ type Game struct {
 	alph    *alphabet.Alphabet
 	playing bool
 
+	randSeed   int64
+	randSource *rand.Rand
+
 	history *pb.GameHistory
 	// An array of Position, corresponding to the internal protobuf array
 	// of pb.GameTurn.
@@ -76,7 +83,15 @@ func newHistory(players []*pb.PlayerInfo) *History {
 func NewGame(cfg *config.Config, players []*pb.PlayerInfo, boardLayout []string,
 	lexiconName string, letterDistributionName string) (*Game, error) {
 
+	var b [8]byte
+	_, err := crypto_rand.Read(b[:])
+	if err != nil {
+		panic("cannot seed math/rand package with cryptographically secure random number generator")
+	}
+
 	game := &Game{}
+	game.randSeed = int64(binary.LittleEndian.Uint64(b[:]))
+	game.randSource = rand.New(rand.NewSource(game.randSeed))
 	game.history = newHistory(players)
 
 	// Initialize a new position.
@@ -90,4 +105,15 @@ func NewGame(cfg *config.Config, players []*pb.PlayerInfo, boardLayout []string,
 	//   internal pb struct for the racks to be the string repr of these
 	// 5. add position to game.positions
 	// 6. return game.
+
+	first := game.randSource.Intn(2)
+	second := (first + 1) % 2
+
+	// Flip the array if first is not 0.
+	if first != 0 {
+		players[first], players[second] = players[second], players[first]
+	}
+
+	game.board =
+
 }

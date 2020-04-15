@@ -26,7 +26,7 @@ func init() {
 	if err != nil {
 		panic("cannot seed math/rand package with cryptographically secure random number generator")
 	}
-	math_rand.Seed(int64(binary.LittleEndian.Uint64(b[:])))
+	math_rand.Seed())
 }
 
 // PlayerInfo contains basic information about the player.
