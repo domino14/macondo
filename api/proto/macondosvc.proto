@@ -18,14 +18,15 @@ message GameHistory {
 // associated with that turn. However, a GameHistory does not contain an
 // array of GamePosition. It instead contains an array of GameTurn; such
 // an array can be used to instantiate GamePositions for every turn.
-message GamePosition {
-  int32 onturn = 1;
-  int32 turnnum = 2;
-  bool playing = 3;
-  int32 scoreless_turns = 4;
-  int32 num_possible_letters = 5;
-  repeated PlayerState players = 6;
-}
+// message GamePosition {
+//   // onturn is NOT the player number that is in `players`, but it is the
+//   // INDEX into the players array.
+//   int32 onturn = 1;
+//   int32 turnnum = 2;
+//   bool playing = 3;
+//   int32 scoreless_turns = 4;
+//   repeated PlayerState players = 5;
+// }
 
 // This should be merged into Move.
 message GameEvent {
@@ -73,11 +74,11 @@ message PlayerInfo {
   int32 number = 3;
 }
 
-message PlayerState {
-  PlayerInfo info = 1;
-  int32 score = 2;
-  string rack_letters = 3;
-}
+// message PlayerState {
+//   PlayerInfo info = 1;
+//   int32 score = 2;
+//   string rack_letters = 3;
+// }
 
 message SetRackRequest {
   string game_uuid = 1;
