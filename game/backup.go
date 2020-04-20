@@ -4,6 +4,7 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	pb "github.com/domino14/macondo/rpc/api/proto"
+	"github.com/rs/zerolog/log"
 )
 
 // stateBackup is a subset of Game, meant only for backup purposes.
@@ -69,7 +70,7 @@ func (g *Game) SetStateStackLength(length int) {
 		// allocations and GC.
 		g.stateStack[idx] = &stateBackup{
 			board:          g.board.Copy(),
-			bag:            g.bag.Copy(),
+			bag:            g.bag.Copy(nil),
 			playing:        g.playing,
 			scorelessTurns: g.scorelessTurns,
 			players:        copyPlayers(g.players),
@@ -120,12 +121,17 @@ func (g *Game) ResetToFirstState() {
 // alphabet are not deep-copied because these are not expected to change.
 // The history is not copied because this only changes with the main Game,
 // and not these copies.
+// The bag is copied with a NEW random source, as random sources are not thread-safe.
 func (g *Game) Copy() *Game {
+
+	randSeed, randSource := seededRandSource()
+	log.Debug().Msgf("Created new random seed for bag copy %v", randSeed)
+
 	copy := &Game{
 		onturn:         g.onturn,
 		turnnum:        g.turnnum,
 		board:          g.board.Copy(),
-		bag:            g.bag.Copy(),
+		bag:            g.bag.Copy(randSource),
 		gaddag:         g.gaddag,
 		alph:           g.alph,
 		playing:        g.playing,

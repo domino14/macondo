@@ -38,7 +38,7 @@ message GameEvent {
     EXCHANGE = 4;
     END_RACK_PTS = 5;
     TIME_PENALTY = 6;
-    // Only for international rules:
+    // Only for international rules (or after 6 zeroes)
     END_RACK_PENALTY = 7;
   }
 

@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/move"
+
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddagmaker"
@@ -56,5 +59,12 @@ func TestBackup(t *testing.T) {
 	rules, _ := newGameRules(DefaultConfig, board.CrosswordGameBoard, "NWL18",
 		"English")
 	game, _ := NewGame(rules, players)
+	alph := rules.gaddag.GetAlphabet()
+	game.SetRackFor(0, alphabet.RackFromString("ACEOTV?", alph))
 
+	m := move.NewScoringMoveSimple(20, "H7", "AVOCET", "?", alph)
+	game.PlayMove(m, true)
+	is.Equal(game.stackPtr, 1)
+	is.Equal(game.players[0].points, 20)
+	is.Equal(game.players[1].points, 0)
 }

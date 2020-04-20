@@ -2,6 +2,9 @@ package game
 
 import (
 	"context"
+	crypto_rand "crypto/rand"
+	"encoding/binary"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"time"
@@ -9,9 +12,7 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/endgame/alphabeta"
 	"github.com/domino14/macondo/gaddag"
-	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/movegen"
 	pb "github.com/domino14/macondo/rpc/api/proto"
 )
@@ -31,15 +32,15 @@ type AnnotationService struct {
 	game *Game
 	cfg  *config.Config
 	// Simmer:
-	simmer        *montecarlo.Simmer
+	// simmer        *montecarlo.Simmer
 	simCtx        context.Context
 	simCancel     context.CancelFunc
 	simTicker     *time.Ticker
 	simTickerDone chan bool
 	simLogFile    *os.File
 
-	gen           movegen.MoveGenerator
-	endgameSolver *alphabeta.Solver
+	gen movegen.MoveGenerator
+	// endgameSolver *alphabeta.Solver
 }
 
 // gamerules is a simple struct that encapsulates the instantiated objects
@@ -48,6 +49,9 @@ type gamerules struct {
 	board  *board.GameBoard
 	bag    *alphabet.Bag
 	gaddag *gaddag.SimpleGaddag
+
+	randSeed   int64
+	randSource *rand.Rand
 }
 
 func (g gamerules) Board() *board.GameBoard {
@@ -62,8 +66,31 @@ func (g gamerules) Gaddag() *gaddag.SimpleGaddag {
 	return g.gaddag
 }
 
+func (g gamerules) RandSeed() int64 {
+	return g.randSeed
+}
+
+func (g gamerules) RandSource() *rand.Rand {
+	return g.randSource
+}
+
+func seededRandSource() (int64, *rand.Rand) {
+	var b [8]byte
+	_, err := crypto_rand.Read(b[:])
+	if err != nil {
+		panic("cannot seed math/rand package with cryptographically secure random number generator")
+	}
+
+	randSeed := int64(binary.LittleEndian.Uint64(b[:]))
+	randSource := rand.New(rand.NewSource(randSeed))
+
+	return randSeed, randSource
+}
+
 func newGameRules(cfg *config.Config, boardLayout []string, lexicon string,
 	letterDistributionName string) (*gamerules, error) {
+
+	randSeed, randSource := seededRandSource()
 
 	board := board.MakeBoard(boardLayout)
 	gdFilename := filepath.Join(cfg.LexiconPath, "gaddag", lexicon+".gaddag")
@@ -72,8 +99,8 @@ func newGameRules(cfg *config.Config, boardLayout []string, lexicon string,
 		return nil, err
 	}
 	dist := alphabet.NamedLetterDistribution(letterDistributionName, gd.GetAlphabet())
-	bag := dist.MakeBag()
-	return &gamerules{board, bag, gd}, nil
+	bag := dist.MakeBag(randSource)
+	return &gamerules{board, bag, gd, randSeed, randSource}, nil
 }
 
 func NewAnnotationService(cfg *config.Config) *AnnotationService {

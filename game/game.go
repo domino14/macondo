@@ -3,8 +3,6 @@
 package game
 
 import (
-	crypto_rand "crypto/rand"
-	"encoding/binary"
 	"math/rand"
 
 	"github.com/domino14/macondo/alphabet"
@@ -22,6 +20,9 @@ type RuleDefiner interface {
 	Gaddag() *gaddag.SimpleGaddag
 	Board() *board.GameBoard
 	Bag() *alphabet.Bag
+
+	RandSeed() int64
+	RandSource() *rand.Rand
 }
 
 // // History is a wrapper around pb.GameHistory to allow for additional
@@ -85,21 +86,14 @@ type Game struct {
 	randSeed   int64
 	randSource *rand.Rand
 
-	// Although these are in the position, we keep track of them here for
-	// ease in backing up and restoring state. We could write logic to
-	// unload / load these from the last Position but that is annoying
-	// and error-prone.
 	scorelessTurns int
 	onturn         int
 	turnnum        int
 	players        playerStates
-
+	// history has a history of all the moves in this game. Note that
+	// history only gets written to when someone plays a move that is NOT
+	// backed up.
 	history *pb.GameHistory
-	// An array of Position, corresponding to the internal protobuf array
-	// of GameHistory's GameTurn.
-	// positions []*pb.GamePosition
-	// playerRacks are the latest known versions of the player racks.
-	// playerRacks []*alphabet.Rack
 
 	stateStack []*stateBackup
 	stackPtr   int
@@ -124,6 +118,7 @@ func newHistory(players []*pb.PlayerInfo) *pb.GameHistory {
 	his := &pb.GameHistory{}
 	his.Players = players
 	his.Uuid = shortuuid.New()
+	his.Turns = []*pb.GameTurn{}
 	return his
 }
 
@@ -131,33 +126,16 @@ func newHistory(players []*pb.PlayerInfo) *pb.GameHistory {
 // and deals tiles, creating the first position in the history as well, and
 // essentially starting the game.
 func NewGame(rules RuleDefiner, playerinfo []*pb.PlayerInfo) (*Game, error) {
-
-	var b [8]byte
-	_, err := crypto_rand.Read(b[:])
-	if err != nil {
-		panic("cannot seed math/rand package with cryptographically secure random number generator")
-	}
-
 	game := &Game{}
 	game.gaddag = rules.Gaddag()
+	game.randSeed = rules.RandSeed()
+	log.Debug().Msgf("Random seed for this game was %v", game.randSeed)
+	game.randSource = rules.RandSource()
 	game.alph = game.gaddag.GetAlphabet()
-	game.randSeed = int64(binary.LittleEndian.Uint64(b[:]))
-	game.randSource = rand.New(rand.NewSource(game.randSeed))
+
 	game.history = newHistory(playerinfo)
-	game.bag = rules.Bag().Copy()
+	game.bag = rules.Bag().Copy(nil)
 	game.board = rules.Board().Copy()
-
-	// Initialize a new position.
-	// position := &pb.GamePosition{}
-
-	// 0. create a random seed?
-	// 1. pick a random player to go first.
-	// 2. set position onturn, turnnum, playing, board
-	// 3. deal out tiles, set position bag to have 86 tiles in it
-	// 4. set position playerRacks to be the player racks, and the position
-	//   internal pb struct for the racks to be the string repr of these
-	// 5. add position to game.positions
-	// 6. return game
 
 	first := game.randSource.Intn(2)
 	second := (first + 1) % 2
@@ -200,10 +178,16 @@ func NewGame(rules RuleDefiner, playerinfo []*pb.PlayerInfo) (*Game, error) {
 // XXX: It doesn't implement special things like challenge bonuses, etc.
 // XXX: Will this still be true, or should this function do it all?
 func (g *Game) PlayMove(m *move.Move, backup bool) {
+	var turn *pb.GameTurn
+
+	// if we are backing up, then we do not want to add a new turn to the
+	// game history. We only back up when we are simulating / generating endgames / etc,
+	// and we only want to add new turns during actual gameplay.
 	if backup {
 		g.backupState()
+	} else {
+		turn = &pb.GameTurn{Events: []*pb.GameEvent{}}
 	}
-
 	switch m.Action() {
 	case move.MoveTypePlay:
 		g.board.PlayMove(m, g.gaddag, g.bag.LetterDistribution())
@@ -216,14 +200,25 @@ func (g *Game) PlayMove(m *move.Move, backup bool) {
 		drew := g.bag.DrawAtMost(m.TilesPlayed())
 		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
 		g.players[g.onturn].SetRackTiles(tiles, g.alph)
+
+		if !backup {
+			turn.Events = append(turn.Events, g.eventFromMove(m))
+		}
+
 		if g.players[g.onturn].rack.NumTiles() == 0 {
 			g.playing = false
 			unplayedPts := g.calculateRackPts((g.onturn+1)%len(g.players)) * 2
 			g.players[g.onturn].points += unplayedPts
+			if !backup {
+				turn.Events = append(turn.Events, g.endRackEvt(unplayedPts))
+			}
 		}
 
 	case move.MoveTypePass:
 		g.scorelessTurns++
+		if !backup {
+			turn.Events = append(turn.Events, g.eventFromMove(m))
+		}
 
 	case move.MoveTypeExchange:
 		drew, err := g.bag.Exchange([]alphabet.MachineLetter(m.Tiles()))
@@ -233,6 +228,9 @@ func (g *Game) PlayMove(m *move.Move, backup bool) {
 		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
 		g.players[g.onturn].SetRackTiles(tiles, g.alph)
 		g.scorelessTurns++
+		if !backup {
+			turn.Events = append(turn.Events, g.eventFromMove(m))
+		}
 	}
 
 	if g.scorelessTurns == 6 {
@@ -242,7 +240,13 @@ func (g *Game) PlayMove(m *move.Move, backup bool) {
 			pts := g.calculateRackPts(i)
 			g.players[i].points -= pts
 		}
+		// XXX: add rack penalty for each player to the history.
 	}
+
+	if !backup {
+		g.addToHistory(turn)
+	}
+
 	g.onturn = (g.onturn + 1) % len(g.players)
 	g.turnnum++
 }
@@ -250,6 +254,10 @@ func (g *Game) PlayMove(m *move.Move, backup bool) {
 func (g *Game) calculateRackPts(onturn int) int {
 	rack := g.players[onturn].rack
 	return rack.ScoreOn(g.bag.LetterDistribution())
+}
+
+func (g *Game) addToHistory(turn *pb.GameTurn) {
+	g.history.Turns = append(g.history.Turns, turn)
 }
 
 // SetRackFor sets the player's current rack. It throws an error if

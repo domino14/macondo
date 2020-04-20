@@ -1,3 +1,5 @@
+// +build ignore
+
 // Package mechanics implements the rules / mechanics of Crossword game.
 // It contains all the logic for the actual gameplay of Crossword Game,
 // which, as we said before, features all sorts of things like wingos
