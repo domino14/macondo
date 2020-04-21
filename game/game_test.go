@@ -42,11 +42,12 @@ func TestNewGame(t *testing.T) {
 		&pb.PlayerInfo{Nickname: "JD", RealName: "Jesse", Number: 1},
 		&pb.PlayerInfo{Nickname: "cesar", RealName: "César", Number: 2},
 	}
-	rules, err := newGameRules(DefaultConfig, board.CrosswordGameBoard, "NWL18",
+	rules, err := NewGameRules(DefaultConfig, board.CrosswordGameBoard, "NWL18",
 		"English")
 	is.NoErr(err)
 	game, err := NewGame(rules, players)
 	is.NoErr(err)
+	game.StartGame()
 	is.Equal(game.bag.TilesRemaining(), 86)
 }
 
@@ -56,15 +57,29 @@ func TestBackup(t *testing.T) {
 		&pb.PlayerInfo{Nickname: "JD", RealName: "Jesse", Number: 1},
 		&pb.PlayerInfo{Nickname: "cesar", RealName: "César", Number: 2},
 	}
-	rules, _ := newGameRules(DefaultConfig, board.CrosswordGameBoard, "NWL18",
+	rules, _ := NewGameRules(DefaultConfig, board.CrosswordGameBoard, "NWL18",
 		"English")
 	game, _ := NewGame(rules, players)
+
+	game.StartGame()
+	// Some positive number.
+	game.SetStateStackLength(5)
+
 	alph := rules.gaddag.GetAlphabet()
 	game.SetRackFor(0, alphabet.RackFromString("ACEOTV?", alph))
 
 	m := move.NewScoringMoveSimple(20, "H7", "AVOCET", "?", alph)
 	game.PlayMove(m, true)
+
 	is.Equal(game.stackPtr, 1)
 	is.Equal(game.players[0].points, 20)
 	is.Equal(game.players[1].points, 0)
+	is.Equal(game.bag.TilesRemaining(), 80)
+
+	game.UnplayLastMove()
+	is.Equal(game.stackPtr, 0)
+	is.Equal(game.players[0].points, 0)
+	is.Equal(game.players[1].points, 0)
+	is.Equal(game.bag.TilesRemaining(), 86)
+	is.Equal(game.players[0].rackLetters, "ACEOTV?")
 }

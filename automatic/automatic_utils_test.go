@@ -15,30 +15,38 @@ import (
 	"github.com/domino14/macondo/gaddagmaker"
 )
 
-var LexiconDir = os.Getenv("LEXICON_PATH")
+var DefaultConfig = config.Config{
+	StrategyParamsPath:        os.Getenv("STRATEGY_PARAMS_PATH"),
+	LexiconPath:               os.Getenv("LEXICON_PATH"),
+	DefaultLexicon:            "NWL18",
+	DefaultLetterDistribution: "English",
+}
 
 func TestMain(m *testing.M) {
-	if _, err := os.Stat("/tmp/nwl18.gaddag"); os.IsNotExist(err) {
-		gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "NWL18.txt"), true, true)
-		os.Rename("out.gaddag", "/tmp/nwl18.gaddag")
+	gdgPath := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "NWL18.gaddag")
+	if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
+		gaddagmaker.GenerateGaddag(filepath.Join(DefaultConfig.LexiconPath, "NWL18.txt"), true, true)
+		err = os.Rename("out.gaddag", gdgPath)
+		if err != nil {
+			panic(err)
+		}
 	}
+
 	os.Exit(m.Run())
 }
+
+func GaddagFromLexicon(lex string) (*gaddag.SimpleGaddag, error) {
+	return gaddag.LoadGaddag(filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag"))
+}
 func TestCompVsCompStatic(t *testing.T) {
-	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
-	if err != nil {
-		t.Errorf("expected err to be nil, got %v", err)
-	}
 	logchan := make(chan string)
-	runner := &GameRunner{logchan: logchan, config: &config.Config{
-		StrategyParamsPath: os.Getenv("STRATEGY_PARAMS_PATH"),
-	}}
+	runner := NewGameRunner(logchan, &DefaultConfig)
 	var wg sync.WaitGroup
 	wg.Add(1)
 
 	go func() {
 		defer wg.Done()
-		runner.CompVsCompStatic(gd)
+		runner.CompVsCompStatic()
 		fmt.Println(runner.game.Board().ToDisplayText(alphabet.EnglishAlphabet()))
 		close(logchan)
 	}()
@@ -57,18 +65,15 @@ func TestCompVsCompStatic(t *testing.T) {
 }
 
 func BenchmarkCompVsCompStatic(b *testing.B) {
-	gd, _ := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		runner := &GameRunner{}
-		runner.CompVsCompStatic(gd)
+		runner := NewGameRunner(nil, &DefaultConfig)
+		runner.CompVsCompStatic()
 	}
 }
 
 func BenchmarkPlayFullStatic(b *testing.B) {
-	gd, _ := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
-	runner := &GameRunner{}
-	runner.Init(gd)
+	runner := NewGameRunner(nil, &DefaultConfig)
 	for i := 0; i < b.N; i++ {
 		runner.playFullStatic()
 	}

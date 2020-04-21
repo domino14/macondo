@@ -26,8 +26,8 @@ func init() {
 }
 
 // CompVsCompStatic plays out a game to the end using best static turns.
-func (r *GameRunner) CompVsCompStatic(gd *gaddag.SimpleGaddag) {
-	r.Init(gd)
+func (r *GameRunner) CompVsCompStatic() {
+	r.Init()
 	r.playFullStatic()
 	log.Debug().Msgf("Game over. Score: %v - %v", r.game.PointsFor(0),
 		r.game.PointsFor(1))
@@ -40,7 +40,7 @@ func (r *GameRunner) playFullStatic() {
 		r.PlayBestStaticTurn(r.game.PlayerOnTurn())
 	}
 	if r.gamechan != nil {
-		r.gamechan <- r.game.Board().ToDisplayText(r.game.Alphabet())
+		r.gamechan <- r.game.Board().ToDisplayText(r.alphabet)
 	}
 }
 
@@ -69,7 +69,7 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 		go func(i int) {
 			defer wg.Done()
 			r := GameRunner{logchan: logChan, config: cfg}
-			r.Init(gd)
+			r.Init()
 			IsPlaying.Add(1)
 			for range jobs {
 				r.playFullStatic()

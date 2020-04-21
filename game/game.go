@@ -19,10 +19,7 @@ import (
 type RuleDefiner interface {
 	Gaddag() *gaddag.SimpleGaddag
 	Board() *board.GameBoard
-	Bag() *alphabet.Bag
-
-	RandSeed() int64
-	RandSource() *rand.Rand
+	LetterDistribution() *alphabet.LetterDistribution
 }
 
 // // History is a wrapper around pb.GameHistory to allow for additional
@@ -55,7 +52,13 @@ func (p *playerState) resetScore() {
 	p.points = 0
 }
 
-func (p *playerState) SetRackTiles(tiles []alphabet.MachineLetter, alph *alphabet.Alphabet) {
+func (p *playerState) throwRackIn(bag *alphabet.Bag) {
+	bag.PutBack(p.rack.TilesOn())
+	p.rack.Set([]alphabet.MachineLetter{})
+	p.rackLetters = ""
+}
+
+func (p *playerState) setRackTiles(tiles []alphabet.MachineLetter, alph *alphabet.Alphabet) {
 	p.rack.Set(tiles)
 	p.rackLetters = alphabet.MachineWord(tiles).UserVisible(alph)
 }
@@ -68,6 +71,12 @@ func (p playerStates) resetScore() {
 	}
 }
 
+func (p playerStates) flipFirst() {
+	p[0], p[1] = p[1], p[0]
+	p[0].Number = 1
+	p[1].Number = 2
+}
+
 // Game is the actual internal game structure that controls the entire
 // business logic of the game; drawing, making moves, etc. The two
 // structures above are basically data entities.
@@ -78,8 +87,9 @@ type Game struct {
 	gaddag *gaddag.SimpleGaddag
 	alph   *alphabet.Alphabet
 	// board and bag will contain the latest (current) versions of these.
-	board *board.GameBoard
-	bag   *alphabet.Bag
+	board              *board.GameBoard
+	letterDistribution *alphabet.LetterDistribution
+	bag                *alphabet.Bag
 
 	playing bool
 
@@ -114,63 +124,68 @@ func CalculateCoordsFromStringPosition(evt *pb.GameEvent) {
 	evt.Column = int32(col)
 }
 
-func newHistory(players []*pb.PlayerInfo) *pb.GameHistory {
+func newHistory(players playerStates) *pb.GameHistory {
 	his := &pb.GameHistory{}
-	his.Players = players
+
+	playerInfo := make([]*pb.PlayerInfo, len(players))
+	for idx, p := range players {
+		playerInfo[idx] = &pb.PlayerInfo{Nickname: p.Nickname,
+			RealName: p.RealName,
+			Number:   p.Number}
+	}
+
+	his.Players = playerInfo
 	his.Uuid = shortuuid.New()
 	his.Turns = []*pb.GameTurn{}
 	return his
 }
 
-// NewGame is how one instantiates a brand new game. It instantiates a history,
-// and deals tiles, creating the first position in the history as well, and
-// essentially starting the game.
+// NewGame is how one instantiates a brand new game.
 func NewGame(rules RuleDefiner, playerinfo []*pb.PlayerInfo) (*Game, error) {
 	game := &Game{}
 	game.gaddag = rules.Gaddag()
-	game.randSeed = rules.RandSeed()
-	log.Debug().Msgf("Random seed for this game was %v", game.randSeed)
-	game.randSource = rules.RandSource()
 	game.alph = game.gaddag.GetAlphabet()
+	game.letterDistribution = rules.LetterDistribution()
 
-	game.history = newHistory(playerinfo)
-	game.bag = rules.Bag().Copy(nil)
 	game.board = rules.Board().Copy()
 
-	first := game.randSource.Intn(2)
-	second := (first + 1) % 2
-
-	// Flip the array if first is not 0.
-	if first != 0 {
-		playerinfo[first], playerinfo[second] = playerinfo[second], playerinfo[first]
-		playerinfo[first].Number = 1
-		playerinfo[second].Number = 2
-	}
-
-	// Player index 0 always starts. The above flip ensures that player is not
-	// always the first one passed into this function.
-	// position.Onturn = 0
-	// position.Playing = true
-	// position.Turnnum = 0
-	// position.Players = make([]*pb.PlayerState, len(playerinfo))
-
 	game.players = make([]*playerState, len(playerinfo))
-
-	for i := 0; i < len(playerinfo); i++ {
-		tiles, _ := game.bag.Draw(7)
-		pstate := &playerState{}
-		pstate.Nickname = playerinfo[i].Nickname
-		pstate.RealName = playerinfo[i].RealName
-		pstate.Number = playerinfo[i].Number
-		pstate.rack = alphabet.NewRack(game.alph)
-		pstate.SetRackTiles(tiles, game.alph)
-		pstate.points = 0
-
-		game.players[i] = pstate
-
+	for idx, p := range playerinfo {
+		game.players[idx] = &playerState{
+			PlayerInfo: pb.PlayerInfo{
+				Nickname: p.Nickname,
+				Number:   p.Number,
+				RealName: p.RealName},
+		}
 	}
 
 	return game, nil
+}
+
+// StartGame seeds the random source anew, and starts a game, dealing out tiles
+// to both players.
+func (g *Game) StartGame() {
+	g.Board().Clear()
+	g.randSeed, g.randSource = seededRandSource()
+	log.Debug().Msgf("Random seed for this game was %v", g.randSeed)
+	g.bag = g.letterDistribution.MakeBag(g.randSource)
+
+	flipFirst := g.randSource.Intn(2)
+	if flipFirst == 0 {
+		g.players.flipFirst()
+	}
+	g.history = newHistory(g.players)
+	// Deal out tiles
+	for i := 0; i < g.NumPlayers(); i++ {
+		tiles, err := g.bag.Draw(7)
+		if err != nil {
+			panic(err)
+		}
+		g.players[i].rack = alphabet.NewRack(g.alph)
+		g.players[i].setRackTiles(tiles, g.alph)
+		g.players[i].points = 0
+	}
+	g.playing = true
 }
 
 // PlayMove plays a move on the board. This function is meant to be used
@@ -199,7 +214,7 @@ func (g *Game) PlayMove(m *move.Move, backup bool) {
 
 		drew := g.bag.DrawAtMost(m.TilesPlayed())
 		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
-		g.players[g.onturn].SetRackTiles(tiles, g.alph)
+		g.players[g.onturn].setRackTiles(tiles, g.alph)
 
 		if !backup {
 			turn.Events = append(turn.Events, g.eventFromMove(m))
@@ -226,7 +241,7 @@ func (g *Game) PlayMove(m *move.Move, backup bool) {
 			panic(err)
 		}
 		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
-		g.players[g.onturn].SetRackTiles(tiles, g.alph)
+		g.players[g.onturn].setRackTiles(tiles, g.alph)
 		g.scorelessTurns++
 		if !backup {
 			turn.Events = append(turn.Events, g.eventFromMove(m))
@@ -260,29 +275,90 @@ func (g *Game) addToHistory(turn *pb.GameTurn) {
 	g.history.Turns = append(g.history.Turns, turn)
 }
 
+func otherPlayer(idx int) int {
+	return (idx + 1) % 2
+}
+
 // SetRackFor sets the player's current rack. It throws an error if
-// the rack is impossible to set from the current bag. It puts tiles
-// back in the bag if needed.
+// the rack is impossible to set from the current unseen tiles. It
+// puts tiles back from opponent racks and our own racks, then sets the rack,
+// and finally redraws for opponent.
 func (g *Game) SetRackFor(playerIdx int, rack *alphabet.Rack) error {
-	g.bag.PutBack(g.RackFor(playerIdx).TilesOn())
+	// Put our tiles back in the bag, as well as our opponent's tiles.
+	g.ThrowRacksIn()
+
+	// Check if we can actually set our rack now that these tiles are in the
+	// bag.
 	err := g.bag.RemoveTiles(rack.TilesOn())
 	if err != nil {
 		log.Error().Msgf("Unable to set rack: %v", err)
 		return err
 	}
+
+	// success; set our rack
 	g.players[playerIdx].rack = rack
 	g.players[playerIdx].rackLetters = rack.String()
+	// And redraw a random rack for opponent.
+	g.SetRandomRack(otherPlayer(playerIdx))
+
 	return nil
+}
+
+// ThrowRacksIn throws both players' racks back in the bag.
+func (g *Game) ThrowRacksIn() {
+	g.players[0].throwRackIn(g.bag)
+	g.players[1].throwRackIn(g.bag)
 }
 
 // SetRandomRack sets the player's rack to a random rack drawn from the bag.
 // It tosses the current rack back in first. This is used for simulations.
 func (g *Game) SetRandomRack(playerIdx int) {
 	tiles := g.bag.Redraw(g.RackFor(playerIdx).TilesOn())
-	g.players[playerIdx].SetRackTiles(tiles, g.alph)
+	g.players[playerIdx].setRackTiles(tiles, g.alph)
 }
 
 // RackFor returns the rack for the player with the passed-in index
 func (g *Game) RackFor(playerIdx int) *alphabet.Rack {
 	return g.players[playerIdx].rack
+}
+
+// RackLettersFor returns a user-visible representation of the player's rack letters
+func (g *Game) RackLettersFor(playerIdx int) string {
+	return g.RackFor(playerIdx).String()
+}
+
+// PointsFor returns the number of points for the given player
+func (g *Game) PointsFor(playerIdx int) int {
+	return g.players[playerIdx].points
+}
+
+// NumPlayers is always 2.
+func (g *Game) NumPlayers() int {
+	return 2
+}
+
+// Bag returns the current bag
+func (g *Game) Bag() *alphabet.Bag {
+	return g.bag
+}
+
+// Board returns the current board state.
+func (g *Game) Board() *board.GameBoard {
+	return g.board
+}
+
+func (g *Game) Turn() int {
+	return g.turnnum
+}
+
+func (g *Game) Uuid() string {
+	return g.history.Uuid
+}
+
+func (g *Game) Playing() bool {
+	return g.playing
+}
+
+func (g *Game) PlayerOnTurn() int {
+	return g.onturn
 }

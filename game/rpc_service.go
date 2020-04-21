@@ -47,31 +47,20 @@ type AnnotationService struct {
 // needed to actually play a game.
 type gamerules struct {
 	board  *board.GameBoard
-	bag    *alphabet.Bag
+	dist   *alphabet.LetterDistribution
 	gaddag *gaddag.SimpleGaddag
-
-	randSeed   int64
-	randSource *rand.Rand
 }
 
 func (g gamerules) Board() *board.GameBoard {
 	return g.board
 }
 
-func (g gamerules) Bag() *alphabet.Bag {
-	return g.bag
+func (g gamerules) LetterDistribution() *alphabet.LetterDistribution {
+	return g.dist
 }
 
 func (g gamerules) Gaddag() *gaddag.SimpleGaddag {
 	return g.gaddag
-}
-
-func (g gamerules) RandSeed() int64 {
-	return g.randSeed
-}
-
-func (g gamerules) RandSource() *rand.Rand {
-	return g.randSource
 }
 
 func seededRandSource() (int64, *rand.Rand) {
@@ -87,10 +76,8 @@ func seededRandSource() (int64, *rand.Rand) {
 	return randSeed, randSource
 }
 
-func newGameRules(cfg *config.Config, boardLayout []string, lexicon string,
+func NewGameRules(cfg *config.Config, boardLayout []string, lexicon string,
 	letterDistributionName string) (*gamerules, error) {
-
-	randSeed, randSource := seededRandSource()
 
 	board := board.MakeBoard(boardLayout)
 	gdFilename := filepath.Join(cfg.LexiconPath, "gaddag", lexicon+".gaddag")
@@ -99,8 +86,8 @@ func newGameRules(cfg *config.Config, boardLayout []string, lexicon string,
 		return nil, err
 	}
 	dist := alphabet.NamedLetterDistribution(letterDistributionName, gd.GetAlphabet())
-	bag := dist.MakeBag(randSource)
-	return &gamerules{board, bag, gd, randSeed, randSource}, nil
+	// bag := dist.MakeBag(randSource)
+	return &gamerules{board, dist, gd}, nil
 }
 
 func NewAnnotationService(cfg *config.Config) *AnnotationService {
@@ -112,7 +99,7 @@ func (a *AnnotationService) NewGame(ctx context.Context, gameReq *pb.NewGameRequ
 	// log := zerolog.Ctx(ctx)
 
 	var err error
-	rules, err := newGameRules(a.cfg, gameReq.BoardLayout, gameReq.Lexicon,
+	rules, err := NewGameRules(a.cfg, gameReq.BoardLayout, gameReq.Lexicon,
 		gameReq.LetterDistribution)
 	if err != nil {
 		return nil, err
