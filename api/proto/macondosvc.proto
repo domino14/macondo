@@ -12,6 +12,11 @@ message GameHistory {
   string uuid = 6;
   string title = 7;
   string description = 8;
+  // last_known_racks should only be set in an incomplete / in-progress game.
+  // if set, player racks should be set to these values.
+  repeated string last_known_racks = 9;
+  // Add letter distribution (basically game name), board config, and more
+  // in the future.
 }
 
 // A GamePosition is a single turn of a GameHistory, and contains the state

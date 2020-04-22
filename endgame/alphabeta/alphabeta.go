@@ -6,7 +6,7 @@ import (
 	"sort"
 
 	"github.com/domino14/macondo/alphabet"
-	"github.com/domino14/macondo/mechanics"
+	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/rs/zerolog/log"
@@ -56,7 +56,7 @@ const (
 // Solver implements the minimax + alphabeta algorithm.
 type Solver struct {
 	movegen          movegen.MoveGenerator
-	game             *mechanics.XWordGame
+	game             *game.Game
 	totalNodes       int
 	initialSpread    int
 	initialTurnNum   int
@@ -93,18 +93,12 @@ func min(x, y float32) float32 {
 }
 
 // Init initializes the solver
-func (s *Solver) Init(movegen movegen.MoveGenerator, game *mechanics.XWordGame) error {
+func (s *Solver) Init(movegen movegen.MoveGenerator, game *game.Game) error {
 	s.movegen = movegen
 	s.game = game
 	s.totalNodes = 0
 	s.iterativeDeepeningOn = true
 
-	if s.game != nil {
-		err := s.game.AssignUndrawnLetters()
-		if err != nil {
-			return err
-		}
-	}
 	s.stmPlayed = make([]bool, alphabet.MaxAlphabetSize+1)
 	s.otsPlayed = make([]bool, alphabet.MaxAlphabetSize+1)
 	s.stmBlockingRects = make([]rect, 20)

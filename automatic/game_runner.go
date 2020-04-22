@@ -53,6 +53,9 @@ func (r *GameRunner) Init() {
 	}
 
 	r.game, err = game.NewGame(rules, players)
+	if err != nil {
+		panic(err)
+	}
 	r.gaddag = rules.Gaddag()
 	r.alphabet = r.gaddag.GetAlphabet()
 	strategy := strategy.NewExhaustiveLeaveStrategy(r.gaddag.LexiconName(),

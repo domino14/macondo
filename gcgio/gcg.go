@@ -134,6 +134,11 @@ func (p *parser) addEventOrPragma(token Token, match []string, gameHistory *pb.G
 		return nil
 	case DescriptionToken:
 		gameHistory.Description = match[1]
+	// Assume Rack1Token always comes before Rack2Token in a well-formed gcg:
+	case Rack1Token:
+		gameHistory.LastKnownRacks = []string{match[1]}
+	case Rack2Token:
+		gameHistory.LastKnownRacks = append(gameHistory.LastKnownRacks, match[2])
 	case EncodingToken:
 		return errors.New("encoding line must be first line in file if present")
 	case MoveToken:

@@ -11,7 +11,6 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/config"
 
-	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
 )
 
@@ -35,9 +34,6 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func GaddagFromLexicon(lex string) (*gaddag.SimpleGaddag, error) {
-	return gaddag.LoadGaddag(filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag"))
-}
 func TestCompVsCompStatic(t *testing.T) {
 	logchan := make(chan string)
 	runner := NewGameRunner(logchan, &DefaultConfig)

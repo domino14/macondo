@@ -3,6 +3,7 @@
 package game
 
 import (
+	"fmt"
 	"math/rand"
 
 	"github.com/domino14/macondo/alphabet"
@@ -20,6 +21,8 @@ type RuleDefiner interface {
 	Gaddag() *gaddag.SimpleGaddag
 	Board() *board.GameBoard
 	LetterDistribution() *alphabet.LetterDistribution
+
+	LoadRule(lexiconName, letterDistributionName string)
 }
 
 // // History is a wrapper around pb.GameHistory to allow for additional
@@ -162,6 +165,23 @@ func NewGame(rules RuleDefiner, playerinfo []*pb.PlayerInfo) (*Game, error) {
 	return game, nil
 }
 
+// NewFromHistory instantiates a Game from a history, and sets the current
+// turn to the passed in turnnum. It assumes the rules contains the current
+// lexicon in history, if any!
+func NewFromHistory(history *pb.GameHistory, rules RuleDefiner, turnnum int) (*Game, error) {
+	game, err := NewGame(rules, history.Players)
+	if err != nil {
+		return nil, err
+	}
+	game.history = history
+	// Now play to turnnum
+	err = game.PlayToTurn(turnnum)
+	if err != nil {
+		return nil, err
+	}
+	return game, nil
+}
+
 // StartGame seeds the random source anew, and starts a game, dealing out tiles
 // to both players.
 func (g *Game) StartGame() {
@@ -279,6 +299,20 @@ func otherPlayer(idx int) int {
 	return (idx + 1) % 2
 }
 
+func (g *Game) PlayToTurn(turnnum int) error {
+	if turnnum < 0 || turnnum > len(g.history.Turns) {
+		return fmt.Errorf("game has %v turns, you have chosen a turn outside the range",
+			len(g.history.Turns))
+	}
+
+	// clear the board, refill the bag
+	// reset score.. see PlayGameToTurn in game_repr.go
+	// update the bag
+	// when we reach the final turn, assign a random rack from undrawn letters
+	// to opponent automatically (if not specified in the history as incomplete racks)
+	// (see LastKnownRacks field)
+}
+
 // SetRackFor sets the player's current rack. It throws an error if
 // the rack is impossible to set from the current unseen tiles. It
 // puts tiles back from opponent racks and our own racks, then sets the rack,
@@ -301,6 +335,23 @@ func (g *Game) SetRackFor(playerIdx int, rack *alphabet.Rack) error {
 	// And redraw a random rack for opponent.
 	g.SetRandomRack(otherPlayer(playerIdx))
 
+	return nil
+}
+
+// SetRacksForBoth sets both racks at the same time.
+func (g *Game) SetRacksForBoth(racks []*alphabet.Rack) error {
+	g.ThrowRacksIn()
+	for _, rack := range racks {
+		err := g.bag.RemoveTiles(rack.TilesOn())
+		if err != nil {
+			log.Error().Msgf("Unable to set rack: %v", err)
+			return err
+		}
+	}
+	for idx, player := range g.players {
+		player.rack = racks[idx]
+		player.rackLetters = racks[idx].String()
+	}
 	return nil
 }
 
@@ -361,4 +412,20 @@ func (g *Game) Playing() bool {
 
 func (g *Game) PlayerOnTurn() int {
 	return g.onturn
+}
+
+func (g *Game) SetPlayerOnTurn(onTurn int) {
+	g.onturn = onTurn
+}
+
+func (g *Game) SetPointsFor(player, pts int) {
+	g.players[player].points = pts
+}
+
+func (g *Game) Alphabet() *alphabet.Alphabet {
+	return g.alph
+}
+
+func (g *Game) CurrentSpread() int {
+	return g.PointsFor(g.onturn) - g.PointsFor((g.onturn+1)%2)
 }

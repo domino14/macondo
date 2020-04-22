@@ -11,11 +11,12 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
+	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
-	"github.com/domino14/macondo/mechanics"
 	"github.com/domino14/macondo/movegen"
+
+	pb "github.com/domino14/macondo/rpc/api/proto"
 )
 
 var DefaultConfig = config.Config{
@@ -39,39 +40,50 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func GaddagFromLexicon(lex string) (*gaddag.SimpleGaddag, error) {
-	return gaddag.LoadGaddag(filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag"))
-}
-
 func setUpSolver(lex string, bvs board.VsWho, plies int, rack1, rack2 string,
 	p1pts, p2pts int, onTurn int) (*Solver, error) {
-	gd, err := GaddagFromLexicon(lex)
+
+	rules, err := game.NewGameRules(&DefaultConfig, board.CrosswordGameBoard,
+		lex, DefaultConfig.DefaultLetterDistribution)
+
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
-	dist := alphabet.EnglishLetterDistribution(gd.GetAlphabet())
 
-	game := &mechanics.XWordGame{}
-	game.Init(gd, dist)
+	players := []*pb.PlayerInfo{
+		&pb.PlayerInfo{Nickname: "p1", RealName: "Player 1", Number: 1},
+		&pb.PlayerInfo{Nickname: "p2", RealName: "Player 2", Number: 2},
+	}
+
+	game, err := game.NewGame(rules, players)
+	if err != nil {
+		panic(err)
+	}
+
+	game.StartGame()
 	game.SetStateStackLength(plies)
-
+	// Throw in the random racks dealt to our players.
+	game.ThrowRacksIn()
+	gd := rules.Gaddag()
+	dist := rules.LetterDistribution()
 	generator := movegen.NewGordonGenerator(gd, game.Board(), dist)
-	alph := game.Alphabet()
+	alph := rules.Gaddag().GetAlphabet()
 
 	tilesInPlay := game.Board().SetToGame(alph, bvs)
-	game.Bag().RemoveTiles(tilesInPlay.OnBoard)
+	err = game.Bag().RemoveTiles(tilesInPlay.OnBoard)
+	if err != nil {
+		panic(err)
+	}
 	game.Board().GenAllCrossSets(gd, dist)
 
-	r1 := alphabet.RackFromString(rack1, alph)
-	r2 := alphabet.RackFromString(rack2, alph)
-
-	game.SetRackFor(0, r1)
-	game.SetRackFor(1, r2)
+	game.SetRacksForBoth([]*alphabet.Rack{
+		alphabet.RackFromString(rack1, alph),
+		alphabet.RackFromString(rack2, alph),
+	})
 	game.SetPointsFor(0, p1pts)
 	game.SetPointsFor(1, p2pts)
 	game.SetPlayerOnTurn(onTurn)
-	game.SetPlaying(true)
-	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
+	fmt.Println(game.Board().ToDisplayText(alph))
 
 	s := new(Solver)
 	s.Init(generator, game)

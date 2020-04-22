@@ -6,13 +6,9 @@ import (
 	"encoding/binary"
 	"math/rand"
 	"os"
-	"path/filepath"
 	"time"
 
-	"github.com/domino14/macondo/alphabet"
-	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/movegen"
 	pb "github.com/domino14/macondo/rpc/api/proto"
 )
@@ -43,26 +39,6 @@ type AnnotationService struct {
 	// endgameSolver *alphabeta.Solver
 }
 
-// gamerules is a simple struct that encapsulates the instantiated objects
-// needed to actually play a game.
-type gamerules struct {
-	board  *board.GameBoard
-	dist   *alphabet.LetterDistribution
-	gaddag *gaddag.SimpleGaddag
-}
-
-func (g gamerules) Board() *board.GameBoard {
-	return g.board
-}
-
-func (g gamerules) LetterDistribution() *alphabet.LetterDistribution {
-	return g.dist
-}
-
-func (g gamerules) Gaddag() *gaddag.SimpleGaddag {
-	return g.gaddag
-}
-
 func seededRandSource() (int64, *rand.Rand) {
 	var b [8]byte
 	_, err := crypto_rand.Read(b[:])
@@ -74,20 +50,6 @@ func seededRandSource() (int64, *rand.Rand) {
 	randSource := rand.New(rand.NewSource(randSeed))
 
 	return randSeed, randSource
-}
-
-func NewGameRules(cfg *config.Config, boardLayout []string, lexicon string,
-	letterDistributionName string) (*gamerules, error) {
-
-	board := board.MakeBoard(boardLayout)
-	gdFilename := filepath.Join(cfg.LexiconPath, "gaddag", lexicon+".gaddag")
-	gd, err := gaddag.LoadGaddag(gdFilename)
-	if err != nil {
-		return nil, err
-	}
-	dist := alphabet.NamedLetterDistribution(letterDistributionName, gd.GetAlphabet())
-	// bag := dist.MakeBag(randSource)
-	return &gamerules{board, dist, gd}, nil
 }
 
 func NewAnnotationService(cfg *config.Config) *AnnotationService {
