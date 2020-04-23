@@ -22,7 +22,7 @@ type RuleDefiner interface {
 	Board() *board.GameBoard
 	LetterDistribution() *alphabet.LetterDistribution
 
-	LoadRule(lexiconName, letterDistributionName string)
+	LoadRule(lexiconName, letterDistributionName string) error
 }
 
 // // History is a wrapper around pb.GameHistory to allow for additional
@@ -174,7 +174,15 @@ func NewFromHistory(history *pb.GameHistory, rules RuleDefiner, turnnum int) (*G
 		return nil, err
 	}
 	game.history = history
-	// Now play to turnnum
+
+	// Initialize the bag and player rack structures to avoid panics.
+	game.randSeed, game.randSource = seededRandSource()
+	log.Debug().Msgf("Random seed for this game was %v", game.randSeed)
+	game.bag = game.letterDistribution.MakeBag(game.randSource)
+	for i := 0; i < game.NumPlayers(); i++ {
+		game.players[i].rack = alphabet.NewRack(game.alph)
+	}
+	// Then play to the passed-in turn.
 	err = game.PlayToTurn(turnnum)
 	if err != nil {
 		return nil, err
@@ -286,6 +294,77 @@ func (g *Game) PlayMove(m *move.Move, backup bool) {
 	g.turnnum++
 }
 
+// PlayScoringMove plays a move on a board that is described by the
+// coordinates and word only. It returns the move.
+func (g *Game) PlayScoringMove(coords, word string) (*move.Move, error) {
+	playerid := g.onturn
+	rack := g.RackFor(playerid).String()
+
+	m, err := g.CreateAndScorePlacementMove(coords, word, rack)
+	if err != nil {
+		log.Error().Msgf("Trying to create and score move, err was %v", err)
+		return nil, err
+	}
+	// Actually make the play on the board:
+	g.PlayMove(m, false)
+	return m, nil
+}
+
+// CreateAndScorePlacementMove creates a *move.Move from the coords and
+// given tiles. It scores the move, calculates the leave, etc. This should
+// be used when a person is interacting with the interface.
+func (g *Game) CreateAndScorePlacementMove(coords string, tiles string, rack string) (*move.Move, error) {
+
+	row, col, vertical := move.FromBoardGameCoords(coords)
+
+	// convert tiles to MachineWord
+	mw, err := alphabet.ToMachineWord(tiles, g.alph)
+	if err != nil {
+		return nil, err
+	}
+	rackmw, err := alphabet.ToMachineWord(rack, g.alph)
+	if err != nil {
+		return nil, err
+	}
+	tilesPlayed := 0
+	for _, m := range mw {
+		if m.IsPlayedTile() {
+			tilesPlayed++
+		}
+	}
+	leavemw, err := Leave(rackmw, mw)
+	if err != nil {
+		return nil, err
+	}
+	err = g.Board().ErrorIfIllegalPlay(row, col, vertical, mw)
+	if err != nil {
+		return nil, err
+	}
+	// Notes: the cross direction is in the opposite direction that the
+	// play is actually in. Additionally, we transpose the board if
+	// the play is vertical, due to how the scoring routine works.
+	// We transpose it back at the end.
+	crossDir := board.VerticalDirection
+	if vertical {
+		crossDir = board.HorizontalDirection
+		row, col = col, row
+		g.Board().Transpose()
+	}
+
+	// ScoreWord assumes the play is always horizontal, so we have to
+	// do the transpositions beforehand.
+	score := g.Board().ScoreWord(mw, row, col, tilesPlayed, crossDir, g.bag.LetterDistribution())
+	// reset row, col back for the actual creation of the play.
+	if vertical {
+		row, col = col, row
+		g.Board().Transpose()
+	}
+	m := move.NewScoringMove(score, mw, leavemw, vertical, tilesPlayed,
+		g.alph, row, col, coords)
+	return m, nil
+
+}
+
 func (g *Game) calculateRackPts(onturn int) int {
 	rack := g.players[onturn].rack
 	return rack.ScoreOn(g.bag.LetterDistribution())
@@ -304,7 +383,48 @@ func (g *Game) PlayToTurn(turnnum int) error {
 		return fmt.Errorf("game has %v turns, you have chosen a turn outside the range",
 			len(g.history.Turns))
 	}
+	if g.board == nil {
+		return fmt.Errorf("board does not exist")
+	}
+	if g.bag == nil {
+		return fmt.Errorf("bag has not been initialized; need to start game")
+	}
 
+	g.board.Clear()
+	g.bag.Refill()
+	g.players.resetScore()
+	g.turnnum = 0
+	g.onturn = 0
+	g.playing = true
+	playedTiles := []alphabet.MachineLetter(nil)
+	var t int
+	for t = 0; t < turnnum; t++ {
+		addlTiles := g.playTurn(t)
+		playedTiles = append(playedTiles, addlTiles...)
+	}
+	// err := g.reconcileTiles(playedTiles, t)
+	// if err != nil {
+	// 	return err
+	// }
+	if g.history.LastKnownRacks != nil {
+		g.SetRacksForBoth([]*alphabet.Rack{
+			alphabet.RackFromString(g.history.LastKnownRacks[0], g.alph),
+			alphabet.RackFromString(g.history.LastKnownRacks[1], g.alph),
+		})
+	} else {
+		// playTurn should have refilled the rack of the relevant player,
+		// who was on turn. So draw a random rack for the player who's on
+		// turn now.
+		g.SetRandomRack(g.onturn)
+	}
+	for _, p := range g.players {
+		if p.rack.NumTiles() == 0 {
+			log.Debug().Msgf("Player %v has no tiles, game is over.", p)
+			g.playing = false
+			break
+		}
+	}
+	return nil
 	// clear the board, refill the bag
 	// reset score.. see PlayGameToTurn in game_repr.go
 	// update the bag
@@ -312,6 +432,113 @@ func (g *Game) PlayToTurn(turnnum int) error {
 	// to opponent automatically (if not specified in the history as incomplete racks)
 	// (see LastKnownRacks field)
 }
+
+func (g *Game) playTurn(t int) []alphabet.MachineLetter {
+	// XXX: This function is pretty similar to PlayMove above. It has a
+	// subset of the functionality as it's designed to replay an already
+	// recorded turn on the board.
+	playedTiles := []alphabet.MachineLetter(nil)
+	challengedOffPlay := false
+	evts := g.history.Turns[t].Events
+	// Check for the special case where a player played a phony that was
+	// challenged off. We don't want to process this at all.
+	if len(evts) == 2 {
+		if evts[0].Type == pb.GameEvent_TILE_PLACEMENT_MOVE &&
+			evts[1].Type == pb.GameEvent_PHONY_TILES_RETURNED {
+			challengedOffPlay = true
+		}
+	}
+	// Set the rack for the user on turn to the rack in the history.
+	g.SetRackFor(g.onturn, alphabet.RackFromString(evts[0].Rack, g.alph))
+	if !challengedOffPlay {
+		for _, evt := range evts {
+			m := moveFromEvent(evt, g.alph)
+
+			switch m.Action() {
+			case move.MoveTypePlay:
+				g.board.PlayMove(m, g.gaddag, g.bag.LetterDistribution())
+				g.players[g.onturn].points += m.Score()
+
+				// Add tiles to playedTilesList
+				for _, t := range m.Tiles() {
+					if t != alphabet.PlayedThroughMarker {
+						// Note that if a blank is played, the blanked letter
+						// is added to the played tiles (and not the blank itself)
+						// The RemoveTiles function below handles this later.
+						playedTiles = append(playedTiles, t)
+					}
+				}
+				// Note that what we draw here (and in exchange, below) may not
+				// be what was recorded. That's ok -- we always set the rack
+				// at the beginning to whatever was recorded. Drawing like
+				// normal, though, ensures we don't have to reconcile any
+				// tiles with the bag.
+				drew := g.bag.DrawAtMost(m.TilesPlayed())
+				tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
+				g.players[g.onturn].setRackTiles(tiles, g.alph)
+
+				// Don't check game end logic here, as we assume we have the
+				// right event for that (move.MoveTypeEndgameTiles for example).
+
+			case move.MoveTypeChallengeBonus, move.MoveTypeEndgameTiles,
+				move.MoveTypePhonyTilesReturned, move.MoveTypeLostTileScore,
+				move.MoveTypeLostScoreOnTime:
+
+				// The score should already have the proper sign at creation time.
+				g.players[g.onturn].points += m.Score()
+
+			case move.MoveTypeExchange:
+
+				drew, err := g.bag.Exchange([]alphabet.MachineLetter(m.Tiles()))
+				if err != nil {
+					panic(err)
+				}
+				tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
+				g.players[g.onturn].setRackTiles(tiles, g.alph)
+			default:
+				// Nothing
+
+			}
+		}
+	}
+
+	g.onturn = (g.onturn + 1) % len(g.players)
+	g.turnnum++
+	return playedTiles
+}
+
+// func (g *Game) reconcileTiles(playedTiles []alphabet.MachineLetter, turn int) error {
+// 	// Reconcile tiles in the bag.
+
+// 	var err error
+// 	log.Debug().Msgf("Removing tiles played: %v", playedTiles)
+// 	err = g.bag.RemoveTiles(playedTiles)
+// 	log.Debug().Msgf("Error was %v", err)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	// Determine the latest rack available. Sometimes a game representation
+// 	// ends before the game itself is over, so we need to make sure
+// 	// we don't mistakenly give the other player all the remaining tiles, etc
+// 	var rack alphabet.MachineWord
+// 	notOnTurn := (g.onturn + 1) % 2
+
+// 	if turn < len(repr.Turns) {
+// 		// Find the rack of the player currently on turn; after playing
+// 		// turns up to this point.
+// 		rack, err = alphabet.ToMachineWord(repr.Turns[turn][0].GetRack(), g.alph)
+
+// 		if err != nil {
+// 			return err
+// 		}
+// 	}
+// 	// Always empty the opponent's rack, so it doesn't display.
+// 	g.players[notOnTurn].SetRack([]alphabet.MachineLetter{}, g.alph)
+// 	log.Debug().Msgf("My rack is %v, removing it from bag", rack.UserVisible(g.alph))
+// 	g.players[g.onturn].SetRack(rack, g.alph)
+
+// 	return g.bag.RemoveTiles(rack)
+// }
 
 // SetRackFor sets the player's current rack. It throws an error if
 // the rack is impossible to set from the current unseen tiles. It

@@ -673,30 +673,29 @@ func TestProperIterativeDeepening(t *testing.T) {
 	is := is.New(t)
 	// Should get the same result with 7 or 8 plies.
 	plyCount := []int{7, 8}
-
+	rules, err := game.NewGameRules(&DefaultConfig, board.CrosswordGameBoard,
+		"NWL18", "English")
+	is.NoErr(err)
 	for _, plies := range plyCount {
 
-		curGameRepr, err := gcgio.ParseGCG("../../gcgio/testdata/noah_vs_mishu.gcg")
+		gameHistory, err := gcgio.ParseGCG("../../gcgio/testdata/noah_vs_mishu.gcg")
 		is.NoErr(err)
-		game := mechanics.StateFromRepr(curGameRepr, &DefaultConfig, 0)
+
+		game, err := game.NewFromHistory(gameHistory, rules, 28)
+		is.NoErr(err)
 		game.SetStateStackLength(plies)
 
-		err = game.PlayGameToTurn(curGameRepr, 28)
-		is.NoErr(err)
-		err = game.AssignUndrawnLetters()
-		is.NoErr(err)
-
 		// Make a few plays:
-		mechanics.PlayScoringMove(game, "H7", "T...")
-		mechanics.PlayScoringMove(game, "N5", "C...")
-		mechanics.PlayScoringMove(game, "10A", ".IN")
+		game.PlayScoringMove("H7", "T...")
+		game.PlayScoringMove("N5", "C...")
+		game.PlayScoringMove("10A", ".IN")
 		// Note that this is not right; user should play the P off at 6I,
 		// but this is for testing purposes only:
-		mechanics.PlayScoringMove(game, "13L", "...R")
+		game.PlayScoringMove("13L", "...R")
 		is.Equal(game.PointsFor(0), 339)
 		is.Equal(game.PointsFor(1), 381)
 		generator := movegen.NewGordonGenerator(
-			game.Gaddag(), game.Board(), game.Bag().LetterDistribution(),
+			rules.Gaddag(), game.Board(), game.Bag().LetterDistribution(),
 		)
 		s := new(Solver)
 		s.Init(generator, game)
@@ -711,6 +710,7 @@ func TestProperIterativeDeepening(t *testing.T) {
 	}
 }
 
+/*
 func TestFromGCG(t *testing.T) {
 	plies := 3
 	is := is.New(t)
