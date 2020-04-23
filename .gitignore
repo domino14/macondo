@@ -18,6 +18,5 @@ log*.csv
 *.csv.gz
 data/lexica
 *.tar.gz
-notebooks/leave*.csv
-notebooks/log*.csv
-notebooks/log*.txt
+notebooks/superleaves/leave*
+notebooks/logs/*
