@@ -56,6 +56,8 @@ func (p *playerState) resetScore() {
 }
 
 func (p *playerState) throwRackIn(bag *alphabet.Bag) {
+	log.Debug().Str("rack", p.rack.String()).Int32("player", p.Number).
+		Msg("throwing rack in")
 	bag.PutBack(p.rack.TilesOn())
 	p.rack.Set([]alphabet.MachineLetter{})
 	p.rackLetters = ""
@@ -67,6 +69,13 @@ func (p *playerState) setRackTiles(tiles []alphabet.MachineLetter, alph *alphabe
 }
 
 type playerStates []*playerState
+
+func (p playerStates) resetRacks() {
+	for idx := range p {
+		p[idx].rack.Clear()
+		p[idx].rackLetters = ""
+	}
+}
 
 func (p playerStates) resetScore() {
 	for idx := range p {
@@ -379,6 +388,7 @@ func otherPlayer(idx int) int {
 }
 
 func (g *Game) PlayToTurn(turnnum int) error {
+	log.Debug().Int("turnnum", turnnum).Msg("playing to turn")
 	if turnnum < 0 || turnnum > len(g.history.Turns) {
 		return fmt.Errorf("game has %v turns, you have chosen a turn outside the range",
 			len(g.history.Turns))
@@ -393,30 +403,42 @@ func (g *Game) PlayToTurn(turnnum int) error {
 	g.board.Clear()
 	g.bag.Refill()
 	g.players.resetScore()
+	g.players.resetRacks()
 	g.turnnum = 0
 	g.onturn = 0
 	g.playing = true
-	playedTiles := []alphabet.MachineLetter(nil)
 	var t int
 	for t = 0; t < turnnum; t++ {
-		addlTiles := g.playTurn(t)
-		playedTiles = append(playedTiles, addlTiles...)
+		g.playTurn(t)
+		log.Debug().Int("turn", t).Msg("played turn")
 	}
-	// err := g.reconcileTiles(playedTiles, t)
-	// if err != nil {
-	// 	return err
-	// }
-	if g.history.LastKnownRacks != nil {
-		g.SetRacksForBoth([]*alphabet.Rack{
-			alphabet.RackFromString(g.history.LastKnownRacks[0], g.alph),
-			alphabet.RackFromString(g.history.LastKnownRacks[1], g.alph),
-		})
+
+	if t >= len(g.history.Turns) {
+		if g.history.LastKnownRacks != nil {
+			if len(g.history.LastKnownRacks) == 2 {
+				g.SetRacksForBoth([]*alphabet.Rack{
+					alphabet.RackFromString(g.history.LastKnownRacks[0], g.alph),
+					alphabet.RackFromString(g.history.LastKnownRacks[1], g.alph),
+				})
+			} else {
+				g.SetRackFor(0, alphabet.RackFromString(g.history.LastKnownRacks[0], g.alph))
+			}
+		} else {
+			// We don't have a recorded rack, so set it to a random one.
+			g.SetRandomRack(g.onturn)
+		}
 	} else {
 		// playTurn should have refilled the rack of the relevant player,
-		// who was on turn. So draw a random rack for the player who's on
-		// turn now.
-		g.SetRandomRack(g.onturn)
+		// who was on turn.
+		// So set the currently on turn's rack to whatever is in the history.
+		log.Debug().Int("turn", t).Msg("setting rack from turn")
+		err := g.SetRackFor(g.onturn, alphabet.RackFromString(
+			g.history.Turns[t].Events[0].Rack, g.alph))
+		if err != nil {
+			return err
+		}
 	}
+
 	for _, p := range g.players {
 		if p.rack.NumTiles() == 0 {
 			log.Debug().Msgf("Player %v has no tiles, game is over.", p)
@@ -452,7 +474,7 @@ func (g *Game) playTurn(t int) []alphabet.MachineLetter {
 	g.SetRackFor(g.onturn, alphabet.RackFromString(evts[0].Rack, g.alph))
 	if !challengedOffPlay {
 		for _, evt := range evts {
-			m := moveFromEvent(evt, g.alph)
+			m := moveFromEvent(evt, g.alph, g.board)
 
 			switch m.Action() {
 			case move.MoveTypePlay:
@@ -550,6 +572,7 @@ func (g *Game) SetRackFor(playerIdx int, rack *alphabet.Rack) error {
 
 	// Check if we can actually set our rack now that these tiles are in the
 	// bag.
+	log.Debug().Str("rack", rack.TilesOn().UserVisible(g.alph)).Msg("removing from bag")
 	err := g.bag.RemoveTiles(rack.TilesOn())
 	if err != nil {
 		log.Error().Msgf("Unable to set rack: %v", err)
@@ -559,6 +582,8 @@ func (g *Game) SetRackFor(playerIdx int, rack *alphabet.Rack) error {
 	// success; set our rack
 	g.players[playerIdx].rack = rack
 	g.players[playerIdx].rackLetters = rack.String()
+	log.Debug().Str("rack", g.players[playerIdx].rackLetters).
+		Int("player", playerIdx).Msg("set rack")
 	// And redraw a random rack for opponent.
 	g.SetRandomRack(otherPlayer(playerIdx))
 
@@ -591,8 +616,12 @@ func (g *Game) ThrowRacksIn() {
 // SetRandomRack sets the player's rack to a random rack drawn from the bag.
 // It tosses the current rack back in first. This is used for simulations.
 func (g *Game) SetRandomRack(playerIdx int) {
+	log.Debug().Int("player", playerIdx).Str("rack", g.RackFor(playerIdx).TilesOn().UserVisible(g.alph)).
+		Msg("setting random rack..")
 	tiles := g.bag.Redraw(g.RackFor(playerIdx).TilesOn())
 	g.players[playerIdx].setRackTiles(tiles, g.alph)
+	log.Debug().Int("player", playerIdx).Str("newrack", g.players[playerIdx].rackLetters).
+		Msg("set random rack")
 }
 
 // RackFor returns the rack for the player with the passed-in index

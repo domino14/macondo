@@ -710,22 +710,23 @@ func TestProperIterativeDeepening(t *testing.T) {
 	}
 }
 
-/*
 func TestFromGCG(t *testing.T) {
 	plies := 3
 	is := is.New(t)
 
-	curGameRepr, err := gcgio.ParseGCG("../../gcgio/testdata/vs_frentz.gcg")
+	rules, err := game.NewGameRules(&DefaultConfig, board.CrosswordGameBoard,
+		"CSW19", "English")
+
+	gameHistory, err := gcgio.ParseGCG("../../gcgio/testdata/vs_frentz.gcg")
 	is.NoErr(err)
-	newConfig := DefaultConfig
-	newConfig.DefaultLexicon = "CSW19"
-	game := mechanics.StateFromRepr(curGameRepr, &newConfig, 0)
+
+	game, err := game.NewFromHistory(gameHistory, rules, 21)
+	is.NoErr(err)
+
 	game.SetStateStackLength(plies)
-	err = game.PlayGameToTurn(curGameRepr, 21)
-	is.NoErr(err)
 	generator := movegen.NewGordonGenerator(
 		// The strategy doesn't matter right here
-		game.Gaddag(), game.Board(), game.Bag().LetterDistribution(),
+		rules.Gaddag(), game.Board(), game.Bag().LetterDistribution(),
 	)
 
 	s := new(Solver)

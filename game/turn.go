@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/move"
 	pb "github.com/domino14/macondo/rpc/api/proto"
 	"github.com/rs/zerolog/log"
@@ -59,8 +60,52 @@ func (g *Game) endRackEvt(bonusPts int) *pb.GameEvent {
 	return evt
 }
 
+func modifyForPlaythrough(tiles alphabet.MachineWord, board *board.GameBoard,
+	vertical bool, row int, col int) error {
+
+	// modify the tiles array to account for situations in which a letter
+	// being played through is not specified as the playthrough marker
+	log.Debug().
+		Str("tiles", tiles.UserVisible(alphabet.EnglishAlphabet())).
+		Msg("Modifying for playthrough")
+
+	currow := row
+	curcol := col
+	for idx := range tiles {
+
+		if vertical {
+			currow = row + idx
+		} else {
+			curcol = col + idx
+		}
+
+		if tiles[idx] != alphabet.PlayedThroughMarker {
+			log.Debug().Int("ml", int(tiles[idx])).Msg("not playthru")
+			// This is either a tile we are placing or a tile on the board.
+			log.Debug().Int("row", currow).Int("col", curcol).
+				Bool("empty", board.GetSquare(currow, curcol).IsEmpty()).Msg("sq by sq")
+			if !board.GetSquare(currow, curcol).IsEmpty() {
+				// We specified a tile on the board already. Make sure
+				// that it's the same tile we specified.
+				onboard := board.GetSquare(currow, curcol).Letter()
+				if onboard != tiles[idx] && onboard.Unblank() != tiles[idx].Unblank() {
+					return fmt.Errorf("the play-through tile is incorrect (board %v, specified %v)",
+						int(onboard), int(tiles[idx]))
+				}
+				// Overwrite to be playthroughmarker
+				log.Debug().Int("idx", idx).Int("ml", int(tiles[idx])).Msg("Overwriting tile at idx")
+				tiles[idx] = alphabet.PlayedThroughMarker
+			}
+			// Otherwise it's a tile we are placing. Do nothing.
+
+		}
+
+	}
+	return nil
+}
+
 // Generate a move from an event
-func moveFromEvent(evt *pb.GameEvent, alph *alphabet.Alphabet) *move.Move {
+func moveFromEvent(evt *pb.GameEvent, alph *alphabet.Alphabet, board *board.GameBoard) *move.Move {
 	var m *move.Move
 
 	rack, err := alphabet.ToMachineWord(evt.Rack, alph)
@@ -73,6 +118,13 @@ func moveFromEvent(evt *pb.GameEvent, alph *alphabet.Alphabet) *move.Move {
 	case pb.GameEvent_TILE_PLACEMENT_MOVE:
 		// Calculate tiles, leave, tilesPlayed
 		tiles, err := alphabet.ToMachineWord(evt.PlayedTiles, alph)
+		if err != nil {
+			log.Error().Err(err).Msg("")
+			return nil
+		}
+
+		err = modifyForPlaythrough(tiles, board, evt.Direction == pb.GameEvent_VERTICAL,
+			int(evt.Row), int(evt.Column))
 		if err != nil {
 			log.Error().Err(err).Msg("")
 			return nil

@@ -138,7 +138,7 @@ func (p *parser) addEventOrPragma(token Token, match []string, gameHistory *pb.G
 	case Rack1Token:
 		gameHistory.LastKnownRacks = []string{match[1]}
 	case Rack2Token:
-		gameHistory.LastKnownRacks = append(gameHistory.LastKnownRacks, match[2])
+		gameHistory.LastKnownRacks = append(gameHistory.LastKnownRacks, match[1])
 	case EncodingToken:
 		return errors.New("encoding line must be first line in file if present")
 	case MoveToken:
