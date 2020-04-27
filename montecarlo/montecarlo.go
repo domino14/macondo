@@ -15,7 +15,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/domino14/macondo/ai/player"
-	"github.com/domino14/macondo/mechanics"
+	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/rs/zerolog/log"
@@ -137,9 +137,9 @@ func (sp *SimmedPlay) addEquityStat(spread int, leftover float64) {
 
 // Simmer implements the actual look-ahead search
 type Simmer struct {
-	origGame *mechanics.XWordGame
+	origGame *game.Game
 
-	gameCopies []*mechanics.XWordGame
+	gameCopies []*game.Game
 	movegens   []movegen.MoveGenerator
 
 	aiplayer player.AIPlayer
@@ -157,7 +157,7 @@ type Simmer struct {
 	logStream io.Writer
 }
 
-func (s *Simmer) Init(game *mechanics.XWordGame, aiplayer player.AIPlayer) {
+func (s *Simmer) Init(game *game.Game, aiplayer player.AIPlayer) {
 	s.origGame = game
 	s.aiplayer = aiplayer
 	s.threads = int(math.Max(1, float64(runtime.NumCPU()-1)))
@@ -172,7 +172,7 @@ func (s *Simmer) SetLogStream(l io.Writer) {
 }
 
 func (s *Simmer) makeGameCopies() {
-	s.gameCopies = []*mechanics.XWordGame{}
+	s.gameCopies = []*game.Game{}
 	s.movegens = []movegen.MoveGenerator{}
 	for i := 0; i < s.threads; i++ {
 		s.gameCopies = append(s.gameCopies, s.origGame.Copy())
@@ -333,7 +333,7 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 		// logIter.Plays = append(logIter.Plays)
 		// Play the move, and back up the game state.
 		// log.Debug().Msgf("Playing move %v", play)
-		s.gameCopies[thread].PlayMove(simmedPlay.play, true)
+		s.gameCopies[thread].PlayMove(simmedPlay.play, true, false)
 		for ply := 0; ply < plies; ply++ {
 			// Each ply is a player taking a turn
 			onTurn := s.gameCopies[thread].PlayerOnTurn()
@@ -342,7 +342,7 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 
 				bestPlay := s.bestStaticTurn(onTurn, thread)
 				// log.Debug().Msgf("Ply %v, Best play: %v", ply+1, bestPlay)
-				s.gameCopies[thread].PlayMove(bestPlay, false)
+				s.gameCopies[thread].PlayMove(bestPlay, false, false)
 				// log.Debug().Msgf("Score is now %v", s.game.Score())
 				if s.logStream != nil {
 					plyChild = LogPlay{Play: bestPlay.ShortDescription(), Rack: bestPlay.FullRack(), Pts: bestPlay.Score()}

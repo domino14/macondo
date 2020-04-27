@@ -686,12 +686,12 @@ func TestProperIterativeDeepening(t *testing.T) {
 		game.SetStateStackLength(plies)
 
 		// Make a few plays:
-		game.PlayScoringMove("H7", "T...")
-		game.PlayScoringMove("N5", "C...")
-		game.PlayScoringMove("10A", ".IN")
+		game.PlayScoringMove("H7", "T...", false)
+		game.PlayScoringMove("N5", "C...", false)
+		game.PlayScoringMove("10A", ".IN", false)
 		// Note that this is not right; user should play the P off at 6I,
 		// but this is for testing purposes only:
-		game.PlayScoringMove("13L", "...R")
+		game.PlayScoringMove("13L", "...R", false)
 		is.Equal(game.PointsFor(0), 339)
 		is.Equal(game.PointsFor(1), 381)
 		generator := movegen.NewGordonGenerator(

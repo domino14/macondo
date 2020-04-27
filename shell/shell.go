@@ -24,11 +24,12 @@ import (
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/endgame/alphabeta"
 	"github.com/domino14/macondo/gaddag"
+	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
-	"github.com/domino14/macondo/mechanics"
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
+	pb "github.com/domino14/macondo/rpc/api/proto"
 	"github.com/domino14/macondo/strategy"
 )
 
@@ -40,9 +41,8 @@ type ShellController struct {
 	l      *readline.Instance
 	config *config.Config
 
-	curGameState *mechanics.XWordGame
-	curGameRepr  *mechanics.GameRepr
-	aiplayer     player.AIPlayer
+	game     *game.Game
+	aiplayer player.AIPlayer
 
 	simmer        *montecarlo.Simmer
 	simCtx        context.Context
@@ -105,20 +105,21 @@ func NewShellController(cfg *config.Config) *ShellController {
 
 func (sc *ShellController) initGameDataStructures() {
 	strategy := strategy.NewExhaustiveLeaveStrategy(
-		sc.curGameState.Gaddag().LexiconName(),
-		sc.curGameState.Gaddag().GetAlphabet(),
+		sc.game.Gaddag().LexiconName(),
+		sc.game.Gaddag().GetAlphabet(),
 		sc.config.StrategyParamsPath)
 
 	sc.aiplayer = player.NewRawEquityPlayer(strategy)
-	sc.gen = movegen.NewGordonGenerator(sc.curGameState.Gaddag(),
-		sc.curGameState.Board(), sc.curGameState.Bag().LetterDistribution())
+	sc.gen = movegen.NewGordonGenerator(sc.game.Gaddag(),
+		sc.game.Board(), sc.game.Bag().LetterDistribution())
 
 	sc.simmer = &montecarlo.Simmer{}
-	sc.simmer.Init(sc.curGameState, sc.aiplayer)
+	sc.simmer.Init(sc.game, sc.aiplayer)
 }
 
 func (sc *ShellController) loadGCG(filepath string) error {
 	var err error
+	var history *pb.GameHistory
 	// Try to parse filepath as a network path.
 	if strings.HasPrefix(filepath, "xt ") {
 		xtgcg := strings.Split(filepath, " ")
@@ -141,20 +142,27 @@ func (sc *ShellController) loadGCG(filepath string) error {
 		}
 		defer resp.Body.Close()
 
-		sc.curGameRepr, err = gcgio.ParseGCGFromReader(resp.Body)
+		history, err = gcgio.ParseGCGFromReader(resp.Body)
 		if err != nil {
 			return err
 		}
 
 	} else {
-		sc.curGameRepr, err = gcgio.ParseGCG(filepath)
+		history, err = gcgio.ParseGCG(filepath)
 		if err != nil {
 			return err
 		}
 	}
-	log.Debug().Msgf("Loaded game repr; players: %v", sc.curGameRepr.Players)
-	sc.curGameState = mechanics.StateFromRepr(sc.curGameRepr, sc.config, 0)
-
+	log.Debug().Msgf("Loaded game repr; players: %v", history.Players)
+	rules, err := game.NewGameRules(sc.config, board.CrosswordGameBoard,
+		history.Lexicon, sc.config.DefaultLetterDistribution)
+	if err != nil {
+		return err
+	}
+	sc.game, err = game.NewFromHistory(history, rules, 0)
+	if err != nil {
+		return err
+	}
 	sc.initGameDataStructures()
 
 	return nil
@@ -162,10 +170,10 @@ func (sc *ShellController) loadGCG(filepath string) error {
 
 func (sc *ShellController) setToTurn(turnnum int) error {
 
-	if sc.curGameState == nil {
+	if sc.game == nil {
 		return errors.New("please load a game first with the `load` command")
 	}
-	err := sc.curGameState.PlayGameToTurn(sc.curGameRepr, turnnum)
+	err := sc.game.PlayToTurn(turnnum)
 	if err != nil {
 		return err
 	}
@@ -183,6 +191,7 @@ func MoveTableRow(idx int, m *move.Move, alph *alphabet.Alphabet) string {
 		m.ShortDescription(), m.Leave().UserVisible(alph), m.Score(), m.Equity())
 }
 
+// XXX: THIS FUNCTION MIGHT NOT BE NEEDED ANYMORE
 func exchangeAllowed(board *board.GameBoard, ld *alphabet.LetterDistribution) bool {
 	// Instead of checking if the bag has 7 or more tiles, we check that the
 	// board has 80 tiles on it or more.
@@ -205,23 +214,25 @@ func (sc *ShellController) printEndgameSequence(moves []*move.Move) {
 
 func (sc *ShellController) genMovesAndDisplay(numPlays int) {
 
-	alph := sc.curGameState.Alphabet()
-	curRack := sc.curGameState.RackFor(sc.curGameState.PlayerOnTurn())
-	opp := (sc.curGameState.PlayerOnTurn() + 1) % sc.curGameState.NumPlayers()
-	oppRack := sc.curGameState.RackFor(opp)
-	if oppRack.NumTiles() == 0 && sc.curGameState.Bag().TilesRemaining() <= 7 {
+	alph := sc.game.Alphabet()
+	curRack := sc.game.RackFor(sc.game.PlayerOnTurn())
+	opp := (sc.game.PlayerOnTurn() + 1) % sc.game.NumPlayers()
+	oppRack := sc.game.RackFor(opp)
+
+	// XXX: MIGHT BE ABLE TO REMOVE THIS:
+	if oppRack.NumTiles() == 0 && sc.game.Bag().TilesRemaining() <= 7 {
 		log.Debug().Msg("Assigning remainder of unseen tiles to opponent...")
-		oppRack = alphabet.NewRack(sc.curGameState.Alphabet())
-		oppRack.Set(sc.curGameState.Bag().Peek())
+		oppRack = alphabet.NewRack(sc.game.Alphabet())
+		oppRack.Set(sc.game.Bag().Peek())
 	}
 
-	canExchange := exchangeAllowed(sc.curGameState.Board(),
-		sc.curGameState.Bag().LetterDistribution())
+	canExchange := exchangeAllowed(sc.game.Board(),
+		sc.game.Bag().LetterDistribution())
 	sc.gen.GenAll(curRack, canExchange)
 
 	// Assign equity to plays, and only show the top ones.
-	sc.aiplayer.AssignEquity(sc.gen.Plays(), sc.curGameState.Board(),
-		sc.curGameState.Bag(), oppRack)
+	sc.aiplayer.AssignEquity(sc.gen.Plays(), sc.game.Board(),
+		sc.game.Bag(), oppRack)
 	sc.curGenPlays = sc.aiplayer.TopPlays(sc.gen.Plays(), numPlays)
 
 	sc.showMessage(moveTableHeader())
@@ -317,10 +328,10 @@ func (sc *ShellController) modeSelector(line string) {
 func (sc *ShellController) addRack(rack string) error {
 	// Set current player on turn's rack.
 	playerid := sc.curTurnNum % 2
-	if sc.curGameState == nil {
+	if sc.game == nil {
 		return errors.New("please start a game first")
 	}
-	return sc.curGameState.SetRackFor(playerid, alphabet.RackFromString(rack, sc.curGameState.Alphabet()))
+	return sc.game.SetRackFor(playerid, alphabet.RackFromString(rack, sc.game.Alphabet()))
 }
 
 func (sc *ShellController) addPlay(line string) error {
@@ -356,11 +367,11 @@ func (sc *ShellController) addPlay(line string) error {
 				return errors.New("play outside range")
 			}
 			m = sc.curGenPlays[idx]
-			cumul = sc.curGameState.PointsFor(playerid) + m.Score()
+			cumul = sc.game.PointsFor(playerid) + m.Score()
 		} else if cmd[1] == "pass" {
-			rack := sc.curGameState.RackFor(playerid)
-			m = move.NewPassMove(rack.TilesOn(), sc.curGameState.Alphabet())
-			cumul = sc.curGameState.PointsFor(playerid)
+			rack := sc.game.RackFor(playerid)
+			m = move.NewPassMove(rack.TilesOn(), sc.game.Alphabet())
+			cumul = sc.game.PointsFor(playerid)
 		} else {
 			return errors.New("unrecognized arguments to `add`")
 		}
@@ -371,22 +382,22 @@ func (sc *ShellController) addPlay(line string) error {
 
 		if coords == "exchange" {
 
-			rack := sc.curGameState.RackFor(playerid)
-			tiles, err := alphabet.ToMachineWord(word, sc.curGameState.Alphabet())
+			rack := sc.game.RackFor(playerid)
+			tiles, err := alphabet.ToMachineWord(word, sc.game.Alphabet())
 			if err != nil {
 				return err
 			}
-			leaveMW, err := mechanics.Leave(rack.TilesOn(), tiles)
+			leaveMW, err := game.Leave(rack.TilesOn(), tiles)
 			if err != nil {
 				return err
 			}
 
-			m = move.NewExchangeMove(tiles, leaveMW, sc.curGameState.Alphabet())
-			cumul = sc.curGameState.PointsFor(playerid)
+			m = move.NewExchangeMove(tiles, leaveMW, sc.game.Alphabet())
+			cumul = sc.game.PointsFor(playerid)
 		} else {
 
-			rack := sc.curGameState.RackFor(playerid).String()
-			m, err = sc.curGameState.CreateAndScorePlacementMove(coords, word, rack)
+			rack := sc.game.RackFor(playerid).String()
+			m, err = sc.game.CreateAndScorePlacementMove(coords, word, rack)
 			if err != nil {
 				return err
 			}
@@ -404,7 +415,7 @@ func (sc *ShellController) addPlay(line string) error {
 	}
 	log.Debug().Msgf("Added turn at turn num %v", sc.curTurnNum)
 	sc.setToTurn(sc.curTurnNum + 1)
-	sc.showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr))
+	sc.showMessage(sc.game.ToDisplayText(sc.curGameRepr))
 
 	return nil
 
@@ -415,29 +426,27 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 
 	switch {
 	case line == "new":
-		gdFilename := filepath.Join(sc.config.LexiconPath,
-			"gaddag", sc.config.DefaultLexicon+".gaddag")
 
-		gd, err := gaddag.LoadGaddag(gdFilename)
+		rules, err := game.NewGameRules(sc.config, board.CrosswordGameBoard,
+			sc.config.DefaultLexicon, sc.config.DefaultLetterDistribution)
 		if err != nil {
 			sc.showError(err)
 			break
 		}
-		dist := alphabet.NamedLetterDistribution(sc.config.DefaultLetterDistribution, gd.GetAlphabet())
-		sc.curGameState = &mechanics.XWordGame{}
-		sc.curGameState.Init(gd, dist)
-		sc.initGameDataStructures()
-		sc.curGameState.SetPlaying(true)
-		sc.curTurnNum = 0
-		sc.curGameRepr = &mechanics.GameRepr{
-			Turns: []mechanics.Turn{},
-			Players: []mechanics.PlayerInfo{
-				mechanics.PlayerInfo{Nickname: "player1", RealName: "Player 1", PlayerNumber: 1},
-				mechanics.PlayerInfo{Nickname: "player2", RealName: "Player 2", PlayerNumber: 2},
-			},
-			Version: 1}
 
-		sc.showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr))
+		players := []*pb.PlayerInfo{
+			&pb.PlayerInfo{Nickname: "player1", RealName: "Player 1", Number: 1},
+			&pb.PlayerInfo{Nickname: "player2", RealName: "Player 2", Number: 2},
+		}
+
+		sc.game, err = game.NewGame(rules, players)
+		if err != nil {
+			sc.showError(err)
+			break
+		}
+		sc.game.StartGame()
+		sc.initGameDataStructures()
+		sc.showMessage(sc.game.ToDisplayText())
 
 	case strings.HasPrefix(line, "load "):
 		filepath := line[5:]
@@ -448,7 +457,7 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			break
 		}
 		sc.curTurnNum = 0
-		sc.showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr))
+		sc.showMessage(sc.game.ToDisplayText())
 
 	case line == "n" || line == "p":
 		if line == "n" {
@@ -461,10 +470,10 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			sc.showError(err)
 			break
 		}
-		sc.showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr))
+		sc.showMessage(sc.game.ToDisplayText())
 
 	case line == "s":
-		sc.showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr))
+		sc.showMessage(sc.game.ToDisplayText())
 
 	case strings.HasPrefix(line, "turn "):
 		turnnum := line[5:]
@@ -478,7 +487,7 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			sc.showError(err)
 			break
 		}
-		sc.showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr))
+		sc.showMessage(sc.game.ToDisplayText())
 
 	case strings.HasPrefix(line, "rack "):
 		rack := line[5:]
@@ -487,19 +496,21 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			sc.showError(err)
 			break
 		}
-		sc.showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr))
+		sc.showMessage(sc.game.ToDisplayText())
 
-	case strings.HasPrefix(line, "setlex "):
-		lex := line[7:]
-		gdFilename := filepath.Join(
-			sc.config.LexiconPath, "gaddag", lex+".gaddag")
-		gd, err := gaddag.LoadGaddag(gdFilename)
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-		sc.curGameState.SetGaddag(gd)
-		sc.showMessage("Lexicon set to " + lex)
+		// XXX: TEST AND FIX ME:
+
+	// case strings.HasPrefix(line, "setlex "):
+	// 	lex := line[7:]
+	// 	gdFilename := filepath.Join(
+	// 		sc.config.LexiconPath, "gaddag", lex+".gaddag")
+	// 	gd, err := gaddag.LoadGaddag(gdFilename)
+	// 	if err != nil {
+	// 		sc.showError(err)
+	// 		break
+	// 	}
+	// 	sc.game.SetGaddag(gd)
+	// 	sc.showMessage("Lexicon set to " + lex)
 
 	case strings.HasPrefix(line, "gen"):
 		var numPlays int
@@ -518,7 +529,7 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 				break
 			}
 		}
-		if sc.curGameState != nil {
+		if sc.game != nil {
 			sc.genMovesAndDisplay(numPlays)
 		}
 
@@ -638,7 +649,7 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			break
 		}
 
-		if sc.curGameState != nil {
+		if sc.game != nil {
 			sc.simCtx, sc.simCancel = context.WithCancel(context.Background())
 			sc.simTicker = time.NewTicker(15 * time.Second)
 			sc.simTickerDone = make(chan bool)
@@ -666,7 +677,7 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			sc.showError(err)
 		}
 	case strings.HasPrefix(line, "endgame"):
-		if sc.curGameState == nil {
+		if sc.game == nil {
 			showMessage("please load a game first with the `load` command", sc.l.Stderr())
 			break
 		}
@@ -678,13 +689,13 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		showMessage(fmt.Sprintf("plies %v, deepening %v, simpleEval %v, pruningDisabled %v",
 			plies, deepening, simpleEval, disablePruning), sc.l.Stderr())
 
-		sc.curGameState.SetStateStackLength(plies)
+		sc.game.SetStateStackLength(plies)
 
 		// clear out the last value of this endgame node; gc should
 		// delete the tree.
 		sc.curEndgameNode = nil
 		sc.endgameSolver = new(alphabeta.Solver)
-		err = sc.endgameSolver.Init(sc.gen, sc.curGameState)
+		err = sc.endgameSolver.Init(sc.gen, sc.game)
 		if err != nil {
 			sc.showError(err)
 			break
@@ -693,7 +704,7 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		sc.endgameSolver.SetSimpleEvaluator(simpleEval)
 		sc.endgameSolver.SetPruningDisabled(disablePruning)
 
-		showMessage(sc.curGameState.ToDisplayText(sc.curGameRepr), sc.l.Stderr())
+		showMessage(sc.game.ToDisplayText(), sc.l.Stderr())
 
 		val, seq := sc.endgameSolver.Solve(plies)
 

@@ -3,8 +3,11 @@
 package game
 
 import (
+	"bytes"
 	"fmt"
 	"math/rand"
+	"sort"
+	"strings"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
@@ -23,70 +26,6 @@ type RuleDefiner interface {
 	LetterDistribution() *alphabet.LetterDistribution
 
 	LoadRule(lexiconName, letterDistributionName string) error
-}
-
-// // History is a wrapper around pb.GameHistory to allow for additional
-// // methods and an actual array of positions.
-// type History struct {
-// 	pb.GameHistory
-
-// }
-
-// Position is a wrapper around pb.GamePosition that has additional
-// methods and values associated with it, such as the current board state.
-// type Position struct {
-// 	pb.GamePosition
-
-// 	// The pb.GamePosition doesn't know how to deal with alphabet.Rack,
-// 	// so we add an extra field here just for the alphabet rack,
-// 	// mapped 1-to-1 to the pb.GamePosition.Players array.
-// 	playerRacks []*alphabet.Rack
-// }
-
-type playerState struct {
-	pb.PlayerInfo
-
-	rack        *alphabet.Rack
-	rackLetters string
-	points      int
-}
-
-func (p *playerState) resetScore() {
-	p.points = 0
-}
-
-func (p *playerState) throwRackIn(bag *alphabet.Bag) {
-	log.Debug().Str("rack", p.rack.String()).Int32("player", p.Number).
-		Msg("throwing rack in")
-	bag.PutBack(p.rack.TilesOn())
-	p.rack.Set([]alphabet.MachineLetter{})
-	p.rackLetters = ""
-}
-
-func (p *playerState) setRackTiles(tiles []alphabet.MachineLetter, alph *alphabet.Alphabet) {
-	p.rack.Set(tiles)
-	p.rackLetters = alphabet.MachineWord(tiles).UserVisible(alph)
-}
-
-type playerStates []*playerState
-
-func (p playerStates) resetRacks() {
-	for idx := range p {
-		p[idx].rack.Clear()
-		p[idx].rackLetters = ""
-	}
-}
-
-func (p playerStates) resetScore() {
-	for idx := range p {
-		p[idx].resetScore()
-	}
-}
-
-func (p playerStates) flipFirst() {
-	p[0], p[1] = p[1], p[0]
-	p[0].Number = 1
-	p[1].Number = 2
 }
 
 // Game is the actual internal game structure that controls the entire
@@ -229,7 +168,7 @@ func (g *Game) StartGame() {
 // by simulators as it implements a subset of possible moves.
 // XXX: It doesn't implement special things like challenge bonuses, etc.
 // XXX: Will this still be true, or should this function do it all?
-func (g *Game) PlayMove(m *move.Move, backup bool) {
+func (g *Game) PlayMove(m *move.Move, backup bool, addToHistory bool) {
 	var turn *pb.GameTurn
 
 	// if we are backing up, then we do not want to add a new turn to the
@@ -237,7 +176,8 @@ func (g *Game) PlayMove(m *move.Move, backup bool) {
 	// and we only want to add new turns during actual gameplay.
 	if backup {
 		g.backupState()
-	} else {
+	}
+	if addToHistory {
 		turn = &pb.GameTurn{Events: []*pb.GameEvent{}}
 	}
 	switch m.Action() {
@@ -253,7 +193,7 @@ func (g *Game) PlayMove(m *move.Move, backup bool) {
 		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
 		g.players[g.onturn].setRackTiles(tiles, g.alph)
 
-		if !backup {
+		if addToHistory {
 			turn.Events = append(turn.Events, g.eventFromMove(m))
 		}
 
@@ -261,14 +201,14 @@ func (g *Game) PlayMove(m *move.Move, backup bool) {
 			g.playing = false
 			unplayedPts := g.calculateRackPts((g.onturn+1)%len(g.players)) * 2
 			g.players[g.onturn].points += unplayedPts
-			if !backup {
+			if addToHistory {
 				turn.Events = append(turn.Events, g.endRackEvt(unplayedPts))
 			}
 		}
 
 	case move.MoveTypePass:
 		g.scorelessTurns++
-		if !backup {
+		if addToHistory {
 			turn.Events = append(turn.Events, g.eventFromMove(m))
 		}
 
@@ -280,7 +220,7 @@ func (g *Game) PlayMove(m *move.Move, backup bool) {
 		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
 		g.players[g.onturn].setRackTiles(tiles, g.alph)
 		g.scorelessTurns++
-		if !backup {
+		if addToHistory {
 			turn.Events = append(turn.Events, g.eventFromMove(m))
 		}
 	}
@@ -295,7 +235,7 @@ func (g *Game) PlayMove(m *move.Move, backup bool) {
 		// XXX: add rack penalty for each player to the history.
 	}
 
-	if !backup {
+	if addToHistory {
 		g.addToHistory(turn)
 	}
 
@@ -305,7 +245,7 @@ func (g *Game) PlayMove(m *move.Move, backup bool) {
 
 // PlayScoringMove plays a move on a board that is described by the
 // coordinates and word only. It returns the move.
-func (g *Game) PlayScoringMove(coords, word string) (*move.Move, error) {
+func (g *Game) PlayScoringMove(coords, word string, addToHistory bool) (*move.Move, error) {
 	playerid := g.onturn
 	rack := g.RackFor(playerid).String()
 
@@ -315,7 +255,7 @@ func (g *Game) PlayScoringMove(coords, word string) (*move.Move, error) {
 		return nil, err
 	}
 	// Actually make the play on the board:
-	g.PlayMove(m, false)
+	g.PlayMove(m, false, addToHistory)
 	return m, nil
 }
 
@@ -613,6 +553,96 @@ func (g *Game) ThrowRacksIn() {
 	g.players[1].throwRackIn(g.bag)
 }
 
+func splitSubN(s string, n int) []string {
+	sub := ""
+	subs := []string{}
+
+	runes := bytes.Runes([]byte(s))
+	l := len(runes)
+	for i, r := range runes {
+		sub = sub + string(r)
+		if (i+1)%n == 0 {
+			subs = append(subs, sub)
+			sub = ""
+		} else if (i + 1) == l {
+			subs = append(subs, sub)
+		}
+	}
+
+	return subs
+}
+
+func addText(lines []string, row int, hpad int, text string) {
+	maxTextSize := 42
+	sp := splitSubN(text, maxTextSize)
+
+	for _, chunk := range sp {
+		str := lines[row] + strings.Repeat(" ", hpad) + chunk
+		lines[row] = str
+		row++
+	}
+}
+
+// ToDisplayText turns the current state of the game into a displayable
+// string.
+func (g *Game) ToDisplayText() string {
+	bt := g.Board().ToDisplayText(g.alph)
+	// We need to insert rack, player, bag strings into the above string.
+	bts := strings.Split(bt, "\n")
+	hpadding := 3
+	vpadding := 1
+	bagColCount := 20
+	for p := 0; p < len(g.players); p++ {
+		addText(bts, p+vpadding, hpadding,
+			g.players[p].stateString(g.playing && g.onturn == p))
+	}
+	bag := g.bag.Peek()
+	addText(bts, vpadding+3, hpadding, fmt.Sprintf("Bag + unseen: (%d)", len(bag)))
+
+	vpadding = 6
+	sort.Slice(bag, func(i, j int) bool {
+		return bag[i] < bag[j]
+	})
+
+	bagDisp := []string{}
+	cCtr := 0
+	bagStr := ""
+	for i := 0; i < len(bag); i++ {
+		bagStr += string(bag[i].UserVisible(g.alph)) + " "
+		cCtr++
+		if cCtr == bagColCount {
+			bagDisp = append(bagDisp, bagStr)
+			bagStr = ""
+			cCtr = 0
+		}
+	}
+	if bagStr != "" {
+		bagDisp = append(bagDisp, bagStr)
+	}
+
+	for p := vpadding; p < vpadding+len(bagDisp); p++ {
+		addText(bts, p, hpadding, bagDisp[p-vpadding])
+	}
+
+	addText(bts, 12, hpadding, fmt.Sprintf("Turn %d:", g.turnnum))
+
+	vpadding = 13
+
+	if g.turnnum-1 >= 0 {
+		addText(bts, vpadding, hpadding,
+			summary(g.history.Turns[g.turnnum-1]))
+	}
+
+	vpadding = 17
+
+	if !g.playing {
+		addText(bts, vpadding, hpadding, "Game is over.")
+	}
+
+	return strings.Join(bts, "\n")
+
+}
+
 // SetRandomRack sets the player's rack to a random rack drawn from the bag.
 // It tosses the current rack back in first. This is used for simulations.
 func (g *Game) SetRandomRack(playerIdx int) {
@@ -639,6 +669,10 @@ func (g *Game) PointsFor(playerIdx int) int {
 	return g.players[playerIdx].points
 }
 
+func (g *Game) SpreadFor(playerIdx int) int {
+	return g.PointsFor(playerIdx) - g.PointsFor(otherPlayer(playerIdx))
+}
+
 // NumPlayers is always 2.
 func (g *Game) NumPlayers() int {
 	return 2
@@ -652,6 +686,11 @@ func (g *Game) Bag() *alphabet.Bag {
 // Board returns the current board state.
 func (g *Game) Board() *board.GameBoard {
 	return g.board
+}
+
+// Gaddag returns this game's gaddag data structure.
+func (g *Game) Gaddag() *gaddag.SimpleGaddag {
+	return g.gaddag
 }
 
 func (g *Game) Turn() int {

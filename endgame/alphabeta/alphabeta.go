@@ -460,7 +460,7 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 		for child, newNode := iter(); child != nil; child, newNode = iter() {
 			// Play the child
 			// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
-			s.game.PlayMove(child.move, true)
+			s.game.PlayMove(child.move, true, false)
 			child.move.SetVisited(true)
 			// log.Debug().Msgf("%vState is now %v", depthDbg,
 			// s.game.String())
@@ -494,7 +494,7 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 	iter := s.childGenerator(node, maximizingPlayer)
 	for child, newNode := iter(); child != nil; child, newNode = iter() {
 		// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
-		s.game.PlayMove(child.move, true)
+		s.game.PlayMove(child.move, true, false)
 		child.move.SetVisited(true)
 		// log.Debug().Msgf("%vState is now %v", depthDbg,
 		// s.game.String())
