@@ -1,0 +1,13 @@
+addcommit [params] - Add and commit a play at the same time.
+
+Example:
+   addcommit 3J FOO
+   addcommit K5 BAR.D
+   addcommit exchange ABC
+   addcommit pass
+
+Whereas `add` adds a play to the list of plays, and `commit` requires
+a list to be generated and takes in a numerical argument, `addcommit`
+is like `add` followed by a `commit`.
+
+See the help text for `add` and `commit`.

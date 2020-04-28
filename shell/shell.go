@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -61,7 +62,7 @@ type ShellController struct {
 	curMode        Mode
 	endgameSolver  *alphabeta.Solver
 	curEndgameNode *alphabeta.GameNode
-	curGenPlays    []*move.Move
+	curPlayList    []*move.Move
 }
 
 type Mode int
@@ -117,21 +118,18 @@ func (sc *ShellController) initGameDataStructures() {
 	sc.simmer.Init(sc.game, sc.aiplayer)
 }
 
-func (sc *ShellController) loadGCG(filepath string) error {
+func (sc *ShellController) loadGCG(args []string) error {
 	var err error
 	var history *pb.GameHistory
 	// Try to parse filepath as a network path.
-	if strings.HasPrefix(filepath, "xt ") {
-		xtgcg := strings.Split(filepath, " ")
-
-		if len(xtgcg) != 2 {
-			return fmt.Errorf(
-				"if using a cross-tables id must provide in the format xt <game_id>")
+	if args[0] == "xt" {
+		if len(args) < 2 {
+			return errors.New("need to provide a cross-tables game id")
 		}
-		idstr := xtgcg[1]
+		idstr := args[1]
 		id, err := strconv.Atoi(idstr)
 		if err != nil {
-			return fmt.Errorf("badly formatted game ID")
+			return errors.New("badly formatted game ID")
 		}
 		prefix := strconv.Itoa(id / 100)
 		xtpath := "https://www.cross-tables.com/annotated/selfgcg/" + prefix +
@@ -148,14 +146,20 @@ func (sc *ShellController) loadGCG(filepath string) error {
 		}
 
 	} else {
-		history, err = gcgio.ParseGCG(filepath)
+		history, err = gcgio.ParseGCG(args[0])
 		if err != nil {
 			return err
 		}
 	}
 	log.Debug().Msgf("Loaded game repr; players: %v", history.Players)
+	lexicon := history.Lexicon
+	if lexicon == "" {
+		lexicon = sc.config.DefaultLexicon
+		log.Info().Msgf("gcg file had no lexicon, so using default lexicon %v",
+			lexicon)
+	}
 	rules, err := game.NewGameRules(sc.config, board.CrosswordGameBoard,
-		history.Lexicon, sc.config.DefaultLetterDistribution)
+		lexicon, sc.config.DefaultLetterDistribution)
 	if err != nil {
 		return err
 	}
@@ -178,6 +182,7 @@ func (sc *ShellController) setToTurn(turnnum int) error {
 		return err
 	}
 	log.Debug().Msgf("Set to turn %v", turnnum)
+	sc.curPlayList = nil
 	sc.curTurnNum = turnnum
 	return nil
 }
@@ -214,17 +219,16 @@ func (sc *ShellController) printEndgameSequence(moves []*move.Move) {
 
 func (sc *ShellController) genMovesAndDisplay(numPlays int) {
 
-	alph := sc.game.Alphabet()
 	curRack := sc.game.RackFor(sc.game.PlayerOnTurn())
 	opp := (sc.game.PlayerOnTurn() + 1) % sc.game.NumPlayers()
 	oppRack := sc.game.RackFor(opp)
 
 	// XXX: MIGHT BE ABLE TO REMOVE THIS:
-	if oppRack.NumTiles() == 0 && sc.game.Bag().TilesRemaining() <= 7 {
-		log.Debug().Msg("Assigning remainder of unseen tiles to opponent...")
-		oppRack = alphabet.NewRack(sc.game.Alphabet())
-		oppRack.Set(sc.game.Bag().Peek())
-	}
+	// if oppRack.NumTiles() == 0 && sc.game.Bag().TilesRemaining() <= 7 {
+	// 	log.Debug().Msg("Assigning remainder of unseen tiles to opponent...")
+	// 	oppRack = alphabet.NewRack(sc.game.Alphabet())
+	// 	oppRack.Set(sc.game.Bag().Peek())
+	// }
 
 	canExchange := exchangeAllowed(sc.game.Board(),
 		sc.game.Bag().LetterDistribution())
@@ -233,58 +237,54 @@ func (sc *ShellController) genMovesAndDisplay(numPlays int) {
 	// Assign equity to plays, and only show the top ones.
 	sc.aiplayer.AssignEquity(sc.gen.Plays(), sc.game.Board(),
 		sc.game.Bag(), oppRack)
-	sc.curGenPlays = sc.aiplayer.TopPlays(sc.gen.Plays(), numPlays)
+	sc.curPlayList = sc.aiplayer.TopPlays(sc.gen.Plays(), numPlays)
+	sc.displayMoveList()
+}
 
+func (sc *ShellController) displayMoveList() {
 	sc.showMessage(moveTableHeader())
-	for i, p := range sc.curGenPlays {
-		sc.showMessage(MoveTableRow(i, p, alph))
+	for i, p := range sc.curPlayList {
+		sc.showMessage(MoveTableRow(i, p, sc.game.Alphabet()))
 	}
 }
 
-func endgameArgs(line string) (plies int, deepening, simple, disablePruning bool, err error) {
+func endgameArgs(args []string) (plies int, deepening, simple, disablePruning bool, err error) {
 	deepening = true
 	plies = 4
 	simple = false
 	disablePruning = false
 
-	cmd := strings.Fields(line)
-	if len(cmd) == 1 {
-		if line != "endgame" {
-			err = errors.New("could not understand your endgame arguments")
-		}
-		return
-	}
-	if len(cmd) > 1 {
-		plies, err = strconv.Atoi(cmd[1])
+	if len(args) > 0 {
+		plies, err = strconv.Atoi(args[0])
 		if err != nil {
 			return
 		}
 	}
-	if len(cmd) > 2 {
+	if len(args) > 1 {
 		var id int
-		id, err = strconv.Atoi(cmd[2])
+		id, err = strconv.Atoi(args[1])
 		if err != nil {
 			return
 		}
 		deepening = id == 1
 	}
-	if len(cmd) > 3 {
+	if len(args) > 2 {
 		var sp int
-		sp, err = strconv.Atoi(cmd[3])
+		sp, err = strconv.Atoi(args[2])
 		if err != nil {
 			return
 		}
 		simple = sp == 1
 	}
-	if len(cmd) > 4 {
+	if len(args) > 3 {
 		var d int
-		d, err = strconv.Atoi(cmd[4])
+		d, err = strconv.Atoi(args[3])
 		if err != nil {
 			return
 		}
 		disablePruning = d == 1
 	}
-	if len(cmd) > 5 {
+	if len(args) > 4 {
 		err = errors.New("endgame only takes 5 arguments")
 		return
 	}
@@ -310,18 +310,13 @@ func (sc *ShellController) showError(err error) {
 	sc.showMessage("Error: " + err.Error())
 }
 
-func (sc *ShellController) modeSelector(line string) {
-	mode := strings.SplitN(line, " ", 2)
-	if len(mode) != 2 {
-		showMessage("Error: please provide a valid mode", sc.l.Stderr())
-		return
-	}
-	m, err := modeFromStr(mode[1])
+func (sc *ShellController) modeSelector(mode string) {
+	m, err := modeFromStr(mode)
 	if err != nil {
-		showMessage("Error: "+err.Error(), sc.l.Stderr())
+		sc.showError(err)
 		return
 	}
-	showMessage("Setting current mode to "+mode[1], sc.l.Stderr())
+	sc.showMessage("Setting current mode to " + mode)
 	sc.curMode = m
 }
 
@@ -334,51 +329,41 @@ func (sc *ShellController) addRack(rack string) error {
 	return sc.game.SetRackFor(playerid, alphabet.RackFromString(rack, sc.game.Alphabet()))
 }
 
-func (sc *ShellController) addPlay(line string) error {
-	cmd := strings.Fields(line)
+func (sc *ShellController) addPlay(fields []string, commit bool) error {
 	var playerid int
-	var nick string
-	var appendPlay bool
 	var m *move.Move
-	var cumul int
 	var err error
 	// Figure out whose turn it is.
 
 	playerid = sc.curTurnNum % 2
-	if sc.curTurnNum < len(sc.curGameRepr.Turns) {
-		nick = sc.curGameRepr.Turns[sc.curTurnNum][0].GetNickname()
-	} else if sc.curTurnNum == len(sc.curGameRepr.Turns) {
-		nick = sc.curGameRepr.Players[playerid].Nickname
-		appendPlay = true
-	} else {
-		return errors.New("unexpected turn number")
-	}
 
-	if len(cmd) == 2 {
-		if strings.HasPrefix(cmd[1], "#") {
+	if len(fields) == 1 {
+		if strings.HasPrefix(fields[0], "#") {
+			if !commit {
+				// This option makes no sense with just an `add` command
+				return errors.New("cannot use this option with the `add` command, " +
+					"you may have wanted to use the `commit` command instead")
+			}
 			// Add play that was generated.
-			playID, err := strconv.Atoi(cmd[1][1:])
+			playID, err := strconv.Atoi(fields[0][1:])
 			if err != nil {
 				return err
 			}
 
 			idx := playID - 1 // since playID starts from 1
-			if idx < 0 || idx > len(sc.curGenPlays)-1 {
+			if idx < 0 || idx > len(sc.curPlayList)-1 {
 				return errors.New("play outside range")
 			}
-			m = sc.curGenPlays[idx]
-			cumul = sc.game.PointsFor(playerid) + m.Score()
-		} else if cmd[1] == "pass" {
+			m = sc.curPlayList[idx]
+		} else if fields[1] == "pass" {
 			rack := sc.game.RackFor(playerid)
 			m = move.NewPassMove(rack.TilesOn(), sc.game.Alphabet())
-			cumul = sc.game.PointsFor(playerid)
 		} else {
 			return errors.New("unrecognized arguments to `add`")
 		}
 
-	} else if len(cmd) == 3 {
-		coords := cmd[1]
-		word := cmd[2]
+	} else if len(fields) == 2 {
+		coords, word := fields[0], fields[1]
 
 		if coords == "exchange" {
 
@@ -393,7 +378,6 @@ func (sc *ShellController) addPlay(line string) error {
 			}
 
 			m = move.NewExchangeMove(tiles, leaveMW, sc.game.Alphabet())
-			cumul = sc.game.PointsFor(playerid)
 		} else {
 
 			rack := sc.game.RackFor(playerid).String()
@@ -407,25 +391,44 @@ func (sc *ShellController) addPlay(line string) error {
 		return errors.New("unrecognized arguments to `add`")
 	}
 
-	// Play the actual move on the board, draw tiles, etc.
-	// Modify the game repr.
-	err = sc.curGameRepr.AddTurnFromPlay(sc.curTurnNum, m, nick, cumul, appendPlay)
-	if err != nil {
-		return err
-	}
-	log.Debug().Msgf("Added turn at turn num %v", sc.curTurnNum)
-	sc.setToTurn(sc.curTurnNum + 1)
-	sc.showMessage(sc.game.ToDisplayText(sc.curGameRepr))
+	if !commit {
+		sc.curPlayList = append(sc.curPlayList, m)
+		sort.Slice(sc.curPlayList, func(i, j int) bool {
+			return sc.curPlayList[j].Equity() < sc.curPlayList[i].Equity()
+		})
+		sc.displayMoveList()
+	} else {
 
+		// Play the actual move on the board, draw tiles, etc.
+		// Modify the game repr.
+		// err = sc.game.AppendPlayAtCurTurn(m)
+		err = sc.game.PlayMove(m, false, true)
+		// err = sc.curGameRepr.AddTurnFromPlay(sc.curTurnNum, m, nick, cumul, appendPlay)
+		if err != nil {
+			return err
+		}
+		log.Debug().Msgf("Added turn at turn num %v", sc.curTurnNum)
+		sc.setToTurn(sc.curTurnNum + 1)
+		sc.showMessage(sc.game.ToDisplayText())
+
+	}
 	return nil
 
 }
 
 func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) error {
-	var delta int
+	fields := strings.Fields(line)
+	if len(fields) == 0 {
+		return nil
+	}
+	cmd := fields[0]
+	var args []string
+	if len(fields) > 1 {
+		args = fields[1:]
+	}
 
-	switch {
-	case line == "new":
+	switch cmd {
+	case "new":
 
 		rules, err := game.NewGameRules(sc.config, board.CrosswordGameBoard,
 			sc.config.DefaultLexicon, sc.config.DefaultLetterDistribution)
@@ -448,9 +451,12 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		sc.initGameDataStructures()
 		sc.showMessage(sc.game.ToDisplayText())
 
-	case strings.HasPrefix(line, "load "):
-		filepath := line[5:]
-		err := sc.loadGCG(filepath)
+	case "load":
+		if args == nil {
+			sc.showError(errors.New("need arguments for load"))
+			break
+		}
+		err := sc.loadGCG(args)
 
 		if err != nil {
 			sc.showError(err)
@@ -459,25 +465,30 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		sc.curTurnNum = 0
 		sc.showMessage(sc.game.ToDisplayText())
 
-	case line == "n" || line == "p":
-		if line == "n" {
-			delta = 1
-		} else {
-			delta = -1
+	case "n":
+		err := sc.setToTurn(sc.curTurnNum + 1)
+		if err != nil {
+			sc.showError(err)
+			break
 		}
-		err := sc.setToTurn(sc.curTurnNum + delta)
+		sc.showMessage(sc.game.ToDisplayText())
+	case "p":
+		err := sc.setToTurn(sc.curTurnNum - 1)
 		if err != nil {
 			sc.showError(err)
 			break
 		}
 		sc.showMessage(sc.game.ToDisplayText())
 
-	case line == "s":
+	case "s":
 		sc.showMessage(sc.game.ToDisplayText())
 
-	case strings.HasPrefix(line, "turn "):
-		turnnum := line[5:]
-		t, err := strconv.Atoi(turnnum)
+	case "turn":
+		if args == nil {
+			sc.showError(errors.New("need argument for turn"))
+			break
+		}
+		t, err := strconv.Atoi(args[0])
 		if err != nil {
 			sc.showError(err)
 			break
@@ -489,8 +500,14 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		}
 		sc.showMessage(sc.game.ToDisplayText())
 
-	case strings.HasPrefix(line, "rack "):
-		rack := line[5:]
+	case "rack":
+		if args == nil {
+			sc.showError(errors.New("need argument for rack"))
+			break
+		}
+
+		rack := args[0]
+
 		err := sc.addRack(strings.ToUpper(rack))
 		if err != nil {
 			sc.showError(err)
@@ -512,18 +529,15 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 	// 	sc.game.SetGaddag(gd)
 	// 	sc.showMessage("Lexicon set to " + lex)
 
-	case strings.HasPrefix(line, "gen"):
+	case "gen":
+
 		var numPlays int
 		var err error
-		if strings.TrimSpace(line) == "gen" {
+
+		if args == nil {
 			numPlays = 15
 		} else {
-			fc := strings.SplitN(line, " ", 2)
-			if len(fc) == 1 {
-				sc.showError(errors.New("wrong format for `gen` command"))
-				break
-			}
-			numPlays, err = strconv.Atoi(fc[1])
+			numPlays, err = strconv.Atoi(args[0])
 			if err != nil {
 				sc.showError(err)
 				break
@@ -533,17 +547,12 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			sc.genMovesAndDisplay(numPlays)
 		}
 
-	case strings.HasPrefix(line, "autoplay"):
+	case "autoplay":
 		var logfile string
-		if strings.TrimSpace(line) == "autoplay" {
+		if args == nil {
 			logfile = "/tmp/autoplay.txt"
 		} else {
-			fields := strings.Split(line, " ")
-			if len(fields) == 1 {
-				sc.showError(errors.New("wrong format for `autoplay` command"))
-				break
-			}
-			if fields[1] == "stop" {
+			if args[0] == "stop" {
 				if !sc.gameRunnerRunning {
 					sc.showError(errors.New("automatic game runner is not running"))
 					break
@@ -554,7 +563,7 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 				}
 			} else {
 				// It's a filename
-				logfile = fields[1]
+				logfile = args[0]
 			}
 		}
 		if sc.gameRunnerRunning {
@@ -576,112 +585,29 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		sc.gameRunnerRunning = true
 		sc.showMessage("Started automatic game runner...")
 
-	case strings.HasPrefix(line, "sim"):
-		var plies, threads int
-		var err error
-		if sc.simmer == nil {
-			sc.showError(errors.New("load a game or something"))
-			break
-		}
-		if strings.TrimSpace(line) == "sim" {
-			plies = 2
-		} else {
-			fc := strings.Split(line, " ")
-			if len(fc) == 1 {
-				sc.showError(errors.New("wrong format for `sim` command"))
-			}
-			if fc[1] == "log" {
-				sc.simLogFile, err = os.Create(SimLog)
-				if err != nil {
-					sc.showError(err)
-					break
-				}
-				sc.simmer.SetLogStream(sc.simLogFile)
-				sc.showMessage("sim will log to " + SimLog)
-				break
-			} else if fc[1] == "stop" {
-				if !sc.simmer.IsSimming() {
-					sc.showError(errors.New("no running sim to stop"))
-					break
-				}
-				sc.simTicker.Stop()
-				sc.simTickerDone <- true
-				sc.simCancel()
-				if sc.simLogFile != nil {
-					err := sc.simLogFile.Close()
-					if err != nil {
-						sc.showError(err)
-						break
-					}
-				}
-				break
-			} else if fc[1] == "details" {
-				sc.showMessage(sc.simmer.ScoreDetails())
-				break
-			} else if fc[1] == "show" {
-				sc.showMessage(sc.simmer.EquityStats())
-				break
-			} else if len(fc) == 2 || len(fc) == 3 {
-				if len(fc) == 2 {
-					plies, err = strconv.Atoi(fc[1])
-					if err != nil {
-						sc.showError(err)
-						break
-					}
-				}
-				if len(fc) == 3 {
-					// The second number is the number of sim threads
-					threads, err = strconv.Atoi(fc[2])
-					if err != nil {
-						sc.showError(err)
-						break
-					}
-					sc.simmer.SetThreads(threads)
-				}
-			}
-		}
-		if len(sc.curGenPlays) == 0 {
-			sc.showError(errors.New("please generate some plays first"))
-			break
-		}
-		if sc.simmer.IsSimming() {
-			sc.showError(errors.New("simming already, please do a `sim stop` first"))
-			break
-		}
-
-		if sc.game != nil {
-			sc.simCtx, sc.simCancel = context.WithCancel(context.Background())
-			sc.simTicker = time.NewTicker(15 * time.Second)
-			sc.simTickerDone = make(chan bool)
-
-			go sc.simmer.Simulate(sc.simCtx, sc.curGenPlays, plies)
-
-			go func() {
-				for {
-					select {
-					case <-sc.simTickerDone:
-						return
-					case <-sc.simTicker.C:
-						log.Info().Msgf("Simmer is at %v iterations...",
-							sc.simmer.Iterations())
-					}
-				}
-			}()
-
-			sc.showMessage("Simulation started. Please do `sim show` and `sim details` to see more info")
-		}
-
-	case strings.HasPrefix(line, "add "):
-		err := sc.addPlay(line)
+	case "sim":
+		err := sc.handleSim(args)
 		if err != nil {
 			sc.showError(err)
 		}
-	case strings.HasPrefix(line, "endgame"):
+
+	case "add":
+		err := sc.addPlay(args, false)
+		if err != nil {
+			sc.showError(err)
+		}
+	case "commit":
+		err := sc.addPlay(args, true)
+		if err != nil {
+			sc.showError(err)
+		}
+
+	case "endgame":
 		if sc.game == nil {
 			showMessage("please load a game first with the `load` command", sc.l.Stderr())
 			break
 		}
-		plies, deepening, simpleEval, disablePruning, err := endgameArgs(line)
+		plies, deepening, simpleEval, disablePruning, err := endgameArgs(args)
 		if err != nil {
 			showMessage("Error: "+err.Error(), sc.l.Stderr())
 			break
@@ -711,22 +637,22 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		sc.showMessage(fmt.Sprintf("Best sequence has a spread difference of %v", val))
 		sc.printEndgameSequence(seq)
 
-	case line == "bye" || line == "exit":
+	case "exit":
 		sig <- syscall.SIGINT
 		return errors.New("sending quit signal")
-	case strings.HasPrefix(line, "help"):
-		if strings.TrimSpace(line) == "help" {
+	case "help":
+		if args == nil {
 			usage(sc.l.Stderr(), "standard")
 		} else {
-			helptopic := strings.SplitN(line, " ", 2)
-			usageTopic(sc.l.Stderr(), helptopic[1])
+			helptopic := args[0]
+			usageTopic(sc.l.Stderr(), helptopic)
 		}
-	case strings.HasPrefix(line, "mode"):
-		sc.modeSelector(line)
+	case "mode":
+		sc.modeSelector(args[0])
 	default:
-		if strings.TrimSpace(line) != "" {
-			log.Debug().Msgf("you said: %v", strconv.Quote(line))
-		}
+
+		log.Info().Msgf("command %v not found", strconv.Quote(cmd))
+
 	}
 	return nil
 }

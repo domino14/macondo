@@ -4,6 +4,7 @@ package game
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"math/rand"
 	"sort"
@@ -168,7 +169,7 @@ func (g *Game) StartGame() {
 // by simulators as it implements a subset of possible moves.
 // XXX: It doesn't implement special things like challenge bonuses, etc.
 // XXX: Will this still be true, or should this function do it all?
-func (g *Game) PlayMove(m *move.Move, backup bool, addToHistory bool) {
+func (g *Game) PlayMove(m *move.Move, backup bool, addToHistory bool) error {
 	var turn *pb.GameTurn
 
 	// if we are backing up, then we do not want to add a new turn to the
@@ -215,7 +216,7 @@ func (g *Game) PlayMove(m *move.Move, backup bool, addToHistory bool) {
 	case move.MoveTypeExchange:
 		drew, err := g.bag.Exchange([]alphabet.MachineLetter(m.Tiles()))
 		if err != nil {
-			panic(err)
+			return err
 		}
 		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
 		g.players[g.onturn].setRackTiles(tiles, g.alph)
@@ -236,12 +237,22 @@ func (g *Game) PlayMove(m *move.Move, backup bool, addToHistory bool) {
 	}
 
 	if addToHistory {
-		g.addToHistory(turn)
+		err := g.addToHistory(turn)
+		if err != nil {
+			return err
+		}
 	}
 
 	g.onturn = (g.onturn + 1) % len(g.players)
 	g.turnnum++
+	return nil
 }
+
+// AppendPlayAtTurn inserts or appends a play at the passed-in turn number.
+// It commits the play and truncates the history accordingly.
+// func (g *Game) AppendPlayAtCurTurn(m *move.Move) error {
+
+// }
 
 // PlayScoringMove plays a move on a board that is described by the
 // coordinates and word only. It returns the move.
@@ -319,8 +330,16 @@ func (g *Game) calculateRackPts(onturn int) int {
 	return rack.ScoreOn(g.bag.LetterDistribution())
 }
 
-func (g *Game) addToHistory(turn *pb.GameTurn) {
-	g.history.Turns = append(g.history.Turns, turn)
+func (g *Game) addToHistory(turn *pb.GameTurn) error {
+	if len(g.history.Turns) == g.turnnum {
+		g.history.Turns = append(g.history.Turns, turn)
+	} else if len(g.history.Turns) > g.turnnum {
+		g.history.Turns = g.history.Turns[:g.turnnum]
+		g.history.Turns = append(g.history.Turns, turn)
+	} else {
+		return errors.New("unexpected length of history")
+	}
+	return nil
 }
 
 func otherPlayer(idx int) int {
@@ -387,12 +406,6 @@ func (g *Game) PlayToTurn(turnnum int) error {
 		}
 	}
 	return nil
-	// clear the board, refill the bag
-	// reset score.. see PlayGameToTurn in game_repr.go
-	// update the bag
-	// when we reach the final turn, assign a random rack from undrawn letters
-	// to opponent automatically (if not specified in the history as incomplete racks)
-	// (see LastKnownRacks field)
 }
 
 func (g *Game) playTurn(t int) []alphabet.MachineLetter {
@@ -596,19 +609,21 @@ func (g *Game) ToDisplayText() string {
 		addText(bts, p+vpadding, hpadding,
 			g.players[p].stateString(g.playing && g.onturn == p))
 	}
-	bag := g.bag.Peek()
-	addText(bts, vpadding+3, hpadding, fmt.Sprintf("Bag + unseen: (%d)", len(bag)))
+	// Peek into the bag, and append the opponent's tiles:
+	bagAndUnseen := append(g.bag.Peek(),
+		g.players[otherPlayer(g.onturn)].rack.TilesOn()...)
+	addText(bts, vpadding+3, hpadding, fmt.Sprintf("Bag + unseen: (%d)", len(bagAndUnseen)))
 
 	vpadding = 6
-	sort.Slice(bag, func(i, j int) bool {
-		return bag[i] < bag[j]
+	sort.Slice(bagAndUnseen, func(i, j int) bool {
+		return bagAndUnseen[i] < bagAndUnseen[j]
 	})
 
 	bagDisp := []string{}
 	cCtr := 0
 	bagStr := ""
-	for i := 0; i < len(bag); i++ {
-		bagStr += string(bag[i].UserVisible(g.alph)) + " "
+	for i := 0; i < len(bagAndUnseen); i++ {
+		bagStr += string(bagAndUnseen[i].UserVisible(g.alph)) + " "
 		cCtr++
 		if cCtr == bagColCount {
 			bagDisp = append(bagDisp, bagStr)
@@ -646,12 +661,12 @@ func (g *Game) ToDisplayText() string {
 // SetRandomRack sets the player's rack to a random rack drawn from the bag.
 // It tosses the current rack back in first. This is used for simulations.
 func (g *Game) SetRandomRack(playerIdx int) {
-	log.Debug().Int("player", playerIdx).Str("rack", g.RackFor(playerIdx).TilesOn().UserVisible(g.alph)).
-		Msg("setting random rack..")
+	// log.Debug().Int("player", playerIdx).Str("rack", g.RackFor(playerIdx).TilesOn().UserVisible(g.alph)).
+	// 	Msg("setting random rack..")
 	tiles := g.bag.Redraw(g.RackFor(playerIdx).TilesOn())
 	g.players[playerIdx].setRackTiles(tiles, g.alph)
-	log.Debug().Int("player", playerIdx).Str("newrack", g.players[playerIdx].rackLetters).
-		Msg("set random rack")
+	// log.Debug().Int("player", playerIdx).Str("newrack", g.players[playerIdx].rackLetters).
+	// 	Msg("set random rack")
 }
 
 // RackFor returns the rack for the player with the passed-in index
@@ -723,4 +738,8 @@ func (g *Game) Alphabet() *alphabet.Alphabet {
 
 func (g *Game) CurrentSpread() int {
 	return g.PointsFor(g.onturn) - g.PointsFor((g.onturn+1)%2)
+}
+
+func (g *Game) History() *pb.GameHistory {
+	return g.history
 }

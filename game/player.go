@@ -38,7 +38,12 @@ func (p playerState) stateString(myturn bool) string {
 	if myturn {
 		onturn = "-> "
 	}
-	return fmt.Sprintf("%4v%20v%9v %4v", onturn, p.Nickname, p.rackLetters, p.points)
+	rackLetters := p.rackLetters
+	if !myturn {
+		// Don't show rack letters.
+		rackLetters = ""
+	}
+	return fmt.Sprintf("%4v%20v%9v %4v", onturn, p.Nickname, rackLetters, p.points)
 }
 
 type playerStates []*playerState

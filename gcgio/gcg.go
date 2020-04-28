@@ -285,8 +285,6 @@ func (p *parser) parseLine(line string, history *pb.GameHistory) error {
 		}
 	}
 	if !foundMatch {
-		log.Debug().Msgf("Found no match for line '%v'", line)
-
 		// maybe it's a multi-line note.
 		if p.lastToken == NoteToken {
 			lastTurnIdx := len(history.Turns) - 1

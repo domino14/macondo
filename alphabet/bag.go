@@ -55,7 +55,7 @@ func (b *Bag) Draw(n int) ([]MachineLetter, error) {
 		b.tileMap[drawn[i]]--
 	}
 	b.tiles = b.tiles[n:]
-	log.Debug().Int("numtiles", len(b.tiles)).Int("drew", n).Msg("drew from bag")
+	// log.Debug().Int("numtiles", len(b.tiles)).Int("drew", n).Msg("drew from bag")
 	return drawn, nil
 }
 
@@ -67,7 +67,7 @@ func (b *Bag) Peek() []MachineLetter {
 
 // Shuffle shuffles the bag.
 func (b *Bag) Shuffle() {
-	log.Debug().Int("numtiles", len(b.tiles)).Msg("shuffling bag")
+	// log.Debug().Int("numtiles", len(b.tiles)).Msg("shuffling bag")
 	b.randSource.Shuffle(len(b.tiles), func(i, j int) {
 		b.tiles[i], b.tiles[j] = b.tiles[j], b.tiles[i]
 	})
