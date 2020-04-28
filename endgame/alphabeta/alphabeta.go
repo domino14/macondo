@@ -3,6 +3,7 @@
 package alphabeta
 
 import (
+	"errors"
 	"sort"
 
 	"github.com/domino14/macondo/alphabet"
@@ -386,7 +387,11 @@ func (s *Solver) findBestSequence(endNode *GameNode) []*move.Move {
 
 // Solve solves the endgame given the current state of s.game, for the
 // current player whose turn it is in that state.
-func (s *Solver) Solve(plies int) (float32, []*move.Move) {
+func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
+	if s.game.Bag().TilesRemaining() > 0 {
+		return 0, nil, errors.New("bag is not empty; cannot use endgame solver")
+	}
+
 	// Generate children moves.
 	s.movegen.SetSortingParameter(movegen.SortByNone)
 	defer s.movegen.SetSortingParameter(movegen.SortByScore)
@@ -425,7 +430,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move) {
 			// s.clearChildrenValues(s.rootNode)
 			log.Info().Msgf("Spread swing estimate found after %v plies: %v",
 				p, bestV)
-			log.Debug().Msgf("Best seq so far is %v", bestSeq)
+			log.Info().Msgf("Best seq so far is %v", bestSeq)
 		}
 	} else {
 		bestNode = s.alphabeta(s.rootNode, plies, float32(-Infinity), float32(Infinity), true)
@@ -437,7 +442,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move) {
 	log.Debug().Msgf("Number of expanded nodes: %v", s.totalNodes)
 	log.Debug().Msgf("Best sequence: (len=%v) %v", len(bestSeq), bestSeq)
 
-	return bestV, bestSeq
+	return bestV, bestSeq, nil
 }
 
 func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,

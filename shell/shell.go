@@ -632,8 +632,11 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 
 		showMessage(sc.game.ToDisplayText(), sc.l.Stderr())
 
-		val, seq := sc.endgameSolver.Solve(plies)
-
+		val, seq, err := sc.endgameSolver.Solve(plies)
+		if err != nil {
+			sc.showError(err)
+			break
+		}
 		sc.showMessage(fmt.Sprintf("Best sequence has a spread difference of %v", val))
 		sc.printEndgameSequence(seq)
 

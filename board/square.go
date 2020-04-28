@@ -10,7 +10,7 @@ import (
 )
 
 var (
-	ColorSupport = os.Getenv("MACONDO_COLOR") == "on"
+	ColorSupport = os.Getenv("MACONDO_DISABLE_COLOR") != "on"
 )
 
 // A BonusSquare is a bonus square (duh)
@@ -44,17 +44,12 @@ type Square struct {
 
 func init() {
 	if ColorSupport {
-		log.Debug().Msg("Terminal color support is on.")
+		log.Info().Msg("Terminal color support is on.")
 	}
 }
 
 func (s Square) String() string {
 	bonus := string(s.bonus)
-	if ColorSupport {
-		if s.bonus == Bonus3WS {
-			bonus = fmt.Sprintf("\033[31m%s\033[39m", string(s.bonus))
-		}
-	}
 	return fmt.Sprintf("<(%v) (%s)>", s.letter, bonus)
 }
 
@@ -116,10 +111,29 @@ func (s *Square) Letter() alphabet.MachineLetter {
 	return s.letter
 }
 
+func (b BonusSquare) displayString() string {
+	if !ColorSupport {
+		return string(b)
+	}
+	switch b {
+
+	case Bonus3WS:
+		return fmt.Sprintf("\033[31m%s\033[0m", string(b))
+	case Bonus2WS:
+		return fmt.Sprintf("\033[35m%s\033[0m", string(b))
+	case Bonus3LS:
+		return fmt.Sprintf("\033[34m%s\033[0m", string(b))
+	case Bonus2LS:
+		return fmt.Sprintf("\033[36m%s\033[0m", string(b))
+	default:
+		return "?"
+	}
+}
+
 func (s Square) DisplayString(alph *alphabet.Alphabet) string {
 	var bonusdisp string
 	if s.bonus != ' ' {
-		bonusdisp = string(s.bonus)
+		bonusdisp = s.bonus.displayString()
 	} else {
 		bonusdisp = " "
 	}

@@ -99,7 +99,7 @@ func TestSolveComplex(t *testing.T) {
 		1)
 	is.NoErr(err)
 
-	v, _ := s.Solve(plies)
+	v, _, _ := s.Solve(plies)
 	is.Equal(v, 116)
 	// Quackle finds a 122-pt win. However, I think it's wrong because it
 	// doesn't take into account that opp can pass to prevent a setup
@@ -197,7 +197,7 @@ func TestSolveOther3(t *testing.T) {
 		1)
 	is.NoErr(err)
 
-	v, _ := s.Solve(plies)
+	v, _, _ := s.Solve(plies)
 	is.True(v > 0)
 }
 
@@ -212,7 +212,7 @@ func TestSolveStandard(t *testing.T) {
 		1)
 
 	is.NoErr(err)
-	v, _ := s.Solve(plies)
+	v, _, _ := s.Solve(plies)
 
 	is.Equal(v, float32(11))
 }
@@ -226,7 +226,7 @@ func TestSolveStandard2(t *testing.T) {
 		1)
 	is.NoErr(err)
 
-	v, _ := s.Solve(plies)
+	v, _, _ := s.Solve(plies)
 	is.Equal(v, float32(25))
 }
 
@@ -700,7 +700,7 @@ func TestProperIterativeDeepening(t *testing.T) {
 		s := new(Solver)
 		s.Init(generator, game)
 		fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
-		v, seq := s.Solve(plies)
+		v, seq, _ := s.Solve(plies)
 		is.Equal(v, float32(44))
 		// In particular, the sequence should start with 6I A.
 		// Player on turn needs to block the P spot. Anything else
@@ -734,7 +734,7 @@ func TestFromGCG(t *testing.T) {
 	// s.iterativeDeepeningOn = false
 	// s.simpleEvaluation = true
 	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
-	v, seq := s.Solve(plies)
+	v, seq, _ := s.Solve(plies)
 	is.Equal(v, float32(99))
 	is.Equal(len(seq), 1)
 	// t.Fail()
