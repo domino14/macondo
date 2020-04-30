@@ -10,6 +10,7 @@ Example:
     sim show
     sim details
     sim log
+    sim trim 3
 
 A list of plays must have been generated or added in another way already.
 
@@ -18,8 +19,11 @@ use `stop` to stop a running simulation, `show` to show the plays ranked
 by equity so far, and `details` to see more per-ply details of each play.
 
 Sim `continue` will continue a previously stopped simulation from where
-it left off. You can `stop` a simulation, delete plays with the `del`
+it left off. You can `stop` a simulation, delete plays with the `trim`
 command, and restart the simulation this way if you wish it to be faster.
+
+Sim `trim` takes in a numerical argument: the number of plays to remove
+from the BOTTOM of the sorted play list.
 
 Adding a second number (as in sim 3 3 above) interprets the second number
 as the number of threads to use for the simulation. This number defaults
@@ -27,3 +31,4 @@ to the greater or 1 or your number of CPUs minus 1.
 
 Before starting a simulation, you can also do `sim log` to write the log
 to a temporary file.
+

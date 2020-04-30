@@ -4,6 +4,7 @@ package montecarlo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -151,8 +152,9 @@ type Simmer struct {
 	iterationCount int
 	threads        int
 
-	simming bool
-	plays   []*SimmedPlay
+	simming    bool
+	readyToSim bool
+	plays      []*SimmedPlay
 
 	logStream io.Writer
 }
@@ -206,15 +208,34 @@ func (s *Simmer) IsSimming() bool {
 	return s.simming
 }
 
-// Simulate sims all the plays.
-func (s *Simmer) Simulate(ctx context.Context, plays []*move.Move, plies int) error {
+func (s *Simmer) Reset() {
+	s.plays = nil
+	s.gameCopies = nil
+	s.readyToSim = false
+}
+
+// PrepareSim resets all the stats before a simulation.
+func (s *Simmer) PrepareSim(plies int, plays []*move.Move) {
+	s.makeGameCopies()
+	s.resetStats(plies, plays)
+	s.readyToSim = true
+}
+
+func (s *Simmer) Ready() bool {
+	return s.readyToSim
+}
+
+// Simulate sims all the plays. It is a blocking function.
+func (s *Simmer) Simulate(ctx context.Context) error {
+	if len(s.plays) == 0 || len(s.gameCopies) == 0 {
+		return errors.New("please prepare the simulation first")
+	}
+
 	s.simming = true
 	defer func() {
 		s.simming = false
 		log.Info().Msgf("Simulation ended after %v iterations", s.iterationCount)
 	}()
-	s.makeGameCopies()
-	s.resetStats(plies, plays)
 
 	// use an errgroup here and listen for a ctx done outside this loop, but
 	// in another goroutine.
@@ -281,7 +302,7 @@ func (s *Simmer) Simulate(ctx context.Context, plays []*move.Move, plies int) er
 				s.iterationCount++
 				iterMutex.Unlock()
 
-				s.simSingleIteration(plies, t, iterNum, logChan)
+				s.simSingleIteration(s.maxPlies, t, iterNum, logChan)
 				select {
 				case v := <-syncChan:
 					log.Debug().Msgf("Thread %v got sync msg %v", t, v)
@@ -310,6 +331,17 @@ func (s *Simmer) Simulate(ctx context.Context, plays []*move.Move, plies int) er
 
 func (s *Simmer) Iterations() int {
 	return s.iterationCount
+}
+
+func (s *Simmer) TrimBottom(totrim int) error {
+	if s.simming {
+		return errors.New("please stop sim before trimming plays")
+	}
+	if totrim > len(s.plays)-1 {
+		return errors.New("there are not that many plays to trim away")
+	}
+	s.plays = s.plays[:len(s.plays)-totrim]
+	return nil
 }
 
 func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan chan []byte) {
@@ -403,11 +435,11 @@ func (s *Simmer) EquityStats() string {
 	stats := ""
 
 	s.sortPlaysByEquity()
-	stats += fmt.Sprintf("%20v%8v\n", "Play", "Equity")
+	stats += fmt.Sprintf("%20v%6v%8v\n", "Play", "Score", "Equity")
 
 	for _, play := range s.plays {
-		stats += fmt.Sprintf("%20v%8.3f\n", play.play.ShortDescription(),
-			play.equityStats.mean())
+		stats += fmt.Sprintf("%20v%6d%8.3f\n", play.play.ShortDescription(),
+			play.play.Score(), play.equityStats.mean())
 	}
 	stats += fmt.Sprintf("Iterations: %v\n", s.iterationCount)
 	return stats

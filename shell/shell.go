@@ -183,7 +183,9 @@ func (sc *ShellController) setToTurn(turnnum int) error {
 	}
 	log.Debug().Msgf("Set to turn %v", turnnum)
 	sc.curPlayList = nil
+	sc.simmer.Reset()
 	sc.curTurnNum = turnnum
+
 	return nil
 }
 
