@@ -139,6 +139,13 @@ func NewFromHistory(history *pb.GameHistory, rules RuleDefiner, turnnum int) (*G
 	return game, nil
 }
 
+func (g *Game) SetNewRules(rules RuleDefiner) error {
+	g.gaddag = rules.Gaddag()
+	g.alph = g.gaddag.GetAlphabet()
+	g.letterDistribution = rules.LetterDistribution()
+	return nil
+}
+
 // StartGame seeds the random source anew, and starts a game, dealing out tiles
 // to both players.
 func (g *Game) StartGame() {

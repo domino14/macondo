@@ -3,7 +3,7 @@ commands:
 Starting a game:
     new - start a blank game (you will need to add racks and moves with below commands)
     load <path/to/gcg> - load a .gcg file
-    setlex <lexicon> - set a lexicon (NWL18, CSW19, and maybe others)
+    setlex <lexicon> [distribution] - set a lexicon (NWL18, CSW19, and maybe others)
 
 Game navigation:
     n - next play

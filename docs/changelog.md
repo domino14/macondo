@@ -9,7 +9,9 @@ Bug fix and enhancement release
 - Add a `sim trim` command to delete bottom performers of a simulation.
 - Add an `export` command to allow saving to a .gcg file
 - `add` and `commit` commands are less picky about including the "through" letters in the play, as opposed to requiring a `.` character for these letters
+- Add a `setlex` command to set the lexicon of a game after loading it
 - Add color board display for terminals that support it
+- Fix bug where character encoding for GCGs containing CRLF characters was misparsed
 - Various other usability fixes
 
 # v0.4.1

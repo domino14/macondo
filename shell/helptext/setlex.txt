@@ -1,0 +1,30 @@
+setlex <lexicon> [distribution] - Set the lexicon and letter distribution
+
+Example
+    setlex CSW19
+    setlex OSPS42 polish
+
+The first example sets the lexicon to CSW19. The second example sets the
+lexicon to OSPS42. Note the distribution argument in the second example.
+
+The default letter distribution is `english`. So if you are using a non-English
+tile distribution, you must specify its name as the second argument.
+
+Acceptable letter distributions so far are:
+
+    spanish
+    english
+    polish
+
+More will be added in the future.
+
+Note that the ./data/lexica directory must contain a word-finding data
+structure (usually a GADDAG) for the lexicon that you chose.
+
+To set your default lexicon and letter distribution permanently, please
+set the following environment variables before running this program:
+
+    DEFAULT_LEXICON
+    DEFAULT_LETTER_DISTRIBUTION
+
+For example: DEFAULT_LEXICON=CSW19 ./macondo

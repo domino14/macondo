@@ -92,6 +92,15 @@ func TestParseUnsupportedEncoding(t *testing.T) {
 	assert.Nil(t, history)
 }
 
+func TestParseDOSMode(t *testing.T) {
+	// file has CRLF carriage returns. we should handle it.
+	history, err := ParseGCG("./testdata/utf8_dos.gcg")
+	assert.Nil(t, err)
+	assert.NotNil(t, history)
+	assert.Equal(t, "angwantibo", history.Players[0].Nickname)
+	assert.Equal(t, "Michal_Josko", history.Players[1].Nickname)
+}
+
 func TestToGCG(t *testing.T) {
 	history, err := ParseGCG("./testdata/doug_v_emely.gcg")
 

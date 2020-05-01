@@ -225,13 +225,6 @@ func (sc *ShellController) genMovesAndDisplay(numPlays int) {
 	opp := (sc.game.PlayerOnTurn() + 1) % sc.game.NumPlayers()
 	oppRack := sc.game.RackFor(opp)
 
-	// XXX: MIGHT BE ABLE TO REMOVE THIS:
-	// if oppRack.NumTiles() == 0 && sc.game.Bag().TilesRemaining() <= 7 {
-	// 	log.Debug().Msg("Assigning remainder of unseen tiles to opponent...")
-	// 	oppRack = alphabet.NewRack(sc.game.Alphabet())
-	// 	oppRack.Set(sc.game.Bag().Peek())
-	// }
-
 	canExchange := exchangeAllowed(sc.game.Board(),
 		sc.game.Bag().LetterDistribution())
 	sc.gen.GenAll(curRack, canExchange)
@@ -394,6 +387,10 @@ func (sc *ShellController) addPlay(fields []string, commit bool) error {
 	}
 
 	if !commit {
+		opp := (sc.game.PlayerOnTurn() + 1) % sc.game.NumPlayers()
+		oppRack := sc.game.RackFor(opp)
+		sc.aiplayer.AssignEquity([]*move.Move{m}, sc.game.Board(), sc.game.Bag(),
+			oppRack)
 		sc.curPlayList = append(sc.curPlayList, m)
 		sort.Slice(sc.curPlayList, func(i, j int) bool {
 			return sc.curPlayList[j].Equity() < sc.curPlayList[i].Equity()
@@ -517,19 +514,32 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		}
 		sc.showMessage(sc.game.ToDisplayText())
 
-		// XXX: TEST AND FIX ME:
-
-	// case strings.HasPrefix(line, "setlex "):
-	// 	lex := line[7:]
-	// 	gdFilename := filepath.Join(
-	// 		sc.config.LexiconPath, "gaddag", lex+".gaddag")
-	// 	gd, err := gaddag.LoadGaddag(gdFilename)
-	// 	if err != nil {
-	// 		sc.showError(err)
-	// 		break
-	// 	}
-	// 	sc.game.SetGaddag(gd)
-	// 	sc.showMessage("Lexicon set to " + lex)
+	case "setlex":
+		if args == nil {
+			sc.showError(errors.New("must set a lexicon"))
+			break
+		}
+		if sc.game == nil {
+			sc.showError(errors.New("please load or create a game first"))
+			break
+		}
+		letdist := "english"
+		if len(args) == 2 {
+			letdist = args[1]
+		}
+		lexname := args[0]
+		rules, err := game.NewGameRules(sc.config, board.CrosswordGameBoard,
+			lexname, letdist)
+		if err != nil {
+			sc.showError(err)
+			break
+		}
+		err = sc.game.SetNewRules(rules)
+		if err != nil {
+			sc.showError(err)
+			break
+		}
+		sc.initGameDataStructures()
 
 	case "gen":
 
@@ -603,6 +613,9 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		if err != nil {
 			sc.showError(err)
 		}
+
+	case "list":
+		sc.displayMoveList()
 
 	case "endgame":
 		if sc.game == nil {
