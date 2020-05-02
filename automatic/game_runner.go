@@ -87,7 +87,7 @@ func (r *GameRunner) PlayBestStaticTurn(playerID int) {
 	if r.logchan != nil {
 		r.logchan <- fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v,%v,%v,%.3f,%v\n",
 			playerID,
-			r.game.Uuid(),
+			r.game.Uid(),
 			r.game.Turn(),
 			rackLetters,
 			bestPlay.ShortDescription(),

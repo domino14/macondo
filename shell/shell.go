@@ -667,6 +667,23 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		}
 	case "mode":
 		sc.modeSelector(args[0])
+
+	case "export":
+		if args == nil {
+			sc.showError(errors.New("please provide a filename to save to"))
+			break
+		}
+		filename := args[0]
+		contents := gcgio.GameHistoryToGCG(sc.game.History(), true)
+		f, err := os.Create(filename)
+		if err != nil {
+			sc.showError(err)
+			break
+		}
+		f.WriteString(contents)
+		f.Close()
+		sc.showMessage("gcg written to " + filename)
+
 	default:
 
 		log.Info().Msgf("command %v not found", strconv.Quote(cmd))

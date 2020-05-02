@@ -9,12 +9,13 @@ message GameHistory {
   int32 version = 3;
   string original_gcg = 4;
   string lexicon = 5;
-  string uuid = 6;
-  string title = 7;
-  string description = 8;
+  string id_auth = 6;
+  string uid = 7;
+  string title = 8;
+  string description = 9;
   // last_known_racks should only be set in an incomplete / in-progress game.
   // if set, player racks should be set to these values.
-  repeated string last_known_racks = 9;
+  repeated string last_known_racks = 10;
   // Add letter distribution (basically game name), board config, and more
   // in the future.
 }

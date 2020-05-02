@@ -19,6 +19,11 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+const (
+	//IdentificationAuthority is the authority that gives out game IDs
+	IdentificationAuthority = "org.aerolith"
+)
+
 // RuleDefiner is an interface that is used for passing a set of rules
 // to a game.
 type RuleDefiner interface {
@@ -87,7 +92,8 @@ func newHistory(players playerStates) *pb.GameHistory {
 	}
 
 	his.Players = playerInfo
-	his.Uuid = shortuuid.New()
+	his.IdAuth = IdentificationAuthority
+	his.Uid = shortuuid.New()
 	his.Turns = []*pb.GameTurn{}
 	return his
 }
@@ -123,6 +129,13 @@ func NewFromHistory(history *pb.GameHistory, rules RuleDefiner, turnnum int) (*G
 		return nil, err
 	}
 	game.history = history
+	if history.Uid == "" {
+		history.Uid = shortuuid.New()
+		history.IdAuth = IdentificationAuthority
+	}
+	if history.Description == "" {
+		history.Description = "Exported with Macondo"
+	}
 
 	// Initialize the bag and player rack structures to avoid panics.
 	game.randSeed, game.randSource = seededRandSource()
@@ -719,8 +732,8 @@ func (g *Game) Turn() int {
 	return g.turnnum
 }
 
-func (g *Game) Uuid() string {
-	return g.history.Uuid
+func (g *Game) Uid() string {
+	return g.history.Uid
 }
 
 func (g *Game) Playing() bool {

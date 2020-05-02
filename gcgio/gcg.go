@@ -29,6 +29,7 @@ const (
 	PlayerToken
 	TitleToken
 	DescriptionToken
+	IDToken
 	Rack1Token
 	Rack2Token
 	EncodingToken
@@ -55,6 +56,7 @@ const (
 	PlayerRegex             = `#player(?P<p_number>[1-2])\s+(?P<nick>\S+)\s+(?P<real_name>.+)`
 	TitleRegex              = `#title\s*(?P<title>.*)`
 	DescriptionRegex        = `#description\s*(?P<description>.*)`
+	IDRegex                 = `#id\s*(?P<id_authority>\S+)\s+(?P<id>\S+)`
 	Rack1Regex              = `#rack1 (?P<rack>\S+)`
 	Rack2Regex              = `#rack2 (?P<rack>\S+)`
 	MoveRegex               = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+(?P<pos>\w+)\s+(?P<play>[\w\\.]+)\s+\+(?P<score>\d+)\s+(?P<cumul>\d+)`
@@ -89,6 +91,7 @@ func init() {
 		gcgdatum{PlayerToken, regexp.MustCompile(PlayerRegex)},
 		gcgdatum{TitleToken, regexp.MustCompile(TitleRegex)},
 		gcgdatum{DescriptionToken, regexp.MustCompile(DescriptionRegex)},
+		gcgdatum{IDToken, regexp.MustCompile(IDRegex)},
 		gcgdatum{Rack1Token, regexp.MustCompile(Rack1Regex)},
 		gcgdatum{Rack2Token, regexp.MustCompile(Rack2Regex)},
 		gcgdatum{EncodingToken, compiledEncodingRegexp},
@@ -134,6 +137,9 @@ func (p *parser) addEventOrPragma(token Token, match []string, gameHistory *pb.G
 		return nil
 	case DescriptionToken:
 		gameHistory.Description = match[1]
+	case IDToken:
+		gameHistory.IdAuth = match[1]
+		gameHistory.Uid = match[2]
 	// Assume Rack1Token always comes before Rack2Token in a well-formed gcg:
 	case Rack1Token:
 		gameHistory.LastKnownRacks = []string{match[1]}
@@ -394,9 +400,20 @@ func ParseGCG(filename string) (*pb.GameHistory, error) {
 	return ParseGCGFromReader(f)
 }
 
-func writeGCGHeader(s *strings.Builder) {
+func writeGCGHeader(s *strings.Builder, h *pb.GameHistory, addlInfo bool) {
 	s.WriteString("#character-encoding UTF-8\n")
-	log.Debug().Msg("wrote encoding")
+	if addlInfo {
+		if h.Title != "" {
+			s.WriteString("#title " + h.Title + "\n")
+		}
+		if h.Description != "" {
+			s.WriteString("#description " + h.Description + "\n")
+		}
+		if h.IdAuth != "" && h.Uid != "" {
+			s.WriteString("#id " + h.IdAuth + " " + h.Uid + "\n")
+		}
+	}
+	log.Debug().Msg("wrote header")
 }
 
 func writePlayer(s *strings.Builder, p *pb.PlayerInfo) {
@@ -450,10 +467,10 @@ func writeTurn(s *strings.Builder, t *pb.GameTurn) {
 }
 
 // GameHistoryToGCG returns a string GCG representation of the GameHistory.
-func GameHistoryToGCG(h *pb.GameHistory) string {
+func GameHistoryToGCG(h *pb.GameHistory, addlHeaderInfo bool) string {
 
 	var str strings.Builder
-	writeGCGHeader(&str)
+	writeGCGHeader(&str, h, addlHeaderInfo)
 	for _, player := range h.Players {
 		writePlayer(&str, player)
 	}
