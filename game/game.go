@@ -306,12 +306,12 @@ func (g *Game) CreateAndScorePlacementMove(coords string, tiles string, rack str
 	if err != nil {
 		return nil, err
 	}
-	tilesPlayed := 0
-	for _, m := range mw {
-		if m.IsPlayedTile() {
-			tilesPlayed++
-		}
+
+	err = modifyForPlaythrough(mw, g.board, vertical, row, col)
+	if err != nil {
+		return nil, err
 	}
+
 	leavemw, err := Leave(rackmw, mw)
 	if err != nil {
 		return nil, err
@@ -330,10 +330,12 @@ func (g *Game) CreateAndScorePlacementMove(coords string, tiles string, rack str
 		row, col = col, row
 		g.Board().Transpose()
 	}
+	tilesPlayed := len(rackmw) - len(leavemw)
 
 	// ScoreWord assumes the play is always horizontal, so we have to
 	// do the transpositions beforehand.
-	score := g.Board().ScoreWord(mw, row, col, tilesPlayed, crossDir, g.bag.LetterDistribution())
+	score := g.Board().ScoreWord(mw, row, col, tilesPlayed,
+		crossDir, g.bag.LetterDistribution())
 	// reset row, col back for the actual creation of the play.
 	if vertical {
 		row, col = col, row
@@ -501,39 +503,6 @@ func (g *Game) playTurn(t int) []alphabet.MachineLetter {
 	g.turnnum++
 	return playedTiles
 }
-
-// func (g *Game) reconcileTiles(playedTiles []alphabet.MachineLetter, turn int) error {
-// 	// Reconcile tiles in the bag.
-
-// 	var err error
-// 	log.Debug().Msgf("Removing tiles played: %v", playedTiles)
-// 	err = g.bag.RemoveTiles(playedTiles)
-// 	log.Debug().Msgf("Error was %v", err)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	// Determine the latest rack available. Sometimes a game representation
-// 	// ends before the game itself is over, so we need to make sure
-// 	// we don't mistakenly give the other player all the remaining tiles, etc
-// 	var rack alphabet.MachineWord
-// 	notOnTurn := (g.onturn + 1) % 2
-
-// 	if turn < len(repr.Turns) {
-// 		// Find the rack of the player currently on turn; after playing
-// 		// turns up to this point.
-// 		rack, err = alphabet.ToMachineWord(repr.Turns[turn][0].GetRack(), g.alph)
-
-// 		if err != nil {
-// 			return err
-// 		}
-// 	}
-// 	// Always empty the opponent's rack, so it doesn't display.
-// 	g.players[notOnTurn].SetRack([]alphabet.MachineLetter{}, g.alph)
-// 	log.Debug().Msgf("My rack is %v, removing it from bag", rack.UserVisible(g.alph))
-// 	g.players[g.onturn].SetRack(rack, g.alph)
-
-// 	return g.bag.RemoveTiles(rack)
-// }
 
 // SetRackFor sets the player's current rack. It throws an error if
 // the rack is impossible to set from the current unseen tiles. It

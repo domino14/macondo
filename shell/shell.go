@@ -198,20 +198,6 @@ func MoveTableRow(idx int, m *move.Move, alph *alphabet.Alphabet) string {
 		m.ShortDescription(), m.Leave().UserVisible(alph), m.Score(), m.Equity())
 }
 
-// XXX: THIS FUNCTION MIGHT NOT BE NEEDED ANYMORE
-func exchangeAllowed(board *board.GameBoard, ld *alphabet.LetterDistribution) bool {
-	// Instead of checking if the bag has 7 or more tiles, we check that the
-	// board has 80 tiles on it or more.
-	// We do this because during an interactive setup like this one, it's
-	// likely that racks are not assigned to each player every turn.
-
-	desiredNumber := ld.NumTotalTiles() - 14 - 7
-	if board.TilesPlayed() > desiredNumber {
-		return false
-	}
-	return true
-}
-
 func (sc *ShellController) printEndgameSequence(moves []*move.Move) {
 	sc.showMessage("Best sequence:")
 	for idx, move := range moves {
@@ -225,9 +211,7 @@ func (sc *ShellController) genMovesAndDisplay(numPlays int) {
 	opp := (sc.game.PlayerOnTurn() + 1) % sc.game.NumPlayers()
 	oppRack := sc.game.RackFor(opp)
 
-	canExchange := exchangeAllowed(sc.game.Board(),
-		sc.game.Bag().LetterDistribution())
-	sc.gen.GenAll(curRack, canExchange)
+	sc.gen.GenAll(curRack, sc.game.Bag().TilesRemaining() >= 7)
 
 	// Assign equity to plays, and only show the top ones.
 	sc.aiplayer.AssignEquity(sc.gen.Plays(), sc.game.Board(),
@@ -412,20 +396,23 @@ func (sc *ShellController) addPlay(fields []string, commit bool) error {
 
 	}
 	return nil
-
 }
 
-func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) error {
+func extractFields(line string) (string, []string) {
 	fields := strings.Fields(line)
 	if len(fields) == 0 {
-		return nil
+		return "", nil
 	}
 	cmd := fields[0]
 	var args []string
 	if len(fields) > 1 {
 		args = fields[1:]
 	}
+	return cmd, args
+}
 
+func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) error {
+	cmd, args := extractFields(line)
 	switch cmd {
 	case "new":
 

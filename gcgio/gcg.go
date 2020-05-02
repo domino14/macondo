@@ -425,6 +425,7 @@ func writeEvent(s *strings.Builder, evt *pb.GameEvent) {
 	nick := evt.GetNickname()
 	rack := evt.GetRack()
 	evtType := evt.GetType()
+	note := evt.GetNote()
 
 	// XXX HANDLE MORE TYPES (e.g. time penalty at some point, end rack
 	// penalty for international rules)
@@ -456,6 +457,10 @@ func writeEvent(s *strings.Builder, evt *pb.GameEvent) {
 		fmt.Fprintf(s, ">%v: %v -%v +0 %d\n",
 			nick, rack, evt.Exchanged, evt.Cumulative)
 
+	}
+	if note != "" {
+		// Note that the note can have line breaks within it ...
+		fmt.Fprintf(s, "#note %v\n", note)
 	}
 
 }
