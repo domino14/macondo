@@ -5,6 +5,7 @@ package automatic
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/domino14/macondo/ai/player"
 	"github.com/domino14/macondo/alphabet"
@@ -17,6 +18,11 @@ import (
 	"github.com/domino14/macondo/strategy"
 
 	pb "github.com/domino14/macondo/rpc/api/proto"
+)
+
+const (
+	ExhaustiveLeavePlayer = "exhaustiveleave"
+	NoLeavePlayer         = "noleave"
 )
 
 // GameRunner is the master struct here for the automatic game logic.
@@ -35,21 +41,27 @@ type GameRunner struct {
 // NewGameRunner just instantiates and initializes a game runner.
 func NewGameRunner(logchan chan string, config *config.Config) *GameRunner {
 	r := &GameRunner{logchan: logchan, config: config}
-	r.Init()
+	r.Init(ExhaustiveLeavePlayer, ExhaustiveLeavePlayer)
 	return r
 }
 
 // Init initializes the runner
-func (r *GameRunner) Init() {
+func (r *GameRunner) Init(player1 string, player2 string) {
 	rules, err := game.NewGameRules(r.config, board.CrosswordGameBoard,
 		r.config.DefaultLexicon, r.config.DefaultLetterDistribution)
 	if err != nil {
 		panic(err)
 	}
 
+	realName1 := player1
+	realName2 := player2
+	if player1 == player2 {
+		realName2 = realName1 + "2"
+	}
+
 	players := []*pb.PlayerInfo{
-		&pb.PlayerInfo{Nickname: "p1", RealName: "Player 1", Number: 1},
-		&pb.PlayerInfo{Nickname: "p2", RealName: "Player 2", Number: 2},
+		{Nickname: "p1", RealName: realName1, Number: 1},
+		{Nickname: "p2", RealName: realName2, Number: 2},
 	}
 
 	r.game, err = game.NewGame(rules, players)
@@ -58,41 +70,50 @@ func (r *GameRunner) Init() {
 	}
 	r.gaddag = rules.Gaddag()
 	r.alphabet = r.gaddag.GetAlphabet()
-	strategy := strategy.NewExhaustiveLeaveStrategy(r.gaddag.LexiconName(),
-		r.alphabet, r.config.StrategyParamsPath)
+
 	r.movegen = movegen.NewGordonGenerator(r.gaddag, r.game.Board(),
 		rules.LetterDistribution())
-	r.aiplayers[0] = player.NewRawEquityPlayer(strategy)
-	r.aiplayers[1] = player.NewRawEquityPlayer(strategy)
+
+	var strat strategy.Strategizer
+	for idx, pinfo := range players {
+		if strings.HasPrefix(pinfo.RealName, ExhaustiveLeavePlayer) {
+			strat = strategy.NewExhaustiveLeaveStrategy(r.gaddag.LexiconName(),
+				r.alphabet, r.config.StrategyParamsPath)
+		}
+		if strings.HasPrefix(pinfo.RealName, NoLeavePlayer) {
+			strat = strategy.NewNoLeaveStrategy()
+		}
+		r.aiplayers[idx] = player.NewRawEquityPlayer(strat)
+	}
 }
 
 func (r *GameRunner) StartGame() {
 	r.game.StartGame()
 }
 
-func (r *GameRunner) genBestStaticTurn(playerID int) *move.Move {
-	return player.GenBestStaticTurn(r.game, r.movegen, r.aiplayers[playerID], playerID)
+func (r *GameRunner) genBestStaticTurn(playerIdx int) *move.Move {
+	return player.GenBestStaticTurn(r.game, r.movegen, r.aiplayers[playerIdx], playerIdx)
 }
 
 // PlayBestStaticTurn generates the best static move for the player and
 // plays it on the board.
-func (r *GameRunner) PlayBestStaticTurn(playerID int) {
-	bestPlay := r.genBestStaticTurn(playerID)
+func (r *GameRunner) PlayBestStaticTurn(playerIdx int) {
+	bestPlay := r.genBestStaticTurn(playerIdx)
 	// save rackLetters for logging.
-	rackLetters := r.game.RackLettersFor(playerID)
+	rackLetters := r.game.RackLettersFor(playerIdx)
 	tilesRemaining := r.game.Bag().TilesRemaining()
 
 	r.game.PlayMove(bestPlay, false, false)
 
 	if r.logchan != nil {
 		r.logchan <- fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v,%v,%v,%.3f,%v\n",
-			playerID,
+			playerIdx,
 			r.game.Uid(),
 			r.game.Turn(),
 			rackLetters,
 			bestPlay.ShortDescription(),
 			bestPlay.Score(),
-			r.game.PointsFor(playerID),
+			r.game.PointsFor(playerIdx),
 			bestPlay.TilesPlayed(),
 			bestPlay.Leave().UserVisible(r.alphabet),
 			bestPlay.Equity(),

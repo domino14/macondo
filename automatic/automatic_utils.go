@@ -12,7 +12,6 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/gaddag"
 )
 
 var (
@@ -27,7 +26,7 @@ func init() {
 
 // CompVsCompStatic plays out a game to the end using best static turns.
 func (r *GameRunner) CompVsCompStatic() {
-	r.Init()
+	r.Init("exhaustiveleave", "exhaustiveleave")
 	r.playFullStatic()
 	log.Debug().Msgf("Game over. Score: %v - %v", r.game.PointsFor(0),
 		r.game.PointsFor(1))
@@ -47,7 +46,13 @@ func (r *GameRunner) playFullStatic() {
 type Job struct{}
 
 func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
-	gd *gaddag.SimpleGaddag, numGames int, threads int, outputFilename string) error {
+	numGames int, threads int, outputFilename, player1, player2 string) error {
+
+	for _, p := range []string{player1, player2} {
+		if p != ExhaustiveLeavePlayer && p != NoLeavePlayer {
+			return errors.New("unhandled player type")
+		}
+	}
 
 	if IsPlaying.Value() > 0 {
 		return errors.New("games are already being played, please wait till complete")
@@ -69,7 +74,7 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 		go func(i int) {
 			defer wg.Done()
 			r := GameRunner{logchan: logChan, config: cfg}
-			r.Init()
+			r.Init(player1, player2)
 			IsPlaying.Add(1)
 			for range jobs {
 				r.playFullStatic()

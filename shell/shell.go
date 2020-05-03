@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
@@ -24,7 +23,6 @@ import (
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/endgame/alphabeta"
-	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	"github.com/domino14/macondo/montecarlo"
@@ -36,6 +34,11 @@ import (
 
 const (
 	SimLog = "/tmp/simlog"
+)
+
+var (
+	errNoData            = errors.New("no data in this line")
+	errWrongOptionSyntax = errors.New("wrong format; all options need arguments")
 )
 
 type ShellController struct {
@@ -398,22 +401,97 @@ func (sc *ShellController) addPlay(fields []string, commit bool) error {
 	return nil
 }
 
-func extractFields(line string) (string, []string) {
+func (sc *ShellController) handleAutoplay(args []string, options map[string]string) error {
+	var logfile string
+	if options["file"] == "" {
+		logfile = "/tmp/autoplay.txt"
+	} else {
+		logfile = options["file"]
+	}
+	player1 := "exhaustiveleave"
+	player2 := player1
+	if len(args) == 1 {
+		if args[0] == "stop" {
+			if !sc.gameRunnerRunning {
+				return errors.New("automatic game runner is not running")
+			}
+			sc.gameRunnerCancel()
+			sc.gameRunnerRunning = false
+			return nil
+
+		}
+	} else if len(args) == 2 {
+		// It's player names
+		player1 = args[0]
+		player2 = args[1]
+	}
+	if sc.gameRunnerRunning {
+		return errors.New("please stop automatic game runner before running another one")
+	}
+
+	sc.showMessage("automatic game runner will log to " + logfile)
+	sc.gameRunnerCtx, sc.gameRunnerCancel = context.WithCancel(context.Background())
+	err := automatic.StartCompVCompStaticGames(sc.gameRunnerCtx, sc.config, 1e9, runtime.NumCPU(),
+		logfile, player1, player2)
+	if err != nil {
+		return err
+	}
+	sc.gameRunnerRunning = true
+	sc.showMessage("Started automatic game runner...")
+	return nil
+}
+
+type shellcmd struct {
+	cmd     string
+	args    []string
+	options map[string]string
+}
+
+func extractFields(line string) (*shellcmd, error) {
 	fields := strings.Fields(line)
 	if len(fields) == 0 {
-		return "", nil
+		return nil, errNoData
 	}
 	cmd := fields[0]
 	var args []string
-	if len(fields) > 1 {
-		args = fields[1:]
+	options := map[string]string{}
+	// handle options
+
+	lastWasOption := false
+	lastOption := ""
+	for idx := 1; idx < len(fields); idx++ {
+		if strings.HasPrefix(fields[idx], "-") {
+			// option
+			lastWasOption = true
+			lastOption = fields[idx][1:]
+			continue
+		}
+		if lastWasOption {
+			lastWasOption = false
+			options[lastOption] = fields[idx]
+		} else {
+			args = append(args, fields[idx])
+		}
 	}
-	return cmd, args
+
+	if lastWasOption {
+		// all options are non-boolean, cannot have a naked option.
+		return nil, errWrongOptionSyntax
+	}
+
+	return &shellcmd{
+		cmd:     cmd,
+		args:    args,
+		options: options,
+	}, nil
 }
 
 func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) error {
-	cmd, args := extractFields(line)
-	switch cmd {
+	cmd, err := extractFields(line)
+	if err != nil {
+		return err
+	}
+	switch cmd.cmd {
 	case "new":
 
 		rules, err := game.NewGameRules(sc.config, board.CrosswordGameBoard,
@@ -438,11 +516,11 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		sc.showMessage(sc.game.ToDisplayText())
 
 	case "load":
-		if args == nil {
+		if cmd.args == nil {
 			sc.showError(errors.New("need arguments for load"))
 			break
 		}
-		err := sc.loadGCG(args)
+		err := sc.loadGCG(cmd.args)
 
 		if err != nil {
 			sc.showError(err)
@@ -470,11 +548,11 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		sc.showMessage(sc.game.ToDisplayText())
 
 	case "turn":
-		if args == nil {
+		if cmd.args == nil {
 			sc.showError(errors.New("need argument for turn"))
 			break
 		}
-		t, err := strconv.Atoi(args[0])
+		t, err := strconv.Atoi(cmd.args[0])
 		if err != nil {
 			sc.showError(err)
 			break
@@ -487,12 +565,12 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		sc.showMessage(sc.game.ToDisplayText())
 
 	case "rack":
-		if args == nil {
+		if cmd.args == nil {
 			sc.showError(errors.New("need argument for rack"))
 			break
 		}
 
-		rack := args[0]
+		rack := cmd.args[0]
 
 		err := sc.addRack(strings.ToUpper(rack))
 		if err != nil {
@@ -502,7 +580,7 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		sc.showMessage(sc.game.ToDisplayText())
 
 	case "setlex":
-		if args == nil {
+		if cmd.args == nil {
 			sc.showError(errors.New("must set a lexicon"))
 			break
 		}
@@ -511,10 +589,10 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			break
 		}
 		letdist := "english"
-		if len(args) == 2 {
-			letdist = args[1]
+		if len(cmd.args) == 2 {
+			letdist = cmd.args[1]
 		}
-		lexname := args[0]
+		lexname := cmd.args[0]
 		rules, err := game.NewGameRules(sc.config, board.CrosswordGameBoard,
 			lexname, letdist)
 		if err != nil {
@@ -533,10 +611,10 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		var numPlays int
 		var err error
 
-		if args == nil {
+		if cmd.args == nil {
 			numPlays = 15
 		} else {
-			numPlays, err = strconv.Atoi(args[0])
+			numPlays, err = strconv.Atoi(cmd.args[0])
 			if err != nil {
 				sc.showError(err)
 				break
@@ -547,56 +625,24 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		}
 
 	case "autoplay":
-		var logfile string
-		if args == nil {
-			logfile = "/tmp/autoplay.txt"
-		} else {
-			if args[0] == "stop" {
-				if !sc.gameRunnerRunning {
-					sc.showError(errors.New("automatic game runner is not running"))
-					break
-				} else {
-					sc.gameRunnerCancel()
-					sc.gameRunnerRunning = false
-					break
-				}
-			} else {
-				// It's a filename
-				logfile = args[0]
-			}
-		}
-		if sc.gameRunnerRunning {
-			sc.showError(errors.New("please stop automatic game runner before running another one"))
-			break
-		}
-		// XXX Refactor this
-
-		gdFilename := filepath.Join(sc.config.LexiconPath, "gaddag", sc.config.DefaultLexicon+".gaddag")
-
-		gd, err := gaddag.LoadGaddag(gdFilename)
+		err := sc.handleAutoplay(cmd.args, cmd.options)
 		if err != nil {
 			sc.showError(err)
-			break
 		}
-		sc.showMessage("automatic game runner will log to " + logfile)
-		sc.gameRunnerCtx, sc.gameRunnerCancel = context.WithCancel(context.Background())
-		automatic.StartCompVCompStaticGames(sc.gameRunnerCtx, sc.config, gd, 1e9, runtime.NumCPU(), logfile)
-		sc.gameRunnerRunning = true
-		sc.showMessage("Started automatic game runner...")
 
 	case "sim":
-		err := sc.handleSim(args)
+		err := sc.handleSim(cmd.args)
 		if err != nil {
 			sc.showError(err)
 		}
 
 	case "add":
-		err := sc.addPlay(args, false)
+		err := sc.addPlay(cmd.args, false)
 		if err != nil {
 			sc.showError(err)
 		}
 	case "commit":
-		err := sc.addPlay(args, true)
+		err := sc.addPlay(cmd.args, true)
 		if err != nil {
 			sc.showError(err)
 		}
@@ -609,7 +655,7 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			showMessage("please load a game first with the `load` command", sc.l.Stderr())
 			break
 		}
-		plies, deepening, simpleEval, disablePruning, err := endgameArgs(args)
+		plies, deepening, simpleEval, disablePruning, err := endgameArgs(cmd.args)
 		if err != nil {
 			showMessage("Error: "+err.Error(), sc.l.Stderr())
 			break
@@ -646,21 +692,21 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		sig <- syscall.SIGINT
 		return errors.New("sending quit signal")
 	case "help":
-		if args == nil {
+		if cmd.args == nil {
 			usage(sc.l.Stderr(), "standard")
 		} else {
-			helptopic := args[0]
+			helptopic := cmd.args[0]
 			usageTopic(sc.l.Stderr(), helptopic)
 		}
 	case "mode":
-		sc.modeSelector(args[0])
+		sc.modeSelector(cmd.args[0])
 
 	case "export":
-		if args == nil {
+		if cmd.args == nil {
 			sc.showError(errors.New("please provide a filename to save to"))
 			break
 		}
-		filename := args[0]
+		filename := cmd.args[0]
 		contents := gcgio.GameHistoryToGCG(sc.game.History(), true)
 		f, err := os.Create(filename)
 		if err != nil {
@@ -673,7 +719,7 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 
 	default:
 
-		log.Info().Msgf("command %v not found", strconv.Quote(cmd))
+		log.Info().Msgf("command %v not found", strconv.Quote(cmd.cmd))
 
 	}
 	return nil
@@ -702,14 +748,12 @@ func (sc *ShellController) Loop(sig chan os.Signal) {
 		if sc.curMode == StandardMode {
 			err := sc.standardModeSwitch(line, sig)
 			if err != nil {
-				log.Error().Err(err).Msg("")
-				break
+				sc.showError(err)
 			}
 		} else if sc.curMode == EndgameDebugMode {
 			err := sc.endgameDebugModeSwitch(line, sig)
 			if err != nil {
-				log.Error().Err(err).Msg("")
-				break
+				sc.showError(err)
 			}
 		}
 

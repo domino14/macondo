@@ -2,6 +2,7 @@
 
 Bug fix and enhancement release
 
+- Include NWL18 gaddag by permission
 - Changed the semantics of `add` by only allowing it to add on to a list of plays, but not commit the play
 - Added a `commit` command, which does what `add` used to do
 - Refactored game history with protobuf to fix various bugs and hacks. It is much cleaner now.

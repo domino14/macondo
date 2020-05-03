@@ -8,15 +8,18 @@ import (
 )
 
 func (sc *ShellController) endgameDebugModeSwitch(line string, sig chan os.Signal) error {
-	cmd, args := extractFields(line)
+	cmd, err := extractFields(line)
+	if err != nil {
+		return err
+	}
 
-	switch cmd {
+	switch cmd.cmd {
 	case "mode":
-		if args == nil {
+		if cmd.args == nil {
 			sc.showError(errors.New("select a mode"))
 			break
 		}
-		sc.modeSelector(args[0])
+		sc.modeSelector(cmd.args[0])
 
 	case "help":
 		usage(sc.l.Stderr(), "endgamedebug")
@@ -58,11 +61,11 @@ func (sc *ShellController) endgameDebugModeSwitch(line string, sig chan os.Signa
 		}
 
 	case "s":
-		if len(args) == 0 {
+		if len(cmd.args) == 0 {
 			sc.showError(errors.New("select a node to step into"))
 			break
 		}
-		nodeID, err := strconv.Atoi(args[0])
+		nodeID, err := strconv.Atoi(cmd.args[0])
 		if err != nil {
 			sc.showError(err)
 			return nil
@@ -76,7 +79,7 @@ func (sc *ShellController) endgameDebugModeSwitch(line string, sig chan os.Signa
 		sc.curEndgameNode = sc.curEndgameNode.Children()[nodeID]
 
 	default:
-		sc.showError(errors.New("command not recognized: " + cmd))
+		sc.showError(errors.New("command not recognized: " + cmd.cmd))
 	}
 	return nil
 }

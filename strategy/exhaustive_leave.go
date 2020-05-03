@@ -34,12 +34,27 @@ func float32FromBytes(bytes []byte) float32 {
 	return float
 }
 
+func defaultForLexicon(lexiconName string) string {
+	if strings.HasPrefix(lexiconName, "CSW") ||
+		strings.HasPrefix(lexiconName, "TWL") ||
+		strings.HasPrefix(lexiconName, "NWL") {
+
+		return "default_english"
+	}
+	return ""
+}
+
 func (els *ExhaustiveLeaveStrategy) Init(lexiconName string, alph *alphabet.Alphabet,
 	strategyDir string) error {
 
 	file, err := os.Open(filepath.Join(strategyDir, lexiconName, LeaveFilename))
 	if err != nil {
-		return err
+		defdir := defaultForLexicon(lexiconName)
+		file, err = os.Open(filepath.Join(strategyDir, defdir, LeaveFilename))
+		if err != nil {
+			return err
+		}
+		log.Info().Msgf("using %v directory in absence of lexicon-specific strategy", defdir)
 	}
 	defer file.Close()
 	var gz *gzip.Reader

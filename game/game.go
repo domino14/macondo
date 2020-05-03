@@ -22,6 +22,8 @@ import (
 const (
 	//IdentificationAuthority is the authority that gives out game IDs
 	IdentificationAuthority = "org.aerolith"
+
+	MacondoCreation = "Created with Macondo"
 )
 
 // RuleDefiner is an interface that is used for passing a set of rules
@@ -94,6 +96,7 @@ func newHistory(players playerStates) *pb.GameHistory {
 	his.Players = playerInfo
 	his.IdAuth = IdentificationAuthority
 	his.Uid = shortuuid.New()
+	his.Description = MacondoCreation
 	his.Turns = []*pb.GameTurn{}
 	return his
 }
@@ -134,7 +137,7 @@ func NewFromHistory(history *pb.GameHistory, rules RuleDefiner, turnnum int) (*G
 		history.IdAuth = IdentificationAuthority
 	}
 	if history.Description == "" {
-		history.Description = "Exported with Macondo"
+		history.Description = MacondoCreation
 	}
 
 	// Initialize the bag and player rack structures to avoid panics.
