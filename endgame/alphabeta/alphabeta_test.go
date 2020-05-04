@@ -51,8 +51,8 @@ func setUpSolver(lex string, bvs board.VsWho, plies int, rack1, rack2 string,
 	}
 
 	players := []*pb.PlayerInfo{
-		&pb.PlayerInfo{Nickname: "p1", RealName: "Player 1", Number: 1},
-		&pb.PlayerInfo{Nickname: "p2", RealName: "Player 2", Number: 2},
+		{Nickname: "p1", RealName: "Player 1"},
+		{Nickname: "p2", RealName: "Player 2"},
 	}
 
 	game, err := game.NewGame(rules, players)

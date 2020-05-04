@@ -39,8 +39,8 @@ func TestMain(m *testing.M) {
 func TestNewGame(t *testing.T) {
 	is := is.New(t)
 	players := []*pb.PlayerInfo{
-		&pb.PlayerInfo{Nickname: "JD", RealName: "Jesse", Number: 1},
-		&pb.PlayerInfo{Nickname: "cesar", RealName: "César", Number: 2},
+		{Nickname: "JD", RealName: "Jesse"},
+		{Nickname: "cesar", RealName: "César"},
 	}
 	rules, err := NewGameRules(DefaultConfig, board.CrosswordGameBoard, "NWL18",
 		"English")
@@ -54,8 +54,8 @@ func TestNewGame(t *testing.T) {
 func TestBackup(t *testing.T) {
 	is := is.New(t)
 	players := []*pb.PlayerInfo{
-		&pb.PlayerInfo{Nickname: "JD", RealName: "Jesse", Number: 1},
-		&pb.PlayerInfo{Nickname: "cesar", RealName: "César", Number: 2},
+		{Nickname: "JD", RealName: "Jesse"},
+		{Nickname: "cesar", RealName: "César"},
 	}
 	rules, _ := NewGameRules(DefaultConfig, board.CrosswordGameBoard, "NWL18",
 		"English")

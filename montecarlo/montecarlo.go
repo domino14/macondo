@@ -42,17 +42,6 @@ import (
 
 */
 
-// Statistic contains statistics per move
-type Statistic struct {
-	totalIterations int
-
-	// For Welford's algorithm:
-	oldM float64
-	newM float64
-	oldS float64
-	newS float64
-}
-
 // LogIteration is a struct meant for serializing to a log-file, for debug
 // and other purposes.
 type LogIteration struct {
@@ -71,38 +60,6 @@ type LogPlay struct {
 	// Although this is a recursive structure we don't really use it
 	// recursively.
 	Plies []LogPlay `json:"plies,omitempty" yaml:"plies,omitempty,flow"`
-}
-
-func (s *Statistic) push(val float64) {
-	s.totalIterations++
-	if s.totalIterations == 1 {
-		s.oldM = val
-		s.newM = val
-		s.oldS = 0
-	} else {
-		s.newM = s.oldM + (val-s.oldM)/float64(s.totalIterations)
-		s.newS = s.oldS + (val-s.oldM)*(val-s.newM)
-		s.oldM = s.newM
-		s.oldS = s.newS
-	}
-}
-
-func (s *Statistic) mean() float64 {
-	if s.totalIterations > 0 {
-		return s.newM
-	}
-	return 0.0
-}
-
-func (s *Statistic) variance() float64 {
-	if s.totalIterations <= 1 {
-		return 0.0
-	}
-	return s.newS / float64(s.totalIterations-1)
-}
-
-func (s *Statistic) stdev() float64 {
-	return math.Sqrt(s.variance())
 }
 
 type SimmedPlay struct {
@@ -127,13 +84,13 @@ func (sp *SimmedPlay) addScoreStat(play *move.Move, ply int) {
 	}
 	sp.Lock()
 	defer sp.Unlock()
-	sp.scoreStats[ply].push(float64(play.Score()))
-	sp.bingoStats[ply].push(float64(bingos))
+	sp.scoreStats[ply].Push(float64(play.Score()))
+	sp.bingoStats[ply].Push(float64(bingos))
 }
 
 func (sp *SimmedPlay) addEquityStat(spread int, leftover float64) {
-	sp.equityStats.push(float64(spread) + leftover)
-	sp.leftoverStats.push(leftover)
+	sp.equityStats.Push(float64(spread) + leftover)
+	sp.leftoverStats.Push(leftover)
 }
 
 // Simmer implements the actual look-ahead search
@@ -423,7 +380,7 @@ func (s *Simmer) sortPlaysByEquity() {
 	// Sort by equity
 	// log.Debug().Msgf("Sorting plays: %v", s.plays)
 	sort.Slice(s.plays, func(i, j int) bool {
-		return s.plays[i].equityStats.mean() > s.plays[j].equityStats.mean()
+		return s.plays[i].equityStats.Mean() > s.plays[j].equityStats.Mean()
 	})
 }
 
@@ -439,7 +396,7 @@ func (s *Simmer) EquityStats() string {
 
 	for _, play := range s.plays {
 		stats += fmt.Sprintf("%20v%6d%8.3f\n", play.play.ShortDescription(),
-			play.play.Score(), play.equityStats.mean())
+			play.play.Score(), play.equityStats.Mean())
 	}
 	stats += fmt.Sprintf("Iterations: %v\n", s.iterationCount)
 	return stats
@@ -457,9 +414,9 @@ func (s *Simmer) ScoreDetails() string {
 			ply+1, who, "Play", "Mean", "Stdev", "Bingo %", strings.Repeat("-", 44))
 		for _, play := range s.plays {
 			stats += fmt.Sprintf("%20v%8.3f%8.3f%8.3f\n",
-				play.play.ShortDescription(), play.scoreStats[ply].mean(),
-				play.scoreStats[ply].stdev(),
-				100.0*play.bingoStats[ply].mean())
+				play.play.ShortDescription(), play.scoreStats[ply].Mean(),
+				play.scoreStats[ply].Stdev(),
+				100.0*play.bingoStats[ply].Mean())
 		}
 		stats += "\n"
 	}

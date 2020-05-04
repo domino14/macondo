@@ -55,6 +55,7 @@ type Game struct {
 	randSeed   int64
 	randSource *rand.Rand
 
+	wentfirst      int
 	scorelessTurns int
 	onturn         int
 	turnnum        int
@@ -83,15 +84,16 @@ func CalculateCoordsFromStringPosition(evt *pb.GameEvent) {
 	evt.Column = int32(col)
 }
 
-func newHistory(players playerStates) *pb.GameHistory {
+func newHistory(players playerStates, goesfirst int) *pb.GameHistory {
 	his := &pb.GameHistory{}
 
 	playerInfo := make([]*pb.PlayerInfo, len(players))
-	for idx, p := range players {
-		playerInfo[idx] = &pb.PlayerInfo{Nickname: p.Nickname,
-			RealName: p.RealName,
-			Number:   p.Number}
-	}
+	other := (goesfirst + 1) % 2
+
+	playerInfo[0] = &pb.PlayerInfo{Nickname: players[goesfirst].Nickname,
+		RealName: players[goesfirst].Nickname}
+	playerInfo[1] = &pb.PlayerInfo{Nickname: players[other].Nickname,
+		RealName: players[other].Nickname}
 
 	his.Players = playerInfo
 	his.IdAuth = IdentificationAuthority
@@ -115,7 +117,6 @@ func NewGame(rules RuleDefiner, playerinfo []*pb.PlayerInfo) (*Game, error) {
 		game.players[idx] = &playerState{
 			PlayerInfo: pb.PlayerInfo{
 				Nickname: p.Nickname,
-				Number:   p.Number,
 				RealName: p.RealName},
 		}
 	}
@@ -170,11 +171,8 @@ func (g *Game) StartGame() {
 	log.Debug().Msgf("Random seed for this game was %v", g.randSeed)
 	g.bag = g.letterDistribution.MakeBag(g.randSource)
 
-	flipFirst := g.randSource.Intn(2)
-	if flipFirst == 0 {
-		g.players.flipFirst()
-	}
-	g.history = newHistory(g.players)
+	goesfirst := g.randSource.Intn(2)
+	g.history = newHistory(g.players, goesfirst)
 	// Deal out tiles
 	for i := 0; i < g.NumPlayers(); i++ {
 		tiles, err := g.bag.Draw(7)
@@ -186,6 +184,9 @@ func (g *Game) StartGame() {
 		g.players[i].points = 0
 	}
 	g.playing = true
+	g.turnnum = 0
+	g.onturn = goesfirst
+	g.wentfirst = goesfirst
 }
 
 // PlayMove plays a move on the board. This function is meant to be used
@@ -676,6 +677,15 @@ func (g *Game) PointsFor(playerIdx int) int {
 	return g.players[playerIdx].points
 }
 
+func (g *Game) PointsForNick(nick string) int {
+	for i := range g.players {
+		if g.players[i].Nickname == nick {
+			return g.players[i].points
+		}
+	}
+	return 0
+}
+
 func (g *Game) SpreadFor(playerIdx int) int {
 	return g.PointsFor(playerIdx) - g.PointsFor(otherPlayer(playerIdx))
 }
@@ -716,6 +726,10 @@ func (g *Game) PlayerOnTurn() int {
 	return g.onturn
 }
 
+func (g *Game) NickOnTurn() string {
+	return g.players[g.onturn].Nickname
+}
+
 func (g *Game) SetPlayerOnTurn(onTurn int) {
 	g.onturn = onTurn
 }
@@ -734,4 +748,8 @@ func (g *Game) CurrentSpread() int {
 
 func (g *Game) History() *pb.GameHistory {
 	return g.history
+}
+
+func (g *Game) FirstPlayer() *pb.PlayerInfo {
+	return &g.players[g.wentfirst].PlayerInfo
 }

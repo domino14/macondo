@@ -4,8 +4,24 @@ Example:
 
     autoplay
     autoplay stop
-    autoplay -file /path/to/log.txt
-    autoplay exhaustiveleave noleave -file foo.txt
+    autoplay -logfile /path/to/log.txt
+    autoplay exhaustiveleave noleave -logfile foo.txt -leavefile1 trial.idx.gz
+
+Options:
+    -logfile foo.txt   -- logs games to foo.txt
+    -lexicon CSW19  -- uses the CSW19 lexicon
+
+    -leavefile1 filename.idx.gz
+    -leavefile2 filename.idx.gz
+
+    The two options above will use leavefile1 for player1 and leavefile2
+    for player2. Note that leave files only make sense for the `exhaustiveleave`
+    players.
+
+    The leavefile must be located inside the ./data/strategy/<lexicon> directory.
+    Make sure to put it in the subdirectory for the correct lexicon.
+    By default, if no file is specified, will use the default leave file
+    for your DEFAULT_LEXICON (or the supplied lexicon).
 
 
 autoplay can be used to generate computer vs computer games for research

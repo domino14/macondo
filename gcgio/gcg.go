@@ -125,10 +125,12 @@ func (p *parser) addEventOrPragma(token Token, match []string, gameHistory *pb.G
 		if err != nil {
 			return err
 		}
+		if pn != 1 && pn != 2 {
+			return errors.New("player number not supported")
+		}
 		gameHistory.Players = append(gameHistory.Players, &pb.PlayerInfo{
 			Nickname: match[2],
 			RealName: match[3],
-			Number:   int32(pn),
 		})
 
 		return nil
@@ -416,8 +418,8 @@ func writeGCGHeader(s *strings.Builder, h *pb.GameHistory, addlInfo bool) {
 	log.Debug().Msg("wrote header")
 }
 
-func writePlayer(s *strings.Builder, p *pb.PlayerInfo) {
-	fmt.Fprintf(s, "#player%d %v %v\n", p.Number, p.Nickname, p.RealName)
+func writePlayer(s *strings.Builder, pn int, p *pb.PlayerInfo) {
+	fmt.Fprintf(s, "#player%d %v %v\n", pn, p.Nickname, p.RealName)
 }
 
 func writeEvent(s *strings.Builder, evt *pb.GameEvent) {
@@ -476,8 +478,8 @@ func GameHistoryToGCG(h *pb.GameHistory, addlHeaderInfo bool) string {
 
 	var str strings.Builder
 	writeGCGHeader(&str, h, addlHeaderInfo)
-	for _, player := range h.Players {
-		writePlayer(&str, player)
+	for idx, player := range h.Players {
+		writePlayer(&str, idx+1, player)
 	}
 
 	for _, turn := range h.Turns {

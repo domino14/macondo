@@ -1,0 +1,14 @@
+autoanalyze <filepath> - Analyze a log file created by the `autoplay` command
+
+Usage:
+    autoanalyze /tmp/games-autoplay.txt
+
+This command prints out some basic stats about the games in the given file.
+
+Note: The `autoplay` command creates two log files; you specify the
+path for the in-depth file which has turn-by-turn data. The other created
+file has general data about who won each game. It is this latter file
+that the `autoanalyze` command works on.
+
+For example, if you specify a log file of /tmp/auto.txt, the file that
+you should analyze is called /tmp/games-auto.txt.

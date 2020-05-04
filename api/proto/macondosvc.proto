@@ -77,7 +77,6 @@ message GameTurn { repeated GameEvent events = 1; }
 message PlayerInfo {
   string nickname = 1;
   string real_name = 2;
-  int32 number = 3;
 }
 
 // message PlayerState {

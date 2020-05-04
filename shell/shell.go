@@ -107,11 +107,14 @@ func NewShellController(cfg *config.Config) *ShellController {
 	return &ShellController{l: l, config: cfg}
 }
 
-func (sc *ShellController) initGameDataStructures() {
-	strategy := strategy.NewExhaustiveLeaveStrategy(
+func (sc *ShellController) initGameDataStructures() error {
+	strategy, err := strategy.NewExhaustiveLeaveStrategy(
 		sc.game.Gaddag().LexiconName(),
 		sc.game.Gaddag().GetAlphabet(),
-		sc.config.StrategyParamsPath)
+		sc.config.StrategyParamsPath, strategy.LeaveFilename)
+	if err != nil {
+		return err
+	}
 
 	sc.aiplayer = player.NewRawEquityPlayer(strategy)
 	sc.gen = movegen.NewGordonGenerator(sc.game.Gaddag(),
@@ -119,6 +122,7 @@ func (sc *ShellController) initGameDataStructures() {
 
 	sc.simmer = &montecarlo.Simmer{}
 	sc.simmer.Init(sc.game, sc.aiplayer)
+	return nil
 }
 
 func (sc *ShellController) loadGCG(args []string) error {
@@ -170,9 +174,8 @@ func (sc *ShellController) loadGCG(args []string) error {
 	if err != nil {
 		return err
 	}
-	sc.initGameDataStructures()
+	return sc.initGameDataStructures()
 
-	return nil
 }
 
 func (sc *ShellController) setToTurn(turnnum int) error {
@@ -402,12 +405,28 @@ func (sc *ShellController) addPlay(fields []string, commit bool) error {
 }
 
 func (sc *ShellController) handleAutoplay(args []string, options map[string]string) error {
-	var logfile string
-	if options["file"] == "" {
+	var logfile, lexicon, leavefile1, leavefile2 string
+	if options["logfile"] == "" {
 		logfile = "/tmp/autoplay.txt"
 	} else {
-		logfile = options["file"]
+		logfile = options["logfile"]
 	}
+	if options["lexicon"] == "" {
+		lexicon = sc.config.DefaultLexicon
+	} else {
+		lexicon = options["lexicon"]
+	}
+	if options["leavefile1"] == "" {
+		leavefile1 = ""
+	} else {
+		leavefile1 = options["leavefile1"]
+	}
+	if options["leavefile2"] == "" {
+		leavefile2 = ""
+	} else {
+		leavefile2 = options["leavefile2"]
+	}
+
 	player1 := "exhaustiveleave"
 	player2 := player1
 	if len(args) == 1 {
@@ -432,7 +451,7 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 	sc.showMessage("automatic game runner will log to " + logfile)
 	sc.gameRunnerCtx, sc.gameRunnerCancel = context.WithCancel(context.Background())
 	err := automatic.StartCompVCompStaticGames(sc.gameRunnerCtx, sc.config, 1e9, runtime.NumCPU(),
-		logfile, player1, player2)
+		logfile, player1, player2, lexicon, leavefile1, leavefile2)
 	if err != nil {
 		return err
 	}
@@ -502,8 +521,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		}
 
 		players := []*pb.PlayerInfo{
-			&pb.PlayerInfo{Nickname: "player1", RealName: "Player 1", Number: 1},
-			&pb.PlayerInfo{Nickname: "player2", RealName: "Player 2", Number: 2},
+			{Nickname: "player1", RealName: "Player 1"},
+			{Nickname: "player2", RealName: "Player 2"},
 		}
 
 		sc.game, err = game.NewGame(rules, players)
@@ -512,7 +531,11 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			break
 		}
 		sc.game.StartGame()
-		sc.initGameDataStructures()
+		err = sc.initGameDataStructures()
+		if err != nil {
+			sc.showError(err)
+			break
+		}
 		sc.showMessage(sc.game.ToDisplayText())
 
 	case "load":
@@ -604,7 +627,11 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			sc.showError(err)
 			break
 		}
-		sc.initGameDataStructures()
+		err = sc.initGameDataStructures()
+		if err != nil {
+			sc.showError(err)
+			break
+		}
 
 	case "gen":
 
@@ -716,6 +743,19 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		f.WriteString(contents)
 		f.Close()
 		sc.showMessage("gcg written to " + filename)
+
+	case "autoanalyze":
+		if cmd.args == nil {
+			sc.showError(errors.New("please provide a filename to analyze"))
+			break
+		}
+		filename := cmd.args[0]
+		analysis, err := automatic.AnalyzeLogFile(filename)
+		if err != nil {
+			sc.showError(err)
+			break
+		}
+		sc.showMessage(analysis)
 
 	default:
 

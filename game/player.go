@@ -21,7 +21,7 @@ func (p *playerState) resetScore() {
 }
 
 func (p *playerState) throwRackIn(bag *alphabet.Bag) {
-	log.Debug().Str("rack", p.rack.String()).Int32("player", p.Number).
+	log.Debug().Str("rack", p.rack.String()).Str("player", p.Nickname).
 		Msg("throwing rack in")
 	bag.PutBack(p.rack.TilesOn())
 	p.rack.Set([]alphabet.MachineLetter{})
@@ -63,6 +63,4 @@ func (p playerStates) resetScore() {
 
 func (p playerStates) flipFirst() {
 	p[0], p[1] = p[1], p[0]
-	p[0].Number = 1
-	p[1].Number = 2
 }

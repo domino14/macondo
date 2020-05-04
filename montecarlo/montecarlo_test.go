@@ -3,7 +3,6 @@ package montecarlo
 import (
 	"context"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -54,8 +53,8 @@ func TestSimSingleIteration(t *testing.T) {
 	plies := 2
 
 	players := []*pb.PlayerInfo{
-		&pb.PlayerInfo{Nickname: "JD", RealName: "Jesse", Number: 1},
-		&pb.PlayerInfo{Nickname: "cesar", RealName: "César", Number: 2},
+		{Nickname: "JD", RealName: "Jesse"},
+		{Nickname: "cesar", RealName: "César"},
 	}
 	rules, err := game.NewGameRules(DefaultConfig, board.CrosswordGameBoard,
 		"NWL18", "English")
@@ -65,7 +64,7 @@ func TestSimSingleIteration(t *testing.T) {
 	game.StartGame()
 
 	strategy := strategy.NewExhaustiveLeaveStrategy(rules.Gaddag().LexiconName(),
-		rules.Gaddag().GetAlphabet(), DefaultConfig.StrategyParamsPath)
+		rules.Gaddag().GetAlphabet(), DefaultConfig.StrategyParamsPath, "")
 	generator := movegen.NewGordonGenerator(rules.Gaddag(), game.Board(), rules.LetterDistribution())
 
 	// This will deal a random rack to players:
@@ -100,8 +99,8 @@ func TestLongerSim(t *testing.T) {
 	plies := 2
 
 	players := []*pb.PlayerInfo{
-		&pb.PlayerInfo{Nickname: "JD", RealName: "Jesse", Number: 1},
-		&pb.PlayerInfo{Nickname: "cesar", RealName: "César", Number: 2},
+		{Nickname: "JD", RealName: "Jesse"},
+		{Nickname: "cesar", RealName: "César"},
 	}
 	rules, err := game.NewGameRules(DefaultConfig, board.CrosswordGameBoard,
 		"NWL18", "English")
@@ -111,7 +110,7 @@ func TestLongerSim(t *testing.T) {
 	game.StartGame()
 
 	strategy := strategy.NewExhaustiveLeaveStrategy(rules.Gaddag().LexiconName(),
-		rules.Gaddag().GetAlphabet(), DefaultConfig.StrategyParamsPath)
+		rules.Gaddag().GetAlphabet(), DefaultConfig.StrategyParamsPath, "")
 
 	generator := movegen.NewGordonGenerator(rules.Gaddag(), game.Board(), rules.LetterDistribution())
 	// This will start the game and deal a random rack to players:
@@ -178,32 +177,3 @@ func TestLongerSim(t *testing.T) {
 // 	simmer.simSingleIteration(plays, plies)
 
 // }
-
-func fuzzyEqual(a, b float64) bool {
-	return math.Abs(a-b) < Epsilon
-}
-
-func TestRunningStat(t *testing.T) {
-	is := is.New(t)
-	type tc struct {
-		scores []int
-		mean   float64
-		stdev  float64
-	}
-	cases := []tc{
-		tc{[]int{10, 12, 23, 23, 16, 23, 21, 16}, 18, 5.2372293656638},
-		tc{[]int{14, 35, 71, 124, 10, 24, 55, 33, 87, 19}, 47.2, 36.937785531891},
-		tc{[]int{1}, 1, 0},
-		tc{[]int{}, 0, 0},
-		tc{[]int{1, 1}, 1, 0},
-	}
-	for _, c := range cases {
-		s := &Statistic{}
-		for _, score := range c.scores {
-			s.push(float64(score))
-		}
-		is.True(fuzzyEqual(s.mean(), c.mean))
-		is.True(fuzzyEqual(s.stdev(), c.stdev))
-
-	}
-}

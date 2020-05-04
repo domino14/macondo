@@ -32,6 +32,7 @@ type GameRunner struct {
 	movegen  movegen.MoveGenerator
 	alphabet *alphabet.Alphabet
 
+	lexicon   string
 	config    *config.Config
 	logchan   chan string
 	gamechan  chan string
@@ -41,32 +42,33 @@ type GameRunner struct {
 // NewGameRunner just instantiates and initializes a game runner.
 func NewGameRunner(logchan chan string, config *config.Config) *GameRunner {
 	r := &GameRunner{logchan: logchan, config: config}
-	r.Init(ExhaustiveLeavePlayer, ExhaustiveLeavePlayer)
+	r.Init(ExhaustiveLeavePlayer, ExhaustiveLeavePlayer, "", "")
 	return r
 }
 
 // Init initializes the runner
-func (r *GameRunner) Init(player1 string, player2 string) {
+func (r *GameRunner) Init(player1, player2, leavefile1, leavefile2 string) error {
+	// XXX: there should be a data structure for the combination
+	// of a lexicon and a letter distribution. For now the following
+	// will not work for non-english lexicons, so this needs to be fixed
+	// in the future.
 	rules, err := game.NewGameRules(r.config, board.CrosswordGameBoard,
-		r.config.DefaultLexicon, r.config.DefaultLetterDistribution)
+		r.lexicon, r.config.DefaultLetterDistribution)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
-	realName1 := player1
-	realName2 := player2
-	if player1 == player2 {
-		realName2 = realName1 + "2"
-	}
+	realName1 := player1 + "-1"
+	realName2 := player2 + "-2"
 
 	players := []*pb.PlayerInfo{
-		{Nickname: "p1", RealName: realName1, Number: 1},
-		{Nickname: "p2", RealName: realName2, Number: 2},
+		{Nickname: "p1", RealName: realName1},
+		{Nickname: "p2", RealName: realName2},
 	}
 
 	r.game, err = game.NewGame(rules, players)
 	if err != nil {
-		panic(err)
+		return err
 	}
 	r.gaddag = rules.Gaddag()
 	r.alphabet = r.gaddag.GetAlphabet()
@@ -76,15 +78,25 @@ func (r *GameRunner) Init(player1 string, player2 string) {
 
 	var strat strategy.Strategizer
 	for idx, pinfo := range players {
+		var leavefile string
+		if idx == 0 {
+			leavefile = leavefile1
+		} else if idx == 1 {
+			leavefile = leavefile2
+		}
 		if strings.HasPrefix(pinfo.RealName, ExhaustiveLeavePlayer) {
-			strat = strategy.NewExhaustiveLeaveStrategy(r.gaddag.LexiconName(),
-				r.alphabet, r.config.StrategyParamsPath)
+			strat, err = strategy.NewExhaustiveLeaveStrategy(r.gaddag.LexiconName(),
+				r.alphabet, r.config.StrategyParamsPath, leavefile)
+			if err != nil {
+				return err
+			}
 		}
 		if strings.HasPrefix(pinfo.RealName, NoLeavePlayer) {
 			strat = strategy.NewNoLeaveStrategy()
 		}
 		r.aiplayers[idx] = player.NewRawEquityPlayer(strat)
 	}
+	return nil
 }
 
 func (r *GameRunner) StartGame() {
@@ -102,12 +114,12 @@ func (r *GameRunner) PlayBestStaticTurn(playerIdx int) {
 	// save rackLetters for logging.
 	rackLetters := r.game.RackLettersFor(playerIdx)
 	tilesRemaining := r.game.Bag().TilesRemaining()
-
+	nickOnTurn := r.game.NickOnTurn()
 	r.game.PlayMove(bestPlay, false, false)
 
 	if r.logchan != nil {
 		r.logchan <- fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v,%v,%v,%.3f,%v\n",
-			playerIdx,
+			nickOnTurn,
 			r.game.Uid(),
 			r.game.Turn(),
 			rackLetters,

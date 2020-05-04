@@ -39,7 +39,6 @@ func copyPlayers(ps playerStates) playerStates {
 			PlayerInfo: pb.PlayerInfo{
 				Nickname: porig.Nickname,
 				RealName: porig.RealName,
-				Number:   porig.Number,
 			},
 			points:      porig.points,
 			rack:        porig.rack.Copy(),
@@ -57,7 +56,6 @@ func (ps *playerStates) copyFrom(other playerStates) {
 		(*ps)[idx].rackLetters = other[idx].rackLetters
 		(*ps)[idx].Nickname = other[idx].Nickname
 		(*ps)[idx].RealName = other[idx].RealName
-		(*ps)[idx].Number = other[idx].Number
 		// XXX: Do I have to copy all the other auto-generated protobuf nonsense fields?
 		(*ps)[idx].points = other[idx].points
 	}
