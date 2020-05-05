@@ -60,7 +60,3 @@ func (p playerStates) resetScore() {
 		p[idx].resetScore()
 	}
 }
-
-func (p playerStates) flipFirst() {
-	p[0], p[1] = p[1], p[0]
-}

@@ -43,6 +43,12 @@ func (g *Game) eventFromMove(m *move.Move) *pb.GameEvent {
 		evt.Type = pb.GameEvent_EXCHANGE
 
 	}
+	log.Debug().
+		Interface("curplayer", curPlayer).
+		Interface("move", m.String()).
+		Interface("evt", evt).
+		Msg("eventFromMove")
+
 	return evt
 }
 
@@ -80,10 +86,8 @@ func modifyForPlaythrough(tiles alphabet.MachineWord, board *board.GameBoard,
 		}
 
 		if tiles[idx] != alphabet.PlayedThroughMarker {
-			log.Debug().Int("ml", int(tiles[idx])).Msg("not playthru")
+			// log.Debug().Int("ml", int(tiles[idx])).Msg("not playthru")
 			// This is either a tile we are placing or a tile on the board.
-			log.Debug().Int("row", currow).Int("col", curcol).
-				Bool("empty", board.GetSquare(currow, curcol).IsEmpty()).Msg("sq by sq")
 			if !board.GetSquare(currow, curcol).IsEmpty() {
 				// We specified a tile on the board already. Make sure
 				// that it's the same tile we specified.

@@ -18,6 +18,10 @@ message GameHistory {
   repeated string last_known_racks = 10;
   // Add letter distribution (basically game name), board config, and more
   // in the future.
+
+  // if flip_players is set, then the player listed first in `players`
+  // actually went second, and vice versa!
+  bool flip_players = 11;
 }
 
 // A GamePosition is a single turn of a GameHistory, and contains the state

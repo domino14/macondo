@@ -418,10 +418,6 @@ func writeGCGHeader(s *strings.Builder, h *pb.GameHistory, addlInfo bool) {
 	log.Debug().Msg("wrote header")
 }
 
-func writePlayer(s *strings.Builder, pn int, p *pb.PlayerInfo) {
-	fmt.Fprintf(s, "#player%d %v %v\n", pn, p.Nickname, p.RealName)
-}
-
 func writeEvent(s *strings.Builder, evt *pb.GameEvent) {
 
 	nick := evt.GetNickname()
@@ -473,14 +469,26 @@ func writeTurn(s *strings.Builder, t *pb.GameTurn) {
 	}
 }
 
+func writePlayer(s *strings.Builder, pn int, p *pb.PlayerInfo) {
+	fmt.Fprintf(s, "#player%d %v %v\n", pn, p.Nickname, p.RealName)
+}
+
+func writePlayers(s *strings.Builder, players []*pb.PlayerInfo, flip bool) {
+	if flip {
+		writePlayer(s, 1, players[1])
+		writePlayer(s, 2, players[0])
+	} else {
+		writePlayer(s, 1, players[0])
+		writePlayer(s, 2, players[1])
+	}
+}
+
 // GameHistoryToGCG returns a string GCG representation of the GameHistory.
 func GameHistoryToGCG(h *pb.GameHistory, addlHeaderInfo bool) string {
 
 	var str strings.Builder
 	writeGCGHeader(&str, h, addlHeaderInfo)
-	for idx, player := range h.Players {
-		writePlayer(&str, idx+1, player)
-	}
+	writePlayers(&str, h.Players, h.FlipPlayers)
 
 	for _, turn := range h.Turns {
 		writeTurn(&str, turn)

@@ -6,6 +6,7 @@ Bug fix and enhancement release
 - Changed the semantics of `add` by only allowing it to add on to a list of plays, but not commit the play
 - Added a `commit` command, which does what `add` used to do
 - Refactored game history with protobuf to fix various bugs and hacks. It is much cleaner now.
+- Added a lot of helpful options to `autoplay` command
 - Add a `sim continue` command to allow a sim to continue from where it left off
 - Add a `sim trim` command to delete bottom performers of a simulation.
 - Add an `export` command to allow saving to a .gcg file

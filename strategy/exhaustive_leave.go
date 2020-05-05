@@ -58,7 +58,7 @@ func (els *ExhaustiveLeaveStrategy) Init(lexiconName string, alph *alphabet.Alph
 		if err != nil {
 			return err
 		}
-		log.Info().Str("leavefile", leavefile).Str("dir", defdir).Msgf(
+		log.Debug().Str("leavefile", leavefile).Str("dir", defdir).Msgf(
 			"no lexicon-specific strategy")
 	}
 	defer file.Close()

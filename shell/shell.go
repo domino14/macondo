@@ -307,11 +307,10 @@ func (sc *ShellController) modeSelector(mode string) {
 
 func (sc *ShellController) addRack(rack string) error {
 	// Set current player on turn's rack.
-	playerid := sc.curTurnNum % 2
 	if sc.game == nil {
 		return errors.New("please start a game first")
 	}
-	return sc.game.SetRackFor(playerid, alphabet.RackFromString(rack, sc.game.Alphabet()))
+	return sc.game.SetRackFor(sc.game.PlayerOnTurn(), alphabet.RackFromString(rack, sc.game.Alphabet()))
 }
 
 func (sc *ShellController) addPlay(fields []string, commit bool) error {
@@ -320,7 +319,7 @@ func (sc *ShellController) addPlay(fields []string, commit bool) error {
 	var err error
 	// Figure out whose turn it is.
 
-	playerid = sc.curTurnNum % 2
+	playerid = sc.game.PlayerOnTurn()
 
 	if len(fields) == 1 {
 		if strings.HasPrefix(fields[0], "#") {
@@ -521,8 +520,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		}
 
 		players := []*pb.PlayerInfo{
-			{Nickname: "player1", RealName: "Player 1"},
-			{Nickname: "player2", RealName: "Player 2"},
+			{Nickname: "arcadio", RealName: "José Arcadio Buendía"},
+			{Nickname: "úrsula", RealName: "Úrsula Iguarán Buendía"},
 		}
 
 		sc.game, err = game.NewGame(rules, players)
@@ -536,6 +535,7 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			sc.showError(err)
 			break
 		}
+		sc.curTurnNum = 0
 		sc.showMessage(sc.game.ToDisplayText())
 
 	case "load":

@@ -10,6 +10,7 @@ Quick tutorial video: [https://youtu.be/07Dpa-oTTFY](https://youtu.be/07Dpa-oTTF
 
 - [The Macondo team](/macondo/team.html)
 - [Change Log](/macondo/changelog.html)
+- [Manual / Documentation](/macondo/manual.html)
 - [How it works](/macondo/howitworks.html)
 - [Why the name Macondo?](/macondo/name.html)
 - [Acknowledgements](/macondo/acknowledgements.html)
@@ -20,14 +21,7 @@ Quick tutorial video: [https://youtu.be/07Dpa-oTTFY](https://youtu.be/07Dpa-oTTF
 
 2. Download the latest file that looks like `macondo-darwin.tar.gz`. Right now it is **Mac-only**. If you are savvy with compilers, you can build your own Windows or Linux version with `go`. Untar it to your desired directory.
 
-3. You will need a lexicon gaddag. The default lexicon right now is NWL18, but we will add more in the near future. You can build a gaddag using the make_gaddag executable found in the tarball.
-
-   - Usage: `./make_gaddag -filename NWL18.txt`
-   - The lexicon can be downloaded from NASPA if you're a NASPA member.
-   - The command above will generate a file named out.gaddag
-   - Move this file to your ./data/lexica/gaddag/NWL18.gaddag in your untarred directory
-
-4. Try opening the `macondo` executable. Your Mac might complain, especially if you're using Catalina. You can open it anyway by going to your Settings -> Security & Privacy -> General and click "Allow anyway" next to macondo. I swear it's not a virus.
+3. Try opening the `macondo` executable. Your Mac might complain, especially if you're using Catalina. You can open it anyway by going to your Settings -> Security & Privacy -> General and click "Allow anyway" next to macondo. I swear it's not a virus.
 
 ## Features it has:
 

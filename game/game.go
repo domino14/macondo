@@ -84,22 +84,21 @@ func CalculateCoordsFromStringPosition(evt *pb.GameEvent) {
 	evt.Column = int32(col)
 }
 
-func newHistory(players playerStates, goesfirst int) *pb.GameHistory {
+func newHistory(players playerStates, flipfirst bool) *pb.GameHistory {
 	his := &pb.GameHistory{}
 
 	playerInfo := make([]*pb.PlayerInfo, len(players))
-	other := (goesfirst + 1) % 2
 
-	playerInfo[0] = &pb.PlayerInfo{Nickname: players[goesfirst].Nickname,
-		RealName: players[goesfirst].Nickname}
-	playerInfo[1] = &pb.PlayerInfo{Nickname: players[other].Nickname,
-		RealName: players[other].Nickname}
-
+	for i := 0; i < len(players); i++ {
+		playerInfo[i] = &pb.PlayerInfo{Nickname: players[i].Nickname,
+			RealName: players[i].RealName}
+	}
 	his.Players = playerInfo
 	his.IdAuth = IdentificationAuthority
 	his.Uid = shortuuid.New()
 	his.Description = MacondoCreation
 	his.Turns = []*pb.GameTurn{}
+	his.FlipPlayers = flipfirst
 	return his
 }
 
@@ -172,7 +171,7 @@ func (g *Game) StartGame() {
 	g.bag = g.letterDistribution.MakeBag(g.randSource)
 
 	goesfirst := g.randSource.Intn(2)
-	g.history = newHistory(g.players, goesfirst)
+	g.history = newHistory(g.players, goesfirst == 1)
 	// Deal out tiles
 	for i := 0; i < g.NumPlayers(); i++ {
 		tiles, err := g.bag.Draw(7)
@@ -224,7 +223,7 @@ func (g *Game) PlayMove(m *move.Move, backup bool, addToHistory bool) error {
 
 		if g.players[g.onturn].rack.NumTiles() == 0 {
 			g.playing = false
-			unplayedPts := g.calculateRackPts((g.onturn+1)%len(g.players)) * 2
+			unplayedPts := g.calculateRackPts(otherPlayer(g.onturn)) * 2
 			g.players[g.onturn].points += unplayedPts
 			if addToHistory {
 				turn.Events = append(turn.Events, g.endRackEvt(unplayedPts))
@@ -269,14 +268,10 @@ func (g *Game) PlayMove(m *move.Move, backup bool, addToHistory bool) error {
 
 	g.onturn = (g.onturn + 1) % len(g.players)
 	g.turnnum++
+	log.Debug().Interface("history", g.history).Int("onturn", g.onturn).Int("turnnum", g.turnnum).
+		Msg("newhist")
 	return nil
 }
-
-// AppendPlayAtTurn inserts or appends a play at the passed-in turn number.
-// It commits the play and truncates the history accordingly.
-// func (g *Game) AppendPlayAtCurTurn(m *move.Move) error {
-
-// }
 
 // PlayScoringMove plays a move on a board that is described by the
 // coordinates and word only. It returns the move.
@@ -391,6 +386,9 @@ func (g *Game) PlayToTurn(turnnum int) error {
 	g.players.resetRacks()
 	g.turnnum = 0
 	g.onturn = 0
+	if g.history.FlipPlayers {
+		g.onturn = 1
+	}
 	g.playing = true
 	var t int
 	for t = 0; t < turnnum; t++ {
@@ -598,10 +596,17 @@ func (g *Game) ToDisplayText() string {
 	hpadding := 3
 	vpadding := 1
 	bagColCount := 20
-	for p := 0; p < len(g.players); p++ {
-		addText(bts, p+vpadding, hpadding,
-			g.players[p].stateString(g.playing && g.onturn == p))
-	}
+
+	notfirst := otherPlayer(g.wentfirst)
+
+	log.Debug().Int("onturn", g.onturn).
+		Int("wentfirst", g.wentfirst).Msg("todisplaytext")
+
+	addText(bts, vpadding, hpadding,
+		g.players[g.wentfirst].stateString(g.playing && g.onturn == g.wentfirst))
+	addText(bts, vpadding+1, hpadding,
+		g.players[notfirst].stateString(g.playing && g.onturn == notfirst))
+
 	// Peek into the bag, and append the opponent's tiles:
 	bagAndUnseen := append(g.bag.Peek(),
 		g.players[otherPlayer(g.onturn)].rack.TilesOn()...)

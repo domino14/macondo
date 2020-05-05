@@ -64,7 +64,8 @@ func TestBackup(t *testing.T) {
 	game.StartGame()
 	// Some positive number.
 	game.SetStateStackLength(5)
-
+	// Overwrite the player on turn to be JD:
+	game.SetPlayerOnTurn(0)
 	alph := rules.gaddag.GetAlphabet()
 	game.SetRackFor(0, alphabet.RackFromString("ACEOTV?", alph))
 
