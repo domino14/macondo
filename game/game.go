@@ -268,8 +268,8 @@ func (g *Game) PlayMove(m *move.Move, backup bool, addToHistory bool) error {
 
 	g.onturn = (g.onturn + 1) % len(g.players)
 	g.turnnum++
-	log.Debug().Interface("history", g.history).Int("onturn", g.onturn).Int("turnnum", g.turnnum).
-		Msg("newhist")
+	// log.Debug().Interface("history", g.history).Int("onturn", g.onturn).Int("turnnum", g.turnnum).
+	// 	Msg("newhist")
 	return nil
 }
 
@@ -608,8 +608,12 @@ func (g *Game) ToDisplayText() string {
 		g.players[notfirst].stateString(g.playing && g.onturn == notfirst))
 
 	// Peek into the bag, and append the opponent's tiles:
-	bagAndUnseen := append(g.bag.Peek(),
-		g.players[otherPlayer(g.onturn)].rack.TilesOn()...)
+	inbag := g.bag.Peek()
+	opprack := g.players[otherPlayer(g.onturn)].rack.TilesOn()
+	bagAndUnseen := append(inbag, opprack...)
+	log.Debug().Str("inbag", alphabet.MachineWord(inbag).UserVisible(g.alph)).Msg("")
+	log.Debug().Str("opprack", alphabet.MachineWord(opprack).UserVisible(g.alph)).Msg("")
+
 	addText(bts, vpadding+3, hpadding, fmt.Sprintf("Bag + unseen: (%d)", len(bagAndUnseen)))
 
 	vpadding = 6
@@ -648,7 +652,7 @@ func (g *Game) ToDisplayText() string {
 
 	vpadding = 17
 
-	if !g.playing {
+	if !g.playing && g.turnnum == len(g.history.Turns) {
 		addText(bts, vpadding, hpadding, "Game is over.")
 	}
 

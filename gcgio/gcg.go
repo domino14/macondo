@@ -177,7 +177,7 @@ func (p *parser) addEventOrPragma(token Token, match []string, gameHistory *pb.G
 	case LexiconToken:
 		gameHistory.Lexicon = match[1]
 		return nil
-	case PhonyTilesReturnedToken, TimePenaltyToken:
+	case PhonyTilesReturnedToken:
 		evt := &pb.GameEvent{}
 		evt.Nickname = match[1]
 		evt.Rack = match[2]
@@ -191,15 +191,34 @@ func (p *parser) addEventOrPragma(token Token, match []string, gameHistory *pb.G
 		if err != nil {
 			return err
 		}
-		// This can not be a stand-alone turn; it must be added to the last
+		// This can not be a stand-alone turn; it must be added to the previous
 		// turn.
 		lastTurnIdx := len(gameHistory.Turns) - 1
 		gameHistory.Turns[lastTurnIdx].Events = append(gameHistory.Turns[lastTurnIdx].Events, evt)
-		if token == PhonyTilesReturnedToken {
-			evt.Type = pb.GameEvent_PHONY_TILES_RETURNED
-		} else if token == TimePenaltyToken {
-			evt.Type = pb.GameEvent_TIME_PENALTY
+		evt.Type = pb.GameEvent_PHONY_TILES_RETURNED
+
+	case TimePenaltyToken:
+		evt := &pb.GameEvent{}
+		evt.Nickname = match[1]
+		evt.Rack = match[2]
+
+		score, err := matchToInt32(match[3])
+		if err != nil {
+			return err
 		}
+		evt.LostScore = score
+		evt.Cumulative, err = matchToInt32(match[4])
+		if err != nil {
+			return err
+		}
+		// Treat this as a stand-alone turn; it should not be attached to
+		// the previous event because it can occur after the wrong player
+		// (i.e. player2 goes out, and then time penalty is applied to player1)
+
+		evt.Type = pb.GameEvent_TIME_PENALTY
+		evts := []*pb.GameEvent{evt}
+		turn := &pb.GameTurn{Events: evts}
+		gameHistory.Turns = append(gameHistory.Turns, turn)
 
 	case LastRackPenaltyToken:
 		evt := &pb.GameEvent{}
@@ -218,8 +237,9 @@ func (p *parser) addEventOrPragma(token Token, match []string, gameHistory *pb.G
 			return err
 		}
 		evt.Type = pb.GameEvent_END_RACK_PENALTY
-		lastTurnIdx := len(gameHistory.Turns) - 1
-		gameHistory.Turns[lastTurnIdx].Events = append(gameHistory.Turns[lastTurnIdx].Events, evt)
+		evts := []*pb.GameEvent{evt}
+		turn := &pb.GameTurn{Events: evts}
+		gameHistory.Turns = append(gameHistory.Turns, turn)
 
 	case PassToken:
 		evt := &pb.GameEvent{}

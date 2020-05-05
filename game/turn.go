@@ -258,7 +258,15 @@ func summary(t *pb.GameTurn) string {
 			if firstEvtPlacement {
 				summary += " (challenged off)"
 			}
+
+		case pb.GameEvent_TIME_PENALTY:
+			summary += fmt.Sprintf("%s lost %d on time", evt.Nickname, evt.LostScore)
+
+		case pb.GameEvent_END_RACK_PENALTY:
+			summary += fmt.Sprintf("%s lost %d from their rack", evt.Nickname,
+				evt.LostScore)
 		}
+
 	}
 	return summary
 }
