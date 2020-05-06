@@ -40,7 +40,6 @@ Quick tutorial video: [https://youtu.be/07Dpa-oTTFY](https://youtu.be/07Dpa-oTTF
 ## Features it's missing that Quackle has:
 
 - A proper GUI, and all that entails.
-- Any lexica besides NWL18 (although adding support for other lexica will not be too difficult)
 - Pre-endgame heuristic values
 - 1 and 2 in the bag pre-endgame solver (1-PEG and 2-PEG)
 - A "championship player"
@@ -57,10 +56,13 @@ Quick tutorial video: [https://youtu.be/07Dpa-oTTFY](https://youtu.be/07Dpa-oTTF
 
 ## How to use
 
-1. Type in `help` for commands
+1. Open the executable. If you wish your default lexicon to be CSW19, you
+   must specify set the environment variable `DEFAULT_LEXICON` to `CSW19`. Otherwise, it defaults to NWL18.
 
-2. Note that many commands are very primitive. I did not want to expand this shell interface too much as I expect the actual interface to be a GUI. As such there are things that you probably shouldn't do, like sim a position and generate other positions at the same time.
+2. Type in `help` for commands
 
-3. See this quick video tutorial. Note that this can quickly go out of date. I'll make another tutorial when a GUI is ready.
+3. Note that many commands are very primitive. I did not want to expand this shell interface too much as I expect the actual interface to be a GUI. As such there are things that you probably shouldn't do, like sim a position and generate other positions at the same time.
+
+4. See this quick video tutorial. Note that this can quickly go out of date. I'll make another tutorial when a GUI is ready.
 
 [https://youtu.be/07Dpa-oTTFY](https://youtu.be/07Dpa-oTTFY)
