@@ -34,16 +34,36 @@ func float32FromBytes(bytes []byte) float32 {
 	return float
 }
 
-func (els *ExhaustiveLeaveStrategy) Init(lexiconName string, alph *alphabet.Alphabet,
-	strategyDir string) error {
+func defaultForLexicon(lexiconName string) string {
+	if strings.HasPrefix(lexiconName, "CSW") ||
+		strings.HasPrefix(lexiconName, "TWL") ||
+		strings.HasPrefix(lexiconName, "NWL") {
 
-	file, err := os.Open(filepath.Join(strategyDir, lexiconName, LeaveFilename))
+		return "default_english"
+	}
+	return ""
+}
+
+func (els *ExhaustiveLeaveStrategy) Init(lexiconName string, alph *alphabet.Alphabet,
+	strategyDir, leavefile string) error {
+
+	if leavefile == "" {
+		leavefile = LeaveFilename
+	}
+
+	file, err := os.Open(filepath.Join(strategyDir, lexiconName, leavefile))
 	if err != nil {
-		return err
+		defdir := defaultForLexicon(lexiconName)
+		file, err = os.Open(filepath.Join(strategyDir, defdir, leavefile))
+		if err != nil {
+			return err
+		}
+		log.Debug().Str("leavefile", leavefile).Str("dir", defdir).Msgf(
+			"no lexicon-specific strategy")
 	}
 	defer file.Close()
 	var gz *gzip.Reader
-	if strings.HasSuffix(LeaveFilename, ".gz") {
+	if strings.HasSuffix(leavefile, ".gz") {
 		gz, err = gzip.NewReader(file)
 		defer gz.Close()
 	}
@@ -61,16 +81,15 @@ func (els *ExhaustiveLeaveStrategy) Init(lexiconName string, alph *alphabet.Alph
 }
 
 func NewExhaustiveLeaveStrategy(lexiconName string,
-	alph *alphabet.Alphabet, strategyDir string) *ExhaustiveLeaveStrategy {
+	alph *alphabet.Alphabet, strategyDir, leavefile string) (*ExhaustiveLeaveStrategy, error) {
 
 	strategy := &ExhaustiveLeaveStrategy{}
 
-	err := strategy.Init(lexiconName, alph, strategyDir)
+	err := strategy.Init(lexiconName, alph, strategyDir, leavefile)
 	if err != nil {
-		log.Error().Err(err).Msg("initializing strategy")
-		return nil
+		return nil, err
 	}
-	return strategy
+	return strategy, nil
 }
 
 func (els ExhaustiveLeaveStrategy) Equity(play *move.Move, board *board.GameBoard,

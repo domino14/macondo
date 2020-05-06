@@ -1,16 +1,20 @@
 package alphabet
 
 import (
+	"math/rand"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/matryer/is"
 )
 
+var randSource = rand.New(rand.NewSource(time.Now().UnixNano()))
+
 func TestBag(t *testing.T) {
 	alph := EnglishAlphabet()
 	ld := EnglishLetterDistribution(alph)
-	bag := ld.MakeBag()
+	bag := ld.MakeBag(randSource)
 	if len(bag.tiles) != ld.numLetters {
 		t.Error("Tile bag and letter distribution do not match.")
 	}
@@ -38,7 +42,7 @@ func TestBag(t *testing.T) {
 func TestDraw(t *testing.T) {
 	alph := EnglishAlphabet()
 	ld := EnglishLetterDistribution(alph)
-	bag := ld.MakeBag()
+	bag := ld.MakeBag(randSource)
 
 	letters, _ := bag.Draw(7)
 	if len(letters) != 7 {
@@ -52,7 +56,7 @@ func TestDraw(t *testing.T) {
 func TestDrawAtMost(t *testing.T) {
 	alph := EnglishAlphabet()
 	ld := EnglishLetterDistribution(alph)
-	bag := ld.MakeBag()
+	bag := ld.MakeBag(randSource)
 
 	for i := 0; i < 14; i++ {
 		letters, _ := bag.Draw(7)
@@ -84,7 +88,7 @@ func TestExchange(t *testing.T) {
 	is := is.New(t)
 	alph := EnglishAlphabet()
 	ld := EnglishLetterDistribution(alph)
-	bag := ld.MakeBag()
+	bag := ld.MakeBag(randSource)
 
 	letters, _ := bag.Draw(7)
 	newLetters, _ := bag.Exchange(letters[:5])
@@ -96,7 +100,7 @@ func TestRemoveTiles(t *testing.T) {
 	is := is.New(t)
 	alph := EnglishAlphabet()
 	ld := EnglishLetterDistribution(alph)
-	bag := ld.MakeBag()
+	bag := ld.MakeBag(randSource)
 	is.Equal(len(bag.tiles), 100)
 	toRemove := []MachineLetter{
 		9, 14, 24, 4, 3, 20, 4, 11, 21, 6, 22, 14, 8, 0, 8, 15, 6, 5, 4,

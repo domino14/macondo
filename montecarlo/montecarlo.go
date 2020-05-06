@@ -4,6 +4,7 @@ package montecarlo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -15,7 +16,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/domino14/macondo/ai/player"
-	"github.com/domino14/macondo/mechanics"
+	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/rs/zerolog/log"
@@ -41,17 +42,6 @@ import (
 
 */
 
-// Statistic contains statistics per move
-type Statistic struct {
-	totalIterations int
-
-	// For Welford's algorithm:
-	oldM float64
-	newM float64
-	oldS float64
-	newS float64
-}
-
 // LogIteration is a struct meant for serializing to a log-file, for debug
 // and other purposes.
 type LogIteration struct {
@@ -70,38 +60,6 @@ type LogPlay struct {
 	// Although this is a recursive structure we don't really use it
 	// recursively.
 	Plies []LogPlay `json:"plies,omitempty" yaml:"plies,omitempty,flow"`
-}
-
-func (s *Statistic) push(val float64) {
-	s.totalIterations++
-	if s.totalIterations == 1 {
-		s.oldM = val
-		s.newM = val
-		s.oldS = 0
-	} else {
-		s.newM = s.oldM + (val-s.oldM)/float64(s.totalIterations)
-		s.newS = s.oldS + (val-s.oldM)*(val-s.newM)
-		s.oldM = s.newM
-		s.oldS = s.newS
-	}
-}
-
-func (s *Statistic) mean() float64 {
-	if s.totalIterations > 0 {
-		return s.newM
-	}
-	return 0.0
-}
-
-func (s *Statistic) variance() float64 {
-	if s.totalIterations <= 1 {
-		return 0.0
-	}
-	return s.newS / float64(s.totalIterations-1)
-}
-
-func (s *Statistic) stdev() float64 {
-	return math.Sqrt(s.variance())
 }
 
 type SimmedPlay struct {
@@ -126,20 +84,20 @@ func (sp *SimmedPlay) addScoreStat(play *move.Move, ply int) {
 	}
 	sp.Lock()
 	defer sp.Unlock()
-	sp.scoreStats[ply].push(float64(play.Score()))
-	sp.bingoStats[ply].push(float64(bingos))
+	sp.scoreStats[ply].Push(float64(play.Score()))
+	sp.bingoStats[ply].Push(float64(bingos))
 }
 
 func (sp *SimmedPlay) addEquityStat(spread int, leftover float64) {
-	sp.equityStats.push(float64(spread) + leftover)
-	sp.leftoverStats.push(leftover)
+	sp.equityStats.Push(float64(spread) + leftover)
+	sp.leftoverStats.Push(leftover)
 }
 
 // Simmer implements the actual look-ahead search
 type Simmer struct {
-	origGame *mechanics.XWordGame
+	origGame *game.Game
 
-	gameCopies []*mechanics.XWordGame
+	gameCopies []*game.Game
 	movegens   []movegen.MoveGenerator
 
 	aiplayer player.AIPlayer
@@ -151,13 +109,14 @@ type Simmer struct {
 	iterationCount int
 	threads        int
 
-	simming bool
-	plays   []*SimmedPlay
+	simming    bool
+	readyToSim bool
+	plays      []*SimmedPlay
 
 	logStream io.Writer
 }
 
-func (s *Simmer) Init(game *mechanics.XWordGame, aiplayer player.AIPlayer) {
+func (s *Simmer) Init(game *game.Game, aiplayer player.AIPlayer) {
 	s.origGame = game
 	s.aiplayer = aiplayer
 	s.threads = int(math.Max(1, float64(runtime.NumCPU()-1)))
@@ -172,7 +131,8 @@ func (s *Simmer) SetLogStream(l io.Writer) {
 }
 
 func (s *Simmer) makeGameCopies() {
-	s.gameCopies = []*mechanics.XWordGame{}
+	log.Debug().Int("threads", s.threads).Msg("makeGameCopies")
+	s.gameCopies = []*game.Game{}
 	s.movegens = []movegen.MoveGenerator{}
 	for i := 0; i < s.threads; i++ {
 		s.gameCopies = append(s.gameCopies, s.origGame.Copy())
@@ -206,15 +166,34 @@ func (s *Simmer) IsSimming() bool {
 	return s.simming
 }
 
-// Simulate sims all the plays.
-func (s *Simmer) Simulate(ctx context.Context, plays []*move.Move, plies int) error {
+func (s *Simmer) Reset() {
+	s.plays = nil
+	s.gameCopies = nil
+	s.readyToSim = false
+}
+
+// PrepareSim resets all the stats before a simulation.
+func (s *Simmer) PrepareSim(plies int, plays []*move.Move) {
+	s.makeGameCopies()
+	s.resetStats(plies, plays)
+	s.readyToSim = true
+}
+
+func (s *Simmer) Ready() bool {
+	return s.readyToSim
+}
+
+// Simulate sims all the plays. It is a blocking function.
+func (s *Simmer) Simulate(ctx context.Context) error {
+	if len(s.plays) == 0 || len(s.gameCopies) == 0 {
+		return errors.New("please prepare the simulation first")
+	}
+
 	s.simming = true
 	defer func() {
 		s.simming = false
 		log.Info().Msgf("Simulation ended after %v iterations", s.iterationCount)
 	}()
-	s.makeGameCopies()
-	s.resetStats(plies, plays)
 
 	// use an errgroup here and listen for a ctx done outside this loop, but
 	// in another goroutine.
@@ -281,7 +260,7 @@ func (s *Simmer) Simulate(ctx context.Context, plays []*move.Move, plies int) er
 				s.iterationCount++
 				iterMutex.Unlock()
 
-				s.simSingleIteration(plies, t, iterNum, logChan)
+				s.simSingleIteration(s.maxPlies, t, iterNum, logChan)
 				select {
 				case v := <-syncChan:
 					log.Debug().Msgf("Thread %v got sync msg %v", t, v)
@@ -312,6 +291,17 @@ func (s *Simmer) Iterations() int {
 	return s.iterationCount
 }
 
+func (s *Simmer) TrimBottom(totrim int) error {
+	if s.simming {
+		return errors.New("please stop sim before trimming plays")
+	}
+	if totrim > len(s.plays)-1 {
+		return errors.New("there are not that many plays to trim away")
+	}
+	s.plays = s.plays[:len(s.plays)-totrim]
+	return nil
+}
+
 func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan chan []byte) {
 	// Give opponent a random rack from the bag. Note that this also
 	// shuffles the bag!
@@ -333,7 +323,7 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 		// logIter.Plays = append(logIter.Plays)
 		// Play the move, and back up the game state.
 		// log.Debug().Msgf("Playing move %v", play)
-		s.gameCopies[thread].PlayMove(simmedPlay.play, true)
+		s.gameCopies[thread].PlayMove(simmedPlay.play, true, false)
 		for ply := 0; ply < plies; ply++ {
 			// Each ply is a player taking a turn
 			onTurn := s.gameCopies[thread].PlayerOnTurn()
@@ -342,7 +332,7 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 
 				bestPlay := s.bestStaticTurn(onTurn, thread)
 				// log.Debug().Msgf("Ply %v, Best play: %v", ply+1, bestPlay)
-				s.gameCopies[thread].PlayMove(bestPlay, false)
+				s.gameCopies[thread].PlayMove(bestPlay, false, false)
 				// log.Debug().Msgf("Score is now %v", s.game.Score())
 				if s.logStream != nil {
 					plyChild = LogPlay{Play: bestPlay.ShortDescription(), Rack: bestPlay.FullRack(), Pts: bestPlay.Score()}
@@ -391,7 +381,7 @@ func (s *Simmer) sortPlaysByEquity() {
 	// Sort by equity
 	// log.Debug().Msgf("Sorting plays: %v", s.plays)
 	sort.Slice(s.plays, func(i, j int) bool {
-		return s.plays[i].equityStats.mean() > s.plays[j].equityStats.mean()
+		return s.plays[i].equityStats.Mean() > s.plays[j].equityStats.Mean()
 	})
 }
 
@@ -403,11 +393,11 @@ func (s *Simmer) EquityStats() string {
 	stats := ""
 
 	s.sortPlaysByEquity()
-	stats += fmt.Sprintf("%20v%8v\n", "Play", "Equity")
+	stats += fmt.Sprintf("%20v%6v%8v\n", "Play", "Score", "Equity")
 
 	for _, play := range s.plays {
-		stats += fmt.Sprintf("%20v%8.3f\n", play.play.ShortDescription(),
-			play.equityStats.mean())
+		stats += fmt.Sprintf("%20v%6d%8.3f\n", play.play.ShortDescription(),
+			play.play.Score(), play.equityStats.Mean())
 	}
 	stats += fmt.Sprintf("Iterations: %v\n", s.iterationCount)
 	return stats
@@ -425,9 +415,9 @@ func (s *Simmer) ScoreDetails() string {
 			ply+1, who, "Play", "Mean", "Stdev", "Bingo %", strings.Repeat("-", 44))
 		for _, play := range s.plays {
 			stats += fmt.Sprintf("%20v%8.3f%8.3f%8.3f\n",
-				play.play.ShortDescription(), play.scoreStats[ply].mean(),
-				play.scoreStats[ply].stdev(),
-				100.0*play.bingoStats[ply].mean())
+				play.play.ShortDescription(), play.scoreStats[ply].Mean(),
+				play.scoreStats[ply].Stdev(),
+				100.0*play.bingoStats[ply].Mean())
 		}
 		stats += "\n"
 	}

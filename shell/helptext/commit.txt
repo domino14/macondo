@@ -1,0 +1,17 @@
+commit - commit a play in the given game, and move to the next turn
+
+Example usage:
+
+    commit #4
+    commit 3J FOO
+    commit K5 BAR.D
+    commit exchange ABC
+    commit pass
+
+If you pass in a number, it refers to the number of the play
+in the list of plays. You can see the current list of plays with the list
+command, and you can generate plays to add to the list with the gen
+command.
+
+You can also commit a play that you would have otherwise added with the `add`
+command, using the same parameters as `add`. See the help for the `add` command.

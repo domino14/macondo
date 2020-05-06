@@ -2,9 +2,26 @@ autoplay [options] - computer vs computer games
 
 Example:
 
-    autoplay 
+    autoplay
     autoplay stop
-    autoplay /path/to/log.txt
+    autoplay -logfile /path/to/log.txt
+    autoplay exhaustiveleave noleave -logfile foo.txt -leavefile1 trial.idx.gz
+
+Options:
+    -logfile foo.txt   -- logs games to foo.txt
+    -lexicon CSW19  -- uses the CSW19 lexicon
+
+    -leavefile1 filename.idx.gz
+    -leavefile2 filename.idx.gz
+
+    The two options above will use leavefile1 for player1 and leavefile2
+    for player2. Note that leave files only make sense for the `exhaustiveleave`
+    players.
+
+    The leavefile must be located inside the ./data/strategy/<lexicon> directory.
+    Make sure to put it in the subdirectory for the correct lexicon.
+    By default, if no file is specified, will use the default leave file
+    for your DEFAULT_LEXICON (or the supplied lexicon).
 
 
 autoplay can be used to generate computer vs computer games for research
@@ -12,6 +29,11 @@ purposes.
 
 To stop autoplay, type `autoplay stop`. If no log file is specified,
 it will default to `/tmp/autoplay.txt`, otherwise, use the desired
-filename as an option. If you wish to log to a file named `stop` then
-you are a bad person and should feel bad.
+filename as an option.
 
+By default, autoplay will use two identical, fast AI players of type
+'exhaustiveleave'. An 'exhaustiveleave' player uses values for all possible
+leaves that must already be in the data/strategy directory. If you don't have
+any values or wish to try with no values, you can use the 'noleave' player.
+
+In the future, we will add other types of players.

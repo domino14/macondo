@@ -1,6 +1,9 @@
 package alphabet
 
-import "strings"
+import (
+	"math/rand"
+	"strings"
+)
 
 // LetterDistribution encodes the tile distribution for the relevant game.
 type LetterDistribution struct {
@@ -125,9 +128,9 @@ func (ld *LetterDistribution) NumTotalTiles() int {
 }
 
 // MakeBag returns a bag of tiles.
-func (ld *LetterDistribution) MakeBag() *Bag {
+func (ld *LetterDistribution) MakeBag(randSource *rand.Rand) *Bag {
 
-	b := NewBag(ld, ld.alph)
+	b := NewBag(ld, ld.alph, randSource)
 	b.Shuffle()
 
 	return b

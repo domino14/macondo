@@ -1,0 +1,5 @@
+list - Show the current list of generated or added moves
+
+This command shows the current list of moves for the position currently
+loaded. It requires that moves be added to the list, using the `gen` command,
+or with the `add` command.
