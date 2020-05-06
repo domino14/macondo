@@ -1,7 +1,7 @@
 # Manual
 
-[Back to Manual](/macondo/manual)
-[Back to Main Page](/macondo)
+- [Back to Manual](/macondo/manual)
+- [Back to Main Page](/macondo)
 
 ## make_leaves_structure
 
@@ -23,4 +23,4 @@ ABCD?,15
   `./data/strategy/<lexicon>/` directory for your desired lexicon. If you
   wish it to be loaded by default, you must gzip and rename it to
   `leaves.idx.gz`. Otherwise, it can be used in experiments with its original
-  name. See the [Autoplay](/macondo/manual/autoplay) documentation.
+  name. See the [Autoplay](/macondo/manual/autoplay.html) documentation.
