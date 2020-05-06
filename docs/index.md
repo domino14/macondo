@@ -10,7 +10,7 @@ Quick tutorial video: [https://youtu.be/07Dpa-oTTFY](https://youtu.be/07Dpa-oTTF
 
 - [The Macondo team](/macondo/team.html)
 - [Change Log](/macondo/changelog.html)
-- [Manual / Documentation](/macondo/manual.html)
+- [Manual / Documentation](/macondo/manual)
 - [How it works](/macondo/howitworks.html)
 - [Why the name Macondo?](/macondo/name.html)
 - [Acknowledgements](/macondo/acknowledgements.html)
