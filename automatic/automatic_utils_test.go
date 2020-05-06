@@ -42,7 +42,10 @@ func TestCompVsCompStatic(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		runner.CompVsCompStatic()
+		err := runner.CompVsCompStatic()
+		if err != nil {
+			t.Fatal(err)
+		}
 		fmt.Println(runner.game.Board().ToDisplayText(alphabet.EnglishAlphabet()))
 		close(logchan)
 	}()

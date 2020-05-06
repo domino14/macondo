@@ -388,13 +388,11 @@
   "players": [
     {
       "nickname": "doug",
-      "real_name": "doug",
-      "number": 1
+      "real_name": "doug"
     },
     {
       "nickname": "emely",
-      "real_name": "emely",
-      "number": 2
+      "real_name": "emely"
     }
   ],
   "version": 1,

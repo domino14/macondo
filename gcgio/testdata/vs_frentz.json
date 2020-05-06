@@ -349,13 +349,11 @@
   "players": [
     {
       "nickname": "cesar",
-      "real_name": "cesar",
-      "number": 1
+      "real_name": "cesar"
     },
     {
       "nickname": "frentz",
-      "real_name": "frentz",
-      "number": 2
+      "real_name": "frentz"
     }
   ],
   "version": 1,

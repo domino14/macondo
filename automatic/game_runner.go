@@ -41,7 +41,7 @@ type GameRunner struct {
 
 // NewGameRunner just instantiates and initializes a game runner.
 func NewGameRunner(logchan chan string, config *config.Config) *GameRunner {
-	r := &GameRunner{logchan: logchan, config: config}
+	r := &GameRunner{logchan: logchan, config: config, lexicon: config.DefaultLexicon}
 	r.Init(ExhaustiveLeavePlayer, ExhaustiveLeavePlayer, "", "")
 	return r
 }

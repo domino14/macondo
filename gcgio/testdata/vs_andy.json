@@ -382,13 +382,11 @@
   "players": [
     {
       "nickname": "andy",
-      "real_name": "andy",
-      "number": 1
+      "real_name": "andy"
     },
     {
       "nickname": "cesar",
-      "real_name": "cesar",
-      "number": 2
+      "real_name": "cesar"
     }
   ],
   "version": 1,

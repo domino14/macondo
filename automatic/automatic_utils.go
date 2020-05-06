@@ -28,14 +28,19 @@ func init() {
 }
 
 // CompVsCompStatic plays out a game to the end using best static turns.
-func (r *GameRunner) CompVsCompStatic() {
-	r.Init("exhaustiveleave", "exhaustiveleave", "", "")
+func (r *GameRunner) CompVsCompStatic() error {
+	err := r.Init("exhaustiveleave", "exhaustiveleave", "", "")
+	if err != nil {
+		return err
+	}
 	r.playFullStatic()
 	log.Debug().Msgf("Game over. Score: %v - %v", r.game.PointsFor(0),
 		r.game.PointsFor(1))
+	return nil
 }
 
 func (r *GameRunner) playFullStatic() {
+	log.Debug().Msgf("playing full static, game %v", r.game)
 	r.StartGame()
 	for r.game.Playing() {
 		// log.Printf("[DEBUG] turn %v", r.game.Turn())

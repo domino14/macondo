@@ -1,9 +1,11 @@
 package strategy
 
 import (
+	"math/rand"
 	"os"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
@@ -14,7 +16,7 @@ import (
 func TestLeaveMPH(t *testing.T) {
 	els := ExhaustiveLeaveStrategy{}
 	alph := alphabet.EnglishAlphabet()
-	err := els.Init("NWL18", alph, os.Getenv("STRATEGY_PARAMS_PATH"))
+	err := els.Init("NWL18", alph, os.Getenv("STRATEGY_PARAMS_PATH"), "")
 	assert.Nil(t, err)
 
 	type testcase struct {
@@ -49,14 +51,15 @@ func TestEndgameTiming(t *testing.T) {
 	bd.GenAllCrossSets(gd, ld)
 	generator.GenAll(alphabet.RackFromString("AEEORS?", alph), false)
 
-	err = els.Init("NWL18", alph, os.Getenv("STRATEGY_PARAMS_PATH"))
+	err = els.Init("NWL18", alph, os.Getenv("STRATEGY_PARAMS_PATH"), "")
 	assert.Nil(t, err)
 
 	oppRack := alphabet.NewRack(alph)
 	oppRack.Set(tilesInPlay.Rack1)
 	assert.Equal(t, oppRack.NumTiles(), uint8(2))
+	var randSource = rand.New(rand.NewSource(time.Now().UnixNano()))
 
-	bag := alphabet.NewBag(ld, alph)
+	bag := alphabet.NewBag(ld, alph, randSource)
 	bag.Draw(100)
 
 	plays := generator.Plays()

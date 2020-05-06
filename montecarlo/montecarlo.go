@@ -131,6 +131,7 @@ func (s *Simmer) SetLogStream(l io.Writer) {
 }
 
 func (s *Simmer) makeGameCopies() {
+	log.Debug().Int("threads", s.threads).Msg("makeGameCopies")
 	s.gameCopies = []*game.Game{}
 	s.movegens = []movegen.MoveGenerator{}
 	for i := 0; i < s.threads; i++ {
