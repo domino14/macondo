@@ -42,8 +42,9 @@ var (
 )
 
 type ShellController struct {
-	l      *readline.Instance
-	config *config.Config
+	l        *readline.Instance
+	config   *config.Config
+	execPath string
 
 	game     *game.Game
 	aiplayer player.AIPlayer
@@ -90,7 +91,7 @@ func showMessage(msg string, w io.Writer) {
 	io.WriteString(w, "\n")
 }
 
-func NewShellController(cfg *config.Config) *ShellController {
+func NewShellController(cfg *config.Config, execPath string) *ShellController {
 	l, err := readline.NewEx(&readline.Config{
 		Prompt:          "\033[31mmacondo>\033[0m ",
 		HistoryFile:     "/tmp/readline.tmp",
@@ -104,7 +105,7 @@ func NewShellController(cfg *config.Config) *ShellController {
 	if err != nil {
 		panic(err)
 	}
-	return &ShellController{l: l, config: cfg}
+	return &ShellController{l: l, config: cfg, execPath: execPath}
 }
 
 func (sc *ShellController) initGameDataStructures() error {
@@ -720,10 +721,10 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		return errors.New("sending quit signal")
 	case "help":
 		if cmd.args == nil {
-			usage(sc.l.Stderr(), "standard")
+			usage(sc.l.Stderr(), "standard", sc.execPath)
 		} else {
 			helptopic := cmd.args[0]
-			usageTopic(sc.l.Stderr(), helptopic)
+			usageTopic(sc.l.Stderr(), helptopic, sc.execPath)
 		}
 	case "mode":
 		sc.modeSelector(cmd.args[0])

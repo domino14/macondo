@@ -60,7 +60,7 @@ func main() {
 		close(idleConnsClosed)
 	}()
 
-	sc := shell.NewShellController(cfg)
+	sc := shell.NewShellController(cfg, exPath)
 	go sc.Loop(sig)
 
 	<-idleConnsClosed
