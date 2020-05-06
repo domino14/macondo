@@ -15,6 +15,6 @@ will be quite different.
 
 Below we have some more specific manuals for various topics.
 
-- [Autoplay](/macondo/manual/autoplay)
-- [make_gaddag](/macondo/manual/make_gaddag)
-- [make_leaves_structure](/macondo/manual/make_leaves_structure)
+- [Autoplay](/macondo/manual/autoplay.html)
+- [make_gaddag](/macondo/manual/make_gaddag.html)
+- [make_leaves_structure](/macondo/manual/make_leaves_structure.html)
