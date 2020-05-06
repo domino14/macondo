@@ -3,15 +3,37 @@ package strategy
 import (
 	"math/rand"
 	"os"
+	"path/filepath"
 	"sort"
 	"testing"
 	"time"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/gaddag"
+	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/movegen"
 	"github.com/stretchr/testify/assert"
 )
+
+var LexiconDir = os.Getenv("LEXICON_PATH")
+
+func TestMain(m *testing.M) {
+	gdgPath := filepath.Join(LexiconDir, "gaddag", "NWL18.gaddag")
+	if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
+		gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "NWL18.txt"), true, true)
+		err = os.Rename("out.gaddag", gdgPath)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	os.Exit(m.Run())
+}
+
+func GaddagFromLexicon(lex string) (*gaddag.SimpleGaddag, error) {
+	return gaddag.LoadGaddag(filepath.Join(LexiconDir, "gaddag", lex+".gaddag"))
+}
 
 func TestLeaveMPH(t *testing.T) {
 	els := ExhaustiveLeaveStrategy{}

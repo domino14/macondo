@@ -4,6 +4,8 @@ import (
 	"flag"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -21,9 +23,27 @@ const (
 var profilePath = flag.String("profilepath", "", "path for profile")
 
 func main() {
+	// Determine the directory of the executable. We will use this
+	// directory to find the data files if an absolute path is not
+	// provided for these!
+	ex, err := os.Executable()
+	if err != nil {
+		panic(err)
+	}
+	exPath := filepath.Dir(ex)
+
 	cfg := &config.Config{}
 	cfg.Load(os.Args[1:])
 	log.Info().Msgf("Loaded config: %v", cfg)
+
+	if strings.HasPrefix(cfg.LexiconPath, "./") {
+		cfg.LexiconPath = filepath.Join(exPath, cfg.LexiconPath)
+		log.Info().Str("path", cfg.LexiconPath).Msgf("new lexicon path")
+	}
+	if strings.HasPrefix(cfg.StrategyParamsPath, "./") {
+		cfg.StrategyParamsPath = filepath.Join(exPath, cfg.StrategyParamsPath)
+		log.Info().Str("sppath", cfg.StrategyParamsPath).Msgf("new strat params path")
+	}
 
 	if cfg.Debug {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
