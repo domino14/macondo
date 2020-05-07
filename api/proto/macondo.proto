@@ -1,5 +1,6 @@
 syntax = "proto3";
-option go_package = "api/proto/macondo";
+package macondo;
+option go_package = "github.com/domino14/macondo/gen/api/proto/macondo";
 // GameHistory encodes a whole history of a game, and it should also encode
 // the initial board and tile configuration, etc. It can be considered
 // to be an instantiation of a GCG file.

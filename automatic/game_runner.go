@@ -17,7 +17,7 @@ import (
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/strategy"
 
-	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	pb "github.com/domino14/macondo/gen/api/proto"
 )
 
 const (
