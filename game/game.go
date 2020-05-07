@@ -15,7 +15,7 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/gaddag"
-	pb "github.com/domino14/macondo/gen/api/proto"
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
 	"github.com/lithammer/shortuuid"
 	"github.com/rs/zerolog/log"

@@ -16,7 +16,7 @@ import (
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/game"
-	pb "github.com/domino14/macondo/gen/api/proto"
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/strategy"
 )

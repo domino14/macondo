@@ -25,7 +25,7 @@ import (
 	"github.com/domino14/macondo/endgame/alphabeta"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
-	pb "github.com/domino14/macondo/gen/api/proto"
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
