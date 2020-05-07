@@ -2,7 +2,6 @@
 *.gaddag
 *.dawg
 .DS_Store
-macondo
 *~
 .vscode/
 *.diff
