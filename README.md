@@ -8,4 +8,4 @@ Macondo is more than just a simple crossword game move generator! It will have a
 
 To generate pb files, run in this directory:
 
-`protoc --twirp_out=gen --go_out=gen --go_opt=paths=source_relative ./api/proto/macondo/macondo.proto`
+`protoc --go_out=gen --go_opt=paths=source_relative ./api/proto/macondo/macondo.proto`
