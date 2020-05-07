@@ -5,8 +5,8 @@ import (
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
+	pb "github.com/domino14/macondo/gen/api/proto"
 	"github.com/domino14/macondo/move"
-	pb "github.com/domino14/macondo/rpc/api/proto"
 	"github.com/rs/zerolog/log"
 )
 

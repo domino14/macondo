@@ -11,7 +11,7 @@ import (
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddagmaker"
-	pb "github.com/domino14/macondo/rpc/api/proto"
+	pb "github.com/domino14/macondo/gen/api/proto"
 	"github.com/matryer/is"
 )
 

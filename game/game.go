@@ -4,6 +4,8 @@ package game
 
 import (
 	"bytes"
+	crypto_rand "crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -13,8 +15,8 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/gaddag"
+	pb "github.com/domino14/macondo/gen/api/proto"
 	"github.com/domino14/macondo/move"
-	pb "github.com/domino14/macondo/rpc/api/proto"
 	"github.com/lithammer/shortuuid"
 	"github.com/rs/zerolog/log"
 )
@@ -34,6 +36,19 @@ type RuleDefiner interface {
 	LetterDistribution() *alphabet.LetterDistribution
 
 	LoadRule(lexiconName, letterDistributionName string) error
+}
+
+func seededRandSource() (int64, *rand.Rand) {
+	var b [8]byte
+	_, err := crypto_rand.Read(b[:])
+	if err != nil {
+		panic("cannot seed math/rand package with cryptographically secure random number generator")
+	}
+
+	randSeed := int64(binary.LittleEndian.Uint64(b[:]))
+	randSource := rand.New(rand.NewSource(randSeed))
+
+	return randSeed, randSource
 }
 
 // Game is the actual internal game structure that controls the entire

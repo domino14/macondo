@@ -6,4 +6,4 @@ Macondo is more than just a simple crossword game move generator! It will have a
 
 # protoc
 
-`protoc --twirp_out=rpc --go_out=rpc ./api/proto/macondosvc.proto`
+`protoc --twirp_out=gen --go_out=gen ./api/proto/macondo.proto`
