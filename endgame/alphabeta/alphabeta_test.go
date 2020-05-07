@@ -16,7 +16,7 @@ import (
 	"github.com/domino14/macondo/gcgio"
 	"github.com/domino14/macondo/movegen"
 
-	pb "github.com/domino14/macondo/gen/api/proto"
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
 
 var DefaultConfig = config.Config{
