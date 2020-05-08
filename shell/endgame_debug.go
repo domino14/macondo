@@ -1,27 +1,30 @@
 package shell
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
-
-	"github.com/rs/zerolog/log"
 )
 
 func (sc *ShellController) endgameDebugModeSwitch(line string, sig chan os.Signal) error {
-	switch {
-	case strings.HasPrefix(line, "mode"):
-		sc.modeSelector(line)
+	cmd, err := extractFields(line)
+	if err != nil {
+		return err
+	}
 
-	case strings.HasPrefix(line, "help"):
-		if strings.TrimSpace(line) == "help" {
-			usage(sc.l.Stderr(), "endgamedebug")
-		} else {
-			showMessage("No additional info is available for this mode", sc.l.Stderr())
+	switch cmd.cmd {
+	case "mode":
+		if cmd.args == nil {
+			sc.showError(errors.New("select a mode"))
+			break
 		}
+		sc.modeSelector(cmd.args[0])
 
-	case line == "l":
+	case "help":
+		usage(sc.l.Stderr(), "endgamedebug", sc.execPath)
+
+	case "l":
 		// List the current level of nodes
 		if sc.curEndgameNode == nil {
 			sc.curEndgameNode = sc.endgameSolver.RootNode()
@@ -36,7 +39,7 @@ func (sc *ShellController) endgameDebugModeSwitch(line string, sig chan os.Signa
 		}
 		sc.showMessage("----------------")
 
-	case line == "u":
+	case "u":
 		// List the current level of nodes
 		if sc.curEndgameNode == nil {
 			sc.showMessage("Can't go up any farther")
@@ -49,7 +52,7 @@ func (sc *ShellController) endgameDebugModeSwitch(line string, sig chan os.Signa
 			sc.showMessage("<nil>")
 		}
 
-	case line == "i":
+	case "i":
 		// List info about the current node.
 		if sc.curEndgameNode != nil {
 			sc.showMessage(sc.curEndgameNode.String())
@@ -57,14 +60,18 @@ func (sc *ShellController) endgameDebugModeSwitch(line string, sig chan os.Signa
 			sc.showMessage("<nil>")
 		}
 
-	case strings.HasPrefix(line, "s"):
-		nodeID, err := strconv.Atoi(line[1:])
+	case "s":
+		if len(cmd.args) == 0 {
+			sc.showError(errors.New("select a node to step into"))
+			break
+		}
+		nodeID, err := strconv.Atoi(cmd.args[0])
 		if err != nil {
-			sc.showMessage("Error: " + err.Error())
+			sc.showError(err)
 			return nil
 		}
 		if nodeID >= len(sc.curEndgameNode.Children()) || nodeID < 0 {
-			sc.showMessage("Error: index not in range")
+			sc.showError(errors.New("index not in range"))
 			return nil
 		}
 
@@ -72,7 +79,7 @@ func (sc *ShellController) endgameDebugModeSwitch(line string, sig chan os.Signa
 		sc.curEndgameNode = sc.curEndgameNode.Children()[nodeID]
 
 	default:
-		log.Debug().Msgf("you said: %v", strconv.Quote(line))
+		sc.showError(errors.New("command not recognized: " + cmd.cmd))
 	}
 	return nil
 }

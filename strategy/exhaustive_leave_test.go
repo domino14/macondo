@@ -1,20 +1,44 @@
 package strategy
 
 import (
+	"math/rand"
 	"os"
+	"path/filepath"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/gaddag"
+	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/movegen"
 	"github.com/stretchr/testify/assert"
 )
 
+var LexiconDir = os.Getenv("LEXICON_PATH")
+
+func TestMain(m *testing.M) {
+	gdgPath := filepath.Join(LexiconDir, "gaddag", "NWL18.gaddag")
+	if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
+		gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "NWL18.txt"), true, true)
+		err = os.Rename("out.gaddag", gdgPath)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	os.Exit(m.Run())
+}
+
+func GaddagFromLexicon(lex string) (*gaddag.SimpleGaddag, error) {
+	return gaddag.LoadGaddag(filepath.Join(LexiconDir, "gaddag", lex+".gaddag"))
+}
+
 func TestLeaveMPH(t *testing.T) {
 	els := ExhaustiveLeaveStrategy{}
 	alph := alphabet.EnglishAlphabet()
-	err := els.Init("NWL18", alph, os.Getenv("STRATEGY_PARAMS_PATH"))
+	err := els.Init("NWL18", alph, os.Getenv("STRATEGY_PARAMS_PATH"), "")
 	assert.Nil(t, err)
 
 	type testcase struct {
@@ -49,14 +73,15 @@ func TestEndgameTiming(t *testing.T) {
 	bd.GenAllCrossSets(gd, ld)
 	generator.GenAll(alphabet.RackFromString("AEEORS?", alph), false)
 
-	err = els.Init("NWL18", alph, os.Getenv("STRATEGY_PARAMS_PATH"))
+	err = els.Init("NWL18", alph, os.Getenv("STRATEGY_PARAMS_PATH"), "")
 	assert.Nil(t, err)
 
 	oppRack := alphabet.NewRack(alph)
 	oppRack.Set(tilesInPlay.Rack1)
 	assert.Equal(t, oppRack.NumTiles(), uint8(2))
+	var randSource = rand.New(rand.NewSource(time.Now().UnixNano()))
 
-	bag := alphabet.NewBag(ld, alph)
+	bag := alphabet.NewBag(ld, alph, randSource)
 	bag.Draw(100)
 
 	plays := generator.Plays()

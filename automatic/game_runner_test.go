@@ -2,40 +2,32 @@ package automatic
 
 import (
 	"log"
-	"os"
 	"testing"
 
 	"github.com/matryer/is"
 
 	"github.com/domino14/macondo/board"
-	"github.com/domino14/macondo/config"
 
 	"github.com/domino14/macondo/alphabet"
-	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/move"
 )
 
 func TestGenBestStaticTurn(t *testing.T) {
 	is := is.New(t)
-	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
-	is.NoErr(err)
-	r := &GameRunner{config: &config.Config{StrategyParamsPath: os.Getenv("STRATEGY_PARAMS_PATH")}}
-
-	r.Init(gd)
-	r.game.SetRackFor(0, alphabet.RackFromString("DRRIRDF", gd.GetAlphabet()))
-	bestPlay := r.genBestStaticTurn(0)
+	runner := NewGameRunner(nil, &DefaultConfig)
+	runner.StartGame()
+	runner.game.SetRackFor(0, alphabet.RackFromString("DRRIRDF", runner.alphabet))
+	bestPlay := runner.genBestStaticTurn(0)
 	is.Equal(move.MoveTypeExchange, bestPlay.Action())
 }
 
 func TestGenBestStaticTurn2(t *testing.T) {
 	is := is.New(t)
-	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
-	is.NoErr(err)
-	r := &GameRunner{config: &config.Config{StrategyParamsPath: os.Getenv("STRATEGY_PARAMS_PATH")}}
 
-	r.Init(gd)
-	r.game.SetRackFor(0, alphabet.RackFromString("COTTTV?", gd.GetAlphabet()))
-	bestPlay := r.genBestStaticTurn(0)
+	runner := NewGameRunner(nil, &DefaultConfig)
+	runner.StartGame()
+	runner.game.SetRackFor(0, alphabet.RackFromString("COTTTV?", runner.alphabet))
+	bestPlay := runner.genBestStaticTurn(0)
 	is.Equal(move.MoveTypeExchange, bestPlay.Action())
 }
 
@@ -56,14 +48,11 @@ func TestGenBestStaticTurn2(t *testing.T) {
 
 func TestGenBestStaticTurn4(t *testing.T) {
 	is := is.New(t)
-	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
-	is.NoErr(err)
-	r := &GameRunner{config: &config.Config{StrategyParamsPath: os.Getenv("STRATEGY_PARAMS_PATH")}}
-
-	r.Init(gd)
+	runner := NewGameRunner(nil, &DefaultConfig)
+	runner.StartGame()
 	// this rack has so much equity that the player might pass/exchange.
-	r.game.SetRackFor(0, alphabet.RackFromString("CDEERS?", gd.GetAlphabet()))
-	bestPlay := r.genBestStaticTurn(0)
+	runner.game.SetRackFor(0, alphabet.RackFromString("CDEERS?", runner.alphabet))
+	bestPlay := runner.genBestStaticTurn(0)
 	is.Equal(move.MoveTypePlay, bestPlay.Action())
 }
 
@@ -86,18 +75,24 @@ func TestGenBestStaticTurn4(t *testing.T) {
 
 func TestGenBestStaticTurn6(t *testing.T) {
 	is := is.New(t)
-	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
-	is.NoErr(err)
-	r := &GameRunner{config: &config.Config{StrategyParamsPath: os.Getenv("STRATEGY_PARAMS_PATH")}}
+	runner := NewGameRunner(nil, &DefaultConfig)
+	runner.StartGame()
+	runner.game.ThrowRacksIn()
 
-	r.Init(gd)
-	tilesInPlay := r.game.Board().SetToGame(gd.GetAlphabet(), board.VsMacondo1)
-	r.game.Board().GenAllCrossSets(gd, r.game.Bag().LetterDistribution())
-	r.game.Bag().RemoveTiles(tilesInPlay.OnBoard)
-	r.game.SetRackFor(0, alphabet.RackFromString("APRS?", gd.GetAlphabet()))
-	r.game.SetRackFor(1, alphabet.RackFromString("ENNR", gd.GetAlphabet()))
-	is.Equal(r.game.Bag().TilesRemaining(), 0)
-	bestPlay := r.genBestStaticTurn(0)
-	log.Println(r.movegen.Plays())
+	tilesInPlay := runner.game.Board().SetToGame(runner.alphabet, board.VsMacondo1)
+	runner.game.Board().GenAllCrossSets(runner.gaddag, runner.game.Bag().LetterDistribution())
+
+	err := runner.game.Bag().RemoveTiles(tilesInPlay.OnBoard)
+	is.NoErr(err)
+
+	runner.game.SetRackFor(0, alphabet.RackFromString("APRS?", runner.alphabet))
+	runner.game.SetRackFor(1, alphabet.RackFromString("ENNR", runner.alphabet))
+
+	is.Equal(runner.game.RackLettersFor(0), "APRS?")
+	is.Equal(runner.game.RackLettersFor(1), "ENNR")
+
+	is.Equal(runner.game.Bag().TilesRemaining(), 0)
+	bestPlay := runner.genBestStaticTurn(0)
+	log.Println(runner.movegen.Plays())
 	is.Equal("F10 .cARPS", bestPlay.ShortDescription())
 }

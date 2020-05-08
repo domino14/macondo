@@ -1,6 +1,7 @@
 package alphabet
 
 import (
+	"errors"
 	"fmt"
 	"math/rand"
 
@@ -14,6 +15,7 @@ type Bag struct {
 	initialTileMap     map[MachineLetter]uint8
 	tileMap            map[MachineLetter]uint8
 	letterDistribution *LetterDistribution
+	randSource         *rand.Rand
 }
 
 func copyTileMap(orig map[MachineLetter]uint8) map[MachineLetter]uint8 {
@@ -53,6 +55,7 @@ func (b *Bag) Draw(n int) ([]MachineLetter, error) {
 		b.tileMap[drawn[i]]--
 	}
 	b.tiles = b.tiles[n:]
+	// log.Debug().Int("numtiles", len(b.tiles)).Int("drew", n).Msg("drew from bag")
 	return drawn, nil
 }
 
@@ -64,7 +67,8 @@ func (b *Bag) Peek() []MachineLetter {
 
 // Shuffle shuffles the bag.
 func (b *Bag) Shuffle() {
-	rand.Shuffle(len(b.tiles), func(i, j int) {
+	// log.Debug().Int("numtiles", len(b.tiles)).Msg("shuffling bag")
+	b.randSource.Shuffle(len(b.tiles), func(i, j int) {
 		b.tiles[i], b.tiles[j] = b.tiles[j], b.tiles[i]
 	})
 }
@@ -82,6 +86,9 @@ func (b *Bag) Exchange(letters []MachineLetter) ([]MachineLetter, error) {
 
 // PutBack puts the tiles back in the bag, and shuffles the bag.
 func (b *Bag) PutBack(letters []MachineLetter) {
+	if len(letters) == 0 {
+		return
+	}
 	b.tiles = append(b.tiles, letters...)
 	for _, ml := range letters {
 		b.tileMap[ml]++
@@ -123,9 +130,12 @@ func (b *Bag) remove(t MachineLetter) {
 }
 
 // rebuildTileSlice reconciles the bag slice with the tile map.
-func (b *Bag) rebuildTileSlice(numTilesInBag int) {
+func (b *Bag) rebuildTileSlice(numTilesInBag int) error {
 	log.Debug().Msgf("reconciling tiles, num in bag are %v, map %v",
 		numTilesInBag, b.tileMap)
+	if numTilesInBag > len(b.initialTiles) {
+		return errors.New("more tiles in the bag that there were to begin with")
+	}
 	b.tiles = make([]MachineLetter, numTilesInBag)
 	idx := 0
 	for let, ct := range b.tileMap {
@@ -135,6 +145,7 @@ func (b *Bag) rebuildTileSlice(numTilesInBag int) {
 		}
 	}
 	b.Shuffle()
+	return nil
 }
 
 // Redraw is basically a do-over; throw the current rack in the bag
@@ -158,11 +169,10 @@ func (b *Bag) RemoveTiles(tiles []MachineLetter) error {
 			b.remove(t)
 		}
 	}
-	b.rebuildTileSlice(len(b.tiles) - len(tiles))
-	return nil
+	return b.rebuildTileSlice(len(b.tiles) - len(tiles))
 }
 
-func NewBag(ld *LetterDistribution, alph *Alphabet) *Bag {
+func NewBag(ld *LetterDistribution, alph *Alphabet, randSource *rand.Rand) *Bag {
 
 	tiles := make([]MachineLetter, ld.numLetters)
 	tileMap := map[MachineLetter]uint8{}
@@ -186,19 +196,25 @@ func NewBag(ld *LetterDistribution, alph *Alphabet) *Bag {
 		initialTiles:       append([]MachineLetter(nil), tiles...),
 		initialTileMap:     copyTileMap(tileMap),
 		letterDistribution: ld,
+		randSource:         randSource,
 	}
 }
 
 // Copy copies to a new bag and returns it. Note that the initialTiles
 // are only shallowly copied. This is fine because
 // we don't ever expect these to change after initialization.
-func (b *Bag) Copy() *Bag {
+// If randSource is not nil, it is set as the rand source for the copy.
+// Otherwise, use the original's rand source.
+func (b *Bag) Copy(randSource *rand.Rand) *Bag {
 	tiles := make([]MachineLetter, len(b.tiles))
 	tileMap := make(map[MachineLetter]uint8)
 	copy(tiles, b.tiles)
 	// Copy map as well
 	for k, v := range b.tileMap {
 		tileMap[k] = v
+	}
+	if randSource == nil {
+		randSource = b.randSource
 	}
 
 	return &Bag{
@@ -207,6 +223,7 @@ func (b *Bag) Copy() *Bag {
 		initialTiles:       b.initialTiles,
 		initialTileMap:     b.initialTileMap,
 		letterDistribution: b.letterDistribution,
+		randSource:         randSource,
 	}
 }
 
@@ -225,6 +242,7 @@ func (b *Bag) CopyFrom(other *Bag) {
 	b.tiles = make([]MachineLetter, len(other.tiles))
 	copy(b.tiles, other.tiles)
 	b.tileMap = copyTileMap(other.tileMap)
+	b.randSource = other.randSource
 }
 
 func (b *Bag) LetterDistribution() *LetterDistribution {

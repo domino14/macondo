@@ -69,7 +69,7 @@ func (r *Rack) setFromStr(rack string) {
 	if r.LetArr == nil {
 		r.LetArr = make([]int, MaxAlphabetSize+1)
 	} else {
-		r.clear()
+		r.Clear()
 	}
 	for _, c := range rack {
 		ml, err := r.alphabet.Val(c)
@@ -87,7 +87,7 @@ func (r *Rack) setFromStr(rack string) {
 
 // Set sets the rack from a list of machine letters
 func (r *Rack) Set(mls []MachineLetter) {
-	r.clear()
+	r.Clear()
 	for _, ml := range mls {
 		r.LetArr[ml]++
 	}
@@ -97,7 +97,7 @@ func (r *Rack) Set(mls []MachineLetter) {
 	r.numLetters = uint8(len(mls))
 }
 
-func (r *Rack) clear() {
+func (r *Rack) Clear() {
 	// Clear the rack
 	for i := 0; i < MaxAlphabetSize+1; i++ {
 		r.LetArr[i] = 0

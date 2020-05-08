@@ -9,14 +9,24 @@ import (
 // NoLeaveStrategy does not take leave into account at all.
 type NoLeaveStrategy struct{}
 
+func NewNoLeaveStrategy() *NoLeaveStrategy {
+
+	return &NoLeaveStrategy{}
+}
+
 func (nls *NoLeaveStrategy) Equity(play *move.Move, board *board.GameBoard,
 	bag *alphabet.Bag, oppRack *alphabet.Rack) float64 {
 	score := play.Score()
-	adjustment := 0.0
+	otherAdjustments := 0.0
+
 	if board.IsEmpty() {
-		adjustment += placementAdjustment(play)
+		otherAdjustments += placementAdjustment(play)
 	}
-	return float64(score) + adjustment
+
+	if bag.TilesRemaining() == 0 {
+		otherAdjustments += endgameAdjustment(play, oppRack, bag.LetterDistribution())
+	}
+	return float64(score) + otherAdjustments
 }
 
 func (nls *NoLeaveStrategy) LeaveValue(leave alphabet.MachineWord) float64 {

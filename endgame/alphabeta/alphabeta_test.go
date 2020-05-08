@@ -11,11 +11,12 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
+	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
-	"github.com/domino14/macondo/mechanics"
 	"github.com/domino14/macondo/movegen"
+
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
 
 var DefaultConfig = config.Config{
@@ -39,39 +40,50 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func GaddagFromLexicon(lex string) (*gaddag.SimpleGaddag, error) {
-	return gaddag.LoadGaddag(filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag"))
-}
-
 func setUpSolver(lex string, bvs board.VsWho, plies int, rack1, rack2 string,
 	p1pts, p2pts int, onTurn int) (*Solver, error) {
-	gd, err := GaddagFromLexicon(lex)
+
+	rules, err := game.NewGameRules(&DefaultConfig, board.CrosswordGameBoard,
+		lex, DefaultConfig.DefaultLetterDistribution)
+
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
-	dist := alphabet.EnglishLetterDistribution(gd.GetAlphabet())
 
-	game := &mechanics.XWordGame{}
-	game.Init(gd, dist)
+	players := []*pb.PlayerInfo{
+		{Nickname: "p1", RealName: "Player 1"},
+		{Nickname: "p2", RealName: "Player 2"},
+	}
+
+	game, err := game.NewGame(rules, players)
+	if err != nil {
+		panic(err)
+	}
+
+	game.StartGame()
 	game.SetStateStackLength(plies)
-
+	// Throw in the random racks dealt to our players.
+	game.ThrowRacksIn()
+	gd := rules.Gaddag()
+	dist := rules.LetterDistribution()
 	generator := movegen.NewGordonGenerator(gd, game.Board(), dist)
-	alph := game.Alphabet()
+	alph := rules.Gaddag().GetAlphabet()
 
 	tilesInPlay := game.Board().SetToGame(alph, bvs)
-	game.Bag().RemoveTiles(tilesInPlay.OnBoard)
+	err = game.Bag().RemoveTiles(tilesInPlay.OnBoard)
+	if err != nil {
+		panic(err)
+	}
 	game.Board().GenAllCrossSets(gd, dist)
 
-	r1 := alphabet.RackFromString(rack1, alph)
-	r2 := alphabet.RackFromString(rack2, alph)
-
-	game.SetRackFor(0, r1)
-	game.SetRackFor(1, r2)
+	game.SetRacksForBoth([]*alphabet.Rack{
+		alphabet.RackFromString(rack1, alph),
+		alphabet.RackFromString(rack2, alph),
+	})
 	game.SetPointsFor(0, p1pts)
 	game.SetPointsFor(1, p2pts)
 	game.SetPlayerOnTurn(onTurn)
-	game.SetPlaying(true)
-	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
+	fmt.Println(game.Board().ToDisplayText(alph))
 
 	s := new(Solver)
 	s.Init(generator, game)
@@ -87,7 +99,7 @@ func TestSolveComplex(t *testing.T) {
 		1)
 	is.NoErr(err)
 
-	v, _ := s.Solve(plies)
+	v, _, _ := s.Solve(plies)
 	is.Equal(v, 116)
 	// Quackle finds a 122-pt win. However, I think it's wrong because it
 	// doesn't take into account that opp can pass to prevent a setup
@@ -185,7 +197,7 @@ func TestSolveOther3(t *testing.T) {
 		1)
 	is.NoErr(err)
 
-	v, _ := s.Solve(plies)
+	v, _, _ := s.Solve(plies)
 	is.True(v > 0)
 }
 
@@ -200,7 +212,7 @@ func TestSolveStandard(t *testing.T) {
 		1)
 
 	is.NoErr(err)
-	v, _ := s.Solve(plies)
+	v, _, _ := s.Solve(plies)
 
 	is.Equal(v, float32(11))
 }
@@ -214,7 +226,7 @@ func TestSolveStandard2(t *testing.T) {
 		1)
 	is.NoErr(err)
 
-	v, _ := s.Solve(plies)
+	v, _, _ := s.Solve(plies)
 	is.Equal(v, float32(25))
 }
 
@@ -661,35 +673,34 @@ func TestProperIterativeDeepening(t *testing.T) {
 	is := is.New(t)
 	// Should get the same result with 7 or 8 plies.
 	plyCount := []int{7, 8}
-
+	rules, err := game.NewGameRules(&DefaultConfig, board.CrosswordGameBoard,
+		"NWL18", "English")
+	is.NoErr(err)
 	for _, plies := range plyCount {
 
-		curGameRepr, err := gcgio.ParseGCG("../../gcgio/testdata/noah_vs_mishu.gcg")
+		gameHistory, err := gcgio.ParseGCG("../../gcgio/testdata/noah_vs_mishu.gcg")
 		is.NoErr(err)
-		game := mechanics.StateFromRepr(curGameRepr, &DefaultConfig, 0)
+
+		game, err := game.NewFromHistory(gameHistory, rules, 28)
+		is.NoErr(err)
 		game.SetStateStackLength(plies)
 
-		err = game.PlayGameToTurn(curGameRepr, 28)
-		is.NoErr(err)
-		err = game.AssignUndrawnLetters()
-		is.NoErr(err)
-
 		// Make a few plays:
-		mechanics.PlayScoringMove(game, "H7", "T...")
-		mechanics.PlayScoringMove(game, "N5", "C...")
-		mechanics.PlayScoringMove(game, "10A", ".IN")
+		game.PlayScoringMove("H7", "T...", false)
+		game.PlayScoringMove("N5", "C...", false)
+		game.PlayScoringMove("10A", ".IN", false)
 		// Note that this is not right; user should play the P off at 6I,
 		// but this is for testing purposes only:
-		mechanics.PlayScoringMove(game, "13L", "...R")
+		game.PlayScoringMove("13L", "...R", false)
 		is.Equal(game.PointsFor(0), 339)
 		is.Equal(game.PointsFor(1), 381)
 		generator := movegen.NewGordonGenerator(
-			game.Gaddag(), game.Board(), game.Bag().LetterDistribution(),
+			rules.Gaddag(), game.Board(), game.Bag().LetterDistribution(),
 		)
 		s := new(Solver)
 		s.Init(generator, game)
 		fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
-		v, seq := s.Solve(plies)
+		v, seq, _ := s.Solve(plies)
 		is.Equal(v, float32(44))
 		// In particular, the sequence should start with 6I A.
 		// Player on turn needs to block the P spot. Anything else
@@ -703,17 +714,19 @@ func TestFromGCG(t *testing.T) {
 	plies := 3
 	is := is.New(t)
 
-	curGameRepr, err := gcgio.ParseGCG("../../gcgio/testdata/vs_frentz.gcg")
+	rules, err := game.NewGameRules(&DefaultConfig, board.CrosswordGameBoard,
+		"CSW19", "English")
+
+	gameHistory, err := gcgio.ParseGCG("../../gcgio/testdata/vs_frentz.gcg")
 	is.NoErr(err)
-	newConfig := DefaultConfig
-	newConfig.DefaultLexicon = "CSW19"
-	game := mechanics.StateFromRepr(curGameRepr, &newConfig, 0)
+
+	game, err := game.NewFromHistory(gameHistory, rules, 21)
+	is.NoErr(err)
+
 	game.SetStateStackLength(plies)
-	err = game.PlayGameToTurn(curGameRepr, 21)
-	is.NoErr(err)
 	generator := movegen.NewGordonGenerator(
 		// The strategy doesn't matter right here
-		game.Gaddag(), game.Board(), game.Bag().LetterDistribution(),
+		rules.Gaddag(), game.Board(), game.Bag().LetterDistribution(),
 	)
 
 	s := new(Solver)
@@ -721,7 +734,7 @@ func TestFromGCG(t *testing.T) {
 	// s.iterativeDeepeningOn = false
 	// s.simpleEvaluation = true
 	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
-	v, seq := s.Solve(plies)
+	v, seq, _ := s.Solve(plies)
 	is.Equal(v, float32(99))
 	is.Equal(len(seq), 1)
 	// t.Fail()

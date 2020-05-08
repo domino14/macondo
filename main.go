@@ -1,20 +1,18 @@
 package main
 
 import (
-	"context"
 	"flag"
-	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
-	"github.com/domino14/macondo/automatic"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/rpc/autoplayer"
 	"github.com/domino14/macondo/shell"
 )
 
@@ -25,21 +23,33 @@ const (
 var profilePath = flag.String("profilepath", "", "path for profile")
 
 func main() {
+	// Determine the directory of the executable. We will use this
+	// directory to find the data files if an absolute path is not
+	// provided for these!
+	ex, err := os.Executable()
+	if err != nil {
+		panic(err)
+	}
+	exPath := filepath.Dir(ex)
+
 	cfg := &config.Config{}
 	cfg.Load(os.Args[1:])
 	log.Info().Msgf("Loaded config: %v", cfg)
+
+	if strings.HasPrefix(cfg.LexiconPath, "./") {
+		cfg.LexiconPath = filepath.Join(exPath, cfg.LexiconPath)
+		log.Info().Str("path", cfg.LexiconPath).Msgf("new lexicon path")
+	}
+	if strings.HasPrefix(cfg.StrategyParamsPath, "./") {
+		cfg.StrategyParamsPath = filepath.Join(exPath, cfg.StrategyParamsPath)
+		log.Info().Str("sppath", cfg.StrategyParamsPath).Msgf("new strat params path")
+	}
 
 	if cfg.Debug {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	} else {
 		zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	}
-
-	autoplayerServer := &automatic.Server{Config: cfg}
-	handler := autoplayer.NewAutoPlayerServer(autoplayerServer, nil)
-
-	srv := &http.Server{Addr: ":8088", Handler: handler}
-
 	idleConnsClosed := make(chan struct{})
 	sig := make(chan os.Signal, 1)
 	go func() {
@@ -47,22 +57,12 @@ func main() {
 		<-sig
 		// We received an interrupt signal, shut down.
 		log.Info().Msg("got quit signal...")
-		ctx, cancel := context.WithTimeout(context.Background(), GracefulShutdownTimeout)
-
-		if err := srv.Shutdown(ctx); err != nil {
-			// Error from closing listeners, or context timeout:
-			log.Error().Msgf("HTTP server Shutdown: %v", err)
-		}
-		cancel()
 		close(idleConnsClosed)
 	}()
 
-	sc := shell.NewShellController(cfg)
+	sc := shell.NewShellController(cfg, exPath)
 	go sc.Loop(sig)
 
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatal().Err(err).Msg("")
-	}
 	<-idleConnsClosed
 	log.Info().Msg("server gracefully shutting down")
 }

@@ -1,3 +1,21 @@
+# v0.4.2
+
+Bug fix and enhancement release
+
+- Include NWL18 gaddag by permission
+- Changed the semantics of `add` by only allowing it to add on to a list of plays, but not commit the play
+- Added a `commit` command, which does what `add` used to do
+- Refactored game history with protobuf to fix various bugs and hacks. It is much cleaner now.
+- Added a lot of helpful options to `autoplay` command
+- Add a `sim continue` command to allow a sim to continue from where it left off
+- Add a `sim trim` command to delete bottom performers of a simulation.
+- Add an `export` command to allow saving to a .gcg file
+- `add` and `commit` commands are less picky about including the "through" letters in the play, as opposed to requiring a `.` character for these letters
+- Add a `setlex` command to set the lexicon of a game after loading it
+- Add color board display for terminals that support it
+- Fix bug where character encoding for GCGs containing CRLF characters was misparsed
+- Various other usability fixes
+
 # v0.4.1
 
 Bug fix release

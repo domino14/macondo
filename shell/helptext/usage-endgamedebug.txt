@@ -4,8 +4,8 @@ commands:
     mode standard - switch back to standard mode
 
     l - list the current level of the tree's nodes
-    s[n] - step one level down, into node n. Example:
-        s100
-        s20
+    s [n] - step one level down, into node n. Example:
+        s 100
+        s 20
     u - step one level up
     i - in-depth information about this node

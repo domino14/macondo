@@ -1,424 +1,400 @@
 {
-	"turns": [
-		[
-			{
-				"col": 3,
-				"dir": "h",
-				"pos": "8D",
-				"row": 7,
-				"nick": "doug",
-				"note": "",
-				"play": "WINDY",
-				"rack": "DINNVWY",
-				"type": "move",
-				"cumul": 32,
-				"score": 32
-			}
-		],
-		[
-			{
-				"col": 2,
-				"dir": "h",
-				"pos": "7C",
-				"row": 6,
-				"nick": "emely",
-				"note": "",
-				"play": "GALE",
-				"rack": "ADEEGIL",
-				"type": "move",
-				"cumul": 16,
-				"score": 16
-			}
-		],
-		[
-			{
-				"col": 4,
-				"dir": "v",
-				"pos": "E3",
-				"row": 2,
-				"nick": "doug",
-				"note": "",
-				"play": "JAVE..N",
-				"rack": "AEJNOSV",
-				"type": "move",
-				"cumul": 66,
-				"score": 34
-			}
-		],
-		[
-			{
-				"col": 5,
-				"dir": "v",
-				"pos": "F2",
-				"row": 1,
-				"nick": "emely",
-				"note": "",
-				"play": "VOX",
-				"rack": "DEILOVX",
-				"type": "move",
-				"cumul": 55,
-				"score": 39
-			}
-		],
-		[
-			{
-				"col": 1,
-				"dir": "h",
-				"pos": "10B",
-				"row": 9,
-				"nick": "doug",
-				"note": "",
-				"play": "DONATES",
-				"rack": "ADENOST",
-				"type": "move",
-				"cumul": 148,
-				"score": 82
-			}
-		],
-		[
-			{
-				"col": 1,
-				"dir": "h",
-				"pos": "4B",
-				"row": 3,
-				"nick": "emely",
-				"note": "",
-				"play": "TIL..",
-				"rack": "DEIILTZ",
-				"type": "move",
-				"cumul": 79,
-				"score": 24
-			},
-			{
-				"nick": "emely",
-				"note": "",
-				"rack": "DEIILTZ",
-				"type": "lost_challenge",
-				"cumul": 55,
-				"lost_score": 24
-			}
-		],
-		[
-			{
-				"col": 6,
-				"dir": "h",
-				"pos": "9G",
-				"row": 8,
-				"nick": "doug",
-				"note": "",
-				"play": "EAU",
-				"rack": "AAEINRU",
-				"type": "move",
-				"cumul": 164,
-				"score": 16
-			}
-		],
-		[
-			{
-				"col": 3,
-				"dir": "h",
-				"pos": "4D",
-				"row": 3,
-				"nick": "emely",
-				"note": "",
-				"play": "Z..",
-				"rack": "DEIILTZ",
-				"type": "move",
-				"cumul": 93,
-				"score": 38
-			}
-		],
-		[
-			{
-				"col": 0,
-				"dir": "v",
-				"pos": "A5",
-				"row": 4,
-				"nick": "doug",
-				"note": "",
-				"play": "LATINO",
-				"rack": "AILNORT",
-				"type": "move",
-				"cumul": 191,
-				"score": 27
-			}
-		],
-		[
-			{
-				"col": 1,
-				"dir": "v",
-				"pos": "B2",
-				"row": 1,
-				"nick": "emely",
-				"note": "",
-				"play": "TEIID",
-				"rack": "DEEIILT",
-				"type": "move",
-				"cumul": 122,
-				"score": 29
-			}
-		],
-		[
-			{
-				"col": 0,
-				"dir": "v",
-				"pos": "A1",
-				"row": 0,
-				"nick": "doug",
-				"note": "",
-				"play": "WEB",
-				"rack": "?BDERUW",
-				"type": "move",
-				"cumul": 221,
-				"score": 30
-			}
-		],
-		[
-			{
-				"col": 4,
-				"dir": "h",
-				"pos": "11E",
-				"row": 10,
-				"nick": "emely",
-				"note": "",
-				"play": "SAT",
-				"rack": "AELLNST",
-				"type": "move",
-				"cumul": 173,
-				"score": 51
-			}
-		],
-		[
-			{
-				"col": 3,
-				"dir": "h",
-				"pos": "6D",
-				"row": 5,
-				"nick": "doug",
-				"note": "",
-				"play": "R.D",
-				"rack": "?DINRRU",
-				"type": "move",
-				"cumul": 243,
-				"score": 22
-			}
-		],
-		[
-			{
-				"col": 2,
-				"dir": "v",
-				"pos": "C1",
-				"row": 0,
-				"nick": "emely",
-				"note": "",
-				"play": "CAN",
-				"rack": "ACELLMN",
-				"type": "move",
-				"cumul": 196,
-				"score": 23
-			}
-		],
-		[
-			{
-				"col": 1,
-				"dir": "v",
-				"pos": "B8",
-				"row": 7,
-				"nick": "doug",
-				"note": "",
-				"play": "FU.",
-				"rack": "?EFINRU",
-				"type": "move",
-				"cumul": 257,
-				"score": 14
-			}
-		],
-		[
-			{
-				"col": 7,
-				"dir": "h",
-				"pos": "7H",
-				"row": 6,
-				"nick": "emely",
-				"note": "",
-				"play": "RILL",
-				"rack": "EILLMRR",
-				"type": "move",
-				"cumul": 208,
-				"score": 12
-			}
-		],
-		[
-			{
-				"col": 10,
-				"dir": "v",
-				"pos": "K5",
-				"row": 4,
-				"nick": "doug",
-				"note": "",
-				"play": "RE.IgION",
-				"rack": "?EIINOR",
-				"type": "move",
-				"cumul": 335,
-				"score": 78
-			}
-		],
-		[
-			{
-				"col": 11,
-				"dir": "v",
-				"pos": "L11",
-				"row": 10,
-				"nick": "emely",
-				"note": "",
-				"play": "MURK",
-				"rack": "EKMORRU",
-				"type": "move",
-				"cumul": 236,
-				"score": 28
-			}
-		],
-		[
-			{
-				"col": 7,
-				"dir": "h",
-				"pos": "15H",
-				"row": 14,
-				"nick": "doug",
-				"note": "",
-				"play": "ARIOSE",
-				"rack": "AEIOORS",
-				"type": "move",
-				"cumul": 368,
-				"score": 33
-			}
-		],
-		[
-			{
-				"col": 5,
-				"dir": "h",
-				"pos": "14F",
-				"row": 13,
-				"nick": "emely",
-				"note": "",
-				"play": "COY",
-				"rack": "?CEORUY",
-				"type": "move",
-				"cumul": 255,
-				"score": 19
-			}
-		],
-		[
-			{
-				"col": 11,
-				"dir": "v",
-				"pos": "L4",
-				"row": 3,
-				"nick": "doug",
-				"note": "",
-				"play": "GET",
-				"rack": "EGHMOPT",
-				"type": "move",
-				"cumul": 380,
-				"score": 12
-			}
-		],
-		[
-			{
-				"col": 5,
-				"dir": "h",
-				"pos": "2F",
-				"row": 1,
-				"nick": "emely",
-				"note": "",
-				"play": ".ERB",
-				"rack": "?BERSTU",
-				"type": "move",
-				"cumul": 264,
-				"score": 9
-			}
-		],
-		[
-			{
-				"col": 6,
-				"dir": "h",
-				"pos": "1G",
-				"row": 0,
-				"nick": "doug",
-				"note": "",
-				"play": "PEA",
-				"rack": "AEHIMOP",
-				"type": "move",
-				"cumul": 409,
-				"score": 29
-			}
-		],
-		[
-			{
-				"col": 12,
-				"dir": "v",
-				"pos": "M2",
-				"row": 1,
-				"nick": "emely",
-				"note": "",
-				"play": "QUOTH",
-				"rack": "?HOQSTU",
-				"type": "move",
-				"cumul": 310,
-				"score": 46
-			}
-		],
-		[
-			{
-				"col": 13,
-				"dir": "v",
-				"pos": "N1",
-				"row": 0,
-				"nick": "doug",
-				"note": "",
-				"play": "HIM",
-				"rack": "EGHIMOP",
-				"type": "move",
-				"cumul": 451,
-				"score": 42
-			}
-		],
-		[
-			{
-				"col": 11,
-				"dir": "h",
-				"pos": "14L",
-				"row": 13,
-				"nick": "emely",
-				"note": "",
-				"play": ".aFS",
-				"rack": "?FS",
-				"type": "move",
-				"cumul": 331,
-				"score": 21
-			},
-			{
-				"nick": "emely",
-				"note": "",
-				"rack": "OPEG",
-				"type": "end_rack_points",
-				"cumul": 345,
-				"score": 14
-			}
-		]
-	],
-	"players": [
-		{
-			"nick": "doug",
-			"p_number": 1,
-			"real_name": "doug"
-		},
-		{
-			"nick": "emely",
-			"p_number": 2,
-			"real_name": "emely"
-		}
-	],
-	"version": 1,
-	"originalGCG": "#player1 doug doug\n#player2 emely emely\n>doug: DINNVWY 8D WINDY +32 32\n>emely: ADEEGIL 7C GALE +16 16\n>doug: AEJNOSV E3 JAVE..N +34 66\n>emely: DEILOVX F2 VOX +39 55\n>doug: ADENOST 10B DONATES +82 148\n>emely: DEIILTZ 4B TIL.. +24 79\n>emely: DEIILTZ --  -24 55\n>doug: AAEINRU 9G EAU +16 164\n>emely: DEIILTZ 4D Z.. +38 93\n>doug: AILNORT A5 LATINO +27 191\n>emely: DEEIILT B2 TEIID +29 122\n>doug: ?BDERUW A1 WEB +30 221\n>emely: AELLNST 11E SAT +51 173\n>doug: ?DINRRU 6D R.D +22 243\n>emely: ACELLMN C1 CAN +23 196\n>doug: ?EFINRU B8 FU. +14 257\n>emely: EILLMRR 7H RILL +12 208\n>doug: ?EIINOR K5 RE.IgION +78 335\n>emely: EKMORRU L11 MURK +28 236\n>doug: AEIOORS 15H ARIOSE +33 368\n>emely: ?CEORUY 14F COY +19 255\n>doug: EGHMOPT L4 GET +12 380\n>emely: ?BERSTU 2F .ERB +9 264\n>doug: AEHIMOP 1G PEA +29 409\n>emely: ?HOQSTU M2 QUOTH +46 310\n>doug: EGHIMOP N1 HIM +42 451\n>emely: ?FS 14L .aFS +21 331\n>emely:  (OPEG) +14 345"
+  "turns": [
+    {
+      "events": [
+        {
+          "nickname": "doug",
+          "rack": "DINNVWY",
+          "cumulative": 32,
+          "row": 7,
+          "column": 3,
+          "position": "8D",
+          "played_tiles": "WINDY",
+          "score": 32
+        }
+      ]
+    },
+    {
+      "events": [
+        {
+          "nickname": "emely",
+          "rack": "ADEEGIL",
+          "cumulative": 16,
+          "row": 6,
+          "column": 2,
+          "position": "7C",
+          "played_tiles": "GALE",
+          "score": 16
+        }
+      ]
+    },
+    {
+      "events": [
+        {
+          "nickname": "doug",
+          "rack": "AEJNOSV",
+          "cumulative": 66,
+          "row": 2,
+          "column": 4,
+          "direction": 1,
+          "position": "E3",
+          "played_tiles": "JAVE..N",
+          "score": 34
+        }
+      ]
+    },
+    {
+      "events": [
+        {
+          "nickname": "emely",
+          "rack": "DEILOVX",
+          "cumulative": 55,
+          "row": 1,
+          "column": 5,
+          "direction": 1,
+          "position": "F2",
+          "played_tiles": "VOX",
+          "score": 39
+        }
+      ]
+    },
+    {
+      "events": [
+        {
+          "nickname": "doug",
+          "rack": "ADENOST",
+          "cumulative": 148,
+          "row": 9,
+          "column": 1,
+          "position": "10B",
+          "played_tiles": "DONATES",
+          "score": 82
+        }
+      ]
+    },
+    {
+      "events": [
+        {
+          "nickname": "emely",
+          "rack": "DEIILTZ",
+          "cumulative": 79,
+          "row": 3,
+          "column": 1,
+          "position": "4B",
+          "played_tiles": "TIL..",
+          "score": 24
+        },
+        {
+          "nickname": "emely",
+          "rack": "DEIILTZ",
+          "type": 1,
+          "cumulative": 55,
+          "lost_score": 24
+        }
+      ]
+    },
+    {
+      "events": [
+        {
+          "nickname": "doug",
+          "rack": "AAEINRU",
+          "cumulative": 164,
+          "row": 8,
+          "column": 6,
+          "position": "9G",
+          "played_tiles": "EAU",
+          "score": 16
+        }
+      ]
+    },
+    {
+      "events": [
+        {
+          "nickname": "emely",
+          "rack": "DEIILTZ",
+          "cumulative": 93,
+          "row": 3,
+          "column": 3,
+          "position": "4D",
+          "played_tiles": "Z..",
+          "score": 38
+        }
+      ]
+    },
+    {
+      "events": [
+        {
+          "nickname": "doug",
+          "rack": "AILNORT",
+          "cumulative": 191,
+          "row": 4,
+          "direction": 1,
+          "position": "A5",
+          "played_tiles": "LATINO",
+          "score": 27
+        }
+      ]
+    },
+    {
+      "events": [
+        {
+          "nickname": "emely",
+          "rack": "DEEIILT",
+          "cumulative": 122,
+          "row": 1,
+          "column": 1,
+          "direction": 1,
+          "position": "B2",
+          "played_tiles": "TEIID",
+          "score": 29
+        }
+      ]
+    },
+    {
+      "events": [
+        {
+          "nickname": "doug",
+          "rack": "?BDERUW",
+          "cumulative": 221,
+          "direction": 1,
+          "position": "A1",
+          "played_tiles": "WEB",
+          "score": 30
+        }
+      ]
+    },
+    {
+      "events": [
+        {
+          "nickname": "emely",
+          "rack": "AELLNST",
+          "cumulative": 173,
+          "row": 10,
+          "column": 4,
+          "position": "11E",
+          "played_tiles": "SAT",
+          "score": 51
+        }
+      ]
+    },
+    {
+      "events": [
+        {
+          "nickname": "doug",
+          "rack": "?DINRRU",
+          "cumulative": 243,
+          "row": 5,
+          "column": 3,
+          "position": "6D",
+          "played_tiles": "R.D",
+          "score": 22
+        }
+      ]
+    },
+    {
+      "events": [
+        {
+          "nickname": "emely",
+          "rack": "ACELLMN",
+          "cumulative": 196,
+          "column": 2,
+          "direction": 1,
+          "position": "C1",
+          "played_tiles": "CAN",
+          "score": 23
+        }
+      ]
+    },
+    {
+      "events": [
+        {
+          "nickname": "doug",
+          "rack": "?EFINRU",
+          "cumulative": 257,
+          "row": 7,
+          "column": 1,
+          "direction": 1,
+          "position": "B8",
+          "played_tiles": "FU.",
+          "score": 14
+        }
+      ]
+    },
+    {
+      "events": [
+        {
+          "nickname": "emely",
+          "rack": "EILLMRR",
+          "cumulative": 208,
+          "row": 6,
+          "column": 7,
+          "position": "7H",
+          "played_tiles": "RILL",
+          "score": 12
+        }
+      ]
+    },
+    {
+      "events": [
+        {
+          "nickname": "doug",
+          "rack": "?EIINOR",
+          "cumulative": 335,
+          "row": 4,
+          "column": 10,
+          "direction": 1,
+          "position": "K5",
+          "played_tiles": "RE.IgION",
+          "score": 78
+        }
+      ]
+    },
+    {
+      "events": [
+        {
+          "nickname": "emely",
+          "rack": "EKMORRU",
+          "cumulative": 236,
+          "row": 10,
+          "column": 11,
+          "direction": 1,
+          "position": "L11",
+          "played_tiles": "MURK",
+          "score": 28
+        }
+      ]
+    },
+    {
+      "events": [
+        {
+          "nickname": "doug",
+          "rack": "AEIOORS",
+          "cumulative": 368,
+          "row": 14,
+          "column": 7,
+          "position": "15H",
+          "played_tiles": "ARIOSE",
+          "score": 33
+        }
+      ]
+    },
+    {
+      "events": [
+        {
+          "nickname": "emely",
+          "rack": "?CEORUY",
+          "cumulative": 255,
+          "row": 13,
+          "column": 5,
+          "position": "14F",
+          "played_tiles": "COY",
+          "score": 19
+        }
+      ]
+    },
+    {
+      "events": [
+        {
+          "nickname": "doug",
+          "rack": "EGHMOPT",
+          "cumulative": 380,
+          "row": 3,
+          "column": 11,
+          "direction": 1,
+          "position": "L4",
+          "played_tiles": "GET",
+          "score": 12
+        }
+      ]
+    },
+    {
+      "events": [
+        {
+          "nickname": "emely",
+          "rack": "?BERSTU",
+          "cumulative": 264,
+          "row": 1,
+          "column": 5,
+          "position": "2F",
+          "played_tiles": ".ERB",
+          "score": 9
+        }
+      ]
+    },
+    {
+      "events": [
+        {
+          "nickname": "doug",
+          "rack": "AEHIMOP",
+          "cumulative": 409,
+          "column": 6,
+          "position": "1G",
+          "played_tiles": "PEA",
+          "score": 29
+        }
+      ]
+    },
+    {
+      "events": [
+        {
+          "nickname": "emely",
+          "rack": "?HOQSTU",
+          "cumulative": 310,
+          "row": 1,
+          "column": 12,
+          "direction": 1,
+          "position": "M2",
+          "played_tiles": "QUOTH",
+          "score": 46
+        }
+      ]
+    },
+    {
+      "events": [
+        {
+          "nickname": "doug",
+          "rack": "EGHIMOP",
+          "cumulative": 451,
+          "column": 13,
+          "direction": 1,
+          "position": "N1",
+          "played_tiles": "HIM",
+          "score": 42
+        }
+      ]
+    },
+    {
+      "events": [
+        {
+          "nickname": "emely",
+          "rack": "?FS",
+          "cumulative": 331,
+          "row": 13,
+          "column": 11,
+          "position": "14L",
+          "played_tiles": ".aFS",
+          "score": 21
+        },
+        {
+          "nickname": "emely",
+          "rack": "OPEG",
+          "type": 5,
+          "cumulative": 345,
+          "end_rack_points": 14
+        }
+      ]
+    }
+  ],
+  "players": [
+    {
+      "nickname": "doug",
+      "real_name": "doug"
+    },
+    {
+      "nickname": "emely",
+      "real_name": "emely"
+    }
+  ],
+  "version": 1,
+  "original_gcg": "#player1 doug doug\n#player2 emely emely\n>doug: DINNVWY 8D WINDY +32 32\n>emely: ADEEGIL 7C GALE +16 16\n>doug: AEJNOSV E3 JAVE..N +34 66\n>emely: DEILOVX F2 VOX +39 55\n>doug: ADENOST 10B DONATES +82 148\n>emely: DEIILTZ 4B TIL.. +24 79\n>emely: DEIILTZ --  -24 55\n>doug: AAEINRU 9G EAU +16 164\n>emely: DEIILTZ 4D Z.. +38 93\n>doug: AILNORT A5 LATINO +27 191\n>emely: DEEIILT B2 TEIID +29 122\n>doug: ?BDERUW A1 WEB +30 221\n>emely: AELLNST 11E SAT +51 173\n>doug: ?DINRRU 6D R.D +22 243\n>emely: ACELLMN C1 CAN +23 196\n>doug: ?EFINRU B8 FU. +14 257\n>emely: EILLMRR 7H RILL +12 208\n>doug: ?EIINOR K5 RE.IgION +78 335\n>emely: EKMORRU L11 MURK +28 236\n>doug: AEIOORS 15H ARIOSE +33 368\n>emely: ?CEORUY 14F COY +19 255\n>doug: EGHMOPT L4 GET +12 380\n>emely: ?BERSTU 2F .ERB +9 264\n>doug: AEHIMOP 1G PEA +29 409\n>emely: ?HOQSTU M2 QUOTH +46 310\n>doug: EGHIMOP N1 HIM +42 451\n>emely: ?FS 14L .aFS +21 331\n>emely:  (OPEG) +14 345"
 }

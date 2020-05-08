@@ -3,10 +3,11 @@
 package alphabeta
 
 import (
+	"errors"
 	"sort"
 
 	"github.com/domino14/macondo/alphabet"
-	"github.com/domino14/macondo/mechanics"
+	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/rs/zerolog/log"
@@ -56,7 +57,7 @@ const (
 // Solver implements the minimax + alphabeta algorithm.
 type Solver struct {
 	movegen          movegen.MoveGenerator
-	game             *mechanics.XWordGame
+	game             *game.Game
 	totalNodes       int
 	initialSpread    int
 	initialTurnNum   int
@@ -93,18 +94,12 @@ func min(x, y float32) float32 {
 }
 
 // Init initializes the solver
-func (s *Solver) Init(movegen movegen.MoveGenerator, game *mechanics.XWordGame) error {
+func (s *Solver) Init(movegen movegen.MoveGenerator, game *game.Game) error {
 	s.movegen = movegen
 	s.game = game
 	s.totalNodes = 0
 	s.iterativeDeepeningOn = true
 
-	if s.game != nil {
-		err := s.game.AssignUndrawnLetters()
-		if err != nil {
-			return err
-		}
-	}
 	s.stmPlayed = make([]bool, alphabet.MaxAlphabetSize+1)
 	s.otsPlayed = make([]bool, alphabet.MaxAlphabetSize+1)
 	s.stmBlockingRects = make([]rect, 20)
@@ -392,7 +387,11 @@ func (s *Solver) findBestSequence(endNode *GameNode) []*move.Move {
 
 // Solve solves the endgame given the current state of s.game, for the
 // current player whose turn it is in that state.
-func (s *Solver) Solve(plies int) (float32, []*move.Move) {
+func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
+	if s.game.Bag().TilesRemaining() > 0 {
+		return 0, nil, errors.New("bag is not empty; cannot use endgame solver")
+	}
+
 	// Generate children moves.
 	s.movegen.SetSortingParameter(movegen.SortByNone)
 	defer s.movegen.SetSortingParameter(movegen.SortByScore)
@@ -431,7 +430,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move) {
 			// s.clearChildrenValues(s.rootNode)
 			log.Info().Msgf("Spread swing estimate found after %v plies: %v",
 				p, bestV)
-			log.Debug().Msgf("Best seq so far is %v", bestSeq)
+			log.Info().Msgf("Best seq so far is %v", bestSeq)
 		}
 	} else {
 		bestNode = s.alphabeta(s.rootNode, plies, float32(-Infinity), float32(Infinity), true)
@@ -443,7 +442,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move) {
 	log.Debug().Msgf("Number of expanded nodes: %v", s.totalNodes)
 	log.Debug().Msgf("Best sequence: (len=%v) %v", len(bestSeq), bestSeq)
 
-	return bestV, bestSeq
+	return bestV, bestSeq, nil
 }
 
 func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
@@ -466,7 +465,7 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 		for child, newNode := iter(); child != nil; child, newNode = iter() {
 			// Play the child
 			// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
-			s.game.PlayMove(child.move, true)
+			s.game.PlayMove(child.move, true, false)
 			child.move.SetVisited(true)
 			// log.Debug().Msgf("%vState is now %v", depthDbg,
 			// s.game.String())
@@ -500,7 +499,7 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 	iter := s.childGenerator(node, maximizingPlayer)
 	for child, newNode := iter(); child != nil; child, newNode = iter() {
 		// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
-		s.game.PlayMove(child.move, true)
+		s.game.PlayMove(child.move, true, false)
 		child.move.SetVisited(true)
 		// log.Debug().Msgf("%vState is now %v", depthDbg,
 		// s.game.String())
