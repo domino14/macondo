@@ -19,4 +19,7 @@ log*.csv
 data/lexica
 *.tar.gz
 notebooks/superleaves/leave*
+notebooks/superleaves/*.csv
 notebooks/logs/*
+*.p
+*Untitled*
