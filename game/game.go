@@ -466,7 +466,7 @@ func (g *Game) playTurn(t int) []alphabet.MachineLetter {
 	g.SetRackFor(g.onturn, alphabet.RackFromString(evts[0].Rack, g.alph))
 	if !challengedOffPlay {
 		for _, evt := range evts {
-			m := moveFromEvent(evt, g.alph, g.board)
+			m := MoveFromEvent(evt, g.alph, g.board)
 
 			switch m.Action() {
 			case move.MoveTypePlay:

@@ -108,8 +108,8 @@ func modifyForPlaythrough(tiles alphabet.MachineWord, board *board.GameBoard,
 	return nil
 }
 
-// Generate a move from an event
-func moveFromEvent(evt *pb.GameEvent, alph *alphabet.Alphabet, board *board.GameBoard) *move.Move {
+// MoveFromEvent generates a move from an event
+func MoveFromEvent(evt *pb.GameEvent, alph *alphabet.Alphabet, board *board.GameBoard) *move.Move {
 	var m *move.Move
 
 	rack, err := alphabet.ToMachineWord(evt.Rack, alph)
