@@ -48,10 +48,12 @@ func (r *GameRunner) playFullStatic() {
 	}
 
 	if r.gamechan != nil {
-		r.gamechan <- fmt.Sprintf("%v,%v,%v,%v\n",
+		r.gamechan <- fmt.Sprintf("%v,%d,%d,%d,%d,%s\n",
 			r.game.Uid(),
 			r.game.PointsForNick("p1"),
 			r.game.PointsForNick("p2"),
+			r.game.BingosForNick("p1"),
+			r.game.BingosForNick("p2"),
 			r.game.FirstPlayer().RealName,
 		)
 	}
@@ -142,7 +144,7 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	}()
 
 	go func() {
-		logfile.WriteString("playerID,gameID,turn,rack,play,score,totalscore,tilesplayed,leave,equity,tilesremaining\n")
+		logfile.WriteString("playerID,gameID,turn,rack,play,score,totalscore,tilesplayed,leave,equity,tilesremaining,oppscore\n")
 		for msg := range logChan {
 			logfile.WriteString(msg)
 		}
@@ -151,8 +153,8 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	}()
 
 	go func() {
-		header := fmt.Sprintf("gameID,%s_score,%s_score,first\n",
-			player1+"-1", player2+"-2")
+		header := fmt.Sprintf("gameID,%s_score,%s_score,%s_bingos,%s_bingos,first\n",
+			player1+"-1", player2+"-2", player1+"-1", player2+"-2")
 
 		gamelogfile.WriteString(header)
 		for msg := range gameChan {

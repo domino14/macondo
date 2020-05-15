@@ -1,3 +1,14 @@
+# v0.4.4
+
+- Add opp score to autoplay log
+- Add bingo tracking in autoplay log and stats
+
+# v0.4.3
+
+This is a code organization release with no new features.
+
+protobuf files have been moved around for ease for importing by other projects.
+
 # v0.4.2
 
 Bug fix and enhancement release

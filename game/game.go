@@ -195,7 +195,7 @@ func (g *Game) StartGame() {
 		}
 		g.players[i].rack = alphabet.NewRack(g.alph)
 		g.players[i].setRackTiles(tiles, g.alph)
-		g.players[i].points = 0
+		g.players[i].resetScore()
 	}
 	g.playing = true
 	g.turnnum = 0
@@ -227,7 +227,9 @@ func (g *Game) PlayMove(m *move.Move, backup bool, addToHistory bool) error {
 			g.scorelessTurns = 0
 		}
 		g.players[g.onturn].points += score
-
+		if m.TilesPlayed() == 7 {
+			g.players[g.onturn].bingos++
+		}
 		drew := g.bag.DrawAtMost(m.TilesPlayed())
 		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
 		g.players[g.onturn].setRackTiles(tiles, g.alph)
@@ -472,6 +474,9 @@ func (g *Game) playTurn(t int) []alphabet.MachineLetter {
 			case move.MoveTypePlay:
 				g.board.PlayMove(m, g.gaddag, g.bag.LetterDistribution())
 				g.players[g.onturn].points += m.Score()
+				if m.TilesPlayed() == 7 {
+					g.players[g.onturn].bingos++
+				}
 
 				// Add tiles to playedTilesList
 				for _, t := range m.Tiles() {
@@ -705,6 +710,15 @@ func (g *Game) PointsForNick(nick string) int {
 	for i := range g.players {
 		if g.players[i].Nickname == nick {
 			return g.players[i].points
+		}
+	}
+	return 0
+}
+
+func (g *Game) BingosForNick(nick string) int {
+	for i := range g.players {
+		if g.players[i].Nickname == nick {
+			return g.players[i].bingos
 		}
 	}
 	return 0

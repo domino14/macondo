@@ -41,6 +41,7 @@ func copyPlayers(ps playerStates) playerStates {
 				RealName: porig.RealName,
 			},
 			points:      porig.points,
+			bingos:      porig.bingos,
 			rack:        porig.rack.Copy(),
 			rackLetters: porig.rackLetters,
 		}
@@ -58,6 +59,7 @@ func (ps *playerStates) copyFrom(other playerStates) {
 		(*ps)[idx].RealName = other[idx].RealName
 		// XXX: Do I have to copy all the other auto-generated protobuf nonsense fields?
 		(*ps)[idx].points = other[idx].points
+		(*ps)[idx].bingos = other[idx].bingos
 	}
 }
 

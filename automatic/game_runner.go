@@ -118,7 +118,7 @@ func (r *GameRunner) PlayBestStaticTurn(playerIdx int) {
 	r.game.PlayMove(bestPlay, false, false)
 
 	if r.logchan != nil {
-		r.logchan <- fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v,%v,%v,%.3f,%v\n",
+		r.logchan <- fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v,%v,%v,%.3f,%v,%v\n",
 			nickOnTurn,
 			r.game.Uid(),
 			r.game.Turn(),
@@ -129,6 +129,7 @@ func (r *GameRunner) PlayBestStaticTurn(playerIdx int) {
 			bestPlay.TilesPlayed(),
 			bestPlay.Leave().UserVisible(r.alphabet),
 			bestPlay.Equity(),
-			tilesRemaining)
+			tilesRemaining,
+			r.game.PointsFor((playerIdx+1)%2))
 	}
 }
