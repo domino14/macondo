@@ -66,6 +66,19 @@ func (g *Game) endRackEvt(bonusPts int) *pb.GameEvent {
 	return evt
 }
 
+func (g *Game) endRackPenaltyEvt(penalty int) *pb.GameEvent {
+	curPlayer := g.curPlayer()
+
+	evt := &pb.GameEvent{
+		Nickname:   curPlayer.Nickname,
+		Cumulative: int32(curPlayer.points),
+		Rack:       curPlayer.rack.String(),
+		LostScore:  int32(penalty),
+		Type:       pb.GameEvent_END_RACK_PENALTY,
+	}
+	return evt
+}
+
 func modifyForPlaythrough(tiles alphabet.MachineWord, board *board.GameBoard,
 	vertical bool, row int, col int) error {
 

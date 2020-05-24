@@ -405,9 +405,16 @@ func (g *GameBoard) ErrorIfIllegalPlay(row, col int, vertical bool,
 	if vertical {
 		ri, ci = ci, ri
 	}
-	// XXX: Need to check if the play actually connects to other tiles.
+	boardEmpty := g.IsEmpty()
+	touchesCenterSquare := false
+	bordersATile := false
 	for idx, ml := range word {
 		newrow, newcol := row+(ri*idx), col+(ci*idx)
+
+		if boardEmpty && newrow == g.Dim()>>1 && newcol == g.Dim()>>1 {
+			touchesCenterSquare = true
+		}
+
 		if newrow < 0 || newrow >= g.Dim() || newcol < 0 || newcol >= g.Dim() {
 			return errors.New("play extends off of the board")
 		}
@@ -424,10 +431,123 @@ func (g *GameBoard) ErrorIfIllegalPlay(row, col int, vertical bool,
 				return errors.New("tried to play through a letter already on " +
 					"the board; please use the played-through marker (.) instead")
 			}
+
+			// We are placing a tile on this empty square. Check if we border
+			// any other tiles.
+
+			for _, places := range [][2]int{
+				{0, 1}, {0, -1}, {1, 0}, {-1, 0},
+			} {
+				checkrow, checkcol := newrow+places[0], newcol+places[1]
+				if g.posExists(checkrow, checkcol) && g.GetLetter(checkrow, checkcol) != alphabet.EmptySquareMarker {
+					bordersATile = true
+				}
+			}
+
 		}
 	}
-	return nil
 
+	if boardEmpty && !touchesCenterSquare {
+		return errors.New("the first play must touch the center square")
+	}
+	if !boardEmpty && !bordersATile {
+		return errors.New("your play must border a tile already on the board")
+	}
+	return nil
+}
+
+// FormedWords returns an array of all machine words formed by this move.
+// The move is assumed to be of type Play
+func (g *GameBoard) FormedWords(m *move.Move) ([]alphabet.MachineWord, error) {
+	words := []alphabet.MachineWord{}
+	mainWord := []alphabet.MachineLetter{}
+
+	row, col, vertical := m.CoordsAndVertical()
+	ri, ci := 0, 1
+	if vertical {
+		ri, ci = ci, ri
+	}
+
+	if m.Action() != move.MoveTypePlay {
+		return nil, errors.New("function must be called with a tile placement play")
+	}
+
+	for idx, letter := range m.Tiles() {
+		// For the purpose of checking words, all letters should be unblanked.
+		letter = letter.Unblank()
+		newrow, newcol := row+(ri*idx), col+(ci*idx)
+
+		// This is the main word.
+		if letter == alphabet.PlayedThroughMarker {
+			letter = g.GetLetter(newrow, newcol).Unblank()
+			mainWord = append(mainWord, letter)
+			continue
+		}
+		mainWord = append(mainWord, letter)
+		crossWord := g.formedCrossWord(!vertical, letter, newrow, newcol)
+		if crossWord != nil {
+			words = append(words, crossWord)
+		}
+	}
+	words = append(words, mainWord)
+
+	return words, nil
+}
+
+func (g *GameBoard) formedCrossWord(crossVertical bool, letter alphabet.MachineLetter,
+	row, col int) alphabet.MachineWord {
+
+	ri, ci := 0, 1
+	if crossVertical {
+		ri, ci = ci, ri
+	}
+
+	// Given the cross-word direction (crossVertical) and a letter located at row, col
+	// find the cross-word that contains this letter (if any)
+	// Look in the cross direction for newly played tiles.
+	crossword := []alphabet.MachineLetter{}
+
+	newrow := row - ri
+	newcol := col - ci
+	// top/left and bottom/right row/column pairs.
+	var tlr, tlc, brr, brc int
+
+	// Find the top or left edge.
+	for g.posExists(newrow, newcol) && !g.squares[newrow][newcol].IsEmpty() {
+		newrow -= ri
+		newcol -= ci
+	}
+	newrow += ri
+	newcol += ci
+	tlr = newrow
+	tlc = newcol
+
+	// Find bottom or right edge
+	newrow, newcol = row, col
+	newrow += ri
+	newcol += ci
+	for g.posExists(newrow, newcol) && !g.squares[newrow][newcol].IsEmpty() {
+		newrow += ri
+		newcol += ci
+	}
+	newrow -= ri
+	newcol -= ci
+	// what a ghetto function, sorry future me
+	brr = newrow
+	brc = newcol
+
+	for rowiter, coliter := tlr, tlc; rowiter <= brr && coliter <= brc; rowiter, coliter = rowiter+ri, coliter+ci {
+		if rowiter == row && coliter == col {
+			crossword = append(crossword, letter.Unblank())
+		} else {
+			crossword = append(crossword, g.GetLetter(rowiter, coliter).Unblank())
+		}
+	}
+	if len(crossword) < 2 {
+		// there are no 1-letter words, Josh >:(
+		return nil
+	}
+	return crossword
 }
 
 // ScoreWord scores the move at the given row and column. Note that this

@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/domino14/macondo/gaddag"
+	"github.com/domino14/macondo/move"
+	"github.com/matryer/is"
 )
 
 func BenchmarkBoardTranspose(b *testing.B) {
@@ -40,4 +42,113 @@ func TestUpdateAnchors(t *testing.T) {
 		t.Errorf("Should be a vertical but not horizontal anchor")
 	}
 	// I could do more but it's all right for now?
+}
+
+func TestFormedWords(t *testing.T) {
+	is := is.New(t)
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	b := MakeBoard(CrosswordGameBoard)
+	alph := gd.GetAlphabet()
+
+	b.SetToGame(alph, VsOxy)
+
+	m := move.NewScoringMoveSimple(1780, "A1", "OX.P...B..AZ..E", "", alph)
+	words, err := b.FormedWords(m)
+	is.NoErr(err)
+
+	is.Equal(len(words), 8)
+	// convert all words to user-visible
+	uvWords := make([]string, 8)
+	for idx, w := range words {
+		uvWords[idx] = w.UserVisible(alph)
+	}
+	is.Equal(uvWords, []string{"OPACIFYING", "XIS", "PREQUALIFIED", "BRAINWASHING",
+		"AWAKENERS", "ZONETIME", "EJACULATING", "OXYPHENBUTAZONE"})
+
+}
+
+func TestFormedWordsOneTile(t *testing.T) {
+	is := is.New(t)
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	b := MakeBoard(CrosswordGameBoard)
+	alph := gd.GetAlphabet()
+
+	b.SetToGame(alph, VsOxy)
+
+	m := move.NewScoringMoveSimple(4, "E8", ".O", "", alph)
+	words, err := b.FormedWords(m)
+	is.NoErr(err)
+
+	is.Equal(len(words), 2)
+	// convert all words to user-visible
+	uvWords := make([]string, 2)
+	for idx, w := range words {
+		uvWords[idx] = w.UserVisible(alph)
+	}
+	is.Equal(uvWords, []string{"OO", "NO"})
+
+}
+
+func TestFormedWordsHoriz(t *testing.T) {
+	is := is.New(t)
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	b := MakeBoard(CrosswordGameBoard)
+	alph := gd.GetAlphabet()
+
+	b.SetToGame(alph, VsOxy)
+
+	m := move.NewScoringMoveSimple(12, "14J", "EAR", "", alph)
+	words, err := b.FormedWords(m)
+	is.NoErr(err)
+
+	is.Equal(len(words), 3)
+	// convert all words to user-visible
+	uvWords := make([]string, 3)
+	for idx, w := range words {
+		uvWords[idx] = w.UserVisible(alph)
+	}
+	is.Equal(uvWords, []string{"EN", "AG", "EAR"})
+
+}
+
+func TestFormedWordsThrough(t *testing.T) {
+	is := is.New(t)
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	b := MakeBoard(CrosswordGameBoard)
+	alph := gd.GetAlphabet()
+
+	b.SetToGame(alph, VsMatt)
+
+	m := move.NewScoringMoveSimple(4, "K9", "TAEL", "", alph)
+	words, err := b.FormedWords(m)
+	is.NoErr(err)
+
+	is.Equal(len(words), 5)
+	// convert all words to user-visible
+	uvWords := make([]string, 5)
+	for idx, w := range words {
+		uvWords[idx] = w.UserVisible(alph)
+	}
+	is.Equal(uvWords, []string{"TA", "AN", "RESPONDED", "LO", "TAEL"})
+}
+
+func TestFormedWordsBlank(t *testing.T) {
+	is := is.New(t)
+	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	b := MakeBoard(CrosswordGameBoard)
+	alph := gd.GetAlphabet()
+
+	b.SetToGame(alph, VsMatt)
+
+	m := move.NewScoringMoveSimple(4, "K9", "TAeL", "", alph)
+	words, err := b.FormedWords(m)
+	is.NoErr(err)
+
+	is.Equal(len(words), 5)
+	// convert all words to user-visible
+	uvWords := make([]string, 5)
+	for idx, w := range words {
+		uvWords[idx] = w.UserVisible(alph)
+	}
+	is.Equal(uvWords, []string{"TA", "AN", "RESPONDED", "LO", "TAEL"})
 }

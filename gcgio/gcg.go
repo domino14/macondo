@@ -21,6 +21,13 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+var (
+	errDuplicateNames     = errors.New("two players with same nickname not supported")
+	errPragmaPrecedeEvent = errors.New("non-note pragmata should appear before event lines")
+	errEncodingWrongPlace = errors.New("encoding line must be first line in file if present")
+	errPlayerNotSupported = errors.New("player number not supported")
+)
+
 // A Token is an event in a GCG file.
 type Token uint8
 
@@ -67,15 +74,18 @@ const (
 	PassRegex               = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+-\s+\+0\s+(?P<cumul>\d+)`
 	ChallengeBonusRegex     = `>(?P<nick>\S+):\s+(?P<rack>\S*)\s+\(challenge\)\s+\+(?P<bonus>\d+)\s+(?P<cumul>\d+)`
 	ExchangeRegex           = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+-(?P<exchanged>\S+)\s+\+0\s+(?P<cumul>\d+)`
-	EndRackPointsRegex      = `>(?P<nick>\S+):\s+\((?P<rack>\S+)\)\s+\+(?P<score>\d+)\s+(?P<cumul>\d+)`
-	TimePenaltyRegex        = `>(?P<nick>\S+):\s+(?P<rack>\S*)\s+\(time\)\s+\-(?P<penalty>\d+)\s+(?P<cumul>\d+)`
-	PtsLostForLastRackRegex = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+\((?P<rack>\S+)\)\s+\-(?P<penalty>\d+)\s+(?P<cumul>\d+)`
+	EndRackPointsRegex      = `>(?P<nick>\S+):\s+\((?P<rack>\S+)\)\s+\+(?P<score>\d+)\s+(?P<cumul>-?\d+)`
+	TimePenaltyRegex        = `>(?P<nick>\S+):\s+(?P<rack>\S*)\s+\(time\)\s+\-(?P<penalty>\d+)\s+(?P<cumul>-?\d+)`
+	PtsLostForLastRackRegex = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+\((?P<rack>\S+)\)\s+\-(?P<penalty>\d+)\s+(?P<cumul>-?\d+)`
 )
 
 var compiledEncodingRegexp *regexp.Regexp
 
 type parser struct {
 	lastToken Token
+
+	history *pb.GameHistory
+	game    *game.Game
 }
 
 // init initializes the regexp list.
@@ -88,23 +98,23 @@ func init() {
 	compiledEncodingRegexp = regexp.MustCompile(CharacterEncodingRegex)
 
 	GCGRegexes = []gcgdatum{
-		gcgdatum{PlayerToken, regexp.MustCompile(PlayerRegex)},
-		gcgdatum{TitleToken, regexp.MustCompile(TitleRegex)},
-		gcgdatum{DescriptionToken, regexp.MustCompile(DescriptionRegex)},
-		gcgdatum{IDToken, regexp.MustCompile(IDRegex)},
-		gcgdatum{Rack1Token, regexp.MustCompile(Rack1Regex)},
-		gcgdatum{Rack2Token, regexp.MustCompile(Rack2Regex)},
-		gcgdatum{EncodingToken, compiledEncodingRegexp},
-		gcgdatum{MoveToken, regexp.MustCompile(MoveRegex)},
-		gcgdatum{NoteToken, regexp.MustCompile(NoteRegex)},
-		gcgdatum{LexiconToken, regexp.MustCompile(LexiconRegex)},
-		gcgdatum{PhonyTilesReturnedToken, regexp.MustCompile(PhonyTilesReturnedRegex)},
-		gcgdatum{PassToken, regexp.MustCompile(PassRegex)},
-		gcgdatum{ChallengeBonusToken, regexp.MustCompile(ChallengeBonusRegex)},
-		gcgdatum{ExchangeToken, regexp.MustCompile(ExchangeRegex)},
-		gcgdatum{EndRackPointsToken, regexp.MustCompile(EndRackPointsRegex)},
-		gcgdatum{TimePenaltyToken, regexp.MustCompile(TimePenaltyRegex)},
-		gcgdatum{LastRackPenaltyToken, regexp.MustCompile(PtsLostForLastRackRegex)},
+		{PlayerToken, regexp.MustCompile(PlayerRegex)},
+		{TitleToken, regexp.MustCompile(TitleRegex)},
+		{DescriptionToken, regexp.MustCompile(DescriptionRegex)},
+		{IDToken, regexp.MustCompile(IDRegex)},
+		{Rack1Token, regexp.MustCompile(Rack1Regex)},
+		{Rack2Token, regexp.MustCompile(Rack2Regex)},
+		{EncodingToken, compiledEncodingRegexp},
+		{MoveToken, regexp.MustCompile(MoveRegex)},
+		{NoteToken, regexp.MustCompile(NoteRegex)},
+		{LexiconToken, regexp.MustCompile(LexiconRegex)},
+		{PhonyTilesReturnedToken, regexp.MustCompile(PhonyTilesReturnedRegex)},
+		{PassToken, regexp.MustCompile(PassRegex)},
+		{ChallengeBonusToken, regexp.MustCompile(ChallengeBonusRegex)},
+		{ExchangeToken, regexp.MustCompile(ExchangeRegex)},
+		{EndRackPointsToken, regexp.MustCompile(EndRackPointsRegex)},
+		{TimePenaltyToken, regexp.MustCompile(TimePenaltyRegex)},
+		{LastRackPenaltyToken, regexp.MustCompile(PtsLostForLastRackRegex)},
 	}
 }
 
@@ -116,39 +126,57 @@ func matchToInt32(str string) (int32, error) {
 	return int32(x), nil
 }
 
-func (p *parser) addEventOrPragma(token Token, match []string, gameHistory *pb.GameHistory) error {
+func (p *parser) addEventOrPragma(token Token, match []string) error {
 	var err error
 
 	switch token {
 	case PlayerToken:
+		if len(p.history.Turns) > 0 {
+			return errPragmaPrecedeEvent
+		}
 		pn, err := strconv.Atoi(match[1])
 		if err != nil {
 			return err
 		}
 		if pn != 1 && pn != 2 {
-			return errors.New("player number not supported")
+			return errPlayerNotSupported
 		}
-		gameHistory.Players = append(gameHistory.Players, &pb.PlayerInfo{
+		if pn == 2 {
+			if match[2] == p.history.Players[0].Nickname {
+				return errDuplicateNames
+			}
+		}
+
+		p.history.Players = append(p.history.Players, &pb.PlayerInfo{
 			Nickname: match[2],
 			RealName: match[3],
 		})
 
 		return nil
 	case TitleToken:
-		gameHistory.Title = match[1]
+		if len(p.history.Turns) > 0 {
+			return errPragmaPrecedeEvent
+		}
+		p.history.Title = match[1]
 		return nil
 	case DescriptionToken:
-		gameHistory.Description = match[1]
+		if len(p.history.Turns) > 0 {
+			return errPragmaPrecedeEvent
+		}
+		p.history.Description = match[1]
 	case IDToken:
-		gameHistory.IdAuth = match[1]
-		gameHistory.Uid = match[2]
+		if len(p.history.Turns) > 0 {
+			return errPragmaPrecedeEvent
+		}
+		p.history.IdAuth = match[1]
+		p.history.Uid = match[2]
 	// Assume Rack1Token always comes before Rack2Token in a well-formed gcg:
 	case Rack1Token:
-		gameHistory.LastKnownRacks = []string{match[1]}
+		p.history.LastKnownRacks = []string{match[1]}
 	case Rack2Token:
-		gameHistory.LastKnownRacks = append(gameHistory.LastKnownRacks, match[1])
+		p.history.LastKnownRacks = append(p.history.LastKnownRacks, match[1])
 	case EncodingToken:
-		return errors.New("encoding line must be first line in file if present")
+		return errEncodingWrongPlace
 	case MoveToken:
 		evt := &pb.GameEvent{}
 		evt.Nickname = match[1]
@@ -167,15 +195,19 @@ func (p *parser) addEventOrPragma(token Token, match []string, gameHistory *pb.G
 		evt.Type = pb.GameEvent_TILE_PLACEMENT_MOVE
 		evts := []*pb.GameEvent{evt}
 		turn := &pb.GameTurn{Events: evts}
-		gameHistory.Turns = append(gameHistory.Turns, turn)
+
+		p.history.Turns = append(p.history.Turns, turn)
 
 	case NoteToken:
-		lastTurnIdx := len(gameHistory.Turns) - 1
-		lastEvtIdx := len(gameHistory.Turns[lastTurnIdx].Events) - 1
-		gameHistory.Turns[lastTurnIdx].Events[lastEvtIdx].Note += match[1]
+		lastTurnIdx := len(p.history.Turns) - 1
+		lastEvtIdx := len(p.history.Turns[lastTurnIdx].Events) - 1
+		p.history.Turns[lastTurnIdx].Events[lastEvtIdx].Note += match[1]
 		return nil
 	case LexiconToken:
-		gameHistory.Lexicon = match[1]
+		if len(p.history.Turns) > 0 {
+			return errPragmaPrecedeEvent
+		}
+		p.history.Lexicon = match[1]
 		return nil
 	case PhonyTilesReturnedToken:
 		evt := &pb.GameEvent{}
@@ -193,8 +225,8 @@ func (p *parser) addEventOrPragma(token Token, match []string, gameHistory *pb.G
 		}
 		// This can not be a stand-alone turn; it must be added to the previous
 		// turn.
-		lastTurnIdx := len(gameHistory.Turns) - 1
-		gameHistory.Turns[lastTurnIdx].Events = append(gameHistory.Turns[lastTurnIdx].Events, evt)
+		lastTurnIdx := len(p.history.Turns) - 1
+		p.history.Turns[lastTurnIdx].Events = append(p.history.Turns[lastTurnIdx].Events, evt)
 		evt.Type = pb.GameEvent_PHONY_TILES_RETURNED
 
 	case TimePenaltyToken:
@@ -218,7 +250,7 @@ func (p *parser) addEventOrPragma(token Token, match []string, gameHistory *pb.G
 		evt.Type = pb.GameEvent_TIME_PENALTY
 		evts := []*pb.GameEvent{evt}
 		turn := &pb.GameTurn{Events: evts}
-		gameHistory.Turns = append(gameHistory.Turns, turn)
+		p.history.Turns = append(p.history.Turns, turn)
 
 	case LastRackPenaltyToken:
 		evt := &pb.GameEvent{}
@@ -239,7 +271,7 @@ func (p *parser) addEventOrPragma(token Token, match []string, gameHistory *pb.G
 		evt.Type = pb.GameEvent_END_RACK_PENALTY
 		evts := []*pb.GameEvent{evt}
 		turn := &pb.GameTurn{Events: evts}
-		gameHistory.Turns = append(gameHistory.Turns, turn)
+		p.history.Turns = append(p.history.Turns, turn)
 
 	case PassToken:
 		evt := &pb.GameEvent{}
@@ -252,7 +284,7 @@ func (p *parser) addEventOrPragma(token Token, match []string, gameHistory *pb.G
 		evt.Type = pb.GameEvent_PASS
 		evts := []*pb.GameEvent{evt}
 		turn := &pb.GameTurn{Events: evts}
-		gameHistory.Turns = append(gameHistory.Turns, turn)
+		p.history.Turns = append(p.history.Turns, turn)
 
 	case ChallengeBonusToken, EndRackPointsToken:
 		evt := &pb.GameEvent{}
@@ -275,8 +307,8 @@ func (p *parser) addEventOrPragma(token Token, match []string, gameHistory *pb.G
 		} else if token == EndRackPointsToken {
 			evt.Type = pb.GameEvent_END_RACK_PTS
 		}
-		lastTurnIdx := len(gameHistory.Turns) - 1
-		gameHistory.Turns[lastTurnIdx].Events = append(gameHistory.Turns[lastTurnIdx].Events, evt)
+		lastTurnIdx := len(p.history.Turns) - 1
+		p.history.Turns[lastTurnIdx].Events = append(p.history.Turns[lastTurnIdx].Events, evt)
 
 	case ExchangeToken:
 		evt := &pb.GameEvent{}
@@ -290,13 +322,13 @@ func (p *parser) addEventOrPragma(token Token, match []string, gameHistory *pb.G
 		evt.Type = pb.GameEvent_EXCHANGE
 		evts := []*pb.GameEvent{evt}
 		turn := &pb.GameTurn{Events: evts}
-		gameHistory.Turns = append(gameHistory.Turns, turn)
+		p.history.Turns = append(p.history.Turns, turn)
 
 	}
 	return nil
 }
 
-func (p *parser) parseLine(line string, history *pb.GameHistory) error {
+func (p *parser) parseLine(line string) error {
 
 	foundMatch := false
 
@@ -304,7 +336,7 @@ func (p *parser) parseLine(line string, history *pb.GameHistory) error {
 		match := datum.regex.FindStringSubmatch(line)
 		if match != nil {
 			foundMatch = true
-			err := p.addEventOrPragma(datum.token, match, history)
+			err := p.addEventOrPragma(datum.token, match)
 			if err != nil {
 				return err
 			}
@@ -315,9 +347,9 @@ func (p *parser) parseLine(line string, history *pb.GameHistory) error {
 	if !foundMatch {
 		// maybe it's a multi-line note.
 		if p.lastToken == NoteToken {
-			lastTurnIdx := len(history.Turns) - 1
-			lastEventIdx := len(history.Turns[lastTurnIdx].Events) - 1
-			history.Turns[lastTurnIdx].Events[lastEventIdx].Note += ("\n" + line)
+			lastTurnIdx := len(p.history.Turns) - 1
+			lastEventIdx := len(p.history.Turns[lastTurnIdx].Events) - 1
+			p.history.Turns[lastTurnIdx].Events[lastEventIdx].Note += ("\n" + line)
 			return nil
 		}
 		// ignore empty lines
@@ -370,12 +402,13 @@ func encodingOrFirstLine(reader io.Reader) (string, string, error) {
 
 func ParseGCGFromReader(reader io.Reader) (*pb.GameHistory, error) {
 
-	history := &pb.GameHistory{
-		Turns:   []*pb.GameTurn{},
-		Players: []*pb.PlayerInfo{},
-		Version: 1}
 	var err error
-	parser := &parser{}
+	parser := &parser{
+		history: &pb.GameHistory{
+			Turns:   []*pb.GameTurn{},
+			Players: []*pb.PlayerInfo{},
+			Version: 1},
+	}
 	originalGCG := ""
 
 	// Determine encoding from first line
@@ -394,7 +427,7 @@ func ParseGCGFromReader(reader io.Reader) (*pb.GameHistory, error) {
 		scanner = bufio.NewScanner(reader)
 	}
 	if firstLine != "" {
-		err = parser.parseLine(firstLine, history)
+		err = parser.parseLine(firstLine)
 		if err != nil {
 			return nil, err
 		}
@@ -403,14 +436,14 @@ func ParseGCGFromReader(reader io.Reader) (*pb.GameHistory, error) {
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		err = parser.parseLine(line, history)
+		err = parser.parseLine(line)
 		if err != nil {
 			return nil, err
 		}
 		originalGCG += line + "\n"
 	}
-	history.OriginalGcg = strings.TrimSpace(originalGCG)
-	return history, nil
+	parser.history.OriginalGcg = strings.TrimSpace(originalGCG)
+	return parser.history, nil
 }
 
 // ParseGCG parses a GCG file into a GameHistory.
@@ -438,7 +471,7 @@ func writeGCGHeader(s *strings.Builder, h *pb.GameHistory, addlInfo bool) {
 	log.Debug().Msg("wrote header")
 }
 
-func writeEvent(s *strings.Builder, evt *pb.GameEvent) {
+func writeEvent(s *strings.Builder, evt *pb.GameEvent) error {
 
 	nick := evt.GetNickname()
 	rack := evt.GetRack()
@@ -459,7 +492,7 @@ func writeEvent(s *strings.Builder, evt *pb.GameEvent) {
 
 	case pb.GameEvent_PASS:
 		// >Randy: U - +0 380
-		fmt.Fprintf(s, ">%v: (%v) - +0 %d\n", nick, rack, evt.Cumulative)
+		fmt.Fprintf(s, ">%v: %v - +0 %d\n", nick, rack, evt.Cumulative)
 	case pb.GameEvent_CHALLENGE_BONUS:
 		// >Joel: DROWNUG (challenge) +5 289
 		fmt.Fprintf(s, ">%v: %v (challenge) +%d %d\n",
@@ -475,18 +508,35 @@ func writeEvent(s *strings.Builder, evt *pb.GameEvent) {
 		fmt.Fprintf(s, ">%v: %v -%v +0 %d\n",
 			nick, rack, evt.Exchanged, evt.Cumulative)
 
+	case pb.GameEvent_END_RACK_PENALTY:
+		// >Pakorn: FWLI (FWLI) -10 426
+		fmt.Fprintf(s, ">%v: %v (%v) -%d %d\n",
+			nick, rack, rack, evt.LostScore, evt.Cumulative)
+	case pb.GameEvent_TIME_PENALTY:
+		// >Pakorn: ISBALI (time) -10 409
+		fmt.Fprintf(s, ">%v: %v (time) -%d %d\n",
+			nick, rack, evt.LostScore, evt.Cumulative)
+
+	default:
+		return fmt.Errorf("event type %v not supported", evtType)
+
 	}
 	if note != "" {
 		// Note that the note can have line breaks within it ...
 		fmt.Fprintf(s, "#note %v\n", note)
 	}
+	return nil
 
 }
 
-func writeTurn(s *strings.Builder, t *pb.GameTurn) {
+func writeTurn(s *strings.Builder, t *pb.GameTurn) error {
 	for _, evt := range t.Events {
-		writeEvent(s, evt)
+		err := writeEvent(s, evt)
+		if err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func writePlayer(s *strings.Builder, pn int, p *pb.PlayerInfo) {
@@ -504,15 +554,18 @@ func writePlayers(s *strings.Builder, players []*pb.PlayerInfo, flip bool) {
 }
 
 // GameHistoryToGCG returns a string GCG representation of the GameHistory.
-func GameHistoryToGCG(h *pb.GameHistory, addlHeaderInfo bool) string {
+func GameHistoryToGCG(h *pb.GameHistory, addlHeaderInfo bool) (string, error) {
 
 	var str strings.Builder
 	writeGCGHeader(&str, h, addlHeaderInfo)
 	writePlayers(&str, h.Players, h.FlipPlayers)
 
 	for _, turn := range h.Turns {
-		writeTurn(&str, turn)
+		err := writeTurn(&str, turn)
+		if err != nil {
+			return "", err
+		}
 	}
 
-	return str.String()
+	return str.String(), nil
 }

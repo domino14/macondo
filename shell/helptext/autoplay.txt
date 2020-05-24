@@ -18,7 +18,14 @@ Options:
     for player2. Note that leave files only make sense for the `exhaustiveleave`
     players.
 
-    The leavefile must be located inside the ./data/strategy/<lexicon> directory.
+    -pegfile1 pegfile.json
+    -pegfile2 pegfile.json
+
+    pegfile refers to a pre-endgame heuristics file used for equity purposes.
+    By default, it uses a file named preendgame.json.
+
+    The leavefile and/or pegfile must be located inside the
+    ./data/strategy/<lexicon> directory.
     Make sure to put it in the subdirectory for the correct lexicon.
     By default, if no file is specified, will use the default leave file
     for your DEFAULT_LEXICON (or the supplied lexicon).

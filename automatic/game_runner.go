@@ -42,12 +42,12 @@ type GameRunner struct {
 // NewGameRunner just instantiates and initializes a game runner.
 func NewGameRunner(logchan chan string, config *config.Config) *GameRunner {
 	r := &GameRunner{logchan: logchan, config: config, lexicon: config.DefaultLexicon}
-	r.Init(ExhaustiveLeavePlayer, ExhaustiveLeavePlayer, "", "")
+	r.Init(ExhaustiveLeavePlayer, ExhaustiveLeavePlayer, "", "", "", "")
 	return r
 }
 
 // Init initializes the runner
-func (r *GameRunner) Init(player1, player2, leavefile1, leavefile2 string) error {
+func (r *GameRunner) Init(player1, player2, leavefile1, leavefile2, pegfile1, pegfile2 string) error {
 	// XXX: there should be a data structure for the combination
 	// of a lexicon and a letter distribution. For now the following
 	// will not work for non-english lexicons, so this needs to be fixed
@@ -78,15 +78,23 @@ func (r *GameRunner) Init(player1, player2, leavefile1, leavefile2 string) error
 
 	var strat strategy.Strategizer
 	for idx, pinfo := range players {
-		var leavefile string
+		var leavefile, pegfile string
 		if idx == 0 {
 			leavefile = leavefile1
+			pegfile = pegfile1
 		} else if idx == 1 {
 			leavefile = leavefile2
+			pegfile = pegfile2
 		}
 		if strings.HasPrefix(pinfo.RealName, ExhaustiveLeavePlayer) {
 			strat, err = strategy.NewExhaustiveLeaveStrategy(r.gaddag.LexiconName(),
 				r.alphabet, r.config.StrategyParamsPath, leavefile)
+			if err != nil {
+				return err
+			}
+			err = strat.(*strategy.ExhaustiveLeaveStrategy).SetPreendgameStrategy(
+				r.config.StrategyParamsPath, pegfile, r.gaddag.LexiconName(),
+			)
 			if err != nil {
 				return err
 			}

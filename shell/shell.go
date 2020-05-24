@@ -340,7 +340,7 @@ func (sc *ShellController) addPlay(fields []string, commit bool) error {
 				return errors.New("play outside range")
 			}
 			m = sc.curPlayList[idx]
-		} else if fields[1] == "pass" {
+		} else if fields[0] == "pass" {
 			rack := sc.game.RackFor(playerid)
 			m = move.NewPassMove(rack.TilesOn(), sc.game.Alphabet())
 		} else {
@@ -376,6 +376,11 @@ func (sc *ShellController) addPlay(fields []string, commit bool) error {
 		return errors.New("unrecognized arguments to `add`")
 	}
 
+	_, err = sc.game.ValidateMove(m)
+	if err != nil {
+		return err
+	}
+
 	if !commit {
 		opp := (sc.game.PlayerOnTurn() + 1) % sc.game.NumPlayers()
 		oppRack := sc.game.RackFor(opp)
@@ -389,15 +394,14 @@ func (sc *ShellController) addPlay(fields []string, commit bool) error {
 	} else {
 
 		// Play the actual move on the board, draw tiles, etc.
-		// Modify the game repr.
-		// err = sc.game.AppendPlayAtCurTurn(m)
 		err = sc.game.PlayMove(m, false, true)
-		// err = sc.curGameRepr.AddTurnFromPlay(sc.curTurnNum, m, nick, cumul, appendPlay)
 		if err != nil {
 			return err
 		}
 		log.Debug().Msgf("Added turn at turn num %v", sc.curTurnNum)
-		sc.setToTurn(sc.curTurnNum + 1)
+		sc.curTurnNum++
+		sc.curPlayList = nil
+		sc.simmer.Reset()
 		sc.showMessage(sc.game.ToDisplayText())
 
 	}
@@ -405,7 +409,7 @@ func (sc *ShellController) addPlay(fields []string, commit bool) error {
 }
 
 func (sc *ShellController) handleAutoplay(args []string, options map[string]string) error {
-	var logfile, lexicon, leavefile1, leavefile2 string
+	var logfile, lexicon, leavefile1, leavefile2, pegfile1, pegfile2 string
 	if options["logfile"] == "" {
 		logfile = "/tmp/autoplay.txt"
 	} else {
@@ -425,6 +429,16 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 		leavefile2 = ""
 	} else {
 		leavefile2 = options["leavefile2"]
+	}
+	if options["pegfile1"] == "" {
+		pegfile1 = ""
+	} else {
+		pegfile1 = options["pegfile1"]
+	}
+	if options["pegfile2"] == "" {
+		pegfile2 = ""
+	} else {
+		pegfile2 = options["pegfile2"]
 	}
 
 	player1 := "exhaustiveleave"
@@ -451,7 +465,7 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 	sc.showMessage("automatic game runner will log to " + logfile)
 	sc.gameRunnerCtx, sc.gameRunnerCancel = context.WithCancel(context.Background())
 	err := automatic.StartCompVCompStaticGames(sc.gameRunnerCtx, sc.config, 1e9, runtime.NumCPU(),
-		logfile, player1, player2, lexicon, leavefile1, leavefile2)
+		logfile, player1, player2, lexicon, leavefile1, leavefile2, pegfile1, pegfile2)
 	if err != nil {
 		return err
 	}
@@ -735,12 +749,17 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			break
 		}
 		filename := cmd.args[0]
-		contents := gcgio.GameHistoryToGCG(sc.game.History(), true)
+		contents, err := gcgio.GameHistoryToGCG(sc.game.History(), true)
+		if err != nil {
+			sc.showError(err)
+			break
+		}
 		f, err := os.Create(filename)
 		if err != nil {
 			sc.showError(err)
 			break
 		}
+		log.Debug().Interface("game-history", sc.game.History()).Msg("converted game history to gcg")
 		f.WriteString(contents)
 		f.Close()
 		sc.showMessage("gcg written to " + filename)

@@ -107,7 +107,8 @@ func TestToGCG(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, history)
 
-	gcgstr := GameHistoryToGCG(history, false)
+	gcgstr, err := GameHistoryToGCG(history, false)
+	assert.Nil(t, err)
 
 	// ignore encoding line:
 	linesNew := strings.Split(gcgstr, "\n")[1:]
@@ -117,4 +118,25 @@ func TestToGCG(t *testing.T) {
 	for idx, ln := range linesNew {
 		assert.Equal(t, strings.Fields(ln), strings.Fields(linesOld[idx]))
 	}
+}
+
+func TestDuplicateNicknames(t *testing.T) {
+	reader := strings.NewReader(`#character-encoding UTF-8
+#player1 dougie Doungy B
+#player2 dougie Cesar D
+>dougie: FOO 8D FOO +12 12`)
+	history, err := ParseGCGFromReader(reader)
+	assert.Nil(t, history)
+	assert.Equal(t, errDuplicateNames, err)
+}
+
+func TestPragmaWrongPlace(t *testing.T) {
+	reader := strings.NewReader(`#character-encoding UTF-8
+#player1 dougie Doungy B
+#player2 cesar Cesar D
+>dougie: FOO 8D FOO +12 12
+#lexicon OSPD4`)
+	history, err := ParseGCGFromReader(reader)
+	assert.Nil(t, history)
+	assert.Equal(t, errPragmaPrecedeEvent, err)
 }

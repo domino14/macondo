@@ -29,7 +29,7 @@ func init() {
 
 // CompVsCompStatic plays out a game to the end using best static turns.
 func (r *GameRunner) CompVsCompStatic() error {
-	err := r.Init("exhaustiveleave", "exhaustiveleave", "", "")
+	err := r.Init("exhaustiveleave", "exhaustiveleave", "", "", "", "")
 	if err != nil {
 		return err
 	}
@@ -63,7 +63,7 @@ type Job struct{}
 
 func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	numGames int, threads int, outputFilename, player1, player2, lexicon,
-	leavefile1, leavefile2 string) error {
+	leavefile1, leavefile2, pegfile1, pegfile2 string) error {
 
 	for _, p := range []string{player1, player2} {
 		if p != ExhaustiveLeavePlayer && p != NoLeavePlayer {
@@ -102,11 +102,12 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 			defer wg.Done()
 			r := GameRunner{logchan: logChan, gamechan: gameChan,
 				config: cfg, lexicon: lexicon}
-			err := r.Init(player1, player2, leavefile1, leavefile2)
+			err := r.Init(player1, player2, leavefile1, leavefile2, pegfile1, pegfile2)
 			if err != nil {
 				log.Err(err).Msg("error initializing runner")
 				return
 			}
+
 			IsPlaying.Add(1)
 			for range jobs {
 				r.playFullStatic()
