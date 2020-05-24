@@ -100,3 +100,44 @@ func TestEndgameTiming(t *testing.T) {
 	assert.Equal(t, plays[1].ShortDescription(), "L1 S..s")
 	assert.Equal(t, plays[2].ShortDescription(), "M6 RE.EAmS")
 }
+
+func TestPreendgameTiming(t *testing.T) {
+	els := ExhaustiveLeaveStrategy{}
+	gd, err := GaddagFromLexicon("NWL18")
+	assert.Nil(t, err)
+	alph := gd.GetAlphabet()
+	bd := board.MakeBoard(board.CrosswordGameBoard)
+	ld := alphabet.EnglishLetterDistribution(gd.GetAlphabet())
+	generator := movegen.NewGordonGenerator(gd, bd, ld)
+	tilesInPlay := bd.SetToGame(gd.GetAlphabet(), board.VsOxy)
+	bd.GenAllCrossSets(gd, ld)
+	generator.GenAll(alphabet.RackFromString("OXPBAZE", alph), false)
+
+	err = els.Init("NWL18", alph, os.Getenv("STRATEGY_PARAMS_PATH"), "")
+	assert.Nil(t, err)
+	err = els.SetPreendgameStrategy("./testdata", "quackle.json", "NWL18")
+	assert.Nil(t, err)
+	var randSource = rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	bag := alphabet.NewBag(ld, alph, randSource)
+	bag.RemoveTiles(tilesInPlay.OnBoard)
+	bag.RemoveTiles(tilesInPlay.Rack1)
+	bag.RemoveTiles(tilesInPlay.Rack2)
+
+	plays := generator.Plays()
+
+	for _, m := range plays {
+		// OppRack can be nil because that branch of code that checks it
+		// will never be called.
+		m.SetEquity(els.Equity(m, bd, bag, nil))
+	}
+
+	sort.Slice(plays, func(i, j int) bool {
+		return plays[j].Equity() < plays[i].Equity()
+	})
+
+	// There are 5 tiles in the bag. 5 - 7 (used tiles) + 7 = 5.
+	// This should add a penalty of -3.5 (see quackle.json in testdata)
+
+	assert.Equal(t, plays[0].Equity(), float64(1780-3.5))
+}

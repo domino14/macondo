@@ -340,7 +340,7 @@ func (sc *ShellController) addPlay(fields []string, commit bool) error {
 				return errors.New("play outside range")
 			}
 			m = sc.curPlayList[idx]
-		} else if fields[1] == "pass" {
+		} else if fields[0] == "pass" {
 			rack := sc.game.RackFor(playerid)
 			m = move.NewPassMove(rack.TilesOn(), sc.game.Alphabet())
 		} else {
@@ -376,6 +376,11 @@ func (sc *ShellController) addPlay(fields []string, commit bool) error {
 		return errors.New("unrecognized arguments to `add`")
 	}
 
+	_, err = sc.game.ValidateMove(m)
+	if err != nil {
+		return err
+	}
+
 	if !commit {
 		opp := (sc.game.PlayerOnTurn() + 1) % sc.game.NumPlayers()
 		oppRack := sc.game.RackFor(opp)
@@ -389,10 +394,7 @@ func (sc *ShellController) addPlay(fields []string, commit bool) error {
 	} else {
 
 		// Play the actual move on the board, draw tiles, etc.
-		// Modify the game repr.
-		// err = sc.game.AppendPlayAtCurTurn(m)
 		err = sc.game.PlayMove(m, false, true)
-		// err = sc.curGameRepr.AddTurnFromPlay(sc.curTurnNum, m, nick, cumul, appendPlay)
 		if err != nil {
 			return err
 		}

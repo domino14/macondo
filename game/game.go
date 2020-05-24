@@ -3,14 +3,11 @@
 package game
 
 import (
-	"bytes"
 	crypto_rand "crypto/rand"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"math/rand"
-	"sort"
-	"strings"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
@@ -26,6 +23,9 @@ const (
 	IdentificationAuthority = "org.aerolith"
 
 	MacondoCreation = "Created with Macondo"
+
+	ExchangeLimit = 7
+	RackTileLimit = 7
 )
 
 // RuleDefiner is an interface that is used for passing a set of rules
@@ -203,6 +203,63 @@ func (g *Game) StartGame() {
 	g.wentfirst = goesfirst
 }
 
+// ValidateMove validates the given move. It is meant to be used to validate
+// user input games (perhaps from live play or GCGs). It does not check the
+// validity of the words formed, but it validates that the rules of the game
+// are followed.
+// It returns an array of `alphabet.MachineWord`s formed, or an error if
+// the play is not game legal.
+func (g *Game) ValidateMove(m *move.Move) ([]alphabet.MachineWord, error) {
+	if m.Action() == move.MoveTypeExchange {
+		if g.bag.TilesRemaining() < ExchangeLimit {
+			return nil, fmt.Errorf("not allowed to exchange with fewer than %d tiles in the bag",
+				ExchangeLimit)
+		}
+		// Make sure we have the tiles we are trying to exchange.
+		for _, t := range m.Tiles() {
+			// Leave implicitly checks the tiles here.
+			_, err := Leave(g.players[g.onturn].rack.TilesOn(), m.Tiles())
+			if err != nil {
+				return nil, err
+			}
+
+			if !g.players[g.onturn].rack.Has(t) {
+				return nil, fmt.Errorf("your play contained a tile not in your rack: %v",
+					t.UserVisible(g.alph))
+			}
+		}
+		// no error, all tiles are here.
+		return nil, nil
+	} else if m.Action() == move.MoveTypePass {
+		// This is always valid.
+		return nil, nil
+	} else if m.Action() == move.MoveTypePlay {
+		return g.validateTilePlayMove(m)
+	} else {
+		return nil, fmt.Errorf("move type %v is not user-inputtable", m.Action())
+	}
+}
+
+func (g *Game) validateTilePlayMove(m *move.Move) ([]alphabet.MachineWord, error) {
+	if m.TilesPlayed() > RackTileLimit {
+		return nil, errors.New("your play contained too many tiles")
+	}
+	// Check that our move actually uses the tiles on our rack.
+	_, err := Leave(g.players[g.onturn].rack.TilesOn(), m.Tiles())
+	if err != nil {
+		return nil, err
+	}
+
+	row, col, vert := m.CoordsAndVertical()
+	err = g.Board().ErrorIfIllegalPlay(row, col, vert, m.Tiles())
+	if err != nil {
+		return nil, err
+	}
+
+	// The play is legal. What words does it form?
+	return g.Board().FormedWords(m)
+}
+
 // PlayMove plays a move on the board. This function is meant to be used
 // by simulators as it implements a subset of possible moves.
 // XXX: It doesn't implement special things like challenge bonuses, etc.
@@ -260,6 +317,7 @@ func (g *Game) PlayMove(m *move.Move, backup bool, addToHistory bool) error {
 		}
 		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
 		g.players[g.onturn].setRackTiles(tiles, g.alph)
+		log.Debug().Str("newrack", g.players[g.onturn].rackLetters).Msg("new-rack")
 		g.scorelessTurns++
 		if addToHistory {
 			turn.Events = append(turn.Events, g.eventFromMove(m))
@@ -267,13 +325,26 @@ func (g *Game) PlayMove(m *move.Move, backup bool, addToHistory bool) error {
 	}
 
 	if g.scorelessTurns == 6 {
+		log.Debug().Msg("game ended with 6 scoreless turns")
 		g.playing = false
-		// Take away pts on each player's rack.
-		for i := 0; i < len(g.players); i++ {
-			pts := g.calculateRackPts(i)
-			g.players[i].points -= pts
+		pts := g.calculateRackPts(g.onturn)
+		g.players[g.onturn].points -= pts
+		if addToHistory {
+			turn.Events = append(turn.Events, g.endRackPenaltyEvt(pts))
+			err := g.addToHistory(turn)
+			if err != nil {
+				return err
+			}
+			// Create a new turn to subtract for other player.
+			turn = &pb.GameTurn{Events: []*pb.GameEvent{}}
 		}
-		// XXX: add rack penalty for each player to the history.
+		g.onturn = (g.onturn + 1) % len(g.players)
+		g.turnnum++
+		pts = g.calculateRackPts(g.onturn)
+		g.players[g.onturn].points -= pts
+		if addToHistory {
+			turn.Events = append(turn.Events, g.endRackPenaltyEvt(pts))
+		}
 	}
 
 	if addToHistory {
@@ -575,109 +646,6 @@ func (g *Game) SetRacksForBoth(racks []*alphabet.Rack) error {
 func (g *Game) ThrowRacksIn() {
 	g.players[0].throwRackIn(g.bag)
 	g.players[1].throwRackIn(g.bag)
-}
-
-func splitSubN(s string, n int) []string {
-	sub := ""
-	subs := []string{}
-
-	runes := bytes.Runes([]byte(s))
-	l := len(runes)
-	for i, r := range runes {
-		sub = sub + string(r)
-		if (i+1)%n == 0 {
-			subs = append(subs, sub)
-			sub = ""
-		} else if (i + 1) == l {
-			subs = append(subs, sub)
-		}
-	}
-
-	return subs
-}
-
-func addText(lines []string, row int, hpad int, text string) {
-	maxTextSize := 42
-	sp := splitSubN(text, maxTextSize)
-
-	for _, chunk := range sp {
-		str := lines[row] + strings.Repeat(" ", hpad) + chunk
-		lines[row] = str
-		row++
-	}
-}
-
-// ToDisplayText turns the current state of the game into a displayable
-// string.
-func (g *Game) ToDisplayText() string {
-	bt := g.Board().ToDisplayText(g.alph)
-	// We need to insert rack, player, bag strings into the above string.
-	bts := strings.Split(bt, "\n")
-	hpadding := 3
-	vpadding := 1
-	bagColCount := 20
-
-	notfirst := otherPlayer(g.wentfirst)
-
-	log.Debug().Int("onturn", g.onturn).
-		Int("wentfirst", g.wentfirst).Msg("todisplaytext")
-
-	addText(bts, vpadding, hpadding,
-		g.players[g.wentfirst].stateString(g.playing && g.onturn == g.wentfirst))
-	addText(bts, vpadding+1, hpadding,
-		g.players[notfirst].stateString(g.playing && g.onturn == notfirst))
-
-	// Peek into the bag, and append the opponent's tiles:
-	inbag := g.bag.Peek()
-	opprack := g.players[otherPlayer(g.onturn)].rack.TilesOn()
-	bagAndUnseen := append(inbag, opprack...)
-	log.Debug().Str("inbag", alphabet.MachineWord(inbag).UserVisible(g.alph)).Msg("")
-	log.Debug().Str("opprack", alphabet.MachineWord(opprack).UserVisible(g.alph)).Msg("")
-
-	addText(bts, vpadding+3, hpadding, fmt.Sprintf("Bag + unseen: (%d)", len(bagAndUnseen)))
-
-	vpadding = 6
-	sort.Slice(bagAndUnseen, func(i, j int) bool {
-		return bagAndUnseen[i] < bagAndUnseen[j]
-	})
-
-	bagDisp := []string{}
-	cCtr := 0
-	bagStr := ""
-	for i := 0; i < len(bagAndUnseen); i++ {
-		bagStr += string(bagAndUnseen[i].UserVisible(g.alph)) + " "
-		cCtr++
-		if cCtr == bagColCount {
-			bagDisp = append(bagDisp, bagStr)
-			bagStr = ""
-			cCtr = 0
-		}
-	}
-	if bagStr != "" {
-		bagDisp = append(bagDisp, bagStr)
-	}
-
-	for p := vpadding; p < vpadding+len(bagDisp); p++ {
-		addText(bts, p, hpadding, bagDisp[p-vpadding])
-	}
-
-	addText(bts, 12, hpadding, fmt.Sprintf("Turn %d:", g.turnnum))
-
-	vpadding = 13
-
-	if g.turnnum-1 >= 0 {
-		addText(bts, vpadding, hpadding,
-			summary(g.history.Turns[g.turnnum-1]))
-	}
-
-	vpadding = 17
-
-	if !g.playing && g.turnnum == len(g.history.Turns) {
-		addText(bts, vpadding, hpadding, "Game is over.")
-	}
-
-	return strings.Join(bts, "\n")
-
 }
 
 // SetRandomRack sets the player's rack to a random rack drawn from the bag.
