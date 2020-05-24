@@ -2,6 +2,9 @@
 
 - Add opp score to autoplay log
 - Add bingo tracking in autoplay log and stats
+- Create code for configurable pre-endgame heuristic values. Current heuristics are blank but can be iterated on.
+- Create utility functions to return all words created by a play, and to validate a play's legality (not word legality but rule legality)
+- Fix a few GCG import and export issues
 
 # v0.4.3
 
