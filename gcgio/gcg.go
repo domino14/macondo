@@ -74,9 +74,9 @@ const (
 	PassRegex               = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+-\s+\+0\s+(?P<cumul>\d+)`
 	ChallengeBonusRegex     = `>(?P<nick>\S+):\s+(?P<rack>\S*)\s+\(challenge\)\s+\+(?P<bonus>\d+)\s+(?P<cumul>\d+)`
 	ExchangeRegex           = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+-(?P<exchanged>\S+)\s+\+0\s+(?P<cumul>\d+)`
-	EndRackPointsRegex      = `>(?P<nick>\S+):\s+\((?P<rack>\S+)\)\s+\+(?P<score>\d+)\s+(?P<cumul>\d+)`
-	TimePenaltyRegex        = `>(?P<nick>\S+):\s+(?P<rack>\S*)\s+\(time\)\s+\-(?P<penalty>\d+)\s+(?P<cumul>\d+)`
-	PtsLostForLastRackRegex = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+\((?P<rack>\S+)\)\s+\-(?P<penalty>\d+)\s+(?P<cumul>\d+)`
+	EndRackPointsRegex      = `>(?P<nick>\S+):\s+\((?P<rack>\S+)\)\s+\+(?P<score>\d+)\s+(?P<cumul>-?\d+)`
+	TimePenaltyRegex        = `>(?P<nick>\S+):\s+(?P<rack>\S*)\s+\(time\)\s+\-(?P<penalty>\d+)\s+(?P<cumul>-?\d+)`
+	PtsLostForLastRackRegex = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+\((?P<rack>\S+)\)\s+\-(?P<penalty>\d+)\s+(?P<cumul>-?\d+)`
 )
 
 var compiledEncodingRegexp *regexp.Regexp
@@ -471,7 +471,7 @@ func writeGCGHeader(s *strings.Builder, h *pb.GameHistory, addlInfo bool) {
 	log.Debug().Msg("wrote header")
 }
 
-func writeEvent(s *strings.Builder, evt *pb.GameEvent) {
+func writeEvent(s *strings.Builder, evt *pb.GameEvent) error {
 
 	nick := evt.GetNickname()
 	rack := evt.GetRack()
@@ -492,7 +492,7 @@ func writeEvent(s *strings.Builder, evt *pb.GameEvent) {
 
 	case pb.GameEvent_PASS:
 		// >Randy: U - +0 380
-		fmt.Fprintf(s, ">%v: (%v) - +0 %d\n", nick, rack, evt.Cumulative)
+		fmt.Fprintf(s, ">%v: %v - +0 %d\n", nick, rack, evt.Cumulative)
 	case pb.GameEvent_CHALLENGE_BONUS:
 		// >Joel: DROWNUG (challenge) +5 289
 		fmt.Fprintf(s, ">%v: %v (challenge) +%d %d\n",
@@ -508,18 +508,35 @@ func writeEvent(s *strings.Builder, evt *pb.GameEvent) {
 		fmt.Fprintf(s, ">%v: %v -%v +0 %d\n",
 			nick, rack, evt.Exchanged, evt.Cumulative)
 
+	case pb.GameEvent_END_RACK_PENALTY:
+		// >Pakorn: FWLI (FWLI) -10 426
+		fmt.Fprintf(s, ">%v: %v (%v) -%d %d\n",
+			nick, rack, rack, evt.LostScore, evt.Cumulative)
+	case pb.GameEvent_TIME_PENALTY:
+		// >Pakorn: ISBALI (time) -10 409
+		fmt.Fprintf(s, ">%v: %v (time) -%d %d\n",
+			nick, rack, evt.LostScore, evt.Cumulative)
+
+	default:
+		return fmt.Errorf("event type %v not supported", evtType)
+
 	}
 	if note != "" {
 		// Note that the note can have line breaks within it ...
 		fmt.Fprintf(s, "#note %v\n", note)
 	}
+	return nil
 
 }
 
-func writeTurn(s *strings.Builder, t *pb.GameTurn) {
+func writeTurn(s *strings.Builder, t *pb.GameTurn) error {
 	for _, evt := range t.Events {
-		writeEvent(s, evt)
+		err := writeEvent(s, evt)
+		if err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func writePlayer(s *strings.Builder, pn int, p *pb.PlayerInfo) {
@@ -537,15 +554,18 @@ func writePlayers(s *strings.Builder, players []*pb.PlayerInfo, flip bool) {
 }
 
 // GameHistoryToGCG returns a string GCG representation of the GameHistory.
-func GameHistoryToGCG(h *pb.GameHistory, addlHeaderInfo bool) string {
+func GameHistoryToGCG(h *pb.GameHistory, addlHeaderInfo bool) (string, error) {
 
 	var str strings.Builder
 	writeGCGHeader(&str, h, addlHeaderInfo)
 	writePlayers(&str, h.Players, h.FlipPlayers)
 
 	for _, turn := range h.Turns {
-		writeTurn(&str, turn)
+		err := writeTurn(&str, turn)
+		if err != nil {
+			return "", err
+		}
 	}
 
-	return str.String()
+	return str.String(), nil
 }

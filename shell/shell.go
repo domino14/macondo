@@ -399,7 +399,9 @@ func (sc *ShellController) addPlay(fields []string, commit bool) error {
 			return err
 		}
 		log.Debug().Msgf("Added turn at turn num %v", sc.curTurnNum)
-		sc.setToTurn(sc.curTurnNum + 1)
+		sc.curTurnNum++
+		sc.curPlayList = nil
+		sc.simmer.Reset()
 		sc.showMessage(sc.game.ToDisplayText())
 
 	}
@@ -747,12 +749,17 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			break
 		}
 		filename := cmd.args[0]
-		contents := gcgio.GameHistoryToGCG(sc.game.History(), true)
+		contents, err := gcgio.GameHistoryToGCG(sc.game.History(), true)
+		if err != nil {
+			sc.showError(err)
+			break
+		}
 		f, err := os.Create(filename)
 		if err != nil {
 			sc.showError(err)
 			break
 		}
+		log.Debug().Interface("game-history", sc.game.History()).Msg("converted game history to gcg")
 		f.WriteString(contents)
 		f.Close()
 		sc.showMessage("gcg written to " + filename)

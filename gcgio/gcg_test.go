@@ -107,7 +107,8 @@ func TestToGCG(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, history)
 
-	gcgstr := GameHistoryToGCG(history, false)
+	gcgstr, err := GameHistoryToGCG(history, false)
+	assert.Nil(t, err)
 
 	// ignore encoding line:
 	linesNew := strings.Split(gcgstr, "\n")[1:]

@@ -74,7 +74,7 @@ func (g *Game) endRackPenaltyEvt(penalty int) *pb.GameEvent {
 		Cumulative: int32(curPlayer.points),
 		Rack:       curPlayer.rack.String(),
 		LostScore:  int32(penalty),
-		Type:       pb.GameEvent_END_RACK_PTS,
+		Type:       pb.GameEvent_END_RACK_PENALTY,
 	}
 	return evt
 }
