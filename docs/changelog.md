@@ -1,4 +1,4 @@
-# v0.4.4
+# v0.4.4 (May 24, 2020)
 
 - Add opp score to autoplay log
 - Add bingo tracking in autoplay log and stats
@@ -6,13 +6,13 @@
 - Create utility functions to return all words created by a play, and to validate a play's legality (not word legality but rule legality)
 - Fix a few GCG import and export issues
 
-# v0.4.3
+# v0.4.3 (May 7, 2020)
 
 This is a code organization release with no new features.
 
 protobuf files have been moved around for ease for importing by other projects.
 
-# v0.4.2
+# v0.4.2 (May 6, 2020)
 
 Bug fix and enhancement release
 
@@ -30,7 +30,7 @@ Bug fix and enhancement release
 - Fix bug where character encoding for GCGs containing CRLF characters was misparsed
 - Various other usability fixes
 
-# v0.4.1
+# v0.4.1 (Apr 9, 2020)
 
 Bug fix release
 
@@ -41,7 +41,7 @@ Bug fix release
 - Default to info-level logging (turn on debug with DEBUG=1 environment variable)
 - Keep text on board within a small horizontal range for smaller windows
 
-# v0.4.0
+# v0.4.0 (Apr 7, 2020)
 
 The first pre-alpha version.
 
