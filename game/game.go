@@ -292,7 +292,7 @@ func (g *Game) PlayMove(m *move.Move, backup bool, addToHistory bool) error {
 		g.players[g.onturn].setRackTiles(tiles, g.alph)
 
 		if addToHistory {
-			turn.Events = append(turn.Events, g.eventFromMove(m))
+			turn.Events = append(turn.Events, g.EventFromMove(m))
 		}
 
 		if g.players[g.onturn].rack.NumTiles() == 0 {
@@ -307,7 +307,7 @@ func (g *Game) PlayMove(m *move.Move, backup bool, addToHistory bool) error {
 	case move.MoveTypePass:
 		g.scorelessTurns++
 		if addToHistory {
-			turn.Events = append(turn.Events, g.eventFromMove(m))
+			turn.Events = append(turn.Events, g.EventFromMove(m))
 		}
 
 	case move.MoveTypeExchange:
@@ -320,7 +320,7 @@ func (g *Game) PlayMove(m *move.Move, backup bool, addToHistory bool) error {
 		log.Debug().Str("newrack", g.players[g.onturn].rackLetters).Msg("new-rack")
 		g.scorelessTurns++
 		if addToHistory {
-			turn.Events = append(turn.Events, g.eventFromMove(m))
+			turn.Events = append(turn.Events, g.EventFromMove(m))
 		}
 	}
 

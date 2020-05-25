@@ -18,7 +18,7 @@ func (g *Game) oppPlayer() *playerState {
 	return g.players[(g.onturn+1)%2]
 }
 
-func (g *Game) eventFromMove(m *move.Move) *pb.GameEvent {
+func (g *Game) EventFromMove(m *move.Move) *pb.GameEvent {
 	curPlayer := g.curPlayer()
 
 	evt := &pb.GameEvent{
@@ -47,7 +47,7 @@ func (g *Game) eventFromMove(m *move.Move) *pb.GameEvent {
 		Interface("curplayer", curPlayer).
 		Interface("move", m.String()).
 		Interface("evt", evt).
-		Msg("eventFromMove")
+		Msg("EventFromMove")
 
 	return evt
 }
