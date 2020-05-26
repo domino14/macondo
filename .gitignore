@@ -21,4 +21,4 @@ notebooks/superleaves/leave*
 notebooks/*/*.csv
 notebooks/logs/*
 *.p
-*Untitled*
+*.jpg
