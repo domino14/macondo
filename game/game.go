@@ -197,6 +197,9 @@ func (g *Game) StartGame() {
 		g.players[i].setRackTiles(tiles, g.alph)
 		g.players[i].resetScore()
 	}
+	g.history.LastKnownRacks = []string{
+		g.RackLettersFor(0), g.RackLettersFor(1),
+	}
 	g.playing = true
 	g.turnnum = 0
 	g.onturn = goesfirst
@@ -293,6 +296,7 @@ func (g *Game) PlayMove(m *move.Move, backup bool, addToHistory bool) error {
 
 		if addToHistory {
 			turn.Events = append(turn.Events, g.EventFromMove(m))
+			g.history.LastKnownRacks[g.onturn] = g.RackLettersFor(g.onturn)
 		}
 
 		if g.players[g.onturn].rack.NumTiles() == 0 {
@@ -321,6 +325,7 @@ func (g *Game) PlayMove(m *move.Move, backup bool, addToHistory bool) error {
 		g.scorelessTurns++
 		if addToHistory {
 			turn.Events = append(turn.Events, g.EventFromMove(m))
+			g.history.LastKnownRacks[g.onturn] = g.RackLettersFor(g.onturn)
 		}
 	}
 
