@@ -28,6 +28,7 @@ jobs:
           command: git clone git@github.com:domino14/word-game-lexica /opt/word-game-lexica
       - run: mkdir $LEXICON_PATH
       - run: mkdir $LEXICON_PATH/gaddag
+      - run: mkdir $LEXICON_PATH/dawg
       - run: mv /opt/word-game-lexica/*.txt $LEXICON_PATH
       - run: cp -r /opt/macondo/data /opt/data
       - run: go build
