@@ -190,13 +190,15 @@ func ToMachineWord(word string, alph *Alphabet) (MachineWord, error) {
 
 // ToMachineLetters creates an array of MachineLetters from the given string.
 func ToMachineLetters(word string, alph *Alphabet) ([]MachineLetter, error) {
-	letters := make([]MachineLetter, len(word))
-	for idx, ch := range word {
+	letters := make([]MachineLetter, len([]rune(word)))
+	runeIdx := 0
+	for _, ch := range word {
 		ml, err := alph.Val(ch)
 		if err != nil {
 			return nil, err
 		}
-		letters[idx] = ml
+		letters[runeIdx] = ml
+		runeIdx++
 	}
 	return letters, nil
 }

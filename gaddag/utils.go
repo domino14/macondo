@@ -4,26 +4,45 @@ package gaddag
 import (
 	"strings"
 
-	"github.com/rs/zerolog/log"
-
 	"github.com/domino14/macondo/alphabet"
+	"github.com/rs/zerolog/log"
 )
+
+// A GenericDawg interface allows dawgs and gaddags to be passed to the same
+// functions.
+
+type GenericDawgType string
+
+const (
+	TypeGaddag GenericDawgType = "gaddag"
+	TypeDawg   GenericDawgType = "dawg"
+)
+
+type GenericDawg interface {
+	InLetterSet(letter alphabet.MachineLetter, nodeIdx uint32) bool
+	GetAlphabet() *alphabet.Alphabet
+	NumArcs(nodeIdx uint32) byte
+	ArcToIdxLetter(arcIdx uint32) (uint32, alphabet.MachineLetter)
+	GetRootNodeIndex() uint32
+	Type() GenericDawgType
+}
 
 // FindWord finds a word in a SimpleDawg
 func FindWord(d *SimpleDawg, word string) bool {
-	if d.Nodes == nil {
-		return false
-	}
-	found, _ := findWord(d, d.GetRootNodeIndex(), []rune(word), 0)
+	found, _ := findWord(d, d.GetRootNodeIndex(), word, 0)
 	return found
 }
 
-func FindWordGaddag(gd *SimpleGaddag, word string) bool {
-	if gd.Nodes == nil {
-		return false
+// FindMachineWord finds a word in a dawg or gaddag.
+func FindMachineWord(d GenericDawg, word alphabet.MachineWord) bool {
+	// Flip the word if it's a gaddag, due to how gaddags encode their words.
+	if d.Type() == TypeGaddag {
+		for i, j := 0, len(word)-1; i < j; i, j = i+1, j-1 {
+			word[i], word[j] = word[j], word[i]
+		}
 	}
-	// The reversed word is the easiest thing to find in a gaddag.
-	found, _ := findWord(gd, gd.GetRootNodeIndex(), reverse(word), 0)
+
+	found, _ := findMachineWord(d, d.GetRootNodeIndex(), word, 0)
 	return found
 }
 
@@ -56,7 +75,7 @@ func FindHooks(d *SimpleDawg, word string, hookType int) []rune {
 		// Assumes that the passed in dawg is a reverse dawg!
 		runes = reverse(word)
 	}
-	found, nodeIdx := findWord(d, d.GetRootNodeIndex(), runes, 0)
+	found, nodeIdx := findWord(d, d.GetRootNodeIndex(), string(runes), 0)
 	if !found {
 		return nil
 	}
@@ -137,7 +156,18 @@ func findPartialWord(d *SimpleDawg, nodeIdx uint32, partialWord []rune,
 	return findPartialWord(d, nextNodeIdx, partialWord, curPrefixIdx)
 }
 
-func findWord(d GenericDawg, nodeIdx uint32, word []rune, curIdx uint8) (
+func findWord(d GenericDawg, nodeIdx uint32, word string, curIdx uint8) (
+	bool, uint32) {
+
+	mw, err := alphabet.ToMachineWord(word, d.GetAlphabet())
+	if err != nil {
+		log.Err(err).Msg("convert-to-mw")
+		return false, 0
+	}
+	return findMachineWord(d, nodeIdx, mw, curIdx)
+}
+
+func findMachineWord(d GenericDawg, nodeIdx uint32, word alphabet.MachineWord, curIdx uint8) (
 	bool, uint32) {
 
 	var numArcs, i byte
@@ -147,11 +177,7 @@ func findWord(d GenericDawg, nodeIdx uint32, word []rune, curIdx uint8) (
 	if curIdx == uint8(len(word)-1) {
 		// log.Println("checking letter set last Letter", string(letter),
 		// 	"nodeIdx", nodeIdx, "word", string(word))
-		ml, err := d.GetAlphabet().Val(word[curIdx])
-		if err != nil {
-			log.Error().Err(err).Msg("")
-			return false, 0
-		}
+		ml := word[curIdx]
 		return d.InLetterSet(ml, nodeIdx), nodeIdx
 	}
 
@@ -159,11 +185,7 @@ func findWord(d GenericDawg, nodeIdx uint32, word []rune, curIdx uint8) (
 	found := false
 	for i = byte(1); i <= numArcs; i++ {
 		nextNodeIdx, letter = d.ArcToIdxLetter(nodeIdx + uint32(i))
-		curml, err := d.GetAlphabet().Val(word[curIdx])
-		if err != nil {
-			log.Error().Err(err).Msg("")
-			return false, 0
-		}
+		curml := word[curIdx]
 		if letter == curml {
 			// log.Println("Letter", string(letter), "this node idx", nodeIdx,
 			// 	"next node idx", nextNodeIdx, "word", string(word))
@@ -176,5 +198,5 @@ func findWord(d GenericDawg, nodeIdx uint32, word []rune, curIdx uint8) (
 		return false, 0
 	}
 	curIdx++
-	return findWord(d, nextNodeIdx, word, curIdx)
+	return findMachineWord(d, nextNodeIdx, word, curIdx)
 }

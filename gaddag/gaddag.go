@@ -190,3 +190,7 @@ func (g *SimpleGaddag) LexiconName() string {
 // 	letterSet := g[nodeIdx] & ((1 << NumArcsBitLoc) - 1)
 // 	return letterSet, numArcs
 // }
+
+func (g *SimpleGaddag) Type() GenericDawgType {
+	return TypeGaddag
+}

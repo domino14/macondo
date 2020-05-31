@@ -12,13 +12,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type GenericDawg interface {
-	InLetterSet(letter alphabet.MachineLetter, nodeIdx uint32) bool
-	GetAlphabet() *alphabet.Alphabet
-	NumArcs(nodeIdx uint32) byte
-	ArcToIdxLetter(arcIdx uint32) (uint32, alphabet.MachineLetter)
-}
-
 // SimpleDawg is basically a SimpleGaddag, but with only one pathway.
 // The structures are otherwise totally compatible. The SimpleDawg should
 // only be used by anagramming utilities due to its smaller size.
@@ -36,6 +29,10 @@ func compareMagicDawg(bytes [4]uint8) bool {
 // Reverse returns true if this is a "reverse" dawg
 func (s *SimpleDawg) Reverse() bool {
 	return s.reverse
+}
+
+func (s *SimpleDawg) Type() GenericDawgType {
+	return TypeDawg
 }
 
 func loadCommonDagStructure(stream io.Reader) ([]uint32, []alphabet.LetterSet,

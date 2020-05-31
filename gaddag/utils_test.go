@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddagmaker"
 )
 
@@ -132,24 +134,69 @@ var findSpanishWordTests = []testpair{
 	{"2AMATIUJ", false},
 }
 
+var DefaultConfig = config.Config{
+	StrategyParamsPath:        os.Getenv("STRATEGY_PARAMS_PATH"),
+	LexiconPath:               os.Getenv("LEXICON_PATH"),
+	DefaultLexicon:            "NWL18",
+	DefaultLetterDistribution: "English",
+}
+
+func loadDawg(lexName string, reverse bool) (*SimpleDawg, error) {
+	fn := lexName
+	if reverse {
+		fn += "-r"
+	}
+	fn += ".dawg"
+
+	return LoadDawg(filepath.Join(DefaultConfig.LexiconPath, "dawg", fn))
+}
+
+func loadGaddag(lexName string) (*SimpleGaddag, error) {
+	return LoadGaddag(filepath.Join(DefaultConfig.LexiconPath, "gaddag", lexName+".gaddag"))
+}
+
 func TestMain(m *testing.M) {
-	gaddagmaker.GenerateDawg(filepath.Join(LexiconDir, "America.txt"), true, true, false)
-	os.Rename("out.dawg", "/tmp/gen_america.dawg")
-	gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "America.txt"), true, true)
-	os.Rename("out.gaddag", "/tmp/gen_america.gaddag")
 
-	// Reversed dawg:
-	gaddagmaker.GenerateDawg(filepath.Join(LexiconDir, "America.txt"), true, true, true)
-	os.Rename("out.dawg", "/tmp/gen_america_r.dawg")
+	for _, lex := range []string{"America", "FISE2"} {
+		dwgpath := filepath.Join(DefaultConfig.LexiconPath, "dawg", lex+".dawg")
+		if _, err := os.Stat(dwgpath); os.IsNotExist(err) {
+			gaddagmaker.GenerateDawg(filepath.Join(DefaultConfig.LexiconPath, lex+".txt"), true, true, false)
+			err = os.Rename("out.dawg", dwgpath)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
 
-	gaddagmaker.GenerateDawg(filepath.Join(LexiconDir, "FISE2.txt"), true, true, false)
-	os.Rename("out.dawg", "/tmp/gen_fise2.dawg")
+	// reverse dawg
+
+	for _, lex := range []string{"America", "FISE2"} {
+		dwgpath := filepath.Join(DefaultConfig.LexiconPath, "dawg", lex+"-r.dawg")
+		if _, err := os.Stat(dwgpath); os.IsNotExist(err) {
+			gaddagmaker.GenerateDawg(filepath.Join(DefaultConfig.LexiconPath, lex+".txt"), true, true, true)
+			err = os.Rename("out.dawg", dwgpath)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
+
+	// gaddag
+	for _, lex := range []string{"America", "FISE2"} {
+		gaddagpath := filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag")
+		if _, err := os.Stat(gaddagpath); os.IsNotExist(err) {
+			gaddagmaker.GenerateGaddag(filepath.Join(DefaultConfig.LexiconPath, lex+".txt"), true, true)
+			err = os.Rename("out.gaddag", gaddagpath)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
 	os.Exit(m.Run())
-
 }
 
 func TestFindPartialWordMinimize(t *testing.T) {
-	d, _ := LoadDawg("/tmp/gen_america.dawg")
+	d, _ := loadDawg("America", false)
 	for _, pair := range findPartialWordTests {
 		found := findPartialWord(d, d.GetRootNodeIndex(), []rune(pair.prefix), 0)
 		if found != pair.found {
@@ -160,7 +207,7 @@ func TestFindPartialWordMinimize(t *testing.T) {
 }
 
 func TestFindWordMinimize(t *testing.T) {
-	d, _ := LoadDawg("/tmp/gen_america.dawg")
+	d, _ := loadDawg("America", false)
 	for _, pair := range findWordTests {
 		found := FindWord(d, pair.prefix)
 		if found != pair.found {
@@ -170,10 +217,15 @@ func TestFindWordMinimize(t *testing.T) {
 	}
 }
 
-func TestFindWordGaddag(t *testing.T) {
-	d, _ := LoadGaddag("/tmp/gen_america.gaddag")
+func TestFindMachineWord(t *testing.T) {
+	d, _ := loadGaddag("America")
 	for _, pair := range findWordTests {
-		found := FindWordGaddag(d, pair.prefix)
+		mw, err := alphabet.ToMachineWord(pair.prefix, d.GetAlphabet())
+		if err != nil {
+			t.Error("error was not nil for conversion of", pair.prefix)
+		}
+
+		found := FindMachineWord(d, mw)
 		if found != pair.found {
 			t.Error("For", pair.prefix, "expected", pair.found, "got", found)
 		}
@@ -182,7 +234,10 @@ func TestFindWordGaddag(t *testing.T) {
 }
 
 func TestFindSpanishWordMinimize(t *testing.T) {
-	d, _ := LoadDawg("/tmp/gen_fise2.dawg")
+	d, err := loadDawg("FISE2", false)
+	if err != nil {
+		t.Error("loading spanish dawg")
+	}
 	for _, pair := range findSpanishWordTests {
 		found := FindWord(d, pair.prefix)
 		if found != pair.found {
@@ -248,7 +303,7 @@ var innerHookTests = []innerhooktest{
 }
 
 func TestFindHooks(t *testing.T) {
-	d, _ := LoadDawg("/tmp/gen_america.dawg")
+	d, _ := loadDawg("America", false)
 	for _, pair := range backHookTests {
 		hooks := string(FindHooks(d, pair.word, BackHooks))
 		if hooks != pair.hooks {
@@ -256,7 +311,7 @@ func TestFindHooks(t *testing.T) {
 		}
 	}
 	for _, pair := range frontHookTests {
-		rd, _ := LoadDawg("/tmp/gen_america_r.dawg")
+		rd, _ := loadDawg("America", true)
 		hooks := string(FindHooks(rd, pair.word, FrontHooks))
 		if hooks != pair.hooks {
 			t.Error("For", pair.word, "expected", pair.hooks, "found", hooks)
@@ -286,6 +341,10 @@ func TestFindWordSmallSpanish(t *testing.T) {
 		}
 	}
 
+	found := FindWord(d, "KOO")
+	if found {
+		t.Errorf("found weird word")
+	}
 }
 
 func TestFindWordSmallSpanish2(t *testing.T) {
