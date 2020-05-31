@@ -135,6 +135,9 @@ var findSpanishWordTests = []testpair{
 func TestMain(m *testing.M) {
 	gaddagmaker.GenerateDawg(filepath.Join(LexiconDir, "America.txt"), true, true, false)
 	os.Rename("out.dawg", "/tmp/gen_america.dawg")
+	gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "America.txt"), true, true)
+	os.Rename("out.gaddag", "/tmp/gen_america.gaddag")
+
 	// Reversed dawg:
 	gaddagmaker.GenerateDawg(filepath.Join(LexiconDir, "America.txt"), true, true, true)
 	os.Rename("out.dawg", "/tmp/gen_america_r.dawg")
@@ -160,6 +163,17 @@ func TestFindWordMinimize(t *testing.T) {
 	d, _ := LoadDawg("/tmp/gen_america.dawg")
 	for _, pair := range findWordTests {
 		found := FindWord(d, pair.prefix)
+		if found != pair.found {
+			t.Error("For", pair.prefix, "expected", pair.found, "got", found)
+		}
+
+	}
+}
+
+func TestFindWordGaddag(t *testing.T) {
+	d, _ := LoadGaddag("/tmp/gen_america.gaddag")
+	for _, pair := range findWordTests {
+		found := FindWordGaddag(d, pair.prefix)
 		if found != pair.found {
 			t.Error("For", pair.prefix, "expected", pair.found, "got", found)
 		}

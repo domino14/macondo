@@ -12,6 +12,13 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+type GenericDawg interface {
+	InLetterSet(letter alphabet.MachineLetter, nodeIdx uint32) bool
+	GetAlphabet() *alphabet.Alphabet
+	NumArcs(nodeIdx uint32) byte
+	ArcToIdxLetter(arcIdx uint32) (uint32, alphabet.MachineLetter)
+}
+
 // SimpleDawg is basically a SimpleGaddag, but with only one pathway.
 // The structures are otherwise totally compatible. The SimpleDawg should
 // only be used by anagramming utilities due to its smaller size.

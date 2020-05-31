@@ -18,6 +18,15 @@ func FindWord(d *SimpleDawg, word string) bool {
 	return found
 }
 
+func FindWordGaddag(gd *SimpleGaddag, word string) bool {
+	if gd.Nodes == nil {
+		return false
+	}
+	// The reversed word is the easiest thing to find in a gaddag.
+	found, _ := findWord(gd, gd.GetRootNodeIndex(), reverse(word), 0)
+	return found
+}
+
 const (
 	BackHooks      = 0
 	FrontHooks     = 1
@@ -128,7 +137,7 @@ func findPartialWord(d *SimpleDawg, nodeIdx uint32, partialWord []rune,
 	return findPartialWord(d, nextNodeIdx, partialWord, curPrefixIdx)
 }
 
-func findWord(d *SimpleDawg, nodeIdx uint32, word []rune, curIdx uint8) (
+func findWord(d GenericDawg, nodeIdx uint32, word []rune, curIdx uint8) (
 	bool, uint32) {
 
 	var numArcs, i byte
@@ -138,7 +147,7 @@ func findWord(d *SimpleDawg, nodeIdx uint32, word []rune, curIdx uint8) (
 	if curIdx == uint8(len(word)-1) {
 		// log.Println("checking letter set last Letter", string(letter),
 		// 	"nodeIdx", nodeIdx, "word", string(word))
-		ml, err := d.alphabet.Val(word[curIdx])
+		ml, err := d.GetAlphabet().Val(word[curIdx])
 		if err != nil {
 			log.Error().Err(err).Msg("")
 			return false, 0
@@ -150,7 +159,7 @@ func findWord(d *SimpleDawg, nodeIdx uint32, word []rune, curIdx uint8) (
 	found := false
 	for i = byte(1); i <= numArcs; i++ {
 		nextNodeIdx, letter = d.ArcToIdxLetter(nodeIdx + uint32(i))
-		curml, err := d.alphabet.Val(word[curIdx])
+		curml, err := d.GetAlphabet().Val(word[curIdx])
 		if err != nil {
 			log.Error().Err(err).Msg("")
 			return false, 0
