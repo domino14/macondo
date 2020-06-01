@@ -516,6 +516,11 @@ func writeEvent(s *strings.Builder, evt *pb.GameEvent) error {
 		// >Pakorn: ISBALI (time) -10 409
 		fmt.Fprintf(s, ">%v: %v (time) -%d %d\n",
 			nick, rack, evt.LostScore, evt.Cumulative)
+	case pb.GameEvent_UNSUCCESSFUL_CHALLENGE_TURN_LOSS:
+		// Treat exactly like a pass, but append a note. The GCG format
+		// does not distinguish between these two cases.
+		fmt.Fprintf(s, ">%v: %v - +0 %d\n", nick, rack, evt.Cumulative)
+		fmt.Fprint(s, "#note #unsuccessful-challenge\n")
 
 	default:
 		return fmt.Errorf("event type %v not supported", evtType)

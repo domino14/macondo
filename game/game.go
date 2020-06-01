@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"strings"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
@@ -79,6 +80,10 @@ type Game struct {
 	// history only gets written to when someone plays a move that is NOT
 	// backed up.
 	history *pb.GameHistory
+	// lastWordsFormed also does not need to be backed up, it only gets written
+	// to when the history is written to. See comment above.
+	lastWordsFormed []alphabet.MachineWord
+	backupMode      BackupMode
 
 	stateStack []*stateBackup
 	stackPtr   int
@@ -123,6 +128,7 @@ func NewGame(rules RuleDefiner, playerinfo []*pb.PlayerInfo) (*Game, error) {
 	game.gaddag = rules.Gaddag()
 	game.alph = game.gaddag.GetAlphabet()
 	game.letterDistribution = rules.LetterDistribution()
+	game.backupMode = NoBackup
 
 	game.board = rules.Board().Copy()
 
@@ -236,6 +242,8 @@ func (g *Game) ValidateMove(m *move.Move) ([]alphabet.MachineWord, error) {
 	} else if m.Action() == move.MoveTypePass {
 		// This is always valid.
 		return nil, nil
+	} else if m.Action() == move.MoveTypeUnsuccessfulChallengePass {
+		return nil, nil
 	} else if m.Action() == move.MoveTypePlay {
 		return g.validateTilePlayMove(m)
 	} else {
@@ -260,24 +268,156 @@ func (g *Game) validateTilePlayMove(m *move.Move) ([]alphabet.MachineWord, error
 	}
 
 	// The play is legal. What words does it form?
-	return g.Board().FormedWords(m)
+	formedWords, err := g.Board().FormedWords(m)
+	if err != nil {
+		return nil, err
+	}
+	if g.history.ChallengeRule == pb.ChallengeRule_VOID {
+		// Actually check the validity of the words.
+		illegalWords := validateWords(g.gaddag, formedWords)
+
+		if len(illegalWords) > 0 {
+			return nil, fmt.Errorf("the play contained illegal words: %v",
+				strings.Join(illegalWords, ", "))
+		}
+	}
+	return formedWords, nil
+}
+
+func validateWords(gd *gaddag.SimpleGaddag, words []alphabet.MachineWord) []string {
+	var illegalWords []string
+	alph := gd.GetAlphabet()
+	for _, word := range words {
+		valid := gaddag.FindMachineWord(gd, word)
+		if !valid {
+			illegalWords = append(illegalWords, word.UserVisible(alph))
+		}
+	}
+	return illegalWords
+}
+
+// ChallengeEvent should only be called if there is a history of events.
+// It has the logic for appending challenge events and calculating scores
+// properly.
+// Note that this event can change the history of the game, including
+// things like reset gameEnded back to false (for example if someone plays
+// out with a phony).
+func (g *Game) ChallengeEvent(addlBonus int) error {
+	if len(g.history.Turns) == 0 {
+		return errors.New("this game has no history")
+	}
+	if g.history.ChallengeRule == pb.ChallengeRule_VOID {
+		return errors.New("challenges are not valid in void")
+	}
+	if len(g.lastWordsFormed) == 0 {
+		return errors.New("there are no words to challenge")
+	}
+	// Note that the player on turn right now needs to be the player
+	// who is making the challenge.
+	illegalWords := validateWords(g.gaddag, g.lastWordsFormed)
+	playLegal := len(illegalWords) == 0
+
+	lastTurn := g.history.Turns[len(g.history.Turns)-1]
+	cumeScoreBeforeChallenge := lastTurn.Events[0].Cumulative
+
+	offBoardEvent := &pb.GameEvent{
+		Nickname:   lastTurn.Events[0].Nickname,
+		Type:       pb.GameEvent_PHONY_TILES_RETURNED,
+		LostScore:  -lastTurn.Events[0].Score,
+		Cumulative: cumeScoreBeforeChallenge,
+		Rack:       lastTurn.Events[0].Rack,
+	}
+
+	bonusScoreEvent := func(bonus int32) *pb.GameEvent {
+		return &pb.GameEvent{
+			Nickname:   lastTurn.Events[0].Nickname,
+			Type:       pb.GameEvent_CHALLENGE_BONUS,
+			Bonus:      bonus + int32(addlBonus),
+			Cumulative: cumeScoreBeforeChallenge + bonus,
+		}
+	}
+
+	switch g.history.ChallengeRule {
+	case pb.ChallengeRule_DOUBLE:
+		// This "draconian" American system makes it so someone always loses
+		// their turn.
+		if playLegal {
+			// challenger was wrong. They lose their turn.
+			g.PlayMove(move.NewUnsuccessfulChallengePassMove(
+				g.players[g.onturn].rack.TilesOn(), g.alph), true)
+		} else {
+			// the play comes off the board.
+			// make it so the events are ONLY tile placement move
+			// and phony tiles returned (so remove any out-play bonus if it exists)
+			lastTurn.Events = []*pb.GameEvent{lastTurn.Events[0], offBoardEvent}
+		}
+
+	case pb.ChallengeRule_FIVE_POINT:
+		if playLegal {
+			// Append a bonus to the event.
+			lastTurn.Events = append(lastTurn.Events, bonusScoreEvent(5))
+		} else {
+			lastTurn.Events = []*pb.GameEvent{lastTurn.Events[0], offBoardEvent}
+		}
+
+	case pb.ChallengeRule_TEN_POINT:
+		if playLegal {
+			// Append a bonus to the event.
+			lastTurn.Events = append(lastTurn.Events, bonusScoreEvent(10))
+		} else {
+			lastTurn.Events = []*pb.GameEvent{lastTurn.Events[0], offBoardEvent}
+		}
+
+	case pb.ChallengeRule_SINGLE:
+		if playLegal {
+			// There is no bonus score. Append a score of 0, however,
+			// to make it clear that we challenged.
+			lastTurn.Events = append(lastTurn.Events, bonusScoreEvent(0))
+		} else {
+			lastTurn.Events = []*pb.GameEvent{lastTurn.Events[0], offBoardEvent}
+		}
+	}
+	if !playLegal {
+
+		// Unplay the last move to restore everything as it was board-wise
+		// (and un-end the game if it had ended)
+		g.UnplayLastMove()
+		// Note that if backup mode is InteractiveGameplayMode, which it should be,
+		// we do not back up the turn number. So restoring it doesn't change
+		// the turn number or whose turn it is; unplay only copies the
+		// needed variables.
+
+		// and we must add one to scoreless turns:
+		g.scorelessTurns++
+		g.handleConsecutiveScorelessTurns(true, lastTurn)
+
+		// Finally, let's re-shuffle the bag. This is so we don't give the
+		// player who played the phony knowledge about the next few tiles in the bag.
+		g.bag.Shuffle()
+	}
+
+	// Finally set the last words formed to nil.
+	g.lastWordsFormed = nil
+	return nil
 }
 
 // PlayMove plays a move on the board. This function is meant to be used
-// by simulators as it implements a subset of possible moves.
-// XXX: It doesn't implement special things like challenge bonuses, etc.
-// XXX: Will this still be true, or should this function do it all?
-func (g *Game) PlayMove(m *move.Move, backup bool, addToHistory bool) error {
+// by simulators as it implements a subset of possible moves, and by remote
+// gameplay engines as much as possible.
+func (g *Game) PlayMove(m *move.Move, addToHistory bool) error {
 	var turn *pb.GameTurn
 
-	// if we are backing up, then we do not want to add a new turn to the
-	// game history. We only back up when we are simulating / generating endgames / etc,
-	// and we only want to add new turns during actual gameplay.
-	if backup {
+	if g.backupMode != NoBackup {
 		g.backupState()
 	}
 	if addToHistory {
 		turn = &pb.GameTurn{Events: []*pb.GameEvent{}}
+		// Also, validate that the move follows the rules.
+		wordsFormed, err := g.ValidateMove(m)
+		if err != nil {
+			return err
+		}
+		g.lastWordsFormed = wordsFormed
 	}
 	switch m.Action() {
 	case move.MoveTypePlay:
@@ -308,7 +448,7 @@ func (g *Game) PlayMove(m *move.Move, backup bool, addToHistory bool) error {
 			}
 		}
 
-	case move.MoveTypePass:
+	case move.MoveTypePass, move.MoveTypeUnsuccessfulChallengePass:
 		g.scorelessTurns++
 		if addToHistory {
 			turn.Events = append(turn.Events, g.EventFromMove(m))
@@ -329,6 +469,26 @@ func (g *Game) PlayMove(m *move.Move, backup bool, addToHistory bool) error {
 		}
 	}
 
+	err := g.handleConsecutiveScorelessTurns(addToHistory, turn)
+	if err != nil {
+		return err
+	}
+
+	if addToHistory {
+		err := g.addToHistory(turn)
+		if err != nil {
+			return err
+		}
+	}
+
+	g.onturn = (g.onturn + 1) % len(g.players)
+	g.turnnum++
+	// log.Debug().Interface("history", g.history).Int("onturn", g.onturn).Int("turnnum", g.turnnum).
+	// 	Msg("newhist")
+	return nil
+}
+
+func (g *Game) handleConsecutiveScorelessTurns(addToHistory bool, turn *pb.GameTurn) error {
 	if g.scorelessTurns == 6 {
 		log.Debug().Msg("game ended with 6 scoreless turns")
 		g.playing = false
@@ -351,18 +511,6 @@ func (g *Game) PlayMove(m *move.Move, backup bool, addToHistory bool) error {
 			turn.Events = append(turn.Events, g.endRackPenaltyEvt(pts))
 		}
 	}
-
-	if addToHistory {
-		err := g.addToHistory(turn)
-		if err != nil {
-			return err
-		}
-	}
-
-	g.onturn = (g.onturn + 1) % len(g.players)
-	g.turnnum++
-	// log.Debug().Interface("history", g.history).Int("onturn", g.onturn).Int("turnnum", g.turnnum).
-	// 	Msg("newhist")
 	return nil
 }
 
@@ -378,7 +526,7 @@ func (g *Game) PlayScoringMove(coords, word string, addToHistory bool) (*move.Mo
 		return nil, err
 	}
 	// Actually make the play on the board:
-	g.PlayMove(m, false, addToHistory)
+	g.PlayMove(m, addToHistory)
 	return m, nil
 }
 

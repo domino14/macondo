@@ -7,6 +7,21 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+type BackupMode int
+
+const (
+	// NoBackup never performs game backups. It can be used for autoplay
+	// that has absolutely no input.
+	NoBackup BackupMode = iota
+	// SimulationMode keeps a stack of game copies, using these for doing
+	// endgame and other types of simulations.
+	SimulationMode
+	// InteractiveGameplayMode keeps just one backup after every turn. This is needed
+	// in order to get challenges working, which would roll back the game to
+	// an earlier state if a word is challenged off.
+	InteractiveGameplayMode
+)
+
 // stateBackup is a subset of Game, meant only for backup purposes.
 type stateBackup struct {
 	board          *board.GameBoard
@@ -18,7 +33,17 @@ type stateBackup struct {
 	players        playerStates
 }
 
+func (g *Game) SetBackupMode(m BackupMode) {
+	g.backupMode = m
+	if g.backupMode == InteractiveGameplayMode {
+		g.SetStateStackLength(1)
+	} // otherwise, let the caller handle this.
+}
+
 func (g *Game) backupState() {
+	if g.backupMode == InteractiveGameplayMode {
+		g.stackPtr = 0
+	}
 	st := g.stateStack[g.stackPtr]
 
 	st.board.CopyFrom(g.board)
@@ -26,9 +51,11 @@ func (g *Game) backupState() {
 	st.playing = g.playing
 	st.scorelessTurns = g.scorelessTurns
 	st.players.copyFrom(g.players)
-	st.onturn = g.onturn
-	st.turnnum = g.turnnum
-	g.stackPtr++
+	if g.backupMode == SimulationMode {
+		st.onturn = g.onturn
+		st.turnnum = g.turnnum
+		g.stackPtr++
+	}
 }
 
 func copyPlayers(ps playerStates) playerStates {
@@ -84,14 +111,18 @@ func (g *Game) SetStateStackLength(length int) {
 // game state with every node which quickly becomes unfeasible.
 func (g *Game) UnplayLastMove() {
 	// Pop the last element, essentially.
-	b := g.stateStack[g.stackPtr-1]
-	g.stackPtr--
-
-	// Turn number and on turn do not need to be restored from backup
-	// as they're assumed to increase logically after every turn. Just
-	// decrease them.
-	g.turnnum--
-	g.onturn = (g.onturn + (len(g.players) - 1)) % len(g.players)
+	var b *stateBackup
+	if g.backupMode == SimulationMode {
+		b = g.stateStack[g.stackPtr-1]
+		g.stackPtr--
+		// Turn number and on turn do not need to be restored from backup
+		// as they're assumed to increase logically after every turn. Just
+		// decrease them.
+		g.turnnum--
+		g.onturn = (g.onturn + (len(g.players) - 1)) % len(g.players)
+	} else {
+		b = g.stateStack[0]
+	}
 
 	g.board.CopyFrom(b.board)
 	g.bag.CopyFrom(b.bag)

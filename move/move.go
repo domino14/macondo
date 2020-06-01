@@ -20,6 +20,7 @@ const (
 	MoveTypePass
 	MoveTypePhonyTilesReturned
 	MoveTypeChallengeBonus
+	MoveTypeUnsuccessfulChallengePass
 
 	MoveTypeEndgameTiles
 	MoveTypeLostTileScore
@@ -209,6 +210,14 @@ func NewLostScoreMove(t MoveType, tiles alphabet.MachineWord, score int) *Move {
 		score:  -score,
 	}
 	return move
+}
+
+func NewUnsuccessfulChallengePassMove(leave alphabet.MachineWord, alph *alphabet.Alphabet) *Move {
+	return &Move{
+		action: MoveTypeUnsuccessfulChallengePass,
+		leave:  leave,
+		alph:   alph,
+	}
 }
 
 // Alphabet is the alphabet used by this move

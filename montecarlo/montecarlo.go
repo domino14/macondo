@@ -148,7 +148,7 @@ func (s *Simmer) resetStats(plies int, plays []*move.Move) {
 	s.iterationCount = 0
 	s.maxPlies = plies
 	for _, g := range s.gameCopies {
-		g.SetStateStackLength(plies)
+		g.SetStateStackLength(1)
 	}
 	s.initialSpread = s.gameCopies[0].CurrentSpread()
 	s.initialPlayer = s.gameCopies[0].PlayerOnTurn()
@@ -322,8 +322,12 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 		leftover := float64(0.0)
 		// logIter.Plays = append(logIter.Plays)
 		// Play the move, and back up the game state.
-		// log.Debug().Msgf("Playing move %v", play)
-		s.gameCopies[thread].PlayMove(simmedPlay.play, true, false)
+		// log.Debug().Msgf("Playing move %v", play)'
+		// Set the backup mode to simulation mode only to back up the first move:
+		s.gameCopies[thread].SetBackupMode(game.SimulationMode)
+		s.gameCopies[thread].PlayMove(simmedPlay.play, false)
+		s.gameCopies[thread].SetBackupMode(game.NoBackup)
+		// Further plies will NOT be backed up.
 		for ply := 0; ply < plies; ply++ {
 			// Each ply is a player taking a turn
 			onTurn := s.gameCopies[thread].PlayerOnTurn()
@@ -332,7 +336,7 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 
 				bestPlay := s.bestStaticTurn(onTurn, thread)
 				// log.Debug().Msgf("Ply %v, Best play: %v", ply+1, bestPlay)
-				s.gameCopies[thread].PlayMove(bestPlay, false, false)
+				s.gameCopies[thread].PlayMove(bestPlay, false)
 				// log.Debug().Msgf("Score is now %v", s.game.Score())
 				if s.logStream != nil {
 					plyChild = LogPlay{Play: bestPlay.ShortDescription(), Rack: bestPlay.FullRack(), Pts: bestPlay.Score()}
