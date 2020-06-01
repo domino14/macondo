@@ -173,6 +173,9 @@ func NewFromHistory(history *pb.GameHistory, rules RuleDefiner, turnnum int) (*G
 	if err != nil {
 		return nil, err
 	}
+	if history.LastKnownRacks == nil {
+		history.LastKnownRacks = []string{"", ""}
+	}
 	return game, nil
 }
 
