@@ -55,9 +55,9 @@ func (g *Game) EventFromMove(m *move.Move) *pb.GameEvent {
 	return evt
 }
 
-func (g *Game) endRackEvt(bonusPts int) *pb.GameEvent {
-	curPlayer := g.curPlayer()
-	otherPlayer := g.oppPlayer()
+func (g *Game) endRackEvt(pidx int, bonusPts int) *pb.GameEvent {
+	curPlayer := g.players[pidx]
+	otherPlayer := g.players[otherPlayer(pidx)]
 
 	evt := &pb.GameEvent{
 		Nickname:      curPlayer.Nickname,

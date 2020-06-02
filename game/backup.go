@@ -26,7 +26,7 @@ const (
 type stateBackup struct {
 	board          *board.GameBoard
 	bag            *alphabet.Bag
-	playing        bool
+	playing        PlayState
 	scorelessTurns int
 	onturn         int
 	turnnum        int

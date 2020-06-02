@@ -177,7 +177,7 @@ func (sc *ShellController) loadGCG(args []string) error {
 	}
 	sc.game.SetBackupMode(game.InteractiveGameplayMode)
 	// Set challenge rule to double by default. This can be overridden.
-	sc.game.History().ChallengeRule = pb.ChallengeRule_DOUBLE
+	sc.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
 
 	return sc.initGameDataStructures()
 
@@ -325,9 +325,9 @@ func (sc *ShellController) challenge(fields []string) error {
 			return err
 		}
 		// Set it to single to have a base bonus of 0, and add passed-in bonus.
-		sc.game.History().ChallengeRule = pb.ChallengeRule_SINGLE
+		sc.game.SetChallengeRule(pb.ChallengeRule_SINGLE)
 		sc.game.ChallengeEvent(addlBonus)
-		sc.game.History().ChallengeRule = pb.ChallengeRule_DOUBLE
+		sc.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
 	} else {
 		// Do double-challenge.
 		sc.game.ChallengeEvent(0)
@@ -564,7 +564,7 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		sc.game.StartGame()
 		sc.game.SetBackupMode(game.InteractiveGameplayMode)
 		// Set challenge rule to double by default. This can be overridden.
-		sc.game.History().ChallengeRule = pb.ChallengeRule_DOUBLE
+		sc.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
 		err = sc.initGameDataStructures()
 		if err != nil {
 			sc.showError(err)
@@ -806,6 +806,29 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			break
 		}
 		sc.showMessage(analysis)
+
+	case "challengerule":
+		if cmd.args == nil {
+			sc.showError(errors.New("need rule"))
+			break
+		}
+		var challRule pb.ChallengeRule
+		switch cmd.args[0] {
+		case "void":
+			challRule = pb.ChallengeRule_VOID
+		case "single":
+			challRule = pb.ChallengeRule_SINGLE
+		case "double":
+			challRule = pb.ChallengeRule_DOUBLE
+		case "5pt":
+			challRule = pb.ChallengeRule_FIVE_POINT
+		case "10pt":
+			challRule = pb.ChallengeRule_TEN_POINT
+		default:
+			return errors.New("challenge rule nonexistent")
+		}
+		sc.game.SetChallengeRule(challRule)
+		sc.showMessage("set challenge rule to " + cmd.args[0])
 
 	default:
 

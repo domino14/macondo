@@ -331,7 +331,7 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 		for ply := 0; ply < plies; ply++ {
 			// Each ply is a player taking a turn
 			onTurn := s.gameCopies[thread].PlayerOnTurn()
-			if s.gameCopies[thread].Playing() {
+			if s.gameCopies[thread].Playing() == game.StatePlaying {
 				// Assume there are exactly two players.
 
 				bestPlay := s.bestStaticTurn(onTurn, thread)

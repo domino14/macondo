@@ -52,6 +52,15 @@ func seededRandSource() (int64, *rand.Rand) {
 	return randSeed, randSource
 }
 
+// PlayState is the state of the game at any given time.
+type PlayState int
+
+const (
+	StatePlaying PlayState = iota
+	StateWaitingForFinalPass
+	StateGameOver
+)
+
 // Game is the actual internal game structure that controls the entire
 // business logic of the game; drawing, making moves, etc. The two
 // structures above are basically data entities.
@@ -66,7 +75,7 @@ type Game struct {
 	letterDistribution *alphabet.LetterDistribution
 	bag                *alphabet.Bag
 
-	playing bool
+	playing PlayState
 
 	randSeed   int64
 	randSource *rand.Rand
@@ -173,9 +182,6 @@ func NewFromHistory(history *pb.GameHistory, rules RuleDefiner, turnnum int) (*G
 	if err != nil {
 		return nil, err
 	}
-	if history.LastKnownRacks == nil {
-		history.LastKnownRacks = []string{"", ""}
-	}
 	return game, nil
 }
 
@@ -209,7 +215,7 @@ func (g *Game) StartGame() {
 	g.history.LastKnownRacks = []string{
 		g.RackLettersFor(0), g.RackLettersFor(1),
 	}
-	g.playing = true
+	g.playing = StatePlaying
 	g.turnnum = 0
 	g.onturn = goesfirst
 	g.wentfirst = goesfirst
@@ -222,7 +228,13 @@ func (g *Game) StartGame() {
 // It returns an array of `alphabet.MachineWord`s formed, or an error if
 // the play is not game legal.
 func (g *Game) ValidateMove(m *move.Move) ([]alphabet.MachineWord, error) {
+	if g.playing == StateGameOver {
+		return nil, errors.New("cannot play a move on a game that is over")
+	}
 	if m.Action() == move.MoveTypeExchange {
+		if g.playing == StateWaitingForFinalPass {
+			return nil, errors.New("you can only pass or challenge")
+		}
 		if g.bag.TilesRemaining() < ExchangeLimit {
 			return nil, fmt.Errorf("not allowed to exchange with fewer than %d tiles in the bag",
 				ExchangeLimit)
@@ -248,6 +260,9 @@ func (g *Game) ValidateMove(m *move.Move) ([]alphabet.MachineWord, error) {
 	} else if m.Action() == move.MoveTypeUnsuccessfulChallengePass {
 		return nil, nil
 	} else if m.Action() == move.MoveTypePlay {
+		if g.playing == StateWaitingForFinalPass {
+			return nil, errors.New("you can only pass or challenge")
+		}
 		return g.validateTilePlayMove(m)
 	} else {
 		return nil, fmt.Errorf("move type %v is not user-inputtable", m.Action())
@@ -299,109 +314,14 @@ func validateWords(gd *gaddag.SimpleGaddag, words []alphabet.MachineWord) []stri
 	return illegalWords
 }
 
-// ChallengeEvent should only be called if there is a history of events.
-// It has the logic for appending challenge events and calculating scores
-// properly.
-// Note that this event can change the history of the game, including
-// things like reset gameEnded back to false (for example if someone plays
-// out with a phony).
-func (g *Game) ChallengeEvent(addlBonus int) error {
-	if len(g.history.Turns) == 0 {
-		return errors.New("this game has no history")
+func (g *Game) endOfGameCalcs(onturn int, turn *pb.GameTurn, addToHistory bool) {
+	unplayedPts := g.calculateRackPts(otherPlayer(onturn)) * 2
+	log.Debug().Int("onturn", onturn).Int("unplayedpts", unplayedPts).
+		Msg("endOfGameCalcs")
+	g.players[onturn].points += unplayedPts
+	if addToHistory {
+		turn.Events = append(turn.Events, g.endRackEvt(onturn, unplayedPts))
 	}
-	if g.history.ChallengeRule == pb.ChallengeRule_VOID {
-		return errors.New("challenges are not valid in void")
-	}
-	if len(g.lastWordsFormed) == 0 {
-		return errors.New("there are no words to challenge")
-	}
-	// Note that the player on turn right now needs to be the player
-	// who is making the challenge.
-	illegalWords := validateWords(g.gaddag, g.lastWordsFormed)
-	playLegal := len(illegalWords) == 0
-
-	lastTurn := g.history.Turns[len(g.history.Turns)-1]
-	cumeScoreBeforeChallenge := lastTurn.Events[0].Cumulative
-
-	offBoardEvent := &pb.GameEvent{
-		Nickname:   lastTurn.Events[0].Nickname,
-		Type:       pb.GameEvent_PHONY_TILES_RETURNED,
-		LostScore:  -lastTurn.Events[0].Score,
-		Cumulative: cumeScoreBeforeChallenge,
-		Rack:       lastTurn.Events[0].Rack,
-	}
-
-	bonusScoreEvent := func(bonus int32) *pb.GameEvent {
-		return &pb.GameEvent{
-			Nickname:   lastTurn.Events[0].Nickname,
-			Type:       pb.GameEvent_CHALLENGE_BONUS,
-			Bonus:      bonus + int32(addlBonus),
-			Cumulative: cumeScoreBeforeChallenge + bonus,
-		}
-	}
-
-	switch g.history.ChallengeRule {
-	case pb.ChallengeRule_DOUBLE:
-		// This "draconian" American system makes it so someone always loses
-		// their turn.
-		if playLegal {
-			// challenger was wrong. They lose their turn.
-			g.PlayMove(move.NewUnsuccessfulChallengePassMove(
-				g.players[g.onturn].rack.TilesOn(), g.alph), true)
-		} else {
-			// the play comes off the board.
-			// make it so the events are ONLY tile placement move
-			// and phony tiles returned (so remove any out-play bonus if it exists)
-			lastTurn.Events = []*pb.GameEvent{lastTurn.Events[0], offBoardEvent}
-		}
-
-	case pb.ChallengeRule_FIVE_POINT:
-		if playLegal {
-			// Append a bonus to the event.
-			lastTurn.Events = append(lastTurn.Events, bonusScoreEvent(5))
-		} else {
-			lastTurn.Events = []*pb.GameEvent{lastTurn.Events[0], offBoardEvent}
-		}
-
-	case pb.ChallengeRule_TEN_POINT:
-		if playLegal {
-			// Append a bonus to the event.
-			lastTurn.Events = append(lastTurn.Events, bonusScoreEvent(10))
-		} else {
-			lastTurn.Events = []*pb.GameEvent{lastTurn.Events[0], offBoardEvent}
-		}
-
-	case pb.ChallengeRule_SINGLE:
-		if playLegal {
-			// There is no bonus score. Append a score of 0, however,
-			// to make it clear that we challenged.
-			lastTurn.Events = append(lastTurn.Events, bonusScoreEvent(0))
-		} else {
-			lastTurn.Events = []*pb.GameEvent{lastTurn.Events[0], offBoardEvent}
-		}
-	}
-	if !playLegal {
-
-		// Unplay the last move to restore everything as it was board-wise
-		// (and un-end the game if it had ended)
-		g.UnplayLastMove()
-		// Note that if backup mode is InteractiveGameplayMode, which it should be,
-		// we do not back up the turn number. So restoring it doesn't change
-		// the turn number or whose turn it is; unplay only copies the
-		// needed variables.
-
-		// and we must add one to scoreless turns:
-		g.scorelessTurns++
-		g.handleConsecutiveScorelessTurns(true, lastTurn)
-
-		// Finally, let's re-shuffle the bag. This is so we don't give the
-		// player who played the phony knowledge about the next few tiles in the bag.
-		g.bag.Shuffle()
-	}
-
-	// Finally set the last words formed to nil.
-	g.lastWordsFormed = nil
-	return nil
 }
 
 // PlayMove plays a move on the board. This function is meant to be used
@@ -422,6 +342,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool) error {
 		}
 		g.lastWordsFormed = wordsFormed
 	}
+
 	switch m.Action() {
 	case move.MoveTypePlay:
 		g.board.PlayMove(m, g.gaddag, g.bag.LetterDistribution())
@@ -439,22 +360,42 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool) error {
 
 		if addToHistory {
 			turn.Events = append(turn.Events, g.EventFromMove(m))
+			if g.history.LastKnownRacks == nil {
+				g.history.LastKnownRacks = []string{"", ""}
+			}
 			g.history.LastKnownRacks[g.onturn] = g.RackLettersFor(g.onturn)
 		}
 
 		if g.players[g.onturn].rack.NumTiles() == 0 {
-			g.playing = false
-			unplayedPts := g.calculateRackPts(otherPlayer(g.onturn)) * 2
-			g.players[g.onturn].points += unplayedPts
-			if addToHistory {
-				turn.Events = append(turn.Events, g.endRackEvt(unplayedPts))
+			if g.history.ChallengeRule != pb.ChallengeRule_VOID {
+				// Basically, if the challenge rule is not void,
+				// wait for the final pass (or challenge).
+				g.playing = StateWaitingForFinalPass
+				log.Info().Msg("waiting for final pass... (commit pass)")
+			} else {
+				log.Info().Msg("game is over")
+				g.playing = StateGameOver
+				g.endOfGameCalcs(g.onturn, turn, addToHistory)
 			}
 		}
 
 	case move.MoveTypePass, move.MoveTypeUnsuccessfulChallengePass:
-		g.scorelessTurns++
-		if addToHistory {
-			turn.Events = append(turn.Events, g.EventFromMove(m))
+		// XXX: It would be ideal to log an unsuccessful challenge pass at
+		// the end of the game, at least as a statistic (in DOUBLE challenge),
+		// but that's not compatible with Quackle.
+		if g.playing == StateWaitingForFinalPass {
+			g.playing = StateGameOver
+			// Note that the player "on turn" changes here, as we created
+			// a fake virtual turn on the pass. We need to calculate
+			// the final score correctly.
+			g.endOfGameCalcs((g.onturn+1)%2, turn, addToHistory)
+		} else {
+			// If this is a regular pass (and not an end-of-game-pass) let's
+			// log it in the history.
+			g.scorelessTurns++
+			if addToHistory {
+				turn.Events = append(turn.Events, g.EventFromMove(m))
+			}
 		}
 
 	case move.MoveTypeExchange:
@@ -468,6 +409,9 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool) error {
 		g.scorelessTurns++
 		if addToHistory {
 			turn.Events = append(turn.Events, g.EventFromMove(m))
+			if g.history.LastKnownRacks == nil {
+				g.history.LastKnownRacks = []string{"", ""}
+			}
 			g.history.LastKnownRacks[g.onturn] = g.RackLettersFor(g.onturn)
 		}
 	}
@@ -494,7 +438,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool) error {
 func (g *Game) handleConsecutiveScorelessTurns(addToHistory bool, turn *pb.GameTurn) error {
 	if g.scorelessTurns == 6 {
 		log.Debug().Msg("game ended with 6 scoreless turns")
-		g.playing = false
+		g.playing = StateGameOver
 		pts := g.calculateRackPts(g.onturn)
 		g.players[g.onturn].points -= pts
 		if addToHistory {
@@ -633,7 +577,7 @@ func (g *Game) PlayToTurn(turnnum int) error {
 	if g.history.FlipPlayers {
 		g.onturn = 1
 	}
-	g.playing = true
+	g.playing = StatePlaying
 	var t int
 	for t = 0; t < turnnum; t++ {
 		g.playTurn(t)
@@ -669,7 +613,7 @@ func (g *Game) PlayToTurn(turnnum int) error {
 	for _, p := range g.players {
 		if p.rack.NumTiles() == 0 {
 			log.Debug().Msgf("Player %v has no tiles, game is over.", p)
-			g.playing = false
+			g.playing = StateGameOver
 			break
 		}
 	}
@@ -880,7 +824,7 @@ func (g *Game) Uid() string {
 	return g.history.Uid
 }
 
-func (g *Game) Playing() bool {
+func (g *Game) Playing() PlayState {
 	return g.playing
 }
 
