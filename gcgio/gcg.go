@@ -170,11 +170,18 @@ func (p *parser) addEventOrPragma(token Token, match []string) error {
 		}
 		p.history.IdAuth = match[1]
 		p.history.Uid = match[2]
-	// Assume Rack1Token always comes before Rack2Token in a well-formed gcg:
 	case Rack1Token:
-		p.history.LastKnownRacks = []string{match[1]}
+		// assume if there is a rack2 token, that rack1 will come before it.
+		if p.history.LastKnownRacks == nil {
+			p.history.LastKnownRacks = []string{match[1], ""}
+		}
 	case Rack2Token:
-		p.history.LastKnownRacks = append(p.history.LastKnownRacks, match[1])
+		if p.history.LastKnownRacks == nil {
+			p.history.LastKnownRacks = []string{"", match[1]}
+		} else {
+			// There is already a rack1 at the [0] position.
+			p.history.LastKnownRacks[1] = match[1]
+		}
 	case EncodingToken:
 		return errEncodingWrongPlace
 	case MoveToken:

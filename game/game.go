@@ -128,6 +128,7 @@ func newHistory(players playerStates, flipfirst bool) *pb.GameHistory {
 	his.Description = MacondoCreation
 	his.Turns = []*pb.GameTurn{}
 	his.FlipPlayers = flipfirst
+	his.LastKnownRacks = []string{"", ""}
 	return his
 }
 
@@ -168,6 +169,9 @@ func NewFromHistory(history *pb.GameHistory, rules RuleDefiner, turnnum int) (*G
 	}
 	if history.Description == "" {
 		history.Description = MacondoCreation
+	}
+	if history.LastKnownRacks == nil {
+		history.LastKnownRacks = []string{"", ""}
 	}
 
 	// Initialize the bag and player rack structures to avoid panics.
@@ -360,9 +364,6 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool) error {
 
 		if addToHistory {
 			turn.Events = append(turn.Events, g.EventFromMove(m))
-			if g.history.LastKnownRacks == nil {
-				g.history.LastKnownRacks = []string{"", ""}
-			}
 			g.history.LastKnownRacks[g.onturn] = g.RackLettersFor(g.onturn)
 		}
 
@@ -409,9 +410,6 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool) error {
 		g.scorelessTurns++
 		if addToHistory {
 			turn.Events = append(turn.Events, g.EventFromMove(m))
-			if g.history.LastKnownRacks == nil {
-				g.history.LastKnownRacks = []string{"", ""}
-			}
 			g.history.LastKnownRacks[g.onturn] = g.RackLettersFor(g.onturn)
 		}
 	}
@@ -585,16 +583,19 @@ func (g *Game) PlayToTurn(turnnum int) error {
 	}
 
 	if t >= len(g.history.Turns) {
-		if g.history.LastKnownRacks != nil {
-			if len(g.history.LastKnownRacks) == 2 {
-				g.SetRacksForBoth([]*alphabet.Rack{
-					alphabet.RackFromString(g.history.LastKnownRacks[0], g.alph),
-					alphabet.RackFromString(g.history.LastKnownRacks[1], g.alph),
-				})
-			} else {
-				g.SetRackFor(0, alphabet.RackFromString(g.history.LastKnownRacks[0], g.alph))
-			}
+		if len(g.history.LastKnownRacks[0]) > 0 && len(g.history.LastKnownRacks[1]) > 0 {
+			g.SetRacksForBoth([]*alphabet.Rack{
+				alphabet.RackFromString(g.history.LastKnownRacks[0], g.alph),
+				alphabet.RackFromString(g.history.LastKnownRacks[1], g.alph),
+			})
+		} else if len(g.history.LastKnownRacks[0]) > 0 {
+			// Rack1 but not rack2
+			g.SetRackFor(0, alphabet.RackFromString(g.history.LastKnownRacks[0], g.alph))
+		} else if len(g.history.LastKnownRacks[1]) > 0 {
+			// Rack2 but not rack1
+			g.SetRackFor(1, alphabet.RackFromString(g.history.LastKnownRacks[1], g.alph))
 		} else {
+			// They're both blank.
 			// We don't have a recorded rack, so set it to a random one.
 			g.SetRandomRack(g.onturn)
 		}

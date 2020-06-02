@@ -114,3 +114,20 @@ func TestNewFromHistoryIncomplete6(t *testing.T) {
 	is.True(g.Playing() == game.StatePlaying)
 	is.Equal(g.RackLettersFor(0), "AEEIILZ")
 }
+
+func TestNewFromHistoryIncomplete7(t *testing.T) {
+	is := is.New(t)
+	rules, err := game.NewGameRules(DefaultConfig, board.CrosswordGameBoard,
+		"NWL18", "English")
+	gameHistory, err := gcgio.ParseGCG("../gcgio/testdata/incomplete4.gcg")
+	is.NoErr(err)
+	is.Equal(len(gameHistory.Turns), 5)
+
+	g, err := game.NewFromHistory(gameHistory, rules, 0)
+	is.NoErr(err)
+	is.True(g != nil)
+	err = g.PlayToTurn(5)
+	is.NoErr(err)
+	is.True(g.Playing() == game.StatePlaying)
+	is.Equal(g.RackLettersFor(1), "AEEIILZ")
+}
