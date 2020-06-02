@@ -39,25 +39,17 @@ func (g *Game) ChallengeEvent(addlBonus int) (bool, error) {
 	lastTurn := g.history.Turns[len(g.history.Turns)-1]
 	cumeScoreBeforeChallenge := lastTurn.Events[0].Cumulative
 
-	offBoardEvent := &pb.GameEvent{
-		Nickname:   lastTurn.Events[0].Nickname,
-		Type:       pb.GameEvent_PHONY_TILES_RETURNED,
-		LostScore:  -lastTurn.Events[0].Score,
-		Cumulative: cumeScoreBeforeChallenge,
-		Rack:       lastTurn.Events[0].Rack,
-	}
-
-	bonusScoreEvent := func(bonus int32) *pb.GameEvent {
-		return &pb.GameEvent{
-			Nickname:   lastTurn.Events[0].Nickname,
-			Type:       pb.GameEvent_CHALLENGE_BONUS,
-			Bonus:      bonus + int32(addlBonus),
-			Cumulative: cumeScoreBeforeChallenge + bonus,
-		}
-	}
 	challengee := otherPlayer(g.onturn)
 
 	if !playLegal {
+		offBoardEvent := &pb.GameEvent{
+			Nickname:   lastTurn.Events[0].Nickname,
+			Type:       pb.GameEvent_PHONY_TILES_RETURNED,
+			LostScore:  -lastTurn.Events[0].Score,
+			Cumulative: cumeScoreBeforeChallenge,
+			Rack:       lastTurn.Events[0].Rack,
+		}
+
 		// the play comes off the board.
 		// make it so the events are ONLY tile placement move
 		// and phony tiles returned (so remove any out-play bonus if it exists)
@@ -80,6 +72,15 @@ func (g *Game) ChallengeEvent(addlBonus int) (bool, error) {
 	} else {
 		addPts := int32(0)
 		shouldAddPts := false
+
+		bonusScoreEvent := func(bonus int32) *pb.GameEvent {
+			return &pb.GameEvent{
+				Nickname:   lastTurn.Events[0].Nickname,
+				Type:       pb.GameEvent_CHALLENGE_BONUS,
+				Bonus:      bonus + int32(addlBonus),
+				Cumulative: cumeScoreBeforeChallenge + bonus,
+			}
+		}
 
 		switch g.history.ChallengeRule {
 		case pb.ChallengeRule_DOUBLE:
