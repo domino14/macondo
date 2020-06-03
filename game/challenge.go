@@ -57,11 +57,14 @@ func (g *Game) ChallengeEvent(addlBonus int) (bool, error) {
 		// Unplay the last move to restore everything as it was board-wise
 		// (and un-end the game if it had ended)
 		g.UnplayLastMove()
+		// We must also set the last known rack of the challengee back to
+		// their rack before they played the phony.
+		g.history.LastKnownRacks[challengee] = lastTurn.Events[0].Rack
+
 		// Note that if backup mode is InteractiveGameplayMode, which it should be,
 		// we do not back up the turn number. So restoring it doesn't change
 		// the turn number or whose turn it is; unplay only copies the
 		// needed variables.
-
 		// and we must add one to scoreless turns:
 		g.scorelessTurns++
 		g.handleConsecutiveScorelessTurns(true, lastTurn)

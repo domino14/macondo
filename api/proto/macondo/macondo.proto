@@ -22,7 +22,9 @@ message GameHistory {
   // in the future.
 
   // if flip_players is set, then the player listed first in `players`
-  // actually went second, and vice versa!
+  // actually went second, and vice versa! Note that this does NOT flip
+  // the order of last_known_racks, which is always in the same order that
+  // `players` is in.
   bool flip_players = 11;
   ChallengeRule challenge_rule = 12;
 }
