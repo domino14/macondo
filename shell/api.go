@@ -26,8 +26,13 @@ func msg(message string) *Response {
 }
 
 func (sc *ShellController) newGame(cmd *shellcmd) (*Response, error) {
-	rules, err := game.NewGameRules(sc.config, board.CrosswordGameBoard,
-		sc.config.DefaultLexicon, sc.config.DefaultLetterDistribution)
+	lexicon := sc.curLexicon
+	if lexicon == "" {
+		lexicon = sc.config.DefaultLexicon
+		log.Info().Msgf("using default lexicon %v", lexicon)
+	}
+	rules, err := game.NewGameRules(
+		sc.config, board.CrosswordGameBoard, lexicon, sc.config.DefaultLetterDistribution)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +127,8 @@ func (sc *ShellController) setlex(cmd *shellcmd) (*Response, error) {
 		return nil, errors.New("must set a lexicon")
 	}
 	if sc.game == nil {
-		return nil, errors.New("please load or create a game first")
+		sc.curLexicon = cmd.args[0]
+		return msg("setting default lexicon to " + sc.curLexicon), nil
 	}
 	letdist := "english"
 	if len(cmd.args) == 2 {

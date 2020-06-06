@@ -46,6 +46,8 @@ type ShellController struct {
 	config   *config.Config
 	execPath string
 
+	curLexicon string
+
 	game     *game.Game
 	aiplayer player.AIPlayer
 
