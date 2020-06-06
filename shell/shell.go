@@ -46,6 +46,8 @@ type ShellController struct {
 	config   *config.Config
 	execPath string
 
+	curLexicon string
+
 	game     *game.Game
 	aiplayer player.AIPlayer
 
@@ -526,9 +528,13 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 	}
 	switch cmd.cmd {
 	case "new":
-
+		lexicon := sc.curLexicon
+		if lexicon == "" {
+			lexicon = sc.config.DefaultLexicon
+			log.Info().Msgf("using default lexicon %v", lexicon)
+		}
 		rules, err := game.NewGameRules(sc.config, board.CrosswordGameBoard,
-			sc.config.DefaultLexicon, sc.config.DefaultLetterDistribution)
+			lexicon, sc.config.DefaultLetterDistribution)
 		if err != nil {
 			sc.showError(err)
 			break
@@ -623,7 +629,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			break
 		}
 		if sc.game == nil {
-			sc.showError(errors.New("please load or create a game first"))
+			sc.curLexicon = cmd.args[0]
+			sc.showMessage("setting default lexicon to " + sc.curLexicon)
 			break
 		}
 		letdist := "english"
