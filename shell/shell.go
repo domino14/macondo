@@ -373,6 +373,7 @@ func (sc *ShellController) addPlay(fields []string, commit bool) error {
 			m = move.NewExchangeMove(tiles, leaveMW, sc.game.Alphabet())
 		} else {
 
+			coords = strings.ToUpper(coords)
 			rack := sc.game.RackFor(playerid).String()
 			m, err = sc.game.CreateAndScorePlacementMove(coords, word, rack)
 			if err != nil {
