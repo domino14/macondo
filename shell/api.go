@@ -202,6 +202,10 @@ func (sc *ShellController) commit(cmd *shellcmd) (*Response, error) {
 	return nil, sc.addPlay(cmd.args, true)
 }
 
+func (sc *ShellController) aiplay(cmd *shellcmd) (*Response, error) {
+	return nil, sc.commitAIMove()
+}
+
 func (sc *ShellController) challenge(cmd *shellcmd) (*Response, error) {
 	fields := cmd.args
 	if len(fields) > 0 {

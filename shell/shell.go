@@ -396,6 +396,45 @@ func (sc *ShellController) addRack(rack string) error {
 	return sc.game.SetRackFor(sc.game.PlayerOnTurn(), alphabet.RackFromString(rack, sc.game.Alphabet()))
 }
 
+func (sc *ShellController) challenge(fields []string) error {
+	if len(fields) > 0 {
+		addlBonus, err := strconv.Atoi(fields[0])
+		if err != nil {
+			return err
+		}
+		// Set it to single to have a base bonus of 0, and add passed-in bonus.
+		sc.game.SetChallengeRule(pb.ChallengeRule_SINGLE)
+		sc.game.ChallengeEvent(addlBonus)
+		sc.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
+	} else {
+		// Do double-challenge.
+		sc.game.ChallengeEvent(0)
+	}
+	sc.curTurnNum++
+	sc.showMessage(sc.game.ToDisplayText())
+	return nil
+}
+
+
+func (sc *ShellController) commitMove(m *move.Move) error {
+	// Play the actual move on the board, draw tiles, etc.
+	err := sc.game.PlayMove(m, false, true)
+	if err != nil {
+		return err
+	}
+	log.Debug().Msgf("Added turn at turn num %v", sc.curTurnNum)
+	sc.curTurnNum++
+	sc.curPlayList = nil
+	sc.simmer.Reset()
+	sc.showMessage(sc.game.ToDisplayText())
+	return nil
+}
+
+	sc.curTurnNum++
+	sc.showMessage(sc.game.ToDisplayText())
+	return nil
+}
+
 func (sc *ShellController) addPlay(fields []string, commit bool) error {
 	var playerid int
 	var m *move.Move
@@ -482,8 +521,22 @@ func (sc *ShellController) addPlay(fields []string, commit bool) error {
 		sc.curPlayList = nil
 		sc.simmer.Reset()
 		sc.showMessage(sc.game.ToDisplayText())
+		err := sc.commitMove(m)
+		if err != nil {
+			return err
+		}
 	}
+
 	return nil
+}
+
+func (sc *ShellController) commitAIMove() error {
+	if !sc.game.Playing() {
+		return errors.New("game is over")
+	}
+	sc.genMoves(15)
+	m := sc.curPlayList[0]
+	return sc.commitMove(m)
 }
 
 func (sc *ShellController) handleAutoplay(args []string, options map[string]string) error {
@@ -637,6 +690,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.challenge(cmd)
 	case "commit":
 		return sc.commit(cmd)
+	case "aiplay":
+		return sc.aiplay(cmd)
 	case "list":
 		return sc.list(cmd)
 	case "endgame":
