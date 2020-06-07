@@ -25,6 +25,24 @@ func msg(message string) *Response {
 	return &Response{message: message}
 }
 
+func (sc *ShellController) set(cmd *shellcmd) (*Response, error) {
+	if cmd.args == nil {
+		return msg(sc.options.ToDisplayText()), nil
+	}
+	opt := cmd.args[0]
+	if len(cmd.args) == 1 {
+		_, val := sc.options.Show(opt)
+		return msg(val), nil
+	}
+	values := cmd.args[1:]
+	ret, err := sc.options.Set(opt, values)
+	if err == nil {
+		sc.showMessage("set " + opt + " to " + ret)
+	} else {
+		sc.showError(err)
+	}
+}
+
 func (sc *ShellController) newGame(cmd *shellcmd) (*Response, error) {
 	lexicon := sc.curLexicon
 	if lexicon == "" {

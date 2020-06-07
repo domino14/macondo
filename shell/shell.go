@@ -13,6 +13,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/chzyer/readline"
 	"github.com/rs/zerolog/log"
@@ -41,12 +42,63 @@ var (
 	errWrongOptionSyntax = errors.New("wrong format; all options need arguments")
 )
 
+// Options to configure the interactve shell
+type ShellOptions struct {
+	lexicon        string
+	lowercaseMoves bool
+}
+
+func NewShellOptions() *ShellOptions {
+	return &ShellOptions{lexicon: "", lowercaseMoves: false}
+}
+
+func (opts *ShellOptions) Set(key string, args []string) (string, error) {
+	switch key {
+	case "lexicon":
+		opts.lexicon = args[0]
+		return args[0], nil
+	case "lower":
+		val, err := strconv.ParseBool(args[0])
+		if err == nil {
+			opts.lowercaseMoves = val
+			return strconv.FormatBool(val), nil
+		} else {
+			return "", errors.New("Valid options: 'true', 'false'")
+		}
+	default:
+		return "", errors.New("No such option: " + key)
+	}
+}
+
+func (opts *ShellOptions) Show(key string) (bool, string) {
+	switch key {
+	case "lexicon":
+		return true, opts.lexicon
+	case "lower":
+		return true, fmt.Sprintf("%v", opts.lowercaseMoves)
+	default:
+		return false, "No such option: " + key
+	}
+}
+
+func (opts *ShellOptions) ToDisplayText() string {
+	keys := []string{"lexicon", "lower"}
+	out := strings.Builder{}
+	out.WriteString("Settings:\n")
+	for _, key := range keys {
+		_, val := opts.Show(key)
+		out.WriteString("  " + key + ": ")
+		out.WriteString(val + "\n")
+	}
+	return out.String()
+}
+
 type ShellController struct {
 	l        *readline.Instance
 	config   *config.Config
 	execPath string
 
-	curLexicon string
+	options *ShellOptions
 
 	game     *game.Game
 	aiplayer player.AIPlayer
@@ -93,6 +145,27 @@ func showMessage(msg string, w io.Writer) {
 	io.WriteString(w, "\n")
 }
 
+func flipCharCase(r rune) rune {
+	if !unicode.IsLetter(r) {
+		return r
+	}
+	if unicode.IsUpper(r) {
+		return unicode.ToLower(r)
+	} else if unicode.IsLower(r) {
+		return unicode.ToUpper(r)
+	} else {
+		return r
+	}
+}
+
+func flipCase(s string) string {
+	letters := []rune{}
+	for _, r := range s {
+		letters = append(letters, flipCharCase(r))
+	}
+	return string(letters)
+}
+
 func NewShellController(cfg *config.Config, execPath string) *ShellController {
 	l, err := readline.NewEx(&readline.Config{
 		Prompt:          "\033[31mmacondo>\033[0m ",
@@ -107,7 +180,8 @@ func NewShellController(cfg *config.Config, execPath string) *ShellController {
 	if err != nil {
 		panic(err)
 	}
-	return &ShellController{l: l, config: cfg, execPath: execPath}
+	opts := NewShellOptions()
+	return &ShellController{l: l, config: cfg, execPath: execPath, options: opts}
 }
 
 func (sc *ShellController) initGameDataStructures() error {
@@ -358,6 +432,10 @@ func (sc *ShellController) addPlay(fields []string, commit bool) error {
 	} else if len(fields) == 2 {
 		coords, word := fields[0], fields[1]
 
+		if sc.options.lowercaseMoves {
+			word = flipCase(word)
+		}
+
 		if coords == "exchange" {
 
 			rack := sc.game.RackFor(playerid)
@@ -543,6 +621,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.turn(cmd)
 	case "rack":
 		return sc.rack(cmd)
+	case "set":
+		return sc.set(cmd)
 	case "setlex":
 		return sc.setlex(cmd)
 	case "gen":
