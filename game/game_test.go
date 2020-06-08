@@ -85,3 +85,29 @@ func TestBackup(t *testing.T) {
 	is.Equal(game.bag.TilesRemaining(), 86)
 	is.Equal(game.players[0].rackLetters, "ACEOTV?")
 }
+
+func TestValidate(t *testing.T) {
+	is := is.New(t)
+	players := []*pb.PlayerInfo{
+		{Nickname: "JD", RealName: "Jesse"},
+		{Nickname: "cesar", RealName: "César"},
+	}
+	rules, _ := NewGameRules(DefaultConfig, board.CrosswordGameBoard, "NWL18",
+		"English")
+	g, _ := NewGame(rules, players)
+	alph := rules.Gaddag().GetAlphabet()
+	g.StartGame()
+	g.SetPlayerOnTurn(0)
+	g.SetRackFor(0, alphabet.RackFromString("HIS", alph))
+	g.SetChallengeRule(pb.ChallengeRule_DOUBLE)
+	m := move.NewScoringMoveSimple(12, "H7", "HIS", "", alph)
+	words, err := g.ValidateMove(m)
+	is.NoErr(err)
+	is.Equal(len(words), 1)
+	g.PlayMove(m, false)
+	g.SetRackFor(1, alphabet.RackFromString("O", alph))
+	m = move.NewScoringMoveSimple(2, "8G", "O.", "", alph)
+	words, err = g.ValidateMove(m)
+	is.NoErr(err)
+	is.Equal(len(words), 1)
+}
