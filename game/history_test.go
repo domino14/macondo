@@ -64,9 +64,9 @@ func TestNewFromHistoryIncomplete4(t *testing.T) {
 	is.NoErr(err)
 	is.Equal(len(gameHistory.Turns), 20)
 
-	game, err := game.NewFromHistory(gameHistory, rules, 0)
+	g, err := game.NewFromHistory(gameHistory, rules, 0)
 	is.NoErr(err)
-	err = game.PlayToTurn(20)
+	err = g.PlayToTurn(20)
 	is.NoErr(err)
 
 	// The Elise GCG is very malformed. Besides having play-through letters
@@ -79,7 +79,7 @@ func TestNewFromHistoryIncomplete4(t *testing.T) {
 	// is.Equal(game.RackLettersFor(1), "AAAELQS")
 
 	// Since it's malformed we end the game. Oops; do not load this GCG!
-	is.True(!game.Playing())
+	is.Equal(g.Playing(), game.StateGameOver)
 }
 
 func TestNewFromHistoryIncomplete5(t *testing.T) {
@@ -90,12 +90,12 @@ func TestNewFromHistoryIncomplete5(t *testing.T) {
 	is.NoErr(err)
 	is.Equal(len(gameHistory.Turns), 20)
 
-	game, err := game.NewFromHistory(gameHistory, rules, 0)
+	g, err := game.NewFromHistory(gameHistory, rules, 0)
 	is.NoErr(err)
-	is.True(game != nil)
-	err = game.PlayToTurn(20)
+	is.True(g != nil)
+	err = g.PlayToTurn(20)
 	is.NoErr(err)
-	is.True(game.Playing())
+	is.Equal(g.Playing(), game.StatePlaying)
 }
 
 func TestNewFromHistoryIncomplete6(t *testing.T) {
@@ -106,11 +106,28 @@ func TestNewFromHistoryIncomplete6(t *testing.T) {
 	is.NoErr(err)
 	is.Equal(len(gameHistory.Turns), 20)
 
-	game, err := game.NewFromHistory(gameHistory, rules, 0)
+	g, err := game.NewFromHistory(gameHistory, rules, 0)
 	is.NoErr(err)
-	is.True(game != nil)
-	err = game.PlayToTurn(20)
+	is.True(g != nil)
+	err = g.PlayToTurn(20)
 	is.NoErr(err)
-	is.True(game.Playing())
-	is.Equal(game.RackLettersFor(0), "AEEIILZ")
+	is.True(g.Playing() == game.StatePlaying)
+	is.Equal(g.RackLettersFor(0), "AEEIILZ")
+}
+
+func TestNewFromHistoryIncomplete7(t *testing.T) {
+	is := is.New(t)
+	rules, err := game.NewGameRules(DefaultConfig, board.CrosswordGameBoard,
+		"NWL18", "English")
+	gameHistory, err := gcgio.ParseGCG("../gcgio/testdata/incomplete4.gcg")
+	is.NoErr(err)
+	is.Equal(len(gameHistory.Turns), 5)
+
+	g, err := game.NewFromHistory(gameHistory, rules, 0)
+	is.NoErr(err)
+	is.True(g != nil)
+	err = g.PlayToTurn(5)
+	is.NoErr(err)
+	is.True(g.Playing() == game.StatePlaying)
+	is.Equal(g.RackLettersFor(1), "AEEIILZ")
 }

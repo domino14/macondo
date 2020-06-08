@@ -56,9 +56,9 @@ func (g *Game) ToDisplayText() string {
 		Int("wentfirst", g.wentfirst).Msg("todisplaytext")
 
 	addText(bts, vpadding, hpadding,
-		g.players[g.wentfirst].stateString(g.playing && g.onturn == g.wentfirst))
+		g.players[g.wentfirst].stateString(g.playing == StatePlaying && g.onturn == g.wentfirst))
 	addText(bts, vpadding+1, hpadding,
-		g.players[notfirst].stateString(g.playing && g.onturn == notfirst))
+		g.players[notfirst].stateString(g.playing == StatePlaying && g.onturn == notfirst))
 
 	// Peek into the bag, and append the opponent's tiles:
 	inbag := g.bag.Peek()
@@ -105,7 +105,7 @@ func (g *Game) ToDisplayText() string {
 
 	vpadding = 17
 
-	if !g.playing && g.turnnum == len(g.history.Turns) {
+	if g.playing == StateGameOver && g.turnnum == len(g.history.Turns) {
 		addText(bts, vpadding, hpadding, "Game is over.")
 	}
 

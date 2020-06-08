@@ -64,13 +64,14 @@ func TestBackup(t *testing.T) {
 	game.StartGame()
 	// Some positive number.
 	game.SetStateStackLength(5)
+	game.SetBackupMode(SimulationMode)
 	// Overwrite the player on turn to be JD:
 	game.SetPlayerOnTurn(0)
 	alph := rules.gaddag.GetAlphabet()
 	game.SetRackFor(0, alphabet.RackFromString("ACEOTV?", alph))
 
 	m := move.NewScoringMoveSimple(20, "H7", "AVOCET", "?", alph)
-	game.PlayMove(m, true, false)
+	game.PlayMove(m, false)
 
 	is.Equal(game.stackPtr, 1)
 	is.Equal(game.players[0].points, 20)

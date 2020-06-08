@@ -55,38 +55,39 @@ func setUpSolver(lex string, bvs board.VsWho, plies int, rack1, rack2 string,
 		{Nickname: "p2", RealName: "Player 2"},
 	}
 
-	game, err := game.NewGame(rules, players)
+	g, err := game.NewGame(rules, players)
 	if err != nil {
 		panic(err)
 	}
 
-	game.StartGame()
-	game.SetStateStackLength(plies)
+	g.StartGame()
+	g.SetBackupMode(game.SimulationMode)
+	g.SetStateStackLength(plies)
 	// Throw in the random racks dealt to our players.
-	game.ThrowRacksIn()
+	g.ThrowRacksIn()
 	gd := rules.Gaddag()
 	dist := rules.LetterDistribution()
-	generator := movegen.NewGordonGenerator(gd, game.Board(), dist)
+	generator := movegen.NewGordonGenerator(gd, g.Board(), dist)
 	alph := rules.Gaddag().GetAlphabet()
 
-	tilesInPlay := game.Board().SetToGame(alph, bvs)
-	err = game.Bag().RemoveTiles(tilesInPlay.OnBoard)
+	tilesInPlay := g.Board().SetToGame(alph, bvs)
+	err = g.Bag().RemoveTiles(tilesInPlay.OnBoard)
 	if err != nil {
 		panic(err)
 	}
-	game.Board().GenAllCrossSets(gd, dist)
+	g.Board().GenAllCrossSets(gd, dist)
 
-	game.SetRacksForBoth([]*alphabet.Rack{
+	g.SetRacksForBoth([]*alphabet.Rack{
 		alphabet.RackFromString(rack1, alph),
 		alphabet.RackFromString(rack2, alph),
 	})
-	game.SetPointsFor(0, p1pts)
-	game.SetPointsFor(1, p2pts)
-	game.SetPlayerOnTurn(onTurn)
-	fmt.Println(game.Board().ToDisplayText(alph))
+	g.SetPointsFor(0, p1pts)
+	g.SetPointsFor(1, p2pts)
+	g.SetPlayerOnTurn(onTurn)
+	fmt.Println(g.Board().ToDisplayText(alph))
 
 	s := new(Solver)
-	s.Init(generator, game)
+	s.Init(generator, g)
 	return s, nil
 }
 
@@ -681,25 +682,26 @@ func TestProperIterativeDeepening(t *testing.T) {
 		gameHistory, err := gcgio.ParseGCG("../../gcgio/testdata/noah_vs_mishu.gcg")
 		is.NoErr(err)
 
-		game, err := game.NewFromHistory(gameHistory, rules, 28)
+		g, err := game.NewFromHistory(gameHistory, rules, 28)
 		is.NoErr(err)
-		game.SetStateStackLength(plies)
-
 		// Make a few plays:
-		game.PlayScoringMove("H7", "T...", false)
-		game.PlayScoringMove("N5", "C...", false)
-		game.PlayScoringMove("10A", ".IN", false)
+		g.PlayScoringMove("H7", "T...", false)
+		g.PlayScoringMove("N5", "C...", false)
+		g.PlayScoringMove("10A", ".IN", false)
 		// Note that this is not right; user should play the P off at 6I,
 		// but this is for testing purposes only:
-		game.PlayScoringMove("13L", "...R", false)
-		is.Equal(game.PointsFor(0), 339)
-		is.Equal(game.PointsFor(1), 381)
+		g.PlayScoringMove("13L", "...R", false)
+		is.Equal(g.PointsFor(0), 339)
+		is.Equal(g.PointsFor(1), 381)
 		generator := movegen.NewGordonGenerator(
-			rules.Gaddag(), game.Board(), game.Bag().LetterDistribution(),
+			rules.Gaddag(), g.Board(), g.Bag().LetterDistribution(),
 		)
 		s := new(Solver)
-		s.Init(generator, game)
-		fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
+		s.Init(generator, g)
+		fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
+		// Prior to solving the endgame, set to simulation mode.
+		g.SetBackupMode(game.SimulationMode)
+		g.SetStateStackLength(plies)
 		v, seq, _ := s.Solve(plies)
 		is.Equal(v, float32(44))
 		// In particular, the sequence should start with 6I A.
@@ -720,20 +722,21 @@ func TestFromGCG(t *testing.T) {
 	gameHistory, err := gcgio.ParseGCG("../../gcgio/testdata/vs_frentz.gcg")
 	is.NoErr(err)
 
-	game, err := game.NewFromHistory(gameHistory, rules, 21)
+	g, err := game.NewFromHistory(gameHistory, rules, 21)
 	is.NoErr(err)
 
-	game.SetStateStackLength(plies)
+	g.SetBackupMode(game.SimulationMode)
+	g.SetStateStackLength(plies)
 	generator := movegen.NewGordonGenerator(
 		// The strategy doesn't matter right here
-		rules.Gaddag(), game.Board(), game.Bag().LetterDistribution(),
+		rules.Gaddag(), g.Board(), g.Bag().LetterDistribution(),
 	)
 
 	s := new(Solver)
-	s.Init(generator, game)
+	s.Init(generator, g)
 	// s.iterativeDeepeningOn = false
 	// s.simpleEvaluation = true
-	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
+	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 	v, seq, _ := s.Solve(plies)
 	is.Equal(v, float32(99))
 	is.Equal(len(seq), 1)

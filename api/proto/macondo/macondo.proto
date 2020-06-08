@@ -22,8 +22,19 @@ message GameHistory {
   // in the future.
 
   // if flip_players is set, then the player listed first in `players`
-  // actually went second, and vice versa!
+  // actually went second, and vice versa! Note that this does NOT flip
+  // the order of last_known_racks, which is always in the same order that
+  // `players` is in.
   bool flip_players = 11;
+  ChallengeRule challenge_rule = 12;
+}
+
+enum ChallengeRule {
+  VOID = 0;
+  SINGLE = 1;
+  DOUBLE = 2;
+  FIVE_POINT = 3;
+  TEN_POINT = 4;
 }
 
 // A GamePosition is a single turn of a GameHistory, and contains the state

@@ -38,6 +38,9 @@ func (g *Game) EventFromMove(m *move.Move) *pb.GameEvent {
 	case move.MoveTypePass:
 		evt.Type = pb.GameEvent_PASS
 
+	case move.MoveTypeUnsuccessfulChallengePass:
+		evt.Type = pb.GameEvent_UNSUCCESSFUL_CHALLENGE_TURN_LOSS
+
 	case move.MoveTypeExchange:
 		evt.Exchanged = m.Tiles().UserVisible(m.Alphabet())
 		evt.Type = pb.GameEvent_EXCHANGE
@@ -52,9 +55,9 @@ func (g *Game) EventFromMove(m *move.Move) *pb.GameEvent {
 	return evt
 }
 
-func (g *Game) endRackEvt(bonusPts int) *pb.GameEvent {
-	curPlayer := g.curPlayer()
-	otherPlayer := g.oppPlayer()
+func (g *Game) endRackEvt(pidx int, bonusPts int) *pb.GameEvent {
+	curPlayer := g.players[pidx]
+	otherPlayer := g.players[otherPlayer(pidx)]
 
 	evt := &pb.GameEvent{
 		Nickname:      curPlayer.Nickname,
@@ -204,6 +207,8 @@ func MoveFromEvent(evt *pb.GameEvent, alph *alphabet.Alphabet, board *board.Game
 			mt = move.MoveTypeLostScoreOnTime
 		}
 		m = move.NewLostScoreMove(mt, rack, int(evt.LostScore))
+	case pb.GameEvent_UNSUCCESSFUL_CHALLENGE_TURN_LOSS:
+		m = move.NewUnsuccessfulChallengePassMove(rack, alph)
 	default:
 		log.Error().Msgf("Unhandled event %v", evt)
 
@@ -255,6 +260,10 @@ func summary(t *pb.GameTurn) string {
 
 		case pb.GameEvent_PASS:
 			summary += fmt.Sprintf("%s passed, holding a rack of %s",
+				evt.Nickname, evt.Rack)
+
+		case pb.GameEvent_UNSUCCESSFUL_CHALLENGE_TURN_LOSS:
+			summary += fmt.Sprintf("%s challenged unsuccessfully, holding a rack of %s",
 				evt.Nickname, evt.Rack)
 
 		case pb.GameEvent_EXCHANGE:

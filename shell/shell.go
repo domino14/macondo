@@ -175,6 +175,10 @@ func (sc *ShellController) loadGCG(args []string) error {
 	if err != nil {
 		return err
 	}
+	sc.game.SetBackupMode(game.InteractiveGameplayMode)
+	// Set challenge rule to double by default. This can be overridden.
+	sc.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
+
 	return sc.initGameDataStructures()
 
 }
@@ -314,6 +318,25 @@ func (sc *ShellController) addRack(rack string) error {
 	return sc.game.SetRackFor(sc.game.PlayerOnTurn(), alphabet.RackFromString(rack, sc.game.Alphabet()))
 }
 
+func (sc *ShellController) challenge(fields []string) error {
+	if len(fields) > 0 {
+		addlBonus, err := strconv.Atoi(fields[0])
+		if err != nil {
+			return err
+		}
+		// Set it to single to have a base bonus of 0, and add passed-in bonus.
+		sc.game.SetChallengeRule(pb.ChallengeRule_SINGLE)
+		sc.game.ChallengeEvent(addlBonus)
+		sc.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
+	} else {
+		// Do double-challenge.
+		sc.game.ChallengeEvent(0)
+	}
+	sc.curTurnNum++
+	sc.showMessage(sc.game.ToDisplayText())
+	return nil
+}
+
 func (sc *ShellController) addPlay(fields []string, commit bool) error {
 	var playerid int
 	var m *move.Move
@@ -375,12 +398,6 @@ func (sc *ShellController) addPlay(fields []string, commit bool) error {
 	} else {
 		return errors.New("unrecognized arguments to `add`")
 	}
-
-	_, err = sc.game.ValidateMove(m)
-	if err != nil {
-		return err
-	}
-
 	if !commit {
 		opp := (sc.game.PlayerOnTurn() + 1) % sc.game.NumPlayers()
 		oppRack := sc.game.RackFor(opp)
@@ -394,7 +411,7 @@ func (sc *ShellController) addPlay(fields []string, commit bool) error {
 	} else {
 
 		// Play the actual move on the board, draw tiles, etc.
-		err = sc.game.PlayMove(m, false, true)
+		err = sc.game.PlayMove(m, true)
 		if err != nil {
 			return err
 		}
@@ -545,6 +562,9 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			break
 		}
 		sc.game.StartGame()
+		sc.game.SetBackupMode(game.InteractiveGameplayMode)
+		// Set challenge rule to double by default. This can be overridden.
+		sc.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
 		err = sc.initGameDataStructures()
 		if err != nil {
 			sc.showError(err)
@@ -683,6 +703,13 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 		if err != nil {
 			sc.showError(err)
 		}
+
+	case "challenge":
+		err := sc.challenge(cmd.args)
+		if err != nil {
+			sc.showError(err)
+		}
+
 	case "commit":
 		err := sc.addPlay(cmd.args, true)
 		if err != nil {
@@ -706,6 +733,7 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			plies, deepening, simpleEval, disablePruning), sc.l.Stderr())
 
 		sc.game.SetStateStackLength(plies)
+		sc.game.SetBackupMode(game.SimulationMode)
 
 		// clear out the last value of this endgame node; gc should
 		// delete the tree.
@@ -727,6 +755,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			sc.showError(err)
 			break
 		}
+		// And turn off simulation mode again.
+		sc.game.SetBackupMode(game.InteractiveGameplayMode)
 		sc.showMessage(fmt.Sprintf("Best sequence has a spread difference of %v", val))
 		sc.printEndgameSequence(seq)
 
@@ -776,6 +806,29 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 			break
 		}
 		sc.showMessage(analysis)
+
+	case "challengerule":
+		if cmd.args == nil {
+			sc.showError(errors.New("need rule"))
+			break
+		}
+		var challRule pb.ChallengeRule
+		switch cmd.args[0] {
+		case "void":
+			challRule = pb.ChallengeRule_VOID
+		case "single":
+			challRule = pb.ChallengeRule_SINGLE
+		case "double":
+			challRule = pb.ChallengeRule_DOUBLE
+		case "5pt":
+			challRule = pb.ChallengeRule_FIVE_POINT
+		case "10pt":
+			challRule = pb.ChallengeRule_TEN_POINT
+		default:
+			return errors.New("challenge rule nonexistent")
+		}
+		sc.game.SetChallengeRule(challRule)
+		sc.showMessage("set challenge rule to " + cmd.args[0])
 
 	default:
 

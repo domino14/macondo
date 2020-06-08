@@ -35,14 +35,20 @@ func FindWord(d *SimpleDawg, word string) bool {
 
 // FindMachineWord finds a word in a dawg or gaddag.
 func FindMachineWord(d GenericDawg, word alphabet.MachineWord) bool {
-	// Flip the word if it's a gaddag, due to how gaddags encode their words.
+	var found bool
 	if d.Type() == TypeGaddag {
+		// Flip the word if it's a gaddag, due to how gaddags encode their words.
+		wordCopy := make([]alphabet.MachineLetter, len(word))
+		copy(wordCopy, word)
 		for i, j := 0, len(word)-1; i < j; i, j = i+1, j-1 {
-			word[i], word[j] = word[j], word[i]
+			wordCopy[i], wordCopy[j] = wordCopy[j], wordCopy[i]
 		}
+		found, _ = findMachineWord(d, d.GetRootNodeIndex(), wordCopy, 0)
+
+	} else {
+		found, _ = findMachineWord(d, d.GetRootNodeIndex(), word, 0)
 	}
 
-	found, _ := findMachineWord(d, d.GetRootNodeIndex(), word, 0)
 	return found
 }
 

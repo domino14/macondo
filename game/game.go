@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"strings"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
@@ -51,6 +52,15 @@ func seededRandSource() (int64, *rand.Rand) {
 	return randSeed, randSource
 }
 
+// PlayState is the state of the game at any given time.
+type PlayState int
+
+const (
+	StatePlaying PlayState = iota
+	StateWaitingForFinalPass
+	StateGameOver
+)
+
 // Game is the actual internal game structure that controls the entire
 // business logic of the game; drawing, making moves, etc. The two
 // structures above are basically data entities.
@@ -65,7 +75,7 @@ type Game struct {
 	letterDistribution *alphabet.LetterDistribution
 	bag                *alphabet.Bag
 
-	playing bool
+	playing PlayState
 
 	randSeed   int64
 	randSource *rand.Rand
@@ -79,6 +89,10 @@ type Game struct {
 	// history only gets written to when someone plays a move that is NOT
 	// backed up.
 	history *pb.GameHistory
+	// lastWordsFormed also does not need to be backed up, it only gets written
+	// to when the history is written to. See comment above.
+	lastWordsFormed []alphabet.MachineWord
+	backupMode      BackupMode
 
 	stateStack []*stateBackup
 	stackPtr   int
@@ -114,6 +128,7 @@ func newHistory(players playerStates, flipfirst bool) *pb.GameHistory {
 	his.Description = MacondoCreation
 	his.Turns = []*pb.GameTurn{}
 	his.FlipPlayers = flipfirst
+	his.LastKnownRacks = []string{"", ""}
 	return his
 }
 
@@ -123,6 +138,7 @@ func NewGame(rules RuleDefiner, playerinfo []*pb.PlayerInfo) (*Game, error) {
 	game.gaddag = rules.Gaddag()
 	game.alph = game.gaddag.GetAlphabet()
 	game.letterDistribution = rules.LetterDistribution()
+	game.backupMode = NoBackup
 
 	game.board = rules.Board().Copy()
 
@@ -153,6 +169,9 @@ func NewFromHistory(history *pb.GameHistory, rules RuleDefiner, turnnum int) (*G
 	}
 	if history.Description == "" {
 		history.Description = MacondoCreation
+	}
+	if history.LastKnownRacks == nil {
+		history.LastKnownRacks = []string{"", ""}
 	}
 
 	// Initialize the bag and player rack structures to avoid panics.
@@ -200,7 +219,7 @@ func (g *Game) StartGame() {
 	g.history.LastKnownRacks = []string{
 		g.RackLettersFor(0), g.RackLettersFor(1),
 	}
-	g.playing = true
+	g.playing = StatePlaying
 	g.turnnum = 0
 	g.onturn = goesfirst
 	g.wentfirst = goesfirst
@@ -213,7 +232,13 @@ func (g *Game) StartGame() {
 // It returns an array of `alphabet.MachineWord`s formed, or an error if
 // the play is not game legal.
 func (g *Game) ValidateMove(m *move.Move) ([]alphabet.MachineWord, error) {
+	if g.playing == StateGameOver {
+		return nil, errors.New("cannot play a move on a game that is over")
+	}
 	if m.Action() == move.MoveTypeExchange {
+		if g.playing == StateWaitingForFinalPass {
+			return nil, errors.New("you can only pass or challenge")
+		}
 		if g.bag.TilesRemaining() < ExchangeLimit {
 			return nil, fmt.Errorf("not allowed to exchange with fewer than %d tiles in the bag",
 				ExchangeLimit)
@@ -236,7 +261,12 @@ func (g *Game) ValidateMove(m *move.Move) ([]alphabet.MachineWord, error) {
 	} else if m.Action() == move.MoveTypePass {
 		// This is always valid.
 		return nil, nil
+	} else if m.Action() == move.MoveTypeUnsuccessfulChallengePass {
+		return nil, nil
 	} else if m.Action() == move.MoveTypePlay {
+		if g.playing == StateWaitingForFinalPass {
+			return nil, errors.New("you can only pass or challenge")
+		}
 		return g.validateTilePlayMove(m)
 	} else {
 		return nil, fmt.Errorf("move type %v is not user-inputtable", m.Action())
@@ -260,25 +290,63 @@ func (g *Game) validateTilePlayMove(m *move.Move) ([]alphabet.MachineWord, error
 	}
 
 	// The play is legal. What words does it form?
-	return g.Board().FormedWords(m)
+	formedWords, err := g.Board().FormedWords(m)
+	if err != nil {
+		return nil, err
+	}
+	if g.history.ChallengeRule == pb.ChallengeRule_VOID {
+		// Actually check the validity of the words.
+		illegalWords := validateWords(g.gaddag, formedWords)
+
+		if len(illegalWords) > 0 {
+			return nil, fmt.Errorf("the play contained illegal words: %v",
+				strings.Join(illegalWords, ", "))
+		}
+	}
+	return formedWords, nil
+}
+
+func validateWords(gd *gaddag.SimpleGaddag, words []alphabet.MachineWord) []string {
+	var illegalWords []string
+	alph := gd.GetAlphabet()
+	for _, word := range words {
+		valid := gaddag.FindMachineWord(gd, word)
+		if !valid {
+			illegalWords = append(illegalWords, word.UserVisible(alph))
+		}
+	}
+	return illegalWords
+}
+
+func (g *Game) endOfGameCalcs(onturn int, turn *pb.GameTurn, addToHistory bool) {
+	unplayedPts := g.calculateRackPts(otherPlayer(onturn)) * 2
+	log.Debug().Int("onturn", onturn).Int("unplayedpts", unplayedPts).
+		Msg("endOfGameCalcs")
+	g.players[onturn].points += unplayedPts
+	if addToHistory {
+		turn.Events = append(turn.Events, g.endRackEvt(onturn, unplayedPts))
+	}
 }
 
 // PlayMove plays a move on the board. This function is meant to be used
-// by simulators as it implements a subset of possible moves.
-// XXX: It doesn't implement special things like challenge bonuses, etc.
-// XXX: Will this still be true, or should this function do it all?
-func (g *Game) PlayMove(m *move.Move, backup bool, addToHistory bool) error {
+// by simulators as it implements a subset of possible moves, and by remote
+// gameplay engines as much as possible.
+func (g *Game) PlayMove(m *move.Move, addToHistory bool) error {
 	var turn *pb.GameTurn
 
-	// if we are backing up, then we do not want to add a new turn to the
-	// game history. We only back up when we are simulating / generating endgames / etc,
-	// and we only want to add new turns during actual gameplay.
-	if backup {
+	if g.backupMode != NoBackup {
 		g.backupState()
 	}
 	if addToHistory {
 		turn = &pb.GameTurn{Events: []*pb.GameEvent{}}
+		// Also, validate that the move follows the rules.
+		wordsFormed, err := g.ValidateMove(m)
+		if err != nil {
+			return err
+		}
+		g.lastWordsFormed = wordsFormed
 	}
+
 	switch m.Action() {
 	case move.MoveTypePlay:
 		g.board.PlayMove(m, g.gaddag, g.bag.LetterDistribution())
@@ -300,18 +368,35 @@ func (g *Game) PlayMove(m *move.Move, backup bool, addToHistory bool) error {
 		}
 
 		if g.players[g.onturn].rack.NumTiles() == 0 {
-			g.playing = false
-			unplayedPts := g.calculateRackPts(otherPlayer(g.onturn)) * 2
-			g.players[g.onturn].points += unplayedPts
-			if addToHistory {
-				turn.Events = append(turn.Events, g.endRackEvt(unplayedPts))
+			if g.history.ChallengeRule != pb.ChallengeRule_VOID {
+				// Basically, if the challenge rule is not void,
+				// wait for the final pass (or challenge).
+				g.playing = StateWaitingForFinalPass
+				log.Info().Msg("waiting for final pass... (commit pass)")
+			} else {
+				log.Info().Msg("game is over")
+				g.playing = StateGameOver
+				g.endOfGameCalcs(g.onturn, turn, addToHistory)
 			}
 		}
 
-	case move.MoveTypePass:
-		g.scorelessTurns++
-		if addToHistory {
-			turn.Events = append(turn.Events, g.EventFromMove(m))
+	case move.MoveTypePass, move.MoveTypeUnsuccessfulChallengePass:
+		// XXX: It would be ideal to log an unsuccessful challenge pass at
+		// the end of the game, at least as a statistic (in DOUBLE challenge),
+		// but that's not compatible with Quackle.
+		if g.playing == StateWaitingForFinalPass {
+			g.playing = StateGameOver
+			// Note that the player "on turn" changes here, as we created
+			// a fake virtual turn on the pass. We need to calculate
+			// the final score correctly.
+			g.endOfGameCalcs((g.onturn+1)%2, turn, addToHistory)
+		} else {
+			// If this is a regular pass (and not an end-of-game-pass) let's
+			// log it in the history.
+			g.scorelessTurns++
+			if addToHistory {
+				turn.Events = append(turn.Events, g.EventFromMove(m))
+			}
 		}
 
 	case move.MoveTypeExchange:
@@ -329,9 +414,29 @@ func (g *Game) PlayMove(m *move.Move, backup bool, addToHistory bool) error {
 		}
 	}
 
+	err := g.handleConsecutiveScorelessTurns(addToHistory, turn)
+	if err != nil {
+		return err
+	}
+
+	if addToHistory {
+		err := g.addToHistory(turn)
+		if err != nil {
+			return err
+		}
+	}
+
+	g.onturn = (g.onturn + 1) % len(g.players)
+	g.turnnum++
+	// log.Debug().Interface("history", g.history).Int("onturn", g.onturn).Int("turnnum", g.turnnum).
+	// 	Msg("newhist")
+	return nil
+}
+
+func (g *Game) handleConsecutiveScorelessTurns(addToHistory bool, turn *pb.GameTurn) error {
 	if g.scorelessTurns == 6 {
 		log.Debug().Msg("game ended with 6 scoreless turns")
-		g.playing = false
+		g.playing = StateGameOver
 		pts := g.calculateRackPts(g.onturn)
 		g.players[g.onturn].points -= pts
 		if addToHistory {
@@ -351,18 +456,6 @@ func (g *Game) PlayMove(m *move.Move, backup bool, addToHistory bool) error {
 			turn.Events = append(turn.Events, g.endRackPenaltyEvt(pts))
 		}
 	}
-
-	if addToHistory {
-		err := g.addToHistory(turn)
-		if err != nil {
-			return err
-		}
-	}
-
-	g.onturn = (g.onturn + 1) % len(g.players)
-	g.turnnum++
-	// log.Debug().Interface("history", g.history).Int("onturn", g.onturn).Int("turnnum", g.turnnum).
-	// 	Msg("newhist")
 	return nil
 }
 
@@ -378,7 +471,7 @@ func (g *Game) PlayScoringMove(coords, word string, addToHistory bool) (*move.Mo
 		return nil, err
 	}
 	// Actually make the play on the board:
-	g.PlayMove(m, false, addToHistory)
+	g.PlayMove(m, addToHistory)
 	return m, nil
 }
 
@@ -482,7 +575,7 @@ func (g *Game) PlayToTurn(turnnum int) error {
 	if g.history.FlipPlayers {
 		g.onturn = 1
 	}
-	g.playing = true
+	g.playing = StatePlaying
 	var t int
 	for t = 0; t < turnnum; t++ {
 		g.playTurn(t)
@@ -490,16 +583,19 @@ func (g *Game) PlayToTurn(turnnum int) error {
 	}
 
 	if t >= len(g.history.Turns) {
-		if g.history.LastKnownRacks != nil {
-			if len(g.history.LastKnownRacks) == 2 {
-				g.SetRacksForBoth([]*alphabet.Rack{
-					alphabet.RackFromString(g.history.LastKnownRacks[0], g.alph),
-					alphabet.RackFromString(g.history.LastKnownRacks[1], g.alph),
-				})
-			} else {
-				g.SetRackFor(0, alphabet.RackFromString(g.history.LastKnownRacks[0], g.alph))
-			}
+		if len(g.history.LastKnownRacks[0]) > 0 && len(g.history.LastKnownRacks[1]) > 0 {
+			g.SetRacksForBoth([]*alphabet.Rack{
+				alphabet.RackFromString(g.history.LastKnownRacks[0], g.alph),
+				alphabet.RackFromString(g.history.LastKnownRacks[1], g.alph),
+			})
+		} else if len(g.history.LastKnownRacks[0]) > 0 {
+			// Rack1 but not rack2
+			g.SetRackFor(0, alphabet.RackFromString(g.history.LastKnownRacks[0], g.alph))
+		} else if len(g.history.LastKnownRacks[1]) > 0 {
+			// Rack2 but not rack1
+			g.SetRackFor(1, alphabet.RackFromString(g.history.LastKnownRacks[1], g.alph))
 		} else {
+			// They're both blank.
 			// We don't have a recorded rack, so set it to a random one.
 			g.SetRandomRack(g.onturn)
 		}
@@ -518,7 +614,7 @@ func (g *Game) PlayToTurn(turnnum int) error {
 	for _, p := range g.players {
 		if p.rack.NumTiles() == 0 {
 			log.Debug().Msgf("Player %v has no tiles, game is over.", p)
-			g.playing = false
+			g.playing = StateGameOver
 			break
 		}
 	}
@@ -729,7 +825,7 @@ func (g *Game) Uid() string {
 	return g.history.Uid
 }
 
-func (g *Game) Playing() bool {
+func (g *Game) Playing() PlayState {
 	return g.playing
 }
 

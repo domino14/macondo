@@ -22,7 +22,8 @@ Examining a game:
       id (1 or 0) - turn on or off iterative deepening (on by default)
       simple (1 or 0) - use simple eval func (faster but less accurate, off by default)
       disablePruning (1 or 0) - disable alpha/beta pruning (should only use for debugging purposes)
-
+    challenge [n] - add a challenge bonus to the last play of n points, or challenge play off.
+    challengerule <rule> - set the challenge rule (defaults to DOUBLE)
 Other:
     export <filepath> - export a game to .gcg
     autoplay [options] - start comp v comp autoplay

@@ -1,3 +1,8 @@
+# v0.4.5 (rc)
+
+- Add challenge rules and `challenge` command to the shell to handle these.
+- Add end-of-game pass/challenge if challenge rule is not VOID.
+
 # v0.4.4 (May 24, 2020)
 
 - Add opp score to autoplay log
