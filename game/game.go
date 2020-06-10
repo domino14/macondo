@@ -118,7 +118,7 @@ func newHistory(players playerStates, flipfirst bool) *pb.GameHistory {
 	his.Uid = shortuuid.New()
 	his.Description = MacondoCreation
 	his.Turns = []*pb.GameTurn{}
-	his.FlipPlayers = flipfirst
+	his.SecondWentFirst = flipfirst
 	his.LastKnownRacks = []string{"", ""}
 	return his
 }
@@ -570,7 +570,7 @@ func (g *Game) PlayToTurn(turnnum int) error {
 	g.players.resetRacks()
 	g.turnnum = 0
 	g.onturn = 0
-	if g.history.FlipPlayers {
+	if g.history.SecondWentFirst {
 		g.onturn = 1
 	}
 	g.playing = pb.PlayState_PLAYING

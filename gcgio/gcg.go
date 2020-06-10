@@ -570,7 +570,7 @@ func GameHistoryToGCG(h *pb.GameHistory, addlHeaderInfo bool) (string, error) {
 
 	var str strings.Builder
 	writeGCGHeader(&str, h, addlHeaderInfo)
-	writePlayers(&str, h.Players, h.FlipPlayers)
+	writePlayers(&str, h.Players, h.SecondWentFirst)
 
 	for _, turn := range h.Turns {
 		err := writeTurn(&str, turn)
