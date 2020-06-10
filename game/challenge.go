@@ -112,8 +112,9 @@ func (g *Game) ChallengeEvent(addlBonus int) (bool, error) {
 			g.players[challengee].points += int(addPts)
 		}
 
-		if g.playing == StateWaitingForFinalPass {
-			g.playing = StateGameOver
+		if g.playing == pb.PlayState_WAITING_FOR_FINAL_PASS {
+			g.playing = pb.PlayState_GAME_OVER
+			g.history.PlayState = g.playing
 			// Game is actually over now, after the failed challenge.
 			// do calculations with the player on turn being the player who
 			// didn't challenge, as this is a special event where the turn

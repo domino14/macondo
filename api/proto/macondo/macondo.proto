@@ -27,6 +27,13 @@ message GameHistory {
   // `players` is in.
   bool flip_players = 11;
   ChallengeRule challenge_rule = 12;
+  PlayState play_state = 13;
+}
+
+enum PlayState {
+  PLAYING = 0;
+  WAITING_FOR_FINAL_PASS = 1;
+  GAME_OVER = 2;
 }
 
 enum ChallengeRule {
