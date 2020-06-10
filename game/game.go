@@ -826,7 +826,7 @@ func (g *Game) Uid() string {
 	return g.history.Uid
 }
 
-func (g *Game) Playing() PlayState {
+func (g *Game) Playing() pb.PlayState {
 	return g.playing
 }
 
