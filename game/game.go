@@ -52,15 +52,6 @@ func seededRandSource() (int64, *rand.Rand) {
 	return randSeed, randSource
 }
 
-// PlayState is the state of the game at any given time.
-type PlayState int
-
-const (
-	StatePlaying PlayState = iota
-	StateWaitingForFinalPass
-	StateGameOver
-)
-
 // Game is the actual internal game structure that controls the entire
 // business logic of the game; drawing, making moves, etc. The two
 // structures above are basically data entities.
@@ -75,7 +66,7 @@ type Game struct {
 	letterDistribution *alphabet.LetterDistribution
 	bag                *alphabet.Bag
 
-	playing PlayState
+	playing pb.PlayState
 
 	randSeed   int64
 	randSource *rand.Rand
@@ -219,7 +210,8 @@ func (g *Game) StartGame() {
 	g.history.LastKnownRacks = []string{
 		g.RackLettersFor(0), g.RackLettersFor(1),
 	}
-	g.playing = StatePlaying
+	g.playing = pb.PlayState_PLAYING
+	g.history.PlayState = g.playing
 	g.turnnum = 0
 	g.onturn = goesfirst
 	g.wentfirst = goesfirst
@@ -232,11 +224,11 @@ func (g *Game) StartGame() {
 // It returns an array of `alphabet.MachineWord`s formed, or an error if
 // the play is not game legal.
 func (g *Game) ValidateMove(m *move.Move) ([]alphabet.MachineWord, error) {
-	if g.playing == StateGameOver {
+	if g.playing == pb.PlayState_GAME_OVER {
 		return nil, errors.New("cannot play a move on a game that is over")
 	}
 	if m.Action() == move.MoveTypeExchange {
-		if g.playing == StateWaitingForFinalPass {
+		if g.playing == pb.PlayState_WAITING_FOR_FINAL_PASS {
 			return nil, errors.New("you can only pass or challenge")
 		}
 		if g.bag.TilesRemaining() < ExchangeLimit {
@@ -264,7 +256,7 @@ func (g *Game) ValidateMove(m *move.Move) ([]alphabet.MachineWord, error) {
 	} else if m.Action() == move.MoveTypeUnsuccessfulChallengePass {
 		return nil, nil
 	} else if m.Action() == move.MoveTypePlay {
-		if g.playing == StateWaitingForFinalPass {
+		if g.playing == pb.PlayState_WAITING_FOR_FINAL_PASS {
 			return nil, errors.New("you can only pass or challenge")
 		}
 		return g.validateTilePlayMove(m)
@@ -371,11 +363,13 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool) error {
 			if g.history.ChallengeRule != pb.ChallengeRule_VOID {
 				// Basically, if the challenge rule is not void,
 				// wait for the final pass (or challenge).
-				g.playing = StateWaitingForFinalPass
+				g.playing = pb.PlayState_WAITING_FOR_FINAL_PASS
+				g.history.PlayState = g.playing
 				log.Info().Msg("waiting for final pass... (commit pass)")
 			} else {
 				log.Info().Msg("game is over")
-				g.playing = StateGameOver
+				g.playing = pb.PlayState_GAME_OVER
+				g.history.PlayState = g.playing
 				g.endOfGameCalcs(g.onturn, turn, addToHistory)
 			}
 		}
@@ -384,8 +378,10 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool) error {
 		// XXX: It would be ideal to log an unsuccessful challenge pass at
 		// the end of the game, at least as a statistic (in DOUBLE challenge),
 		// but that's not compatible with Quackle.
-		if g.playing == StateWaitingForFinalPass {
-			g.playing = StateGameOver
+		if g.playing == pb.PlayState_WAITING_FOR_FINAL_PASS {
+			g.playing = pb.PlayState_GAME_OVER
+			g.history.PlayState = g.playing
+
 			// Note that the player "on turn" changes here, as we created
 			// a fake virtual turn on the pass. We need to calculate
 			// the final score correctly.
@@ -436,7 +432,9 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool) error {
 func (g *Game) handleConsecutiveScorelessTurns(addToHistory bool, turn *pb.GameTurn) error {
 	if g.scorelessTurns == 6 {
 		log.Debug().Msg("game ended with 6 scoreless turns")
-		g.playing = StateGameOver
+		g.playing = pb.PlayState_GAME_OVER
+		g.history.PlayState = g.playing
+
 		pts := g.calculateRackPts(g.onturn)
 		g.players[g.onturn].points -= pts
 		if addToHistory {
@@ -575,7 +573,8 @@ func (g *Game) PlayToTurn(turnnum int) error {
 	if g.history.FlipPlayers {
 		g.onturn = 1
 	}
-	g.playing = StatePlaying
+	g.playing = pb.PlayState_PLAYING
+	g.history.PlayState = g.playing
 	var t int
 	for t = 0; t < turnnum; t++ {
 		g.playTurn(t)
@@ -614,7 +613,9 @@ func (g *Game) PlayToTurn(turnnum int) error {
 	for _, p := range g.players {
 		if p.rack.NumTiles() == 0 {
 			log.Debug().Msgf("Player %v has no tiles, game is over.", p)
-			g.playing = StateGameOver
+			g.playing = pb.PlayState_GAME_OVER
+			g.history.PlayState = g.playing
+
 			break
 		}
 	}
@@ -825,7 +826,7 @@ func (g *Game) Uid() string {
 	return g.history.Uid
 }
 
-func (g *Game) Playing() PlayState {
+func (g *Game) Playing() pb.PlayState {
 	return g.playing
 }
 

@@ -12,11 +12,10 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/domino14/macondo/game"
-
 	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/config"
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
 
 var (
@@ -44,7 +43,7 @@ func (r *GameRunner) CompVsCompStatic() error {
 func (r *GameRunner) playFullStatic() {
 	log.Debug().Msgf("playing full static, game %v", r.game)
 	r.StartGame()
-	for r.game.Playing() == game.StatePlaying {
+	for r.game.Playing() == pb.PlayState_PLAYING {
 		// log.Printf("[DEBUG] turn %v", r.game.Turn())
 		r.PlayBestStaticTurn(r.game.PlayerOnTurn())
 	}

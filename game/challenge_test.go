@@ -110,7 +110,7 @@ func TestChallengeEndOfGamePlusFive(t *testing.T) {
 	legal, err := g.ChallengeEvent(0)
 	is.NoErr(err)
 	is.True(legal)
-	is.Equal(g.Playing(), game.StateGameOver)
+	is.Equal(g.Playing(), pb.PlayState_GAME_OVER)
 	is.Equal(g.PointsForNick("arcadio"), 364)
 	is.Equal(g.PointsForNick("úrsula"), 409)
 }
@@ -135,11 +135,11 @@ func TestChallengeEndOfGamePhony(t *testing.T) {
 	is.NoErr(err)
 	err = g.PlayMove(m, true)
 	is.NoErr(err)
-	is.Equal(g.Playing(), game.StateWaitingForFinalPass)
+	is.Equal(g.Playing(), pb.PlayState_WAITING_FOR_FINAL_PASS)
 	legal, err := g.ChallengeEvent(0)
 	is.NoErr(err)
 	is.True(!legal)
-	is.Equal(g.Playing(), game.StatePlaying)
+	is.Equal(g.Playing(), pb.PlayState_PLAYING)
 
 	is.Equal(g.PointsForNick("arcadio"), 364)
 	is.Equal(g.PointsForNick("úrsula"), 372)

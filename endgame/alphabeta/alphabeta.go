@@ -8,6 +8,7 @@ import (
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/game"
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/rs/zerolog/log"
@@ -449,7 +450,7 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 	maximizingPlayer bool) *GameNode {
 
 	// depthDbg := strings.Repeat(" ", depth)
-	if depth == 0 || s.game.Playing() == game.StateGameOver {
+	if depth == 0 || s.game.Playing() == pb.PlayState_GAME_OVER {
 		// s.game.Playing() happens if the game is over; i.e. if the
 		// current node is terminal.
 		node.calculateValue(s)

@@ -3,7 +3,7 @@ package alphabeta
 import (
 	"fmt"
 
-	"github.com/domino14/macondo/game"
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
 )
 
@@ -98,7 +98,7 @@ func (g *GameNode) calculateValue(s *Solver) {
 		initialSpread = -initialSpread
 		negateHeurVal = true
 	}
-	gameOver := s.game.Playing() == game.StateGameOver
+	gameOver := s.game.Playing() == pb.PlayState_GAME_OVER
 	// If the game is over, the value should just be the spread change.
 	if gameOver {
 		// Technically no one is on turn, but the player NOT on turn is

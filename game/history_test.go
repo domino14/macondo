@@ -8,6 +8,7 @@ import (
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/matryer/is"
 )
 
@@ -79,7 +80,7 @@ func TestNewFromHistoryIncomplete4(t *testing.T) {
 	// is.Equal(game.RackLettersFor(1), "AAAELQS")
 
 	// Since it's malformed we end the game. Oops; do not load this GCG!
-	is.Equal(g.Playing(), game.StateGameOver)
+	is.Equal(g.Playing(), pb.PlayState_GAME_OVER)
 }
 
 func TestNewFromHistoryIncomplete5(t *testing.T) {
@@ -95,7 +96,7 @@ func TestNewFromHistoryIncomplete5(t *testing.T) {
 	is.True(g != nil)
 	err = g.PlayToTurn(20)
 	is.NoErr(err)
-	is.Equal(g.Playing(), game.StatePlaying)
+	is.Equal(g.Playing(), pb.PlayState_PLAYING)
 }
 
 func TestNewFromHistoryIncomplete6(t *testing.T) {
@@ -111,7 +112,7 @@ func TestNewFromHistoryIncomplete6(t *testing.T) {
 	is.True(g != nil)
 	err = g.PlayToTurn(20)
 	is.NoErr(err)
-	is.True(g.Playing() == game.StatePlaying)
+	is.True(g.Playing() == pb.PlayState_PLAYING)
 	is.Equal(g.RackLettersFor(0), "AEEIILZ")
 }
 
@@ -128,6 +129,6 @@ func TestNewFromHistoryIncomplete7(t *testing.T) {
 	is.True(g != nil)
 	err = g.PlayToTurn(5)
 	is.NoErr(err)
-	is.True(g.Playing() == game.StatePlaying)
+	is.True(g.Playing() == pb.PlayState_PLAYING)
 	is.Equal(g.RackLettersFor(1), "AEEIILZ")
 }
