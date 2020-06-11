@@ -37,7 +37,7 @@ func (g *Game) ChallengeEvent(addlBonus int) (bool, error) {
 	playLegal := len(illegalWords) == 0
 
 	lastTurn := g.history.Turns[len(g.history.Turns)-1]
-	cumeScoreBeforeChallenge := lastTurn.Events[0].Cumulative
+	cumeScoreBeforeChallenge := lastTurn.Events[0].Cumulative - lastTurn.Events[0].Score
 
 	challengee := otherPlayer(g.onturn)
 
