@@ -37,7 +37,7 @@ func (g *Game) ChallengeEvent(addlBonus int) (bool, error) {
 	playLegal := len(illegalWords) == 0
 
 	lastTurn := g.history.Turns[len(g.history.Turns)-1]
-	cumeScoreBeforeChallenge := lastTurn.Events[0].Cumulative - lastTurn.Events[0].Score
+	cumeScoreBeforeChallenge := lastTurn.Events[0].Cumulative
 
 	challengee := otherPlayer(g.onturn)
 
@@ -46,7 +46,7 @@ func (g *Game) ChallengeEvent(addlBonus int) (bool, error) {
 			Nickname:   lastTurn.Events[0].Nickname,
 			Type:       pb.GameEvent_PHONY_TILES_RETURNED,
 			LostScore:  -lastTurn.Events[0].Score,
-			Cumulative: cumeScoreBeforeChallenge,
+			Cumulative: cumeScoreBeforeChallenge - lastTurn.Events[0].Score,
 			Rack:       lastTurn.Events[0].Rack,
 		}
 
