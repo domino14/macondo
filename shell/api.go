@@ -37,14 +37,14 @@ func (sc *ShellController) set(cmd *shellcmd) (*Response, error) {
 	values := cmd.args[1:]
 	ret, err := sc.options.Set(opt, values)
 	if err == nil {
-		sc.showMessage("set " + opt + " to " + ret)
+		return msg("set " + opt + " to " + ret), nil
 	} else {
-		sc.showError(err)
+		return nil, err
 	}
 }
 
 func (sc *ShellController) newGame(cmd *shellcmd) (*Response, error) {
-	lexicon := sc.curLexicon
+	lexicon := sc.options.lexicon
 	if lexicon == "" {
 		lexicon = sc.config.DefaultLexicon
 		log.Info().Msgf("using default lexicon %v", lexicon)
@@ -145,8 +145,8 @@ func (sc *ShellController) setlex(cmd *shellcmd) (*Response, error) {
 		return nil, errors.New("must set a lexicon")
 	}
 	if sc.game == nil {
-		sc.curLexicon = cmd.args[0]
-		return msg("setting default lexicon to " + sc.curLexicon), nil
+		sc.options.lexicon = cmd.args[0]
+		return msg("setting default lexicon to " + sc.options.lexicon), nil
 	}
 	letdist := "english"
 	if len(cmd.args) == 2 {

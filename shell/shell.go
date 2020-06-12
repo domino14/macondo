@@ -396,29 +396,9 @@ func (sc *ShellController) addRack(rack string) error {
 	return sc.game.SetRackFor(sc.game.PlayerOnTurn(), alphabet.RackFromString(rack, sc.game.Alphabet()))
 }
 
-func (sc *ShellController) challenge(fields []string) error {
-	if len(fields) > 0 {
-		addlBonus, err := strconv.Atoi(fields[0])
-		if err != nil {
-			return err
-		}
-		// Set it to single to have a base bonus of 0, and add passed-in bonus.
-		sc.game.SetChallengeRule(pb.ChallengeRule_SINGLE)
-		sc.game.ChallengeEvent(addlBonus)
-		sc.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
-	} else {
-		// Do double-challenge.
-		sc.game.ChallengeEvent(0)
-	}
-	sc.curTurnNum++
-	sc.showMessage(sc.game.ToDisplayText())
-	return nil
-}
-
-
 func (sc *ShellController) commitMove(m *move.Move) error {
 	// Play the actual move on the board, draw tiles, etc.
-	err := sc.game.PlayMove(m, false, true)
+	err := sc.game.PlayMove(m, true, 0)
 	if err != nil {
 		return err
 	}
@@ -426,11 +406,6 @@ func (sc *ShellController) commitMove(m *move.Move) error {
 	sc.curTurnNum++
 	sc.curPlayList = nil
 	sc.simmer.Reset()
-	sc.showMessage(sc.game.ToDisplayText())
-	return nil
-}
-
-	sc.curTurnNum++
 	sc.showMessage(sc.game.ToDisplayText())
 	return nil
 }
@@ -531,7 +506,7 @@ func (sc *ShellController) addPlay(fields []string, commit bool) error {
 }
 
 func (sc *ShellController) commitAIMove() error {
-	if !sc.game.Playing() {
+	if (sc.game.Playing() != pb.PlayState_PLAYING) {
 		return errors.New("game is over")
 	}
 	sc.genMoves(15)
