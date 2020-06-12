@@ -830,6 +830,10 @@ func (g *Game) Playing() pb.PlayState {
 	return g.playing
 }
 
+func (g *Game) SetPlaying(s pb.PlayState) {
+	g.playing = s
+}
+
 func (g *Game) PlayerOnTurn() int {
 	return g.onturn
 }
