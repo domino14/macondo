@@ -326,11 +326,11 @@ func (sc *ShellController) challenge(fields []string) error {
 		}
 		// Set it to single to have a base bonus of 0, and add passed-in bonus.
 		sc.game.SetChallengeRule(pb.ChallengeRule_SINGLE)
-		sc.game.ChallengeEvent(addlBonus)
+		sc.game.ChallengeEvent(addlBonus, 0)
 		sc.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
 	} else {
 		// Do double-challenge.
-		sc.game.ChallengeEvent(0)
+		sc.game.ChallengeEvent(0, 0)
 	}
 	sc.curTurnNum++
 	sc.showMessage(sc.game.ToDisplayText())
@@ -411,7 +411,7 @@ func (sc *ShellController) addPlay(fields []string, commit bool) error {
 	} else {
 
 		// Play the actual move on the board, draw tiles, etc.
-		err = sc.game.PlayMove(m, true)
+		err = sc.game.PlayMove(m, true, 0)
 		if err != nil {
 			return err
 		}

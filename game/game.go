@@ -323,7 +323,9 @@ func (g *Game) endOfGameCalcs(onturn int, turn *pb.GameTurn, addToHistory bool) 
 // PlayMove plays a move on the board. This function is meant to be used
 // by simulators as it implements a subset of possible moves, and by remote
 // gameplay engines as much as possible.
-func (g *Game) PlayMove(m *move.Move, addToHistory bool) error {
+// If the millis argument is passed in, it adds this value to the history
+// as the time remaining for the user (when they played the move).
+func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 	var turn *pb.GameTurn
 
 	if g.backupMode != NoBackup {
@@ -356,6 +358,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool) error {
 
 		if addToHistory {
 			turn.Events = append(turn.Events, g.EventFromMove(m))
+			turn.Events[len(turn.Events)-1].MillisRemaining = int32(millis)
 			g.history.LastKnownRacks[g.onturn] = g.RackLettersFor(g.onturn)
 		}
 
@@ -392,6 +395,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool) error {
 			g.scorelessTurns++
 			if addToHistory {
 				turn.Events = append(turn.Events, g.EventFromMove(m))
+				turn.Events[len(turn.Events)-1].MillisRemaining = int32(millis)
 			}
 		}
 
@@ -406,6 +410,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool) error {
 		g.scorelessTurns++
 		if addToHistory {
 			turn.Events = append(turn.Events, g.EventFromMove(m))
+			turn.Events[len(turn.Events)-1].MillisRemaining = int32(millis)
 			g.history.LastKnownRacks[g.onturn] = g.RackLettersFor(g.onturn)
 		}
 	}
@@ -469,7 +474,7 @@ func (g *Game) PlayScoringMove(coords, word string, addToHistory bool) (*move.Mo
 		return nil, err
 	}
 	// Actually make the play on the board:
-	g.PlayMove(m, addToHistory)
+	g.PlayMove(m, addToHistory, 0)
 	return m, nil
 }
 

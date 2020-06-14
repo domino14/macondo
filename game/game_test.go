@@ -71,7 +71,7 @@ func TestBackup(t *testing.T) {
 	game.SetRackFor(0, alphabet.RackFromString("ACEOTV?", alph))
 
 	m := move.NewScoringMoveSimple(20, "H7", "AVOCET", "?", alph)
-	game.PlayMove(m, false)
+	game.PlayMove(m, false, 0)
 
 	is.Equal(game.stackPtr, 1)
 	is.Equal(game.players[0].points, 20)
@@ -104,7 +104,7 @@ func TestValidate(t *testing.T) {
 	words, err := g.ValidateMove(m)
 	is.NoErr(err)
 	is.Equal(len(words), 1)
-	g.PlayMove(m, false)
+	g.PlayMove(m, false, 0)
 	g.SetRackFor(1, alphabet.RackFromString("O", alph))
 	m = move.NewScoringMoveSimple(2, "8G", "O.", "", alph)
 	words, err = g.ValidateMove(m)

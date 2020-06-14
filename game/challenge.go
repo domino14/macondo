@@ -21,7 +21,7 @@ func (g *Game) SetChallengeRule(rule pb.ChallengeRule) {
 // things like reset gameEnded back to false (for example if someone plays
 // out with a phony).
 // Return playLegal, error
-func (g *Game) ChallengeEvent(addlBonus int) (bool, error) {
+func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 	if len(g.history.Turns) == 0 {
 		return false, errors.New("this game has no history")
 	}
@@ -48,6 +48,8 @@ func (g *Game) ChallengeEvent(addlBonus int) (bool, error) {
 			LostScore:  -lastTurn.Events[0].Score,
 			Cumulative: cumeScoreBeforeChallenge - lastTurn.Events[0].Score,
 			Rack:       lastTurn.Events[0].Rack,
+			// Note: these millis remaining would be the challenger's
+			MillisRemaining: int32(millis),
 		}
 
 		// the play comes off the board.
@@ -82,6 +84,8 @@ func (g *Game) ChallengeEvent(addlBonus int) (bool, error) {
 				Type:       pb.GameEvent_CHALLENGE_BONUS,
 				Bonus:      bonus + int32(addlBonus),
 				Cumulative: cumeScoreBeforeChallenge + bonus,
+				// Note: these millis remaining would be the challenger's
+				MillisRemaining: int32(millis),
 			}
 		}
 
@@ -91,7 +95,7 @@ func (g *Game) ChallengeEvent(addlBonus int) (bool, error) {
 			// their turn.
 			// challenger was wrong. They lose their turn.
 			g.PlayMove(move.NewUnsuccessfulChallengePassMove(
-				g.players[g.onturn].rack.TilesOn(), g.alph), true)
+				g.players[g.onturn].rack.TilesOn(), g.alph), true, millis)
 
 		case pb.ChallengeRule_FIVE_POINT:
 			// Append a bonus to the event.

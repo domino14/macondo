@@ -123,7 +123,7 @@ func (r *GameRunner) PlayBestStaticTurn(playerIdx int) {
 	rackLetters := r.game.RackLettersFor(playerIdx)
 	tilesRemaining := r.game.Bag().TilesRemaining()
 	nickOnTurn := r.game.NickOnTurn()
-	r.game.PlayMove(bestPlay, false)
+	r.game.PlayMove(bestPlay, false, 0)
 
 	if r.logchan != nil {
 		r.logchan <- fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v,%v,%v,%.3f,%v,%v\n",

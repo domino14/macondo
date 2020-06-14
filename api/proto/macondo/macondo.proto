@@ -97,6 +97,7 @@ message GameEvent {
 
   bool is_bingo = 16;
   int32 unknown_exchange = 17;
+  int32 millis_remaining = 18;
 }
 
 message GameTurn { repeated GameEvent events = 1; }
