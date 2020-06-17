@@ -17,11 +17,19 @@ import (
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
 
-func (sc *ShellController) newGame(cmd *shellcmd) error {
+type Response struct {
+	message string
+}
+
+func msg(message string) *Response {
+	return &Response{message: message}
+}
+
+func (sc *ShellController) newGame(cmd *shellcmd) (*Response, error) {
 	rules, err := game.NewGameRules(sc.config, board.CrosswordGameBoard,
 		sc.config.DefaultLexicon, sc.config.DefaultLetterDistribution)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	players := []*pb.PlayerInfo{
@@ -31,7 +39,7 @@ func (sc *ShellController) newGame(cmd *shellcmd) error {
 
 	sc.game, err = game.NewGame(rules, players)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	sc.game.StartGame()
 	sc.game.SetBackupMode(game.InteractiveGameplayMode)
@@ -39,79 +47,82 @@ func (sc *ShellController) newGame(cmd *shellcmd) error {
 	sc.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
 	err = sc.initGameDataStructures()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	sc.curTurnNum = 0
-	sc.showMessage(sc.game.ToDisplayText())
-	return nil
+	return msg(sc.game.ToDisplayText()), nil
 }
 
-func (sc *ShellController) load(cmd *shellcmd) error {
+func (sc *ShellController) load(cmd *shellcmd) (*Response, error) {
 	if cmd.args == nil {
-		return errors.New("need arguments for load")
+		return nil, errors.New("need arguments for load")
 	}
 	err := sc.loadGCG(cmd.args)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	sc.curTurnNum = 0
-	sc.showMessage(sc.game.ToDisplayText())
-	return nil
+	return msg(sc.game.ToDisplayText()), nil
 }
 
-func (sc *ShellController) next(cmd *shellcmd) error {
+func (sc *ShellController) show(cmd *shellcmd) (*Response, error) {
+	return msg(sc.game.ToDisplayText()), nil
+}
+
+func (sc *ShellController) list(cmd *shellcmd) (*Response, error) {
+	sc.displayMoveList()
+	return nil, nil
+}
+
+func (sc *ShellController) next(cmd *shellcmd) (*Response, error) {
 	err := sc.setToTurn(sc.curTurnNum + 1)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	sc.showMessage(sc.game.ToDisplayText())
-	return nil
+	return msg(sc.game.ToDisplayText()), nil
 }
 
-func (sc *ShellController) prev(cmd *shellcmd) error {
+func (sc *ShellController) prev(cmd *shellcmd) (*Response, error) {
 	err := sc.setToTurn(sc.curTurnNum - 1)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	sc.showMessage(sc.game.ToDisplayText())
-	return nil
+	return msg(sc.game.ToDisplayText()), nil
 }
 
-func (sc *ShellController) turn(cmd *shellcmd) error {
+func (sc *ShellController) turn(cmd *shellcmd) (*Response, error) {
 	if cmd.args == nil {
-		return errors.New("need argument for turn")
+		return nil, errors.New("need argument for turn")
 	}
 	t, err := strconv.Atoi(cmd.args[0])
 	if err != nil {
-		return err
+		return nil, err
 	}
 	err = sc.setToTurn(t)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	sc.showMessage(sc.game.ToDisplayText())
-	return nil
+	return msg(sc.game.ToDisplayText()), nil
 }
 
-func (sc *ShellController) rack(cmd *shellcmd) error {
+func (sc *ShellController) rack(cmd *shellcmd) (*Response, error) {
 	if cmd.args == nil {
-		return errors.New("need argument for rack")
+		return nil, errors.New("need argument for rack")
 	}
 	rack := cmd.args[0]
 	err := sc.addRack(strings.ToUpper(rack))
 	if err != nil {
-		return err
+		return nil, err
 	}
-	sc.showMessage(sc.game.ToDisplayText())
-	return nil
+	return msg(sc.game.ToDisplayText()), nil
 }
 
-func (sc *ShellController) setlex(cmd *shellcmd) error {
+func (sc *ShellController) setlex(cmd *shellcmd) (*Response, error) {
 	if cmd.args == nil {
-		return errors.New("must set a lexicon")
+		return nil, errors.New("must set a lexicon")
 	}
 	if sc.game == nil {
-		return errors.New("please load or create a game first")
+		return nil, errors.New("please load or create a game first")
 	}
 	letdist := "english"
 	if len(cmd.args) == 2 {
@@ -121,16 +132,17 @@ func (sc *ShellController) setlex(cmd *shellcmd) error {
 	rules, err := game.NewGameRules(
 		sc.config, board.CrosswordGameBoard, lexname, letdist)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	err = sc.game.SetNewRules(rules)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return sc.initGameDataStructures()
+	err = sc.initGameDataStructures()
+	return nil, err
 }
 
-func (sc *ShellController) generate(cmd *shellcmd) error {
+func (sc *ShellController) generate(cmd *shellcmd) (*Response, error) {
 	var numPlays int
 	var err error
 
@@ -139,37 +151,39 @@ func (sc *ShellController) generate(cmd *shellcmd) error {
 	} else {
 		numPlays, err = strconv.Atoi(cmd.args[0])
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
-	if sc.game != nil {
+	if sc.game == nil {
+		return nil, errors.New("please load or create a game first")
+	} else {
 		sc.genMovesAndDisplay(numPlays)
 	}
-	return nil
+	return nil, nil
 }
 
-func (sc *ShellController) autoplay(cmd *shellcmd) error {
-	return sc.handleAutoplay(cmd.args, cmd.options)
+func (sc *ShellController) autoplay(cmd *shellcmd) (*Response, error) {
+	return nil, sc.handleAutoplay(cmd.args, cmd.options)
 }
 
-func (sc *ShellController) sim(cmd *shellcmd) error {
-	return sc.handleSim(cmd.args)
+func (sc *ShellController) sim(cmd *shellcmd) (*Response, error) {
+	return nil, sc.handleSim(cmd.args)
 }
 
-func (sc *ShellController) add(cmd *shellcmd) error {
-	return sc.addPlay(cmd.args, false)
+func (sc *ShellController) add(cmd *shellcmd) (*Response, error) {
+	return nil, sc.addPlay(cmd.args, false)
 }
 
-func (sc *ShellController) commit(cmd *shellcmd) error {
-	return sc.addPlay(cmd.args, true)
+func (sc *ShellController) commit(cmd *shellcmd) (*Response, error) {
+	return nil, sc.addPlay(cmd.args, true)
 }
 
-func (sc *ShellController) challenge(cmd *shellcmd) error {
+func (sc *ShellController) challenge(cmd *shellcmd) (*Response, error) {
 	fields := cmd.args
 	if len(fields) > 0 {
 		addlBonus, err := strconv.Atoi(fields[0])
 		if err != nil {
-			return err
+			return nil, err
 		}
 		// Set it to single to have a base bonus of 0, and add passed-in bonus.
 		sc.game.SetChallengeRule(pb.ChallengeRule_SINGLE)
@@ -180,19 +194,16 @@ func (sc *ShellController) challenge(cmd *shellcmd) error {
 		sc.game.ChallengeEvent(0, 0)
 	}
 	sc.curTurnNum++
-	sc.showMessage(sc.game.ToDisplayText())
-	return nil
+	return msg(sc.game.ToDisplayText()), nil
 }
 
-func (sc *ShellController) endgame(cmd *shellcmd) error {
+func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	if sc.game == nil {
-		showMessage("please load a game first with the `load` command", sc.l.Stderr())
-		return nil
+		return nil, errors.New("please load a game first with the `load` command")
 	}
 	plies, deepening, simpleEval, disablePruning, err := endgameArgs(cmd.args)
 	if err != nil {
-		showMessage("Error: "+err.Error(), sc.l.Stderr())
-		return nil
+		return nil, err
 	}
 	showMessage(fmt.Sprintf("plies %v, deepening %v, simpleEval %v, pruningDisabled %v",
 		plies, deepening, simpleEval, disablePruning), sc.l.Stderr())
@@ -206,8 +217,7 @@ func (sc *ShellController) endgame(cmd *shellcmd) error {
 	sc.endgameSolver = new(alphabeta.Solver)
 	err = sc.endgameSolver.Init(sc.gen, sc.game)
 	if err != nil {
-		sc.showError(err)
-		return nil
+		return nil, err
 	}
 	sc.endgameSolver.SetIterativeDeepening(deepening)
 	sc.endgameSolver.SetSimpleEvaluator(simpleEval)
@@ -217,77 +227,74 @@ func (sc *ShellController) endgame(cmd *shellcmd) error {
 
 	val, seq, err := sc.endgameSolver.Solve(plies)
 	if err != nil {
-		sc.showError(err)
-		return nil
+		return nil, err
 	}
 	// And turn off simulation mode again.
 	sc.game.SetBackupMode(game.InteractiveGameplayMode)
 	sc.showMessage(fmt.Sprintf("Best sequence has a spread difference of %v", val))
 	sc.printEndgameSequence(seq)
-	return nil
+	return nil, nil
 }
 
-func (sc *ShellController) help(cmd *shellcmd) error {
+func (sc *ShellController) help(cmd *shellcmd) (*Response, error) {
 	if cmd.args == nil {
 		usage(sc.l.Stderr(), "standard", sc.execPath)
 	} else {
 		helptopic := cmd.args[0]
 		usageTopic(sc.l.Stderr(), helptopic, sc.execPath)
 	}
-	return nil
+	return nil, nil
 }
 
-func (sc *ShellController) setMode(cmd *shellcmd) error {
+func (sc *ShellController) setMode(cmd *shellcmd) (*Response, error) {
 	mode := cmd.args[0]
 	m, err := modeFromStr(mode)
 	if err != nil {
 		sc.showError(err)
-		return err
+		return nil, err
 	}
-	sc.showMessage("Setting current mode to " + mode)
 	sc.curMode = m
-	return nil
+	return msg("Setting current mode to " + mode), nil
 }
 
-func (sc *ShellController) export(cmd *shellcmd) error {
+func (sc *ShellController) export(cmd *shellcmd) (*Response, error) {
 	if cmd.args == nil {
-		return errors.New("please provide a filename to save to")
+		return nil, errors.New("please provide a filename to save to")
 	}
 	filename := cmd.args[0]
 	contents, err := gcgio.GameHistoryToGCG(sc.game.History(), true)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	f, err := os.Create(filename)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	log.Debug().Interface("game-history", sc.game.History()).Msg("converted game history to gcg")
 	f.WriteString(contents)
 	f.Close()
-	sc.showMessage("gcg written to " + filename)
-	return nil
+	return msg("gcg written to " + filename), nil
 }
 
-func (sc *ShellController) autoAnalyze(cmd *shellcmd) error {
+func (sc *ShellController) autoAnalyze(cmd *shellcmd) (*Response, error) {
 	if cmd.args == nil {
-		return errors.New("please provide a filename to analyze")
+		return nil, errors.New("please provide a filename to analyze")
 	}
 	filename := cmd.args[0]
 	analysis, err := automatic.AnalyzeLogFile(filename)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	sc.showMessage(analysis)
-	return nil
+	return msg(analysis), nil
 }
 
-func (sc *ShellController) setChallengeRule(cmd *shellcmd) error {
+func (sc *ShellController) setChallengeRule(cmd *shellcmd) (*Response, error) {
 	if cmd.args == nil {
-		return errors.New("need rule")
+		return nil, errors.New("need rule")
 	}
 	var challRule pb.ChallengeRule
-	switch cmd.args[0] {
+	rule := cmd.args[0]
+	switch rule {
 	case "void":
 		challRule = pb.ChallengeRule_VOID
 	case "single":
@@ -299,9 +306,8 @@ func (sc *ShellController) setChallengeRule(cmd *shellcmd) error {
 	case "10pt":
 		challRule = pb.ChallengeRule_TEN_POINT
 	default:
-		return errors.New("challenge rule nonexistent")
+		return nil, errors.New("challenge rule nonexistent")
 	}
 	sc.game.SetChallengeRule(challRule)
-	sc.showMessage("set challenge rule to " + cmd.args[0])
-	return nil
+	return msg("set challenge rule to " + rule), nil
 }

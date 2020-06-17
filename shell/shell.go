@@ -216,6 +216,11 @@ func (sc *ShellController) printEndgameSequence(moves []*move.Move) {
 }
 
 func (sc *ShellController) genMovesAndDisplay(numPlays int) {
+	sc.genMoves(numPlays)
+	sc.displayMoveList()
+}
+
+func (sc *ShellController) genMoves(numPlays int) {
 	curRack := sc.game.RackFor(sc.game.PlayerOnTurn())
 	opp := (sc.game.PlayerOnTurn() + 1) % sc.game.NumPlayers()
 	oppRack := sc.game.RackFor(opp)
@@ -226,7 +231,6 @@ func (sc *ShellController) genMovesAndDisplay(numPlays int) {
 	sc.aiplayer.AssignEquity(sc.gen.Plays(), sc.game.Board(),
 		sc.game.Bag(), oppRack)
 	sc.curPlayList = sc.aiplayer.TopPlays(sc.gen.Plays(), numPlays)
-	sc.displayMoveList()
 }
 
 func (sc *ShellController) displayMoveList() {
@@ -511,12 +515,17 @@ func extractFields(line string) (*shellcmd, error) {
 	}, nil
 }
 
-func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) error {
+func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (*Response, error) {
 	cmd, err := extractFields(line)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	switch cmd.cmd {
+	case "exit":
+		sig <- syscall.SIGINT
+		return nil, errors.New("sending quit signal")
+	case "help":
+		return sc.help(cmd)
 	case "new":
 		return sc.newGame(cmd)
 	case "load":
@@ -526,7 +535,7 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 	case "p":
 		return sc.prev(cmd)
 	case "s":
-		sc.showMessage(sc.game.ToDisplayText())
+		return sc.show(cmd)
 	case "turn":
 		return sc.turn(cmd)
 	case "rack":
@@ -546,14 +555,9 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 	case "commit":
 		return sc.commit(cmd)
 	case "list":
-		sc.displayMoveList()
+		return sc.list(cmd)
 	case "endgame":
 		return sc.endgame(cmd)
-	case "exit":
-		sig <- syscall.SIGINT
-		return errors.New("sending quit signal")
-	case "help":
-		return sc.help(cmd)
 	case "mode":
 		return sc.setMode(cmd)
 	case "export":
@@ -563,9 +567,11 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) e
 	case "challengerule":
 		return sc.setChallengeRule(cmd)
 	default:
-		log.Info().Msgf("command %v not found", strconv.Quote(cmd.cmd))
+		msg := fmt.Sprintf("command %v not found", strconv.Quote(cmd.cmd))
+		log.Info().Msg(msg)
+		return nil, errors.New(msg)
 	}
-	return nil
+	return nil, nil
 }
 
 func (sc *ShellController) Loop(sig chan os.Signal) {
@@ -589,9 +595,11 @@ func (sc *ShellController) Loop(sig chan os.Signal) {
 		line = strings.TrimSpace(line)
 
 		if sc.curMode == StandardMode {
-			err := sc.standardModeSwitch(line, sig)
+			resp, err := sc.standardModeSwitch(line, sig)
 			if err != nil {
 				sc.showError(err)
+			} else if resp != nil {
+				sc.showMessage(resp.message)
 			}
 		} else if sc.curMode == EndgameDebugMode {
 			err := sc.endgameDebugModeSwitch(line, sig)
