@@ -180,7 +180,6 @@ func (sc *ShellController) loadGCG(args []string) error {
 	sc.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
 
 	return sc.initGameDataStructures()
-
 }
 
 func (sc *ShellController) setToTurn(turnnum int) error {
@@ -217,7 +216,11 @@ func (sc *ShellController) printEndgameSequence(moves []*move.Move) {
 }
 
 func (sc *ShellController) genMovesAndDisplay(numPlays int) {
+	sc.genMoves(numPlays)
+	sc.displayMoveList()
+}
 
+func (sc *ShellController) genMoves(numPlays int) {
 	curRack := sc.game.RackFor(sc.game.PlayerOnTurn())
 	opp := (sc.game.PlayerOnTurn() + 1) % sc.game.NumPlayers()
 	oppRack := sc.game.RackFor(opp)
@@ -228,7 +231,6 @@ func (sc *ShellController) genMovesAndDisplay(numPlays int) {
 	sc.aiplayer.AssignEquity(sc.gen.Plays(), sc.game.Board(),
 		sc.game.Bag(), oppRack)
 	sc.curPlayList = sc.aiplayer.TopPlays(sc.gen.Plays(), numPlays)
-	sc.displayMoveList()
 }
 
 func (sc *ShellController) displayMoveList() {
@@ -318,25 +320,6 @@ func (sc *ShellController) addRack(rack string) error {
 	return sc.game.SetRackFor(sc.game.PlayerOnTurn(), alphabet.RackFromString(rack, sc.game.Alphabet()))
 }
 
-func (sc *ShellController) challenge(fields []string) error {
-	if len(fields) > 0 {
-		addlBonus, err := strconv.Atoi(fields[0])
-		if err != nil {
-			return err
-		}
-		// Set it to single to have a base bonus of 0, and add passed-in bonus.
-		sc.game.SetChallengeRule(pb.ChallengeRule_SINGLE)
-		sc.game.ChallengeEvent(addlBonus, 0)
-		sc.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
-	} else {
-		// Do double-challenge.
-		sc.game.ChallengeEvent(0, 0)
-	}
-	sc.curTurnNum++
-	sc.showMessage(sc.game.ToDisplayText())
-	return nil
-}
-
 func (sc *ShellController) addPlay(fields []string, commit bool) error {
 	var playerid int
 	var m *move.Move
@@ -394,7 +377,6 @@ func (sc *ShellController) addPlay(fields []string, commit bool) error {
 				return err
 			}
 		}
-
 	} else {
 		return errors.New("unrecognized arguments to `add`")
 	}
@@ -409,7 +391,6 @@ func (sc *ShellController) addPlay(fields []string, commit bool) error {
 		})
 		sc.displayMoveList()
 	} else {
-
 		// Play the actual move on the board, draw tiles, etc.
 		err = sc.game.PlayMove(m, true, 0)
 		if err != nil {
@@ -420,7 +401,6 @@ func (sc *ShellController) addPlay(fields []string, commit bool) error {
 		sc.curPlayList = nil
 		sc.simmer.Reset()
 		sc.showMessage(sc.game.ToDisplayText())
-
 	}
 	return nil
 }
@@ -468,7 +448,6 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 			sc.gameRunnerCancel()
 			sc.gameRunnerRunning = false
 			return nil
-
 		}
 	} else if len(args) == 2 {
 		// It's player names
@@ -536,306 +515,63 @@ func extractFields(line string) (*shellcmd, error) {
 	}, nil
 }
 
-func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) error {
+func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (*Response, error) {
 	cmd, err := extractFields(line)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	switch cmd.cmd {
-	case "new":
-
-		rules, err := game.NewGameRules(sc.config, board.CrosswordGameBoard,
-			sc.config.DefaultLexicon, sc.config.DefaultLetterDistribution)
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-
-		players := []*pb.PlayerInfo{
-			{Nickname: "arcadio", RealName: "José Arcadio Buendía"},
-			{Nickname: "úrsula", RealName: "Úrsula Iguarán Buendía"},
-		}
-
-		sc.game, err = game.NewGame(rules, players)
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-		sc.game.StartGame()
-		sc.game.SetBackupMode(game.InteractiveGameplayMode)
-		// Set challenge rule to double by default. This can be overridden.
-		sc.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
-		err = sc.initGameDataStructures()
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-		sc.curTurnNum = 0
-		sc.showMessage(sc.game.ToDisplayText())
-
-	case "load":
-		if cmd.args == nil {
-			sc.showError(errors.New("need arguments for load"))
-			break
-		}
-		err := sc.loadGCG(cmd.args)
-
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-		sc.curTurnNum = 0
-		sc.showMessage(sc.game.ToDisplayText())
-
-	case "n":
-		err := sc.setToTurn(sc.curTurnNum + 1)
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-		sc.showMessage(sc.game.ToDisplayText())
-	case "p":
-		err := sc.setToTurn(sc.curTurnNum - 1)
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-		sc.showMessage(sc.game.ToDisplayText())
-
-	case "s":
-		sc.showMessage(sc.game.ToDisplayText())
-
-	case "turn":
-		if cmd.args == nil {
-			sc.showError(errors.New("need argument for turn"))
-			break
-		}
-		t, err := strconv.Atoi(cmd.args[0])
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-		err = sc.setToTurn(t)
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-		sc.showMessage(sc.game.ToDisplayText())
-
-	case "rack":
-		if cmd.args == nil {
-			sc.showError(errors.New("need argument for rack"))
-			break
-		}
-
-		rack := cmd.args[0]
-
-		err := sc.addRack(strings.ToUpper(rack))
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-		sc.showMessage(sc.game.ToDisplayText())
-
-	case "setlex":
-		if cmd.args == nil {
-			sc.showError(errors.New("must set a lexicon"))
-			break
-		}
-		if sc.game == nil {
-			sc.showError(errors.New("please load or create a game first"))
-			break
-		}
-		letdist := "english"
-		if len(cmd.args) == 2 {
-			letdist = cmd.args[1]
-		}
-		lexname := cmd.args[0]
-		rules, err := game.NewGameRules(sc.config, board.CrosswordGameBoard,
-			lexname, letdist)
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-		err = sc.game.SetNewRules(rules)
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-		err = sc.initGameDataStructures()
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-
-	case "gen":
-
-		var numPlays int
-		var err error
-
-		if cmd.args == nil {
-			numPlays = 15
-		} else {
-			numPlays, err = strconv.Atoi(cmd.args[0])
-			if err != nil {
-				sc.showError(err)
-				break
-			}
-		}
-		if sc.game != nil {
-			sc.genMovesAndDisplay(numPlays)
-		}
-
-	case "autoplay":
-		err := sc.handleAutoplay(cmd.args, cmd.options)
-		if err != nil {
-			sc.showError(err)
-		}
-
-	case "sim":
-		err := sc.handleSim(cmd.args)
-		if err != nil {
-			sc.showError(err)
-		}
-
-	case "add":
-		err := sc.addPlay(cmd.args, false)
-		if err != nil {
-			sc.showError(err)
-		}
-
-	case "challenge":
-		err := sc.challenge(cmd.args)
-		if err != nil {
-			sc.showError(err)
-		}
-
-	case "commit":
-		err := sc.addPlay(cmd.args, true)
-		if err != nil {
-			sc.showError(err)
-		}
-
-	case "list":
-		sc.displayMoveList()
-
-	case "endgame":
-		if sc.game == nil {
-			showMessage("please load a game first with the `load` command", sc.l.Stderr())
-			break
-		}
-		plies, deepening, simpleEval, disablePruning, err := endgameArgs(cmd.args)
-		if err != nil {
-			showMessage("Error: "+err.Error(), sc.l.Stderr())
-			break
-		}
-		showMessage(fmt.Sprintf("plies %v, deepening %v, simpleEval %v, pruningDisabled %v",
-			plies, deepening, simpleEval, disablePruning), sc.l.Stderr())
-
-		sc.game.SetStateStackLength(plies)
-		sc.game.SetBackupMode(game.SimulationMode)
-
-		// clear out the last value of this endgame node; gc should
-		// delete the tree.
-		sc.curEndgameNode = nil
-		sc.endgameSolver = new(alphabeta.Solver)
-		err = sc.endgameSolver.Init(sc.gen, sc.game)
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-		sc.endgameSolver.SetIterativeDeepening(deepening)
-		sc.endgameSolver.SetSimpleEvaluator(simpleEval)
-		sc.endgameSolver.SetPruningDisabled(disablePruning)
-
-		showMessage(sc.game.ToDisplayText(), sc.l.Stderr())
-
-		val, seq, err := sc.endgameSolver.Solve(plies)
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-		// And turn off simulation mode again.
-		sc.game.SetBackupMode(game.InteractiveGameplayMode)
-		sc.showMessage(fmt.Sprintf("Best sequence has a spread difference of %v", val))
-		sc.printEndgameSequence(seq)
-
 	case "exit":
 		sig <- syscall.SIGINT
-		return errors.New("sending quit signal")
+		return nil, errors.New("sending quit signal")
 	case "help":
-		if cmd.args == nil {
-			usage(sc.l.Stderr(), "standard", sc.execPath)
-		} else {
-			helptopic := cmd.args[0]
-			usageTopic(sc.l.Stderr(), helptopic, sc.execPath)
-		}
+		return sc.help(cmd)
+	case "new":
+		return sc.newGame(cmd)
+	case "load":
+		return sc.load(cmd)
+	case "n":
+		return sc.next(cmd)
+	case "p":
+		return sc.prev(cmd)
+	case "s":
+		return sc.show(cmd)
+	case "turn":
+		return sc.turn(cmd)
+	case "rack":
+		return sc.rack(cmd)
+	case "setlex":
+		return sc.setlex(cmd)
+	case "gen":
+		return sc.generate(cmd)
+	case "autoplay":
+		return sc.autoplay(cmd)
+	case "sim":
+		return sc.sim(cmd)
+	case "add":
+		return sc.add(cmd)
+	case "challenge":
+		return sc.challenge(cmd)
+	case "commit":
+		return sc.commit(cmd)
+	case "list":
+		return sc.list(cmd)
+	case "endgame":
+		return sc.endgame(cmd)
 	case "mode":
-		sc.modeSelector(cmd.args[0])
-
+		return sc.setMode(cmd)
 	case "export":
-		if cmd.args == nil {
-			sc.showError(errors.New("please provide a filename to save to"))
-			break
-		}
-		filename := cmd.args[0]
-		contents, err := gcgio.GameHistoryToGCG(sc.game.History(), true)
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-		f, err := os.Create(filename)
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-		log.Debug().Interface("game-history", sc.game.History()).Msg("converted game history to gcg")
-		f.WriteString(contents)
-		f.Close()
-		sc.showMessage("gcg written to " + filename)
-
+		return sc.export(cmd)
 	case "autoanalyze":
-		if cmd.args == nil {
-			sc.showError(errors.New("please provide a filename to analyze"))
-			break
-		}
-		filename := cmd.args[0]
-		analysis, err := automatic.AnalyzeLogFile(filename)
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-		sc.showMessage(analysis)
-
+		return sc.autoAnalyze(cmd)
 	case "challengerule":
-		if cmd.args == nil {
-			sc.showError(errors.New("need rule"))
-			break
-		}
-		var challRule pb.ChallengeRule
-		switch cmd.args[0] {
-		case "void":
-			challRule = pb.ChallengeRule_VOID
-		case "single":
-			challRule = pb.ChallengeRule_SINGLE
-		case "double":
-			challRule = pb.ChallengeRule_DOUBLE
-		case "5pt":
-			challRule = pb.ChallengeRule_FIVE_POINT
-		case "10pt":
-			challRule = pb.ChallengeRule_TEN_POINT
-		default:
-			return errors.New("challenge rule nonexistent")
-		}
-		sc.game.SetChallengeRule(challRule)
-		sc.showMessage("set challenge rule to " + cmd.args[0])
-
+		return sc.setChallengeRule(cmd)
 	default:
-
-		log.Info().Msgf("command %v not found", strconv.Quote(cmd.cmd))
-
+		msg := fmt.Sprintf("command %v not found", strconv.Quote(cmd.cmd))
+		log.Info().Msg(msg)
+		return nil, errors.New(msg)
 	}
-	return nil
+	return nil, nil
 }
 
 func (sc *ShellController) Loop(sig chan os.Signal) {
@@ -859,9 +595,11 @@ func (sc *ShellController) Loop(sig chan os.Signal) {
 		line = strings.TrimSpace(line)
 
 		if sc.curMode == StandardMode {
-			err := sc.standardModeSwitch(line, sig)
+			resp, err := sc.standardModeSwitch(line, sig)
 			if err != nil {
 				sc.showError(err)
+			} else if resp != nil {
+				sc.showMessage(resp.message)
 			}
 		} else if sc.curMode == EndgameDebugMode {
 			err := sc.endgameDebugModeSwitch(line, sig)
