@@ -25,9 +25,32 @@ func msg(message string) *Response {
 	return &Response{message: message}
 }
 
+func (sc *ShellController) set(cmd *shellcmd) (*Response, error) {
+	if cmd.args == nil {
+		return msg(sc.options.ToDisplayText()), nil
+	}
+	opt := cmd.args[0]
+	if len(cmd.args) == 1 {
+		_, val := sc.options.Show(opt)
+		return msg(val), nil
+	}
+	values := cmd.args[1:]
+	ret, err := sc.options.Set(opt, values)
+	if err == nil {
+		return msg("set " + opt + " to " + ret), nil
+	} else {
+		return nil, err
+	}
+}
+
 func (sc *ShellController) newGame(cmd *shellcmd) (*Response, error) {
-	rules, err := game.NewGameRules(sc.config, board.CrosswordGameBoard,
-		sc.config.DefaultLexicon, sc.config.DefaultLetterDistribution)
+	lexicon := sc.options.lexicon
+	if lexicon == "" {
+		lexicon = sc.config.DefaultLexicon
+		log.Info().Msgf("using default lexicon %v", lexicon)
+	}
+	rules, err := game.NewGameRules(
+		sc.config, board.CrosswordGameBoard, lexicon, sc.config.DefaultLetterDistribution)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +145,8 @@ func (sc *ShellController) setlex(cmd *shellcmd) (*Response, error) {
 		return nil, errors.New("must set a lexicon")
 	}
 	if sc.game == nil {
-		return nil, errors.New("please load or create a game first")
+		sc.options.lexicon = cmd.args[0]
+		return msg("setting default lexicon to " + sc.options.lexicon), nil
 	}
 	letdist := "english"
 	if len(cmd.args) == 2 {
@@ -176,6 +200,10 @@ func (sc *ShellController) add(cmd *shellcmd) (*Response, error) {
 
 func (sc *ShellController) commit(cmd *shellcmd) (*Response, error) {
 	return nil, sc.addPlay(cmd.args, true)
+}
+
+func (sc *ShellController) aiplay(cmd *shellcmd) (*Response, error) {
+	return nil, sc.commitAIMove()
 }
 
 func (sc *ShellController) challenge(cmd *shellcmd) (*Response, error) {
