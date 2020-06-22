@@ -105,6 +105,9 @@ message GameTurn { repeated GameEvent events = 1; }
 message PlayerInfo {
   string nickname = 1;
   string real_name = 2;
+  // user_id is an internal, unchangeable user ID, whereas the other two user
+  // identifiers might possibly be mutable.
+  string user_id = 3;
 }
 
 // message PlayerState {
