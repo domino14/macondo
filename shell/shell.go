@@ -378,22 +378,60 @@ func (sc *ShellController) showError(err error) {
 	sc.showMessage("Error: " + err.Error())
 }
 
-func (sc *ShellController) modeSelector(mode string) {
-	m, err := modeFromStr(mode)
-	if err != nil {
-		sc.showError(err)
-		return
-	}
-	sc.showMessage("Setting current mode to " + mode)
-	sc.curMode = m
-}
-
 func (sc *ShellController) addRack(rack string) error {
 	// Set current player on turn's rack.
 	if sc.game == nil {
 		return errors.New("please start a game first")
 	}
 	return sc.game.SetRackFor(sc.game.PlayerOnTurn(), alphabet.RackFromString(rack, sc.game.Alphabet()))
+}
+
+func (sc *ShellController) makeExchangeMove(playerid int, letters string) (*move.Move, error) {
+	rack := sc.game.RackFor(playerid)
+	tiles, err := alphabet.ToMachineWord(letters, sc.game.Alphabet())
+	if err != nil {
+		return nil, err
+	}
+	leaveMW, err := game.Leave(rack.TilesOn(), tiles)
+	if err != nil {
+		return nil, err
+	}
+
+	m := move.NewExchangeMove(tiles, leaveMW, sc.game.Alphabet())
+	return m, nil
+}
+
+func (sc *ShellController) makePlacementMove(playerid int, coords string, word string) (*move.Move, error) {
+	coords = strings.ToUpper(coords)
+	rack := sc.game.RackFor(playerid).String()
+	return sc.game.CreateAndScorePlacementMove(coords, word, rack)
+}
+
+func (sc *ShellController) addMoveToList(playerid int, m *move.Move) error {
+	opp := (playerid + 1) % sc.game.NumPlayers()
+	oppRack := sc.game.RackFor(opp)
+	sc.aiplayer.AssignEquity(
+		[]*move.Move{m}, sc.game.Board(), sc.game.Bag(), oppRack)
+	sc.curPlayList = append(sc.curPlayList, m)
+	sort.Slice(sc.curPlayList, func(i, j int) bool {
+		return sc.curPlayList[j].Equity() < sc.curPlayList[i].Equity()
+	})
+	sc.displayMoveList()
+	return nil
+}
+
+func (sc *ShellController) getMoveFromList(playerid int, play string) (*move.Move, error) {
+	// Add play that was generated.
+	playID, err := strconv.Atoi(play[1:])
+	if err != nil {
+		return nil, err
+	}
+
+	idx := playID - 1 // since playID starts from 1
+	if idx < 0 || idx > len(sc.curPlayList)-1 {
+		return nil, errors.New("play outside range")
+	}
+	return sc.curPlayList[idx], nil
 }
 
 func (sc *ShellController) commitMove(m *move.Move) error {
@@ -410,99 +448,58 @@ func (sc *ShellController) commitMove(m *move.Move) error {
 	return nil
 }
 
-func (sc *ShellController) addPlay(fields []string, commit bool) error {
-	var playerid int
-	var m *move.Move
-	var err error
-	// Figure out whose turn it is.
-
-	playerid = sc.game.PlayerOnTurn()
-
+func (sc *ShellController) parseAddMove(playerid int, fields []string) (*move.Move, error) {
 	if len(fields) == 1 {
+		// Check that the user hasn't confused "add" and
+		// "commit" to play a move from the list.
 		if strings.HasPrefix(fields[0], "#") {
-			if !commit {
-				// This option makes no sense with just an `add` command
-				return errors.New("cannot use this option with the `add` command, " +
-					"you may have wanted to use the `commit` command instead")
-			}
-			// Add play that was generated.
-			playID, err := strconv.Atoi(fields[0][1:])
-			if err != nil {
-				return err
-			}
-
-			idx := playID - 1 // since playID starts from 1
-			if idx < 0 || idx > len(sc.curPlayList)-1 {
-				return errors.New("play outside range")
-			}
-			m = sc.curPlayList[idx]
+			errmsg := "cannot use this option with the `add` command, " +
+			"you may have wanted to use the `commit` command instead"
+			return nil, errors.New(errmsg)
 		} else if fields[0] == "pass" {
 			rack := sc.game.RackFor(playerid)
-			m = move.NewPassMove(rack.TilesOn(), sc.game.Alphabet())
-		} else {
-			return errors.New("unrecognized arguments to `add`")
+			m := move.NewPassMove(rack.TilesOn(), sc.game.Alphabet())
+			return m, nil
 		}
-
 	} else if len(fields) == 2 {
 		coords, word := fields[0], fields[1]
-
 		if sc.options.lowercaseMoves {
 			word = flipCase(word)
 		}
-
 		if coords == "exchange" {
-
-			rack := sc.game.RackFor(playerid)
-			tiles, err := alphabet.ToMachineWord(word, sc.game.Alphabet())
-			if err != nil {
-				return err
-			}
-			leaveMW, err := game.Leave(rack.TilesOn(), tiles)
-			if err != nil {
-				return err
-			}
-
-			m = move.NewExchangeMove(tiles, leaveMW, sc.game.Alphabet())
+			return sc.makeExchangeMove(playerid, word)
 		} else {
-
-			coords = strings.ToUpper(coords)
-			rack := sc.game.RackFor(playerid).String()
-			m, err = sc.game.CreateAndScorePlacementMove(coords, word, rack)
-			if err != nil {
-				return err
-			}
-		}
-	} else {
-		return errors.New("unrecognized arguments to `add`")
-	}
-	if !commit {
-		opp := (sc.game.PlayerOnTurn() + 1) % sc.game.NumPlayers()
-		oppRack := sc.game.RackFor(opp)
-		sc.aiplayer.AssignEquity([]*move.Move{m}, sc.game.Board(), sc.game.Bag(),
-			oppRack)
-		sc.curPlayList = append(sc.curPlayList, m)
-		sort.Slice(sc.curPlayList, func(i, j int) bool {
-			return sc.curPlayList[j].Equity() < sc.curPlayList[i].Equity()
-		})
-		sc.displayMoveList()
-	} else {
-		// Play the actual move on the board, draw tiles, etc.
-		err = sc.game.PlayMove(m, true, 0)
-		if err != nil {
-			return err
-		}
-		log.Debug().Msgf("Added turn at turn num %v", sc.curTurnNum)
-		sc.curTurnNum++
-		sc.curPlayList = nil
-		sc.simmer.Reset()
-		sc.showMessage(sc.game.ToDisplayText())
-		err := sc.commitMove(m)
-		if err != nil {
-			return err
+			return sc.makePlacementMove(playerid, coords, word)
 		}
 	}
+	return nil, errors.New("unrecognized arguments to `add`")
+}
 
-	return nil
+func (sc *ShellController) parseCommitMove(playerid int, fields []string) (*move.Move, error) {
+	if len(fields) == 1 && strings.HasPrefix(fields[0], "#") {
+		return sc.getMoveFromList(playerid, fields[0])
+	}
+	// Other than the `commit #id` command, `commit` and
+	// `add` take the same arguments
+	return sc.parseAddMove(playerid, fields)
+}
+
+func (sc *ShellController) commitPlay(fields []string) error {
+	playerid := sc.game.PlayerOnTurn()
+	m, err := sc.parseCommitMove(playerid, fields)
+	if err != nil {
+		return err
+	}
+	return sc.commitMove(m)
+}
+
+func (sc *ShellController) addPlay(fields []string) error {
+	playerid := sc.game.PlayerOnTurn()
+	m, err := sc.parseAddMove(playerid, fields)
+	if err != nil {
+		return err
+	}
+	return sc.addMoveToList(playerid, m)
 }
 
 func (sc *ShellController) commitAIMove() error {

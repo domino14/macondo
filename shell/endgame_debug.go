@@ -7,6 +7,16 @@ import (
 	"strconv"
 )
 
+func (sc *ShellController) modeSelector(mode string) {
+	m, err := modeFromStr(mode)
+	if err != nil {
+		sc.showError(err)
+		return
+	}
+	sc.showMessage("Setting current mode to " + mode)
+	sc.curMode = m
+}
+
 func (sc *ShellController) endgameDebugModeSwitch(line string, sig chan os.Signal) error {
 	cmd, err := extractFields(line)
 	if err != nil {

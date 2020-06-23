@@ -195,11 +195,11 @@ func (sc *ShellController) sim(cmd *shellcmd) (*Response, error) {
 }
 
 func (sc *ShellController) add(cmd *shellcmd) (*Response, error) {
-	return nil, sc.addPlay(cmd.args, false)
+	return nil, sc.addPlay(cmd.args)
 }
 
 func (sc *ShellController) commit(cmd *shellcmd) (*Response, error) {
-	return nil, sc.addPlay(cmd.args, true)
+	return nil, sc.commitPlay(cmd.args)
 }
 
 func (sc *ShellController) aiplay(cmd *shellcmd) (*Response, error) {
@@ -278,7 +278,6 @@ func (sc *ShellController) setMode(cmd *shellcmd) (*Response, error) {
 	mode := cmd.args[0]
 	m, err := modeFromStr(mode)
 	if err != nil {
-		sc.showError(err)
 		return nil, err
 	}
 	sc.curMode = m
