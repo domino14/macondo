@@ -233,8 +233,9 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	showMessage(fmt.Sprintf("plies %v, deepening %v, simpleEval %v, pruningDisabled %v",
-		plies, deepening, simpleEval, disablePruning), sc.l.Stderr())
+	sc.showMessage(fmt.Sprintf(
+		"plies %v, deepening %v, simpleEval %v, pruningDisabled %v",
+		plies, deepening, simpleEval, disablePruning))
 
 	sc.game.SetStateStackLength(plies)
 	sc.game.SetBackupMode(game.SimulationMode)
@@ -251,7 +252,7 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	sc.endgameSolver.SetSimpleEvaluator(simpleEval)
 	sc.endgameSolver.SetPruningDisabled(disablePruning)
 
-	showMessage(sc.game.ToDisplayText(), sc.l.Stderr())
+	sc.showMessage(sc.game.ToDisplayText())
 
 	val, seq, err := sc.endgameSolver.Solve(plies)
 	if err != nil {
@@ -266,12 +267,11 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 
 func (sc *ShellController) help(cmd *shellcmd) (*Response, error) {
 	if cmd.args == nil {
-		usage(sc.l.Stderr(), "standard", sc.execPath)
+		return usage("standard", sc.execPath)
 	} else {
 		helptopic := cmd.args[0]
-		usageTopic(sc.l.Stderr(), helptopic, sc.execPath)
+		return usageTopic(helptopic, sc.execPath)
 	}
-	return nil, nil
 }
 
 func (sc *ShellController) setMode(cmd *shellcmd) (*Response, error) {

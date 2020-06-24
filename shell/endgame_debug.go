@@ -32,7 +32,12 @@ func (sc *ShellController) endgameDebugModeSwitch(line string, sig chan os.Signa
 		sc.modeSelector(cmd.args[0])
 
 	case "help":
-		usage(sc.l.Stderr(), "endgamedebug", sc.execPath)
+   out, err := usage("endgamedebug", sc.execPath)
+	 if err != nil {
+		 sc.showError(err)
+	 } else {
+		 sc.showMessage(out.message)
+	 }
 
 	case "l":
 		// List the current level of nodes

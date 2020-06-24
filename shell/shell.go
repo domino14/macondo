@@ -140,9 +140,17 @@ func filterInput(r rune) (rune, bool) {
 	return r, true
 }
 
-func showMessage(msg string, w io.Writer) {
+func writeln(msg string, w io.Writer) {
 	io.WriteString(w, msg)
 	io.WriteString(w, "\n")
+}
+
+func (sc *ShellController) showMessage(msg string) {
+	writeln(msg, sc.l.Stderr())
+}
+
+func (sc *ShellController) showError(err error) {
+	sc.showMessage("Error: " + err.Error())
 }
 
 func flipCharCase(r rune) rune {
@@ -368,14 +376,6 @@ func modeFromStr(mode string) (Mode, error) {
 		return EndgameDebugMode, nil
 	}
 	return InvalidMode, errors.New("mode " + mode + " is not a valid choice")
-}
-
-func (sc *ShellController) showMessage(msg string) {
-	showMessage(msg, sc.l.Stderr())
-}
-
-func (sc *ShellController) showError(err error) {
-	sc.showMessage("Error: " + err.Error())
 }
 
 func (sc *ShellController) addRack(rack string) error {
