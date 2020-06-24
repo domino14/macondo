@@ -111,7 +111,7 @@ func newHistory(players playerStates, flipfirst bool) *pb.GameHistory {
 
 	for i := 0; i < len(players); i++ {
 		playerInfo[i] = &pb.PlayerInfo{Nickname: players[i].Nickname,
-			RealName: players[i].RealName}
+			RealName: players[i].RealName, UserId: players[i].UserId}
 	}
 	his.Players = playerInfo
 	his.IdAuth = IdentificationAuthority
@@ -138,6 +138,7 @@ func NewGame(rules RuleDefiner, playerinfo []*pb.PlayerInfo) (*Game, error) {
 		game.players[idx] = &playerState{
 			PlayerInfo: pb.PlayerInfo{
 				Nickname: p.Nickname,
+				UserId:   p.UserId,
 				RealName: p.RealName},
 		}
 	}
