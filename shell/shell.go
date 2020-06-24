@@ -465,7 +465,7 @@ func (sc *ShellController) parseAddMove(playerid int, fields []string) (*move.Mo
 		// "commit" to play a move from the list.
 		if strings.HasPrefix(fields[0], "#") {
 			errmsg := "cannot use this option with the `add` command, " +
-			"you may have wanted to use the `commit` command instead"
+				"you may have wanted to use the `commit` command instead"
 			return nil, errors.New(errmsg)
 		} else if fields[0] == "pass" {
 			rack := sc.game.RackFor(playerid)
@@ -514,7 +514,7 @@ func (sc *ShellController) addPlay(fields []string) error {
 }
 
 func (sc *ShellController) commitAIMove() error {
-	if (sc.game.Playing() != pb.PlayState_PLAYING) {
+	if sc.game.Playing() != pb.PlayState_PLAYING {
 		return errors.New("game is over")
 	}
 	sc.genMoves(15)
