@@ -1,30 +1,25 @@
 package shell
 
 import (
-	"io"
+	"errors"
 	"io/ioutil"
 	"path/filepath"
 )
 
-func usage(w io.Writer, mode string, execPath string) {
-
-	dat, err := ioutil.ReadFile(
-		filepath.Join(execPath, "./shell/helptext/usage-"+mode+".txt"))
+func usage(mode string, execPath string) (*Response, error) {
+	path := filepath.Join(execPath, "./shell/helptext/usage-"+mode+".txt")
+	dat, err := ioutil.ReadFile(path)
 	if err != nil {
-		io.WriteString(w, "Error loading helptext: "+err.Error())
-		return
+		return nil, errors.New("Could not load helptext: " + err.Error())
 	}
-	io.WriteString(w, string(dat))
-
+	return msg(string(dat)), nil
 }
 
-func usageTopic(w io.Writer, topic string, execPath string) {
-	dat, err := ioutil.ReadFile(
-		filepath.Join(execPath, "./shell/helptext/"+topic+".txt"))
-
+func usageTopic(topic string, execPath string) (*Response, error) {
+	path := filepath.Join(execPath, "./shell/helptext/"+topic+".txt")
+	dat, err := ioutil.ReadFile(path)
 	if err != nil {
-		io.WriteString(w, "There is no help text for the topic "+topic+"\n")
-		return
+		return nil, errors.New("There is no help text for the topic " + topic)
 	}
-	io.WriteString(w, string(dat))
+	return msg(string(dat)), nil
 }

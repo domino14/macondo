@@ -195,11 +195,11 @@ func (sc *ShellController) sim(cmd *shellcmd) (*Response, error) {
 }
 
 func (sc *ShellController) add(cmd *shellcmd) (*Response, error) {
-	return nil, sc.addPlay(cmd.args, false)
+	return nil, sc.addPlay(cmd.args)
 }
 
 func (sc *ShellController) commit(cmd *shellcmd) (*Response, error) {
-	return nil, sc.addPlay(cmd.args, true)
+	return nil, sc.commitPlay(cmd.args)
 }
 
 func (sc *ShellController) aiplay(cmd *shellcmd) (*Response, error) {
@@ -233,8 +233,9 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	showMessage(fmt.Sprintf("plies %v, deepening %v, simpleEval %v, pruningDisabled %v",
-		plies, deepening, simpleEval, disablePruning), sc.l.Stderr())
+	sc.showMessage(fmt.Sprintf(
+		"plies %v, deepening %v, simpleEval %v, pruningDisabled %v",
+		plies, deepening, simpleEval, disablePruning))
 
 	sc.game.SetStateStackLength(plies)
 	sc.game.SetBackupMode(game.SimulationMode)
@@ -251,7 +252,7 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	sc.endgameSolver.SetSimpleEvaluator(simpleEval)
 	sc.endgameSolver.SetPruningDisabled(disablePruning)
 
-	showMessage(sc.game.ToDisplayText(), sc.l.Stderr())
+	sc.showMessage(sc.game.ToDisplayText())
 
 	val, seq, err := sc.endgameSolver.Solve(plies)
 	if err != nil {
@@ -266,19 +267,20 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 
 func (sc *ShellController) help(cmd *shellcmd) (*Response, error) {
 	if cmd.args == nil {
-		usage(sc.l.Stderr(), "standard", sc.execPath)
+		return usage("standard", sc.execPath)
 	} else {
 		helptopic := cmd.args[0]
-		usageTopic(sc.l.Stderr(), helptopic, sc.execPath)
+		return usageTopic(helptopic, sc.execPath)
 	}
-	return nil, nil
 }
 
 func (sc *ShellController) setMode(cmd *shellcmd) (*Response, error) {
+	if cmd.args == nil {
+		return msg("Current mode: " + modeToStr(sc.curMode)), nil
+	}
 	mode := cmd.args[0]
 	m, err := modeFromStr(mode)
 	if err != nil {
-		sc.showError(err)
 		return nil, err
 	}
 	sc.curMode = m
