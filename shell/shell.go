@@ -378,6 +378,17 @@ func modeFromStr(mode string) (Mode, error) {
 	return InvalidMode, errors.New("mode " + mode + " is not a valid choice")
 }
 
+func modeToStr(mode Mode) string {
+	switch mode {
+	case StandardMode:
+		return "standard"
+	case EndgameDebugMode:
+		return "endgamedebug"
+	default:
+		return "invalid"
+	}
+}
+
 func (sc *ShellController) addRack(rack string) error {
 	// Set current player on turn's rack.
 	if sc.game == nil {

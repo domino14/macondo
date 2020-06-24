@@ -275,6 +275,9 @@ func (sc *ShellController) help(cmd *shellcmd) (*Response, error) {
 }
 
 func (sc *ShellController) setMode(cmd *shellcmd) (*Response, error) {
+	if cmd.args == nil {
+		return msg("Current mode: " + modeToStr(sc.curMode)), nil
+	}
 	mode := cmd.args[0]
 	m, err := modeFromStr(mode)
 	if err != nil {

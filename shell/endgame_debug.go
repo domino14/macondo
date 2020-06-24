@@ -7,16 +7,6 @@ import (
 	"strconv"
 )
 
-func (sc *ShellController) modeSelector(mode string) {
-	m, err := modeFromStr(mode)
-	if err != nil {
-		sc.showError(err)
-		return
-	}
-	sc.showMessage("Setting current mode to " + mode)
-	sc.curMode = m
-}
-
 func (sc *ShellController) endgameDebugModeSwitch(line string, sig chan os.Signal) error {
 	cmd, err := extractFields(line)
 	if err != nil {
@@ -25,19 +15,22 @@ func (sc *ShellController) endgameDebugModeSwitch(line string, sig chan os.Signa
 
 	switch cmd.cmd {
 	case "mode":
-		if cmd.args == nil {
-			sc.showError(errors.New("select a mode"))
-			break
+		out, err := sc.setMode(cmd)
+		if err != nil {
+			return err
+		} else {
+			sc.showMessage(out.message)
+			return nil
 		}
-		sc.modeSelector(cmd.args[0])
 
 	case "help":
-   out, err := usage("endgamedebug", sc.execPath)
-	 if err != nil {
-		 sc.showError(err)
-	 } else {
-		 sc.showMessage(out.message)
-	 }
+		out, err := usage("endgamedebug", sc.execPath)
+		if err != nil {
+			return err
+		} else {
+			sc.showMessage(out.message)
+			return nil
+		}
 
 	case "l":
 		// List the current level of nodes
@@ -77,24 +70,20 @@ func (sc *ShellController) endgameDebugModeSwitch(line string, sig chan os.Signa
 
 	case "s":
 		if len(cmd.args) == 0 {
-			sc.showError(errors.New("select a node to step into"))
-			break
+			return errors.New("select a node to step into")
 		}
 		nodeID, err := strconv.Atoi(cmd.args[0])
 		if err != nil {
-			sc.showError(err)
-			return nil
+			return err
 		}
 		if nodeID >= len(sc.curEndgameNode.Children()) || nodeID < 0 {
-			sc.showError(errors.New("index not in range"))
-			return nil
+			return errors.New("index not in range")
 		}
-
 		sc.showMessage(fmt.Sprintf("Stepping into child %d", nodeID))
 		sc.curEndgameNode = sc.curEndgameNode.Children()[nodeID]
 
 	default:
-		sc.showError(errors.New("command not recognized: " + cmd.cmd))
+		return errors.New("command not recognized: " + cmd.cmd)
 	}
 	return nil
 }
