@@ -848,6 +848,10 @@ func (g *Game) NickOnTurn() string {
 	return g.players[g.onturn].Nickname
 }
 
+func (g *Game) PlayerIDOnTurn() string {
+	return g.players[g.onturn].UserId
+}
+
 func (g *Game) SetPlayerOnTurn(onTurn int) {
 	g.onturn = onTurn
 }
