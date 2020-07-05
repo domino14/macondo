@@ -441,7 +441,6 @@ func (g *Game) handleConsecutiveScorelessTurns(addToHistory bool) (bool, error) 
 			penaltyEvt := g.endRackPenaltyEvt(pts)
 			g.history.Events = append(g.history.Events, penaltyEvt)
 		}
-		log.Debug().Interface("players", g.players).Msg("player-states")
 	}
 	return ended, nil
 }
