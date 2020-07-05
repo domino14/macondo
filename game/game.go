@@ -221,7 +221,7 @@ func (g *Game) StartGame() {
 // ValidateMove validates the given move. It is meant to be used to validate
 // user input games (perhaps from live play or GCGs). It does not check the
 // validity of the words formed (unless the challenge rule is VOID),
-// but it validates that the rules of the gameare followed.
+// but it validates that the rules of the game are followed.
 // It returns an array of `alphabet.MachineWord`s formed, or an error if
 // the play is not game legal.
 func (g *Game) ValidateMove(m *move.Move) ([]alphabet.MachineWord, error) {
@@ -301,12 +301,13 @@ func (g *Game) validateTilePlayMove(m *move.Move) ([]alphabet.MachineWord, error
 
 func (g *Game) endOfGameCalcs(onturn int, addToHistory bool) {
 	unplayedPts := g.calculateRackPts(otherPlayer(onturn)) * 2
-	// log.Debug().Int("onturn", onturn).Int("unplayedpts", unplayedPts).
-	// 	Msg("endOfGameCalcs")
+
 	g.players[onturn].points += unplayedPts
 	if addToHistory {
 		g.history.Events = append(g.history.Events, g.endRackEvt(onturn, unplayedPts))
 	}
+	log.Debug().Int("onturn", onturn).Int("unplayedpts", unplayedPts).Interface("players", g.players).
+		Msg("endOfGameCalcs")
 }
 
 // PlayMove plays a move on the board. This function is meant to be used
@@ -358,7 +359,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 				g.history.PlayState = g.playing
 				log.Info().Msg("waiting for final pass... (commit pass)")
 			} else {
-				// log.Debug().Msg("game is over")
+				log.Debug().Msg("game is over")
 				g.playing = pb.PlayState_GAME_OVER
 				g.history.PlayState = g.playing
 				g.endOfGameCalcs(g.onturn, addToHistory)
@@ -411,8 +412,8 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 	}
 	if !gameEnded {
 		g.onturn = (g.onturn + 1) % len(g.players)
-		g.turnnum++
 	}
+	g.turnnum++
 
 	// log.Debug().Interface("history", g.history).Int("onturn", g.onturn).Int("turnnum", g.turnnum).
 	// 	Msg("newhist")
@@ -434,7 +435,6 @@ func (g *Game) handleConsecutiveScorelessTurns(addToHistory bool) (bool, error) 
 			g.history.Events = append(g.history.Events, penaltyEvt)
 		}
 		g.onturn = (g.onturn + 1) % len(g.players)
-		g.turnnum++
 		pts = g.calculateRackPts(g.onturn)
 		g.players[g.onturn].points -= pts
 		if addToHistory {

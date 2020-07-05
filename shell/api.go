@@ -221,7 +221,7 @@ func (sc *ShellController) challenge(cmd *shellcmd) (*Response, error) {
 		// Do double-challenge.
 		sc.game.ChallengeEvent(0, 0)
 	}
-	sc.curTurnNum++
+	sc.curTurnNum = sc.game.Turn()
 	return msg(sc.game.ToDisplayText()), nil
 }
 

@@ -48,7 +48,7 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 		offBoardEvent := &pb.GameEvent{
 			Nickname:    lastEvent.Nickname,
 			Type:        pb.GameEvent_PHONY_TILES_RETURNED,
-			LostScore:   -lastEvent.Score,
+			LostScore:   lastEvent.Score,
 			Cumulative:  cumeScoreBeforeChallenge - lastEvent.Score,
 			Rack:        lastEvent.Rack,
 			PlayedTiles: lastEvent.PlayedTiles,
@@ -72,6 +72,9 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 		// and we must add one to scoreless turns:
 		g.scorelessTurns++
 		_, err = g.handleConsecutiveScorelessTurns(true)
+		if err != nil {
+			return playLegal, err
+		}
 
 		// Finally, let's re-shuffle the bag. This is so we don't give the
 		// player who played the phony knowledge about the next few tiles in the bag.
@@ -132,6 +135,7 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 
 	// Finally set the last words formed to nil.
 	g.lastWordsFormed = nil
+	g.turnnum = len(g.history.Events)
 	return playLegal, err
 }
 

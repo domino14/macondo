@@ -278,7 +278,10 @@ func (sc *ShellController) setToTurn(turnnum int) error {
 	log.Debug().Msgf("Set to turn %v", turnnum)
 	sc.curPlayList = nil
 	sc.simmer.Reset()
-	sc.curTurnNum = turnnum
+	sc.curTurnNum = sc.game.Turn()
+	if sc.curTurnNum != turnnum {
+		return errors.New("unexpected turn number")
+	}
 
 	return nil
 }
@@ -452,7 +455,7 @@ func (sc *ShellController) commitMove(m *move.Move) error {
 		return err
 	}
 	log.Debug().Msgf("Added turn at turn num %v", sc.curTurnNum)
-	sc.curTurnNum++
+	sc.curTurnNum = sc.game.Turn()
 	sc.curPlayList = nil
 	sc.simmer.Reset()
 	sc.showMessage(sc.game.ToDisplayText())
