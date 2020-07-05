@@ -20,7 +20,7 @@ jobs:
             - "bf:37:1b:e1:b2:b0:ec:20:92:43:20:86:40:7c:c4:e0"
       - run:
           name: Install git, ssh, build-base, bash (for tests)
-          command: apk update && apk upgrade && apk add git openssh build-base bash
+          command: apk update && apk upgrade && apk add git openssh build-base bash curl
       - run:
           name: Install ssl
           command: apk add --update ca-certificates openssl && update-ca-certificates
