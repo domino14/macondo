@@ -54,9 +54,8 @@ func TestChallengeDoubleIsLegal(t *testing.T) {
 	legal, err := g.ChallengeEvent(0, 0)
 	is.NoErr(err)
 	is.True(legal)
-	is.Equal(len(g.History().Turns), 2)
-	is.Equal(len(g.History().Turns[1].Events), 1)
-	is.Equal(g.History().Turns[1].Events[0].Type, pb.GameEvent_UNSUCCESSFUL_CHALLENGE_TURN_LOSS)
+	is.Equal(len(g.History().Events), 2)
+	is.Equal(g.History().Events[1].Type, pb.GameEvent_UNSUCCESSFUL_CHALLENGE_TURN_LOSS)
 }
 
 func TestChallengeDoubleIsIllegal(t *testing.T) {
@@ -82,9 +81,8 @@ func TestChallengeDoubleIsIllegal(t *testing.T) {
 	legal, err := g.ChallengeEvent(0, 0)
 	is.NoErr(err)
 	is.True(!legal)
-	is.Equal(len(g.History().Turns), 1)
-	is.Equal(len(g.History().Turns[0].Events), 2)
-	is.Equal(g.History().Turns[0].Events[1].Type, pb.GameEvent_PHONY_TILES_RETURNED)
+	is.Equal(len(g.History().Events), 2)
+	is.Equal(g.History().Events[1].Type, pb.GameEvent_PHONY_TILES_RETURNED)
 }
 
 func TestChallengeEndOfGamePlusFive(t *testing.T) {

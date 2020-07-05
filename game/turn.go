@@ -248,47 +248,41 @@ func Leave(rack alphabet.MachineWord, play alphabet.MachineWord) (alphabet.Machi
 	return leave, nil
 }
 
-func summary(t *pb.GameTurn) string {
+func summary(evt *pb.GameEvent) string {
 	summary := ""
-	firstEvtPlacement := false
-	for _, evt := range t.Events {
-		switch evt.Type {
-		case pb.GameEvent_TILE_PLACEMENT_MOVE:
-			summary += fmt.Sprintf("%s played %s %s for %d pts from a rack of %s",
-				evt.Nickname, evt.Position, evt.PlayedTiles, evt.Score, evt.Rack)
-			firstEvtPlacement = true
+	switch evt.Type {
+	case pb.GameEvent_TILE_PLACEMENT_MOVE:
+		summary = fmt.Sprintf("%s played %s %s for %d pts from a rack of %s",
+			evt.Nickname, evt.Position, evt.PlayedTiles, evt.Score, evt.Rack)
 
-		case pb.GameEvent_PASS:
-			summary += fmt.Sprintf("%s passed, holding a rack of %s",
-				evt.Nickname, evt.Rack)
+	case pb.GameEvent_PASS:
+		summary = fmt.Sprintf("%s passed, holding a rack of %s",
+			evt.Nickname, evt.Rack)
 
-		case pb.GameEvent_UNSUCCESSFUL_CHALLENGE_TURN_LOSS:
-			summary += fmt.Sprintf("%s challenged unsuccessfully, holding a rack of %s",
-				evt.Nickname, evt.Rack)
+	case pb.GameEvent_UNSUCCESSFUL_CHALLENGE_TURN_LOSS:
+		summary = fmt.Sprintf("%s challenged unsuccessfully, holding a rack of %s",
+			evt.Nickname, evt.Rack)
 
-		case pb.GameEvent_EXCHANGE:
-			summary += fmt.Sprintf("%s exchanged %s from a rack of %s",
-				evt.Nickname, evt.Exchanged, evt.Rack)
+	case pb.GameEvent_EXCHANGE:
+		summary = fmt.Sprintf("%s exchanged %s from a rack of %s",
+			evt.Nickname, evt.Exchanged, evt.Rack)
 
-		case pb.GameEvent_CHALLENGE_BONUS:
-			summary += fmt.Sprintf(" (+%d)", evt.Bonus)
+	case pb.GameEvent_CHALLENGE_BONUS:
+		summary = fmt.Sprintf(" (+%d)", evt.Bonus)
 
-		case pb.GameEvent_END_RACK_PTS:
-			summary += fmt.Sprintf(" (+%d from opponent rack)", evt.EndRackPoints)
+	case pb.GameEvent_END_RACK_PTS:
+		summary = fmt.Sprintf(" (+%d from opponent rack)", evt.EndRackPoints)
 
-		case pb.GameEvent_PHONY_TILES_RETURNED:
-			if firstEvtPlacement {
-				summary += " (challenged off)"
-			}
+	case pb.GameEvent_PHONY_TILES_RETURNED:
+		summary = fmt.Sprintf("(%s challenged off)", evt.PlayedTiles)
 
-		case pb.GameEvent_TIME_PENALTY:
-			summary += fmt.Sprintf("%s lost %d on time", evt.Nickname, evt.LostScore)
+	case pb.GameEvent_TIME_PENALTY:
+		summary = fmt.Sprintf("%s lost %d on time", evt.Nickname, evt.LostScore)
 
-		case pb.GameEvent_END_RACK_PENALTY:
-			summary += fmt.Sprintf("%s lost %d from their rack", evt.Nickname,
-				evt.LostScore)
-		}
-
+	case pb.GameEvent_END_RACK_PENALTY:
+		summary = fmt.Sprintf("%s lost %d from their rack", evt.Nickname,
+			evt.LostScore)
 	}
+
 	return summary
 }

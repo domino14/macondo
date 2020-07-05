@@ -203,10 +203,10 @@ func NewBonusScoreMove(t MoveType, tiles alphabet.MachineWord, score int) *Move 
 	return move
 }
 
-func NewLostScoreMove(t MoveType, tiles alphabet.MachineWord, score int) *Move {
+func NewLostScoreMove(t MoveType, rack alphabet.MachineWord, score int) *Move {
 	move := &Move{
 		action: t,
-		tiles:  tiles,
+		tiles:  rack,
 		score:  -score,
 	}
 	return move

@@ -1,388 +1,284 @@
 {
-  "turns": [
+  "events": [
     {
-      "events": [
-        {
-          "nickname": "doug",
-          "rack": "DINNVWY",
-          "cumulative": 32,
-          "row": 7,
-          "column": 3,
-          "position": "8D",
-          "played_tiles": "WINDY",
-          "score": 32
-        }
-      ]
+      "nickname": "doug",
+      "rack": "DINNVWY",
+      "cumulative": 32,
+      "row": 7,
+      "column": 3,
+      "position": "8D",
+      "played_tiles": "WINDY",
+      "score": 32
     },
     {
-      "events": [
-        {
-          "nickname": "emely",
-          "rack": "ADEEGIL",
-          "cumulative": 16,
-          "row": 6,
-          "column": 2,
-          "position": "7C",
-          "played_tiles": "GALE",
-          "score": 16
-        }
-      ]
+      "nickname": "emely",
+      "rack": "ADEEGIL",
+      "cumulative": 16,
+      "row": 6,
+      "column": 2,
+      "position": "7C",
+      "played_tiles": "GALE",
+      "score": 16
     },
     {
-      "events": [
-        {
-          "nickname": "doug",
-          "rack": "AEJNOSV",
-          "cumulative": 66,
-          "row": 2,
-          "column": 4,
-          "direction": 1,
-          "position": "E3",
-          "played_tiles": "JAVE..N",
-          "score": 34
-        }
-      ]
+      "nickname": "doug",
+      "rack": "AEJNOSV",
+      "cumulative": 66,
+      "row": 2,
+      "column": 4,
+      "direction": 1,
+      "position": "E3",
+      "played_tiles": "JAVE..N",
+      "score": 34
     },
     {
-      "events": [
-        {
-          "nickname": "emely",
-          "rack": "DEILOVX",
-          "cumulative": 55,
-          "row": 1,
-          "column": 5,
-          "direction": 1,
-          "position": "F2",
-          "played_tiles": "VOX",
-          "score": 39
-        }
-      ]
+      "nickname": "emely",
+      "rack": "DEILOVX",
+      "cumulative": 55,
+      "row": 1,
+      "column": 5,
+      "direction": 1,
+      "position": "F2",
+      "played_tiles": "VOX",
+      "score": 39
     },
     {
-      "events": [
-        {
-          "nickname": "doug",
-          "rack": "ADENOST",
-          "cumulative": 148,
-          "row": 9,
-          "column": 1,
-          "position": "10B",
-          "played_tiles": "DONATES",
-          "score": 82
-        }
-      ]
+      "nickname": "doug",
+      "rack": "ADENOST",
+      "cumulative": 148,
+      "row": 9,
+      "column": 1,
+      "position": "10B",
+      "played_tiles": "DONATES",
+      "score": 82
     },
     {
-      "events": [
-        {
-          "nickname": "emely",
-          "rack": "DEIILTZ",
-          "cumulative": 79,
-          "row": 3,
-          "column": 1,
-          "position": "4B",
-          "played_tiles": "TIL..",
-          "score": 24
-        },
-        {
-          "nickname": "emely",
-          "rack": "DEIILTZ",
-          "type": 1,
-          "cumulative": 55,
-          "lost_score": 24
-        }
-      ]
+      "nickname": "emely",
+      "rack": "DEIILTZ",
+      "cumulative": 79,
+      "row": 3,
+      "column": 1,
+      "position": "4B",
+      "played_tiles": "TIL..",
+      "score": 24
     },
     {
-      "events": [
-        {
-          "nickname": "doug",
-          "rack": "AAEINRU",
-          "cumulative": 164,
-          "row": 8,
-          "column": 6,
-          "position": "9G",
-          "played_tiles": "EAU",
-          "score": 16
-        }
-      ]
+      "nickname": "emely",
+      "rack": "DEIILTZ",
+      "type": 1,
+      "cumulative": 55,
+      "lost_score": 24
     },
     {
-      "events": [
-        {
-          "nickname": "emely",
-          "rack": "DEIILTZ",
-          "cumulative": 93,
-          "row": 3,
-          "column": 3,
-          "position": "4D",
-          "played_tiles": "Z..",
-          "score": 38
-        }
-      ]
+      "nickname": "doug",
+      "rack": "AAEINRU",
+      "cumulative": 164,
+      "row": 8,
+      "column": 6,
+      "position": "9G",
+      "played_tiles": "EAU",
+      "score": 16
     },
     {
-      "events": [
-        {
-          "nickname": "doug",
-          "rack": "AILNORT",
-          "cumulative": 191,
-          "row": 4,
-          "direction": 1,
-          "position": "A5",
-          "played_tiles": "LATINO",
-          "score": 27
-        }
-      ]
+      "nickname": "emely",
+      "rack": "DEIILTZ",
+      "cumulative": 93,
+      "row": 3,
+      "column": 3,
+      "position": "4D",
+      "played_tiles": "Z..",
+      "score": 38
     },
     {
-      "events": [
-        {
-          "nickname": "emely",
-          "rack": "DEEIILT",
-          "cumulative": 122,
-          "row": 1,
-          "column": 1,
-          "direction": 1,
-          "position": "B2",
-          "played_tiles": "TEIID",
-          "score": 29
-        }
-      ]
+      "nickname": "doug",
+      "rack": "AILNORT",
+      "cumulative": 191,
+      "row": 4,
+      "direction": 1,
+      "position": "A5",
+      "played_tiles": "LATINO",
+      "score": 27
     },
     {
-      "events": [
-        {
-          "nickname": "doug",
-          "rack": "?BDERUW",
-          "cumulative": 221,
-          "direction": 1,
-          "position": "A1",
-          "played_tiles": "WEB",
-          "score": 30
-        }
-      ]
+      "nickname": "emely",
+      "rack": "DEEIILT",
+      "cumulative": 122,
+      "row": 1,
+      "column": 1,
+      "direction": 1,
+      "position": "B2",
+      "played_tiles": "TEIID",
+      "score": 29
     },
     {
-      "events": [
-        {
-          "nickname": "emely",
-          "rack": "AELLNST",
-          "cumulative": 173,
-          "row": 10,
-          "column": 4,
-          "position": "11E",
-          "played_tiles": "SAT",
-          "score": 51
-        }
-      ]
+      "nickname": "doug",
+      "rack": "?BDERUW",
+      "cumulative": 221,
+      "direction": 1,
+      "position": "A1",
+      "played_tiles": "WEB",
+      "score": 30
     },
     {
-      "events": [
-        {
-          "nickname": "doug",
-          "rack": "?DINRRU",
-          "cumulative": 243,
-          "row": 5,
-          "column": 3,
-          "position": "6D",
-          "played_tiles": "R.D",
-          "score": 22
-        }
-      ]
+      "nickname": "emely",
+      "rack": "AELLNST",
+      "cumulative": 173,
+      "row": 10,
+      "column": 4,
+      "position": "11E",
+      "played_tiles": "SAT",
+      "score": 51
     },
     {
-      "events": [
-        {
-          "nickname": "emely",
-          "rack": "ACELLMN",
-          "cumulative": 196,
-          "column": 2,
-          "direction": 1,
-          "position": "C1",
-          "played_tiles": "CAN",
-          "score": 23
-        }
-      ]
+      "nickname": "doug",
+      "rack": "?DINRRU",
+      "cumulative": 243,
+      "row": 5,
+      "column": 3,
+      "position": "6D",
+      "played_tiles": "R.D",
+      "score": 22
     },
     {
-      "events": [
-        {
-          "nickname": "doug",
-          "rack": "?EFINRU",
-          "cumulative": 257,
-          "row": 7,
-          "column": 1,
-          "direction": 1,
-          "position": "B8",
-          "played_tiles": "FU.",
-          "score": 14
-        }
-      ]
+      "nickname": "emely",
+      "rack": "ACELLMN",
+      "cumulative": 196,
+      "column": 2,
+      "direction": 1,
+      "position": "C1",
+      "played_tiles": "CAN",
+      "score": 23
     },
     {
-      "events": [
-        {
-          "nickname": "emely",
-          "rack": "EILLMRR",
-          "cumulative": 208,
-          "row": 6,
-          "column": 7,
-          "position": "7H",
-          "played_tiles": "RILL",
-          "score": 12
-        }
-      ]
+      "nickname": "doug",
+      "rack": "?EFINRU",
+      "cumulative": 257,
+      "row": 7,
+      "column": 1,
+      "direction": 1,
+      "position": "B8",
+      "played_tiles": "FU.",
+      "score": 14
     },
     {
-      "events": [
-        {
-          "nickname": "doug",
-          "rack": "?EIINOR",
-          "cumulative": 335,
-          "row": 4,
-          "column": 10,
-          "direction": 1,
-          "position": "K5",
-          "played_tiles": "RE.IgION",
-          "score": 78
-        }
-      ]
+      "nickname": "emely",
+      "rack": "EILLMRR",
+      "cumulative": 208,
+      "row": 6,
+      "column": 7,
+      "position": "7H",
+      "played_tiles": "RILL",
+      "score": 12
     },
     {
-      "events": [
-        {
-          "nickname": "emely",
-          "rack": "EKMORRU",
-          "cumulative": 236,
-          "row": 10,
-          "column": 11,
-          "direction": 1,
-          "position": "L11",
-          "played_tiles": "MURK",
-          "score": 28
-        }
-      ]
+      "nickname": "doug",
+      "rack": "?EIINOR",
+      "cumulative": 335,
+      "row": 4,
+      "column": 10,
+      "direction": 1,
+      "position": "K5",
+      "played_tiles": "RE.IgION",
+      "score": 78
     },
     {
-      "events": [
-        {
-          "nickname": "doug",
-          "rack": "AEIOORS",
-          "cumulative": 368,
-          "row": 14,
-          "column": 7,
-          "position": "15H",
-          "played_tiles": "ARIOSE",
-          "score": 33
-        }
-      ]
+      "nickname": "emely",
+      "rack": "EKMORRU",
+      "cumulative": 236,
+      "row": 10,
+      "column": 11,
+      "direction": 1,
+      "position": "L11",
+      "played_tiles": "MURK",
+      "score": 28
     },
     {
-      "events": [
-        {
-          "nickname": "emely",
-          "rack": "?CEORUY",
-          "cumulative": 255,
-          "row": 13,
-          "column": 5,
-          "position": "14F",
-          "played_tiles": "COY",
-          "score": 19
-        }
-      ]
+      "nickname": "doug",
+      "rack": "AEIOORS",
+      "cumulative": 368,
+      "row": 14,
+      "column": 7,
+      "position": "15H",
+      "played_tiles": "ARIOSE",
+      "score": 33
     },
     {
-      "events": [
-        {
-          "nickname": "doug",
-          "rack": "EGHMOPT",
-          "cumulative": 380,
-          "row": 3,
-          "column": 11,
-          "direction": 1,
-          "position": "L4",
-          "played_tiles": "GET",
-          "score": 12
-        }
-      ]
+      "nickname": "emely",
+      "rack": "?CEORUY",
+      "cumulative": 255,
+      "row": 13,
+      "column": 5,
+      "position": "14F",
+      "played_tiles": "COY",
+      "score": 19
     },
     {
-      "events": [
-        {
-          "nickname": "emely",
-          "rack": "?BERSTU",
-          "cumulative": 264,
-          "row": 1,
-          "column": 5,
-          "position": "2F",
-          "played_tiles": ".ERB",
-          "score": 9
-        }
-      ]
+      "nickname": "doug",
+      "rack": "EGHMOPT",
+      "cumulative": 380,
+      "row": 3,
+      "column": 11,
+      "direction": 1,
+      "position": "L4",
+      "played_tiles": "GET",
+      "score": 12
     },
     {
-      "events": [
-        {
-          "nickname": "doug",
-          "rack": "AEHIMOP",
-          "cumulative": 409,
-          "column": 6,
-          "position": "1G",
-          "played_tiles": "PEA",
-          "score": 29
-        }
-      ]
+      "nickname": "emely",
+      "rack": "?BERSTU",
+      "cumulative": 264,
+      "row": 1,
+      "column": 5,
+      "position": "2F",
+      "played_tiles": ".ERB",
+      "score": 9
     },
     {
-      "events": [
-        {
-          "nickname": "emely",
-          "rack": "?HOQSTU",
-          "cumulative": 310,
-          "row": 1,
-          "column": 12,
-          "direction": 1,
-          "position": "M2",
-          "played_tiles": "QUOTH",
-          "score": 46
-        }
-      ]
+      "nickname": "doug",
+      "rack": "AEHIMOP",
+      "cumulative": 409,
+      "column": 6,
+      "position": "1G",
+      "played_tiles": "PEA",
+      "score": 29
     },
     {
-      "events": [
-        {
-          "nickname": "doug",
-          "rack": "EGHIMOP",
-          "cumulative": 451,
-          "column": 13,
-          "direction": 1,
-          "position": "N1",
-          "played_tiles": "HIM",
-          "score": 42
-        }
-      ]
+      "nickname": "emely",
+      "rack": "?HOQSTU",
+      "cumulative": 310,
+      "row": 1,
+      "column": 12,
+      "direction": 1,
+      "position": "M2",
+      "played_tiles": "QUOTH",
+      "score": 46
     },
     {
-      "events": [
-        {
-          "nickname": "emely",
-          "rack": "?FS",
-          "cumulative": 331,
-          "row": 13,
-          "column": 11,
-          "position": "14L",
-          "played_tiles": ".aFS",
-          "score": 21
-        },
-        {
-          "nickname": "emely",
-          "rack": "OPEG",
-          "type": 5,
-          "cumulative": 345,
-          "end_rack_points": 14
-        }
-      ]
+      "nickname": "doug",
+      "rack": "EGHIMOP",
+      "cumulative": 451,
+      "column": 13,
+      "direction": 1,
+      "position": "N1",
+      "played_tiles": "HIM",
+      "score": 42
+    },
+    {
+      "nickname": "emely",
+      "rack": "?FS",
+      "cumulative": 331,
+      "row": 13,
+      "column": 11,
+      "position": "14L",
+      "played_tiles": ".aFS",
+      "score": 21
+    },
+    {
+      "nickname": "emely",
+      "rack": "OPEG",
+      "type": 5,
+      "cumulative": 345,
+      "end_rack_points": 14
     }
   ],
   "players": [

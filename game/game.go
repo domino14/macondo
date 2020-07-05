@@ -117,7 +117,7 @@ func newHistory(players playerStates, flipfirst bool) *pb.GameHistory {
 	his.IdAuth = IdentificationAuthority
 	his.Uid = shortuuid.New()
 	his.Description = MacondoCreation
-	his.Turns = []*pb.GameTurn{}
+	his.Events = []*pb.GameEvent{}
 	his.SecondWentFirst = flipfirst
 	his.LastKnownRacks = []string{"", ""}
 	return his
@@ -220,8 +220,8 @@ func (g *Game) StartGame() {
 
 // ValidateMove validates the given move. It is meant to be used to validate
 // user input games (perhaps from live play or GCGs). It does not check the
-// validity of the words formed, but it validates that the rules of the game
-// are followed.
+// validity of the words formed (unless the challenge rule is VOID),
+// but it validates that the rules of the gameare followed.
 // It returns an array of `alphabet.MachineWord`s formed, or an error if
 // the play is not game legal.
 func (g *Game) ValidateMove(m *move.Move) ([]alphabet.MachineWord, error) {
@@ -299,25 +299,13 @@ func (g *Game) validateTilePlayMove(m *move.Move) ([]alphabet.MachineWord, error
 	return formedWords, nil
 }
 
-func validateWords(gd *gaddag.SimpleGaddag, words []alphabet.MachineWord) []string {
-	var illegalWords []string
-	alph := gd.GetAlphabet()
-	for _, word := range words {
-		valid := gaddag.FindMachineWord(gd, word)
-		if !valid {
-			illegalWords = append(illegalWords, word.UserVisible(alph))
-		}
-	}
-	return illegalWords
-}
-
-func (g *Game) endOfGameCalcs(onturn int, turn *pb.GameTurn, addToHistory bool) {
+func (g *Game) endOfGameCalcs(onturn int, addToHistory bool) {
 	unplayedPts := g.calculateRackPts(otherPlayer(onturn)) * 2
 	log.Debug().Int("onturn", onturn).Int("unplayedpts", unplayedPts).
 		Msg("endOfGameCalcs")
 	g.players[onturn].points += unplayedPts
 	if addToHistory {
-		turn.Events = append(turn.Events, g.endRackEvt(onturn, unplayedPts))
+		g.history.Events = append(g.history.Events, g.endRackEvt(onturn, unplayedPts))
 	}
 }
 
@@ -327,13 +315,11 @@ func (g *Game) endOfGameCalcs(onturn int, turn *pb.GameTurn, addToHistory bool) 
 // If the millis argument is passed in, it adds this value to the history
 // as the time remaining for the user (when they played the move).
 func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
-	var turn *pb.GameTurn
 
 	if g.backupMode != NoBackup {
 		g.backupState()
 	}
 	if addToHistory {
-		turn = &pb.GameTurn{Events: []*pb.GameEvent{}}
 		// Also, validate that the move follows the rules.
 		wordsFormed, err := g.ValidateMove(m)
 		if err != nil {
@@ -358,9 +344,10 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		g.players[g.onturn].setRackTiles(tiles, g.alph)
 
 		if addToHistory {
-			turn.Events = append(turn.Events, g.EventFromMove(m))
-			turn.Events[len(turn.Events)-1].MillisRemaining = int32(millis)
+			evt := g.EventFromMove(m)
+			evt.MillisRemaining = int32(millis)
 			g.history.LastKnownRacks[g.onturn] = g.RackLettersFor(g.onturn)
+			g.history.Events = append(g.history.Events, evt)
 		}
 
 		if g.players[g.onturn].rack.NumTiles() == 0 {
@@ -371,10 +358,10 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 				g.history.PlayState = g.playing
 				log.Info().Msg("waiting for final pass... (commit pass)")
 			} else {
-				log.Info().Msg("game is over")
+				log.Debug().Msg("game is over")
 				g.playing = pb.PlayState_GAME_OVER
 				g.history.PlayState = g.playing
-				g.endOfGameCalcs(g.onturn, turn, addToHistory)
+				g.endOfGameCalcs(g.onturn, addToHistory)
 			}
 		}
 
@@ -389,14 +376,15 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 			// Note that the player "on turn" changes here, as we created
 			// a fake virtual turn on the pass. We need to calculate
 			// the final score correctly.
-			g.endOfGameCalcs((g.onturn+1)%2, turn, addToHistory)
+			g.endOfGameCalcs((g.onturn+1)%2, addToHistory)
 		} else {
 			// If this is a regular pass (and not an end-of-game-pass) let's
 			// log it in the history.
 			g.scorelessTurns++
 			if addToHistory {
-				turn.Events = append(turn.Events, g.EventFromMove(m))
-				turn.Events[len(turn.Events)-1].MillisRemaining = int32(millis)
+				evt := g.EventFromMove(m)
+				evt.MillisRemaining = int32(millis)
+				g.history.Events = append(g.history.Events, evt)
 			}
 		}
 
@@ -410,33 +398,31 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		log.Debug().Str("newrack", g.players[g.onturn].rackLetters).Msg("new-rack")
 		g.scorelessTurns++
 		if addToHistory {
-			turn.Events = append(turn.Events, g.EventFromMove(m))
-			turn.Events[len(turn.Events)-1].MillisRemaining = int32(millis)
+			evt := g.EventFromMove(m)
+			evt.MillisRemaining = int32(millis)
 			g.history.LastKnownRacks[g.onturn] = g.RackLettersFor(g.onturn)
+			g.history.Events = append(g.history.Events, evt)
 		}
 	}
 
-	err := g.handleConsecutiveScorelessTurns(addToHistory, turn)
+	gameEnded, err := g.handleConsecutiveScorelessTurns(addToHistory)
 	if err != nil {
 		return err
 	}
-
-	if addToHistory {
-		err := g.addToHistory(turn)
-		if err != nil {
-			return err
-		}
+	if !gameEnded {
+		g.onturn = (g.onturn + 1) % len(g.players)
+		g.turnnum++
 	}
 
-	g.onturn = (g.onturn + 1) % len(g.players)
-	g.turnnum++
 	// log.Debug().Interface("history", g.history).Int("onturn", g.onturn).Int("turnnum", g.turnnum).
 	// 	Msg("newhist")
 	return nil
 }
 
-func (g *Game) handleConsecutiveScorelessTurns(addToHistory bool, turn *pb.GameTurn) error {
+func (g *Game) handleConsecutiveScorelessTurns(addToHistory bool) (bool, error) {
+	var ended bool
 	if g.scorelessTurns == 6 {
+		ended = true
 		log.Debug().Msg("game ended with 6 scoreless turns")
 		g.playing = pb.PlayState_GAME_OVER
 		g.history.PlayState = g.playing
@@ -444,23 +430,20 @@ func (g *Game) handleConsecutiveScorelessTurns(addToHistory bool, turn *pb.GameT
 		pts := g.calculateRackPts(g.onturn)
 		g.players[g.onturn].points -= pts
 		if addToHistory {
-			turn.Events = append(turn.Events, g.endRackPenaltyEvt(pts))
-			err := g.addToHistory(turn)
-			if err != nil {
-				return err
-			}
-			// Create a new turn to subtract for other player.
-			turn = &pb.GameTurn{Events: []*pb.GameEvent{}}
+			penaltyEvt := g.endRackPenaltyEvt(pts)
+			g.history.Events = append(g.history.Events, penaltyEvt)
 		}
 		g.onturn = (g.onturn + 1) % len(g.players)
 		g.turnnum++
 		pts = g.calculateRackPts(g.onturn)
 		g.players[g.onturn].points -= pts
 		if addToHistory {
-			turn.Events = append(turn.Events, g.endRackPenaltyEvt(pts))
+			penaltyEvt := g.endRackPenaltyEvt(pts)
+			g.history.Events = append(g.history.Events, penaltyEvt)
 		}
+		log.Debug().Interface("players", g.players).Msg("player-states")
 	}
-	return nil
+	return ended, nil
 }
 
 // PlayScoringMove plays a move on a board that is described by the
@@ -541,27 +524,15 @@ func (g *Game) calculateRackPts(onturn int) int {
 	return rack.ScoreOn(g.bag.LetterDistribution())
 }
 
-func (g *Game) addToHistory(turn *pb.GameTurn) error {
-	if len(g.history.Turns) == g.turnnum {
-		g.history.Turns = append(g.history.Turns, turn)
-	} else if len(g.history.Turns) > g.turnnum {
-		g.history.Turns = g.history.Turns[:g.turnnum]
-		g.history.Turns = append(g.history.Turns, turn)
-	} else {
-		return errors.New("unexpected length of history")
-	}
-	return nil
-}
-
 func otherPlayer(idx int) int {
 	return (idx + 1) % 2
 }
 
 func (g *Game) PlayToTurn(turnnum int) error {
 	log.Debug().Int("turnnum", turnnum).Msg("playing to turn")
-	if turnnum < 0 || turnnum > len(g.history.Turns) {
+	if turnnum < 0 || turnnum > len(g.history.Events) {
 		return fmt.Errorf("game has %v turns, you have chosen a turn outside the range",
-			len(g.history.Turns))
+			len(g.history.Events))
 	}
 	if g.board == nil {
 		return fmt.Errorf("board does not exist")
@@ -583,11 +554,15 @@ func (g *Game) PlayToTurn(turnnum int) error {
 	g.history.PlayState = g.playing
 	var t int
 	for t = 0; t < turnnum; t++ {
-		g.playTurn(t)
+		err := g.playTurn(t)
+		if err != nil {
+			return err
+		}
+		// g.onturn will get rewritten in the next iteration
+		g.onturn = (g.onturn + 1) % 2
 		log.Debug().Int("turn", t).Msg("played turn")
 	}
-
-	if t >= len(g.history.Turns) {
+	if t >= len(g.history.Events) {
 		if len(g.history.LastKnownRacks[0]) > 0 && len(g.history.LastKnownRacks[1]) > 0 {
 			g.SetRacksForBoth([]*alphabet.Rack{
 				alphabet.RackFromString(g.history.LastKnownRacks[0], g.alph),
@@ -610,7 +585,7 @@ func (g *Game) PlayToTurn(turnnum int) error {
 		// So set the currently on turn's rack to whatever is in the history.
 		log.Debug().Int("turn", t).Msg("setting rack from turn")
 		err := g.SetRackFor(g.onturn, alphabet.RackFromString(
-			g.history.Turns[t].Events[0].Rack, g.alph))
+			g.history.Events[t].Rack, g.alph))
 		if err != nil {
 			return err
 		}
@@ -628,81 +603,97 @@ func (g *Game) PlayToTurn(turnnum int) error {
 	return nil
 }
 
-func (g *Game) playTurn(t int) []alphabet.MachineLetter {
+func (g *Game) playTurn(t int) error {
 	// XXX: This function is pretty similar to PlayMove above. It has a
 	// subset of the functionality as it's designed to replay an already
 	// recorded turn on the board.
-	playedTiles := []alphabet.MachineLetter(nil)
-	challengedOffPlay := false
-	evts := g.history.Turns[t].Events
-	// Check for the special case where a player played a phony that was
-	// challenged off. We don't want to process this at all.
-	if len(evts) == 2 {
-		if evts[0].Type == pb.GameEvent_TILE_PLACEMENT_MOVE &&
-			evts[1].Type == pb.GameEvent_PHONY_TILES_RETURNED {
-			challengedOffPlay = true
+	evt := g.history.Events[t]
+
+	// onturn should be based on the event nickname
+	found := false
+	for idx, p := range g.players {
+		if p.Nickname == evt.Nickname {
+			g.onturn = idx
+			found = true
+			break
 		}
 	}
+	if !found {
+		return fmt.Errorf("player not found: %v", evt.Nickname)
+	}
+
 	// Set the rack for the user on turn to the rack in the history.
-	g.SetRackFor(g.onturn, alphabet.RackFromString(evts[0].Rack, g.alph))
-	if !challengedOffPlay {
-		for _, evt := range evts {
-			m := MoveFromEvent(evt, g.alph, g.board)
+	g.SetRackFor(g.onturn, alphabet.RackFromString(evt.Rack, g.alph))
+	m := MoveFromEvent(evt, g.alph, g.board)
 
-			switch m.Action() {
-			case move.MoveTypePlay:
-				g.board.PlayMove(m, g.gaddag, g.bag.LetterDistribution())
-				g.players[g.onturn].points += m.Score()
-				if m.TilesPlayed() == 7 {
-					g.players[g.onturn].bingos++
-				}
-
-				// Add tiles to playedTilesList
-				for _, t := range m.Tiles() {
-					if t != alphabet.PlayedThroughMarker {
-						// Note that if a blank is played, the blanked letter
-						// is added to the played tiles (and not the blank itself)
-						// The RemoveTiles function below handles this later.
-						playedTiles = append(playedTiles, t)
-					}
-				}
-				// Note that what we draw here (and in exchange, below) may not
-				// be what was recorded. That's ok -- we always set the rack
-				// at the beginning to whatever was recorded. Drawing like
-				// normal, though, ensures we don't have to reconcile any
-				// tiles with the bag.
-				drew := g.bag.DrawAtMost(m.TilesPlayed())
-				tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
-				g.players[g.onturn].setRackTiles(tiles, g.alph)
-
-				// Don't check game end logic here, as we assume we have the
-				// right event for that (move.MoveTypeEndgameTiles for example).
-
-			case move.MoveTypeChallengeBonus, move.MoveTypeEndgameTiles,
-				move.MoveTypePhonyTilesReturned, move.MoveTypeLostTileScore,
-				move.MoveTypeLostScoreOnTime:
-
-				// The score should already have the proper sign at creation time.
-				g.players[g.onturn].points += m.Score()
-
-			case move.MoveTypeExchange:
-
-				drew, err := g.bag.Exchange([]alphabet.MachineLetter(m.Tiles()))
-				if err != nil {
-					panic(err)
-				}
-				tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
-				g.players[g.onturn].setRackTiles(tiles, g.alph)
-			default:
-				// Nothing
-
-			}
+	switch m.Action() {
+	case move.MoveTypePlay:
+		// We back up the board and bag since there's a possibility
+		// this play will have to be taken back, if it's a challenged phony.
+		g.board.SaveCopy()
+		g.board.PlayMove(m, g.gaddag, g.bag.LetterDistribution())
+		g.players[g.onturn].points += m.Score()
+		if m.TilesPlayed() == 7 {
+			g.players[g.onturn].bingos++
 		}
+
+		// Note that what we draw here (and in exchange, below) may not
+		// be what was recorded. That's ok -- we always set the rack
+		// at the beginning to whatever was recorded. Drawing like
+		// normal, though, ensures we don't have to reconcile any
+		// tiles with the bag.
+		drew := g.bag.DrawAtMost(m.TilesPlayed())
+		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
+		g.players[g.onturn].setRackTiles(tiles, g.alph)
+
+		// Don't check game end logic here, as we assume we have the
+		// right event for that (move.MoveTypeEndgameTiles for example).
+	case move.MoveTypePhonyTilesReturned:
+		// Score should have the proper sign at creation time
+		g.players[g.onturn].points += m.Score()
+		if m.TilesPlayed() == 7 {
+			g.players[g.onturn].bingos--
+		}
+		g.board.RestoreFromCopy()
+		// Throw the rack we drew after the phony back in the bag:
+		g.players[g.onturn].throwRackIn(g.bag)
+		// Also throw the tiles in the event back in the bag, so that
+		// we can then re-draw them
+		// NOTE: the event must have the PlayedTiles attribute set! This
+		// must be done in the gcg parser, or whatever is generating these
+		// events. (See challenge module as well)
+		playedTiles := strings.ReplaceAll(evt.PlayedTiles, string(alphabet.ASCIIPlayedThrough), "")
+		mw, err := alphabet.ToMachineWord(playedTiles, g.alph)
+		if err != nil {
+			return err
+		}
+		g.bag.PutBack(mw)
+		// Set the tiles to be the tiles in the event.
+		r := alphabet.NewRack(g.alph)
+		r.Set(m.Tiles())
+		g.SetRackFor(g.onturn, r)
+
+	case move.MoveTypeChallengeBonus, move.MoveTypeEndgameTiles,
+		move.MoveTypeLostTileScore, move.MoveTypeLostScoreOnTime:
+
+		// The score should already have the proper sign at creation time.
+		g.players[g.onturn].points += m.Score()
+
+	case move.MoveTypeExchange:
+
+		drew, err := g.bag.Exchange([]alphabet.MachineLetter(m.Tiles()))
+		if err != nil {
+			panic(err)
+		}
+		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
+		g.players[g.onturn].setRackTiles(tiles, g.alph)
+	default:
+		// Nothing
+
 	}
 
-	g.onturn = (g.onturn + 1) % len(g.players)
 	g.turnnum++
-	return playedTiles
+	return nil
 }
 
 // SetRackFor sets the player's current rack. It throws an error if

@@ -38,6 +38,7 @@ type GameBoard struct {
 	squares     [][]*Square
 	transposed  bool
 	tilesPlayed int
+	lastCopy    *GameBoard
 }
 
 // MakeBoard creates a board from a description string.
@@ -613,24 +614,6 @@ func (g *GameBoard) ScoreWord(word alphabet.MachineWord, row, col, tilesPlayed i
 
 }
 
-// RestoreFromBackup restores the squares of this board from the backupBoard.
-// func (g *GameBoard) RestoreFromBackup() {
-
-// 	for ridx, r := range g.squaresBackup {
-// 		for cidx, c := range r {
-// 			g.squares[ridx][cidx].copyFrom(c)
-// 		}
-// 	}
-// 	g.tilesPlayed = g.tilesPlayedBackup
-// 	g.playHistory = append([]string{}, g.playHistoryBackup...)
-// }
-
-// GameHash returns a "Hash" of this game's play history.
-// func (g *GameBoard) GameHash() string {
-// 	joined := strings.Join(g.playHistory, ",")
-// 	return fmt.Sprintf("%x", md5.Sum([]byte(joined)))
-// }
-
 // Copy returns a deep copy of this board.
 func (g *GameBoard) Copy() *GameBoard {
 	newg := &GameBoard{}
@@ -650,6 +633,15 @@ func (g *GameBoard) Copy() *GameBoard {
 	newg.tilesPlayed = g.tilesPlayed
 	// newg.playHistory = append([]string{}, g.playHistory...)
 	return newg
+}
+
+func (g *GameBoard) SaveCopy() {
+	g.lastCopy = g.Copy()
+}
+
+func (g *GameBoard) RestoreFromCopy() {
+	g.CopyFrom(g.lastCopy)
+	g.lastCopy = nil
 }
 
 // CopyFrom copies the squares and other info from b back into g.

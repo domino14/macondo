@@ -1,7 +1,9 @@
 # Golang CircleCI 2.0 configuration file
 #
 # Check https://circleci.com/docs/2.0/language-go/ for more details
-version: 2
+version: 2.1
+orbs:
+  slack: circleci/slack@3.4.2
 jobs:
   build:
     environment:
@@ -33,6 +35,8 @@ jobs:
       - run: cp -r /opt/macondo/data /opt/data
       - run: go build
       - run: go test ./...
+      - slack/status:
+          webhook: "${SLACK_WEBHOOK}"
 
 workflows:
   version: 2

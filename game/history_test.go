@@ -63,7 +63,7 @@ func TestNewFromHistoryIncomplete4(t *testing.T) {
 		"NWL18", "English")
 	gameHistory, err := gcgio.ParseGCG("../gcgio/testdata/incomplete_elise.gcg")
 	is.NoErr(err)
-	is.Equal(len(gameHistory.Turns), 20)
+	is.Equal(len(gameHistory.Events), 20)
 
 	g, err := game.NewFromHistory(gameHistory, rules, 0)
 	is.NoErr(err)
@@ -89,7 +89,7 @@ func TestNewFromHistoryIncomplete5(t *testing.T) {
 		"NWL18", "English")
 	gameHistory, err := gcgio.ParseGCG("../gcgio/testdata/incomplete.gcg")
 	is.NoErr(err)
-	is.Equal(len(gameHistory.Turns), 20)
+	is.Equal(len(gameHistory.Events), 20)
 
 	g, err := game.NewFromHistory(gameHistory, rules, 0)
 	is.NoErr(err)
@@ -105,7 +105,7 @@ func TestNewFromHistoryIncomplete6(t *testing.T) {
 		"NWL18", "English")
 	gameHistory, err := gcgio.ParseGCG("../gcgio/testdata/incomplete_3.gcg")
 	is.NoErr(err)
-	is.Equal(len(gameHistory.Turns), 20)
+	is.Equal(len(gameHistory.Events), 20)
 
 	g, err := game.NewFromHistory(gameHistory, rules, 0)
 	is.NoErr(err)
@@ -122,7 +122,7 @@ func TestNewFromHistoryIncomplete7(t *testing.T) {
 		"NWL18", "English")
 	gameHistory, err := gcgio.ParseGCG("../gcgio/testdata/incomplete4.gcg")
 	is.NoErr(err)
-	is.Equal(len(gameHistory.Turns), 5)
+	is.Equal(len(gameHistory.Events), 5)
 
 	g, err := game.NewFromHistory(gameHistory, rules, 0)
 	is.NoErr(err)
