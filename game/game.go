@@ -301,8 +301,8 @@ func (g *Game) validateTilePlayMove(m *move.Move) ([]alphabet.MachineWord, error
 
 func (g *Game) endOfGameCalcs(onturn int, addToHistory bool) {
 	unplayedPts := g.calculateRackPts(otherPlayer(onturn)) * 2
-	log.Debug().Int("onturn", onturn).Int("unplayedpts", unplayedPts).
-		Msg("endOfGameCalcs")
+	// log.Debug().Int("onturn", onturn).Int("unplayedpts", unplayedPts).
+	// 	Msg("endOfGameCalcs")
 	g.players[onturn].points += unplayedPts
 	if addToHistory {
 		g.history.Events = append(g.history.Events, g.endRackEvt(onturn, unplayedPts))
@@ -358,7 +358,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 				g.history.PlayState = g.playing
 				log.Info().Msg("waiting for final pass... (commit pass)")
 			} else {
-				log.Debug().Msg("game is over")
+				// log.Debug().Msg("game is over")
 				g.playing = pb.PlayState_GAME_OVER
 				g.history.PlayState = g.playing
 				g.endOfGameCalcs(g.onturn, addToHistory)
