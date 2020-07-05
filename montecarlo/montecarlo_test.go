@@ -130,7 +130,7 @@ func TestLongerSim(t *testing.T) {
 	simmer.Init(game, aiplayer)
 
 	timeout, cancel := context.WithTimeout(
-		context.Background(), 15*time.Second)
+		context.Background(), 20*time.Second)
 	defer cancel()
 
 	f, err := os.Create("/tmp/simlog")

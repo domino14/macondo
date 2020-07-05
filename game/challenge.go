@@ -3,8 +3,11 @@ package game
 import (
 	"errors"
 
+	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/gaddag"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
+	"github.com/rs/zerolog/log"
 )
 
 // SetChallengeRule sets the challenge rule for a game. The game
@@ -22,7 +25,7 @@ func (g *Game) SetChallengeRule(rule pb.ChallengeRule) {
 // out with a phony).
 // Return playLegal, error
 func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
-	if len(g.history.Turns) == 0 {
+	if len(g.history.Events) == 0 {
 		return false, errors.New("this game has no history")
 	}
 	if g.history.ChallengeRule == pb.ChallengeRule_VOID {
@@ -36,32 +39,31 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 	illegalWords := validateWords(g.gaddag, g.lastWordsFormed)
 	playLegal := len(illegalWords) == 0
 
-	lastTurn := g.history.Turns[len(g.history.Turns)-1]
-	cumeScoreBeforeChallenge := lastTurn.Events[0].Cumulative
+	lastEvent := g.history.Events[len(g.history.Events)-1]
+	cumeScoreBeforeChallenge := lastEvent.Cumulative
 
 	challengee := otherPlayer(g.onturn)
-
+	var err error
 	if !playLegal {
 		offBoardEvent := &pb.GameEvent{
-			Nickname:   lastTurn.Events[0].Nickname,
-			Type:       pb.GameEvent_PHONY_TILES_RETURNED,
-			LostScore:  -lastTurn.Events[0].Score,
-			Cumulative: cumeScoreBeforeChallenge - lastTurn.Events[0].Score,
-			Rack:       lastTurn.Events[0].Rack,
+			Nickname:    lastEvent.Nickname,
+			Type:        pb.GameEvent_PHONY_TILES_RETURNED,
+			LostScore:   lastEvent.Score,
+			Cumulative:  cumeScoreBeforeChallenge - lastEvent.Score,
+			Rack:        lastEvent.Rack,
+			PlayedTiles: lastEvent.PlayedTiles,
 			// Note: these millis remaining would be the challenger's
 			MillisRemaining: int32(millis),
 		}
 
-		// the play comes off the board.
-		// make it so the events are ONLY tile placement move
-		// and phony tiles returned (so remove any out-play bonus if it exists)
-		lastTurn.Events = []*pb.GameEvent{lastTurn.Events[0], offBoardEvent}
+		// the play comes off the board. Add the offBoardEvent.
+		g.history.Events = append(g.history.Events, offBoardEvent)
 		// Unplay the last move to restore everything as it was board-wise
 		// (and un-end the game if it had ended)
 		g.UnplayLastMove()
 		// We must also set the last known rack of the challengee back to
 		// their rack before they played the phony.
-		g.history.LastKnownRacks[challengee] = lastTurn.Events[0].Rack
+		g.history.LastKnownRacks[challengee] = lastEvent.Rack
 
 		// Note that if backup mode is InteractiveGameplayMode, which it should be,
 		// we do not back up the turn number. So restoring it doesn't change
@@ -69,7 +71,10 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 		// needed variables.
 		// and we must add one to scoreless turns:
 		g.scorelessTurns++
-		g.handleConsecutiveScorelessTurns(true, lastTurn)
+		_, err = g.handleConsecutiveScorelessTurns(true)
+		if err != nil {
+			return playLegal, err
+		}
 
 		// Finally, let's re-shuffle the bag. This is so we don't give the
 		// player who played the phony knowledge about the next few tiles in the bag.
@@ -80,7 +85,7 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 
 		bonusScoreEvent := func(bonus int32) *pb.GameEvent {
 			return &pb.GameEvent{
-				Nickname:   lastTurn.Events[0].Nickname,
+				Nickname:   lastEvent.Nickname,
 				Type:       pb.GameEvent_CHALLENGE_BONUS,
 				Bonus:      bonus + int32(addlBonus),
 				Cumulative: cumeScoreBeforeChallenge + bonus,
@@ -112,7 +117,7 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 		}
 
 		if shouldAddPts {
-			lastTurn.Events = append(lastTurn.Events, bonusScoreEvent(addPts))
+			g.history.Events = append(g.history.Events, bonusScoreEvent(addPts))
 			g.players[challengee].points += int(addPts)
 		}
 
@@ -123,12 +128,26 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 			// do calculations with the player on turn being the player who
 			// didn't challenge, as this is a special event where the turn
 			// did not _actually_ change.
-			g.endOfGameCalcs(otherPlayer(g.onturn), lastTurn, true)
+			g.endOfGameCalcs(otherPlayer(g.onturn), true)
 		}
 
 	}
 
 	// Finally set the last words formed to nil.
 	g.lastWordsFormed = nil
-	return playLegal, nil
+	g.turnnum = len(g.history.Events)
+	return playLegal, err
+}
+
+func validateWords(gd *gaddag.SimpleGaddag, words []alphabet.MachineWord) []string {
+	var illegalWords []string
+	alph := gd.GetAlphabet()
+	log.Debug().Interface("words", words).Msg("challenge-evt")
+	for _, word := range words {
+		valid := gaddag.FindMachineWord(gd, word)
+		if !valid {
+			illegalWords = append(illegalWords, word.UserVisible(alph))
+		}
+	}
+	return illegalWords
 }

@@ -1,382 +1,278 @@
 {
-  "turns": [
+  "events": [
     {
-      "events": [
-        {
-          "nickname": "andy",
-          "rack": "GPY",
-          "cumulative": 18,
-          "row": 7,
-          "column": 6,
-          "position": "8G",
-          "played_tiles": "GYP",
-          "score": 18
-        }
-      ]
+      "nickname": "andy",
+      "rack": "GPY",
+      "cumulative": 18,
+      "row": 7,
+      "column": 6,
+      "position": "8G",
+      "played_tiles": "GYP",
+      "score": 18
     },
     {
-      "events": [
-        {
-          "nickname": "cesar",
-          "note": "-3.5 seems like 7H AURA or 7I UTA are good. i did consider keeping the Z, but i couldn't think of a good play. but AIRTU kind of sucks, too.",
-          "rack": "AAIRTUZ",
-          "cumulative": 16,
-          "row": 6,
-          "column": 5,
-          "position": "7F",
-          "played_tiles": "ZA",
-          "score": 16
-        }
-      ]
+      "nickname": "cesar",
+      "note": "-3.5 seems like 7H AURA or 7I UTA are good. i did consider keeping the Z, but i couldn't think of a good play. but AIRTU kind of sucks, too.",
+      "rack": "AAIRTUZ",
+      "cumulative": 16,
+      "row": 6,
+      "column": 5,
+      "position": "7F",
+      "played_tiles": "ZA",
+      "score": 16
     },
     {
-      "events": [
-        {
-          "nickname": "andy",
-          "rack": "EHTW",
-          "cumulative": 40,
-          "row": 5,
-          "column": 6,
-          "position": "6G",
-          "played_tiles": "THEW",
-          "score": 22
-        }
-      ]
+      "nickname": "andy",
+      "rack": "EHTW",
+      "cumulative": 40,
+      "row": 5,
+      "column": 6,
+      "position": "6G",
+      "played_tiles": "THEW",
+      "score": 22
     },
     {
-      "events": [
-        {
-          "nickname": "cesar",
-          "rack": "AIMRTTU",
-          "cumulative": 37,
-          "row": 4,
-          "column": 8,
-          "position": "5I",
-          "played_tiles": "MAUT",
-          "score": 21
-        }
-      ]
+      "nickname": "cesar",
+      "rack": "AIMRTTU",
+      "cumulative": 37,
+      "row": 4,
+      "column": 8,
+      "position": "5I",
+      "played_tiles": "MAUT",
+      "score": 21
     },
     {
-      "events": [
-        {
-          "nickname": "andy",
-          "rack": "JLO",
-          "cumulative": 62,
-          "row": 1,
-          "column": 11,
-          "direction": 1,
-          "position": "L2",
-          "played_tiles": "JOL.",
-          "score": 22
-        }
-      ]
+      "nickname": "andy",
+      "rack": "JLO",
+      "cumulative": 62,
+      "row": 1,
+      "column": 11,
+      "direction": 1,
+      "position": "L2",
+      "played_tiles": "JOL.",
+      "score": 22
     },
     {
-      "events": [
-        {
-          "nickname": "cesar",
-          "rack": "FIIORTT",
-          "cumulative": 60,
-          "column": 12,
-          "direction": 1,
-          "position": "M1",
-          "played_tiles": "TORI",
-          "score": 23
-        }
-      ]
+      "nickname": "cesar",
+      "rack": "FIIORTT",
+      "cumulative": 60,
+      "column": 12,
+      "direction": 1,
+      "position": "M1",
+      "played_tiles": "TORI",
+      "score": 23
     },
     {
-      "events": [
-        {
-          "nickname": "andy",
-          "rack": "BDE",
-          "cumulative": 105,
-          "row": 1,
-          "column": 13,
-          "direction": 1,
-          "position": "N2",
-          "played_tiles": "BED",
-          "score": 43
-        }
-      ]
+      "nickname": "andy",
+      "rack": "BDE",
+      "cumulative": 105,
+      "row": 1,
+      "column": 13,
+      "direction": 1,
+      "position": "N2",
+      "played_tiles": "BED",
+      "score": 43
     },
     {
-      "events": [
-        {
-          "nickname": "cesar",
-          "rack": "FIILRST",
-          "cumulative": 74,
-          "row": 6,
-          "column": 9,
-          "position": "7J",
-          "played_tiles": "LIFT",
-          "score": 14
-        }
-      ]
+      "nickname": "cesar",
+      "rack": "FIILRST",
+      "cumulative": 74,
+      "row": 6,
+      "column": 9,
+      "position": "7J",
+      "played_tiles": "LIFT",
+      "score": 14
     },
     {
-      "events": [
-        {
-          "nickname": "andy",
-          "rack": "ABEIIRX",
-          "type": 4,
-          "cumulative": 105,
-          "exchanged": "IIAB"
-        }
-      ]
+      "nickname": "andy",
+      "rack": "ABEIIRX",
+      "type": 4,
+      "cumulative": 105,
+      "exchanged": "IIAB"
     },
     {
-      "events": [
-        {
-          "nickname": "cesar",
-          "note": "i missed SORdINI. SIgNIOR is better defensively too, i wasn't 100% on it. -4.5",
-          "rack": "?IINORS",
-          "cumulative": 151,
-          "row": 3,
-          "column": 14,
-          "direction": 1,
-          "position": "O4",
-          "played_tiles": "ORIgINS",
-          "score": 77
-        }
-      ]
+      "nickname": "cesar",
+      "note": "i missed SORdINI. SIgNIOR is better defensively too, i wasn't 100% on it. -4.5",
+      "rack": "?IINORS",
+      "cumulative": 151,
+      "row": 3,
+      "column": 14,
+      "direction": 1,
+      "position": "O4",
+      "played_tiles": "ORIgINS",
+      "score": 77
     },
     {
-      "events": [
-        {
-          "nickname": "andy",
-          "rack": "?DEHRRU",
-          "cumulative": 170,
-          "row": 9,
-          "column": 7,
-          "position": "10H",
-          "played_tiles": "DRUtHER.",
-          "score": 65
-        }
-      ]
+      "nickname": "andy",
+      "rack": "?DEHRRU",
+      "cumulative": 170,
+      "row": 9,
+      "column": 7,
+      "position": "10H",
+      "played_tiles": "DRUtHER.",
+      "score": 65
     },
     {
-      "events": [
-        {
-          "nickname": "cesar",
-          "note": "i should not try to play defense when i'm down. how many times do i have to tell myself that? ABEL is better than ABE too. MOO is definitely better than my move. DOABLE is best which i just missed. (-6.5)",
-          "rack": "ABELMOO",
-          "cumulative": 176,
-          "row": 10,
-          "column": 9,
-          "position": "11J",
-          "played_tiles": "MOOL",
-          "score": 25
-        }
-      ]
+      "nickname": "cesar",
+      "note": "i should not try to play defense when i'm down. how many times do i have to tell myself that? ABEL is better than ABE too. MOO is definitely better than my move. DOABLE is best which i just missed. (-6.5)",
+      "rack": "ABELMOO",
+      "cumulative": 176,
+      "row": 10,
+      "column": 9,
+      "position": "11J",
+      "played_tiles": "MOOL",
+      "score": 25
     },
     {
-      "events": [
-        {
-          "nickname": "andy",
-          "rack": "ACEIT",
-          "cumulative": 206,
-          "row": 9,
-          "column": 7,
-          "direction": 1,
-          "position": "H10",
-          "played_tiles": ".ACITE",
-          "score": 36
-        }
-      ]
+      "nickname": "andy",
+      "rack": "ACEIT",
+      "cumulative": 206,
+      "row": 9,
+      "column": 7,
+      "direction": 1,
+      "position": "H10",
+      "played_tiles": ".ACITE",
+      "score": 36
     },
     {
-      "events": [
-        {
-          "nickname": "cesar",
-          "rack": "ABEFGIN",
-          "cumulative": 204,
-          "row": 11,
-          "column": 11,
-          "position": "12L",
-          "played_tiles": "EF",
-          "score": 28
-        }
-      ]
+      "nickname": "cesar",
+      "rack": "ABEFGIN",
+      "cumulative": 204,
+      "row": 11,
+      "column": 11,
+      "position": "12L",
+      "played_tiles": "EF",
+      "score": 28
     },
     {
-      "events": [
-        {
-          "nickname": "andy",
-          "rack": "AEEGISS",
-          "cumulative": 277,
-          "row": 4,
-          "position": "5A",
-          "played_tiles": "AEGISES",
-          "score": 71
-        }
-      ]
+      "nickname": "andy",
+      "rack": "AEEGISS",
+      "cumulative": 277,
+      "row": 4,
+      "position": "5A",
+      "played_tiles": "AEGISES",
+      "score": 71
     },
     {
-      "events": [
-        {
-          "nickname": "cesar",
-          "note": "quackle thinks i should go for the leave by playing 4A BOA. it is probably right. (-2)",
-          "rack": "AABGINO",
-          "cumulative": 240,
-          "row": 3,
-          "direction": 1,
-          "position": "A4",
-          "played_tiles": "B.GNIO",
-          "score": 36
-        }
-      ]
+      "nickname": "cesar",
+      "note": "quackle thinks i should go for the leave by playing 4A BOA. it is probably right. (-2)",
+      "rack": "AABGINO",
+      "cumulative": 240,
+      "row": 3,
+      "direction": 1,
+      "position": "A4",
+      "played_tiles": "B.GNIO",
+      "score": 36
     },
     {
-      "events": [
-        {
-          "nickname": "andy",
-          "rack": "UV",
-          "cumulative": 291,
-          "row": 2,
-          "column": 2,
-          "direction": 1,
-          "position": "C3",
-          "played_tiles": "VU.",
-          "score": 14
-        }
-      ]
+      "nickname": "andy",
+      "rack": "UV",
+      "cumulative": 291,
+      "row": 2,
+      "column": 2,
+      "direction": 1,
+      "position": "C3",
+      "played_tiles": "VU.",
+      "score": 14
     },
     {
-      "events": [
-        {
-          "nickname": "cesar",
-          "rack": "AAACESW",
-          "cumulative": 265,
-          "column": 12,
-          "position": "1M",
-          "played_tiles": ".AW",
-          "score": 25
-        }
-      ]
+      "nickname": "cesar",
+      "rack": "AAACESW",
+      "cumulative": 265,
+      "column": 12,
+      "position": "1M",
+      "played_tiles": ".AW",
+      "score": 25
     },
     {
-      "events": [
-        {
-          "nickname": "andy",
-          "rack": "AUV",
-          "cumulative": 306,
-          "row": 13,
-          "column": 5,
-          "position": "14F",
-          "played_tiles": "VA.U",
-          "score": 15
-        }
-      ]
+      "nickname": "andy",
+      "rack": "AUV",
+      "cumulative": 306,
+      "row": 13,
+      "column": 5,
+      "position": "14F",
+      "played_tiles": "VA.U",
+      "score": 15
     },
     {
-      "events": [
-        {
-          "nickname": "cesar",
-          "note": "damn vatu. DAMN IT. stupid game. i missed MOOLA, N9 ERA seems to be good there because it also sets up DELFS or something like that that i may need. DAN's leave isn't strong enough. -7",
-          "rack": "AACDEES",
-          "cumulative": 283,
-          "row": 8,
-          "column": 12,
-          "position": "9M",
-          "played_tiles": "DA.",
-          "score": 18
-        }
-      ]
+      "nickname": "cesar",
+      "note": "damn vatu. DAMN IT. stupid game. i missed MOOLA, N9 ERA seems to be good there because it also sets up DELFS or something like that that i may need. DAN's leave isn't strong enough. -7",
+      "rack": "AACDEES",
+      "cumulative": 283,
+      "row": 8,
+      "column": 12,
+      "position": "9M",
+      "played_tiles": "DA.",
+      "score": 18
     },
     {
-      "events": [
-        {
-          "nickname": "andy",
-          "rack": "EENRTX",
-          "cumulative": 366,
-          "row": 8,
-          "column": 1,
-          "direction": 1,
-          "position": "B9",
-          "played_tiles": "EXTERN",
-          "score": 60
-        }
-      ]
+      "nickname": "andy",
+      "rack": "EENRTX",
+      "cumulative": 366,
+      "row": 8,
+      "column": 1,
+      "direction": 1,
+      "position": "B9",
+      "played_tiles": "EXTERN",
+      "score": 60
     },
     {
-      "events": [
-        {
-          "nickname": "cesar",
-          "rack": "ACEELPS",
-          "cumulative": 318,
-          "row": 14,
-          "position": "15A",
-          "played_tiles": "CEP",
-          "score": 35
-        }
-      ]
+      "nickname": "cesar",
+      "rack": "ACEELPS",
+      "cumulative": 318,
+      "row": 14,
+      "position": "15A",
+      "played_tiles": "CEP",
+      "score": 35
     },
     {
-      "events": [
-        {
-          "nickname": "andy",
-          "rack": "KNO",
-          "cumulative": 392,
-          "row": 11,
-          "position": "12A",
-          "played_tiles": "K.NO",
-          "score": 26
-        }
-      ]
+      "nickname": "andy",
+      "rack": "KNO",
+      "cumulative": 392,
+      "row": 11,
+      "position": "12A",
+      "played_tiles": "K.NO",
+      "score": 26
     },
     {
-      "events": [
-        {
-          "nickname": "cesar",
-          "note": "no chance he's gonna leave it open. raya. -7",
-          "rack": "AAELNSY",
-          "cumulative": 339,
-          "row": 12,
-          "column": 1,
-          "position": "13B",
-          "played_tiles": ".AY",
-          "score": 21
-        }
-      ]
+      "nickname": "cesar",
+      "note": "no chance he's gonna leave it open. raya. -7",
+      "rack": "AAELNSY",
+      "cumulative": 339,
+      "row": 12,
+      "column": 1,
+      "position": "13B",
+      "played_tiles": ".AY",
+      "score": 21
     },
     {
-      "events": [
-        {
-          "nickname": "andy",
-          "note": "15G D(E)NIER to block my out.",
-          "rack": "DEIINQR",
-          "cumulative": 423,
-          "row": 5,
-          "column": 13,
-          "position": "6N",
-          "played_tiles": "Q.",
-          "score": 31
-        }
-      ]
+      "nickname": "andy",
+      "note": "15G D(E)NIER to block my out.",
+      "rack": "DEIINQR",
+      "cumulative": 423,
+      "row": 5,
+      "column": 13,
+      "position": "6N",
+      "played_tiles": "Q.",
+      "score": 31
     },
     {
-      "events": [
-        {
-          "nickname": "cesar",
-          "note": "SOL is better than going out. -4",
-          "rack": "AELNOS",
-          "cumulative": 349,
-          "row": 14,
-          "column": 7,
-          "position": "15H",
-          "played_tiles": ".NOLASE",
-          "score": 10
-        },
-        {
-          "nickname": "cesar",
-          "rack": "DEINIR",
-          "type": 5,
-          "cumulative": 363,
-          "end_rack_points": 14
-        }
-      ]
+      "nickname": "cesar",
+      "note": "SOL is better than going out. -4",
+      "rack": "AELNOS",
+      "cumulative": 349,
+      "row": 14,
+      "column": 7,
+      "position": "15H",
+      "played_tiles": ".NOLASE",
+      "score": 10
+    },
+    {
+      "nickname": "cesar",
+      "rack": "DEINIR",
+      "type": 5,
+      "cumulative": 363,
+      "end_rack_points": 14
     }
   ],
   "players": [

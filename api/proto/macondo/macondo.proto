@@ -6,7 +6,7 @@ option go_package = "github.com/domino14/macondo/gen/api/proto/macondo";
 // the initial board and tile configuration, etc. It can be considered
 // to be an instantiation of a GCG file.
 message GameHistory {
-  repeated GameTurn turns = 1;
+  repeated GameEvent events = 1;
   repeated PlayerInfo players = 2;
   int32 version = 3;
   string original_gcg = 4;
@@ -42,20 +42,6 @@ enum ChallengeRule {
   FIVE_POINT = 3;
   TEN_POINT = 4;
 }
-
-// A GamePosition is a single turn of a GameHistory, and contains the state
-// associated with that turn. However, a GameHistory does not contain an
-// array of GamePosition. It instead contains an array of GameTurn; such
-// an array can be used to instantiate GamePositions for every turn.
-// message GamePosition {
-//   // onturn is NOT the player number that is in `players`, but it is the
-//   // INDEX into the players array.
-//   int32 onturn = 1;
-//   int32 turnnum = 2;
-//   bool playing = 3;
-//   int32 scoreless_turns = 4;
-//   repeated PlayerState players = 5;
-// }
 
 // This should be merged into Move.
 message GameEvent {
@@ -99,8 +85,6 @@ message GameEvent {
   int32 unknown_exchange = 17;
   int32 millis_remaining = 18;
 }
-
-message GameTurn { repeated GameEvent events = 1; }
 
 message PlayerInfo {
   string nickname = 1;

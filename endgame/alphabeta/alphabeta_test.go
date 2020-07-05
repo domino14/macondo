@@ -722,7 +722,7 @@ func TestFromGCG(t *testing.T) {
 	gameHistory, err := gcgio.ParseGCG("../../gcgio/testdata/vs_frentz.gcg")
 	is.NoErr(err)
 
-	g, err := game.NewFromHistory(gameHistory, rules, 21)
+	g, err := game.NewFromHistory(gameHistory, rules, 22)
 	is.NoErr(err)
 
 	g.SetBackupMode(game.SimulationMode)

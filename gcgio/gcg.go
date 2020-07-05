@@ -131,7 +131,7 @@ func (p *parser) addEventOrPragma(token Token, match []string) error {
 
 	switch token {
 	case PlayerToken:
-		if len(p.history.Turns) > 0 {
+		if len(p.history.Events) > 0 {
 			return errPragmaPrecedeEvent
 		}
 		pn, err := strconv.Atoi(match[1])
@@ -154,18 +154,18 @@ func (p *parser) addEventOrPragma(token Token, match []string) error {
 
 		return nil
 	case TitleToken:
-		if len(p.history.Turns) > 0 {
+		if len(p.history.Events) > 0 {
 			return errPragmaPrecedeEvent
 		}
 		p.history.Title = match[1]
 		return nil
 	case DescriptionToken:
-		if len(p.history.Turns) > 0 {
+		if len(p.history.Events) > 0 {
 			return errPragmaPrecedeEvent
 		}
 		p.history.Description = match[1]
 	case IDToken:
-		if len(p.history.Turns) > 0 {
+		if len(p.history.Events) > 0 {
 			return errPragmaPrecedeEvent
 		}
 		p.history.IdAuth = match[1]
@@ -200,18 +200,14 @@ func (p *parser) addEventOrPragma(token Token, match []string) error {
 		}
 		game.CalculateCoordsFromStringPosition(evt)
 		evt.Type = pb.GameEvent_TILE_PLACEMENT_MOVE
-		evts := []*pb.GameEvent{evt}
-		turn := &pb.GameTurn{Events: evts}
-
-		p.history.Turns = append(p.history.Turns, turn)
+		p.history.Events = append(p.history.Events, evt)
 
 	case NoteToken:
-		lastTurnIdx := len(p.history.Turns) - 1
-		lastEvtIdx := len(p.history.Turns[lastTurnIdx].Events) - 1
-		p.history.Turns[lastTurnIdx].Events[lastEvtIdx].Note += match[1]
+		lastEvtIdx := len(p.history.Events) - 1
+		p.history.Events[lastEvtIdx].Note += match[1]
 		return nil
 	case LexiconToken:
-		if len(p.history.Turns) > 0 {
+		if len(p.history.Events) > 0 {
 			return errPragmaPrecedeEvent
 		}
 		p.history.Lexicon = match[1]
@@ -230,11 +226,9 @@ func (p *parser) addEventOrPragma(token Token, match []string) error {
 		if err != nil {
 			return err
 		}
-		// This can not be a stand-alone turn; it must be added to the previous
-		// turn.
-		lastTurnIdx := len(p.history.Turns) - 1
-		p.history.Turns[lastTurnIdx].Events = append(p.history.Turns[lastTurnIdx].Events, evt)
+
 		evt.Type = pb.GameEvent_PHONY_TILES_RETURNED
+		p.history.Events = append(p.history.Events, evt)
 
 	case TimePenaltyToken:
 		evt := &pb.GameEvent{}
@@ -255,9 +249,7 @@ func (p *parser) addEventOrPragma(token Token, match []string) error {
 		// (i.e. player2 goes out, and then time penalty is applied to player1)
 
 		evt.Type = pb.GameEvent_TIME_PENALTY
-		evts := []*pb.GameEvent{evt}
-		turn := &pb.GameTurn{Events: evts}
-		p.history.Turns = append(p.history.Turns, turn)
+		p.history.Events = append(p.history.Events, evt)
 
 	case LastRackPenaltyToken:
 		evt := &pb.GameEvent{}
@@ -276,9 +268,7 @@ func (p *parser) addEventOrPragma(token Token, match []string) error {
 			return err
 		}
 		evt.Type = pb.GameEvent_END_RACK_PENALTY
-		evts := []*pb.GameEvent{evt}
-		turn := &pb.GameTurn{Events: evts}
-		p.history.Turns = append(p.history.Turns, turn)
+		p.history.Events = append(p.history.Events, evt)
 
 	case PassToken:
 		evt := &pb.GameEvent{}
@@ -289,9 +279,7 @@ func (p *parser) addEventOrPragma(token Token, match []string) error {
 			return err
 		}
 		evt.Type = pb.GameEvent_PASS
-		evts := []*pb.GameEvent{evt}
-		turn := &pb.GameTurn{Events: evts}
-		p.history.Turns = append(p.history.Turns, turn)
+		p.history.Events = append(p.history.Events, evt)
 
 	case ChallengeBonusToken, EndRackPointsToken:
 		evt := &pb.GameEvent{}
@@ -314,8 +302,7 @@ func (p *parser) addEventOrPragma(token Token, match []string) error {
 		} else if token == EndRackPointsToken {
 			evt.Type = pb.GameEvent_END_RACK_PTS
 		}
-		lastTurnIdx := len(p.history.Turns) - 1
-		p.history.Turns[lastTurnIdx].Events = append(p.history.Turns[lastTurnIdx].Events, evt)
+		p.history.Events = append(p.history.Events, evt)
 
 	case ExchangeToken:
 		evt := &pb.GameEvent{}
@@ -327,9 +314,7 @@ func (p *parser) addEventOrPragma(token Token, match []string) error {
 			return err
 		}
 		evt.Type = pb.GameEvent_EXCHANGE
-		evts := []*pb.GameEvent{evt}
-		turn := &pb.GameTurn{Events: evts}
-		p.history.Turns = append(p.history.Turns, turn)
+		p.history.Events = append(p.history.Events, evt)
 
 	}
 	return nil
@@ -354,9 +339,8 @@ func (p *parser) parseLine(line string) error {
 	if !foundMatch {
 		// maybe it's a multi-line note.
 		if p.lastToken == NoteToken {
-			lastTurnIdx := len(p.history.Turns) - 1
-			lastEventIdx := len(p.history.Turns[lastTurnIdx].Events) - 1
-			p.history.Turns[lastTurnIdx].Events[lastEventIdx].Note += ("\n" + line)
+			lastEventIdx := len(p.history.Events) - 1
+			p.history.Events[lastEventIdx].Note += ("\n" + line)
 			return nil
 		}
 		// ignore empty lines
@@ -412,7 +396,7 @@ func ParseGCGFromReader(reader io.Reader) (*pb.GameHistory, error) {
 	var err error
 	parser := &parser{
 		history: &pb.GameHistory{
-			Turns:   []*pb.GameTurn{},
+			Events:  []*pb.GameEvent{},
 			Players: []*pb.PlayerInfo{},
 			Version: 1},
 	}
@@ -541,16 +525,6 @@ func writeEvent(s *strings.Builder, evt *pb.GameEvent) error {
 
 }
 
-func writeTurn(s *strings.Builder, t *pb.GameTurn) error {
-	for _, evt := range t.Events {
-		err := writeEvent(s, evt)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func writePlayer(s *strings.Builder, pn int, p *pb.PlayerInfo) {
 	fmt.Fprintf(s, "#player%d %v %v\n", pn, p.Nickname, p.RealName)
 }
@@ -572,8 +546,8 @@ func GameHistoryToGCG(h *pb.GameHistory, addlHeaderInfo bool) (string, error) {
 	writeGCGHeader(&str, h, addlHeaderInfo)
 	writePlayers(&str, h.Players, h.SecondWentFirst)
 
-	for _, turn := range h.Turns {
-		err := writeTurn(&str, turn)
+	for _, evt := range h.Events {
+		err := writeEvent(&str, evt)
 		if err != nil {
 			return "", err
 		}

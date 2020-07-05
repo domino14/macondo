@@ -101,12 +101,12 @@ func (g *Game) ToDisplayText() string {
 
 	if g.turnnum-1 >= 0 {
 		addText(bts, vpadding, hpadding,
-			summary(g.history.Turns[g.turnnum-1]))
+			summary(g.history.Events[g.turnnum-1]))
 	}
 
 	vpadding = 17
 
-	if g.playing == pb.PlayState_GAME_OVER && g.turnnum == len(g.history.Turns) {
+	if g.playing == pb.PlayState_GAME_OVER && g.turnnum == len(g.history.Events) {
 		addText(bts, vpadding, hpadding, "Game is over.")
 	}
 

@@ -1,7 +1,9 @@
 # Golang CircleCI 2.0 configuration file
 #
 # Check https://circleci.com/docs/2.0/language-go/ for more details
-version: 2
+version: 2.1
+orbs:
+  slack: circleci/slack@3.4.2
 jobs:
   build:
     environment:
@@ -17,8 +19,8 @@ jobs:
           fingerprints:
             - "bf:37:1b:e1:b2:b0:ec:20:92:43:20:86:40:7c:c4:e0"
       - run:
-          name: Install git, ssh, and build-base (for tests)
-          command: apk update && apk upgrade && apk add git openssh build-base
+          name: Install git, ssh, build-base, bash (for tests)
+          command: apk update && apk upgrade && apk add git openssh build-base bash curl
       - run:
           name: Install ssl
           command: apk add --update ca-certificates openssl && update-ca-certificates
@@ -33,6 +35,8 @@ jobs:
       - run: cp -r /opt/macondo/data /opt/data
       - run: go build
       - run: go test ./...
+      - slack/status:
+          webhook: "${SLACK_WEBHOOK}"
 
 workflows:
   version: 2
