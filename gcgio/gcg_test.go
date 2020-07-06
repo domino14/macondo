@@ -140,3 +140,17 @@ func TestPragmaWrongPlace(t *testing.T) {
 	assert.Nil(t, history)
 	assert.Equal(t, errPragmaPrecedeEvent, err)
 }
+
+func TestIsBingo(t *testing.T) {
+	reader := strings.NewReader(`#character-encoding UTF-8
+#lexicon CSW19
+#player1 dougie Doungy B
+#player2 cesar Cesar D
+>dougie: FOODIES 8D FOODIES +80 80
+>cesar: ABCDEFG D7 E. +5 5
+`)
+	history, err := ParseGCGFromReader(reader)
+	assert.Nil(t, err)
+	assert.True(t, history.Events[0].IsBingo)
+	assert.False(t, history.Events[1].IsBingo)
+}

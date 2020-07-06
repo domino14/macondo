@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/domino14/macondo/alphabet"
+
 	"github.com/domino14/macondo/game"
 
 	"golang.org/x/text/encoding/charmap"
@@ -200,6 +202,15 @@ func (p *parser) addEventOrPragma(token Token, match []string) error {
 		}
 		game.CalculateCoordsFromStringPosition(evt)
 		evt.Type = pb.GameEvent_TILE_PLACEMENT_MOVE
+
+		tp := 0
+		for _, t := range evt.PlayedTiles {
+			if t != alphabet.ASCIIPlayedThrough {
+				tp++
+			}
+		}
+
+		evt.IsBingo = tp == 7
 		p.history.Events = append(p.history.Events, evt)
 
 	case NoteToken:
