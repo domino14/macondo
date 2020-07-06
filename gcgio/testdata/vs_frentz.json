@@ -9,7 +9,8 @@
       "column": 3,
       "position": "8D",
       "played_tiles": "CRAAlED",
-      "score": 74
+      "score": 74,
+      "is_bingo": true
     },
     {
       "nickname": "frentz",
@@ -21,7 +22,8 @@
       "direction": 1,
       "position": "E2",
       "played_tiles": "ENDOWE.S",
-      "score": 74
+      "score": 74,
+      "is_bingo": true
     },
     {
       "nickname": "cesar",
@@ -127,7 +129,8 @@
       "column": 2,
       "position": "15C",
       "played_tiles": "STERILE",
-      "score": 86
+      "score": 86,
+      "is_bingo": true
     },
     {
       "nickname": "cesar",
@@ -157,7 +160,8 @@
       "column": 4,
       "position": "3E",
       "played_tiles": "..NVIRILE",
-      "score": 78
+      "score": 78,
+      "is_bingo": true
     },
     {
       "nickname": "cesar",
@@ -176,7 +180,8 @@
       "column": 6,
       "position": "13G",
       "played_tiles": "ACErBER",
-      "score": 80
+      "score": 80,
+      "is_bingo": true
     },
     {
       "nickname": "cesar",
@@ -241,7 +246,8 @@
       "direction": 1,
       "position": "O6",
       "played_tiles": "RIMLAN.S",
-      "score": 83
+      "score": 83,
+      "is_bingo": true
     },
     {
       "nickname": "frentz",

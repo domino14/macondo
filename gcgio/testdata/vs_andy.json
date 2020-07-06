@@ -100,7 +100,8 @@
       "direction": 1,
       "position": "O4",
       "played_tiles": "ORIgINS",
-      "score": 77
+      "score": 77,
+      "is_bingo": true
     },
     {
       "nickname": "andy",
@@ -110,7 +111,8 @@
       "column": 7,
       "position": "10H",
       "played_tiles": "DRUtHER.",
-      "score": 65
+      "score": 65,
+      "is_bingo": true
     },
     {
       "nickname": "cesar",
@@ -151,7 +153,8 @@
       "row": 4,
       "position": "5A",
       "played_tiles": "AEGISES",
-      "score": 71
+      "score": 71,
+      "is_bingo": true
     },
     {
       "nickname": "cesar",
