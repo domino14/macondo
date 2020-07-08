@@ -361,7 +361,9 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 			} else {
 				log.Debug().Msg("game is over")
 				g.playing = pb.PlayState_GAME_OVER
-				g.history.PlayState = g.playing
+				if addToHistory {
+					g.history.PlayState = g.playing
+				}
 				g.endOfGameCalcs(g.onturn, addToHistory)
 			}
 		}

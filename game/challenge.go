@@ -87,8 +87,9 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 			return &pb.GameEvent{
 				Nickname:   lastEvent.Nickname,
 				Type:       pb.GameEvent_CHALLENGE_BONUS,
+				Rack:       g.players[challengee].rackLetters,
 				Bonus:      bonus + int32(addlBonus),
-				Cumulative: cumeScoreBeforeChallenge + bonus,
+				Cumulative: cumeScoreBeforeChallenge + bonus + int32(addlBonus),
 				// Note: these millis remaining would be the challenger's
 				MillisRemaining: int32(millis),
 			}
@@ -117,8 +118,10 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 		}
 
 		if shouldAddPts {
-			g.history.Events = append(g.history.Events, bonusScoreEvent(addPts))
-			g.players[challengee].points += int(addPts)
+			evt := bonusScoreEvent(addPts)
+			log.Debug().Interface("evt", evt).Msg("adding bonus score evt")
+			g.history.Events = append(g.history.Events, evt)
+			g.players[challengee].points += int(addPts) + addlBonus
 		}
 
 		if g.playing == pb.PlayState_WAITING_FOR_FINAL_PASS {
