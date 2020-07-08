@@ -27,6 +27,10 @@ message GameHistory {
   bool second_went_first = 11;
   ChallengeRule challenge_rule = 12;
   PlayState play_state = 13;
+  // Final scores of game?
+  // Final scores of the game; the order is in the order of the listed players!
+  repeated int32 final_scores = 14;
+  string final_game_board = 15;
 }
 
 enum PlayState {
