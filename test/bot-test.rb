@@ -6,7 +6,7 @@
 #   $ nats-server
 #
 # - Start the bot
-#   $ make macondo_bot && ./macondo_bot
+#   $ make macondo_bot && ./bin/bot
 #
 # - Start the test shell
 #   $ ruby test/bot-test.rb
