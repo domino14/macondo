@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -35,15 +34,7 @@ func main() {
 	cfg := &config.Config{}
 	cfg.Load(os.Args[1:])
 	log.Info().Msgf("Loaded config: %v", cfg)
-
-	if strings.HasPrefix(cfg.LexiconPath, "./") {
-		cfg.LexiconPath = filepath.Join(exPath, cfg.LexiconPath)
-		log.Info().Str("path", cfg.LexiconPath).Msgf("new lexicon path")
-	}
-	if strings.HasPrefix(cfg.StrategyParamsPath, "./") {
-		cfg.StrategyParamsPath = filepath.Join(exPath, cfg.StrategyParamsPath)
-		log.Info().Str("sppath", cfg.StrategyParamsPath).Msgf("new strat params path")
-	}
+	cfg.AdjustRelativePaths(exPath)
 
 	if cfg.Debug {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
