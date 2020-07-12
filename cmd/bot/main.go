@@ -12,8 +12,9 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
+	"github.com/domino14/macondo/bot"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/shell"
+	"github.com/domino14/macondo/runner"
 )
 
 const (
@@ -60,8 +61,9 @@ func main() {
 		close(idleConnsClosed)
 	}()
 
-	sc := shell.NewShellController(cfg, exPath)
-	go sc.Loop(sig)
+	opts := &runner.GameOptions{Lexicon: "csw19"}
+	b := bot.NewBot(cfg, opts)
+	go bot.Main("macondo.bot", b)
 
 	<-idleConnsClosed
 	log.Info().Msg("server gracefully shutting down")

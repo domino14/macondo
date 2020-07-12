@@ -836,6 +836,10 @@ func (g *Game) PlayerOnTurn() int {
 	return g.onturn
 }
 
+func (g *Game) NextPlayer() int {
+	return (g.onturn + 1) % g.NumPlayers()
+}
+
 func (g *Game) NickOnTurn() string {
 	return g.players[g.onturn].Nickname
 }
