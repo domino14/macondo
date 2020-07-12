@@ -7,7 +7,7 @@ from invoke import task
 def build(c):
     tag = c.run("git describe --exact-match --tags", hide=True).stdout.strip()
     print("Tag was", tag)
-    c.run("go build")
+    c.run("go build -o macondo ./cmd/shell")
     c.run("go build ./cmd/make_gaddag")
     c.run("go build ./cmd/make_leaves_structure")
     c.run(
