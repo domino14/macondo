@@ -33,7 +33,7 @@ jobs:
       - run: mkdir $LEXICON_PATH/dawg
       - run: mv /opt/word-game-lexica/*.txt $LEXICON_PATH
       - run: cp -r /opt/macondo/data /opt/data
-      - run: go build
+      - run: go build cmd/shell/main.go
       - run: go test ./...
       - slack/status:
           webhook: "${SLACK_WEBHOOK}"
