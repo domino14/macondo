@@ -61,7 +61,7 @@ func main() {
 		close(idleConnsClosed)
 	}()
 
-	opts := &runner.GameOptions{Lexicon: "csw19"}
+	opts := &runner.GameOptions{}
 	b := bot.NewBot(cfg, opts)
 	go bot.Main("macondo.bot", b)
 
