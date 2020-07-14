@@ -30,7 +30,9 @@ message GameHistory {
   // Final scores of game?
   // Final scores of the game; the order is in the order of the listed players!
   repeated int32 final_scores = 14;
-  string final_game_board = 15;
+  // The variant, together with the lexicon, would encode the initial board
+  // and tile configuration.
+  string variant = 15;
 }
 
 enum PlayState {
@@ -86,7 +88,10 @@ message GameEvent {
   int32 lost_score = 15;
 
   bool is_bingo = 16;
-  int32 unknown_exchange = 17;
+  // words_formed is a list of all words made by this play, in user-visible
+  // pretty form. The first word is the "main" word, anything after it are
+  // cross-words.
+  repeated string words_formed = 17;
   int32 millis_remaining = 18;
 }
 

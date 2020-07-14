@@ -490,7 +490,9 @@ func (g *GameBoard) FormedWords(m *move.Move) ([]alphabet.MachineWord, error) {
 			words = append(words, crossWord)
 		}
 	}
-	words = append(words, mainWord)
+	// Prepend the main word to the slice. We do this to establish a convention
+	// that this slice always contains the main formed word first.
+	words = append([]alphabet.MachineWord{mainWord}, words...)
 
 	return words, nil
 }
