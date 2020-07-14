@@ -104,10 +104,24 @@ func TestValidate(t *testing.T) {
 	words, err := g.ValidateMove(m)
 	is.NoErr(err)
 	is.Equal(len(words), 1)
-	g.PlayMove(m, false, 0)
-	g.SetRackFor(1, alphabet.RackFromString("O", alph))
-	m = move.NewScoringMoveSimple(2, "8G", "O.", "", alph)
+	g.PlayMove(m, true, 0)
+	is.Equal(g.history.Events[len(g.history.Events)-1].WordsFormed,
+		[]string{"HIS"})
+	g.SetRackFor(1, alphabet.RackFromString("OIK", alph))
+	m = move.NewScoringMoveSimple(13, "G8", "OIK", "", alph)
 	words, err = g.ValidateMove(m)
 	is.NoErr(err)
-	is.Equal(len(words), 1)
+	is.Equal(len(words), 3)
+	g.PlayMove(m, true, 0)
+	is.Equal(g.history.Events[len(g.history.Events)-1].WordsFormed,
+		[]string{"OIK", "OI", "IS"})
+
+	g.SetRackFor(0, alphabet.RackFromString("ADITT", alph))
+	m = move.NewScoringMoveSimple(22, "10E", "DI.TAT", "", alph)
+	words, err = g.ValidateMove(m)
+	is.NoErr(err)
+	is.Equal(len(words), 2)
+	g.PlayMove(m, true, 0)
+	is.Equal(g.history.Events[len(g.history.Events)-1].WordsFormed,
+		[]string{"DIKTAT", "HIST"})
 }
