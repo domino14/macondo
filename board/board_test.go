@@ -62,8 +62,8 @@ func TestFormedWords(t *testing.T) {
 	for idx, w := range words {
 		uvWords[idx] = w.UserVisible(alph)
 	}
-	is.Equal(uvWords, []string{"OPACIFYING", "XIS", "PREQUALIFIED", "BRAINWASHING",
-		"AWAKENERS", "ZONETIME", "EJACULATING", "OXYPHENBUTAZONE"})
+	is.Equal(uvWords, []string{"OXYPHENBUTAZONE", "OPACIFYING", "XIS", "PREQUALIFIED", "BRAINWASHING",
+		"AWAKENERS", "ZONETIME", "EJACULATING"})
 
 }
 
@@ -85,7 +85,7 @@ func TestFormedWordsOneTile(t *testing.T) {
 	for idx, w := range words {
 		uvWords[idx] = w.UserVisible(alph)
 	}
-	is.Equal(uvWords, []string{"OO", "NO"})
+	is.Equal(uvWords, []string{"NO", "OO"})
 
 }
 
@@ -107,7 +107,7 @@ func TestFormedWordsHoriz(t *testing.T) {
 	for idx, w := range words {
 		uvWords[idx] = w.UserVisible(alph)
 	}
-	is.Equal(uvWords, []string{"EN", "AG", "EAR"})
+	is.Equal(uvWords, []string{"EAR", "EN", "AG"})
 
 }
 
@@ -129,7 +129,7 @@ func TestFormedWordsThrough(t *testing.T) {
 	for idx, w := range words {
 		uvWords[idx] = w.UserVisible(alph)
 	}
-	is.Equal(uvWords, []string{"TA", "AN", "RESPONDED", "LO", "TAEL"})
+	is.Equal(uvWords, []string{"TAEL", "TA", "AN", "RESPONDED", "LO"})
 }
 
 func TestFormedWordsBlank(t *testing.T) {
@@ -150,5 +150,5 @@ func TestFormedWordsBlank(t *testing.T) {
 	for idx, w := range words {
 		uvWords[idx] = w.UserVisible(alph)
 	}
-	is.Equal(uvWords, []string{"TA", "AN", "RESPONDED", "LO", "TAEL"})
+	is.Equal(uvWords, []string{"TAEL", "TA", "AN", "RESPONDED", "LO"})
 }

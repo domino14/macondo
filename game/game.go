@@ -87,6 +87,9 @@ type Game struct {
 
 	stateStack []*stateBackup
 	stackPtr   int
+	// if nextFirst is -1, first is determined randomly. Otherwise, first is
+	// set to nextFirst.
+	nextFirst int
 }
 
 // CalculateCoordsFromStringPosition turns a "position" on the board such as
@@ -130,6 +133,7 @@ func NewGame(rules RuleDefiner, playerinfo []*pb.PlayerInfo) (*Game, error) {
 	game.alph = game.gaddag.GetAlphabet()
 	game.letterDistribution = rules.LetterDistribution()
 	game.backupMode = NoBackup
+	game.nextFirst = -1
 
 	game.board = rules.Board().Copy()
 
@@ -188,6 +192,12 @@ func (g *Game) SetNewRules(rules RuleDefiner) error {
 	return nil
 }
 
+// SetNextFirst sets the player going first to the passed-in value. This
+// will take effect the next time StartGame is called.
+func (g *Game) SetNextFirst(first int) {
+	g.nextFirst = first
+}
+
 // StartGame seeds the random source anew, and starts a game, dealing out tiles
 // to both players.
 func (g *Game) StartGame() {
@@ -195,8 +205,14 @@ func (g *Game) StartGame() {
 	g.randSeed, g.randSource = seededRandSource()
 	log.Debug().Msgf("Random seed for this game was %v", g.randSeed)
 	g.bag = g.letterDistribution.MakeBag(g.randSource)
-
-	goesfirst := g.randSource.Intn(2)
+	var goesfirst int
+	if g.nextFirst == -1 {
+		goesfirst = g.randSource.Intn(2)
+		log.Debug().Msgf("randomly determined %v to go first", goesfirst)
+	} else {
+		goesfirst = g.nextFirst
+		log.Debug().Msgf("forcing first to %v", g.nextFirst)
+	}
 	g.history = newHistory(g.players, goesfirst == 1)
 	// Deal out tiles
 	for i := 0; i < g.NumPlayers(); i++ {
@@ -310,6 +326,17 @@ func (g *Game) endOfGameCalcs(onturn int, addToHistory bool) {
 		Msg("endOfGameCalcs")
 }
 
+// Convert the slice of MachineWord to user-visible, using the game's lexicon.
+func convertToVisible(words []alphabet.MachineWord,
+	alph *alphabet.Alphabet) []string {
+
+	uvstrs := make([]string, len(words))
+	for idx, w := range words {
+		uvstrs[idx] = w.UserVisible(alph)
+	}
+	return uvstrs
+}
+
 // PlayMove plays a move on the board. This function is meant to be used
 // by simulators as it implements a subset of possible moves, and by remote
 // gameplay engines as much as possible.
@@ -347,6 +374,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		if addToHistory {
 			evt := g.EventFromMove(m)
 			evt.MillisRemaining = int32(millis)
+			evt.WordsFormed = convertToVisible(g.lastWordsFormed, g.alph)
 			g.history.LastKnownRacks[g.onturn] = g.RackLettersFor(g.onturn)
 			g.history.Events = append(g.history.Events, evt)
 		}
@@ -365,6 +393,9 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 					g.history.PlayState = g.playing
 				}
 				g.endOfGameCalcs(g.onturn, addToHistory)
+				if addToHistory {
+					g.addFinalScoresToHistory()
+				}
 			}
 		}
 
@@ -380,6 +411,9 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 			// a fake virtual turn on the pass. We need to calculate
 			// the final score correctly.
 			g.endOfGameCalcs((g.onturn+1)%2, addToHistory)
+			if addToHistory {
+				g.addFinalScoresToHistory()
+			}
 		} else {
 			// If this is a regular pass (and not an end-of-game-pass) let's
 			// log it in the history.
@@ -422,6 +456,13 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 	return nil
 }
 
+func (g *Game) addFinalScoresToHistory() {
+	g.history.FinalScores = make([]int32, len(g.players))
+	for pidx, p := range g.players {
+		g.history.FinalScores[pidx] = int32(p.points)
+	}
+}
+
 func (g *Game) handleConsecutiveScorelessTurns(addToHistory bool) (bool, error) {
 	var ended bool
 	if g.scorelessTurns == 6 {
@@ -442,6 +483,7 @@ func (g *Game) handleConsecutiveScorelessTurns(addToHistory bool) (bool, error) 
 		if addToHistory {
 			penaltyEvt := g.endRackPenaltyEvt(pts)
 			g.history.Events = append(g.history.Events, penaltyEvt)
+			g.addFinalScoresToHistory()
 		}
 	}
 	return ended, nil

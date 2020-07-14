@@ -153,6 +153,7 @@ func (p *parser) addEventOrPragma(token Token, match []string) error {
 			Nickname: match[2],
 			RealName: match[3],
 		})
+		// Maybe eventually we want to add wordsformed to parsed GCGs as well.
 
 		return nil
 	case TitleToken:
