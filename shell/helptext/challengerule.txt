@@ -1,9 +1,9 @@
-challengerule <n> - Set the challenge rule
+set challenge <rule> - Set the challenge rule
 
 Example:
 
-    challengerule void
-    challengerule 5pt
+    set challenge void
+    set challenge 5pt
 
 This command sets the challenge rule. The options are:
 

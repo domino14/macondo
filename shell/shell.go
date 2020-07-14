@@ -155,6 +155,7 @@ func NewShellController(cfg *config.Config, execPath string) *ShellController {
 	if err != nil {
 		panic(err)
 	}
+	execPath = config.FindBasePath(execPath)
 	opts := NewShellOptions()
 	opts.SetDefaults(cfg)
 	return &ShellController{l: l, config: cfg, execPath: execPath, options: opts}
@@ -262,19 +263,6 @@ func (sc *ShellController) loadGCG(args []string) error {
 	sc.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
 
 	return sc.initGameDataStructures()
-}
-
-func (sc *ShellController) applySetting(opt string) error {
-	switch opt {
-	case "lexicon":
-		// If we are not in a game the setting will simply be
-		// applied the next time 'new' is called.
-	case "challenge":
-		sc.game.SetChallengeRule(sc.options.ChallengeRule)
-	default:
-		return nil
-	}
-	return nil
 }
 
 func (sc *ShellController) setToTurn(turnnum int) error {

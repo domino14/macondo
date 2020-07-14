@@ -1,8 +1,8 @@
-setlex <lexicon> [distribution] - Set the lexicon and letter distribution
+set lexicon <lexicon> [distribution] - Set the lexicon and letter distribution
 
 Example
-    setlex CSW19
-    setlex OSPS42 polish
+    set lexicon CSW19
+    set lexicon OSPS42 polish
 
 The first example sets the lexicon to CSW19. The second example sets the
 lexicon to OSPS42. Note the distribution argument in the second example.

@@ -31,13 +31,13 @@ func (c *Config) Load(args []string) error {
 }
 
 func (c *Config) AdjustRelativePaths(basepath string) {
-	basepath = findBasePath(basepath)
+	basepath = FindBasePath(basepath)
 	c.LexiconPath = toAbsPath(basepath, c.LexiconPath, "lexiconpath")
 	c.StrategyParamsPath = toAbsPath(basepath, c.StrategyParamsPath, "sppath")
 	c.LetterDistributionPath = toAbsPath(basepath, c.LetterDistributionPath, "ldpath")
 }
 
-func findBasePath(path string) string {
+func FindBasePath(path string) string {
 	// Search up a path until we find the toplevel dir with data/ under it.
 	// This will likely do bad things if there is no such dir but right now we
 	// are running stuff from within the macondo directory and ultimately we want
