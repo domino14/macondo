@@ -2,18 +2,30 @@ package alphabet
 
 import (
 	"math/rand"
+	"os"
 	"reflect"
 	"testing"
 	"time"
 
+	"github.com/domino14/macondo/config"
 	"github.com/matryer/is"
 )
 
 var randSource = rand.New(rand.NewSource(time.Now().UnixNano()))
 
+var DefaultConfig = config.Config{
+	StrategyParamsPath:        os.Getenv("STRATEGY_PARAMS_PATH"),
+	LetterDistributionPath:    os.Getenv("LETTER_DISTRIBUTION_PATH"),
+	LexiconPath:               os.Getenv("LEXICON_PATH"),
+	DefaultLexicon:            "NWL18",
+	DefaultLetterDistribution: "English",
+}
+
 func TestBag(t *testing.T) {
-	alph := EnglishAlphabet()
-	ld := EnglishLetterDistribution(alph)
+	ld, err := EnglishLetterDistribution(&DefaultConfig)
+	if err != nil {
+		t.Error(err)
+	}
 	bag := ld.MakeBag(randSource)
 	if len(bag.tiles) != ld.numLetters {
 		t.Error("Tile bag and letter distribution do not match.")
@@ -23,7 +35,7 @@ func TestBag(t *testing.T) {
 	for range bag.tiles {
 		tiles, err := bag.Draw(1)
 		numTiles++
-		uv := tiles[0].UserVisible(alph)
+		uv := tiles[0].UserVisible(ld.Alphabet())
 		t.Logf("Drew a %c! , %v", uv, numTiles)
 		if err != nil {
 			t.Error("Error drawing from tile bag.")
@@ -33,15 +45,17 @@ func TestBag(t *testing.T) {
 	if !reflect.DeepEqual(tileMap, ld.Distribution) {
 		t.Error("Distribution and tilemap were not identical.")
 	}
-	_, err := bag.Draw(1)
+	_, err = bag.Draw(1)
 	if err == nil {
 		t.Error("Should not have been able to draw from an empty bag.")
 	}
 }
 
 func TestDraw(t *testing.T) {
-	alph := EnglishAlphabet()
-	ld := EnglishLetterDistribution(alph)
+	ld, err := EnglishLetterDistribution(&DefaultConfig)
+	if err != nil {
+		t.Error(err)
+	}
 	bag := ld.MakeBag(randSource)
 
 	letters, _ := bag.Draw(7)
@@ -54,8 +68,10 @@ func TestDraw(t *testing.T) {
 }
 
 func TestDrawAtMost(t *testing.T) {
-	alph := EnglishAlphabet()
-	ld := EnglishLetterDistribution(alph)
+	ld, err := EnglishLetterDistribution(&DefaultConfig)
+	if err != nil {
+		t.Error(err)
+	}
 	bag := ld.MakeBag(randSource)
 
 	for i := 0; i < 14; i++ {
@@ -86,8 +102,10 @@ func TestDrawAtMost(t *testing.T) {
 
 func TestExchange(t *testing.T) {
 	is := is.New(t)
-	alph := EnglishAlphabet()
-	ld := EnglishLetterDistribution(alph)
+	ld, err := EnglishLetterDistribution(&DefaultConfig)
+	if err != nil {
+		t.Error(err)
+	}
 	bag := ld.MakeBag(randSource)
 
 	letters, _ := bag.Draw(7)
@@ -98,8 +116,10 @@ func TestExchange(t *testing.T) {
 
 func TestRemoveTiles(t *testing.T) {
 	is := is.New(t)
-	alph := EnglishAlphabet()
-	ld := EnglishLetterDistribution(alph)
+	ld, err := EnglishLetterDistribution(&DefaultConfig)
+	if err != nil {
+		t.Error(err)
+	}
 	bag := ld.MakeBag(randSource)
 	is.Equal(len(bag.tiles), 100)
 	toRemove := []MachineLetter{
@@ -110,6 +130,9 @@ func TestRemoveTiles(t *testing.T) {
 		4, 8, 13, 16, 20, 4, 18, 19, 4, 23, 4, 2, 17, 12, 14, 0, 13,
 	}
 	is.Equal(len(toRemove), 91)
-	bag.RemoveTiles(toRemove)
+	err = bag.RemoveTiles(toRemove)
+	if err != nil {
+		t.Error(err)
+	}
 	is.Equal(len(bag.tiles), 9)
 }

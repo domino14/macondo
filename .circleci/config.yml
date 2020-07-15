@@ -9,6 +9,7 @@ jobs:
     environment:
       LEXICON_PATH: /opt/lexica/
       STRATEGY_PARAMS_PATH: /opt/data/strategy
+      LETTER_DISTRIBUTION_PATH: /opt/data/letterdistributions
       AUTH_KEY: abcdef
     docker:
       - image: golang:alpine

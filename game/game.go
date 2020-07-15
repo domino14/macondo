@@ -32,7 +32,7 @@ const (
 // RuleDefiner is an interface that is used for passing a set of rules
 // to a game.
 type RuleDefiner interface {
-	Gaddag() *gaddag.SimpleGaddag
+	Gaddag() gaddag.GenericDawg
 	Board() *board.GameBoard
 	LetterDistribution() *alphabet.LetterDistribution
 
@@ -59,7 +59,7 @@ func seededRandSource() (int64, *rand.Rand) {
 // AI players, human players, etc will play a game outside of the scope of
 // this module.
 type Game struct {
-	gaddag *gaddag.SimpleGaddag
+	gaddag gaddag.GenericDawg
 	alph   *alphabet.Alphabet
 	// board and bag will contain the latest (current) versions of these.
 	board              *board.GameBoard
@@ -130,8 +130,8 @@ func newHistory(players playerStates, flipfirst bool) *pb.GameHistory {
 func NewGame(rules RuleDefiner, playerinfo []*pb.PlayerInfo) (*Game, error) {
 	game := &Game{}
 	game.gaddag = rules.Gaddag()
-	game.alph = game.gaddag.GetAlphabet()
 	game.letterDistribution = rules.LetterDistribution()
+	game.alph = game.letterDistribution.Alphabet()
 	game.backupMode = NoBackup
 	game.nextFirst = -1
 
@@ -187,8 +187,8 @@ func NewFromHistory(history *pb.GameHistory, rules RuleDefiner, turnnum int) (*G
 
 func (g *Game) SetNewRules(rules RuleDefiner) error {
 	g.gaddag = rules.Gaddag()
-	g.alph = g.gaddag.GetAlphabet()
 	g.letterDistribution = rules.LetterDistribution()
+	g.alph = g.letterDistribution.Alphabet()
 	return nil
 }
 
@@ -854,7 +854,7 @@ func (g *Game) Board() *board.GameBoard {
 }
 
 // Gaddag returns this game's gaddag data structure.
-func (g *Game) Gaddag() *gaddag.SimpleGaddag {
+func (g *Game) Gaddag() gaddag.GenericDawg {
 	return g.gaddag
 }
 

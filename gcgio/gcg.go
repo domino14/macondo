@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/config"
 
 	"github.com/domino14/macondo/game"
 
@@ -154,6 +156,21 @@ func (p *parser) addEventOrPragma(token Token, match []string) error {
 			RealName: match[3],
 		})
 		// Maybe eventually we want to add wordsformed to parsed GCGs as well.
+		if len(p.history.Players) == 2 {
+			// We have both players. Initialize a new game.
+			// XXX: We are hardcoding the distribution name for now;
+			// these should be fetched from the GCG.
+			rules, err := game.NewGameRules(&config.Config{}, board.CrosswordGameBoard,
+				p.history.Lexicon, "english")
+			if err != nil {
+				return err
+			}
+			p.game, err = game.NewGame(rules, p.history.Players)
+			if err != nil {
+				return err
+			}
+			p.game.SetNextFirst(0)
+		}
 
 		return nil
 	case TitleToken:
@@ -404,7 +421,6 @@ func encodingOrFirstLine(reader io.Reader) (string, string, error) {
 }
 
 func ParseGCGFromReader(reader io.Reader) (*pb.GameHistory, error) {
-
 	var err error
 	parser := &parser{
 		history: &pb.GameHistory{

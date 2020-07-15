@@ -50,7 +50,7 @@ func (c *CrossSet) clear() {
 	*c = 0
 }
 
-func (b *GameBoard) updateCrossSetsForMove(m *move.Move, gd *gaddag.SimpleGaddag,
+func (b *GameBoard) updateCrossSetsForMove(m *move.Move, gd gaddag.GenericDawg,
 	ld *alphabet.LetterDistribution) {
 
 	row, col, vertical := m.CoordsAndVertical()
@@ -125,7 +125,7 @@ func (b *GameBoard) GenAllCrossSets(gaddag *gaddag.SimpleGaddag, ld *alphabet.Le
 
 // GenCrossSet generates a cross-set for each individual square.
 func (b *GameBoard) GenCrossSet(row int, col int, dir BoardDirection,
-	gaddag *gaddag.SimpleGaddag, ld *alphabet.LetterDistribution) {
+	gaddag gaddag.GenericDawg, ld *alphabet.LetterDistribution) {
 
 	if row < 0 || row >= b.Dim() || col < 0 || col >= b.Dim() {
 		return

@@ -24,6 +24,7 @@ type GenericDawg interface {
 	NumArcs(nodeIdx uint32) byte
 	ArcToIdxLetter(arcIdx uint32) (uint32, alphabet.MachineLetter)
 	GetRootNodeIndex() uint32
+	NextNodeIdx(uint32, alphabet.MachineLetter) uint32
 	Type() GenericDawgType
 }
 

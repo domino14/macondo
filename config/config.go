@@ -1,15 +1,17 @@
 package config
 
 import (
-	"github.com/namsral/flag"
-	"github.com/rs/zerolog/log"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/namsral/flag"
+	"github.com/rs/zerolog/log"
 )
 
 type Config struct {
 	Debug                     bool
+	LetterDistributionPath    string
 	StrategyParamsPath        string
 	LexiconPath               string
 	DefaultLexicon            string
@@ -20,6 +22,7 @@ func (c *Config) Load(args []string) error {
 	fs := flag.NewFlagSet("macondo", flag.ContinueOnError)
 	fs.BoolVar(&c.Debug, "debug", false, "debug logging on")
 	fs.StringVar(&c.StrategyParamsPath, "strategy-params-path", "./data/strategy", "directory holding strategy files")
+	fs.StringVar(&c.LetterDistributionPath, "letter-distribution-path", "./data/letterdistributions", "directory holding letter distribution files")
 	fs.StringVar(&c.LexiconPath, "lexicon-path", "./data/lexica", "directory holding lexicon files")
 	fs.StringVar(&c.DefaultLexicon, "default-lexicon", "NWL18", "the default lexicon to use")
 	fs.StringVar(&c.DefaultLetterDistribution, "default-letter-distribution", "English", "the default letter distribution to use. English, EnglishSuper, Spanish, Polish, etc.")
@@ -31,6 +34,7 @@ func (c *Config) AdjustRelativePaths(basepath string) {
 	basepath = findBasePath(basepath)
 	c.LexiconPath = toAbsPath(basepath, c.LexiconPath, "lexiconpath")
 	c.StrategyParamsPath = toAbsPath(basepath, c.StrategyParamsPath, "sppath")
+	c.LetterDistributionPath = toAbsPath(basepath, c.LetterDistributionPath, "ldpath")
 }
 
 func findBasePath(path string) string {
