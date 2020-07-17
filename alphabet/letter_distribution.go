@@ -1,8 +1,15 @@
 package alphabet
 
 import (
+	"encoding/csv"
+	"io"
 	"math/rand"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
+
+	"github.com/domino14/macondo/config"
 )
 
 // LetterDistribution encodes the tile distribution for the relevant game.
@@ -17,75 +24,72 @@ type LetterDistribution struct {
 	scores           []int
 }
 
-func EnglishLetterDistribution(alph *Alphabet) *LetterDistribution {
-	dist := map[rune]uint8{
-		'A': 9, 'B': 2, 'C': 2, 'D': 4, 'E': 12, 'F': 2, 'G': 3, 'H': 2,
-		'I': 9, 'J': 1, 'K': 1, 'L': 4, 'M': 2, 'N': 6, 'O': 8, 'P': 2,
-		'Q': 1, 'R': 6, 'S': 4, 'T': 6, 'U': 4, 'V': 2, 'W': 2, 'X': 1,
-		'Y': 2, 'Z': 1, '?': 2,
-	}
-	ptValues := map[rune]uint8{
-		'A': 1, 'B': 3, 'C': 3, 'D': 2, 'E': 1, 'F': 4, 'G': 2, 'H': 4,
-		'I': 1, 'J': 8, 'K': 5, 'L': 1, 'M': 3, 'N': 1, 'O': 1, 'P': 3,
-		'Q': 10, 'R': 1, 'S': 1, 'T': 1, 'U': 1, 'V': 4, 'W': 4, 'X': 8,
-		'Y': 4, 'Z': 10, '?': 0,
-	}
-	return newLetterDistribution(alph, dist, ptValues, makeSortMap("ABCDEFGHIJKLMNOPQRSTUVWXYZ?"),
-		[]rune{'A', 'E', 'I', 'O', 'U'})
+// EnglishLetterDistribution returns the English letter distribution.
+func EnglishLetterDistribution(cfg *config.Config) (*LetterDistribution, error) {
+	return NamedLetterDistribution(cfg, "english")
 }
 
-func SpanishLetterDistribution(alph *Alphabet) *LetterDistribution {
-	dist := map[rune]uint8{
-		'1': 1, '2': 1, '3': 1, // 1: CH, 2: LL, 3: RR
-		'A': 12, 'B': 2, 'C': 4, 'D': 5, 'E': 12, 'F': 1, 'G': 2, 'H': 2,
-		'I': 6, 'J': 1, 'L': 4, 'M': 2, 'N': 5, 'Ñ': 1, 'O': 9, 'P': 2,
-		'Q': 1, 'R': 5, 'S': 6, 'T': 4, 'U': 5, 'V': 1, 'X': 1, 'Y': 1,
-		'Z': 1, '?': 2,
-	}
-	ptValues := map[rune]uint8{
-		'1': 5, '2': 8, '3': 8, // 1: CH, 2: LL, 3: RR
-		'A': 1, 'B': 3, 'C': 3, 'D': 2, 'E': 1, 'F': 4, 'G': 2, 'H': 4,
-		'I': 1, 'J': 8, 'L': 1, 'M': 3, 'N': 1, 'Ñ': 8, 'O': 1, 'P': 3,
-		'Q': 5, 'R': 1, 'S': 1, 'T': 1, 'U': 1, 'V': 4, 'X': 8, 'Y': 4,
-		'Z': 10, '?': 0,
-	}
-	return newLetterDistribution(alph, dist, ptValues,
-		makeSortMap("ABC1DEFGHIJL2MNÑOPQR3STUVXYZ?"),
-		[]rune{'A', 'E', 'I', 'O', 'U'})
+func SpanishLetterDistribution(cfg *config.Config) (*LetterDistribution, error) {
+	return NamedLetterDistribution(cfg, "spanish")
 }
 
-func PolishLetterDistribution(alph *Alphabet) *LetterDistribution {
-	dist := map[rune]uint8{
-		'A': 9, 'B': 2, 'C': 3, 'D': 3, 'E': 7, 'F': 1, 'G': 2, 'H': 2,
-		'I': 8, 'J': 2, 'K': 3, 'L': 3, 'Ł': 2, 'M': 3, 'N': 5, 'O': 6,
-		'P': 3, 'R': 4, 'S': 4, 'T': 3, 'U': 2, 'W': 4, 'Y': 4, 'Z': 5,
-		'?': 2,
-		'Ą': 1, 'Ę': 1, 'Ó': 1, 'Ś': 1, 'Ż': 1, 'Ć': 1, 'Ń': 1, 'Ź': 1,
-	}
-	ptValues := map[rune]uint8{
-		'A': 1, 'B': 3, 'C': 2, 'D': 2, 'E': 1, 'F': 5, 'G': 3, 'H': 3,
-		'I': 1, 'J': 3, 'K': 2, 'L': 2, 'Ł': 3, 'M': 2, 'N': 1, 'O': 1,
-		'P': 2, 'R': 1, 'S': 1, 'T': 2, 'U': 3, 'W': 1, 'Y': 2, 'Z': 1,
-		'?': 0,
-		'Ą': 5, 'Ę': 5, 'Ó': 5, 'Ś': 5, 'Ż': 5, 'Ć': 6, 'Ń': 7, 'Ź': 9,
-	}
-	return newLetterDistribution(alph, dist, ptValues,
-		makeSortMap("AĄBCĆDEĘFGHIJKLŁMNŃOÓPRSŚTUWYZŹŻ?"),
-		[]rune{'A', 'Ą', 'E', 'Ę', 'I', 'O', 'Ó', 'U', 'Y'})
+func PolishLetterDistribution(cfg *config.Config) (*LetterDistribution, error) {
+	return NamedLetterDistribution(cfg, "polish")
 }
 
-func NamedLetterDistribution(name string, alph *Alphabet) *LetterDistribution {
+// NamedLetterDistribution loads a letter distribution by name.
+func NamedLetterDistribution(cfg *config.Config, name string) (*LetterDistribution, error) {
 	name = strings.ToLower(name)
-	switch name {
-	case "english":
-		return EnglishLetterDistribution(alph)
-	case "spanish":
-		return SpanishLetterDistribution(alph)
-	case "polish":
-		return PolishLetterDistribution(alph)
-	default:
-		return nil
+	filename := filepath.Join(cfg.LetterDistributionPath, name+".csv")
+
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, err
 	}
+
+	r := csv.NewReader(file)
+	dist := map[rune]uint8{}
+	ptValues := map[rune]uint8{}
+	sortOrder := []rune{}
+	vowels := []rune{}
+	alph := &Alphabet{}
+	alph.Init()
+	// letter,quantity,value,vowel
+	for {
+		record, err := r.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		letter := []rune(record[0])[0]
+		sortOrder = append(sortOrder, letter)
+		n, err := strconv.Atoi(record[1])
+		if err != nil {
+			return nil, err
+		}
+		p, err := strconv.Atoi(record[2])
+		if err != nil {
+			return nil, err
+		}
+		v, err := strconv.Atoi(record[3])
+		if err != nil {
+			return nil, err
+		}
+		if v == 1 {
+			vowels = append(vowels, letter)
+		}
+		dist[letter] = uint8(n)
+		ptValues[letter] = uint8(p)
+		if letter != BlankToken {
+			// The Blank should not be part of the alphabet, only the letter dist.
+			alph.Update(string(letter))
+		}
+	}
+	alph.Reconcile()
+
+	return newLetterDistribution(alph, dist, ptValues, makeSortMap(sortOrder), vowels), nil
 }
 
 func newLetterDistribution(alph *Alphabet, dist map[rune]uint8,
@@ -123,6 +127,10 @@ func newLetterDistribution(alph *Alphabet, dist map[rune]uint8,
 
 }
 
+func (ld *LetterDistribution) Alphabet() *Alphabet {
+	return ld.alph
+}
+
 func (ld *LetterDistribution) NumTotalTiles() int {
 	return ld.numLetters
 }
@@ -145,7 +153,7 @@ func (ld *LetterDistribution) Score(ml MachineLetter) int {
 	return ld.scores[ml]
 }
 
-func makeSortMap(order string) map[rune]int {
+func makeSortMap(order []rune) map[rune]int {
 	sortMap := make(map[rune]int)
 	for idx, letter := range order {
 		sortMap[letter] = idx

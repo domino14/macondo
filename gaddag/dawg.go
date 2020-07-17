@@ -81,8 +81,8 @@ func LoadDawg(filename string) (*SimpleDawg, error) {
 		d.reverse = true
 	}
 	nodes, letterSets, alphabetArr, lexName := loadCommonDagStructure(file)
-	d.Nodes = nodes
-	d.LetterSets = letterSets
+	d.nodes = nodes
+	d.letterSets = letterSets
 	d.alphabet = alphabet.FromSlice(alphabetArr)
 	d.lexiconName = string(lexName)
 	return d, nil

@@ -21,9 +21,9 @@ import (
 	"github.com/domino14/macondo/ai/player"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/automatic"
-	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/endgame/alphabeta"
+	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -202,7 +202,7 @@ func (sc *ShellController) initGameDataStructures() error {
 	}
 
 	sc.aiplayer = player.NewRawEquityPlayer(strategy)
-	sc.gen = movegen.NewGordonGenerator(sc.game.Gaddag(),
+	sc.gen = movegen.NewGordonGenerator(sc.game.Gaddag().(*gaddag.SimpleGaddag),
 		sc.game.Board(), sc.game.Bag().LetterDistribution())
 
 	sc.simmer = &montecarlo.Simmer{}
@@ -232,13 +232,13 @@ func (sc *ShellController) loadGCG(args []string) error {
 		}
 		defer resp.Body.Close()
 
-		history, err = gcgio.ParseGCGFromReader(resp.Body)
+		history, err = gcgio.ParseGCGFromReader(sc.config, resp.Body)
 		if err != nil {
 			return err
 		}
 
 	} else {
-		history, err = gcgio.ParseGCG(args[0])
+		history, err = gcgio.ParseGCG(sc.config, args[0])
 		if err != nil {
 			return err
 		}
@@ -250,8 +250,8 @@ func (sc *ShellController) loadGCG(args []string) error {
 		log.Info().Msgf("gcg file had no lexicon, so using default lexicon %v",
 			lexicon)
 	}
-	rules, err := game.NewGameRules(sc.config, board.CrosswordGameBoard,
-		lexicon, sc.config.DefaultLetterDistribution)
+	boardLayout, ldName := game.HistoryToVariant(history)
+	rules, err := game.NewGameRules(sc.config, boardLayout, lexicon, ldName)
 	if err != nil {
 		return err
 	}

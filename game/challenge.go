@@ -142,7 +142,7 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 	return playLegal, err
 }
 
-func validateWords(gd *gaddag.SimpleGaddag, words []alphabet.MachineWord) []string {
+func validateWords(gd gaddag.GenericDawg, words []alphabet.MachineWord) []string {
 	var illegalWords []string
 	alph := gd.GetAlphabet()
 	log.Debug().Interface("words", words).Msg("challenge-evt")

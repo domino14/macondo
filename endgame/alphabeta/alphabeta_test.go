@@ -11,6 +11,7 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
@@ -22,6 +23,7 @@ import (
 var DefaultConfig = config.Config{
 	StrategyParamsPath:        os.Getenv("STRATEGY_PARAMS_PATH"),
 	LexiconPath:               os.Getenv("LEXICON_PATH"),
+	LetterDistributionPath:    os.Getenv("LETTER_DISTRIBUTION_PATH"),
 	DefaultLexicon:            "NWL18",
 	DefaultLetterDistribution: "English",
 }
@@ -67,7 +69,7 @@ func setUpSolver(lex string, bvs board.VsWho, plies int, rack1, rack2 string,
 	g.ThrowRacksIn()
 	gd := rules.Gaddag()
 	dist := rules.LetterDistribution()
-	generator := movegen.NewGordonGenerator(gd, g.Board(), dist)
+	generator := movegen.NewGordonGenerator(gd.(*gaddag.SimpleGaddag), g.Board(), dist)
 	alph := rules.Gaddag().GetAlphabet()
 
 	tilesInPlay := g.Board().SetToGame(alph, bvs)
@@ -679,7 +681,7 @@ func TestProperIterativeDeepening(t *testing.T) {
 	is.NoErr(err)
 	for _, plies := range plyCount {
 
-		gameHistory, err := gcgio.ParseGCG("../../gcgio/testdata/noah_vs_mishu.gcg")
+		gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../../gcgio/testdata/noah_vs_mishu.gcg")
 		is.NoErr(err)
 
 		g, err := game.NewFromHistory(gameHistory, rules, 28)
@@ -694,7 +696,7 @@ func TestProperIterativeDeepening(t *testing.T) {
 		is.Equal(g.PointsFor(0), 339)
 		is.Equal(g.PointsFor(1), 381)
 		generator := movegen.NewGordonGenerator(
-			rules.Gaddag(), g.Board(), g.Bag().LetterDistribution(),
+			rules.Gaddag().(*gaddag.SimpleGaddag), g.Board(), g.Bag().LetterDistribution(),
 		)
 		s := new(Solver)
 		s.Init(generator, g)
@@ -719,7 +721,7 @@ func TestFromGCG(t *testing.T) {
 	rules, err := game.NewGameRules(&DefaultConfig, board.CrosswordGameBoard,
 		"CSW19", "English")
 
-	gameHistory, err := gcgio.ParseGCG("../../gcgio/testdata/vs_frentz.gcg")
+	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../../gcgio/testdata/vs_frentz.gcg")
 	is.NoErr(err)
 
 	g, err := game.NewFromHistory(gameHistory, rules, 22)
@@ -729,7 +731,7 @@ func TestFromGCG(t *testing.T) {
 	g.SetStateStackLength(plies)
 	generator := movegen.NewGordonGenerator(
 		// The strategy doesn't matter right here
-		rules.Gaddag(), g.Board(), g.Bag().LetterDistribution(),
+		rules.Gaddag().(*gaddag.SimpleGaddag), g.Board(), g.Bag().LetterDistribution(),
 	)
 
 	s := new(Solver)

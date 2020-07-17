@@ -7,6 +7,7 @@ import (
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddag"
+	"github.com/rs/zerolog/log"
 )
 
 // gamerules is a simple struct that encapsulates the instantiated objects
@@ -15,7 +16,7 @@ type gamerules struct {
 	cfg    *config.Config
 	board  *board.GameBoard
 	dist   *alphabet.LetterDistribution
-	gaddag *gaddag.SimpleGaddag
+	gaddag gaddag.GenericDawg
 }
 
 func (g gamerules) Board() *board.GameBoard {
@@ -26,7 +27,7 @@ func (g gamerules) LetterDistribution() *alphabet.LetterDistribution {
 	return g.dist
 }
 
-func (g gamerules) Gaddag() *gaddag.SimpleGaddag {
+func (g gamerules) Gaddag() gaddag.GenericDawg {
 	return g.gaddag
 }
 
@@ -34,9 +35,20 @@ func (g *gamerules) LoadRule(lexicon, letterDistributionName string) error {
 	gdFilename := filepath.Join(g.cfg.LexiconPath, "gaddag", lexicon+".gaddag")
 	gd, err := gaddag.LoadGaddag(gdFilename)
 	if err != nil {
+		// Since a gaddag is not a hard requirement for a game (think of the
+		// case where it's a player-vs-player game like a GCG) then
+		// we don't necessarily exit if we can't load the gaddag.
+		log.Err(err).Interface("gd", gd).Msg("unable to load gaddag; using default gaddag")
+		gdFilename := filepath.Join(g.cfg.LexiconPath, "gaddag", g.cfg.DefaultLexicon+".gaddag")
+		gd, err = gaddag.LoadGaddag(gdFilename)
+		if err != nil {
+			return err
+		}
+	}
+	dist, err := alphabet.NamedLetterDistribution(g.cfg, letterDistributionName)
+	if err != nil {
 		return err
 	}
-	dist := alphabet.NamedLetterDistribution(letterDistributionName, gd.GetAlphabet())
 	g.gaddag = gd
 	g.dist = dist
 	return nil

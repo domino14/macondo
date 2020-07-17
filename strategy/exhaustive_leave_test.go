@@ -10,29 +10,37 @@ import (
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/movegen"
 	"github.com/stretchr/testify/assert"
 )
 
-var LexiconDir = os.Getenv("LEXICON_PATH")
+var DefaultConfig = config.Config{
+	StrategyParamsPath:        os.Getenv("STRATEGY_PARAMS_PATH"),
+	LexiconPath:               os.Getenv("LEXICON_PATH"),
+	LetterDistributionPath:    os.Getenv("LETTER_DISTRIBUTION_PATH"),
+	DefaultLexicon:            "NWL18",
+	DefaultLetterDistribution: "English",
+}
 
 func TestMain(m *testing.M) {
-	gdgPath := filepath.Join(LexiconDir, "gaddag", "NWL18.gaddag")
-	if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
-		gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "NWL18.txt"), true, true)
-		err = os.Rename("out.gaddag", gdgPath)
-		if err != nil {
-			panic(err)
+	for _, lex := range []string{"NWL18"} {
+		gdgPath := filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag")
+		if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
+			gaddagmaker.GenerateGaddag(filepath.Join(DefaultConfig.LexiconPath, lex+".txt"), true, true)
+			err = os.Rename("out.gaddag", gdgPath)
+			if err != nil {
+				panic(err)
+			}
 		}
 	}
-
 	os.Exit(m.Run())
 }
 
 func GaddagFromLexicon(lex string) (*gaddag.SimpleGaddag, error) {
-	return gaddag.LoadGaddag(filepath.Join(LexiconDir, "gaddag", lex+".gaddag"))
+	return gaddag.LoadGaddag(filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag"))
 }
 
 func TestLeaveMPH(t *testing.T) {
@@ -67,7 +75,8 @@ func TestEndgameTiming(t *testing.T) {
 	assert.Nil(t, err)
 	alph := gd.GetAlphabet()
 	bd := board.MakeBoard(board.CrosswordGameBoard)
-	ld := alphabet.EnglishLetterDistribution(gd.GetAlphabet())
+	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
+	assert.Nil(t, err)
 	generator := movegen.NewGordonGenerator(gd, bd, ld)
 	tilesInPlay := bd.SetToGame(gd.GetAlphabet(), board.MavenVsMacondo)
 	bd.GenAllCrossSets(gd, ld)
@@ -107,7 +116,8 @@ func TestPreendgameTiming(t *testing.T) {
 	assert.Nil(t, err)
 	alph := gd.GetAlphabet()
 	bd := board.MakeBoard(board.CrosswordGameBoard)
-	ld := alphabet.EnglishLetterDistribution(gd.GetAlphabet())
+	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
+	assert.Nil(t, err)
 	generator := movegen.NewGordonGenerator(gd, bd, ld)
 	tilesInPlay := bd.SetToGame(gd.GetAlphabet(), board.VsOxy)
 	bd.GenAllCrossSets(gd, ld)

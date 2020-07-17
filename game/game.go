@@ -32,7 +32,7 @@ const (
 // RuleDefiner is an interface that is used for passing a set of rules
 // to a game.
 type RuleDefiner interface {
-	Gaddag() *gaddag.SimpleGaddag
+	Gaddag() gaddag.GenericDawg
 	Board() *board.GameBoard
 	LetterDistribution() *alphabet.LetterDistribution
 
@@ -59,7 +59,7 @@ func seededRandSource() (int64, *rand.Rand) {
 // AI players, human players, etc will play a game outside of the scope of
 // this module.
 type Game struct {
-	gaddag *gaddag.SimpleGaddag
+	gaddag gaddag.GenericDawg
 	alph   *alphabet.Alphabet
 	// board and bag will contain the latest (current) versions of these.
 	board              *board.GameBoard
@@ -130,8 +130,8 @@ func newHistory(players playerStates, flipfirst bool) *pb.GameHistory {
 func NewGame(rules RuleDefiner, playerinfo []*pb.PlayerInfo) (*Game, error) {
 	game := &Game{}
 	game.gaddag = rules.Gaddag()
-	game.alph = game.gaddag.GetAlphabet()
 	game.letterDistribution = rules.LetterDistribution()
+	game.alph = game.letterDistribution.Alphabet()
 	game.backupMode = NoBackup
 	game.nextFirst = -1
 
@@ -187,8 +187,8 @@ func NewFromHistory(history *pb.GameHistory, rules RuleDefiner, turnnum int) (*G
 
 func (g *Game) SetNewRules(rules RuleDefiner) error {
 	g.gaddag = rules.Gaddag()
-	g.alph = g.gaddag.GetAlphabet()
 	g.letterDistribution = rules.LetterDistribution()
+	g.alph = g.letterDistribution.Alphabet()
 	return nil
 }
 
@@ -394,7 +394,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 				}
 				g.endOfGameCalcs(g.onturn, addToHistory)
 				if addToHistory {
-					g.addFinalScoresToHistory()
+					g.AddFinalScoresToHistory()
 				}
 			}
 		}
@@ -412,7 +412,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 			// the final score correctly.
 			g.endOfGameCalcs((g.onturn+1)%2, addToHistory)
 			if addToHistory {
-				g.addFinalScoresToHistory()
+				g.AddFinalScoresToHistory()
 			}
 		} else {
 			// If this is a regular pass (and not an end-of-game-pass) let's
@@ -456,7 +456,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 	return nil
 }
 
-func (g *Game) addFinalScoresToHistory() {
+func (g *Game) AddFinalScoresToHistory() {
 	g.history.FinalScores = make([]int32, len(g.players))
 	for pidx, p := range g.players {
 		g.history.FinalScores[pidx] = int32(p.points)
@@ -483,7 +483,7 @@ func (g *Game) handleConsecutiveScorelessTurns(addToHistory bool) (bool, error) 
 		if addToHistory {
 			penaltyEvt := g.endRackPenaltyEvt(pts)
 			g.history.Events = append(g.history.Events, penaltyEvt)
-			g.addFinalScoresToHistory()
+			g.AddFinalScoresToHistory()
 		}
 	}
 	return ended, nil
@@ -646,6 +646,12 @@ func (g *Game) PlayToTurn(turnnum int) error {
 	return nil
 }
 
+// PlayLatestEvent "plays" the latest event on the board. This is used for GCG
+// parsing.
+func (g *Game) PlayLatestEvent() error {
+	return g.playTurn(len(g.history.Events) - 1)
+}
+
 func (g *Game) playTurn(t int) error {
 	// XXX: This function is pretty similar to PlayMove above. It has a
 	// subset of the functionality as it's designed to replay an already
@@ -664,13 +670,19 @@ func (g *Game) playTurn(t int) error {
 	if !found {
 		return fmt.Errorf("player not found: %v", evt.Nickname)
 	}
-
 	// Set the rack for the user on turn to the rack in the history.
 	g.SetRackFor(g.onturn, alphabet.RackFromString(evt.Rack, g.alph))
 	m := MoveFromEvent(evt, g.alph, g.board)
 
 	switch m.Action() {
 	case move.MoveTypePlay:
+		// We validate tile play moves only.
+		wordsFormed, err := g.ValidateMove(m)
+		if err != nil {
+			return err
+		}
+		g.lastWordsFormed = wordsFormed
+
 		// We back up the board and bag since there's a possibility
 		// this play will have to be taken back, if it's a challenged phony.
 		g.board.SaveCopy()
@@ -679,7 +691,7 @@ func (g *Game) playTurn(t int) error {
 		if m.TilesPlayed() == 7 {
 			g.players[g.onturn].bingos++
 		}
-
+		evt.WordsFormed = convertToVisible(g.lastWordsFormed, g.alph)
 		// Note that what we draw here (and in exchange, below) may not
 		// be what was recorded. That's ok -- we always set the rack
 		// at the beginning to whatever was recorded. Drawing like
@@ -707,6 +719,7 @@ func (g *Game) playTurn(t int) error {
 		// events. (See challenge module as well)
 		playedTiles := strings.ReplaceAll(evt.PlayedTiles, string(alphabet.ASCIIPlayedThrough), "")
 		mw, err := alphabet.ToMachineWord(playedTiles, g.alph)
+		log.Debug().Interface("mw", mw).Msg("throwing played tiles back in bag, to redraw")
 		if err != nil {
 			return err
 		}
@@ -773,7 +786,7 @@ func (g *Game) SetRacksForBoth(racks []*alphabet.Rack) error {
 	for _, rack := range racks {
 		err := g.bag.RemoveTiles(rack.TilesOn())
 		if err != nil {
-			log.Error().Msgf("Unable to set rack: %v", err)
+			log.Error().Msgf("both: Unable to set rack: %v", err)
 			return err
 		}
 	}
@@ -854,7 +867,7 @@ func (g *Game) Board() *board.GameBoard {
 }
 
 // Gaddag returns this game's gaddag data structure.
-func (g *Game) Gaddag() *gaddag.SimpleGaddag {
+func (g *Game) Gaddag() gaddag.GenericDawg {
 	return g.gaddag
 }
 
@@ -908,6 +921,10 @@ func (g *Game) CurrentSpread() int {
 
 func (g *Game) History() *pb.GameHistory {
 	return g.history
+}
+
+func (g *Game) SetHistory(h *pb.GameHistory) {
+	g.history = h
 }
 
 func (g *Game) FirstPlayer() *pb.PlayerInfo {

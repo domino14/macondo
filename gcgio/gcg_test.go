@@ -2,14 +2,40 @@ package gcgio
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/stretchr/testify/assert"
 )
+
+var DefaultConfig = config.Config{
+	StrategyParamsPath:        os.Getenv("STRATEGY_PARAMS_PATH"),
+	LexiconPath:               os.Getenv("LEXICON_PATH"),
+	LetterDistributionPath:    os.Getenv("LETTER_DISTRIBUTION_PATH"),
+	DefaultLexicon:            "NWL18",
+	DefaultLetterDistribution: "English",
+}
+
+func TestMain(m *testing.M) {
+	for _, lex := range []string{"NWL18"} {
+		gdgPath := filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag")
+		if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
+			gaddagmaker.GenerateGaddag(filepath.Join(DefaultConfig.LexiconPath, lex+".txt"), true, true)
+			err = os.Rename("out.gaddag", gdgPath)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
+	os.Exit(m.Run())
+}
 
 func slurp(filename string) string {
 	file, err := os.Open(filename)
@@ -26,7 +52,7 @@ func slurp(filename string) string {
 }
 
 func TestParseGCG(t *testing.T) {
-	history, err := ParseGCG("./testdata/vs_andy.gcg")
+	history, err := ParseGCG(&DefaultConfig, "./testdata/vs_andy.gcg")
 	expected := slurp("./testdata/vs_andy.json")
 
 	assert.Nil(t, err)
@@ -39,7 +65,7 @@ func TestParseGCG(t *testing.T) {
 }
 
 func TestParseOtherGCG(t *testing.T) {
-	history, err := ParseGCG("./testdata/doug_v_emely.gcg")
+	history, err := ParseGCG(&DefaultConfig, "./testdata/doug_v_emely.gcg")
 	expected := slurp("./testdata/doug_v_emely.json")
 
 	assert.Nil(t, err)
@@ -52,19 +78,22 @@ func TestParseOtherGCG(t *testing.T) {
 }
 
 func TestParseGCGWithChallengeBonus(t *testing.T) {
-	history, err := ParseGCG("./testdata/vs_frentz.gcg")
+	history, err := ParseGCG(&DefaultConfig, "./testdata/vs_frentz.gcg")
+	history.Lexicon = "CSW12"
 	expected := slurp("./testdata/vs_frentz.json")
 
 	assert.Nil(t, err)
 	assert.NotNil(t, history)
 
 	repr, err := json.Marshal(history)
+	fmt.Println(string(repr))
+
 	assert.Nil(t, err)
 	assert.JSONEq(t, expected, string(repr))
 }
 
 func TestParseSpecialChar(t *testing.T) {
-	history, err := ParseGCG("./testdata/name_iso8859-1.gcg")
+	history, err := ParseGCG(&DefaultConfig, "./testdata/name_iso8859-1.gcg")
 	assert.Nil(t, err)
 	assert.NotNil(t, history)
 	assert.Equal(t, "césar", history.Players[0].Nickname)
@@ -72,7 +101,7 @@ func TestParseSpecialChar(t *testing.T) {
 }
 
 func TestParseSpecialUTF8NoHeader(t *testing.T) {
-	history, err := ParseGCG("./testdata/name_utf8_noheader.gcg")
+	history, err := ParseGCG(&DefaultConfig, "./testdata/name_utf8_noheader.gcg")
 	assert.Nil(t, err)
 	assert.NotNil(t, history)
 	// Since there was no encoding header, the name gets all messed up:
@@ -80,21 +109,21 @@ func TestParseSpecialUTF8NoHeader(t *testing.T) {
 }
 
 func TestParseSpecialUTF8WithHeader(t *testing.T) {
-	history, err := ParseGCG("./testdata/name_utf8_with_header.gcg")
+	history, err := ParseGCG(&DefaultConfig, "./testdata/name_utf8_with_header.gcg")
 	assert.Nil(t, err)
 	assert.NotNil(t, history)
 	assert.Equal(t, "césar", history.Players[0].Nickname)
 }
 
 func TestParseUnsupportedEncoding(t *testing.T) {
-	history, err := ParseGCG("./testdata/name_weird_encoding_with_header.gcg")
+	history, err := ParseGCG(&DefaultConfig, "./testdata/name_weird_encoding_with_header.gcg")
 	assert.NotNil(t, err)
 	assert.Nil(t, history)
 }
 
 func TestParseDOSMode(t *testing.T) {
 	// file has CRLF carriage returns. we should handle it.
-	history, err := ParseGCG("./testdata/utf8_dos.gcg")
+	history, err := ParseGCG(&DefaultConfig, "./testdata/utf8_dos.gcg")
 	assert.Nil(t, err)
 	assert.NotNil(t, history)
 	assert.Equal(t, "angwantibo", history.Players[0].Nickname)
@@ -102,7 +131,7 @@ func TestParseDOSMode(t *testing.T) {
 }
 
 func TestToGCG(t *testing.T) {
-	history, err := ParseGCG("./testdata/doug_v_emely.gcg")
+	history, err := ParseGCG(&DefaultConfig, "./testdata/doug_v_emely.gcg")
 
 	assert.Nil(t, err)
 	assert.NotNil(t, history)
@@ -125,7 +154,7 @@ func TestDuplicateNicknames(t *testing.T) {
 #player1 dougie Doungy B
 #player2 dougie Cesar D
 >dougie: FOO 8D FOO +12 12`)
-	history, err := ParseGCGFromReader(reader)
+	history, err := ParseGCGFromReader(&DefaultConfig, reader)
 	assert.Nil(t, history)
 	assert.Equal(t, errDuplicateNames, err)
 }
@@ -134,9 +163,9 @@ func TestPragmaWrongPlace(t *testing.T) {
 	reader := strings.NewReader(`#character-encoding UTF-8
 #player1 dougie Doungy B
 #player2 cesar Cesar D
->dougie: FOO 8D FOO +12 12
+>dougie: FOO 8H FOO +12 12
 #lexicon OSPD4`)
-	history, err := ParseGCGFromReader(reader)
+	history, err := ParseGCGFromReader(&DefaultConfig, reader)
 	assert.Nil(t, history)
 	assert.Equal(t, errPragmaPrecedeEvent, err)
 }
@@ -149,7 +178,7 @@ func TestIsBingo(t *testing.T) {
 >dougie: FOODIES 8D FOODIES +80 80
 >cesar: ABCDEFG D7 E. +5 5
 `)
-	history, err := ParseGCGFromReader(reader)
+	history, err := ParseGCGFromReader(&DefaultConfig, reader)
 	assert.Nil(t, err)
 	assert.True(t, history.Events[0].IsBingo)
 	assert.False(t, history.Events[1].IsBingo)

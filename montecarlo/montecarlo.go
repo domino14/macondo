@@ -16,6 +16,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/domino14/macondo/ai/player"
+	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
@@ -138,7 +139,7 @@ func (s *Simmer) makeGameCopies() {
 	for i := 0; i < s.threads; i++ {
 		s.gameCopies = append(s.gameCopies, s.origGame.Copy())
 		s.movegens = append(s.movegens,
-			movegen.NewGordonGenerator(s.gameCopies[i].Gaddag(),
+			movegen.NewGordonGenerator(s.gameCopies[i].Gaddag().(*gaddag.SimpleGaddag),
 				s.gameCopies[i].Board(), s.gameCopies[i].Bag().LetterDistribution()))
 
 	}

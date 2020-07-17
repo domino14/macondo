@@ -50,7 +50,7 @@ func (c *CrossSet) clear() {
 	*c = 0
 }
 
-func (b *GameBoard) updateCrossSetsForMove(m *move.Move, gd *gaddag.SimpleGaddag,
+func (b *GameBoard) updateCrossSetsForMove(m *move.Move, gd gaddag.GenericDawg,
 	ld *alphabet.LetterDistribution) {
 
 	row, col, vertical := m.CoordsAndVertical()
@@ -105,7 +105,7 @@ func (b *GameBoard) updateCrossSetsForMove(m *move.Move, gd *gaddag.SimpleGaddag
 // board; our anchor algorithm doesn't quite match the one in the Gordon
 // paper.
 // We do this for both transpositions of the board.
-func (b *GameBoard) GenAllCrossSets(gaddag *gaddag.SimpleGaddag, ld *alphabet.LetterDistribution) {
+func (b *GameBoard) GenAllCrossSets(gaddag gaddag.GenericDawg, ld *alphabet.LetterDistribution) {
 
 	n := b.Dim()
 	for i := 0; i < n; i++ {
@@ -125,7 +125,7 @@ func (b *GameBoard) GenAllCrossSets(gaddag *gaddag.SimpleGaddag, ld *alphabet.Le
 
 // GenCrossSet generates a cross-set for each individual square.
 func (b *GameBoard) GenCrossSet(row int, col int, dir BoardDirection,
-	gaddag *gaddag.SimpleGaddag, ld *alphabet.LetterDistribution) {
+	gaddag gaddag.GenericDawg, ld *alphabet.LetterDistribution) {
 
 	if row < 0 || row >= b.Dim() || col < 0 || col >= b.Dim() {
 		return
@@ -197,12 +197,12 @@ func (b *GameBoard) GenCrossSet(row int, col int, dir BoardDirection,
 			crossSet := b.squares[row][col].getCrossSet(dir)
 			*crossSet = CrossSet(0)
 			for i := lNodeIdx + 1; i <= uint32(numArcs)+lNodeIdx; i++ {
-				ml := alphabet.MachineLetter(gaddag.Nodes[i] >>
+				ml := alphabet.MachineLetter(gaddag.Nodes()[i] >>
 					gaddagmaker.LetterBitLoc)
 				if ml == alphabet.SeparationMachineLetter {
 					continue
 				}
-				nnIdx := gaddag.Nodes[i] & gaddagmaker.NodeIdxBitMask
+				nnIdx := gaddag.Nodes()[i] & gaddagmaker.NodeIdxBitMask
 				_, success := b.traverseBackwards(row, col-1, nnIdx, true,
 					leftCol, gaddag)
 				if success {

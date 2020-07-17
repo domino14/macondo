@@ -9,13 +9,20 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/config"
 	"github.com/matryer/is"
 
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
 )
 
-var LexiconDir = os.Getenv("LEXICON_PATH")
+var DefaultConfig = config.Config{
+	StrategyParamsPath:        os.Getenv("STRATEGY_PARAMS_PATH"),
+	LetterDistributionPath:    os.Getenv("LETTER_DISTRIBUTION_PATH"),
+	LexiconPath:               os.Getenv("LEXICON_PATH"),
+	DefaultLexicon:            "NWL18",
+	DefaultLetterDistribution: "English",
+}
 
 type testpair struct {
 	rack string
@@ -99,21 +106,15 @@ func wordlistToSet(wl []string) map[string]struct{} {
 }
 
 func TestMain(m *testing.M) {
-	if _, err := os.Stat("/tmp/gen_america.dawg"); os.IsNotExist(err) {
-		gaddagmaker.GenerateDawg(filepath.Join(LexiconDir, "America.txt"), true, true, false)
-		os.Rename("out.dawg", "/tmp/gen_america.dawg")
-	}
-	if _, err := os.Stat("/tmp/gen_fise2.dawg"); os.IsNotExist(err) {
-		gaddagmaker.GenerateDawg(filepath.Join(LexiconDir, "FISE2.txt"), true, true, false)
-		os.Rename("out.dawg", "/tmp/gen_fise2.dawg")
-	}
-	if _, err := os.Stat("/tmp/gen_csw15.dawg"); os.IsNotExist(err) {
-		gaddagmaker.GenerateDawg(filepath.Join(LexiconDir, "CSW15.txt"), true, true, false)
-		os.Rename("out.dawg", "/tmp/gen_csw15.dawg")
-	}
-	if _, err := os.Stat("/tmp/gen_csw19.dawg"); os.IsNotExist(err) {
-		gaddagmaker.GenerateDawg(filepath.Join(LexiconDir, "CSW19.txt"), true, true, false)
-		os.Rename("out.dawg", "/tmp/gen_csw19.dawg")
+	for _, lex := range []string{"America", "FISE2", "CSW15", "CSW19"} {
+		gdgPath := filepath.Join(DefaultConfig.LexiconPath, "dawg", lex+".dawg")
+		if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
+			gaddagmaker.GenerateDawg(filepath.Join(DefaultConfig.LexiconPath, lex+".txt"), true, true, false)
+			err = os.Rename("out.dawg", gdgPath)
+			if err != nil {
+				panic(err)
+			}
+		}
 	}
 	os.Exit(m.Run())
 }
@@ -130,7 +131,8 @@ func TestSimpleAnagram(t *testing.T) {
 }
 
 func TestAnagram(t *testing.T) {
-	d, _ := gaddag.LoadDawg("/tmp/gen_america.dawg")
+	path := filepath.Join(DefaultConfig.LexiconPath, "dawg", "America.dawg")
+	d, _ := gaddag.LoadDawg(path)
 	for _, pair := range buildTests {
 		answers := Anagram(pair.rack, d, ModeBuild)
 		if len(answers) != pair.num {
@@ -147,7 +149,8 @@ func TestAnagram(t *testing.T) {
 }
 
 func TestAnagramSpanish(t *testing.T) {
-	d, _ := gaddag.LoadDawg("/tmp/gen_fise2.dawg")
+	path := filepath.Join(DefaultConfig.LexiconPath, "dawg", "FISE2.dawg")
+	d, _ := gaddag.LoadDawg(path)
 	for _, pair := range spanishBuildTests {
 		answers := Anagram(pair.rack, d, ModeBuild)
 		if len(answers) != pair.num {
@@ -164,7 +167,8 @@ func TestAnagramSpanish(t *testing.T) {
 
 func BenchmarkAnagramBlanks(b *testing.B) {
 	// ~ 21.33 ms per op on my macbook pro.
-	d, _ := gaddag.LoadDawg("/tmp/gen_csw15.dawg")
+	path := filepath.Join(DefaultConfig.LexiconPath, "dawg", "CSW15.dawg")
+	d, _ := gaddag.LoadDawg(path)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		Anagram("RETINA??", d, ModeExact)
@@ -173,7 +177,8 @@ func BenchmarkAnagramBlanks(b *testing.B) {
 
 func BenchmarkAnagramFourBlanks(b *testing.B) {
 	// ~ 453.6ms
-	d, _ := gaddag.LoadDawg("/tmp/gen_america.dawg")
+	path := filepath.Join(DefaultConfig.LexiconPath, "dawg", "America.dawg")
+	d, _ := gaddag.LoadDawg(path)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		Anagram("AEINST????", d, ModeExact)
@@ -181,7 +186,8 @@ func BenchmarkAnagramFourBlanks(b *testing.B) {
 }
 
 func TestBuildFourBlanks(t *testing.T) {
-	d, _ := gaddag.LoadDawg("/tmp/gen_america.dawg")
+	path := filepath.Join(DefaultConfig.LexiconPath, "dawg", "America.dawg")
+	d, _ := gaddag.LoadDawg(path)
 	answers := Anagram("AEINST????", d, ModeBuild)
 	expected := 61711
 	if len(answers) != expected {
@@ -190,7 +196,8 @@ func TestBuildFourBlanks(t *testing.T) {
 }
 
 func TestAnagramFourBlanks(t *testing.T) {
-	d, _ := gaddag.LoadDawg("/tmp/gen_america.dawg")
+	path := filepath.Join(DefaultConfig.LexiconPath, "dawg", "America.dawg")
+	d, _ := gaddag.LoadDawg(path)
 	answers := Anagram("AEINST????", d, ModeExact)
 	expected := 863
 	if len(answers) != expected {
@@ -214,7 +221,8 @@ func TestMakeRack(t *testing.T) {
 
 func TestAnagramRangeSmall(t *testing.T) {
 	is := is.New(t)
-	d, _ := gaddag.LoadDawg("/tmp/gen_csw19.dawg")
+	path := filepath.Join(DefaultConfig.LexiconPath, "dawg", "CSW19.dawg")
+	d, _ := gaddag.LoadDawg(path)
 	answers := Anagram("[JQXZ]A", d, ModeExact)
 	log.Info().Msgf("answers: %v", answers)
 
@@ -223,7 +231,8 @@ func TestAnagramRangeSmall(t *testing.T) {
 
 func TestAnagramRangeSmall2(t *testing.T) {
 	is := is.New(t)
-	d, _ := gaddag.LoadDawg("/tmp/gen_csw19.dawg")
+	path := filepath.Join(DefaultConfig.LexiconPath, "dawg", "CSW19.dawg")
+	d, _ := gaddag.LoadDawg(path)
 	answers := Anagram("[AEIOU][JQXZ]", d, ModeExact)
 	log.Info().Msgf("answers: %v", answers)
 
@@ -232,7 +241,8 @@ func TestAnagramRangeSmall2(t *testing.T) {
 
 func TestAnagramRangeSmallOrderDoesntMatter(t *testing.T) {
 	is := is.New(t)
-	d, _ := gaddag.LoadDawg("/tmp/gen_csw19.dawg")
+	path := filepath.Join(DefaultConfig.LexiconPath, "dawg", "CSW19.dawg")
+	d, _ := gaddag.LoadDawg(path)
 	answers := Anagram("[JQXZ][AEIOU]", d, ModeExact)
 	log.Info().Msgf("answers: %v", answers)
 
@@ -241,7 +251,8 @@ func TestAnagramRangeSmallOrderDoesntMatter(t *testing.T) {
 
 func TestAnagramRange(t *testing.T) {
 	is := is.New(t)
-	d, _ := gaddag.LoadDawg("/tmp/gen_csw19.dawg")
+	path := filepath.Join(DefaultConfig.LexiconPath, "dawg", "CSW19.dawg")
+	d, _ := gaddag.LoadDawg(path)
 	answers := Anagram("AE[JQXZ]NR?[KY]?", d, ModeExact)
 	log.Info().Msgf("answers: %v", answers)
 

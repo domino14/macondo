@@ -10,8 +10,10 @@ import (
 var LexiconDir = os.Getenv("LEXICON_PATH")
 
 func TestScoreOn(t *testing.T) {
-	alph := EnglishAlphabet()
-	ld := EnglishLetterDistribution(alph)
+	ld, err := EnglishLetterDistribution(&DefaultConfig)
+	if err != nil {
+		t.Error(err)
+	}
 	type racktest struct {
 		rack string
 		pts  int
@@ -24,7 +26,7 @@ func TestScoreOn(t *testing.T) {
 		{"RETINAO", 7},
 	}
 	for _, tc := range testCases {
-		r := RackFromString(tc.rack, alph)
+		r := RackFromString(tc.rack, ld.Alphabet())
 		score := r.ScoreOn(ld)
 		if score != tc.pts {
 			t.Errorf("For %v, expected %v, got %v", tc.rack, tc.pts, score)
