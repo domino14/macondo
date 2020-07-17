@@ -24,8 +24,12 @@ var DefaultConfig = config.Config{
 	DefaultLetterDistribution: "English",
 }
 
+func GaddagFromLexicon(lex string) (*gaddag.SimpleGaddag, error) {
+	return gaddag.LoadGaddag(filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag"))
+}
+
 func TestMain(m *testing.M) {
-	for _, lex := range []string{"America"} {
+	for _, lex := range []string{"America", "NWL18"} {
 		gdgPath := filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag")
 		if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
 			gaddagmaker.GenerateGaddag(filepath.Join(DefaultConfig.LexiconPath, lex+".txt"), true, true)
@@ -293,7 +297,8 @@ func TestBoardsEqual(t *testing.T) {
 }
 
 func TestPlaceMoveTiles(t *testing.T) {
-	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+
+	gd, _ := GaddagFromLexicon("America")
 	b := MakeBoard(CrosswordGameBoard)
 	alph := gd.GetAlphabet()
 
@@ -307,7 +312,7 @@ func TestPlaceMoveTiles(t *testing.T) {
 }
 
 func TestUnplaceMoveTiles(t *testing.T) {
-	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	gd, _ := GaddagFromLexicon("America")
 	b := MakeBoard(CrosswordGameBoard)
 	alph := gd.GetAlphabet()
 
