@@ -646,6 +646,12 @@ func (g *Game) PlayToTurn(turnnum int) error {
 	return nil
 }
 
+// PlayLatestEvent "plays" the latest event on the board. This is used for GCG
+// parsing.
+func (g *Game) PlayLatestEvent() error {
+	return g.playTurn(len(g.history.Events) - 1)
+}
+
 func (g *Game) playTurn(t int) error {
 	// XXX: This function is pretty similar to PlayMove above. It has a
 	// subset of the functionality as it's designed to replay an already
@@ -664,7 +670,6 @@ func (g *Game) playTurn(t int) error {
 	if !found {
 		return fmt.Errorf("player not found: %v", evt.Nickname)
 	}
-
 	// Set the rack for the user on turn to the rack in the history.
 	g.SetRackFor(g.onturn, alphabet.RackFromString(evt.Rack, g.alph))
 	m := MoveFromEvent(evt, g.alph, g.board)
@@ -908,6 +913,10 @@ func (g *Game) CurrentSpread() int {
 
 func (g *Game) History() *pb.GameHistory {
 	return g.history
+}
+
+func (g *Game) SetHistory(h *pb.GameHistory) {
+	g.history = h
 }
 
 func (g *Game) FirstPlayer() *pb.PlayerInfo {

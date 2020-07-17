@@ -26,7 +26,7 @@ func TestNewFromHistoryIncomplete1(t *testing.T) {
 	is := is.New(t)
 	rules, err := game.NewGameRules(&DefaultConfig, board.CrosswordGameBoard,
 		"NWL18", "English")
-	gameHistory, err := gcgio.ParseGCG("../gcgio/testdata/incomplete.gcg")
+	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../gcgio/testdata/incomplete.gcg")
 	is.NoErr(err)
 	game, err := game.NewFromHistory(gameHistory, rules, 0)
 	is.NoErr(err)
@@ -38,7 +38,7 @@ func TestNewFromHistoryIncomplete2(t *testing.T) {
 	is := is.New(t)
 	rules, err := game.NewGameRules(&DefaultConfig, board.CrosswordGameBoard,
 		"NWL18", "English")
-	gameHistory, err := gcgio.ParseGCG("../gcgio/testdata/incomplete.gcg")
+	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../gcgio/testdata/incomplete.gcg")
 	is.NoErr(err)
 	game, err := game.NewFromHistory(gameHistory, rules, 6)
 	is.NoErr(err)
@@ -50,7 +50,7 @@ func TestNewFromHistoryIncomplete3(t *testing.T) {
 	is := is.New(t)
 	rules, err := game.NewGameRules(&DefaultConfig, board.CrosswordGameBoard,
 		"NWL18", "English")
-	gameHistory, err := gcgio.ParseGCG("../gcgio/testdata/incomplete.gcg")
+	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../gcgio/testdata/incomplete.gcg")
 	is.NoErr(err)
 	game, err := game.NewFromHistory(gameHistory, rules, 7)
 	is.NoErr(err)
@@ -62,7 +62,7 @@ func TestNewFromHistoryIncomplete4(t *testing.T) {
 	is := is.New(t)
 	rules, err := game.NewGameRules(&DefaultConfig, board.CrosswordGameBoard,
 		"NWL18", "English")
-	gameHistory, err := gcgio.ParseGCG("../gcgio/testdata/incomplete_elise.gcg")
+	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../gcgio/testdata/incomplete_elise.gcg")
 	is.NoErr(err)
 	is.Equal(len(gameHistory.Events), 20)
 
@@ -88,7 +88,7 @@ func TestNewFromHistoryIncomplete5(t *testing.T) {
 	is := is.New(t)
 	rules, err := game.NewGameRules(&DefaultConfig, board.CrosswordGameBoard,
 		"NWL18", "English")
-	gameHistory, err := gcgio.ParseGCG("../gcgio/testdata/incomplete.gcg")
+	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../gcgio/testdata/incomplete.gcg")
 	is.NoErr(err)
 	is.Equal(len(gameHistory.Events), 20)
 
@@ -104,7 +104,7 @@ func TestNewFromHistoryIncomplete6(t *testing.T) {
 	is := is.New(t)
 	rules, err := game.NewGameRules(&DefaultConfig, board.CrosswordGameBoard,
 		"NWL18", "English")
-	gameHistory, err := gcgio.ParseGCG("../gcgio/testdata/incomplete_3.gcg")
+	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../gcgio/testdata/incomplete_3.gcg")
 	is.NoErr(err)
 	is.Equal(len(gameHistory.Events), 20)
 
@@ -121,7 +121,7 @@ func TestNewFromHistoryIncomplete7(t *testing.T) {
 	is := is.New(t)
 	rules, err := game.NewGameRules(&DefaultConfig, board.CrosswordGameBoard,
 		"NWL18", "English")
-	gameHistory, err := gcgio.ParseGCG("../gcgio/testdata/incomplete4.gcg")
+	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../gcgio/testdata/incomplete4.gcg")
 	is.NoErr(err)
 	is.Equal(len(gameHistory.Events), 5)
 

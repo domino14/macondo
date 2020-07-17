@@ -38,7 +38,12 @@ func (g *gamerules) LoadRule(lexicon, letterDistributionName string) error {
 		// Since a gaddag is not a hard requirement for a game (think of the
 		// case where it's a player-vs-player game like a GCG) then
 		// we don't necessarily exit if we can't load the gaddag.
-		log.Err(err).Msg("unable to load gaddag; operation may be unideal")
+		log.Err(err).Interface("gd", gd).Msg("unable to load gaddag; using default gaddag")
+		gdFilename := filepath.Join(g.cfg.LexiconPath, "gaddag", g.cfg.DefaultLexicon+".gaddag")
+		gd, err = gaddag.LoadGaddag(gdFilename)
+		if err != nil {
+			return err
+		}
 	}
 	dist, err := alphabet.NamedLetterDistribution(g.cfg, letterDistributionName)
 	if err != nil {

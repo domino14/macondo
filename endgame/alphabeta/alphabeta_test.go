@@ -681,7 +681,7 @@ func TestProperIterativeDeepening(t *testing.T) {
 	is.NoErr(err)
 	for _, plies := range plyCount {
 
-		gameHistory, err := gcgio.ParseGCG("../../gcgio/testdata/noah_vs_mishu.gcg")
+		gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../../gcgio/testdata/noah_vs_mishu.gcg")
 		is.NoErr(err)
 
 		g, err := game.NewFromHistory(gameHistory, rules, 28)
@@ -721,7 +721,7 @@ func TestFromGCG(t *testing.T) {
 	rules, err := game.NewGameRules(&DefaultConfig, board.CrosswordGameBoard,
 		"CSW19", "English")
 
-	gameHistory, err := gcgio.ParseGCG("../../gcgio/testdata/vs_frentz.gcg")
+	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../../gcgio/testdata/vs_frentz.gcg")
 	is.NoErr(err)
 
 	g, err := game.NewFromHistory(gameHistory, rules, 22)

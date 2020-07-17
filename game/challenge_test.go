@@ -19,7 +19,7 @@ func TestChallengeVoid(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, err := game.NewGameRules(DefaultConfig, board.CrosswordGameBoard, "NWL18",
+	rules, err := game.NewGameRules(&DefaultConfig, board.CrosswordGameBoard, "NWL18",
 		"English")
 	is.NoErr(err)
 	game, err := game.NewGame(rules, players)
@@ -40,7 +40,7 @@ func TestChallengeDoubleIsLegal(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, _ := game.NewGameRules(DefaultConfig, board.CrosswordGameBoard, "NWL18",
+	rules, _ := game.NewGameRules(&DefaultConfig, board.CrosswordGameBoard, "NWL18",
 		"English")
 	g, _ := game.NewGame(rules, players)
 	alph := rules.Gaddag().GetAlphabet()
@@ -66,7 +66,7 @@ func TestChallengeDoubleIsIllegal(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, _ := game.NewGameRules(DefaultConfig, board.CrosswordGameBoard, "NWL18",
+	rules, _ := game.NewGameRules(&DefaultConfig, board.CrosswordGameBoard, "NWL18",
 		"English")
 	g, _ := game.NewGame(rules, players)
 	alph := rules.Gaddag().GetAlphabet()
@@ -90,9 +90,9 @@ func TestChallengeDoubleIsIllegal(t *testing.T) {
 func TestChallengeEndOfGamePlusFive(t *testing.T) {
 	is := is.New(t)
 
-	gameHistory, err := gcgio.ParseGCG("../gcgio/testdata/some_isc_game.gcg")
+	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../gcgio/testdata/some_isc_game.gcg")
 	is.NoErr(err)
-	rules, _ := game.NewGameRules(DefaultConfig, board.CrosswordGameBoard, "NWL18",
+	rules, _ := game.NewGameRules(&DefaultConfig, board.CrosswordGameBoard, "NWL18",
 		"English")
 
 	g, err := game.NewFromHistory(gameHistory, rules, 0)
@@ -118,9 +118,9 @@ func TestChallengeEndOfGamePlusFive(t *testing.T) {
 func TestChallengeEndOfGamePhony(t *testing.T) {
 	is := is.New(t)
 
-	gameHistory, err := gcgio.ParseGCG("../gcgio/testdata/some_isc_game.gcg")
+	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../gcgio/testdata/some_isc_game.gcg")
 	is.NoErr(err)
-	rules, _ := game.NewGameRules(DefaultConfig, board.CrosswordGameBoard, "NWL18",
+	rules, _ := game.NewGameRules(&DefaultConfig, board.CrosswordGameBoard, "NWL18",
 		"English")
 
 	g, err := game.NewFromHistory(gameHistory, rules, 0)
