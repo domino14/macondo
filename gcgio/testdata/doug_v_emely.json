@@ -296,5 +296,7 @@
   "lexicon": "NWL18",
   "variant": "CrosswordGame",
   "version": 1,
+  "final_scores": [451, 345],
+  "play_state": 2,
   "original_gcg": "#player1 doug doug\n#player2 emely emely\n>doug: DINNVWY 8D WINDY +32 32\n>emely: ADEEGIL 7C GALE +16 16\n>doug: AEJNOSV E3 JAVE..N +34 66\n>emely: DEILOVX F2 VOX +39 55\n>doug: ADENOST 10B DONATES +82 148\n>emely: DEIILTZ 4B TIL.. +24 79\n>emely: DEIILTZ --  -24 55\n>doug: AAEINRU 9G EAU +16 164\n>emely: DEIILTZ 4D Z.. +38 93\n>doug: AILNORT A5 LATINO +27 191\n>emely: DEEIILT B2 TEIID +29 122\n>doug: ?BDERUW A1 WEB +30 221\n>emely: AELLNST 11E SAT +51 173\n>doug: ?DINRRU 6D R.D +22 243\n>emely: ACELLMN C1 CAN +23 196\n>doug: ?EFINRU B8 FU. +14 257\n>emely: EILLMRR 7H RILL +12 208\n>doug: ?EIINOR K5 RE.IgION +78 335\n>emely: EKMORRU L11 MURK +28 236\n>doug: AEIOORS 15H ARIOSE +33 368\n>emely: ?CEORUY 14F COY +19 255\n>doug: EGHMOPT L4 GET +12 380\n>emely: ?BERSTU 2F .ERB +9 264\n>doug: AEHIMOP 1G PEA +29 409\n>emely: ?HOQSTU M2 QUOTH +46 310\n>doug: EGHIMOP N1 HIM +42 451\n>emely: ?FS 14L .aFS +21 331\n>emely:  (OPEG) +14 345"
 }

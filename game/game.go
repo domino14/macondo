@@ -394,7 +394,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 				}
 				g.endOfGameCalcs(g.onturn, addToHistory)
 				if addToHistory {
-					g.addFinalScoresToHistory()
+					g.AddFinalScoresToHistory()
 				}
 			}
 		}
@@ -412,7 +412,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 			// the final score correctly.
 			g.endOfGameCalcs((g.onturn+1)%2, addToHistory)
 			if addToHistory {
-				g.addFinalScoresToHistory()
+				g.AddFinalScoresToHistory()
 			}
 		} else {
 			// If this is a regular pass (and not an end-of-game-pass) let's
@@ -456,7 +456,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 	return nil
 }
 
-func (g *Game) addFinalScoresToHistory() {
+func (g *Game) AddFinalScoresToHistory() {
 	g.history.FinalScores = make([]int32, len(g.players))
 	for pidx, p := range g.players {
 		g.history.FinalScores[pidx] = int32(p.points)
@@ -483,7 +483,7 @@ func (g *Game) handleConsecutiveScorelessTurns(addToHistory bool) (bool, error) 
 		if addToHistory {
 			penaltyEvt := g.endRackPenaltyEvt(pts)
 			g.history.Events = append(g.history.Events, penaltyEvt)
-			g.addFinalScoresToHistory()
+			g.AddFinalScoresToHistory()
 		}
 	}
 	return ended, nil

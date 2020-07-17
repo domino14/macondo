@@ -298,7 +298,12 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 
 		evt.Type = pb.GameEvent_TIME_PENALTY
 		p.history.Events = append(p.history.Events, evt)
-		return p.game.PlayLatestEvent()
+		p.game.SetPlaying(pb.PlayState_GAME_OVER)
+
+		err = p.game.PlayLatestEvent()
+		if err != nil {
+			return err
+		}
 
 	case LastRackPenaltyToken:
 		evt := &pb.GameEvent{}
@@ -318,7 +323,12 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 		}
 		evt.Type = pb.GameEvent_END_RACK_PENALTY
 		p.history.Events = append(p.history.Events, evt)
-		return p.game.PlayLatestEvent()
+		err = p.game.PlayLatestEvent()
+		// End the game.
+		p.game.SetPlaying(pb.PlayState_GAME_OVER)
+		if err != nil {
+			return err
+		}
 
 	case PassToken:
 		evt := &pb.GameEvent{}
@@ -352,6 +362,8 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 			evt.Type = pb.GameEvent_CHALLENGE_BONUS
 		} else if token == EndRackPointsToken {
 			evt.Type = pb.GameEvent_END_RACK_PTS
+			// End the game.
+			p.game.SetPlaying(pb.PlayState_GAME_OVER)
 		}
 		p.history.Events = append(p.history.Events, evt)
 		return p.game.PlayLatestEvent()
@@ -486,6 +498,12 @@ func ParseGCGFromReader(cfg *config.Config, reader io.Reader) (*pb.GameHistory, 
 		originalGCG += line + "\n"
 	}
 	parser.history.OriginalGcg = strings.TrimSpace(originalGCG)
+
+	// Determine if the game ended.
+	if parser.game.Playing() == pb.PlayState_GAME_OVER {
+		parser.history.PlayState = pb.PlayState_GAME_OVER
+		parser.game.AddFinalScoresToHistory()
+	}
 	return parser.history, nil
 }
 
