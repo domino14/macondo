@@ -1,17 +1,19 @@
 package runner
 
 import (
+	"strings"
+
 	"github.com/domino14/macondo/ai/player"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/strategy"
 	"github.com/rs/zerolog/log"
-	"strings"
 )
 
 type GameOptions struct {
@@ -111,7 +113,7 @@ func NewAIGameRunner(conf *config.Config, opts *GameOptions, players []*pb.Playe
 
 	aiplayer := player.NewRawEquityPlayer(strategy)
 	gen := movegen.NewGordonGenerator(
-		g.Gaddag(), g.Board(), g.Bag().LetterDistribution())
+		g.Gaddag().(*gaddag.SimpleGaddag), g.Board(), g.Bag().LetterDistribution())
 
 	ret := &AIGameRunner{g, aiplayer, gen}
 	return ret, nil
