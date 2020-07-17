@@ -40,7 +40,10 @@ func (g *gamerules) LoadRule(lexicon, letterDistributionName string) error {
 		// we don't necessarily exit if we can't load the gaddag.
 		log.Err(err).Msg("unable to load gaddag; operation may be unideal")
 	}
-	dist := alphabet.NamedLetterDistribution(g.cfg, g.letterDistributionName, gd.GetAlphabet())
+	dist, err := alphabet.NamedLetterDistribution(g.cfg, letterDistributionName)
+	if err != nil {
+		return err
+	}
 	g.gaddag = gd
 	g.dist = dist
 	return nil

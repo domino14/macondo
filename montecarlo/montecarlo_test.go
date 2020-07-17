@@ -14,6 +14,7 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -21,15 +22,14 @@ import (
 	"github.com/domino14/macondo/strategy"
 )
 
-var LexiconDir = os.Getenv("LEXICON_PATH")
-
 const (
 	Epsilon = 1e-6
 )
 
-var DefaultConfig = &config.Config{
+var DefaultConfig = config.Config{
 	StrategyParamsPath:        os.Getenv("STRATEGY_PARAMS_PATH"),
 	LexiconPath:               os.Getenv("LEXICON_PATH"),
+	LetterDistributionPath:    os.Getenv("LETTER_DISTRIBUTION_PATH"),
 	DefaultLexicon:            "NWL18",
 	DefaultLetterDistribution: "English",
 }
@@ -56,7 +56,7 @@ func TestSimSingleIteration(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, err := game.NewGameRules(DefaultConfig, board.CrosswordGameBoard,
+	rules, err := game.NewGameRules(&DefaultConfig, board.CrosswordGameBoard,
 		"NWL18", "English")
 	is.NoErr(err)
 	game, err := game.NewGame(rules, players)
@@ -65,7 +65,7 @@ func TestSimSingleIteration(t *testing.T) {
 	strategy, err := strategy.NewExhaustiveLeaveStrategy(rules.Gaddag().LexiconName(),
 		rules.Gaddag().GetAlphabet(), DefaultConfig.StrategyParamsPath, "")
 	is.NoErr(err)
-	generator := movegen.NewGordonGenerator(rules.Gaddag(), game.Board(), rules.LetterDistribution())
+	generator := movegen.NewGordonGenerator(rules.Gaddag().(*gaddag.SimpleGaddag), game.Board(), rules.LetterDistribution())
 
 	// This will deal a random rack to players:
 	game.StartGame()
@@ -105,7 +105,7 @@ func TestLongerSim(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, err := game.NewGameRules(DefaultConfig, board.CrosswordGameBoard,
+	rules, err := game.NewGameRules(&DefaultConfig, board.CrosswordGameBoard,
 		"NWL18", "English")
 	is.NoErr(err)
 	game, err := game.NewGame(rules, players)
@@ -114,7 +114,7 @@ func TestLongerSim(t *testing.T) {
 	strategy, err := strategy.NewExhaustiveLeaveStrategy(rules.Gaddag().LexiconName(),
 		rules.Gaddag().GetAlphabet(), DefaultConfig.StrategyParamsPath, "")
 	is.NoErr(err)
-	generator := movegen.NewGordonGenerator(rules.Gaddag(), game.Board(), rules.LetterDistribution())
+	generator := movegen.NewGordonGenerator(rules.Gaddag().(*gaddag.SimpleGaddag), game.Board(), rules.LetterDistribution())
 	// This will start the game and deal a random rack to players:
 	game.StartGame()
 	game.SetPlayerOnTurn(0)

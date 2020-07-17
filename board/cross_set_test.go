@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/move"
 	"github.com/stretchr/testify/assert"
 
@@ -15,12 +16,24 @@ import (
 	"github.com/domino14/macondo/gaddagmaker"
 )
 
-var LexiconDir = os.Getenv("LEXICON_PATH")
+var DefaultConfig = config.Config{
+	StrategyParamsPath:        os.Getenv("STRATEGY_PARAMS_PATH"),
+	LexiconPath:               os.Getenv("LEXICON_PATH"),
+	LetterDistributionPath:    os.Getenv("LETTER_DISTRIBUTION_PATH"),
+	DefaultLexicon:            "NWL18",
+	DefaultLetterDistribution: "English",
+}
 
 func TestMain(m *testing.M) {
-	if _, err := os.Stat("/tmp/gen_america.gaddag"); os.IsNotExist(err) {
-		gaddagmaker.GenerateGaddag(filepath.Join(LexiconDir, "America.txt"), true, true)
-		os.Rename("out.gaddag", "/tmp/gen_america.gaddag")
+	for _, lex := range []string{"America"} {
+		gdgPath := filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag")
+		if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
+			gaddagmaker.GenerateGaddag(filepath.Join(DefaultConfig.LexiconPath, lex+".txt"), true, true)
+			err = os.Rename("out.gaddag", gdgPath)
+			if err != nil {
+				panic(err)
+			}
+		}
 	}
 	os.Exit(m.Run())
 }
@@ -71,10 +84,19 @@ type crossSetTestCase struct {
 }
 
 func TestGenCrossSetLoadedGame(t *testing.T) {
-	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
+	gd, err := gaddag.LoadGaddag(path)
+	if err != nil {
+		t.Error(err)
+	}
+	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
+	if err != nil {
+		t.Error(err)
+	}
+	alph := dist.Alphabet()
+
 	b := MakeBoard(CrosswordGameBoard)
-	alph := gd.GetAlphabet()
-	dist := alphabet.EnglishLetterDistribution(alph)
+
 	b.SetToGame(alph, VsMatt)
 	// All horizontal for now.
 	var testCases = []crossSetTestCase{
@@ -114,9 +136,17 @@ type crossSetEdgeTestCase struct {
 }
 
 func TestGenCrossSetEdges(t *testing.T) {
-	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	alph := gd.GetAlphabet()
-	dist := alphabet.EnglishLetterDistribution(alph)
+	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
+	gd, err := gaddag.LoadGaddag(path)
+	if err != nil {
+		t.Error(err)
+	}
+	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
+	if err != nil {
+		t.Error(err)
+	}
+	alph := dist.Alphabet()
+
 	b := MakeBoard(CrosswordGameBoard)
 
 	var testCases = []crossSetEdgeTestCase{
@@ -155,9 +185,17 @@ func TestGenCrossSetEdges(t *testing.T) {
 }
 
 func TestGenAllCrossSets(t *testing.T) {
-	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	alph := gd.GetAlphabet()
-	dist := alphabet.EnglishLetterDistribution(alph)
+	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
+	gd, err := gaddag.LoadGaddag(path)
+	if err != nil {
+		t.Error(err)
+	}
+	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
+	if err != nil {
+		t.Error(err)
+	}
+	alph := dist.Alphabet()
+
 	b := MakeBoard(CrosswordGameBoard)
 	b.SetToGame(alph, VsEd)
 
@@ -230,9 +268,16 @@ func TestGenAllCrossSets(t *testing.T) {
 }
 
 func TestBoardsEqual(t *testing.T) {
-	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	alph := gd.GetAlphabet()
-	dist := alphabet.EnglishLetterDistribution(alph)
+	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
+	gd, err := gaddag.LoadGaddag(path)
+	if err != nil {
+		t.Error(err)
+	}
+	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
+	if err != nil {
+		t.Error(err)
+	}
+	alph := dist.Alphabet()
 
 	b := MakeBoard(CrosswordGameBoard)
 	b.SetToGame(alph, VsMatt)
@@ -283,9 +328,16 @@ type updateCrossesForMoveTestCase struct {
 }
 
 func TestUpdateCrossSetsForMove(t *testing.T) {
-	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	alph := gd.GetAlphabet()
-	dist := alphabet.EnglishLetterDistribution(alph)
+	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
+	gd, err := gaddag.LoadGaddag(path)
+	if err != nil {
+		t.Error(err)
+	}
+	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
+	if err != nil {
+		t.Error(err)
+	}
+	alph := dist.Alphabet()
 
 	var testCases = []updateCrossesForMoveTestCase{
 		{VsMatt, move.NewScoringMoveSimple(38, "K9", "TAEL", "ABD", alph), "TAEL"},
@@ -375,9 +427,17 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 // }
 
 func TestUpdateSingleCrossSet(t *testing.T) {
-	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	alph := gd.GetAlphabet()
-	dist := alphabet.EnglishLetterDistribution(alph)
+	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
+	gd, err := gaddag.LoadGaddag(path)
+	if err != nil {
+		t.Error(err)
+	}
+	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
+	if err != nil {
+		t.Error(err)
+	}
+	alph := dist.Alphabet()
+
 	b := MakeBoard(CrosswordGameBoard)
 	b.SetToGame(alph, VsMatt)
 	b.GenAllCrossSets(gd, dist)
@@ -403,9 +463,17 @@ func TestUpdateSingleCrossSet(t *testing.T) {
 }
 
 func BenchmarkGenAnchorsAndCrossSets(b *testing.B) {
-	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	alph := gd.GetAlphabet()
-	dist := alphabet.EnglishLetterDistribution(alph)
+	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
+	gd, err := gaddag.LoadGaddag(path)
+	if err != nil {
+		b.Error(err)
+	}
+	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
+	if err != nil {
+		b.Error(err)
+	}
+	alph := dist.Alphabet()
+
 	board := MakeBoard(CrosswordGameBoard)
 	board.SetToGame(alph, VsOxy)
 	b.ResetTimer()
@@ -420,9 +488,16 @@ func BenchmarkGenAnchorsAndCrossSets(b *testing.B) {
 func BenchmarkMakePlay(b *testing.B) {
 	// Mostly, benchmark the progressive generation of anchors and cross-sets
 	// (as opposed to generating all of them from scratch)
-	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-	alph := gd.GetAlphabet()
-	dist := alphabet.EnglishLetterDistribution(alph)
+	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
+	gd, err := gaddag.LoadGaddag(path)
+	if err != nil {
+		b.Error(err)
+	}
+	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
+	if err != nil {
+		b.Error(err)
+	}
+	alph := dist.Alphabet()
 	board := MakeBoard(CrosswordGameBoard)
 	board.SetToGame(alph, VsMatt)
 	board.GenAllCrossSets(gd, dist)

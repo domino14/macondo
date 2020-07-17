@@ -28,7 +28,7 @@ const (
 // GameRunner is the master struct here for the automatic game logic.
 type GameRunner struct {
 	game     *game.Game
-	gaddag   *gaddag.SimpleGaddag
+	gaddag   gaddag.GenericDawg
 	movegen  movegen.MoveGenerator
 	alphabet *alphabet.Alphabet
 
@@ -73,7 +73,7 @@ func (r *GameRunner) Init(player1, player2, leavefile1, leavefile2, pegfile1, pe
 	r.gaddag = rules.Gaddag()
 	r.alphabet = r.gaddag.GetAlphabet()
 
-	r.movegen = movegen.NewGordonGenerator(r.gaddag, r.game.Board(),
+	r.movegen = movegen.NewGordonGenerator(r.gaddag.(*gaddag.SimpleGaddag), r.game.Board(),
 		rules.LetterDistribution())
 
 	var strat strategy.Strategizer

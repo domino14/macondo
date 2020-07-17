@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/domino14/macondo/config"
-	"github.com/rs/zerolog/log"
 )
 
 // LetterDistribution encodes the tile distribution for the relevant game.
@@ -32,6 +31,10 @@ func EnglishLetterDistribution(cfg *config.Config) (*LetterDistribution, error) 
 
 func SpanishLetterDistribution(cfg *config.Config) (*LetterDistribution, error) {
 	return NamedLetterDistribution(cfg, "spanish")
+}
+
+func PolishLetterDistribution(cfg *config.Config) (*LetterDistribution, error) {
+	return NamedLetterDistribution(cfg, "polish")
 }
 
 // NamedLetterDistribution loads a letter distribution by name.
@@ -60,7 +63,7 @@ func NamedLetterDistribution(cfg *config.Config, name string) (*LetterDistributi
 		if err != nil {
 			return nil, err
 		}
-		letter := rune(record[0][0])
+		letter := []rune(record[0])[0]
 		sortOrder = append(sortOrder, letter)
 		n, err := strconv.Atoi(record[1])
 		if err != nil {
@@ -155,6 +158,5 @@ func makeSortMap(order []rune) map[rune]int {
 	for idx, letter := range order {
 		sortMap[letter] = idx
 	}
-	log.Debug().Interface("sortMap", sortMap).Interface("order", order).Msg("sort map")
 	return sortMap
 }

@@ -13,8 +13,6 @@ import (
 	"strings"
 
 	"github.com/domino14/macondo/alphabet"
-	"github.com/domino14/macondo/board"
-	"github.com/domino14/macondo/config"
 
 	"github.com/domino14/macondo/game"
 
@@ -160,16 +158,16 @@ func (p *parser) addEventOrPragma(token Token, match []string) error {
 			// We have both players. Initialize a new game.
 			// XXX: We are hardcoding the distribution name for now;
 			// these should be fetched from the GCG.
-			rules, err := game.NewGameRules(&config.Config{}, board.CrosswordGameBoard,
-				p.history.Lexicon, "english")
-			if err != nil {
-				return err
-			}
-			p.game, err = game.NewGame(rules, p.history.Players)
-			if err != nil {
-				return err
-			}
-			p.game.SetNextFirst(0)
+			// rules, err := game.NewGameRules(&config.Config{}, board.CrosswordGameBoard,
+			// 	p.history.Lexicon, "english")
+			// if err != nil {
+			// 	return err
+			// }
+			// p.game, err = game.NewGame(rules, p.history.Players)
+			// if err != nil {
+			// 	return err
+			// }
+			// p.game.SetNextFirst(0)
 		}
 
 		return nil

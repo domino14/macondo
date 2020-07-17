@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/rs/zerolog/log"
 )
@@ -32,7 +33,7 @@ func (di *dawgInfo) GetDist() *alphabet.LetterDistribution {
 	return di.dist
 }
 
-func LoadDawgs(dawgPath string) {
+func LoadDawgs(cfg *config.Config, dawgPath string) {
 	// Load the DAWGs into memory.
 	var dawgs []string
 	err := filepath.Walk(dawgPath, func(path string, info os.FileInfo, err error) error {
@@ -55,12 +56,16 @@ func LoadDawgs(dawgPath string) {
 		lex := dawg.LexiconName()
 		Dawgs[lex] = &dawgInfo{}
 		Dawgs[lex].dawg = dawg
+		var err error
 		if strings.Contains(lex, "FISE") {
-			Dawgs[lex].dist = alphabet.SpanishLetterDistribution(dawg.GetAlphabet())
+			Dawgs[lex].dist, err = alphabet.SpanishLetterDistribution(cfg)
 		} else if strings.Contains(lex, "OSPS") {
-			Dawgs[lex].dist = alphabet.PolishLetterDistribution(dawg.GetAlphabet())
+			Dawgs[lex].dist, err = alphabet.PolishLetterDistribution(cfg)
 		} else {
-			Dawgs[lex].dist = alphabet.EnglishLetterDistribution(dawg.GetAlphabet())
+			Dawgs[lex].dist, err = alphabet.EnglishLetterDistribution(cfg)
+		}
+		if err != nil {
+			panic(err)
 		}
 	}
 }

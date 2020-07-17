@@ -19,8 +19,11 @@ const (
 )
 
 type GenericDawg interface {
+	GetLetterSet(nodeIdx uint32) alphabet.LetterSet
 	InLetterSet(letter alphabet.MachineLetter, nodeIdx uint32) bool
 	GetAlphabet() *alphabet.Alphabet
+	LexiconName() string
+	Nodes() []uint32
 	NumArcs(nodeIdx uint32) byte
 	ArcToIdxLetter(arcIdx uint32) (uint32, alphabet.MachineLetter)
 	GetRootNodeIndex() uint32

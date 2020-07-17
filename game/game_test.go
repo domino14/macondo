@@ -15,9 +15,10 @@ import (
 	"github.com/matryer/is"
 )
 
-var DefaultConfig = &config.Config{
+var DefaultConfig = config.Config{
 	StrategyParamsPath:        os.Getenv("STRATEGY_PARAMS_PATH"),
 	LexiconPath:               os.Getenv("LEXICON_PATH"),
+	LetterDistributionPath:    os.Getenv("LETTER_DISTRIBUTION_PATH"),
 	DefaultLexicon:            "NWL18",
 	DefaultLetterDistribution: "English",
 }
@@ -42,7 +43,7 @@ func TestNewGame(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, err := NewGameRules(DefaultConfig, board.CrosswordGameBoard, "NWL18",
+	rules, err := NewGameRules(&DefaultConfig, board.CrosswordGameBoard, "NWL18",
 		"English")
 	is.NoErr(err)
 	game, err := NewGame(rules, players)
@@ -57,7 +58,7 @@ func TestBackup(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, _ := NewGameRules(DefaultConfig, board.CrosswordGameBoard, "NWL18",
+	rules, _ := NewGameRules(&DefaultConfig, board.CrosswordGameBoard, "NWL18",
 		"English")
 	game, _ := NewGame(rules, players)
 
@@ -92,7 +93,7 @@ func TestValidate(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, _ := NewGameRules(DefaultConfig, board.CrosswordGameBoard, "NWL18",
+	rules, _ := NewGameRules(&DefaultConfig, board.CrosswordGameBoard, "NWL18",
 		"English")
 	g, _ := NewGame(rules, players)
 	alph := rules.Gaddag().GetAlphabet()

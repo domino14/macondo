@@ -19,16 +19,18 @@ func TestChallengeVoid(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, _ := game.NewGameRules(DefaultConfig, board.CrosswordGameBoard, "NWL18",
+	rules, err := game.NewGameRules(DefaultConfig, board.CrosswordGameBoard, "NWL18",
 		"English")
-	game, _ := game.NewGame(rules, players)
+	is.NoErr(err)
+	game, err := game.NewGame(rules, players)
+	is.NoErr(err)
 	alph := rules.Gaddag().GetAlphabet()
 	game.StartGame()
 	game.SetPlayerOnTurn(0)
 	game.SetRackFor(0, alphabet.RackFromString("EFFISTW", alph))
 	game.SetChallengeRule(pb.ChallengeRule_VOID)
 	m := move.NewScoringMoveSimple(90, "8C", "SWIFFET", "", alph)
-	_, err := game.ValidateMove(m)
+	_, err = game.ValidateMove(m)
 	is.Equal(err.Error(), "the play contained illegal words: SWIFFET")
 }
 

@@ -24,6 +24,7 @@ import (
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/endgame/alphabeta"
+	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -202,7 +203,7 @@ func (sc *ShellController) initGameDataStructures() error {
 	}
 
 	sc.aiplayer = player.NewRawEquityPlayer(strategy)
-	sc.gen = movegen.NewGordonGenerator(sc.game.Gaddag(),
+	sc.gen = movegen.NewGordonGenerator(sc.game.Gaddag().(*gaddag.SimpleGaddag),
 		sc.game.Board(), sc.game.Bag().LetterDistribution())
 
 	sc.simmer = &montecarlo.Simmer{}
