@@ -6,10 +6,12 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -19,6 +21,20 @@ var DefaultConfig = config.Config{
 	LetterDistributionPath:    os.Getenv("LETTER_DISTRIBUTION_PATH"),
 	DefaultLexicon:            "NWL18",
 	DefaultLetterDistribution: "English",
+}
+
+func TestMain(m *testing.M) {
+	for _, lex := range []string{"NWL18"} {
+		gdgPath := filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag")
+		if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
+			gaddagmaker.GenerateGaddag(filepath.Join(DefaultConfig.LexiconPath, lex+".txt"), true, true)
+			err = os.Rename("out.gaddag", gdgPath)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
+	os.Exit(m.Run())
 }
 
 func slurp(filename string) string {
