@@ -273,7 +273,11 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 		if err != nil {
 			return err
 		}
-
+		// The PlayedTiles attribute should be set to the LAST event's played tiles
+		if len(p.history.Events) == 0 {
+			return errors.New("malformed gcg; phony tiles returned without play")
+		}
+		evt.PlayedTiles = p.history.Events[len(p.history.Events)-1].PlayedTiles
 		evt.Type = pb.GameEvent_PHONY_TILES_RETURNED
 		p.history.Events = append(p.history.Events, evt)
 		return p.game.PlayLatestEvent()
@@ -462,7 +466,10 @@ func ParseGCGFromReader(cfg *config.Config, reader io.Reader) (*pb.GameHistory, 
 		history: &pb.GameHistory{
 			Events:  []*pb.GameEvent{},
 			Players: []*pb.PlayerInfo{},
-			Version: 1},
+			// We are making the challenge rule anything but VOID, which would
+			// check the validity of every play.
+			ChallengeRule: pb.ChallengeRule_SINGLE,
+			Version:       1},
 	}
 	originalGCG := ""
 
@@ -504,6 +511,8 @@ func ParseGCGFromReader(cfg *config.Config, reader io.Reader) (*pb.GameHistory, 
 		parser.history.PlayState = pb.PlayState_GAME_OVER
 		parser.game.AddFinalScoresToHistory()
 	}
+	// Set challenge rule back to void since we don't know or care what it is.
+	parser.history.ChallengeRule = pb.ChallengeRule_VOID
 	return parser.history, nil
 }
 

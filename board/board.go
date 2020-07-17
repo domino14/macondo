@@ -2,6 +2,7 @@ package board
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
@@ -429,8 +430,9 @@ func (g *GameBoard) ErrorIfIllegalPlay(row, col int, vertical bool,
 		} else {
 			ml = g.GetLetter(newrow, newcol)
 			if ml != alphabet.EmptySquareMarker {
-				return errors.New("tried to play through a letter already on " +
-					"the board; please use the played-through marker (.) instead")
+				return fmt.Errorf("tried to play through a letter already on "+
+					"the board; please use the played-through marker (.) instead ("+
+					"(row %v col %v ml %v)", newrow, newcol, ml)
 			}
 
 			// We are placing a tile on this empty square. Check if we border

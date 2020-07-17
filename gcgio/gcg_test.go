@@ -2,6 +2,7 @@ package gcgio
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
@@ -69,6 +70,8 @@ func TestParseGCGWithChallengeBonus(t *testing.T) {
 	assert.NotNil(t, history)
 
 	repr, err := json.Marshal(history)
+	fmt.Println(string(repr))
+
 	assert.Nil(t, err)
 	assert.JSONEq(t, expected, string(repr))
 }
@@ -144,7 +147,7 @@ func TestPragmaWrongPlace(t *testing.T) {
 	reader := strings.NewReader(`#character-encoding UTF-8
 #player1 dougie Doungy B
 #player2 cesar Cesar D
->dougie: FOO 8D FOO +12 12
+>dougie: FOO 8H FOO +12 12
 #lexicon OSPD4`)
 	history, err := ParseGCGFromReader(&DefaultConfig, reader)
 	assert.Nil(t, history)

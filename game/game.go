@@ -676,6 +676,13 @@ func (g *Game) playTurn(t int) error {
 
 	switch m.Action() {
 	case move.MoveTypePlay:
+		// We validate tile play moves only.
+		wordsFormed, err := g.ValidateMove(m)
+		if err != nil {
+			return err
+		}
+		g.lastWordsFormed = wordsFormed
+
 		// We back up the board and bag since there's a possibility
 		// this play will have to be taken back, if it's a challenged phony.
 		g.board.SaveCopy()
@@ -684,7 +691,7 @@ func (g *Game) playTurn(t int) error {
 		if m.TilesPlayed() == 7 {
 			g.players[g.onturn].bingos++
 		}
-
+		evt.WordsFormed = convertToVisible(g.lastWordsFormed, g.alph)
 		// Note that what we draw here (and in exchange, below) may not
 		// be what was recorded. That's ok -- we always set the rack
 		// at the beginning to whatever was recorded. Drawing like
@@ -712,6 +719,7 @@ func (g *Game) playTurn(t int) error {
 		// events. (See challenge module as well)
 		playedTiles := strings.ReplaceAll(evt.PlayedTiles, string(alphabet.ASCIIPlayedThrough), "")
 		mw, err := alphabet.ToMachineWord(playedTiles, g.alph)
+		log.Debug().Interface("mw", mw).Msg("throwing played tiles back in bag, to redraw")
 		if err != nil {
 			return err
 		}
@@ -778,7 +786,7 @@ func (g *Game) SetRacksForBoth(racks []*alphabet.Rack) error {
 	for _, rack := range racks {
 		err := g.bag.RemoveTiles(rack.TilesOn())
 		if err != nil {
-			log.Error().Msgf("Unable to set rack: %v", err)
+			log.Error().Msgf("both: Unable to set rack: %v", err)
 			return err
 		}
 	}
