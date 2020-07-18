@@ -256,7 +256,10 @@ func (sc *ShellController) loadGCG(args []string) error {
 	if err != nil {
 		return err
 	}
-	sc.game.Game = *g
+	sc.game, err = runner.NewAIGameRunnerFromGame(g, sc.config)
+	if err != nil {
+		return err
+	}
 	sc.game.SetBackupMode(game.InteractiveGameplayMode)
 	// Set challenge rule to double by default. This can be overridden.
 	sc.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
