@@ -132,6 +132,7 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 			// didn't challenge, as this is a special event where the turn
 			// did not _actually_ change.
 			g.endOfGameCalcs(otherPlayer(g.onturn), true)
+			g.AddFinalScoresToHistory()
 		}
 
 	}
