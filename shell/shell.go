@@ -13,24 +13,21 @@ import (
 	"strings"
 	"syscall"
 	"time"
-	"unicode"
 
 	"github.com/chzyer/readline"
 	"github.com/rs/zerolog/log"
 
-	"github.com/domino14/macondo/ai/player"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/automatic"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/endgame/alphabeta"
-	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
-	"github.com/domino14/macondo/strategy"
+	"github.com/domino14/macondo/runner"
 )
 
 const (
@@ -44,45 +41,36 @@ var (
 
 // Options to configure the interactve shell
 type ShellOptions struct {
-	lexicon        string
+	runner.GameOptions
 	lowercaseMoves bool
 }
 
 func NewShellOptions() *ShellOptions {
-	return &ShellOptions{lexicon: "", lowercaseMoves: false}
-}
-
-func (opts *ShellOptions) Set(key string, args []string) (string, error) {
-	switch key {
-	case "lexicon":
-		opts.lexicon = args[0]
-		return args[0], nil
-	case "lower":
-		val, err := strconv.ParseBool(args[0])
-		if err == nil {
-			opts.lowercaseMoves = val
-			return strconv.FormatBool(val), nil
-		} else {
-			return "", errors.New("Valid options: 'true', 'false'")
-		}
-	default:
-		return "", errors.New("No such option: " + key)
+	return &ShellOptions{
+		GameOptions: runner.GameOptions{
+			Lexicon:       nil,
+			ChallengeRule: pb.ChallengeRule_DOUBLE,
+		},
+		lowercaseMoves: false,
 	}
 }
 
 func (opts *ShellOptions) Show(key string) (bool, string) {
 	switch key {
 	case "lexicon":
-		return true, opts.lexicon
+		return true, opts.Lexicon.ToDisplayString()
 	case "lower":
 		return true, fmt.Sprintf("%v", opts.lowercaseMoves)
+	case "challenge":
+		rule := runner.ShowChallengeRule(opts.ChallengeRule)
+		return true, fmt.Sprintf("%v", rule)
 	default:
 		return false, "No such option: " + key
 	}
 }
 
 func (opts *ShellOptions) ToDisplayText() string {
-	keys := []string{"lexicon", "lower"}
+	keys := []string{"lexicon", "challenge", "lower"}
 	out := strings.Builder{}
 	out.WriteString("Settings:\n")
 	for _, key := range keys {
@@ -100,8 +88,7 @@ type ShellController struct {
 
 	options *ShellOptions
 
-	game     *game.Game
-	aiplayer player.AIPlayer
+	game *runner.AIGameRunner
 
 	simmer        *montecarlo.Simmer
 	simCtx        context.Context
@@ -153,27 +140,6 @@ func (sc *ShellController) showError(err error) {
 	sc.showMessage("Error: " + err.Error())
 }
 
-func flipCharCase(r rune) rune {
-	if !unicode.IsLetter(r) {
-		return r
-	}
-	if unicode.IsUpper(r) {
-		return unicode.ToLower(r)
-	} else if unicode.IsLower(r) {
-		return unicode.ToUpper(r)
-	} else {
-		return r
-	}
-}
-
-func flipCase(s string) string {
-	letters := []rune{}
-	for _, r := range s {
-		letters = append(letters, flipCharCase(r))
-	}
-	return string(letters)
-}
-
 func NewShellController(cfg *config.Config, execPath string) *ShellController {
 	l, err := readline.NewEx(&readline.Config{
 		Prompt:          "\033[31mmacondo>\033[0m ",
@@ -188,26 +154,57 @@ func NewShellController(cfg *config.Config, execPath string) *ShellController {
 	if err != nil {
 		panic(err)
 	}
+	execPath = config.FindBasePath(execPath)
 	opts := NewShellOptions()
+	opts.SetDefaults(cfg)
 	return &ShellController{l: l, config: cfg, execPath: execPath, options: opts}
 }
 
-func (sc *ShellController) initGameDataStructures() error {
-	strategy, err := strategy.NewExhaustiveLeaveStrategy(
-		sc.game.Gaddag().LexiconName(),
-		sc.game.Gaddag().GetAlphabet(),
-		sc.config.StrategyParamsPath, strategy.LeaveFilename)
-	if err != nil {
-		return err
+func (sc *ShellController) Set(key string, args []string) (string, error) {
+	var err error
+	var ret string
+	switch key {
+	case "lexicon":
+		if sc.IsPlaying() {
+			msg := "Cannot change the lexicon while a game is active"
+			err = errors.New(msg)
+		} else {
+			err = sc.options.SetLexicon(args)
+			_, ret = sc.options.Show("lexicon")
+		}
+	case "challenge":
+		err = sc.options.SetChallenge(args[0])
+		_, ret = sc.options.Show("challenge")
+		// Allow the challenge rule to be changed in the middle of a game.
+		if err != nil && sc.game != nil {
+			sc.game.SetChallengeRule(sc.options.ChallengeRule)
+		}
+	case "lower":
+		val, err := strconv.ParseBool(args[0])
+		if err == nil {
+			sc.options.lowercaseMoves = val
+			ret = strconv.FormatBool(val)
+		} else {
+			err = errors.New("Valid options: 'true', 'false'")
+		}
+	default:
+		err = errors.New("No such option: " + key)
 	}
+	if err == nil {
+		return ret, nil
+	} else {
+		return "", err
+	}
+}
 
-	sc.aiplayer = player.NewRawEquityPlayer(strategy)
-	sc.gen = movegen.NewGordonGenerator(sc.game.Gaddag().(*gaddag.SimpleGaddag),
-		sc.game.Board(), sc.game.Bag().LetterDistribution())
-
+func (sc *ShellController) initGameDataStructures() error {
 	sc.simmer = &montecarlo.Simmer{}
-	sc.simmer.Init(sc.game, sc.aiplayer)
+	sc.simmer.Init(&sc.game.Game, sc.game.AIPlayer())
 	return nil
+}
+
+func (sc *ShellController) IsPlaying() bool {
+	return sc.game != nil && sc.game.IsPlaying()
 }
 
 func (sc *ShellController) loadGCG(args []string) error {
@@ -255,10 +252,11 @@ func (sc *ShellController) loadGCG(args []string) error {
 	if err != nil {
 		return err
 	}
-	sc.game, err = game.NewFromHistory(history, rules, 0)
+	g, err := game.NewFromHistory(history, rules, 0)
 	if err != nil {
 		return err
 	}
+	sc.game.Game = *g
 	sc.game.SetBackupMode(game.InteractiveGameplayMode)
 	// Set challenge rule to double by default. This can be overridden.
 	sc.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
@@ -308,16 +306,7 @@ func (sc *ShellController) genMovesAndDisplay(numPlays int) {
 }
 
 func (sc *ShellController) genMoves(numPlays int) {
-	curRack := sc.game.RackFor(sc.game.PlayerOnTurn())
-	opp := (sc.game.PlayerOnTurn() + 1) % sc.game.NumPlayers()
-	oppRack := sc.game.RackFor(opp)
-
-	sc.gen.GenAll(curRack, sc.game.Bag().TilesRemaining() >= 7)
-
-	// Assign equity to plays, and only show the top ones.
-	sc.aiplayer.AssignEquity(sc.gen.Plays(), sc.game.Board(),
-		sc.game.Bag(), oppRack)
-	sc.curPlayList = sc.aiplayer.TopPlays(sc.gen.Plays(), numPlays)
+	sc.curPlayList = sc.game.GenerateMoves(numPlays)
 }
 
 func (sc *ShellController) displayMoveList() {
@@ -397,35 +386,13 @@ func (sc *ShellController) addRack(rack string) error {
 	if sc.game == nil {
 		return errors.New("please start a game first")
 	}
-	return sc.game.SetRackFor(sc.game.PlayerOnTurn(), alphabet.RackFromString(rack, sc.game.Alphabet()))
-}
-
-func (sc *ShellController) makeExchangeMove(playerid int, letters string) (*move.Move, error) {
-	rack := sc.game.RackFor(playerid)
-	tiles, err := alphabet.ToMachineWord(letters, sc.game.Alphabet())
-	if err != nil {
-		return nil, err
-	}
-	leaveMW, err := game.Leave(rack.TilesOn(), tiles)
-	if err != nil {
-		return nil, err
-	}
-
-	m := move.NewExchangeMove(tiles, leaveMW, sc.game.Alphabet())
-	return m, nil
-}
-
-func (sc *ShellController) makePlacementMove(playerid int, coords string, word string) (*move.Move, error) {
-	coords = strings.ToUpper(coords)
-	rack := sc.game.RackFor(playerid).String()
-	return sc.game.CreateAndScorePlacementMove(coords, word, rack)
+	return sc.game.SetCurrentRack(rack)
 }
 
 func (sc *ShellController) addMoveToList(playerid int, m *move.Move) error {
 	opp := (playerid + 1) % sc.game.NumPlayers()
 	oppRack := sc.game.RackFor(opp)
-	sc.aiplayer.AssignEquity(
-		[]*move.Move{m}, sc.game.Board(), sc.game.Bag(), oppRack)
+	sc.game.AssignEquity([]*move.Move{m}, oppRack)
 	sc.curPlayList = append(sc.curPlayList, m)
 	sort.Slice(sc.curPlayList, func(i, j int) bool {
 		return sc.curPlayList[j].Equity() < sc.curPlayList[i].Equity()
@@ -463,30 +430,15 @@ func (sc *ShellController) commitMove(m *move.Move) error {
 }
 
 func (sc *ShellController) parseAddMove(playerid int, fields []string) (*move.Move, error) {
-	if len(fields) == 1 {
-		// Check that the user hasn't confused "add" and
-		// "commit" to play a move from the list.
-		if strings.HasPrefix(fields[0], "#") {
-			errmsg := "cannot use this option with the `add` command, " +
-				"you may have wanted to use the `commit` command instead"
-			return nil, errors.New(errmsg)
-		} else if fields[0] == "pass" {
-			rack := sc.game.RackFor(playerid)
-			m := move.NewPassMove(rack.TilesOn(), sc.game.Alphabet())
-			return m, nil
-		}
-	} else if len(fields) == 2 {
-		coords, word := fields[0], fields[1]
-		if sc.options.lowercaseMoves {
-			word = flipCase(word)
-		}
-		if coords == "exchange" {
-			return sc.makeExchangeMove(playerid, word)
-		} else {
-			return sc.makePlacementMove(playerid, coords, word)
-		}
+	// Check that the user hasn't confused "add" and
+	// "commit" to play a move from the list.
+	if len(fields) == 1 &&
+		strings.HasPrefix(fields[0], "#") {
+		errmsg := "cannot use this option with the `add` command, " +
+			"you may have wanted to use the `commit` command instead"
+		return nil, errors.New(errmsg)
 	}
-	return nil, errors.New("unrecognized arguments to `add`")
+	return sc.game.ParseMove(playerid, sc.options.lowercaseMoves, fields)
 }
 
 func (sc *ShellController) parseCommitMove(playerid int, fields []string) (*move.Move, error) {
@@ -517,7 +469,7 @@ func (sc *ShellController) addPlay(fields []string) error {
 }
 
 func (sc *ShellController) commitAIMove() error {
-	if sc.game.Playing() != pb.PlayState_PLAYING {
+	if !sc.IsPlaying() {
 		return errors.New("game is over")
 	}
 	sc.genMoves(15)
@@ -662,8 +614,6 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.rack(cmd)
 	case "set":
 		return sc.set(cmd)
-	case "setlex":
-		return sc.setlex(cmd)
 	case "gen":
 		return sc.generate(cmd)
 	case "autoplay":
@@ -688,14 +638,11 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.export(cmd)
 	case "autoanalyze":
 		return sc.autoAnalyze(cmd)
-	case "challengerule":
-		return sc.setChallengeRule(cmd)
 	default:
 		msg := fmt.Sprintf("command %v not found", strconv.Quote(cmd.cmd))
 		log.Info().Msg(msg)
 		return nil, errors.New(msg)
 	}
-	return nil, nil
 }
 
 func (sc *ShellController) Loop(sig chan os.Signal) {

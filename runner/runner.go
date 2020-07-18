@@ -13,35 +13,20 @@ import (
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/strategy"
-	"github.com/rs/zerolog/log"
 )
-
-type GameOptions struct {
-	Lexicon       string
-	ChallengeRule pb.ChallengeRule
-}
-
-func (opts *GameOptions) SetDefaults(config *config.Config) {
-	if opts.Lexicon == "" {
-		opts.Lexicon = config.DefaultLexicon
-		log.Info().Msgf("using default lexicon %v", opts.Lexicon)
-	}
-}
 
 // Basic game. Set racks, make moves
 
 type GameRunner struct {
-	*game.Game
-
-	config  *config.Config
-	options *GameOptions
+	game.Game
 }
 
 func NewGameRunner(conf *config.Config, opts *GameOptions, players []*pb.PlayerInfo) (*GameRunner, error) {
 	opts.SetDefaults(conf)
 	rules, err := game.NewGameRules(
-		conf, board.CrosswordGameBoard, opts.Lexicon,
-		conf.DefaultLetterDistribution)
+		conf, board.CrosswordGameBoard,
+		opts.Lexicon.Name,
+		opts.Lexicon.Distribution)
 	if err != nil {
 		return nil, err
 	}
@@ -52,9 +37,8 @@ func NewGameRunner(conf *config.Config, opts *GameOptions, players []*pb.PlayerI
 	}
 	g.StartGame()
 	g.SetBackupMode(game.InteractiveGameplayMode)
-	// Set challenge rule to double by default. This can be overridden.
 	g.SetChallengeRule(opts.ChallengeRule)
-	ret := &GameRunner{g, conf, opts}
+	ret := &GameRunner{*g}
 	return ret, nil
 }
 
@@ -65,6 +49,12 @@ func (g *GameRunner) SetPlayerRack(playerid int, letters string) error {
 
 func (g *GameRunner) SetCurrentRack(letters string) error {
 	return g.SetPlayerRack(g.PlayerOnTurn(), letters)
+}
+
+func (g *GameRunner) NewPassMove(playerid int) (*move.Move, error) {
+	rack := g.RackFor(playerid)
+	m := move.NewPassMove(rack.TilesOn(), g.Alphabet())
+	return m, nil
 }
 
 func (g *GameRunner) NewExchangeMove(playerid int, letters string) (*move.Move, error) {
@@ -88,9 +78,13 @@ func (g *GameRunner) NewPlacementMove(playerid int, coords string, word string) 
 	return g.CreateAndScorePlacementMove(coords, word, rack)
 }
 
+func (g *GameRunner) IsPlaying() bool {
+	return g.Playing() == pb.PlayState_PLAYING
+}
+
 // Game with an AI player available for move generation.
 type AIGameRunner struct {
-	*GameRunner
+	GameRunner
 
 	aiplayer player.AIPlayer
 	gen      movegen.MoveGenerator
@@ -105,7 +99,7 @@ func NewAIGameRunner(conf *config.Config, opts *GameOptions, players []*pb.Playe
 	strategy, err := strategy.NewExhaustiveLeaveStrategy(
 		g.Gaddag().LexiconName(),
 		g.Gaddag().GetAlphabet(),
-		g.config.StrategyParamsPath,
+		conf.StrategyParamsPath,
 		strategy.LeaveFilename)
 	if err != nil {
 		return nil, err
@@ -115,7 +109,7 @@ func NewAIGameRunner(conf *config.Config, opts *GameOptions, players []*pb.Playe
 	gen := movegen.NewGordonGenerator(
 		g.Gaddag().(*gaddag.SimpleGaddag), g.Board(), g.Bag().LetterDistribution())
 
-	ret := &AIGameRunner{g, aiplayer, gen}
+	ret := &AIGameRunner{*g, aiplayer, gen}
 	return ret, nil
 }
 
@@ -130,4 +124,12 @@ func (g *AIGameRunner) GenerateMoves(numPlays int) []*move.Move {
 	// Assign equity to plays, and return the top ones.
 	g.aiplayer.AssignEquity(plays, g.Board(), g.Bag(), oppRack)
 	return g.aiplayer.TopPlays(plays, numPlays)
+}
+
+func (g *AIGameRunner) AssignEquity(plays []*move.Move, oppRack *alphabet.Rack) {
+	g.aiplayer.AssignEquity(plays, g.Board(), g.Bag(), oppRack)
+}
+
+func (g *AIGameRunner) AIPlayer() player.AIPlayer {
+	return g.aiplayer
 }

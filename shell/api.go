@@ -10,11 +10,11 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/automatic"
-	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/endgame/alphabeta"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/runner"
 )
 
 type Response struct {
@@ -35,39 +35,25 @@ func (sc *ShellController) set(cmd *shellcmd) (*Response, error) {
 		return msg(val), nil
 	}
 	values := cmd.args[1:]
-	ret, err := sc.options.Set(opt, values)
-	if err == nil {
-		return msg("set " + opt + " to " + ret), nil
-	} else {
-		return nil, err
-	}
-}
-
-func (sc *ShellController) newGame(cmd *shellcmd) (*Response, error) {
-	lexicon := sc.options.lexicon
-	if lexicon == "" {
-		lexicon = sc.config.DefaultLexicon
-		log.Info().Msgf("using default lexicon %v", lexicon)
-	}
-	rules, err := game.NewGameRules(
-		sc.config, board.CrosswordGameBoard, lexicon, sc.config.DefaultLetterDistribution)
+	ret, err := sc.Set(opt, values)
 	if err != nil {
 		return nil, err
 	}
+	return msg("set " + opt + " to " + ret), nil
+}
 
+func (sc *ShellController) newGame(cmd *shellcmd) (*Response, error) {
 	players := []*pb.PlayerInfo{
 		{Nickname: "arcadio", RealName: "José Arcadio Buendía"},
 		{Nickname: "úrsula", RealName: "Úrsula Iguarán Buendía"},
 	}
 
-	sc.game, err = game.NewGame(rules, players)
+	opts := sc.options.GameOptions
+	g, err := runner.NewAIGameRunner(sc.config, &opts, players)
 	if err != nil {
 		return nil, err
 	}
-	sc.game.StartGame()
-	sc.game.SetBackupMode(game.InteractiveGameplayMode)
-	// Set challenge rule to double by default. This can be overridden.
-	sc.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
+	sc.game = g
 	err = sc.initGameDataStructures()
 	if err != nil {
 		return nil, err
@@ -138,32 +124,6 @@ func (sc *ShellController) rack(cmd *shellcmd) (*Response, error) {
 		return nil, err
 	}
 	return msg(sc.game.ToDisplayText()), nil
-}
-
-func (sc *ShellController) setlex(cmd *shellcmd) (*Response, error) {
-	if cmd.args == nil {
-		return nil, errors.New("must set a lexicon")
-	}
-	if sc.game == nil {
-		sc.options.lexicon = cmd.args[0]
-		return msg("setting default lexicon to " + sc.options.lexicon), nil
-	}
-	letdist := "english"
-	if len(cmd.args) == 2 {
-		letdist = cmd.args[1]
-	}
-	lexname := cmd.args[0]
-	rules, err := game.NewGameRules(
-		sc.config, board.CrosswordGameBoard, lexname, letdist)
-	if err != nil {
-		return nil, err
-	}
-	err = sc.game.SetNewRules(rules)
-	if err != nil {
-		return nil, err
-	}
-	err = sc.initGameDataStructures()
-	return nil, err
 }
 
 func (sc *ShellController) generate(cmd *shellcmd) (*Response, error) {
@@ -244,7 +204,7 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	// delete the tree.
 	sc.curEndgameNode = nil
 	sc.endgameSolver = new(alphabeta.Solver)
-	err = sc.endgameSolver.Init(sc.gen, sc.game)
+	err = sc.endgameSolver.Init(sc.gen, &sc.game.Game)
 	if err != nil {
 		return nil, err
 	}
@@ -316,28 +276,4 @@ func (sc *ShellController) autoAnalyze(cmd *shellcmd) (*Response, error) {
 		return nil, err
 	}
 	return msg(analysis), nil
-}
-
-func (sc *ShellController) setChallengeRule(cmd *shellcmd) (*Response, error) {
-	if cmd.args == nil {
-		return nil, errors.New("need rule")
-	}
-	var challRule pb.ChallengeRule
-	rule := cmd.args[0]
-	switch rule {
-	case "void":
-		challRule = pb.ChallengeRule_VOID
-	case "single":
-		challRule = pb.ChallengeRule_SINGLE
-	case "double":
-		challRule = pb.ChallengeRule_DOUBLE
-	case "5pt":
-		challRule = pb.ChallengeRule_FIVE_POINT
-	case "10pt":
-		challRule = pb.ChallengeRule_TEN_POINT
-	default:
-		return nil, errors.New("challenge rule nonexistent")
-	}
-	sc.game.SetChallengeRule(challRule)
-	return msg("set challenge rule to " + rule), nil
 }
