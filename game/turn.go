@@ -135,6 +135,7 @@ func MoveFromEvent(evt *pb.GameEvent, alph *alphabet.Alphabet, board *board.Game
 		return nil
 	}
 
+	log.Debug().Int("evt-type", int(evt.Type)).Msg("creating-move-from-event")
 	switch evt.Type {
 	case pb.GameEvent_TILE_PLACEMENT_MOVE:
 		// Calculate tiles, leave, tilesPlayed
@@ -207,6 +208,7 @@ func MoveFromEvent(evt *pb.GameEvent, alph *alphabet.Alphabet, board *board.Game
 		} else if evt.Type == pb.GameEvent_TIME_PENALTY {
 			mt = move.MoveTypeLostScoreOnTime
 		}
+		log.Debug().Int("mt", int(mt)).Msg("lost-score-move")
 		m = move.NewLostScoreMove(mt, rack, int(evt.LostScore))
 	case pb.GameEvent_UNSUCCESSFUL_CHALLENGE_TURN_LOSS:
 		m = move.NewUnsuccessfulChallengePassMove(rack, alph)

@@ -615,10 +615,16 @@ func (g *Game) PlayToTurn(turnnum int) error {
 			})
 		} else if len(g.history.LastKnownRacks[0]) > 0 {
 			// Rack1 but not rack2
-			g.SetRackFor(0, alphabet.RackFromString(g.history.LastKnownRacks[0], g.alph))
+			err := g.SetRackFor(0, alphabet.RackFromString(g.history.LastKnownRacks[0], g.alph))
+			if err != nil {
+				return err
+			}
 		} else if len(g.history.LastKnownRacks[1]) > 0 {
 			// Rack2 but not rack1
-			g.SetRackFor(1, alphabet.RackFromString(g.history.LastKnownRacks[1], g.alph))
+			err := g.SetRackFor(1, alphabet.RackFromString(g.history.LastKnownRacks[1], g.alph))
+			if err != nil {
+				return err
+			}
 		} else {
 			// They're both blank.
 			// We don't have a recorded rack, so set it to a random one.
@@ -659,7 +665,7 @@ func (g *Game) playTurn(t int) error {
 	// subset of the functionality as it's designed to replay an already
 	// recorded turn on the board.
 	evt := g.history.Events[t]
-
+	log.Debug().Int("event-type", int(evt.Type)).Int("turn", t).Msg("playTurn")
 	// onturn should be based on the event nickname
 	found := false
 	for idx, p := range g.players {
@@ -672,12 +678,16 @@ func (g *Game) playTurn(t int) error {
 	if !found {
 		return fmt.Errorf("player not found: %v", evt.Nickname)
 	}
-	// Set the rack for the user on turn to the rack in the history.
-	g.SetRackFor(g.onturn, alphabet.RackFromString(evt.Rack, g.alph))
-	m := MoveFromEvent(evt, g.alph, g.board)
 
+	m := MoveFromEvent(evt, g.alph, g.board)
+	log.Debug().Int("movetype", int(m.Action())).Msg("move-action")
 	switch m.Action() {
 	case move.MoveTypePlay:
+		// Set the rack for the user on turn to the rack in the history.
+		err := g.SetRackFor(g.onturn, alphabet.RackFromString(evt.Rack, g.alph))
+		if err != nil {
+			return err
+		}
 		// We validate tile play moves only.
 		wordsFormed, err := g.ValidateMove(m)
 		if err != nil {
@@ -720,16 +730,27 @@ func (g *Game) playTurn(t int) error {
 		// must be done in the gcg parser, or whatever is generating these
 		// events. (See challenge module as well)
 		playedTiles := strings.ReplaceAll(evt.PlayedTiles, string(alphabet.ASCIIPlayedThrough), "")
+
 		mw, err := alphabet.ToMachineWord(playedTiles, g.alph)
 		log.Debug().Interface("mw", mw).Msg("throwing played tiles back in bag, to redraw")
 		if err != nil {
 			return err
 		}
+		// Unblank any realized blanks
+		for idx, letter := range mw {
+			if letter.IsBlanked() {
+				mw[idx] = alphabet.BlankMachineLetter
+			}
+		}
+		log.Debug().Interface("mw", mw).Msg("Throwing in OLD played tiles, to redraw")
 		g.bag.PutBack(mw)
 		// Set the tiles to be the tiles in the event.
 		r := alphabet.NewRack(g.alph)
 		r.Set(m.Tiles())
-		g.SetRackFor(g.onturn, r)
+		err = g.SetRackFor(g.onturn, r)
+		if err != nil {
+			return err
+		}
 
 	case move.MoveTypeChallengeBonus, move.MoveTypeEndgameTiles,
 		move.MoveTypeLostTileScore, move.MoveTypeLostScoreOnTime:
@@ -738,7 +759,11 @@ func (g *Game) playTurn(t int) error {
 		g.players[g.onturn].points += m.Score()
 
 	case move.MoveTypeExchange:
-
+		// Set the rack for the user on turn to the rack in the history.
+		err := g.SetRackFor(g.onturn, alphabet.RackFromString(evt.Rack, g.alph))
+		if err != nil {
+			return err
+		}
 		drew, err := g.bag.Exchange([]alphabet.MachineLetter(m.Tiles()))
 		if err != nil {
 			panic(err)

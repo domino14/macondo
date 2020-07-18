@@ -77,6 +77,19 @@ func TestParseOtherGCG(t *testing.T) {
 	assert.JSONEq(t, expected, string(repr))
 }
 
+func TestParseGCGWithWithdrawnPhonyBingo(t *testing.T) {
+	history, err := ParseGCG(&DefaultConfig, "./testdata/josh2.gcg")
+	assert.Nil(t, err)
+	assert.NotNil(t, history)
+
+	history.Lexicon = "CSW19"
+	expected := slurp("./testdata/josh2.json")
+
+	repr, err := json.Marshal(history)
+	assert.Nil(t, err)
+	assert.JSONEq(t, expected, string(repr))
+}
+
 func TestParseGCGWithChallengeBonus(t *testing.T) {
 	history, err := ParseGCG(&DefaultConfig, "./testdata/vs_frentz.gcg")
 	history.Lexicon = "CSW12"

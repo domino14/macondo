@@ -247,6 +247,8 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 		evt.IsBingo = tp == 7
 		p.history.Events = append(p.history.Events, evt)
 		// Try playing the move
+		log.Debug().Msg("PLAYING LATEST EVENT for MoveToken")
+
 		return p.game.PlayLatestEvent()
 
 	case NoteToken:
@@ -280,6 +282,7 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 		evt.PlayedTiles = p.history.Events[len(p.history.Events)-1].PlayedTiles
 		evt.Type = pb.GameEvent_PHONY_TILES_RETURNED
 		p.history.Events = append(p.history.Events, evt)
+		log.Debug().Msg("PLAYING LATEST EVENT for PhonytilesReturned")
 		return p.game.PlayLatestEvent()
 
 	case TimePenaltyToken:
