@@ -1,19 +1,25 @@
 package bot
 
 import (
-	"errors"
 	"fmt"
-	"github.com/domino14/macondo/config"
-	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/runner"
-	"github.com/domino14/macondo/shell"
+	"io"
+	"os"
+	"runtime"
+
+	"github.com/golang/protobuf/proto"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
-	"runtime"
-	"strconv"
-	"strings"
+
+	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/game"
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/runner"
 )
+
+func debugWriteln(msg string) {
+	io.WriteString(os.Stderr, msg)
+	io.WriteString(os.Stderr, "\n")
+}
 
 type Bot struct {
 	config  *config.Config
@@ -30,10 +36,6 @@ func NewBot(config *config.Config, options *runner.GameOptions) *Bot {
 	return bot
 }
 
-func (bot *Bot) setRack(rack string) error {
-	return bot.game.SetCurrentRack(rack)
-}
-
 func (bot *Bot) newGame() error {
 	players := []*pb.PlayerInfo{
 		{Nickname: "self", RealName: "Macondo Bot"},
@@ -48,68 +50,73 @@ func (bot *Bot) newGame() error {
 	return nil
 }
 
-func (bot *Bot) acceptMove(args []string) error {
-	var move *move.Move
-	var err error
-	playerid := bot.game.PlayerOnTurn()
-	coords, word := args[0], args[1]
-	if coords == "exchange" {
-		move, err = bot.game.NewExchangeMove(playerid, word)
-	} else {
-		move, err = bot.game.NewPlacementMove(playerid, coords, word)
-	}
+func errorResponse(message string, err error) *pb.BotResponse {
+	msg := message
 	if err != nil {
-		return err
+		msg = fmt.Sprintf("%s: %s", msg, err.Error())
 	}
-	err = bot.game.PlayMove(move, true, 0)
-	if err != nil {
-		return err
+	return &pb.BotResponse{
+		Response: &pb.BotResponse_Error{Error: msg},
 	}
-	return nil
 }
 
-func (bot *Bot) commitAIMove() error {
+func (bot *Bot) Deserialize(data []byte) (*game.Game, error) {
+	req := pb.BotRequest{}
+	err := proto.Unmarshal(data, &req)
+	if err != nil {
+		return nil, err
+	}
+	history := req.GameHistory
+	rules, err := bot.game.Rules(bot.config, history)
+	if err != nil {
+		return nil, err
+	}
+	nturns := len(history.Events)
+	ng, err := game.NewFromHistory(history, rules, 0)
+	if err != nil {
+		return nil, err
+	}
+	ng.PlayToTurn(nturns)
+	// debugWriteln(ng.ToDisplayText())
+	return ng, nil
+}
+
+func (bot *Bot) handle(data []byte) *pb.BotResponse {
+	ng, err := bot.Deserialize(data)
+	if err != nil {
+		return errorResponse("Could not parse request", err)
+	}
+	g, err := runner.NewAIGameRunnerFromGame(ng, bot.config)
+	if err != nil {
+		return errorResponse("Could not create AI player", err)
+	}
+	bot.game = g
+
 	moves := bot.game.GenerateMoves(1)
 	m := moves[0]
-	return bot.game.PlayMove(m, true, 0)
-}
-
-func (bot *Bot) dispatch(data string) (*shell.Response, error) {
-	var err error
-	fields := strings.Fields(data)
-	cmd := fields[0]
-	args := fields[1:]
-	switch cmd {
-	case "new":
-		err = bot.newGame()
-	case "play":
-		err = bot.acceptMove(args)
-	case "setrack":
-		err = bot.setRack(args[0])
-	case "aiplay":
-		err = bot.commitAIMove()
-	default:
-		msg := fmt.Sprintf("command %v not found", strconv.Quote(cmd))
-		log.Info().Msg(msg)
-		err = errors.New(msg)
+	evt := bot.game.EventFromMove(m)
+	return &pb.BotResponse{
+		Response: &pb.BotResponse_Move{Move: evt},
 	}
-	return nil, err
 }
 
 func Main(channel string, bot *Bot) {
+	bot.newGame()
 	nc, err := nats.Connect(nats.DefaultURL)
 	if err != nil {
 		log.Fatal()
 	}
 	// Simple Async Subscriber
 	nc.Subscribe(channel, func(m *nats.Msg) {
-		data := string(m.Data)
-		log.Info().Msgf("RECV: %s\n", data)
-		_, err := bot.dispatch(data)
+		log.Info().Msgf("RECV: %d bytes", len(m.Data))
+		resp := bot.handle(m.Data)
+		// debugWriteln(proto.MarshalTextString(resp))
+		data, err := proto.Marshal(resp)
 		if err != nil {
+			// Should never happen, ideally, but we need to do something sensible here.
 			m.Respond([]byte(err.Error()))
 		} else {
-			m.Respond([]byte(bot.game.ToDisplayText()))
+			m.Respond(data)
 		}
 	})
 	nc.Flush()

@@ -11,7 +11,10 @@ import (
 // and letter distribution name.
 func HistoryToVariant(h *pb.GameHistory) (boardLayout []string, letterDistributionName string) {
 
-	if h.Variant == "CrosswordGame" {
+	switch h.Variant {
+	case "CrosswordGame":
+		boardLayout = board.CrosswordGameBoard
+	default:
 		boardLayout = board.CrosswordGameBoard
 	}
 	letterDistributionName = "english"
