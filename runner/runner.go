@@ -95,7 +95,15 @@ func NewAIGameRunner(conf *config.Config, opts *GameOptions, players []*pb.Playe
 	if err != nil {
 		return nil, err
 	}
+	return addAIFields(g, conf)
+}
 
+func NewAIGameRunnerFromGame(g *game.Game, conf *config.Config) (*AIGameRunner, error) {
+	gr := GameRunner{*g}
+	return addAIFields(&gr, conf)
+}
+
+func addAIFields(g *GameRunner, conf *config.Config) (*AIGameRunner, error) {
 	strategy, err := strategy.NewExhaustiveLeaveStrategy(
 		g.Gaddag().LexiconName(),
 		g.Gaddag().GetAlphabet(),
