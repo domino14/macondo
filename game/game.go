@@ -406,7 +406,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		if g.playing == pb.PlayState_WAITING_FOR_FINAL_PASS {
 			g.playing = pb.PlayState_GAME_OVER
 			g.history.PlayState = g.playing
-
+			log.Debug().Msg("waiting -> gameover transition")
 			// Note that the player "on turn" changes here, as we created
 			// a fake virtual turn on the pass. We need to calculate
 			// the final score correctly.
@@ -456,11 +456,13 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 	return nil
 }
 
+// AddFinalScoresToHistory adds the final scores, to, well, the history.
 func (g *Game) AddFinalScoresToHistory() {
 	g.history.FinalScores = make([]int32, len(g.players))
 	for pidx, p := range g.players {
 		g.history.FinalScores[pidx] = int32(p.points)
 	}
+	log.Debug().Interface("finalscores", g.history.FinalScores).Msg("added-final-scores")
 }
 
 func (g *Game) handleConsecutiveScorelessTurns(addToHistory bool) (bool, error) {
