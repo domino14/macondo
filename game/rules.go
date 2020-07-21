@@ -1,8 +1,6 @@
 package game
 
 import (
-	"path/filepath"
-
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
@@ -32,20 +30,27 @@ func (g gamerules) Gaddag() gaddag.GenericDawg {
 }
 
 func (g *gamerules) LoadRule(lexicon, letterDistributionName string) error {
-	gdFilename := filepath.Join(g.cfg.LexiconPath, "gaddag", lexicon+".gaddag")
-	gd, err := gaddag.LoadGaddag(gdFilename)
+	// We check these here to make sure, but these really should be initialized
+	// somewhere in the caller's initialization code.
+	if alphabet.LetterDistributionCache == nil {
+		alphabet.CreateLetterDistributionCache()
+	}
+	if gaddag.GenericDawgCache == nil {
+		gaddag.CreateGaddagCache()
+	}
+
+	gd, err := gaddag.GenericDawgCache.Get(g.cfg, lexicon)
 	if err != nil {
 		// Since a gaddag is not a hard requirement for a game (think of the
 		// case where it's a player-vs-player game like a GCG) then
 		// we don't necessarily exit if we can't load the gaddag.
 		log.Err(err).Interface("gd", gd).Msg("unable to load gaddag; using default gaddag")
-		gdFilename := filepath.Join(g.cfg.LexiconPath, "gaddag", g.cfg.DefaultLexicon+".gaddag")
-		gd, err = gaddag.LoadGaddag(gdFilename)
+		gd, err = gaddag.GenericDawgCache.Get(g.cfg, g.cfg.DefaultLexicon)
 		if err != nil {
 			return err
 		}
 	}
-	dist, err := alphabet.NamedLetterDistribution(g.cfg, letterDistributionName)
+	dist, err := alphabet.LetterDistributionCache.Get(g.cfg, letterDistributionName)
 	if err != nil {
 		return err
 	}
