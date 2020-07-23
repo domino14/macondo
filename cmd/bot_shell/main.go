@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -14,7 +13,6 @@ import (
 
 	"github.com/domino14/macondo/bot"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/runner"
 )
 
 const (
@@ -38,15 +36,6 @@ func main() {
 	log.Info().Msgf("Loaded config: %v", cfg)
 	cfg.AdjustRelativePaths(exPath)
 
-	if strings.HasPrefix(cfg.LexiconPath, "./") {
-		cfg.LexiconPath = filepath.Join(exPath, cfg.LexiconPath)
-		log.Info().Str("path", cfg.LexiconPath).Msgf("new lexicon path")
-	}
-	if strings.HasPrefix(cfg.StrategyParamsPath, "./") {
-		cfg.StrategyParamsPath = filepath.Join(exPath, cfg.StrategyParamsPath)
-		log.Info().Str("sppath", cfg.StrategyParamsPath).Msgf("new strat params path")
-	}
-
 	if cfg.Debug {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	} else {
@@ -62,9 +51,8 @@ func main() {
 		close(idleConnsClosed)
 	}()
 
-	opts := &runner.GameOptions{}
-	b := bot.NewBot(cfg, opts)
-	go bot.Main("macondo.bot", b)
+	sc := bot.NewShellController(cfg, exPath)
+	go sc.Loop("macondo.bot", sig)
 
 	<-idleConnsClosed
 	log.Info().Msg("server gracefully shutting down")

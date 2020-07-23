@@ -78,8 +78,18 @@ func (g *GameRunner) NewPlacementMove(playerid int, coords string, word string) 
 	return g.CreateAndScorePlacementMove(coords, word, rack)
 }
 
+func (g *GameRunner) MoveFromEvent(evt *pb.GameEvent) *move.Move {
+	return game.MoveFromEvent(evt, g.Alphabet(), g.Board())
+}
+
 func (g *GameRunner) IsPlaying() bool {
 	return g.Playing() == pb.PlayState_PLAYING
+}
+
+func (g *GameRunner) Rules(conf *config.Config, history *pb.GameHistory) (game.RuleDefiner, error) {
+	lexicon := history.Lexicon
+	boardLayout, ldName := game.HistoryToVariant(history)
+	return game.NewGameRules(conf, boardLayout, lexicon, ldName)
 }
 
 // Game with an AI player available for move generation.

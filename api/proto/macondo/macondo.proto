@@ -107,3 +107,16 @@ message PlayerInfo {
 //   int32 score = 2;
 //   string rack_letters = 3;
 // }
+
+// Interface for bots. Bots should accept a BotRequest and return a BotResponse.
+
+message BotRequest {
+  GameHistory game_history = 1;
+}
+
+message BotResponse {
+  oneof response {
+    GameEvent move = 1;
+    string error = 2;
+  }
+}
