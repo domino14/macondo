@@ -1,17 +1,18 @@
 package alphabet
 
 import (
-	"math/rand"
+	"errors"
 	"os"
 	"reflect"
 	"testing"
 	"time"
 
+	"github.com/dgryski/go-pcgr"
 	"github.com/domino14/macondo/config"
 	"github.com/matryer/is"
 )
 
-var randSource = rand.New(rand.NewSource(time.Now().UnixNano()))
+var randSource = pcgr.New(time.Now().UnixNano(), 42)
 
 var DefaultConfig = config.Config{
 	StrategyParamsPath:        os.Getenv("STRATEGY_PARAMS_PATH"),
@@ -26,17 +27,20 @@ func TestBag(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	bag := ld.MakeBag(randSource)
-	if len(bag.tiles) != ld.numLetters {
+	bag := ld.MakeBag(&randSource)
+	if bag.numTiles != ld.numLetters {
 		t.Error("Tile bag and letter distribution do not match.")
 	}
 	tileMap := make(map[rune]uint8)
 	numTiles := 0
-	for range bag.tiles {
+	for i := 0; i < bag.initialNumTiles; i++ {
 		tiles, err := bag.Draw(1)
+		if err != nil {
+			t.Error(err)
+		}
 		numTiles++
 		uv := tiles[0].UserVisible(ld.Alphabet())
-		t.Logf("Drew a %c! , %v", uv, numTiles)
+		t.Logf("Drew a %c!, %v (in bag %v)", uv, numTiles, bag.numTiles)
 		if err != nil {
 			t.Error("Error drawing from tile bag.")
 		}
@@ -56,14 +60,14 @@ func TestDraw(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	bag := ld.MakeBag(randSource)
+	bag := ld.MakeBag(&randSource)
 
 	letters, _ := bag.Draw(7)
 	if len(letters) != 7 {
 		t.Errorf("Length was %v, expected 7", len(letters))
 	}
-	if len(bag.tiles) != 93 {
-		t.Errorf("Length was %v, expected 93", len(bag.tiles))
+	if bag.numTiles != 93 {
+		t.Errorf("Length was %v, expected 93", bag.numTiles)
 	}
 }
 
@@ -72,7 +76,7 @@ func TestDrawAtMost(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	bag := ld.MakeBag(randSource)
+	bag := ld.MakeBag(&randSource)
 
 	for i := 0; i < 14; i++ {
 		letters, _ := bag.Draw(7)
@@ -106,12 +110,12 @@ func TestExchange(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	bag := ld.MakeBag(randSource)
+	bag := ld.MakeBag(&randSource)
 
 	letters, _ := bag.Draw(7)
 	newLetters, _ := bag.Exchange(letters[:5])
 	is.Equal(len(newLetters), 5)
-	is.Equal(len(bag.tiles), 93)
+	is.Equal(bag.numTiles, 93)
 }
 
 func TestRemoveTiles(t *testing.T) {
@@ -120,8 +124,8 @@ func TestRemoveTiles(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	bag := ld.MakeBag(randSource)
-	is.Equal(len(bag.tiles), 100)
+	bag := ld.MakeBag(&randSource)
+	is.Equal(bag.numTiles, 100)
 	toRemove := []MachineLetter{
 		9, 14, 24, 4, 3, 20, 4, 11, 21, 6, 22, 14, 8, 0, 8, 15, 6, 5, 4,
 		19, 0, 24, 8, 17, 17, 18, 2, 11, 8, 14, 1, 8, 0, 20, 7, 0, 8, 10,
@@ -134,5 +138,43 @@ func TestRemoveTiles(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	is.Equal(len(bag.tiles), 9)
+	is.Equal(bag.numTiles, 9)
+}
+
+func TestDrawTileAt(t *testing.T) {
+	is := is.New(t)
+	ld, err := EnglishLetterDistribution(&DefaultConfig)
+	if err != nil {
+		t.Error(err)
+	}
+	bag := ld.MakeBag(&randSource)
+
+	tile, err := bag.drawTileAt(0)
+	is.NoErr(err)
+	is.Equal(MachineLetter(0), tile)
+	is.Equal(bag.numTiles, 99)
+
+	tile, err = bag.drawTileAt(99)
+	is.Equal(MachineLetter(0), tile)
+	is.Equal(err, errors.New("tile index out of range"))
+
+	tile, err = bag.drawTileAt(98)
+	is.Equal(MachineLetter(BlankMachineLetter), tile)
+	is.NoErr(err)
+
+	tile, err = bag.drawTileAt(8)
+	is.Equal(MachineLetter(1), tile)
+	is.NoErr(err)
+
+	tile, err = bag.drawTileAt(8)
+	is.Equal(MachineLetter(1), tile)
+	is.NoErr(err)
+
+	tile, err = bag.drawTileAt(8)
+	is.Equal(MachineLetter(2), tile)
+	is.NoErr(err)
+
+	// is.Equal(MachineLetter(BlankMachineLetter), bag.drawTileAt(99))
+	// is.Equal(MachineLetter(BlankMachineLetter), bag.drawTileAt(98))
+
 }

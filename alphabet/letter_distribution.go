@@ -3,12 +3,12 @@ package alphabet
 import (
 	"encoding/csv"
 	"io"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/dgryski/go-pcgr"
 	"github.com/domino14/macondo/config"
 )
 
@@ -136,11 +136,8 @@ func (ld *LetterDistribution) NumTotalTiles() int {
 }
 
 // MakeBag returns a bag of tiles.
-func (ld *LetterDistribution) MakeBag(randSource *rand.Rand) *Bag {
-
+func (ld *LetterDistribution) MakeBag(randSource *pcgr.Rand) *Bag {
 	b := NewBag(ld, ld.alph, randSource)
-	b.Shuffle()
-
 	return b
 }
 

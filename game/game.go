@@ -7,9 +7,9 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"math/rand"
 	"strings"
 
+	"github.com/dgryski/go-pcgr"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/gaddag"
@@ -39,7 +39,7 @@ type RuleDefiner interface {
 	LoadRule(lexiconName, letterDistributionName string) error
 }
 
-func seededRandSource() (int64, *rand.Rand) {
+func seededRandSource() (int64, *pcgr.Rand) {
 	var b [8]byte
 	_, err := crypto_rand.Read(b[:])
 	if err != nil {
@@ -47,9 +47,10 @@ func seededRandSource() (int64, *rand.Rand) {
 	}
 
 	randSeed := int64(binary.LittleEndian.Uint64(b[:]))
-	randSource := rand.New(rand.NewSource(randSeed))
+	inc := int64(17) // some deterministic sequence number, lol.
+	randSource := pcgr.New(randSeed, inc)
 
-	return randSeed, randSource
+	return randSeed, &randSource
 }
 
 // Game is the actual internal game structure that controls the entire
@@ -69,7 +70,7 @@ type Game struct {
 	playing pb.PlayState
 
 	randSeed   int64
-	randSource *rand.Rand
+	randSource *pcgr.Rand
 
 	wentfirst      int
 	scorelessTurns int
@@ -207,7 +208,7 @@ func (g *Game) StartGame() {
 	g.bag = g.letterDistribution.MakeBag(g.randSource)
 	var goesfirst int
 	if g.nextFirst == -1 {
-		goesfirst = g.randSource.Intn(2)
+		goesfirst = int(g.randSource.Bound(2))
 		log.Debug().Msgf("randomly determined %v to go first", goesfirst)
 	} else {
 		goesfirst = g.nextFirst
