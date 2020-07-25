@@ -3,19 +3,22 @@ package alphabet
 import (
 	"errors"
 	"fmt"
-	"math/rand"
+	"sort"
 
+	"github.com/dgryski/go-pcgr"
 	"github.com/rs/zerolog/log"
 )
 
 // A Bag is the bag o'tiles!
 type Bag struct {
-	initialTiles       []MachineLetter
-	tiles              []MachineLetter
-	initialTileMap     map[MachineLetter]uint8
-	tileMap            map[MachineLetter]uint8
-	letterDistribution *LetterDistribution
-	randSource         *rand.Rand
+	numTiles        int
+	initialNumTiles int
+
+	initialUniqueLetters []MachineLetter
+	initialTileMap       map[MachineLetter]uint8
+	tileMap              map[MachineLetter]uint8
+	letterDistribution   *LetterDistribution
+	randSource           *pcgr.Rand
 }
 
 func copyTileMap(orig map[MachineLetter]uint8) map[MachineLetter]uint8 {
@@ -28,49 +31,71 @@ func copyTileMap(orig map[MachineLetter]uint8) map[MachineLetter]uint8 {
 
 // Refill refills the bag.
 func (b *Bag) Refill() {
-	b.tiles = append([]MachineLetter(nil), b.initialTiles...)
 	b.tileMap = copyTileMap(b.initialTileMap)
-	b.Shuffle()
+	b.numTiles = b.initialNumTiles
 }
 
 // DrawAtMost draws at most n tiles from the bag. It can draw fewer if there
 // are fewer tiles than n, and even draw no tiles at all :o
-func (b *Bag) DrawAtMost(n int) []MachineLetter {
-	if n > len(b.tiles) {
-		n = len(b.tiles)
+func (b *Bag) DrawAtMost(n int) ([]MachineLetter, error) {
+	if n > b.numTiles {
+		n = b.numTiles
 	}
-	drawn, _ := b.Draw(n)
-	return drawn
+	return b.Draw(n)
+}
+
+func (b *Bag) drawTileAt(idx uint8) (MachineLetter, error) {
+	// Draw the tile "at" the given index. We count up the current bag.
+	// Count up to "drawn"
+	if idx >= uint8(b.numTiles) {
+		return 0, errors.New("tile index out of range")
+	}
+	counter := uint8(0)
+	potentialLetterIdx := 0
+	var drawn MachineLetter
+	for {
+		potentialLetter := b.initialUniqueLetters[potentialLetterIdx]
+		ct := b.tileMap[potentialLetter]
+		counter += ct
+		if counter > idx {
+			drawn = potentialLetter
+			break
+		}
+		potentialLetterIdx++
+	}
+	b.tileMap[drawn]--
+	b.numTiles--
+	return drawn, nil
 }
 
 // Draw draws n tiles from the bag.
 func (b *Bag) Draw(n int) ([]MachineLetter, error) {
-	if n > len(b.tiles) {
+	if n > b.numTiles {
 		return nil, fmt.Errorf("tried to draw %v tiles, tile bag has %v",
-			n, len(b.tiles))
+			n, b.numTiles)
 	}
-	drawn := make([]MachineLetter, n)
+	drawnTiles := make([]MachineLetter, n)
+	var err error
 	for i := 0; i < n; i++ {
-		drawn[i] = b.tiles[i]
-		b.tileMap[drawn[i]]--
+		drawn := uint8(b.randSource.Bound(uint32(b.numTiles)))
+		drawnTiles[i], err = b.drawTileAt(drawn)
+		if err != nil {
+			return nil, err
+		}
 	}
-	b.tiles = b.tiles[n:]
-	// log.Debug().Int("numtiles", len(b.tiles)).Int("drew", n).Msg("drew from bag")
-	return drawn, nil
+	return drawnTiles, nil
 }
 
 func (b *Bag) Peek() []MachineLetter {
-	ret := make([]MachineLetter, len(b.tiles))
-	copy(ret, b.tiles)
+	ret := make([]MachineLetter, b.numTiles)
+	idx := 0
+	for lt, ct := range b.tileMap {
+		for i := uint8(0); i < ct; i++ {
+			ret[idx] = lt
+			idx++
+		}
+	}
 	return ret
-}
-
-// Shuffle shuffles the bag.
-func (b *Bag) Shuffle() {
-	// log.Debug().Int("numtiles", len(b.tiles)).Msg("shuffling bag")
-	b.randSource.Shuffle(len(b.tiles), func(i, j int) {
-		b.tiles[i], b.tiles[j] = b.tiles[j], b.tiles[i]
-	})
 }
 
 // Exchange exchanges the junk in your rack with new tiles.
@@ -79,21 +104,20 @@ func (b *Bag) Exchange(letters []MachineLetter) ([]MachineLetter, error) {
 	if err != nil {
 		return nil, err
 	}
-	// put exchanged tiles back into the bag and re-shuffle
+	// put exchanged tiles back into the bag
 	b.PutBack(letters)
 	return newTiles, nil
 }
 
-// PutBack puts the tiles back in the bag, and shuffles the bag.
+// PutBack puts the tiles back in the bag.
 func (b *Bag) PutBack(letters []MachineLetter) {
 	if len(letters) == 0 {
 		return
 	}
-	b.tiles = append(b.tiles, letters...)
 	for _, ml := range letters {
 		b.tileMap[ml]++
 	}
-	b.Shuffle()
+	b.numTiles += len(letters)
 }
 
 // hasRack returns a boolean indicating whether the passed-in rack is
@@ -119,7 +143,7 @@ func (b *Bag) hasRack(letters []MachineLetter) bool {
 }
 
 func (b *Bag) TilesRemaining() int {
-	return len(b.tiles)
+	return b.numTiles
 }
 
 func (b *Bag) remove(t MachineLetter) {
@@ -127,30 +151,12 @@ func (b *Bag) remove(t MachineLetter) {
 		log.Fatal().Msgf("Tile %c not found in bag", t)
 	}
 	b.tileMap[t]--
-}
-
-// rebuildTileSlice reconciles the bag slice with the tile map.
-func (b *Bag) rebuildTileSlice(numTilesInBag int) error {
-	log.Debug().Msgf("reconciling tiles, num in bag are %v, map %v",
-		numTilesInBag, b.tileMap)
-	if numTilesInBag > len(b.initialTiles) {
-		return errors.New("more tiles in the bag that there were to begin with")
-	}
-	b.tiles = make([]MachineLetter, numTilesInBag)
-	idx := 0
-	for let, ct := range b.tileMap {
-		for j := uint8(0); j < ct; j++ {
-			b.tiles[idx] = let
-			idx++
-		}
-	}
-	b.Shuffle()
-	return nil
+	b.numTiles--
 }
 
 // Redraw is basically a do-over; throw the current rack in the bag
 // and draw a new rack.
-func (b *Bag) Redraw(currentRack []MachineLetter) []MachineLetter {
+func (b *Bag) Redraw(currentRack []MachineLetter) ([]MachineLetter, error) {
 	b.PutBack(currentRack)
 	return b.DrawAtMost(7)
 }
@@ -169,34 +175,38 @@ func (b *Bag) RemoveTiles(tiles []MachineLetter) error {
 			b.remove(t)
 		}
 	}
-	return b.rebuildTileSlice(len(b.tiles) - len(tiles))
+	return nil
 }
 
-func NewBag(ld *LetterDistribution, alph *Alphabet, randSource *rand.Rand) *Bag {
-
-	tiles := make([]MachineLetter, ld.numLetters)
+func NewBag(ld *LetterDistribution, alph *Alphabet, randSource *pcgr.Rand) *Bag {
 	tileMap := map[MachineLetter]uint8{}
 
 	idx := 0
+	initialUniqueLetters := []MachineLetter{}
 	for rn, ct := range ld.Distribution {
 		val, err := alph.Val(rn)
 		if err != nil {
 			log.Fatal().Msgf("Attempt to initialize bag failed: %v", err)
 		}
 		tileMap[val] = ct
-		for j := uint8(0); j < ct; j++ {
-			tiles[idx] = val
-			idx++
-		}
+		idx += int(ct)
+
+		initialUniqueLetters = append(initialUniqueLetters, val)
 	}
 
+	sort.Slice(initialUniqueLetters, func(a, b int) bool {
+		return initialUniqueLetters[a] < initialUniqueLetters[b]
+	})
+
 	return &Bag{
-		tiles:              tiles,
-		tileMap:            tileMap,
-		initialTiles:       append([]MachineLetter(nil), tiles...),
-		initialTileMap:     copyTileMap(tileMap),
-		letterDistribution: ld,
-		randSource:         randSource,
+		tileMap:         tileMap,
+		numTiles:        idx,
+		initialNumTiles: idx,
+		initialTileMap:  copyTileMap(tileMap),
+
+		initialUniqueLetters: initialUniqueLetters,
+		letterDistribution:   ld,
+		randSource:           randSource,
 	}
 }
 
@@ -205,11 +215,9 @@ func NewBag(ld *LetterDistribution, alph *Alphabet, randSource *rand.Rand) *Bag 
 // we don't ever expect these to change after initialization.
 // If randSource is not nil, it is set as the rand source for the copy.
 // Otherwise, use the original's rand source.
-func (b *Bag) Copy(randSource *rand.Rand) *Bag {
-	tiles := make([]MachineLetter, len(b.tiles))
+func (b *Bag) Copy(randSource *pcgr.Rand) *Bag {
 	tileMap := make(map[MachineLetter]uint8)
-	copy(tiles, b.tiles)
-	// Copy map as well
+	// Copy map
 	for k, v := range b.tileMap {
 		tileMap[k] = v
 	}
@@ -218,9 +226,13 @@ func (b *Bag) Copy(randSource *rand.Rand) *Bag {
 	}
 
 	return &Bag{
-		tiles:              tiles,
-		tileMap:            tileMap,
-		initialTiles:       b.initialTiles,
+		// These two things are mutable:
+		tileMap:  tileMap,
+		numTiles: b.numTiles,
+		// Everything after here should not change.
+		initialNumTiles:      b.initialNumTiles,
+		initialUniqueLetters: b.initialUniqueLetters,
+
 		initialTileMap:     b.initialTileMap,
 		letterDistribution: b.letterDistribution,
 		randSource:         randSource,
@@ -234,14 +246,10 @@ func (b *Bag) Copy(randSource *rand.Rand) *Bag {
 func (b *Bag) CopyFrom(other *Bag) {
 	// This is a deep copy and can be kind of wasteful, but we don't use
 	// the bag often.
-	if len(other.tiles) == 0 {
-		b.tiles = []MachineLetter{}
-		b.tileMap = map[MachineLetter]uint8{}
-		return
-	}
-	b.tiles = make([]MachineLetter, len(other.tiles))
-	copy(b.tiles, other.tiles)
+	// Copy mutable things
 	b.tileMap = copyTileMap(other.tileMap)
+	b.numTiles = other.numTiles
+	// XXX: Unclear whether we need to copy this:
 	b.randSource = other.randSource
 }
 

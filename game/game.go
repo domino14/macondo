@@ -7,9 +7,9 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"math/rand"
 	"strings"
 
+	"github.com/dgryski/go-pcgr"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/gaddag"
@@ -39,7 +39,7 @@ type RuleDefiner interface {
 	LoadRule(lexiconName, letterDistributionName string) error
 }
 
-func seededRandSource() (int64, *rand.Rand) {
+func seededRandSource() (int64, *pcgr.Rand) {
 	var b [8]byte
 	_, err := crypto_rand.Read(b[:])
 	if err != nil {
@@ -47,9 +47,10 @@ func seededRandSource() (int64, *rand.Rand) {
 	}
 
 	randSeed := int64(binary.LittleEndian.Uint64(b[:]))
-	randSource := rand.New(rand.NewSource(randSeed))
+	inc := int64(17) // some deterministic sequence number, lol.
+	randSource := pcgr.New(randSeed, inc)
 
-	return randSeed, randSource
+	return randSeed, &randSource
 }
 
 // Game is the actual internal game structure that controls the entire
@@ -69,7 +70,7 @@ type Game struct {
 	playing pb.PlayState
 
 	randSeed   int64
-	randSource *rand.Rand
+	randSource *pcgr.Rand
 
 	wentfirst      int
 	scorelessTurns int
@@ -207,7 +208,7 @@ func (g *Game) StartGame() {
 	g.bag = g.letterDistribution.MakeBag(g.randSource)
 	var goesfirst int
 	if g.nextFirst == -1 {
-		goesfirst = g.randSource.Intn(2)
+		goesfirst = int(g.randSource.Bound(2))
 		log.Debug().Msgf("randomly determined %v to go first", goesfirst)
 	} else {
 		goesfirst = g.nextFirst
@@ -322,8 +323,8 @@ func (g *Game) endOfGameCalcs(onturn int, addToHistory bool) {
 	if addToHistory {
 		g.history.Events = append(g.history.Events, g.endRackEvt(onturn, unplayedPts))
 	}
-	log.Debug().Int("onturn", onturn).Int("unplayedpts", unplayedPts).Interface("players", g.players).
-		Msg("endOfGameCalcs")
+	// log.Debug().Int("onturn", onturn).Int("unplayedpts", unplayedPts).Interface("players", g.players).
+	// 	Msg("endOfGameCalcs")
 }
 
 // Convert the slice of MachineWord to user-visible, using the game's lexicon.
@@ -367,7 +368,12 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		if m.TilesPlayed() == 7 {
 			g.players[g.onturn].bingos++
 		}
-		drew := g.bag.DrawAtMost(m.TilesPlayed())
+		drew, err := g.bag.DrawAtMost(m.TilesPlayed())
+		if err != nil {
+			return err
+		}
+		log.Debug().Interface("drew", drew).Int("tiles-played", m.TilesPlayed()).
+			Int("tiles-remaining", g.bag.TilesRemaining()).Msg("drew")
 		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
 		g.players[g.onturn].setRackTiles(tiles, g.alph)
 
@@ -709,7 +715,10 @@ func (g *Game) playTurn(t int) error {
 		// at the beginning to whatever was recorded. Drawing like
 		// normal, though, ensures we don't have to reconcile any
 		// tiles with the bag.
-		drew := g.bag.DrawAtMost(m.TilesPlayed())
+		drew, err := g.bag.DrawAtMost(m.TilesPlayed())
+		if err != nil {
+			return err
+		}
 		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
 		g.players[g.onturn].setRackTiles(tiles, g.alph)
 
@@ -832,13 +841,17 @@ func (g *Game) ThrowRacksIn() {
 
 // SetRandomRack sets the player's rack to a random rack drawn from the bag.
 // It tosses the current rack back in first. This is used for simulations.
-func (g *Game) SetRandomRack(playerIdx int) {
+func (g *Game) SetRandomRack(playerIdx int) error {
 	// log.Debug().Int("player", playerIdx).Str("rack", g.RackFor(playerIdx).TilesOn().UserVisible(g.alph)).
 	// 	Msg("setting random rack..")
-	tiles := g.bag.Redraw(g.RackFor(playerIdx).TilesOn())
+	tiles, err := g.bag.Redraw(g.RackFor(playerIdx).TilesOn())
+	if err != nil {
+		return err
+	}
 	g.players[playerIdx].setRackTiles(tiles, g.alph)
 	// log.Debug().Int("player", playerIdx).Str("newrack", g.players[playerIdx].rackLetters).
 	// 	Msg("set random rack")
+	return nil
 }
 
 // RackFor returns the rack for the player with the passed-in index
