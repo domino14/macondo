@@ -7,6 +7,8 @@ import (
 
 	"github.com/dgryski/go-pcgr"
 	"github.com/rs/zerolog/log"
+
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
 
 // A Bag is the bag o'tiles!
@@ -255,4 +257,63 @@ func (b *Bag) CopyFrom(other *Bag) {
 
 func (b *Bag) LetterDistribution() *LetterDistribution {
 	return b.letterDistribution
+}
+
+// ToBagState converts to a minimal protobuf state.
+func (b *Bag) ToBagState() *pb.GameState_GameBag {
+	tiles := map[int32]int32{}
+
+	for k, v := range b.tileMap {
+		tiles[int32(k)] = int32(v)
+	}
+
+	uniqueLetters := make([]byte, len(b.initialUniqueLetters))
+	for i, t := range b.initialUniqueLetters {
+		uniqueLetters[i] = byte(t)
+	}
+
+	return &pb.GameState_GameBag{
+		Tiles:       tiles,
+		NumTiles:    int32(b.numTiles),
+		PcgrState:   b.randSource.State,
+		PcgrInc:     b.randSource.Inc,
+		UniqueTiles: uniqueLetters,
+	}
+}
+
+// BagFromState converts a minimal protobuf state to a Bag object.
+func BagFromState(st *pb.GameState_GameBag) (*Bag, error) {
+	randSource := pcgr.Rand{
+		State: st.PcgrState,
+		Inc:   st.PcgrInc,
+	}
+	// Assume this letter distribution is ALREADY cached. This needs to be true
+	// or we have a panic. Everything needs to be cached on startup so this should
+	// be the case!
+	ld, err := LetterDistributionCache.Get(nil, st.LetterDistribution)
+	if err != nil {
+		return nil, err
+	}
+
+	tileMap := map[MachineLetter]uint8{}
+	for k, v := range st.Tiles {
+		tileMap[MachineLetter(k)] = uint8(v)
+	}
+
+	uniqueLetters := make([]MachineLetter, len(st.UniqueTiles))
+	for i, t := range st.UniqueTiles {
+		uniqueLetters[i] = MachineLetter(t)
+	}
+
+	bag := &Bag{
+		tileMap:  tileMap,
+		numTiles: int(st.NumTiles),
+		// initialNumTiles and initialTileMap are NOT set.
+		// These variables should never be used
+		// when we are initializing a bag from a minimal state.
+		letterDistribution:   ld,
+		initialUniqueLetters: uniqueLetters,
+		randSource:           &randSource,
+	}
+	return bag, nil
 }

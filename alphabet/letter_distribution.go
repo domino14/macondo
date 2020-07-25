@@ -15,6 +15,7 @@ import (
 // LetterDistribution encodes the tile distribution for the relevant game.
 type LetterDistribution struct {
 	alph             *Alphabet
+	name             string
 	Distribution     map[rune]uint8
 	PointValues      map[rune]uint8
 	SortOrder        map[rune]int
@@ -89,11 +90,12 @@ func NamedLetterDistribution(cfg *config.Config, name string) (*LetterDistributi
 	}
 	alph.Reconcile()
 
-	return newLetterDistribution(alph, dist, ptValues, makeSortMap(sortOrder), vowels), nil
+	return newLetterDistribution(alph, dist, ptValues, makeSortMap(sortOrder), vowels, name), nil
 }
 
 func newLetterDistribution(alph *Alphabet, dist map[rune]uint8,
-	ptValues map[rune]uint8, sortOrder map[rune]int, vowels []rune) *LetterDistribution {
+	ptValues map[rune]uint8, sortOrder map[rune]int, vowels []rune,
+	name string) *LetterDistribution {
 
 	numTotalLetters := 0
 	numUniqueLetters := len(dist)
@@ -116,6 +118,7 @@ func newLetterDistribution(alph *Alphabet, dist map[rune]uint8,
 
 	return &LetterDistribution{
 		alph:             alph,
+		name:             name,
 		Distribution:     dist,
 		PointValues:      ptValues,
 		SortOrder:        sortOrder,

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/domino14/macondo/alphabet"
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
 
 type TilesInPlay struct {
@@ -136,4 +137,56 @@ func (g *GameBoard) Equals(g2 *GameBoard) bool {
 	}
 
 	return true
+}
+
+func (g *GameBoard) ToBoardState() *pb.GameState_GameBoard {
+	ttldim := g.Dim() * g.Dim()
+
+	letters := make([]byte, ttldim)
+	hCrosses := make([]int32, ttldim)
+	vCrosses := make([]int32, ttldim)
+	var bonuses strings.Builder
+
+	letidx := 0
+	for r := 0; r <= g.Dim(); r++ {
+		for c := 0; c <= g.Dim(); c++ {
+			bonuses.WriteString(string(g.squares[r][c].bonus))
+			letters[letidx] = byte(g.squares[r][c].letter)
+			hCrosses[letidx] = int32(g.squares[r][c].hcrossScore)
+			vCrosses[letidx] = int32(g.squares[r][c].vcrossScore)
+			letidx++
+		}
+	}
+	st := &pb.GameState_GameBoard{
+		Dim:          int32(g.Dim()),
+		TilesPlayed:  int32(g.TilesPlayed()),
+		VCrossScores: vCrosses,
+		HCrossScores: hCrosses,
+		BoardLetters: letters,
+		BoardBonuses: bonuses.String(),
+	}
+	return st
+}
+
+func BoardFromState(st *pb.GameState_GameBoard) *GameBoard {
+	b := &GameBoard{tilesPlayed: int(st.TilesPlayed)}
+
+	dim := int(st.Dim)
+	rows := make([][]*Square, dim)
+	letidx := 0
+	for r := 0; r < dim; r++ {
+		row := make([]*Square, dim)
+		for c := 0; c < dim; c++ {
+			row[c] = &Square{
+				letter:      alphabet.MachineLetter(st.BoardLetters[letidx]),
+				bonus:       BonusSquare(st.BoardBonuses[letidx]),
+				hcrossScore: int(st.HCrossScores[letidx]),
+				vcrossScore: int(st.VCrossScores[letidx]),
+			}
+			letidx++
+		}
+		rows[r] = row
+	}
+	b.squares = rows
+	return b
 }

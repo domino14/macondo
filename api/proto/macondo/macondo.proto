@@ -44,23 +44,26 @@ message GameHistory {
 message GameState {
 
   message GameBag {
-    // The tiles are in "order" - i.e. they've already been shuffled
-    bytes tiles = 1;
-    uint64 pcgr_state = 2;
-    uint64 pcgr_inc = 3;
+    map<int32, int32> tiles = 1;
+    int32 numTiles = 2;
+    uint64 pcgr_state = 3;
+    uint64 pcgr_inc = 4;
+    bytes unique_tiles = 5;
+    string letter_distribution = 6;
   }
 
   message GameBoard {
     int32 dim = 1;
-    // board is just a simple string of size dim * dim encoding all letters
-    string board = 2;
+    bytes board_letters = 2;
+    string board_bonuses = 3;
+
     // cross_scores need to be backed up in order to quickly calculate scores
     // for played moves.
     // however, we do not save cross_sets here as they are never needed for
     // real-time play -- the macondo bot takes care of its own state.
-    repeated int32 cross_scores = 3;
-
-    int32 tiles_played = 4;
+    repeated int32 h_cross_scores = 4;
+    repeated int32 v_cross_scores = 5;
+    int32 tiles_played = 6;
   }
   // All of these fields can technically be calculated just from the
   // GameHistory. But we are going for speed here.
@@ -68,6 +71,7 @@ message GameState {
   GameBag bag = 2;
   int32 scoreless_turns = 3;
   int32 onturn = 4;
+  GameHistory history = 5;
 }
 
 enum PlayState {
