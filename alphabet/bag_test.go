@@ -2,6 +2,7 @@ package alphabet
 
 import (
 	"errors"
+	"math"
 	"os"
 	"testing"
 	"time"
@@ -271,4 +272,59 @@ func TestCopyBag(t *testing.T) {
 		newDrawn = append(newDrawn, t...)
 	}
 	is.Equal(drawn, newDrawn)
+}
+
+func TestRandomizer(t *testing.T) {
+	is := is.New(t)
+	inc := int64(42)
+	ld, err := EnglishLetterDistribution(&DefaultConfig)
+	is.NoErr(err)
+
+	allDrawn := make(map[MachineLetter]int)
+	numDraws := 1000000
+	for i := 0; i < numDraws; i++ {
+		seed := time.Now().UnixNano()
+		randSource := pcgr.New(seed, inc)
+		newBag := ld.MakeBag(&randSource)
+
+		drawn, err := newBag.Draw(7)
+		is.NoErr(err)
+		for _, t := range drawn {
+			allDrawn[t]++
+		}
+	}
+
+	ratio := (0.07) * float64(numDraws)
+	expected := map[MachineLetter]int{
+		0:  int(9 * ratio),
+		1:  int(2 * ratio),
+		2:  int(2 * ratio),
+		3:  int(4 * ratio),
+		4:  int(12 * ratio),
+		5:  int(2 * ratio),
+		6:  int(3 * ratio),
+		7:  int(2 * ratio),
+		8:  int(9 * ratio),
+		9:  int(1 * ratio),
+		10: int(1 * ratio),
+		11: int(4 * ratio),
+		12: int(2 * ratio),
+		13: int(6 * ratio),
+		14: int(8 * ratio),
+		15: int(2 * ratio),
+		16: int(1 * ratio),
+		17: int(6 * ratio),
+		18: int(4 * ratio),
+		19: int(6 * ratio),
+		20: int(4 * ratio),
+		21: int(2 * ratio),
+		22: int(2 * ratio),
+		23: int(1 * ratio),
+		24: int(2 * ratio),
+		25: int(1 * ratio),
+		50: int(2 * ratio),
+	}
+	for l, ct := range allDrawn {
+		is.True(math.Abs(float64(ct-expected[l])) < 2000)
+	}
 }
