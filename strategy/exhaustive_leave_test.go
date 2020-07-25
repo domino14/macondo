@@ -1,13 +1,13 @@
 package strategy
 
 import (
+	"math/rand"
 	"os"
 	"path/filepath"
 	"sort"
 	"testing"
 	"time"
 
-	"github.com/dgryski/go-pcgr"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
@@ -88,9 +88,9 @@ func TestEndgameTiming(t *testing.T) {
 	oppRack := alphabet.NewRack(alph)
 	oppRack.Set(tilesInPlay.Rack1)
 	assert.Equal(t, oppRack.NumTiles(), uint8(2))
-	var randSource = pcgr.New(time.Now().UnixNano(), 42)
+	var randSource = rand.New(rand.NewSource(time.Now().UnixNano()))
 
-	bag := alphabet.NewBag(ld, alph, &randSource)
+	bag := alphabet.NewBag(ld, alph, randSource)
 	bag.Draw(100)
 
 	plays := generator.Plays()
@@ -127,9 +127,9 @@ func TestPreendgameTiming(t *testing.T) {
 	assert.Nil(t, err)
 	err = els.SetPreendgameStrategy("./testdata", "quackle.json", "NWL18")
 	assert.Nil(t, err)
-	var randSource = pcgr.New(time.Now().UnixNano(), 42)
+	var randSource = rand.New(rand.NewSource(time.Now().UnixNano()))
 
-	bag := alphabet.NewBag(ld, alph, &randSource)
+	bag := alphabet.NewBag(ld, alph, randSource)
 	bag.RemoveTiles(tilesInPlay.OnBoard)
 	bag.RemoveTiles(tilesInPlay.Rack1)
 	bag.RemoveTiles(tilesInPlay.Rack2)
