@@ -6,11 +6,8 @@ require (
 	github.com/chzyer/logex v1.1.10 // indirect
 	github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e
 	github.com/chzyer/test v0.0.0-20180213035817-a1ea475d72b1 // indirect
-	github.com/dgryski/go-pcgr v0.0.0-20190219145045-9a7ede0ca611
-	github.com/enki/fastprng v0.0.0-20190912035746-b46f877a1a50 // indirect
 	github.com/golang/protobuf v1.4.2
 	github.com/google/uuid v1.1.1 // indirect
-	github.com/lazybeaver/xorshift v0.0.0-20170702203709-ce511d4823dd // indirect
 	github.com/lithammer/shortuuid v3.0.0+incompatible
 	github.com/matryer/is v1.3.0
 	github.com/namsral/flag v1.7.4-pre

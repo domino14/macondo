@@ -262,10 +262,7 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 				s.iterationCount++
 				iterMutex.Unlock()
 
-				err := s.simSingleIteration(s.maxPlies, t, iterNum, logChan)
-				if err != nil {
-					return err
-				}
+				s.simSingleIteration(s.maxPlies, t, iterNum, logChan)
 				select {
 				case v := <-syncChan:
 					log.Debug().Msgf("Thread %v got sync msg %v", t, v)
@@ -307,14 +304,11 @@ func (s *Simmer) TrimBottom(totrim int) error {
 	return nil
 }
 
-func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan chan []byte) error {
+func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan chan []byte) {
 	// Give opponent a random rack from the bag. Note that this also
 	// shuffles the bag!
 	opp := (s.initialPlayer + 1) % s.gameCopies[thread].NumPlayers()
-	err := s.gameCopies[thread].SetRandomRack(opp)
-	if err != nil {
-		return err
-	}
+	s.gameCopies[thread].SetRandomRack(opp)
 	logIter := LogIteration{Iteration: iterationCount, Plays: []LogPlay{}, Thread: thread}
 
 	var logPlay LogPlay
@@ -378,11 +372,11 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 	if s.logStream != nil {
 		out, err := yaml.Marshal([]LogIteration{logIter})
 		if err != nil {
-			return err
+			log.Error().Err(err).Msg("marshalling log")
+			return
 		}
 		logChan <- out
 	}
-	return nil
 }
 
 func (s *Simmer) bestStaticTurn(playerID, thread int) *move.Move {

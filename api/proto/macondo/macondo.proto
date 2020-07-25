@@ -34,42 +34,6 @@ message GameHistory {
   string variant = 15;
 }
 
-// GameState encodes the current state of a macondo `Game` object, in a way
-// that makes it possible to load as fast as possible. It is meant to be used
-// for real-time play in a stateless API server. Therefore, a lot of AI-specific
-// fields will not be encoded; for example, anything to do with board
-// cross-sets.
-// The GameState, along with the GameHistory, will be loaded to reconstruct
-// a full `Game` object.
-message GameState {
-
-  message GameBag {
-    // The tiles are in "order" - i.e. they've already been shuffled
-    bytes tiles = 1;
-    uint64 pcgr_state = 2;
-    uint64 pcgr_inc = 3;
-  }
-
-  message GameBoard {
-    int32 dim = 1;
-    // board is just a simple string of size dim * dim encoding all letters
-    string board = 2;
-    // cross_scores need to be backed up in order to quickly calculate scores
-    // for played moves.
-    // however, we do not save cross_sets here as they are never needed for
-    // real-time play -- the macondo bot takes care of its own state.
-    repeated int32 cross_scores = 3;
-
-    int32 tiles_played = 4;
-  }
-  // All of these fields can technically be calculated just from the
-  // GameHistory. But we are going for speed here.
-  GameBoard board = 1;
-  GameBag bag = 2;
-  int32 scoreless_turns = 3;
-  int32 onturn = 4;
-}
-
 enum PlayState {
   PLAYING = 0;
   WAITING_FOR_FINAL_PASS = 1;
@@ -146,7 +110,9 @@ message PlayerInfo {
 
 // Interface for bots. Bots should accept a BotRequest and return a BotResponse.
 
-message BotRequest { GameHistory game_history = 1; }
+message BotRequest {
+  GameHistory game_history = 1;
+}
 
 message BotResponse {
   oneof response {

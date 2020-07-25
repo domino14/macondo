@@ -12,7 +12,7 @@ func TestRandomFirst(t *testing.T) {
 	counts := [2]int{0, 0}
 	for i := 0; i < 100000; i++ {
 		_, source := seededRandSource()
-		selection := source.Bound(2)
+		selection := source.Intn(2)
 		counts[selection]++
 	}
 	fmt.Println(counts)

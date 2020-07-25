@@ -76,6 +76,9 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 			return playLegal, err
 		}
 
+		// Finally, let's re-shuffle the bag. This is so we don't give the
+		// player who played the phony knowledge about the next few tiles in the bag.
+		g.bag.Shuffle()
 	} else {
 		addPts := int32(0)
 		shouldAddPts := false
