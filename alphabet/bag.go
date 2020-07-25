@@ -151,6 +151,7 @@ func (b *Bag) remove(t MachineLetter) {
 		log.Fatal().Msgf("Tile %c not found in bag", t)
 	}
 	b.tileMap[t]--
+	b.numTiles--
 }
 
 // Redraw is basically a do-over; throw the current rack in the bag
@@ -174,7 +175,6 @@ func (b *Bag) RemoveTiles(tiles []MachineLetter) error {
 			b.remove(t)
 		}
 	}
-	b.numTiles -= len(tiles)
 	return nil
 }
 
@@ -226,8 +226,10 @@ func (b *Bag) Copy(randSource *pcgr.Rand) *Bag {
 	}
 
 	return &Bag{
-		tileMap:              tileMap,
-		numTiles:             b.numTiles,
+		// These two things are mutable:
+		tileMap:  tileMap,
+		numTiles: b.numTiles,
+		// Everything after here should not change.
 		initialNumTiles:      b.initialNumTiles,
 		initialUniqueLetters: b.initialUniqueLetters,
 
@@ -244,11 +246,10 @@ func (b *Bag) Copy(randSource *pcgr.Rand) *Bag {
 func (b *Bag) CopyFrom(other *Bag) {
 	// This is a deep copy and can be kind of wasteful, but we don't use
 	// the bag often.
-	if len(other.tileMap) == 0 {
-		b.tileMap = map[MachineLetter]uint8{}
-		return
-	}
+	// Copy mutable things
 	b.tileMap = copyTileMap(other.tileMap)
+	b.numTiles = other.numTiles
+	// XXX: Unclear whether we need to copy this:
 	b.randSource = other.randSource
 }
 

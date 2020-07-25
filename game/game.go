@@ -323,8 +323,8 @@ func (g *Game) endOfGameCalcs(onturn int, addToHistory bool) {
 	if addToHistory {
 		g.history.Events = append(g.history.Events, g.endRackEvt(onturn, unplayedPts))
 	}
-	log.Debug().Int("onturn", onturn).Int("unplayedpts", unplayedPts).Interface("players", g.players).
-		Msg("endOfGameCalcs")
+	// log.Debug().Int("onturn", onturn).Int("unplayedpts", unplayedPts).Interface("players", g.players).
+	// 	Msg("endOfGameCalcs")
 }
 
 // Convert the slice of MachineWord to user-visible, using the game's lexicon.
@@ -372,6 +372,8 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		if err != nil {
 			return err
 		}
+		log.Debug().Interface("drew", drew).Int("tiles-played", m.TilesPlayed()).
+			Int("tiles-remaining", g.bag.TilesRemaining()).Msg("drew")
 		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
 		g.players[g.onturn].setRackTiles(tiles, g.alph)
 

@@ -262,6 +262,9 @@ func TestCopyBag(t *testing.T) {
 	}
 
 	newBag2 := newBag.Copy(&randSource)
+
+	is.Equal(newBag.numTiles, 49)
+
 	for i := 0; i < 7; i++ {
 		t, err := newBag2.Draw(7)
 		is.NoErr(err)
