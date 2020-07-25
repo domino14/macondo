@@ -3,6 +3,7 @@ package alphabet
 import (
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/dgryski/go-pcgr"
 	"github.com/rs/zerolog/log"
@@ -10,14 +11,14 @@ import (
 
 // A Bag is the bag o'tiles!
 type Bag struct {
-	numTiles         int
-	initialNumTiles  int
-	numUniqueLetters int
+	numTiles        int
+	initialNumTiles int
 
-	initialTileMap     map[MachineLetter]uint8
-	tileMap            map[MachineLetter]uint8
-	letterDistribution *LetterDistribution
-	randSource         *pcgr.Rand
+	initialUniqueLetters []MachineLetter
+	initialTileMap       map[MachineLetter]uint8
+	tileMap              map[MachineLetter]uint8
+	letterDistribution   *LetterDistribution
+	randSource           *pcgr.Rand
 }
 
 func copyTileMap(orig map[MachineLetter]uint8) map[MachineLetter]uint8 {
@@ -36,12 +37,11 @@ func (b *Bag) Refill() {
 
 // DrawAtMost draws at most n tiles from the bag. It can draw fewer if there
 // are fewer tiles than n, and even draw no tiles at all :o
-func (b *Bag) DrawAtMost(n int) []MachineLetter {
+func (b *Bag) DrawAtMost(n int) ([]MachineLetter, error) {
 	if n > b.numTiles {
 		n = b.numTiles
 	}
-	drawn, _ := b.Draw(n)
-	return drawn
+	return b.Draw(n)
 }
 
 func (b *Bag) drawTileAt(idx uint8) (MachineLetter, error) {
@@ -51,20 +51,17 @@ func (b *Bag) drawTileAt(idx uint8) (MachineLetter, error) {
 		return 0, errors.New("tile index out of range")
 	}
 	counter := uint8(0)
-	potentialLetter := MachineLetter(0)
+	potentialLetterIdx := 0
 	var drawn MachineLetter
 	for {
-		if potentialLetter == MachineLetter(b.numUniqueLetters-1) {
-			// Skip ahead to the blank if we hit the very last unique index.
-			potentialLetter = MachineLetter(BlankMachineLetter)
-		}
+		potentialLetter := b.initialUniqueLetters[potentialLetterIdx]
 		ct := b.tileMap[potentialLetter]
 		counter += ct
 		if counter > idx {
 			drawn = potentialLetter
 			break
 		}
-		potentialLetter++
+		potentialLetterIdx++
 	}
 	b.tileMap[drawn]--
 	b.numTiles--
@@ -107,12 +104,12 @@ func (b *Bag) Exchange(letters []MachineLetter) ([]MachineLetter, error) {
 	if err != nil {
 		return nil, err
 	}
-	// put exchanged tiles back into the bag and re-shuffle
+	// put exchanged tiles back into the bag
 	b.PutBack(letters)
 	return newTiles, nil
 }
 
-// PutBack puts the tiles back in the bag, and shuffles the bag.
+// PutBack puts the tiles back in the bag.
 func (b *Bag) PutBack(letters []MachineLetter) {
 	if len(letters) == 0 {
 		return
@@ -158,7 +155,7 @@ func (b *Bag) remove(t MachineLetter) {
 
 // Redraw is basically a do-over; throw the current rack in the bag
 // and draw a new rack.
-func (b *Bag) Redraw(currentRack []MachineLetter) []MachineLetter {
+func (b *Bag) Redraw(currentRack []MachineLetter) ([]MachineLetter, error) {
 	b.PutBack(currentRack)
 	return b.DrawAtMost(7)
 }
@@ -182,10 +179,10 @@ func (b *Bag) RemoveTiles(tiles []MachineLetter) error {
 }
 
 func NewBag(ld *LetterDistribution, alph *Alphabet, randSource *pcgr.Rand) *Bag {
-
 	tileMap := map[MachineLetter]uint8{}
 
 	idx := 0
+	initialUniqueLetters := []MachineLetter{}
 	for rn, ct := range ld.Distribution {
 		val, err := alph.Val(rn)
 		if err != nil {
@@ -193,16 +190,23 @@ func NewBag(ld *LetterDistribution, alph *Alphabet, randSource *pcgr.Rand) *Bag 
 		}
 		tileMap[val] = ct
 		idx += int(ct)
+
+		initialUniqueLetters = append(initialUniqueLetters, val)
 	}
 
+	sort.Slice(initialUniqueLetters, func(a, b int) bool {
+		return initialUniqueLetters[a] < initialUniqueLetters[b]
+	})
+
 	return &Bag{
-		tileMap:            tileMap,
-		numTiles:           idx,
-		initialNumTiles:    idx,
-		initialTileMap:     copyTileMap(tileMap),
-		numUniqueLetters:   ld.numUniqueLetters,
-		letterDistribution: ld,
-		randSource:         randSource,
+		tileMap:         tileMap,
+		numTiles:        idx,
+		initialNumTiles: idx,
+		initialTileMap:  copyTileMap(tileMap),
+
+		initialUniqueLetters: initialUniqueLetters,
+		letterDistribution:   ld,
+		randSource:           randSource,
 	}
 }
 
@@ -222,10 +226,10 @@ func (b *Bag) Copy(randSource *pcgr.Rand) *Bag {
 	}
 
 	return &Bag{
-		tileMap:          tileMap,
-		numTiles:         b.numTiles,
-		initialNumTiles:  b.initialNumTiles,
-		numUniqueLetters: b.numUniqueLetters,
+		tileMap:              tileMap,
+		numTiles:             b.numTiles,
+		initialNumTiles:      b.initialNumTiles,
+		initialUniqueLetters: b.initialUniqueLetters,
 
 		initialTileMap:     b.initialTileMap,
 		letterDistribution: b.letterDistribution,

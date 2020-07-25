@@ -368,7 +368,10 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		if m.TilesPlayed() == 7 {
 			g.players[g.onturn].bingos++
 		}
-		drew := g.bag.DrawAtMost(m.TilesPlayed())
+		drew, err := g.bag.DrawAtMost(m.TilesPlayed())
+		if err != nil {
+			return err
+		}
 		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
 		g.players[g.onturn].setRackTiles(tiles, g.alph)
 
@@ -710,7 +713,10 @@ func (g *Game) playTurn(t int) error {
 		// at the beginning to whatever was recorded. Drawing like
 		// normal, though, ensures we don't have to reconcile any
 		// tiles with the bag.
-		drew := g.bag.DrawAtMost(m.TilesPlayed())
+		drew, err := g.bag.DrawAtMost(m.TilesPlayed())
+		if err != nil {
+			return err
+		}
 		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
 		g.players[g.onturn].setRackTiles(tiles, g.alph)
 
@@ -833,13 +839,17 @@ func (g *Game) ThrowRacksIn() {
 
 // SetRandomRack sets the player's rack to a random rack drawn from the bag.
 // It tosses the current rack back in first. This is used for simulations.
-func (g *Game) SetRandomRack(playerIdx int) {
+func (g *Game) SetRandomRack(playerIdx int) error {
 	// log.Debug().Int("player", playerIdx).Str("rack", g.RackFor(playerIdx).TilesOn().UserVisible(g.alph)).
 	// 	Msg("setting random rack..")
-	tiles := g.bag.Redraw(g.RackFor(playerIdx).TilesOn())
+	tiles, err := g.bag.Redraw(g.RackFor(playerIdx).TilesOn())
+	if err != nil {
+		return err
+	}
 	g.players[playerIdx].setRackTiles(tiles, g.alph)
 	// log.Debug().Int("player", playerIdx).Str("newrack", g.players[playerIdx].rackLetters).
 	// 	Msg("set random rack")
+	return nil
 }
 
 // RackFor returns the rack for the player with the passed-in index
