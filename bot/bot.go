@@ -13,6 +13,7 @@ import (
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/runner"
 )
 
@@ -92,8 +93,15 @@ func (bot *Bot) handle(data []byte) *pb.BotResponse {
 	}
 	bot.game = g
 
-	moves := bot.game.GenerateMoves(1)
-	m := moves[0]
+	log.Info().Msgf("Game state: %v", g.Playing())
+	var m *move.Move
+	if g.IsPlaying() {
+		moves := bot.game.GenerateMoves(1)
+		m = moves[0]
+	} else {
+		m, _ = g.NewPassMove(g.PlayerOnTurn())
+	}
+	log.Info().Msgf("Generated move: %s", m.ShortDescription())
 	evt := bot.game.EventFromMove(m)
 	return &pb.BotResponse{
 		Response: &pb.BotResponse_Move{Move: evt},

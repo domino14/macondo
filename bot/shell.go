@@ -15,6 +15,7 @@ import (
 
 	"github.com/domino14/macondo/config"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/runner"
 )
 
@@ -140,7 +141,9 @@ func (sc *ShellController) IsPlaying() bool {
 }
 
 func (sc *ShellController) getMove() error {
+	sc.showMessage("Requesting move from bot")
 	m, err := sc.client.RequestMove(&sc.game.GameRunner, sc.config)
+	sc.showMessage("Bot returned move: " + m.ShortDescription())
 	if err != nil {
 		return err
 	}
@@ -185,13 +188,44 @@ func (sc *ShellController) play(args []string) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = sc.game.PlayMove(m, true, 0)
+	return sc.commit(m)
+}
+
+func (sc *ShellController) exchange(args []string) (*Response, error) {
+	tiles := args[0]
+	m, err := sc.game.NewExchangeMove(SelfPlayer, tiles)
+	if err != nil {
+		return nil, err
+	}
+	return sc.commit(m)
+}
+
+func (sc *ShellController) pass() (*Response, error) {
+	m, err := sc.game.NewPassMove(SelfPlayer)
+	if err != nil {
+		return nil, err
+	}
+	return sc.commit(m)
+}
+
+func (sc *ShellController) commit(m *move.Move) (*Response, error) {
+	sc.showMessage("Committing move: " + m.ShortDescription())
+	err := sc.game.PlayMove(m, true, 0)
 	if err != nil {
 		return nil, err
 	}
 	sc.curTurnNum = sc.game.Turn()
 	msg := sc.game.ToDisplayText()
 	return Send(msg), nil
+}
+
+func (sc *ShellController) aiplay() (*Response, error) {
+	if !sc.IsPlaying() {
+		return nil, errors.New("game is over")
+	}
+	moves := sc.game.GenerateMoves(1)
+	m := moves[0]
+	return sc.commit(m)
 }
 
 func (sc *ShellController) handle(line string) (*Response, error) {
@@ -201,10 +235,16 @@ func (sc *ShellController) handle(line string) (*Response, error) {
 	switch cmd {
 	case "new", "n":
 		return sc.newGame()
-	case "show", "s":
+	case "show", "s", "b":
 		return sc.show()
-	case "play", "p":
+	case "play", "pl", "p":
 		return sc.play(args)
+	case "exchange", "exch", "ex", "x":
+		return sc.exchange(args)
+	case "pass", "pa":
+		return sc.pass()
+	case "aiplay", "ai", "a":
+		return sc.aiplay()
 	default:
 		msg := fmt.Sprintf("command %v not found", strconv.Quote(cmd))
 		log.Info().Msg(msg)
