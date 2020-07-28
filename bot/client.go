@@ -57,7 +57,7 @@ func (c *Client) RequestMove(game *runner.GameRunner, config *config.Config) (*m
 	case *pb.BotResponse_Move:
 		return game.MoveFromEvent(r.Move), nil
 	case *pb.BotResponse_Error:
-		return nil, errors.New(r.Error)
+		return nil, errors.New("Bot returned: " + r.Error)
 	default:
 		return nil, errors.New("should never happen")
 	}
