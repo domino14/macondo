@@ -503,8 +503,8 @@ func (g *Game) PlayScoringMove(coords, word string, addToHistory bool) (*move.Mo
 		return nil, err
 	}
 	// Actually make the play on the board:
-	g.PlayMove(m, addToHistory, 0)
-	return m, nil
+	err = g.PlayMove(m, addToHistory, 0)
+	return m, err
 }
 
 // CreateAndScorePlacementMove creates a *move.Move from the coords and
