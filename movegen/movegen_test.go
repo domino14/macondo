@@ -9,6 +9,7 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/move"
@@ -190,7 +191,7 @@ func TestRowGen(t *testing.T) {
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
 	bd.SetToGame(gd.GetAlphabet(), board.VsEd)
-	bd.GenAllCrossSets(gd, ld)
+	cross_set.GenAllCrossSets(bd, gd, ld)
 	rack := alphabet.RackFromString("AAEIRST", gd.GetAlphabet())
 	generator.curRowIdx = 4
 	generator.curAnchorCol = 8
@@ -226,7 +227,7 @@ func TestOtherRowGen(t *testing.T) {
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
 	bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
-	bd.GenAllCrossSets(gd, ld)
+	cross_set.GenAllCrossSets(bd, gd, ld)
 
 	rack := alphabet.RackFromString("A", gd.GetAlphabet())
 	generator.curRowIdx = 14
@@ -258,7 +259,7 @@ func TestGenMoveJustOnce(t *testing.T) {
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
 	bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
-	bd.GenAllCrossSets(gd, ld)
+	cross_set.GenAllCrossSets(bd, gd, ld)
 	bd.Transpose()
 
 	rack := alphabet.RackFromString("AELT", gd.GetAlphabet())
@@ -292,7 +293,7 @@ func TestGenAllMovesSingleTile(t *testing.T) {
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
 	bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
-	bd.GenAllCrossSets(gd, ld)
+	cross_set.GenAllCrossSets(bd, gd, ld)
 
 	generator.GenAll(alphabet.RackFromString("A", alph), false)
 	assert.Equal(t, 24, len(scoringPlays(generator.plays)))
@@ -313,7 +314,7 @@ func TestGenAllMovesFullRack(t *testing.T) {
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
 	bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
-	bd.GenAllCrossSets(gd, ld)
+	cross_set.GenAllCrossSets(bd, gd, ld)
 
 	generator.GenAll(alphabet.RackFromString("AABDELT", alph), true)
 	// There should be 673 unique scoring plays, 95 exchanges and 1 pass.
@@ -340,7 +341,7 @@ func TestGenAllMovesFullRackAgain(t *testing.T) {
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
 	bd.SetToGame(gd.GetAlphabet(), board.VsEd)
-	bd.GenAllCrossSets(gd, ld)
+	cross_set.GenAllCrossSets(bd, gd, ld)
 
 	generator.GenAll(alphabet.RackFromString("AFGIIIS", alph), true)
 	// There should be 219 unique plays
@@ -359,7 +360,7 @@ func TestGenAllMovesFullRackAgain(t *testing.T) {
 // 	ld := alphabet.EnglishLetterDistribution(gd.GetAlphabet())
 // 	generator := NewGordonGenerator(gd, bd, ld)
 // 	bd.SetToGame(gd.GetAlphabet(), board.MavenVsMacondo)
-// 	bd.GenAllCrossSets(gd, ld)
+// 	cross_set.GenAllCrossSets(bd, gd, ld)
 // 	fmt.Println(bd.ToDisplayText(alph))
 
 // 	generator.GenAll(alphabet.RackFromString("AEEORS?", alph), true)
@@ -381,7 +382,7 @@ func TestGenAllMovesSingleBlank(t *testing.T) {
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
 	bd.SetToGame(gd.GetAlphabet(), board.VsEd)
-	bd.GenAllCrossSets(gd, ld)
+	cross_set.GenAllCrossSets(bd, gd, ld)
 
 	generator.GenAll(alphabet.RackFromString("?", alph), true)
 	// There should be 166 unique plays. Quackle does not generate all blank
@@ -405,7 +406,7 @@ func TestGenAllMovesTwoBlanksOnly(t *testing.T) {
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
 	bd.SetToGame(gd.GetAlphabet(), board.VsEd)
-	bd.GenAllCrossSets(gd, ld)
+	cross_set.GenAllCrossSets(bd, gd, ld)
 
 	generator.GenAll(alphabet.RackFromString("??", alph), true)
 	// Quackle generates 1827 unique plays. (my movegen generates 1958)
@@ -432,7 +433,7 @@ func TestGenAllMovesWithBlanks(t *testing.T) {
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
 	bd.SetToGame(gd.GetAlphabet(), board.VsJeremy)
-	bd.GenAllCrossSets(gd, ld)
+	cross_set.GenAllCrossSets(bd, gd, ld)
 
 	generator.GenAll(alphabet.RackFromString("DDESW??", alph), false)
 	// If I do DDESW? in quackle i generate 1483 moves. My movegen generates
@@ -470,7 +471,7 @@ func TestGiantTwentySevenTimer(t *testing.T) {
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
 	bd.SetToGame(gd.GetAlphabet(), board.VsOxy)
-	bd.GenAllCrossSets(gd, ld)
+	cross_set.GenAllCrossSets(bd, gd, ld)
 
 	generator.GenAll(alphabet.RackFromString("ABEOPXZ", alph), false)
 	assert.Equal(t, 519, len(scoringPlays(generator.plays)))
@@ -516,7 +517,7 @@ func TestGenerateNoPlays(t *testing.T) {
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
 	bd.SetToGame(gd.GetAlphabet(), board.VsJeremy)
-	bd.GenAllCrossSets(gd, ld)
+	cross_set.GenAllCrossSets(bd, gd, ld)
 
 	generator.GenAll(alphabet.RackFromString("V", alph), false)
 	// V won't play anywhere
@@ -539,7 +540,7 @@ func TestGenerateDupes(t *testing.T) {
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
 	bd.SetToGame(gd.GetAlphabet(), board.TestDupe)
-	bd.GenAllCrossSets(gd, ld)
+	cross_set.GenAllCrossSets(bd, gd, ld)
 
 	generator.GenAll(alphabet.RackFromString("Z", alph), false)
 	s := scoringPlays(generator.plays)
@@ -561,7 +562,7 @@ func TestRowEquivalent(t *testing.T) {
 		t.Error(err)
 	}
 	bd.SetToGame(gd.GetAlphabet(), board.TestDupe)
-	bd.GenAllCrossSets(gd, ld)
+	cross_set.GenAllCrossSets(bd, gd, ld)
 
 	bd2 := board.MakeBoard(board.CrosswordGameBoard)
 
@@ -569,7 +570,7 @@ func TestRowEquivalent(t *testing.T) {
 	bd2.SetRow(8, "IS", alph)
 	bd2.SetRow(9, "T", alph)
 	bd2.UpdateAllAnchors()
-	bd2.GenAllCrossSets(gd, ld)
+	cross_set.GenAllCrossSets(bd2, gd, ld)
 
 	assert.True(t, bd.Equals(bd2))
 }
@@ -616,7 +617,7 @@ func BenchmarkGenFullRack(b *testing.B) {
 		}
 		generator := NewGordonGenerator(gd, bd, ld)
 		bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
-		bd.GenAllCrossSets(gd, ld)
+		cross_set.GenAllCrossSets(bd, gd, ld)
 
 		generator.GenAll(alphabet.RackFromString("AABDELT", alph), true)
 	}
@@ -638,7 +639,7 @@ func BenchmarkGenOneBlank(b *testing.B) {
 		}
 		generator := NewGordonGenerator(gd, bd, ld)
 		bd.SetToGame(gd.GetAlphabet(), board.VsJeremy)
-		bd.GenAllCrossSets(gd, ld)
+		cross_set.GenAllCrossSets(bd, gd, ld)
 
 		generator.GenAll(alphabet.RackFromString("ADDESW?", alph), false)
 	}
@@ -660,7 +661,7 @@ func BenchmarkGenBothBlanks(b *testing.B) {
 		}
 		generator := NewGordonGenerator(gd, bd, ld)
 		bd.SetToGame(gd.GetAlphabet(), board.VsJeremy)
-		bd.GenAllCrossSets(gd, ld)
+		cross_set.GenAllCrossSets(bd, gd, ld)
 
 		generator.GenAll(alphabet.RackFromString("DDESW??", alph), false)
 	}

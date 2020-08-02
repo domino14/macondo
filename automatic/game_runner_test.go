@@ -6,9 +6,9 @@ import (
 
 	"github.com/matryer/is"
 
-	"github.com/domino14/macondo/board"
-
 	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/move"
 )
 
@@ -80,7 +80,8 @@ func TestGenBestStaticTurn6(t *testing.T) {
 	runner.game.ThrowRacksIn()
 
 	tilesInPlay := runner.game.Board().SetToGame(runner.alphabet, board.VsMacondo1)
-	runner.game.Board().GenAllCrossSets(runner.gaddag, runner.game.Bag().LetterDistribution())
+	bd := runner.game.Board()
+	cross_set.GenAllCrossSets(bd, runner.gaddag, runner.game.Bag().LetterDistribution())
 
 	err := runner.game.Bag().RemoveTiles(tilesInPlay.OnBoard)
 	is.NoErr(err)

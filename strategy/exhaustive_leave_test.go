@@ -11,6 +11,7 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/movegen"
@@ -79,7 +80,7 @@ func TestEndgameTiming(t *testing.T) {
 	assert.Nil(t, err)
 	generator := movegen.NewGordonGenerator(gd, bd, ld)
 	tilesInPlay := bd.SetToGame(gd.GetAlphabet(), board.MavenVsMacondo)
-	bd.GenAllCrossSets(gd, ld)
+	cross_set.GenAllCrossSets(bd, gd, ld)
 	generator.GenAll(alphabet.RackFromString("AEEORS?", alph), false)
 
 	err = els.Init("NWL18", alph, os.Getenv("STRATEGY_PARAMS_PATH"), "")
@@ -120,7 +121,7 @@ func TestPreendgameTiming(t *testing.T) {
 	assert.Nil(t, err)
 	generator := movegen.NewGordonGenerator(gd, bd, ld)
 	tilesInPlay := bd.SetToGame(gd.GetAlphabet(), board.VsOxy)
-	bd.GenAllCrossSets(gd, ld)
+	cross_set.GenAllCrossSets(bd, gd, ld)
 	generator.GenAll(alphabet.RackFromString("OXPBAZE", alph), false)
 
 	err = els.Init("NWL18", alph, os.Getenv("STRATEGY_PARAMS_PATH"), "")

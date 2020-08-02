@@ -68,12 +68,14 @@ func LoadDawg(filename string) (*SimpleDawg, error) {
 	log.Debug().Msgf("Loading %v ...", filename)
 	file, err := os.Open(filename)
 	if err != nil {
+		log.Debug().Msgf("Could not load %v", filename)
 		return nil, err
 	}
 	defer file.Close()
 	var magicStr [4]uint8
 	binary.Read(file, binary.BigEndian, &magicStr)
 	if !compareMagicDawg(magicStr) {
+		log.Debug().Msgf("Magic number does not match")
 		return nil, errors.New("magic number does not match dawg or reverse dawg")
 	}
 	d := &SimpleDawg{}
