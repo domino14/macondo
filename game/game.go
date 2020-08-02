@@ -12,8 +12,10 @@ import (
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/gaddag"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/lexicon"
 	"github.com/domino14/macondo/move"
 	"github.com/lithammer/shortuuid"
 	"github.com/rs/zerolog/log"
@@ -59,8 +61,10 @@ func seededRandSource() (int64, *rand.Rand) {
 // AI players, human players, etc will play a game outside of the scope of
 // this module.
 type Game struct {
-	gaddag gaddag.GenericDawg
-	alph   *alphabet.Alphabet
+	gaddag      gaddag.GenericDawg
+	crossSetGen cross_set.Generator
+	lexicon     lexicon.Lexicon
+	alph        *alphabet.Alphabet
 	// board and bag will contain the latest (current) versions of these.
 	board              *board.GameBoard
 	letterDistribution *alphabet.LetterDistribution
@@ -136,6 +140,14 @@ func NewGame(rules RuleDefiner, playerinfo []*pb.PlayerInfo) (*Game, error) {
 	game.nextFirst = -1
 
 	game.board = rules.Board().Copy()
+
+	game.crossSetGen = cross_set.GaddagCrossSetGenerator{
+		Board:  game.board,
+		Gaddag: game.gaddag,
+		Dist:   game.letterDistribution,
+	}
+
+	game.lexicon = gaddag.Lexicon{game.gaddag}
 
 	game.players = make([]*playerState, len(playerinfo))
 	for idx, p := range playerinfo {
@@ -305,7 +317,7 @@ func (g *Game) validateTilePlayMove(m *move.Move) ([]alphabet.MachineWord, error
 	}
 	if g.history.ChallengeRule == pb.ChallengeRule_VOID {
 		// Actually check the validity of the words.
-		illegalWords := validateWords(g.gaddag, formedWords)
+		illegalWords := validateWords(g.lexicon, formedWords)
 
 		if len(illegalWords) > 0 {
 			return nil, fmt.Errorf("the play contained illegal words: %v",
@@ -358,7 +370,10 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 
 	switch m.Action() {
 	case move.MoveTypePlay:
-		g.board.PlayMove(m, g.gaddag, g.bag.LetterDistribution())
+		ld := g.bag.LetterDistribution()
+		g.board.PlayMove(m, ld)
+		// Calculate cross-sets.
+		g.crossSetGen.UpdateCrossSetsForMove(m)
 		score := m.Score()
 		if score != 0 {
 			g.scorelessTurns = 0
@@ -698,7 +713,9 @@ func (g *Game) playTurn(t int) error {
 		// We back up the board and bag since there's a possibility
 		// this play will have to be taken back, if it's a challenged phony.
 		g.board.SaveCopy()
-		g.board.PlayMove(m, g.gaddag, g.bag.LetterDistribution())
+		ld := g.bag.LetterDistribution()
+		g.board.PlayMove(m, ld)
+		g.crossSetGen.UpdateCrossSetsForMove(m)
 		g.players[g.onturn].points += m.Score()
 		if m.TilesPlayed() == 7 {
 			g.players[g.onturn].bingos++
