@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/domino14/macondo/alphabet"
-	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/move"
 )
 
@@ -85,20 +84,20 @@ func (g *GameBoard) GetLetter(row int, col int) alphabet.MachineLetter {
 }
 
 func (g *GameBoard) GetCrossSet(row int, col int, dir BoardDirection) CrossSet {
-	return *g.squares[row][col].getCrossSet(dir) // the actual value
+	return *g.squares[row][col].GetCrossSet(dir) // the actual value
 }
 
 func (g *GameBoard) ClearCrossSet(row int, col int, dir BoardDirection) {
-	g.squares[row][col].getCrossSet(dir).clear()
+	g.squares[row][col].GetCrossSet(dir).Clear()
 }
 
 func (g *GameBoard) SetCrossSetLetter(row int, col int, dir BoardDirection,
 	ml alphabet.MachineLetter) {
-	g.squares[row][col].getCrossSet(dir).set(ml)
+	g.squares[row][col].GetCrossSet(dir).Set(ml)
 }
 
 func (g *GameBoard) GetCrossScore(row int, col int, dir BoardDirection) int {
-	return g.squares[row][col].getCrossScore(dir)
+	return g.squares[row][col].GetCrossScore(dir)
 }
 
 // Transpose transposes the board, swapping rows and columns.
@@ -122,8 +121,8 @@ func (g *GameBoard) SetAllCrosses() {
 	n := g.Dim()
 	for i := 0; i < n; i++ {
 		for j := 0; j < n; j++ {
-			g.squares[i][j].hcrossSet.setAll()
-			g.squares[i][j].vcrossSet.setAll()
+			g.squares[i][j].hcrossSet.SetAll()
+			g.squares[i][j].vcrossSet.SetAll()
 		}
 	}
 }
@@ -133,8 +132,8 @@ func (g *GameBoard) ClearAllCrosses() {
 	n := g.Dim()
 	for i := 0; i < n; i++ {
 		for j := 0; j < n; j++ {
-			g.squares[i][j].hcrossSet.clear()
-			g.squares[i][j].vcrossSet.clear()
+			g.squares[i][j].hcrossSet.Clear()
+			g.squares[i][j].vcrossSet.Clear()
 		}
 	}
 }
@@ -233,20 +232,20 @@ func (g *GameBoard) IsAnchor(row int, col int, dir BoardDirection) bool {
 	return g.squares[row][col].anchor(dir)
 }
 
-func (g *GameBoard) posExists(row int, col int) bool {
+func (g *GameBoard) PosExists(row int, col int) bool {
 	d := g.Dim()
 	return row >= 0 && row < d && col >= 0 && col < d
 }
 
-// leftAndRightEmpty returns true if the squares at col - 1 and col + 1
+// LeftAndRightEmpty returns true if the squares at col - 1 and col + 1
 // on this row are empty, checking carefully for boundary conditions.
-func (g *GameBoard) leftAndRightEmpty(row int, col int) bool {
-	if g.posExists(row, col-1) {
+func (g *GameBoard) LeftAndRightEmpty(row int, col int) bool {
+	if g.PosExists(row, col-1) {
 		if !g.squares[row][col-1].IsEmpty() {
 			return false
 		}
 	}
-	if g.posExists(row, col+1) {
+	if g.PosExists(row, col+1) {
 		if !g.squares[row][col+1].IsEmpty() {
 			return false
 		}
@@ -254,18 +253,18 @@ func (g *GameBoard) leftAndRightEmpty(row int, col int) bool {
 	return true
 }
 
-// wordEdge finds the edge of a word on the board, returning the column.
+// WordEdge finds the edge of a word on the board, returning the column.
 //
-func (g *GameBoard) wordEdge(row int, col int, dir WordDirection) int {
-	for g.posExists(row, col) && !g.squares[row][col].IsEmpty() {
+func (g *GameBoard) WordEdge(row int, col int, dir WordDirection) int {
+	for g.PosExists(row, col) && !g.squares[row][col].IsEmpty() {
 		col += int(dir)
 	}
 	return col - int(dir)
 }
 
-func (g *GameBoard) traverseBackwardsForScore(row int, col int, ld *alphabet.LetterDistribution) int {
+func (g *GameBoard) TraverseBackwardsForScore(row int, col int, ld *alphabet.LetterDistribution) int {
 	score := 0
-	for g.posExists(row, col) {
+	for g.PosExists(row, col) {
 		ml := g.squares[row][col].letter
 		if ml == alphabet.EmptySquareMarker {
 			break
@@ -274,45 +273,6 @@ func (g *GameBoard) traverseBackwardsForScore(row int, col int, ld *alphabet.Let
 		col--
 	}
 	return score
-}
-
-func (g *GameBoard) traverseBackwards(row int, col int, nodeIdx uint32,
-	checkLetterSet bool, leftMostCol int,
-	gaddag gaddag.GenericDawg) (uint32, bool) {
-	// Traverse the letters on the board backwards (left). Return the index
-	// of the node in the gaddag for the left-most letter, and a boolean
-	// indicating if the gaddag path was valid.
-	// If checkLetterSet is true, then we traverse until leftMostCol+1 and
-	// check the letter set of this node to see if it includes the letter
-	// at leftMostCol
-	for g.posExists(row, col) {
-		ml := g.squares[row][col].letter
-		if ml == alphabet.EmptySquareMarker {
-			break
-		}
-
-		if checkLetterSet && col == leftMostCol {
-			if gaddag.InLetterSet(ml, nodeIdx) {
-				return nodeIdx, true
-			}
-			// Give up early; if we're checking letter sets we only care about
-			// this column.
-			return nodeIdx, false
-		}
-
-		nodeIdx = gaddag.NextNodeIdx(nodeIdx, ml.Unblank())
-		if nodeIdx == 0 {
-			// There is no path in the gaddag for this word part; this
-			// can occur if a phony was played and stayed on the board
-			// and the phony has no extensions for example, or if it's
-			// a real word with no further extensions.
-			return nodeIdx, false
-		}
-
-		col--
-	}
-
-	return nodeIdx, true
 }
 
 func (g *GameBoard) updateAnchorsForMove(m *move.Move) {
@@ -344,7 +304,7 @@ func (g *GameBoard) updateAnchorsForMove(m *move.Move) {
 
 }
 
-func (g *GameBoard) placeMoveTiles(m *move.Move) {
+func (g *GameBoard) PlaceMoveTiles(m *move.Move) {
 	rowStart, colStart, vertical := m.CoordsAndVertical()
 	var row, col int
 	for idx, tile := range m.Tiles() {
@@ -362,7 +322,7 @@ func (g *GameBoard) placeMoveTiles(m *move.Move) {
 	}
 }
 
-func (g *GameBoard) unplaceMoveTiles(m *move.Move) {
+func (g *GameBoard) UnplaceMoveTiles(m *move.Move) {
 	rowStart, colStart, vertical := m.CoordsAndVertical()
 	var row, col int
 	for idx, tile := range m.Tiles() {
@@ -382,18 +342,15 @@ func (g *GameBoard) unplaceMoveTiles(m *move.Move) {
 
 // PlayMove plays a move on a board. It must place tiles on the board,
 // regenerate cross-sets and cross-points, and recalculate anchors.
-func (g *GameBoard) PlayMove(m *move.Move, gd gaddag.GenericDawg,
-	ld *alphabet.LetterDistribution) {
+func (g *GameBoard) PlayMove(m *move.Move, ld *alphabet.LetterDistribution) {
 
 	// g.playHistory = append(g.playHistory, m.ShortDescription())
 	if m.Action() != move.MoveTypePlay {
 		return
 	}
-	g.placeMoveTiles(m)
+	g.PlaceMoveTiles(m)
 	// Calculate anchors.
 	g.updateAnchorsForMove(m)
-	// Calculate cross-sets.
-	g.updateCrossSetsForMove(m, gd, ld)
 	g.tilesPlayed += m.TilesPlayed()
 }
 
@@ -442,7 +399,7 @@ func (g *GameBoard) ErrorIfIllegalPlay(row, col int, vertical bool,
 				{0, 1}, {0, -1}, {1, 0}, {-1, 0},
 			} {
 				checkrow, checkcol := newrow+places[0], newcol+places[1]
-				if g.posExists(checkrow, checkcol) && g.GetLetter(checkrow, checkcol) != alphabet.EmptySquareMarker {
+				if g.PosExists(checkrow, checkcol) && g.GetLetter(checkrow, checkcol) != alphabet.EmptySquareMarker {
 					bordersATile = true
 				}
 			}
@@ -518,7 +475,7 @@ func (g *GameBoard) formedCrossWord(crossVertical bool, letter alphabet.MachineL
 	var tlr, tlc, brr, brc int
 
 	// Find the top or left edge.
-	for g.posExists(newrow, newcol) && !g.squares[newrow][newcol].IsEmpty() {
+	for g.PosExists(newrow, newcol) && !g.squares[newrow][newcol].IsEmpty() {
 		newrow -= ri
 		newcol -= ci
 	}
@@ -531,7 +488,7 @@ func (g *GameBoard) formedCrossWord(crossVertical bool, letter alphabet.MachineL
 	newrow, newcol = row, col
 	newrow += ri
 	newcol += ci
-	for g.posExists(newrow, newcol) && !g.squares[newrow][newcol].IsEmpty() {
+	for g.PosExists(newrow, newcol) && !g.squares[newrow][newcol].IsEmpty() {
 		newrow += ri
 		newcol += ci
 	}
@@ -657,4 +614,12 @@ func (g *GameBoard) CopyFrom(b *GameBoard) {
 	}
 	g.transposed = b.transposed
 	g.tilesPlayed = b.tilesPlayed
+}
+
+func (g *GameBoard) GetTilesPlayed() int {
+	return g.tilesPlayed
+}
+
+func (g *GameBoard) TestSetTilesPlayed(n int) {
+	g.tilesPlayed = n
 }

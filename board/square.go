@@ -111,6 +111,10 @@ func (s *Square) Letter() alphabet.MachineLetter {
 	return s.letter
 }
 
+func (s *Square) SetLetter(letter alphabet.MachineLetter) {
+	s.letter = letter
+}
+
 func (b BonusSquare) displayString() string {
 	if !ColorSupport {
 		return string(b)
@@ -168,7 +172,7 @@ func (s Square) BadDisplayString(alph *alphabet.Alphabet) string {
 
 }
 
-func (s *Square) setCrossSet(cs CrossSet, dir BoardDirection) {
+func (s *Square) SetCrossSet(cs CrossSet, dir BoardDirection) {
 	if dir == HorizontalDirection {
 		s.hcrossSet = cs
 	} else if dir == VerticalDirection {
@@ -176,7 +180,7 @@ func (s *Square) setCrossSet(cs CrossSet, dir BoardDirection) {
 	}
 }
 
-func (s *Square) setCrossScore(score int, dir BoardDirection) {
+func (s *Square) SetCrossScore(score int, dir BoardDirection) {
 	if dir == HorizontalDirection {
 		s.hcrossScore = score
 	} else if dir == VerticalDirection {
@@ -184,7 +188,7 @@ func (s *Square) setCrossScore(score int, dir BoardDirection) {
 	}
 }
 
-func (s *Square) getCrossSet(dir BoardDirection) *CrossSet {
+func (s *Square) GetCrossSet(dir BoardDirection) *CrossSet {
 	if dir == HorizontalDirection {
 		return &s.hcrossSet
 	} else if dir == VerticalDirection {
@@ -193,7 +197,7 @@ func (s *Square) getCrossSet(dir BoardDirection) *CrossSet {
 	return nil
 }
 
-func (s *Square) getCrossScore(dir BoardDirection) int {
+func (s *Square) GetCrossScore(dir BoardDirection) int {
 	if dir == HorizontalDirection {
 		return s.hcrossScore
 	} else if dir == VerticalDirection {

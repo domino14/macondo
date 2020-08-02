@@ -3,8 +3,10 @@ package board
 import (
 	"testing"
 
-	"github.com/domino14/macondo/move"
 	"github.com/matryer/is"
+
+	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/move"
 )
 
 func BenchmarkBoardTranspose(b *testing.B) {
@@ -21,10 +23,10 @@ func BenchmarkBoardTranspose(b *testing.B) {
 }
 
 func TestUpdateAnchors(t *testing.T) {
-	gd, _ := GaddagFromLexicon("America")
+	alph := alphabet.EnglishAlphabet()
 
 	b := MakeBoard(CrosswordGameBoard)
-	b.SetToGame(gd.GetAlphabet(), VsEd)
+	b.SetToGame(alph, VsEd)
 
 	b.UpdateAllAnchors()
 
@@ -45,9 +47,8 @@ func TestUpdateAnchors(t *testing.T) {
 
 func TestFormedWords(t *testing.T) {
 	is := is.New(t)
-	gd, _ := GaddagFromLexicon("America")
 	b := MakeBoard(CrosswordGameBoard)
-	alph := gd.GetAlphabet()
+	alph := alphabet.EnglishAlphabet()
 
 	b.SetToGame(alph, VsOxy)
 
@@ -68,9 +69,8 @@ func TestFormedWords(t *testing.T) {
 
 func TestFormedWordsOneTile(t *testing.T) {
 	is := is.New(t)
-	gd, _ := GaddagFromLexicon("America")
 	b := MakeBoard(CrosswordGameBoard)
-	alph := gd.GetAlphabet()
+	alph := alphabet.EnglishAlphabet()
 
 	b.SetToGame(alph, VsOxy)
 
@@ -90,9 +90,8 @@ func TestFormedWordsOneTile(t *testing.T) {
 
 func TestFormedWordsHoriz(t *testing.T) {
 	is := is.New(t)
-	gd, _ := GaddagFromLexicon("America")
 	b := MakeBoard(CrosswordGameBoard)
-	alph := gd.GetAlphabet()
+	alph := alphabet.EnglishAlphabet()
 
 	b.SetToGame(alph, VsOxy)
 
@@ -112,9 +111,8 @@ func TestFormedWordsHoriz(t *testing.T) {
 
 func TestFormedWordsThrough(t *testing.T) {
 	is := is.New(t)
-	gd, _ := GaddagFromLexicon("America")
 	b := MakeBoard(CrosswordGameBoard)
-	alph := gd.GetAlphabet()
+	alph := alphabet.EnglishAlphabet()
 
 	b.SetToGame(alph, VsMatt)
 
@@ -133,9 +131,8 @@ func TestFormedWordsThrough(t *testing.T) {
 
 func TestFormedWordsBlank(t *testing.T) {
 	is := is.New(t)
-	gd, _ := GaddagFromLexicon("America")
 	b := MakeBoard(CrosswordGameBoard)
-	alph := gd.GetAlphabet()
+	alph := alphabet.EnglishAlphabet()
 
 	b.SetToGame(alph, VsMatt)
 

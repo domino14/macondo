@@ -6,6 +6,7 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddag"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/lexicon"
 	"github.com/domino14/macondo/move"
 	"github.com/rs/zerolog/log"
 )
@@ -36,7 +37,8 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 	}
 	// Note that the player on turn right now needs to be the player
 	// who is making the challenge.
-	illegalWords := validateWords(g.gaddag, g.lastWordsFormed)
+	lex := gaddag.Lexicon{g.gaddag}
+	illegalWords := validateWords(lex, g.lastWordsFormed)
 	playLegal := len(illegalWords) == 0
 
 	lastEvent := g.history.Events[len(g.history.Events)-1]
@@ -143,12 +145,12 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 	return playLegal, err
 }
 
-func validateWords(gd gaddag.GenericDawg, words []alphabet.MachineWord) []string {
+func validateWords(lex lexicon.Lexicon, words []alphabet.MachineWord) []string {
 	var illegalWords []string
-	alph := gd.GetAlphabet()
+	alph := lex.GetAlphabet()
 	log.Debug().Interface("words", words).Msg("challenge-evt")
 	for _, word := range words {
-		valid := gaddag.FindMachineWord(gd, word)
+		valid := lex.HasWord(word)
 		if !valid {
 			illegalWords = append(illegalWords, word.UserVisible(alph))
 		}
