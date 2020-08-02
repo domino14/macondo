@@ -4,6 +4,9 @@ A crossword game move generator, written in Go
 
 Macondo is more than just a simple crossword game move generator! It will have a web interface and later simming capabilities and more.
 
+Current master build status:
+[![domino14](https://circleci.com/gh/domino14/macondo.svg?style=svg)](https://circleci.com/gh/domino14/macondo)
+
 # protoc
 
 To generate pb files, run in this directory:
