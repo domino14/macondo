@@ -164,6 +164,8 @@ func (g *Game) Copy() *Game {
 		board:          g.board.Copy(),
 		bag:            g.bag.Copy(randSource),
 		gaddag:         g.gaddag,
+		lexicon:        g.lexicon,
+		crossSetGen:    g.crossSetGen,
 		alph:           g.alph,
 		playing:        g.playing,
 		scorelessTurns: g.scorelessTurns,

@@ -1,6 +1,7 @@
 package gaddag
 
 import (
+	"log"
 	"os"
 	"path/filepath"
 	"testing"
@@ -329,9 +330,12 @@ func TestFindHooks(t *testing.T) {
 
 func TestFindWordSmallSpanish(t *testing.T) {
 	gaddagmaker.GenerateDawg("../gaddagmaker/test_files/little_spanish.txt", false, true, false)
-	os.Rename("out.dawg", "/tmp/little_spanish.dawg")
+	err := os.Rename("out.dawg", "../_tmp/little_spanish.dawg")
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	d, _ := LoadDawg("/tmp/little_spanish.dawg")
+	d, _ := LoadDawg("../_tmp/little_spanish.dawg")
 
 	for _, word := range []string{"AÑO", "COMER", "COMIDA", "COMIDAS",
 		"CO3AL"} {
@@ -349,8 +353,8 @@ func TestFindWordSmallSpanish(t *testing.T) {
 
 func TestFindWordSmallSpanish2(t *testing.T) {
 	gaddagmaker.GenerateDawg("../gaddagmaker/test_files/ñu.txt", false, true, false)
-	os.Rename("out.dawg", "/tmp/ñu.dawg")
-	d, _ := LoadDawg("/tmp/ñu.dawg")
+	os.Rename("out.dawg", "../_tmp/ñu.dawg")
+	d, _ := LoadDawg("../_tmp/ñu.dawg")
 
 	for _, word := range []string{"ÑU", "ÑUS", "ÑAME"} {
 		found := FindWord(d, word)
@@ -363,8 +367,8 @@ func TestFindWordSmallSpanish2(t *testing.T) {
 
 func TestFindWordSmallEnglish(t *testing.T) {
 	gaddagmaker.GenerateDawg("../gaddagmaker/test_files/dogs.txt", false, true, false)
-	os.Rename("out.dawg", "/tmp/dogs.dawg")
-	d, _ := LoadDawg("/tmp/dogs.dawg")
+	os.Rename("out.dawg", "../_tmp/dogs.dawg")
+	d, _ := LoadDawg("../_tmp/dogs.dawg")
 
 	found := FindWord(d, "DOG")
 	if !found {
@@ -374,8 +378,8 @@ func TestFindWordSmallEnglish(t *testing.T) {
 
 func TestFindWordSmallEnglish2(t *testing.T) {
 	gaddagmaker.GenerateDawg("../gaddagmaker/test_files/no.txt", false, true, false)
-	os.Rename("out.dawg", "/tmp/no.dawg")
-	d, _ := LoadDawg("/tmp/no.dawg")
+	os.Rename("out.dawg", "../_tmp/no.dawg")
+	d, _ := LoadDawg("../_tmp/no.dawg")
 
 	found := FindWord(d, "NO")
 	if !found {
@@ -389,8 +393,8 @@ func TestFindWordSmallEnglish2(t *testing.T) {
 
 func TestFindPrefixSmallEnglish2(t *testing.T) {
 	gaddagmaker.GenerateDawg("../gaddagmaker/test_files/no.txt", false, true, false)
-	os.Rename("out.dawg", "/tmp/no.dawg")
-	d, _ := LoadDawg("/tmp/no.dawg")
+	os.Rename("out.dawg", "../_tmp/no.dawg")
+	d, _ := LoadDawg("../_tmp/no.dawg")
 
 	found := findPartialWord(d, d.GetRootNodeIndex(), []rune("O"), 0)
 	if found {
@@ -412,8 +416,8 @@ func TestFindPrefixSmallEnglish2(t *testing.T) {
 
 func TestFindPrefixSmallEnglish(t *testing.T) {
 	gaddagmaker.GenerateDawg("../gaddagmaker/test_files/dogs.txt", false, true, false)
-	os.Rename("out.dawg", "/tmp/dogs.dawg")
-	d, _ := LoadDawg("/tmp/dogs.dawg")
+	os.Rename("out.dawg", "../_tmp/dogs.dawg")
+	d, _ := LoadDawg("../_tmp/dogs.dawg")
 
 	found := findPartialWord(d, d.GetRootNodeIndex(), []rune("OG"), 0)
 	if found {
