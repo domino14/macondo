@@ -11,6 +11,7 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/game"
@@ -77,7 +78,7 @@ func setUpSolver(lex string, bvs board.VsWho, plies int, rack1, rack2 string,
 	if err != nil {
 		panic(err)
 	}
-	g.Board().GenAllCrossSets(gd, dist)
+	cross_set.GenAllCrossSets(g.Board(), gd, dist)
 
 	g.SetRacksForBoth([]*alphabet.Rack{
 		alphabet.RackFromString(rack1, alph),
