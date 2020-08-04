@@ -37,6 +37,8 @@ type RuleDefiner interface {
 	Gaddag() gaddag.GenericDawg
 	Board() *board.GameBoard
 	LetterDistribution() *alphabet.LetterDistribution
+	Lexicon() lexicon.Lexicon
+	CrossSetGen() cross_set.Generator
 
 	LoadRule(lexiconName, letterDistributionName string) error
 }
@@ -146,7 +148,7 @@ func NewGame(rules RuleDefiner, playerinfo []*pb.PlayerInfo) (*Game, error) {
 		Dist:   game.letterDistribution,
 	}
 
-	game.lexicon = gaddag.Lexicon{game.gaddag}
+	game.lexicon = rules.Lexicon()
 
 	game.players = make([]*playerState, len(playerinfo))
 	for idx, p := range playerinfo {

@@ -4,17 +4,21 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/gaddag"
+	"github.com/domino14/macondo/lexicon"
 	"github.com/rs/zerolog/log"
 )
 
 // gamerules is a simple struct that encapsulates the instantiated objects
 // needed to actually play a game.
 type gamerules struct {
-	cfg    *config.Config
-	board  *board.GameBoard
-	dist   *alphabet.LetterDistribution
-	gaddag gaddag.GenericDawg
+	cfg         *config.Config
+	board       *board.GameBoard
+	dist        *alphabet.LetterDistribution
+	gaddag      gaddag.GenericDawg
+	lexicon     lexicon.Lexicon
+	crossSetGen cross_set.Generator
 }
 
 func (g gamerules) Board() *board.GameBoard {
@@ -27,6 +31,14 @@ func (g gamerules) LetterDistribution() *alphabet.LetterDistribution {
 
 func (g gamerules) Gaddag() gaddag.GenericDawg {
 	return g.gaddag
+}
+
+func (g gamerules) Lexicon() lexicon.Lexicon {
+	return g.lexicon
+}
+
+func (g gamerules) CrossSetGen() cross_set.Generator {
+	return g.crossSetGen
 }
 
 func (g *gamerules) LoadRule(lexicon, letterDistributionName string) error {
@@ -61,5 +73,14 @@ func NewGameRules(cfg *config.Config, boardLayout []string, lexicon string,
 		return nil, err
 	}
 	rules.board = board
+	gd := rules.gaddag
+	cset := &cross_set.GaddagCrossSetGenerator{
+		Board:  board.Copy(),
+		Gaddag: gd,
+		Dist:   rules.dist,
+	}
+	lex := &gaddag.Lexicon{gd}
+	rules.crossSetGen = cset
+	rules.lexicon = lex
 	return rules, nil
 }
