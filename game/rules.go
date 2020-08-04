@@ -30,16 +30,7 @@ func (g gamerules) Gaddag() gaddag.GenericDawg {
 }
 
 func (g *gamerules) LoadRule(lexicon, letterDistributionName string) error {
-	// We check these here to make sure, but these really should be initialized
-	// somewhere in the caller's initialization code.
-	if alphabet.LetterDistributionCache == nil {
-		alphabet.CreateLetterDistributionCache()
-	}
-	if gaddag.GenericDawgCache == nil {
-		gaddag.CreateGaddagCache()
-	}
-
-	gd, err := gaddag.GenericDawgCache.Get(g.cfg, lexicon)
+	gd, err := gaddag.LoadFromCache(g.cfg, lexicon)
 	if err != nil {
 		// Since a gaddag is not a hard requirement for a game (think of the
 		// case where it's a player-vs-player game like a GCG) then
@@ -50,7 +41,7 @@ func (g *gamerules) LoadRule(lexicon, letterDistributionName string) error {
 			return err
 		}
 	}
-	dist, err := alphabet.LetterDistributionCache.Get(g.cfg, letterDistributionName)
+	dist, err := alphabet.LoadLetterDistribution(g.cfg, letterDistributionName)
 	if err != nil {
 		return err
 	}

@@ -48,3 +48,12 @@ func (ldc *cache) Get(cfg *config.Config, name string) (*LetterDistribution, err
 	log.Debug().Str("ldname", name).Msg("getting LetterDistribution from cache")
 	return ld, nil
 }
+
+func LoadLetterDistribution(cfg *config.Config, name string) (*LetterDistribution, error) {
+	// We check these here to make sure, but these really should be initialized
+	// somewhere in the caller's initialization code.
+	if LetterDistributionCache == nil {
+		CreateLetterDistributionCache()
+	}
+	return LetterDistributionCache.Get(cfg, name)
+}
