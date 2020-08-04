@@ -32,6 +32,9 @@ message GameHistory {
   // The variant, together with the lexicon, would encode the initial board
   // and tile configuration.
   string variant = 15;
+  // The index of the player who won. It's not always the person with the
+  // highest score, because there can be timeouts, etc.
+  int32 winner = 16;
 }
 
 enum PlayState {
@@ -110,9 +113,7 @@ message PlayerInfo {
 
 // Interface for bots. Bots should accept a BotRequest and return a BotResponse.
 
-message BotRequest {
-  GameHistory game_history = 1;
-}
+message BotRequest { GameHistory game_history = 1; }
 
 message BotResponse {
   oneof response {

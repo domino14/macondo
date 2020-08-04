@@ -606,7 +606,11 @@ func writeEvent(s *strings.Builder, evt *pb.GameEvent) error {
 }
 
 func writePlayer(s *strings.Builder, pn int, p *pb.PlayerInfo) {
-	fmt.Fprintf(s, "#player%d %v %v\n", pn, p.Nickname, p.RealName)
+	realname := p.RealName
+	if realname == "" {
+		realname = p.Nickname
+	}
+	fmt.Fprintf(s, "#player%d %v %v\n", pn, p.Nickname, realname)
 }
 
 func writePlayers(s *strings.Builder, players []*pb.PlayerInfo, flip bool) {
