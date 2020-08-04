@@ -540,6 +540,9 @@ func writeGCGHeader(s *strings.Builder, h *pb.GameHistory, addlInfo bool) {
 		if h.IdAuth != "" && h.Uid != "" {
 			s.WriteString("#id " + h.IdAuth + " " + h.Uid + "\n")
 		}
+		if h.Lexicon != "" {
+			s.WriteString("#lexicon " + h.Lexicon)
+		}
 	}
 	log.Debug().Msg("wrote header")
 }
