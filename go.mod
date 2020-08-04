@@ -18,7 +18,7 @@ require (
 	golang.org/x/sync v0.0.0-20200317015054-43a5402ce75a
 	golang.org/x/sys v0.0.0-20200602100848-8d3cce7afc34 // indirect
 	golang.org/x/text v0.3.2
-	google.golang.org/protobuf v1.23.0
+	google.golang.org/protobuf v1.25.0
 	gopkg.in/yaml.v2 v2.3.0
 )
 
