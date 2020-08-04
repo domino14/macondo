@@ -471,11 +471,18 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 	return nil
 }
 
-// AddFinalScoresToHistory adds the final scores, to, well, the history.
+// AddFinalScoresToHistory adds the final scores and winner to the history.
 func (g *Game) AddFinalScoresToHistory() {
 	g.history.FinalScores = make([]int32, len(g.players))
 	for pidx, p := range g.players {
 		g.history.FinalScores[pidx] = int32(p.points)
+	}
+	if g.history.FinalScores[0] > g.history.FinalScores[1] {
+		g.history.Winner = 0
+	} else if g.history.FinalScores[0] < g.history.FinalScores[1] {
+		g.history.Winner = 1
+	} else {
+		g.history.Winner = -1
 	}
 	log.Debug().Interface("finalscores", g.history.FinalScores).Msg("added-final-scores")
 }

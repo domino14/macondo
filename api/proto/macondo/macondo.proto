@@ -33,7 +33,8 @@ message GameHistory {
   // and tile configuration.
   string variant = 15;
   // The index of the player who won. It's not always the person with the
-  // highest score, because there can be timeouts, etc.
+  // highest score, because there can be timeouts, etc. If it's a tie,
+  // it will be a -1.
   int32 winner = 16;
 }
 

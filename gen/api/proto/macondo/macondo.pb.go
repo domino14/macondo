@@ -277,7 +277,8 @@ type GameHistory struct {
 	// and tile configuration.
 	Variant string `protobuf:"bytes,15,opt,name=variant,proto3" json:"variant,omitempty"`
 	// The index of the player who won. It's not always the person with the
-	// highest score, because there can be timeouts, etc.
+	// highest score, because there can be timeouts, etc. If it's a tie,
+	// it will be a -1.
 	Winner int32 `protobuf:"varint,16,opt,name=winner,proto3" json:"winner,omitempty"`
 }
 
