@@ -142,7 +142,6 @@ func NewGame(rules RuleDefiner, playerinfo []*pb.PlayerInfo) (*Game, error) {
 	game.board = rules.Board().Copy()
 
 	game.crossSetGen = cross_set.GaddagCrossSetGenerator{
-		Board:  game.board,
 		Gaddag: game.gaddag,
 		Dist:   game.letterDistribution,
 	}
@@ -373,7 +372,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		ld := g.bag.LetterDistribution()
 		g.board.PlayMove(m, ld)
 		// Calculate cross-sets.
-		g.crossSetGen.UpdateCrossSetsForMove(m)
+		g.crossSetGen.UpdateCrossSetsForMove(g.board, m)
 		score := m.Score()
 		if score != 0 {
 			g.scorelessTurns = 0
@@ -722,7 +721,7 @@ func (g *Game) playTurn(t int) error {
 		g.board.SaveCopy()
 		ld := g.bag.LetterDistribution()
 		g.board.PlayMove(m, ld)
-		g.crossSetGen.UpdateCrossSetsForMove(m)
+		g.crossSetGen.UpdateCrossSetsForMove(g.board, m)
 		g.players[g.onturn].points += m.Score()
 		if m.TilesPlayed() == 7 {
 			g.players[g.onturn].bingos++

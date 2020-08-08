@@ -9,6 +9,7 @@ import (
 )
 
 type CrossSet = board.CrossSet
+type Board = board.GameBoard
 
 const (
 	Left       = board.LeftDirection
@@ -18,9 +19,9 @@ const (
 )
 
 type Generator interface {
-	GenCrossSet(row int, col int, dir board.BoardDirection)
-	GenAllCrossSets()
-	UpdateCrossSetsForMove(m *move.Move)
+	GenCrossSet(b *Board, row int, col int, dir board.BoardDirection)
+	GenAllCrossSets(b *Board)
+	UpdateCrossSetsForMove(b *Board, m *move.Move)
 }
 
 // ----------------------------------------------------------------------
@@ -29,40 +30,39 @@ type Generator interface {
 type NullCrossSetGenerator struct {
 }
 
-func (g NullCrossSetGenerator) GenCrossSet(row int, col int, dir board.BoardDirection) {
+func (g NullCrossSetGenerator) GenCrossSet(b *Board, row int, col int, dir board.BoardDirection) {
 }
 
-func (g NullCrossSetGenerator) GenAllCrossSets() {
+func (g NullCrossSetGenerator) GenAllCrossSets(b *Board) {
 }
 
-func (g NullCrossSetGenerator) UpdateCrossSetsForMove(m *move.Move) {
+func (g NullCrossSetGenerator) UpdateCrossSetsForMove(b *Board, m *move.Move) {
 }
 
 // ----------------------------------------------------------------------
 // GaddagCrossSetGenerator generates cross sets via a gaddag
 
 type GaddagCrossSetGenerator struct {
-	Board  *board.GameBoard
 	Gaddag gaddag.GenericDawg
 	Dist   *alphabet.LetterDistribution
 }
 
-func (g GaddagCrossSetGenerator) GenCrossSet(row int, col int, dir board.BoardDirection) {
-	GenCrossSet(g.Board, row, col, dir, g.Gaddag, g.Dist)
+func (g GaddagCrossSetGenerator) GenCrossSet(b *Board, row int, col int, dir board.BoardDirection) {
+	GenCrossSet(b, row, col, dir, g.Gaddag, g.Dist)
 }
 
-func (g GaddagCrossSetGenerator) GenAllCrossSets() {
-	GenAllCrossSets(g.Board, g.Gaddag, g.Dist)
+func (g GaddagCrossSetGenerator) GenAllCrossSets(b *Board) {
+	GenAllCrossSets(b, g.Gaddag, g.Dist)
 }
 
-func (g GaddagCrossSetGenerator) UpdateCrossSetsForMove(m *move.Move) {
-	UpdateCrossSetsForMove(g.Board, m, g.Gaddag, g.Dist)
+func (g GaddagCrossSetGenerator) UpdateCrossSetsForMove(b *Board, m *move.Move) {
+	UpdateCrossSetsForMove(b, m, g.Gaddag, g.Dist)
 }
 
 // ----------------------------------------------------------------------
 // Implementation for GaddagCrossSetGenerator
 
-func traverseBackwards(b *board.GameBoard, row int, col int,
+func traverseBackwards(b *Board, row int, col int,
 	nodeIdx uint32, checkLetterSet bool, leftMostCol int,
 	gaddag gaddag.GenericDawg) (uint32, bool) {
 	// Traverse the letters on the board backwards (left). Return the index
@@ -101,7 +101,7 @@ func traverseBackwards(b *board.GameBoard, row int, col int,
 	return nodeIdx, true
 }
 
-func UpdateCrossSetsForMove(b *board.GameBoard, m *move.Move,
+func UpdateCrossSetsForMove(b *Board, m *move.Move,
 	gd gaddag.GenericDawg, ld *alphabet.LetterDistribution) {
 
 	row, col, vertical := m.CoordsAndVertical()
@@ -156,7 +156,7 @@ func UpdateCrossSetsForMove(b *board.GameBoard, m *move.Move,
 // board; our anchor algorithm doesn't quite match the one in the Gordon
 // paper.
 // We do this for both transpositions of the board.
-func GenAllCrossSets(b *board.GameBoard, gaddag gaddag.GenericDawg, ld *alphabet.LetterDistribution) {
+func GenAllCrossSets(b *Board, gaddag gaddag.GenericDawg, ld *alphabet.LetterDistribution) {
 
 	n := b.Dim()
 	for i := 0; i < n; i++ {
@@ -175,7 +175,7 @@ func GenAllCrossSets(b *board.GameBoard, gaddag gaddag.GenericDawg, ld *alphabet
 }
 
 // GenCrossSet generates a cross-set for each individual square.
-func GenCrossSet(b *board.GameBoard, row int, col int, dir board.BoardDirection,
+func GenCrossSet(b *Board, row int, col int, dir board.BoardDirection,
 	gaddag gaddag.GenericDawg, ld *alphabet.LetterDistribution) {
 
 	if row < 0 || row >= b.Dim() || col < 0 || col >= b.Dim() {
