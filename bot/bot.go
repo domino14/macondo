@@ -68,7 +68,8 @@ func (bot *Bot) Deserialize(data []byte) (*game.Game, error) {
 		return nil, err
 	}
 	history := req.GameHistory
-	rules, err := bot.game.Rules(bot.config, history)
+	boardLayout, ldName := game.HistoryToVariant(history)
+	rules, err := runner.NewAIGameRules(bot.config, boardLayout, history.Lexicon, ldName)
 	if err != nil {
 		return nil, err
 	}

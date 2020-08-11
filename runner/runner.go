@@ -7,6 +7,7 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -23,14 +24,16 @@ type GameRunner struct {
 
 func NewGameRunner(conf *config.Config, opts *GameOptions, players []*pb.PlayerInfo) (*GameRunner, error) {
 	opts.SetDefaults(conf)
-	rules, err := game.NewGameRules(
+	rules, err := game.NewBasicGameRules(
 		conf, board.CrosswordGameBoard,
-		opts.Lexicon.Name,
 		opts.Lexicon.Distribution)
 	if err != nil {
 		return nil, err
 	}
+	return NewGameRunnerFromRules(opts, players, rules)
+}
 
+func NewGameRunnerFromRules(opts *GameOptions, players []*pb.PlayerInfo, rules game.RuleDefiner) (*GameRunner, error) {
 	g, err := game.NewGame(rules, players)
 	if err != nil {
 		return nil, err
@@ -86,12 +89,6 @@ func (g *GameRunner) IsPlaying() bool {
 	return g.Playing() == pb.PlayState_PLAYING
 }
 
-func (g *GameRunner) Rules(conf *config.Config, history *pb.GameHistory) (game.RuleDefiner, error) {
-	lexicon := history.Lexicon
-	boardLayout, ldName := game.HistoryToVariant(history)
-	return game.NewGameRules(conf, boardLayout, lexicon, ldName)
-}
-
 // Game with an AI player available for move generation.
 type AIGameRunner struct {
 	GameRunner
@@ -101,7 +98,14 @@ type AIGameRunner struct {
 }
 
 func NewAIGameRunner(conf *config.Config, opts *GameOptions, players []*pb.PlayerInfo) (*AIGameRunner, error) {
-	g, err := NewGameRunner(conf, opts, players)
+	opts.SetDefaults(conf)
+	rules, err := NewAIGameRules(
+		conf, board.CrosswordGameBoard,
+		opts.Lexicon.Name, opts.Lexicon.Distribution)
+	if err != nil {
+		return nil, err
+	}
+	g, err := NewGameRunnerFromRules(opts, players, rules)
 	if err != nil {
 		return nil, err
 	}
@@ -115,17 +119,22 @@ func NewAIGameRunnerFromGame(g *game.Game, conf *config.Config) (*AIGameRunner, 
 
 func addAIFields(g *GameRunner, conf *config.Config) (*AIGameRunner, error) {
 	strategy, err := strategy.NewExhaustiveLeaveStrategy(
-		g.Gaddag().LexiconName(),
-		g.Gaddag().GetAlphabet(),
+		g.LexiconName(),
+		g.Alphabet(),
 		conf.StrategyParamsPath,
 		strategy.LeaveFilename)
 	if err != nil {
 		return nil, err
 	}
 
+	gd, err := gaddag.LoadFromCache(conf, g.LexiconName())
+	if err != nil {
+		return nil, err
+	}
+
 	aiplayer := player.NewRawEquityPlayer(strategy)
 	gen := movegen.NewGordonGenerator(
-		g.Gaddag().(*gaddag.SimpleGaddag), g.Board(), g.Bag().LetterDistribution())
+		gd.(*gaddag.SimpleGaddag), g.Board(), g.Bag().LetterDistribution())
 
 	ret := &AIGameRunner{*g, aiplayer, gen}
 	return ret, nil
@@ -150,4 +159,24 @@ func (g *AIGameRunner) AssignEquity(plays []*move.Move, oppRack *alphabet.Rack) 
 
 func (g *AIGameRunner) AIPlayer() player.AIPlayer {
 	return g.aiplayer
+}
+
+func NewAIGameRules(cfg *config.Config, boardLayout []string,
+	lexiconName string, letterDistributionName string) (*game.GameRules, error) {
+	dist, err := alphabet.LoadLetterDistribution(cfg, letterDistributionName)
+	if err != nil {
+		return nil, err
+	}
+	gd, err := gaddag.LoadFromCache(cfg, lexiconName)
+	if err != nil {
+		return nil, err
+	}
+	board := board.MakeBoard(boardLayout)
+	cset := cross_set.GaddagCrossSetGenerator{
+		Gaddag: gd,
+		Dist:   dist,
+	}
+	lex := gaddag.Lexicon{gd}
+	rules := game.NewGameRules(cfg, dist, board, lex, cset)
+	return rules, nil
 }

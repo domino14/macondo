@@ -248,7 +248,7 @@ func (sc *ShellController) loadGCG(args []string) error {
 			lexicon)
 	}
 	boardLayout, ldName := game.HistoryToVariant(history)
-	rules, err := game.NewGameRules(sc.config, boardLayout, lexicon, ldName)
+	rules, err := runner.NewAIGameRules(sc.config, boardLayout, lexicon, ldName)
 	if err != nil {
 		return err
 	}

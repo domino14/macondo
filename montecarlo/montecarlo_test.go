@@ -19,6 +19,7 @@ import (
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/movegen"
+	"github.com/domino14/macondo/runner"
 	"github.com/domino14/macondo/strategy"
 )
 
@@ -56,22 +57,26 @@ func TestSimSingleIteration(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, err := game.NewGameRules(&DefaultConfig, board.CrosswordGameBoard,
+	rules, err := runner.NewAIGameRules(&DefaultConfig, board.CrosswordGameBoard,
 		"NWL18", "English")
 	is.NoErr(err)
 	game, err := game.NewGame(rules, players)
 	is.NoErr(err)
 
-	strategy, err := strategy.NewExhaustiveLeaveStrategy(rules.Gaddag().LexiconName(),
-		rules.Gaddag().GetAlphabet(), DefaultConfig.StrategyParamsPath, "")
+	strategy, err := strategy.NewExhaustiveLeaveStrategy(rules.LexiconName(),
+		game.Alphabet(), DefaultConfig.StrategyParamsPath, "")
 	is.NoErr(err)
-	generator := movegen.NewGordonGenerator(rules.Gaddag().(*gaddag.SimpleGaddag), game.Board(), rules.LetterDistribution())
+
+	gd, err := gaddag.LoadFromCache(game.Config(), game.LexiconName())
+	is.NoErr(err)
+
+	generator := movegen.NewGordonGenerator(gd.(*gaddag.SimpleGaddag), game.Board(), rules.LetterDistribution())
 
 	// This will deal a random rack to players:
 	game.StartGame()
 	game.SetPlayerOnTurn(0)
 	// Overwrite the first rack
-	game.SetRackFor(0, alphabet.RackFromString("AAADERW", rules.Gaddag().GetAlphabet()))
+	game.SetRackFor(0, alphabet.RackFromString("AAADERW", game.Alphabet()))
 	generator.GenAll(game.RackFor(0), false)
 	oldOppRack := game.RackFor(1).String()
 	plays := generator.Plays()[:10]
@@ -105,22 +110,24 @@ func TestLongerSim(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, err := game.NewGameRules(&DefaultConfig, board.CrosswordGameBoard,
+	rules, err := runner.NewAIGameRules(&DefaultConfig, board.CrosswordGameBoard,
 		"NWL18", "English")
 	is.NoErr(err)
 	game, err := game.NewGame(rules, players)
 	is.NoErr(err)
 
-	strategy, err := strategy.NewExhaustiveLeaveStrategy(rules.Gaddag().LexiconName(),
-		rules.Gaddag().GetAlphabet(), DefaultConfig.StrategyParamsPath, "")
+	strategy, err := strategy.NewExhaustiveLeaveStrategy(rules.LexiconName(),
+		game.Alphabet(), DefaultConfig.StrategyParamsPath, "")
 	is.NoErr(err)
-	generator := movegen.NewGordonGenerator(rules.Gaddag().(*gaddag.SimpleGaddag), game.Board(), rules.LetterDistribution())
+	gd, err := gaddag.LoadFromCache(game.Config(), game.LexiconName())
+	is.NoErr(err)
+	generator := movegen.NewGordonGenerator(gd.(*gaddag.SimpleGaddag), game.Board(), rules.LetterDistribution())
 	// This will start the game and deal a random rack to players:
 	game.StartGame()
 	game.SetPlayerOnTurn(0)
 	// Overwrite rack we are simming for. This is the prototypical Maven sim rack.
 	// AWA should sim best.
-	game.SetRackFor(0, alphabet.RackFromString("AAADERW", rules.Gaddag().GetAlphabet()))
+	game.SetRackFor(0, alphabet.RackFromString("AAADERW", game.Alphabet()))
 	aiplayer := player.NewRawEquityPlayer(strategy)
 	generator.GenAll(game.RackFor(0), false)
 	aiplayer.AssignEquity(generator.Plays(), game.Board(), game.Bag(),
@@ -146,7 +153,7 @@ func TestLongerSim(t *testing.T) {
 	fmt.Println(simmer.printStats())
 	fmt.Println("Total iterations", simmer.iterationCount)
 	// AWA wins (note that the print above also sorts the plays by equity)
-	is.Equal(simmer.plays[0].play.Tiles().UserVisible(rules.Gaddag().GetAlphabet()), "AWA")
+	is.Equal(simmer.plays[0].play.Tiles().UserVisible(game.Alphabet()), "AWA")
 	is.Equal(simmer.gameCopies[0].Turn(), 0)
 }
 

@@ -43,8 +43,7 @@ func TestNewGame(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, err := NewGameRules(&DefaultConfig, board.CrosswordGameBoard, "NWL18",
-		"English")
+	rules, err := NewBasicGameRules(&DefaultConfig, board.CrosswordGameBoard, "English")
 	is.NoErr(err)
 	game, err := NewGame(rules, players)
 	is.NoErr(err)
@@ -58,8 +57,7 @@ func TestBackup(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, _ := NewGameRules(&DefaultConfig, board.CrosswordGameBoard, "NWL18",
-		"English")
+	rules, _ := NewBasicGameRules(&DefaultConfig, board.CrosswordGameBoard, "English")
 	game, _ := NewGame(rules, players)
 
 	game.StartGame()
@@ -68,7 +66,7 @@ func TestBackup(t *testing.T) {
 	game.SetBackupMode(SimulationMode)
 	// Overwrite the player on turn to be JD:
 	game.SetPlayerOnTurn(0)
-	alph := rules.gaddag.GetAlphabet()
+	alph := game.Alphabet()
 	game.SetRackFor(0, alphabet.RackFromString("ACEOTV?", alph))
 
 	m := move.NewScoringMoveSimple(20, "H7", "AVOCET", "?", alph)
@@ -93,10 +91,9 @@ func TestValidate(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, _ := NewGameRules(&DefaultConfig, board.CrosswordGameBoard, "NWL18",
-		"English")
+	rules, _ := NewBasicGameRules(&DefaultConfig, board.CrosswordGameBoard, "English")
 	g, _ := NewGame(rules, players)
-	alph := rules.Gaddag().GetAlphabet()
+	alph := g.Alphabet()
 	g.StartGame()
 	g.SetPlayerOnTurn(0)
 	g.SetRackFor(0, alphabet.RackFromString("HIS", alph))
