@@ -632,6 +632,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.commit(cmd)
 	case "aiplay":
 		return sc.aiplay(cmd)
+	case "selftest":
+		return sc.selftest(cmd)
 	case "list":
 		return sc.list(cmd)
 	case "endgame":
