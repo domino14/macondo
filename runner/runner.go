@@ -140,6 +140,10 @@ func addAIFields(g *GameRunner, conf *config.Config) (*AIGameRunner, error) {
 	return ret, nil
 }
 
+func (g *AIGameRunner) MoveGenerator() movegen.MoveGenerator {
+	return g.gen
+}
+
 func (g *AIGameRunner) GenerateMoves(numPlays int) []*move.Move {
 	curRack := g.RackFor(g.PlayerOnTurn())
 	oppRack := g.RackFor(g.NextPlayer())

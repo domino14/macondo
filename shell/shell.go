@@ -200,6 +200,7 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 func (sc *ShellController) initGameDataStructures() error {
 	sc.simmer = &montecarlo.Simmer{}
 	sc.simmer.Init(&sc.game.Game, sc.game.AIPlayer())
+	sc.gen = sc.game.MoveGenerator()
 	return nil
 }
 
