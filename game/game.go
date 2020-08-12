@@ -31,16 +31,6 @@ const (
 	RackTileLimit = 7
 )
 
-// RuleDefiner is an interface that is used for passing a set of rules
-// to a game.
-type RuleDefiner interface {
-	Config() *config.Config
-	Board() *board.GameBoard
-	LetterDistribution() *alphabet.LetterDistribution
-	Lexicon() lexicon.Lexicon
-	CrossSetGen() cross_set.Generator
-}
-
 func seededRandSource() (int64, *rand.Rand) {
 	var b [8]byte
 	_, err := crypto_rand.Read(b[:])
@@ -143,7 +133,7 @@ func newHistory(players playerStates, flipfirst bool) *pb.GameHistory {
 }
 
 // NewGame is how one instantiates a brand new game.
-func NewGame(rules RuleDefiner, playerinfo []*pb.PlayerInfo) (*Game, error) {
+func NewGame(rules *GameRules, playerinfo []*pb.PlayerInfo) (*Game, error) {
 	game := &Game{}
 	game.letterDistribution = rules.LetterDistribution()
 	game.alph = game.letterDistribution.Alphabet()
@@ -170,7 +160,7 @@ func NewGame(rules RuleDefiner, playerinfo []*pb.PlayerInfo) (*Game, error) {
 // NewFromHistory instantiates a Game from a history, and sets the current
 // turn to the passed in turnnum. It assumes the rules contains the current
 // lexicon in history, if any!
-func NewFromHistory(history *pb.GameHistory, rules RuleDefiner, turnnum int) (*Game, error) {
+func NewFromHistory(history *pb.GameHistory, rules *GameRules, turnnum int) (*Game, error) {
 	game, err := NewGame(rules, history.Players)
 	if err != nil {
 		return nil, err
