@@ -4,7 +4,6 @@ import (
 	"errors"
 
 	"github.com/domino14/macondo/alphabet"
-	"github.com/domino14/macondo/gaddag"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/lexicon"
 	"github.com/domino14/macondo/move"
@@ -37,8 +36,7 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 	}
 	// Note that the player on turn right now needs to be the player
 	// who is making the challenge.
-	lex := gaddag.Lexicon{g.gaddag}
-	illegalWords := validateWords(lex, g.lastWordsFormed)
+	illegalWords := validateWords(g.lexicon, g.lastWordsFormed)
 	playLegal := len(illegalWords) == 0
 
 	lastEvent := g.history.Events[len(g.history.Events)-1]

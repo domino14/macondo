@@ -136,10 +136,11 @@ func (s *Simmer) makeGameCopies() {
 	log.Debug().Int("threads", s.threads).Msg("makeGameCopies")
 	s.gameCopies = []*game.Game{}
 	s.movegens = []movegen.MoveGenerator{}
+	gd, _ := gaddag.LoadFromCache(s.origGame.Config(), s.origGame.LexiconName())
 	for i := 0; i < s.threads; i++ {
 		s.gameCopies = append(s.gameCopies, s.origGame.Copy())
 		s.movegens = append(s.movegens,
-			movegen.NewGordonGenerator(s.gameCopies[i].Gaddag().(*gaddag.SimpleGaddag),
+			movegen.NewGordonGenerator(gd.(*gaddag.SimpleGaddag),
 				s.gameCopies[i].Board(), s.gameCopies[i].Bag().LetterDistribution()))
 
 	}

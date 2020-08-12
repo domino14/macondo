@@ -12,8 +12,8 @@ import (
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/cross_set"
-	"github.com/domino14/macondo/gaddag"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/lexicon"
 	"github.com/domino14/macondo/move"
@@ -34,11 +34,11 @@ const (
 // RuleDefiner is an interface that is used for passing a set of rules
 // to a game.
 type RuleDefiner interface {
-	Gaddag() gaddag.GenericDawg
+	Config() *config.Config
 	Board() *board.GameBoard
 	LetterDistribution() *alphabet.LetterDistribution
-
-	LoadRule(lexiconName, letterDistributionName string) error
+	Lexicon() lexicon.Lexicon
+	CrossSetGen() cross_set.Generator
 }
 
 func seededRandSource() (int64, *rand.Rand) {
@@ -61,7 +61,7 @@ func seededRandSource() (int64, *rand.Rand) {
 // AI players, human players, etc will play a game outside of the scope of
 // this module.
 type Game struct {
-	gaddag      gaddag.GenericDawg
+	config      *config.Config
 	crossSetGen cross_set.Generator
 	lexicon     lexicon.Lexicon
 	alph        *alphabet.Alphabet
@@ -94,6 +94,18 @@ type Game struct {
 	// if nextFirst is -1, first is determined randomly. Otherwise, first is
 	// set to nextFirst.
 	nextFirst int
+}
+
+func (g *Game) Config() *config.Config {
+	return g.config
+}
+
+func (g *Game) Lexicon() lexicon.Lexicon {
+	return g.lexicon
+}
+
+func (g *Game) LexiconName() string {
+	return g.lexicon.Name()
 }
 
 // CalculateCoordsFromStringPosition turns a "position" on the board such as
@@ -133,21 +145,14 @@ func newHistory(players playerStates, flipfirst bool) *pb.GameHistory {
 // NewGame is how one instantiates a brand new game.
 func NewGame(rules RuleDefiner, playerinfo []*pb.PlayerInfo) (*Game, error) {
 	game := &Game{}
-	game.gaddag = rules.Gaddag()
 	game.letterDistribution = rules.LetterDistribution()
 	game.alph = game.letterDistribution.Alphabet()
 	game.backupMode = NoBackup
 	game.nextFirst = -1
-
 	game.board = rules.Board().Copy()
-
-	game.crossSetGen = cross_set.GaddagCrossSetGenerator{
-		Board:  game.board,
-		Gaddag: game.gaddag,
-		Dist:   game.letterDistribution,
-	}
-
-	game.lexicon = gaddag.Lexicon{game.gaddag}
+	game.crossSetGen = rules.CrossSetGen()
+	game.lexicon = rules.Lexicon()
+	game.config = rules.Config()
 
 	game.players = make([]*playerState, len(playerinfo))
 	for idx, p := range playerinfo {
@@ -195,13 +200,6 @@ func NewFromHistory(history *pb.GameHistory, rules RuleDefiner, turnnum int) (*G
 		return nil, err
 	}
 	return game, nil
-}
-
-func (g *Game) SetNewRules(rules RuleDefiner) error {
-	g.gaddag = rules.Gaddag()
-	g.letterDistribution = rules.LetterDistribution()
-	g.alph = g.letterDistribution.Alphabet()
-	return nil
 }
 
 // SetNextFirst sets the player going first to the passed-in value. This
@@ -373,7 +371,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		ld := g.bag.LetterDistribution()
 		g.board.PlayMove(m, ld)
 		// Calculate cross-sets.
-		g.crossSetGen.UpdateCrossSetsForMove(m)
+		g.crossSetGen.UpdateCrossSetsForMove(g.board, m)
 		score := m.Score()
 		if score != 0 {
 			g.scorelessTurns = 0
@@ -722,7 +720,7 @@ func (g *Game) playTurn(t int) error {
 		g.board.SaveCopy()
 		ld := g.bag.LetterDistribution()
 		g.board.PlayMove(m, ld)
-		g.crossSetGen.UpdateCrossSetsForMove(m)
+		g.crossSetGen.UpdateCrossSetsForMove(g.board, m)
 		g.players[g.onturn].points += m.Score()
 		if m.TilesPlayed() == 7 {
 			g.players[g.onturn].bingos++
@@ -915,11 +913,6 @@ func (g *Game) Bag() *alphabet.Bag {
 // Board returns the current board state.
 func (g *Game) Board() *board.GameBoard {
 	return g.board
-}
-
-// Gaddag returns this game's gaddag data structure.
-func (g *Game) Gaddag() gaddag.GenericDawg {
-	return g.gaddag
 }
 
 func (g *Game) Turn() int {

@@ -148,7 +148,7 @@ func (g *Game) ResetToFirstState() {
 	g.scorelessTurns = b.scorelessTurns
 }
 
-// Copy creates a deep copy of Game for the most part. The gaddag and
+// Copy creates a deep copy of Game for the most part. The lexicon and
 // alphabet are not deep-copied because these are not expected to change.
 // The history is not copied because this only changes with the main Game,
 // and not these copies.
@@ -159,11 +159,11 @@ func (g *Game) Copy() *Game {
 	log.Debug().Msgf("Created new random seed for bag copy %v", randSeed)
 
 	copy := &Game{
+		config:         g.config,
 		onturn:         g.onturn,
 		turnnum:        g.turnnum,
 		board:          g.board.Copy(),
 		bag:            g.bag.Copy(randSource),
-		gaddag:         g.gaddag,
 		lexicon:        g.lexicon,
 		crossSetGen:    g.crossSetGen,
 		alph:           g.alph,

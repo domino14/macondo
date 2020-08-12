@@ -166,6 +166,20 @@ func (sc *ShellController) aiplay(cmd *shellcmd) (*Response, error) {
 	return nil, sc.commitAIMove()
 }
 
+func (sc *ShellController) selftest(cmd *shellcmd) (*Response, error) {
+	_, err := sc.newGame(cmd)
+	if err != nil {
+		return nil, err
+	}
+	for sc.IsPlaying() {
+		err := sc.commitAIMove()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return nil, nil
+}
+
 func (sc *ShellController) challenge(cmd *shellcmd) (*Response, error) {
 	fields := cmd.args
 	if len(fields) > 0 {

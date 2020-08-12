@@ -15,6 +15,7 @@ import (
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
+	"github.com/domino14/macondo/runner"
 	"github.com/domino14/macondo/strategy"
 
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -52,7 +53,7 @@ func (r *GameRunner) Init(player1, player2, leavefile1, leavefile2, pegfile1, pe
 	// of a lexicon and a letter distribution. For now the following
 	// will not work for non-english lexicons, so this needs to be fixed
 	// in the future.
-	rules, err := game.NewGameRules(r.config, board.CrosswordGameBoard,
+	rules, err := runner.NewAIGameRules(r.config, board.CrosswordGameBoard,
 		r.lexicon, r.config.DefaultLetterDistribution)
 	if err != nil {
 		return err
@@ -70,7 +71,12 @@ func (r *GameRunner) Init(player1, player2, leavefile1, leavefile2, pegfile1, pe
 	if err != nil {
 		return err
 	}
-	r.gaddag = rules.Gaddag()
+	gd, err := gaddag.LoadFromCache(r.config, r.lexicon)
+	if err != nil {
+		return err
+	}
+	r.gaddag = gd
+
 	r.alphabet = r.gaddag.GetAlphabet()
 
 	r.movegen = movegen.NewGordonGenerator(r.gaddag.(*gaddag.SimpleGaddag), r.game.Board(),

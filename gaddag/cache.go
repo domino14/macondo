@@ -54,3 +54,10 @@ func (gc *cache) Get(cfg *config.Config, lexiconName string) (GenericDawg, error
 	log.Debug().Str("lexicon", lexiconName).Msg("getting GenericDawg from cache")
 	return gd, nil
 }
+
+func LoadFromCache(cfg *config.Config, name string) (GenericDawg, error) {
+	if GenericDawgCache == nil {
+		CreateGaddagCache()
+	}
+	return GenericDawgCache.Get(cfg, name)
+}

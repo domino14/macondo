@@ -200,6 +200,7 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 func (sc *ShellController) initGameDataStructures() error {
 	sc.simmer = &montecarlo.Simmer{}
 	sc.simmer.Init(&sc.game.Game, sc.game.AIPlayer())
+	sc.gen = sc.game.MoveGenerator()
 	return nil
 }
 
@@ -248,7 +249,7 @@ func (sc *ShellController) loadGCG(args []string) error {
 			lexicon)
 	}
 	boardLayout, ldName := game.HistoryToVariant(history)
-	rules, err := game.NewGameRules(sc.config, boardLayout, lexicon, ldName)
+	rules, err := runner.NewAIGameRules(sc.config, boardLayout, lexicon, ldName)
 	if err != nil {
 		return err
 	}
@@ -631,6 +632,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.commit(cmd)
 	case "aiplay":
 		return sc.aiplay(cmd)
+	case "selftest":
+		return sc.selftest(cmd)
 	case "list":
 		return sc.list(cmd)
 	case "endgame":

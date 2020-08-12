@@ -11,3 +11,19 @@ type Lexicon interface {
 	GetAlphabet() *alphabet.Alphabet
 	HasWord(word Word) bool
 }
+
+type AcceptAll struct {
+	Alph *alphabet.Alphabet
+}
+
+func (lex AcceptAll) Name() string {
+	return "AcceptAll"
+}
+
+func (lex AcceptAll) GetAlphabet() *alphabet.Alphabet {
+	return lex.Alph
+}
+
+func (lex AcceptAll) HasWord(word Word) bool {
+	return true
+}

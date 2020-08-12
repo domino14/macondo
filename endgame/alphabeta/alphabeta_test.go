@@ -17,6 +17,7 @@ import (
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	"github.com/domino14/macondo/movegen"
+	"github.com/domino14/macondo/runner"
 
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
@@ -46,7 +47,7 @@ func TestMain(m *testing.M) {
 func setUpSolver(lex string, bvs board.VsWho, plies int, rack1, rack2 string,
 	p1pts, p2pts int, onTurn int) (*Solver, error) {
 
-	rules, err := game.NewGameRules(&DefaultConfig, board.CrosswordGameBoard,
+	rules, err := runner.NewAIGameRules(&DefaultConfig, board.CrosswordGameBoard,
 		lex, DefaultConfig.DefaultLetterDistribution)
 
 	if err != nil {
@@ -68,10 +69,13 @@ func setUpSolver(lex string, bvs board.VsWho, plies int, rack1, rack2 string,
 	g.SetStateStackLength(plies)
 	// Throw in the random racks dealt to our players.
 	g.ThrowRacksIn()
-	gd := rules.Gaddag()
+	gd, err := gaddag.LoadFromCache(g.Config(), lex)
+	if err != nil {
+		return nil, err
+	}
 	dist := rules.LetterDistribution()
 	generator := movegen.NewGordonGenerator(gd.(*gaddag.SimpleGaddag), g.Board(), dist)
-	alph := rules.Gaddag().GetAlphabet()
+	alph := g.Alphabet()
 
 	tilesInPlay := g.Board().SetToGame(alph, bvs)
 	err = g.Bag().RemoveTiles(tilesInPlay.OnBoard)
@@ -677,7 +681,7 @@ func TestProperIterativeDeepening(t *testing.T) {
 	is := is.New(t)
 	// Should get the same result with 7 or 8 plies.
 	plyCount := []int{7, 8}
-	rules, err := game.NewGameRules(&DefaultConfig, board.CrosswordGameBoard,
+	rules, err := runner.NewAIGameRules(&DefaultConfig, board.CrosswordGameBoard,
 		"NWL18", "English")
 	is.NoErr(err)
 	for _, plies := range plyCount {
@@ -696,8 +700,10 @@ func TestProperIterativeDeepening(t *testing.T) {
 		g.PlayScoringMove("13L", "...R", false)
 		is.Equal(g.PointsFor(0), 339)
 		is.Equal(g.PointsFor(1), 381)
+		gd, err := gaddag.LoadFromCache(g.Config(), g.LexiconName())
+		is.NoErr(err)
 		generator := movegen.NewGordonGenerator(
-			rules.Gaddag().(*gaddag.SimpleGaddag), g.Board(), g.Bag().LetterDistribution(),
+			gd.(*gaddag.SimpleGaddag), g.Board(), g.Bag().LetterDistribution(),
 		)
 		s := new(Solver)
 		s.Init(generator, g)
@@ -719,7 +725,7 @@ func TestFromGCG(t *testing.T) {
 	plies := 3
 	is := is.New(t)
 
-	rules, err := game.NewGameRules(&DefaultConfig, board.CrosswordGameBoard,
+	rules, err := runner.NewAIGameRules(&DefaultConfig, board.CrosswordGameBoard,
 		"CSW19", "English")
 
 	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../../gcgio/testdata/vs_frentz.gcg")
@@ -728,11 +734,13 @@ func TestFromGCG(t *testing.T) {
 	g, err := game.NewFromHistory(gameHistory, rules, 22)
 	is.NoErr(err)
 
+	gd, err := gaddag.LoadFromCache(&DefaultConfig, "CSW19")
+	is.NoErr(err)
 	g.SetBackupMode(game.SimulationMode)
 	g.SetStateStackLength(plies)
 	generator := movegen.NewGordonGenerator(
 		// The strategy doesn't matter right here
-		rules.Gaddag().(*gaddag.SimpleGaddag), g.Board(), g.Bag().LetterDistribution(),
+		gd.(*gaddag.SimpleGaddag), g.Board(), g.Bag().LetterDistribution(),
 	)
 
 	s := new(Solver)
