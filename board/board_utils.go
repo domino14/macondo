@@ -23,7 +23,7 @@ func (g *GameBoard) ToDisplayText(alph *alphabet.Alphabet) string {
 	n := g.Dim()
 	row := "   "
 	for i := 0; i < n; i++ {
-		row = row + string('A'+i) + " "
+		row = row + fmt.Sprintf("%c", 'A'+i) + " "
 	}
 	str = str + row + "\n"
 	str = str + "   " + strings.Repeat("-", 30) + "\n"
