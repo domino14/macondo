@@ -33,7 +33,7 @@ func NewGameRunner(conf *config.Config, opts *GameOptions, players []*pb.PlayerI
 	return NewGameRunnerFromRules(opts, players, rules)
 }
 
-func NewGameRunnerFromRules(opts *GameOptions, players []*pb.PlayerInfo, rules game.RuleDefiner) (*GameRunner, error) {
+func NewGameRunnerFromRules(opts *GameOptions, players []*pb.PlayerInfo, rules *game.GameRules) (*GameRunner, error) {
 	g, err := game.NewGame(rules, players)
 	if err != nil {
 		return nil, err
