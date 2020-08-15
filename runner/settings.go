@@ -3,6 +3,7 @@ package runner
 import (
 	"errors"
 	"fmt"
+
 	"github.com/domino14/macondo/config"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/rs/zerolog/log"
@@ -18,8 +19,10 @@ func (lex *Lexicon) ToDisplayString() string {
 }
 
 type GameOptions struct {
-	Lexicon       *Lexicon
-	ChallengeRule pb.ChallengeRule
+	Lexicon         *Lexicon
+	ChallengeRule   pb.ChallengeRule
+	FirstIsAssigned bool
+	GoesFirst       int
 }
 
 func (opts *GameOptions) SetDefaults(config *config.Config) {

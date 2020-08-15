@@ -38,6 +38,12 @@ func NewGameRunnerFromRules(opts *GameOptions, players []*pb.PlayerInfo, rules *
 	if err != nil {
 		return nil, err
 	}
+	if opts.FirstIsAssigned {
+		g.SetNextFirst(opts.GoesFirst)
+	} else {
+		// game determines it.
+		g.SetNextFirst(-1)
+	}
 	g.StartGame()
 	g.SetBackupMode(game.InteractiveGameplayMode)
 	g.SetChallengeRule(opts.ChallengeRule)
