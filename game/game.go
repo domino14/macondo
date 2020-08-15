@@ -227,6 +227,7 @@ func (g *Game) StartGame() {
 	g.history.LastKnownRacks = []string{
 		g.RackLettersFor(0), g.RackLettersFor(1),
 	}
+	g.history.Lexicon = g.Lexicon().Name()
 	g.playing = pb.PlayState_PLAYING
 	g.history.PlayState = g.playing
 	g.turnnum = 0
