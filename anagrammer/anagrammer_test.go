@@ -16,13 +16,7 @@ import (
 	"github.com/domino14/macondo/gaddagmaker"
 )
 
-var DefaultConfig = config.Config{
-	StrategyParamsPath:        os.Getenv("STRATEGY_PARAMS_PATH"),
-	LetterDistributionPath:    os.Getenv("LETTER_DISTRIBUTION_PATH"),
-	LexiconPath:               os.Getenv("LEXICON_PATH"),
-	DefaultLexicon:            "NWL18",
-	DefaultLetterDistribution: "English",
-}
+var DefaultConfig = config.DefaultConfig()
 
 type testpair struct {
 	rack string

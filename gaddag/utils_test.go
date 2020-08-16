@@ -135,12 +135,7 @@ var findSpanishWordTests = []testpair{
 	{"2AMATIUJ", false},
 }
 
-var DefaultConfig = config.Config{
-	StrategyParamsPath:        os.Getenv("STRATEGY_PARAMS_PATH"),
-	LexiconPath:               os.Getenv("LEXICON_PATH"),
-	DefaultLexicon:            "NWL18",
-	DefaultLetterDistribution: "English",
-}
+var DefaultConfig = config.DefaultConfig()
 
 func loadDawg(lexName string, reverse bool) (*SimpleDawg, error) {
 	fn := lexName

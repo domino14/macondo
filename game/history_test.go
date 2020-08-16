@@ -1,7 +1,6 @@
 package game_test
 
 import (
-	"os"
 	"testing"
 
 	"github.com/domino14/macondo/board"
@@ -12,13 +11,7 @@ import (
 	"github.com/matryer/is"
 )
 
-var DefaultConfig = config.Config{
-	StrategyParamsPath:        os.Getenv("STRATEGY_PARAMS_PATH"),
-	LexiconPath:               os.Getenv("LEXICON_PATH"),
-	LetterDistributionPath:    os.Getenv("LETTER_DISTRIBUTION_PATH"),
-	DefaultLexicon:            "NWL18",
-	DefaultLetterDistribution: "English",
-}
+var DefaultConfig = config.DefaultConfig()
 
 // Since the easiest way to create a history is with the gcgio package,
 // we use package game_test above to avoid an import loop.
