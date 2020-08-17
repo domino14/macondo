@@ -362,7 +362,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		ld := g.bag.LetterDistribution()
 		g.board.PlayMove(m, ld)
 		// Calculate cross-sets.
-		g.crossSetGen.UpdateCrossSetsForMove(g.board, m)
+		g.crossSetGen.UpdateForMove(g.board, m)
 		score := m.Score()
 		if score != 0 {
 			g.scorelessTurns = 0
@@ -711,7 +711,7 @@ func (g *Game) playTurn(t int) error {
 		g.board.SaveCopy()
 		ld := g.bag.LetterDistribution()
 		g.board.PlayMove(m, ld)
-		g.crossSetGen.UpdateCrossSetsForMove(g.board, m)
+		g.crossSetGen.UpdateForMove(g.board, m)
 		g.players[g.onturn].points += m.Score()
 		if m.TilesPlayed() == 7 {
 			g.players[g.onturn].bingos++
