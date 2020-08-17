@@ -14,13 +14,7 @@ import (
 	"github.com/domino14/macondo/gaddagmaker"
 )
 
-var DefaultConfig = config.Config{
-	StrategyParamsPath:        os.Getenv("STRATEGY_PARAMS_PATH"),
-	LexiconPath:               os.Getenv("LEXICON_PATH"),
-	LetterDistributionPath:    os.Getenv("LETTER_DISTRIBUTION_PATH"),
-	DefaultLexicon:            "NWL18",
-	DefaultLetterDistribution: "English",
-}
+var DefaultConfig = config.DefaultConfig()
 
 func TestMain(m *testing.M) {
 	gdgPath := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "NWL18.gaddag")

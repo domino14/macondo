@@ -18,6 +18,21 @@ type Config struct {
 	DefaultLetterDistribution string
 }
 
+// Default config from environment variables. Since the config struct is
+// mutable we don't just make this a global shared variable, but provide a
+// factory function to copy it on every call.
+var defaultConfig = Config{
+	StrategyParamsPath:        os.Getenv("STRATEGY_PARAMS_PATH"),
+	LexiconPath:               os.Getenv("LEXICON_PATH"),
+	LetterDistributionPath:    os.Getenv("LETTER_DISTRIBUTION_PATH"),
+	DefaultLexicon:            "NWL18",
+	DefaultLetterDistribution: "English",
+}
+
+func DefaultConfig() Config {
+	return defaultConfig
+}
+
 func (c *Config) Load(args []string) error {
 	fs := flag.NewFlagSet("macondo", flag.ContinueOnError)
 	fs.BoolVar(&c.Debug, "debug", false, "debug logging on")

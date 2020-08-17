@@ -2,7 +2,6 @@ package alphabet
 
 import (
 	"math/rand"
-	"os"
 	"reflect"
 	"testing"
 	"time"
@@ -13,13 +12,7 @@ import (
 
 var randSource = rand.New(rand.NewSource(time.Now().UnixNano()))
 
-var DefaultConfig = config.Config{
-	StrategyParamsPath:        os.Getenv("STRATEGY_PARAMS_PATH"),
-	LetterDistributionPath:    os.Getenv("LETTER_DISTRIBUTION_PATH"),
-	LexiconPath:               os.Getenv("LEXICON_PATH"),
-	DefaultLexicon:            "NWL18",
-	DefaultLetterDistribution: "English",
-}
+var DefaultConfig = config.DefaultConfig()
 
 func TestBag(t *testing.T) {
 	ld, err := EnglishLetterDistribution(&DefaultConfig)

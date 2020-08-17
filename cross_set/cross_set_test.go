@@ -16,13 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-var DefaultConfig = config.Config{
-	StrategyParamsPath:        os.Getenv("STRATEGY_PARAMS_PATH"),
-	LexiconPath:               os.Getenv("LEXICON_PATH"),
-	LetterDistributionPath:    os.Getenv("LETTER_DISTRIBUTION_PATH"),
-	DefaultLexicon:            "NWL18",
-	DefaultLetterDistribution: "English",
-}
+var DefaultConfig = config.DefaultConfig()
 
 const (
 	VsEd     = board.VsEd
