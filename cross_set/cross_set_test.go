@@ -313,6 +313,7 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
+	gen := GaddagCrossSetGenerator{Dist: dist, Gaddag: gd}
 	alph := dist.Alphabet()
 
 	var testCases = []updateCrossesForMoveTestCase{
@@ -332,10 +333,10 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 	for _, tc := range testCases {
 		b := board.MakeBoard(board.CrosswordGameBoard)
 		b.SetToGame(alph, tc.testGame)
-		GenAllCrossSets(b, gd, dist)
+		gen.GenerateAll(b)
 		b.UpdateAllAnchors()
 		b.PlayMove(tc.m, dist)
-		UpdateCrossSetsForMove(b, tc.m, gd, dist)
+		gen.UpdateForMove(b, tc.m)
 		log.Printf(b.ToDisplayText(alph))
 		// Create an identical board, but generate cross-sets for the entire
 		// board after placing the letters "manually".
@@ -509,6 +510,64 @@ func TestGenAllCrossScores(t *testing.T) {
 	}
 }
 
+// Copy of TestUpdateCrossSetsForMove with the CrossScoreOnlyGenerator
+func TestUpdateCrossScoresForMove(t *testing.T) {
+	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
+	if err != nil {
+		t.Error(err)
+	}
+	gen := CrossScoreOnlyGenerator{Dist: dist}
+	alph := dist.Alphabet()
+
+	var testCases = []updateCrossesForMoveTestCase{
+		{VsMatt, move.NewScoringMoveSimple(38, "K9", "TAEL", "ABD", alph), "TAEL"},
+		// Test right edge of board
+		{VsMatt2, move.NewScoringMoveSimple(77, "O8", "TENsILE", "", alph), "TENsILE"},
+		// Test through tiles
+		{VsOxy, move.NewScoringMoveSimple(1780, "A1", "OX.P...B..AZ..E", "", alph),
+			"OXYPHENBUTAZONE"},
+		// Test top of board, horizontal
+		{VsJeremy, move.NewScoringMoveSimple(14, "1G", "S.oWED", "D?", alph), "SNoWED"},
+		// Test bottom of board, horizontal
+		{VsJeremy, move.NewScoringMoveSimple(11, "15F", "F..ER", "", alph), "FOYER"},
+	}
+
+	// create a move.
+	for _, tc := range testCases {
+		b := board.MakeBoard(board.CrosswordGameBoard)
+		b.SetToGame(alph, tc.testGame)
+		gen.GenerateAll(b)
+		b.UpdateAllAnchors()
+		b.PlayMove(tc.m, dist)
+		gen.UpdateForMove(b, tc.m)
+		log.Printf(b.ToDisplayText(alph))
+		// Create an identical board, but generate cross-sets for the entire
+		// board after placing the letters "manually".
+		c := board.MakeBoard(board.CrosswordGameBoard)
+		c.SetToGame(alph, tc.testGame)
+		c.PlaceMoveTiles(tc.m)
+		c.TestSetTilesPlayed(c.GetTilesPlayed() + tc.m.TilesPlayed())
+		GenAllCrossScores(c, dist)
+		c.UpdateAllAnchors()
+
+		assert.True(t, b.Equals(c))
+
+		for i, c := range tc.userVisibleWord {
+			row, col, vertical := tc.m.CoordsAndVertical()
+			var rowInc, colInc int
+			if vertical {
+				rowInc = i
+				colInc = 0
+			} else {
+				rowInc = 0
+				colInc = i
+			}
+			uv := b.GetSquare(row+rowInc, col+colInc).Letter().UserVisible(alph)
+			assert.Equal(t, c, uv)
+		}
+	}
+}
+
 // Benchmarks
 
 func BenchmarkGenAnchorsAndCrossSets(b *testing.B) {
@@ -546,10 +605,11 @@ func BenchmarkMakePlay(b *testing.B) {
 	if err != nil {
 		b.Error(err)
 	}
+	gen := GaddagCrossSetGenerator{Dist: dist, Gaddag: gd}
 	alph := dist.Alphabet()
 	bd := board.MakeBoard(board.CrosswordGameBoard)
 	bd.SetToGame(alph, VsMatt)
-	GenAllCrossSets(bd, gd, dist)
+	gen.GenerateAll(bd)
 	bd.UpdateAllAnchors()
 
 	// create a move.
@@ -567,7 +627,7 @@ func BenchmarkMakePlay(b *testing.B) {
 	// seems worth it.
 	for i := 0; i < b.N; i++ {
 		bd.PlayMove(m, dist)
-		UpdateCrossSetsForMove(bd, m, gd, dist)
+		gen.UpdateForMove(bd, m)
 	}
 
 }
