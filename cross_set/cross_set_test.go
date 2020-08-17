@@ -439,6 +439,78 @@ func TestUpdateSingleCrossSet(t *testing.T) {
 	}
 }
 
+// Cross-score only tests
+
+// Copy of TestGenAllCrossSets with the cross-set bits removed
+func TestGenAllCrossScores(t *testing.T) {
+	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
+	if err != nil {
+		t.Error(err)
+	}
+	alph := dist.Alphabet()
+
+	b := board.MakeBoard(board.CrosswordGameBoard)
+	b.SetToGame(alph, VsEd)
+
+	GenAllCrossScores(b, dist)
+
+	var testCases = []crossSetTestCase{
+		{8, 8, board.CrossSetFromString("OS", alph), board.HorizontalDirection, 8},
+		{8, 8, board.CrossSetFromString("S", alph), board.VerticalDirection, 9},
+		{5, 11, board.CrossSetFromString("S", alph), board.HorizontalDirection, 5},
+		{5, 11, board.CrossSetFromString("AO", alph), board.VerticalDirection, 2},
+		{8, 13, board.CrossSetFromString("AEOU", alph), board.HorizontalDirection, 1},
+		{8, 13, board.CrossSetFromString("AEIMOUY", alph), board.VerticalDirection, 3},
+		{9, 13, board.CrossSetFromString("HMNPST", alph), board.HorizontalDirection, 1},
+		{9, 13, board.TrivialCrossSet, board.VerticalDirection, 0},
+		{14, 14, board.TrivialCrossSet, board.HorizontalDirection, 0},
+		{14, 14, board.TrivialCrossSet, board.VerticalDirection, 0},
+		{12, 12, board.CrossSet(0), board.HorizontalDirection, 0},
+		{12, 12, board.CrossSet(0), board.VerticalDirection, 0},
+	}
+
+	for _, tc := range testCases {
+		// Compare values
+		if b.GetCrossScore(tc.row, tc.col, tc.dir) != tc.score {
+			t.Errorf("For row=%v col=%v, Expected cross-score to be %v, got %v",
+				tc.row, tc.col, tc.score,
+				b.GetCrossScore(tc.row, tc.col, tc.dir))
+		}
+	}
+	// This one has more nondeterministic (in-between LR) crosssets
+	b.SetToGame(alph, VsMatt)
+	GenAllCrossScores(b, dist)
+	testCases = []crossSetTestCase{
+		{8, 7, board.CrossSetFromString("S", alph), board.HorizontalDirection, 11},
+		{8, 7, board.CrossSet(0), board.VerticalDirection, 12},
+		{5, 11, board.CrossSetFromString("BGOPRTWX", alph), board.HorizontalDirection, 2},
+		{5, 11, board.CrossSet(0), board.VerticalDirection, 15},
+		{8, 13, board.TrivialCrossSet, board.HorizontalDirection, 0},
+		{8, 13, board.TrivialCrossSet, board.VerticalDirection, 0},
+		{11, 4, board.CrossSetFromString("DRS", alph), board.HorizontalDirection, 6},
+		{11, 4, board.CrossSetFromString("CGM", alph), board.VerticalDirection, 1},
+		{2, 2, board.TrivialCrossSet, board.HorizontalDirection, 0},
+		{2, 2, board.CrossSetFromString("AEI", alph), board.VerticalDirection, 2},
+		{7, 12, board.CrossSetFromString("AEIOY", alph), board.HorizontalDirection, 0}, // it's a blank
+		{7, 12, board.TrivialCrossSet, board.VerticalDirection, 0},
+		{11, 8, board.CrossSet(0), board.HorizontalDirection, 4},
+		{11, 8, board.CrossSetFromString("AEOU", alph), board.VerticalDirection, 1},
+		{1, 8, board.CrossSetFromString("AEO", alph), board.HorizontalDirection, 1},
+		{1, 8, board.CrossSetFromString("DFHLMNRSTX", alph), board.VerticalDirection, 1},
+		{10, 10, board.CrossSetFromString("E", alph), board.HorizontalDirection, 11},
+		{10, 10, board.TrivialCrossSet, board.VerticalDirection, 0},
+	}
+	for _, tc := range testCases {
+		if b.GetCrossScore(tc.row, tc.col, tc.dir) != tc.score {
+			t.Errorf("For row=%v col=%v, Expected cross-score to be %v, got %v",
+				tc.row, tc.col, tc.score,
+				b.GetCrossScore(tc.row, tc.col, tc.dir))
+		}
+	}
+}
+
+// Benchmarks
+
 func BenchmarkGenAnchorsAndCrossSets(b *testing.B) {
 	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
 	gd, err := gaddag.LoadGaddag(path)

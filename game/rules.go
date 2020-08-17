@@ -55,7 +55,7 @@ func NewBasicGameRules(cfg *config.Config, boardLayout []string,
 		dist:        dist,
 		board:       board.MakeBoard(boardLayout),
 		lexicon:     lexicon.AcceptAll{Alph: dist.Alphabet()},
-		crossSetGen: cross_set.NullCrossSetGenerator{},
+		crossSetGen: cross_set.CrossScoreOnlyGenerator{Dist: dist},
 	}
 	return rules, nil
 }
