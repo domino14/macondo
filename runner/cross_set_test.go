@@ -16,7 +16,6 @@ import (
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/lexicon"
-	"github.com/domino14/macondo/move"
 )
 
 var DefaultConfig = config.DefaultConfig()
@@ -51,6 +50,12 @@ func compareCrossScores(t *testing.T, b1 *board.GameBoard, b2 *board.GameBoard) 
 	}
 }
 
+type testMove struct {
+	coords string
+	word   string
+	rack   string
+}
+
 func TestCompareGameMove(t *testing.T) {
 	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
 	gd, err := gaddag.LoadGaddag(path)
@@ -80,16 +85,10 @@ func TestCompareGameMove(t *testing.T) {
 	rules1 := game.NewGameRules(&DefaultConfig, dist, bd, lex, gen1)
 	rules2 := game.NewGameRules(&DefaultConfig, dist, bd, lex, gen2)
 
-	var testCases = []*move.Move{
-		move.NewScoringMoveSimple(38, "K9", "TAEL", "ABD", alph),
-		// Test right edge of board
-		move.NewScoringMoveSimple(77, "O8", "TENsILE", "", alph),
-		// Test through tiles
-		move.NewScoringMoveSimple(1780, "A1", "OX.P...B..AZ..E", "", alph),
-		// Test top of board, horizontal
-		move.NewScoringMoveSimple(14, "1G", "S.oWED", "D?", alph),
-		// Test bottom of board, horizontal
-		move.NewScoringMoveSimple(11, "15F", "F..ER", "", alph),
+	var testCases = []testMove{
+		{"8D", "QWERTY", "QWERTYU"},
+		{"H8", "TAEL", "TAELABC"},
+		{"D7", "EQUALITY", "EUALITY"},
 	}
 
 	game1, err := NewGameRunnerFromRules(opts, players, rules1)
@@ -102,8 +101,24 @@ func TestCompareGameMove(t *testing.T) {
 	}
 	// create a move.
 	for _, tc := range testCases {
-		game1.PlayMove(tc, true, 0)
-		game2.PlayMove(tc, true, 0)
+		err = game1.SetCurrentRack(tc.rack)
+		if err != nil {
+			t.Error(err)
+		}
+		err = game2.SetCurrentRack(tc.rack)
+		if err != nil {
+			t.Error(err)
+		}
+		m1, err := game1.NewPlacementMove(game1.PlayerOnTurn(), tc.coords, tc.word)
+		if err != nil {
+			t.Error(err)
+		}
+		m2, err := game2.NewPlacementMove(game2.PlayerOnTurn(), tc.coords, tc.word)
+		if err != nil {
+			t.Error(err)
+		}
+		game1.PlayMove(m1, true, 0)
+		game2.PlayMove(m2, true, 0)
 		compareCrossScores(t, game1.Board(), game2.Board())
 	}
 }
