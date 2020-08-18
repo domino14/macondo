@@ -1,6 +1,8 @@
 package cross_set
 
 import (
+	"github.com/rs/zerolog/log"
+
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/gaddag"
@@ -59,6 +61,8 @@ func generateAll(g iGenerator, b *Board) {
 }
 
 func updateForMove(g iGenerator, b *Board, m *move.Move) {
+
+	log.Debug().Msgf("Updating for move: %s", m.ShortDescription())
 	row, col, vertical := m.CoordsAndVertical()
 	// Every tile placed by this new move creates new "across" words, and we need
 	// to update the cross sets on both sides of these across words, as well
@@ -158,12 +162,14 @@ func genCrossScore(b *Board, row int, col int, dir board.BoardDirection,
 	if rightCol == col {
 		score := b.TraverseBackwardsForScore(row, col-1, ld)
 		b.GetSquare(row, col).SetCrossScore(score, dir)
+		log.Debug().Msgf("Setting cross score from scorer to: %d", score)
 	} else {
 		// Otherwise, the right is not empty. Check if the left is empty,
 		// if so we just traverse right, otherwise, we try every letter.
 		scoreR := b.TraverseBackwardsForScore(row, rightCol, ld)
 		scoreL := b.TraverseBackwardsForScore(row, col-1, ld)
 		b.GetSquare(row, col).SetCrossScore(scoreR+scoreL, dir)
+		log.Debug().Msgf("Setting cross score from scorer to: %d+%d", scoreR, scoreL)
 	}
 }
 
@@ -273,6 +279,7 @@ func GenCrossSet(b *Board, row int, col int, dir board.BoardDirection,
 			gaddag.GetRootNodeIndex(), false, 0, gaddag)
 		score := b.TraverseBackwardsForScore(row, col-1, ld)
 		b.GetSquare(row, col).SetCrossScore(score, dir)
+		log.Debug().Msgf("Setting cross score from gaddag to: %d", score)
 
 		if !lPathValid {
 			// There are no further extensions to the word on the board,
@@ -297,6 +304,7 @@ func GenCrossSet(b *Board, row int, col int, dir board.BoardDirection,
 		scoreR := b.TraverseBackwardsForScore(row, rightCol, ld)
 		scoreL := b.TraverseBackwardsForScore(row, col-1, ld)
 		b.GetSquare(row, col).SetCrossScore(scoreR+scoreL, dir)
+		log.Debug().Msgf("Setting cross score from gaddag to: %d+%d", scoreR, scoreL)
 		if !lPathValid {
 			b.GetSquare(row, col).SetCrossSet(CrossSet(0), dir)
 			return
