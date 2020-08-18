@@ -562,6 +562,106 @@ func TestUpdateCrossScoresForMove(t *testing.T) {
 	}
 }
 
+// Comparison tests between the two generators for cross-score generation
+
+func compareCrossScores(t *testing.T, b1 *board.GameBoard, b2 *board.GameBoard) {
+	dim := b1.Dim()
+	dirs := []board.BoardDirection{board.HorizontalDirection, board.VerticalDirection}
+	var d board.BoardDirection
+
+	for r := 0; r < dim; r++ {
+		for c := 0; c < dim; c++ {
+			for _, d = range dirs {
+				cs1 := b1.GetCrossScore(r, c, d)
+				cs2 := b2.GetCrossScore(r, c, d)
+				assert.Equal(t, cs1, cs2)
+			}
+		}
+	}
+}
+
+func TestCompareUpdate(t *testing.T) {
+	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
+	gd, err := gaddag.LoadGaddag(path)
+	if err != nil {
+		t.Error(err)
+	}
+	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
+	if err != nil {
+		t.Error(err)
+	}
+	gen1 := GaddagCrossSetGenerator{Dist: dist, Gaddag: gd}
+	gen2 := CrossScoreOnlyGenerator{Dist: dist}
+	alph := dist.Alphabet()
+
+	var testCases = []updateCrossesForMoveTestCase{
+		{VsMatt, move.NewScoringMoveSimple(38, "K9", "TAEL", "ABD", alph), "TAEL"},
+		// Test right edge of board
+		{VsMatt2, move.NewScoringMoveSimple(77, "O8", "TENsILE", "", alph), "TENsILE"},
+		// Test through tiles
+		{VsOxy, move.NewScoringMoveSimple(1780, "A1", "OX.P...B..AZ..E", "", alph),
+			"OXYPHENBUTAZONE"},
+		// Test top of board, horizontal
+		{VsJeremy, move.NewScoringMoveSimple(14, "1G", "S.oWED", "D?", alph), "SNoWED"},
+		// Test bottom of board, horizontal
+		{VsJeremy, move.NewScoringMoveSimple(11, "15F", "F..ER", "", alph), "FOYER"},
+	}
+
+	// create a move.
+	for _, tc := range testCases {
+		// Run the cross set generator on b1
+		b1 := board.MakeBoard(board.CrosswordGameBoard)
+		b1.SetToGame(alph, tc.testGame)
+		gen1.GenerateAll(b1)
+		b1.UpdateAllAnchors()
+		b1.PlayMove(tc.m, dist)
+		gen1.UpdateForMove(b1, tc.m)
+
+		// Run the cross score generator on b2
+		b2 := board.MakeBoard(board.CrosswordGameBoard)
+		b2.SetToGame(alph, tc.testGame)
+		gen2.GenerateAll(b2)
+		b2.UpdateAllAnchors()
+		b2.PlayMove(tc.m, dist)
+		gen2.UpdateForMove(b2, tc.m)
+
+		compareCrossScores(t, b1, b2)
+	}
+}
+
+func TestCompareGenAll(t *testing.T) {
+	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
+	gd, err := gaddag.LoadGaddag(path)
+	if err != nil {
+		t.Error(err)
+	}
+	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
+	if err != nil {
+		t.Error(err)
+	}
+	alph := dist.Alphabet()
+
+	var testCases = []board.VsWho{
+		VsEd,
+		VsJeremy,
+		VsMatt,
+		VsMatt2,
+		VsOxy,
+	}
+
+	for _, tc := range testCases {
+		b1 := board.MakeBoard(board.CrosswordGameBoard)
+		b1.SetToGame(alph, tc)
+		GenAllCrossSets(b1, gd, dist)
+
+		b2 := board.MakeBoard(board.CrosswordGameBoard)
+		b2.SetToGame(alph, tc)
+		GenAllCrossScores(b2, dist)
+
+		compareCrossScores(t, b1, b2)
+	}
+}
+
 // Benchmarks
 
 func BenchmarkGenAnchorsAndCrossSets(b *testing.B) {
