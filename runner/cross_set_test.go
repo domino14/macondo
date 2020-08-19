@@ -54,6 +54,7 @@ type testMove struct {
 	coords string
 	word   string
 	rack   string
+	score  int
 }
 
 func TestCompareGameMove(t *testing.T) {
@@ -86,11 +87,11 @@ func TestCompareGameMove(t *testing.T) {
 	rules2 := game.NewGameRules(&DefaultConfig, dist, bd, lex, gen2)
 
 	var testCases = []testMove{
-		{"8D", "QWERTY", "QWERTYU"},
-		{"H8", "TAEL", "TAELABC"},
-		{"D7", "EQUALITY", "EUALITY"},
-		{"E10", "MINE", "MINEFHI"},
-		{"C13", "AB", "ABIIOOO"},
+		{"8D", "QWERTY", "QWERTYU", 62},
+		{"H8", "TAEL", "TAELABC", 4},
+		{"D7", "EQUALITY", "EUALITY", 90},
+		{"E10", "MINE", "MINEFHI", 24},
+		{"C13", "AB", "ABIIOOO", 21},
 	}
 
 	game1, err := NewGameRunnerFromRules(opts, players, rules1)
@@ -122,5 +123,7 @@ func TestCompareGameMove(t *testing.T) {
 		game1.PlayMove(m1, true, 0)
 		game2.PlayMove(m2, true, 0)
 		compareCrossScores(t, game1.Board(), game2.Board())
+		assert.Equal(t, tc.score, m1.Score())
+		assert.Equal(t, tc.score, m2.Score())
 	}
 }
