@@ -162,14 +162,12 @@ func genCrossScore(b *Board, row int, col int, dir board.BoardDirection,
 	if rightCol == col {
 		score := b.TraverseBackwardsForScore(row, col-1, ld)
 		b.GetSquare(row, col).SetCrossScore(score, dir)
-		log.Debug().Msgf("Setting cross score from scorer to: %d", score)
 	} else {
 		// Otherwise, the right is not empty. Check if the left is empty,
 		// if so we just traverse right, otherwise, we try every letter.
 		scoreR := b.TraverseBackwardsForScore(row, rightCol, ld)
 		scoreL := b.TraverseBackwardsForScore(row, col-1, ld)
 		b.GetSquare(row, col).SetCrossScore(scoreR+scoreL, dir)
-		log.Debug().Msgf("Setting cross score from scorer to: %d+%d", scoreR, scoreL)
 	}
 }
 
@@ -279,7 +277,6 @@ func GenCrossSet(b *Board, row int, col int, dir board.BoardDirection,
 			gaddag.GetRootNodeIndex(), false, 0, gaddag)
 		score := b.TraverseBackwardsForScore(row, col-1, ld)
 		b.GetSquare(row, col).SetCrossScore(score, dir)
-		log.Debug().Msgf("Setting cross score from gaddag to: %d", score)
 
 		if !lPathValid {
 			// There are no further extensions to the word on the board,
@@ -304,7 +301,6 @@ func GenCrossSet(b *Board, row int, col int, dir board.BoardDirection,
 		scoreR := b.TraverseBackwardsForScore(row, rightCol, ld)
 		scoreL := b.TraverseBackwardsForScore(row, col-1, ld)
 		b.GetSquare(row, col).SetCrossScore(scoreR+scoreL, dir)
-		log.Debug().Msgf("Setting cross score from gaddag to: %d+%d", scoreR, scoreL)
 		if !lPathValid {
 			b.GetSquare(row, col).SetCrossSet(CrossSet(0), dir)
 			return
