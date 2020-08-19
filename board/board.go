@@ -83,6 +83,10 @@ func (g *GameBoard) GetLetter(row int, col int) alphabet.MachineLetter {
 	return g.GetSquare(row, col).letter
 }
 
+func (g *GameBoard) HasLetter(row int, col int) bool {
+	return !g.GetSquare(row, col).IsEmpty()
+}
+
 func (g *GameBoard) GetCrossSet(row int, col int, dir BoardDirection) CrossSet {
 	return *g.squares[row][col].GetCrossSet(dir) // the actual value
 }
@@ -564,10 +568,18 @@ func (g *GameBoard) ScoreWord(word alphabet.MachineWord, row, col, tilesPlayed i
 		}
 
 		mainWordScore += ls * letterMultiplier
-		// We only add cross scores if the cross set of this square is non-trivial
-		// (i.e. we have to be making an across word). Note that it's not enough
-		// to check that the cross-score is 0 because we could have a blank.
-		if freshTile && g.GetCrossSet(row, col+idx, crossDir) != TrivialCrossSet {
+		// We only add cross scores if we are making an "across" word).
+		// Note that we look up and down because the word is always horizontal
+		// in this routine (board might or might not be transposed).
+		actualCrossword := false
+		if row > 0 && g.HasLetter(row-1, col+idx) {
+			actualCrossword = true
+		}
+		if row < g.Dim()-1 && g.HasLetter(row+1, col+idx) {
+			actualCrossword = true
+		}
+
+		if freshTile && actualCrossword {
 			crossScores += ls*letterMultiplier*thisWordMultiplier + cs*thisWordMultiplier
 		}
 	}
