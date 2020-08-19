@@ -571,15 +571,9 @@ func (g *GameBoard) ScoreWord(word alphabet.MachineWord, row, col, tilesPlayed i
 		// We only add cross scores if we are making an "across" word).
 		// Note that we look up and down because the word is always horizontal
 		// in this routine (board might or might not be transposed).
-		actualCrossword := false
-		if row > 0 && g.HasLetter(row-1, col+idx) {
-			actualCrossword = true
-		}
-		if row < g.Dim()-1 && g.HasLetter(row+1, col+idx) {
-			actualCrossword = true
-		}
+		actualCrossWord := (row > 0 && g.HasLetter(row-1, col+idx)) || (row < g.Dim()-1 && g.HasLetter(row+1, col+idx))
 
-		if freshTile && actualCrossword {
+		if freshTile && actualCrossWord {
 			crossScores += ls*letterMultiplier*thisWordMultiplier + cs*thisWordMultiplier
 		}
 	}
