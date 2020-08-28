@@ -39,6 +39,9 @@ func (g *Game) EventFromMove(m *move.Move) *pb.GameEvent {
 	case move.MoveTypePass:
 		evt.Type = pb.GameEvent_PASS
 
+	case move.MoveTypeChallenge:
+		evt.Type = pb.GameEvent_CHALLENGE
+
 	case move.MoveTypeUnsuccessfulChallengePass:
 		evt.Type = pb.GameEvent_UNSUCCESSFUL_CHALLENGE_TURN_LOSS
 
@@ -176,8 +179,12 @@ func MoveFromEvent(evt *pb.GameEvent, alph *alphabet.Alphabet, board *board.Game
 			return nil
 		}
 		m = move.NewExchangeMove(tiles, leaveMW, alph)
+
 	case pb.GameEvent_PASS:
 		m = move.NewPassMove(rack, alph)
+
+	case pb.GameEvent_CHALLENGE:
+		m = move.NewChallengeMove(rack, alph)
 
 	case pb.GameEvent_CHALLENGE_BONUS:
 		m = move.NewBonusScoreMove(move.MoveTypeChallengeBonus,
@@ -260,6 +267,10 @@ func summary(evt *pb.GameEvent) string {
 
 	case pb.GameEvent_PASS:
 		summary = fmt.Sprintf("%s passed, holding a rack of %s",
+			evt.Nickname, evt.Rack)
+
+	case pb.GameEvent_CHALLENGE:
+		summary = fmt.Sprintf("%s challenged, holding a rack of %s",
 			evt.Nickname, evt.Rack)
 
 	case pb.GameEvent_UNSUCCESSFUL_CHALLENGE_TURN_LOSS:

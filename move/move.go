@@ -18,6 +18,7 @@ const (
 	MoveTypePlay MoveType = iota
 	MoveTypeExchange
 	MoveTypePass
+	MoveTypeChallenge
 	MoveTypePhonyTilesReturned
 	MoveTypeChallengeBonus
 	MoveTypeUnsuccessfulChallengePass
@@ -77,6 +78,10 @@ func (m *Move) String() string {
 			m,
 			m.tiles.UserVisible(m.alph), m.score, m.tilesPlayed,
 			m.leave.UserVisible(m.alph), m.equity)
+	case MoveTypeChallenge:
+		return fmt.Sprintf("<%p action: challenge leave: %v equity: %.3f valu: %.3f>",
+			m,
+			m.leave.UserVisible(m.alph), m.equity, m.valuation)
 	}
 	return fmt.Sprint("<Unhandled move>")
 
@@ -92,6 +97,8 @@ func (m *Move) ShortDescription() string {
 		return "(Pass)"
 	case MoveTypeExchange:
 		return fmt.Sprintf("(exch %v)", m.tiles.UserVisible(m.alph))
+	case MoveTypeChallenge:
+		return "(Challenge!)"
 	}
 	return fmt.Sprint("UNHANDLED")
 }
@@ -346,6 +353,15 @@ func FromBoardGameCoords(c string) (int, int, bool) {
 func NewPassMove(leave alphabet.MachineWord, alph *alphabet.Alphabet) *Move {
 	return &Move{
 		action: MoveTypePass,
+		leave:  leave,
+		alph:   alph,
+	}
+}
+
+// NewChallengeMove creates a challenge with the given leave.
+func NewChallengeMove(leave alphabet.MachineWord, alph *alphabet.Alphabet) *Move {
+	return &Move{
+		action: MoveTypeChallenge,
 		leave:  leave,
 		alph:   alph,
 	}

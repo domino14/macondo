@@ -80,18 +80,19 @@ func Msg(message string) *Response {
 	return &Response{message: message, send: false}
 }
 
+// Keep Send in case we need bot debug messages, but for regular bot-to-play
+// the shell now automatically sends a message.
 func Send(message string) *Response {
 	return &Response{message: message, send: true}
 }
 
 type ShellController struct {
-	l          *readline.Instance
-	config     *config.Config
-	execPath   string
-	options    *ShellOptions
-	game       *runner.AIGameRunner
-	curTurnNum int
-	client     Client
+	l        *readline.Instance
+	config   *config.Config
+	execPath string
+	options  *ShellOptions
+	game     *runner.AIGameRunner
+	client   Client
 }
 
 func filterInput(r rune) (rune, bool) {
@@ -140,18 +141,23 @@ func (sc *ShellController) IsPlaying() bool {
 	return sc.game != nil && sc.game.IsPlaying()
 }
 
+func (sc *ShellController) IsBotOnTurn() bool {
+	return sc.game != nil && sc.game.PlayerOnTurn() == BotPlayer
+}
+
 func (sc *ShellController) getMove() error {
 	sc.showMessage("Requesting move from bot")
 	m, err := sc.client.RequestMove(&sc.game.GameRunner, sc.config)
-	sc.showMessage("Bot returned move: " + m.ShortDescription())
 	if err != nil {
+		sc.showMessage("Bot returned error: " + err.Error())
 		return err
+	} else {
+		sc.showMessage("Bot returned move: " + m.ShortDescription())
 	}
 	err = sc.game.PlayMove(m, true, 0)
 	if err != nil {
 		return err
 	}
-	sc.curTurnNum = sc.game.Turn()
 	sc.showMessage(sc.game.ToDisplayText())
 	return nil
 }
@@ -171,7 +177,7 @@ func (sc *ShellController) newGame() (*Response, error) {
 	if g.PlayerOnTurn() == SelfPlayer {
 		return Msg(sc.game.ToDisplayText()), nil
 	} else {
-		return Send("Opponent goes first"), nil
+		return Msg("Opponent goes first"), nil
 	}
 }
 
@@ -214,9 +220,8 @@ func (sc *ShellController) commit(m *move.Move) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	sc.curTurnNum = sc.game.Turn()
 	msg := sc.game.ToDisplayText()
-	return Send(msg), nil
+	return Msg(msg), nil
 }
 
 func (sc *ShellController) aiplay() (*Response, error) {
@@ -266,6 +271,14 @@ func (sc *ShellController) Loop(channel string, sig chan os.Signal) {
 
 	// Run the readline loop
 	for {
+		if sc.IsBotOnTurn() {
+			err = sc.getMove()
+			if err != nil {
+				sc.showError(err)
+			}
+			continue
+		}
+
 		line, err := sc.l.Readline()
 		if err == readline.ErrInterrupt {
 			if len(line) == 0 {
@@ -289,12 +302,6 @@ func (sc *ShellController) Loop(channel string, sig chan os.Signal) {
 				sc.showError(err)
 			} else if resp != nil {
 				sc.showMessage(resp.message)
-				if resp.send {
-					err = sc.getMove()
-					if err != nil {
-						sc.showError(err)
-					}
-				}
 			}
 		}
 	}
