@@ -66,6 +66,12 @@ func (g *GameRunner) NewPassMove(playerid int) (*move.Move, error) {
 	return m, nil
 }
 
+func (g *GameRunner) NewChallengeMove(playerid int) (*move.Move, error) {
+	rack := g.RackFor(playerid)
+	m := move.NewChallengeMove(rack.TilesOn(), g.Alphabet())
+	return m, nil
+}
+
 func (g *GameRunner) NewExchangeMove(playerid int, letters string) (*move.Move, error) {
 	alph := g.Alphabet()
 	rack := g.RackFor(playerid)

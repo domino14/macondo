@@ -45,6 +45,8 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 	challengee := otherPlayer(g.onturn)
 	var err error
 	if !playLegal {
+		log.Debug().Msg("Successful challenge")
+
 		offBoardEvent := &pb.GameEvent{
 			Nickname:    lastEvent.Nickname,
 			Type:        pb.GameEvent_PHONY_TILES_RETURNED,
@@ -57,7 +59,7 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 		}
 
 		// the play comes off the board. Add the offBoardEvent.
-		g.history.Events = append(g.history.Events, offBoardEvent)
+		g.addEventToHistory(offBoardEvent)
 		// Unplay the last move to restore everything as it was board-wise
 		// (and un-end the game if it had ended)
 		g.UnplayLastMove()
@@ -80,6 +82,8 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 		// player who played the phony knowledge about the next few tiles in the bag.
 		g.bag.Shuffle()
 	} else {
+		log.Debug().Msg("Unsuccessful challenge")
+
 		addPts := int32(0)
 		shouldAddPts := false
 
@@ -120,7 +124,7 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 		if shouldAddPts {
 			evt := bonusScoreEvent(addPts)
 			log.Debug().Interface("evt", evt).Msg("adding bonus score evt")
-			g.history.Events = append(g.history.Events, evt)
+			g.addEventToHistory(evt)
 			g.players[challengee].points += int(addPts) + addlBonus
 		}
 

@@ -94,9 +94,23 @@ func (bot *Bot) handle(data []byte) *pb.BotResponse {
 	}
 	bot.game = g
 
-	log.Info().Msgf("Game state: %v", g.Playing())
+	// See if we need to challenge the last move
+	valid := true
+	if g.LastEvent() != nil &&
+		g.LastEvent().Type == pb.GameEvent_TILE_PLACEMENT_MOVE {
+		for _, word := range g.LastWordsFormed() {
+			if !g.Lexicon().HasWord(word) {
+				valid = false
+				break
+			}
+		}
+	}
+
 	var m *move.Move
-	if g.IsPlaying() {
+
+	if !valid {
+		m, _ = g.NewChallengeMove(g.PlayerOnTurn())
+	} else if g.IsPlaying() {
 		moves := bot.game.GenerateMoves(1)
 		m = moves[0]
 	} else {

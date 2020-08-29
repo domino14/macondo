@@ -98,6 +98,23 @@ func (g *Game) LexiconName() string {
 	return g.lexicon.Name()
 }
 
+func (g *Game) LastWordsFormed() []alphabet.MachineWord {
+	return g.lastWordsFormed
+}
+
+func (g *Game) LastEvent() *pb.GameEvent {
+	last := len(g.history.Events) - 1
+	if last < 0 {
+		return nil
+	}
+	return g.history.Events[last]
+}
+
+func (g *Game) addEventToHistory(evt *pb.GameEvent) {
+	log.Debug().Msgf("Adding event to history: %v", evt)
+	g.history.Events = append(g.history.Events, evt)
+}
+
 // CalculateCoordsFromStringPosition turns a "position" on the board such as
 // H7 and turns it into a numeric row, col, and direction.
 func CalculateCoordsFromStringPosition(evt *pb.GameEvent) {
@@ -271,6 +288,9 @@ func (g *Game) ValidateMove(m *move.Move) ([]alphabet.MachineWord, error) {
 	} else if m.Action() == move.MoveTypePass {
 		// This is always valid.
 		return nil, nil
+	} else if m.Action() == move.MoveTypeChallenge {
+		// This is always valid.
+		return nil, nil
 	} else if m.Action() == move.MoveTypeUnsuccessfulChallengePass {
 		return nil, nil
 	} else if m.Action() == move.MoveTypePlay {
@@ -321,7 +341,7 @@ func (g *Game) endOfGameCalcs(onturn int, addToHistory bool) {
 
 	g.players[onturn].points += unplayedPts
 	if addToHistory {
-		g.history.Events = append(g.history.Events, g.endRackEvt(onturn, unplayedPts))
+		g.addEventToHistory(g.endRackEvt(onturn, unplayedPts))
 	}
 	log.Debug().Int("onturn", onturn).Int("unplayedpts", unplayedPts).Interface("players", g.players).
 		Msg("endOfGameCalcs")
@@ -344,6 +364,12 @@ func convertToVisible(words []alphabet.MachineWord,
 // If the millis argument is passed in, it adds this value to the history
 // as the time remaining for the user (when they played the move).
 func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
+
+	// We need to handle challenges separately.
+	if m.Action() == move.MoveTypeChallenge {
+		_, err := g.ChallengeEvent(0, 0)
+		return err
+	}
 
 	if g.backupMode != NoBackup {
 		g.backupState()
@@ -380,7 +406,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 			evt.MillisRemaining = int32(millis)
 			evt.WordsFormed = convertToVisible(g.lastWordsFormed, g.alph)
 			g.history.LastKnownRacks[g.onturn] = g.RackLettersFor(g.onturn)
-			g.history.Events = append(g.history.Events, evt)
+			g.addEventToHistory(evt)
 		}
 
 		if g.players[g.onturn].rack.NumTiles() == 0 {
@@ -425,7 +451,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 			if addToHistory {
 				evt := g.EventFromMove(m)
 				evt.MillisRemaining = int32(millis)
-				g.history.Events = append(g.history.Events, evt)
+				g.addEventToHistory(evt)
 			}
 		}
 
@@ -442,7 +468,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 			evt := g.EventFromMove(m)
 			evt.MillisRemaining = int32(millis)
 			g.history.LastKnownRacks[g.onturn] = g.RackLettersFor(g.onturn)
-			g.history.Events = append(g.history.Events, evt)
+			g.addEventToHistory(evt)
 		}
 	}
 
@@ -453,6 +479,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 	if !gameEnded {
 		g.onturn = (g.onturn + 1) % len(g.players)
 	}
+
 	g.turnnum++
 
 	// log.Debug().Interface("history", g.history).Int("onturn", g.onturn).Int("turnnum", g.turnnum).
@@ -488,14 +515,14 @@ func (g *Game) handleConsecutiveScorelessTurns(addToHistory bool) (bool, error) 
 		g.players[g.onturn].points -= pts
 		if addToHistory {
 			penaltyEvt := g.endRackPenaltyEvt(pts)
-			g.history.Events = append(g.history.Events, penaltyEvt)
+			g.addEventToHistory(penaltyEvt)
 		}
 		g.onturn = (g.onturn + 1) % len(g.players)
 		pts = g.calculateRackPts(g.onturn)
 		g.players[g.onturn].points -= pts
 		if addToHistory {
 			penaltyEvt := g.endRackPenaltyEvt(pts)
-			g.history.Events = append(g.history.Events, penaltyEvt)
+			g.addEventToHistory(penaltyEvt)
 			g.AddFinalScoresToHistory()
 		}
 	}

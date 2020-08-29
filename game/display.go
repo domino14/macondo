@@ -99,6 +99,10 @@ func (g *Game) ToDisplayText() string {
 
 	vpadding = 13
 
+	for i, evt := range g.history.Events {
+		log.Debug().Msgf("Event %d: %v", i, evt)
+	}
+
 	if g.turnnum-1 >= 0 {
 		addText(bts, vpadding, hpadding,
 			summary(g.history.Events[g.turnnum-1]))
