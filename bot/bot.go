@@ -125,7 +125,7 @@ func (bot *Bot) handle(data []byte) *pb.BotResponse {
 
 func Main(channel string, bot *Bot) {
 	bot.newGame()
-	nc, err := nats.Connect(nats.DefaultURL)
+	nc, err := nats.Connect(bot.config.NatsURL)
 	if err != nil {
 		log.Fatal()
 	}

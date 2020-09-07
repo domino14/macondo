@@ -1,2 +1,3 @@
-*.dawg
-*.gaddag
+*.csv.gz
+*.csv
+notebooks/*

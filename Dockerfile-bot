@@ -1,0 +1,7 @@
+FROM golang:alpine
+ENV GOPATH=/go
+ADD . /opt/macondo
+WORKDIR /opt/macondo
+RUN go build -o bin/bot cmd/bot/main.go
+
+CMD ./bin/bot
