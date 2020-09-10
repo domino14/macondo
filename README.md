@@ -9,6 +9,6 @@ Current master build status:
 
 # protoc
 
-To generate pb files, run in this directory:
+To generate pb files, run this in the macondo directory:
 
 `protoc --go_out=gen --go_opt=paths=source_relative ./api/proto/macondo/macondo.proto`

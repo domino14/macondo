@@ -22,6 +22,7 @@ const (
 	MoveTypePhonyTilesReturned
 	MoveTypeChallengeBonus
 	MoveTypeUnsuccessfulChallengePass
+	MoveTypeTripleChallenge
 
 	MoveTypeEndgameTiles
 	MoveTypeLostTileScore
@@ -80,6 +81,10 @@ func (m *Move) String() string {
 			m.leave.UserVisible(m.alph), m.equity)
 	case MoveTypeChallenge:
 		return fmt.Sprintf("<%p action: challenge leave: %v equity: %.3f valu: %.3f>",
+			m,
+			m.leave.UserVisible(m.alph), m.equity, m.valuation)
+	case MoveTypeTripleChallenge:
+		return fmt.Sprintf("<%p action: triple challenge leave: %v equity: %.3f valu: %.3f>",
 			m,
 			m.leave.UserVisible(m.alph), m.equity, m.valuation)
 	}
@@ -222,6 +227,14 @@ func NewLostScoreMove(t MoveType, rack alphabet.MachineWord, score int) *Move {
 func NewUnsuccessfulChallengePassMove(leave alphabet.MachineWord, alph *alphabet.Alphabet) *Move {
 	return &Move{
 		action: MoveTypeUnsuccessfulChallengePass,
+		leave:  leave,
+		alph:   alph,
+	}
+}
+
+func NewTripleChallengeMove(leave alphabet.MachineWord, alph *alphabet.Alphabet) *Move {
+	return &Move{
+		action: MoveTypeTripleChallenge,
 		leave:  leave,
 		alph:   alph,
 	}

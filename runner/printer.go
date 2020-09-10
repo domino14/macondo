@@ -13,6 +13,8 @@ func ShowChallengeRule(rule pb.ChallengeRule) string {
 		ret = "single"
 	case pb.ChallengeRule_DOUBLE:
 		ret = "double"
+	case pb.ChallengeRule_TRIPLE:
+		ret = "triple"
 	case pb.ChallengeRule_FIVE_POINT:
 		ret = "5pt"
 	case pb.ChallengeRule_TEN_POINT:

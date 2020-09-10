@@ -44,7 +44,23 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 
 	challengee := otherPlayer(g.onturn)
 	var err error
-	if !playLegal {
+	// This ideal system makes it so someone always loses
+	// the game.
+	// challenger was wrong. They lose the game.
+	if g.history.ChallengeRule == pb.ChallengeRule_TRIPLE {
+		// Set the winner and loser before calling PlayMove, as
+		// that changes who is on turn
+		var winner int32
+		if playLegal {
+			winner = int32(challengee)
+		} else {
+			winner = int32(g.onturn)
+		}
+		g.history.Winner = winner
+		g.PlayMove(move.NewTripleChallengeMove(
+			g.players[g.onturn].rack.TilesOn(), g.alph), true, millis)
+
+	} else if !playLegal {
 		log.Debug().Msg("Successful challenge")
 
 		offBoardEvent := &pb.GameEvent{

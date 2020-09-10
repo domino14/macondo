@@ -42,6 +42,9 @@ func (g *Game) EventFromMove(m *move.Move) *pb.GameEvent {
 	case move.MoveTypeChallenge:
 		evt.Type = pb.GameEvent_CHALLENGE
 
+	case move.MoveTypeTripleChallenge:
+		evt.Type = pb.GameEvent_TRIPLE_CHALLENGE
+
 	case move.MoveTypeUnsuccessfulChallengePass:
 		evt.Type = pb.GameEvent_UNSUCCESSFUL_CHALLENGE_TURN_LOSS
 
@@ -219,6 +222,8 @@ func MoveFromEvent(evt *pb.GameEvent, alph *alphabet.Alphabet, board *board.Game
 		m = move.NewLostScoreMove(mt, rack, int(evt.LostScore))
 	case pb.GameEvent_UNSUCCESSFUL_CHALLENGE_TURN_LOSS:
 		m = move.NewUnsuccessfulChallengePassMove(rack, alph)
+	case pb.GameEvent_TRIPLE_CHALLENGE:
+		m = move.NewTripleChallengeMove(rack, alph)
 	default:
 		log.Error().Msgf("Unhandled event %v", evt)
 

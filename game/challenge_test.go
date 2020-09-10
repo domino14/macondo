@@ -146,3 +146,59 @@ func TestChallengeEndOfGamePhony(t *testing.T) {
 	is.Equal(g.PointsForNick("úrsula"), 372)
 	is.Equal(g.NickOnTurn(), "arcadio")
 }
+
+func TestChallengeTripleUnsuccessful(t *testing.T) {
+	is := is.New(t)
+	players := []*pb.PlayerInfo{
+		{Nickname: "JD", RealName: "Jesse"},
+		{Nickname: "cesar", RealName: "César"},
+	}
+	rules, _ := runner.NewAIGameRules(&DefaultConfig, board.CrosswordGameBoard, "NWL18",
+		"English")
+	g, _ := game.NewGame(rules, players)
+	alph := g.Alphabet()
+	g.StartGame()
+	g.SetPlayerOnTurn(0)
+	g.SetRackFor(0, alphabet.RackFromString("IFFIEST", alph))
+	g.SetChallengeRule(pb.ChallengeRule_TRIPLE)
+	m := move.NewScoringMoveSimple(84, "8C", "IFFIEST", "", alph)
+	_, err := g.ValidateMove(m)
+	is.NoErr(err)
+	err = g.PlayMove(m, true, 0)
+	is.NoErr(err)
+	legal, err := g.ChallengeEvent(0, 0)
+	is.NoErr(err)
+	is.True(legal)
+	is.Equal(len(g.History().Events), 2)
+	is.Equal(g.History().PlayState, pb.PlayState_GAME_OVER)
+	is.Equal(g.History().Winner, int32(0))
+	is.Equal(g.History().Events[1].Type, pb.GameEvent_TRIPLE_CHALLENGE)
+}
+
+func TestChallengeTripleSuccessful(t *testing.T) {
+	is := is.New(t)
+	players := []*pb.PlayerInfo{
+		{Nickname: "JD", RealName: "Jesse"},
+		{Nickname: "cesar", RealName: "César"},
+	}
+	rules, _ := runner.NewAIGameRules(&DefaultConfig, board.CrosswordGameBoard, "NWL18",
+		"English")
+	g, _ := game.NewGame(rules, players)
+	alph := g.Alphabet()
+	g.StartGame()
+	g.SetPlayerOnTurn(0)
+	g.SetRackFor(0, alphabet.RackFromString("IFFIEST", alph))
+	g.SetChallengeRule(pb.ChallengeRule_TRIPLE)
+	m := move.NewScoringMoveSimple(84, "8C", "IFFISET", "", alph)
+	_, err := g.ValidateMove(m)
+	is.NoErr(err)
+	err = g.PlayMove(m, true, 0)
+	is.NoErr(err)
+	legal, err := g.ChallengeEvent(0, 0)
+	is.NoErr(err)
+	is.True(!legal)
+	is.Equal(len(g.History().Events), 2)
+	is.Equal(g.History().PlayState, pb.PlayState_GAME_OVER)
+	is.Equal(g.History().Winner, int32(1))
+	is.Equal(g.History().Events[1].Type, pb.GameEvent_TRIPLE_CHALLENGE)
+}

@@ -291,6 +291,9 @@ func (g *Game) ValidateMove(m *move.Move) ([]alphabet.MachineWord, error) {
 	} else if m.Action() == move.MoveTypeChallenge {
 		// This is always valid.
 		return nil, nil
+	} else if m.Action() == move.MoveTypeTripleChallenge {
+		// This is always valid.
+		return nil, nil
 	} else if m.Action() == move.MoveTypeUnsuccessfulChallengePass {
 		return nil, nil
 	} else if m.Action() == move.MoveTypePlay {
@@ -430,9 +433,6 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		}
 
 	case move.MoveTypePass, move.MoveTypeUnsuccessfulChallengePass:
-		// XXX: It would be ideal to log an unsuccessful challenge pass at
-		// the end of the game, at least as a statistic (in DOUBLE challenge),
-		// but that's not compatible with Quackle.
 		if g.playing == pb.PlayState_WAITING_FOR_FINAL_PASS {
 			g.playing = pb.PlayState_GAME_OVER
 			g.history.PlayState = g.playing
@@ -448,11 +448,31 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 			// If this is a regular pass (and not an end-of-game-pass) let's
 			// log it in the history.
 			g.scorelessTurns++
-			if addToHistory {
-				evt := g.EventFromMove(m)
-				evt.MillisRemaining = int32(millis)
-				g.addEventToHistory(evt)
+		}
+		if addToHistory {
+			evt := g.EventFromMove(m)
+			evt.MillisRemaining = int32(millis)
+			g.addEventToHistory(evt)
+		}
+
+	case move.MoveTypeTripleChallenge:
+		// Don't call AddFinalScoresToHistory, this will
+		// overwrite the correct winner
+		g.playing = pb.PlayState_GAME_OVER
+		g.history.PlayState = g.playing
+		if addToHistory {
+			evt := g.EventFromMove(m)
+			evt.MillisRemaining = int32(millis)
+
+			// This is the only case where the winner needs to be determined
+			// independently from the score, so we copy just these lines from
+			// AddFinalScoresToHistory.
+			g.history.FinalScores = make([]int32, len(g.players))
+			for pidx, p := range g.players {
+				g.history.FinalScores[pidx] = int32(p.points)
 			}
+
+			g.addEventToHistory(evt)
 		}
 
 	case move.MoveTypeExchange:

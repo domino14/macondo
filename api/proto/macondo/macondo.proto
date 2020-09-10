@@ -50,6 +50,7 @@ enum ChallengeRule {
   DOUBLE = 2;
   FIVE_POINT = 3;
   TEN_POINT = 4;
+  TRIPLE = 5;
 }
 
 // This should be merged into Move.
@@ -69,6 +70,9 @@ message GameEvent {
     UNSUCCESSFUL_CHALLENGE_TURN_LOSS = 8;
     // Issue a challenge
     CHALLENGE = 9;
+    // Lose the game for challenging a word incorrectly (only for triple
+    // challenge)
+    TRIPLE_CHALLENGE = 10;
   }
 
   enum Direction {
