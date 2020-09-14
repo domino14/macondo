@@ -50,6 +50,7 @@ enum ChallengeRule {
   DOUBLE = 2;
   FIVE_POINT = 3;
   TEN_POINT = 4;
+  TRIPLE = 5;
 }
 
 // This should be merged into Move.

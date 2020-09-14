@@ -18,6 +18,8 @@ func ParseChallengeRule(rule string) (pb.ChallengeRule, error) {
 		challRule = pb.ChallengeRule_SINGLE
 	case "double":
 		challRule = pb.ChallengeRule_DOUBLE
+	case "triple":
+		challRule = pb.ChallengeRule_TRIPLE
 	case "5pt":
 		challRule = pb.ChallengeRule_FIVE_POINT
 	case "10pt":

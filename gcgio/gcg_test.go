@@ -156,6 +156,25 @@ func TestToGCG(t *testing.T) {
 	}
 }
 
+func TestToGCGExcludePenultimatePass(t *testing.T) {
+	history, err := ParseGCG(&DefaultConfig, "./testdata/doug_v_emely_double_challenge.gcg")
+
+	assert.Nil(t, err)
+	assert.NotNil(t, history)
+
+	gcgstr, err := GameHistoryToGCG(history, false)
+	assert.Nil(t, err)
+
+	// ignore encoding line:
+	linesNew := strings.Split(gcgstr, "\n")[1:]
+	linesOld := strings.Split(slurp("./testdata/doug_v_emely.gcg"), "\n")
+
+	assert.Equal(t, len(linesNew), len(linesOld))
+	for idx, ln := range linesNew {
+		assert.Equal(t, strings.Fields(ln), strings.Fields(linesOld[idx]))
+	}
+}
+
 func TestDuplicateNicknames(t *testing.T) {
 	reader := strings.NewReader(`#character-encoding UTF-8
 #player1 dougie Doungy B

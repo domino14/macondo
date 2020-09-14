@@ -632,10 +632,15 @@ func GameHistoryToGCG(h *pb.GameHistory, addlHeaderInfo bool) (string, error) {
 	writeGCGHeader(&str, h, addlHeaderInfo)
 	writePlayers(&str, h.Players, h.SecondWentFirst)
 
-	for _, evt := range h.Events {
-		err := writeEvent(&str, evt)
-		if err != nil {
-			return "", err
+	for i, evt := range h.Events {
+		if i != len(h.Events)-2 ||
+			(evt.GetType() != pb.GameEvent_PASS &&
+				evt.GetType() != pb.GameEvent_UNSUCCESSFUL_CHALLENGE_TURN_LOSS) {
+
+			err := writeEvent(&str, evt)
+			if err != nil {
+				return "", err
+			}
 		}
 	}
 
