@@ -169,10 +169,9 @@ func TestChallengeTripleUnsuccessful(t *testing.T) {
 	legal, err := g.ChallengeEvent(0, 0)
 	is.NoErr(err)
 	is.True(legal)
-	is.Equal(len(g.History().Events), 2)
+	is.Equal(len(g.History().Events), 1)
 	is.Equal(g.History().PlayState, pb.PlayState_GAME_OVER)
 	is.Equal(g.History().Winner, int32(0))
-	is.Equal(g.History().Events[1].Type, pb.GameEvent_TRIPLE_CHALLENGE)
 }
 
 func TestChallengeTripleSuccessful(t *testing.T) {
@@ -197,8 +196,7 @@ func TestChallengeTripleSuccessful(t *testing.T) {
 	legal, err := g.ChallengeEvent(0, 0)
 	is.NoErr(err)
 	is.True(!legal)
-	is.Equal(len(g.History().Events), 2)
+	is.Equal(len(g.History().Events), 1)
 	is.Equal(g.History().PlayState, pb.PlayState_GAME_OVER)
 	is.Equal(g.History().Winner, int32(1))
-	is.Equal(g.History().Events[1].Type, pb.GameEvent_TRIPLE_CHALLENGE)
 }

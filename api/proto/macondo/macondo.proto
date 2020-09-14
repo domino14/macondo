@@ -70,9 +70,6 @@ message GameEvent {
     UNSUCCESSFUL_CHALLENGE_TURN_LOSS = 8;
     // Issue a challenge
     CHALLENGE = 9;
-    // Lose the game for challenging a word incorrectly (only for triple
-    // challenge)
-    TRIPLE_CHALLENGE = 10;
   }
 
   enum Direction {

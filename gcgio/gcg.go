@@ -633,10 +633,9 @@ func GameHistoryToGCG(h *pb.GameHistory, addlHeaderInfo bool) (string, error) {
 	writePlayers(&str, h.Players, h.SecondWentFirst)
 
 	for i, evt := range h.Events {
-		if (i != len(h.Events)-2 ||
+		if i != len(h.Events)-2 ||
 			(evt.GetType() != pb.GameEvent_PASS &&
-				evt.GetType() != pb.GameEvent_UNSUCCESSFUL_CHALLENGE_TURN_LOSS)) &&
-			evt.GetType() != pb.GameEvent_TRIPLE_CHALLENGE {
+				evt.GetType() != pb.GameEvent_UNSUCCESSFUL_CHALLENGE_TURN_LOSS) {
 
 			err := writeEvent(&str, evt)
 			if err != nil {
