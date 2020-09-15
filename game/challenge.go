@@ -43,6 +43,18 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 	cumeScoreBeforeChallenge := lastEvent.Cumulative
 
 	challengee := otherPlayer(g.onturn)
+
+	offBoardEvent := &pb.GameEvent{
+		Nickname:    lastEvent.Nickname,
+		Type:        pb.GameEvent_PHONY_TILES_RETURNED,
+		LostScore:   lastEvent.Score,
+		Cumulative:  cumeScoreBeforeChallenge - lastEvent.Score,
+		Rack:        lastEvent.Rack,
+		PlayedTiles: lastEvent.PlayedTiles,
+		// Note: these millis remaining would be the challenger's
+		MillisRemaining: int32(millis),
+	}
+
 	var err error
 	// This ideal system makes it so someone always loses
 	// the game.
@@ -56,6 +68,10 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 		} else {
 			// The challenger was right, they win the game
 			winner = int32(g.onturn)
+			// Take the play off the board.
+			g.addEventToHistory(offBoardEvent)
+			g.UnplayLastMove()
+			g.history.LastKnownRacks[challengee] = lastEvent.Rack
 		}
 		g.history.Winner = winner
 
@@ -74,17 +90,6 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 
 	} else if !playLegal {
 		log.Debug().Msg("Successful challenge")
-
-		offBoardEvent := &pb.GameEvent{
-			Nickname:    lastEvent.Nickname,
-			Type:        pb.GameEvent_PHONY_TILES_RETURNED,
-			LostScore:   lastEvent.Score,
-			Cumulative:  cumeScoreBeforeChallenge - lastEvent.Score,
-			Rack:        lastEvent.Rack,
-			PlayedTiles: lastEvent.PlayedTiles,
-			// Note: these millis remaining would be the challenger's
-			MillisRemaining: int32(millis),
-		}
 
 		// the play comes off the board. Add the offBoardEvent.
 		g.addEventToHistory(offBoardEvent)
