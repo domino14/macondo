@@ -185,6 +185,7 @@ func TestChallengeTripleSuccessful(t *testing.T) {
 	g, _ := game.NewGame(rules, players)
 	alph := g.Alphabet()
 	g.StartGame()
+	g.SetBackupMode(game.InteractiveGameplayMode)
 	g.SetPlayerOnTurn(0)
 	g.SetRackFor(0, alphabet.RackFromString("IFFIEST", alph))
 	g.SetChallengeRule(pb.ChallengeRule_TRIPLE)
@@ -196,7 +197,7 @@ func TestChallengeTripleSuccessful(t *testing.T) {
 	legal, err := g.ChallengeEvent(0, 0)
 	is.NoErr(err)
 	is.True(!legal)
-	is.Equal(len(g.History().Events), 1)
+	is.Equal(len(g.History().Events), 2)
 	is.Equal(g.History().PlayState, pb.PlayState_GAME_OVER)
 	is.Equal(g.History().Winner, int32(1))
 }
