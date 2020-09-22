@@ -10,8 +10,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddagmaker"
+	"github.com/domino14/macondo/game"
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/move"
+	"github.com/matryer/is"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -156,18 +162,91 @@ func TestToGCG(t *testing.T) {
 	}
 }
 
-func TestToGCGExcludePenultimatePass(t *testing.T) {
-	history, err := ParseGCG(&DefaultConfig, "./testdata/doug_v_emely_double_challenge.gcg")
+func TestNewFromHistoryExcludePenultimatePass(t *testing.T) {
+	is := is.New(t)
+	rules, err := game.NewBasicGameRules(&DefaultConfig, board.CrosswordGameBoard,
+		"English")
 
-	assert.Nil(t, err)
-	assert.NotNil(t, history)
+	gameHistory, err := ParseGCG(&DefaultConfig, "./testdata/guy_vs_bot_almost_complete.gcg")
+	is.NoErr(err)
+	is.Equal(len(gameHistory.Events), 25)
 
-	gcgstr, err := GameHistoryToGCG(history, false)
+	g, err := game.NewFromHistory(gameHistory, rules, 0)
+	alph := g.Alphabet()
+	g.SetChallengeRule(pb.ChallengeRule_DOUBLE)
+	is.NoErr(err)
+	is.True(g != nil)
+	err = g.PlayToTurn(25)
+	is.NoErr(err)
+	is.True(g.Playing() == pb.PlayState_PLAYING)
+	is.Equal(g.RackLettersFor(1), "U")
+
+	m := move.NewScoringMoveSimple(6, "11D", ".U", "", alph)
+	_, err = g.ValidateMove(m)
+	is.NoErr(err)
+	err = g.PlayMove(m, true, 0)
+	is.NoErr(err)
+
+	l, err := alphabet.ToMachineWord("", alph)
+	is.NoErr(err)
+	m = move.NewPassMove(l, alph)
+	_, err = g.ValidateMove(m)
+	is.NoErr(err)
+	err = g.PlayMove(m, true, 0)
+	is.NoErr(err)
+
+	gcgstr, err := GameHistoryToGCG(g.History(), false)
 	assert.Nil(t, err)
 
 	// ignore encoding line:
 	linesNew := strings.Split(gcgstr, "\n")[1:]
-	linesOld := strings.Split(slurp("./testdata/doug_v_emely.gcg"), "\n")
+	linesOld := strings.Split(slurp("./testdata/guy_vs_bot.gcg"), "\n")
+
+	assert.Equal(t, len(linesNew), len(linesOld))
+	for idx, ln := range linesNew {
+		assert.Equal(t, strings.Fields(ln), strings.Fields(linesOld[idx]))
+	}
+}
+
+func TestNewFromHistoryExcludePenultimateChallengeTurnLoss(t *testing.T) {
+	is := is.New(t)
+	rules, err := game.NewBasicGameRules(&DefaultConfig, board.CrosswordGameBoard,
+		"English")
+
+	gameHistory, err := ParseGCG(&DefaultConfig, "./testdata/guy_vs_bot_almost_complete.gcg")
+	is.NoErr(err)
+	is.Equal(len(gameHistory.Events), 25)
+
+	g, err := game.NewFromHistory(gameHistory, rules, 0)
+	alph := g.Alphabet()
+	g.SetChallengeRule(pb.ChallengeRule_DOUBLE)
+	is.NoErr(err)
+	is.True(g != nil)
+	err = g.PlayToTurn(25)
+	is.NoErr(err)
+	is.True(g.Playing() == pb.PlayState_PLAYING)
+	is.Equal(g.RackLettersFor(1), "U")
+
+	m := move.NewScoringMoveSimple(6, "11D", ".U", "", alph)
+	_, err = g.ValidateMove(m)
+	is.NoErr(err)
+	err = g.PlayMove(m, true, 0)
+	is.NoErr(err)
+
+	l, err := alphabet.ToMachineWord("", alph)
+	is.NoErr(err)
+	m = move.NewUnsuccessfulChallengePassMove(l, alph)
+	_, err = g.ValidateMove(m)
+	is.NoErr(err)
+	err = g.PlayMove(m, true, 0)
+	is.NoErr(err)
+
+	gcgstr, err := GameHistoryToGCG(g.History(), false)
+	assert.Nil(t, err)
+
+	// ignore encoding line:
+	linesNew := strings.Split(gcgstr, "\n")[1:]
+	linesOld := strings.Split(slurp("./testdata/guy_vs_bot.gcg"), "\n")
 
 	assert.Equal(t, len(linesNew), len(linesOld))
 	for idx, ln := range linesNew {

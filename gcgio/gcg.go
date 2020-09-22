@@ -625,6 +625,13 @@ func writePlayers(s *strings.Builder, players []*pb.PlayerInfo, flip bool) {
 	}
 }
 
+func isPassBeforeEndRackPoints(h *pb.GameHistory, i int) bool {
+	return len(h.Events) > i+1 &&
+		(h.Events[i].Type == pb.GameEvent_PASS ||
+			h.Events[i].Type == pb.GameEvent_UNSUCCESSFUL_CHALLENGE_TURN_LOSS) &&
+		h.Events[i+1].Type == pb.GameEvent_END_RACK_PTS
+}
+
 // GameHistoryToGCG returns a string GCG representation of the GameHistory.
 func GameHistoryToGCG(h *pb.GameHistory, addlHeaderInfo bool) (string, error) {
 
@@ -633,10 +640,7 @@ func GameHistoryToGCG(h *pb.GameHistory, addlHeaderInfo bool) (string, error) {
 	writePlayers(&str, h.Players, h.SecondWentFirst)
 
 	for i, evt := range h.Events {
-		if i != len(h.Events)-2 ||
-			(evt.GetType() != pb.GameEvent_PASS &&
-				evt.GetType() != pb.GameEvent_UNSUCCESSFUL_CHALLENGE_TURN_LOSS) {
-
+		if !isPassBeforeEndRackPoints(h, i) {
 			err := writeEvent(&str, evt)
 			if err != nil {
 				return "", err

@@ -430,6 +430,12 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		}
 
 	case move.MoveTypePass, move.MoveTypeUnsuccessfulChallengePass:
+		// Add the pass first so it comes before the end rack bonus
+		if addToHistory {
+			evt := g.EventFromMove(m)
+			evt.MillisRemaining = int32(millis)
+			g.addEventToHistory(evt)
+		}
 		if g.playing == pb.PlayState_WAITING_FOR_FINAL_PASS {
 			g.playing = pb.PlayState_GAME_OVER
 			g.history.PlayState = g.playing
@@ -445,11 +451,6 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 			// If this is a regular pass (and not an end-of-game-pass) let's
 			// log it in the history.
 			g.scorelessTurns++
-		}
-		if addToHistory {
-			evt := g.EventFromMove(m)
-			evt.MillisRemaining = int32(millis)
-			g.addEventToHistory(evt)
 		}
 
 	case move.MoveTypeExchange:
