@@ -36,11 +36,31 @@ jobs:
       - run: cp -r /opt/macondo/data /opt/data
       - run: go build cmd/shell/main.go
       - run: go test ./...
-      - slack/status:
+      - slack/status: &slack-webhook-setting
           webhook: "${SLACK_WEBHOOK}"
+          success_message: ":tada: A $CIRCLE_JOB job has succeeded! (Branch: $CIRCLE_BRANCH)"
+          failure_message: ":red_circle: A $CIRCLE_JOB job has failed! (Branch: $CIRCLE_BRANCH)"
+
+  deploy_bot_docker:
+    machine: true
+    steps:
+      - checkout
+      - run: echo $GHCR_TOKEN | docker login ghcr.io -u domino14 --password-stdin
+      - run: docker build -f Dockerfile-bot-prod -t ghcr.io/domino14/macondo-bot:${CIRCLE_BRANCH}-${CIRCLE_BUILD_NUM} .
+      - run: docker push ghcr.io/domino14/macondo-bot:${CIRCLE_BRANCH}-${CIRCLE_BUILD_NUM}
+      - slack/status: *slack-webhook-setting
 
 workflows:
   version: 2
   build_app:
     jobs:
       - build
+      - deploy_bot_docker:
+        context:
+          - woogles-deploy
+        requires:
+          - build
+        filters:
+          branches:
+            only:
+              - master

@@ -1,0 +1,7 @@
+.git
+*.csv.gz
+*.csv
+notebooks/*
+data/letterdistributions
+data/lexica
+data/strategy

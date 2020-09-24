@@ -1,4 +1,6 @@
 FROM golang:alpine
+# XXX: This file should be renamed Dockerfile-bot-dev
+
 ENV GOPATH=/go
 ADD . /opt/macondo
 WORKDIR /opt/macondo

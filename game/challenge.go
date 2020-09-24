@@ -137,6 +137,9 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 			// This "draconian" American system makes it so someone always loses
 			// their turn.
 			// challenger was wrong. They lose their turn.
+			// XXX: Note -- we're not handling the six consecutive zero rule here.
+			// This is an extreme edge case -- it would have to be a zero-point tile placement
+			// move after a number of zero point moves.
 			g.PlayMove(move.NewUnsuccessfulChallengePassMove(
 				g.players[g.onturn].rack.TilesOn(), g.alph), true, millis)
 

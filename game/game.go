@@ -392,7 +392,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		score := m.Score()
 		if score != 0 {
 			g.scorelessTurns = 0
-		}
+		} // XXX: else we should increment the scoreless turns here!
 		g.players[g.onturn].points += score
 		if m.TilesPlayed() == 7 {
 			g.players[g.onturn].bingos++
