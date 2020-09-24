@@ -56,11 +56,11 @@ workflows:
     jobs:
       - build
       - deploy_bot_docker:
-        context:
-          - woogles-deploy
-        requires:
-          - build
-        filters:
-          branches:
-            only:
-              - master
+          context:
+            - woogles-deploy
+          requires:
+            - build
+          filters:
+            branches:
+              only:
+                - master
