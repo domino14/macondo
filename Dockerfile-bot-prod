@@ -19,7 +19,5 @@ RUN go build
 FROM alpine
 COPY --from=build-env /opt/program/cmd/bot/bot /opt/bot
 
-EXPOSE 8088
-
 WORKDIR /opt
 CMD ./bot
