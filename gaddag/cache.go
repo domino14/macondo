@@ -26,15 +26,13 @@ func CreateGaddagCache() {
 	GenericDawgCache = &cache{gaddags: make(map[string]GenericDawg)}
 }
 
-// Load loads the lexicon into the cache.
-func (gc *cache) Load(cfg *config.Config, lexiconName string) error {
+// load loads the lexicon into the cache.
+func (gc *cache) load(cfg *config.Config, lexiconName string) error {
 	log.Debug().Str("lexicon", lexiconName).Msg("loading GenericDawg into cache")
 	gd, err := LoadGaddag(filepath.Join(cfg.LexiconPath, "gaddag", lexiconName+".gaddag"))
 	if err != nil {
 		return err
 	}
-	gc.Lock()
-	defer gc.Unlock()
 	gc.gaddags[lexiconName] = gd
 	return nil
 }
@@ -44,8 +42,10 @@ func (gc *cache) Load(cfg *config.Config, lexiconName string) error {
 func (gc *cache) Get(cfg *config.Config, lexiconName string) (GenericDawg, error) {
 	var ok bool
 	var gd GenericDawg
+	gc.Lock()
+	defer gc.Unlock()
 	if gd, ok = gc.gaddags[lexiconName]; !ok {
-		err := gc.Load(cfg, lexiconName)
+		err := gc.load(cfg, lexiconName)
 		if err != nil {
 			return nil, err
 		}

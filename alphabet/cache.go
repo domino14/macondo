@@ -21,15 +21,14 @@ func CreateLetterDistributionCache() {
 }
 
 // Load loads the letter distribution into the cache.
-func (ldc *cache) Load(cfg *config.Config, name string) error {
+func (ldc *cache) load(cfg *config.Config, name string) error {
 	log.Debug().Str("ldname", name).Msg("loading LetterDistribution into cache")
 
 	ld, err := NamedLetterDistribution(cfg, name)
 	if err != nil {
 		return err
 	}
-	ldc.Lock()
-	defer ldc.Unlock()
+
 	ldc.letterDistributions[name] = ld
 	return nil
 }
@@ -38,8 +37,11 @@ func (ldc *cache) Load(cfg *config.Config, name string) error {
 func (ldc *cache) Get(cfg *config.Config, name string) (*LetterDistribution, error) {
 	var ok bool
 	var ld *LetterDistribution
+	ldc.Lock()
+	defer ldc.Unlock()
+
 	if ld, ok = ldc.letterDistributions[name]; !ok {
-		err := ldc.Load(cfg, name)
+		err := ldc.load(cfg, name)
 		if err != nil {
 			return nil, err
 		}
