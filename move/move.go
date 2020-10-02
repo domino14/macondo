@@ -111,8 +111,10 @@ func (m *Move) FullRack() string {
 		switch {
 		case ml >= alphabet.BlankOffset:
 			rack = append(rack, alphabet.BlankToken)
-		case ml == alphabet.PlayedThroughMarker || ml == alphabet.BlankMachineLetter ||
-			ml == alphabet.EmptySquareMarker:
+		case ml == alphabet.BlankMachineLetter:
+			// Only if you exchange the blank
+			rack = append(rack, alphabet.BlankToken)
+		case ml == alphabet.PlayedThroughMarker || ml == alphabet.EmptySquareMarker:
 			// do nothing
 
 		default:
