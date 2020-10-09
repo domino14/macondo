@@ -23,7 +23,7 @@ import (
 
 const (
 	//IdentificationAuthority is the authority that gives out game IDs
-	IdentificationAuthority = "org.aerolith"
+	IdentificationAuthority = "io.woogles"
 
 	MacondoCreation = "Created with Macondo"
 
@@ -141,7 +141,7 @@ func newHistory(players playerStates, flipfirst bool) *pb.GameHistory {
 	}
 	his.Players = playerInfo
 	his.IdAuth = IdentificationAuthority
-	his.Uid = shortuuid.New()
+	his.Uid = shortuuid.New()[2:10] // It is up to the caller to check for duplication.
 	his.Description = MacondoCreation
 	his.Events = []*pb.GameEvent{}
 	his.SecondWentFirst = flipfirst
