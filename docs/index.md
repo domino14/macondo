@@ -2,7 +2,7 @@
 
 ## What is Macondo?
 
-Macondo will some day be a world-class Scrabble and generic Crossword Game AI.
+Macondo will some day be a world-class Crossword Game AI.
 
 But for now, it is in **pre-alpha**, so download and use at your own risk. It does no machine learning and its values are not as good as Quackle's yet. The interface is minimal. In short, it should just be used for **research**. Please expect things to break!
 
