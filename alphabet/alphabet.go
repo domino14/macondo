@@ -12,7 +12,7 @@ const (
 	// MaxAlphabetSize is the maximum size of the alphabet, and is also
 	// the "code" for the separation token.
 	// It should be below 64 so that it can fit in one 64-bit word.
-	// Gwich'in Scrabble has 62 separate letters, including the blank.
+	// Gwich'in has 62 separate letters, including the blank.
 	// Lojban has even more, but that's a weird constructed language.
 	MaxAlphabetSize = 50
 	// SeparationMachineLetter is the "MachineLetter" corresponding to
