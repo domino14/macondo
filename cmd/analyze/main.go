@@ -33,5 +33,5 @@ func main() {
 		zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	}
 
-	analyzer.Analyze(cfg, os.Args[1])
+	analyzer.AnalyzeGCG(cfg, os.Args[1])
 }

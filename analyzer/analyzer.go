@@ -48,25 +48,38 @@ func (an *Analyzer) loadGCG(filepath string) error {
 	return nil
 }
 
-func Analyze(conf *config.Config, filepath string) {
-	a := Analyzer{config: conf, game: nil}
-	a.loadGCG(filepath)
-	hist := a.game.History()
+func AnalyzeMove(g *runner.AIGameRunner, evt *pb.GameEvent) {
+	moves := g.GenerateMoves(1)
+	m := moves[0]
+	fmt.Println("Move:", evt)
+	fmt.Println("Generated move:", m.ShortDescription())
+}
+
+func AnalyzeGameTurn(g *runner.AIGameRunner, turn int) {
+	hist := g.History()
+	evt := hist.Events[turn]
+	err := g.PlayToTurn(turn)
+	if err != nil {
+		panic(err)
+	}
+	AnalyzeMove(g, evt)
+}
+
+func AnalyzeFullGame(g *runner.AIGameRunner) {
+	hist := g.History()
 	nturns := len(hist.Events)
 	var p string
 	for i := 0; i < nturns; i++ {
 		evt := hist.Events[i]
 		if p != evt.Nickname {
 			p = evt.Nickname
-			err := a.game.PlayToTurn(i)
-			if err != nil {
-				panic(err)
-			}
-
-			moves := a.game.GenerateMoves(1)
-			m := moves[0]
-			fmt.Println("Move:", evt)
-			fmt.Println("Generated move:", m.ShortDescription())
+			AnalyzeGameTurn(g, i)
 		}
 	}
+}
+
+func AnalyzeGCG(conf *config.Config, filepath string) {
+	a := Analyzer{config: conf, game: nil}
+	a.loadGCG(filepath)
+	AnalyzeFullGame(a.game)
 }
