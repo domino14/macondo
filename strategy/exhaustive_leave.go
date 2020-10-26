@@ -50,7 +50,7 @@ func NewExhaustiveLeaveStrategy(lexiconName string,
 	if err != nil {
 		return nil, err
 	}
-	pegValues, err := cache.Load(cfg, "pegvalues:"+lexiconName+":"+pegfile, PEGCacheLoadFunc)
+	pegValues, err := cache.Load(cfg, "pegfile:"+lexiconName+":"+pegfile, PEGCacheLoadFunc)
 	if err != nil {
 		return nil, err
 	}
