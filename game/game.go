@@ -415,7 +415,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 				// wait for the final pass (or challenge).
 				g.playing = pb.PlayState_WAITING_FOR_FINAL_PASS
 				g.history.PlayState = g.playing
-				log.Info().Msg("waiting for final pass... (commit pass)")
+				log.Debug().Msg("waiting for final pass... (commit pass)")
 			} else {
 				log.Debug().Msg("game is over")
 				g.playing = pb.PlayState_GAME_OVER

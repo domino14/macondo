@@ -10,6 +10,7 @@ import (
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/gaddag"
@@ -63,12 +64,18 @@ func setUpSolver(lex string, bvs board.VsWho, plies int, rack1, rack2 string,
 	g.SetStateStackLength(plies)
 	// Throw in the random racks dealt to our players.
 	g.ThrowRacksIn()
-	gd, err := gaddag.LoadFromCache(g.Config(), lex)
+
+	gdObj, err := cache.Load(g.Config(), "gaddag:"+lex, gaddag.CacheLoadFunc)
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
+	gd, ok := gdObj.(*gaddag.SimpleGaddag)
+	if !ok {
+		panic("bad type assertion")
+	}
+
 	dist := rules.LetterDistribution()
-	generator := movegen.NewGordonGenerator(gd.(*gaddag.SimpleGaddag), g.Board(), dist)
+	generator := movegen.NewGordonGenerator(gd, g.Board(), dist)
 	alph := g.Alphabet()
 
 	tilesInPlay := g.Board().SetToGame(alph, bvs)
@@ -694,10 +701,14 @@ func TestProperIterativeDeepening(t *testing.T) {
 		g.PlayScoringMove("13L", "...R", false)
 		is.Equal(g.PointsFor(0), 339)
 		is.Equal(g.PointsFor(1), 381)
-		gd, err := gaddag.LoadFromCache(g.Config(), g.LexiconName())
+
+		gdObj, err := cache.Load(g.Config(), "gaddag:"+g.LexiconName(), gaddag.CacheLoadFunc)
 		is.NoErr(err)
+		gd, ok := gdObj.(*gaddag.SimpleGaddag)
+		is.True(ok)
+
 		generator := movegen.NewGordonGenerator(
-			gd.(*gaddag.SimpleGaddag), g.Board(), g.Bag().LetterDistribution(),
+			gd, g.Board(), g.Bag().LetterDistribution(),
 		)
 		s := new(Solver)
 		s.Init(generator, g)
@@ -728,13 +739,16 @@ func TestFromGCG(t *testing.T) {
 	g, err := game.NewFromHistory(gameHistory, rules, 22)
 	is.NoErr(err)
 
-	gd, err := gaddag.LoadFromCache(&DefaultConfig, "CSW19")
+	gdObj, err := cache.Load(&DefaultConfig, "gaddag:CSW19", gaddag.CacheLoadFunc)
 	is.NoErr(err)
+	gd, ok := gdObj.(*gaddag.SimpleGaddag)
+	is.True(ok)
+
 	g.SetBackupMode(game.SimulationMode)
 	g.SetStateStackLength(plies)
 	generator := movegen.NewGordonGenerator(
 		// The strategy doesn't matter right here
-		gd.(*gaddag.SimpleGaddag), g.Board(), g.Bag().LetterDistribution(),
+		gd, g.Board(), g.Bag().LetterDistribution(),
 	)
 
 	s := new(Solver)

@@ -16,6 +16,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/domino14/macondo/ai/player"
+	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -132,18 +133,25 @@ func (s *Simmer) SetLogStream(l io.Writer) {
 	s.logStream = l
 }
 
-func (s *Simmer) makeGameCopies() {
+func (s *Simmer) makeGameCopies() error {
 	log.Debug().Int("threads", s.threads).Msg("makeGameCopies")
 	s.gameCopies = []*game.Game{}
 	s.movegens = []movegen.MoveGenerator{}
-	gd, _ := gaddag.LoadFromCache(s.origGame.Config(), s.origGame.LexiconName())
+
+	obj, err := cache.Load(s.origGame.Config(), "gaddag:"+s.origGame.LexiconName(),
+		gaddag.CacheLoadFunc)
+	if err != nil {
+		return err
+	}
+
 	for i := 0; i < s.threads; i++ {
 		s.gameCopies = append(s.gameCopies, s.origGame.Copy())
 		s.movegens = append(s.movegens,
-			movegen.NewGordonGenerator(gd.(*gaddag.SimpleGaddag),
+			movegen.NewGordonGenerator(obj.(*gaddag.SimpleGaddag),
 				s.gameCopies[i].Board(), s.gameCopies[i].Bag().LetterDistribution()))
 
 	}
+	return nil
 
 }
 
@@ -176,10 +184,14 @@ func (s *Simmer) Reset() {
 }
 
 // PrepareSim resets all the stats before a simulation.
-func (s *Simmer) PrepareSim(plies int, plays []*move.Move) {
-	s.makeGameCopies()
+func (s *Simmer) PrepareSim(plies int, plays []*move.Move) error {
+	err := s.makeGameCopies()
+	if err != nil {
+		return err
+	}
 	s.resetStats(plies, plays)
 	s.readyToSim = true
+	return nil
 }
 
 func (s *Simmer) Ready() bool {

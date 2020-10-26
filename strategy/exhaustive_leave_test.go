@@ -39,9 +39,9 @@ func GaddagFromLexicon(lex string) (*gaddag.SimpleGaddag, error) {
 }
 
 func TestLeaveMPH(t *testing.T) {
-	els := ExhaustiveLeaveStrategy{}
 	alph := alphabet.EnglishAlphabet()
-	err := els.Init("NWL18", alph, os.Getenv("STRATEGY_PARAMS_PATH"), "")
+
+	els, err := NewExhaustiveLeaveStrategy("NWL18", alph, &DefaultConfig, "", "")
 	assert.Nil(t, err)
 
 	type testcase struct {
@@ -65,7 +65,6 @@ func TestLeaveMPH(t *testing.T) {
 }
 
 func TestEndgameTiming(t *testing.T) {
-	els := ExhaustiveLeaveStrategy{}
 	gd, err := GaddagFromLexicon("NWL18")
 	assert.Nil(t, err)
 	alph := gd.GetAlphabet()
@@ -77,8 +76,7 @@ func TestEndgameTiming(t *testing.T) {
 	cross_set.GenAllCrossSets(bd, gd, ld)
 	generator.GenAll(alphabet.RackFromString("AEEORS?", alph), false)
 
-	err = els.Init("NWL18", alph, os.Getenv("STRATEGY_PARAMS_PATH"), "")
-	assert.Nil(t, err)
+	els, err := NewExhaustiveLeaveStrategy("NWL18", alph, &DefaultConfig, "", "")
 
 	oppRack := alphabet.NewRack(alph)
 	oppRack.Set(tilesInPlay.Rack1)
@@ -106,7 +104,6 @@ func TestEndgameTiming(t *testing.T) {
 }
 
 func TestPreendgameTiming(t *testing.T) {
-	els := ExhaustiveLeaveStrategy{}
 	gd, err := GaddagFromLexicon("NWL18")
 	assert.Nil(t, err)
 	alph := gd.GetAlphabet()
@@ -118,10 +115,9 @@ func TestPreendgameTiming(t *testing.T) {
 	cross_set.GenAllCrossSets(bd, gd, ld)
 	generator.GenAll(alphabet.RackFromString("OXPBAZE", alph), false)
 
-	err = els.Init("NWL18", alph, os.Getenv("STRATEGY_PARAMS_PATH"), "")
+	els, err := NewExhaustiveLeaveStrategy("NWL18", alph, &DefaultConfig, "", "quackle_preendgame.json")
 	assert.Nil(t, err)
-	err = els.SetPreendgameStrategy("./testdata", "quackle.json", "NWL18")
-	assert.Nil(t, err)
+
 	var randSource = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	bag := alphabet.NewBag(ld, alph, randSource)
@@ -142,7 +138,7 @@ func TestPreendgameTiming(t *testing.T) {
 	})
 
 	// There are 5 tiles in the bag. 5 - 7 (used tiles) + 7 = 5.
-	// This should add a penalty of -3.5 (see quackle.json in testdata)
+	// This should add a penalty of -3.5 (see quackle_preendgame.json)
 
 	assert.Equal(t, plays[0].Equity(), float64(1780-3.5))
 }

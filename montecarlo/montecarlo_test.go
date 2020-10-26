@@ -13,6 +13,7 @@ import (
 	"github.com/domino14/macondo/ai/player"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
@@ -58,13 +59,15 @@ func TestSimSingleIteration(t *testing.T) {
 	is.NoErr(err)
 
 	strategy, err := strategy.NewExhaustiveLeaveStrategy(rules.LexiconName(),
-		game.Alphabet(), DefaultConfig.StrategyParamsPath, "")
+		game.Alphabet(), &DefaultConfig, strategy.LeaveFilename, strategy.PEGAdjustmentFilename)
 	is.NoErr(err)
 
-	gd, err := gaddag.LoadFromCache(game.Config(), game.LexiconName())
+	gdObj, err := cache.Load(game.Config(), "gaddag:"+game.LexiconName(), gaddag.CacheLoadFunc)
 	is.NoErr(err)
+	gd, ok := gdObj.(*gaddag.SimpleGaddag)
+	is.True(ok)
 
-	generator := movegen.NewGordonGenerator(gd.(*gaddag.SimpleGaddag), game.Board(), rules.LetterDistribution())
+	generator := movegen.NewGordonGenerator(gd, game.Board(), rules.LetterDistribution())
 
 	// This will deal a random rack to players:
 	game.StartGame()
@@ -83,8 +86,6 @@ func TestSimSingleIteration(t *testing.T) {
 	// Board should be reset back to empty after the simulation.
 	is.True(simmer.gameCopies[0].Board().IsEmpty())
 	is.Equal(simmer.gameCopies[0].Turn(), 0)
-
-	// XXX: FAILING::::: ::::
 
 	is.Equal(simmer.gameCopies[0].RackFor(0).String(), "AAADERW")
 	// The original game shouldn't change at all.
@@ -111,11 +112,15 @@ func TestLongerSim(t *testing.T) {
 	is.NoErr(err)
 
 	strategy, err := strategy.NewExhaustiveLeaveStrategy(rules.LexiconName(),
-		game.Alphabet(), DefaultConfig.StrategyParamsPath, "")
+		game.Alphabet(), &DefaultConfig, strategy.LeaveFilename, strategy.PEGAdjustmentFilename)
 	is.NoErr(err)
-	gd, err := gaddag.LoadFromCache(game.Config(), game.LexiconName())
+
+	gdObj, err := cache.Load(game.Config(), "gaddag:"+game.LexiconName(), gaddag.CacheLoadFunc)
 	is.NoErr(err)
-	generator := movegen.NewGordonGenerator(gd.(*gaddag.SimpleGaddag), game.Board(), rules.LetterDistribution())
+	gd, ok := gdObj.(*gaddag.SimpleGaddag)
+	is.True(ok)
+
+	generator := movegen.NewGordonGenerator(gd, game.Board(), rules.LetterDistribution())
 	// This will start the game and deal a random rack to players:
 	game.StartGame()
 	game.SetPlayerOnTurn(0)

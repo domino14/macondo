@@ -4,12 +4,14 @@
 package automatic
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/domino14/macondo/ai/player"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
@@ -71,10 +73,16 @@ func (r *GameRunner) Init(player1, player2, leavefile1, leavefile2, pegfile1, pe
 	if err != nil {
 		return err
 	}
-	gd, err := gaddag.LoadFromCache(r.config, r.lexicon)
+
+	gdObj, err := cache.Load(r.config, "gaddag:"+r.lexicon, gaddag.CacheLoadFunc)
 	if err != nil {
 		return err
 	}
+	gd, ok := gdObj.(*gaddag.SimpleGaddag)
+	if !ok {
+		return errors.New("type-assertion failed; gaddag")
+	}
+
 	r.gaddag = gd
 
 	r.alphabet = r.gaddag.GetAlphabet()
@@ -94,13 +102,7 @@ func (r *GameRunner) Init(player1, player2, leavefile1, leavefile2, pegfile1, pe
 		}
 		if strings.HasPrefix(pinfo.RealName, ExhaustiveLeavePlayer) {
 			strat, err = strategy.NewExhaustiveLeaveStrategy(r.gaddag.LexiconName(),
-				r.alphabet, r.config.StrategyParamsPath, leavefile)
-			if err != nil {
-				return err
-			}
-			err = strat.(*strategy.ExhaustiveLeaveStrategy).SetPreendgameStrategy(
-				r.config.StrategyParamsPath, pegfile, r.gaddag.LexiconName(),
-			)
+				r.alphabet, r.config, leavefile, pegfile)
 			if err != nil {
 				return err
 			}

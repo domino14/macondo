@@ -2,9 +2,11 @@ package shell
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"runtime"
@@ -231,6 +233,41 @@ func (sc *ShellController) loadGCG(args []string) error {
 		defer resp.Body.Close()
 
 		history, err = gcgio.ParseGCGFromReader(sc.config, resp.Body)
+		if err != nil {
+			return err
+		}
+
+	} else if args[0] == "woogles" {
+		if len(args) < 2 {
+			return errors.New("need to provide a woogles game id")
+		}
+		idstr := args[1]
+		path := "https://woogles.io/twirp/game_service.GameMetadataService/GetGCG"
+
+		reader := strings.NewReader(`{"gameId": "` + idstr + `"}`)
+
+		resp, err := http.Post(path, "application/json", reader)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
+
+		type gcgstruct struct {
+			Gcg string `json:"gcg"`
+		}
+		var gcgObj gcgstruct
+
+		err = json.Unmarshal(body, &gcgObj)
+		if err != nil {
+			return err
+		}
+
+		history, err = gcgio.ParseGCGFromReader(sc.config, strings.NewReader(gcgObj.Gcg))
 		if err != nil {
 			return err
 		}

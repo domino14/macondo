@@ -1,8 +1,11 @@
 package game
 
 import (
+	"errors"
+
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/lexicon"
@@ -45,17 +48,22 @@ func (g GameRules) CrossSetGen() cross_set.Generator {
 func NewBasicGameRules(cfg *config.Config, boardLayout []string,
 	letterDistributionName string) (*GameRules, error) {
 
-	dist, err := alphabet.LoadLetterDistribution(cfg, letterDistributionName)
+	dist, err := cache.Load(cfg, "letterdist:"+letterDistributionName,
+		alphabet.CacheLoadFunc)
 	if err != nil {
 		return nil, err
+	}
+	distLD, ok := dist.(*alphabet.LetterDistribution)
+	if !ok {
+		return nil, errors.New("type-assertion failed (letterDistribution)")
 	}
 
 	rules := &GameRules{
 		cfg:         cfg,
-		dist:        dist,
+		dist:        distLD,
 		board:       board.MakeBoard(boardLayout),
-		lexicon:     lexicon.AcceptAll{Alph: dist.Alphabet()},
-		crossSetGen: cross_set.CrossScoreOnlyGenerator{Dist: dist},
+		lexicon:     lexicon.AcceptAll{Alph: distLD.Alphabet()},
+		crossSetGen: cross_set.CrossScoreOnlyGenerator{Dist: distLD},
 	}
 	return rules, nil
 }
