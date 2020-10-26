@@ -45,6 +45,12 @@ func NewExhaustiveLeaveStrategy(lexiconName string,
 
 	// Alphabet doesn't matter yet...
 	strategy := &ExhaustiveLeaveStrategy{}
+	if leaveFilename == "" {
+		leaveFilename = LeaveFilename
+	}
+	if pegfile == "" {
+		pegfile = PEGAdjustmentFilename
+	}
 
 	leaves, err := cache.Load(cfg, "leavefile:"+lexiconName+":"+leaveFilename, LeaveCacheLoadFunc)
 	if err != nil {
