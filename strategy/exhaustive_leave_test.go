@@ -138,7 +138,7 @@ func TestPreendgameTiming(t *testing.T) {
 	})
 
 	// There are 5 tiles in the bag. 5 - 7 (used tiles) + 7 = 5.
-	// This should add a penalty of -3.5 (see quackle.json in testdata)
+	// This should add a penalty of -3.5 (see quackle_preendgame.json)
 
 	assert.Equal(t, plays[0].Equity(), float64(1780-3.5))
 }
