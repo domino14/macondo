@@ -94,13 +94,7 @@ func (r *GameRunner) Init(player1, player2, leavefile1, leavefile2, pegfile1, pe
 		}
 		if strings.HasPrefix(pinfo.RealName, ExhaustiveLeavePlayer) {
 			strat, err = strategy.NewExhaustiveLeaveStrategy(r.gaddag.LexiconName(),
-				r.alphabet, r.config.StrategyParamsPath, leavefile)
-			if err != nil {
-				return err
-			}
-			err = strat.(*strategy.ExhaustiveLeaveStrategy).SetPreendgameStrategy(
-				r.config.StrategyParamsPath, pegfile, r.gaddag.LexiconName(),
-			)
+				r.alphabet, r.config, leavefile, pegfile)
 			if err != nil {
 				return err
 			}

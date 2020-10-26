@@ -3,6 +3,7 @@ package game
 import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/lexicon"
@@ -45,7 +46,8 @@ func (g GameRules) CrossSetGen() cross_set.Generator {
 func NewBasicGameRules(cfg *config.Config, boardLayout []string,
 	letterDistributionName string) (*GameRules, error) {
 
-	dist, err := alphabet.LoadLetterDistribution(cfg, letterDistributionName)
+	dist, err := cache.Load(cfg, "letterdist:"+letterDistributionName,
+		alphabet.CacheLoadFunc)
 	if err != nil {
 		return nil, err
 	}

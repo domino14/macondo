@@ -1,28 +1,19 @@
 package strategy
 
 import (
-	"compress/gzip"
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"math"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/alecthomas/mph"
-	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/cache"
+	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/move"
-)
-
-const (
-	LeaveFilename         = "leaves.idx.gz"
-	PEGAdjustmentFilename = "preendgame.json"
 )
 
 // ExhaustiveLeaveStrategy should apply an equity calculation for all leaves
@@ -48,91 +39,24 @@ func defaultForLexicon(lexiconName string) string {
 	return ""
 }
 
-func stratFileForLexicon(strategyDir string, filename string, lexiconName string) (*os.File, error) {
-	file, err := os.Open(filepath.Join(strategyDir, lexiconName, filename))
-	if err != nil {
-		defdir := defaultForLexicon(lexiconName)
-		file, err = os.Open(filepath.Join(strategyDir, defdir, filename))
-		if err != nil {
-			return nil, err
-		}
-		log.Debug().Str("strat-file", filename).Str("dir", defdir).Msgf(
-			"no lexicon-specific strategy")
-	}
-	return file, nil
-}
-
-func (els *ExhaustiveLeaveStrategy) Init(lexiconName string, alph *alphabet.Alphabet,
-	strategyDir, leavefile string) error {
-
-	if leavefile == "" {
-		leavefile = LeaveFilename
-	}
-
-	file, err := stratFileForLexicon(strategyDir, leavefile, lexiconName)
-	if err != nil {
-		return err
-	}
-
-	defer file.Close()
-	var gz *gzip.Reader
-	if strings.HasSuffix(leavefile, ".gz") {
-		gz, err = gzip.NewReader(file)
-		defer gz.Close()
-	}
-	if gz != nil {
-		log.Debug().Msg("reading from compressed file")
-		els.leaveValues, err = mph.Read(gz)
-	} else {
-		els.leaveValues, err = mph.Read(file)
-	}
-	if err != nil {
-		return err
-	}
-
-	log.Debug().Msgf("Size of MPH: %v", els.leaveValues.Len())
-
-	err = els.SetPreendgameStrategy(strategyDir, PEGAdjustmentFilename, lexiconName)
-	if err != nil {
-		// Don't return this error. Just log it.
-		log.Err(err).Msg("No pre-endgame equity adjustments will be used.")
-	}
-	return nil
-}
-
-func (els *ExhaustiveLeaveStrategy) SetPreendgameStrategy(strategyDir, filepath, lexiconName string) error {
-	if filepath == "" {
-		filepath = PEGAdjustmentFilename
-	}
-	pegfile, err := stratFileForLexicon(strategyDir, filepath, lexiconName)
-	if err != nil {
-		return err
-	}
-	defer pegfile.Close()
-
-	bts, err := ioutil.ReadAll(pegfile)
-	if err != nil {
-		return err
-	}
-
-	err = json.Unmarshal(bts, &els.preEndgameAdjustmentValues)
-	if err != nil {
-		return err
-	}
-	log.Debug().Msgf("Size of pre-endgame adjustment array: %v", len(els.preEndgameAdjustmentValues))
-
-	return nil
-}
-
 func NewExhaustiveLeaveStrategy(lexiconName string,
-	alph *alphabet.Alphabet, strategyDir, leavefile string) (*ExhaustiveLeaveStrategy, error) {
+	alph *alphabet.Alphabet, cfg *config.Config, leaveFilename, pegfile string) (
+	*ExhaustiveLeaveStrategy, error) {
 
+	// Alphabet doesn't matter yet...
 	strategy := &ExhaustiveLeaveStrategy{}
 
-	err := strategy.Init(lexiconName, alph, strategyDir, leavefile)
+	leaves, err := cache.Load(cfg, "leavefile:"+lexiconName+":"+leaveFilename, LeaveCacheLoadFunc)
 	if err != nil {
 		return nil, err
 	}
+	pegValues, err := cache.Load(cfg, "pegvalues:"+lexiconName+":"+pegfile, PEGCacheLoadFunc)
+	if err != nil {
+		return nil, err
+	}
+	strategy.leaveValues = leaves.(*mph.CHD)
+	strategy.preEndgameAdjustmentValues = pegValues.([]float64)
+
 	return strategy, nil
 }
 

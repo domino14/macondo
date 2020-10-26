@@ -58,7 +58,7 @@ func TestSimSingleIteration(t *testing.T) {
 	is.NoErr(err)
 
 	strategy, err := strategy.NewExhaustiveLeaveStrategy(rules.LexiconName(),
-		game.Alphabet(), DefaultConfig.StrategyParamsPath, "")
+		game.Alphabet(), DefaultConfig, "")
 	is.NoErr(err)
 
 	gd, err := gaddag.LoadFromCache(game.Config(), game.LexiconName())

@@ -133,7 +133,7 @@ func addAIFields(g *GameRunner, conf *config.Config) (*AIGameRunner, error) {
 	strategy, err := strategy.NewExhaustiveLeaveStrategy(
 		g.LexiconName(),
 		g.Alphabet(),
-		conf.StrategyParamsPath,
+		conf,
 		strategy.LeaveFilename)
 	if err != nil {
 		return nil, err
