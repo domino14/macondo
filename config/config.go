@@ -59,14 +59,20 @@ func FindBasePath(path string) string {
 	// This will likely do bad things if there is no such dir but right now we
 	// are running stuff from within the macondo directory and ultimately we want
 	// to use something like $HOME/.macondo anyway rather than the exe path.
-	for {
+	oldpath := ""
+	for oldpath != path {
 		data := filepath.Join(path, "data")
 		_, err := os.Stat(data)
 		if !(os.IsNotExist(err)) {
+			log.Debug().Str("data", data).Msg("found data dir")
 			break
 		}
+		oldpath = path
 		path = filepath.Dir(path)
 	}
+	// Prevent the function from infinite-looping. If we make it all the way to
+	// the top then exit anyway.
+	log.Debug().Str("basepath", path).Msg("returning base-path")
 	return path
 }
 

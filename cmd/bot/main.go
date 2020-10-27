@@ -35,8 +35,9 @@ func main() {
 
 	cfg := &config.Config{}
 	cfg.Load(os.Args[1:])
-	log.Info().Msgf("Loaded config: %v", cfg)
+	log.Info().Msgf("Loaded config: %v, exPath: %v", cfg, exPath)
 	cfg.AdjustRelativePaths(exPath)
+	log.Info().Msg("adjusted paths")
 
 	if strings.HasPrefix(cfg.LexiconPath, "./") {
 		cfg.LexiconPath = filepath.Join(exPath, cfg.LexiconPath)

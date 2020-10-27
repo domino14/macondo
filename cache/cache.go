@@ -51,13 +51,10 @@ func (c *cache) get(cfg *config.Config, key string, loadFunc loadFunc) (interfac
 	return obj, nil
 }
 
-func CreateGlobalObjectCache() {
+func init() {
 	GlobalObjectCache = &cache{objects: make(map[string]interface{})}
 }
 
 func Load(cfg *config.Config, name string, loadFunc loadFunc) (interface{}, error) {
-	if GlobalObjectCache == nil {
-		CreateGlobalObjectCache()
-	}
 	return GlobalObjectCache.get(cfg, name, loadFunc)
 }
