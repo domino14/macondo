@@ -5,14 +5,14 @@ Example:
     autoplay
     autoplay stop
     autoplay -logfile /path/to/log.txt
-    autoplay exhaustiveleave noleave -logfile foo.txt -leavefile1 trial.idx.gz
+    autoplay exhaustiveleave noleave -logfile foo.txt -leavefile1 trial.idx
 
 Options:
     -logfile foo.txt   -- logs games to foo.txt
     -lexicon CSW19  -- uses the CSW19 lexicon
 
-    -leavefile1 filename.idx.gz
-    -leavefile2 filename.idx.gz
+    -leavefile1 filename.idx
+    -leavefile2 filename.idx
 
     The two options above will use leavefile1 for player1 and leavefile2
     for player2. Note that leave files only make sense for the `exhaustiveleave`

@@ -1,19 +1,17 @@
 package strategy
 
 import (
-	"compress/gzip"
 	"encoding/json"
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/alecthomas/mph"
 	"github.com/rs/zerolog/log"
 )
 
 const (
-	LeaveFilename         = "leaves.idx.gz"
+	LeaveFilename         = "leaves.idx"
 	PEGAdjustmentFilename = "preendgame.json"
 )
 
@@ -43,17 +41,7 @@ func loadExhaustiveMPH(strategyPath, leavefile, lexiconName string) (*mph.CHD, e
 	var leaves *mph.CHD
 
 	defer file.Close()
-	var gz *gzip.Reader
-	if strings.HasSuffix(leavefile, ".gz") {
-		gz, err = gzip.NewReader(file)
-		defer gz.Close()
-	}
-	if gz != nil {
-		log.Debug().Msg("reading from compressed file")
-		leaves, err = mph.Read(gz)
-	} else {
-		leaves, err = mph.Read(file)
-	}
+	leaves, err = mph.Read(file)
 	if err != nil {
 		return nil, err
 	}

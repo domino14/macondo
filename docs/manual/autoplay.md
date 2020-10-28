@@ -10,7 +10,7 @@ its basic use case, without any arguments, `autoplay` will use two
 "exhaustive leave" players - i.e. computer players that use 1-to-6 tile
 leave values to calculate equity.
 
-The leave values can be found in `./data/strategy/default_english/leaves.idx.gz`.
+The leave values can be found in `./data/strategy/default_english/leaves.idx`.
 
 See [make_leaves_structure](/macondo/manual/make_leaves_structure.html) for how
 this file was created.
