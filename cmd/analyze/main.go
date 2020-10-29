@@ -9,6 +9,7 @@ import (
 
 	"github.com/domino14/macondo/analyzer"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/runner"
 )
 
 func main() {
@@ -33,5 +34,8 @@ func main() {
 		zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	}
 
-	analyzer.AnalyzeGCG(cfg, os.Args[1])
+	opts := &runner.GameOptions{}
+	an := analyzer.NewAnalyzer(cfg, opts)
+	//analyzer.AnalyzeGCG(cfg, os.Args[1])
+	an.RunTest()
 }

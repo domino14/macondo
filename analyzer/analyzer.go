@@ -1,85 +1,141 @@
 package analyzer
 
 import (
+	"encoding/json"
 	"fmt"
-
-	"github.com/rs/zerolog/log"
+	"strings"
 
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/game"
-	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/runner"
 )
 
-type Analyzer struct {
-	config *config.Config
-	game   *runner.AIGameRunner
+var SampleJson = []byte(`{
+"size": 15,
+"rack": "EINRSTZ",
+"board": [
+  "...............",
+  "...............",
+  "...............",
+  "...............",
+  "...............",
+  "...............",
+  "...............",
+  "...HELLO.......",
+  "...............",
+  "...............",
+  "...............",
+  "...............",
+  "...............",
+  "...............",
+  "..............."
+]}`)
+
+type JsonBoard struct {
+	Size  int
+	Board []string
+	Rack  string
 }
 
-func (an *Analyzer) loadGCG(filepath string) error {
-	var err error
-	var history *pb.GameHistory
-	history, err = gcgio.ParseGCG(an.config, filepath)
+type JsonMove struct {
+	Action             string
+	Row                int
+	Column             int
+	Vertical           bool
+	DisplayCoordinates string
+	Tiles              string
+	Leave              string
+	Equity             float64
+}
+
+type Analyzer struct {
+	config  *config.Config
+	options *runner.GameOptions
+	game    *runner.AIGameRunner
+}
+
+func MakeJsonMove(m *move.Move) JsonMove {
+	j := JsonMove{}
+	j.Action = m.MoveTypeString()
+	j.Row, j.Column, j.Vertical = m.CoordsAndVertical()
+	j.DisplayCoordinates = m.BoardCoords()
+	j.Tiles = m.TilesString()
+	j.Leave = m.LeaveString()
+	j.Equity = m.Equity()
+	return j
+}
+
+func NewAnalyzer(config *config.Config, options *runner.GameOptions) *Analyzer {
+	an := &Analyzer{}
+	an.config = config
+	an.options = options
+	an.game = nil
+	return an
+}
+
+func (an *Analyzer) newGame() error {
+	players := []*pb.PlayerInfo{
+		{Nickname: "self", RealName: "Macondo Bot"},
+		{Nickname: "opponent", RealName: "Arthur Dent"},
+	}
+
+	game, err := runner.NewAIGameRunner(an.config, an.options, players)
 	if err != nil {
 		return err
 	}
-	log.Debug().Msgf("Loaded game repr; players: %v", history.Players)
-	lexicon := history.Lexicon
-	if lexicon == "" {
-		lexicon = an.config.DefaultLexicon
-		log.Info().Msgf("gcg file had no lexicon, so using default lexicon %v",
-			lexicon)
-	}
-	boardLayout, ldName := game.HistoryToVariant(history)
-	rules, err := runner.NewAIGameRules(an.config, boardLayout, lexicon, ldName)
-	if err != nil {
-		return err
-	}
-	g, err := game.NewFromHistory(history, rules, 0)
-	if err != nil {
-		return err
-	}
-	an.game, err = runner.NewAIGameRunnerFromGame(g, an.config)
-	if err != nil {
-		return err
-	}
-	an.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
+	an.game = game
 	return nil
 }
 
-func AnalyzeMove(g *runner.AIGameRunner, evt *pb.GameEvent) {
-	moves := g.GenerateMoves(1)
-	m := moves[0]
-	fmt.Println("Move:", evt)
-	fmt.Println("Generated move:", m.ShortDescription())
+func (an *Analyzer) loadJson(j []byte) error {
+	// Load a game position from a json blob
+	var b = JsonBoard{}
+	json.Unmarshal(j, &b)
+	var g = an.game
+	bd := g.Board()
+	for row, str := range b.Board {
+		str = strings.Replace(str, ".", " ", -1)
+		bd.SetRow(row, str, g.Alphabet())
+	}
+	g.SetCurrentRack(b.Rack)
+	g.RecalculateBoard()
+	return nil
 }
 
-func AnalyzeGameTurn(g *runner.AIGameRunner, turn int) {
-	hist := g.History()
-	evt := hist.Events[turn]
-	err := g.PlayToTurn(turn)
+func (an *Analyzer) Analyze(jsonBoard []byte) ([]byte, error) {
+	err := an.newGame()
 	if err != nil {
-		panic(err)
+		fmt.Println("Creating game failed!")
+		return nil, err
 	}
-	AnalyzeMove(g, evt)
+	err = an.loadJson(SampleJson)
+	if err != nil {
+		fmt.Println("Loading game failed!")
+		return nil, err
+	}
+	moves := an.game.GenerateMoves(15)
+	out := make([]JsonMove, 15)
+	for i, m := range moves {
+		out[i] = MakeJsonMove(m)
+	}
+	return json.Marshal(out)
 }
 
-func AnalyzeFullGame(g *runner.AIGameRunner) {
-	hist := g.History()
-	nturns := len(hist.Events)
-	var p string
-	for i := 0; i < nturns; i++ {
-		evt := hist.Events[i]
-		if p != evt.Nickname {
-			p = evt.Nickname
-			AnalyzeGameTurn(g, i)
-		}
+func (an *Analyzer) RunTest() error {
+	// Analyse the SampleJson test board
+	moves, err := an.Analyze(SampleJson)
+	if err != nil {
+		return err
 	}
-}
-
-func AnalyzeGCG(conf *config.Config, filepath string) {
-	a := Analyzer{config: conf, game: nil}
-	a.loadGCG(filepath)
-	AnalyzeFullGame(a.game)
+	// Display the board
+	g := an.game
+	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
+	// Display the moves
+	var ms []JsonMove
+	json.Unmarshal(moves, &ms)
+	for _, m := range ms {
+		fmt.Printf("%s %-15s %-7s %.1f\n", m.DisplayCoordinates, m.Tiles, m.Leave, m.Equity)
+	}
+	return nil
 }
