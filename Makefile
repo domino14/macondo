@@ -1,4 +1,8 @@
+everything: all wasm
+
 all: macondo_shell macondo_bot bot_shell make_gaddag make_leaves_structure analyze
+
+.PHONY: wasm
 
 proto:
 	protoc --go_out=gen --go_opt=paths=source_relative ./api/proto/macondo/macondo.proto
@@ -20,6 +24,9 @@ make_gaddag:
 
 make_leaves_structure:
 	go build -o bin/make_leaves_structure cmd/make_leaves_structure/main.go 
+
+wasm:
+	GOOS=js GOARCH=wasm go build -o ../liwords/liwords-ui/public/wasm/macondo.wasm wasm/*.go
 
 clean:
 	rm -f bin/*
