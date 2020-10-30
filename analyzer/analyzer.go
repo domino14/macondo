@@ -76,6 +76,17 @@ func NewAnalyzer(config *config.Config, options *runner.GameOptions) *Analyzer {
 	return an
 }
 
+// Create an analyzer with an empty config. This will not have any relative
+// resource paths resolved to actual paths; the caller is responsible for
+// precaching everything so that we never actually hit the file system.
+func NewDefaultAnalyzer() *Analyzer {
+	cfg := &config.Config{}
+	cfg.Load([]string{})
+	cfg.Debug = false
+	opts := &runner.GameOptions{}
+	return NewAnalyzer(cfg, opts)
+}
+
 func (an *Analyzer) newGame() error {
 	players := []*pb.PlayerInfo{
 		{Nickname: "self", RealName: "Macondo Bot"},
