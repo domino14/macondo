@@ -152,3 +152,8 @@ func (an *Analyzer) RunTest() error {
 	}
 	return nil
 }
+
+func AnalyzeBoard(jsonBoard []byte) ([]byte, error) {
+	an := NewDefaultAnalyzer()
+	return an.Analyze(jsonBoard)
+}
