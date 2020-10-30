@@ -4,11 +4,11 @@ import (
 	"encoding/csv"
 	"io"
 	"math/rand"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
 )
 
@@ -42,7 +42,7 @@ func NamedLetterDistribution(cfg *config.Config, name string) (*LetterDistributi
 	name = strings.ToLower(name)
 	filename := filepath.Join(cfg.LetterDistributionPath, name+".csv")
 
-	file, err := os.Open(filename)
+	file, err := cache.Open(filename)
 	if err != nil {
 		return nil, err
 	}

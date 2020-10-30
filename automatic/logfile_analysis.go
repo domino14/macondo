@@ -4,17 +4,17 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
-	"os"
 	"strconv"
 	"strings"
 
+	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/montecarlo"
 )
 
 // AnalyzeLogFile analyzes the given game CSV file and spits out a bunch of
 // statistics.
 func AnalyzeLogFile(filepath string) (string, error) {
-	file, err := os.Open(filepath)
+	file, err := cache.Open(filepath)
 	if err != nil {
 		return "", err
 	}

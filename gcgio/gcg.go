@@ -7,12 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
 
 	"github.com/domino14/macondo/game"
@@ -520,7 +520,7 @@ func ParseGCGFromReader(cfg *config.Config, reader io.Reader) (*pb.GameHistory, 
 
 // ParseGCG parses a GCG file into a GameHistory.
 func ParseGCG(cfg *config.Config, filename string) (*pb.GameHistory, error) {
-	f, err := os.Open(filename)
+	f, err := cache.Open(filename)
 	if err != nil {
 		return nil, err
 	}
