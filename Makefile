@@ -1,7 +1,10 @@
-all: macondo_shell macondo_bot bot_shell make_gaddag make_leaves_structure
+all: macondo_shell macondo_bot bot_shell make_gaddag make_leaves_structure analyze
 
 proto:
 	protoc --go_out=gen --go_opt=paths=source_relative ./api/proto/macondo/macondo.proto
+
+analyze:
+	go build -o bin/analyze cmd/analyze/main.go
 
 macondo_shell:
 	go build -o bin/shell cmd/shell/main.go

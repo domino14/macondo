@@ -990,3 +990,9 @@ func (g *Game) SetHistory(h *pb.GameHistory) {
 func (g *Game) FirstPlayer() *pb.PlayerInfo {
 	return &g.players[g.wentfirst].PlayerInfo
 }
+
+func (g *Game) RecalculateBoard() {
+	// Recalculate cross-sets and anchors for move generator
+	g.crossSetGen.GenerateAll(g.board)
+	g.board.UpdateAllAnchors()
+}
