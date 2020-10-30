@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -37,5 +38,8 @@ func main() {
 	opts := &runner.GameOptions{}
 	an := analyzer.NewAnalyzer(cfg, opts)
 	//analyzer.AnalyzeGCG(cfg, os.Args[1])
-	an.RunTest()
+	err = an.RunTest()
+	if err != nil {
+		fmt.Println(err)
+	}
 }
