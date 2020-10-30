@@ -1,13 +1,11 @@
 package runner
 
 import (
-	"errors"
 	"strings"
 
 	"github.com/domino14/macondo/ai/player"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
-	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/gaddag"
@@ -142,13 +140,9 @@ func addAIFields(g *GameRunner, conf *config.Config) (*AIGameRunner, error) {
 		return nil, err
 	}
 
-	gdObj, err := cache.Load(conf, "gaddag:"+g.LexiconName(), gaddag.CacheLoadFunc)
+	gd, err := gaddag.Get(conf, g.LexiconName())
 	if err != nil {
 		return nil, err
-	}
-	gd, ok := gdObj.(*gaddag.SimpleGaddag)
-	if !ok {
-		return nil, errors.New("type-assertion failed; gaddag")
 	}
 
 	aiplayer := player.NewRawEquityPlayer(strategy)
@@ -185,29 +179,20 @@ func (g *AIGameRunner) AIPlayer() player.AIPlayer {
 
 func NewAIGameRules(cfg *config.Config, boardLayout []string,
 	lexiconName string, letterDistributionName string) (*game.GameRules, error) {
-	dist, err := cache.Load(cfg, "letterdist:"+letterDistributionName,
-		alphabet.CacheLoadFunc)
+	dist, err := alphabet.Get(cfg, letterDistributionName)
 	if err != nil {
 		return nil, err
 	}
-	distLD, ok := dist.(*alphabet.LetterDistribution)
-	if !ok {
-		return nil, errors.New("type-assertion failed (letterDistribution)")
-	}
-	gdObj, err := cache.Load(cfg, "gaddag:"+lexiconName, gaddag.CacheLoadFunc)
+	gd, err := gaddag.Get(cfg, lexiconName)
 	if err != nil {
 		return nil, err
-	}
-	gd, ok := gdObj.(*gaddag.SimpleGaddag)
-	if !ok {
-		return nil, errors.New("type-assertion failed; gaddag")
 	}
 	board := board.MakeBoard(boardLayout)
 	cset := cross_set.GaddagCrossSetGenerator{
 		Gaddag: gd,
-		Dist:   distLD,
+		Dist:   dist,
 	}
 	lex := gaddag.Lexicon{gd}
-	rules := game.NewGameRules(cfg, distLD, board, lex, cset)
+	rules := game.NewGameRules(cfg, dist, board, lex, cset)
 	return rules, nil
 }

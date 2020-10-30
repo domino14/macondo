@@ -4,14 +4,12 @@
 package automatic
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/domino14/macondo/ai/player"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
-	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
@@ -74,13 +72,9 @@ func (r *GameRunner) Init(player1, player2, leavefile1, leavefile2, pegfile1, pe
 		return err
 	}
 
-	gdObj, err := cache.Load(r.config, "gaddag:"+r.lexicon, gaddag.CacheLoadFunc)
+	gd, err := gaddag.Get(r.config, r.lexicon)
 	if err != nil {
 		return err
-	}
-	gd, ok := gdObj.(*gaddag.SimpleGaddag)
-	if !ok {
-		return errors.New("type-assertion failed; gaddag")
 	}
 
 	r.gaddag = gd

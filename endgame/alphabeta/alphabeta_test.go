@@ -10,7 +10,6 @@ import (
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
-	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/gaddag"
@@ -65,13 +64,9 @@ func setUpSolver(lex string, bvs board.VsWho, plies int, rack1, rack2 string,
 	// Throw in the random racks dealt to our players.
 	g.ThrowRacksIn()
 
-	gdObj, err := cache.Load(g.Config(), "gaddag:"+lex, gaddag.CacheLoadFunc)
+	gd, err := gaddag.Get(g.Config(), lex)
 	if err != nil {
 		panic(err)
-	}
-	gd, ok := gdObj.(*gaddag.SimpleGaddag)
-	if !ok {
-		panic("bad type assertion")
 	}
 
 	dist := rules.LetterDistribution()
@@ -702,10 +697,8 @@ func TestProperIterativeDeepening(t *testing.T) {
 		is.Equal(g.PointsFor(0), 339)
 		is.Equal(g.PointsFor(1), 381)
 
-		gdObj, err := cache.Load(g.Config(), "gaddag:"+g.LexiconName(), gaddag.CacheLoadFunc)
+		gd, err := gaddag.Get(g.Config(), g.LexiconName())
 		is.NoErr(err)
-		gd, ok := gdObj.(*gaddag.SimpleGaddag)
-		is.True(ok)
 
 		generator := movegen.NewGordonGenerator(
 			gd, g.Board(), g.Bag().LetterDistribution(),
@@ -739,10 +732,8 @@ func TestFromGCG(t *testing.T) {
 	g, err := game.NewFromHistory(gameHistory, rules, 22)
 	is.NoErr(err)
 
-	gdObj, err := cache.Load(&DefaultConfig, "gaddag:CSW19", gaddag.CacheLoadFunc)
+	gd, err := gaddag.Get(&DefaultConfig, "CSW19")
 	is.NoErr(err)
-	gd, ok := gdObj.(*gaddag.SimpleGaddag)
-	is.True(ok)
 
 	g.SetBackupMode(game.SimulationMode)
 	g.SetStateStackLength(plies)
