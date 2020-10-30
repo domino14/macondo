@@ -109,7 +109,7 @@ func (an *Analyzer) Analyze(jsonBoard []byte) ([]byte, error) {
 		fmt.Println("Creating game failed!")
 		return nil, err
 	}
-	err = an.loadJson(SampleJson)
+	err = an.loadJson(jsonBoard)
 	if err != nil {
 		fmt.Println("Loading game failed!")
 		return nil, err
