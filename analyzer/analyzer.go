@@ -14,6 +14,7 @@ import (
 var SampleJson = []byte(`{
 "size": 15,
 "rack": "EINRSTZ",
+"lexicon": "CSW19",
 "board": [
   "...............",
   "...............",
@@ -33,9 +34,10 @@ var SampleJson = []byte(`{
 ]}`)
 
 type JsonBoard struct {
-	Size  int
-	Board []string
-	Rack  string
+	Size    int
+	Lexicon string
+	Board   []string
+	Rack    string
 }
 
 type JsonMove struct {
@@ -68,7 +70,8 @@ func MakeJsonMove(m *move.Move) JsonMove {
 	return j
 }
 
-func NewAnalyzer(config *config.Config, options *runner.GameOptions) *Analyzer {
+func NewAnalyzer(config *config.Config) *Analyzer {
+	options := &runner.GameOptions{}
 	an := &Analyzer{}
 	an.config = config
 	an.options = options
@@ -83,8 +86,7 @@ func NewDefaultAnalyzer() *Analyzer {
 	cfg := &config.Config{}
 	cfg.Load([]string{})
 	cfg.Debug = false
-	opts := &runner.GameOptions{}
-	return NewAnalyzer(cfg, opts)
+	return NewAnalyzer(cfg)
 }
 
 func (an *Analyzer) newGame() error {
@@ -105,6 +107,12 @@ func (an *Analyzer) loadJson(j []byte) error {
 	// Load a game position from a json blob
 	var b = JsonBoard{}
 	json.Unmarshal(j, &b)
+	an.options.SetLexicon([]string{b.Lexicon})
+	err := an.newGame()
+	if err != nil {
+		fmt.Println("Creating game failed!")
+		return err
+	}
 	var g = an.game
 	bd := g.Board()
 	for row, str := range b.Board {
@@ -117,12 +125,7 @@ func (an *Analyzer) loadJson(j []byte) error {
 }
 
 func (an *Analyzer) Analyze(jsonBoard []byte) ([]byte, error) {
-	err := an.newGame()
-	if err != nil {
-		fmt.Println("Creating game failed!")
-		return nil, err
-	}
-	err = an.loadJson(jsonBoard)
+	err := an.loadJson(jsonBoard)
 	if err != nil {
 		fmt.Println("Loading game failed!")
 		return nil, err
