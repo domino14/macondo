@@ -47,6 +47,7 @@ type JsonMove struct {
 	Tiles              string
 	Leave              string
 	Equity             float64
+	Score              int
 }
 
 type Analyzer struct {
@@ -63,6 +64,7 @@ func MakeJsonMove(m *move.Move) JsonMove {
 	j.Tiles = m.TilesString()
 	j.Leave = m.LeaveString()
 	j.Equity = m.Equity()
+	j.Score = m.Score()
 	return j
 }
 
