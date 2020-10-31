@@ -98,11 +98,12 @@ func (g *GameBoard) setFromPlaintext(qText string,
 	return tilesInPlay
 }
 
-func (b *GameBoard) SetRow(rowNum int, letters string, alph *alphabet.Alphabet) {
+func (b *GameBoard) SetRow(rowNum int, letters string, alph *alphabet.Alphabet) []alphabet.MachineLetter {
 	// Set the row in board to the passed in letters array.
 	for idx := 0; idx < b.Dim(); idx++ {
 		b.SetLetter(int(rowNum), idx, alphabet.EmptySquareMarker)
 	}
+	lettersPlayed := []alphabet.MachineLetter{}
 	for idx, r := range letters {
 		if r != ' ' {
 			letter, err := alph.Val(r)
@@ -111,8 +112,10 @@ func (b *GameBoard) SetRow(rowNum int, letters string, alph *alphabet.Alphabet) 
 			}
 			b.SetLetter(int(rowNum), idx, letter)
 			b.tilesPlayed++
+			lettersPlayed = append(lettersPlayed, letter)
 		}
 	}
+	return lettersPlayed
 }
 
 // Equals checks the boards for equality. Two boards are equal if all
