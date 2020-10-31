@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/config"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
@@ -115,12 +116,30 @@ func (an *Analyzer) loadJson(j []byte) error {
 	}
 	var g = an.game
 	bd := g.Board()
+	letters := []alphabet.MachineLetter{}
 	for row, str := range b.Board {
 		str = strings.Replace(str, ".", " ", -1)
-		bd.SetRow(row, str, g.Alphabet())
+		letters = append(letters, bd.SetRow(row, str, g.Alphabet())...)
 	}
-	g.SetCurrentRack(b.Rack)
+	// Reset the state of the bag; empty player racks (they are set to
+	// random racks) and refill the bag from scratch
+	g.ThrowRacksIn()
+	g.Bag().Refill()
+	// Then remove the visible tiles on the board
+	err = g.Bag().RemoveTiles(letters)
+	if err != nil {
+		fmt.Println("Removing board tiles failed!")
+		return err
+	}
+	// Set the current rack. This will also give opponent a random rack
+	// from what remains, and edit the bag accordingly.
+	err = g.SetCurrentRack(b.Rack)
+	if err != nil {
+		fmt.Println("Setting rack to " + b.Rack + " failed!")
+		return err
+	}
 	g.RecalculateBoard()
+
 	return nil
 }
 
