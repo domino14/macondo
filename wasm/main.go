@@ -1,14 +1,12 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"syscall/js"
 
 	"github.com/domino14/macondo/analyzer"
 	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/runner"
 )
 
 func precache(this js.Value, args []js.Value) interface{} {
@@ -20,19 +18,8 @@ func analyze(this js.Value, args []js.Value) interface{} {
 	// JS doesn't use utf8, but it converts automatically if we take/return strings.
 	jsonBoard := []byte(args[0].String())
 
-	// Doing this 2x...
-	var tmp struct {
-		Lexicon string
-	}
-	if err := json.Unmarshal(jsonBoard, &tmp); err != nil {
-		fmt.Println(err)
-		return nil
-	}
-
 	cfg := &config.Config{}
-	// Hardcoding here, too.
-	opts := &runner.GameOptions{Lexicon: &runner.Lexicon{Name: tmp.Lexicon, Distribution: "english"}}
-	an := analyzer.NewAnalyzer(cfg, opts)
+	an := analyzer.NewAnalyzer(cfg)
 	jsonMoves, err := an.Analyze(jsonBoard)
 	if err != nil {
 		fmt.Println(err)
