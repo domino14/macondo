@@ -35,7 +35,7 @@ jobs:
       - run: mv /opt/word-game-lexica/*.txt $LEXICON_PATH
       - run: cp -r /opt/macondo/data /opt/data
       - run: go build cmd/shell/main.go
-      - run: go test ./...
+      - run: go test $(go list ./... | grep -v wasm)
       - slack/status: &slack-webhook-setting
           webhook: "${SLACK_WEBHOOK}"
           success_message: ":tada: A $CIRCLE_JOB job has succeeded! (Branch: $CIRCLE_BRANCH)"
