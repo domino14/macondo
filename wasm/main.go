@@ -6,7 +6,6 @@ import (
 
 	"github.com/domino14/macondo/analyzer"
 	"github.com/domino14/macondo/cache"
-	"github.com/domino14/macondo/config"
 )
 
 func precache(this js.Value, args []js.Value) interface{} {
@@ -18,8 +17,7 @@ func analyze(this js.Value, args []js.Value) interface{} {
 	// JS doesn't use utf8, but it converts automatically if we take/return strings.
 	jsonBoard := []byte(args[0].String())
 
-	cfg := &config.Config{}
-	an := analyzer.NewAnalyzer(cfg)
+	an := analyzer.NewDefaultAnalyzer()
 	jsonMoves, err := an.Analyze(jsonBoard)
 	if err != nil {
 		fmt.Println(err)
