@@ -12,6 +12,7 @@ import (
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/game"
@@ -38,7 +39,7 @@ func TestMain(m *testing.M) {
 }
 
 func slurp(filename string) string {
-	file, err := os.Open(filename)
+	file, err := cache.Open(filename)
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -6,11 +6,11 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"os"
 
 	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/gaddagmaker"
 )
 
@@ -66,7 +66,7 @@ func GaddagToSimpleGaddag(g *gaddagmaker.Gaddag) *SimpleGaddag {
 // LoadGaddag loads a gaddag from a file and returns a *SimpleGaddag structure.
 func LoadGaddag(filename string) (*SimpleGaddag, error) {
 	log.Debug().Msgf("Loading %v ...", filename)
-	file, err := os.Open(filename)
+	file, err := cache.Open(filename)
 	if err != nil {
 		return nil, err
 	}

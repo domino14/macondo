@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/domino14/macondo/cache"
 	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/alphabet"
@@ -74,7 +75,7 @@ func (a ArcPtrSlice) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ArcPtrSlice) Less(i, j int) bool { return a[i].letter < a[j].letter }
 
 func getWordsFromFile(filename string) ([]string, *alphabet.Alphabet) {
-	file, err := os.Open(filename)
+	file, err := cache.Open(filename)
 	if err != nil {
 		log.Warn().Msgf("Filename %v not found", filename)
 		return nil, nil
@@ -434,7 +435,7 @@ func genGaddag(stream io.Reader, lexName string, minimize bool, writeToFile bool
 // GenerateGaddag makes a GADDAG out of the filename, and optionally
 // minimizes it and/or writes it to file.
 func GenerateGaddag(filename string, minimize bool, writeToFile bool) *Gaddag {
-	file, err := os.Open(filename)
+	file, err := cache.Open(filename)
 	if err != nil {
 		log.Warn().Msgf("Filename %v not found", filename)
 		return nil

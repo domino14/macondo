@@ -3,12 +3,13 @@ package strategy
 import (
 	"compress/gzip"
 	"encoding/json"
+	"io"
 	"io/ioutil"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/alecthomas/mph"
+	"github.com/domino14/macondo/cache"
 	"github.com/rs/zerolog/log"
 )
 
@@ -17,11 +18,11 @@ const (
 	PEGAdjustmentFilename = "preendgame.json"
 )
 
-func stratFileForLexicon(strategyDir string, filename string, lexiconName string) (*os.File, error) {
-	file, err := os.Open(filepath.Join(strategyDir, lexiconName, filename))
+func stratFileForLexicon(strategyDir string, filename string, lexiconName string) (io.ReadCloser, error) {
+	file, err := cache.Open(filepath.Join(strategyDir, lexiconName, filename))
 	if err != nil {
 		defdir := defaultForLexicon(lexiconName)
-		file, err = os.Open(filepath.Join(strategyDir, defdir, filename))
+		file, err = cache.Open(filepath.Join(strategyDir, defdir, filename))
 		if err != nil {
 			return nil, err
 		}

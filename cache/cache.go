@@ -1,6 +1,10 @@
 package cache
 
 import (
+	"bytes"
+	"io"
+	"io/ioutil"
+	"os"
 	"sync"
 
 	"github.com/domino14/macondo/config"
@@ -33,12 +37,14 @@ func (c *cache) load(cfg *config.Config, key string, loadFunc loadFunc) error {
 	return nil
 }
 
-func (c *cache) get(cfg *config.Config, key string, loadFunc loadFunc) (interface{}, error) {
+func (c *cache) get(cfg *config.Config, key string, loadFunc loadFunc, needToLock bool) (interface{}, error) {
 
 	var ok bool
 	var obj interface{}
-	c.Lock()
-	defer c.Unlock()
+	if needToLock {
+		c.Lock()
+		defer c.Unlock()
+	}
 	if obj, ok = c.objects[key]; !ok {
 		err := c.load(cfg, key, loadFunc)
 		if err != nil {
@@ -56,5 +62,31 @@ func init() {
 }
 
 func Load(cfg *config.Config, name string, loadFunc loadFunc) (interface{}, error) {
-	return GlobalObjectCache.get(cfg, name, loadFunc)
+	return GlobalObjectCache.get(cfg, name, loadFunc, true)
+}
+
+func Open(filename string) (io.ReadCloser, error) {
+        // Most of the time, it seems we are already holding the lock here.
+        // It would deadlock to lock again, so we avoid it.
+        // Hopefully it works.
+
+	cached, err := GlobalObjectCache.get(nil, "file:"+filename,
+		func(*config.Config, string) (interface{}, error) {
+			return nil, os.ErrNotExist
+		}, false)
+	if err != nil {
+		// Intentionally not caching.
+		log.Debug().Str("filename", filename).Msg("not cache, opening from filesystem")
+		return os.Open(filename)
+	}
+	log.Debug().Str("filename", filename).Msg("reading from cache")
+	return ioutil.NopCloser(bytes.NewReader(cached.([]byte))), nil
+}
+
+func Precache(filename string, rawBytes []byte) {
+	log.Debug().Str("filename", filename).Msg("populating into cache")
+	Load(nil, "file:"+filename,
+		func(*config.Config, string) (interface{}, error) {
+			return rawBytes, nil
+		})
 }

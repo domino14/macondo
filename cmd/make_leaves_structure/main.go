@@ -12,6 +12,7 @@ import (
 
 	"github.com/alecthomas/mph"
 	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/cache"
 	"github.com/rs/zerolog/log"
 )
 
@@ -44,7 +45,7 @@ func parseIntoMPH(filename string, alphabetName string) {
 
 	hb := mph.Builder()
 	fmt.Println(filename)
-	file, err := os.Open(filename)
+	file, err := cache.Open(filename)
 	if err != nil {
 		log.Fatal().Err(err).Msg("")
 	}

@@ -5,9 +5,8 @@ import (
 	"errors"
 	"io"
 
-	"os"
-
 	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/rs/zerolog/log"
 )
@@ -66,7 +65,7 @@ func loadCommonDagStructure(stream io.Reader) ([]uint32, []alphabet.LetterSet,
 // LoadDawg loads a dawg from a file and returns a *SimpleDawg
 func LoadDawg(filename string) (*SimpleDawg, error) {
 	log.Debug().Msgf("Loading %v ...", filename)
-	file, err := os.Open(filename)
+	file, err := cache.Open(filename)
 	if err != nil {
 		log.Debug().Msgf("Could not load %v", filename)
 		return nil, err
