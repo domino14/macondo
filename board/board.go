@@ -45,8 +45,15 @@ type GameBoard struct {
 func MakeBoard(desc []string) *GameBoard {
 	// Turns an array of strings into the GameBoard structure type.
 	rows := make([][]Square, len(desc))
+	totalLen := 0
+	for _, s := range desc {
+		totalLen += len(s)
+	}
+	sqs := make([]Square, totalLen)
+	sqp := 0
 	for si, s := range desc {
-		rows[si] = make([]Square, len(s))
+		sqp += len(s)
+		rows[si] = sqs[sqp-len(s) : sqp : sqp]
 		for ci, c := range s {
 			rows[si][ci] = Square{letter: alphabet.EmptySquareMarker, bonus: BonusSquare(c)}
 		}
@@ -585,8 +592,15 @@ func (g *GameBoard) Copy() *GameBoard {
 	newg := &GameBoard{}
 	newg.squares = make([][]Square, len(g.squares))
 
+	totalLen := 0
+	for _, r := range g.squares {
+		totalLen += len(r)
+	}
+	sqs := make([]Square, totalLen)
+	sqp := 0
 	for ri, r := range g.squares {
-		newg.squares[ri] = make([]Square, len(r))
+		sqp += len(r)
+		newg.squares[ri] = sqs[sqp-len(r) : sqp : sqp]
 		for ci, c := range r {
 			newg.squares[ri][ci].copyFrom(&c)
 		}
