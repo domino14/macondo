@@ -35,7 +35,7 @@ const (
 // for computation. (See Appel & Jacobson paper for definition of the latter
 // two terms)
 type GameBoard struct {
-	squares     [][]*Square
+	squares     [][]Square
 	transposed  bool
 	tilesPlayed int
 	lastCopy    *GameBoard
@@ -44,13 +44,12 @@ type GameBoard struct {
 // MakeBoard creates a board from a description string.
 func MakeBoard(desc []string) *GameBoard {
 	// Turns an array of strings into the GameBoard structure type.
-	rows := [][]*Square{}
-	for _, s := range desc {
-		row := []*Square{}
-		for _, c := range s {
-			row = append(row, &Square{letter: alphabet.EmptySquareMarker, bonus: BonusSquare(c)})
+	rows := make([][]Square, len(desc))
+	for si, s := range desc {
+		rows[si] = make([]Square, len(s))
+		for ci, c := range s {
+			rows[si][ci] = Square{letter: alphabet.EmptySquareMarker, bonus: BonusSquare(c)}
 		}
-		rows = append(rows, row)
 	}
 	g := &GameBoard{squares: rows}
 	// Call Clear to set all crosses.
@@ -72,7 +71,7 @@ func (g *GameBoard) GetBonus(row int, col int) BonusSquare {
 }
 
 func (g *GameBoard) GetSquare(row int, col int) *Square {
-	return g.squares[row][col]
+	return &g.squares[row][col]
 }
 
 func (g *GameBoard) SetLetter(row int, col int, letter alphabet.MachineLetter) {
@@ -584,18 +583,14 @@ func (g *GameBoard) ScoreWord(word alphabet.MachineWord, row, col, tilesPlayed i
 // Copy returns a deep copy of this board.
 func (g *GameBoard) Copy() *GameBoard {
 	newg := &GameBoard{}
-	squares := [][]*Square{}
+	newg.squares = make([][]Square, len(g.squares))
 
-	for _, r := range g.squares {
-		row := []*Square{}
-		for _, c := range r {
-			s := &Square{}
-			s.copyFrom(c)
-			row = append(row, s)
+	for ri, r := range g.squares {
+		newg.squares[ri] = make([]Square, len(r))
+		for ci, c := range r {
+			newg.squares[ri][ci].copyFrom(&c)
 		}
-		squares = append(squares, row)
 	}
-	newg.squares = squares
 	newg.transposed = g.transposed
 	newg.tilesPlayed = g.tilesPlayed
 	// newg.playHistory = append([]string{}, g.playHistory...)
@@ -615,7 +610,7 @@ func (g *GameBoard) RestoreFromCopy() {
 func (g *GameBoard) CopyFrom(b *GameBoard) {
 	for ridx, r := range b.squares {
 		for cidx, sq := range r {
-			g.squares[ridx][cidx].copyFrom(sq)
+			g.squares[ridx][cidx].copyFrom(&sq)
 		}
 	}
 	g.transposed = b.transposed
