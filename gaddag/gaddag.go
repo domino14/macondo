@@ -6,11 +6,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-
-	"github.com/rs/zerolog/log"
+	"io"
 
 	"github.com/domino14/macondo/alphabet"
-	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/gaddagmaker"
 )
 
@@ -63,22 +61,15 @@ func GaddagToSimpleGaddag(g *gaddagmaker.Gaddag) *SimpleGaddag {
 	return sg
 }
 
-// LoadGaddag loads a gaddag from a file and returns a *SimpleGaddag structure.
-func LoadGaddag(filename string) (*SimpleGaddag, error) {
-	log.Debug().Msgf("Loading %v ...", filename)
-	file, err := cache.Open(filename)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
+func ScanGaddag(data io.Reader) (*SimpleGaddag, error) {
 	var magicStr [4]uint8
-	binary.Read(file, binary.BigEndian, &magicStr)
+	binary.Read(data, binary.BigEndian, &magicStr)
 
 	if !compareMagicGaddag(magicStr) {
 		return nil, errors.New("magic number does not match gaddag")
 	}
 
-	nodes, letterSets, alphabetArr, lexName := loadCommonDagStructure(file)
+	nodes, letterSets, alphabetArr, lexName := loadCommonDagStructure(data)
 
 	g := &SimpleGaddag{nodes: nodes, letterSets: letterSets,
 		alphabet:    alphabet.FromSlice(alphabetArr),

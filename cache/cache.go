@@ -22,6 +22,8 @@ type cache struct {
 
 type loadFunc func(cfg *config.Config, key string) (interface{}, error)
 
+type readFunc func(data []byte) (interface{}, error)
+
 // GlobalObjectCache is our global object cache, of course.
 var GlobalObjectCache *cache
 
@@ -57,6 +59,12 @@ func (c *cache) get(cfg *config.Config, key string, loadFunc loadFunc, needToLoc
 	return obj, nil
 }
 
+func (c *cache) put(key string, obj interface{}) {
+	c.Lock()
+	c.objects[key] = obj
+	c.Unlock()
+}
+
 func init() {
 	GlobalObjectCache = &cache{objects: make(map[string]interface{})}
 }
@@ -89,4 +97,13 @@ func Precache(filename string, rawBytes []byte) {
 		func(*config.Config, string) (interface{}, error) {
 			return rawBytes, nil
 		})
+}
+
+func Populate(name string, data []byte, readFunc readFunc) error {
+	obj, err := readFunc(data)
+	if err != nil {
+		return err
+	}
+	GlobalObjectCache.put(name, obj)
+	return nil
 }

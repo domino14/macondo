@@ -62,6 +62,25 @@ func loadCommonDagStructure(stream io.Reader) ([]uint32, []alphabet.LetterSet,
 	return nodes, letterSets, alphabetArr, lexName
 }
 
+func ReadDawg(data io.Reader) (*SimpleDawg, error) {
+	var magicStr [4]uint8
+	binary.Read(data, binary.BigEndian, &magicStr)
+	if !compareMagicDawg(magicStr) {
+		log.Debug().Msgf("Magic number does not match")
+		return nil, errors.New("magic number does not match dawg or reverse dawg")
+	}
+	d := &SimpleDawg{}
+	if string(magicStr[:]) == gaddagmaker.ReverseDawgMagicNumber {
+		d.reverse = true
+	}
+	nodes, letterSets, alphabetArr, lexName := loadCommonDagStructure(data)
+	d.nodes = nodes
+	d.letterSets = letterSets
+	d.alphabet = alphabet.FromSlice(alphabetArr)
+	d.lexiconName = string(lexName)
+	return d, nil
+}
+
 // LoadDawg loads a dawg from a file and returns a *SimpleDawg
 func LoadDawg(filename string) (*SimpleDawg, error) {
 	log.Debug().Msgf("Loading %v ...", filename)
@@ -71,20 +90,5 @@ func LoadDawg(filename string) (*SimpleDawg, error) {
 		return nil, err
 	}
 	defer file.Close()
-	var magicStr [4]uint8
-	binary.Read(file, binary.BigEndian, &magicStr)
-	if !compareMagicDawg(magicStr) {
-		log.Debug().Msgf("Magic number does not match")
-		return nil, errors.New("magic number does not match dawg or reverse dawg")
-	}
-	d := &SimpleDawg{}
-	if string(magicStr[:]) == gaddagmaker.ReverseDawgMagicNumber {
-		d.reverse = true
-	}
-	nodes, letterSets, alphabetArr, lexName := loadCommonDagStructure(file)
-	d.nodes = nodes
-	d.letterSets = letterSets
-	d.alphabet = alphabet.FromSlice(alphabetArr)
-	d.lexiconName = string(lexName)
-	return d, nil
+	return ReadDawg(file)
 }

@@ -13,7 +13,6 @@ import (
 	"github.com/domino14/macondo/ai/player"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
-	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
@@ -62,10 +61,8 @@ func TestSimSingleIteration(t *testing.T) {
 		game.Alphabet(), &DefaultConfig, strategy.LeaveFilename, strategy.PEGAdjustmentFilename)
 	is.NoErr(err)
 
-	gdObj, err := cache.Load(game.Config(), "gaddag:"+game.LexiconName(), gaddag.CacheLoadFunc)
+	gd, err := gaddag.Get(game.Config(), game.LexiconName())
 	is.NoErr(err)
-	gd, ok := gdObj.(*gaddag.SimpleGaddag)
-	is.True(ok)
 
 	generator := movegen.NewGordonGenerator(gd, game.Board(), rules.LetterDistribution())
 
@@ -115,10 +112,8 @@ func TestLongerSim(t *testing.T) {
 		game.Alphabet(), &DefaultConfig, strategy.LeaveFilename, strategy.PEGAdjustmentFilename)
 	is.NoErr(err)
 
-	gdObj, err := cache.Load(game.Config(), "gaddag:"+game.LexiconName(), gaddag.CacheLoadFunc)
+	gd, err := gaddag.Get(game.Config(), game.LexiconName())
 	is.NoErr(err)
-	gd, ok := gdObj.(*gaddag.SimpleGaddag)
-	is.True(ok)
 
 	generator := movegen.NewGordonGenerator(gd, game.Board(), rules.LetterDistribution())
 	// This will start the game and deal a random rack to players:

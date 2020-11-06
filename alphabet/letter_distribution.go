@@ -4,9 +4,7 @@ import (
 	"encoding/csv"
 	"io"
 	"math/rand"
-	"path/filepath"
 	"strconv"
-	"strings"
 
 	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
@@ -37,17 +35,8 @@ func PolishLetterDistribution(cfg *config.Config) (*LetterDistribution, error) {
 	return NamedLetterDistribution(cfg, "polish")
 }
 
-// NamedLetterDistribution loads a letter distribution by name.
-func NamedLetterDistribution(cfg *config.Config, name string) (*LetterDistribution, error) {
-	name = strings.ToLower(name)
-	filename := filepath.Join(cfg.LetterDistributionPath, name+".csv")
-
-	file, err := cache.Open(filename)
-	if err != nil {
-		return nil, err
-	}
-
-	r := csv.NewReader(file)
+func ScanLetterDistribution(data io.Reader) (*LetterDistribution, error) {
+	r := csv.NewReader(data)
 	dist := map[rune]uint8{}
 	ptValues := map[rune]uint8{}
 	sortOrder := []rune{}
