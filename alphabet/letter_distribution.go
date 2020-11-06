@@ -6,7 +6,6 @@ import (
 	"math/rand"
 	"strconv"
 
-	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
 )
 
