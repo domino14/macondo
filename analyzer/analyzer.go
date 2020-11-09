@@ -150,7 +150,7 @@ func (an *Analyzer) Analyze(jsonBoard []byte) ([]byte, error) {
 		return nil, err
 	}
 	moves := an.game.GenerateMoves(15)
-	out := make([]JsonMove, 15)
+	out := make([]JsonMove, len(moves))
 	for i, m := range moves {
 		out[i] = MakeJsonMove(m)
 	}
