@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"syscall/js"
+	"unsafe"
 
 	"github.com/domino14/macondo/analyzer"
 	"github.com/domino14/macondo/cache"
@@ -15,7 +16,8 @@ func precache(this js.Value, args []js.Value) interface{} {
 
 func analyze(this js.Value, args []js.Value) interface{} {
 	// JS doesn't use utf8, but it converts automatically if we take/return strings.
-	jsonBoard := []byte(args[0].String())
+	jsonBoardStr := args[0].String()
+	jsonBoard := *(*[]byte)(unsafe.Pointer(&jsonBoardStr))
 
 	an := analyzer.NewDefaultAnalyzer()
 	jsonMoves, err := an.Analyze(jsonBoard)
@@ -23,7 +25,7 @@ func analyze(this js.Value, args []js.Value) interface{} {
 		fmt.Println(err)
 		return nil
 	}
-	jsonMovesStr := string(jsonMoves)
+	jsonMovesStr := *(*string)(unsafe.Pointer(&jsonMoves))
 	return jsonMovesStr
 }
 
