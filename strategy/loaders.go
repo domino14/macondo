@@ -6,13 +6,12 @@ import (
 	"io/ioutil"
 	"path/filepath"
 
-	"github.com/alecthomas/mph"
 	"github.com/domino14/macondo/cache"
 	"github.com/rs/zerolog/log"
 )
 
 const (
-	LeaveFilename         = "leaves.idx"
+	LeaveFilename         = "leaves.olv"
 	PEGAdjustmentFilename = "preendgame.json"
 )
 
@@ -31,7 +30,7 @@ func stratFileForLexicon(strategyDir string, filename string, lexiconName string
 }
 
 // Load the exhaustive-leave minimal perfect hash.
-func loadExhaustiveMPH(strategyPath, leavefile, lexiconName string) (*mph.CHD, error) {
+func loadExhaustiveMPH(strategyPath, leavefile, lexiconName string) (*OldLeaves, error) {
 	// XXX: This function doesn't take into account the different letter distributions
 	// For now it doesn't matter but it will in the future when we have variants.
 
@@ -39,10 +38,10 @@ func loadExhaustiveMPH(strategyPath, leavefile, lexiconName string) (*mph.CHD, e
 	if err != nil {
 		return nil, err
 	}
-	var leaves *mph.CHD
+	var leaves *OldLeaves
 
 	defer file.Close()
-	leaves, err = mph.Read(file)
+	leaves, err = ReadOldLeaves(file)
 	if err != nil {
 		return nil, err
 	}
