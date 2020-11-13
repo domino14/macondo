@@ -1,12 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/binary"
 	"encoding/csv"
 	"flag"
 	"fmt"
-	"os"
+	"io/ioutil"
 	"strconv"
 	"strings"
 
@@ -73,21 +74,40 @@ func parseIntoMPH(filename string, alphabetName string) {
 		hb.Add(mw.Bytes(), float32ToByte(float32(leaveVal)))
 	}
 
-	leaves, err := hb.Build()
-	if err != nil {
-		log.Fatal().Err(err).Msg("")
+	var bb bytes.Buffer
+	nTries := 0
+	bestSize := int(^uint(0) >> 1)
+	for nTries < 10 {
+		bb.Reset()
+		leaves, err := hb.Build()
+		if err != nil {
+			log.Fatal().Err(err).Msg("")
+		}
+		log.Info().Msgf("Finished building MPH for leave file %v", filename)
+		log.Info().Msgf("Size of MPH: %v", leaves.Len())
+		bw := bufio.NewWriter(&bb)
+		err = leaves.Write(bw)
+		if err != nil {
+			log.Fatal().Err(err).Msg("")
+		}
+		err = bw.Flush()
+		if err != nil {
+			log.Fatal().Err(err).Msg("")
+		}
+		log.Info().Msgf("Size of file: %v", bb.Len())
+		if bb.Len() < bestSize {
+			err = ioutil.WriteFile("data.idx", bb.Bytes(), 0644)
+			if err != nil {
+				log.Fatal().Err(err).Msg("")
+			}
+			log.Info().Msgf("Wrote index file to data.idx. Please copy to data directory in right place.")
+			bestSize = bb.Len()
+			nTries = 0
+		} else {
+			nTries++
+			log.Info().Msgf("Not overwriting, because no improvement. (tries=%v)", nTries)
+		}
 	}
-	log.Info().Msgf("Finished building MPH for leave file %v", filename)
-	log.Info().Msgf("Size of MPH: %v", leaves.Len())
-	w, err := os.Create("data.idx")
-	if err != nil {
-		log.Fatal().Err(err).Msg("")
-	}
-	err = leaves.Write(w)
-	if err != nil {
-		log.Fatal().Err(err).Msg("")
-	}
-	log.Info().Msgf("Wrote index file to data.idx. Please copy to data directory in right place.")
 }
 
 func main() {
