@@ -1,8 +1,6 @@
 package strategy
 
 import (
-	"encoding/binary"
-	"math"
 	"strings"
 
 	"github.com/domino14/macondo/alphabet"
@@ -17,12 +15,6 @@ import (
 type ExhaustiveLeaveStrategy struct {
 	leaveValues                *OldLeaves
 	preEndgameAdjustmentValues []float64
-}
-
-func float32FromBytes(bytes []byte) float32 {
-	bits := binary.BigEndian.Uint32(bytes)
-	float := math.Float32frombits(bits)
-	return float
 }
 
 func defaultForLexicon(lexiconName string) string {
