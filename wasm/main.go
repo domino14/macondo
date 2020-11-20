@@ -1,6 +1,9 @@
 package main
 
 import (
+	"errors"
+	"sync"
+	"sync/atomic"
 	"syscall/js"
 	"unsafe"
 
@@ -13,12 +16,46 @@ func precache(this js.Value, args []js.Value) interface{} {
 	return nil
 }
 
-func analyze(this js.Value, args []js.Value) (interface{}, error) {
+var analyzerMap sync.Map
+var analyzerLastId int32 // int64 does not fit js's float64.
+
+// () => int32
+func newAnalyzer(this js.Value, args []js.Value) (interface{}, error) {
+	an := analyzer.NewDefaultAnalyzer()
+	k := atomic.AddInt32(&analyzerLastId, 1)
+	_, loaded := analyzerMap.LoadOrStore(k, an)
+	if loaded {
+		return nil, errors.New("atomicity issue")
+	}
+	return k, nil
+}
+
+// (int32) => null
+func delAnalyzer(this js.Value, args []js.Value) (interface{}, error) {
+	k := int32(args[0].Int())
+	_, loaded := analyzerMap.LoadAndDelete(k)
+	if !loaded {
+		return nil, errors.New("invalid id")
+	}
+	return nil, nil
+}
+
+// (int32, string) => string
+func analyzerAnalyze(this js.Value, args []js.Value) (interface{}, error) {
+	k := int32(args[0].Int())
+	thing, loaded := analyzerMap.Load(k)
+	if !loaded {
+		return nil, errors.New("invalid id")
+	}
+	an, ok := thing.(*analyzer.Analyzer)
+	if !ok {
+		return nil, errors.New("invalid type")
+	}
+
 	// JS doesn't use utf8, but it converts automatically if we take/return strings.
-	jsonBoardStr := args[0].String()
+	jsonBoardStr := args[1].String()
 	jsonBoard := *(*[]byte)(unsafe.Pointer(&jsonBoardStr))
 
-	an := analyzer.NewDefaultAnalyzer()
 	jsonMoves, err := an.Analyze(jsonBoard)
 	if err != nil {
 		return nil, err
@@ -29,8 +66,10 @@ func analyze(this js.Value, args []js.Value) (interface{}, error) {
 
 func registerCallbacks() {
 	js.Global().Get("resMacondo").Invoke(map[string]interface{}{
-		"precache": js.FuncOf(precache),
-		"analyze":  js.FuncOf(asyncFunc(analyze)),
+		"precache":        js.FuncOf(precache),
+		"newAnalyzer":     js.FuncOf(asyncFunc(newAnalyzer)),
+		"delAnalyzer":     js.FuncOf(asyncFunc(delAnalyzer)),
+		"analyzerAnalyze": js.FuncOf(asyncFunc(analyzerAnalyze)),
 	})
 }
 
