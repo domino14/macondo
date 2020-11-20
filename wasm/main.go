@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"syscall/js"
 	"unsafe"
 
@@ -14,7 +13,7 @@ func precache(this js.Value, args []js.Value) interface{} {
 	return nil
 }
 
-func analyze(this js.Value, args []js.Value) interface{} {
+func analyze(this js.Value, args []js.Value) (interface{}, error) {
 	// JS doesn't use utf8, but it converts automatically if we take/return strings.
 	jsonBoardStr := args[0].String()
 	jsonBoard := *(*[]byte)(unsafe.Pointer(&jsonBoardStr))
@@ -22,17 +21,16 @@ func analyze(this js.Value, args []js.Value) interface{} {
 	an := analyzer.NewDefaultAnalyzer()
 	jsonMoves, err := an.Analyze(jsonBoard)
 	if err != nil {
-		fmt.Println(err)
-		return nil
+		return nil, err
 	}
 	jsonMovesStr := *(*string)(unsafe.Pointer(&jsonMoves))
-	return jsonMovesStr
+	return jsonMovesStr, nil
 }
 
 func registerCallbacks() {
 	js.Global().Get("resMacondo").Invoke(map[string]interface{}{
 		"precache": js.FuncOf(precache),
-		"analyze":  js.FuncOf(analyze),
+		"analyze":  js.FuncOf(asyncFunc(analyze)),
 	})
 }
 
