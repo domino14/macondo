@@ -9,6 +9,7 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/config"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/runner"
 )
@@ -63,6 +64,7 @@ type Analyzer struct {
 	options *runner.GameOptions
 	game    *runner.AIGameRunner
 	moves   []*move.Move
+	simmer  *montecarlo.Simmer
 }
 
 func MakeJsonMove(m *move.Move) JsonMove {
@@ -211,4 +213,40 @@ func (an *Analyzer) RunTest() error {
 func AnalyzeBoard(jsonBoard []byte) ([]byte, error) {
 	an := NewDefaultAnalyzer()
 	return an.Analyze(jsonBoard)
+}
+
+func (an *Analyzer) SimInit() error {
+	simmer := &montecarlo.Simmer{}
+	simmer.Init(&an.game.Game, an.game.AIPlayer())
+	simmer.Reset()
+	err := simmer.PrepareSim(2, an.moves)
+	if err != nil {
+		return fmt.Errorf("init sim failed: %w", err)
+	}
+	an.simmer = simmer
+	return nil
+}
+
+func (an *Analyzer) SimSingleThread(iters int) error {
+	simmer := an.simmer
+	if simmer == nil {
+		return errors.New("sim not initialized")
+	}
+	simmer.SimSingleThread(iters)
+	return nil
+}
+
+// temp
+func (an *Analyzer) SimState() ([]byte, error) {
+	simmer := an.simmer
+	if simmer == nil {
+		return nil, errors.New("sim not initialized")
+	}
+	return json.Marshal(struct {
+		EquityStats  string `json:"equity_stats"`
+		ScoreDetails string `json:"score_details"`
+	}{
+		EquityStats:  simmer.EquityStats(),
+		ScoreDetails: simmer.ScoreDetails(),
+	})
 }

@@ -71,12 +71,53 @@ func analyzerAnalyze(this js.Value, args []js.Value) (interface{}, error) {
 	return jsonMovesStr, nil
 }
 
+// (int32) => null
+func simInit(this js.Value, args []js.Value) (interface{}, error) {
+	an, err := getAnalyzer(int32(args[0].Int()))
+	if err != nil {
+		return nil, err
+	}
+
+	err = an.SimInit()
+	return nil, err
+}
+
+// (int32, int) => null
+func simSingleThread(this js.Value, args []js.Value) (interface{}, error) {
+	an, err := getAnalyzer(int32(args[0].Int()))
+	if err != nil {
+		return nil, err
+	}
+
+	err = an.SimSingleThread(args[1].Int())
+	return nil, err
+}
+
+// (int32) => not documented
+func simState(this js.Value, args []js.Value) (interface{}, error) {
+	an, err := getAnalyzer(int32(args[0].Int()))
+	if err != nil {
+		return nil, err
+	}
+
+	retBytes, err := an.SimState()
+	if err != nil {
+		return nil, err
+	}
+
+	retStr := *(*string)(unsafe.Pointer(&retBytes))
+	return retStr, nil
+}
+
 func registerCallbacks() {
 	js.Global().Get("resMacondo").Invoke(map[string]interface{}{
 		"precache":        js.FuncOf(precache),
 		"newAnalyzer":     js.FuncOf(asyncFunc(newAnalyzer)),
 		"delAnalyzer":     js.FuncOf(asyncFunc(delAnalyzer)),
 		"analyzerAnalyze": js.FuncOf(asyncFunc(analyzerAnalyze)),
+		"simInit":         js.FuncOf(asyncFunc(simInit)),
+		"simSingleThread": js.FuncOf(asyncFunc(simSingleThread)),
+		"simState":        js.FuncOf(asyncFunc(simState)),
 	})
 }
 
