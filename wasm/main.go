@@ -40,9 +40,7 @@ func delAnalyzer(this js.Value, args []js.Value) (interface{}, error) {
 	return nil, nil
 }
 
-// (int32, string) => string
-func analyzerAnalyze(this js.Value, args []js.Value) (interface{}, error) {
-	k := int32(args[0].Int())
+func getAnalyzer(k int32) (*analyzer.Analyzer, error) {
 	thing, loaded := analyzerMap.Load(k)
 	if !loaded {
 		return nil, errors.New("invalid id")
@@ -50,6 +48,15 @@ func analyzerAnalyze(this js.Value, args []js.Value) (interface{}, error) {
 	an, ok := thing.(*analyzer.Analyzer)
 	if !ok {
 		return nil, errors.New("invalid type")
+	}
+	return an, nil
+}
+
+// (int32, string) => string
+func analyzerAnalyze(this js.Value, args []js.Value) (interface{}, error) {
+	an, err := getAnalyzer(int32(args[0].Int()))
+	if err != nil {
+		return nil, err
 	}
 
 	// JS doesn't use utf8, but it converts automatically if we take/return strings.
