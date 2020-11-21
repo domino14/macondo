@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -13,6 +14,8 @@ import (
 )
 
 var SampleJson = []byte(`{
+"scores": [0, 0],
+"onturn": 0,
 "size": 15,
 "rack": "EINRSTZ",
 "lexicon": "CSW19",
@@ -35,6 +38,8 @@ var SampleJson = []byte(`{
 ]}`)
 
 type JsonBoard struct {
+	Scores  []int
+	Onturn  int
 	Size    int
 	Lexicon string
 	Board   []string
@@ -107,14 +112,25 @@ func (an *Analyzer) newGame() error {
 func (an *Analyzer) loadJson(j []byte) error {
 	// Load a game position from a json blob
 	var b = JsonBoard{}
-	json.Unmarshal(j, &b)
-	an.options.SetLexicon([]string{b.Lexicon})
-	err := an.newGame()
+	err := json.Unmarshal(j, &b)
 	if err != nil {
-		fmt.Println("Creating game failed!")
-		return err
+		return fmt.Errorf("parse json failed: %w", err)
+	}
+	if len(b.Scores) != 2 {
+		return errors.New("invalid scores")
+	}
+	if b.Onturn < 0 || b.Onturn > 1 {
+		return errors.New("invalid onturn")
+	}
+	an.options.SetLexicon([]string{b.Lexicon})
+	err = an.newGame()
+	if err != nil {
+		return fmt.Errorf("creating game failed: %w", err)
 	}
 	var g = an.game
+	g.SetPointsFor(0, b.Scores[0])
+	g.SetPointsFor(1, b.Scores[1])
+	g.SetPlayerOnTurn(b.Onturn)
 	bd := g.Board()
 	letters := []alphabet.MachineLetter{}
 	for row, str := range b.Board {
@@ -128,15 +144,13 @@ func (an *Analyzer) loadJson(j []byte) error {
 	// Then remove the visible tiles on the board
 	err = g.Bag().RemoveTiles(letters)
 	if err != nil {
-		fmt.Println("Removing board tiles failed!")
-		return err
+		return fmt.Errorf("removing board tiles failed: %w", err)
 	}
 	// Set the current rack. This will also give opponent a random rack
 	// from what remains, and edit the bag accordingly.
 	err = g.SetCurrentRack(b.Rack)
 	if err != nil {
-		fmt.Println("Setting rack to " + b.Rack + " failed!")
-		return err
+		return fmt.Errorf("setting rack to %v failed: %w", b.Rack, err)
 	}
 	g.RecalculateBoard()
 
@@ -146,8 +160,7 @@ func (an *Analyzer) loadJson(j []byte) error {
 func (an *Analyzer) Analyze(jsonBoard []byte) ([]byte, error) {
 	err := an.loadJson(jsonBoard)
 	if err != nil {
-		fmt.Println("Loading game failed!")
-		return nil, err
+		return nil, fmt.Errorf("loading game failed: %w", err)
 	}
 	moves := an.game.GenerateMoves(15)
 	out := make([]JsonMove, len(moves))
@@ -168,7 +181,10 @@ func (an *Analyzer) RunTest() error {
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 	// Display the moves
 	var ms []JsonMove
-	json.Unmarshal(moves, &ms)
+	err = json.Unmarshal(moves, &ms)
+	if err != nil {
+		return err
+	}
 	for _, m := range ms {
 		fmt.Printf("%s %-15s %-7s %.1f\n", m.DisplayCoordinates, m.Tiles, m.Leave, m.Equity)
 	}
