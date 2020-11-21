@@ -62,6 +62,7 @@ type Analyzer struct {
 	config  *config.Config
 	options *runner.GameOptions
 	game    *runner.AIGameRunner
+	moves   []*move.Move
 }
 
 func MakeJsonMove(m *move.Move) JsonMove {
@@ -157,17 +158,33 @@ func (an *Analyzer) loadJson(j []byte) error {
 	return nil
 }
 
-func (an *Analyzer) Analyze(jsonBoard []byte) ([]byte, error) {
+func (an *Analyzer) LoadGame(jsonBoard []byte) error {
 	err := an.loadJson(jsonBoard)
 	if err != nil {
-		return nil, fmt.Errorf("loading game failed: %w", err)
+		return fmt.Errorf("loading game failed: %w", err)
 	}
-	moves := an.game.GenerateMoves(15)
-	out := make([]JsonMove, len(moves))
-	for i, m := range moves {
+	return nil
+}
+
+func (an *Analyzer) GenerateMoves(numPlays int) {
+	an.moves = an.game.GenerateMoves(numPlays)
+}
+
+func (an *Analyzer) ToJsonMoves() ([]byte, error) {
+	out := make([]JsonMove, len(an.moves))
+	for i, m := range an.moves {
 		out[i] = MakeJsonMove(m)
 	}
 	return json.Marshal(out)
+}
+
+func (an *Analyzer) Analyze(jsonBoard []byte) ([]byte, error) {
+	err := an.LoadGame(jsonBoard)
+	if err != nil {
+		return nil, err
+	}
+	an.GenerateMoves(15)
+	return an.ToJsonMoves()
 }
 
 func (an *Analyzer) RunTest() error {
