@@ -121,7 +121,9 @@ func TestLongerSim(t *testing.T) {
 	game.SetPlayerOnTurn(0)
 	// Overwrite rack we are simming for. This is the prototypical Maven sim rack.
 	// AWA should sim best.
-	game.SetRackFor(0, alphabet.RackFromString("AAADERW", game.Alphabet()))
+	// Note we changed the rack here from AAADERW to AAAENSW because the test kept failing
+	// because of the fairly new word ADWARE.
+	game.SetRackFor(0, alphabet.RackFromString("AAAENSW", game.Alphabet()))
 	aiplayer := player.NewRawEquityPlayer(strategy)
 	generator.GenAll(game.RackFor(0), false)
 	aiplayer.AssignEquity(generator.Plays(), game.Board(), game.Bag(),
