@@ -20,7 +20,8 @@ type ExhaustiveLeaveStrategy struct {
 func defaultForLexicon(lexiconName string) string {
 	if strings.HasPrefix(lexiconName, "CSW") ||
 		strings.HasPrefix(lexiconName, "TWL") ||
-		strings.HasPrefix(lexiconName, "NWL") {
+		strings.HasPrefix(lexiconName, "NWL") ||
+		strings.HasPrefix(lexiconName, "ECWL") {
 
 		return "default_english"
 	}
