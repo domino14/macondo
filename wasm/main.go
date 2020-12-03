@@ -9,6 +9,7 @@ import (
 
 	"github.com/domino14/macondo/analyzer"
 	"github.com/domino14/macondo/cache"
+	"github.com/rs/zerolog"
 )
 
 func precache(this js.Value, args []js.Value) interface{} {
@@ -122,6 +123,7 @@ func registerCallbacks() {
 }
 
 func main() {
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	registerCallbacks()
 	// Keep Go "program" running.
 	select {}
