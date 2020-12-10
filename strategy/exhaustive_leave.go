@@ -3,6 +3,8 @@ package strategy
 import (
 	"strings"
 
+	"github.com/rs/zerolog/log"
+
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cache"
@@ -10,10 +12,20 @@ import (
 	"github.com/domino14/macondo/move"
 )
 
+type Leaves interface {
+	LeaveValue(leave alphabet.MachineWord) float64
+}
+
+type BlankLeaves struct{}
+
+func (b *BlankLeaves) LeaveValue(leave alphabet.MachineWord) float64 {
+	return float64(0.0)
+}
+
 // ExhaustiveLeaveStrategy should apply an equity calculation for all leaves
 // exhaustively.
 type ExhaustiveLeaveStrategy struct {
-	leaveValues                *OldLeaves
+	leaveValues                Leaves
 	preEndgameAdjustmentValues []float64
 }
 
@@ -43,15 +55,23 @@ func NewExhaustiveLeaveStrategy(lexiconName string,
 
 	leaves, err := cache.Load(cfg, "leavefile:"+lexiconName+":"+leaveFilename, LeaveCacheLoadFunc)
 	if err != nil {
-		return nil, err
+		log.Err(err).Msg("loading-leaves")
 	}
 	pegValues, err := cache.Load(cfg, "pegfile:"+lexiconName+":"+pegfile, PEGCacheLoadFunc)
 	if err != nil {
-		return nil, err
+		log.Err(err).Msg("loading-peg-values")
 	}
-	strategy.leaveValues = leaves.(*OldLeaves)
-	strategy.preEndgameAdjustmentValues = pegValues.([]float64)
-
+	var ok bool
+	strategy.leaveValues, ok = leaves.(*OldLeaves)
+	if !ok {
+		log.Info().Msg("no leaves found, will use greedy strategy")
+		strategy.leaveValues = &BlankLeaves{}
+	}
+	strategy.preEndgameAdjustmentValues, ok = pegValues.([]float64)
+	if !ok {
+		log.Info().Msg("no peg values found, will use no pre-endgame strategy")
+		strategy.preEndgameAdjustmentValues = []float64{}
+	}
 	return strategy, nil
 }
 

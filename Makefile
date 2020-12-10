@@ -1,6 +1,6 @@
 everything: all wasm
 
-all: macondo_shell macondo_bot bot_shell make_gaddag make_leaves_structure analyze
+all: macondo_shell macondo_bot bot_shell gaddag_maker make_leaves_structure analyze
 
 .PHONY: wasm
 
@@ -19,7 +19,7 @@ macondo_bot:
 bot_shell:
 	go build -trimpath -o bin/bot_shell cmd/bot_shell/main.go
 
-make_gaddag:
+gaddag_maker:
 	go build -trimpath -o bin/make_gaddag cmd/make_gaddag/main.go
 
 make_leaves_structure:

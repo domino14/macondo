@@ -4,7 +4,6 @@ package gaddagmaker
 import (
 	"bufio"
 	"encoding/binary"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -373,7 +372,6 @@ func genGaddag(stream io.Reader, lexName string, minimize bool, writeToFile bool
 
 	gaddag := &Gaddag{}
 	words, alph := getWords(stream)
-	fmt.Println("WORDS ARE", words, "ALPH IS", alph)
 	if words == nil {
 		return gaddag
 	}
