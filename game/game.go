@@ -415,9 +415,9 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 				// wait for the final pass (or challenge).
 				g.playing = pb.PlayState_WAITING_FOR_FINAL_PASS
 				g.history.PlayState = g.playing
-				log.Debug().Msg("waiting for final pass... (commit pass)")
+				log.Trace().Msg("waiting for final pass... (commit pass)")
 			} else {
-				log.Debug().Msg("game is over")
+				log.Trace().Msg("game is over")
 				g.playing = pb.PlayState_GAME_OVER
 				if addToHistory {
 					g.history.PlayState = g.playing
@@ -439,7 +439,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		if g.playing == pb.PlayState_WAITING_FOR_FINAL_PASS {
 			g.playing = pb.PlayState_GAME_OVER
 			g.history.PlayState = g.playing
-			log.Debug().Msg("waiting -> gameover transition")
+			log.Trace().Msg("waiting -> gameover transition")
 			// Note that the player "on turn" changes here, as we created
 			// a fake virtual turn on the pass. We need to calculate
 			// the final score correctly.
@@ -460,7 +460,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		}
 		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
 		g.players[g.onturn].setRackTiles(tiles, g.alph)
-		log.Debug().Str("newrack", g.players[g.onturn].rackLetters).Msg("new-rack")
+		log.Trace().Str("newrack", g.players[g.onturn].rackLetters).Msg("new-rack")
 		g.scorelessTurns++
 		if addToHistory {
 			evt := g.EventFromMove(m)
@@ -641,7 +641,7 @@ func (g *Game) PlayToTurn(turnnum int) error {
 		}
 		// g.onturn will get rewritten in the next iteration
 		g.onturn = (g.onturn + 1) % 2
-		log.Debug().Int("turn", t).Msg("played turn")
+		log.Trace().Int("turn", t).Msg("played turn")
 	}
 	if t >= len(g.history.Events) {
 		if len(g.history.LastKnownRacks[0]) > 0 && len(g.history.LastKnownRacks[1]) > 0 {
@@ -670,7 +670,7 @@ func (g *Game) PlayToTurn(turnnum int) error {
 		// playTurn should have refilled the rack of the relevant player,
 		// who was on turn.
 		// So set the currently on turn's rack to whatever is in the history.
-		log.Debug().Int("turn", t).Msg("setting rack from turn")
+		log.Trace().Int("turn", t).Msg("setting rack from turn")
 		err := g.SetRackFor(g.onturn, alphabet.RackFromString(
 			g.history.Events[t].Rack, g.alph))
 		if err != nil {
@@ -701,7 +701,7 @@ func (g *Game) playTurn(t int) error {
 	// subset of the functionality as it's designed to replay an already
 	// recorded turn on the board.
 	evt := g.history.Events[t]
-	log.Debug().Int("event-type", int(evt.Type)).Int("turn", t).Msg("playTurn")
+	log.Trace().Int("event-type", int(evt.Type)).Int("turn", t).Msg("playTurn")
 	// onturn should be based on the event nickname
 	found := false
 	for idx, p := range g.players {
@@ -716,7 +716,7 @@ func (g *Game) playTurn(t int) error {
 	}
 
 	m := MoveFromEvent(evt, g.alph, g.board)
-	log.Debug().Int("movetype", int(m.Action())).Msg("move-action")
+	log.Trace().Int("movetype", int(m.Action())).Msg("move-action")
 	switch m.Action() {
 	case move.MoveTypePlay:
 		// Set the rack for the user on turn to the rack in the history.
@@ -770,7 +770,7 @@ func (g *Game) playTurn(t int) error {
 		playedTiles := strings.ReplaceAll(evt.PlayedTiles, string(alphabet.ASCIIPlayedThrough), "")
 
 		mw, err := alphabet.ToMachineWord(playedTiles, g.alph)
-		log.Debug().Interface("mw", mw).Msg("throwing played tiles back in bag, to redraw")
+		log.Trace().Interface("mw", mw).Msg("throwing played tiles back in bag, to redraw")
 		if err != nil {
 			return err
 		}
@@ -780,7 +780,7 @@ func (g *Game) playTurn(t int) error {
 				mw[idx] = alphabet.BlankMachineLetter
 			}
 		}
-		log.Debug().Interface("mw", mw).Msg("Throwing in OLD played tiles, to redraw")
+		log.Trace().Interface("mw", mw).Msg("Throwing in OLD played tiles, to redraw")
 		g.bag.PutBack(mw)
 		// Set the tiles to be the tiles in the event.
 		r := alphabet.NewRack(g.alph)
@@ -827,7 +827,7 @@ func (g *Game) SetRackFor(playerIdx int, rack *alphabet.Rack) error {
 
 	// Check if we can actually set our rack now that these tiles are in the
 	// bag.
-	log.Debug().Str("rack", rack.TilesOn().UserVisible(g.alph)).Msg("removing from bag")
+	log.Trace().Str("rack", rack.TilesOn().UserVisible(g.alph)).Msg("removing from bag")
 	err := g.bag.RemoveTiles(rack.TilesOn())
 	if err != nil {
 		log.Error().Msgf("Unable to set rack: %v", err)
@@ -837,7 +837,7 @@ func (g *Game) SetRackFor(playerIdx int, rack *alphabet.Rack) error {
 	// success; set our rack
 	g.players[playerIdx].rack = rack
 	g.players[playerIdx].rackLetters = rack.String()
-	log.Debug().Str("rack", g.players[playerIdx].rackLetters).
+	log.Trace().Str("rack", g.players[playerIdx].rackLetters).
 		Int("player", playerIdx).Msg("set rack")
 	// And redraw a random rack for opponent.
 	g.SetRandomRack(otherPlayer(playerIdx))
