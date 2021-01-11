@@ -3,8 +3,10 @@ package bot
 import (
 	"fmt"
 	"io"
+	"math/rand"
 	"os"
 	"runtime"
+	"time"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/nats-io/nats.go"
@@ -111,7 +113,13 @@ func (bot *Bot) handle(data []byte) *pb.BotResponse {
 	if !valid {
 		m, _ = g.NewChallengeMove(g.PlayerOnTurn())
 	} else if g.IsPlaying() {
-		moves := bot.game.GenerateMoves(1)
+		// this should be based on actual game timers
+		c := time.After(time.Duration(rand.Float64()*4) * time.Second)
+		moves := bot.game.GenerateMoves(2)
+		if len(moves) > 1 {
+			// more than one move was available, let's pretend to think :-P
+			<-c
+		}
 		m = moves[0]
 	} else {
 		m, _ = g.NewPassMove(g.PlayerOnTurn())
