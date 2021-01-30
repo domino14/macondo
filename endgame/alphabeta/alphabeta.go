@@ -450,7 +450,7 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 	maximizingPlayer bool) *GameNode {
 
 	// depthDbg := strings.Repeat(" ", depth)
-	if depth == 0 || s.game.Playing() == pb.PlayState_GAME_OVER {
+	if depth == 0 || s.game.Playing() != pb.PlayState_PLAYING {
 		// s.game.Playing() happens if the game is over; i.e. if the
 		// current node is terminal.
 		node.calculateValue(s)
