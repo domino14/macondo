@@ -410,7 +410,9 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		}
 
 		if g.players[g.onturn].rack.NumTiles() == 0 {
-			if g.history != nil && g.history.ChallengeRule != pb.ChallengeRule_VOID {
+			// make sure not in sim mode. sim mode (montecarlo, endgame, etc) does not
+			// generate end-of-game passes.
+			if g.backupMode != SimulationMode && g.history != nil && g.history.ChallengeRule != pb.ChallengeRule_VOID {
 				// Basically, if the challenge rule is not void,
 				// wait for the final pass (or challenge).
 				g.playing = pb.PlayState_WAITING_FOR_FINAL_PASS
