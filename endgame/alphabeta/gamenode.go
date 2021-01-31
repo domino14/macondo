@@ -98,7 +98,7 @@ func (g *GameNode) calculateValue(s *Solver) {
 		initialSpread = -initialSpread
 		negateHeurVal = true
 	}
-	gameOver := s.game.Playing() == pb.PlayState_GAME_OVER
+	gameOver := s.game.Playing() != pb.PlayState_PLAYING
 	// If the game is over, the value should just be the spread change.
 	if gameOver {
 		// Technically no one is on turn, but the player NOT on turn is
