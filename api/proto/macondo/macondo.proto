@@ -115,13 +115,36 @@ message PlayerInfo {
 //   string rack_letters = 3;
 // }
 
+
 // Interface for bots. Bots should accept a BotRequest and return a BotResponse.
 
-message BotRequest { GameHistory game_history = 1; }
+message BotRequest {
+  GameHistory game_history = 1;
+  EvaluationRequest evaluation_request = 2;
+}
+
+message EvaluationRequest {
+  // Evaluate for this user
+  string user = 1;
+  // Later: evaluation type (static/sim/etc)
+}
+
+message Evaluation {
+  repeated SingleEvaluation play_eval = 1;
+}
+
+message SingleEvaluation {
+  double equity_loss = 1;
+  double win_pct_loss = 2;
+  bool missed_bingo = 3;
+  bool possible_star_play = 4;
+  bool missed_star_play = 5;
+}
 
 message BotResponse {
   oneof response {
     GameEvent move = 1;
     string error = 2;
   }
+  Evaluation eval = 3;
 }

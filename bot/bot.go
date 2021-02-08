@@ -17,6 +17,10 @@ import (
 	"github.com/domino14/macondo/runner"
 )
 
+const (
+	StarPlayThreshold = 10.0 // equity
+)
+
 func debugWriteln(msg string) {
 	io.WriteString(os.Stderr, msg)
 	io.WriteString(os.Stderr, "\n")
@@ -61,30 +65,97 @@ func errorResponse(message string, err error) *pb.BotResponse {
 	}
 }
 
-func (bot *Bot) Deserialize(data []byte) (*game.Game, error) {
+func (bot *Bot) Deserialize(data []byte) (*game.Game, *pb.EvaluationRequest, error) {
 	req := pb.BotRequest{}
 	err := proto.Unmarshal(data, &req)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	history := req.GameHistory
 	boardLayout, ldName := game.HistoryToVariant(history)
 	rules, err := runner.NewAIGameRules(bot.config, boardLayout, history.Lexicon, ldName)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	nturns := len(history.Events)
 	ng, err := game.NewFromHistory(history, rules, 0)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	ng.PlayToTurn(nturns)
 	// debugWriteln(ng.ToDisplayText())
-	return ng, nil
+	return ng, req.EvaluationRequest, nil
+}
+
+func evalSingleMove(g *runner.AIGameRunner, evtIdx int) *pb.SingleEvaluation {
+	evts := g.History().Events
+	playedEvt := evts[evtIdx]
+
+	g.PlayToTurn(evtIdx)
+	moves := g.GenerateMoves(100000)
+	// find the played move in the list of moves
+	topEquity := moves[0].Equity()
+	topIsBingo := moves[0].TilesPlayed() == 7 && moves[0].Action() == move.MoveTypePlay
+	foundEquity := float64(0)
+	playedBingo := false
+	hasStarPlay := false
+	if len(moves) > 1 && moves[1].Equity() < topEquity-StarPlayThreshold {
+		hasStarPlay = true
+	}
+	missedStarPlay := false
+	for idx, m := range moves {
+		evt := g.EventFromMove(m)
+		if evt.Type == pb.GameEvent_TILE_PLACEMENT_MOVE || evt.Type == pb.GameEvent_EXCHANGE {
+			if evt.PlayedTiles == playedEvt.PlayedTiles &&
+				evt.Exchanged == playedEvt.Exchanged &&
+				evt.Score == playedEvt.Score {
+
+				if idx == 1 && hasStarPlay {
+					// A star play is a stand-alone play that is better than anything else.
+					missedStarPlay = true
+				}
+				// Same move
+				foundEquity = m.Equity()
+				playedBingo = m.TilesPlayed() == 7 && m.Action() == move.MoveTypePlay
+				break
+			}
+		}
+	}
+	// if we don't find the move it means the user played a phony. This is ok. In the
+	// absence of a better metric, we can evaluate the phony as a 0.
+	return &pb.SingleEvaluation{
+		EquityLoss:       foundEquity - topEquity,
+		MissedBingo:      topIsBingo && !playedBingo,
+		PossibleStarPlay: hasStarPlay,
+		MissedStarPlay:   missedStarPlay,
+	}
+}
+
+func (bot *Bot) evaluationResponse(req *pb.EvaluationRequest) *pb.BotResponse {
+
+	evts := bot.game.History().Events
+
+	evals := []*pb.SingleEvaluation{}
+
+	for idx, evt := range evts {
+
+		if evt.Nickname == req.User && (evt.Type == pb.GameEvent_TILE_PLACEMENT_MOVE ||
+			evt.Type == pb.GameEvent_EXCHANGE) {
+			eval := evalSingleMove(bot.game, idx)
+			evals = append(evals, eval)
+		}
+	}
+	evaluation := &pb.Evaluation{PlayEval: evals}
+	log.Info().Interface("eval", evaluation).Msg("evaluation")
+
+	return &pb.BotResponse{
+		Response: nil,
+		Eval:     evaluation,
+	}
 }
 
 func (bot *Bot) handle(data []byte) *pb.BotResponse {
-	ng, err := bot.Deserialize(data)
+	ng, evalReq, err := bot.Deserialize(data)
 	if err != nil {
 		return errorResponse("Could not parse request", err)
 	}
@@ -93,6 +164,13 @@ func (bot *Bot) handle(data []byte) *pb.BotResponse {
 		return errorResponse("Could not create AI player", err)
 	}
 	bot.game = g
+
+	if evalReq != nil {
+		// We are asking it to evaluate the last play in the position
+		// that we passed in.
+		// Generate all possible moves.
+		return bot.evaluationResponse(evalReq)
+	}
 
 	// See if we need to challenge the last move
 	valid := true
