@@ -1,0 +1,31 @@
+name: Go
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Set up Go
+      uses: actions/setup-go@v2
+      with:
+        go-version: 1.15
+
+    - name: Build
+      run: |
+        go build -trimpath -o bin/analyze cmd/analyze/main.go
+        go build -trimpath -o bin/shell cmd/shell/main.go
+        go build -trimpath -o bin/bot cmd/bot/main.go
+        go build -trimpath -o bin/bot_shell cmd/bot_shell/main.go
+        go build -trimpath -o bin/make_gaddag cmd/make_gaddag/main.go
+        go build -trimpath -o bin/make_leaves_structure cmd/make_leaves_structure/main.go
+
+    - name: Test
+      run: go test -v ./...
