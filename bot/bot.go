@@ -110,7 +110,7 @@ func evalSingleMove(g *runner.AIGameRunner, evtIdx int) *pb.SingleEvaluation {
 				evt.Exchanged == playedEvt.Exchanged &&
 				evt.Score == playedEvt.Score {
 
-				if idx == 1 && hasStarPlay {
+				if idx > 0 && hasStarPlay {
 					// A star play is a stand-alone play that is better than anything else.
 					missedStarPlay = true
 				}
@@ -125,6 +125,7 @@ func evalSingleMove(g *runner.AIGameRunner, evtIdx int) *pb.SingleEvaluation {
 	// absence of a better metric, we can evaluate the phony as a 0.
 	return &pb.SingleEvaluation{
 		EquityLoss:       foundEquity - topEquity,
+		TopIsBingo:       topIsBingo,
 		MissedBingo:      topIsBingo && !playedBingo,
 		PossibleStarPlay: hasStarPlay,
 		MissedStarPlay:   missedStarPlay,

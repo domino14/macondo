@@ -139,6 +139,7 @@ message SingleEvaluation {
   bool missed_bingo = 3;
   bool possible_star_play = 4;
   bool missed_star_play = 5;
+  bool top_is_bingo = 6;
 }
 
 message BotResponse {
