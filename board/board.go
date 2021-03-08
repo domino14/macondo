@@ -429,7 +429,8 @@ func (g *GameBoard) ErrorIfIllegalPlay(row, col int, vertical bool,
 // FormedWords returns an array of all machine words formed by this move.
 // The move is assumed to be of type Play
 func (g *GameBoard) FormedWords(m *move.Move) ([]alphabet.MachineWord, error) {
-	words := []alphabet.MachineWord{}
+	// Reserve space for main word.
+	words := []alphabet.MachineWord{nil}
 	mainWord := []alphabet.MachineLetter{}
 
 	row, col, vertical := m.CoordsAndVertical()
@@ -461,7 +462,8 @@ func (g *GameBoard) FormedWords(m *move.Move) ([]alphabet.MachineWord, error) {
 	}
 	// Prepend the main word to the slice. We do this to establish a convention
 	// that this slice always contains the main formed word first.
-	words = append([]alphabet.MachineWord{mainWord}, words...)
+	// Space for this is already reserved upfront to avoid unnecessary copying.
+	words[0] = mainWord
 
 	return words, nil
 }
