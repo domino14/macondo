@@ -398,7 +398,7 @@ func (g *GameBoard) ErrorIfIllegalPlay(row, col int, vertical bool,
 			ml = g.GetLetter(newrow, newcol)
 			if ml != alphabet.EmptySquareMarker {
 				return fmt.Errorf("tried to play through a letter already on "+
-					"the board; please use the played-through marker (.) instead ("+
+					"the board; please use the played-through marker (.) instead "+
 					"(row %v col %v ml %v)", newrow, newcol, ml)
 			}
 
