@@ -423,6 +423,9 @@ func (g *GameBoard) ErrorIfIllegalPlay(row, col int, vertical bool,
 	if !boardEmpty && !bordersATile {
 		return errors.New("your play must border a tile already on the board")
 	}
+	if len(word) < 2 {
+		return errors.New("your play must include at least two letters")
+	}
 	{
 		checkrow, checkcol := row-ri, col-ci
 		if g.PosExists(checkrow, checkcol) && g.GetLetter(checkrow, checkcol) != alphabet.EmptySquareMarker {
