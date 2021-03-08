@@ -394,6 +394,7 @@ func (g *GameBoard) ErrorIfIllegalPlay(row, col int, vertical bool,
 				return errors.New("a played-through marker was specified, but " +
 					"there is no tile at the given location")
 			}
+			bordersATile = true
 		} else {
 			ml = g.GetLetter(newrow, newcol)
 			if ml != alphabet.EmptySquareMarker {
@@ -405,10 +406,9 @@ func (g *GameBoard) ErrorIfIllegalPlay(row, col int, vertical bool,
 			// We are placing a tile on this empty square. Check if we border
 			// any other tiles.
 
-			for _, places := range [][2]int{
-				{0, 1}, {0, -1}, {1, 0}, {-1, 0},
-			} {
-				checkrow, checkcol := newrow+places[0], newcol+places[1]
+			for d := -1; d <= 1; d += 2 {
+				// only check perpendicular hooks
+				checkrow, checkcol := newrow+ci*d, newcol+ri*d
 				if g.PosExists(checkrow, checkcol) && g.GetLetter(checkrow, checkcol) != alphabet.EmptySquareMarker {
 					bordersATile = true
 				}
@@ -422,6 +422,18 @@ func (g *GameBoard) ErrorIfIllegalPlay(row, col int, vertical bool,
 	}
 	if !boardEmpty && !bordersATile {
 		return errors.New("your play must border a tile already on the board")
+	}
+	{
+		checkrow, checkcol := row-ri, col-ci
+		if g.PosExists(checkrow, checkcol) && g.GetLetter(checkrow, checkcol) != alphabet.EmptySquareMarker {
+			return errors.New("your play must include the whole word")
+		}
+	}
+	{
+		checkrow, checkcol := row+ri*len(word), col+ci*len(word)
+		if g.PosExists(checkrow, checkcol) && g.GetLetter(checkrow, checkcol) != alphabet.EmptySquareMarker {
+			return errors.New("your play must include the whole word")
+		}
 	}
 	return nil
 }
