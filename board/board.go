@@ -377,6 +377,7 @@ func (g *GameBoard) ErrorIfIllegalPlay(row, col int, vertical bool,
 	boardEmpty := g.IsEmpty()
 	touchesCenterSquare := false
 	bordersATile := false
+	placedATile := false
 	for idx, ml := range word {
 		newrow, newcol := row+(ri*idx), col+(ci*idx)
 
@@ -414,6 +415,7 @@ func (g *GameBoard) ErrorIfIllegalPlay(row, col int, vertical bool,
 				}
 			}
 
+			placedATile = true
 		}
 	}
 
@@ -422,6 +424,9 @@ func (g *GameBoard) ErrorIfIllegalPlay(row, col int, vertical bool,
 	}
 	if !boardEmpty && !bordersATile {
 		return errors.New("your play must border a tile already on the board")
+	}
+	if !placedATile {
+		return errors.New("your play must place a new tile")
 	}
 	if len(word) < 2 {
 		return errors.New("your play must include at least two letters")
