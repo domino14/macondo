@@ -377,6 +377,7 @@ func (g *GameBoard) ErrorIfIllegalPlay(row, col int, vertical bool,
 	boardEmpty := g.IsEmpty()
 	touchesCenterSquare := false
 	bordersATile := false
+	placedATile := false
 	for idx, ml := range word {
 		newrow, newcol := row+(ri*idx), col+(ci*idx)
 
@@ -394,26 +395,27 @@ func (g *GameBoard) ErrorIfIllegalPlay(row, col int, vertical bool,
 				return errors.New("a played-through marker was specified, but " +
 					"there is no tile at the given location")
 			}
+			bordersATile = true
 		} else {
 			ml = g.GetLetter(newrow, newcol)
 			if ml != alphabet.EmptySquareMarker {
 				return fmt.Errorf("tried to play through a letter already on "+
-					"the board; please use the played-through marker (.) instead ("+
+					"the board; please use the played-through marker (.) instead "+
 					"(row %v col %v ml %v)", newrow, newcol, ml)
 			}
 
 			// We are placing a tile on this empty square. Check if we border
 			// any other tiles.
 
-			for _, places := range [][2]int{
-				{0, 1}, {0, -1}, {1, 0}, {-1, 0},
-			} {
-				checkrow, checkcol := newrow+places[0], newcol+places[1]
+			for d := -1; d <= 1; d += 2 {
+				// only check perpendicular hooks
+				checkrow, checkcol := newrow+ci*d, newcol+ri*d
 				if g.PosExists(checkrow, checkcol) && g.GetLetter(checkrow, checkcol) != alphabet.EmptySquareMarker {
 					bordersATile = true
 				}
 			}
 
+			placedATile = true
 		}
 	}
 
@@ -423,13 +425,32 @@ func (g *GameBoard) ErrorIfIllegalPlay(row, col int, vertical bool,
 	if !boardEmpty && !bordersATile {
 		return errors.New("your play must border a tile already on the board")
 	}
+	if !placedATile {
+		return errors.New("your play must place a new tile")
+	}
+	if len(word) < 2 {
+		return errors.New("your play must include at least two letters")
+	}
+	{
+		checkrow, checkcol := row-ri, col-ci
+		if g.PosExists(checkrow, checkcol) && g.GetLetter(checkrow, checkcol) != alphabet.EmptySquareMarker {
+			return errors.New("your play must include the whole word")
+		}
+	}
+	{
+		checkrow, checkcol := row+ri*len(word), col+ci*len(word)
+		if g.PosExists(checkrow, checkcol) && g.GetLetter(checkrow, checkcol) != alphabet.EmptySquareMarker {
+			return errors.New("your play must include the whole word")
+		}
+	}
 	return nil
 }
 
 // FormedWords returns an array of all machine words formed by this move.
 // The move is assumed to be of type Play
 func (g *GameBoard) FormedWords(m *move.Move) ([]alphabet.MachineWord, error) {
-	words := []alphabet.MachineWord{}
+	// Reserve space for main word.
+	words := []alphabet.MachineWord{nil}
 	mainWord := []alphabet.MachineLetter{}
 
 	row, col, vertical := m.CoordsAndVertical()
@@ -461,7 +482,8 @@ func (g *GameBoard) FormedWords(m *move.Move) ([]alphabet.MachineWord, error) {
 	}
 	// Prepend the main word to the slice. We do this to establish a convention
 	// that this slice always contains the main formed word first.
-	words = append([]alphabet.MachineWord{mainWord}, words...)
+	// Space for this is already reserved upfront to avoid unnecessary copying.
+	words[0] = mainWord
 
 	return words, nil
 }
