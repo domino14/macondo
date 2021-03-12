@@ -35,6 +35,15 @@ func (b *Bag) Refill() {
 	b.Shuffle()
 }
 
+// FastDrawAtMost is DrawAtMost using FastDraw.
+func (b *Bag) FastDrawAtMost(n int) []MachineLetter {
+	if n > len(b.tiles) {
+		n = len(b.tiles)
+	}
+	drawn, _ := b.FastDraw(n)
+	return drawn
+}
+
 // DrawAtMost draws at most n tiles from the bag. It can draw fewer if there
 // are fewer tiles than n, and even draw no tiles at all :o
 func (b *Bag) DrawAtMost(n int) []MachineLetter {
@@ -104,6 +113,17 @@ func (b *Bag) Shuffle() {
 	b.randSource.Shuffle(len(b.tiles), func(i, j int) {
 		b.tiles[i], b.tiles[j] = b.tiles[j], b.tiles[i]
 	})
+}
+
+// FastExchange is Exchange using FastDraw.
+func (b *Bag) FastExchange(letters []MachineLetter) ([]MachineLetter, error) {
+	newTiles, err := b.FastDraw(len(letters))
+	if err != nil {
+		return nil, err
+	}
+	// put exchanged tiles back into the bag and re-shuffle
+	b.PutBack(letters)
+	return newTiles, nil
 }
 
 // Exchange exchanges the junk in your rack with new tiles.
@@ -179,6 +199,12 @@ func (b *Bag) rebuildTileSlice(numTilesInBag int) error {
 	}
 	b.Shuffle()
 	return nil
+}
+
+// FastRedraw is Redraw using FastDraw.
+func (b *Bag) FastRedraw(currentRack []MachineLetter) []MachineLetter {
+	b.PutBack(currentRack)
+	return b.FastDrawAtMost(7)
 }
 
 // Redraw is basically a do-over; throw the current rack in the bag
