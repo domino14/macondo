@@ -3,11 +3,8 @@
 package game
 
 import (
-	crypto_rand "crypto/rand"
-	"encoding/binary"
 	"errors"
 	"fmt"
-	"math/rand"
 	"strings"
 
 	"github.com/domino14/macondo/alphabet"
@@ -19,6 +16,7 @@ import (
 	"github.com/domino14/macondo/move"
 	"github.com/lithammer/shortuuid"
 	"github.com/rs/zerolog/log"
+	"lukechampine.com/frand"
 )
 
 const (
@@ -30,19 +28,6 @@ const (
 	ExchangeLimit = 7
 	RackTileLimit = 7
 )
-
-func seededRandSource() (int64, *rand.Rand) {
-	var b [8]byte
-	_, err := crypto_rand.Read(b[:])
-	if err != nil {
-		panic("cannot seed math/rand package with cryptographically secure random number generator")
-	}
-
-	randSeed := int64(binary.LittleEndian.Uint64(b[:]))
-	randSource := rand.New(rand.NewSource(randSeed))
-
-	return randSeed, randSource
-}
 
 // Game is the actual internal game structure that controls the entire
 // business logic of the game; drawing, making moves, etc. The two
@@ -61,9 +46,6 @@ type Game struct {
 	bag                *alphabet.Bag
 
 	playing pb.PlayState
-
-	randSeed   int64
-	randSource *rand.Rand
 
 	wentfirst      int
 	scorelessTurns int
@@ -195,9 +177,7 @@ func NewFromHistory(history *pb.GameHistory, rules *GameRules, turnnum int) (*Ga
 	}
 
 	// Initialize the bag and player rack structures to avoid panics.
-	game.randSeed, game.randSource = seededRandSource()
-	log.Debug().Msgf("History - Random seed for this game was %v", game.randSeed)
-	game.bag = game.letterDistribution.MakeBag(game.randSource)
+	game.bag = game.letterDistribution.MakeBag()
 	for i := 0; i < game.NumPlayers(); i++ {
 		game.players[i].rack = alphabet.NewRack(game.alph)
 	}
@@ -219,12 +199,10 @@ func (g *Game) SetNextFirst(first int) {
 // to both players.
 func (g *Game) StartGame() {
 	g.Board().Clear()
-	g.randSeed, g.randSource = seededRandSource()
-	log.Debug().Msgf("Random seed for this game was %v", g.randSeed)
-	g.bag = g.letterDistribution.MakeBag(g.randSource)
+	g.bag = g.letterDistribution.MakeBag()
 	var goesfirst int
 	if g.nextFirst == -1 {
-		goesfirst = g.randSource.Intn(2)
+		goesfirst = frand.Intn(2)
 		log.Debug().Msgf("randomly determined %v to go first", goesfirst)
 	} else {
 		goesfirst = g.nextFirst

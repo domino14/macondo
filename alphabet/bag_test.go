@@ -1,16 +1,12 @@
 package alphabet
 
 import (
-	"math/rand"
 	"reflect"
 	"testing"
-	"time"
 
 	"github.com/domino14/macondo/config"
 	"github.com/matryer/is"
 )
-
-var randSource = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 var DefaultConfig = config.DefaultConfig()
 
@@ -19,7 +15,7 @@ func TestBag(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	bag := ld.MakeBag(randSource)
+	bag := ld.MakeBag()
 	if len(bag.tiles) != ld.numLetters {
 		t.Error("Tile bag and letter distribution do not match.")
 	}
@@ -49,7 +45,7 @@ func TestDraw(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	bag := ld.MakeBag(randSource)
+	bag := ld.MakeBag()
 
 	letters, _ := bag.Draw(7)
 	if len(letters) != 7 {
@@ -65,7 +61,7 @@ func TestDrawAtMost(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	bag := ld.MakeBag(randSource)
+	bag := ld.MakeBag()
 
 	for i := 0; i < 14; i++ {
 		letters, _ := bag.Draw(7)
@@ -99,7 +95,7 @@ func TestExchange(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	bag := ld.MakeBag(randSource)
+	bag := ld.MakeBag()
 
 	letters, _ := bag.Draw(7)
 	newLetters, _ := bag.Exchange(letters[:5])
@@ -113,7 +109,7 @@ func TestRemoveTiles(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	bag := ld.MakeBag(randSource)
+	bag := ld.MakeBag()
 	is.Equal(len(bag.tiles), 100)
 	toRemove := []MachineLetter{
 		9, 14, 24, 4, 3, 20, 4, 11, 21, 6, 22, 14, 8, 0, 8, 15, 6, 5, 4,
