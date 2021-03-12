@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"math/rand"
 
 	"github.com/rs/zerolog/log"
+	"lukechampine.com/frand"
 )
 
 // A Bag is the bag o'tiles!
@@ -17,7 +17,6 @@ type Bag struct {
 	initialTileMap     map[MachineLetter]uint8
 	tileMap            map[MachineLetter]uint8
 	letterDistribution *LetterDistribution
-	randSource         *rand.Rand
 }
 
 func copyTileMap(orig map[MachineLetter]uint8) map[MachineLetter]uint8 {
@@ -110,7 +109,7 @@ func (b *Bag) Peek() []MachineLetter {
 // Shuffle shuffles the bag.
 func (b *Bag) Shuffle() {
 	// log.Debug().Int("numtiles", len(b.tiles)).Msg("shuffling bag")
-	b.randSource.Shuffle(len(b.tiles), func(i, j int) {
+	frand.Shuffle(len(b.tiles), func(i, j int) {
 		b.tiles[i], b.tiles[j] = b.tiles[j], b.tiles[i]
 	})
 }
@@ -231,7 +230,7 @@ func (b *Bag) RemoveTiles(tiles []MachineLetter) error {
 	return b.rebuildTileSlice(len(b.tiles) - len(tiles))
 }
 
-func NewBag(ld *LetterDistribution, alph *Alphabet, randSource *rand.Rand) *Bag {
+func NewBag(ld *LetterDistribution, alph *Alphabet) *Bag {
 
 	tiles := make([]MachineLetter, ld.numLetters)
 	tileMap := map[MachineLetter]uint8{}
@@ -255,25 +254,19 @@ func NewBag(ld *LetterDistribution, alph *Alphabet, randSource *rand.Rand) *Bag 
 		initialTiles:       append([]MachineLetter(nil), tiles...),
 		initialTileMap:     copyTileMap(tileMap),
 		letterDistribution: ld,
-		randSource:         randSource,
 	}
 }
 
 // Copy copies to a new bag and returns it. Note that the initialTiles
 // are only shallowly copied. This is fine because
 // we don't ever expect these to change after initialization.
-// If randSource is not nil, it is set as the rand source for the copy.
-// Otherwise, use the original's rand source.
-func (b *Bag) Copy(randSource *rand.Rand) *Bag {
+func (b *Bag) Copy() *Bag {
 	tiles := make([]MachineLetter, len(b.tiles))
 	tileMap := make(map[MachineLetter]uint8)
 	copy(tiles, b.tiles)
 	// Copy map as well
 	for k, v := range b.tileMap {
 		tileMap[k] = v
-	}
-	if randSource == nil {
-		randSource = b.randSource
 	}
 
 	return &Bag{
@@ -282,7 +275,6 @@ func (b *Bag) Copy(randSource *rand.Rand) *Bag {
 		initialTiles:       b.initialTiles,
 		initialTileMap:     b.initialTileMap,
 		letterDistribution: b.letterDistribution,
-		randSource:         randSource,
 	}
 }
 
@@ -301,7 +293,6 @@ func (b *Bag) CopyFrom(other *Bag) {
 	b.tiles = make([]MachineLetter, len(other.tiles))
 	copy(b.tiles, other.tiles)
 	b.tileMap = copyTileMap(other.tileMap)
-	b.randSource = other.randSource
 }
 
 func (b *Bag) LetterDistribution() *LetterDistribution {

@@ -3,7 +3,6 @@ package alphabet
 import (
 	"encoding/csv"
 	"io"
-	"math/rand"
 	"strconv"
 
 	"github.com/domino14/macondo/config"
@@ -124,9 +123,9 @@ func (ld *LetterDistribution) NumTotalTiles() int {
 }
 
 // MakeBag returns a bag of tiles.
-func (ld *LetterDistribution) MakeBag(randSource *rand.Rand) *Bag {
+func (ld *LetterDistribution) MakeBag() *Bag {
 
-	b := NewBag(ld, ld.alph, randSource)
+	b := NewBag(ld, ld.alph)
 	b.Shuffle()
 
 	return b

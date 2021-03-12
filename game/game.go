@@ -197,7 +197,7 @@ func NewFromHistory(history *pb.GameHistory, rules *GameRules, turnnum int) (*Ga
 	// Initialize the bag and player rack structures to avoid panics.
 	game.randSeed, game.randSource = seededRandSource()
 	log.Debug().Msgf("History - Random seed for this game was %v", game.randSeed)
-	game.bag = game.letterDistribution.MakeBag(game.randSource)
+	game.bag = game.letterDistribution.MakeBag()
 	for i := 0; i < game.NumPlayers(); i++ {
 		game.players[i].rack = alphabet.NewRack(game.alph)
 	}
@@ -221,7 +221,7 @@ func (g *Game) StartGame() {
 	g.Board().Clear()
 	g.randSeed, g.randSource = seededRandSource()
 	log.Debug().Msgf("Random seed for this game was %v", g.randSeed)
-	g.bag = g.letterDistribution.MakeBag(g.randSource)
+	g.bag = g.letterDistribution.MakeBag()
 	var goesfirst int
 	if g.nextFirst == -1 {
 		goesfirst = g.randSource.Intn(2)
