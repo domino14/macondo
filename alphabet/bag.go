@@ -1,8 +1,10 @@
 package alphabet
 
 import (
+	crypto_rand "crypto/rand"
 	"errors"
 	"fmt"
+	"math/big"
 	"math/rand"
 
 	"github.com/rs/zerolog/log"
@@ -43,8 +45,8 @@ func (b *Bag) DrawAtMost(n int) []MachineLetter {
 	return drawn
 }
 
-// Draw draws n tiles from the bag.
-func (b *Bag) Draw(n int) ([]MachineLetter, error) {
+// FastDraw draws n preshuffled tiles from the bag. Not all bag sequences may be possible.
+func (b *Bag) FastDraw(n int) ([]MachineLetter, error) {
 	if n > len(b.tiles) {
 		return nil, fmt.Errorf("tried to draw %v tiles, tile bag has %v",
 			n, len(b.tiles))
@@ -55,6 +57,37 @@ func (b *Bag) Draw(n int) ([]MachineLetter, error) {
 		b.tileMap[drawn[i]]--
 	}
 	b.tiles = b.tiles[n:]
+	// log.Debug().Int("numtiles", len(b.tiles)).Int("drew", n).Msg("drew from bag")
+	return drawn, nil
+}
+
+// Draw draws n crypto/random tiles from the bag. Shuffling is immaterial.
+func (b *Bag) Draw(n int) ([]MachineLetter, error) {
+	if n > len(b.tiles) {
+		return nil, fmt.Errorf("tried to draw %v tiles, tile bag has %v",
+			n, len(b.tiles))
+	}
+	// first shuffle the tiles in-place so we don't lose any tiles if crypto/rand errors out
+	l := len(b.tiles)
+	k := l - n
+	var max big.Int
+	for i := l; i > k; i-- {
+		max.SetInt64(int64(i))
+		x, err := crypto_rand.Int(crypto_rand.Reader, &max)
+		if err != nil {
+			return nil, fmt.Errorf("tried to draw %v tiles, crypto/rand returned %w", n, err)
+		}
+		xi := x.Int64()
+		// move the selected tile to the end
+		b.tiles[i-1], b.tiles[xi] = b.tiles[xi], b.tiles[i-1]
+	}
+	// now update tileMap
+	drawn := make([]MachineLetter, n)
+	copy(drawn, b.tiles[k:l])
+	for _, v := range drawn {
+		b.tileMap[v]--
+	}
+	b.tiles = b.tiles[:k]
 	// log.Debug().Int("numtiles", len(b.tiles)).Int("drew", n).Msg("drew from bag")
 	return drawn, nil
 }
