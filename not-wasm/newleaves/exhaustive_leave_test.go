@@ -2,12 +2,10 @@ package newleaves
 
 import (
 	"fmt"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"sort"
 	"testing"
-	"time"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
@@ -83,9 +81,8 @@ func TestEndgameTiming(t *testing.T) {
 	oppRack := alphabet.NewRack(alph)
 	oppRack.Set(tilesInPlay.Rack1)
 	assert.Equal(t, oppRack.NumTiles(), uint8(2))
-	var randSource = rand.New(rand.NewSource(time.Now().UnixNano()))
 
-	bag := alphabet.NewBag(ld, alph, randSource)
+	bag := alphabet.NewBag(ld, alph)
 	bag.Draw(100)
 
 	plays := generator.Plays()
@@ -120,9 +117,7 @@ func TestPreendgameTiming(t *testing.T) {
 	els, err := strategy.NewExhaustiveLeaveStrategy("NWL18", alph, &DefaultConfig, "", "quackle_preendgame.json")
 	assert.Nil(t, err)
 
-	var randSource = rand.New(rand.NewSource(time.Now().UnixNano()))
-
-	bag := alphabet.NewBag(ld, alph, randSource)
+	bag := alphabet.NewBag(ld, alph)
 	bag.RemoveTiles(tilesInPlay.OnBoard)
 	bag.RemoveTiles(tilesInPlay.Rack1)
 	bag.RemoveTiles(tilesInPlay.Rack2)
