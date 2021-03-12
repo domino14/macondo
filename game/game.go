@@ -341,9 +341,7 @@ func convertToVisible(words []alphabet.MachineWord,
 // gameplay engines as much as possible.
 // If the millis argument is passed in, it adds this value to the history
 // as the time remaining for the user (when they played the move).
-// FastPlayMove is the same but using a faster drawing algorithm.
-// They both call this function with different useFastDraw constants.
-func (g *Game) playMove(m *move.Move, addToHistory bool, millis int, useFastDraw bool) error {
+func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 
 	// We need to handle challenges separately.
 	if m.Action() == move.MoveTypeChallenge {
@@ -377,12 +375,7 @@ func (g *Game) playMove(m *move.Move, addToHistory bool, millis int, useFastDraw
 		if m.TilesPlayed() == 7 {
 			g.players[g.onturn].bingos++
 		}
-		var drew []alphabet.MachineLetter
-		if useFastDraw {
-			drew = g.bag.FastDrawAtMost(m.TilesPlayed())
-		} else {
-			drew = g.bag.DrawAtMost(m.TilesPlayed())
-		}
+		drew := g.bag.DrawAtMost(m.TilesPlayed())
 		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
 		g.players[g.onturn].setRackTiles(tiles, g.alph)
 
@@ -441,13 +434,7 @@ func (g *Game) playMove(m *move.Move, addToHistory bool, millis int, useFastDraw
 		}
 
 	case move.MoveTypeExchange:
-		var drew []alphabet.MachineLetter
-		var err error
-		if useFastDraw {
-			drew, err = g.bag.FastExchange([]alphabet.MachineLetter(m.Tiles()))
-		} else {
-			drew, err = g.bag.Exchange([]alphabet.MachineLetter(m.Tiles()))
-		}
+		drew, err := g.bag.Exchange([]alphabet.MachineLetter(m.Tiles()))
 		if err != nil {
 			return err
 		}
@@ -476,16 +463,6 @@ func (g *Game) playMove(m *move.Move, addToHistory bool, millis int, useFastDraw
 	// log.Debug().Interface("history", g.history).Int("onturn", g.onturn).Int("turnnum", g.turnnum).
 	// 	Msg("newhist")
 	return nil
-}
-
-// FastPlayMove is playMove using FastDraw. Draws using a faster userspace CSPRNG.
-func (g *Game) FastPlayMove(m *move.Move, addToHistory bool, millis int) error {
-	return g.playMove(m, addToHistory, millis, true)
-}
-
-// PlayMove is playMove. Draws using golang's slow CSPRNG.
-func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
-	return g.playMove(m, addToHistory, millis, false)
 }
 
 // AddFinalScoresToHistory adds the final scores and winner to the history.
@@ -869,16 +846,6 @@ func (g *Game) SetRacksForBoth(racks []*alphabet.Rack) error {
 func (g *Game) ThrowRacksIn() {
 	g.players[0].throwRackIn(g.bag)
 	g.players[1].throwRackIn(g.bag)
-}
-
-// FastSetRandomRack is SetRandomRack using FastDraw.
-func (g *Game) FastSetRandomRack(playerIdx int) {
-	// log.Debug().Int("player", playerIdx).Str("rack", g.RackFor(playerIdx).TilesOn().UserVisible(g.alph)).
-	// 	Msg("setting random rack..")
-	tiles := g.bag.FastRedraw(g.RackFor(playerIdx).TilesOn())
-	g.players[playerIdx].setRackTiles(tiles, g.alph)
-	// log.Debug().Int("player", playerIdx).Str("newrack", g.players[playerIdx].rackLetters).
-	// 	Msg("set random rack")
 }
 
 // SetRandomRack sets the player's rack to a random rack drawn from the bag.

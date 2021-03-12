@@ -319,7 +319,7 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 	// Give opponent a random rack from the bag. Note that this also
 	// shuffles the bag!
 	opp := (s.initialPlayer + 1) % s.gameCopies[thread].NumPlayers()
-	s.gameCopies[thread].FastSetRandomRack(opp)
+	s.gameCopies[thread].SetRandomRack(opp)
 	logIter := LogIteration{Iteration: iterationCount, Plays: []LogPlay{}, Thread: thread}
 
 	var logPlay LogPlay
@@ -338,7 +338,7 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 		// log.Debug().Msgf("Playing move %v", play)'
 		// Set the backup mode to simulation mode only to back up the first move:
 		s.gameCopies[thread].SetBackupMode(game.SimulationMode)
-		s.gameCopies[thread].FastPlayMove(simmedPlay.play, false, 0)
+		s.gameCopies[thread].PlayMove(simmedPlay.play, false, 0)
 		s.gameCopies[thread].SetBackupMode(game.NoBackup)
 		// Further plies will NOT be backed up.
 		for ply := 0; ply < plies; ply++ {
@@ -349,7 +349,7 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 
 				bestPlay := s.bestStaticTurn(onTurn, thread)
 				// log.Debug().Msgf("Ply %v, Best play: %v", ply+1, bestPlay)
-				s.gameCopies[thread].FastPlayMove(bestPlay, false, 0)
+				s.gameCopies[thread].PlayMove(bestPlay, false, 0)
 				// log.Debug().Msgf("Score is now %v", s.game.Score())
 				if s.logStream != nil {
 					plyChild = LogPlay{Play: bestPlay.ShortDescription(), Rack: bestPlay.FullRack(), Pts: bestPlay.Score()}

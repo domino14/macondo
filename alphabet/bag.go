@@ -1,10 +1,8 @@
 package alphabet
 
 import (
-	crypto_rand "crypto/rand"
 	"errors"
 	"fmt"
-	"math/big"
 
 	"github.com/rs/zerolog/log"
 	"lukechampine.com/frand"
@@ -34,15 +32,6 @@ func (b *Bag) Refill() {
 	b.Shuffle()
 }
 
-// FastDrawAtMost is DrawAtMost using FastDraw.
-func (b *Bag) FastDrawAtMost(n int) []MachineLetter {
-	if n > len(b.tiles) {
-		n = len(b.tiles)
-	}
-	drawn, _ := b.FastDraw(n)
-	return drawn
-}
-
 // DrawAtMost draws at most n tiles from the bag. It can draw fewer if there
 // are fewer tiles than n, and even draw no tiles at all :o
 func (b *Bag) DrawAtMost(n int) []MachineLetter {
@@ -53,8 +42,8 @@ func (b *Bag) DrawAtMost(n int) []MachineLetter {
 	return drawn
 }
 
-// FastDraw draws n random tiles from the bag. Shuffling is immaterial.
-func (b *Bag) FastDraw(n int) ([]MachineLetter, error) {
+// Draw draws n random tiles from the bag. Shuffling is immaterial.
+func (b *Bag) Draw(n int) ([]MachineLetter, error) {
 	if n > len(b.tiles) {
 		return nil, fmt.Errorf("tried to draw %v tiles, tile bag has %v",
 			n, len(b.tiles))
@@ -64,37 +53,6 @@ func (b *Bag) FastDraw(n int) ([]MachineLetter, error) {
 	k := l - n
 	for i := l; i > k; i-- {
 		xi := frand.Intn(i)
-		// move the selected tile to the end
-		b.tiles[i-1], b.tiles[xi] = b.tiles[xi], b.tiles[i-1]
-	}
-	// now update tileMap
-	drawn := make([]MachineLetter, n)
-	copy(drawn, b.tiles[k:l])
-	for _, v := range drawn {
-		b.tileMap[v]--
-	}
-	b.tiles = b.tiles[:k]
-	// log.Debug().Int("numtiles", len(b.tiles)).Int("drew", n).Msg("drew from bag")
-	return drawn, nil
-}
-
-// Draw draws n crypto/random tiles from the bag. Shuffling is immaterial.
-func (b *Bag) Draw(n int) ([]MachineLetter, error) {
-	if n > len(b.tiles) {
-		return nil, fmt.Errorf("tried to draw %v tiles, tile bag has %v",
-			n, len(b.tiles))
-	}
-	// first shuffle the tiles in-place so we don't lose any tiles if crypto/rand errors out
-	l := len(b.tiles)
-	k := l - n
-	var max big.Int
-	for i := l; i > k; i-- {
-		max.SetInt64(int64(i))
-		x, err := crypto_rand.Int(crypto_rand.Reader, &max)
-		if err != nil {
-			return nil, fmt.Errorf("tried to draw %v tiles, crypto/rand returned %w", n, err)
-		}
-		xi := x.Int64()
 		// move the selected tile to the end
 		b.tiles[i-1], b.tiles[xi] = b.tiles[xi], b.tiles[i-1]
 	}
@@ -121,17 +79,6 @@ func (b *Bag) Shuffle() {
 	frand.Shuffle(len(b.tiles), func(i, j int) {
 		b.tiles[i], b.tiles[j] = b.tiles[j], b.tiles[i]
 	})
-}
-
-// FastExchange is Exchange using FastDraw.
-func (b *Bag) FastExchange(letters []MachineLetter) ([]MachineLetter, error) {
-	newTiles, err := b.FastDraw(len(letters))
-	if err != nil {
-		return nil, err
-	}
-	// put exchanged tiles back into the bag and re-shuffle
-	b.PutBack(letters)
-	return newTiles, nil
 }
 
 // Exchange exchanges the junk in your rack with new tiles.
@@ -207,12 +154,6 @@ func (b *Bag) rebuildTileSlice(numTilesInBag int) error {
 	}
 	b.Shuffle()
 	return nil
-}
-
-// FastRedraw is Redraw using FastDraw.
-func (b *Bag) FastRedraw(currentRack []MachineLetter) []MachineLetter {
-	b.PutBack(currentRack)
-	return b.FastDrawAtMost(7)
 }
 
 // Redraw is basically a do-over; throw the current rack in the bag
