@@ -53,18 +53,27 @@ func (b *Bag) DrawAtMost(n int) []MachineLetter {
 	return drawn
 }
 
-// FastDraw draws n preshuffled tiles from the bag. Not all bag sequences may be possible.
+// FastDraw draws n random tiles from the bag. Shuffling is immaterial.
 func (b *Bag) FastDraw(n int) ([]MachineLetter, error) {
 	if n > len(b.tiles) {
 		return nil, fmt.Errorf("tried to draw %v tiles, tile bag has %v",
 			n, len(b.tiles))
 	}
-	drawn := make([]MachineLetter, n)
-	for i := 0; i < n; i++ {
-		drawn[i] = b.tiles[i]
-		b.tileMap[drawn[i]]--
+	// first shuffle the tiles in-place although frand does not error
+	l := len(b.tiles)
+	k := l - n
+	for i := l; i > k; i-- {
+		xi := frand.Intn(i)
+		// move the selected tile to the end
+		b.tiles[i-1], b.tiles[xi] = b.tiles[xi], b.tiles[i-1]
 	}
-	b.tiles = b.tiles[n:]
+	// now update tileMap
+	drawn := make([]MachineLetter, n)
+	copy(drawn, b.tiles[k:l])
+	for _, v := range drawn {
+		b.tileMap[v]--
+	}
+	b.tiles = b.tiles[:k]
 	// log.Debug().Int("numtiles", len(b.tiles)).Int("drew", n).Msg("drew from bag")
 	return drawn, nil
 }

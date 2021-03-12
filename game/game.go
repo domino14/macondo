@@ -363,7 +363,7 @@ func convertToVisible(words []alphabet.MachineWord,
 // gameplay engines as much as possible.
 // If the millis argument is passed in, it adds this value to the history
 // as the time remaining for the user (when they played the move).
-// FastPlayMove is the same but using a faster and less fair drawing algorithm.
+// FastPlayMove is the same but using a faster drawing algorithm.
 // They both call this function with different useFastDraw constants.
 func (g *Game) playMove(m *move.Move, addToHistory bool, millis int, useFastDraw bool) error {
 
@@ -500,12 +500,12 @@ func (g *Game) playMove(m *move.Move, addToHistory bool, millis int, useFastDraw
 	return nil
 }
 
-// FastPlayMove is playMove using FastDraw. Draws faster.
+// FastPlayMove is playMove using FastDraw. Draws using a faster userspace CSPRNG.
 func (g *Game) FastPlayMove(m *move.Move, addToHistory bool, millis int) error {
 	return g.playMove(m, addToHistory, millis, true)
 }
 
-// PlayMove is playMove. Draws fairer.
+// PlayMove is playMove. Draws using golang's slow CSPRNG.
 func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 	return g.playMove(m, addToHistory, millis, false)
 }
