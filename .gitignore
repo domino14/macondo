@@ -23,3 +23,4 @@ notebooks/logs/*
 *.p
 *Untitled*
 bin/
+data/strategy/default_english/quackleleaves*
