@@ -33,6 +33,10 @@ func PolishLetterDistribution(cfg *config.Config) (*LetterDistribution, error) {
 	return NamedLetterDistribution(cfg, "polish")
 }
 
+func GermanLetterDistribution(cfg *config.Config) (*LetterDistribution, error) {
+	return NamedLetterDistribution(cfg, "german")
+}
+
 func ScanLetterDistribution(data io.Reader) (*LetterDistribution, error) {
 	r := csv.NewReader(data)
 	dist := map[rune]uint8{}

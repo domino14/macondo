@@ -13,7 +13,7 @@ You can replace NWL18 with another desired lexicon.
 
 If you wish to use the Spanish or Polish lexica, you will need to also
 change the environment variable `DEFAULT_LETTER_DISTRIBUTION` to `spanish`
-or `polish` prior to starting `macondo`.
+or `polish` prior to starting `macondo`. German is `german`.
 
 Then, you can change the `DEFAULT_LEXICON` environment variable to your
 desired lexicon (make sure to use the same capitalization schema). For

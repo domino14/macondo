@@ -15,6 +15,7 @@ Acceptable letter distributions so far are:
     spanish
     english
     polish
+    german
 
 More will be added in the future.
 
