@@ -25,6 +25,8 @@ func HistoryToVariant(h *pb.GameHistory) (boardLayout []string, letterDistributi
 		letterDistributionName = "spanish"
 	case strings.HasPrefix(h.Lexicon, "Deutsch"):
 		letterDistributionName = "german"
+	case strings.HasPrefix(h.Lexicon, "NSF"):
+		letterDistributionName = "norwegian"
 	}
 	return boardLayout, letterDistributionName
 }

@@ -10,7 +10,7 @@ type NodeArr []*Node
 type NodeBucket [][]NodeArr
 
 const (
-	MaxDepth      = 16
+	MaxDepth      = 35
 	LetterBuckets = 997
 )
 
