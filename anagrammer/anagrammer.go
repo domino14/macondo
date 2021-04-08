@@ -63,7 +63,7 @@ func LoadDawgs(cfg *config.Config, dawgPath string) {
 			Dawgs[lex].dist, err = alphabet.PolishLetterDistribution(cfg)
 		} else if strings.Contains(lex, "Deutsch") {
 			Dawgs[lex].dist, err = alphabet.GermanLetterDistribution(cfg)
-		} else if strings.Contains(lex, "Norwegian") {
+		} else if strings.Contains(lex, "NSF") {
 			Dawgs[lex].dist, err = alphabet.NorwegianLetterDistribution(cfg)
 		} else {
 			Dawgs[lex].dist, err = alphabet.EnglishLetterDistribution(cfg)
