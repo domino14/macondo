@@ -181,6 +181,8 @@ func NewFromHistory(history *pb.GameHistory, rules *GameRules, turnnum int) (*Ga
 	for i := 0; i < game.NumPlayers(); i++ {
 		game.players[i].rack = alphabet.NewRack(game.alph)
 	}
+	// Can't challenge the last play of a reloaded game without backups.
+	game.backupMode = InteractiveGameplayMode
 	// Then play to the passed-in turn.
 	err = game.PlayToTurn(turnnum)
 	if err != nil {
