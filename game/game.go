@@ -775,6 +775,7 @@ func (g *Game) playTurn(t int) error {
 
 		// The score should already have the proper sign at creation time.
 		g.players[g.onturn].points += m.Score()
+		g.lastWordsFormed = nil // prevent another +5 on app restart
 
 	case move.MoveTypeExchange:
 		// Set the rack for the user on turn to the rack in the history.
