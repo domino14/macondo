@@ -45,7 +45,7 @@ func loadExhaustiveMPH(strategyPath, leavefile, lexiconName string) (*OldLeaves,
 	if err != nil {
 		return nil, err
 	}
-	log.Debug().Str("lexiconName", lexiconName).
+	log.Info().Str("lexiconName", lexiconName).
 		Int("mph-size", leaves.Len()).
 		Msg("loaded-mph")
 	return leaves, nil

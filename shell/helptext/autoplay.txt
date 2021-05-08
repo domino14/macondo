@@ -24,6 +24,14 @@ Options:
     pegfile refers to a pre-endgame heuristics file used for equity purposes.
     By default, it uses a file named preendgame.json.
 
+    -dictfile1 /file/to/dict.gaddag
+    -dictfile2 /file/to/dict.gaddag
+
+    dictfile refers to the gaddag that should be used by this player. It
+    defaults to the gaddag in the lexicon file. If dictfile contains words
+    that are not found in the lexicon file, `autoplay` will still use these;
+    word validity is not checked by `autoplay`.
+
     The leavefile and/or pegfile must be located inside the
     ./data/strategy/<lexicon> directory.
     Make sure to put it in the subdirectory for the correct lexicon.
@@ -44,3 +52,6 @@ leaves that must already be in the data/strategy directory. If you don't have
 any values or wish to try with no values, you can use the 'noleave' player.
 
 In the future, we will add other types of players.
+
+autoplay by default will generate two output files: `/tmp/autoplay.txt` and
+`/tmp/games-autoplay.txt`. Use `help autoanalyze` to see how to analyze.
