@@ -617,6 +617,7 @@ func (g *Game) PlayToTurn(turnnum int) error {
 
 	// Set backup mode to interactive gameplay mode so that we always have
 	// a backup available while playing through the events.
+	oldbackupMode := g.backupMode
 	g.SetBackupMode(InteractiveGameplayMode)
 	for t = 0; t < turnnum; t++ {
 		err := g.playTurn(t)
@@ -627,7 +628,7 @@ func (g *Game) PlayToTurn(turnnum int) error {
 		g.onturn = (g.onturn + 1) % 2
 		log.Trace().Int("turn", t).Msg("played turn")
 	}
-	g.SetBackupMode(NoBackup)
+	g.SetBackupMode(oldbackupMode)
 
 	if t >= len(g.history.Events) {
 		if len(g.history.LastKnownRacks[0]) > 0 && len(g.history.LastKnownRacks[1]) > 0 {
@@ -716,10 +717,10 @@ func (g *Game) playTurn(t int) error {
 			return err
 		}
 		g.lastWordsFormed = wordsFormed
-
 		// We back up the board and bag since there's a possibility
 		// this play will have to be taken back, if it's a challenged phony.
 		g.backupState()
+
 		ld := g.bag.LetterDistribution()
 		g.board.PlayMove(m, ld)
 		g.crossSetGen.UpdateForMove(g.board, m)
