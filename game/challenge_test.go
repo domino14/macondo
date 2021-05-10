@@ -10,6 +10,7 @@ import (
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/runner"
+	"github.com/rs/zerolog/log"
 
 	"github.com/matryer/is"
 )
@@ -123,6 +124,8 @@ func TestChallengeEndOfGamePhony(t *testing.T) {
 	is.NoErr(err)
 	rules, _ := runner.NewAIGameRules(&DefaultConfig, board.CrosswordGameBoard, "NWL18",
 		"English")
+
+	log.Debug().Interface("gamehistory", gameHistory).Msg("gh")
 
 	g, err := game.NewFromHistory(gameHistory, rules, 0)
 	is.NoErr(err)

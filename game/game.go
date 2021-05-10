@@ -740,14 +740,10 @@ func (g *Game) playTurn(t int) error {
 		// Don't check game end logic here, as we assume we have the
 		// right event for that (move.MoveTypeEndgameTiles for example).
 	case move.MoveTypePhonyTilesReturned:
-		// Score should have the proper sign at creation time
-		g.players[g.onturn].points += m.Score()
-		if m.TilesPlayed() == 7 {
-			g.players[g.onturn].bingos--
-		}
 		// Unplaying the last move restores the state as it was prior
 		// to the phony being played.
 		g.UnplayLastMove()
+		g.lastWordsFormed = nil
 
 	case move.MoveTypeChallengeBonus, move.MoveTypeEndgameTiles,
 		move.MoveTypeLostTileScore, move.MoveTypeLostScoreOnTime:
