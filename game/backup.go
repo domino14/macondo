@@ -34,9 +34,6 @@ type stateBackup struct {
 
 func (g *Game) SetBackupMode(m BackupMode) {
 	g.backupMode = m
-	if g.backupMode == InteractiveGameplayMode {
-		g.SetStateStackLength(1)
-	} // otherwise, let the caller handle this.
 }
 
 func (g *Game) backupState() {

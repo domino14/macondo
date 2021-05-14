@@ -619,6 +619,7 @@ func (g *Game) PlayToTurn(turnnum int) error {
 	// a backup available while playing through the events.
 	oldbackupMode := g.backupMode
 	g.SetBackupMode(InteractiveGameplayMode)
+	g.SetStateStackLength(1)
 	for t = 0; t < turnnum; t++ {
 		err := g.playTurn(t)
 		if err != nil {

@@ -234,6 +234,8 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	}
 	// And turn off simulation mode again.
 	sc.game.SetBackupMode(game.InteractiveGameplayMode)
+	sc.game.SetStateStackLength(1)
+
 	sc.showMessage(fmt.Sprintf("Best sequence has a spread difference of %v", val))
 	sc.printEndgameSequence(seq)
 	return nil, nil

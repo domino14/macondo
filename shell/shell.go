@@ -299,6 +299,8 @@ func (sc *ShellController) loadGCG(args []string) error {
 		return err
 	}
 	sc.game.SetBackupMode(game.InteractiveGameplayMode)
+	sc.game.SetStateStackLength(1)
+
 	// Set challenge rule to double by default. This can be overridden.
 	sc.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
 

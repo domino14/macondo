@@ -46,6 +46,7 @@ func NewGameRunnerFromRules(opts *GameOptions, players []*pb.PlayerInfo, rules *
 	}
 	g.StartGame()
 	g.SetBackupMode(game.InteractiveGameplayMode)
+	g.SetStateStackLength(1)
 	g.SetChallengeRule(opts.ChallengeRule)
 	ret := &GameRunner{*g}
 	return ret, nil
