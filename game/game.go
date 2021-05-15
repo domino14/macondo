@@ -746,6 +746,7 @@ func (g *Game) playTurn(t int) error {
 		// to the phony being played.
 		g.UnplayLastMove()
 		g.lastWordsFormed = nil
+		g.scorelessTurns++
 
 	case move.MoveTypeChallengeBonus, move.MoveTypeEndgameTiles,
 		move.MoveTypeLostTileScore, move.MoveTypeLostScoreOnTime:
