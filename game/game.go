@@ -614,6 +614,12 @@ func (g *Game) PlayToTurn(turnnum int) error {
 	g.playing = pb.PlayState_PLAYING
 	g.history.PlayState = g.playing
 	var t int
+
+	// Set backup mode to interactive gameplay mode so that we always have
+	// a backup available while playing through the events.
+	oldbackupMode := g.backupMode
+	g.SetBackupMode(InteractiveGameplayMode)
+	g.SetStateStackLength(1)
 	for t = 0; t < turnnum; t++ {
 		err := g.playTurn(t)
 		if err != nil {
@@ -623,6 +629,8 @@ func (g *Game) PlayToTurn(turnnum int) error {
 		g.onturn = (g.onturn + 1) % 2
 		log.Trace().Int("turn", t).Msg("played turn")
 	}
+	g.SetBackupMode(oldbackupMode)
+
 	if t >= len(g.history.Events) {
 		if len(g.history.LastKnownRacks[0]) > 0 && len(g.history.LastKnownRacks[1]) > 0 {
 			g.SetRacksForBoth([]*alphabet.Rack{
@@ -670,8 +678,8 @@ func (g *Game) PlayToTurn(turnnum int) error {
 	return nil
 }
 
-// PlayLatestEvent "plays" the latest event on the board. This is used for GCG
-// parsing.
+// PlayLatestEvent "plays" the latest event on the board. This is used for
+// replaying a game from a GCG.
 func (g *Game) PlayLatestEvent() error {
 	return g.playTurn(len(g.history.Events) - 1)
 }
@@ -710,10 +718,10 @@ func (g *Game) playTurn(t int) error {
 			return err
 		}
 		g.lastWordsFormed = wordsFormed
-
 		// We back up the board and bag since there's a possibility
 		// this play will have to be taken back, if it's a challenged phony.
-		g.board.SaveCopy()
+		g.backupState()
+
 		ld := g.bag.LetterDistribution()
 		g.board.PlayMove(m, ld)
 		g.crossSetGen.UpdateForMove(g.board, m)
@@ -734,41 +742,10 @@ func (g *Game) playTurn(t int) error {
 		// Don't check game end logic here, as we assume we have the
 		// right event for that (move.MoveTypeEndgameTiles for example).
 	case move.MoveTypePhonyTilesReturned:
-		// Score should have the proper sign at creation time
-		g.players[g.onturn].points += m.Score()
-		if m.TilesPlayed() == 7 {
-			g.players[g.onturn].bingos--
-		}
-		g.board.RestoreFromCopy()
-		// Throw the rack we drew after the phony back in the bag:
-		g.players[g.onturn].throwRackIn(g.bag)
-		// Also throw the tiles in the event back in the bag, so that
-		// we can then re-draw them
-		// NOTE: the event must have the PlayedTiles attribute set! This
-		// must be done in the gcg parser, or whatever is generating these
-		// events. (See challenge module as well)
-		playedTiles := strings.ReplaceAll(evt.PlayedTiles, string(alphabet.ASCIIPlayedThrough), "")
-
-		mw, err := alphabet.ToMachineWord(playedTiles, g.alph)
-		log.Trace().Interface("mw", mw).Msg("throwing played tiles back in bag, to redraw")
-		if err != nil {
-			return err
-		}
-		// Unblank any realized blanks
-		for idx, letter := range mw {
-			if letter.IsBlanked() {
-				mw[idx] = alphabet.BlankMachineLetter
-			}
-		}
-		log.Trace().Interface("mw", mw).Msg("Throwing in OLD played tiles, to redraw")
-		g.bag.PutBack(mw)
-		// Set the tiles to be the tiles in the event.
-		r := alphabet.NewRack(g.alph)
-		r.Set(m.Tiles())
-		err = g.SetRackFor(g.onturn, r)
-		if err != nil {
-			return err
-		}
+		// Unplaying the last move restores the state as it was prior
+		// to the phony being played.
+		g.UnplayLastMove()
+		g.lastWordsFormed = nil
 
 	case move.MoveTypeChallengeBonus, move.MoveTypeEndgameTiles,
 		move.MoveTypeLostTileScore, move.MoveTypeLostScoreOnTime:
