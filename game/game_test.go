@@ -1,12 +1,17 @@
 package game
 
 import (
+	"encoding/json"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/cross_set"
+	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/move"
+	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
@@ -116,4 +121,59 @@ func TestValidate(t *testing.T) {
 	g.PlayMove(m, true, 0)
 	is.Equal(g.history.Events[len(g.history.Events)-1].WordsFormed,
 		[]string{"DIKTAT", "HIST"})
+}
+
+func TestPlayToTurnWithPhony(t *testing.T) {
+	is := is.New(t)
+
+	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
+	is.NoErr(err)
+
+	dawg, err := gaddag.GetDawg(&DefaultConfig, "CSW19")
+	is.NoErr(err)
+
+	rules := NewGameRules(
+		&DefaultConfig, dist, board.MakeBoard(board.CrosswordGameBoard),
+		&gaddag.Lexicon{GenericDawg: dawg},
+		cross_set.CrossScoreOnlyGenerator{Dist: dist})
+
+	jsonFile, err := os.Open("./testdata/history1.json")
+	is.NoErr(err)
+	defer jsonFile.Close()
+
+	bytes, err := ioutil.ReadAll(jsonFile)
+	is.NoErr(err)
+	gameHistory := &pb.GameHistory{}
+	err = json.Unmarshal(bytes, gameHistory)
+	is.NoErr(err)
+
+	g, err := NewFromHistory(gameHistory, rules, len(gameHistory.Events))
+	is.NoErr(err)
+
+	is.Equal(g.RackFor(0).TilesOn().UserVisible(alphabet.EnglishAlphabet()),
+		"EEHKNOQ")
+	is.Equal(g.RackFor(1).TilesOn().UserVisible(alphabet.EnglishAlphabet()),
+		"DEMOOW?")
+	log.Debug().Interface("lex", g.lexicon.Name()).Interface("wf", g.lastWordsFormed).Msg("info")
+	// Player 0 challenges opponent's phony
+	valid, err := g.ChallengeEvent(0, 1000)
+	is.NoErr(err)
+	is.Equal(valid, false)
+
+	// check that game rolled back successfully
+	is.Equal(len(g.History().Events), 3)
+	is.Equal(g.History().Events[2].Type, pb.GameEvent_PHONY_TILES_RETURNED)
+
+	// The tiles in the phony "DORMINE" should be gone.
+	// An already empty tile to the left of DORMINE*
+	is.Equal(g.Board().GetLetter(6, 6).IsPlayedTile(), false)
+	// The D in DORMINE:
+	is.Equal(g.Board().GetLetter(6, 7).IsPlayedTile(), false)
+
+	// p1 gets their phony tiles back
+	is.Equal(g.RackFor(1).TilesOn().UserVisible(alphabet.EnglishAlphabet()),
+		"DEIMNOR")
+	// p0 still has their rack
+	is.Equal(g.RackFor(0).TilesOn().UserVisible(alphabet.EnglishAlphabet()),
+		"EEHKNOQ")
 }

@@ -93,12 +93,21 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 
 		// the play comes off the board. Add the offBoardEvent.
 		g.addEventToHistory(offBoardEvent)
+
 		// Unplay the last move to restore everything as it was board-wise
 		// (and un-end the game if it had ended)
 		g.UnplayLastMove()
+
 		// We must also set the last known rack of the challengee back to
 		// their rack before they played the phony.
 		g.history.LastKnownRacks[challengee] = lastEvent.Rack
+		// Explicitly set racks for both players. This prevents a bug where
+		// part of the game may have been loaded from a GameHistory (through the
+		// PlayGameToTurn flow) and the racks continually get reset.
+		g.SetRacksForBoth([]*alphabet.Rack{
+			alphabet.RackFromString(g.history.LastKnownRacks[0], g.alph),
+			alphabet.RackFromString(g.history.LastKnownRacks[1], g.alph),
+		})
 
 		// Note that if backup mode is InteractiveGameplayMode, which it should be,
 		// we do not back up the turn number. So restoring it doesn't change

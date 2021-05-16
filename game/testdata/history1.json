@@ -1,0 +1,43 @@
+{
+  "events": [
+    {
+      "nickname": "cesar",
+      "rack": "BEEHIQX",
+      "cumulative": 26,
+      "row": 7,
+      "column": 5,
+      "position": "8F",
+      "played_tiles": "IBEX",
+      "score": 26,
+      "words_formed": ["IBEX"],
+      "millis_remaining": 1195222
+    },
+    {
+      "nickname": "bnjy",
+      "rack": "DEIMNOR",
+      "cumulative": 75,
+      "row": 6,
+      "column": 7,
+      "position": "7H",
+      "played_tiles": "DORMINE",
+      "score": 75,
+      "is_bingo": true,
+      "words_formed": ["DORMINE", "DE", "OX"],
+      "millis_remaining": 1191610
+    }
+  ],
+  "players": [
+    {
+      "nickname": "cesar",
+      "real_name": "César Del Solar",
+      "user_id": "3ABQyXddYLJe2q9eAJuPzg"
+    },
+    { "nickname": "bnjy", "user_id": "gqdUnTwBSFHUzh4rKEGrm8" }
+  ],
+  "lexicon": "CSW19",
+  "id_auth": "io.woogles",
+  "uid": "pECpWydZ",
+  "description": "Created with Macondo",
+  "last_known_racks": ["EEHKNOQ", "DEMOOW?"],
+  "challenge_rule": 3
+}
