@@ -195,8 +195,7 @@ func (g *Game) SetNextFirst(first int) {
 	g.nextFirst = first
 }
 
-// StartGame seeds the random source anew, and starts a game, dealing out tiles
-// to both players.
+// StartGame starts a game anew, dealing out tiles to both players.
 func (g *Game) StartGame() {
 	g.Board().Clear()
 	g.bag = g.letterDistribution.MakeBag()
@@ -226,8 +225,10 @@ func (g *Game) StartGame() {
 	g.playing = pb.PlayState_PLAYING
 	g.history.PlayState = g.playing
 	g.turnnum = 0
+	g.scorelessTurns = 0
 	g.onturn = goesfirst
 	g.wentfirst = goesfirst
+	g.lastWordsFormed = nil
 }
 
 // ValidateMove validates the given move. It is meant to be used to validate
@@ -485,7 +486,7 @@ func (g *Game) handleConsecutiveScorelessTurns(addToHistory bool) (bool, error) 
 	var ended bool
 	if g.scorelessTurns == 6 {
 		ended = true
-		log.Debug().Msg("game ended with 6 scoreless turns")
+		log.Debug().Str("gid", g.history.Uid).Msg("game ended with 6 scoreless turns")
 		g.playing = pb.PlayState_GAME_OVER
 		g.history.PlayState = g.playing
 
