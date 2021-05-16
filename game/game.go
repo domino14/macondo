@@ -654,6 +654,9 @@ func (g *Game) PlayToTurn(turnnum int) error {
 			// We don't have a recorded rack, so set it to a random one.
 			g.SetRandomRack(g.onturn)
 		}
+
+		log.Debug().Str("r0", g.players[0].rackLetters).Str("r1", g.players[1].rackLetters).Msg("PlayToTurn-set-racks")
+
 	} else {
 		// playTurn should have refilled the rack of the relevant player,
 		// who was on turn.
@@ -717,6 +720,7 @@ func (g *Game) playTurn(t int) error {
 		if err != nil {
 			return err
 		}
+
 		g.lastWordsFormed = wordsFormed
 		// We back up the board and bag since there's a possibility
 		// this play will have to be taken back, if it's a challenged phony.

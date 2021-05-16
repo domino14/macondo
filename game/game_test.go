@@ -159,6 +159,7 @@ func TestPlayToTurnWithPhony(t *testing.T) {
 	valid, err := g.ChallengeEvent(0, 1000)
 	is.NoErr(err)
 	is.Equal(valid, false)
+
 	// check that game rolled back successfully
 	is.Equal(len(g.History().Events), 3)
 	is.Equal(g.History().Events[2].Type, pb.GameEvent_PHONY_TILES_RETURNED)
