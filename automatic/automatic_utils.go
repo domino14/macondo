@@ -41,10 +41,10 @@ func (r *GameRunner) CompVsCompStatic() error {
 }
 
 func (r *GameRunner) playFullStatic() {
-	log.Debug().Msgf("playing full static, game %v", r.game)
 	r.StartGame()
+	log.Debug().Msgf("playing full static, game %v", r.game.History().Uid)
+
 	for r.game.Playing() == pb.PlayState_PLAYING {
-		// log.Printf("[DEBUG] turn %v", r.game.Turn())
 		r.PlayBestStaticTurn(r.game.PlayerOnTurn())
 	}
 
