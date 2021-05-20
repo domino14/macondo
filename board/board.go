@@ -93,18 +93,18 @@ func (g *GameBoard) HasLetter(row int, col int) bool {
 	return !g.GetSquare(row, col).IsEmpty()
 }
 
-func (g *GameBoard) GetCrossSet(row int, col int, dir BoardDirection) CrossSet {
-	return *g.squares[row][col].GetCrossSet(dir) // the actual value
-}
+// func (g *GameBoard) GetCrossSet(row int, col int, dir BoardDirection) CrossSet {
+// 	return *g.squares[row][col].GetCrossSet(dir) // the actual value
+// }
 
-func (g *GameBoard) ClearCrossSet(row int, col int, dir BoardDirection) {
-	g.squares[row][col].GetCrossSet(dir).Clear()
-}
+// func (g *GameBoard) ClearCrossSet(row int, col int, dir BoardDirection) {
+// 	g.squares[row][col].GetCrossSet(dir).Clear()
+// }
 
-func (g *GameBoard) SetCrossSetLetter(row int, col int, dir BoardDirection,
-	ml alphabet.MachineLetter) {
-	g.squares[row][col].GetCrossSet(dir).Set(ml)
-}
+// func (g *GameBoard) SetCrossSetLetter(row int, col int, dir BoardDirection,
+// 	ml alphabet.MachineLetter) {
+// 	g.squares[row][col].GetCrossSet(dir).Set(ml)
+// }
 
 func (g *GameBoard) GetCrossScore(row int, col int, dir BoardDirection) int {
 	return g.squares[row][col].GetCrossScore(dir)
@@ -126,27 +126,27 @@ func (g *GameBoard) IsTransposed() bool {
 }
 
 // SetAllCrosses sets the cross sets of every square to every acceptable letter.
-func (g *GameBoard) SetAllCrosses() {
-	// Assume square board. This should be an assertion somewhere.
-	n := g.Dim()
-	for i := 0; i < n; i++ {
-		for j := 0; j < n; j++ {
-			g.squares[i][j].hcrossSet.SetAll()
-			g.squares[i][j].vcrossSet.SetAll()
-		}
-	}
-}
+// func (g *GameBoard) SetAllCrosses() {
+// 	// Assume square board. This should be an assertion somewhere.
+// 	n := g.Dim()
+// 	for i := 0; i < n; i++ {
+// 		for j := 0; j < n; j++ {
+// 			g.squares[i][j].hcrossSet.SetAll()
+// 			g.squares[i][j].vcrossSet.SetAll()
+// 		}
+// 	}
+// }
 
-// ClearAllCrosses disallows all letters on all squares (more or less).
-func (g *GameBoard) ClearAllCrosses() {
-	n := g.Dim()
-	for i := 0; i < n; i++ {
-		for j := 0; j < n; j++ {
-			g.squares[i][j].hcrossSet.Clear()
-			g.squares[i][j].vcrossSet.Clear()
-		}
-	}
-}
+// // ClearAllCrosses disallows all letters on all squares (more or less).
+// func (g *GameBoard) ClearAllCrosses() {
+// 	n := g.Dim()
+// 	for i := 0; i < n; i++ {
+// 		for j := 0; j < n; j++ {
+// 			g.squares[i][j].hcrossSet.Clear()
+// 			g.squares[i][j].vcrossSet.Clear()
+// 		}
+// 	}
+// }
 
 // Clear clears the board.
 func (g *GameBoard) Clear() {
@@ -159,7 +159,7 @@ func (g *GameBoard) Clear() {
 	g.tilesPlayed = 0
 	// We set all crosses because every letter is technically allowed
 	// on every cross-set at the very beginning.
-	g.SetAllCrosses()
+	// g.SetAllCrosses()
 	g.UpdateAllAnchors()
 }
 

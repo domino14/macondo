@@ -33,8 +33,6 @@ type Square struct {
 	letter alphabet.MachineLetter
 	bonus  BonusSquare
 
-	hcrossSet CrossSet
-	vcrossSet CrossSet
 	// the scores of the tiles on either side of this square.
 	hcrossScore int
 	vcrossScore int
@@ -53,18 +51,9 @@ func (s Square) String() string {
 	return fmt.Sprintf("<(%v) (%s)>", s.letter, bonus)
 }
 
-func (s Square) Info() string {
-	return fmt.Sprintf("[let %v bonus %v hc %v vc %v hcs %v vcs %v ha %v va %v]",
-		s.letter, s.bonus, s.hcrossSet, s.vcrossSet, s.hcrossScore, s.vcrossScore,
-		s.hAnchor, s.vAnchor,
-	)
-}
-
 func (s *Square) copyFrom(s2 *Square) {
 	s.letter = s2.letter
 	s.bonus = s2.bonus
-	s.hcrossSet = s2.hcrossSet
-	s.vcrossSet = s2.vcrossSet
 	s.hcrossScore = s2.hcrossScore
 	s.vcrossScore = s2.vcrossScore
 	s.hAnchor = s2.hAnchor
@@ -78,14 +67,6 @@ func (s *Square) equals(s2 *Square) bool {
 	}
 	if s.letter != s2.letter {
 		log.Debug().Msg("Letters not equal")
-		return false
-	}
-	if s.hcrossSet != s2.hcrossSet {
-		log.Debug().Msgf("horiz cross-sets not equal: %v %v", s.hcrossSet, s2.hcrossSet)
-		return false
-	}
-	if s.vcrossSet != s2.vcrossSet {
-		log.Debug().Msgf("vert cross-sets not equal: %v %v", s.vcrossSet, s2.vcrossSet)
 		return false
 	}
 	if s.hcrossScore != s2.hcrossScore {
@@ -148,37 +129,13 @@ func (s Square) DisplayString(alph *alphabet.Alphabet) string {
 
 }
 
-func (s Square) BadDisplayString(alph *alphabet.Alphabet) string {
-	var hadisp, vadisp, bonusdisp string
-	if s.hAnchor {
-		hadisp = "→"
-	} else {
-		hadisp = " "
-	}
-	if s.vAnchor {
-		vadisp = "↓"
-	} else {
-		vadisp = " "
-	}
-	if s.bonus != 0 {
-		bonusdisp = string(s.bonus)
-	} else {
-		bonusdisp = " "
-	}
-	if s.letter == alphabet.EmptySquareMarker {
-		return fmt.Sprintf("[%v%v%v]", bonusdisp, hadisp, vadisp)
-	}
-	return fmt.Sprintf("[%v%v%v]", s.letter.UserVisible(alph), hadisp, vadisp)
-
-}
-
-func (s *Square) SetCrossSet(cs CrossSet, dir BoardDirection) {
-	if dir == HorizontalDirection {
-		s.hcrossSet = cs
-	} else if dir == VerticalDirection {
-		s.vcrossSet = cs
-	}
-}
+// func (s *Square) SetCrossSet(cs CrossSet, dir BoardDirection) {
+// 	if dir == HorizontalDirection {
+// 		s.hcrossSet = cs
+// 	} else if dir == VerticalDirection {
+// 		s.vcrossSet = cs
+// 	}
+// }
 
 func (s *Square) SetCrossScore(score int, dir BoardDirection) {
 	if dir == HorizontalDirection {
@@ -188,14 +145,14 @@ func (s *Square) SetCrossScore(score int, dir BoardDirection) {
 	}
 }
 
-func (s *Square) GetCrossSet(dir BoardDirection) *CrossSet {
-	if dir == HorizontalDirection {
-		return &s.hcrossSet
-	} else if dir == VerticalDirection {
-		return &s.vcrossSet
-	}
-	return nil
-}
+// func (s *Square) GetCrossSet(dir BoardDirection) *CrossSet {
+// 	if dir == HorizontalDirection {
+// 		return &s.hcrossSet
+// 	} else if dir == VerticalDirection {
+// 		return &s.vcrossSet
+// 	}
+// 	return nil
+// }
 
 func (s *Square) GetCrossScore(dir BoardDirection) int {
 	if dir == HorizontalDirection {

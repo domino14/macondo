@@ -177,6 +177,9 @@ func genCrossScore(b *Board, row int, col int, dir board.BoardDirection,
 type GaddagCrossSetGenerator struct {
 	Dist   *alphabet.LetterDistribution
 	Gaddag gaddag.GenericDawg
+
+	hcrossSets []board.CrossSet
+	vcrossSets []board.CrossSet
 }
 
 func (g GaddagCrossSetGenerator) Generate(b *Board, row int, col int, dir board.BoardDirection) {
