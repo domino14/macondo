@@ -34,7 +34,8 @@ func defaultForLexicon(lexiconName string) string {
 		strings.HasPrefix(lexiconName, "TWL") ||
 		strings.HasPrefix(lexiconName, "NWL") ||
 		strings.HasPrefix(lexiconName, "ECWL") ||
-		strings.HasPrefix(lexiconName, "OSPD") {
+		strings.HasPrefix(lexiconName, "OSPD") ||
+		strings.HasPrefix(lexiconName, "NSWL") {
 
 		return "default_english"
 	}
