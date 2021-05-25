@@ -9,14 +9,13 @@ import (
 
 // HistoryToVariant takes in a game history and returns the board configuration
 // and letter distribution name.
-func HistoryToVariant(h *pb.GameHistory) (boardLayout []string, letterDistributionName string) {
+func HistoryToVariant(h *pb.GameHistory) (boardLayout []string, letterDistributionName string, variant Variant) {
 
-	switch h.Variant {
-	case "CrosswordGame":
-		boardLayout = board.CrosswordGameBoard
+	switch h.BoardLayout {
 	default:
 		boardLayout = board.CrosswordGameBoard
 	}
+	// XXX: the letter distribution name should come from the history.
 	letterDistributionName = "english"
 	switch {
 	case strings.HasPrefix(h.Lexicon, "OSPS"):
@@ -26,5 +25,5 @@ func HistoryToVariant(h *pb.GameHistory) (boardLayout []string, letterDistributi
 	case strings.HasPrefix(h.Lexicon, "Deutsch"):
 		letterDistributionName = "german"
 	}
-	return boardLayout, letterDistributionName
+	return boardLayout, letterDistributionName, Variant(h.Variant)
 }

@@ -33,8 +33,8 @@ func defaultForLexicon(lexiconName string) string {
 	if strings.HasPrefix(lexiconName, "CSW") ||
 		strings.HasPrefix(lexiconName, "TWL") ||
 		strings.HasPrefix(lexiconName, "NWL") ||
-		strings.HasPrefix(lexiconName, "ECWL") ||
-		strings.HasPrefix(lexiconName, "OSPD") ||
+		strings.HasPrefix(lexiconName, "ECWL") || // obsolete name for CEL
+		strings.HasPrefix(lexiconName, "CEL") || // common english words
 		strings.HasPrefix(lexiconName, "NSWL") {
 
 		return "default_english"

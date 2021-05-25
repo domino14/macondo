@@ -138,17 +138,13 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 			return errors.New("wrong number of players defined")
 		}
 		if p.game == nil {
-
-			if p.history.Variant == "" {
-				p.history.Variant = "CrosswordGame"
-			}
 			if p.history.Lexicon == "" {
 				p.history.Lexicon = cfg.DefaultLexicon
 			}
-			boardLayout, letterDistributionName := game.HistoryToVariant(p.history)
+			boardLayout, letterDistributionName, variant := game.HistoryToVariant(p.history)
 
 			// We have both players. Initialize a new game.
-			rules, err := game.NewBasicGameRules(cfg, boardLayout, letterDistributionName)
+			rules, err := game.NewBasicGameRules(cfg, boardLayout, letterDistributionName, variant)
 			if err != nil {
 				return err
 			}

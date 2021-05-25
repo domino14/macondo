@@ -10,6 +10,7 @@ type Lexicon interface {
 	Name() string
 	GetAlphabet() *alphabet.Alphabet
 	HasWord(word Word) bool
+	HasAnagram(word Word) bool
 }
 
 type AcceptAll struct {
@@ -25,5 +26,9 @@ func (lex AcceptAll) GetAlphabet() *alphabet.Alphabet {
 }
 
 func (lex AcceptAll) HasWord(word Word) bool {
+	return true
+}
+
+func (lex AcceptAll) HasAnagram(word Word) bool {
 	return true
 }

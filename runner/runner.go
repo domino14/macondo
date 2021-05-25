@@ -22,17 +22,21 @@ type GameRunner struct {
 	game.Game
 }
 
+// NewGameRunner appears to only be used by tests
 func NewGameRunner(conf *config.Config, opts *GameOptions, players []*pb.PlayerInfo) (*GameRunner, error) {
 	opts.SetDefaults(conf)
 	rules, err := game.NewBasicGameRules(
 		conf, board.CrosswordGameBoard,
-		opts.Lexicon.Distribution)
+		opts.Lexicon.Distribution,
+		"",
+	)
 	if err != nil {
 		return nil, err
 	}
 	return NewGameRunnerFromRules(opts, players, rules)
 }
 
+// NewGameRunnerFromRules is a good entry point
 func NewGameRunnerFromRules(opts *GameOptions, players []*pb.PlayerInfo, rules *game.GameRules) (*GameRunner, error) {
 	g, err := game.NewGame(rules, players)
 	if err != nil {
@@ -194,6 +198,8 @@ func NewAIGameRules(cfg *config.Config, boardLayout []string,
 		Dist:   dist,
 	}
 	lex := gaddag.Lexicon{gd}
-	rules := game.NewGameRules(cfg, dist, board, lex, cset)
+	// assume bot can only play classic for now. Modify if we can teach this
+	// bot to play other variants.
+	rules := game.NewGameRules(cfg, dist, board, lex, cset, game.Variant("classic"))
 	return rules, nil
 }

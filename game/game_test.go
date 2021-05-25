@@ -42,7 +42,7 @@ func TestNewGame(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, err := NewBasicGameRules(&DefaultConfig, board.CrosswordGameBoard, "English")
+	rules, err := NewBasicGameRules(&DefaultConfig, board.CrosswordGameBoard, "English", "")
 	is.NoErr(err)
 	game, err := NewGame(rules, players)
 	is.NoErr(err)
@@ -56,7 +56,7 @@ func TestBackup(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, _ := NewBasicGameRules(&DefaultConfig, board.CrosswordGameBoard, "English")
+	rules, _ := NewBasicGameRules(&DefaultConfig, board.CrosswordGameBoard, "English", "")
 	game, _ := NewGame(rules, players)
 
 	game.StartGame()
@@ -90,7 +90,7 @@ func TestValidate(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, _ := NewBasicGameRules(&DefaultConfig, board.CrosswordGameBoard, "English")
+	rules, _ := NewBasicGameRules(&DefaultConfig, board.CrosswordGameBoard, "English", "")
 	g, _ := NewGame(rules, players)
 	alph := g.Alphabet()
 	g.StartGame()

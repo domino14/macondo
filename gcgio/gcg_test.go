@@ -166,7 +166,7 @@ func TestToGCG(t *testing.T) {
 func TestNewFromHistoryExcludePenultimatePass(t *testing.T) {
 	is := is.New(t)
 	rules, err := game.NewBasicGameRules(&DefaultConfig, board.CrosswordGameBoard,
-		"English")
+		"English", "")
 
 	gameHistory, err := ParseGCG(&DefaultConfig, "./testdata/guy_vs_bot_almost_complete.gcg")
 	is.NoErr(err)
@@ -212,7 +212,7 @@ func TestNewFromHistoryExcludePenultimatePass(t *testing.T) {
 func TestNewFromHistoryExcludePenultimateChallengeTurnLoss(t *testing.T) {
 	is := is.New(t)
 	rules, err := game.NewBasicGameRules(&DefaultConfig, board.CrosswordGameBoard,
-		"English")
+		"English", "")
 
 	gameHistory, err := ParseGCG(&DefaultConfig, "./testdata/guy_vs_bot_almost_complete.gcg")
 	is.NoErr(err)

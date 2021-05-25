@@ -36,7 +36,7 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 	}
 	// Note that the player on turn right now needs to be the player
 	// who is making the challenge.
-	illegalWords := validateWords(g.lexicon, g.lastWordsFormed)
+	illegalWords := validateWords(g.lexicon, g.lastWordsFormed, g.variant)
 	playLegal := len(illegalWords) == 0
 
 	lastEvent := g.history.Events[len(g.history.Events)-1]
@@ -192,12 +192,17 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 	return playLegal, err
 }
 
-func validateWords(lex lexicon.Lexicon, words []alphabet.MachineWord) []string {
+func validateWords(lex lexicon.Lexicon, words []alphabet.MachineWord, variant Variant) []string {
 	var illegalWords []string
 	alph := lex.GetAlphabet()
 	log.Debug().Interface("words", words).Msg("challenge-evt")
 	for _, word := range words {
-		valid := lex.HasWord(word)
+		var valid bool
+		if variant == VarWordSmog {
+			valid = lex.HasAnagram(word)
+		} else {
+			valid = lex.HasWord(word)
+		}
 		if !valid {
 			illegalWords = append(illegalWords, word.UserVisible(alph))
 		}

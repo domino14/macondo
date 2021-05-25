@@ -29,13 +29,19 @@ message GameHistory {
   PlayState play_state = 13;
   // Final scores of the game; the order is in the order of the listed players!
   repeated int32 final_scores = 14;
-  // The variant, together with the lexicon, would encode the initial board
-  // and tile configuration.
+  // The variant is the game variant used. If blank, should
+  // default to "classic".
   string variant = 15;
   // The index of the player who won. It's not always the person with the
   // highest score, because there can be timeouts, etc. If it's a tie,
   // it will be a -1.
   int32 winner = 16;
+  // The board layout is just the name for the layout of the board.
+  // It should have a sensible default, if blank.
+  string board_layout = 17;
+  // The letter distribution is the name of the distribution of tiles used for this game.
+  // If blank, should default to "english".
+  string letter_distribution = 18;
 }
 
 enum PlayState {
