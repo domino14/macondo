@@ -540,6 +540,9 @@ func writeGCGHeader(s *strings.Builder, h *pb.GameHistory, addlInfo bool) {
 		if h.Lexicon != "" {
 			s.WriteString("#lexicon " + h.Lexicon + "\n")
 		}
+		if h.Variant != "" {
+			s.WriteString("#note Variant: " + h.Variant + "\n")
+		}
 	}
 	log.Debug().Msg("wrote header")
 }
