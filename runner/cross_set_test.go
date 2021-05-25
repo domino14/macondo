@@ -83,8 +83,8 @@ func TestCompareGameMove(t *testing.T) {
 	gen1 := cross_set.GaddagCrossSetGenerator{Dist: dist, Gaddag: gd}
 	gen2 := cross_set.CrossScoreOnlyGenerator{Dist: dist}
 
-	rules1 := game.NewGameRules(&DefaultConfig, dist, bd, lex, gen1)
-	rules2 := game.NewGameRules(&DefaultConfig, dist, bd, lex, gen2)
+	rules1 := game.NewGameRules(&DefaultConfig, dist, bd, lex, gen1, "")
+	rules2 := game.NewGameRules(&DefaultConfig, dist, bd, lex, gen2, "")
 
 	var testCases = []testMove{
 		{"8D", "QWERTY", "QWERTYU", 62},

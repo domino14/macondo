@@ -135,7 +135,7 @@ func TestPlayToTurnWithPhony(t *testing.T) {
 	rules := NewGameRules(
 		&DefaultConfig, dist, board.MakeBoard(board.CrosswordGameBoard),
 		&gaddag.Lexicon{GenericDawg: dawg},
-		cross_set.CrossScoreOnlyGenerator{Dist: dist})
+		cross_set.CrossScoreOnlyGenerator{Dist: dist}, "")
 
 	jsonFile, err := os.Open("./testdata/history1.json")
 	is.NoErr(err)
