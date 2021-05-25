@@ -1,6 +1,7 @@
 package gaddag
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/domino14/macondo/alphabet"
@@ -163,4 +164,28 @@ func (da *DawgAnagrammer) Superanagram(dawg GenericDawg, f func(alphabet.Machine
 	err := da.iterate(dawg, dawg.GetRootNodeIndex(), da.queryLength, minExact, f)
 	da.blanks = blanks
 	return err
+}
+
+var errHasAnagram = errors.New("has anagram")
+var errHasBlanks = errors.New("has blanks")
+
+func foundAnagram(alphabet.MachineWord) error {
+	return errHasAnagram
+}
+
+// checks if a word with no blanks has any valid anagrams.
+func (da *DawgAnagrammer) IsValidJumble(dawg GenericDawg, word alphabet.MachineWord) (bool, error) {
+	if err := da.InitForMachineWord(dawg, word); err != nil {
+		return false, err
+	} else if da.blanks > 0 {
+		return false, errHasBlanks
+	}
+	err := da.Anagram(dawg, foundAnagram)
+	if err == nil {
+		return false, nil
+	} else if err == errHasAnagram {
+		return true, nil
+	} else {
+		return false, err
+	}
 }

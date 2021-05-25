@@ -515,4 +515,26 @@ func TestDawgAnagrammer(t *testing.T) {
 	} else if !found {
 		t.Error(errors.New("magic word not found in superanagram"))
 	}
+
+	if mw, err := alphabet.ToMachineWord("AEENRT?", alph); err != nil {
+		t.Error(err)
+	} else if _, err := da.IsValidJumble(d, mw); err == nil {
+		t.Error(err)
+	}
+
+	if mw, err := alphabet.ToMachineWord("AEENRTE", alph); err != nil {
+		t.Error(err)
+	} else if v, err := da.IsValidJumble(d, mw); err != nil {
+		t.Error(err)
+	} else if v != false {
+		t.Error(fmt.Errorf("expected %v, got %v", false, v))
+	}
+
+	if mw, err := alphabet.ToMachineWord("AEENRTT", alph); err != nil {
+		t.Error(err)
+	} else if v, err := da.IsValidJumble(d, mw); err != nil {
+		t.Error(err)
+	} else if v != true {
+		t.Error(fmt.Errorf("expected %v, got %v", true, v))
+	}
 }
