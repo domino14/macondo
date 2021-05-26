@@ -168,7 +168,7 @@ func TestNewFromHistoryExcludePenultimatePass(t *testing.T) {
 
 	rules, err := game.NewBasicGameRules(
 		&DefaultConfig,
-		"CSW19",
+		"",
 		board.CrosswordGameLayout,
 		"english",
 		game.CrossScoreAndSet,
@@ -220,7 +220,7 @@ func TestNewFromHistoryExcludePenultimateChallengeTurnLoss(t *testing.T) {
 	is := is.New(t)
 	rules, err := game.NewBasicGameRules(
 		&DefaultConfig,
-		"CSW19",
+		"",
 		board.CrosswordGameLayout,
 		"english",
 		game.CrossScoreAndSet,
