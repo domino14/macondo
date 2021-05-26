@@ -144,8 +144,10 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 			boardLayout, letterDistributionName, variant := game.HistoryToVariant(p.history)
 
 			// We have both players. Initialize a new game.
+			// Don't pass in lexicon to new basic game rules. We don't want GCG
+			// parsing to have to load in an actual lexicon to verify any plays.
 			rules, err := game.NewBasicGameRules(
-				cfg, p.history.Lexicon,
+				cfg, "",
 				boardLayout, letterDistributionName, game.CrossScoreOnly, variant)
 			if err != nil {
 				return err

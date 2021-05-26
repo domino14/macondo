@@ -25,7 +25,7 @@ import (
 var DefaultConfig = config.DefaultConfig()
 
 func TestMain(m *testing.M) {
-	for _, lex := range []string{"NWL18"} {
+	for _, lex := range []string{"NWL18", "NWL20"} {
 		gdgPath := filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag")
 		if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
 			gaddagmaker.GenerateGaddag(filepath.Join(DefaultConfig.LexiconPath, lex+".txt"), true, true)

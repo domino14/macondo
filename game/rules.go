@@ -89,24 +89,32 @@ func NewBasicGameRules(cfg *config.Config,
 		return nil, errors.New("unsupported board layout")
 	}
 
-	var lexicon *gaddag.Lexicon
+	var lex lexicon.Lexicon
 	var csgen cross_set.Generator
 	switch csetGenName {
 	case CrossScoreOnly:
 		// just use dawg
-		dawg, err := gaddag.GetDawg(cfg, lexiconName)
-		if err != nil {
-			return nil, err
+		if lexiconName == "" {
+			lex = &lexicon.AcceptAll{Alph: dist.Alphabet()}
+		} else {
+			dawg, err := gaddag.GetDawg(cfg, lexiconName)
+			if err != nil {
+				return nil, err
+			}
+			lex = &gaddag.Lexicon{GenericDawg: dawg}
 		}
-		lexicon = &gaddag.Lexicon{GenericDawg: dawg}
 		csgen = cross_set.CrossScoreOnlyGenerator{Dist: dist}
 	case CrossScoreAndSet:
-		gd, err := gaddag.Get(cfg, lexiconName)
-		if err != nil {
-			return nil, err
+		if lexiconName == "" {
+			return nil, errors.New("lexicon name is required for this cross-set option")
+		} else {
+			gd, err := gaddag.Get(cfg, lexiconName)
+			if err != nil {
+				return nil, err
+			}
+			lex = &gaddag.Lexicon{GenericDawg: gd}
+			csgen = cross_set.GaddagCrossSetGenerator{Dist: dist, Gaddag: gd}
 		}
-		lexicon = &gaddag.Lexicon{GenericDawg: gd}
-		csgen = cross_set.GaddagCrossSetGenerator{Dist: dist, Gaddag: gd}
 	}
 
 	rules := &GameRules{
@@ -115,7 +123,7 @@ func NewBasicGameRules(cfg *config.Config,
 		distname:    letterDistributionName,
 		board:       board.MakeBoard(bd),
 		boardname:   boardLayoutName,
-		lexicon:     lexicon,
+		lexicon:     lex,
 		crossSetGen: csgen,
 		variant:     variant,
 	}
