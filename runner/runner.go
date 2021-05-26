@@ -7,7 +7,6 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -20,20 +19,6 @@ import (
 
 type GameRunner struct {
 	game.Game
-}
-
-// NewGameRunner appears to only be used by tests
-func NewGameRunner(conf *config.Config, opts *GameOptions, players []*pb.PlayerInfo) (*GameRunner, error) {
-	opts.SetDefaults(conf)
-	rules, err := game.NewBasicGameRules(
-		conf, board.CrosswordGameBoard,
-		opts.Lexicon.Distribution,
-		"",
-	)
-	if err != nil {
-		return nil, err
-	}
-	return NewGameRunnerFromRules(opts, players, rules)
 }
 
 // NewGameRunnerFromRules is a good entry point
@@ -117,7 +102,7 @@ type AIGameRunner struct {
 func NewAIGameRunner(conf *config.Config, opts *GameOptions, players []*pb.PlayerInfo) (*AIGameRunner, error) {
 	opts.SetDefaults(conf)
 	rules, err := NewAIGameRules(
-		conf, board.CrosswordGameBoard,
+		conf, board.CrosswordGameLayout,
 		opts.Lexicon.Name, opts.Lexicon.Distribution)
 	if err != nil {
 		return nil, err
@@ -182,24 +167,13 @@ func (g *AIGameRunner) AIPlayer() player.AIPlayer {
 	return g.aiplayer
 }
 
-func NewAIGameRules(cfg *config.Config, boardLayout []string,
+func NewAIGameRules(cfg *config.Config, boardLayoutName string,
 	lexiconName string, letterDistributionName string) (*game.GameRules, error) {
-	dist, err := alphabet.Get(cfg, letterDistributionName)
-	if err != nil {
-		return nil, err
-	}
-	gd, err := gaddag.Get(cfg, lexiconName)
-	if err != nil {
-		return nil, err
-	}
-	board := board.MakeBoard(boardLayout)
-	cset := cross_set.GaddagCrossSetGenerator{
-		Gaddag: gd,
-		Dist:   dist,
-	}
-	lex := gaddag.Lexicon{gd}
+
 	// assume bot can only play classic for now. Modify if we can teach this
 	// bot to play other variants.
-	rules := game.NewGameRules(cfg, dist, board, lex, cset, game.Variant("classic"))
-	return rules, nil
+	return game.NewBasicGameRules(
+		cfg, lexiconName, boardLayoutName, letterDistributionName,
+		game.CrossScoreAndSet,
+		game.VarClassic)
 }

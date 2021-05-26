@@ -36,7 +36,7 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 	}
 	// Note that the player on turn right now needs to be the player
 	// who is making the challenge.
-	illegalWords := validateWords(g.lexicon, g.lastWordsFormed, g.variant)
+	illegalWords := validateWords(g.lexicon, g.lastWordsFormed, g.rules.Variant())
 	playLegal := len(illegalWords) == 0
 
 	lastEvent := g.history.Events[len(g.history.Events)-1]

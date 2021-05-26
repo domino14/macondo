@@ -144,7 +144,9 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 			boardLayout, letterDistributionName, variant := game.HistoryToVariant(p.history)
 
 			// We have both players. Initialize a new game.
-			rules, err := game.NewBasicGameRules(cfg, boardLayout, letterDistributionName, variant)
+			rules, err := game.NewBasicGameRules(
+				cfg, p.history.Lexicon,
+				boardLayout, letterDistributionName, game.CrossScoreOnly, variant)
 			if err != nil {
 				return err
 			}

@@ -6,6 +6,10 @@ var (
 	CrosswordGameBoard []string
 )
 
+const (
+	CrosswordGameLayout = "CrosswordGame"
+)
+
 func init() {
 	CrosswordGameBoard = []string{
 		`=  '   =   '  =`,

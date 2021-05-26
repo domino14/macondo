@@ -8,8 +8,6 @@ import (
 	"testing"
 
 	"github.com/domino14/macondo/alphabet"
-	"github.com/domino14/macondo/cross_set"
-	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/move"
 	"github.com/rs/zerolog/log"
 
@@ -42,7 +40,9 @@ func TestNewGame(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, err := NewBasicGameRules(&DefaultConfig, board.CrosswordGameBoard, "English", "")
+	rules, err := NewBasicGameRules(
+		&DefaultConfig, "CSW19", board.CrosswordGameLayout, "english",
+		CrossScoreOnly, "")
 	is.NoErr(err)
 	game, err := NewGame(rules, players)
 	is.NoErr(err)
@@ -56,7 +56,10 @@ func TestBackup(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, _ := NewBasicGameRules(&DefaultConfig, board.CrosswordGameBoard, "English", "")
+	rules, err := NewBasicGameRules(
+		&DefaultConfig, "CSW19", board.CrosswordGameLayout, "english",
+		CrossScoreOnly, "")
+	is.NoErr(err)
 	game, _ := NewGame(rules, players)
 
 	game.StartGame()
@@ -90,7 +93,12 @@ func TestValidate(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, _ := NewBasicGameRules(&DefaultConfig, board.CrosswordGameBoard, "English", "")
+
+	rules, err := NewBasicGameRules(
+		&DefaultConfig, "CSW19", board.CrosswordGameLayout, "english",
+		CrossScoreOnly, "")
+	is.NoErr(err)
+
 	g, _ := NewGame(rules, players)
 	alph := g.Alphabet()
 	g.StartGame()
@@ -126,17 +134,10 @@ func TestValidate(t *testing.T) {
 func TestPlayToTurnWithPhony(t *testing.T) {
 	is := is.New(t)
 
-	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
+	rules, err := NewBasicGameRules(
+		&DefaultConfig, "CSW19", board.CrosswordGameLayout, "english",
+		CrossScoreOnly, "")
 	is.NoErr(err)
-
-	dawg, err := gaddag.GetDawg(&DefaultConfig, "CSW19")
-	is.NoErr(err)
-
-	rules := NewGameRules(
-		&DefaultConfig, dist, board.MakeBoard(board.CrosswordGameBoard),
-		&gaddag.Lexicon{GenericDawg: dawg},
-		cross_set.CrossScoreOnlyGenerator{Dist: dist}, "")
-
 	jsonFile, err := os.Open("./testdata/history1.json")
 	is.NoErr(err)
 	defer jsonFile.Close()

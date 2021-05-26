@@ -53,7 +53,7 @@ func (r *GameRunner) Init(player1, player2, leavefile1, leavefile2, pegfile1, pe
 	// of a lexicon and a letter distribution. For now the following
 	// will not work for non-english lexicons, so this needs to be fixed
 	// in the future.
-	rules, err := runner.NewAIGameRules(r.config, board.CrosswordGameBoard,
+	rules, err := runner.NewAIGameRules(r.config, board.CrosswordGameLayout,
 		r.lexicon, r.config.DefaultLetterDistribution)
 	if err != nil {
 		return err

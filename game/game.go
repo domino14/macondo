@@ -66,7 +66,8 @@ type Game struct {
 	// if nextFirst is -1, first is determined randomly. Otherwise, first is
 	// set to nextFirst.
 	nextFirst int
-	variant   Variant
+	// rules contains the original game rules passed in to create this game.
+	rules *GameRules
 }
 
 func (g *Game) Config() *config.Config {
@@ -143,7 +144,7 @@ func NewGame(rules *GameRules, playerinfo []*pb.PlayerInfo) (*Game, error) {
 	game.crossSetGen = rules.CrossSetGen()
 	game.lexicon = rules.Lexicon()
 	game.config = rules.Config()
-	game.variant = rules.Variant()
+	game.rules = rules
 
 	game.players = make([]*playerState, len(playerinfo))
 	for idx, p := range playerinfo {
@@ -224,6 +225,9 @@ func (g *Game) StartGame() {
 		g.RackLettersFor(0), g.RackLettersFor(1),
 	}
 	g.history.Lexicon = g.Lexicon().Name()
+	g.history.Variant = string(g.rules.Variant())
+	g.history.LetterDistribution = g.rules.LetterDistributionName()
+	g.history.BoardLayout = g.rules.BoardName()
 	g.playing = pb.PlayState_PLAYING
 	g.history.PlayState = g.playing
 	g.turnnum = 0
@@ -307,7 +311,7 @@ func (g *Game) validateTilePlayMove(m *move.Move) ([]alphabet.MachineWord, error
 	}
 	if g.history.ChallengeRule == pb.ChallengeRule_VOID {
 		// Actually check the validity of the words.
-		illegalWords := validateWords(g.lexicon, formedWords, g.variant)
+		illegalWords := validateWords(g.lexicon, formedWords, g.rules.Variant())
 
 		if len(illegalWords) > 0 {
 			return nil, fmt.Errorf("the play contained illegal words: %v",
