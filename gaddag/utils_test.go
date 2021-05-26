@@ -1,6 +1,8 @@
 package gaddag
 
 import (
+	"errors"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -417,5 +419,122 @@ func TestFindPrefixSmallEnglish(t *testing.T) {
 	found := findPartialWord(d, d.GetRootNodeIndex(), []rune("OG"), 0)
 	if found {
 		t.Error("Found OG :(")
+	}
+}
+
+func TestDawgAnagrammer(t *testing.T) {
+	d, err := loadDawg("America", false)
+	if err != nil {
+		t.Error("loading America dawg")
+		return
+	}
+	alph := d.GetAlphabet()
+
+	da := DawgAnagrammer{}
+	if err = da.InitForString(d, "AEeNRT?"); err == nil {
+		t.Error(err)
+	}
+
+	existErr := errors.New("found match, returning early")
+	num := 0
+	if err = da.InitForString(d, "AEENRT?"); err != nil {
+		t.Error(err)
+	} else if err = da.Anagram(d, func(word alphabet.MachineWord) error {
+		num++
+		return existErr
+	}); err != existErr {
+		t.Error(err)
+	} else if num != 1 {
+		t.Error(fmt.Errorf("expected %v, got %v", 1, num))
+	}
+
+	num = 0
+	if err = da.InitForString(d, "AEENRT?"); err != nil {
+		t.Error(err)
+	} else if err = da.Anagram(d, func(word alphabet.MachineWord) error {
+		num++
+		return nil
+	}); err != nil {
+		t.Error(err)
+	} else if num != 26 {
+		t.Error(fmt.Errorf("expected %v, got %v", 26, num))
+	}
+
+	if err = da.InitForString(d, "AQQNRT?"); err != nil {
+		t.Error(err)
+	} else if err = da.Anagram(d, func(word alphabet.MachineWord) error {
+		return existErr
+	}); err != nil {
+		t.Error(err)
+	}
+
+	expectedAnags := "[ARENITE CENTARE CRENATE EARNEST EARTHEN EASTERN ENTERAL ENTREAT ETERNAL GRANTEE GREATEN HEARTEN NEAREST NEGATER NERVATE RATTEEN REAGENT REENACT RETAKEN RETINAE STERANE TELERAN TERNATE TERRANE TRAINEE VETERAN]"
+	var anags []string
+	if mw, err := alphabet.ToMachineWord("AEENRT?", alph); err != nil {
+		t.Error(err)
+	} else if err = da.InitForMachineWord(d, mw); err != nil {
+		t.Error(err)
+	} else if err = da.Anagram(d, func(word alphabet.MachineWord) error {
+		anags = append(anags, word.UserVisible(alph))
+		return nil
+	}); err != nil {
+		t.Error(err)
+	} else if num != len(anags) {
+		t.Error(fmt.Errorf("expected %v, got %v %v", num, len(anags), anags))
+	} else if fmt.Sprintf("%v", anags) != expectedAnags {
+		t.Error(fmt.Errorf("expected %v, got %v", expectedAnags, anags))
+	}
+
+	num = 0
+	if err = da.InitForString(d, "WOGGL?S"); err != nil {
+		t.Error(err)
+	} else if err = da.Subanagram(d, func(word alphabet.MachineWord) error {
+		num++
+		return nil
+	}); err != nil {
+		t.Error(err)
+	} else if num != 384 {
+		t.Error(fmt.Errorf("expected %v, got %v", 384, num))
+	}
+
+	num = 0
+	found := false
+	if err = da.InitForString(d, "??W?GGLOS"); err != nil {
+		t.Error(err)
+	}
+	if err = da.Superanagram(d, func(word alphabet.MachineWord) error {
+		if word.UserVisible(alph) == "HORNSWOGGLED" {
+			found = true
+		}
+		num++
+		return nil
+	}); err != nil {
+		t.Error(err)
+	} else if num != 17 {
+		t.Error(fmt.Errorf("expected %v, got %v", 17, num))
+	} else if !found {
+		t.Error(errors.New("magic word not found in superanagram"))
+	}
+
+	if mw, err := alphabet.ToMachineWord("AEENRT?", alph); err != nil {
+		t.Error(err)
+	} else if _, err := da.IsValidJumble(d, mw); err == nil {
+		t.Error(err)
+	}
+
+	if mw, err := alphabet.ToMachineWord("AEENRTE", alph); err != nil {
+		t.Error(err)
+	} else if v, err := da.IsValidJumble(d, mw); err != nil {
+		t.Error(err)
+	} else if v != false {
+		t.Error(fmt.Errorf("expected %v, got %v", false, v))
+	}
+
+	if mw, err := alphabet.ToMachineWord("AEENRTT", alph); err != nil {
+		t.Error(err)
+	} else if v, err := da.IsValidJumble(d, mw); err != nil {
+		t.Error(err)
+	} else if v != true {
+		t.Error(fmt.Errorf("expected %v, got %v", true, v))
 	}
 }
