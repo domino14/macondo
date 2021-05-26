@@ -171,7 +171,7 @@ func TestNewFromHistoryExcludePenultimatePass(t *testing.T) {
 		"",
 		board.CrosswordGameLayout,
 		"english",
-		game.CrossScoreAndSet,
+		game.CrossScoreOnly,
 		"")
 	is.NoErr(err)
 
@@ -223,7 +223,7 @@ func TestNewFromHistoryExcludePenultimateChallengeTurnLoss(t *testing.T) {
 		"",
 		board.CrosswordGameLayout,
 		"english",
-		game.CrossScoreAndSet,
+		game.CrossScoreOnly,
 		"")
 	is.NoErr(err)
 
