@@ -285,7 +285,8 @@ func (sc *ShellController) loadGCG(args []string) error {
 		log.Info().Msgf("gcg file had no lexicon, so using default lexicon %v",
 			lexicon)
 	}
-	boardLayout, ldName := game.HistoryToVariant(history)
+	// ignore variant for now, until AI/bot can play other variants
+	boardLayout, ldName, _ := game.HistoryToVariant(history)
 	rules, err := runner.NewAIGameRules(sc.config, boardLayout, lexicon, ldName)
 	if err != nil {
 		return err

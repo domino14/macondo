@@ -25,7 +25,7 @@ import (
 var DefaultConfig = config.DefaultConfig()
 
 func TestMain(m *testing.M) {
-	for _, lex := range []string{"NWL18"} {
+	for _, lex := range []string{"NWL18", "NWL20"} {
 		gdgPath := filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag")
 		if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
 			gaddagmaker.GenerateGaddag(filepath.Join(DefaultConfig.LexiconPath, lex+".txt"), true, true)
@@ -165,8 +165,15 @@ func TestToGCG(t *testing.T) {
 
 func TestNewFromHistoryExcludePenultimatePass(t *testing.T) {
 	is := is.New(t)
-	rules, err := game.NewBasicGameRules(&DefaultConfig, board.CrosswordGameBoard,
-		"English")
+
+	rules, err := game.NewBasicGameRules(
+		&DefaultConfig,
+		"",
+		board.CrosswordGameLayout,
+		"english",
+		game.CrossScoreOnly,
+		"")
+	is.NoErr(err)
 
 	gameHistory, err := ParseGCG(&DefaultConfig, "./testdata/guy_vs_bot_almost_complete.gcg")
 	is.NoErr(err)
@@ -211,8 +218,14 @@ func TestNewFromHistoryExcludePenultimatePass(t *testing.T) {
 
 func TestNewFromHistoryExcludePenultimateChallengeTurnLoss(t *testing.T) {
 	is := is.New(t)
-	rules, err := game.NewBasicGameRules(&DefaultConfig, board.CrosswordGameBoard,
-		"English")
+	rules, err := game.NewBasicGameRules(
+		&DefaultConfig,
+		"",
+		board.CrosswordGameLayout,
+		"english",
+		game.CrossScoreOnly,
+		"")
+	is.NoErr(err)
 
 	gameHistory, err := ParseGCG(&DefaultConfig, "./testdata/guy_vs_bot_almost_complete.gcg")
 	is.NoErr(err)

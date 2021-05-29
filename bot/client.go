@@ -22,9 +22,6 @@ type Client struct {
 
 func MakeRequest(game *runner.GameRunner, config *config.Config) ([]byte, error) {
 	history := game.History()
-	if history.Variant == "" {
-		history.Variant = "CrosswordGame"
-	}
 	if history.Lexicon == "" {
 		history.Lexicon = config.DefaultLexicon
 	}

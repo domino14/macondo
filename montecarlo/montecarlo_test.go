@@ -51,7 +51,7 @@ func TestSimSingleIteration(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, err := runner.NewAIGameRules(&DefaultConfig, board.CrosswordGameBoard,
+	rules, err := runner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
 		"NWL18", "English")
 	is.NoErr(err)
 	game, err := game.NewGame(rules, players)
@@ -102,7 +102,7 @@ func TestLongerSim(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, err := runner.NewAIGameRules(&DefaultConfig, board.CrosswordGameBoard,
+	rules, err := runner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
 		"NWL18", "English")
 	is.NoErr(err)
 	game, err := game.NewGame(rules, players)

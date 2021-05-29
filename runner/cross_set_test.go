@@ -7,15 +7,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/cross_set"
-	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/domino14/macondo/lexicon"
 )
 
 var DefaultConfig = config.DefaultConfig()
@@ -58,18 +54,6 @@ type testMove struct {
 }
 
 func TestCompareGameMove(t *testing.T) {
-	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
-	gd, err := gaddag.LoadGaddag(path)
-	if err != nil {
-		t.Error(err)
-	}
-	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
-	if err != nil {
-		t.Error(err)
-	}
-	alph := dist.Alphabet()
-	bd := board.MakeBoard(board.CrosswordGameBoard)
-	lex := lexicon.AcceptAll{Alph: alph}
 	opts := &GameOptions{
 		FirstIsAssigned: true,
 		GoesFirst:       0,
@@ -80,11 +64,15 @@ func TestCompareGameMove(t *testing.T) {
 		{Nickname: "cesar", RealName: "César"},
 	}
 
-	gen1 := cross_set.GaddagCrossSetGenerator{Dist: dist, Gaddag: gd}
-	gen2 := cross_set.CrossScoreOnlyGenerator{Dist: dist}
+	// gen1 := cross_set.GaddagCrossSetGenerator{Dist: dist, Gaddag: gd}
+	// gen2 := cross_set.CrossScoreOnlyGenerator{Dist: dist}
 
-	rules1 := game.NewGameRules(&DefaultConfig, dist, bd, lex, gen1)
-	rules2 := game.NewGameRules(&DefaultConfig, dist, bd, lex, gen2)
+	rules1, err := game.NewBasicGameRules(
+		&DefaultConfig, "America", board.CrosswordGameLayout, "english",
+		game.CrossScoreAndSet, "")
+	rules2, err := game.NewBasicGameRules(
+		&DefaultConfig, "America", board.CrosswordGameLayout, "english",
+		game.CrossScoreOnly, "")
 
 	var testCases = []testMove{
 		{"8D", "QWERTY", "QWERTYU", 62},

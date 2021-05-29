@@ -72,7 +72,7 @@ func (bot *Bot) Deserialize(data []byte) (*game.Game, *pb.EvaluationRequest, err
 		return nil, nil, err
 	}
 	history := req.GameHistory
-	boardLayout, ldName := game.HistoryToVariant(history)
+	boardLayout, ldName, _ := game.HistoryToVariant(history)
 	rules, err := runner.NewAIGameRules(bot.config, boardLayout, history.Lexicon, ldName)
 	if err != nil {
 		return nil, nil, err

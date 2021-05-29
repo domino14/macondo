@@ -26,7 +26,7 @@ var defaultConfig = Config{
 	StrategyParamsPath:        os.Getenv("STRATEGY_PARAMS_PATH"),
 	LexiconPath:               os.Getenv("LEXICON_PATH"),
 	LetterDistributionPath:    os.Getenv("LETTER_DISTRIBUTION_PATH"),
-	DefaultLexicon:            "NWL18",
+	DefaultLexicon:            "NWL20",
 	DefaultLetterDistribution: "English",
 }
 
