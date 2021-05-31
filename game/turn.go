@@ -1,6 +1,7 @@
 package game
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/domino14/macondo/alphabet"
@@ -93,6 +94,7 @@ func modifyForPlaythrough(tiles alphabet.MachineWord, board *board.GameBoard,
 	// being played through is not specified as the playthrough marker
 	log.Debug().
 		Str("tiles", tiles.UserVisible(alphabet.EnglishAlphabet())).
+		Int("row", row).Int("col", col).Bool("vertical", vertical).
 		Msg("Modifying for playthrough")
 
 	currow := row
@@ -103,6 +105,10 @@ func modifyForPlaythrough(tiles alphabet.MachineWord, board *board.GameBoard,
 			currow = row + idx
 		} else {
 			curcol = col + idx
+		}
+		if currow > board.Dim()-1 || curcol > board.Dim()-1 {
+			log.Error().Int("currow", currow).Int("curcol", curcol).Msg("err-out-of-bounds")
+			return errors.New("play out of bounds of board")
 		}
 
 		if tiles[idx] != alphabet.PlayedThroughMarker {

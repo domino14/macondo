@@ -288,7 +288,7 @@ type GameHistory struct {
 	// it will be a -1.
 	Winner int32 `protobuf:"varint,16,opt,name=winner,proto3" json:"winner,omitempty"`
 	// The board layout is just the name for the layout of the board.
-	// It has a sensible default, if blank.
+	// It should have a sensible default, if blank.
 	BoardLayout string `protobuf:"bytes,17,opt,name=board_layout,json=boardLayout,proto3" json:"board_layout,omitempty"`
 	// The letter distribution is the name of the distribution of tiles used for this game.
 	// If blank, should default to "english".
