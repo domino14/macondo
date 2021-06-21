@@ -314,6 +314,7 @@ func (a *Alphabet) genLetterSlice() {
 		a.vals[rn] = MachineLetter(idx)
 		a.letters[MachineLetter(idx)] = rn
 	}
+	log.Debug().Interface("letters", a.letters).Msg("alphabet-letters")
 }
 
 // Reconcile will take a populated alphabet, sort the glyphs, and re-index
