@@ -94,11 +94,15 @@ func getWords(stream io.Reader) ([]string, *alphabet.Alphabet) {
 		fields := strings.Fields(scanner.Text())
 		if len(fields) > 0 {
 			word := strings.ToUpper(fields[0])
+			if len([]rune(word)) < 2 {
+				continue
+			}
 			words = append(words, word)
 			err := alphabet.Update(word)
 			if err != nil {
 				panic(err)
 			}
+
 		}
 	}
 	alphabet.Reconcile()

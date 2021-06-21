@@ -16,6 +16,7 @@ Acceptable letter distributions so far are:
     english
     polish
     german
+    norwegian
 
 More will be added in the future.
 
