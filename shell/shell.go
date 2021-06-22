@@ -522,7 +522,10 @@ func (sc *ShellController) commitAIMove() error {
 }
 
 func (sc *ShellController) handleAutoplay(args []string, options map[string]string) error {
-	var logfile, lexicon, leavefile1, leavefile2, pegfile1, pegfile2 string
+	var logfile, lexicon,
+		leavefile1, leavefile2,
+		pegfile1, pegfile2,
+		dictfile1, dictfile2 string
 	if options["logfile"] == "" {
 		logfile = "/tmp/autoplay.txt"
 	} else {
@@ -533,26 +536,12 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 	} else {
 		lexicon = options["lexicon"]
 	}
-	if options["leavefile1"] == "" {
-		leavefile1 = ""
-	} else {
-		leavefile1 = options["leavefile1"]
-	}
-	if options["leavefile2"] == "" {
-		leavefile2 = ""
-	} else {
-		leavefile2 = options["leavefile2"]
-	}
-	if options["pegfile1"] == "" {
-		pegfile1 = ""
-	} else {
-		pegfile1 = options["pegfile1"]
-	}
-	if options["pegfile2"] == "" {
-		pegfile2 = ""
-	} else {
-		pegfile2 = options["pegfile2"]
-	}
+	leavefile1 = options["leavefile1"]
+	leavefile2 = options["leavefile2"]
+	pegfile1 = options["pegfile1"]
+	pegfile2 = options["pegfile2"]
+	dictfile1 = options["dictfile1"]
+	dictfile2 = options["dictfile2"]
 
 	player1 := "exhaustiveleave"
 	player2 := player1
@@ -577,7 +566,8 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 	sc.showMessage("automatic game runner will log to " + logfile)
 	sc.gameRunnerCtx, sc.gameRunnerCancel = context.WithCancel(context.Background())
 	err := automatic.StartCompVCompStaticGames(sc.gameRunnerCtx, sc.config, 1e9, runtime.NumCPU(),
-		logfile, player1, player2, lexicon, leavefile1, leavefile2, pegfile1, pegfile2)
+		logfile, player1, player2, lexicon, leavefile1, leavefile2, pegfile1, pegfile2,
+		dictfile1, dictfile2)
 	if err != nil {
 		return err
 	}

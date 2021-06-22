@@ -28,10 +28,11 @@ const (
 
 // GameRunner is the master struct here for the automatic game logic.
 type GameRunner struct {
-	game     *game.Game
-	gaddag   gaddag.GenericDawg
-	movegen  movegen.MoveGenerator
-	alphabet *alphabet.Alphabet
+	game *game.Game
+	// gaddag    gaddag.GenericDawg
+	movegenp1 movegen.MoveGenerator
+	movegenp2 movegen.MoveGenerator
+	alphabet  *alphabet.Alphabet
 
 	lexicon   string
 	config    *config.Config
@@ -43,12 +44,13 @@ type GameRunner struct {
 // NewGameRunner just instantiates and initializes a game runner.
 func NewGameRunner(logchan chan string, config *config.Config) *GameRunner {
 	r := &GameRunner{logchan: logchan, config: config, lexicon: config.DefaultLexicon}
-	r.Init(ExhaustiveLeavePlayer, ExhaustiveLeavePlayer, "", "", "", "")
+	r.Init(ExhaustiveLeavePlayer, ExhaustiveLeavePlayer, "", "", "", "", "", "")
 	return r
 }
 
 // Init initializes the runner
-func (r *GameRunner) Init(player1, player2, leavefile1, leavefile2, pegfile1, pegfile2 string) error {
+func (r *GameRunner) Init(player1, player2, leavefile1, leavefile2, pegfile1, pegfile2,
+	dictfile1, dictfile2 string) error {
 	// XXX: there should be a data structure for the combination
 	// of a lexicon and a letter distribution. For now the following
 	// will not work for non-english lexicons, so this needs to be fixed
@@ -72,17 +74,31 @@ func (r *GameRunner) Init(player1, player2, leavefile1, leavefile2, pegfile1, pe
 		return err
 	}
 
-	gd, err := gaddag.Get(r.config, r.lexicon)
-	if err != nil {
-		return err
+	var lexiconName string
+	for idx, v := range []string{dictfile1, dictfile2} {
+		var gd *gaddag.SimpleGaddag
+		var err error
+		if v == "" {
+			gd, err = gaddag.Get(r.config, r.lexicon)
+			if err != nil {
+				return err
+			}
+		} else {
+			gd, err = gaddag.LoadGaddag(v)
+			if err != nil {
+				return err
+			}
+		}
+		lexiconName = gd.LexiconName()
+		// Assume they would have the same alphabet.
+		r.alphabet = gd.GetAlphabet()
+		mg := movegen.NewGordonGenerator(gd, r.game.Board(), rules.LetterDistribution())
+		if idx == 0 {
+			r.movegenp1 = mg
+		} else {
+			r.movegenp2 = mg
+		}
 	}
-
-	r.gaddag = gd
-
-	r.alphabet = r.gaddag.GetAlphabet()
-
-	r.movegen = movegen.NewGordonGenerator(r.gaddag.(*gaddag.SimpleGaddag), r.game.Board(),
-		rules.LetterDistribution())
 
 	var strat strategy.Strategizer
 	for idx, pinfo := range players {
@@ -95,7 +111,7 @@ func (r *GameRunner) Init(player1, player2, leavefile1, leavefile2, pegfile1, pe
 			pegfile = pegfile2
 		}
 		if strings.HasPrefix(pinfo.RealName, ExhaustiveLeavePlayer) {
-			strat, err = strategy.NewExhaustiveLeaveStrategy(r.gaddag.LexiconName(),
+			strat, err = strategy.NewExhaustiveLeaveStrategy(lexiconName,
 				r.alphabet, r.config, leavefile, pegfile)
 			if err != nil {
 				return err
@@ -114,7 +130,11 @@ func (r *GameRunner) StartGame() {
 }
 
 func (r *GameRunner) genBestStaticTurn(playerIdx int) *move.Move {
-	return player.GenBestStaticTurn(r.game, r.movegen, r.aiplayers[playerIdx], playerIdx)
+	mg := r.movegenp1
+	if playerIdx == 1 {
+		mg = r.movegenp2
+	}
+	return player.GenBestStaticTurn(r.game, mg, r.aiplayers[playerIdx], playerIdx)
 }
 
 // PlayBestStaticTurn generates the best static move for the player and
