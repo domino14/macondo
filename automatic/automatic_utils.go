@@ -63,7 +63,7 @@ func (r *GameRunner) playFullStatic() {
 type Job struct{}
 
 func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
-	numGames int, threads int, outputFilename, player1, player2, lexicon,
+	numGames int, threads int, outputFilename, player1, player2, lexicon, letterDistribution,
 	leavefile1, leavefile2, pegfile1, pegfile2 string) error {
 
 	for _, p := range []string{player1, player2} {
@@ -102,7 +102,7 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 		go func(i int) {
 			defer wg.Done()
 			r := GameRunner{logchan: logChan, gamechan: gameChan,
-				config: cfg, lexicon: lexicon}
+				config: cfg, lexicon: lexicon, letterDistribution: letterDistribution}
 			err := r.Init(player1, player2, leavefile1, leavefile2, pegfile1, pegfile2)
 			if err != nil {
 				log.Err(err).Msg("error initializing runner")

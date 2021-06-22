@@ -22,6 +22,8 @@ about each game (the final score and who went first). `foo.txt` will contain mor
 
 `-lexicon CSW19` uses the CSW19 lexicon, for example
 
+`-letterDistribution norwegian` uses the norwegian letter distribution, for example
+
 `-leavefile1 filename.idx` sets the first bot's leavefile to `filename.idx`. Note that the `filename.idx` must be located inside the `./data/strategy/<lexicon>` directory in order to be found.
 
 `-leavefile2 filename.idx` sets the second bot's leavefile to `filename.idx`.
