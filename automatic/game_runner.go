@@ -33,16 +33,17 @@ type GameRunner struct {
 	movegen  movegen.MoveGenerator
 	alphabet *alphabet.Alphabet
 
-	lexicon   string
-	config    *config.Config
-	logchan   chan string
-	gamechan  chan string
-	aiplayers [2]player.AIPlayer
+	lexicon            string
+	letterDistribution string
+	config             *config.Config
+	logchan            chan string
+	gamechan           chan string
+	aiplayers          [2]player.AIPlayer
 }
 
 // NewGameRunner just instantiates and initializes a game runner.
 func NewGameRunner(logchan chan string, config *config.Config) *GameRunner {
-	r := &GameRunner{logchan: logchan, config: config, lexicon: config.DefaultLexicon}
+	r := &GameRunner{logchan: logchan, config: config, lexicon: config.DefaultLexicon, letterDistribution: config.DefaultLetterDistribution}
 	r.Init(ExhaustiveLeavePlayer, ExhaustiveLeavePlayer, "", "", "", "")
 	return r
 }
@@ -54,7 +55,7 @@ func (r *GameRunner) Init(player1, player2, leavefile1, leavefile2, pegfile1, pe
 	// will not work for non-english lexicons, so this needs to be fixed
 	// in the future.
 	rules, err := runner.NewAIGameRules(r.config, board.CrosswordGameLayout,
-		r.lexicon, r.config.DefaultLetterDistribution)
+		r.lexicon, r.letterDistribution)
 	if err != nil {
 		return err
 	}
