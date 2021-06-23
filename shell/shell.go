@@ -533,10 +533,10 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 	} else {
 		lexicon = options["lexicon"]
 	}
-	if options["letterDistribution"] == "" {
+	if options["letterdistribution"] == "" {
 		letterDistribution = sc.config.DefaultLetterDistribution
 	} else {
-		letterDistribution = options["letterDistribution"]
+		letterDistribution = options["letterdistribution"]
 	}
 	if options["leavefile1"] == "" {
 		leavefile1 = ""
