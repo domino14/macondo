@@ -33,10 +33,11 @@ func (da *DawgAnagrammer) commonInit(dawg GenericDawg) {
 // supports A-Z and ? only
 func (da *DawgAnagrammer) InitForString(dawg GenericDawg, tiles string) error {
 	da.commonInit(dawg)
-	da.queryLength = len(tiles)
+	da.queryLength = 0
 	alph := dawg.GetAlphabet()
 	vals := alph.Vals()
 	for _, r := range tiles {
+		da.queryLength++ // count number of runes, not number of bytes
 		if r == alphabet.BlankToken {
 			da.blanks++
 		} else if val, ok := vals[r]; ok {
