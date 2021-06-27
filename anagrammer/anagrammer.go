@@ -57,13 +57,13 @@ func LoadDawgs(cfg *config.Config, dawgPath string) {
 		Dawgs[lex] = &dawgInfo{}
 		Dawgs[lex].dawg = dawg
 		var err error
-		if strings.Contains(lex, "FISE") {
+		if strings.HasPrefix(lex, "FISE") {
 			Dawgs[lex].dist, err = alphabet.SpanishLetterDistribution(cfg)
-		} else if strings.Contains(lex, "OSPS") {
+		} else if strings.HasPrefix(lex, "OSPS") {
 			Dawgs[lex].dist, err = alphabet.PolishLetterDistribution(cfg)
-		} else if strings.Contains(lex, "Deutsch") {
+		} else if strings.HasPrefix(lex, "RD") {
 			Dawgs[lex].dist, err = alphabet.GermanLetterDistribution(cfg)
-		} else if strings.Contains(lex, "NSF") {
+		} else if strings.HasPrefix(lex, "NSF") {
 			Dawgs[lex].dist, err = alphabet.NorwegianLetterDistribution(cfg)
 		} else {
 			Dawgs[lex].dist, err = alphabet.EnglishLetterDistribution(cfg)
