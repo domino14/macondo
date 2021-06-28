@@ -126,13 +126,22 @@ func ConvertIdxToOlv(file io.Reader, w io.Writer) error {
 	return nil
 }
 
-func parseIntoMPH(filename string, alphabetName string) {
-
-	var alph *alphabet.Alphabet
-	if alphabetName == "English" {
-		// XXX: Support other alphabets in the future in other ways.
-		alph = alphabet.EnglishAlphabet()
+func getAlphabet(alphabetName string) *alphabet.Alphabet {
+	if strings.EqualFold(alphabetName, "English") {
+		return alphabet.EnglishAlphabet()
+	} else if strings.EqualFold(alphabetName, "German") {
+		return alphabet.GermanAlphabet()
+	} else if strings.EqualFold(alphabetName, "Norwegian") {
+		return alphabet.NorwegianAlphabet()
+	} else if strings.EqualFold(alphabetName, "Polish") {
+		return alphabet.PolishAlphabet()
+	} else if strings.EqualFold(alphabetName, "Spanish") {
+		return alphabet.SpanishAlphabet()
 	}
+	return nil
+}
+
+func parseIntoMPH(filename string, alph *alphabet.Alphabet) {
 
 	hb := mph.Builder()
 	fmt.Println(filename)
@@ -220,7 +229,15 @@ func parseIntoMPH(filename string, alphabetName string) {
 
 func main() {
 	filename := flag.String("filename", "", "filename of the leaves .csv")
+	alphabetName := flag.String("alphabet", "English", "example English, German, Norwegian")
 
 	flag.Parse()
-	parseIntoMPH(*filename, "English")
+
+	alph := getAlphabet(*alphabetName)
+	if alph == nil {
+		panic("invalid alphabet: " + *alphabetName)
+	}
+	alph.Reconcile()
+
+	parseIntoMPH(*filename, alph)
 }
