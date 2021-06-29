@@ -38,6 +38,10 @@ func defaultForLexicon(lexiconName string) string {
 		strings.HasPrefix(lexiconName, "NSWL") {
 
 		return "default_english"
+	} else if strings.HasPrefix(lexiconName, "RD") {
+		return "german"
+	} else if strings.HasPrefix(lexiconName, "NSF") {
+		return "norwegian"
 	}
 	return ""
 }
