@@ -142,11 +142,13 @@ func (g *SimpleGaddag) NextNodeIdx(nodeIdx uint32, letter alphabet.MachineLetter
 		if letter == ml {
 			return g.nodes[i] & gaddagmaker.NodeIdxBitMask
 		}
-		if ml > letter {
-			// Since the arcs are sorted by machine letter, break if
-			// we hit one that is bigger than what we are looking for.
-			break
-		}
+		// The gaddagmaker sorts SeparationToken ('^') < Norwegian 'Ø'.
+		// Since SeparationMachineLetter (50) > 30, this is invalid:
+		// if ml > letter {
+		// 	// Since the arcs are sorted by machine letter, break if
+		// 	// we hit one that is bigger than what we are looking for.
+		// 	break
+		// }
 	}
 	return 0
 }
