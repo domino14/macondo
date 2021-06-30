@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -165,6 +166,11 @@ func parseIntoMPH(filename string, alph *alphabet.Alphabet) {
 		mw, err := alphabet.ToMachineWord(letters, alph)
 		if err != nil {
 			log.Fatal().Err(err).Msg("")
+		}
+		if !sort.SliceIsSorted(mw, func(i, j int) bool { return mw[i] < mw[j] }) {
+			fmt.Println(mw.Bytes(), "became")
+			sort.Slice(mw, func(i, j int) bool { return mw[i] < mw[j] })
+			fmt.Println(mw.Bytes())
 		}
 		leaveVal, err := strconv.ParseFloat(record[1], 32)
 		if err != nil {
