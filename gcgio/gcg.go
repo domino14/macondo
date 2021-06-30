@@ -69,7 +69,7 @@ const (
 	IDRegex                 = `#id\s*(?P<id_authority>\S+)\s+(?P<id>\S+)`
 	Rack1Regex              = `#rack1 (?P<rack>\S+)`
 	Rack2Regex              = `#rack2 (?P<rack>\S+)`
-	MoveRegex               = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+(?P<pos>\w+)\s+(?P<play>[\w\\.]+)\s+\+(?P<score>\d+)\s+(?P<cumul>\d+)`
+	MoveRegex               = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+(?P<pos>\w+)\s+(?P<play>[\S\\.]+)\s+\+(?P<score>\d+)\s+(?P<cumul>\d+)`
 	NoteRegex               = `#note (?P<note>.+)`
 	LexiconRegex            = `#lexicon (?P<lexicon>.+)`
 	CharacterEncodingRegex  = `#character-encoding (?P<encoding>[[:graph:]]+)`
