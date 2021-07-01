@@ -42,6 +42,7 @@ type GameBoard struct {
 }
 
 // MakeBoard creates a board from a description string.
+// Assumption: strings are ASCII.
 func MakeBoard(desc []string) *GameBoard {
 	// Turns an array of strings into the GameBoard structure type.
 	rows := make([][]Square, len(desc))

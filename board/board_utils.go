@@ -57,7 +57,9 @@ func (g *GameBoard) setFromPlaintext(qText string,
 	var letter alphabet.MachineLetter
 	for i := range result {
 		// result[i][1] has the string
-		for j, ch := range result[i][1] {
+		j := -1
+		for _, ch := range result[i][1] {
+			j++
 			if j%2 != 0 {
 				continue
 			}

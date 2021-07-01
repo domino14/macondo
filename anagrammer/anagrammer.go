@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/config"
@@ -214,6 +215,7 @@ func dedupeAndTransformAnswers(answerList []string, alph *alphabet.Alphabet) []s
 	return answerStrings
 }
 
+// XXX: utf8.RuneCountInString is slow, but necessary to support unicode tiles.
 func anagramHelper(letter alphabet.MachineLetter, d *gaddag.SimpleDawg,
 	ahs *AnagramStruct, nodeIdx uint32, answerSoFar string, rw *RackWrapper) {
 
@@ -224,7 +226,7 @@ func anagramHelper(letter alphabet.MachineLetter, d *gaddag.SimpleDawg,
 	if d.InLetterSet(letter, nodeIdx) {
 		toCheck := answerSoFar + string(letter)
 		if ahs.mode == ModeBuild || (ahs.mode == ModeExact &&
-			len(toCheck) == ahs.numLetters) {
+			utf8.RuneCountInString(toCheck) == ahs.numLetters) {
 
 			// log.Debug().Msgf("Appending word %v", toCheck)
 			ahs.answerList = append(ahs.answerList, toCheck)
