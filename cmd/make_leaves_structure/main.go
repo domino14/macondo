@@ -138,6 +138,8 @@ func getAlphabet(alphabetName string) *alphabet.Alphabet {
 		return alphabet.PolishAlphabet()
 	} else if strings.EqualFold(alphabetName, "Spanish") {
 		return alphabet.SpanishAlphabet()
+	} else if strings.EqualFold(alphabetName, "French") {
+		return alphabet.FrenchAlphabet()
 	}
 	return nil
 }

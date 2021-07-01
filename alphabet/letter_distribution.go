@@ -25,6 +25,11 @@ func EnglishLetterDistribution(cfg *config.Config) (*LetterDistribution, error) 
 	return NamedLetterDistribution(cfg, "english")
 }
 
+// EnglishLetterDistribution returns the English letter distribution.
+func FrenchLetterDistribution(cfg *config.Config) (*LetterDistribution, error) {
+	return NamedLetterDistribution(cfg, "french")
+}
+
 func SpanishLetterDistribution(cfg *config.Config) (*LetterDistribution, error) {
 	return NamedLetterDistribution(cfg, "spanish")
 }
