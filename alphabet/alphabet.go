@@ -362,6 +362,16 @@ func EnglishAlphabet() *Alphabet {
 	})
 }
 
+// FrenchAlphabet returns an alphabet that corresponds to the English
+// alphabet. This function should be used for testing. In production
+// we will load the alphabet from the gaddag.
+func FrenchAlphabet() *Alphabet {
+	return FromSlice([]uint32{
+		'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
+		'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
+	})
+}
+
 // GermanAlphabet returns an alphabet that corresponds to the German
 // alphabet. This function should be used for testing. In production
 // we will load the alphabet from the gaddag.

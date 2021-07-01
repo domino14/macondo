@@ -13,6 +13,7 @@ tile distribution, you must specify its name as the second argument.
 Acceptable letter distributions so far are:
 
     spanish
+    french
     english
     polish
     german

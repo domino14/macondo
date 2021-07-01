@@ -12,7 +12,7 @@
 You can replace NWL18 with another desired lexicon.
 
 If you wish to use other lexica, you will need to also
-change the environment variable `DEFAULT_LETTER_DISTRIBUTION` to other values: `spanish`, `polish`, `german`, `norwegian`. There will be more in the future.
+change the environment variable `DEFAULT_LETTER_DISTRIBUTION` to other values: `spanish`, `polish`, `german`, `norwegian`, `french`. There will be more in the future.
 
 Then, you can change the `DEFAULT_LEXICON` environment variable to your
 desired lexicon (make sure to use the same capitalization schema). For
