@@ -254,6 +254,10 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 
 	case NoteToken:
 		lastEvtIdx := len(p.history.Events) - 1
+		// For notes that are not associated with events, we can ignore them.
+		if lastEvtIdx < 0 {
+			return nil
+		}
 		p.history.Events[lastEvtIdx].Note += match[1]
 		return nil
 	case LexiconToken:
