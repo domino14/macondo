@@ -16,7 +16,7 @@ func TestRandomFirst(t *testing.T) {
 		counts[selection]++
 	}
 	fmt.Println(counts)
-	// This test should pass 97% of the time.
-	is.True(counts[0] > 49700)
-	is.True(counts[0] < 50300)
+	// This test should pass 99.84% of the time.
+	is.True(counts[0] > 49500)
+	is.True(counts[0] < 50500)
 }
