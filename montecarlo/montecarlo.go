@@ -442,3 +442,12 @@ func (s *Simmer) ScoreDetails() string {
 
 	return stats
 }
+
+func (s *Simmer) SimSingleThread(iters int) {
+	for i := 0; i < iters; i++ {
+		iterNum := s.iterationCount + 1
+		s.iterationCount++
+
+		s.simSingleIteration(s.maxPlies, 0, iterNum, nil)
+	}
+}

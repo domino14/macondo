@@ -25,3 +25,18 @@ func makeJSBytes(src []byte) js.Value {
 	}
 	return dst
 }
+
+func asyncFunc(f func(js.Value, []js.Value) (interface{}, error)) func(js.Value, []js.Value) interface{} {
+	return func(this js.Value, args []js.Value) interface{} {
+		return js.Global().Get("Promise").New(js.FuncOf(func(_ js.Value, settlers []js.Value) interface{} {
+			res, rej := settlers[0], settlers[1]
+			ret, err := f(this, args)
+			if err != nil {
+				// throw a string.
+				return rej.Invoke(err.Error())
+			} else {
+				return res.Invoke(ret)
+			}
+		}))
+	}
+}
