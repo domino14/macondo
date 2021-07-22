@@ -17,22 +17,23 @@ const (
 	MaxAlphabetSize = 50
 	// SeparationMachineLetter is the "MachineLetter" corresponding to
 	// the separation token. It is set at the max alphabet size.
-	SeparationMachineLetter = MaxAlphabetSize
+	SeparationMachineLetter = 0
 	// BlankMachineLetter is the MachineLetter corresponding to the
 	// blank. It is also set at the max alphabet size. Based on the context
 	// in which it is used, it should not be confused with the
 	// SeparationMachineLetter above.
-	BlankMachineLetter = MaxAlphabetSize
+	BlankMachineLetter = 0
 	// BlankOffset is the offset at which letters with a code >= offset
 	// represent blanks.
-	BlankOffset = 100
+	BlankOffset = 128 // 1000 0000
 	// SeparationToken is the GADDAG separation token.
+	// XXX: OBSOLETE
 	SeparationToken = '^'
 	// EmptySquareMarker is a MachineLetter representation of an empty square
-	EmptySquareMarker = MaxAlphabetSize + 1
+	EmptySquareMarker = 0
 	// PlayedThroughMarker is a MachineLetter representation of a filled-in square
 	// that was played through.
-	PlayedThroughMarker = MaxAlphabetSize + 2
+	PlayedThroughMarker = 0
 	// ASCIIPlayedThrough is a somewhat user-friendly representation of a
 	// played-through letter, used mostly for debug purposes.
 	// Note that in order to actually be visible on a computer screen, we
@@ -51,7 +52,8 @@ type LetterSet uint64
 type LetterSlice []rune
 
 // MachineLetter is a machine-only representation of a letter. It goes from
-// 0 to the maximum alphabet size.
+// 1 to the maximum alphabet size.
+// A MachineLetter value of zero constitutes a blank.
 type MachineLetter byte
 
 // Blank blankifies a letter; i.e. it adds the BlankOffset to it.
@@ -66,13 +68,13 @@ func (ml MachineLetter) Blank() MachineLetter {
 
 // IsBlanked returns true if this is the blank version of a letter.
 func (ml MachineLetter) IsBlanked() bool {
-	return ml >= BlankOffset
+	return ml > BlankOffset
 }
 
 // Unblank is the opposite of the above function; it removes the blank offset
 // from a letter.
 func (ml MachineLetter) Unblank() MachineLetter {
-	if ml >= BlankOffset {
+	if ml > BlankOffset {
 		return ml - BlankOffset
 	}
 	return ml
@@ -96,6 +98,7 @@ func (ml MachineLetter) UserVisible(alph *Alphabet) rune {
 // rack's LetArr. If it is not a letter (for example a played-thru marker)
 // will return false as the second arg. It essentially checks whether
 // the relevant ml is an actual played tile or not.
+// XXX: Verify and maybe remove this function.
 func (ml MachineLetter) IntrinsicTileIdx() (MachineLetter, bool) {
 	if ml >= BlankOffset || ml == BlankMachineLetter {
 		return MaxAlphabetSize, true
@@ -111,12 +114,7 @@ func (ml MachineLetter) IntrinsicTileIdx() (MachineLetter, bool) {
 // played on the board. It has to be an assigned blank or a letter, not
 // a played-through-marker.
 func (ml MachineLetter) IsPlayedTile() bool {
-	if ml >= BlankOffset {
-		return true
-	} else if ml == PlayedThroughMarker || ml == EmptySquareMarker || ml == BlankMachineLetter {
-		return false
-	}
-	return true
+	return ml > 0
 }
 
 // IsVowel returns true for vowels. Note that this needs an alphabet.
@@ -124,6 +122,7 @@ func (ml MachineLetter) IsVowel(alph *Alphabet) bool {
 	ml = ml.Unblank()
 	rn := alph.Letter(ml)
 	switch rn {
+	// XXX: fix me!!
 	case 'A', 'E', 'I', 'O', 'U':
 		return true
 	default:
@@ -255,7 +254,8 @@ func (a *Alphabet) Init() {
 }
 
 // Val returns the 'value' of this rune in the alphabet; i.e a number from
-// 0 to maxsize + blank offset. Takes into account blanks (lowercase letters).
+// 1 to maxsize + blank offset. Takes into account blanks (lowercase letters).
+// Note that the very first letter of the alphabet is 1, not 0.
 func (a Alphabet) Val(r rune) (MachineLetter, error) {
 	if r == SeparationToken {
 		return SeparationMachineLetter, nil
@@ -274,6 +274,7 @@ func (a Alphabet) Val(r rune) (MachineLetter, error) {
 		}
 	}
 	if r == ASCIIPlayedThrough {
+		// XXX remove?
 		return PlayedThroughMarker, nil
 	}
 	return 0, fmt.Errorf("Letter `%c` not found in alphabet", r)
@@ -310,8 +311,10 @@ func (a *Alphabet) genLetterSlice() {
 	// These maps are now deterministic. Renumber them according to
 	// sort order.
 	for idx, rn := range a.letterSlice {
-		a.vals[rn] = MachineLetter(idx)
-		a.letters[MachineLetter(idx)] = rn
+		// We add 1 to the index so that our internal representation of
+		// the alphabet is 1-indexed. It allows us to put the blank at 0.
+		a.vals[rn] = MachineLetter(idx + 1)
+		a.letters[MachineLetter(idx+1)] = rn
 	}
 	log.Debug().Interface("letters", a.letters).Msg("alphabet-letters")
 }
@@ -345,8 +348,8 @@ func FromSlice(arr []uint32) *Alphabet {
 	numRunes := uint8(len(arr))
 
 	for i := uint8(0); i < numRunes; i++ {
-		alphabet.vals[rune(arr[i])] = MachineLetter(i)
-		alphabet.letters[MachineLetter(i)] = rune(arr[i])
+		alphabet.vals[rune(arr[i])] = MachineLetter(i + 1)
+		alphabet.letters[MachineLetter(i+1)] = rune(arr[i])
 	}
 	return alphabet
 }
