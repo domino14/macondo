@@ -7,6 +7,7 @@ import (
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/move"
+	"github.com/rs/zerolog/log"
 )
 
 var (
@@ -81,8 +82,8 @@ type GameBoard struct {
 
 	// Store cross-scores with the board to avoid recalculating, but cross-sets
 	// are a movegen detail and do not belong here!
-	// vCrossScores []int
-	// hCrossScores []int
+	vCrossScores []int
+	hCrossScores []int
 }
 
 func MakeBoard(desc []string) *GameBoard {
@@ -94,6 +95,8 @@ func MakeBoard(desc []string) *GameBoard {
 	}
 	sqs := make([]alphabet.MachineLetter, totalLen)
 	bs := make([]BonusSquare, totalLen)
+	vc := make([]int, totalLen)
+	hc := make([]int, totalLen)
 	sqi := 0
 	for _, s := range desc {
 		for _, c := range s {
@@ -102,7 +105,7 @@ func MakeBoard(desc []string) *GameBoard {
 		}
 
 	}
-	g := &GameBoard{squares: sqs, bonuses: bs, dim: len(desc)}
+	g := &GameBoard{squares: sqs, bonuses: bs, dim: len(desc), vCrossScores: vc, hCrossScores: hc}
 	return g
 }
 
@@ -116,15 +119,52 @@ func (g *GameBoard) Dim() int {
 }
 
 func (g *GameBoard) GetBonus(row int, col int) BonusSquare {
+	// No need to check for transpositions as bonuses are rotationally invariant
+	// (I feel ok making this assumption for now)
 	return g.bonuses[row*g.dim+col]
 }
 
 func (g *GameBoard) SetLetter(row int, col int, letter alphabet.MachineLetter) {
+	// SetLetter should only be called on non-transposed boards.
 	g.squares[row*g.dim+col] = letter
 }
 
 func (g *GameBoard) GetLetter(row int, col int) alphabet.MachineLetter {
+	if g.transposed {
+		return g.squares[col*g.dim+row]
+	}
 	return g.squares[row*g.dim+col]
+}
+
+func (g *GameBoard) GetCrossScore(row int, col int, dir BoardDirection) int {
+	pos := row*g.dim + col
+	if g.IsTransposed() {
+		pos = col*g.dim + row
+	}
+	switch dir {
+	case HorizontalDirection:
+		return g.hCrossScores[pos]
+	case VerticalDirection:
+		return g.vCrossScores[pos]
+	default:
+		log.Error().Msgf("Unknown direction: %v\n", dir)
+		return 0
+	}
+}
+
+func (g *GameBoard) SetCrossScore(score int, row, col int, dir BoardDirection) {
+	pos := row*g.dim + col
+	if g.IsTransposed() {
+		pos = col*g.dim + row
+	}
+	switch dir {
+	case HorizontalDirection:
+		g.hCrossScores[pos] = score
+	case VerticalDirection:
+		g.vCrossScores[pos] = score
+	default:
+		log.Error().Msgf("Unknown direction: %v\n", dir)
+	}
 }
 
 func (g *GameBoard) HasLetter(row int, col int) bool {
@@ -435,6 +475,67 @@ func (g *GameBoard) formedCrossWord(crossVertical bool, letter alphabet.MachineL
 	return crossword
 }
 
+func (g *GameBoard) ScoreWord(word alphabet.MachineWord, row, col, tilesPlayed int,
+	crossDir BoardDirection, ld *alphabet.LetterDistribution) int {
+
+	// letterScore:
+	var ls int
+
+	mainWordScore := 0
+	crossScores := 0
+	bingoBonus := 0
+	if tilesPlayed == 7 {
+		bingoBonus = 50
+	}
+	wordMultiplier := 1
+
+	for idx, rn := range word {
+		ml := alphabet.MachineLetter(rn)
+		bonusSq := g.GetBonus(row, col+idx)
+		letterMultiplier := 1
+		thisWordMultiplier := 1
+		freshTile := false
+		if ml == alphabet.PlayedThroughMarker {
+			ml = g.GetLetter(row, col+idx)
+		} else {
+			freshTile = true
+			// Only count bonus if we are putting a fresh tile on it.
+			switch bonusSq {
+			case Bonus3WS:
+				wordMultiplier *= 3
+				thisWordMultiplier = 3
+			case Bonus2WS:
+				wordMultiplier *= 2
+				thisWordMultiplier = 2
+			case Bonus2LS:
+				letterMultiplier = 2
+			case Bonus3LS:
+				letterMultiplier = 3
+			}
+			// else all the multipliers are 1.
+		}
+		cs := g.GetCrossScore(row, col+idx, crossDir)
+		if ml > alphabet.BlankOffset {
+			// letter score is 0
+			ls = 0
+		} else {
+			ls = ld.Score(ml)
+		}
+
+		mainWordScore += ls * letterMultiplier
+		// We only add cross scores if we are making an "across" word).
+		// Note that we look up and down because the word is always horizontal
+		// in this routine (board might or might not be transposed).
+		actualCrossWord := (row > 0 && g.HasLetter(row-1, col+idx)) || (row < g.Dim()-1 && g.HasLetter(row+1, col+idx))
+
+		if freshTile && actualCrossWord {
+			crossScores += ls*letterMultiplier*thisWordMultiplier + cs*thisWordMultiplier
+		}
+	}
+	return mainWordScore*wordMultiplier + crossScores + bingoBonus
+
+}
+
 // Copy returns a deep copy of this board.
 func (g *GameBoard) Copy() *GameBoard {
 	newg := &GameBoard{}
@@ -450,6 +551,7 @@ func (g *GameBoard) Copy() *GameBoard {
 	newg.tilesPlayed = g.tilesPlayed
 	newg.dim = g.dim
 
+	// XXX Copy crossscores
 	return newg
 }
 

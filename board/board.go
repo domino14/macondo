@@ -545,7 +545,6 @@ func (g *GameBoard) formedCrossWord(crossVertical bool, letter alphabet.MachineL
 	return crossword
 }
 
-// XXX move to a cross-score struct
 // ScoreWord scores the move at the given row and column. Note that this
 // function is called when the board is potentially transposed, so we
 // assume the row stays static as we iterate through the letters of the

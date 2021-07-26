@@ -1,20 +1,16 @@
 package cross_set
 
 import (
-	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/cgboard"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
-	"github.com/domino14/macondo/move"
 )
 
 var DefaultConfig = config.DefaultConfig()
@@ -34,8 +30,8 @@ func GaddagFromLexicon(lex string) (*gaddag.SimpleGaddag, error) {
 type crossSetTestCase struct {
 	row      int
 	col      int
-	crossSet board.CrossSet
-	dir      board.BoardDirection
+	crossSet CrossSet
+	dir      cgboard.BoardDirection
 	score    int
 }
 
@@ -65,35 +61,35 @@ func TestGenCrossSetLoadedGame(t *testing.T) {
 	}
 	alph := dist.Alphabet()
 
-	b := board.MakeBoard(board.CrosswordGameBoard)
-
+	b := cgboard.MakeBoard(board.CrosswordGameBoard)
+	bcs := MakeBoardCrossSets(b.Dim())
 	b.SetToGame(alph, VsMatt)
 	// All horizontal for now.
 	var testCases = []crossSetTestCase{
-		{10, 10, board.CrossSetFromString("E", alph), board.HorizontalDirection, 11},
-		{2, 4, board.CrossSetFromString("DKHLRSV", alph), board.HorizontalDirection, 9},
-		{8, 7, board.CrossSetFromString("S", alph), board.HorizontalDirection, 11},
+		{10, 10, CrossSetFromString("E", alph), cgboard.HorizontalDirection, 11},
+		{2, 4, CrossSetFromString("DKHLRSV", alph), cgboard.HorizontalDirection, 9},
+		{8, 7, CrossSetFromString("S", alph), cgboard.HorizontalDirection, 11},
 		// suffix - no hooks:
-		{12, 8, board.CrossSet(0), board.HorizontalDirection, 11},
+		{12, 8, CrossSet(0), cgboard.HorizontalDirection, 11},
 		// prefix - no hooks:
-		{3, 1, board.CrossSet(0), board.HorizontalDirection, 10},
+		{3, 1, CrossSet(0), cgboard.HorizontalDirection, 10},
 		// prefix and suffix, no path
-		{6, 8, board.CrossSet(0), board.HorizontalDirection, 5},
+		{6, 8, CrossSet(0), cgboard.HorizontalDirection, 5},
 		// More in-between
-		{2, 10, board.CrossSetFromString("M", alph), board.HorizontalDirection, 2},
+		{2, 10, CrossSetFromString("M", alph), cgboard.HorizontalDirection, 2},
 	}
 
 	for _, tc := range testCases {
-		GenCrossSet(b, tc.row, tc.col, tc.dir, gd, dist)
-		if b.GetCrossSet(tc.row, tc.col, board.HorizontalDirection) != tc.crossSet {
+		GenCrossSet(b, bcs, tc.row, tc.col, tc.dir, gd, dist)
+		if bcs.GetCrossSet(tc.row, tc.col, cgboard.HorizontalDirection) != tc.crossSet {
 			t.Errorf("For row=%v col=%v, Expected cross-set to be %v, got %v",
 				tc.row, tc.col, tc.crossSet,
-				b.GetCrossSet(tc.row, tc.col, board.HorizontalDirection))
+				bcs.GetCrossSet(tc.row, tc.col, cgboard.HorizontalDirection))
 		}
-		if b.GetCrossScore(tc.row, tc.col, board.HorizontalDirection) != tc.score {
+		if b.GetCrossScore(tc.row, tc.col, cgboard.HorizontalDirection) != tc.score {
 			t.Errorf("For row=%v col=%v, Expected cross-score to be %v, got %v",
 				tc.row, tc.col, tc.score,
-				b.GetCrossScore(tc.row, tc.col, board.HorizontalDirection))
+				b.GetCrossScore(tc.row, tc.col, cgboard.HorizontalDirection))
 		}
 	}
 }
@@ -104,6 +100,8 @@ type crossSetEdgeTestCase struct {
 	crossSet    board.CrossSet
 	score       int
 }
+
+/*
 
 func TestGenCrossSetEdges(t *testing.T) {
 	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
@@ -726,3 +724,5 @@ func BenchmarkMakePlay(b *testing.B) {
 	}
 
 }
+
+*/
