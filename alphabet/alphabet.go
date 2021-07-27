@@ -73,7 +73,7 @@ func (ml MachineLetter) IsBlanked() bool {
 // Unblank is the opposite of the above function; it removes the blank offset
 // from a letter.
 func (ml MachineLetter) Unblank() MachineLetter {
-	if ml > BlankOffset {
+	if ml >= BlankOffset {
 		return ml - BlankOffset
 	}
 	return ml
