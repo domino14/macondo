@@ -313,8 +313,6 @@ func (a *Alphabet) genLetterSlice() {
 	// These maps are now deterministic. Renumber them according to
 	// sort order.
 	for idx, rn := range a.letterSlice {
-		// We add 1 to the index so that our internal representation of
-		// the alphabet is 1-indexed. It allows us to put the blank at 0.
 		a.vals[rn] = MachineLetter(idx)
 		a.letters[MachineLetter(idx)] = rn
 	}
