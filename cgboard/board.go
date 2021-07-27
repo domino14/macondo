@@ -66,6 +66,8 @@ func (b BonusSquare) displayString() string {
 		return fmt.Sprintf("\033[34m%s\033[0m", repr)
 	case Bonus2LS:
 		return fmt.Sprintf("\033[36m%s\033[0m", repr)
+	case NoBonus:
+		return " "
 	default:
 		return "?"
 	}
@@ -152,7 +154,7 @@ func (g *GameBoard) GetCrossScore(row int, col int, dir BoardDirection) int {
 	}
 }
 
-func (g *GameBoard) SetCrossScore(score int, row, col int, dir BoardDirection) {
+func (g *GameBoard) SetCrossScore(row, col, score int, dir BoardDirection) {
 	pos := row*g.dim + col
 	if g.IsTransposed() {
 		pos = col*g.dim + row
@@ -165,25 +167,22 @@ func (g *GameBoard) SetCrossScore(score int, row, col int, dir BoardDirection) {
 	default:
 		log.Error().Msgf("Unknown direction: %v\n", dir)
 	}
+	log.Debug().Msgf("row col %v %v, pos %v, dim %v, hc vc %v %v", row, col, pos, g.dim, g.hCrossScores[pos], g.vCrossScores[pos])
 }
 
 func (g *GameBoard) HasLetter(row int, col int) bool {
 	return g.GetLetter(row, col) != alphabet.EmptySquareMarker
 }
 
+// SquareDisplayString returns a string representation of the given square.
+// If the square contains a letter, it will return that letter, otherwise it
+// will return the bonus (or a space if there is no bonus).
 func (g *GameBoard) SquareDisplayString(row, col int, alph *alphabet.Alphabet) string {
-	disp := " "
-	pos := row*g.dim + col
-	letter := g.squares[pos]
-	bonus := g.bonuses[pos]
-	if bonus == NoBonus {
-		if letter != alphabet.EmptySquareMarker {
-			disp = string(letter.UserVisible(alph))
-		}
-	} else {
-		disp = bonus.displayString()
+	letter := g.GetLetter(row, col)
+	if letter == alphabet.EmptySquareMarker {
+		return g.GetBonus(row, col).displayString()
 	}
-	return disp
+	return string(letter.UserVisible(alph))
 }
 
 // Transpose transposes the board. It doesn't actually change the layout of the

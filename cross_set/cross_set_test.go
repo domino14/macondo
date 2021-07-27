@@ -1,12 +1,12 @@
 package cross_set
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/domino14/macondo/alphabet"
-	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cgboard"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddag"
@@ -16,11 +16,11 @@ import (
 var DefaultConfig = config.DefaultConfig()
 
 const (
-	VsEd     = board.VsEd
-	VsJeremy = board.VsJeremy
-	VsMatt   = board.VsMatt
-	VsMatt2  = board.VsMatt2
-	VsOxy    = board.VsOxy
+	VsEd     = cgboard.VsEd
+	VsJeremy = cgboard.VsJeremy
+	VsMatt   = cgboard.VsMatt
+	VsMatt2  = cgboard.VsMatt2
+	VsOxy    = cgboard.VsOxy
 )
 
 func GaddagFromLexicon(lex string) (*gaddag.SimpleGaddag, error) {
@@ -61,9 +61,10 @@ func TestGenCrossSetLoadedGame(t *testing.T) {
 	}
 	alph := dist.Alphabet()
 
-	b := cgboard.MakeBoard(board.CrosswordGameBoard)
+	b := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
 	bcs := MakeBoardCrossSets(b.Dim())
 	b.SetToGame(alph, VsMatt)
+	fmt.Println(b.ToDisplayText(alph))
 	// All horizontal for now.
 	var testCases = []crossSetTestCase{
 		{10, 10, CrossSetFromString("E", alph), cgboard.HorizontalDirection, 11},
@@ -97,11 +98,9 @@ func TestGenCrossSetLoadedGame(t *testing.T) {
 type crossSetEdgeTestCase struct {
 	col         int
 	rowContents string
-	crossSet    board.CrossSet
+	crossSet    CrossSet
 	score       int
 }
-
-/*
 
 func TestGenCrossSetEdges(t *testing.T) {
 	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
@@ -115,42 +114,44 @@ func TestGenCrossSetEdges(t *testing.T) {
 	}
 	alph := dist.Alphabet()
 
-	b := board.MakeBoard(board.CrosswordGameBoard)
-
+	b := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
+	bcs := MakeBoardCrossSets(b.Dim())
 	var testCases = []crossSetEdgeTestCase{
-		{0, " A", board.CrossSetFromString("ABDFHKLMNPTYZ", alph), 1},
-		{1, "A", board.CrossSetFromString("ABDEGHILMNRSTWXY", alph), 1},
-		{13, "              F", board.CrossSetFromString("EIO", alph), 4},
-		{14, "             F ", board.CrossSetFromString("AE", alph), 4},
-		{14, "          WECH ", board.CrossSetFromString("T", alph), 12}, // phony!
-		{14, "           ZZZ ", board.CrossSet(0), 30},
-		{14, "       ZYZZYVA ", board.CrossSetFromString("S", alph), 43},
-		{14, "        ZYZZYV ", board.CrossSetFromString("A", alph), 42}, // phony!
-		{14, "       Z Z Y A ", board.CrossSetFromString("ABDEGHILMNRSTWXY", alph), 1},
-		{12, "       z z Y A ", board.CrossSetFromString("E", alph), 5},
-		{14, "OxYpHeNbUTAzON ", board.CrossSetFromString("E", alph), 15},
-		{6, "OXYPHE BUTAZONE", board.CrossSetFromString("N", alph), 40},
+		{0, " A", CrossSetFromString("ABDFHKLMNPTYZ", alph), 1},
+		{1, "A", CrossSetFromString("ABDEGHILMNRSTWXY", alph), 1},
+		{13, "              F", CrossSetFromString("EIO", alph), 4},
+		{14, "             F ", CrossSetFromString("AE", alph), 4},
+		{14, "          WECH ", CrossSetFromString("T", alph), 12}, // phony!
+		{14, "           ZZZ ", CrossSet(0), 30},
+		{14, "       ZYZZYVA ", CrossSetFromString("S", alph), 43},
+		{14, "        ZYZZYV ", CrossSetFromString("A", alph), 42}, // phony!
+		{14, "       Z Z Y A ", CrossSetFromString("ABDEGHILMNRSTWXY", alph), 1},
+		{12, "       z z Y A ", CrossSetFromString("E", alph), 5},
+		{14, "OxYpHeNbUTAzON ", CrossSetFromString("E", alph), 15},
+		{6, "OXYPHE BUTAZONE", CrossSetFromString("N", alph), 40},
 		// Should still calculate score correctly despite no gaddag path.
-		{0, " YHJKTKHKTLV", board.CrossSet(0), 42},
-		{14, "   YHJKTKHKTLV ", board.CrossSet(0), 42},
-		{6, "YHJKTK HKTLV", board.CrossSet(0), 42},
+		{0, " YHJKTKHKTLV", CrossSet(0), 42},
+		{14, "   YHJKTKHKTLV ", CrossSet(0), 42},
+		{6, "YHJKTK HKTLV", CrossSet(0), 42},
 	}
 	row := 4
 	for _, tc := range testCases {
 		b.SetRow(row, tc.rowContents, alph)
-		GenCrossSet(b, row, tc.col, board.HorizontalDirection, gd, dist)
-		if b.GetCrossSet(row, tc.col, board.HorizontalDirection) != tc.crossSet {
+		GenCrossSet(b, bcs, row, tc.col, cgboard.HorizontalDirection, gd, dist)
+		if bcs.GetCrossSet(row, tc.col, cgboard.HorizontalDirection) != tc.crossSet {
 			t.Errorf("For row=%v col=%v, Expected cross-set to be %v, got %v",
 				row, tc.col, tc.crossSet,
-				b.GetCrossSet(row, tc.col, board.HorizontalDirection))
+				bcs.GetCrossSet(row, tc.col, cgboard.HorizontalDirection))
 		}
-		if b.GetCrossScore(row, tc.col, board.HorizontalDirection) != tc.score {
+		if b.GetCrossScore(row, tc.col, cgboard.HorizontalDirection) != tc.score {
 			t.Errorf("For row=%v col=%v, Expected cross-score to be %v, got %v",
 				row, tc.col, tc.score,
-				b.GetCrossScore(row, tc.col, board.HorizontalDirection))
+				b.GetCrossScore(row, tc.col, cgboard.HorizontalDirection))
 		}
 	}
 }
+
+/*
 
 func TestGenAllCrossSets(t *testing.T) {
 	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")

@@ -4,7 +4,6 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/alphabet"
-	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cgboard"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
@@ -74,6 +73,13 @@ func (bcs *BoardCrossSets) SetCrossSet(row int, col int, cs CrossSet, dir cgboar
 		return
 	}
 	bcs.vcrossSets[pos] = cs
+}
+
+func (bcs *BoardCrossSets) AddCrossSet(row, col int, ml alphabet.MachineLetter, dir cgboard.BoardDirection) {
+	c := bcs.GetCrossSet(row, col, dir)
+	c = c | (1 << ml)
+
+	bcs.SetCrossSet(row, col, c, dir)
 }
 
 func (bcs *BoardCrossSets) GetCrossSet(row, col int, dir cgboard.BoardDirection) CrossSet {
@@ -346,15 +352,13 @@ func GenCrossSet(b *Board, cs *BoardCrossSets, row int, col int, dir cgboard.Boa
 		cs.SetCrossSet(row, col, CrossSet(0), dir)
 		return
 	}
-	log.Debug().Msg("here1")
 	// If there's no tile adjacent to this square in any direction,
 	// every letter is allowed.
 	if b.LeftAndRightEmpty(row, col) {
 		b.SetCrossScore(row, col, 0, dir)
-		cs.SetCrossSet(row, col, board.TrivialCrossSet, dir)
+		cs.SetCrossSet(row, col, TrivialCrossSet, dir)
 		return
 	}
-	log.Debug().Msg("here2")
 	// If we are here, there is a letter to the left, to the right, or both.
 	// start from the right and go backwards.
 	rightCol := b.WordEdge(row, col+1, Right)
@@ -376,17 +380,21 @@ func GenCrossSet(b *Board, cs *BoardCrossSets, row int, col int, dir cgboard.Boa
 		// Take the letter set of this sIdx as the cross-set.
 		letterSet := gaddag.GetLetterSet(sIdx)
 		// Miraculously, letter sets and cross sets are compatible.
+		log.Debug().Msgf("setting crossset to %v", letterSet)
 		cs.SetCrossSet(row, col, CrossSet(letterSet), dir)
 	} else {
 
 		// Otherwise, the right is not empty. Check if the left is empty,
 		// if so we just traverse right, otherwise, we try every letter.
 		leftCol := b.WordEdge(row, col-1, Left)
+		log.Debug().Msgf("leftCol=%d, rightCol=%d", leftCol, rightCol)
 		// Start at the right col and work back to this square.
 		lNodeIdx, lPathValid := traverseBackwards(b, cs, row, rightCol,
 			gaddag.GetRootNodeIndex(), false, 0, gaddag)
+		log.Debug().Msgf("lpathvalid %v", lPathValid)
 		scoreR := b.TraverseBackwardsForScore(row, rightCol, ld)
 		scoreL := b.TraverseBackwardsForScore(row, col-1, ld)
+		log.Debug().Msgf("scores %v %v dir %v row col %v %v", scoreR, scoreL, dir, row, col)
 		b.SetCrossScore(row, col, scoreR+scoreL, dir)
 		if !lPathValid {
 			cs.SetCrossSet(row, col, CrossSet(0), dir)
@@ -398,6 +406,7 @@ func GenCrossSet(b *Board, cs *BoardCrossSets, row int, col int, dir cgboard.Boa
 			// to our right.
 
 			letterSet := gaddag.GetLetterSet(lNodeIdx)
+			log.Debug().Msgf("l setting crossset to %v", letterSet)
 			cs.SetCrossSet(row, col, CrossSet(letterSet), dir)
 		} else {
 			// Both the left and the right have a tile. Go through the
@@ -405,10 +414,12 @@ func GenCrossSet(b *Board, cs *BoardCrossSets, row int, col int, dir cgboard.Boa
 
 			numArcs := gaddag.NumArcs(lNodeIdx)
 			cs.SetCrossSet(row, col, CrossSet(0), dir)
-
+			log.Debug().Msgf("numArcs %v", numArcs)
 			for i := lNodeIdx + 1; i <= uint32(numArcs)+lNodeIdx; i++ {
+
 				ml := alphabet.MachineLetter(gaddag.Nodes()[i] >>
 					gaddagmaker.LetterBitLoc)
+
 				if ml == alphabet.SeparationMachineLetter {
 					continue
 				}
@@ -416,7 +427,9 @@ func GenCrossSet(b *Board, cs *BoardCrossSets, row int, col int, dir cgboard.Boa
 				_, success := traverseBackwards(b, cs, row, col-1, nnIdx, true,
 					leftCol, gaddag)
 				if success {
-					cs.SetCrossSet(row, col, CrossSet(ml), dir)
+					log.Debug().Msgf("m setting crossset to %v", ml)
+					// XXX this needs to be OR
+					cs.AddCrossSet(row, col, ml, dir)
 				}
 			}
 		}
