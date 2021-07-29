@@ -1,18 +1,17 @@
 package movegen
 
 import (
-	"log"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/domino14/macondo/alphabet"
-	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/cgboard"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/move"
+	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -66,14 +65,13 @@ func TestGenBase(t *testing.T) {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
 	rack := alphabet.RackFromString("AEINRST", gd.GetAlphabet())
-	board := board.MakeBoard(board.CrosswordGameBoard)
+	board := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
 	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 	if err != nil {
 		t.Error(err)
 	}
 	generator := NewGordonGenerator(gd, board, dist)
-
-	board.ClearAllCrosses()
+	generator.csets.ClearAllCrosses()
 	generator.curAnchorCol = 8
 	// Row 4 for shiz and gig
 	generator.curRowIdx = 4
@@ -114,15 +112,15 @@ func TestSimpleRowGen(t *testing.T) {
 		{"A", 1, 4, " B", 1},
 		{"A", 1, 4, " b", 1},
 	}
-	board := board.MakeBoard(board.CrosswordGameBoard)
+	board := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
 	board.Clear()
 	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 	if err != nil {
 		t.Error(err)
 	}
 	for idx, tc := range cases {
-		log.Printf("Case %v", idx)
 		generator := NewGordonGenerator(gd, board, dist)
+		generator.csets.SetAllCrosses()
 		generator.curAnchorCol = tc.curAnchorCol
 		rack := alphabet.RackFromString(tc.rack, gd.GetAlphabet())
 		board.SetRow(tc.row, tc.rowString, gd.GetAlphabet())
@@ -143,19 +141,23 @@ func TestGenThroughBothWaysAllowedLetters(t *testing.T) {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
 	rack := alphabet.RackFromString("ABEHINT", gd.GetAlphabet())
-	bd := board.MakeBoard(board.CrosswordGameBoard)
+	bd := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
 	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 	if err != nil {
 		t.Error(err)
 	}
 	generator := NewGordonGenerator(gd, bd, dist)
+	generator.csets.SetAllCrosses()
 	generator.curAnchorCol = 9
 
 	bd.SetRow(4, "   THERMOS  A", gd.GetAlphabet())
 	generator.curRowIdx = 4
-	ml, _ := gd.GetAlphabet().Val('I')
-	bd.ClearCrossSet(int(generator.curRowIdx), 2, board.VerticalDirection)
-	bd.SetCrossSetLetter(int(generator.curRowIdx), 2, board.VerticalDirection, ml)
+	ml, err := gd.GetAlphabet().Val('I')
+	if err != nil {
+		t.Error(err)
+	}
+	generator.csets.ClearCrossSet(int(generator.curRowIdx), 2, cgboard.VerticalDirection)
+	generator.csets.AddCrossSet(int(generator.curRowIdx), 2, ml, cgboard.VerticalDirection)
 	generator.recursiveGen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
 		gd.GetRootNodeIndex())
 	// it should generate HITHERMOST only
@@ -178,14 +180,14 @@ func TestRowGen(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
-	bd := board.MakeBoard(board.CrosswordGameBoard)
+	bd := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
 	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 	if err != nil {
 		t.Error(err)
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
-	bd.SetToGame(gd.GetAlphabet(), board.VsEd)
-	cross_set.GenAllCrossSets(bd, gd, ld)
+	bd.SetToGame(gd.GetAlphabet(), cgboard.VsEd)
+	generator.GenerateAllCrossSets()
 	rack := alphabet.RackFromString("AAEIRST", gd.GetAlphabet())
 	generator.curRowIdx = 4
 	generator.curAnchorCol = 8
@@ -214,14 +216,14 @@ func TestOtherRowGen(t *testing.T) {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
 
-	bd := board.MakeBoard(board.CrosswordGameBoard)
+	bd := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
 	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 	if err != nil {
 		t.Error(err)
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
-	bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
-	cross_set.GenAllCrossSets(bd, gd, ld)
+	bd.SetToGame(gd.GetAlphabet(), cgboard.VsMatt)
+	generator.GenerateAllCrossSets()
 
 	rack := alphabet.RackFromString("A", gd.GetAlphabet())
 	generator.curRowIdx = 14
@@ -246,14 +248,14 @@ func TestGenMoveJustOnce(t *testing.T) {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
 
-	bd := board.MakeBoard(board.CrosswordGameBoard)
+	bd := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
 	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 	if err != nil {
 		t.Error(err)
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
-	bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
-	cross_set.GenAllCrossSets(bd, gd, ld)
+	bd.SetToGame(gd.GetAlphabet(), cgboard.VsMatt)
+	generator.GenerateAllCrossSets()
 	bd.Transpose()
 
 	rack := alphabet.RackFromString("AELT", gd.GetAlphabet())
@@ -280,20 +282,26 @@ func TestGenAllMovesSingleTile(t *testing.T) {
 	}
 	alph := gd.GetAlphabet()
 
-	bd := board.MakeBoard(board.CrosswordGameBoard)
+	bd := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
 	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 	if err != nil {
 		t.Error(err)
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
-	bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
-	cross_set.GenAllCrossSets(bd, gd, ld)
+	bd.SetToGame(gd.GetAlphabet(), cgboard.VsMatt)
+	generator.GenerateAllCrossSets()
+	generator.UpdateAllAnchors()
+
+	log.Debug().Msgf("horiz %v", generator.anchors.IsAnchor(1, 7, cgboard.HorizontalDirection))
+	log.Debug().Msgf("vert %v", generator.anchors.IsAnchor(1, 7, cgboard.VerticalDirection))
 
 	generator.GenAll(alphabet.RackFromString("A", alph), false)
+	log.Debug().Interface("plays", generator.plays).Msg("plays")
 	assert.Equal(t, 24, len(scoringPlays(generator.plays)))
 	// t.Fail()
 }
 
+/*
 func TestGenAllMovesFullRack(t *testing.T) {
 	gd, err := GaddagFromLexicon("America")
 	if err != nil {
@@ -660,3 +668,4 @@ func BenchmarkGenBothBlanks(b *testing.B) {
 		generator.GenAll(alphabet.RackFromString("DDESW??", alph), false)
 	}
 }
+*/

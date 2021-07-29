@@ -540,17 +540,23 @@ func (g *GameBoard) Copy() *GameBoard {
 	newg := &GameBoard{}
 	newg.squares = make([]alphabet.MachineLetter, len(g.squares))
 	newg.bonuses = make([]BonusSquare, len(g.bonuses))
+	newg.hCrossScores = make([]int, len(g.hCrossScores))
+	newg.vCrossScores = make([]int, len(g.vCrossScores))
 	for i, s := range g.squares {
 		newg.squares[i] = s
 	}
 	for i, b := range g.bonuses {
 		newg.bonuses[i] = b
 	}
+	for i, s := range g.hCrossScores {
+		newg.hCrossScores[i] = s
+	}
+	for i, s := range g.vCrossScores {
+		newg.vCrossScores[i] = s
+	}
 	newg.transposed = g.transposed
 	newg.tilesPlayed = g.tilesPlayed
 	newg.dim = g.dim
-
-	// XXX Copy crossscores
 	return newg
 }
 
@@ -568,6 +574,8 @@ func (g *GameBoard) CopyFrom(b *GameBoard) {
 	for i, r := range b.squares {
 		g.squares[i] = r
 		g.bonuses[i] = b.bonuses[i]
+		g.hCrossScores[i] = b.hCrossScores[i]
+		g.vCrossScores[i] = b.vCrossScores[i]
 	}
 	g.transposed = b.transposed
 	g.tilesPlayed = b.tilesPlayed

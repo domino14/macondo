@@ -59,14 +59,14 @@ func (c *CrossSet) Clear() {
 type BoardCrossSets struct {
 	hcrossSets []CrossSet
 	vcrossSets []CrossSet
-	dim        int
-	transposed bool
+
+	board *Board
 }
 
 func (bcs *BoardCrossSets) SetCrossSet(row int, col int, cs CrossSet, dir cgboard.BoardDirection) {
-	pos := row*bcs.dim + col
-	if bcs.transposed {
-		pos = col*bcs.dim + row
+	pos := row*bcs.board.Dim() + col
+	if bcs.board.IsTransposed() {
+		pos = col*bcs.board.Dim() + row
 	}
 	if dir == Horizontal {
 		bcs.hcrossSets[pos] = cs
@@ -83,9 +83,10 @@ func (bcs *BoardCrossSets) AddCrossSet(row, col int, ml alphabet.MachineLetter, 
 }
 
 func (bcs *BoardCrossSets) GetCrossSet(row, col int, dir cgboard.BoardDirection) CrossSet {
-	pos := row*bcs.dim + col
-	if bcs.transposed {
-		pos = col*bcs.dim + row
+
+	pos := row*bcs.board.Dim() + col
+	if bcs.board.IsTransposed() {
+		pos = col*bcs.board.Dim() + row
 	}
 	if dir == Horizontal {
 		return bcs.hcrossSets[pos]
@@ -93,12 +94,42 @@ func (bcs *BoardCrossSets) GetCrossSet(row, col int, dir cgboard.BoardDirection)
 	return bcs.vcrossSets[pos]
 }
 
-func MakeBoardCrossSets(dim int) *BoardCrossSets {
+func (bcs *BoardCrossSets) ClearCrossSet(row, col int, dir cgboard.BoardDirection) {
+	pos := row*bcs.board.Dim() + col
+	if bcs.board.IsTransposed() {
+		pos = col*bcs.board.Dim() + row
+	}
+	if dir == Horizontal {
+		bcs.hcrossSets[pos] = 0
+		return
+	}
+	bcs.vcrossSets[pos] = 0
+}
+
+func (bcs *BoardCrossSets) ClearAllCrosses() {
+	for i := 0; i < bcs.board.Dim(); i++ {
+		for j := 0; j < bcs.board.Dim(); j++ {
+			bcs.ClearCrossSet(i, j, Horizontal)
+			bcs.ClearCrossSet(i, j, Vertical)
+		}
+	}
+}
+
+func (bcs *BoardCrossSets) SetAllCrosses() {
+	for i := 0; i < bcs.board.Dim(); i++ {
+		for j := 0; j < bcs.board.Dim(); j++ {
+			bcs.SetCrossSet(i, j, TrivialCrossSet, Horizontal)
+			bcs.SetCrossSet(i, j, TrivialCrossSet, Vertical)
+		}
+	}
+}
+
+func MakeBoardCrossSets(board *Board) *BoardCrossSets {
+	n := board.Dim() * board.Dim()
 	return &BoardCrossSets{
-		hcrossSets: make([]CrossSet, dim*dim),
-		vcrossSets: make([]CrossSet, dim*dim),
-		dim:        dim,
-		transposed: false,
+		hcrossSets: make([]CrossSet, n),
+		vcrossSets: make([]CrossSet, n),
+		board:      board,
 	}
 }
 

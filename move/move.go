@@ -1,6 +1,7 @@
 package move
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"sort"
@@ -83,8 +84,12 @@ func (m *Move) String() string {
 			m,
 			m.LeaveString(), m.equity, m.valuation)
 	}
-	return fmt.Sprint("<Unhandled move>")
+	return "<Unhandled move>"
 
+}
+
+func (m *Move) MarshalJSON() ([]byte, error) {
+	return json.Marshal(m.String())
 }
 
 func (m *Move) MoveTypeString() string {
