@@ -24,6 +24,7 @@ func MakeAnchors(board *cgboard.GameBoard) *Anchors {
 
 func (a *Anchors) SetAnchor(row, col int, dir cgboard.BoardDirection) {
 	pos := row*a.board.Dim() + col
+
 	if dir == cgboard.HorizontalDirection {
 		a.hanchors[pos] = true
 		return
@@ -31,8 +32,14 @@ func (a *Anchors) SetAnchor(row, col int, dir cgboard.BoardDirection) {
 	a.vanchors[pos] = true
 }
 
+// IsAnchor gets whether the passed-in row and column is an anchor.
+// This function, unlike the other anchor functions, can be called while
+// the board is transposed.
 func (a *Anchors) IsAnchor(row, col int, dir cgboard.BoardDirection) bool {
 	pos := row*a.board.Dim() + col
+	if a.board.IsTransposed() {
+		pos = col*a.board.Dim() + row
+	}
 	if dir == cgboard.HorizontalDirection {
 		return a.hanchors[pos]
 	}

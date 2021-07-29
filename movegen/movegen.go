@@ -151,7 +151,6 @@ func (gen *GordonGenerator) recursiveGen(col int, word alphabet.MachineWord, rac
 		csDirection = cgboard.VerticalDirection
 	}
 	crossSet := gen.csets.GetCrossSet(gen.curRowIdx, col, csDirection)
-
 	if curLetter != alphabet.EmptySquareMarker {
 		nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, curLetter.Unblank())
 		gen.goOn(col, curLetter, word, rack, nnIdx, nodeIdx)

@@ -6,8 +6,10 @@ import (
 	"testing"
 
 	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cgboard"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/move"
@@ -292,16 +294,12 @@ func TestGenAllMovesSingleTile(t *testing.T) {
 	generator.GenerateAllCrossSets()
 	generator.UpdateAllAnchors()
 
-	log.Debug().Msgf("horiz %v", generator.anchors.IsAnchor(1, 7, cgboard.HorizontalDirection))
-	log.Debug().Msgf("vert %v", generator.anchors.IsAnchor(1, 7, cgboard.VerticalDirection))
-
 	generator.GenAll(alphabet.RackFromString("A", alph), false)
 	log.Debug().Interface("plays", generator.plays).Msg("plays")
 	assert.Equal(t, 24, len(scoringPlays(generator.plays)))
 	// t.Fail()
 }
 
-/*
 func TestGenAllMovesFullRack(t *testing.T) {
 	gd, err := GaddagFromLexicon("America")
 	if err != nil {
@@ -309,14 +307,15 @@ func TestGenAllMovesFullRack(t *testing.T) {
 	}
 	alph := gd.GetAlphabet()
 
-	bd := board.MakeBoard(board.CrosswordGameBoard)
+	bd := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
 	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 	if err != nil {
 		t.Error(err)
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
-	bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
-	cross_set.GenAllCrossSets(bd, gd, ld)
+	bd.SetToGame(gd.GetAlphabet(), cgboard.VsMatt)
+	generator.GenerateAllCrossSets()
+	generator.UpdateAllAnchors()
 
 	generator.GenAll(alphabet.RackFromString("AABDELT", alph), true)
 	// There should be 673 unique scoring plays, 95 exchanges and 1 pass.
@@ -336,14 +335,15 @@ func TestGenAllMovesFullRackAgain(t *testing.T) {
 	}
 	alph := gd.GetAlphabet()
 
-	bd := board.MakeBoard(board.CrosswordGameBoard)
+	bd := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
 	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 	if err != nil {
 		t.Error(err)
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
-	bd.SetToGame(gd.GetAlphabet(), board.VsEd)
-	cross_set.GenAllCrossSets(bd, gd, ld)
+	bd.SetToGame(gd.GetAlphabet(), cgboard.VsEd)
+	generator.GenerateAllCrossSets()
+	generator.UpdateAllAnchors()
 
 	generator.GenAll(alphabet.RackFromString("AFGIIIS", alph), true)
 	// There should be 219 unique plays
@@ -377,14 +377,15 @@ func TestGenAllMovesSingleBlank(t *testing.T) {
 	}
 	alph := gd.GetAlphabet()
 
-	bd := board.MakeBoard(board.CrosswordGameBoard)
+	bd := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
 	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 	if err != nil {
 		t.Error(err)
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
-	bd.SetToGame(gd.GetAlphabet(), board.VsEd)
-	cross_set.GenAllCrossSets(bd, gd, ld)
+	bd.SetToGame(gd.GetAlphabet(), cgboard.VsEd)
+	generator.GenerateAllCrossSets()
+	generator.UpdateAllAnchors()
 
 	generator.GenAll(alphabet.RackFromString("?", alph), true)
 	// There should be 166 unique plays. Quackle does not generate all blank
@@ -401,14 +402,15 @@ func TestGenAllMovesTwoBlanksOnly(t *testing.T) {
 	}
 	alph := gd.GetAlphabet()
 
-	bd := board.MakeBoard(board.CrosswordGameBoard)
+	bd := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
 	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 	if err != nil {
 		t.Error(err)
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
-	bd.SetToGame(gd.GetAlphabet(), board.VsEd)
-	cross_set.GenAllCrossSets(bd, gd, ld)
+	bd.SetToGame(gd.GetAlphabet(), cgboard.VsEd)
+	generator.GenerateAllCrossSets()
+	generator.UpdateAllAnchors()
 
 	generator.GenAll(alphabet.RackFromString("??", alph), true)
 	// Quackle generates 1827 unique plays. (my movegen generates 1958)
@@ -428,14 +430,15 @@ func TestGenAllMovesWithBlanks(t *testing.T) {
 	}
 	alph := gd.GetAlphabet()
 
-	bd := board.MakeBoard(board.CrosswordGameBoard)
+	bd := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
 	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 	if err != nil {
 		t.Error(err)
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
-	bd.SetToGame(gd.GetAlphabet(), board.VsJeremy)
-	cross_set.GenAllCrossSets(bd, gd, ld)
+	bd.SetToGame(gd.GetAlphabet(), cgboard.VsJeremy)
+	generator.GenerateAllCrossSets()
+	generator.UpdateAllAnchors()
 
 	generator.GenAll(alphabet.RackFromString("DDESW??", alph), false)
 	// If I do DDESW? in quackle i generate 1483 moves. My movegen generates
@@ -466,14 +469,15 @@ func TestGiantTwentySevenTimer(t *testing.T) {
 	}
 	alph := gd.GetAlphabet()
 
-	bd := board.MakeBoard(board.CrosswordGameBoard)
+	bd := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
 	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 	if err != nil {
 		t.Error(err)
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
-	bd.SetToGame(gd.GetAlphabet(), board.VsOxy)
-	cross_set.GenAllCrossSets(bd, gd, ld)
+	bd.SetToGame(gd.GetAlphabet(), cgboard.VsOxy)
+	generator.GenerateAllCrossSets()
+	generator.UpdateAllAnchors()
 
 	generator.GenAll(alphabet.RackFromString("ABEOPXZ", alph), false)
 	assert.Equal(t, 519, len(scoringPlays(generator.plays)))
@@ -490,13 +494,14 @@ func TestGenerateEmptyBoard(t *testing.T) {
 	}
 	alph := gd.GetAlphabet()
 
-	bd := board.MakeBoard(board.CrosswordGameBoard)
+	bd := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
 	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 	if err != nil {
 		t.Error(err)
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
-	bd.UpdateAllAnchors()
+	generator.GenerateAllCrossSets()
+	generator.UpdateAllAnchors()
 
 	generator.GenAll(alphabet.RackFromString("DEGORV?", alph), true)
 	assert.Equal(t, 3313, len(scoringPlays(generator.plays)))
@@ -512,14 +517,15 @@ func TestGenerateNoPlays(t *testing.T) {
 	}
 	alph := gd.GetAlphabet()
 
-	bd := board.MakeBoard(board.CrosswordGameBoard)
+	bd := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
 	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 	if err != nil {
 		t.Error(err)
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
-	bd.SetToGame(gd.GetAlphabet(), board.VsJeremy)
-	cross_set.GenAllCrossSets(bd, gd, ld)
+	bd.SetToGame(gd.GetAlphabet(), cgboard.VsJeremy)
+	generator.GenerateAllCrossSets()
+	generator.UpdateAllAnchors()
 
 	generator.GenAll(alphabet.RackFromString("V", alph), false)
 	// V won't play anywhere
@@ -535,14 +541,16 @@ func TestGenerateDupes(t *testing.T) {
 	}
 	alph := gd.GetAlphabet()
 
-	bd := board.MakeBoard(board.CrosswordGameBoard)
+	bd := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
 	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 	if err != nil {
 		t.Error(err)
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
+
 	bd.SetToGame(gd.GetAlphabet(), board.TestDupe)
-	cross_set.GenAllCrossSets(bd, gd, ld)
+	generator.GenerateAllCrossSets()
+	generator.UpdateAllAnchors()
 
 	generator.GenAll(alphabet.RackFromString("Z", alph), false)
 	s := scoringPlays(generator.plays)
@@ -551,28 +559,33 @@ func TestGenerateDupes(t *testing.T) {
 }
 
 func TestRowEquivalent(t *testing.T) {
-	// XXX: This test should probably be in the board.
 	gd, err := GaddagFromLexicon("America")
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
 	alph := gd.GetAlphabet()
 
-	bd := board.MakeBoard(board.CrosswordGameBoard)
+	bd := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
 	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 	if err != nil {
 		t.Error(err)
 	}
-	bd.SetToGame(gd.GetAlphabet(), board.TestDupe)
-	cross_set.GenAllCrossSets(bd, gd, ld)
+	bd.SetToGame(gd.GetAlphabet(), cgboard.TestDupe)
+	cs := cross_set.MakeBoardCrossSets(bd)
+	a := MakeAnchors(bd)
+	cross_set.GenAllCrossSets(bd, cs, gd, ld)
+	a.UpdateAllAnchors()
 
-	bd2 := board.MakeBoard(board.CrosswordGameBoard)
+	bd2 := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
 
 	bd2.SetRow(7, " INCITES", alph)
 	bd2.SetRow(8, "IS", alph)
 	bd2.SetRow(9, "T", alph)
-	bd2.UpdateAllAnchors()
-	cross_set.GenAllCrossSets(bd2, gd, ld)
+
+	cs2 := cross_set.MakeBoardCrossSets(bd2)
+	a2 := MakeAnchors(bd2)
+	cross_set.GenAllCrossSets(bd2, cs2, gd, ld)
+	a2.UpdateAllAnchors()
 
 	assert.True(t, bd.Equals(bd2))
 }
@@ -587,17 +600,20 @@ func BenchmarkGenEmptyBoard(b *testing.B) {
 		b.Errorf("Expected error to be nil, got %v", err)
 	}
 	alph := gd.GetAlphabet()
+
+	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
+	if err != nil {
+		b.Error(err)
+	}
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		// 1.67ms per operation
 
-		bd := board.MakeBoard(board.CrosswordGameBoard)
-		ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
-		if err != nil {
-			b.Error(err)
-		}
+		bd := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
 		generator := NewGordonGenerator(gd, bd, ld)
-		bd.UpdateAllAnchors()
+		generator.GenerateAllCrossSets()
+		generator.UpdateAllAnchors()
 		generator.GenAll(alphabet.RackFromString("AEINRST", alph), true)
 	}
 }
@@ -608,18 +624,22 @@ func BenchmarkGenFullRack(b *testing.B) {
 		b.Errorf("Expected error to be nil, got %v", err)
 	}
 	alph := gd.GetAlphabet()
+
+	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
+	if err != nil {
+		b.Error(err)
+	}
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		// 930 μs per operation on my macbook pro!! amazing!!!
+		// update: 550 μs per operation on M1 Macbook Pro after some refactoring improvements
+		bd := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
 
-		bd := board.MakeBoard(board.CrosswordGameBoard)
-		ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
-		if err != nil {
-			b.Error(err)
-		}
 		generator := NewGordonGenerator(gd, bd, ld)
 		bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
-		cross_set.GenAllCrossSets(bd, gd, ld)
+		generator.GenerateAllCrossSets()
+		generator.UpdateAllAnchors()
 
 		generator.GenAll(alphabet.RackFromString("AABDELT", alph), true)
 	}
@@ -631,17 +651,21 @@ func BenchmarkGenOneBlank(b *testing.B) {
 		b.Errorf("Expected error to be nil, got %v", err)
 	}
 	alph := gd.GetAlphabet()
+
+	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
+	if err != nil {
+		b.Error(err)
+	}
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		// 5.43 ms per operation on my macbook pro.
-		bd := board.MakeBoard(board.CrosswordGameBoard)
-		ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
-		if err != nil {
-			b.Error(err)
-		}
+		bd := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
+
 		generator := NewGordonGenerator(gd, bd, ld)
-		bd.SetToGame(gd.GetAlphabet(), board.VsJeremy)
-		cross_set.GenAllCrossSets(bd, gd, ld)
+		bd.SetToGame(gd.GetAlphabet(), cgboard.VsJeremy)
+		generator.GenerateAllCrossSets()
+		generator.UpdateAllAnchors()
 
 		generator.GenAll(alphabet.RackFromString("ADDESW?", alph), false)
 	}
@@ -653,19 +677,22 @@ func BenchmarkGenBothBlanks(b *testing.B) {
 		b.Errorf("Expected error to be nil, got %v", err)
 	}
 	alph := gd.GetAlphabet()
+
+	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
+	if err != nil {
+		b.Error(err)
+	}
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		// ~16.48ms per operation on my macbook pro.
-		bd := board.MakeBoard(board.CrosswordGameBoard)
-		ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
-		if err != nil {
-			b.Error(err)
-		}
+		bd := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
+
 		generator := NewGordonGenerator(gd, bd, ld)
 		bd.SetToGame(gd.GetAlphabet(), board.VsJeremy)
-		cross_set.GenAllCrossSets(bd, gd, ld)
+		generator.GenerateAllCrossSets()
+		generator.UpdateAllAnchors()
 
 		generator.GenAll(alphabet.RackFromString("DDESW??", alph), false)
 	}
 }
-*/

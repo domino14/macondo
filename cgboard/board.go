@@ -103,6 +103,7 @@ func MakeBoard(desc []string) *GameBoard {
 	for _, s := range desc {
 		for _, c := range s {
 			bs[sqi] = BonusSquare(byte(c))
+			sqs[sqi] = alphabet.EmptySquareMarker
 			sqi++
 		}
 
@@ -167,7 +168,6 @@ func (g *GameBoard) SetCrossScore(row, col, score int, dir BoardDirection) {
 	default:
 		log.Error().Msgf("Unknown direction: %v\n", dir)
 	}
-	log.Debug().Msgf("row col %v %v, pos %v, dim %v, hc vc %v %v", row, col, pos, g.dim, g.hCrossScores[pos], g.vCrossScores[pos])
 }
 
 func (g *GameBoard) HasLetter(row int, col int) bool {
