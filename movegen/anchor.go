@@ -2,6 +2,7 @@ package movegen
 
 import (
 	"github.com/domino14/macondo/cgboard"
+	"github.com/domino14/macondo/move"
 )
 
 // Anchors are places on the board where a word can start.
@@ -53,11 +54,12 @@ func (a *Anchors) resetAnchors(pos int) {
 
 func (a *Anchors) updateAnchors(row int, col int, vertical bool) {
 	dim := a.board.Dim()
-	pos := row*dim + col
 	if vertical {
 		// This helps simplify the updateAnchorsForMove algorithm.
 		row, col = col, row
 	}
+	pos := row*dim + col
+
 	// Always reset the anchors before applying anything else.
 	a.resetAnchors(pos)
 	var tileAbove, tileBelow, tileLeft, tileRight, tileHere bool
@@ -120,9 +122,27 @@ func (a *Anchors) UpdateAllAnchors() {
 	}
 }
 
-/*
-// XXX where do we put this function??
-func (g *GameBoard) updateAnchorsForMove(m *move.Move) {
+func (a *Anchors) Equals(other *Anchors) bool {
+	if len(a.hanchors) != len(other.hanchors) {
+		return false
+	}
+	if len(a.vanchors) != len(other.vanchors) {
+		return false
+	}
+	for i := range a.hanchors {
+		if a.hanchors[i] != other.hanchors[i] {
+			return false
+		}
+	}
+	for i := range a.vanchors {
+		if a.vanchors[i] != other.vanchors[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func (a *Anchors) UpdateAnchorsForMove(m *move.Move) {
 	row, col, vertical := m.CoordsAndVertical()
 
 	if vertical {
@@ -133,21 +153,19 @@ func (g *GameBoard) updateAnchorsForMove(m *move.Move) {
 
 	// Update anchors all around the play.
 	for i := col; i < len(m.Tiles())+col; i++ {
-		g.updateAnchors(row, i, vertical)
+		a.updateAnchors(row, i, vertical)
 		if row > 0 {
-			g.updateAnchors(row-1, i, vertical)
+			a.updateAnchors(row-1, i, vertical)
 		}
-		if row < g.Dim()-1 {
-			g.updateAnchors(row+1, i, vertical)
+		if row < a.board.Dim()-1 {
+			a.updateAnchors(row+1, i, vertical)
 		}
 	}
 
 	if col-1 >= 0 {
-		g.updateAnchors(row, col-1, vertical)
+		a.updateAnchors(row, col-1, vertical)
 	}
-	if len(m.Tiles())+col < g.Dim() {
-		g.updateAnchors(row, col+len(m.Tiles()), vertical)
+	if len(m.Tiles())+col < a.board.Dim() {
+		a.updateAnchors(row, col+len(m.Tiles()), vertical)
 	}
-
 }
-*/

@@ -120,6 +120,26 @@ func (bcs *BoardCrossSets) SetAllCrosses() {
 	}
 }
 
+func (bcs *BoardCrossSets) Equals(other *BoardCrossSets) bool {
+	if len(bcs.hcrossSets) != len(other.hcrossSets) {
+		return false
+	}
+	if len(bcs.vcrossSets) != len(other.vcrossSets) {
+		return false
+	}
+	for i, h := range bcs.hcrossSets {
+		if h != other.hcrossSets[i] {
+			return false
+		}
+	}
+	for i, v := range bcs.vcrossSets {
+		if v != other.vcrossSets[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func MakeBoardCrossSets(board *Board) *BoardCrossSets {
 	n := board.Dim() * board.Dim()
 	return &BoardCrossSets{

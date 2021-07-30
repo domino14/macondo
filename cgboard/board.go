@@ -292,6 +292,7 @@ func (g *GameBoard) PlayMove(m *move.Move, ld *alphabet.LetterDistribution) {
 		return
 	}
 	g.PlaceMoveTiles(m)
+	g.tilesPlayed += m.TilesPlayed()
 }
 
 // ErrorIfIllegalPlay returns an error if the play is illegal, or nil otherwise.
