@@ -30,7 +30,7 @@ func (g *GameBoard) ToDisplayText(alph *alphabet.Alphabet) string {
 	for i := 0; i < n; i++ {
 		row := fmt.Sprintf("%2d|", i+1)
 		for j := 0; j < n; j++ {
-			row = row + g.squares[i][j].DisplayString(alph) + " "
+			row = row + g.SquareDisplayString(i, j, alph) + " "
 		}
 		str = str + row + "\n"
 	}
@@ -67,9 +67,9 @@ func (g *GameBoard) setFromPlaintext(qText string,
 			if err != nil {
 				// Ignore the error; we are passing in a space or another
 				// board marker.
-				g.squares[i][j/2].letter = alphabet.EmptySquareMarker
+				g.squares[i*g.dim+j/2] = alphabet.EmptySquareMarker
 			} else {
-				g.squares[i][j/2].letter = letter
+				g.squares[i*g.dim+j/2] = letter
 				g.tilesPlayed++
 				playedTiles = append(playedTiles, letter)
 			}
@@ -131,10 +131,20 @@ func (g *GameBoard) Equals(g2 *GameBoard) bool {
 		log.Printf("Tiles played don't match: %v %v", g.tilesPlayed, g2.tilesPlayed)
 		return false
 	}
+	if g.transposed != g2.transposed {
+		log.Printf("Transposed doesn't match: %v %v", g.transposed, g2.transposed)
+		return false
+	}
 	for row := 0; row < g.Dim(); row++ {
 		for col := 0; col < g.Dim(); col++ {
-			if !g.GetSquare(row, col).equals(g2.GetSquare(row, col)) {
-				log.Printf("> Not equal, row %v col %v", row, col)
+			pos := row*g.Dim() + col
+
+			if g.bonuses[pos] != g2.bonuses[pos] {
+				log.Printf("bonuses don't match: %v %v", g.bonuses[pos], g2.bonuses[pos])
+				return false
+			}
+			if g.squares[pos] != g2.squares[pos] {
+				log.Printf("squares don't match: %v %v", g.squares[pos], g2.squares[pos])
 				return false
 			}
 		}

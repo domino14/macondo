@@ -9,7 +9,6 @@ import (
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
-	"github.com/domino14/macondo/cgboard"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
@@ -20,11 +19,11 @@ import (
 var DefaultConfig = config.DefaultConfig()
 
 const (
-	VsEd     = cgboard.VsEd
-	VsJeremy = cgboard.VsJeremy
-	VsMatt   = cgboard.VsMatt
-	VsMatt2  = cgboard.VsMatt2
-	VsOxy    = cgboard.VsOxy
+	VsEd     = board.VsEd
+	VsJeremy = board.VsJeremy
+	VsMatt   = board.VsMatt
+	VsMatt2  = board.VsMatt2
+	VsOxy    = board.VsOxy
 )
 
 func GaddagFromLexicon(lex string) (*gaddag.SimpleGaddag, error) {
@@ -35,7 +34,7 @@ type crossSetTestCase struct {
 	row      int
 	col      int
 	crossSet CrossSet
-	dir      cgboard.BoardDirection
+	dir      board.BoardDirection
 	score    int
 }
 
@@ -65,36 +64,36 @@ func TestGenCrossSetLoadedGame(t *testing.T) {
 	}
 	alph := dist.Alphabet()
 
-	b := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
+	b := board.MakeBoard(board.CrosswordGameBoard)
 	bcs := MakeBoardCrossSets(b)
 	b.SetToGame(alph, VsMatt)
 	fmt.Println(b.ToDisplayText(alph))
 	// All horizontal for now.
 	var testCases = []crossSetTestCase{
-		{10, 10, CrossSetFromString("E", alph), cgboard.HorizontalDirection, 11},
-		{2, 4, CrossSetFromString("DKHLRSV", alph), cgboard.HorizontalDirection, 9},
-		{8, 7, CrossSetFromString("S", alph), cgboard.HorizontalDirection, 11},
+		{10, 10, CrossSetFromString("E", alph), board.HorizontalDirection, 11},
+		{2, 4, CrossSetFromString("DKHLRSV", alph), board.HorizontalDirection, 9},
+		{8, 7, CrossSetFromString("S", alph), board.HorizontalDirection, 11},
 		// suffix - no hooks:
-		{12, 8, CrossSet(0), cgboard.HorizontalDirection, 11},
+		{12, 8, CrossSet(0), board.HorizontalDirection, 11},
 		// prefix - no hooks:
-		{3, 1, CrossSet(0), cgboard.HorizontalDirection, 10},
+		{3, 1, CrossSet(0), board.HorizontalDirection, 10},
 		// prefix and suffix, no path
-		{6, 8, CrossSet(0), cgboard.HorizontalDirection, 5},
+		{6, 8, CrossSet(0), board.HorizontalDirection, 5},
 		// More in-between
-		{2, 10, CrossSetFromString("M", alph), cgboard.HorizontalDirection, 2},
+		{2, 10, CrossSetFromString("M", alph), board.HorizontalDirection, 2},
 	}
 
 	for _, tc := range testCases {
 		GenCrossSet(b, bcs, tc.row, tc.col, tc.dir, gd, dist)
-		if bcs.GetCrossSet(tc.row, tc.col, cgboard.HorizontalDirection) != tc.crossSet {
+		if bcs.GetCrossSet(tc.row, tc.col, board.HorizontalDirection) != tc.crossSet {
 			t.Errorf("For row=%v col=%v, Expected cross-set to be %v, got %v",
 				tc.row, tc.col, tc.crossSet,
-				bcs.GetCrossSet(tc.row, tc.col, cgboard.HorizontalDirection))
+				bcs.GetCrossSet(tc.row, tc.col, board.HorizontalDirection))
 		}
-		if b.GetCrossScore(tc.row, tc.col, cgboard.HorizontalDirection) != tc.score {
+		if b.GetCrossScore(tc.row, tc.col, board.HorizontalDirection) != tc.score {
 			t.Errorf("For row=%v col=%v, Expected cross-score to be %v, got %v",
 				tc.row, tc.col, tc.score,
-				b.GetCrossScore(tc.row, tc.col, cgboard.HorizontalDirection))
+				b.GetCrossScore(tc.row, tc.col, board.HorizontalDirection))
 		}
 	}
 }
@@ -118,7 +117,7 @@ func TestGenCrossSetEdges(t *testing.T) {
 	}
 	alph := dist.Alphabet()
 
-	b := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
+	b := board.MakeBoard(board.CrosswordGameBoard)
 	bcs := MakeBoardCrossSets(b)
 	var testCases = []crossSetEdgeTestCase{
 		{0, " A", CrossSetFromString("ABDFHKLMNPTYZ", alph), 1},
@@ -141,16 +140,16 @@ func TestGenCrossSetEdges(t *testing.T) {
 	row := 4
 	for _, tc := range testCases {
 		b.SetRow(row, tc.rowContents, alph)
-		GenCrossSet(b, bcs, row, tc.col, cgboard.HorizontalDirection, gd, dist)
-		if bcs.GetCrossSet(row, tc.col, cgboard.HorizontalDirection) != tc.crossSet {
+		GenCrossSet(b, bcs, row, tc.col, board.HorizontalDirection, gd, dist)
+		if bcs.GetCrossSet(row, tc.col, board.HorizontalDirection) != tc.crossSet {
 			t.Errorf("For row=%v col=%v, Expected cross-set to be %v, got %v",
 				row, tc.col, tc.crossSet,
-				bcs.GetCrossSet(row, tc.col, cgboard.HorizontalDirection))
+				bcs.GetCrossSet(row, tc.col, board.HorizontalDirection))
 		}
-		if b.GetCrossScore(row, tc.col, cgboard.HorizontalDirection) != tc.score {
+		if b.GetCrossScore(row, tc.col, board.HorizontalDirection) != tc.score {
 			t.Errorf("For row=%v col=%v, Expected cross-score to be %v, got %v",
 				row, tc.col, tc.score,
-				b.GetCrossScore(row, tc.col, cgboard.HorizontalDirection))
+				b.GetCrossScore(row, tc.col, board.HorizontalDirection))
 		}
 	}
 }
@@ -167,25 +166,25 @@ func TestGenAllCrossSets(t *testing.T) {
 	}
 	alph := dist.Alphabet()
 
-	b := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
+	b := board.MakeBoard(board.CrosswordGameBoard)
 	b.SetToGame(alph, VsEd)
 	bcs := MakeBoardCrossSets(b)
 
 	GenAllCrossSets(b, bcs, gd, dist)
 
 	var testCases = []crossSetTestCase{
-		{8, 8, CrossSetFromString("OS", alph), cgboard.HorizontalDirection, 8},
-		{8, 8, CrossSetFromString("S", alph), cgboard.VerticalDirection, 9},
-		{5, 11, CrossSetFromString("S", alph), cgboard.HorizontalDirection, 5},
-		{5, 11, CrossSetFromString("AO", alph), cgboard.VerticalDirection, 2},
-		{8, 13, CrossSetFromString("AEOU", alph), cgboard.HorizontalDirection, 1},
-		{8, 13, CrossSetFromString("AEIMOUY", alph), cgboard.VerticalDirection, 3},
-		{9, 13, CrossSetFromString("HMNPST", alph), cgboard.HorizontalDirection, 1},
-		{9, 13, TrivialCrossSet, cgboard.VerticalDirection, 0},
-		{14, 14, TrivialCrossSet, cgboard.HorizontalDirection, 0},
-		{14, 14, TrivialCrossSet, cgboard.VerticalDirection, 0},
-		{12, 12, CrossSet(0), cgboard.HorizontalDirection, 0},
-		{12, 12, CrossSet(0), cgboard.VerticalDirection, 0},
+		{8, 8, CrossSetFromString("OS", alph), board.HorizontalDirection, 8},
+		{8, 8, CrossSetFromString("S", alph), board.VerticalDirection, 9},
+		{5, 11, CrossSetFromString("S", alph), board.HorizontalDirection, 5},
+		{5, 11, CrossSetFromString("AO", alph), board.VerticalDirection, 2},
+		{8, 13, CrossSetFromString("AEOU", alph), board.HorizontalDirection, 1},
+		{8, 13, CrossSetFromString("AEIMOUY", alph), board.VerticalDirection, 3},
+		{9, 13, CrossSetFromString("HMNPST", alph), board.HorizontalDirection, 1},
+		{9, 13, TrivialCrossSet, board.VerticalDirection, 0},
+		{14, 14, TrivialCrossSet, board.HorizontalDirection, 0},
+		{14, 14, TrivialCrossSet, board.VerticalDirection, 0},
+		{12, 12, CrossSet(0), board.HorizontalDirection, 0},
+		{12, 12, CrossSet(0), board.VerticalDirection, 0},
 	}
 
 	for idx, tc := range testCases {
@@ -205,24 +204,24 @@ func TestGenAllCrossSets(t *testing.T) {
 	b.SetToGame(alph, VsMatt)
 	GenAllCrossSets(b, bcs, gd, dist)
 	testCases = []crossSetTestCase{
-		{8, 7, CrossSetFromString("S", alph), cgboard.HorizontalDirection, 11},
-		{8, 7, CrossSet(0), cgboard.VerticalDirection, 12},
-		{5, 11, CrossSetFromString("BGOPRTWX", alph), cgboard.HorizontalDirection, 2},
-		{5, 11, CrossSet(0), cgboard.VerticalDirection, 15},
-		{8, 13, TrivialCrossSet, cgboard.HorizontalDirection, 0},
-		{8, 13, TrivialCrossSet, cgboard.VerticalDirection, 0},
-		{11, 4, CrossSetFromString("DRS", alph), cgboard.HorizontalDirection, 6},
-		{11, 4, CrossSetFromString("CGM", alph), cgboard.VerticalDirection, 1},
-		{2, 2, TrivialCrossSet, cgboard.HorizontalDirection, 0},
-		{2, 2, CrossSetFromString("AEI", alph), cgboard.VerticalDirection, 2},
-		{7, 12, CrossSetFromString("AEIOY", alph), cgboard.HorizontalDirection, 0}, // it's a blank
-		{7, 12, TrivialCrossSet, cgboard.VerticalDirection, 0},
-		{11, 8, CrossSet(0), cgboard.HorizontalDirection, 4},
-		{11, 8, CrossSetFromString("AEOU", alph), cgboard.VerticalDirection, 1},
-		{1, 8, CrossSetFromString("AEO", alph), cgboard.HorizontalDirection, 1},
-		{1, 8, CrossSetFromString("DFHLMNRSTX", alph), cgboard.VerticalDirection, 1},
-		{10, 10, CrossSetFromString("E", alph), cgboard.HorizontalDirection, 11},
-		{10, 10, TrivialCrossSet, cgboard.VerticalDirection, 0},
+		{8, 7, CrossSetFromString("S", alph), board.HorizontalDirection, 11},
+		{8, 7, CrossSet(0), board.VerticalDirection, 12},
+		{5, 11, CrossSetFromString("BGOPRTWX", alph), board.HorizontalDirection, 2},
+		{5, 11, CrossSet(0), board.VerticalDirection, 15},
+		{8, 13, TrivialCrossSet, board.HorizontalDirection, 0},
+		{8, 13, TrivialCrossSet, board.VerticalDirection, 0},
+		{11, 4, CrossSetFromString("DRS", alph), board.HorizontalDirection, 6},
+		{11, 4, CrossSetFromString("CGM", alph), board.VerticalDirection, 1},
+		{2, 2, TrivialCrossSet, board.HorizontalDirection, 0},
+		{2, 2, CrossSetFromString("AEI", alph), board.VerticalDirection, 2},
+		{7, 12, CrossSetFromString("AEIOY", alph), board.HorizontalDirection, 0}, // it's a blank
+		{7, 12, TrivialCrossSet, board.VerticalDirection, 0},
+		{11, 8, CrossSet(0), board.HorizontalDirection, 4},
+		{11, 8, CrossSetFromString("AEOU", alph), board.VerticalDirection, 1},
+		{1, 8, CrossSetFromString("AEO", alph), board.HorizontalDirection, 1},
+		{1, 8, CrossSetFromString("DFHLMNRSTX", alph), board.VerticalDirection, 1},
+		{10, 10, CrossSetFromString("E", alph), board.HorizontalDirection, 11},
+		{10, 10, TrivialCrossSet, board.VerticalDirection, 0},
 	}
 	for idx, tc := range testCases {
 		// Compare values
@@ -251,12 +250,12 @@ func TestBoardsEqual(t *testing.T) {
 	}
 	alph := dist.Alphabet()
 
-	b := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
+	b := board.MakeBoard(board.CrosswordGameBoard)
 	b.SetToGame(alph, VsMatt)
 	bcs := MakeBoardCrossSets(b)
 	GenAllCrossSets(b, bcs, gd, dist)
 
-	c := cgboard.MakeBoard(board.CrosswordGameBoard)
+	c := board.MakeBoard(board.CrosswordGameBoard)
 	c.SetToGame(alph, VsMatt)
 	GenAllCrossSets(c, bcs, gd, dist)
 
@@ -268,7 +267,7 @@ func TestBoardsEqual(t *testing.T) {
 func TestPlaceMoveTiles(t *testing.T) {
 
 	gd, _ := GaddagFromLexicon("America")
-	b := cgboard.MakeBoard(board.CrosswordGameBoard)
+	b := board.MakeBoard(board.CrosswordGameBoard)
 	alph := gd.GetAlphabet()
 
 	b.SetToGame(alph, VsOxy)
@@ -346,8 +345,8 @@ func TestUpdateSingleCrossSet(t *testing.T) {
 	}
 	alph := dist.Alphabet()
 
-	b := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
-	b.SetToGame(alph, cgboard.VsMatt)
+	b := board.MakeBoard(board.CrosswordGameBoard)
+	b.SetToGame(alph, board.VsMatt)
 	bcs := MakeBoardCrossSets(b)
 	GenAllCrossSets(b, bcs, gd, dist)
 
@@ -358,18 +357,18 @@ func TestUpdateSingleCrossSet(t *testing.T) {
 	b.SetLetter(11, 10, 11)
 
 	fmt.Println(b.ToDisplayText(alph))
-	GenCrossSet(b, bcs, 7, 10, cgboard.HorizontalDirection, gd, dist)
+	GenCrossSet(b, bcs, 7, 10, board.HorizontalDirection, gd, dist)
 	b.Transpose()
-	GenCrossSet(b, bcs, 10, 7, cgboard.VerticalDirection, gd, dist)
+	GenCrossSet(b, bcs, 10, 7, board.VerticalDirection, gd, dist)
 	b.Transpose()
 
-	if bcs.GetCrossSet(7, 10, cgboard.HorizontalDirection) != CrossSet(0) {
+	if bcs.GetCrossSet(7, 10, board.HorizontalDirection) != CrossSet(0) {
 		t.Errorf("Expected 0, was %v",
-			bcs.GetCrossSet(7, 10, cgboard.HorizontalDirection))
+			bcs.GetCrossSet(7, 10, board.HorizontalDirection))
 	}
-	if bcs.GetCrossSet(7, 10, cgboard.VerticalDirection) != CrossSet(0) {
+	if bcs.GetCrossSet(7, 10, board.VerticalDirection) != CrossSet(0) {
 		t.Errorf("Expected 0, was %v",
-			bcs.GetCrossSet(7, 10, cgboard.VerticalDirection))
+			bcs.GetCrossSet(7, 10, board.VerticalDirection))
 	}
 }
 
@@ -383,24 +382,24 @@ func TestGenAllCrossScores(t *testing.T) {
 	}
 	alph := dist.Alphabet()
 
-	b := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
-	b.SetToGame(alph, cgboard.VsEd)
+	b := board.MakeBoard(board.CrosswordGameBoard)
+	b.SetToGame(alph, board.VsEd)
 
 	GenAllCrossScores(b, nil, dist)
 
 	var testCases = []crossSetTestCase{
-		{8, 8, CrossSetFromString("OS", alph), cgboard.HorizontalDirection, 8},
-		{8, 8, CrossSetFromString("S", alph), cgboard.VerticalDirection, 9},
-		{5, 11, CrossSetFromString("S", alph), cgboard.HorizontalDirection, 5},
-		{5, 11, CrossSetFromString("AO", alph), cgboard.VerticalDirection, 2},
-		{8, 13, CrossSetFromString("AEOU", alph), cgboard.HorizontalDirection, 1},
-		{8, 13, CrossSetFromString("AEIMOUY", alph), cgboard.VerticalDirection, 3},
-		{9, 13, CrossSetFromString("HMNPST", alph), cgboard.HorizontalDirection, 1},
-		{9, 13, TrivialCrossSet, cgboard.VerticalDirection, 0},
-		{14, 14, TrivialCrossSet, cgboard.HorizontalDirection, 0},
-		{14, 14, TrivialCrossSet, cgboard.VerticalDirection, 0},
-		{12, 12, CrossSet(0), cgboard.HorizontalDirection, 0},
-		{12, 12, CrossSet(0), cgboard.VerticalDirection, 0},
+		{8, 8, CrossSetFromString("OS", alph), board.HorizontalDirection, 8},
+		{8, 8, CrossSetFromString("S", alph), board.VerticalDirection, 9},
+		{5, 11, CrossSetFromString("S", alph), board.HorizontalDirection, 5},
+		{5, 11, CrossSetFromString("AO", alph), board.VerticalDirection, 2},
+		{8, 13, CrossSetFromString("AEOU", alph), board.HorizontalDirection, 1},
+		{8, 13, CrossSetFromString("AEIMOUY", alph), board.VerticalDirection, 3},
+		{9, 13, CrossSetFromString("HMNPST", alph), board.HorizontalDirection, 1},
+		{9, 13, TrivialCrossSet, board.VerticalDirection, 0},
+		{14, 14, TrivialCrossSet, board.HorizontalDirection, 0},
+		{14, 14, TrivialCrossSet, board.VerticalDirection, 0},
+		{12, 12, CrossSet(0), board.HorizontalDirection, 0},
+		{12, 12, CrossSet(0), board.VerticalDirection, 0},
 	}
 
 	for _, tc := range testCases {
@@ -415,24 +414,24 @@ func TestGenAllCrossScores(t *testing.T) {
 	b.SetToGame(alph, VsMatt)
 	GenAllCrossScores(b, nil, dist)
 	testCases = []crossSetTestCase{
-		{8, 7, CrossSetFromString("S", alph), cgboard.HorizontalDirection, 11},
-		{8, 7, CrossSet(0), cgboard.VerticalDirection, 12},
-		{5, 11, CrossSetFromString("BGOPRTWX", alph), cgboard.HorizontalDirection, 2},
-		{5, 11, CrossSet(0), cgboard.VerticalDirection, 15},
-		{8, 13, TrivialCrossSet, cgboard.HorizontalDirection, 0},
-		{8, 13, TrivialCrossSet, cgboard.VerticalDirection, 0},
-		{11, 4, CrossSetFromString("DRS", alph), cgboard.HorizontalDirection, 6},
-		{11, 4, CrossSetFromString("CGM", alph), cgboard.VerticalDirection, 1},
-		{2, 2, TrivialCrossSet, cgboard.HorizontalDirection, 0},
-		{2, 2, CrossSetFromString("AEI", alph), cgboard.VerticalDirection, 2},
-		{7, 12, CrossSetFromString("AEIOY", alph), cgboard.HorizontalDirection, 0}, // it's a blank
-		{7, 12, TrivialCrossSet, cgboard.VerticalDirection, 0},
-		{11, 8, CrossSet(0), cgboard.HorizontalDirection, 4},
-		{11, 8, CrossSetFromString("AEOU", alph), cgboard.VerticalDirection, 1},
-		{1, 8, CrossSetFromString("AEO", alph), cgboard.HorizontalDirection, 1},
-		{1, 8, CrossSetFromString("DFHLMNRSTX", alph), cgboard.VerticalDirection, 1},
-		{10, 10, CrossSetFromString("E", alph), cgboard.HorizontalDirection, 11},
-		{10, 10, TrivialCrossSet, cgboard.VerticalDirection, 0},
+		{8, 7, CrossSetFromString("S", alph), board.HorizontalDirection, 11},
+		{8, 7, CrossSet(0), board.VerticalDirection, 12},
+		{5, 11, CrossSetFromString("BGOPRTWX", alph), board.HorizontalDirection, 2},
+		{5, 11, CrossSet(0), board.VerticalDirection, 15},
+		{8, 13, TrivialCrossSet, board.HorizontalDirection, 0},
+		{8, 13, TrivialCrossSet, board.VerticalDirection, 0},
+		{11, 4, CrossSetFromString("DRS", alph), board.HorizontalDirection, 6},
+		{11, 4, CrossSetFromString("CGM", alph), board.VerticalDirection, 1},
+		{2, 2, TrivialCrossSet, board.HorizontalDirection, 0},
+		{2, 2, CrossSetFromString("AEI", alph), board.VerticalDirection, 2},
+		{7, 12, CrossSetFromString("AEIOY", alph), board.HorizontalDirection, 0}, // it's a blank
+		{7, 12, TrivialCrossSet, board.VerticalDirection, 0},
+		{11, 8, CrossSet(0), board.HorizontalDirection, 4},
+		{11, 8, CrossSetFromString("AEOU", alph), board.VerticalDirection, 1},
+		{1, 8, CrossSetFromString("AEO", alph), board.HorizontalDirection, 1},
+		{1, 8, CrossSetFromString("DFHLMNRSTX", alph), board.VerticalDirection, 1},
+		{10, 10, CrossSetFromString("E", alph), board.HorizontalDirection, 11},
+		{10, 10, TrivialCrossSet, board.VerticalDirection, 0},
 	}
 	for _, tc := range testCases {
 		if b.GetCrossScore(tc.row, tc.col, tc.dir) != tc.score {

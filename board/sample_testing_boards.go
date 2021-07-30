@@ -454,6 +454,5 @@ maven: Turn 23
 func (b *GameBoard) SetToGame(alph *alphabet.Alphabet, game VsWho) *TilesInPlay {
 	// Set the board to a game
 	tip := b.setFromPlaintext(string(game), alph)
-	b.UpdateAllAnchors()
 	return tip
 }

@@ -14,7 +14,7 @@ import (
 	"sort"
 
 	"github.com/domino14/macondo/alphabet"
-	"github.com/domino14/macondo/cgboard"
+	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/move"
@@ -57,7 +57,7 @@ type GordonGenerator struct {
 	// duplicated here to speed up the algorithm, since we access them
 	// so frequently (yes it makes a difference)
 	gaddag *gaddag.SimpleGaddag
-	board  *cgboard.GameBoard
+	board  *board.GameBoard
 
 	// These are data structures needed by the move generator, which are
 	// closely tied to the game board:
@@ -68,7 +68,7 @@ type GordonGenerator struct {
 }
 
 // NewGordonGenerator returns a Gordon move generator.
-func NewGordonGenerator(gd *gaddag.SimpleGaddag, board *cgboard.GameBoard,
+func NewGordonGenerator(gd *gaddag.SimpleGaddag, board *board.GameBoard,
 	ld *alphabet.LetterDistribution) *GordonGenerator {
 
 	gen := &GordonGenerator{
@@ -104,8 +104,8 @@ func (gen *GordonGenerator) SetSortingParameter(s SortBy) {
 // been updated, as well as cross-sets / cross-scores.
 func (gen *GordonGenerator) GenAll(rack *alphabet.Rack, addExchange bool) {
 	gen.plays = []*move.Move{}
-	orientations := []cgboard.BoardDirection{
-		cgboard.HorizontalDirection, cgboard.VerticalDirection}
+	orientations := []board.BoardDirection{
+		board.HorizontalDirection, board.VerticalDirection}
 
 	// Once for each orientation
 	for idx, dir := range orientations {
@@ -118,7 +118,7 @@ func (gen *GordonGenerator) GenAll(rack *alphabet.Rack, addExchange bool) {
 	gen.dedupeAndSortPlays()
 }
 
-func (gen *GordonGenerator) genByOrientation(rack *alphabet.Rack, dir cgboard.BoardDirection) {
+func (gen *GordonGenerator) genByOrientation(rack *alphabet.Rack, dir board.BoardDirection) {
 	dim := gen.board.Dim()
 
 	for row := 0; row < dim; row++ {
@@ -141,14 +141,14 @@ func (gen *GordonGenerator) genByOrientation(rack *alphabet.Rack, dir cgboard.Bo
 func (gen *GordonGenerator) recursiveGen(col int, word alphabet.MachineWord, rack *alphabet.Rack,
 	nodeIdx uint32) {
 
-	var csDirection cgboard.BoardDirection
+	var csDirection board.BoardDirection
 	// If a letter L is already on this square, then goOn...
 	curLetter := gen.board.GetLetter(gen.curRowIdx, col)
 
 	if gen.vertical {
-		csDirection = cgboard.HorizontalDirection
+		csDirection = board.HorizontalDirection
 	} else {
-		csDirection = cgboard.VerticalDirection
+		csDirection = board.VerticalDirection
 	}
 	crossSet := gen.csets.GetCrossSet(gen.curRowIdx, col, csDirection)
 	if curLetter != alphabet.EmptySquareMarker {
@@ -306,11 +306,11 @@ func (gen *GordonGenerator) dedupeAndSortPlays() {
 
 }
 
-func (gen *GordonGenerator) crossDirection() cgboard.BoardDirection {
+func (gen *GordonGenerator) crossDirection() board.BoardDirection {
 	if gen.vertical {
-		return cgboard.HorizontalDirection
+		return board.HorizontalDirection
 	}
-	return cgboard.VerticalDirection
+	return board.VerticalDirection
 }
 
 func (gen *GordonGenerator) scoreMove(word alphabet.MachineWord, row, col, tilesPlayed int) int {

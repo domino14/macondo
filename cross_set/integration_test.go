@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/domino14/macondo/alphabet"
-	"github.com/domino14/macondo/cgboard"
+	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/gaddag"
@@ -19,7 +19,7 @@ import (
 var DefaultConfig = config.DefaultConfig()
 
 type updateCrossesForMoveTestCase struct {
-	testGame        cgboard.VsWho
+	testGame        board.VsWho
 	m               *move.Move
 	userVisibleWord string
 }
@@ -38,21 +38,21 @@ func TestUpdateCrossSetsAndAnchorsForMove(t *testing.T) {
 	alph := dist.Alphabet()
 
 	var testCases = []updateCrossesForMoveTestCase{
-		{cgboard.VsMatt, move.NewScoringMoveSimple(38, "K9", "TAEL", "ABD", alph), "TAEL"},
+		{board.VsMatt, move.NewScoringMoveSimple(38, "K9", "TAEL", "ABD", alph), "TAEL"},
 		// Test right edge of board
-		{cgboard.VsMatt2, move.NewScoringMoveSimple(77, "O8", "TENsILE", "", alph), "TENsILE"},
+		{board.VsMatt2, move.NewScoringMoveSimple(77, "O8", "TENsILE", "", alph), "TENsILE"},
 		// Test through tiles
-		{cgboard.VsOxy, move.NewScoringMoveSimple(1780, "A1", "OX.P...B..AZ..E", "", alph),
+		{board.VsOxy, move.NewScoringMoveSimple(1780, "A1", "OX.P...B..AZ..E", "", alph),
 			"OXYPHENBUTAZONE"},
 		// Test top of board, horizontal
-		{cgboard.VsJeremy, move.NewScoringMoveSimple(14, "1G", "S.oWED", "D?", alph), "SNoWED"},
+		{board.VsJeremy, move.NewScoringMoveSimple(14, "1G", "S.oWED", "D?", alph), "SNoWED"},
 		// Test bottom of board, horizontal
-		{cgboard.VsJeremy, move.NewScoringMoveSimple(11, "15F", "F..ER", "", alph), "FOYER"},
+		{board.VsJeremy, move.NewScoringMoveSimple(11, "15F", "F..ER", "", alph), "FOYER"},
 	}
 
 	// create a move.
 	for tidx, tc := range testCases {
-		b := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
+		b := board.MakeBoard(board.CrosswordGameBoard)
 		b.SetToGame(alph, tc.testGame)
 		bcs := cross_set.MakeBoardCrossSets(b)
 		a := movegen.MakeAnchors(b)
@@ -66,7 +66,7 @@ func TestUpdateCrossSetsAndAnchorsForMove(t *testing.T) {
 		log.Println(b.ToDisplayText(alph))
 		// Create an identical board, but generate cross-sets and anchors
 		// for the entire board after placing the letters "manually".
-		c := cgboard.MakeBoard(cgboard.CrosswordGameBoard)
+		c := board.MakeBoard(board.CrosswordGameBoard)
 		c.SetToGame(alph, tc.testGame)
 		cs2 := cross_set.MakeBoardCrossSets(c)
 		a2 := movegen.MakeAnchors(c)

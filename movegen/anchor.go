@@ -1,7 +1,7 @@
 package movegen
 
 import (
-	"github.com/domino14/macondo/cgboard"
+	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/move"
 )
 
@@ -11,10 +11,10 @@ import (
 type Anchors struct {
 	hanchors []bool
 	vanchors []bool
-	board    *cgboard.GameBoard
+	board    *board.GameBoard
 }
 
-func MakeAnchors(board *cgboard.GameBoard) *Anchors {
+func MakeAnchors(board *board.GameBoard) *Anchors {
 	n := board.Dim() * board.Dim()
 	return &Anchors{
 		board:    board,
@@ -23,10 +23,10 @@ func MakeAnchors(board *cgboard.GameBoard) *Anchors {
 	}
 }
 
-func (a *Anchors) SetAnchor(row, col int, dir cgboard.BoardDirection) {
+func (a *Anchors) SetAnchor(row, col int, dir board.BoardDirection) {
 	pos := row*a.board.Dim() + col
 
-	if dir == cgboard.HorizontalDirection {
+	if dir == board.HorizontalDirection {
 		a.hanchors[pos] = true
 		return
 	}
@@ -36,12 +36,12 @@ func (a *Anchors) SetAnchor(row, col int, dir cgboard.BoardDirection) {
 // IsAnchor gets whether the passed-in row and column is an anchor.
 // This function, unlike the other anchor functions, can be called while
 // the board is transposed.
-func (a *Anchors) IsAnchor(row, col int, dir cgboard.BoardDirection) bool {
+func (a *Anchors) IsAnchor(row, col int, dir board.BoardDirection) bool {
 	pos := row*a.board.Dim() + col
 	if a.board.IsTransposed() {
 		pos = col*a.board.Dim() + row
 	}
-	if dir == cgboard.HorizontalDirection {
+	if dir == board.HorizontalDirection {
 		return a.hanchors[pos]
 	}
 	return a.vanchors[pos]
