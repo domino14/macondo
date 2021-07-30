@@ -107,20 +107,16 @@ func (bcs *BoardCrossSets) ClearCrossSet(row, col int, dir cgboard.BoardDirectio
 }
 
 func (bcs *BoardCrossSets) ClearAllCrosses() {
-	for i := 0; i < bcs.board.Dim(); i++ {
-		for j := 0; j < bcs.board.Dim(); j++ {
-			bcs.ClearCrossSet(i, j, Horizontal)
-			bcs.ClearCrossSet(i, j, Vertical)
-		}
+	for i := 0; i < len(bcs.hcrossSets); i++ {
+		bcs.hcrossSets[i] = 0
+		bcs.vcrossSets[i] = 0
 	}
 }
 
 func (bcs *BoardCrossSets) SetAllCrosses() {
-	for i := 0; i < bcs.board.Dim(); i++ {
-		for j := 0; j < bcs.board.Dim(); j++ {
-			bcs.SetCrossSet(i, j, TrivialCrossSet, Horizontal)
-			bcs.SetCrossSet(i, j, TrivialCrossSet, Vertical)
-		}
+	for i := 0; i < len(bcs.hcrossSets); i++ {
+		bcs.hcrossSets[i] = TrivialCrossSet
+		bcs.vcrossSets[i] = TrivialCrossSet
 	}
 }
 
@@ -318,13 +314,7 @@ func (g GaddagCrossSetGenerator) UpdateForMove(b *Board, cs *BoardCrossSets, m *
 func GenAllCrossSets(b *Board, cs *BoardCrossSets, gd gaddag.GenericDawg, ld *alphabet.LetterDistribution) {
 	// Shortcut if board has nothing on it.
 	if b.TilesPlayed() == 0 {
-		// Make every square have a trivial cross set.
-		for i := 0; i < b.Dim(); i++ {
-			for j := 0; j < b.Dim(); j++ {
-				cs.SetCrossSet(i, j, TrivialCrossSet, cgboard.HorizontalDirection)
-				cs.SetCrossSet(i, j, TrivialCrossSet, cgboard.VerticalDirection)
-			}
-		}
+		cs.SetAllCrosses()
 		return
 	}
 

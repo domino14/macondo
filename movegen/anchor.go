@@ -110,10 +110,9 @@ func (a *Anchors) UpdateAllAnchors() {
 			}
 		}
 	} else {
-		for i := 0; i < n; i++ {
-			for j := 0; j < n; j++ {
-				a.resetAnchors(i*n + j)
-			}
+		for i := 0; i < len(a.hanchors); i++ {
+			a.hanchors[i] = false
+			a.vanchors[i] = false
 		}
 		rc := int(n / 2)
 		// If the board is empty, set just one anchor, in the center square.
