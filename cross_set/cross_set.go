@@ -1,8 +1,6 @@
 package cross_set
 
 import (
-	"github.com/rs/zerolog/log"
-
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/gaddag"
@@ -200,7 +198,6 @@ func generateAll(g iGenerator, b *Board, cs *BoardCrossSets) {
 
 func updateForMove(g iGenerator, b *Board, cs *BoardCrossSets, m *move.Move) {
 
-	log.Debug().Msgf("Updating for move: %s", m.ShortDescription())
 	row, col, vertical := m.CoordsAndVertical()
 	// Every tile placed by this new move creates new "across" words, and we need
 	// to update the cross sets on both sides of these across words, as well
@@ -269,9 +266,9 @@ func (g CrossScoreOnlyGenerator) UpdateForMove(b *Board, cs *BoardCrossSets, m *
 
 // Wrapper functions to save rewriting all the tests
 
-func GenAllCrossScores(b *Board, cs *BoardCrossSets, ld *alphabet.LetterDistribution) {
+func GenAllCrossScores(b *Board, ld *alphabet.LetterDistribution) {
 	gen := CrossScoreOnlyGenerator{Dist: ld}
-	gen.GenerateAll(b, cs)
+	gen.GenerateAll(b, nil)
 }
 
 // ----------------------------------------------------------------------
