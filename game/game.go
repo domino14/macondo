@@ -40,6 +40,8 @@ type Game struct {
 	crossSetGen cross_set.Generator
 	lexicon     lexicon.Lexicon
 	alph        *alphabet.Alphabet
+	// XXX: This should not be here in the future; move up to the movegen somehow.
+	boardCrossSets *cross_set.BoardCrossSets
 	// board and bag will contain the latest (current) versions of these.
 	board              *board.GameBoard
 	letterDistribution *alphabet.LetterDistribution
@@ -381,7 +383,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		ld := g.bag.LetterDistribution()
 		g.board.PlayMove(m, ld)
 		// Calculate cross-sets.
-		g.crossSetGen.UpdateForMove(g.board, m)
+		g.crossSetGen.UpdateForMove(g.board, g.boardCrossSets, m)
 		score := m.Score()
 		if score != 0 {
 			g.scorelessTurns = 0
