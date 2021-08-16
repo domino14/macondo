@@ -89,7 +89,6 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	}
 
 	log.Info().Msgf("Starting %v games, %v threads", numGames, threads)
-	log.Info().Msgf("blocking: %b", block)
 
 	CVCCounter.Set(0)
 	jobs := make(chan Job, 100)
