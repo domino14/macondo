@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
+	"fmt"
+	"strings"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -32,7 +34,8 @@ func main() {
 	exPath := filepath.Dir(ex)
 
 	cfg := &config.Config{}
-	cfg.Load(os.Args[1:])
+	args := os.Args[1:]
+	cfg.Load(args)
 	log.Info().Msgf("Loaded config: %v", cfg)
 	cfg.AdjustRelativePaths(exPath)
 
@@ -51,9 +54,16 @@ func main() {
 		close(idleConnsClosed)
 	}()
 
-	sc := shell.NewShellController(cfg, exPath)
-	go sc.Loop(sig)
+	argsLine := strings.Join(args, " ")
+	argsLineTrimmed := strings.TrimSpace(argsLine)
 
+	sc := shell.NewShellController(cfg, exPath)
+	if argsLineTrimmed == "" {
+		go sc.Loop(sig)
+	} else {
+		sc.Execute(sig, argsLineTrimmed)
+		sig <- syscall.SIGINT
+	}
 	<-idleConnsClosed
 	log.Info().Msg("server gracefully shutting down")
 }
