@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
-	"fmt"
 	"strings"
 
 	"github.com/rs/zerolog"
