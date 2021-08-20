@@ -523,6 +523,8 @@ func (sc *ShellController) commitAIMove() error {
 
 func (sc *ShellController) handleAutoplay(args []string, options map[string]string) error {
 	var logfile, lexicon, letterDistribution, leavefile1, leavefile2, pegfile1, pegfile2 string
+	var numgames int
+	var block bool
 	if options["logfile"] == "" {
 		logfile = "/tmp/autoplay.txt"
 	} else {
@@ -558,6 +560,20 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 	} else {
 		pegfile2 = options["pegfile2"]
 	}
+	if options["numgames"] == "" {
+		numgames = 1e9
+	} else {
+		var err error
+		numgames, err = strconv.Atoi(options["numgames"])
+		if err != nil {
+			return err
+		}
+	}
+	if options["block"] == "" {
+		block = false
+	} else {
+		block = true
+	}
 
 	player1 := "exhaustiveleave"
 	player2 := player1
@@ -581,7 +597,7 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 
 	sc.showMessage("automatic game runner will log to " + logfile)
 	sc.gameRunnerCtx, sc.gameRunnerCancel = context.WithCancel(context.Background())
-	err := automatic.StartCompVCompStaticGames(sc.gameRunnerCtx, sc.config, 1e9, runtime.NumCPU(),
+	err := automatic.StartCompVCompStaticGames(sc.gameRunnerCtx, sc.config, numgames, block, runtime.NumCPU(),
 		logfile, player1, player2, lexicon, letterDistribution, leavefile1, leavefile2, pegfile1, pegfile2)
 	if err != nil {
 		return err
@@ -732,4 +748,21 @@ func (sc *ShellController) Loop(sig chan os.Signal) {
 
 	}
 	log.Debug().Msgf("Exiting readline loop...")
+}
+
+func (sc *ShellController) Execute(sig chan os.Signal, line string) {
+	defer sc.l.Close()
+	if sc.curMode == StandardMode {
+		resp, err := sc.standardModeSwitch(line, sig)
+		if err != nil {
+			sc.showError(err)
+		} else if resp != nil {
+			sc.showMessage(resp.message)
+		}
+	} else if sc.curMode == EndgameDebugMode {
+		err := sc.endgameDebugModeSwitch(line, sig)
+		if err != nil {
+			sc.showError(err)
+		}
+	}
 }

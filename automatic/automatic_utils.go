@@ -63,9 +63,8 @@ func (r *GameRunner) playFullStatic() {
 type Job struct{}
 
 func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
-	numGames int, threads int, outputFilename, player1, player2, lexicon, letterDistribution,
+	numGames int, block bool, threads int, outputFilename, player1, player2, lexicon, letterDistribution,
 	leavefile1, leavefile2, pegfile1, pegfile2 string) error {
-
 	for _, p := range []string{player1, player2} {
 		if p != ExhaustiveLeavePlayer && p != NoLeavePlayer {
 			return errors.New("unhandled player type")
@@ -96,7 +95,9 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	logChan := make(chan string, 100)
 	gameChan := make(chan string, 10)
 	var wg sync.WaitGroup
+	var fwg sync.WaitGroup
 	wg.Add(threads)
+	fwg.Add(3)
 
 	for i := 1; i <= threads; i++ {
 		go func(i int) {
@@ -119,6 +120,7 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	}
 
 	go func() {
+	defer fwg.Done()
 	gameLoop:
 		for i := 1; i < numGames+1; i++ {
 			jobs <- Job{}
@@ -146,6 +148,7 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	}()
 
 	go func() {
+		defer fwg.Done()
 		logfile.WriteString("playerID,gameID,turn,rack,play,score,totalscore,tilesplayed,leave,equity,tilesremaining,oppscore\n")
 		for msg := range logChan {
 			logfile.WriteString(msg)
@@ -155,6 +158,7 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	}()
 
 	go func() {
+		defer fwg.Done()
 		header := fmt.Sprintf("gameID,%s_score,%s_score,%s_bingos,%s_bingos,first\n",
 			player1+"-1", player2+"-2", player1+"-1", player2+"-2")
 
@@ -166,6 +170,9 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 		log.Info().Msg("Exiting game logger goroutine!")
 	}()
 
+	if block {
+		fwg.Wait()
+	}
 	return nil
 
 }
