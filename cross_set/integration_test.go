@@ -11,6 +11,7 @@ import (
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/cross_set"
+	"github.com/domino14/macondo/crosses"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
@@ -101,7 +102,7 @@ func TestUpdateCrossScoresForMove(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	gen := cross_set.CrossScoreOnlyGenerator{Dist: dist}
+	gen := crosses.CrossScoreOnlyGenerator{Dist: dist}
 	alph := dist.Alphabet()
 
 	var testCases = []updateCrossesForMoveTestCase{
@@ -136,7 +137,7 @@ func TestUpdateCrossScoresForMove(t *testing.T) {
 		c.SetToGame(alph, tc.testGame)
 		c.PlaceMoveTiles(tc.m)
 		c.TestSetTilesPlayed(c.GetTilesPlayed() + tc.m.TilesPlayed())
-		cross_set.GenAllCrossScores(c, dist)
+		crosses.GenAllCrossScores(c, dist)
 		a2.UpdateAllAnchors()
 
 		assert.True(t, b.Equals(c))
@@ -186,7 +187,7 @@ func TestCompareUpdate(t *testing.T) {
 		t.Error(err)
 	}
 	gen1 := cross_set.GaddagCrossSetGenerator{Dist: dist, Gaddag: gd}
-	gen2 := cross_set.CrossScoreOnlyGenerator{Dist: dist}
+	gen2 := crosses.CrossScoreOnlyGenerator{Dist: dist}
 	alph := dist.Alphabet()
 
 	var testCases = []updateCrossesForMoveTestCase{
@@ -256,7 +257,7 @@ func TestCompareGenAll(t *testing.T) {
 
 		b2 := board.MakeBoard(board.CrosswordGameBoard)
 		b2.SetToGame(alph, tc)
-		cross_set.GenAllCrossScores(b2, dist)
+		crosses.GenAllCrossScores(b2, dist)
 
 		compareCrossScores(t, b1, b2)
 	}

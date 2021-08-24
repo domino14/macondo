@@ -85,10 +85,10 @@ func TestGenCrossSetLoadedGame(t *testing.T) {
 
 	for _, tc := range testCases {
 		GenCrossSet(b, bcs, tc.row, tc.col, tc.dir, gd, dist)
-		if bcs.GetCrossSet(tc.row, tc.col, board.HorizontalDirection) != tc.crossSet {
+		if bcs.Get(tc.row, tc.col, board.HorizontalDirection) != tc.crossSet {
 			t.Errorf("For row=%v col=%v, Expected cross-set to be %v, got %v",
 				tc.row, tc.col, tc.crossSet,
-				bcs.GetCrossSet(tc.row, tc.col, board.HorizontalDirection))
+				bcs.Get(tc.row, tc.col, board.HorizontalDirection))
 		}
 		if b.GetCrossScore(tc.row, tc.col, board.HorizontalDirection) != tc.score {
 			t.Errorf("For row=%v col=%v, Expected cross-score to be %v, got %v",
@@ -141,10 +141,10 @@ func TestGenCrossSetEdges(t *testing.T) {
 	for _, tc := range testCases {
 		b.SetRow(row, tc.rowContents, alph)
 		GenCrossSet(b, bcs, row, tc.col, board.HorizontalDirection, gd, dist)
-		if bcs.GetCrossSet(row, tc.col, board.HorizontalDirection) != tc.crossSet {
+		if bcs.Get(row, tc.col, board.HorizontalDirection) != tc.crossSet {
 			t.Errorf("For row=%v col=%v, Expected cross-set to be %v, got %v",
 				row, tc.col, tc.crossSet,
-				bcs.GetCrossSet(row, tc.col, board.HorizontalDirection))
+				bcs.Get(row, tc.col, board.HorizontalDirection))
 		}
 		if b.GetCrossScore(row, tc.col, board.HorizontalDirection) != tc.score {
 			t.Errorf("For row=%v col=%v, Expected cross-score to be %v, got %v",
@@ -189,10 +189,10 @@ func TestGenAllCrossSets(t *testing.T) {
 
 	for idx, tc := range testCases {
 		// Compare values
-		if bcs.GetCrossSet(tc.row, tc.col, tc.dir) != tc.crossSet {
+		if bcs.Get(tc.row, tc.col, tc.dir) != tc.crossSet {
 			t.Errorf("Test=%v For row=%v col=%v, Expected cross-set to be %v, got %v",
 				idx, tc.row, tc.col, tc.crossSet,
-				bcs.GetCrossSet(tc.row, tc.col, tc.dir))
+				bcs.Get(tc.row, tc.col, tc.dir))
 		}
 		if b.GetCrossScore(tc.row, tc.col, tc.dir) != tc.score {
 			t.Errorf("For row=%v col=%v, Expected cross-score to be %v, got %v",
@@ -225,10 +225,10 @@ func TestGenAllCrossSets(t *testing.T) {
 	}
 	for idx, tc := range testCases {
 		// Compare values
-		if bcs.GetCrossSet(tc.row, tc.col, tc.dir) != tc.crossSet {
+		if bcs.Get(tc.row, tc.col, tc.dir) != tc.crossSet {
 			t.Errorf("Test=%v For row=%v col=%v, Expected cross-set to be %v, got %v",
 				idx, tc.row, tc.col, tc.crossSet,
-				bcs.GetCrossSet(tc.row, tc.col, tc.dir))
+				bcs.Get(tc.row, tc.col, tc.dir))
 		}
 		if b.GetCrossScore(tc.row, tc.col, tc.dir) != tc.score {
 			t.Errorf("For row=%v col=%v, Expected cross-score to be %v, got %v",
@@ -362,82 +362,12 @@ func TestUpdateSingleCrossSet(t *testing.T) {
 	GenCrossSet(b, bcs, 10, 7, board.VerticalDirection, gd, dist)
 	b.Transpose()
 
-	if bcs.GetCrossSet(7, 10, board.HorizontalDirection) != CrossSet(0) {
+	if bcs.Get(7, 10, board.HorizontalDirection) != CrossSet(0) {
 		t.Errorf("Expected 0, was %v",
-			bcs.GetCrossSet(7, 10, board.HorizontalDirection))
+			bcs.Get(7, 10, board.HorizontalDirection))
 	}
-	if bcs.GetCrossSet(7, 10, board.VerticalDirection) != CrossSet(0) {
+	if bcs.Get(7, 10, board.VerticalDirection) != CrossSet(0) {
 		t.Errorf("Expected 0, was %v",
-			bcs.GetCrossSet(7, 10, board.VerticalDirection))
-	}
-}
-
-// Cross-score only tests
-
-// Copy of TestGenAllCrossSets with the cross-set bits removed
-func TestGenAllCrossScores(t *testing.T) {
-	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
-	if err != nil {
-		t.Error(err)
-	}
-	alph := dist.Alphabet()
-
-	b := board.MakeBoard(board.CrosswordGameBoard)
-	b.SetToGame(alph, board.VsEd)
-
-	GenAllCrossScores(b, dist)
-
-	var testCases = []crossSetTestCase{
-		{8, 8, CrossSetFromString("OS", alph), board.HorizontalDirection, 8},
-		{8, 8, CrossSetFromString("S", alph), board.VerticalDirection, 9},
-		{5, 11, CrossSetFromString("S", alph), board.HorizontalDirection, 5},
-		{5, 11, CrossSetFromString("AO", alph), board.VerticalDirection, 2},
-		{8, 13, CrossSetFromString("AEOU", alph), board.HorizontalDirection, 1},
-		{8, 13, CrossSetFromString("AEIMOUY", alph), board.VerticalDirection, 3},
-		{9, 13, CrossSetFromString("HMNPST", alph), board.HorizontalDirection, 1},
-		{9, 13, TrivialCrossSet, board.VerticalDirection, 0},
-		{14, 14, TrivialCrossSet, board.HorizontalDirection, 0},
-		{14, 14, TrivialCrossSet, board.VerticalDirection, 0},
-		{12, 12, CrossSet(0), board.HorizontalDirection, 0},
-		{12, 12, CrossSet(0), board.VerticalDirection, 0},
-	}
-
-	for _, tc := range testCases {
-		// Compare values
-		if b.GetCrossScore(tc.row, tc.col, tc.dir) != tc.score {
-			t.Errorf("For row=%v col=%v, Expected cross-score to be %v, got %v",
-				tc.row, tc.col, tc.score,
-				b.GetCrossScore(tc.row, tc.col, tc.dir))
-		}
-	}
-	// This one has more nondeterministic (in-between LR) crosssets
-	b.SetToGame(alph, VsMatt)
-	GenAllCrossScores(b, dist)
-	testCases = []crossSetTestCase{
-		{8, 7, CrossSetFromString("S", alph), board.HorizontalDirection, 11},
-		{8, 7, CrossSet(0), board.VerticalDirection, 12},
-		{5, 11, CrossSetFromString("BGOPRTWX", alph), board.HorizontalDirection, 2},
-		{5, 11, CrossSet(0), board.VerticalDirection, 15},
-		{8, 13, TrivialCrossSet, board.HorizontalDirection, 0},
-		{8, 13, TrivialCrossSet, board.VerticalDirection, 0},
-		{11, 4, CrossSetFromString("DRS", alph), board.HorizontalDirection, 6},
-		{11, 4, CrossSetFromString("CGM", alph), board.VerticalDirection, 1},
-		{2, 2, TrivialCrossSet, board.HorizontalDirection, 0},
-		{2, 2, CrossSetFromString("AEI", alph), board.VerticalDirection, 2},
-		{7, 12, CrossSetFromString("AEIOY", alph), board.HorizontalDirection, 0}, // it's a blank
-		{7, 12, TrivialCrossSet, board.VerticalDirection, 0},
-		{11, 8, CrossSet(0), board.HorizontalDirection, 4},
-		{11, 8, CrossSetFromString("AEOU", alph), board.VerticalDirection, 1},
-		{1, 8, CrossSetFromString("AEO", alph), board.HorizontalDirection, 1},
-		{1, 8, CrossSetFromString("DFHLMNRSTX", alph), board.VerticalDirection, 1},
-		{10, 10, CrossSetFromString("E", alph), board.HorizontalDirection, 11},
-		{10, 10, TrivialCrossSet, board.VerticalDirection, 0},
-	}
-	for _, tc := range testCases {
-		if b.GetCrossScore(tc.row, tc.col, tc.dir) != tc.score {
-			t.Errorf("For row=%v col=%v, Expected cross-score to be %v, got %v",
-				tc.row, tc.col, tc.score,
-				b.GetCrossScore(tc.row, tc.col, tc.dir))
-		}
+			bcs.Get(7, 10, board.VerticalDirection))
 	}
 }

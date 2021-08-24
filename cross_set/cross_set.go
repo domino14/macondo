@@ -3,6 +3,7 @@ package cross_set
 import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/crosses"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/move"
@@ -58,60 +59,60 @@ type BoardCrossSets struct {
 	hcrossSets []CrossSet
 	vcrossSets []CrossSet
 
-	board *Board
+	board *board.GameBoard
 }
 
-func (bcs *BoardCrossSets) SetCrossSet(row int, col int, cs CrossSet, dir board.BoardDirection) {
+func (bcs *BoardCrossSets) Set(row int, col int, cs int64, dir board.BoardDirection) {
 	pos := row*bcs.board.Dim() + col
 	if bcs.board.IsTransposed() {
 		pos = col*bcs.board.Dim() + row
 	}
-	if dir == Horizontal {
-		bcs.hcrossSets[pos] = cs
+	if dir == board.HorizontalDirection {
+		bcs.hcrossSets[pos] = CrossSet(cs)
 		return
 	}
-	bcs.vcrossSets[pos] = cs
+	bcs.vcrossSets[pos] = CrossSet(cs)
 }
 
-func (bcs *BoardCrossSets) AddCrossSet(row, col int, ml alphabet.MachineLetter, dir board.BoardDirection) {
-	c := bcs.GetCrossSet(row, col, dir)
+func (bcs *BoardCrossSets) Add(row, col int, ml alphabet.MachineLetter, dir board.BoardDirection) {
+	c := bcs.Get(row, col, dir)
 	c = c | (1 << ml)
 
-	bcs.SetCrossSet(row, col, c, dir)
+	bcs.Set(row, col, int64(c), dir)
 }
 
-func (bcs *BoardCrossSets) GetCrossSet(row, col int, dir board.BoardDirection) CrossSet {
+func (bcs *BoardCrossSets) Get(row, col int, dir board.BoardDirection) CrossSet {
 
 	pos := row*bcs.board.Dim() + col
 	if bcs.board.IsTransposed() {
 		pos = col*bcs.board.Dim() + row
 	}
-	if dir == Horizontal {
+	if dir == board.HorizontalDirection {
 		return bcs.hcrossSets[pos]
 	}
 	return bcs.vcrossSets[pos]
 }
 
-func (bcs *BoardCrossSets) ClearCrossSet(row, col int, dir board.BoardDirection) {
+func (bcs *BoardCrossSets) Clear(row, col int, dir board.BoardDirection) {
 	pos := row*bcs.board.Dim() + col
 	if bcs.board.IsTransposed() {
 		pos = col*bcs.board.Dim() + row
 	}
-	if dir == Horizontal {
+	if dir == board.HorizontalDirection {
 		bcs.hcrossSets[pos] = 0
 		return
 	}
 	bcs.vcrossSets[pos] = 0
 }
 
-func (bcs *BoardCrossSets) ClearAllCrosses() {
+func (bcs *BoardCrossSets) ClearAll() {
 	for i := 0; i < len(bcs.hcrossSets); i++ {
 		bcs.hcrossSets[i] = 0
 		bcs.vcrossSets[i] = 0
 	}
 }
 
-func (bcs *BoardCrossSets) SetAllCrosses() {
+func (bcs *BoardCrossSets) SetAll() {
 	for i := 0; i < len(bcs.hcrossSets); i++ {
 		bcs.hcrossSets[i] = TrivialCrossSet
 		bcs.vcrossSets[i] = TrivialCrossSet
@@ -138,7 +139,7 @@ func (bcs *BoardCrossSets) Equals(other *BoardCrossSets) bool {
 	return true
 }
 
-func MakeBoardCrossSets(board *Board) *BoardCrossSets {
+func MakeBoardCrossSets(board *board.GameBoard) *BoardCrossSets {
 	n := board.Dim() * board.Dim()
 	return &BoardCrossSets{
 		hcrossSets: make([]CrossSet, n),
@@ -147,164 +148,8 @@ func MakeBoardCrossSets(board *Board) *BoardCrossSets {
 	}
 }
 
-type Board = board.GameBoard
-
-const (
-	Left       = board.LeftDirection
-	Right      = board.RightDirection
-	Horizontal = board.HorizontalDirection
-	Vertical   = board.VerticalDirection
-)
-
-// Public cross_set.Generator Interface
-// There are two concrete implementations below,
-// - CrossScoreOnlyGenerator{Dist}
-// - GaddagCrossSetGenerator{Dist, Gaddag}
-
-type Generator interface {
-	Generate(b *Board, cs *BoardCrossSets, row int, col int, dir board.BoardDirection)
-	GenerateAll(b *Board, cs *BoardCrossSets)
-	UpdateForMove(b *Board, cs *BoardCrossSets, m *move.Move)
-}
-
-// We have to go through this dance since go will not let us simply provide
-// Generator with default implementations of GenerateAll and UpdateForMove that
-// call a given implementation of Generate.
-
-type iGenerator interface {
-	Generate(b *Board, cs *BoardCrossSets, row int, col int, dir board.BoardDirection)
-}
-
-// generateAll generates all cross-sets. It goes through the entire
-// board; our anchor algorithm doesn't quite match the one in the Gordon
-// paper.
-// We do this for both transpositions of the board.
-func generateAll(g iGenerator, b *Board, cs *BoardCrossSets) {
-	n := b.Dim()
-	for i := 0; i < n; i++ {
-		for j := 0; j < n; j++ {
-			g.Generate(b, cs, i, j, Horizontal)
-		}
-	}
-	b.Transpose()
-	for i := 0; i < n; i++ {
-		for j := 0; j < n; j++ {
-			g.Generate(b, cs, i, j, Vertical)
-		}
-	}
-	// And transpose back to the original orientation.
-	b.Transpose()
-}
-
-func updateForMove(g iGenerator, b *Board, cs *BoardCrossSets, m *move.Move) {
-
-	row, col, vertical := m.CoordsAndVertical()
-	// Every tile placed by this new move creates new "across" words, and we need
-	// to update the cross sets on both sides of these across words, as well
-	// as the cross sets for THIS word.
-
-	// Assumes all across words are HORIZONTAL.
-	calcForAcross := func(rowStart int, colStart int, csd board.BoardDirection) {
-		for row := rowStart; row < len(m.Tiles())+rowStart; row++ {
-			if m.Tiles()[row-rowStart] == alphabet.PlayedThroughMarker {
-				// No new "across word" was generated by this tile, so no need
-				// to update cross set.
-				continue
-			}
-			// Otherwise, look along this row. Note, the edge is still part
-			// of the word.
-			rightCol := b.WordEdge(int(row), int(colStart), Right)
-			leftCol := b.WordEdge(int(row), int(colStart), Left)
-			g.Generate(b, cs, int(row), int(rightCol)+1, csd)
-			g.Generate(b, cs, int(row), int(leftCol)-1, csd)
-			// This should clear the cross set on the just played tile.
-			g.Generate(b, cs, int(row), int(colStart), csd)
-		}
-	}
-
-	// assumes self is HORIZONTAL
-	calcForSelf := func(rowStart int, colStart int, csd board.BoardDirection) {
-		// Generate cross-sets on either side of the word.
-		for col := int(colStart) - 1; col <= int(colStart)+len(m.Tiles()); col++ {
-			g.Generate(b, cs, int(rowStart), col, csd)
-		}
-	}
-
-	if vertical {
-		calcForAcross(row, col, Horizontal)
-		b.Transpose()
-		row, col = col, row
-		calcForSelf(row, col, Vertical)
-		b.Transpose()
-	} else {
-		calcForSelf(row, col, Horizontal)
-		b.Transpose()
-		row, col = col, row
-		calcForAcross(row, col, Vertical)
-		b.Transpose()
-	}
-}
-
-// ----------------------------------------------------------------------
-// Use a CrossScoreOnlyGenerator when you don't need cross sets
-
-type CrossScoreOnlyGenerator struct {
-	Dist *alphabet.LetterDistribution
-}
-
-func (g CrossScoreOnlyGenerator) Generate(b *Board, cs *BoardCrossSets, row int, col int, dir board.BoardDirection) {
-	genCrossScore(b, row, col, dir, g.Dist)
-}
-
-func (g CrossScoreOnlyGenerator) GenerateAll(b *Board, cs *BoardCrossSets) {
-	generateAll(g, b, cs)
-}
-
-func (g CrossScoreOnlyGenerator) UpdateForMove(b *Board, cs *BoardCrossSets, m *move.Move) {
-	updateForMove(g, b, cs, m)
-}
-
-// Wrapper functions to save rewriting all the tests
-
-func GenAllCrossScores(b *Board, ld *alphabet.LetterDistribution) {
-	gen := CrossScoreOnlyGenerator{Dist: ld}
-	gen.GenerateAll(b, nil)
-}
-
 // ----------------------------------------------------------------------
 // Implementation for CrossScoreOnlyGenerator
-
-func genCrossScore(b *Board, row int, col int, dir board.BoardDirection,
-	ld *alphabet.LetterDistribution) {
-	if row < 0 || row >= b.Dim() || col < 0 || col >= b.Dim() {
-		return
-	}
-	// If the square has a letter in it, its cross set and cross score
-	// should both be 0
-	if b.HasLetter(row, col) {
-		b.SetCrossScore(row, col, 0, dir)
-		return
-	}
-	// If there's no tile adjacent to this square in any direction,
-	// every letter is allowed.
-	if b.LeftAndRightEmpty(row, col) {
-		b.SetCrossScore(row, col, 0, dir)
-		return
-	}
-	// If we are here, there is a letter to the left, to the right, or both.
-	// start from the right and go backwards.
-	rightCol := b.WordEdge(row, col+1, Right)
-	if rightCol == col {
-		score := b.TraverseBackwardsForScore(row, col-1, ld)
-		b.SetCrossScore(row, col, score, dir)
-	} else {
-		// Otherwise, the right is not empty. Check if the left is empty,
-		// if so we just traverse right, otherwise, we try every letter.
-		scoreR := b.TraverseBackwardsForScore(row, rightCol, ld)
-		scoreL := b.TraverseBackwardsForScore(row, col-1, ld)
-		b.SetCrossScore(row, col, scoreR+scoreL, dir)
-	}
-}
 
 // ----------------------------------------------------------------------
 // GaddagCrossSetGenerator generates cross sets via a gaddag
@@ -314,24 +159,24 @@ type GaddagCrossSetGenerator struct {
 	Gaddag gaddag.GenericDawg
 }
 
-func (g GaddagCrossSetGenerator) Generate(b *Board, cs *BoardCrossSets, row int, col int, dir board.BoardDirection) {
+func (g GaddagCrossSetGenerator) Generate(b *board.GameBoard, cs crosses.Crosser, row int, col int, dir board.BoardDirection) {
 	GenCrossSet(b, cs, row, col, dir, g.Gaddag, g.Dist)
 }
 
-func (g GaddagCrossSetGenerator) GenerateAll(b *Board, cs *BoardCrossSets) {
-	generateAll(g, b, cs)
+func (g GaddagCrossSetGenerator) GenerateAll(b *board.GameBoard, cs crosses.Crosser) {
+	crosses.GenerateAll(g, b, cs)
 }
 
-func (g GaddagCrossSetGenerator) UpdateForMove(b *Board, cs *BoardCrossSets, m *move.Move) {
-	updateForMove(g, b, cs, m)
+func (g GaddagCrossSetGenerator) UpdateForMove(b *board.GameBoard, cs crosses.Crosser, m *move.Move) {
+	crosses.UpdateForMove(g, b, cs, m)
 }
 
 // Wrapper functions to save rewriting all the tests
 
-func GenAllCrossSets(b *Board, cs *BoardCrossSets, gd gaddag.GenericDawg, ld *alphabet.LetterDistribution) {
+func GenAllCrossSets(b *board.GameBoard, cs *BoardCrossSets, gd gaddag.GenericDawg, ld *alphabet.LetterDistribution) {
 	// Shortcut if board has nothing on it.
 	if b.TilesPlayed() == 0 {
-		cs.SetAllCrosses()
+		cs.SetAll()
 		return
 	}
 
@@ -339,7 +184,7 @@ func GenAllCrossSets(b *Board, cs *BoardCrossSets, gd gaddag.GenericDawg, ld *al
 	gen.GenerateAll(b, cs)
 }
 
-func UpdateCrossSetsForMove(b *Board, cs *BoardCrossSets, m *move.Move,
+func UpdateCrossSetsForMove(b *board.GameBoard, cs *BoardCrossSets, m *move.Move,
 	gd gaddag.GenericDawg, ld *alphabet.LetterDistribution) {
 	gen := GaddagCrossSetGenerator{Dist: ld, Gaddag: gd}
 	gen.UpdateForMove(b, cs, m)
@@ -348,7 +193,7 @@ func UpdateCrossSetsForMove(b *Board, cs *BoardCrossSets, m *move.Move,
 // ----------------------------------------------------------------------
 // Implementation for GaddagCrossSetGenerator
 
-func traverseBackwards(b *Board, cs *BoardCrossSets, row int, col int,
+func traverseBackwards(b *board.GameBoard, row int, col int,
 	nodeIdx uint32, checkLetterSet bool, leftMostCol int,
 	gaddag gaddag.GenericDawg) (uint32, bool) {
 	// Traverse the letters on the board backwards (left). Return the index
@@ -388,7 +233,7 @@ func traverseBackwards(b *Board, cs *BoardCrossSets, row int, col int,
 }
 
 // GenCrossSet generates a cross-set for each individual square.
-func GenCrossSet(b *Board, cs *BoardCrossSets, row int, col int, dir board.BoardDirection,
+func GenCrossSet(b *board.GameBoard, cs crosses.Crosser, row int, col int, dir board.BoardDirection,
 	gaddag gaddag.GenericDawg, ld *alphabet.LetterDistribution) {
 
 	if row < 0 || row >= b.Dim() || col < 0 || col >= b.Dim() {
@@ -398,22 +243,22 @@ func GenCrossSet(b *Board, cs *BoardCrossSets, row int, col int, dir board.Board
 	// should both be 0
 	if b.HasLetter(row, col) {
 		b.SetCrossScore(row, col, 0, dir)
-		cs.SetCrossSet(row, col, CrossSet(0), dir)
+		cs.Set(row, col, 0, dir)
 		return
 	}
 	// If there's no tile adjacent to this square in any direction,
 	// every letter is allowed.
 	if b.LeftAndRightEmpty(row, col) {
 		b.SetCrossScore(row, col, 0, dir)
-		cs.SetCrossSet(row, col, TrivialCrossSet, dir)
+		cs.Set(row, col, TrivialCrossSet, dir)
 		return
 	}
 	// If we are here, there is a letter to the left, to the right, or both.
 	// start from the right and go backwards.
-	rightCol := b.WordEdge(row, col+1, Right)
+	rightCol := b.WordEdge(row, col+1, board.RightDirection)
 	if rightCol == col {
 		// This means the right was always empty; we only want to go left.
-		lNodeIdx, lPathValid := traverseBackwards(b, cs, row, col-1,
+		lNodeIdx, lPathValid := traverseBackwards(b, row, col-1,
 			gaddag.GetRootNodeIndex(), false, 0, gaddag)
 		score := b.TraverseBackwardsForScore(row, col-1, ld)
 		b.SetCrossScore(row, col, score, dir)
@@ -421,7 +266,7 @@ func GenCrossSet(b *Board, cs *BoardCrossSets, row int, col int, dir board.Board
 		if !lPathValid {
 			// There are no further extensions to the word on the board,
 			// which may also be a phony.
-			cs.SetCrossSet(row, col, CrossSet(0), dir)
+			cs.Set(row, col, 0, dir)
 			return
 		}
 		// Otherwise, we have a left node index.
@@ -429,20 +274,20 @@ func GenCrossSet(b *Board, cs *BoardCrossSets, row int, col int, dir board.Board
 		// Take the letter set of this sIdx as the cross-set.
 		letterSet := gaddag.GetLetterSet(sIdx)
 		// Miraculously, letter sets and cross sets are compatible.
-		cs.SetCrossSet(row, col, CrossSet(letterSet), dir)
+		cs.Set(row, col, int64(letterSet), dir)
 	} else {
 
 		// Otherwise, the right is not empty. Check if the left is empty,
 		// if so we just traverse right, otherwise, we try every letter.
-		leftCol := b.WordEdge(row, col-1, Left)
+		leftCol := b.WordEdge(row, col-1, board.LeftDirection)
 		// Start at the right col and work back to this square.
-		lNodeIdx, lPathValid := traverseBackwards(b, cs, row, rightCol,
+		lNodeIdx, lPathValid := traverseBackwards(b, row, rightCol,
 			gaddag.GetRootNodeIndex(), false, 0, gaddag)
 		scoreR := b.TraverseBackwardsForScore(row, rightCol, ld)
 		scoreL := b.TraverseBackwardsForScore(row, col-1, ld)
 		b.SetCrossScore(row, col, scoreR+scoreL, dir)
 		if !lPathValid {
-			cs.SetCrossSet(row, col, CrossSet(0), dir)
+			cs.Set(row, col, 0, dir)
 			return
 		}
 		if leftCol == col {
@@ -451,13 +296,13 @@ func GenCrossSet(b *Board, cs *BoardCrossSets, row int, col int, dir board.Board
 			// to our right.
 
 			letterSet := gaddag.GetLetterSet(lNodeIdx)
-			cs.SetCrossSet(row, col, CrossSet(letterSet), dir)
+			cs.Set(row, col, int64(letterSet), dir)
 		} else {
 			// Both the left and the right have a tile. Go through the
 			// siblings, from the right, to see what nodes lead to the left.
 
 			numArcs := gaddag.NumArcs(lNodeIdx)
-			cs.SetCrossSet(row, col, CrossSet(0), dir)
+			cs.Set(row, col, 0, dir)
 			for i := lNodeIdx + 1; i <= uint32(numArcs)+lNodeIdx; i++ {
 
 				ml := alphabet.MachineLetter(gaddag.Nodes()[i] >>
@@ -467,10 +312,10 @@ func GenCrossSet(b *Board, cs *BoardCrossSets, row int, col int, dir board.Board
 					continue
 				}
 				nnIdx := gaddag.Nodes()[i] & gaddagmaker.NodeIdxBitMask
-				_, success := traverseBackwards(b, cs, row, col-1, nnIdx, true,
+				_, success := traverseBackwards(b, row, col-1, nnIdx, true,
 					leftCol, gaddag)
 				if success {
-					cs.AddCrossSet(row, col, ml, dir)
+					cs.Add(row, col, ml, dir)
 				}
 			}
 		}

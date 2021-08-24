@@ -40,8 +40,10 @@ type Game struct {
 	crossSetGen cross_set.Generator
 	lexicon     lexicon.Lexicon
 	alph        *alphabet.Alphabet
-	// XXX: This should not be here in the future; move up to the movegen somehow.
-	boardCrossSets *cross_set.BoardCrossSets
+
+	// see backup.go. This additional state is not necessary.
+	addlState BackupableState
+
 	// board and bag will contain the latest (current) versions of these.
 	board              *board.GameBoard
 	letterDistribution *alphabet.LetterDistribution
@@ -145,6 +147,7 @@ func NewGame(rules *GameRules, playerinfo []*pb.PlayerInfo) (*Game, error) {
 	game.letterDistribution = rules.LetterDistribution()
 	game.alph = game.letterDistribution.Alphabet()
 	game.backupMode = NoBackup
+	game.addlState = NopAddlState{}
 	game.nextFirst = -1
 	game.board = rules.Board().Copy()
 	game.crossSetGen = rules.CrossSetGen()
@@ -200,6 +203,10 @@ func NewFromHistory(history *pb.GameHistory, rules *GameRules, turnnum int) (*Ga
 		return nil, err
 	}
 	return game, nil
+}
+
+func (g *Game) SetAddlState(b BackupableState) {
+	g.addlState = b
 }
 
 // SetNextFirst sets the player going first to the passed-in value. This
@@ -987,5 +994,5 @@ func (g *Game) FirstPlayer() *pb.PlayerInfo {
 func (g *Game) RecalculateBoard() {
 	// Recalculate cross-sets and anchors for move generator
 	g.crossSetGen.GenerateAll(g.board)
-	g.board.UpdateAllAnchors()
+	// g.board.UpdateAllAnchors()
 }

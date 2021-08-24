@@ -4,6 +4,7 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/move"
 )
 
 type BackupMode int
@@ -21,6 +22,21 @@ const (
 	InteractiveGameplayMode
 )
 
+// BackupableState is a state that can be backed up along with the rest of the board.
+// It can be updated from a move.
+type BackupableState interface {
+	CopyFrom(b BackupableState)
+	Copy() BackupableState
+	UpdateForMove(b *board.GameBoard, m *move.Move)
+}
+
+// NopAddlState implements BackupableState and does nothing
+type NopAddlState struct{}
+
+func (n NopAddlState) CopyFrom(b BackupableState)                     {}
+func (n NopAddlState) Copy() BackupableState                          { return NopAddlState{} }
+func (n NopAddlState) UpdateForMove(b *board.GameBoard, m *move.Move) {}
+
 // stateBackup is a subset of Game, meant only for backup purposes.
 type stateBackup struct {
 	board          *board.GameBoard
@@ -30,6 +46,10 @@ type stateBackup struct {
 	onturn         int
 	turnnum        int
 	players        playerStates
+
+	// This additional state can be things not supported by the base game package.
+	// For example, cross-sets and anchors can be used by an AI / movegen.
+	addlState BackupableState
 }
 
 func (g *Game) SetBackupMode(m BackupMode) {
@@ -41,12 +61,12 @@ func (g *Game) backupState() {
 		g.stackPtr = 0
 	}
 	st := g.stateStack[g.stackPtr]
-
 	st.board.CopyFrom(g.board)
 	st.bag.CopyFrom(g.bag)
 	st.playing = g.playing
 	st.scorelessTurns = g.scorelessTurns
 	st.players.copyFrom(g.players)
+	st.addlState.CopyFrom(g.addlState)
 	if g.backupMode == SimulationMode {
 		st.onturn = g.onturn
 		st.turnnum = g.turnnum
@@ -99,6 +119,7 @@ func (g *Game) SetStateStackLength(length int) {
 			playing:        g.playing,
 			scorelessTurns: g.scorelessTurns,
 			players:        copyPlayers(g.players),
+			addlState:      g.addlState.Copy(),
 		}
 	}
 }
@@ -124,6 +145,7 @@ func (g *Game) UnplayLastMove() {
 
 	g.board.CopyFrom(b.board)
 	g.bag.CopyFrom(b.bag)
+	g.addlState.CopyFrom(b.addlState)
 	g.playing = b.playing
 	g.players.copyFrom(b.players)
 	g.scorelessTurns = b.scorelessTurns
@@ -144,6 +166,7 @@ func (g *Game) ResetToFirstState() {
 	g.playing = b.playing
 	g.players.copyFrom(b.players)
 	g.scorelessTurns = b.scorelessTurns
+	g.addlState.CopyFrom(b.addlState)
 }
 
 // Copy creates a deep copy of Game for the most part. The lexicon and
@@ -158,6 +181,7 @@ func (g *Game) Copy() *Game {
 		turnnum:        g.turnnum,
 		board:          g.board.Copy(),
 		bag:            g.bag.Copy(),
+		addlState:      g.addlState.Copy(),
 		lexicon:        g.lexicon,
 		crossSetGen:    g.crossSetGen,
 		alph:           g.alph,
