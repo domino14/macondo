@@ -105,7 +105,7 @@ func (r *GameRunner) Init(player1, player2, leavefile1, leavefile2, pegfile1, pe
 		if strings.HasPrefix(pinfo.RealName, NoLeavePlayer) {
 			strat = strategy.NewNoLeaveStrategy()
 		}
-		r.aiplayers[idx] = player.NewRawEquityPlayer(strat)
+		r.aiplayers[idx] = player.NewRawEquityPlayer(strat, pb.BotRequest_HASTY_BOT)
 	}
 	return nil
 }

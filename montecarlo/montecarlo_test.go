@@ -75,7 +75,7 @@ func TestSimSingleIteration(t *testing.T) {
 	oldOppRack := game.RackFor(1).String()
 	plays := generator.Plays()[:10]
 	simmer := &Simmer{}
-	simmer.Init(game, player.NewRawEquityPlayer(strategy))
+	simmer.Init(game, player.NewRawEquityPlayer(strategy, pb.BotRequest_HASTY_BOT))
 	simmer.PrepareSim(plies, plays)
 
 	simmer.simSingleIteration(plies, 0, 1, nil)
@@ -124,7 +124,7 @@ func TestLongerSim(t *testing.T) {
 	// Note we changed the rack here from AAADERW to AAAENSW because the test kept failing
 	// because of the fairly new word ADWARE.
 	game.SetRackFor(0, alphabet.RackFromString("AAAENSW", game.Alphabet()))
-	aiplayer := player.NewRawEquityPlayer(strategy)
+	aiplayer := player.NewRawEquityPlayer(strategy, pb.BotRequest_HASTY_BOT)
 	generator.GenAll(game.RackFor(0), false)
 	aiplayer.AssignEquity(generator.Plays(), game.Board(), game.Bag(),
 		game.RackFor(1))

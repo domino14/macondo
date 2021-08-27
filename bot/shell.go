@@ -169,7 +169,7 @@ func (sc *ShellController) newGame() (*Response, error) {
 	}
 
 	opts := sc.options.GameOptions
-	g, err := runner.NewAIGameRunner(sc.config, &opts, players)
+	g, err := runner.NewAIGameRunner(sc.config, &opts, players, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return nil, err
 	}

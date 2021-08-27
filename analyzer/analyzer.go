@@ -96,7 +96,7 @@ func (an *Analyzer) newGame() error {
 		{Nickname: "opponent", RealName: "Arthur Dent"},
 	}
 
-	game, err := runner.NewAIGameRunner(an.config, an.options, players)
+	game, err := runner.NewAIGameRunner(an.config, an.options, players, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return err
 	}

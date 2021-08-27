@@ -13,6 +13,7 @@ import (
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/strategy"
+	"github.com/rs/zerolog/log"
 )
 
 // Basic game. Set racks, make moves
@@ -97,9 +98,10 @@ type AIGameRunner struct {
 
 	aiplayer player.AIPlayer
 	gen      movegen.MoveGenerator
+	cfg      *config.Config
 }
 
-func NewAIGameRunner(conf *config.Config, opts *GameOptions, players []*pb.PlayerInfo) (*AIGameRunner, error) {
+func NewAIGameRunner(conf *config.Config, opts *GameOptions, players []*pb.PlayerInfo, botType pb.BotRequest_BotCode) (*AIGameRunner, error) {
 	opts.SetDefaults(conf)
 	rules, err := NewAIGameRules(
 		conf, board.CrosswordGameLayout,
@@ -111,15 +113,15 @@ func NewAIGameRunner(conf *config.Config, opts *GameOptions, players []*pb.Playe
 	if err != nil {
 		return nil, err
 	}
-	return addAIFields(g, conf)
+	return addAIFields(g, conf, botType)
 }
 
-func NewAIGameRunnerFromGame(g *game.Game, conf *config.Config) (*AIGameRunner, error) {
+func NewAIGameRunnerFromGame(g *game.Game, conf *config.Config, botType pb.BotRequest_BotCode) (*AIGameRunner, error) {
 	gr := GameRunner{*g}
-	return addAIFields(&gr, conf)
+	return addAIFields(&gr, conf, botType)
 }
 
-func addAIFields(g *GameRunner, conf *config.Config) (*AIGameRunner, error) {
+func addAIFields(g *GameRunner, conf *config.Config, botType pb.BotRequest_BotCode) (*AIGameRunner, error) {
 	strategy, err := strategy.NewExhaustiveLeaveStrategy(
 		g.LexiconName(),
 		g.Alphabet(),
@@ -135,10 +137,10 @@ func addAIFields(g *GameRunner, conf *config.Config) (*AIGameRunner, error) {
 		return nil, err
 	}
 
-	aiplayer := player.NewRawEquityPlayer(strategy)
+	aiplayer := player.NewRawEquityPlayer(strategy, botType)
 	gen := movegen.NewGordonGenerator(gd, g.Board(), g.Bag().LetterDistribution())
 
-	ret := &AIGameRunner{*g, aiplayer, gen}
+	ret := &AIGameRunner{*g, aiplayer, gen, conf}
 	return ret, nil
 }
 
@@ -156,6 +158,35 @@ func (g *AIGameRunner) GenerateMoves(numPlays int) []*move.Move {
 
 	// Assign equity to plays, and return the top ones.
 	g.aiplayer.AssignEquity(plays, g.Board(), g.Bag(), oppRack)
+
+	if numPlays == 1 {
+		// Filters the plays here based on bot type
+		dist := g.Bag().LetterDistribution()
+		subChooseCombos := createSubCombos(dist)
+		for _, play := range plays {
+			machineWords, err := g.Board().FormedWords(play)
+			if err != nil {
+				log.Err(err).Msg("formed-words-error")
+				break
+			}
+			wordsFormed := make([]string, len(machineWords))
+			wordsNumCombinations := make([]uint64, len(machineWords))
+			for i, mw := range machineWords {
+				word := mw.UserVisible(g.Alphabet())
+				wordsFormed[i] = word
+				wordsNumCombinations[i] = combinations(dist, subChooseCombos, word, true)
+			}
+			allowed, err := BotTypeMoveFilterMap[g.aiplayer.GetBotType()](g.cfg, wordsFormed, wordsNumCombinations, g.aiplayer.GetBotType())
+			if err != nil {
+				log.Err(err).Msg("bot-type-move-filter")
+				break
+			}
+			if allowed {
+				return []*move.Move{play}
+			}
+		}
+	}
+
 	return g.aiplayer.TopPlays(plays, numPlays)
 }
 

@@ -295,7 +295,7 @@ func (sc *ShellController) loadGCG(args []string) error {
 	if err != nil {
 		return err
 	}
-	sc.game, err = runner.NewAIGameRunnerFromGame(g, sc.config)
+	sc.game, err = runner.NewAIGameRunnerFromGame(g, sc.config, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return err
 	}
