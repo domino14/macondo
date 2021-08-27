@@ -127,6 +127,22 @@ message PlayerInfo {
 message BotRequest {
   GameHistory game_history = 1;
   EvaluationRequest evaluation_request = 2;
+
+  enum BotCode {
+    HASTY_BOT = 0;
+    CEL_BOT = 1;
+
+    LEVEL1_PROBABILISTIC = 2;
+    LEVEL2_PROBABILISTIC = 3;
+    LEVEL3_PROBABILISTIC = 4;
+    LEVEL4_PROBABILISTIC = 5;
+    LEVEL5_PROBABILISTIC = 6;
+
+    SIMMING_BOT = 7;
+    // harder bots here? inference? ml, etc.
+  }
+
+  BotCode bot_type = 3;
 }
 
 message EvaluationRequest {
