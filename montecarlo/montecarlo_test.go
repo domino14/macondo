@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/matryer/is"
+	"github.com/rs/zerolog"
 
 	"github.com/domino14/macondo/ai/player"
 	airunner "github.com/domino14/macondo/ai/runner"
@@ -30,6 +31,9 @@ const (
 var DefaultConfig = config.DefaultConfig()
 
 func TestMain(m *testing.M) {
+	// Hide `TRACE` logs
+	// This probably screws it up for future tests, but it's fine for now.
+	zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	for _, lex := range []string{"NWL18"} {
 		gdgPath := filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag")
 		if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
@@ -71,6 +75,7 @@ func TestSimSingleIteration(t *testing.T) {
 	game.SetPlayerOnTurn(0)
 	// Overwrite the first rack
 	game.SetRackFor(0, alphabet.RackFromString("AAADERW", game.Alphabet()))
+	generator.ResetCrossesAndAnchors()
 	generator.GenAll(game.RackFor(0), false)
 	oldOppRack := game.RackFor(1).String()
 	plays := generator.Plays()[:10]
@@ -91,6 +96,7 @@ func TestSimSingleIteration(t *testing.T) {
 
 	simmer.sortPlaysByEquity()
 	fmt.Println(simmer.printStats())
+	t.Fail()
 }
 
 func TestLongerSim(t *testing.T) {
@@ -125,6 +131,7 @@ func TestLongerSim(t *testing.T) {
 	// because of the fairly new word ADWARE.
 	game.SetRackFor(0, alphabet.RackFromString("AAAENSW", game.Alphabet()))
 	aiplayer := player.NewRawEquityPlayer(strategy, pb.BotRequest_HASTY_BOT)
+	generator.ResetCrossesAndAnchors()
 	generator.GenAll(game.RackFor(0), false)
 	aiplayer.AssignEquity(generator.Plays(), game.Board(), game.Bag(),
 		game.RackFor(1))

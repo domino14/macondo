@@ -62,7 +62,7 @@ type GordonGenerator struct {
 	// These are data structures needed by the move generator, which are
 	// closely tied to the game board:
 	anchors *Anchors
-	csets   *cross_set.BoardCrossSets
+	csetGen *cross_set.GaddagCrossSetGenerator
 	// Used for scoring:
 	letterDistribution *alphabet.LetterDistribution
 }
@@ -74,7 +74,7 @@ func NewGordonGenerator(gd *gaddag.SimpleGaddag, board *board.GameBoard,
 	gen := &GordonGenerator{
 		gaddag:             gd,
 		board:              board,
-		csets:              cross_set.MakeBoardCrossSets(board),
+		csetGen:            cross_set.MakeGaddagCrossSetGenerator(board, gd, ld),
 		anchors:            MakeAnchors(board),
 		numPossibleLetters: int(gd.GetAlphabet().NumLetters()),
 		sortingParameter:   SortByScore,
@@ -83,13 +83,8 @@ func NewGordonGenerator(gd *gaddag.SimpleGaddag, board *board.GameBoard,
 	return gen
 }
 
-// GenerateAllCrossSets is a utility function to generate all cross-sets.
-func (gen *GordonGenerator) GenerateAllCrossSets() {
-	cross_set.GenAllCrossSets(gen.board, gen.csets, gen.gaddag, gen.letterDistribution)
-}
-
-// UpdateAllAnchors is a utility function to update all the anchors.
-func (gen *GordonGenerator) UpdateAllAnchors() {
+func (gen *GordonGenerator) ResetCrossesAndAnchors() {
+	gen.csetGen.GenerateAll(gen.board)
 	gen.anchors.UpdateAllAnchors()
 }
 
@@ -150,7 +145,7 @@ func (gen *GordonGenerator) recursiveGen(col int, word alphabet.MachineWord, rac
 	} else {
 		csDirection = board.VerticalDirection
 	}
-	crossSet := gen.csets.Get(gen.curRowIdx, col, csDirection)
+	crossSet := gen.csetGen.CS.Get(gen.curRowIdx, col, csDirection)
 	if curLetter != alphabet.EmptySquareMarker {
 		nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, curLetter.Unblank())
 		gen.goOn(col, curLetter, word, rack, nnIdx, nodeIdx)

@@ -42,27 +42,27 @@ type CrossScoreOnlyGenerator struct {
 	Dist *alphabet.LetterDistribution
 }
 
-func (g CrossScoreOnlyGenerator) Generate(b *Board, cs Crosser, row int, col int,
+func (g CrossScoreOnlyGenerator) Generate(b *Board, row int, col int,
 	dir board.BoardDirection) {
 	// genCrossScore can be implemented with a Crosser, and probably should,
 	// but there's no point for now (it would probably be a bit of a performance hit).
 	genCrossScore(b, row, col, dir, g.Dist)
 }
 
-func (g CrossScoreOnlyGenerator) GenerateAll(b *Board, cs Crosser) {
-	GenerateAll(g, b, cs)
+func (g CrossScoreOnlyGenerator) GenerateAll(b *Board) {
+	GenerateAll(g, b, nil)
 }
 
-func (g CrossScoreOnlyGenerator) UpdateForMove(b *Board, cs Crosser, m *move.Move) {
-	UpdateForMove(g, b, cs, m)
+func (g CrossScoreOnlyGenerator) UpdateForMove(b *Board, m *move.Move) {
+	// Pass in a nil "Crosser", since this implementation actually looks
+	// directly in the board and modifies it. This could probably be moved
+	// to a Crosser that does the same thing.
+	UpdateForMove(g, b, nil, m)
 }
 
 func GenAllCrossScores(b *Board, ld *alphabet.LetterDistribution) {
 	gen := CrossScoreOnlyGenerator{Dist: ld}
-	// Pass in a nil "Crosser", since this implementation actually looks
-	// directly in the board and modifies it. This could probably be moved
-	// to a Crosser that does the same thing.
-	gen.GenerateAll(b, nil)
+	gen.GenerateAll(b)
 }
 
 func genCrossScore(b *Board, row int, col int, dir board.BoardDirection,
@@ -105,38 +105,17 @@ func GenerateAll(g iGenerator, b *Board, cs Crosser) {
 	n := b.Dim()
 	for i := 0; i < n; i++ {
 		for j := 0; j < n; j++ {
-			g.Generate(b, cs, i, j, Horizontal)
+			g.Generate(b, i, j, Horizontal)
 		}
 	}
 	b.Transpose()
 	for i := 0; i < n; i++ {
 		for j := 0; j < n; j++ {
-			g.Generate(b, cs, i, j, Vertical)
+			g.Generate(b, i, j, Vertical)
 		}
 	}
 	// And transpose back to the original orientation.
 	b.Transpose()
-}
-
-// Public crosses.Generator Interface
-// There is one concrete implementations below:
-// - CrossScoreOnlyGenerator{Dist}
-// There is another implementation in an external package:
-// (but we really shouldn't care about this)
-// - GaddagCrossSetGenerator{Dist, Gaddag}
-
-type Generator interface {
-	Generate(b *Board, cs Crosser, row int, col int, dir board.BoardDirection)
-	GenerateAll(b *Board, cs Crosser)
-	UpdateForMove(b *Board, cs Crosser, m *move.Move)
-}
-
-// We have to go through this dance since go will not let us simply provide
-// Generator with default implementations of GenerateAll and UpdateForMove that
-// call a given implementation of Generate.
-
-type iGenerator interface {
-	Generate(b *Board, cs Crosser, row int, col int, dir board.BoardDirection)
 }
 
 func UpdateForMove(g iGenerator, b *Board, cs Crosser, m *move.Move) {
@@ -158,10 +137,10 @@ func UpdateForMove(g iGenerator, b *Board, cs Crosser, m *move.Move) {
 			// of the word.
 			rightCol := b.WordEdge(int(row), int(colStart), Right)
 			leftCol := b.WordEdge(int(row), int(colStart), Left)
-			g.Generate(b, cs, int(row), int(rightCol)+1, csd)
-			g.Generate(b, cs, int(row), int(leftCol)-1, csd)
+			g.Generate(b, int(row), int(rightCol)+1, csd)
+			g.Generate(b, int(row), int(leftCol)-1, csd)
 			// This should clear the cross set on the just played tile.
-			g.Generate(b, cs, int(row), int(colStart), csd)
+			g.Generate(b, int(row), int(colStart), csd)
 		}
 	}
 
@@ -169,7 +148,7 @@ func UpdateForMove(g iGenerator, b *Board, cs Crosser, m *move.Move) {
 	calcForSelf := func(rowStart int, colStart int, csd board.BoardDirection) {
 		// Generate cross-sets on either side of the word.
 		for col := int(colStart) - 1; col <= int(colStart)+len(m.Tiles()); col++ {
-			g.Generate(b, cs, int(rowStart), col, csd)
+			g.Generate(b, int(rowStart), col, csd)
 		}
 	}
 

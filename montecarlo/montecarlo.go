@@ -144,9 +144,12 @@ func (s *Simmer) makeGameCopies() error {
 
 	for i := 0; i < s.threads; i++ {
 		s.gameCopies = append(s.gameCopies, s.origGame.Copy())
+		board := s.gameCopies[i].Board()
+		dist := s.gameCopies[i].Bag().LetterDistribution()
+
+		s.gameCopies[i].SetAddlState(movegen.NewState(board, gd, dist))
 		s.movegens = append(s.movegens,
-			movegen.NewGordonGenerator(gd, s.gameCopies[i].Board(),
-				s.gameCopies[i].Bag().LetterDistribution()))
+			movegen.NewGordonGenerator(gd, board, dist))
 
 	}
 	return nil

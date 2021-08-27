@@ -72,7 +72,7 @@ func TestGenBase(t *testing.T) {
 		t.Error(err)
 	}
 	generator := NewGordonGenerator(gd, board, dist)
-	generator.csets.ClearAllCrosses()
+	generator.csetGen.CS.ClearAll()
 	generator.curAnchorCol = 8
 	// Row 4 for shiz and gig
 	generator.curRowIdx = 4
@@ -121,7 +121,7 @@ func TestSimpleRowGen(t *testing.T) {
 	}
 	for idx, tc := range cases {
 		generator := NewGordonGenerator(gd, board, dist)
-		generator.csets.SetAllCrosses()
+		generator.csetGen.CS.SetAll()
 		generator.curAnchorCol = tc.curAnchorCol
 		rack := alphabet.RackFromString(tc.rack, gd.GetAlphabet())
 		board.SetRow(tc.row, tc.rowString, gd.GetAlphabet())
@@ -148,7 +148,7 @@ func TestGenThroughBothWaysAllowedLetters(t *testing.T) {
 		t.Error(err)
 	}
 	generator := NewGordonGenerator(gd, bd, dist)
-	generator.csets.SetAllCrosses()
+	generator.csetGen.CS.SetAll()
 	generator.curAnchorCol = 9
 
 	bd.SetRow(4, "   THERMOS  A", gd.GetAlphabet())
@@ -157,8 +157,8 @@ func TestGenThroughBothWaysAllowedLetters(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	generator.csets.ClearCrossSet(int(generator.curRowIdx), 2, board.VerticalDirection)
-	generator.csets.AddCrossSet(int(generator.curRowIdx), 2, ml, board.VerticalDirection)
+	generator.csetGen.CS.Clear(int(generator.curRowIdx), 2, board.VerticalDirection)
+	generator.csetGen.CS.Add(int(generator.curRowIdx), 2, ml, board.VerticalDirection)
 	generator.recursiveGen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
 		gd.GetRootNodeIndex())
 	// it should generate HITHERMOST only
@@ -188,7 +188,7 @@ func TestRowGen(t *testing.T) {
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
 	bd.SetToGame(gd.GetAlphabet(), board.VsEd)
-	generator.GenerateAllCrossSets()
+	generator.ResetCrossesAndAnchors()
 	rack := alphabet.RackFromString("AAEIRST", gd.GetAlphabet())
 	generator.curRowIdx = 4
 	generator.curAnchorCol = 8
@@ -224,7 +224,7 @@ func TestOtherRowGen(t *testing.T) {
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
 	bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
-	generator.GenerateAllCrossSets()
+	generator.ResetCrossesAndAnchors()
 
 	rack := alphabet.RackFromString("A", gd.GetAlphabet())
 	generator.curRowIdx = 14
@@ -256,7 +256,7 @@ func TestGenMoveJustOnce(t *testing.T) {
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
 	bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
-	generator.GenerateAllCrossSets()
+	generator.ResetCrossesAndAnchors()
 	bd.Transpose()
 
 	rack := alphabet.RackFromString("AELT", gd.GetAlphabet())
@@ -290,8 +290,7 @@ func TestGenAllMovesSingleTile(t *testing.T) {
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
 	bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
-	generator.GenerateAllCrossSets()
-	generator.UpdateAllAnchors()
+	generator.ResetCrossesAndAnchors()
 
 	generator.GenAll(alphabet.RackFromString("A", alph), false)
 	log.Debug().Interface("plays", generator.plays).Msg("plays")
@@ -313,8 +312,7 @@ func TestGenAllMovesFullRack(t *testing.T) {
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
 	bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
-	generator.GenerateAllCrossSets()
-	generator.UpdateAllAnchors()
+	generator.ResetCrossesAndAnchors()
 
 	generator.GenAll(alphabet.RackFromString("AABDELT", alph), true)
 	// There should be 673 unique scoring plays, 95 exchanges and 1 pass.
@@ -341,8 +339,7 @@ func TestGenAllMovesFullRackAgain(t *testing.T) {
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
 	bd.SetToGame(gd.GetAlphabet(), board.VsEd)
-	generator.GenerateAllCrossSets()
-	generator.UpdateAllAnchors()
+	generator.ResetCrossesAndAnchors()
 
 	generator.GenAll(alphabet.RackFromString("AFGIIIS", alph), true)
 	// There should be 219 unique plays
@@ -383,8 +380,7 @@ func TestGenAllMovesSingleBlank(t *testing.T) {
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
 	bd.SetToGame(gd.GetAlphabet(), board.VsEd)
-	generator.GenerateAllCrossSets()
-	generator.UpdateAllAnchors()
+	generator.ResetCrossesAndAnchors()
 
 	generator.GenAll(alphabet.RackFromString("?", alph), true)
 	// There should be 166 unique plays. Quackle does not generate all blank
@@ -408,8 +404,7 @@ func TestGenAllMovesTwoBlanksOnly(t *testing.T) {
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
 	bd.SetToGame(gd.GetAlphabet(), board.VsEd)
-	generator.GenerateAllCrossSets()
-	generator.UpdateAllAnchors()
+	generator.ResetCrossesAndAnchors()
 
 	generator.GenAll(alphabet.RackFromString("??", alph), true)
 	// Quackle generates 1827 unique plays. (my movegen generates 1958)
@@ -436,8 +431,7 @@ func TestGenAllMovesWithBlanks(t *testing.T) {
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
 	bd.SetToGame(gd.GetAlphabet(), board.VsJeremy)
-	generator.GenerateAllCrossSets()
-	generator.UpdateAllAnchors()
+	generator.ResetCrossesAndAnchors()
 
 	generator.GenAll(alphabet.RackFromString("DDESW??", alph), false)
 	// If I do DDESW? in quackle i generate 1483 moves. My movegen generates
@@ -475,8 +469,7 @@ func TestGiantTwentySevenTimer(t *testing.T) {
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
 	bd.SetToGame(gd.GetAlphabet(), board.VsOxy)
-	generator.GenerateAllCrossSets()
-	generator.UpdateAllAnchors()
+	generator.ResetCrossesAndAnchors()
 
 	generator.GenAll(alphabet.RackFromString("ABEOPXZ", alph), false)
 	assert.Equal(t, 519, len(scoringPlays(generator.plays)))
@@ -499,8 +492,7 @@ func TestGenerateEmptyBoard(t *testing.T) {
 		t.Error(err)
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
-	generator.GenerateAllCrossSets()
-	generator.UpdateAllAnchors()
+	generator.ResetCrossesAndAnchors()
 
 	generator.GenAll(alphabet.RackFromString("DEGORV?", alph), true)
 	assert.Equal(t, 3313, len(scoringPlays(generator.plays)))
@@ -523,8 +515,7 @@ func TestGenerateNoPlays(t *testing.T) {
 	}
 	generator := NewGordonGenerator(gd, bd, ld)
 	bd.SetToGame(gd.GetAlphabet(), board.VsJeremy)
-	generator.GenerateAllCrossSets()
-	generator.UpdateAllAnchors()
+	generator.ResetCrossesAndAnchors()
 
 	generator.GenAll(alphabet.RackFromString("V", alph), false)
 	// V won't play anywhere
@@ -548,8 +539,7 @@ func TestGenerateDupes(t *testing.T) {
 	generator := NewGordonGenerator(gd, bd, ld)
 
 	bd.SetToGame(gd.GetAlphabet(), board.TestDupe)
-	generator.GenerateAllCrossSets()
-	generator.UpdateAllAnchors()
+	generator.ResetCrossesAndAnchors()
 
 	generator.GenAll(alphabet.RackFromString("Z", alph), false)
 	s := scoringPlays(generator.plays)
@@ -611,8 +601,7 @@ func BenchmarkGenEmptyBoard(b *testing.B) {
 
 		bd := board.MakeBoard(board.CrosswordGameBoard)
 		generator := NewGordonGenerator(gd, bd, ld)
-		generator.GenerateAllCrossSets()
-		generator.UpdateAllAnchors()
+		generator.ResetCrossesAndAnchors()
 		generator.GenAll(alphabet.RackFromString("AEINRST", alph), true)
 	}
 }
@@ -637,8 +626,7 @@ func BenchmarkGenFullRack(b *testing.B) {
 
 		generator := NewGordonGenerator(gd, bd, ld)
 		bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
-		generator.GenerateAllCrossSets()
-		generator.UpdateAllAnchors()
+		generator.ResetCrossesAndAnchors()
 
 		generator.GenAll(alphabet.RackFromString("AABDELT", alph), true)
 	}
@@ -663,8 +651,7 @@ func BenchmarkGenOneBlank(b *testing.B) {
 
 		generator := NewGordonGenerator(gd, bd, ld)
 		bd.SetToGame(gd.GetAlphabet(), board.VsJeremy)
-		generator.GenerateAllCrossSets()
-		generator.UpdateAllAnchors()
+		generator.ResetCrossesAndAnchors()
 
 		generator.GenAll(alphabet.RackFromString("ADDESW?", alph), false)
 	}
@@ -689,8 +676,7 @@ func BenchmarkGenBothBlanks(b *testing.B) {
 
 		generator := NewGordonGenerator(gd, bd, ld)
 		bd.SetToGame(gd.GetAlphabet(), board.VsJeremy)
-		generator.GenerateAllCrossSets()
-		generator.UpdateAllAnchors()
+		generator.ResetCrossesAndAnchors()
 
 		generator.GenAll(alphabet.RackFromString("DDESW??", alph), false)
 	}

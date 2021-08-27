@@ -10,7 +10,7 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/cross_set"
+	"github.com/domino14/macondo/crosses"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/lexicon"
 	"github.com/domino14/macondo/move"
@@ -36,10 +36,10 @@ const (
 // AI players, human players, etc will play a game outside of the scope of
 // this module.
 type Game struct {
-	config      *config.Config
-	crossSetGen cross_set.Generator
-	lexicon     lexicon.Lexicon
-	alph        *alphabet.Alphabet
+	config   *config.Config
+	crossGen crosses.Generator
+	lexicon  lexicon.Lexicon
+	alph     *alphabet.Alphabet
 
 	// see backup.go. This additional state is not necessary.
 	addlState BackupableState
@@ -150,7 +150,7 @@ func NewGame(rules *GameRules, playerinfo []*pb.PlayerInfo) (*Game, error) {
 	game.addlState = NopAddlState{}
 	game.nextFirst = -1
 	game.board = rules.Board().Copy()
-	game.crossSetGen = rules.CrossSetGen()
+	game.crossGen = rules.CrossSetGen()
 	game.lexicon = rules.Lexicon()
 	game.config = rules.Config()
 	game.rules = rules
@@ -390,7 +390,13 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		ld := g.bag.LetterDistribution()
 		g.board.PlayMove(m, ld)
 		// Calculate cross-sets.
-		g.crossSetGen.UpdateForMove(g.board, g.boardCrossSets, m)
+		if g.addlState != nil {
+			// We are in a game that uses cross-sets (and other related state).
+			g.addlState.UpdateForMove(g.board, m)
+		} else {
+			// We are just using cross-scores, most likely.
+			g.crossGen.UpdateForMove(g.board, m)
+		}
 		score := m.Score()
 		if score != 0 {
 			g.scorelessTurns = 0
@@ -755,7 +761,11 @@ func (g *Game) playTurn(t int) error {
 
 		ld := g.bag.LetterDistribution()
 		g.board.PlayMove(m, ld)
-		g.crossSetGen.UpdateForMove(g.board, m)
+		if g.addlState != nil {
+			g.addlState.UpdateForMove(g.board, m)
+		} else {
+			g.crossGen.UpdateForMove(g.board, m)
+		}
 		g.players[g.onturn].points += m.Score()
 		if m.TilesPlayed() == 7 {
 			g.players[g.onturn].bingos++
@@ -992,7 +1002,6 @@ func (g *Game) FirstPlayer() *pb.PlayerInfo {
 }
 
 func (g *Game) RecalculateBoard() {
-	// Recalculate cross-sets and anchors for move generator
-	g.crossSetGen.GenerateAll(g.board)
-	// g.board.UpdateAllAnchors()
+	//Recalculate cross-sets and anchors for move generator
+	g.addlState.RecalculateFromBoard(g.board)
 }

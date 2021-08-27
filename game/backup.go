@@ -25,17 +25,19 @@ const (
 // BackupableState is a state that can be backed up along with the rest of the board.
 // It can be updated from a move.
 type BackupableState interface {
-	CopyFrom(b BackupableState)
-	Copy() BackupableState
+	CopyFrom(b BackupableState, g *board.GameBoard)
+	Copy(*board.GameBoard) BackupableState
 	UpdateForMove(b *board.GameBoard, m *move.Move)
+	RecalculateFromBoard(b *board.GameBoard)
 }
 
 // NopAddlState implements BackupableState and does nothing
 type NopAddlState struct{}
 
-func (n NopAddlState) CopyFrom(b BackupableState)                     {}
-func (n NopAddlState) Copy() BackupableState                          { return NopAddlState{} }
+func (n NopAddlState) CopyFrom(b BackupableState, g *board.GameBoard) {}
+func (n NopAddlState) Copy(*board.GameBoard) BackupableState          { return NopAddlState{} }
 func (n NopAddlState) UpdateForMove(b *board.GameBoard, m *move.Move) {}
+func (n NopAddlState) RecalculateFromBoard(b *board.GameBoard)        {}
 
 // stateBackup is a subset of Game, meant only for backup purposes.
 type stateBackup struct {
@@ -66,7 +68,7 @@ func (g *Game) backupState() {
 	st.playing = g.playing
 	st.scorelessTurns = g.scorelessTurns
 	st.players.copyFrom(g.players)
-	st.addlState.CopyFrom(g.addlState)
+	st.addlState.CopyFrom(g.addlState, st.board)
 	if g.backupMode == SimulationMode {
 		st.onturn = g.onturn
 		st.turnnum = g.turnnum
@@ -113,13 +115,14 @@ func (g *Game) SetStateStackLength(length int) {
 	for idx := range g.stateStack {
 		// Initialize each element of the stack now to avoid having
 		// allocations and GC.
+		bc := g.board.Copy()
 		g.stateStack[idx] = &stateBackup{
-			board:          g.board.Copy(),
+			board:          bc,
 			bag:            g.bag.Copy(),
 			playing:        g.playing,
 			scorelessTurns: g.scorelessTurns,
 			players:        copyPlayers(g.players),
-			addlState:      g.addlState.Copy(),
+			addlState:      g.addlState.Copy(bc),
 		}
 	}
 }
@@ -145,7 +148,7 @@ func (g *Game) UnplayLastMove() {
 
 	g.board.CopyFrom(b.board)
 	g.bag.CopyFrom(b.bag)
-	g.addlState.CopyFrom(b.addlState)
+	g.addlState.CopyFrom(b.addlState, b.board)
 	g.playing = b.playing
 	g.players.copyFrom(b.players)
 	g.scorelessTurns = b.scorelessTurns
@@ -166,7 +169,7 @@ func (g *Game) ResetToFirstState() {
 	g.playing = b.playing
 	g.players.copyFrom(b.players)
 	g.scorelessTurns = b.scorelessTurns
-	g.addlState.CopyFrom(b.addlState)
+	g.addlState.CopyFrom(b.addlState, g.board)
 }
 
 // Copy creates a deep copy of Game for the most part. The lexicon and
@@ -174,16 +177,17 @@ func (g *Game) ResetToFirstState() {
 // The history is not copied because this only changes with the main Game,
 // and not these copies.
 func (g *Game) Copy() *Game {
+	boardCopy := g.board.Copy()
 
 	copy := &Game{
 		config:         g.config,
 		onturn:         g.onturn,
 		turnnum:        g.turnnum,
-		board:          g.board.Copy(),
+		board:          boardCopy,
 		bag:            g.bag.Copy(),
-		addlState:      g.addlState.Copy(),
+		addlState:      g.addlState.Copy(boardCopy),
 		lexicon:        g.lexicon,
-		crossSetGen:    g.crossSetGen,
+		crossGen:       g.crossGen,
 		alph:           g.alph,
 		playing:        g.playing,
 		scorelessTurns: g.scorelessTurns,

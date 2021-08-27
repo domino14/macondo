@@ -119,6 +119,24 @@ func (bcs *BoardCrossSets) SetAll() {
 	}
 }
 
+func (bcs *BoardCrossSets) CopyFrom(other *BoardCrossSets, b *board.GameBoard) {
+	bcs.board = b
+	// Assume they're already the same length.
+	for i := 0; i < len(bcs.hcrossSets); i++ {
+		bcs.hcrossSets[i] = other.hcrossSets[i]
+		bcs.vcrossSets[i] = other.vcrossSets[i]
+	}
+}
+
+func (bcs *BoardCrossSets) Copy(b *board.GameBoard) *BoardCrossSets {
+	o := MakeBoardCrossSets(b)
+	for i := 0; i < len(bcs.hcrossSets); i++ {
+		o.hcrossSets[i] = bcs.hcrossSets[i]
+		o.vcrossSets[i] = bcs.vcrossSets[i]
+	}
+	return o
+}
+
 func (bcs *BoardCrossSets) Equals(other *BoardCrossSets) bool {
 	if len(bcs.hcrossSets) != len(other.hcrossSets) {
 		return false
@@ -157,37 +175,61 @@ func MakeBoardCrossSets(board *board.GameBoard) *BoardCrossSets {
 type GaddagCrossSetGenerator struct {
 	Dist   *alphabet.LetterDistribution
 	Gaddag gaddag.GenericDawg
+	CS     *BoardCrossSets
 }
 
-func (g GaddagCrossSetGenerator) Generate(b *board.GameBoard, cs crosses.Crosser, row int, col int, dir board.BoardDirection) {
-	GenCrossSet(b, cs, row, col, dir, g.Gaddag, g.Dist)
+func (g *GaddagCrossSetGenerator) Generate(b *board.GameBoard, row int, col int, dir board.BoardDirection) {
+	GenCrossSet(b, g.CS, row, col, dir, g.Gaddag, g.Dist)
 }
 
-func (g GaddagCrossSetGenerator) GenerateAll(b *board.GameBoard, cs crosses.Crosser) {
-	crosses.GenerateAll(g, b, cs)
+func (g *GaddagCrossSetGenerator) GenerateAll(b *board.GameBoard) {
+	// Shortcut if board has nothing on it.
+	if b.TilesPlayed() == 0 {
+		g.CS.SetAll()
+		return
+	}
+	crosses.GenerateAll(g, b, g.CS)
 }
 
-func (g GaddagCrossSetGenerator) UpdateForMove(b *board.GameBoard, cs crosses.Crosser, m *move.Move) {
-	crosses.UpdateForMove(g, b, cs, m)
+func (g *GaddagCrossSetGenerator) UpdateForMove(b *board.GameBoard, m *move.Move) {
+	crosses.UpdateForMove(g, b, g.CS, m)
+}
+
+func (g *GaddagCrossSetGenerator) CopyFrom(other *GaddagCrossSetGenerator, b *board.GameBoard) {
+	// The first two can just be shallow copies.
+	g.Dist = other.Dist
+	g.Gaddag = other.Gaddag
+	g.CS.CopyFrom(other.CS, b)
+}
+
+func (g *GaddagCrossSetGenerator) Copy(b *board.GameBoard) *GaddagCrossSetGenerator {
+	return &GaddagCrossSetGenerator{
+		Dist:   g.Dist,
+		Gaddag: g.Gaddag,
+		CS:     g.CS.Copy(b),
+	}
+}
+
+func MakeGaddagCrossSetGenerator(b *board.GameBoard, gd gaddag.GenericDawg,
+	dist *alphabet.LetterDistribution) *GaddagCrossSetGenerator {
+	return &GaddagCrossSetGenerator{
+		Dist:   dist,
+		Gaddag: gd,
+		CS:     MakeBoardCrossSets(b),
+	}
 }
 
 // Wrapper functions to save rewriting all the tests
 
 func GenAllCrossSets(b *board.GameBoard, cs *BoardCrossSets, gd gaddag.GenericDawg, ld *alphabet.LetterDistribution) {
-	// Shortcut if board has nothing on it.
-	if b.TilesPlayed() == 0 {
-		cs.SetAll()
-		return
-	}
-
-	gen := GaddagCrossSetGenerator{Dist: ld, Gaddag: gd}
-	gen.GenerateAll(b, cs)
+	gen := GaddagCrossSetGenerator{Dist: ld, Gaddag: gd, CS: cs}
+	gen.GenerateAll(b)
 }
 
 func UpdateCrossSetsForMove(b *board.GameBoard, cs *BoardCrossSets, m *move.Move,
 	gd gaddag.GenericDawg, ld *alphabet.LetterDistribution) {
 	gen := GaddagCrossSetGenerator{Dist: ld, Gaddag: gd}
-	gen.UpdateForMove(b, cs, m)
+	gen.UpdateForMove(b, m)
 }
 
 // ----------------------------------------------------------------------

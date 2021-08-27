@@ -114,10 +114,10 @@ func modifyForPlaythrough(tiles alphabet.MachineWord, board *board.GameBoard,
 		if tiles[idx] != alphabet.PlayedThroughMarker {
 			// log.Debug().Int("ml", int(tiles[idx])).Msg("not playthru")
 			// This is either a tile we are placing or a tile on the board.
-			if !board.GetSquare(currow, curcol).IsEmpty() {
+			if board.HasLetter(currow, curcol) {
 				// We specified a tile on the board already. Make sure
 				// that it's the same tile we specified.
-				onboard := board.GetSquare(currow, curcol).Letter()
+				onboard := board.GetLetter(currow, curcol)
 				if onboard != tiles[idx] && onboard.Unblank() != tiles[idx].Unblank() {
 					return fmt.Errorf("the play-through tile is incorrect (board %v, specified %v)",
 						int(onboard), int(tiles[idx]))

@@ -6,7 +6,7 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/cross_set"
+	"github.com/domino14/macondo/crosses"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/lexicon"
 )
@@ -30,7 +30,7 @@ type GameRules struct {
 	board       *board.GameBoard
 	dist        *alphabet.LetterDistribution
 	lexicon     lexicon.Lexicon
-	crossSetGen cross_set.Generator
+	crossSetGen crosses.Generator
 	variant     Variant
 	boardname   string
 	distname    string
@@ -64,7 +64,7 @@ func (g GameRules) LetterDistributionName() string {
 	return g.distname
 }
 
-func (g GameRules) CrossSetGen() cross_set.Generator {
+func (g GameRules) CrossSetGen() crosses.Generator {
 	return g.crossSetGen
 }
 
@@ -90,7 +90,7 @@ func NewBasicGameRules(cfg *config.Config,
 	}
 
 	var lex lexicon.Lexicon
-	var csgen cross_set.Generator
+	var csgen crosses.Generator
 	switch csetGenName {
 	case CrossScoreOnly:
 		// just use dawg
@@ -103,7 +103,7 @@ func NewBasicGameRules(cfg *config.Config,
 			}
 			lex = &gaddag.Lexicon{GenericDawg: dawg}
 		}
-		csgen = cross_set.CrossScoreOnlyGenerator{Dist: dist}
+		csgen = crosses.CrossScoreOnlyGenerator{Dist: dist}
 	case CrossScoreAndSet:
 		if lexiconName == "" {
 			return nil, errors.New("lexicon name is required for this cross-set option")
@@ -113,7 +113,9 @@ func NewBasicGameRules(cfg *config.Config,
 				return nil, err
 			}
 			lex = &gaddag.Lexicon{GenericDawg: gd}
-			csgen = cross_set.GaddagCrossSetGenerator{Dist: dist, Gaddag: gd}
+			// We don't instantiate the cross set generator here, because
+			// we need to use other additional state.
+			csgen = nil // cross_set.GaddagCrossSetGenerator{Dist: dist, Gaddag: gd}
 		}
 	}
 

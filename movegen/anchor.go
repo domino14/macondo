@@ -169,3 +169,21 @@ func (a *Anchors) UpdateAnchorsForMove(m *move.Move) {
 		a.updateAnchors(row, col+len(m.Tiles()), vertical)
 	}
 }
+
+func (a *Anchors) CopyFrom(other *Anchors, b *board.GameBoard) {
+	// boards are already copied separately. Keep the pointer the same here.
+	a.board = b
+	for i := 0; i < len(a.hanchors); i++ {
+		a.hanchors[i] = other.hanchors[i]
+		a.vanchors[i] = other.vanchors[i]
+	}
+}
+
+func (a *Anchors) Copy(b *board.GameBoard) *Anchors {
+	n := MakeAnchors(b)
+	for i := 0; i < len(n.hanchors); i++ {
+		n.hanchors[i] = a.hanchors[i]
+		n.vanchors[i] = a.vanchors[i]
+	}
+	return n
+}

@@ -57,12 +57,12 @@ func TestUpdateCrossSetsAndAnchorsForMove(t *testing.T) {
 		b.SetToGame(alph, tc.testGame)
 		bcs := cross_set.MakeBoardCrossSets(b)
 		a := movegen.MakeAnchors(b)
-
-		gen.GenerateAll(b, bcs)
+		gen.CS = bcs
+		gen.GenerateAll(b)
 		a.UpdateAllAnchors()
 
 		b.PlayMove(tc.m, dist)
-		gen.UpdateForMove(b, bcs, tc.m)
+		gen.UpdateForMove(b, tc.m)
 		a.UpdateAnchorsForMove(tc.m)
 		log.Println(b.ToDisplayText(alph))
 		// Create an identical board, but generate cross-sets and anchors
@@ -124,11 +124,11 @@ func TestUpdateCrossScoresForMove(t *testing.T) {
 		b.SetToGame(alph, tc.testGame)
 		a := movegen.MakeAnchors(b)
 
-		gen.GenerateAll(b, nil)
+		gen.GenerateAll(b)
 		a.UpdateAllAnchors()
 
 		b.PlayMove(tc.m, dist)
-		gen.UpdateForMove(b, nil, tc.m)
+		gen.UpdateForMove(b, tc.m)
 
 		// Create an identical board, but generate cross-sets for the entire
 		// board after placing the letters "manually".
@@ -208,22 +208,22 @@ func TestCompareUpdate(t *testing.T) {
 		// Run the cross set generator on b1
 		b1 := board.MakeBoard(board.CrosswordGameBoard)
 		b1.SetToGame(alph, tc.testGame)
-		bcs := cross_set.MakeBoardCrossSets(b1)
-		gen1.GenerateAll(b1, bcs)
+		gen1.CS = cross_set.MakeBoardCrossSets(b1)
+		gen1.GenerateAll(b1)
 		a := movegen.MakeAnchors(b1)
 		a.UpdateAllAnchors()
 
 		b1.PlayMove(tc.m, dist)
-		gen1.UpdateForMove(b1, bcs, tc.m)
+		gen1.UpdateForMove(b1, tc.m)
 
 		// Run the cross score generator on b2
 		b2 := board.MakeBoard(board.CrosswordGameBoard)
 		b2.SetToGame(alph, tc.testGame)
-		gen2.GenerateAll(b2, nil)
+		gen2.GenerateAll(b2)
 		a2 := movegen.MakeAnchors(b2)
 		a2.UpdateAllAnchors()
 		b2.PlayMove(tc.m, dist)
-		gen2.UpdateForMove(b2, nil, tc.m)
+		gen2.UpdateForMove(b2, tc.m)
 
 		compareCrossScores(t, b1, b2)
 	}
@@ -307,8 +307,8 @@ func BenchmarkMakePlay(b *testing.B) {
 	alph := dist.Alphabet()
 	bd := board.MakeBoard(board.CrosswordGameBoard)
 	bd.SetToGame(alph, board.VsMatt)
-	bcs := cross_set.MakeBoardCrossSets(bd)
-	gen.GenerateAll(bd, bcs)
+	gen.CS = cross_set.MakeBoardCrossSets(bd)
+	gen.GenerateAll(bd)
 	a := movegen.MakeAnchors(bd)
 	a.UpdateAllAnchors()
 
@@ -327,7 +327,7 @@ func BenchmarkMakePlay(b *testing.B) {
 	// seems worth it.
 	for i := 0; i < b.N; i++ {
 		bd.PlayMove(m, dist)
-		gen.UpdateForMove(bd, bcs, m)
+		gen.UpdateForMove(bd, m)
 		a.UpdateAnchorsForMove(m)
 	}
 
