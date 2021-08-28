@@ -155,10 +155,10 @@ func NewGame(rules *GameRules, playerinfo []*pb.PlayerInfo) (*Game, error) {
 				UserId:   p.UserId,
 				RealName: p.RealName},
 		}
-		ids[p.UserId] = true
+		ids[p.Nickname] = true
 	}
 	if len(ids) < len(playerinfo) {
-		return nil, errors.New("all player ids must be unique")
+		return nil, errors.New("all player nicknames must be unique")
 	}
 	return game, nil
 }
