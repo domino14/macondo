@@ -147,6 +147,7 @@ func NewGame(rules *GameRules, playerinfo []*pb.PlayerInfo) (*Game, error) {
 	game.rules = rules
 
 	game.players = make([]*playerState, len(playerinfo))
+	ids := map[string]bool{}
 	for idx, p := range playerinfo {
 		game.players[idx] = &playerState{
 			PlayerInfo: pb.PlayerInfo{
@@ -154,8 +155,11 @@ func NewGame(rules *GameRules, playerinfo []*pb.PlayerInfo) (*Game, error) {
 				UserId:   p.UserId,
 				RealName: p.RealName},
 		}
+		ids[p.UserId] = true
 	}
-
+	if len(ids) < len(playerinfo) {
+		return nil, errors.New("all player ids must be unique")
+	}
 	return game, nil
 }
 
