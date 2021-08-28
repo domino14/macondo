@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/domino14/macondo/ai/player"
@@ -160,6 +161,10 @@ func (g *AIGameRunner) GenerateMoves(numPlays int) []*move.Move {
 	g.aiplayer.AssignEquity(plays, g.Board(), g.Bag(), oppRack)
 
 	if numPlays == 1 {
+		// Plays aren't sorted yet
+		sort.Slice(plays, func(i, j int) bool {
+			return plays[j].Equity() < plays[i].Equity()
+		})
 		// Filters the plays here based on bot type
 		dist := g.Bag().LetterDistribution()
 		subChooseCombos := createSubCombos(dist)
