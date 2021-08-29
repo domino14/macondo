@@ -12,7 +12,9 @@ import (
 
 var BotTypeMoveFilterMap = map[pb.BotRequest_BotCode]func(*config.Config, []string, []uint64, pb.BotRequest_BotCode) (bool, error){
 	pb.BotRequest_HASTY_BOT:            noFilter,
-	pb.BotRequest_CEL_BOT:              celFilter,
+	pb.BotRequest_LEVEL1_CEL_BOT:       celFilter,
+	pb.BotRequest_LEVEL2_CEL_BOT:       celFilter,
+	pb.BotRequest_LEVEL3_CEL_BOT:       celFilter,
 	pb.BotRequest_LEVEL1_PROBABILISTIC: findabilityFilter,
 	pb.BotRequest_LEVEL2_PROBABILISTIC: findabilityFilter,
 	pb.BotRequest_LEVEL3_PROBABILISTIC: findabilityFilter,
@@ -21,6 +23,9 @@ var BotTypeMoveFilterMap = map[pb.BotRequest_BotCode]func(*config.Config, []stri
 }
 
 var BotFindabilities = map[pb.BotRequest_BotCode]float64{
+	pb.BotRequest_LEVEL1_CEL_BOT:       0.25,
+	pb.BotRequest_LEVEL2_CEL_BOT:       0.5,
+	pb.BotRequest_LEVEL3_CEL_BOT:       0.75,
 	pb.BotRequest_LEVEL1_PROBABILISTIC: 0.4,
 	pb.BotRequest_LEVEL2_PROBABILISTIC: 0.5,
 	pb.BotRequest_LEVEL3_PROBABILISTIC: 0.6,
@@ -29,6 +34,9 @@ var BotFindabilities = map[pb.BotRequest_BotCode]float64{
 }
 
 var BotParallelFindabilities = map[pb.BotRequest_BotCode]float64{
+	pb.BotRequest_LEVEL1_CEL_BOT:       0.25,
+	pb.BotRequest_LEVEL2_CEL_BOT:       0.5,
+	pb.BotRequest_LEVEL3_CEL_BOT:       0.75,
 	pb.BotRequest_LEVEL1_PROBABILISTIC: 0.4,
 	pb.BotRequest_LEVEL2_PROBABILISTIC: 0.5,
 	pb.BotRequest_LEVEL3_PROBABILISTIC: 0.6,
@@ -54,7 +62,7 @@ func celFilter(cfg *config.Config, words []string, combos []uint64, findability 
 			return false, nil
 		}
 	}
-	return true, nil
+	return findabilityFilter(cfg, words, combos, findability)
 }
 
 func findabilityFilter(cfg *config.Config, words []string, combos []uint64, findability pb.BotRequest_BotCode) (bool, error) {

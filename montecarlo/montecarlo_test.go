@@ -11,6 +11,7 @@ import (
 	"github.com/matryer/is"
 
 	"github.com/domino14/macondo/ai/player"
+	airunner "github.com/domino14/macondo/ai/runner"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
@@ -19,7 +20,6 @@ import (
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/movegen"
-	"github.com/domino14/macondo/runner"
 	"github.com/domino14/macondo/strategy"
 )
 
@@ -51,7 +51,7 @@ func TestSimSingleIteration(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, err := runner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
+	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
 		"NWL18", "English")
 	is.NoErr(err)
 	game, err := game.NewGame(rules, players)
@@ -102,7 +102,7 @@ func TestLongerSim(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, err := runner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
+	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
 		"NWL18", "English")
 	is.NoErr(err)
 	game, err := game.NewGame(rules, players)

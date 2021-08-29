@@ -8,6 +8,7 @@ import (
 
 	"github.com/matryer/is"
 
+	airunner "github.com/domino14/macondo/ai/runner"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
@@ -17,7 +18,6 @@ import (
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	"github.com/domino14/macondo/movegen"
-	"github.com/domino14/macondo/runner"
 
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
@@ -41,7 +41,7 @@ func TestMain(m *testing.M) {
 func setUpSolver(lex string, bvs board.VsWho, plies int, rack1, rack2 string,
 	p1pts, p2pts int, onTurn int) (*Solver, error) {
 
-	rules, err := runner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
+	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
 		lex, DefaultConfig.DefaultLetterDistribution)
 
 	if err != nil {
@@ -677,7 +677,7 @@ func TestProperIterativeDeepening(t *testing.T) {
 	is := is.New(t)
 	// Should get the same result with 7 or 8 plies.
 	plyCount := []int{7, 8}
-	rules, err := runner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
+	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
 		"NWL18", "English")
 	is.NoErr(err)
 	for _, plies := range plyCount {
@@ -723,7 +723,7 @@ func TestFromGCG(t *testing.T) {
 	plies := 3
 	is := is.New(t)
 
-	rules, err := runner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
+	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
 		"CSW19", "English")
 
 	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../../gcgio/testdata/vs_frentz.gcg")
