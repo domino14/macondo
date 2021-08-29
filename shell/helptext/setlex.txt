@@ -30,4 +30,4 @@ set the following environment variables before running this program:
     DEFAULT_LEXICON
     DEFAULT_LETTER_DISTRIBUTION
 
-For example: DEFAULT_LEXICON=CSW19 ./macondo
+For example: DEFAULT_LEXICON=CSW19 ./bin/shell

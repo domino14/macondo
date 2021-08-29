@@ -19,6 +19,7 @@ import (
 	"github.com/chzyer/readline"
 	"github.com/rs/zerolog/log"
 
+	airunner "github.com/domino14/macondo/ai/runner"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/automatic"
 	"github.com/domino14/macondo/config"
@@ -90,7 +91,7 @@ type ShellController struct {
 
 	options *ShellOptions
 
-	game *runner.AIGameRunner
+	game *airunner.AIGameRunner
 
 	simmer        *montecarlo.Simmer
 	simCtx        context.Context
@@ -287,7 +288,7 @@ func (sc *ShellController) loadGCG(args []string) error {
 	}
 	// ignore variant for now, until AI/bot can play other variants
 	boardLayout, ldName, _ := game.HistoryToVariant(history)
-	rules, err := runner.NewAIGameRules(sc.config, boardLayout, lexicon, ldName)
+	rules, err := airunner.NewAIGameRules(sc.config, boardLayout, lexicon, ldName)
 	if err != nil {
 		return err
 	}
@@ -295,7 +296,7 @@ func (sc *ShellController) loadGCG(args []string) error {
 	if err != nil {
 		return err
 	}
-	sc.game, err = runner.NewAIGameRunnerFromGame(g, sc.config, pb.BotRequest_HASTY_BOT)
+	sc.game, err = airunner.NewAIGameRunnerFromGame(g, sc.config, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return err
 	}
@@ -525,6 +526,7 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 	var logfile, lexicon, letterDistribution, leavefile1, leavefile2, pegfile1, pegfile2 string
 	var numgames int
 	var block bool
+	var botcode1, botcode2 pb.BotRequest_BotCode
 	if options["logfile"] == "" {
 		logfile = "/tmp/autoplay.txt"
 	} else {
@@ -560,6 +562,17 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 	} else {
 		pegfile2 = options["pegfile2"]
 	}
+	if options["botcode1"] == "" {
+		botcode1 = pb.BotRequest_HASTY_BOT
+	} else {
+		botcode1 = pb.BotRequest_BotCode(pb.BotRequest_BotCode_value[options["botcode1"]])
+	}
+	if options["botcode2"] == "" {
+		botcode2 = pb.BotRequest_HASTY_BOT
+	} else {
+		botcode2 = pb.BotRequest_BotCode(pb.BotRequest_BotCode_value[options["botcode2"]])
+	}
+
 	if options["numgames"] == "" {
 		numgames = 1e9
 	} else {
@@ -598,7 +611,8 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 	sc.showMessage("automatic game runner will log to " + logfile)
 	sc.gameRunnerCtx, sc.gameRunnerCancel = context.WithCancel(context.Background())
 	err := automatic.StartCompVCompStaticGames(sc.gameRunnerCtx, sc.config, numgames, block, runtime.NumCPU(),
-		logfile, player1, player2, lexicon, letterDistribution, leavefile1, leavefile2, pegfile1, pegfile2)
+		logfile, player1, player2, lexicon, letterDistribution, leavefile1, leavefile2, pegfile1, pegfile2,
+		botcode1, botcode2)
 	if err != nil {
 		return err
 	}

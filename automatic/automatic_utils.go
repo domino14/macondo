@@ -30,7 +30,7 @@ func init() {
 
 // CompVsCompStatic plays out a game to the end using best static turns.
 func (r *GameRunner) CompVsCompStatic() error {
-	err := r.Init("exhaustiveleave", "exhaustiveleave", "", "", "", "")
+	err := r.Init("exhaustiveleave", "exhaustiveleave", "", "", "", "", pb.BotRequest_HASTY_BOT, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return err
 	}
@@ -64,7 +64,7 @@ type Job struct{}
 
 func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	numGames int, block bool, threads int, outputFilename, player1, player2, lexicon, letterDistribution,
-	leavefile1, leavefile2, pegfile1, pegfile2 string) error {
+	leavefile1, leavefile2, pegfile1, pegfile2 string, botcode1, botcode2 pb.BotRequest_BotCode) error {
 	for _, p := range []string{player1, player2} {
 		if p != ExhaustiveLeavePlayer && p != NoLeavePlayer {
 			return errors.New("unhandled player type")
@@ -104,7 +104,7 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 			defer wg.Done()
 			r := GameRunner{logchan: logChan, gamechan: gameChan,
 				config: cfg, lexicon: lexicon, letterDistribution: letterDistribution}
-			err := r.Init(player1, player2, leavefile1, leavefile2, pegfile1, pegfile2)
+			err := r.Init(player1, player2, leavefile1, leavefile2, pegfile1, pegfile2, botcode1, botcode2)
 			if err != nil {
 				log.Err(err).Msg("error initializing runner")
 				return
@@ -120,7 +120,7 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	}
 
 	go func() {
-	defer fwg.Done()
+		defer fwg.Done()
 	gameLoop:
 		for i := 1; i < numGames+1; i++ {
 			jobs <- Job{}
