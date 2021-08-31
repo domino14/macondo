@@ -72,11 +72,17 @@ func celFilter(cfg *config.Config, words []string, combos []uint64, findability 
 func findabilityFilter(cfg *config.Config, words []string, combos []uint64, findability pb.BotRequest_BotCode) (bool, error) {
 	finalProbableFindability := 1.0
 	finalParallelFindability := 1.0
+
 	parallelFindabilityConstant, exists := BotParallelFindabilities[findability]
 	if !exists {
-		return fmt.Errorf("filter for bot %s does not exist", pb.BotRequest_BotCode_name[int32(findability)])
+		return false, fmt.Errorf("parallel findability for bot %s does not exist", pb.BotRequest_BotCode_name[int32(findability)])
 	}
+
 	findabilityConstant, exists := BotFindabilities[findability]
+	if !exists {
+		return false, fmt.Errorf("findability for bot %s does not exist", pb.BotRequest_BotCode_name[int32(findability)])
+	}
+
 	for i, word := range words {
 		wordLength := len(word)
 		if i == 0 && (wordLength >= 7) {
