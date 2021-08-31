@@ -56,7 +56,7 @@ func celFilter(cfg *config.Config, words []string, combos []uint64, findability 
 	for _, word := range words {
 		isPhony, err := isPhony(gd, word)
 		if err != nil {
-			return false, nil
+			return false, err
 		}
 		if isPhony {
 			return false, nil
