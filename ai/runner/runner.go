@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/rs/zerolog/log"
@@ -109,46 +110,53 @@ func GenerateMoves(g *game.Game, aiplayer player.AIPlayer, gen movegen.MoveGener
 
 	// Assign equity to plays, and return the top ones.
 	aiplayer.AssignEquity(plays, g.Board(), g.Bag(), oppRack)
+	botType := aiplayer.GetBotType()
+	if numPlays == 1 && botType != pb.BotRequest_HASTY_BOT {
+		botTypeFilter, exists := BotTypeMoveFilterMap[botType]
+		// Check for existence here to avoid nil pointer errors
+		// when we call this function later
+		if !exists {
+			log.Err(fmt.Errorf("filter for bot %s does not exist", pb.BotRequest_BotCode_name[int32(botType)])).Msg("bot-type-move-filter-not-present")
+		} else {
+			// Plays aren't sorted yet
+			sort.Slice(plays, func(i, j int) bool {
+				return plays[j].Equity() < plays[i].Equity()
+			})
+			// Filters the plays here based on bot type
+			dist := g.Bag().LetterDistribution()
+			// XXX: this should be cached:
+			subChooseCombos := createSubCombos(dist)
+			var wordsFormed []string
+			var wordsNumCombinations []uint64
+			for idx, play := range plays {
+				if play.Action() == move.MoveTypePlay {
+					machineWords, err := g.Board().FormedWords(play)
+					if err != nil {
+						log.Err(err).Msg("formed-words-error")
+						break
+					}
+					wordsFormed = make([]string, len(machineWords))
+					wordsNumCombinations = make([]uint64, len(machineWords))
+					for i, mw := range machineWords {
+						word := mw.UserVisible(g.Alphabet())
+						wordsFormed[i] = word
+						wordsNumCombinations[i] = combinations(dist, subChooseCombos, word, true)
+					}
+				}
 
-	if numPlays == 1 && aiplayer.GetBotType() != pb.BotRequest_HASTY_BOT {
-		// Plays aren't sorted yet
-		sort.Slice(plays, func(i, j int) bool {
-			return plays[j].Equity() < plays[i].Equity()
-		})
-		// Filters the plays here based on bot type
-		dist := g.Bag().LetterDistribution()
-		// XXX: this should be cached:
-		subChooseCombos := createSubCombos(dist)
-		var wordsFormed []string
-		var wordsNumCombinations []uint64
-		for idx, play := range plays {
-			if play.Action() == move.MoveTypePlay {
-				machineWords, err := g.Board().FormedWords(play)
+				allowed, err := botTypeFilter(cfg, wordsFormed, wordsNumCombinations, botType)
 				if err != nil {
-					log.Err(err).Msg("formed-words-error")
+					log.Err(err).Msg("bot-type-move-filter-internal")
 					break
 				}
-				wordsFormed = make([]string, len(machineWords))
-				wordsNumCombinations = make([]uint64, len(machineWords))
-				for i, mw := range machineWords {
-					word := mw.UserVisible(g.Alphabet())
-					wordsFormed[i] = word
-					wordsNumCombinations[i] = combinations(dist, subChooseCombos, word, true)
+				if allowed {
+					return []*move.Move{play}
 				}
-			}
-
-			allowed, err := BotTypeMoveFilterMap[aiplayer.GetBotType()](cfg, wordsFormed, wordsNumCombinations, aiplayer.GetBotType())
-			if err != nil {
-				log.Err(err).Msg("bot-type-move-filter")
-				break
-			}
-			if allowed {
-				return []*move.Move{play}
-			}
-			// If we are all the way at the end we must pick a play, so pick
-			// the worst play and move on.
-			if idx == len(plays)-1 {
-				return []*move.Move{play}
+				// If we are all the way at the end we must pick a play, so pick
+				// the worst play and move on.
+				if idx == len(plays)-1 {
+					return []*move.Move{play}
+				}
 			}
 		}
 	}

@@ -10,11 +10,12 @@ import (
 	"lukechampine.com/frand"
 )
 
+// HastyBot not listed because it does not need a filter
 var BotTypeMoveFilterMap = map[pb.BotRequest_BotCode]func(*config.Config, []string, []uint64, pb.BotRequest_BotCode) (bool, error){
-	pb.BotRequest_HASTY_BOT:            noFilter,
 	pb.BotRequest_LEVEL1_CEL_BOT:       celFilter,
 	pb.BotRequest_LEVEL2_CEL_BOT:       celFilter,
 	pb.BotRequest_LEVEL3_CEL_BOT:       celFilter,
+	pb.BotRequest_LEVEL4_CEL_BOT:       celFilter,
 	pb.BotRequest_LEVEL1_PROBABILISTIC: findabilityFilter,
 	pb.BotRequest_LEVEL2_PROBABILISTIC: findabilityFilter,
 	pb.BotRequest_LEVEL3_PROBABILISTIC: findabilityFilter,
@@ -46,10 +47,6 @@ var BotParallelFindabilities = map[pb.BotRequest_BotCode]float64{
 	pb.BotRequest_LEVEL5_PROBABILISTIC: 0.85,
 }
 
-func noFilter(cfg *config.Config, words []string, combos []uint64, findability pb.BotRequest_BotCode) (bool, error) {
-	return true, nil
-}
-
 func celFilter(cfg *config.Config, words []string, combos []uint64, findability pb.BotRequest_BotCode) (bool, error) {
 	gd, err := gaddag.GetDawg(cfg, "ECWL")
 	if err != nil {
@@ -63,6 +60,10 @@ func celFilter(cfg *config.Config, words []string, combos []uint64, findability 
 		if isPhony {
 			return false, nil
 		}
+	}
+	// The Level 4 CEL bot is a true CEL bot, so do not filter
+	if findability == pb.BotRequest_LEVEL4_CEL_BOT {
+		return true, nil
 	}
 	return findabilityFilter(cfg, words, combos, findability)
 }
