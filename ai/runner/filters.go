@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/domino14/macondo/alphabet"
@@ -71,15 +72,20 @@ func celFilter(cfg *config.Config, words []string, combos []uint64, findability 
 func findabilityFilter(cfg *config.Config, words []string, combos []uint64, findability pb.BotRequest_BotCode) (bool, error) {
 	finalProbableFindability := 1.0
 	finalParallelFindability := 1.0
+	parallelFindabilityConstant, exists := BotParallelFindabilities[findability]
+	if !exists {
+		return fmt.Errorf("filter for bot %s does not exist", pb.BotRequest_BotCode_name[int32(findability)])
+	}
+	findabilityConstant, exists := BotFindabilities[findability]
 	for i, word := range words {
 		wordLength := len(word)
 		if i == 0 && (wordLength >= 7) {
 			finalProbableFindability = probableFindability(word, combos[i])
 		} else if i > 0 {
-			finalParallelFindability = finalParallelFindability * BotParallelFindabilities[findability]
+			finalParallelFindability = finalParallelFindability * parallelFindabilityConstant
 		}
 	}
-	finalFindability := finalProbableFindability * finalParallelFindability * BotFindabilities[findability]
+	finalFindability := finalProbableFindability * finalParallelFindability * findabilityConstant
 	return frand.Float64() < finalFindability, nil
 }
 
