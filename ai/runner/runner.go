@@ -75,18 +75,42 @@ func (g *AIGameRunner) MoveGenerator() movegen.MoveGenerator {
 	return g.gen
 }
 
+func (g *AIGameRunner) AssignEquity(plays []*move.Move, oppRack *alphabet.Rack) {
+	g.aiplayer.AssignEquity(plays, g.Board(), g.Bag(), oppRack)
+}
+
+func (g *AIGameRunner) AIPlayer() player.AIPlayer {
+	return g.aiplayer
+}
+
+func NewAIGameRules(cfg *config.Config, boardLayoutName string,
+	lexiconName string, letterDistributionName string) (*game.GameRules, error) {
+
+	// assume bot can only play classic for now. Modify if we can teach this
+	// bot to play other variants.
+	return game.NewBasicGameRules(
+		cfg, lexiconName, boardLayoutName, letterDistributionName,
+		game.CrossScoreAndSet,
+		game.VarClassic)
+}
+
 func (g *AIGameRunner) GenerateMoves(numPlays int) []*move.Move {
+	return GenerateMoves(&g.Game, g.aiplayer, g.gen, g.cfg, numPlays)
+}
+
+func GenerateMoves(g *game.Game, aiplayer player.AIPlayer, gen movegen.MoveGenerator,
+	cfg *config.Config, numPlays int) []*move.Move {
 	curRack := g.RackFor(g.PlayerOnTurn())
 	oppRack := g.RackFor(g.NextPlayer())
 
-	g.gen.GenAll(curRack, g.Bag().TilesRemaining() >= 7)
+	gen.GenAll(curRack, g.Bag().TilesRemaining() >= 7)
 
-	plays := g.gen.Plays()
+	plays := gen.Plays()
 
 	// Assign equity to plays, and return the top ones.
-	g.aiplayer.AssignEquity(plays, g.Board(), g.Bag(), oppRack)
+	aiplayer.AssignEquity(plays, g.Board(), g.Bag(), oppRack)
 
-	if numPlays == 1 && g.aiplayer.GetBotType() != pb.BotRequest_HASTY_BOT {
+	if numPlays == 1 && aiplayer.GetBotType() != pb.BotRequest_HASTY_BOT {
 		// Plays aren't sorted yet
 		sort.Slice(plays, func(i, j int) bool {
 			return plays[j].Equity() < plays[i].Equity()
@@ -113,7 +137,7 @@ func (g *AIGameRunner) GenerateMoves(numPlays int) []*move.Move {
 				}
 			}
 
-			allowed, err := BotTypeMoveFilterMap[g.aiplayer.GetBotType()](g.cfg, wordsFormed, wordsNumCombinations, g.aiplayer.GetBotType())
+			allowed, err := BotTypeMoveFilterMap[aiplayer.GetBotType()](cfg, wordsFormed, wordsNumCombinations, aiplayer.GetBotType())
 			if err != nil {
 				log.Err(err).Msg("bot-type-move-filter")
 				break
@@ -129,24 +153,5 @@ func (g *AIGameRunner) GenerateMoves(numPlays int) []*move.Move {
 		}
 	}
 
-	return g.aiplayer.TopPlays(plays, numPlays)
-}
-
-func (g *AIGameRunner) AssignEquity(plays []*move.Move, oppRack *alphabet.Rack) {
-	g.aiplayer.AssignEquity(plays, g.Board(), g.Bag(), oppRack)
-}
-
-func (g *AIGameRunner) AIPlayer() player.AIPlayer {
-	return g.aiplayer
-}
-
-func NewAIGameRules(cfg *config.Config, boardLayoutName string,
-	lexiconName string, letterDistributionName string) (*game.GameRules, error) {
-
-	// assume bot can only play classic for now. Modify if we can teach this
-	// bot to play other variants.
-	return game.NewBasicGameRules(
-		cfg, lexiconName, boardLayoutName, letterDistributionName,
-		game.CrossScoreAndSet,
-		game.VarClassic)
+	return aiplayer.TopPlays(plays, numPlays)
 }

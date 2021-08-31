@@ -17,6 +17,7 @@ import (
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/strategy"
+	"github.com/rs/zerolog/log"
 
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
@@ -51,10 +52,7 @@ func NewGameRunner(logchan chan string, config *config.Config) *GameRunner {
 // Init initializes the runner
 func (r *GameRunner) Init(player1, player2, leavefile1, leavefile2, pegfile1, pegfile2 string,
 	botcode1, botcode2 pb.BotRequest_BotCode) error {
-	// XXX: there should be a data structure for the combination
-	// of a lexicon and a letter distribution. For now the following
-	// will not work for non-english lexicons, so this needs to be fixed
-	// in the future.
+
 	rules, err := airunner.NewAIGameRules(r.config, board.CrosswordGameLayout,
 		r.lexicon, r.letterDistribution)
 	if err != nil {
@@ -99,6 +97,7 @@ func (r *GameRunner) Init(player1, player2, leavefile1, leavefile2, pegfile1, pe
 			pegfile = pegfile2
 			botcode = botcode2
 		}
+		log.Info().Msgf("botcode %v", botcode)
 		if strings.HasPrefix(pinfo.RealName, ExhaustiveLeavePlayer) {
 			strat, err = strategy.NewExhaustiveLeaveStrategy(r.gaddag.LexiconName(),
 				r.alphabet, r.config, leavefile, pegfile)
@@ -122,10 +121,15 @@ func (r *GameRunner) genBestStaticTurn(playerIdx int) *move.Move {
 	return player.GenBestStaticTurn(r.game, r.movegen, r.aiplayers[playerIdx], playerIdx)
 }
 
+func (r *GameRunner) genBestMoveForBot(playerIdx int) *move.Move {
+	return airunner.GenerateMoves(
+		r.game, r.aiplayers[playerIdx], r.movegen, r.config, 1)[0]
+}
+
 // PlayBestStaticTurn generates the best static move for the player and
 // plays it on the board.
 func (r *GameRunner) PlayBestStaticTurn(playerIdx int) {
-	bestPlay := r.genBestStaticTurn(playerIdx)
+	bestPlay := r.genBestMoveForBot(playerIdx)
 	// save rackLetters for logging.
 	rackLetters := r.game.RackLettersFor(playerIdx)
 	tilesRemaining := r.game.Bag().TilesRemaining()

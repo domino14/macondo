@@ -22,26 +22,28 @@ var BotTypeMoveFilterMap = map[pb.BotRequest_BotCode]func(*config.Config, []stri
 	pb.BotRequest_LEVEL5_PROBABILISTIC: findabilityFilter,
 }
 
+// Note: because of the nature of this algorithm, the lower these numbers, the
+// more time the bot will take to find its move.
 var BotFindabilities = map[pb.BotRequest_BotCode]float64{
-	pb.BotRequest_LEVEL1_CEL_BOT:       0.25,
+	pb.BotRequest_LEVEL1_CEL_BOT:       0.2,
 	pb.BotRequest_LEVEL2_CEL_BOT:       0.5,
-	pb.BotRequest_LEVEL3_CEL_BOT:       0.75,
-	pb.BotRequest_LEVEL1_PROBABILISTIC: 0.4,
-	pb.BotRequest_LEVEL2_PROBABILISTIC: 0.5,
-	pb.BotRequest_LEVEL3_PROBABILISTIC: 0.6,
-	pb.BotRequest_LEVEL4_PROBABILISTIC: 0.7,
-	pb.BotRequest_LEVEL5_PROBABILISTIC: 0.8,
+	pb.BotRequest_LEVEL3_CEL_BOT:       1,
+	pb.BotRequest_LEVEL1_PROBABILISTIC: 0.07,
+	pb.BotRequest_LEVEL2_PROBABILISTIC: 0.15,
+	pb.BotRequest_LEVEL3_PROBABILISTIC: 0.35,
+	pb.BotRequest_LEVEL4_PROBABILISTIC: 0.6,
+	pb.BotRequest_LEVEL5_PROBABILISTIC: 0.85, // Unlikely to be used for now; this should just be hasty
 }
 
 var BotParallelFindabilities = map[pb.BotRequest_BotCode]float64{
 	pb.BotRequest_LEVEL1_CEL_BOT:       0.25,
 	pb.BotRequest_LEVEL2_CEL_BOT:       0.5,
-	pb.BotRequest_LEVEL3_CEL_BOT:       0.75,
-	pb.BotRequest_LEVEL1_PROBABILISTIC: 0.4,
-	pb.BotRequest_LEVEL2_PROBABILISTIC: 0.5,
-	pb.BotRequest_LEVEL3_PROBABILISTIC: 0.6,
+	pb.BotRequest_LEVEL3_CEL_BOT:       1,
+	pb.BotRequest_LEVEL1_PROBABILISTIC: 0.1,
+	pb.BotRequest_LEVEL2_PROBABILISTIC: 0.2,
+	pb.BotRequest_LEVEL3_PROBABILISTIC: 0.45,
 	pb.BotRequest_LEVEL4_PROBABILISTIC: 0.7,
-	pb.BotRequest_LEVEL5_PROBABILISTIC: 0.8,
+	pb.BotRequest_LEVEL5_PROBABILISTIC: 0.85,
 }
 
 func noFilter(cfg *config.Config, words []string, combos []uint64, findability pb.BotRequest_BotCode) (bool, error) {
