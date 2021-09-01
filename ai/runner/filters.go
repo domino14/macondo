@@ -88,7 +88,8 @@ func filter(cfg *config.Config, g *game.Game, rack *alphabet.Rack, plays []*move
 				}
 				mw := mws[0] // assume len > 0
 				if len(mw) >= game.ExchangeLimit {
-					ans *= probableFindability(mw.String(), combinations(dist, subChooseCombos, mw.String(), true))
+					userVisibleString := mw.UserVisible(dist.Alphabet())
+					ans *= probableFindability(userVisibleString, combinations(dist, subChooseCombos, userVisibleString, true))
 				}
 				return r < ans, nil
 			}

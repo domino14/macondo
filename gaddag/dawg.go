@@ -79,7 +79,7 @@ func ReadDawg(data io.Reader) (*SimpleDawg, error) {
 	d.letterSets = letterSets
 	alphabetName, ok := alphabet.LexiconNameToAlphabetName[string(lexName)]
 	if !ok {
-		return nil, fmt.Errorf("no alphabet exists for lexicon %s", lexName)
+		log.Err(fmt.Errorf("alphabet %s does not have a name", lexName)).Msg("no-alphabet-name")
 	}
 	d.alphabet = alphabet.FromSlice(alphabetArr, alphabetName)
 	d.lexiconName = string(lexName)

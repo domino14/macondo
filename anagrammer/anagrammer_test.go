@@ -115,7 +115,10 @@ func TestMain(m *testing.M) {
 
 func TestSimpleAnagram(t *testing.T) {
 	gaddagmaker.GenerateDawg("test_files/small.txt", true, true, false)
-	d, _ := gaddag.LoadDawg("out.dawg")
+	d, err := gaddag.LoadDawg("out.dawg")
+	if err != nil {
+		panic(err)
+	}
 	for _, pair := range simpleAnagramTests {
 		answers := Anagram(pair.rack, d, ModeExact)
 		if !reflect.DeepEqual(wordlistToSet(answers), pair.answers) {

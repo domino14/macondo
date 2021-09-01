@@ -80,7 +80,7 @@ func ScanGaddag(data io.Reader) (*SimpleGaddag, error) {
 	nodes, letterSets, alphabetArr, lexName := loadCommonDagStructure(data)
 	alphabetName, ok := alphabet.LexiconNameToAlphabetName[string(lexName)]
 	if !ok {
-		return nil, fmt.Errorf("no alphabet exists for lexicon %d", lexName)
+		log.Err(fmt.Errorf("alphabet %s does not have a name", lexName)).Msg("no-alphabet-name")
 	}
 	g := &SimpleGaddag{nodes: nodes, letterSets: letterSets,
 		// Need to mape lexname to distribution
