@@ -565,12 +565,22 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 	if options["botcode1"] == "" {
 		botcode1 = pb.BotRequest_HASTY_BOT
 	} else {
-		botcode1 = pb.BotRequest_BotCode(pb.BotRequest_BotCode_value[options["botcode1"]])
+		botcode1String := options["botcode2"]
+		botcode1Value, exists := pb.BotRequest_BotCode_value[botcode1String]
+		if !exists {
+			return fmt.Errorf("bot code %s does not exist", botcode1String)
+		}
+		botcode1 = pb.BotRequest_BotCode(botcode1Value)
 	}
 	if options["botcode2"] == "" {
 		botcode2 = pb.BotRequest_HASTY_BOT
 	} else {
-		botcode2 = pb.BotRequest_BotCode(pb.BotRequest_BotCode_value[options["botcode2"]])
+		botcode2String := options["botcode2"]
+		botcode2Value, exists := pb.BotRequest_BotCode_value[botcode2String]
+		if !exists {
+			return fmt.Errorf("bot code %s does not exist", botcode2String)
+		}
+		botcode2 = pb.BotRequest_BotCode(botcode2Value)
 	}
 
 	if options["numgames"] == "" {

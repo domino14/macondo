@@ -149,7 +149,7 @@ cel3 beats cel2 81.2%
 prob4 beats cel3 83.2% (the 0.6, 0.7 version)
 hasty beats prob4 73.83%
 
-the hasty win % vs prob4 is not as high as the others, but this is ok. It means this bot (prob4) will be pretty good, almost as good as Hasty.
+The hasty win % vs prob4 is not as high as the others, but this is ok. It means this bot (prob4) will be pretty good, almost as good as Hasty.
 
 ### Non-English languages
 

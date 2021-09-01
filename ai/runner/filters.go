@@ -1,109 +1,137 @@
 package runner
 
 import (
-	"fmt"
 	"math"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddag"
+	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"lukechampine.com/frand"
+	"github.com/domino14/macondo/move"
+	"github.com/rs/zerolog/log"
 )
-
-// HastyBot not listed because it does not need a filter
-var BotTypeMoveFilterMap = map[pb.BotRequest_BotCode]func(*config.Config, []string, []uint64, pb.BotRequest_BotCode) (bool, error){
-	pb.BotRequest_LEVEL1_CEL_BOT:       celFilter,
-	pb.BotRequest_LEVEL2_CEL_BOT:       celFilter,
-	pb.BotRequest_LEVEL3_CEL_BOT:       celFilter,
-	pb.BotRequest_LEVEL4_CEL_BOT:       celFilter,
-	pb.BotRequest_LEVEL1_PROBABILISTIC: findabilityFilter,
-	pb.BotRequest_LEVEL2_PROBABILISTIC: findabilityFilter,
-	pb.BotRequest_LEVEL3_PROBABILISTIC: findabilityFilter,
-	pb.BotRequest_LEVEL4_PROBABILISTIC: findabilityFilter,
-	pb.BotRequest_LEVEL5_PROBABILISTIC: findabilityFilter,
-}
 
 // Note: because of the nature of this algorithm, the lower these numbers, the
 // more time the bot will take to find its move.
-var BotFindabilities = map[pb.BotRequest_BotCode]float64{
-	pb.BotRequest_LEVEL1_CEL_BOT:       0.2,
-	pb.BotRequest_LEVEL2_CEL_BOT:       0.5,
-	pb.BotRequest_LEVEL3_CEL_BOT:       1,
-	pb.BotRequest_LEVEL1_PROBABILISTIC: 0.07,
-	pb.BotRequest_LEVEL2_PROBABILISTIC: 0.15,
-	pb.BotRequest_LEVEL3_PROBABILISTIC: 0.35,
-	pb.BotRequest_LEVEL4_PROBABILISTIC: 0.6,
-	pb.BotRequest_LEVEL5_PROBABILISTIC: 0.85, // Unlikely to be used for now; this should just be hasty
+var BotConfigs = map[pb.BotRequest_BotCode]struct {
+	baseFindability     float64
+	parallelFindability float64
+	isCel               bool
+}{
+	pb.BotRequest_LEVEL1_CEL_BOT:       {baseFindability: 0.2, parallelFindability: 0.25, isCel: true},
+	pb.BotRequest_LEVEL2_CEL_BOT:       {baseFindability: 0.5, parallelFindability: 0.5, isCel: true},
+	pb.BotRequest_LEVEL3_CEL_BOT:       {isCel: true},
+	pb.BotRequest_LEVEL4_CEL_BOT:       {isCel: true},
+	pb.BotRequest_LEVEL1_PROBABILISTIC: {baseFindability: 0.07, parallelFindability: 0.1, isCel: false},
+	pb.BotRequest_LEVEL2_PROBABILISTIC: {baseFindability: 0.15, parallelFindability: 0.2, isCel: false},
+	pb.BotRequest_LEVEL3_PROBABILISTIC: {baseFindability: 0.35, parallelFindability: 0.45, isCel: false},
+	pb.BotRequest_LEVEL4_PROBABILISTIC: {baseFindability: 0.6, parallelFindability: 0.7, isCel: false},
+	pb.BotRequest_LEVEL5_PROBABILISTIC: {baseFindability: 0.85, parallelFindability: 0.85, isCel: false},
 }
 
-var BotParallelFindabilities = map[pb.BotRequest_BotCode]float64{
-	pb.BotRequest_LEVEL1_CEL_BOT:       0.25,
-	pb.BotRequest_LEVEL2_CEL_BOT:       0.5,
-	pb.BotRequest_LEVEL3_CEL_BOT:       1,
-	pb.BotRequest_LEVEL1_PROBABILISTIC: 0.1,
-	pb.BotRequest_LEVEL2_PROBABILISTIC: 0.2,
-	pb.BotRequest_LEVEL3_PROBABILISTIC: 0.45,
-	pb.BotRequest_LEVEL4_PROBABILISTIC: 0.7,
-	pb.BotRequest_LEVEL5_PROBABILISTIC: 0.85,
-}
+func filter(cfg *config.Config, g *game.Game, rack *alphabet.Rack, plays []*move.Move, r float64, botType pb.BotRequest_BotCode) *move.Move {
 
-func celFilter(cfg *config.Config, words []string, combos []uint64, findability pb.BotRequest_BotCode) (bool, error) {
-	gd, err := gaddag.GetDawg(cfg, "ECWL")
-	if err != nil {
-		return false, err
-	}
-	for _, word := range words {
-		isPhony, err := isPhony(gd, word)
-		if err != nil {
-			return false, err
+	passMove := move.NewPassMove(rack.TilesOn(), g.Alphabet())
+	botConfig, botConfigExists := BotConfigs[botType]
+	if botConfigExists {
+		filterFunction := func([]alphabet.MachineWord) (bool, error) { return true, nil }
+		if botConfig.isCel {
+			gd, err := gaddag.GetDawg(cfg, "ECWL")
+			if err != nil {
+				filterFunction = func([]alphabet.MachineWord) (bool, error) { return false, err }
+			} else {
+				lex := gaddag.Lexicon{GenericDawg: gd}
+				// XXX: There might be a slick way to consolidate this
+				// stufilterFunction using generic function pointer types and casting
+				// but I'm not sure. This is probably good enough
+				if g.Rules().Variant() == game.VarWordSmog {
+					filterFunction = func(mws []alphabet.MachineWord) (bool, error) {
+						for _, mw := range mws {
+							if !lex.HasAnagram(mw) {
+								return false, nil
+							}
+						}
+						return true, nil
+					}
+				} else {
+					filterFunction = func(mws []alphabet.MachineWord) (bool, error) {
+						for _, mw := range mws {
+							if !lex.HasWord(mw) {
+								return false, nil
+							}
+						}
+						return true, nil
+					}
+				}
+			}
 		}
-		if isPhony {
-			return false, nil
+
+		// LEVEL3_CEL_BOT is an unfiltered CEL bot
+		if botType != pb.BotRequest_LEVEL4_CEL_BOT {
+			dist := g.Bag().LetterDistribution()
+			// XXX: This should be cached
+			subChooseCombos := createSubCombos(dist)
+			filterFunctionPrev := filterFunction
+			filterFunction = func(mws []alphabet.MachineWord) (bool, error) {
+				allowed, err := filterFunctionPrev(mws)
+				if !allowed || err != nil {
+					return allowed, err
+				}
+				var ans float64
+				// The level 3 CEL bot only filters by probable findability
+				if botType != pb.BotRequest_LEVEL3_CEL_BOT {
+					ans = botConfig.baseFindability * math.Pow(botConfig.parallelFindability, float64(len(mws)-1))
+				} else {
+					ans = 1.0
+				}
+				mw := mws[0] // assume len > 0
+				if len(mw) >= game.ExchangeLimit {
+					ans *= probableFindability(mw.String(), combinations(dist, subChooseCombos, mw.String(), true))
+				}
+				return r < ans, nil
+			}
 		}
+
+		mws := []alphabet.MachineWord{}
+		for _, play := range plays {
+			var err error
+			allowed := true
+			if play.Action() == move.MoveTypePlay {
+				mws, err = g.Board().FormedWords(play)
+				if err != nil {
+					log.Err(err).Msg("formed-words-filter-error")
+					break
+				}
+				allowed, err = filterFunction(mws)
+				if err != nil {
+					log.Err(err).Msg("bot-type-move-filter-internal-error")
+					break
+				}
+			}
+			if allowed && err != nil {
+				return play
+			}
+		}
+		return passMove
 	}
-	// The Level 4 CEL bot is a true CEL bot, so do not filter
-	if findability == pb.BotRequest_LEVEL4_CEL_BOT {
-		return true, nil
+	if len(plays) > 0 {
+		return plays[0]
 	}
-	return findabilityFilter(cfg, words, combos, findability)
+	return passMove
 }
 
-func findabilityFilter(cfg *config.Config, words []string, combos []uint64, findability pb.BotRequest_BotCode) (bool, error) {
-	finalProbableFindability := 1.0
-	finalParallelFindability := 1.0
-
-	parallelFindabilityConstant, exists := BotParallelFindabilities[findability]
-	if !exists {
-		return false, fmt.Errorf("parallel findability for bot %s does not exist", pb.BotRequest_BotCode_name[int32(findability)])
-	}
-
-	findabilityConstant, exists := BotFindabilities[findability]
-	if !exists {
-		return false, fmt.Errorf("findability for bot %s does not exist", pb.BotRequest_BotCode_name[int32(findability)])
-	}
-
-	for i, word := range words {
-		wordLength := len(word)
-		if i == 0 && (wordLength >= 7) {
-			finalProbableFindability = probableFindability(word, combos[i])
-		} else if i > 0 {
-			finalParallelFindability = finalParallelFindability * parallelFindabilityConstant
-		}
-	}
-	finalFindability := finalProbableFindability * finalParallelFindability * findabilityConstant
-	return frand.Float64() < finalFindability, nil
-}
-
-func probableFindability(words string, combos uint64) float64 {
-	return math.Min(math.Log10(float64(combos))/float64(len(words)-1), 1.0)
+func probableFindability(word string, combos uint64) float64 {
+	// This assumes the following preconditions:
+	//   len(word) >= 2
+	//   combos >= 1
+	return math.Min(math.Log10(float64(combos))/float64(len(word)-1), 1.0)
 }
 
 func createSubCombos(dist *alphabet.LetterDistribution) [][]uint64 {
 	// Adapted from GPL Zyzzyva's calculation code.
 	maxFrequency := uint8(0)
 	totalLetters := uint8(0)
-	r := uint8(1)
 	for _, value := range dist.Distribution {
 		freq := value
 		totalLetters += freq
@@ -112,6 +140,7 @@ func createSubCombos(dist *alphabet.LetterDistribution) [][]uint64 {
 		}
 	}
 	// Precalculate M choose N combinations
+	r := uint8(1)
 	subChooseCombos := make([][]uint64, maxFrequency+1)
 	for i := uint8(0); i <= maxFrequency; i, r = i+1, r+1 {
 		subList := make([]uint64, maxFrequency+1)
@@ -192,13 +221,4 @@ func combinations(dist *alphabet.LetterDistribution, subChooseCombos [][]uint64,
 		counts[i]++
 	}
 	return totalCombos
-}
-
-func isPhony(gd gaddag.GenericDawg, word string) (bool, error) {
-	lex := gaddag.Lexicon{GenericDawg: gd}
-	machineWord, err := alphabet.ToMachineWord(word, lex.GetAlphabet())
-	if err != nil {
-		return false, err
-	}
-	return !lex.HasWord(machineWord), nil
 }

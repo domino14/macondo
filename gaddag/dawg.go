@@ -76,7 +76,8 @@ func ReadDawg(data io.Reader) (*SimpleDawg, error) {
 	nodes, letterSets, alphabetArr, lexName := loadCommonDagStructure(data)
 	d.nodes = nodes
 	d.letterSets = letterSets
-	d.alphabet = alphabet.FromSlice(alphabetArr)
+	// XXX: Need to map lexName to distribution
+	d.alphabet = alphabet.FromSlice(alphabetArr, "")
 	d.lexiconName = string(lexName)
 	return d, nil
 }

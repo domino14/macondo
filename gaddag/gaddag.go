@@ -56,7 +56,8 @@ func GaddagToSimpleGaddag(g *gaddagmaker.Gaddag) *SimpleGaddag {
 	nodes, letterSets, alphabetArr, lexName := loadCommonDagStructure(readBuf)
 
 	sg := &SimpleGaddag{nodes: nodes, letterSets: letterSets,
-		alphabet:    alphabet.FromSlice(alphabetArr),
+		// XXX: Need to map lexname to distribution
+		alphabet:    alphabet.FromSlice(alphabetArr, ""),
 		lexiconName: string(lexName)}
 	return sg
 }
@@ -72,7 +73,8 @@ func ScanGaddag(data io.Reader) (*SimpleGaddag, error) {
 	nodes, letterSets, alphabetArr, lexName := loadCommonDagStructure(data)
 
 	g := &SimpleGaddag{nodes: nodes, letterSets: letterSets,
-		alphabet:    alphabet.FromSlice(alphabetArr),
+		// Need to mape lexname to distribution
+		alphabet:    alphabet.FromSlice(alphabetArr, ""),
 		lexiconName: string(lexName)}
 	return g, nil
 }

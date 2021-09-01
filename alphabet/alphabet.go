@@ -221,13 +221,13 @@ func ToMachineOnlyString(word string, alph *Alphabet) (string, error) {
 type Alphabet struct {
 	// vals is a map of the actual physical letter rune (like 'A') to a
 	// number representing it, from 0 to MaxAlphabetSize.
-
 	vals map[rune]MachineLetter
 	// letters is a map of the 0 to MaxAlphabetSize value back to a letter.
 	letters map[MachineLetter]rune
 
 	letterSlice LetterSlice
 	curIdx      MachineLetter
+	name        string
 }
 
 func (a Alphabet) CurIdx() MachineLetter {
@@ -253,6 +253,10 @@ func (a *Alphabet) Update(word string) error {
 func (a *Alphabet) Init() {
 	a.vals = make(map[rune]MachineLetter)
 	a.letters = make(map[MachineLetter]rune)
+}
+
+func (a Alphabet) Name() string {
+	return a.name
 }
 
 // Val returns the 'value' of this rune in the alphabet; i.e a number from
@@ -340,8 +344,8 @@ func (a *Alphabet) Serialize() []uint32 {
 // FromSlice creates an alphabet from a serialized array. It is the
 // opposite of the Serialize function, except the length is implicitly passed
 // in as the length of the slice.
-func FromSlice(arr []uint32) *Alphabet {
-	alphabet := &Alphabet{}
+func FromSlice(arr []uint32, name string) *Alphabet {
+	alphabet := &Alphabet{name: name}
 	alphabet.Init()
 	numRunes := uint8(len(arr))
 
@@ -359,7 +363,7 @@ func EnglishAlphabet() *Alphabet {
 	return FromSlice([]uint32{
 		'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
 		'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
-	})
+	}, "English")
 }
 
 // FrenchAlphabet returns an alphabet that corresponds to the English
@@ -369,7 +373,7 @@ func FrenchAlphabet() *Alphabet {
 	return FromSlice([]uint32{
 		'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
 		'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
-	})
+	}, "French")
 }
 
 // GermanAlphabet returns an alphabet that corresponds to the German
@@ -380,7 +384,7 @@ func GermanAlphabet() *Alphabet {
 		'A', 'Ä', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I',
 		'J', 'K', 'L', 'M', 'N', 'O', 'Ö', 'P', 'Q', 'R',
 		'S', 'T', 'U', 'Ü', 'V', 'W', 'X', 'Y', 'Z',
-	})
+	}, "German")
 }
 
 // NorwegianAlphabet returns an alphabet that corresponds to the Norwegian
@@ -392,7 +396,7 @@ func NorwegianAlphabet() *Alphabet {
 		'A', 'Ä', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J',
 		'K', 'L', 'M', 'N', 'O', 'Ö', 'P', 'Q', 'R', 'S', 'T',
 		'U', 'Ü', 'V', 'W', 'X', 'Y', 'Z', 'Æ', 'Ø', 'Å',
-	})
+	}, "Norwegian")
 }
 
 // PolishAlphabet returns an alphabet that corresponds to the Polish
@@ -403,7 +407,7 @@ func PolishAlphabet() *Alphabet {
 		'A', 'Ą', 'B', 'C', 'Ć', 'D', 'E', 'Ę', 'F', 'G', 'H',
 		'I', 'J', 'K', 'L', 'Ł', 'M', 'N', 'Ń', 'O', 'Ó', 'P',
 		'R', 'S', 'Ś', 'T', 'U', 'W', 'Y', 'Z', 'Ź', 'Ż',
-	})
+	}, "Polish")
 }
 
 // SpanishAlphabet returns an alphabet that corresponds to the Spanish
@@ -414,7 +418,7 @@ func SpanishAlphabet() *Alphabet {
 		'A', 'B', 'C', '1', 'D', 'E', 'F', 'G', 'H', 'I',
 		'J', 'L', '2', 'M', 'N', 'Ñ', 'O', 'P', 'Q', 'R',
 		'3', 'S', 'T', 'U', 'V', 'X', 'Y', 'Z', '?',
-	})
+	}, "Spanish")
 }
 
 func (a LetterSlice) Len() int           { return len(a) }
