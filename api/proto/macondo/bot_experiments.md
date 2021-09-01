@@ -61,6 +61,23 @@ exhaustiveleave-2 Mean Bingos: 2.425111  Stdev: 1.093924
 
 ```
 
+**Level 4 CEL Bot is a true highest equity CEL bot, with no probability filters. We should use
+it instead of the Level 3 one.**
+
+```
+Level 4 CEL Bot vs HastyBot
+
+Games played: 50642
+exhaustiveleave-1 wins: 2699.5 (5.331%)
+exhaustiveleave-1 went first: 25469.0 (50.292%)
+Player who went first wins: 25880.5 (51.105%)
+exhaustiveleave-1 Mean Score: 379.921073  Stdev: 59.551011
+exhaustiveleave-2 Mean Score: 555.629616  Stdev: 68.929911
+exhaustiveleave-1 Mean Bingos: 1.432566  Stdev: 0.913210
+exhaustiveleave-2 Mean Bingos: 2.731251  Stdev: 1.132050
+
+```
+
 ```
 Level 3 Probabilistic (0.4, 0.5) vs Level 3 CEL Bot (1, 1)
 
@@ -98,6 +115,20 @@ exhaustiveleave-1 Mean Score: 447.584355  Stdev: 59.194729
 exhaustiveleave-2 Mean Score: 356.628167  Stdev: 53.187985
 exhaustiveleave-1 Mean Bingos: 1.984014  Stdev: 1.031623
 exhaustiveleave-2 Mean Bingos: 1.314475  Stdev: 0.875829
+
+```
+
+```
+Level 4 Probabilistic (0.6, 0.7) vs Level 4 CEL Bot
+
+Games played: 21561
+exhaustiveleave-1 wins: 18330.0 (85.015%)
+exhaustiveleave-1 went first: 10806.0 (50.118%)
+Player who went first wins: 11482.0 (53.254%)
+exhaustiveleave-1 Mean Score: 502.192431  Stdev: 66.183802
+exhaustiveleave-2 Mean Score: 392.933352  Stdev: 59.897908
+exhaustiveleave-1 Mean Bingos: 2.262140  Stdev: 1.082548
+exhaustiveleave-2 Mean Bingos: 1.470525  Stdev: 0.930705
 
 ```
 
