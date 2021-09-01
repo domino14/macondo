@@ -36,7 +36,8 @@ func filter(cfg *config.Config, g *game.Game, rack *alphabet.Rack, plays []*move
 	botConfig, botConfigExists := BotConfigs[botType]
 	if botConfigExists {
 		filterFunction := func([]alphabet.MachineWord) (bool, error) { return true, nil }
-		if botConfig.isCel {
+		// Only apply CEL filters to english lexica
+		if botConfig.isCel && g.Alphabet().Name() == alphabet.AlphabetNameEnglish {
 			gd, err := gaddag.GetDawg(cfg, "ECWL")
 			if err != nil {
 				filterFunction = func([]alphabet.MachineWord) (bool, error) { return false, err }
@@ -67,7 +68,7 @@ func filter(cfg *config.Config, g *game.Game, rack *alphabet.Rack, plays []*move
 			}
 		}
 
-		// LEVEL3_CEL_BOT is an unfiltered CEL bot
+		// LEVEL4_CEL_BOT is an unfiltered CEL bot
 		if botType != pb.BotRequest_LEVEL4_CEL_BOT {
 			dist := g.Bag().LetterDistribution()
 			// XXX: This should be cached

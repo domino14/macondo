@@ -109,7 +109,7 @@ func GenerateMoves(g *game.Game, aiplayer player.AIPlayer, gen movegen.MoveGener
 	aiplayer.AssignEquity(plays, g.Board(), g.Bag(), oppRack)
 
 	// Only apply filters to English for now
-	if numPlays == 1 && g.Alphabet().Name() == "English" {
+	if numPlays == 1 {
 		// Plays aren't sorted yet
 		sort.Slice(plays, func(i, j int) bool {
 			return plays[j].Equity() < plays[i].Equity()

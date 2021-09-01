@@ -565,7 +565,7 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 	if options["botcode1"] == "" {
 		botcode1 = pb.BotRequest_HASTY_BOT
 	} else {
-		botcode1String := options["botcode2"]
+		botcode1String := options["botcode1"]
 		botcode1Value, exists := pb.BotRequest_BotCode_value[botcode1String]
 		if !exists {
 			return fmt.Errorf("bot code %s does not exist", botcode1String)
