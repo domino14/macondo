@@ -15,11 +15,13 @@ type playerState struct {
 	rackLetters string
 	points      int
 	bingos      int
+	turns       int
 }
 
 func (p *playerState) resetScore() {
 	p.points = 0
 	p.bingos = 0
+	p.turns = 0
 }
 
 func (p *playerState) throwRackIn(bag *alphabet.Bag) {

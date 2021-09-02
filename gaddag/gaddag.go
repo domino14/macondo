@@ -72,6 +72,7 @@ func ScanGaddag(data io.Reader) (*SimpleGaddag, error) {
 	nodes, letterSets, alphabetArr, lexName := loadCommonDagStructure(data)
 
 	g := &SimpleGaddag{nodes: nodes, letterSets: letterSets,
+		// Need to mape lexname to distribution
 		alphabet:    alphabet.FromSlice(alphabetArr),
 		lexiconName: string(lexName)}
 	return g, nil

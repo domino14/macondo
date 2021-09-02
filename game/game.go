@@ -86,6 +86,10 @@ func (g *Game) LastWordsFormed() []alphabet.MachineWord {
 	return g.lastWordsFormed
 }
 
+func (g *Game) Rules() *GameRules {
+	return g.rules
+}
+
 func (g *Game) LastEvent() *pb.GameEvent {
 	last := len(g.history.Events) - 1
 	if last < 0 {
@@ -147,6 +151,7 @@ func NewGame(rules *GameRules, playerinfo []*pb.PlayerInfo) (*Game, error) {
 	game.rules = rules
 
 	game.players = make([]*playerState, len(playerinfo))
+	ids := map[string]bool{}
 	for idx, p := range playerinfo {
 		game.players[idx] = &playerState{
 			PlayerInfo: pb.PlayerInfo{
@@ -154,8 +159,11 @@ func NewGame(rules *GameRules, playerinfo []*pb.PlayerInfo) (*Game, error) {
 				UserId:   p.UserId,
 				RealName: p.RealName},
 		}
+		ids[p.Nickname] = true
 	}
-
+	if len(ids) < len(playerinfo) {
+		return nil, errors.New("all player nicknames must be unique")
+	}
 	return game, nil
 }
 
@@ -379,6 +387,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 			g.scorelessTurns = 0
 		} // XXX: else we should increment the scoreless turns here!
 		g.players[g.onturn].points += score
+		g.players[g.onturn].turns += 1
 		if m.TilesPlayed() == 7 {
 			g.players[g.onturn].bingos++
 		}
@@ -438,6 +447,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 			// If this is a regular pass (and not an end-of-game-pass) let's
 			// log it in the history.
 			g.scorelessTurns++
+			g.players[g.onturn].turns += 1
 		}
 
 	case move.MoveTypeExchange:
@@ -449,6 +459,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		g.players[g.onturn].setRackTiles(tiles, g.alph)
 		log.Trace().Str("newrack", g.players[g.onturn].rackLetters).Msg("new-rack")
 		g.scorelessTurns++
+		g.players[g.onturn].turns += 1
 		if addToHistory {
 			evt := g.EventFromMove(m)
 			evt.MillisRemaining = int32(millis)
@@ -778,6 +789,7 @@ func (g *Game) playTurn(t int) error {
 		}
 		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
 		g.players[g.onturn].setRackTiles(tiles, g.alph)
+		g.players[g.onturn].turns += 1
 	default:
 		// Nothing
 
@@ -877,6 +889,15 @@ func (g *Game) BingosForNick(nick string) int {
 	for i := range g.players {
 		if g.players[i].Nickname == nick {
 			return g.players[i].bingos
+		}
+	}
+	return 0
+}
+
+func (g *Game) TurnsForNick(nick string) int {
+	for i := range g.players {
+		if g.players[i].Nickname == nick {
+			return g.players[i].turns
 		}
 	}
 	return 0

@@ -11,6 +11,7 @@ import (
 	"github.com/matryer/is"
 
 	"github.com/domino14/macondo/ai/player"
+	airunner "github.com/domino14/macondo/ai/runner"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
@@ -19,7 +20,6 @@ import (
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/movegen"
-	"github.com/domino14/macondo/runner"
 	"github.com/domino14/macondo/strategy"
 )
 
@@ -51,7 +51,7 @@ func TestSimSingleIteration(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, err := runner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
+	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
 		"NWL18", "English")
 	is.NoErr(err)
 	game, err := game.NewGame(rules, players)
@@ -75,7 +75,7 @@ func TestSimSingleIteration(t *testing.T) {
 	oldOppRack := game.RackFor(1).String()
 	plays := generator.Plays()[:10]
 	simmer := &Simmer{}
-	simmer.Init(game, player.NewRawEquityPlayer(strategy))
+	simmer.Init(game, player.NewRawEquityPlayer(strategy, pb.BotRequest_HASTY_BOT))
 	simmer.PrepareSim(plies, plays)
 
 	simmer.simSingleIteration(plies, 0, 1, nil)
@@ -102,7 +102,7 @@ func TestLongerSim(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, err := runner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
+	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
 		"NWL18", "English")
 	is.NoErr(err)
 	game, err := game.NewGame(rules, players)
@@ -124,7 +124,7 @@ func TestLongerSim(t *testing.T) {
 	// Note we changed the rack here from AAADERW to AAAENSW because the test kept failing
 	// because of the fairly new word ADWARE.
 	game.SetRackFor(0, alphabet.RackFromString("AAAENSW", game.Alphabet()))
-	aiplayer := player.NewRawEquityPlayer(strategy)
+	aiplayer := player.NewRawEquityPlayer(strategy, pb.BotRequest_HASTY_BOT)
 	generator.GenAll(game.RackFor(0), false)
 	aiplayer.AssignEquity(generator.Plays(), game.Board(), game.Bag(),
 		game.RackFor(1))

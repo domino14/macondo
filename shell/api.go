@@ -9,12 +9,12 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	airunner "github.com/domino14/macondo/ai/runner"
 	"github.com/domino14/macondo/automatic"
 	"github.com/domino14/macondo/endgame/alphabeta"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/domino14/macondo/runner"
 )
 
 type Response struct {
@@ -49,7 +49,7 @@ func (sc *ShellController) newGame(cmd *shellcmd) (*Response, error) {
 	}
 
 	opts := sc.options.GameOptions
-	g, err := runner.NewAIGameRunner(sc.config, &opts, players)
+	g, err := airunner.NewAIGameRunner(sc.config, &opts, players, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return nil, err
 	}

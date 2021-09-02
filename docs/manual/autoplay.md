@@ -84,6 +84,8 @@ exhaustiveleave-2 Mean Score: 434.291584  Stdev: 59.496489
 ```
 
 This analysis shows that the bot that used Quackle leaves won around 50.7% of its games against Macondo. A binomial calculator shows that the chance
-that this is a fluke is around 0.00002. This is to be expected, as Macondo leave values are still being fine-tuned.
+that this is a fluke is around 0.00002.
+
+Note: Macondo values can now beat Quackle values around 50.6 or so % of the time, after fine-tuning our values. You can see the `/notebooks` directory of this repo for more details.
 
 We don't have a simming player working yet, but I think the difference might be even bigger once simulation is involved.

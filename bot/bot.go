@@ -10,6 +10,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
 
+	airunner "github.com/domino14/macondo/ai/runner"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -30,7 +31,7 @@ type Bot struct {
 	config  *config.Config
 	options *runner.GameOptions
 
-	game *runner.AIGameRunner
+	game *airunner.AIGameRunner
 }
 
 func NewBot(config *config.Config, options *runner.GameOptions) *Bot {
@@ -47,7 +48,7 @@ func (bot *Bot) newGame() error {
 		{Nickname: "opponent", RealName: "Arthur Dent"},
 	}
 
-	game, err := runner.NewAIGameRunner(bot.config, bot.options, players)
+	game, err := airunner.NewAIGameRunner(bot.config, bot.options, players, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return err
 	}
@@ -65,29 +66,29 @@ func errorResponse(message string, err error) *pb.BotResponse {
 	}
 }
 
-func (bot *Bot) Deserialize(data []byte) (*game.Game, *pb.EvaluationRequest, error) {
+func (bot *Bot) Deserialize(data []byte) (*game.Game, *pb.EvaluationRequest, pb.BotRequest_BotCode, error) {
 	req := pb.BotRequest{}
 	err := proto.Unmarshal(data, &req)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, 0, err
 	}
 	history := req.GameHistory
 	boardLayout, ldName, _ := game.HistoryToVariant(history)
-	rules, err := runner.NewAIGameRules(bot.config, boardLayout, history.Lexicon, ldName)
+	rules, err := airunner.NewAIGameRules(bot.config, boardLayout, history.Lexicon, ldName)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, 0, err
 	}
 	nturns := len(history.Events)
 	ng, err := game.NewFromHistory(history, rules, 0)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, 0, err
 	}
 	ng.PlayToTurn(nturns)
 	// debugWriteln(ng.ToDisplayText())
-	return ng, req.EvaluationRequest, nil
+	return ng, req.EvaluationRequest, req.BotType, nil
 }
 
-func evalSingleMove(g *runner.AIGameRunner, evtIdx int) *pb.SingleEvaluation {
+func evalSingleMove(g *airunner.AIGameRunner, evtIdx int) *pb.SingleEvaluation {
 	evts := g.History().Events
 	playedEvt := evts[evtIdx]
 
@@ -156,11 +157,11 @@ func (bot *Bot) evaluationResponse(req *pb.EvaluationRequest) *pb.BotResponse {
 }
 
 func (bot *Bot) handle(data []byte) *pb.BotResponse {
-	ng, evalReq, err := bot.Deserialize(data)
+	ng, evalReq, botType, err := bot.Deserialize(data)
 	if err != nil {
 		return errorResponse("Could not parse request", err)
 	}
-	g, err := runner.NewAIGameRunnerFromGame(ng, bot.config)
+	g, err := airunner.NewAIGameRunnerFromGame(ng, bot.config, botType)
 	if err != nil {
 		return errorResponse("Could not create AI player", err)
 	}

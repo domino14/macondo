@@ -221,7 +221,6 @@ func ToMachineOnlyString(word string, alph *Alphabet) (string, error) {
 type Alphabet struct {
 	// vals is a map of the actual physical letter rune (like 'A') to a
 	// number representing it, from 0 to MaxAlphabetSize.
-
 	vals map[rune]MachineLetter
 	// letters is a map of the 0 to MaxAlphabetSize value back to a letter.
 	letters map[MachineLetter]rune
