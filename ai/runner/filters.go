@@ -21,14 +21,14 @@ var BotConfigs = map[pb.BotRequest_BotCode]struct {
 	parallelFindability float64
 	isCel               bool
 }{
-	pb.BotRequest_LEVEL1_CEL_BOT:       {baseFindability: 0.4, longWordFindability: 0.2, parallelFindability: 0.25, isCel: true},
-	pb.BotRequest_LEVEL2_CEL_BOT:       {baseFindability: 0.6, longWordFindability: 0.4, parallelFindability: 0.5, isCel: true},
+	pb.BotRequest_LEVEL1_CEL_BOT:       {baseFindability: 0.5, longWordFindability: 0.15, parallelFindability: 0.25, isCel: true},
+	pb.BotRequest_LEVEL2_CEL_BOT:       {baseFindability: 0.7, longWordFindability: 0.4, parallelFindability: 0.5, isCel: true},
 	pb.BotRequest_LEVEL3_CEL_BOT:       {baseFindability: 0.8, longWordFindability: 0.5, parallelFindability: 0.75, isCel: true},
 	pb.BotRequest_LEVEL4_CEL_BOT:       {isCel: true},
-	pb.BotRequest_LEVEL1_PROBABILISTIC: {baseFindability: 0.07, longWordFindability: 0.3, parallelFindability: 0.1, isCel: false},
-	pb.BotRequest_LEVEL2_PROBABILISTIC: {baseFindability: 0.15, longWordFindability: 0.4, parallelFindability: 0.2, isCel: false},
-	pb.BotRequest_LEVEL3_PROBABILISTIC: {baseFindability: 0.35, longWordFindability: 0.5, parallelFindability: 0.45, isCel: false},
-	pb.BotRequest_LEVEL4_PROBABILISTIC: {baseFindability: 0.6, longWordFindability: 0.6, parallelFindability: 0.7, isCel: false},
+	pb.BotRequest_LEVEL1_PROBABILISTIC: {baseFindability: 0.25, longWordFindability: 0.2, parallelFindability: 0.1, isCel: false},
+	pb.BotRequest_LEVEL2_PROBABILISTIC: {baseFindability: 0.35, longWordFindability: 0.3, parallelFindability: 0.2, isCel: false},
+	pb.BotRequest_LEVEL3_PROBABILISTIC: {baseFindability: 0.55, longWordFindability: 0.5, parallelFindability: 0.45, isCel: false},
+	pb.BotRequest_LEVEL4_PROBABILISTIC: {baseFindability: 0.75, longWordFindability: 0.6, parallelFindability: 0.7, isCel: false},
 	pb.BotRequest_LEVEL5_PROBABILISTIC: {baseFindability: 0.85, longWordFindability: 0.8, parallelFindability: 0.85, isCel: false},
 }
 
