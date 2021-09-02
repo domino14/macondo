@@ -318,3 +318,5 @@ exhaustiveleave-2 Mean Bingos: 2.876030  Stdev: 1.152525
 
 
 ```
+
+### After adding `longWordFindability` rerun all experiments 😩

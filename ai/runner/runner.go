@@ -107,7 +107,6 @@ func GenerateMoves(g *game.Game, aiplayer player.AIPlayer, gen movegen.MoveGener
 	plays := gen.Plays()
 
 	aiplayer.AssignEquity(plays, g.Board(), g.Bag(), oppRack)
-	log.Info().Msgf("numPlays %v", numPlays)
 	if numPlays == 1 {
 		// Plays aren't sorted yet
 		sort.Slice(plays, func(i, j int) bool {

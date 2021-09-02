@@ -65,6 +65,7 @@ func copyPlayers(ps playerStates) playerStates {
 			},
 			points:      porig.points,
 			bingos:      porig.bingos,
+			turns:       porig.turns,
 			rack:        porig.rack.Copy(),
 			rackLetters: porig.rackLetters,
 		}
@@ -83,6 +84,7 @@ func (ps *playerStates) copyFrom(other playerStates) {
 		// XXX: Do I have to copy all the other auto-generated protobuf nonsense fields?
 		(*ps)[idx].points = other[idx].points
 		(*ps)[idx].bingos = other[idx].bingos
+		(*ps)[idx].turns = other[idx].turns
 	}
 }
 

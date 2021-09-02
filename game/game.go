@@ -387,6 +387,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 			g.scorelessTurns = 0
 		} // XXX: else we should increment the scoreless turns here!
 		g.players[g.onturn].points += score
+		g.players[g.onturn].turns += 1
 		if m.TilesPlayed() == 7 {
 			g.players[g.onturn].bingos++
 		}
@@ -446,6 +447,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 			// If this is a regular pass (and not an end-of-game-pass) let's
 			// log it in the history.
 			g.scorelessTurns++
+			g.players[g.onturn].turns += 1
 		}
 
 	case move.MoveTypeExchange:
@@ -457,6 +459,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		g.players[g.onturn].setRackTiles(tiles, g.alph)
 		log.Trace().Str("newrack", g.players[g.onturn].rackLetters).Msg("new-rack")
 		g.scorelessTurns++
+		g.players[g.onturn].turns += 1
 		if addToHistory {
 			evt := g.EventFromMove(m)
 			evt.MillisRemaining = int32(millis)
@@ -786,6 +789,7 @@ func (g *Game) playTurn(t int) error {
 		}
 		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
 		g.players[g.onturn].setRackTiles(tiles, g.alph)
+		g.players[g.onturn].turns += 1
 	default:
 		// Nothing
 
@@ -885,6 +889,15 @@ func (g *Game) BingosForNick(nick string) int {
 	for i := range g.players {
 		if g.players[i].Nickname == nick {
 			return g.players[i].bingos
+		}
+	}
+	return 0
+}
+
+func (g *Game) TurnsForNick(nick string) int {
+	for i := range g.players {
+		if g.players[i].Nickname == nick {
+			return g.players[i].turns
 		}
 	}
 	return 0

@@ -63,7 +63,6 @@ func filter(cfg *config.Config, g *game.Game, rack *alphabet.Rack, plays []*move
 					return true, nil
 				}
 			} else {
-				log.Info().Msg("not a wordsmog bot")
 				filterFunction = func(mws []alphabet.MachineWord, r float64) (bool, error) {
 					for _, mw := range mws {
 						if !lex.HasWord(mw) {
@@ -113,7 +112,6 @@ func filter(cfg *config.Config, g *game.Game, rack *alphabet.Rack, plays []*move
 				break
 			}
 			allowed, err = filterFunction(mws, r)
-			log.Debug().Interface("play", play).Bool("allowed", allowed).Msg("allowed?")
 			if err != nil {
 				log.Err(err).Msg("bot-type-move-filter-internal-error")
 				break
@@ -123,7 +121,6 @@ func filter(cfg *config.Config, g *game.Game, rack *alphabet.Rack, plays []*move
 				return play
 			}
 		}
-		log.Err(err).Bool("allowed", allowed).Msg("allowed??")
 		if allowed && err == nil {
 			return play
 		}
