@@ -89,7 +89,7 @@ func filter(cfg *config.Config, g *game.Game, rack *alphabet.Rack, plays []*move
 				mw := mws[0] // assume len > 0
 				if len(mw) >= game.ExchangeLimit {
 					userVisibleString := mw.UserVisible(dist.Alphabet())
-					ans *= probableFindability(userVisibleString, combinations(dist, subChooseCombos, userVisibleString, true))
+					ans *= probableFindability(len(mw), combinations(dist, subChooseCombos, userVisibleString, true))
 				}
 				return r < ans, nil
 			}
@@ -123,11 +123,11 @@ func filter(cfg *config.Config, g *game.Game, rack *alphabet.Rack, plays []*move
 	return passMove
 }
 
-func probableFindability(word string, combos uint64) float64 {
+func probableFindability(wordLen int, combos uint64) float64 {
 	// This assumes the following preconditions:
 	//   len(word) >= 2
 	//   combos >= 1
-	return math.Min(math.Log10(float64(combos))/float64(len(word)-1), 1.0)
+	return math.Min(math.Log10(float64(combos))/float64(wordLen-1), 1.0)
 }
 
 func createSubCombos(dist *alphabet.LetterDistribution) [][]uint64 {
