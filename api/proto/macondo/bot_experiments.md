@@ -328,55 +328,80 @@ Use command like this:
 Bot configs:
 
 ```go
-	pb.BotRequest_LEVEL1_CEL_BOT:       {baseFindability: 0.5, longWordFindability: 0.15, parallelFindability: 0.25, isCel: true},
-	pb.BotRequest_LEVEL2_CEL_BOT:       {baseFindability: 0.7, longWordFindability: 0.4, parallelFindability: 0.5, isCel: true},
-	pb.BotRequest_LEVEL3_CEL_BOT:       {baseFindability: 0.8, longWordFindability: 0.5, parallelFindability: 0.75, isCel: true},
-	pb.BotRequest_LEVEL4_CEL_BOT:       {isCel: true},
-	pb.BotRequest_LEVEL1_PROBABILISTIC: {baseFindability: 0.3, longWordFindability: 0.1, parallelFindability: 0.1, isCel: false},
-	pb.BotRequest_LEVEL2_PROBABILISTIC: {baseFindability: 0.4, longWordFindability: 0.2, parallelFindability: 0.2, isCel: false},
+	pb.BotRequest_LEVEL1_CEL_BOT: {baseFindability: 0.45, longWordFindability: 0.1, parallelFindability: 0.3, isCel: true},
+	pb.BotRequest_LEVEL2_CEL_BOT: {baseFindability: 0.7, longWordFindability: 0.4, parallelFindability: 0.5, isCel: true},
+	pb.BotRequest_LEVEL3_CEL_BOT: {baseFindability: 0.8, longWordFindability: 0.5, parallelFindability: 0.75, isCel: true},
+	pb.BotRequest_LEVEL4_CEL_BOT: {isCel: true},
+
+	pb.BotRequest_LEVEL1_PROBABILISTIC: {baseFindability: 0.3, longWordFindability: 0.07, parallelFindability: 0.15, isCel: false},
+	pb.BotRequest_LEVEL2_PROBABILISTIC: {baseFindability: 0.4, longWordFindability: 0.2, parallelFindability: 0.3, isCel: false},
 	pb.BotRequest_LEVEL3_PROBABILISTIC: {baseFindability: 0.55, longWordFindability: 0.35, parallelFindability: 0.45, isCel: false},
-	pb.BotRequest_LEVEL4_PROBABILISTIC: {baseFindability: 0.75, longWordFindability: 0.6, parallelFindability: 0.7, isCel: false},
-	pb.BotRequest_LEVEL5_PROBABILISTIC: {baseFindability: 0.85, longWordFindability: 0.8, parallelFindability: 0.85, isCel: false},
+	pb.BotRequest_LEVEL4_PROBABILISTIC: {baseFindability: 0.85, longWordFindability: 0.45, parallelFindability: 0.85, isCel: false},
+	pb.BotRequest_LEVEL5_PROBABILISTIC: {baseFindability: 0.9, longWordFindability: 0.8, parallelFindability: 0.85, isCel: false},
+
 ```
 
 ```
-HastyBot vs Level 1 CEL Bot
+CEL 1 vs CEL 1
 
 Games played: 20000
-exhaustiveleave-1 wins: 19993.0 (99.965%)
-exhaustiveleave-1 Mean Score: 542.8530  Stdev: 64.4456
-exhaustiveleave-2 Mean Score: 247.4106  Stdev: 41.0381
-exhaustiveleave-1 Mean Bingos: 2.6320  Stdev: 1.1067
-exhaustiveleave-2 Mean Bingos: 0.4117  Stdev: 0.5613
-exhaustiveleave-1 Mean Points Per Turn: 41.2561  Stdev: 6.0539
-exhaustiveleave-1 Mean Points Per Turn: 19.1711  Stdev: 3.9943
-
+exhaustiveleave-1 wins: 9969.5 (49.847%)
+exhaustiveleave-1 Mean Score: 300.7273  Stdev: 41.4898
+exhaustiveleave-2 Mean Score: 301.4013  Stdev: 41.3824
+exhaustiveleave-1 Mean Bingos: 0.3349  Stdev: 0.5138
+exhaustiveleave-2 Mean Bingos: 0.3449  Stdev: 0.5214
+exhaustiveleave-1 Mean Points Per Turn: 17.9225  Stdev: 3.2871
+exhaustiveleave-1 Mean Points Per Turn: 17.9575  Stdev: 3.2804
+exhaustiveleave-1 went first: 10013.0 (50.065%)
+Player who went first wins: 11257.5 (56.288%)
 ```
 
 ```
-Level 1 CEL Bot vs Level 2 CEL Bot
+HASTY vs CEL 1
 
 Games played: 20000
-exhaustiveleave-1 wins: 4117.0 (20.585%)
-exhaustiveleave-1 Mean Score: 290.3976  Stdev: 43.4362
-exhaustiveleave-2 Mean Score: 357.3855  Stdev: 50.1215
-exhaustiveleave-1 Mean Bingos: 0.4596  Stdev: 0.5823
-exhaustiveleave-2 Mean Bingos: 0.9140  Stdev: 0.7570
-exhaustiveleave-1 Mean Points Per Turn: 18.6131  Stdev: 3.6523
-exhaustiveleave-1 Mean Points Per Turn: 22.8291  Stdev: 4.1318
+exhaustiveleave-1 wins: 19987.0 (99.935%)
+exhaustiveleave-1 Mean Score: 510.4562  Stdev: 62.4128
+exhaustiveleave-2 Mean Score: 247.3614  Stdev: 39.0748
+exhaustiveleave-1 Mean Bingos: 2.3444  Stdev: 1.0625
+exhaustiveleave-2 Mean Bingos: 0.3051  Stdev: 0.4971
+exhaustiveleave-1 Mean Points Per Turn: 37.7261  Stdev: 5.8351
+exhaustiveleave-1 Mean Points Per Turn: 18.5711  Stdev: 3.7053
+exhaustiveleave-1 went first: 9958.0 (49.790%)
+Player who went first wins: 9963.0 (49.815%)
+
+```
+
+```
+CEL 1 vs CEL 2
+
+Games played: 20000
+exhaustiveleave-1 wins: 3297.0 (16.485%)
+exhaustiveleave-1 Mean Score: 284.0946  Stdev: 40.5773
+exhaustiveleave-2 Mean Score: 358.4997  Stdev: 48.8146
+exhaustiveleave-1 Mean Bingos: 0.3345  Stdev: 0.5110
+exhaustiveleave-2 Mean Bingos: 0.9183  Stdev: 0.7495
+exhaustiveleave-1 Mean Points Per Turn: 18.1619  Stdev: 3.3805
+exhaustiveleave-1 Mean Points Per Turn: 22.8416  Stdev: 4.0532
+exhaustiveleave-1 went first: 10100.0 (50.500%)
+Player who went first wins: 10694.0 (53.470%)
 
 ```
 
 ```
 Level 2 CEL Bot vs Level 4 CEL Bot
+
+
 Games played: 20000
-exhaustiveleave-1 wins: 3538.5 (17.692%)
-exhaustiveleave-1 Mean Score: 322.1803  Stdev: 47.7800
-exhaustiveleave-2 Mean Score: 403.2264  Stdev: 55.4461
-exhaustiveleave-1 Mean Bingos: 0.8529  Stdev: 0.7443
-exhaustiveleave-2 Mean Bingos: 1.5084  Stdev: 0.9083
-exhaustiveleave-1 Mean Points Per Turn: 23.2473  Stdev: 4.3463
-exhaustiveleave-1 Mean Points Per Turn: 28.9959  Stdev: 5.0462
+exhaustiveleave-1 wins: 3533.5 (17.668%)
+exhaustiveleave-1 Mean Score: 319.6785  Stdev: 46.9307
+exhaustiveleave-2 Mean Score: 400.4173  Stdev: 55.8149
+exhaustiveleave-1 Mean Bingos: 0.8449  Stdev: 0.7252
+exhaustiveleave-2 Mean Bingos: 1.4369  Stdev: 0.9149
+exhaustiveleave-1 Mean Points Per Turn: 23.2010  Stdev: 4.3025
+exhaustiveleave-1 Mean Points Per Turn: 28.9344  Stdev: 5.0025
+exhaustiveleave-1 went first: 9987.0 (49.935%)
+Player who went first wins: 10781.5 (53.907%)
 
 
 ```
@@ -385,15 +410,17 @@ exhaustiveleave-1 Mean Points Per Turn: 28.9959  Stdev: 5.0462
 Level 4 CEL Bot vs Level 4 Prob bot
 
 Games played: 20000
-exhaustiveleave-1 wins: 3473.5 (17.367%)
-exhaustiveleave-1 Mean Score: 359.5638  Stdev: 53.6526
-exhaustiveleave-2 Mean Score: 446.8190  Stdev: 57.0110
-exhaustiveleave-1 Mean Bingos: 1.3921  Stdev: 0.8876
-exhaustiveleave-2 Mean Bingos: 1.8445  Stdev: 0.9902
-exhaustiveleave-1 Mean Points Per Turn: 29.2364  Stdev: 5.3816
-exhaustiveleave-1 Mean Points Per Turn: 36.0214  Stdev: 5.5712
-exhaustiveleave-1 went first: 0.0 (0.000%)
-Player who went first wins: 28.5 (0.142%)
+exhaustiveleave-1 wins: 4857.5 (24.288%)
+exhaustiveleave-1 Mean Score: 361.3573  Stdev: 54.0872
+exhaustiveleave-2 Mean Score: 424.7307  Stdev: 54.6320
+exhaustiveleave-1 Mean Bingos: 1.3255  Stdev: 0.8809
+exhaustiveleave-2 Mean Bingos: 1.6058  Stdev: 0.9369
+exhaustiveleave-1 Mean Points Per Turn: 28.9520  Stdev: 5.2767
+exhaustiveleave-1 Mean Points Per Turn: 33.8321  Stdev: 5.3244
+exhaustiveleave-1 went first: 10097.0 (50.485%)
+Player who went first wins: 10933.5 (54.667%)
+
+
 
 
 ```
@@ -433,13 +460,77 @@ Player who went first wins: 11048.0 (55.240%)
 Level 1 Prob bot vs Hasty Bot
 
 Games played: 20000
-exhaustiveleave-1 wins: 49.5 (0.247%)
-exhaustiveleave-1 Mean Score: 287.1085  Stdev: 54.5195
-exhaustiveleave-2 Mean Score: 581.8977  Stdev: 73.5221
-exhaustiveleave-1 Mean Bingos: 0.8392  Stdev: 0.7507
-exhaustiveleave-2 Mean Bingos: 3.2863  Stdev: 1.1897
-exhaustiveleave-1 Mean Points Per Turn: 21.1650  Stdev: 5.3506
-exhaustiveleave-1 Mean Points Per Turn: 42.0573  Stdev: 6.7855
-exhaustiveleave-1 went first: 10034.0 (50.170%)
-Player who went first wins: 9989.5 (49.947%)
+exhaustiveleave-1 wins: 44.0 (0.220%)
+exhaustiveleave-1 Mean Score: 285.8092  Stdev: 51.4911
+exhaustiveleave-2 Mean Score: 577.6897  Stdev: 72.6677
+exhaustiveleave-1 Mean Bingos: 0.6857  Stdev: 0.6941
+exhaustiveleave-2 Mean Bingos: 3.2911  Stdev: 1.1890
+exhaustiveleave-1 Mean Points Per Turn: 21.1958  Stdev: 5.0523
+exhaustiveleave-1 Mean Points Per Turn: 42.0990  Stdev: 6.7054
+exhaustiveleave-1 went first: 10078.0 (50.390%)
+Player who went first wins: 9942.0 (49.710%)
+```
+
+```
+Level 2 Prob vs Level 1 Prob
+
+Games played: 20000
+exhaustiveleave-1 wins: 16171.0 (80.855%)
+exhaustiveleave-1 Mean Score: 410.0470  Stdev: 60.6334
+exhaustiveleave-2 Mean Score: 322.3127  Stdev: 54.0413
+exhaustiveleave-1 Mean Bingos: 1.4424  Stdev: 0.9106
+exhaustiveleave-2 Mean Bingos: 0.7311  Stdev: 0.7166
+exhaustiveleave-1 Mean Points Per Turn: 25.1007  Stdev: 5.0271
+exhaustiveleave-1 Mean Points Per Turn: 19.8481  Stdev: 4.6158
+exhaustiveleave-1 went first: 10114.0 (50.570%)
+Player who went first wins: 10840.0 (54.200%)
+
+```
+
+```
+Level 3 Prob vs Level 2 Prob
+
+Games played: 20000
+exhaustiveleave-1 wins: 15151.5 (75.757%)
+exhaustiveleave-1 Mean Score: 437.9868  Stdev: 61.6071
+exhaustiveleave-2 Mean Score: 367.7466  Stdev: 56.6542
+exhaustiveleave-1 Mean Bingos: 1.9421  Stdev: 1.0161
+exhaustiveleave-2 Mean Bingos: 1.3334  Stdev: 0.8938
+exhaustiveleave-1 Mean Points Per Turn: 30.9208  Stdev: 5.6962
+exhaustiveleave-1 Mean Points Per Turn: 26.0925  Stdev: 5.3202
+exhaustiveleave-1 went first: 10077.0 (50.385%)
+Player who went first wins: 11018.5 (55.093%)
+
+
+```
+
+```
+Level 4 Prob vs Level 3 Prob
+
+Games played: 20000
+exhaustiveleave-1 wins: 15524.5 (77.623%)
+exhaustiveleave-1 Mean Score: 480.8806  Stdev: 63.3233
+exhaustiveleave-2 Mean Score: 400.9642  Stdev: 59.2692
+exhaustiveleave-1 Mean Bingos: 2.3977  Stdev: 1.0902
+exhaustiveleave-2 Mean Bingos: 1.8081  Stdev: 0.9993
+exhaustiveleave-1 Mean Points Per Turn: 37.7178  Stdev: 6.2981
+exhaustiveleave-1 Mean Points Per Turn: 31.6303  Stdev: 6.0130
+exhaustiveleave-1 went first: 10051.0 (50.255%)
+Player who went first wins: 10946.5 (54.733%)
+
+```
+
+```
+HastyBot vs Level 4 Prob
+
+exhaustiveleave-1 wins: 14037.0 (70.185%)
+exhaustiveleave-1 Mean Score: 505.2295  Stdev: 67.1159
+exhaustiveleave-2 Mean Score: 447.5797  Stdev: 61.8292
+exhaustiveleave-1 Mean Bingos: 2.9086  Stdev: 1.1555
+exhaustiveleave-2 Mean Bingos: 2.2509  Stdev: 1.0689
+exhaustiveleave-1 Mean Points Per Turn: 43.0800  Stdev: 7.2696
+exhaustiveleave-1 Mean Points Per Turn: 38.2625  Stdev: 6.6482
+exhaustiveleave-1 went first: 9973.0 (49.865%)
+Player who went first wins: 11041.0 (55.205%)
+
 ```
