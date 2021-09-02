@@ -3,7 +3,6 @@ package gaddag
 import (
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 
 	"github.com/domino14/macondo/alphabet"
@@ -77,11 +76,7 @@ func ReadDawg(data io.Reader) (*SimpleDawg, error) {
 	nodes, letterSets, alphabetArr, lexName := loadCommonDagStructure(data)
 	d.nodes = nodes
 	d.letterSets = letterSets
-	alphabetName, ok := alphabet.LexiconNameToAlphabetName[string(lexName)]
-	if !ok {
-		log.Err(fmt.Errorf("alphabet %s does not have a name", lexName)).Msg("no-alphabet-name")
-	}
-	d.alphabet = alphabet.FromSlice(alphabetArr, alphabetName)
+	d.alphabet = alphabet.FromSlice(alphabetArr)
 	d.lexiconName = string(lexName)
 	return d, nil
 }

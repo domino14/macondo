@@ -6,12 +6,10 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/gaddagmaker"
-	"github.com/rs/zerolog/log"
 )
 
 // SimpleGaddag is the result of loading the gaddag back into
@@ -57,14 +55,8 @@ func GaddagToSimpleGaddag(g *gaddagmaker.Gaddag) *SimpleGaddag {
 	readBuf := bytes.NewBuffer(buf.Bytes())
 	nodes, letterSets, alphabetArr, lexName := loadCommonDagStructure(readBuf)
 
-	alphabetName, ok := alphabet.LexiconNameToAlphabetName[string(lexName)]
-	if !ok {
-		log.Err(fmt.Errorf("no alphabet exists for lexicon %d", lexName)).Msg("gaddag-lexname-unknown")
-		return nil
-	}
-
 	sg := &SimpleGaddag{nodes: nodes, letterSets: letterSets,
-		alphabet:    alphabet.FromSlice(alphabetArr, alphabetName),
+		alphabet:    alphabet.FromSlice(alphabetArr),
 		lexiconName: string(lexName)}
 	return sg
 }
@@ -78,13 +70,10 @@ func ScanGaddag(data io.Reader) (*SimpleGaddag, error) {
 	}
 
 	nodes, letterSets, alphabetArr, lexName := loadCommonDagStructure(data)
-	alphabetName, ok := alphabet.LexiconNameToAlphabetName[string(lexName)]
-	if !ok {
-		log.Err(fmt.Errorf("alphabet %s does not have a name", lexName)).Msg("no-alphabet-name")
-	}
+
 	g := &SimpleGaddag{nodes: nodes, letterSets: letterSets,
 		// Need to mape lexname to distribution
-		alphabet:    alphabet.FromSlice(alphabetArr, alphabetName),
+		alphabet:    alphabet.FromSlice(alphabetArr),
 		lexiconName: string(lexName)}
 	return g, nil
 }

@@ -13,7 +13,7 @@ import (
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/runner"
 	"github.com/domino14/macondo/strategy"
-	"lukechampine.com/frand"
+	"github.com/rs/zerolog/log"
 
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
@@ -107,15 +107,14 @@ func GenerateMoves(g *game.Game, aiplayer player.AIPlayer, gen movegen.MoveGener
 	plays := gen.Plays()
 
 	aiplayer.AssignEquity(plays, g.Board(), g.Bag(), oppRack)
-
-	// Only apply filters to English for now
+	log.Info().Msgf("numPlays %v", numPlays)
 	if numPlays == 1 {
 		// Plays aren't sorted yet
 		sort.Slice(plays, func(i, j int) bool {
 			return plays[j].Equity() < plays[i].Equity()
 		})
-		r := frand.Float64()
-		return []*move.Move{filter(cfg, g, curRack, plays, r, aiplayer.GetBotType())}
+		log.Debug().Msgf("botType: %v", aiplayer.GetBotType().String())
+		return []*move.Move{filter(cfg, g, curRack, plays, aiplayer.GetBotType())}
 	}
 
 	return aiplayer.TopPlays(plays, numPlays)

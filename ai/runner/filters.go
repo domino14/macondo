@@ -10,116 +10,125 @@ import (
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
 	"github.com/rs/zerolog/log"
+	"lukechampine.com/frand"
 )
 
 // Note: because of the nature of this algorithm, the lower these numbers, the
 // more time the bot will take to find its move.
 var BotConfigs = map[pb.BotRequest_BotCode]struct {
 	baseFindability     float64
+	longWordFindability float64
 	parallelFindability float64
 	isCel               bool
 }{
-	pb.BotRequest_LEVEL1_CEL_BOT:       {baseFindability: 0.2, parallelFindability: 0.25, isCel: true},
-	pb.BotRequest_LEVEL2_CEL_BOT:       {baseFindability: 0.5, parallelFindability: 0.5, isCel: true},
-	pb.BotRequest_LEVEL3_CEL_BOT:       {isCel: true},
+	pb.BotRequest_LEVEL1_CEL_BOT:       {baseFindability: 0.4, longWordFindability: 0.2, parallelFindability: 0.25, isCel: true},
+	pb.BotRequest_LEVEL2_CEL_BOT:       {baseFindability: 0.6, longWordFindability: 0.4, parallelFindability: 0.5, isCel: true},
+	pb.BotRequest_LEVEL3_CEL_BOT:       {baseFindability: 0.8, longWordFindability: 0.5, parallelFindability: 0.75, isCel: true},
 	pb.BotRequest_LEVEL4_CEL_BOT:       {isCel: true},
-	pb.BotRequest_LEVEL1_PROBABILISTIC: {baseFindability: 0.07, parallelFindability: 0.1, isCel: false},
-	pb.BotRequest_LEVEL2_PROBABILISTIC: {baseFindability: 0.15, parallelFindability: 0.2, isCel: false},
-	pb.BotRequest_LEVEL3_PROBABILISTIC: {baseFindability: 0.35, parallelFindability: 0.45, isCel: false},
-	pb.BotRequest_LEVEL4_PROBABILISTIC: {baseFindability: 0.6, parallelFindability: 0.7, isCel: false},
-	pb.BotRequest_LEVEL5_PROBABILISTIC: {baseFindability: 0.85, parallelFindability: 0.85, isCel: false},
+	pb.BotRequest_LEVEL1_PROBABILISTIC: {baseFindability: 0.07, longWordFindability: 0.3, parallelFindability: 0.1, isCel: false},
+	pb.BotRequest_LEVEL2_PROBABILISTIC: {baseFindability: 0.15, longWordFindability: 0.4, parallelFindability: 0.2, isCel: false},
+	pb.BotRequest_LEVEL3_PROBABILISTIC: {baseFindability: 0.35, longWordFindability: 0.5, parallelFindability: 0.45, isCel: false},
+	pb.BotRequest_LEVEL4_PROBABILISTIC: {baseFindability: 0.6, longWordFindability: 0.6, parallelFindability: 0.7, isCel: false},
+	pb.BotRequest_LEVEL5_PROBABILISTIC: {baseFindability: 0.85, longWordFindability: 0.8, parallelFindability: 0.85, isCel: false},
 }
 
-func filter(cfg *config.Config, g *game.Game, rack *alphabet.Rack, plays []*move.Move, r float64, botType pb.BotRequest_BotCode) *move.Move {
-
+func filter(cfg *config.Config, g *game.Game, rack *alphabet.Rack, plays []*move.Move, botType pb.BotRequest_BotCode) *move.Move {
 	passMove := move.NewPassMove(rack.TilesOn(), g.Alphabet())
 	botConfig, botConfigExists := BotConfigs[botType]
-	if botConfigExists {
-		filterFunction := func([]alphabet.MachineWord) (bool, error) { return true, nil }
-		// Only apply CEL filters to english lexica
-		if botConfig.isCel && g.Alphabet().Name() == alphabet.AlphabetNameEnglish {
-			gd, err := gaddag.GetDawg(cfg, "ECWL")
-			if err != nil {
-				filterFunction = func([]alphabet.MachineWord) (bool, error) { return false, err }
-			} else {
-				lex := gaddag.Lexicon{GenericDawg: gd}
-				// XXX: There might be a slick way to consolidate this
-				// stufilterFunction using generic function pointer types and casting
-				// but I'm not sure. This is probably good enough
-				if g.Rules().Variant() == game.VarWordSmog {
-					filterFunction = func(mws []alphabet.MachineWord) (bool, error) {
-						for _, mw := range mws {
-							if !lex.HasAnagram(mw) {
-								return false, nil
-							}
-						}
-						return true, nil
-					}
-				} else {
-					filterFunction = func(mws []alphabet.MachineWord) (bool, error) {
-						for _, mw := range mws {
-							if !lex.HasWord(mw) {
-								return false, nil
-							}
-						}
-						return true, nil
-					}
-				}
-			}
-		}
-
-		// LEVEL4_CEL_BOT is an unfiltered CEL bot
-		if botType != pb.BotRequest_LEVEL4_CEL_BOT {
-			dist := g.Bag().LetterDistribution()
-			// XXX: This should be cached
-			subChooseCombos := createSubCombos(dist)
-			filterFunctionPrev := filterFunction
-			filterFunction = func(mws []alphabet.MachineWord) (bool, error) {
-				allowed, err := filterFunctionPrev(mws)
-				if !allowed || err != nil {
-					return allowed, err
-				}
-				var ans float64
-				// The level 3 CEL bot only filters by probable findability
-				if botType != pb.BotRequest_LEVEL3_CEL_BOT {
-					ans = botConfig.baseFindability * math.Pow(botConfig.parallelFindability, float64(len(mws)-1))
-				} else {
-					ans = 1.0
-				}
-				mw := mws[0] // assume len > 0
-				if len(mw) >= game.ExchangeLimit {
-					userVisibleString := mw.UserVisible(dist.Alphabet())
-					ans *= probableFindability(len(mw), combinations(dist, subChooseCombos, userVisibleString, true))
-				}
-				return r < ans, nil
-			}
-		}
-
-		mws := []alphabet.MachineWord{}
-		for _, play := range plays {
-			var err error
-			allowed := true
-			if play.Action() == move.MoveTypePlay {
-				mws, err = g.Board().FormedWords(play)
-				if err != nil {
-					log.Err(err).Msg("formed-words-filter-error")
-					break
-				}
-				allowed, err = filterFunction(mws)
-				if err != nil {
-					log.Err(err).Msg("bot-type-move-filter-internal-error")
-					break
-				}
-			}
-			if allowed && err != nil {
-				return play
-			}
+	if !botConfigExists {
+		if len(plays) > 0 {
+			return plays[0]
 		}
 		return passMove
 	}
-	if len(plays) > 0 {
-		return plays[0]
+
+	filterFunction := func([]alphabet.MachineWord, float64) (bool, error) { return true, nil }
+	if botConfig.isCel {
+		gd, err := gaddag.GetDawg(cfg, "ECWL")
+		if err != nil {
+			log.Err(err).Msg("could-not-load-ecwl")
+			filterFunction = func([]alphabet.MachineWord, float64) (bool, error) { return false, err }
+		} else {
+			lex := gaddag.Lexicon{GenericDawg: gd}
+			// XXX: There might be a slick way to consolidate this
+			// stufilterFunction using generic function pointer types and casting
+			// but I'm not sure. This is probably good enough
+			if g.Rules().Variant() == game.VarWordSmog {
+				filterFunction = func(mws []alphabet.MachineWord, r float64) (bool, error) {
+					for _, mw := range mws {
+						if !lex.HasAnagram(mw) {
+							return false, nil
+						}
+					}
+					return true, nil
+				}
+			} else {
+				log.Info().Msg("not a wordsmog bot")
+				filterFunction = func(mws []alphabet.MachineWord, r float64) (bool, error) {
+					for _, mw := range mws {
+						if !lex.HasWord(mw) {
+							return false, nil
+						}
+					}
+					return true, nil
+				}
+			}
+		}
 	}
+
+	// LEVEL4_CEL_BOT is an unfiltered CEL bot
+	if botType != pb.BotRequest_LEVEL4_CEL_BOT {
+		dist := g.Bag().LetterDistribution()
+		// XXX: This should be cached
+		subChooseCombos := createSubCombos(dist)
+		filterFunctionPrev := filterFunction
+		filterFunction = func(mws []alphabet.MachineWord, r float64) (bool, error) {
+			allowed, err := filterFunctionPrev(mws, r)
+			if !allowed || err != nil {
+				return allowed, err
+			}
+			ans := botConfig.baseFindability * math.Pow(botConfig.parallelFindability, float64(len(mws)-1))
+
+			mw := mws[0] // assume len > 0
+			// Check for long words (7 or more letters)
+			if len(mw) >= game.ExchangeLimit {
+				userVisibleString := mw.UserVisible(dist.Alphabet())
+				ans *= probableFindability(len(mw), combinations(dist, subChooseCombos, userVisibleString, true)) * botConfig.longWordFindability
+			}
+			log.Debug().Float64("ans", ans).Float64("r", r).Msg("checking-answer")
+			return r < ans, nil
+		}
+	}
+
+	var mws []alphabet.MachineWord
+	for _, play := range plays {
+		var err error
+		allowed := true
+		r := frand.Float64()
+
+		if play.Action() == move.MoveTypePlay {
+			mws, err = g.Board().FormedWords(play)
+			if err != nil {
+				log.Err(err).Msg("formed-words-filter-error")
+				break
+			}
+			allowed, err = filterFunction(mws, r)
+			log.Debug().Interface("play", play).Bool("allowed", allowed).Msg("allowed?")
+			if err != nil {
+				log.Err(err).Msg("bot-type-move-filter-internal-error")
+				break
+			}
+		} else if play.Action() == move.MoveTypeExchange {
+			if r < botConfig.baseFindability {
+				return play
+			}
+		}
+		log.Err(err).Bool("allowed", allowed).Msg("allowed??")
+		if allowed && err == nil {
+			return play
+		}
+	}
+
 	return passMove
 }
 
