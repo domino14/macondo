@@ -534,3 +534,39 @@ exhaustiveleave-1 went first: 9973.0 (49.865%)
 Player who went first wins: 11041.0 (55.205%)
 
 ```
+
+One more experiment, lowered level1 cel bot to
+`{baseFindability: 0.3, longWordFindability: 0.1, parallelFindability: 0.3, isCel: true}`
+
+```
+Level 1 CEL vs HastyBot
+
+Games played: 20000
+exhaustiveleave-1 wins: 1.0 (0.005%)
+exhaustiveleave-1 Mean Score: 225.9808  Stdev: 36.8490
+exhaustiveleave-2 Mean Score: 553.3431  Stdev: 63.8713
+exhaustiveleave-1 Mean Bingos: 0.2276  Stdev: 0.4396
+exhaustiveleave-2 Mean Bingos: 2.6511  Stdev: 1.1092
+exhaustiveleave-1 Mean Points Per Turn: 17.1924  Stdev: 3.4998
+exhaustiveleave-1 Mean Points Per Turn: 41.1971  Stdev: 6.1402
+exhaustiveleave-1 went first: 10124.0 (50.620%)
+Player who went first wins: 9877.0 (49.385%)
+
+```
+
+and vs Level 2:
+
+```
+Level 1 CEL vs Level 2 CEL
+
+Games played: 20000
+exhaustiveleave-1 wins: 1763.0 (8.815%)
+exhaustiveleave-1 Mean Score: 265.6067  Stdev: 38.5800
+exhaustiveleave-2 Mean Score: 367.2212  Stdev: 49.1819
+exhaustiveleave-1 Mean Bingos: 0.2497  Stdev: 0.4581
+exhaustiveleave-2 Mean Bingos: 0.9165  Stdev: 0.7537
+exhaustiveleave-1 Mean Points Per Turn: 16.6848  Stdev: 3.1712
+exhaustiveleave-1 Mean Points Per Turn: 22.8887  Stdev: 4.0306
+exhaustiveleave-1 went first: 9898.0 (49.490%)
+Player who went first wins: 10696.0 (53.480%)
+```
