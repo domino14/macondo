@@ -87,18 +87,18 @@ func AnalyzeLogFile(filepath string) (string, error) {
 
 		if p1score > p2score {
 			p1wl += 1.0
-			if record[5] == p1Name {
+			if record[7] == p1Name {
 				wentFirstWL += 1.0
 			}
 		} else if p1score == p2score {
 			p1wl += 0.5
 			wentFirstWL += 0.5
 		} else if p1score < p2score {
-			if record[5] == p2Name {
+			if record[7] == p2Name {
 				wentFirstWL += 1.0
 			}
 		}
-		if record[5] == p1Name {
+		if record[7] == p1Name {
 			p1first++
 		}
 
