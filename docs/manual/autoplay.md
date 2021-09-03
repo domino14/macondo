@@ -89,3 +89,15 @@ that this is a fluke is around 0.00002.
 Note: Macondo values can now beat Quackle values around 50.6 or so % of the time, after fine-tuning our values. You can see the `/notebooks` directory of this repo for more details.
 
 We don't have a simming player working yet, but I think the difference might be even bigger once simulation is involved.
+
+### Different bot levels
+
+`autoplay -botcode1 LEVEL4_PROBABILISTIC -botcode2 HASTY_BOT -numgames 20000`
+
+This plays 20000 games between a Level 4 probabilistic bot and a HastyBot. "Probabilistic" bots miss more plays than HastyBot randomly; the weaker, the more plays it misses.
+
+You can see `macondo.proto` in the source for a list of the different bots.
+
+`autoplay -lexicon FRA20 -letterdistribution french -botcode1 LEVEL1_PROBABILISTIC -botcode2 HASTY_BOT`
+
+In order to specify a non-English lexicon, you must also specify the letter distribution, as in the example above.

@@ -40,7 +40,7 @@ Options:
     which is a raw equity player. Types can be taken from the macondo.proto file.
     So far, these are:
     - HASTY_BOT,
-    - LEVEL1_CEL_BOT through LEVEL3_CEL_BOT (Common English Lexicon),
+    - LEVEL1_CEL_BOT through LEVEL4_CEL_BOT (Common English Lexicon),
     - LEVEL1_PROBABILISTIC through LEVEL5_PROBABILISTIC.
 
 autoplay can be used to generate computer vs computer games for research
