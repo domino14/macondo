@@ -133,6 +133,8 @@ func (s *Simmer) SetLogStream(l io.Writer) {
 }
 
 func (s *Simmer) makeGameCopies() error {
+	// it is the responsibility of the caller now to calculate cross-sets and anchors:
+	s.origGame.RecalculateBoard()
 	log.Debug().Int("threads", s.threads).Msg("makeGameCopies")
 	s.gameCopies = []*game.Game{}
 	s.movegens = []movegen.MoveGenerator{}
@@ -146,10 +148,9 @@ func (s *Simmer) makeGameCopies() error {
 		s.gameCopies = append(s.gameCopies, s.origGame.Copy())
 		board := s.gameCopies[i].Board()
 		dist := s.gameCopies[i].Bag().LetterDistribution()
-
-		s.gameCopies[i].SetAddlState(movegen.NewState(board, gd, dist))
-		s.movegens = append(s.movegens,
-			movegen.NewGordonGenerator(gd, board, dist))
+		mg := movegen.NewGordonGenerator(gd, board, dist)
+		s.gameCopies[i].SetAddlState(mg.State())
+		s.movegens = append(s.movegens, mg)
 
 	}
 	return nil
@@ -351,9 +352,8 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 				// Assume there are exactly two players.
 
 				bestPlay := s.bestStaticTurn(onTurn, thread)
-				// log.Debug().Msgf("Ply %v, Best play: %v", ply+1, bestPlay)
+				log.Debug().Interface("simmedPlay", simmedPlay.play).Msgf("Ply %v, Best play: %v", ply+1, bestPlay)
 				s.gameCopies[thread].PlayMove(bestPlay, false, 0)
-				// log.Debug().Msgf("Score is now %v", s.game.Score())
 				if s.logStream != nil {
 					plyChild = LogPlay{Play: bestPlay.ShortDescription(), Rack: bestPlay.FullRack(), Pts: bestPlay.Score()}
 				}

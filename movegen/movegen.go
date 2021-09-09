@@ -63,6 +63,9 @@ type GordonGenerator struct {
 	// closely tied to the game board:
 	anchors *Anchors
 	csetGen *cross_set.GaddagCrossSetGenerator
+	// They are in this state:
+	state *State
+
 	// Used for scoring:
 	letterDistribution *alphabet.LetterDistribution
 }
@@ -71,16 +74,26 @@ type GordonGenerator struct {
 func NewGordonGenerator(gd *gaddag.SimpleGaddag, board *board.GameBoard,
 	ld *alphabet.LetterDistribution) *GordonGenerator {
 
+	state := &State{
+		anchors: MakeAnchors(board),
+		csetGen: cross_set.MakeGaddagCrossSetGenerator(board, gd, ld),
+	}
+
 	gen := &GordonGenerator{
 		gaddag:             gd,
 		board:              board,
-		csetGen:            cross_set.MakeGaddagCrossSetGenerator(board, gd, ld),
-		anchors:            MakeAnchors(board),
+		csetGen:            state.csetGen,
+		anchors:            state.anchors,
 		numPossibleLetters: int(gd.GetAlphabet().NumLetters()),
 		sortingParameter:   SortByScore,
 		letterDistribution: ld,
+		state:              state,
 	}
 	return gen
+}
+
+func (gen *GordonGenerator) State() *State {
+	return gen.state
 }
 
 func (gen *GordonGenerator) ResetCrossesAndAnchors() {

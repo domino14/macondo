@@ -277,7 +277,6 @@ func traverseBackwards(b *board.GameBoard, row int, col int,
 // GenCrossSet generates a cross-set for each individual square.
 func GenCrossSet(b *board.GameBoard, cs crosses.Crosser, row int, col int, dir board.BoardDirection,
 	gaddag gaddag.GenericDawg, ld *alphabet.LetterDistribution) {
-
 	if row < 0 || row >= b.Dim() || col < 0 || col >= b.Dim() {
 		return
 	}

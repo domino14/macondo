@@ -1,10 +1,8 @@
 package movegen
 
 import (
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cross_set"
-	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
 )
@@ -35,11 +33,4 @@ func (s *State) UpdateForMove(b *board.GameBoard, m *move.Move) {
 func (s *State) RecalculateFromBoard(b *board.GameBoard) {
 	s.csetGen.GenerateAll(b)
 	s.anchors.UpdateAllAnchors()
-}
-
-func NewState(b *board.GameBoard, gd gaddag.GenericDawg, dist *alphabet.LetterDistribution) *State {
-	return &State{
-		anchors: MakeAnchors(b),
-		csetGen: cross_set.MakeGaddagCrossSetGenerator(b, gd, dist),
-	}
 }

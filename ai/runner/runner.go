@@ -65,10 +65,8 @@ func addAIFields(g *runner.GameRunner, conf *config.Config, botType pb.BotReques
 
 	aiplayer := player.NewRawEquityPlayer(strategy, botType)
 	gen := movegen.NewGordonGenerator(gd, g.Board(), g.Bag().LetterDistribution())
-
 	// Add the movegen state as well.
-	mgState := movegen.NewState(g.Board(), gd, g.Bag().LetterDistribution())
-	g.SetAddlState(mgState)
+	g.SetAddlState(gen.State())
 
 	ret := &AIGameRunner{*g, aiplayer, gen, conf}
 	return ret, nil

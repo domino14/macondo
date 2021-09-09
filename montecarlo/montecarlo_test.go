@@ -158,6 +158,7 @@ func TestLongerSim(t *testing.T) {
 	// AWA wins (note that the print above also sorts the plays by equity)
 	is.Equal(simmer.plays[0].play.Tiles().UserVisible(game.Alphabet()), "AWA")
 	is.Equal(simmer.gameCopies[0].Turn(), 0)
+	t.Fail()
 }
 
 // func TestDrawingAssumptions(t *testing.T) {
