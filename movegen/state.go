@@ -14,6 +14,14 @@ type State struct {
 	csetGen *cross_set.GaddagCrossSetGenerator
 }
 
+func (s *State) Anchors() *Anchors {
+	return s.anchors
+}
+
+func (s *State) CSetGen() *cross_set.GaddagCrossSetGenerator {
+	return s.csetGen
+}
+
 func (s *State) CopyFrom(other game.BackupableState, b *board.GameBoard) {
 	log.Debug().Msg("CopyFrom called on actual state")
 

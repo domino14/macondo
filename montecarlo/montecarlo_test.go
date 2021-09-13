@@ -17,6 +17,7 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/game"
@@ -46,6 +47,68 @@ func TestMain(m *testing.M) {
 		}
 	}
 	os.Exit(m.Run())
+}
+
+func TestStatesCorrect(t *testing.T) {
+	// Test that the state makes sense and is correct after a play.
+	is := is.New(t)
+
+	plies := 2
+	players := []*pb.PlayerInfo{
+		{Nickname: "JD", RealName: "Jesse"},
+		{Nickname: "cesar", RealName: "César"},
+	}
+	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
+		"NWL18", "English")
+	is.NoErr(err)
+	g, err := game.NewGame(rules, players)
+	is.NoErr(err)
+
+	strategy, err := strategy.NewExhaustiveLeaveStrategy(rules.LexiconName(),
+		g.Alphabet(), &DefaultConfig, strategy.LeaveFilename, strategy.PEGAdjustmentFilename)
+	is.NoErr(err)
+
+	gd, err := gaddag.Get(g.Config(), g.LexiconName())
+	is.NoErr(err)
+
+	generator := movegen.NewGordonGenerator(gd, g.Board(), rules.LetterDistribution())
+
+	// This will deal a random rack to players:
+	g.StartGame()
+	g.SetPlayerOnTurn(0)
+	// Overwrite the first rack
+	g.SetRackFor(0, alphabet.RackFromString("AAADERW", g.Alphabet()))
+	generator.ResetCrossesAndAnchors()
+	aiplayer := player.NewRawEquityPlayer(strategy, pb.BotRequest_HASTY_BOT)
+	generator.GenAll(g.RackFor(0), true)
+
+	aiplayer.AssignEquity(generator.Plays(), g.Board(), g.Bag(),
+		g.RackFor(1))
+	plays := aiplayer.TopPlays(generator.Plays(), 10)
+
+	simmer := &Simmer{}
+	simmer.Init(g, aiplayer)
+	simmer.PrepareSim(plies, plays)
+
+	simmer.gameCopies[0].SetBackupMode(game.SimulationMode)
+	play := simmer.plays[0] // AWARD
+	is.Equal(play.play.ShortDescription(), "8H AWARD")
+	simmer.gameCopies[0].PlayMove(play.play, false, 0)
+	simmer.gameCopies[0].SetBackupMode(game.NoBackup)
+	postMoveState := simmer.movegens[0].(*movegen.GordonGenerator).State()
+
+	// Generate another state from scratch.
+	gen := cross_set.GaddagCrossSetGenerator{Dist: rules.LetterDistribution(), Gaddag: gd}
+	bd := board.MakeBoard(board.CrosswordGameBoard)
+	bd.PlayMove(play.play, rules.LetterDistribution())
+	gen.CS = cross_set.MakeBoardCrossSets(bd)
+	gen.GenerateAll(bd)
+	a := movegen.MakeAnchors(bd)
+	a.UpdateAllAnchors()
+
+	is.True(a.Equals(postMoveState.Anchors()))
+	is.True(gen.CS.Equals(postMoveState.CSetGen().CS))
+
 }
 
 func TestSimSingleIteration(t *testing.T) {
