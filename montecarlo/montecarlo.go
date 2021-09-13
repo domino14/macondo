@@ -342,7 +342,7 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 		leftover := float64(0.0)
 		// logIter.Plays = append(logIter.Plays)
 		// Play the move, and back up the game state.
-		// log.Debug().Msgf("Playing move %v", play)'
+		// log.Debug().Msgf("Playing move %v", play)
 		// Set the backup mode to simulation mode only to back up the first move:
 		s.gameCopies[thread].SetBackupMode(game.SimulationMode)
 		s.gameCopies[thread].PlayMove(simmedPlay.play, false, 0)
