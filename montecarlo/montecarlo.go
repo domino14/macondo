@@ -133,8 +133,7 @@ func (s *Simmer) SetLogStream(l io.Writer) {
 }
 
 func (s *Simmer) makeGameCopies() error {
-	// it is the responsibility of the caller now to calculate cross-sets and anchors:
-	s.origGame.RecalculateBoard()
+
 	log.Debug().Int("threads", s.threads).Msg("makeGameCopies")
 	s.gameCopies = []*game.Game{}
 	s.movegens = []movegen.MoveGenerator{}
@@ -151,7 +150,11 @@ func (s *Simmer) makeGameCopies() error {
 		mg := movegen.NewGordonGenerator(gd, board, dist)
 		s.gameCopies[i].SetAddlState(mg.State())
 		s.movegens = append(s.movegens, mg)
-
+		// it is the responsibility of the caller now to calculate cross-sets and anchors:
+		// Doing it here instead of outside is slightly less efficient, but if
+		// we do it outside, we don't have the required "additional state" attached
+		// to the game.
+		s.gameCopies[i].RecalculateBoard()
 	}
 	return nil
 
@@ -342,7 +345,6 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 		// log.Debug().Msgf("Playing move %v", play)'
 		// Set the backup mode to simulation mode only to back up the first move:
 		s.gameCopies[thread].SetBackupMode(game.SimulationMode)
-		log.Debug().Msg("setBackupMode, about to make play")
 		s.gameCopies[thread].PlayMove(simmedPlay.play, false, 0)
 		s.gameCopies[thread].SetBackupMode(game.NoBackup)
 		// Further plies will NOT be backed up.
@@ -353,7 +355,7 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 				// Assume there are exactly two players.
 
 				bestPlay := s.bestStaticTurn(onTurn, thread)
-				log.Debug().Interface("simmedPlay", simmedPlay.play).Msgf("Ply %v, Best play: %v", ply+1, bestPlay)
+				// log.Debug().Interface("simmedPlay", simmedPlay.play).Msgf("Ply %v, Best play: %v", ply+1, bestPlay)
 				s.gameCopies[thread].PlayMove(bestPlay, false, 0)
 				if s.logStream != nil {
 					plyChild = LogPlay{Play: bestPlay.ShortDescription(), Rack: bestPlay.FullRack(), Pts: bestPlay.Score()}

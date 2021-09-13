@@ -7,6 +7,7 @@ import (
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/move"
+	"github.com/rs/zerolog/log"
 )
 
 const (
@@ -139,18 +140,22 @@ func (bcs *BoardCrossSets) Copy(b *board.GameBoard) *BoardCrossSets {
 
 func (bcs *BoardCrossSets) Equals(other *BoardCrossSets) bool {
 	if len(bcs.hcrossSets) != len(other.hcrossSets) {
+		log.Debug().Int("l", len(bcs.hcrossSets)).Int("lo", len(other.hcrossSets)).Msg("lens not equal")
 		return false
 	}
 	if len(bcs.vcrossSets) != len(other.vcrossSets) {
+		log.Debug().Int("l", len(bcs.vcrossSets)).Int("lo", len(other.vcrossSets)).Msg("lengths not equal")
 		return false
 	}
 	for i, h := range bcs.hcrossSets {
 		if h != other.hcrossSets[i] {
+			log.Debug().Int("i", i).Uint64("h", uint64(h)).Uint64("eh", uint64(other.hcrossSets[i])).Msg("eh not equal")
 			return false
 		}
 	}
 	for i, v := range bcs.vcrossSets {
 		if v != other.vcrossSets[i] {
+			log.Debug().Int("i", i).Uint64("v", uint64(v)).Uint64("ev", uint64(other.vcrossSets[i])).Msg("ev not equal")
 			return false
 		}
 	}
