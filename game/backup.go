@@ -5,6 +5,7 @@ import (
 	"github.com/domino14/macondo/board"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
+	"github.com/rs/zerolog/log"
 )
 
 type BackupMode int
@@ -34,10 +35,22 @@ type BackupableState interface {
 // NopAddlState implements BackupableState and does nothing
 type NopAddlState struct{}
 
-func (n NopAddlState) CopyFrom(b BackupableState, g *board.GameBoard) {}
-func (n NopAddlState) Copy(*board.GameBoard) BackupableState          { return NopAddlState{} }
-func (n NopAddlState) UpdateForMove(b *board.GameBoard, m *move.Move) {}
-func (n NopAddlState) RecalculateFromBoard(b *board.GameBoard)        {}
+func (n NopAddlState) CopyFrom(b BackupableState, g *board.GameBoard) {
+	log.Debug().Msg("CopyFrom called on NopAddlState")
+}
+
+func (n NopAddlState) Copy(*board.GameBoard) BackupableState {
+	log.Debug().Msg("Copy called on NopAddlState")
+	return NopAddlState{}
+}
+
+func (n NopAddlState) UpdateForMove(b *board.GameBoard, m *move.Move) {
+	log.Debug().Msg("UpdateForMove called on NopAddlState")
+}
+func (n NopAddlState) RecalculateFromBoard(b *board.GameBoard) {
+	log.Debug().Msg("RecalculateFromBoard called on NopAddlState")
+
+}
 
 // stateBackup is a subset of Game, meant only for backup purposes.
 type stateBackup struct {

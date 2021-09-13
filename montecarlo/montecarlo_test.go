@@ -10,6 +10,7 @@ import (
 
 	"github.com/matryer/is"
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/ai/player"
 	airunner "github.com/domino14/macondo/ai/runner"
@@ -76,11 +77,16 @@ func TestSimSingleIteration(t *testing.T) {
 	// Overwrite the first rack
 	game.SetRackFor(0, alphabet.RackFromString("AAADERW", game.Alphabet()))
 	generator.ResetCrossesAndAnchors()
-	generator.GenAll(game.RackFor(0), false)
+	aiplayer := player.NewRawEquityPlayer(strategy, pb.BotRequest_HASTY_BOT)
+	generator.GenAll(game.RackFor(0), true)
+	log.Info().Msgf("nplays: %v", len(generator.Plays()))
+
+	aiplayer.AssignEquity(generator.Plays(), game.Board(), game.Bag(),
+		game.RackFor(1))
 	oldOppRack := game.RackFor(1).String()
-	plays := generator.Plays()[:10]
+	plays := aiplayer.TopPlays(generator.Plays(), 10)
 	simmer := &Simmer{}
-	simmer.Init(game, player.NewRawEquityPlayer(strategy, pb.BotRequest_HASTY_BOT))
+	simmer.Init(game, aiplayer)
 	simmer.PrepareSim(plies, plays)
 
 	simmer.simSingleIteration(plies, 0, 1, nil)

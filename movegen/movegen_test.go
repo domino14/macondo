@@ -501,6 +501,27 @@ func TestGenerateEmptyBoard(t *testing.T) {
 	assert.Equal(t, "", generator.plays[0].Leave().UserVisible(alph))
 }
 
+func TestGenerateOtherEmptyBoard(t *testing.T) {
+	gd, err := GaddagFromLexicon("NWL18")
+	if err != nil {
+		t.Errorf("Expected error to be nil, got %v", err)
+	}
+	alph := gd.GetAlphabet()
+
+	bd := board.MakeBoard(board.CrosswordGameBoard)
+	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
+	if err != nil {
+		t.Error(err)
+	}
+	generator := NewGordonGenerator(gd, bd, ld)
+	generator.ResetCrossesAndAnchors()
+
+	generator.GenAll(alphabet.RackFromString("AAADERW", alph), true)
+	assert.Equal(t, 141, len(scoringPlays(generator.plays)))
+	assert.Equal(t, 63, len(nonScoringPlays(generator.plays)))
+	assert.Equal(t, 26, generator.plays[0].Score()) // highest scoring wared
+}
+
 func TestGenerateNoPlays(t *testing.T) {
 	gd, err := GaddagFromLexicon("America")
 	if err != nil {
