@@ -96,6 +96,8 @@ func min(x, y float32) float32 {
 
 // Init initializes the solver
 func (s *Solver) Init(movegen movegen.MoveGenerator, game *game.Game) error {
+	// It is assumed that the movegen's state is shared with the passed-in game.
+	// It is the caller's responsibility to do this.
 	s.movegen = movegen
 	s.game = game
 	s.totalNodes = 0

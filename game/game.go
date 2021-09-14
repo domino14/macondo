@@ -345,8 +345,8 @@ func (g *Game) endOfGameCalcs(onturn int, addToHistory bool) {
 	if addToHistory {
 		g.addEventToHistory(g.endRackEvt(onturn, unplayedPts))
 	}
-	log.Debug().Int("onturn", onturn).Int("unplayedpts", unplayedPts).Interface("players", g.players).
-		Msg("endOfGameCalcs")
+	// log.Debug().Int("onturn", onturn).Int("unplayedpts", unplayedPts).Interface("players", g.players).
+	// 	Msg("endOfGameCalcs")
 }
 
 // Convert the slice of MachineWord to user-visible, using the game's lexicon.
@@ -428,7 +428,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 				g.history.PlayState = g.playing
 				log.Trace().Msg("waiting for final pass... (commit pass)")
 			} else {
-				log.Trace().Msg("game is over")
+				// log.Trace().Msg("game is over")
 				g.playing = pb.PlayState_GAME_OVER
 				if addToHistory {
 					g.history.PlayState = g.playing

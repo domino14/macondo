@@ -7,12 +7,12 @@ import (
 	"testing"
 
 	"github.com/matryer/is"
+	"github.com/rs/zerolog/log"
 
 	airunner "github.com/domino14/macondo/ai/runner"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/game"
@@ -59,18 +59,22 @@ func setUpSolver(lex string, bvs board.VsWho, plies int, rack1, rack2 string,
 	}
 
 	g.StartGame()
-	g.SetBackupMode(game.SimulationMode)
-	g.SetStateStackLength(plies)
-	// Throw in the random racks dealt to our players.
-	g.ThrowRacksIn()
 
+	dist := rules.LetterDistribution()
 	gd, err := gaddag.Get(g.Config(), lex)
 	if err != nil {
 		panic(err)
 	}
 
-	dist := rules.LetterDistribution()
 	generator := movegen.NewGordonGenerator(gd, g.Board(), dist)
+	// Set the addl state before setting the backup mode, so that
+	// all the backups are created properly for each ply.
+	g.SetAddlState(generator.State())
+	g.SetBackupMode(game.SimulationMode)
+	g.SetStateStackLength(plies)
+	// Throw in the random racks dealt to our players.
+	g.ThrowRacksIn()
+
 	alph := g.Alphabet()
 
 	tilesInPlay := g.Board().SetToGame(alph, bvs)
@@ -78,7 +82,6 @@ func setUpSolver(lex string, bvs board.VsWho, plies int, rack1, rack2 string,
 	if err != nil {
 		panic(err)
 	}
-	cross_set.GenAllCrossSets(g.Board(), gd, dist)
 
 	g.SetRacksForBoth([]*alphabet.Rack{
 		alphabet.RackFromString(rack1, alph),
@@ -88,6 +91,8 @@ func setUpSolver(lex string, bvs board.VsWho, plies int, rack1, rack2 string,
 	g.SetPointsFor(1, p2pts)
 	g.SetPlayerOnTurn(onTurn)
 	fmt.Println(g.Board().ToDisplayText(alph))
+	// Set anchors and cross-sets
+	g.RecalculateBoard()
 
 	s := new(Solver)
 	s.Init(generator, g)
@@ -703,12 +708,23 @@ func TestProperIterativeDeepening(t *testing.T) {
 		generator := movegen.NewGordonGenerator(
 			gd, g.Board(), g.Bag().LetterDistribution(),
 		)
-		s := new(Solver)
-		s.Init(generator, g)
-		fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
+
+		g.SetAddlState(generator.State())
+
 		// Prior to solving the endgame, set to simulation mode.
 		g.SetBackupMode(game.SimulationMode)
 		g.SetStateStackLength(plies)
+		g.RecalculateBoard()
+
+		generator.GenAll(alphabet.RackFromString("AEIY", g.Alphabet()), false)
+
+		log.Info().Interface("plays", generator.Plays()).Msg("playz")
+		t.Error("FAIURE")
+
+		s := new(Solver)
+		s.Init(generator, g)
+		fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
+
 		v, seq, _ := s.Solve(plies)
 		is.Equal(v, float32(44))
 		// In particular, the sequence should start with 6I A.
@@ -725,6 +741,7 @@ func TestFromGCG(t *testing.T) {
 
 	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
 		"CSW19", "English")
+	is.NoErr(err)
 
 	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../../gcgio/testdata/vs_frentz.gcg")
 	is.NoErr(err)
@@ -735,12 +752,14 @@ func TestFromGCG(t *testing.T) {
 	gd, err := gaddag.Get(&DefaultConfig, "CSW19")
 	is.NoErr(err)
 
-	g.SetBackupMode(game.SimulationMode)
-	g.SetStateStackLength(plies)
 	generator := movegen.NewGordonGenerator(
 		// The strategy doesn't matter right here
 		gd, g.Board(), g.Bag().LetterDistribution(),
 	)
+	g.SetAddlState(generator.State())
+	g.SetBackupMode(game.SimulationMode)
+	g.SetStateStackLength(plies)
+	g.RecalculateBoard()
 
 	s := new(Solver)
 	s.Init(generator, g)
