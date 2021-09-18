@@ -85,10 +85,10 @@ func TestCompareGameMove(t *testing.T) {
 
 	var testCases = []testMove{
 		{"8D", "QWERTY", "QWERTYU", 62},
-		// {"H8", "TAEL", "TAELABC", 4},
-		// {"D7", "EQUALITY", "EUALITY", 90},
-		// {"E10", "MINE", "MINEFHI", 24},
-		// {"C13", "AB", "ABIIOOO", 21},
+		{"H8", "TAEL", "TAELABC", 4},
+		{"D7", "EQUALITY", "EUALITY", 90},
+		{"E10", "MINE", "MINEFHI", 24},
+		{"C13", "AB", "ABIIOOO", 21},
 	}
 
 	game1, err := NewGameRunnerFromRules(opts, players, rules1)

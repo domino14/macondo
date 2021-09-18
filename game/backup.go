@@ -81,7 +81,9 @@ func (g *Game) backupState() {
 	st.playing = g.playing
 	st.scorelessTurns = g.scorelessTurns
 	st.players.copyFrom(g.players)
-	st.addlState.CopyFrom(g.addlState, st.board)
+	if st.addlState != nil {
+		st.addlState.CopyFrom(g.addlState, st.board)
+	}
 	if g.backupMode == SimulationMode {
 		st.onturn = g.onturn
 		st.turnnum = g.turnnum
@@ -129,13 +131,18 @@ func (g *Game) SetStateStackLength(length int) {
 		// Initialize each element of the stack now to avoid having
 		// allocations and GC.
 		bc := g.board.Copy()
+		var addlState BackupableState
+		if g.addlState != nil {
+			addlState = g.addlState.Copy(bc)
+		}
+
 		g.stateStack[idx] = &stateBackup{
 			board:          bc,
 			bag:            g.bag.Copy(),
 			playing:        g.playing,
 			scorelessTurns: g.scorelessTurns,
 			players:        copyPlayers(g.players),
-			addlState:      g.addlState.Copy(bc),
+			addlState:      addlState,
 		}
 	}
 }
@@ -161,7 +168,9 @@ func (g *Game) UnplayLastMove() {
 
 	g.board.CopyFrom(b.board)
 	g.bag.CopyFrom(b.bag)
-	g.addlState.CopyFrom(b.addlState, g.board)
+	if g.addlState != nil {
+		g.addlState.CopyFrom(b.addlState, g.board)
+	}
 	g.playing = b.playing
 	g.players.copyFrom(b.players)
 	g.scorelessTurns = b.scorelessTurns
@@ -182,7 +191,9 @@ func (g *Game) ResetToFirstState() {
 	g.playing = b.playing
 	g.players.copyFrom(b.players)
 	g.scorelessTurns = b.scorelessTurns
-	g.addlState.CopyFrom(b.addlState, g.board)
+	if g.addlState != nil {
+		g.addlState.CopyFrom(b.addlState, g.board)
+	}
 }
 
 // Copy creates a deep copy of Game for the most part. The lexicon and
@@ -191,6 +202,10 @@ func (g *Game) ResetToFirstState() {
 // and not these copies.
 func (g *Game) Copy() *Game {
 	boardCopy := g.board.Copy()
+	var addlState BackupableState
+	if g.addlState != nil {
+		addlState = g.addlState.Copy(boardCopy)
+	}
 
 	copy := &Game{
 		config:         g.config,
@@ -198,7 +213,7 @@ func (g *Game) Copy() *Game {
 		turnnum:        g.turnnum,
 		board:          boardCopy,
 		bag:            g.bag.Copy(),
-		addlState:      g.addlState.Copy(boardCopy),
+		addlState:      addlState,
 		lexicon:        g.lexicon,
 		crossGen:       g.crossGen,
 		alph:           g.alph,

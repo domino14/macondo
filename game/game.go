@@ -147,7 +147,6 @@ func NewGame(rules *GameRules, playerinfo []*pb.PlayerInfo) (*Game, error) {
 	game.letterDistribution = rules.LetterDistribution()
 	game.alph = game.letterDistribution.Alphabet()
 	game.backupMode = NoBackup
-	game.addlState = NopAddlState{}
 	game.nextFirst = -1
 	game.board = rules.Board().Copy()
 	game.crossGen = rules.CrossSetGen()
@@ -393,7 +392,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		if g.addlState != nil {
 			// We are in a game that uses cross-sets (and other related state).
 			g.addlState.UpdateForMove(g.board, m)
-		} else {
+		} else if g.crossGen != nil {
 			// We are just using cross-scores, most likely.
 			g.crossGen.UpdateForMove(g.board, m)
 		}
@@ -763,7 +762,7 @@ func (g *Game) playTurn(t int) error {
 		g.board.PlayMove(m, ld)
 		if g.addlState != nil {
 			g.addlState.UpdateForMove(g.board, m)
-		} else {
+		} else if g.crossGen != nil {
 			g.crossGen.UpdateForMove(g.board, m)
 		}
 		g.players[g.onturn].points += m.Score()
