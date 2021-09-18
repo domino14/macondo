@@ -161,7 +161,7 @@ func (g *Game) UnplayLastMove() {
 
 	g.board.CopyFrom(b.board)
 	g.bag.CopyFrom(b.bag)
-	g.addlState.CopyFrom(b.addlState, b.board)
+	g.addlState.CopyFrom(b.addlState, g.board)
 	g.playing = b.playing
 	g.players.copyFrom(b.players)
 	g.scorelessTurns = b.scorelessTurns

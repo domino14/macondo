@@ -39,7 +39,6 @@ func (s *State) Copy(b *board.GameBoard) game.BackupableState {
 
 func (s *State) UpdateForMove(b *board.GameBoard, m *move.Move) {
 	// log.Debug().Msg("UpdateForMove called on actual state")
-
 	s.anchors.UpdateAnchorsForMove(m)
 	s.csetGen.UpdateForMove(b, m)
 }

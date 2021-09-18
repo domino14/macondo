@@ -220,7 +220,7 @@ func (s *Solver) generateSTMPlays(parent *GameNode) []*move.Move {
 	s.movegen.GenAll(stmRack, false)
 	sideToMovePlays := s.addPass(s.movegen.Plays(), s.game.PlayerOnTurn())
 
-	// log.Debug().Msgf("stm plays %v", sideToMovePlays)
+	// log.Debug().Str("stm rack", stmRack.TilesOn().UserVisible(s.game.Alphabet())).Msgf("stm plays %v", sideToMovePlays)
 	if s.simpleEvaluation {
 		// A simple evaluation function is a very dumb, but fast, function
 		// of score and tiles played. /shrug
@@ -299,7 +299,7 @@ func (s *Solver) generateSTMPlays(parent *GameNode) []*move.Move {
 func (s *Solver) childGenerator(node *GameNode, maximizingPlayer bool) func() (
 	*GameNode, bool) {
 
-	// log.Debug().Msgf("Trying to generate children for node %v", node)
+	// log.Debug().Msgf("Trying to generate children for node %v", node.ancestors())
 	var plays []*move.Move
 	if node.children == nil {
 		plays = s.generateSTMPlays(node)

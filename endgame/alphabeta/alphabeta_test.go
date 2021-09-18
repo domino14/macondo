@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/matryer/is"
-	"github.com/rs/zerolog/log"
 
 	airunner "github.com/domino14/macondo/ai/runner"
 	"github.com/domino14/macondo/alphabet"
@@ -710,16 +709,12 @@ func TestProperIterativeDeepening(t *testing.T) {
 		)
 
 		g.SetAddlState(generator.State())
-
 		// Prior to solving the endgame, set to simulation mode.
 		g.SetBackupMode(game.SimulationMode)
 		g.SetStateStackLength(plies)
 		g.RecalculateBoard()
 
 		generator.GenAll(alphabet.RackFromString("AEIY", g.Alphabet()), false)
-
-		log.Info().Interface("plays", generator.Plays()).Msg("playz")
-		t.Error("FAIURE")
 
 		s := new(Solver)
 		s.Init(generator, g)
@@ -769,6 +764,43 @@ func TestFromGCG(t *testing.T) {
 	v, seq, _ := s.Solve(plies)
 	is.Equal(v, float32(99))
 	is.Equal(len(seq), 1)
+	// t.Fail()
+}
+
+func TestFromGCG2(t *testing.T) {
+	plies := 7
+	is := is.New(t)
+
+	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
+		"CSW19", "English")
+	is.NoErr(err)
+
+	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../../gcgio/testdata/noah_v_mishu_fake_moves.gcg")
+	is.NoErr(err)
+
+	g, err := game.NewFromHistory(gameHistory, rules, 32)
+	is.NoErr(err)
+
+	gd, err := gaddag.Get(&DefaultConfig, "NWL18")
+	is.NoErr(err)
+
+	generator := movegen.NewGordonGenerator(
+		// The strategy doesn't matter right here
+		gd, g.Board(), g.Bag().LetterDistribution(),
+	)
+	g.SetAddlState(generator.State())
+	g.SetBackupMode(game.SimulationMode)
+	g.SetStateStackLength(plies)
+	g.RecalculateBoard()
+
+	s := new(Solver)
+	s.Init(generator, g)
+	// s.simpleEvaluation = true
+	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
+	v, seq, _ := s.Solve(plies)
+	is.Equal(v, float32(44))
+	is.Equal(len(seq), 5)
+	is.Equal(seq[0].ShortDescription(), "6I A.")
 	// t.Fail()
 }
 

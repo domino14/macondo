@@ -121,7 +121,7 @@ func (b *GameBoard) SetRow(rowNum int, letters string, alph *alphabet.Alphabet) 
 }
 
 // Equals checks the boards for equality. Two boards are equal if all
-// the squares are equal. This includes anchors, letters, and cross-sets.
+// the squares are equal.
 func (g *GameBoard) Equals(g2 *GameBoard) bool {
 	if g.Dim() != g2.Dim() {
 		log.Printf("Dims don't match: %v %v", g.Dim(), g2.Dim())
@@ -145,6 +145,14 @@ func (g *GameBoard) Equals(g2 *GameBoard) bool {
 			}
 			if g.squares[pos] != g2.squares[pos] {
 				log.Printf("squares don't match: %v %v", g.squares[pos], g2.squares[pos])
+				return false
+			}
+			if g.hCrossScores[pos] != g2.hCrossScores[pos] {
+				log.Printf("hcrossScores don't match: (pos %v, %v) %v %v", row, col, g.hCrossScores[pos], g2.hCrossScores[pos])
+				return false
+			}
+			if g.vCrossScores[pos] != g2.vCrossScores[pos] {
+				log.Printf("vcrossScores don't match: (pos %v, %v) %v %v", row, col, g.vCrossScores[pos], g2.vCrossScores[pos])
 				return false
 			}
 		}

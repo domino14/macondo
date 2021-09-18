@@ -71,6 +71,19 @@ func (g *GameNode) String() string {
 		g.heuristicValue, len(g.children))
 }
 
+func (g *GameNode) ancestors() string {
+	f := g
+	a := ""
+	for f != nil {
+		a += f.String()
+		f = f.parent
+		if f != nil {
+			a += " << "
+		}
+	}
+	return a
+}
+
 func (g *GameNode) value(s *Solver) nodeValue {
 	g.calculateValue(s)
 	// log.Debug().Msgf("heuristic value of node %p is %v", g, g.heuristicValue)
