@@ -217,6 +217,11 @@ func (g *Game) SetNextFirst(first int) {
 // StartGame starts a game anew, dealing out tiles to both players.
 func (g *Game) StartGame() {
 	g.Board().Clear()
+	if g.addlState != nil {
+		g.addlState.RecalculateFromBoard(g.Board())
+	} else if g.crossGen != nil {
+		g.crossGen.GenerateAll(g.Board())
+	}
 	g.bag = g.letterDistribution.MakeBag()
 	var goesfirst int
 	if g.nextFirst == -1 {

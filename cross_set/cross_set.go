@@ -191,6 +191,7 @@ func (g *GaddagCrossSetGenerator) GenerateAll(b *board.GameBoard) {
 	// Shortcut if board has nothing on it.
 	if b.TilesPlayed() == 0 {
 		g.CS.SetAll()
+		b.ResetCrossScores()
 		return
 	}
 	crosses.GenerateAll(g, b, g.CS)

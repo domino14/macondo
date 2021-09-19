@@ -46,6 +46,11 @@ func (g CrossScoreOnlyGenerator) Generate(b *Board, row int, col int,
 	dir board.BoardDirection) {
 	// genCrossScore can be implemented with a Crosser, and probably should,
 	// but there's no point for now (it would probably be a bit of a performance hit).
+	if b.TilesPlayed() == 0 {
+		// short-cut for an empty board.
+		b.ResetCrossScores()
+		return
+	}
 	genCrossScore(b, row, col, dir, g.Dist)
 }
 
@@ -77,7 +82,7 @@ func genCrossScore(b *Board, row int, col int, dir board.BoardDirection,
 		return
 	}
 	// If there's no tile adjacent to this square in any direction,
-	// every letter is allowed.
+	// the cross-score is 0.
 	if b.LeftAndRightEmpty(row, col) {
 		b.SetCrossScore(row, col, 0, dir)
 		return

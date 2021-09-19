@@ -170,6 +170,15 @@ func (g *GameBoard) SetCrossScore(row, col, score int, dir BoardDirection) {
 	}
 }
 
+func (g *GameBoard) ResetCrossScores() {
+	for i := range g.hCrossScores {
+		g.hCrossScores[i] = 0
+	}
+	for i := range g.vCrossScores {
+		g.vCrossScores[i] = 0
+	}
+}
+
 func (g *GameBoard) HasLetter(row int, col int) bool {
 	return g.GetLetter(row, col) != alphabet.EmptySquareMarker
 }

@@ -9,7 +9,6 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/movegen"
@@ -71,11 +70,11 @@ func TestEndgameTiming(t *testing.T) {
 	assert.Nil(t, err)
 	generator := movegen.NewGordonGenerator(gd, bd, ld)
 	tilesInPlay := bd.SetToGame(gd.GetAlphabet(), board.MavenVsMacondo)
-	cross_set.GenAllCrossSets(bd, gd, ld)
+	generator.ResetCrossesAndAnchors()
+
 	generator.GenAll(alphabet.RackFromString("AEEORS?", alph), false)
-
 	els, err := NewExhaustiveLeaveStrategy("NWL18", alph, &DefaultConfig, "", "")
-
+	assert.Nil(t, err)
 	oppRack := alphabet.NewRack(alph)
 	oppRack.Set(tilesInPlay.Rack1)
 	assert.Equal(t, oppRack.NumTiles(), uint8(2))
@@ -109,9 +108,9 @@ func TestPreendgameTiming(t *testing.T) {
 	assert.Nil(t, err)
 	generator := movegen.NewGordonGenerator(gd, bd, ld)
 	tilesInPlay := bd.SetToGame(gd.GetAlphabet(), board.VsOxy)
-	cross_set.GenAllCrossSets(bd, gd, ld)
-	generator.GenAll(alphabet.RackFromString("OXPBAZE", alph), false)
+	generator.ResetCrossesAndAnchors()
 
+	generator.GenAll(alphabet.RackFromString("OXPBAZE", alph), false)
 	els, err := NewExhaustiveLeaveStrategy("NWL18", alph, &DefaultConfig, "", "quackle_preendgame.json")
 	assert.Nil(t, err)
 

@@ -106,22 +106,18 @@ func TestExchange(t *testing.T) {
 func TestRemoveTiles(t *testing.T) {
 	is := is.New(t)
 	ld, err := EnglishLetterDistribution(&DefaultConfig)
-	if err != nil {
-		t.Error(err)
-	}
+	is.NoErr(err)
 	bag := ld.MakeBag()
 	is.Equal(len(bag.tiles), 100)
 	toRemove := []MachineLetter{
 		9, 14, 24, 4, 3, 20, 4, 11, 21, 6, 22, 14, 8, 0, 8, 15, 6, 5, 4,
 		19, 0, 24, 8, 17, 17, 18, 2, 11, 8, 14, 1, 8, 0, 20, 7, 0, 8, 10,
 		0, 11, 13, 25, 11, 14, 5, 8, 19, 4, 12, 8, 18, 4, 3, 19, 14, 19,
-		1, 0, 13, 4, 19, 14, 4, 17, 20, 6, 21, 104, 3, 7, 0, 3, 14, 22,
+		1, 0, 13, 4, 19, 14, 4, 17, 20, 6, 21, 132, 3, 7, 0, 3, 14, 22,
 		4, 8, 13, 16, 20, 4, 18, 19, 4, 23, 4, 2, 17, 12, 14, 0, 13,
 	}
 	is.Equal(len(toRemove), 91)
 	err = bag.RemoveTiles(toRemove)
-	if err != nil {
-		t.Error(err)
-	}
+	is.NoErr(err)
 	is.Equal(len(bag.tiles), 9)
 }
