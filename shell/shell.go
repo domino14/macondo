@@ -204,6 +204,7 @@ func (sc *ShellController) initGameDataStructures() error {
 	sc.simmer = &montecarlo.Simmer{}
 	sc.simmer.Init(&sc.game.Game, sc.game.AIPlayer())
 	sc.gen = sc.game.MoveGenerator()
+	sc.game.RecalculateBoard()
 	return nil
 }
 
