@@ -30,4 +30,12 @@ require (
 	lukechampine.com/frand v1.4.1
 )
 
-go 1.13
+require (
+	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
+	github.com/nats-io/jwt v0.3.2 // indirect
+	github.com/nats-io/nkeys v0.1.4 // indirect
+	github.com/nats-io/nuid v1.0.1 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
+)
+
+go 1.17
