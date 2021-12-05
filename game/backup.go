@@ -208,18 +208,19 @@ func (g *Game) Copy() *Game {
 	}
 
 	copy := &Game{
-		config:         g.config,
-		onturn:         g.onturn,
-		turnnum:        g.turnnum,
-		board:          boardCopy,
-		bag:            g.bag.Copy(),
-		addlState:      addlState,
-		lexicon:        g.lexicon,
-		crossGen:       g.crossGen,
-		alph:           g.alph,
-		playing:        g.playing,
-		scorelessTurns: g.scorelessTurns,
-		players:        copyPlayers(g.players),
+		config:            g.config,
+		onturn:            g.onturn,
+		turnnum:           g.turnnum,
+		board:             boardCopy,
+		bag:               g.bag.Copy(),
+		addlState:         addlState,
+		lexicon:           g.lexicon,
+		crossGen:          g.crossGen,
+		alph:              g.alph,
+		playing:           g.playing,
+		scorelessTurns:    g.scorelessTurns,
+		maxScorelessTurns: g.maxScorelessTurns,
+		players:           copyPlayers(g.players),
 		// stackPtr only changes during a sim, etc. This Copy should
 		// only be called at the beginning of everything.
 		stackPtr: 0,
