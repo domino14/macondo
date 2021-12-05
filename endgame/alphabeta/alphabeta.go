@@ -398,6 +398,12 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 	// Generate children moves.
 	s.movegen.SetSortingParameter(movegen.SortByNone)
 	defer s.movegen.SetSortingParameter(movegen.SortByScore)
+
+	// Set max scoreless turns to 2 in the endgame so we don't generate
+	// unnecessary sequences of passes.
+	s.game.SetMaxScorelessTurns(2)
+	defer s.game.SetMaxScorelessTurns(game.DefaultMaxScorelessTurns)
+
 	log.Debug().Msgf("Attempting to solve endgame with %v plies...", plies)
 
 	// technically the children are the actual board _states_ but
