@@ -27,6 +27,8 @@ const (
 
 	ExchangeLimit = 7
 	RackTileLimit = 7
+
+	DefaultMaxScorelessTurns = 6
 )
 
 // Game is the actual internal game structure that controls the entire
@@ -47,11 +49,12 @@ type Game struct {
 
 	playing pb.PlayState
 
-	wentfirst      int
-	scorelessTurns int
-	onturn         int
-	turnnum        int
-	players        playerStates
+	wentfirst         int
+	scorelessTurns    int
+	maxScorelessTurns int
+	onturn            int
+	turnnum           int
+	players           playerStates
 	// history has a history of all the moves in this game. Note that
 	// history only gets written to when someone plays a move that is NOT
 	// backed up.
@@ -149,6 +152,7 @@ func NewGame(rules *GameRules, playerinfo []*pb.PlayerInfo) (*Game, error) {
 	game.lexicon = rules.Lexicon()
 	game.config = rules.Config()
 	game.rules = rules
+	game.maxScorelessTurns = DefaultMaxScorelessTurns
 
 	game.players = make([]*playerState, len(playerinfo))
 	ids := map[string]bool{}
@@ -340,6 +344,10 @@ func (g *Game) endOfGameCalcs(onturn int, addToHistory bool) {
 		Msg("endOfGameCalcs")
 }
 
+func (g *Game) SetMaxScorelessTurns(m int) {
+	g.maxScorelessTurns = m
+}
+
 // Convert the slice of MachineWord to user-visible, using the game's lexicon.
 func convertToVisible(words []alphabet.MachineWord,
 	alph *alphabet.Alphabet) []string {
@@ -501,9 +509,10 @@ func (g *Game) AddFinalScoresToHistory() {
 
 func (g *Game) handleConsecutiveScorelessTurns(addToHistory bool) (bool, error) {
 	var ended bool
-	if g.scorelessTurns == 6 {
+	if g.scorelessTurns == g.maxScorelessTurns {
 		ended = true
-		log.Debug().Str("gid", g.history.Uid).Msg("game ended with 6 scoreless turns")
+		log.Debug().Str("gid", g.history.Uid).
+			Msgf("game ended with %d scoreless turns", g.maxScorelessTurns)
 		g.playing = pb.PlayState_GAME_OVER
 		g.history.PlayState = g.playing
 
