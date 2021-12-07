@@ -361,6 +361,10 @@ func (g *Game) SetMaxScorelessTurns(m int) {
 	g.maxScorelessTurns = m
 }
 
+func (g *Game) SetMaxScorelessTurns(m int) {
+	g.maxScorelessTurns = m
+}
+
 // Convert the slice of MachineWord to user-visible, using the game's lexicon.
 func convertToVisible(words []alphabet.MachineWord,
 	alph *alphabet.Alphabet) []string {
