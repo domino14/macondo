@@ -77,7 +77,7 @@ func (g *GameRunner) NewPlacementMove(playerid int, coords string, word string) 
 	return g.CreateAndScorePlacementMove(coords, word, rack)
 }
 
-func (g *GameRunner) MoveFromEvent(evt *pb.GameEvent) *move.Move {
+func (g *GameRunner) MoveFromEvent(evt *pb.GameEvent) (*move.Move, error) {
 	return game.MoveFromEvent(evt, g.Alphabet(), g.Board())
 }
 

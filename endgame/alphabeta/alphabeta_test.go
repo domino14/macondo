@@ -25,7 +25,7 @@ import (
 var DefaultConfig = config.DefaultConfig()
 
 func TestMain(m *testing.M) {
-	for _, lex := range []string{"America", "NWL18", "pseudo_twl1979", "CSW19"} {
+	for _, lex := range []string{"America", "NWL18", "pseudo_twl1979", "CSW19", "OSPS44"} {
 		gdgPath := filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag")
 		if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
 			gaddagmaker.GenerateGaddag(filepath.Join(DefaultConfig.LexiconPath, lex+".txt"), true, true)
@@ -38,11 +38,11 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func setUpSolver(lex string, bvs board.VsWho, plies int, rack1, rack2 string,
+func setUpSolver(lex, distName string, bvs board.VsWho, plies int, rack1, rack2 string,
 	p1pts, p2pts int, onTurn int) (*Solver, error) {
 
 	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
-		lex, DefaultConfig.DefaultLetterDistribution)
+		lex, distName)
 
 	if err != nil {
 		panic(err)
@@ -99,7 +99,7 @@ func TestSolveComplex(t *testing.T) {
 	is := is.New(t)
 	plies := 8
 
-	s, err := setUpSolver("America", board.VsRoy, plies, "WZ", "EFHIKOQ", 427, 331,
+	s, err := setUpSolver("America", "english", board.VsRoy, plies, "WZ", "EFHIKOQ", 427, 331,
 		1)
 	is.NoErr(err)
 
@@ -197,7 +197,7 @@ func TestSolveOther3(t *testing.T) {
 	t.Skip()
 	plies := 7
 	is := is.New(t)
-	s, err := setUpSolver("NWL18", board.VsJoey, plies, "DIV", "AEFILMR", 412, 371,
+	s, err := setUpSolver("NWL18", "english", board.VsJoey, plies, "DIV", "AEFILMR", 412, 371,
 		1)
 	is.NoErr(err)
 
@@ -212,7 +212,7 @@ func TestSolveStandard(t *testing.T) {
 	plies := 4
 	is := is.New(t)
 
-	s, err := setUpSolver("NWL18", board.VsCanik, plies, "DEHILOR", "BGIV", 389, 384,
+	s, err := setUpSolver("NWL18", "english", board.VsCanik, plies, "DEHILOR", "BGIV", 389, 384,
 		1)
 
 	is.NoErr(err)
@@ -226,12 +226,68 @@ func TestSolveStandard2(t *testing.T) {
 	is := is.New(t)
 	plies := 3
 
-	s, err := setUpSolver("NWL18", board.VsJoel, plies, "EIQSS", "AAFIRTW", 393, 373,
+	s, err := setUpSolver("NWL18", "english", board.VsJoel, plies, "EIQSS", "AAFIRTW", 393, 373,
 		1)
 	is.NoErr(err)
 
 	v, _, _ := s.Solve(plies)
 	is.Equal(v, float32(25))
+}
+
+func TestPolish(t *testing.T) {
+	is := is.New(t)
+	plies := 14
+	s, err := setUpSolver(
+		"OSPS44", "polish", board.APolishEndgame, plies, "BGHUWZZ", "IKMÓŹŻ", 304,
+		258, 0)
+
+	is.NoErr(err)
+	v, seq, err := s.Solve(plies)
+	is.NoErr(err)
+
+	/*
+	   Best sequence has a spread difference of 5
+	   Best sequence:
+	   1) N7 ZG..
+	   2) M1 ŻM..
+	   3) (Pass)
+	   4) 6L .I
+	   5) B8 ZU.
+	   6) 9A K.
+	   7) (Pass)
+	   8) (Pass)
+
+	*/
+
+	is.Equal(v, float32(5))
+	is.Equal(len(seq), 8)
+}
+
+func TestSpuriousPasses(t *testing.T) {
+	// This position is 1 move after the position in TestPolish. It should
+	// essentially be moves 2-7 of that sequence.
+	is := is.New(t)
+	plies := 14
+	s, err := setUpSolver(
+		"OSPS44", "polish", board.APolishEndgame2, plies, "BHUWZ", "IKMÓŹŻ", 316,
+		258, 1)
+
+	is.NoErr(err)
+	v, seq, err := s.Solve(plies)
+	is.NoErr(err)
+
+	/* optimal endgame should look like this:
+	   1) M1 ŻM..
+	   2) (Pass)
+	   3) 6L .I
+	   4) B8 ZU.
+	   5) 9A K.
+	   6) (Pass)
+	   7) (Pass)
+	*/
+
+	is.Equal(v, float32(7))
+	is.Equal(len(seq), 7)
 }
 
 /*
@@ -282,7 +338,7 @@ func TestSolveMaven(t *testing.T) {
 func TestStuck(t *testing.T) {
 	is := is.New(t)
 
-	s, err := setUpSolver("NWL18", board.VsAlec, 0, "EGNOQR", "DGILOPR", 420, 369,
+	s, err := setUpSolver("NWL18", "english", board.VsAlec, 0, "EGNOQR", "DGILOPR", 420, 369,
 		1)
 	is.NoErr(err)
 	alph := s.game.Alphabet()
@@ -303,7 +359,7 @@ func TestStuck(t *testing.T) {
 func TestValuation(t *testing.T) {
 	is := is.New(t)
 
-	s, err := setUpSolver("NWL18", board.VsAlec, 0, "EGNOQR", "DGILOPR",
+	s, err := setUpSolver("NWL18", "english", board.VsAlec, 0, "EGNOQR", "DGILOPR",
 		420, 369, 1)
 	is.NoErr(err)
 
