@@ -261,6 +261,45 @@ func TestPolish(t *testing.T) {
 
 	is.Equal(v, float32(5))
 	is.Equal(len(seq), 8)
+
+}
+
+func TestPolishFromGcg(t *testing.T) {
+	plies := 14
+	is := is.New(t)
+
+	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
+		"OSPS44", "Polish")
+	is.NoErr(err)
+
+	cfg := config.DefaultConfig()
+	cfg.DefaultLexicon = "OSPS44"
+	cfg.DefaultLetterDistribution = "polish"
+
+	gameHistory, err := gcgio.ParseGCG(&cfg, "../../gcgio/testdata/polish_endgame.gcg")
+	is.NoErr(err)
+	gameHistory.ChallengeRule = pb.ChallengeRule_SINGLE
+
+	g, err := game.NewFromHistory(gameHistory, rules, 46)
+	is.NoErr(err)
+
+	gd, err := gaddag.Get(&DefaultConfig, "OSPS44")
+	is.NoErr(err)
+
+	g.SetBackupMode(game.SimulationMode)
+	g.SetStateStackLength(plies)
+	generator := movegen.NewGordonGenerator(
+		// The strategy doesn't matter right here
+		gd, g.Board(), g.Bag().LetterDistribution(),
+	)
+
+	s := new(Solver)
+	s.Init(generator, g)
+	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
+
+	v, seq, _ := s.Solve(plies)
+	is.Equal(v, float32(5))
+	is.Equal(len(seq), 8)
 }
 
 func TestSpuriousPasses(t *testing.T) {
@@ -288,6 +327,59 @@ func TestSpuriousPasses(t *testing.T) {
 
 	is.Equal(v, float32(7))
 	is.Equal(len(seq), 7)
+}
+
+func TestSpuriousPassesFromGcg(t *testing.T) {
+	plies := 14
+	is := is.New(t)
+
+	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
+		"OSPS44", "Polish")
+	is.NoErr(err)
+
+	cfg := config.DefaultConfig()
+	cfg.DefaultLexicon = "OSPS44"
+	cfg.DefaultLetterDistribution = "polish"
+
+	gameHistory, err := gcgio.ParseGCG(&cfg, "../../gcgio/testdata/polish_endgame.gcg")
+	is.NoErr(err)
+	gameHistory.ChallengeRule = pb.ChallengeRule_SINGLE
+
+	g, err := game.NewFromHistory(gameHistory, rules, 47)
+	is.NoErr(err)
+
+	gd, err := gaddag.Get(&DefaultConfig, "OSPS44")
+	is.NoErr(err)
+
+	g.SetBackupMode(game.SimulationMode)
+	g.SetStateStackLength(plies)
+	generator := movegen.NewGordonGenerator(
+		// The strategy doesn't matter right here
+		gd, g.Board(), g.Bag().LetterDistribution(),
+	)
+
+	s := new(Solver)
+	s.Init(generator, g)
+	// s.iterativeDeepeningOn = false
+	// s.simpleEvaluation = true
+	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
+
+	// s2, err := setUpSolver(
+	// 	"OSPS44", "polish", board.APolishEndgame2, plies, "BHUWZ", "IKMÓŹŻ", 316,
+	// 	258, 1)
+
+	// is.NoErr(err)
+
+	// is.True(s2.game.Board().Equals(g.Board()))
+
+	// // Doing the next two lines makes it act like TestSpuriousPasses
+	// s.game = s2.game
+	// s.movegen = s2.movegen
+
+	v, seq, _ := s.Solve(plies)
+	is.Equal(v, float32(7))
+	is.Equal(len(seq), 7)
+	// t.Fail()
 }
 
 /*

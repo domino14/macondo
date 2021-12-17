@@ -47,7 +47,7 @@ const (
 	Infinity = 10000000
 	// TwoPlyOppSearchLimit is how many plays to consider for opponent
 	// for the evaluation function.
-	TwoPlyOppSearchLimit = 30
+	TwoPlyOppSearchLimit = 50
 	// FutureAdjustment potentially weighs the value of future points
 	// less than present points, to allow for the possibility of being
 	// blocked. We just make it 1 because our 2-ply evaluation function

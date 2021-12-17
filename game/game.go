@@ -773,7 +773,7 @@ func (g *Game) playTurn(t int) error {
 		drew := g.bag.DrawAtMost(m.TilesPlayed())
 		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
 		g.players[g.onturn].setRackTiles(tiles, g.alph)
-
+		g.scorelessTurns = 0
 		// Don't check game end logic here, as we assume we have the
 		// right event for that (move.MoveTypeEndgameTiles for example).
 	case move.MoveTypePhonyTilesReturned:
@@ -803,6 +803,11 @@ func (g *Game) playTurn(t int) error {
 		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
 		g.players[g.onturn].setRackTiles(tiles, g.alph)
 		g.players[g.onturn].turns += 1
+		g.scorelessTurns++
+
+	case move.MoveTypePass, move.MoveTypeUnsuccessfulChallengePass:
+		g.scorelessTurns++
+
 	default:
 		// Nothing
 

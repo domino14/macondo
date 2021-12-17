@@ -129,6 +129,7 @@ func (g *GameNode) calculateValue(s *Solver) {
 		// g.heuristicValue = s.game.EndgameSpreadEstimate(player, maximizing) - float32(initialSpread)
 		// log.Debug().Msgf("Calculating heuristic value of %v as %v - %v",
 		// 	g.move, s.game.EndgameSpreadEstimate(player), float32(initialSpread))
+		// g.heuristicValue.value = 0 // TEMP
 	}
 	if negateHeurVal {
 		// The maximizing player is always "us" - the player that we are
