@@ -423,8 +423,9 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 	if s.iterativeDeepeningOn {
 		log.Debug().Msgf("Using iterative deepening with %v max plies", plies)
 		for p := 1; p <= plies; p++ {
-			log.Debug().Msgf("Spread at beginning of endgame: %v", s.game.CurrentSpread())
-			log.Debug().Msgf("Maximizing player is: %v", s.game.PlayerOnTurn())
+			log.Info().Msgf("scoreless turns: %v", s.game.ScorelessTurns())
+			log.Info().Msgf("Spread at beginning of endgame: %v", s.game.CurrentSpread())
+			log.Info().Msgf("Maximizing player is: %v", s.game.PlayerOnTurn())
 			bestNode = s.alphabeta(s.rootNode, p, float32(-Infinity), float32(Infinity), true)
 			bestV = bestNode.heuristicValue.value
 			bestSeq := s.findBestSequence(bestNode)
@@ -468,7 +469,7 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 	if maximizingPlayer {
 		value := float32(-Infinity)
 		var winningNode *GameNode
-		iter := s.childGenerator(node, maximizingPlayer)
+		iter := s.childGenerator(node, !maximizingPlayer)
 		for child, newNode := iter(); child != nil; child, newNode = iter() {
 			// Play the child
 			// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)

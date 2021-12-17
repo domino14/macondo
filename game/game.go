@@ -1005,3 +1005,7 @@ func (g *Game) RecalculateBoard() {
 	g.crossSetGen.GenerateAll(g.board)
 	g.board.UpdateAllAnchors()
 }
+
+func (g *Game) ScorelessTurns() int {
+	return g.scorelessTurns
+}
