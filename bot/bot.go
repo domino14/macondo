@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"runtime"
+	"strings"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/nats-io/nats.go"
@@ -141,7 +142,7 @@ func (bot *Bot) evaluationResponse(req *pb.EvaluationRequest) *pb.BotResponse {
 
 	for idx, evt := range evts {
 
-		if evt.Nickname == req.User && (evt.Type == pb.GameEvent_TILE_PLACEMENT_MOVE ||
+		if strings.ToLower(evt.Nickname) == strings.ToLower(req.User) && (evt.Type == pb.GameEvent_TILE_PLACEMENT_MOVE ||
 			evt.Type == pb.GameEvent_EXCHANGE) {
 			eval := evalSingleMove(bot.game, idx)
 			evals = append(evals, eval)
