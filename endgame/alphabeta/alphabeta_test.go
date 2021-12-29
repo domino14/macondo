@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/matryer/is"
+	"github.com/rs/zerolog"
 
 	airunner "github.com/domino14/macondo/ai/runner"
 	"github.com/domino14/macondo/alphabet"
@@ -25,7 +26,7 @@ import (
 var DefaultConfig = config.DefaultConfig()
 
 func TestMain(m *testing.M) {
-	for _, lex := range []string{"America", "NWL18", "pseudo_twl1979", "CSW19"} {
+	for _, lex := range []string{"America", "NWL18", "pseudo_twl1979", "CSW19", "OSPS44"} {
 		gdgPath := filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag")
 		if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
 			gaddagmaker.GenerateGaddag(filepath.Join(DefaultConfig.LexiconPath, lex+".txt"), true, true)
@@ -38,11 +39,11 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func setUpSolver(lex string, bvs board.VsWho, plies int, rack1, rack2 string,
+func setUpSolver(lex, distName string, bvs board.VsWho, plies int, rack1, rack2 string,
 	p1pts, p2pts int, onTurn int) (*Solver, error) {
 
 	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
-		lex, DefaultConfig.DefaultLetterDistribution)
+		lex, distName)
 
 	if err != nil {
 		panic(err)
@@ -99,7 +100,7 @@ func TestSolveComplex(t *testing.T) {
 	is := is.New(t)
 	plies := 8
 
-	s, err := setUpSolver("America", board.VsRoy, plies, "WZ", "EFHIKOQ", 427, 331,
+	s, err := setUpSolver("America", "english", board.VsRoy, plies, "WZ", "EFHIKOQ", 427, 331,
 		1)
 	is.NoErr(err)
 
@@ -197,7 +198,7 @@ func TestSolveOther3(t *testing.T) {
 	t.Skip()
 	plies := 7
 	is := is.New(t)
-	s, err := setUpSolver("NWL18", board.VsJoey, plies, "DIV", "AEFILMR", 412, 371,
+	s, err := setUpSolver("NWL18", "english", board.VsJoey, plies, "DIV", "AEFILMR", 412, 371,
 		1)
 	is.NoErr(err)
 
@@ -212,7 +213,7 @@ func TestSolveStandard(t *testing.T) {
 	plies := 4
 	is := is.New(t)
 
-	s, err := setUpSolver("NWL18", board.VsCanik, plies, "DEHILOR", "BGIV", 389, 384,
+	s, err := setUpSolver("NWL18", "english", board.VsCanik, plies, "DEHILOR", "BGIV", 389, 384,
 		1)
 
 	is.NoErr(err)
@@ -226,12 +227,147 @@ func TestSolveStandard2(t *testing.T) {
 	is := is.New(t)
 	plies := 3
 
-	s, err := setUpSolver("NWL18", board.VsJoel, plies, "EIQSS", "AAFIRTW", 393, 373,
+	s, err := setUpSolver("NWL18", "english", board.VsJoel, plies, "EIQSS", "AAFIRTW", 393, 373,
 		1)
 	is.NoErr(err)
 
 	v, _, _ := s.Solve(plies)
 	is.Equal(v, float32(25))
+}
+
+func TestPolish(t *testing.T) {
+	is := is.New(t)
+	plies := 14
+	s, err := setUpSolver(
+		"OSPS44", "polish", board.APolishEndgame, plies, "BGHUWZZ", "IKMÓŹŻ", 304,
+		258, 0)
+
+	is.NoErr(err)
+	v, seq, err := s.Solve(plies)
+	is.NoErr(err)
+
+	/*
+	   Best sequence has a spread difference of 5
+	   Best sequence:
+	   1) N7 ZG..
+	   2) M1 ŻM..
+	   3) (Pass)
+	   4) 6L .I
+	   5) B8 ZU.
+	   6) 9A K.
+	   7) (Pass)
+	   8) (Pass)
+
+	*/
+
+	is.Equal(v, float32(5))
+	is.Equal(len(seq), 8)
+
+}
+
+func TestPolishFromGcg(t *testing.T) {
+	plies := 14
+	is := is.New(t)
+
+	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
+		"OSPS44", "Polish")
+	is.NoErr(err)
+
+	cfg := config.DefaultConfig()
+	cfg.DefaultLexicon = "OSPS44"
+	cfg.DefaultLetterDistribution = "polish"
+
+	gameHistory, err := gcgio.ParseGCG(&cfg, "../../gcgio/testdata/polish_endgame.gcg")
+	is.NoErr(err)
+	gameHistory.ChallengeRule = pb.ChallengeRule_SINGLE
+
+	g, err := game.NewFromHistory(gameHistory, rules, 46)
+	is.NoErr(err)
+
+	gd, err := gaddag.Get(&DefaultConfig, "OSPS44")
+	is.NoErr(err)
+
+	g.SetBackupMode(game.SimulationMode)
+	g.SetStateStackLength(plies)
+	generator := movegen.NewGordonGenerator(
+		// The strategy doesn't matter right here
+		gd, g.Board(), g.Bag().LetterDistribution(),
+	)
+
+	s := new(Solver)
+	s.Init(generator, g)
+	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
+
+	v, seq, _ := s.Solve(plies)
+	is.Equal(v, float32(5))
+	is.Equal(len(seq), 8)
+}
+
+func TestSpuriousPasses(t *testing.T) {
+	// This position is 1 move after the position in TestPolish. It should
+	// essentially be moves 2-7 of that sequence.
+	is := is.New(t)
+	plies := 14
+	s, err := setUpSolver(
+		"OSPS44", "polish", board.APolishEndgame2, plies, "BHUWZ", "IKMÓŹŻ", 316,
+		258, 1)
+
+	is.NoErr(err)
+	v, seq, err := s.Solve(plies)
+	is.NoErr(err)
+
+	/* optimal endgame should look like this:
+	   1) M1 ŻM..
+	   2) (Pass)
+	   3) 6L .I
+	   4) B8 ZU.
+	   5) 9A K.
+	   6) (Pass)
+	   7) (Pass)
+	*/
+
+	is.Equal(v, float32(7))
+	is.Equal(len(seq), 7)
+}
+
+func TestSpuriousPassesFromGcg(t *testing.T) {
+	plies := 14
+	is := is.New(t)
+
+	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
+		"OSPS44", "Polish")
+	is.NoErr(err)
+
+	cfg := config.DefaultConfig()
+	cfg.DefaultLexicon = "OSPS44"
+	cfg.DefaultLetterDistribution = "polish"
+
+	gameHistory, err := gcgio.ParseGCG(&cfg, "../../gcgio/testdata/polish_endgame.gcg")
+	is.NoErr(err)
+	gameHistory.ChallengeRule = pb.ChallengeRule_SINGLE
+
+	g, err := game.NewFromHistory(gameHistory, rules, 47)
+	is.NoErr(err)
+
+	gd, err := gaddag.Get(&DefaultConfig, "OSPS44")
+	is.NoErr(err)
+
+	g.SetBackupMode(game.SimulationMode)
+	g.SetStateStackLength(plies)
+	generator := movegen.NewGordonGenerator(
+		// The strategy doesn't matter right here
+		gd, g.Board(), g.Bag().LetterDistribution(),
+	)
+
+	s := new(Solver)
+	s.Init(generator, g)
+	// s.iterativeDeepeningOn = false
+	// s.simpleEvaluation = true
+	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
+
+	v, seq, _ := s.Solve(plies)
+	is.Equal(v, float32(7))
+	is.Equal(len(seq), 7)
 }
 
 /*
@@ -282,7 +418,7 @@ func TestSolveMaven(t *testing.T) {
 func TestStuck(t *testing.T) {
 	is := is.New(t)
 
-	s, err := setUpSolver("NWL18", board.VsAlec, 0, "EGNOQR", "DGILOPR", 420, 369,
+	s, err := setUpSolver("NWL18", "english", board.VsAlec, 0, "EGNOQR", "DGILOPR", 420, 369,
 		1)
 	is.NoErr(err)
 	alph := s.game.Alphabet()
@@ -303,7 +439,7 @@ func TestStuck(t *testing.T) {
 func TestValuation(t *testing.T) {
 	is := is.New(t)
 
-	s, err := setUpSolver("NWL18", board.VsAlec, 0, "EGNOQR", "DGILOPR",
+	s, err := setUpSolver("NWL18", "english", board.VsAlec, 0, "EGNOQR", "DGILOPR",
 		420, 369, 1)
 	is.NoErr(err)
 
@@ -719,12 +855,99 @@ func TestProperIterativeDeepening(t *testing.T) {
 	}
 }
 
+func BenchmarkID(b *testing.B) {
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	is := is.New(b)
+	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
+		"NWL18", "English")
+	is.NoErr(err)
+	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../../gcgio/testdata/noah_vs_mishu.gcg")
+	is.NoErr(err)
+	g, err := game.NewFromHistory(gameHistory, rules, 28)
+	is.NoErr(err)
+	// Make a few plays:
+	g.PlayScoringMove("H7", "T...", false)
+	g.PlayScoringMove("N5", "C...", false)
+	g.PlayScoringMove("10A", ".IN", false)
+	// Note that this is not right; user should play the P off at 6I,
+	// but this is for testing purposes only:
+	g.PlayScoringMove("13L", "...R", false)
+	is.Equal(g.PointsFor(0), 339)
+	is.Equal(g.PointsFor(1), 381)
+
+	gd, err := gaddag.Get(g.Config(), g.LexiconName())
+	is.NoErr(err)
+
+	generator := movegen.NewGordonGenerator(
+		gd, g.Board(), g.Bag().LetterDistribution(),
+	)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+
+		s := new(Solver)
+		s.Init(generator, g)
+		plies := 5
+
+		g.SetBackupMode(game.SimulationMode)
+		g.SetStateStackLength(plies)
+
+		v, seq, _ := s.Solve(plies)
+		is.Equal(v, float32(44))
+		is.Equal(len(seq), 5)
+		is.Equal(seq[0].ShortDescription(), "6I A.")
+	}
+}
+
+func BenchmarkID2(b *testing.B) {
+	zerolog.SetGlobalLevel(zerolog.WarnLevel)
+	is := is.New(b)
+	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
+		"OSPS44", "Polish")
+	is.NoErr(err)
+
+	cfg := config.DefaultConfig()
+	cfg.DefaultLexicon = "OSPS44"
+	cfg.DefaultLetterDistribution = "polish"
+
+	gameHistory, err := gcgio.ParseGCG(&cfg, "../../gcgio/testdata/polish_endgame.gcg")
+	is.NoErr(err)
+
+	gameHistory.ChallengeRule = pb.ChallengeRule_SINGLE
+
+	g, err := game.NewFromHistory(gameHistory, rules, 47)
+	is.NoErr(err)
+
+	gd, err := gaddag.Get(g.Config(), g.LexiconName())
+	is.NoErr(err)
+
+	generator := movegen.NewGordonGenerator(
+		gd, g.Board(), g.Bag().LetterDistribution(),
+	)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+
+		s := new(Solver)
+		s.Init(generator, g)
+		plies := 11
+
+		g.SetBackupMode(game.SimulationMode)
+		g.SetStateStackLength(plies)
+
+		v, seq, _ := s.Solve(plies)
+		is.Equal(v, float32(7))
+		is.Equal(len(seq), 7)
+	}
+}
+
 func TestFromGCG(t *testing.T) {
 	plies := 3
 	is := is.New(t)
 
 	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
 		"CSW19", "English")
+	is.NoErr(err)
 
 	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../../gcgio/testdata/vs_frentz.gcg")
 	is.NoErr(err)

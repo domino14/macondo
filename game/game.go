@@ -434,6 +434,9 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		}
 
 	case move.MoveTypePass, move.MoveTypeUnsuccessfulChallengePass:
+		if g.playing == pb.PlayState_GAME_OVER {
+			log.Warn().Msg("adding a pass when game is already over")
+		}
 		// Add the pass first so it comes before the end rack bonus
 		if addToHistory {
 			evt := g.EventFromMove(m)
@@ -511,8 +514,6 @@ func (g *Game) handleConsecutiveScorelessTurns(addToHistory bool) (bool, error) 
 	var ended bool
 	if g.scorelessTurns == g.maxScorelessTurns {
 		ended = true
-		log.Debug().Str("gid", g.history.Uid).
-			Msgf("game ended with %d scoreless turns", g.maxScorelessTurns)
 		g.playing = pb.PlayState_GAME_OVER
 		g.history.PlayState = g.playing
 
@@ -733,7 +734,10 @@ func (g *Game) playTurn(t int) error {
 		return fmt.Errorf("player not found: %v", evt.Nickname)
 	}
 
-	m := MoveFromEvent(evt, g.alph, g.board)
+	m, err := MoveFromEvent(evt, g.alph, g.board)
+	if err != nil {
+		return err
+	}
 	log.Trace().Int("movetype", int(m.Action())).Msg("move-action")
 	switch m.Action() {
 	case move.MoveTypePlay:
@@ -769,7 +773,7 @@ func (g *Game) playTurn(t int) error {
 		drew := g.bag.DrawAtMost(m.TilesPlayed())
 		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
 		g.players[g.onturn].setRackTiles(tiles, g.alph)
-
+		g.scorelessTurns = 0
 		// Don't check game end logic here, as we assume we have the
 		// right event for that (move.MoveTypeEndgameTiles for example).
 	case move.MoveTypePhonyTilesReturned:
@@ -799,6 +803,11 @@ func (g *Game) playTurn(t int) error {
 		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
 		g.players[g.onturn].setRackTiles(tiles, g.alph)
 		g.players[g.onturn].turns += 1
+		g.scorelessTurns++
+
+	case move.MoveTypePass, move.MoveTypeUnsuccessfulChallengePass:
+		g.scorelessTurns++
+
 	default:
 		// Nothing
 
@@ -995,4 +1004,8 @@ func (g *Game) RecalculateBoard() {
 	// Recalculate cross-sets and anchors for move generator
 	g.crossSetGen.GenerateAll(g.board)
 	g.board.UpdateAllAnchors()
+}
+
+func (g *Game) ScorelessTurns() int {
+	return g.scorelessTurns
 }
