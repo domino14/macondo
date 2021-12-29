@@ -294,7 +294,7 @@ func (s *Solver) generateSTMPlays(parent *GameNode) []*move.Move {
 	return sideToMovePlays
 }
 
-func (s *Solver) childGenerator(node *GameNode, maximizingPlayer bool) func() (
+func (s *Solver) childGenerator(node *GameNode) func() (
 	*GameNode, bool) {
 
 	// log.Debug().Msgf("Trying to generate children for node %v", node)
@@ -307,10 +307,13 @@ func (s *Solver) childGenerator(node *GameNode, maximizingPlayer bool) func() (
 			// If the plays exist already, sort them by value so more
 			// promising nodes are visited first. This would happen
 			// during iterative deepening.
-			if maximizingPlayer {
-				return node.children[j].heuristicValue.less(node.children[i].heuristicValue)
-			}
-			return node.children[i].heuristicValue.less(node.children[j].heuristicValue)
+			// Note: we always sort biggest to smallest, even if we are the
+			// minimizing player. This is because when we are the minimizing player,
+			// the heuristic value is negated in the `calculateValue` function
+			// in gamenode.go. The heuristic value is always relative to the
+			// maximizing player.
+			return node.children[j].heuristicValue.less(node.children[i].heuristicValue)
+
 		})
 		// Mark all the moves as not visited.
 		for _, child := range node.children {
@@ -469,7 +472,7 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 	if maximizingPlayer {
 		value := float32(-Infinity)
 		var winningNode *GameNode
-		iter := s.childGenerator(node, !maximizingPlayer)
+		iter := s.childGenerator(node)
 		for child, newNode := iter(); child != nil; child, newNode = iter() {
 			// Play the child
 			// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
@@ -497,14 +500,15 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 			}
 		}
 		node.heuristicValue = nodeValue{
-			value: value, knownEnd: winningNode.heuristicValue.knownEnd,
+			value:          value,
+			knownEnd:       winningNode.heuristicValue.knownEnd,
 			sequenceLength: winningNode.heuristicValue.sequenceLength}
 		return winningNode
 	}
 	// Otherwise, not maximizing
 	value := float32(Infinity)
 	var winningNode *GameNode
-	iter := s.childGenerator(node, maximizingPlayer)
+	iter := s.childGenerator(node)
 	for child, newNode := iter(); child != nil; child, newNode = iter() {
 		// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
 		s.game.PlayMove(child.move, false, 0)
@@ -530,7 +534,8 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 		}
 	}
 	node.heuristicValue = nodeValue{
-		value: value, knownEnd: winningNode.heuristicValue.knownEnd,
+		value:          value,
+		knownEnd:       winningNode.heuristicValue.knownEnd,
 		sequenceLength: winningNode.heuristicValue.sequenceLength}
 	return winningNode
 }
