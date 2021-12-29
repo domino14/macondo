@@ -294,7 +294,7 @@ func (s *Solver) generateSTMPlays(parent *GameNode) []*move.Move {
 	return sideToMovePlays
 }
 
-func (s *Solver) childGenerator(node *GameNode) func() (
+func (s *Solver) childGenerator(node *GameNode, maximizingPlayer bool) func() (
 	*GameNode, bool) {
 
 	// log.Debug().Msgf("Trying to generate children for node %v", node)
@@ -307,11 +307,13 @@ func (s *Solver) childGenerator(node *GameNode) func() (
 			// If the plays exist already, sort them by value so more
 			// promising nodes are visited first. This would happen
 			// during iterative deepening.
-			// Note: we always sort biggest to smallest, even if we are the
-			// minimizing player. This is because when we are the minimizing player,
+			// Note: When we are the minimizing player,
 			// the heuristic value is negated in the `calculateValue` function
 			// in gamenode.go. The heuristic value is always relative to the
-			// maximizing player.
+			// maximizing player. This is why we flip the less function.
+			if !maximizingPlayer {
+				i, j = j, i
+			}
 			return node.children[j].heuristicValue.less(node.children[i].heuristicValue)
 
 		})
@@ -472,7 +474,7 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 	if maximizingPlayer {
 		value := float32(-Infinity)
 		var winningNode *GameNode
-		iter := s.childGenerator(node)
+		iter := s.childGenerator(node, maximizingPlayer)
 		for child, newNode := iter(); child != nil; child, newNode = iter() {
 			// Play the child
 			// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
@@ -508,7 +510,7 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 	// Otherwise, not maximizing
 	value := float32(Infinity)
 	var winningNode *GameNode
-	iter := s.childGenerator(node)
+	iter := s.childGenerator(node, maximizingPlayer)
 	for child, newNode := iter(); child != nil; child, newNode = iter() {
 		// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
 		s.game.PlayMove(child.move, false, 0)
