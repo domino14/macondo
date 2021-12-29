@@ -27,7 +27,7 @@ type GameOptions struct {
 
 func (opts *GameOptions) SetDefaults(config *config.Config) {
 	if opts.Lexicon == nil {
-		opts.Lexicon = &Lexicon{config.DefaultLexicon, "english"}
+		opts.Lexicon = &Lexicon{config.DefaultLexicon, config.DefaultLetterDistribution}
 		log.Info().Msgf("using default lexicon %v", opts.Lexicon)
 	}
 }

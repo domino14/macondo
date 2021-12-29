@@ -173,6 +173,12 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 			err = errors.New(msg)
 		} else {
 			err = sc.options.SetLexicon(args)
+			if err == nil {
+				// Overwrite the config options since other parts of the code
+				// use these to determine the lexicon
+				sc.config.DefaultLexicon = sc.options.Lexicon.Name
+				sc.config.DefaultLetterDistribution = sc.options.Lexicon.Distribution
+			}
 			_, ret = sc.options.Show("lexicon")
 		}
 	case "challenge":

@@ -447,6 +447,48 @@ maven: Turn 23
 15|=   T '       =       '     =|
    ------------------------------
 `
+
+	APolishEndgame = `
+   A B C D E F G H I J K L M N O     ->                    1  BGHUWZZ  304
+   ------------------------------                          2           258
+ 1|=     '       =       '     E |
+ 2|  -       "       "       E T |   Bag + unseen: (6)
+ 3|    -       '   '     F i Ś   |
+ 4|'     -       '       L I   ' |   I K M Ó Ź Ż
+ 5|        -         C Ł A       |
+ 6|  "       "       Z   N   "   |
+ 7|    '       '   H O I   '     |
+ 8|=     '     S T Ę P I Ć     = |
+ 9|    '     A U R ' Y     R O K |
+10|  P O   S A M Y   " G N A Ń   |   Turn 46:
+11|    C L E     P   J A   K     |   2 played 9M .OK for 12 pts from a rack of
+12|'   L A R W O ' S A M B I E ' |   IKKMOŹŻ
+13|C N I   W E N T O   O   I W Ą |
+14|E - S     "   E N D       Y   |
+15|Z D Z I A Ł a J   Y A R D   = |
+   ------------------------------
+   `
+
+	APolishEndgame2 = `
+   A B C D E F G H I J K L M N O                           1   BHUWZ   316
+   ------------------------------    ->                    2   IKMÓŹŻ  258
+ 1|=     '       =       '     E|
+ 2|  -       "       "       E T|    Bag + unseen: (5)
+ 3|    -       '   '     F i Ś  |
+ 4|'     -       '       L I   '|    B H U W Z
+ 5|        -         C Ł A      |
+ 6|  "       "       Z   N   "  |
+ 7|    '       '   H O I   ' Z  |
+ 8|=     '     S T Ę P I Ć   G =|
+ 9|    '     A U R ' Y     R O K|
+10|  P O   S A M Y   " G N A Ń  |    Turn 47:
+11|    C L E     P   J A   K    |    1 played N7 ZG.. for 12 pts from a rack of
+12|'   L A R W O ' S A M B I E '|     BGHUWZZ
+13|C N I   W E N T O   O   I W Ą|
+14|E - S     "   E N D       Y  |
+15|Z D Z I A Ł a J   Y A R D   =|
+   ------------------------------
+   `
 )
 
 // SetToGame sets the board to a specific game in progress. It is used to

@@ -52,7 +52,7 @@ func (c *Client) RequestMove(game *runner.GameRunner, config *config.Config) (*m
 	}
 	switch r := resp.Response.(type) {
 	case *pb.BotResponse_Move:
-		return game.MoveFromEvent(r.Move), nil
+		return game.MoveFromEvent(r.Move)
 	case *pb.BotResponse_Error:
 		return nil, errors.New("Bot returned: " + r.Error)
 	default:

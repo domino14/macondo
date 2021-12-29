@@ -15,8 +15,8 @@ type TilesInPlay struct {
 	Rack2   []alphabet.MachineLetter
 }
 
-var boardPlaintextRegex = regexp.MustCompile(`\|([[:print:]]+)\|`)
-var userRackRegex = regexp.MustCompile(`(?U)[[:print:]]+\s+([A-Z\?]*)\s+-?[0-9]+`)
+var boardPlaintextRegex = regexp.MustCompile(`\|(.+)\|`)
+var userRackRegex = regexp.MustCompile(`(?U).+\s+([A-Z\?]*)\s+-?[0-9]+`)
 
 func (g *GameBoard) ToDisplayText(alph *alphabet.Alphabet) string {
 	var str string
@@ -32,8 +32,10 @@ func (g *GameBoard) ToDisplayText(alph *alphabet.Alphabet) string {
 		for j := 0; j < n; j++ {
 			row = row + g.SquareDisplayString(i, j, alph) + " "
 		}
+		row = row + "|"
 		str = str + row + "\n"
 	}
+	str = str + "   " + strings.Repeat("-", 30) + "\n"
 	return "\n" + str
 }
 

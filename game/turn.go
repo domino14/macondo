@@ -135,13 +135,13 @@ func modifyForPlaythrough(tiles alphabet.MachineWord, board *board.GameBoard,
 }
 
 // MoveFromEvent generates a move from an event
-func MoveFromEvent(evt *pb.GameEvent, alph *alphabet.Alphabet, board *board.GameBoard) *move.Move {
+func MoveFromEvent(evt *pb.GameEvent, alph *alphabet.Alphabet, board *board.GameBoard) (*move.Move, error) {
 	var m *move.Move
 
 	rack, err := alphabet.ToMachineWord(evt.Rack, alph)
 	if err != nil {
 		log.Error().Err(err).Msg("")
-		return nil
+		return nil, err
 	}
 
 	log.Debug().Int("evt-type", int(evt.Type)).Msg("creating-move-from-event")
@@ -151,20 +151,20 @@ func MoveFromEvent(evt *pb.GameEvent, alph *alphabet.Alphabet, board *board.Game
 		tiles, err := alphabet.ToMachineWord(evt.PlayedTiles, alph)
 		if err != nil {
 			log.Error().Err(err).Msg("")
-			return nil
+			return nil, err
 		}
 
 		err = modifyForPlaythrough(tiles, board, evt.Direction == pb.GameEvent_VERTICAL,
 			int(evt.Row), int(evt.Column))
 		if err != nil {
 			log.Error().Err(err).Msg("")
-			return nil
+			return nil, err
 		}
 
 		leaveMW, err := Leave(rack, tiles)
 		if err != nil {
 			log.Error().Err(err).Msg("")
-			return nil
+			return nil, err
 		}
 		// log.Debug().Msgf("calculated leave %v from rack %v, tiles %v",
 		// 	leaveMW.UserVisible(alph), rack.UserVisible(alph),
@@ -177,12 +177,12 @@ func MoveFromEvent(evt *pb.GameEvent, alph *alphabet.Alphabet, board *board.Game
 		tiles, err := alphabet.ToMachineWord(evt.Exchanged, alph)
 		if err != nil {
 			log.Error().Err(err).Msg("")
-			return nil
+			return nil, err
 		}
 		leaveMW, err := Leave(rack, tiles)
 		if err != nil {
 			log.Error().Err(err).Msg("")
-			return nil
+			return nil, err
 		}
 		m = move.NewExchangeMove(tiles, leaveMW, alph)
 
@@ -229,7 +229,7 @@ func MoveFromEvent(evt *pb.GameEvent, alph *alphabet.Alphabet, board *board.Game
 		log.Error().Msgf("Unhandled event %v", evt)
 
 	}
-	return m
+	return m, nil
 }
 
 // Leave calculates the leave from the rack and the made play.

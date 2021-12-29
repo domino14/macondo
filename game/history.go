@@ -13,16 +13,17 @@ func HistoryToVariant(h *pb.GameHistory) (boardLayoutName, letterDistributionNam
 	boardLayoutName = h.BoardLayout
 	// XXX: the letter distribution name should come from the history.
 	letterDistributionName = "english"
+	lexicon := strings.ToLower(h.Lexicon)
 	switch {
-	case strings.HasPrefix(h.Lexicon, "OSPS"):
+	case strings.HasPrefix(lexicon, "osps"):
 		letterDistributionName = "polish"
-	case strings.HasPrefix(h.Lexicon, "FISE"):
+	case strings.HasPrefix(lexicon, "fise"):
 		letterDistributionName = "spanish"
-	case strings.HasPrefix(h.Lexicon, "RD"):
+	case strings.HasPrefix(lexicon, "rd"):
 		letterDistributionName = "german"
-	case strings.HasPrefix(h.Lexicon, "NSF"):
+	case strings.HasPrefix(lexicon, "nsf"):
 		letterDistributionName = "norwegian"
-	case strings.HasPrefix(h.Lexicon, "FRA"):
+	case strings.HasPrefix(lexicon, "fra"):
 		letterDistributionName = "french"
 	}
 	variant = Variant(h.Variant)
