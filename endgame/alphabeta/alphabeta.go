@@ -474,7 +474,7 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 	if maximizingPlayer {
 		value := float32(-Infinity)
 		var winningNode *GameNode
-		iter := s.childGenerator(node, maximizingPlayer)
+		iter := s.childGenerator(node, true)
 		for child, newNode := iter(); child != nil; child, newNode = iter() {
 			// Play the child
 			// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
@@ -510,7 +510,7 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 	// Otherwise, not maximizing
 	value := float32(Infinity)
 	var winningNode *GameNode
-	iter := s.childGenerator(node, maximizingPlayer)
+	iter := s.childGenerator(node, false)
 	for child, newNode := iter(); child != nil; child, newNode = iter() {
 		// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
 		s.game.PlayMove(child.move, false, 0)
