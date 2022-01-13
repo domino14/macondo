@@ -17,6 +17,8 @@ var (
 type BonusSquare rune
 
 const (
+	Bonus4WS BonusSquare = '~'
+	Bonus4LS BonusSquare = '^'
 	// Bonus3WS is a triple word score
 	Bonus3WS BonusSquare = '='
 	// Bonus3LS is a triple letter score
@@ -121,10 +123,14 @@ func (b BonusSquare) displayString() string {
 	}
 	switch b {
 
+	case Bonus4WS:
+		return fmt.Sprintf("\033[33m%s\033[0m", string(b))
 	case Bonus3WS:
 		return fmt.Sprintf("\033[31m%s\033[0m", string(b))
 	case Bonus2WS:
 		return fmt.Sprintf("\033[35m%s\033[0m", string(b))
+	case Bonus4LS:
+		return fmt.Sprintf("\033[95m%s\033[0m", string(b))
 	case Bonus3LS:
 		return fmt.Sprintf("\033[34m%s\033[0m", string(b))
 	case Bonus2LS:
