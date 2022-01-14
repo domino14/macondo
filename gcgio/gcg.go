@@ -261,7 +261,7 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 		lastEvtIdx := len(p.history.Events) - 1
 		// For notes that are not associated with events, we can ignore them.
 		if lastEvtIdx < 0 {
-			return nil
+			return p.parseSpecialNotePragma(match[1])
 		}
 		p.history.Events[lastEvtIdx].Note += match[1]
 		return nil
@@ -434,6 +434,32 @@ func (p *parser) parseLine(cfg *config.Config, line string) error {
 	return nil
 }
 
+func (p *parser) parseSpecialNotePragma(note string) error {
+	// For now, in order to remain compliant with the GCG spec, we re-use
+	// the #note pragma to expand the representation a bit.
+	kv := strings.SplitN(note, ":", 2)
+	log.Debug().Interface("kv", kv).Msg("note")
+	if len(kv) != 2 {
+		// We won't return an error, but this doesn't follow the format.
+		return nil
+	}
+
+	key := strings.TrimSpace(kv[0])
+	val := strings.TrimSpace(kv[1])
+	switch key {
+	case "Variant":
+		p.history.Variant = val
+		log.Debug().Str("variant", val).Msg("found variant note pragma")
+	case "LetterDistribution":
+		p.history.LetterDistribution = val
+		log.Debug().Str("dist", val).Msg("found dist note pragma")
+	case "BoardLayout":
+		p.history.BoardLayout = val
+		log.Debug().Str("layout", val).Msg("found layout note pragma")
+	}
+	return nil
+}
+
 func encodingOrFirstLine(reader io.Reader) (string, string, error) {
 	// Read either the encoding of the file, or the first line,
 	// whichever is available.
@@ -555,6 +581,12 @@ func writeGCGHeader(s *strings.Builder, h *pb.GameHistory, addlInfo bool) {
 		}
 		if h.Variant != "" {
 			s.WriteString("#note Variant: " + h.Variant + "\n")
+		}
+		if h.BoardLayout != "" {
+			s.WriteString("#note BoardLayout: " + h.BoardLayout + "\n")
+		}
+		if h.LetterDistribution != "" {
+			s.WriteString("#note LetterDistribution: " + h.LetterDistribution + "\n")
 		}
 	}
 	log.Debug().Msg("wrote header")

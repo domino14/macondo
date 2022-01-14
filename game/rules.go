@@ -85,6 +85,8 @@ func NewBasicGameRules(cfg *config.Config,
 	switch boardLayoutName {
 	case board.CrosswordGameLayout, "":
 		bd = board.CrosswordGameBoard
+	case board.SuperCrosswordGameLayout:
+		bd = board.SuperCrosswordGameBoard
 	default:
 		return nil, errors.New("unsupported board layout")
 	}

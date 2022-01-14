@@ -575,6 +575,9 @@ func (g *GameBoard) ScoreWord(word alphabet.MachineWord, row, col, tilesPlayed i
 			freshTile = true
 			// Only count bonus if we are putting a fresh tile on it.
 			switch bonusSq {
+			case Bonus4WS:
+				wordMultiplier *= 4
+				thisWordMultiplier = 4
 			case Bonus3WS:
 				wordMultiplier *= 3
 				thisWordMultiplier = 3
@@ -585,6 +588,8 @@ func (g *GameBoard) ScoreWord(word alphabet.MachineWord, row, col, tilesPlayed i
 				letterMultiplier = 2
 			case Bonus3LS:
 				letterMultiplier = 3
+			case Bonus4LS:
+				letterMultiplier = 4
 			}
 			// else all the multipliers are 1.
 		}

@@ -67,6 +67,8 @@ func (opts *ShellOptions) Show(key string) (bool, string) {
 	case "challenge":
 		rule := runner.ShowChallengeRule(opts.ChallengeRule)
 		return true, fmt.Sprintf("%v", rule)
+	case "board":
+		return true, opts.BoardLayoutName
 	default:
 		return false, "No such option: " + key
 	}
@@ -180,6 +182,14 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 				sc.config.DefaultLetterDistribution = sc.options.Lexicon.Distribution
 			}
 			_, ret = sc.options.Show("lexicon")
+		}
+	case "board":
+		if sc.IsPlaying() {
+			msg := "Cannot change the board layout while a game is active"
+			err = errors.New(msg)
+		} else {
+			err = sc.options.SetBoardLayoutName(args[0])
+			_, ret = sc.options.Show("board")
 		}
 	case "challenge":
 		err = sc.options.SetChallenge(args[0])
