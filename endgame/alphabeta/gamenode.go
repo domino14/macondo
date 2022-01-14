@@ -33,12 +33,14 @@ func (nv nodeValue) less(other nodeValue) bool {
 	if nv.knownEnd != other.knownEnd {
 		// basically, we are less than other if we are an unknown end
 		// and other is a known end
-		return !nv.knownEnd && other.knownEnd
+		// i.e. known end > unknown end
+		return other.knownEnd
 	}
 	// Third tie-breaker is whether this is a pass or not.
 	if nv.isPass != other.isPass {
 		// we should rank non-passes higher than passes if everything else
 		// is equal.
+		// i.e. pass < not pass
 		return nv.isPass
 	}
 	// Fourth tie-breaker is length of sequence, favoring shorter sequences

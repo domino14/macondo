@@ -39,6 +39,10 @@ const (
 )
 
 const (
+	// Bonus4WS is a quadruple word score
+	Bonus4WS BonusSquare = '~'
+	// Bonus4LS is a quadruple letter score
+	Bonus4LS BonusSquare = '^'
 	// Bonus3WS is a triple word score
 	Bonus3WS BonusSquare = 61 // =  (hex 3D)
 	// Bonus3LS is a triple letter score
@@ -57,11 +61,14 @@ func (b BonusSquare) displayString() string {
 		return repr
 	}
 	switch b {
-
+	case Bonus4WS:
+		return fmt.Sprintf("\033[33m%s\033[0m", repr)
 	case Bonus3WS:
 		return fmt.Sprintf("\033[31m%s\033[0m", repr)
 	case Bonus2WS:
 		return fmt.Sprintf("\033[35m%s\033[0m", repr)
+	case Bonus4LS:
+		return fmt.Sprintf("\033[95m%s\033[0m", repr)
 	case Bonus3LS:
 		return fmt.Sprintf("\033[34m%s\033[0m", repr)
 	case Bonus2LS:
@@ -510,6 +517,9 @@ func (g *GameBoard) ScoreWord(word alphabet.MachineWord, row, col, tilesPlayed i
 			freshTile = true
 			// Only count bonus if we are putting a fresh tile on it.
 			switch bonusSq {
+			case Bonus4WS:
+				wordMultiplier *= 4
+				thisWordMultiplier = 4
 			case Bonus3WS:
 				wordMultiplier *= 3
 				thisWordMultiplier = 3
@@ -520,6 +530,8 @@ func (g *GameBoard) ScoreWord(word alphabet.MachineWord, row, col, tilesPlayed i
 				letterMultiplier = 2
 			case Bonus3LS:
 				letterMultiplier = 3
+			case Bonus4LS:
+				letterMultiplier = 4
 			}
 			// else all the multipliers are 1.
 		}

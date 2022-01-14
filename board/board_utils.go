@@ -26,7 +26,7 @@ func (g *GameBoard) ToDisplayText(alph *alphabet.Alphabet) string {
 		row = row + fmt.Sprintf("%c", 'A'+i) + " "
 	}
 	str = str + row + "\n"
-	str = str + "   " + strings.Repeat("-", 30) + "\n"
+	str = str + "   " + strings.Repeat("-", n*2) + "\n"
 	for i := 0; i < n; i++ {
 		row := fmt.Sprintf("%2d|", i+1)
 		for j := 0; j < n; j++ {
@@ -35,7 +35,7 @@ func (g *GameBoard) ToDisplayText(alph *alphabet.Alphabet) string {
 		row = row + "|"
 		str = str + row + "\n"
 	}
-	str = str + "   " + strings.Repeat("-", 30) + "\n"
+	str = str + "   " + strings.Repeat("-", n*2) + "\n"
 	return "\n" + str
 }
 

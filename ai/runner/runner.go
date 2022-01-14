@@ -5,7 +5,6 @@ import (
 
 	"github.com/domino14/macondo/ai/player"
 	"github.com/domino14/macondo/alphabet"
-	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
@@ -30,8 +29,7 @@ type AIGameRunner struct {
 func NewAIGameRunner(conf *config.Config, opts *runner.GameOptions, players []*pb.PlayerInfo, botType pb.BotRequest_BotCode) (*AIGameRunner, error) {
 	opts.SetDefaults(conf)
 	rules, err := NewAIGameRules(
-		conf, board.CrosswordGameLayout,
-		opts.Lexicon.Name, opts.Lexicon.Distribution)
+		conf, opts.BoardLayoutName, opts.Lexicon.Name, opts.Lexicon.Distribution)
 	if err != nil {
 		return nil, err
 	}
