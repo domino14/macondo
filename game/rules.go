@@ -15,7 +15,11 @@ type Variant string
 
 const (
 	VarClassic  Variant = "classic"
-	VarWordSmog Variant = "wordsmog"
+	VarWordSmog         = "wordsmog"
+	// Redundant information, but we are deciding to treat different board
+	// layouts as different variants.
+	VarClassicSuper  = "classic_super"
+	VarWordSmogSuper = "wordsmog_super"
 )
 
 const (
