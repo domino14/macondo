@@ -7,9 +7,9 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/golang/protobuf/proto"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
+	"google.golang.org/protobuf/proto"
 
 	airunner "github.com/domino14/macondo/ai/runner"
 	"github.com/domino14/macondo/config"
