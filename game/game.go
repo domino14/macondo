@@ -787,18 +787,7 @@ func (g *Game) playTurn(t int) error {
 	// recorded turn on the board.
 	evt := g.history.Events[t]
 	log.Trace().Int("event-type", int(evt.Type)).Int("turn", t).Msg("playTurn")
-	// onturn should be based on the event nickname
-	found := false
-	for idx, p := range g.players {
-		if p.Nickname == evt.Nickname {
-			g.onturn = idx
-			found = true
-			break
-		}
-	}
-	if !found {
-		return fmt.Errorf("player not found: %v", evt.Nickname)
-	}
+	g.onturn = int(evt.PlayerIndex)
 
 	m, err := MoveFromEvent(evt, g.alph, g.board)
 	if err != nil {

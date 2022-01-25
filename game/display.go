@@ -105,7 +105,7 @@ func (g *Game) ToDisplayText() string {
 
 	if g.turnnum-1 >= 0 {
 		addText(bts, vpadding, hpadding,
-			summary(g.history.Events[g.turnnum-1]))
+			summary(g.history.Players, g.history.Events[g.turnnum-1]))
 	}
 
 	vpadding = 17

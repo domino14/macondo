@@ -84,7 +84,7 @@ message GameEvent {
     HORIZONTAL = 0;
     VERTICAL = 1;
   }
-  string nickname = 1;
+  string nickname = 1 [ deprecated = true ];
   string note = 2;
   string rack = 3;
   Type type = 4;
@@ -107,6 +107,9 @@ message GameEvent {
   // cross-words.
   repeated string words_formed = 17;
   int32 millis_remaining = 18;
+  // The player who played this move is encoded in player_index. This should
+  // be the index in GameHistory.players.
+  uint32 player_index = 19;
 }
 
 message PlayerInfo {

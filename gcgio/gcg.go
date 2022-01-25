@@ -29,6 +29,7 @@ var (
 	errPragmaPrecedeEvent = errors.New("non-note pragmata should appear before event lines")
 	errEncodingWrongPlace = errors.New("encoding line must be first line in file if present")
 	errPlayerNotSupported = errors.New("player number not supported")
+	errPlayerDoesNotExist = errors.New("player does not exist")
 )
 
 // A Token is an event in a GCG file.
@@ -127,6 +128,15 @@ func matchToInt32(str string) (int32, error) {
 		return 0, err
 	}
 	return int32(x), nil
+}
+
+func nickToPIndex(nick string, players []*pb.PlayerInfo) (uint32, error) {
+	for i, p := range players {
+		if nick == p.Nickname {
+			return uint32(i), nil
+		}
+	}
+	return 0, errPlayerDoesNotExist
 }
 
 func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []string) error {
@@ -228,7 +238,11 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 		return errEncodingWrongPlace
 	case MoveToken:
 		evt := &pb.GameEvent{}
-		evt.Nickname = match[1]
+		evt.PlayerIndex, err = nickToPIndex(match[1], p.history.Players)
+		if err != nil {
+			return errPlayerDoesNotExist
+		}
+
 		evt.Rack = match[2]
 		evt.Position = match[3]
 		evt.PlayedTiles = match[4]
@@ -273,7 +287,10 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 		return nil
 	case PhonyTilesReturnedToken:
 		evt := &pb.GameEvent{}
-		evt.Nickname = match[1]
+		evt.PlayerIndex, err = nickToPIndex(match[1], p.history.Players)
+		if err != nil {
+			return errPlayerDoesNotExist
+		}
 		evt.Rack = match[2]
 
 		score, err := matchToInt32(match[3])
@@ -297,7 +314,11 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 
 	case TimePenaltyToken:
 		evt := &pb.GameEvent{}
-		evt.Nickname = match[1]
+		evt.PlayerIndex, err = nickToPIndex(match[1], p.history.Players)
+		if err != nil {
+			return errPlayerDoesNotExist
+		}
+
 		evt.Rack = match[2]
 
 		score, err := matchToInt32(match[3])
@@ -324,7 +345,10 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 
 	case LastRackPenaltyToken:
 		evt := &pb.GameEvent{}
-		evt.Nickname = match[1]
+		evt.PlayerIndex, err = nickToPIndex(match[1], p.history.Players)
+		if err != nil {
+			return errPlayerDoesNotExist
+		}
 		evt.Rack = match[2]
 		if evt.Rack != match[3] {
 			return fmt.Errorf("last rack penalty event malformed")
@@ -349,7 +373,10 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 
 	case PassToken:
 		evt := &pb.GameEvent{}
-		evt.Nickname = match[1]
+		evt.PlayerIndex, err = nickToPIndex(match[1], p.history.Players)
+		if err != nil {
+			return errPlayerDoesNotExist
+		}
 		evt.Rack = match[2]
 		evt.Cumulative, err = matchToInt32(match[3])
 		if err != nil {
@@ -361,7 +388,10 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 
 	case ChallengeBonusToken, EndRackPointsToken:
 		evt := &pb.GameEvent{}
-		evt.Nickname = match[1]
+		evt.PlayerIndex, err = nickToPIndex(match[1], p.history.Players)
+		if err != nil {
+			return errPlayerDoesNotExist
+		}
 		evt.Rack = match[2]
 		if token == ChallengeBonusToken {
 			evt.Bonus, err = matchToInt32(match[3])
@@ -387,7 +417,10 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 
 	case ExchangeToken:
 		evt := &pb.GameEvent{}
-		evt.Nickname = match[1]
+		evt.PlayerIndex, err = nickToPIndex(match[1], p.history.Players)
+		if err != nil {
+			return errPlayerDoesNotExist
+		}
 		evt.Rack = match[2]
 		evt.Exchanged = match[3]
 		evt.Cumulative, err = matchToInt32(match[4])
@@ -592,9 +625,9 @@ func writeGCGHeader(s *strings.Builder, h *pb.GameHistory, addlInfo bool) {
 	log.Debug().Msg("wrote header")
 }
 
-func writeEvent(s *strings.Builder, evt *pb.GameEvent) error {
+func writeEvent(s *strings.Builder, h *pb.GameHistory, evt *pb.GameEvent) error {
 
-	nick := evt.GetNickname()
+	nick := h.Players[evt.GetPlayerIndex()].Nickname
 	rack := evt.GetRack()
 	evtType := evt.GetType()
 	note := evt.GetNote()
@@ -689,7 +722,7 @@ func GameHistoryToGCG(h *pb.GameHistory, addlHeaderInfo bool) (string, error) {
 
 	for i, evt := range h.Events {
 		if !isPassBeforeEndRackPoints(h, i) {
-			err := writeEvent(&str, evt)
+			err := writeEvent(&str, h, evt)
 			if err != nil {
 				return "", err
 			}
