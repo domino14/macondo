@@ -173,3 +173,18 @@ message BotResponse {
   }
   Evaluation eval = 3;
 }
+
+// Puzzles
+
+// XXX: Finalize this or think of something else
+enum PuzzleType {
+  BEST_EQUITY = 0;
+  ONLY_BINGO = 1;
+  STRATEGY = 2;
+}
+
+message PuzzleResponse {
+  int32 turn_number = 1;
+  PuzzleType type = 2;
+  GameEvent answer = 3;
+}
