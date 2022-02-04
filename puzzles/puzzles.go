@@ -1,8 +1,6 @@
 package puzzles
 
 import (
-	"fmt"
-
 	"github.com/domino14/macondo/ai/runner"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
@@ -19,8 +17,6 @@ func CreatePuzzlesFromGame(conf *config.Config, g *game.Game) ([]*pb.PuzzleRespo
 			return nil, err
 		}
 		moves := runner.GenerateMoves(2)
-		fmt.Println(" **** MOVES **** ")
-		fmt.Println(moves)
 		if len(moves) == 2 && moves[0].Equity() > moves[1].Equity()+10 {
 			puzzles = append(puzzles, &pb.PuzzleResponse{TurnNumber: int32(evtIdx),
 				Type:   pb.PuzzleType_BEST_EQUITY,

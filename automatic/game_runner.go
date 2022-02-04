@@ -117,6 +117,10 @@ func (r *GameRunner) StartGame() {
 	r.game.StartGame()
 }
 
+func (r *GameRunner) Game() *game.Game {
+	return r.game
+}
+
 func (r *GameRunner) genBestStaticTurn(playerIdx int) *move.Move {
 	return player.GenBestStaticTurn(r.game, r.movegen, r.aiplayers[playerIdx], playerIdx)
 }
