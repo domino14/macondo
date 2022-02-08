@@ -38,7 +38,7 @@ func TestCompVsCompStatic(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		err := runner.CompVsCompStatic()
+		err := runner.CompVsCompStatic(false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -63,13 +63,13 @@ func BenchmarkCompVsCompStatic(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		runner := NewGameRunner(nil, &DefaultConfig)
-		runner.CompVsCompStatic()
+		runner.CompVsCompStatic(false)
 	}
 }
 
 func BenchmarkPlayFullStatic(b *testing.B) {
 	runner := NewGameRunner(nil, &DefaultConfig)
 	for i := 0; i < b.N; i++ {
-		runner.playFullStatic()
+		runner.playFullStatic(false)
 	}
 }
