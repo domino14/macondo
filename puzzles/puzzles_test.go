@@ -66,7 +66,7 @@ func TestBestEquity(t *testing.T) {
 	is.NoErr(err)
 	is.Equal(len(puzzles), 1)
 	is.Equal(puzzles[0].TurnNumber, int32(1))
-	is.Equal(puzzles[0].Type, pb.PuzzleType_BEST_EQUITY)
+	is.Equal(puzzles[0].GameId, g.Uid())
 	// a game move doesn't have WordsFormed, so need to look at the actual
 	// tiles played:
 	is.Equal(puzzles[0].Answer.PlayedTiles, "KOFTGAR.")

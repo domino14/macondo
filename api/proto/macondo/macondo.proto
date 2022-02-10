@@ -184,7 +184,7 @@ enum PuzzleType {
 }
 
 message PuzzleResponse {
-  int32 turn_number = 1;
-  PuzzleType type = 2;
+  string game_id = 1;
+  int32 turn_number = 2;
   GameEvent answer = 3;
 }

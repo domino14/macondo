@@ -18,9 +18,9 @@ func CreatePuzzlesFromGame(conf *config.Config, g *game.Game) ([]*pb.PuzzleRespo
 		}
 		moves := runner.GenerateMoves(2)
 		if len(moves) == 2 && moves[0].Equity() > moves[1].Equity()+10 {
-			puzzles = append(puzzles, &pb.PuzzleResponse{TurnNumber: int32(evtIdx),
-				Type:   pb.PuzzleType_BEST_EQUITY,
-				Answer: g.EventFromMove(moves[0])})
+			puzzles = append(puzzles, &pb.PuzzleResponse{GameId: g.Uid(),
+				TurnNumber: int32(evtIdx),
+				Answer:     g.EventFromMove(moves[0])})
 		}
 	}
 	return puzzles, nil
