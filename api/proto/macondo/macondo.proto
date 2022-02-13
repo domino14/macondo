@@ -177,14 +177,14 @@ message BotResponse {
 // Puzzles
 
 // XXX: Finalize this or think of something else
-enum PuzzleType {
-  BEST_EQUITY = 0;
+enum PuzzleTag {
+  EQUITY = 0;
   ONLY_BINGO = 1;
-  STRATEGY = 2;
 }
 
-message PuzzleResponse {
+message PuzzleCreationResponse {
   string game_id = 1;
   int32 turn_number = 2;
   GameEvent answer = 3;
+  repeated PuzzleTag tags = 4;
 }

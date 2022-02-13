@@ -71,4 +71,6 @@ func TestBestEquity(t *testing.T) {
 	// tiles played:
 	is.Equal(puzzles[0].Answer.PlayedTiles, "KOFTGAR.")
 	is.Equal(puzzles[0].Answer.Position, "H1")
+	is.Equal(len(puzzles[0].Tags), 1)
+	is.Equal(puzzles[0].Tags[0], pb.PuzzleTag_EQUITY)
 }
