@@ -2,7 +2,7 @@ cgp stands for Crossword Game Position, and it is a file format to use when a po
 
 It is intended to use ASCII characters only, but it is not meant to be human-readable.
 
-### Description
+## Description
 Influenced by the FEN and EPD formats in Chess, a CGP record consists of several fields, separated by spaces, all on one line. It is meant to be concise and easily shareable for import into analysis programs.
 
 The fields are as follows:
@@ -70,13 +70,13 @@ e.g.
 
 5. One or more "opcodes" with optional arguments; each opcode would be separated by | characters and optional spaces. 
 
-### Opcodes
+## Opcodes
 
-**bb** (bingo bonus)
+### bb (bingo bonus)
 
 The number of bonus points a bingo is worth. Default to 50.
 
-**bdn** (board name)
+### bdn (board name)
 
 The bdn opcode should be followed by the name of the board. For example:
 
@@ -84,11 +84,11 @@ The bdn opcode should be followed by the name of the board. For example:
 
 If not specified, the implementer decides what its default board is. *The format attaches no special meaning to the board names that are provided in this opcode*. A future opcode might describe the actual board configuration square by square.
 
-**etl** (exchange tile limit)
+### etl (exchange tile limit)
 
 The etl opcode should be followed by the minimum number of tiles that must be in the bag to allow an exchange. Defaults to 7.
 
-**ld** (letter distribution)
+### ld (letter distribution)
 
 The ld opcode should be followed by the name of the letter distribution. For example:
 
@@ -96,7 +96,7 @@ The ld opcode should be followed by the name of the letter distribution. For exa
 
 If not specified, the implementer decides what its default letter distribution is. The letter mapping (CGP rune representation) will need to match your letter distribution. It is recommended that the letter distribution also contain the number of points for each tile.
 
-**lm** (last move)
+### lm (last move)
 
 The lm opcode is followed by the move, in the following format:
 
@@ -112,7 +112,7 @@ If the move is a pass or a failed challenge, represent it as `pass`.
 
 Note: The lm opcode can be specified multiple times. It should contain the last plays in the reverse order that they were played, by all players.
 
-**mncz** (max number of consecutive zeroes)
+### mcnz (max number of consecutive zeroes)
 
 Maximum number of consecutive zeroes until the game ends, for the given rule set. This should default to 6 if not specified.
 
