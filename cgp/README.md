@@ -35,7 +35,7 @@ We can represent up to 42 different tiles. (The character 127 is a DEL and thus 
 So for example, a blank B would be 34 + 48 = 82 = the character R 
 (again, this is not meant to be human-parsable).
 
-Each row of the board can then be represented by any number of letter characters, and each row should be separated by the | character (ASCII 124).
+Each row of the board can then be represented by any number of letter characters, and each row should be separated by the `|` character (ASCII 124).
 
 In order to represent an unused space on the board, we use a form of run-length encoding. We use the ~ character (ASCII 126) to represent one or more spaces together as follows:
 
@@ -44,27 +44,31 @@ In order to represent an unused space on the board, we use a form of run-length 
 
 Thus an empty 15x15 board would look like:
 
-~~/|~~/|~~/|~~/|~~/|~~/|~~/|~~/|~~/|~~/|~~/|~~/|~~/|~~/|~~/
+`~~/|~~/|~~/|~~/|~~/|~~/|~~/|~~/|~~/|~~/|~~/|~~/|~~/|~~/|~~/`
 
 A row with a Z in the middle of it (the 8th position) would look like:
 
-~~':~~'
+`~~':~~'`
 
 2. Racks for all involved players, in the order that they will next play. Each rack is represented in CGP rune representation (see part 1), and racks are separated by a | symbol. A blank is represented by a ~ (since it is not assigned at this time).
 
 e.g.
 
-!"|!!~  means the player to play next has a rack of AB and the other player has a rack of AA? (? being the blank).
+`!"|!!~`  means the player to play next has a rack of AB and the other player has a rack of AA? (? being the blank).
 
-3. Scores for both players, represented as regular numbers, separated by a | symbol. The order should be in the order of the racks.
+3. Scores for both players, represented as regular numbers, separated by a `|` symbol. The order should be in the order of the racks.
 
 e.g.
 
-357|289
+`357|289`
 
 4. Number of consecutive zero turns immediately prior to the position being shown. This should be a single number. We use this because in some implementations of crossword games, the game is over after six consecutive zero turns, for example.
 
-5. One or more "opcodes", separated by | characters and optional spaces. 
+e.g.
+
+`5`
+
+5. One or more "opcodes" with optional arguments; each opcode would be separated by | characters and optional spaces. 
 
 ### Opcodes
 
