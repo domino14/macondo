@@ -86,6 +86,8 @@ The cr opcode should be followed by the name of the challenge rule. These are:
 
 single double triple void 5pt 10pt
 
+The implementer decides what the default challenge rule is.
+
 ### etl (exchange tile limit)
 
 The etl opcode should be followed by the minimum number of tiles that must be in the bag to allow an exchange. Defaults to 7.
@@ -108,7 +110,7 @@ The lex opcode should be followed by the name of the lexicon. For example:
 
 The lm opcode is followed by the move, in the following format:
 
-n8 tiles
+`n8 tiles`
 
 where n8 is the coordinate - rows are numbered 1 to 15 and columns are lettered from A to O for a 15x15 board. Horizontal plays start with the numbered row, vertical plays start with the lettered column. For boards that are bigger than 26 columns, use "excel" row notation, i.e. Z, AA, AB, ..., AAA, AAB, ...
 
