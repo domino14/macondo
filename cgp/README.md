@@ -3,6 +3,7 @@ cgp stands for Crossword Game Position, and it is a file format to use when a po
 It is intended to only support the UTF-8 encoding.
 
 ## Description
+
 Influenced by the FEN and EPD formats in Chess, a CGP record consists of several fields, separated by spaces, all on one line. It is meant to be concise and easily shareable for import into analysis programs.
 
 The fields are as follows:
@@ -19,15 +20,21 @@ Then, an empty 15x15 board looks like this:
 
 `15/15/15/15/15/15/15/15/15/15/15/15/15/15/15`
 
-A row with a Z in the middle of it (the 8th position) would look like:
+A row with a D in the middle of it (the 8th position) would look like:
 
-`7Z7`
+`7D7`
 
 2. Racks for all involved players, in the order that they will next play. Each rack is represented by its letters, and racks are separated by a `/` symbol. A blank is represented by a `?`.
 
 e.g.
 
-`AB/AA?`  means the player to play next has a rack of AB and the other player has a rack of AA? (? being the blank).
+`AB/AA?` means the player to play next has a rack of AB and the other player has a rack of AA? (? being the blank).
+
+If one of the players' racks is only partially known, specify as many letters as are known. If no letters are known, leave that player's rack blank.
+
+e.g.
+
+`/ABCDEF` or `ABCDEF/`
 
 3. Scores for both players, represented as regular numbers, separated by a `/` symbol. The order should be in the order of the racks.
 
@@ -41,7 +48,7 @@ e.g.
 
 `5`
 
-5. One or more "opcodes" with optional arguments; each opcode would be separated by `;` characters and optional spaces. 
+5. One or more "opcodes" with optional arguments; each opcode would be separated by `;` characters and optional spaces.
 
 ## Opcodes
 
@@ -55,7 +62,7 @@ The bdn opcode should be followed by the name of the board. For example:
 
 `bdn CrosswordGame;`
 
-If not specified, the implementer decides what its default board is. *The format attaches no special meaning to the board names that are provided in this opcode*. A future opcode might describe the actual board configuration square by square.
+If not specified, the implementer decides what its default board is. _The format attaches no special meaning to the board names that are provided in this opcode_. A future opcode might describe the actual board configuration square by square.
 
 ### cr (challenge rule)
 
@@ -103,4 +110,14 @@ Note: The lm opcode can be specified multiple times. It should contain the last 
 
 Maximum number of consecutive zeroes until the game ends, for the given rule set. This should default to 6 if not specified.
 
+## Example CGPs
 
+1. From the 2018 US Nationals, game 30. Joel's opening rack was AENSTUU and he exchanged UU. Nigel's opening rack was AELNOQT. From his perspective:
+
+`15/15/15/15/15/15/15/15/15/15/15/15/15/15/15 AELNOQT/ 0/0 0 lex NWL18; lm exchange 2`
+
+Note: he exchanged QO instead of playing QAT!
+
+2. Endgame from Maven paper (score is unknown, but it doesn't matter)
+
+`5BERGS5/4PA3U5/2QAID3R5/3BEE3F2S2/1P1ET2VIATIC2/MA1TAW3c2H2/ES3IS2E2A2/AT1FOLIA4V2/LI1L1EX1E6/1N1O1D2N2Y3/1GNU2C1JETE3/2ER2OHO2N3/2O3GOY6/1INDOW1U7/4DORR7 IKLMTZ/AEINRU? 0/0 0 lex OSPD1;`
