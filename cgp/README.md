@@ -8,7 +8,7 @@ Influenced by the FEN and EPD formats in Chess, a CGP record consists of several
 
 The fields are as follows:
 
-1. Tile placement
+### 1. Tile placement
 
 Tiles on the board are represented as the uppercase UTF-8 codepoint that represents them. Blanks on the board can be represented by the corresponding lowercase UTF-8 codepoint.
 
@@ -24,31 +24,47 @@ A row with a D in the middle of it (the 8th position) would look like:
 
 `7D7`
 
-2. Racks for all involved players, in the order that they will next play. Each rack is represented by its letters, and racks are separated by a `/` symbol. A blank is represented by a `?`.
+Note: for tiles that consist of multiple codepoints, such as CH in Spanish, these must be specified as `[CH]` (or `[ch]` lowercase), for example.
+
+### 2. Racks for all involved players, in the order that they will next play.
+
+Each rack is represented by its tiles, and racks are separated by a `/` symbol. A blank is represented by a `?`.
 
 e.g.
 
 `AB/AA?` means the player to play next has a rack of AB and the other player has a rack of AA? (? being the blank).
 
-If one of the players' racks is only partially known, specify as many letters as are known. If no letters are known, leave that player's rack blank.
+If one of the players' racks is only partially known, specify as many tiles as are known. If no tiles are known, leave that player's rack blank.
 
 e.g.
 
 `/ABCDEF` or `ABCDEF/`
 
-3. Scores for both players, represented as regular numbers, separated by a `/` symbol. The order should be in the order of the racks.
+Note that this supports any number of players.
+
+### 3. Scores for both players
+
+These are represented as regular numbers, separated by a `/` symbol. The order should be in the order of the racks.
 
 e.g.
 
 `357/289`
 
-4. Number of consecutive zero turns immediately prior to the position being shown. This should be a single number. We use this because in some implementations of crossword games, the game is over after six consecutive zero turns, for example.
+Note that this supports any number of players. Racks and scores would both have n-1 slashes for n-player games, starting with the next-to-move player and ending with the player who last moved
+
+### 4. Number of consecutive zero-point turns
+
+This number is the number of consecutive zero-point turns immediately prior to the position being shown. This should be a single number. We use this because in some implementations of crossword games, the game is over after six consecutive zero turns, for example.
 
 e.g.
 
 `5`
 
-5. One or more "opcodes" with optional arguments; each opcode would be separated by `;` characters and optional spaces.
+### 5. Any number of optional operations
+
+An operation is composed of an opcode followed by zero or more operands and is concluded by a semicolon.
+
+Multiple operations are separated by a single space character. If there is at least one operation present in a line, it is separated from the last (fourth) data field by a single space character.
 
 ## Opcodes
 
@@ -92,17 +108,17 @@ The lex opcode should be followed by the name of the lexicon. For example:
 
 The lm opcode is followed by the move, in the following format:
 
-n8 runes
+n8 tiles
 
-where n8 is the coordinate - rows are numbered 1 to 15 and columns are lettered from A to O for a 15x15 board. Horizontal plays start with the numbered row, vertical plays start with the lettered column.
+where n8 is the coordinate - rows are numbered 1 to 15 and columns are lettered from A to O for a 15x15 board. Horizontal plays start with the numbered row, vertical plays start with the lettered column. For boards that are bigger than 26 columns, use "excel" row notation, i.e. Z, AA, AB, ..., AAA, AAB, ...
 
-Runes are just the letters on the rack. "Through" tiles, i.e., tiles already on the board, do not need to be specified and can be specified as a `.`.
+"Through" tiles, i.e., tiles already on the board, must be specified as a `.`.
 
-If the move is an exchange, represent as `exchange runes` if the runes are known, or replace the runes with a number of exchanged tiles.
+If the move is an exchange, represent as `exchange tiles` if the tiles are known, or replace the tiles with a number of exchanged tiles.
 
 If the move is a pass or a failed challenge, represent it as `pass`.
 
-If the move is a successful challenge, represent it as `challenge n8 runes pts` where runes are the played letters and pts is the number of pts the challenged play would have scored.
+If the move is a successful challenge, represent it as `challenge n8 tiles pts` where tiles are the played tiles and pts is the number of pts the challenged play would have scored.
 
 Note: The lm opcode can be specified multiple times. It should contain the last plays in the reverse order that they were played, by all players.
 
@@ -110,11 +126,37 @@ Note: The lm opcode can be specified multiple times. It should contain the last 
 
 Maximum number of consecutive zeroes until the game ends, for the given rule set. This should default to 6 if not specified.
 
+### ti (timer increment)
+
+The timer increment in milliseconds, if one exists.
+
+e.g.
+
+`ti 3000;` means that 3 seconds are added to player clocks after they move
+
+### tmr (timer)
+
+Timers can be specified with slashes between players. They must be specified as milliseconds remaining on each player's clock.
+
+e.g.
+
+`tmr 10000/-2500;`
+
+means the player to move has 10 seconds on their clock, and the other player has gone overtime by 2.5 seconds.
+
+### to (timer max overtime setting)
+
+The amount of overtime before the game ends, in milliseconds.
+
+e.g.
+
+`to 60000;` means the game is over after 1 minute of overtime (in typical play, the person who went over loses 10 points for every minute of overtime).
+
 ## Example CGPs
 
 1. From the 2018 US Nationals, game 30. Joel's opening rack was AENSTUU and he exchanged UU. Nigel's opening rack was AELNOQT. From his perspective:
 
-`15/15/15/15/15/15/15/15/15/15/15/15/15/15/15 AELNOQT/ 0/0 0 lex NWL18; lm exchange 2`
+`15/15/15/15/15/15/15/15/15/15/15/15/15/15/15 AELNOQT/ 0/0 0 lex NWL18; lm exchange 2;`
 
 Note: he exchanged QO instead of playing QAT!
 
