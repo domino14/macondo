@@ -24,7 +24,7 @@ func (sc *ShellController) endgameDebugModeSwitch(line string, sig chan os.Signa
 		}
 
 	case "help":
-		out, err := usage("endgamedebug", sc.execPath)
+		out, err := usage("endgamedebug")
 		if err != nil {
 			return err
 		} else {

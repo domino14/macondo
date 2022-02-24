@@ -50,7 +50,9 @@ e.g.
 
 `357/289`
 
-Note that this supports any number of players. Racks and scores would both have n-1 slashes for n-player games, starting with the next-to-move player and ending with the player who last moved
+Note that this supports any number of players. Racks and scores would both have n-1 slashes for n-player games, starting with the next-to-move player and ending with the player who last moved.
+
+These scores are before any time-penalty adjustments.
 
 ### 4. Number of consecutive zero-point turns
 
@@ -106,23 +108,33 @@ The lex opcode should be followed by the name of the lexicon. For example:
 
 `lex CSW21;`
 
+If not specified, the implementer decides what its default lexicon is. It is recommended that this always be specified, as lexica change relatively quickly.
+
 ### lm (last move)
 
 The lm opcode is followed by the move, in the following format:
 
 `n8 tiles`
 
-where n8 is the coordinate - rows are numbered 1 to 15 and columns are lettered from A to O for a 15x15 board. Horizontal plays start with the numbered row, vertical plays start with the lettered column. For boards that are bigger than 26 columns, use "excel" row notation, i.e. Z, AA, AB, ..., AAA, AAB, ...
+where n8 is the coordinate - rows are numbered 1 to 15 and columns are lettered from A to O for a 15x15 board. Horizontal plays start with the numbered row, vertical plays start with the lettered column. For boards that are bigger than 26 columns, use "Excel column notation", i.e. Z, AA, AB, ..., AAA, AAB, ...
 
 "Through" tiles, i.e., tiles already on the board, must be specified as a `.`.
 
-If the move is an exchange, represent as `exchange tiles` if the tiles are known, or replace the tiles with a number of exchanged tiles.
+If the move is an exchange, represent as `-tiles` if the tiles are known, or replace the tiles with a number of exchanged tiles.
 
-If the move is a pass or a failed challenge, represent it as `pass`.
+If the move is a pass or a failed challenge, represent it as `-`.
 
-If the move is a successful challenge, represent it as `challenge n8 tiles pts` where tiles are the played tiles and pts is the number of pts the challenged play would have scored.
+If the move is a successful challenge, represent it as `challenge n8 tiles` where tiles are the played tiles.
 
-Note: The lm opcode can be specified multiple times. It should contain the last plays in the reverse order that they were played, by all players.
+If the move was challenged unsuccessfully, for challenge rules where there is a challenge bonus, represent the play as:
+
+`n8 tiles +5` for example.
+
+If it is single challenge, then represent it as:
+
+`n8 tiles +0`
+
+Note: The lm opcode can only be specified once. If you want to specify multiple last moves, you should use a GCG file. This is more meant for immediate state and immediately highlighting the last play.
 
 ### mcnz (max number of consecutive zeroes)
 
@@ -158,7 +170,7 @@ e.g.
 
 1. From the 2018 US Nationals, game 30. Joel's opening rack was AENSTUU and he exchanged UU. Nigel's opening rack was AELNOQT. From his perspective:
 
-`15/15/15/15/15/15/15/15/15/15/15/15/15/15/15 AELNOQT/ 0/0 0 lex NWL18; lm exchange 2;`
+`15/15/15/15/15/15/15/15/15/15/15/15/15/15/15 AELNOQT/ 0/0 0 lex NWL18; lm -2;`
 
 Note: he exchanged QO instead of playing QAT!
 
