@@ -66,9 +66,21 @@ func (sc *ShellController) load(cmd *shellcmd) (*Response, error) {
 	if cmd.args == nil {
 		return nil, errors.New("need arguments for load")
 	}
-	err := sc.loadGCG(cmd.args)
-	if err != nil {
-		return nil, err
+	if cmd.args[0] == "cgp" {
+		if len(cmd.args) < 2 {
+			return nil, errors.New("need to provide a cgp string")
+		}
+		cgpStr := strings.Join(cmd.args[1:], " ")
+		err := sc.loadCGP(cgpStr)
+		if err != nil {
+			return nil, err
+		}
+
+	} else {
+		err := sc.loadGCG(cmd.args)
+		if err != nil {
+			return nil, err
+		}
 	}
 	sc.curTurnNum = 0
 	return msg(sc.game.ToDisplayText()), nil
@@ -243,10 +255,10 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 
 func (sc *ShellController) help(cmd *shellcmd) (*Response, error) {
 	if cmd.args == nil {
-		return usage("standard", sc.execPath)
+		return usage("standard")
 	} else {
 		helptopic := cmd.args[0]
-		return usageTopic(helptopic, sc.execPath)
+		return usageTopic(helptopic)
 	}
 }
 

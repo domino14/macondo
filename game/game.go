@@ -204,6 +204,69 @@ func NewFromHistory(history *pb.GameHistory, rules *GameRules, turnnum int) (*Ga
 	return game, nil
 }
 
+func NewFromSnapshot(history *pb.GameHistory, rules *GameRules, scores []int,
+	boardRows []string) (*Game, error) {
+
+	// This NewGame function copies the board from rules as well.
+	game, err := NewGame(rules, history.Players)
+	if err != nil {
+		return nil, err
+	}
+	game.history = history
+	if history.Uid == "" {
+		history.Uid = shortuuid.New()
+		history.IdAuth = IdentificationAuthority
+	}
+	if history.Description == "" {
+		history.Description = MacondoCreation
+	}
+
+	game.bag = game.letterDistribution.MakeBag()
+	for i := 0; i < game.NumPlayers(); i++ {
+		game.players[i].rack = alphabet.NewRack(game.alph)
+	}
+
+	playedLetters := []alphabet.MachineLetter{}
+	for i, row := range boardRows {
+		playedLetters = append(playedLetters,
+			game.board.SetRow(i, row, rules.LetterDistribution().Alphabet())...)
+	}
+
+	err = game.bag.RemoveTiles(playedLetters)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set racks and tiles
+	racks := []*alphabet.Rack{
+		alphabet.RackFromString(history.LastKnownRacks[0], game.Alphabet()),
+		alphabet.RackFromString(history.LastKnownRacks[1], game.Alphabet()),
+	}
+	// set racks for both players; this removes the relevant letters from the bag.
+	err = game.SetRacksForBoth(racks)
+	if err != nil {
+		return nil, err
+	}
+
+	// set scores
+	for i, s := range scores {
+		game.players[i].resetScore()
+		game.players[i].points = s
+	}
+	// onturn is 0 by default, which is always correct in this function, as
+	// the player to go next is listed first in the players/racks/scores.
+	game.playing = pb.PlayState_PLAYING
+	game.history.PlayState = game.playing
+
+	if game.bag.TilesRemaining() == 0 && (game.RackFor(0).NumTiles() == 0 || game.RackFor(1).NumTiles() == 0) {
+		game.playing = pb.PlayState_GAME_OVER
+		game.history.PlayState = game.playing
+		log.Info().Msg("this game is already over")
+	}
+
+	return game, nil
+}
+
 // SetNextFirst sets the player going first to the passed-in value. This
 // will take effect the next time StartGame is called.
 func (g *Game) SetNextFirst(first int) {
@@ -346,6 +409,10 @@ func (g *Game) endOfGameCalcs(onturn int, addToHistory bool) {
 
 func (g *Game) SetMaxScorelessTurns(m int) {
 	g.maxScorelessTurns = m
+}
+
+func (g *Game) SetScorelessTurns(n int) {
+	g.scorelessTurns = n
 }
 
 // Convert the slice of MachineWord to user-visible, using the game's lexicon.
@@ -938,6 +1005,10 @@ func (g *Game) Bag() *alphabet.Bag {
 // Board returns the current board state.
 func (g *Game) Board() *board.GameBoard {
 	return g.board
+}
+
+func (g *Game) SetBoard(b *board.GameBoard) {
+	g.board = b
 }
 
 func (g *Game) Turn() int {

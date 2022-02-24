@@ -22,6 +22,7 @@ import (
 	airunner "github.com/domino14/macondo/ai/runner"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/automatic"
+	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/endgame/alphabeta"
 	"github.com/domino14/macondo/game"
@@ -322,6 +323,33 @@ func (sc *ShellController) loadGCG(args []string) error {
 	// Set challenge rule to double by default. This can be overridden.
 	sc.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
 
+	return sc.initGameDataStructures()
+}
+
+func (sc *ShellController) loadCGP(cgpstr string) error {
+	g, err := cgp.ParseCGP(sc.config, cgpstr)
+	if err != nil {
+		return err
+	}
+	// XXX fix this
+	lexicon := g.History().Lexicon
+	if lexicon == "" {
+		lexicon = sc.config.DefaultLexicon
+		log.Info().Msgf("cgp file had no lexicon, so using default lexicon %v",
+			lexicon)
+	}
+	sc.game, err = airunner.NewAIGameRunnerFromGame(g, sc.config, pb.BotRequest_HASTY_BOT)
+	if err != nil {
+		return err
+	}
+	sc.game.SetBackupMode(game.InteractiveGameplayMode)
+	sc.game.SetStateStackLength(1)
+
+	// Set challenge rule to double by default. This can be overridden.
+	// XXX: can read from cgp file.
+	sc.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
+
+	// XXX game not generating any plays
 	return sc.initGameDataStructures()
 }
 

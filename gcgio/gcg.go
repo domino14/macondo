@@ -680,7 +680,9 @@ func isPassBeforeEndRackPoints(h *pb.GameHistory, i int) bool {
 
 // GameHistoryToGCG returns a string GCG representation of the GameHistory.
 func GameHistoryToGCG(h *pb.GameHistory, addlHeaderInfo bool) (string, error) {
-
+	if h.StartingCgp != "" {
+		return "", errors.New("cannot turn a game history with a starting CGP into a GCG file")
+	}
 	var str strings.Builder
 	writeGCGHeader(&str, h, addlHeaderInfo)
 	writePlayers(&str, h.Players, h.SecondWentFirst)
