@@ -204,22 +204,16 @@ func NewFromHistory(history *pb.GameHistory, rules *GameRules, turnnum int) (*Ga
 	return game, nil
 }
 
-func NewFromSnapshot(history *pb.GameHistory, rules *GameRules, scores []int,
-	boardRows []string) (*Game, error) {
+func NewFromSnapshot(rules *GameRules, players []*pb.PlayerInfo, lastKnownRacks []string,
+	scores []int, boardRows []string) (*Game, error) {
 
 	// This NewGame function copies the board from rules as well.
-	game, err := NewGame(rules, history.Players)
+	game, err := NewGame(rules, players)
 	if err != nil {
 		return nil, err
 	}
-	game.history = history
-	if history.Uid == "" {
-		history.Uid = shortuuid.New()
-		history.IdAuth = IdentificationAuthority
-	}
-	if history.Description == "" {
-		history.Description = MacondoCreation
-	}
+
+	game.history = newHistory(game.players, false)
 
 	game.bag = game.letterDistribution.MakeBag()
 	for i := 0; i < game.NumPlayers(); i++ {
@@ -236,12 +230,17 @@ func NewFromSnapshot(history *pb.GameHistory, rules *GameRules, scores []int,
 	if err != nil {
 		return nil, err
 	}
-
+	game.history.LastKnownRacks = lastKnownRacks
 	// Set racks and tiles
 	racks := []*alphabet.Rack{
-		alphabet.RackFromString(history.LastKnownRacks[0], game.Alphabet()),
-		alphabet.RackFromString(history.LastKnownRacks[1], game.Alphabet()),
+		alphabet.RackFromString(game.history.LastKnownRacks[0], game.Alphabet()),
+		alphabet.RackFromString(game.history.LastKnownRacks[1], game.Alphabet()),
 	}
+	game.history.Lexicon = game.Lexicon().Name()
+	game.history.Variant = string(game.rules.Variant())
+	game.history.LetterDistribution = game.rules.LetterDistributionName()
+	game.history.BoardLayout = game.rules.BoardName()
+
 	// set racks for both players; this removes the relevant letters from the bag.
 	err = game.SetRacksForBoth(racks)
 	if err != nil {

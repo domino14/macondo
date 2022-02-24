@@ -331,7 +331,6 @@ func (sc *ShellController) loadCGP(cgpstr string) error {
 	if err != nil {
 		return err
 	}
-	// XXX fix this
 	lexicon := g.History().Lexicon
 	if lexicon == "" {
 		lexicon = sc.config.DefaultLexicon
@@ -349,7 +348,7 @@ func (sc *ShellController) loadCGP(cgpstr string) error {
 	// XXX: can read from cgp file.
 	sc.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
 
-	// XXX game not generating any plays
+	sc.game.RecalculateBoard()
 	return sc.initGameDataStructures()
 }
 

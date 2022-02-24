@@ -22,11 +22,6 @@ func init() {
 func ParseCGP(cfg *config.Config, cgpstr string) (*game.Game, error) {
 
 	var err error
-	hist := &pb.GameHistory{
-		Players:     []*pb.PlayerInfo{},
-		Version:     1,
-		StartingCgp: cgpstr,
-	}
 
 	fields := strings.SplitN(cgpstr, " ", 5)
 	if len(fields) < 4 {
@@ -97,7 +92,7 @@ func ParseCGP(cfg *config.Config, cgpstr string) (*game.Game, error) {
 
 		case "mcnz":
 			if len(opWithParams) != 2 {
-				return nil, errors.New("wrong number of arguments for lex operation")
+				return nil, errors.New("wrong number of arguments for mcnz operation")
 			}
 			s := opWithParams[1]
 			maxScorelessTurns, err = strconv.Atoi(s)
@@ -122,20 +117,22 @@ func ParseCGP(cfg *config.Config, cgpstr string) (*game.Game, error) {
 			return nil, err
 		}
 	}
+	players := []*pb.PlayerInfo{}
+	lastKnownRacks := []string{}
 	for i, rack := range playerRacks {
-		hist.Players = append(hist.Players, &pb.PlayerInfo{
+		players = append(players, &pb.PlayerInfo{
 			Nickname: fmt.Sprintf("player%d", i+1),
 		})
-		hist.LastKnownRacks = append(hist.LastKnownRacks, rack)
+		lastKnownRacks = append(lastKnownRacks, rack)
 	}
 
-	g, err := game.NewFromSnapshot(hist, rules, scores, fullRows)
+	g, err := game.NewFromSnapshot(rules, players, lastKnownRacks, scores, fullRows)
 	if err != nil {
 		return nil, err
 	}
 	g.SetMaxScorelessTurns(maxScorelessTurns)
 	g.SetScorelessTurns(nzero)
-
+	g.History().StartingCgp = cgpstr
 	return g, nil
 }
 
