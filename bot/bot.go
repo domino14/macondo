@@ -141,8 +141,13 @@ func (bot *Bot) evaluationResponse(req *pb.EvaluationRequest) *pb.BotResponse {
 	evals := []*pb.SingleEvaluation{}
 
 	for idx, evt := range evts {
-
-		if strings.EqualFold(players[evt.PlayerIndex].Nickname, req.User) && (evt.Type == pb.GameEvent_TILE_PLACEMENT_MOVE || evt.Type == pb.GameEvent_EXCHANGE) {
+		evtNickname := players[evt.PlayerIndex].Nickname
+		if evt.Nickname != "" {
+			// remove -- deprecated
+			evtNickname = evt.Nickname
+		}
+		userMatches := strings.EqualFold(evtNickname, req.User)
+		if userMatches && (evt.Type == pb.GameEvent_TILE_PLACEMENT_MOVE || evt.Type == pb.GameEvent_EXCHANGE) {
 			eval := evalSingleMove(bot.game, idx)
 			evals = append(evals, eval)
 		}
