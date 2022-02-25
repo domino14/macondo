@@ -20,14 +20,15 @@ func TestEventFromMove(t *testing.T) {
 
 	m := move.NewExchangeMove(tiles, leave, alph)
 	g := &Game{}
-	g.players = []*playerState{&playerState{
-		PlayerInfo: pb.PlayerInfo{
-			Nickname: "foo",
-			UserId:   "abcdef",
-			RealName: "Foo Bar",
+	g.players = []*playerState{
+		{
+			PlayerInfo: pb.PlayerInfo{
+				Nickname: "foo",
+				UserId:   "abcdef",
+				RealName: "Foo Bar",
+			},
 		},
-	},
-		&playerState{
+		{
 			PlayerInfo: pb.PlayerInfo{
 				Nickname: "botty",
 				UserId:   "botbar",
@@ -39,6 +40,7 @@ func TestEventFromMove(t *testing.T) {
 	evt := g.EventFromMove(m)
 
 	is.Equal(evt, &pb.GameEvent{
+		Nickname:    "botty",
 		Cumulative:  0,
 		Rack:        "?EGKMNO",
 		Exchanged:   "?EGKMNO",

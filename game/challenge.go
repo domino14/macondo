@@ -45,6 +45,8 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 	challengee := otherPlayer(g.onturn)
 
 	offBoardEvent := &pb.GameEvent{
+		// XXX: Deprecate nickname after deploy.
+		Nickname:    lastEvent.Nickname,
 		PlayerIndex: lastEvent.PlayerIndex,
 		Type:        pb.GameEvent_PHONY_TILES_RETURNED,
 		LostScore:   lastEvent.Score,
@@ -131,6 +133,8 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 
 		bonusScoreEvent := func(bonus int32) *pb.GameEvent {
 			return &pb.GameEvent{
+				// XXX: Deprecate nickname after deploy.
+				Nickname:    lastEvent.Nickname,
 				PlayerIndex: lastEvent.PlayerIndex,
 				Type:        pb.GameEvent_CHALLENGE_BONUS,
 				Rack:        g.players[challengee].rackLetters,
