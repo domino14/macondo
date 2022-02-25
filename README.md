@@ -15,4 +15,4 @@ To generate pb files, run this in the macondo directory:
 
 Make sure you have done
 
-`go install google.golang.org/protobuf/cmd/protoc-gen-go`
+`go install google.golang.org/protobuf/cmd/protoc-gen-go@latest`
