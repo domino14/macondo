@@ -17,6 +17,9 @@ type Config struct {
 	DefaultLexicon            string
 	DefaultLetterDistribution string
 	NatsURL                   string
+
+	CPUProfile string
+	MemProfile string
 }
 
 // Default config from environment variables. Since the config struct is
@@ -43,6 +46,8 @@ func (c *Config) Load(args []string) error {
 	fs.StringVar(&c.DefaultLexicon, "default-lexicon", "NWL18", "the default lexicon to use")
 	fs.StringVar(&c.DefaultLetterDistribution, "default-letter-distribution", "English", "the default letter distribution to use. English, EnglishSuper, Spanish, Polish, etc.")
 	fs.StringVar(&c.NatsURL, "nats-url", "nats://127.0.0.1:4222", "The URL of the NATS server")
+	fs.StringVar(&c.CPUProfile, "cpu-profile", "", "file to save cpu profile in")
+	fs.StringVar(&c.MemProfile, "mem-profile", "", "file to save mem profile in")
 	err := fs.Parse(args)
 	return err
 }
