@@ -13,12 +13,14 @@ import (
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/move"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 )
 
 var DefaultConfig = config.DefaultConfig()
 
 func TestMain(m *testing.M) {
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	for _, lex := range []string{"America"} {
 		gdgPath := filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag")
 		if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
@@ -603,7 +605,7 @@ func BenchmarkGenFullRack(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		// 930 μs per operation on my macbook pro!! amazing!!!
-
+		//  580459 ns/op	  218460 B/op	    5302 allocs/op  M1 MacbookPro (2021-02-24)
 		bd := board.MakeBoard(board.CrosswordGameBoard)
 		ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 		if err != nil {
