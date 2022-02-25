@@ -7,9 +7,9 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/golang/protobuf/proto"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
+	"google.golang.org/protobuf/proto"
 
 	airunner "github.com/domino14/macondo/ai/runner"
 	"github.com/domino14/macondo/config"
@@ -137,13 +137,17 @@ func evalSingleMove(g *airunner.AIGameRunner, evtIdx int) *pb.SingleEvaluation {
 func (bot *Bot) evaluationResponse(req *pb.EvaluationRequest) *pb.BotResponse {
 
 	evts := bot.game.History().Events
-
+	players := bot.game.History().Players
 	evals := []*pb.SingleEvaluation{}
 
 	for idx, evt := range evts {
-
-		if strings.ToLower(evt.Nickname) == strings.ToLower(req.User) && (evt.Type == pb.GameEvent_TILE_PLACEMENT_MOVE ||
-			evt.Type == pb.GameEvent_EXCHANGE) {
+		evtNickname := players[evt.PlayerIndex].Nickname
+		if evt.Nickname != "" {
+			// remove -- deprecated
+			evtNickname = evt.Nickname
+		}
+		userMatches := strings.EqualFold(evtNickname, req.User)
+		if userMatches && (evt.Type == pb.GameEvent_TILE_PLACEMENT_MOVE || evt.Type == pb.GameEvent_EXCHANGE) {
 			eval := evalSingleMove(bot.game, idx)
 			evals = append(evals, eval)
 		}

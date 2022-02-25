@@ -14,14 +14,14 @@ import (
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/lexicon"
 	"github.com/domino14/macondo/move"
-	"github.com/lithammer/shortuuid"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 	"lukechampine.com/frand"
 )
 
 const (
 	//IdentificationAuthority is the authority that gives out game IDs
-	IdentificationAuthority = "io.woogles"
+	IdentificationAuthority = "org.macondo"
 
 	MacondoCreation = "Created with Macondo"
 
@@ -132,7 +132,7 @@ func newHistory(players playerStates, flipfirst bool) *pb.GameHistory {
 	}
 	his.Players = playerInfo
 	his.IdAuth = IdentificationAuthority
-	his.Uid = shortuuid.New()[2:10] // It is up to the caller to check for duplication.
+	his.Uid = uuid.New().String()
 	his.Description = MacondoCreation
 	his.Events = []*pb.GameEvent{}
 	his.SecondWentFirst = flipfirst
@@ -181,7 +181,7 @@ func NewFromHistory(history *pb.GameHistory, rules *GameRules, turnnum int) (*Ga
 	}
 	game.history = history
 	if history.Uid == "" {
-		history.Uid = shortuuid.New()
+		history.Uid = uuid.New().String()
 		history.IdAuth = IdentificationAuthority
 	}
 	if history.Description == "" {
@@ -787,17 +787,21 @@ func (g *Game) playTurn(t int) error {
 	// recorded turn on the board.
 	evt := g.history.Events[t]
 	log.Trace().Int("event-type", int(evt.Type)).Int("turn", t).Msg("playTurn")
-	// onturn should be based on the event nickname
-	found := false
-	for idx, p := range g.players {
-		if p.Nickname == evt.Nickname {
-			g.onturn = idx
-			found = true
-			break
+	g.onturn = int(evt.PlayerIndex)
+
+	if evt.Nickname != "" {
+		log.Warn().Msg("evt.Nickname is deprecated; do not use")
+		found := false
+		for idx, p := range g.players {
+			if p.Nickname == evt.Nickname {
+				g.onturn = idx
+				found = true
+				break
+			}
 		}
-	}
-	if !found {
-		return fmt.Errorf("player not found: %v", evt.Nickname)
+		if !found {
+			return fmt.Errorf("player not found: %v", evt.Nickname)
+		}
 	}
 
 	m, err := MoveFromEvent(evt, g.alph, g.board)
