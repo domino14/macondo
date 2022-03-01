@@ -49,7 +49,6 @@ type Game struct {
 
 	playing pb.PlayState
 
-	wentfirst         int
 	scorelessTurns    int
 	maxScorelessTurns int
 	onturn            int
@@ -121,7 +120,7 @@ func CalculateCoordsFromStringPosition(evt *pb.GameEvent) {
 	evt.Column = int32(col)
 }
 
-func newHistory(players playerStates, flipfirst bool) *pb.GameHistory {
+func newHistory(players playerStates) *pb.GameHistory {
 	his := &pb.GameHistory{}
 
 	playerInfo := make([]*pb.PlayerInfo, len(players))
@@ -135,7 +134,6 @@ func newHistory(players playerStates, flipfirst bool) *pb.GameHistory {
 	his.Uid = uuid.New().String()
 	his.Description = MacondoCreation
 	his.Events = []*pb.GameEvent{}
-	his.SecondWentFirst = flipfirst
 	his.LastKnownRacks = []string{"", ""}
 	return his
 }
@@ -213,7 +211,7 @@ func NewFromSnapshot(rules *GameRules, players []*pb.PlayerInfo, lastKnownRacks 
 		return nil, err
 	}
 
-	game.history = newHistory(game.players, false)
+	game.history = newHistory(game.players)
 
 	game.bag = game.letterDistribution.MakeBag()
 	for i := 0; i < game.NumPlayers(); i++ {
@@ -284,7 +282,13 @@ func (g *Game) StartGame() {
 		goesfirst = g.nextFirst
 		log.Debug().Msgf("forcing first to %v", g.nextFirst)
 	}
-	g.history = newHistory(g.players, goesfirst == 1)
+	if goesfirst == 1 {
+		// Flip the players in the history.
+		log.Debug().Msg("changing order of players in history")
+		g.players[0], g.players[1] = g.players[1], g.players[0]
+	}
+
+	g.history = newHistory(g.players)
 	// Deal out tiles
 	for i := 0; i < g.NumPlayers(); i++ {
 		tiles, err := g.bag.Draw(7)
@@ -306,8 +310,7 @@ func (g *Game) StartGame() {
 	g.history.PlayState = g.playing
 	g.turnnum = 0
 	g.scorelessTurns = 0
-	g.onturn = goesfirst
-	g.wentfirst = goesfirst
+	g.onturn = 0
 	g.lastWordsFormed = nil
 }
 
@@ -702,9 +705,6 @@ func (g *Game) PlayToTurn(turnnum int) error {
 	g.players.resetRacks()
 	g.turnnum = 0
 	g.onturn = 0
-	if g.history.SecondWentFirst {
-		g.onturn = 1
-	}
 	g.playing = pb.PlayState_PLAYING
 	g.history.PlayState = g.playing
 	var t int
@@ -1071,7 +1071,7 @@ func (g *Game) SetHistory(h *pb.GameHistory) {
 }
 
 func (g *Game) FirstPlayer() *pb.PlayerInfo {
-	return &g.players[g.wentfirst].PlayerInfo
+	return &g.players[0].PlayerInfo
 }
 
 func (g *Game) RecalculateBoard() {
