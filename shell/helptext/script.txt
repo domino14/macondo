@@ -1,0 +1,12 @@
+script [filepath] - Execute the Lua script in the file path.
+
+Macondo is scriptable; many of the shell commands can be run directly
+with Lua 5.1 scripts.
+
+The following commands are currently supported by Lua:
+
+    - gen
+    - load
+
+To invoke the command with Lua, prefix it with the macondo_ namespace.
+For example, macondo_gen and macondo_load.
