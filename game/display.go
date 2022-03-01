@@ -53,7 +53,7 @@ func (g *Game) ToDisplayText() string {
 
 	log.Debug().Int("onturn", g.onturn).Msg("todisplaytext")
 	for pi := 0; pi < 2; pi++ {
-		addText(bts, vpadding, hpadding,
+		addText(bts, vpadding+pi, hpadding,
 			g.players[pi].stateString(g.playing == pb.PlayState_PLAYING && g.onturn == pi))
 	}
 
