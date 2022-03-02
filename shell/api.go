@@ -42,6 +42,19 @@ func (sc *ShellController) set(cmd *shellcmd) (*Response, error) {
 	return msg("set " + opt + " to " + ret), nil
 }
 
+func (sc *ShellController) gid(cmd *shellcmd) (*Response, error) {
+	if sc.game == nil {
+		return nil, errors.New("no currently loaded game")
+	}
+	gid := sc.game.History().Uid
+	if gid != "" {
+		idauth := sc.game.History().IdAuth
+		fullID := strings.TrimSpace(idauth + " " + gid)
+		return msg(fullID), nil
+	}
+	return nil, errors.New("no ID set for this game")
+}
+
 func (sc *ShellController) newGame(cmd *shellcmd) (*Response, error) {
 	players := []*pb.PlayerInfo{
 		{Nickname: "arcadio", RealName: "José Arcadio Buendía"},
@@ -91,8 +104,8 @@ func (sc *ShellController) show(cmd *shellcmd) (*Response, error) {
 }
 
 func (sc *ShellController) list(cmd *shellcmd) (*Response, error) {
-	sc.displayMoveList()
-	return nil, nil
+	res := sc.genDisplayMoveList()
+	return msg(res), nil
 }
 
 func (sc *ShellController) next(cmd *shellcmd) (*Response, error) {
@@ -142,6 +155,10 @@ func (sc *ShellController) generate(cmd *shellcmd) (*Response, error) {
 	var numPlays int
 	var err error
 
+	if sc.game == nil {
+		return nil, errors.New("please load or create a game first")
+	}
+
 	if cmd.args == nil {
 		numPlays = 15
 	} else {
@@ -150,12 +167,8 @@ func (sc *ShellController) generate(cmd *shellcmd) (*Response, error) {
 			return nil, err
 		}
 	}
-	if sc.game == nil {
-		return nil, errors.New("please load or create a game first")
-	} else {
-		sc.genMovesAndDisplay(numPlays)
-	}
-	return nil, nil
+
+	return msg(sc.genMovesAndDescription(numPlays)), nil
 }
 
 func (sc *ShellController) autoplay(cmd *shellcmd) (*Response, error) {

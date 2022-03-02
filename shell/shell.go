@@ -373,7 +373,7 @@ func (sc *ShellController) setToTurn(turnnum int) error {
 }
 
 func moveTableHeader() string {
-	return "     Move                Leave  Score Equity\n"
+	return "     Move                Leave  Score Equity"
 }
 
 func MoveTableRow(idx int, m *move.Move, alph *alphabet.Alphabet) string {
@@ -388,20 +388,22 @@ func (sc *ShellController) printEndgameSequence(moves []*move.Move) {
 	}
 }
 
-func (sc *ShellController) genMovesAndDisplay(numPlays int) {
+func (sc *ShellController) genMovesAndDescription(numPlays int) string {
 	sc.genMoves(numPlays)
-	sc.displayMoveList()
+	return sc.genDisplayMoveList()
 }
 
 func (sc *ShellController) genMoves(numPlays int) {
 	sc.curPlayList = sc.game.GenerateMoves(numPlays)
 }
 
-func (sc *ShellController) displayMoveList() {
-	sc.showMessage(moveTableHeader())
+func (sc *ShellController) genDisplayMoveList() string {
+	var s strings.Builder
+	s.WriteString(moveTableHeader() + "\n")
 	for i, p := range sc.curPlayList {
-		sc.showMessage(MoveTableRow(i, p, sc.game.Alphabet()))
+		s.WriteString(MoveTableRow(i, p, sc.game.Alphabet()) + "\n")
 	}
+	return s.String()
 }
 
 func endgameArgs(args []string) (plies int, deepening, simple, disablePruning bool, err error) {
@@ -485,7 +487,7 @@ func (sc *ShellController) addMoveToList(playerid int, m *move.Move) error {
 	sort.Slice(sc.curPlayList, func(i, j int) bool {
 		return sc.curPlayList[j].Equity() < sc.curPlayList[i].Equity()
 	})
-	sc.displayMoveList()
+	sc.showMessage(sc.genDisplayMoveList())
 	return nil
 }
 
@@ -772,6 +774,10 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.export(cmd)
 	case "autoanalyze":
 		return sc.autoAnalyze(cmd)
+	case "script":
+		return sc.script(cmd)
+	case "gid":
+		return sc.gid(cmd)
 	default:
 		msg := fmt.Sprintf("command %v not found", strconv.Quote(cmd.cmd))
 		log.Info().Msg(msg)
