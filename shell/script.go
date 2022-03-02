@@ -30,7 +30,8 @@ func Load(L *lua.LState) int {
 	})
 	if err != nil {
 		log.Err(err).Msg("error-executing-load")
-		return 0
+		L.Push(lua.LString("ERROR: " + err.Error()))
+		return 1
 	}
 	L.Push(lua.LString(r.message))
 	// return number of results pushed to stack.
@@ -46,6 +47,19 @@ func Gen(L *lua.LState) int {
 	})
 	if err != nil {
 		log.Err(err).Msg("error-executing-gen")
+		return 0
+	}
+	L.Push(lua.LString(r.message))
+	return 1
+}
+
+func Gid(L *lua.LState) int {
+	sc := getShell(L)
+	r, err := sc.gid(&shellcmd{
+		cmd: "gid",
+	})
+	if err != nil {
+		log.Err(err).Msg("error-executing-gid")
 		return 0
 	}
 	L.Push(lua.LString(r.message))
@@ -68,6 +82,7 @@ func (sc *ShellController) script(cmd *shellcmd) (*Response, error) {
 	L.SetGlobal("macondo_shell", lsc)
 	L.SetGlobal("macondo_gen", L.NewFunction(Gen))
 	L.SetGlobal("macondo_load", L.NewFunction(Load))
+	L.SetGlobal("macondo_gid", L.NewFunction(Gid))
 
 	if err := L.DoFile(filepath); err != nil {
 		log.Err(err).Msg("there was a error")

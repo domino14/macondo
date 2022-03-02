@@ -776,6 +776,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.autoAnalyze(cmd)
 	case "script":
 		return sc.script(cmd)
+	case "gid":
+		return sc.gid(cmd)
 	default:
 		msg := fmt.Sprintf("command %v not found", strconv.Quote(cmd.cmd))
 		log.Info().Msg(msg)
