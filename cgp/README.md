@@ -94,6 +94,10 @@ The implementer decides what the default challenge rule is.
 
 The etl opcode should be followed by the minimum number of tiles that must be in the bag to allow an exchange. Defaults to 7.
 
+### gid (game id)
+
+The gid opcode should be followed by a game id. The game id must not contain any spaces.
+
 ### ld (letter distribution)
 
 The ld opcode should be followed by the name of the letter distribution. For example:

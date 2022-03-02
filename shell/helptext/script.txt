@@ -10,3 +10,10 @@ The following commands are currently supported by Lua:
 
 To invoke the command with Lua, prefix it with the macondo_ namespace.
 For example, macondo_gen and macondo_load.
+
+The commands take in a single string with all of its arguments. For example,
+you can call load as such:
+
+    macondo_load('xt 19009')         -- load the cross-tables game 19009
+
+See the scripts directory in the main Macondo repo for some sample Lua scripts.
