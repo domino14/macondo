@@ -694,14 +694,9 @@ func writePlayer(s *strings.Builder, pn int, p *pb.PlayerInfo) {
 	fmt.Fprintf(s, "#player%d %v %v\n", pn, p.Nickname, realname)
 }
 
-func writePlayers(s *strings.Builder, players []*pb.PlayerInfo, flip bool) {
-	if flip {
-		writePlayer(s, 1, players[1])
-		writePlayer(s, 2, players[0])
-	} else {
-		writePlayer(s, 1, players[0])
-		writePlayer(s, 2, players[1])
-	}
+func writePlayers(s *strings.Builder, players []*pb.PlayerInfo) {
+	writePlayer(s, 1, players[0])
+	writePlayer(s, 2, players[1])
 }
 
 func isPassBeforeEndRackPoints(h *pb.GameHistory, i int) bool {
@@ -718,7 +713,7 @@ func GameHistoryToGCG(h *pb.GameHistory, addlHeaderInfo bool) (string, error) {
 	}
 	var str strings.Builder
 	writeGCGHeader(&str, h, addlHeaderInfo)
-	writePlayers(&str, h.Players, h.SecondWentFirst)
+	writePlayers(&str, h.Players)
 
 	for i, evt := range h.Events {
 		if !isPassBeforeEndRackPoints(h, i) {
