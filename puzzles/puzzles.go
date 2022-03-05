@@ -16,7 +16,12 @@ var PuzzleFunctions = []func(moves []*move.Move) (bool, pb.PuzzleTag){
 func CreatePuzzlesFromGame(conf *config.Config, g *game.Game) ([]*pb.PuzzleCreationResponse, error) {
 	evts := g.History().Events
 	puzzles := []*pb.PuzzleCreationResponse{}
-	for evtIdx := range evts {
+	for evtIdx, evt := range evts {
+		if evt.Type != pb.GameEvent_TILE_PLACEMENT_MOVE &&
+			evt.Type != pb.GameEvent_EXCHANGE &&
+			evt.Type != pb.GameEvent_PASS {
+			continue
+		}
 		err := g.PlayToTurn(evtIdx)
 		if err != nil {
 			return nil, err

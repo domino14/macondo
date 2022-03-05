@@ -10,6 +10,7 @@ import (
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/game"
+	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
 	"github.com/matryer/is"
@@ -73,4 +74,25 @@ func TestBestEquity(t *testing.T) {
 	is.Equal(puzzles[0].Answer.Position, "H1")
 	is.Equal(len(puzzles[0].Tags), 1)
 	is.Equal(puzzles[0].Tags[0], pb.PuzzleTag_EQUITY)
+}
+
+func TestLostChallenge(t *testing.T) {
+	is := is.New(t)
+
+	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "./testdata/phony_tiles_returned.gcg")
+	is.NoErr(err)
+
+	// Set the correct challenge rule
+	gameHistory.ChallengeRule = pb.ChallengeRule_FIVE_POINT
+
+	rules, err := game.NewBasicGameRules(&DefaultConfig, "CSW19", board.CrosswordGameLayout, "english", game.CrossScoreAndSet, game.VarClassic)
+	is.NoErr(err)
+
+	game, err := game.NewFromHistory(gameHistory, rules, 0)
+	is.NoErr(err)
+
+	// This would fail if there was no check for the
+	// game event type in CreatePuzzlesFromGame
+	_, err = CreatePuzzlesFromGame(&DefaultConfig, game)
+	is.NoErr(err)
 }
