@@ -17,7 +17,10 @@ func CreatePuzzlesFromGame(conf *config.Config, g *game.Game) ([]*pb.PuzzleCreat
 	evts := g.History().Events
 	puzzles := []*pb.PuzzleCreationResponse{}
 	for evtIdx := range evts {
-		g.PlayToTurn(evtIdx)
+		err := g.PlayToTurn(evtIdx)
+		if err != nil {
+			return nil, err
+		}
 		runner, err := runner.NewAIGameRunnerFromGame(g, conf, pb.BotRequest_HASTY_BOT)
 		if err != nil {
 			return nil, err
