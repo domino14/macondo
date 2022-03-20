@@ -171,7 +171,6 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 			if err != nil {
 				return err
 			}
-			p.game.SetNextFirst(0)
 			p.game.StartGame()
 			p.game.SetBackupMode(game.InteractiveGameplayMode)
 			p.game.SetStateStackLength(1)

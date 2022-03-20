@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/rs/zerolog/log"
+	"lukechampine.com/frand"
 
 	airunner "github.com/domino14/macondo/ai/runner"
 	"github.com/domino14/macondo/automatic"
@@ -59,6 +60,9 @@ func (sc *ShellController) newGame(cmd *shellcmd) (*Response, error) {
 	players := []*pb.PlayerInfo{
 		{Nickname: "arcadio", RealName: "José Arcadio Buendía"},
 		{Nickname: "úrsula", RealName: "Úrsula Iguarán Buendía"},
+	}
+	if frand.Intn(2) == 1 {
+		players[0], players[1] = players[1], players[0]
 	}
 
 	opts := sc.options.GameOptions
