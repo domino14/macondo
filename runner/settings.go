@@ -22,8 +22,6 @@ func (lex *Lexicon) ToDisplayString() string {
 type GameOptions struct {
 	Lexicon         *Lexicon
 	ChallengeRule   pb.ChallengeRule
-	FirstIsAssigned bool
-	GoesFirst       int
 	BoardLayoutName string
 }
 

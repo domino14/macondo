@@ -16,7 +16,6 @@ import (
 	"github.com/domino14/macondo/move"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
-	"lukechampine.com/frand"
 )
 
 const (
@@ -65,9 +64,6 @@ type Game struct {
 
 	stateStack []*stateBackup
 	stackPtr   int
-	// if nextFirst is -1, first is determined randomly. Otherwise, first is
-	// set to nextFirst.
-	nextFirst int
 	// rules contains the original game rules passed in to create this game.
 	rules *GameRules
 }
@@ -139,12 +135,13 @@ func newHistory(players playerStates) *pb.GameHistory {
 }
 
 // NewGame is how one instantiates a brand new game.
+// playerinfo must be in the order of who goes first.
+// It is the caller's responsibility to alternate firsts.
 func NewGame(rules *GameRules, playerinfo []*pb.PlayerInfo) (*Game, error) {
 	game := &Game{}
 	game.letterDistribution = rules.LetterDistribution()
 	game.alph = game.letterDistribution.Alphabet()
 	game.backupMode = NoBackup
-	game.nextFirst = -1
 	game.board = rules.Board().Copy()
 	game.crossSetGen = rules.CrossSetGen()
 	game.lexicon = rules.Lexicon()
@@ -264,30 +261,10 @@ func NewFromSnapshot(rules *GameRules, players []*pb.PlayerInfo, lastKnownRacks 
 	return game, nil
 }
 
-// SetNextFirst sets the player going first to the passed-in value. This
-// will take effect the next time StartGame is called.
-func (g *Game) SetNextFirst(first int) {
-	g.nextFirst = first
-}
-
 // StartGame starts a game anew, dealing out tiles to both players.
 func (g *Game) StartGame() {
 	g.Board().Clear()
 	g.bag = g.letterDistribution.MakeBag()
-	var goesfirst int
-	if g.nextFirst == -1 {
-		goesfirst = frand.Intn(2)
-		log.Debug().Msgf("randomly determined %v to go first", goesfirst)
-	} else {
-		goesfirst = g.nextFirst
-		log.Debug().Msgf("forcing first to %v", g.nextFirst)
-	}
-	if goesfirst == 1 {
-		// Flip the players in the history.
-		log.Debug().Msg("changing order of players in history")
-		g.players[0], g.players[1] = g.players[1], g.players[0]
-	}
-
 	g.history = newHistory(g.players)
 	// Deal out tiles
 	for i := 0; i < g.NumPlayers(); i++ {
