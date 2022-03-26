@@ -23,8 +23,6 @@ func (g *Game) EventFromMove(m *move.Move) *pb.GameEvent {
 	curPlayer := g.curPlayer()
 
 	evt := &pb.GameEvent{
-		// XXX: Remove after deploy
-		Nickname:    curPlayer.Nickname,
 		PlayerIndex: uint32(g.onturn),
 		Cumulative:  int32(curPlayer.points),
 		Rack:        m.FullRack(),
@@ -67,7 +65,6 @@ func (g *Game) endRackEvt(pidx int, bonusPts int) *pb.GameEvent {
 	otherPlayer := g.players[otherPlayer(pidx)]
 
 	evt := &pb.GameEvent{
-		Nickname:      curPlayer.Nickname,
 		PlayerIndex:   uint32(pidx),
 		Cumulative:    int32(curPlayer.points),
 		Rack:          otherPlayer.rack.String(),
@@ -81,7 +78,6 @@ func (g *Game) endRackPenaltyEvt(penalty int) *pb.GameEvent {
 	curPlayer := g.curPlayer()
 
 	evt := &pb.GameEvent{
-		Nickname:    curPlayer.Nickname,
 		PlayerIndex: uint32(g.onturn),
 		Cumulative:  int32(curPlayer.points),
 		Rack:        curPlayer.rack.String(),

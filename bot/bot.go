@@ -142,10 +142,6 @@ func (bot *Bot) evaluationResponse(req *pb.EvaluationRequest) *pb.BotResponse {
 
 	for idx, evt := range evts {
 		evtNickname := players[evt.PlayerIndex].Nickname
-		if evt.Nickname != "" {
-			// remove -- deprecated
-			evtNickname = evt.Nickname
-		}
 		userMatches := strings.EqualFold(evtNickname, req.User)
 		if userMatches && (evt.Type == pb.GameEvent_TILE_PLACEMENT_MOVE || evt.Type == pb.GameEvent_EXCHANGE) {
 			eval := evalSingleMove(bot.game, idx)
