@@ -605,7 +605,10 @@ func BenchmarkGenFullRack(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		// 930 μs per operation on my macbook pro!! amazing!!!
-		//  580459 ns/op	  218460 B/op	    5302 allocs/op  M1 MacbookPro (2021-02-24)
+		// Benchmark run 2022-03-16 on M1 MBP (Docker not running):
+		// go 1.18
+
+		// 2098	    514978 ns/op	  216899 B/op	    5302 allocs/op
 		bd := board.MakeBoard(board.CrosswordGameBoard)
 		ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 		if err != nil {

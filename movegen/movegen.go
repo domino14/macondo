@@ -59,6 +59,10 @@ type GordonGenerator struct {
 	board  *board.GameBoard
 	// Used for scoring:
 	letterDistribution *alphabet.LetterDistribution
+
+	// Used for play-finding without allocation
+	horStrips [][]alphabet.MachineLetter
+	verStrips [][]alphabet.MachineLetter
 }
 
 // NewGordonGenerator returns a Gordon move generator.
@@ -71,6 +75,12 @@ func NewGordonGenerator(gd *gaddag.SimpleGaddag, board *board.GameBoard,
 		numPossibleLetters: int(gd.GetAlphabet().NumLetters()),
 		sortingParameter:   SortByScore,
 		letterDistribution: ld,
+		horStrips:          make([][]alphabet.MachineLetter, board.Dim()),
+		verStrips:          make([][]alphabet.MachineLetter, board.Dim()),
+	}
+	for i := 0; i < board.Dim(); i++ {
+		gen.horStrips[i] = make([]alphabet.MachineLetter, board.Dim())
+		gen.verStrips[i] = make([]alphabet.MachineLetter, board.Dim())
 	}
 	return gen
 }
