@@ -26,6 +26,11 @@ func CreatePuzzlesFromGame(conf *config.Config, g *game.Game) ([]*pb.PuzzleCreat
 		if err != nil {
 			return nil, err
 		}
+		// Don't create endgame puzzles for now
+		if g.Bag().TilesRemaining() < 7 {
+			continue
+		}
+
 		runner, err := runner.NewAIGameRunnerFromGame(g, conf, pb.BotRequest_HASTY_BOT)
 		if err != nil {
 			return nil, err
