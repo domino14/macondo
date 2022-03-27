@@ -14,6 +14,7 @@ import (
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
 	"github.com/matryer/is"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 var DefaultConfig = config.DefaultConfig()
@@ -94,5 +95,23 @@ func TestLostChallenge(t *testing.T) {
 	// This would fail if there was no check for the
 	// game event type in CreatePuzzlesFromGame
 	_, err = CreatePuzzlesFromGame(&DefaultConfig, game)
+	is.NoErr(err)
+}
+
+func TestPhonyTilesReturned(t *testing.T) {
+	is := is.New(t)
+	gh := &pb.GameHistory{}
+	bts, err := os.ReadFile("./testdata/phony_tiles_history.json")
+	is.NoErr(err)
+	err = protojson.Unmarshal(bts, gh)
+	is.NoErr(err)
+	rules, err := game.NewBasicGameRules(&DefaultConfig, "CSW21", board.CrosswordGameLayout, "english", game.CrossScoreAndSet, game.VarClassic)
+	is.NoErr(err)
+
+	game, err := game.NewFromHistory(gh, rules, 0)
+	is.NoErr(err)
+
+	pzls, err := CreatePuzzlesFromGame(&DefaultConfig, game)
+	is.Equal(len(pzls), 4)
 	is.NoErr(err)
 }
