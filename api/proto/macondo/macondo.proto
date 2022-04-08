@@ -176,7 +176,6 @@ message BotResponse {
 
 // Puzzles
 
-// XXX: Finalize this or think of something else
 enum PuzzleTag {
   EQUITY = 0;
   BINGO = 1;
@@ -193,4 +192,15 @@ message PuzzleCreationResponse {
   int32 turn_number = 2;
   GameEvent answer = 3;
   repeated PuzzleTag tags = 4;
+  int32 bucket_index = 5;
+}
+
+message PuzzleBucket {
+  int32 size = 1;
+  repeated PuzzleTag includes = 2;
+  repeated PuzzleTag excludes = 3;
+}
+
+message PuzzleGenerationRequest {
+  repeated PuzzleBucket buckets = 1;
 }

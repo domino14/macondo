@@ -19,6 +19,14 @@ import (
 )
 
 var DefaultConfig = config.DefaultConfig()
+var DefaultPuzzleGenerationReq = &pb.PuzzleGenerationRequest{
+	Buckets: []*pb.PuzzleBucket{
+		{
+			Includes: []pb.PuzzleTag{},
+			Excludes: []pb.PuzzleTag{},
+		},
+	},
+}
 
 func TestMain(m *testing.M) {
 	for _, lex := range []string{"CSW21"} {
@@ -127,7 +135,7 @@ func TestLostChallenge(t *testing.T) {
 
 	// This would fail if there was no check for the
 	// game event type in CreatePuzzlesFromGame
-	_, err = CreatePuzzlesFromGame(&DefaultConfig, game)
+	_, err = CreatePuzzlesFromGame(&DefaultConfig, game, DefaultPuzzleGenerationReq)
 	is.NoErr(err)
 }
 
@@ -144,7 +152,7 @@ func TestPhonyTilesReturned(t *testing.T) {
 	game, err := game.NewFromHistory(gh, rules, 0)
 	is.NoErr(err)
 
-	_, err = CreatePuzzlesFromGame(&DefaultConfig, game)
+	_, err = CreatePuzzlesFromGame(&DefaultConfig, game, DefaultPuzzleGenerationReq)
 	is.NoErr(err)
 }
 
@@ -167,7 +175,7 @@ func puzzlesMatch(is *is.I, gcgfile string, expectedPzl *pb.PuzzleCreationRespon
 		panic(err)
 	}
 
-	pzls, err := CreatePuzzlesFromGame(&DefaultConfig, game)
+	pzls, err := CreatePuzzlesFromGame(&DefaultConfig, game, DefaultPuzzleGenerationReq)
 	if err != nil {
 		panic(err)
 	}

@@ -1,6 +1,9 @@
 package puzzles
 
 import (
+	"errors"
+	"fmt"
+
 	"github.com/domino14/macondo/ai/runner"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/config"
@@ -23,9 +26,13 @@ var PuzzleFunctions = []func(g *game.Game, moves []*move.Move) (bool, pb.PuzzleT
 	CELOnlyPuzzle,
 }
 
-func CreatePuzzlesFromGame(conf *config.Config, g *game.Game) ([]*pb.PuzzleCreationResponse, error) {
+func CreatePuzzlesFromGame(conf *config.Config, g *game.Game, req *pb.PuzzleGenerationRequest) ([]*pb.PuzzleCreationResponse, error) {
 	evts := g.History().Events
 	puzzles := []*pb.PuzzleCreationResponse{}
+	err := validatePuzzleGenerationRequest(req)
+	if err != nil {
+		return nil, err
+	}
 	for evtIdx, evt := range evts {
 		if evt.Type != pb.GameEvent_TILE_PLACEMENT_MOVE &&
 			evt.Type != pb.GameEvent_EXCHANGE &&
@@ -55,12 +62,16 @@ func CreatePuzzlesFromGame(conf *config.Config, g *game.Game) ([]*pb.PuzzleCreat
 				tags = append(tags, tag)
 			}
 		}
-		if turnIsPuzzle {
-			puzzles = append(puzzles, &pb.PuzzleCreationResponse{
-				GameId:     g.Uid(),
-				TurnNumber: int32(evtIdx),
-				Answer:     g.EventFromMove(moves[0]),
-				Tags:       tags})
+		for idx, bucket := range req.Buckets {
+			if tagsFitInBucket(tags, bucket) {
+				puzzles = append(puzzles, &pb.PuzzleCreationResponse{
+					GameId:      g.Uid(),
+					TurnNumber:  int32(evtIdx),
+					Answer:      g.EventFromMove(moves[0]),
+					BucketIndex: int32(idx),
+					Tags:        tags})
+				break
+			}
 		}
 	}
 	return puzzles, nil
@@ -122,6 +133,91 @@ func CELOnlyPuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
 		return false, pb.PuzzleTag_CEL_ONLY
 	}
 	return isCEL, pb.PuzzleTag_CEL_ONLY
+}
+
+func tagsFitInBucket(tags []pb.PuzzleTag, bucket *pb.PuzzleBucket) bool {
+	tagMap := map[pb.PuzzleTag]bool{}
+	for _, tag := range tags {
+		tagMap[tag] = true
+	}
+
+	excludesMap := map[pb.PuzzleTag]bool{}
+	for _, tag := range bucket.Excludes {
+		excludesMap[tag] = true
+	}
+
+	for _, tag := range tags {
+		if excludesMap[tag] {
+			return false
+		}
+	}
+
+	for _, includeTag := range bucket.Includes {
+		if !tagMap[includeTag] {
+			return false
+		}
+	}
+	return true
+}
+
+func validatePuzzleGenerationRequest(req *pb.PuzzleGenerationRequest) error {
+	if req == nil {
+		return errors.New("puzzle generation request is nil")
+	}
+	if req.Buckets == nil {
+		return errors.New("buckets are nil in puzzle generation request")
+	}
+	bucketEncryptions := map[int]bool{}
+	for idx, bucket := range req.Buckets {
+		be, err := validatePuzzleBucket(bucket)
+		if err != nil {
+			return fmt.Errorf("error for bucket %d: %s", idx, err.Error())
+		}
+		if bucketEncryptions[be] {
+			return fmt.Errorf("bucket %d is not unique", idx)
+		}
+	}
+	return nil
+}
+
+func validatePuzzleBucket(pzlBucket *pb.PuzzleBucket) (int, error) {
+	// This function checks that tags appear at most once
+	// across the Includes and Excludes fields. The the bucket
+	// is valid, it returns the bucket hash.
+
+	// The puzzle bucket hash can be viewed as a base-3
+	// number where the digit in the int(tag) place is
+	// 2 if the tag must be included, 1 if the tag must
+	// be excluded, and 0 if the tag has no conditions.
+	res := 0
+	tagValidationMap := map[pb.PuzzleTag]bool{}
+	for _, tag := range pzlBucket.Includes {
+		if tagValidationMap[tag] {
+			return -1, fmt.Errorf("invalid puzzle bucket, tag %s appears more than once", tag.String())
+		}
+		tagValidationMap[tag] = true
+		res += intPow(3, int(tag)) * 2
+	}
+	for _, tag := range pzlBucket.Excludes {
+		if tagValidationMap[tag] {
+			return -1, fmt.Errorf("invalid puzzle bucket, tag %s appears more than once", tag.String())
+		}
+		tagValidationMap[tag] = true
+		res += intPow(3, int(tag)) * 1
+	}
+	return res, nil
+}
+
+// XXX: Should be moved to some common/utilities package
+func intPow(n, m int) int {
+	if m == 0 {
+		return 1
+	}
+	result := n
+	for i := 2; i <= m; i++ {
+		result *= n
+	}
+	return result
 }
 
 func moveLength(m *move.Move) int {
