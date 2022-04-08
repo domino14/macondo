@@ -174,8 +174,6 @@ func puzzlesMatch(is *is.I, gcgfile string, expectedPzl *pb.PuzzleCreationRespon
 
 	for _, pzl := range pzls {
 		if expectedPzl.TurnNumber == pzl.TurnNumber {
-			fmt.Printf("%v\n", pzl.Tags)
-			fmt.Printf("%v\n", pzl.Answer)
 			is.Equal(expectedPzl.Answer.Type, pzl.Answer.Type)
 			is.Equal(expectedPzl.Answer.Row, pzl.Answer.Row)
 			is.Equal(expectedPzl.Answer.Column, pzl.Answer.Column)
