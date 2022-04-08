@@ -179,7 +179,13 @@ message BotResponse {
 // XXX: Finalize this or think of something else
 enum PuzzleTag {
   EQUITY = 0;
-  ONLY_BINGO = 1;
+  BINGO = 1;
+  ONLY_BINGO = 2;
+  BLANK_BINGO = 3;
+  NON_BINGO = 4;
+  POWER_TILE = 5;
+  BINGO_NINE_OR_ABOVE = 6;
+  CEL_ONLY = 7;
 }
 
 message PuzzleCreationResponse {
