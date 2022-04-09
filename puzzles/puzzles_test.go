@@ -44,7 +44,6 @@ func TestMain(m *testing.M) {
 
 func TestPuzzles(t *testing.T) {
 	is := is.New(t)
-	zerolog.SetGlobalLevel(zerolog.Disabled)
 	equityPuzzle := &pb.PuzzleCreationResponse{TurnNumber: 1,
 		Answer: &pb.GameEvent{
 			Type:        pb.GameEvent_TILE_PLACEMENT_MOVE,
@@ -55,7 +54,7 @@ func TestPuzzles(t *testing.T) {
 		},
 		Tags: []pb.PuzzleTag{pb.PuzzleTag_BINGO, pb.PuzzleTag_EQUITY},
 	}
-	puzzlesMatch(is, "equity", equityPuzzle)
+	puzzlesMatch(is, "equity", DefaultPuzzleGenerationReq, equityPuzzle)
 
 	onlyBingoPuzzle := &pb.PuzzleCreationResponse{TurnNumber: 1,
 		Answer: &pb.GameEvent{
@@ -67,7 +66,7 @@ func TestPuzzles(t *testing.T) {
 		},
 		Tags: []pb.PuzzleTag{pb.PuzzleTag_BINGO, pb.PuzzleTag_EQUITY, pb.PuzzleTag_ONLY_BINGO, pb.PuzzleTag_POWER_TILE},
 	}
-	puzzlesMatch(is, "only_bingo", onlyBingoPuzzle)
+	puzzlesMatch(is, "only_bingo", DefaultPuzzleGenerationReq, onlyBingoPuzzle)
 
 	blankBingoPuzzle := &pb.PuzzleCreationResponse{TurnNumber: 11,
 		Answer: &pb.GameEvent{
@@ -79,7 +78,7 @@ func TestPuzzles(t *testing.T) {
 		},
 		Tags: []pb.PuzzleTag{pb.PuzzleTag_BINGO, pb.PuzzleTag_EQUITY, pb.PuzzleTag_BLANK_BINGO},
 	}
-	puzzlesMatch(is, "only_bingo", blankBingoPuzzle)
+	puzzlesMatch(is, "only_bingo", DefaultPuzzleGenerationReq, blankBingoPuzzle)
 
 	celOnlyPuzzle := &pb.PuzzleCreationResponse{TurnNumber: 5,
 		Answer: &pb.GameEvent{
@@ -91,7 +90,7 @@ func TestPuzzles(t *testing.T) {
 		},
 		Tags: []pb.PuzzleTag{pb.PuzzleTag_CEL_ONLY, pb.PuzzleTag_NON_BINGO},
 	}
-	puzzlesMatch(is, "cel_only", celOnlyPuzzle)
+	puzzlesMatch(is, "cel_only", DefaultPuzzleGenerationReq, celOnlyPuzzle)
 
 	bingoNinePuzzle := &pb.PuzzleCreationResponse{TurnNumber: 2,
 		Answer: &pb.GameEvent{
@@ -103,7 +102,7 @@ func TestPuzzles(t *testing.T) {
 		},
 		Tags: []pb.PuzzleTag{pb.PuzzleTag_BINGO_NINE_OR_ABOVE, pb.PuzzleTag_BINGO, pb.PuzzleTag_EQUITY, pb.PuzzleTag_ONLY_BINGO},
 	}
-	puzzlesMatch(is, "bingo_nine_or_above", bingoNinePuzzle)
+	puzzlesMatch(is, "bingo_nine_or_above", DefaultPuzzleGenerationReq, bingoNinePuzzle)
 
 	bingoFifteenPuzzle := &pb.PuzzleCreationResponse{TurnNumber: 4,
 		Answer: &pb.GameEvent{
@@ -115,7 +114,129 @@ func TestPuzzles(t *testing.T) {
 		},
 		Tags: []pb.PuzzleTag{pb.PuzzleTag_BINGO_NINE_OR_ABOVE, pb.PuzzleTag_BINGO, pb.PuzzleTag_EQUITY},
 	}
-	puzzlesMatch(is, "bingo_nine_or_above", bingoFifteenPuzzle)
+	puzzlesMatch(is, "bingo_nine_or_above", DefaultPuzzleGenerationReq, bingoFifteenPuzzle)
+}
+
+func TestPuzzleGeneration(t *testing.T) {
+	is := is.New(t)
+	zerolog.SetGlobalLevel(zerolog.Disabled)
+	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "./testdata/phony_tiles_returned.gcg")
+	is.NoErr(err)
+
+	// Set the correct challenge rule
+	gameHistory.ChallengeRule = pb.ChallengeRule_FIVE_POINT
+
+	rules, err := game.NewBasicGameRules(&DefaultConfig, "CSW21", board.CrosswordGameLayout, "english", game.CrossScoreAndSet, game.VarClassic)
+	is.NoErr(err)
+
+	game, err := game.NewFromHistory(gameHistory, rules, 0)
+	is.NoErr(err)
+
+	_, err = CreatePuzzlesFromGame(&DefaultConfig, game, nil)
+	is.True(err != nil)
+	is.Equal(err.Error(), "puzzle generation request is nil")
+
+	puzzleGenerationReq := &pb.PuzzleGenerationRequest{}
+
+	_, err = CreatePuzzlesFromGame(&DefaultConfig, game, puzzleGenerationReq)
+	is.True(err != nil)
+	is.Equal(err.Error(), "buckets are nil in puzzle generation request")
+
+	puzzleGenerationReq = &pb.PuzzleGenerationRequest{
+		Buckets: []*pb.PuzzleBucket{
+			{
+				Includes: []pb.PuzzleTag{pb.PuzzleTag_EQUITY, pb.PuzzleTag_ONLY_BINGO, pb.PuzzleTag_BINGO},
+				Excludes: []pb.PuzzleTag{pb.PuzzleTag_CEL_ONLY, pb.PuzzleTag_POWER_TILE},
+			},
+			{
+				Includes: []pb.PuzzleTag{pb.PuzzleTag_CEL_ONLY},
+				Excludes: []pb.PuzzleTag{pb.PuzzleTag_BINGO_NINE_OR_ABOVE},
+			},
+			{
+				Includes: []pb.PuzzleTag{pb.PuzzleTag_EQUITY, pb.PuzzleTag_BINGO, pb.PuzzleTag_ONLY_BINGO},
+				Excludes: []pb.PuzzleTag{pb.PuzzleTag_POWER_TILE, pb.PuzzleTag_CEL_ONLY},
+			},
+		},
+	}
+
+	_, err = CreatePuzzlesFromGame(&DefaultConfig, game, puzzleGenerationReq)
+	is.True(err != nil)
+	is.Equal(err.Error(), "bucket 2 is not unique")
+
+	puzzleGenerationReq = &pb.PuzzleGenerationRequest{
+		Buckets: []*pb.PuzzleBucket{
+			{
+				Includes: []pb.PuzzleTag{pb.PuzzleTag_EQUITY, pb.PuzzleTag_ONLY_BINGO, pb.PuzzleTag_BINGO, pb.PuzzleTag_CEL_ONLY},
+				Excludes: []pb.PuzzleTag{pb.PuzzleTag_CEL_ONLY, pb.PuzzleTag_POWER_TILE},
+			},
+		},
+	}
+
+	_, err = CreatePuzzlesFromGame(&DefaultConfig, game, puzzleGenerationReq)
+	is.True(err != nil)
+	is.Equal(err.Error(), "error for bucket 0: invalid puzzle bucket, tag CEL_ONLY appears more than once")
+
+	puzzleGenerationReq = &pb.PuzzleGenerationRequest{
+		Buckets: []*pb.PuzzleBucket{
+			{
+				Includes: []pb.PuzzleTag{pb.PuzzleTag_CEL_ONLY},
+				Excludes: []pb.PuzzleTag{pb.PuzzleTag_POWER_TILE},
+			},
+			{
+				Includes: []pb.PuzzleTag{pb.PuzzleTag_POWER_TILE},
+				Excludes: []pb.PuzzleTag{},
+			},
+			{
+				Includes: []pb.PuzzleTag{pb.PuzzleTag_EQUITY, pb.PuzzleTag_BINGO},
+				Excludes: []pb.PuzzleTag{pb.PuzzleTag_CEL_ONLY, pb.PuzzleTag_POWER_TILE},
+			},
+		},
+	}
+
+	equityPuzzle := &pb.PuzzleCreationResponse{TurnNumber: 1,
+		Answer: &pb.GameEvent{
+			Type:        pb.GameEvent_TILE_PLACEMENT_MOVE,
+			Row:         0,
+			Column:      7,
+			Direction:   pb.GameEvent_VERTICAL,
+			PlayedTiles: "KOFTGAR.",
+		},
+		Tags:        []pb.PuzzleTag{pb.PuzzleTag_BINGO, pb.PuzzleTag_EQUITY},
+		BucketIndex: 2,
+	}
+	puzzlesMatch(is, "equity", puzzleGenerationReq, equityPuzzle)
+
+	// Bucket order matters
+	// If a puzzle fits in more than one bucket, it will
+	// always go in the lower index bucket.
+	puzzleGenerationReq = &pb.PuzzleGenerationRequest{
+		Buckets: []*pb.PuzzleBucket{
+			{
+				Includes: []pb.PuzzleTag{pb.PuzzleTag_BINGO},
+			},
+			{
+				Includes: []pb.PuzzleTag{pb.PuzzleTag_EQUITY},
+			},
+		},
+	}
+	equityPuzzle.BucketIndex = 0
+	puzzlesMatch(is, "equity", puzzleGenerationReq, equityPuzzle)
+
+	puzzleGenerationReq = &pb.PuzzleGenerationRequest{
+		Buckets: []*pb.PuzzleBucket{
+			{
+				Excludes: []pb.PuzzleTag{pb.PuzzleTag_EQUITY},
+			},
+			{
+				Includes: []pb.PuzzleTag{pb.PuzzleTag_EQUITY},
+			},
+			{
+				Includes: []pb.PuzzleTag{pb.PuzzleTag_BINGO},
+			},
+		},
+	}
+	equityPuzzle.BucketIndex = 1
+	puzzlesMatch(is, "equity", puzzleGenerationReq, equityPuzzle)
 }
 
 func TestLostChallenge(t *testing.T) {
@@ -156,7 +277,7 @@ func TestPhonyTilesReturned(t *testing.T) {
 	is.NoErr(err)
 }
 
-func puzzlesMatch(is *is.I, gcgfile string, expectedPzl *pb.PuzzleCreationResponse) {
+func puzzlesMatch(is *is.I, gcgfile string, puzzleGenerationReq *pb.PuzzleGenerationRequest, expectedPzl *pb.PuzzleCreationResponse) {
 	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, fmt.Sprintf("./testdata/%s.gcg", gcgfile))
 	if err != nil {
 		panic(err)
@@ -175,7 +296,7 @@ func puzzlesMatch(is *is.I, gcgfile string, expectedPzl *pb.PuzzleCreationRespon
 		panic(err)
 	}
 
-	pzls, err := CreatePuzzlesFromGame(&DefaultConfig, game, DefaultPuzzleGenerationReq)
+	pzls, err := CreatePuzzlesFromGame(&DefaultConfig, game, puzzleGenerationReq)
 	if err != nil {
 		panic(err)
 	}
@@ -188,6 +309,7 @@ func puzzlesMatch(is *is.I, gcgfile string, expectedPzl *pb.PuzzleCreationRespon
 			is.Equal(expectedPzl.Answer.Direction, pzl.Answer.Direction)
 			is.Equal(expectedPzl.Answer.PlayedTiles, pzl.Answer.PlayedTiles)
 
+			is.Equal(expectedPzl.BucketIndex, pzl.BucketIndex)
 			is.Equal(len(pzl.Tags), len(expectedPzl.Tags))
 			sortTags(pzl.Tags)
 			sortTags(expectedPzl.Tags)

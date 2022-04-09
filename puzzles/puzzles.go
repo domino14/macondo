@@ -176,16 +176,17 @@ func validatePuzzleGenerationRequest(req *pb.PuzzleGenerationRequest) error {
 		if bucketEncryptions[be] {
 			return fmt.Errorf("bucket %d is not unique", idx)
 		}
+		bucketEncryptions[be] = true
 	}
 	return nil
 }
 
 func validatePuzzleBucket(pzlBucket *pb.PuzzleBucket) (int, error) {
 	// This function checks that tags appear at most once
-	// across the Includes and Excludes fields. The the bucket
-	// is valid, it returns the bucket hash.
+	// across the Includes and Excludes fields. If the bucket
+	// is valid, it returns the bucket encryption.
 
-	// The puzzle bucket hash can be viewed as a base-3
+	// The puzzle bucket encryption can be viewed as a base-3
 	// number where the digit in the int(tag) place is
 	// 2 if the tag must be included, 1 if the tag must
 	// be excluded, and 0 if the tag has no conditions.
