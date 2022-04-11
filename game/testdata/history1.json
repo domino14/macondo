@@ -1,6 +1,7 @@
 {
   "events": [
     {
+      "nickname": "cesar",
       "rack": "BEEHIQX",
       "cumulative": 26,
       "row": 7,
@@ -12,6 +13,7 @@
       "millis_remaining": 1195222
     },
     {
+      "nickname": "bnjy",
       "rack": "DEIMNOR",
       "cumulative": 75,
       "row": 6,
@@ -21,8 +23,7 @@
       "score": 75,
       "is_bingo": true,
       "words_formed": ["DORMINE", "DE", "OX"],
-      "millis_remaining": 1191610,
-      "player_index": 1
+      "millis_remaining": 1191610
     }
   ],
   "players": [

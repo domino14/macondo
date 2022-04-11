@@ -43,7 +43,7 @@ func (c *Config) Load(args []string) error {
 	fs.StringVar(&c.StrategyParamsPath, "strategy-params-path", "./data/strategy", "directory holding strategy files")
 	fs.StringVar(&c.LetterDistributionPath, "letter-distribution-path", "./data/letterdistributions", "directory holding letter distribution files")
 	fs.StringVar(&c.LexiconPath, "lexicon-path", "./data/lexica", "directory holding lexicon files")
-	fs.StringVar(&c.DefaultLexicon, "default-lexicon", "NWL20", "the default lexicon to use")
+	fs.StringVar(&c.DefaultLexicon, "default-lexicon", "NWL18", "the default lexicon to use")
 	fs.StringVar(&c.DefaultLetterDistribution, "default-letter-distribution", "English", "the default letter distribution to use. English, EnglishSuper, Spanish, Polish, etc.")
 	fs.StringVar(&c.NatsURL, "nats-url", "nats://127.0.0.1:4222", "The URL of the NATS server")
 	fs.StringVar(&c.CPUProfile, "cpu-profile", "", "file to save cpu profile in")

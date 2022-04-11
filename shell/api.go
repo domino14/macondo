@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/rs/zerolog/log"
-	"lukechampine.com/frand"
 
 	airunner "github.com/domino14/macondo/ai/runner"
 	"github.com/domino14/macondo/automatic"
@@ -43,26 +42,10 @@ func (sc *ShellController) set(cmd *shellcmd) (*Response, error) {
 	return msg("set " + opt + " to " + ret), nil
 }
 
-func (sc *ShellController) gid(cmd *shellcmd) (*Response, error) {
-	if sc.game == nil {
-		return nil, errors.New("no currently loaded game")
-	}
-	gid := sc.game.History().Uid
-	if gid != "" {
-		idauth := sc.game.History().IdAuth
-		fullID := strings.TrimSpace(idauth + " " + gid)
-		return msg(fullID), nil
-	}
-	return nil, errors.New("no ID set for this game")
-}
-
 func (sc *ShellController) newGame(cmd *shellcmd) (*Response, error) {
 	players := []*pb.PlayerInfo{
 		{Nickname: "arcadio", RealName: "José Arcadio Buendía"},
 		{Nickname: "úrsula", RealName: "Úrsula Iguarán Buendía"},
-	}
-	if frand.Intn(2) == 1 {
-		players[0], players[1] = players[1], players[0]
 	}
 
 	opts := sc.options.GameOptions
@@ -108,8 +91,8 @@ func (sc *ShellController) show(cmd *shellcmd) (*Response, error) {
 }
 
 func (sc *ShellController) list(cmd *shellcmd) (*Response, error) {
-	res := sc.genDisplayMoveList()
-	return msg(res), nil
+	sc.displayMoveList()
+	return nil, nil
 }
 
 func (sc *ShellController) next(cmd *shellcmd) (*Response, error) {
@@ -159,10 +142,6 @@ func (sc *ShellController) generate(cmd *shellcmd) (*Response, error) {
 	var numPlays int
 	var err error
 
-	if sc.game == nil {
-		return nil, errors.New("please load or create a game first")
-	}
-
 	if cmd.args == nil {
 		numPlays = 15
 	} else {
@@ -171,8 +150,12 @@ func (sc *ShellController) generate(cmd *shellcmd) (*Response, error) {
 			return nil, err
 		}
 	}
-
-	return msg(sc.genMovesAndDescription(numPlays)), nil
+	if sc.game == nil {
+		return nil, errors.New("please load or create a game first")
+	} else {
+		sc.genMovesAndDisplay(numPlays)
+	}
+	return nil, nil
 }
 
 func (sc *ShellController) autoplay(cmd *shellcmd) (*Response, error) {

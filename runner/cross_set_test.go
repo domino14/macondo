@@ -55,7 +55,9 @@ type testMove struct {
 
 func TestCompareGameMove(t *testing.T) {
 	opts := &GameOptions{
-		ChallengeRule: pb.ChallengeRule_SINGLE,
+		FirstIsAssigned: true,
+		GoesFirst:       0,
+		ChallengeRule:   pb.ChallengeRule_SINGLE,
 	}
 	players := []*pb.PlayerInfo{
 		{Nickname: "JD", RealName: "Jesse"},

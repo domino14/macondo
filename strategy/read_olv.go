@@ -3,7 +3,6 @@ package strategy
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
 	"io"
 
 	"github.com/domino14/macondo/alphabet"
@@ -39,13 +38,6 @@ type OldLeaves struct {
 }
 
 func (olv *OldLeaves) LeaveValue(leave alphabet.MachineWord) float64 {
-	defer func() {
-		if r := recover(); r != nil {
-			fmt.Printf("Recovered from panic; leave was %v\n", leave.UserVisible(alphabet.EnglishAlphabet()))
-			// Panic anyway; the recover was just to figure out which leave did it.
-			panic("panicking anyway")
-		}
-	}()
 	ll := len(leave)
 	for i := 1; i < ll; i++ {
 		for j := i; j > 0 && leave[j-1] > leave[j]; j-- {

@@ -7,7 +7,6 @@ option go_package = "github.com/domino14/macondo/gen/api/proto/macondo";
 // to be an instantiation of a GCG file.
 message GameHistory {
   repeated GameEvent events = 1;
-  // players are in order of who went first.
   repeated PlayerInfo players = 2;
   int32 version = 3;
   string original_gcg = 4;
@@ -21,7 +20,11 @@ message GameHistory {
   repeated string last_known_racks = 10;
   // Add letter distribution (basically game name), board config, and more
   // in the future.
-  bool second_went_first = 11 [ deprecated = true ];
+
+  // If second_went_first is set, the second player in `players` actually
+  // went first. not that this does NOT change the order of `last_known_racks`,
+  // which is always in the order of the listed players!
+  bool second_went_first = 11;
   ChallengeRule challenge_rule = 12;
   PlayState play_state = 13;
   // Final scores of the game; the order is in the order of the listed players!
@@ -81,7 +84,7 @@ message GameEvent {
     HORIZONTAL = 0;
     VERTICAL = 1;
   }
-  string nickname = 1 [ deprecated = true ];
+  string nickname = 1;
   string note = 2;
   string rack = 3;
   Type type = 4;
@@ -104,9 +107,6 @@ message GameEvent {
   // cross-words.
   repeated string words_formed = 17;
   int32 millis_remaining = 18;
-  // The player who played this move is encoded in player_index. This should
-  // be the index in GameHistory.players.
-  uint32 player_index = 19;
 }
 
 message PlayerInfo {

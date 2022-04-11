@@ -10,7 +10,6 @@ import (
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/rs/zerolog/log"
 )
 
 var nre *regexp.Regexp
@@ -66,10 +65,8 @@ func ParseCGP(cfg *config.Config, cgpstr string) (*game.Game, error) {
 	lexiconName := "NWL20"
 	maxScorelessTurns := game.DefaultMaxScorelessTurns
 	variant := game.VarClassic
-	gid := ""
 
 	for _, op := range ops {
-		op := strings.TrimSpace(op)
 		if len(op) == 0 {
 			continue
 		}
@@ -80,11 +77,7 @@ func ParseCGP(cfg *config.Config, cgpstr string) (*game.Game, error) {
 				return nil, errors.New("wrong number of arguments for bdn operation")
 			}
 			boardLayoutName = opWithParams[1]
-		case "gid":
-			if len(opWithParams) != 2 {
-				return nil, errors.New("wrong number of arguments for gid operation")
-			}
-			gid = opWithParams[1]
+
 		case "ld":
 			if len(opWithParams) != 2 {
 				return nil, errors.New("wrong number of arguments for ld operation")
@@ -140,10 +133,6 @@ func ParseCGP(cfg *config.Config, cgpstr string) (*game.Game, error) {
 	g.SetMaxScorelessTurns(maxScorelessTurns)
 	g.SetScorelessTurns(nzero)
 	g.History().StartingCgp = cgpstr
-	g.History().Uid = gid
-	g.History().IdAuth = "" //  maybe provide this later, id
-
-	log.Debug().Msgf("got gid %v", gid)
 	return g, nil
 }
 

@@ -48,6 +48,7 @@ func (g *GameBoard) setFromPlaintext(qText string,
 	g.Clear()
 	tilesInPlay := &TilesInPlay{}
 	// Take a Quackle Plaintext Board and turn it into an internal structure.
+	// (Another alternative later is to implement GCG)
 	playedTiles := []alphabet.MachineLetter(nil)
 	result := boardPlaintextRegex.FindAllStringSubmatch(qText, -1)
 	if len(result) != 15 {

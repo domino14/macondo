@@ -4,13 +4,12 @@
 
 Macondo will some day be a world-class Crossword Game AI.
 
-But for now, it is in **pre-alpha**, so download and use at your own risk. It does no machine learning and it doesn't have all of Quackle's parameters yet. The interface is minimal. In short, it should just be used for **research**. Please expect things to break!
+But for now, it is in **pre-alpha**, so download and use at your own risk. It does no machine learning and its values are not as good as Quackle's yet. The interface is minimal. In short, it should just be used for **research**. Please expect things to break!
 
 Quick tutorial video: [https://youtu.be/07Dpa-oTTFY](https://youtu.be/07Dpa-oTTFY)
 
 - [The Macondo team](/macondo/team.html)
 - [Change Log](/macondo/changelog.html)
-- [CGP File Format](https://github.com/domino14/macondo/tree/master/cgp#readme)
 - [Manual / Documentation](/macondo/manual)
 - [How it works](/macondo/howitworks.html)
 - [Why the name Macondo?](/macondo/name.html)
@@ -26,8 +25,7 @@ Quick tutorial video: [https://youtu.be/07Dpa-oTTFY](https://youtu.be/07Dpa-oTTF
 
 ## Features it has:
 
-- Simple static move evaluation engine, using exhaustive leave values. Values
-  are slightly better than Quackle's.
+- Simple static move evaluation engine, using exhaustive leave values. Our values are not as good as Quackle's yet.
 - Multi-core Monte Carlo simulation. Should be a bit faster than Quackle.
 - An exhaustive endgame solver using minimax + alpha-beta pruning + iterative deepening. It should be able to solve every complex endgame. However, depending on the complexity, it can be extremely slow (think many hours if not days). We will work on speeding this up.
 
@@ -58,8 +56,8 @@ Quick tutorial video: [https://youtu.be/07Dpa-oTTFY](https://youtu.be/07Dpa-oTTF
 
 ## How to use
 
-1. Open the executable. If you wish your default lexicon to be CSW21, you
-   must specify set the environment variable `DEFAULT_LEXICON` to `CSW21`. Otherwise, it defaults to NWL20.
+1. Open the executable. If you wish your default lexicon to be CSW19, you
+   must specify set the environment variable `DEFAULT_LEXICON` to `CSW19`. Otherwise, it defaults to NWL18.
 
 2. Type in `help` for commands
 

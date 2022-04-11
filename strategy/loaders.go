@@ -23,7 +23,7 @@ func stratFileForLexicon(strategyDir string, filename string, lexiconName string
 		if err != nil {
 			return nil, err
 		}
-		log.Debug().Str("strat-file", filename).Str("dir", defdir).Msgf(
+		log.Info().Str("strat-file", filename).Str("dir", defdir).Msgf(
 			"no lexicon-specific strategy")
 	}
 	return file, nil

@@ -6,6 +6,5 @@ Examples:
 
 You must have a game loaded into memory with the `load` command or similar.
 
-A turn is equivalent to an event. It is not necessarily what we think of when
-we think of a turn. For example, if a player makes a play, and it's then challenged
-off, each of those is an event, and they would have consecutive turn numbers.
+A turn can consist of one or more events. Some example multi-event turns are
+plays that are challenged off, or end-of-game tile bonuses.
