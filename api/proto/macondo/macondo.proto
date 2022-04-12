@@ -196,9 +196,10 @@ message PuzzleCreationResponse {
 }
 
 message PuzzleBucket {
-  int32 size = 1;
-  repeated PuzzleTag includes = 2;
-  repeated PuzzleTag excludes = 3;
+  int32 index = 1;
+  int32 size = 2;
+  repeated PuzzleTag includes = 3;
+  repeated PuzzleTag excludes = 4;
 }
 
 message PuzzleGenerationRequest {

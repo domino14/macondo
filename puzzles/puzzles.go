@@ -62,19 +62,30 @@ func CreatePuzzlesFromGame(conf *config.Config, g *game.Game, req *pb.PuzzleGene
 				tags = append(tags, tag)
 			}
 		}
-		for idx, bucket := range req.Buckets {
+		for _, bucket := range req.Buckets {
 			if tagsFitInBucket(tags, bucket) {
 				puzzles = append(puzzles, &pb.PuzzleCreationResponse{
 					GameId:      g.Uid(),
 					TurnNumber:  int32(evtIdx),
 					Answer:      g.EventFromMove(moves[0]),
-					BucketIndex: int32(idx),
+					BucketIndex: int32(bucket.Index),
 					Tags:        tags})
 				break
 			}
 		}
 	}
 	return puzzles, nil
+}
+
+func InitializePuzzleGenerationRequest(req *pb.PuzzleGenerationRequest) error {
+	err := validatePuzzleGenerationRequest(req)
+	if err != nil {
+		return err
+	}
+	for idx, b := range req.Buckets {
+		b.Index = int32(idx)
+	}
+	return nil
 }
 
 func EquityPuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
