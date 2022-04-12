@@ -45,8 +45,12 @@ func TestMain(m *testing.M) {
 }
 
 func TestPuzzles(t *testing.T) {
-	dpgr := createDefaultPuzzleGenerationRequest()
 	is := is.New(t)
+
+	dpgr := proto.Clone(DefaultPuzzleGenerationReq).(*pb.PuzzleGenerationRequest)
+	err := InitializePuzzleGenerationRequest(dpgr)
+	is.NoErr(err)
+
 	equityPuzzle := &pb.PuzzleCreationResponse{TurnNumber: 1,
 		Answer: &pb.GameEvent{
 			Type:        pb.GameEvent_TILE_PLACEMENT_MOVE,
@@ -268,9 +272,12 @@ func TestLostChallenge(t *testing.T) {
 	game, err := game.NewFromHistory(gameHistory, rules, 0)
 	is.NoErr(err)
 
+	dpgr := proto.Clone(DefaultPuzzleGenerationReq).(*pb.PuzzleGenerationRequest)
+	err = InitializePuzzleGenerationRequest(dpgr)
+	is.NoErr(err)
 	// This would fail if there was no check for the
 	// game event type in CreatePuzzlesFromGame
-	_, err = CreatePuzzlesFromGame(&DefaultConfig, game, createDefaultPuzzleGenerationRequest())
+	_, err = CreatePuzzlesFromGame(&DefaultConfig, game, dpgr)
 	is.NoErr(err)
 }
 
@@ -287,14 +294,12 @@ func TestPhonyTilesReturned(t *testing.T) {
 	game, err := game.NewFromHistory(gh, rules, 0)
 	is.NoErr(err)
 
-	_, err = CreatePuzzlesFromGame(&DefaultConfig, game, createDefaultPuzzleGenerationRequest())
+	dpgr := proto.Clone(DefaultPuzzleGenerationReq).(*pb.PuzzleGenerationRequest)
+	err = InitializePuzzleGenerationRequest(dpgr)
 	is.NoErr(err)
-}
 
-func createDefaultPuzzleGenerationRequest() *pb.PuzzleGenerationRequest {
-	pgrReq := proto.Clone(DefaultPuzzleGenerationReq).(*pb.PuzzleGenerationRequest)
-	InitializePuzzleGenerationRequest(pgrReq)
-	return pgrReq
+	_, err = CreatePuzzlesFromGame(&DefaultConfig, game, dpgr)
+	is.NoErr(err)
 }
 
 func puzzlesMatch(is *is.I, gcgfile string, puzzleGenerationReq *pb.PuzzleGenerationRequest, expectedPzl *pb.PuzzleCreationResponse) {
