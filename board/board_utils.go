@@ -15,25 +15,27 @@ type TilesInPlay struct {
 	Rack2   []alphabet.MachineLetter
 }
 
-var boardPlaintextRegex = regexp.MustCompile(`\|([[:print:]]+)\|`)
-var userRackRegex = regexp.MustCompile(`(?U)[[:print:]]+\s+([A-Z\?]*)\s+-?[0-9]+`)
+var boardPlaintextRegex = regexp.MustCompile(`\|(.+)\|`)
+var userRackRegex = regexp.MustCompile(`(?U).+\s+([A-Z\?]*)\s+-?[0-9]+`)
 
 func (g *GameBoard) ToDisplayText(alph *alphabet.Alphabet) string {
 	var str string
 	n := g.Dim()
 	row := "   "
 	for i := 0; i < n; i++ {
-		row = row + string('A'+i) + " "
+		row = row + fmt.Sprintf("%c", 'A'+i) + " "
 	}
 	str = str + row + "\n"
-	str = str + "   " + strings.Repeat("-", 30) + "\n"
+	str = str + "   " + strings.Repeat("-", n*2) + "\n"
 	for i := 0; i < n; i++ {
 		row := fmt.Sprintf("%2d|", i+1)
 		for j := 0; j < n; j++ {
 			row = row + g.squares[i][j].DisplayString(alph) + " "
 		}
+		row = row + "|"
 		str = str + row + "\n"
 	}
+	str = str + "   " + strings.Repeat("-", n*2) + "\n"
 	return "\n" + str
 }
 
@@ -46,7 +48,6 @@ func (g *GameBoard) setFromPlaintext(qText string,
 	g.Clear()
 	tilesInPlay := &TilesInPlay{}
 	// Take a Quackle Plaintext Board and turn it into an internal structure.
-	// (Another alternative later is to implement GCG)
 	playedTiles := []alphabet.MachineLetter(nil)
 	result := boardPlaintextRegex.FindAllStringSubmatch(qText, -1)
 	if len(result) != 15 {
@@ -57,7 +58,9 @@ func (g *GameBoard) setFromPlaintext(qText string,
 	var letter alphabet.MachineLetter
 	for i := range result {
 		// result[i][1] has the string
-		for j, ch := range result[i][1] {
+		j := -1
+		for _, ch := range result[i][1] {
+			j++
 			if j%2 != 0 {
 				continue
 			}
@@ -98,11 +101,12 @@ func (g *GameBoard) setFromPlaintext(qText string,
 	return tilesInPlay
 }
 
-func (b *GameBoard) SetRow(rowNum int, letters string, alph *alphabet.Alphabet) {
+func (b *GameBoard) SetRow(rowNum int, letters string, alph *alphabet.Alphabet) []alphabet.MachineLetter {
 	// Set the row in board to the passed in letters array.
 	for idx := 0; idx < b.Dim(); idx++ {
 		b.SetLetter(int(rowNum), idx, alphabet.EmptySquareMarker)
 	}
+	lettersPlayed := []alphabet.MachineLetter{}
 	for idx, r := range letters {
 		if r != ' ' {
 			letter, err := alph.Val(r)
@@ -111,8 +115,10 @@ func (b *GameBoard) SetRow(rowNum int, letters string, alph *alphabet.Alphabet) 
 			}
 			b.SetLetter(int(rowNum), idx, letter)
 			b.tilesPlayed++
+			lettersPlayed = append(lettersPlayed, letter)
 		}
 	}
+	return lettersPlayed
 }
 
 // Equals checks the boards for equality. Two boards are equal if all

@@ -1,6 +1,8 @@
 package alphabet
 
 import (
+	"unicode/utf8"
+
 	"github.com/rs/zerolog/log"
 )
 
@@ -79,10 +81,11 @@ func (r *Rack) setFromStr(rack string) {
 			log.Error().Msgf("Rack has an illegal character: %v", string(c))
 		}
 	}
-	if len(rack) > 0 {
+	numRunes := utf8.RuneCountInString(rack)
+	if numRunes > 0 {
 		r.empty = false
 	}
-	r.numLetters = uint8(len(rack))
+	r.numLetters = uint8(numRunes)
 }
 
 // Set sets the rack from a list of machine letters

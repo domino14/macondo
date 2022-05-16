@@ -1,12 +1,15 @@
 # Golang CircleCI 2.0 configuration file
 #
 # Check https://circleci.com/docs/2.0/language-go/ for more details
-version: 2
+version: 2.1
+orbs:
+  slack: circleci/slack@3.4.2
 jobs:
   build:
     environment:
       LEXICON_PATH: /opt/lexica/
       STRATEGY_PARAMS_PATH: /opt/data/strategy
+      LETTER_DISTRIBUTION_PATH: /opt/data/letterdistributions
       AUTH_KEY: abcdef
     docker:
       - image: golang:alpine
@@ -17,8 +20,8 @@ jobs:
           fingerprints:
             - "bf:37:1b:e1:b2:b0:ec:20:92:43:20:86:40:7c:c4:e0"
       - run:
-          name: Install git, ssh, and build-base (for tests)
-          command: apk update && apk upgrade && apk add git openssh build-base
+          name: Install git, ssh, build-base, bash (for tests)
+          command: apk update && apk upgrade && apk add git openssh build-base bash curl
       - run:
           name: Install ssl
           command: apk add --update ca-certificates openssl && update-ca-certificates
@@ -28,13 +31,36 @@ jobs:
           command: git clone git@github.com:domino14/word-game-lexica /opt/word-game-lexica
       - run: mkdir $LEXICON_PATH
       - run: mkdir $LEXICON_PATH/gaddag
+      - run: mkdir $LEXICON_PATH/dawg
       - run: mv /opt/word-game-lexica/*.txt $LEXICON_PATH
       - run: cp -r /opt/macondo/data /opt/data
-      - run: go build
-      - run: go test ./...
+      - run: go build cmd/shell/main.go
+      - run: go test $(go list ./... | grep -v wasm)
+      - slack/status: &slack-webhook-setting
+          webhook: "${SLACK_WEBHOOK}"
+          success_message: ":tada: A $CIRCLE_JOB job has succeeded! (Branch: $CIRCLE_BRANCH)"
+          failure_message: ":red_circle: A $CIRCLE_JOB job has failed! (Branch: $CIRCLE_BRANCH)"
+
+  deploy_bot_docker:
+    machine: true
+    steps:
+      - checkout
+      - run: echo $GHCR_TOKEN | docker login ghcr.io -u domino14 --password-stdin
+      - run: docker build -f Dockerfile-bot-prod -t ghcr.io/domino14/macondo-bot:${CIRCLE_BRANCH}-${CIRCLE_BUILD_NUM} .
+      - run: docker push ghcr.io/domino14/macondo-bot:${CIRCLE_BRANCH}-${CIRCLE_BUILD_NUM}
+      - slack/status: *slack-webhook-setting
 
 workflows:
   version: 2
   build_app:
     jobs:
       - build
+      - deploy_bot_docker:
+          context:
+            - woogles-deploy
+          requires:
+            - build
+          filters:
+            branches:
+              only:
+                - master

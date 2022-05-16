@@ -56,7 +56,10 @@ func (sc *ShellController) handleSim(args []string) error {
 	log.Debug().Int("plies", plies).Int("threads", threads).Msg("will start sim")
 
 	if sc.game != nil {
-		sc.simmer.PrepareSim(plies, sc.curPlayList)
+		err := sc.simmer.PrepareSim(plies, sc.curPlayList)
+		if err != nil {
+			return err
+		}
 		sc.startSim()
 	}
 	return nil

@@ -9,6 +9,8 @@ import (
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/strategy"
+
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
 
 const (
@@ -27,16 +29,20 @@ type AIPlayer interface {
 	TopPlays([]*move.Move, int) []*move.Move
 
 	Strategizer() strategy.Strategizer
+
+	GetBotType() pb.BotRequest_BotCode
 }
 
 // RawEquityPlayer plays by equity only and does no look-ahead / sim.
 type RawEquityPlayer struct {
 	strategy strategy.Strategizer
+	botType  pb.BotRequest_BotCode
 }
 
-func NewRawEquityPlayer(s strategy.Strategizer) *RawEquityPlayer {
+func NewRawEquityPlayer(s strategy.Strategizer, botType pb.BotRequest_BotCode) *RawEquityPlayer {
 	return &RawEquityPlayer{
 		strategy: s,
+		botType:  botType,
 	}
 }
 
@@ -78,4 +84,8 @@ func (p *RawEquityPlayer) TopPlays(moves []*move.Move, n int) []*move.Move {
 		n = len(moves)
 	}
 	return moves[:n]
+}
+
+func (p *RawEquityPlayer) GetBotType() pb.BotRequest_BotCode {
+	return p.botType
 }

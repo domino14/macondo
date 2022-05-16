@@ -3,6 +3,7 @@ package alphabeta
 import (
 	"fmt"
 
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
 )
 
@@ -12,6 +13,7 @@ type nodeValue struct {
 	value          float32
 	knownEnd       bool
 	sequenceLength int
+	isPass         bool
 }
 
 func (nv nodeValue) String() string {
@@ -31,9 +33,17 @@ func (nv nodeValue) less(other nodeValue) bool {
 	if nv.knownEnd != other.knownEnd {
 		// basically, we are less than other if we are an unknown end
 		// and other is a known end
-		return !nv.knownEnd && other.knownEnd
+		// i.e. known end > unknown end
+		return other.knownEnd
 	}
-	// Third tie-breaker is length of sequence, favoring shorter sequences
+	// Third tie-breaker is whether this is a pass or not.
+	if nv.isPass != other.isPass {
+		// we should rank non-passes higher than passes if everything else
+		// is equal.
+		// i.e. pass < not pass
+		return nv.isPass
+	}
+	// Fourth tie-breaker is length of sequence, favoring shorter sequences
 	return nv.sequenceLength > other.sequenceLength
 
 }
@@ -97,7 +107,7 @@ func (g *GameNode) calculateValue(s *Solver) {
 		initialSpread = -initialSpread
 		negateHeurVal = true
 	}
-	gameOver := !s.game.Playing()
+	gameOver := s.game.Playing() != pb.PlayState_PLAYING
 	// If the game is over, the value should just be the spread change.
 	if gameOver {
 		// Technically no one is on turn, but the player NOT on turn is
@@ -108,6 +118,7 @@ func (g *GameNode) calculateValue(s *Solver) {
 		g.heuristicValue = nodeValue{
 			value:          float32(spreadNow - initialSpread),
 			knownEnd:       true,
+			isPass:         g.move.Action() == move.MoveTypePass,
 			sequenceLength: s.game.Turn() - s.initialTurnNum}
 	} else {
 		// The valuation is already an estimate of the overall gain or loss
@@ -124,10 +135,12 @@ func (g *GameNode) calculateValue(s *Solver) {
 		g.heuristicValue = nodeValue{
 			value:          float32(spreadNow) + moveVal - float32(initialSpread),
 			knownEnd:       false,
-			sequenceLength: s.game.Turn() - s.initialTurnNum}
+			sequenceLength: s.game.Turn() - s.initialTurnNum,
+			isPass:         g.move.Action() == move.MoveTypePass}
 		// g.heuristicValue = s.game.EndgameSpreadEstimate(player, maximizing) - float32(initialSpread)
 		// log.Debug().Msgf("Calculating heuristic value of %v as %v - %v",
 		// 	g.move, s.game.EndgameSpreadEstimate(player), float32(initialSpread))
+		// g.heuristicValue.value = 0 // TEMP
 	}
 	if negateHeurVal {
 		// The maximizing player is always "us" - the player that we are

@@ -10,7 +10,7 @@
 
 ## Monte Carlo
 
-Macondo is a child of the Brian Sheppard / Maven method for Scrabble. Essentially, we believe that doing a truncated lookahead will result in a better ranking of Scrabble positions than score + leave alone (equity) can. However, these equity values are important for ranking the plays in the lookahead algorithm and picking the best one.
+Macondo is a child of the Brian Sheppard / Maven method for Crossword games. Essentially, we believe that doing a truncated lookahead will result in a better ranking of Crossword game positions than score + leave alone (equity) can. However, these equity values are important for ranking the plays in the lookahead algorithm and picking the best one.
 
 The lookahead algorithm is named the "Truncated Monte Carlo tree search". It is truncated because it only looks ahead two plies by default, as opposed to going to the end of the game. It is called Monte Carlo because that's a city in Monaco known for its casinos and randomness, and during the Manhattan Project some scientists realized that although their computers were not powerful enough to simulate all the ins and outs of a nuclear bomb, they could pick random parameter values, and with enough of these, a result that is "good enough" would ensue. So they called this the Monte Carlo method and bought out all the books of random digits out there. Yes, really, you can purchase books containing nothing but randomly generated digits.
 

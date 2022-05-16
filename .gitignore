@@ -21,4 +21,8 @@ notebooks/superleaves/leave*
 notebooks/*/*.csv
 notebooks/logs/*
 *.p
-*.jpg
+*Untitled*
+bin/
+data/strategy/default_english/quackleleaves*
+*.vscode
+

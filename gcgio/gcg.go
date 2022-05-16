@@ -7,10 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/cache"
+	"github.com/domino14/macondo/config"
 
 	"github.com/domino14/macondo/game"
 
@@ -26,6 +29,7 @@ var (
 	errPragmaPrecedeEvent = errors.New("non-note pragmata should appear before event lines")
 	errEncodingWrongPlace = errors.New("encoding line must be first line in file if present")
 	errPlayerNotSupported = errors.New("player number not supported")
+	errPlayerDoesNotExist = errors.New("player does not exist")
 )
 
 // A Token is an event in a GCG file.
@@ -66,7 +70,7 @@ const (
 	IDRegex                 = `#id\s*(?P<id_authority>\S+)\s+(?P<id>\S+)`
 	Rack1Regex              = `#rack1 (?P<rack>\S+)`
 	Rack2Regex              = `#rack2 (?P<rack>\S+)`
-	MoveRegex               = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+(?P<pos>\w+)\s+(?P<play>[\w\\.]+)\s+\+(?P<score>\d+)\s+(?P<cumul>\d+)`
+	MoveRegex               = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+(?P<pos>\w+)\s+(?P<play>[\p{L}\\.]+)\s+\+(?P<score>\d+)\s+(?P<cumul>\d+)`
 	NoteRegex               = `#note (?P<note>.+)`
 	LexiconRegex            = `#lexicon (?P<lexicon>.+)`
 	CharacterEncodingRegex  = `#character-encoding (?P<encoding>[[:graph:]]+)`
@@ -126,12 +130,59 @@ func matchToInt32(str string) (int32, error) {
 	return int32(x), nil
 }
 
-func (p *parser) addEventOrPragma(token Token, match []string) error {
+func nickToPIndex(nick string, players []*pb.PlayerInfo) (uint32, error) {
+	for i, p := range players {
+		if nick == p.Nickname {
+			return uint32(i), nil
+		}
+	}
+	return 0, errPlayerDoesNotExist
+}
+
+func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []string) error {
 	var err error
+
+	if token == MoveToken || token == PassToken || token == ExchangeToken {
+		// Start the game if we haven't already.
+		if len(p.history.Players) != 2 {
+			return errors.New("wrong number of players defined")
+		}
+		if p.game == nil {
+			if p.history.Lexicon == "" {
+				p.history.Lexicon = cfg.DefaultLexicon
+			}
+			boardLayout, letterDistributionName, variant := game.HistoryToVariant(p.history)
+
+			log.Info().Str("boardLayout", boardLayout).
+				Str("letterDistributionName", letterDistributionName).
+				Str("lexicon", p.history.Lexicon).
+				Str("variant", string(variant)).Msg("creating game")
+
+			// We have both players. Initialize a new game.
+			// Don't pass in lexicon to new basic game rules. We don't want GCG
+			// parsing to have to load in an actual lexicon to verify any plays.
+			rules, err := game.NewBasicGameRules(
+				cfg, "",
+				boardLayout, letterDistributionName, game.CrossScoreOnly, variant)
+			if err != nil {
+				return err
+			}
+			p.game, err = game.NewGame(rules, p.history.Players)
+			if err != nil {
+				return err
+			}
+			p.game.StartGame()
+			p.game.SetBackupMode(game.InteractiveGameplayMode)
+			p.game.SetStateStackLength(1)
+			// And set the history to the gcg's history.
+			p.game.SetHistory(p.history)
+			p.history.PlayState = pb.PlayState_PLAYING
+		}
+	}
 
 	switch token {
 	case PlayerToken:
-		if len(p.history.Turns) > 0 {
+		if len(p.history.Events) > 0 {
 			return errPragmaPrecedeEvent
 		}
 		pn, err := strconv.Atoi(match[1])
@@ -154,32 +205,43 @@ func (p *parser) addEventOrPragma(token Token, match []string) error {
 
 		return nil
 	case TitleToken:
-		if len(p.history.Turns) > 0 {
+		if len(p.history.Events) > 0 {
 			return errPragmaPrecedeEvent
 		}
 		p.history.Title = match[1]
 		return nil
 	case DescriptionToken:
-		if len(p.history.Turns) > 0 {
+		if len(p.history.Events) > 0 {
 			return errPragmaPrecedeEvent
 		}
 		p.history.Description = match[1]
 	case IDToken:
-		if len(p.history.Turns) > 0 {
+		if len(p.history.Events) > 0 {
 			return errPragmaPrecedeEvent
 		}
 		p.history.IdAuth = match[1]
 		p.history.Uid = match[2]
-	// Assume Rack1Token always comes before Rack2Token in a well-formed gcg:
 	case Rack1Token:
-		p.history.LastKnownRacks = []string{match[1]}
+		// assume if there is a rack2 token, that rack1 will come before it.
+		if p.history.LastKnownRacks == nil {
+			p.history.LastKnownRacks = []string{match[1], ""}
+		}
 	case Rack2Token:
-		p.history.LastKnownRacks = append(p.history.LastKnownRacks, match[1])
+		if p.history.LastKnownRacks == nil {
+			p.history.LastKnownRacks = []string{"", match[1]}
+		} else {
+			// There is already a rack1 at the [0] position.
+			p.history.LastKnownRacks[1] = match[1]
+		}
 	case EncodingToken:
 		return errEncodingWrongPlace
 	case MoveToken:
 		evt := &pb.GameEvent{}
-		evt.Nickname = match[1]
+		evt.PlayerIndex, err = nickToPIndex(match[1], p.history.Players)
+		if err != nil {
+			return errPlayerDoesNotExist
+		}
+
 		evt.Rack = match[2]
 		evt.Position = match[3]
 		evt.PlayedTiles = match[4]
@@ -193,25 +255,41 @@ func (p *parser) addEventOrPragma(token Token, match []string) error {
 		}
 		game.CalculateCoordsFromStringPosition(evt)
 		evt.Type = pb.GameEvent_TILE_PLACEMENT_MOVE
-		evts := []*pb.GameEvent{evt}
-		turn := &pb.GameTurn{Events: evts}
 
-		p.history.Turns = append(p.history.Turns, turn)
+		tp := 0
+		for _, t := range evt.PlayedTiles {
+			if t != alphabet.ASCIIPlayedThrough {
+				tp++
+			}
+		}
+
+		evt.IsBingo = tp == 7
+		p.history.Events = append(p.history.Events, evt)
+		// Try playing the move
+		log.Debug().Msg("PLAYING LATEST EVENT for MoveToken")
+
+		return p.game.PlayLatestEvent()
 
 	case NoteToken:
-		lastTurnIdx := len(p.history.Turns) - 1
-		lastEvtIdx := len(p.history.Turns[lastTurnIdx].Events) - 1
-		p.history.Turns[lastTurnIdx].Events[lastEvtIdx].Note += match[1]
+		lastEvtIdx := len(p.history.Events) - 1
+		// For notes that are not associated with events, we can ignore them.
+		if lastEvtIdx < 0 {
+			return p.parseSpecialNotePragma(match[1])
+		}
+		p.history.Events[lastEvtIdx].Note += match[1]
 		return nil
 	case LexiconToken:
-		if len(p.history.Turns) > 0 {
+		if len(p.history.Events) > 0 {
 			return errPragmaPrecedeEvent
 		}
 		p.history.Lexicon = match[1]
 		return nil
 	case PhonyTilesReturnedToken:
 		evt := &pb.GameEvent{}
-		evt.Nickname = match[1]
+		evt.PlayerIndex, err = nickToPIndex(match[1], p.history.Players)
+		if err != nil {
+			return errPlayerDoesNotExist
+		}
 		evt.Rack = match[2]
 
 		score, err := matchToInt32(match[3])
@@ -223,15 +301,23 @@ func (p *parser) addEventOrPragma(token Token, match []string) error {
 		if err != nil {
 			return err
 		}
-		// This can not be a stand-alone turn; it must be added to the previous
-		// turn.
-		lastTurnIdx := len(p.history.Turns) - 1
-		p.history.Turns[lastTurnIdx].Events = append(p.history.Turns[lastTurnIdx].Events, evt)
+		// The PlayedTiles attribute should be set to the LAST event's played tiles
+		if len(p.history.Events) == 0 {
+			return errors.New("malformed gcg; phony tiles returned without play")
+		}
+		evt.PlayedTiles = p.history.Events[len(p.history.Events)-1].PlayedTiles
 		evt.Type = pb.GameEvent_PHONY_TILES_RETURNED
+		p.history.Events = append(p.history.Events, evt)
+		log.Debug().Msg("PLAYING LATEST EVENT for PhonytilesReturned")
+		return p.game.PlayLatestEvent()
 
 	case TimePenaltyToken:
 		evt := &pb.GameEvent{}
-		evt.Nickname = match[1]
+		evt.PlayerIndex, err = nickToPIndex(match[1], p.history.Players)
+		if err != nil {
+			return errPlayerDoesNotExist
+		}
+
 		evt.Rack = match[2]
 
 		score, err := matchToInt32(match[3])
@@ -248,13 +334,20 @@ func (p *parser) addEventOrPragma(token Token, match []string) error {
 		// (i.e. player2 goes out, and then time penalty is applied to player1)
 
 		evt.Type = pb.GameEvent_TIME_PENALTY
-		evts := []*pb.GameEvent{evt}
-		turn := &pb.GameTurn{Events: evts}
-		p.history.Turns = append(p.history.Turns, turn)
+		p.history.Events = append(p.history.Events, evt)
+		p.game.SetPlaying(pb.PlayState_GAME_OVER)
+
+		err = p.game.PlayLatestEvent()
+		if err != nil {
+			return err
+		}
 
 	case LastRackPenaltyToken:
 		evt := &pb.GameEvent{}
-		evt.Nickname = match[1]
+		evt.PlayerIndex, err = nickToPIndex(match[1], p.history.Players)
+		if err != nil {
+			return errPlayerDoesNotExist
+		}
 		evt.Rack = match[2]
 		if evt.Rack != match[3] {
 			return fmt.Errorf("last rack penalty event malformed")
@@ -269,26 +362,35 @@ func (p *parser) addEventOrPragma(token Token, match []string) error {
 			return err
 		}
 		evt.Type = pb.GameEvent_END_RACK_PENALTY
-		evts := []*pb.GameEvent{evt}
-		turn := &pb.GameTurn{Events: evts}
-		p.history.Turns = append(p.history.Turns, turn)
+		p.history.Events = append(p.history.Events, evt)
+		err = p.game.PlayLatestEvent()
+		// End the game.
+		p.game.SetPlaying(pb.PlayState_GAME_OVER)
+		if err != nil {
+			return err
+		}
 
 	case PassToken:
 		evt := &pb.GameEvent{}
-		evt.Nickname = match[1]
+		evt.PlayerIndex, err = nickToPIndex(match[1], p.history.Players)
+		if err != nil {
+			return errPlayerDoesNotExist
+		}
 		evt.Rack = match[2]
 		evt.Cumulative, err = matchToInt32(match[3])
 		if err != nil {
 			return err
 		}
 		evt.Type = pb.GameEvent_PASS
-		evts := []*pb.GameEvent{evt}
-		turn := &pb.GameTurn{Events: evts}
-		p.history.Turns = append(p.history.Turns, turn)
+		p.history.Events = append(p.history.Events, evt)
+		return p.game.PlayLatestEvent()
 
 	case ChallengeBonusToken, EndRackPointsToken:
 		evt := &pb.GameEvent{}
-		evt.Nickname = match[1]
+		evt.PlayerIndex, err = nickToPIndex(match[1], p.history.Players)
+		if err != nil {
+			return errPlayerDoesNotExist
+		}
 		evt.Rack = match[2]
 		if token == ChallengeBonusToken {
 			evt.Bonus, err = matchToInt32(match[3])
@@ -306,13 +408,18 @@ func (p *parser) addEventOrPragma(token Token, match []string) error {
 			evt.Type = pb.GameEvent_CHALLENGE_BONUS
 		} else if token == EndRackPointsToken {
 			evt.Type = pb.GameEvent_END_RACK_PTS
+			// End the game.
+			p.game.SetPlaying(pb.PlayState_GAME_OVER)
 		}
-		lastTurnIdx := len(p.history.Turns) - 1
-		p.history.Turns[lastTurnIdx].Events = append(p.history.Turns[lastTurnIdx].Events, evt)
+		p.history.Events = append(p.history.Events, evt)
+		return p.game.PlayLatestEvent()
 
 	case ExchangeToken:
 		evt := &pb.GameEvent{}
-		evt.Nickname = match[1]
+		evt.PlayerIndex, err = nickToPIndex(match[1], p.history.Players)
+		if err != nil {
+			return errPlayerDoesNotExist
+		}
 		evt.Rack = match[2]
 		evt.Exchanged = match[3]
 		evt.Cumulative, err = matchToInt32(match[4])
@@ -320,15 +427,14 @@ func (p *parser) addEventOrPragma(token Token, match []string) error {
 			return err
 		}
 		evt.Type = pb.GameEvent_EXCHANGE
-		evts := []*pb.GameEvent{evt}
-		turn := &pb.GameTurn{Events: evts}
-		p.history.Turns = append(p.history.Turns, turn)
+		p.history.Events = append(p.history.Events, evt)
+		return p.game.PlayLatestEvent()
 
 	}
 	return nil
 }
 
-func (p *parser) parseLine(line string) error {
+func (p *parser) parseLine(cfg *config.Config, line string) error {
 
 	foundMatch := false
 
@@ -336,7 +442,7 @@ func (p *parser) parseLine(line string) error {
 		match := datum.regex.FindStringSubmatch(line)
 		if match != nil {
 			foundMatch = true
-			err := p.addEventOrPragma(datum.token, match)
+			err := p.addEventOrPragma(cfg, datum.token, match)
 			if err != nil {
 				return err
 			}
@@ -347,9 +453,8 @@ func (p *parser) parseLine(line string) error {
 	if !foundMatch {
 		// maybe it's a multi-line note.
 		if p.lastToken == NoteToken {
-			lastTurnIdx := len(p.history.Turns) - 1
-			lastEventIdx := len(p.history.Turns[lastTurnIdx].Events) - 1
-			p.history.Turns[lastTurnIdx].Events[lastEventIdx].Note += ("\n" + line)
+			lastEventIdx := len(p.history.Events) - 1
+			p.history.Events[lastEventIdx].Note += ("\n" + line)
 			return nil
 		}
 		// ignore empty lines
@@ -357,6 +462,32 @@ func (p *parser) parseLine(line string) error {
 			return nil
 		}
 		return fmt.Errorf("no match found for line '%v'", line)
+	}
+	return nil
+}
+
+func (p *parser) parseSpecialNotePragma(note string) error {
+	// For now, in order to remain compliant with the GCG spec, we re-use
+	// the #note pragma to expand the representation a bit.
+	kv := strings.SplitN(note, ":", 2)
+	log.Debug().Interface("kv", kv).Msg("note")
+	if len(kv) != 2 {
+		// We won't return an error, but this doesn't follow the format.
+		return nil
+	}
+
+	key := strings.TrimSpace(kv[0])
+	val := strings.TrimSpace(kv[1])
+	switch key {
+	case "Variant":
+		p.history.Variant = val
+		log.Debug().Str("variant", val).Msg("found variant note pragma")
+	case "LetterDistribution":
+		p.history.LetterDistribution = val
+		log.Debug().Str("dist", val).Msg("found dist note pragma")
+	case "BoardLayout":
+		p.history.BoardLayout = val
+		log.Debug().Str("layout", val).Msg("found layout note pragma")
 	}
 	return nil
 }
@@ -400,14 +531,16 @@ func encodingOrFirstLine(reader io.Reader) (string, string, error) {
 	}
 }
 
-func ParseGCGFromReader(reader io.Reader) (*pb.GameHistory, error) {
-
+func ParseGCGFromReader(cfg *config.Config, reader io.Reader) (*pb.GameHistory, error) {
 	var err error
 	parser := &parser{
 		history: &pb.GameHistory{
-			Turns:   []*pb.GameTurn{},
+			Events:  []*pb.GameEvent{},
 			Players: []*pb.PlayerInfo{},
-			Version: 1},
+			// We are making the challenge rule anything but VOID, which would
+			// check the validity of every play.
+			ChallengeRule: pb.ChallengeRule_SINGLE,
+			Version:       1},
 	}
 	originalGCG := ""
 
@@ -427,7 +560,7 @@ func ParseGCGFromReader(reader io.Reader) (*pb.GameHistory, error) {
 		scanner = bufio.NewScanner(reader)
 	}
 	if firstLine != "" {
-		err = parser.parseLine(firstLine)
+		err = parser.parseLine(cfg, firstLine)
 		if err != nil {
 			return nil, err
 		}
@@ -436,23 +569,31 @@ func ParseGCGFromReader(reader io.Reader) (*pb.GameHistory, error) {
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		err = parser.parseLine(line)
+		err = parser.parseLine(cfg, line)
 		if err != nil {
 			return nil, err
 		}
 		originalGCG += line + "\n"
 	}
 	parser.history.OriginalGcg = strings.TrimSpace(originalGCG)
+
+	// Determine if the game ended.
+	if parser.game.Playing() == pb.PlayState_GAME_OVER {
+		parser.history.PlayState = pb.PlayState_GAME_OVER
+		parser.game.AddFinalScoresToHistory()
+	}
+	// Set challenge rule back to void since we don't know or care what it is.
+	parser.history.ChallengeRule = pb.ChallengeRule_VOID
 	return parser.history, nil
 }
 
 // ParseGCG parses a GCG file into a GameHistory.
-func ParseGCG(filename string) (*pb.GameHistory, error) {
-	f, err := os.Open(filename)
+func ParseGCG(cfg *config.Config, filename string) (*pb.GameHistory, error) {
+	f, err := cache.Open(filename)
 	if err != nil {
 		return nil, err
 	}
-	return ParseGCGFromReader(f)
+	return ParseGCGFromReader(cfg, f)
 }
 
 func writeGCGHeader(s *strings.Builder, h *pb.GameHistory, addlInfo bool) {
@@ -467,19 +608,29 @@ func writeGCGHeader(s *strings.Builder, h *pb.GameHistory, addlInfo bool) {
 		if h.IdAuth != "" && h.Uid != "" {
 			s.WriteString("#id " + h.IdAuth + " " + h.Uid + "\n")
 		}
+		if h.Lexicon != "" {
+			s.WriteString("#lexicon " + h.Lexicon + "\n")
+		}
+		if h.Variant != "" {
+			s.WriteString("#note Variant: " + h.Variant + "\n")
+		}
+		if h.BoardLayout != "" {
+			s.WriteString("#note BoardLayout: " + h.BoardLayout + "\n")
+		}
+		if h.LetterDistribution != "" {
+			s.WriteString("#note LetterDistribution: " + h.LetterDistribution + "\n")
+		}
 	}
 	log.Debug().Msg("wrote header")
 }
 
-func writeEvent(s *strings.Builder, evt *pb.GameEvent) error {
+func writeEvent(s *strings.Builder, h *pb.GameHistory, evt *pb.GameEvent) error {
 
-	nick := evt.GetNickname()
+	nick := h.Players[evt.GetPlayerIndex()].Nickname
 	rack := evt.GetRack()
 	evtType := evt.GetType()
 	note := evt.GetNote()
 
-	// XXX HANDLE MORE TYPES (e.g. time penalty at some point, end rack
-	// penalty for international rules)
 	switch evtType {
 	case pb.GameEvent_TILE_PLACEMENT_MOVE:
 		fmt.Fprintf(s, ">%v: %v %v %v +%d %d\n",
@@ -516,6 +667,11 @@ func writeEvent(s *strings.Builder, evt *pb.GameEvent) error {
 		// >Pakorn: ISBALI (time) -10 409
 		fmt.Fprintf(s, ">%v: %v (time) -%d %d\n",
 			nick, rack, evt.LostScore, evt.Cumulative)
+	case pb.GameEvent_UNSUCCESSFUL_CHALLENGE_TURN_LOSS:
+		// Treat exactly like a pass, but append a note. The GCG format
+		// does not distinguish between these two cases.
+		fmt.Fprintf(s, ">%v: %v - +0 %d\n", nick, rack, evt.Cumulative)
+		fmt.Fprint(s, "#note #unsuccessful-challenge\n")
 
 	default:
 		return fmt.Errorf("event type %v not supported", evtType)
@@ -529,41 +685,41 @@ func writeEvent(s *strings.Builder, evt *pb.GameEvent) error {
 
 }
 
-func writeTurn(s *strings.Builder, t *pb.GameTurn) error {
-	for _, evt := range t.Events {
-		err := writeEvent(s, evt)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func writePlayer(s *strings.Builder, pn int, p *pb.PlayerInfo) {
-	fmt.Fprintf(s, "#player%d %v %v\n", pn, p.Nickname, p.RealName)
+	realname := p.RealName
+	if realname == "" {
+		realname = p.Nickname
+	}
+	fmt.Fprintf(s, "#player%d %v %v\n", pn, p.Nickname, realname)
 }
 
-func writePlayers(s *strings.Builder, players []*pb.PlayerInfo, flip bool) {
-	if flip {
-		writePlayer(s, 1, players[1])
-		writePlayer(s, 2, players[0])
-	} else {
-		writePlayer(s, 1, players[0])
-		writePlayer(s, 2, players[1])
-	}
+func writePlayers(s *strings.Builder, players []*pb.PlayerInfo) {
+	writePlayer(s, 1, players[0])
+	writePlayer(s, 2, players[1])
+}
+
+func isPassBeforeEndRackPoints(h *pb.GameHistory, i int) bool {
+	return len(h.Events) > i+1 &&
+		(h.Events[i].Type == pb.GameEvent_PASS ||
+			h.Events[i].Type == pb.GameEvent_UNSUCCESSFUL_CHALLENGE_TURN_LOSS) &&
+		h.Events[i+1].Type == pb.GameEvent_END_RACK_PTS
 }
 
 // GameHistoryToGCG returns a string GCG representation of the GameHistory.
 func GameHistoryToGCG(h *pb.GameHistory, addlHeaderInfo bool) (string, error) {
-
+	if h.StartingCgp != "" {
+		return "", errors.New("cannot turn a game history with a starting CGP into a GCG file")
+	}
 	var str strings.Builder
 	writeGCGHeader(&str, h, addlHeaderInfo)
-	writePlayers(&str, h.Players, h.FlipPlayers)
+	writePlayers(&str, h.Players)
 
-	for _, turn := range h.Turns {
-		err := writeTurn(&str, turn)
-		if err != nil {
-			return "", err
+	for i, evt := range h.Events {
+		if !isPassBeforeEndRackPoints(h, i) {
+			err := writeEvent(&str, h, evt)
+			if err != nil {
+				return "", err
+			}
 		}
 	}
 

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/domino14/macondo/alphabet"
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/rs/zerolog/log"
 )
 
@@ -50,15 +51,11 @@ func (g *Game) ToDisplayText() string {
 	vpadding := 1
 	bagColCount := 20
 
-	notfirst := otherPlayer(g.wentfirst)
-
-	log.Debug().Int("onturn", g.onturn).
-		Int("wentfirst", g.wentfirst).Msg("todisplaytext")
-
-	addText(bts, vpadding, hpadding,
-		g.players[g.wentfirst].stateString(g.playing && g.onturn == g.wentfirst))
-	addText(bts, vpadding+1, hpadding,
-		g.players[notfirst].stateString(g.playing && g.onturn == notfirst))
+	log.Debug().Int("onturn", g.onturn).Msg("todisplaytext")
+	for pi := 0; pi < 2; pi++ {
+		addText(bts, vpadding+pi, hpadding,
+			g.players[pi].stateString(g.playing == pb.PlayState_PLAYING && g.onturn == pi))
+	}
 
 	// Peek into the bag, and append the opponent's tiles:
 	inbag := g.bag.Peek()
@@ -98,14 +95,18 @@ func (g *Game) ToDisplayText() string {
 
 	vpadding = 13
 
+	for i, evt := range g.history.Events {
+		log.Debug().Msgf("Event %d: %v", i, evt)
+	}
+
 	if g.turnnum-1 >= 0 {
 		addText(bts, vpadding, hpadding,
-			summary(g.history.Turns[g.turnnum-1]))
+			summary(g.history.Players, g.history.Events[g.turnnum-1]))
 	}
 
 	vpadding = 17
 
-	if !g.playing && g.turnnum == len(g.history.Turns) {
+	if g.playing == pb.PlayState_GAME_OVER && g.turnnum == len(g.history.Events) {
 		addText(bts, vpadding, hpadding, "Game is over.")
 	}
 

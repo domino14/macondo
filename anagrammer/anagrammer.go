@@ -11,8 +11,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/rs/zerolog/log"
 )
@@ -32,7 +34,7 @@ func (di *dawgInfo) GetDist() *alphabet.LetterDistribution {
 	return di.dist
 }
 
-func LoadDawgs(dawgPath string) {
+func LoadDawgs(cfg *config.Config, dawgPath string) {
 	// Load the DAWGs into memory.
 	var dawgs []string
 	err := filepath.Walk(dawgPath, func(path string, info os.FileInfo, err error) error {
@@ -55,12 +57,22 @@ func LoadDawgs(dawgPath string) {
 		lex := dawg.LexiconName()
 		Dawgs[lex] = &dawgInfo{}
 		Dawgs[lex].dawg = dawg
-		if strings.Contains(lex, "FISE") {
-			Dawgs[lex].dist = alphabet.SpanishLetterDistribution(dawg.GetAlphabet())
-		} else if strings.Contains(lex, "OSPS") {
-			Dawgs[lex].dist = alphabet.PolishLetterDistribution(dawg.GetAlphabet())
+		var err error
+		if strings.HasPrefix(lex, "FISE") {
+			Dawgs[lex].dist, err = alphabet.SpanishLetterDistribution(cfg)
+		} else if strings.HasPrefix(lex, "OSPS") {
+			Dawgs[lex].dist, err = alphabet.PolishLetterDistribution(cfg)
+		} else if strings.HasPrefix(lex, "RD") {
+			Dawgs[lex].dist, err = alphabet.GermanLetterDistribution(cfg)
+		} else if strings.HasPrefix(lex, "NSF") {
+			Dawgs[lex].dist, err = alphabet.NorwegianLetterDistribution(cfg)
+		} else if strings.HasPrefix(lex, "FRA") {
+			Dawgs[lex].dist, err = alphabet.FrenchLetterDistribution(cfg)
 		} else {
-			Dawgs[lex].dist = alphabet.EnglishLetterDistribution(dawg.GetAlphabet())
+			Dawgs[lex].dist, err = alphabet.EnglishLetterDistribution(cfg)
+		}
+		if err != nil {
+			panic(err)
 		}
 	}
 }
@@ -205,6 +217,7 @@ func dedupeAndTransformAnswers(answerList []string, alph *alphabet.Alphabet) []s
 	return answerStrings
 }
 
+// XXX: utf8.RuneCountInString is slow, but necessary to support unicode tiles.
 func anagramHelper(letter alphabet.MachineLetter, d *gaddag.SimpleDawg,
 	ahs *AnagramStruct, nodeIdx uint32, answerSoFar string, rw *RackWrapper) {
 
@@ -215,7 +228,7 @@ func anagramHelper(letter alphabet.MachineLetter, d *gaddag.SimpleDawg,
 	if d.InLetterSet(letter, nodeIdx) {
 		toCheck := answerSoFar + string(letter)
 		if ahs.mode == ModeBuild || (ahs.mode == ModeExact &&
-			len(toCheck) == ahs.numLetters) {
+			utf8.RuneCountInString(toCheck) == ahs.numLetters) {
 
 			// log.Debug().Msgf("Appending word %v", toCheck)
 			ahs.answerList = append(ahs.answerList, toCheck)

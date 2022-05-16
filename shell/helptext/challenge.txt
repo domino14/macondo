@@ -1,0 +1,19 @@
+challenge [n] - challenge play
+
+Example:
+
+    challenge 5
+    challenge
+
+Challenge challenges the last play. There are various categories. By default,
+Macondo's settings are set to double challenge, but this can easily be
+overridden with the above options.
+
+For example, `challenge 5` will add a 5-point bonus to the last play.
+`challenge 0` can be used to simulate SINGLE challenge (adds a 0-point bonus)
+Note that these two examples do _not_ check the validity of the word.
+
+Typing just `challenge` by itself, though, actually checks the validity of the
+word(s), and simulates double challenge.
+If all words are valid, the challenging player loses their turn. If
+any word is invalid, the opponent takes their tiles back and loses their turn.

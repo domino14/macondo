@@ -3,9 +3,10 @@ package board
 import (
 	"testing"
 
-	"github.com/domino14/macondo/gaddag"
-	"github.com/domino14/macondo/move"
 	"github.com/matryer/is"
+
+	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/move"
 )
 
 func BenchmarkBoardTranspose(b *testing.B) {
@@ -22,10 +23,10 @@ func BenchmarkBoardTranspose(b *testing.B) {
 }
 
 func TestUpdateAnchors(t *testing.T) {
-	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
+	alph := alphabet.EnglishAlphabet()
 
 	b := MakeBoard(CrosswordGameBoard)
-	b.SetToGame(gd.GetAlphabet(), VsEd)
+	b.SetToGame(alph, VsEd)
 
 	b.UpdateAllAnchors()
 
@@ -46,9 +47,8 @@ func TestUpdateAnchors(t *testing.T) {
 
 func TestFormedWords(t *testing.T) {
 	is := is.New(t)
-	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	b := MakeBoard(CrosswordGameBoard)
-	alph := gd.GetAlphabet()
+	alph := alphabet.EnglishAlphabet()
 
 	b.SetToGame(alph, VsOxy)
 
@@ -62,16 +62,15 @@ func TestFormedWords(t *testing.T) {
 	for idx, w := range words {
 		uvWords[idx] = w.UserVisible(alph)
 	}
-	is.Equal(uvWords, []string{"OPACIFYING", "XIS", "PREQUALIFIED", "BRAINWASHING",
-		"AWAKENERS", "ZONETIME", "EJACULATING", "OXYPHENBUTAZONE"})
+	is.Equal(uvWords, []string{"OXYPHENBUTAZONE", "OPACIFYING", "XIS", "PREQUALIFIED", "BRAINWASHING",
+		"AWAKENERS", "ZONETIME", "EJACULATING"})
 
 }
 
 func TestFormedWordsOneTile(t *testing.T) {
 	is := is.New(t)
-	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	b := MakeBoard(CrosswordGameBoard)
-	alph := gd.GetAlphabet()
+	alph := alphabet.EnglishAlphabet()
 
 	b.SetToGame(alph, VsOxy)
 
@@ -85,15 +84,14 @@ func TestFormedWordsOneTile(t *testing.T) {
 	for idx, w := range words {
 		uvWords[idx] = w.UserVisible(alph)
 	}
-	is.Equal(uvWords, []string{"OO", "NO"})
+	is.Equal(uvWords, []string{"NO", "OO"})
 
 }
 
 func TestFormedWordsHoriz(t *testing.T) {
 	is := is.New(t)
-	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	b := MakeBoard(CrosswordGameBoard)
-	alph := gd.GetAlphabet()
+	alph := alphabet.EnglishAlphabet()
 
 	b.SetToGame(alph, VsOxy)
 
@@ -107,15 +105,14 @@ func TestFormedWordsHoriz(t *testing.T) {
 	for idx, w := range words {
 		uvWords[idx] = w.UserVisible(alph)
 	}
-	is.Equal(uvWords, []string{"EN", "AG", "EAR"})
+	is.Equal(uvWords, []string{"EAR", "EN", "AG"})
 
 }
 
 func TestFormedWordsThrough(t *testing.T) {
 	is := is.New(t)
-	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	b := MakeBoard(CrosswordGameBoard)
-	alph := gd.GetAlphabet()
+	alph := alphabet.EnglishAlphabet()
 
 	b.SetToGame(alph, VsMatt)
 
@@ -129,14 +126,13 @@ func TestFormedWordsThrough(t *testing.T) {
 	for idx, w := range words {
 		uvWords[idx] = w.UserVisible(alph)
 	}
-	is.Equal(uvWords, []string{"TA", "AN", "RESPONDED", "LO", "TAEL"})
+	is.Equal(uvWords, []string{"TAEL", "TA", "AN", "RESPONDED", "LO"})
 }
 
 func TestFormedWordsBlank(t *testing.T) {
 	is := is.New(t)
-	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
 	b := MakeBoard(CrosswordGameBoard)
-	alph := gd.GetAlphabet()
+	alph := alphabet.EnglishAlphabet()
 
 	b.SetToGame(alph, VsMatt)
 
@@ -150,5 +146,5 @@ func TestFormedWordsBlank(t *testing.T) {
 	for idx, w := range words {
 		uvWords[idx] = w.UserVisible(alph)
 	}
-	is.Equal(uvWords, []string{"TA", "AN", "RESPONDED", "LO", "TAEL"})
+	is.Equal(uvWords, []string{"TAEL", "TA", "AN", "RESPONDED", "LO"})
 }

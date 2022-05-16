@@ -18,8 +18,10 @@ const (
 	MoveTypePlay MoveType = iota
 	MoveTypeExchange
 	MoveTypePass
+	MoveTypeChallenge
 	MoveTypePhonyTilesReturned
 	MoveTypeChallengeBonus
+	MoveTypeUnsuccessfulChallengePass
 
 	MoveTypeEndgameTiles
 	MoveTypeLostTileScore
@@ -64,21 +66,48 @@ func (m *Move) String() string {
 		return fmt.Sprintf(
 			"<%p action: play word: %v %v score: %v tp: %v leave: %v equity: %.3f valu: %.3f>",
 			m,
-			m.coords, m.tiles.UserVisible(m.alph), m.score,
-			m.tilesPlayed, m.leave.UserVisible(m.alph), m.equity, m.valuation)
+			m.coords, m.TilesString(), m.score,
+			m.tilesPlayed, m.LeaveString(), m.equity, m.valuation)
 	case MoveTypePass:
 		return fmt.Sprintf("<%p action: pass leave: %v equity: %.3f valu: %.3f>",
 			m,
-			m.leave.UserVisible(m.alph), m.equity, m.valuation)
+			m.LeaveString(), m.equity, m.valuation)
 	case MoveTypeExchange:
 		return fmt.Sprintf(
 			"<%p action: exchange %v score: %v tp: %v leave: %v equity: %.3f>",
 			m,
-			m.tiles.UserVisible(m.alph), m.score, m.tilesPlayed,
-			m.leave.UserVisible(m.alph), m.equity)
+			m.TilesString(), m.score, m.tilesPlayed,
+			m.LeaveString(), m.equity)
+	case MoveTypeChallenge:
+		return fmt.Sprintf("<%p action: challenge leave: %v equity: %.3f valu: %.3f>",
+			m,
+			m.LeaveString(), m.equity, m.valuation)
 	}
 	return fmt.Sprint("<Unhandled move>")
 
+}
+
+func (m *Move) MoveTypeString() string {
+	// Return the moveype as a string
+	switch m.action {
+	case MoveTypePlay:
+		return "Play"
+	case MoveTypePass:
+		return "Pass"
+	case MoveTypeExchange:
+		return "Exchange"
+	case MoveTypeChallenge:
+		return "Challenge"
+	}
+	return fmt.Sprint("UNHANDLED")
+}
+
+func (m *Move) TilesString() string {
+	return m.tiles.UserVisible(m.alph)
+}
+
+func (m *Move) LeaveString() string {
+	return m.leave.UserVisible(m.alph)
 }
 
 // ShortDescription provides a short description, useful for logging or
@@ -86,11 +115,13 @@ func (m *Move) String() string {
 func (m *Move) ShortDescription() string {
 	switch m.action {
 	case MoveTypePlay:
-		return fmt.Sprintf("%v %v", m.coords, m.tiles.UserVisible(m.alph))
+		return fmt.Sprintf("%v %v", m.coords, m.TilesString())
 	case MoveTypePass:
 		return "(Pass)"
 	case MoveTypeExchange:
-		return fmt.Sprintf("(exch %v)", m.tiles.UserVisible(m.alph))
+		return fmt.Sprintf("(exch %v)", m.TilesString())
+	case MoveTypeChallenge:
+		return "(Challenge!)"
 	}
 	return fmt.Sprint("UNHANDLED")
 }
@@ -98,13 +129,15 @@ func (m *Move) ShortDescription() string {
 // FullRack returns the entire rack that the move was made from. This
 // can be calculated from the tiles it uses and the leave.
 func (m *Move) FullRack() string {
-	rack := []rune(m.leave.UserVisible(m.alph))
+	rack := []rune(m.LeaveString())
 	for _, ml := range m.tiles {
 		switch {
 		case ml >= alphabet.BlankOffset:
 			rack = append(rack, alphabet.BlankToken)
-		case ml == alphabet.PlayedThroughMarker || ml == alphabet.BlankMachineLetter ||
-			ml == alphabet.EmptySquareMarker:
+		case ml == alphabet.BlankMachineLetter:
+			// Only if you exchange the blank
+			rack = append(rack, alphabet.BlankToken)
+		case ml == alphabet.PlayedThroughMarker || ml == alphabet.EmptySquareMarker:
 			// do nothing
 
 		default:
@@ -202,13 +235,21 @@ func NewBonusScoreMove(t MoveType, tiles alphabet.MachineWord, score int) *Move 
 	return move
 }
 
-func NewLostScoreMove(t MoveType, tiles alphabet.MachineWord, score int) *Move {
+func NewLostScoreMove(t MoveType, rack alphabet.MachineWord, score int) *Move {
 	move := &Move{
 		action: t,
-		tiles:  tiles,
+		tiles:  rack,
 		score:  -score,
 	}
 	return move
+}
+
+func NewUnsuccessfulChallengePassMove(leave alphabet.MachineWord, alph *alphabet.Alphabet) *Move {
+	return &Move{
+		action: MoveTypeUnsuccessfulChallengePass,
+		leave:  leave,
+		alph:   alph,
+	}
 }
 
 // Alphabet is the alphabet used by this move
@@ -337,6 +378,15 @@ func FromBoardGameCoords(c string) (int, int, bool) {
 func NewPassMove(leave alphabet.MachineWord, alph *alphabet.Alphabet) *Move {
 	return &Move{
 		action: MoveTypePass,
+		leave:  leave,
+		alph:   alph,
+	}
+}
+
+// NewChallengeMove creates a challenge with the given leave.
+func NewChallengeMove(leave alphabet.MachineWord, alph *alphabet.Alphabet) *Move {
+	return &Move{
+		action: MoveTypeChallenge,
 		leave:  leave,
 		alph:   alph,
 	}

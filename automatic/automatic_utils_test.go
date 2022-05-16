@@ -14,23 +14,19 @@ import (
 	"github.com/domino14/macondo/gaddagmaker"
 )
 
-var DefaultConfig = config.Config{
-	StrategyParamsPath:        os.Getenv("STRATEGY_PARAMS_PATH"),
-	LexiconPath:               os.Getenv("LEXICON_PATH"),
-	DefaultLexicon:            "NWL18",
-	DefaultLetterDistribution: "English",
-}
+var DefaultConfig = config.DefaultConfig()
 
 func TestMain(m *testing.M) {
-	gdgPath := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "NWL18.gaddag")
-	if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
-		gaddagmaker.GenerateGaddag(filepath.Join(DefaultConfig.LexiconPath, "NWL18.txt"), true, true)
-		err = os.Rename("out.gaddag", gdgPath)
-		if err != nil {
-			panic(err)
+	for _, lex := range []string{"NWL20"} {
+		gdgPath := filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag")
+		if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
+			gaddagmaker.GenerateGaddag(filepath.Join(DefaultConfig.LexiconPath, lex+".txt"), true, true)
+			err = os.Rename("out.gaddag", gdgPath)
+			if err != nil {
+				panic(err)
+			}
 		}
 	}
-
 	os.Exit(m.Run())
 }
 

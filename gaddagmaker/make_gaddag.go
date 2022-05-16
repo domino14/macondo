@@ -4,13 +4,13 @@ package gaddagmaker
 import (
 	"bufio"
 	"encoding/binary"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/domino14/macondo/cache"
 	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/alphabet"
@@ -74,7 +74,7 @@ func (a ArcPtrSlice) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ArcPtrSlice) Less(i, j int) bool { return a[i].letter < a[j].letter }
 
 func getWordsFromFile(filename string) ([]string, *alphabet.Alphabet) {
-	file, err := os.Open(filename)
+	file, err := cache.Open(filename)
 	if err != nil {
 		log.Warn().Msgf("Filename %v not found", filename)
 		return nil, nil
@@ -94,11 +94,15 @@ func getWords(stream io.Reader) ([]string, *alphabet.Alphabet) {
 		fields := strings.Fields(scanner.Text())
 		if len(fields) > 0 {
 			word := strings.ToUpper(fields[0])
+			if len([]rune(word)) < 2 {
+				continue
+			}
 			words = append(words, word)
 			err := alphabet.Update(word)
 			if err != nil {
 				panic(err)
 			}
+
 		}
 	}
 	alphabet.Reconcile()
@@ -372,7 +376,6 @@ func genGaddag(stream io.Reader, lexName string, minimize bool, writeToFile bool
 
 	gaddag := &Gaddag{}
 	words, alph := getWords(stream)
-	fmt.Println("WORDS ARE", words, "ALPH IS", alph)
 	if words == nil {
 		return gaddag
 	}
@@ -434,7 +437,7 @@ func genGaddag(stream io.Reader, lexName string, minimize bool, writeToFile bool
 // GenerateGaddag makes a GADDAG out of the filename, and optionally
 // minimizes it and/or writes it to file.
 func GenerateGaddag(filename string, minimize bool, writeToFile bool) *Gaddag {
-	file, err := os.Open(filename)
+	file, err := cache.Open(filename)
 	if err != nil {
 		log.Warn().Msgf("Filename %v not found", filename)
 		return nil

@@ -1,0 +1,18 @@
+set challenge <rule> - Set the challenge rule
+
+Example:
+
+    set challenge void
+    set challenge 5pt
+
+This command sets the challenge rule. The options are:
+
+void - Every play is validated before `commit` is accepted
+5pt - Challenged player gets 5 pts if their play is valid.
+10pt - Challenged player gets 10 pts if their play is valid.
+double - Challenger loses their turn if the challenged play is valid.
+single - There is no loss of turn if the challenged play is valid.
+
+In the bottom 4 cases, if the challenged play is invalid, the player who
+made the play always loses their turn. In void, it is impossible to make
+an invalid play.

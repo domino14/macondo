@@ -5,9 +5,8 @@ import (
 	"errors"
 	"io"
 
-	"os"
-
 	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/rs/zerolog/log"
 )
@@ -29,6 +28,10 @@ func compareMagicDawg(bytes [4]uint8) bool {
 // Reverse returns true if this is a "reverse" dawg
 func (s *SimpleDawg) Reverse() bool {
 	return s.reverse
+}
+
+func (s *SimpleDawg) Type() GenericDawgType {
+	return TypeDawg
 }
 
 func loadCommonDagStructure(stream io.Reader) ([]uint32, []alphabet.LetterSet,
@@ -59,27 +62,33 @@ func loadCommonDagStructure(stream io.Reader) ([]uint32, []alphabet.LetterSet,
 	return nodes, letterSets, alphabetArr, lexName
 }
 
-// LoadDawg loads a dawg from a file and returns a *SimpleDawg
-func LoadDawg(filename string) (*SimpleDawg, error) {
-	log.Debug().Msgf("Loading %v ...", filename)
-	file, err := os.Open(filename)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
+func ReadDawg(data io.Reader) (*SimpleDawg, error) {
 	var magicStr [4]uint8
-	binary.Read(file, binary.BigEndian, &magicStr)
+	binary.Read(data, binary.BigEndian, &magicStr)
 	if !compareMagicDawg(magicStr) {
+		log.Debug().Msgf("Magic number does not match")
 		return nil, errors.New("magic number does not match dawg or reverse dawg")
 	}
 	d := &SimpleDawg{}
 	if string(magicStr[:]) == gaddagmaker.ReverseDawgMagicNumber {
 		d.reverse = true
 	}
-	nodes, letterSets, alphabetArr, lexName := loadCommonDagStructure(file)
-	d.Nodes = nodes
-	d.LetterSets = letterSets
+	nodes, letterSets, alphabetArr, lexName := loadCommonDagStructure(data)
+	d.nodes = nodes
+	d.letterSets = letterSets
 	d.alphabet = alphabet.FromSlice(alphabetArr)
 	d.lexiconName = string(lexName)
 	return d, nil
+}
+
+// LoadDawg loads a dawg from a file and returns a *SimpleDawg
+func LoadDawg(filename string) (*SimpleDawg, error) {
+	log.Debug().Msgf("Loading %v ...", filename)
+	file, err := cache.Open(filename)
+	if err != nil {
+		log.Debug().Msgf("Could not load %v", filename)
+		return nil, err
+	}
+	defer file.Close()
+	return ReadDawg(file)
 }

@@ -4,21 +4,42 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/rs/zerolog/log"
+)
+
+type BackupMode int
+
+const (
+	// NoBackup never performs game backups. It can be used for autoplay
+	// that has absolutely no input.
+	NoBackup BackupMode = iota
+	// SimulationMode keeps a stack of game copies, using these for doing
+	// endgame and other types of simulations.
+	SimulationMode
+	// InteractiveGameplayMode keeps just one backup after every turn. This is needed
+	// in order to get challenges working, which would roll back the game to
+	// an earlier state if a word is challenged off.
+	InteractiveGameplayMode
 )
 
 // stateBackup is a subset of Game, meant only for backup purposes.
 type stateBackup struct {
 	board          *board.GameBoard
 	bag            *alphabet.Bag
-	playing        bool
+	playing        pb.PlayState
 	scorelessTurns int
 	onturn         int
 	turnnum        int
 	players        playerStates
 }
 
+func (g *Game) SetBackupMode(m BackupMode) {
+	g.backupMode = m
+}
+
 func (g *Game) backupState() {
+	if g.backupMode == InteractiveGameplayMode {
+		g.stackPtr = 0
+	}
 	st := g.stateStack[g.stackPtr]
 
 	st.board.CopyFrom(g.board)
@@ -26,9 +47,11 @@ func (g *Game) backupState() {
 	st.playing = g.playing
 	st.scorelessTurns = g.scorelessTurns
 	st.players.copyFrom(g.players)
-	st.onturn = g.onturn
-	st.turnnum = g.turnnum
-	g.stackPtr++
+	if g.backupMode == SimulationMode {
+		st.onturn = g.onturn
+		st.turnnum = g.turnnum
+		g.stackPtr++
+	}
 }
 
 func copyPlayers(ps playerStates) playerStates {
@@ -42,6 +65,7 @@ func copyPlayers(ps playerStates) playerStates {
 			},
 			points:      porig.points,
 			bingos:      porig.bingos,
+			turns:       porig.turns,
 			rack:        porig.rack.Copy(),
 			rackLetters: porig.rackLetters,
 		}
@@ -60,6 +84,7 @@ func (ps *playerStates) copyFrom(other playerStates) {
 		// XXX: Do I have to copy all the other auto-generated protobuf nonsense fields?
 		(*ps)[idx].points = other[idx].points
 		(*ps)[idx].bingos = other[idx].bingos
+		(*ps)[idx].turns = other[idx].turns
 	}
 }
 
@@ -70,7 +95,7 @@ func (g *Game) SetStateStackLength(length int) {
 		// allocations and GC.
 		g.stateStack[idx] = &stateBackup{
 			board:          g.board.Copy(),
-			bag:            g.bag.Copy(nil),
+			bag:            g.bag.Copy(),
 			playing:        g.playing,
 			scorelessTurns: g.scorelessTurns,
 			players:        copyPlayers(g.players),
@@ -84,14 +109,18 @@ func (g *Game) SetStateStackLength(length int) {
 // game state with every node which quickly becomes unfeasible.
 func (g *Game) UnplayLastMove() {
 	// Pop the last element, essentially.
-	b := g.stateStack[g.stackPtr-1]
-	g.stackPtr--
-
-	// Turn number and on turn do not need to be restored from backup
-	// as they're assumed to increase logically after every turn. Just
-	// decrease them.
-	g.turnnum--
-	g.onturn = (g.onturn + (len(g.players) - 1)) % len(g.players)
+	var b *stateBackup
+	if g.backupMode == SimulationMode {
+		b = g.stateStack[g.stackPtr-1]
+		g.stackPtr--
+		// Turn number and on turn do not need to be restored from backup
+		// as they're assumed to increase logically after every turn. Just
+		// decrease them.
+		g.turnnum--
+		g.onturn = (g.onturn + (len(g.players) - 1)) % len(g.players)
+	} else {
+		b = g.stateStack[0]
+	}
 
 	g.board.CopyFrom(b.board)
 	g.bag.CopyFrom(b.bag)
@@ -117,26 +146,25 @@ func (g *Game) ResetToFirstState() {
 	g.scorelessTurns = b.scorelessTurns
 }
 
-// Copy creates a deep copy of Game for the most part. The gaddag and
+// Copy creates a deep copy of Game for the most part. The lexicon and
 // alphabet are not deep-copied because these are not expected to change.
 // The history is not copied because this only changes with the main Game,
 // and not these copies.
-// The bag is copied with a NEW random source, as random sources are not thread-safe.
 func (g *Game) Copy() *Game {
 
-	randSeed, randSource := seededRandSource()
-	log.Debug().Msgf("Created new random seed for bag copy %v", randSeed)
-
 	copy := &Game{
-		onturn:         g.onturn,
-		turnnum:        g.turnnum,
-		board:          g.board.Copy(),
-		bag:            g.bag.Copy(randSource),
-		gaddag:         g.gaddag,
-		alph:           g.alph,
-		playing:        g.playing,
-		scorelessTurns: g.scorelessTurns,
-		players:        copyPlayers(g.players),
+		config:            g.config,
+		onturn:            g.onturn,
+		turnnum:           g.turnnum,
+		board:             g.board.Copy(),
+		bag:               g.bag.Copy(),
+		lexicon:           g.lexicon,
+		crossSetGen:       g.crossSetGen,
+		alph:              g.alph,
+		playing:           g.playing,
+		scorelessTurns:    g.scorelessTurns,
+		maxScorelessTurns: g.maxScorelessTurns,
+		players:           copyPlayers(g.players),
 		// stackPtr only changes during a sim, etc. This Copy should
 		// only be called at the beginning of everything.
 		stackPtr: 0,

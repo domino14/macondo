@@ -1,0 +1,13 @@
+set lexicon <lexicon> [distribution] - Set the lexicon and letter distribution
+
+  Example
+      set lexicon CSW19
+      set lexicon OSPS42 polish
+
+  See `help setlex` for more detail.
+
+set challenge <rule> - Set the current challenge rule
+
+  Valid options are void, 5pt, 10pt, double and single
+
+  See `help challengerule` for more detail.

@@ -1,6 +1,7 @@
 package game
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/domino14/macondo/alphabet"
@@ -22,9 +23,9 @@ func (g *Game) EventFromMove(m *move.Move) *pb.GameEvent {
 	curPlayer := g.curPlayer()
 
 	evt := &pb.GameEvent{
-		Nickname:   curPlayer.Nickname,
-		Cumulative: int32(curPlayer.points),
-		Rack:       m.FullRack(),
+		PlayerIndex: uint32(g.onturn),
+		Cumulative:  int32(curPlayer.points),
+		Rack:        m.FullRack(),
 	}
 
 	switch m.Action() {
@@ -33,10 +34,17 @@ func (g *Game) EventFromMove(m *move.Move) *pb.GameEvent {
 		evt.PlayedTiles = m.Tiles().UserVisible(m.Alphabet())
 		evt.Score = int32(m.Score())
 		evt.Type = pb.GameEvent_TILE_PLACEMENT_MOVE
+		evt.IsBingo = m.TilesPlayed() == 7
 		CalculateCoordsFromStringPosition(evt)
 
 	case move.MoveTypePass:
 		evt.Type = pb.GameEvent_PASS
+
+	case move.MoveTypeChallenge:
+		evt.Type = pb.GameEvent_CHALLENGE
+
+	case move.MoveTypeUnsuccessfulChallengePass:
+		evt.Type = pb.GameEvent_UNSUCCESSFUL_CHALLENGE_TURN_LOSS
 
 	case move.MoveTypeExchange:
 		evt.Exchanged = m.Tiles().UserVisible(m.Alphabet())
@@ -52,12 +60,12 @@ func (g *Game) EventFromMove(m *move.Move) *pb.GameEvent {
 	return evt
 }
 
-func (g *Game) endRackEvt(bonusPts int) *pb.GameEvent {
-	curPlayer := g.curPlayer()
-	otherPlayer := g.oppPlayer()
+func (g *Game) endRackEvt(pidx int, bonusPts int) *pb.GameEvent {
+	curPlayer := g.players[pidx]
+	otherPlayer := g.players[otherPlayer(pidx)]
 
 	evt := &pb.GameEvent{
-		Nickname:      curPlayer.Nickname,
+		PlayerIndex:   uint32(pidx),
 		Cumulative:    int32(curPlayer.points),
 		Rack:          otherPlayer.rack.String(),
 		EndRackPoints: int32(bonusPts),
@@ -70,11 +78,11 @@ func (g *Game) endRackPenaltyEvt(penalty int) *pb.GameEvent {
 	curPlayer := g.curPlayer()
 
 	evt := &pb.GameEvent{
-		Nickname:   curPlayer.Nickname,
-		Cumulative: int32(curPlayer.points),
-		Rack:       curPlayer.rack.String(),
-		LostScore:  int32(penalty),
-		Type:       pb.GameEvent_END_RACK_PENALTY,
+		PlayerIndex: uint32(g.onturn),
+		Cumulative:  int32(curPlayer.points),
+		Rack:        curPlayer.rack.String(),
+		LostScore:   int32(penalty),
+		Type:        pb.GameEvent_END_RACK_PENALTY,
 	}
 	return evt
 }
@@ -86,6 +94,7 @@ func modifyForPlaythrough(tiles alphabet.MachineWord, board *board.GameBoard,
 	// being played through is not specified as the playthrough marker
 	log.Debug().
 		Str("tiles", tiles.UserVisible(alphabet.EnglishAlphabet())).
+		Int("row", row).Int("col", col).Bool("vertical", vertical).
 		Msg("Modifying for playthrough")
 
 	currow := row
@@ -96,6 +105,10 @@ func modifyForPlaythrough(tiles alphabet.MachineWord, board *board.GameBoard,
 			currow = row + idx
 		} else {
 			curcol = col + idx
+		}
+		if currow > board.Dim()-1 || curcol > board.Dim()-1 {
+			log.Error().Int("currow", currow).Int("curcol", curcol).Msg("err-out-of-bounds")
+			return errors.New("play out of bounds of board")
 		}
 
 		if tiles[idx] != alphabet.PlayedThroughMarker {
@@ -122,35 +135,36 @@ func modifyForPlaythrough(tiles alphabet.MachineWord, board *board.GameBoard,
 }
 
 // MoveFromEvent generates a move from an event
-func MoveFromEvent(evt *pb.GameEvent, alph *alphabet.Alphabet, board *board.GameBoard) *move.Move {
+func MoveFromEvent(evt *pb.GameEvent, alph *alphabet.Alphabet, board *board.GameBoard) (*move.Move, error) {
 	var m *move.Move
 
 	rack, err := alphabet.ToMachineWord(evt.Rack, alph)
 	if err != nil {
 		log.Error().Err(err).Msg("")
-		return nil
+		return nil, err
 	}
 
+	log.Debug().Int("evt-type", int(evt.Type)).Msg("creating-move-from-event")
 	switch evt.Type {
 	case pb.GameEvent_TILE_PLACEMENT_MOVE:
 		// Calculate tiles, leave, tilesPlayed
 		tiles, err := alphabet.ToMachineWord(evt.PlayedTiles, alph)
 		if err != nil {
 			log.Error().Err(err).Msg("")
-			return nil
+			return nil, err
 		}
 
 		err = modifyForPlaythrough(tiles, board, evt.Direction == pb.GameEvent_VERTICAL,
 			int(evt.Row), int(evt.Column))
 		if err != nil {
 			log.Error().Err(err).Msg("")
-			return nil
+			return nil, err
 		}
 
 		leaveMW, err := Leave(rack, tiles)
 		if err != nil {
 			log.Error().Err(err).Msg("")
-			return nil
+			return nil, err
 		}
 		// log.Debug().Msgf("calculated leave %v from rack %v, tiles %v",
 		// 	leaveMW.UserVisible(alph), rack.UserVisible(alph),
@@ -163,16 +177,20 @@ func MoveFromEvent(evt *pb.GameEvent, alph *alphabet.Alphabet, board *board.Game
 		tiles, err := alphabet.ToMachineWord(evt.Exchanged, alph)
 		if err != nil {
 			log.Error().Err(err).Msg("")
-			return nil
+			return nil, err
 		}
 		leaveMW, err := Leave(rack, tiles)
 		if err != nil {
 			log.Error().Err(err).Msg("")
-			return nil
+			return nil, err
 		}
 		m = move.NewExchangeMove(tiles, leaveMW, alph)
+
 	case pb.GameEvent_PASS:
 		m = move.NewPassMove(rack, alph)
+
+	case pb.GameEvent_CHALLENGE:
+		m = move.NewChallengeMove(rack, alph)
 
 	case pb.GameEvent_CHALLENGE_BONUS:
 		m = move.NewBonusScoreMove(move.MoveTypeChallengeBonus,
@@ -203,12 +221,15 @@ func MoveFromEvent(evt *pb.GameEvent, alph *alphabet.Alphabet, board *board.Game
 		} else if evt.Type == pb.GameEvent_TIME_PENALTY {
 			mt = move.MoveTypeLostScoreOnTime
 		}
+		log.Debug().Int("mt", int(mt)).Msg("lost-score-move")
 		m = move.NewLostScoreMove(mt, rack, int(evt.LostScore))
+	case pb.GameEvent_UNSUCCESSFUL_CHALLENGE_TURN_LOSS:
+		m = move.NewUnsuccessfulChallengePassMove(rack, alph)
 	default:
 		log.Error().Msgf("Unhandled event %v", evt)
 
 	}
-	return m
+	return m, nil
 }
 
 // Leave calculates the leave from the rack and the made play.
@@ -243,43 +264,47 @@ func Leave(rack alphabet.MachineWord, play alphabet.MachineWord) (alphabet.Machi
 	return leave, nil
 }
 
-func summary(t *pb.GameTurn) string {
+func summary(players []*pb.PlayerInfo, evt *pb.GameEvent) string {
 	summary := ""
-	firstEvtPlacement := false
-	for _, evt := range t.Events {
-		switch evt.Type {
-		case pb.GameEvent_TILE_PLACEMENT_MOVE:
-			summary += fmt.Sprintf("%s played %s %s for %d pts from a rack of %s",
-				evt.Nickname, evt.Position, evt.PlayedTiles, evt.Score, evt.Rack)
-			firstEvtPlacement = true
+	who := players[evt.PlayerIndex].Nickname
 
-		case pb.GameEvent_PASS:
-			summary += fmt.Sprintf("%s passed, holding a rack of %s",
-				evt.Nickname, evt.Rack)
+	switch evt.Type {
+	case pb.GameEvent_TILE_PLACEMENT_MOVE:
+		summary = fmt.Sprintf("%s played %s %s for %d pts from a rack of %s",
+			who, evt.Position, evt.PlayedTiles, evt.Score, evt.Rack)
 
-		case pb.GameEvent_EXCHANGE:
-			summary += fmt.Sprintf("%s exchanged %s from a rack of %s",
-				evt.Nickname, evt.Exchanged, evt.Rack)
+	case pb.GameEvent_PASS:
+		summary = fmt.Sprintf("%s passed, holding a rack of %s",
+			who, evt.Rack)
 
-		case pb.GameEvent_CHALLENGE_BONUS:
-			summary += fmt.Sprintf(" (+%d)", evt.Bonus)
+	case pb.GameEvent_CHALLENGE:
+		summary = fmt.Sprintf("%s challenged, holding a rack of %s",
+			who, evt.Rack)
 
-		case pb.GameEvent_END_RACK_PTS:
-			summary += fmt.Sprintf(" (+%d from opponent rack)", evt.EndRackPoints)
+	case pb.GameEvent_UNSUCCESSFUL_CHALLENGE_TURN_LOSS:
+		summary = fmt.Sprintf("%s challenged unsuccessfully, holding a rack of %s",
+			who, evt.Rack)
 
-		case pb.GameEvent_PHONY_TILES_RETURNED:
-			if firstEvtPlacement {
-				summary += " (challenged off)"
-			}
+	case pb.GameEvent_EXCHANGE:
+		summary = fmt.Sprintf("%s exchanged %s from a rack of %s",
+			who, evt.Exchanged, evt.Rack)
 
-		case pb.GameEvent_TIME_PENALTY:
-			summary += fmt.Sprintf("%s lost %d on time", evt.Nickname, evt.LostScore)
+	case pb.GameEvent_CHALLENGE_BONUS:
+		summary = fmt.Sprintf(" (+%d)", evt.Bonus)
 
-		case pb.GameEvent_END_RACK_PENALTY:
-			summary += fmt.Sprintf("%s lost %d from their rack", evt.Nickname,
-				evt.LostScore)
-		}
+	case pb.GameEvent_END_RACK_PTS:
+		summary = fmt.Sprintf(" (+%d from opponent rack)", evt.EndRackPoints)
 
+	case pb.GameEvent_PHONY_TILES_RETURNED:
+		summary = fmt.Sprintf("(%s challenged off)", evt.PlayedTiles)
+
+	case pb.GameEvent_TIME_PENALTY:
+		summary = fmt.Sprintf("%s lost %d on time", who, evt.LostScore)
+
+	case pb.GameEvent_END_RACK_PENALTY:
+		summary = fmt.Sprintf("%s lost %d from their rack", who,
+			evt.LostScore)
 	}
+
 	return summary
 }

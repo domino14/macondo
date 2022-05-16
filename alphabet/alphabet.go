@@ -12,7 +12,7 @@ const (
 	// MaxAlphabetSize is the maximum size of the alphabet, and is also
 	// the "code" for the separation token.
 	// It should be below 64 so that it can fit in one 64-bit word.
-	// Gwich'in Scrabble has 62 separate letters, including the blank.
+	// Gwich'in has 62 separate letters, including the blank.
 	// Lojban has even more, but that's a weird constructed language.
 	MaxAlphabetSize = 50
 	// SeparationMachineLetter is the "MachineLetter" corresponding to
@@ -190,13 +190,15 @@ func ToMachineWord(word string, alph *Alphabet) (MachineWord, error) {
 
 // ToMachineLetters creates an array of MachineLetters from the given string.
 func ToMachineLetters(word string, alph *Alphabet) ([]MachineLetter, error) {
-	letters := make([]MachineLetter, len(word))
-	for idx, ch := range word {
+	letters := make([]MachineLetter, len([]rune(word)))
+	runeIdx := 0
+	for _, ch := range word {
 		ml, err := alph.Val(ch)
 		if err != nil {
 			return nil, err
 		}
-		letters[idx] = ml
+		letters[runeIdx] = ml
+		runeIdx++
 	}
 	return letters, nil
 }
@@ -219,7 +221,6 @@ func ToMachineOnlyString(word string, alph *Alphabet) (string, error) {
 type Alphabet struct {
 	// vals is a map of the actual physical letter rune (like 'A') to a
 	// number representing it, from 0 to MaxAlphabetSize.
-
 	vals map[rune]MachineLetter
 	// letters is a map of the 0 to MaxAlphabetSize value back to a letter.
 	letters map[MachineLetter]rune
@@ -312,6 +313,7 @@ func (a *Alphabet) genLetterSlice() {
 		a.vals[rn] = MachineLetter(idx)
 		a.letters[MachineLetter(idx)] = rn
 	}
+	log.Debug().Interface("letters", a.letters).Msg("alphabet-letters")
 }
 
 // Reconcile will take a populated alphabet, sort the glyphs, and re-index
@@ -359,14 +361,58 @@ func EnglishAlphabet() *Alphabet {
 	})
 }
 
+// FrenchAlphabet returns an alphabet that corresponds to the English
+// alphabet. This function should be used for testing. In production
+// we will load the alphabet from the gaddag.
+func FrenchAlphabet() *Alphabet {
+	return FromSlice([]uint32{
+		'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
+		'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
+	})
+}
+
+// GermanAlphabet returns an alphabet that corresponds to the German
+// alphabet. This function should be used for testing. In production
+// we will load the alphabet from the gaddag.
+func GermanAlphabet() *Alphabet {
+	return FromSlice([]uint32{
+		'A', 'Ä', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I',
+		'J', 'K', 'L', 'M', 'N', 'O', 'Ö', 'P', 'Q', 'R',
+		'S', 'T', 'U', 'Ü', 'V', 'W', 'X', 'Y', 'Z',
+	})
+}
+
+// NorwegianAlphabet returns an alphabet that corresponds to the Norwegian
+// alphabet. This function should be used for testing. In production
+// we will load the alphabet from the gaddag.
+// TODO: Reorder to follow Wolges sequence.
+func NorwegianAlphabet() *Alphabet {
+	return FromSlice([]uint32{
+		'A', 'Ä', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J',
+		'K', 'L', 'M', 'N', 'O', 'Ö', 'P', 'Q', 'R', 'S', 'T',
+		'U', 'Ü', 'V', 'W', 'X', 'Y', 'Z', 'Æ', 'Ø', 'Å',
+	})
+}
+
+// PolishAlphabet returns an alphabet that corresponds to the Polish
+// alphabet. This function should be used for testing. In production
+// we will load the alphabet from the gaddag.
+func PolishAlphabet() *Alphabet {
+	return FromSlice([]uint32{
+		'A', 'Ą', 'B', 'C', 'Ć', 'D', 'E', 'Ę', 'F', 'G', 'H',
+		'I', 'J', 'K', 'L', 'Ł', 'M', 'N', 'Ń', 'O', 'Ó', 'P',
+		'R', 'S', 'Ś', 'T', 'U', 'W', 'Y', 'Z', 'Ź', 'Ż',
+	})
+}
+
 // SpanishAlphabet returns an alphabet that corresponds to the Spanish
 // alphabet. This function should be used for testing. In production
 // we will load the alphabet from the gaddag.
 func SpanishAlphabet() *Alphabet {
 	return FromSlice([]uint32{
-		'1', '2', '3',
-		'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'L', 'M',
-		'N', 'Ñ', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
+		'A', 'B', 'C', '1', 'D', 'E', 'F', 'G', 'H', 'I',
+		'J', 'L', '2', 'M', 'N', 'Ñ', 'O', 'P', 'Q', 'R',
+		'3', 'S', 'T', 'U', 'V', 'X', 'Y', 'Z', '?',
 	})
 }
 

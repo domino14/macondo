@@ -10,7 +10,7 @@ its basic use case, without any arguments, `autoplay` will use two
 "exhaustive leave" players - i.e. computer players that use 1-to-6 tile
 leave values to calculate equity.
 
-The leave values can be found in `./data/strategy/default_english/leaves.idx.gz`.
+The leave values can be found in `./data/strategy/default_english/leaves.idx`.
 
 See [make_leaves_structure](/macondo/manual/make_leaves_structure.html) for how
 this file was created.
@@ -21,6 +21,8 @@ this file was created.
 about each game (the final score and who went first). `foo.txt` will contain more-in depth turn-per-turn data.
 
 `-lexicon CSW19` uses the CSW19 lexicon, for example
+
+`-letterdistribution norwegian` uses the norwegian letter distribution, for example
 
 `-leavefile1 filename.idx` sets the first bot's leavefile to `filename.idx`. Note that the `filename.idx` must be located inside the `./data/strategy/<lexicon>` directory in order to be found.
 
@@ -82,6 +84,20 @@ exhaustiveleave-2 Mean Score: 434.291584  Stdev: 59.496489
 ```
 
 This analysis shows that the bot that used Quackle leaves won around 50.7% of its games against Macondo. A binomial calculator shows that the chance
-that this is a fluke is around 0.00002. This is to be expected, as Macondo leave values are still being fine-tuned.
+that this is a fluke is around 0.00002.
+
+Note: Macondo values can now beat Quackle values around 50.6 or so % of the time, after fine-tuning our values. You can see the `/notebooks` directory of this repo for more details.
 
 We don't have a simming player working yet, but I think the difference might be even bigger once simulation is involved.
+
+### Different bot levels
+
+`autoplay -botcode1 LEVEL4_PROBABILISTIC -botcode2 HASTY_BOT -numgames 20000`
+
+This plays 20000 games between a Level 4 probabilistic bot and a HastyBot. "Probabilistic" bots miss more plays than HastyBot randomly; the weaker, the more plays it misses.
+
+You can see `macondo.proto` in the source for a list of the different bots.
+
+`autoplay -lexicon FRA20 -letterdistribution french -botcode1 LEVEL1_PROBABILISTIC -botcode2 HASTY_BOT`
+
+In order to specify a non-English lexicon, you must also specify the letter distribution, as in the example above.

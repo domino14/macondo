@@ -1,8 +1,8 @@
-setlex <lexicon> [distribution] - Set the lexicon and letter distribution
+set lexicon <lexicon> [distribution] - Set the lexicon and letter distribution
 
 Example
-    setlex CSW19
-    setlex OSPS42 polish
+    set lexicon CSW19
+    set lexicon OSPS42 polish
 
 The first example sets the lexicon to CSW19. The second example sets the
 lexicon to OSPS42. Note the distribution argument in the second example.
@@ -13,8 +13,11 @@ tile distribution, you must specify its name as the second argument.
 Acceptable letter distributions so far are:
 
     spanish
+    french
     english
     polish
+    german
+    norwegian
 
 More will be added in the future.
 
@@ -27,4 +30,4 @@ set the following environment variables before running this program:
     DEFAULT_LEXICON
     DEFAULT_LETTER_DISTRIBUTION
 
-For example: DEFAULT_LEXICON=CSW19 ./macondo
+For example: DEFAULT_LEXICON=CSW19 ./bin/shell

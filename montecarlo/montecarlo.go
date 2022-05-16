@@ -16,7 +16,9 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/domino14/macondo/ai/player"
+	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/rs/zerolog/log"
@@ -130,17 +132,24 @@ func (s *Simmer) SetLogStream(l io.Writer) {
 	s.logStream = l
 }
 
-func (s *Simmer) makeGameCopies() {
+func (s *Simmer) makeGameCopies() error {
 	log.Debug().Int("threads", s.threads).Msg("makeGameCopies")
 	s.gameCopies = []*game.Game{}
 	s.movegens = []movegen.MoveGenerator{}
+
+	gd, err := gaddag.Get(s.origGame.Config(), s.origGame.LexiconName())
+	if err != nil {
+		return err
+	}
+
 	for i := 0; i < s.threads; i++ {
 		s.gameCopies = append(s.gameCopies, s.origGame.Copy())
 		s.movegens = append(s.movegens,
-			movegen.NewGordonGenerator(s.gameCopies[i].Gaddag(),
-				s.gameCopies[i].Board(), s.gameCopies[i].Bag().LetterDistribution()))
+			movegen.NewGordonGenerator(gd, s.gameCopies[i].Board(),
+				s.gameCopies[i].Bag().LetterDistribution()))
 
 	}
+	return nil
 
 }
 
@@ -148,7 +157,7 @@ func (s *Simmer) resetStats(plies int, plays []*move.Move) {
 	s.iterationCount = 0
 	s.maxPlies = plies
 	for _, g := range s.gameCopies {
-		g.SetStateStackLength(plies)
+		g.SetStateStackLength(1)
 	}
 	s.initialSpread = s.gameCopies[0].CurrentSpread()
 	s.initialPlayer = s.gameCopies[0].PlayerOnTurn()
@@ -173,10 +182,14 @@ func (s *Simmer) Reset() {
 }
 
 // PrepareSim resets all the stats before a simulation.
-func (s *Simmer) PrepareSim(plies int, plays []*move.Move) {
-	s.makeGameCopies()
+func (s *Simmer) PrepareSim(plies int, plays []*move.Move) error {
+	err := s.makeGameCopies()
+	if err != nil {
+		return err
+	}
 	s.resetStats(plies, plays)
 	s.readyToSim = true
+	return nil
 }
 
 func (s *Simmer) Ready() bool {
@@ -322,17 +335,21 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 		leftover := float64(0.0)
 		// logIter.Plays = append(logIter.Plays)
 		// Play the move, and back up the game state.
-		// log.Debug().Msgf("Playing move %v", play)
-		s.gameCopies[thread].PlayMove(simmedPlay.play, true, false)
+		// log.Debug().Msgf("Playing move %v", play)'
+		// Set the backup mode to simulation mode only to back up the first move:
+		s.gameCopies[thread].SetBackupMode(game.SimulationMode)
+		s.gameCopies[thread].PlayMove(simmedPlay.play, false, 0)
+		s.gameCopies[thread].SetBackupMode(game.NoBackup)
+		// Further plies will NOT be backed up.
 		for ply := 0; ply < plies; ply++ {
 			// Each ply is a player taking a turn
 			onTurn := s.gameCopies[thread].PlayerOnTurn()
-			if s.gameCopies[thread].Playing() {
+			if s.gameCopies[thread].Playing() == pb.PlayState_PLAYING {
 				// Assume there are exactly two players.
 
 				bestPlay := s.bestStaticTurn(onTurn, thread)
 				// log.Debug().Msgf("Ply %v, Best play: %v", ply+1, bestPlay)
-				s.gameCopies[thread].PlayMove(bestPlay, false, false)
+				s.gameCopies[thread].PlayMove(bestPlay, false, 0)
 				// log.Debug().Msgf("Score is now %v", s.game.Score())
 				if s.logStream != nil {
 					plyChild = LogPlay{Play: bestPlay.ShortDescription(), Rack: bestPlay.FullRack(), Pts: bestPlay.Score()}

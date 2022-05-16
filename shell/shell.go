@@ -2,9 +2,11 @@ package shell
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"runtime"
@@ -17,10 +19,10 @@ import (
 	"github.com/chzyer/readline"
 	"github.com/rs/zerolog/log"
 
-	"github.com/domino14/macondo/ai/player"
+	airunner "github.com/domino14/macondo/ai/runner"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/automatic"
-	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/endgame/alphabeta"
 	"github.com/domino14/macondo/game"
@@ -29,7 +31,7 @@ import (
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
-	"github.com/domino14/macondo/strategy"
+	"github.com/domino14/macondo/runner"
 )
 
 const (
@@ -41,13 +43,58 @@ var (
 	errWrongOptionSyntax = errors.New("wrong format; all options need arguments")
 )
 
+// Options to configure the interactve shell
+type ShellOptions struct {
+	runner.GameOptions
+	lowercaseMoves bool
+}
+
+func NewShellOptions() *ShellOptions {
+	return &ShellOptions{
+		GameOptions: runner.GameOptions{
+			Lexicon:       nil,
+			ChallengeRule: pb.ChallengeRule_DOUBLE,
+		},
+		lowercaseMoves: false,
+	}
+}
+
+func (opts *ShellOptions) Show(key string) (bool, string) {
+	switch key {
+	case "lexicon":
+		return true, opts.Lexicon.ToDisplayString()
+	case "lower":
+		return true, fmt.Sprintf("%v", opts.lowercaseMoves)
+	case "challenge":
+		rule := runner.ShowChallengeRule(opts.ChallengeRule)
+		return true, fmt.Sprintf("%v", rule)
+	case "board":
+		return true, opts.BoardLayoutName
+	default:
+		return false, "No such option: " + key
+	}
+}
+
+func (opts *ShellOptions) ToDisplayText() string {
+	keys := []string{"lexicon", "challenge", "lower"}
+	out := strings.Builder{}
+	out.WriteString("Settings:\n")
+	for _, key := range keys {
+		_, val := opts.Show(key)
+		out.WriteString("  " + key + ": ")
+		out.WriteString(val + "\n")
+	}
+	return out.String()
+}
+
 type ShellController struct {
 	l        *readline.Instance
 	config   *config.Config
 	execPath string
 
-	game     *game.Game
-	aiplayer player.AIPlayer
+	options *ShellOptions
+
+	game *airunner.AIGameRunner
 
 	simmer        *montecarlo.Simmer
 	simCtx        context.Context
@@ -86,9 +133,17 @@ func filterInput(r rune) (rune, bool) {
 	return r, true
 }
 
-func showMessage(msg string, w io.Writer) {
+func writeln(msg string, w io.Writer) {
 	io.WriteString(w, msg)
 	io.WriteString(w, "\n")
+}
+
+func (sc *ShellController) showMessage(msg string) {
+	writeln(msg, sc.l.Stderr())
+}
+
+func (sc *ShellController) showError(err error) {
+	sc.showMessage("Error: " + err.Error())
 }
 
 func NewShellController(cfg *config.Config, execPath string) *ShellController {
@@ -105,25 +160,72 @@ func NewShellController(cfg *config.Config, execPath string) *ShellController {
 	if err != nil {
 		panic(err)
 	}
-	return &ShellController{l: l, config: cfg, execPath: execPath}
+	execPath = config.FindBasePath(execPath)
+	opts := NewShellOptions()
+	opts.SetDefaults(cfg)
+	return &ShellController{l: l, config: cfg, execPath: execPath, options: opts}
+}
+
+func (sc *ShellController) Set(key string, args []string) (string, error) {
+	var err error
+	var ret string
+	switch key {
+	case "lexicon":
+		if sc.IsPlaying() {
+			msg := "Cannot change the lexicon while a game is active"
+			err = errors.New(msg)
+		} else {
+			err = sc.options.SetLexicon(args)
+			if err == nil {
+				// Overwrite the config options since other parts of the code
+				// use these to determine the lexicon
+				sc.config.DefaultLexicon = sc.options.Lexicon.Name
+				sc.config.DefaultLetterDistribution = sc.options.Lexicon.Distribution
+			}
+			_, ret = sc.options.Show("lexicon")
+		}
+	case "board":
+		if sc.IsPlaying() {
+			msg := "Cannot change the board layout while a game is active"
+			err = errors.New(msg)
+		} else {
+			err = sc.options.SetBoardLayoutName(args[0])
+			_, ret = sc.options.Show("board")
+		}
+	case "challenge":
+		err = sc.options.SetChallenge(args[0])
+		_, ret = sc.options.Show("challenge")
+		// Allow the challenge rule to be changed in the middle of a game.
+		if err != nil && sc.game != nil {
+			sc.game.SetChallengeRule(sc.options.ChallengeRule)
+		}
+	case "lower":
+		val, err := strconv.ParseBool(args[0])
+		if err == nil {
+			sc.options.lowercaseMoves = val
+			ret = strconv.FormatBool(val)
+		} else {
+			err = errors.New("Valid options: 'true', 'false'")
+		}
+	default:
+		err = errors.New("No such option: " + key)
+	}
+	if err == nil {
+		return ret, nil
+	} else {
+		return "", err
+	}
 }
 
 func (sc *ShellController) initGameDataStructures() error {
-	strategy, err := strategy.NewExhaustiveLeaveStrategy(
-		sc.game.Gaddag().LexiconName(),
-		sc.game.Gaddag().GetAlphabet(),
-		sc.config.StrategyParamsPath, strategy.LeaveFilename)
-	if err != nil {
-		return err
-	}
-
-	sc.aiplayer = player.NewRawEquityPlayer(strategy)
-	sc.gen = movegen.NewGordonGenerator(sc.game.Gaddag(),
-		sc.game.Board(), sc.game.Bag().LetterDistribution())
-
 	sc.simmer = &montecarlo.Simmer{}
-	sc.simmer.Init(sc.game, sc.aiplayer)
+	sc.simmer.Init(&sc.game.Game, sc.game.AIPlayer())
+	sc.gen = sc.game.MoveGenerator()
 	return nil
+}
+
+func (sc *ShellController) IsPlaying() bool {
+	return sc.game != nil && sc.game.IsPlaying()
 }
 
 func (sc *ShellController) loadGCG(args []string) error {
@@ -148,13 +250,48 @@ func (sc *ShellController) loadGCG(args []string) error {
 		}
 		defer resp.Body.Close()
 
-		history, err = gcgio.ParseGCGFromReader(resp.Body)
+		history, err = gcgio.ParseGCGFromReader(sc.config, resp.Body)
+		if err != nil {
+			return err
+		}
+
+	} else if args[0] == "woogles" {
+		if len(args) < 2 {
+			return errors.New("need to provide a woogles game id")
+		}
+		idstr := args[1]
+		path := "https://woogles.io/twirp/game_service.GameMetadataService/GetGCG"
+
+		reader := strings.NewReader(`{"gameId": "` + idstr + `"}`)
+
+		resp, err := http.Post(path, "application/json", reader)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
+
+		type gcgstruct struct {
+			Gcg string `json:"gcg"`
+		}
+		var gcgObj gcgstruct
+
+		err = json.Unmarshal(body, &gcgObj)
+		if err != nil {
+			return err
+		}
+
+		history, err = gcgio.ParseGCGFromReader(sc.config, strings.NewReader(gcgObj.Gcg))
 		if err != nil {
 			return err
 		}
 
 	} else {
-		history, err = gcgio.ParseGCG(args[0])
+		history, err = gcgio.ParseGCG(sc.config, args[0])
 		if err != nil {
 			return err
 		}
@@ -166,17 +303,53 @@ func (sc *ShellController) loadGCG(args []string) error {
 		log.Info().Msgf("gcg file had no lexicon, so using default lexicon %v",
 			lexicon)
 	}
-	rules, err := game.NewGameRules(sc.config, board.CrosswordGameBoard,
-		lexicon, sc.config.DefaultLetterDistribution)
+	// ignore variant for now, until AI/bot can play other variants
+	boardLayout, ldName, _ := game.HistoryToVariant(history)
+	rules, err := airunner.NewAIGameRules(sc.config, boardLayout, lexicon, ldName)
 	if err != nil {
 		return err
 	}
-	sc.game, err = game.NewFromHistory(history, rules, 0)
+	g, err := game.NewFromHistory(history, rules, 0)
 	if err != nil {
 		return err
 	}
-	return sc.initGameDataStructures()
+	sc.game, err = airunner.NewAIGameRunnerFromGame(g, sc.config, pb.BotRequest_HASTY_BOT)
+	if err != nil {
+		return err
+	}
+	sc.game.SetBackupMode(game.InteractiveGameplayMode)
+	sc.game.SetStateStackLength(1)
 
+	// Set challenge rule to double by default. This can be overridden.
+	sc.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
+
+	return sc.initGameDataStructures()
+}
+
+func (sc *ShellController) loadCGP(cgpstr string) error {
+	g, err := cgp.ParseCGP(sc.config, cgpstr)
+	if err != nil {
+		return err
+	}
+	lexicon := g.History().Lexicon
+	if lexicon == "" {
+		lexicon = sc.config.DefaultLexicon
+		log.Info().Msgf("cgp file had no lexicon, so using default lexicon %v",
+			lexicon)
+	}
+	sc.game, err = airunner.NewAIGameRunnerFromGame(g, sc.config, pb.BotRequest_HASTY_BOT)
+	if err != nil {
+		return err
+	}
+	sc.game.SetBackupMode(game.InteractiveGameplayMode)
+	sc.game.SetStateStackLength(1)
+
+	// Set challenge rule to double by default. This can be overridden.
+	// XXX: can read from cgp file.
+	sc.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
+
+	sc.game.RecalculateBoard()
+	return sc.initGameDataStructures()
 }
 
 func (sc *ShellController) setToTurn(turnnum int) error {
@@ -191,13 +364,16 @@ func (sc *ShellController) setToTurn(turnnum int) error {
 	log.Debug().Msgf("Set to turn %v", turnnum)
 	sc.curPlayList = nil
 	sc.simmer.Reset()
-	sc.curTurnNum = turnnum
+	sc.curTurnNum = sc.game.Turn()
+	if sc.curTurnNum != turnnum {
+		return errors.New("unexpected turn number")
+	}
 
 	return nil
 }
 
 func moveTableHeader() string {
-	return "     Move                Leave  Score Equity\n"
+	return "     Move                Leave  Score Equity"
 }
 
 func MoveTableRow(idx int, m *move.Move, alph *alphabet.Alphabet) string {
@@ -212,26 +388,22 @@ func (sc *ShellController) printEndgameSequence(moves []*move.Move) {
 	}
 }
 
-func (sc *ShellController) genMovesAndDisplay(numPlays int) {
-
-	curRack := sc.game.RackFor(sc.game.PlayerOnTurn())
-	opp := (sc.game.PlayerOnTurn() + 1) % sc.game.NumPlayers()
-	oppRack := sc.game.RackFor(opp)
-
-	sc.gen.GenAll(curRack, sc.game.Bag().TilesRemaining() >= 7)
-
-	// Assign equity to plays, and only show the top ones.
-	sc.aiplayer.AssignEquity(sc.gen.Plays(), sc.game.Board(),
-		sc.game.Bag(), oppRack)
-	sc.curPlayList = sc.aiplayer.TopPlays(sc.gen.Plays(), numPlays)
-	sc.displayMoveList()
+func (sc *ShellController) genMovesAndDescription(numPlays int) string {
+	sc.genMoves(numPlays)
+	return sc.genDisplayMoveList()
 }
 
-func (sc *ShellController) displayMoveList() {
-	sc.showMessage(moveTableHeader())
+func (sc *ShellController) genMoves(numPlays int) {
+	sc.curPlayList = sc.game.GenerateMoves(numPlays)
+}
+
+func (sc *ShellController) genDisplayMoveList() string {
+	var s strings.Builder
+	s.WriteString(moveTableHeader() + "\n")
 	for i, p := range sc.curPlayList {
-		sc.showMessage(MoveTableRow(i, p, sc.game.Alphabet()))
+		s.WriteString(MoveTableRow(i, p, sc.game.Alphabet()) + "\n")
 	}
+	return s.String()
 }
 
 func endgameArgs(args []string) (plies int, deepening, simple, disablePruning bool, err error) {
@@ -288,22 +460,15 @@ func modeFromStr(mode string) (Mode, error) {
 	return InvalidMode, errors.New("mode " + mode + " is not a valid choice")
 }
 
-func (sc *ShellController) showMessage(msg string) {
-	showMessage(msg, sc.l.Stderr())
-}
-
-func (sc *ShellController) showError(err error) {
-	sc.showMessage("Error: " + err.Error())
-}
-
-func (sc *ShellController) modeSelector(mode string) {
-	m, err := modeFromStr(mode)
-	if err != nil {
-		sc.showError(err)
-		return
+func modeToStr(mode Mode) string {
+	switch mode {
+	case StandardMode:
+		return "standard"
+	case EndgameDebugMode:
+		return "endgamedebug"
+	default:
+		return "invalid"
 	}
-	sc.showMessage("Setting current mode to " + mode)
-	sc.curMode = m
 }
 
 func (sc *ShellController) addRack(rack string) error {
@@ -311,105 +476,102 @@ func (sc *ShellController) addRack(rack string) error {
 	if sc.game == nil {
 		return errors.New("please start a game first")
 	}
-	return sc.game.SetRackFor(sc.game.PlayerOnTurn(), alphabet.RackFromString(rack, sc.game.Alphabet()))
+	return sc.game.SetCurrentRack(rack)
 }
 
-func (sc *ShellController) addPlay(fields []string, commit bool) error {
-	var playerid int
-	var m *move.Move
-	var err error
-	// Figure out whose turn it is.
-
-	playerid = sc.game.PlayerOnTurn()
-
-	if len(fields) == 1 {
-		if strings.HasPrefix(fields[0], "#") {
-			if !commit {
-				// This option makes no sense with just an `add` command
-				return errors.New("cannot use this option with the `add` command, " +
-					"you may have wanted to use the `commit` command instead")
-			}
-			// Add play that was generated.
-			playID, err := strconv.Atoi(fields[0][1:])
-			if err != nil {
-				return err
-			}
-
-			idx := playID - 1 // since playID starts from 1
-			if idx < 0 || idx > len(sc.curPlayList)-1 {
-				return errors.New("play outside range")
-			}
-			m = sc.curPlayList[idx]
-		} else if fields[0] == "pass" {
-			rack := sc.game.RackFor(playerid)
-			m = move.NewPassMove(rack.TilesOn(), sc.game.Alphabet())
-		} else {
-			return errors.New("unrecognized arguments to `add`")
-		}
-
-	} else if len(fields) == 2 {
-		coords, word := fields[0], fields[1]
-
-		if coords == "exchange" {
-
-			rack := sc.game.RackFor(playerid)
-			tiles, err := alphabet.ToMachineWord(word, sc.game.Alphabet())
-			if err != nil {
-				return err
-			}
-			leaveMW, err := game.Leave(rack.TilesOn(), tiles)
-			if err != nil {
-				return err
-			}
-
-			m = move.NewExchangeMove(tiles, leaveMW, sc.game.Alphabet())
-		} else {
-
-			rack := sc.game.RackFor(playerid).String()
-			m, err = sc.game.CreateAndScorePlacementMove(coords, word, rack)
-			if err != nil {
-				return err
-			}
-		}
-
-	} else {
-		return errors.New("unrecognized arguments to `add`")
-	}
-
-	_, err = sc.game.ValidateMove(m)
-	if err != nil {
-		return err
-	}
-
-	if !commit {
-		opp := (sc.game.PlayerOnTurn() + 1) % sc.game.NumPlayers()
-		oppRack := sc.game.RackFor(opp)
-		sc.aiplayer.AssignEquity([]*move.Move{m}, sc.game.Board(), sc.game.Bag(),
-			oppRack)
-		sc.curPlayList = append(sc.curPlayList, m)
-		sort.Slice(sc.curPlayList, func(i, j int) bool {
-			return sc.curPlayList[j].Equity() < sc.curPlayList[i].Equity()
-		})
-		sc.displayMoveList()
-	} else {
-
-		// Play the actual move on the board, draw tiles, etc.
-		err = sc.game.PlayMove(m, false, true)
-		if err != nil {
-			return err
-		}
-		log.Debug().Msgf("Added turn at turn num %v", sc.curTurnNum)
-		sc.curTurnNum++
-		sc.curPlayList = nil
-		sc.simmer.Reset()
-		sc.showMessage(sc.game.ToDisplayText())
-
-	}
+func (sc *ShellController) addMoveToList(playerid int, m *move.Move) error {
+	opp := (playerid + 1) % sc.game.NumPlayers()
+	oppRack := sc.game.RackFor(opp)
+	sc.game.AssignEquity([]*move.Move{m}, oppRack)
+	sc.curPlayList = append(sc.curPlayList, m)
+	sort.Slice(sc.curPlayList, func(i, j int) bool {
+		return sc.curPlayList[j].Equity() < sc.curPlayList[i].Equity()
+	})
+	sc.showMessage(sc.genDisplayMoveList())
 	return nil
 }
 
+func (sc *ShellController) getMoveFromList(playerid int, play string) (*move.Move, error) {
+	// Add play that was generated.
+	playID, err := strconv.Atoi(play[1:])
+	if err != nil {
+		return nil, err
+	}
+
+	idx := playID - 1 // since playID starts from 1
+	if idx < 0 || idx > len(sc.curPlayList)-1 {
+		return nil, errors.New("play outside range")
+	}
+	return sc.curPlayList[idx], nil
+}
+
+func (sc *ShellController) commitMove(m *move.Move) error {
+	// Play the actual move on the board, draw tiles, etc.
+	err := sc.game.PlayMove(m, true, 0)
+	if err != nil {
+		return err
+	}
+	log.Debug().Msgf("Added turn at turn num %v", sc.curTurnNum)
+	sc.curTurnNum = sc.game.Turn()
+	sc.curPlayList = nil
+	sc.simmer.Reset()
+	sc.showMessage(sc.game.ToDisplayText())
+	return nil
+}
+
+func (sc *ShellController) parseAddMove(playerid int, fields []string) (*move.Move, error) {
+	// Check that the user hasn't confused "add" and
+	// "commit" to play a move from the list.
+	if len(fields) == 1 &&
+		strings.HasPrefix(fields[0], "#") {
+		errmsg := "cannot use this option with the `add` command, " +
+			"you may have wanted to use the `commit` command instead"
+		return nil, errors.New(errmsg)
+	}
+	return sc.game.ParseMove(playerid, sc.options.lowercaseMoves, fields)
+}
+
+func (sc *ShellController) parseCommitMove(playerid int, fields []string) (*move.Move, error) {
+	if len(fields) == 1 && strings.HasPrefix(fields[0], "#") {
+		return sc.getMoveFromList(playerid, fields[0])
+	}
+	// Other than the `commit #id` command, `commit` and
+	// `add` take the same arguments
+	return sc.parseAddMove(playerid, fields)
+}
+
+func (sc *ShellController) commitPlay(fields []string) error {
+	playerid := sc.game.PlayerOnTurn()
+	m, err := sc.parseCommitMove(playerid, fields)
+	if err != nil {
+		return err
+	}
+	return sc.commitMove(m)
+}
+
+func (sc *ShellController) addPlay(fields []string) error {
+	playerid := sc.game.PlayerOnTurn()
+	m, err := sc.parseAddMove(playerid, fields)
+	if err != nil {
+		return err
+	}
+	return sc.addMoveToList(playerid, m)
+}
+
+func (sc *ShellController) commitAIMove() error {
+	if !sc.IsPlaying() {
+		return errors.New("game is over")
+	}
+	sc.genMoves(15)
+	m := sc.curPlayList[0]
+	return sc.commitMove(m)
+}
+
 func (sc *ShellController) handleAutoplay(args []string, options map[string]string) error {
-	var logfile, lexicon, leavefile1, leavefile2, pegfile1, pegfile2 string
+	var logfile, lexicon, letterDistribution, leavefile1, leavefile2, pegfile1, pegfile2 string
+	var numgames int
+	var block bool
+	var botcode1, botcode2 pb.BotRequest_BotCode
 	if options["logfile"] == "" {
 		logfile = "/tmp/autoplay.txt"
 	} else {
@@ -419,6 +581,11 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 		lexicon = sc.config.DefaultLexicon
 	} else {
 		lexicon = options["lexicon"]
+	}
+	if options["letterdistribution"] == "" {
+		letterDistribution = sc.config.DefaultLetterDistribution
+	} else {
+		letterDistribution = options["letterdistribution"]
 	}
 	if options["leavefile1"] == "" {
 		leavefile1 = ""
@@ -440,6 +607,41 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 	} else {
 		pegfile2 = options["pegfile2"]
 	}
+	if options["botcode1"] == "" {
+		botcode1 = pb.BotRequest_HASTY_BOT
+	} else {
+		botcode1String := options["botcode1"]
+		botcode1Value, exists := pb.BotRequest_BotCode_value[botcode1String]
+		if !exists {
+			return fmt.Errorf("bot code %s does not exist", botcode1String)
+		}
+		botcode1 = pb.BotRequest_BotCode(botcode1Value)
+	}
+	if options["botcode2"] == "" {
+		botcode2 = pb.BotRequest_HASTY_BOT
+	} else {
+		botcode2String := options["botcode2"]
+		botcode2Value, exists := pb.BotRequest_BotCode_value[botcode2String]
+		if !exists {
+			return fmt.Errorf("bot code %s does not exist", botcode2String)
+		}
+		botcode2 = pb.BotRequest_BotCode(botcode2Value)
+	}
+
+	if options["numgames"] == "" {
+		numgames = 1e9
+	} else {
+		var err error
+		numgames, err = strconv.Atoi(options["numgames"])
+		if err != nil {
+			return err
+		}
+	}
+	if options["block"] == "" {
+		block = false
+	} else {
+		block = true
+	}
 
 	player1 := "exhaustiveleave"
 	player2 := player1
@@ -451,7 +653,6 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 			sc.gameRunnerCancel()
 			sc.gameRunnerRunning = false
 			return nil
-
 		}
 	} else if len(args) == 2 {
 		// It's player names
@@ -464,8 +665,9 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 
 	sc.showMessage("automatic game runner will log to " + logfile)
 	sc.gameRunnerCtx, sc.gameRunnerCancel = context.WithCancel(context.Background())
-	err := automatic.StartCompVCompStaticGames(sc.gameRunnerCtx, sc.config, 1e9, runtime.NumCPU(),
-		logfile, player1, player2, lexicon, leavefile1, leavefile2, pegfile1, pegfile2)
+	err := automatic.StartCompVCompStaticGames(sc.gameRunnerCtx, sc.config, numgames, block, runtime.NumCPU(),
+		logfile, player1, player2, lexicon, letterDistribution, leavefile1, leavefile2, pegfile1, pegfile2,
+		botcode1, botcode2)
 	if err != nil {
 		return err
 	}
@@ -519,270 +721,68 @@ func extractFields(line string) (*shellcmd, error) {
 	}, nil
 }
 
-func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) error {
+func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (*Response, error) {
 	cmd, err := extractFields(line)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	switch cmd.cmd {
-	case "new":
-
-		rules, err := game.NewGameRules(sc.config, board.CrosswordGameBoard,
-			sc.config.DefaultLexicon, sc.config.DefaultLetterDistribution)
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-
-		players := []*pb.PlayerInfo{
-			{Nickname: "arcadio", RealName: "José Arcadio Buendía"},
-			{Nickname: "úrsula", RealName: "Úrsula Iguarán Buendía"},
-		}
-
-		sc.game, err = game.NewGame(rules, players)
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-		sc.game.StartGame()
-		err = sc.initGameDataStructures()
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-		sc.curTurnNum = 0
-		sc.showMessage(sc.game.ToDisplayText())
-
-	case "load":
-		if cmd.args == nil {
-			sc.showError(errors.New("need arguments for load"))
-			break
-		}
-		err := sc.loadGCG(cmd.args)
-
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-		sc.curTurnNum = 0
-		sc.showMessage(sc.game.ToDisplayText())
-
-	case "n":
-		err := sc.setToTurn(sc.curTurnNum + 1)
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-		sc.showMessage(sc.game.ToDisplayText())
-	case "p":
-		err := sc.setToTurn(sc.curTurnNum - 1)
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-		sc.showMessage(sc.game.ToDisplayText())
-
-	case "s":
-		sc.showMessage(sc.game.ToDisplayText())
-
-	case "turn":
-		if cmd.args == nil {
-			sc.showError(errors.New("need argument for turn"))
-			break
-		}
-		t, err := strconv.Atoi(cmd.args[0])
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-		err = sc.setToTurn(t)
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-		sc.showMessage(sc.game.ToDisplayText())
-
-	case "rack":
-		if cmd.args == nil {
-			sc.showError(errors.New("need argument for rack"))
-			break
-		}
-
-		rack := cmd.args[0]
-
-		err := sc.addRack(strings.ToUpper(rack))
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-		sc.showMessage(sc.game.ToDisplayText())
-
-	case "setlex":
-		if cmd.args == nil {
-			sc.showError(errors.New("must set a lexicon"))
-			break
-		}
-		if sc.game == nil {
-			sc.showError(errors.New("please load or create a game first"))
-			break
-		}
-		letdist := "english"
-		if len(cmd.args) == 2 {
-			letdist = cmd.args[1]
-		}
-		lexname := cmd.args[0]
-		rules, err := game.NewGameRules(sc.config, board.CrosswordGameBoard,
-			lexname, letdist)
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-		err = sc.game.SetNewRules(rules)
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-		err = sc.initGameDataStructures()
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-
-	case "gen":
-
-		var numPlays int
-		var err error
-
-		if cmd.args == nil {
-			numPlays = 15
-		} else {
-			numPlays, err = strconv.Atoi(cmd.args[0])
-			if err != nil {
-				sc.showError(err)
-				break
-			}
-		}
-		if sc.game != nil {
-			sc.genMovesAndDisplay(numPlays)
-		}
-
-	case "autoplay":
-		err := sc.handleAutoplay(cmd.args, cmd.options)
-		if err != nil {
-			sc.showError(err)
-		}
-
-	case "sim":
-		err := sc.handleSim(cmd.args)
-		if err != nil {
-			sc.showError(err)
-		}
-
-	case "add":
-		err := sc.addPlay(cmd.args, false)
-		if err != nil {
-			sc.showError(err)
-		}
-	case "commit":
-		err := sc.addPlay(cmd.args, true)
-		if err != nil {
-			sc.showError(err)
-		}
-
-	case "list":
-		sc.displayMoveList()
-
-	case "endgame":
-		if sc.game == nil {
-			showMessage("please load a game first with the `load` command", sc.l.Stderr())
-			break
-		}
-		plies, deepening, simpleEval, disablePruning, err := endgameArgs(cmd.args)
-		if err != nil {
-			showMessage("Error: "+err.Error(), sc.l.Stderr())
-			break
-		}
-		showMessage(fmt.Sprintf("plies %v, deepening %v, simpleEval %v, pruningDisabled %v",
-			plies, deepening, simpleEval, disablePruning), sc.l.Stderr())
-
-		sc.game.SetStateStackLength(plies)
-
-		// clear out the last value of this endgame node; gc should
-		// delete the tree.
-		sc.curEndgameNode = nil
-		sc.endgameSolver = new(alphabeta.Solver)
-		err = sc.endgameSolver.Init(sc.gen, sc.game)
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-		sc.endgameSolver.SetIterativeDeepening(deepening)
-		sc.endgameSolver.SetSimpleEvaluator(simpleEval)
-		sc.endgameSolver.SetPruningDisabled(disablePruning)
-
-		showMessage(sc.game.ToDisplayText(), sc.l.Stderr())
-
-		val, seq, err := sc.endgameSolver.Solve(plies)
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-		sc.showMessage(fmt.Sprintf("Best sequence has a spread difference of %v", val))
-		sc.printEndgameSequence(seq)
-
 	case "exit":
 		sig <- syscall.SIGINT
-		return errors.New("sending quit signal")
+		return nil, errors.New("sending quit signal")
 	case "help":
-		if cmd.args == nil {
-			usage(sc.l.Stderr(), "standard", sc.execPath)
-		} else {
-			helptopic := cmd.args[0]
-			usageTopic(sc.l.Stderr(), helptopic, sc.execPath)
-		}
+		return sc.help(cmd)
+	case "new":
+		return sc.newGame(cmd)
+	case "load":
+		return sc.load(cmd)
+	case "n":
+		return sc.next(cmd)
+	case "p":
+		return sc.prev(cmd)
+	case "s":
+		return sc.show(cmd)
+	case "turn":
+		return sc.turn(cmd)
+	case "rack":
+		return sc.rack(cmd)
+	case "set":
+		return sc.set(cmd)
+	case "gen":
+		return sc.generate(cmd)
+	case "autoplay":
+		return sc.autoplay(cmd)
+	case "sim":
+		return sc.sim(cmd)
+	case "add":
+		return sc.add(cmd)
+	case "challenge":
+		return sc.challenge(cmd)
+	case "commit":
+		return sc.commit(cmd)
+	case "aiplay":
+		return sc.aiplay(cmd)
+	case "selftest":
+		return sc.selftest(cmd)
+	case "list":
+		return sc.list(cmd)
+	case "endgame":
+		return sc.endgame(cmd)
 	case "mode":
-		sc.modeSelector(cmd.args[0])
-
+		return sc.setMode(cmd)
 	case "export":
-		if cmd.args == nil {
-			sc.showError(errors.New("please provide a filename to save to"))
-			break
-		}
-		filename := cmd.args[0]
-		contents, err := gcgio.GameHistoryToGCG(sc.game.History(), true)
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-		f, err := os.Create(filename)
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-		log.Debug().Interface("game-history", sc.game.History()).Msg("converted game history to gcg")
-		f.WriteString(contents)
-		f.Close()
-		sc.showMessage("gcg written to " + filename)
-
+		return sc.export(cmd)
 	case "autoanalyze":
-		if cmd.args == nil {
-			sc.showError(errors.New("please provide a filename to analyze"))
-			break
-		}
-		filename := cmd.args[0]
-		analysis, err := automatic.AnalyzeLogFile(filename)
-		if err != nil {
-			sc.showError(err)
-			break
-		}
-		sc.showMessage(analysis)
-
+		return sc.autoAnalyze(cmd)
+	case "script":
+		return sc.script(cmd)
+	case "gid":
+		return sc.gid(cmd)
 	default:
-
-		log.Info().Msgf("command %v not found", strconv.Quote(cmd.cmd))
-
+		msg := fmt.Sprintf("command %v not found", strconv.Quote(cmd.cmd))
+		log.Info().Msg(msg)
+		return nil, errors.New(msg)
 	}
-	return nil
 }
 
 func (sc *ShellController) Loop(sig chan os.Signal) {
@@ -806,9 +806,11 @@ func (sc *ShellController) Loop(sig chan os.Signal) {
 		line = strings.TrimSpace(line)
 
 		if sc.curMode == StandardMode {
-			err := sc.standardModeSwitch(line, sig)
+			resp, err := sc.standardModeSwitch(line, sig)
 			if err != nil {
 				sc.showError(err)
+			} else if resp != nil {
+				sc.showMessage(resp.message)
 			}
 		} else if sc.curMode == EndgameDebugMode {
 			err := sc.endgameDebugModeSwitch(line, sig)
@@ -819,4 +821,21 @@ func (sc *ShellController) Loop(sig chan os.Signal) {
 
 	}
 	log.Debug().Msgf("Exiting readline loop...")
+}
+
+func (sc *ShellController) Execute(sig chan os.Signal, line string) {
+	defer sc.l.Close()
+	if sc.curMode == StandardMode {
+		resp, err := sc.standardModeSwitch(line, sig)
+		if err != nil {
+			sc.showError(err)
+		} else if resp != nil {
+			sc.showMessage(resp.message)
+		}
+	} else if sc.curMode == EndgameDebugMode {
+		err := sc.endgameDebugModeSwitch(line, sig)
+		if err != nil {
+			sc.showError(err)
+		}
+	}
 }

@@ -1,0 +1,451 @@
+{
+  "events": [
+    {
+      "rack": "DILOTWY",
+      "cumulative": 32,
+      "row": 7,
+      "column": 7,
+      "position": "8H",
+      "played_tiles": "DOWLY",
+      "score": 32,
+      "words_formed": [
+        "DOWLY"
+      ]
+    },
+    {
+      "rack": "DIMSTTW",
+      "type": 3,
+      "cumulative": 37,
+      "bonus": 5
+    },
+    {
+      "rack": "IOP",
+      "cumulative": 22,
+      "row": 8,
+      "column": 8,
+      "position": "9I",
+      "played_tiles": "POI",
+      "score": 22,
+      "words_formed": [
+        "POI",
+        "OP",
+        "WO",
+        "LI"
+      ],
+      "player_index": 1
+    },
+    {
+      "note": "K5 MID(LI)ST #knowledgemedium",
+      "rack": "DIMSTTW",
+      "cumulative": 62,
+      "row": 6,
+      "column": 6,
+      "position": "7G",
+      "played_tiles": "MITT",
+      "score": 25,
+      "words_formed": [
+        "MITT",
+        "ID",
+        "TOP",
+        "TWO"
+      ]
+    },
+    {
+      "rack": "EKZ",
+      "cumulative": 70,
+      "row": 5,
+      "column": 5,
+      "position": "6F",
+      "played_tiles": "ZEK",
+      "score": 48,
+      "words_formed": [
+        "ZEK",
+        "EM",
+        "KID"
+      ],
+      "player_index": 1
+    },
+    {
+      "rack": "BDGNOSW",
+      "cumulative": 86,
+      "row": 3,
+      "column": 11,
+      "direction": 1,
+      "position": "L4",
+      "played_tiles": "DOWN.",
+      "score": 24,
+      "words_formed": [
+        "DOWNY"
+      ]
+    },
+    {
+      "rack": "AEMT",
+      "cumulative": 98,
+      "row": 2,
+      "column": 10,
+      "direction": 1,
+      "position": "K3",
+      "played_tiles": "TAME",
+      "score": 28,
+      "words_formed": [
+        "TAME",
+        "AD",
+        "MO",
+        "EW"
+      ],
+      "player_index": 1
+    },
+    {
+      "rack": "?ABGLSU",
+      "cumulative": 167,
+      "row": 9,
+      "column": 3,
+      "position": "10D",
+      "played_tiles": "ALBUGoS",
+      "score": 81,
+      "is_bingo": true,
+      "words_formed": [
+        "ALBUGOS",
+        "TOPO",
+        "TWOS"
+      ]
+    },
+    {
+      "rack": "CGILLRS",
+      "type": 3,
+      "cumulative": 172,
+      "bonus": 5
+    },
+    {
+      "rack": "AHO",
+      "cumulative": 123,
+      "row": 10,
+      "column": 3,
+      "position": "11D",
+      "played_tiles": "HAO",
+      "score": 25,
+      "words_formed": [
+        "HAO",
+        "AH",
+        "LA",
+        "BO"
+      ],
+      "player_index": 1
+    },
+    {
+      "note": "Wow. 12C LIG is about 5 points better. I completely misevaluated the leave here. #tacticsSADDER",
+      "rack": "CGILLRS",
+      "cumulative": 200,
+      "row": 11,
+      "column": 2,
+      "position": "12C",
+      "played_tiles": "CIG",
+      "score": 28,
+      "words_formed": [
+        "CIG",
+        "AHI",
+        "LAG"
+      ]
+    },
+    {
+      "rack": "EJTU",
+      "cumulative": 161,
+      "row": 1,
+      "column": 9,
+      "direction": 1,
+      "position": "J2",
+      "played_tiles": "JUTE",
+      "score": 38,
+      "words_formed": [
+        "JUTE",
+        "UT",
+        "TAD",
+        "EMO"
+      ],
+      "player_index": 1
+    },
+    {
+      "rack": "LLNRSUY",
+      "cumulative": 210,
+      "row": 9,
+      "column": 7,
+      "direction": 1,
+      "position": "H10",
+      "played_tiles": ".ULLY",
+      "score": 10,
+      "words_formed": [
+        "GULLY"
+      ]
+    },
+    {
+      "rack": "EEEEEEE",
+      "type": 4,
+      "cumulative": 161,
+      "exchanged": "E",
+      "player_index": 1
+    },
+    {
+      "note": "Didn't know what to do here, but I'm fairly certain none of the equity plays are correct after an exchange 1. This does okay in a sim, 80% as opposed to 84% for the best equity plays, so I'm alright with this for the defensive value. If you see something I missed let me know.",
+      "rack": "AEHNORS",
+      "cumulative": 220,
+      "row": 12,
+      "column": 5,
+      "position": "13F",
+      "played_tiles": "HA.ON",
+      "score": 10,
+      "words_formed": [
+        "HALON"
+      ]
+    },
+    {
+      "rack": "ADEIRT",
+      "cumulative": 196,
+      "row": 13,
+      "column": 1,
+      "position": "14B",
+      "played_tiles": "DIETAR.",
+      "score": 35,
+      "words_formed": [
+        "DIETARY",
+        "HA",
+        "AR"
+      ],
+      "player_index": 1
+    },
+    {
+      "rack": "AEINORS",
+      "cumulative": 243,
+      "row": 14,
+      "position": "15A",
+      "played_tiles": "EINA",
+      "score": 23,
+      "words_formed": [
+        "EINA",
+        "DI",
+        "IN",
+        "EA"
+      ]
+    },
+    {
+      "rack": "O",
+      "cumulative": 208,
+      "row": 11,
+      "column": 2,
+      "direction": 1,
+      "position": "C12",
+      "played_tiles": ".O..",
+      "score": 12,
+      "words_formed": [
+        "COIN"
+      ],
+      "player_index": 1
+    },
+    {
+      "rack": "EOQRSUX",
+      "cumulative": 282,
+      "row": 8,
+      "column": 5,
+      "position": "9F",
+      "played_tiles": "OX",
+      "score": 39,
+      "words_formed": [
+        "OX",
+        "OBO",
+        "XU"
+      ]
+    },
+    {
+      "rack": "FIR",
+      "cumulative": 224,
+      "row": 2,
+      "column": 5,
+      "direction": 1,
+      "position": "F3",
+      "played_tiles": "FRI.",
+      "score": 16,
+      "words_formed": [
+        "FRIZ"
+      ],
+      "player_index": 1
+    },
+    {
+      "note": "4A QUARE(R) is a #visionSADDEST. I saw 4C QUA(R)ER but I was in such a defensive mindset I didn't think to hang anything in the triple line, especially after two 1 tile plays. I decided to put the S on this so she can't hook it and is forced to find eights.",
+      "rack": "AEQRRSU",
+      "cumulative": 316,
+      "row": 3,
+      "column": 1,
+      "position": "4B",
+      "played_tiles": "SQUA.ER",
+      "score": 34,
+      "words_formed": [
+        "SQUARER"
+      ]
+    },
+    {
+      "rack": "?DEENOP",
+      "cumulative": 298,
+      "row": 1,
+      "column": 1,
+      "direction": 1,
+      "position": "B2",
+      "played_tiles": "DE.PONEd",
+      "score": 74,
+      "is_bingo": true,
+      "words_formed": [
+        "DESPONED"
+      ],
+      "player_index": 1
+    },
+    {
+      "rack": "?DEENOP",
+      "type": 1,
+      "cumulative": 224,
+      "played_tiles": "DE.PONEd",
+      "lost_score": 74,
+      "player_index": 1
+    },
+    {
+      "rack": "CENNRRT",
+      "cumulative": 325,
+      "row": 2,
+      "column": 3,
+      "direction": 1,
+      "position": "D3",
+      "played_tiles": "C.NNER",
+      "score": 9,
+      "words_formed": [
+        "CUNNER"
+      ]
+    },
+    {
+      "rack": "AEIIRRT",
+      "type": 3,
+      "cumulative": 330,
+      "bonus": 5
+    },
+    {
+      "rack": "E",
+      "cumulative": 230,
+      "row": 5,
+      "column": 10,
+      "position": "6K",
+      "played_tiles": "..E",
+      "score": 6,
+      "words_formed": [
+        "EWE"
+      ],
+      "player_index": 1
+    },
+    {
+      "note": "I thought EWER didn't take an S. SAD! Although, even when EWERS is a word, I think this is still the best play.",
+      "rack": "AEIIRRT",
+      "cumulative": 355,
+      "column": 13,
+      "direction": 1,
+      "position": "N1",
+      "played_tiles": "AIRIER",
+      "score": 25,
+      "words_formed": [
+        "AIRIER",
+        "EWER"
+      ]
+    },
+    {
+      "rack": "F",
+      "cumulative": 239,
+      "row": 3,
+      "column": 13,
+      "position": "4N",
+      "played_tiles": ".F",
+      "score": 9,
+      "words_formed": [
+        "IF"
+      ],
+      "player_index": 1
+    },
+    {
+      "note": "I think I'm blocking the last line. #KNOWLEDGESADDEST",
+      "rack": "AEGISTV",
+      "cumulative": 376,
+      "row": 7,
+      "position": "8A",
+      "played_tiles": "VAI.",
+      "score": 21,
+      "words_formed": [
+        "VAIR"
+      ]
+    },
+    {
+      "rack": "?DEENOP",
+      "cumulative": 270,
+      "row": 5,
+      "column": 14,
+      "direction": 1,
+      "position": "O6",
+      "played_tiles": "sPEEDO",
+      "score": 31,
+      "words_formed": [
+        "SPEEDO",
+        "EWERS"
+      ],
+      "player_index": 1
+    },
+    {
+      "rack": "N",
+      "type": 3,
+      "cumulative": 275,
+      "bonus": 5,
+      "player_index": 1
+    },
+    {
+      "note": "Didn't know fricking EWERS. Feels like SADDEST but since it's only 5 points. #knowledgesad and also 1K VEG(A)S. I was completely out of time. #timeSADDEST",
+      "rack": "BEGSSTV",
+      "cumulative": 397,
+      "column": 12,
+      "position": "1M",
+      "played_tiles": "V.G",
+      "score": 21,
+      "words_formed": [
+        "VAG"
+      ]
+    },
+    {
+      "rack": "N",
+      "cumulative": 277,
+      "row": 10,
+      "column": 13,
+      "position": "11N",
+      "played_tiles": "N.",
+      "score": 2,
+      "words_formed": [
+        "NO"
+      ],
+      "player_index": 1
+    },
+    {
+      "rack": "BESST",
+      "type": 5,
+      "cumulative": 291,
+      "end_rack_points": 14,
+      "player_index": 1
+    }
+  ],
+  "players": [
+    {
+      "nickname": "jvc",
+      "real_name": "jvc"
+    },
+    {
+      "nickname": "Paula",
+      "real_name": "Paula"
+    }
+  ],
+  "version": 1,
+  "original_gcg": "#player1 jvc jvc\n#player2 Paula Paula\n\u003ejvc: DILOTWY 8H DOWLY +32 32\n\u003ejvc: DIMSTTW (challenge) +5 37\n\u003ePaula: IOP 9I POI +22 22\n\u003ejvc: DIMSTTW 7G MITT +25 62\n#note K5 MID(LI)ST #knowledgemedium\n\u003ePaula: EKZ 6F ZEK +48 70\n\u003ejvc: BDGNOSW L4 DOWN. +24 86\n\u003ePaula: AEMT K3 TAME +28 98\n\u003ejvc: ?ABGLSU 10D ALBUGoS +81 167\n\u003ejvc: CGILLRS (challenge) +5 172\n\u003ePaula: AHO 11D HAO +25 123\n\u003ejvc: CGILLRS 12C CIG +28 200\n#note Wow. 12C LIG is about 5 points better. I completely misevaluated the leave here. #tacticsSADDER\n\u003ePaula: EJTU J2 JUTE +38 161\n\u003ejvc: LLNRSUY H10 .ULLY +10 210\n\u003ePaula: EEEEEEE -E +0 161\n\u003ejvc: AEHNORS 13F HA.ON +10 220\n#note Didn't know what to do here, but I'm fairly certain none of the equity plays are correct after an exchange 1. This does okay in a sim, 80% as opposed to 84% for the best equity plays, so I'm alright with this for the defensive value. If you see something I missed let me know.\n\u003ePaula: ADEIRT 14B DIETAR. +35 196\n\u003ejvc: AEINORS 15A EINA +23 243\n\u003ePaula: O C12 .O.. +12 208\n\u003ejvc: EOQRSUX 9F OX +39 282\n\u003ePaula: FIR F3 FRI. +16 224\n\u003ejvc: AEQRRSU 4B SQUA.ER +34 316\n#note 4A QUARE(R) is a #visionSADDEST. I saw 4C QUA(R)ER but I was in such a defensive mindset I didn't think to hang anything in the triple line, especially after two 1 tile plays. I decided to put the S on this so she can't hook it and is forced to find eights.\n\u003ePaula: ?DEENOP B2 DE.PONEd +74 298\n\u003ePaula: ?DEENOP --  -74 224\n\u003ejvc: CENNRRT D3 C.NNER +9 325\n\u003ejvc: AEIIRRT (challenge) +5 330\n\u003ePaula: E 6K ..E +6 230\n\u003ejvc: AEIIRRT N1 AIRIER +25 355\n#note I thought EWER didn't take an S. SAD! Although, even when EWERS is a word, I think this is still the best play.\n\u003ePaula: F 4N .F +9 239\n\u003ejvc: AEGISTV 8A VAI. +21 376\n#note I think I'm blocking the last line. #KNOWLEDGESADDEST\n\u003ePaula: ?DEENOP O6 sPEEDO +31 270\n\u003ePaula: N (challenge) +5 275\n\u003ejvc: BEGSSTV 1M V.G +21 397\n#note Didn't know fricking EWERS. Feels like SADDEST but since it's only 5 points. #knowledgesad and also 1K VEG(A)S. I was completely out of time. #timeSADDEST\n\u003ePaula: N 11N N. +2 277\n\u003ePaula:  (BESST) +14 291",
+  "lexicon": "CSW19",
+  "play_state": 2,
+  "final_scores": [
+    397,
+    291
+  ]
+}

@@ -12,9 +12,14 @@ type alphagramtestpair struct {
 
 func TestAlphagram(t *testing.T) {
 
-	englishLD := EnglishLetterDistribution(EnglishAlphabet())
-	spanishLD := SpanishLetterDistribution(SpanishAlphabet())
-
+	englishLD, err := EnglishLetterDistribution(&DefaultConfig)
+	if err != nil {
+		t.Error(err)
+	}
+	spanishLD, err := SpanishLetterDistribution(&DefaultConfig)
+	if err != nil {
+		t.Error(err)
+	}
 	var utilsTests = []alphagramtestpair{
 		{"FIREFANG", englishLD, "AEFFGINR"},
 		{"QAJAQ", englishLD, "AAJQQ"},
