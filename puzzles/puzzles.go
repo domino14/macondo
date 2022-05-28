@@ -134,13 +134,13 @@ func CELOnlyPuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
 	evt := g.EventFromMove(m)
 	wordsFormed, err := g.ValidateMove(m)
 	if err != nil {
-		log.Debug().Err(err).Msg("cel-only-validation-error")
+		log.Err(err).Msg("cel-only-validation-error")
 		return false, pb.PuzzleTag_CEL_ONLY
 	}
 	evt.WordsFormed = convertToVisible(wordsFormed, g.Alphabet())
 	isCEL, err := isCELEvent(evt, g.History(), g.Config())
 	if err != nil {
-		log.Debug().Err(err).Msg("cel-only-phony-error")
+		log.Err(err).Msg("cel-only-phony-error")
 		return false, pb.PuzzleTag_CEL_ONLY
 	}
 	return isCEL, pb.PuzzleTag_CEL_ONLY
