@@ -14,14 +14,13 @@ import (
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/lexicon"
 	"github.com/domino14/macondo/move"
-	"github.com/lithammer/shortuuid"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
-	"lukechampine.com/frand"
 )
 
 const (
 	//IdentificationAuthority is the authority that gives out game IDs
-	IdentificationAuthority = "io.woogles"
+	IdentificationAuthority = "org.macondo"
 
 	MacondoCreation = "Created with Macondo"
 
@@ -49,7 +48,6 @@ type Game struct {
 
 	playing pb.PlayState
 
-	wentfirst         int
 	scorelessTurns    int
 	maxScorelessTurns int
 	onturn            int
@@ -66,9 +64,6 @@ type Game struct {
 
 	stateStack []*stateBackup
 	stackPtr   int
-	// if nextFirst is -1, first is determined randomly. Otherwise, first is
-	// set to nextFirst.
-	nextFirst int
 	// rules contains the original game rules passed in to create this game.
 	rules *GameRules
 }
@@ -121,7 +116,7 @@ func CalculateCoordsFromStringPosition(evt *pb.GameEvent) {
 	evt.Column = int32(col)
 }
 
-func newHistory(players playerStates, flipfirst bool) *pb.GameHistory {
+func newHistory(players playerStates) *pb.GameHistory {
 	his := &pb.GameHistory{}
 
 	playerInfo := make([]*pb.PlayerInfo, len(players))
@@ -132,21 +127,21 @@ func newHistory(players playerStates, flipfirst bool) *pb.GameHistory {
 	}
 	his.Players = playerInfo
 	his.IdAuth = IdentificationAuthority
-	his.Uid = shortuuid.New()[2:10] // It is up to the caller to check for duplication.
+	his.Uid = uuid.New().String()
 	his.Description = MacondoCreation
 	his.Events = []*pb.GameEvent{}
-	his.SecondWentFirst = flipfirst
 	his.LastKnownRacks = []string{"", ""}
 	return his
 }
 
 // NewGame is how one instantiates a brand new game.
+// playerinfo must be in the order of who goes first.
+// It is the caller's responsibility to alternate firsts.
 func NewGame(rules *GameRules, playerinfo []*pb.PlayerInfo) (*Game, error) {
 	game := &Game{}
 	game.letterDistribution = rules.LetterDistribution()
 	game.alph = game.letterDistribution.Alphabet()
 	game.backupMode = NoBackup
-	game.nextFirst = -1
 	game.board = rules.Board().Copy()
 	game.crossSetGen = rules.CrossSetGen()
 	game.lexicon = rules.Lexicon()
@@ -181,7 +176,7 @@ func NewFromHistory(history *pb.GameHistory, rules *GameRules, turnnum int) (*Ga
 	}
 	game.history = history
 	if history.Uid == "" {
-		history.Uid = shortuuid.New()
+		history.Uid = uuid.New().String()
 		history.IdAuth = IdentificationAuthority
 	}
 	if history.Description == "" {
@@ -204,25 +199,73 @@ func NewFromHistory(history *pb.GameHistory, rules *GameRules, turnnum int) (*Ga
 	return game, nil
 }
 
-// SetNextFirst sets the player going first to the passed-in value. This
-// will take effect the next time StartGame is called.
-func (g *Game) SetNextFirst(first int) {
-	g.nextFirst = first
+func NewFromSnapshot(rules *GameRules, players []*pb.PlayerInfo, lastKnownRacks []string,
+	scores []int, boardRows []string) (*Game, error) {
+
+	// This NewGame function copies the board from rules as well.
+	game, err := NewGame(rules, players)
+	if err != nil {
+		return nil, err
+	}
+
+	game.history = newHistory(game.players)
+
+	game.bag = game.letterDistribution.MakeBag()
+	for i := 0; i < game.NumPlayers(); i++ {
+		game.players[i].rack = alphabet.NewRack(game.alph)
+	}
+
+	playedLetters := []alphabet.MachineLetter{}
+	for i, row := range boardRows {
+		playedLetters = append(playedLetters,
+			game.board.SetRow(i, row, rules.LetterDistribution().Alphabet())...)
+	}
+
+	err = game.bag.RemoveTiles(playedLetters)
+	if err != nil {
+		return nil, err
+	}
+	game.history.LastKnownRacks = lastKnownRacks
+	// Set racks and tiles
+	racks := []*alphabet.Rack{
+		alphabet.RackFromString(game.history.LastKnownRacks[0], game.Alphabet()),
+		alphabet.RackFromString(game.history.LastKnownRacks[1], game.Alphabet()),
+	}
+	game.history.Lexicon = game.Lexicon().Name()
+	game.history.Variant = string(game.rules.Variant())
+	game.history.LetterDistribution = game.rules.LetterDistributionName()
+	game.history.BoardLayout = game.rules.BoardName()
+
+	// set racks for both players; this removes the relevant letters from the bag.
+	err = game.SetRacksForBoth(racks)
+	if err != nil {
+		return nil, err
+	}
+
+	// set scores
+	for i, s := range scores {
+		game.players[i].resetScore()
+		game.players[i].points = s
+	}
+	// onturn is 0 by default, which is always correct in this function, as
+	// the player to go next is listed first in the players/racks/scores.
+	game.playing = pb.PlayState_PLAYING
+	game.history.PlayState = game.playing
+
+	if game.bag.TilesRemaining() == 0 && (game.RackFor(0).NumTiles() == 0 || game.RackFor(1).NumTiles() == 0) {
+		game.playing = pb.PlayState_GAME_OVER
+		game.history.PlayState = game.playing
+		log.Info().Msg("this game is already over")
+	}
+
+	return game, nil
 }
 
 // StartGame starts a game anew, dealing out tiles to both players.
 func (g *Game) StartGame() {
 	g.Board().Clear()
 	g.bag = g.letterDistribution.MakeBag()
-	var goesfirst int
-	if g.nextFirst == -1 {
-		goesfirst = frand.Intn(2)
-		log.Debug().Msgf("randomly determined %v to go first", goesfirst)
-	} else {
-		goesfirst = g.nextFirst
-		log.Debug().Msgf("forcing first to %v", g.nextFirst)
-	}
-	g.history = newHistory(g.players, goesfirst == 1)
+	g.history = newHistory(g.players)
 	// Deal out tiles
 	for i := 0; i < g.NumPlayers(); i++ {
 		tiles, err := g.bag.Draw(7)
@@ -244,8 +287,7 @@ func (g *Game) StartGame() {
 	g.history.PlayState = g.playing
 	g.turnnum = 0
 	g.scorelessTurns = 0
-	g.onturn = goesfirst
-	g.wentfirst = goesfirst
+	g.onturn = 0
 	g.lastWordsFormed = nil
 }
 
@@ -350,6 +392,10 @@ func (g *Game) endOfGameCalcs(onturn int, addToHistory bool) {
 
 func (g *Game) SetMaxScorelessTurns(m int) {
 	g.maxScorelessTurns = m
+}
+
+func (g *Game) SetScorelessTurns(n int) {
+	g.scorelessTurns = n
 }
 
 // Convert the slice of MachineWord to user-visible, using the game's lexicon.
@@ -640,9 +686,6 @@ func (g *Game) PlayToTurn(turnnum int) error {
 	g.players.resetRacks()
 	g.turnnum = 0
 	g.onturn = 0
-	if g.history.SecondWentFirst {
-		g.onturn = 1
-	}
 	g.playing = pb.PlayState_PLAYING
 	g.history.PlayState = g.playing
 	var t int
@@ -725,18 +768,7 @@ func (g *Game) playTurn(t int) error {
 	// recorded turn on the board.
 	evt := g.history.Events[t]
 	log.Trace().Int("event-type", int(evt.Type)).Int("turn", t).Msg("playTurn")
-	// onturn should be based on the event nickname
-	found := false
-	for idx, p := range g.players {
-		if p.Nickname == evt.Nickname {
-			g.onturn = idx
-			found = true
-			break
-		}
-	}
-	if !found {
-		return fmt.Errorf("player not found: %v", evt.Nickname)
-	}
+	g.onturn = int(evt.PlayerIndex)
 
 	m, err := MoveFromEvent(evt, g.alph, g.board)
 	if err != nil {
@@ -944,6 +976,10 @@ func (g *Game) Board() *board.GameBoard {
 	return g.board
 }
 
+func (g *Game) SetBoard(b *board.GameBoard) {
+	g.board = b
+}
+
 func (g *Game) Turn() int {
 	return g.turnnum
 }
@@ -1001,7 +1037,7 @@ func (g *Game) SetHistory(h *pb.GameHistory) {
 }
 
 func (g *Game) FirstPlayer() *pb.PlayerInfo {
-	return &g.players[g.wentfirst].PlayerInfo
+	return &g.players[0].PlayerInfo
 }
 
 func (g *Game) RecalculateBoard() {

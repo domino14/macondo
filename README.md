@@ -12,3 +12,7 @@ Current master build status:
 To generate pb files, run this in the macondo directory:
 
 `protoc --go_out=gen --go_opt=paths=source_relative ./api/proto/macondo/macondo.proto`
+
+Make sure you have done
+
+`go install google.golang.org/protobuf/cmd/protoc-gen-go@latest`

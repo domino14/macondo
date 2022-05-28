@@ -22,6 +22,7 @@ import (
 	airunner "github.com/domino14/macondo/ai/runner"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/automatic"
+	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/endgame/alphabeta"
 	"github.com/domino14/macondo/game"
@@ -325,6 +326,32 @@ func (sc *ShellController) loadGCG(args []string) error {
 	return sc.initGameDataStructures()
 }
 
+func (sc *ShellController) loadCGP(cgpstr string) error {
+	g, err := cgp.ParseCGP(sc.config, cgpstr)
+	if err != nil {
+		return err
+	}
+	lexicon := g.History().Lexicon
+	if lexicon == "" {
+		lexicon = sc.config.DefaultLexicon
+		log.Info().Msgf("cgp file had no lexicon, so using default lexicon %v",
+			lexicon)
+	}
+	sc.game, err = airunner.NewAIGameRunnerFromGame(g, sc.config, pb.BotRequest_HASTY_BOT)
+	if err != nil {
+		return err
+	}
+	sc.game.SetBackupMode(game.InteractiveGameplayMode)
+	sc.game.SetStateStackLength(1)
+
+	// Set challenge rule to double by default. This can be overridden.
+	// XXX: can read from cgp file.
+	sc.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
+
+	sc.game.RecalculateBoard()
+	return sc.initGameDataStructures()
+}
+
 func (sc *ShellController) setToTurn(turnnum int) error {
 
 	if sc.game == nil {
@@ -346,7 +373,7 @@ func (sc *ShellController) setToTurn(turnnum int) error {
 }
 
 func moveTableHeader() string {
-	return "     Move                Leave  Score Equity\n"
+	return "     Move                Leave  Score Equity"
 }
 
 func MoveTableRow(idx int, m *move.Move, alph *alphabet.Alphabet) string {
@@ -361,20 +388,22 @@ func (sc *ShellController) printEndgameSequence(moves []*move.Move) {
 	}
 }
 
-func (sc *ShellController) genMovesAndDisplay(numPlays int) {
+func (sc *ShellController) genMovesAndDescription(numPlays int) string {
 	sc.genMoves(numPlays)
-	sc.displayMoveList()
+	return sc.genDisplayMoveList()
 }
 
 func (sc *ShellController) genMoves(numPlays int) {
 	sc.curPlayList = sc.game.GenerateMoves(numPlays)
 }
 
-func (sc *ShellController) displayMoveList() {
-	sc.showMessage(moveTableHeader())
+func (sc *ShellController) genDisplayMoveList() string {
+	var s strings.Builder
+	s.WriteString(moveTableHeader() + "\n")
 	for i, p := range sc.curPlayList {
-		sc.showMessage(MoveTableRow(i, p, sc.game.Alphabet()))
+		s.WriteString(MoveTableRow(i, p, sc.game.Alphabet()) + "\n")
 	}
+	return s.String()
 }
 
 func endgameArgs(args []string) (plies int, deepening, simple, disablePruning bool, err error) {
@@ -458,7 +487,7 @@ func (sc *ShellController) addMoveToList(playerid int, m *move.Move) error {
 	sort.Slice(sc.curPlayList, func(i, j int) bool {
 		return sc.curPlayList[j].Equity() < sc.curPlayList[i].Equity()
 	})
-	sc.displayMoveList()
+	sc.showMessage(sc.genDisplayMoveList())
 	return nil
 }
 
@@ -745,6 +774,10 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.export(cmd)
 	case "autoanalyze":
 		return sc.autoAnalyze(cmd)
+	case "script":
+		return sc.script(cmd)
+	case "gid":
+		return sc.gid(cmd)
 	default:
 		msg := fmt.Sprintf("command %v not found", strconv.Quote(cmd.cmd))
 		log.Info().Msg(msg)

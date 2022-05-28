@@ -1,7 +1,6 @@
 {
   "events": [
     {
-      "nickname": "cesar",
       "rack": "EFGHIMO",
       "cumulative": 26,
       "row": 7,
@@ -13,7 +12,7 @@
       "millis_remaining": 1194934
     },
     {
-      "nickname": "bottymcbotface",
+      "player_index": 1,
       "rack": "ACENNQR",
       "cumulative": 21,
       "row": 6,
@@ -26,7 +25,6 @@
       "millis_remaining": 1196937
     },
     {
-      "nickname": "cesar",
       "rack": "AEHIJMT",
       "cumulative": 55,
       "row": 6,
@@ -38,7 +36,6 @@
       "millis_remaining": 1187942
     },
     {
-      "nickname": "cesar",
       "rack": "AEHIJMT",
       "type": 1,
       "cumulative": 26,
@@ -47,7 +44,7 @@
       "millis_remaining": 1196900
     },
     {
-      "nickname": "bottymcbotface",
+      "player_index": 1,
       "rack": "ACEINNR",
       "cumulative": 43,
       "row": 7,
@@ -60,7 +57,6 @@
       "millis_remaining": 1196846
     },
     {
-      "nickname": "cesar",
       "rack": "AEHIJMT",
       "cumulative": 62,
       "row": 12,
@@ -73,7 +69,7 @@
       "millis_remaining": 1179257
     },
     {
-      "nickname": "bottymcbotface",
+      "player_index": 1,
       "rack": "ENNRSSU",
       "cumulative": 49,
       "row": 12,
@@ -85,7 +81,6 @@
       "millis_remaining": 1196802
     },
     {
-      "nickname": "cesar",
       "rack": "ABEIMTV",
       "cumulative": 79,
       "row": 13,
@@ -97,7 +92,6 @@
       "millis_remaining": 1151339
     },
     {
-      "nickname": "cesar",
       "rack": "ABEIMTV",
       "type": 1,
       "cumulative": 62,
@@ -106,7 +100,7 @@
       "millis_remaining": 1196758
     },
     {
-      "nickname": "bottymcbotface",
+      "player_index": 1,
       "rack": "AENRSSU",
       "cumulative": 63,
       "row": 13,
@@ -118,7 +112,6 @@
       "millis_remaining": 1196717
     },
     {
-      "nickname": "cesar",
       "rack": "ABEIMTV",
       "cumulative": 89,
       "row": 10,
@@ -131,7 +124,7 @@
       "millis_remaining": 1145634
     },
     {
-      "nickname": "bottymcbotface",
+      "player_index": 1,
       "rack": "AENRSTU",
       "cumulative": 67,
       "row": 8,
@@ -143,7 +136,6 @@
       "millis_remaining": 1196669
     },
     {
-      "nickname": "cesar",
       "rack": "ABEIKMN",
       "cumulative": 131,
       "row": 6,
@@ -155,7 +147,7 @@
       "millis_remaining": 1141154
     },
     {
-      "nickname": "bottymcbotface",
+      "player_index": 1,
       "rack": "AEEIRST",
       "cumulative": 81,
       "row": 10,
@@ -167,7 +159,6 @@
       "millis_remaining": 1196624
     },
     {
-      "nickname": "cesar",
       "rack": "AEGINNW",
       "cumulative": 199,
       "row": 8,
@@ -180,7 +171,7 @@
       "millis_remaining": 1137967
     },
     {
-      "nickname": "bottymcbotface",
+      "player_index": 1,
       "rack": "AAERRST",
       "cumulative": 85,
       "row": 6,
@@ -193,7 +184,6 @@
       "millis_remaining": 1196555
     },
     {
-      "nickname": "cesar",
       "rack": "AEEILOU",
       "cumulative": 214,
       "row": 2,
@@ -206,7 +196,7 @@
       "millis_remaining": 1126555
     },
     {
-      "nickname": "bottymcbotface",
+      "player_index": 1,
       "rack": "AEORRST",
       "cumulative": 91,
       "row": 8,
@@ -219,7 +209,6 @@
       "millis_remaining": 1196467
     },
     {
-      "nickname": "cesar",
       "rack": "ABDEPRR",
       "cumulative": 238,
       "row": 6,
@@ -232,7 +221,7 @@
       "millis_remaining": 1122684
     },
     {
-      "nickname": "bottymcbotface",
+      "player_index": 1,
       "rack": "AEERRST",
       "cumulative": 98,
       "row": 7,
@@ -245,7 +234,6 @@
       "millis_remaining": 1196385
     },
     {
-      "nickname": "cesar",
       "rack": "ADEORTV",
       "cumulative": 289,
       "row": 3,
@@ -258,7 +246,7 @@
       "millis_remaining": 1110253
     },
     {
-      "nickname": "bottymcbotface",
+      "player_index": 1,
       "rack": "AEMORST",
       "cumulative": 108,
       "row": 11,
@@ -270,7 +258,6 @@
       "millis_remaining": 1196277
     },
     {
-      "nickname": "cesar",
       "rack": "?AEHLRU",
       "cumulative": 317,
       "column": 11,
@@ -282,7 +269,6 @@
       "millis_remaining": 1089721
     },
     {
-      "nickname": "cesar",
       "rack": "?AEHLRU",
       "type": 1,
       "cumulative": 289,
@@ -291,7 +277,7 @@
       "millis_remaining": 1196229
     },
     {
-      "nickname": "bottymcbotface",
+      "player_index": 1,
       "rack": "AAERSST",
       "cumulative": 115,
       "row": 6,
@@ -304,7 +290,6 @@
       "millis_remaining": 1196098
     },
     {
-      "nickname": "cesar",
       "rack": "?AEHLRU",
       "cumulative": 324,
       "row": 9,
@@ -317,7 +302,7 @@
       "millis_remaining": 1086156
     },
     {
-      "nickname": "bottymcbotface",
+      "player_index": 1,
       "rack": "AEGRSST",
       "cumulative": 124,
       "row": 7,
@@ -330,7 +315,6 @@
       "millis_remaining": 1196012
     },
     {
-      "nickname": "cesar",
       "rack": "?DILLTZ",
       "cumulative": 334,
       "row": 5,
@@ -343,7 +327,7 @@
       "millis_remaining": 1063415
     },
     {
-      "nickname": "bottymcbotface",
+      "player_index": 1,
       "rack": "AEGRSTT",
       "cumulative": 127,
       "row": 6,
@@ -356,7 +340,6 @@
       "millis_remaining": 1195932
     },
     {
-      "nickname": "cesar",
       "rack": "?DLTYYZ",
       "cumulative": 351,
       "row": 7,
@@ -369,7 +352,6 @@
       "millis_remaining": 1034360
     },
     {
-      "nickname": "cesar",
       "rack": "?DLTYYZ",
       "type": 1,
       "cumulative": 334,
@@ -378,7 +360,7 @@
       "millis_remaining": 1195881
     },
     {
-      "nickname": "bottymcbotface",
+      "player_index": 1,
       "rack": "AEERSTT",
       "cumulative": 141,
       "row": 11,
@@ -390,7 +372,6 @@
       "millis_remaining": 1195817
     },
     {
-      "nickname": "cesar",
       "rack": "?DLTYYZ",
       "cumulative": 342,
       "row": 11,
@@ -402,7 +383,7 @@
       "millis_remaining": 1029054
     },
     {
-      "nickname": "bottymcbotface",
+      "player_index": 1,
       "rack": "?EEFRST",
       "cumulative": 156,
       "row": 7,
@@ -415,7 +396,6 @@
       "millis_remaining": 1195619
     },
     {
-      "nickname": "cesar",
       "rack": "?DTWYYZ",
       "cumulative": 360,
       "row": 13,
@@ -427,7 +407,7 @@
       "millis_remaining": 1025522
     },
     {
-      "nickname": "bottymcbotface",
+      "player_index": 1,
       "rack": "?EERSST",
       "cumulative": 170,
       "row": 10,
@@ -440,7 +420,6 @@
       "millis_remaining": 1195461
     },
     {
-      "nickname": "cesar",
       "rack": "?DDNTYZ",
       "cumulative": 370,
       "row": 6,
@@ -451,7 +430,7 @@
       "millis_remaining": 1021368
     },
     {
-      "nickname": "bottymcbotface",
+      "player_index": 1,
       "rack": "?AEORST",
       "cumulative": 229,
       "row": 2,
@@ -464,7 +443,6 @@
       "millis_remaining": 1195124
     },
     {
-      "nickname": "cesar",
       "rack": "?DDNTYZ",
       "cumulative": 437,
       "row": 1,
@@ -476,7 +454,7 @@
       "millis_remaining": 1013107
     },
     {
-      "nickname": "bottymcbotface",
+      "player_index": 1,
       "rack": "CEIOOPU",
       "cumulative": 238,
       "column": 6,
@@ -488,7 +466,6 @@
       "millis_remaining": 1195048
     },
     {
-      "nickname": "cesar",
       "rack": "DINTXY",
       "cumulative": 473,
       "column": 6,
@@ -499,7 +476,7 @@
       "millis_remaining": 1001888
     },
     {
-      "nickname": "bottymcbotface",
+      "player_index": 1,
       "rack": "OOU",
       "cumulative": 242,
       "row": 11,
@@ -512,7 +489,6 @@
       "millis_remaining": 1194958
     },
     {
-      "nickname": "cesar",
       "rack": "DNTY",
       "cumulative": 484,
       "row": 13,
@@ -524,28 +500,26 @@
       "millis_remaining": 997536
     },
     {
-      "nickname": "bottymcbotface",
+      "player_index": 1,
       "rack": "U",
       "type": 2,
       "cumulative": 242,
       "millis_remaining": 1194877
     },
     {
-      "nickname": "cesar",
       "rack": "NT",
       "type": 2,
       "cumulative": 484,
       "millis_remaining": 990943
     },
     {
-      "nickname": "bottymcbotface",
+      "player_index": 1,
       "rack": "U",
       "type": 2,
       "cumulative": 242,
       "millis_remaining": 1194798
     },
     {
-      "nickname": "cesar",
       "rack": "NT",
       "cumulative": 487,
       "row": 4,
@@ -557,14 +531,13 @@
       "millis_remaining": 986824
     },
     {
-      "nickname": "bottymcbotface",
+      "player_index": 1,
       "rack": "U",
       "type": 2,
       "cumulative": 242,
       "millis_remaining": 1194736
     },
     {
-      "nickname": "cesar",
       "rack": "U",
       "type": 5,
       "cumulative": 489,

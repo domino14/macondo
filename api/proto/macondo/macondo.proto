@@ -7,6 +7,7 @@ option go_package = "github.com/domino14/macondo/gen/api/proto/macondo";
 // to be an instantiation of a GCG file.
 message GameHistory {
   repeated GameEvent events = 1;
+  // players are in order of who went first.
   repeated PlayerInfo players = 2;
   int32 version = 3;
   string original_gcg = 4;
@@ -20,11 +21,7 @@ message GameHistory {
   repeated string last_known_racks = 10;
   // Add letter distribution (basically game name), board config, and more
   // in the future.
-
-  // If second_went_first is set, the second player in `players` actually
-  // went first. not that this does NOT change the order of `last_known_racks`,
-  // which is always in the order of the listed players!
-  bool second_went_first = 11;
+  bool second_went_first = 11 [ deprecated = true ];
   ChallengeRule challenge_rule = 12;
   PlayState play_state = 13;
   // Final scores of the game; the order is in the order of the listed players!
@@ -39,9 +36,11 @@ message GameHistory {
   // The board layout is just the name for the layout of the board.
   // It should have a sensible default, if blank.
   string board_layout = 17;
-  // The letter distribution is the name of the distribution of tiles used for this game.
-  // If blank, should default to "english".
+  // The letter distribution is the name of the distribution of tiles used for
+  // this game. If blank, should default to "english".
   string letter_distribution = 18;
+  // If provided, the starting CGP is a crossword-game position string.
+  string starting_cgp = 19;
 }
 
 enum PlayState {
@@ -82,7 +81,7 @@ message GameEvent {
     HORIZONTAL = 0;
     VERTICAL = 1;
   }
-  string nickname = 1;
+  string nickname = 1 [ deprecated = true ];
   string note = 2;
   string rack = 3;
   Type type = 4;
@@ -105,6 +104,9 @@ message GameEvent {
   // cross-words.
   repeated string words_formed = 17;
   int32 millis_remaining = 18;
+  // The player who played this move is encoded in player_index. This should
+  // be the index in GameHistory.players.
+  uint32 player_index = 19;
 }
 
 message PlayerInfo {
@@ -120,7 +122,6 @@ message PlayerInfo {
 //   int32 score = 2;
 //   string rack_letters = 3;
 // }
-
 
 // Interface for bots. Bots should accept a BotRequest and return a BotResponse.
 
@@ -153,9 +154,7 @@ message EvaluationRequest {
   // Later: evaluation type (static/sim/etc)
 }
 
-message Evaluation {
-  repeated SingleEvaluation play_eval = 1;
-}
+message Evaluation { repeated SingleEvaluation play_eval = 1; }
 
 message SingleEvaluation {
   double equity_loss = 1;
