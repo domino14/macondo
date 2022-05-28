@@ -172,3 +172,35 @@ message BotResponse {
   }
   Evaluation eval = 3;
 }
+
+// Puzzles
+
+enum PuzzleTag {
+  EQUITY = 0;
+  BINGO = 1;
+  ONLY_BINGO = 2;
+  BLANK_BINGO = 3;
+  NON_BINGO = 4;
+  POWER_TILE = 5;
+  BINGO_NINE_OR_ABOVE = 6;
+  CEL_ONLY = 7;
+}
+
+message PuzzleCreationResponse {
+  string game_id = 1;
+  int32 turn_number = 2;
+  GameEvent answer = 3;
+  repeated PuzzleTag tags = 4;
+  int32 bucket_index = 5;
+}
+
+message PuzzleBucket {
+  int32 index = 1;
+  int32 size = 2;
+  repeated PuzzleTag includes = 3;
+  repeated PuzzleTag excludes = 4;
+}
+
+message PuzzleGenerationRequest {
+  repeated PuzzleBucket buckets = 1;
+}

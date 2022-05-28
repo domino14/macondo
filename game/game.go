@@ -291,6 +291,10 @@ func (g *Game) StartGame() {
 	g.lastWordsFormed = nil
 }
 
+func (g *Game) SetCrossSetGen(gen cross_set.Generator) {
+	g.crossSetGen = gen
+}
+
 // ValidateMove validates the given move. It is meant to be used to validate
 // user input games (perhaps from live play or GCGs). It does not check the
 // validity of the words formed (unless the challenge rule is VOID),

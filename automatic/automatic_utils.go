@@ -29,23 +29,23 @@ func init() {
 }
 
 // CompVsCompStatic plays out a game to the end using best static turns.
-func (r *GameRunner) CompVsCompStatic() error {
+func (r *GameRunner) CompVsCompStatic(addToHistory bool) error {
 	err := r.Init("exhaustiveleave", "exhaustiveleave", "", "", "", "", pb.BotRequest_HASTY_BOT, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return err
 	}
-	r.playFullStatic()
+	r.playFullStatic(addToHistory)
 	log.Debug().Msgf("Game over. Score: %v - %v", r.game.PointsFor(0),
 		r.game.PointsFor(1))
 	return nil
 }
 
-func (r *GameRunner) playFullStatic() {
+func (r *GameRunner) playFullStatic(addToHistory bool) {
 	r.StartGame()
 	log.Debug().Msgf("playing full static, game %v", r.game.History().Uid)
 
 	for r.game.Playing() == pb.PlayState_PLAYING {
-		r.PlayBestStaticTurn(r.game.PlayerOnTurn())
+		r.PlayBestStaticTurn(r.game.PlayerOnTurn(), addToHistory)
 	}
 
 	if r.gamechan != nil {
@@ -114,7 +114,7 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 
 			IsPlaying.Add(1)
 			for range jobs {
-				r.playFullStatic()
+				r.playFullStatic(false)
 				CVCCounter.Add(1)
 			}
 			IsPlaying.Add(-1)

@@ -117,6 +117,10 @@ func (r *GameRunner) StartGame() {
 	r.game.StartGame()
 }
 
+func (r *GameRunner) Game() *game.Game {
+	return r.game
+}
+
 func (r *GameRunner) genBestStaticTurn(playerIdx int) *move.Move {
 	return player.GenBestStaticTurn(r.game, r.movegen, r.aiplayers[playerIdx], playerIdx)
 }
@@ -128,13 +132,13 @@ func (r *GameRunner) genBestMoveForBot(playerIdx int) *move.Move {
 
 // PlayBestStaticTurn generates the best static move for the player and
 // plays it on the board.
-func (r *GameRunner) PlayBestStaticTurn(playerIdx int) {
+func (r *GameRunner) PlayBestStaticTurn(playerIdx int, addToHistory bool) {
 	bestPlay := r.genBestMoveForBot(playerIdx)
 	// save rackLetters for logging.
 	rackLetters := r.game.RackLettersFor(playerIdx)
 	tilesRemaining := r.game.Bag().TilesRemaining()
 	nickOnTurn := r.game.NickOnTurn()
-	r.game.PlayMove(bestPlay, false, 0)
+	r.game.PlayMove(bestPlay, addToHistory, 0)
 
 	if r.logchan != nil {
 		r.logchan <- fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v,%v,%v,%.3f,%v,%v\n",
