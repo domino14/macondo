@@ -15,6 +15,7 @@ import (
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/matryer/is"
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
@@ -41,6 +42,7 @@ func TestMain(m *testing.M) {
 			}
 		}
 	}
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	os.Exit(m.Run())
 }
 
@@ -307,6 +309,7 @@ func puzzlesMatch(is *is.I, gcgfile string, puzzleGenerationReq *pb.PuzzleGenera
 	if err != nil {
 		panic(err)
 	}
+	log.Info().Str("gcgfile", gcgfile).Msg("checking if puzzles match")
 
 	// Set the challenge rule to five point
 	// so GCGs with challenges will load
