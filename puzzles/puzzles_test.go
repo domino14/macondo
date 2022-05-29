@@ -42,6 +42,16 @@ func TestMain(m *testing.M) {
 			}
 		}
 	}
+
+	// make sure ECWL.dawg exists for CEL puzzles
+	dawgPath := filepath.Join(DefaultConfig.LexiconPath, "dawg", "ECWL.dawg")
+	if _, err := os.Stat(dawgPath); os.IsNotExist(err) {
+		gaddagmaker.GenerateDawg(filepath.Join(DefaultConfig.LexiconPath, "ECWL.txt"), true, true, false)
+		err = os.Rename("out.dawg", dawgPath)
+		if err != nil {
+			panic(err)
+		}
+	}
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	os.Exit(m.Run())
 }
