@@ -229,18 +229,6 @@ func validatePuzzleBucket(pzlBucket *pb.PuzzleBucket, numberOfTags int) (string,
 	return string(be), nil
 }
 
-// XXX: Should be moved to some common/utilities package
-func intPow(n, m int64) int64 {
-	if m == 0 {
-		return 1
-	}
-	result := n
-	for i := int64(2); i <= m; i++ {
-		result *= n
-	}
-	return result
-}
-
 func moveLength(m *move.Move) int {
 	return len(m.Tiles())
 }
@@ -252,24 +240,6 @@ func moveIsBingo(m *move.Move) bool {
 func moveContainsBlank(m *move.Move) bool {
 	for _, ml := range m.Tiles() {
 		if ml >= alphabet.BlankOffset {
-			return true
-		}
-	}
-	return false
-}
-
-func moveContainsLetter(m *move.Move, letters string) bool {
-	mls, err := alphabet.ToMachineLetters(letters, m.Alphabet())
-	if err != nil {
-		log.Debug().Err(err).Msg("move-contains-letters-error")
-		return false
-	}
-	mlm := map[alphabet.MachineLetter]bool{}
-	for _, ml := range mls {
-		mlm[ml] = true
-	}
-	for _, moveTile := range m.Tiles() {
-		if mlm[moveTile] {
 			return true
 		}
 	}
