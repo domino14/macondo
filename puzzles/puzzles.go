@@ -121,7 +121,14 @@ func NonBingoPuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
 
 // XXX: Must be expanded to other languages
 func PowerTilePuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
-	return moveContainsLetter(moves[0], "XJZQ"), pb.PuzzleTag_POWER_TILE
+	alphabet := g.Alphabet()
+	pointValues := g.Bag().LetterDistribution().PointValues
+	for _, tile := range moves[0].Tiles() {
+		if pointValues[alphabet.Letter(tile)] > 6 {
+			return true, pb.PuzzleTag_POWER_TILE
+		}
+	}
+	return false, pb.PuzzleTag_POWER_TILE
 }
 
 func BingoNineOrAbovePuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
@@ -178,9 +185,10 @@ func validatePuzzleGenerationRequest(req *pb.PuzzleGenerationRequest) error {
 	if req.Buckets == nil {
 		return errors.New("buckets are nil in puzzle generation request")
 	}
-	bucketEncryptions := map[int]bool{}
+	bucketEncryptions := map[string]bool{}
+	numberOfTags := len(pb.PuzzleTag_name)
 	for idx, bucket := range req.Buckets {
-		be, err := validatePuzzleBucket(bucket)
+		be, err := validatePuzzleBucket(bucket, numberOfTags)
 		if err != nil {
 			return fmt.Errorf("error for bucket %d: %s", idx, err.Error())
 		}
@@ -192,7 +200,7 @@ func validatePuzzleGenerationRequest(req *pb.PuzzleGenerationRequest) error {
 	return nil
 }
 
-func validatePuzzleBucket(pzlBucket *pb.PuzzleBucket) (int, error) {
+func validatePuzzleBucket(pzlBucket *pb.PuzzleBucket, numberOfTags int) (string, error) {
 	// This function checks that tags appear at most once
 	// across the Includes and Excludes fields. If the bucket
 	// is valid, it returns the bucket encryption.
@@ -201,35 +209,24 @@ func validatePuzzleBucket(pzlBucket *pb.PuzzleBucket) (int, error) {
 	// number where the digit in the int(tag) place is
 	// 2 if the tag must be included, 1 if the tag must
 	// be excluded, and 0 if the tag has no conditions.
-	res := 0
+
+	be := make([]byte, numberOfTags)
 	tagValidationMap := map[pb.PuzzleTag]bool{}
 	for _, tag := range pzlBucket.Includes {
 		if tagValidationMap[tag] {
-			return -1, fmt.Errorf("invalid puzzle bucket, tag %s appears more than once", tag.String())
+			return "", fmt.Errorf("invalid puzzle bucket, tag %s appears more than once", tag.String())
 		}
 		tagValidationMap[tag] = true
-		res += intPow(3, int(tag)) * 2
+		be[int(tag)] = 2
 	}
 	for _, tag := range pzlBucket.Excludes {
 		if tagValidationMap[tag] {
-			return -1, fmt.Errorf("invalid puzzle bucket, tag %s appears more than once", tag.String())
+			return "", fmt.Errorf("invalid puzzle bucket, tag %s appears more than once", tag.String())
 		}
 		tagValidationMap[tag] = true
-		res += intPow(3, int(tag)) * 1
+		be[int(tag)] = 1
 	}
-	return res, nil
-}
-
-// XXX: Should be moved to some common/utilities package
-func intPow(n, m int) int {
-	if m == 0 {
-		return 1
-	}
-	result := n
-	for i := 2; i <= m; i++ {
-		result *= n
-	}
-	return result
+	return string(be), nil
 }
 
 func moveLength(m *move.Move) int {
@@ -243,24 +240,6 @@ func moveIsBingo(m *move.Move) bool {
 func moveContainsBlank(m *move.Move) bool {
 	for _, ml := range m.Tiles() {
 		if ml >= alphabet.BlankOffset {
-			return true
-		}
-	}
-	return false
-}
-
-func moveContainsLetter(m *move.Move, letters string) bool {
-	mls, err := alphabet.ToMachineLetters(letters, m.Alphabet())
-	if err != nil {
-		log.Debug().Err(err).Msg("move-contains-letters-error")
-		return false
-	}
-	mlm := map[alphabet.MachineLetter]bool{}
-	for _, ml := range mls {
-		mlm[ml] = true
-	}
-	for _, moveTile := range m.Tiles() {
-		if mlm[moveTile] {
 			return true
 		}
 	}
