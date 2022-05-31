@@ -540,7 +540,7 @@ func ParseGCGFromReader(cfg *config.Config, reader io.Reader) (*pb.GameHistory, 
 			// We are making the challenge rule anything but VOID, which would
 			// check the validity of every play.
 			ChallengeRule: pb.ChallengeRule_SINGLE,
-			Version:       1},
+			Version:       game.CurrentGameHistoryVersion},
 	}
 	originalGCG := ""
 

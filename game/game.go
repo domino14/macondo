@@ -27,7 +27,8 @@ const (
 	ExchangeLimit = 7
 	RackTileLimit = 7
 
-	DefaultMaxScorelessTurns = 6
+	DefaultMaxScorelessTurns  = 6
+	CurrentGameHistoryVersion = 2
 )
 
 // Game is the actual internal game structure that controls the entire
@@ -131,6 +132,7 @@ func newHistory(players playerStates) *pb.GameHistory {
 	his.Description = MacondoCreation
 	his.Events = []*pb.GameEvent{}
 	his.LastKnownRacks = []string{"", ""}
+	his.Version = CurrentGameHistoryVersion
 	return his
 }
 
