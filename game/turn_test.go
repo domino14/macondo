@@ -40,6 +40,7 @@ func TestEventFromMove(t *testing.T) {
 	evt := g.EventFromMove(m)
 
 	is.Equal(evt, &pb.GameEvent{
+		Nickname:    "botty",
 		Cumulative:  0,
 		Rack:        "?EGKMNO",
 		Exchanged:   "?EGKMNO",
