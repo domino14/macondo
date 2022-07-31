@@ -95,7 +95,7 @@ func (els ExhaustiveLeaveStrategy) Equity(play *move.Move, board *board.GameBoar
 	// Use global placement and endgame adjustments; this is only when
 	// not overriding this with an endgame player.
 	if board.IsEmpty() {
-		otherAdjustments += placementAdjustment(play)
+		otherAdjustments += placementAdjustment(play, board)
 	}
 
 	if bag.TilesRemaining() > 0 {
