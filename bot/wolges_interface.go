@@ -1,10 +1,20 @@
 package bot
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io/ioutil"
+	"net/http"
 	"strings"
+	"time"
 
+	airunner "github.com/domino14/macondo/ai/runner"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
+	"github.com/domino14/macondo/move"
+	"github.com/rs/zerolog/log"
 )
 
 // This file is an interface for `wolges` and its relevant projects.
@@ -25,9 +35,20 @@ type WolgesAnalyzePayload struct {
 	Rack    []int   `json:"rack"`
 	Board   [][]int `json:"board"`
 	Lexicon string  `json:"lexicon"`
-	Leave   string  `json:"string"`
+	Leave   string  `json:"leave"`
 	Rules   string  `json:"rules"`
 	Count   int     `json:"count"`
+}
+
+type WolgesAnalyzeResponse []struct {
+	Equity float64 `json:"equity"`
+	Action string  `json:"action"`
+	Tiles  []int   `json:"tiles"` // used for exchange. If empty it is a pass.
+	Down   bool    `json:"down"`
+	Lane   int     `json:"lane"`
+	Idx    int     `json:"idx"`
+	Word   []int   `json:"word"`
+	Score  int     `json:"score"`
 }
 
 func englishLabelToNum(c rune) int {
@@ -80,7 +101,7 @@ func labelToNumFor(ld string) func(rune) int {
 	return englishLabelToNum
 }
 
-func wolgesAnalyze(cfg *config.Config, g *game.Game) {
+func wolgesAnalyze(cfg *config.Config, g *airunner.AIGameRunner) ([]*move.Move, error) {
 	// cfg.WolgesAwsmURL
 	// convert game to the needed data structure
 	dim := g.Board().Dim()
@@ -140,9 +161,34 @@ func wolgesAnalyze(cfg *config.Config, g *game.Game) {
 		wap.Rack = append(wap.Rack, labelToNum(c))
 	}
 
-	// XXX:How does wolges handle pass?
-	wap.Count = 1
+	wap.Count = 30
 
+	bts, err := json.Marshal(wap)
+	if err != nil {
+		return nil, err
+	}
+	log.Debug().Str("payload", string(bts)).Msg("sending-to-wolges")
 	// Now let's send a request.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequest("POST", cfg.WolgesAwsmURL+"/analyze", bytes.NewReader(bts))
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req.WithContext(ctx))
+	if err != nil {
+		return nil, err
+	}
+	readbts, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	r := &WolgesAnalyzeResponse{}
+	err = json.Unmarshal(readbts, r)
+	if err != nil {
+		return nil, err
+	}
 
+	log.Info().Interface("r", r).Msg("from-wolges")
+	return nil, errors.New("not-implemented")
 }
