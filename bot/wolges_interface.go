@@ -1,0 +1,148 @@
+package bot
+
+import (
+	"strings"
+
+	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/game"
+)
+
+// This file is an interface for `wolges` and its relevant projects.
+// See github.com/andy-k/wolges
+//     github.com/andy-k/wolges-wasm
+//     github.com/andy-k/wolges-awsm
+
+// see analyzer.tsx in liwords repo to see where a lot of this conversion
+// code comes from.
+
+// Wolges ordering:
+var GermanTiles = strings.Split("AÄBCDEFGHIJKLMNOÖPQRSTUÜVWXYZ", "")
+var GermanBlankTiles = strings.Split("aäbcdefghijklmnoöpqrstuüvwxyz", "")
+var NorwegianTiles = strings.Split("ABCDEFGHIJKLMNOPQRSTUVWXYÜZÆÄØÖÅ", "")
+var NorwegianBlankTiles = strings.Split("abcdefghijklmnopqrstuvwxyüzæäøöå", "")
+
+type WolgesAnalyzePayload struct {
+	Rack    []int   `json:"rack"`
+	Board   [][]int `json:"board"`
+	Lexicon string  `json:"lexicon"`
+	Leave   string  `json:"string"`
+	Rules   string  `json:"rules"`
+	Count   int     `json:"count"`
+}
+
+func englishLabelToNum(c rune) int {
+	if c >= 'A' && c <= 'Z' {
+		return int(c - 0x40)
+	}
+	if c >= 'a' && c <= 'z' {
+		return -int(c - 0x60)
+	}
+	return 0
+}
+
+func germanLabelToNum(c rune) int {
+	for i := 0; i < len(GermanTiles); i++ {
+		if string(c) == GermanTiles[i] {
+			return i + 1
+		}
+	}
+	for i := 0; i < len(GermanBlankTiles); i++ {
+		if string(c) == GermanBlankTiles[i] {
+			return -(i + 1)
+		}
+	}
+	return 0
+}
+
+func norwegianLabelToNum(c rune) int {
+	for i := 0; i < len(NorwegianTiles); i++ {
+		if string(c) == NorwegianTiles[i] {
+			return i + 1
+		}
+	}
+	for i := 0; i < len(NorwegianBlankTiles); i++ {
+		if string(c) == NorwegianBlankTiles[i] {
+			return -(i + 1)
+		}
+	}
+	return 0
+}
+
+func labelToNumFor(ld string) func(rune) int {
+	switch ld {
+	case "english":
+		return englishLabelToNum
+	case "german":
+		return germanLabelToNum
+	case "norwegian":
+		return norwegianLabelToNum
+	}
+	return englishLabelToNum
+}
+
+func wolgesAnalyze(cfg *config.Config, g *game.Game) {
+	// cfg.WolgesAwsmURL
+	// convert game to the needed data structure
+	dim := g.Board().Dim()
+
+	// there's some boards in this house
+	wap := WolgesAnalyzePayload{}
+	// assume square board.
+	wap.Board = make([][]int, dim)
+	for i := 0; i < dim; i++ {
+		wap.Board[i] = make([]int, dim)
+	}
+
+	ourRack := g.RackFor(g.PlayerOnTurn())
+
+	wap.Lexicon = g.LexiconName()
+
+	leave := ""
+	lowercasedLexicon := strings.ToLower(wap.Lexicon)
+	switch {
+	case strings.HasPrefix(lowercasedLexicon, "rd"):
+		leave = "german"
+	case strings.HasPrefix(lowercasedLexicon, "nsf"):
+		leave = "norwegian"
+	case strings.HasPrefix(lowercasedLexicon, "fra"):
+		leave = "french"
+	default:
+		leave = "english"
+	}
+	wap.Leave = leave
+
+	switch g.Rules().Variant() {
+	case "", game.VarClassic:
+		wap.Rules = "CrosswordGame"
+	case game.VarWordSmog:
+		wap.Rules = "WordSmog"
+	case game.VarClassicSuper:
+		wap.Rules = "CrosswordGameSuper"
+	case game.VarWordSmogSuper:
+		wap.Rules = "WordSmogSuper"
+	}
+	if leave != "english" {
+		wap.Rules += "/" + leave
+	}
+
+	// populate board
+	labelToNum := labelToNumFor(leave)
+	for i := 0; i < g.Board().Dim(); i++ {
+		for j := 0; j < g.Board().Dim(); j++ {
+			// since wolges doesn't use our same letter ordering, let's just do
+			// the conversion this way
+			letter := g.Board().GetSquare(i, j).Letter().UserVisible(g.Alphabet())
+			wap.Board[i][j] = labelToNum(letter)
+		}
+	}
+
+	for _, c := range ourRack.String() {
+		wap.Rack = append(wap.Rack, labelToNum(c))
+	}
+
+	// XXX:How does wolges handle pass?
+	wap.Count = 1
+
+	// Now let's send a request.
+
+}

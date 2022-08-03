@@ -74,8 +74,8 @@ func (bot *Bot) Deserialize(data []byte) (*game.Game, *pb.EvaluationRequest, pb.
 		return nil, nil, 0, err
 	}
 	history := req.GameHistory
-	boardLayout, ldName, _ := game.HistoryToVariant(history)
-	rules, err := airunner.NewAIGameRules(bot.config, boardLayout, history.Lexicon, ldName)
+	boardLayout, ldName, variant := game.HistoryToVariant(history)
+	rules, err := airunner.NewAIGameRules(bot.config, boardLayout, variant, history.Lexicon, ldName)
 	if err != nil {
 		return nil, nil, 0, err
 	}
@@ -181,12 +181,20 @@ func (bot *Bot) handle(data []byte) *pb.BotResponse {
 
 	// See if we need to challenge the last move
 	valid := true
+	isWordSmog := g.Rules().Variant() == game.VarWordSmog || g.Rules().Variant() == game.VarWordSmogSuper
 	if g.LastEvent() != nil &&
 		g.LastEvent().Type == pb.GameEvent_TILE_PLACEMENT_MOVE {
 		for _, word := range g.LastWordsFormed() {
-			if !g.Lexicon().HasWord(word) {
-				valid = false
-				break
+			if !isWordSmog {
+				if !g.Lexicon().HasWord(word) {
+					valid = false
+					break
+				}
+			} else {
+				if !g.Lexicon().HasAnagram(word) {
+					valid = false
+					break
+				}
 			}
 		}
 	}
@@ -196,7 +204,17 @@ func (bot *Bot) handle(data []byte) *pb.BotResponse {
 	if !valid {
 		m, _ = g.NewChallengeMove(g.PlayerOnTurn())
 	} else if g.IsPlaying() {
-		moves := bot.game.GenerateMoves(1)
+		var moves []*move.Move
+		if !isWordSmog {
+			moves = bot.game.GenerateMoves(1)
+		} else {
+			moves, err = wolgesAnalyze(bot.config, bot.game)
+			if err != nil {
+				log.Err(err).Msg("wolges-analyze-error")
+				// Just generate a move using the regular generator.
+				moves = bot.game.GenerateMoves(1)
+			}
+		}
 		m = moves[0]
 	} else {
 		m, _ = g.NewPassMove(g.PlayerOnTurn())

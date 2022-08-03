@@ -20,7 +20,7 @@ func TestChallengeVoid(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, "NWL18",
+	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic, "NWL18",
 		"English")
 	is.NoErr(err)
 	game, err := game.NewGame(rules, players)
@@ -41,7 +41,7 @@ func TestChallengeDoubleIsLegal(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, _ := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, "NWL18",
+	rules, _ := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic, "NWL18",
 		"English")
 	g, _ := game.NewGame(rules, players)
 	alph := g.Alphabet()
@@ -67,7 +67,7 @@ func TestChallengeDoubleIsIllegal(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, _ := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, "NWL18",
+	rules, _ := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic, "NWL18",
 		"English")
 	g, _ := game.NewGame(rules, players)
 	alph := g.Alphabet()
@@ -94,7 +94,7 @@ func TestChallengeEndOfGamePlusFive(t *testing.T) {
 
 	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../gcgio/testdata/some_isc_game.gcg")
 	is.NoErr(err)
-	rules, _ := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, "NWL18",
+	rules, _ := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic, "NWL18",
 		"English")
 
 	g, err := game.NewFromHistory(gameHistory, rules, 0)
@@ -123,7 +123,7 @@ func TestChallengeEndOfGamePhony(t *testing.T) {
 
 	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../gcgio/testdata/some_isc_game.gcg")
 	is.NoErr(err)
-	rules, _ := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, "NWL18",
+	rules, _ := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic, "NWL18",
 		"English")
 
 	g, err := game.NewFromHistory(gameHistory, rules, 0)
@@ -156,7 +156,7 @@ func TestChallengeTripleUnsuccessful(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, _ := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, "NWL18",
+	rules, _ := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic, "NWL18",
 		"English")
 	g, _ := game.NewGame(rules, players)
 	alph := g.Alphabet()
@@ -183,7 +183,7 @@ func TestChallengeTripleSuccessful(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, _ := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, "NWL18",
+	rules, _ := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic, "NWL18",
 		"English")
 	g, _ := game.NewGame(rules, players)
 	alph := g.Alphabet()

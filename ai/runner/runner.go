@@ -29,7 +29,7 @@ type AIGameRunner struct {
 func NewAIGameRunner(conf *config.Config, opts *runner.GameOptions, players []*pb.PlayerInfo, botType pb.BotRequest_BotCode) (*AIGameRunner, error) {
 	opts.SetDefaults(conf)
 	rules, err := NewAIGameRules(
-		conf, opts.BoardLayoutName, opts.Lexicon.Name, opts.Lexicon.Distribution)
+		conf, opts.BoardLayoutName, opts.Variant, opts.Lexicon.Name, opts.Lexicon.Distribution)
 	if err != nil {
 		return nil, err
 	}
@@ -80,15 +80,12 @@ func (g *AIGameRunner) AIPlayer() player.AIPlayer {
 	return g.aiplayer
 }
 
-func NewAIGameRules(cfg *config.Config, boardLayoutName string,
+func NewAIGameRules(cfg *config.Config, boardLayoutName string, variant game.Variant,
 	lexiconName string, letterDistributionName string) (*game.GameRules, error) {
 
-	// assume bot can only play classic for now. Modify if we can teach this
-	// bot to play other variants.
 	return game.NewBasicGameRules(
 		cfg, lexiconName, boardLayoutName, letterDistributionName,
-		game.CrossScoreAndSet,
-		game.VarClassic)
+		game.CrossScoreAndSet, variant)
 }
 
 func (g *AIGameRunner) GenerateMoves(numPlays int) []*move.Move {

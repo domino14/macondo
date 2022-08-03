@@ -18,6 +18,8 @@ type Config struct {
 	DefaultLetterDistribution string
 	NatsURL                   string
 
+	WolgesAwsmURL string
+
 	CPUProfile string
 	MemProfile string
 }
@@ -48,6 +50,7 @@ func (c *Config) Load(args []string) error {
 	fs.StringVar(&c.NatsURL, "nats-url", "nats://127.0.0.1:4222", "The URL of the NATS server")
 	fs.StringVar(&c.CPUProfile, "cpu-profile", "", "file to save cpu profile in")
 	fs.StringVar(&c.MemProfile, "mem-profile", "", "file to save mem profile in")
+	fs.StringVar(&c.WolgesAwsmURL, "wolges-awsm-url", "", "URL for the wolges-awsm server. Needed for WordSmog bot.")
 	err := fs.Parse(args)
 	return err
 }

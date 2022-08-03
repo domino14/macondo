@@ -42,7 +42,7 @@ func TestMain(m *testing.M) {
 func setUpSolver(lex, distName string, bvs board.VsWho, plies int, rack1, rack2 string,
 	p1pts, p2pts int, onTurn int) (*Solver, error) {
 
-	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
+	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic,
 		lex, distName)
 
 	if err != nil {
@@ -269,7 +269,7 @@ func TestPolishFromGcg(t *testing.T) {
 	plies := 14
 	is := is.New(t)
 
-	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
+	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic,
 		"OSPS44", "Polish")
 	is.NoErr(err)
 
@@ -334,7 +334,7 @@ func TestSpuriousPassesFromGcg(t *testing.T) {
 	plies := 14
 	is := is.New(t)
 
-	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
+	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic,
 		"OSPS44", "Polish")
 	is.NoErr(err)
 
@@ -813,7 +813,7 @@ func TestProperIterativeDeepening(t *testing.T) {
 	is := is.New(t)
 	// Should get the same result with 7 or 8 plies.
 	plyCount := []int{7, 8}
-	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
+	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic,
 		"NWL18", "English")
 	is.NoErr(err)
 	for _, plies := range plyCount {
@@ -858,7 +858,7 @@ func TestProperIterativeDeepening(t *testing.T) {
 func BenchmarkID(b *testing.B) {
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	is := is.New(b)
-	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
+	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic,
 		"NWL18", "English")
 	is.NoErr(err)
 	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../../gcgio/testdata/noah_vs_mishu.gcg")
@@ -902,7 +902,7 @@ func BenchmarkID(b *testing.B) {
 func BenchmarkID2(b *testing.B) {
 	zerolog.SetGlobalLevel(zerolog.WarnLevel)
 	is := is.New(b)
-	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
+	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic,
 		"OSPS44", "Polish")
 	is.NoErr(err)
 
@@ -945,7 +945,7 @@ func TestFromGCG(t *testing.T) {
 	plies := 3
 	is := is.New(t)
 
-	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
+	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic,
 		"CSW19", "English")
 	is.NoErr(err)
 
