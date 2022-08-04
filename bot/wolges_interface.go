@@ -137,10 +137,12 @@ func wolgesAnalyze(cfg *config.Config, g *airunner.AIGameRunner) ([]*move.Move, 
 		wap.Rules = "CrosswordGame"
 	case game.VarWordSmog:
 		wap.Rules = "WordSmog"
+		wap.Lexicon += ".WordSmog"
 	case game.VarClassicSuper:
 		wap.Rules = "CrosswordGameSuper"
 	case game.VarWordSmogSuper:
 		wap.Rules = "WordSmogSuper"
+		wap.Lexicon += ".WordSmog"
 	}
 	if leave != "english" {
 		wap.Rules += "/" + leave
