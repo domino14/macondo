@@ -178,25 +178,12 @@ func (bot *Bot) handle(data []byte) *pb.BotResponse {
 		// Generate all possible moves.
 		return bot.evaluationResponse(evalReq)
 	}
-
+	isWordSmog := g.Rules().Variant() == game.VarWordSmog || g.Rules().Variant() == game.VarWordSmogSuper
 	// See if we need to challenge the last move
 	valid := true
-	isWordSmog := g.Rules().Variant() == game.VarWordSmog || g.Rules().Variant() == game.VarWordSmogSuper
-	if g.LastEvent() != nil &&
-		g.LastEvent().Type == pb.GameEvent_TILE_PLACEMENT_MOVE {
-		for _, word := range g.LastWordsFormed() {
-			if !isWordSmog {
-				if !g.Lexicon().HasWord(word) {
-					valid = false
-					break
-				}
-			} else {
-				if !g.Lexicon().HasAnagram(word) {
-					valid = false
-					break
-				}
-			}
-		}
+	if g.LastEvent() != nil && g.LastEvent().Type == pb.GameEvent_TILE_PLACEMENT_MOVE {
+		err = g.ValidateWords(g.Lexicon(), g.LastWordsFormed())
+		valid = (err == nil)
 	}
 
 	var m *move.Move

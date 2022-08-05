@@ -10,6 +10,10 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+var (
+	errIllegalWords = errors.New("one or more words are invalid for this variant")
+)
+
 // SetChallengeRule sets the challenge rule for a game. The game
 // must already be started with StartGame above (call immediately afterwards).
 // It would default to the 0 state (VOID) otherwise.
@@ -195,10 +199,9 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 func validateWords(lex lexicon.Lexicon, words []alphabet.MachineWord, variant Variant) []string {
 	var illegalWords []string
 	alph := lex.GetAlphabet()
-	log.Debug().Interface("words", words).Msg("challenge-evt")
 	for _, word := range words {
 		var valid bool
-		if variant == VarWordSmog {
+		if variant == VarWordSmog || variant == VarWordSmogSuper {
 			valid = lex.HasAnagram(word)
 		} else {
 			valid = lex.HasWord(word)
@@ -208,4 +211,14 @@ func validateWords(lex lexicon.Lexicon, words []alphabet.MachineWord, variant Va
 		}
 	}
 	return illegalWords
+}
+
+// ValidateWords validates all `words` with the passed-in lexicon, and
+// the game's variant. We don't use the game's lexicon because of Reasons.
+func (g *Game) ValidateWords(lex lexicon.Lexicon, words []alphabet.MachineWord) error {
+	illegalWords := validateWords(lex, words, g.Rules().Variant())
+	if len(illegalWords) > 0 {
+		return errIllegalWords
+	}
+	return nil
 }

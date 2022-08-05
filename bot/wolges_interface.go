@@ -26,10 +26,10 @@ import (
 // code comes from.
 
 // Wolges ordering:
-var GermanTiles = strings.Split("AÄBCDEFGHIJKLMNOÖPQRSTUÜVWXYZ", "")
-var GermanBlankTiles = strings.Split("aäbcdefghijklmnoöpqrstuüvwxyz", "")
-var NorwegianTiles = strings.Split("ABCDEFGHIJKLMNOPQRSTUVWXYÜZÆÄØÖÅ", "")
-var NorwegianBlankTiles = strings.Split("abcdefghijklmnopqrstuvwxyüzæäøöå", "")
+var GermanTiles = []rune("AÄBCDEFGHIJKLMNOÖPQRSTUÜVWXYZ")
+var GermanBlankTiles = []rune("aäbcdefghijklmnoöpqrstuüvwxyz")
+var NorwegianTiles = []rune("ABCDEFGHIJKLMNOPQRSTUVWXYÜZÆÄØÖÅ")
+var NorwegianBlankTiles = []rune("abcdefghijklmnopqrstuvwxyüzæäøöå")
 
 type WolgesAnalyzePayload struct {
 	Rack    []int   `json:"rack"`
@@ -40,7 +40,7 @@ type WolgesAnalyzePayload struct {
 	Count   int     `json:"count"`
 }
 
-type WolgesAnalyzeResponse []struct {
+type WolgesAnalyzeResponse struct {
 	Equity float64 `json:"equity"`
 	Action string  `json:"action"`
 	Tiles  []int   `json:"tiles"` // used for exchange. If empty it is a pass.
@@ -63,12 +63,12 @@ func englishLabelToNum(c rune) int {
 
 func germanLabelToNum(c rune) int {
 	for i := 0; i < len(GermanTiles); i++ {
-		if string(c) == GermanTiles[i] {
+		if c == GermanTiles[i] {
 			return i + 1
 		}
 	}
 	for i := 0; i < len(GermanBlankTiles); i++ {
-		if string(c) == GermanBlankTiles[i] {
+		if c == GermanBlankTiles[i] {
 			return -(i + 1)
 		}
 	}
@@ -77,16 +77,48 @@ func germanLabelToNum(c rune) int {
 
 func norwegianLabelToNum(c rune) int {
 	for i := 0; i < len(NorwegianTiles); i++ {
-		if string(c) == NorwegianTiles[i] {
+		if c == NorwegianTiles[i] {
 			return i + 1
 		}
 	}
 	for i := 0; i < len(NorwegianBlankTiles); i++ {
-		if string(c) == NorwegianBlankTiles[i] {
+		if c == NorwegianBlankTiles[i] {
 			return -(i + 1)
 		}
 	}
 	return 0
+}
+
+func englishNumToLabel(n int) rune {
+	switch {
+	case n > 0:
+		return rune(0x40 + n)
+	case n < 0:
+		return rune(0x60 - n)
+	case n == 0:
+		return '?'
+	}
+	return '?'
+}
+
+func germanNumToLabel(n int) rune {
+	switch {
+	case n > 0:
+		return GermanTiles[n-1]
+	case n < 0:
+		return GermanBlankTiles[-1-n]
+	}
+	return '?'
+}
+
+func norwegianNumToLabel(n int) rune {
+	switch {
+	case n > 0:
+		return NorwegianTiles[n-1]
+	case n < 0:
+		return NorwegianBlankTiles[-1-n]
+	}
+	return '?'
 }
 
 func labelToNumFor(ld string) func(rune) int {
@@ -99,6 +131,18 @@ func labelToNumFor(ld string) func(rune) int {
 		return norwegianLabelToNum
 	}
 	return englishLabelToNum
+}
+
+func numToLabelFor(ld string) func(int) rune {
+	switch ld {
+	case "english":
+		return englishNumToLabel
+	case "german":
+		return germanNumToLabel
+	case "norwegian":
+		return norwegianNumToLabel
+	}
+	return englishNumToLabel
 }
 
 func wolgesAnalyze(cfg *config.Config, g *airunner.AIGameRunner) ([]*move.Move, error) {
@@ -185,12 +229,24 @@ func wolgesAnalyze(cfg *config.Config, g *airunner.AIGameRunner) ([]*move.Move, 
 	if err != nil {
 		return nil, err
 	}
-	r := &WolgesAnalyzeResponse{}
-	err = json.Unmarshal(readbts, r)
+	var r []WolgesAnalyzeResponse
+	err = json.Unmarshal(readbts, &r)
 	if err != nil {
 		return nil, err
 	}
 
 	log.Info().Interface("r", r).Msg("from-wolges")
+	if len(r) < 1 {
+		return nil, errors.New("unexpected-wolges-response-length")
+	}
+	switch r[0].Action {
+	case "exchange":
+
+		if len(r[0].Tiles) == 0 {
+			// actually a pass
+			return []*move.Move{move.NewPassMove(ourRack.TilesOn(), g.Alphabet())}, nil
+		}
+	}
+
 	return nil, errors.New("not-implemented")
 }
