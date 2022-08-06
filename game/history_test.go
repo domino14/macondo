@@ -1,10 +1,13 @@
 package game_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -12,6 +15,20 @@ import (
 )
 
 var DefaultConfig = config.DefaultConfig()
+
+func TestMain(m *testing.M) {
+	for _, lex := range []string{"CSW19"} {
+		gdgPath := filepath.Join(DefaultConfig.LexiconPath, "dawg", lex+".dawg")
+		if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
+			gaddagmaker.GenerateDawg(filepath.Join(DefaultConfig.LexiconPath, lex+".txt"), true, true, false)
+			err = os.Rename("out.dawg", gdgPath)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
+	os.Exit(m.Run())
+}
 
 // Since the easiest way to create a history is with the gcgio package,
 // we use package game_test above to avoid an import loop.
