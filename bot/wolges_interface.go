@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -228,7 +228,8 @@ func wolgesAnalyze(cfg *config.Config, g *airunner.AIGameRunner) ([]*move.Move, 
 	if err != nil {
 		return nil, err
 	}
-	readbts, err := ioutil.ReadAll(resp.Body)
+	defer resp.Body.Close()
+	readbts, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
