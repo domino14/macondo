@@ -11,6 +11,7 @@ import (
 	"time"
 
 	airunner "github.com/domino14/macondo/ai/runner"
+	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
@@ -239,14 +240,59 @@ func wolgesAnalyze(cfg *config.Config, g *airunner.AIGameRunner) ([]*move.Move, 
 	if len(r) < 1 {
 		return nil, errors.New("unexpected-wolges-response-length")
 	}
-	switch r[0].Action {
+
+	numToLabel := numToLabelFor(leave)
+	best := r[0]
+	switch best.Action {
 	case "exchange":
 
-		if len(r[0].Tiles) == 0 {
+		if len(best.Tiles) == 0 {
 			// actually a pass
-			return []*move.Move{move.NewPassMove(ourRack.TilesOn(), g.Alphabet())}, nil
+			p, err := g.NewPassMove(g.PlayerOnTurn())
+			if err != nil {
+				return nil, err
+			}
+			return []*move.Move{p}, nil
+
+		} else {
+			runes := []rune{}
+			for _, t := range best.Tiles {
+				runes = append(runes, numToLabel(t))
+			}
+			exch, err := g.NewExchangeMove(g.PlayerOnTurn(), string(runes))
+			if err != nil {
+				return nil, err
+			}
+			return []*move.Move{exch}, nil
 		}
+
+	case "play":
+		vertical := best.Down
+		var row, col int
+		if vertical {
+			row = best.Idx
+			col = best.Lane
+		} else {
+			row = best.Lane
+			col = best.Idx
+		}
+		coords := move.ToBoardGameCoords(row, col, vertical)
+		rack := g.RackLettersFor(g.PlayerOnTurn())
+		runes := []rune{}
+		for _, t := range best.Word {
+			if t == 0 {
+				runes = append(runes, alphabet.ASCIIPlayedThrough)
+			} else {
+				runes = append(runes, numToLabel(t))
+			}
+		}
+
+		m, err := g.CreateAndScorePlacementMove(coords, string(runes), string(rack))
+		if err != nil {
+			return nil, err
+		}
+		return []*move.Move{m}, nil
 	}
 
-	return nil, errors.New("not-implemented")
+	return nil, errors.New("not handled: " + best.Action)
 }
