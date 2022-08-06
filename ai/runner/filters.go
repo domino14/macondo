@@ -51,27 +51,13 @@ func filter(cfg *config.Config, g *game.Game, rack *alphabet.Rack, plays []*move
 			filterFunction = func([]alphabet.MachineWord, float64) (bool, error) { return false, err }
 		} else {
 			lex := gaddag.Lexicon{GenericDawg: gd}
-			// XXX: There might be a slick way to consolidate this
-			// stufilterFunction using generic function pointer types and casting
-			// but I'm not sure. This is probably good enough
-			if g.Rules().Variant() == game.VarWordSmog {
-				filterFunction = func(mws []alphabet.MachineWord, r float64) (bool, error) {
-					for _, mw := range mws {
-						if !lex.HasAnagram(mw) {
-							return false, nil
-						}
-					}
-					return true, nil
+			filterFunction = func(mws []alphabet.MachineWord, r float64) (bool, error) {
+				err = g.ValidateWords(lex, mws)
+				if err != nil {
+					// validation error means at least one word is phony.
+					return false, nil
 				}
-			} else {
-				filterFunction = func(mws []alphabet.MachineWord, r float64) (bool, error) {
-					for _, mw := range mws {
-						if !lex.HasWord(mw) {
-							return false, nil
-						}
-					}
-					return true, nil
-				}
+				return true, nil
 			}
 		}
 	}

@@ -31,6 +31,18 @@ func TestMain(m *testing.M) {
 			}
 		}
 	}
+
+	for _, lex := range []string{"CSW19"} {
+		gdgPath := filepath.Join(DefaultConfig.LexiconPath, "dawg", lex+".dawg")
+		if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
+			gaddagmaker.GenerateDawg(filepath.Join(DefaultConfig.LexiconPath, lex+".txt"), true, true, false)
+			err = os.Rename("out.dawg", gdgPath)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
+
 	os.Exit(m.Run())
 }
 

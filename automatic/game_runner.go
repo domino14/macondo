@@ -53,7 +53,7 @@ func NewGameRunner(logchan chan string, config *config.Config) *GameRunner {
 func (r *GameRunner) Init(player1, player2, leavefile1, leavefile2, pegfile1, pegfile2 string,
 	botcode1, botcode2 pb.BotRequest_BotCode) error {
 
-	rules, err := airunner.NewAIGameRules(r.config, board.CrosswordGameLayout,
+	rules, err := airunner.NewAIGameRules(r.config, board.CrosswordGameLayout, game.VarClassic,
 		r.lexicon, r.letterDistribution)
 	if err != nil {
 		return err
