@@ -90,14 +90,16 @@ func TestEndgameTiming(t *testing.T) {
 	}
 
 	sort.Slice(plays, func(i, j int) bool {
+		if plays[j].Equity() == plays[i].Equity() {
+			return plays[i].ShortDescription() < plays[j].ShortDescription()
+		}
 		return plays[j].Equity() < plays[i].Equity()
 	})
-
 	assert.Equal(t, plays[0].Equity(), float64(22))
 	// Use your blank
-	assert.Equal(t, plays[0].ShortDescription(), "M6 RE.EArS")
-	assert.Equal(t, plays[1].ShortDescription(), "L1 S..s")
-	assert.Equal(t, plays[2].ShortDescription(), "M6 RE.EAmS")
+	assert.Equal(t, plays[0].ShortDescription(), "L1 S..s")
+	assert.Equal(t, plays[1].ShortDescription(), "M6 RE.EAmS")
+	assert.Equal(t, plays[2].ShortDescription(), "M6 RE.EArS")
 }
 
 func TestPreendgameTiming(t *testing.T) {
