@@ -26,6 +26,8 @@ import (
 // see analyzer.tsx in liwords repo to see where a lot of this conversion
 // code comes from.
 
+const WolgesTimeout = 5 * time.Second
+
 // Wolges ordering:
 var GermanTiles = []rune("AÄBCDEFGHIJKLMNOÖPQRSTUÜVWXYZ")
 var GermanBlankTiles = []rune("aäbcdefghijklmnoöpqrstuüvwxyz")
@@ -42,7 +44,7 @@ type WolgesAnalyzePayload struct {
 }
 
 type WolgesAnalyzeResponse struct {
-	Equity float64 `json:"equity"`
+	Equity float32 `json:"equity"`
 	Action string  `json:"action"`
 	Tiles  []int   `json:"tiles"` // used for exchange. If empty it is a pass.
 	Down   bool    `json:"down"`
@@ -208,7 +210,7 @@ func wolgesAnalyze(cfg *config.Config, g *airunner.AIGameRunner) ([]*move.Move, 
 		wap.Rack = append(wap.Rack, labelToNum(c))
 	}
 
-	wap.Count = 30
+	wap.Count = 1
 
 	bts, err := json.Marshal(wap)
 	if err != nil {
@@ -216,7 +218,7 @@ func wolgesAnalyze(cfg *config.Config, g *airunner.AIGameRunner) ([]*move.Move, 
 	}
 	log.Debug().Str("payload", string(bts)).Msg("sending-to-wolges")
 	// Now let's send a request.
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), WolgesTimeout)
 	defer cancel()
 	req, err := http.NewRequest("POST", cfg.WolgesAwsmURL+"/analyze", bytes.NewReader(bts))
 	if err != nil {
@@ -255,7 +257,7 @@ func wolgesAnalyze(cfg *config.Config, g *airunner.AIGameRunner) ([]*move.Move, 
 			return []*move.Move{p}, nil
 
 		} else {
-			runes := []rune{}
+			runes := make([]rune, 0, len(best.Tiles))
 			for _, t := range best.Tiles {
 				runes = append(runes, numToLabel(t))
 			}
@@ -278,7 +280,7 @@ func wolgesAnalyze(cfg *config.Config, g *airunner.AIGameRunner) ([]*move.Move, 
 		}
 		coords := move.ToBoardGameCoords(row, col, vertical)
 		rack := g.RackLettersFor(g.PlayerOnTurn())
-		runes := []rune{}
+		runes := make([]rune, 0, len(best.Word))
 		for _, t := range best.Word {
 			if t == 0 {
 				runes = append(runes, alphabet.ASCIIPlayedThrough)
