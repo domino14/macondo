@@ -24,7 +24,7 @@ var BotConfigs = map[pb.BotRequest_BotCode]struct {
 	pb.BotRequest_LEVEL1_CEL_BOT: {baseFindability: 0.3, longWordFindability: 0.1, parallelFindability: 0.3, isCel: true},
 	pb.BotRequest_LEVEL2_CEL_BOT: {baseFindability: 0.7, longWordFindability: 0.4, parallelFindability: 0.5, isCel: true},
 	pb.BotRequest_LEVEL3_CEL_BOT: {baseFindability: 0.8, longWordFindability: 0.5, parallelFindability: 0.75, isCel: true},
-	pb.BotRequest_LEVEL4_CEL_BOT: {isCel: true},
+	pb.BotRequest_LEVEL4_CEL_BOT: {baseFindability: 1.0, longWordFindability: 1.0, parallelFindability: 1.0, isCel: true},
 
 	pb.BotRequest_LEVEL1_PROBABILISTIC: {baseFindability: 0.2, longWordFindability: 0.07, parallelFindability: 0.15, isCel: false},
 	pb.BotRequest_LEVEL2_PROBABILISTIC: {baseFindability: 0.4, longWordFindability: 0.2, parallelFindability: 0.3, isCel: false},
