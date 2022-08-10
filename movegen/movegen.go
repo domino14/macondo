@@ -11,6 +11,7 @@
 package movegen
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/domino14/macondo/alphabet"
@@ -61,8 +62,9 @@ type GordonGenerator struct {
 	letterDistribution *alphabet.LetterDistribution
 
 	// Used for play-finding without allocation
-	horStrips [][]alphabet.MachineLetter
-	verStrips [][]alphabet.MachineLetter
+	strip      []alphabet.MachineLetter
+	leftstrip  int
+	rightstrip int
 }
 
 // NewGordonGenerator returns a Gordon move generator.
@@ -75,12 +77,9 @@ func NewGordonGenerator(gd *gaddag.SimpleGaddag, board *board.GameBoard,
 		numPossibleLetters: int(gd.GetAlphabet().NumLetters()),
 		sortingParameter:   SortByScore,
 		letterDistribution: ld,
-		horStrips:          make([][]alphabet.MachineLetter, board.Dim()),
-		verStrips:          make([][]alphabet.MachineLetter, board.Dim()),
-	}
-	for i := 0; i < board.Dim(); i++ {
-		gen.horStrips[i] = make([]alphabet.MachineLetter, board.Dim())
-		gen.verStrips[i] = make([]alphabet.MachineLetter, board.Dim())
+		strip:              make([]alphabet.MachineLetter, board.Dim()),
+		leftstrip:          board.Dim() + 1,
+		rightstrip:         -1,
 	}
 	return gen
 }
@@ -121,8 +120,9 @@ func (gen *GordonGenerator) genByOrientation(rack *alphabet.Rack, dir board.Boar
 		for col := 0; col < dim; col++ {
 			if gen.board.IsAnchor(row, col, dir) {
 				gen.curAnchorCol = col
-				gen.recursiveGen(col, alphabet.MachineWord([]alphabet.MachineLetter{}),
-					rack, gen.gaddag.GetRootNodeIndex())
+				gen.leftstrip = dim + 1
+				gen.rightstrip = -1
+				gen.recursiveGen(col, rack, gen.gaddag.GetRootNodeIndex())
 				gen.lastAnchorCol = col
 			}
 		}
@@ -130,8 +130,7 @@ func (gen *GordonGenerator) genByOrientation(rack *alphabet.Rack, dir board.Boar
 }
 
 // recursiveGen is an implementation of the Gordon Gen function.
-func (gen *GordonGenerator) recursiveGen(col int, word alphabet.MachineWord, rack *alphabet.Rack,
-	nodeIdx uint32) {
+func (gen *GordonGenerator) recursiveGen(col int, rack *alphabet.Rack, nodeIdx uint32) {
 
 	var csDirection board.BoardDirection
 	// If a letter L is already on this square, then goOn...
@@ -147,7 +146,7 @@ func (gen *GordonGenerator) recursiveGen(col int, word alphabet.MachineWord, rac
 
 	if !curSquare.IsEmpty() {
 		nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, curLetter.Unblank())
-		gen.goOn(col, curLetter, word, rack, nnIdx, nodeIdx)
+		gen.goOn(col, curLetter, rack, nnIdx, nodeIdx)
 
 	} else if !rack.Empty() {
 		for ml := alphabet.MachineLetter(0); ml < alphabet.MachineLetter(gen.numPossibleLetters); ml++ {
@@ -158,7 +157,7 @@ func (gen *GordonGenerator) recursiveGen(col int, word alphabet.MachineWord, rac
 				nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, ml)
 				rack.Take(ml)
 				gen.tilesPlayed++
-				gen.goOn(col, ml, word, rack, nnIdx, nodeIdx)
+				gen.goOn(col, ml, rack, nnIdx, nodeIdx)
 				rack.Add(ml)
 				gen.tilesPlayed--
 			}
@@ -172,7 +171,7 @@ func (gen *GordonGenerator) recursiveGen(col int, word alphabet.MachineWord, rac
 					nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, alphabet.MachineLetter(i))
 					rack.Take(alphabet.BlankMachineLetter)
 					gen.tilesPlayed++
-					gen.goOn(col, alphabet.MachineLetter(i).Blank(), word, rack, nnIdx, nodeIdx)
+					gen.goOn(col, alphabet.MachineLetter(i).Blank(), rack, nnIdx, nodeIdx)
 					rack.Add(alphabet.BlankMachineLetter)
 					gen.tilesPlayed--
 				}
@@ -183,24 +182,28 @@ func (gen *GordonGenerator) recursiveGen(col int, word alphabet.MachineWord, rac
 }
 
 // goOn is an implementation of the Gordon GoOn function.
-func (gen *GordonGenerator) goOn(curCol int, L alphabet.MachineLetter, word alphabet.MachineWord,
+func (gen *GordonGenerator) goOn(curCol int, L alphabet.MachineLetter,
 	rack *alphabet.Rack, newNodeIdx uint32, oldNodeIdx uint32) {
-
 	if curCol <= gen.curAnchorCol {
 		if !gen.board.GetSquare(gen.curRowIdx, curCol).IsEmpty() {
-			word = append([]alphabet.MachineLetter{alphabet.PlayedThroughMarker}, word...)
+			gen.strip[curCol] = alphabet.PlayedThroughMarker
 		} else {
-			word = append([]alphabet.MachineLetter{L}, word...)
+			gen.strip[curCol] = L
 		}
+		if curCol < gen.leftstrip {
+			gen.leftstrip = curCol
+		}
+		if curCol > gen.rightstrip {
+			gen.rightstrip = curCol
+		}
+
 		// if L on OldArc and no letter directly left, then record play.
-		// roomToLeft is true unless we are right at the edge of the board.
-		//roomToLeft := true
 		noLetterDirectlyLeft := curCol == 0 ||
 			gen.board.GetSquare(gen.curRowIdx, curCol-1).IsEmpty()
 
 		// Check to see if there is a letter directly to the left.
 		if gen.gaddag.InLetterSet(L, oldNodeIdx) && noLetterDirectlyLeft && gen.tilesPlayed > 0 {
-			gen.recordPlay(word, gen.curRowIdx, curCol, rack.TilesOn(), gen.tilesPlayed)
+			gen.recordPlay(gen.curRowIdx, rack.TilesOn(), gen.tilesPlayed)
 		}
 		if newNodeIdx == 0 {
 			return
@@ -211,7 +214,7 @@ func (gen *GordonGenerator) goOn(curCol int, L alphabet.MachineLetter, word alph
 		// only looking at the first of a consecutive set of anchors going backwards,
 		// and then always looking forward from then on.
 		if curCol > 0 && curCol-1 != gen.lastAnchorCol {
-			gen.recursiveGen(curCol-1, word, rack, newNodeIdx)
+			gen.recursiveGen(curCol-1, rack, newNodeIdx)
 		}
 		// Then shift direction.
 		// Get the index of the SeparationToken
@@ -219,30 +222,37 @@ func (gen *GordonGenerator) goOn(curCol int, L alphabet.MachineLetter, word alph
 		// Check for no letter directly left AND room to the right (of the anchor
 		// square)
 		if separationNodeIdx != 0 && noLetterDirectlyLeft && gen.curAnchorCol < gen.board.Dim()-1 {
-			gen.recursiveGen(gen.curAnchorCol+1, word, rack, separationNodeIdx)
+			gen.recursiveGen(gen.curAnchorCol+1, rack, separationNodeIdx)
 		}
 
 	} else {
 		if !gen.board.GetSquare(gen.curRowIdx, curCol).IsEmpty() {
-			word = append(word, alphabet.PlayedThroughMarker)
+			gen.strip[curCol] = alphabet.PlayedThroughMarker
 		} else {
-			word = append(word, L)
+			gen.strip[curCol] = L
+		}
+		if curCol < gen.leftstrip {
+			gen.leftstrip = curCol
+		}
+		if curCol > gen.rightstrip {
+			gen.rightstrip = curCol
 		}
 
 		noLetterDirectlyRight := curCol == gen.board.Dim()-1 ||
 			gen.board.GetSquare(gen.curRowIdx, curCol+1).IsEmpty()
 		if gen.gaddag.InLetterSet(L, oldNodeIdx) && noLetterDirectlyRight && gen.tilesPlayed > 0 {
-			gen.recordPlay(word, gen.curRowIdx, curCol-len(word)+1, rack.TilesOn(), gen.tilesPlayed)
+			gen.recordPlay(gen.curRowIdx, rack.TilesOn(), gen.tilesPlayed)
 		}
 		if newNodeIdx != 0 && curCol < gen.board.Dim()-1 {
 			// There is room to the right
-			gen.recursiveGen(curCol+1, word, rack, newNodeIdx)
+			gen.recursiveGen(curCol+1, rack, newNodeIdx)
 		}
 	}
 }
 
-func (gen *GordonGenerator) recordPlay(word alphabet.MachineWord, startRow, startCol int,
-	leave alphabet.MachineWord, tilesPlayed int) {
+func (gen *GordonGenerator) recordPlay(startRow int, leave alphabet.MachineWord, tilesPlayed int) {
+	startCol := gen.leftstrip
+	fmt.Println("should record", startRow, startCol, gen.strip, gen.leftstrip, gen.rightstrip, len(gen.plays))
 	row := startRow
 	col := startCol
 	if gen.vertical {
@@ -251,11 +261,14 @@ func (gen *GordonGenerator) recordPlay(word alphabet.MachineWord, startRow, star
 		row, col = col, row
 	}
 	coords := move.ToBoardGameCoords(row, col, gen.vertical)
-	wordCopy := make([]alphabet.MachineLetter, len(word))
-	copy(wordCopy, word)
+	length := gen.rightstrip - gen.leftstrip + 1
+	word := make([]alphabet.MachineLetter, length)
+	for i := startCol; i < startCol+length; i++ {
+		word[i-startCol] = gen.strip[i]
+	}
 	alph := gen.gaddag.GetAlphabet()
 	play := move.NewScoringMove(gen.scoreMove(word, startRow, startCol, tilesPlayed),
-		wordCopy, leave, gen.vertical,
+		word, leave, gen.vertical,
 		tilesPlayed, alph, row, col, coords)
 
 	// if gen.sortingParameter == SortByEquity {

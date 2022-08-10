@@ -1,6 +1,7 @@
 package movegen
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -49,6 +50,7 @@ func Filter(moves []*move.Move, f func(*move.Move) bool) []*move.Move {
 }
 
 func scoringPlays(moves []*move.Move) []*move.Move {
+	fmt.Println("before filter", len(moves))
 	return Filter(moves, func(m *move.Move) bool {
 		return m.Action() == move.MoveTypePlay
 	})
@@ -79,8 +81,7 @@ func TestGenBase(t *testing.T) {
 	generator.curAnchorCol = 8
 	// Row 4 for shiz and gig
 	generator.curRowIdx = 4
-	generator.recursiveGen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
-		gd.GetRootNodeIndex())
+	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex())
 
 	if len(generator.plays) != 0 {
 		t.Errorf("Generated %v plays, expected %v", len(generator.plays), 0)
@@ -129,8 +130,7 @@ func TestSimpleRowGen(t *testing.T) {
 		rack := alphabet.RackFromString(tc.rack, gd.GetAlphabet())
 		board.SetRow(tc.row, tc.rowString, gd.GetAlphabet())
 		generator.curRowIdx = tc.row
-		generator.recursiveGen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
-			gd.GetRootNodeIndex())
+		generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex())
 		if len(generator.plays) != tc.expectedPlays {
 			t.Errorf("%v Generated %v plays, expected %v", idx, generator.plays, tc.expectedPlays)
 		}
@@ -158,8 +158,7 @@ func TestGenThroughBothWaysAllowedLetters(t *testing.T) {
 	ml, _ := gd.GetAlphabet().Val('I')
 	bd.ClearCrossSet(int(generator.curRowIdx), 2, board.VerticalDirection)
 	bd.SetCrossSetLetter(int(generator.curRowIdx), 2, board.VerticalDirection, ml)
-	generator.recursiveGen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
-		gd.GetRootNodeIndex())
+	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex())
 	// it should generate HITHERMOST only
 	if len(generator.plays) != 1 {
 		t.Errorf("Generated %v plays (%v), expected len=%v", generator.plays,
@@ -191,8 +190,7 @@ func TestRowGen(t *testing.T) {
 	rack := alphabet.RackFromString("AAEIRST", gd.GetAlphabet())
 	generator.curRowIdx = 4
 	generator.curAnchorCol = 8
-	generator.recursiveGen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
-		gd.GetRootNodeIndex())
+	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex())
 	generator.dedupeAndSortPlays()
 	// Should generate AIRGLOWS and REGLOWS only
 	if len(generator.plays) != 2 {
@@ -228,8 +226,7 @@ func TestOtherRowGen(t *testing.T) {
 	rack := alphabet.RackFromString("A", gd.GetAlphabet())
 	generator.curRowIdx = 14
 	generator.curAnchorCol = 8
-	generator.recursiveGen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
-		gd.GetRootNodeIndex())
+	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex())
 	// Should generate AVENGED only
 	if len(generator.plays) != 1 {
 		t.Errorf("Generated %v plays (%v), expected len=%v", generator.plays,
@@ -266,8 +263,7 @@ func TestGenMoveJustOnce(t *testing.T) {
 	generator.lastAnchorCol = 100
 	for anchorCol := 8; anchorCol <= 12; anchorCol++ {
 		generator.curAnchorCol = anchorCol
-		generator.recursiveGen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
-			gd.GetRootNodeIndex())
+		generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex())
 		generator.lastAnchorCol = anchorCol
 	}
 	if len(generator.plays) != 34 {
