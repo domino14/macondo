@@ -81,7 +81,7 @@ func TestGenBase(t *testing.T) {
 	generator.curAnchorCol = 8
 	// Row 4 for shiz and gig
 	generator.curRowIdx = 4
-	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex())
+	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol)
 
 	if len(generator.plays) != 0 {
 		t.Errorf("Generated %v plays, expected %v", len(generator.plays), 0)
@@ -130,7 +130,7 @@ func TestSimpleRowGen(t *testing.T) {
 		rack := alphabet.RackFromString(tc.rack, gd.GetAlphabet())
 		board.SetRow(tc.row, tc.rowString, gd.GetAlphabet())
 		generator.curRowIdx = tc.row
-		generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex())
+		generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol)
 		if len(generator.plays) != tc.expectedPlays {
 			t.Errorf("%v Generated %v plays, expected %v", idx, generator.plays, tc.expectedPlays)
 		}
@@ -158,7 +158,7 @@ func TestGenThroughBothWaysAllowedLetters(t *testing.T) {
 	ml, _ := gd.GetAlphabet().Val('I')
 	bd.ClearCrossSet(int(generator.curRowIdx), 2, board.VerticalDirection)
 	bd.SetCrossSetLetter(int(generator.curRowIdx), 2, board.VerticalDirection, ml)
-	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex())
+	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol)
 	// it should generate HITHERMOST only
 	if len(generator.plays) != 1 {
 		t.Errorf("Generated %v plays (%v), expected len=%v", generator.plays,
@@ -190,7 +190,7 @@ func TestRowGen(t *testing.T) {
 	rack := alphabet.RackFromString("AAEIRST", gd.GetAlphabet())
 	generator.curRowIdx = 4
 	generator.curAnchorCol = 8
-	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex())
+	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol)
 	generator.dedupeAndSortPlays()
 	// Should generate AIRGLOWS and REGLOWS only
 	if len(generator.plays) != 2 {
@@ -226,7 +226,7 @@ func TestOtherRowGen(t *testing.T) {
 	rack := alphabet.RackFromString("A", gd.GetAlphabet())
 	generator.curRowIdx = 14
 	generator.curAnchorCol = 8
-	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex())
+	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol)
 	// Should generate AVENGED only
 	if len(generator.plays) != 1 {
 		t.Errorf("Generated %v plays (%v), expected len=%v", generator.plays,
@@ -236,6 +236,37 @@ func TestOtherRowGen(t *testing.T) {
 	if m.Tiles().UserVisible(gd.GetAlphabet()) != "A......" {
 		t.Errorf("Expected proper play-through markers (A......), got %v",
 			m.Tiles().UserVisible(gd.GetAlphabet()))
+	}
+}
+
+func TestOneMoreRowGen(t *testing.T) {
+
+	gd, err := GaddagFromLexicon("America")
+	if err != nil {
+		t.Errorf("Expected error to be nil, got %v", err)
+	}
+
+	bd := board.MakeBoard(board.CrosswordGameBoard)
+	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
+	if err != nil {
+		t.Error(err)
+	}
+	generator := NewGordonGenerator(gd, bd, ld)
+	bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
+	cross_set.GenAllCrossSets(bd, gd, ld)
+
+	rack := alphabet.RackFromString("A", gd.GetAlphabet())
+	generator.curRowIdx = 0
+	generator.curAnchorCol = 11
+	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol)
+
+	if len(generator.plays) != 1 {
+		t.Errorf("Generated %v plays (%v), expected len=%v", generator.plays,
+			len(generator.plays), 1)
+	}
+	m := generator.plays[0]
+	if m.ShortDescription() != "1L .A" {
+		t.Errorf("Expected 1L .A, got %v", m.ShortDescription())
 	}
 }
 
@@ -263,7 +294,7 @@ func TestGenMoveJustOnce(t *testing.T) {
 	generator.lastAnchorCol = 100
 	for anchorCol := 8; anchorCol <= 12; anchorCol++ {
 		generator.curAnchorCol = anchorCol
-		generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex())
+		generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol)
 		generator.lastAnchorCol = anchorCol
 	}
 	if len(generator.plays) != 34 {
@@ -604,7 +635,7 @@ func BenchmarkGenFullRack(b *testing.B) {
 		// Benchmark run 2022-03-16 on M1 MBP (Docker not running):
 		// go 1.18
 
-		// 2098	    514978 ns/op	  216899 B/op	    5302 allocs/op
+		// 2190	    513518 ns/op	  204738 B/op	    3884 allocs/op
 		bd := board.MakeBoard(board.CrosswordGameBoard)
 		ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 		if err != nil {
