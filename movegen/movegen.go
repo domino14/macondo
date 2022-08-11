@@ -33,6 +33,12 @@ type MoveGenerator interface {
 	Plays() []*move.Move
 }
 
+type PlayRecorderFunc func(gen *GordonGenerator, startRow int, rack *alphabet.Rack, tilesPlayed, leftstrip, rightstrip int)
+
+func NullPlayRecorder(gen *GordonGenerator, startRow int, rack *alphabet.Rack, tilesPlayed, leftstrip, rightstrip int) {
+	return
+}
+
 // GordonGenerator is the main move generation struct. It implements
 // Steven A. Gordon's algorithm from his paper "A faster Scrabble Move Generation
 // Algorithm"
@@ -62,6 +68,8 @@ type GordonGenerator struct {
 
 	// Used for play-finding without allocation
 	strip []alphabet.MachineLetter
+
+	playRecorder PlayRecorderFunc
 }
 
 // NewGordonGenerator returns a Gordon move generator.
@@ -75,6 +83,7 @@ func NewGordonGenerator(gd *gaddag.SimpleGaddag, board *board.GameBoard,
 		sortingParameter:   SortByScore,
 		letterDistribution: ld,
 		strip:              make([]alphabet.MachineLetter, board.Dim()),
+		playRecorder:       recordPlay,
 	}
 	return gen
 }
@@ -84,6 +93,10 @@ func NewGordonGenerator(gd *gaddag.SimpleGaddag, board *board.GameBoard,
 // not care about equity.
 func (gen *GordonGenerator) SetSortingParameter(s SortBy) {
 	gen.sortingParameter = s
+}
+
+func (gen *GordonGenerator) SetPlayRecorder(pr PlayRecorderFunc) {
+	gen.playRecorder = pr
 }
 
 // GenAll generates all moves on the board. It assumes anchors have already
@@ -124,7 +137,6 @@ func (gen *GordonGenerator) genByOrientation(rack *alphabet.Rack, dir board.Boar
 
 // recursiveGen is an implementation of the Gordon Gen function.
 func (gen *GordonGenerator) recursiveGen(col int, rack *alphabet.Rack, nodeIdx uint32, leftstrip, rightstrip int) {
-
 	var csDirection board.BoardDirection
 	// If a letter L is already on this square, then goOn...
 	curSquare := gen.board.GetSquare(gen.curRowIdx, col)
@@ -191,7 +203,7 @@ func (gen *GordonGenerator) goOn(curCol int, L alphabet.MachineLetter,
 
 		// Check to see if there is a letter directly to the left.
 		if gen.gaddag.InLetterSet(L, oldNodeIdx) && noLetterDirectlyLeft && gen.tilesPlayed > 0 {
-			gen.recordPlay(gen.curRowIdx, rack.TilesOn(), gen.tilesPlayed, leftstrip, rightstrip)
+			gen.playRecorder(gen, gen.curRowIdx, rack, gen.tilesPlayed, leftstrip, rightstrip)
 		}
 		if newNodeIdx == 0 {
 			return
@@ -224,7 +236,7 @@ func (gen *GordonGenerator) goOn(curCol int, L alphabet.MachineLetter,
 		noLetterDirectlyRight := curCol == gen.board.Dim()-1 ||
 			gen.board.GetSquare(gen.curRowIdx, curCol+1).IsEmpty()
 		if gen.gaddag.InLetterSet(L, oldNodeIdx) && noLetterDirectlyRight && gen.tilesPlayed > 0 {
-			gen.recordPlay(gen.curRowIdx, rack.TilesOn(), gen.tilesPlayed, leftstrip, rightstrip)
+			gen.playRecorder(gen, gen.curRowIdx, rack, gen.tilesPlayed, leftstrip, rightstrip)
 		}
 		if newNodeIdx != 0 && curCol < gen.board.Dim()-1 {
 			// There is room to the right
@@ -233,7 +245,7 @@ func (gen *GordonGenerator) goOn(curCol int, L alphabet.MachineLetter,
 	}
 }
 
-func (gen *GordonGenerator) recordPlay(startRow int, leave alphabet.MachineWord, tilesPlayed, leftstrip, rightstrip int) {
+func recordPlay(gen *GordonGenerator, startRow int, rack *alphabet.Rack, tilesPlayed, leftstrip, rightstrip int) {
 	startCol := leftstrip
 	row := startRow
 	col := startCol
@@ -249,7 +261,7 @@ func (gen *GordonGenerator) recordPlay(startRow int, leave alphabet.MachineWord,
 
 	alph := gen.gaddag.GetAlphabet()
 	play := move.NewScoringMove(gen.scoreMove(word, startRow, startCol, tilesPlayed),
-		word, leave, gen.vertical,
+		word, rack.TilesOn(), gen.vertical,
 		tilesPlayed, alph, row, col, coords)
 	// if gen.sortingParameter == SortByEquity {
 	// 	play.SetEquity(gen.strategy.Equity(play, gen.board, gen.bag, gen.oppRack))
@@ -335,8 +347,8 @@ func (gen *GordonGenerator) addPassAndExchangeMoves(addExchange bool, rack *alph
 		// These are arrays of MachineLetter. We make them specifically `byte`
 		// here (it's a type alias) because otherwise it's a giant pain to
 		// convert []MachineLetter to a string for the map.
-		var subset []alphabet.MachineLetter
-		var leave []alphabet.MachineLetter
+		subset := make([]alphabet.MachineLetter, 0, len(tilesOnRack))
+		leave := make([]alphabet.MachineLetter, 0, len(tilesOnRack))
 		for j, elem := range tilesOnRack {
 			if index&(1<<uint(j)) > 0 {
 				subset = append(subset, elem)
@@ -350,7 +362,6 @@ func (gen *GordonGenerator) addPassAndExchangeMoves(addExchange bool, rack *alph
 		index++
 	}
 	for _, mv := range exchMap {
-		// mv.SetEquity(gen.strategy.Equity(mv, gen.board, gen.bag, gen.oppRack))
 		gen.plays = append(gen.plays, mv)
 	}
 }

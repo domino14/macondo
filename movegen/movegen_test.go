@@ -1,8 +1,6 @@
 package movegen
 
 import (
-	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"testing"
@@ -50,7 +48,6 @@ func Filter(moves []*move.Move, f func(*move.Move) bool) []*move.Move {
 }
 
 func scoringPlays(moves []*move.Move) []*move.Move {
-	fmt.Println("before filter", len(moves))
 	return Filter(moves, func(m *move.Move) bool {
 		return m.Action() == move.MoveTypePlay
 	})
@@ -124,7 +121,6 @@ func TestSimpleRowGen(t *testing.T) {
 		t.Error(err)
 	}
 	for idx, tc := range cases {
-		log.Printf("Case %v", idx)
 		generator := NewGordonGenerator(gd, board, dist)
 		generator.curAnchorCol = tc.curAnchorCol
 		rack := alphabet.RackFromString(tc.rack, gd.GetAlphabet())
@@ -340,7 +336,7 @@ func TestGenAllMovesFullRack(t *testing.T) {
 	cross_set.GenAllCrossSets(bd, gd, ld)
 
 	generator.GenAll(alphabet.RackFromString("AABDELT", alph), true)
-	// There should be 673 unique scoring plays, 95 exchanges and 1 pass.
+	// There should be 673 unique scoring plays and 95 exchanges.
 	assert.Equal(t, 673, len(scoringPlays(generator.plays)))
 	assert.Equal(t, 95, len(nonScoringPlays(generator.plays)))
 
@@ -631,8 +627,7 @@ func BenchmarkGenFullRack(b *testing.B) {
 	alph := gd.GetAlphabet()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		// 930 μs per operation on my macbook pro!! amazing!!!
-		// Benchmark run 2022-03-16 on M1 MBP (Docker not running):
+		// Benchmark run 2022-08-09 on M1 MBP (Docker not running):
 		// go 1.18
 
 		// 2190	    513518 ns/op	  204738 B/op	    3884 allocs/op
@@ -645,6 +640,32 @@ func BenchmarkGenFullRack(b *testing.B) {
 		bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
 		cross_set.GenAllCrossSets(bd, gd, ld)
 
+		generator.GenAll(alphabet.RackFromString("AABDELT", alph), true)
+	}
+}
+
+func BenchmarkJustMovegen(b *testing.B) {
+	gd, err := GaddagFromLexicon("America")
+	if err != nil {
+		b.Errorf("Expected error to be nil, got %v", err)
+	}
+	alph := gd.GetAlphabet()
+	bd := board.MakeBoard(board.CrosswordGameBoard)
+	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
+	if err != nil {
+		b.Error(err)
+	}
+	generator := NewGordonGenerator(gd, bd, ld)
+	// generator.SetPlayRecorder(NullPlayRecorder)
+	bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
+	cross_set.GenAllCrossSets(bd, gd, ld)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		// Benchmark run 2022-08-09 on M1 MBP (Docker not running):
+		// go 1.18
+
+		// 3078	    354726 ns/op	  169190 B/op	    3381 allocs/op
 		generator.GenAll(alphabet.RackFromString("AABDELT", alph), true)
 	}
 }
