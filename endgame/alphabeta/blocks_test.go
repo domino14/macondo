@@ -150,7 +150,6 @@ func TestComplexBlocks(t *testing.T) {
 		{it, it, true},
 		{its, its, true},
 		{of, of, true},
-		{so, so, true},
 		{sha, sha, true},
 	}
 	for _, tc := range testcases {
