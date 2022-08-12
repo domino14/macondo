@@ -3,6 +3,7 @@ package movegen
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 
 	"github.com/domino14/macondo/alphabet"
@@ -78,7 +79,7 @@ func TestGenBase(t *testing.T) {
 	generator.curAnchorCol = 8
 	// Row 4 for shiz and gig
 	generator.curRowIdx = 4
-	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol)
+	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true)
 
 	if len(generator.plays) != 0 {
 		t.Errorf("Generated %v plays, expected %v", len(generator.plays), 0)
@@ -126,7 +127,7 @@ func TestSimpleRowGen(t *testing.T) {
 		rack := alphabet.RackFromString(tc.rack, gd.GetAlphabet())
 		board.SetRow(tc.row, tc.rowString, gd.GetAlphabet())
 		generator.curRowIdx = tc.row
-		generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol)
+		generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true)
 		if len(generator.plays) != tc.expectedPlays {
 			t.Errorf("%v Generated %v plays, expected %v", idx, generator.plays, tc.expectedPlays)
 		}
@@ -154,7 +155,7 @@ func TestGenThroughBothWaysAllowedLetters(t *testing.T) {
 	ml, _ := gd.GetAlphabet().Val('I')
 	bd.ClearCrossSet(int(generator.curRowIdx), 2, board.VerticalDirection)
 	bd.SetCrossSetLetter(int(generator.curRowIdx), 2, board.VerticalDirection, ml)
-	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol)
+	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true)
 	// it should generate HITHERMOST only
 	if len(generator.plays) != 1 {
 		t.Errorf("Generated %v plays (%v), expected len=%v", generator.plays,
@@ -186,8 +187,12 @@ func TestRowGen(t *testing.T) {
 	rack := alphabet.RackFromString("AAEIRST", gd.GetAlphabet())
 	generator.curRowIdx = 4
 	generator.curAnchorCol = 8
-	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol)
-	generator.dedupeAndSortPlays()
+	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true)
+
+	sort.Slice(generator.plays, func(i, j int) bool {
+		return generator.plays[i].Score() > generator.plays[j].Score()
+	})
+
 	// Should generate AIRGLOWS and REGLOWS only
 	if len(generator.plays) != 2 {
 		t.Errorf("Generated %v plays (%v), expected len=%v", generator.plays,
@@ -199,7 +204,7 @@ func TestRowGen(t *testing.T) {
 	}
 	if generator.plays[1].Leave().UserVisible(gd.GetAlphabet()) != "AAIST" {
 		t.Errorf("Leave was wrong: %v",
-			generator.plays[0].Leave().UserVisible(gd.GetAlphabet()))
+			generator.plays[1].Leave().UserVisible(gd.GetAlphabet()))
 	}
 }
 
@@ -222,7 +227,7 @@ func TestOtherRowGen(t *testing.T) {
 	rack := alphabet.RackFromString("A", gd.GetAlphabet())
 	generator.curRowIdx = 14
 	generator.curAnchorCol = 8
-	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol)
+	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true)
 	// Should generate AVENGED only
 	if len(generator.plays) != 1 {
 		t.Errorf("Generated %v plays (%v), expected len=%v", generator.plays,
@@ -254,7 +259,7 @@ func TestOneMoreRowGen(t *testing.T) {
 	rack := alphabet.RackFromString("A", gd.GetAlphabet())
 	generator.curRowIdx = 0
 	generator.curAnchorCol = 11
-	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol)
+	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true)
 
 	if len(generator.plays) != 1 {
 		t.Errorf("Generated %v plays (%v), expected len=%v", generator.plays,
@@ -290,7 +295,7 @@ func TestGenMoveJustOnce(t *testing.T) {
 	generator.lastAnchorCol = 100
 	for anchorCol := 8; anchorCol <= 12; anchorCol++ {
 		generator.curAnchorCol = anchorCol
-		generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol)
+		generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, false)
 		generator.lastAnchorCol = anchorCol
 	}
 	if len(generator.plays) != 34 {
@@ -543,28 +548,6 @@ func TestGenerateNoPlays(t *testing.T) {
 	assert.Equal(t, 0, len(scoringPlays(generator.plays)))
 	assert.Equal(t, 1, len(nonScoringPlays(generator.plays)))
 	assert.Equal(t, move.MoveTypePass, generator.plays[0].Action())
-}
-
-func TestGenerateDupes(t *testing.T) {
-	gd, err := GaddagFromLexicon("America")
-	if err != nil {
-		t.Errorf("Expected error to be nil, got %v", err)
-	}
-	alph := gd.GetAlphabet()
-
-	bd := board.MakeBoard(board.CrosswordGameBoard)
-	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
-	if err != nil {
-		t.Error(err)
-	}
-	generator := NewGordonGenerator(gd, bd, ld)
-	bd.SetToGame(gd.GetAlphabet(), board.TestDupe)
-	cross_set.GenAllCrossSets(bd, gd, ld)
-
-	generator.GenAll(alphabet.RackFromString("Z", alph), false)
-	s := scoringPlays(generator.plays)
-	assert.Equal(t, 1, len(s))
-	assert.True(t, s[0].HasDupe())
 }
 
 func TestRowEquivalent(t *testing.T) {

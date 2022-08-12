@@ -47,9 +47,6 @@ type Move struct {
 	valuation   float32
 	// visited is used during endgame iterative deepening.
 	visited bool
-	// If this move has a duplicate, it will be here. It only applies
-	// for single-tile plays.
-	dupeOf *Move
 }
 
 var reVertical, reHorizontal *regexp.Regexp
@@ -280,18 +277,6 @@ func (m *Move) SetValuation(v float32) {
 
 func (m *Move) Score() int {
 	return m.score
-}
-
-func (m *Move) SetDupe(o *Move) {
-	m.dupeOf = o
-}
-
-func (m *Move) HasDupe() bool {
-	return m.dupeOf != nil
-}
-
-func (m *Move) Dupe() *Move {
-	return m.dupeOf
 }
 
 func (m *Move) SetVisited(v bool) { m.visited = v }
