@@ -33,6 +33,7 @@ Other:
     export <filepath> - export a game to .gcg
     autoplay [options] - start comp v comp autoplay
     autoanalyze <filepath> - simple analysis of a log file created by autoplay
+    moveanalyze <filepath> - simple analysis of a move log file created by autoplay
     mode [modename] - macondo can be in a number of a different modes. The default
       mode is 'standard'. In other modes, other commands are accepted. See
       `help mode` for a list of modes.

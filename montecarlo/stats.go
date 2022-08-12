@@ -44,3 +44,7 @@ func (s *Statistic) Variance() float64 {
 func (s *Statistic) Stdev() float64 {
 	return math.Sqrt(s.Variance())
 }
+
+func (s *Statistic) Total() int {
+	return s.totalIterations
+}

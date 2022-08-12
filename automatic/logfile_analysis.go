@@ -126,3 +126,74 @@ func AnalyzeLogFile(filepath string) (string, error) {
 		wentFirstWL, 100.0*wentFirstWL/float64(gamesPlayed))
 	return stats, nil
 }
+
+func AnalyzeMoveLogFile(filepath string) (string, error) {
+	file, err := cache.Open(filepath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	r := csv.NewReader(file)
+
+	averageByScore := map[int]*montecarlo.Statistic{}
+	averageByScoreAndTilesRemaining := map[int]*montecarlo.Statistic{}
+	movesPlayed := 0
+	for {
+		record, err := r.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+		if record[0] == "playerID" {
+			// this is the header line
+			continue
+		}
+		score, err := strconv.Atoi(record[5])
+		if err != nil {
+			panic(err)
+		}
+		tilesPlayed, err := strconv.Atoi(record[7])
+		if err != nil {
+			panic(err)
+		}
+		equity, err := strconv.ParseFloat(record[9], 64)
+		if err != nil {
+			panic(err)
+		}
+		leaveEquity := equity - float64(score)
+		averageByScoreStat := averageByScore[score]
+		if averageByScoreStat == nil {
+			averageByScoreStat = &montecarlo.Statistic{}
+			averageByScore[score] = averageByScoreStat
+		}
+		idx := score*8 + (7 - tilesPlayed)
+		averageByScoreAndTilesRemainingStat := averageByScoreAndTilesRemaining[idx]
+		if averageByScoreAndTilesRemainingStat == nil {
+			averageByScoreAndTilesRemainingStat = &montecarlo.Statistic{}
+			averageByScoreAndTilesRemaining[idx] = averageByScoreAndTilesRemainingStat
+		}
+		averageByScoreStat.Push(leaveEquity)
+		averageByScoreAndTilesRemainingStat.Push(leaveEquity)
+		movesPlayed++
+	}
+
+	// build stats string
+	var statsString strings.Builder
+	fmt.Fprintf(&statsString, "Moves analyzed: %d\nAverage Leave Equity by Score (score, n, average leave equity, stdev):\n", movesPlayed)
+	for i := 0; i < 3000; i++ {
+		stat := averageByScore[i]
+		if stat != nil {
+			fmt.Fprintf(&statsString, "%d, %d, %.2f, %.2f\n", i, stat.Total(), stat.Mean(), stat.Stdev())
+		}
+	}
+	fmt.Fprint(&statsString, "\nAverage Leave Equity by Score and Tiles Remaining (score, tiles remaining, n, average leave equity, stdev):\n")
+	for i := 0; i < 24000; i++ {
+		stat := averageByScoreAndTilesRemaining[i]
+		if stat != nil {
+			fmt.Fprintf(&statsString, "%d, %d, %d, %.2f, %.2f\n", i/8, i%8, stat.Total(), stat.Mean(), stat.Stdev())
+		}
+	}
+	return statsString.String(), nil
+}

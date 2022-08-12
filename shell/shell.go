@@ -773,6 +773,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.export(cmd)
 	case "autoanalyze":
 		return sc.autoAnalyze(cmd)
+	case "moveanalyze":
+		return sc.moveAnalyze(cmd)
 	case "script":
 		return sc.script(cmd)
 	case "gid":

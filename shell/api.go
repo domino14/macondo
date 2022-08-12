@@ -322,3 +322,15 @@ func (sc *ShellController) autoAnalyze(cmd *shellcmd) (*Response, error) {
 	}
 	return msg(analysis), nil
 }
+
+func (sc *ShellController) moveAnalyze(cmd *shellcmd) (*Response, error) {
+	if cmd.args == nil {
+		return nil, errors.New("please provide a filename to analyze")
+	}
+	filename := cmd.args[0]
+	analysis, err := automatic.AnalyzeMoveLogFile(filename)
+	if err != nil {
+		return nil, err
+	}
+	return msg(analysis), nil
+}
