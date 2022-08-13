@@ -11,6 +11,7 @@
 package movegen
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/domino14/macondo/alphabet"
@@ -33,9 +34,9 @@ type MoveGenerator interface {
 	Plays() []*move.Move
 }
 
-type PlayRecorderFunc func(gen *GordonGenerator, rack *alphabet.Rack, leftstrip, rightstrip int)
+type PlayRecorderFunc func(*GordonGenerator, *alphabet.Rack, int, int, move.MoveType)
 
-func NullPlayRecorder(gen *GordonGenerator, rack *alphabet.Rack, leftstrip, rightstrip int) {
+func NullPlayRecorder(gen *GordonGenerator, rack *alphabet.Rack, leftstrip, rightstrip int, t move.MoveType) {
 	return
 }
 
@@ -67,7 +68,8 @@ type GordonGenerator struct {
 	letterDistribution *alphabet.LetterDistribution
 
 	// Used for play-finding without allocation
-	strip []alphabet.MachineLetter
+	strip         []alphabet.MachineLetter
+	exchangestrip []alphabet.MachineLetter
 
 	playRecorder PlayRecorderFunc
 }
@@ -83,6 +85,7 @@ func NewGordonGenerator(gd *gaddag.SimpleGaddag, board *board.GameBoard,
 		sortingParameter:   SortByScore,
 		letterDistribution: ld,
 		strip:              make([]alphabet.MachineLetter, board.Dim()),
+		exchangestrip:      make([]alphabet.MachineLetter, 7), // max rack size. can make a parameter later.
 		playRecorder:       recordPlay,
 	}
 	return gen
@@ -229,7 +232,7 @@ func (gen *GordonGenerator) goOn(curCol int, L alphabet.MachineLetter,
 			// if 1 tile has been played, there should be no letters in the across
 			// direction (otherwise the cross-set is not trivial)
 			if uniquePlay || gen.tilesPlayed > 1 {
-				gen.playRecorder(gen, rack, leftstrip, rightstrip)
+				gen.playRecorder(gen, rack, leftstrip, rightstrip, move.MoveTypePlay)
 			}
 		}
 		if newNodeIdx == 0 {
@@ -268,7 +271,7 @@ func (gen *GordonGenerator) goOn(curCol int, L alphabet.MachineLetter,
 			gen.board.GetSquare(gen.curRowIdx, curCol+1).IsEmpty()
 		if gen.gaddag.InLetterSet(L, oldNodeIdx) && noLetterDirectlyRight && gen.tilesPlayed > 0 {
 			if uniquePlay || gen.tilesPlayed > 1 {
-				gen.playRecorder(gen, rack, leftstrip, rightstrip)
+				gen.playRecorder(gen, rack, leftstrip, rightstrip, move.MoveTypePlay)
 			}
 		}
 		if newNodeIdx != 0 && curCol < gen.board.Dim()-1 {
@@ -278,33 +281,43 @@ func (gen *GordonGenerator) goOn(curCol int, L alphabet.MachineLetter,
 	}
 }
 
-func recordPlay(gen *GordonGenerator, rack *alphabet.Rack, leftstrip, rightstrip int) {
+func recordPlay(gen *GordonGenerator, rack *alphabet.Rack, leftstrip, rightstrip int, t move.MoveType) {
 
-	startRow := gen.curRowIdx
-	tilesPlayed := gen.tilesPlayed
+	switch t {
+	case move.MoveTypePlay:
+		startRow := gen.curRowIdx
+		tilesPlayed := gen.tilesPlayed
 
-	startCol := leftstrip
-	row := startRow
-	col := startCol
-	if gen.vertical {
-		// We flip it here because we only generate vertical moves when we transpose
-		// the board, so the row and col are actually transposed.
-		row, col = col, row
+		startCol := leftstrip
+		row := startRow
+		col := startCol
+		if gen.vertical {
+			// We flip it here because we only generate vertical moves when we transpose
+			// the board, so the row and col are actually transposed.
+			row, col = col, row
+		}
+
+		coords := move.ToBoardGameCoords(row, col, gen.vertical)
+		length := rightstrip - leftstrip + 1
+		word := make([]alphabet.MachineLetter, length)
+		copy(word, gen.strip[startCol:startCol+length])
+
+		alph := gen.gaddag.GetAlphabet()
+		play := move.NewScoringMove(gen.scoreMove(word, startRow, startCol, tilesPlayed),
+			word, rack.TilesOn(), gen.vertical,
+			tilesPlayed, alph, row, col, coords)
+		// if gen.sortingParameter == SortByEquity {
+		// 	play.SetEquity(gen.strategy.Equity(play, gen.board, gen.bag, gen.oppRack))
+		// }
+		gen.plays = append(gen.plays, play)
+
+	case move.MoveTypeExchange:
+		fmt.Println("exchanging", gen.exchangestrip[:rightstrip])
+
+	default:
+
 	}
 
-	coords := move.ToBoardGameCoords(row, col, gen.vertical)
-	length := rightstrip - leftstrip + 1
-	word := make([]alphabet.MachineLetter, length)
-	copy(word, gen.strip[startCol:startCol+length])
-
-	alph := gen.gaddag.GetAlphabet()
-	play := move.NewScoringMove(gen.scoreMove(word, startRow, startCol, tilesPlayed),
-		word, rack.TilesOn(), gen.vertical,
-		tilesPlayed, alph, row, col, coords)
-	// if gen.sortingParameter == SortByEquity {
-	// 	play.SetEquity(gen.strategy.Equity(play, gen.board, gen.bag, gen.oppRack))
-	// }
-	gen.plays = append(gen.plays, play)
 }
 
 func (gen *GordonGenerator) crossDirection() board.BoardDirection {
@@ -366,4 +379,46 @@ func (gen *GordonGenerator) addPassAndExchangeMoves(addExchange bool, rack *alph
 	for _, mv := range exchMap {
 		gen.plays = append(gen.plays, mv)
 	}
+}
+
+// i wrote this in a delirium and don't quite know how it works.
+// /giphy magic
+
+func (gen *GordonGenerator) generateExchangeMoves(rack *alphabet.Rack, ml alphabet.MachineLetter, stripidx int) {
+
+	var ct int
+	for {
+		ct = rack.CountOf(ml)
+		if ct != 0 {
+			break
+		}
+		ml += 1
+		if ml == alphabet.MaxAlphabetSize {
+			return
+		}
+	}
+
+	for {
+		gen.generateExchangeMoves(rack, ml+1, stripidx)
+
+		gen.exchangestrip[stripidx] = ml
+		stripidx += 1
+
+		gen.playRecorder(gen, rack, 0, stripidx, move.MoveTypeExchange)
+		if !rack.Has(ml) {
+			break
+		}
+		rack.Take(ml)
+		if stripidx > 6 {
+			break
+		}
+	}
+	for i := 0; i < ct; i++ {
+		rack.Add(ml)
+	}
+
+}
+
+func (gen *GordonGenerator) recursiveGenExchange(rack *alphabet.Rack) {
+
 }

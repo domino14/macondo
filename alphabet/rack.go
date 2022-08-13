@@ -123,6 +123,10 @@ func (r *Rack) Has(letter MachineLetter) bool {
 	return r.LetArr[letter] > 0
 }
 
+func (r *Rack) CountOf(letter MachineLetter) int {
+	return r.LetArr[letter]
+}
+
 func (r *Rack) Add(letter MachineLetter) {
 	r.LetArr[letter]++
 	r.numLetters++
