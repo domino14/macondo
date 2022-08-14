@@ -644,12 +644,13 @@ func BenchmarkJustMovegen(b *testing.B) {
 	cross_set.GenAllCrossSets(bd, gd, ld)
 	b.ReportAllocs()
 	b.ResetTimer()
+	rack := alphabet.RackFromString("AABDELT", alph)
 	for i := 0; i < b.N; i++ {
 		// Benchmark run 2022-08-13 on M1 MBP (Docker not running):
 		// go 1.18
 
 		// 3349	    334262 ns/op	  147152 B/op	    2991 allocs/op
-		generator.GenAll(alphabet.RackFromString("AABDELT", alph), true)
+		generator.GenAll(rack, true)
 	}
 }
 

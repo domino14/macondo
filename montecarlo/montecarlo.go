@@ -272,7 +272,8 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 				iterNum := s.iterationCount + 1
 				s.iterationCount++
 				iterMutex.Unlock()
-
+				// XXX: isn't it possible for iterNum to not be the
+				// expected value here? We're outside of the mutex.
 				s.simSingleIteration(s.maxPlies, t, iterNum, logChan)
 				select {
 				case v := <-syncChan:

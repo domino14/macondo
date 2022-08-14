@@ -36,7 +36,6 @@ type MoveGenerator interface {
 type PlayRecorderFunc func(*GordonGenerator, *alphabet.Rack, int, int, move.MoveType)
 
 func NullPlayRecorder(gen *GordonGenerator, rack *alphabet.Rack, leftstrip, rightstrip int, t move.MoveType) {
-	return
 }
 
 // GordonGenerator is the main move generation struct. It implements
@@ -105,7 +104,7 @@ func (gen *GordonGenerator) SetPlayRecorder(pr PlayRecorderFunc) {
 // been updated, as well as cross-sets / cross-scores.
 func (gen *GordonGenerator) GenAll(rack *alphabet.Rack, addExchange bool) {
 	gen.plays = []*move.Move{}
-	orientations := []board.BoardDirection{
+	orientations := [2]board.BoardDirection{
 		board.HorizontalDirection, board.VerticalDirection}
 
 	// Once for each orientation

@@ -14,6 +14,7 @@ import (
 	airunner "github.com/domino14/macondo/ai/runner"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/gaddagmaker"
@@ -91,6 +92,38 @@ func TestSimSingleIteration(t *testing.T) {
 
 	simmer.sortPlaysByEquity()
 	fmt.Println(simmer.printStats())
+}
+
+func BenchmarkSim(b *testing.B) {
+	is := is.New(b)
+	plies := 2
+
+	cgpstr := "C14/O2TOY9/mIRADOR8/F4DAB2PUGH1/I5GOOEY3V/T4XI2MALTHA/14N/6GUM3OWN/7PEW2DOE/9EF1DOR/2KUNA1J1BEVELS/3TURRETs2S2/7A4T2/7N7/7S7 EEEIILZ/ 336/298 0 lex NWL20;"
+
+	game, err := cgp.ParseCGP(&DefaultConfig, cgpstr)
+	is.NoErr(err)
+	game.RecalculateBoard()
+	strategy, err := strategy.NewExhaustiveLeaveStrategy(game.Rules().LexiconName(),
+		game.Alphabet(), &DefaultConfig, strategy.LeaveFilename, strategy.PEGAdjustmentFilename)
+	is.NoErr(err)
+
+	gd, err := gaddag.Get(game.Config(), game.LexiconName())
+	is.NoErr(err)
+
+	generator := movegen.NewGordonGenerator(gd, game.Board(), game.Rules().LetterDistribution())
+
+	generator.GenAll(game.RackFor(0), false)
+	plays := generator.Plays()[:10]
+
+	simmer := &Simmer{}
+	simmer.Init(game, player.NewRawEquityPlayer(strategy, pb.BotRequest_HASTY_BOT))
+	simmer.PrepareSim(plies, plays)
+
+	// benchmark 2022-08-13 on monolith (12th gen Intel computer)
+	// 285	   4241196 ns/op	 1231863 B/op	   24876 allocs/op
+	for i := 0; i < b.N; i++ {
+		simmer.simSingleIteration(plies, 0, i+1, nil)
+	}
 }
 
 func TestLongerSim(t *testing.T) {
