@@ -698,13 +698,14 @@ func BenchmarkGenBothBlanks(b *testing.B) {
 }
 
 func TestGenExchange(t *testing.T) {
-	rack := alphabet.RackFromString("AAABCCD", alphabet.EnglishAlphabet())
+	// rack := alphabet.RackFromString("AAABCCD", alphabet.EnglishAlphabet())
+	rack := alphabet.RackFromString("ABCDEF?", alphabet.EnglishAlphabet())
+
 	bd := board.MakeBoard(board.CrosswordGameBoard)
 	gd, _ := GaddagFromLexicon("America")
 	ld, _ := alphabet.EnglishLetterDistribution(&DefaultConfig)
 	gen := NewGordonGenerator(gd, bd, ld)
 
 	gen.generateExchangeMoves(rack, 0, 0)
-
-	t.Fail()
+	assert.Equal(t, len(gen.plays), 127)
 }

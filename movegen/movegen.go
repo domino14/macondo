@@ -11,7 +11,6 @@
 package movegen
 
 import (
-	"fmt"
 	"sort"
 
 	"github.com/domino14/macondo/alphabet"
@@ -116,7 +115,17 @@ func (gen *GordonGenerator) GenAll(rack *alphabet.Rack, addExchange bool) {
 		gen.board.Transpose()
 	}
 
-	gen.addPassAndExchangeMoves(addExchange, rack)
+	// Only add a pass move if nothing else is possible. Note: in endgames,
+	// we will have to add a pass move another way (if it's a strategic pass).
+	// Probably in the endgame package.
+	if len(gen.plays) == 0 {
+		tilesOnRack := rack.TilesOn()
+		passMove := move.NewPassMove(tilesOnRack, rack.Alphabet())
+		gen.plays = append(gen.plays, passMove)
+	}
+	if addExchange {
+		gen.generateExchangeMoves(rack, 0, 0)
+	}
 
 	switch gen.sortingParameter {
 	case SortByScore:
@@ -312,7 +321,15 @@ func recordPlay(gen *GordonGenerator, rack *alphabet.Rack, leftstrip, rightstrip
 		gen.plays = append(gen.plays, play)
 
 	case move.MoveTypeExchange:
-		fmt.Println("exchanging", gen.exchangestrip[:rightstrip])
+		// ignore the empty exchange case
+		if rightstrip == 0 {
+			return
+		}
+		alph := gen.gaddag.GetAlphabet()
+		exchanged := make([]alphabet.MachineLetter, rightstrip)
+		copy(exchanged, gen.exchangestrip[:rightstrip])
+		play := move.NewExchangeMove(exchanged, rack.TilesOn(), alph)
+		gen.plays = append(gen.plays, play)
 
 	default:
 
@@ -337,88 +354,26 @@ func (gen *GordonGenerator) Plays() []*move.Move {
 	return gen.plays
 }
 
-func (gen *GordonGenerator) addPassAndExchangeMoves(addExchange bool, rack *alphabet.Rack) {
-	tilesOnRack := rack.TilesOn()
-
-	// Only add a pass move if nothing else is possible. Note: in endgames,
-	// we will have to add a pass move another way (if it's a strategic pass).
-	// Probably in the endgame package.
-	if len(gen.plays) == 0 {
-		passMove := move.NewPassMove(tilesOnRack, rack.Alphabet())
-		// passMove.SetEquity(gen.strategy.Equity(passMove, gen.board, gen.bag, gen.oppRack))
-		gen.plays = append(gen.plays, passMove)
-	}
-	if !addExchange {
-		return
-	}
-
-	alph := gen.gaddag.GetAlphabet()
-	// Generate all exchange moves.
-	exchMap := make(map[string]*move.Move)
-	// Create a list of all machine letters
-	powersetSize := 1 << uint(len(tilesOnRack))
-	index := 1
-	for index < powersetSize {
-		// These are arrays of MachineLetter. We make them specifically `byte`
-		// here (it's a type alias) because otherwise it's a giant pain to
-		// convert []MachineLetter to a string for the map.
-		subset := make([]alphabet.MachineLetter, 0, len(tilesOnRack))
-		leave := make([]alphabet.MachineLetter, 0, len(tilesOnRack))
-		for j, elem := range tilesOnRack {
-			if index&(1<<uint(j)) > 0 {
-				subset = append(subset, elem)
-			} else {
-				leave = append(leave, elem)
-			}
-		}
-
-		move := move.NewExchangeMove(subset, leave, alph)
-		exchMap[alphabet.MachineWord(subset).String()] = move
-		index++
-	}
-	for _, mv := range exchMap {
-		gen.plays = append(gen.plays, mv)
-	}
-}
-
-// i wrote this in a delirium and don't quite know how it works.
-// /giphy magic
-
+// zero-allocation generation of exchange moves without duplicates:
 func (gen *GordonGenerator) generateExchangeMoves(rack *alphabet.Rack, ml alphabet.MachineLetter, stripidx int) {
 
-	var ct int
-	for {
-		ct = rack.CountOf(ml)
-		if ct != 0 {
-			break
-		}
-		ml += 1
-		if ml == alphabet.MaxAlphabetSize {
-			return
-		}
+	// magic function written by @andy-k
+	for int(ml) < len(rack.LetArr) && rack.LetArr[ml] == 0 {
+		ml++
 	}
-
-	for {
-		gen.generateExchangeMoves(rack, ml+1, stripidx)
-
-		gen.exchangestrip[stripidx] = ml
-		stripidx += 1
-
+	if int(ml) == len(rack.LetArr) {
 		gen.playRecorder(gen, rack, 0, stripidx, move.MoveTypeExchange)
-		if !rack.Has(ml) {
-			break
+	} else {
+		gen.generateExchangeMoves(rack, ml+1, stripidx)
+		numthis := rack.LetArr[ml]
+		for i := 0; i < numthis; i++ {
+			gen.exchangestrip[stripidx] = ml
+			stripidx += 1
+			rack.Take(ml)
+			gen.generateExchangeMoves(rack, ml+1, stripidx)
 		}
-		rack.Take(ml)
-		if stripidx > 6 {
-			break
+		for i := 0; i < numthis; i++ {
+			rack.Add(ml)
 		}
 	}
-	for i := 0; i < ct; i++ {
-		rack.Add(ml)
-	}
-
-}
-
-func (gen *GordonGenerator) recursiveGenExchange(rack *alphabet.Rack) {
-
 }
