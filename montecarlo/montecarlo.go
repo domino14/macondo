@@ -398,7 +398,7 @@ func (s *Simmer) sortPlaysByEquity() {
 	// Sort by equity
 	// log.Debug().Msgf("Sorting plays: %v", s.plays)
 	sort.Slice(s.plays, func(i, j int) bool {
-		return s.plays[i].equityStats.Mean() > s.plays[j].equityStats.Mean()
+		return s.plays[i].equityStats.Equity() > s.plays[j].equityStats.Equity()
 	})
 }
 
@@ -410,11 +410,12 @@ func (s *Simmer) EquityStats() string {
 	stats := ""
 
 	s.sortPlaysByEquity()
-	stats += fmt.Sprintf("%20v%6v%8v\n", "Play", "Score", "Equity")
+	stats += fmt.Sprintf("%20v%6v%8v%8v%8v\n", "Play", "Score", "Equity", "Wins", "Losses")
 
 	for _, play := range s.plays {
-		stats += fmt.Sprintf("%20v%6d%8.3f\n", play.play.ShortDescription(),
-			play.play.Score(), play.equityStats.Mean())
+		stats += fmt.Sprintf("%20v%6d%8.3f%8d%8d\n", play.play.ShortDescription(),
+			play.play.Score(), play.equityStats.Equity(),
+			play.equityStats.wins, play.equityStats.losses)
 	}
 	stats += fmt.Sprintf("Iterations: %v\n", s.iterationCount)
 	return stats
