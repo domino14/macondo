@@ -91,7 +91,7 @@ func (sp *SimmedPlay) addScoreStat(play *move.Move, ply int) {
 }
 
 func (sp *SimmedPlay) addEquityStat(spread int, leftover float64) {
-	sp.equityStats.PushEval(float64(spread) + leftover)
+	sp.equityStats.PushResult(float64(spread) + leftover)
 	sp.leftoverStats.Push(leftover)
 }
 

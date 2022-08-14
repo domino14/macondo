@@ -29,7 +29,7 @@ func (s *Statistic) Push(val float64) {
 	}
 }
 
-func (s *Statistic) PushEval(val float64) {
+func (s *Statistic) PushResult(val float64) {
 	s.Push(val)
 	if val == 0 {
 	    s.wins += 0.5
