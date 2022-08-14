@@ -414,15 +414,14 @@ func (s *Simmer) printStats() string {
 
 func (s *Simmer) EquityStats() string {
 	stats := ""
-
 	s.sortPlaysByWinRate()
-	stats += fmt.Sprintf("%20v%6v%8v%8v\n", "Play", "Score", "Equity", "Win%")
+	stats += fmt.Sprintf("%20s%6s%8s%8s\n", "Play", "Score", "Win%", "Equity")
 
 	for _, play := range s.plays {
-		stats += fmt.Sprintf("%20v%6d%8.3f%8.2f\n", play.play.ShortDescription(),
-			play.play.Score(), play.equityStats.Mean(), 100.0 * play.equityStats.WinRate())
+		stats += fmt.Sprintf("%20s%6d%8.2f%8.3f\n", play.play.ShortDescription(),
+			play.play.Score(), 100.0*play.equityStats.WinRate(), play.equityStats.Mean())
 	}
-	stats += fmt.Sprintf("Iterations: %v\n", s.iterationCount)
+	stats += fmt.Sprintf("Iterations: %d\n", s.iterationCount)
 	return stats
 }
 
@@ -434,17 +433,16 @@ func (s *Simmer) ScoreDetails() string {
 		if ply%2 == 0 {
 			who = "Opponent"
 		}
-		stats += fmt.Sprintf("**Ply %v (%v)**\n%20v%8v%8v%8v\n%v\n",
-			ply+1, who, "Play", "Mean", "Stdev", "Bingo %", strings.Repeat("-", 44))
+		stats += fmt.Sprintf("**Ply %d (%s)**\n%20s%8s%8s%8s%8s\n%s\n",
+			ply+1, who, "Play", "Win%", "Mean", "Stdev", "Bingo %", strings.Repeat("-", 52))
 		for _, play := range s.plays {
-			stats += fmt.Sprintf("%20v%8.3f%8.3f%8.3f\n",
-				play.play.ShortDescription(), play.scoreStats[ply].Mean(),
-				play.scoreStats[ply].Stdev(),
+			stats += fmt.Sprintf("%20s%8.2f%8.3f%8.3f%8.3f\n",
+				play.play.ShortDescription(), 100.0*play.equityStats.WinRate(),
+				play.scoreStats[ply].Mean(), play.scoreStats[ply].Stdev(),
 				100.0*play.bingoStats[ply].Mean())
 		}
 		stats += "\n"
 	}
-	stats += fmt.Sprintf("Iterations: %v\n", s.iterationCount)
-
+	stats += fmt.Sprintf("Iterations: %d\n", s.iterationCount)
 	return stats
 }
