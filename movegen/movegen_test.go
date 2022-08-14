@@ -645,10 +645,10 @@ func BenchmarkJustMovegen(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		// Benchmark run 2022-08-09 on M1 MBP (Docker not running):
+		// Benchmark run 2022-08-13 on M1 MBP (Docker not running):
 		// go 1.18
 
-		// 3081	    343495 ns/op	  162429 B/op	    3343 allocs/op
+		// 3349	    334262 ns/op	  147152 B/op	    2991 allocs/op
 		generator.GenAll(alphabet.RackFromString("AABDELT", alph), true)
 	}
 }
