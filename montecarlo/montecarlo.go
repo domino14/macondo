@@ -90,9 +90,9 @@ func (sp *SimmedPlay) addScoreStat(play *move.Move, ply int) {
 	sp.bingoStats[ply].Push(float64(bingos))
 }
 
-func (sp *SimmedPlay) addEquityStat(spread int, leftover float64) {
-	sp.equityStats.PushResult(float64(spread) + leftover)
-	sp.leftoverStats.Push(leftover)
+func (sp *SimmedPlay) addEquityStat(initialSpread int, spread int, leftover float64) {
+	sp.equityStats.Push(float64(spread - initialSpread) + leftover)
+	sp.leftoverStats.PushResult(spread, leftover)
 }
 
 // Simmer implements the actual look-ahead search
@@ -376,7 +376,7 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 		}
 		// log.Debug().Msgf("Spread for initial player: %v, leftover: %v",
 		// 	s.game.SpreadFor(s.initialPlayer), leftover)
-		simmedPlay.addEquityStat(s.gameCopies[thread].SpreadFor(s.initialPlayer)-s.initialSpread, leftover)
+		simmedPlay.addEquityStat(s.initialSpread, s.gameCopies[thread].SpreadFor(s.initialPlayer), leftover)
 		s.gameCopies[thread].ResetToFirstState()
 		logIter.Plays = append(logIter.Plays, logPlay)
 	}
@@ -404,7 +404,7 @@ func (s *Simmer) sortPlaysByEquity() {
 func (s *Simmer) sortPlaysByWinRate() {
 	// log.Debug().Msgf("Sorting plays: %v", s.plays)
 	sort.Slice(s.plays, func(i, j int) bool {
-		return s.plays[i].equityStats.WinRate() > s.plays[j].equityStats.WinRate()
+		return s.plays[i].leftoverStats.WinRate() > s.plays[j].leftoverStats.WinRate()
 	})
 }
 
@@ -415,11 +415,11 @@ func (s *Simmer) printStats() string {
 func (s *Simmer) EquityStats() string {
 	stats := ""
 	s.sortPlaysByWinRate()
-	stats += fmt.Sprintf("%20s%6s%8s%8s\n", "Play", "Score", "Win%", "Equity")
+	stats += fmt.Sprintf("%-20s%6s%8s%8s\n", "Play", "Score", "Win%", "Equity")
 
 	for _, play := range s.plays {
-		stats += fmt.Sprintf("%20s%6d%8.2f%8.3f\n", play.play.ShortDescription(),
-			play.play.Score(), 100.0*play.equityStats.WinRate(), play.equityStats.Mean())
+		stats += fmt.Sprintf("%-20s%6d%8.2f%8.3f\n", play.play.ShortDescription(),
+			play.play.Score(), 100.0*play.leftoverStats.WinRate(), play.equityStats.Mean())
 	}
 	stats += fmt.Sprintf("Iterations: %d\n", s.iterationCount)
 	return stats
@@ -433,11 +433,11 @@ func (s *Simmer) ScoreDetails() string {
 		if ply%2 == 0 {
 			who = "Opponent"
 		}
-		stats += fmt.Sprintf("**Ply %d (%s)**\n%20s%8s%8s%8s%8s\n%s\n",
+		stats += fmt.Sprintf("**Ply %d (%s)**\n%-20s%8s%8s%8s%8s\n%s\n",
 			ply+1, who, "Play", "Win%", "Mean", "Stdev", "Bingo %", strings.Repeat("-", 52))
 		for _, play := range s.plays {
-			stats += fmt.Sprintf("%20s%8.2f%8.3f%8.3f%8.3f\n",
-				play.play.ShortDescription(), 100.0*play.equityStats.WinRate(),
+			stats += fmt.Sprintf("%-20s%8.2f%8.3f%8.3f%8.3f\n",
+				play.play.ShortDescription(), 100.0*play.leftoverStats.WinRate(),
 				play.scoreStats[ply].Mean(), play.scoreStats[ply].Stdev(),
 				100.0*play.bingoStats[ply].Mean())
 		}
