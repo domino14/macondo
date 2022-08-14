@@ -5,8 +5,7 @@ import "math"
 // Statistic contains statistics per move
 type Statistic struct {
 	totalIterations int
-	losses int
-	wins int
+	wins float64
 
 	// For Welford's algorithm:
 	oldM float64
@@ -18,7 +17,6 @@ type Statistic struct {
 func (s *Statistic) Push(val float64) {
 	s.totalIterations++
 	if s.totalIterations == 1 {
-		s.losses = 0
 		s.wins = 0
 		s.oldM = val
 		s.newM = val
@@ -29,30 +27,16 @@ func (s *Statistic) Push(val float64) {
 		s.oldM = s.newM
 		s.oldS = s.newS
 	}
-	if val < 0 {
-	    s.losses++
+	if val == 0 {
+	    s.wins += 0.5
 	}
 	if val > 0 {
-	    s.wins++
+	    s.wins += 1
 	}
 }
 
-func (s *Statistic) Scale() float64 {
-	// Future work: endgame proven wins/losses can return 1.0 or 0.0
-	return float64(1 + s.wins) / float64(2 + s.losses + s.wins)
-}
-
-func (s *Statistic) Equity() float64 {
-	if s.totalIterations > 0 {
-		mean := s.Mean()
-		scale := s.Scale()
-		if mean < 0 {
-			return (1.0 - scale) * mean
-		} else {
-			return scale * mean
-		}
-	}
-	return 0.0
+func (s *Statistic) WinRate() float64 {
+	return s.wins / float64(s.totalIterations)
 }
 
 func (s *Statistic) Mean() float64 {

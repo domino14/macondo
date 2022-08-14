@@ -395,10 +395,16 @@ func (s *Simmer) bestStaticTurn(playerID, thread int) *move.Move {
 }
 
 func (s *Simmer) sortPlaysByEquity() {
-	// Sort by equity
 	// log.Debug().Msgf("Sorting plays: %v", s.plays)
 	sort.Slice(s.plays, func(i, j int) bool {
-		return s.plays[i].equityStats.Equity() > s.plays[j].equityStats.Equity()
+		return s.plays[i].equityStats.Mean() > s.plays[j].equityStats.Mean()
+	})
+}
+
+func (s *Simmer) sortPlaysByWinRate() {
+	// log.Debug().Msgf("Sorting plays: %v", s.plays)
+	sort.Slice(s.plays, func(i, j int) bool {
+		return s.plays[i].equityStats.WinRate() > s.plays[j].equityStats.WinRate()
 	})
 }
 
@@ -409,13 +415,12 @@ func (s *Simmer) printStats() string {
 func (s *Simmer) EquityStats() string {
 	stats := ""
 
-	s.sortPlaysByEquity()
-	stats += fmt.Sprintf("%20v%6v%8v%8v%8v\n", "Play", "Score", "Equity", "Wins", "Losses")
+	s.sortPlaysByWinRate()
+	stats += fmt.Sprintf("%20v%6v%8v%8v\n", "Play", "Score", "Equity", "Win%")
 
 	for _, play := range s.plays {
-		stats += fmt.Sprintf("%20v%6d%8.3f%8d%8d\n", play.play.ShortDescription(),
-			play.play.Score(), play.equityStats.Equity(),
-			play.equityStats.wins, play.equityStats.losses)
+		stats += fmt.Sprintf("%20v%6d%8.3f%8.2f\n", play.play.ShortDescription(),
+			play.play.Score(), play.equityStats.Mean(), 100.0 * play.equityStats.WinRate())
 	}
 	stats += fmt.Sprintf("Iterations: %v\n", s.iterationCount)
 	return stats
@@ -423,7 +428,7 @@ func (s *Simmer) EquityStats() string {
 
 func (s *Simmer) ScoreDetails() string {
 	stats := ""
-	s.sortPlaysByEquity()
+	s.sortPlaysByWinRate()
 	for ply := 0; ply < s.maxPlies; ply++ {
 		who := "You"
 		if ply%2 == 0 {
