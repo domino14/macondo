@@ -27,6 +27,10 @@ func (s *Statistic) Push(val float64) {
 		s.oldM = s.newM
 		s.oldS = s.newS
 	}
+}
+
+func (s *Statistic) PushEval(val float64) {
+	s.Push(val)
 	if val == 0 {
 	    s.wins += 0.5
 	}
