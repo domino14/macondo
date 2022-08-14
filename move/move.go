@@ -115,11 +115,11 @@ func (m *Move) LeaveString() string {
 func (m *Move) ShortDescription() string {
 	switch m.action {
 	case MoveTypePlay:
-		return fmt.Sprintf("%v %v", m.coords, m.TilesString())
+		return fmt.Sprintf("%3v %s", m.coords, m.TilesString())
 	case MoveTypePass:
 		return "(Pass)"
 	case MoveTypeExchange:
-		return fmt.Sprintf("(exch %v)", m.TilesString())
+		return fmt.Sprintf("(exch %s)", m.TilesString())
 	case MoveTypeChallenge:
 		return "(Challenge!)"
 	}
