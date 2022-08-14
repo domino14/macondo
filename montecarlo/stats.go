@@ -44,7 +44,13 @@ func (s *Statistic) Scale() float64 {
 
 func (s *Statistic) Equity() float64 {
 	if s.totalIterations > 0 {
-	    return s.Scale() * s.Mean()
+		mean := s.Mean()
+		scale := s.Scale()
+		if mean < 0 {
+			return (1.0 - scale) * mean
+		} else {
+			return scale * mean
+		}
 	}
 	return 0.0
 }
