@@ -29,13 +29,13 @@ func (s *Statistic) Push(val float64) {
 	}
 }
 
-func (s *Statistic) PushResult(val float64) {
-	s.Push(val)
-	if val == 0 {
-	    s.wins += 0.5
-	}
-	if val > 0 {
+func (s *Statistic) PushResult(spread int, leftover float64) {
+	s.Push(float64(spread))
+	result := leftover + float64(spread)
+	if result > 0 {
 	    s.wins += 1
+	} else if result == 0 {
+	    s.wins += 0.5
 	}
 }
 
