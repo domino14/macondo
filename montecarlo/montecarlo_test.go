@@ -120,7 +120,7 @@ func BenchmarkSim(b *testing.B) {
 	simmer.PrepareSim(plies, plays)
 
 	// benchmark 2022-08-15 on monolith (12th gen Intel computer)
-	// 3729836 ns/op	   57458 B/op	    6730 allocs/op
+	// 308	   3714452 ns/op	   24713 B/op	     428 allocs/op
 	for i := 0; i < b.N; i++ {
 		simmer.simSingleIteration(plies, 0, i+1, nil)
 	}
