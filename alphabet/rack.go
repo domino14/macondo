@@ -141,8 +141,16 @@ func (r *Rack) TilesOn() MachineWord {
 		return MachineWord([]MachineLetter{})
 	}
 	letters := make([]MachineLetter, r.numLetters)
-	numPossibleLetters := r.alphabet.NumLetters()
+	r.NoAllocTilesOn(letters)
+
+	return MachineWord(letters)
+}
+
+// NoAllocTilesOn places the tiles in the passed-in slice, and returns the number
+// of letters
+func (r *Rack) NoAllocTilesOn(letters []MachineLetter) int {
 	ct := 0
+	numPossibleLetters := r.alphabet.NumLetters()
 	var i MachineLetter
 	for i = 0; i < MachineLetter(numPossibleLetters); i++ {
 		if r.LetArr[i] > 0 {
@@ -158,7 +166,7 @@ func (r *Rack) TilesOn() MachineWord {
 			ct++
 		}
 	}
-	return MachineWord(letters)
+	return ct
 }
 
 // ScoreOn returns the total score of the tiles on this rack.

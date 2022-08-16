@@ -177,7 +177,7 @@ func MoveFromEvent(evt *pb.GameEvent, alph *alphabet.Alphabet, board *board.Game
 		// 	tiles.UserVisible(alph))
 		m = move.NewScoringMove(int(evt.Score), tiles, leaveMW,
 			evt.Direction == pb.GameEvent_VERTICAL,
-			len(rack)-len(leaveMW), alph, int(evt.Row), int(evt.Column), evt.Position)
+			len(rack)-len(leaveMW), alph, int(evt.Row), int(evt.Column))
 
 	case pb.GameEvent_EXCHANGE:
 		tiles, err := alphabet.ToMachineWord(evt.Exchanged, alph)

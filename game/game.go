@@ -655,7 +655,7 @@ func (g *Game) CreateAndScorePlacementMove(coords string, tiles string, rack str
 		g.Board().Transpose()
 	}
 	m := move.NewScoringMove(score, mw, leavemw, vertical, tilesPlayed,
-		g.alph, row, col, coords)
+		g.alph, row, col)
 	return m, nil
 
 }

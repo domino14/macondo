@@ -266,7 +266,7 @@ func TestOneMoreRowGen(t *testing.T) {
 			len(generator.plays), 1)
 	}
 	m := generator.plays[0]
-	if m.ShortDescription() != "1L .A" {
+	if m.ShortDescription() != " 1L .A" {
 		t.Errorf("Expected 1L .A, got %v", m.ShortDescription())
 	}
 }

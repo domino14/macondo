@@ -16,7 +16,9 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/gaddag"
+	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/strategy"
 )
 
 type SortBy int
@@ -31,11 +33,8 @@ type MoveGenerator interface {
 	GenAll(rack *alphabet.Rack, addExchange bool)
 	SetSortingParameter(s SortBy)
 	Plays() []*move.Move
-}
-
-type PlayRecorderFunc func(*GordonGenerator, *alphabet.Rack, int, int, move.MoveType)
-
-func NullPlayRecorder(gen *GordonGenerator, rack *alphabet.Rack, leftstrip, rightstrip int, t move.MoveType) {
+	SetPlayRecorder(pf PlayRecorderFunc)
+	SetStrategizer(st strategy.Strategizer)
 }
 
 // GordonGenerator is the main move generation struct. It implements
@@ -68,8 +67,15 @@ type GordonGenerator struct {
 	// Used for play-finding without allocation
 	strip         []alphabet.MachineLetter
 	exchangestrip []alphabet.MachineLetter
+	leavestrip    []alphabet.MachineLetter
 
 	playRecorder PlayRecorderFunc
+	strategizer  strategy.Strategizer
+
+	// used for play recorder:
+	winner      *move.Move
+	placeholder *move.Move
+	game        *game.Game
 }
 
 // NewGordonGenerator returns a Gordon move generator.
@@ -84,7 +90,10 @@ func NewGordonGenerator(gd *gaddag.SimpleGaddag, board *board.GameBoard,
 		letterDistribution: ld,
 		strip:              make([]alphabet.MachineLetter, board.Dim()),
 		exchangestrip:      make([]alphabet.MachineLetter, 7), // max rack size. can make a parameter later.
-		playRecorder:       recordPlay,
+		leavestrip:         make([]alphabet.MachineLetter, 7),
+		playRecorder:       AllPlaysRecorder,
+		winner:             new(move.Move),
+		placeholder:        new(move.Move),
 	}
 	return gen
 }
@@ -100,9 +109,18 @@ func (gen *GordonGenerator) SetPlayRecorder(pr PlayRecorderFunc) {
 	gen.playRecorder = pr
 }
 
+func (gen *GordonGenerator) SetStrategizer(st strategy.Strategizer) {
+	gen.strategizer = st
+}
+
+func (gen *GordonGenerator) SetGame(g *game.Game) {
+	gen.game = g
+}
+
 // GenAll generates all moves on the board. It assumes anchors have already
 // been updated, as well as cross-sets / cross-scores.
 func (gen *GordonGenerator) GenAll(rack *alphabet.Rack, addExchange bool) {
+	gen.winner.SetEmpty()
 	gen.plays = []*move.Move{}
 	orientations := [2]board.BoardDirection{
 		board.HorizontalDirection, board.VerticalDirection}
@@ -287,53 +305,6 @@ func (gen *GordonGenerator) goOn(curCol int, L alphabet.MachineLetter,
 			gen.recursiveGen(curCol+1, rack, newNodeIdx, leftstrip, rightstrip, uniquePlay)
 		}
 	}
-}
-
-func recordPlay(gen *GordonGenerator, rack *alphabet.Rack, leftstrip, rightstrip int, t move.MoveType) {
-
-	switch t {
-	case move.MoveTypePlay:
-		startRow := gen.curRowIdx
-		tilesPlayed := gen.tilesPlayed
-
-		startCol := leftstrip
-		row := startRow
-		col := startCol
-		if gen.vertical {
-			// We flip it here because we only generate vertical moves when we transpose
-			// the board, so the row and col are actually transposed.
-			row, col = col, row
-		}
-
-		coords := move.ToBoardGameCoords(row, col, gen.vertical)
-		length := rightstrip - leftstrip + 1
-		word := make([]alphabet.MachineLetter, length)
-		copy(word, gen.strip[startCol:startCol+length])
-
-		alph := gen.gaddag.GetAlphabet()
-		play := move.NewScoringMove(gen.scoreMove(word, startRow, startCol, tilesPlayed),
-			word, rack.TilesOn(), gen.vertical,
-			tilesPlayed, alph, row, col, coords)
-		// if gen.sortingParameter == SortByEquity {
-		// 	play.SetEquity(gen.strategy.Equity(play, gen.board, gen.bag, gen.oppRack))
-		// }
-		gen.plays = append(gen.plays, play)
-
-	case move.MoveTypeExchange:
-		// ignore the empty exchange case
-		if rightstrip == 0 {
-			return
-		}
-		alph := gen.gaddag.GetAlphabet()
-		exchanged := make([]alphabet.MachineLetter, rightstrip)
-		copy(exchanged, gen.exchangestrip[:rightstrip])
-		play := move.NewExchangeMove(exchanged, rack.TilesOn(), alph)
-		gen.plays = append(gen.plays, play)
-
-	default:
-
-	}
-
 }
 
 func (gen *GordonGenerator) crossDirection() board.BoardDirection {

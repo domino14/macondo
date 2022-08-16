@@ -125,15 +125,15 @@ func (r *GameRunner) genBestStaticTurn(playerIdx int) *move.Move {
 	return player.GenBestStaticTurn(r.game, r.movegen, r.aiplayers[playerIdx], playerIdx)
 }
 
-func (r *GameRunner) genBestMoveForBot(playerIdx int) *move.Move {
-	return airunner.GenerateMoves(
-		r.game, r.aiplayers[playerIdx], r.movegen, r.config, 1)[0]
-}
+// func (r *GameRunner) genBestMoveForBot(playerIdx int) *move.Move {
+// 	return airunner.GenerateMoves(
+// 		r.game, r.aiplayers[playerIdx], r.movegen, r.config, 1)[0]
+// }
 
 // PlayBestStaticTurn generates the best static move for the player and
 // plays it on the board.
 func (r *GameRunner) PlayBestStaticTurn(playerIdx int, addToHistory bool) {
-	bestPlay := r.genBestMoveForBot(playerIdx)
+	bestPlay := r.genBestStaticTurn(playerIdx)
 	// save rackLetters for logging.
 	rackLetters := r.game.RackLettersFor(playerIdx)
 	tilesRemaining := r.game.Bag().TilesRemaining()
