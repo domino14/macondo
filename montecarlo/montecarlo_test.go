@@ -119,8 +119,8 @@ func BenchmarkSim(b *testing.B) {
 	simmer.Init(game, player.NewRawEquityPlayer(strategy, pb.BotRequest_HASTY_BOT))
 	simmer.PrepareSim(plies, plays)
 
-	// benchmark 2022-08-13 on monolith (12th gen Intel computer)
-	// 285	   4241196 ns/op	 1231863 B/op	   24876 allocs/op
+	// benchmark 2022-08-15 on monolith (12th gen Intel computer)
+	// 3729836 ns/op	   57458 B/op	    6730 allocs/op
 	for i := 0; i < b.N; i++ {
 		simmer.simSingleIteration(plies, 0, i+1, nil)
 	}
