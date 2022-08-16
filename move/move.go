@@ -33,6 +33,8 @@ const (
 // Move is a move. It can have a score, position, equity, etc. It doesn't
 // have to be a scoring move.
 type Move struct {
+	// The ordering here should only be changed if it makes the structure smaller.
+	// This Move should be kept as small as possible.
 	tiles alphabet.MachineWord
 	leave alphabet.MachineWord
 	score int
@@ -40,14 +42,14 @@ type Move struct {
 	rowStart    int
 	colStart    int
 	tilesPlayed int
-	vertical    bool
 
 	equity float64
 
 	valuation float32
 	// visited is used during endgame iterative deepening.
-	visited bool
-	action  MoveType
+	visited  bool
+	action   MoveType
+	vertical bool
 
 	alph *alphabet.Alphabet
 }
@@ -84,8 +86,14 @@ func (m *Move) Set(tiles alphabet.MachineWord, leave alphabet.MachineWord, score
 // those related to movegen.
 func (m *Move) CopyFrom(other *Move) {
 	m.action = other.action
-	m.tiles = make([]alphabet.MachineLetter, len(other.tiles))
-	m.leave = make([]alphabet.MachineLetter, len(other.leave))
+	if cap(m.tiles) < len(other.tiles) {
+		m.tiles = make([]alphabet.MachineLetter, len(other.tiles))
+	}
+	m.tiles = m.tiles[:len(other.tiles)]
+	if cap(m.leave) < len(other.leave) {
+		m.leave = make([]alphabet.MachineLetter, len(other.leave))
+	}
+	m.leave = m.leave[:len(other.leave)]
 	copy(m.tiles, other.tiles)
 	copy(m.leave, other.leave)
 	m.alph = other.alph

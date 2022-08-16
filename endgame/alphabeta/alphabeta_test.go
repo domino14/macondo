@@ -851,7 +851,7 @@ func TestProperIterativeDeepening(t *testing.T) {
 		// Player on turn needs to block the P spot. Anything else
 		// shows a serious bug.
 		is.Equal(len(seq), 5)
-		is.Equal(seq[0].ShortDescription(), "6I A.")
+		is.Equal(seq[0].ShortDescription(), " 6I A.")
 	}
 }
 
@@ -895,7 +895,7 @@ func BenchmarkID(b *testing.B) {
 		v, seq, _ := s.Solve(plies)
 		is.Equal(v, float32(44))
 		is.Equal(len(seq), 5)
-		is.Equal(seq[0].ShortDescription(), "6I A.")
+		is.Equal(seq[0].ShortDescription(), " 6I A.")
 	}
 }
 
