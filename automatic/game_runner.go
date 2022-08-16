@@ -18,6 +18,7 @@ import (
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/strategy"
 	"github.com/rs/zerolog/log"
+	"lukechampine.com/frand"
 
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
@@ -114,6 +115,10 @@ func (r *GameRunner) Init(player1, player2, leavefile1, leavefile2, pegfile1, pe
 }
 
 func (r *GameRunner) StartGame() {
+	if frand.Intn(2) == 1 {
+		r.game.FlipPlayers()
+		r.aiplayers[0], r.aiplayers[1] = r.aiplayers[1], r.aiplayers[0]
+	}
 	r.game.StartGame()
 }
 
