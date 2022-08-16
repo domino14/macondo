@@ -263,6 +263,10 @@ func NewFromSnapshot(rules *GameRules, players []*pb.PlayerInfo, lastKnownRacks 
 	return game, nil
 }
 
+func (g *Game) FlipPlayers() {
+	g.players[0], g.players[1] = g.players[1], g.players[0]
+}
+
 // StartGame starts a game anew, dealing out tiles to both players.
 func (g *Game) StartGame() {
 	g.Board().Clear()
