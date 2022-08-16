@@ -715,7 +715,7 @@ func BenchmarkMakePlay(b *testing.B) {
 		true,
 		4,
 		alph,
-		8, 10, "K9")
+		8, 10)
 
 	b.ResetTimer()
 	// 2.7 us; more than 10x faster than regenerating all anchors every time.

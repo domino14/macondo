@@ -68,6 +68,8 @@ func BenchmarkCompVsCompStatic(b *testing.B) {
 }
 
 func BenchmarkPlayFullStatic(b *testing.B) {
+	// themonolith - 12th gen linux computer
+	// 13254760 ns/op	  110053 B/op	   22416 allocs/op
 	runner := NewGameRunner(nil, &DefaultConfig)
 	for i := 0; i < b.N; i++ {
 		runner.playFullStatic(false)
