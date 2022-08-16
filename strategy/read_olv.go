@@ -66,9 +66,9 @@ func (olv *OldLeaves) LeaveValue(leave alphabet.MachineWord) float64 {
 		h ^= olv.r[0]
 		ri := olv.indices[h%uint64(len(olv.indices))]
 
-		leaveBytes := unsafe.Slice((*byte)(unsafe.Pointer(&leave[0])), len(leave))
-
 		if ri < uint16(len(olv.r)) {
+			leaveBytes := unsafe.Slice((*byte)(unsafe.Pointer(&leave[0])), len(leave))
+
 			h = (h ^ olv.r[ri]) % uint64(len(olv.leaveFloats))
 			bufp := int(uint64(olv.maxLength) * h)
 			if bytes.Equal(olv.buf[bufp:bufp+len(leave)], leaveBytes) &&

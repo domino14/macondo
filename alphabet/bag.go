@@ -232,11 +232,7 @@ func (b *Bag) Copy() *Bag {
 func (b *Bag) CopyFrom(other *Bag) {
 	// This is a deep copy and can be kind of wasteful, but we don't use
 	// the bag often.
-	if len(other.tiles) == 0 {
-		b.tiles = []MachineLetter{}
-		b.tileMap = []uint8{}
-		return
-	}
+
 	if cap(b.tiles) < len(other.tiles) {
 		b.tiles = make([]MachineLetter, len(other.tiles))
 	}
