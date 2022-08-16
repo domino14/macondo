@@ -10,18 +10,18 @@ import (
 
 // A Bag is the bag o'tiles!
 type Bag struct {
-	initialTiles       []MachineLetter
-	tiles              []MachineLetter
-	initialTileMap     map[MachineLetter]uint8
-	tileMap            map[MachineLetter]uint8
+	initialTiles []MachineLetter
+	tiles        []MachineLetter
+	// the tile "map" is just a slice with the index being the machine letter
+	// and the value being the number of tiles.
+	initialTileMap     []uint8
+	tileMap            []uint8
 	letterDistribution *LetterDistribution
 }
 
-func copyTileMap(orig map[MachineLetter]uint8) map[MachineLetter]uint8 {
-	tm := make(map[MachineLetter]uint8)
-	for k, v := range orig {
-		tm[k] = v
-	}
+func copyTileMap(orig []uint8) []uint8 {
+	tm := make([]uint8, len(orig))
+	copy(tm, orig)
 	return tm
 }
 
@@ -146,9 +146,9 @@ func (b *Bag) rebuildTileSlice(numTilesInBag int) error {
 	}
 	b.tiles = make([]MachineLetter, numTilesInBag)
 	idx := 0
-	for let, ct := range b.tileMap {
+	for ml, ct := range b.tileMap {
 		for j := uint8(0); j < ct; j++ {
-			b.tiles[idx] = let
+			b.tiles[idx] = MachineLetter(ml)
 			idx++
 		}
 	}
@@ -183,7 +183,8 @@ func (b *Bag) RemoveTiles(tiles []MachineLetter) error {
 func NewBag(ld *LetterDistribution, alph *Alphabet) *Bag {
 
 	tiles := make([]MachineLetter, ld.numLetters)
-	tileMap := map[MachineLetter]uint8{}
+	// gotta fix this, this is dumb. A should start at 1. Blank should be 0.
+	tileMap := make([]uint8, MaxAlphabetSize+1)
 
 	idx := 0
 	for rn, ct := range ld.Distribution {
@@ -197,7 +198,6 @@ func NewBag(ld *LetterDistribution, alph *Alphabet) *Bag {
 			idx++
 		}
 	}
-
 	return &Bag{
 		tiles:              tiles,
 		tileMap:            tileMap,
@@ -212,12 +212,9 @@ func NewBag(ld *LetterDistribution, alph *Alphabet) *Bag {
 // we don't ever expect these to change after initialization.
 func (b *Bag) Copy() *Bag {
 	tiles := make([]MachineLetter, len(b.tiles))
-	tileMap := make(map[MachineLetter]uint8)
+	tileMap := make([]uint8, MaxAlphabetSize+1)
 	copy(tiles, b.tiles)
-	// Copy map as well
-	for k, v := range b.tileMap {
-		tileMap[k] = v
-	}
+	copy(tileMap, b.tileMap)
 
 	return &Bag{
 		tiles:              tiles,
@@ -237,12 +234,20 @@ func (b *Bag) CopyFrom(other *Bag) {
 	// the bag often.
 	if len(other.tiles) == 0 {
 		b.tiles = []MachineLetter{}
-		b.tileMap = map[MachineLetter]uint8{}
+		b.tileMap = []uint8{}
 		return
 	}
-	b.tiles = make([]MachineLetter, len(other.tiles))
+	if cap(b.tiles) < len(other.tiles) {
+		b.tiles = make([]MachineLetter, len(other.tiles))
+	}
+	b.tiles = b.tiles[:len(other.tiles)]
 	copy(b.tiles, other.tiles)
-	b.tileMap = copyTileMap(other.tileMap)
+
+	if cap(b.tileMap) < len(other.tileMap) {
+		b.tileMap = make([]uint8, len(other.tileMap))
+	}
+	b.tileMap = b.tileMap[:len(other.tileMap)]
+	copy(b.tileMap, other.tileMap)
 }
 
 func (b *Bag) LetterDistribution() *LetterDistribution {

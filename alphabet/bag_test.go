@@ -1,6 +1,7 @@
 package alphabet
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -111,6 +112,8 @@ func TestRemoveTiles(t *testing.T) {
 	}
 	bag := ld.MakeBag()
 	is.Equal(len(bag.tiles), 100)
+	fmt.Println("HI", bag.tileMap)
+	fmt.Println("OTHERHI", bag.tiles)
 	toRemove := []MachineLetter{
 		9, 14, 24, 4, 3, 20, 4, 11, 21, 6, 22, 14, 8, 0, 8, 15, 6, 5, 4,
 		19, 0, 24, 8, 17, 17, 18, 2, 11, 8, 14, 1, 8, 0, 20, 7, 0, 8, 10,
