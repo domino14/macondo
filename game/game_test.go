@@ -2,7 +2,8 @@ package game
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -81,6 +82,7 @@ func TestBackup(t *testing.T) {
 	// Overwrite the player on turn to be JD:
 	game.SetPlayerOnTurn(0)
 	alph := game.Alphabet()
+	fmt.Println("Here")
 	game.SetRackFor(0, alphabet.RackFromString("ACEOTV?", alph))
 
 	m := move.NewScoringMoveSimple(20, "H7", "AVOCET", "?", alph)
@@ -96,7 +98,7 @@ func TestBackup(t *testing.T) {
 	is.Equal(game.players[0].points, 0)
 	is.Equal(game.players[1].points, 0)
 	is.Equal(game.bag.TilesRemaining(), 86)
-	is.Equal(game.players[0].rackLetters, "ACEOTV?")
+	is.Equal(game.players[0].rackLetters(), "ACEOTV?")
 }
 
 func TestValidate(t *testing.T) {
@@ -154,7 +156,7 @@ func TestPlayToTurnWithPhony(t *testing.T) {
 	is.NoErr(err)
 	defer jsonFile.Close()
 
-	bytes, err := ioutil.ReadAll(jsonFile)
+	bytes, err := io.ReadAll(jsonFile)
 	is.NoErr(err)
 	gameHistory := &pb.GameHistory{}
 	err = json.Unmarshal(bytes, gameHistory)

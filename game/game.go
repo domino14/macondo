@@ -392,8 +392,8 @@ func (g *Game) endOfGameCalcs(onturn int, addToHistory bool) {
 	if addToHistory {
 		g.addEventToHistory(g.endRackEvt(onturn, unplayedPts))
 	}
-	log.Debug().Int("onturn", onturn).Int("unplayedpts", unplayedPts).Interface("players", g.players).
-		Msg("endOfGameCalcs")
+	// log.Debug().Int("onturn", onturn).Int("unplayedpts", unplayedPts).Interface("players", g.players).
+	// 	Msg("endOfGameCalcs")
 }
 
 func (g *Game) SetMaxScorelessTurns(m int) {
@@ -477,7 +477,6 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 				g.history.PlayState = g.playing
 				log.Trace().Msg("waiting for final pass... (commit pass)")
 			} else {
-				log.Trace().Msg("game is over")
 				g.playing = pb.PlayState_GAME_OVER
 				if addToHistory {
 					g.history.PlayState = g.playing
@@ -736,7 +735,7 @@ func (g *Game) PlayToTurn(turnnum int) error {
 			g.SetRandomRack(g.onturn)
 		}
 
-		log.Debug().Str("r0", g.players[0].rackLetters).Str("r1", g.players[1].rackLetters).Msg("PlayToTurn-set-racks")
+		log.Debug().Str("r0", g.players[0].rackLetters()).Str("r1", g.players[1].rackLetters()).Msg("PlayToTurn-set-racks")
 
 	} else {
 		// playTurn should have refilled the rack of the relevant player,
@@ -881,7 +880,6 @@ func (g *Game) playTurn(t int) error {
 func (g *Game) SetRackFor(playerIdx int, rack *alphabet.Rack) error {
 	// Put our tiles back in the bag, as well as our opponent's tiles.
 	g.ThrowRacksIn()
-
 	// Check if we can actually set our rack now that these tiles are in the
 	// bag.
 	log.Trace().Str("rack", rack.TilesOn().UserVisible(g.alph)).Msg("removing from bag")
@@ -893,9 +891,6 @@ func (g *Game) SetRackFor(playerIdx int, rack *alphabet.Rack) error {
 
 	// success; set our rack
 	g.players[playerIdx].rack = rack
-	g.players[playerIdx].rackLetters = rack.String()
-	log.Trace().Str("rack", g.players[playerIdx].rackLetters).
-		Int("player", playerIdx).Msg("set rack")
 	// And redraw a random rack for opponent.
 	g.SetRandomRack(otherPlayer(playerIdx))
 
@@ -914,7 +909,6 @@ func (g *Game) SetRacksForBoth(racks []*alphabet.Rack) error {
 	}
 	for idx, player := range g.players {
 		player.rack = racks[idx]
-		player.rackLetters = racks[idx].String()
 	}
 	return nil
 }

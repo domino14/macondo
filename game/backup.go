@@ -63,11 +63,10 @@ func copyPlayers(ps playerStates) playerStates {
 				Nickname: porig.Nickname,
 				RealName: porig.RealName,
 			},
-			points:      porig.points,
-			bingos:      porig.bingos,
-			turns:       porig.turns,
-			rack:        porig.rack.Copy(),
-			rackLetters: porig.rackLetters,
+			points: porig.points,
+			bingos: porig.bingos,
+			turns:  porig.turns,
+			rack:   porig.rack.Copy(),
 		}
 	}
 	return p
@@ -78,7 +77,6 @@ func (ps *playerStates) copyFrom(other playerStates) {
 		// Note: this ugly pointer nonsense is purely to make this as fast
 		// as possible and avoid allocations.
 		(*ps)[idx].rack.CopyFrom(other[idx].rack)
-		(*ps)[idx].rackLetters = other[idx].rackLetters
 		(*ps)[idx].Nickname = other[idx].Nickname
 		(*ps)[idx].RealName = other[idx].RealName
 		// XXX: Do I have to copy all the other auto-generated protobuf nonsense fields?
