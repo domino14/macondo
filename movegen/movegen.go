@@ -121,7 +121,11 @@ func (gen *GordonGenerator) SetGame(g *game.Game) {
 // been updated, as well as cross-sets / cross-scores.
 func (gen *GordonGenerator) GenAll(rack *alphabet.Rack, addExchange bool) {
 	gen.winner.SetEmpty()
-	gen.plays = []*move.Move{}
+	if cap(gen.plays) > 0 {
+		gen.plays = gen.plays[:0]
+	} else {
+		gen.plays = []*move.Move{}
+	}
 	orientations := [2]board.BoardDirection{
 		board.HorizontalDirection, board.VerticalDirection}
 
