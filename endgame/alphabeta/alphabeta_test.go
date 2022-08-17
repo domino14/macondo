@@ -88,6 +88,7 @@ func setUpSolver(lex, distName string, bvs board.VsWho, plies int, rack1, rack2 
 	g.SetPointsFor(0, p1pts)
 	g.SetPointsFor(1, p2pts)
 	g.SetPlayerOnTurn(onTurn)
+	fmt.Println("Racks are", g.RackLettersFor(0), g.RackLettersFor(1))
 	fmt.Println(g.Board().ToDisplayText(alph))
 
 	s := new(Solver)

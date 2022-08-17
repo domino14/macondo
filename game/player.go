@@ -15,6 +15,20 @@ type playerState struct {
 	points int
 	bingos int
 	turns  int
+
+	// to minimize allocs:
+	placeholderRack []alphabet.MachineLetter
+}
+
+func newPlayerState(nickname, userid, realname string) *playerState {
+	return &playerState{
+		PlayerInfo: pb.PlayerInfo{
+			Nickname: nickname,
+			UserId:   userid,
+			RealName: realname,
+		},
+		placeholderRack: make([]alphabet.MachineLetter, RackTileLimit),
+	}
 }
 
 func (p *playerState) resetScore() {

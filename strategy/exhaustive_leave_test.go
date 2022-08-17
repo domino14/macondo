@@ -82,8 +82,9 @@ func TestEndgameTiming(t *testing.T) {
 	assert.Equal(t, oppRack.NumTiles(), uint8(2))
 
 	bag := alphabet.NewBag(ld, alph)
-	bag.Draw(100)
-
+	ml := make([]alphabet.MachineLetter, 100)
+	err = bag.Draw(100, ml)
+	assert.Nil(t, err)
 	plays := generator.Plays()
 
 	for _, m := range plays {

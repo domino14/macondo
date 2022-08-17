@@ -67,6 +67,8 @@ func copyPlayers(ps playerStates) playerStates {
 			bingos: porig.bingos,
 			turns:  porig.turns,
 			rack:   porig.rack.Copy(),
+			// Just need to allocate, no need to actually copy it.
+			placeholderRack: make([]alphabet.MachineLetter, len(porig.placeholderRack)),
 		}
 	}
 	return p
@@ -87,6 +89,7 @@ func (ps *playerStates) copyFrom(other playerStates) {
 }
 
 func (g *Game) SetStateStackLength(length int) {
+	// log.Debug().Int("length", length).Msg("SetStateStackLength")
 	g.stateStack = make([]*stateBackup, length)
 	for idx := range g.stateStack {
 		// Initialize each element of the stack now to avoid having
@@ -149,7 +152,6 @@ func (g *Game) ResetToFirstState() {
 // The history is not copied because this only changes with the main Game,
 // and not these copies.
 func (g *Game) Copy() *Game {
-
 	copy := &Game{
 		config:            g.config,
 		onturn:            g.onturn,

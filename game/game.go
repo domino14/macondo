@@ -154,12 +154,7 @@ func NewGame(rules *GameRules, playerinfo []*pb.PlayerInfo) (*Game, error) {
 	game.players = make([]*playerState, len(playerinfo))
 	ids := map[string]bool{}
 	for idx, p := range playerinfo {
-		game.players[idx] = &playerState{
-			PlayerInfo: pb.PlayerInfo{
-				Nickname: p.Nickname,
-				UserId:   p.UserId,
-				RealName: p.RealName},
-		}
+		game.players[idx] = newPlayerState(p.Nickname, p.UserId, p.RealName)
 		ids[p.Nickname] = true
 	}
 	if len(ids) < len(playerinfo) {
@@ -274,12 +269,13 @@ func (g *Game) StartGame() {
 	g.history = newHistory(g.players)
 	// Deal out tiles
 	for i := 0; i < g.NumPlayers(); i++ {
-		tiles, err := g.bag.Draw(7)
+
+		err := g.bag.Draw(7, g.players[i].placeholderRack)
 		if err != nil {
 			panic(err)
 		}
 		g.players[i].rack = alphabet.NewRack(g.alph)
-		g.players[i].setRackTiles(tiles, g.alph)
+		g.players[i].setRackTiles(g.players[i].placeholderRack[:7], g.alph)
 		g.players[i].resetScore()
 	}
 	g.history.LastKnownRacks = []string{
@@ -455,9 +451,9 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		if m.TilesPlayed() == 7 {
 			g.players[g.onturn].bingos++
 		}
-		drew := g.bag.DrawAtMost(m.TilesPlayed())
-		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
-		g.players[g.onturn].setRackTiles(tiles, g.alph)
+		drew := g.bag.DrawAtMost(m.TilesPlayed(), g.players[g.onturn].placeholderRack)
+		copy(g.players[g.onturn].placeholderRack[drew:], []alphabet.MachineLetter(m.Leave()))
+		g.players[g.onturn].setRackTiles(g.players[g.onturn].placeholderRack[:drew+len(m.Leave())], g.alph)
 
 		if addToHistory {
 			evt := g.EventFromMove(m)
@@ -517,13 +513,12 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		}
 
 	case move.MoveTypeExchange:
-		drew, err := g.bag.Exchange([]alphabet.MachineLetter(m.Tiles()))
+		err := g.bag.Exchange([]alphabet.MachineLetter(m.Tiles()), g.players[g.onturn].placeholderRack)
 		if err != nil {
 			return err
 		}
-		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
-		g.players[g.onturn].setRackTiles(tiles, g.alph)
-		log.Trace().Str("newrack", g.players[g.onturn].rackLetters).Msg("new-rack")
+		copy(g.players[g.onturn].placeholderRack[len(m.Tiles()):], []alphabet.MachineLetter(m.Leave()))
+		g.players[g.onturn].setRackTiles(g.players[g.onturn].placeholderRack[:len(m.Tiles())+len(m.Leave())], g.alph)
 		g.scorelessTurns++
 		g.players[g.onturn].turns += 1
 		if addToHistory {
@@ -826,9 +821,9 @@ func (g *Game) playTurn(t int) error {
 		// at the beginning to whatever was recorded. Drawing like
 		// normal, though, ensures we don't have to reconcile any
 		// tiles with the bag.
-		drew := g.bag.DrawAtMost(m.TilesPlayed())
-		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
-		g.players[g.onturn].setRackTiles(tiles, g.alph)
+		drew := g.bag.DrawAtMost(m.TilesPlayed(), g.players[g.onturn].placeholderRack)
+		copy(g.players[g.onturn].placeholderRack[drew:], []alphabet.MachineLetter(m.Leave()))
+		g.players[g.onturn].setRackTiles(g.players[g.onturn].placeholderRack[:drew+len(m.Leave())], g.alph)
 		g.scorelessTurns = 0
 		// Don't check game end logic here, as we assume we have the
 		// right event for that (move.MoveTypeEndgameTiles for example).
@@ -852,12 +847,12 @@ func (g *Game) playTurn(t int) error {
 		if err != nil {
 			return err
 		}
-		drew, err := g.bag.Exchange([]alphabet.MachineLetter(m.Tiles()))
+		err = g.bag.Exchange([]alphabet.MachineLetter(m.Tiles()), g.players[g.onturn].placeholderRack)
 		if err != nil {
 			panic(err)
 		}
-		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
-		g.players[g.onturn].setRackTiles(tiles, g.alph)
+		copy(g.players[g.onturn].placeholderRack[len(m.Tiles()):], []alphabet.MachineLetter(m.Leave()))
+		g.players[g.onturn].setRackTiles(g.players[g.onturn].placeholderRack[:len(m.Tiles())+len(m.Leave())], g.alph)
 		g.players[g.onturn].turns += 1
 		g.scorelessTurns++
 
@@ -922,10 +917,15 @@ func (g *Game) ThrowRacksIn() {
 // SetRandomRack sets the player's rack to a random rack drawn from the bag.
 // It tosses the current rack back in first. This is used for simulations.
 func (g *Game) SetRandomRack(playerIdx int) {
-	// log.Debug().Int("player", playerIdx).Str("rack", g.RackFor(playerIdx).TilesOn().UserVisible(g.alph)).
-	// 	Msg("setting random rack..")
-	tiles := g.bag.Redraw(g.RackFor(playerIdx).TilesOn())
-	g.players[playerIdx].setRackTiles(tiles, g.alph)
+	// XXX: use other player's rack as a placeholder as well.
+	// /shrug
+	n := g.RackFor(playerIdx).NoAllocTilesOn(g.players[1-playerIdx].placeholderRack)
+	ndrawn := g.bag.Redraw(g.players[1-playerIdx].placeholderRack[:n],
+		g.players[playerIdx].placeholderRack)
+
+	// note that ndrawn does not need to match n
+
+	g.players[playerIdx].setRackTiles(g.players[playerIdx].placeholderRack[:ndrawn], g.alph)
 	// log.Debug().Int("player", playerIdx).Str("newrack", g.players[playerIdx].rackLetters).
 	// 	Msg("set random rack")
 }

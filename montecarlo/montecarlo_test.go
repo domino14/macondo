@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/matryer/is"
+	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/ai/player"
 	airunner "github.com/domino14/macondo/ai/runner"
@@ -117,10 +118,12 @@ func BenchmarkSim(b *testing.B) {
 
 	simmer := &Simmer{}
 	simmer.Init(game, player.NewRawEquityPlayer(strategy, pb.BotRequest_HASTY_BOT))
+	simmer.SetThreads(1)
 	simmer.PrepareSim(plies, plays)
-
-	// benchmark 2022-08-15 on monolith (12th gen Intel computer)
-	// 288	  3508563 ns/op	  11698 B/op	    206 allocs/op
+	log.Debug().Msg("About to start")
+	b.ResetTimer()
+	// benchmark 2022-08-16 on monolith (12th gen Intel computer)
+	// 349	   3462727 ns/op	    7988 B/op	      60 allocs/op
 	for i := 0; i < b.N; i++ {
 		simmer.simSingleIteration(plies, 0, i+1, nil)
 	}
