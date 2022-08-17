@@ -159,6 +159,10 @@ func (m *Move) TilesPlayed() int {
 	return m.tilesPlayed
 }
 
+func (m *Move) BingoPlayed() bool {
+	return (m.action == MoveTypePlay) && (m.tilesPlayed == 7)
+}
+
 // NewScoringMove creates a scoring *Move and returns it.
 func NewScoringMove(score int, tiles alphabet.MachineWord,
 	leave alphabet.MachineWord, vertical bool, tilesPlayed int,

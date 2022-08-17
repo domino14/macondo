@@ -81,7 +81,7 @@ func (sp *SimmedPlay) String() string {
 func (sp *SimmedPlay) addScoreStat(play *move.Move, ply int) {
 	// log.Debug().Msgf("Adding a stat for %v (pidx %v ply %v)", play, pidx, ply)
 	var bingos int
-	if play.TilesPlayed() == 7 {
+	if play.BingoPlayed() {
 		bingos = 1
 	}
 	sp.Lock()
