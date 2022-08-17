@@ -265,7 +265,6 @@ func (g *GameBoard) LeftAndRightEmpty(row int, col int) bool {
 }
 
 // WordEdge finds the edge of a word on the board, returning the column.
-//
 func (g *GameBoard) WordEdge(row int, col int, dir WordDirection) int {
 	for g.PosExists(row, col) && !g.squares[row][col].IsEmpty() {
 		col += int(dir)
@@ -637,10 +636,6 @@ func (g *GameBoard) Copy() *GameBoard {
 	newg.tilesPlayed = g.tilesPlayed
 	// newg.playHistory = append([]string{}, g.playHistory...)
 	return newg
-}
-
-func (g *GameBoard) SaveCopy() {
-	g.lastCopy = g.Copy()
 }
 
 func (g *GameBoard) RestoreFromCopy() {

@@ -1,11 +1,9 @@
 package strategy
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
-	"unsafe"
 
 	"github.com/domino14/macondo/alphabet"
 )
@@ -67,11 +65,10 @@ func (olv *OldLeaves) LeaveValue(leave alphabet.MachineWord) float64 {
 		ri := olv.indices[h%uint64(len(olv.indices))]
 
 		if ri < uint16(len(olv.r)) {
-			leaveBytes := unsafe.Slice((*byte)(unsafe.Pointer(&leave[0])), len(leave))
 
 			h = (h ^ olv.r[ri]) % uint64(len(olv.leaveFloats))
 			bufp := int(uint64(olv.maxLength) * h)
-			if bytes.Equal(olv.buf[bufp:bufp+len(leave)], leaveBytes) &&
+			if string(olv.buf[bufp:bufp+len(leave)]) == string(leave) &&
 				(len(leave) >= int(olv.maxLength) || olv.buf[bufp+len(leave)] == 0xff) {
 				return float64(olv.leaveFloats[h])
 			}
