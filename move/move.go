@@ -46,8 +46,7 @@ type Move struct {
 	equity float64
 
 	valuation float32
-	// visited is used during endgame iterative deepening.
-	visited  bool
+
 	action   MoveType
 	vertical bool
 
@@ -329,9 +328,6 @@ func (m *Move) SetValuation(v float32) {
 func (m *Move) Score() int {
 	return m.score
 }
-
-func (m *Move) SetVisited(v bool) { m.visited = v }
-func (m *Move) Visited() bool     { return m.visited }
 
 func (m *Move) Leave() alphabet.MachineWord {
 	return m.leave

@@ -56,7 +56,6 @@ type GameNode struct {
 	parent         *GameNode
 	heuristicValue nodeValue
 	children       []*GameNode // children should be null until expanded.
-	generatedPlays []*move.Move
 }
 
 func (g *GameNode) Children() []*GameNode {
@@ -69,10 +68,6 @@ func (g *GameNode) Parent() *GameNode {
 
 func (g *GameNode) Move() *move.Move {
 	return g.move
-}
-
-func (g *GameNode) GeneratedPlays() []*move.Move {
-	return g.generatedPlays
 }
 
 func (g *GameNode) String() string {

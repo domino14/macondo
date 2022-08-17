@@ -57,7 +57,8 @@ const (
 
 // Solver implements the minimax + alphabeta algorithm.
 type Solver struct {
-	movegen          movegen.MoveGenerator
+	stmMovegen       movegen.MoveGenerator
+	otsMovegen       movegen.MoveGenerator
 	game             *game.Game
 	totalNodes       int
 	initialSpread    int
@@ -95,8 +96,9 @@ func min(x, y float32) float32 {
 }
 
 // Init initializes the solver
-func (s *Solver) Init(movegen movegen.MoveGenerator, game *game.Game) error {
-	s.movegen = movegen
+func (s *Solver) Init(m1 movegen.MoveGenerator, m2 movegen.MoveGenerator, game *game.Game) error {
+	s.stmMovegen = m1
+	s.otsMovegen = m2
 	s.game = game
 	s.totalNodes = 0
 	s.iterativeDeepeningOn = true
@@ -215,14 +217,13 @@ func (s *Solver) generateSTMPlays(parent *GameNode) []*move.Move {
 	board := s.game.Board()
 	ld := s.game.Bag().LetterDistribution()
 
-	s.movegen.GenAll(stmRack, false)
-	sideToMovePlays := s.addPass(s.movegen.Plays(), s.game.PlayerOnTurn())
-
+	s.stmMovegen.GenAll(stmRack, false)
+	sideToMovePlays := s.addPass(s.stmMovegen.Plays(), s.game.PlayerOnTurn())
 	// log.Debug().Msgf("stm plays %v", sideToMovePlays)
 	if s.simpleEvaluation {
 		// A simple evaluation function is a very dumb, but fast, function
 		// of score and tiles played. /shrug
-		for _, m := range s.movegen.Plays() {
+		for _, m := range s.stmMovegen.Plays() {
 			m.SetValuation(float32(m.Score() + 3*m.TilesPlayed()))
 		}
 		sort.Slice(sideToMovePlays, func(i, j int) bool {
@@ -230,18 +231,20 @@ func (s *Solver) generateSTMPlays(parent *GameNode) []*move.Move {
 		})
 		return sideToMovePlays
 	}
+
+	// we have to allocate here, sadly
+
 	// log.Debug().Msgf("stm %v (%v), ots %v (%v)",
 	// 	s.game.PlayerOnTurn(), stmRack.String(), pnot, otherRack.String())
+	s.otsMovegen.SetSortingParameter(movegen.SortByScore)
+	defer s.otsMovegen.SetSortingParameter(movegen.SortByNone)
+	s.otsMovegen.GenAll(otherRack, false)
 
-	s.movegen.SetSortingParameter(movegen.SortByScore)
-	defer s.movegen.SetSortingParameter(movegen.SortByNone)
-	s.movegen.GenAll(otherRack, false)
-
-	toConsider := len(s.movegen.Plays())
+	toConsider := len(s.otsMovegen.Plays())
 	if TwoPlyOppSearchLimit < toConsider {
 		toConsider = TwoPlyOppSearchLimit
 	}
-	otherSidePlays := s.addPass(s.movegen.Plays()[:toConsider], pnot)
+	otherSidePlays := s.addPass(s.otsMovegen.Plays()[:toConsider], pnot)
 
 	// Compute for which tiles we are stuck
 	s.clearStuckTables()
@@ -301,7 +304,6 @@ func (s *Solver) childGenerator(node *GameNode, maximizingPlayer bool) func() (
 	var plays []*move.Move
 	if node.children == nil {
 		plays = s.generateSTMPlays(node)
-		node.generatedPlays = plays
 	} else {
 		sort.Slice(node.children, func(i, j int) bool {
 			// If the plays exist already, sort them by value so more
@@ -317,16 +319,10 @@ func (s *Solver) childGenerator(node *GameNode, maximizingPlayer bool) func() (
 			return node.children[j].heuristicValue.less(node.children[i].heuristicValue)
 
 		})
-		// Mark all the moves as not visited.
-		for _, child := range node.children {
-			child.move.SetVisited(false)
-		}
-		// s.clearChildrenValues(node)
 	}
 
 	gen := func() func() (*GameNode, bool) {
 		idx := -1
-		idxInPlays := -1
 		return func() (*GameNode, bool) {
 			idx++
 			if len(plays) == 0 {
@@ -334,19 +330,6 @@ func (s *Solver) childGenerator(node *GameNode, maximizingPlayer bool) func() (
 				// No plays were generated. This happens during iterative
 				// deepening, when we re-use previously generated nodes.
 				if idx == len(node.children) {
-					// Try to get a new node from plays we haven't yet
-					// considered, if any.
-					for i := idxInPlays + 1; i < len(node.generatedPlays); i++ {
-						if node.generatedPlays[i].Visited() {
-							continue
-						}
-						// Brand new node.
-						idxInPlays = i
-						// node.generatedPlays[i].SetVisited(true)
-						// log.Debug().Msg("totalNodes incremented inside ID loop")
-						s.totalNodes++
-						return &GameNode{move: node.generatedPlays[i], parent: node}, true
-					}
 					// log.Debug().Msgf("no more children of %v to return", node)
 					return nil, false
 				}
@@ -374,16 +357,10 @@ func (s *Solver) findBestSequence(endNode *GameNode) []*move.Move {
 
 	child := endNode
 	for {
-		if !child.move.Visited() {
-			log.Debug().Msgf("This child %v not visited!", child)
-		}
+
 		// log.Debug().Msgf("Children of %v:", child.parent)
 		seq = append([]*move.Move{child.move}, seq...)
 		child = child.parent
-		// if child.children != nil {
-		// 	log.Debug().Msgf("They are %v (generatedPlays=%v)",
-		// 		child.children, len(child.generatedPlays))
-		// }
 		if child == nil || child.move == nil {
 			break
 		}
@@ -399,8 +376,8 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 	}
 
 	// Generate children moves.
-	s.movegen.SetSortingParameter(movegen.SortByNone)
-	defer s.movegen.SetSortingParameter(movegen.SortByScore)
+	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
+	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)
 
 	// Set max scoreless turns to 2 in the endgame so we don't generate
 	// unnecessary sequences of passes.
@@ -479,7 +456,6 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 			// Play the child
 			// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
 			s.game.PlayMove(child.move, false, 0)
-			child.move.SetVisited(true)
 			// log.Debug().Msgf("%vState is now %v", depthDbg,
 			// s.game.String())
 			wn := s.alphabeta(child, depth-1, α, β, false)
@@ -514,7 +490,6 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 	for child, newNode := iter(); child != nil; child, newNode = iter() {
 		// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
 		s.game.PlayMove(child.move, false, 0)
-		child.move.SetVisited(true)
 		// log.Debug().Msgf("%vState is now %v", depthDbg,
 		// s.game.String())
 		wn := s.alphabeta(child, depth-1, α, β, true)
