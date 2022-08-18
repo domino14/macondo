@@ -38,12 +38,12 @@ func (sc *ShellController) endgameDebugModeSwitch(line string, sig chan os.Signa
 			sc.curEndgameNode = sc.endgameSolver.RootNode()
 		}
 
-		sc.showMessage(sc.curEndgameNode.String())
+		sc.showMessage(sc.curEndgameNode.String(sc.game.Alphabet()))
 		sc.showMessage("Children:")
 		sc.showMessage("----------------")
 
 		for i, c := range sc.curEndgameNode.Children() {
-			sc.showMessage(fmt.Sprintf("%v: %v", i, c.String()))
+			sc.showMessage(fmt.Sprintf("%v: %v", i, c.String(sc.game.Alphabet())))
 		}
 		sc.showMessage("----------------")
 
@@ -55,7 +55,7 @@ func (sc *ShellController) endgameDebugModeSwitch(line string, sig chan os.Signa
 		}
 		sc.curEndgameNode = sc.curEndgameNode.Parent()
 		if sc.curEndgameNode != nil {
-			sc.showMessage(sc.curEndgameNode.String())
+			sc.showMessage(sc.curEndgameNode.String(sc.game.Alphabet()))
 		} else {
 			sc.showMessage("<nil>")
 		}
@@ -63,7 +63,7 @@ func (sc *ShellController) endgameDebugModeSwitch(line string, sig chan os.Signa
 	case "i":
 		// List info about the current node.
 		if sc.curEndgameNode != nil {
-			sc.showMessage(sc.curEndgameNode.String())
+			sc.showMessage(sc.curEndgameNode.String(sc.game.Alphabet()))
 		} else {
 			sc.showMessage("<nil>")
 		}

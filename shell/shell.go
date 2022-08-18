@@ -25,6 +25,7 @@ import (
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/endgame/alphabeta"
+	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -110,6 +111,7 @@ type ShellController struct {
 
 	curTurnNum     int
 	gen            movegen.MoveGenerator
+	backupgen      movegen.MoveGenerator // used for endgame engine
 	curMode        Mode
 	endgameSolver  *alphabeta.Solver
 	curEndgameNode *alphabeta.GameNode
@@ -221,6 +223,13 @@ func (sc *ShellController) initGameDataStructures() error {
 	sc.simmer = &montecarlo.Simmer{}
 	sc.simmer.Init(&sc.game.Game, sc.game.AIPlayer())
 	sc.gen = sc.game.MoveGenerator()
+
+	gd, err := gaddag.Get(sc.config, sc.game.LexiconName())
+	if err != nil {
+		return err
+	}
+
+	sc.backupgen = movegen.NewGordonGenerator(gd, sc.game.Board(), sc.game.Bag().LetterDistribution())
 	return nil
 }
 

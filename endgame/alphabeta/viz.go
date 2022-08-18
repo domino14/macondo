@@ -3,6 +3,8 @@ package alphabeta
 import (
 	"fmt"
 	"io/ioutil"
+
+	"github.com/domino14/macondo/alphabet"
 )
 
 // Attempt to visualize minimax graph with dot
@@ -12,7 +14,7 @@ type dotfile struct {
 	directives   []string
 }
 
-func genDotFile(n *GameNode, d *dotfile) {
+func genDotFile(n *GameNode, d *dotfile, a *alphabet.Alphabet) {
 	if len(n.children) == 0 {
 		// terminal node
 		// decl := fmt.Sprintf("%p [label=\"%v\nV: %v\"];",
@@ -25,13 +27,13 @@ func genDotFile(n *GameNode, d *dotfile) {
 	parent := n
 	for _, child := range parent.children {
 		decl := fmt.Sprintf("n_%p [label=\"%v\\nPlayVal: %v\\nNodeVal: %v\"];",
-			child, child.move.ShortDescription(),
-			child.move.Valuation(), child.heuristicValue)
+			child, child.move.ShortDescription(a),
+			child.move.valuation, child.heuristicValue)
 
 		conn := fmt.Sprintf("n_%p -> n_%p;", parent, child)
 		d.declarations = append(d.declarations, decl)
 		d.directives = append(d.directives, conn)
-		genDotFile(child, d)
+		genDotFile(child, d, a)
 	}
 }
 

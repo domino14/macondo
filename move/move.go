@@ -76,13 +76,15 @@ func (m *Move) Set(tiles alphabet.MachineWord, leave alphabet.MachineWord, score
 	m.alph = alph
 }
 
-// func (m *Move) SetTilesAndLeave(tiles alphabet.MachineWord, leave alphabet.MachineWord) {
-// 	m.tiles = tiles
-// 	m.leave = leave
-// }
+func (m *Move) SetAction(action MoveType) {
+	m.action = action
+}
 
-// CopyFrom performs a copy of other. It does not copy every field, only
-// those related to movegen.
+func (m *Move) SetAlphabet(alph *alphabet.Alphabet) {
+	m.alph = alph
+}
+
+// CopyFrom performs a copy of other.
 func (m *Move) CopyFrom(other *Move) {
 	m.action = other.action
 	if cap(m.tiles) < len(other.tiles) {
@@ -102,6 +104,9 @@ func (m *Move) CopyFrom(other *Move) {
 	m.colStart = other.colStart
 	m.tilesPlayed = other.tilesPlayed
 	m.vertical = other.vertical
+
+	m.valuation = other.valuation
+	m.equity = other.equity
 }
 
 // String provides a string just for debugging purposes.

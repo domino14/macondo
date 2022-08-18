@@ -78,6 +78,8 @@ type Solver struct {
 	otsBlockingRects []rect
 	stmRectIndex     int
 	otsRectIndex     int
+
+	placeholderMove *move.Move
 }
 
 // max returns the larger of x or y.
@@ -107,6 +109,10 @@ func (s *Solver) Init(m1 movegen.MoveGenerator, m2 movegen.MoveGenerator, game *
 	s.otsPlayed = make([]bool, alphabet.MaxAlphabetSize+1)
 	s.stmBlockingRects = make([]rect, 20)
 	s.otsBlockingRects = make([]rect, 25)
+	s.placeholderMove = new(move.Move)
+	if game != nil {
+		s.placeholderMove.SetAlphabet(game.Alphabet())
+	}
 	return nil
 }
 
@@ -232,8 +238,6 @@ func (s *Solver) generateSTMPlays(parent *GameNode) []*move.Move {
 		return sideToMovePlays
 	}
 
-	// we have to allocate here, sadly
-
 	// log.Debug().Msgf("stm %v (%v), ots %v (%v)",
 	// 	s.game.PlayerOnTurn(), stmRack.String(), pnot, otherRack.String())
 	s.otsMovegen.SetSortingParameter(movegen.SortByScore)
@@ -290,21 +294,48 @@ func (s *Solver) generateSTMPlays(parent *GameNode) []*move.Move {
 			// 	play, play.Score(), oScore, adjust, play.Valuation())
 		}
 	}
-	// Finally sort by valuation.
+	// Sort by valuation.
 	sort.Slice(sideToMovePlays, func(i, j int) bool {
 		return sideToMovePlays[i].Valuation() > sideToMovePlays[j].Valuation()
 	})
-	return sideToMovePlays
+	// Finally, we need to allocate here, so that we can save these plays
+	// as we change context and recurse. Otherwise, the movegen is still
+	// holding on to the slice of moves.
+	stmCopy := make([]*move.Move, len(sideToMovePlays))
+	for idx := range stmCopy {
+		stmCopy[idx] = new(move.Move)
+		stmCopy[idx].CopyFrom(sideToMovePlays[idx])
+	}
+	return stmCopy
 }
 
-func (s *Solver) childGenerator(node *GameNode, maximizingPlayer bool) func() (
-	*GameNode, bool) {
+func (s *Solver) childGenerator(node *GameNode, maximizingPlayer bool) func() *GameNode {
 
 	// log.Debug().Msgf("Trying to generate children for node %v", node)
 	var plays []*move.Move
 	if node.children == nil {
 		plays = s.generateSTMPlays(node)
+		// Append a minimal node for every generated play.
+		node.children = make([]*GameNode, len(plays))
+		for idx, p := range plays {
+			s.totalNodes++
+			r, c, v := p.CoordsAndVertical()
+			mm := &minimalMove{
+				tiles:     p.Tiles(),
+				leave:     p.Leave(),
+				vertical:  v,
+				row:       uint8(r),
+				col:       uint8(c),
+				score:     uint16(p.Score()),
+				valuation: p.Valuation(),
+			}
+			node.children[idx] = &GameNode{
+				move:   mm,
+				parent: node,
+			}
+		}
 	} else {
+		// We should only hit this during iterative deepening.
 		sort.Slice(node.children, func(i, j int) bool {
 			// If the plays exist already, sort them by value so more
 			// promising nodes are visited first. This would happen
@@ -316,14 +347,28 @@ func (s *Solver) childGenerator(node *GameNode, maximizingPlayer bool) func() (
 			if !maximizingPlayer {
 				i, j = j, i
 			}
+			// If a node hasn't been evaluated yet, push it to the end of the list.
+			// This function should sort from biggest to smallest.
+			if node.children[j].heuristicValue == nil {
+				return false
+			}
+			if node.children[i].heuristicValue == nil {
+				return true
+			}
 			return node.children[j].heuristicValue.less(node.children[i].heuristicValue)
 
 		})
+		// We want to start visiting children from the beginning, so reset
+		// their "visited".
+		for _, child := range node.children {
+			child.move.visited = false
+		}
+
 	}
 
-	gen := func() func() (*GameNode, bool) {
+	gen := func() func() *GameNode {
 		idx := -1
-		return func() (*GameNode, bool) {
+		return func() *GameNode {
 			idx++
 			if len(plays) == 0 {
 
@@ -331,21 +376,20 @@ func (s *Solver) childGenerator(node *GameNode, maximizingPlayer bool) func() (
 				// deepening, when we re-use previously generated nodes.
 				if idx == len(node.children) {
 					// log.Debug().Msgf("no more children of %v to return", node)
-					return nil, false
+					return nil
 				}
 				// node.children[idx].move.SetVisited(true)
 				// log.Debug().Msgf("Returning an already existing child of %v: %v", node, node.children[idx])
-				return node.children[idx], false
+				return node.children[idx]
 			}
 			if idx == len(plays) {
-				return nil, false
+				return nil
 			}
 
-			// Otherwise, plays were generated; return brand new nodes.
-			// log.Debug().Msgf("totalNodes incremented outside ID loop. Returning %v (parent %v)",
-			// 	plays[idx], node)
-			s.totalNodes++
-			return &GameNode{move: plays[idx], parent: node}, true
+			// Otherwise, new plays were generated and saved in
+			// node.children already.
+
+			return node.children[idx]
 		}
 	}
 	return gen()
@@ -358,8 +402,11 @@ func (s *Solver) findBestSequence(endNode *GameNode) []*move.Move {
 	child := endNode
 	for {
 
+		m := &move.Move{}
+		child.move.CopyToMove(m)
+		m.SetAlphabet(s.game.Alphabet())
 		// log.Debug().Msgf("Children of %v:", child.parent)
-		seq = append([]*move.Move{child.move}, seq...)
+		seq = append([]*move.Move{m}, seq...)
 		child = child.parent
 		if child == nil || child.move == nil {
 			break
@@ -429,7 +476,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 	log.Info().Msgf("Best spread found: %v", bestNode.heuristicValue.value)
 	// Go down tree and find best variation:
 	bestSeq := s.findBestSequence(bestNode)
-	log.Debug().Msgf("Number of expanded nodes: %v", s.totalNodes)
+	log.Info().Msgf("Number of expanded nodes: %v", s.totalNodes)
 	log.Debug().Msgf("Best sequence: (len=%v) %v", len(bestSeq), bestSeq)
 
 	return bestV, bestSeq, nil
@@ -452,10 +499,11 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 		value := float32(-Infinity)
 		var winningNode *GameNode
 		iter := s.childGenerator(node, true)
-		for child, newNode := iter(); child != nil; child, newNode = iter() {
+		for child := iter(); child != nil; child = iter() {
 			// Play the child
 			// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
-			s.game.PlayMove(child.move, false, 0)
+			child.move.CopyToMove(s.placeholderMove)
+			s.game.PlayMove(s.placeholderMove, false, 0)
 			// log.Debug().Msgf("%vState is now %v", depthDbg,
 			// s.game.String())
 			wn := s.alphabeta(child, depth-1, α, β, false)
@@ -467,9 +515,7 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 				winningNode = wn
 				// log.Debug().Msgf("%vFound a better move: %v (%v)", depthDbg, value, tm)
 			}
-			if newNode {
-				node.children = append(node.children, child)
-			}
+
 			if !s.disablePruning {
 				α = max(α, value)
 				if α >= β {
@@ -477,7 +523,7 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 				}
 			}
 		}
-		node.heuristicValue = nodeValue{
+		node.heuristicValue = &nodeValue{
 			value:          value,
 			knownEnd:       winningNode.heuristicValue.knownEnd,
 			sequenceLength: winningNode.heuristicValue.sequenceLength}
@@ -487,9 +533,10 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 	value := float32(Infinity)
 	var winningNode *GameNode
 	iter := s.childGenerator(node, false)
-	for child, newNode := iter(); child != nil; child, newNode = iter() {
+	for child := iter(); child != nil; child = iter() {
 		// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
-		s.game.PlayMove(child.move, false, 0)
+		child.move.CopyToMove(s.placeholderMove)
+		s.game.PlayMove(s.placeholderMove, false, 0)
 		// log.Debug().Msgf("%vState is now %v", depthDbg,
 		// s.game.String())
 		wn := s.alphabeta(child, depth-1, α, β, true)
@@ -500,9 +547,7 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 			winningNode = wn
 			// log.Debug().Msgf("%vFound a worse move: %v (%v)", depthDbg, value, tm)
 		}
-		if newNode {
-			node.children = append(node.children, child)
-		}
+
 		if !s.disablePruning {
 			β = min(β, value)
 			if α >= β {
@@ -510,7 +555,7 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 			}
 		}
 	}
-	node.heuristicValue = nodeValue{
+	node.heuristicValue = &nodeValue{
 		value:          value,
 		knownEnd:       winningNode.heuristicValue.knownEnd,
 		sequenceLength: winningNode.heuristicValue.sequenceLength}

@@ -217,10 +217,14 @@ func TestSolveStandard(t *testing.T) {
 
 	s, err := setUpSolver("NWL18", "english", board.VsCanik, plies, "DEHILOR", "BGIV", 389, 384,
 		1)
-
 	is.NoErr(err)
-	v, _, _ := s.Solve(plies)
 
+	v, moves, _ := s.Solve(plies)
+	is.Equal(moves[0].ShortDescription(), " 1G VIG.")
+	is.Equal(moves[1].ShortDescription(), " 4A HOER")
+	// There are two spots for the final B that are both worth 9
+	// and right now we don't generate these deterministically.
+	is.Equal(moves[2].Score(), 9)
 	is.Equal(v, float32(11))
 }
 
