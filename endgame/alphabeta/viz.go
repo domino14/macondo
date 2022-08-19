@@ -28,7 +28,7 @@ func genDotFile(n *GameNode, d *dotfile, a *alphabet.Alphabet) {
 	for _, child := range parent.children {
 		decl := fmt.Sprintf("n_%p [label=\"%v\\nPlayVal: %v\\nNodeVal: %v\"];",
 			child, child.move.ShortDescription(a),
-			child.move.valuation, child.heuristicValue)
+			child.valuation, child.heuristicValue)
 
 		conn := fmt.Sprintf("n_%p -> n_%p;", parent, child)
 		d.declarations = append(d.declarations, decl)

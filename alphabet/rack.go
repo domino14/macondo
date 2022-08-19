@@ -11,7 +11,6 @@ type Rack struct {
 	// letArr is an array of letter codes from 0 to MaxAlphabetSize.
 	// The blank can go at the MaxAlphabetSize place.
 	LetArr     []int
-	empty      bool
 	numLetters uint8
 	alphabet   *Alphabet
 	repr       string
@@ -37,7 +36,6 @@ func (r *Rack) String() string {
 // Copy returns a deep copy of this rack
 func (r *Rack) Copy() *Rack {
 	n := &Rack{
-		empty:      r.empty,
 		numLetters: r.numLetters,
 		alphabet:   r.alphabet,
 		repr:       r.repr,
@@ -48,7 +46,6 @@ func (r *Rack) Copy() *Rack {
 }
 
 func (r *Rack) CopyFrom(other *Rack) {
-	r.empty = other.empty
 	r.numLetters = other.numLetters
 	r.alphabet = other.alphabet
 	r.repr = other.repr
@@ -81,11 +78,7 @@ func (r *Rack) setFromStr(rack string) {
 			log.Error().Msgf("Rack has an illegal character: %v", string(c))
 		}
 	}
-	numRunes := utf8.RuneCountInString(rack)
-	if numRunes > 0 {
-		r.empty = false
-	}
-	r.numLetters = uint8(numRunes)
+	r.numLetters = uint8(utf8.RuneCountInString(rack))
 }
 
 // Set sets the rack from a list of machine letters
@@ -93,9 +86,6 @@ func (r *Rack) Set(mls []MachineLetter) {
 	r.Clear()
 	for _, ml := range mls {
 		r.LetArr[ml]++
-	}
-	if len(mls) > 0 {
-		r.empty = false
 	}
 	r.numLetters = uint8(len(mls))
 }
@@ -105,7 +95,6 @@ func (r *Rack) Clear() {
 	for i := 0; i < MaxAlphabetSize+1; i++ {
 		r.LetArr[i] = 0
 	}
-	r.empty = true
 	r.numLetters = 0
 }
 
@@ -114,9 +103,6 @@ func (r *Rack) Take(letter MachineLetter) {
 	// it doesn't check if it's there!
 	r.LetArr[letter]--
 	r.numLetters--
-	if r.numLetters == 0 {
-		r.empty = true
-	}
 }
 
 func (r *Rack) Has(letter MachineLetter) bool {
@@ -130,14 +116,11 @@ func (r *Rack) CountOf(letter MachineLetter) int {
 func (r *Rack) Add(letter MachineLetter) {
 	r.LetArr[letter]++
 	r.numLetters++
-	if r.empty {
-		r.empty = false
-	}
 }
 
 // TilesOn returns the MachineLetters of the rack's current tiles. It is alphabetized.
 func (r *Rack) TilesOn() MachineWord {
-	if r.empty {
+	if r.numLetters == 0 {
 		return MachineWord([]MachineLetter{})
 	}
 	letters := make([]MachineLetter, r.numLetters)
@@ -188,7 +171,7 @@ func (r *Rack) NumTiles() uint8 {
 }
 
 func (r *Rack) Empty() bool {
-	return r.empty
+	return r.numLetters == 0
 }
 
 func (r *Rack) Alphabet() *Alphabet {

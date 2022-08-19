@@ -57,19 +57,23 @@ type GameNode struct {
 	parent         *GameNode
 	heuristicValue *nodeValue
 	children       []*GameNode // children should be null until expanded.
+	valuation      float32     // valuation is an initial estimate of the value of a move.
 }
+
+const (
+	// constants used for the hash key for a minimal move.
+	mmRowShift      = 5
+	mmVerticalShift = 10
+	mmScoreShift    = 11
+
+	mmColBitmask = (1 << 5) - 1
+)
 
 type minimalMove struct {
 	// The most relevant attributes of the move are copied here.
-	tiles    []alphabet.MachineLetter
-	leave    []alphabet.MachineLetter
-	vertical bool
-	visited  bool // visited during an earlier round of iterative deepening
-
-	row       uint8
-	col       uint8
-	score     uint16
-	valuation float32 // valuation is an initial estimate of the value of a move.
+	tiles   []alphabet.MachineLetter
+	leave   []alphabet.MachineLetter
+	hashKey uint32
 }
 
 func (mm *minimalMove) ShortDescription(alph *alphabet.Alphabet) string {
@@ -89,11 +93,11 @@ func (mm *minimalMove) CopyToMove(m *move.Move) {
 	m.Set(
 		mm.tiles,
 		mm.leave,
-		int(mm.score),
-		int(mm.row),
-		int(mm.col),
+		int(mm.hashKey>>mmScoreShift),
+		int((mm.hashKey>>mmRowShift)&mmColBitmask),
+		int(mm.hashKey)&mmColBitmask,
 		0, /* tiles played can be calculated later */
-		mm.vertical,
+		(mm.hashKey>>mmVerticalShift)&1 == 1,
 		move.MoveTypePlay,
 		m.Alphabet() /* m must already have an alphabet set */)
 
@@ -162,9 +166,9 @@ func (g *GameNode) calculateValue(s *Solver) {
 		// in spread for this move (if taken to the end of the game).
 
 		// `player` is NOT the one that just made a move.
-		ptValue := g.move.score
+		ptValue := g.move.hashKey >> mmScoreShift
 		// don't double-count score; it's already in the valuation:
-		moveVal := g.move.valuation - float32(ptValue)
+		moveVal := g.valuation - float32(ptValue)
 		// What is the spread right now? The valuation should be relative
 		// to that.
 		// log.Debug().Msgf("calculating heur value for %v as %v + %v - %v",

@@ -78,6 +78,8 @@ type Solver struct {
 	otsBlockingRects []rect
 	stmRectIndex     int
 	otsRectIndex     int
+	moveCache        map[int][]*minimalMove
+	mmCount          int
 
 	placeholderMove *move.Move
 }
@@ -301,12 +303,75 @@ func (s *Solver) generateSTMPlays(parent *GameNode) []*move.Move {
 	// Finally, we need to allocate here, so that we can save these plays
 	// as we change context and recurse. Otherwise, the movegen is still
 	// holding on to the slice of moves.
-	stmCopy := make([]*move.Move, len(sideToMovePlays))
-	for idx := range stmCopy {
-		stmCopy[idx] = new(move.Move)
-		stmCopy[idx].CopyFrom(sideToMovePlays[idx])
+	// stmCopy := make([]*move.Move, len(sideToMovePlays))
+	// for idx := range stmCopy {
+	// 	stmCopy[idx] = new(move.Move)
+	// 	stmCopy[idx].CopyFrom(sideToMovePlays[idx])
+	// }
+	return sideToMovePlays
+}
+
+func movesMatch(t alphabet.MachineWord, lv alphabet.MachineWord, mm *minimalMove) bool {
+	if len(t) != len(mm.tiles) {
+		return false
 	}
-	return stmCopy
+	if len(lv) != len(mm.leave) {
+		return false
+	}
+	for i, ml := range t {
+		if mm.tiles[i] != ml {
+			return false
+		}
+	}
+	for i, ml := range lv {
+		if mm.leave[i] != ml {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Solver) playToMinimalMove(p *move.Move) *minimalMove {
+	// Create a minimal move, or return one from the cache.
+	r, c, v := p.CoordsAndVertical()
+	ptiles := p.Tiles()
+	pleave := p.Leave()
+	hashKey := c + (r << mmRowShift) + (p.Score() << mmScoreShift)
+	if v {
+		hashKey += (1 << mmVerticalShift)
+	}
+	extraHash := hashKey
+	if len(ptiles) > 0 {
+		extraHash = hashKey + (int(ptiles[0]) << 25)
+	}
+	mvs := s.moveCache[extraHash]
+	if len(mvs) == 0 {
+		mm := &minimalMove{
+			tiles:   ptiles,
+			leave:   pleave,
+			hashKey: uint32(hashKey),
+		}
+		s.mmCount += 1
+		s.moveCache[extraHash] = []*minimalMove{mm}
+		return mm
+	}
+
+	for _, existing := range mvs {
+		// we already know the coordinates and score match, just check
+		// the actual leave and tiles.
+		if movesMatch(ptiles, pleave, existing) {
+			return existing
+		}
+	}
+	// if we are here nothing matched.
+	mm := &minimalMove{
+		tiles:   ptiles,
+		leave:   pleave,
+		hashKey: uint32(hashKey),
+	}
+	s.mmCount += 1
+	s.moveCache[extraHash] = append(s.moveCache[extraHash], mm)
+	return mm
 }
 
 func (s *Solver) childGenerator(node *GameNode, maximizingPlayer bool) func() *GameNode {
@@ -319,19 +384,11 @@ func (s *Solver) childGenerator(node *GameNode, maximizingPlayer bool) func() *G
 		node.children = make([]*GameNode, len(plays))
 		for idx, p := range plays {
 			s.totalNodes++
-			r, c, v := p.CoordsAndVertical()
-			mm := &minimalMove{
-				tiles:     p.Tiles(),
-				leave:     p.Leave(),
-				vertical:  v,
-				row:       uint8(r),
-				col:       uint8(c),
-				score:     uint16(p.Score()),
-				valuation: p.Valuation(),
-			}
+			mm := s.playToMinimalMove(p)
 			node.children[idx] = &GameNode{
-				move:   mm,
-				parent: node,
+				move:      mm,
+				parent:    node,
+				valuation: p.Valuation(),
 			}
 		}
 	} else {
@@ -358,11 +415,6 @@ func (s *Solver) childGenerator(node *GameNode, maximizingPlayer bool) func() *G
 			return node.children[j].heuristicValue.less(node.children[i].heuristicValue)
 
 		})
-		// We want to start visiting children from the beginning, so reset
-		// their "visited".
-		for _, child := range node.children {
-			child.move.visited = false
-		}
 
 	}
 
@@ -378,8 +430,6 @@ func (s *Solver) childGenerator(node *GameNode, maximizingPlayer bool) func() *G
 					// log.Debug().Msgf("no more children of %v to return", node)
 					return nil
 				}
-				// node.children[idx].move.SetVisited(true)
-				// log.Debug().Msgf("Returning an already existing child of %v: %v", node, node.children[idx])
 				return node.children[idx]
 			}
 			if idx == len(plays) {
@@ -421,7 +471,8 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 	if s.game.Bag().TilesRemaining() > 0 {
 		return 0, nil, errors.New("bag is not empty; cannot use endgame solver")
 	}
-
+	s.mmCount = 0
+	s.moveCache = make(map[int][]*minimalMove)
 	// Generate children moves.
 	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
 	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)
@@ -476,9 +527,18 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 	log.Info().Msgf("Best spread found: %v", bestNode.heuristicValue.value)
 	// Go down tree and find best variation:
 	bestSeq := s.findBestSequence(bestNode)
-	log.Info().Msgf("Number of expanded nodes: %v", s.totalNodes)
-	log.Debug().Msgf("Best sequence: (len=%v) %v", len(bestSeq), bestSeq)
+	log.Info().Msgf("Number of expanded nodes: %d", s.totalNodes)
+	log.Info().Msgf("Size of move cache map: %d", len(s.moveCache))
+	log.Info().Msgf("Allocated minimal moves: %d", s.mmCount)
 
+	log.Debug().Msgf("Best sequence: (len=%v) %v", len(bestSeq), bestSeq)
+	// for k, v := range s.moveCache {
+	// 	fmt.Printf("%d: ", k)
+	// 	for _, vv := range v {
+	// 		fmt.Printf("[ %s ] ", vv.ShortDescription(s.game.Alphabet()))
+	// 	}
+	// 	fmt.Printf("\n")
+	// }
 	return bestV, bestSeq, nil
 }
 
