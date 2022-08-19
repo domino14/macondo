@@ -312,23 +312,7 @@ func (s *Solver) generateSTMPlays(parent *GameNode) []*move.Move {
 }
 
 func movesMatch(t alphabet.MachineWord, lv alphabet.MachineWord, mm *minimalMove) bool {
-	if len(t) != len(mm.tiles) {
-		return false
-	}
-	if len(lv) != len(mm.leave) {
-		return false
-	}
-	for i, ml := range t {
-		if mm.tiles[i] != ml {
-			return false
-		}
-	}
-	for i, ml := range lv {
-		if mm.leave[i] != ml {
-			return false
-		}
-	}
-	return true
+	return string(mm.tiles) == string(t) && string(mm.leave) == string(lv)
 }
 
 func (s *Solver) playToMinimalMove(p *move.Move) *minimalMove {
