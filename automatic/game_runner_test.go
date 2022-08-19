@@ -1,7 +1,6 @@
 package automatic
 
 import (
-	"log"
 	"testing"
 
 	"github.com/matryer/is"
@@ -94,6 +93,5 @@ func TestGenBestStaticTurn6(t *testing.T) {
 
 	is.Equal(runner.game.Bag().TilesRemaining(), 0)
 	bestPlay := runner.genBestStaticTurn(0)
-	log.Println(runner.movegen.Plays())
 	is.Equal("F10 .cARPS", bestPlay.ShortDescription())
 }
