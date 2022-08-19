@@ -577,7 +577,7 @@ func (sc *ShellController) commitAIMove() error {
 
 func (sc *ShellController) handleAutoplay(args []string, options map[string]string) error {
 	var logfile, lexicon, letterDistribution, leavefile1, leavefile2, pegfile1, pegfile2 string
-	var numgames int
+	var numgames, numthreads int
 	var block bool
 	var botcode1, botcode2 pb.BotRequest_BotCode
 	if options["logfile"] == "" {
@@ -651,6 +651,19 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 		block = true
 	}
 
+	if options["numthreads"] == "" {
+		numthreads = runtime.NumCPU()
+	} else {
+		var err error
+		numthreads, err = strconv.Atoi(options["numthreads"])
+		if err != nil {
+			return err
+		}
+	}
+	if numthreads < 1 {
+		return errors.New("need at least one thread")
+	}
+
 	player1 := "exhaustiveleave"
 	player2 := player1
 	if len(args) == 1 {
@@ -673,7 +686,7 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 
 	sc.showMessage("automatic game runner will log to " + logfile)
 	sc.gameRunnerCtx, sc.gameRunnerCancel = context.WithCancel(context.Background())
-	err := automatic.StartCompVCompStaticGames(sc.gameRunnerCtx, sc.config, numgames, block, runtime.NumCPU(),
+	err := automatic.StartCompVCompStaticGames(sc.gameRunnerCtx, sc.config, numgames, block, numthreads,
 		logfile, player1, player2, lexicon, letterDistribution, leavefile1, leavefile2, pegfile1, pegfile2,
 		botcode1, botcode2)
 	if err != nil {
