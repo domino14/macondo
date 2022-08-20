@@ -93,7 +93,7 @@ func setUpSolver(lex, distName string, bvs board.VsWho, plies int, rack1, rack2 
 	fmt.Println(g.Board().ToDisplayText(alph))
 
 	s := new(Solver)
-	s.Init(gen1, gen2, g)
+	s.Init(gen1, gen2, g, &DefaultConfig)
 	return s, nil
 }
 
@@ -305,7 +305,7 @@ func TestPolishFromGcg(t *testing.T) {
 	)
 
 	s := new(Solver)
-	s.Init(gen1, gen2, g)
+	s.Init(gen1, gen2, g, &DefaultConfig)
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 
 	v, seq, _ := s.Solve(plies)
@@ -373,7 +373,7 @@ func TestSpuriousPassesFromGcg(t *testing.T) {
 		gd, g.Board(), g.Bag().LetterDistribution(),
 	)
 	s := new(Solver)
-	s.Init(gen1, gen2, g)
+	s.Init(gen1, gen2, g, &DefaultConfig)
 	// s.iterativeDeepeningOn = false
 	// s.simpleEvaluation = true
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
@@ -857,7 +857,7 @@ func TestProperIterativeDeepening(t *testing.T) {
 			gd, g.Board(), g.Bag().LetterDistribution(),
 		)
 		s := new(Solver)
-		s.Init(gen1, gen2, g)
+		s.Init(gen1, gen2, g, &DefaultConfig)
 		fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 		// Prior to solving the endgame, set to simulation mode.
 		g.SetBackupMode(game.SimulationMode)
@@ -907,7 +907,7 @@ func BenchmarkID(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 
 		s := new(Solver)
-		s.Init(gen1, gen2, g)
+		s.Init(gen1, gen2, g, &DefaultConfig)
 		plies := 5
 
 		g.SetBackupMode(game.SimulationMode)
@@ -954,7 +954,7 @@ func BenchmarkID2(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 
 		s := new(Solver)
-		s.Init(gen1, gen2, g)
+		s.Init(gen1, gen2, g, &DefaultConfig)
 		plies := 11
 
 		g.SetBackupMode(game.SimulationMode)
@@ -995,7 +995,7 @@ func TestFromGCG(t *testing.T) {
 	)
 
 	s := new(Solver)
-	s.Init(gen1, gen2, g)
+	s.Init(gen1, gen2, g, &DefaultConfig)
 	// s.iterativeDeepeningOn = false
 	// s.simpleEvaluation = true
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))

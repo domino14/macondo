@@ -55,7 +55,7 @@ func TestBlocks(t *testing.T) {
 	fmt.Println(b.ToDisplayText(alph))
 
 	s := &Solver{}
-	s.Init(nil, nil, nil)
+	s.Init(nil, nil, nil, &DefaultConfig)
 
 	sups := move.NewScoringMoveSimple(0, "4C", "...S", "", alph)
 	supination := move.NewScoringMoveSimple(0, "4C", "...IN..I..", "", alph)
@@ -108,7 +108,7 @@ func TestComplexBlocks(t *testing.T) {
 	// all plays should block themselves!
 
 	s := &Solver{}
-	s.Init(nil, nil, nil)
+	s.Init(nil, nil, nil, &DefaultConfig)
 
 	hebetate := move.NewScoringMoveSimple(0, "11C", "HE....TE", "", alph)
 	halitoses := move.NewScoringMoveSimple(0, "12D", "..LIT....", "", alph)
@@ -170,7 +170,7 @@ func TestMoreComplexBlocks(t *testing.T) {
 	b.SetRow(12, row3, alph)
 	fmt.Println(b.ToDisplayText(alph))
 	s := &Solver{}
-	s.Init(nil, nil, nil)
+	s.Init(nil, nil, nil, &DefaultConfig)
 
 	hebetate := move.NewScoringMoveSimple(0, "11C", "HE....TE", "", alph)
 	halitoses := move.NewScoringMoveSimple(0, "12D", "..LIT....", "", alph)
