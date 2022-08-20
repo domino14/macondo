@@ -414,49 +414,6 @@ func (sc *ShellController) genDisplayMoveList() string {
 	return s.String()
 }
 
-func endgameArgs(args []string) (plies int, deepening, simple, disablePruning bool, err error) {
-	deepening = true
-	plies = 4
-	simple = false
-	disablePruning = false
-
-	if len(args) > 0 {
-		plies, err = strconv.Atoi(args[0])
-		if err != nil {
-			return
-		}
-	}
-	if len(args) > 1 {
-		var id int
-		id, err = strconv.Atoi(args[1])
-		if err != nil {
-			return
-		}
-		deepening = id == 1
-	}
-	if len(args) > 2 {
-		var sp int
-		sp, err = strconv.Atoi(args[2])
-		if err != nil {
-			return
-		}
-		simple = sp == 1
-	}
-	if len(args) > 3 {
-		var d int
-		d, err = strconv.Atoi(args[3])
-		if err != nil {
-			return
-		}
-		disablePruning = d == 1
-	}
-	if len(args) > 4 {
-		err = errors.New("endgame only takes 5 arguments")
-		return
-	}
-	return
-}
-
 func modeFromStr(mode string) (Mode, error) {
 	mode = strings.TrimSpace(mode)
 	switch mode {

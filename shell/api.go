@@ -232,16 +232,67 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	if sc.game == nil {
 		return nil, errors.New("please load a game first with the `load` command")
 	}
-	plies, deepening, simpleEval, disablePruning, err := endgameArgs(cmd.args)
-	if err != nil {
-		return nil, err
+	plies := 4
+	var maxtime int
+	var maxnodes int
+	var disablePruning bool
+	var disableID bool
+	var complexEstimator bool
+	var err error
+
+	if cmd.options["plies"] != "" {
+		plies, err = strconv.Atoi(cmd.options["plies"])
+		if err != nil {
+			return nil, err
+		}
 	}
+
+	if cmd.options["maxtime"] != "" {
+		maxtime, err = strconv.Atoi(cmd.options["maxtime"])
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if cmd.options["maxnodes"] != "" {
+		maxnodes, err = strconv.Atoi(cmd.options["maxnodes"])
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if cmd.options["disable-pruning"] == "true" {
+		disablePruning = true
+	}
+	if cmd.options["disable-id"] == "true" {
+		disableID = true
+	}
+	if cmd.options["complex-estimator"] == "true" {
+		complexEstimator = true
+	}
+
 	sc.showMessage(fmt.Sprintf(
-		"plies %v, deepening %v, simpleEval %v, pruningDisabled %v",
-		plies, deepening, simpleEval, disablePruning))
+		"plies %v, maxtime %v, maxnodes %v",
+		plies, maxtime, maxnodes))
 
 	sc.game.SetStateStackLength(plies)
 	sc.game.SetBackupMode(game.SimulationMode)
+
+	defer func() {
+		sc.game.SetBackupMode(game.InteractiveGameplayMode)
+		sc.game.SetStateStackLength(1)
+	}()
+
+	oldmaxnodes := sc.config.AlphaBetaNodeLimit
+	oldmaxtime := sc.config.AlphaBetaTimeLimit
+
+	sc.config.AlphaBetaNodeLimit = maxnodes
+	sc.config.AlphaBetaTimeLimit = maxtime
+
+	defer func() {
+		sc.config.AlphaBetaNodeLimit = oldmaxnodes
+		sc.config.AlphaBetaTimeLimit = oldmaxtime
+	}()
 
 	// clear out the last value of this endgame node; gc should
 	// delete the tree.
@@ -251,8 +302,9 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	sc.endgameSolver.SetIterativeDeepening(deepening)
-	sc.endgameSolver.SetSimpleEvaluator(simpleEval)
+
+	sc.endgameSolver.SetIterativeDeepening(!disableID)
+	sc.endgameSolver.SetComplexEvaluator(complexEstimator)
 	sc.endgameSolver.SetPruningDisabled(disablePruning)
 
 	sc.showMessage(sc.game.ToDisplayText())
@@ -261,9 +313,6 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	// And turn off simulation mode again.
-	sc.game.SetBackupMode(game.InteractiveGameplayMode)
-	sc.game.SetStateStackLength(1)
 
 	sc.showMessage(fmt.Sprintf("Best sequence has a spread difference of %v", val))
 	sc.printEndgameSequence(seq)

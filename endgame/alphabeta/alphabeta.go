@@ -72,7 +72,7 @@ type Solver struct {
 	initialTurnNum   int
 	maximizingPlayer int // This is the player who we call this function for.
 
-	simpleEvaluation     bool
+	complexEvaluation    bool
 	iterativeDeepeningOn bool
 	disablePruning       bool
 	rootNode             *GameNode
@@ -238,7 +238,7 @@ func (s *Solver) generateSTMPlays(parent *GameNode) []*move.Move {
 	s.stmMovegen.GenAll(stmRack, false)
 	sideToMovePlays := s.addPass(s.stmMovegen.Plays(), s.game.PlayerOnTurn())
 	// log.Debug().Msgf("stm plays %v", sideToMovePlays)
-	if s.simpleEvaluation {
+	if !s.complexEvaluation {
 		// A simple evaluation function is a very dumb, but fast, function
 		// of score and tiles played. /shrug
 		for _, m := range s.stmMovegen.Plays() {
@@ -469,6 +469,14 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 	if s.game.Bag().TilesRemaining() > 0 {
 		return 0, nil, errors.New("bag is not empty; cannot use endgame solver")
 	}
+	log.Debug().Int("plies", plies).
+		Bool("iterative-deepening", s.iterativeDeepeningOn).
+		Bool("complex-evaluation", s.complexEvaluation).
+		Bool("pruning-disabled", s.disablePruning).
+		Int("maxnodes", s.config.AlphaBetaNodeLimit).
+		Int("maxtimesecs", s.config.AlphaBetaTimeLimit).
+		Msg("alphabeta-solve-config")
+
 	tstart := time.Now()
 	s.mmCount = 0
 	s.moveCache = make(map[int][]*minimalMove)
@@ -702,8 +710,8 @@ func (s *Solver) SetIterativeDeepening(i bool) {
 	s.iterativeDeepeningOn = i
 }
 
-func (s *Solver) SetSimpleEvaluator(i bool) {
-	s.simpleEvaluation = i
+func (s *Solver) SetComplexEvaluator(i bool) {
+	s.complexEvaluation = i
 }
 
 func (s *Solver) SetPruningDisabled(i bool) {

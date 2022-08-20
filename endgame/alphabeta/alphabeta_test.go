@@ -231,7 +231,7 @@ func TestSolveStandard(t *testing.T) {
 func TestSolveStandard2(t *testing.T) {
 	// Another standard 3-ply endgame.
 	is := is.New(t)
-	plies := 3
+	plies := 4
 
 	s, err := setUpSolver("NWL18", "english", board.VsJoel, plies, "EIQSS", "AAFIRTW", 393, 373,
 		1)
@@ -455,6 +455,7 @@ func TestValuation(t *testing.T) {
 	s, err := setUpSolver("NWL18", "english", board.VsAlec, 0, "EGNOQR", "DGILOPR",
 		420, 369, 1)
 	is.NoErr(err)
+	s.SetComplexEvaluator(true)
 
 	plays := s.generateSTMPlays(nil)
 	// This is subject to change depending on the C & D values, but
