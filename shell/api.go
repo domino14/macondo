@@ -247,7 +247,7 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	// delete the tree.
 	sc.curEndgameNode = nil
 	sc.endgameSolver = new(alphabeta.Solver)
-	err = sc.endgameSolver.Init(sc.gen, sc.backupgen, &sc.game.Game)
+	err = sc.endgameSolver.Init(sc.gen, sc.backupgen, &sc.game.Game, sc.config)
 	if err != nil {
 		return nil, err
 	}

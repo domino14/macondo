@@ -3,10 +3,14 @@
 package alphabeta
 
 import (
+	"context"
 	"errors"
 	"sort"
+	"sync"
+	"time"
 
 	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
@@ -82,6 +86,8 @@ type Solver struct {
 	mmCount          int
 
 	placeholderMove *move.Move
+
+	config *config.Config
 }
 
 // max returns the larger of x or y.
@@ -100,7 +106,7 @@ func min(x, y float32) float32 {
 }
 
 // Init initializes the solver
-func (s *Solver) Init(m1 movegen.MoveGenerator, m2 movegen.MoveGenerator, game *game.Game) error {
+func (s *Solver) Init(m1 movegen.MoveGenerator, m2 movegen.MoveGenerator, game *game.Game, cfg *config.Config) error {
 	s.stmMovegen = m1
 	s.otsMovegen = m2
 	s.game = game
@@ -115,6 +121,7 @@ func (s *Solver) Init(m1 movegen.MoveGenerator, m2 movegen.MoveGenerator, game *
 	if game != nil {
 		s.placeholderMove.SetAlphabet(game.Alphabet())
 	}
+	s.config = cfg
 	return nil
 }
 
@@ -475,45 +482,100 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 	// the children of these nodes are the board states after every move.
 	// however we treat the children as those actual moves themsselves.
 
+	ctx := context.Background()
+	var cancel context.CancelFunc
+	var cancel2 context.CancelFunc
+	if s.config.AlphaBetaTimeLimit > 0 {
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(s.config.AlphaBetaTimeLimit)*time.Second)
+		defer cancel()
+	}
+	if s.config.AlphaBetaNodeLimit > 0 {
+		ctx, cancel2 = context.WithCancel(ctx)
+	}
+
 	s.initialSpread = s.game.CurrentSpread()
 	s.initialTurnNum = s.game.Turn()
 	s.maximizingPlayer = s.game.PlayerOnTurn()
 	log.Debug().Msgf("Spread at beginning of endgame: %v", s.initialSpread)
 	log.Debug().Msgf("Maximizing player is: %v", s.maximizingPlayer)
 	var bestV float32
-	var bestNode *GameNode
-	// XXX: We're going to need some sort of channel here to control
-	// deepening and propagate results.
-	if s.iterativeDeepeningOn {
-		log.Debug().Msgf("Using iterative deepening with %v max plies", plies)
-		for p := 1; p <= plies; p++ {
-			log.Info().Msgf("scoreless turns: %v", s.game.ScorelessTurns())
-			log.Info().Msgf("Spread at beginning of endgame: %v", s.game.CurrentSpread())
-			log.Info().Msgf("Maximizing player is: %v", s.game.PlayerOnTurn())
-			bestNode = s.alphabeta(s.rootNode, p, float32(-Infinity), float32(Infinity), true)
-			bestV = bestNode.heuristicValue.value
-			bestSeq := s.findBestSequence(bestNode)
-			// Sort our plays by heuristic value for the next iteration, so that
-			// more promising nodes are searched first.
-			// sort.Slice(s.rootNode.children, func(i, j int) bool {
-			// 	return s.rootNode.children[i].heuristicValue >
-			// 		s.rootNode.children[j].heuristicValue
-			// })
-			// s.clearChildrenValues(s.rootNode)
-			log.Info().Msgf("Spread swing estimate found after %v plies: %v",
-				p, bestV)
-			log.Info().Msgf("Best seq so far is %v", bestSeq)
+	var bestNodeSoFar *GameNode
+	var bestSeq []*move.Move
+	var wg sync.WaitGroup
+	done := make(chan struct{})
+	wg.Add(1)
+
+	go func(ctx context.Context) {
+		defer wg.Done()
+		if s.iterativeDeepeningOn {
+			log.Debug().Msgf("Using iterative deepening with %v max plies", plies)
+			for p := 1; p <= plies; p++ {
+				log.Debug().Msgf("scoreless turns: %v", s.game.ScorelessTurns())
+				log.Debug().Msgf("Spread at beginning of endgame: %v", s.game.CurrentSpread())
+				log.Debug().Msgf("Maximizing player is: %v", s.game.PlayerOnTurn())
+				bestNode, err := s.alphabeta(ctx, s.rootNode, p, float32(-Infinity), float32(Infinity), true)
+				if err != nil {
+					log.Err(err).Msg("alphabeta-error")
+					break
+				} else {
+					bestNodeSoFar = bestNode
+					bestV = bestNode.heuristicValue.value
+					bestSeq = s.findBestSequence(bestNode)
+
+					log.Debug().Msgf("Spread swing estimate found after %v plies: %v",
+						p, bestV)
+					log.Debug().Msgf("Best seq so far is %v", bestSeq)
+				}
+			}
+		} else {
+			bestNode, err := s.alphabeta(ctx, s.rootNode, plies, float32(-Infinity), float32(Infinity), true)
+			if err != nil {
+				log.Err(err).Msg("alphabeta-error")
+			} else {
+				bestV = bestNode.heuristicValue.value
+				bestSeq = s.findBestSequence(bestNode)
+			}
 		}
-	} else {
-		bestNode = s.alphabeta(s.rootNode, plies, float32(-Infinity), float32(Infinity), true)
-		bestV = bestNode.heuristicValue.value
+		if cancel2 != nil {
+			log.Debug().Msg("sending <-done")
+			done <- struct{}{}
+		}
+		log.Debug().Msg("exiting solver goroutine")
+	}(ctx)
+
+	if s.config.AlphaBetaNodeLimit > 0 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			t := time.NewTicker(time.Second)
+
+			for {
+				select {
+				case <-t.C:
+					if s.totalNodes > s.config.AlphaBetaNodeLimit {
+						log.Info().Msg("reached node limit")
+						cancel2()
+						t.Stop()
+					}
+
+				case <-done:
+					log.Debug().Msg("read from <-done")
+					t.Stop()
+					return
+				}
+			}
+
+		}()
 	}
-	log.Info().Msgf("Best spread found: %v", bestNode.heuristicValue.value)
+
+	wg.Wait()
+	if bestNodeSoFar != nil {
+		log.Debug().Msgf("Best spread found: %v", bestNodeSoFar.heuristicValue.value)
+	}
 	// Go down tree and find best variation:
-	bestSeq := s.findBestSequence(bestNode)
-	log.Info().Msgf("Number of expanded nodes: %d", s.totalNodes)
-	log.Info().Msgf("Size of move cache map: %d", len(s.moveCache))
-	log.Info().Msgf("Allocated minimal moves: %d", s.mmCount)
+	log.Debug().Msgf("Number of expanded nodes: %d", s.totalNodes)
+	log.Debug().Msgf("Size of move cache map: %d", len(s.moveCache))
+	log.Debug().Msgf("Allocated minimal moves: %d", s.mmCount)
 
 	log.Debug().Msgf("Best sequence: (len=%v) %v", len(bestSeq), bestSeq)
 	// for k, v := range s.moveCache {
@@ -526,8 +588,14 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 	return bestV, bestSeq, nil
 }
 
-func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
-	maximizingPlayer bool) *GameNode {
+func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α float32, β float32,
+	maximizingPlayer bool) (*GameNode, error) {
+
+	select {
+	case <-ctx.Done():
+		return nil, errors.New("context done")
+	default:
+	}
 
 	// depthDbg := strings.Repeat(" ", depth)
 	if depth == 0 || s.game.Playing() != pb.PlayState_PLAYING {
@@ -536,7 +604,7 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 		node.calculateValue(s)
 		// log.Debug().Msgf("ending recursion, depth: %v, playing: %v, node: %v val: %v",
 		// 	depth, s.game.Playing(), node.move, val)
-		return node
+		return node, nil
 	}
 
 	if maximizingPlayer {
@@ -550,7 +618,11 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 			s.game.PlayMove(s.placeholderMove, false, 0)
 			// log.Debug().Msgf("%vState is now %v", depthDbg,
 			// s.game.String())
-			wn := s.alphabeta(child, depth-1, α, β, false)
+			wn, err := s.alphabeta(ctx, child, depth-1, α, β, false)
+			if err != nil {
+				s.game.UnplayLastMove()
+				return nil, err
+			}
 			s.game.UnplayLastMove()
 			// log.Debug().Msgf("%vAfter unplay, state is now %v", depthDbg, s.game.String())
 
@@ -571,7 +643,7 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 			value:          value,
 			knownEnd:       winningNode.heuristicValue.knownEnd,
 			sequenceLength: winningNode.heuristicValue.sequenceLength}
-		return winningNode
+		return winningNode, nil
 	}
 	// Otherwise, not maximizing
 	value := float32(Infinity)
@@ -583,7 +655,11 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 		s.game.PlayMove(s.placeholderMove, false, 0)
 		// log.Debug().Msgf("%vState is now %v", depthDbg,
 		// s.game.String())
-		wn := s.alphabeta(child, depth-1, α, β, true)
+		wn, err := s.alphabeta(ctx, child, depth-1, α, β, true)
+		if err != nil {
+			s.game.UnplayLastMove()
+			return nil, err
+		}
 		s.game.UnplayLastMove()
 		// log.Debug().Msgf("%vAfter unplay, state is now %v", depthDbg, s.game.String())
 		if wn.heuristicValue.value < value {
@@ -603,7 +679,7 @@ func (s *Solver) alphabeta(node *GameNode, depth int, α float32, β float32,
 		value:          value,
 		knownEnd:       winningNode.heuristicValue.knownEnd,
 		sequenceLength: winningNode.heuristicValue.sequenceLength}
-	return winningNode
+	return winningNode, nil
 }
 
 func (s *Solver) SetIterativeDeepening(i bool) {
