@@ -19,7 +19,7 @@ var boardPlaintextRegex = regexp.MustCompile(`\|(.+)\|`)
 var userRackRegex = regexp.MustCompile(`(?U).+\s+([A-Z\?]*)\s+-?[0-9]+`)
 
 func (g *GameBoard) sqDisplayStr(row, col int, alph *alphabet.Alphabet) string {
-	pos := row*g.dim + col
+	pos := g.getSqIdx(row, col)
 	var bonusdisp string
 	if g.bonuses[pos] != ' ' {
 		bonusdisp = g.bonuses[pos].displayString()
@@ -150,7 +150,7 @@ func (g *GameBoard) Equals(g2 *GameBoard) bool {
 	}
 	for row := 0; row < g.Dim(); row++ {
 		for col := 0; col < g.Dim(); col++ {
-			pos := row*g.dim + col
+			pos := g.getSqIdx(row, col)
 			if g.squares[pos] != g2.squares[pos] ||
 				g.bonuses[pos] != g2.bonuses[pos] ||
 				g.hCrossScores[pos] != g2.hCrossScores[pos] ||

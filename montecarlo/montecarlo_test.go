@@ -123,7 +123,7 @@ func BenchmarkSim(b *testing.B) {
 	log.Debug().Msg("About to start")
 	b.ResetTimer()
 	// benchmark 2022-08-19 on monolith (12th gen Intel computer)
-	// 310	   3669564 ns/op	    7981 B/op	      60 allocs/op
+	// 306	   3874802 ns/op	    7978 B/op	      60 allocs/op
 	for i := 0; i < b.N; i++ {
 		simmer.simSingleIteration(plies, 0, i+1, nil)
 	}
