@@ -149,7 +149,6 @@ func TestGenThroughBothWaysAllowedLetters(t *testing.T) {
 	}
 	generator := NewGordonGenerator(gd, bd, dist)
 	generator.curAnchorCol = 9
-
 	bd.SetRow(4, "   THERMOS  A", gd.GetAlphabet())
 	generator.curRowIdx = 4
 	ml, _ := gd.GetAlphabet().Val('I')

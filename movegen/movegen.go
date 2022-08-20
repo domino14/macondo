@@ -183,8 +183,8 @@ func (gen *GordonGenerator) recursiveGen(col int, rack *alphabet.Rack,
 
 	var csDirection board.BoardDirection
 	// If a letter L is already on this square, then goOn...
-	curSquare := gen.board.GetSquare(gen.curRowIdx, col)
-	curLetter := curSquare.Letter()
+	// curSquare := gen.board.GetSquare(gen.curRowIdx, col)
+	curLetter := gen.board.GetLetter(gen.curRowIdx, col)
 
 	if gen.vertical {
 		csDirection = board.HorizontalDirection
@@ -193,7 +193,7 @@ func (gen *GordonGenerator) recursiveGen(col int, rack *alphabet.Rack,
 	}
 	crossSet := gen.board.GetCrossSet(gen.curRowIdx, col, csDirection)
 
-	if !curSquare.IsEmpty() {
+	if curLetter != alphabet.EmptySquareMarker {
 		nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, curLetter.Unblank())
 		gen.goOn(col, curLetter, rack, nnIdx, nodeIdx, leftstrip, rightstrip, uniquePlay)
 
@@ -236,7 +236,7 @@ func (gen *GordonGenerator) goOn(curCol int, L alphabet.MachineLetter,
 	leftstrip, rightstrip int, uniquePlay bool) {
 
 	if curCol <= gen.curAnchorCol {
-		if !gen.board.GetSquare(gen.curRowIdx, curCol).IsEmpty() {
+		if gen.board.HasLetter(gen.curRowIdx, curCol) {
 			gen.strip[curCol] = alphabet.PlayedThroughMarker
 		} else {
 			gen.strip[curCol] = L
@@ -252,7 +252,7 @@ func (gen *GordonGenerator) goOn(curCol int, L alphabet.MachineLetter,
 
 		// if L on OldArc and no letter directly left, then record play.
 		noLetterDirectlyLeft := curCol == 0 ||
-			gen.board.GetSquare(gen.curRowIdx, curCol-1).IsEmpty()
+			!gen.board.HasLetter(gen.curRowIdx, curCol-1)
 
 		// Check to see if there is a letter directly to the left.
 		if gen.gaddag.InLetterSet(L, oldNodeIdx) && noLetterDirectlyLeft && gen.tilesPlayed > 0 {
@@ -284,7 +284,7 @@ func (gen *GordonGenerator) goOn(curCol int, L alphabet.MachineLetter,
 		}
 
 	} else {
-		if !gen.board.GetSquare(gen.curRowIdx, curCol).IsEmpty() {
+		if gen.board.HasLetter(gen.curRowIdx, curCol) {
 			gen.strip[curCol] = alphabet.PlayedThroughMarker
 		} else {
 			gen.strip[curCol] = L
@@ -296,7 +296,7 @@ func (gen *GordonGenerator) goOn(curCol int, L alphabet.MachineLetter,
 		rightstrip = curCol
 
 		noLetterDirectlyRight := curCol == gen.board.Dim()-1 ||
-			gen.board.GetSquare(gen.curRowIdx, curCol+1).IsEmpty()
+			!gen.board.HasLetter(gen.curRowIdx, curCol+1)
 		if gen.gaddag.InLetterSet(L, oldNodeIdx) && noLetterDirectlyRight && gen.tilesPlayed > 0 {
 			if uniquePlay || gen.tilesPlayed > 1 {
 				gen.playRecorder(gen, rack, leftstrip, rightstrip, move.MoveTypePlay)

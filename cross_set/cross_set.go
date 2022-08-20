@@ -139,14 +139,14 @@ func genCrossScore(b *Board, row int, col int, dir board.BoardDirection,
 	}
 	// If the square has a letter in it, its cross set and cross score
 	// should both be 0
-	if !b.GetSquare(row, col).IsEmpty() {
-		b.GetSquare(row, col).SetCrossScore(0, dir)
+	if b.HasLetter(row, col) {
+		b.SetCrossScore(row, col, 0, dir)
 		return
 	}
 	// If there's no tile adjacent to this square in any direction,
 	// every letter is allowed.
 	if b.LeftAndRightEmpty(row, col) {
-		b.GetSquare(row, col).SetCrossScore(0, dir)
+		b.SetCrossScore(row, col, 0, dir)
 		return
 	}
 	// If we are here, there is a letter to the left, to the right, or both.
@@ -154,13 +154,13 @@ func genCrossScore(b *Board, row int, col int, dir board.BoardDirection,
 	rightCol := b.WordEdge(row, col+1, Right)
 	if rightCol == col {
 		score := b.TraverseBackwardsForScore(row, col-1, ld)
-		b.GetSquare(row, col).SetCrossScore(score, dir)
+		b.SetCrossScore(row, col, score, dir)
 	} else {
 		// Otherwise, the right is not empty. Check if the left is empty,
 		// if so we just traverse right, otherwise, we try every letter.
 		scoreR := b.TraverseBackwardsForScore(row, rightCol, ld)
 		scoreL := b.TraverseBackwardsForScore(row, col-1, ld)
-		b.GetSquare(row, col).SetCrossScore(scoreR+scoreL, dir)
+		b.SetCrossScore(row, col, scoreR+scoreL, dir)
 	}
 }
 
@@ -210,7 +210,7 @@ func traverseBackwards(b *Board, row int, col int,
 	// check the letter set of this node to see if it includes the letter
 	// at leftMostCol
 	for b.PosExists(row, col) {
-		ml := b.GetSquare(row, col).Letter()
+		ml := b.GetLetter(row, col)
 		if ml == alphabet.EmptySquareMarker {
 			break
 		}
@@ -248,16 +248,16 @@ func GenCrossSet(b *Board, row int, col int, dir board.BoardDirection,
 	}
 	// If the square has a letter in it, its cross set and cross score
 	// should both be 0
-	if !b.GetSquare(row, col).IsEmpty() {
-		b.GetSquare(row, col).SetCrossSet(CrossSet(0), dir)
-		b.GetSquare(row, col).SetCrossScore(0, dir)
+	if b.HasLetter(row, col) {
+		b.ClearCrossSet(row, col, dir)
+		b.SetCrossScore(row, col, 0, dir)
 		return
 	}
 	// If there's no tile adjacent to this square in any direction,
 	// every letter is allowed.
 	if b.LeftAndRightEmpty(row, col) {
-		b.GetSquare(row, col).SetCrossSet(board.TrivialCrossSet, dir)
-		b.GetSquare(row, col).SetCrossScore(0, dir)
+		b.SetCrossSet(row, col, board.TrivialCrossSet, dir)
+		b.SetCrossScore(row, col, 0, dir)
 
 		return
 	}
@@ -269,12 +269,12 @@ func GenCrossSet(b *Board, row int, col int, dir board.BoardDirection,
 		lNodeIdx, lPathValid := traverseBackwards(b, row, col-1,
 			gaddag.GetRootNodeIndex(), false, 0, gaddag)
 		score := b.TraverseBackwardsForScore(row, col-1, ld)
-		b.GetSquare(row, col).SetCrossScore(score, dir)
+		b.SetCrossScore(row, col, score, dir)
 
 		if !lPathValid {
 			// There are no further extensions to the word on the board,
 			// which may also be a phony.
-			b.GetSquare(row, col).SetCrossSet(CrossSet(0), dir)
+			b.SetCrossSet(row, col, 0, dir)
 			return
 		}
 		// Otherwise, we have a left node index.
@@ -282,7 +282,7 @@ func GenCrossSet(b *Board, row int, col int, dir board.BoardDirection,
 		// Take the letter set of this sIdx as the cross-set.
 		letterSet := gaddag.GetLetterSet(sIdx)
 		// Miraculously, letter sets and cross sets are compatible.
-		b.GetSquare(row, col).SetCrossSet(CrossSet(letterSet), dir)
+		b.SetCrossSet(row, col, CrossSet(letterSet), dir)
 	} else {
 
 		// Otherwise, the right is not empty. Check if the left is empty,
@@ -293,9 +293,9 @@ func GenCrossSet(b *Board, row int, col int, dir board.BoardDirection,
 			gaddag.GetRootNodeIndex(), false, 0, gaddag)
 		scoreR := b.TraverseBackwardsForScore(row, rightCol, ld)
 		scoreL := b.TraverseBackwardsForScore(row, col-1, ld)
-		b.GetSquare(row, col).SetCrossScore(scoreR+scoreL, dir)
+		b.SetCrossScore(row, col, scoreR+scoreL, dir)
 		if !lPathValid {
-			b.GetSquare(row, col).SetCrossSet(CrossSet(0), dir)
+			b.SetCrossSet(row, col, 0, dir)
 			return
 		}
 		if leftCol == col {
@@ -304,14 +304,13 @@ func GenCrossSet(b *Board, row int, col int, dir board.BoardDirection,
 			// to our right.
 
 			letterSet := gaddag.GetLetterSet(lNodeIdx)
-			b.GetSquare(row, col).SetCrossSet(CrossSet(letterSet), dir)
+			b.SetCrossSet(row, col, CrossSet(letterSet), dir)
 		} else {
 			// Both the left and the right have a tile. Go through the
 			// siblings, from the right, to see what nodes lead to the left.
 
 			numArcs := gaddag.NumArcs(lNodeIdx)
-			crossSet := b.GetSquare(row, col).GetCrossSet(dir)
-			*crossSet = CrossSet(0)
+			b.SetCrossSet(row, col, 0, dir)
 			for i := lNodeIdx + 1; i <= uint32(numArcs)+lNodeIdx; i++ {
 				ml := alphabet.MachineLetter(gaddag.Nodes()[i] >>
 					gaddagmaker.LetterBitLoc)
@@ -322,7 +321,7 @@ func GenCrossSet(b *Board, row int, col int, dir board.BoardDirection,
 				_, success := traverseBackwards(b, row, col-1, nnIdx, true,
 					leftCol, gaddag)
 				if success {
-					crossSet.Set(ml)
+					b.SetCrossSetLetter(row, col, dir, ml)
 				}
 			}
 		}

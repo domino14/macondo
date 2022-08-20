@@ -201,7 +201,7 @@ func wolgesAnalyze(cfg *config.Config, g *airunner.AIGameRunner) ([]*move.Move, 
 		for j := 0; j < g.Board().Dim(); j++ {
 			// since wolges doesn't use our same letter ordering, let's just do
 			// the conversion this way
-			letter := g.Board().GetSquare(i, j).Letter().UserVisible(g.Alphabet())
+			letter := g.Board().GetLetter(i, j).UserVisible(g.Alphabet())
 			wap.Board[i][j] = labelToNum(letter)
 		}
 	}
