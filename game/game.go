@@ -737,10 +737,24 @@ func (g *Game) PlayToTurn(turnnum int) error {
 		// who was on turn.
 		// So set the currently on turn's rack to whatever is in the history.
 		log.Trace().Int("turn", t).Msg("setting rack from turn")
-		err := g.SetRackFor(g.onturn, alphabet.RackFromString(
-			g.history.Events[t].Rack, g.alph))
-		if err != nil {
-			return err
+		switch g.history.Events[t].Type {
+		case pb.GameEvent_TILE_PLACEMENT_MOVE, pb.GameEvent_EXCHANGE:
+			err := g.SetRackFor(g.onturn, alphabet.RackFromString(
+				g.history.Events[t].Rack, g.alph))
+			if err != nil {
+				return err
+			}
+		case pb.GameEvent_PHONY_TILES_RETURNED,
+			pb.GameEvent_CHALLENGE_BONUS,
+			pb.GameEvent_END_RACK_PTS:
+			// In this case, g.onturn shouldn't actually change, so just ignore
+		default:
+			// do the same as in the first case for now?
+			err := g.SetRackFor(g.onturn, alphabet.RackFromString(
+				g.history.Events[t].Rack, g.alph))
+			if err != nil {
+				return err
+			}
 		}
 	}
 
