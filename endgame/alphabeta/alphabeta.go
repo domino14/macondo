@@ -5,6 +5,7 @@ package alphabeta
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -58,6 +59,8 @@ const (
 	// is reasonably accurate.
 	FutureAdjustment = float32(1)
 )
+
+var ErrNoEndgameSolution = errors.New("no endgame solution found")
 
 // Solver implements the minimax + alphabeta algorithm.
 type Solver struct {
@@ -297,6 +300,10 @@ func (s *Solver) generateSTMPlays(parent *GameNode) []*move.Move {
 			}
 			adjust := leaveAdjustment(play.Leave(), oLeave, sideToMoveStuck, otherSideStuck,
 				ld)
+			// if blockedAll {
+			// 	// further reward one-tiling
+			// 	adjust *= (float32(numTilesOnRack+1) - float32(play.TilesPlayed()))
+			// }
 
 			play.SetValuation(float32(play.Score()-oScore) + FutureAdjustment*adjust)
 			// log.Debug().Msgf("Setting evaluation of %v to (%v - %v + %v) = %v",
@@ -462,6 +469,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 	if s.game.Bag().TilesRemaining() > 0 {
 		return 0, nil, errors.New("bag is not empty; cannot use endgame solver")
 	}
+	tstart := time.Now()
 	s.mmCount = 0
 	s.moveCache = make(map[int][]*minimalMove)
 	// Generate children moves.
@@ -522,9 +530,9 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 					bestV = bestNode.heuristicValue.value
 					bestSeq = s.findBestSequence(bestNode)
 
-					log.Debug().Msgf("Spread swing estimate found after %v plies: %v",
+					fmt.Printf("-- Spread swing estimate found after %d plies: %f\n",
 						p, bestV)
-					log.Debug().Msgf("Best seq so far is %v", bestSeq)
+					fmt.Printf("--> Best seq so far is %v\n\n", bestSeq)
 				}
 			}
 		} else {
@@ -557,6 +565,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 						cancel2()
 						t.Stop()
 					}
+					log.Debug().Int("nodes", s.totalNodes).Msg("node-count")
 
 				case <-done:
 					log.Debug().Msg("read from <-done")
@@ -567,10 +576,14 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 
 		}()
 	}
-
+	var err error
 	wg.Wait()
 	if bestNodeSoFar != nil {
 		log.Debug().Msgf("Best spread found: %v", bestNodeSoFar.heuristicValue.value)
+	} else {
+		// This should never happen unless we gave it an absurdly low time or
+		// node count?
+		err = ErrNoEndgameSolution
 	}
 	// Go down tree and find best variation:
 	log.Debug().Msgf("Number of expanded nodes: %d", s.totalNodes)
@@ -585,7 +598,10 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 	// 	}
 	// 	fmt.Printf("\n")
 	// }
-	return bestV, bestSeq, nil
+	log.Info().
+		Float64("time-elapsed-sec", time.Since(tstart).Seconds()).
+		Msg("solve-returning")
+	return bestV, bestSeq, err
 }
 
 func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α float32, β float32,

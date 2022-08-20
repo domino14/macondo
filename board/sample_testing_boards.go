@@ -318,6 +318,7 @@ cesar: Turn 11
    ------------------------------
 `
 	// Endgame from 2019 Worlds
+	// load cgp 4EXODE6/1DOFF1KERATIN1U/1OHO8YEN/1POOJA1B3MEWS/5SQUINTY2A/4RHINO1e3V/2B4C2R3E/GOAT1D1E2ZIN1d/1URACILS2E4/1PIG1S4T4/2L2R4T4/2L2A1GENII3/2A2T1L7/5E1A7/5D1M7 AEEIRUW/V 410/409 0 lex CSW19;
 	EldarVsNigel = `
 Nigel Richards: Turn 11
    A B C D E F G H I J K L M N O   -> Nigel Richards           AEEIRUW   410

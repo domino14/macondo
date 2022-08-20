@@ -99,7 +99,8 @@ type GameBoard struct {
 	hAnchors   []bool
 	vAnchors   []bool
 
-	isTransposed bool
+	rowMul int
+	colMul int
 }
 
 // MakeBoard creates a board from a description string.
@@ -139,6 +140,8 @@ func MakeBoard(desc []string) *GameBoard {
 		vCrossSets:   vcs,
 		hAnchors:     hAs,
 		vAnchors:     vAs,
+		rowMul:       len(desc),
+		colMul:       1,
 	}
 	// Call Clear to set all crosses.
 	g.Clear()
@@ -170,14 +173,11 @@ func (g *GameBoard) Transpose() {
 	// 		// ignore bonuses.
 	// 	}
 	// }
-	g.isTransposed = !g.isTransposed
+	g.rowMul, g.colMul = g.colMul, g.rowMul
 }
 
 func (g *GameBoard) getSqIdx(row, col int) int {
-	if g.isTransposed {
-		return col*g.dim + row
-	}
-	return row*g.dim + col
+	return row*g.rowMul + col*g.colMul
 }
 
 func (g *GameBoard) GetBonus(row int, col int) BonusSquare {
@@ -806,6 +806,8 @@ func (g *GameBoard) Copy() *GameBoard {
 
 	newg.tilesPlayed = g.tilesPlayed
 	newg.dim = g.dim
+	newg.rowMul = g.rowMul
+	newg.colMul = g.colMul
 	// newg.playHistory = append([]string{}, g.playHistory...)
 	return newg
 }
@@ -826,6 +828,8 @@ func (g *GameBoard) CopyFrom(b *GameBoard) {
 	copy(g.vAnchors, b.vAnchors)
 	copy(g.hAnchors, b.hAnchors)
 	g.tilesPlayed = b.tilesPlayed
+	g.rowMul = b.rowMul
+	g.colMul = b.colMul
 }
 
 func (g *GameBoard) GetTilesPlayed() int {
