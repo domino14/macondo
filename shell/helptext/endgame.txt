@@ -1,0 +1,87 @@
+endgame [options] - solve endgame exhaustively
+
+Example:
+
+    endgame   
+    endgame -plies 25   
+    endgame -plies 25 -maxtime 120
+
+About:
+
+    Macondo uses minimax search to solve an endgame - i.e. it can exhaustively
+    try all possible options for both players down a tree of plays. It uses 
+    alpha-beta pruning, which is a way to stop searching branches of the tree
+    when it becomes clear they can't possibly do better than other branches.
+
+    For a large number of endgames, minimax search will finish rapidly and this
+    will be a good approach. For more complex endgames, for example involving
+    1-tile plays, or blanks, the tree will be very wide and the endgame algorithm
+    will be very slow.
+
+    We use iterative deepening, which allows you to get a decent answer very
+    quickly, and with further time, this answer will be improved, as the algorithm
+    looks further down the tree. So for even these very complex endgames, it is likely
+    that you will get a good answer after a few seconds or minutes.
+
+    The recommended way to call this is something akin to:
+
+        endgame -plies 25 -maxnodes 100000000 -maxtime 300
+
+    This will make sure the algorithm uses at most around 10GB of memory 
+    (100M nodes *100 bytes/node), or 5 minutes of search, whichever comes
+    first. It is also likely that the 25 plies will be hit way before these
+    limits, depending on the complexity of the endgame.
+
+Options:
+    -plies 25 
+
+    The above option will look 25 plies deep. As plies go up, the endgame
+    solver often allocates and takes exponentially longer. However, there 
+    are exceptions, especially if the endgame doesn't have many choices,
+    or if we are deeper into the endgame where each player only has a few tiles
+    left. In this case it is possible that the latter plies will be searched
+    very fast, because there is nothing else to search.
+
+    -maxtime 120
+
+    This option will set a maximum time in seconds. The endgame solver uses
+    iterative deepening by default, so a good enough solution should be found
+    rapidly, and this solution will be improved upon.
+
+    -maxnodes 10000000
+
+    This option will set a maximum number of nodes. This will likely be an 
+    important option to set until the algorithm is improved to not allocate 
+    so much. Assume that every node takes about 100 bytes of memory.
+
+    If you have 32 GB of RAM on your computer, therefore, you may want to set
+    this to around 300000000 (300 million) or less.
+
+    A significant majority of endgames will not require nearly this many nodes.
+    But for complex endgames (with blanks or stuck tiles) this may make sense.
+
+    When this node limit is reached, the endgame algorithm will quit with the
+    last best answer.
+
+    -disable-id true
+
+    This option disables iterative deepening. Iterative Deepening allows the 
+    endgame algorithm to check depth 1, 2, 3, etc plies successively. If you 
+    are time-limited, it is likely that the first few answers will be good
+    enough for many endgames.
+
+    -complex-estimator true
+
+    This option will turn on the complex estimator. By default, the endgame
+    solver has an estimator that takes into account plays that are blocked and
+    does some hand-wavy math to try to rank plays. It is very important in an
+    alpha-beta minimax search to try to estimate the values of plays accurately.
+
+    However, in practice, the complex estimator often takes a significantly longer time
+    to run and doesn't provide a good enough benefit. It may be possible that some
+    endgames are solved a lot faster with this estimator though.
+
+    -disable-pruning true
+
+    This option disables alpha-beta pruning. You probably never want to do this.
+    The algorithm will become much slower and allocate a giant amount of data.

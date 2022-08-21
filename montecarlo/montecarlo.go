@@ -91,7 +91,7 @@ func (sp *SimmedPlay) addScoreStat(play *move.Move, ply int) {
 }
 
 func (sp *SimmedPlay) addEquityStat(initialSpread int, spread int, leftover float64) {
-	sp.equityStats.Push(float64(spread - initialSpread) + leftover)
+	sp.equityStats.Push(float64(spread-initialSpread) + leftover)
 	sp.leftoverStats.PushResult(spread, leftover)
 }
 
@@ -272,7 +272,8 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 				iterNum := s.iterationCount + 1
 				s.iterationCount++
 				iterMutex.Unlock()
-
+				// XXX: isn't it possible for iterNum to not be the
+				// expected value here? We're outside of the mutex.
 				s.simSingleIteration(s.maxPlies, t, iterNum, logChan)
 				select {
 				case v := <-syncChan:
@@ -324,7 +325,6 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 
 	var logPlay LogPlay
 	var plyChild LogPlay
-
 	for _, simmedPlay := range s.plays {
 		if s.logStream != nil {
 			logPlay = LogPlay{Play: simmedPlay.play.ShortDescription(),

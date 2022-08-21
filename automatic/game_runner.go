@@ -32,7 +32,7 @@ const (
 type GameRunner struct {
 	game     *game.Game
 	gaddag   gaddag.GenericDawg
-	movegen  movegen.MoveGenerator
+	movegens [2]movegen.MoveGenerator
 	alphabet *alphabet.Alphabet
 
 	lexicon            string
@@ -82,9 +82,14 @@ func (r *GameRunner) Init(player1, player2, leavefile1, leavefile2, pegfile1, pe
 
 	r.alphabet = r.gaddag.GetAlphabet()
 
-	r.movegen = movegen.NewGordonGenerator(r.gaddag.(*gaddag.SimpleGaddag), r.game.Board(),
-		rules.LetterDistribution())
-
+	// We use two movegens so that each movegen can have independent
+	// play recorders.
+	r.movegens = [2]movegen.MoveGenerator{
+		movegen.NewGordonGenerator(r.gaddag.(*gaddag.SimpleGaddag), r.game.Board(),
+			rules.LetterDistribution()),
+		movegen.NewGordonGenerator(r.gaddag.(*gaddag.SimpleGaddag), r.game.Board(),
+			rules.LetterDistribution()),
+	}
 	var strat strategy.Strategizer
 	for idx, pinfo := range players {
 		var leavefile, pegfile string
@@ -117,7 +122,9 @@ func (r *GameRunner) Init(player1, player2, leavefile1, leavefile2, pegfile1, pe
 func (r *GameRunner) StartGame() {
 	if frand.Intn(2) == 1 {
 		r.game.FlipPlayers()
+		// XXX: probably associate the movegen with the aiplayer in the future.
 		r.aiplayers[0], r.aiplayers[1] = r.aiplayers[1], r.aiplayers[0]
+		r.movegens[0], r.movegens[1] = r.movegens[1], r.movegens[0]
 	}
 	r.game.StartGame()
 }
@@ -127,12 +134,16 @@ func (r *GameRunner) Game() *game.Game {
 }
 
 func (r *GameRunner) genBestStaticTurn(playerIdx int) *move.Move {
-	return player.GenBestStaticTurn(r.game, r.movegen, r.aiplayers[playerIdx], playerIdx)
+	return player.GenBestStaticTurn(r.game, r.movegens[playerIdx], r.aiplayers[playerIdx], playerIdx)
 }
 
 func (r *GameRunner) genBestMoveForBot(playerIdx int) *move.Move {
+	if r.aiplayers[playerIdx].GetBotType() == pb.BotRequest_HASTY_BOT {
+		// For HastyBot we only need to generate one single best static turn.
+		return r.genBestStaticTurn(playerIdx)
+	}
 	return airunner.GenerateMoves(
-		r.game, r.aiplayers[playerIdx], r.movegen, r.config, 1)[0]
+		r.game, r.aiplayers[playerIdx], r.movegens[playerIdx], r.config, 1)[0]
 }
 
 // PlayBestStaticTurn generates the best static move for the player and

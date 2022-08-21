@@ -137,7 +137,7 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 			return &pb.GameEvent{
 				PlayerIndex: lastEvent.PlayerIndex,
 				Type:        pb.GameEvent_CHALLENGE_BONUS,
-				Rack:        g.players[challengee].rackLetters,
+				Rack:        g.players[challengee].rackLetters(),
 				Bonus:       bonus + int32(addlBonus),
 				Cumulative:  cumeScoreBeforeChallenge + bonus + int32(addlBonus),
 				// Note: these millis remaining would be the challenger's

@@ -1,9 +1,9 @@
 package movegen
 
 import (
-	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 
 	"github.com/domino14/macondo/alphabet"
@@ -79,8 +79,7 @@ func TestGenBase(t *testing.T) {
 	generator.curAnchorCol = 8
 	// Row 4 for shiz and gig
 	generator.curRowIdx = 4
-	generator.recursiveGen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
-		gd.GetRootNodeIndex())
+	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true)
 
 	if len(generator.plays) != 0 {
 		t.Errorf("Generated %v plays, expected %v", len(generator.plays), 0)
@@ -123,14 +122,12 @@ func TestSimpleRowGen(t *testing.T) {
 		t.Error(err)
 	}
 	for idx, tc := range cases {
-		log.Printf("Case %v", idx)
 		generator := NewGordonGenerator(gd, board, dist)
 		generator.curAnchorCol = tc.curAnchorCol
 		rack := alphabet.RackFromString(tc.rack, gd.GetAlphabet())
 		board.SetRow(tc.row, tc.rowString, gd.GetAlphabet())
 		generator.curRowIdx = tc.row
-		generator.recursiveGen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
-			gd.GetRootNodeIndex())
+		generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true)
 		if len(generator.plays) != tc.expectedPlays {
 			t.Errorf("%v Generated %v plays, expected %v", idx, generator.plays, tc.expectedPlays)
 		}
@@ -152,14 +149,12 @@ func TestGenThroughBothWaysAllowedLetters(t *testing.T) {
 	}
 	generator := NewGordonGenerator(gd, bd, dist)
 	generator.curAnchorCol = 9
-
 	bd.SetRow(4, "   THERMOS  A", gd.GetAlphabet())
 	generator.curRowIdx = 4
 	ml, _ := gd.GetAlphabet().Val('I')
 	bd.ClearCrossSet(int(generator.curRowIdx), 2, board.VerticalDirection)
 	bd.SetCrossSetLetter(int(generator.curRowIdx), 2, board.VerticalDirection, ml)
-	generator.recursiveGen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
-		gd.GetRootNodeIndex())
+	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true)
 	// it should generate HITHERMOST only
 	if len(generator.plays) != 1 {
 		t.Errorf("Generated %v plays (%v), expected len=%v", generator.plays,
@@ -191,9 +186,12 @@ func TestRowGen(t *testing.T) {
 	rack := alphabet.RackFromString("AAEIRST", gd.GetAlphabet())
 	generator.curRowIdx = 4
 	generator.curAnchorCol = 8
-	generator.recursiveGen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
-		gd.GetRootNodeIndex())
-	generator.dedupeAndSortPlays()
+	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true)
+
+	sort.Slice(generator.plays, func(i, j int) bool {
+		return generator.plays[i].Score() > generator.plays[j].Score()
+	})
+
 	// Should generate AIRGLOWS and REGLOWS only
 	if len(generator.plays) != 2 {
 		t.Errorf("Generated %v plays (%v), expected len=%v", generator.plays,
@@ -205,7 +203,7 @@ func TestRowGen(t *testing.T) {
 	}
 	if generator.plays[1].Leave().UserVisible(gd.GetAlphabet()) != "AAIST" {
 		t.Errorf("Leave was wrong: %v",
-			generator.plays[0].Leave().UserVisible(gd.GetAlphabet()))
+			generator.plays[1].Leave().UserVisible(gd.GetAlphabet()))
 	}
 }
 
@@ -228,8 +226,7 @@ func TestOtherRowGen(t *testing.T) {
 	rack := alphabet.RackFromString("A", gd.GetAlphabet())
 	generator.curRowIdx = 14
 	generator.curAnchorCol = 8
-	generator.recursiveGen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
-		gd.GetRootNodeIndex())
+	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true)
 	// Should generate AVENGED only
 	if len(generator.plays) != 1 {
 		t.Errorf("Generated %v plays (%v), expected len=%v", generator.plays,
@@ -239,6 +236,37 @@ func TestOtherRowGen(t *testing.T) {
 	if m.Tiles().UserVisible(gd.GetAlphabet()) != "A......" {
 		t.Errorf("Expected proper play-through markers (A......), got %v",
 			m.Tiles().UserVisible(gd.GetAlphabet()))
+	}
+}
+
+func TestOneMoreRowGen(t *testing.T) {
+
+	gd, err := GaddagFromLexicon("America")
+	if err != nil {
+		t.Errorf("Expected error to be nil, got %v", err)
+	}
+
+	bd := board.MakeBoard(board.CrosswordGameBoard)
+	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
+	if err != nil {
+		t.Error(err)
+	}
+	generator := NewGordonGenerator(gd, bd, ld)
+	bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
+	cross_set.GenAllCrossSets(bd, gd, ld)
+
+	rack := alphabet.RackFromString("A", gd.GetAlphabet())
+	generator.curRowIdx = 0
+	generator.curAnchorCol = 11
+	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true)
+
+	if len(generator.plays) != 1 {
+		t.Errorf("Generated %v plays (%v), expected len=%v", generator.plays,
+			len(generator.plays), 1)
+	}
+	m := generator.plays[0]
+	if m.ShortDescription() != " 1L .A" {
+		t.Errorf("Expected 1L .A, got %v", m.ShortDescription())
 	}
 }
 
@@ -266,8 +294,7 @@ func TestGenMoveJustOnce(t *testing.T) {
 	generator.lastAnchorCol = 100
 	for anchorCol := 8; anchorCol <= 12; anchorCol++ {
 		generator.curAnchorCol = anchorCol
-		generator.recursiveGen(generator.curAnchorCol, alphabet.MachineWord(""), rack,
-			gd.GetRootNodeIndex())
+		generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, false)
 		generator.lastAnchorCol = anchorCol
 	}
 	if len(generator.plays) != 34 {
@@ -313,7 +340,7 @@ func TestGenAllMovesFullRack(t *testing.T) {
 	cross_set.GenAllCrossSets(bd, gd, ld)
 
 	generator.GenAll(alphabet.RackFromString("AABDELT", alph), true)
-	// There should be 673 unique scoring plays, 95 exchanges and 1 pass.
+	// There should be 673 unique scoring plays and 95 exchanges.
 	assert.Equal(t, 673, len(scoringPlays(generator.plays)))
 	assert.Equal(t, 95, len(nonScoringPlays(generator.plays)))
 
@@ -522,28 +549,6 @@ func TestGenerateNoPlays(t *testing.T) {
 	assert.Equal(t, move.MoveTypePass, generator.plays[0].Action())
 }
 
-func TestGenerateDupes(t *testing.T) {
-	gd, err := GaddagFromLexicon("America")
-	if err != nil {
-		t.Errorf("Expected error to be nil, got %v", err)
-	}
-	alph := gd.GetAlphabet()
-
-	bd := board.MakeBoard(board.CrosswordGameBoard)
-	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
-	if err != nil {
-		t.Error(err)
-	}
-	generator := NewGordonGenerator(gd, bd, ld)
-	bd.SetToGame(gd.GetAlphabet(), board.TestDupe)
-	cross_set.GenAllCrossSets(bd, gd, ld)
-
-	generator.GenAll(alphabet.RackFromString("Z", alph), false)
-	s := scoringPlays(generator.plays)
-	assert.Equal(t, 1, len(s))
-	assert.True(t, s[0].HasDupe())
-}
-
 func TestRowEquivalent(t *testing.T) {
 	// XXX: This test should probably be in the board.
 	gd, err := GaddagFromLexicon("America")
@@ -604,8 +609,10 @@ func BenchmarkGenFullRack(b *testing.B) {
 	alph := gd.GetAlphabet()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		// 930 μs per operation on my macbook pro!! amazing!!!
-		//  580459 ns/op	  218460 B/op	    5302 allocs/op  M1 MacbookPro (2021-02-24)
+		// Benchmark run 2022-08-09 on M1 MBP (Docker not running):
+		// go 1.18
+
+		// 2190	    513518 ns/op	  204738 B/op	    3884 allocs/op
 		bd := board.MakeBoard(board.CrosswordGameBoard)
 		ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 		if err != nil {
@@ -616,6 +623,33 @@ func BenchmarkGenFullRack(b *testing.B) {
 		cross_set.GenAllCrossSets(bd, gd, ld)
 
 		generator.GenAll(alphabet.RackFromString("AABDELT", alph), true)
+	}
+}
+
+func BenchmarkJustMovegen(b *testing.B) {
+	gd, err := GaddagFromLexicon("America")
+	if err != nil {
+		b.Errorf("Expected error to be nil, got %v", err)
+	}
+	alph := gd.GetAlphabet()
+	bd := board.MakeBoard(board.CrosswordGameBoard)
+	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
+	if err != nil {
+		b.Error(err)
+	}
+	generator := NewGordonGenerator(gd, bd, ld)
+	// generator.SetPlayRecorder(NullPlayRecorder)
+	bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
+	cross_set.GenAllCrossSets(bd, gd, ld)
+	b.ReportAllocs()
+	b.ResetTimer()
+	rack := alphabet.RackFromString("AABDELT", alph)
+	for i := 0; i < b.N; i++ {
+		// Benchmark run 2022-08-13 on M1 MBP (Docker not running):
+		// go 1.18
+
+		// 3349	    334262 ns/op	  147152 B/op	    2991 allocs/op
+		generator.GenAll(rack, true)
 	}
 }
 
@@ -661,4 +695,17 @@ func BenchmarkGenBothBlanks(b *testing.B) {
 
 		generator.GenAll(alphabet.RackFromString("DDESW??", alph), false)
 	}
+}
+
+func TestGenExchange(t *testing.T) {
+	// rack := alphabet.RackFromString("AAABCCD", alphabet.EnglishAlphabet())
+	rack := alphabet.RackFromString("ABCDEF?", alphabet.EnglishAlphabet())
+
+	bd := board.MakeBoard(board.CrosswordGameBoard)
+	gd, _ := GaddagFromLexicon("America")
+	ld, _ := alphabet.EnglishLetterDistribution(&DefaultConfig)
+	gen := NewGordonGenerator(gd, bd, ld)
+
+	gen.generateExchangeMoves(rack, 0, 0)
+	assert.Equal(t, len(gen.plays), 127)
 }

@@ -3,6 +3,7 @@ package alphabeta
 import (
 	"fmt"
 
+	"github.com/domino14/macondo/alphabet"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
 )
@@ -11,12 +12,13 @@ const PerTurnPenalty = float32(0.001)
 
 type nodeValue struct {
 	value          float32
-	knownEnd       bool
-	sequenceLength int
-	isPass         bool
+	sequenceLength uint8
+
+	knownEnd bool
+	isPass   bool
 }
 
-func (nv nodeValue) String() string {
+func (nv *nodeValue) String() string {
 	return fmt.Sprintf("<val: %v seqLength: %v knownEnd: %v>", nv.value,
 		nv.sequenceLength, nv.knownEnd)
 }
@@ -25,7 +27,7 @@ func (nv *nodeValue) negate() {
 	nv.value = -nv.value
 }
 
-func (nv nodeValue) less(other nodeValue) bool {
+func (nv *nodeValue) less(other *nodeValue) bool {
 	if nv.value != other.value {
 		return nv.value < other.value
 	}
@@ -51,12 +53,54 @@ func (nv nodeValue) less(other nodeValue) bool {
 // a game node has to have enough information to allow the game and turns
 // to be reconstructed.
 type GameNode struct {
-	// the move corresponding to the node is the move that is being evaluated.
-	move           *move.Move
+	move           *minimalMove
 	parent         *GameNode
-	heuristicValue nodeValue
+	heuristicValue *nodeValue
 	children       []*GameNode // children should be null until expanded.
-	generatedPlays []*move.Move
+	valuation      float32     // valuation is an initial estimate of the value of a move.
+}
+
+const (
+	// constants used for the hash key for a minimal move.
+	mmRowShift      = 5
+	mmVerticalShift = 10
+	mmScoreShift    = 11
+
+	mmColBitmask = (1 << 5) - 1
+)
+
+type minimalMove struct {
+	// The most relevant attributes of the move are copied here.
+	tiles   []alphabet.MachineLetter
+	leave   []alphabet.MachineLetter
+	hashKey uint32
+}
+
+func (mm *minimalMove) ShortDescription(alph *alphabet.Alphabet) string {
+	m := &move.Move{}
+	mm.CopyToMove(m)
+	m.SetAlphabet(alph)
+	return m.ShortDescription()
+}
+
+func (mm *minimalMove) CopyToMove(m *move.Move) {
+
+	// pass
+	if len(mm.tiles) == 0 {
+		m.SetAction(move.MoveTypePass)
+		return
+	}
+	m.Set(
+		mm.tiles,
+		mm.leave,
+		int(mm.hashKey>>mmScoreShift),
+		int((mm.hashKey>>mmRowShift)&mmColBitmask),
+		int(mm.hashKey)&mmColBitmask,
+		0, /* tiles played can be calculated later */
+		(mm.hashKey>>mmVerticalShift)&1 == 1,
+		move.MoveTypePlay,
+		m.Alphabet() /* m must already have an alphabet set */)
+
 }
 
 func (g *GameNode) Children() []*GameNode {
@@ -67,24 +111,21 @@ func (g *GameNode) Parent() *GameNode {
 	return g.parent
 }
 
-func (g *GameNode) Move() *move.Move {
-	return g.move
+func (g *GameNode) String(alph *alphabet.Alphabet) string {
+	// This function allocates but is only used for test purposes.
+	m := &move.Move{}
+	g.move.CopyToMove(m)
+	m.SetAlphabet(alph)
+	return fmt.Sprintf(
+		"<gamenode move %v, heuristicVal %v, nchild %v>",
+		m, g.heuristicValue, len(g.children))
 }
 
-func (g *GameNode) GeneratedPlays() []*move.Move {
-	return g.generatedPlays
-}
-
-func (g *GameNode) String() string {
-	return fmt.Sprintf("<gamenode move %v, heuristicVal %v, nchild %v>", g.move,
-		g.heuristicValue, len(g.children))
-}
-
-func (g *GameNode) value(s *Solver) nodeValue {
-	g.calculateValue(s)
-	// log.Debug().Msgf("heuristic value of node %p is %v", g, g.heuristicValue)
-	return g.heuristicValue
-}
+// func (g *GameNode) value(s *Solver) nodeValue {
+// 	g.calculateValue(s)
+// 	// log.Debug().Msgf("heuristic value of node %p is %v", g, g.heuristicValue)
+// 	return g.heuristicValue
+// }
 
 func (g *GameNode) calculateValue(s *Solver) {
 	// calculate the heuristic value of this node, and store it.
@@ -115,28 +156,28 @@ func (g *GameNode) calculateValue(s *Solver) {
 		// Note that because of the way we track state, it is the state
 		// in the solver right now; that's why the game node doesn't matter
 		// right here:
-		g.heuristicValue = nodeValue{
+		g.heuristicValue = &nodeValue{
 			value:          float32(spreadNow - initialSpread),
 			knownEnd:       true,
-			isPass:         g.move.Action() == move.MoveTypePass,
-			sequenceLength: s.game.Turn() - s.initialTurnNum}
+			isPass:         len(g.move.tiles) == 0,
+			sequenceLength: uint8(s.game.Turn() - s.initialTurnNum)}
 	} else {
 		// The valuation is already an estimate of the overall gain or loss
 		// in spread for this move (if taken to the end of the game).
 
 		// `player` is NOT the one that just made a move.
-		ptValue := g.move.Score()
+		ptValue := g.move.hashKey >> mmScoreShift
 		// don't double-count score; it's already in the valuation:
-		moveVal := g.move.Valuation() - float32(ptValue)
+		moveVal := g.valuation - float32(ptValue)
 		// What is the spread right now? The valuation should be relative
 		// to that.
 		// log.Debug().Msgf("calculating heur value for %v as %v + %v - %v",
 		// 	g.move, spreadNow, moveVal, initialSpread)
-		g.heuristicValue = nodeValue{
+		g.heuristicValue = &nodeValue{
 			value:          float32(spreadNow) + moveVal - float32(initialSpread),
 			knownEnd:       false,
-			sequenceLength: s.game.Turn() - s.initialTurnNum,
-			isPass:         g.move.Action() == move.MoveTypePass}
+			sequenceLength: uint8(s.game.Turn() - s.initialTurnNum),
+			isPass:         len(g.move.tiles) == 0}
 		// g.heuristicValue = s.game.EndgameSpreadEstimate(player, maximizing) - float32(initialSpread)
 		// log.Debug().Msgf("Calculating heuristic value of %v as %v - %v",
 		// 	g.move, s.game.EndgameSpreadEstimate(player), float32(initialSpread))

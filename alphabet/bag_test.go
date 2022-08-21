@@ -21,10 +21,12 @@ func TestBag(t *testing.T) {
 	}
 	tileMap := make(map[rune]uint8)
 	numTiles := 0
+	ml := make([]MachineLetter, 7)
+
 	for range bag.tiles {
-		tiles, err := bag.Draw(1)
+		err := bag.Draw(1, ml)
 		numTiles++
-		uv := tiles[0].UserVisible(ld.Alphabet())
+		uv := ml[0].UserVisible(ld.Alphabet())
 		t.Logf("Drew a %c! , %v", uv, numTiles)
 		if err != nil {
 			t.Error("Error drawing from tile bag.")
@@ -34,7 +36,7 @@ func TestBag(t *testing.T) {
 	if !reflect.DeepEqual(tileMap, ld.Distribution) {
 		t.Error("Distribution and tilemap were not identical.")
 	}
-	_, err = bag.Draw(1)
+	err = bag.Draw(1, ml)
 	if err == nil {
 		t.Error("Should not have been able to draw from an empty bag.")
 	}
@@ -46,11 +48,12 @@ func TestDraw(t *testing.T) {
 		t.Error(err)
 	}
 	bag := ld.MakeBag()
-
-	letters, _ := bag.Draw(7)
-	if len(letters) != 7 {
-		t.Errorf("Length was %v, expected 7", len(letters))
+	ml := make([]MachineLetter, 7)
+	err = bag.Draw(7, ml)
+	if err != nil {
+		t.Error(err)
 	}
+
 	if len(bag.tiles) != 93 {
 		t.Errorf("Length was %v, expected 93", len(bag.tiles))
 	}
@@ -62,27 +65,27 @@ func TestDrawAtMost(t *testing.T) {
 		t.Error(err)
 	}
 	bag := ld.MakeBag()
-
+	ml := make([]MachineLetter, 7)
 	for i := 0; i < 14; i++ {
-		letters, _ := bag.Draw(7)
-		if len(letters) != 7 {
-			t.Errorf("Length was %v, expected 7", len(letters))
+		err := bag.Draw(7, ml)
+		if err != nil {
+			t.Error(err)
 		}
 	}
 	if bag.TilesRemaining() != 2 {
 		t.Errorf("TilesRemaining was %v, expected 2", bag.TilesRemaining())
 	}
-	letters := bag.DrawAtMost(7)
-	if len(letters) != 2 {
-		t.Errorf("Length was %v, expected 2", len(letters))
+	drawn := bag.DrawAtMost(7, ml)
+	if drawn != 2 {
+		t.Errorf("drawn was %v, expected 2", drawn)
 	}
 	if bag.TilesRemaining() != 0 {
 		t.Errorf("TilesRemaining was %v, expected 0", bag.TilesRemaining())
 	}
 	// Try to draw one more time.
-	letters = bag.DrawAtMost(7)
-	if len(letters) != 0 {
-		t.Errorf("Length was %v, expected 0", len(letters))
+	drawn = bag.DrawAtMost(7, ml)
+	if drawn != 0 {
+		t.Errorf("drawn was %v, expected 0", drawn)
 	}
 	if bag.TilesRemaining() != 0 {
 		t.Errorf("TilesRemaining was %v, expected 0", bag.TilesRemaining())
@@ -96,10 +99,16 @@ func TestExchange(t *testing.T) {
 		t.Error(err)
 	}
 	bag := ld.MakeBag()
-
-	letters, _ := bag.Draw(7)
-	newLetters, _ := bag.Exchange(letters[:5])
-	is.Equal(len(newLetters), 5)
+	ml := make([]MachineLetter, 7)
+	err = bag.Draw(7, ml)
+	if err != nil {
+		t.Error(err)
+	}
+	newML := make([]MachineLetter, 7)
+	err = bag.Exchange(ml[:5], newML)
+	if err != nil {
+		t.Error(err)
+	}
 	is.Equal(len(bag.tiles), 93)
 }
 

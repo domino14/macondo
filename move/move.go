@@ -26,30 +26,31 @@ const (
 	MoveTypeEndgameTiles
 	MoveTypeLostTileScore
 	MoveTypeLostScoreOnTime
+
+	MoveTypeUnset
 )
 
 // Move is a move. It can have a score, position, equity, etc. It doesn't
 // have to be a scoring move.
 type Move struct {
-	action      MoveType
-	score       int
-	equity      float64
-	desc        string
-	coords      string //25 so far
-	tiles       alphabet.MachineWord
-	leave       alphabet.MachineWord
+	// The ordering here should only be changed if it makes the structure smaller.
+	// This Move should be kept as small as possible.
+	tiles alphabet.MachineWord
+	leave alphabet.MachineWord
+	score int
+
 	rowStart    int
 	colStart    int
-	vertical    bool
-	bingo       bool
 	tilesPlayed int
-	alph        *alphabet.Alphabet
-	valuation   float32
-	// visited is used during endgame iterative deepening.
-	visited bool
-	// If this move has a duplicate, it will be here. It only applies
-	// for single-tile plays.
-	dupeOf *Move
+
+	equity float64
+
+	valuation float32
+
+	action   MoveType
+	vertical bool
+
+	alph *alphabet.Alphabet
 }
 
 var reVertical, reHorizontal *regexp.Regexp
@@ -59,6 +60,55 @@ func init() {
 	reHorizontal = regexp.MustCompile(`^(?P<row>[0-9]+)(?P<col>[A-Z])$`)
 }
 
+func (m *Move) Set(tiles alphabet.MachineWord, leave alphabet.MachineWord, score int,
+	rowStart, colStart, tilesPlayed int, vertical bool, action MoveType,
+	alph *alphabet.Alphabet) {
+
+	m.tiles = tiles
+	m.leave = leave
+	m.score = score
+	m.rowStart = rowStart
+	m.colStart = colStart
+	m.tilesPlayed = tilesPlayed
+	m.vertical = vertical
+	// everything else can be calculated.
+	m.action = action
+	m.alph = alph
+}
+
+func (m *Move) SetAction(action MoveType) {
+	m.action = action
+}
+
+func (m *Move) SetAlphabet(alph *alphabet.Alphabet) {
+	m.alph = alph
+}
+
+// CopyFrom performs a copy of other.
+func (m *Move) CopyFrom(other *Move) {
+	m.action = other.action
+	if cap(m.tiles) < len(other.tiles) {
+		m.tiles = make([]alphabet.MachineLetter, len(other.tiles))
+	}
+	m.tiles = m.tiles[:len(other.tiles)]
+	if cap(m.leave) < len(other.leave) {
+		m.leave = make([]alphabet.MachineLetter, len(other.leave))
+	}
+	m.leave = m.leave[:len(other.leave)]
+	copy(m.tiles, other.tiles)
+	copy(m.leave, other.leave)
+	m.alph = other.alph
+	m.score = other.score
+
+	m.rowStart = other.rowStart
+	m.colStart = other.colStart
+	m.tilesPlayed = other.tilesPlayed
+	m.vertical = other.vertical
+
+	m.valuation = other.valuation
+	m.equity = other.equity
+}
+
 // String provides a string just for debugging purposes.
 func (m *Move) String() string {
 	switch m.action {
@@ -66,7 +116,7 @@ func (m *Move) String() string {
 		return fmt.Sprintf(
 			"<%p action: play word: %v %v score: %v tp: %v leave: %v equity: %.3f valu: %.3f>",
 			m,
-			m.coords, m.TilesString(), m.score,
+			m.BoardCoords(), m.TilesString(), m.score,
 			m.tilesPlayed, m.LeaveString(), m.equity, m.valuation)
 	case MoveTypePass:
 		return fmt.Sprintf("<%p action: pass leave: %v equity: %.3f valu: %.3f>",
@@ -85,6 +135,10 @@ func (m *Move) String() string {
 	}
 	return fmt.Sprint("<Unhandled move>")
 
+}
+
+func (m *Move) SetEmpty() {
+	m.action = MoveTypeUnset
 }
 
 func (m *Move) MoveTypeString() string {
@@ -115,7 +169,7 @@ func (m *Move) LeaveString() string {
 func (m *Move) ShortDescription() string {
 	switch m.action {
 	case MoveTypePlay:
-		return fmt.Sprintf("%3v %s", m.coords, m.TilesString())
+		return fmt.Sprintf("%3v %s", m.BoardCoords(), m.TilesString())
 	case MoveTypePass:
 		return "(Pass)"
 	case MoveTypeExchange:
@@ -166,12 +220,12 @@ func (m *Move) BingoPlayed() bool {
 // NewScoringMove creates a scoring *Move and returns it.
 func NewScoringMove(score int, tiles alphabet.MachineWord,
 	leave alphabet.MachineWord, vertical bool, tilesPlayed int,
-	alph *alphabet.Alphabet, rowStart int, colStart int, coords string) *Move {
+	alph *alphabet.Alphabet, rowStart int, colStart int) *Move {
 
 	move := &Move{
 		action: MoveTypePlay, score: score, tiles: tiles, leave: leave, vertical: vertical,
-		bingo: tilesPlayed == 7, tilesPlayed: tilesPlayed, alph: alph,
-		rowStart: rowStart, colStart: colStart, coords: coords,
+		tilesPlayed: tilesPlayed, alph: alph,
+		rowStart: rowStart, colStart: colStart,
 	}
 	return move
 }
@@ -206,12 +260,10 @@ func NewScoringMoveSimple(score int, coords string, word string, leave string,
 		tiles:       tiles,
 		leave:       leaveMW,
 		vertical:    vertical,
-		bingo:       tilesPlayed == 7,
 		tilesPlayed: tilesPlayed,
 		alph:        alph,
 		rowStart:    row,
 		colStart:    col,
-		coords:      coords,
 	}
 	return move
 }
@@ -286,21 +338,6 @@ func (m *Move) Score() int {
 	return m.score
 }
 
-func (m *Move) SetDupe(o *Move) {
-	m.dupeOf = o
-}
-
-func (m *Move) HasDupe() bool {
-	return m.dupeOf != nil
-}
-
-func (m *Move) Dupe() *Move {
-	return m.dupeOf
-}
-
-func (m *Move) SetVisited(v bool) { m.visited = v }
-func (m *Move) Visited() bool     { return m.visited }
-
 func (m *Move) Leave() alphabet.MachineWord {
 	return m.leave
 }
@@ -309,36 +346,12 @@ func (m *Move) Tiles() alphabet.MachineWord {
 	return m.tiles
 }
 
-func (m *Move) UniqueSingleTileKey() int {
-	// Find the tile.
-	var idx int
-	var ml alphabet.MachineLetter
-	for idx, ml = range m.tiles {
-		if ml != alphabet.PlayedThroughMarker {
-			break
-		}
-	}
-
-	var row, col int
-	row = m.rowStart
-	col = m.colStart
-	// We want to get the coordinate of the tile that is on the board itself.
-	if m.vertical {
-		row += idx
-	} else {
-		col += idx
-	}
-	// A unique, fast to compute key for this play.
-	return row + alphabet.MaxAlphabetSize*col +
-		alphabet.MaxAlphabetSize*alphabet.MaxAlphabetSize*int(ml)
-}
-
 func (m *Move) CoordsAndVertical() (int, int, bool) {
 	return m.rowStart, m.colStart, m.vertical
 }
 
 func (m *Move) BoardCoords() string {
-	return m.coords
+	return ToBoardGameCoords(m.rowStart, m.colStart, m.vertical)
 }
 
 // ToBoardGameCoords onverts the row, col, and orientation of the play to

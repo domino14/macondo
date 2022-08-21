@@ -22,6 +22,9 @@ type Config struct {
 
 	CPUProfile string
 	MemProfile string
+
+	AlphaBetaNodeLimit int
+	AlphaBetaTimeLimit int
 }
 
 // Default config from environment variables. Since the config struct is
@@ -51,6 +54,9 @@ func (c *Config) Load(args []string) error {
 	fs.StringVar(&c.CPUProfile, "cpu-profile", "", "file to save cpu profile in")
 	fs.StringVar(&c.MemProfile, "mem-profile", "", "file to save mem profile in")
 	fs.StringVar(&c.WolgesAwsmURL, "wolges-awsm-url", "", "URL for the wolges-awsm server. Needed for WordSmog bot.")
+
+	fs.IntVar(&c.AlphaBetaNodeLimit, "alpha-beta-node-limit", 0, "node limit for alpha-beta - multiply by 50-100 for rough byte memory usage. 0 = no limit.")
+	fs.IntVar(&c.AlphaBetaTimeLimit, "alpha-beta-time-limit", 0, "time limit for alpha-beta endgame in seconds. 0 = no limit.")
 	err := fs.Parse(args)
 	return err
 }

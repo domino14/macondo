@@ -11,11 +11,13 @@ import (
 	"lukechampine.com/frand"
 
 	airunner "github.com/domino14/macondo/ai/runner"
+	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/automatic"
 	"github.com/domino14/macondo/endgame/alphabeta"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/strategy"
 )
 
 type Response struct {
@@ -232,27 +234,79 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	if sc.game == nil {
 		return nil, errors.New("please load a game first with the `load` command")
 	}
-	plies, deepening, simpleEval, disablePruning, err := endgameArgs(cmd.args)
-	if err != nil {
-		return nil, err
+	plies := 4
+	var maxtime int
+	var maxnodes int
+	var disablePruning bool
+	var disableID bool
+	var complexEstimator bool
+	var err error
+
+	if cmd.options["plies"] != "" {
+		plies, err = strconv.Atoi(cmd.options["plies"])
+		if err != nil {
+			return nil, err
+		}
 	}
+
+	if cmd.options["maxtime"] != "" {
+		maxtime, err = strconv.Atoi(cmd.options["maxtime"])
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if cmd.options["maxnodes"] != "" {
+		maxnodes, err = strconv.Atoi(cmd.options["maxnodes"])
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if cmd.options["disable-pruning"] == "true" {
+		disablePruning = true
+	}
+	if cmd.options["disable-id"] == "true" {
+		disableID = true
+	}
+	if cmd.options["complex-estimator"] == "true" {
+		complexEstimator = true
+	}
+
 	sc.showMessage(fmt.Sprintf(
-		"plies %v, deepening %v, simpleEval %v, pruningDisabled %v",
-		plies, deepening, simpleEval, disablePruning))
+		"plies %v, maxtime %v, maxnodes %v",
+		plies, maxtime, maxnodes))
 
 	sc.game.SetStateStackLength(plies)
 	sc.game.SetBackupMode(game.SimulationMode)
+
+	defer func() {
+		sc.game.SetBackupMode(game.InteractiveGameplayMode)
+		sc.game.SetStateStackLength(1)
+	}()
+
+	oldmaxnodes := sc.config.AlphaBetaNodeLimit
+	oldmaxtime := sc.config.AlphaBetaTimeLimit
+
+	sc.config.AlphaBetaNodeLimit = maxnodes
+	sc.config.AlphaBetaTimeLimit = maxtime
+
+	defer func() {
+		sc.config.AlphaBetaNodeLimit = oldmaxnodes
+		sc.config.AlphaBetaTimeLimit = oldmaxtime
+	}()
 
 	// clear out the last value of this endgame node; gc should
 	// delete the tree.
 	sc.curEndgameNode = nil
 	sc.endgameSolver = new(alphabeta.Solver)
-	err = sc.endgameSolver.Init(sc.gen, &sc.game.Game)
+	err = sc.endgameSolver.Init(sc.gen, sc.backupgen, &sc.game.Game, sc.config)
 	if err != nil {
 		return nil, err
 	}
-	sc.endgameSolver.SetIterativeDeepening(deepening)
-	sc.endgameSolver.SetSimpleEvaluator(simpleEval)
+
+	sc.endgameSolver.SetIterativeDeepening(!disableID)
+	sc.endgameSolver.SetComplexEvaluator(complexEstimator)
 	sc.endgameSolver.SetPruningDisabled(disablePruning)
 
 	sc.showMessage(sc.game.ToDisplayText())
@@ -261,9 +315,6 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	// And turn off simulation mode again.
-	sc.game.SetBackupMode(game.InteractiveGameplayMode)
-	sc.game.SetStateStackLength(1)
 
 	sc.showMessage(fmt.Sprintf("Best sequence has a spread difference of %v", val))
 	sc.printEndgameSequence(seq)
@@ -321,4 +372,28 @@ func (sc *ShellController) autoAnalyze(cmd *shellcmd) (*Response, error) {
 		return nil, err
 	}
 	return msg(analysis), nil
+}
+
+func (sc *ShellController) leave(cmd *shellcmd) (*Response, error) {
+	if len(cmd.args) != 1 {
+		return nil, errors.New("please provide a leave")
+	}
+	dist, err := alphabet.Get(sc.config, sc.config.DefaultLetterDistribution)
+	if err != nil {
+		return nil, err
+	}
+
+	els, err := strategy.NewExhaustiveLeaveStrategy(
+		sc.config.DefaultLexicon, dist.Alphabet(), sc.config,
+		strategy.LeaveFilename,
+		strategy.PEGAdjustmentFilename)
+	if err != nil {
+		return nil, err
+	}
+	leave, err := alphabet.ToMachineWord(cmd.args[0], dist.Alphabet())
+	if err != nil {
+		return nil, err
+	}
+	res := els.LeaveValue(leave)
+	return msg(strconv.FormatFloat(res, 'f', 3, 64)), nil
 }

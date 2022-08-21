@@ -18,6 +18,20 @@ type TilesInPlay struct {
 var boardPlaintextRegex = regexp.MustCompile(`\|(.+)\|`)
 var userRackRegex = regexp.MustCompile(`(?U).+\s+([A-Z\?]*)\s+-?[0-9]+`)
 
+func (g *GameBoard) sqDisplayStr(row, col int, alph *alphabet.Alphabet) string {
+	pos := g.getSqIdx(row, col)
+	var bonusdisp string
+	if g.bonuses[pos] != ' ' {
+		bonusdisp = g.bonuses[pos].displayString()
+	} else {
+		bonusdisp = " "
+	}
+	if g.squares[pos] == alphabet.EmptySquareMarker {
+		return bonusdisp
+	}
+	return string(g.squares[pos].UserVisible(alph))
+}
+
 func (g *GameBoard) ToDisplayText(alph *alphabet.Alphabet) string {
 	var str string
 	n := g.Dim()
@@ -30,7 +44,7 @@ func (g *GameBoard) ToDisplayText(alph *alphabet.Alphabet) string {
 	for i := 0; i < n; i++ {
 		row := fmt.Sprintf("%2d|", i+1)
 		for j := 0; j < n; j++ {
-			row = row + g.squares[i][j].DisplayString(alph) + " "
+			row = row + g.sqDisplayStr(i, j, alph) + " "
 		}
 		row = row + "|"
 		str = str + row + "\n"
@@ -65,12 +79,14 @@ func (g *GameBoard) setFromPlaintext(qText string,
 				continue
 			}
 			letter, err = alph.Val(ch)
+			pos := i*15 + (j / 2)
 			if err != nil {
 				// Ignore the error; we are passing in a space or another
 				// board marker.
-				g.squares[i][j/2].letter = alphabet.EmptySquareMarker
+
+				g.squares[pos] = alphabet.EmptySquareMarker
 			} else {
-				g.squares[i][j/2].letter = letter
+				g.squares[pos] = letter
 				g.tilesPlayed++
 				playedTiles = append(playedTiles, letter)
 			}
@@ -134,8 +150,15 @@ func (g *GameBoard) Equals(g2 *GameBoard) bool {
 	}
 	for row := 0; row < g.Dim(); row++ {
 		for col := 0; col < g.Dim(); col++ {
-			if !g.GetSquare(row, col).equals(g2.GetSquare(row, col)) {
-				log.Printf("> Not equal, row %v col %v", row, col)
+			pos := g.getSqIdx(row, col)
+			if g.squares[pos] != g2.squares[pos] ||
+				g.bonuses[pos] != g2.bonuses[pos] ||
+				g.hCrossScores[pos] != g2.hCrossScores[pos] ||
+				g.vCrossScores[pos] != g2.vCrossScores[pos] ||
+				g.hCrossSets[pos] != g2.hCrossSets[pos] ||
+				g.vCrossSets[pos] != g2.vCrossSets[pos] ||
+				g.hAnchors[pos] != g2.hAnchors[pos] ||
+				g.vAnchors[pos] != g2.vAnchors[pos] {
 				return false
 			}
 		}

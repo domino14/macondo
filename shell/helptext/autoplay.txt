@@ -43,6 +43,10 @@ Options:
     - LEVEL1_CEL_BOT through LEVEL4_CEL_BOT (Common English Lexicon),
     - LEVEL1_PROBABILISTIC through LEVEL5_PROBABILISTIC.
 
+    -numthreads 10
+
+    Uses multiple threads. Defaults to `runtime.NumCPU()`
+
 autoplay can be used to generate computer vs computer games for research
 purposes.
 

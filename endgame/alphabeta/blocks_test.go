@@ -55,7 +55,7 @@ func TestBlocks(t *testing.T) {
 	fmt.Println(b.ToDisplayText(alph))
 
 	s := &Solver{}
-	s.Init(nil, nil)
+	s.Init(nil, nil, nil, &DefaultConfig)
 
 	sups := move.NewScoringMoveSimple(0, "4C", "...S", "", alph)
 	supination := move.NewScoringMoveSimple(0, "4C", "...IN..I..", "", alph)
@@ -108,7 +108,7 @@ func TestComplexBlocks(t *testing.T) {
 	// all plays should block themselves!
 
 	s := &Solver{}
-	s.Init(nil, nil)
+	s.Init(nil, nil, nil, &DefaultConfig)
 
 	hebetate := move.NewScoringMoveSimple(0, "11C", "HE....TE", "", alph)
 	halitoses := move.NewScoringMoveSimple(0, "12D", "..LIT....", "", alph)
@@ -116,13 +116,10 @@ func TestComplexBlocks(t *testing.T) {
 	it := move.NewScoringMoveSimple(0, "13D", "IT", "", alph)
 	its := move.NewScoringMoveSimple(0, "13D", "ITS", "", alph)
 	betas := move.NewScoringMoveSimple(0, "11E", "....S", "", alph)
-	so := move.NewScoringMoveSimple(0, "I11", "S.", "", alph)
 	as := move.NewScoringMoveSimple(0, "J11", "A.", "", alph)
 	of := move.NewScoringMoveSimple(0, "I12", ".F", "", alph)
 	ar := move.NewScoringMoveSimple(0, "11J", "AR", "", alph)
 	sha := move.NewScoringMoveSimple(0, "12C", "S..", "", alph)
-	betas.SetDupe(so)
-	so.SetDupe(betas)
 
 	testcases := []blocktestcase{
 		{halitoses, hebetate, false},
@@ -139,14 +136,12 @@ func TestComplexBlocks(t *testing.T) {
 		{of, betas, true},
 		{betas, ar, true},
 		{ar, betas, true},
-		{betas, so, true},
-		{so, betas, true},
-		{so, as, true},
-		{as, so, true},
-		{so, of, true},
-		{of, so, true},
-		{so, ar, true},
-		{ar, so, true},
+		{betas, as, true},
+		{as, betas, true},
+		{betas, of, true},
+		{of, betas, true},
+		{betas, ar, true},
+		{ar, betas, true},
 		{sha, halitoses, true},
 		{halitoses, sha, true},
 		{halitoses, halitoses, true},
@@ -155,7 +150,6 @@ func TestComplexBlocks(t *testing.T) {
 		{it, it, true},
 		{its, its, true},
 		{of, of, true},
-		{so, so, true},
 		{sha, sha, true},
 	}
 	for _, tc := range testcases {
@@ -176,7 +170,7 @@ func TestMoreComplexBlocks(t *testing.T) {
 	b.SetRow(12, row3, alph)
 	fmt.Println(b.ToDisplayText(alph))
 	s := &Solver{}
-	s.Init(nil, nil)
+	s.Init(nil, nil, nil, &DefaultConfig)
 
 	hebetate := move.NewScoringMoveSimple(0, "11C", "HE....TE", "", alph)
 	halitoses := move.NewScoringMoveSimple(0, "12D", "..LIT....", "", alph)
@@ -184,13 +178,9 @@ func TestMoreComplexBlocks(t *testing.T) {
 	it := move.NewScoringMoveSimple(0, "14F", "IT", "", alph)
 	its := move.NewScoringMoveSimple(0, "14F", "ITS", "", alph)
 	betas := move.NewScoringMoveSimple(0, "11E", "....S", "", alph)
-	sor := move.NewScoringMoveSimple(0, "I11", "S..", "", alph)
 	as := move.NewScoringMoveSimple(0, "J11", "A.", "", alph)
 	sha := move.NewScoringMoveSimple(0, "12C", "S..", "", alph)
 	ort := move.NewScoringMoveSimple(0, "I12", "..T", "", alph)
-
-	betas.SetDupe(sor)
-	sor.SetDupe(betas)
 
 	testcases := []blocktestcase{
 		{halitoses, hebetate, false},
@@ -205,12 +195,10 @@ func TestMoreComplexBlocks(t *testing.T) {
 		{as, betas, true},
 		{betas, ort, true},
 		{ort, betas, true},
-		{betas, sor, true},
-		{sor, betas, true},
-		{sor, as, true},
-		{as, sor, true},
-		{sor, ort, true},
-		{ort, sor, true},
+		{betas, as, true},
+		{as, betas, true},
+		{betas, ort, true},
+		{ort, betas, true},
 		{hebetate, ort, true},
 		{ort, hebetate, true},
 		{sha, halitoses, true},
@@ -221,7 +209,7 @@ func TestMoreComplexBlocks(t *testing.T) {
 		{it, it, true},
 		{its, its, true},
 		{ort, ort, true},
-		{sor, sor, true},
+		{betas, betas, true},
 		{sha, sha, true},
 		{hebetate, it, false},
 		{it, hebetate, false},

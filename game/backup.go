@@ -63,11 +63,12 @@ func copyPlayers(ps playerStates) playerStates {
 				Nickname: porig.Nickname,
 				RealName: porig.RealName,
 			},
-			points:      porig.points,
-			bingos:      porig.bingos,
-			turns:       porig.turns,
-			rack:        porig.rack.Copy(),
-			rackLetters: porig.rackLetters,
+			points: porig.points,
+			bingos: porig.bingos,
+			turns:  porig.turns,
+			rack:   porig.rack.Copy(),
+			// Just need to allocate, no need to actually copy it.
+			placeholderRack: make([]alphabet.MachineLetter, len(porig.placeholderRack)),
 		}
 	}
 	return p
@@ -78,7 +79,6 @@ func (ps *playerStates) copyFrom(other playerStates) {
 		// Note: this ugly pointer nonsense is purely to make this as fast
 		// as possible and avoid allocations.
 		(*ps)[idx].rack.CopyFrom(other[idx].rack)
-		(*ps)[idx].rackLetters = other[idx].rackLetters
 		(*ps)[idx].Nickname = other[idx].Nickname
 		(*ps)[idx].RealName = other[idx].RealName
 		// XXX: Do I have to copy all the other auto-generated protobuf nonsense fields?
@@ -89,6 +89,7 @@ func (ps *playerStates) copyFrom(other playerStates) {
 }
 
 func (g *Game) SetStateStackLength(length int) {
+	// log.Debug().Int("length", length).Msg("SetStateStackLength")
 	g.stateStack = make([]*stateBackup, length)
 	for idx := range g.stateStack {
 		// Initialize each element of the stack now to avoid having
@@ -151,7 +152,6 @@ func (g *Game) ResetToFirstState() {
 // The history is not copied because this only changes with the main Game,
 // and not these copies.
 func (g *Game) Copy() *Game {
-
 	copy := &Game{
 		config:            g.config,
 		onturn:            g.onturn,

@@ -273,7 +273,7 @@ func TestPlaceMoveTiles(t *testing.T) {
 	m := move.NewScoringMoveSimple(1780, "A1", "OX.P...B..AZ..E", "", alph)
 	b.PlaceMoveTiles(m)
 	for i, c := range "OXYPHENBUTAZONE" {
-		assert.Equal(t, c, b.GetSquare(i, 0).Letter().UserVisible(alph))
+		assert.Equal(t, c, b.GetLetter(i, 0).UserVisible(alph))
 	}
 }
 
@@ -288,7 +288,7 @@ func TestUnplaceMoveTiles(t *testing.T) {
 	b.PlaceMoveTiles(m)
 	b.UnplaceMoveTiles(m)
 	for i, c := range "  Y HEN UT  ON" {
-		assert.Equal(t, c, b.GetSquare(i, 0).Letter().UserVisible(alph))
+		assert.Equal(t, c, b.GetLetter(i, 0).UserVisible(alph))
 	}
 }
 
@@ -354,7 +354,7 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 				rowInc = 0
 				colInc = i
 			}
-			uv := b.GetSquare(row+rowInc, col+colInc).Letter().UserVisible(alph)
+			uv := b.GetLetter(row+rowInc, col+colInc).UserVisible(alph)
 			assert.Equal(t, c, uv)
 		}
 	}
@@ -415,10 +415,10 @@ func TestUpdateSingleCrossSet(t *testing.T) {
 	b.SetToGame(alph, VsMatt)
 	GenAllCrossSets(b, gd, dist)
 
-	b.GetSquare(8, 10).SetLetter(19)
-	b.GetSquare(9, 10).SetLetter(0)
-	b.GetSquare(10, 10).SetLetter(4)
-	b.GetSquare(11, 10).SetLetter(11)
+	b.SetLetter(8, 10, 19)
+	b.SetLetter(9, 10, 0)
+	b.SetLetter(10, 10, 4)
+	b.SetLetter(11, 10, 11)
 	fmt.Println(b.ToDisplayText(alph))
 	GenCrossSet(b, 7, 10, board.HorizontalDirection, gd, dist)
 	b.Transpose()
@@ -557,7 +557,7 @@ func TestUpdateCrossScoresForMove(t *testing.T) {
 				rowInc = 0
 				colInc = i
 			}
-			uv := b.GetSquare(row+rowInc, col+colInc).Letter().UserVisible(alph)
+			uv := b.GetLetter(row+rowInc, col+colInc).UserVisible(alph)
 			assert.Equal(t, c, uv)
 		}
 	}
@@ -715,7 +715,7 @@ func BenchmarkMakePlay(b *testing.B) {
 		true,
 		4,
 		alph,
-		8, 10, "K9")
+		8, 10)
 
 	b.ResetTimer()
 	// 2.7 us; more than 10x faster than regenerating all anchors every time.

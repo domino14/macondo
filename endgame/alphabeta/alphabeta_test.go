@@ -71,7 +71,8 @@ func setUpSolver(lex, distName string, bvs board.VsWho, plies int, rack1, rack2 
 	}
 
 	dist := rules.LetterDistribution()
-	generator := movegen.NewGordonGenerator(gd, g.Board(), dist)
+	gen1 := movegen.NewGordonGenerator(gd, g.Board(), dist)
+	gen2 := movegen.NewGordonGenerator(gd, g.Board(), dist)
 	alph := g.Alphabet()
 
 	tilesInPlay := g.Board().SetToGame(alph, bvs)
@@ -88,10 +89,11 @@ func setUpSolver(lex, distName string, bvs board.VsWho, plies int, rack1, rack2 
 	g.SetPointsFor(0, p1pts)
 	g.SetPointsFor(1, p2pts)
 	g.SetPlayerOnTurn(onTurn)
+	fmt.Println("Racks are", g.RackLettersFor(0), g.RackLettersFor(1))
 	fmt.Println(g.Board().ToDisplayText(alph))
 
 	s := new(Solver)
-	s.Init(generator, g)
+	s.Init(gen1, gen2, g, &DefaultConfig)
 	return s, nil
 }
 
@@ -215,17 +217,21 @@ func TestSolveStandard(t *testing.T) {
 
 	s, err := setUpSolver("NWL18", "english", board.VsCanik, plies, "DEHILOR", "BGIV", 389, 384,
 		1)
-
 	is.NoErr(err)
-	v, _, _ := s.Solve(plies)
 
+	v, moves, _ := s.Solve(plies)
+	is.Equal(moves[0].ShortDescription(), " 1G VIG.")
+	is.Equal(moves[1].ShortDescription(), " 4A HOER")
+	// There are two spots for the final B that are both worth 9
+	// and right now we don't generate these deterministically.
+	is.Equal(moves[2].Score(), 9)
 	is.Equal(v, float32(11))
 }
 
 func TestSolveStandard2(t *testing.T) {
 	// Another standard 3-ply endgame.
 	is := is.New(t)
-	plies := 3
+	plies := 4
 
 	s, err := setUpSolver("NWL18", "english", board.VsJoel, plies, "EIQSS", "AAFIRTW", 393, 373,
 		1)
@@ -289,13 +295,17 @@ func TestPolishFromGcg(t *testing.T) {
 
 	g.SetBackupMode(game.SimulationMode)
 	g.SetStateStackLength(plies)
-	generator := movegen.NewGordonGenerator(
+	gen1 := movegen.NewGordonGenerator(
+		// The strategy doesn't matter right here
+		gd, g.Board(), g.Bag().LetterDistribution(),
+	)
+	gen2 := movegen.NewGordonGenerator(
 		// The strategy doesn't matter right here
 		gd, g.Board(), g.Bag().LetterDistribution(),
 	)
 
 	s := new(Solver)
-	s.Init(generator, g)
+	s.Init(gen1, gen2, g, &DefaultConfig)
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 
 	v, seq, _ := s.Solve(plies)
@@ -354,13 +364,16 @@ func TestSpuriousPassesFromGcg(t *testing.T) {
 
 	g.SetBackupMode(game.SimulationMode)
 	g.SetStateStackLength(plies)
-	generator := movegen.NewGordonGenerator(
+	gen1 := movegen.NewGordonGenerator(
 		// The strategy doesn't matter right here
 		gd, g.Board(), g.Bag().LetterDistribution(),
 	)
-
+	gen2 := movegen.NewGordonGenerator(
+		// The strategy doesn't matter right here
+		gd, g.Board(), g.Bag().LetterDistribution(),
+	)
 	s := new(Solver)
-	s.Init(generator, g)
+	s.Init(gen1, gen2, g, &DefaultConfig)
 	// s.iterativeDeepeningOn = false
 	// s.simpleEvaluation = true
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
@@ -425,10 +438,10 @@ func TestStuck(t *testing.T) {
 	ourRack := alphabet.RackFromString("DGILOPR", alph)
 	theirRack := alphabet.RackFromString("EGNOQR", alph)
 	s.clearStuckTables()
-	s.movegen.GenAll(ourRack, false)
-	stmPlays := s.movegen.Plays()
-	s.movegen.GenAll(theirRack, false)
-	otsPlays := s.movegen.Plays()
+	s.stmMovegen.GenAll(ourRack, false)
+	stmPlays := s.stmMovegen.Plays()
+	s.otsMovegen.GenAll(theirRack, false)
+	otsPlays := s.otsMovegen.Plays()
 	stmStuck := s.computeStuck(stmPlays, ourRack, s.stmPlayed)
 	otsStuck := s.computeStuck(otsPlays, theirRack, s.otsPlayed)
 	is.Equal(len(stmStuck), 0)
@@ -442,12 +455,14 @@ func TestValuation(t *testing.T) {
 	s, err := setUpSolver("NWL18", "english", board.VsAlec, 0, "EGNOQR", "DGILOPR",
 		420, 369, 1)
 	is.NoErr(err)
+	s.SetComplexEvaluator(true)
 
 	plays := s.generateSTMPlays(nil)
 	// This is subject to change depending on the C & D values, but
 	// it's roughly accurate
 	alph := s.game.Alphabet()
 	is.Equal(plays[0].Valuation(), float32(36.5))
+	// K1 DONORS
 	is.Equal(plays[0].Tiles().UserVisible(alph), "DO..R.")
 }
 
@@ -836,11 +851,14 @@ func TestProperIterativeDeepening(t *testing.T) {
 		gd, err := gaddag.Get(g.Config(), g.LexiconName())
 		is.NoErr(err)
 
-		generator := movegen.NewGordonGenerator(
+		gen1 := movegen.NewGordonGenerator(
+			gd, g.Board(), g.Bag().LetterDistribution(),
+		)
+		gen2 := movegen.NewGordonGenerator(
 			gd, g.Board(), g.Bag().LetterDistribution(),
 		)
 		s := new(Solver)
-		s.Init(generator, g)
+		s.Init(gen1, gen2, g, &DefaultConfig)
 		fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 		// Prior to solving the endgame, set to simulation mode.
 		g.SetBackupMode(game.SimulationMode)
@@ -851,7 +869,7 @@ func TestProperIterativeDeepening(t *testing.T) {
 		// Player on turn needs to block the P spot. Anything else
 		// shows a serious bug.
 		is.Equal(len(seq), 5)
-		is.Equal(seq[0].ShortDescription(), "6I A.")
+		is.Equal(seq[0].ShortDescription(), " 6I A.")
 	}
 }
 
@@ -878,7 +896,11 @@ func BenchmarkID(b *testing.B) {
 	gd, err := gaddag.Get(g.Config(), g.LexiconName())
 	is.NoErr(err)
 
-	generator := movegen.NewGordonGenerator(
+	gen1 := movegen.NewGordonGenerator(
+		gd, g.Board(), g.Bag().LetterDistribution(),
+	)
+
+	gen2 := movegen.NewGordonGenerator(
 		gd, g.Board(), g.Bag().LetterDistribution(),
 	)
 
@@ -886,7 +908,7 @@ func BenchmarkID(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 
 		s := new(Solver)
-		s.Init(generator, g)
+		s.Init(gen1, gen2, g, &DefaultConfig)
 		plies := 5
 
 		g.SetBackupMode(game.SimulationMode)
@@ -895,7 +917,7 @@ func BenchmarkID(b *testing.B) {
 		v, seq, _ := s.Solve(plies)
 		is.Equal(v, float32(44))
 		is.Equal(len(seq), 5)
-		is.Equal(seq[0].ShortDescription(), "6I A.")
+		is.Equal(seq[0].ShortDescription(), " 6I A.")
 	}
 }
 
@@ -921,7 +943,11 @@ func BenchmarkID2(b *testing.B) {
 	gd, err := gaddag.Get(g.Config(), g.LexiconName())
 	is.NoErr(err)
 
-	generator := movegen.NewGordonGenerator(
+	gen1 := movegen.NewGordonGenerator(
+		gd, g.Board(), g.Bag().LetterDistribution(),
+	)
+
+	gen2 := movegen.NewGordonGenerator(
 		gd, g.Board(), g.Bag().LetterDistribution(),
 	)
 
@@ -929,7 +955,7 @@ func BenchmarkID2(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 
 		s := new(Solver)
-		s.Init(generator, g)
+		s.Init(gen1, gen2, g, &DefaultConfig)
 		plies := 11
 
 		g.SetBackupMode(game.SimulationMode)
@@ -960,13 +986,17 @@ func TestFromGCG(t *testing.T) {
 
 	g.SetBackupMode(game.SimulationMode)
 	g.SetStateStackLength(plies)
-	generator := movegen.NewGordonGenerator(
+	gen1 := movegen.NewGordonGenerator(
 		// The strategy doesn't matter right here
 		gd, g.Board(), g.Bag().LetterDistribution(),
 	)
 
+	gen2 := movegen.NewGordonGenerator(
+		gd, g.Board(), g.Bag().LetterDistribution(),
+	)
+
 	s := new(Solver)
-	s.Init(generator, g)
+	s.Init(gen1, gen2, g, &DefaultConfig)
 	// s.iterativeDeepeningOn = false
 	// s.simpleEvaluation = true
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
