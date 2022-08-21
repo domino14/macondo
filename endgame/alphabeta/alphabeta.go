@@ -538,9 +538,11 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 					bestV = bestNode.heuristicValue.value
 					bestSeq = s.findBestSequence(bestNode)
 
-					fmt.Printf("-- Spread swing estimate found after %d plies: %f\n",
-						p, bestV)
-					fmt.Printf("--> Best seq so far is %v\n\n", bestSeq)
+					fmt.Printf("-- Spread swing estimate found after %d plies: %f", p, bestV)
+					for idx, move := range bestSeq {
+						fmt.Printf(" %d) %v", idx+1, move.ShortDescription())
+					}
+					fmt.Printf("\n")
 				}
 			}
 		} else {
