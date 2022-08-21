@@ -3,7 +3,6 @@ module github.com/domino14/macondo
 require (
 	github.com/alecthomas/mph v0.0.0-20190930022807-712982e3d8a2
 	github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e
-	github.com/google/uuid v1.3.0
 	github.com/matryer/is v1.3.0
 	github.com/namsral/flag v1.7.4-pre
 	github.com/nats-io/nats.go v1.10.0
