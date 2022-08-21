@@ -11,11 +11,13 @@ import (
 	"lukechampine.com/frand"
 
 	airunner "github.com/domino14/macondo/ai/runner"
+	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/automatic"
 	"github.com/domino14/macondo/endgame/alphabeta"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/strategy"
 )
 
 type Response struct {
@@ -370,4 +372,28 @@ func (sc *ShellController) autoAnalyze(cmd *shellcmd) (*Response, error) {
 		return nil, err
 	}
 	return msg(analysis), nil
+}
+
+func (sc *ShellController) leave(cmd *shellcmd) (*Response, error) {
+	if len(cmd.args) != 1 {
+		return nil, errors.New("please provide a leave")
+	}
+	dist, err := alphabet.Get(sc.config, sc.config.DefaultLetterDistribution)
+	if err != nil {
+		return nil, err
+	}
+
+	els, err := strategy.NewExhaustiveLeaveStrategy(
+		sc.config.DefaultLexicon, dist.Alphabet(), sc.config,
+		strategy.LeaveFilename,
+		strategy.PEGAdjustmentFilename)
+	if err != nil {
+		return nil, err
+	}
+	leave, err := alphabet.ToMachineWord(cmd.args[0], dist.Alphabet())
+	if err != nil {
+		return nil, err
+	}
+	res := els.LeaveValue(leave)
+	return msg(strconv.FormatFloat(res, 'f', 3, 64)), nil
 }
