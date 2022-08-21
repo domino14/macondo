@@ -19,6 +19,7 @@ data/lexica
 *.tar.gz
 notebooks/superleaves/leave*
 notebooks/*/*.csv
+notebooks/*/*.idx
 notebooks/logs/*
 *.p
 *Untitled*

@@ -14,7 +14,6 @@ import (
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/lexicon"
 	"github.com/domino14/macondo/move"
-	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 )
 
@@ -128,7 +127,7 @@ func newHistory(players playerStates) *pb.GameHistory {
 	}
 	his.Players = playerInfo
 	his.IdAuth = IdentificationAuthority
-	his.Uid = uuid.New().String()
+	his.Uid = newRequestId().String()
 	his.Description = MacondoCreation
 	his.Events = []*pb.GameEvent{}
 	his.LastKnownRacks = []string{"", ""}
@@ -173,7 +172,7 @@ func NewFromHistory(history *pb.GameHistory, rules *GameRules, turnnum int) (*Ga
 	}
 	game.history = history
 	if history.Uid == "" {
-		history.Uid = uuid.New().String()
+		history.Uid = newRequestId().String()
 		history.IdAuth = IdentificationAuthority
 	}
 	if history.Description == "" {
