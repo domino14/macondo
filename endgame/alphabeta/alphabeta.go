@@ -241,7 +241,11 @@ func (s *Solver) generateSTMPlays(parent *GameNode) []*move.Move {
 	if !s.complexEvaluation {
 		// Static evaluation must be fast and resource-efficient
 		for _, m := range s.stmMovegen.Plays() {
-			m.SetValuation(float32(m.Score() - 2*m.Leave().Score(ld)))
+			if m.TilesPlayed() == int(numTilesOnRack) {
+				m.SetValuation(float32(m.Score() + 2*otherRack.ScoreOn(ld)))
+			} else {
+				m.SetValuation(float32(m.Score() - 2*m.Leave().Score(ld)))
+			}
 		}
 		sort.Slice(sideToMovePlays, func(i, j int) bool {
 			return sideToMovePlays[i].Valuation() > sideToMovePlays[j].Valuation()
