@@ -239,10 +239,9 @@ func (s *Solver) generateSTMPlays(parent *GameNode) []*move.Move {
 	sideToMovePlays := s.addPass(s.stmMovegen.Plays(), s.game.PlayerOnTurn())
 	// log.Debug().Msgf("stm plays %v", sideToMovePlays)
 	if !s.complexEvaluation {
-		// A simple evaluation function is a very dumb, but fast, function
-		// of score and tiles played. /shrug
+		// Static evaluation must be fast and resource-efficient
 		for _, m := range s.stmMovegen.Plays() {
-			m.SetValuation(float32(m.Score() + 3*m.TilesPlayed()))
+			m.SetValuation(float32(m.Score() - 2*m.Leave().Score(ld)))
 		}
 		sort.Slice(sideToMovePlays, func(i, j int) bool {
 			return sideToMovePlays[i].Valuation() > sideToMovePlays[j].Valuation()
@@ -250,6 +249,7 @@ func (s *Solver) generateSTMPlays(parent *GameNode) []*move.Move {
 		return sideToMovePlays
 	}
 
+	// Dynamic evaluation sacrifices speed for accuracy
 	// log.Debug().Msgf("stm %v (%v), ots %v (%v)",
 	// 	s.game.PlayerOnTurn(), stmRack.String(), pnot, otherRack.String())
 	s.otsMovegen.SetSortingParameter(movegen.SortByScore)
