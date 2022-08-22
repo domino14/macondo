@@ -226,7 +226,7 @@ func (s *Solver) addPass(plays []*move.Move, ponturn int) []*move.Move {
 	return plays
 }
 
-func (s *Solver) generateSTMPlays(parent *GameNode) []*move.Move {
+func (s *Solver) generateSTMPlays(parent *GameNode, depth int) []*move.Move {
 	// STM means side-to-move
 	stmRack := s.game.RackFor(s.game.PlayerOnTurn())
 	pnot := (s.game.PlayerOnTurn() + 1) % s.game.NumPlayers()
@@ -241,7 +241,9 @@ func (s *Solver) generateSTMPlays(parent *GameNode) []*move.Move {
 	if !s.complexEvaluation {
 		// Static evaluation must be fast and resource-efficient
 		for _, m := range s.stmMovegen.Plays() {
-			if m.TilesPlayed() == int(numTilesOnRack) {
+			if depth > 2 {
+				m.SetValuation(float32(m.Score() + 3*m.TilesPlayed()))
+			} else if m.TilesPlayed() == int(numTilesOnRack) {
 				m.SetValuation(float32(m.Score() + 2*otherRack.ScoreOn(ld)))
 			} else {
 				m.SetValuation(float32(m.Score() - 2*m.Leave().Score(ld)))
@@ -376,12 +378,12 @@ func (s *Solver) playToMinimalMove(p *move.Move) *minimalMove {
 	return mm
 }
 
-func (s *Solver) childGenerator(node *GameNode, maximizingPlayer bool) func() *GameNode {
+func (s *Solver) childGenerator(node *GameNode, maximizingPlayer bool, depth int) func() *GameNode {
 
 	// log.Debug().Msgf("Trying to generate children for node %v", node)
 	var plays []*move.Move
 	if node.children == nil {
-		plays = s.generateSTMPlays(node)
+		plays = s.generateSTMPlays(node, depth)
 		// Append a minimal node for every generated play.
 		node.children = make([]*GameNode, len(plays))
 		for idx, p := range plays {
@@ -640,7 +642,7 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 	if maximizingPlayer {
 		value := float32(-Infinity)
 		var winningNode *GameNode
-		iter := s.childGenerator(node, true)
+		iter := s.childGenerator(node, true, depth)
 		for child := iter(); child != nil; child = iter() {
 			// Play the child
 			// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
@@ -678,7 +680,7 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 	// Otherwise, not maximizing
 	value := float32(Infinity)
 	var winningNode *GameNode
-	iter := s.childGenerator(node, false)
+	iter := s.childGenerator(node, false, depth)
 	for child := iter(); child != nil; child = iter() {
 		// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
 		child.move.CopyToMove(s.placeholderMove)
