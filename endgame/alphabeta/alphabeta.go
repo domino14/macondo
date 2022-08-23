@@ -235,12 +235,15 @@ func (s *Solver) generateSTMPlays(parent *GameNode, depth int) []*move.Move {
 	board := s.game.Board()
 	ld := s.game.Bag().LetterDistribution()
 
-	s.stmMovegen.GenAll(stmRack, false)
-	sideToMovePlays := s.addPass(s.stmMovegen.Plays(), s.game.PlayerOnTurn())
+	sideToMovePlays := s.stmMovegen.GenAll(stmRack, false)
+	if depth > 1 || (parent.move != nil && len(parent.move.tiles) == 0) {
+		// If opponent just scored and depth is 1, "6-pass" scoring is not available.
+		sideToMovePlays = s.addPass(sideToMovePlays, s.game.PlayerOnTurn())
+	}
 	// log.Debug().Msgf("stm plays %v", sideToMovePlays)
 	if !s.complexEvaluation {
 		// Static evaluation must be fast and resource-efficient
-		for _, m := range s.stmMovegen.Plays() {
+		for _, m := range sideToMovePlays {
 			if depth > 2 {
 				m.SetValuation(float32(m.Score() + 3*m.TilesPlayed()))
 			} else if m.TilesPlayed() == int(numTilesOnRack) {
