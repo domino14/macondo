@@ -3,7 +3,6 @@ package alphabeta
 import (
 	"fmt"
 
-	"github.com/domino14/macondo/alphabet"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
 )
@@ -53,11 +52,28 @@ func (nv *nodeValue) less(other *nodeValue) bool {
 // a game node has to have enough information to allow the game and turns
 // to be reconstructed.
 type GameNode struct {
-	move           *minimalMove
+	move           *move.Move
 	parent         *GameNode
-	heuristicValue *nodeValue
-	children       []*GameNode // children should be null until expanded.
-	valuation      float32     // valuation is an initial estimate of the value of a move.
+	heuristicValue nodeValue
+	valuation      float32 // valuation is an initial estimate of the value of a move.
+}
+
+func (g *GameNode) Copy() *GameNode {
+	mv := &move.Move{}
+	mv.CopyFrom(g.move)
+	return &GameNode{
+		move:           mv,
+		parent:         g.parent,
+		heuristicValue: g.heuristicValue,
+		valuation:      g.valuation,
+	}
+}
+
+func (g *GameNode) CopyFrom(o *GameNode) {
+	g.heuristicValue = o.heuristicValue
+	g.move.CopyFrom(o.move)
+	g.parent = o.parent
+	g.valuation = o.valuation
 }
 
 const (
@@ -68,6 +84,8 @@ const (
 
 	mmColBitmask = (1 << 5) - 1
 )
+
+/*
 
 type minimalMove struct {
 	// The most relevant attributes of the move are copied here.
@@ -96,29 +114,23 @@ func (mm *minimalMove) CopyToMove(m *move.Move) {
 		int(mm.hashKey>>mmScoreShift),
 		int((mm.hashKey>>mmRowShift)&mmColBitmask),
 		int(mm.hashKey)&mmColBitmask,
-		0, /* tiles played can be calculated later */
+		0, // tiles played can be calculated later
 		(mm.hashKey>>mmVerticalShift)&1 == 1,
 		move.MoveTypePlay,
-		m.Alphabet() /* m must already have an alphabet set */)
+		m.Alphabet(), // m must already have an alphabet set
+	)
 
-}
-
-func (g *GameNode) Children() []*GameNode {
-	return g.children
-}
+}*/
 
 func (g *GameNode) Parent() *GameNode {
 	return g.parent
 }
 
-func (g *GameNode) String(alph *alphabet.Alphabet) string {
+func (g *GameNode) String() string {
 	// This function allocates but is only used for test purposes.
-	m := &move.Move{}
-	g.move.CopyToMove(m)
-	m.SetAlphabet(alph)
 	return fmt.Sprintf(
-		"<gamenode move %v, heuristicVal %v, nchild %v>",
-		m, g.heuristicValue, len(g.children))
+		"<gamenode move %v, heuristicVal %v>",
+		g.move, g.heuristicValue)
 }
 
 // func (g *GameNode) value(s *Solver) nodeValue {
@@ -156,28 +168,29 @@ func (g *GameNode) calculateValue(s *Solver) {
 		// Note that because of the way we track state, it is the state
 		// in the solver right now; that's why the game node doesn't matter
 		// right here:
-		g.heuristicValue = &nodeValue{
+		g.heuristicValue = nodeValue{
 			value:          float32(spreadNow - initialSpread),
 			knownEnd:       true,
-			isPass:         len(g.move.tiles) == 0,
+			isPass:         g.move.Action() == move.MoveTypePass,
 			sequenceLength: uint8(s.game.Turn() - s.initialTurnNum)}
 	} else {
 		// The valuation is already an estimate of the overall gain or loss
 		// in spread for this move (if taken to the end of the game).
 
 		// `player` is NOT the one that just made a move.
-		ptValue := g.move.hashKey >> mmScoreShift
+		ptValue := g.move.Score()
 		// don't double-count score; it's already in the valuation:
 		moveVal := g.valuation - float32(ptValue)
 		// What is the spread right now? The valuation should be relative
 		// to that.
 		// log.Debug().Msgf("calculating heur value for %v as %v + %v - %v",
 		// 	g.move, spreadNow, moveVal, initialSpread)
-		g.heuristicValue = &nodeValue{
+
+		g.heuristicValue = nodeValue{
 			value:          float32(spreadNow) + moveVal - float32(initialSpread),
 			knownEnd:       false,
 			sequenceLength: uint8(s.game.Turn() - s.initialTurnNum),
-			isPass:         len(g.move.tiles) == 0}
+			isPass:         g.move.Action() == move.MoveTypePass}
 		// g.heuristicValue = s.game.EndgameSpreadEstimate(player, maximizing) - float32(initialSpread)
 		// log.Debug().Msgf("Calculating heuristic value of %v as %v - %v",
 		// 	g.move, s.game.EndgameSpreadEstimate(player), float32(initialSpread))

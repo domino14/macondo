@@ -12,6 +12,7 @@ import (
 	airunner "github.com/domino14/macondo/ai/runner"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/gaddag"
@@ -220,6 +221,7 @@ func TestSolveStandard(t *testing.T) {
 	is.NoErr(err)
 
 	v, moves, _ := s.Solve(plies)
+
 	is.Equal(moves[0].ShortDescription(), " 1G VIG.")
 	is.Equal(moves[1].ShortDescription(), " 4A HOER")
 	// There are two spots for the final B that are both worth 9
@@ -239,6 +241,37 @@ func TestSolveStandard2(t *testing.T) {
 
 	v, _, _ := s.Solve(plies)
 	is.Equal(v, float32(25))
+}
+
+func TestVeryDeep(t *testing.T) {
+	is := is.New(t)
+	plies := 25
+	// The following is a very deep endgame that requires 25 plies to solve.
+	deepEndgame := "14C/13QI/12FIE/10VEE1R/9KIT2G/8CIG1IDE/8UTA2AS/7ST1SYPh1/6JA5A1/5WOLD2BOBA/3PLOT1R1NU1EX/Y1VEIN1NOR1mOA1/UT1AT1N1L2FEH1/GUR2WIRER5/SNEEZED8 ADENOOO/AHIILMM 353/236 0 lex CSW19;"
+	g, err := cgp.ParseCGP(&DefaultConfig, deepEndgame)
+	is.NoErr(err)
+	gd, err := gaddag.Get(&DefaultConfig, "CSW19")
+	is.NoErr(err)
+	g.SetBackupMode(game.SimulationMode)
+	g.SetStateStackLength(plies)
+	g.RecalculateBoard()
+	gen1 := movegen.NewGordonGenerator(
+		// The strategy doesn't matter right here
+		gd, g.Board(), g.Bag().LetterDistribution(),
+	)
+	gen2 := movegen.NewGordonGenerator(
+		// The strategy doesn't matter right here
+		gd, g.Board(), g.Bag().LetterDistribution(),
+	)
+
+	s := new(Solver)
+	s.Init(gen1, gen2, g, &DefaultConfig)
+	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
+	v, seq, _ := s.Solve(plies)
+
+	fmt.Println("phw", s.placeholderWinners)
+	is.Equal(v, float32(-116))
+	is.Equal(len(seq), 25)
 }
 
 func TestPolish(t *testing.T) {
