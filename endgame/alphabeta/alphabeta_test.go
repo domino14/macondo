@@ -490,7 +490,7 @@ func TestValuation(t *testing.T) {
 	is.NoErr(err)
 	s.SetComplexEvaluator(true)
 
-	plays := s.generateSTMPlays(nil)
+	plays := s.generateSTMPlays(nil, 2)
 	// This is subject to change depending on the C & D values, but
 	// it's roughly accurate
 	alph := s.game.Alphabet()

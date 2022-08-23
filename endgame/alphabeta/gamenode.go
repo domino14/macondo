@@ -76,52 +76,6 @@ func (g *GameNode) CopyFrom(o *GameNode) {
 	g.valuation = o.valuation
 }
 
-const (
-	// constants used for the hash key for a minimal move.
-	mmRowShift      = 5
-	mmVerticalShift = 10
-	mmScoreShift    = 11
-
-	mmColBitmask = (1 << 5) - 1
-)
-
-/*
-
-type minimalMove struct {
-	// The most relevant attributes of the move are copied here.
-	tiles   []alphabet.MachineLetter
-	leave   []alphabet.MachineLetter
-	hashKey uint32
-}
-
-func (mm *minimalMove) ShortDescription(alph *alphabet.Alphabet) string {
-	m := &move.Move{}
-	mm.CopyToMove(m)
-	m.SetAlphabet(alph)
-	return m.ShortDescription()
-}
-
-func (mm *minimalMove) CopyToMove(m *move.Move) {
-
-	// pass
-	if len(mm.tiles) == 0 {
-		m.SetAction(move.MoveTypePass)
-		return
-	}
-	m.Set(
-		mm.tiles,
-		mm.leave,
-		int(mm.hashKey>>mmScoreShift),
-		int((mm.hashKey>>mmRowShift)&mmColBitmask),
-		int(mm.hashKey)&mmColBitmask,
-		0, // tiles played can be calculated later
-		(mm.hashKey>>mmVerticalShift)&1 == 1,
-		move.MoveTypePlay,
-		m.Alphabet(), // m must already have an alphabet set
-	)
-
-}*/
-
 func (g *GameNode) Parent() *GameNode {
 	return g.parent
 }
@@ -133,17 +87,10 @@ func (g *GameNode) String() string {
 		g.move, g.heuristicValue)
 }
 
-// func (g *GameNode) value(s *Solver) nodeValue {
-// 	g.calculateValue(s)
-// 	// log.Debug().Msgf("heuristic value of node %p is %v", g, g.heuristicValue)
-// 	return g.heuristicValue
-// }
-
 func (g *GameNode) calculateValue(s *Solver) {
 	// calculate the heuristic value of this node, and store it.
 	// we start with a max node. At 1-ply (and all odd plies), maximizing
 	// is always false.
-	// log.Debug().Msgf("Need to calculate value for %v. Player on turn %v, maximizing %v", g.move, s.game.PlayerOnTurn(), maximizing)
 
 	// Because calculateValue is called after PlayMove has been called,
 	// the "playerOnTurn" is actually not the player who made the move
@@ -183,18 +130,13 @@ func (g *GameNode) calculateValue(s *Solver) {
 		moveVal := g.valuation - float32(ptValue)
 		// What is the spread right now? The valuation should be relative
 		// to that.
-		// log.Debug().Msgf("calculating heur value for %v as %v + %v - %v",
-		// 	g.move, spreadNow, moveVal, initialSpread)
 
 		g.heuristicValue = nodeValue{
 			value:          float32(spreadNow) + moveVal - float32(initialSpread),
 			knownEnd:       false,
 			sequenceLength: uint8(s.game.Turn() - s.initialTurnNum),
 			isPass:         g.move.Action() == move.MoveTypePass}
-		// g.heuristicValue = s.game.EndgameSpreadEstimate(player, maximizing) - float32(initialSpread)
-		// log.Debug().Msgf("Calculating heuristic value of %v as %v - %v",
-		// 	g.move, s.game.EndgameSpreadEstimate(player), float32(initialSpread))
-		// g.heuristicValue.value = 0 // TEMP
+
 	}
 	if negateHeurVal {
 		// The maximizing player is always "us" - the player that we are
@@ -204,11 +146,5 @@ func (g *GameNode) calculateValue(s *Solver) {
 		// hard to reason about, but I think this makes sense. At least
 		// it seems to work.
 		g.heuristicValue.negate()
-		// log.Debug().Msg("Negating since not maximizing player")
 	}
-}
-
-func (g *GameNode) serialize() []int32 {
-	// Climb down tree and serialize nodes.
-	return nil
 }
