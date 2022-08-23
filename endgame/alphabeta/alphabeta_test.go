@@ -27,7 +27,7 @@ import (
 var DefaultConfig = config.DefaultConfig()
 
 func TestMain(m *testing.M) {
-	for _, lex := range []string{"America", "NWL18", "pseudo_twl1979", "CSW19", "OSPS44"} {
+	for _, lex := range []string{"America", "CSW15", "NWL18", "pseudo_twl1979", "CSW19", "OSPS44"} {
 		gdgPath := filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag")
 		if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
 			gaddagmaker.GenerateGaddag(filepath.Join(DefaultConfig.LexiconPath, lex+".txt"), true, true)
@@ -269,9 +269,42 @@ func TestVeryDeep(t *testing.T) {
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 	v, seq, _ := s.Solve(plies)
 
-	fmt.Println("phw", s.placeholderWinners)
 	is.Equal(v, float32(-116))
 	is.Equal(len(seq), 25)
+}
+
+// This endgame's first move must be a pass, otherwise Nigel can set up
+// an unblockable ZA.
+func TestPassFirst(t *testing.T) {
+	is := is.New(t)
+
+	plies := 8
+	// https://www.cross-tables.com/annotated.php?u=25243#22
+	pos := "GATELEGs1POGOED/R4MOOLI3X1/AA10U2/YU4BREDRIN2/1TITULE3E1IN1/1E4N3c1BOK/1C2O4CHARD1/QI1FLAWN2E1OE1/IS2E1HIN1A1W2/1MOTIVATE1T1S2/1S2N5S4/3PERJURY5/15/15/15 FV/AADIZ 442/388 0 lex CSW15;"
+	g, err := cgp.ParseCGP(&DefaultConfig, pos)
+	is.NoErr(err)
+	gd, err := gaddag.Get(&DefaultConfig, "CSW19")
+	is.NoErr(err)
+	g.SetBackupMode(game.SimulationMode)
+	g.SetStateStackLength(plies)
+	g.RecalculateBoard()
+	gen1 := movegen.NewGordonGenerator(
+		// The strategy doesn't matter right here
+		gd, g.Board(), g.Bag().LetterDistribution(),
+	)
+	gen2 := movegen.NewGordonGenerator(
+		// The strategy doesn't matter right here
+		gd, g.Board(), g.Bag().LetterDistribution(),
+	)
+
+	s := new(Solver)
+	s.Init(gen1, gen2, g, &DefaultConfig)
+	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
+	v, seq, _ := s.Solve(plies)
+
+	is.Equal(v, float32(-60))
+	is.Equal(seq[0].MoveTypeString(), "Pass")
+	is.Equal(len(seq), 6)
 }
 
 func TestPolish(t *testing.T) {
