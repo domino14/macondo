@@ -226,7 +226,7 @@ func (s *Solver) addPass(plays []*move.Move, ponturn int) []*move.Move {
 	return plays
 }
 
-func (s *Solver) generateSTMPlays(parent *GameNode) []*move.Move {
+func (s *Solver) generateSTMPlays(parent *GameNode, depth int) []*move.Move {
 	// STM means side-to-move
 	stmRack := s.game.RackFor(s.game.PlayerOnTurn())
 	pnot := (s.game.PlayerOnTurn() + 1) % s.game.NumPlayers()
@@ -235,13 +235,15 @@ func (s *Solver) generateSTMPlays(parent *GameNode) []*move.Move {
 	board := s.game.Board()
 	ld := s.game.Bag().LetterDistribution()
 
-	s.stmMovegen.GenAll(stmRack, false)
-	sideToMovePlays := s.addPass(s.stmMovegen.Plays(), s.game.PlayerOnTurn())
+	sideToMovePlays := s.stmMovegen.GenAll(stmRack, false)
+	if depth > 1 || (parent.move != nil && len(parent.move.tiles) == 0) {
+		// If opponent just scored and depth is 1, "6-pass" scoring is not available.
+		sideToMovePlays = s.addPass(sideToMovePlays, s.game.PlayerOnTurn())
+	}
 	// log.Debug().Msgf("stm plays %v", sideToMovePlays)
 	if !s.complexEvaluation {
-		// A simple evaluation function is a very dumb, but fast, function
-		// of score and tiles played. /shrug
-		for _, m := range s.stmMovegen.Plays() {
+		// Static evaluation must be fast and resource-efficient
+		for _, m := range sideToMovePlays {
 			m.SetValuation(float32(m.Score() + 3*m.TilesPlayed()))
 		}
 		sort.Slice(sideToMovePlays, func(i, j int) bool {
@@ -372,12 +374,12 @@ func (s *Solver) playToMinimalMove(p *move.Move) *minimalMove {
 	return mm
 }
 
-func (s *Solver) childGenerator(node *GameNode, maximizingPlayer bool) func() *GameNode {
+func (s *Solver) childGenerator(node *GameNode, maximizingPlayer bool, depth int) func() *GameNode {
 
 	// log.Debug().Msgf("Trying to generate children for node %v", node)
 	var plays []*move.Move
 	if node.children == nil {
-		plays = s.generateSTMPlays(node)
+		plays = s.generateSTMPlays(node, depth)
 		// Append a minimal node for every generated play.
 		node.children = make([]*GameNode, len(plays))
 		for idx, p := range plays {
@@ -636,7 +638,7 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 	if maximizingPlayer {
 		value := float32(-Infinity)
 		var winningNode *GameNode
-		iter := s.childGenerator(node, true)
+		iter := s.childGenerator(node, true, depth)
 		for child := iter(); child != nil; child = iter() {
 			// Play the child
 			// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
@@ -674,7 +676,7 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 	// Otherwise, not maximizing
 	value := float32(Infinity)
 	var winningNode *GameNode
-	iter := s.childGenerator(node, false)
+	iter := s.childGenerator(node, false, depth)
 	for child := iter(); child != nil; child = iter() {
 		// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
 		child.move.CopyToMove(s.placeholderMove)
