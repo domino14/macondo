@@ -88,16 +88,7 @@ type Solver struct {
 	// moveCache        map[int][]*minimalMove
 	mmCount int
 
-	placeholderChildren []*GameNode
-	placeholderWinners  []*GameNode
-
 	config *config.Config
-}
-
-var nodePool = sync.Pool{
-	New: func() any {
-		return new(GameNode)
-	},
 }
 
 // max returns the larger of x or y.
@@ -406,15 +397,6 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 	var bestNodeSoFar *GameNode
 	var bestSeq []*move.Move
 
-	s.placeholderChildren = make([]*GameNode, plies+1)
-	s.placeholderWinners = make([]*GameNode, plies+1)
-	s.placeholderChildren[0] = s.rootNode
-	for i := 1; i <= plies; i++ {
-		s.placeholderChildren[i] = &GameNode{}
-		s.placeholderWinners[i] = &GameNode{}
-		s.placeholderWinners[i].move = new(move.Move)
-	}
-
 	var wg sync.WaitGroup
 	done := make(chan struct{})
 	wg.Add(1)
@@ -514,8 +496,6 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α float32, β float32,
 	maximizingPlayer bool) (*GameNode, error) {
 
-	// dpthStr := strings.Repeat(" ", 25-depth)
-
 	select {
 	case <-ctx.Done():
 		return nil, errors.New("context done")
@@ -526,9 +506,6 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 		// s.game.Playing() happens if the game is over; i.e. if the
 		// current node is terminal.
 		node.calculateValue(s)
-		// fmt.Println(dpthStr+"calculated node", node)
-		// log.Debug().Msgf("ending recursion, depth: %v, playing: %v, node: %v val: %v",
-		// 	depth, s.game.Playing(), node.move, node.valuation)
 		return node, nil
 	}
 
@@ -536,7 +513,6 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 		value := float32(-Infinity)
 		plays := s.generateSTMPlays(node, depth)
 		var winningNode *GameNode
-		// fmt.Println(dpthStr+"MAXIMIZER: Generated plays", plays)
 		for _, play := range plays {
 			// Play the child
 			s.game.PlayMove(play, false, 0)
@@ -547,11 +523,9 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 			child.valuation = play.Valuation()
 			wn, err := s.alphabeta(ctx, child, depth-1, α, β, false)
 			if err != nil {
-				// nodePool.Put(child)
 				s.game.UnplayLastMove()
 				return nil, err
 			}
-			// nodePool.Put(child)
 			s.game.UnplayLastMove()
 
 			if wn.heuristicValue.value > value {
@@ -578,7 +552,6 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 	// Otherwise, not maximizing
 	value := float32(Infinity)
 	plays := s.generateSTMPlays(node, depth)
-	// fmt.Println(dpthStr+"MINIMIZER: Generated plays", plays)
 	var winningNode *GameNode
 	for _, play := range plays {
 		s.game.PlayMove(play, false, 0)
@@ -588,11 +561,9 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 		child.valuation = play.Valuation()
 		wn, err := s.alphabeta(ctx, child, depth-1, α, β, true)
 		if err != nil {
-			// nodePool.Put(child)
 			s.game.UnplayLastMove()
 			return nil, err
 		}
-		// nodePool.Put(child)
 		s.game.UnplayLastMove()
 		if wn.heuristicValue.value < value {
 			value = wn.heuristicValue.value
