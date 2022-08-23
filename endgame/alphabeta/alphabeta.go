@@ -238,7 +238,18 @@ func (s *Solver) generateSTMPlays(parent *GameNode, depth int) []*move.Move {
 	sideToMovePlays := s.stmMovegen.GenAll(stmRack, false)
 	if stmRack.NumTiles() > 1 && (s.iterativeDeepeningOn || depth > 1 || parent.move == nil || len(parent.move.tiles) == 0) {
 		// If opponent just scored and depth is 1, "6-pass" scoring is not available.
-		sideToMovePlays = s.addPass(sideToMovePlays, s.game.PlayerOnTurn())
+		// Skip adding pass if player has an out play ("6-pass" scoring never outperforms an out play).
+		// This is more about "don't search a dubious pass subtree" than about memory allocation.
+		var out *move.Move
+		for _, m := range sideToMovePlays {
+			if m.TilesPlayed() == int(numTilesOnRack) {
+				out = m
+				break
+			}
+		}
+		if out == nil {
+			sideToMovePlays = s.addPass(sideToMovePlays, s.game.PlayerOnTurn())
+		}
 	}
 	// log.Debug().Msgf("stm plays %v", sideToMovePlays)
 	if !s.complexEvaluation {
