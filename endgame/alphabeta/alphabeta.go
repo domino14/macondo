@@ -236,7 +236,7 @@ func (s *Solver) generateSTMPlays(parent *GameNode, depth int) []*move.Move {
 	ld := s.game.Bag().LetterDistribution()
 
 	sideToMovePlays := s.stmMovegen.GenAll(stmRack, false)
-	if s.iterativeDeepeningOn || depth > 1 || parent.move == nil || len(parent.move.tiles) == 0 {
+	if stmRack.NumTiles() > 1 && (s.iterativeDeepeningOn || depth > 1 || parent.move == nil || len(parent.move.tiles) == 0) {
 		// If opponent just scored and depth is 1, "6-pass" scoring is not available.
 		sideToMovePlays = s.addPass(sideToMovePlays, s.game.PlayerOnTurn())
 	}
