@@ -245,13 +245,7 @@ func (s *Solver) generateSTMPlays(parent *GameNode, depth int) []*move.Move {
 		// A simple evaluation function is a very dumb, but fast, function
 		// of score and tiles played. /shrug
 		for _, m := range s.stmMovegen.Plays() {
-			if depth > 2 {
-				m.SetValuation(float32(m.Score() + 3*m.TilesPlayed()))
-			} else if m.TilesPlayed() == int(numTilesOnRack) {
-				m.SetValuation(float32(m.Score() + 2*otherRack.ScoreOn(ld)))
-			} else {
-				m.SetValuation(float32(m.Score() - 2*m.Leave().Score(ld)))
-			}
+			m.SetValuation(float32(m.Score() + 3*m.TilesPlayed()))
 		}
 		sort.Slice(sideToMovePlays, func(i, j int) bool {
 			return sideToMovePlays[i].Valuation() > sideToMovePlays[j].Valuation()
