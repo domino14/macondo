@@ -226,7 +226,7 @@ func (s *Solver) addPass(plays []*move.Move, ponturn int) []*move.Move {
 	return plays
 }
 
-func (s *Solver) generateSTMPlays(parent *GameNode, depth int) []*move.Move {
+func (s *Solver) generateSTMPlays(parent *GameNode, depth int, plies int) []*move.Move {
 	// STM means side-to-move
 	stmRack := s.game.RackFor(s.game.PlayerOnTurn())
 	pnot := (s.game.PlayerOnTurn() + 1) % s.game.NumPlayers()
@@ -236,7 +236,7 @@ func (s *Solver) generateSTMPlays(parent *GameNode, depth int) []*move.Move {
 	ld := s.game.Bag().LetterDistribution()
 
 	sideToMovePlays := s.stmMovegen.GenAll(stmRack, false)
-	if stmRack.NumTiles() > 1 && (s.iterativeDeepeningOn || depth > 1 || parent.move == nil || len(parent.move.tiles) == 0) {
+	if stmRack.NumTiles() > 1 && (plies > 1 || parent.move == nil || len(parent.move.tiles) == 0) {
 		// If opponent just scored and depth is 1, "6-pass" scoring is not available.
 		// Skip adding pass if player has an out play ("6-pass" scoring never outperforms an out play).
 		// This is more about "don't search a dubious pass subtree" than about memory allocation.
@@ -394,12 +394,12 @@ func (s *Solver) playToMinimalMove(p *move.Move) *minimalMove {
 	return mm
 }
 
-func (s *Solver) childGenerator(node *GameNode, maximizingPlayer bool, depth int) func() *GameNode {
+func (s *Solver) childGenerator(node *GameNode, maximizingPlayer bool, depth int, plies int) func() *GameNode {
 
 	// log.Debug().Msgf("Trying to generate children for node %v", node)
 	var plays []*move.Move
 	if node.children == nil {
-		plays = s.generateSTMPlays(node, depth)
+		plays = s.generateSTMPlays(node, depth, plies)
 		// Append a minimal node for every generated play.
 		node.children = make([]*GameNode, len(plays))
 		for idx, p := range plays {
@@ -551,7 +551,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 				log.Debug().Msgf("scoreless turns: %v", s.game.ScorelessTurns())
 				log.Debug().Msgf("Spread at beginning of endgame: %v", s.game.CurrentSpread())
 				log.Debug().Msgf("Maximizing player is: %v", s.game.PlayerOnTurn())
-				bestNode, err := s.alphabeta(ctx, s.rootNode, p, float32(-Infinity), float32(Infinity), true)
+				bestNode, err := s.alphabeta(ctx, s.rootNode, p, plies, float32(-Infinity), float32(Infinity), true)
 				if err != nil {
 					log.Err(err).Msg("alphabeta-error")
 					break
@@ -568,7 +568,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 				}
 			}
 		} else {
-			bestNode, err := s.alphabeta(ctx, s.rootNode, plies, float32(-Infinity), float32(Infinity), true)
+			bestNode, err := s.alphabeta(ctx, s.rootNode, plies, plies, float32(-Infinity), float32(Infinity), true)
 			if err != nil {
 				log.Err(err).Msg("alphabeta-error")
 			} else {
@@ -636,7 +636,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 	return bestV, bestSeq, err
 }
 
-func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α float32, β float32,
+func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, plies int, α float32, β float32,
 	maximizingPlayer bool) (*GameNode, error) {
 
 	select {
@@ -658,7 +658,7 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 	if maximizingPlayer {
 		value := float32(-Infinity)
 		var winningNode *GameNode
-		iter := s.childGenerator(node, true, depth)
+		iter := s.childGenerator(node, true, depth, plies)
 		for child := iter(); child != nil; child = iter() {
 			// Play the child
 			// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
@@ -666,7 +666,7 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 			s.game.PlayMove(s.placeholderMove, false, 0)
 			// log.Debug().Msgf("%vState is now %v", depthDbg,
 			// s.game.String())
-			wn, err := s.alphabeta(ctx, child, depth-1, α, β, false)
+			wn, err := s.alphabeta(ctx, child, depth-1, plies-1, α, β, false)
 			if err != nil {
 				s.game.UnplayLastMove()
 				return nil, err
@@ -696,14 +696,14 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 	// Otherwise, not maximizing
 	value := float32(Infinity)
 	var winningNode *GameNode
-	iter := s.childGenerator(node, false, depth)
+	iter := s.childGenerator(node, false, depth, plies)
 	for child := iter(); child != nil; child = iter() {
 		// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
 		child.move.CopyToMove(s.placeholderMove)
 		s.game.PlayMove(s.placeholderMove, false, 0)
 		// log.Debug().Msgf("%vState is now %v", depthDbg,
 		// s.game.String())
-		wn, err := s.alphabeta(ctx, child, depth-1, α, β, true)
+		wn, err := s.alphabeta(ctx, child, depth-1, plies-1, α, β, true)
 		if err != nil {
 			s.game.UnplayLastMove()
 			return nil, err
