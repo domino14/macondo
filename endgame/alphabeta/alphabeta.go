@@ -240,14 +240,7 @@ func (s *Solver) generateSTMPlays(parent *GameNode, depth int) []*move.Move {
 		// If opponent just scored and depth is 1, "6-pass" scoring is not available.
 		// Skip adding pass if player has an out play ("6-pass" scoring never outperforms an out play).
 		// This is more about "don't search a dubious pass subtree" than about memory allocation.
-		var out *move.Move
-		for _, m := range sideToMovePlays {
-			if m.TilesPlayed() == int(numTilesOnRack) {
-				out = m
-				break
-			}
-		}
-		if out == nil {
+		if !containsOutPlay(sideToMovePlays, int(numTilesOnRack)) {
 			sideToMovePlays = s.addPass(sideToMovePlays, s.game.PlayerOnTurn())
 		}
 	}
@@ -343,6 +336,15 @@ func (s *Solver) generateSTMPlays(parent *GameNode, depth int) []*move.Move {
 	// 	stmCopy[idx].CopyFrom(sideToMovePlays[idx])
 	// }
 	return sideToMovePlays
+}
+
+func containsOutPlay(plays []*move.Move, numTilesOnRack int) bool {
+	for _, m := range plays {
+		if m.TilesPlayed() == numTilesOnRack {
+			return true
+		}
+	}
+	return false
 }
 
 func movesMatch(t alphabet.MachineWord, lv alphabet.MachineWord, mm *minimalMove) bool {
