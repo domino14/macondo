@@ -285,14 +285,11 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 		sc.game.SetStateStackLength(1)
 	}()
 
-	oldmaxnodes := sc.config.AlphaBetaNodeLimit
 	oldmaxtime := sc.config.AlphaBetaTimeLimit
 
-	sc.config.AlphaBetaNodeLimit = maxnodes
 	sc.config.AlphaBetaTimeLimit = maxtime
 
 	defer func() {
-		sc.config.AlphaBetaNodeLimit = oldmaxnodes
 		sc.config.AlphaBetaTimeLimit = oldmaxtime
 	}()
 

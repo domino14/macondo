@@ -25,12 +25,11 @@ About:
 
     The recommended way to call this is something akin to:
 
-        endgame -plies 25 -maxnodes 100000000 -maxtime 300
+        endgame -plies 25 -maxtime 300
 
-    This will make sure the algorithm uses at most around 10GB of memory 
-    (100M nodes *100 bytes/node), or 5 minutes of search, whichever comes
-    first. It is also likely that the 25 plies will be hit way before these
-    limits, depending on the complexity of the endgame.
+    This will make sure the algorithm uses at most 5 minutes of search. 
+    It is also possible that the 25 plies will be reached before the time
+    limit, depending on the complexity of the endgame.
 
 Options:
     -plies 25 
@@ -48,21 +47,6 @@ Options:
     iterative deepening by default, so a good enough solution should be found
     rapidly, and this solution will be improved upon.
 
-    -maxnodes 10000000
-
-    This option will set a maximum number of nodes. This will likely be an 
-    important option to set until the algorithm is improved to not allocate 
-    so much. Assume that every node takes about 100 bytes of memory.
-
-    If you have 32 GB of RAM on your computer, therefore, you may want to set
-    this to around 300000000 (300 million) or less.
-
-    A significant majority of endgames will not require nearly this many nodes.
-    But for complex endgames (with blanks or stuck tiles) this may make sense.
-
-    When this node limit is reached, the endgame algorithm will quit with the
-    last best answer.
-
     -disable-id true
 
     This option disables iterative deepening. Iterative Deepening allows the 
@@ -79,9 +63,5 @@ Options:
 
     However, in practice, the complex estimator often takes a significantly longer time
     to run and doesn't provide a good enough benefit. It may be possible that some
-    endgames are solved a lot faster with this estimator though.
-
-    -disable-pruning true
-
-    This option disables alpha-beta pruning. You probably never want to do this.
-    The algorithm will become much slower and allocate a giant amount of data.
+    endgames are solved a lot faster with this estimator though. It is worth
+    trying on endgames where someone is stuck with a tile.
