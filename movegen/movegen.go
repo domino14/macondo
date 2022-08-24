@@ -141,22 +141,21 @@ func (gen *GordonGenerator) GenAll(rack *alphabet.Rack, addExchange bool) {
 		tilesOnRack := rack.TilesOn()
 		passMove := move.NewPassMove(tilesOnRack, rack.Alphabet())
 		gen.plays = append(gen.plays, passMove)
+	} else if len(gen.plays) > 1 {
+		switch gen.sortingParameter {
+		case SortByScore:
+			sort.Slice(gen.plays, func(i, j int) bool {
+				return gen.plays[i].Score() > gen.plays[j].Score()
+			})
+		case SortByNone:
+			// Do not sort the plays. It is assumed that we will sort plays
+			// elsewhere (for example, a dedicated endgame engine)
+			break
+		}
 	}
 	if addExchange {
 		gen.generateExchangeMoves(rack, 0, 0)
 	}
-
-	switch gen.sortingParameter {
-	case SortByScore:
-		sort.Slice(gen.plays, func(i, j int) bool {
-			return gen.plays[i].Score() > gen.plays[j].Score()
-		})
-	case SortByNone:
-		// Do not sort the plays. It is assumed that we will sort plays
-		// elsewhere (for example, a dedicated endgame engine)
-		break
-	}
-
 }
 
 func (gen *GordonGenerator) genByOrientation(rack *alphabet.Rack, dir board.BoardDirection) {
