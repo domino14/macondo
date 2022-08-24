@@ -1,6 +1,7 @@
 package automatic
 
 import (
+	"container/heap"
 	"encoding/csv"
 	"fmt"
 	"io"
@@ -166,6 +167,7 @@ func AnalyzeMoveLogFile(filename string) (string, error) {
 	movesAnalyzed := 0
 	maxScore := -1
 	maxTurn := -1
+	commonLongLeavesMap := map[string]int{}
 	for {
 		record, err := r.Read()
 		if err == io.EOF {
@@ -191,6 +193,11 @@ func AnalyzeMoveLogFile(filename string) (string, error) {
 		score := vals[1]
 		turn := vals[0]
 		tilesPlayed := vals[2]
+
+		if len(record[8]) > 2 {
+			commonLongLeavesMap[record[8]]++
+		}
+
 		if score == 0 && turn == 1 && tilesPlayed == 0 {
 			fmt.Printf("moves: %d, line: %s\n", movesAnalyzed, strings.Join(record, ", "))
 		}
@@ -205,6 +212,8 @@ func AnalyzeMoveLogFile(filename string) (string, error) {
 			return "", err
 		}
 
+		leaveEquity := equity - float64(score)
+
 		for _, key := range keys {
 			scoreMC := scores[key]
 			if scoreMC == nil {
@@ -218,9 +227,34 @@ func AnalyzeMoveLogFile(filename string) (string, error) {
 				leaveEquityMC = &montecarlo.Statistic{}
 				leaveEquities[key] = leaveEquityMC
 			}
-			leaveEquities[key].Push(equity - float64(score))
+			leaveEquities[key].Push(leaveEquity)
 		}
 		movesAnalyzed++
+	}
+
+	commonLongLeavesQueue := &PriorityQueue{}
+	heap.Init(commonLongLeavesQueue)
+
+	for leave, occurrences := range commonLongLeavesMap {
+		heap.Push(commonLongLeavesQueue, &Item{value: leave, priority: -occurrences})
+		if commonLongLeavesQueue.Len() > 500 {
+			heap.Pop(commonLongLeavesQueue)
+		}
+	}
+
+	var commonLeaveBuilder strings.Builder
+	for commonLongLeavesQueue.Len() > 0 {
+		item := heap.Pop(commonLongLeavesQueue).(*Item)
+		_, err = fmt.Fprintf(&commonLeaveBuilder, "%s,%d\n", item.value, -item.priority)
+		if err != nil {
+			return "", err
+		}
+	}
+	commonLeavesFilepath := filepath.Join(DefaultOutputPath, "common_leaves.txt")
+	fmt.Printf("%d movesAnalyzed\nWrote common leaves to %s\n", movesAnalyzed, commonLeavesFilepath)
+	err = ioutil.WriteFile(commonLeavesFilepath, []byte(commonLeaveBuilder.String()), 0644)
+	if err != nil {
+		return "", err
 	}
 
 	fileMask := newKey(len(MoveAnalysisDimensionOrder), make([]int, len(MoveAnalysisDimensionOrder)))
@@ -291,7 +325,7 @@ func AnalyzeMoveLogFile(filename string) (string, error) {
 		files = append(files, fmt.Sprintf("%s | %d, %d, ", fileMask.toString(), numMatches, numExists)+csvFilepath)
 		fileMask.increment()
 	}
-	return fmt.Sprintf("%d moves analyzed\n%d files written:\n%s", movesAnalyzed, len(files), strings.Join(files, "\n")), nil
+	return fmt.Sprintf("%d move analysis files written:\n%s", len(files), strings.Join(files, "\n")), nil
 }
 
 func CreateDimensionKeys(dims []int) []string {
@@ -390,19 +424,42 @@ func (key *Key) toStringWithMask(mask []int) string {
 	return maskedKey.toString()
 }
 
-// def increment_pointers(pointers, number_of_tiles):
-//     minimum_pointer_to_move = len(pointers) - 1
-//     endpoint_for_pointer = number_of_tiles - 1
-//     while pointers[minimum_pointer_to_move] == endpoint_for_pointer:
-//         minimum_pointer_to_move -= 1
-//         endpoint_for_pointer -= 1
-//         if minimum_pointer_to_move < 0:
-//             return None
+// An Item is something we manage in a priority queue.
+type Item struct {
+	value    string // The value of the item; arbitrary.
+	priority int    // The priority of the item in the queue.
+	index    int    // The index of the item in the heap.
+}
 
-//     old_minimum_pointer_to_move_value = pointers[minimum_pointer_to_move]
-//     for i in range (minimum_pointer_to_move, len(pointers)):
-//         # Move pointer to break point instead
-//         old_minimum_pointer_to_move_value += 1
-//         pointers[i] = old_minimum_pointer_to_move_value
+// A PriorityQueue implements heap.Interface and holds Items.
+type PriorityQueue []*Item
 
-//     return pointers
+func (pq PriorityQueue) Len() int { return len(pq) }
+
+func (pq PriorityQueue) Less(i, j int) bool {
+	// We want Pop to give us the highest, not lowest, priority so we use greater than here.
+	return pq[i].priority > pq[j].priority
+}
+
+func (pq PriorityQueue) Swap(i, j int) {
+	pq[i], pq[j] = pq[j], pq[i]
+	pq[i].index = i
+	pq[j].index = j
+}
+
+func (pq *PriorityQueue) Push(x any) {
+	n := len(*pq)
+	item := x.(*Item)
+	item.index = n
+	*pq = append(*pq, item)
+}
+
+func (pq *PriorityQueue) Pop() any {
+	old := *pq
+	n := len(old)
+	item := old[n-1]
+	old[n-1] = nil  // avoid memory leak
+	item.index = -1 // for safety
+	*pq = old[0 : n-1]
+	return item
+}
