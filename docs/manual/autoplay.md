@@ -10,7 +10,7 @@ its basic use case, without any arguments, `autoplay` will use two
 "exhaustive leave" players - i.e. computer players that use 1-to-6 tile
 leave values to calculate equity.
 
-The english leave values can be found in `./data/strategy/{csw|nwl}/leaves.olv`, where the part before leaves.olv is either `csw` or `nwl`.
+The english leave values can be found in `./data/strategy/default_english/leaves.olv`. These were calculated with NWL18 in mind, but still work well for NWL20. Slightly different values for CSW21 are found in `./data/strategy/CSW21/leaves.olv`.
 
 See [make_leaves_structure](/macondo/manual/make_leaves_structure.html) for how
 this file was created.
