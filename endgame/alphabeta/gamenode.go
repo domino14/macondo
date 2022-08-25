@@ -13,9 +13,7 @@ const PerTurnPenalty = float32(0.001)
 type nodeValue struct {
 	value          float32
 	sequenceLength uint8
-
-	knownEnd bool
-	isPass   bool
+	knownEnd       bool
 }
 
 func (nv *nodeValue) String() string {
@@ -38,14 +36,7 @@ func (nv *nodeValue) less(other *nodeValue) bool {
 		// i.e. known end > unknown end
 		return other.knownEnd
 	}
-	// Third tie-breaker is whether this is a pass or not.
-	if nv.isPass != other.isPass {
-		// we should rank non-passes higher than passes if everything else
-		// is equal.
-		// i.e. pass < not pass
-		return nv.isPass
-	}
-	// Fourth tie-breaker is length of sequence, favoring shorter sequences
+	// Third tie-breaker is length of sequence, favoring shorter sequences
 	return nv.sequenceLength > other.sequenceLength
 
 }
@@ -159,7 +150,6 @@ func (g *GameNode) calculateValue(s *Solver) {
 		g.heuristicValue = &nodeValue{
 			value:          float32(spreadNow - initialSpread),
 			knownEnd:       true,
-			isPass:         len(g.move.tiles) == 0,
 			sequenceLength: uint8(s.game.Turn() - s.initialTurnNum)}
 	} else {
 		// The valuation is already an estimate of the overall gain or loss
@@ -176,8 +166,7 @@ func (g *GameNode) calculateValue(s *Solver) {
 		g.heuristicValue = &nodeValue{
 			value:          float32(spreadNow) + moveVal - float32(initialSpread),
 			knownEnd:       false,
-			sequenceLength: uint8(s.game.Turn() - s.initialTurnNum),
-			isPass:         len(g.move.tiles) == 0}
+			sequenceLength: uint8(s.game.Turn() - s.initialTurnNum)}
 		// g.heuristicValue = s.game.EndgameSpreadEstimate(player, maximizing) - float32(initialSpread)
 		// log.Debug().Msgf("Calculating heuristic value of %v as %v - %v",
 		// 	g.move, s.game.EndgameSpreadEstimate(player), float32(initialSpread))
