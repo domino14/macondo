@@ -70,6 +70,21 @@ func Gen(L *lua.LState) int {
 	return 1
 }
 
+func Turn(L *lua.LState) int {
+	lv := L.ToString(1)
+	sc := getShell(L)
+	r, err := sc.turn(&shellcmd{
+		cmd:  "turn",
+		args: strings.Split(lv, " "),
+	})
+	if err != nil {
+		log.Err(err).Msg("error-executing-turn")
+		return 0
+	}
+	L.Push(lua.LString(r.message))
+	return 1
+}
+
 func Gid(L *lua.LState) int {
 	sc := getShell(L)
 	r, err := sc.gid(&shellcmd{
@@ -101,6 +116,7 @@ func (sc *ShellController) script(cmd *shellcmd) (*Response, error) {
 	L.SetGlobal("macondo_load", L.NewFunction(Load))
 	L.SetGlobal("macondo_gid", L.NewFunction(Gid))
 	L.SetGlobal("macondo_set", L.NewFunction(Set))
+	L.SetGlobal("macondo_turn", L.NewFunction(Turn))
 
 	if err := L.DoFile(filepath); err != nil {
 		log.Err(err).Msg("there was a error")
