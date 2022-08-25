@@ -10,7 +10,7 @@ its basic use case, without any arguments, `autoplay` will use two
 "exhaustive leave" players - i.e. computer players that use 1-to-6 tile
 leave values to calculate equity.
 
-The leave values can be found in `./data/strategy/default_english/leaves.idx`.
+The english leave values can be found in `./data/strategy/{csw|nwl}/leaves.olv`, where the part before leaves.olv is either `csw` or `nwl`.
 
 See [make_leaves_structure](/macondo/manual/make_leaves_structure.html) for how
 this file was created.
@@ -24,9 +24,9 @@ about each game (the final score and who went first). `foo.txt` will contain mor
 
 `-letterdistribution norwegian` uses the norwegian letter distribution, for example
 
-`-leavefile1 filename.idx` sets the first bot's leavefile to `filename.idx`. Note that the `filename.idx` must be located inside the `./data/strategy/<lexicon>` directory in order to be found.
+`-leavefile1 filename.olv` sets the first bot's leavefile to `filename.olv`. Note that the `filename.olv` must be located inside the `./data/strategy/<lexicon>` directory in order to be found.
 
-`-leavefile2 filename.idx` sets the second bot's leavefile to `filename.idx`.
+`-leavefile2 filename.olv` sets the second bot's leavefile to `filename.olv`.
 
 ## Bot types
 
@@ -68,9 +68,9 @@ The stats above show that a bot that uses leave values wins nearly 2/3 of its ga
 
 ### Player1 uses a special set of leave values, Player2 uses the default set:
 
-`autoplay exhaustiveleave exhaustiveleave -leavefile1 quackleleaves.idx`
+`autoplay exhaustiveleave exhaustiveleave -leavefile1 quackleleaves.olv`
 
-**Note:** The file `quackleleaves.idx` in this case must be in your `./data/strategy/<lexicon>/` directory. You can put it in the special `default_english` lexicon to make it apply to both NWL18 and CSW19 games.
+**Note:** The file `quackleleaves.olv` in this case must be in your `./data/strategy/<lexicon>/` directory. You can put it in the special `default_english` lexicon to make it apply to both NWL20 and CSW21 games.
 
 Analysis:
 

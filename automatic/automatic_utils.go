@@ -42,7 +42,7 @@ func (r *GameRunner) CompVsCompStatic(addToHistory bool) error {
 
 func (r *GameRunner) playFullStatic(addToHistory bool) {
 	r.StartGame()
-	log.Debug().Msgf("playing full static, game %v", r.game.History().Uid)
+	log.Trace().Msgf("playing full static, game %v", r.game.History().Uid)
 
 	for r.game.Playing() == pb.PlayState_PLAYING {
 		r.PlayBestStaticTurn(r.game.PlayerOnTurn(), addToHistory)
