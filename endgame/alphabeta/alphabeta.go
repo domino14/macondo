@@ -92,6 +92,12 @@ type Solver struct {
 	currentIDDepth         int
 
 	config *config.Config
+
+	positionHash map[int64]*PositionResult
+}
+
+type PositionResult struct {
+	move *move.Move
 }
 
 // max returns the larger of x or y.
