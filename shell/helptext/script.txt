@@ -7,9 +7,11 @@ The following commands are currently supported by Lua:
 
     - gen
     - load
+    - set
+    - turn
 
 To invoke the command with Lua, prefix it with the macondo_ namespace.
-For example, macondo_gen and macondo_load.
+For example, macondo_gen, macondo_load, macondo_set, and macondo_turn.
 
 The commands take in a single string with all of its arguments. For example,
 you can call load as such:
