@@ -332,17 +332,20 @@ func movesMatch(t alphabet.MachineWord, lv alphabet.MachineWord, mm *minimalMove
 func (s *Solver) playToMinimalMove(p *move.Move) *minimalMove {
 	// Create a minimal move, or return one from the cache.
 	r, c, v := p.CoordsAndVertical()
-	ptiles := p.Tiles()
-	pleave := p.Leave()
 	hashKey := c + (r << mmRowShift) + (p.Score() << mmScoreShift)
+	ptiles := p.Tiles()
+	if len(ptiles) > 0 {
+		hashKey ^= (int(ptiles[0]) << mmTileShift)
+	}
+	pleave := p.Leave()
+	if len(pleave) > 0 {
+		hashKey ^= (int(pleave[0]) << mmLeaveShift)
+	}
 	if v {
 		hashKey += (1 << mmVerticalShift)
 	}
-	extraHash := hashKey
-	if len(ptiles) > 0 {
-		extraHash = hashKey + (int(ptiles[0]) << 25)
-	}
-	mvs := s.moveCache[extraHash]
+
+	mvs := s.moveCache[hashKey]
 	if len(mvs) == 0 {
 		mm := &minimalMove{
 			tiles:   ptiles,
@@ -350,7 +353,7 @@ func (s *Solver) playToMinimalMove(p *move.Move) *minimalMove {
 			hashKey: uint32(hashKey),
 		}
 		s.mmCount += 1
-		s.moveCache[extraHash] = []*minimalMove{mm}
+		s.moveCache[hashKey] = []*minimalMove{mm}
 		return mm
 	}
 
@@ -368,7 +371,7 @@ func (s *Solver) playToMinimalMove(p *move.Move) *minimalMove {
 		hashKey: uint32(hashKey),
 	}
 	s.mmCount += 1
-	s.moveCache[extraHash] = append(s.moveCache[extraHash], mm)
+	s.moveCache[hashKey] = append(s.moveCache[hashKey], mm)
 	return mm
 }
 

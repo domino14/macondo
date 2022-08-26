@@ -1,0 +1,8 @@
+local set_res = macondo_set('lexicon CSW15')
+print(set_res)
+local load_res = macondo_load('xt 25243')
+print(load_res)
+local res = macondo_turn('22')
+print(res)
+local res = macondo_gen('1')
+print(res)

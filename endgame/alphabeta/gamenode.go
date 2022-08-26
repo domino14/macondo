@@ -63,8 +63,10 @@ type GameNode struct {
 const (
 	// constants used for the hash key for a minimal move.
 	mmRowShift      = 5
-	mmVerticalShift = 10
-	mmScoreShift    = 11
+	mmTileShift     = 10
+	mmLeaveShift    = 17
+	mmVerticalShift = 24
+	mmScoreShift    = 25
 
 	mmColBitmask = (1 << 5) - 1
 )
