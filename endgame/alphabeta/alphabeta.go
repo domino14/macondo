@@ -421,6 +421,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 				log.Debug().Msgf("Spread at beginning of endgame: %v", s.game.CurrentSpread())
 				log.Debug().Msgf("Maximizing player is: %v", s.game.PlayerOnTurn())
 				s.currentIDDepth = p
+				// Favor shorter sequences (higher-depth searches: see alphabeta)
 				s.rootNode.hashKey = uint64(s.currentIDDepth)
 				bestNode, err := s.alphabeta(ctx, s.rootNode, p, float32(-Infinity), float32(Infinity), true)
 				if err != nil {
@@ -442,6 +443,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 		} else {
 			s.currentIDDepth = 0
 			s.lastPrincipalVariation = nil
+			// Favor shorter sequences (higher-depth searches: see alphabeta)
 			s.rootNode.hashKey = uint64(s.currentIDDepth)
 			bestNode, err := s.alphabeta(ctx, s.rootNode, plies, float32(-Infinity), float32(Infinity), true)
 			if err != nil {
@@ -508,7 +510,8 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 			s.game.PlayMove(play, false, 0)
 			hashKey := node.hashKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave())
 			wn := s.nodeCache[hashKey]
-			if wn == nil {
+			// Favor shorter sequences (higher-depth searches)
+			if wn == nil || int(wn.GetSequenceLength() - 3) > (s.game.Turn() - s.initialTurnNum) {
 				child := new(GameNode)
 				child.move = play
 				child.parent = node
@@ -555,7 +558,8 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 			s.game.PlayMove(play, false, 0)
 			hashKey := node.hashKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave())
 			wn := s.nodeCache[hashKey]
-			if wn == nil {
+			// Favor shorter sequences (higher-depth searches)
+			if wn == nil || int(wn.GetSequenceLength() - 3) > (s.game.Turn() - s.initialTurnNum) {
 				child := new(GameNode)
 				child.move = play
 				child.parent = node

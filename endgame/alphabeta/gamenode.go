@@ -81,6 +81,10 @@ func (g *GameNode) Parent() *GameNode {
 	return g.parent
 }
 
+func (g *GameNode) GetSequenceLength() uint8 {
+	return g.heuristicValue.sequenceLength
+}
+
 func (g *GameNode) String() string {
 	// This function allocates but is only used for test purposes.
 	return fmt.Sprintf(
