@@ -56,6 +56,7 @@ type GameNode struct {
 	parent         *GameNode
 	heuristicValue nodeValue
 	valuation      float32 // valuation is an initial estimate of the value of a move.
+	hashKey        uint64
 }
 
 func (g *GameNode) Copy() *GameNode {

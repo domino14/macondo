@@ -16,6 +16,7 @@ import (
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
+	"github.com/domino14/macondo/zobrist"
 	"github.com/rs/zerolog/log"
 )
 
@@ -64,9 +65,11 @@ var ErrNoEndgameSolution = errors.New("no endgame solution found")
 
 // Solver implements the minimax + alphabeta algorithm.
 type Solver struct {
+	zobrist          zobrist.Zobrist
 	stmMovegen       movegen.MoveGenerator
 	otsMovegen       movegen.MoveGenerator
 	game             *game.Game
+	nodeCache        map[uint64]*GameNode
 	totalNodes       int
 	initialSpread    int
 	initialTurnNum   int
@@ -117,9 +120,12 @@ func min(x, y float32) float32 {
 
 // Init initializes the solver
 func (s *Solver) Init(m1 movegen.MoveGenerator, m2 movegen.MoveGenerator, game *game.Game, cfg *config.Config) error {
+	s.zobrist = zobrist.Zobrist{}
+	s.zobrist.Initialize(game.Board().Dim(), alphabet.MaxAlphabetSize+1, alphabet.MaxAlphabetSize+1)
 	s.stmMovegen = m1
 	s.otsMovegen = m2
 	s.game = game
+	s.nodeCache = make(map[uint64]*GameNode)
 	s.totalNodes = 0
 	s.iterativeDeepeningOn = true
 
@@ -379,7 +385,9 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 
 	// technically the children are the actual board _states_ but
 	// we don't keep track of those exactly
-	s.rootNode = &GameNode{}
+	s.rootNode = &GameNode{
+		hashKey: uint64(0),
+	}
 	// the root node is basically the board state prior to making any moves.
 	// the children of these nodes are the board states after every move.
 	// however we treat the children as those actual moves themsselves.
@@ -413,6 +421,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 				log.Debug().Msgf("Spread at beginning of endgame: %v", s.game.CurrentSpread())
 				log.Debug().Msgf("Maximizing player is: %v", s.game.PlayerOnTurn())
 				s.currentIDDepth = p
+				s.rootNode.hashKey = uint64(s.currentIDDepth)
 				bestNode, err := s.alphabeta(ctx, s.rootNode, p, float32(-Infinity), float32(Infinity), true)
 				if err != nil {
 					log.Err(err).Msg("alphabeta-error")
@@ -433,6 +442,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 		} else {
 			s.currentIDDepth = 0
 			s.lastPrincipalVariation = nil
+			s.rootNode.hashKey = uint64(s.currentIDDepth)
 			bestNode, err := s.alphabeta(ctx, s.rootNode, plies, float32(-Infinity), float32(Infinity), true)
 			if err != nil {
 				log.Err(err).Msg("alphabeta-error")
@@ -455,6 +465,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 		err = ErrNoEndgameSolution
 	}
 	// Go down tree and find best variation:
+	log.Debug().Msgf("Size of node cache map: %d", len(s.nodeCache))
 	log.Debug().Msgf("Number of expanded nodes: %d", s.totalNodes)
 	log.Debug().Msgf("Allocated minimal moves: %d", s.mmCount)
 
@@ -495,17 +506,25 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 		for _, play := range plays {
 			// Play the child
 			s.game.PlayMove(play, false, 0)
-
-			child := new(GameNode)
-			child.move = play
-			child.parent = node
-			child.valuation = play.Valuation()
-			wn, err := s.alphabeta(ctx, child, depth-1, α, β, false)
-			if err != nil {
+			hashKey := node.hashKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave())
+			wn := s.nodeCache[hashKey]
+			if wn == nil {
+				child := new(GameNode)
+				child.move = play
+				child.parent = node
+				child.valuation = play.Valuation()
+				child.hashKey = hashKey
+				best, err := s.alphabeta(ctx, child, depth-1, α, β, false)
+				if err != nil {
+					s.game.UnplayLastMove()
+					return nil, err
+				}
 				s.game.UnplayLastMove()
-				return nil, err
+				wn = best
+				s.nodeCache[hashKey] = wn
+			} else {
+				s.game.UnplayLastMove()
 			}
-			s.game.UnplayLastMove()
 
 			if wn.heuristicValue.value > value {
 				value = wn.heuristicValue.value
@@ -534,16 +553,25 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 		var winningNode *GameNode
 		for _, play := range plays {
 			s.game.PlayMove(play, false, 0)
-			child := new(GameNode)
-			child.move = play
-			child.parent = node
-			child.valuation = play.Valuation()
-			wn, err := s.alphabeta(ctx, child, depth-1, α, β, true)
-			if err != nil {
+			hashKey := node.hashKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave())
+			wn := s.nodeCache[hashKey]
+			if wn == nil {
+				child := new(GameNode)
+				child.move = play
+				child.parent = node
+				child.valuation = play.Valuation()
+				child.hashKey = hashKey
+				best, err := s.alphabeta(ctx, child, depth-1, α, β, true)
+				if err != nil {
+					s.game.UnplayLastMove()
+					return nil, err
+				}
 				s.game.UnplayLastMove()
-				return nil, err
+				wn = best
+				s.nodeCache[hashKey] = wn
+			} else {
+				s.game.UnplayLastMove()
 			}
-			s.game.UnplayLastMove()
 			if wn.heuristicValue.value < value {
 				value = wn.heuristicValue.value
 				winningNode = wn.Copy()

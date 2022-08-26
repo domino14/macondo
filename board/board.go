@@ -832,6 +832,10 @@ func (g *GameBoard) CopyFrom(b *GameBoard) {
 	g.colMul = b.colMul
 }
 
+func (g *GameBoard) GetSquares() []alphabet.MachineLetter {
+	return g.squares
+}
+
 func (g *GameBoard) GetTilesPlayed() int {
 	return g.tilesPlayed
 }
