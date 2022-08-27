@@ -593,7 +593,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, depth int, pli
 
 			// if !s.disablePruning {
 			β = min(β, value)
-			if α <= β {
+			if α >= β {
 				break // alpha cut-off
 			}
 			// }
