@@ -445,8 +445,6 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 					// Iterative deepening is done
 					s.iterativeDeepeningOn = false
 				}
-				// Favor shorter sequences (higher-depth searches: see alphabeta)
-				s.rootNode.hashKey = uint64(s.currentIDDepth)
 				bestNode, err := s.alphabeta(ctx, s.rootNode, p, float32(-Infinity), float32(Infinity), true)
 				if err != nil {
 					log.Err(err).Msg("alphabeta-error")
@@ -467,8 +465,6 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 		} else {
 			s.currentIDDepth = 0
 			s.lastPrincipalVariation = nil
-			// Favor shorter sequences (higher-depth searches: see alphabeta)
-			s.rootNode.hashKey = uint64(s.currentIDDepth)
 			bestNode, err := s.alphabeta(ctx, s.rootNode, plies, float32(-Infinity), float32(Infinity), true)
 			if err != nil {
 				log.Err(err).Msg("alphabeta-error")
@@ -535,7 +531,7 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 			hashKey := node.hashKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave())
 			wn := s.nodeCache[hashKey]
 			// Favor shorter sequences (higher-depth searches)
-			if wn == nil || int(wn.GetSequenceLength() - 3) > (s.game.Turn() - s.initialTurnNum) {
+			if wn == nil || int(wn.GetDepth() - 3) > (s.game.Turn() - s.initialTurnNum) {
 				child := new(GameNode)
 				child.move = play
 				child.parent = node
@@ -569,8 +565,7 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 		}
 		node.heuristicValue = nodeValue{
 			value:          value,
-			knownEnd:       winningNode.heuristicValue.knownEnd,
-			sequenceLength: winningNode.heuristicValue.sequenceLength}
+			knownEnd:       winningNode.heuristicValue.knownEnd}
 
 		return winningNode, nil
 	} else {
@@ -583,7 +578,7 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 			hashKey := node.hashKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave())
 			wn := s.nodeCache[hashKey]
 			// Favor shorter sequences (higher-depth searches)
-			if wn == nil || int(wn.GetSequenceLength() - 3) > (s.game.Turn() - s.initialTurnNum) {
+			if wn == nil || int(wn.GetDepth() - 3) > (s.game.Turn() - s.initialTurnNum) {
 				child := new(GameNode)
 				child.move = play
 				child.parent = node
@@ -614,8 +609,7 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 		}
 		node.heuristicValue = nodeValue{
 			value:          value,
-			knownEnd:       winningNode.heuristicValue.knownEnd,
-			sequenceLength: winningNode.heuristicValue.sequenceLength}
+			knownEnd:       winningNode.heuristicValue.knownEnd}
 		return winningNode, nil
 	}
 }
