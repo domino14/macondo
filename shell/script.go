@@ -98,6 +98,23 @@ func Gid(L *lua.LState) int {
 	return 1
 }
 
+func Endgame(L *lua.LState) int {
+	lv := L.ToString(1)
+	sc := getShell(L)
+	cmd, err := extractFields("endgame " + lv)
+	if err != nil {
+		log.Err(err).Msg("error-parsing-endgame")
+		return 0
+	}
+	r, err := sc.endgame(cmd)
+	if err != nil {
+		log.Err(err).Msg("error-executing-endgame")
+		return 0
+	}
+	L.Push(lua.LString(r.message))
+	return 1
+}
+
 func (sc *ShellController) script(cmd *shellcmd) (*Response, error) {
 	if cmd.args == nil {
 		return nil, errors.New("need arguments for script")
@@ -117,6 +134,7 @@ func (sc *ShellController) script(cmd *shellcmd) (*Response, error) {
 	L.SetGlobal("macondo_gid", L.NewFunction(Gid))
 	L.SetGlobal("macondo_set", L.NewFunction(Set))
 	L.SetGlobal("macondo_turn", L.NewFunction(Turn))
+	L.SetGlobal("macondo_endgame", L.NewFunction(Endgame))
 
 	if err := L.DoFile(filepath); err != nil {
 		log.Err(err).Msg("there was a error")

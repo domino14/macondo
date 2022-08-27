@@ -9,6 +9,7 @@ The following commands are currently supported by Lua:
     - load
     - set
     - turn
+    - endgame
 
 To invoke the command with Lua, prefix it with the macondo_ namespace.
 For example, macondo_gen, macondo_load, macondo_set, and macondo_turn.
