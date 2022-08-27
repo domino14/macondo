@@ -6,7 +6,7 @@ import (
 	"github.com/domino14/macondo/alphabet"
 )
 
-const bignum = 1 << 63
+const bignum = 1 << 63 - 1
 
 // generate a zobrist hash for a crossword game position.
 // https://en.wikipedia.org/wiki/Zobrist_hashing
@@ -31,18 +31,18 @@ func (z *Zobrist) Initialize(boardDim int, numtiles int, numblankletters int) {
 		// one of the tiles in the distribution.
 		z.posTable[i] = make([]uint64, 256)
 		for j := 0; j < 256; j++ {
-			z.posTable[i][j] = frand.Uint64n(bignum)
+			z.posTable[i][j] = frand.Uint64n(bignum) + 1
 		}
 	}
 	z.rackTable = make([][]uint64, 7 /*this should be a constant somewhere maybe...*/)
 	for i := 0; i < 7; i++ {
 		z.rackTable[i] = make([]uint64, 256)
 		for j := 0; j < 256; j++ {
-			z.rackTable[i][j] = frand.Uint64n(bignum)
+			z.rackTable[i][j] = frand.Uint64n(bignum) + 1
 		}
 	}
-	z.p2ToMove = frand.Uint64n(bignum)
-	z.lastMoveWasZero = frand.Uint64n(bignum)
+	z.p2ToMove = frand.Uint64n(bignum) + 1
+	z.lastMoveWasZero = frand.Uint64n(bignum) + 1
 }
 
 func (z *Zobrist) Hash(squares alphabet.MachineWord, leave alphabet.MachineWord, isPass bool) uint64 {
