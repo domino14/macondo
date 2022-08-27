@@ -45,13 +45,16 @@ func (z *Zobrist) Initialize(boardDim int, numtiles int, numblankletters int) {
 	z.lastMoveWasZero = frand.Uint64n(bignum)
 }
 
-func (z *Zobrist) Hash(squares alphabet.MachineWord, leave alphabet.MachineWord) uint64 {
+func (z *Zobrist) Hash(squares alphabet.MachineWord, leave alphabet.MachineWord, isPass bool) uint64 {
 	key := z.p2ToMove
 	for i, letter := range squares {
 		key ^= z.posTable[i][letter]
 	}
 	for i, letter := range leave {
 		key ^= z.rackTable[i][letter]
+	}
+	if isPass {
+		key ^= z.lastMoveWasZero
 	}
 	return key
 }

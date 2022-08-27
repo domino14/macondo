@@ -524,7 +524,7 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, plies
 		for _, play := range plays {
 			// Play the child
 			s.game.PlayMove(play, false, 0)
-			hashKey := node.hashKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave())
+			hashKey := node.hashKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave(), play.TilesPlayed() == 0)
 			wn := s.nodeCache[hashKey]
 			// Favor higher-depth searches
 			if wn == nil || wn.GetDepth() < uint8(depth-1) {
@@ -571,7 +571,7 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, plies
 		var winningNode *GameNode
 		for _, play := range plays {
 			s.game.PlayMove(play, false, 0)
-			hashKey := node.hashKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave())
+			hashKey := node.hashKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave(), play.TilesPlayed() == 0)
 			wn := s.nodeCache[hashKey]
 			// Favor higher-depth searches
 			if wn == nil || wn.GetDepth() < uint8(depth-1) {
