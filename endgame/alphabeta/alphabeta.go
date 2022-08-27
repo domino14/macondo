@@ -244,15 +244,26 @@ func (s *Solver) generateSTMPlays(parent *GameNode, depth int) []*move.Move {
 	board := s.game.Board()
 	ld := s.game.Bag().LetterDistribution()
 
-	s.stmMovegen.GenAll(stmRack, false)
-	sideToMovePlays := s.addPass(s.stmMovegen.Plays(), s.game.PlayerOnTurn())
-
+	sideToMovePlays := s.stmMovegen.GenAll(stmRack, false)
+	if stmRack.NumTiles() > 1 && (s.iterativeDeepeningOn || depth > 1 || parent.move == nil || len(parent.move.Tiles()) == 0) {
+		// If opponent just scored and depth is 1, "6-pass" scoring is not available.
+		// Skip adding pass if player has an out play ("6-pass" scoring never outperforms an out play).
+		// This is more about "don't search a dubious pass subtree" than about memory allocation.
+		if !containsOutPlay(sideToMovePlays, int(numTilesOnRack)) {
+			sideToMovePlays = s.addPass(sideToMovePlays, s.game.PlayerOnTurn())
+		}
+	}
 	// log.Debug().Msgf("stm plays %v", sideToMovePlays)
 	if !s.complexEvaluation {
-		// A simple evaluation function is a very dumb, but fast, function
-		// of score and tiles played. /shrug
-		for _, m := range s.stmMovegen.Plays() {
-			m.SetValuation(float32(m.Score() + 3*m.TilesPlayed()))
+		// Static evaluation must be fast and resource-efficient
+		for _, m := range sideToMovePlays {
+			if depth > 2 {
+				m.SetValuation(float32(m.Score() + 3*m.TilesPlayed()))
+			} else if m.TilesPlayed() == int(numTilesOnRack) {
+				m.SetValuation(float32(m.Score() + 2*otherRack.ScoreOn(ld)))
+			} else {
+				m.SetValuation(float32(m.Score() - 2*m.Leave().Score(ld)))
+			}
 		}
 		sort.Slice(sideToMovePlays, func(i, j int) bool {
 			// if s.currentIDDepth
@@ -343,6 +354,15 @@ func (s *Solver) generateSTMPlays(parent *GameNode, depth int) []*move.Move {
 	return stmCopy
 }
 
+func containsOutPlay(plays []*move.Move, numTilesOnRack int) bool {
+	for _, m := range plays {
+		if m.TilesPlayed() == numTilesOnRack {
+		        return true
+		}
+	}
+	return false
+}
+
 func (s *Solver) findBestSequence(endNode *GameNode) []*move.Move {
 	// findBestSequence assumes we have already run alphabeta / iterative deepening
 	seq := []*move.Move{}
@@ -421,6 +441,10 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 				log.Debug().Msgf("Spread at beginning of endgame: %v", s.game.CurrentSpread())
 				log.Debug().Msgf("Maximizing player is: %v", s.game.PlayerOnTurn())
 				s.currentIDDepth = p
+				if p == plies {
+					// Iterative deepening is done
+					s.iterativeDeepeningOn = false
+				}
 				// Favor shorter sequences (higher-depth searches: see alphabeta)
 				s.rootNode.hashKey = uint64(s.currentIDDepth)
 				bestNode, err := s.alphabeta(ctx, s.rootNode, p, float32(-Infinity), float32(Infinity), true)
