@@ -545,7 +545,7 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 				}
 				s.game.UnplayLastMove()
 				wn = best
-				s.nodeCache[hashKey] = wn
+				s.nodeCache[hashKey] = child
 			} else {
 				s.game.UnplayLastMove()
 			}
@@ -592,7 +592,7 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 				}
 				s.game.UnplayLastMove()
 				wn = best
-				s.nodeCache[hashKey] = wn
+				s.nodeCache[hashKey] = child
 			} else {
 				s.game.UnplayLastMove()
 			}
