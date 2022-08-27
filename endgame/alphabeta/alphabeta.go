@@ -235,7 +235,7 @@ func (s *Solver) addPass(plays []*move.Move, ponturn int) []*move.Move {
 	return plays
 }
 
-func (s *Solver) generateSTMPlays(parent *GameNode, depth int) []*move.Move {
+func (s *Solver) generateSTMPlays(parent *GameNode, depth int, plies int) []*move.Move {
 	// STM means side-to-move
 	stmRack := s.game.RackFor(s.game.PlayerOnTurn())
 	pnot := (s.game.PlayerOnTurn() + 1) % s.game.NumPlayers()
@@ -245,7 +245,7 @@ func (s *Solver) generateSTMPlays(parent *GameNode, depth int) []*move.Move {
 	ld := s.game.Bag().LetterDistribution()
 
 	sideToMovePlays := s.stmMovegen.GenAll(stmRack, false)
-	if stmRack.NumTiles() > 1 && (s.iterativeDeepeningOn || depth > 1 || parent.move == nil || len(parent.move.Tiles()) == 0) {
+	if stmRack.NumTiles() > 1 && (plies > 1 || parent.move == nil || len(parent.move.Tiles()) == 0) {
 		// If opponent just scored and depth is 1, "6-pass" scoring is not available.
 		// Skip adding pass if player has an out play ("6-pass" scoring never outperforms an out play).
 		// This is more about "don't search a dubious pass subtree" than about memory allocation.
@@ -441,11 +441,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 				log.Debug().Msgf("Spread at beginning of endgame: %v", s.game.CurrentSpread())
 				log.Debug().Msgf("Maximizing player is: %v", s.game.PlayerOnTurn())
 				s.currentIDDepth = p
-				if p == plies {
-					// Iterative deepening is done
-					s.iterativeDeepeningOn = false
-				}
-				bestNode, err := s.alphabeta(ctx, s.rootNode, p, float32(-Infinity), float32(Infinity), true)
+				bestNode, err := s.alphabeta(ctx, s.rootNode, p, plies, float32(-Infinity), float32(Infinity), true)
 				if err != nil {
 					log.Err(err).Msg("alphabeta-error")
 					break
@@ -465,7 +461,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 		} else {
 			s.currentIDDepth = 0
 			s.lastPrincipalVariation = nil
-			bestNode, err := s.alphabeta(ctx, s.rootNode, plies, float32(-Infinity), float32(Infinity), true)
+			bestNode, err := s.alphabeta(ctx, s.rootNode, plies, plies, float32(-Infinity), float32(Infinity), true)
 			if err != nil {
 				log.Err(err).Msg("alphabeta-error")
 			} else {
@@ -505,7 +501,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 	return bestV, bestSeq, err
 }
 
-func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α float32, β float32,
+func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, plies int, α float32, β float32,
 	maximizingPlayer bool) (*GameNode, error) {
 
 	select {
@@ -523,7 +519,7 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 
 	if maximizingPlayer {
 		value := float32(-Infinity)
-		plays := s.generateSTMPlays(node, depth)
+		plays := s.generateSTMPlays(node, depth, plies)
 		var winningNode *GameNode
 		for _, play := range plays {
 			// Play the child
@@ -538,7 +534,7 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 				child.valuation = play.Valuation()
 				child.depth = uint8(depth-1)
 				child.hashKey = hashKey
-				best, err := s.alphabeta(ctx, child, depth-1, α, β, false)
+				best, err := s.alphabeta(ctx, child, depth-1, plies-1, α, β, false)
 				if err != nil {
 					s.game.UnplayLastMove()
 					return nil, err
@@ -571,7 +567,7 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 	} else {
 		// Otherwise, not maximizing
 		value := float32(Infinity)
-		plays := s.generateSTMPlays(node, depth)
+		plays := s.generateSTMPlays(node, depth, plies)
 		var winningNode *GameNode
 		for _, play := range plays {
 			s.game.PlayMove(play, false, 0)
@@ -585,7 +581,7 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 				child.valuation = play.Valuation()
 				child.depth = uint8(depth-1)
 				child.hashKey = hashKey
-				best, err := s.alphabeta(ctx, child, depth-1, α, β, true)
+				best, err := s.alphabeta(ctx, child, depth-1, plies-1, α, β, true)
 				if err != nil {
 					s.game.UnplayLastMove()
 					return nil, err
