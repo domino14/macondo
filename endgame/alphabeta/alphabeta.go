@@ -530,12 +530,13 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 			s.game.PlayMove(play, false, 0)
 			hashKey := node.hashKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave())
 			wn := s.nodeCache[hashKey]
-			// Favor shorter sequences (higher-depth searches)
-			if wn == nil || int(wn.GetDepth() - 1) > (s.game.Turn() - s.initialTurnNum) {
+			// Favor higher-depth searches
+			if wn == nil || wn.GetDepth() < uint8(depth-1) {
 				child := new(GameNode)
 				child.move = play
 				child.parent = node
 				child.valuation = play.Valuation()
+				child.depth = uint8(depth-1)
 				child.hashKey = hashKey
 				best, err := s.alphabeta(ctx, child, depth-1, α, β, false)
 				if err != nil {
@@ -548,7 +549,6 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 			} else {
 				s.game.UnplayLastMove()
 			}
-
 			if wn.heuristicValue.value > value {
 				value = wn.heuristicValue.value
 				// I don't know how to make this algorithm not allocate, but
@@ -577,12 +577,13 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 			s.game.PlayMove(play, false, 0)
 			hashKey := node.hashKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave())
 			wn := s.nodeCache[hashKey]
-			// Favor shorter sequences (higher-depth searches)
-			if wn == nil || int(wn.GetDepth() - 1) > (s.game.Turn() - s.initialTurnNum) {
+			// Favor higher-depth searches
+			if wn == nil || wn.GetDepth() < uint8(depth-1) {
 				child := new(GameNode)
 				child.move = play
 				child.parent = node
 				child.valuation = play.Valuation()
+				child.depth = uint8(depth-1)
 				child.hashKey = hashKey
 				best, err := s.alphabeta(ctx, child, depth-1, α, β, true)
 				if err != nil {
