@@ -121,7 +121,6 @@ func min(x, y float32) float32 {
 // Init initializes the solver
 func (s *Solver) Init(m1 movegen.MoveGenerator, m2 movegen.MoveGenerator, game *game.Game, cfg *config.Config) error {
 	s.zobrist = zobrist.Zobrist{}
-	s.zobrist.Initialize(game.Board().Dim(), alphabet.MaxAlphabetSize+1, alphabet.MaxAlphabetSize+1)
 	s.stmMovegen = m1
 	s.otsMovegen = m2
 	s.game = game
@@ -392,6 +391,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 
 	tstart := time.Now()
 	s.mmCount = 0
+	s.zobrist.Initialize(s.game.Board().Dim(), alphabet.MaxAlphabetSize+1, alphabet.MaxAlphabetSize+1)
 	// Generate children moves.
 	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
 	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)
