@@ -520,7 +520,7 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, plies
 	if maximizingPlayer {
 		value := float32(-Infinity)
 		plays := s.generateSTMPlays(node, depth, plies)
-		var winningNode *GameNode
+		var maxNode *GameNode
 		for _, play := range plays {
 			// Play the child
 			s.game.PlayMove(play, false, 0)
@@ -549,7 +549,7 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, plies
 				value = wn.heuristicValue.value
 				// I don't know how to make this algorithm not allocate, but
 				// at least these homeless nodes will get collected.
-				winningNode = wn.Copy()
+				maxNode = wn.Copy()
 			}
 
 			// if !s.disablePruning {
@@ -561,14 +561,13 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, plies
 		}
 		node.heuristicValue = nodeValue{
 			value:          value,
-			knownEnd:       winningNode.heuristicValue.knownEnd}
-
-		return winningNode, nil
+			knownEnd:       maxNode.heuristicValue.knownEnd}
+		return maxNode, nil
 	} else {
 		// Otherwise, not maximizing
 		value := float32(Infinity)
 		plays := s.generateSTMPlays(node, depth, plies)
-		var winningNode *GameNode
+		var minNode *GameNode
 		for _, play := range plays {
 			s.game.PlayMove(play, false, 0)
 			hashKey := node.hashKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave(), play.TilesPlayed() == 0)
@@ -594,7 +593,7 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, plies
 			}
 			if wn.heuristicValue.value < value {
 				value = wn.heuristicValue.value
-				winningNode = wn.Copy()
+				minNode = wn.Copy()
 			}
 
 			// if !s.disablePruning {
@@ -606,8 +605,8 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, plies
 		}
 		node.heuristicValue = nodeValue{
 			value:          value,
-			knownEnd:       winningNode.heuristicValue.knownEnd}
-		return winningNode, nil
+			knownEnd:       minNode.heuristicValue.knownEnd}
+		return minNode, nil
 	}
 }
 

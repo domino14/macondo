@@ -19,6 +19,10 @@ func (nv *nodeValue) String() string {
 	return fmt.Sprintf("<val: %v knownEnd: %v>", nv.value, nv.knownEnd)
 }
 
+func (nv *nodeValue) negate() {
+	nv.value = -nv.value
+}
+
 func (nv *nodeValue) less(other *nodeValue) bool {
 	if nv.value != other.value {
 		return nv.value < other.value
@@ -103,12 +107,14 @@ func (g *GameNode) calculateValue(s *Solver) {
 	// The initial spread is always from the maximizing point of view.
 	initialSpread := s.initialSpread
 	spreadNow := s.game.PointsFor(playerWhoMadeMove) - s.game.PointsFor(opponent)
+	negateHeurVal := false
 	if playerWhoMadeMove != s.maximizingPlayer {
-		// Alpha-Beta (min) returns a negated evaluation.
-		// From the maximizing player's perspective, spreadNow and moveVal
-		// have already been negated, so negate initialSpread too.
+		// Alpha-Beta (min) measures spread from the perspective of the
+		// player who made the move, measures improvement, negates it,
+		// then selects the minimum (least improved for opponent) node.
 		// https://www.chessprogramming.org/Alpha-Beta#Max_versus_Min
 		initialSpread = -initialSpread
+		negateHeurVal = true
 	}
 	gameOver := s.game.Playing() != pb.PlayState_PLAYING
 	// If the game is over, the value should just be the spread change.
@@ -136,5 +142,14 @@ func (g *GameNode) calculateValue(s *Solver) {
 			value:          float32(spreadNow) + moveVal - float32(initialSpread),
 			knownEnd:       false,
 			isPass:         g.move.Action() == move.MoveTypePass}
+	}
+	if negateHeurVal {
+		// The maximizing player is always "us" - the player that we are
+		// solving the endgame for. So if this not the maximizing node,
+		// we want to negate the heuristic value, as it needs to be as
+		// negative as possible relative to "us". I know, minimax is
+		// hard to reason about, but I think this makes sense. At least
+		// it seems to work.
+		g.heuristicValue.negate()
 	}
 }
