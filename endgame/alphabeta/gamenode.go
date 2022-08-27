@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
 )
 
@@ -51,7 +52,6 @@ type GameNode struct {
 	move           *move.Move
 	parent         *GameNode
 	heuristicValue nodeValue
-	valuation      float32 // valuation is an initial estimate of the value of a move.
 	depth          uint8
 	hashKey        uint64
 }
@@ -63,7 +63,6 @@ func (g *GameNode) Copy() *GameNode {
 		move:           mv,
 		parent:         g.parent,
 		heuristicValue: g.heuristicValue,
-		valuation:      g.valuation,
 		depth:          g.depth,
 		hashKey:        g.hashKey,
 	}
@@ -73,7 +72,6 @@ func (g *GameNode) CopyFrom(o *GameNode) {
 	g.heuristicValue = o.heuristicValue
 	g.move.CopyFrom(o.move)
 	g.parent = o.parent
-	g.valuation = o.valuation
 	g.depth = o.depth
 	g.hashKey = o.hashKey
 }
@@ -93,20 +91,20 @@ func (g *GameNode) String() string {
 		g.move, g.heuristicValue)
 }
 
-func (g *GameNode) calculateValue(s *Solver, negateHeurVal bool) {
+func (g *GameNode) calculateValue(s *Solver, game *game.Game, negateHeurVal bool) {
 	// calculate the heuristic value of this node, and store it.
-	// we start with a max node. At 1-ply (and all odd plies), maximizing
-	// is always false.
+	// we start with a max node. At 1-ply (and all odd plies),
+	// negateHeurVal is always false.
 
 	// Because calculateValue is called after PlayMove has been called,
 	// the "playerOnTurn" is actually not the player who made the move
 	// whose value we are calculating.
-	opponent := s.game.PlayerOnTurn()
-	playerWhoMadeMove := (opponent + 1) % (s.game.NumPlayers())
+	opponent := game.PlayerOnTurn()
+	playerWhoMadeMove := (opponent + 1) % (game.NumPlayers())
 
 	// The initial spread is always from the maximizing point of view.
 	initialSpread := s.initialSpread
-	spreadNow := s.game.PointsFor(playerWhoMadeMove) - s.game.PointsFor(opponent)
+	spreadNow := game.PointsFor(playerWhoMadeMove) - game.PointsFor(opponent)
 	if negateHeurVal {
 		// Alpha-Beta (min) measures spread from the perspective of the
 		// player who made the move, measures improvement, negates it,
@@ -114,7 +112,7 @@ func (g *GameNode) calculateValue(s *Solver, negateHeurVal bool) {
 		// https://www.chessprogramming.org/Alpha-Beta#Max_versus_Min
 		initialSpread = -initialSpread
 	}
-	gameOver := s.game.Playing() != pb.PlayState_PLAYING
+	gameOver := game.Playing() != pb.PlayState_PLAYING
 	// If the game is over, the value should just be the spread change.
 	if gameOver {
 		// Technically no one is on turn, but the player NOT on turn is
@@ -127,17 +125,8 @@ func (g *GameNode) calculateValue(s *Solver, negateHeurVal bool) {
 			knownEnd:       true,
 			isPass:         g.move.Action() == move.MoveTypePass}
 	} else {
-		// The valuation is already an estimate of the overall gain or loss
-		// in spread for this move (if taken to the end of the game).
-
-		// `player` is NOT the one that just made a move.
-		ptValue := g.move.Score()
-		// don't double-count score; it's already in the valuation:
-		moveVal := g.valuation - float32(ptValue)
-		// What is the spread right now? The valuation should be relative
-		// to that.
 		g.heuristicValue = nodeValue{
-			value:          float32(spreadNow) + moveVal - float32(initialSpread),
+			value:          float32(spreadNow - initialSpread),
 			knownEnd:       false,
 			isPass:         g.move.Action() == move.MoveTypePass}
 	}
