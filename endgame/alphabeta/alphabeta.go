@@ -531,7 +531,7 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 			hashKey := node.hashKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave())
 			wn := s.nodeCache[hashKey]
 			// Favor shorter sequences (higher-depth searches)
-			if wn == nil || int(wn.GetDepth() - 3) > (s.game.Turn() - s.initialTurnNum) {
+			if wn == nil || int(wn.GetDepth() - 1) > (s.game.Turn() - s.initialTurnNum) {
 				child := new(GameNode)
 				child.move = play
 				child.parent = node
@@ -578,7 +578,7 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 			hashKey := node.hashKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave())
 			wn := s.nodeCache[hashKey]
 			// Favor shorter sequences (higher-depth searches)
-			if wn == nil || int(wn.GetDepth() - 3) > (s.game.Turn() - s.initialTurnNum) {
+			if wn == nil || int(wn.GetDepth() - 1) > (s.game.Turn() - s.initialTurnNum) {
 				child := new(GameNode)
 				child.move = play
 				child.parent = node
