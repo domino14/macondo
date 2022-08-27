@@ -265,6 +265,7 @@ func (s *Solver) generateSTMPlays(parent *GameNode, depth int, plies int) []*mov
 			}
 		}
 		sort.Slice(sideToMovePlays, func(i, j int) bool {
+			// if s.currentIDDepth
 			return sideToMovePlays[i].Valuation() > sideToMovePlays[j].Valuation()
 		})
 
@@ -361,8 +362,8 @@ func containsOutPlay(plays []*move.Move, numTilesOnRack int) bool {
 	return false
 }
 
-func (s *Solver) extractSequence(endNode *GameNode) []*move.Move {
-	// extractSequence assumes we have already run alphabeta / iterative deepening
+func (s *Solver) findBestSequence(endNode *GameNode) []*move.Move {
+	// findBestSequence assumes we have already run alphabeta / iterative deepening
 	seq := []*move.Move{}
 	child := endNode
 	for {
@@ -372,6 +373,7 @@ func (s *Solver) extractSequence(endNode *GameNode) []*move.Move {
 			break
 		}
 	}
+
 	return seq
 }
 
@@ -446,7 +448,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 				} else {
 					bestNodeSoFar = bestNode
 					bestV = bestNode.heuristicValue.value
-					bestSeq = s.extractSequence(bestNode)
+					bestSeq = s.findBestSequence(bestNode)
 					s.lastPrincipalVariation = bestSeq
 
 					fmt.Printf("-- Spread swing estimate found after %d plies: %f", p, bestV)
@@ -464,7 +466,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 				log.Err(err).Msg("alphabeta-error")
 			} else {
 				bestV = bestNode.heuristicValue.value
-				bestSeq = s.extractSequence(bestNode)
+				bestSeq = s.findBestSequence(bestNode)
 			}
 		}
 
@@ -511,7 +513,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, depth int, pli
 	if depth == 0 || s.game.Playing() != pb.PlayState_PLAYING {
 		// s.game.Playing() happens if the game is over; i.e. if the
 		// parent node is terminal.
-		parent.calculateValue(s, s.game, maximizingPlayer)
+		parent.calculateValue(s, maximizingPlayer)
 		return parent, nil
 	}
 
@@ -524,11 +526,12 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, depth int, pli
 			s.game.PlayMove(play, false, 0)
 			hashKey := parent.hashKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave(), play.TilesPlayed() == 0)
 			node := s.nodeCache[hashKey]
-			// Favor deeper searches
+			// Favor higher-depth searches
 			if node == nil || node.GetDepth() < uint8(depth-1) {
 				child := new(GameNode)
 				child.move = play
 				child.parent = parent
+				child.valuation = play.Valuation()
 				child.depth = uint8(depth-1)
 				child.hashKey = hashKey
 				leaf, err := s.alphabeta(ctx, child, depth-1, plies-1, α, β, false)
@@ -565,11 +568,12 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, depth int, pli
 			s.game.PlayMove(play, false, 0)
 			hashKey := parent.hashKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave(), play.TilesPlayed() == 0)
 			node := s.nodeCache[hashKey]
-			// Favor deeper searches
+			// Favor higher-depth searches
 			if node == nil || node.GetDepth() < uint8(depth-1) {
 				child := new(GameNode)
 				child.move = play
 				child.parent = parent
+				child.valuation = play.Valuation()
 				child.depth = uint8(depth-1)
 				child.hashKey = hashKey
 				leaf, err := s.alphabeta(ctx, child, depth-1, plies-1, α, β, true)
