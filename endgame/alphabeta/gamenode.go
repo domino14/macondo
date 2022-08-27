@@ -51,7 +51,6 @@ type GameNode struct {
 	move           *move.Move
 	parent         *GameNode
 	heuristicValue nodeValue
-	valuation      float32 // valuation is an initial estimate of the value of a move.
 	depth          uint8
 	hashKey        uint64
 }
@@ -63,7 +62,6 @@ func (g *GameNode) Copy() *GameNode {
 		move:           mv,
 		parent:         g.parent,
 		heuristicValue: g.heuristicValue,
-		valuation:      g.valuation,
 		depth:          g.depth,
 		hashKey:        g.hashKey,
 	}
@@ -73,7 +71,6 @@ func (g *GameNode) CopyFrom(o *GameNode) {
 	g.heuristicValue = o.heuristicValue
 	g.move.CopyFrom(o.move)
 	g.parent = o.parent
-	g.valuation = o.valuation
 	g.depth = o.depth
 	g.hashKey = o.hashKey
 }
@@ -133,7 +130,7 @@ func (g *GameNode) calculateValue(s *Solver, negateHeurVal bool) {
 		// `player` is NOT the one that just made a move.
 		ptValue := g.move.Score()
 		// don't double-count score; it's already in the valuation:
-		moveVal := g.valuation - float32(ptValue)
+		moveVal := g.move.Valuation() - float32(ptValue)
 		// What is the spread right now? The valuation should be relative
 		// to that.
 		g.heuristicValue = nodeValue{

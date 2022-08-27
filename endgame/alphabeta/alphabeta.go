@@ -261,7 +261,7 @@ func (s *Solver) generateSTMPlays(parent *GameNode, depth int, plies int) []*mov
 			} else if m.TilesPlayed() == int(numTilesOnRack) {
 				m.SetValuation(float32(m.Score() + 2*otherRack.ScoreOn(ld)))
 			} else {
-				m.SetValuation(float32(m.Score() - 2*m.Leave().Score(ld)))
+				m.SetValuation(float32(m.Score()))
 			}
 		}
 		sort.Slice(sideToMovePlays, func(i, j int) bool {
@@ -526,12 +526,11 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, depth int, pli
 			s.game.PlayMove(play, false, 0)
 			hashKey := parent.hashKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave(), play.TilesPlayed() == 0)
 			node := s.nodeCache[hashKey]
-			// Favor higher-depth searches
+			// Favor deeper searches
 			if node == nil || node.GetDepth() < uint8(depth-1) {
 				child := new(GameNode)
 				child.move = play
 				child.parent = parent
-				child.valuation = play.Valuation()
 				child.depth = uint8(depth-1)
 				child.hashKey = hashKey
 				leaf, err := s.alphabeta(ctx, child, depth-1, plies-1, α, β, false)
@@ -568,12 +567,11 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, depth int, pli
 			s.game.PlayMove(play, false, 0)
 			hashKey := parent.hashKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave(), play.TilesPlayed() == 0)
 			node := s.nodeCache[hashKey]
-			// Favor higher-depth searches
+			// Favor deeper searches
 			if node == nil || node.GetDepth() < uint8(depth-1) {
 				child := new(GameNode)
 				child.move = play
 				child.parent = parent
-				child.valuation = play.Valuation()
 				child.depth = uint8(depth-1)
 				child.hashKey = hashKey
 				leaf, err := s.alphabeta(ctx, child, depth-1, plies-1, α, β, true)
