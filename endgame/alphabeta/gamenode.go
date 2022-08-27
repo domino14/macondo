@@ -93,7 +93,7 @@ func (g *GameNode) String() string {
 		g.move, g.heuristicValue)
 }
 
-func (g *GameNode) calculateValue(s *Solver) {
+func (g *GameNode) calculateValue(s *Solver, negateHeurVal bool) {
 	// calculate the heuristic value of this node, and store it.
 	// we start with a max node. At 1-ply (and all odd plies), maximizing
 	// is always false.
@@ -107,14 +107,12 @@ func (g *GameNode) calculateValue(s *Solver) {
 	// The initial spread is always from the maximizing point of view.
 	initialSpread := s.initialSpread
 	spreadNow := s.game.PointsFor(playerWhoMadeMove) - s.game.PointsFor(opponent)
-	negateHeurVal := false
-	if playerWhoMadeMove != s.maximizingPlayer {
+	if negateHeurVal {
 		// Alpha-Beta (min) measures spread from the perspective of the
 		// player who made the move, measures improvement, negates it,
 		// then selects the minimum (least improved for opponent) node.
 		// https://www.chessprogramming.org/Alpha-Beta#Max_versus_Min
 		initialSpread = -initialSpread
-		negateHeurVal = true
 	}
 	gameOver := s.game.Playing() != pb.PlayState_PLAYING
 	// If the game is over, the value should just be the spread change.

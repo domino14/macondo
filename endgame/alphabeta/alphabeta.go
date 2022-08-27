@@ -501,7 +501,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 	return bestV, bestSeq, err
 }
 
-func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, plies int, α float32, β float32,
+func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, depth int, plies int, α float32, β float32,
 	maximizingPlayer bool) (*GameNode, error) {
 
 	select {
@@ -512,44 +512,43 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, plies
 
 	if depth == 0 || s.game.Playing() != pb.PlayState_PLAYING {
 		// s.game.Playing() happens if the game is over; i.e. if the
-		// current node is terminal.
-		node.calculateValue(s)
-		return node, nil
+		// parent node is terminal.
+		parent.calculateValue(s, maximizingPlayer)
+		return parent, nil
 	}
 
 	if maximizingPlayer {
 		value := float32(-Infinity)
-		plays := s.generateSTMPlays(node, depth, plies)
+		plays := s.generateSTMPlays(parent, depth, plies)
 		var maxNode *GameNode
 		for _, play := range plays {
 			// Play the child
 			s.game.PlayMove(play, false, 0)
-			hashKey := node.hashKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave(), play.TilesPlayed() == 0)
-			wn := s.nodeCache[hashKey]
+			hashKey := parent.hashKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave(), play.TilesPlayed() == 0)
+			node := s.nodeCache[hashKey]
 			// Favor higher-depth searches
-			if wn == nil || wn.GetDepth() < uint8(depth-1) {
+			if node == nil || node.GetDepth() < uint8(depth-1) {
 				child := new(GameNode)
 				child.move = play
-				child.parent = node
+				child.parent = parent
 				child.valuation = play.Valuation()
 				child.depth = uint8(depth-1)
 				child.hashKey = hashKey
-				best, err := s.alphabeta(ctx, child, depth-1, plies-1, α, β, false)
+				leaf, err := s.alphabeta(ctx, child, depth-1, plies-1, α, β, false)
 				if err != nil {
 					s.game.UnplayLastMove()
 					return nil, err
 				}
+				child.heuristicValue = leaf.heuristicValue
 				s.game.UnplayLastMove()
-				wn = best
+				node = leaf
 				s.nodeCache[hashKey] = child
 			} else {
 				s.game.UnplayLastMove()
 			}
-			if wn.heuristicValue.value > value {
-				value = wn.heuristicValue.value
-				// I don't know how to make this algorithm not allocate, but
-				// at least these homeless nodes will get collected.
-				maxNode = wn.Copy()
+			if node.heuristicValue.value > value {
+				value = node.heuristicValue.value
+				maxNode = node
 			}
 
 			// if !s.disablePruning {
@@ -559,53 +558,48 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, plies
 			}
 			// }
 		}
-		node.heuristicValue = nodeValue{
-			value:          value,
-			knownEnd:       maxNode.heuristicValue.knownEnd}
 		return maxNode, nil
 	} else {
 		// Otherwise, not maximizing
 		value := float32(Infinity)
-		plays := s.generateSTMPlays(node, depth, plies)
+		plays := s.generateSTMPlays(parent, depth, plies)
 		var minNode *GameNode
 		for _, play := range plays {
 			s.game.PlayMove(play, false, 0)
-			hashKey := node.hashKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave(), play.TilesPlayed() == 0)
-			wn := s.nodeCache[hashKey]
+			hashKey := parent.hashKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave(), play.TilesPlayed() == 0)
+			node := s.nodeCache[hashKey]
 			// Favor higher-depth searches
-			if wn == nil || wn.GetDepth() < uint8(depth-1) {
+			if node == nil || node.GetDepth() < uint8(depth-1) {
 				child := new(GameNode)
 				child.move = play
-				child.parent = node
+				child.parent = parent
 				child.valuation = play.Valuation()
 				child.depth = uint8(depth-1)
 				child.hashKey = hashKey
-				best, err := s.alphabeta(ctx, child, depth-1, plies-1, α, β, true)
+				leaf, err := s.alphabeta(ctx, child, depth-1, plies-1, α, β, true)
 				if err != nil {
 					s.game.UnplayLastMove()
 					return nil, err
 				}
+				child.heuristicValue = leaf.heuristicValue
 				s.game.UnplayLastMove()
-				wn = best
+				node = leaf
 				s.nodeCache[hashKey] = child
 			} else {
 				s.game.UnplayLastMove()
 			}
-			if wn.heuristicValue.value < value {
-				value = wn.heuristicValue.value
-				minNode = wn.Copy()
+			if node.heuristicValue.value < value {
+				value = node.heuristicValue.value
+				minNode = node
 			}
 
 			// if !s.disablePruning {
 			β = min(β, value)
-			if α >= β {
+			if α <= β {
 				break // alpha cut-off
 			}
 			// }
 		}
-		node.heuristicValue = nodeValue{
-			value:          value,
-			knownEnd:       minNode.heuristicValue.knownEnd}
 		return minNode, nil
 	}
 }
