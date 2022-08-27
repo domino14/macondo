@@ -256,13 +256,7 @@ func (s *Solver) generateSTMPlays(parent *GameNode, depth int, plies int) []*mov
 	if !s.complexEvaluation {
 		// Static evaluation must be fast and resource-efficient
 		for _, m := range sideToMovePlays {
-			if depth > 2 {
-				m.SetValuation(float32(m.Score() + 3*m.TilesPlayed()))
-			} else if m.TilesPlayed() == int(numTilesOnRack) {
-				m.SetValuation(float32(m.Score() + 2*otherRack.ScoreOn(ld)))
-			} else {
-				m.SetValuation(float32(m.Score() - 2*m.Leave().Score(ld)))
-			}
+			m.SetValuation(float32(m.Score() + 3*m.TilesPlayed()))
 		}
 		sort.Slice(sideToMovePlays, func(i, j int) bool {
 			// if s.currentIDDepth
