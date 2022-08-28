@@ -5,7 +5,7 @@ Example:
     autoplay
     autoplay stop
     autoplay -logfile /path/to/log.txt
-    autoplay exhaustiveleave noleave -logfile foo.txt -leavefile1 trial.idx
+    autoplay exhaustiveleave noleave -logfile foo.txt -leavefile1 trial.olv
 
 Options:
     -logfile foo.txt   -- logs games to foo.txt
@@ -14,8 +14,8 @@ Options:
         (you should probably set the lexicon option to be that of a Norwegian
         gaddag name as well)
 
-    -leavefile1 filename.idx
-    -leavefile2 filename.idx
+    -leavefile1 filename.olv
+    -leavefile2 filename.olv
 
     The two options above will use leavefile1 for player1 and leavefile2
     for player2. Note that leave files only make sense for the `exhaustiveleave`
