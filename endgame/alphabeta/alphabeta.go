@@ -527,7 +527,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, depth int, pli
 			hashKey := parent.hashKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave(), play.TilesPlayed() == 0)
 			node := s.nodeCache[hashKey]
 			// Favor deeper searches
-			if node == nil || node.GetDepth() < uint8(depth-1) {
+			if s.game.LexiconName() != "english" || node == nil || node.GetDepth() < uint8(depth-1) {
 				child := new(GameNode)
 				child.move = play
 				child.parent = parent
@@ -568,7 +568,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, depth int, pli
 			hashKey := parent.hashKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave(), play.TilesPlayed() == 0)
 			node := s.nodeCache[hashKey]
 			// Favor deeper searches
-			if node == nil || node.GetDepth() < uint8(depth-1) {
+			if s.game.LexiconName() != "english" || node == nil || node.GetDepth() < uint8(depth-1) {
 				child := new(GameNode)
 				child.move = play
 				child.parent = parent
