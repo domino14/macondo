@@ -6,7 +6,7 @@ import (
 	"github.com/domino14/macondo/alphabet"
 )
 
-const bignum = 1 << 63 - 1
+const bignum = 1 << 63 - 2
 
 // generate a zobrist hash for a crossword game position.
 // https://en.wikipedia.org/wiki/Zobrist_hashing
