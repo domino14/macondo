@@ -48,7 +48,7 @@ func (z *Zobrist) Initialize(boardDim int, numtiles int, numblankletters int) {
 func (z *Zobrist) Hash(squares alphabet.MachineWord, leave alphabet.MachineWord, isPass bool) uint64 {
 	key := z.p2ToMove
 	for i, letter := range squares {
-		key ^= z.posTable[i][letter]
+		key ^= z.posTable[i][int(letter) % len(z.posTable[i])]
 	}
 	for i, letter := range leave {
 		key ^= z.rackTable[i][letter]
