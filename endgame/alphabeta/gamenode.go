@@ -52,7 +52,6 @@ type GameNode struct {
 	parent         *GameNode
 	heuristicValue nodeValue
 	depth          uint8
-	hashKey        uint64
 }
 
 func (g *GameNode) Copy() *GameNode {
@@ -63,7 +62,6 @@ func (g *GameNode) Copy() *GameNode {
 		parent:         g.parent,
 		heuristicValue: g.heuristicValue,
 		depth:          g.depth,
-		hashKey:        g.hashKey,
 	}
 }
 
@@ -72,7 +70,6 @@ func (g *GameNode) CopyFrom(o *GameNode) {
 	g.move.CopyFrom(o.move)
 	g.parent = o.parent
 	g.depth = o.depth
-	g.hashKey = o.hashKey
 }
 
 func (g *GameNode) Parent() *GameNode {

@@ -405,9 +405,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 
 	// technically the children are the actual board _states_ but
 	// we don't keep track of those exactly
-	s.rootNode = &GameNode{
-		hashKey: uint64(0),
-	}
+	s.rootNode = &GameNode{}
 	// the root node is basically the board state prior to making any moves.
 	// the children of these nodes are the board states after every move.
 	// however we treat the children as those actual moves themsselves.
@@ -441,7 +439,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 				log.Debug().Msgf("Spread at beginning of endgame: %v", s.game.CurrentSpread())
 				log.Debug().Msgf("Maximizing player is: %v", s.game.PlayerOnTurn())
 				s.currentIDDepth = p
-				bestNode, err := s.alphabeta(ctx, s.rootNode, p, plies, float32(-Infinity), float32(Infinity), true)
+				bestNode, err := s.alphabeta(ctx, s.rootNode, 0, p, plies, float32(-Infinity), float32(Infinity), true)
 				if err != nil {
 					log.Err(err).Msg("alphabeta-error")
 					break
@@ -461,7 +459,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 		} else {
 			s.currentIDDepth = 0
 			s.lastPrincipalVariation = nil
-			bestNode, err := s.alphabeta(ctx, s.rootNode, plies, plies, float32(-Infinity), float32(Infinity), true)
+			bestNode, err := s.alphabeta(ctx, s.rootNode, 0, plies, plies, float32(-Infinity), float32(Infinity), true)
 			if err != nil {
 				log.Err(err).Msg("alphabeta-error")
 			} else {
@@ -501,8 +499,8 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 	return bestV, bestSeq, err
 }
 
-func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, depth int, plies int, α float32, β float32,
-	maximizingPlayer bool) (*GameNode, error) {
+func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint64,
+	depth int, plies int, α float32, β float32, maximizingPlayer bool) (*GameNode, error) {
 
 	select {
 	case <-ctx.Done():
@@ -524,16 +522,15 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, depth int, pli
 		for _, play := range plays {
 			// Play the child
 			s.game.PlayMove(play, false, 0)
-			hashKey := parent.hashKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave(), play.TilesPlayed() == 0)
-			node := s.nodeCache[hashKey]
+			childKey := parentKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave(), play.TilesPlayed() == 0)
+			node := s.nodeCache[childKey]
 			// Favor deeper searches
 			if s.game.LexiconName() != "english" || node == nil || node.GetDepth() < uint8(depth-1) {
 				child := new(GameNode)
 				child.move = play
 				child.parent = parent
 				child.depth = uint8(depth-1)
-				child.hashKey = hashKey
-				leaf, err := s.alphabeta(ctx, child, depth-1, plies-1, α, β, false)
+				leaf, err := s.alphabeta(ctx, child, childKey, depth-1, plies-1, α, β, false)
 				if err != nil {
 					s.game.UnplayLastMove()
 					return nil, err
@@ -541,7 +538,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, depth int, pli
 				child.heuristicValue = leaf.heuristicValue
 				s.game.UnplayLastMove()
 				node = leaf
-				s.nodeCache[hashKey] = child
+				s.nodeCache[childKey] = child
 			} else {
 				s.game.UnplayLastMove()
 			}
@@ -565,16 +562,15 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, depth int, pli
 		var minNode *GameNode
 		for _, play := range plays {
 			s.game.PlayMove(play, false, 0)
-			hashKey := parent.hashKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave(), play.TilesPlayed() == 0)
-			node := s.nodeCache[hashKey]
+			childKey := parentKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave(), play.TilesPlayed() == 0)
+			node := s.nodeCache[childKey]
 			// Favor deeper searches
 			if s.game.LexiconName() != "english" || node == nil || node.GetDepth() < uint8(depth-1) {
 				child := new(GameNode)
 				child.move = play
 				child.parent = parent
 				child.depth = uint8(depth-1)
-				child.hashKey = hashKey
-				leaf, err := s.alphabeta(ctx, child, depth-1, plies-1, α, β, true)
+				leaf, err := s.alphabeta(ctx, child, childKey, depth-1, plies-1, α, β, true)
 				if err != nil {
 					s.game.UnplayLastMove()
 					return nil, err
@@ -582,7 +578,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, depth int, pli
 				child.heuristicValue = leaf.heuristicValue
 				s.game.UnplayLastMove()
 				node = leaf
-				s.nodeCache[hashKey] = child
+				s.nodeCache[childKey] = child
 			} else {
 				s.game.UnplayLastMove()
 			}
