@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -525,7 +526,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 			childKey := parentKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave(), play.TilesPlayed() == 0)
 			node := s.nodeCache[childKey]
 			// Favor deeper searches
-			if s.game.LexiconName() != "english" || node == nil || node.GetDepth() < uint8(depth-1) {
+			if !isEnglish(s.game.LexiconName()) || node == nil || node.GetDepth() < uint8(depth-1) {
 				child := new(GameNode)
 				child.move = play
 				child.parent = parent
@@ -565,7 +566,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 			childKey := parentKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave(), play.TilesPlayed() == 0)
 			node := s.nodeCache[childKey]
 			// Favor deeper searches
-			if s.game.LexiconName() != "english" || node == nil || node.GetDepth() < uint8(depth-1) {
+			if !isEnglish(s.game.LexiconName()) || node == nil || node.GetDepth() < uint8(depth-1) {
 				child := new(GameNode)
 				child.move = play
 				child.parent = parent
@@ -596,6 +597,15 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 		}
 		return minNode, nil
 	}
+}
+
+func isEnglish(lexiconName string) bool {
+	return strings.HasPrefix(lexiconName, "CSW") ||
+		strings.HasPrefix(lexiconName, "TWL") ||
+		strings.HasPrefix(lexiconName, "NWL") ||
+		strings.HasPrefix(lexiconName, "ECWL") || // obsolete name for CEL
+		strings.HasPrefix(lexiconName, "CEL") || // common english words
+		strings.HasPrefix(lexiconName, "NSWL")
 }
 
 func (s *Solver) SetIterativeDeepening(i bool) {
