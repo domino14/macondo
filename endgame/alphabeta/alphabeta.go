@@ -513,6 +513,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 		// s.game.Playing() happens if the game is over; i.e. if the
 		// parent node is terminal.
 		parent.calculateValue(s, maximizingPlayer)
+		parent.heuristicValue.value = min(β, max(α, parent.heuristicValue.value))
 		return parent, nil
 	}
 
@@ -537,6 +538,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 					return nil, err
 				}
 				child.heuristicValue = leaf.heuristicValue
+				child.heuristicValue.value = min(β, max(α, child.heuristicValue.value))
 				s.game.UnplayLastMove()
 				node = leaf
 				s.nodeCache[childKey] = child
@@ -577,6 +579,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 					return nil, err
 				}
 				child.heuristicValue = leaf.heuristicValue
+				child.heuristicValue.value = min(β, max(α, child.heuristicValue.value))
 				s.game.UnplayLastMove()
 				node = leaf
 				s.nodeCache[childKey] = child
