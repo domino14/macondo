@@ -235,7 +235,7 @@ func (s *Solver) addPass(plays []*move.Move, ponturn int) []*move.Move {
 	return plays
 }
 
-func (s *Solver) generateSTMPlays(parent *GameNode, depth int, plies int) []*move.Move {
+func (s *Solver) generateSTMPlays(parentMove *move.Move, depth int, plies int) []*move.Move {
 	// STM means side-to-move
 	stmRack := s.game.RackFor(s.game.PlayerOnTurn())
 	pnot := (s.game.PlayerOnTurn() + 1) % s.game.NumPlayers()
@@ -245,7 +245,7 @@ func (s *Solver) generateSTMPlays(parent *GameNode, depth int, plies int) []*mov
 	ld := s.game.Bag().LetterDistribution()
 
 	sideToMovePlays := s.stmMovegen.GenAll(stmRack, false)
-	if stmRack.NumTiles() > 1 && (plies > 1 || parent.move == nil || len(parent.move.Tiles()) == 0) {
+	if stmRack.NumTiles() > 1 && (plies > 1 || parentMove == nil || len(parentMove.Tiles()) == 0) {
 		// If opponent just scored and depth is 1, "6-pass" scoring is not available.
 		// Skip adding pass if player has an out play ("6-pass" scoring never outperforms an out play).
 		// This is more about "don't search a dubious pass subtree" than about memory allocation.
@@ -440,13 +440,13 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 				log.Debug().Msgf("Spread at beginning of endgame: %v", s.game.CurrentSpread())
 				log.Debug().Msgf("Maximizing player is: %v", s.game.PlayerOnTurn())
 				s.currentIDDepth = p
-				bestNode, err := s.alphabeta(ctx, s.rootNode, 0, p, plies, float32(-Infinity), float32(Infinity), true)
+				bestValue, bestNode, err := s.alphabeta(ctx, s.rootNode, 0, p, plies, float32(-Infinity), float32(Infinity), true)
 				if err != nil {
 					log.Err(err).Msg("alphabeta-error")
 					break
 				} else {
 					bestNodeSoFar = bestNode
-					bestV = bestNode.heuristicValue.value
+					bestV = bestValue
 					bestSeq = s.findBestSequence(bestNode)
 					s.lastPrincipalVariation = bestSeq
 
@@ -460,12 +460,19 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 		} else {
 			s.currentIDDepth = 0
 			s.lastPrincipalVariation = nil
-			bestNode, err := s.alphabeta(ctx, s.rootNode, 0, plies, plies, float32(-Infinity), float32(Infinity), true)
+			bestValue, bestNode, err := s.alphabeta(ctx, s.rootNode, 0, plies, plies, float32(-Infinity), float32(Infinity), true)
 			if err != nil {
 				log.Err(err).Msg("alphabeta-error")
 			} else {
-				bestV = bestNode.heuristicValue.value
+				bestNodeSoFar = bestNode
+				bestV = bestValue
 				bestSeq = s.findBestSequence(bestNode)
+				s.lastPrincipalVariation = bestSeq
+
+				fmt.Printf("-- Spread swing estimate found after %d plies: %f", plies, bestV)
+				for idx, move := range bestSeq {
+					fmt.Printf(" %d) %v", idx+1, move.ShortDescription())
+				}
 			}
 		}
 
@@ -501,11 +508,11 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 }
 
 func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint64,
-	depth int, plies int, α float32, β float32, maximizingPlayer bool) (*GameNode, error) {
+	depth int, plies int, α float32, β float32, maximizingPlayer bool) (float32, *GameNode, error) {
 
 	select {
 	case <-ctx.Done():
-		return nil, errors.New("context done -- time limit reached?")
+		return 0, nil, errors.New("context done -- time limit reached?")
 	default:
 	}
 
@@ -513,92 +520,87 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 		// s.game.Playing() happens if the game is over; i.e. if the
 		// parent node is terminal.
 		parent.calculateValue(s, maximizingPlayer)
-		parent.heuristicValue.value = min(β, max(α, parent.heuristicValue.value))
-		return parent, nil
+		return parent.heuristicValue.value, parent, nil
 	}
 
 	if maximizingPlayer {
-		value := float32(-Infinity)
-		plays := s.generateSTMPlays(parent, depth, plies)
-		var maxNode *GameNode
+		// Maximizing
+		plays := s.generateSTMPlays(parent.move, depth, plies)
+		var maxLeafNode *GameNode
 		for _, play := range plays {
-			// Play the child
 			s.game.PlayMove(play, false, 0)
-			childKey := parentKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave(), play.TilesPlayed() == 0)
-			node := s.nodeCache[childKey]
+			nodeKey := parentKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave(), play.TilesPlayed() == 0)
+			node := s.nodeCache[nodeKey]
+			nodeValue := α
 			// Favor deeper searches
 			if !isEnglish(s.game.LexiconName()) || node == nil || node.GetDepth() < uint8(depth-1) {
-				child := new(GameNode)
-				child.move = play
-				child.parent = parent
-				child.depth = uint8(depth-1)
-				leaf, err := s.alphabeta(ctx, child, childKey, depth-1, plies-1, α, β, false)
+				node = new(GameNode)
+				node.move = play
+				node.parent = parent
+				node.depth = uint8(depth-1)
+				childValue, leaf, err := s.alphabeta(ctx, node, nodeKey, depth-1, plies-1, α, β, false)
 				if err != nil {
 					s.game.UnplayLastMove()
-					return nil, err
+					return α, nil, err
 				}
-				child.heuristicValue = leaf.heuristicValue
-				child.heuristicValue.value = min(β, max(α, child.heuristicValue.value))
-				s.game.UnplayLastMove()
+				nodeValue = childValue
+				// TODO: Differentiate between lower/upper/exact bounds somehow
+				node.heuristicValue = leaf.heuristicValue
 				node = leaf
-				s.nodeCache[childKey] = child
+				s.nodeCache[nodeKey] = node
 			} else {
-				s.game.UnplayLastMove()
+				nodeValue = node.heuristicValue.value
 			}
-			if node.heuristicValue.value > value {
-				value = node.heuristicValue.value
-				maxNode = node
-			}
+			s.game.UnplayLastMove()
 
-			// if !s.disablePruning {
-			α = max(α, value)
-			if α >= β {
-				break // beta cut-off
+			if maxLeafNode == nil || nodeValue > α {
+				maxLeafNode = node
 			}
-			// }
+			α = max(α, nodeValue)
+			if α >= β {
+				return β, maxLeafNode, nil // beta cut-off
+			}
 		}
-		return maxNode, nil
+		return α, maxLeafNode, nil
 	} else {
-		// Otherwise, not maximizing
-		value := float32(Infinity)
-		plays := s.generateSTMPlays(parent, depth, plies)
-		var minNode *GameNode
+		// Minimizing
+		plays := s.generateSTMPlays(parent.move, depth, plies)
+		var minLeafNode *GameNode
 		for _, play := range plays {
 			s.game.PlayMove(play, false, 0)
-			childKey := parentKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave(), play.TilesPlayed() == 0)
-			node := s.nodeCache[childKey]
+			nodeKey := parentKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave(), play.TilesPlayed() == 0)
+			node := s.nodeCache[nodeKey]
+			nodeValue := β
 			// Favor deeper searches
 			if !isEnglish(s.game.LexiconName()) || node == nil || node.GetDepth() < uint8(depth-1) {
-				child := new(GameNode)
-				child.move = play
-				child.parent = parent
-				child.depth = uint8(depth-1)
-				leaf, err := s.alphabeta(ctx, child, childKey, depth-1, plies-1, α, β, true)
+				node = new(GameNode)
+				node.move = play
+				node.parent = parent
+				node.depth = uint8(depth-1)
+				childValue, leaf, err := s.alphabeta(ctx, node, nodeKey, depth-1, plies-1, α, β, true)
 				if err != nil {
 					s.game.UnplayLastMove()
-					return nil, err
+					return β, nil, err
 				}
-				child.heuristicValue = leaf.heuristicValue
-				child.heuristicValue.value = min(β, max(α, child.heuristicValue.value))
-				s.game.UnplayLastMove()
+				nodeValue = childValue
+				// TODO: Differentiate between lower/upper/exact bounds somehow
+				node.heuristicValue = leaf.heuristicValue
 				node = leaf
-				s.nodeCache[childKey] = child
+				s.nodeCache[nodeKey] = node
 			} else {
-				s.game.UnplayLastMove()
+				nodeValue = node.heuristicValue.value
 			}
-			if node.heuristicValue.value < value {
-				value = node.heuristicValue.value
-				minNode = node
-			}
+			s.game.UnplayLastMove()
 
-			// if !s.disablePruning {
-			β = min(β, value)
-			if α >= β {
-				break // alpha cut-off
+			if minLeafNode == nil || nodeValue < β {
+				minLeafNode = node
 			}
-			// }
+			β = min(β, nodeValue)
+			if β <= α {
+				return α, minLeafNode, nil // alpha cut-off
+			}
 		}
-		return minNode, nil
+		return β, minLeafNode, nil
 	}
 }
 
