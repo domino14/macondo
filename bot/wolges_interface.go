@@ -177,7 +177,11 @@ func wolgesAnalyze(cfg *config.Config, g *airunner.AIGameRunner) ([]*move.Move, 
 	default:
 		leave = "english"
 	}
-	wap.Leave = leave
+	if lowercasedLexicon == "csw21" {
+		wap.Leave = "CSW21"
+	} else {
+		wap.Leave = leave
+	}
 
 	switch g.Rules().Variant() {
 	case "", game.VarClassic:
