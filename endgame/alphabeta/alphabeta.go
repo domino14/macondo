@@ -489,7 +489,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 		err = ErrNoEndgameSolution
 	}
 	// Go down tree and find best variation:
-	log.Debug().Msgf("Size of node cache map: %d", len(s.nodeCache))
+	log.Debug().Msgf("Size of node cache: %d nodes", len(s.nodeCache))
 	log.Debug().Msgf("Number of expanded nodes: %v", s.nodeCount)
 	log.Debug().Msgf("Allocated maximal moves: %d", s.maxCount)
 	log.Debug().Msgf("Allocated minimal moves: %d", s.minCount)
@@ -531,8 +531,11 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 		var maxLeafNode *GameNode
 		for _, play := range plays {
 			s.game.PlayMove(play, false, 0)
-			nodeKey := parentKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave(), play.TilesPlayed() == 0)
-			node := s.nodeCache[nodeKey]
+			nodeKey := parentKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave())
+			var node *GameNode
+			if play.TilesPlayed() > 0 {
+				node = s.nodeCache[nodeKey]
+			}
 			nodeValue := α
 			// Favor deeper searches
 			if isPolish(s.game.LexiconName()) || node == nil || node.GetDepth() < uint8(depth-1) {
@@ -546,11 +549,12 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 					return α, nil, err
 				}
 				nodeValue = childValue
-				// TODO: Differentiate between lower/upper/exact bounds somehow
 				node.heuristicValue = leaf.heuristicValue
 				node = leaf
-				s.nodeCache[nodeKey] = node
-				s.nodeCount[node.depth]++
+				if play.TilesPlayed() > 0 {
+					s.nodeCache[nodeKey] = node
+					s.nodeCount[node.depth]++
+				}
 			} else {
 				nodeValue = node.heuristicValue.value
 			}
@@ -566,14 +570,17 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 		}
 		return α, maxLeafNode, nil
 	} else {
-		// Minimizing
+		// Minimizing (hash key "toggled" by zobrist.Hash)
 		plays := s.generateSTMPlays(parent.move, depth, plies)
 		s.minCount += len(plays)
 		var minLeafNode *GameNode
 		for _, play := range plays {
 			s.game.PlayMove(play, false, 0)
-			nodeKey := parentKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave(), play.TilesPlayed() == 0)
-			node := s.nodeCache[nodeKey]
+			nodeKey := parentKey ^ s.zobrist.Hash(s.game.Board().GetSquares(), play.Leave())
+			var node *GameNode
+			if play.TilesPlayed() > 0 {
+				node = s.nodeCache[nodeKey]
+			}
 			nodeValue := β
 			// Favor deeper searches
 			if isPolish(s.game.LexiconName()) || node == nil || node.GetDepth() < uint8(depth-1) {
@@ -587,11 +594,12 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 					return β, nil, err
 				}
 				nodeValue = childValue
-				// TODO: Differentiate between lower/upper/exact bounds somehow
 				node.heuristicValue = leaf.heuristicValue
 				node = leaf
-				s.nodeCache[nodeKey] = node
-				s.nodeCount[node.depth]++
+				if play.TilesPlayed() > 0 {
+					s.nodeCache[nodeKey] = node
+					s.nodeCount[node.depth]++
+				}
 			} else {
 				nodeValue = node.heuristicValue.value
 			}

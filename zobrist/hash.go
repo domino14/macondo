@@ -12,12 +12,6 @@ const bignum = 1 << 63 - 2
 // https://en.wikipedia.org/wiki/Zobrist_hashing
 type Zobrist struct {
 	p2ToMove uint64
-	// note that the endgame only cares about 2 zeros in a row.
-	// if we use this hash for non-endgame positions we might
-	// want to turn this into an array as well, with each element
-	// corresponding to the number of zero positions.
-	lastMoveWasZero uint64
-
 	posTable  [][]uint64
 	rackTable [][]uint64
 }
@@ -42,19 +36,15 @@ func (z *Zobrist) Initialize(boardDim int, numtiles int, numblankletters int) {
 		}
 	}
 	z.p2ToMove = frand.Uint64n(bignum) + 1
-	z.lastMoveWasZero = frand.Uint64n(bignum) + 1
 }
 
-func (z *Zobrist) Hash(squares alphabet.MachineWord, leave alphabet.MachineWord, isPass bool) uint64 {
+func (z *Zobrist) Hash(squares alphabet.MachineWord, leave alphabet.MachineWord) uint64 {
 	key := z.p2ToMove
 	for i, letter := range squares {
 		key ^= z.posTable[i][letter]
 	}
 	for i, letter := range leave {
 		key ^= z.rackTable[i][letter]
-	}
-	if isPass {
-		key ^= z.lastMoveWasZero
 	}
 	return key
 }
