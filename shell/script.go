@@ -115,6 +115,23 @@ func Endgame(L *lua.LState) int {
 	return 1
 }
 
+func Sim(L *lua.LState) int {
+	lv := L.ToString(1)
+	sc := getShell(L)
+	cmd, err := extractFields("sim " + lv)
+	if err != nil {
+		log.Err(err).Msg("error-parsing-sim")
+		return 0
+	}
+	_, err = sc.sim(cmd)
+	if err != nil {
+		log.Err(err).Msg("error-executing-sim")
+		return 0
+	}
+
+	return 1
+}
+
 func (sc *ShellController) script(cmd *shellcmd) (*Response, error) {
 	if cmd.args == nil {
 		return nil, errors.New("need arguments for script")
@@ -135,6 +152,7 @@ func (sc *ShellController) script(cmd *shellcmd) (*Response, error) {
 	L.SetGlobal("macondo_set", L.NewFunction(Set))
 	L.SetGlobal("macondo_turn", L.NewFunction(Turn))
 	L.SetGlobal("macondo_endgame", L.NewFunction(Endgame))
+	L.SetGlobal("macondo_sim", L.NewFunction(Sim))
 
 	if err := L.DoFile(filepath); err != nil {
 		log.Err(err).Msg("there was a error")

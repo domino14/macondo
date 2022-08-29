@@ -77,7 +77,7 @@ func TestSimSingleIteration(t *testing.T) {
 	oldOppRack := game.RackFor(1).String()
 	plays := generator.Plays()[:10]
 	simmer := &Simmer{}
-	simmer.Init(game, player.NewRawEquityPlayer(strategy, pb.BotRequest_HASTY_BOT))
+	simmer.Init(game, player.NewRawEquityPlayer(strategy, pb.BotRequest_HASTY_BOT), &DefaultConfig)
 	simmer.PrepareSim(plies, plays)
 
 	simmer.simSingleIteration(plies, 0, 1, nil)
@@ -93,6 +93,7 @@ func TestSimSingleIteration(t *testing.T) {
 
 	simmer.sortPlaysByEquity()
 	fmt.Println(simmer.printStats())
+	is.True(false)
 }
 
 func BenchmarkSim(b *testing.B) {
@@ -117,7 +118,7 @@ func BenchmarkSim(b *testing.B) {
 	plays := generator.Plays()[:10]
 
 	simmer := &Simmer{}
-	simmer.Init(game, player.NewRawEquityPlayer(strategy, pb.BotRequest_HASTY_BOT))
+	simmer.Init(game, player.NewRawEquityPlayer(strategy, pb.BotRequest_HASTY_BOT), &DefaultConfig)
 	simmer.SetThreads(1)
 	simmer.PrepareSim(plies, plays)
 	log.Debug().Msg("About to start")
@@ -166,7 +167,7 @@ func TestLongerSim(t *testing.T) {
 		game.RackFor(1))
 	plays := aiplayer.TopPlays(generator.Plays(), 10)
 	simmer := &Simmer{}
-	simmer.Init(game, aiplayer)
+	simmer.Init(game, aiplayer, &DefaultConfig)
 
 	timeout, cancel := context.WithTimeout(
 		context.Background(), 20*time.Second)

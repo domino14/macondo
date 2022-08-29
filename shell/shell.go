@@ -221,7 +221,7 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 
 func (sc *ShellController) initGameDataStructures() error {
 	sc.simmer = &montecarlo.Simmer{}
-	sc.simmer.Init(&sc.game.Game, sc.game.AIPlayer())
+	sc.simmer.Init(&sc.game.Game, sc.game.AIPlayer(), sc.config)
 	sc.gen = sc.game.MoveGenerator()
 
 	gd, err := gaddag.Get(sc.config, sc.game.LexiconName())

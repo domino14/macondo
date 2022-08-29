@@ -1,10 +1,12 @@
 package strategy
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"io"
 	"io/ioutil"
 	"path/filepath"
+	"strconv"
 
 	"github.com/domino14/macondo/cache"
 	"github.com/rs/zerolog/log"
@@ -71,4 +73,50 @@ func loadPEGParams(strategyPath, filepath, lexiconName string) ([]float64, error
 	}
 	log.Debug().Msgf("Size of pre-endgame adjustment array: %v", len(adjustmentVals))
 	return adjustmentVals, nil
+}
+
+const MaxRepresentedWinSpread = 200
+
+func loadWinPCTParams(strategyPath, filepath, lexiconName string) ([][]float64, error) {
+	winpctfile, err := stratFileForLexicon(strategyPath, filepath, lexiconName)
+	if err != nil {
+		return nil, err
+	}
+
+	defer winpctfile.Close()
+	r := csv.NewReader(winpctfile)
+	idx := -1
+
+	// from 200 to -200 in spread, including 0
+	wpct := make([][]float64, MaxRepresentedWinSpread*2+1)
+	for i := range wpct {
+		wpct[i] = make([]float64, 94) // 0 to 93, idk why
+	}
+
+	for {
+		record, err := r.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		idx++
+		// The first row is the header.
+		if idx == 0 {
+			continue
+		}
+		for i := range record {
+			// The very first column is the spread
+			if i == 0 {
+				continue
+			}
+			wpct[idx-1][i-1], err = strconv.ParseFloat(record[i], 64)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+	}
+	return wpct, nil
 }

@@ -16,11 +16,14 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/domino14/macondo/ai/player"
+	"github.com/domino14/macondo/cache"
+	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
+	"github.com/domino14/macondo/strategy"
 	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v2"
 )
@@ -61,7 +64,8 @@ type LogPlay struct {
 	Leftover float64 `json:"left,omitempty" yaml:"left,omitempty"`
 	// Although this is a recursive structure we don't really use it
 	// recursively.
-	Plies []LogPlay `json:"plies,omitempty" yaml:"plies,omitempty,flow"`
+	WinRatio float64   `json:"win,omitempty" yaml:"win,omitempty"`
+	Plies    []LogPlay `json:"plies,omitempty" yaml:"plies,omitempty,flow"`
 }
 
 type SimmedPlay struct {
@@ -71,11 +75,12 @@ type SimmedPlay struct {
 	bingoStats    []Statistic
 	equityStats   Statistic
 	leftoverStats Statistic
+	winPctStats   Statistic
 }
 
 func (sp *SimmedPlay) String() string {
-	return fmt.Sprintf("<Simmed play: %v (stats: %v %v %v %v)>", sp.play.ShortDescription(),
-		sp.scoreStats, sp.bingoStats, sp.equityStats, sp.leftoverStats)
+	return fmt.Sprintf("<Simmed play: %v (stats: %v %v %v %v %v)>", sp.play.ShortDescription(),
+		sp.scoreStats, sp.bingoStats, sp.equityStats, sp.leftoverStats, sp.winPctStats)
 }
 
 func (sp *SimmedPlay) addScoreStat(play *move.Move, ply int) {
@@ -90,9 +95,59 @@ func (sp *SimmedPlay) addScoreStat(play *move.Move, ply int) {
 	sp.bingoStats[ply].Push(float64(bingos))
 }
 
-func (sp *SimmedPlay) addEquityStat(initialSpread int, spread int, leftover float64) {
+func (sp *SimmedPlay) addEquityStat(initialSpread int, spread int, leftover float64,
+	gameover bool, winpcts [][]float64, tilesRemaining int, pliesAreEven bool) {
+	sp.Lock()
+	defer sp.Unlock()
 	sp.equityStats.Push(float64(spread-initialSpread) + leftover)
-	sp.leftoverStats.PushResult(spread, leftover)
+	sp.leftoverStats.Push(float64(leftover))
+	if gameover {
+		if spread == 0 {
+			sp.winPctStats.Push(0.5)
+		} else if spread > 0 {
+			sp.winPctStats.Push(1.0)
+		} else {
+			sp.winPctStats.Push(0.0)
+		}
+		return
+	}
+	if tilesRemaining > 86 {
+		// Only for ZOMGWords or similar; this is a bit of a hack.
+		tilesRemaining = 86
+	}
+	// for an even-ply sim, it is our opponent's turn at the end of the sim.
+	// the table is calculated from our perspective, so flip the spread.
+	// i.e. if we are winning by 20 pts at the end of the sim, and our opponent
+	// is on turn, we want to look up -20 as the spread, and then flip the win %
+	// as well.
+	spreadPlusLeftover := spread + int(math.Round(leftover))
+	if pliesAreEven {
+		spreadPlusLeftover = -spreadPlusLeftover
+	}
+
+	if spreadPlusLeftover > strategy.MaxRepresentedWinSpread {
+		spreadPlusLeftover = strategy.MaxRepresentedWinSpread
+	}
+	if spreadPlusLeftover < -strategy.MaxRepresentedWinSpread {
+		spreadPlusLeftover = -strategy.MaxRepresentedWinSpread
+	}
+	// winpcts goes from +MaxRepresentedWinSpread to -MaxRespresentedWinSpread
+	// spread = index
+	// 200 = 0
+	// 199 = 1
+	// 99 = 101
+	// 0 = 200
+	// -1 = 201
+	// -101 = 301
+	// -200 = 400
+	pct := winpcts[strategy.MaxRepresentedWinSpread-spreadPlusLeftover][tilesRemaining]
+	log.Debug().Int("i1", strategy.MaxRepresentedWinSpread-spreadPlusLeftover).Int("i2", tilesRemaining).Float64(
+		"pct", pct).Bool("plies-are-even", pliesAreEven).Msg("calc-win%")
+	if pliesAreEven {
+		// see the above comment re flipping win pct.
+		pct = 1 - pct
+	}
+	sp.winPctStats.Push(pct)
 }
 
 // Simmer implements the actual look-ahead search
@@ -114,14 +169,33 @@ type Simmer struct {
 	simming    bool
 	readyToSim bool
 	plays      []*SimmedPlay
+	winPcts    [][]float64
+	cfg        *config.Config
 
 	logStream io.Writer
 }
 
-func (s *Simmer) Init(game *game.Game, aiplayer player.AIPlayer) {
+func (s *Simmer) Init(game *game.Game, aiplayer player.AIPlayer, cfg *config.Config) {
 	s.origGame = game
 	s.aiplayer = aiplayer
 	s.threads = int(math.Max(1, float64(runtime.NumCPU()-1)))
+
+	// Hard-code the location of the win-pct file for now.
+	// If we want to make some for other lexica in the future we'll
+	// have to import a "strategy".
+	s.cfg = cfg
+	if s.cfg != nil {
+		// some hardcoded stuff here:
+		winpct, err := cache.Load(s.cfg, "winpctfile:CSW:winpct.csv", strategy.WinPCTLoadFunc)
+		if err != nil {
+			panic(err)
+		}
+		var ok bool
+		s.winPcts, ok = winpct.([][]float64)
+		if !ok {
+			panic("win percentages not correct type")
+		}
+	}
 }
 
 func (s *Simmer) SetThreads(threads int) {
@@ -272,8 +346,6 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 				iterNum := s.iterationCount + 1
 				s.iterationCount++
 				iterMutex.Unlock()
-				// XXX: isn't it possible for iterNum to not be the
-				// expected value here? We're outside of the mutex.
 				s.simSingleIteration(s.maxPlies, t, iterNum, logChan)
 				select {
 				case v := <-syncChan:
@@ -371,14 +443,27 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 				}
 
 				logPlay.Plies = append(logPlay.Plies, plyChild)
+				// Maybe these add{X}Stat functions can instead write them to
+				// a channel to avoid mutices
 				simmedPlay.addScoreStat(bestPlay, ply)
 			}
 		}
 		// log.Debug().Msgf("Spread for initial player: %v, leftover: %v",
 		// 	s.game.SpreadFor(s.initialPlayer), leftover)
-		simmedPlay.addEquityStat(s.initialSpread, s.gameCopies[thread].SpreadFor(s.initialPlayer), leftover)
+		simmedPlay.addEquityStat(
+			s.initialSpread,
+			s.gameCopies[thread].SpreadFor(s.initialPlayer),
+			leftover,
+			s.gameCopies[thread].Playing() == pb.PlayState_GAME_OVER,
+			s.winPcts,
+			s.gameCopies[thread].Bag().TilesRemaining(),
+			plies%2 == 0,
+		)
 		s.gameCopies[thread].ResetToFirstState()
-		logIter.Plays = append(logIter.Plays, logPlay)
+		if s.logStream != nil {
+			logPlay.WinRatio = simmedPlay.winPctStats.Last()
+			logIter.Plays = append(logIter.Plays, logPlay)
+		}
 	}
 	if s.logStream != nil {
 		out, err := yaml.Marshal([]LogIteration{logIter})
@@ -404,7 +489,7 @@ func (s *Simmer) sortPlaysByEquity() {
 func (s *Simmer) sortPlaysByWinRate() {
 	// log.Debug().Msgf("Sorting plays: %v", s.plays)
 	sort.Slice(s.plays, func(i, j int) bool {
-		return s.plays[i].leftoverStats.WinRate() > s.plays[j].leftoverStats.WinRate()
+		return s.plays[i].winPctStats.Mean() > s.plays[j].winPctStats.Mean()
 	})
 }
 
@@ -419,7 +504,7 @@ func (s *Simmer) EquityStats() string {
 
 	for _, play := range s.plays {
 		stats += fmt.Sprintf("%-20s%6d%8.2f%8.3f\n", play.play.ShortDescription(),
-			play.play.Score(), 100.0*play.leftoverStats.WinRate(), play.equityStats.Mean())
+			play.play.Score(), 100.0*play.winPctStats.Mean(), play.equityStats.Mean())
 	}
 	stats += fmt.Sprintf("Iterations: %d\n", s.iterationCount)
 	return stats
@@ -437,7 +522,7 @@ func (s *Simmer) ScoreDetails() string {
 			ply+1, who, "Play", "Win%", "Mean", "Stdev", "Bingo %", strings.Repeat("-", 52))
 		for _, play := range s.plays {
 			stats += fmt.Sprintf("%-20s%8.2f%8.3f%8.3f%8.3f\n",
-				play.play.ShortDescription(), 100.0*play.leftoverStats.WinRate(),
+				play.play.ShortDescription(), 100.0*play.winPctStats.Mean(),
 				play.scoreStats[ply].Mean(), play.scoreStats[ply].Stdev(),
 				100.0*play.bingoStats[ply].Mean())
 		}
