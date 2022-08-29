@@ -29,8 +29,8 @@ func (z *Zobrist) Initialize(boardDim int, numtiles int, numblankletters int) {
 		// for example, 27 types of tiles + 26 letters the blank can be
 		// notice that in norwegian, the blank can be a tile that's not
 		// one of the tiles in the distribution.
-		z.posTable[i] = make([]uint64, numtiles+numblankletters)
-		for j := 0; j < numtiles+numblankletters; j++ {
+		z.posTable[i] = make([]uint64, 256)
+		for j := 0; j < 256; j++ {
 			z.posTable[i][j] = frand.Uint64n(bignum) + 1
 		}
 	}
@@ -48,7 +48,7 @@ func (z *Zobrist) Initialize(boardDim int, numtiles int, numblankletters int) {
 func (z *Zobrist) Hash(squares alphabet.MachineWord, leave alphabet.MachineWord, isPass bool) uint64 {
 	key := z.p2ToMove
 	for i, letter := range squares {
-		key ^= z.posTable[i][int(letter) % len(z.posTable[i])]
+		key ^= z.posTable[i][letter]
 	}
 	for i, letter := range leave {
 		key ^= z.rackTable[i][letter]

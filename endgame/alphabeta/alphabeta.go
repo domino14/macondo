@@ -535,7 +535,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 			node := s.nodeCache[nodeKey]
 			nodeValue := α
 			// Favor deeper searches
-			if !isEnglish(s.game.LexiconName()) || node == nil || node.GetDepth() < uint8(depth-1) {
+			if isPolish(s.game.LexiconName()) || node == nil || node.GetDepth() < uint8(depth-1) {
 				node = new(GameNode)
 				node.move = play
 				node.parent = parent
@@ -576,7 +576,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 			node := s.nodeCache[nodeKey]
 			nodeValue := β
 			// Favor deeper searches
-			if !isEnglish(s.game.LexiconName()) || node == nil || node.GetDepth() < uint8(depth-1) {
+			if isPolish(s.game.LexiconName()) || node == nil || node.GetDepth() < uint8(depth-1) {
 				node = new(GameNode)
 				node.move = play
 				node.parent = parent
@@ -609,13 +609,8 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 	}
 }
 
-func isEnglish(lexiconName string) bool {
-	return strings.HasPrefix(lexiconName, "CSW") ||
-		strings.HasPrefix(lexiconName, "TWL") ||
-		strings.HasPrefix(lexiconName, "NWL") ||
-		strings.HasPrefix(lexiconName, "ECWL") || // obsolete name for CEL
-		strings.HasPrefix(lexiconName, "CEL") || // common english words
-		strings.HasPrefix(lexiconName, "NSWL")
+func isPolish(lexiconName string) bool {
+	return strings.HasPrefix(lexiconName, "OSPS")
 }
 
 func (s *Solver) SetIterativeDeepening(i bool) {
