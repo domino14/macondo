@@ -71,7 +71,7 @@ type Solver struct {
 	otsMovegen       movegen.MoveGenerator
 	game             *game.Game
 	nodeCache        map[uint64]*GameNode
-	totalNodes       int
+	nodeCount        map[uint8]uint32
 	initialSpread    int
 	initialTurnNum   int
 	maximizingPlayer int // This is the player who we call this function for.
@@ -90,7 +90,8 @@ type Solver struct {
 	stmRectIndex     int
 	otsRectIndex     int
 	// moveCache        map[int][]*minimalMove
-	mmCount int
+	maxCount int
+	minCount int
 
 	lastPrincipalVariation []*move.Move
 	currentIDDepth         int
@@ -126,7 +127,7 @@ func (s *Solver) Init(m1 movegen.MoveGenerator, m2 movegen.MoveGenerator, game *
 	s.otsMovegen = m2
 	s.game = game
 	s.nodeCache = make(map[uint64]*GameNode)
-	s.totalNodes = 0
+	s.nodeCount = make(map[uint8]uint32)
 	s.iterativeDeepeningOn = true
 
 	s.stmPlayed = make([]bool, alphabet.MaxAlphabetSize+1)
@@ -391,7 +392,8 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 		Msg("alphabeta-solve-config")
 
 	tstart := time.Now()
-	s.mmCount = 0
+	s.maxCount = 0
+	s.minCount = 0
 	s.zobrist.Initialize(s.game.Board().Dim(), alphabet.MaxAlphabetSize+1, alphabet.MaxAlphabetSize+1)
 	// Generate children moves.
 	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
@@ -421,8 +423,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 	s.initialSpread = s.game.CurrentSpread()
 	s.initialTurnNum = s.game.Turn()
 	s.maximizingPlayer = s.game.PlayerOnTurn()
-	log.Debug().Msgf("Spread at beginning of endgame: %v", s.initialSpread)
-	log.Debug().Msgf("Maximizing player is: %v", s.maximizingPlayer)
+	log.Debug().Msgf("%v %d Spread at beginning of endgame: %v (%d)", s.maximizingPlayer, s.initialTurnNum, s.initialSpread, s.game.ScorelessTurns())
 	var bestV float32
 	var bestNodeSoFar *GameNode
 	var bestSeq []*move.Move
@@ -436,9 +437,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 
 			log.Debug().Msgf("Using iterative deepening with %v max plies", plies)
 			for p := 1; p <= plies; p++ {
-				log.Debug().Msgf("scoreless turns: %v", s.game.ScorelessTurns())
-				log.Debug().Msgf("Spread at beginning of endgame: %v", s.game.CurrentSpread())
-				log.Debug().Msgf("Maximizing player is: %v", s.game.PlayerOnTurn())
+				log.Debug().Msgf("%v %d Spread at beginning of endgame: %v (%d)", s.maximizingPlayer, s.initialTurnNum, s.initialSpread, s.game.ScorelessTurns())
 				s.currentIDDepth = p
 				bestValue, bestNode, err := s.alphabeta(ctx, s.rootNode, 0, p, plies, float32(-Infinity), float32(Infinity), true)
 				if err != nil {
@@ -454,7 +453,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 					for idx, move := range bestSeq {
 						fmt.Printf(" %d) %v", idx+1, move.ShortDescription())
 					}
-					fmt.Printf("\n")
+					fmt.Printf(" with %d nodes %v\n", len(s.nodeCache), s.nodeCount)
 				}
 			}
 		} else {
@@ -473,6 +472,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 				for idx, move := range bestSeq {
 					fmt.Printf(" %d) %v", idx+1, move.ShortDescription())
 				}
+				fmt.Printf(" with %d nodes %v\n", len(s.nodeCache), s.nodeCount)
 			}
 		}
 
@@ -490,8 +490,9 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 	}
 	// Go down tree and find best variation:
 	log.Debug().Msgf("Size of node cache map: %d", len(s.nodeCache))
-	log.Debug().Msgf("Number of expanded nodes: %d", s.totalNodes)
-	log.Debug().Msgf("Allocated minimal moves: %d", s.mmCount)
+	log.Debug().Msgf("Number of expanded nodes: %v", s.nodeCount)
+	log.Debug().Msgf("Allocated maximal moves: %d", s.maxCount)
+	log.Debug().Msgf("Allocated minimal moves: %d", s.minCount)
 
 	log.Debug().Msgf("Best sequence: (len=%v) %v", len(bestSeq), bestSeq)
 	// for k, v := range s.moveCache {
@@ -526,6 +527,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 	if maximizingPlayer {
 		// Maximizing
 		plays := s.generateSTMPlays(parent.move, depth, plies)
+		s.maxCount += len(plays)
 		var maxLeafNode *GameNode
 		for _, play := range plays {
 			s.game.PlayMove(play, false, 0)
@@ -548,6 +550,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 				node.heuristicValue = leaf.heuristicValue
 				node = leaf
 				s.nodeCache[nodeKey] = node
+				s.nodeCount[node.depth]++
 			} else {
 				nodeValue = node.heuristicValue.value
 			}
@@ -565,6 +568,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 	} else {
 		// Minimizing
 		plays := s.generateSTMPlays(parent.move, depth, plies)
+		s.minCount += len(plays)
 		var minLeafNode *GameNode
 		for _, play := range plays {
 			s.game.PlayMove(play, false, 0)
@@ -587,6 +591,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 				node.heuristicValue = leaf.heuristicValue
 				node = leaf
 				s.nodeCache[nodeKey] = node
+				s.nodeCount[node.depth]++
 			} else {
 				nodeValue = node.heuristicValue.value
 			}
