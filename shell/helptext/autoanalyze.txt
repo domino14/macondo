@@ -2,6 +2,7 @@ autoanalyze <filepath> - Analyze a log file created by the `autoplay` command
 
 Usage:
     autoanalyze /tmp/games-autoplay.txt
+    autoanalyze /tmp/autoplay.txt -export gid -letterdist english -boardlayout CrosswordGame
 
 This command prints out some basic stats about the games in the given file.
 
@@ -12,3 +13,9 @@ that the `autoanalyze` command works on.
 
 For example, if you specify a log file of /tmp/auto.txt, the file that
 you should analyze is called /tmp/games-auto.txt.
+
+You can use the second form of the command to export a game from the 
+in-depth file. It will export as gid.gcg in the current directory.
+
+The letterdist will default to english if not specified.
+The boardlayout will default to CrosswordGame if not specified.

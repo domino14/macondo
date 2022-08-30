@@ -96,12 +96,12 @@ func (sp *SimmedPlay) addScoreStat(play *move.Move, ply int) {
 }
 
 func (sp *SimmedPlay) addEquityStat(initialSpread int, spread int, leftover float64,
-	gameover bool, winpcts [][]float64, tilesRemaining int, pliesAreEven bool) {
+	gameover bool, winpcts [][]float64, tilesUnseen int, pliesAreEven bool) {
 	sp.Lock()
 	defer sp.Unlock()
 	sp.equityStats.Push(float64(spread-initialSpread) + leftover)
 	sp.leftoverStats.Push(float64(leftover))
-	if gameover {
+	if gameover || tilesUnseen == 0 {
 		if spread == 0 {
 			sp.winPctStats.Push(0.5)
 		} else if spread > 0 {
@@ -111,9 +111,9 @@ func (sp *SimmedPlay) addEquityStat(initialSpread int, spread int, leftover floa
 		}
 		return
 	}
-	if tilesRemaining > 86 {
+	if tilesUnseen > 93 {
 		// Only for ZOMGWords or similar; this is a bit of a hack.
-		tilesRemaining = 86
+		tilesUnseen = 93
 	}
 	// for an even-ply sim, it is our opponent's turn at the end of the sim.
 	// the table is calculated from our perspective, so flip the spread.
@@ -140,8 +140,8 @@ func (sp *SimmedPlay) addEquityStat(initialSpread int, spread int, leftover floa
 	// -1 = 201
 	// -101 = 301
 	// -200 = 400
-	pct := winpcts[strategy.MaxRepresentedWinSpread-spreadPlusLeftover][tilesRemaining]
-	log.Debug().Int("i1", strategy.MaxRepresentedWinSpread-spreadPlusLeftover).Int("i2", tilesRemaining).Float64(
+	pct := winpcts[strategy.MaxRepresentedWinSpread-spreadPlusLeftover][tilesUnseen]
+	log.Debug().Int("i1", strategy.MaxRepresentedWinSpread-spreadPlusLeftover).Int("i2", tilesUnseen).Float64(
 		"pct", pct).Bool("plies-are-even", pliesAreEven).Msg("calc-win%")
 	if pliesAreEven {
 		// see the above comment re flipping win pct.
@@ -456,7 +456,9 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 			leftover,
 			s.gameCopies[thread].Playing() == pb.PlayState_GAME_OVER,
 			s.winPcts,
-			s.gameCopies[thread].Bag().TilesRemaining(),
+			// Tiles unseen: number of tiles in the bag + tiles on my opponent's rack:
+			s.gameCopies[thread].Bag().TilesRemaining()+
+				int(s.gameCopies[thread].RackFor(1-s.initialPlayer).NumTiles()),
 			plies%2 == 0,
 		)
 		s.gameCopies[thread].ResetToFirstState()
