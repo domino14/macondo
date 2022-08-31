@@ -75,9 +75,9 @@ func loadPEGParams(strategyPath, filepath, lexiconName string) ([]float64, error
 	return adjustmentVals, nil
 }
 
-const MaxRepresentedWinSpread = 200
+const MaxRepresentedWinSpread = 300
 
-func loadWinPCTParams(strategyPath, filepath, lexiconName string) ([][]float64, error) {
+func loadWinPCTParams(strategyPath, filepath, lexiconName string) ([][]float32, error) {
 	winpctfile, err := stratFileForLexicon(strategyPath, filepath, lexiconName)
 	if err != nil {
 		return nil, err
@@ -88,9 +88,9 @@ func loadWinPCTParams(strategyPath, filepath, lexiconName string) ([][]float64, 
 	idx := -1
 
 	// from 200 to -200 in spread, including 0
-	wpct := make([][]float64, MaxRepresentedWinSpread*2+1)
+	wpct := make([][]float32, MaxRepresentedWinSpread*2+1)
 	for i := range wpct {
-		wpct[i] = make([]float64, 94) // 0 to 93, idk why
+		wpct[i] = make([]float32, 94)
 	}
 
 	for {
@@ -111,10 +111,11 @@ func loadWinPCTParams(strategyPath, filepath, lexiconName string) ([][]float64, 
 			if i == 0 {
 				continue
 			}
-			wpct[idx-1][i-1], err = strconv.ParseFloat(record[i], 64)
+			f, err := strconv.ParseFloat(record[i], 32)
 			if err != nil {
 				return nil, err
 			}
+			wpct[idx-1][i-1] = float32(f)
 		}
 
 	}

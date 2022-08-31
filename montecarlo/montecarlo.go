@@ -96,7 +96,7 @@ func (sp *SimmedPlay) addScoreStat(play *move.Move, ply int) {
 }
 
 func (sp *SimmedPlay) addEquityStat(initialSpread int, spread int, leftover float64,
-	gameover bool, winpcts [][]float64, tilesUnseen int, pliesAreEven bool) {
+	gameover bool, winpcts [][]float32, tilesUnseen int, pliesAreEven bool) {
 	sp.Lock()
 	defer sp.Unlock()
 	sp.equityStats.Push(float64(spread-initialSpread) + leftover)
@@ -141,13 +141,13 @@ func (sp *SimmedPlay) addEquityStat(initialSpread int, spread int, leftover floa
 	// -101 = 301
 	// -200 = 400
 	pct := winpcts[strategy.MaxRepresentedWinSpread-spreadPlusLeftover][tilesUnseen]
-	log.Debug().Int("i1", strategy.MaxRepresentedWinSpread-spreadPlusLeftover).Int("i2", tilesUnseen).Float64(
+	log.Debug().Int("i1", strategy.MaxRepresentedWinSpread-spreadPlusLeftover).Int("i2", tilesUnseen).Float32(
 		"pct", pct).Bool("plies-are-even", pliesAreEven).Msg("calc-win%")
 	if pliesAreEven {
 		// see the above comment re flipping win pct.
 		pct = 1 - pct
 	}
-	sp.winPctStats.Push(pct)
+	sp.winPctStats.Push(float64(pct))
 }
 
 // Simmer implements the actual look-ahead search
@@ -169,7 +169,7 @@ type Simmer struct {
 	simming    bool
 	readyToSim bool
 	plays      []*SimmedPlay
-	winPcts    [][]float64
+	winPcts    [][]float32
 	cfg        *config.Config
 
 	logStream io.Writer
@@ -191,7 +191,7 @@ func (s *Simmer) Init(game *game.Game, aiplayer player.AIPlayer, cfg *config.Con
 			panic(err)
 		}
 		var ok bool
-		s.winPcts, ok = winpct.([][]float64)
+		s.winPcts, ok = winpct.([][]float32)
 		if !ok {
 			panic("win percentages not correct type")
 		}
