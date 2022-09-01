@@ -93,7 +93,6 @@ func TestSimSingleIteration(t *testing.T) {
 
 	simmer.sortPlaysByEquity()
 	fmt.Println(simmer.printStats())
-	is.True(false)
 }
 
 func BenchmarkSim(b *testing.B) {

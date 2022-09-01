@@ -141,7 +141,7 @@ func (sp *SimmedPlay) addEquityStat(initialSpread int, spread int, leftover floa
 	// -101 = 301
 	// -200 = 400
 	pct := winpcts[strategy.MaxRepresentedWinSpread-spreadPlusLeftover][tilesUnseen]
-	log.Debug().Int("i1", strategy.MaxRepresentedWinSpread-spreadPlusLeftover).Int("i2", tilesUnseen).Float32(
+	log.Trace().Int("i1", strategy.MaxRepresentedWinSpread-spreadPlusLeftover).Int("i2", tilesUnseen).Float32(
 		"pct", pct).Bool("plies-are-even", pliesAreEven).Msg("calc-win%")
 	if pliesAreEven {
 		// see the above comment re flipping win pct.
