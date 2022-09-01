@@ -29,3 +29,14 @@ func PEGCacheLoadFunc(cfg *config.Config, key string) (interface{}, error) {
 	}
 	return loadPEGParams(cfg.StrategyParamsPath, fields[2], fields[1])
 }
+
+func WinPCTLoadFunc(cfg *config.Config, key string) (interface{}, error) {
+	fields := strings.Split(key, ":")
+	if fields[0] != "winpctfile" {
+		return nil, errors.New("winpctcacheloadfunc - bad cache key: " + key)
+	}
+	if len(fields) != 3 {
+		return nil, errors.New("cache key missing fields")
+	}
+	return loadWinPCTParams(cfg.StrategyParamsPath, fields[2], fields[1])
+}

@@ -367,6 +367,16 @@ func (sc *ShellController) autoAnalyze(cmd *shellcmd) (*Response, error) {
 		return nil, errors.New("please provide a filename to analyze")
 	}
 	filename := cmd.args[0]
+	options := cmd.options
+	if options["export"] != "" {
+		err := automatic.ExportGCG(
+			sc.config, filename, options["letterdist"], options["lexicon"],
+			options["boardlayout"], options["export"])
+		if err != nil {
+			return nil, err
+		}
+		return msg("exported to " + options["export"] + ".gcg"), nil
+	}
 	analysis, err := automatic.AnalyzeLogFile(filename)
 	if err != nil {
 		return nil, err
