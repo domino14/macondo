@@ -69,7 +69,7 @@ type Solver struct {
 	stmMovegen       movegen.MoveGenerator
 	otsMovegen       movegen.MoveGenerator
 	game             *game.Game
-	killerCache      map[uint64]*move.Move
+	killerCache      map[uint64]string
 	nodeCount        map[uint8]uint32
 	initialSpread    int
 	initialTurnNum   int
@@ -125,7 +125,7 @@ func (s *Solver) Init(m1 movegen.MoveGenerator, m2 movegen.MoveGenerator, game *
 	s.stmMovegen = m1
 	s.otsMovegen = m2
 	s.game = game
-	s.killerCache = make(map[uint64]*move.Move)
+	s.killerCache = make(map[uint64]string)
 	s.nodeCount = make(map[uint8]uint32)
 	s.iterativeDeepeningOn = true
 
@@ -531,19 +531,21 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 	if maximizingPlayer {
 		value := float32(-Infinity)
 		plays := s.generateSTMPlays(parent.move, depth, plies)
-		if killerPlay != nil {
+		if killerPlay != "" {
 			// look in the cached node for the winning play last time,
 			// and search it first
 			found := false
 			for idx, play := range plays {
-				if play.Equals(killerPlay) {
+				if play.ShortDescription() == killerPlay {
 					plays[0], plays[idx] = plays[idx], plays[0]
 					found = true
 					break
 				}
 			}
 			if !found {
-				log.Trace().Msg("Zobrist collision - maximizing")
+				fmt.Println("killerPlay", killerPlay,
+					"plays", plays,
+					"Zobrist collision - maximizing")
 			}
 		}
 
@@ -582,18 +584,18 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 		parent.heuristicValue = nodeValue{
 			value:    value,
 			knownEnd: winningNode.heuristicValue.knownEnd}
-		s.killerCache[parentKey] = winningPlay
+		s.killerCache[parentKey] = winningPlay.ShortDescription()
 		return winningNode, nil
 	} else {
 		// Otherwise, not maximizing
 		value := float32(Infinity)
 		plays := s.generateSTMPlays(parent.move, depth, plies)
-		if killerPlay != nil {
+		if killerPlay != "" {
 			// look in the cached node for the winning play last time,
 			// and search it first
 			found := false
 			for idx, play := range plays {
-				if play.Equals(killerPlay) {
+				if play.ShortDescription() == killerPlay {
 					plays[0], plays[idx] = plays[idx], plays[0]
 					found = true
 					break
@@ -637,7 +639,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 		parent.heuristicValue = nodeValue{
 			value:    value,
 			knownEnd: winningNode.heuristicValue.knownEnd}
-		s.killerCache[parentKey] = winningPlay
+		s.killerCache[parentKey] = winningPlay.ShortDescription()
 		return winningNode, nil
 	}
 }
