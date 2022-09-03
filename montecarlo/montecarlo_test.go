@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -18,11 +17,11 @@ import (
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddag"
-	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/strategy"
+	"github.com/domino14/macondo/testcommon"
 )
 
 const (
@@ -32,16 +31,7 @@ const (
 var DefaultConfig = config.DefaultConfig()
 
 func TestMain(m *testing.M) {
-	for _, lex := range []string{"NWL18"} {
-		gdgPath := filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag")
-		if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
-			gaddagmaker.GenerateGaddag(filepath.Join(DefaultConfig.LexiconPath, lex+".txt"), true, true)
-			err = os.Rename("out.gaddag", gdgPath)
-			if err != nil {
-				panic(err)
-			}
-		}
-	}
+	testcommon.CreateGaddags(DefaultConfig, []string{"NWL18"})
 	os.Exit(m.Run())
 }
 

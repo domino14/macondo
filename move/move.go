@@ -60,6 +60,44 @@ func init() {
 	reHorizontal = regexp.MustCompile(`^(?P<row>[0-9]+)(?P<col>[A-Z])$`)
 }
 
+func (m *Move) Equals(o *Move) bool {
+	if m.score != o.score {
+		return false
+	}
+	if m.action != o.action {
+		return false
+	}
+	if m.tilesPlayed != o.tilesPlayed {
+		return false
+	}
+	if m.rowStart != o.rowStart {
+		return false
+	}
+	if m.colStart != o.colStart {
+		return false
+	}
+	if m.vertical != o.vertical {
+		return false
+	}
+	if len(m.tiles) != len(o.tiles) {
+		return false
+	}
+	if len(m.leave) != len(o.leave) {
+		return false
+	}
+	for idx, i := range m.tiles {
+		if o.tiles[idx] != i {
+			return false
+		}
+	}
+	for idx, i := range m.leave {
+		if o.leave[idx] != i {
+			return false
+		}
+	}
+	return true
+}
+
 func (m *Move) Set(tiles alphabet.MachineWord, leave alphabet.MachineWord, score int,
 	rowStart, colStart, tilesPlayed int, vertical bool, action MoveType,
 	alph *alphabet.Alphabet) {

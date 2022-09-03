@@ -5,11 +5,10 @@ import (
 	"testing"
 
 	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/move"
 	"github.com/matryer/is"
 	"github.com/rs/zerolog/log"
-
-	"github.com/domino14/macondo/board"
 )
 
 func TestRectanglesIntersect(t *testing.T) {

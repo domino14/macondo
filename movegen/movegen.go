@@ -30,7 +30,7 @@ const (
 
 // MoveGenerator is a generic interface for generating moves.
 type MoveGenerator interface {
-	GenAll(rack *alphabet.Rack, addExchange bool)
+	GenAll(rack *alphabet.Rack, addExchange bool) []*move.Move
 	SetSortingParameter(s SortBy)
 	Plays() []*move.Move
 	SetPlayRecorder(pf PlayRecorderFunc)
@@ -119,7 +119,7 @@ func (gen *GordonGenerator) SetGame(g *game.Game) {
 
 // GenAll generates all moves on the board. It assumes anchors have already
 // been updated, as well as cross-sets / cross-scores.
-func (gen *GordonGenerator) GenAll(rack *alphabet.Rack, addExchange bool) {
+func (gen *GordonGenerator) GenAll(rack *alphabet.Rack, addExchange bool) []*move.Move {
 	gen.winner.SetEmpty()
 
 	gen.plays = gen.plays[:0]
@@ -156,6 +156,7 @@ func (gen *GordonGenerator) GenAll(rack *alphabet.Rack, addExchange bool) {
 	if addExchange {
 		gen.generateExchangeMoves(rack, 0, 0)
 	}
+  return gen.plays
 }
 
 func (gen *GordonGenerator) genByOrientation(rack *alphabet.Rack, dir board.BoardDirection) {

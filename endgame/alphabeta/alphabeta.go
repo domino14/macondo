@@ -16,6 +16,7 @@ import (
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
+	"github.com/domino14/macondo/zobrist"
 	"github.com/rs/zerolog/log"
 )
 
@@ -64,10 +65,12 @@ var ErrNoEndgameSolution = errors.New("no endgame solution found")
 
 // Solver implements the minimax + alphabeta algorithm.
 type Solver struct {
+	zobrist          *zobrist.Zobrist
 	stmMovegen       movegen.MoveGenerator
 	otsMovegen       movegen.MoveGenerator
 	game             *game.Game
-	totalNodes       int
+	killerCache      map[uint64]string
+	nodeCount        map[uint8]uint32
 	initialSpread    int
 	initialTurnNum   int
 	maximizingPlayer int // This is the player who we call this function for.
@@ -85,10 +88,12 @@ type Solver struct {
 	otsBlockingRects []rect
 	stmRectIndex     int
 	otsRectIndex     int
-	moveCache        map[int][]*minimalMove
-	mmCount          int
+	// moveCache        map[int][]*minimalMove
+	maxCount int
+	minCount int
 
-	placeholderMove *move.Move
+	lastPrincipalVariation []*move.Move
+	currentIDDepth         int
 
 	config *config.Config
 }
@@ -110,20 +115,18 @@ func min(x, y float32) float32 {
 
 // Init initializes the solver
 func (s *Solver) Init(m1 movegen.MoveGenerator, m2 movegen.MoveGenerator, game *game.Game, cfg *config.Config) error {
+	s.zobrist = &zobrist.Zobrist{}
 	s.stmMovegen = m1
 	s.otsMovegen = m2
 	s.game = game
-	s.totalNodes = 0
+	s.killerCache = make(map[uint64]string)
+	s.nodeCount = make(map[uint8]uint32)
 	s.iterativeDeepeningOn = true
 
 	s.stmPlayed = make([]bool, alphabet.MaxAlphabetSize+1)
 	s.otsPlayed = make([]bool, alphabet.MaxAlphabetSize+1)
 	s.stmBlockingRects = make([]rect, 20)
 	s.otsBlockingRects = make([]rect, 25)
-	s.placeholderMove = new(move.Move)
-	if game != nil {
-		s.placeholderMove.SetAlphabet(game.Alphabet())
-	}
 	s.config = cfg
 	return nil
 }
@@ -226,7 +229,7 @@ func (s *Solver) addPass(plays []*move.Move, ponturn int) []*move.Move {
 	return plays
 }
 
-func (s *Solver) generateSTMPlays(parent *GameNode) []*move.Move {
+func (s *Solver) generateSTMPlays(parentMove *move.Move, depth int, plies int) []*move.Move {
 	// STM means side-to-move
 	stmRack := s.game.RackFor(s.game.PlayerOnTurn())
 	pnot := (s.game.PlayerOnTurn() + 1) % s.game.NumPlayers()
@@ -235,19 +238,39 @@ func (s *Solver) generateSTMPlays(parent *GameNode) []*move.Move {
 	board := s.game.Board()
 	ld := s.game.Bag().LetterDistribution()
 
-	s.stmMovegen.GenAll(stmRack, false)
-	sideToMovePlays := s.addPass(s.stmMovegen.Plays(), s.game.PlayerOnTurn())
+	sideToMovePlays := s.stmMovegen.GenAll(stmRack, false)
+	if stmRack.NumTiles() > 1 && (plies > 1 || parentMove == nil || len(parentMove.Tiles()) == 0) {
+		// If opponent just scored and depth is 1, "6-pass" scoring is not available.
+		// Skip adding pass if player has an out play ("6-pass" scoring never outperforms an out play).
+		// This is more about "don't search a dubious pass subtree" than about memory allocation.
+		if !containsOutPlay(sideToMovePlays, int(numTilesOnRack)) {
+			sideToMovePlays = s.addPass(sideToMovePlays, s.game.PlayerOnTurn())
+		}
+	}
 	// log.Debug().Msgf("stm plays %v", sideToMovePlays)
 	if !s.complexEvaluation {
-		// A simple evaluation function is a very dumb, but fast, function
-		// of score and tiles played. /shrug
-		for _, m := range s.stmMovegen.Plays() {
-			m.SetValuation(float32(m.Score() + 3*m.TilesPlayed()))
+		// Static evaluation must be fast and resource-efficient
+		for _, m := range sideToMovePlays {
+			if depth > 2 {
+				m.SetValuation(float32(m.Score() + 3*m.TilesPlayed()))
+			} else if m.TilesPlayed() == int(numTilesOnRack) {
+				m.SetValuation(float32(m.Score() + 2*otherRack.ScoreOn(ld)))
+			} else {
+				m.SetValuation(float32(m.Score()))
+			}
 		}
 		sort.Slice(sideToMovePlays, func(i, j int) bool {
+			// if s.currentIDDepth
 			return sideToMovePlays[i].Valuation() > sideToMovePlays[j].Valuation()
 		})
-		return sideToMovePlays
+
+		stmCopy := make([]*move.Move, len(sideToMovePlays))
+		for idx := range stmCopy {
+			stmCopy[idx] = new(move.Move)
+			stmCopy[idx].CopyFrom(sideToMovePlays[idx])
+		}
+
+		return stmCopy
 	}
 
 	// log.Debug().Msgf("stm %v (%v), ots %v (%v)",
@@ -317,149 +340,35 @@ func (s *Solver) generateSTMPlays(parent *GameNode) []*move.Move {
 	// Finally, we need to allocate here, so that we can save these plays
 	// as we change context and recurse. Otherwise, the movegen is still
 	// holding on to the slice of moves.
-	// stmCopy := make([]*move.Move, len(sideToMovePlays))
-	// for idx := range stmCopy {
-	// 	stmCopy[idx] = new(move.Move)
-	// 	stmCopy[idx].CopyFrom(sideToMovePlays[idx])
-	// }
-	return sideToMovePlays
+	stmCopy := make([]*move.Move, len(sideToMovePlays))
+	for idx := range stmCopy {
+		stmCopy[idx] = new(move.Move)
+		stmCopy[idx].CopyFrom(sideToMovePlays[idx])
+	}
+	return stmCopy
 }
 
-func movesMatch(t alphabet.MachineWord, lv alphabet.MachineWord, mm *minimalMove) bool {
-	return string(mm.tiles) == string(t) && string(mm.leave) == string(lv)
-}
-
-func (s *Solver) playToMinimalMove(p *move.Move) *minimalMove {
-	// Create a minimal move, or return one from the cache.
-	r, c, v := p.CoordsAndVertical()
-	ptiles := p.Tiles()
-	pleave := p.Leave()
-	hashKey := c + (r << mmRowShift) + (p.Score() << mmScoreShift)
-	if v {
-		hashKey += (1 << mmVerticalShift)
-	}
-	extraHash := hashKey
-	if len(ptiles) > 0 {
-		extraHash = hashKey + (int(ptiles[0]) << 25)
-	}
-	mvs := s.moveCache[extraHash]
-	if len(mvs) == 0 {
-		mm := &minimalMove{
-			tiles:   ptiles,
-			leave:   pleave,
-			hashKey: uint32(hashKey),
-		}
-		s.mmCount += 1
-		s.moveCache[extraHash] = []*minimalMove{mm}
-		return mm
-	}
-
-	for _, existing := range mvs {
-		// we already know the coordinates and score match, just check
-		// the actual leave and tiles.
-		if movesMatch(ptiles, pleave, existing) {
-			return existing
+func containsOutPlay(plays []*move.Move, numTilesOnRack int) bool {
+	for _, m := range plays {
+		if m.TilesPlayed() == numTilesOnRack {
+			return true
 		}
 	}
-	// if we are here nothing matched.
-	mm := &minimalMove{
-		tiles:   ptiles,
-		leave:   pleave,
-		hashKey: uint32(hashKey),
-	}
-	s.mmCount += 1
-	s.moveCache[extraHash] = append(s.moveCache[extraHash], mm)
-	return mm
-}
-
-func (s *Solver) childGenerator(node *GameNode, maximizingPlayer bool) func() *GameNode {
-
-	// log.Debug().Msgf("Trying to generate children for node %v", node)
-	var plays []*move.Move
-	if node.children == nil {
-		plays = s.generateSTMPlays(node)
-		// Append a minimal node for every generated play.
-		node.children = make([]*GameNode, len(plays))
-		for idx, p := range plays {
-			s.totalNodes++
-			mm := s.playToMinimalMove(p)
-			node.children[idx] = &GameNode{
-				move:      mm,
-				parent:    node,
-				valuation: p.Valuation(),
-			}
-		}
-	} else {
-		// We should only hit this during iterative deepening.
-		sort.Slice(node.children, func(i, j int) bool {
-			// If the plays exist already, sort them by value so more
-			// promising nodes are visited first. This would happen
-			// during iterative deepening.
-			// Note: When we are the minimizing player,
-			// the heuristic value is negated in the `calculateValue` function
-			// in gamenode.go. The heuristic value is always relative to the
-			// maximizing player. This is why we flip the less function.
-			if !maximizingPlayer {
-				i, j = j, i
-			}
-			// If a node hasn't been evaluated yet, push it to the end of the list.
-			// This function should sort from biggest to smallest.
-			if node.children[j].heuristicValue == nil {
-				return false
-			}
-			if node.children[i].heuristicValue == nil {
-				return true
-			}
-			return node.children[j].heuristicValue.less(node.children[i].heuristicValue)
-
-		})
-
-	}
-
-	gen := func() func() *GameNode {
-		idx := -1
-		return func() *GameNode {
-			idx++
-			if len(plays) == 0 {
-
-				// No plays were generated. This happens during iterative
-				// deepening, when we re-use previously generated nodes.
-				if idx == len(node.children) {
-					// log.Debug().Msgf("no more children of %v to return", node)
-					return nil
-				}
-				return node.children[idx]
-			}
-			if idx == len(plays) {
-				return nil
-			}
-
-			// Otherwise, new plays were generated and saved in
-			// node.children already.
-
-			return node.children[idx]
-		}
-	}
-	return gen()
+	return false
 }
 
 func (s *Solver) findBestSequence(endNode *GameNode) []*move.Move {
 	// findBestSequence assumes we have already run alphabeta / iterative deepening
 	seq := []*move.Move{}
-
 	child := endNode
 	for {
-
-		m := &move.Move{}
-		child.move.CopyToMove(m)
-		m.SetAlphabet(s.game.Alphabet())
-		// log.Debug().Msgf("Children of %v:", child.parent)
-		seq = append([]*move.Move{m}, seq...)
+		seq = append([]*move.Move{child.move}, seq...)
 		child = child.parent
 		if child == nil || child.move == nil {
 			break
 		}
 	}
+
 	return seq
 }
 
@@ -472,14 +381,13 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 	log.Debug().Int("plies", plies).
 		Bool("iterative-deepening", s.iterativeDeepeningOn).
 		Bool("complex-evaluation", s.complexEvaluation).
-		Bool("pruning-disabled", s.disablePruning).
-		Int("maxnodes", s.config.AlphaBetaNodeLimit).
 		Int("maxtimesecs", s.config.AlphaBetaTimeLimit).
 		Msg("alphabeta-solve-config")
 
 	tstart := time.Now()
-	s.mmCount = 0
-	s.moveCache = make(map[int][]*minimalMove)
+	s.maxCount = 0
+	s.minCount = 0
+	s.zobrist.Initialize(s.game.Board().Dim())
 	// Generate children moves.
 	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
 	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)
@@ -500,36 +408,34 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 
 	ctx := context.Background()
 	var cancel context.CancelFunc
-	var cancel2 context.CancelFunc
 	if s.config.AlphaBetaTimeLimit > 0 {
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(s.config.AlphaBetaTimeLimit)*time.Second)
 		defer cancel()
-	}
-	if s.config.AlphaBetaNodeLimit > 0 {
-		ctx, cancel2 = context.WithCancel(ctx)
 	}
 
 	s.initialSpread = s.game.CurrentSpread()
 	s.initialTurnNum = s.game.Turn()
 	s.maximizingPlayer = s.game.PlayerOnTurn()
-	log.Debug().Msgf("Spread at beginning of endgame: %v", s.initialSpread)
-	log.Debug().Msgf("Maximizing player is: %v", s.maximizingPlayer)
+	log.Debug().Msgf("%v %d Spread at beginning of endgame: %v (%d)", s.maximizingPlayer, s.initialTurnNum, s.initialSpread, s.game.ScorelessTurns())
 	var bestV float32
 	var bestNodeSoFar *GameNode
 	var bestSeq []*move.Move
+
+	initialHashKey := s.zobrist.Hash(s.game.Board().GetSquares(),
+		s.game.RackFor(s.maximizingPlayer), false)
+
 	var wg sync.WaitGroup
-	done := make(chan struct{})
 	wg.Add(1)
 
 	go func(ctx context.Context) {
 		defer wg.Done()
 		if s.iterativeDeepeningOn {
+
 			log.Debug().Msgf("Using iterative deepening with %v max plies", plies)
 			for p := 1; p <= plies; p++ {
-				log.Debug().Msgf("scoreless turns: %v", s.game.ScorelessTurns())
-				log.Debug().Msgf("Spread at beginning of endgame: %v", s.game.CurrentSpread())
-				log.Debug().Msgf("Maximizing player is: %v", s.game.PlayerOnTurn())
-				bestNode, err := s.alphabeta(ctx, s.rootNode, p, float32(-Infinity), float32(Infinity), true)
+				log.Debug().Msgf("%v %d Spread at beginning of endgame: %v (%d)", s.maximizingPlayer, s.initialTurnNum, s.initialSpread, s.game.ScorelessTurns())
+				s.currentIDDepth = p
+				bestNode, err := s.alphabeta(ctx, s.rootNode, initialHashKey, p, plies, float32(-Infinity), float32(Infinity), true)
 				if err != nil {
 					log.Err(err).Msg("alphabeta-error")
 					break
@@ -537,55 +443,38 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 					bestNodeSoFar = bestNode
 					bestV = bestNode.heuristicValue.value
 					bestSeq = s.findBestSequence(bestNode)
+					s.lastPrincipalVariation = bestSeq
 
 					fmt.Printf("-- Spread swing estimate found after %d plies: %f", p, bestV)
 					for idx, move := range bestSeq {
 						fmt.Printf(" %d) %v", idx+1, move.ShortDescription())
 					}
-					fmt.Printf("\n")
+					fmt.Printf(" with %d killer plays %v\n", len(s.killerCache), s.nodeCount)
 				}
 			}
 		} else {
-			bestNode, err := s.alphabeta(ctx, s.rootNode, plies, float32(-Infinity), float32(Infinity), true)
+			s.currentIDDepth = 0
+			s.lastPrincipalVariation = nil
+			bestNode, err := s.alphabeta(ctx, s.rootNode, initialHashKey, plies, plies, float32(-Infinity), float32(Infinity), true)
 			if err != nil {
 				log.Err(err).Msg("alphabeta-error")
 			} else {
+				bestNodeSoFar = bestNode
 				bestV = bestNode.heuristicValue.value
 				bestSeq = s.findBestSequence(bestNode)
+				s.lastPrincipalVariation = bestSeq
+
+				fmt.Printf("-- Spread swing estimate found after %d plies: %f", plies, bestV)
+				for idx, move := range bestSeq {
+					fmt.Printf(" %d) %v", idx+1, move.ShortDescription())
+				}
+				fmt.Printf(" with %d killer plays %v\n", len(s.killerCache), s.nodeCount)
 			}
 		}
-		if cancel2 != nil {
-			log.Debug().Msg("sending <-done")
-			done <- struct{}{}
-		}
+
 		log.Debug().Msg("exiting solver goroutine")
 	}(ctx)
 
-	if s.config.AlphaBetaNodeLimit > 0 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			t := time.NewTicker(time.Second)
-
-			for {
-				select {
-				case <-t.C:
-					if s.totalNodes > s.config.AlphaBetaNodeLimit {
-						log.Info().Msg("reached node limit")
-						cancel2()
-						t.Stop()
-					}
-					log.Debug().Int("nodes", s.totalNodes).Msg("node-count")
-
-				case <-done:
-					log.Debug().Msg("read from <-done")
-					t.Stop()
-					return
-				}
-			}
-
-		}()
-	}
 	var err error
 	wg.Wait()
 	if bestNodeSoFar != nil {
@@ -596,9 +485,10 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 		err = ErrNoEndgameSolution
 	}
 	// Go down tree and find best variation:
-	log.Debug().Msgf("Number of expanded nodes: %d", s.totalNodes)
-	log.Debug().Msgf("Size of move cache map: %d", len(s.moveCache))
-	log.Debug().Msgf("Allocated minimal moves: %d", s.mmCount)
+	log.Debug().Msgf("Number of cached killer plays: %d", len(s.killerCache))
+	log.Debug().Msgf("Number of expanded nodes: %v", s.nodeCount)
+	log.Debug().Msgf("Allocated maximal moves: %d", s.maxCount)
+	log.Debug().Msgf("Allocated minimal moves: %d", s.minCount)
 
 	log.Debug().Msgf("Best sequence: (len=%v) %v", len(bestSeq), bestSeq)
 	// for k, v := range s.moveCache {
@@ -614,98 +504,138 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 	return bestV, bestSeq, err
 }
 
-func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α float32, β float32,
-	maximizingPlayer bool) (*GameNode, error) {
+func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint64,
+	depth int, plies int, α float32, β float32, maximizingPlayer bool) (*GameNode, error) {
 
 	select {
 	case <-ctx.Done():
-		return nil, errors.New("context done")
+		return nil, errors.New("context done -- time limit reached?")
 	default:
 	}
 
-	// depthDbg := strings.Repeat(" ", depth)
 	if depth == 0 || s.game.Playing() != pb.PlayState_PLAYING {
 		// s.game.Playing() happens if the game is over; i.e. if the
-		// current node is terminal.
-		node.calculateValue(s)
-		// log.Debug().Msgf("ending recursion, depth: %v, playing: %v, node: %v val: %v",
-		// 	depth, s.game.Playing(), node.move, val)
-		return node, nil
+		// parent node is terminal.
+		parent.calculateValue(s, maximizingPlayer)
+		return parent, nil
 	}
+
+	killerPlay := s.killerCache[parentKey]
 
 	if maximizingPlayer {
 		value := float32(-Infinity)
+		plays := s.generateSTMPlays(parent.move, depth, plies)
+		if killerPlay != "" {
+			// look in the cached node for the winning play last time,
+			// and search it first
+			found := false
+			for idx, play := range plays {
+				if play.ShortDescription() == killerPlay {
+					plays[0], plays[idx] = plays[idx], plays[0]
+					found = true
+					break
+				}
+			}
+			if !found {
+				// fmt.Println("killerPlay", killerPlay,
+				// 	"plays", plays,
+				// 	"Zobrist collision - maximizing")
+			}
+		}
+
+		var winningPlay *move.Move
 		var winningNode *GameNode
-		iter := s.childGenerator(node, true)
-		for child := iter(); child != nil; child = iter() {
+		for _, play := range plays {
 			// Play the child
-			// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
-			child.move.CopyToMove(s.placeholderMove)
-			s.game.PlayMove(s.placeholderMove, false, 0)
-			// log.Debug().Msgf("%vState is now %v", depthDbg,
-			// s.game.String())
-			wn, err := s.alphabeta(ctx, child, depth-1, α, β, false)
+			s.game.PlayMove(play, false, 0)
+			childKey := s.zobrist.AddMove(parentKey, play, false)
+			child := new(GameNode)
+			child.move = play
+			child.parent = parent
+			child.depth = uint8(depth - 1)
+			wn, err := s.alphabeta(ctx, child, childKey, depth-1, plies, α, β, false)
 			if err != nil {
 				s.game.UnplayLastMove()
 				return nil, err
 			}
 			s.game.UnplayLastMove()
-			// log.Debug().Msgf("%vAfter unplay, state is now %v", depthDbg, s.game.String())
 
 			if wn.heuristicValue.value > value {
 				value = wn.heuristicValue.value
-				winningNode = wn
-				// log.Debug().Msgf("%vFound a better move: %v (%v)", depthDbg, value, tm)
+				// I don't know how to make this algorithm not allocate, but
+				// at least these homeless nodes will get collected.
+				winningPlay = play
+				winningNode = wn.Copy()
 			}
 
-			if !s.disablePruning {
-				α = max(α, value)
-				if α >= β {
-					break // beta cut-off
+			// if !s.disablePruning {
+			α = max(α, value)
+			if α >= β {
+				break // beta cut-off
+			}
+			// }
+		}
+		parent.heuristicValue = nodeValue{
+			value:    value,
+			knownEnd: winningNode.heuristicValue.knownEnd}
+		s.killerCache[parentKey] = winningPlay.ShortDescription()
+		return winningNode, nil
+	} else {
+		// Otherwise, not maximizing
+		value := float32(Infinity)
+		plays := s.generateSTMPlays(parent.move, depth, plies)
+		if killerPlay != "" {
+			// look in the cached node for the winning play last time,
+			// and search it first
+			found := false
+			for idx, play := range plays {
+				if play.ShortDescription() == killerPlay {
+					plays[0], plays[idx] = plays[idx], plays[0]
+					found = true
+					break
 				}
 			}
-		}
-		node.heuristicValue = &nodeValue{
-			value:          value,
-			knownEnd:       winningNode.heuristicValue.knownEnd,
-			sequenceLength: winningNode.heuristicValue.sequenceLength}
-		return winningNode, nil
-	}
-	// Otherwise, not maximizing
-	value := float32(Infinity)
-	var winningNode *GameNode
-	iter := s.childGenerator(node, false)
-	for child := iter(); child != nil; child = iter() {
-		// log.Debug().Msgf("%vGoing to play move %v", depthDbg, child.move)
-		child.move.CopyToMove(s.placeholderMove)
-		s.game.PlayMove(s.placeholderMove, false, 0)
-		// log.Debug().Msgf("%vState is now %v", depthDbg,
-		// s.game.String())
-		wn, err := s.alphabeta(ctx, child, depth-1, α, β, true)
-		if err != nil {
-			s.game.UnplayLastMove()
-			return nil, err
-		}
-		s.game.UnplayLastMove()
-		// log.Debug().Msgf("%vAfter unplay, state is now %v", depthDbg, s.game.String())
-		if wn.heuristicValue.value < value {
-			value = wn.heuristicValue.value
-			winningNode = wn
-			// log.Debug().Msgf("%vFound a worse move: %v (%v)", depthDbg, value, tm)
+			if !found {
+				// fmt.Println("killerPlay", killerPlay,
+				// 	"plays", plays,
+				// 	"Zobrist collision - minimizing")
+			}
 		}
 
-		if !s.disablePruning {
+		var winningPlay *move.Move
+		var winningNode *GameNode
+		for _, play := range plays {
+			s.game.PlayMove(play, false, 0)
+			childKey := s.zobrist.AddMove(parentKey, play, false)
+			child := new(GameNode)
+			child.move = play
+			child.parent = parent
+			child.depth = uint8(depth - 1)
+			wn, err := s.alphabeta(ctx, child, childKey, depth-1, plies, α, β, true)
+			if err != nil {
+				s.game.UnplayLastMove()
+				return nil, err
+			}
+			s.game.UnplayLastMove()
+			if wn.heuristicValue.value < value {
+				value = wn.heuristicValue.value
+				winningPlay = play
+				winningNode = wn.Copy()
+			}
+
+			// if !s.disablePruning {
 			β = min(β, value)
 			if α >= β {
 				break // alpha cut-off
 			}
+			// }
 		}
+		parent.heuristicValue = nodeValue{
+			value:    value,
+			knownEnd: winningNode.heuristicValue.knownEnd}
+		s.killerCache[parentKey] = winningPlay.ShortDescription()
+		return winningNode, nil
 	}
-	node.heuristicValue = &nodeValue{
-		value:          value,
-		knownEnd:       winningNode.heuristicValue.knownEnd,
-		sequenceLength: winningNode.heuristicValue.sequenceLength}
-	return winningNode, nil
 }
 
 func (s *Solver) SetIterativeDeepening(i bool) {
