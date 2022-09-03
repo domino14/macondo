@@ -16,6 +16,7 @@ import (
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
+	"github.com/domino14/macondo/zobrist"
 	"github.com/rs/zerolog/log"
 )
 
@@ -64,10 +65,12 @@ var ErrNoEndgameSolution = errors.New("no endgame solution found")
 
 // Solver implements the minimax + alphabeta algorithm.
 type Solver struct {
+	zobrist          *zobrist.Zobrist
 	stmMovegen       movegen.MoveGenerator
 	otsMovegen       movegen.MoveGenerator
 	game             *game.Game
-	totalNodes       int
+	killerCache      map[uint64]string
+	nodeCount        map[uint8]uint32
 	initialSpread    int
 	initialTurnNum   int
 	maximizingPlayer int // This is the player who we call this function for.
@@ -86,18 +89,13 @@ type Solver struct {
 	stmRectIndex     int
 	otsRectIndex     int
 	// moveCache        map[int][]*minimalMove
-	mmCount int
+	maxCount int
+	minCount int
 
 	lastPrincipalVariation []*move.Move
 	currentIDDepth         int
 
 	config *config.Config
-
-	positionHash map[int64]*PositionResult
-}
-
-type PositionResult struct {
-	move *move.Move
 }
 
 // max returns the larger of x or y.
@@ -117,10 +115,12 @@ func min(x, y float32) float32 {
 
 // Init initializes the solver
 func (s *Solver) Init(m1 movegen.MoveGenerator, m2 movegen.MoveGenerator, game *game.Game, cfg *config.Config) error {
+	s.zobrist = &zobrist.Zobrist{}
 	s.stmMovegen = m1
 	s.otsMovegen = m2
 	s.game = game
-	s.totalNodes = 0
+	s.killerCache = make(map[uint64]string)
+	s.nodeCount = make(map[uint8]uint32)
 	s.iterativeDeepeningOn = true
 
 	s.stmPlayed = make([]bool, alphabet.MaxAlphabetSize+1)
@@ -229,7 +229,7 @@ func (s *Solver) addPass(plays []*move.Move, ponturn int) []*move.Move {
 	return plays
 }
 
-func (s *Solver) generateSTMPlays(parent *GameNode, depth int) []*move.Move {
+func (s *Solver) generateSTMPlays(parentMove *move.Move, depth int, plies int) []*move.Move {
 	// STM means side-to-move
 	stmRack := s.game.RackFor(s.game.PlayerOnTurn())
 	pnot := (s.game.PlayerOnTurn() + 1) % s.game.NumPlayers()
@@ -238,15 +238,26 @@ func (s *Solver) generateSTMPlays(parent *GameNode, depth int) []*move.Move {
 	board := s.game.Board()
 	ld := s.game.Bag().LetterDistribution()
 
-	s.stmMovegen.GenAll(stmRack, false)
-	sideToMovePlays := s.addPass(s.stmMovegen.Plays(), s.game.PlayerOnTurn())
-
+	sideToMovePlays := s.stmMovegen.GenAll(stmRack, false)
+	if stmRack.NumTiles() > 1 && (plies > 1 || parentMove == nil || len(parentMove.Tiles()) == 0) {
+		// If opponent just scored and depth is 1, "6-pass" scoring is not available.
+		// Skip adding pass if player has an out play ("6-pass" scoring never outperforms an out play).
+		// This is more about "don't search a dubious pass subtree" than about memory allocation.
+		if !containsOutPlay(sideToMovePlays, int(numTilesOnRack)) {
+			sideToMovePlays = s.addPass(sideToMovePlays, s.game.PlayerOnTurn())
+		}
+	}
 	// log.Debug().Msgf("stm plays %v", sideToMovePlays)
 	if !s.complexEvaluation {
-		// A simple evaluation function is a very dumb, but fast, function
-		// of score and tiles played. /shrug
-		for _, m := range s.stmMovegen.Plays() {
-			m.SetValuation(float32(m.Score() + 3*m.TilesPlayed()))
+		// Static evaluation must be fast and resource-efficient
+		for _, m := range sideToMovePlays {
+			if depth > 2 {
+				m.SetValuation(float32(m.Score() + 3*m.TilesPlayed()))
+			} else if m.TilesPlayed() == int(numTilesOnRack) {
+				m.SetValuation(float32(m.Score() + 2*otherRack.ScoreOn(ld)))
+			} else {
+				m.SetValuation(float32(m.Score()))
+			}
 		}
 		sort.Slice(sideToMovePlays, func(i, j int) bool {
 			// if s.currentIDDepth
@@ -337,6 +348,15 @@ func (s *Solver) generateSTMPlays(parent *GameNode, depth int) []*move.Move {
 	return stmCopy
 }
 
+func containsOutPlay(plays []*move.Move, numTilesOnRack int) bool {
+	for _, m := range plays {
+		if m.TilesPlayed() == numTilesOnRack {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Solver) findBestSequence(endNode *GameNode) []*move.Move {
 	// findBestSequence assumes we have already run alphabeta / iterative deepening
 	seq := []*move.Move{}
@@ -365,7 +385,9 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 		Msg("alphabeta-solve-config")
 
 	tstart := time.Now()
-	s.mmCount = 0
+	s.maxCount = 0
+	s.minCount = 0
+	s.zobrist.Initialize(s.game.Board().Dim())
 	// Generate children moves.
 	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
 	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)
@@ -394,11 +416,13 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 	s.initialSpread = s.game.CurrentSpread()
 	s.initialTurnNum = s.game.Turn()
 	s.maximizingPlayer = s.game.PlayerOnTurn()
-	log.Debug().Msgf("Spread at beginning of endgame: %v", s.initialSpread)
-	log.Debug().Msgf("Maximizing player is: %v", s.maximizingPlayer)
+	log.Debug().Msgf("%v %d Spread at beginning of endgame: %v (%d)", s.maximizingPlayer, s.initialTurnNum, s.initialSpread, s.game.ScorelessTurns())
 	var bestV float32
 	var bestNodeSoFar *GameNode
 	var bestSeq []*move.Move
+
+	initialHashKey := s.zobrist.Hash(s.game.Board().GetSquares(),
+		s.game.RackFor(s.maximizingPlayer), false)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -409,11 +433,9 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 
 			log.Debug().Msgf("Using iterative deepening with %v max plies", plies)
 			for p := 1; p <= plies; p++ {
-				log.Debug().Msgf("scoreless turns: %v", s.game.ScorelessTurns())
-				log.Debug().Msgf("Spread at beginning of endgame: %v", s.game.CurrentSpread())
-				log.Debug().Msgf("Maximizing player is: %v", s.game.PlayerOnTurn())
+				log.Debug().Msgf("%v %d Spread at beginning of endgame: %v (%d)", s.maximizingPlayer, s.initialTurnNum, s.initialSpread, s.game.ScorelessTurns())
 				s.currentIDDepth = p
-				bestNode, err := s.alphabeta(ctx, s.rootNode, p, float32(-Infinity), float32(Infinity), true)
+				bestNode, err := s.alphabeta(ctx, s.rootNode, initialHashKey, p, plies, float32(-Infinity), float32(Infinity), true)
 				if err != nil {
 					log.Err(err).Msg("alphabeta-error")
 					break
@@ -427,18 +449,26 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 					for idx, move := range bestSeq {
 						fmt.Printf(" %d) %v", idx+1, move.ShortDescription())
 					}
-					fmt.Printf("\n")
+					fmt.Printf(" with %d killer plays %v\n", len(s.killerCache), s.nodeCount)
 				}
 			}
 		} else {
 			s.currentIDDepth = 0
 			s.lastPrincipalVariation = nil
-			bestNode, err := s.alphabeta(ctx, s.rootNode, plies, float32(-Infinity), float32(Infinity), true)
+			bestNode, err := s.alphabeta(ctx, s.rootNode, initialHashKey, plies, plies, float32(-Infinity), float32(Infinity), true)
 			if err != nil {
 				log.Err(err).Msg("alphabeta-error")
 			} else {
+				bestNodeSoFar = bestNode
 				bestV = bestNode.heuristicValue.value
 				bestSeq = s.findBestSequence(bestNode)
+				s.lastPrincipalVariation = bestSeq
+
+				fmt.Printf("-- Spread swing estimate found after %d plies: %f", plies, bestV)
+				for idx, move := range bestSeq {
+					fmt.Printf(" %d) %v", idx+1, move.ShortDescription())
+				}
+				fmt.Printf(" with %d killer plays %v\n", len(s.killerCache), s.nodeCount)
 			}
 		}
 
@@ -455,8 +485,10 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 		err = ErrNoEndgameSolution
 	}
 	// Go down tree and find best variation:
-	log.Debug().Msgf("Number of expanded nodes: %d", s.totalNodes)
-	log.Debug().Msgf("Allocated minimal moves: %d", s.mmCount)
+	log.Debug().Msgf("Number of cached killer plays: %d", len(s.killerCache))
+	log.Debug().Msgf("Number of expanded nodes: %v", s.nodeCount)
+	log.Debug().Msgf("Allocated maximal moves: %d", s.maxCount)
+	log.Debug().Msgf("Allocated minimal moves: %d", s.minCount)
 
 	log.Debug().Msgf("Best sequence: (len=%v) %v", len(bestSeq), bestSeq)
 	// for k, v := range s.moveCache {
@@ -472,8 +504,8 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 	return bestV, bestSeq, err
 }
 
-func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α float32, β float32,
-	maximizingPlayer bool) (*GameNode, error) {
+func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint64,
+	depth int, plies int, α float32, β float32, maximizingPlayer bool) (*GameNode, error) {
 
 	select {
 	case <-ctx.Done():
@@ -483,24 +515,45 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 
 	if depth == 0 || s.game.Playing() != pb.PlayState_PLAYING {
 		// s.game.Playing() happens if the game is over; i.e. if the
-		// current node is terminal.
-		node.calculateValue(s)
-		return node, nil
+		// parent node is terminal.
+		parent.calculateValue(s, maximizingPlayer)
+		return parent, nil
 	}
+
+	killerPlay := s.killerCache[parentKey]
 
 	if maximizingPlayer {
 		value := float32(-Infinity)
-		plays := s.generateSTMPlays(node, depth)
+		plays := s.generateSTMPlays(parent.move, depth, plies)
+		if killerPlay != "" {
+			// look in the cached node for the winning play last time,
+			// and search it first
+			found := false
+			for idx, play := range plays {
+				if play.ShortDescription() == killerPlay {
+					plays[0], plays[idx] = plays[idx], plays[0]
+					found = true
+					break
+				}
+			}
+			if !found {
+				// fmt.Println("killerPlay", killerPlay,
+				// 	"plays", plays,
+				// 	"Zobrist collision - maximizing")
+			}
+		}
+
+		var winningPlay *move.Move
 		var winningNode *GameNode
 		for _, play := range plays {
 			// Play the child
 			s.game.PlayMove(play, false, 0)
-
+			childKey := s.zobrist.AddMove(parentKey, play, false)
 			child := new(GameNode)
 			child.move = play
-			child.parent = node
-			child.valuation = play.Valuation()
-			wn, err := s.alphabeta(ctx, child, depth-1, α, β, false)
+			child.parent = parent
+			child.depth = uint8(depth - 1)
+			wn, err := s.alphabeta(ctx, child, childKey, depth-1, plies, α, β, false)
 			if err != nil {
 				s.game.UnplayLastMove()
 				return nil, err
@@ -511,6 +564,7 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 				value = wn.heuristicValue.value
 				// I don't know how to make this algorithm not allocate, but
 				// at least these homeless nodes will get collected.
+				winningPlay = play
 				winningNode = wn.Copy()
 			}
 
@@ -521,24 +575,43 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 			}
 			// }
 		}
-		node.heuristicValue = nodeValue{
-			value:          value,
-			knownEnd:       winningNode.heuristicValue.knownEnd,
-			sequenceLength: winningNode.heuristicValue.sequenceLength}
-
+		parent.heuristicValue = nodeValue{
+			value:    value,
+			knownEnd: winningNode.heuristicValue.knownEnd}
+		s.killerCache[parentKey] = winningPlay.ShortDescription()
 		return winningNode, nil
 	} else {
 		// Otherwise, not maximizing
 		value := float32(Infinity)
-		plays := s.generateSTMPlays(node, depth)
+		plays := s.generateSTMPlays(parent.move, depth, plies)
+		if killerPlay != "" {
+			// look in the cached node for the winning play last time,
+			// and search it first
+			found := false
+			for idx, play := range plays {
+				if play.ShortDescription() == killerPlay {
+					plays[0], plays[idx] = plays[idx], plays[0]
+					found = true
+					break
+				}
+			}
+			if !found {
+				// fmt.Println("killerPlay", killerPlay,
+				// 	"plays", plays,
+				// 	"Zobrist collision - minimizing")
+			}
+		}
+
+		var winningPlay *move.Move
 		var winningNode *GameNode
 		for _, play := range plays {
 			s.game.PlayMove(play, false, 0)
+			childKey := s.zobrist.AddMove(parentKey, play, false)
 			child := new(GameNode)
 			child.move = play
-			child.parent = node
-			child.valuation = play.Valuation()
-			wn, err := s.alphabeta(ctx, child, depth-1, α, β, true)
+			child.parent = parent
+			child.depth = uint8(depth - 1)
+			wn, err := s.alphabeta(ctx, child, childKey, depth-1, plies, α, β, true)
 			if err != nil {
 				s.game.UnplayLastMove()
 				return nil, err
@@ -546,6 +619,7 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 			s.game.UnplayLastMove()
 			if wn.heuristicValue.value < value {
 				value = wn.heuristicValue.value
+				winningPlay = play
 				winningNode = wn.Copy()
 			}
 
@@ -556,10 +630,10 @@ func (s *Solver) alphabeta(ctx context.Context, node *GameNode, depth int, α fl
 			}
 			// }
 		}
-		node.heuristicValue = nodeValue{
-			value:          value,
-			knownEnd:       winningNode.heuristicValue.knownEnd,
-			sequenceLength: winningNode.heuristicValue.sequenceLength}
+		parent.heuristicValue = nodeValue{
+			value:    value,
+			knownEnd: winningNode.heuristicValue.knownEnd}
+		s.killerCache[parentKey] = winningPlay.ShortDescription()
 		return winningNode, nil
 	}
 }

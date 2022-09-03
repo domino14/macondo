@@ -3,7 +3,6 @@ package alphabeta
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/matryer/is"
@@ -16,10 +15,10 @@ import (
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/gaddag"
-	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	"github.com/domino14/macondo/movegen"
+	"github.com/domino14/macondo/testcommon"
 
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
@@ -27,16 +26,7 @@ import (
 var DefaultConfig = config.DefaultConfig()
 
 func TestMain(m *testing.M) {
-	for _, lex := range []string{"America", "CSW15", "NWL18", "pseudo_twl1979", "CSW19", "OSPS44"} {
-		gdgPath := filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag")
-		if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
-			gaddagmaker.GenerateGaddag(filepath.Join(DefaultConfig.LexiconPath, lex+".txt"), true, true)
-			err = os.Rename("out.gaddag", gdgPath)
-			if err != nil {
-				panic(err)
-			}
-		}
-	}
+	testcommon.CreateGaddags(DefaultConfig, []string{"America", "CSW15", "NWL18", "pseudo_twl1979", "CSW19", "OSPS44"})
 	os.Exit(m.Run())
 }
 
@@ -223,7 +213,8 @@ func TestSolveStandard(t *testing.T) {
 	v, moves, _ := s.Solve(plies)
 
 	is.Equal(moves[0].ShortDescription(), " 1G VIG.")
-	is.Equal(moves[1].ShortDescription(), " 4A HOER")
+	is.True(moves[1].ShortDescription() == " 4A HOER" ||
+		moves[1].ShortDescription() == " 4A HEIR")
 	// There are two spots for the final B that are both worth 9
 	// and right now we don't generate these deterministically.
 	is.Equal(moves[2].Score(), 9)
@@ -523,7 +514,7 @@ func TestValuation(t *testing.T) {
 	is.NoErr(err)
 	s.SetComplexEvaluator(true)
 
-	plays := s.generateSTMPlays(nil, 2)
+	plays := s.generateSTMPlays(nil, 2, 2)
 	// This is subject to change depending on the C & D values, but
 	// it's roughly accurate
 	alph := s.game.Alphabet()

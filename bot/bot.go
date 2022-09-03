@@ -97,7 +97,7 @@ func evalSingleMove(g *airunner.AIGameRunner, evtIdx int) *pb.SingleEvaluation {
 	moves := g.GenerateMoves(100000)
 	// find the played move in the list of moves
 	topEquity := moves[0].Equity()
-	topIsBingo := moves[0].TilesPlayed() == 7 && moves[0].Action() == move.MoveTypePlay
+	topIsBingo := moves[0].TilesPlayed() == game.RackTileLimit && moves[0].Action() == move.MoveTypePlay
 	foundEquity := float64(0)
 	playedBingo := false
 	hasStarPlay := false
@@ -118,7 +118,7 @@ func evalSingleMove(g *airunner.AIGameRunner, evtIdx int) *pb.SingleEvaluation {
 				}
 				// Same move
 				foundEquity = m.Equity()
-				playedBingo = m.TilesPlayed() == 7 && m.Action() == move.MoveTypePlay
+				playedBingo = m.TilesPlayed() == game.RackTileLimit && m.Action() == move.MoveTypePlay
 				break
 			}
 		}

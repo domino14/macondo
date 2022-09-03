@@ -36,7 +36,7 @@ func (g *Game) EventFromMove(m *move.Move) *pb.GameEvent {
 		evt.PlayedTiles = m.Tiles().UserVisible(m.Alphabet())
 		evt.Score = int32(m.Score())
 		evt.Type = pb.GameEvent_TILE_PLACEMENT_MOVE
-		evt.IsBingo = m.TilesPlayed() == 7
+		evt.IsBingo = m.TilesPlayed() == RackTileLimit
 		CalculateCoordsFromStringPosition(evt)
 
 	case move.MoveTypePass:

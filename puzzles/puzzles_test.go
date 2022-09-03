@@ -13,6 +13,7 @@ import (
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/testcommon"
 	"github.com/matryer/is"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -32,16 +33,7 @@ var DefaultPuzzleGenerationReq = &pb.PuzzleGenerationRequest{
 }
 
 func TestMain(m *testing.M) {
-	for _, lex := range []string{"CSW21"} {
-		gdgPath := filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag")
-		if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
-			gaddagmaker.GenerateGaddag(filepath.Join(DefaultConfig.LexiconPath, lex+".txt"), true, true)
-			err = os.Rename("out.gaddag", gdgPath)
-			if err != nil {
-				panic(err)
-			}
-		}
-	}
+	testcommon.CreateGaddags(DefaultConfig, []string{"CSW21"})
 
 	// make sure ECWL.dawg exists for CEL puzzles
 	dawgPath := filepath.Join(DefaultConfig.LexiconPath, "dawg", "ECWL.dawg")

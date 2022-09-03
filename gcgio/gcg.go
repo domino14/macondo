@@ -263,7 +263,7 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 			}
 		}
 
-		evt.IsBingo = tp == 7
+		evt.IsBingo = tp == game.RackTileLimit
 		p.history.Events = append(p.history.Events, evt)
 		// Try playing the move
 		log.Debug().Msg("PLAYING LATEST EVENT for MoveToken")

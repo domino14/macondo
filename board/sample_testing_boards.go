@@ -296,6 +296,7 @@ joe: Turn 12
    ------------------------------
 `
 	// VsJoel from Manhattan November 2019
+	// load cgp 1LEMNISCI2L1ER/7O1PAINT1/4A2L1RAVE2/WEDGE2Z1I1R3/4R1JAUNTEd2/4OXO2K5/2YOB3P6/3FAUNAE6/4T3GUY4/6BESTEaD2/7T2HIE2/7H4VUG/2CORMOID6/7O7/7NONIDEAL AAFIRTW/EIQSS 373/393 0 lex NWL18;
 	VsJoel = `
 cesar: Turn 11
    A B C D E F G H I J K L M N O      joel s                   EIQSS     393
