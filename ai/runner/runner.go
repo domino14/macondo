@@ -97,7 +97,7 @@ func GenerateMoves(g *game.Game, aiplayer player.AIPlayer, gen movegen.MoveGener
 	curRack := g.RackFor(g.PlayerOnTurn())
 	oppRack := g.RackFor(g.NextPlayer())
 
-	gen.GenAll(curRack, g.Bag().TilesRemaining() >= 7)
+	gen.GenAll(curRack, g.Bag().TilesRemaining() >= game.ExchangeLimit)
 
 	plays := gen.Plays()
 

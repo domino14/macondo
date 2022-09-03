@@ -447,7 +447,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		} // XXX: else we should increment the scoreless turns here!
 		g.players[g.onturn].points += score
 		g.players[g.onturn].turns += 1
-		if m.TilesPlayed() == 7 {
+		if m.TilesPlayed() == RackTileLimit {
 			g.players[g.onturn].bingos++
 		}
 		drew := g.bag.DrawAtMost(m.TilesPlayed(), g.players[g.onturn].placeholderRack)
@@ -825,7 +825,7 @@ func (g *Game) playTurn(t int) error {
 		g.board.PlayMove(m, ld)
 		g.crossSetGen.UpdateForMove(g.board, m)
 		g.players[g.onturn].points += m.Score()
-		if m.TilesPlayed() == 7 {
+		if m.TilesPlayed() == RackTileLimit {
 			g.players[g.onturn].bingos++
 		}
 		evt.WordsFormed = convertToVisible(g.lastWordsFormed, g.alph)

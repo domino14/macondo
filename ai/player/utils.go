@@ -7,16 +7,16 @@ import (
 )
 
 // GenBestStaticTurn is a useful utility function for sims and autoplaying.
-func GenBestStaticTurn(game *game.Game, mg movegen.MoveGenerator,
+func GenBestStaticTurn(g *game.Game, mg movegen.MoveGenerator,
 	aiplayer AIPlayer, playerIdx int) *move.Move {
 
 	mg.SetPlayRecorder(movegen.TopPlayOnlyRecorder)
 	mg.SetStrategizer(aiplayer.Strategizer())
 
 	// XXX: This is not ideal, but refactor later:
-	mg.(*movegen.GordonGenerator).SetGame(game)
+	mg.(*movegen.GordonGenerator).SetGame(g)
 
 	// Add an exchange only if there are 7 or more tiles in the bag.
-	mg.GenAll(game.RackFor(playerIdx), game.Bag().TilesRemaining() >= 7)
+	mg.GenAll(g.RackFor(playerIdx), g.Bag().TilesRemaining() >= game.ExchangeLimit)
 	return aiplayer.BestPlay(mg.Plays())
 }

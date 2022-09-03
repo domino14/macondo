@@ -234,7 +234,7 @@ func moveLength(m *move.Move) int {
 }
 
 func moveIsBingo(m *move.Move) bool {
-	return m.TilesPlayed() == 7
+	return m.TilesPlayed() == game.RackTileLimit
 }
 
 func moveContainsBlank(m *move.Move) bool {
