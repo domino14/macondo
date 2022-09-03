@@ -96,12 +96,6 @@ type Solver struct {
 	currentIDDepth         int
 
 	config *config.Config
-
-	positionHash map[int64]*PositionResult
-}
-
-type PositionResult struct {
-	move *move.Move
 }
 
 // max returns the larger of x or y.
@@ -428,7 +422,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 	var bestSeq []*move.Move
 
 	initialHashKey := s.zobrist.Hash(s.game.Board().GetSquares(),
-		s.game.RackFor(s.maximizingPlayer), false, false)
+		s.game.RackFor(s.maximizingPlayer), false)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -543,9 +537,9 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 				}
 			}
 			if !found {
-				fmt.Println("killerPlay", killerPlay,
-					"plays", plays,
-					"Zobrist collision - maximizing")
+				// fmt.Println("killerPlay", killerPlay,
+				// 	"plays", plays,
+				// 	"Zobrist collision - maximizing")
 			}
 		}
 
@@ -602,9 +596,9 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 				}
 			}
 			if !found {
-				fmt.Println("killerPlay", killerPlay,
-					"plays", plays,
-					"Zobrist collision - minimizing")
+				// fmt.Println("killerPlay", killerPlay,
+				// 	"plays", plays,
+				// 	"Zobrist collision - minimizing")
 			}
 		}
 

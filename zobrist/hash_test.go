@@ -29,7 +29,7 @@ func TestPlayAndUnplay(t *testing.T) {
 	g, err := cgp.ParseCGP(&DefaultConfig, endgameCGP)
 	is.NoErr(err)
 	alph := alphabet.EnglishAlphabet()
-	h := z.Hash(g.Board().GetSquares(), alphabet.RackFromString("AAFIRTW", alph), false, true)
+	h := z.Hash(g.Board().GetSquares(), alphabet.RackFromString("AAFIRTW", alph), false)
 	m := move.NewScoringMoveSimple(18, "2A", "WAR", "AFIT", alph)
 	// play and unplay a move. The final hash should be the same as the beginning hash.
 	h1 := z.AddMove(h, m, false)
@@ -48,7 +48,7 @@ func TestPlayAndUnplayMoreLevels(t *testing.T) {
 	g, err := cgp.ParseCGP(&DefaultConfig, endgameCGP)
 	is.NoErr(err)
 	alph := alphabet.EnglishAlphabet()
-	h := z.Hash(g.Board().GetSquares(), alphabet.RackFromString("AAFIRTW", alph), false, true)
+	h := z.Hash(g.Board().GetSquares(), alphabet.RackFromString("AAFIRTW", alph), false)
 
 	passrack, err := alphabet.ToMachineWord("EIQSS", alph)
 	is.NoErr(err)

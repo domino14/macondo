@@ -13,12 +13,7 @@ const bignum = 1<<63 - 2
 // generate a zobrist hash for a crossword game position.
 // https://en.wikipedia.org/wiki/Zobrist_hashing
 type Zobrist struct {
-	p2ToMove uint64
-	// note that the endgame only cares about 2 zeros in a row.
-	// if we use this hash for non-endgame positions we might
-	// want to turn this into an array as well, with each element
-	// corresponding to the number of zero positions.
-	lastMoveWasZero uint64
+	minimizingPlayerToMove uint64
 
 	posTable  [][]uint64
 	rackTable [][]uint64
@@ -48,13 +43,14 @@ func (z *Zobrist) Initialize(boardDim int) {
 			z.rackTable[i][j] = frand.Uint64n(bignum) + 1
 		}
 	}
-	z.p2ToMove = frand.Uint64n(bignum) + 1
-	z.lastMoveWasZero = frand.Uint64n(bignum) + 1
+	z.minimizingPlayerToMove = frand.Uint64n(bignum) + 1
 
 	z.placeholderRack = make([]alphabet.MachineLetter, alphabet.MaxAlphabetSize+1)
 }
 
-func (z *Zobrist) Hash(squares alphabet.MachineWord, onTurnRack *alphabet.Rack, lastMoveZero bool, p2ToMove bool) uint64 {
+func (z *Zobrist) Hash(squares alphabet.MachineWord, onTurnRack *alphabet.Rack,
+	minimizingPlayerToMove bool) uint64 {
+
 	key := uint64(0)
 	for i, letter := range squares {
 		key ^= z.posTable[i][letter]
@@ -63,11 +59,8 @@ func (z *Zobrist) Hash(squares alphabet.MachineWord, onTurnRack *alphabet.Rack, 
 		key ^= z.rackTable[i][ct]
 	}
 
-	if lastMoveZero {
-		key ^= z.lastMoveWasZero
-	}
-	if p2ToMove {
-		key ^= z.p2ToMove
+	if minimizingPlayerToMove {
+		key ^= z.minimizingPlayerToMove
 	}
 	return key
 }
@@ -147,12 +140,33 @@ func (z *Zobrist) AddMove(key uint64, m *move.Move, unplay bool) uint64 {
 
 			key ^= z.rackTable[tileIdx][z.placeholderRack[tileIdx]]
 		}
-		if m.Score() == 0 {
-			key ^= z.lastMoveWasZero
-		}
+
 	} else if m.Action() == move.MoveTypePass {
-		key ^= z.lastMoveWasZero
+
+		for i := 0; i < alphabet.MaxAlphabetSize+1; i++ {
+			z.placeholderRack[i] = 0
+		}
+
+		for _, tile := range m.Leave() {
+			tileIdx, isPlayedTile := tile.IntrinsicTileIdx()
+			if !isPlayedTile {
+				panic("unexpected isPlayedTile during leave hashing")
+			}
+			z.placeholderRack[tileIdx]++
+		}
+
+		for _, tile := range m.Leave() {
+			tileIdx, isPlayedTile := tile.IntrinsicTileIdx()
+			if !isPlayedTile {
+				// isPlayedTile should never be false here, since
+				// this is a leave.
+				panic("unexpected isPlayedTile - during pass")
+			}
+
+			key ^= z.rackTable[tileIdx][z.placeholderRack[tileIdx]]
+		}
+
 	}
-	key ^= z.p2ToMove
+	key ^= z.minimizingPlayerToMove
 	return key
 }

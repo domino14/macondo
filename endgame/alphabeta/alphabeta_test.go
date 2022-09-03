@@ -213,7 +213,8 @@ func TestSolveStandard(t *testing.T) {
 	v, moves, _ := s.Solve(plies)
 
 	is.Equal(moves[0].ShortDescription(), " 1G VIG.")
-	is.Equal(moves[1].ShortDescription(), " 4A HOER")
+	is.True(moves[1].ShortDescription() == " 4A HOER" ||
+		moves[1].ShortDescription() == " 4A HEIR")
 	// There are two spots for the final B that are both worth 9
 	// and right now we don't generate these deterministically.
 	is.Equal(moves[2].Score(), 9)
