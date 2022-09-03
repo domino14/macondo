@@ -1,6 +1,7 @@
 package testcommon
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -8,7 +9,10 @@ import (
 	"github.com/domino14/macondo/gaddagmaker"
 )
 
+//go:generate go run gen.go
+
 func CreateGaddags(cfg config.Config, lexica []string) {
+	fmt.Println("creating gaddags...")
 	for _, lex := range lexica {
 		gdgPath := filepath.Join(cfg.LexiconPath, "gaddag", lex+".gaddag")
 		if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
