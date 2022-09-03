@@ -547,8 +547,8 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 			}
 		}
 
+		var winningChild *GameNode
 		var winningNode *GameNode
-		var winningHash uint64
 		for _, play := range plays {
 			// Play the child
 			s.game.PlayMove(play, false, 0)
@@ -568,8 +568,8 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 				value = wn.heuristicValue.value
 				// I don't know how to make this algorithm not allocate, but
 				// at least these homeless nodes will get collected.
+				winningChild = child.Copy()
 				winningNode = wn.Copy()
-				winningHash = childKey
 			}
 
 			// if !s.disablePruning {
@@ -582,7 +582,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 		parent.heuristicValue = nodeValue{
 			value:    value,
 			knownEnd: winningNode.heuristicValue.knownEnd}
-		s.nodeCache[winningHash] = winningNode
+		s.nodeCache[parentKey] = winningChild
 		return winningNode, nil
 	} else {
 		// Otherwise, not maximizing
@@ -606,8 +606,8 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 			}
 		}
 
+		var winningChild *GameNode
 		var winningNode *GameNode
-		var winningHash uint64
 		for _, play := range plays {
 			s.game.PlayMove(play, false, 0)
 			childKey := s.zobrist.AddMove(parentKey, play, false)
@@ -623,8 +623,8 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 			s.game.UnplayLastMove()
 			if wn.heuristicValue.value < value {
 				value = wn.heuristicValue.value
+				winningChild = child.Copy()
 				winningNode = wn.Copy()
-				winningHash = childKey
 			}
 
 			// if !s.disablePruning {
@@ -637,7 +637,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 		parent.heuristicValue = nodeValue{
 			value:    value,
 			knownEnd: winningNode.heuristicValue.knownEnd}
-		s.nodeCache[winningHash] = winningNode
+		s.nodeCache[parentKey] = winningChild
 		return winningNode, nil
 	}
 }
