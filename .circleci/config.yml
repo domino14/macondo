@@ -36,8 +36,16 @@ jobs:
       - run: cp -r /opt/macondo/data /opt/data
       - run: go build cmd/shell/main.go
       # build GADDAGs
+      - restore_cache:
+          keys:
+            - gaddag-cache
       - run: cd testcommon && go generate 
       - run: cd /opt/macondo && go test $(go list ./... | grep -v wasm)
+      - save_cache:
+          key: gaddag-cache
+          paths:
+            - /opt/lexica/gaddag
+            - /opt/lexica/dawg
       - discord/status: &discord-webhook-setting
           webhook: "${DISCORD_WEBHOOK}"
           success_message: ":tada: A $CIRCLE_JOB job has succeeded! (Branch: $CIRCLE_BRANCH)"

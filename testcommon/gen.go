@@ -14,4 +14,8 @@ func main() {
 		"NWL20", "NWL18", "OSPS44", "CSW19", "CSW21",
 		"America", "pseudo_twl1979",
 	})
+	// not actually sure which ones we need.
+	testcommon.CreateDawgs(DefaultConfig, []string{
+		"NWL20", "NWL18", "CSW19", "CSW21", "America",
+	})
 }

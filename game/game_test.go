@@ -22,7 +22,7 @@ var DefaultConfig = config.DefaultConfig()
 
 func TestMain(m *testing.M) {
 	testcommon.CreateGaddags(DefaultConfig, []string{"NWL18"})
-	testcommon.CreateDawgs(DefaultConfig, []string{"CSW19"})
+	testcommon.CreateDawgs(DefaultConfig, []string{"CSW19", "America"})
 
 	os.Exit(m.Run())
 }
