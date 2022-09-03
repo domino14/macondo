@@ -531,7 +531,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 	if maximizingPlayer {
 		value := float32(-Infinity)
 		plays := s.generateSTMPlays(parent.move, depth, plies)
-		if cachedNode != nil && cachedNode.depth >= uint8(depth) {
+		if cachedNode != nil && cachedNode.depth >= uint8(depth-2) {
 			// look in the cached node for the winning play last time,
 			// and search it first
 			found := false
@@ -588,7 +588,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 		// Otherwise, not maximizing
 		value := float32(Infinity)
 		plays := s.generateSTMPlays(parent.move, depth, plies)
-		if cachedNode != nil && cachedNode.depth >= uint8(depth) {
+		if cachedNode != nil && cachedNode.depth >= uint8(depth-2) {
 			// look in the cached node for the winning play last time,
 			// and search it first
 			found := false
