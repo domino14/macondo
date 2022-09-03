@@ -543,7 +543,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 				}
 			}
 			if !found {
-				// log.Trace().Msg("Zobrist collision - maximizing")
+				log.Trace().Msg("Zobrist collision - maximizing")
 			}
 		}
 
@@ -556,7 +556,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 			child := new(GameNode)
 			child.move = play
 			child.parent = parent
-			child.depth = uint8(depth-1)
+			child.depth = uint8(depth - 1)
 			wn, err := s.alphabeta(ctx, child, childKey, depth-1, plies, α, β, false)
 			if err != nil {
 				s.game.UnplayLastMove()
@@ -600,7 +600,9 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 				}
 			}
 			if !found {
-				// log.Trace().Msg("Zobrist collision - minimizing")
+				fmt.Println("cachedNode", cachedNode,
+					"plays", plays,
+					"Zobrist collision - minimizing")
 			}
 		}
 
@@ -612,7 +614,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 			child := new(GameNode)
 			child.move = play
 			child.parent = parent
-			child.depth = uint8(depth-1)
+			child.depth = uint8(depth - 1)
 			wn, err := s.alphabeta(ctx, child, childKey, depth-1, plies, α, β, true)
 			if err != nil {
 				s.game.UnplayLastMove()

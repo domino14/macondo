@@ -1,23 +1,30 @@
 package zobrist
 
 import (
+	"os"
 	"testing"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/testcommon"
 	"github.com/matryer/is"
 )
 
 var DefaultConfig = config.DefaultConfig()
+
+func TestMain(m *testing.M) {
+	testcommon.CreateGaddags(DefaultConfig, []string{"NWL18"})
+	os.Exit(m.Run())
+}
 
 func TestPlayAndUnplay(t *testing.T) {
 	is := is.New(t)
 	z := &Zobrist{}
 	z.Initialize(15)
 
-	endgameCGP := "1LEMNISCI2L1ER/7O1PAINT1/4A2L1RAVE2/WEDGE2Z1I1R3/4R1JAUNTEd2/4OXO2K5/2YOB3P6/3FAUNAE6/4T3GUY4/6BESTEaD2/7T2HIE2/7H4VUG/2CORMOID6/7O7/7NONIDEAL AAFIRTW/EIQSS 373/393 0 lex NWL20;"
+	endgameCGP := "1LEMNISCI2L1ER/7O1PAINT1/4A2L1RAVE2/WEDGE2Z1I1R3/4R1JAUNTEd2/4OXO2K5/2YOB3P6/3FAUNAE6/4T3GUY4/6BESTEaD2/7T2HIE2/7H4VUG/2CORMOID6/7O7/7NONIDEAL AAFIRTW/EIQSS 373/393 0 lex NWL18;"
 
 	g, err := cgp.ParseCGP(&DefaultConfig, endgameCGP)
 	is.NoErr(err)
@@ -36,7 +43,7 @@ func TestPlayAndUnplayMoreLevels(t *testing.T) {
 	z := &Zobrist{}
 	z.Initialize(15)
 
-	endgameCGP := "1LEMNISCI2L1ER/7O1PAINT1/4A2L1RAVE2/WEDGE2Z1I1R3/4R1JAUNTEd2/4OXO2K5/2YOB3P6/3FAUNAE6/4T3GUY4/6BESTEaD2/7T2HIE2/7H4VUG/2CORMOID6/7O7/7NONIDEAL AAFIRTW/EIQSS 373/393 0 lex NWL20;"
+	endgameCGP := "1LEMNISCI2L1ER/7O1PAINT1/4A2L1RAVE2/WEDGE2Z1I1R3/4R1JAUNTEd2/4OXO2K5/2YOB3P6/3FAUNAE6/4T3GUY4/6BESTEaD2/7T2HIE2/7H4VUG/2CORMOID6/7O7/7NONIDEAL AAFIRTW/EIQSS 373/393 0 lex NWL18;"
 
 	g, err := cgp.ParseCGP(&DefaultConfig, endgameCGP)
 	is.NoErr(err)

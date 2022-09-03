@@ -3,7 +3,6 @@ package alphabeta
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/matryer/is"
@@ -16,10 +15,10 @@ import (
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/gaddag"
-	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	"github.com/domino14/macondo/movegen"
+	"github.com/domino14/macondo/testcommon"
 
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
@@ -27,16 +26,7 @@ import (
 var DefaultConfig = config.DefaultConfig()
 
 func TestMain(m *testing.M) {
-	for _, lex := range []string{"America", "CSW15", "NWL18", "pseudo_twl1979", "CSW19", "OSPS44"} {
-		gdgPath := filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag")
-		if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
-			gaddagmaker.GenerateGaddag(filepath.Join(DefaultConfig.LexiconPath, lex+".txt"), true, true)
-			err = os.Rename("out.gaddag", gdgPath)
-			if err != nil {
-				panic(err)
-			}
-		}
-	}
+	testcommon.CreateGaddags(DefaultConfig, []string{"America", "CSW15", "NWL18", "pseudo_twl1979", "CSW19", "OSPS44"})
 	os.Exit(m.Run())
 }
 
@@ -245,7 +235,7 @@ func TestSolveStandard2(t *testing.T) {
 
 func TestVeryDeep(t *testing.T) {
 	is := is.New(t)
-	plies := 25
+	plies := 6
 	// The following is a very deep endgame that requires 25 plies to solve.
 	deepEndgame := "14C/13QI/12FIE/10VEE1R/9KIT2G/8CIG1IDE/8UTA2AS/7ST1SYPh1/6JA5A1/5WOLD2BOBA/3PLOT1R1NU1EX/Y1VEIN1NOR1mOA1/UT1AT1N1L2FEH1/GUR2WIRER5/SNEEZED8 ADENOOO/AHIILMM 353/236 0 lex CSW19;"
 	g, err := cgp.ParseCGP(&DefaultConfig, deepEndgame)
