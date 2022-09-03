@@ -67,7 +67,7 @@ func (sc *ShellController) handleSim(args []string) error {
 
 func (sc *ShellController) startSim() {
 	sc.simCtx, sc.simCancel = context.WithCancel(context.Background())
-	sc.simTicker = time.NewTicker(15 * time.Second)
+	sc.simTicker = time.NewTicker(10 * time.Second)
 	sc.simTickerDone = make(chan bool)
 	sc.showMessage("Simulation started. Please do `sim show` and `sim details` to see more info")
 

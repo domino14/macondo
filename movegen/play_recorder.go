@@ -99,7 +99,7 @@ func TopPlayOnlyRecorder(gen *GordonGenerator, rack *alphabet.Rack, leftstrip, r
 		leaveLength = rack.NoAllocTilesOn(gen.leavestrip)
 
 		gen.placeholder.Set(exchanged, gen.leavestrip[:leaveLength], 0,
-			0, 0, leaveLength, gen.vertical, move.MoveTypeExchange,
+			0, 0, tilesLength, gen.vertical, move.MoveTypeExchange,
 			gen.letterDistribution.Alphabet())
 
 		eq = gen.strategizer.Equity(gen.placeholder, gen.board, gen.game.Bag(), gen.game.RackFor(gen.game.NextPlayer()))
