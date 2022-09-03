@@ -530,15 +530,10 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 
 	if maximizingPlayer {
 		value := float32(-Infinity)
-		var plays []*move.Move
-
-		if cachedNode == nil || cachedNode.depth < uint8(depth-1) {
-			plays = s.generateSTMPlays(parent.move, depth, plies)
-
-		} else {
+		plays := s.generateSTMPlays(parent.move, depth, plies)
+		if cachedNode != nil && cachedNode.depth >= uint8(depth) {
 			// look in the cached node for the winning play last time,
 			// and search it first
-			plays = s.generateSTMPlays(parent.move, depth, plies)
 			found := false
 			for idx, play := range plays {
 				if play.Equals(cachedNode.move) {
@@ -548,7 +543,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 				}
 			}
 			if !found {
-				// log.Trace().Msg("Zobrist collision - minimizing")
+				// log.Trace().Msg("Zobrist collision - maximizing")
 			}
 		}
 
@@ -561,6 +556,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 			child := new(GameNode)
 			child.move = play
 			child.parent = parent
+			child.depth = uint8(depth-1)
 			wn, err := s.alphabeta(ctx, child, childKey, depth-1, plies, α, β, false)
 			if err != nil {
 				s.game.UnplayLastMove()
@@ -591,16 +587,10 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 	} else {
 		// Otherwise, not maximizing
 		value := float32(Infinity)
-
-		var plays []*move.Move
-
-		if cachedNode == nil || cachedNode.depth < uint8(depth-1) {
-			plays = s.generateSTMPlays(parent.move, depth, plies)
-
-		} else {
+		plays := s.generateSTMPlays(parent.move, depth, plies)
+		if cachedNode != nil && cachedNode.depth >= uint8(depth) {
 			// look in the cached node for the winning play last time,
 			// and search it first
-			plays = s.generateSTMPlays(parent.move, depth, plies)
 			found := false
 			for idx, play := range plays {
 				if play.Equals(cachedNode.move) {
@@ -622,6 +612,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 			child := new(GameNode)
 			child.move = play
 			child.parent = parent
+			child.depth = uint8(depth-1)
 			wn, err := s.alphabeta(ctx, child, childKey, depth-1, plies, α, β, true)
 			if err != nil {
 				s.game.UnplayLastMove()
