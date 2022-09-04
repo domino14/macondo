@@ -2,6 +2,8 @@ package alphabet
 
 import (
 	"testing"
+
+	"github.com/matryer/is"
 )
 
 type alphagramtestpair struct {
@@ -11,15 +13,12 @@ type alphagramtestpair struct {
 }
 
 func TestAlphagram(t *testing.T) {
+	is := is.New(t)
 
 	englishLD, err := EnglishLetterDistribution(&DefaultConfig)
-	if err != nil {
-		t.Error(err)
-	}
+	is.NoErr(err)
 	spanishLD, err := SpanishLetterDistribution(&DefaultConfig)
-	if err != nil {
-		t.Error(err)
-	}
+	is.NoErr(err)
 	var utilsTests = []alphagramtestpair{
 		{"FIREFANG", englishLD, "AEFFGINR"},
 		{"QAJAQ", englishLD, "AAJQQ"},
