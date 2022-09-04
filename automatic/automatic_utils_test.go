@@ -10,7 +10,6 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/testcommon"
-	"github.com/matryer/is"
 )
 
 var DefaultConfig = config.DefaultConfig()
@@ -21,8 +20,6 @@ func TestMain(m *testing.M) {
 }
 
 func TestCompVsCompStatic(t *testing.T) {
-	is := is.New(t)
-
 	logchan := make(chan string)
 	runner := NewGameRunner(logchan, &DefaultConfig)
 	var wg sync.WaitGroup
@@ -31,7 +28,9 @@ func TestCompVsCompStatic(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		err := runner.CompVsCompStatic(false)
-		is.NoErr(err)
+		if err != nil {
+			t.Fatal(err)
+		}
 		fmt.Println(runner.game.Board().ToDisplayText(alphabet.EnglishAlphabet()))
 		close(logchan)
 	}()
