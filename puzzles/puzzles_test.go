@@ -131,7 +131,6 @@ func TestPuzzles(t *testing.T) {
 func TestPuzzleGeneration(t *testing.T) {
 	is := is.New(t)
 	zerolog.SetGlobalLevel(zerolog.Disabled)
-
 	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "./testdata/phony_tiles_returned.gcg")
 	is.NoErr(err)
 
@@ -309,7 +308,9 @@ func TestPhonyTilesReturned(t *testing.T) {
 
 func puzzlesMatch(is *is.I, gcgfile string, puzzleGenerationReq *pb.PuzzleGenerationRequest, expectedPzl *pb.PuzzleCreationResponse) {
 	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, fmt.Sprintf("./testdata/%s.gcg", gcgfile))
-	is.NoErr(err)
+	if err != nil {
+		panic(err)
+	}
 	log.Info().Str("gcgfile", gcgfile).Msg("checking if puzzles match")
 
 	// Set the challenge rule to five point
@@ -317,12 +318,18 @@ func puzzlesMatch(is *is.I, gcgfile string, puzzleGenerationReq *pb.PuzzleGenera
 	gameHistory.ChallengeRule = pb.ChallengeRule_FIVE_POINT
 
 	rules, err := game.NewBasicGameRules(&DefaultConfig, "CSW21", board.CrosswordGameLayout, "english", game.CrossScoreAndSet, game.VarClassic)
-	is.NoErr(err)
+	if err != nil {
+		panic(err)
+	}
 	game, err := game.NewFromHistory(gameHistory, rules, 0)
-	is.NoErr(err)
+	if err != nil {
+		panic(err)
+	}
 
 	pzls, err := CreatePuzzlesFromGame(&DefaultConfig, game, puzzleGenerationReq)
-	is.NoErr(err)
+	if err != nil {
+		panic(err)
+	}
 
 	for _, pzl := range pzls {
 		if expectedPzl.TurnNumber == pzl.TurnNumber {
