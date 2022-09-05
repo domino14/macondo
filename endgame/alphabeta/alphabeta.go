@@ -422,8 +422,8 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 	var bestSeq []*move.Move
 
 	initialHashKey := s.zobrist.Hash(s.game.Board().GetSquares(),
-		s.game.RackFor(s.maximizingPlayer), false)
-
+		s.game.RackFor(s.maximizingPlayer), s.game.RackFor(1-s.maximizingPlayer), false)
+	log.Info().Uint64("initialHashKey", initialHashKey).Msg("starting-zobrist-key")
 	var wg sync.WaitGroup
 	wg.Add(1)
 
@@ -548,7 +548,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 		for _, play := range plays {
 			// Play the child
 			s.game.PlayMove(play, false, 0)
-			childKey := s.zobrist.AddMove(parentKey, play, false)
+			childKey := s.zobrist.AddMove(parentKey, play, true)
 			child := new(GameNode)
 			child.move = play
 			child.parent = parent

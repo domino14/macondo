@@ -236,7 +236,7 @@ func TestSolveStandard2(t *testing.T) {
 
 func TestVeryDeep(t *testing.T) {
 	is := is.New(t)
-	plies := 5
+	plies := 25
 	// The following is a very deep endgame that requires 25 plies to solve.
 	deepEndgame := "14C/13QI/12FIE/10VEE1R/9KIT2G/8CIG1IDE/8UTA2AS/7ST1SYPh1/6JA5A1/5WOLD2BOBA/3PLOT1R1NU1EX/Y1VEIN1NOR1mOA1/UT1AT1N1L2FEH1/GUR2WIRER5/SNEEZED8 ADENOOO/AHIILMM 353/236 0 lex CSW19;"
 	g, err := cgp.ParseCGP(&DefaultConfig, deepEndgame)

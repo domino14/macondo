@@ -15,8 +15,9 @@ const bignum = 1<<63 - 2
 type Zobrist struct {
 	minimizingPlayerToMove uint64
 
-	posTable  [][]uint64
-	rackTable [][]uint64
+	posTable     [][]uint64
+	maxRackTable [][]uint64 // rack for the maximizing player
+	minRackTable [][]uint64 // rack for the minimizing player
 
 	boardDim        int
 	placeholderRack []alphabet.MachineLetter
@@ -36,36 +37,49 @@ func (z *Zobrist) Initialize(boardDim int) {
 			z.posTable[i][j] = frand.Uint64n(bignum) + 1
 		}
 	}
-	z.rackTable = make([][]uint64, alphabet.MaxAlphabetSize+1)
+	z.maxRackTable = make([][]uint64, alphabet.MaxAlphabetSize+1)
 	for i := 0; i < alphabet.MaxAlphabetSize+1; i++ {
-		z.rackTable[i] = make([]uint64, game.RackTileLimit)
+		z.maxRackTable[i] = make([]uint64, game.RackTileLimit)
 		for j := 0; j < game.RackTileLimit; j++ {
-			z.rackTable[i][j] = frand.Uint64n(bignum) + 1
+			z.maxRackTable[i][j] = frand.Uint64n(bignum) + 1
 		}
 	}
+	z.minRackTable = make([][]uint64, alphabet.MaxAlphabetSize+1)
+	for i := 0; i < alphabet.MaxAlphabetSize+1; i++ {
+		z.minRackTable[i] = make([]uint64, game.RackTileLimit)
+		for j := 0; j < game.RackTileLimit; j++ {
+			z.minRackTable[i][j] = frand.Uint64n(bignum) + 1
+		}
+	}
+
 	z.minimizingPlayerToMove = frand.Uint64n(bignum) + 1
 
 	z.placeholderRack = make([]alphabet.MachineLetter, alphabet.MaxAlphabetSize+1)
 }
 
-func (z *Zobrist) Hash(squares alphabet.MachineWord, onTurnRack *alphabet.Rack,
-	minimizingPlayerToMove bool) uint64 {
+func (z *Zobrist) Hash(squares alphabet.MachineWord, maxPlayerRack *alphabet.Rack,
+	minPlayerRack *alphabet.Rack, minimizingPlayerToMove bool) uint64 {
 
 	key := uint64(0)
 	for i, letter := range squares {
+		if letter == alphabet.EmptySquareMarker {
+			continue
+		}
 		key ^= z.posTable[i][letter]
 	}
-	for i, ct := range onTurnRack.LetArr {
-		key ^= z.rackTable[i][ct]
+	for i, ct := range maxPlayerRack.LetArr {
+		key ^= z.maxRackTable[i][ct]
 	}
-
+	for i, ct := range minPlayerRack.LetArr {
+		key ^= z.minRackTable[i][ct]
+	}
 	if minimizingPlayerToMove {
 		key ^= z.minimizingPlayerToMove
 	}
 	return key
 }
 
-func (z *Zobrist) AddMove(key uint64, m *move.Move, unplay bool) uint64 {
+func (z *Zobrist) AddMove(key uint64, m *move.Move, maxPlayer bool) uint64 {
 	// Adding a move:
 	// For every letter in the move (assume it's only a tile placement move
 	// or a pass for now):
@@ -78,6 +92,11 @@ func (z *Zobrist) AddMove(key uint64, m *move.Move, unplay bool) uint64 {
 	// where the best move might be to play a zero-point blank play, AND
 	// we are losing the game, so that the opponent may want to pass back
 	// and end the game right away?
+
+	ourRackTable := z.maxRackTable
+	if !maxPlayer {
+		ourRackTable = z.minRackTable
+	}
 	if m.Action() == move.MoveTypePlay {
 		row, col, vertical := m.CoordsAndVertical()
 		ri, ci := 0, 1
@@ -96,11 +115,6 @@ func (z *Zobrist) AddMove(key uint64, m *move.Move, unplay bool) uint64 {
 				continue
 			}
 			key ^= z.posTable[newRow*z.boardDim+newCol][tile]
-			if unplay {
-				// If we are unplaying this move, don't add it
-				// to the "placeholderRack".
-				continue
-			}
 			// build up placeholder rack.
 			tileIdx, isPlayedTile := tile.IntrinsicTileIdx()
 			if !isPlayedTile {
@@ -131,42 +145,20 @@ func (z *Zobrist) AddMove(key uint64, m *move.Move, unplay bool) uint64 {
 				panic("unexpected isPlayedTile - 2nd go")
 			}
 
-			key ^= z.rackTable[tileIdx][z.placeholderRack[tileIdx]]
-			if !unplay {
-				z.placeholderRack[tileIdx]--
-			} else {
-				z.placeholderRack[tileIdx]++
-			}
+			key ^= ourRackTable[tileIdx][z.placeholderRack[tileIdx]]
+			z.placeholderRack[tileIdx]--
+			key ^= ourRackTable[tileIdx][z.placeholderRack[tileIdx]]
 
-			key ^= z.rackTable[tileIdx][z.placeholderRack[tileIdx]]
 		}
 
 	} else if m.Action() == move.MoveTypePass {
-
-		for i := 0; i < alphabet.MaxAlphabetSize+1; i++ {
-			z.placeholderRack[i] = 0
-		}
-
-		for _, tile := range m.Leave() {
-			tileIdx, isPlayedTile := tile.IntrinsicTileIdx()
-			if !isPlayedTile {
-				panic("unexpected isPlayedTile during leave hashing")
-			}
-			z.placeholderRack[tileIdx]++
-		}
-
-		for _, tile := range m.Leave() {
-			tileIdx, isPlayedTile := tile.IntrinsicTileIdx()
-			if !isPlayedTile {
-				// isPlayedTile should never be false here, since
-				// this is a leave.
-				panic("unexpected isPlayedTile - during pass")
-			}
-
-			key ^= z.rackTable[tileIdx][z.placeholderRack[tileIdx]]
-		}
-
+		// it's just a pass. nothing else changes, except for the
+		// minimizingPlayerToMove
 	}
+	// for i, ct := range otherPlayerRack.LetArr {
+	// 	key ^= theirRackTable[i][ct]
+	// }
+
 	key ^= z.minimizingPlayerToMove
 	return key
 }

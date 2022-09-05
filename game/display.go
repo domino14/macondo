@@ -99,7 +99,7 @@ func (g *Game) ToDisplayText() string {
 		log.Debug().Msgf("Event %d: %v", i, evt)
 	}
 
-	if g.turnnum-1 >= 0 {
+	if g.turnnum-1 >= 0 && len(g.history.Events) > g.turnnum-1 {
 		addText(bts, vpadding, hpadding,
 			summary(g.history.Players, g.history.Events[g.turnnum-1]))
 	}
