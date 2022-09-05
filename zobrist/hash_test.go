@@ -1,6 +1,7 @@
 package zobrist
 
 import (
+	"fmt"
 	"os"
 	"testing"
 
@@ -15,10 +16,11 @@ import (
 var DefaultConfig = config.DefaultConfig()
 
 func TestMain(m *testing.M) {
-	testcommon.CreateGaddags(DefaultConfig, []string{"NWL18"})
+	testcommon.CreateGaddags(DefaultConfig, []string{"NWL18", "CSW19"})
 	os.Exit(m.Run())
 }
 
+/*
 func TestPlayAndUnplay(t *testing.T) {
 	is := is.New(t)
 	z := &Zobrist{}
@@ -66,4 +68,74 @@ func TestPlayAndUnplayMoreLevels(t *testing.T) {
 	is.Equal(h5, h1)
 	h6 := z.AddMove(h5, m1, true)
 	is.Equal(h6, h)
+}
+*/
+
+func TestHashAfterMakingPlay(t *testing.T) {
+	is := is.New(t)
+	z := &Zobrist{}
+	z.Initialize(15)
+
+	endgameCGP := "14C/13QI/12FIE/10VEE1R/9KIT2G/8CIG1IDE/8UTA2AS/7ST1SYPh1/6JA5A1/5WOLD2BOBA/3PLOT1R1NU1EX/Y1VEIN1NOR1mOA1/UT1AT1N1L2FEH1/GUR2WIRER5/SNEEZED8 ADENOOO/AHIILMM 353/236 0 lex CSW19;"
+
+	g, err := cgp.ParseCGP(&DefaultConfig, endgameCGP)
+	is.NoErr(err)
+	alph := alphabet.EnglishAlphabet()
+	h := z.Hash(g.Board().GetSquares(), alphabet.RackFromString("ADENOOO", alph), alphabet.RackFromString("AHIILMM", alph), false)
+
+	m1 := move.NewScoringMoveSimple(8, "15J", "END", "AOOO", alph)
+	h1 := z.AddMove(h, m1, true)
+
+	// Actually play the move on the board.
+	err = g.PlayMove(m1, false, 0)
+	is.NoErr(err)
+
+	h2 := z.Hash(g.Board().GetSquares(), alphabet.RackFromString("AOOO", alph), alphabet.RackFromString("AHIILMM", alph), true)
+	is.Equal(h1, h2)
+}
+
+func TestHashAfterPassing(t *testing.T) {
+	is := is.New(t)
+	z := &Zobrist{}
+	z.Initialize(15)
+
+	endgameCGP := "14C/13QI/12FIE/10VEE1R/9KIT2G/8CIG1IDE/8UTA2AS/7ST1SYPh1/6JA5A1/5WOLD2BOBA/3PLOT1R1NU1EX/Y1VEIN1NOR1mOA1/UT1AT1N1L2FEH1/GUR2WIRER5/SNEEZED8 ADENOOO/AHIILMM 353/236 0 lex CSW19;"
+
+	g, err := cgp.ParseCGP(&DefaultConfig, endgameCGP)
+	is.NoErr(err)
+	alph := alphabet.EnglishAlphabet()
+	h := z.Hash(g.Board().GetSquares(), alphabet.RackFromString("ADENOOO", alph), alphabet.RackFromString("AHIILMM", alph), false)
+
+	m1 := move.NewPassMove(alphabet.RackFromString("ADENOOO", alph).TilesOn(), alph)
+	h1 := z.AddMove(h, m1, true)
+	err = g.PlayMove(m1, false, 0)
+	is.NoErr(err)
+
+	h2 := z.Hash(g.Board().GetSquares(), alphabet.RackFromString("ADENOOO", alph), alphabet.RackFromString("AHIILMM", alph), true)
+	is.Equal(h1, h2)
+}
+
+func TestHashAfterMakingAnotherPlay(t *testing.T) {
+	is := is.New(t)
+	z := &Zobrist{}
+	z.Initialize(15)
+
+	endgameCGP := "14C/13QI/12FIE/10VEE1R/9KIT2G/8CIG1IDE/8UTA2AS/7ST1SYPh1/6JA5AM/5WOLD2BOBA/3PLOT1R1NU1EX/Y1VEIN1NOR1mOAI/UT1AT1N1L2FEHM/GUR2WIRER4A/SNEEZED2END2L AOOO/HI 353/236 0 lex CSW19;"
+
+	g, err := cgp.ParseCGP(&DefaultConfig, endgameCGP)
+	is.NoErr(err)
+	alph := alphabet.EnglishAlphabet()
+	h := z.Hash(g.Board().GetSquares(), alphabet.RackFromString("AOOO", alph), alphabet.RackFromString("HI", alph), false)
+	fmt.Println(g.ToDisplayText())
+	m1 := move.NewScoringMoveSimple(11, "13G", ".O.O", "AO", alph)
+	h1 := z.AddMove(h, m1, true)
+
+	// Actually play the move on the board.
+	err = g.PlayMove(m1, false, 0)
+	is.NoErr(err)
+	fmt.Println("game2")
+	fmt.Println(g.ToDisplayText())
+
+	h2 := z.Hash(g.Board().GetSquares(), alphabet.RackFromString("AO", alph), alphabet.RackFromString("HI", alph), true)
+	is.Equal(h1, h2)
 }

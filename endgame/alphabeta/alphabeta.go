@@ -69,7 +69,7 @@ type Solver struct {
 	stmMovegen       movegen.MoveGenerator
 	otsMovegen       movegen.MoveGenerator
 	game             *game.Game
-	killerCache      map[uint64]string
+	killerCache      map[uint64]*move.Move
 	nodeCount        map[uint8]uint32
 	initialSpread    int
 	initialTurnNum   int
@@ -119,7 +119,7 @@ func (s *Solver) Init(m1 movegen.MoveGenerator, m2 movegen.MoveGenerator, game *
 	s.stmMovegen = m1
 	s.otsMovegen = m2
 	s.game = game
-	s.killerCache = make(map[uint64]string)
+	s.killerCache = make(map[uint64]*move.Move)
 	s.nodeCount = make(map[uint8]uint32)
 	s.iterativeDeepeningOn = true
 
@@ -422,8 +422,8 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 	var bestSeq []*move.Move
 
 	initialHashKey := s.zobrist.Hash(s.game.Board().GetSquares(),
-		s.game.RackFor(s.maximizingPlayer), false)
-
+		s.game.RackFor(s.maximizingPlayer), s.game.RackFor(1-s.maximizingPlayer), false)
+	log.Info().Uint64("initialHashKey", initialHashKey).Msg("starting-zobrist-key")
 	var wg sync.WaitGroup
 	wg.Add(1)
 
@@ -525,21 +525,21 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 	if maximizingPlayer {
 		value := float32(-Infinity)
 		plays := s.generateSTMPlays(parent.move, depth, plies)
-		if killerPlay != "" {
+		if killerPlay != nil {
 			// look in the cached node for the winning play last time,
 			// and search it first
 			found := false
 			for idx, play := range plays {
-				if play.ShortDescription() == killerPlay {
+				if play.Equals(killerPlay) {
 					plays[0], plays[idx] = plays[idx], plays[0]
 					found = true
 					break
 				}
 			}
 			if !found {
-				// fmt.Println("killerPlay", killerPlay,
-				// 	"plays", plays,
-				// 	"Zobrist collision - maximizing")
+				fmt.Println("killerPlay", killerPlay,
+					"plays", plays,
+					"Zobrist collision - maximizing")
 			}
 		}
 
@@ -548,7 +548,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 		for _, play := range plays {
 			// Play the child
 			s.game.PlayMove(play, false, 0)
-			childKey := s.zobrist.AddMove(parentKey, play, false)
+			childKey := s.zobrist.AddMove(parentKey, play, true)
 			child := new(GameNode)
 			child.move = play
 			child.parent = parent
@@ -578,27 +578,27 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 		parent.heuristicValue = nodeValue{
 			value:    value,
 			knownEnd: winningNode.heuristicValue.knownEnd}
-		s.killerCache[parentKey] = winningPlay.ShortDescription()
+		s.killerCache[parentKey] = winningPlay
 		return winningNode, nil
 	} else {
 		// Otherwise, not maximizing
 		value := float32(Infinity)
 		plays := s.generateSTMPlays(parent.move, depth, plies)
-		if killerPlay != "" {
+		if killerPlay != nil {
 			// look in the cached node for the winning play last time,
 			// and search it first
 			found := false
 			for idx, play := range plays {
-				if play.ShortDescription() == killerPlay {
+				if play.Equals(killerPlay) {
 					plays[0], plays[idx] = plays[idx], plays[0]
 					found = true
 					break
 				}
 			}
 			if !found {
-				// fmt.Println("killerPlay", killerPlay,
-				// 	"plays", plays,
-				// 	"Zobrist collision - minimizing")
+				fmt.Println("killerPlay", killerPlay,
+					"plays", plays,
+					"Zobrist collision - minimizing")
 			}
 		}
 
@@ -633,7 +633,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 		parent.heuristicValue = nodeValue{
 			value:    value,
 			knownEnd: winningNode.heuristicValue.knownEnd}
-		s.killerCache[parentKey] = winningPlay.ShortDescription()
+		s.killerCache[parentKey] = winningPlay
 		return winningNode, nil
 	}
 }
