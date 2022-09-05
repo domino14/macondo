@@ -11,10 +11,10 @@ import (
 var DefaultConfig = config.DefaultConfig()
 
 func TestBag(t *testing.T) {
+	is := is.New(t)
+
 	ld, err := EnglishLetterDistribution(&DefaultConfig)
-	if err != nil {
-		t.Error(err)
-	}
+	is.NoErr(err)
 	bag := ld.MakeBag()
 	if len(bag.tiles) != ld.numLetters {
 		t.Error("Tile bag and letter distribution do not match.")
@@ -43,16 +43,14 @@ func TestBag(t *testing.T) {
 }
 
 func TestDraw(t *testing.T) {
+	is := is.New(t)
+
 	ld, err := EnglishLetterDistribution(&DefaultConfig)
-	if err != nil {
-		t.Error(err)
-	}
+	is.NoErr(err)
 	bag := ld.MakeBag()
 	ml := make([]MachineLetter, 7)
 	err = bag.Draw(7, ml)
-	if err != nil {
-		t.Error(err)
-	}
+	is.NoErr(err)
 
 	if len(bag.tiles) != 93 {
 		t.Errorf("Length was %v, expected 93", len(bag.tiles))
@@ -60,6 +58,8 @@ func TestDraw(t *testing.T) {
 }
 
 func TestDrawAtMost(t *testing.T) {
+	is := is.New(t)
+
 	ld, err := EnglishLetterDistribution(&DefaultConfig)
 	if err != nil {
 		t.Error(err)
@@ -68,9 +68,7 @@ func TestDrawAtMost(t *testing.T) {
 	ml := make([]MachineLetter, 7)
 	for i := 0; i < 14; i++ {
 		err := bag.Draw(7, ml)
-		if err != nil {
-			t.Error(err)
-		}
+		is.NoErr(err)
 	}
 	if bag.TilesRemaining() != 2 {
 		t.Errorf("TilesRemaining was %v, expected 2", bag.TilesRemaining())
@@ -94,30 +92,24 @@ func TestDrawAtMost(t *testing.T) {
 
 func TestExchange(t *testing.T) {
 	is := is.New(t)
+
 	ld, err := EnglishLetterDistribution(&DefaultConfig)
-	if err != nil {
-		t.Error(err)
-	}
+	is.NoErr(err)
 	bag := ld.MakeBag()
 	ml := make([]MachineLetter, 7)
 	err = bag.Draw(7, ml)
-	if err != nil {
-		t.Error(err)
-	}
+	is.NoErr(err)
 	newML := make([]MachineLetter, 7)
 	err = bag.Exchange(ml[:5], newML)
-	if err != nil {
-		t.Error(err)
-	}
+	is.NoErr(err)
 	is.Equal(len(bag.tiles), 93)
 }
 
 func TestRemoveTiles(t *testing.T) {
 	is := is.New(t)
+
 	ld, err := EnglishLetterDistribution(&DefaultConfig)
-	if err != nil {
-		t.Error(err)
-	}
+	is.NoErr(err)
 	bag := ld.MakeBag()
 	is.Equal(len(bag.tiles), 100)
 	toRemove := []MachineLetter{
@@ -129,8 +121,6 @@ func TestRemoveTiles(t *testing.T) {
 	}
 	is.Equal(len(toRemove), 91)
 	err = bag.RemoveTiles(toRemove)
-	if err != nil {
-		t.Error(err)
-	}
+	is.NoErr(err)
 	is.Equal(len(bag.tiles), 9)
 }

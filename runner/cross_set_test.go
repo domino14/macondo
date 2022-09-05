@@ -4,13 +4,13 @@ import (
 	"os"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/testcommon"
+	"github.com/matryer/is"
+	"github.com/stretchr/testify/assert"
 )
 
 var DefaultConfig = config.DefaultConfig()
@@ -44,6 +44,7 @@ type testMove struct {
 }
 
 func TestCompareGameMove(t *testing.T) {
+	is := is.New(t)
 	opts := &GameOptions{
 		ChallengeRule: pb.ChallengeRule_SINGLE,
 	}
@@ -71,31 +72,19 @@ func TestCompareGameMove(t *testing.T) {
 	}
 
 	game1, err := NewGameRunnerFromRules(opts, players, rules1)
-	if err != nil {
-		t.Error(err)
-	}
+	is.NoErr(err)
 	game2, err := NewGameRunnerFromRules(opts, players, rules2)
-	if err != nil {
-		t.Error(err)
-	}
+	is.NoErr(err)
 	// create a move.
 	for _, tc := range testCases {
 		err = game1.SetCurrentRack(tc.rack)
-		if err != nil {
-			t.Error(err)
-		}
+		is.NoErr(err)
 		err = game2.SetCurrentRack(tc.rack)
-		if err != nil {
-			t.Error(err)
-		}
+		is.NoErr(err)
 		m1, err := game1.NewPlacementMove(game1.PlayerOnTurn(), tc.coords, tc.word)
-		if err != nil {
-			t.Error(err)
-		}
+		is.NoErr(err)
 		m2, err := game2.NewPlacementMove(game2.PlayerOnTurn(), tc.coords, tc.word)
-		if err != nil {
-			t.Error(err)
-		}
+		is.NoErr(err)
 		game1.PlayMove(m1, true, 0)
 		game2.PlayMove(m2, true, 0)
 		compareCrossScores(t, game1.Board(), game2.Board())
