@@ -442,9 +442,10 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		// Calculate cross-sets.
 		g.crossSetGen.UpdateForMove(g.board, m)
 		score := m.Score()
-		if score != 0 {
-			g.scorelessTurns = 0
-		} // XXX: else we should increment the scoreless turns here!
+		// no international rule counts a score of 0 as a scoreless turn
+		// if it's from tiles being played on the board (like a blank next
+		// to another blank) so always reset this.
+		g.scorelessTurns = 0
 		g.players[g.onturn].points += score
 		g.players[g.onturn].turns += 1
 		if m.TilesPlayed() == RackTileLimit {
