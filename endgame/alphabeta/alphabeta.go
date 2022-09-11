@@ -63,6 +63,11 @@ const (
 
 var ErrNoEndgameSolution = errors.New("no endgame solution found")
 
+type SimpleNode struct {
+	move       *move.Move
+	forcedPass bool
+}
+
 // Solver implements the minimax + alphabeta algorithm.
 type Solver struct {
 	zobrist          *zobrist.Zobrist
@@ -92,6 +97,7 @@ type Solver struct {
 	maxCount int
 	minCount int
 
+	currentVariation       []SimpleNode
 	lastPrincipalVariation []*move.Move
 	currentIDDepth         int
 
@@ -305,7 +311,7 @@ func (s *Solver) generateSTMPlays(parentMove *move.Move, depth int, plies int) [
 			var oLeave tilemapping.MachineWord
 			blockedAll := true
 			for _, o := range otherSidePlays {
-				if s.blocks(play, o, board) {
+				if s.blocks(play, o, board, true) {
 					continue
 				}
 				blockedAll = false
@@ -382,7 +388,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 		Bool("iterative-deepening", s.iterativeDeepeningOn).
 		Bool("complex-evaluation", s.complexEvaluation).
 		Msg("alphabeta-solve-config")
-
+	s.currentVariation = make([]SimpleNode, plies)
 	tstart := time.Now()
 	s.maxCount = 0
 	s.minCount = 0
@@ -496,6 +502,41 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 	return bestV, bestSeq, err
 }
 
+func (s *Solver) possiblySkipVariation(play *move.Move, depth int) bool {
+	// We want to possibly skip a variation in the following situation:
+	// - Opponent's last play was a forced pass (i.e., they're stuck)
+	// - The play that we are considering skipping has already been
+	// considered in another branch.
+	// - This can happen if our play and another play are "independent",
+	// i.e. they cannot possibly affect each other. In this situation,
+	// we do not need to consider both branches of the tree.
+
+	maxIdx := len(s.currentVariation) - 1
+
+	if depth+2 > maxIdx {
+		return false
+	}
+	if !s.currentVariation[depth].forcedPass {
+		return false
+	}
+
+	lastMove := s.currentVariation[depth+1].move
+
+	if s.blocks(play, lastMove, s.game.Board(), false) {
+		// plays are not independent (they touch) so we cannot skip this
+		// variation
+		return false
+	}
+
+	// The two moves don't touch, but we want to skip only one ordering.
+	if lastMove.Score() < play.Score() {
+		return false
+	}
+	log.Info().Msgf("plays %v and %v are independent, so skip this variation",
+		lastMove, play)
+	return true
+}
+
 func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint64,
 	depth int, plies int, α float32, β float32, maximizingPlayer bool) (*GameNode, error) {
 
@@ -538,9 +579,21 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 		var winningPlay *move.Move
 		var winningNode *GameNode
 		for _, play := range plays {
+			// determine if we should even consider this play.
+			// Sometimes, we don't want to consider plays if the opponent
+			// is stuck and the different variations are very similar.
+			if play.Action() == move.MoveTypePlay && s.possiblySkipVariation(play, depth) {
+				continue
+			}
+
 			// Play the child
 			s.game.PlayMove(play, false, 0)
 			childKey := s.zobrist.AddMove(parentKey, play, true)
+			s.currentVariation[depth-1].move = play
+			if len(plays) == 1 && play.Action() == move.MoveTypePass {
+				s.currentVariation[depth-1].forcedPass = true
+			}
+
 			child := new(GameNode)
 			child.move = play
 			child.parent = parent
@@ -597,8 +650,15 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 		var winningPlay *move.Move
 		var winningNode *GameNode
 		for _, play := range plays {
+			if play.Action() == move.MoveTypePlay && s.possiblySkipVariation(play, depth) {
+				continue
+			}
 			s.game.PlayMove(play, false, 0)
 			childKey := s.zobrist.AddMove(parentKey, play, false)
+			s.currentVariation[depth-1].move = play
+			if len(plays) == 1 && play.Action() == move.MoveTypePass {
+				s.currentVariation[depth-1].forcedPass = true
+			}
 			child := new(GameNode)
 			child.move = play
 			child.parent = parent
@@ -621,6 +681,12 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 				break // alpha cut-off
 			}
 			// }
+		}
+		if winningNode == nil {
+			fmt.Println(s.game.ToDisplayText())
+			fmt.Println("plays are", plays)
+			fmt.Println("current variant", s.currentVariation)
+			panic("winning node is nil")
 		}
 		parent.heuristicValue = nodeValue{
 			value:    value,
