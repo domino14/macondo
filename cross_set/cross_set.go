@@ -64,10 +64,7 @@ type BoardCrossSets struct {
 }
 
 func (bcs *BoardCrossSets) Set(row int, col int, cs int64, dir board.BoardDirection) {
-	pos := row*bcs.board.Dim() + col
-	if bcs.board.IsTransposed() {
-		pos = col*bcs.board.Dim() + row
-	}
+	pos := bcs.board.getSqIdx(row, col)
 	if dir == board.HorizontalDirection {
 		bcs.hcrossSets[pos] = CrossSet(cs)
 		return
@@ -83,11 +80,7 @@ func (bcs *BoardCrossSets) Add(row, col int, ml alphabet.MachineLetter, dir boar
 }
 
 func (bcs *BoardCrossSets) Get(row, col int, dir board.BoardDirection) CrossSet {
-
-	pos := row*bcs.board.Dim() + col
-	if bcs.board.IsTransposed() {
-		pos = col*bcs.board.Dim() + row
-	}
+	pos := bcs.board.getSqIdx(row, col)
 	if dir == board.HorizontalDirection {
 		return bcs.hcrossSets[pos]
 	}
@@ -95,10 +88,7 @@ func (bcs *BoardCrossSets) Get(row, col int, dir board.BoardDirection) CrossSet 
 }
 
 func (bcs *BoardCrossSets) Clear(row, col int, dir board.BoardDirection) {
-	pos := row*bcs.board.Dim() + col
-	if bcs.board.IsTransposed() {
-		pos = col*bcs.board.Dim() + row
-	}
+	pos := bcs.board.getSqIdx(row, col)
 	if dir == board.HorizontalDirection {
 		bcs.hcrossSets[pos] = 0
 		return
