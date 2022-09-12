@@ -149,6 +149,9 @@ func (gen *GordonGenerator) GenAll(rack *alphabet.Rack, addExchange bool) []*mov
 	gen.winner.SetEmpty()
 
 	gen.plays = gen.plays[:0]
+	if !addExchange {
+		gen.ResetCrossesAndAnchors()
+	}
 
 	orientations := [2]board.BoardDirection{
 		board.HorizontalDirection, board.VerticalDirection}
