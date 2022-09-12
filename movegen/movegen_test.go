@@ -230,8 +230,6 @@ func TestOneMoreRowGen(t *testing.T) {
 	is.NoErr(err)
 	generator := NewGordonGenerator(gd, bd, ld)
 	bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
-	bcs := cross_set.MakeBoardCrossSets(bd)
-	cross_set.GenAllCrossSets(bd, bcs, gd, ld)
 	generator.ResetCrossesAndAnchors()
 
 	rack := alphabet.RackFromString("A", gd.GetAlphabet())
@@ -583,6 +581,7 @@ func BenchmarkGenEmptyBoard(b *testing.B) {
 		bd := board.MakeBoard(board.CrosswordGameBoard)
 		generator := NewGordonGenerator(gd, bd, ld)
 		generator.ResetCrossesAndAnchors()
+
 		generator.GenAll(alphabet.RackFromString("AEINRST", alph), true)
 	}
 }
@@ -629,10 +628,6 @@ func BenchmarkJustMovegen(b *testing.B) {
 	generator := NewGordonGenerator(gd, bd, ld)
 	// generator.SetPlayRecorder(NullPlayRecorder)
 	bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
-	bcs := cross_set.MakeBoardCrossSets(bd)
-	a := MakeAnchors(bd)
-	cross_set.GenAllCrossSets(bd, bcs, gd, ld)
-	a.UpdateAllAnchors()
 	b.ReportAllocs()
 	b.ResetTimer()
 	rack := alphabet.RackFromString("AABDELT", alph)
@@ -641,6 +636,8 @@ func BenchmarkJustMovegen(b *testing.B) {
 		// go 1.18
 
 		// 3349	    334262 ns/op	  147152 B/op	    2991 allocs/op
+		generator.ResetCrossesAndAnchors()
+
 		generator.GenAll(rack, true)
 	}
 }
