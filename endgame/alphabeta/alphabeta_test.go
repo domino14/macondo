@@ -1093,7 +1093,7 @@ func TestFromGCG2(t *testing.T) {
 	plies := 7
 	is := is.New(t)
 
-	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
+	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic,
 		"CSW19", "English")
 	is.NoErr(err)
 
@@ -1106,17 +1106,22 @@ func TestFromGCG2(t *testing.T) {
 	gd, err := gaddag.Get(&DefaultConfig, "NWL18")
 	is.NoErr(err)
 
-	generator := movegen.NewGordonGenerator(
+	gen1 := movegen.NewGordonGenerator(
 		// The strategy doesn't matter right here
 		gd, g.Board(), g.Bag().LetterDistribution(),
 	)
-	g.SetAddlState(generator.State())
+	gen2 := movegen.NewGordonGenerator(
+		// The strategy doesn't matter right here
+		gd, g.Board(), g.Bag().LetterDistribution(),
+	)
+	g.SetAddlState(gen1.State())
+	g.SetAddlState(gen2.State())
 	g.SetBackupMode(game.SimulationMode)
 	g.SetStateStackLength(plies)
 	g.RecalculateBoard()
 
 	s := new(Solver)
-	s.Init(generator, g)
+	s.Init(gen1, gen2, g, &DefaultConfig)
 	// s.simpleEvaluation = true
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 	v, seq, _ := s.Solve(plies)

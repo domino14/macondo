@@ -230,7 +230,10 @@ func TestOneMoreRowGen(t *testing.T) {
 	is.NoErr(err)
 	generator := NewGordonGenerator(gd, bd, ld)
 	bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
-	cross_set.GenAllCrossSets(bd, gd, ld)
+	bcs := cross_set.MakeBoardCrossSets(bd)
+	a := MakeAnchors(bd)
+	cross_set.GenAllCrossSets(bd, bcs, gd, ld)
+	a.UpdateAllAnchors()
 
 	rack := alphabet.RackFromString("A", gd.GetAlphabet())
 	generator.curRowIdx = 0
@@ -627,7 +630,10 @@ func BenchmarkJustMovegen(b *testing.B) {
 	generator := NewGordonGenerator(gd, bd, ld)
 	// generator.SetPlayRecorder(NullPlayRecorder)
 	bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
-	cross_set.GenAllCrossSets(bd, gd, ld)
+	bcs := cross_set.MakeBoardCrossSets(bd)
+	a := MakeAnchors(bd)
+	cross_set.GenAllCrossSets(bd, bcs, gd, ld)
+	a.UpdateAllAnchors()
 	b.ReportAllocs()
 	b.ResetTimer()
 	rack := alphabet.RackFromString("AABDELT", alph)
