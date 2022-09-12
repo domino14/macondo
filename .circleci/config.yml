@@ -3,7 +3,7 @@
 # Check https://circleci.com/docs/2.0/language-go/ for more details
 version: 2.1
 orbs:
-  slack: circleci/slack@3.4.2
+  discord: antonioned/discord@0.1.0
 jobs:
   build:
     environment:
@@ -35,9 +35,19 @@ jobs:
       - run: mv /opt/word-game-lexica/*.txt $LEXICON_PATH
       - run: cp -r /opt/macondo/data /opt/data
       - run: go build cmd/shell/main.go
-      - run: go test $(go list ./... | grep -v wasm)
-      - slack/status: &slack-webhook-setting
-          webhook: "${SLACK_WEBHOOK}"
+      # build GADDAGs
+      - restore_cache:
+          keys:
+            - gaddag-cache
+      - run: cd testcommon && go generate 
+      - run: cd /opt/macondo && go test $(go list ./... | grep -v wasm)
+      - save_cache:
+          key: gaddag-cache
+          paths:
+            - /opt/lexica/gaddag
+            - /opt/lexica/dawg
+      - discord/status: &discord-webhook-setting
+          webhook: "${DISCORD_WEBHOOK}"
           success_message: ":tada: A $CIRCLE_JOB job has succeeded! (Branch: $CIRCLE_BRANCH)"
           failure_message: ":red_circle: A $CIRCLE_JOB job has failed! (Branch: $CIRCLE_BRANCH)"
 
@@ -48,7 +58,7 @@ jobs:
       - run: echo $GHCR_TOKEN | docker login ghcr.io -u domino14 --password-stdin
       - run: docker build -f Dockerfile-bot-prod -t ghcr.io/domino14/macondo-bot:${CIRCLE_BRANCH}-${CIRCLE_BUILD_NUM} .
       - run: docker push ghcr.io/domino14/macondo-bot:${CIRCLE_BRANCH}-${CIRCLE_BUILD_NUM}
-      - slack/status: *slack-webhook-setting
+      - discord/status: *discord-webhook-setting
 
 workflows:
   version: 2

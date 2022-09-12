@@ -138,7 +138,8 @@ func (g *SimpleGaddag) LetterSetAsRunes(nodeIdx uint32) []rune {
 // without running into issues. (See my notes in my `ujamaa` repo in gaddag.h)
 func (g *SimpleGaddag) NextNodeIdx(nodeIdx uint32, letter alphabet.MachineLetter) uint32 {
 	numArcs := g.NumArcs(nodeIdx)
-	for i := nodeIdx + 1; i <= uint32(numArcs)+nodeIdx; i++ {
+	til := uint32(numArcs) + nodeIdx
+	for i := nodeIdx + 1; i <= til; i++ {
 		ml := alphabet.MachineLetter(g.nodes[i] >> gaddagmaker.LetterBitLoc)
 		if letter == ml {
 			return g.nodes[i] & gaddagmaker.NodeIdxBitMask

@@ -19,7 +19,7 @@ type Strategizer interface {
 
 // Global strategy heuristics, available to all strategies.
 
-func placementAdjustment(play *move.Move) float64 {
+func placementAdjustment(play *move.Move, board *board.GameBoard) float64 {
 	// Very simply just checks how many vowels are overlapping bonus squares.
 	// This only gets considered when the board is empty.
 	if play.Action() != move.MoveTypePlay {
@@ -38,13 +38,23 @@ func placementAdjustment(play *move.Move) float64 {
 	vPenalty := -0.7 // VERY ROUGH approximation from Maven paper.
 	for j < end {
 		if play.Tiles()[j-start].IsVowel(play.Alphabet()) {
-			switch j {
-			case 2, 6, 8, 12:
-				// row/col below/above have a 2LS. note this only works
-				// for specific board configurations
-				penalty += vPenalty
-			default:
+			if board.Dim() == 15 {
+				switch j {
+				case 2, 6, 8, 12:
+					// row/col below/above have a 2LS. note this only works
+					// for specific board configurations
+					penalty += vPenalty
+				default:
 
+				}
+			} else if board.Dim() == 21 {
+				switch j {
+				case 5, 9, 11, 15:
+					// see above, 2LS for this board dim (fix me later, this is ugly)
+					penalty += vPenalty
+				default:
+
+				}
 			}
 		}
 		j++

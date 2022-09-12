@@ -10,22 +10,20 @@ import (
 const PerTurnPenalty = float32(0.001)
 
 type nodeValue struct {
-	value          float32
-	knownEnd       bool
-	sequenceLength int
-	isPass         bool
+	value    float32
+	knownEnd bool
+	isPass   bool
 }
 
-func (nv nodeValue) String() string {
-	return fmt.Sprintf("<val: %v seqLength: %v knownEnd: %v>", nv.value,
-		nv.sequenceLength, nv.knownEnd)
+func (nv *nodeValue) String() string {
+	return fmt.Sprintf("<val: %v knownEnd: %v>", nv.value, nv.knownEnd)
 }
 
 func (nv *nodeValue) negate() {
 	nv.value = -nv.value
 }
 
-func (nv nodeValue) less(other nodeValue) bool {
+func (nv *nodeValue) less(other *nodeValue) bool {
 	if nv.value != other.value {
 		return nv.value < other.value
 	}
@@ -43,41 +41,50 @@ func (nv nodeValue) less(other nodeValue) bool {
 		// i.e. pass < not pass
 		return nv.isPass
 	}
-	// Fourth tie-breaker is length of sequence, favoring shorter sequences
-	return nv.sequenceLength > other.sequenceLength
+	return false
 
 }
 
 // a game node has to have enough information to allow the game and turns
 // to be reconstructed.
 type GameNode struct {
-	// the move corresponding to the node is the move that is being evaluated.
 	move           *move.Move
 	parent         *GameNode
 	heuristicValue nodeValue
-	children       []*GameNode // children should be null until expanded.
-	generatedPlays []*move.Move
+	depth          uint8
 }
 
-func (g *GameNode) Children() []*GameNode {
-	return g.children
+func (g *GameNode) Copy() *GameNode {
+	mv := &move.Move{}
+	mv.CopyFrom(g.move)
+	return &GameNode{
+		move:           mv,
+		parent:         g.parent,
+		heuristicValue: g.heuristicValue,
+		depth:          g.depth,
+	}
+}
+
+func (g *GameNode) CopyFrom(o *GameNode) {
+	g.heuristicValue = o.heuristicValue
+	g.move.CopyFrom(o.move)
+	g.parent = o.parent
+	g.depth = o.depth
 }
 
 func (g *GameNode) Parent() *GameNode {
 	return g.parent
 }
 
-func (g *GameNode) Move() *move.Move {
-	return g.move
-}
-
-func (g *GameNode) GeneratedPlays() []*move.Move {
-	return g.generatedPlays
+func (g *GameNode) GetDepth() uint8 {
+	return g.depth
 }
 
 func (g *GameNode) String() string {
-	return fmt.Sprintf("<gamenode move %v, heuristicVal %v, nchild %v>", g.move,
-		g.heuristicValue, len(g.children))
+	// This function allocates but is only used for test purposes.
+	return fmt.Sprintf(
+		"<gamenode move %v, heuristicVal %v>",
+		g.move, g.heuristicValue)
 }
 
 func (g *GameNode) ancestors() string {
@@ -93,17 +100,10 @@ func (g *GameNode) ancestors() string {
 	return a
 }
 
-func (g *GameNode) value(s *Solver) nodeValue {
-	g.calculateValue(s)
-	// log.Debug().Msgf("heuristic value of node %p is %v", g, g.heuristicValue)
-	return g.heuristicValue
-}
-
-func (g *GameNode) calculateValue(s *Solver) {
+func (g *GameNode) calculateValue(s *Solver, negateHeurVal bool) {
 	// calculate the heuristic value of this node, and store it.
 	// we start with a max node. At 1-ply (and all odd plies), maximizing
 	// is always false.
-	// log.Debug().Msgf("Need to calculate value for %v. Player on turn %v, maximizing %v", g.move, s.game.PlayerOnTurn(), maximizing)
 
 	// Because calculateValue is called after PlayMove has been called,
 	// the "playerOnTurn" is actually not the player who made the move
@@ -114,11 +114,12 @@ func (g *GameNode) calculateValue(s *Solver) {
 	// The initial spread is always from the maximizing point of view.
 	initialSpread := s.initialSpread
 	spreadNow := s.game.PointsFor(playerWhoMadeMove) - s.game.PointsFor(opponent)
-	negateHeurVal := false
-	if playerWhoMadeMove != s.maximizingPlayer {
-		// spreadNow = -spreadNow
+	if negateHeurVal {
+		// Alpha-Beta (min) measures spread from the perspective of the
+		// player who made the move, measures improvement, negates it,
+		// then selects the minimum (least improved for opponent) node.
+		// https://www.chessprogramming.org/Alpha-Beta#Max_versus_Min
 		initialSpread = -initialSpread
-		negateHeurVal = true
 	}
 	gameOver := s.game.Playing() != pb.PlayState_PLAYING
 	// If the game is over, the value should just be the spread change.
@@ -131,8 +132,7 @@ func (g *GameNode) calculateValue(s *Solver) {
 		g.heuristicValue = nodeValue{
 			value:          float32(spreadNow - initialSpread),
 			knownEnd:       true,
-			isPass:         g.move.Action() == move.MoveTypePass,
-			sequenceLength: s.game.Turn() - s.initialTurnNum}
+			isPass:         g.move.Action() == move.MoveTypePass}
 	} else {
 		// The valuation is already an estimate of the overall gain or loss
 		// in spread for this move (if taken to the end of the game).
@@ -143,17 +143,10 @@ func (g *GameNode) calculateValue(s *Solver) {
 		moveVal := g.move.Valuation() - float32(ptValue)
 		// What is the spread right now? The valuation should be relative
 		// to that.
-		// log.Debug().Msgf("calculating heur value for %v as %v + %v - %v",
-		// 	g.move, spreadNow, moveVal, initialSpread)
 		g.heuristicValue = nodeValue{
 			value:          float32(spreadNow) + moveVal - float32(initialSpread),
 			knownEnd:       false,
-			sequenceLength: s.game.Turn() - s.initialTurnNum,
 			isPass:         g.move.Action() == move.MoveTypePass}
-		// g.heuristicValue = s.game.EndgameSpreadEstimate(player, maximizing) - float32(initialSpread)
-		// log.Debug().Msgf("Calculating heuristic value of %v as %v - %v",
-		// 	g.move, s.game.EndgameSpreadEstimate(player), float32(initialSpread))
-		// g.heuristicValue.value = 0 // TEMP
 	}
 	if negateHeurVal {
 		// The maximizing player is always "us" - the player that we are
@@ -163,11 +156,5 @@ func (g *GameNode) calculateValue(s *Solver) {
 		// hard to reason about, but I think this makes sense. At least
 		// it seems to work.
 		g.heuristicValue.negate()
-		// log.Debug().Msg("Negating since not maximizing player")
 	}
-}
-
-func (g *GameNode) serialize() []int32 {
-	// Climb down tree and serialize nodes.
-	return nil
 }

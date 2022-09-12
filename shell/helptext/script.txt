@@ -1,0 +1,23 @@
+script [filepath] - Execute the Lua script in the file path.
+
+Macondo is scriptable; many of the shell commands can be run directly
+with Lua 5.1 scripts.
+
+The following commands are currently supported by Lua:
+
+    - gen
+    - load
+    - set
+    - turn
+    - endgame
+    - sim
+
+To invoke the command with Lua, prefix it with the macondo_ namespace.
+For example, macondo_gen, macondo_load, macondo_set, and macondo_turn.
+
+The commands take in a single string with all of its arguments. For example,
+you can call load as such:
+
+    macondo_load('xt 19009')         -- load the cross-tables game 19009
+
+See the scripts directory in the main Macondo repo for some sample Lua scripts.

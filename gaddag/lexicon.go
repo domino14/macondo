@@ -21,14 +21,14 @@ func (l Lexicon) HasWord(word alphabet.MachineWord) bool {
 
 var daPool = sync.Pool{
 	New: func() interface{} {
-		return DawgAnagrammer{}
+		return &DawgAnagrammer{}
 	},
 }
 
 func (l Lexicon) HasAnagram(word alphabet.MachineWord) bool {
 	log.Debug().Str("word", word.UserVisible(l.GetAlphabet())).Msg("has-anagram?")
 
-	da := daPool.Get().(DawgAnagrammer)
+	da := daPool.Get().(*DawgAnagrammer)
 	defer daPool.Put(da)
 
 	v, err := da.IsValidJumble(l, word)

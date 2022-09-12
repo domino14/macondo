@@ -23,9 +23,11 @@ func (g *Game) EventFromMove(m *move.Move) *pb.GameEvent {
 	curPlayer := g.curPlayer()
 
 	evt := &pb.GameEvent{
-		Nickname:   curPlayer.Nickname,
-		Cumulative: int32(curPlayer.points),
-		Rack:       m.FullRack(),
+		// XXX: Remove
+		Nickname:    curPlayer.Nickname,
+		PlayerIndex: uint32(g.onturn),
+		Cumulative:  int32(curPlayer.points),
+		Rack:        m.FullRack(),
 	}
 
 	switch m.Action() {
@@ -34,7 +36,7 @@ func (g *Game) EventFromMove(m *move.Move) *pb.GameEvent {
 		evt.PlayedTiles = m.Tiles().UserVisible(m.Alphabet())
 		evt.Score = int32(m.Score())
 		evt.Type = pb.GameEvent_TILE_PLACEMENT_MOVE
-		evt.IsBingo = m.TilesPlayed() == 7
+		evt.IsBingo = m.TilesPlayed() == RackTileLimit
 		CalculateCoordsFromStringPosition(evt)
 
 	case move.MoveTypePass:
@@ -65,7 +67,9 @@ func (g *Game) endRackEvt(pidx int, bonusPts int) *pb.GameEvent {
 	otherPlayer := g.players[otherPlayer(pidx)]
 
 	evt := &pb.GameEvent{
+		// remove
 		Nickname:      curPlayer.Nickname,
+		PlayerIndex:   uint32(pidx),
 		Cumulative:    int32(curPlayer.points),
 		Rack:          otherPlayer.rack.String(),
 		EndRackPoints: int32(bonusPts),
@@ -78,11 +82,13 @@ func (g *Game) endRackPenaltyEvt(penalty int) *pb.GameEvent {
 	curPlayer := g.curPlayer()
 
 	evt := &pb.GameEvent{
-		Nickname:   curPlayer.Nickname,
-		Cumulative: int32(curPlayer.points),
-		Rack:       curPlayer.rack.String(),
-		LostScore:  int32(penalty),
-		Type:       pb.GameEvent_END_RACK_PENALTY,
+		// XXX remove
+		Nickname:    curPlayer.Nickname,
+		PlayerIndex: uint32(g.onturn),
+		Cumulative:  int32(curPlayer.points),
+		Rack:        curPlayer.rack.String(),
+		LostScore:   int32(penalty),
+		Type:        pb.GameEvent_END_RACK_PENALTY,
 	}
 	return evt
 }
@@ -107,7 +113,7 @@ func modifyForPlaythrough(tiles alphabet.MachineWord, board *board.GameBoard,
 			curcol = col + idx
 		}
 		if currow > board.Dim()-1 || curcol > board.Dim()-1 {
-			log.Error().Int("currow", currow).Int("curcol", curcol).Msg("err-out-of-bounds")
+			log.Error().Int("currow", currow).Int("curcol", curcol).Int("dim", board.Dim()).Msg("err-out-of-bounds")
 			return errors.New("play out of bounds of board")
 		}
 
@@ -171,7 +177,7 @@ func MoveFromEvent(evt *pb.GameEvent, alph *alphabet.Alphabet, board *board.Game
 		// 	tiles.UserVisible(alph))
 		m = move.NewScoringMove(int(evt.Score), tiles, leaveMW,
 			evt.Direction == pb.GameEvent_VERTICAL,
-			len(rack)-len(leaveMW), alph, int(evt.Row), int(evt.Column), evt.Position)
+			len(rack)-len(leaveMW), alph, int(evt.Row), int(evt.Column))
 
 	case pb.GameEvent_EXCHANGE:
 		tiles, err := alphabet.ToMachineWord(evt.Exchanged, alph)
@@ -264,28 +270,30 @@ func Leave(rack alphabet.MachineWord, play alphabet.MachineWord) (alphabet.Machi
 	return leave, nil
 }
 
-func summary(evt *pb.GameEvent) string {
+func summary(players []*pb.PlayerInfo, evt *pb.GameEvent) string {
 	summary := ""
+	who := players[evt.PlayerIndex].Nickname
+
 	switch evt.Type {
 	case pb.GameEvent_TILE_PLACEMENT_MOVE:
 		summary = fmt.Sprintf("%s played %s %s for %d pts from a rack of %s",
-			evt.Nickname, evt.Position, evt.PlayedTiles, evt.Score, evt.Rack)
+			who, evt.Position, evt.PlayedTiles, evt.Score, evt.Rack)
 
 	case pb.GameEvent_PASS:
 		summary = fmt.Sprintf("%s passed, holding a rack of %s",
-			evt.Nickname, evt.Rack)
+			who, evt.Rack)
 
 	case pb.GameEvent_CHALLENGE:
 		summary = fmt.Sprintf("%s challenged, holding a rack of %s",
-			evt.Nickname, evt.Rack)
+			who, evt.Rack)
 
 	case pb.GameEvent_UNSUCCESSFUL_CHALLENGE_TURN_LOSS:
 		summary = fmt.Sprintf("%s challenged unsuccessfully, holding a rack of %s",
-			evt.Nickname, evt.Rack)
+			who, evt.Rack)
 
 	case pb.GameEvent_EXCHANGE:
 		summary = fmt.Sprintf("%s exchanged %s from a rack of %s",
-			evt.Nickname, evt.Exchanged, evt.Rack)
+			who, evt.Exchanged, evt.Rack)
 
 	case pb.GameEvent_CHALLENGE_BONUS:
 		summary = fmt.Sprintf(" (+%d)", evt.Bonus)
@@ -297,10 +305,10 @@ func summary(evt *pb.GameEvent) string {
 		summary = fmt.Sprintf("(%s challenged off)", evt.PlayedTiles)
 
 	case pb.GameEvent_TIME_PENALTY:
-		summary = fmt.Sprintf("%s lost %d on time", evt.Nickname, evt.LostScore)
+		summary = fmt.Sprintf("%s lost %d on time", who, evt.LostScore)
 
 	case pb.GameEvent_END_RACK_PENALTY:
-		summary = fmt.Sprintf("%s lost %d from their rack", evt.Nickname,
+		summary = fmt.Sprintf("%s lost %d from their rack", who,
 			evt.LostScore)
 	}
 

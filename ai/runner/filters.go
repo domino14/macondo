@@ -24,7 +24,7 @@ var BotConfigs = map[pb.BotRequest_BotCode]struct {
 	pb.BotRequest_LEVEL1_CEL_BOT: {baseFindability: 0.3, longWordFindability: 0.1, parallelFindability: 0.3, isCel: true},
 	pb.BotRequest_LEVEL2_CEL_BOT: {baseFindability: 0.7, longWordFindability: 0.4, parallelFindability: 0.5, isCel: true},
 	pb.BotRequest_LEVEL3_CEL_BOT: {baseFindability: 0.8, longWordFindability: 0.5, parallelFindability: 0.75, isCel: true},
-	pb.BotRequest_LEVEL4_CEL_BOT: {isCel: true},
+	pb.BotRequest_LEVEL4_CEL_BOT: {baseFindability: 1.0, longWordFindability: 1.0, parallelFindability: 1.0, isCel: true},
 
 	pb.BotRequest_LEVEL1_PROBABILISTIC: {baseFindability: 0.2, longWordFindability: 0.07, parallelFindability: 0.15, isCel: false},
 	pb.BotRequest_LEVEL2_PROBABILISTIC: {baseFindability: 0.4, longWordFindability: 0.2, parallelFindability: 0.3, isCel: false},
@@ -51,27 +51,13 @@ func filter(cfg *config.Config, g *game.Game, rack *alphabet.Rack, plays []*move
 			filterFunction = func([]alphabet.MachineWord, float64) (bool, error) { return false, err }
 		} else {
 			lex := gaddag.Lexicon{GenericDawg: gd}
-			// XXX: There might be a slick way to consolidate this
-			// stufilterFunction using generic function pointer types and casting
-			// but I'm not sure. This is probably good enough
-			if g.Rules().Variant() == game.VarWordSmog {
-				filterFunction = func(mws []alphabet.MachineWord, r float64) (bool, error) {
-					for _, mw := range mws {
-						if !lex.HasAnagram(mw) {
-							return false, nil
-						}
-					}
-					return true, nil
+			filterFunction = func(mws []alphabet.MachineWord, r float64) (bool, error) {
+				err = g.ValidateWords(lex, mws)
+				if err != nil {
+					// validation error means at least one word is phony.
+					return false, nil
 				}
-			} else {
-				filterFunction = func(mws []alphabet.MachineWord, r float64) (bool, error) {
-					for _, mw := range mws {
-						if !lex.HasWord(mw) {
-							return false, nil
-						}
-					}
-					return true, nil
-				}
+				return true, nil
 			}
 		}
 	}

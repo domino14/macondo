@@ -12,28 +12,28 @@ type dotfile struct {
 	directives   []string
 }
 
-func genDotFile(n *GameNode, d *dotfile) {
-	if len(n.children) == 0 {
-		// terminal node
-		// decl := fmt.Sprintf("%p [label=\"%v\nV: %v\"];",
-		// 	n, joinDesc(n.move.ShortDescription()), n.move.Valuation(),
-		// )
-		// declarations = append(declarations, decl)
-		return
-	}
+// func genDotFile(n *GameNode, d *dotfile, a *alphabet.Alphabet) {
+// 	if len(n.children) == 0 {
+// 		// terminal node
+// 		// decl := fmt.Sprintf("%p [label=\"%v\nV: %v\"];",
+// 		// 	n, joinDesc(n.move.ShortDescription()), n.move.Valuation(),
+// 		// )
+// 		// declarations = append(declarations, decl)
+// 		return
+// 	}
 
-	parent := n
-	for _, child := range parent.children {
-		decl := fmt.Sprintf("n_%p [label=\"%v\\nPlayVal: %v\\nNodeVal: %v\"];",
-			child, child.move.ShortDescription(),
-			child.move.Valuation(), child.heuristicValue)
+// 	parent := n
+// 	for _, child := range parent.children {
+// 		decl := fmt.Sprintf("n_%p [label=\"%v\\nPlayVal: %v\\nNodeVal: %v\"];",
+// 			child, child.move.ShortDescription(),
+// 			child.valuation, child.heuristicValue)
 
-		conn := fmt.Sprintf("n_%p -> n_%p;", parent, child)
-		d.declarations = append(d.declarations, decl)
-		d.directives = append(d.directives, conn)
-		genDotFile(child, d)
-	}
-}
+// 		conn := fmt.Sprintf("n_%p -> n_%p;", parent, child)
+// 		d.declarations = append(d.declarations, decl)
+// 		d.directives = append(d.directives, conn)
+// 		genDotFile(child, d, a)
+// 	}
+// }
 
 func saveDotFile(root *GameNode, d *dotfile, outFile string) {
 	out := ""

@@ -18,6 +18,7 @@ import (
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/strategy"
 	"github.com/rs/zerolog/log"
+	"lukechampine.com/frand"
 
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
@@ -31,7 +32,7 @@ const (
 type GameRunner struct {
 	game     *game.Game
 	gaddag   gaddag.GenericDawg
-	movegen  movegen.MoveGenerator
+	movegens [2]movegen.MoveGenerator
 	alphabet *alphabet.Alphabet
 
 	lexicon            string
@@ -53,7 +54,7 @@ func NewGameRunner(logchan chan string, config *config.Config) *GameRunner {
 func (r *GameRunner) Init(player1, player2, leavefile1, leavefile2, pegfile1, pegfile2 string,
 	botcode1, botcode2 pb.BotRequest_BotCode) error {
 
-	rules, err := airunner.NewAIGameRules(r.config, board.CrosswordGameLayout,
+	rules, err := airunner.NewAIGameRules(r.config, board.CrosswordGameLayout, game.VarClassic,
 		r.lexicon, r.letterDistribution)
 	if err != nil {
 		return err
@@ -81,8 +82,14 @@ func (r *GameRunner) Init(player1, player2, leavefile1, leavefile2, pegfile1, pe
 
 	r.alphabet = r.gaddag.GetAlphabet()
 
-	r.movegen = movegen.NewGordonGenerator(r.gaddag.(*gaddag.SimpleGaddag), r.game.Board(),
-		rules.LetterDistribution())
+	// We use two movegens so that each movegen can have independent
+	// play recorders.
+	r.movegens = [2]movegen.MoveGenerator{
+		movegen.NewGordonGenerator(r.gaddag.(*gaddag.SimpleGaddag), r.game.Board(),
+			rules.LetterDistribution()),
+		movegen.NewGordonGenerator(r.gaddag.(*gaddag.SimpleGaddag), r.game.Board(),
+			rules.LetterDistribution()),
+	}
 	r.game.SetAddlState(r.movegen.(*movegen.GordonGenerator).State())
 
 	var strat strategy.Strategizer
@@ -115,27 +122,41 @@ func (r *GameRunner) Init(player1, player2, leavefile1, leavefile2, pegfile1, pe
 }
 
 func (r *GameRunner) StartGame() {
+	if frand.Intn(2) == 1 {
+		r.game.FlipPlayers()
+		// XXX: probably associate the movegen with the aiplayer in the future.
+		r.aiplayers[0], r.aiplayers[1] = r.aiplayers[1], r.aiplayers[0]
+		r.movegens[0], r.movegens[1] = r.movegens[1], r.movegens[0]
+	}
 	r.game.StartGame()
 }
 
+func (r *GameRunner) Game() *game.Game {
+	return r.game
+}
+
 func (r *GameRunner) genBestStaticTurn(playerIdx int) *move.Move {
-	return player.GenBestStaticTurn(r.game, r.movegen, r.aiplayers[playerIdx], playerIdx)
+	return player.GenBestStaticTurn(r.game, r.movegens[playerIdx], r.aiplayers[playerIdx], playerIdx)
 }
 
 func (r *GameRunner) genBestMoveForBot(playerIdx int) *move.Move {
+	if r.aiplayers[playerIdx].GetBotType() == pb.BotRequest_HASTY_BOT {
+		// For HastyBot we only need to generate one single best static turn.
+		return r.genBestStaticTurn(playerIdx)
+	}
 	return airunner.GenerateMoves(
-		r.game, r.aiplayers[playerIdx], r.movegen, r.config, 1)[0]
+		r.game, r.aiplayers[playerIdx], r.movegens[playerIdx], r.config, 1)[0]
 }
 
 // PlayBestStaticTurn generates the best static move for the player and
 // plays it on the board.
-func (r *GameRunner) PlayBestStaticTurn(playerIdx int) {
+func (r *GameRunner) PlayBestStaticTurn(playerIdx int, addToHistory bool) {
 	bestPlay := r.genBestMoveForBot(playerIdx)
 	// save rackLetters for logging.
 	rackLetters := r.game.RackLettersFor(playerIdx)
 	tilesRemaining := r.game.Bag().TilesRemaining()
 	nickOnTurn := r.game.NickOnTurn()
-	r.game.PlayMove(bestPlay, false, 0)
+	r.game.PlayMove(bestPlay, addToHistory, 0)
 
 	if r.logchan != nil {
 		r.logchan <- fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v,%v,%v,%.3f,%v,%v\n",

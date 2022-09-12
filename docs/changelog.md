@@ -1,3 +1,8 @@
+# v0.4.9 (Aug 20, 2022)
+
+- Drastic optimizations to speed, allocation, and memory usage
+- Experimental win% calculation
+
 # v0.4.5 (rc)
 
 - Add challenge rules and `challenge` command to the shell to handle these.

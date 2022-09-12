@@ -7,9 +7,9 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/golang/protobuf/proto"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
+	"google.golang.org/protobuf/proto"
 
 	airunner "github.com/domino14/macondo/ai/runner"
 	"github.com/domino14/macondo/config"
@@ -74,8 +74,8 @@ func (bot *Bot) Deserialize(data []byte) (*game.Game, *pb.EvaluationRequest, pb.
 		return nil, nil, 0, err
 	}
 	history := req.GameHistory
-	boardLayout, ldName, _ := game.HistoryToVariant(history)
-	rules, err := airunner.NewAIGameRules(bot.config, boardLayout, history.Lexicon, ldName)
+	boardLayout, ldName, variant := game.HistoryToVariant(history)
+	rules, err := airunner.NewAIGameRules(bot.config, boardLayout, variant, history.Lexicon, ldName)
 	if err != nil {
 		return nil, nil, 0, err
 	}
@@ -97,7 +97,7 @@ func evalSingleMove(g *airunner.AIGameRunner, evtIdx int) *pb.SingleEvaluation {
 	moves := g.GenerateMoves(100000)
 	// find the played move in the list of moves
 	topEquity := moves[0].Equity()
-	topIsBingo := moves[0].TilesPlayed() == 7 && moves[0].Action() == move.MoveTypePlay
+	topIsBingo := moves[0].TilesPlayed() == game.RackTileLimit && moves[0].Action() == move.MoveTypePlay
 	foundEquity := float64(0)
 	playedBingo := false
 	hasStarPlay := false
@@ -118,7 +118,7 @@ func evalSingleMove(g *airunner.AIGameRunner, evtIdx int) *pb.SingleEvaluation {
 				}
 				// Same move
 				foundEquity = m.Equity()
-				playedBingo = m.TilesPlayed() == 7 && m.Action() == move.MoveTypePlay
+				playedBingo = m.TilesPlayed() == game.RackTileLimit && m.Action() == move.MoveTypePlay
 				break
 			}
 		}
@@ -137,13 +137,17 @@ func evalSingleMove(g *airunner.AIGameRunner, evtIdx int) *pb.SingleEvaluation {
 func (bot *Bot) evaluationResponse(req *pb.EvaluationRequest) *pb.BotResponse {
 
 	evts := bot.game.History().Events
-
+	players := bot.game.History().Players
 	evals := []*pb.SingleEvaluation{}
 
 	for idx, evt := range evts {
-
-		if strings.ToLower(evt.Nickname) == strings.ToLower(req.User) && (evt.Type == pb.GameEvent_TILE_PLACEMENT_MOVE ||
-			evt.Type == pb.GameEvent_EXCHANGE) {
+		evtNickname := players[evt.PlayerIndex].Nickname
+		if evt.Nickname != "" {
+			// remove -- deprecated
+			evtNickname = evt.Nickname
+		}
+		userMatches := strings.EqualFold(evtNickname, req.User)
+		if userMatches && (evt.Type == pb.GameEvent_TILE_PLACEMENT_MOVE || evt.Type == pb.GameEvent_EXCHANGE) {
 			eval := evalSingleMove(bot.game, idx)
 			evals = append(evals, eval)
 		}
@@ -174,17 +178,12 @@ func (bot *Bot) handle(data []byte) *pb.BotResponse {
 		// Generate all possible moves.
 		return bot.evaluationResponse(evalReq)
 	}
-
+	isWordSmog := g.Rules().Variant() == game.VarWordSmog || g.Rules().Variant() == game.VarWordSmogSuper
 	// See if we need to challenge the last move
 	valid := true
-	if g.LastEvent() != nil &&
-		g.LastEvent().Type == pb.GameEvent_TILE_PLACEMENT_MOVE {
-		for _, word := range g.LastWordsFormed() {
-			if !g.Lexicon().HasWord(word) {
-				valid = false
-				break
-			}
-		}
+	if g.LastEvent() != nil && g.LastEvent().Type == pb.GameEvent_TILE_PLACEMENT_MOVE {
+		err = g.ValidateWords(g.Lexicon(), g.LastWordsFormed())
+		valid = (err == nil)
 	}
 
 	var m *move.Move
@@ -192,7 +191,17 @@ func (bot *Bot) handle(data []byte) *pb.BotResponse {
 	if !valid {
 		m, _ = g.NewChallengeMove(g.PlayerOnTurn())
 	} else if g.IsPlaying() {
-		moves := bot.game.GenerateMoves(1)
+		var moves []*move.Move
+		if !isWordSmog {
+			moves = bot.game.GenerateMoves(1)
+		} else {
+			moves, err = wolgesAnalyze(bot.config, bot.game)
+			if err != nil {
+				log.Err(err).Msg("wolges-analyze-error")
+				// Just generate a move using the regular generator.
+				moves = bot.game.GenerateMoves(1)
+			}
+		}
 		m = moves[0]
 	} else {
 		m, _ = g.NewPassMove(g.PlayerOnTurn())

@@ -30,7 +30,6 @@ func (da *DawgAnagrammer) commonInit(dawg GenericDawg) {
 	da.ans = da.ans[:0]
 }
 
-// supports A-Z and ? only
 func (da *DawgAnagrammer) InitForString(dawg GenericDawg, tiles string) error {
 	da.commonInit(dawg)
 	da.queryLength = 0
@@ -49,7 +48,6 @@ func (da *DawgAnagrammer) InitForString(dawg GenericDawg, tiles string) error {
 	return nil
 }
 
-// supports 0-25 and alphabet.BlankMachineLetter only
 func (da *DawgAnagrammer) InitForMachineWord(dawg GenericDawg, machineTiles alphabet.MachineWord) error {
 	da.commonInit(dawg)
 	da.queryLength = len(machineTiles)

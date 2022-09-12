@@ -2,13 +2,22 @@ package automatic
 
 import (
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 
+	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cache"
+	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/game"
+	"github.com/domino14/macondo/gcgio"
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/montecarlo"
+	"github.com/domino14/macondo/runner"
 )
 
 // AnalyzeLogFile analyzes the given game CSV file and spits out a bunch of
@@ -125,4 +134,120 @@ func AnalyzeLogFile(filepath string) (string, error) {
 	stats += fmt.Sprintf("Player who went first wins: %.1f (%.3f%%)\n",
 		wentFirstWL, 100.0*wentFirstWL/float64(gamesPlayed))
 	return stats, nil
+}
+
+func ExportGCG(cfg *config.Config, filename, letterdist, lexicon, boardlayout, gid string) error {
+	if letterdist == "" {
+		letterdist = "english"
+	}
+	if boardlayout == "" {
+		boardlayout = board.CrosswordGameLayout
+	}
+	if lexicon == "" {
+		lexicon = "CSW21"
+	}
+
+	file, err := cache.Open(filename)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	r := csv.NewReader(file)
+
+	gameLines := [][]string{}
+	for {
+		record, err := r.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		if record[1] == "gameID" {
+			// this is the header line
+			continue
+		}
+		if record[1] != gid {
+			continue
+		}
+		gameLines = append(gameLines, record)
+	}
+	if len(gameLines) == 0 {
+		return errors.New("gameID not found in log file")
+	}
+
+	rules, err := game.NewBasicGameRules(cfg, lexicon, boardlayout,
+		letterdist, game.CrossScoreOnly, game.VarClassic)
+	if err != nil {
+		return err
+	}
+	players := []*pb.PlayerInfo{
+		{Nickname: gameLines[0][0], RealName: gameLines[0][0]},
+		{Nickname: gameLines[1][0], RealName: gameLines[1][0]},
+	}
+
+	g, err := runner.NewGameRunnerFromRules(&runner.GameOptions{
+		BoardLayoutName: boardlayout,
+		Variant:         game.VarClassic,
+	}, players, rules)
+	if err != nil {
+		return err
+	}
+	g.StartGame()
+
+	for _, row := range gameLines {
+		fmt.Println(row)
+		pidx := 0
+		if g.History().Players[1].Nickname == row[0] {
+			pidx = 1
+		}
+		err = g.SetRackFor(pidx, alphabet.RackFromString(row[3], g.Alphabet()))
+		if err != nil {
+			return err
+		}
+		if strings.HasPrefix(row[4], "(exch") {
+			cmd := strings.Split(row[4], " ")
+			exchanged := strings.TrimSuffix(cmd[1], ")")
+			m, err := g.NewExchangeMove(pidx, exchanged)
+			if err != nil {
+				return err
+			}
+			err = g.PlayMove(m, true, 0)
+			if err != nil {
+				return err
+			}
+		} else if row[4] == "(Pass)" {
+			m, err := g.NewPassMove(pidx)
+			if err != nil {
+				return err
+			}
+			err = g.PlayMove(m, true, 0)
+			if err != nil {
+				return err
+			}
+		} else {
+			play := strings.Split(strings.TrimSpace(row[4]), " ")
+			m, err := g.NewPlacementMove(pidx, play[0], play[1])
+			if err != nil {
+				return err
+			}
+			err = g.PlayMove(m, true, 0)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	contents, err := gcgio.GameHistoryToGCG(g.History(), true)
+	if err != nil {
+		return err
+	}
+	f, err := os.Create(gid + ".gcg")
+	if err != nil {
+		return err
+	}
+	_, err = f.WriteString(contents)
+	if err != nil {
+		return err
+	}
+	return f.Close()
 }

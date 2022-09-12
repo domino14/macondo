@@ -172,9 +172,6 @@ func MakeBoardCrossSets(board *board.GameBoard) *BoardCrossSets {
 }
 
 // ----------------------------------------------------------------------
-// Implementation for CrossScoreOnlyGenerator
-
-// ----------------------------------------------------------------------
 // GaddagCrossSetGenerator generates cross sets via a gaddag
 
 type GaddagCrossSetGenerator struct {

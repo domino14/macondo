@@ -84,15 +84,23 @@ func (b BonusSquare) displayString() string {
 type GameBoard struct {
 	squares     []alphabet.MachineLetter
 	bonuses     []BonusSquare
-	transposed  bool
 	tilesPlayed int
 	dim         int
 	lastCopy    *GameBoard
 
 	// Store cross-scores with the board to avoid recalculating, but cross-sets
 	// are a movegen detail and do not belong here!
-	vCrossScores []int
 	hCrossScores []int
+	vCrossScores []int
+	// The rest of these are definitely movegen details and they
+	// really should not be here. However, let's do this one step at a time.
+	hCrossSets []CrossSet
+	vCrossSets []CrossSet
+	hAnchors   []bool
+	vAnchors   []bool
+
+	rowMul int
+	colMul int
 }
 
 func MakeBoard(desc []string) *GameBoard {
@@ -106,6 +114,10 @@ func MakeBoard(desc []string) *GameBoard {
 	bs := make([]BonusSquare, totalLen)
 	vc := make([]int, totalLen)
 	hc := make([]int, totalLen)
+	hcs := make([]CrossSet, totalLen)
+	vcs := make([]CrossSet, totalLen)
+	hAs := make([]bool, totalLen)
+	vAs := make([]bool, totalLen)
 	sqi := 0
 	for _, s := range desc {
 		for _, c := range s {
@@ -115,7 +127,19 @@ func MakeBoard(desc []string) *GameBoard {
 		}
 
 	}
-	g := &GameBoard{squares: sqs, bonuses: bs, dim: len(desc), vCrossScores: vc, hCrossScores: hc}
+	g := &GameBoard{
+		squares:      sqs,
+		bonuses:      bs,
+		dim:          len(desc),
+		vCrossScores: vc,
+		hCrossScores: hc,
+		hCrossSets:   hcs,
+		vCrossSets:   vcs,
+		hAnchors:     hAs,
+		vAnchors:     vAs,
+		rowMul:       len(desc),
+		colMul:       1,
+	}
 	return g
 }
 
@@ -128,29 +152,50 @@ func (g *GameBoard) Dim() int {
 	return g.dim
 }
 
+// Transpose the board in-place. We should copy transposed boards in the future.
+func (g *GameBoard) Transpose() {
+	// for i := 0; i < g.dim; i++ {
+	// 	for j := i + 1; j < g.dim; j++ {
+	// 		rm := i*g.dim + j
+	// 		cm := j*g.dim + i
+	// 		g.squares[rm], g.squares[cm] = g.squares[cm], g.squares[rm]
+	// 		g.hCrossScores[rm], g.hCrossScores[cm] = g.hCrossScores[cm], g.hCrossScores[rm]
+	// 		g.vCrossScores[rm], g.vCrossScores[cm] = g.vCrossScores[cm], g.vCrossScores[rm]
+	// 		g.hCrossSets[rm], g.hCrossSets[cm] = g.hCrossSets[cm], g.hCrossSets[rm]
+	// 		g.vCrossSets[rm], g.vCrossSets[cm] = g.vCrossSets[cm], g.vCrossSets[rm]
+	// 		g.hAnchors[rm], g.hAnchors[cm] = g.hAnchors[cm], g.hAnchors[rm]
+	// 		g.vAnchors[rm], g.vAnchors[cm] = g.vAnchors[cm], g.vAnchors[rm]
+	// 		// ignore bonuses.
+	// 	}
+	// }
+	g.rowMul, g.colMul = g.colMul, g.rowMul
+}
+
+func (g *GameBoard) getSqIdx(row, col int) int {
+	return row*g.rowMul + col*g.colMul
+}
+
 func (g *GameBoard) GetBonus(row int, col int) BonusSquare {
 	// No need to check for transpositions as bonuses are rotationally invariant
-	// (I feel ok making this assumption for now)
-	return g.bonuses[row*g.dim+col]
-}
-
-func (g *GameBoard) SetLetter(row int, col int, letter alphabet.MachineLetter) {
-	// SetLetter should only be called on non-transposed boards.
-	g.squares[row*g.dim+col] = letter
-}
-
-func (g *GameBoard) GetLetter(row int, col int) alphabet.MachineLetter {
-	if g.transposed {
-		return g.squares[col*g.dim+row]
-	}
-	return g.squares[row*g.dim+col]
+	// (but implement the transpose check to ease merge resolution)
+	return g.bonuses[g.getSqIdx(row, col)]
 }
 
 func (g *GameBoard) GetCrossScore(row int, col int, dir BoardDirection) int {
-	pos := row*g.dim + col
-	if g.IsTransposed() {
-		pos = col*g.dim + row
-	}
+	return g.bonuses[g.getSqIdx(row, col)]
+}
+
+func (g *GameBoard) SetLetter(row int, col int, letter alphabet.MachineLetter) {
+	g.squares[g.getSqIdx(row, col)] = letter
+}
+
+func (g *GameBoard) GetLetter(row int, col int) alphabet.MachineLetter {
+	return g.squares[g.getSqIdx(row, col)]
+}
+
+func (g *GameBoard) GetCrossScore(row int, col int, dir BoardDirection) int {
+	pos := g.getSqIdx(row, col)
+
 	switch dir {
 	case HorizontalDirection:
 		return g.hCrossScores[pos]
@@ -163,10 +208,7 @@ func (g *GameBoard) GetCrossScore(row int, col int, dir BoardDirection) int {
 }
 
 func (g *GameBoard) SetCrossScore(row, col, score int, dir BoardDirection) {
-	pos := row*g.dim + col
-	if g.IsTransposed() {
-		pos = col*g.dim + row
-	}
+	pos := g.getSqIdx(row, col)
 	switch dir {
 	case HorizontalDirection:
 		g.hCrossScores[pos] = score
@@ -186,29 +228,21 @@ func (g *GameBoard) ResetCrossScores() {
 	}
 }
 
+func (g *GameBoard) SetCrossSet(row int, col int, cs CrossSet,
+	dir BoardDirection) {
+	pos := g.getSqIdx(row, col)
+	switch dir {
+	case HorizontalDirection:
+		g.hCrossSets[pos] = cs
+	case VerticalDirection:
+		g.vCrossSets[pos] = cs
+	default:
+		log.Error().Msgf("Unknown direction: %v\n", dir)
+	}
+}
+
 func (g *GameBoard) HasLetter(row int, col int) bool {
 	return g.GetLetter(row, col) != alphabet.EmptySquareMarker
-}
-
-// SquareDisplayString returns a string representation of the given square.
-// If the square contains a letter, it will return that letter, otherwise it
-// will return the bonus (or a space if there is no bonus).
-func (g *GameBoard) SquareDisplayString(row, col int, alph *alphabet.Alphabet) string {
-	letter := g.GetLetter(row, col)
-	if letter == alphabet.EmptySquareMarker {
-		return g.GetBonus(row, col).displayString()
-	}
-	return string(letter.UserVisible(alph))
-}
-
-// Transpose transposes the board. It doesn't actually change the layout of the
-// squares; the iterating functions must switch rows and columns themselves.
-func (g *GameBoard) Transpose() {
-	g.transposed = !g.transposed
-}
-
-func (g *GameBoard) IsTransposed() bool {
-	return g.transposed
 }
 
 // Clear clears the board.
@@ -562,28 +596,27 @@ func (g *GameBoard) Copy() *GameBoard {
 	newg := &GameBoard{}
 	newg.squares = make([]alphabet.MachineLetter, len(g.squares))
 	newg.bonuses = make([]BonusSquare, len(g.bonuses))
-	newg.hCrossScores = make([]int, len(g.hCrossScores))
 	newg.vCrossScores = make([]int, len(g.vCrossScores))
-	for i, s := range g.squares {
-		newg.squares[i] = s
-	}
-	for i, b := range g.bonuses {
-		newg.bonuses[i] = b
-	}
-	for i, s := range g.hCrossScores {
-		newg.hCrossScores[i] = s
-	}
-	for i, s := range g.vCrossScores {
-		newg.vCrossScores[i] = s
-	}
-	newg.transposed = g.transposed
+	newg.hCrossScores = make([]int, len(g.hCrossScores))
+	newg.hCrossSets = make([]CrossSet, len(g.hCrossSets))
+	newg.vCrossSets = make([]CrossSet, len(g.vCrossSets))
+	newg.hAnchors = make([]bool, len(g.vCrossSets))
+	newg.vAnchors = make([]bool, len(g.vCrossSets))
+
+	copy(newg.squares, g.squares)
+	copy(newg.bonuses, g.bonuses)
+	copy(newg.vCrossScores, g.vCrossScores)
+	copy(newg.hCrossScores, g.hCrossScores)
+	copy(newg.vCrossSets, g.vCrossSets)
+	copy(newg.hCrossSets, g.hCrossSets)
+	copy(newg.vAnchors, g.vAnchors)
+	copy(newg.hAnchors, g.hAnchors)
+
 	newg.tilesPlayed = g.tilesPlayed
 	newg.dim = g.dim
+	newg.rowMul = g.rowMul
+	newg.colMul = g.colMul
 	return newg
-}
-
-func (g *GameBoard) SaveCopy() {
-	g.lastCopy = g.Copy()
 }
 
 func (g *GameBoard) RestoreFromCopy() {
@@ -593,15 +626,23 @@ func (g *GameBoard) RestoreFromCopy() {
 
 // CopyFrom copies the squares and other info from b back into g.
 func (g *GameBoard) CopyFrom(b *GameBoard) {
-	for i, r := range b.squares {
-		g.squares[i] = r
-		g.bonuses[i] = b.bonuses[i]
-		g.hCrossScores[i] = b.hCrossScores[i]
-		g.vCrossScores[i] = b.vCrossScores[i]
-	}
-	g.transposed = b.transposed
+	copy(g.squares, b.squares)
+	copy(g.bonuses, b.bonuses)
+	copy(g.vCrossScores, b.vCrossScores)
+	copy(g.hCrossScores, b.hCrossScores)
+	copy(g.vCrossSets, b.vCrossSets)
+	copy(g.hCrossSets, b.hCrossSets)
+	copy(g.vAnchors, b.vAnchors)
+	copy(g.hAnchors, b.hAnchors)
 	g.tilesPlayed = b.tilesPlayed
 	g.dim = b.dim
+	g.rowMul = b.rowMul
+	g.colMul = b.colMul
+}
+
+func (g *GameBoard) GetSquares() []alphabet.MachineLetter {
+	return g.squares
+>>>>>>> master
 }
 
 func (g *GameBoard) GetTilesPlayed() int {

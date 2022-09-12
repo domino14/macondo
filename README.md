@@ -12,3 +12,11 @@ Current master build status:
 To generate pb files, run this in the macondo directory:
 
 `protoc --go_out=gen --go_opt=paths=source_relative ./api/proto/macondo/macondo.proto`
+
+Make sure you have done
+
+`go install google.golang.org/protobuf/cmd/protoc-gen-go@latest`
+
+### Attributions
+
+Wolges-awsm is Copyright (C) 2020-2022 Andy Kurnia and released under the MIT license. It can be found at https://github.com/andy-k/wolges-awsm/. Macondo interfaces with it as a server.

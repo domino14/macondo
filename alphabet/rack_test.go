@@ -5,15 +5,16 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/matryer/is"
 )
 
 var LexiconDir = os.Getenv("LEXICON_PATH")
 
 func TestScoreOn(t *testing.T) {
+	is := is.New(t)
+
 	ld, err := EnglishLetterDistribution(&DefaultConfig)
-	if err != nil {
-		t.Error(err)
-	}
+	is.NoErr(err)
 	type racktest struct {
 		rack string
 		pts  int

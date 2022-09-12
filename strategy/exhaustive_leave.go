@@ -30,6 +30,8 @@ type ExhaustiveLeaveStrategy struct {
 }
 
 func defaultForLexicon(lexiconName string) string {
+	// If there doesn't exist a specific folder with the name of the
+	// lexicon, we'll call this function.
 	if strings.HasPrefix(lexiconName, "CSW") ||
 		strings.HasPrefix(lexiconName, "TWL") ||
 		strings.HasPrefix(lexiconName, "NWL") ||
@@ -95,7 +97,7 @@ func (els ExhaustiveLeaveStrategy) Equity(play *move.Move, board *board.GameBoar
 	// Use global placement and endgame adjustments; this is only when
 	// not overriding this with an endgame player.
 	if board.IsEmpty() {
-		otherAdjustments += placementAdjustment(play)
+		otherAdjustments += placementAdjustment(play, board)
 	}
 
 	if bag.TilesRemaining() > 0 {

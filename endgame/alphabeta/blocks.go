@@ -185,9 +185,6 @@ func (s *Solver) blocks(play *move.Move, other *move.Move, board *board.GameBoar
 
 	s.setSTMBlockingRectangles(play)
 	s.setOTSBlockingRectangles(other)
-	if other.HasDupe() {
-		s.setOTSBlockingRectangles(other.Dupe())
-	}
 
 	// log.Debug().Msgf("Blocking rects for stm play %v: %v", play, s.stmBlockingRects[0:s.stmRectIndex])
 	// log.Debug().Msgf("Blocking rects for ots play %v: %v", other, s.otsBlockingRects[0:s.otsRectIndex])

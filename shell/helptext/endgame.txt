@@ -1,0 +1,67 @@
+endgame [options] - solve endgame exhaustively
+
+Example:
+
+    endgame   
+    endgame -plies 25   
+    endgame -plies 25 -maxtime 120
+
+About:
+
+    Macondo uses minimax search to solve an endgame - i.e. it can exhaustively
+    try all possible options for both players down a tree of plays. It uses 
+    alpha-beta pruning, which is a way to stop searching branches of the tree
+    when it becomes clear they can't possibly do better than other branches.
+
+    For a large number of endgames, minimax search will finish rapidly and this
+    will be a good approach. For more complex endgames, for example involving
+    1-tile plays, or blanks, the tree will be very wide and the endgame algorithm
+    will be very slow.
+
+    We use iterative deepening, which allows you to get a decent answer very
+    quickly, and with further time, this answer will be improved, as the algorithm
+    looks further down the tree. So for even these very complex endgames, it is likely
+    that you will get a good answer after a few seconds or minutes.
+
+    The recommended way to call this is something akin to:
+
+        endgame -plies 25 -maxtime 300
+
+    This will make sure the algorithm uses at most 5 minutes of search. 
+    It is also possible that the 25 plies will be reached before the time
+    limit, depending on the complexity of the endgame.
+
+Options:
+    -plies 25 
+
+    The above option will look 25 plies deep. As plies go up, the endgame
+    solver often allocates and takes exponentially longer. However, there 
+    are exceptions, especially if the endgame doesn't have many choices,
+    or if we are deeper into the endgame where each player only has a few tiles
+    left. In this case it is possible that the latter plies will be searched
+    very fast, because there is nothing else to search.
+
+    -maxtime 120
+
+    This option will set a maximum time in seconds. The endgame solver uses
+    iterative deepening by default, so a good enough solution should be found
+    rapidly, and this solution will be improved upon.
+
+    -disable-id true
+
+    This option disables iterative deepening. Iterative Deepening allows the 
+    endgame algorithm to check depth 1, 2, 3, etc plies successively. If you 
+    are time-limited, it is likely that the first few answers will be good
+    enough for many endgames.
+
+    -complex-estimator true
+
+    This option will turn on the complex estimator. By default, the endgame
+    solver has an estimator that takes into account plays that are blocked and
+    does some hand-wavy math to try to rank plays. It is very important in an
+    alpha-beta minimax search to try to estimate the values of plays accurately.
+
+    However, in practice, the complex estimator often takes a significantly longer time
+    to run and doesn't provide a good enough benefit. It may be possible that some
+    endgames are solved a lot faster with this estimator though. It is worth
+    trying on endgames where someone is stuck with a tile.

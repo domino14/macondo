@@ -14,21 +14,20 @@ import (
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/lexicon"
 	"github.com/domino14/macondo/move"
-	"github.com/lithammer/shortuuid"
 	"github.com/rs/zerolog/log"
-	"lukechampine.com/frand"
 )
 
 const (
 	//IdentificationAuthority is the authority that gives out game IDs
-	IdentificationAuthority = "io.woogles"
+	IdentificationAuthority = "org.macondo"
 
 	MacondoCreation = "Created with Macondo"
 
 	ExchangeLimit = 7
 	RackTileLimit = 7
 
-	DefaultMaxScorelessTurns = 6
+	DefaultMaxScorelessTurns  = 6
+	CurrentGameHistoryVersion = 2
 )
 
 // Game is the actual internal game structure that controls the entire
@@ -53,7 +52,6 @@ type Game struct {
 
 	playing pb.PlayState
 
-	wentfirst         int
 	scorelessTurns    int
 	maxScorelessTurns int
 	onturn            int
@@ -70,9 +68,6 @@ type Game struct {
 
 	stateStack []*stateBackup
 	stackPtr   int
-	// if nextFirst is -1, first is determined randomly. Otherwise, first is
-	// set to nextFirst.
-	nextFirst int
 	// rules contains the original game rules passed in to create this game.
 	rules *GameRules
 }
@@ -125,7 +120,7 @@ func CalculateCoordsFromStringPosition(evt *pb.GameEvent) {
 	evt.Column = int32(col)
 }
 
-func newHistory(players playerStates, flipfirst bool) *pb.GameHistory {
+func newHistory(players playerStates) *pb.GameHistory {
 	his := &pb.GameHistory{}
 
 	playerInfo := make([]*pb.PlayerInfo, len(players))
@@ -136,21 +131,22 @@ func newHistory(players playerStates, flipfirst bool) *pb.GameHistory {
 	}
 	his.Players = playerInfo
 	his.IdAuth = IdentificationAuthority
-	his.Uid = shortuuid.New()[2:10] // It is up to the caller to check for duplication.
+	his.Uid = newRequestId().String()
 	his.Description = MacondoCreation
 	his.Events = []*pb.GameEvent{}
-	his.SecondWentFirst = flipfirst
 	his.LastKnownRacks = []string{"", ""}
+	his.Version = CurrentGameHistoryVersion
 	return his
 }
 
 // NewGame is how one instantiates a brand new game.
+// playerinfo must be in the order of who goes first.
+// It is the caller's responsibility to alternate firsts.
 func NewGame(rules *GameRules, playerinfo []*pb.PlayerInfo) (*Game, error) {
 	game := &Game{}
 	game.letterDistribution = rules.LetterDistribution()
 	game.alph = game.letterDistribution.Alphabet()
 	game.backupMode = NoBackup
-	game.nextFirst = -1
 	game.board = rules.Board().Copy()
 	game.crossGen = rules.CrossSetGen()
 	game.lexicon = rules.Lexicon()
@@ -161,12 +157,7 @@ func NewGame(rules *GameRules, playerinfo []*pb.PlayerInfo) (*Game, error) {
 	game.players = make([]*playerState, len(playerinfo))
 	ids := map[string]bool{}
 	for idx, p := range playerinfo {
-		game.players[idx] = &playerState{
-			PlayerInfo: pb.PlayerInfo{
-				Nickname: p.Nickname,
-				UserId:   p.UserId,
-				RealName: p.RealName},
-		}
+		game.players[idx] = newPlayerState(p.Nickname, p.UserId, p.RealName)
 		ids[p.Nickname] = true
 	}
 	if len(ids) < len(playerinfo) {
@@ -185,7 +176,7 @@ func NewFromHistory(history *pb.GameHistory, rules *GameRules, turnnum int) (*Ga
 	}
 	game.history = history
 	if history.Uid == "" {
-		history.Uid = shortuuid.New()
+		history.Uid = newRequestId().String()
 		history.IdAuth = IdentificationAuthority
 	}
 	if history.Description == "" {
@@ -212,10 +203,70 @@ func (g *Game) SetAddlState(b BackupableState) {
 	g.addlState = b
 }
 
-// SetNextFirst sets the player going first to the passed-in value. This
-// will take effect the next time StartGame is called.
-func (g *Game) SetNextFirst(first int) {
-	g.nextFirst = first
+func NewFromSnapshot(rules *GameRules, players []*pb.PlayerInfo, lastKnownRacks []string,
+	scores []int, boardRows []string) (*Game, error) {
+
+	// This NewGame function copies the board from rules as well.
+	game, err := NewGame(rules, players)
+	if err != nil {
+		return nil, err
+	}
+
+	game.history = newHistory(game.players)
+
+	game.bag = game.letterDistribution.MakeBag()
+	for i := 0; i < game.NumPlayers(); i++ {
+		game.players[i].rack = alphabet.NewRack(game.alph)
+	}
+
+	playedLetters := []alphabet.MachineLetter{}
+	for i, row := range boardRows {
+		playedLetters = append(playedLetters,
+			game.board.SetRow(i, row, rules.LetterDistribution().Alphabet())...)
+	}
+
+	err = game.bag.RemoveTiles(playedLetters)
+	if err != nil {
+		return nil, err
+	}
+	game.history.LastKnownRacks = lastKnownRacks
+	// Set racks and tiles
+	racks := []*alphabet.Rack{
+		alphabet.RackFromString(game.history.LastKnownRacks[0], game.Alphabet()),
+		alphabet.RackFromString(game.history.LastKnownRacks[1], game.Alphabet()),
+	}
+	game.history.Lexicon = game.Lexicon().Name()
+	game.history.Variant = string(game.rules.Variant())
+	game.history.LetterDistribution = game.rules.LetterDistributionName()
+	game.history.BoardLayout = game.rules.BoardName()
+
+	// set racks for both players; this removes the relevant letters from the bag.
+	err = game.SetRacksForBoth(racks)
+	if err != nil {
+		return nil, err
+	}
+
+	// set scores
+	for i, s := range scores {
+		game.players[i].resetScore()
+		game.players[i].points = s
+	}
+	// onturn is 0 by default, which is always correct in this function, as
+	// the player to go next is listed first in the players/racks/scores.
+	game.playing = pb.PlayState_PLAYING
+	game.history.PlayState = game.playing
+
+	if game.bag.TilesRemaining() == 0 && (game.RackFor(0).NumTiles() == 0 || game.RackFor(1).NumTiles() == 0) {
+		game.playing = pb.PlayState_GAME_OVER
+		game.history.PlayState = game.playing
+		log.Info().Msg("this game is already over")
+	}
+
+	return game, nil
+}
+
+func (g *Game) FlipPlayers() {
+	g.players[0], g.players[1] = g.players[1], g.players[0]
 }
 
 // StartGame starts a game anew, dealing out tiles to both players.
@@ -227,23 +278,16 @@ func (g *Game) StartGame() {
 		g.crossGen.GenerateAll(g.Board())
 	}
 	g.bag = g.letterDistribution.MakeBag()
-	var goesfirst int
-	if g.nextFirst == -1 {
-		goesfirst = frand.Intn(2)
-		log.Debug().Msgf("randomly determined %v to go first", goesfirst)
-	} else {
-		goesfirst = g.nextFirst
-		log.Debug().Msgf("forcing first to %v", g.nextFirst)
-	}
-	g.history = newHistory(g.players, goesfirst == 1)
+	g.history = newHistory(g.players)
 	// Deal out tiles
 	for i := 0; i < g.NumPlayers(); i++ {
-		tiles, err := g.bag.Draw(7)
+
+		err := g.bag.Draw(7, g.players[i].placeholderRack)
 		if err != nil {
 			panic(err)
 		}
 		g.players[i].rack = alphabet.NewRack(g.alph)
-		g.players[i].setRackTiles(tiles, g.alph)
+		g.players[i].setRackTiles(g.players[i].placeholderRack[:7], g.alph)
 		g.players[i].resetScore()
 	}
 	g.history.LastKnownRacks = []string{
@@ -257,9 +301,12 @@ func (g *Game) StartGame() {
 	g.history.PlayState = g.playing
 	g.turnnum = 0
 	g.scorelessTurns = 0
-	g.onturn = goesfirst
-	g.wentfirst = goesfirst
+	g.onturn = 0
 	g.lastWordsFormed = nil
+}
+
+func (g *Game) SetCrossSetGen(gen cross_set.Generator) {
+	g.crossSetGen = gen
 }
 
 // ValidateMove validates the given move. It is meant to be used to validate
@@ -361,6 +408,10 @@ func (g *Game) SetMaxScorelessTurns(m int) {
 	g.maxScorelessTurns = m
 }
 
+func (g *Game) SetScorelessTurns(n int) {
+	g.scorelessTurns = n
+}
+
 // Convert the slice of MachineWord to user-visible, using the game's lexicon.
 func convertToVisible(words []alphabet.MachineWord,
 	alph *alphabet.Alphabet) []string {
@@ -410,17 +461,18 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 			g.crossGen.UpdateForMove(g.board, m)
 		}
 		score := m.Score()
-		if score != 0 {
-			g.scorelessTurns = 0
-		} // XXX: else we should increment the scoreless turns here!
+		// no international rule counts a score of 0 as a scoreless turn
+		// if it's from tiles being played on the board (like a blank next
+		// to another blank) so always reset this.
+		g.scorelessTurns = 0
 		g.players[g.onturn].points += score
 		g.players[g.onturn].turns += 1
-		if m.TilesPlayed() == 7 {
+		if m.TilesPlayed() == RackTileLimit {
 			g.players[g.onturn].bingos++
 		}
-		drew := g.bag.DrawAtMost(m.TilesPlayed())
-		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
-		g.players[g.onturn].setRackTiles(tiles, g.alph)
+		drew := g.bag.DrawAtMost(m.TilesPlayed(), g.players[g.onturn].placeholderRack)
+		copy(g.players[g.onturn].placeholderRack[drew:], []alphabet.MachineLetter(m.Leave()))
+		g.players[g.onturn].setRackTiles(g.players[g.onturn].placeholderRack[:drew+len(m.Leave())], g.alph)
 
 		if addToHistory {
 			evt := g.EventFromMove(m)
@@ -440,7 +492,6 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 				g.history.PlayState = g.playing
 				log.Trace().Msg("waiting for final pass... (commit pass)")
 			} else {
-				// log.Trace().Msg("game is over")
 				g.playing = pb.PlayState_GAME_OVER
 				if addToHistory {
 					g.history.PlayState = g.playing
@@ -481,13 +532,12 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		}
 
 	case move.MoveTypeExchange:
-		drew, err := g.bag.Exchange([]alphabet.MachineLetter(m.Tiles()))
+		err := g.bag.Exchange([]alphabet.MachineLetter(m.Tiles()), g.players[g.onturn].placeholderRack)
 		if err != nil {
 			return err
 		}
-		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
-		g.players[g.onturn].setRackTiles(tiles, g.alph)
-		log.Trace().Str("newrack", g.players[g.onturn].rackLetters).Msg("new-rack")
+		copy(g.players[g.onturn].placeholderRack[len(m.Tiles()):], []alphabet.MachineLetter(m.Leave()))
+		g.players[g.onturn].setRackTiles(g.players[g.onturn].placeholderRack[:len(m.Tiles())+len(m.Leave())], g.alph)
 		g.scorelessTurns++
 		g.players[g.onturn].turns += 1
 		if addToHistory {
@@ -622,7 +672,7 @@ func (g *Game) CreateAndScorePlacementMove(coords string, tiles string, rack str
 		g.Board().Transpose()
 	}
 	m := move.NewScoringMove(score, mw, leavemw, vertical, tilesPlayed,
-		g.alph, row, col, coords)
+		g.alph, row, col)
 	return m, nil
 
 }
@@ -655,9 +705,6 @@ func (g *Game) PlayToTurn(turnnum int) error {
 	g.players.resetRacks()
 	g.turnnum = 0
 	g.onturn = 0
-	if g.history.SecondWentFirst {
-		g.onturn = 1
-	}
 	g.playing = pb.PlayState_PLAYING
 	g.history.PlayState = g.playing
 	var t int
@@ -702,17 +749,31 @@ func (g *Game) PlayToTurn(turnnum int) error {
 			g.SetRandomRack(g.onturn)
 		}
 
-		log.Debug().Str("r0", g.players[0].rackLetters).Str("r1", g.players[1].rackLetters).Msg("PlayToTurn-set-racks")
+		log.Debug().Str("r0", g.players[0].rackLetters()).Str("r1", g.players[1].rackLetters()).Msg("PlayToTurn-set-racks")
 
 	} else {
 		// playTurn should have refilled the rack of the relevant player,
 		// who was on turn.
 		// So set the currently on turn's rack to whatever is in the history.
 		log.Trace().Int("turn", t).Msg("setting rack from turn")
-		err := g.SetRackFor(g.onturn, alphabet.RackFromString(
-			g.history.Events[t].Rack, g.alph))
-		if err != nil {
-			return err
+		switch g.history.Events[t].Type {
+		case pb.GameEvent_TILE_PLACEMENT_MOVE, pb.GameEvent_EXCHANGE:
+			err := g.SetRackFor(g.onturn, alphabet.RackFromString(
+				g.history.Events[t].Rack, g.alph))
+			if err != nil {
+				return err
+			}
+		case pb.GameEvent_PHONY_TILES_RETURNED,
+			pb.GameEvent_CHALLENGE_BONUS,
+			pb.GameEvent_END_RACK_PTS:
+			// In this case, g.onturn shouldn't actually change, so just ignore
+		default:
+			// do the same as in the first case for now?
+			err := g.SetRackFor(g.onturn, alphabet.RackFromString(
+				g.history.Events[t].Rack, g.alph))
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -740,17 +801,21 @@ func (g *Game) playTurn(t int) error {
 	// recorded turn on the board.
 	evt := g.history.Events[t]
 	log.Trace().Int("event-type", int(evt.Type)).Int("turn", t).Msg("playTurn")
-	// onturn should be based on the event nickname
-	found := false
-	for idx, p := range g.players {
-		if p.Nickname == evt.Nickname {
-			g.onturn = idx
-			found = true
-			break
+	g.onturn = int(evt.PlayerIndex)
+
+	if evt.Nickname != "" {
+		// This is deprecated -- remove
+		found := false
+		for idx, p := range g.players {
+			if p.Nickname == evt.Nickname {
+				g.onturn = idx
+				found = true
+				break
+			}
 		}
-	}
-	if !found {
-		return fmt.Errorf("player not found: %v", evt.Nickname)
+		if !found {
+			return fmt.Errorf("player not found: %v", evt.Nickname)
+		}
 	}
 
 	m, err := MoveFromEvent(evt, g.alph, g.board)
@@ -784,7 +849,7 @@ func (g *Game) playTurn(t int) error {
 			g.crossGen.UpdateForMove(g.board, m)
 		}
 		g.players[g.onturn].points += m.Score()
-		if m.TilesPlayed() == 7 {
+		if m.TilesPlayed() == RackTileLimit {
 			g.players[g.onturn].bingos++
 		}
 		evt.WordsFormed = convertToVisible(g.lastWordsFormed, g.alph)
@@ -793,9 +858,9 @@ func (g *Game) playTurn(t int) error {
 		// at the beginning to whatever was recorded. Drawing like
 		// normal, though, ensures we don't have to reconcile any
 		// tiles with the bag.
-		drew := g.bag.DrawAtMost(m.TilesPlayed())
-		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
-		g.players[g.onturn].setRackTiles(tiles, g.alph)
+		drew := g.bag.DrawAtMost(m.TilesPlayed(), g.players[g.onturn].placeholderRack)
+		copy(g.players[g.onturn].placeholderRack[drew:], []alphabet.MachineLetter(m.Leave()))
+		g.players[g.onturn].setRackTiles(g.players[g.onturn].placeholderRack[:drew+len(m.Leave())], g.alph)
 		g.scorelessTurns = 0
 		// Don't check game end logic here, as we assume we have the
 		// right event for that (move.MoveTypeEndgameTiles for example).
@@ -819,12 +884,12 @@ func (g *Game) playTurn(t int) error {
 		if err != nil {
 			return err
 		}
-		drew, err := g.bag.Exchange([]alphabet.MachineLetter(m.Tiles()))
+		err = g.bag.Exchange([]alphabet.MachineLetter(m.Tiles()), g.players[g.onturn].placeholderRack)
 		if err != nil {
 			panic(err)
 		}
-		tiles := append(drew, []alphabet.MachineLetter(m.Leave())...)
-		g.players[g.onturn].setRackTiles(tiles, g.alph)
+		copy(g.players[g.onturn].placeholderRack[len(m.Tiles()):], []alphabet.MachineLetter(m.Leave()))
+		g.players[g.onturn].setRackTiles(g.players[g.onturn].placeholderRack[:len(m.Tiles())+len(m.Leave())], g.alph)
 		g.players[g.onturn].turns += 1
 		g.scorelessTurns++
 
@@ -847,7 +912,6 @@ func (g *Game) playTurn(t int) error {
 func (g *Game) SetRackFor(playerIdx int, rack *alphabet.Rack) error {
 	// Put our tiles back in the bag, as well as our opponent's tiles.
 	g.ThrowRacksIn()
-
 	// Check if we can actually set our rack now that these tiles are in the
 	// bag.
 	log.Trace().Str("rack", rack.TilesOn().UserVisible(g.alph)).Msg("removing from bag")
@@ -859,9 +923,6 @@ func (g *Game) SetRackFor(playerIdx int, rack *alphabet.Rack) error {
 
 	// success; set our rack
 	g.players[playerIdx].rack = rack
-	g.players[playerIdx].rackLetters = rack.String()
-	log.Trace().Str("rack", g.players[playerIdx].rackLetters).
-		Int("player", playerIdx).Msg("set rack")
 	// And redraw a random rack for opponent.
 	g.SetRandomRack(otherPlayer(playerIdx))
 
@@ -880,7 +941,6 @@ func (g *Game) SetRacksForBoth(racks []*alphabet.Rack) error {
 	}
 	for idx, player := range g.players {
 		player.rack = racks[idx]
-		player.rackLetters = racks[idx].String()
 	}
 	return nil
 }
@@ -894,10 +954,15 @@ func (g *Game) ThrowRacksIn() {
 // SetRandomRack sets the player's rack to a random rack drawn from the bag.
 // It tosses the current rack back in first. This is used for simulations.
 func (g *Game) SetRandomRack(playerIdx int) {
-	// log.Debug().Int("player", playerIdx).Str("rack", g.RackFor(playerIdx).TilesOn().UserVisible(g.alph)).
-	// 	Msg("setting random rack..")
-	tiles := g.bag.Redraw(g.RackFor(playerIdx).TilesOn())
-	g.players[playerIdx].setRackTiles(tiles, g.alph)
+	// XXX: use other player's rack as a placeholder as well.
+	// /shrug
+	n := g.RackFor(playerIdx).NoAllocTilesOn(g.players[1-playerIdx].placeholderRack)
+	ndrawn := g.bag.Redraw(g.players[1-playerIdx].placeholderRack[:n],
+		g.players[playerIdx].placeholderRack)
+
+	// note that ndrawn does not need to match n
+
+	g.players[playerIdx].setRackTiles(g.players[playerIdx].placeholderRack[:ndrawn], g.alph)
 	// log.Debug().Int("player", playerIdx).Str("newrack", g.players[playerIdx].rackLetters).
 	// 	Msg("set random rack")
 }
@@ -963,6 +1028,10 @@ func (g *Game) Board() *board.GameBoard {
 	return g.board
 }
 
+func (g *Game) SetBoard(b *board.GameBoard) {
+	g.board = b
+}
+
 func (g *Game) Turn() int {
 	return g.turnnum
 }
@@ -1020,7 +1089,7 @@ func (g *Game) SetHistory(h *pb.GameHistory) {
 }
 
 func (g *Game) FirstPlayer() *pb.PlayerInfo {
-	return &g.players[g.wentfirst].PlayerInfo
+	return &g.players[0].PlayerInfo
 }
 
 func (g *Game) RecalculateBoard() {

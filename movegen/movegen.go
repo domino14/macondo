@@ -17,7 +17,9 @@ import (
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/gaddag"
+	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/strategy"
 )
 
 type SortBy int
@@ -29,9 +31,11 @@ const (
 
 // MoveGenerator is a generic interface for generating moves.
 type MoveGenerator interface {
-	GenAll(rack *alphabet.Rack, addExchange bool)
+	GenAll(rack *alphabet.Rack, addExchange bool) []*move.Move
 	SetSortingParameter(s SortBy)
 	Plays() []*move.Move
+	SetPlayRecorder(pf PlayRecorderFunc)
+	SetStrategizer(st strategy.Strategizer)
 }
 
 // GordonGenerator is the main move generation struct. It implements
@@ -68,6 +72,19 @@ type GordonGenerator struct {
 
 	// Used for scoring:
 	letterDistribution *alphabet.LetterDistribution
+
+	// Used for play-finding without allocation
+	strip         []alphabet.MachineLetter
+	exchangestrip []alphabet.MachineLetter
+	leavestrip    []alphabet.MachineLetter
+
+	playRecorder PlayRecorderFunc
+	strategizer  strategy.Strategizer
+
+	// used for play recorder:
+	winner      *move.Move
+	placeholder *move.Move
+	game        *game.Game
 }
 
 // NewGordonGenerator returns a Gordon move generator.
@@ -86,8 +103,14 @@ func NewGordonGenerator(gd *gaddag.SimpleGaddag, board *board.GameBoard,
 		anchors:            state.anchors,
 		numPossibleLetters: int(gd.GetAlphabet().NumLetters()),
 		sortingParameter:   SortByScore,
-		letterDistribution: ld,
 		state:              state,
+		letterDistribution: ld,
+		strip:              make([]alphabet.MachineLetter, board.Dim()),
+		exchangestrip:      make([]alphabet.MachineLetter, 7), // max rack size. can make a parameter later.
+		leavestrip:         make([]alphabet.MachineLetter, 7),
+		playRecorder:       AllPlaysRecorder,
+		winner:             new(move.Move),
+		placeholder:        new(move.Move),
 	}
 	return gen
 }
@@ -108,11 +131,26 @@ func (gen *GordonGenerator) SetSortingParameter(s SortBy) {
 	gen.sortingParameter = s
 }
 
+func (gen *GordonGenerator) SetPlayRecorder(pr PlayRecorderFunc) {
+	gen.playRecorder = pr
+}
+
+func (gen *GordonGenerator) SetStrategizer(st strategy.Strategizer) {
+	gen.strategizer = st
+}
+
+func (gen *GordonGenerator) SetGame(g *game.Game) {
+	gen.game = g
+}
+
 // GenAll generates all moves on the board. It assumes anchors have already
 // been updated, as well as cross-sets / cross-scores.
-func (gen *GordonGenerator) GenAll(rack *alphabet.Rack, addExchange bool) {
-	gen.plays = []*move.Move{}
-	orientations := []board.BoardDirection{
+func (gen *GordonGenerator) GenAll(rack *alphabet.Rack, addExchange bool) []*move.Move {
+	gen.winner.SetEmpty()
+
+	gen.plays = gen.plays[:0]
+
+	orientations := [2]board.BoardDirection{
 		board.HorizontalDirection, board.VerticalDirection}
 
 	// Once for each orientation
@@ -122,8 +160,29 @@ func (gen *GordonGenerator) GenAll(rack *alphabet.Rack, addExchange bool) {
 		gen.board.Transpose()
 	}
 
-	gen.addPassAndExchangeMoves(addExchange, rack)
-	gen.dedupeAndSortPlays()
+	// Only add a pass move if nothing else is possible. Note: in endgames,
+	// we will have to add a pass move another way (if it's a strategic pass).
+	// Probably in the endgame package.
+	if len(gen.plays) == 0 {
+		tilesOnRack := rack.TilesOn()
+		passMove := move.NewPassMove(tilesOnRack, rack.Alphabet())
+		gen.plays = append(gen.plays, passMove)
+	} else if len(gen.plays) > 1 {
+		switch gen.sortingParameter {
+		case SortByScore:
+			sort.Slice(gen.plays, func(i, j int) bool {
+				return gen.plays[i].Score() > gen.plays[j].Score()
+			})
+		case SortByNone:
+			// Do not sort the plays. It is assumed that we will sort plays
+			// elsewhere (for example, a dedicated endgame engine)
+			break
+		}
+	}
+	if addExchange {
+		gen.generateExchangeMoves(rack, 0, 0)
+	}
+  return gen.plays
 }
 
 func (gen *GordonGenerator) genByOrientation(rack *alphabet.Rack, dir board.BoardDirection) {
@@ -137,8 +196,7 @@ func (gen *GordonGenerator) genByOrientation(rack *alphabet.Rack, dir board.Boar
 		for col := 0; col < dim; col++ {
 			if gen.anchors.IsAnchor(row, col, dir) {
 				gen.curAnchorCol = col
-				gen.recursiveGen(col, alphabet.MachineWord([]alphabet.MachineLetter{}),
-					rack, gen.gaddag.GetRootNodeIndex())
+				gen.recursiveGen(col, rack, gen.gaddag.GetRootNodeIndex(), col, col, !gen.vertical)
 				gen.lastAnchorCol = col
 			}
 		}
@@ -146,8 +204,8 @@ func (gen *GordonGenerator) genByOrientation(rack *alphabet.Rack, dir board.Boar
 }
 
 // recursiveGen is an implementation of the Gordon Gen function.
-func (gen *GordonGenerator) recursiveGen(col int, word alphabet.MachineWord, rack *alphabet.Rack,
-	nodeIdx uint32) {
+func (gen *GordonGenerator) recursiveGen(col int, rack *alphabet.Rack,
+	nodeIdx uint32, leftstrip, rightstrip int, uniquePlay bool) {
 
 	var csDirection board.BoardDirection
 	// If a letter L is already on this square, then goOn...
@@ -161,7 +219,7 @@ func (gen *GordonGenerator) recursiveGen(col int, word alphabet.MachineWord, rac
 	crossSet := gen.csetGen.CS.Get(gen.curRowIdx, col, csDirection)
 	if curLetter != alphabet.EmptySquareMarker {
 		nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, curLetter.Unblank())
-		gen.goOn(col, curLetter, word, rack, nnIdx, nodeIdx)
+		gen.goOn(col, curLetter, rack, nnIdx, nodeIdx, leftstrip, rightstrip, uniquePlay)
 
 	} else if !rack.Empty() {
 		for ml := alphabet.MachineLetter(0); ml < alphabet.MachineLetter(gen.numPossibleLetters); ml++ {
@@ -172,7 +230,7 @@ func (gen *GordonGenerator) recursiveGen(col int, word alphabet.MachineWord, rac
 				nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, ml)
 				rack.Take(ml)
 				gen.tilesPlayed++
-				gen.goOn(col, ml, word, rack, nnIdx, nodeIdx)
+				gen.goOn(col, ml, rack, nnIdx, nodeIdx, leftstrip, rightstrip, uniquePlay)
 				rack.Add(ml)
 				gen.tilesPlayed--
 			}
@@ -186,7 +244,7 @@ func (gen *GordonGenerator) recursiveGen(col int, word alphabet.MachineWord, rac
 					nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, alphabet.MachineLetter(i))
 					rack.Take(alphabet.BlankMachineLetter)
 					gen.tilesPlayed++
-					gen.goOn(col, alphabet.MachineLetter(i).Blank(), word, rack, nnIdx, nodeIdx)
+					gen.goOn(col, alphabet.MachineLetter(i).Blank(), rack, nnIdx, nodeIdx, leftstrip, rightstrip, uniquePlay)
 					rack.Add(alphabet.BlankMachineLetter)
 					gen.tilesPlayed--
 				}
@@ -197,23 +255,36 @@ func (gen *GordonGenerator) recursiveGen(col int, word alphabet.MachineWord, rac
 }
 
 // goOn is an implementation of the Gordon GoOn function.
-func (gen *GordonGenerator) goOn(curCol int, L alphabet.MachineLetter, word alphabet.MachineWord,
-	rack *alphabet.Rack, newNodeIdx uint32, oldNodeIdx uint32) {
+func (gen *GordonGenerator) goOn(curCol int, L alphabet.MachineLetter,
+	rack *alphabet.Rack, newNodeIdx uint32, oldNodeIdx uint32,
+	leftstrip, rightstrip int, uniquePlay bool) {
 
 	if curCol <= gen.curAnchorCol {
 		if gen.board.HasLetter(gen.curRowIdx, curCol) {
-			word = append([]alphabet.MachineLetter{alphabet.PlayedThroughMarker}, word...)
+			gen.strip[curCol] = alphabet.PlayedThroughMarker
 		} else {
-			word = append([]alphabet.MachineLetter{L}, word...)
+			gen.strip[curCol] = L
+			if gen.vertical && gen.board.GetCrossSet(gen.curRowIdx, curCol, board.HorizontalDirection) == board.TrivialCrossSet {
+				// If the horizontal direction is the trivial cross-set, this means
+				// that there are no letters perpendicular to where we just placed
+				// this letter. So any play we generate here should be unique.
+				// We use this to avoid generating duplicates of single-tile plays.
+				uniquePlay = true
+			}
 		}
+		leftstrip = curCol
+
 		// if L on OldArc and no letter directly left, then record play.
-		// roomToLeft is true unless we are right at the edge of the board.
-		//roomToLeft := true
 		noLetterDirectlyLeft := curCol == 0 || !gen.board.HasLetter(gen.curRowIdx, curCol-1)
 
 		// Check to see if there is a letter directly to the left.
 		if gen.gaddag.InLetterSet(L, oldNodeIdx) && noLetterDirectlyLeft && gen.tilesPlayed > 0 {
-			gen.recordPlay(word, gen.curRowIdx, curCol, rack.TilesOn(), gen.tilesPlayed)
+			// Only record the play if it is unique:
+			// if 1 tile has been played, there should be no letters in the across
+			// direction (otherwise the cross-set is not trivial)
+			if uniquePlay || gen.tilesPlayed > 1 {
+				gen.playRecorder(gen, rack, leftstrip, rightstrip, move.MoveTypePlay)
+			}
 		}
 		if newNodeIdx == 0 {
 			return
@@ -224,7 +295,7 @@ func (gen *GordonGenerator) goOn(curCol int, L alphabet.MachineLetter, word alph
 		// only looking at the first of a consecutive set of anchors going backwards,
 		// and then always looking forward from then on.
 		if curCol > 0 && curCol-1 != gen.lastAnchorCol {
-			gen.recursiveGen(curCol-1, word, rack, newNodeIdx)
+			gen.recursiveGen(curCol-1, rack, newNodeIdx, leftstrip, rightstrip, uniquePlay)
 		}
 		// Then shift direction.
 		// Get the index of the SeparationToken
@@ -232,86 +303,34 @@ func (gen *GordonGenerator) goOn(curCol int, L alphabet.MachineLetter, word alph
 		// Check for no letter directly left AND room to the right (of the anchor
 		// square)
 		if separationNodeIdx != 0 && noLetterDirectlyLeft && gen.curAnchorCol < gen.board.Dim()-1 {
-			gen.recursiveGen(gen.curAnchorCol+1, word, rack, separationNodeIdx)
+			gen.recursiveGen(gen.curAnchorCol+1, rack, separationNodeIdx, leftstrip, rightstrip, uniquePlay)
 		}
 
 	} else {
 		if gen.board.HasLetter(gen.curRowIdx, curCol) {
-			word = append(word, alphabet.PlayedThroughMarker)
+			gen.strip[curCol] = alphabet.PlayedThroughMarker
 		} else {
-			word = append(word, L)
+			gen.strip[curCol] = L
+			if gen.vertical && gen.board.GetCrossSet(gen.curRowIdx, curCol, board.HorizontalDirection) == board.TrivialCrossSet {
+				// see explanation above.
+				uniquePlay = true
+			}
 		}
+		rightstrip = curCol
 
 		noLetterDirectlyRight := curCol == gen.board.Dim()-1 ||
 			!gen.board.HasLetter(gen.curRowIdx, curCol+1)
 
 		if gen.gaddag.InLetterSet(L, oldNodeIdx) && noLetterDirectlyRight && gen.tilesPlayed > 0 {
-			gen.recordPlay(word, gen.curRowIdx, curCol-len(word)+1, rack.TilesOn(), gen.tilesPlayed)
+			if uniquePlay || gen.tilesPlayed > 1 {
+				gen.playRecorder(gen, rack, leftstrip, rightstrip, move.MoveTypePlay)
+			}
 		}
 		if newNodeIdx != 0 && curCol < gen.board.Dim()-1 {
 			// There is room to the right
-			gen.recursiveGen(curCol+1, word, rack, newNodeIdx)
+			gen.recursiveGen(curCol+1, rack, newNodeIdx, leftstrip, rightstrip, uniquePlay)
 		}
 	}
-}
-
-func (gen *GordonGenerator) recordPlay(word alphabet.MachineWord, startRow, startCol int,
-	leave alphabet.MachineWord, tilesPlayed int) {
-	row := startRow
-	col := startCol
-	if gen.vertical {
-		// We flip it here because we only generate vertical moves when we transpose
-		// the board, so the row and col are actually transposed.
-		row, col = col, row
-	}
-	coords := move.ToBoardGameCoords(row, col, gen.vertical)
-	wordCopy := make([]alphabet.MachineLetter, len(word))
-	copy(wordCopy, word)
-	alph := gen.gaddag.GetAlphabet()
-	play := move.NewScoringMove(gen.scoreMove(word, startRow, startCol, tilesPlayed),
-		wordCopy, leave, gen.vertical,
-		tilesPlayed, alph, row, col, coords)
-
-	// if gen.sortingParameter == SortByEquity {
-	// 	play.SetEquity(gen.strategy.Equity(play, gen.board, gen.bag, gen.oppRack))
-	// }
-	gen.plays = append(gen.plays, play)
-}
-
-func (gen *GordonGenerator) dedupeAndSortPlays() {
-	dupeMap := map[int]*move.Move{}
-
-	i := 0 // output index
-	for _, m := range gen.plays {
-		if m.Action() == move.MoveTypePlay && m.TilesPlayed() == 1 {
-			uniqKey := m.UniqueSingleTileKey()
-			if dupe, ok := dupeMap[uniqKey]; !ok {
-				dupeMap[uniqKey] = m
-				gen.plays[i] = m
-				i++
-			} else {
-				dupe.SetDupe(m)
-				m.SetDupe(dupe)
-			}
-		} else {
-			gen.plays[i] = m
-			i++
-		}
-	}
-	// Everything after element i is duplicate plays.
-	gen.plays = gen.plays[:i]
-
-	switch gen.sortingParameter {
-	case SortByScore:
-		sort.Slice(gen.plays, func(i, j int) bool {
-			return gen.plays[i].Score() > gen.plays[j].Score()
-		})
-	case SortByNone:
-		// Do not sort the plays. It is assumed that we will sort plays
-		// elsewhere (for example, a dedicated endgame engine)
-		break
-	}
-
 }
 
 func (gen *GordonGenerator) crossDirection() board.BoardDirection {
@@ -330,47 +349,26 @@ func (gen *GordonGenerator) Plays() []*move.Move {
 	return gen.plays
 }
 
-func (gen *GordonGenerator) addPassAndExchangeMoves(addExchange bool, rack *alphabet.Rack) {
-	tilesOnRack := rack.TilesOn()
+// zero-allocation generation of exchange moves without duplicates:
+func (gen *GordonGenerator) generateExchangeMoves(rack *alphabet.Rack, ml alphabet.MachineLetter, stripidx int) {
 
-	// Only add a pass move if nothing else is possible. Note: in endgames,
-	// we will have to add a pass move another way (if it's a strategic pass).
-	// Probably in the endgame package.
-	if len(gen.plays) == 0 {
-		passMove := move.NewPassMove(tilesOnRack, rack.Alphabet())
-		// passMove.SetEquity(gen.strategy.Equity(passMove, gen.board, gen.bag, gen.oppRack))
-		gen.plays = append(gen.plays, passMove)
+	// magic function written by @andy-k
+	for int(ml) < len(rack.LetArr) && rack.LetArr[ml] == 0 {
+		ml++
 	}
-	if !addExchange {
-		return
-	}
-
-	alph := gen.gaddag.GetAlphabet()
-	// Generate all exchange moves.
-	exchMap := make(map[string]*move.Move)
-	// Create a list of all machine letters
-	powersetSize := 1 << uint(len(tilesOnRack))
-	index := 1
-	for index < powersetSize {
-		// These are arrays of MachineLetter. We make them specifically `byte`
-		// here (it's a type alias) because otherwise it's a giant pain to
-		// convert []MachineLetter to a string for the map.
-		var subset []alphabet.MachineLetter
-		var leave []alphabet.MachineLetter
-		for j, elem := range tilesOnRack {
-			if index&(1<<uint(j)) > 0 {
-				subset = append(subset, elem)
-			} else {
-				leave = append(leave, elem)
-			}
+	if int(ml) == len(rack.LetArr) {
+		gen.playRecorder(gen, rack, 0, stripidx, move.MoveTypeExchange)
+	} else {
+		gen.generateExchangeMoves(rack, ml+1, stripidx)
+		numthis := rack.LetArr[ml]
+		for i := 0; i < numthis; i++ {
+			gen.exchangestrip[stripidx] = ml
+			stripidx += 1
+			rack.Take(ml)
+			gen.generateExchangeMoves(rack, ml+1, stripidx)
 		}
-
-		move := move.NewExchangeMove(subset, leave, alph)
-		exchMap[alphabet.MachineWord(subset).String()] = move
-		index++
-	}
-	for _, mv := range exchMap {
-		// mv.SetEquity(gen.strategy.Equity(mv, gen.board, gen.bag, gen.oppRack))
-		gen.plays = append(gen.plays, mv)
+		for i := 0; i < numthis; i++ {
+			rack.Add(ml)
+		}
 	}
 }
