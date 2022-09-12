@@ -90,7 +90,8 @@ func (r *GameRunner) Init(player1, player2, leavefile1, leavefile2, pegfile1, pe
 		movegen.NewGordonGenerator(r.gaddag.(*gaddag.SimpleGaddag), r.game.Board(),
 			rules.LetterDistribution()),
 	}
-	r.game.SetAddlState(r.movegen.(*movegen.GordonGenerator).State())
+	r.game.SetAddlState(r.movegens[0].(*movegen.GordonGenerator).State())
+	r.game.SetAddlState(r.movegens[1].(*movegen.GordonGenerator).State())
 
 	var strat strategy.Strategizer
 	for idx, pinfo := range players {
