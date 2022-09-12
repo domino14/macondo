@@ -83,7 +83,7 @@ func TestStatesCorrect(t *testing.T) {
 
 	simmer.gameCopies[0].SetBackupMode(game.SimulationMode)
 	play := simmer.plays[0] // AWARD
-	is.Equal(play.play.ShortDescription(), "8H AWARD")
+	is.Equal(play.play.ShortDescription(), " 8H AWARD")
 	simmer.gameCopies[0].PlayMove(play.play, false, 0)
 	simmer.gameCopies[0].SetBackupMode(game.NoBackup)
 	postMoveState := simmer.movegens[0].(*movegen.GordonGenerator).State()
