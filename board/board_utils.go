@@ -145,10 +145,6 @@ func (g *GameBoard) Equals(g2 *GameBoard) bool {
 		log.Printf("Tiles played don't match: %v %v", g.tilesPlayed, g2.tilesPlayed)
 		return false
 	}
-	if g.transposed != g2.transposed {
-		log.Printf("Transposed doesn't match: %v %v", g.transposed, g2.transposed)
-		return false
-	}
 	for row := 0; row < g.Dim(); row++ {
 		for col := 0; col < g.Dim(); col++ {
 			pos := g.getSqIdx(row, col)
