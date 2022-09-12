@@ -264,7 +264,7 @@ func (gen *GordonGenerator) goOn(curCol int, L alphabet.MachineLetter,
 			gen.strip[curCol] = alphabet.PlayedThroughMarker
 		} else {
 			gen.strip[curCol] = L
-			if gen.vertical && gen.board.GetCrossSet(gen.curRowIdx, curCol, board.HorizontalDirection) == board.TrivialCrossSet {
+			if gen.vertical && gen.board.GetCrossSet(gen.curRowIdx, curCol, board.HorizontalDirection) == cross_set.TrivialCrossSet {
 				// If the horizontal direction is the trivial cross-set, this means
 				// that there are no letters perpendicular to where we just placed
 				// this letter. So any play we generate here should be unique.
@@ -311,7 +311,7 @@ func (gen *GordonGenerator) goOn(curCol int, L alphabet.MachineLetter,
 			gen.strip[curCol] = alphabet.PlayedThroughMarker
 		} else {
 			gen.strip[curCol] = L
-			if gen.vertical && gen.board.GetCrossSet(gen.curRowIdx, curCol, board.HorizontalDirection) == board.TrivialCrossSet {
+			if gen.vertical && gen.board.GetCrossSet(gen.curRowIdx, curCol, board.HorizontalDirection) == cross_set.TrivialCrossSet {
 				// see explanation above.
 				uniquePlay = true
 			}
