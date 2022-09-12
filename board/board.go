@@ -642,7 +642,6 @@ func (g *GameBoard) CopyFrom(b *GameBoard) {
 
 func (g *GameBoard) GetSquares() []alphabet.MachineLetter {
 	return g.squares
->>>>>>> master
 }
 
 func (g *GameBoard) GetTilesPlayed() int {

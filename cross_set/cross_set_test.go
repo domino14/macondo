@@ -341,7 +341,6 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 			uv := b.GetLetter(row+rowInc, col+colInc).UserVisible(alph)
 			assert.Equal(t, c, uv)
 		}
->>>>>>> master
 	}
 }
 
