@@ -10,6 +10,7 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/crosses"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/lexicon"

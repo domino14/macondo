@@ -176,6 +176,10 @@ func (g *GameBoard) getSqIdx(row, col int) int {
 	return row*g.rowMul + col*g.colMul
 }
 
+func (g *GameBoard) GetSqIdx(row, col int) int {
+	return row*g.rowMul + col*g.colMul
+}
+
 func (g *GameBoard) GetBonus(row int, col int) BonusSquare {
 	// No need to check for transpositions as bonuses are rotationally invariant
 	// (but implement the transpose check to ease merge resolution)

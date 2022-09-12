@@ -23,7 +23,7 @@ const (
 // Therefore, a VERTICAL cross set is created by looking at the tile(s)
 // above and/or below the relevant square and seeing what letters lead to
 // valid words.
-type CrossSet = board.CrossSet
+type CrossSet = uint64
 
 func (c CrossSet) Allowed(letter alphabet.MachineLetter) bool {
 	return c&(1<<uint8(letter)) != 0
@@ -64,7 +64,7 @@ type BoardCrossSets struct {
 }
 
 func (bcs *BoardCrossSets) Set(row int, col int, cs int64, dir board.BoardDirection) {
-	pos := bcs.board.getSqIdx(row, col)
+	pos := bcs.board.GetSqIdx(row, col)
 	if dir == board.HorizontalDirection {
 		bcs.hcrossSets[pos] = CrossSet(cs)
 		return
@@ -80,7 +80,7 @@ func (bcs *BoardCrossSets) Add(row, col int, ml alphabet.MachineLetter, dir boar
 }
 
 func (bcs *BoardCrossSets) Get(row, col int, dir board.BoardDirection) CrossSet {
-	pos := bcs.board.getSqIdx(row, col)
+	pos := bcs.board.GetSqIdx(row, col)
 	if dir == board.HorizontalDirection {
 		return bcs.hcrossSets[pos]
 	}
@@ -88,7 +88,7 @@ func (bcs *BoardCrossSets) Get(row, col int, dir board.BoardDirection) CrossSet 
 }
 
 func (bcs *BoardCrossSets) Clear(row, col int, dir board.BoardDirection) {
-	pos := bcs.board.getSqIdx(row, col)
+	pos := bcs.board.GetSqIdx(row, col)
 	if dir == board.HorizontalDirection {
 		bcs.hcrossSets[pos] = 0
 		return
