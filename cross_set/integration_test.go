@@ -256,7 +256,7 @@ func TestCompareGenAll(t *testing.T) {
 // Benchmarks
 
 func BenchmarkGenAnchorsAndCrossSets(b *testing.B) {
-	is := is.New(t)
+	is := is.New(b)
 	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
 	gd, err := gaddag.LoadGaddag(path)
 	is.NoErr(err)
@@ -279,7 +279,7 @@ func BenchmarkGenAnchorsAndCrossSets(b *testing.B) {
 }
 
 func BenchmarkMakePlay(b *testing.B) {
-	is := is.New(t)
+	is := is.New(b)
 	// Mostly, benchmark the progressive generation of anchors and cross-sets
 	// (as opposed to generating all of them from scratch)
 	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
