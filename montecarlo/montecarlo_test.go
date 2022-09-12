@@ -50,7 +50,7 @@ func TestStatesCorrect(t *testing.T) {
 		{Nickname: "cesar", RealName: "César"},
 	}
 	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
-		"NWL18", "English")
+		game.VarClassic, "NWL18", "English")
 	is.NoErr(err)
 	g, err := game.NewGame(rules, players)
 	is.NoErr(err)
@@ -78,7 +78,7 @@ func TestStatesCorrect(t *testing.T) {
 	plays := aiplayer.TopPlays(generator.Plays(), 10)
 
 	simmer := &Simmer{}
-	simmer.Init(g, aiplayer)
+	simmer.Init(g, aiplayer, &DefaultConfig)
 	simmer.PrepareSim(plies, plays)
 
 	simmer.gameCopies[0].SetBackupMode(game.SimulationMode)

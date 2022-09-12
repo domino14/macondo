@@ -57,7 +57,6 @@ func setUpSolver(lex, distName string, bvs board.VsWho, plies int, rack1, rack2 
 		panic(err)
 	}
 
-	dist := rules.LetterDistribution()
 	gen1 := movegen.NewGordonGenerator(gd, g.Board(), dist)
 	// Set the addl state before setting the backup mode, so that
 	// all the backups are created properly for each ply.
@@ -928,13 +927,14 @@ func TestProperIterativeDeepening(t *testing.T) {
 			gd, g.Board(), g.Bag().LetterDistribution(),
 		)
 
-		g.SetAddlState(generator.State())
+		g.SetAddlState(gen1.State())
+		g.SetAddlState(gen2.State())
 		// Prior to solving the endgame, set to simulation mode.
 		g.SetBackupMode(game.SimulationMode)
 		g.SetStateStackLength(plies)
 		g.RecalculateBoard()
 
-		generator.GenAll(alphabet.RackFromString("AEIY", g.Alphabet()), false)
+		gen1.GenAll(alphabet.RackFromString("AEIY", g.Alphabet()), false)
 
 		s := new(Solver)
 		s.Init(gen1, gen2, g, &DefaultConfig)
