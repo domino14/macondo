@@ -2,6 +2,7 @@ package runner
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/domino14/macondo/board"

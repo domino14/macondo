@@ -323,7 +323,8 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 		c.SetToGame(alph, tc.testGame)
 		c.PlaceMoveTiles(tc.m)
 		c.TestSetTilesPlayed(c.GetTilesPlayed() + tc.m.TilesPlayed())
-		GenAllCrossSets(c, gd, dist)
+		ccs := MakeBoardCrossSets(c)
+		GenAllCrossSets(c, ccs, gd, dist)
 		c.UpdateAllAnchors()
 
 		assert.True(t, b.Equals(c))
