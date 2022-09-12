@@ -292,7 +292,6 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 	is.NoErr(err)
 	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 	is.NoErr(err)
-	gen := GaddagCrossSetGenerator{Dist: dist, Gaddag: gd}
 	alph := dist.Alphabet()
 
 	var testCases = []updateCrossesForMoveTestCase{
@@ -312,6 +311,8 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 	for _, tc := range testCases {
 		b := board.MakeBoard(board.CrosswordGameBoard)
 		b.SetToGame(alph, tc.testGame)
+		gen := GaddagCrossSetGenerator{Dist: dist, Gaddag: gd, CS: MakeBoardCrossSets(b)}
+
 		gen.GenerateAll(b)
 		b.PlayMove(tc.m, dist)
 		gen.UpdateForMove(b, tc.m)
@@ -343,12 +344,18 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 	}
 }
 
+// Board.RestoreFromBackup() was removed but may be readded someday
 // func TestRestoreFromBackup(t *testing.T) {
-// 	gd, _ := gaddag.LoadGaddag("/tmp/gen_america.gaddag")
-// 	alph := gd.GetAlphabet()
-// 	dist := alphabet.EnglishLetterDistribution()
-// 	bag := dist.MakeBag(gd.GetAlphabet())
-
+//	is := is.New(t)
+//
+//	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
+//	gd, err := gaddag.LoadGaddag(path)
+//	is.NoErr(err)
+//	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
+//	is.NoErr(err)
+//	alph := dist.Alphabet()
+// 	bag := dist.MakeBag()
+//
 // 	// The same test cases as in the test above.
 // 	var testCases = []updateCrossesForMoveTestCase{
 // 		{VsMatt, move.NewScoringMoveSimple(38, "K9", "TAEL", "ABD", alph), "TAEL"},
@@ -362,15 +369,15 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 // 		// Test bottom of board, horizontal
 // 		{VsJeremy, move.NewScoringMoveSimple(11, "15F", "F..ER", "", alph), "FOYER"},
 // 	}
-
+//
 // 	// create a move.
 // 	for _, tc := range testCases {
 // 		b := board.MakeBoard(CrosswordGameBoard)
 // 		b.SetToGame(alph, tc.testGame)
 // 		b.GenAllCrossSets(gd, bag)
-// 		b.PlayMove(tc.m, gd, bag)
+//		b.PlayMove(tc.m, dist)
 // 		b.RestoreFromBackup()
-
+//
 // 		// Create an identical board. We want to make sure nothing changed
 // 		// after the rollback.
 // 		c := board.MakeBoard(CrosswordGameBoard)
@@ -378,7 +385,7 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 // 		c.GenAllCrossSets(gd, bag)
 // 		assert.True(t, b.Equals(c))
 // 	}
-// }
+//}
 
 func TestUpdateSingleCrossSet(t *testing.T) {
 	is := is.New(t)
