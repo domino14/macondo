@@ -26,6 +26,7 @@ type updateCrossesForMoveTestCase struct {
 }
 
 func TestUpdateCrossSetsAndAnchorsForMove(t *testing.T) {
+	is := is.New(t)
 	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
 	gd, err := gaddag.LoadGaddag(path)
 	is.NoErr(err)
@@ -94,6 +95,7 @@ func TestUpdateCrossSetsAndAnchorsForMove(t *testing.T) {
 
 // Copy of TestUpdateCrossSetsForMove with the CrossScoreOnlyGenerator
 func TestUpdateCrossScoresForMove(t *testing.T) {
+	is := is.New(t)
 	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 	is.NoErr(err)
 	gen := crosses.CrossScoreOnlyGenerator{Dist: dist}
@@ -171,6 +173,7 @@ func compareCrossScores(t *testing.T, b1 *board.GameBoard, b2 *board.GameBoard) 
 }
 
 func TestCompareUpdate(t *testing.T) {
+	is := is.New(t)
 	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
 	gd, err := gaddag.LoadGaddag(path)
 	is.NoErr(err)
@@ -220,6 +223,7 @@ func TestCompareUpdate(t *testing.T) {
 }
 
 func TestCompareGenAll(t *testing.T) {
+	is := is.New(t)
 	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
 	gd, err := gaddag.LoadGaddag(path)
 	is.NoErr(err)
@@ -252,6 +256,7 @@ func TestCompareGenAll(t *testing.T) {
 // Benchmarks
 
 func BenchmarkGenAnchorsAndCrossSets(b *testing.B) {
+	is := is.New(t)
 	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
 	gd, err := gaddag.LoadGaddag(path)
 	is.NoErr(err)
@@ -274,6 +279,7 @@ func BenchmarkGenAnchorsAndCrossSets(b *testing.B) {
 }
 
 func BenchmarkMakePlay(b *testing.B) {
+	is := is.New(t)
 	// Mostly, benchmark the progressive generation of anchors and cross-sets
 	// (as opposed to generating all of them from scratch)
 	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
