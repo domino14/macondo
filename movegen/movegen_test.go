@@ -231,9 +231,8 @@ func TestOneMoreRowGen(t *testing.T) {
 	generator := NewGordonGenerator(gd, bd, ld)
 	bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
 	bcs := cross_set.MakeBoardCrossSets(bd)
-	a := MakeAnchors(bd)
 	cross_set.GenAllCrossSets(bd, bcs, gd, ld)
-	a.UpdateAllAnchors()
+	generator.ResetCrossesAndAnchors()
 
 	rack := alphabet.RackFromString("A", gd.GetAlphabet())
 	generator.curRowIdx = 0

@@ -207,21 +207,15 @@ func (gen *GordonGenerator) genByOrientation(rack *alphabet.Rack, dir board.Boar
 func (gen *GordonGenerator) recursiveGen(col int, rack *alphabet.Rack,
 	nodeIdx uint32, leftstrip, rightstrip int, uniquePlay bool) {
 
-	var csDirection board.BoardDirection
 	// If a letter L is already on this square, then goOn...
 	curLetter := gen.board.GetLetter(gen.curRowIdx, col)
-
-	if gen.vertical {
-		csDirection = board.HorizontalDirection
-	} else {
-		csDirection = board.VerticalDirection
-	}
-	crossSet := gen.csetGen.CS.Get(gen.curRowIdx, col, csDirection)
 	if curLetter != alphabet.EmptySquareMarker {
 		nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, curLetter.Unblank())
 		gen.goOn(col, curLetter, rack, nnIdx, nodeIdx, leftstrip, rightstrip, uniquePlay)
 
 	} else if !rack.Empty() {
+		csDirection := gen.crossDirection()
+		crossSet := gen.csetGen.CS.Get(gen.curRowIdx, col, csDirection)
 		for ml := alphabet.MachineLetter(0); ml < alphabet.MachineLetter(gen.numPossibleLetters); ml++ {
 			if rack.LetArr[ml] == 0 {
 				continue
@@ -336,8 +330,9 @@ func (gen *GordonGenerator) goOn(curCol int, L alphabet.MachineLetter,
 func (gen *GordonGenerator) crossDirection() board.BoardDirection {
 	if gen.vertical {
 		return board.HorizontalDirection
+	} else {
+		return board.VerticalDirection
 	}
-	return board.VerticalDirection
 }
 
 func (gen *GordonGenerator) scoreMove(word alphabet.MachineWord, row, col, tilesPlayed int) int {
