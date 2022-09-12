@@ -1129,12 +1129,11 @@ func TestFromGCG2(t *testing.T) {
 
 	s := new(Solver)
 	s.Init(gen1, gen2, g, &DefaultConfig)
-	// s.simpleEvaluation = true
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 	v, seq, _ := s.Solve(plies)
 	is.Equal(v, float32(44))
 	is.Equal(len(seq), 5)
-	is.Equal(seq[0].ShortDescription(), "6I A.")
+	is.Equal(seq[0].ShortDescription(), " 6I A.")
 	// t.Fail()
 }
 
