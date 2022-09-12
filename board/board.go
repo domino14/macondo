@@ -182,10 +182,6 @@ func (g *GameBoard) GetBonus(row int, col int) BonusSquare {
 	return g.bonuses[g.getSqIdx(row, col)]
 }
 
-func (g *GameBoard) GetCrossScore(row int, col int, dir BoardDirection) int {
-	return g.bonuses[g.getSqIdx(row, col)]
-}
-
 func (g *GameBoard) SetLetter(row int, col int, letter alphabet.MachineLetter) {
 	g.squares[g.getSqIdx(row, col)] = letter
 }
