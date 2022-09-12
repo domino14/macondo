@@ -23,7 +23,7 @@ const (
 // Therefore, a VERTICAL cross set is created by looking at the tile(s)
 // above and/or below the relevant square and seeing what letters lead to
 // valid words.
-type CrossSet uint64
+type CrossSet = board.CrossSet
 
 func (c CrossSet) Allowed(letter alphabet.MachineLetter) bool {
 	return c&(1<<uint8(letter)) != 0

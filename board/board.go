@@ -15,6 +15,7 @@ var (
 )
 
 type BonusSquare byte
+type CrossSet uint64
 
 type BoardDirection uint8
 type WordDirection int
