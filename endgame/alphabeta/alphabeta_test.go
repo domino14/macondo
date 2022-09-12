@@ -255,9 +255,6 @@ func TestVeryDeep(t *testing.T) {
 	is.NoErr(err)
 	gd, err := gaddag.Get(&DefaultConfig, "CSW19")
 	is.NoErr(err)
-	g.SetBackupMode(game.SimulationMode)
-	g.SetStateStackLength(plies)
-	g.RecalculateBoard()
 	gen1 := movegen.NewGordonGenerator(
 		// The strategy doesn't matter right here
 		gd, g.Board(), g.Bag().LetterDistribution(),
@@ -266,6 +263,13 @@ func TestVeryDeep(t *testing.T) {
 		// The strategy doesn't matter right here
 		gd, g.Board(), g.Bag().LetterDistribution(),
 	)
+
+	g.SetAddlState(gen1.State())
+	g.SetAddlState(gen2.State())
+	// Prior to solving the endgame, set to simulation mode.
+	g.SetBackupMode(game.SimulationMode)
+	g.SetStateStackLength(plies)
+	g.RecalculateBoard()
 
 	s := new(Solver)
 	s.Init(gen1, gen2, g, &DefaultConfig)
@@ -288,9 +292,6 @@ func TestPassFirst(t *testing.T) {
 	is.NoErr(err)
 	gd, err := gaddag.Get(&DefaultConfig, "CSW19")
 	is.NoErr(err)
-	g.SetBackupMode(game.SimulationMode)
-	g.SetStateStackLength(plies)
-	g.RecalculateBoard()
 	gen1 := movegen.NewGordonGenerator(
 		// The strategy doesn't matter right here
 		gd, g.Board(), g.Bag().LetterDistribution(),
@@ -299,6 +300,13 @@ func TestPassFirst(t *testing.T) {
 		// The strategy doesn't matter right here
 		gd, g.Board(), g.Bag().LetterDistribution(),
 	)
+
+	g.SetAddlState(gen1.State())
+	g.SetAddlState(gen2.State())
+	// Prior to solving the endgame, set to simulation mode.
+	g.SetBackupMode(game.SimulationMode)
+	g.SetStateStackLength(plies)
+	g.RecalculateBoard()
 
 	s := new(Solver)
 	s.Init(gen1, gen2, g, &DefaultConfig)
@@ -1065,14 +1073,11 @@ func TestFromGCG(t *testing.T) {
 		// The strategy doesn't matter right here
 		gd, g.Board(), g.Bag().LetterDistribution(),
 	)
-	g.SetAddlState(gen1.State())
-	g.SetBackupMode(game.SimulationMode)
-	g.SetStateStackLength(plies)
-	g.RecalculateBoard()
-
 	gen2 := movegen.NewGordonGenerator(
 		gd, g.Board(), g.Bag().LetterDistribution(),
 	)
+
+	g.SetAddlState(gen1.State())
 	g.SetAddlState(gen2.State())
 	g.SetBackupMode(game.SimulationMode)
 	g.SetStateStackLength(plies)
@@ -1114,8 +1119,10 @@ func TestFromGCG2(t *testing.T) {
 		// The strategy doesn't matter right here
 		gd, g.Board(), g.Bag().LetterDistribution(),
 	)
+
 	g.SetAddlState(gen1.State())
 	g.SetAddlState(gen2.State())
+	// Prior to solving the endgame, set to simulation mode.
 	g.SetBackupMode(game.SimulationMode)
 	g.SetStateStackLength(plies)
 	g.RecalculateBoard()
