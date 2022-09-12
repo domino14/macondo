@@ -10,7 +10,6 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/crosses"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/lexicon"
@@ -306,8 +305,8 @@ func (g *Game) StartGame() {
 	g.lastWordsFormed = nil
 }
 
-func (g *Game) SetCrossSetGen(gen cross_set.Generator) {
-	g.crossSetGen = gen
+func (g *Game) SetCrossGen(gen crosses.Generator) {
+	g.crossGen = gen
 }
 
 // ValidateMove validates the given move. It is meant to be used to validate

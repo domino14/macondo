@@ -37,7 +37,7 @@ func (a *Anchors) SetAnchor(row, col int, dir board.BoardDirection) {
 // This function, unlike the other anchor functions, can be called while
 // the board is transposed.
 func (a *Anchors) IsAnchor(row, col int, dir board.BoardDirection) bool {
-	pos := a.board.getSqIdx(row, col)
+	pos := a.board.GetSqIdx(row, col)
 	if dir == board.HorizontalDirection {
 		return a.hanchors[pos]
 	}
