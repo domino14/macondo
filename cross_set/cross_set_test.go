@@ -313,7 +313,6 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 		b := board.MakeBoard(board.CrosswordGameBoard)
 		b.SetToGame(alph, tc.testGame)
 		gen.GenerateAll(b)
-		b.UpdateAllAnchors()
 		b.PlayMove(tc.m, dist)
 		gen.UpdateForMove(b, tc.m)
 		log.Printf(b.ToDisplayText(alph))
@@ -325,7 +324,6 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 		c.TestSetTilesPlayed(c.GetTilesPlayed() + tc.m.TilesPlayed())
 		ccs := MakeBoardCrossSets(c)
 		GenAllCrossSets(c, ccs, gd, dist)
-		c.UpdateAllAnchors()
 
 		assert.True(t, b.Equals(c))
 
@@ -370,7 +368,6 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 // 		b := board.MakeBoard(CrosswordGameBoard)
 // 		b.SetToGame(alph, tc.testGame)
 // 		b.GenAllCrossSets(gd, bag)
-// 		b.UpdateAllAnchors()
 // 		b.PlayMove(tc.m, gd, bag)
 // 		b.RestoreFromBackup()
 
@@ -379,7 +376,6 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 // 		c := board.MakeBoard(CrosswordGameBoard)
 // 		c.SetToGame(alph, tc.testGame)
 // 		c.GenAllCrossSets(gd, bag)
-// 		c.UpdateAllAnchors()
 // 		assert.True(t, b.Equals(c))
 // 	}
 // }
