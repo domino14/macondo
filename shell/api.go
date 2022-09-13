@@ -130,6 +130,32 @@ func (sc *ShellController) prev(cmd *shellcmd) (*Response, error) {
 	return msg(sc.game.ToDisplayText()), nil
 }
 
+func (sc *ShellController) name(cmd *shellcmd) (*Response, error) {
+	if len(cmd.args) < 3 {
+		return nil, errors.New("need 3 arguments for name")
+	}
+	if sc.game == nil {
+		return nil, errors.New("no game is loaded")
+	}
+	p, err := strconv.Atoi(cmd.args[0])
+	if err != nil {
+		return nil, err
+	}
+	p -= 1
+	if p < 0 || p >= len(sc.game.History().Players) {
+		return nil, errors.New("player index not in range")
+	}
+	err = sc.game.RenamePlayer(p, &pb.PlayerInfo{
+		Nickname: cmd.args[1],
+		RealName: strings.Join(cmd.args[2:], " "),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return msg(sc.game.ToDisplayText()), nil
+}
+
 func (sc *ShellController) turn(cmd *shellcmd) (*Response, error) {
 	if cmd.args == nil {
 		return nil, errors.New("need argument for turn")

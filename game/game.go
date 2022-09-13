@@ -261,6 +261,25 @@ func (g *Game) FlipPlayers() {
 	g.players[0], g.players[1] = g.players[1], g.players[0]
 }
 
+func (g *Game) RenamePlayer(idx int, playerinfo *pb.PlayerInfo) error {
+	for i := range g.players {
+		if i == idx {
+			continue
+		}
+		if g.players[i].PlayerInfo.Nickname == playerinfo.Nickname {
+			return errors.New("another player already has that nickname")
+		}
+	}
+	g.players[idx].PlayerInfo.Nickname = playerinfo.Nickname
+	g.players[idx].PlayerInfo.RealName = playerinfo.RealName
+	g.players[idx].PlayerInfo.UserId = playerinfo.UserId
+
+	g.history.Players[idx].Nickname = playerinfo.Nickname
+	g.history.Players[idx].RealName = playerinfo.RealName
+	g.history.Players[idx].UserId = playerinfo.UserId
+	return nil
+}
+
 // StartGame starts a game anew, dealing out tiles to both players.
 func (g *Game) StartGame() {
 	g.Board().Clear()
