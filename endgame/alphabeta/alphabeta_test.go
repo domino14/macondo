@@ -103,101 +103,46 @@ func setUpSolver(lex, distName string, bvs board.VsWho, plies int, rack1, rack2 
 func TestSolveComplex(t *testing.T) {
 	t.Skip()
 	is := is.New(t)
-	plies := 8
+	plies := 7
 
 	s, err := setUpSolver("America", "english", board.VsRoy, plies, "WZ", "EFHIKOQ", 427, 331,
 		1)
 	is.NoErr(err)
 
 	v, _, _ := s.Solve(plies)
-	is.Equal(v, 116)
+	is.Equal(v, float32(116))
 	// Quackle finds a 122-pt win. However, I think it's wrong because it
 	// doesn't take into account that opp can pass to prevent a setup
 	// (the setup being: EF 3F to block the Z, then YO, YOK/KHI, QI)
 	// The setup only works if Roy plays off his W before YO.
 }
 
-/*
 func TestSolveOther(t *testing.T) {
-	// This is an extremely complex endgame; 8 plies takes over an hour
-	// and consumes > 30 GB of memory. It seems to be a loss no matter what.
 	t.Skip()
-	plies := 8
+	is := is.New(t)
+	plies := 7
 
-	gd, err := GaddagFromLexicon("NWL18")
-	if err != nil {
-		t.Errorf("Expected error to be nil, got %v", err)
-	}
-	dist := alphabet.EnglishLetterDistribution()
+	s, err := setUpSolver("NWL18", "english", board.VsAlec, plies, "DGILOPR", "EGNOQR", 369, 420,
+		1)
+	is.NoErr(err)
 
-	game := &mechanics.XWordGame{}
-	game.Init(gd, dist)
-	game.SetStateStackLength(plies)
+	v, _, _ := s.Solve(plies)
+	is.Equal(v, float32(-26))
+}
 
-	generator := movegen.NewGordonGenerator(
-		// The strategy doesn't matter right here
-		game, &strategy.NoLeaveStrategy{},
-	)
-	alph := game.Alphabet()
-	ourRack := alphabet.RackFromString("DGILOPR", alph)
-	theirRack := alphabet.RackFromString("EGNOQR", alph)
-	game.SetRackFor(1, ourRack)
-	game.SetRackFor(0, theirRack)
-
-	generator.SetBoardToGame(alph, board.VsAlec)
-	s := new(Solver)
-	s.Init(generator, game)
-
-	game.SetPointsFor(1, 369)
-	game.SetPointsFor(0, 420)
-	game.SetPlayerOnTurn(1)
-	game.SetPlaying(true)
-	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
-	v, _ := s.Solve(plies)
-	fmt.Println("Value found", v)
-	t.Fail()
-} */
-
-/*
 func TestSolveOther2(t *testing.T) {
 	// An attempt to solve the game from above after a turn in. It's still
 	// a loss; this goes a bit faster.
-	t.Skip()
-	plies := 8
+	is := is.New(t)
+	plies := 7
 
-	gd, err := GaddagFromLexicon("NWL18")
-	if err != nil {
-		t.Errorf("Expected error to be nil, got %v", err)
-	}
-	dist := alphabet.EnglishLetterDistribution()
+	s, err := setUpSolver("NWL18", "english", board.VsAlec2, plies, "DGILOR", "ENQR", 383, 438,
+		1)
+	is.NoErr(err)
 
-	game := &mechanics.XWordGame{}
-	game.Init(gd, dist)
-	game.SetStateStackLength(plies)
-
-	generator := movegen.NewGordonGenerator(
-		// The strategy doesn't matter right here
-		game, &strategy.NoLeaveStrategy{},
-	)
-	alph := game.Alphabet()
-	ourRack := alphabet.RackFromString("DGILOR", alph)
-	theirRack := alphabet.RackFromString("ENQR", alph)
-	game.SetRackFor(1, ourRack)
-	game.SetRackFor(0, theirRack)
-	generator.SetBoardToGame(alph, board.VsAlec2)
-	s := new(Solver)
-	s.Init(generator, game)
-
-	game.SetPointsFor(1, 383)
-	game.SetPointsFor(0, 438)
-	game.SetPlayerOnTurn(1)
-	game.SetPlaying(true)
-	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
-	v, _ := s.Solve(plies)
-	fmt.Println("Value found", v)
-	t.Fail()
+	v, _, _ := s.Solve(plies)
+	is.Equal(v, float32(-38))
 }
-*/
 
 func TestSolveOther3(t *testing.T) {
 	t.Skip()
@@ -208,7 +153,7 @@ func TestSolveOther3(t *testing.T) {
 	is.NoErr(err)
 
 	v, _, _ := s.Solve(plies)
-	is.True(v > 0)
+	is.Equal(v, float32(0))
 }
 
 func TestSolveStandard(t *testing.T) {
@@ -247,6 +192,7 @@ func TestSolveStandard2(t *testing.T) {
 }
 
 func TestVeryDeep(t *testing.T) {
+	t.Skip()
 	is := is.New(t)
 	plies := 25
 	// The following is a very deep endgame that requires 25 plies to solve.
@@ -320,7 +266,7 @@ func TestPassFirst(t *testing.T) {
 
 func TestPolish(t *testing.T) {
 	is := is.New(t)
-	plies := 14
+	plies := 9
 	s, err := setUpSolver(
 		"OSPS44", "polish", board.APolishEndgame, plies, "BGHUWZZ", "IKMÓŹŻ", 304,
 		258, 0)
@@ -345,11 +291,10 @@ func TestPolish(t *testing.T) {
 
 	is.Equal(v, float32(5))
 	is.Equal(len(seq), 8)
-
 }
 
 func TestPolishFromGcg(t *testing.T) {
-	plies := 14
+	plies := 9
 	is := is.New(t)
 
 	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic,
@@ -460,50 +405,20 @@ func TestSpuriousPassesFromGcg(t *testing.T) {
 	is.Equal(len(seq), 7)
 }
 
-/*
 func TestSolveMaven(t *testing.T) {
+	t.Skip()
 	// This endgame is the one in maven. Start by pre-playing TSK as
 	// they suggest.
-	t.Skip()
 	plies := 9
+	is := is.New(t)
 
-	gd, err := GaddagFromLexicon("pseudo_twl1979")
-	if err != nil {
-		t.Errorf("Expected error to be nil, got %v", err)
-	}
-	dist := alphabet.EnglishLetterDistribution()
+	s, err := setUpSolver("pseudo_twl1979", "english", board.JoeVsPaul, plies, "?AEIR", "LZ", 300, 300, 1)
+	is.NoErr(err)
 
-	game := &mechanics.XWordGame{}
-	game.Init(gd, dist)
-	game.SetStateStackLength(plies)
-
-	generator := movegen.NewGordonGenerator(
-		// The strategy doesn't matter right here
-		game, &strategy.NoLeaveStrategy{},
-	)
-	alph := game.Alphabet()
-	ourRack := alphabet.RackFromString("?AEIR", alph)
-	theirRack := alphabet.RackFromString("LZ", alph)
-
-	game.SetRackFor(1, ourRack)
-	game.SetRackFor(0, theirRack)
-
-	generator.SetBoardToGame(alph, board.JoeVsPaul)
-	s := new(Solver)
-	s.Init(generator, game)
-
-	game.SetPointsFor(1, 300)
-	game.SetPointsFor(0, 300)
-	game.SetPlayerOnTurn(1)
-	game.SetPlaying(true)
-	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
-	v, _ := s.Solve(plies)
-	fmt.Println("Value found", v)
-	// if v < 0 {
-	// 	t.Errorf("Expected > 0, %v was", v)
-	// }
-	t.Fail()
-} */
+	//fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
+	v, _, _ := s.Solve(plies)
+	is.Equal(v, float32(0))
+}
 
 func TestStuck(t *testing.T) {
 	is := is.New(t)
@@ -807,98 +722,32 @@ func TestMinimalCase4(t *testing.T) {
 }
 */
 
-/*
 func TestAnotherOneTiler(t *testing.T) {
-	t.Skip() // for now. Quackle actually finds a better endgame play, but
-	// I might need to let this run all night.
-	plies := 5 // why is quackle so much faster at this endgame?
+	t.Skip()
+	plies := 5
+	is := is.New(t)
 
-	gd, err := GaddagFromLexicon("CSW19")
-	if err != nil {
-		t.Errorf("Expected error to be nil, got %v", err)
-	}
-	dist := alphabet.EnglishLetterDistribution()
+	s, err := setUpSolver("CSW19", "english", board.EldarVsNigel, plies, "AEEIRUW", "V", 410, 409,
+		0)
+	is.NoErr(err)
 
-	game := &mechanics.XWordGame{}
-	game.Init(gd, dist)
-	game.SetStateStackLength(plies)
-
-	generator := movegen.NewGordonGenerator(
-		// The strategy doesn't matter right here
-		game, &strategy.NoLeaveStrategy{},
-	)
-	alph := game.Alphabet()
-	ourRack := alphabet.RackFromString("AEEIRUW", alph)
-	theirRack := alphabet.RackFromString("V", alph)
-	game.SetRackFor(0, ourRack)
-	game.SetRackFor(1, theirRack)
-	// XXX: Refactor this; we should have something like:
-	// game.LoadFromGCG(path, turnnum)
-	// That should set the board, the player racks, scores, etc - the whole state
-	// Instead we have to do this manually here:
-	generator.SetBoardToGame(alph, board.EldarVsNigel)
-	s := new(Solver)
-	s.Init(generator, game)
-	// s.iterativeDeepeningOn = false
-	// s.simpleEvaluation = true
-
-	game.SetPointsFor(0, 410)
-	game.SetPointsFor(1, 409)
-	game.SetPlayerOnTurn(0)
-	game.SetPlaying(true)
-	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
-	v, _ := s.Solve(plies)
-	fmt.Println("Value found", v)
-	// if v < 0 {
-	// 	t.Errorf("Expected > 0, %v was", v)
-	// }
-	// t.Fail()
+	v, _, _ := s.Solve(plies)
+	is.Equal(v, float32(64))
 }
-*/
-
-/*
 
 func TestYetAnotherOneTiler(t *testing.T) {
 	t.Skip()
 	plies := 10
+	is := is.New(t)
 
-	gd, err := GaddagFromLexicon("NWL18")
-	if err != nil {
-		t.Errorf("Expected error to be nil, got %v", err)
-	}
-	dist := alphabet.EnglishLetterDistribution()
+	s, err := setUpSolver("NWL18", "english", board.NoahVsMishu, plies, "AEIINTY", "CLLPR", 327, 368,
+		0)
+	is.NoErr(err)
+	s.iterativeDeepeningOn = false
 
-	game := &mechanics.XWordGame{}
-	game.Init(gd, dist)
-	game.SetStateStackLength(plies)
-
-	generator := movegen.NewGordonGenerator(
-		// The strategy doesn't matter right here
-		game, &strategy.NoLeaveStrategy{},
-	)
-	alph := game.Alphabet()
-
-	ourRack := alphabet.RackFromString("AEIINTY", alph)
-	theirRack := alphabet.RackFromString("CLLPR", alph)
-	game.SetRackFor(0, ourRack)
-	game.SetRackFor(1, theirRack)
-	generator.SetBoardToGame(alph, board.NoahVsMishu)
-	s := new(Solver)
-	s.Init(generator, game)
-
-	game.SetPointsFor(0, 327)
-	game.SetPointsFor(1, 368)
-	game.SetPlayerOnTurn(0)
-	game.SetPlaying(true)
-	fmt.Println(game.Board().ToDisplayText(game.Alphabet()))
-	v, _ := s.Solve(plies)
-	fmt.Println("Value found", v)
-	// if v < 0 {
-	// 	t.Errorf("Expected > 0, %v was", v)
-	// }
-	t.Fail()
+	v, _, _ := s.Solve(plies)
+	is.Equal(v, float32(0))
 }
-*/
 
 // Test that iterative deepening actually works properly.
 func TestProperIterativeDeepening(t *testing.T) {
@@ -1134,7 +983,6 @@ func TestFromGCG2(t *testing.T) {
 	is.Equal(v, float32(44))
 	is.Equal(len(seq), 5)
 	is.Equal(seq[0].ShortDescription(), " 6I A.")
-	// t.Fail()
 }
 
 /*

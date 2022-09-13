@@ -86,7 +86,12 @@ func TestGenGaddagMinimize(t *testing.T) {
 	}
 }
 
-// func TestGenNo(t *testing.T) {
-// 	gd := GenerateGaddag("test_files/no.txt", false, false)
+func TestGenNo(t *testing.T) {
+ 	gd := GenerateGaddag("test_files/no.txt", false, false)
+	gd.SerializeElements()
+	// 2 elements in the alphabet
+	if gd.SerializedAlphabet[0] != 2 {
+		t.Errorf("Did not match: %v", gd.SerializedAlphabet[0])
+	}
 // 	gd.Save("no.gaddag", GaddagMagicNumber)
-// }
+}
