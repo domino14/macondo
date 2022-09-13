@@ -64,7 +64,8 @@ func TestEndgameTiming(t *testing.T) {
 	assert.Nil(t, err)
 	generator := movegen.NewGordonGenerator(gd, bd, ld)
 	tilesInPlay := bd.SetToGame(gd.GetAlphabet(), board.MavenVsMacondo)
-	cross_set.GenAllCrossSets(bd, gd, ld)
+	bcs := cross_set.MakeBoardCrossSets(bd)
+	cross_set.GenAllCrossSets(bd, bcs, gd, ld)
 	generator.GenAll(alphabet.RackFromString("AEEORS?", alph), false)
 
 	els, err := strategy.NewExhaustiveLeaveStrategy("NWL18", alph, &DefaultConfig, "", "")
@@ -89,9 +90,9 @@ func TestEndgameTiming(t *testing.T) {
 
 	assert.Equal(t, plays[0].Equity(), float64(22))
 	// Use your blank
-	assert.Equal(t, plays[0].ShortDescription(), "M6 RE.EArS")
-	assert.Equal(t, plays[1].ShortDescription(), "L1 S..s")
-	assert.Equal(t, plays[2].ShortDescription(), "M6 RE.EAmS")
+	assert.Equal(t, plays[0].ShortDescription(), " M6 RE.EArS")
+	assert.Equal(t, plays[1].ShortDescription(), " L1 S..s")
+	assert.Equal(t, plays[2].ShortDescription(), " M6 RE.EAmS")
 }
 
 func TestPreendgameTiming(t *testing.T) {
@@ -103,7 +104,8 @@ func TestPreendgameTiming(t *testing.T) {
 	assert.Nil(t, err)
 	generator := movegen.NewGordonGenerator(gd, bd, ld)
 	tilesInPlay := bd.SetToGame(gd.GetAlphabet(), board.VsOxy)
-	cross_set.GenAllCrossSets(bd, gd, ld)
+	bcs := cross_set.MakeBoardCrossSets(bd)
+	cross_set.GenAllCrossSets(bd, bcs, gd, ld)
 	generator.GenAll(alphabet.RackFromString("OXPBAZE", alph), false)
 
 	els, err := strategy.NewExhaustiveLeaveStrategy("NWL18", alph, &DefaultConfig, "", "quackle_preendgame.json")
