@@ -29,6 +29,31 @@ func (g *GameBoard) SquareDisplayString(row, col int, alph *alphabet.Alphabet) s
 	return string(letter.UserVisible(alph))
 }
 
+func (g *GameBoard) ToCGP(alph *alphabet.Alphabet) string {
+	var str string
+	n := g.Dim()
+	for i := 0; i < n; i++ {
+		c := 0
+		for j := 0; j < n; j++ {
+			letter := g.GetLetter(i, j)
+			if letter == alphabet.EmptySquareMarker {
+				c++
+			} else {
+				if c > 0 {
+					str += fmt.Sprintf("%d", c)
+					c = 0
+				}
+				str += g.SquareDisplayString(i, j, alph)
+			}
+		}
+		if c > 0 {
+			str += fmt.Sprintf("%d", c)
+		}
+		str += "/"
+	}
+	return str
+}
+
 func (g *GameBoard) ToDisplayText(alph *alphabet.Alphabet) string {
 	var str string
 	n := g.Dim()

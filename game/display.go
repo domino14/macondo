@@ -41,10 +41,17 @@ func addText(lines []string, row int, hpad int, text string) {
 	}
 }
 
+func (g *Game) ToCGP() string {
+	cgp := g.Board().ToCGP(g.Alphabet())
+	// NumPlayers is always 2.
+	return fmt.Sprintf("cgp %s %d/%d %d lex %s",
+		cgp, g.PointsFor(0), g.PointsFor(1), g.ScorelessTurns(), g.LexiconName())
+}
+
 // ToDisplayText turns the current state of the game into a displayable
 // string.
 func (g *Game) ToDisplayText() string {
-	bt := g.Board().ToDisplayText(g.alph)
+	bt := g.Board().ToDisplayText(g.Alphabet())
 	// We need to insert rack, player, bag strings into the above string.
 	bts := strings.Split(bt, "\n")
 	hpadding := 3
@@ -110,6 +117,5 @@ func (g *Game) ToDisplayText() string {
 		addText(bts, vpadding, hpadding, "Game is over.")
 	}
 
-	return strings.Join(bts, "\n")
-
+	return strings.Join(append(bts, g.ToCGP()), "\n")
 }
