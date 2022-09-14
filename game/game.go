@@ -584,8 +584,9 @@ func (g *Game) handleConsecutiveScorelessTurns(addToHistory bool) (bool, error) 
 	if g.scorelessTurns == g.maxScorelessTurns {
 		ended = true
 		g.playing = pb.PlayState_GAME_OVER
-		g.history.PlayState = g.playing
-
+		if addToHistory {
+			g.history.PlayState = g.playing
+		}
 		pts := g.calculateRackPts(g.onturn)
 		g.players[g.onturn].points -= pts
 		if addToHistory {
