@@ -69,8 +69,8 @@ func TestStatesCorrect(t *testing.T) {
 	g.SetPlayerOnTurn(0)
 	// Overwrite the first rack
 	g.SetRackFor(0, alphabet.RackFromString("AAADERW", g.Alphabet()))
-	generator.ResetCrossesAndAnchors()
 	aiplayer := player.NewRawEquityPlayer(strategy, pb.BotRequest_HASTY_BOT)
+	generator.ResetCrossesAndAnchors()
 	generator.GenAll(g.RackFor(0), true)
 
 	aiplayer.AssignEquity(generator.Plays(), g.Board(), g.Bag(),
@@ -130,8 +130,8 @@ func TestSimSingleIteration(t *testing.T) {
 	game.SetPlayerOnTurn(0)
 	// Overwrite the first rack
 	game.SetRackFor(0, alphabet.RackFromString("AAADERW", game.Alphabet()))
-	generator.ResetCrossesAndAnchors()
 	aiplayer := player.NewRawEquityPlayer(strategy, pb.BotRequest_HASTY_BOT)
+	generator.ResetCrossesAndAnchors()
 	generator.GenAll(game.RackFor(0), true)
 	log.Info().Msgf("nplays: %v", len(generator.Plays()))
 
