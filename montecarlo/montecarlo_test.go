@@ -166,15 +166,16 @@ func BenchmarkSim(b *testing.B) {
 
 	game, err := cgp.ParseCGP(&DefaultConfig, cgpstr)
 	is.NoErr(err)
-	game.RecalculateBoard()
-	strategy, err := strategy.NewExhaustiveLeaveStrategy(game.Rules().LexiconName(),
-		game.Alphabet(), &DefaultConfig, strategy.LeaveFilename, strategy.PEGAdjustmentFilename)
-	is.NoErr(err)
 
 	gd, err := gaddag.Get(game.Config(), game.LexiconName())
 	is.NoErr(err)
 
 	generator := movegen.NewGordonGenerator(gd, game.Board(), game.Rules().LetterDistribution())
+	game.SetAddlState(generator.State())
+	game.RecalculateBoard()
+	strategy, err := strategy.NewExhaustiveLeaveStrategy(game.Rules().LexiconName(),
+		game.Alphabet(), &DefaultConfig, strategy.LeaveFilename, strategy.PEGAdjustmentFilename)
+	is.NoErr(err)
 
 	generator.GenAll(game.RackFor(0), false)
 	plays := generator.Plays()[:10]
@@ -200,15 +201,16 @@ func TestDeepSim(t *testing.T) {
 
 	game, err := cgp.ParseCGP(&DefaultConfig, cgpstr)
 	is.NoErr(err)
-	game.RecalculateBoard()
-	strategy, err := strategy.NewExhaustiveLeaveStrategy(game.Rules().LexiconName(),
-		game.Alphabet(), &DefaultConfig, strategy.LeaveFilename, strategy.PEGAdjustmentFilename)
-	is.NoErr(err)
 
 	gd, err := gaddag.Get(game.Config(), game.LexiconName())
 	is.NoErr(err)
 
 	generator := movegen.NewGordonGenerator(gd, game.Board(), game.Rules().LetterDistribution())
+	game.SetAddlState(generator.State())
+	game.RecalculateBoard()
+	strategy, err := strategy.NewExhaustiveLeaveStrategy(game.Rules().LexiconName(),
+		game.Alphabet(), &DefaultConfig, strategy.LeaveFilename, strategy.PEGAdjustmentFilename)
+	is.NoErr(err)
 
 	generator.GenAll(game.RackFor(0), false)
 	plays := generator.Plays()[:10]
