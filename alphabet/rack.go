@@ -72,7 +72,7 @@ func (r *Rack) setFromStr(rack string) {
 	}
 	for _, c := range rack {
 		ml, err := r.alphabet.Val(c)
-		if err == nil {
+		if err == nil && int(ml) < len(r.LetArr) {
 			r.LetArr[ml]++
 		} else {
 			log.Error().Msgf("Rack has an illegal character: %v", string(c))
