@@ -342,24 +342,24 @@ func TestGenAllMovesFullRackAgain(t *testing.T) {
 	assert.Equal(t, 63, len(nonScoringPlays(generator.plays)))
 }
 
-// func TestGenMoveWithOverlaps(t *testing.T) {
-// 	gd, err := GaddagFromLexicon("America")
-// 	if err != nil {
-// 		t.Errorf("Expected error to be nil, got %v", err)
-// 	}
-// 	alph := gd.GetAlphabet()
+func TestGenMoveWithOverlaps(t *testing.T) {
+	is := is.New(t)
 
-// 	bd := board.MakeBoard(board.CrosswordGameBoard)
-// 	ld := alphabet.EnglishLetterDistribution(gd.GetAlphabet())
-// 	generator := NewGordonGenerator(gd, bd, ld)
-// 	bd.SetToGame(gd.GetAlphabet(), board.MavenVsMacondo)
-// 	cross_set.GenAllCrossSets(bd, gd, ld)
-// 	fmt.Println(bd.ToDisplayText(alph))
+	gd, err := GaddagFromLexicon("America")
+	is.NoErr(err)
+	alph := gd.GetAlphabet()
 
-// 	generator.GenAll(alphabet.RackFromString("AEEORS?", alph), true)
-// 	fmt.Println(generator.Plays())
-// 	assert.True(t, false)
-// }
+	bd := board.MakeBoard(board.CrosswordGameBoard)
+	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
+	is.NoErr(err)
+	generator := NewGordonGenerator(gd, bd, ld)
+	bd.SetToGame(gd.GetAlphabet(), board.MavenVsMacondo)
+	generator.ResetCrossesAndAnchors()
+
+	generator.GenAll(alphabet.RackFromString("AEEORS?", alph), true)
+	assert.Equal(t, 8301, len(scoringPlays(generator.plays)))
+	assert.Equal(t, 95, len(nonScoringPlays(generator.plays)))
+}
 
 func TestGenAllMovesSingleBlank(t *testing.T) {
 	is := is.New(t)
