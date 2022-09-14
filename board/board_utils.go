@@ -33,6 +33,9 @@ func (g *GameBoard) ToCGP(alph *alphabet.Alphabet) string {
 	var str string
 	n := g.Dim()
 	for i := 0; i < n; i++ {
+		if i > 0 {
+			str += "/"
+		}
 		c := 0
 		for j := 0; j < n; j++ {
 			letter := g.GetLetter(i, j)
@@ -49,7 +52,6 @@ func (g *GameBoard) ToCGP(alph *alphabet.Alphabet) string {
 		if c > 0 {
 			str += fmt.Sprintf("%d", c)
 		}
-		str += "/"
 	}
 	return str
 }

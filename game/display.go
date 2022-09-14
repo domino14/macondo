@@ -43,9 +43,11 @@ func addText(lines []string, row int, hpad int, text string) {
 
 func (g *Game) ToCGP() string {
 	cgp := g.Board().ToCGP(g.Alphabet())
+	rack := alphabet.MachineWord(g.players[0].rack.TilesOn()).UserVisible(g.Alphabet())
+	opprack := alphabet.MachineWord(g.players[1].rack.TilesOn()).UserVisible(g.Alphabet())
 	// NumPlayers is always 2.
-	return fmt.Sprintf("cgp %s %d/%d %d lex %s",
-		cgp, g.PointsFor(0), g.PointsFor(1), g.ScorelessTurns(), g.LexiconName())
+	return fmt.Sprintf("cgp %s %s/%s %d/%d %d lex %s", cgp, rack, opprack,
+		g.PointsFor(0), g.PointsFor(1), g.ScorelessTurns(), g.LexiconName())
 }
 
 // ToDisplayText turns the current state of the game into a displayable
