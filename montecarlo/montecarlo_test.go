@@ -192,6 +192,41 @@ func BenchmarkSim(b *testing.B) {
 	}
 }
 
+func TestDeepSim(t *testing.T) {
+	is := is.New(t)
+	plies := 14
+
+	cgpstr := "7V7/7A7/QUAI3N7/1PINOTAGE6/3J11/1Z1U1K2B6/1A1R1N2E6/1MAYwEEDS6/TIX2W2TA5/1A2V3IF5/I2DEaCONRY4/CITER3GO5/H3T10/O14/R14 EGIILNW/DHLOOSU 315/294 0 lex NWL20"
+
+	game, err := cgp.ParseCGP(&DefaultConfig, cgpstr)
+	is.NoErr(err)
+	game.RecalculateBoard()
+	strategy, err := strategy.NewExhaustiveLeaveStrategy(game.Rules().LexiconName(),
+		game.Alphabet(), &DefaultConfig, strategy.LeaveFilename, strategy.PEGAdjustmentFilename)
+	is.NoErr(err)
+
+	gd, err := gaddag.Get(game.Config(), game.LexiconName())
+	is.NoErr(err)
+
+	generator := movegen.NewGordonGenerator(gd, game.Board(), game.Rules().LetterDistribution())
+
+	generator.GenAll(game.RackFor(0), false)
+	plays := generator.Plays()[:10]
+
+	simmer := &Simmer{}
+	simmer.Init(game, player.NewRawEquityPlayer(strategy, pb.BotRequest_HASTY_BOT), &DefaultConfig)
+	simmer.SetThreads(1)
+	simmer.PrepareSim(plies, plays)
+	timeout, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	simmer.Simulate(timeout)
+
+	// Board should be reset after the simulation.
+	is.True(!game.Board().IsEmpty())
+	fmt.Println(simmer.printStats())
+	fmt.Println("Total iterations", simmer.iterationCount)
+}
+
 func TestLongerSim(t *testing.T) {
 	is := is.New(t)
 	plies := 2
@@ -249,41 +284,6 @@ func TestLongerSim(t *testing.T) {
 	// AWA wins (note that the print above also sorts the plays by equity)
 	is.Equal(simmer.plays[0].play.Tiles().UserVisible(game.Alphabet()), "AWA")
 	is.Equal(simmer.gameCopies[0].Turn(), 0)
-}
-
-func TestDeepSim(t *testing.T) {
-	is := is.New(t)
-	plies := 14
-
-	cgpstr := "C14/O2TOY9/mIRADOR8/F4DAB2PUGH1/I5GOOEY3V/T4XI2MALTHA/14N/6GUM3OWN/7PEW2DOE/9EF1DOR/2KUNA1J1BEVELS/3TURRETs2S2/7A4T2/7N7/7S7 EEEIILZ/ 336/298 0 lex NWL20;"
-
-	game, err := cgp.ParseCGP(&DefaultConfig, cgpstr)
-	is.NoErr(err)
-	game.RecalculateBoard()
-	strategy, err := strategy.NewExhaustiveLeaveStrategy(game.Rules().LexiconName(),
-		game.Alphabet(), &DefaultConfig, strategy.LeaveFilename, strategy.PEGAdjustmentFilename)
-	is.NoErr(err)
-
-	gd, err := gaddag.Get(game.Config(), game.LexiconName())
-	is.NoErr(err)
-
-	generator := movegen.NewGordonGenerator(gd, game.Board(), game.Rules().LetterDistribution())
-
-	generator.GenAll(game.RackFor(0), false)
-	plays := generator.Plays()[:10]
-
-	simmer := &Simmer{}
-	simmer.Init(game, player.NewRawEquityPlayer(strategy, pb.BotRequest_HASTY_BOT), &DefaultConfig)
-	simmer.SetThreads(1)
-	simmer.PrepareSim(plies, plays)
-	timeout, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	defer cancel()
-	simmer.Simulate(timeout)
-
-	// Board should be reset after the simulation.
-	is.True(!game.Board().IsEmpty())
-	fmt.Println(simmer.printStats())
-	fmt.Println("Total iterations", simmer.iterationCount)
 }
 
 func TestDrawingAssumptions(t *testing.T) {
