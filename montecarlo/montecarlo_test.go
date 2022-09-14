@@ -253,33 +253,44 @@ func TestLongerSim(t *testing.T) {
 	is.Equal(simmer.gameCopies[0].Turn(), 0)
 }
 
-// func TestDrawingAssumptions(t *testing.T) {
-// 	// Test that we are actually drawing from a sane bag.
-// 	// is := is.New(t)
-// 	plies := 2
-// 	gd, err := GaddagFromLexicon("NWL18")
-// 	if err != nil {
-// 		t.Errorf("Expected error to be nil, got %v", err)
-// 	}
-// 	dist := alphabet.EnglishLetterDistribution()
+func TestDrawingAssumptions(t *testing.T) {
+	t.Skip()
+	is := is.New(t)
 
-// 	game := &mechanics.XWordGame{}
-// 	game.Init(gd, dist)
-// 	strategy := strategy.NewExhaustiveLeaveStrategy(game.Bag(), gd.LexiconName(),
-// 		gd.GetAlphabet(), LeaveFile)
-// 	generator := movegen.NewGordonGenerator(game, strategy)
+	// Test that we are actually drawing from a sane bag.
+	plies := 2
+	players := []*pb.PlayerInfo{
+		{Nickname: "JD", RealName: "Jesse"},
+		{Nickname: "cesar", RealName: "César"},
+	}
+	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
+		game.VarClassic, "NWL18", "English")
+	is.NoErr(err)
+	game, err := game.NewGame(rules, players)
+	is.NoErr(err)
 
-// 	// Deal out racks.
-// 	game.StartGame()
-// 	game.SetRackFor(0, alphabet.RackFromString("AAADERW", gd.GetAlphabet()))
+	strategy, err := strategy.NewExhaustiveLeaveStrategy(rules.LexiconName(),
+		game.Alphabet(), &DefaultConfig, strategy.LeaveFilename, strategy.PEGAdjustmentFilename)
+	is.NoErr(err)
 
-// 	simmer := &Simmer{}
-// 	simmer.Init(generator, game)
-// 	generator.GenAll(game.RackFor(0))
-// 	plays := generator.Plays()[:10]
-// 	simmer.resetStats(plies, len(plays))
-// 	simmer.plays = plays
+	gd, err := gaddag.Get(game.Config(), game.LexiconName())
+	is.NoErr(err)
+	generator := movegen.NewGordonGenerator(gd, game.Board(), rules.LetterDistribution())
 
-// 	simmer.simSingleIteration(plays, plies)
+	// This will deal a random rack to players:
+	game.StartGame()
+	game.SetPlayerOnTurn(0)
+	// Overwrite the first rack
+	game.SetRackFor(0, alphabet.RackFromString("AAADERW", gd.GetAlphabet()))
 
-// }
+	aiplayer := player.NewRawEquityPlayer(strategy, pb.BotRequest_HASTY_BOT)
+	simmer := &Simmer{}
+	simmer.Init(game, aiplayer, &DefaultConfig)
+	simmer.SetThreads(1)
+
+	aiplayer.AssignEquity(generator.Plays(), game.Board(), game.Bag(), game.RackFor(1))
+	plays := aiplayer.TopPlays(generator.Plays(), 10)
+	simmer.PrepareSim(plies, plays)
+
+	simmer.simSingleIteration(plies, 0, 1, nil)
+}
