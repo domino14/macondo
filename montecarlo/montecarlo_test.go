@@ -192,7 +192,7 @@ func BenchmarkSim(b *testing.B) {
 	}
 }
 
-func TestThreadedSim(t *testing.T) {
+func TestLongerSim(t *testing.T) {
 	is := is.New(t)
 	plies := 2
 
@@ -231,7 +231,7 @@ func TestThreadedSim(t *testing.T) {
 	simmer := &Simmer{}
 	simmer.Init(game, aiplayer, &DefaultConfig)
 
-	timeout, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	timeout, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
 	f, err := os.Create("/tmp/simlog")
@@ -251,7 +251,7 @@ func TestThreadedSim(t *testing.T) {
 	is.Equal(simmer.gameCopies[0].Turn(), 0)
 }
 
-func TestDeeperSim(t *testing.T) {
+func TestDeepSim(t *testing.T) {
 	is := is.New(t)
 	plies := 14
 
@@ -276,7 +276,7 @@ func TestDeeperSim(t *testing.T) {
 	simmer.Init(game, player.NewRawEquityPlayer(strategy, pb.BotRequest_HASTY_BOT), &DefaultConfig)
 	simmer.SetThreads(1)
 	simmer.PrepareSim(plies, plays)
-	timeout, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	timeout, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 	simmer.Simulate(timeout)
 
