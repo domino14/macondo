@@ -1,4 +1,4 @@
-package strategy
+package strategy_test
 
 import (
 	"os"
@@ -10,24 +10,16 @@ import (
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddag"
-	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/movegen"
+	"github.com/domino14/macondo/strategy"
+	"github.com/domino14/macondo/testcommon"
 	"github.com/stretchr/testify/assert"
 )
 
 var DefaultConfig = config.DefaultConfig()
 
 func TestMain(m *testing.M) {
-	for _, lex := range []string{"NWL18"} {
-		gdgPath := filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag")
-		if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
-			gaddagmaker.GenerateGaddag(filepath.Join(DefaultConfig.LexiconPath, lex+".txt"), true, true)
-			err = os.Rename("out.gaddag", gdgPath)
-			if err != nil {
-				panic(err)
-			}
-		}
-	}
+	testcommon.CreateGaddags(DefaultConfig, []string{"NWL18"})
 	os.Exit(m.Run())
 }
 
@@ -38,7 +30,7 @@ func GaddagFromLexicon(lex string) (*gaddag.SimpleGaddag, error) {
 func TestLeaveMPH(t *testing.T) {
 	alph := alphabet.EnglishAlphabet()
 
-	els, err := NewExhaustiveLeaveStrategy("NWL18", alph, &DefaultConfig, "", "")
+	els, err := strategy.NewExhaustiveLeaveStrategy("NWL18", alph, &DefaultConfig, "", "")
 	assert.Nil(t, err)
 
 	type testcase struct {
@@ -73,15 +65,16 @@ func TestEndgameTiming(t *testing.T) {
 	generator.ResetCrossesAndAnchors()
 
 	generator.GenAll(alphabet.RackFromString("AEEORS?", alph), false)
-	els, err := NewExhaustiveLeaveStrategy("NWL18", alph, &DefaultConfig, "", "")
+	els, err := strategy.NewExhaustiveLeaveStrategy("NWL18", alph, &DefaultConfig, "", "")
 	assert.Nil(t, err)
 	oppRack := alphabet.NewRack(alph)
 	oppRack.Set(tilesInPlay.Rack1)
 	assert.Equal(t, oppRack.NumTiles(), uint8(2))
 
 	bag := alphabet.NewBag(ld, alph)
-	bag.Draw(100)
-
+	ml := make([]alphabet.MachineLetter, 100)
+	err = bag.Draw(100, ml)
+	assert.Nil(t, err)
 	plays := generator.Plays()
 
 	for _, m := range plays {
@@ -89,14 +82,16 @@ func TestEndgameTiming(t *testing.T) {
 	}
 
 	sort.Slice(plays, func(i, j int) bool {
+		if plays[j].Equity() == plays[i].Equity() {
+			return plays[i].ShortDescription() < plays[j].ShortDescription()
+		}
 		return plays[j].Equity() < plays[i].Equity()
 	})
-
 	assert.Equal(t, plays[0].Equity(), float64(22))
 	// Use your blank
-	assert.Equal(t, plays[0].ShortDescription(), "M6 RE.EArS")
-	assert.Equal(t, plays[1].ShortDescription(), "L1 S..s")
-	assert.Equal(t, plays[2].ShortDescription(), "M6 RE.EAmS")
+	assert.Equal(t, plays[0].ShortDescription(), " L1 S..s")
+	assert.Equal(t, plays[1].ShortDescription(), " M6 RE.EAmS")
+	assert.Equal(t, plays[2].ShortDescription(), " M6 RE.EArS")
 }
 
 func TestPreendgameTiming(t *testing.T) {
@@ -111,7 +106,7 @@ func TestPreendgameTiming(t *testing.T) {
 	generator.ResetCrossesAndAnchors()
 
 	generator.GenAll(alphabet.RackFromString("OXPBAZE", alph), false)
-	els, err := NewExhaustiveLeaveStrategy("NWL18", alph, &DefaultConfig, "", "quackle_preendgame.json")
+	els, err := strategy.NewExhaustiveLeaveStrategy("NWL18", alph, &DefaultConfig, "", "quackle_preendgame.json")
 	assert.Nil(t, err)
 
 	bag := alphabet.NewBag(ld, alph)

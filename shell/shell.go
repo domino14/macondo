@@ -22,8 +22,10 @@ import (
 	airunner "github.com/domino14/macondo/ai/runner"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/automatic"
+	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/endgame/alphabeta"
+	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -109,6 +111,7 @@ type ShellController struct {
 
 	curTurnNum     int
 	gen            movegen.MoveGenerator
+	backupgen      movegen.MoveGenerator // used for endgame engine
 	curMode        Mode
 	endgameSolver  *alphabeta.Solver
 	curEndgameNode *alphabeta.GameNode
@@ -218,9 +221,16 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 
 func (sc *ShellController) initGameDataStructures() error {
 	sc.simmer = &montecarlo.Simmer{}
-	sc.simmer.Init(&sc.game.Game, sc.game.AIPlayer())
+	sc.simmer.Init(&sc.game.Game, sc.game.AIPlayer(), sc.config)
 	sc.gen = sc.game.MoveGenerator()
 	sc.game.RecalculateBoard()
+
+	gd, err := gaddag.Get(sc.config, sc.game.LexiconName())
+	if err != nil {
+		return err
+	}
+
+	sc.backupgen = movegen.NewGordonGenerator(gd, sc.game.Board(), sc.game.Bag().LetterDistribution())
 	return nil
 }
 
@@ -303,9 +313,8 @@ func (sc *ShellController) loadGCG(args []string) error {
 		log.Info().Msgf("gcg file had no lexicon, so using default lexicon %v",
 			lexicon)
 	}
-	// ignore variant for now, until AI/bot can play other variants
-	boardLayout, ldName, _ := game.HistoryToVariant(history)
-	rules, err := airunner.NewAIGameRules(sc.config, boardLayout, lexicon, ldName)
+	boardLayout, ldName, variant := game.HistoryToVariant(history)
+	rules, err := airunner.NewAIGameRules(sc.config, boardLayout, variant, lexicon, ldName)
 	if err != nil {
 		return err
 	}
@@ -323,6 +332,32 @@ func (sc *ShellController) loadGCG(args []string) error {
 	// Set challenge rule to double by default. This can be overridden.
 	sc.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
 
+	return sc.initGameDataStructures()
+}
+
+func (sc *ShellController) loadCGP(cgpstr string) error {
+	g, err := cgp.ParseCGP(sc.config, cgpstr)
+	if err != nil {
+		return err
+	}
+	lexicon := g.History().Lexicon
+	if lexicon == "" {
+		lexicon = sc.config.DefaultLexicon
+		log.Info().Msgf("cgp file had no lexicon, so using default lexicon %v",
+			lexicon)
+	}
+	sc.game, err = airunner.NewAIGameRunnerFromGame(g, sc.config, pb.BotRequest_HASTY_BOT)
+	if err != nil {
+		return err
+	}
+	sc.game.SetBackupMode(game.InteractiveGameplayMode)
+	sc.game.SetStateStackLength(1)
+
+	// Set challenge rule to double by default. This can be overridden.
+	// XXX: can read from cgp file.
+	sc.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
+
+	sc.game.RecalculateBoard()
 	return sc.initGameDataStructures()
 }
 
@@ -347,7 +382,7 @@ func (sc *ShellController) setToTurn(turnnum int) error {
 }
 
 func moveTableHeader() string {
-	return "     Move                Leave  Score Equity\n"
+	return "     Move                Leave  Score Equity"
 }
 
 func MoveTableRow(idx int, m *move.Move, alph *alphabet.Alphabet) string {
@@ -362,63 +397,22 @@ func (sc *ShellController) printEndgameSequence(moves []*move.Move) {
 	}
 }
 
-func (sc *ShellController) genMovesAndDisplay(numPlays int) {
+func (sc *ShellController) genMovesAndDescription(numPlays int) string {
 	sc.genMoves(numPlays)
-	sc.displayMoveList()
+	return sc.genDisplayMoveList()
 }
 
 func (sc *ShellController) genMoves(numPlays int) {
 	sc.curPlayList = sc.game.GenerateMoves(numPlays)
 }
 
-func (sc *ShellController) displayMoveList() {
-	sc.showMessage(moveTableHeader())
+func (sc *ShellController) genDisplayMoveList() string {
+	var s strings.Builder
+	s.WriteString(moveTableHeader() + "\n")
 	for i, p := range sc.curPlayList {
-		sc.showMessage(MoveTableRow(i, p, sc.game.Alphabet()))
+		s.WriteString(MoveTableRow(i, p, sc.game.Alphabet()) + "\n")
 	}
-}
-
-func endgameArgs(args []string) (plies int, deepening, simple, disablePruning bool, err error) {
-	deepening = true
-	plies = 4
-	simple = false
-	disablePruning = false
-
-	if len(args) > 0 {
-		plies, err = strconv.Atoi(args[0])
-		if err != nil {
-			return
-		}
-	}
-	if len(args) > 1 {
-		var id int
-		id, err = strconv.Atoi(args[1])
-		if err != nil {
-			return
-		}
-		deepening = id == 1
-	}
-	if len(args) > 2 {
-		var sp int
-		sp, err = strconv.Atoi(args[2])
-		if err != nil {
-			return
-		}
-		simple = sp == 1
-	}
-	if len(args) > 3 {
-		var d int
-		d, err = strconv.Atoi(args[3])
-		if err != nil {
-			return
-		}
-		disablePruning = d == 1
-	}
-	if len(args) > 4 {
-		err = errors.New("endgame only takes 5 arguments")
-		return
-	}
-	return
+	return s.String()
 }
 
 func modeFromStr(mode string) (Mode, error) {
@@ -459,7 +453,7 @@ func (sc *ShellController) addMoveToList(playerid int, m *move.Move) error {
 	sort.Slice(sc.curPlayList, func(i, j int) bool {
 		return sc.curPlayList[j].Equity() < sc.curPlayList[i].Equity()
 	})
-	sc.displayMoveList()
+	sc.showMessage(sc.genDisplayMoveList())
 	return nil
 }
 
@@ -541,7 +535,7 @@ func (sc *ShellController) commitAIMove() error {
 
 func (sc *ShellController) handleAutoplay(args []string, options map[string]string) error {
 	var logfile, lexicon, letterDistribution, leavefile1, leavefile2, pegfile1, pegfile2 string
-	var numgames int
+	var numgames, numthreads int
 	var block bool
 	var botcode1, botcode2 pb.BotRequest_BotCode
 	if options["logfile"] == "" {
@@ -615,6 +609,19 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 		block = true
 	}
 
+	if options["numthreads"] == "" {
+		numthreads = runtime.NumCPU()
+	} else {
+		var err error
+		numthreads, err = strconv.Atoi(options["numthreads"])
+		if err != nil {
+			return err
+		}
+	}
+	if numthreads < 1 {
+		return errors.New("need at least one thread")
+	}
+
 	player1 := "exhaustiveleave"
 	player2 := player1
 	if len(args) == 1 {
@@ -637,7 +644,7 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 
 	sc.showMessage("automatic game runner will log to " + logfile)
 	sc.gameRunnerCtx, sc.gameRunnerCancel = context.WithCancel(context.Background())
-	err := automatic.StartCompVCompStaticGames(sc.gameRunnerCtx, sc.config, numgames, block, runtime.NumCPU(),
+	err := automatic.StartCompVCompStaticGames(sc.gameRunnerCtx, sc.config, numgames, block, numthreads,
 		logfile, player1, player2, lexicon, letterDistribution, leavefile1, leavefile2, pegfile1, pegfile2,
 		botcode1, botcode2)
 	if err != nil {
@@ -746,6 +753,12 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.export(cmd)
 	case "autoanalyze":
 		return sc.autoAnalyze(cmd)
+	case "script":
+		return sc.script(cmd)
+	case "gid":
+		return sc.gid(cmd)
+	case "leave":
+		return sc.leave(cmd)
 	default:
 		msg := fmt.Sprintf("command %v not found", strconv.Quote(cmd.cmd))
 		log.Info().Msg(msg)

@@ -28,7 +28,12 @@ func NamedLetterDistribution(cfg *config.Config, name string) (*LetterDistributi
 		return nil, err
 	}
 	defer file.Close()
-	return ScanLetterDistribution(file)
+	d, err := ScanLetterDistribution(file)
+	if err != nil {
+		return nil, err
+	}
+	d.Name = name
+	return d, nil
 }
 
 // CacheReadFunc converts raw data when populating the global cache
@@ -54,5 +59,6 @@ func Get(cfg *config.Config, name string) (*LetterDistribution, error) {
 	if !ok {
 		return nil, errors.New("Could not read letter distribution from file")
 	}
+	ret.Name = name
 	return ret, nil
 }

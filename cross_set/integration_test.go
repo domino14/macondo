@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
@@ -15,6 +13,8 @@ import (
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
+	"github.com/stretchr/testify/assert"
+	"github.com/matryer/is"
 )
 
 var DefaultConfig = config.DefaultConfig()
@@ -26,15 +26,12 @@ type updateCrossesForMoveTestCase struct {
 }
 
 func TestUpdateCrossSetsAndAnchorsForMove(t *testing.T) {
+	is := is.New(t)
 	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
 	gd, err := gaddag.LoadGaddag(path)
-	if err != nil {
-		t.Error(err)
-	}
+	is.NoErr(err)
 	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
-	if err != nil {
-		t.Error(err)
-	}
+	is.NoErr(err)
 	gen := cross_set.GaddagCrossSetGenerator{Dist: dist, Gaddag: gd}
 	alph := dist.Alphabet()
 
@@ -98,10 +95,9 @@ func TestUpdateCrossSetsAndAnchorsForMove(t *testing.T) {
 
 // Copy of TestUpdateCrossSetsForMove with the CrossScoreOnlyGenerator
 func TestUpdateCrossScoresForMove(t *testing.T) {
+	is := is.New(t)
 	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
-	if err != nil {
-		t.Error(err)
-	}
+	is.NoErr(err)
 	gen := crosses.CrossScoreOnlyGenerator{Dist: dist}
 	alph := dist.Alphabet()
 
@@ -177,15 +173,12 @@ func compareCrossScores(t *testing.T, b1 *board.GameBoard, b2 *board.GameBoard) 
 }
 
 func TestCompareUpdate(t *testing.T) {
+	is := is.New(t)
 	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
 	gd, err := gaddag.LoadGaddag(path)
-	if err != nil {
-		t.Error(err)
-	}
+	is.NoErr(err)
 	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
-	if err != nil {
-		t.Error(err)
-	}
+	is.NoErr(err)
 	gen1 := cross_set.GaddagCrossSetGenerator{Dist: dist, Gaddag: gd}
 	gen2 := crosses.CrossScoreOnlyGenerator{Dist: dist}
 	alph := dist.Alphabet()
@@ -230,15 +223,12 @@ func TestCompareUpdate(t *testing.T) {
 }
 
 func TestCompareGenAll(t *testing.T) {
+	is := is.New(t)
 	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
 	gd, err := gaddag.LoadGaddag(path)
-	if err != nil {
-		t.Error(err)
-	}
+	is.NoErr(err)
 	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
-	if err != nil {
-		t.Error(err)
-	}
+	is.NoErr(err)
 	alph := dist.Alphabet()
 
 	var testCases = []board.VsWho{
@@ -266,15 +256,12 @@ func TestCompareGenAll(t *testing.T) {
 // Benchmarks
 
 func BenchmarkGenAnchorsAndCrossSets(b *testing.B) {
+	is := is.New(b)
 	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
 	gd, err := gaddag.LoadGaddag(path)
-	if err != nil {
-		b.Error(err)
-	}
+	is.NoErr(err)
 	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
-	if err != nil {
-		b.Error(err)
-	}
+	is.NoErr(err)
 	alph := dist.Alphabet()
 
 	bd := board.MakeBoard(board.CrosswordGameBoard)
@@ -292,17 +279,14 @@ func BenchmarkGenAnchorsAndCrossSets(b *testing.B) {
 }
 
 func BenchmarkMakePlay(b *testing.B) {
+	is := is.New(b)
 	// Mostly, benchmark the progressive generation of anchors and cross-sets
 	// (as opposed to generating all of them from scratch)
 	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
 	gd, err := gaddag.LoadGaddag(path)
-	if err != nil {
-		b.Error(err)
-	}
+	is.NoErr(err)
 	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
-	if err != nil {
-		b.Error(err)
-	}
+	is.NoErr(err)
 	gen := cross_set.GaddagCrossSetGenerator{Dist: dist, Gaddag: gd}
 	alph := dist.Alphabet()
 	bd := board.MakeBoard(board.CrosswordGameBoard)
@@ -313,14 +297,7 @@ func BenchmarkMakePlay(b *testing.B) {
 	a.UpdateAllAnchors()
 
 	// create a move.
-	m := move.NewScoringMove(
-		38,
-		alphabet.MachineWord([]alphabet.MachineLetter{19, 0, 4, 11}), // TAEL
-		alphabet.MachineWord([]alphabet.MachineLetter{0, 1, 3}),
-		true,
-		4,
-		alph,
-		8, 10, "K9")
+	m := move.NewScoringMoveSimple(38, "K9", "TAEL", "ABD", alph)
 
 	b.ResetTimer()
 	// 2.7 us; more than 10x faster than regenerating all anchors every time.

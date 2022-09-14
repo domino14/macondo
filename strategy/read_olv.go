@@ -1,8 +1,8 @@
 package strategy
 
 import (
-	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io"
 
 	"github.com/domino14/macondo/alphabet"
@@ -38,27 +38,38 @@ type OldLeaves struct {
 }
 
 func (olv *OldLeaves) LeaveValue(leave alphabet.MachineWord) float64 {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("Recovered from panic; leave was %v\n", leave.UserVisible(alphabet.EnglishAlphabet()))
+			// Panic anyway; the recover was just to figure out which leave did it.
+			panic("panicking anyway")
+		}
+	}()
 	ll := len(leave)
+	if ll == 0 {
+		return float64(0)
+	}
 	for i := 1; i < ll; i++ {
 		for j := i; j > 0 && leave[j-1] > leave[j]; j-- {
 			leave[j-1], leave[j] = leave[j], leave[j-1]
 		}
 	}
 	if len(leave) <= int(olv.maxLength) {
-		leaveBytes := leave.Bytes()
 		// TODO: replace this comment with shrug emoji.
 		h := uint64(14695981039346656037)
-		for _, c := range leaveBytes {
+		for _, c := range leave {
 			h ^= uint64(c)
 			h *= 1099511628211
 		}
 		h ^= olv.r[0]
 		ri := olv.indices[h%uint64(len(olv.indices))]
+
 		if ri < uint16(len(olv.r)) {
+
 			h = (h ^ olv.r[ri]) % uint64(len(olv.leaveFloats))
 			bufp := int(uint64(olv.maxLength) * h)
-			if bytes.Equal(olv.buf[bufp:bufp+len(leaveBytes)], leaveBytes) &&
-				(len(leaveBytes) >= int(olv.maxLength) || olv.buf[bufp+len(leaveBytes)] == 0xff) {
+			if string(olv.buf[bufp:bufp+len(leave)]) == string(leave) &&
+				(len(leave) >= int(olv.maxLength) || olv.buf[bufp+len(leave)] == 0xff) {
 				return float64(olv.leaveFloats[h])
 			}
 		}

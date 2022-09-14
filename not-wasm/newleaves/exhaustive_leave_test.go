@@ -12,25 +12,16 @@ import (
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/gaddag"
-	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/strategy"
+	"github.com/domino14/macondo/testcommon"
 	"github.com/stretchr/testify/assert"
 )
 
 var DefaultConfig = config.DefaultConfig()
 
 func TestMain(m *testing.M) {
-	for _, lex := range []string{"NWL18"} {
-		gdgPath := filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag")
-		if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
-			gaddagmaker.GenerateGaddag(filepath.Join(DefaultConfig.LexiconPath, lex+".txt"), true, true)
-			err = os.Rename("out.gaddag", gdgPath)
-			if err != nil {
-				panic(err)
-			}
-		}
-	}
+	testcommon.CreateGaddags(DefaultConfig, []string{"NWL18"})
 	os.Exit(m.Run())
 }
 
@@ -73,7 +64,8 @@ func TestEndgameTiming(t *testing.T) {
 	assert.Nil(t, err)
 	generator := movegen.NewGordonGenerator(gd, bd, ld)
 	tilesInPlay := bd.SetToGame(gd.GetAlphabet(), board.MavenVsMacondo)
-	cross_set.GenAllCrossSets(bd, gd, ld)
+	bcs := cross_set.MakeBoardCrossSets(bd)
+	cross_set.GenAllCrossSets(bd, bcs, gd, ld)
 	generator.GenAll(alphabet.RackFromString("AEEORS?", alph), false)
 
 	els, err := strategy.NewExhaustiveLeaveStrategy("NWL18", alph, &DefaultConfig, "", "")
@@ -83,8 +75,9 @@ func TestEndgameTiming(t *testing.T) {
 	assert.Equal(t, oppRack.NumTiles(), uint8(2))
 
 	bag := alphabet.NewBag(ld, alph)
-	bag.Draw(100)
-
+	ml := make([]alphabet.MachineLetter, 100)
+	err = bag.Draw(100, ml)
+	assert.Nil(t, err)
 	plays := generator.Plays()
 
 	for _, m := range plays {
@@ -97,9 +90,9 @@ func TestEndgameTiming(t *testing.T) {
 
 	assert.Equal(t, plays[0].Equity(), float64(22))
 	// Use your blank
-	assert.Equal(t, plays[0].ShortDescription(), "M6 RE.EArS")
-	assert.Equal(t, plays[1].ShortDescription(), "L1 S..s")
-	assert.Equal(t, plays[2].ShortDescription(), "M6 RE.EAmS")
+	assert.Equal(t, plays[0].ShortDescription(), " M6 RE.EArS")
+	assert.Equal(t, plays[1].ShortDescription(), " L1 S..s")
+	assert.Equal(t, plays[2].ShortDescription(), " M6 RE.EAmS")
 }
 
 func TestPreendgameTiming(t *testing.T) {
@@ -111,7 +104,8 @@ func TestPreendgameTiming(t *testing.T) {
 	assert.Nil(t, err)
 	generator := movegen.NewGordonGenerator(gd, bd, ld)
 	tilesInPlay := bd.SetToGame(gd.GetAlphabet(), board.VsOxy)
-	cross_set.GenAllCrossSets(bd, gd, ld)
+	bcs := cross_set.MakeBoardCrossSets(bd)
+	cross_set.GenAllCrossSets(bd, bcs, gd, ld)
 	generator.GenAll(alphabet.RackFromString("OXPBAZE", alph), false)
 
 	els, err := strategy.NewExhaustiveLeaveStrategy("NWL18", alph, &DefaultConfig, "", "quackle_preendgame.json")

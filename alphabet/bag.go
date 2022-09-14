@@ -10,18 +10,18 @@ import (
 
 // A Bag is the bag o'tiles!
 type Bag struct {
-	initialTiles       []MachineLetter
-	tiles              []MachineLetter
-	initialTileMap     map[MachineLetter]uint8
-	tileMap            map[MachineLetter]uint8
+	initialTiles []MachineLetter
+	tiles        []MachineLetter
+	// the tile "map" is just a slice with the index being the machine letter
+	// and the value being the number of tiles.
+	initialTileMap     []uint8
+	tileMap            []uint8
 	letterDistribution *LetterDistribution
 }
 
-func copyTileMap(orig map[MachineLetter]uint8) map[MachineLetter]uint8 {
-	tm := make(map[MachineLetter]uint8)
-	for k, v := range orig {
-		tm[k] = v
-	}
+func copyTileMap(orig []uint8) []uint8 {
+	tm := make([]uint8, len(orig))
+	copy(tm, orig)
 	return tm
 }
 
@@ -34,18 +34,23 @@ func (b *Bag) Refill() {
 
 // DrawAtMost draws at most n tiles from the bag. It can draw fewer if there
 // are fewer tiles than n, and even draw no tiles at all :o
-func (b *Bag) DrawAtMost(n int) []MachineLetter {
+// This is a zero-alloc draw into the passed-in slice.
+func (b *Bag) DrawAtMost(n int, ml []MachineLetter) int {
 	if n > len(b.tiles) {
 		n = len(b.tiles)
 	}
-	drawn, _ := b.Draw(n)
-	return drawn
+	b.Draw(n, ml)
+	return n
 }
 
 // Draw draws n random tiles from the bag. Shuffling is immaterial.
-func (b *Bag) Draw(n int) ([]MachineLetter, error) {
+// Returns the number of tiles actually drawn.
+// This is a zero-alloc draw into the passed-in slice.
+// NOTE: this function does not resize ml at all. It must
+// be the correct size to allow tiles to fit in!
+func (b *Bag) Draw(n int, ml []MachineLetter) error {
 	if n > len(b.tiles) {
-		return nil, fmt.Errorf("tried to draw %v tiles, tile bag has %v",
+		return fmt.Errorf("tried to draw %v tiles, tile bag has %v",
 			n, len(b.tiles))
 	}
 	// first shuffle the tiles in-place although frand does not error
@@ -56,15 +61,16 @@ func (b *Bag) Draw(n int) ([]MachineLetter, error) {
 		// move the selected tile to the end
 		b.tiles[i-1], b.tiles[xi] = b.tiles[xi], b.tiles[i-1]
 	}
+
+	copy(ml, b.tiles[k:l])
+
 	// now update tileMap
-	drawn := make([]MachineLetter, n)
-	copy(drawn, b.tiles[k:l])
-	for _, v := range drawn {
+	for _, v := range ml[:n] {
 		b.tileMap[v]--
 	}
 	b.tiles = b.tiles[:k]
 	// log.Debug().Int("numtiles", len(b.tiles)).Int("drew", n).Msg("drew from bag")
-	return drawn, nil
+	return nil
 }
 
 func (b *Bag) Peek() []MachineLetter {
@@ -82,14 +88,14 @@ func (b *Bag) Shuffle() {
 }
 
 // Exchange exchanges the junk in your rack with new tiles.
-func (b *Bag) Exchange(letters []MachineLetter) ([]MachineLetter, error) {
-	newTiles, err := b.Draw(len(letters))
+func (b *Bag) Exchange(letters []MachineLetter, ml []MachineLetter) error {
+	err := b.Draw(len(letters), ml)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	// put exchanged tiles back into the bag and re-shuffle
 	b.PutBack(letters)
-	return newTiles, nil
+	return nil
 }
 
 // PutBack puts the tiles back in the bag, and shuffles the bag.
@@ -144,11 +150,14 @@ func (b *Bag) rebuildTileSlice(numTilesInBag int) error {
 	if numTilesInBag > len(b.initialTiles) {
 		return errors.New("more tiles in the bag that there were to begin with")
 	}
-	b.tiles = make([]MachineLetter, numTilesInBag)
+	if cap(b.tiles) < numTilesInBag {
+		b.tiles = make([]MachineLetter, numTilesInBag)
+	}
+	b.tiles = b.tiles[:numTilesInBag]
 	idx := 0
-	for let, ct := range b.tileMap {
+	for ml, ct := range b.tileMap {
 		for j := uint8(0); j < ct; j++ {
-			b.tiles[idx] = let
+			b.tiles[idx] = MachineLetter(ml)
 			idx++
 		}
 	}
@@ -158,9 +167,9 @@ func (b *Bag) rebuildTileSlice(numTilesInBag int) error {
 
 // Redraw is basically a do-over; throw the current rack in the bag
 // and draw a new rack.
-func (b *Bag) Redraw(currentRack []MachineLetter) []MachineLetter {
+func (b *Bag) Redraw(currentRack []MachineLetter, ml []MachineLetter) int {
 	b.PutBack(currentRack)
-	return b.DrawAtMost(7)
+	return b.DrawAtMost(7, ml)
 }
 
 // RemoveTiles removes the given tiles from the bag, and returns an error
@@ -183,7 +192,8 @@ func (b *Bag) RemoveTiles(tiles []MachineLetter) error {
 func NewBag(ld *LetterDistribution, alph *Alphabet) *Bag {
 
 	tiles := make([]MachineLetter, ld.numLetters)
-	tileMap := map[MachineLetter]uint8{}
+	// gotta fix this, this is dumb. A should start at 1. Blank should be 0.
+	tileMap := make([]uint8, MaxAlphabetSize+1)
 
 	idx := 0
 	for rn, ct := range ld.Distribution {
@@ -197,7 +207,6 @@ func NewBag(ld *LetterDistribution, alph *Alphabet) *Bag {
 			idx++
 		}
 	}
-
 	return &Bag{
 		tiles:              tiles,
 		tileMap:            tileMap,
@@ -212,12 +221,9 @@ func NewBag(ld *LetterDistribution, alph *Alphabet) *Bag {
 // we don't ever expect these to change after initialization.
 func (b *Bag) Copy() *Bag {
 	tiles := make([]MachineLetter, len(b.tiles))
-	tileMap := make(map[MachineLetter]uint8)
+	tileMap := make([]uint8, MaxAlphabetSize+1)
 	copy(tiles, b.tiles)
-	// Copy map as well
-	for k, v := range b.tileMap {
-		tileMap[k] = v
-	}
+	copy(tileMap, b.tileMap)
 
 	return &Bag{
 		tiles:              tiles,
@@ -233,16 +239,18 @@ func (b *Bag) Copy() *Bag {
 // structures we need! (letter distribution, etc).
 // It should have been created from the Copy function above.
 func (b *Bag) CopyFrom(other *Bag) {
-	// This is a deep copy and can be kind of wasteful, but we don't use
-	// the bag often.
-	if len(other.tiles) == 0 {
-		b.tiles = []MachineLetter{}
-		b.tileMap = map[MachineLetter]uint8{}
-		return
+
+	if cap(b.tiles) < len(other.tiles) {
+		b.tiles = make([]MachineLetter, len(other.tiles))
 	}
-	b.tiles = make([]MachineLetter, len(other.tiles))
+	b.tiles = b.tiles[:len(other.tiles)]
 	copy(b.tiles, other.tiles)
-	b.tileMap = copyTileMap(other.tileMap)
+
+	if cap(b.tileMap) < len(other.tileMap) {
+		b.tileMap = make([]uint8, len(other.tileMap))
+	}
+	b.tileMap = b.tileMap[:len(other.tileMap)]
+	copy(b.tileMap, other.tileMap)
 }
 
 func (b *Bag) LetterDistribution() *LetterDistribution {

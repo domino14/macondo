@@ -18,6 +18,7 @@ type LetterDistribution struct {
 	numUniqueLetters int
 	numLetters       int
 	scores           []int
+	Name             string
 }
 
 // EnglishLetterDistribution returns the English letter distribution.

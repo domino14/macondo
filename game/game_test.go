@@ -2,18 +2,18 @@ package game
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"fmt"
+	"io"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/testcommon"
 	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/gaddagmaker"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/matryer/is"
 )
@@ -21,16 +21,9 @@ import (
 var DefaultConfig = config.DefaultConfig()
 
 func TestMain(m *testing.M) {
-	for _, lex := range []string{"NWL18"} {
-		gdgPath := filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag")
-		if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
-			gaddagmaker.GenerateGaddag(filepath.Join(DefaultConfig.LexiconPath, lex+".txt"), true, true)
-			err = os.Rename("out.gaddag", gdgPath)
-			if err != nil {
-				panic(err)
-			}
-		}
-	}
+	testcommon.CreateGaddags(DefaultConfig, []string{"NWL18"})
+	testcommon.CreateDawgs(DefaultConfig, []string{"CSW19", "America"})
+
 	os.Exit(m.Run())
 }
 
@@ -69,6 +62,7 @@ func TestBackup(t *testing.T) {
 	// Overwrite the player on turn to be JD:
 	game.SetPlayerOnTurn(0)
 	alph := game.Alphabet()
+	fmt.Println("Here")
 	game.SetRackFor(0, alphabet.RackFromString("ACEOTV?", alph))
 
 	m := move.NewScoringMoveSimple(20, "H7", "AVOCET", "?", alph)
@@ -84,7 +78,7 @@ func TestBackup(t *testing.T) {
 	is.Equal(game.players[0].points, 0)
 	is.Equal(game.players[1].points, 0)
 	is.Equal(game.bag.TilesRemaining(), 86)
-	is.Equal(game.players[0].rackLetters, "ACEOTV?")
+	is.Equal(game.players[0].rackLetters(), "ACEOTV?")
 }
 
 func TestValidate(t *testing.T) {
@@ -142,7 +136,7 @@ func TestPlayToTurnWithPhony(t *testing.T) {
 	is.NoErr(err)
 	defer jsonFile.Close()
 
-	bytes, err := ioutil.ReadAll(jsonFile)
+	bytes, err := io.ReadAll(jsonFile)
 	is.NoErr(err)
 	gameHistory := &pb.GameHistory{}
 	err = json.Unmarshal(bytes, gameHistory)

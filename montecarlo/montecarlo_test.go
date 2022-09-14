@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -16,14 +15,15 @@ import (
 	airunner "github.com/domino14/macondo/ai/runner"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/gaddag"
-	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/strategy"
+	"github.com/domino14/macondo/testcommon"
 )
 
 const (
@@ -36,16 +36,7 @@ func TestMain(m *testing.M) {
 	// Hide `TRACE` logs
 	// This probably screws it up for future tests, but it's fine for now.
 	zerolog.SetGlobalLevel(zerolog.DebugLevel)
-	for _, lex := range []string{"NWL18"} {
-		gdgPath := filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag")
-		if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
-			gaddagmaker.GenerateGaddag(filepath.Join(DefaultConfig.LexiconPath, lex+".txt"), true, true)
-			err = os.Rename("out.gaddag", gdgPath)
-			if err != nil {
-				panic(err)
-			}
-		}
-	}
+	testcommon.CreateGaddags(DefaultConfig, []string{"NWL18"})
 	os.Exit(m.Run())
 }
 
@@ -59,7 +50,7 @@ func TestStatesCorrect(t *testing.T) {
 		{Nickname: "cesar", RealName: "César"},
 	}
 	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
-		"NWL18", "English")
+		game.VarClassic, "NWL18", "English")
 	is.NoErr(err)
 	g, err := game.NewGame(rules, players)
 	is.NoErr(err)
@@ -78,8 +69,8 @@ func TestStatesCorrect(t *testing.T) {
 	g.SetPlayerOnTurn(0)
 	// Overwrite the first rack
 	g.SetRackFor(0, alphabet.RackFromString("AAADERW", g.Alphabet()))
-	generator.ResetCrossesAndAnchors()
 	aiplayer := player.NewRawEquityPlayer(strategy, pb.BotRequest_HASTY_BOT)
+	generator.ResetCrossesAndAnchors()
 	generator.GenAll(g.RackFor(0), true)
 
 	aiplayer.AssignEquity(generator.Plays(), g.Board(), g.Bag(),
@@ -87,12 +78,12 @@ func TestStatesCorrect(t *testing.T) {
 	plays := aiplayer.TopPlays(generator.Plays(), 10)
 
 	simmer := &Simmer{}
-	simmer.Init(g, aiplayer)
+	simmer.Init(g, aiplayer, &DefaultConfig)
 	simmer.PrepareSim(plies, plays)
 
 	simmer.gameCopies[0].SetBackupMode(game.SimulationMode)
 	play := simmer.plays[0] // AWARD
-	is.Equal(play.play.ShortDescription(), "8H AWARD")
+	is.Equal(play.play.ShortDescription(), " 8H AWARD")
 	simmer.gameCopies[0].PlayMove(play.play, false, 0)
 	simmer.gameCopies[0].SetBackupMode(game.NoBackup)
 	postMoveState := simmer.movegens[0].(*movegen.GordonGenerator).State()
@@ -119,7 +110,7 @@ func TestSimSingleIteration(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
+	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic,
 		"NWL18", "English")
 	is.NoErr(err)
 	game, err := game.NewGame(rules, players)
@@ -139,8 +130,8 @@ func TestSimSingleIteration(t *testing.T) {
 	game.SetPlayerOnTurn(0)
 	// Overwrite the first rack
 	game.SetRackFor(0, alphabet.RackFromString("AAADERW", game.Alphabet()))
-	generator.ResetCrossesAndAnchors()
 	aiplayer := player.NewRawEquityPlayer(strategy, pb.BotRequest_HASTY_BOT)
+	generator.ResetCrossesAndAnchors()
 	generator.GenAll(game.RackFor(0), true)
 	log.Info().Msgf("nplays: %v", len(generator.Plays()))
 
@@ -149,7 +140,7 @@ func TestSimSingleIteration(t *testing.T) {
 	oldOppRack := game.RackFor(1).String()
 	plays := aiplayer.TopPlays(generator.Plays(), 10)
 	simmer := &Simmer{}
-	simmer.Init(game, aiplayer)
+	simmer.Init(game, aiplayer, &DefaultConfig)
 	simmer.PrepareSim(plies, plays)
 
 	simmer.simSingleIteration(plies, 0, 1, nil)
@@ -167,6 +158,40 @@ func TestSimSingleIteration(t *testing.T) {
 	fmt.Println(simmer.printStats())
 }
 
+func BenchmarkSim(b *testing.B) {
+	is := is.New(b)
+	plies := 2
+
+	cgpstr := "C14/O2TOY9/mIRADOR8/F4DAB2PUGH1/I5GOOEY3V/T4XI2MALTHA/14N/6GUM3OWN/7PEW2DOE/9EF1DOR/2KUNA1J1BEVELS/3TURRETs2S2/7A4T2/7N7/7S7 EEEIILZ/ 336/298 0 lex NWL20;"
+
+	game, err := cgp.ParseCGP(&DefaultConfig, cgpstr)
+	is.NoErr(err)
+	game.RecalculateBoard()
+	strategy, err := strategy.NewExhaustiveLeaveStrategy(game.Rules().LexiconName(),
+		game.Alphabet(), &DefaultConfig, strategy.LeaveFilename, strategy.PEGAdjustmentFilename)
+	is.NoErr(err)
+
+	gd, err := gaddag.Get(game.Config(), game.LexiconName())
+	is.NoErr(err)
+
+	generator := movegen.NewGordonGenerator(gd, game.Board(), game.Rules().LetterDistribution())
+
+	generator.GenAll(game.RackFor(0), false)
+	plays := generator.Plays()[:10]
+
+	simmer := &Simmer{}
+	simmer.Init(game, player.NewRawEquityPlayer(strategy, pb.BotRequest_HASTY_BOT), &DefaultConfig)
+	simmer.SetThreads(1)
+	simmer.PrepareSim(plies, plays)
+	log.Debug().Msg("About to start")
+	b.ResetTimer()
+	// benchmark 2022-08-20 on monolith (12th gen Intel computer)
+	// 362	   3448347 ns/op	    7980 B/op	      60 allocs/op
+	for i := 0; i < b.N; i++ {
+		simmer.simSingleIteration(plies, 0, i+1, nil)
+	}
+}
+
 func TestLongerSim(t *testing.T) {
 	// t.Skip()
 	is := is.New(t)
@@ -176,7 +201,7 @@ func TestLongerSim(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
+	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic,
 		"NWL18", "English")
 	is.NoErr(err)
 	game, err := game.NewGame(rules, players)
@@ -205,7 +230,7 @@ func TestLongerSim(t *testing.T) {
 		game.RackFor(1))
 	plays := aiplayer.TopPlays(generator.Plays(), 10)
 	simmer := &Simmer{}
-	simmer.Init(game, aiplayer)
+	simmer.Init(game, aiplayer, &DefaultConfig)
 
 	timeout, cancel := context.WithTimeout(
 		context.Background(), 20*time.Second)
@@ -228,33 +253,44 @@ func TestLongerSim(t *testing.T) {
 	is.Equal(simmer.gameCopies[0].Turn(), 0)
 }
 
-// func TestDrawingAssumptions(t *testing.T) {
-// 	// Test that we are actually drawing from a sane bag.
-// 	// is := is.New(t)
-// 	plies := 2
-// 	gd, err := GaddagFromLexicon("NWL18")
-// 	if err != nil {
-// 		t.Errorf("Expected error to be nil, got %v", err)
-// 	}
-// 	dist := alphabet.EnglishLetterDistribution()
+func TestDrawingAssumptions(t *testing.T) {
+	t.Skip()
+	is := is.New(t)
 
-// 	game := &mechanics.XWordGame{}
-// 	game.Init(gd, dist)
-// 	strategy := strategy.NewExhaustiveLeaveStrategy(game.Bag(), gd.LexiconName(),
-// 		gd.GetAlphabet(), LeaveFile)
-// 	generator := movegen.NewGordonGenerator(game, strategy)
+	// Test that we are actually drawing from a sane bag.
+	plies := 2
+	players := []*pb.PlayerInfo{
+		{Nickname: "JD", RealName: "Jesse"},
+		{Nickname: "cesar", RealName: "César"},
+	}
+	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout,
+		game.VarClassic, "NWL18", "English")
+	is.NoErr(err)
+	game, err := game.NewGame(rules, players)
+	is.NoErr(err)
 
-// 	// Deal out racks.
-// 	game.StartGame()
-// 	game.SetRackFor(0, alphabet.RackFromString("AAADERW", gd.GetAlphabet()))
+	strategy, err := strategy.NewExhaustiveLeaveStrategy(rules.LexiconName(),
+		game.Alphabet(), &DefaultConfig, strategy.LeaveFilename, strategy.PEGAdjustmentFilename)
+	is.NoErr(err)
 
-// 	simmer := &Simmer{}
-// 	simmer.Init(generator, game)
-// 	generator.GenAll(game.RackFor(0))
-// 	plays := generator.Plays()[:10]
-// 	simmer.resetStats(plies, len(plays))
-// 	simmer.plays = plays
+	gd, err := gaddag.Get(game.Config(), game.LexiconName())
+	is.NoErr(err)
+	generator := movegen.NewGordonGenerator(gd, game.Board(), rules.LetterDistribution())
 
-// 	simmer.simSingleIteration(plays, plies)
+	// This will deal a random rack to players:
+	game.StartGame()
+	game.SetPlayerOnTurn(0)
+	// Overwrite the first rack
+	game.SetRackFor(0, alphabet.RackFromString("AAADERW", gd.GetAlphabet()))
 
-// }
+	aiplayer := player.NewRawEquityPlayer(strategy, pb.BotRequest_HASTY_BOT)
+	simmer := &Simmer{}
+	simmer.Init(game, aiplayer, &DefaultConfig)
+	simmer.SetThreads(1)
+
+	aiplayer.AssignEquity(generator.Plays(), game.Board(), game.Bag(), game.RackFor(1))
+	plays := aiplayer.TopPlays(generator.Plays(), 10)
+	simmer.PrepareSim(plies, plays)
+
+	simmer.simSingleIteration(plies, 0, 1, nil)
+}

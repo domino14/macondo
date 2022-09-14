@@ -20,7 +20,7 @@ func (nls *NoLeaveStrategy) Equity(play *move.Move, board *board.GameBoard,
 	otherAdjustments := 0.0
 
 	if board.IsEmpty() {
-		otherAdjustments += placementAdjustment(play)
+		otherAdjustments += placementAdjustment(play, board)
 	}
 
 	if bag.TilesRemaining() == 0 {

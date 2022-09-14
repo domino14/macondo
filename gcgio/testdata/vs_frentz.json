@@ -1,7 +1,6 @@
 {
   "events": [
     {
-      "nickname": "cesar",
       "note": "an auspicious beginning. as a side note, i almost hate being obviously lucky as much as i hate being unlucky. caldera is better because it doesn't expose the vowels.",
       "rack": "?AACDER",
       "cumulative": 74,
@@ -11,10 +10,11 @@
       "played_tiles": "CRAAlED",
       "score": 74,
       "is_bingo": true,
-      "words_formed": ["CRAALED"]
+      "words_formed": [
+        "CRAALED"
+      ]
     },
     {
-      "nickname": "frentz",
       "note": "ok good, now i can stop feeling bad about being lucky!",
       "rack": "DEENOSW",
       "cumulative": 74,
@@ -25,10 +25,12 @@
       "played_tiles": "ENDOWE.S",
       "score": 74,
       "is_bingo": true,
-      "words_formed": ["ENDOWERS"]
+      "words_formed": [
+        "ENDOWERS"
+      ],
+      "player_index": 1
     },
     {
-      "nickname": "cesar",
       "note": "couldn't pull the trigger on WAI# unfortunately. wasn't sure if it was that or my friend Wei. (-8)",
       "rack": "AABEIIW",
       "cumulative": 102,
@@ -38,10 +40,14 @@
       "position": "D4",
       "played_tiles": "AWA",
       "score": 28,
-      "words_formed": ["AWA", "AD", "WO", "AW"]
+      "words_formed": [
+        "AWA",
+        "AD",
+        "WO",
+        "AW"
+      ]
     },
     {
-      "nickname": "frentz",
       "rack": "KNOO",
       "cumulative": 104,
       "row": 1,
@@ -50,10 +56,16 @@
       "position": "F2",
       "played_tiles": "NOOK",
       "score": 30,
-      "words_formed": ["NOOK", "EN", "NO", "ADO", "WOK"]
+      "words_formed": [
+        "NOOK",
+        "EN",
+        "NO",
+        "ADO",
+        "WOK"
+      ],
+      "player_index": 1
     },
     {
-      "nickname": "cesar",
       "note": "quackle also likes this better than the 37 pointer",
       "rack": "BEGIIJX",
       "cumulative": 137,
@@ -62,10 +74,13 @@
       "position": "9G",
       "played_tiles": "XI",
       "score": 35,
-      "words_formed": ["XI", "AX", "LI"]
+      "words_formed": [
+        "XI",
+        "AX",
+        "LI"
+      ]
     },
     {
-      "nickname": "frentz",
       "rack": "EPY",
       "cumulative": 134,
       "row": 9,
@@ -73,10 +88,14 @@
       "position": "10F",
       "played_tiles": "YEP",
       "score": 30,
-      "words_formed": ["YEP", "AXE", "LIP"]
+      "words_formed": [
+        "YEP",
+        "AXE",
+        "LIP"
+      ],
+      "player_index": 1
     },
     {
-      "nickname": "cesar",
       "rack": "BEFGIIJ",
       "cumulative": 168,
       "row": 10,
@@ -84,10 +103,12 @@
       "position": "11C",
       "played_tiles": "JIBE",
       "score": 31,
-      "words_formed": ["JIBE", "YE"]
+      "words_formed": [
+        "JIBE",
+        "YE"
+      ]
     },
     {
-      "nickname": "frentz",
       "rack": "AEFS",
       "cumulative": 171,
       "row": 11,
@@ -95,10 +116,15 @@
       "position": "12B",
       "played_tiles": "SAFE",
       "score": 37,
-      "words_formed": ["SAFE", "JA", "IF", "BE"]
+      "words_formed": [
+        "SAFE",
+        "JA",
+        "IF",
+        "BE"
+      ],
+      "player_index": 1
     },
     {
-      "nickname": "cesar",
       "note": "unfortunately i don't know collins strategy enough to know if keeping the horrible leave for 39 points is worth it, but an exchange is too far behind. now JAI# i remember. it's still not a word.",
       "rack": "FGIIIOU",
       "cumulative": 207,
@@ -107,20 +133,26 @@
       "position": "13C",
       "played_tiles": "IF",
       "score": 39,
-      "words_formed": ["IF", "JAI", "IFF"]
+      "words_formed": [
+        "IF",
+        "JAI",
+        "IFF"
+      ]
     },
     {
-      "nickname": "frentz",
       "rack": "GLU",
       "cumulative": 190,
       "row": 13,
       "position": "14A",
       "played_tiles": "GUL",
       "score": 19,
-      "words_formed": ["GUL", "JAIL"]
+      "words_formed": [
+        "GUL",
+        "JAIL"
+      ],
+      "player_index": 1
     },
     {
-      "nickname": "cesar",
       "note": "ourie is better, but i wasn't sure enough of LIPO#. this 5-pt challenge is pretty lame by the way. (-1.5)",
       "rack": "EGIIORU",
       "cumulative": 220,
@@ -129,10 +161,12 @@
       "position": "11H",
       "played_tiles": "EUOI",
       "score": 13,
-      "words_formed": ["EUOI", "LIPE"]
+      "words_formed": [
+        "EUOI",
+        "LIPE"
+      ]
     },
     {
-      "nickname": "frentz",
       "note": "dammit",
       "rack": "EEILRST",
       "cumulative": 276,
@@ -142,10 +176,13 @@
       "played_tiles": "STERILE",
       "score": 86,
       "is_bingo": true,
-      "words_formed": ["STERILE", "JAILS"]
+      "words_formed": [
+        "STERILE",
+        "JAILS"
+      ],
+      "player_index": 1
     },
     {
-      "nickname": "cesar",
       "rack": "EGILORR",
       "cumulative": 237,
       "row": 9,
@@ -153,10 +190,13 @@
       "position": "10J",
       "played_tiles": "GOR",
       "score": 17,
-      "words_formed": ["GOR", "GO", "OI"]
+      "words_formed": [
+        "GOR",
+        "GO",
+        "OI"
+      ]
     },
     {
-      "nickname": "frentz",
       "rack": "MTU",
       "cumulative": 293,
       "row": 13,
@@ -164,10 +204,15 @@
       "position": "14E",
       "played_tiles": "TUM",
       "score": 17,
-      "words_formed": ["TUM", "TE", "UR", "MI"]
+      "words_formed": [
+        "TUM",
+        "TE",
+        "UR",
+        "MI"
+      ],
+      "player_index": 1
     },
     {
-      "nickname": "cesar",
       "rack": "EIILNRV",
       "cumulative": 315,
       "row": 2,
@@ -176,10 +221,11 @@
       "played_tiles": "..NVIRILE",
       "score": 78,
       "is_bingo": true,
-      "words_formed": ["NONVIRILE"]
+      "words_formed": [
+        "NONVIRILE"
+      ]
     },
     {
-      "nickname": "cesar",
       "note": "that took guts!!",
       "rack": "ADDIPYZ",
       "type": 3,
@@ -187,7 +233,6 @@
       "bonus": 5
     },
     {
-      "nickname": "frentz",
       "note": "unfortunately, thanks to the lame challenge rule i don't get a chance to come back a bit more",
       "rack": "?ABCEER",
       "cumulative": 373,
@@ -197,10 +242,13 @@
       "played_tiles": "ACErBER",
       "score": 80,
       "is_bingo": true,
-      "words_formed": ["ACERBER", "AMI"]
+      "words_formed": [
+        "ACERBER",
+        "AMI"
+      ],
+      "player_index": 1
     },
     {
-      "nickname": "cesar",
       "rack": "ADDIPYZ",
       "cumulative": 365,
       "column": 7,
@@ -208,10 +256,11 @@
       "position": "H1",
       "played_tiles": "DA.Y",
       "score": 45,
-      "words_formed": ["DAVY"]
+      "words_formed": [
+        "DAVY"
+      ]
     },
     {
-      "nickname": "frentz",
       "rack": "GOUV",
       "cumulative": 399,
       "column": 11,
@@ -219,10 +268,12 @@
       "position": "L1",
       "played_tiles": "VU.GO",
       "score": 26,
-      "words_formed": ["VULGO"]
+      "words_formed": [
+        "VULGO"
+      ],
+      "player_index": 1
     },
     {
-      "nickname": "cesar",
       "note": "what do you guys think? PUTZ may be a tiny bit better because of the leave. the pool is clunky. this is an interesting move. i just wanted points unfortunately (but ZIP is too ugly). i guess drawing the Q here for me is not a bad thing, but maybe eliminating that volatility with PUTZ ends up being better.. but that barely puts me ahead. not sure what's right.",
       "rack": "DINPTTZ",
       "cumulative": 411,
@@ -232,10 +283,12 @@
       "position": "K5",
       "played_tiles": "ZIT",
       "score": 46,
-      "words_formed": ["ZIT", "ZO"]
+      "words_formed": [
+        "ZIT",
+        "ZO"
+      ]
     },
     {
-      "nickname": "frentz",
       "note": "crappity crap crap",
       "rack": "HOQT",
       "cumulative": 446,
@@ -244,10 +297,14 @@
       "position": "2K",
       "played_tiles": "Q.OTH",
       "score": 47,
-      "words_formed": ["QUOTH", "QI", "OE"]
+      "words_formed": [
+        "QUOTH",
+        "QI",
+        "OE"
+      ],
+      "player_index": 1
     },
     {
-      "nickname": "cesar",
       "note": "i wanted to see if there was a word like HANDPOT  or something insane like that but couldn't see anything. quackle suggests i am totally screwed, but J5 AD gives me a supposedly tiny shot of 2.78%. don't see how. POND gives me the same win % but a lower \"equity\". i was pretty sure i was screwed but was trying to get an out play with the best leave i could",
       "rack": "ADNNOPT",
       "cumulative": 439,
@@ -256,10 +313,13 @@
       "position": "12L",
       "played_tiles": "POND",
       "score": 28,
-      "words_formed": ["POND", "PE", "OR"]
+      "words_formed": [
+        "POND",
+        "PE",
+        "OR"
+      ]
     },
     {
-      "nickname": "frentz",
       "rack": "AILMNRS",
       "cumulative": 529,
       "row": 5,
@@ -269,31 +329,43 @@
       "played_tiles": "RIMLAN.S",
       "score": 83,
       "is_bingo": true,
-      "words_formed": ["RIMLANDS"]
+      "words_formed": [
+        "RIMLANDS"
+      ],
+      "player_index": 1
     },
     {
-      "nickname": "frentz",
       "note": "lame",
       "type": 3,
       "cumulative": 534,
-      "bonus": 5
+      "bonus": 5,
+      "player_index": 1
     },
     {
-      "nickname": "frentz",
       "rack": "AHNTT",
       "type": 5,
       "cumulative": 550,
-      "end_rack_points": 16
+      "end_rack_points": 16,
+      "player_index": 1
     }
   ],
   "players": [
-    { "nickname": "cesar", "real_name": "cesar" },
-    { "nickname": "frentz", "real_name": "frentz" }
+    {
+      "nickname": "cesar",
+      "real_name": "cesar"
+    },
+    {
+      "nickname": "frentz",
+      "real_name": "frentz"
+    }
   ],
-  "version": 1,
-  "winner": 1,
+  "version": 2,
   "original_gcg": "#player1 cesar cesar\n#player2 frentz frentz\n\u003ecesar: ?AACDER 8D CRAAlED +74 74\n#note an auspicious beginning. as a side note, i almost hate being obviously lucky as much as i hate being unlucky. caldera is better because it doesn't expose the vowels.\n\u003efrentz: DEENOSW E2 ENDOWE.S +74 74\n#note ok good, now i can stop feeling bad about being lucky!\n\u003ecesar: AABEIIW D4 AWA +28 102\n#note couldn't pull the trigger on WAI# unfortunately. wasn't sure if it was that or my friend Wei. (-8)\n\u003efrentz: KNOO F2 NOOK +30 104\n\u003ecesar: BEGIIJX 9G XI +35 137\n#note quackle also likes this better than the 37 pointer\n\u003efrentz: EPY 10F YEP +30 134\n\u003ecesar: BEFGIIJ 11C JIBE +31 168\n\u003efrentz: AEFS 12B SAFE +37 171\n\u003ecesar: FGIIIOU 13C IF +39 207\n#note unfortunately i don't know collins strategy enough to know if keeping the horrible leave for 39 points is worth it, but an exchange is too far behind. now JAI# i remember. it's still not a word.\n\u003efrentz: GLU 14A GUL +19 190\n\u003ecesar: EGIIORU 11H EUOI +13 220\n#note ourie is better, but i wasn't sure enough of LIPO#. this 5-pt challenge is pretty lame by the way. (-1.5)\n\u003efrentz: EEILRST 15C STERILE +86 276\n#note dammit\n\u003ecesar: EGILORR 10J GOR +17 237\n\u003efrentz: MTU 14E TUM +17 293\n\u003ecesar: EIILNRV 3E ..NVIRILE +78 315\n\u003ecesar: ADDIPYZ (challenge) +5 320\n#note that took guts!!\n\u003efrentz: ?ABCEER 13G ACErBER +80 373\n#note unfortunately, thanks to the lame challenge rule i don't get a chance to come back a bit more\n\u003ecesar: ADDIPYZ H1 DA.Y +45 365\n\u003efrentz: GOUV L1 VU.GO +26 399\n\u003ecesar: DINPTTZ K5 ZIT +46 411\n#note what do you guys think? PUTZ may be a tiny bit better because of the leave. the pool is clunky. this is an interesting move. i just wanted points unfortunately (but ZIP is too ugly). i guess drawing the Q here for me is not a bad thing, but maybe eliminating that volatility with PUTZ ends up being better.. but that barely puts me ahead. not sure what's right.\n\u003efrentz: HOQT 2K Q.OTH +47 446\n#note crappity crap crap\n\u003ecesar: ADNNOPT 12L POND +28 439\n#note i wanted to see if there was a word like HANDPOT  or something insane like that but couldn't see anything. quackle suggests i am totally screwed, but J5 AD gives me a supposedly tiny shot of 2.78%. don't see how. POND gives me the same win % but a lower \"equity\". i was pretty sure i was screwed but was trying to get an out play with the best leave i could\n\u003efrentz: AILMNRS O6 RIMLAN.S +83 529\n\u003efrentz:  (challenge) +5 534\n#note lame\n\u003efrentz:  (AHNTT) +16 550",
   "lexicon": "CSW12",
   "play_state": 2,
-  "final_scores": [439, 550]
+  "final_scores": [
+    439,
+    550
+  ],
+  "winner": 1
 }

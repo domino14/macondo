@@ -18,6 +18,17 @@ type TilesInPlay struct {
 var boardPlaintextRegex = regexp.MustCompile(`\|(.+)\|`)
 var userRackRegex = regexp.MustCompile(`(?U).+\s+([A-Z\?]*)\s+-?[0-9]+`)
 
+// SquareDisplayString returns a string representation of the given square.
+// If the square contains a letter, it will return that letter, otherwise it
+// will return the bonus (or a space if there is no bonus).
+func (g *GameBoard) SquareDisplayString(row, col int, alph *alphabet.Alphabet) string {
+	letter := g.GetLetter(row, col)
+	if letter == alphabet.EmptySquareMarker {
+		return g.GetBonus(row, col).displayString()
+	}
+	return string(letter.UserVisible(alph))
+}
+
 func (g *GameBoard) ToDisplayText(alph *alphabet.Alphabet) string {
 	var str string
 	n := g.Dim()
@@ -48,7 +59,6 @@ func (g *GameBoard) setFromPlaintext(qText string,
 	g.Clear()
 	tilesInPlay := &TilesInPlay{}
 	// Take a Quackle Plaintext Board and turn it into an internal structure.
-	// (Another alternative later is to implement GCG)
 	playedTiles := []alphabet.MachineLetter(nil)
 	result := boardPlaintextRegex.FindAllStringSubmatch(qText, -1)
 	if len(result) != 15 {
@@ -66,12 +76,14 @@ func (g *GameBoard) setFromPlaintext(qText string,
 				continue
 			}
 			letter, err = alph.Val(ch)
+			pos := i*g.dim + (j / 2)
+			//maybe pos := g.getSqIdx(row, col) if board is intentionally transposed?
 			if err != nil {
 				// Ignore the error; we are passing in a space or another
 				// board marker.
-				g.squares[i*g.dim+j/2] = alphabet.EmptySquareMarker
+				g.squares[pos] = alphabet.EmptySquareMarker
 			} else {
-				g.squares[i*g.dim+j/2] = letter
+				g.squares[pos] = letter
 				g.tilesPlayed++
 				playedTiles = append(playedTiles, letter)
 			}
@@ -133,14 +145,9 @@ func (g *GameBoard) Equals(g2 *GameBoard) bool {
 		log.Printf("Tiles played don't match: %v %v", g.tilesPlayed, g2.tilesPlayed)
 		return false
 	}
-	if g.transposed != g2.transposed {
-		log.Printf("Transposed doesn't match: %v %v", g.transposed, g2.transposed)
-		return false
-	}
 	for row := 0; row < g.Dim(); row++ {
 		for col := 0; col < g.Dim(); col++ {
-			pos := row*g.Dim() + col
-
+			pos := g.getSqIdx(row, col)
 			if g.bonuses[pos] != g2.bonuses[pos] {
 				log.Printf("bonuses don't match: %v %v", g.bonuses[pos], g2.bonuses[pos])
 				return false
@@ -155,6 +162,16 @@ func (g *GameBoard) Equals(g2 *GameBoard) bool {
 			}
 			if g.vCrossScores[pos] != g2.vCrossScores[pos] {
 				log.Printf("vcrossScores don't match: (pos %v, %v) %v %v", row, col, g.vCrossScores[pos], g2.vCrossScores[pos])
+				return false
+			}
+			if g.squares[pos] != g2.squares[pos] ||
+				g.bonuses[pos] != g2.bonuses[pos] ||
+				g.hCrossScores[pos] != g2.hCrossScores[pos] ||
+				g.vCrossScores[pos] != g2.vCrossScores[pos] ||
+				g.hCrossSets[pos] != g2.hCrossSets[pos] ||
+				g.vCrossSets[pos] != g2.vCrossSets[pos] ||
+				g.hAnchors[pos] != g2.hAnchors[pos] ||
+				g.vAnchors[pos] != g2.vAnchors[pos] {
 				return false
 			}
 		}

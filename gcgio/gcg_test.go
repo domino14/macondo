@@ -2,7 +2,7 @@ package gcgio
 
 import (
 	"encoding/json"
-	"fmt"
+	"flag"
 	"io/ioutil"
 	"log"
 	"os"
@@ -12,98 +12,75 @@ import (
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
-	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/testcommon"
 	"github.com/matryer/is"
 	"github.com/stretchr/testify/assert"
 )
 
 var DefaultConfig = config.DefaultConfig()
 
+var goldenFileUpdate bool
+
+func init() {
+	flag.BoolVar(&goldenFileUpdate, "update", false, "update golden files")
+}
+
 func TestMain(m *testing.M) {
-	for _, lex := range []string{"NWL18", "NWL20"} {
-		gdgPath := filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag")
-		if _, err := os.Stat(gdgPath); os.IsNotExist(err) {
-			gaddagmaker.GenerateGaddag(filepath.Join(DefaultConfig.LexiconPath, lex+".txt"), true, true)
-			err = os.Rename("out.gaddag", gdgPath)
-			if err != nil {
-				panic(err)
-			}
-		}
-	}
+	testcommon.CreateGaddags(DefaultConfig, []string{"NWL18", "NWL20"})
 	os.Exit(m.Run())
 }
 
 func slurp(filename string) string {
-	file, err := cache.Open(filename)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer file.Close()
-
-	contents, err := ioutil.ReadAll(file)
+	contents, err := ioutil.ReadFile(filename)
 	if err != nil {
 		log.Fatal(err)
 	}
 	return string(contents)
 }
 
-func TestParseGCG(t *testing.T) {
-	history, err := ParseGCG(&DefaultConfig, "./testdata/vs_andy.gcg")
-	expected := slurp("./testdata/vs_andy.json")
-
-	assert.Nil(t, err)
-	assert.NotNil(t, history)
-
-	repr, err := json.Marshal(history)
-	assert.Nil(t, err)
-
-	assert.JSONEq(t, expected, string(repr))
+func updateGolden(filename string, bts []byte) {
+	// write the bts to filename
+	os.WriteFile(filename, bts, 0600)
 }
 
-func TestParseOtherGCG(t *testing.T) {
-	history, err := ParseGCG(&DefaultConfig, "./testdata/doug_v_emely.gcg")
-	expected := slurp("./testdata/doug_v_emely.json")
-
-	assert.Nil(t, err)
-	assert.NotNil(t, history)
-
-	repr, err := json.Marshal(history)
-	assert.Nil(t, err)
-
-	assert.JSONEq(t, expected, string(repr))
+func compareGoldenJSON(t *testing.T, goldenFile string, actualRepr []byte) {
+	expected := slurp(goldenFile)
+	if goldenFileUpdate {
+		updateGolden(goldenFile, actualRepr)
+	} else {
+		assert.JSONEq(t, expected, string(actualRepr))
+	}
 }
 
-func TestParseGCGWithWithdrawnPhonyBingo(t *testing.T) {
-	history, err := ParseGCG(&DefaultConfig, "./testdata/josh2.gcg")
-	assert.Nil(t, err)
-	assert.NotNil(t, history)
+func TestParseGCGs(t *testing.T) {
 
-	history.Lexicon = "CSW19"
-	expected := slurp("./testdata/josh2.json")
+	testcases := []struct {
+		name       string
+		gcgfile    string
+		goldenfile string
+		lexicon    string
+	}{
+		{"regular", "vs_andy.gcg", "vs_andy.json", "TWL06"},
+		{"other", "doug_v_emely.gcg", "doug_v_emely.json", "NWL18"},
+		{"withdrawn phony bingo", "josh2.gcg", "josh2.json", "CSW19"},
+		{"challenge bonus", "vs_frentz.gcg", "vs_frentz.json", "CSW12"},
+	}
 
-	repr, err := json.Marshal(history)
-	assert.Nil(t, err)
-	assert.JSONEq(t, expected, string(repr))
-}
+	for _, tc := range testcases {
+		history, err := ParseGCG(&DefaultConfig, filepath.Join("testdata", tc.gcgfile))
+		assert.Nil(t, err)
+		assert.NotNil(t, history)
+		history.Lexicon = tc.lexicon
 
-func TestParseGCGWithChallengeBonus(t *testing.T) {
-	history, err := ParseGCG(&DefaultConfig, "./testdata/vs_frentz.gcg")
-	history.Lexicon = "CSW12"
-	expected := slurp("./testdata/vs_frentz.json")
+		repr, err := json.MarshalIndent(history, "", "  ")
+		assert.Nil(t, err)
+		compareGoldenJSON(t, filepath.Join("testdata", tc.goldenfile), repr)
+	}
 
-	assert.Nil(t, err)
-	assert.NotNil(t, history)
-
-	repr, err := json.Marshal(history)
-	fmt.Println(string(repr))
-
-	assert.Nil(t, err)
-	assert.JSONEq(t, expected, string(repr))
 }
 
 func TestParseSpecialChar(t *testing.T) {
