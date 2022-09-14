@@ -686,6 +686,18 @@ func otherPlayer(idx int) int {
 	return (idx + 1) % 2
 }
 
+func (g *Game) AddNote(note string) error {
+	if g.history == nil {
+		return errors.New("nil history")
+	}
+	evtNum := g.turnnum - 1
+	if evtNum < 0 {
+		return errors.New("event number is negative")
+	}
+	g.history.Events[evtNum].Note = note
+	return nil
+}
+
 func (g *Game) PlayToTurn(turnnum int) error {
 	log.Debug().Int("turnnum", turnnum).Msg("playing to turn")
 	if turnnum < 0 || turnnum > len(g.history.Events) {

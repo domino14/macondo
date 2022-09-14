@@ -35,6 +35,12 @@ func addText(lines []string, row int, hpad int, text string) {
 	sp := splitSubN(text, maxTextSize)
 
 	for _, chunk := range sp {
+		if row >= len(lines) {
+			l := len(lines)
+			for i := l; i <= row; i++ {
+				lines = append(lines, "")
+			}
+		}
 		str := lines[row] + strings.Repeat(" ", hpad) + chunk
 		lines[row] = str
 		row++
@@ -109,7 +115,12 @@ func (g *Game) ToDisplayText() string {
 	if g.playing == pb.PlayState_GAME_OVER && g.turnnum == len(g.history.Events) {
 		addText(bts, vpadding, hpadding, "Game is over.")
 	}
-
+	vpadding = 19
+	if g.turnnum-1 < len(g.history.Events) && g.turnnum-1 >= 0 &&
+		g.history.Events[g.turnnum-1].Note != "" {
+		// add it all the way at the bottom
+		bts = append(bts, g.history.Events[g.turnnum-1].Note)
+	}
 	return strings.Join(bts, "\n")
 
 }

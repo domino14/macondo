@@ -156,6 +156,24 @@ func (sc *ShellController) name(cmd *shellcmd) (*Response, error) {
 	return msg(sc.game.ToDisplayText()), nil
 }
 
+func (sc *ShellController) note(cmd *shellcmd) (*Response, error) {
+	if len(cmd.args) < 1 {
+		return nil, errors.New("need at least one argument for note")
+	}
+	if sc.game == nil {
+		return nil, errors.New("no game is loaded")
+	}
+	if sc.game.Turn() == 0 {
+		return nil, errors.New("there must be at least one turn that has been played")
+	}
+	note := strings.Join(cmd.args, " ")
+	err := sc.game.AddNote(note)
+	if err != nil {
+		return nil, err
+	}
+	return msg(sc.game.ToDisplayText()), nil
+}
+
 func (sc *ShellController) turn(cmd *shellcmd) (*Response, error) {
 	if cmd.args == nil {
 		return nil, errors.New("need argument for turn")
