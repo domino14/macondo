@@ -98,7 +98,13 @@ func (g *Game) LastEvent() *pb.GameEvent {
 
 func (g *Game) addEventToHistory(evt *pb.GameEvent) {
 	log.Debug().Msgf("Adding event to history: %v", evt)
+
+	if g.turnnum < len(g.history.Events) {
+		log.Info().Msg("overwriting-history")
+		g.history.Events = g.history.Events[:g.turnnum]
+	}
 	g.history.Events = append(g.history.Events, evt)
+
 }
 
 // CalculateCoordsFromStringPosition turns a "position" on the board such as

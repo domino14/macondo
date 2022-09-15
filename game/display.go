@@ -115,6 +115,9 @@ func (g *Game) ToDisplayText() string {
 	if g.playing == pb.PlayState_GAME_OVER && g.turnnum == len(g.history.Events) {
 		addText(bts, vpadding, hpadding, "Game is over.")
 	}
+	if g.playing == pb.PlayState_WAITING_FOR_FINAL_PASS {
+		addText(bts, vpadding, hpadding, "Waiting for final pass/challenge...")
+	}
 	vpadding = 19
 	if g.turnnum-1 < len(g.history.Events) && g.turnnum-1 >= 0 &&
 		g.history.Events[g.turnnum-1].Note != "" {

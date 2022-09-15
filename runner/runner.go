@@ -77,5 +77,5 @@ func (g *GameRunner) MoveFromEvent(evt *pb.GameEvent) (*move.Move, error) {
 }
 
 func (g *GameRunner) IsPlaying() bool {
-	return g.Playing() == pb.PlayState_PLAYING
+	return g.Playing() != pb.PlayState_GAME_OVER
 }
