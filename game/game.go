@@ -496,6 +496,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 				// wait for the final pass (or challenge).
 				g.playing = pb.PlayState_WAITING_FOR_FINAL_PASS
 				g.history.PlayState = g.playing
+				g.history.WaitedForFinalPass = true
 				log.Trace().Msg("waiting for final pass... (commit pass)")
 			} else {
 				g.playing = pb.PlayState_GAME_OVER
@@ -798,8 +799,13 @@ func (g *Game) PlayToTurn(turnnum int) error {
 
 	for _, p := range g.players {
 		if p.rack.NumTiles() == 0 {
-			log.Debug().Msgf("Player %v has no tiles, game is over.", p)
-			g.playing = pb.PlayState_GAME_OVER
+			log.Debug().Msgf("Player %v has no tiles, game might be over.", p)
+			if g.history.WaitedForFinalPass {
+				log.Debug().Msg("restoring waiting for final pass state")
+				g.playing = pb.PlayState_WAITING_FOR_FINAL_PASS
+			} else {
+				g.playing = pb.PlayState_GAME_OVER
+			}
 			g.history.PlayState = g.playing
 
 			break
