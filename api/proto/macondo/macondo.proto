@@ -41,12 +41,6 @@ message GameHistory {
   string letter_distribution = 18;
   // If provided, the starting CGP is a crossword-game position string.
   string starting_cgp = 19;
-
-  // waited_for_final_pass should be set if this game ever had the
-  // play_state = WAITING_FOR_FINAL_PASS. This is to allow us to be able
-  // to go back and forth in the game history, as well as load the game
-  // from a history before the opponent has passed (or challenged).
-  bool waited_for_final_pass = 20;
 }
 
 enum PlayState {

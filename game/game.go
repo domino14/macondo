@@ -100,7 +100,9 @@ func (g *Game) addEventToHistory(evt *pb.GameEvent) {
 	log.Debug().Msgf("Adding event to history: %v", evt)
 
 	if g.turnnum < len(g.history.Events) {
-		log.Info().Msg("overwriting-history")
+		log.Info().Interface("evt", evt).Msg("adding-overwriting-history")
+		// log.Info().Interface("history", g.history.Events).Int("turnnum", g.turnnum).
+		// 	Int("len", len(g.history.Events)).Msg("hist")
 		g.history.Events = g.history.Events[:g.turnnum]
 	}
 	g.history.Events = append(g.history.Events, evt)
@@ -407,6 +409,7 @@ func (g *Game) validateTilePlayMove(m *move.Move) ([]alphabet.MachineWord, error
 
 func (g *Game) endOfGameCalcs(onturn int, addToHistory bool) {
 	unplayedPts := g.calculateRackPts(otherPlayer(onturn)) * 2
+	g.turnnum++ // since we're adding a new event.
 
 	g.players[onturn].points += unplayedPts
 	if addToHistory {
@@ -496,7 +499,6 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 				// wait for the final pass (or challenge).
 				g.playing = pb.PlayState_WAITING_FOR_FINAL_PASS
 				g.history.PlayState = g.playing
-				g.history.WaitedForFinalPass = true
 				log.Trace().Msg("waiting for final pass... (commit pass)")
 			} else {
 				g.playing = pb.PlayState_GAME_OVER
@@ -598,6 +600,8 @@ func (g *Game) handleConsecutiveScorelessTurns(addToHistory bool) (bool, error) 
 		g.players[g.onturn].points -= pts
 		if addToHistory {
 			penaltyEvt := g.endRackPenaltyEvt(pts)
+			g.turnnum++
+
 			g.addEventToHistory(penaltyEvt)
 		}
 		g.onturn = (g.onturn + 1) % len(g.players)
@@ -605,6 +609,8 @@ func (g *Game) handleConsecutiveScorelessTurns(addToHistory bool) (bool, error) 
 		g.players[g.onturn].points -= pts
 		if addToHistory {
 			penaltyEvt := g.endRackPenaltyEvt(pts)
+			g.turnnum++
+
 			g.addEventToHistory(penaltyEvt)
 			g.AddFinalScoresToHistory()
 		}
@@ -800,7 +806,9 @@ func (g *Game) PlayToTurn(turnnum int) error {
 	for _, p := range g.players {
 		if p.rack.NumTiles() == 0 {
 			log.Debug().Msgf("Player %v has no tiles, game might be over.", p)
-			if g.history.WaitedForFinalPass {
+			if len(g.history.FinalScores) == 0 {
+				// This game has never ended before, so it must not have gotten
+				// past this "final pass" state.
 				log.Debug().Msg("restoring waiting for final pass state")
 				g.playing = pb.PlayState_WAITING_FOR_FINAL_PASS
 			} else {
