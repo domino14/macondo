@@ -158,10 +158,7 @@ func (g *Game) UnplayLastMove() {
 	if g.backupMode == SimulationMode {
 		b = g.stateStack[g.stackPtr-1]
 		g.stackPtr--
-		// Turn number and on turn do not need to be restored from backup
-		// as they're assumed to increase logically after every turn. Just
-		// decrease them.
-		g.turnnum--
+		g.turnnum = b.turnnum
 		g.onturn = (g.onturn + (len(g.players) - 1)) % len(g.players)
 	} else {
 		b = g.stateStack[0]

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
 
@@ -54,6 +55,12 @@ const (
 	EndRackPointsToken
 	TimePenaltyToken
 	LastRackPenaltyToken
+	GameTypeToken
+	TileSetToken
+	GameBoardToken
+	BoardLayoutToken
+	TileDistributionNameToken
+	ContinuationToken
 )
 
 type gcgdatum struct {
@@ -64,23 +71,29 @@ type gcgdatum struct {
 var GCGRegexes []gcgdatum
 
 const (
-	PlayerRegex             = `#player(?P<p_number>[1-2])\s+(?P<nick>\S+)\s+(?P<real_name>.+)`
-	TitleRegex              = `#title\s*(?P<title>.*)`
-	DescriptionRegex        = `#description\s*(?P<description>.*)`
-	IDRegex                 = `#id\s*(?P<id_authority>\S+)\s+(?P<id>\S+)`
-	Rack1Regex              = `#rack1 (?P<rack>\S+)`
-	Rack2Regex              = `#rack2 (?P<rack>\S+)`
-	MoveRegex               = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+(?P<pos>\w+)\s+(?P<play>[\p{L}\\.]+)\s+\+(?P<score>\d+)\s+(?P<cumul>\d+)`
-	NoteRegex               = `#note (?P<note>.+)`
-	LexiconRegex            = `#lexicon (?P<lexicon>.+)`
-	CharacterEncodingRegex  = `#character-encoding (?P<encoding>[[:graph:]]+)`
-	PhonyTilesReturnedRegex = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+--\s+-(?P<lost_score>\d+)\s+(?P<cumul>\d+)`
-	PassRegex               = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+-\s+\+0\s+(?P<cumul>\d+)`
-	ChallengeBonusRegex     = `>(?P<nick>\S+):\s+(?P<rack>\S*)\s+\(challenge\)\s+\+(?P<bonus>\d+)\s+(?P<cumul>\d+)`
-	ExchangeRegex           = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+-(?P<exchanged>\S+)\s+\+0\s+(?P<cumul>\d+)`
-	EndRackPointsRegex      = `>(?P<nick>\S+):\s+\((?P<rack>\S+)\)\s+\+(?P<score>\d+)\s+(?P<cumul>-?\d+)`
-	TimePenaltyRegex        = `>(?P<nick>\S+):\s+(?P<rack>\S*)\s+\(time\)\s+\-(?P<penalty>\d+)\s+(?P<cumul>-?\d+)`
-	PtsLostForLastRackRegex = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+\((?P<rack>\S+)\)\s+\-(?P<penalty>\d+)\s+(?P<cumul>-?\d+)`
+	PlayerRegex               = `#player(?P<p_number>[1-2])\s+(?P<nick>\S+)\s+(?P<real_name>.+)`
+	TitleRegex                = `#title\s*(?P<title>.*)`
+	DescriptionRegex          = `#description\s*(?P<description>.*)`
+	IDRegex                   = `#id\s*(?P<id_authority>\S+)\s+(?P<id>\S+)`
+	Rack1Regex                = `#rack1 (?P<rack>\S+)`
+	Rack2Regex                = `#rack2 (?P<rack>\S+)`
+	MoveRegex                 = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+(?P<pos>\w+)\s+(?P<play>[\p{L}\\.]+)\s+\+(?P<score>\d+)\s+(?P<cumul>\d+)`
+	NoteRegex                 = `#note (?P<note>.+)`
+	LexiconRegex              = `#lexicon (?P<lexicon>.+)`
+	CharacterEncodingRegex    = `#character-encoding (?P<encoding>[[:graph:]]+)`
+	GameTypeRegex             = `#game-type (?P<gameType>.*)`
+	TileSetRegex              = `#tile-set (?P<tileSet>.*)`
+	GameBoardRegex            = `#game-board (?P<gameBoard>.*)`
+	BoardLayoutRegex          = `#board-layout (?P<boardLayoutName>.*)`
+	TileDistributionNameRegex = `#tile-distribution (?P<tileDistributionName>.*)`
+	ContinuationRegex         = `#- (?P<continuation>.*)`
+	PhonyTilesReturnedRegex   = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+--\s+-(?P<lost_score>\d+)\s+(?P<cumul>\d+)`
+	PassRegex                 = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+-\s+\+0\s+(?P<cumul>\d+)`
+	ChallengeBonusRegex       = `>(?P<nick>\S+):\s+(?P<rack>\S*)\s+\(challenge\)\s+\+(?P<bonus>\d+)\s+(?P<cumul>\d+)`
+	ExchangeRegex             = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+-(?P<exchanged>\S+)\s+\+0\s+(?P<cumul>\d+)`
+	EndRackPointsRegex        = `>(?P<nick>\S+):\s+\((?P<rack>\S+)\)\s+\+(?P<score>\d+)\s+(?P<cumul>-?\d+)`
+	TimePenaltyRegex          = `>(?P<nick>\S+):\s+(?P<rack>\S*)\s+\(time\)\s+\-(?P<penalty>\d+)\s+(?P<cumul>-?\d+)`
+	PtsLostForLastRackRegex   = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+\((?P<rack>\S+)\)\s+\-(?P<penalty>\d+)\s+(?P<cumul>-?\d+)`
 )
 
 var compiledEncodingRegexp *regexp.Regexp
@@ -119,6 +132,12 @@ func init() {
 		{EndRackPointsToken, regexp.MustCompile(EndRackPointsRegex)},
 		{TimePenaltyToken, regexp.MustCompile(TimePenaltyRegex)},
 		{LastRackPenaltyToken, regexp.MustCompile(PtsLostForLastRackRegex)},
+		{GameTypeToken, regexp.MustCompile(GameTypeRegex)},
+		{TileSetToken, regexp.MustCompile(TileSetRegex)},
+		{GameBoardToken, regexp.MustCompile(GameBoardRegex)},
+		{ContinuationToken, regexp.MustCompile(ContinuationRegex)},
+		{BoardLayoutToken, regexp.MustCompile(BoardLayoutRegex)},
+		{TileDistributionNameToken, regexp.MustCompile(TileDistributionNameRegex)},
 	}
 }
 
@@ -272,9 +291,8 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 
 	case NoteToken:
 		lastEvtIdx := len(p.history.Events) - 1
-		// For notes that are not associated with events, we can ignore them.
 		if lastEvtIdx < 0 {
-			return p.parseSpecialNotePragma(match[1])
+			return errors.New("note pragma may not precede events")
 		}
 		p.history.Events[lastEvtIdx].Note += match[1]
 		return nil
@@ -284,6 +302,25 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 		}
 		p.history.Lexicon = match[1]
 		return nil
+	case BoardLayoutToken:
+		if len(p.history.Events) > 0 {
+			return errPragmaPrecedeEvent
+		}
+		p.history.BoardLayout = match[1]
+		return nil
+	case TileDistributionNameToken:
+		if len(p.history.Events) > 0 {
+			return errPragmaPrecedeEvent
+		}
+		p.history.LetterDistribution = match[1]
+		return nil
+	case GameTypeToken:
+		if len(p.history.Events) > 0 {
+			return errPragmaPrecedeEvent
+		}
+		p.history.Variant = match[1]
+		return nil
+	// need to handle continuation as well as the actual tileSet or gameBoard pragmas.
 	case PhonyTilesReturnedToken:
 		evt := &pb.GameEvent{}
 		evt.PlayerIndex, err = nickToPIndex(match[1], p.history.Players)
@@ -466,32 +503,6 @@ func (p *parser) parseLine(cfg *config.Config, line string) error {
 	return nil
 }
 
-func (p *parser) parseSpecialNotePragma(note string) error {
-	// For now, in order to remain compliant with the GCG spec, we re-use
-	// the #note pragma to expand the representation a bit.
-	kv := strings.SplitN(note, ":", 2)
-	log.Debug().Interface("kv", kv).Msg("note")
-	if len(kv) != 2 {
-		// We won't return an error, but this doesn't follow the format.
-		return nil
-	}
-
-	key := strings.TrimSpace(kv[0])
-	val := strings.TrimSpace(kv[1])
-	switch key {
-	case "Variant":
-		p.history.Variant = val
-		log.Debug().Str("variant", val).Msg("found variant note pragma")
-	case "LetterDistribution":
-		p.history.LetterDistribution = val
-		log.Debug().Str("dist", val).Msg("found dist note pragma")
-	case "BoardLayout":
-		p.history.BoardLayout = val
-		log.Debug().Str("layout", val).Msg("found layout note pragma")
-	}
-	return nil
-}
-
 func encodingOrFirstLine(reader io.Reader) (string, string, error) {
 	// Read either the encoding of the file, or the first line,
 	// whichever is available.
@@ -612,13 +623,13 @@ func writeGCGHeader(s *strings.Builder, h *pb.GameHistory, addlInfo bool) {
 			s.WriteString("#lexicon " + h.Lexicon + "\n")
 		}
 		if h.Variant != "" {
-			s.WriteString("#note Variant: " + h.Variant + "\n")
+			s.WriteString("#game-type " + h.Variant + "\n")
 		}
-		if h.BoardLayout != "" {
-			s.WriteString("#note BoardLayout: " + h.BoardLayout + "\n")
+		if h.BoardLayout != "" && h.BoardLayout != board.CrosswordGameLayout {
+			s.WriteString("#board-layout " + h.BoardLayout + "\n")
 		}
-		if h.LetterDistribution != "" {
-			s.WriteString("#note LetterDistribution: " + h.LetterDistribution + "\n")
+		if h.LetterDistribution != "" && h.LetterDistribution != "english" {
+			s.WriteString("#tile-distribution " + h.LetterDistribution + "\n")
 		}
 	}
 	log.Debug().Msg("wrote header")
