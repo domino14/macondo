@@ -82,7 +82,7 @@ func TestNewFromHistoryIncomplete4(t *testing.T) {
 	// is.Equal(game.RackLettersFor(1), "AAAELQS")
 
 	// Since it's malformed we end the game. Oops; do not load this GCG!
-	is.Equal(g.Playing(), pb.PlayState_GAME_OVER)
+	is.Equal(g.Playing(), pb.PlayState_WAITING_FOR_FINAL_PASS)
 }
 
 func TestNewFromHistoryIncomplete5(t *testing.T) {
