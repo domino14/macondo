@@ -201,6 +201,4 @@ message PuzzleBucket {
   repeated PuzzleTag excludes = 4;
 }
 
-message PuzzleGenerationRequest {
-  repeated PuzzleBucket buckets = 1;
-}
+message PuzzleGenerationRequest { repeated PuzzleBucket buckets = 1; }

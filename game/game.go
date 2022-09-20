@@ -98,7 +98,15 @@ func (g *Game) LastEvent() *pb.GameEvent {
 
 func (g *Game) addEventToHistory(evt *pb.GameEvent) {
 	log.Debug().Msgf("Adding event to history: %v", evt)
+
+	if g.turnnum < len(g.history.Events) {
+		log.Info().Interface("evt", evt).Msg("adding-overwriting-history")
+		// log.Info().Interface("history", g.history.Events).Int("turnnum", g.turnnum).
+		// 	Int("len", len(g.history.Events)).Msg("hist")
+		g.history.Events = g.history.Events[:g.turnnum]
+	}
 	g.history.Events = append(g.history.Events, evt)
+
 }
 
 // CalculateCoordsFromStringPosition turns a "position" on the board such as
@@ -261,6 +269,25 @@ func (g *Game) FlipPlayers() {
 	g.players[0], g.players[1] = g.players[1], g.players[0]
 }
 
+func (g *Game) RenamePlayer(idx int, playerinfo *pb.PlayerInfo) error {
+	for i := range g.players {
+		if i == idx {
+			continue
+		}
+		if g.players[i].PlayerInfo.Nickname == playerinfo.Nickname {
+			return errors.New("another player already has that nickname")
+		}
+	}
+	g.players[idx].PlayerInfo.Nickname = playerinfo.Nickname
+	g.players[idx].PlayerInfo.RealName = playerinfo.RealName
+	g.players[idx].PlayerInfo.UserId = playerinfo.UserId
+
+	g.history.Players[idx].Nickname = playerinfo.Nickname
+	g.history.Players[idx].RealName = playerinfo.RealName
+	g.history.Players[idx].UserId = playerinfo.UserId
+	return nil
+}
+
 // StartGame starts a game anew, dealing out tiles to both players.
 func (g *Game) StartGame() {
 	g.Board().Clear()
@@ -382,6 +409,7 @@ func (g *Game) validateTilePlayMove(m *move.Move) ([]alphabet.MachineWord, error
 
 func (g *Game) endOfGameCalcs(onturn int, addToHistory bool) {
 	unplayedPts := g.calculateRackPts(otherPlayer(onturn)) * 2
+	g.turnnum++ // since we're adding a new event.
 
 	g.players[onturn].points += unplayedPts
 	if addToHistory {
@@ -565,12 +593,15 @@ func (g *Game) handleConsecutiveScorelessTurns(addToHistory bool) (bool, error) 
 	if g.scorelessTurns == g.maxScorelessTurns {
 		ended = true
 		g.playing = pb.PlayState_GAME_OVER
-		g.history.PlayState = g.playing
-
+		if addToHistory {
+			g.history.PlayState = g.playing
+		}
 		pts := g.calculateRackPts(g.onturn)
 		g.players[g.onturn].points -= pts
 		if addToHistory {
 			penaltyEvt := g.endRackPenaltyEvt(pts)
+			g.turnnum++
+
 			g.addEventToHistory(penaltyEvt)
 		}
 		g.onturn = (g.onturn + 1) % len(g.players)
@@ -578,6 +609,8 @@ func (g *Game) handleConsecutiveScorelessTurns(addToHistory bool) (bool, error) 
 		g.players[g.onturn].points -= pts
 		if addToHistory {
 			penaltyEvt := g.endRackPenaltyEvt(pts)
+			g.turnnum++
+
 			g.addEventToHistory(penaltyEvt)
 			g.AddFinalScoresToHistory()
 		}
@@ -665,6 +698,18 @@ func (g *Game) calculateRackPts(onturn int) int {
 
 func otherPlayer(idx int) int {
 	return (idx + 1) % 2
+}
+
+func (g *Game) AddNote(note string) error {
+	if g.history == nil {
+		return errors.New("nil history")
+	}
+	evtNum := g.turnnum - 1
+	if evtNum < 0 {
+		return errors.New("event number is negative")
+	}
+	g.history.Events[evtNum].Note = note
+	return nil
 }
 
 func (g *Game) PlayToTurn(turnnum int) error {
@@ -760,8 +805,15 @@ func (g *Game) PlayToTurn(turnnum int) error {
 
 	for _, p := range g.players {
 		if p.rack.NumTiles() == 0 {
-			log.Debug().Msgf("Player %v has no tiles, game is over.", p)
-			g.playing = pb.PlayState_GAME_OVER
+			log.Debug().Msgf("Player %v has no tiles, game might be over.", p)
+			if len(g.history.FinalScores) == 0 {
+				// This game has never ended before, so it must not have gotten
+				// past this "final pass" state.
+				log.Debug().Msg("restoring waiting for final pass state")
+				g.playing = pb.PlayState_WAITING_FOR_FINAL_PASS
+			} else {
+				g.playing = pb.PlayState_GAME_OVER
+			}
 			g.history.PlayState = g.playing
 
 			break

@@ -720,6 +720,10 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.prev(cmd)
 	case "s":
 		return sc.show(cmd)
+	case "name":
+		return sc.name(cmd)
+	case "note":
+		return sc.note(cmd)
 	case "turn":
 		return sc.turn(cmd)
 	case "rack":
