@@ -292,9 +292,10 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 	case NoteToken:
 		lastEvtIdx := len(p.history.Events) - 1
 		if lastEvtIdx < 0 {
-			return errors.New("note pragma may not precede events")
+			log.Warn().Msg("note pragma may not precede events")
+		} else {
+			p.history.Events[lastEvtIdx].Note += match[1]
 		}
-		p.history.Events[lastEvtIdx].Note += match[1]
 		return nil
 	case LexiconToken:
 		if len(p.history.Events) > 0 {
