@@ -491,6 +491,9 @@ func (s *Simmer) sortPlaysByEquity() {
 func (s *Simmer) sortPlaysByWinRate() {
 	// log.Debug().Msgf("Sorting plays: %v", s.plays)
 	sort.Slice(s.plays, func(i, j int) bool {
+		if s.plays[i].winPctStats.Mean() == s.plays[j].winPctStats.Mean() {
+			return s.plays[i].equityStats.Mean() > s.plays[j].equityStats.Mean()
+		}
 		return s.plays[i].winPctStats.Mean() > s.plays[j].winPctStats.Mean()
 	})
 }
