@@ -409,10 +409,10 @@ func (g *Game) validateTilePlayMove(m *move.Move) ([]alphabet.MachineWord, error
 
 func (g *Game) endOfGameCalcs(onturn int, addToHistory bool) {
 	unplayedPts := g.calculateRackPts(otherPlayer(onturn)) * 2
-	g.turnnum++ // since we're adding a new event.
 
 	g.players[onturn].points += unplayedPts
 	if addToHistory {
+		g.turnnum++ // since we're adding a new event.
 		g.addEventToHistory(g.endRackEvt(onturn, unplayedPts))
 	}
 	// log.Debug().Int("onturn", onturn).Int("unplayedpts", unplayedPts).Interface("players", g.players).
