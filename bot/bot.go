@@ -191,18 +191,22 @@ func (bot *Bot) handle(data []byte) *pb.BotResponse {
 	if !valid {
 		m, _ = g.NewChallengeMove(g.PlayerOnTurn())
 	} else if g.IsPlaying() {
-		var moves []*move.Move
-		if !isWordSmog {
-			moves = bot.game.GenerateMoves(1)
+		if g.Game.Playing() == pb.PlayState_WAITING_FOR_FINAL_PASS {
+			m, _ = g.NewPassMove(g.PlayerOnTurn())
 		} else {
-			moves, err = wolgesAnalyze(bot.config, bot.game)
-			if err != nil {
-				log.Err(err).Msg("wolges-analyze-error")
-				// Just generate a move using the regular generator.
+			var moves []*move.Move
+			if !isWordSmog {
 				moves = bot.game.GenerateMoves(1)
+			} else {
+				moves, err = wolgesAnalyze(bot.config, bot.game)
+				if err != nil {
+					log.Err(err).Msg("wolges-analyze-error")
+					// Just generate a move using the regular generator.
+					moves = bot.game.GenerateMoves(1)
+				}
 			}
+			m = moves[0]
 		}
-		m = moves[0]
 	} else {
 		m, _ = g.NewPassMove(g.PlayerOnTurn())
 	}
