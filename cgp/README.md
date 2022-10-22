@@ -170,6 +170,14 @@ e.g.
 
 `to 60000;` means the game is over after 1 minute of overtime (in typical play, the person who went over loses 10 points for every minute of overtime).
 
+### var (variant)
+
+The variant to use. 
+
+e.g.
+
+`var WordSmog;`
+
 ## Example CGPs
 
 1. From the 2018 US Nationals, game 30. Joel's opening rack was AENSTUU and he exchanged UU. Nigel's opening rack was AELNOQT. From his perspective:

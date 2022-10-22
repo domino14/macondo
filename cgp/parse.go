@@ -106,6 +106,12 @@ func ParseCGP(cfg *config.Config, cgpstr string) (*game.Game, error) {
 			if err != nil {
 				return nil, err
 			}
+
+		case "var":
+			if len(opWithParams) != 2 {
+				return nil, errors.New("wrong number of arguments for var operation")
+			}
+			variant = game.Variant(opWithParams[1])
 		}
 	}
 
