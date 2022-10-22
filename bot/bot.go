@@ -93,6 +93,7 @@ func (bot *Bot) Deserialize(data []byte) (*game.Game, *pb.EvaluationRequest, pb.
 		if err != nil {
 			return nil, nil, 0, err
 		}
+		ng.RecalculateBoard()
 	} else {
 		nturns := len(history.Events)
 		ng, err = game.NewFromHistory(history, rules, 0)
