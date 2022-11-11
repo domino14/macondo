@@ -92,7 +92,7 @@ func modifyForPlaythrough(tiles alphabet.MachineWord, board *board.GameBoard,
 
 	// modify the tiles array to account for situations in which a letter
 	// being played through is not specified as the playthrough marker
-	log.Debug().
+	log.Trace().
 		Str("tiles", tiles.UserVisible(alphabet.EnglishAlphabet())).
 		Int("row", row).Int("col", col).Bool("vertical", vertical).
 		Msg("Modifying for playthrough")

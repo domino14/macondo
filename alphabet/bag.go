@@ -145,7 +145,7 @@ func (b *Bag) remove(t MachineLetter) {
 
 // rebuildTileSlice reconciles the bag slice with the tile map.
 func (b *Bag) rebuildTileSlice(numTilesInBag int) error {
-	log.Debug().Msgf("reconciling tiles, num in bag are %v, map %v",
+	log.Trace().Msgf("reconciling tiles, num in bag are %v, map %v",
 		numTilesInBag, b.tileMap)
 	if numTilesInBag > len(b.initialTiles) {
 		return errors.New("more tiles in the bag that there were to begin with")
