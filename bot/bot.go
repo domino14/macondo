@@ -6,7 +6,9 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"time"
 
+	"github.com/avast/retry-go"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/protobuf/proto"
@@ -210,17 +212,22 @@ func (bot *Bot) handle(data []byte) *pb.BotResponse {
 	evt := bot.game.EventFromMove(m)
 	return &pb.BotResponse{
 		Response: &pb.BotResponse_Move{Move: evt},
+		GameId:   g.Uid(),
 	}
 }
 
-func Main(channel string, bot *Bot) {
+// Main implements a NATS listener that takes data from a channel.
+// It does not respond on a reply channel, because that implies the
+// caller would need to block and wait for a response. Instead, we must
+// send a bot move on a separate per-game-id channel when ready.
+func Main(legacychannel, channel string, bot *Bot) {
 	bot.newGame()
 	nc, err := nats.Connect(bot.config.NatsURL)
 	if err != nil {
 		log.Fatal()
 	}
-	// Simple Async Subscriber
-	nc.Subscribe(channel, func(m *nats.Msg) {
+	// legacychannel; to be removed.
+	nc.Subscribe(legacychannel, func(m *nats.Msg) {
 		log.Info().Msgf("RECV: %d bytes", len(m.Data))
 		resp := bot.handle(m.Data)
 		// debugWriteln(proto.MarshalTextString(resp))
@@ -232,14 +239,51 @@ func Main(channel string, bot *Bot) {
 			m.Respond(data)
 		}
 	})
+
+	// A user of the bot should send the data to only one bot instance.
+	// Using a QueueSubscribe guarantees that only one listening bot will
+	// receive a message.
+	nc.QueueSubscribe(channel, "bot_queue", func(m *nats.Msg) {
+		log.Info().Msgf("RECV: %d bytes", len(m.Data))
+		resp := bot.handle(m.Data)
+		// debugWriteln(proto.MarshalTextString(resp))
+		data, err := proto.Marshal(resp)
+
+		if err != nil {
+			// Should never happen, ideally, but we need to do something sensible here.
+			m.Respond([]byte(err.Error()))
+		} else {
+			err := retry.Do(
+				func() error {
+					_, err := nc.Request(
+						"bot.publish_event."+resp.GameId, data, 3*time.Second)
+					if err != nil {
+						return err
+					}
+					// We're just waiting for an acknowledgement. The actual
+					// data doesn't matter.
+					return nil
+				},
+				retry.DelayType(func(n uint, err error, config *retry.Config) time.Duration {
+					log.Err(err).Uint("n", n).Str("gameID", resp.GameId).
+						Msg("did-not-receive-ack-try-again")
+					return retry.BackOffDelay(n, err, config)
+				}),
+			)
+			if err != nil {
+				log.Err(err).Msg("bot-move-failed")
+			}
+		}
+	})
 	nc.Flush()
 
 	if err := nc.LastError(); err != nil {
 		log.Fatal()
 	}
-
+	log.Info().Msgf("Listening on [%s]", legacychannel)
 	log.Info().Msgf("Listening on [%s]", channel)
 
 	runtime.Goexit()
 	fmt.Println("exiting")
+
 }

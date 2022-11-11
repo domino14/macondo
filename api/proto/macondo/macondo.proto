@@ -171,6 +171,7 @@ message BotResponse {
     string error = 2;
   }
   Evaluation eval = 3;
+  string game_id = 4;
 }
 
 // Puzzles

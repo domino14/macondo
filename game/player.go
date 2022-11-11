@@ -38,7 +38,7 @@ func (p *playerState) resetScore() {
 }
 
 func (p *playerState) throwRackIn(bag *alphabet.Bag) {
-	log.Debug().Str("rack", p.rack.String()).Str("player", p.Nickname).
+	log.Trace().Str("rack", p.rack.String()).Str("player", p.Nickname).
 		Msg("throwing rack in")
 	bag.PutBack(p.rack.TilesOn())
 	p.rack.Set([]alphabet.MachineLetter{})

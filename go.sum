@@ -6,6 +6,8 @@ github.com/alecthomas/mph v0.0.0-20190930022807-712982e3d8a2 h1:3QU1afrYIAZZo5tf
 github.com/alecthomas/mph v0.0.0-20190930022807-712982e3d8a2/go.mod h1:HX5roj0AK3pjtDnP4HIV4zY4yW56odJ0LEwgoHL8NLI=
 github.com/alecthomas/unsafeslice v0.1.0 h1:bZlgt0CcjLz1OxjIS//2B5MTfifcGPKmkzvQ7OarOvg=
 github.com/alecthomas/unsafeslice v0.1.0/go.mod h1:H7s9N0gAbfiwu02rQEexZbN/YMxm+2l3rVRa/zE2DM8=
+github.com/avast/retry-go v3.0.0+incompatible h1:4SOWQ7Qs+oroOTQOYnAHqelpCO0biHSxpiH9JdtuBj0=
+github.com/avast/retry-go v3.0.0+incompatible/go.mod h1:XtSnn+n/sHqQIpZ10K1qAevBhOOCWBLXXy3hyiqqBrY=
 github.com/census-instrumentation/opencensus-proto v0.2.1/go.mod h1:f6KPmirojxKA12rnyqOA5BBL4O983OfeGPqjHWSTneU=
 github.com/chzyer/logex v1.1.10 h1:Swpa1K6QvQznwJRcfTfQJmTE72DqScAa40E+fbHEXEE=
 github.com/chzyer/logex v1.1.10/go.mod h1:+Ywpsq7O8HXn0nuIou7OrIPyXbp3wmkHB+jjWRnGsAI=
