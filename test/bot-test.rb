@@ -15,7 +15,7 @@ require 'nats/client'
 require 'fiber'
 require 'readline'
 
-CHAN = 'macondo.bot'
+CHAN = 'bot.command'
 
 NATS.start do
   Fiber.new do
