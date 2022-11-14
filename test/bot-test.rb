@@ -15,7 +15,7 @@ require 'nats/client'
 require 'fiber'
 require 'readline'
 
-CHAN = 'bot.command'
+CHAN = 'bot.commands'
 
 NATS.start do
   Fiber.new do
