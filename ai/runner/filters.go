@@ -66,7 +66,7 @@ func filter(cfg *config.Config, g *game.Game, rack *alphabet.Rack, plays []*move
 	if botType != pb.BotRequest_LEVEL4_CEL_BOT {
 		dist := g.Bag().LetterDistribution()
 		// XXX: This should be cached
-		subChooseCombos := createSubCombos(dist)
+		subChooseCombos := countSubCombos(dist)
 		filterFunctionPrev := filterFunction
 		filterFunction = func(mws []alphabet.MachineWord, r float64) (bool, error) {
 			allowed, err := filterFunctionPrev(mws, r)
@@ -75,11 +75,17 @@ func filter(cfg *config.Config, g *game.Game, rack *alphabet.Rack, plays []*move
 			}
 			ans := botConfig.baseFindability * math.Pow(botConfig.parallelFindability, float64(len(mws)-1))
 
-			mw := mws[0] // assume len > 0
-			// Check for long words (7 or more letters)
-			if len(mw) >= game.ExchangeLimit {
-				userVisibleString := mw.UserVisible(dist.Alphabet())
-				ans *= probableFindability(len(mw), combinations(dist, subChooseCombos, userVisibleString, true)) * botConfig.longWordFindability
+			// Filter long words (7 or more letters) and parallels by prevalence (playability)
+			// RETINAS is more prevalent in the tile distribution than MUUMUUS
+			for idx, mw := range mws {
+				wordLen := len(mw)
+				if idx > 0 || wordLen >= game.ExchangeLimit {
+					alphagram := mw.UserVisible(dist.Alphabet())
+					ans *= probableFindability(wordLen, combinations(dist, subChooseCombos, alphagram, true))
+				}
+				if wordLen >= game.ExchangeLimit {
+					ans *= botConfig.longWordFindability
+				}
 			}
 			log.Debug().Float64("ans", ans).Float64("r", r).Msg("checking-answer")
 			return r < ans, nil
@@ -123,7 +129,7 @@ func probableFindability(wordLen int, combos uint64) float64 {
 	return math.Min(math.Log10(float64(combos))/float64(wordLen-1), 1.0)
 }
 
-func createSubCombos(dist *alphabet.LetterDistribution) [][]uint64 {
+func countSubCombos(dist *alphabet.LetterDistribution) [][]uint64 {
 	// Adapted from GPL Zyzzyva's calculation code.
 	maxFrequency := uint8(0)
 	totalLetters := uint8(0)
@@ -173,7 +179,6 @@ func combinations(dist *alphabet.LetterDistribution, subChooseCombos [][]uint64,
 			counts = append(counts, 1)
 			combos = append(combos,
 				subChooseCombos[dist.Distribution[letter]])
-
 		}
 	}
 	totalCombos := uint64(0)
@@ -187,7 +192,7 @@ func combinations(dist *alphabet.LetterDistribution, subChooseCombos [][]uint64,
 	if !withBlanks {
 		return totalCombos
 	}
-	// Calculate combinations with one blank
+	// Count combinations with one blank
 	for i := 0; i < numLetters; i++ {
 		counts[i]--
 		thisCombo = subChooseCombos[dist.Distribution['?']][1]
@@ -197,7 +202,7 @@ func combinations(dist *alphabet.LetterDistribution, subChooseCombos [][]uint64,
 		totalCombos += thisCombo
 		counts[i]++
 	}
-	// Calculate combinations with two blanks
+	// Count combinations with two blanks
 	for i := 0; i < numLetters; i++ {
 		counts[i]--
 		for j := i; j < numLetters; j++ {
