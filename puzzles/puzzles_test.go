@@ -143,13 +143,13 @@ func TestPuzzleGeneration(t *testing.T) {
 	game, err := game.NewFromHistory(gameHistory, rules, 0)
 	is.NoErr(err)
 
-	_, err = CreatePuzzlesFromGame(&DefaultConfig, game, nil)
+	_, err = CreatePuzzlesFromGame(&DefaultConfig, 1000, game, nil)
 	is.True(err != nil)
 	is.Equal(err.Error(), "puzzle generation request is nil")
 
 	puzzleGenerationReq := &pb.PuzzleGenerationRequest{}
 
-	_, err = CreatePuzzlesFromGame(&DefaultConfig, game, puzzleGenerationReq)
+	_, err = CreatePuzzlesFromGame(&DefaultConfig, 1000, game, puzzleGenerationReq)
 	is.True(err != nil)
 	is.Equal(err.Error(), "buckets are nil in puzzle generation request")
 
@@ -281,7 +281,7 @@ func TestLostChallenge(t *testing.T) {
 	is.NoErr(err)
 	// This would fail if there was no check for the
 	// game event type in CreatePuzzlesFromGame
-	_, err = CreatePuzzlesFromGame(&DefaultConfig, game, dpgr)
+	_, err = CreatePuzzlesFromGame(&DefaultConfig, 1000, game, dpgr)
 	is.NoErr(err)
 }
 
@@ -302,8 +302,59 @@ func TestPhonyTilesReturned(t *testing.T) {
 	err = InitializePuzzleGenerationRequest(dpgr)
 	is.NoErr(err)
 
-	_, err = CreatePuzzlesFromGame(&DefaultConfig, game, dpgr)
+	_, err = CreatePuzzlesFromGame(&DefaultConfig, 1000, game, dpgr)
 	is.NoErr(err)
+}
+
+func TestEquityLossLimit(t *testing.T) {
+	is := is.New(t)
+	zerolog.SetGlobalLevel(zerolog.Disabled)
+	// A little less than 22 total equity loss this game
+	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "./testdata/well_played_game.gcg")
+	is.NoErr(err)
+
+	// Set the correct challenge rule
+	gameHistory.ChallengeRule = pb.ChallengeRule_DOUBLE
+
+	rules, err := game.NewBasicGameRules(&DefaultConfig, "NWL18", board.CrosswordGameLayout, "english", game.CrossScoreAndSet, game.VarClassic)
+	is.NoErr(err)
+
+	game, err := game.NewFromHistory(gameHistory, rules, 0)
+	is.NoErr(err)
+
+	puzzleGenerationReq := &pb.PuzzleGenerationRequest{
+		Buckets: []*pb.PuzzleBucket{
+			{
+				Includes: []pb.PuzzleTag{pb.PuzzleTag_CEL_ONLY},
+				Excludes: []pb.PuzzleTag{pb.PuzzleTag_POWER_TILE},
+			},
+			{
+				Includes: []pb.PuzzleTag{pb.PuzzleTag_POWER_TILE},
+				Excludes: []pb.PuzzleTag{},
+			},
+			{
+				Includes: []pb.PuzzleTag{pb.PuzzleTag_EQUITY, pb.PuzzleTag_BINGO},
+				Excludes: []pb.PuzzleTag{pb.PuzzleTag_CEL_ONLY, pb.PuzzleTag_POWER_TILE},
+			},
+		},
+	}
+
+	err = InitializePuzzleGenerationRequest(puzzleGenerationReq)
+	is.NoErr(err)
+
+	pzls, err := CreatePuzzlesFromGame(&DefaultConfig, 22, game, puzzleGenerationReq)
+	if err != nil {
+		panic(err)
+	}
+	is.True(len(pzls) > 0)
+
+	/* set an equity loss limit of 21. this should fail, as the players lost more than 21 equity */
+
+	pzls, err = CreatePuzzlesFromGame(&DefaultConfig, 21, game, puzzleGenerationReq)
+	if err != nil {
+		panic(err)
+	}
+	is.Equal(len(pzls), 0)
 }
 
 func puzzlesMatch(is *is.I, gcgfile string, puzzleGenerationReq *pb.PuzzleGenerationRequest, expectedPzl *pb.PuzzleCreationResponse) {
@@ -326,7 +377,7 @@ func puzzlesMatch(is *is.I, gcgfile string, puzzleGenerationReq *pb.PuzzleGenera
 		panic(err)
 	}
 
-	pzls, err := CreatePuzzlesFromGame(&DefaultConfig, game, puzzleGenerationReq)
+	pzls, err := CreatePuzzlesFromGame(&DefaultConfig, 1000, game, puzzleGenerationReq)
 	if err != nil {
 		panic(err)
 	}
