@@ -220,26 +220,12 @@ func (bot *Bot) handle(data []byte) *pb.BotResponse {
 // It does not respond on a reply channel, because that implies the
 // caller would need to block and wait for a response. Instead, we must
 // send a bot move on a separate per-game-id channel when ready.
-func Main(legacychannel, channel string, bot *Bot) {
+func Main(channel string, bot *Bot) {
 	bot.newGame()
 	nc, err := nats.Connect(bot.config.NatsURL)
 	if err != nil {
 		log.Fatal()
 	}
-	// legacychannel; to be removed.
-	nc.Subscribe(legacychannel, func(m *nats.Msg) {
-		log.Info().Msgf("RECV: %d bytes", len(m.Data))
-		resp := bot.handle(m.Data)
-		// debugWriteln(proto.MarshalTextString(resp))
-		data, err := proto.Marshal(resp)
-		if err != nil {
-			// Should never happen, ideally, but we need to do something sensible here.
-			m.Respond([]byte(err.Error()))
-		} else {
-			m.Respond(data)
-		}
-	})
-
 	// A user of the bot should send the data to only one bot instance.
 	// Using a QueueSubscribe guarantees that only one listening bot will
 	// receive a message.
@@ -280,7 +266,6 @@ func Main(legacychannel, channel string, bot *Bot) {
 	if err := nc.LastError(); err != nil {
 		log.Fatal()
 	}
-	log.Info().Msgf("Listening on [%s]", legacychannel)
 	log.Info().Msgf("Listening on [%s]", channel)
 
 	runtime.Goexit()

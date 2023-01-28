@@ -65,7 +65,7 @@ func main() {
 
 	opts := &runner.GameOptions{}
 	b := bot.NewBot(cfg, opts)
-	go bot.Main("macondo.bot", "bot.commands", b)
+	go bot.Main("bot.commands", b)
 
 	<-idleConnsClosed
 	log.Info().Msg("server gracefully shutting down")
