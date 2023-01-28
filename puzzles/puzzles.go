@@ -64,7 +64,6 @@ func CreatePuzzlesFromGame(conf *config.Config, eqLossLimit int, g *game.Game, r
 		}
 		runner.AssignEquity([]*move.Move{madeMove}, nil)
 		totalEquityLoss += (topEquity - madeMove.Equity())
-		fmt.Println("tel", totalEquityLoss)
 
 		if totalEquityLoss > float64(eqLossLimit) {
 			log.Info().Str("gid", g.Uid()).Float64("eqloss", totalEquityLoss).Msg("too much equity loss")
