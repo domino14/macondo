@@ -26,13 +26,14 @@ var PuzzleFunctions = []func(g *game.Game, moves []*move.Move) (bool, pb.PuzzleT
 	CELOnlyPuzzle,
 }
 
-func CreatePuzzlesFromGame(conf *config.Config, g *game.Game, req *pb.PuzzleGenerationRequest) ([]*pb.PuzzleCreationResponse, error) {
+func CreatePuzzlesFromGame(conf *config.Config, eqLossLimit int, g *game.Game, req *pb.PuzzleGenerationRequest) ([]*pb.PuzzleCreationResponse, error) {
 	evts := g.History().Events
 	puzzles := []*pb.PuzzleCreationResponse{}
 	err := validatePuzzleGenerationRequest(req)
 	if err != nil {
 		return nil, err
 	}
+	totalEquityLoss := 0.0
 	for evtIdx, evt := range evts {
 		if evt.Type != pb.GameEvent_TILE_PLACEMENT_MOVE &&
 			evt.Type != pb.GameEvent_EXCHANGE &&
@@ -53,6 +54,22 @@ func CreatePuzzlesFromGame(conf *config.Config, g *game.Game, req *pb.PuzzleGene
 			return nil, err
 		}
 		moves := runner.GenerateMoves(1000000)
+
+		// Let's keep a running tally of equity loss for this game.
+		topEquity := moves[0].Equity()
+
+		madeMove, err := game.MoveFromEvent(evt, g.Alphabet(), g.Board())
+		if err != nil {
+			return nil, err
+		}
+		runner.AssignEquity([]*move.Move{madeMove}, nil)
+		totalEquityLoss += (topEquity - madeMove.Equity())
+
+		if totalEquityLoss > float64(eqLossLimit) {
+			log.Info().Str("gid", g.Uid()).Float64("eqloss", totalEquityLoss).Msg("too much equity loss")
+			return nil, nil
+		}
+
 		turnIsPuzzle := false
 		tags := []pb.PuzzleTag{}
 		for _, puzzleFunc := range PuzzleFunctions {
