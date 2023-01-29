@@ -7,12 +7,20 @@ import (
 	"github.com/domino14/macondo/alphabet"
 )
 
+// a "rangeBlank" is a blank that can only be a subset of letters.
+type rangeBlank struct {
+	inuse       bool
+	letterRange []alphabet.MachineLetter
+}
+
 // zero value works. not threadsafe.
 type DawgAnagrammer struct {
-	ans         alphabet.MachineWord
-	freq        []uint8
-	blanks      uint8
-	queryLength int
+	ans               alphabet.MachineWord
+	freq              []uint8
+	blanks            uint8
+	queryLength       int
+	rangeBlanksForUse uint8
+	rangeBlanks       []rangeBlank
 }
 
 func (da *DawgAnagrammer) commonInit(dawg GenericDawg) {
@@ -35,7 +43,40 @@ func (da *DawgAnagrammer) InitForString(dawg GenericDawg, tiles string) error {
 	da.queryLength = 0
 	alph := dawg.GetAlphabet()
 	vals := alph.Vals()
+
+	bracketedLetters := []alphabet.MachineLetter{}
+	parsingBracket := false
+	rb := []rangeBlank{}
+
 	for _, r := range tiles {
+		if r == '[' {
+			// Basically treat as a blank that can only be a subset of all
+			// letters.
+			if parsingBracket {
+				return errors.New("badly formed search string")
+			}
+			parsingBracket = true
+			bracketedLetters = []alphabet.MachineLetter{}
+			continue
+		}
+		if r == ']' {
+			if !parsingBracket {
+				return errors.New("badly formed search string")
+			}
+			parsingBracket = false
+			rb = append(rb, rangeBlank{inuse: false, letterRange: bracketedLetters})
+			da.queryLength++
+			continue
+		}
+		if parsingBracket {
+			val, ok := vals[r]
+			if !ok {
+				return fmt.Errorf("bracketing - invalid rune %v", r)
+			}
+			bracketedLetters = append(bracketedLetters, val)
+			continue
+		}
+
 		da.queryLength++ // count number of runes, not number of bytes
 		if r == alphabet.BlankToken {
 			da.blanks++
@@ -45,6 +86,14 @@ func (da *DawgAnagrammer) InitForString(dawg GenericDawg, tiles string) error {
 			return fmt.Errorf("invalid rune %v", r)
 		}
 	}
+
+	da.rangeBlanks = rb
+	da.rangeBlanksForUse = uint8(len(rb))
+	fmt.Println("range blanks are", rb)
+	fmt.Println("queryLength", da.queryLength)
+	fmt.Println("freq", da.freq)
+	fmt.Println("blanks", da.blanks)
+	fmt.Println(da.rangeBlanksForUse)
 	return nil
 }
 
@@ -63,6 +112,24 @@ func (da *DawgAnagrammer) InitForMachineWord(dawg GenericDawg, machineTiles alph
 		}
 	}
 	return nil
+}
+
+func letterInRange(ml alphabet.MachineLetter, letterRange []alphabet.MachineLetter) bool {
+	for _, m := range letterRange {
+		if m == ml {
+			return true
+		}
+	}
+	return false
+}
+
+func (da *DawgAnagrammer) findNextRangeBlankIdx() int {
+	for idx, rb := range da.rangeBlanks {
+		if !rb.inuse {
+			return idx
+		}
+	}
+	return -1
 }
 
 // f must not modify the given slice. if f returns error, abort iteration.
@@ -99,6 +166,21 @@ func (da *DawgAnagrammer) iterate(dawg GenericDawg, nodeIdx uint32, minLen int, 
 					}
 					da.ans = da.ans[:len(da.ans)-1]
 					da.blanks++
+				} else if da.rangeBlanksForUse > 0 {
+					rbi := da.findNextRangeBlankIdx()
+					if letterInRange(j, da.rangeBlanks[rbi].letterRange) {
+						da.rangeBlanksForUse--
+						da.rangeBlanks[rbi].inuse = true
+						da.ans = append(da.ans, j)
+						if minLen <= 1 && minExact <= 0 {
+							if err := f(da.ans); err != nil {
+								return err
+							}
+						}
+						da.ans = da.ans[:len(da.ans)-1]
+						da.rangeBlanksForUse++
+						da.rangeBlanks[rbi].inuse = false
+					}
 				}
 			}
 		}
@@ -118,6 +200,19 @@ func (da *DawgAnagrammer) iterate(dawg GenericDawg, nodeIdx uint32, minLen int, 
 			}
 			da.ans = da.ans[:len(da.ans)-1]
 			da.blanks++
+		} else if da.rangeBlanksForUse > 0 {
+			rbi := da.findNextRangeBlankIdx()
+			if letterInRange(nextLetter, da.rangeBlanks[rbi].letterRange) {
+				da.rangeBlanksForUse--
+				da.rangeBlanks[rbi].inuse = true
+				da.ans = append(da.ans, nextLetter)
+				if err := da.iterate(dawg, nextNodeIdx, minLen-1, minExact, f); err != nil {
+					return err
+				}
+				da.ans = da.ans[:len(da.ans)-1]
+				da.rangeBlanksForUse++
+				da.rangeBlanks[rbi].inuse = false
+			}
 		}
 	}
 	for ; uint8(j) < numLetters; j++ {
@@ -142,6 +237,21 @@ func (da *DawgAnagrammer) iterate(dawg GenericDawg, nodeIdx uint32, minLen int, 
 				}
 				da.ans = da.ans[:len(da.ans)-1]
 				da.blanks++
+			} else if da.rangeBlanksForUse > 0 {
+				rbi := da.findNextRangeBlankIdx()
+				if letterInRange(j, da.rangeBlanks[rbi].letterRange) {
+					da.rangeBlanksForUse--
+					da.rangeBlanks[rbi].inuse = true
+					da.ans = append(da.ans, j)
+					if minLen <= 1 && minExact <= 0 {
+						if err := f(da.ans); err != nil {
+							return err
+						}
+					}
+					da.ans = da.ans[:len(da.ans)-1]
+					da.rangeBlanksForUse++
+					da.rangeBlanks[rbi].inuse = false
+				}
 			}
 		}
 	}
