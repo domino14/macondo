@@ -123,13 +123,17 @@ func letterInRange(ml alphabet.MachineLetter, letterRange []alphabet.MachineLett
 	return false
 }
 
-func (da *DawgAnagrammer) findNextRangeBlankIdx() int {
+func (da *DawgAnagrammer) findFirstMatchingRangeBlank(ml alphabet.MachineLetter) int {
+
 	for idx, rb := range da.rangeBlanks {
 		if !rb.inuse {
-			return idx
+			if letterInRange(ml, rb.letterRange) {
+				return idx
+			}
 		}
 	}
 	return -1
+
 }
 
 // f must not modify the given slice. if f returns error, abort iteration.
@@ -167,8 +171,9 @@ func (da *DawgAnagrammer) iterate(dawg GenericDawg, nodeIdx uint32, minLen int, 
 					da.ans = da.ans[:len(da.ans)-1]
 					da.blanks++
 				} else if da.rangeBlanksForUse > 0 {
-					rbi := da.findNextRangeBlankIdx()
-					if letterInRange(j, da.rangeBlanks[rbi].letterRange) {
+					rbi := da.findFirstMatchingRangeBlank(j)
+
+					if rbi != -1 {
 						da.rangeBlanksForUse--
 						da.rangeBlanks[rbi].inuse = true
 						da.ans = append(da.ans, j)
@@ -201,8 +206,8 @@ func (da *DawgAnagrammer) iterate(dawg GenericDawg, nodeIdx uint32, minLen int, 
 			da.ans = da.ans[:len(da.ans)-1]
 			da.blanks++
 		} else if da.rangeBlanksForUse > 0 {
-			rbi := da.findNextRangeBlankIdx()
-			if letterInRange(nextLetter, da.rangeBlanks[rbi].letterRange) {
+			rbi := da.findFirstMatchingRangeBlank(nextLetter)
+			if rbi != -1 {
 				da.rangeBlanksForUse--
 				da.rangeBlanks[rbi].inuse = true
 				da.ans = append(da.ans, nextLetter)
@@ -238,8 +243,8 @@ func (da *DawgAnagrammer) iterate(dawg GenericDawg, nodeIdx uint32, minLen int, 
 				da.ans = da.ans[:len(da.ans)-1]
 				da.blanks++
 			} else if da.rangeBlanksForUse > 0 {
-				rbi := da.findNextRangeBlankIdx()
-				if letterInRange(j, da.rangeBlanks[rbi].letterRange) {
+				rbi := da.findFirstMatchingRangeBlank(j)
+				if rbi != -1 {
 					da.rangeBlanksForUse--
 					da.rangeBlanks[rbi].inuse = true
 					da.ans = append(da.ans, j)

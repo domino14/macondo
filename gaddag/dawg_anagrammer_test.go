@@ -52,5 +52,6 @@ func TestAnagramWithRange(t *testing.T) {
 		t.Error(err)
 	}
 	fmt.Println(anags)
+	fmt.Println(da)
 	t.Error("foo")
 }
