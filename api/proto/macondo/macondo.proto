@@ -143,6 +143,8 @@ message BotRequest {
 
     SIMMING_BOT = 10;
     // harder bots here? inference? ml, etc.
+    LEVEL0_CEL_BOT = 11;
+    LEVEL0_PROBABILISTIC = 12;
   }
 
   BotCode bot_type = 3;

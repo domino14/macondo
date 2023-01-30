@@ -325,6 +325,8 @@ const (
 	BotRequest_LEVEL4_PROBABILISTIC BotRequest_BotCode = 8
 	BotRequest_LEVEL5_PROBABILISTIC BotRequest_BotCode = 9
 	BotRequest_SIMMING_BOT          BotRequest_BotCode = 10 // harder bots here? inference? ml, etc.
+	BotRequest_LEVEL0_PROBABILISTIC BotRequest_BotCode = 11
+	BotRequest_LEVEL0_CEL_BOT       BotRequest_BotCode = 12
 )
 
 // Enum value maps for BotRequest_BotCode.
@@ -341,6 +343,8 @@ var (
 		8:  "LEVEL4_PROBABILISTIC",
 		9:  "LEVEL5_PROBABILISTIC",
 		10: "SIMMING_BOT",
+		11: "LEVEL1_CEL_BOT",
+		12: "LEVEL1_PROBABILISTIC",
 	}
 	BotRequest_BotCode_value = map[string]int32{
 		"HASTY_BOT":            0,
@@ -354,6 +358,8 @@ var (
 		"LEVEL4_PROBABILISTIC": 8,
 		"LEVEL5_PROBABILISTIC": 9,
 		"SIMMING_BOT":          10,
+		"LEVEL0_CEL_BOT":       11,
+		"LEVEL0_PROBABILISTIC": 12,
 	}
 )
 
