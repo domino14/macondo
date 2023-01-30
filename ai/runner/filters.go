@@ -22,13 +22,13 @@ var BotConfigs = map[pb.BotRequest_BotCode]struct {
 	parallelFindability float64
 	isCel               bool
 }{
-	pb.BotRequest_LEVEL0_CEL_BOT: {idxPrevalence: 0, baseFindability: 0.3, longWordFindability: 0.1, parallelFindability: 0.3, isCel: true},
+	pb.BotRequest_LEVEL0_CEL_BOT: {idxPrevalence: 1, baseFindability: 0.3, longWordFindability: 0.1, parallelFindability: 0.3, isCel: true},
 	pb.BotRequest_LEVEL1_CEL_BOT: {idxPrevalence: 99, baseFindability: 0.3, longWordFindability: 0.1, parallelFindability: 0.3, isCel: true},
 	pb.BotRequest_LEVEL2_CEL_BOT: {idxPrevalence: 99, baseFindability: 0.7, longWordFindability: 0.4, parallelFindability: 0.5, isCel: true},
 	pb.BotRequest_LEVEL3_CEL_BOT: {idxPrevalence: 99, baseFindability: 0.8, longWordFindability: 0.5, parallelFindability: 0.75, isCel: true},
 	pb.BotRequest_LEVEL4_CEL_BOT: {idxPrevalence: 99, baseFindability: 1.0, longWordFindability: 1.0, parallelFindability: 1.0, isCel: true},
 
-	pb.BotRequest_LEVEL0_PROBABILISTIC: {idxPrevalence: 0, baseFindability: 0.2, longWordFindability: 0.07, parallelFindability: 0.15, isCel: false},
+	pb.BotRequest_LEVEL0_PROBABILISTIC: {idxPrevalence: 1, baseFindability: 0.2, longWordFindability: 0.07, parallelFindability: 0.15, isCel: false},
 	pb.BotRequest_LEVEL1_PROBABILISTIC: {idxPrevalence: 99, baseFindability: 0.2, longWordFindability: 0.07, parallelFindability: 0.15, isCel: false},
 	pb.BotRequest_LEVEL2_PROBABILISTIC: {idxPrevalence: 99, baseFindability: 0.4, longWordFindability: 0.2, parallelFindability: 0.3, isCel: false},
 	pb.BotRequest_LEVEL3_PROBABILISTIC: {idxPrevalence: 99, baseFindability: 0.55, longWordFindability: 0.35, parallelFindability: 0.45, isCel: false},
