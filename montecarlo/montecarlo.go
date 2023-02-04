@@ -215,6 +215,8 @@ func (s *Simmer) makeGameCopies() error {
 	if err != nil {
 		return err
 	}
+	// Pre-shuffle bag so we can make identical copies of it with fixedOrder
+	s.origGame.Bag().Shuffle()
 
 	for i := 0; i < s.threads; i++ {
 		s.gameCopies = append(s.gameCopies, s.origGame.Copy())
@@ -222,6 +224,9 @@ func (s *Simmer) makeGameCopies() error {
 			movegen.NewGordonGenerator(gd, s.gameCopies[i].Board(),
 				s.gameCopies[i].Bag().LetterDistribution()))
 
+	}
+	for i := 0; i < s.threads; i++ {
+		s.gameCopies[i].Bag().SetFixedOrder(true)
 	}
 	return nil
 
@@ -343,8 +348,8 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 			for {
 
 				iterMutex.Lock()
-				iterNum := s.iterationCount + 1
 				s.iterationCount++
+				iterNum := s.iterationCount
 				iterMutex.Unlock()
 				s.simSingleIteration(s.maxPlies, t, iterNum, logChan)
 				select {

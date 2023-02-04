@@ -2,6 +2,7 @@ package alphabet
 
 import (
 	"reflect"
+	"sort"
 	"testing"
 
 	"github.com/domino14/macondo/config"
@@ -123,4 +124,21 @@ func TestRemoveTiles(t *testing.T) {
 	err = bag.RemoveTiles(toRemove)
 	is.NoErr(err)
 	is.Equal(len(bag.tiles), 9)
+}
+
+func TestFixedOrder(t *testing.T) {
+	is := is.New(t)
+
+	ld, err := EnglishLetterDistribution(&DefaultConfig)
+	is.NoErr(err)
+	bag := NewBag(ld, ld.alph)
+	sort.Slice(bag.tiles, func(i, j int) bool { return bag.tiles[i] > bag.tiles[j] })
+
+	bag.SetFixedOrder(true)
+	is.Equal(len(bag.tiles), 100)
+	ml := make([]MachineLetter, 17)
+	err = bag.Draw(17, ml)
+	is.NoErr(err)
+
+	is.Equal(ml, []MachineLetter{3, 3, 3, 3, 2, 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0})
 }
