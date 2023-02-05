@@ -223,9 +223,6 @@ func (s *Simmer) makeGameCopies() error {
 		s.movegens = append(s.movegens,
 			movegen.NewGordonGenerator(gd, s.gameCopies[i].Board(),
 				s.gameCopies[i].Bag().LetterDistribution()))
-
-	}
-	for i := 0; i < s.threads; i++ {
 		s.gameCopies[i].Bag().SetFixedOrder(true)
 	}
 	return nil
