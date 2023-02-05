@@ -105,9 +105,6 @@ func (b *Bag) Exchange(letters []MachineLetter, ml []MachineLetter) error {
 	}
 	// put exchanged tiles back into the bag and re-shuffle
 	b.PutBack(letters)
-	if b.fixedOrder {
-		b.Shuffle()
-	}
 	return nil
 }
 
