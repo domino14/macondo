@@ -17,12 +17,20 @@ type Bag struct {
 	initialTileMap     []uint8
 	tileMap            []uint8
 	letterDistribution *LetterDistribution
+	fixedOrder         bool
 }
 
 func copyTileMap(orig []uint8) []uint8 {
 	tm := make([]uint8, len(orig))
 	copy(tm, orig)
 	return tm
+}
+
+// SetFixedOrder makes the bag drawing algorithm repeatable if the bag is copied
+// before drawing. This can be useful for more accurate Monte Carlo sims.
+// It is extremely recommended to do a shuffle first if you want to use fixed order.
+func (b *Bag) SetFixedOrder(f bool) {
+	b.fixedOrder = f
 }
 
 // Refill refills the bag.
@@ -43,7 +51,7 @@ func (b *Bag) DrawAtMost(n int, ml []MachineLetter) int {
 	return n
 }
 
-// Draw draws n random tiles from the bag. Shuffling is immaterial.
+// Draw draws n random tiles from the bag. Shuffling is immaterial if fixedOrder is false.
 // Returns the number of tiles actually drawn.
 // This is a zero-alloc draw into the passed-in slice.
 // NOTE: this function does not resize ml at all. It must
@@ -53,13 +61,15 @@ func (b *Bag) Draw(n int, ml []MachineLetter) error {
 		return fmt.Errorf("tried to draw %v tiles, tile bag has %v",
 			n, len(b.tiles))
 	}
-	// first shuffle the tiles in-place although frand does not error
 	l := len(b.tiles)
 	k := l - n
-	for i := l; i > k; i-- {
-		xi := frand.Intn(i)
-		// move the selected tile to the end
-		b.tiles[i-1], b.tiles[xi] = b.tiles[xi], b.tiles[i-1]
+
+	if !b.fixedOrder {
+		for i := l; i > k; i-- {
+			xi := frand.Intn(i)
+			// move the selected tile to the end
+			b.tiles[i-1], b.tiles[xi] = b.tiles[xi], b.tiles[i-1]
+		}
 	}
 
 	copy(ml, b.tiles[k:l])
@@ -107,7 +117,9 @@ func (b *Bag) PutBack(letters []MachineLetter) {
 	for _, ml := range letters {
 		b.tileMap[ml]++
 	}
-	b.Shuffle()
+	if b.fixedOrder {
+		b.Shuffle()
+	}
 }
 
 // hasRack returns a boolean indicating whether the passed-in rack is
@@ -231,6 +243,7 @@ func (b *Bag) Copy() *Bag {
 		initialTiles:       b.initialTiles,
 		initialTileMap:     b.initialTileMap,
 		letterDistribution: b.letterDistribution,
+		fixedOrder:         b.fixedOrder,
 	}
 }
 
@@ -251,6 +264,7 @@ func (b *Bag) CopyFrom(other *Bag) {
 	}
 	b.tileMap = b.tileMap[:len(other.tileMap)]
 	copy(b.tileMap, other.tileMap)
+	b.fixedOrder = other.fixedOrder
 }
 
 func (b *Bag) LetterDistribution() *LetterDistribution {
