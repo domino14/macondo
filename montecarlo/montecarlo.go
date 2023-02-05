@@ -480,7 +480,7 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 }
 
 func (s *Simmer) bestStaticTurn(playerID, thread int) *move.Move {
-	return player.GenBestStaticTurn(s.gameCopies[thread], s.movegens[thread], s.aiplayer, playerID)
+	return player.GenBestStaticTurn(s.gameCopies[thread], s.aiplayer, playerID)
 }
 
 func (s *Simmer) sortPlaysByEquity() {

@@ -1,6 +1,7 @@
 package alphabeta
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"testing"
@@ -8,7 +9,6 @@ import (
 	"github.com/matryer/is"
 	"github.com/rs/zerolog"
 
-	airunner "github.com/domino14/macondo/ai/runner"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cgp"
@@ -33,8 +33,8 @@ func TestMain(m *testing.M) {
 func setUpSolver(lex, distName string, bvs board.VsWho, plies int, rack1, rack2 string,
 	p1pts, p2pts int, onTurn int) (*Solver, error) {
 
-	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic,
-		lex, distName)
+	rules, err := game.NewBasicGameRules(&DefaultConfig, lex, board.CrosswordGameLayout,
+		distName, game.CrossScoreAndSet, game.VarClassic)
 
 	if err != nil {
 		panic(err)
@@ -97,7 +97,7 @@ func TestSolveComplex(t *testing.T) {
 		1)
 	is.NoErr(err)
 
-	v, _, _ := s.Solve(plies)
+	v, _, _ := s.Solve(context.Background(), plies)
 	is.Equal(v, 116)
 	// Quackle finds a 122-pt win. However, I think it's wrong because it
 	// doesn't take into account that opp can pass to prevent a setup
@@ -195,7 +195,7 @@ func TestSolveOther3(t *testing.T) {
 		1)
 	is.NoErr(err)
 
-	v, _, _ := s.Solve(plies)
+	v, _, _ := s.Solve(context.Background(), plies)
 	is.True(v > 0)
 }
 
@@ -210,7 +210,7 @@ func TestSolveStandard(t *testing.T) {
 		1)
 	is.NoErr(err)
 
-	v, moves, _ := s.Solve(plies)
+	v, moves, _ := s.Solve(context.Background(), plies)
 
 	is.Equal(moves[0].ShortDescription(), " 1G VIG.")
 	is.True(moves[1].ShortDescription() == " 4A HOER" ||
@@ -230,7 +230,7 @@ func TestSolveStandard2(t *testing.T) {
 		1)
 	is.NoErr(err)
 
-	v, _, _ := s.Solve(plies)
+	v, _, _ := s.Solve(context.Background(), plies)
 	is.Equal(v, float32(25))
 }
 
@@ -258,7 +258,7 @@ func TestVeryDeep(t *testing.T) {
 	s := new(Solver)
 	s.Init(gen1, gen2, g, &DefaultConfig)
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
-	v, seq, _ := s.Solve(plies)
+	v, seq, _ := s.Solve(context.Background(), plies)
 
 	is.Equal(v, float32(-116))
 	is.Equal(len(seq), 25)
@@ -291,7 +291,7 @@ func TestPassFirst(t *testing.T) {
 	s := new(Solver)
 	s.Init(gen1, gen2, g, &DefaultConfig)
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
-	v, seq, _ := s.Solve(plies)
+	v, seq, _ := s.Solve(context.Background(), plies)
 
 	is.Equal(v, float32(-60))
 	is.Equal(seq[0].MoveTypeString(), "Pass")
@@ -306,7 +306,7 @@ func TestPolish(t *testing.T) {
 		258, 0)
 
 	is.NoErr(err)
-	v, seq, err := s.Solve(plies)
+	v, seq, err := s.Solve(context.Background(), plies)
 	is.NoErr(err)
 
 	/*
@@ -332,8 +332,8 @@ func TestPolishFromGcg(t *testing.T) {
 	plies := 14
 	is := is.New(t)
 
-	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic,
-		"OSPS44", "Polish")
+	rules, err := game.NewBasicGameRules(&DefaultConfig, "OSPS44", board.CrosswordGameLayout,
+		"Polish", game.CrossScoreAndSet, game.VarClassic)
 	is.NoErr(err)
 
 	cfg := config.DefaultConfig()
@@ -365,7 +365,7 @@ func TestPolishFromGcg(t *testing.T) {
 	s.Init(gen1, gen2, g, &DefaultConfig)
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 
-	v, seq, _ := s.Solve(plies)
+	v, seq, _ := s.Solve(context.Background(), plies)
 	is.Equal(v, float32(5))
 	is.Equal(len(seq), 8)
 }
@@ -380,7 +380,7 @@ func TestSpuriousPasses(t *testing.T) {
 		258, 1)
 
 	is.NoErr(err)
-	v, seq, err := s.Solve(plies)
+	v, seq, err := s.Solve(context.Background(), plies)
 	is.NoErr(err)
 
 	/* optimal endgame should look like this:
@@ -401,8 +401,8 @@ func TestSpuriousPassesFromGcg(t *testing.T) {
 	plies := 14
 	is := is.New(t)
 
-	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic,
-		"OSPS44", "Polish")
+	rules, err := game.NewBasicGameRules(&DefaultConfig, "OSPS44", board.CrosswordGameLayout,
+		"Polish", game.CrossScoreAndSet, game.VarClassic)
 	is.NoErr(err)
 
 	cfg := config.DefaultConfig()
@@ -435,7 +435,7 @@ func TestSpuriousPassesFromGcg(t *testing.T) {
 	// s.simpleEvaluation = true
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 
-	v, seq, _ := s.Solve(plies)
+	v, seq, _ := s.Solve(context.Background(), plies)
 	is.Equal(v, float32(7))
 	is.Equal(len(seq), 7)
 }
@@ -885,8 +885,10 @@ func TestProperIterativeDeepening(t *testing.T) {
 	is := is.New(t)
 	// Should get the same result with 7 or 8 plies.
 	plyCount := []int{7, 8}
-	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic,
-		"NWL18", "English")
+
+	rules, err := game.NewBasicGameRules(&DefaultConfig, "NWL18", board.CrosswordGameLayout,
+		"English", game.CrossScoreAndSet, game.VarClassic)
+
 	is.NoErr(err)
 	for _, plies := range plyCount {
 
@@ -920,7 +922,7 @@ func TestProperIterativeDeepening(t *testing.T) {
 		// Prior to solving the endgame, set to simulation mode.
 		g.SetBackupMode(game.SimulationMode)
 		g.SetStateStackLength(plies)
-		v, seq, _ := s.Solve(plies)
+		v, seq, _ := s.Solve(context.Background(), plies)
 		is.Equal(v, float32(44))
 		// In particular, the sequence should start with 6I A.
 		// Player on turn needs to block the P spot. Anything else
@@ -933,8 +935,8 @@ func TestProperIterativeDeepening(t *testing.T) {
 func BenchmarkID(b *testing.B) {
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	is := is.New(b)
-	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic,
-		"NWL18", "English")
+	rules, err := game.NewBasicGameRules(&DefaultConfig, "NWL18", board.CrosswordGameLayout,
+		"English", game.CrossScoreAndSet, game.VarClassic)
 	is.NoErr(err)
 	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../../gcgio/testdata/noah_vs_mishu.gcg")
 	is.NoErr(err)
@@ -971,7 +973,7 @@ func BenchmarkID(b *testing.B) {
 		g.SetBackupMode(game.SimulationMode)
 		g.SetStateStackLength(plies)
 
-		v, seq, _ := s.Solve(plies)
+		v, seq, _ := s.Solve(context.Background(), plies)
 		is.Equal(v, float32(44))
 		is.Equal(len(seq), 5)
 		is.Equal(seq[0].ShortDescription(), " 6I A.")
@@ -981,8 +983,8 @@ func BenchmarkID(b *testing.B) {
 func BenchmarkID2(b *testing.B) {
 	zerolog.SetGlobalLevel(zerolog.WarnLevel)
 	is := is.New(b)
-	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic,
-		"OSPS44", "Polish")
+	rules, err := game.NewBasicGameRules(&DefaultConfig, "OSPS44", board.CrosswordGameLayout,
+		"Polish", game.CrossScoreAndSet, game.VarClassic)
 	is.NoErr(err)
 
 	cfg := config.DefaultConfig()
@@ -1018,7 +1020,7 @@ func BenchmarkID2(b *testing.B) {
 		g.SetBackupMode(game.SimulationMode)
 		g.SetStateStackLength(plies)
 
-		v, seq, _ := s.Solve(plies)
+		v, seq, _ := s.Solve(context.Background(), plies)
 		is.Equal(v, float32(7))
 		is.Equal(len(seq), 7)
 	}
@@ -1027,9 +1029,8 @@ func BenchmarkID2(b *testing.B) {
 func TestFromGCG(t *testing.T) {
 	plies := 3
 	is := is.New(t)
-
-	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic,
-		"CSW19", "English")
+	rules, err := game.NewBasicGameRules(&DefaultConfig, "CSW19", board.CrosswordGameLayout,
+		"English", game.CrossScoreAndSet, game.VarClassic)
 	is.NoErr(err)
 
 	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../../gcgio/testdata/vs_frentz.gcg")
@@ -1057,7 +1058,7 @@ func TestFromGCG(t *testing.T) {
 	// s.iterativeDeepeningOn = false
 	// s.simpleEvaluation = true
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
-	v, seq, _ := s.Solve(plies)
+	v, seq, _ := s.Solve(context.Background(), plies)
 	is.Equal(v, float32(99))
 	is.Equal(len(seq), 1)
 	// t.Fail()

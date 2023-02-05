@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/matryer/is"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/ai/player"
@@ -111,6 +112,7 @@ func BenchmarkSim(b *testing.B) {
 	simmer.SetThreads(1)
 	simmer.PrepareSim(plies, plays)
 	log.Debug().Msg("About to start")
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	b.ResetTimer()
 	// benchmark 2022-08-20 on monolith (12th gen Intel computer)
 	// 362	   3448347 ns/op	    7980 B/op	      60 allocs/op
@@ -151,10 +153,11 @@ func TestLongerSim(t *testing.T) {
 	// because of the fairly new word ADWARE.
 	game.SetRackFor(0, alphabet.RackFromString("AAAENSW", game.Alphabet()))
 	aiplayer := player.NewRawEquityPlayer(strategy, pb.BotRequest_HASTY_BOT)
+	aiplayer.SetMovegen(generator)
 	generator.GenAll(game.RackFor(0), false)
 	aiplayer.AssignEquity(generator.Plays(), game.Board(), game.Bag(),
 		game.RackFor(1))
-	plays := aiplayer.TopPlays(generator.Plays(), 10)
+	plays := aiplayer.TopPlays(context.Background(), generator.Plays(), 10)
 	simmer := &Simmer{}
 	simmer.Init(game, aiplayer, &DefaultConfig)
 

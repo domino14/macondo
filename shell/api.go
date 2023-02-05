@@ -1,11 +1,13 @@
 package shell
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog/log"
 	"lukechampine.com/frand"
@@ -329,13 +331,12 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 		sc.game.SetStateStackLength(1)
 	}()
 
-	oldmaxtime := sc.config.AlphaBetaTimeLimit
-
-	sc.config.AlphaBetaTimeLimit = maxtime
-
-	defer func() {
-		sc.config.AlphaBetaTimeLimit = oldmaxtime
-	}()
+	var cancel context.CancelFunc
+	ctx := context.Background()
+	if maxtime > 0 {
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(maxtime)*time.Second)
+		defer cancel()
+	}
 
 	// clear out the last value of this endgame node; gc should
 	// delete the tree.
@@ -352,7 +353,7 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 
 	sc.showMessage(sc.game.ToDisplayText())
 
-	val, seq, err := sc.endgameSolver.Solve(plies)
+	val, seq, err := sc.endgameSolver.Solve(ctx, plies)
 	if err != nil {
 		return nil, err
 	}

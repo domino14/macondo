@@ -3,11 +3,14 @@
 package player
 
 import (
+	"context"
 	"sort"
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/strategy"
 
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -24,19 +27,24 @@ type AIPlayer interface {
 	// AssignEquity will assign equities to the given moves.
 	AssignEquity([]*move.Move, *board.GameBoard, *alphabet.Bag, *alphabet.Rack)
 	// BestPlay picks the best play from the list of plays.
-	BestPlay([]*move.Move) *move.Move
+	BestPlay(context.Context, []*move.Move) *move.Move
 	// TopPlays picks the top N plays from the list of plays.
-	TopPlays([]*move.Move, int) []*move.Move
+	TopPlays(context.Context, []*move.Move, int) []*move.Move
 
 	Strategizer() strategy.Strategizer
 
 	GetBotType() pb.BotRequest_BotCode
+	SetGame(g *game.Game)
+	SetMovegen(mg movegen.MoveGenerator)
+	Movegen() movegen.MoveGenerator
 }
 
 // RawEquityPlayer plays by equity only and does no look-ahead / sim.
 type RawEquityPlayer struct {
 	strategy strategy.Strategizer
 	botType  pb.BotRequest_BotCode
+	game     *game.Game
+	movegen  movegen.MoveGenerator
 }
 
 func NewRawEquityPlayer(s strategy.Strategizer, botType pb.BotRequest_BotCode) *RawEquityPlayer {
@@ -62,7 +70,7 @@ func (p *RawEquityPlayer) AssignEquity(moves []*move.Move, board *board.GameBoar
 
 // BestPlay picks the highest equity play. It is assumed that these plays
 // have already been assigned an equity but are not necessarily sorted.
-func (p *RawEquityPlayer) BestPlay(moves []*move.Move) *move.Move {
+func (p *RawEquityPlayer) BestPlay(ctx context.Context, moves []*move.Move) *move.Move {
 	topEquity := -Infinity
 	var topMove *move.Move
 	for i := 0; i < len(moves); i++ {
@@ -76,7 +84,7 @@ func (p *RawEquityPlayer) BestPlay(moves []*move.Move) *move.Move {
 
 // TopPlays sorts the plays by equity and returns the top N. It assumes
 // that the equities have already been assigned.
-func (p *RawEquityPlayer) TopPlays(moves []*move.Move, n int) []*move.Move {
+func (p *RawEquityPlayer) TopPlays(ctx context.Context, moves []*move.Move, n int) []*move.Move {
 	sort.Slice(moves, func(i, j int) bool {
 		return moves[j].Equity() < moves[i].Equity()
 	})
@@ -88,4 +96,16 @@ func (p *RawEquityPlayer) TopPlays(moves []*move.Move, n int) []*move.Move {
 
 func (p *RawEquityPlayer) GetBotType() pb.BotRequest_BotCode {
 	return p.botType
+}
+
+func (p *RawEquityPlayer) SetGame(g *game.Game) {
+	p.game = g
+}
+
+func (p *RawEquityPlayer) SetMovegen(g movegen.MoveGenerator) {
+	p.movegen = g
+}
+
+func (p *RawEquityPlayer) Movegen() movegen.MoveGenerator {
+	return p.movegen
 }

@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog/log"
+
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
@@ -17,7 +19,6 @@ import (
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/zobrist"
-	"github.com/rs/zerolog/log"
 )
 
 // thanks Wikipedia:
@@ -136,6 +137,10 @@ func (s *Solver) clearStuckTables() {
 		s.stmPlayed[i] = false
 		s.otsPlayed[i] = false
 	}
+}
+
+func (s *Solver) Game() *game.Game {
+	return s.game
 }
 
 // Given the plays and the given rack, return a list of tiles that were
@@ -374,14 +379,13 @@ func (s *Solver) findBestSequence(endNode *GameNode) []*move.Move {
 
 // Solve solves the endgame given the current state of s.game, for the
 // current player whose turn it is in that state.
-func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
+func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, error) {
 	if s.game.Bag().TilesRemaining() > 0 {
 		return 0, nil, errors.New("bag is not empty; cannot use endgame solver")
 	}
 	log.Debug().Int("plies", plies).
 		Bool("iterative-deepening", s.iterativeDeepeningOn).
 		Bool("complex-evaluation", s.complexEvaluation).
-		Int("maxtimesecs", s.config.AlphaBetaTimeLimit).
 		Msg("alphabeta-solve-config")
 
 	tstart := time.Now()
@@ -405,13 +409,6 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 	// the root node is basically the board state prior to making any moves.
 	// the children of these nodes are the board states after every move.
 	// however we treat the children as those actual moves themsselves.
-
-	ctx := context.Background()
-	var cancel context.CancelFunc
-	if s.config.AlphaBetaTimeLimit > 0 {
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(s.config.AlphaBetaTimeLimit)*time.Second)
-		defer cancel()
-	}
 
 	s.initialSpread = s.game.CurrentSpread()
 	s.initialTurnNum = s.game.Turn()
