@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	airunner "github.com/domino14/macondo/ai/runner"
+	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -70,8 +72,10 @@ func errorResponse(message string, err error) *pb.BotResponse {
 }
 
 func (bot *Bot) Deserialize(data []byte) (*game.Game, *pb.EvaluationRequest, pb.BotRequest_BotCode, error) {
+	var err error
+
 	req := pb.BotRequest{}
-	err := proto.Unmarshal(data, &req)
+	err = proto.Unmarshal(data, &req)
 	if err != nil {
 		return nil, nil, 0, err
 	}
@@ -81,12 +85,25 @@ func (bot *Bot) Deserialize(data []byte) (*game.Game, *pb.EvaluationRequest, pb.
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	nturns := len(history.Events)
-	ng, err := game.NewFromHistory(history, rules, 0)
-	if err != nil {
-		return nil, nil, 0, err
+	var ng *game.Game
+
+	if history.StartingCgp != "" {
+		if len(history.Events) > 0 {
+			return nil, nil, 0, errors.New("histories with a starting CGP cannot currently contain additional events")
+		}
+		ng, err = cgp.ParseCGP(bot.config, history.StartingCgp)
+		if err != nil {
+			return nil, nil, 0, err
+		}
+		ng.RecalculateBoard()
+	} else {
+		nturns := len(history.Events)
+		ng, err = game.NewFromHistory(history, rules, 0)
+		if err != nil {
+			return nil, nil, 0, err
+		}
+		ng.PlayToTurn(nturns)
 	}
-	ng.PlayToTurn(nturns)
 	// debugWriteln(ng.ToDisplayText())
 	return ng, req.EvaluationRequest, req.BotType, nil
 }
