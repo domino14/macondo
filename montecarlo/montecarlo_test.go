@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/matryer/is"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
@@ -37,17 +38,25 @@ func TestMain(m *testing.M) {
 }
 
 func defaultSimCalculators(lexiconName string) ([]equity.EquityCalculator, equity.EquityCalculator) {
-	c1, err := equity.NewExhaustiveLeaveCalculator(lexiconName, &DefaultConfig, equity.LeaveFilename)
+
+	c, err := equity.NewCombinedStaticCalculator(
+		lexiconName, &DefaultConfig, equity.LeaveFilename, equity.PEGAdjustmentFilename)
 	if err != nil {
 		panic(err)
 	}
-	c2 := &equity.OpeningAdjustmentCalculator{}
-	c3, err := equity.NewPreEndgameAdjustmentCalculator(&DefaultConfig, lexiconName, equity.PEGAdjustmentFilename)
-	if err != nil {
-		panic(err)
-	}
-	c4 := &equity.EndgameAdjustmentCalculator{}
-	return []equity.EquityCalculator{c1, c2, c3, c4}, c1
+	return []equity.EquityCalculator{c}, c
+
+	// c1, err := equity.NewExhaustiveLeaveCalculator(lexiconName, &DefaultConfig, equity.LeaveFilename)
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// c2 := &equity.OpeningAdjustmentCalculator{}
+	// c3, err := equity.NewPreEndgameAdjustmentCalculator(&DefaultConfig, lexiconName, equity.PEGAdjustmentFilename)
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// c4 := &equity.EndgameAdjustmentCalculator{}
+	// return []equity.EquityCalculator{c1, c2, c3, c4}, c1
 }
 
 func TestSimSingleIteration(t *testing.T) {
@@ -78,7 +87,7 @@ func TestSimSingleIteration(t *testing.T) {
 	plays := generator.Plays()[:10]
 	simmer := &Simmer{}
 	calcs, leaves := defaultSimCalculators("NWL18")
-	simmer.Init(game, calcs, leaves.(*equity.ExhaustiveLeaveCalculator), &DefaultConfig)
+	simmer.Init(game, calcs, leaves.(*equity.CombinedStaticCalculator), &DefaultConfig)
 	simmer.PrepareSim(plies, plays)
 
 	simmer.simSingleIteration(plies, 0, 1, nil)
@@ -114,9 +123,10 @@ func BenchmarkSim(b *testing.B) {
 
 	generator.GenAll(game.RackFor(0), false)
 	plays := generator.Plays()[:10]
+	zerolog.SetGlobalLevel(zerolog.ErrorLevel)
 
 	simmer := &Simmer{}
-	simmer.Init(game, calcs, leaves.(*equity.ExhaustiveLeaveCalculator), &DefaultConfig)
+	simmer.Init(game, calcs, leaves.(*equity.CombinedStaticCalculator), &DefaultConfig)
 	simmer.SetThreads(1)
 	simmer.PrepareSim(plies, plays)
 	log.Debug().Msg("About to start")
