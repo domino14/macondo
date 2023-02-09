@@ -15,10 +15,10 @@ import (
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/strategy"
 )
 
 type SortBy int
@@ -34,7 +34,7 @@ type MoveGenerator interface {
 	SetSortingParameter(s SortBy)
 	Plays() []*move.Move
 	SetPlayRecorder(pf PlayRecorderFunc)
-	SetStrategizer(st strategy.Strategizer)
+	SetEquityCalculators([]equity.EquityCalculator)
 }
 
 // GordonGenerator is the main move generation struct. It implements
@@ -69,8 +69,8 @@ type GordonGenerator struct {
 	exchangestrip []alphabet.MachineLetter
 	leavestrip    []alphabet.MachineLetter
 
-	playRecorder PlayRecorderFunc
-	strategizer  strategy.Strategizer
+	playRecorder      PlayRecorderFunc
+	equityCalculators []equity.EquityCalculator
 
 	// used for play recorder:
 	winner      *move.Move
@@ -109,8 +109,8 @@ func (gen *GordonGenerator) SetPlayRecorder(pr PlayRecorderFunc) {
 	gen.playRecorder = pr
 }
 
-func (gen *GordonGenerator) SetStrategizer(st strategy.Strategizer) {
-	gen.strategizer = st
+func (gen *GordonGenerator) SetEquityCalculators(calcs []equity.EquityCalculator) {
+	gen.equityCalculators = calcs
 }
 
 func (gen *GordonGenerator) SetGame(g *game.Game) {
@@ -156,7 +156,7 @@ func (gen *GordonGenerator) GenAll(rack *alphabet.Rack, addExchange bool) []*mov
 	if addExchange {
 		gen.generateExchangeMoves(rack, 0, 0)
 	}
-  return gen.plays
+	return gen.plays
 }
 
 func (gen *GordonGenerator) genByOrientation(rack *alphabet.Rack, dir board.BoardDirection) {

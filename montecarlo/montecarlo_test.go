@@ -10,17 +10,18 @@ import (
 	"github.com/matryer/is"
 	"github.com/rs/zerolog/log"
 
-	"github.com/domino14/macondo/ai/player"
-	airunner "github.com/domino14/macondo/ai/runner"
+	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
+	"github.com/domino14/macondo/turnplayer"
+
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/movegen"
-	"github.com/domino14/macondo/strategy"
 	"github.com/domino14/macondo/testcommon"
 )
 
@@ -35,6 +36,20 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+func defaultSimCalculators(lexiconName string) ([]equity.EquityCalculator, equity.EquityCalculator) {
+	c1, err := equity.NewExhaustiveLeaveCalculator(lexiconName, &DefaultConfig, equity.LeaveFilename)
+	if err != nil {
+		panic(err)
+	}
+	c2 := &equity.OpeningAdjustmentCalculator{}
+	c3, err := equity.NewPreEndgameAdjustmentCalculator(&DefaultConfig, lexiconName, equity.PEGAdjustmentFilename)
+	if err != nil {
+		panic(err)
+	}
+	c4 := &equity.EndgameAdjustmentCalculator{}
+	return []equity.EquityCalculator{c1, c2, c3, c4}, c1
+}
+
 func TestSimSingleIteration(t *testing.T) {
 	is := is.New(t)
 	plies := 2
@@ -43,14 +58,9 @@ func TestSimSingleIteration(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic,
-		"NWL18", "English")
+	rules, err := game.NewBasicGameRules(&DefaultConfig, "NWL18", board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
 	is.NoErr(err)
 	game, err := game.NewGame(rules, players)
-	is.NoErr(err)
-
-	strategy, err := strategy.NewExhaustiveLeaveStrategy(rules.LexiconName(),
-		game.Alphabet(), &DefaultConfig, strategy.LeaveFilename, strategy.PEGAdjustmentFilename)
 	is.NoErr(err)
 
 	gd, err := gaddag.Get(game.Config(), game.LexiconName())
@@ -67,7 +77,8 @@ func TestSimSingleIteration(t *testing.T) {
 	oldOppRack := game.RackFor(1).String()
 	plays := generator.Plays()[:10]
 	simmer := &Simmer{}
-	simmer.Init(game, player.NewRawEquityPlayer(strategy, pb.BotRequest_HASTY_BOT), &DefaultConfig)
+	calcs, leaves := defaultSimCalculators("NWL18")
+	simmer.Init(game, calcs, leaves.(*equity.ExhaustiveLeaveCalculator), &DefaultConfig)
 	simmer.PrepareSim(plies, plays)
 
 	simmer.simSingleIteration(plies, 0, 1, nil)
@@ -94,9 +105,7 @@ func BenchmarkSim(b *testing.B) {
 	game, err := cgp.ParseCGP(&DefaultConfig, cgpstr)
 	is.NoErr(err)
 	game.RecalculateBoard()
-	strategy, err := strategy.NewExhaustiveLeaveStrategy(game.Rules().LexiconName(),
-		game.Alphabet(), &DefaultConfig, strategy.LeaveFilename, strategy.PEGAdjustmentFilename)
-	is.NoErr(err)
+	calcs, leaves := defaultSimCalculators("NWL18")
 
 	gd, err := gaddag.Get(game.Config(), game.LexiconName())
 	is.NoErr(err)
@@ -107,7 +116,7 @@ func BenchmarkSim(b *testing.B) {
 	plays := generator.Plays()[:10]
 
 	simmer := &Simmer{}
-	simmer.Init(game, player.NewRawEquityPlayer(strategy, pb.BotRequest_HASTY_BOT), &DefaultConfig)
+	simmer.Init(game, calcs, leaves.(*equity.ExhaustiveLeaveCalculator), &DefaultConfig)
 	simmer.SetThreads(1)
 	simmer.PrepareSim(plies, plays)
 	log.Debug().Msg("About to start")
@@ -128,14 +137,9 @@ func TestLongerSim(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic,
-		"NWL18", "English")
+	rules, err := game.NewBasicGameRules(&DefaultConfig, "NWL18", board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
 	is.NoErr(err)
 	game, err := game.NewGame(rules, players)
-	is.NoErr(err)
-
-	strategy, err := strategy.NewExhaustiveLeaveStrategy(rules.LexiconName(),
-		game.Alphabet(), &DefaultConfig, strategy.LeaveFilename, strategy.PEGAdjustmentFilename)
 	is.NoErr(err)
 
 	gd, err := gaddag.Get(game.Config(), game.LexiconName())
@@ -150,13 +154,29 @@ func TestLongerSim(t *testing.T) {
 	// Note we changed the rack here from AAADERW to AAAENSW because the test kept failing
 	// because of the fairly new word ADWARE.
 	game.SetRackFor(0, alphabet.RackFromString("AAAENSW", game.Alphabet()))
-	aiplayer := player.NewRawEquityPlayer(strategy, pb.BotRequest_HASTY_BOT)
+
+	aiplayer, err := aiturnplayer.NewAIStaticTurnPlayer(
+		&DefaultConfig,
+		&turnplayer.GameOptions{
+			Lexicon: &turnplayer.Lexicon{
+				Name:         "NWL18",
+				Distribution: "English",
+			},
+			BoardLayoutName: rules.BoardName(),
+			Variant:         rules.Variant(),
+		},
+		players,
+		pb.BotRequest_HASTY_BOT)
+	is.NoErr(err)
+
+	calcs, leaves := defaultSimCalculators("NWL18")
+
 	generator.GenAll(game.RackFor(0), false)
 	aiplayer.AssignEquity(generator.Plays(), game.Board(), game.Bag(),
 		game.RackFor(1))
 	plays := aiplayer.TopPlays(generator.Plays(), 10)
 	simmer := &Simmer{}
-	simmer.Init(game, aiplayer, &DefaultConfig)
+	simmer.Init(game, calcs, leaves.(*equity.ExhaustiveLeaveCalculator), &DefaultConfig)
 
 	timeout, cancel := context.WithTimeout(
 		context.Background(), 20*time.Second)

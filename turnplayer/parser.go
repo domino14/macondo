@@ -1,12 +1,13 @@
-package runner
+package turnplayer
 
 import (
 	"errors"
 	"fmt"
-	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/domino14/macondo/move"
 	"strings"
 	"unicode"
+
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/move"
 )
 
 func ParseChallengeRule(rule string) (pb.ChallengeRule, error) {
@@ -52,10 +53,10 @@ func flipCase(s string) string {
 	return string(letters)
 }
 
-func (g *GameRunner) ParseMove(playerid int, lowercase bool, fields []string) (*move.Move, error) {
+func (p *BaseTurnPlayer) ParseMove(playerid int, lowercase bool, fields []string) (*move.Move, error) {
 	if len(fields) == 1 {
 		if fields[0] == "pass" {
-			return g.NewPassMove(playerid)
+			return p.NewPassMove(playerid)
 		}
 	} else if len(fields) == 2 {
 		coords, word := fields[0], fields[1]
@@ -63,9 +64,9 @@ func (g *GameRunner) ParseMove(playerid int, lowercase bool, fields []string) (*
 			word = flipCase(word)
 		}
 		if coords == "exchange" {
-			return g.NewExchangeMove(playerid, word)
+			return p.NewExchangeMove(playerid, word)
 		} else {
-			return g.NewPlacementMove(playerid, coords, word)
+			return p.NewPlacementMove(playerid, coords, word)
 		}
 	}
 	msg := fmt.Sprintf("unrecognized move: %s", strings.Join(fields, " "))

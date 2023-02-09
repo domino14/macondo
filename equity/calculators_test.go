@@ -1,4 +1,4 @@
-package strategy_test
+package equity_test
 
 import (
 	"os"
@@ -10,9 +10,9 @@ import (
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/cross_set"
+	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/movegen"
-	"github.com/domino14/macondo/strategy"
 	"github.com/domino14/macondo/testcommon"
 	"github.com/stretchr/testify/assert"
 )
@@ -31,7 +31,7 @@ func GaddagFromLexicon(lex string) (*gaddag.SimpleGaddag, error) {
 func TestLeaveMPH(t *testing.T) {
 	alph := alphabet.EnglishAlphabet()
 
-	els, err := strategy.NewExhaustiveLeaveStrategy("NWL18", alph, &DefaultConfig, "", "")
+	els, err := equity.NewExhaustiveLeaveCalculator("NWL18", &DefaultConfig, "")
 	assert.Nil(t, err)
 
 	type testcase struct {
@@ -66,8 +66,11 @@ func TestEndgameTiming(t *testing.T) {
 	cross_set.GenAllCrossSets(bd, gd, ld)
 	generator.GenAll(alphabet.RackFromString("AEEORS?", alph), false)
 
-	els, err := strategy.NewExhaustiveLeaveStrategy("NWL18", alph, &DefaultConfig, "", "")
+	els, err := equity.NewExhaustiveLeaveCalculator("NWL18", &DefaultConfig, "")
 	assert.Nil(t, err)
+
+	eac := &equity.EndgameAdjustmentCalculator{}
+
 	oppRack := alphabet.NewRack(alph)
 	oppRack.Set(tilesInPlay.Rack1)
 	assert.Equal(t, oppRack.NumTiles(), uint8(2))
@@ -79,7 +82,7 @@ func TestEndgameTiming(t *testing.T) {
 	plays := generator.Plays()
 
 	for _, m := range plays {
-		m.SetEquity(els.Equity(m, bd, bag, oppRack))
+		m.SetEquity(els.Equity(m, bd, bag, oppRack) + eac.Equity(m, bd, bag, oppRack))
 	}
 
 	sort.Slice(plays, func(i, j int) bool {
@@ -107,9 +110,10 @@ func TestPreendgameTiming(t *testing.T) {
 	cross_set.GenAllCrossSets(bd, gd, ld)
 	generator.GenAll(alphabet.RackFromString("OXPBAZE", alph), false)
 
-	els, err := strategy.NewExhaustiveLeaveStrategy("NWL18", alph, &DefaultConfig, "", "quackle_preendgame.json")
+	els, err := equity.NewExhaustiveLeaveCalculator("NWL18", &DefaultConfig, "")
 	assert.Nil(t, err)
-
+	pac, err := equity.NewPreEndgameAdjustmentCalculator(&DefaultConfig, "NWL18", "quackle_preendgame.json")
+	assert.Nil(t, err)
 	bag := alphabet.NewBag(ld, alph)
 	bag.RemoveTiles(tilesInPlay.OnBoard)
 	bag.RemoveTiles(tilesInPlay.Rack1)
@@ -120,7 +124,7 @@ func TestPreendgameTiming(t *testing.T) {
 	for _, m := range plays {
 		// OppRack can be nil because that branch of code that checks it
 		// will never be called.
-		m.SetEquity(els.Equity(m, bd, bag, nil))
+		m.SetEquity(els.Equity(m, bd, bag, nil) + pac.Equity(m, bd, bag, nil))
 	}
 
 	sort.Slice(plays, func(i, j int) bool {

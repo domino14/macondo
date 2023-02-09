@@ -1,4 +1,4 @@
-package runner
+package turnplayer
 
 import (
 	"os"
@@ -71,9 +71,9 @@ func TestCompareGameMove(t *testing.T) {
 		{"C13", "AB", "ABIIOOO", 21},
 	}
 
-	game1, err := NewGameRunnerFromRules(opts, players, rules1)
+	game1, err := BaseTurnPlayerFromRules(opts, players, rules1)
 	is.NoErr(err)
-	game2, err := NewGameRunnerFromRules(opts, players, rules2)
+	game2, err := BaseTurnPlayerFromRules(opts, players, rules2)
 	is.NoErr(err)
 	// create a move.
 	for _, tc := range testCases {

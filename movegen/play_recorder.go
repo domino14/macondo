@@ -2,7 +2,9 @@ package movegen
 
 import (
 	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/move"
+	"github.com/samber/lo"
 )
 
 type PlayRecorderFunc func(*GordonGenerator, *alphabet.Rack, int, int, move.MoveType)
@@ -87,7 +89,9 @@ func TopPlayOnlyRecorder(gen *GordonGenerator, rack *alphabet.Rack, leftstrip, r
 			row, col, tilesPlayed, gen.vertical, move.MoveTypePlay,
 			gen.letterDistribution.Alphabet())
 
-		eq = gen.strategizer.Equity(gen.placeholder, gen.board, gen.game.Bag(), gen.game.RackFor(gen.game.NextPlayer()))
+		eq = lo.SumBy(gen.equityCalculators, func(c equity.EquityCalculator) float64 {
+			return c.Equity(gen.placeholder, gen.board, gen.game.Bag(), gen.game.RackFor(gen.game.NextPlayer()))
+		})
 
 	case move.MoveTypeExchange:
 		// ignore the empty exchange case
@@ -102,8 +106,9 @@ func TopPlayOnlyRecorder(gen *GordonGenerator, rack *alphabet.Rack, leftstrip, r
 			0, 0, tilesLength, gen.vertical, move.MoveTypeExchange,
 			gen.letterDistribution.Alphabet())
 
-		eq = gen.strategizer.Equity(gen.placeholder, gen.board, gen.game.Bag(), gen.game.RackFor(gen.game.NextPlayer()))
-
+		eq = lo.SumBy(gen.equityCalculators, func(c equity.EquityCalculator) float64 {
+			return c.Equity(gen.placeholder, gen.board, gen.game.Bag(), gen.game.RackFor(gen.game.NextPlayer()))
+		})
 	default:
 
 	}

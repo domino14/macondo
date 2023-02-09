@@ -8,8 +8,10 @@ import (
 
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/cross_set"
+	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/testcommon"
@@ -438,6 +440,37 @@ func TestGenAllMovesWithBlanks(t *testing.T) {
 	}
 	assert.NotEqual(t, 0, rewards)
 	assert.Equal(t, "D?", generator.plays[rewards].Leave().UserVisible(alph))
+}
+
+func TestTopPlayOnlyRecorder(t *testing.T) {
+	is := is.New(t)
+
+	gd, err := GaddagFromLexicon("America")
+	is.NoErr(err)
+	alph := gd.GetAlphabet()
+
+	// VsJeremy but as a CGP
+	g, err := cgp.ParseCGP(&DefaultConfig,
+		"7N6M/5ZOON4AA/7B5UN/2S4L3LADY/2T4E2QI1I1/2A2PORN3NOR/2BICE2AA1DA1E/6GUVS1OP1F/8ET1LA1U/5J3R1E1UT/4VOTE1I1R1NE/5G1MICKIES1/6FE1T1THEW/6OR3E1XI/6OY6G DDESW??/AHIILR 299/352 0 lex America;")
+	is.NoErr(err)
+	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
+	is.NoErr(err)
+	generator := NewGordonGenerator(gd, g.Board(), ld)
+	generator.SetGame(g)
+	g.RecalculateBoard()
+	generator.SetPlayRecorder(TopPlayOnlyRecorder)
+	elc, err := equity.NewExhaustiveLeaveCalculator("America", &DefaultConfig, "")
+	is.NoErr(err)
+	generator.SetEquityCalculators([]equity.EquityCalculator{
+		&equity.EndgameAdjustmentCalculator{},
+		elc,
+		&equity.OpeningAdjustmentCalculator{}})
+	generator.GenAll(alphabet.RackFromString("DDESW??", alph), false)
+	assert.Equal(t, 1, len(scoringPlays(generator.plays)))
+	assert.Equal(t, 106, generator.plays[0].Score()) // hEaDW(OR)DS!
+	assert.Equal(t, 0, len(nonScoringPlays(generator.plays)))
+	assert.Equal(t, "", generator.plays[0].Leave().UserVisible(alph))
+	assert.Equal(t, generator.plays[0].Tiles().UserVisible(alph), "hEaDW..DS")
 }
 
 func TestGiantTwentySevenTimer(t *testing.T) {

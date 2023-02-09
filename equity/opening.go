@@ -1,4 +1,4 @@
-package strategy
+package equity
 
 import (
 	"github.com/domino14/macondo/alphabet"
@@ -6,18 +6,15 @@ import (
 	"github.com/domino14/macondo/move"
 )
 
-// Strategizer is in charge of picking plays using strategy.
-type Strategizer interface {
-	// Equity is a catch-all term for most post-score adjustments that
-	// need to be made. It includes first-turn placement heuristic,
-	// leave calculations, any pre-endgame timing heuristics, and more.
-	Equity(play *move.Move, board *board.GameBoard, bag *alphabet.Bag,
-		oppRack *alphabet.Rack) float64
+// OpeningAdjustmentCalculator returns an equity adjustment for an opening play.
+// It should only be used if the board is empty.
+type OpeningAdjustmentCalculator struct{}
 
-	LeaveValue(leave alphabet.MachineWord) float64
+func (oac OpeningAdjustmentCalculator) Equity(play *move.Move, board *board.GameBoard,
+	bag *alphabet.Bag, oppRack *alphabet.Rack) float64 {
+
+	return placementAdjustment(play, board)
 }
-
-// Global strategy heuristics, available to all strategies.
 
 func placementAdjustment(play *move.Move, board *board.GameBoard) float64 {
 	// Very simply just checks how many vowels are overlapping bonus squares.
@@ -60,17 +57,4 @@ func placementAdjustment(play *move.Move, board *board.GameBoard) float64 {
 		j++
 	}
 	return penalty
-}
-
-func endgameAdjustment(play *move.Move, oppRack *alphabet.Rack, ld *alphabet.LetterDistribution) float64 {
-	if len(play.Leave()) != 0 {
-		// This play is not going out. We should penalize it by our own score
-		// plus some constant. XXX: Determine this in a better way.
-		return -float64(play.Leave().Score(ld))*2 - 10
-	}
-	// Otherwise, this play goes out. Apply opp rack.
-	if oppRack == nil {
-		return 0
-	}
-	return 2 * float64(oppRack.ScoreOn(ld))
 }
