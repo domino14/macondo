@@ -10,6 +10,7 @@ import (
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
+	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
 
 	"github.com/domino14/macondo/config"
@@ -22,8 +23,9 @@ type AIStaticTurnPlayer struct {
 
 	calculators []equity.EquityCalculator
 
-	gen movegen.MoveGenerator
-	cfg *config.Config
+	gen     movegen.MoveGenerator
+	cfg     *config.Config
+	botType pb.BotRequest_BotCode
 }
 
 func NewAIStaticTurnPlayer(conf *config.Config, opts *turnplayer.GameOptions,
@@ -41,6 +43,11 @@ func NewAIStaticTurnPlayer(conf *config.Config, opts *turnplayer.GameOptions,
 		return nil, err
 	}
 	return addAIFields(p, conf, botType)
+}
+
+func NewAIStaticTurnPlayerFromGame(g *game.Game, conf *config.Config, botType pb.BotRequest_BotCode) (*AIStaticTurnPlayer, error) {
+	gr := &turnplayer.BaseTurnPlayer{Game: *g}
+	return addAIFields(gr, conf, botType)
 }
 
 func addAIFields(p *turnplayer.BaseTurnPlayer, conf *config.Config, botType pb.BotRequest_BotCode) (*AIStaticTurnPlayer, error) {
@@ -67,7 +74,7 @@ func addAIFields(p *turnplayer.BaseTurnPlayer, conf *config.Config, botType pb.B
 		return nil, err
 	}
 	gen := movegen.NewGordonGenerator(gd, p.Board(), p.Bag().LetterDistribution())
-	ret := &AIStaticTurnPlayer{*p, calculators, gen, conf}
+	ret := &AIStaticTurnPlayer{*p, calculators, gen, conf, botType}
 	return ret, nil
 }
 
@@ -87,4 +94,25 @@ func (p *AIStaticTurnPlayer) TopPlays(plays []*move.Move, ct int) []*move.Move {
 		ct = len(plays)
 	}
 	return plays[:ct]
+}
+
+func (p *AIStaticTurnPlayer) GenerateMoves(numPlays int) []*move.Move {
+	curRack := p.RackFor(p.PlayerOnTurn())
+	oppRack := p.RackFor(p.NextPlayer())
+
+	p.gen.GenAll(curRack, p.Bag().TilesRemaining() >= game.ExchangeLimit)
+
+	plays := p.gen.Plays()
+
+	p.AssignEquity(plays, p.Board(), p.Bag(), oppRack)
+	if numPlays == 1 {
+		// Plays aren't sorted yet
+		sort.Slice(plays, func(i, j int) bool {
+			return plays[i].Equity() > plays[j].Equity()
+		})
+		log.Debug().Msgf("botType: %v", p.botType.String())
+		return []*move.Move{filter(p.cfg, &p.Game, curRack, plays, p.botType)}
+	}
+
+	return p.TopPlays(plays, numPlays)
 }

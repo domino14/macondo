@@ -395,8 +395,11 @@ func (s *Simmer) TrimBottom(totrim int) error {
 func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan chan []byte) {
 	// Give opponent a random rack from the bag. Note that this also
 	// shuffles the bag!
-	opp := (s.initialPlayer + 1) % s.gameCopies[thread].NumPlayers()
-	s.gameCopies[thread].SetRandomRack(opp)
+
+	g := s.gameCopies[thread]
+
+	opp := (s.initialPlayer + 1) % g.NumPlayers()
+	g.SetRandomRack(opp)
 	logIter := LogIteration{Iteration: iterationCount, Plays: []LogPlay{}, Thread: thread}
 
 	var logPlay LogPlay
@@ -413,19 +416,19 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 		// Play the move, and back up the game state.
 		// log.Debug().Msgf("Playing move %v", play)'
 		// Set the backup mode to simulation mode only to back up the first move:
-		s.gameCopies[thread].SetBackupMode(game.SimulationMode)
-		s.gameCopies[thread].PlayMove(simmedPlay.play, false, 0)
-		s.gameCopies[thread].SetBackupMode(game.NoBackup)
+		g.SetBackupMode(game.SimulationMode)
+		g.PlayMove(simmedPlay.play, false, 0)
+		g.SetBackupMode(game.NoBackup)
 		// Further plies will NOT be backed up.
 		for ply := 0; ply < plies; ply++ {
 			// Each ply is a player taking a turn
-			onTurn := s.gameCopies[thread].PlayerOnTurn()
-			if s.gameCopies[thread].Playing() == pb.PlayState_PLAYING {
+			onTurn := g.PlayerOnTurn()
+			if g.Playing() == pb.PlayState_PLAYING {
 				// Assume there are exactly two players.
 
 				bestPlay := s.bestStaticTurn(onTurn, thread)
 				// log.Debug().Msgf("Ply %v, Best play: %v", ply+1, bestPlay)
-				s.gameCopies[thread].PlayMove(bestPlay, false, 0)
+				g.PlayMove(bestPlay, false, 0)
 				// log.Debug().Msgf("Score is now %v", s.game.Score())
 				if s.logStream != nil {
 					plyChild = LogPlay{Play: bestPlay.ShortDescription(), Rack: bestPlay.FullRack(), Pts: bestPlay.Score()}
@@ -456,16 +459,16 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 		// 	s.game.SpreadFor(s.initialPlayer), leftover)
 		simmedPlay.addEquityStat(
 			s.initialSpread,
-			s.gameCopies[thread].SpreadFor(s.initialPlayer),
+			g.SpreadFor(s.initialPlayer),
 			leftover,
-			s.gameCopies[thread].Playing() == pb.PlayState_GAME_OVER,
+			g.Playing() == pb.PlayState_GAME_OVER,
 			s.winPcts,
 			// Tiles unseen: number of tiles in the bag + tiles on my opponent's rack:
-			s.gameCopies[thread].Bag().TilesRemaining()+
-				int(s.gameCopies[thread].RackFor(1-s.initialPlayer).NumTiles()),
+			g.Bag().TilesRemaining()+
+				int(g.RackFor(1-s.initialPlayer).NumTiles()),
 			plies%2 == 0,
 		)
-		s.gameCopies[thread].ResetToFirstState()
+		g.ResetToFirstState()
 		if s.logStream != nil {
 			logPlay.WinRatio = simmedPlay.winPctStats.Last()
 			logIter.Plays = append(logIter.Plays, logPlay)

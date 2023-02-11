@@ -186,7 +186,7 @@ func TestLongerSim(t *testing.T) {
 		game.RackFor(1))
 	plays := aiplayer.TopPlays(generator.Plays(), 10)
 	simmer := &Simmer{}
-	simmer.Init(game, calcs, leaves.(*equity.ExhaustiveLeaveCalculator), &DefaultConfig)
+	simmer.Init(game, calcs, leaves.(*equity.CombinedStaticCalculator), &DefaultConfig)
 
 	timeout, cancel := context.WithTimeout(
 		context.Background(), 20*time.Second)

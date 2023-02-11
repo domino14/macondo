@@ -13,6 +13,9 @@ type OpeningAdjustmentCalculator struct{}
 func (oac OpeningAdjustmentCalculator) Equity(play *move.Move, board *board.GameBoard,
 	bag *alphabet.Bag, oppRack *alphabet.Rack) float64 {
 
+	if !board.IsEmpty() {
+		return 0.0
+	}
 	return placementAdjustment(play, board)
 }
 

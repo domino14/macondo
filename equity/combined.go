@@ -58,14 +58,12 @@ func (csc CombinedStaticCalculator) Equity(play *move.Move, board *board.GameBoa
 	leaveAdjustment := 0.0
 	otherAdjustments := 0.0
 
-	// Use global placement and endgame adjustments; this is only when
-	// not overriding this with an endgame player.
 	if board.IsEmpty() {
 		otherAdjustments += placementAdjustment(play, board)
 	}
 
 	if bag.TilesRemaining() > 0 {
-		leaveAdjustment = csc.LeaveValue(leave)
+		leaveAdjustment = csc.leaveValues.LeaveValue(leave)
 		bagPlusSeven := bag.TilesRemaining() - play.TilesPlayed() + 7
 		if bagPlusSeven < len(csc.preEndgameAdjustmentValues) {
 			preEndgameAdjustment := csc.preEndgameAdjustmentValues[bagPlusSeven]

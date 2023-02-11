@@ -308,7 +308,7 @@ func TestPhonyTilesReturned(t *testing.T) {
 
 func TestEquityLossLimit(t *testing.T) {
 	is := is.New(t)
-	zerolog.SetGlobalLevel(zerolog.Disabled)
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	// A little less than 22 total equity loss this game
 	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "./testdata/well_played_game.gcg")
 	is.NoErr(err)
@@ -343,17 +343,13 @@ func TestEquityLossLimit(t *testing.T) {
 	is.NoErr(err)
 
 	pzls, err := CreatePuzzlesFromGame(&DefaultConfig, 22, game, puzzleGenerationReq)
-	if err != nil {
-		panic(err)
-	}
+	is.NoErr(err)
 	is.True(len(pzls) > 0)
 
 	/* set an equity loss limit of 21. this should fail, as the players lost more than 21 equity */
 
 	pzls, err = CreatePuzzlesFromGame(&DefaultConfig, 21, game, puzzleGenerationReq)
-	if err != nil {
-		panic(err)
-	}
+	is.NoErr(err)
 	is.Equal(len(pzls), 0)
 }
 

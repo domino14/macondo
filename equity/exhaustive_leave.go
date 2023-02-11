@@ -72,7 +72,10 @@ func NewExhaustiveLeaveCalculator(lexiconName string,
 func (els ExhaustiveLeaveCalculator) Equity(play *move.Move, board *board.GameBoard,
 	bag *alphabet.Bag, oppRack *alphabet.Rack) float64 {
 
-	return float64(play.Score()) + els.LeaveValue(play.Leave())
+	if bag.TilesRemaining() > 0 {
+		return float64(play.Score()) + els.LeaveValue(play.Leave())
+	}
+	return float64(play.Score())
 }
 
 func (els ExhaustiveLeaveCalculator) LeaveValue(leave alphabet.MachineWord) float64 {
