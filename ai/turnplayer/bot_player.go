@@ -33,6 +33,11 @@ func NewBotTurnPlayer(conf *config.Config, opts *turnplayer.GameOptions,
 	return addBotFields(p, conf, botType)
 }
 
+func NewBotTurnPlayerFromGame(g *game.Game, conf *config.Config, botType pb.BotRequest_BotCode) (*BotTurnPlayer, error) {
+	gr := &turnplayer.BaseTurnPlayer{Game: *g}
+	return addBotFields(gr, conf, botType)
+}
+
 func addBotFields(p *turnplayer.BaseTurnPlayer, conf *config.Config, botType pb.BotRequest_BotCode) (*BotTurnPlayer, error) {
 	calculators := []equity.EquityCalculator{}
 

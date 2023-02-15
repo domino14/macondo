@@ -13,11 +13,11 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
 
-	airunner "github.com/domino14/macondo/ai/runner"
+	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/config"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/runner"
+	"github.com/domino14/macondo/turnplayer"
 )
 
 const (
@@ -32,13 +32,13 @@ var (
 
 // Options to configure the interactve shell
 type ShellOptions struct {
-	runner.GameOptions
+	turnplayer.GameOptions
 	lowercaseMoves bool
 }
 
 func NewShellOptions() *ShellOptions {
 	return &ShellOptions{
-		GameOptions: runner.GameOptions{
+		GameOptions: turnplayer.GameOptions{
 			Lexicon:       nil,
 			ChallengeRule: pb.ChallengeRule_DOUBLE,
 		},
@@ -53,7 +53,7 @@ func (opts *ShellOptions) Show(key string) (bool, string) {
 	case "lower":
 		return true, fmt.Sprintf("%v", opts.lowercaseMoves)
 	case "challenge":
-		rule := runner.ShowChallengeRule(opts.ChallengeRule)
+		rule := turnplayer.ShowChallengeRule(opts.ChallengeRule)
 		return true, fmt.Sprintf("%v", rule)
 	default:
 		return false, "No such option: " + key
@@ -92,7 +92,7 @@ type ShellController struct {
 	config   *config.Config
 	execPath string
 	options  *ShellOptions
-	game     *airunner.AIGameRunner
+	game     *aiturnplayer.BotTurnPlayer
 	client   Client
 }
 
@@ -148,7 +148,7 @@ func (sc *ShellController) IsBotOnTurn() bool {
 
 func (sc *ShellController) getMove() error {
 	sc.showMessage("Requesting move from bot")
-	m, err := sc.client.RequestMove(&sc.game.GameRunner, sc.config)
+	m, err := sc.client.RequestMove(sc.game, sc.config)
 	if err != nil {
 		sc.showMessage("Bot returned error: " + err.Error())
 		return err
@@ -170,7 +170,7 @@ func (sc *ShellController) newGame() (*Response, error) {
 	}
 
 	opts := sc.options.GameOptions
-	g, err := airunner.NewAIGameRunner(sc.config, &opts, players, pb.BotRequest_HASTY_BOT)
+	g, err := aiturnplayer.NewBotTurnPlayer(sc.config, &opts, players, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return nil, err
 	}

@@ -57,7 +57,7 @@ type JsonMove struct {
 type Analyzer struct {
 	config  *config.Config
 	options *turnplayer.GameOptions
-	game    *aiturnplayer.AIStaticTurnPlayer
+	game    *aiturnplayer.BotTurnPlayer
 }
 
 func MakeJsonMove(m *move.Move) JsonMove {
@@ -97,7 +97,7 @@ func (an *Analyzer) newGame() error {
 		{Nickname: "opponent", RealName: "Arthur Dent"},
 	}
 
-	game, err := aiturnplayer.NewAIStaticTurnPlayer(an.config, an.options, players, pb.BotRequest_HASTY_BOT)
+	game, err := aiturnplayer.NewBotTurnPlayer(an.config, an.options, players, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return err
 	}

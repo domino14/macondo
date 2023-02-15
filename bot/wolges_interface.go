@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	airunner "github.com/domino14/macondo/ai/runner"
+	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
@@ -148,7 +148,7 @@ func numToLabelFor(ld string) func(int) rune {
 	return englishNumToLabel
 }
 
-func wolgesAnalyze(cfg *config.Config, g *airunner.AIGameRunner) ([]*move.Move, error) {
+func wolgesAnalyze(cfg *config.Config, g *aiturnplayer.BotTurnPlayer) ([]*move.Move, error) {
 	// cfg.WolgesAwsmURL
 	// convert game to the needed data structure
 	dim := g.Board().Dim()
