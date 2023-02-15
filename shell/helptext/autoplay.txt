@@ -5,7 +5,7 @@ Example:
     autoplay
     autoplay stop
     autoplay -logfile /path/to/log.txt
-    autoplay exhaustiveleave noleave -logfile foo.txt -leavefile1 trial.olv
+    autoplay -logfile foo.txt -leavefile1 trial.olv
 
 Options:
     -logfile foo.txt   -- logs games to foo.txt
@@ -42,6 +42,7 @@ Options:
     - HASTY_BOT,
     - LEVEL1_CEL_BOT through LEVEL4_CEL_BOT (Common English Lexicon),
     - LEVEL1_PROBABILISTIC through LEVEL5_PROBABILISTIC.
+    - NO_LEAVE_BOT
 
     -numthreads 10
 
@@ -55,8 +56,8 @@ it will default to `/tmp/autoplay.txt`, otherwise, use the desired
 filename as an option.
 
 By default, autoplay will use two identical, fast AI players of type
-'exhaustiveleave'. An 'exhaustiveleave' player uses values for all possible
+'HASTY_BOT'. A HASTY_BOT player uses values for all possible
 leaves that must already be in the data/strategy directory. If you don't have
-any values or wish to try with no values, you can use the 'noleave' player.
+any values or wish to try with no values, you can use the botcode NO_LEAVE_BOT.
 
 In the future, we will add other types of players.

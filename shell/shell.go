@@ -649,8 +649,8 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 		sc.gameRunnerCtx, sc.config, numgames, block, numthreads,
 		logfile, lexicon, letterDistribution,
 		[]automatic.AutomaticRunnerPlayer{
-			automatic.AutomaticRunnerPlayer{LeaveFile: leavefile1, PEGFile: pegfile1, BotCode: botcode1},
-			automatic.AutomaticRunnerPlayer{LeaveFile: leavefile2, PEGFile: pegfile2, BotCode: botcode2},
+			{LeaveFile: leavefile1, PEGFile: pegfile1, BotCode: botcode1},
+			{LeaveFile: leavefile2, PEGFile: pegfile2, BotCode: botcode2},
 		})
 
 	if err != nil {

@@ -59,12 +59,11 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 		return err
 	}
 
-	realName1 := players[0].BotCode.String() + "-1"
-	realName2 := players[1].BotCode.String() + "-2"
+	pnames := playerNames(players)
 
 	playerInfos := []*pb.PlayerInfo{
-		{Nickname: "p1", RealName: realName1},
-		{Nickname: "p2", RealName: realName2},
+		{Nickname: "p1", RealName: pnames[0]},
+		{Nickname: "p2", RealName: pnames[1]},
 	}
 
 	r.game, err = game.NewGame(rules, playerInfos)
@@ -105,6 +104,7 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 			AIStaticTurnPlayer: *tp,
 		}
 		btp.SetBotType(botcode)
+		btp.SetGame(r.game)
 		r.aiplayers[idx] = btp
 	}
 	return nil

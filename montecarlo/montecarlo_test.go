@@ -26,10 +26,6 @@ import (
 	"github.com/domino14/macondo/testcommon"
 )
 
-const (
-	Epsilon = 1e-6
-)
-
 var DefaultConfig = config.DefaultConfig()
 
 func TestMain(m *testing.M) {

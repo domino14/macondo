@@ -1,4 +1,4 @@
-package montecarlo
+package stats
 
 import "math"
 

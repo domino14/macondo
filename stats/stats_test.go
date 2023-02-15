@@ -1,10 +1,14 @@
-package montecarlo
+package stats
 
 import (
 	"math"
 	"testing"
 
 	"github.com/matryer/is"
+)
+
+const (
+	Epsilon = 1e-6
 )
 
 func fuzzyEqual(a, b float64) bool {

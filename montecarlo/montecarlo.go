@@ -22,6 +22,7 @@ import (
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/stats"
 	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v2"
 )
@@ -69,11 +70,11 @@ type LogPlay struct {
 type SimmedPlay struct {
 	sync.Mutex
 	play          *move.Move
-	scoreStats    []Statistic
-	bingoStats    []Statistic
-	equityStats   Statistic
-	leftoverStats Statistic
-	winPctStats   Statistic
+	scoreStats    []stats.Statistic
+	bingoStats    []stats.Statistic
+	equityStats   stats.Statistic
+	leftoverStats stats.Statistic
+	winPctStats   stats.Statistic
 }
 
 func (sp *SimmedPlay) String() string {
@@ -241,8 +242,8 @@ func (s *Simmer) resetStats(plies int, plays []*move.Move) {
 	for idx, play := range plays {
 		s.plays[idx] = &SimmedPlay{}
 		s.plays[idx].play = play
-		s.plays[idx].scoreStats = make([]Statistic, plies)
-		s.plays[idx].bingoStats = make([]Statistic, plies)
+		s.plays[idx].scoreStats = make([]stats.Statistic, plies)
+		s.plays[idx].bingoStats = make([]stats.Statistic, plies)
 	}
 
 }

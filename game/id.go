@@ -59,6 +59,10 @@ func initMachineId() {
 	machineId = sum[:]
 }
 
+func init() {
+	initMachineId()
+}
+
 // NewObjectId returns a new unique ObjectId.
 // This function causes a runtime error if it fails to get the hostname
 // of the current machine.
@@ -67,9 +71,6 @@ func newRequestId() RequestId {
 	// Timestamp, 4 bytes, big endian
 	binary.BigEndian.PutUint32(b, uint32(time.Now().Unix()))
 	// Machine, first 3 bytes of md5(hostname)
-	if machineId == nil {
-		initMachineId()
-	}
 	b[4] = machineId[0]
 	b[5] = machineId[1]
 	b[6] = machineId[2]

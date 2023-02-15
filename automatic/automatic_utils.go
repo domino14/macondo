@@ -10,9 +10,12 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/rs/zerolog/log"
+	"github.com/samber/lo"
 
 	"github.com/domino14/macondo/config"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -65,6 +68,37 @@ func (r *GameRunner) playFullStatic(addToHistory bool) {
 			r.game.FirstPlayer().RealName,
 		)
 	}
+}
+
+func prettyName(b pb.BotRequest_BotCode) string {
+	protoName := b.String()
+
+	components := strings.Split(protoName, "_")
+	return strings.Join(lo.Map(components, func(i string, idx int) string {
+		return strings.Title(strings.ToLower(i))
+	}), "")
+}
+
+func playerNames(players []AutomaticRunnerPlayer) []string {
+	botct := map[string]int{}
+	botctorig := map[string]int{}
+	for _, p := range players {
+		s := p.BotCode.String()
+		botct[s]++
+		botctorig[s]++
+	}
+	names := []string{}
+	for _, p := range players {
+		s := p.BotCode.String()
+
+		if botct[s] == botctorig[s] {
+			names = append(names, prettyName(p.BotCode))
+		} else {
+			names = append(names, prettyName(p.BotCode)+strconv.Itoa(botctorig[s]-botct[s]))
+		}
+		botct[s]--
+	}
+	return names
 }
 
 type Job struct{}
@@ -162,10 +196,9 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 
 	go func() {
 		defer fwg.Done()
-		p1name := players[0].BotCode.String() + "-1"
-		p2name := players[1].BotCode.String() + "-2"
+		pnames := playerNames(players)
 		header := fmt.Sprintf("gameID,%s_score,%s_score,%s_bingos,%s_bingos,%s_turns,%s_turns,first\n",
-			p1name, p2name, p1name, p2name, p1name, p2name)
+			pnames[0], pnames[1], pnames[0], pnames[1], pnames[0], pnames[1])
 
 		gamelogfile.WriteString(header)
 		for msg := range gameChan {
