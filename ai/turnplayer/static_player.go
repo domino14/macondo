@@ -10,7 +10,6 @@ import (
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
-	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
 
 	"github.com/domino14/macondo/config"
@@ -23,13 +22,12 @@ type AIStaticTurnPlayer struct {
 
 	calculators []equity.EquityCalculator
 
-	gen     movegen.MoveGenerator
-	cfg     *config.Config
-	botType pb.BotRequest_BotCode
+	gen movegen.MoveGenerator
+	cfg *config.Config
 }
 
 func NewAIStaticTurnPlayer(conf *config.Config, opts *turnplayer.GameOptions,
-	players []*pb.PlayerInfo, botType pb.BotRequest_BotCode) (*AIStaticTurnPlayer, error) {
+	players []*pb.PlayerInfo, calculators []equity.EquityCalculator) (*AIStaticTurnPlayer, error) {
 
 	opts.SetDefaults(conf)
 	rules, err := game.NewBasicGameRules(conf, opts.Lexicon.Name, opts.BoardLayoutName,
@@ -42,39 +40,22 @@ func NewAIStaticTurnPlayer(conf *config.Config, opts *turnplayer.GameOptions,
 	if err != nil {
 		return nil, err
 	}
-	return addAIFields(p, conf, botType)
+	return addAIFields(p, conf, calculators)
 }
 
-func NewAIStaticTurnPlayerFromGame(g *game.Game, conf *config.Config, botType pb.BotRequest_BotCode) (*AIStaticTurnPlayer, error) {
+func NewAIStaticTurnPlayerFromGame(g *game.Game, conf *config.Config, calculators []equity.EquityCalculator) (*AIStaticTurnPlayer, error) {
 	gr := &turnplayer.BaseTurnPlayer{Game: *g}
-	return addAIFields(gr, conf, botType)
+	return addAIFields(gr, conf, calculators)
 }
 
-func addAIFields(p *turnplayer.BaseTurnPlayer, conf *config.Config, botType pb.BotRequest_BotCode) (*AIStaticTurnPlayer, error) {
-	calculators := []equity.EquityCalculator{}
-
-	if botType == pb.BotRequest_SIMMING_BOT {
-
-	} else {
-		c1, err := equity.NewExhaustiveLeaveCalculator(p.LexiconName(), conf, equity.LeaveFilename)
-		if err != nil {
-			return nil, err
-		}
-		c2 := &equity.OpeningAdjustmentCalculator{}
-		c3, err := equity.NewPreEndgameAdjustmentCalculator(conf, p.LexiconName(), equity.PEGAdjustmentFilename)
-		if err != nil {
-			return nil, err
-		}
-		c4 := &equity.EndgameAdjustmentCalculator{}
-		calculators = []equity.EquityCalculator{c1, c2, c3, c4}
-	}
-
+func addAIFields(p *turnplayer.BaseTurnPlayer, conf *config.Config, calculators []equity.EquityCalculator) (*AIStaticTurnPlayer, error) {
 	gd, err := gaddag.Get(conf, p.LexiconName())
 	if err != nil {
 		return nil, err
 	}
 	gen := movegen.NewGordonGenerator(gd, p.Board(), p.Bag().LetterDistribution())
-	ret := &AIStaticTurnPlayer{*p, calculators, gen, conf, botType}
+	gen.SetEquityCalculators(calculators)
+	ret := &AIStaticTurnPlayer{*p, calculators, gen, conf}
 	return ret, nil
 }
 
@@ -105,14 +86,18 @@ func (p *AIStaticTurnPlayer) GenerateMoves(numPlays int) []*move.Move {
 	plays := p.gen.Plays()
 
 	p.AssignEquity(plays, p.Board(), p.Bag(), oppRack)
-	if numPlays == 1 {
-		// Plays aren't sorted yet
-		sort.Slice(plays, func(i, j int) bool {
-			return plays[i].Equity() > plays[j].Equity()
-		})
-		log.Debug().Msgf("botType: %v", p.botType.String())
-		return []*move.Move{filter(p.cfg, &p.Game, curRack, plays, p.botType)}
-	}
-
 	return p.TopPlays(plays, numPlays)
+}
+
+func (p *AIStaticTurnPlayer) MoveGenerator() movegen.MoveGenerator {
+	return p.gen
+}
+
+func (p *AIStaticTurnPlayer) Calculators() []equity.EquityCalculator {
+	return p.calculators
+}
+
+func (p *AIStaticTurnPlayer) GetBotType() pb.BotRequest_BotCode {
+	// No bot associated with just a plain AIStaticTurnPlayer
+	return pb.BotRequest_UNKNOWN
 }

@@ -141,8 +141,13 @@ message BotRequest {
     LEVEL4_PROBABILISTIC = 8;
     LEVEL5_PROBABILISTIC = 9;
 
-    SIMMING_BOT = 10;
+    NO_LEAVE_BOT = 10;
+    SIMMING_BOT = 11;
+
     // harder bots here? inference? ml, etc.
+
+    // This should have probably been number 0.
+    UNKNOWN = 100;
   }
 
   BotCode bot_type = 3;

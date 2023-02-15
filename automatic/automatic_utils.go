@@ -30,7 +30,12 @@ func init() {
 
 // CompVsCompStatic plays out a game to the end using best static turns.
 func (r *GameRunner) CompVsCompStatic(addToHistory bool) error {
-	err := r.Init("exhaustiveleave", "exhaustiveleave", "", "", "", "", pb.BotRequest_HASTY_BOT, pb.BotRequest_HASTY_BOT)
+	err := r.Init(
+		[]AutomaticRunnerPlayer{
+			{"", "", pb.BotRequest_HASTY_BOT},
+			{"", "", pb.BotRequest_HASTY_BOT},
+		})
+
 	if err != nil {
 		return err
 	}
@@ -65,13 +70,9 @@ func (r *GameRunner) playFullStatic(addToHistory bool) {
 type Job struct{}
 
 func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
-	numGames int, block bool, threads int, outputFilename, player1, player2, lexicon, letterDistribution,
-	leavefile1, leavefile2, pegfile1, pegfile2 string, botcode1, botcode2 pb.BotRequest_BotCode) error {
-	for _, p := range []string{player1, player2} {
-		if p != ExhaustiveLeavePlayer && p != NoLeavePlayer {
-			return errors.New("unhandled player type")
-		}
-	}
+	numGames int, block bool, threads int,
+	outputFilename, lexicon, letterDistribution string,
+	players []AutomaticRunnerPlayer) error {
 
 	if IsPlaying.Value() > 0 {
 		return errors.New("games are already being played, please wait till complete")
@@ -106,7 +107,7 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 			defer wg.Done()
 			r := GameRunner{logchan: logChan, gamechan: gameChan,
 				config: cfg, lexicon: lexicon, letterDistribution: letterDistribution}
-			err := r.Init(player1, player2, leavefile1, leavefile2, pegfile1, pegfile2, botcode1, botcode2)
+			err := r.Init(players)
 			if err != nil {
 				log.Err(err).Msg("error initializing runner")
 				return
@@ -161,8 +162,10 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 
 	go func() {
 		defer fwg.Done()
+		p1name := players[0].BotCode.String() + "-1"
+		p2name := players[1].BotCode.String() + "-2"
 		header := fmt.Sprintf("gameID,%s_score,%s_score,%s_bingos,%s_bingos,%s_turns,%s_turns,first\n",
-			player1+"-1", player2+"-2", player1+"-1", player2+"-2", player1+"-1", player2+"-2")
+			p1name, p2name, p1name, p2name, p1name, p2name)
 
 		gamelogfile.WriteString(header)
 		for msg := range gameChan {

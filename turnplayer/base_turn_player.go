@@ -79,3 +79,7 @@ func (p *BaseTurnPlayer) MoveFromEvent(evt *pb.GameEvent) (*move.Move, error) {
 func (p *BaseTurnPlayer) IsPlaying() bool {
 	return p.Playing() != pb.PlayState_GAME_OVER
 }
+
+func (p *BaseTurnPlayer) SetGame(g *game.Game) {
+	p.Game = *g
+}

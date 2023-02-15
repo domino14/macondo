@@ -157,7 +157,7 @@ func NewGame(rules *GameRules, playerinfo []*pb.PlayerInfo) (*Game, error) {
 	game.config = rules.Config()
 	game.rules = rules
 	game.maxScorelessTurns = DefaultMaxScorelessTurns
-
+	game.bag = game.letterDistribution.MakeBag()
 	game.players = make([]*playerState, len(playerinfo))
 	ids := map[string]bool{}
 	for idx, p := range playerinfo {

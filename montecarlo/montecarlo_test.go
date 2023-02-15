@@ -38,25 +38,12 @@ func TestMain(m *testing.M) {
 }
 
 func defaultSimCalculators(lexiconName string) ([]equity.EquityCalculator, equity.EquityCalculator) {
-
 	c, err := equity.NewCombinedStaticCalculator(
 		lexiconName, &DefaultConfig, equity.LeaveFilename, equity.PEGAdjustmentFilename)
 	if err != nil {
 		panic(err)
 	}
 	return []equity.EquityCalculator{c}, c
-
-	// c1, err := equity.NewExhaustiveLeaveCalculator(lexiconName, &DefaultConfig, equity.LeaveFilename)
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// c2 := &equity.OpeningAdjustmentCalculator{}
-	// c3, err := equity.NewPreEndgameAdjustmentCalculator(&DefaultConfig, lexiconName, equity.PEGAdjustmentFilename)
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// c4 := &equity.EndgameAdjustmentCalculator{}
-	// return []equity.EquityCalculator{c1, c2, c3, c4}, c1
 }
 
 func TestSimSingleIteration(t *testing.T) {
@@ -165,7 +152,7 @@ func TestLongerSim(t *testing.T) {
 	// because of the fairly new word ADWARE.
 	game.SetRackFor(0, alphabet.RackFromString("AAAENSW", game.Alphabet()))
 
-	aiplayer, err := aiturnplayer.NewAIStaticTurnPlayer(
+	aiplayer, err := aiturnplayer.NewBotTurnPlayer(
 		&DefaultConfig,
 		&turnplayer.GameOptions{
 			Lexicon: &turnplayer.Lexicon{

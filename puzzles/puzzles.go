@@ -9,6 +9,7 @@ import (
 	"github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -39,6 +40,12 @@ func CreatePuzzlesFromGame(conf *config.Config, eqLossLimit int, g *game.Game, r
 		return nil, err
 	}
 	totalEquityLoss := 0.0
+	puzzleCalc, err := equity.NewCombinedStaticCalculator(g.LexiconName(), conf, "", "")
+	if err != nil {
+		return nil, err
+	}
+
+	eqCalcs := []equity.EquityCalculator{puzzleCalc}
 	for evtIdx, evt := range evts {
 		if evt.Type != pb.GameEvent_TILE_PLACEMENT_MOVE &&
 			evt.Type != pb.GameEvent_EXCHANGE &&
@@ -54,7 +61,7 @@ func CreatePuzzlesFromGame(conf *config.Config, eqLossLimit int, g *game.Game, r
 			continue
 		}
 
-		player, err := turnplayer.NewAIStaticTurnPlayerFromGame(g, conf, pb.BotRequest_HASTY_BOT)
+		player, err := turnplayer.NewAIStaticTurnPlayerFromGame(g, conf, eqCalcs)
 		if err != nil {
 			return nil, err
 		}

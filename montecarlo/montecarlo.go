@@ -19,11 +19,9 @@ import (
 	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/equity"
-	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
 	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v2"
 )
@@ -154,9 +152,10 @@ func (sp *SimmedPlay) addEquityStat(initialSpread int, spread int, leftover floa
 type Simmer struct {
 	origGame *game.Game
 
-	gameCopies        []*game.Game
-	movegens          []movegen.MoveGenerator
+	gameCopies []*game.Game
+	// movegens          []movegen.MoveGenerator
 	equityCalculators []equity.EquityCalculator
+	aiplayers         []aiturnplayer.AITurnPlayer
 	leaveValues       equity.Leaves
 
 	initialSpread int
@@ -178,6 +177,7 @@ type Simmer struct {
 func (s *Simmer) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
 	leaves equity.Leaves, cfg *config.Config) {
 	s.origGame = game
+
 	s.equityCalculators = eqCalcs
 	s.leaveValues = leaves
 	s.threads = int(math.Max(1, float64(runtime.NumCPU()-1)))
@@ -211,21 +211,19 @@ func (s *Simmer) SetLogStream(l io.Writer) {
 func (s *Simmer) makeGameCopies() error {
 	log.Debug().Int("threads", s.threads).Msg("makeGameCopies")
 	s.gameCopies = []*game.Game{}
-	s.movegens = []movegen.MoveGenerator{}
 
-	gd, err := gaddag.Get(s.origGame.Config(), s.origGame.LexiconName())
-	if err != nil {
-		return err
-	}
 	// Pre-shuffle bag so we can make identical copies of it with fixedOrder
 	s.origGame.Bag().Shuffle()
 
 	for i := 0; i < s.threads; i++ {
 		s.gameCopies = append(s.gameCopies, s.origGame.Copy())
-		s.movegens = append(s.movegens,
-			movegen.NewGordonGenerator(gd, s.gameCopies[i].Board(),
-				s.gameCopies[i].Bag().LetterDistribution()))
 		s.gameCopies[i].Bag().SetFixedOrder(true)
+
+		player, err := aiturnplayer.NewAIStaticTurnPlayerFromGame(s.gameCopies[i], s.origGame.Config(), s.equityCalculators)
+		if err != nil {
+			return err
+		}
+		s.aiplayers = append(s.aiplayers, player)
 	}
 	return nil
 
@@ -485,7 +483,7 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 }
 
 func (s *Simmer) bestStaticTurn(playerID, thread int) *move.Move {
-	return aiturnplayer.GenBestStaticTurn(s.gameCopies[thread], s.movegens[thread], s.equityCalculators, playerID)
+	return aiturnplayer.GenBestStaticTurn(s.gameCopies[thread], s.aiplayers[thread], playerID)
 }
 
 func (s *Simmer) sortPlaysByEquity() {
