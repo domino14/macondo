@@ -410,9 +410,30 @@ func (sc *ShellController) autoAnalyze(cmd *shellcmd) (*Response, error) {
 	filename := cmd.args[0]
 	options := cmd.options
 	if options["export"] != "" {
-		err := automatic.ExportGCG(
+
+		f, err := os.Create(options["export"] + ".gcg")
+		if err != nil {
+			return nil, err
+		}
+
+		if options["letterdist"] == "" {
+			options["letterdist"] = sc.config.DefaultLetterDistribution
+		}
+		if options["lexicon"] == "" {
+			options["lexicon"] = sc.config.DefaultLexicon
+		}
+
+		err = automatic.ExportGCG(
 			sc.config, filename, options["letterdist"], options["lexicon"],
-			options["boardlayout"], options["export"])
+			options["boardlayout"], options["export"], f)
+		if err != nil {
+			ferr := os.Remove(options["export"] + ".gcg")
+			if ferr != nil {
+				log.Err(ferr).Msg("removing gcg output file")
+			}
+			return nil, err
+		}
+		err = f.Close()
 		if err != nil {
 			return nil, err
 		}

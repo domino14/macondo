@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strconv"
 	"strings"
 
@@ -136,7 +135,8 @@ func AnalyzeLogFile(filepath string) (string, error) {
 	return stats, nil
 }
 
-func ExportGCG(cfg *config.Config, filename, letterdist, lexicon, boardlayout, gid string) error {
+func ExportGCG(cfg *config.Config, filename, letterdist, lexicon, boardlayout, gid string,
+	out io.Writer) error {
 	if letterdist == "" {
 		letterdist = "english"
 	}
@@ -196,7 +196,6 @@ func ExportGCG(cfg *config.Config, filename, letterdist, lexicon, boardlayout, g
 	g.StartGame()
 
 	for _, row := range gameLines {
-		fmt.Println(row)
 		pidx := 0
 		if g.History().Players[1].Nickname == row[0] {
 			pidx = 1
@@ -241,13 +240,6 @@ func ExportGCG(cfg *config.Config, filename, letterdist, lexicon, boardlayout, g
 	if err != nil {
 		return err
 	}
-	f, err := os.Create(gid + ".gcg")
-	if err != nil {
-		return err
-	}
-	_, err = f.WriteString(contents)
-	if err != nil {
-		return err
-	}
-	return f.Close()
+	_, err = out.Write([]byte(contents))
+	return err
 }

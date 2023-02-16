@@ -133,10 +133,10 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	gameChan := make(chan string, 10)
 	var wg sync.WaitGroup
 	var fwg sync.WaitGroup
-	wg.Add(threads)
 	fwg.Add(3)
 
 	for i := 1; i <= threads; i++ {
+		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
 			r := GameRunner{logchan: logChan, gamechan: gameChan,
