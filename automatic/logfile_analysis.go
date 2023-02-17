@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strconv"
 	"strings"
 
@@ -16,8 +15,8 @@ import (
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/domino14/macondo/montecarlo"
-	"github.com/domino14/macondo/runner"
+	"github.com/domino14/macondo/stats"
+	"github.com/domino14/macondo/turnplayer"
 )
 
 // AnalyzeLogFile analyzes the given game CSV file and spits out a bunch of
@@ -33,12 +32,12 @@ func AnalyzeLogFile(filepath string) (string, error) {
 	// Record looks like:
 	// gameID,p1score,p2score
 
-	player1scores := &montecarlo.Statistic{}
-	player2scores := &montecarlo.Statistic{}
-	player1bingos := &montecarlo.Statistic{}
-	player2bingos := &montecarlo.Statistic{}
-	player1ppt := &montecarlo.Statistic{}
-	player2ppt := &montecarlo.Statistic{}
+	player1scores := &stats.Statistic{}
+	player2scores := &stats.Statistic{}
+	player1bingos := &stats.Statistic{}
+	player2bingos := &stats.Statistic{}
+	player1ppt := &stats.Statistic{}
+	player2ppt := &stats.Statistic{}
 
 	p1wl := float64(0)
 	p1first := float64(0)
@@ -128,7 +127,7 @@ func AnalyzeLogFile(filepath string) (string, error) {
 	stats += fmt.Sprintf("%v Mean Points Per Turn: %.4f  Stdev: %.4f\n",
 		p1Name, player1ppt.Mean(), player1ppt.Stdev())
 	stats += fmt.Sprintf("%v Mean Points Per Turn: %.4f  Stdev: %.4f\n",
-		p1Name, player2ppt.Mean(), player2ppt.Stdev())
+		p2Name, player2ppt.Mean(), player2ppt.Stdev())
 
 	stats += fmt.Sprintf("%v went first: %.1f (%.3f%%)\n", p1Name, p1first, 100.0*p1first/float64(gamesPlayed))
 	stats += fmt.Sprintf("Player who went first wins: %.1f (%.3f%%)\n",
@@ -136,7 +135,8 @@ func AnalyzeLogFile(filepath string) (string, error) {
 	return stats, nil
 }
 
-func ExportGCG(cfg *config.Config, filename, letterdist, lexicon, boardlayout, gid string) error {
+func ExportGCG(cfg *config.Config, filename, letterdist, lexicon, boardlayout, gid string,
+	out io.Writer) error {
 	if letterdist == "" {
 		letterdist = "english"
 	}
@@ -186,7 +186,7 @@ func ExportGCG(cfg *config.Config, filename, letterdist, lexicon, boardlayout, g
 		{Nickname: gameLines[1][0], RealName: gameLines[1][0]},
 	}
 
-	g, err := runner.NewGameRunnerFromRules(&runner.GameOptions{
+	g, err := turnplayer.BaseTurnPlayerFromRules(&turnplayer.GameOptions{
 		BoardLayoutName: boardlayout,
 		Variant:         game.VarClassic,
 	}, players, rules)
@@ -196,7 +196,6 @@ func ExportGCG(cfg *config.Config, filename, letterdist, lexicon, boardlayout, g
 	g.StartGame()
 
 	for _, row := range gameLines {
-		fmt.Println(row)
 		pidx := 0
 		if g.History().Players[1].Nickname == row[0] {
 			pidx = 1
@@ -241,13 +240,6 @@ func ExportGCG(cfg *config.Config, filename, letterdist, lexicon, boardlayout, g
 	if err != nil {
 		return err
 	}
-	f, err := os.Create(gid + ".gcg")
-	if err != nil {
-		return err
-	}
-	_, err = f.WriteString(contents)
-	if err != nil {
-		return err
-	}
-	return f.Close()
+	_, err = out.Write([]byte(contents))
+	return err
 }

@@ -28,11 +28,6 @@ about each game (the final score and who went first). `foo.txt` will contain mor
 
 `-leavefile2 filename.olv` sets the second bot's leavefile to `filename.olv`.
 
-## Bot types
-
-Right now only two bots are supported: `exhaustiveleave` and `noleave`.
-The `noleave` bot uses no leave values, so it effectively becomes a greedy bot (it maximizes score every turn).
-
 ## Starting and stopping
 
 Using any `autoplay` command will start the games. Every 1000 games, a log will be printed to screen.
@@ -47,7 +42,7 @@ A very simple analyzer can be accessed with the `autoanalyze` command. This comm
 
 ### Player1 is an exhaustive-leave bot, Player2 is a greedy bot:
 
-`autoplay exhaustiveleave noleave`
+`autoplay -botcode2 NO_LEAVE_BOT`
 
 Leave it running for a bit, then do an `autoplay stop` and then an `autoanalyze /tmp/games-autoplay.txt`:
 
@@ -64,11 +59,11 @@ The stats above show that a bot that uses leave values wins nearly 2/3 of its ga
 
 ### Both players are exhaustive-leave bots:
 
-`autoplay` (this is the default, and uses default Macondo values)
+`autoplay` (this is the default - HASTY_BOT, and uses default Macondo values)
 
 ### Player1 uses a special set of leave values, Player2 uses the default set:
 
-`autoplay exhaustiveleave exhaustiveleave -leavefile1 quackleleaves.olv`
+`autoplay -leavefile1 quackleleaves.olv`
 
 **Note:** The file `quackleleaves.olv` in this case must be in your `./data/strategy/<lexicon>/` directory. You can put it in the special `default_english` lexicon to make it apply to both NWL20 and CSW21 games.
 

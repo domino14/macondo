@@ -8,7 +8,6 @@ import (
 	"github.com/matryer/is"
 	"github.com/rs/zerolog"
 
-	airunner "github.com/domino14/macondo/ai/runner"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cgp"
@@ -33,9 +32,7 @@ func TestMain(m *testing.M) {
 func setUpSolver(lex, distName string, bvs board.VsWho, plies int, rack1, rack2 string,
 	p1pts, p2pts int, onTurn int) (*Solver, error) {
 
-	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic,
-		lex, distName)
-
+	rules, err := game.NewBasicGameRules(&DefaultConfig, lex, board.CrosswordGameLayout, distName, game.CrossScoreAndSet, game.VarClassic)
 	if err != nil {
 		panic(err)
 	}
@@ -332,8 +329,7 @@ func TestPolishFromGcg(t *testing.T) {
 	plies := 14
 	is := is.New(t)
 
-	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic,
-		"OSPS44", "Polish")
+	rules, err := game.NewBasicGameRules(&DefaultConfig, "OSPS44", board.CrosswordGameLayout, "Polish", game.CrossScoreAndSet, game.VarClassic)
 	is.NoErr(err)
 
 	cfg := config.DefaultConfig()
@@ -401,8 +397,7 @@ func TestSpuriousPassesFromGcg(t *testing.T) {
 	plies := 14
 	is := is.New(t)
 
-	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic,
-		"OSPS44", "Polish")
+	rules, err := game.NewBasicGameRules(&DefaultConfig, "OSPS44", board.CrosswordGameLayout, "Polish", game.CrossScoreAndSet, game.VarClassic)
 	is.NoErr(err)
 
 	cfg := config.DefaultConfig()
@@ -885,9 +880,9 @@ func TestProperIterativeDeepening(t *testing.T) {
 	is := is.New(t)
 	// Should get the same result with 7 or 8 plies.
 	plyCount := []int{7, 8}
-	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic,
-		"NWL18", "English")
+	rules, err := game.NewBasicGameRules(&DefaultConfig, "NWL18", board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
 	is.NoErr(err)
+
 	for _, plies := range plyCount {
 
 		gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../../gcgio/testdata/noah_vs_mishu.gcg")
@@ -933,8 +928,7 @@ func TestProperIterativeDeepening(t *testing.T) {
 func BenchmarkID(b *testing.B) {
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	is := is.New(b)
-	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic,
-		"NWL18", "English")
+	rules, err := game.NewBasicGameRules(&DefaultConfig, "NWL18", board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
 	is.NoErr(err)
 	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../../gcgio/testdata/noah_vs_mishu.gcg")
 	is.NoErr(err)
@@ -981,8 +975,7 @@ func BenchmarkID(b *testing.B) {
 func BenchmarkID2(b *testing.B) {
 	zerolog.SetGlobalLevel(zerolog.WarnLevel)
 	is := is.New(b)
-	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic,
-		"OSPS44", "Polish")
+	rules, err := game.NewBasicGameRules(&DefaultConfig, "OSPS44", board.CrosswordGameLayout, "Polish", game.CrossScoreAndSet, game.VarClassic)
 	is.NoErr(err)
 
 	cfg := config.DefaultConfig()
@@ -1028,8 +1021,7 @@ func TestFromGCG(t *testing.T) {
 	plies := 3
 	is := is.New(t)
 
-	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic,
-		"CSW19", "English")
+	rules, err := game.NewBasicGameRules(&DefaultConfig, "CSW19", board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
 	is.NoErr(err)
 
 	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../../gcgio/testdata/vs_frentz.gcg")

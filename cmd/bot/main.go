@@ -14,7 +14,7 @@ import (
 
 	"github.com/domino14/macondo/bot"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/runner"
+	"github.com/domino14/macondo/turnplayer"
 )
 
 const (
@@ -63,7 +63,7 @@ func main() {
 		close(idleConnsClosed)
 	}()
 
-	opts := &runner.GameOptions{}
+	opts := &turnplayer.GameOptions{}
 	b := bot.NewBot(cfg, opts)
 	go bot.Main("bot.commands", b)
 

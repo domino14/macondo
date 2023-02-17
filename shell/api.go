@@ -10,14 +10,14 @@ import (
 	"github.com/rs/zerolog/log"
 	"lukechampine.com/frand"
 
-	airunner "github.com/domino14/macondo/ai/runner"
+	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/automatic"
 	"github.com/domino14/macondo/endgame/alphabeta"
+	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/domino14/macondo/strategy"
 )
 
 type Response struct {
@@ -68,7 +68,7 @@ func (sc *ShellController) newGame(cmd *shellcmd) (*Response, error) {
 	}
 
 	opts := sc.options.GameOptions
-	g, err := airunner.NewAIGameRunner(sc.config, &opts, players, pb.BotRequest_HASTY_BOT)
+	g, err := aiturnplayer.NewBotTurnPlayer(sc.config, &opts, players, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return nil, err
 	}
@@ -341,7 +341,7 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	// delete the tree.
 	sc.curEndgameNode = nil
 	sc.endgameSolver = new(alphabeta.Solver)
-	err = sc.endgameSolver.Init(sc.gen, sc.backupgen, &sc.game.Game, sc.config)
+	err = sc.endgameSolver.Init(sc.gen, sc.backupgen, sc.game.Game, sc.config)
 	if err != nil {
 		return nil, err
 	}
@@ -410,9 +410,30 @@ func (sc *ShellController) autoAnalyze(cmd *shellcmd) (*Response, error) {
 	filename := cmd.args[0]
 	options := cmd.options
 	if options["export"] != "" {
-		err := automatic.ExportGCG(
+
+		f, err := os.Create(options["export"] + ".gcg")
+		if err != nil {
+			return nil, err
+		}
+
+		if options["letterdist"] == "" {
+			options["letterdist"] = sc.config.DefaultLetterDistribution
+		}
+		if options["lexicon"] == "" {
+			options["lexicon"] = sc.config.DefaultLexicon
+		}
+
+		err = automatic.ExportGCG(
 			sc.config, filename, options["letterdist"], options["lexicon"],
-			options["boardlayout"], options["export"])
+			options["boardlayout"], options["export"], f)
+		if err != nil {
+			ferr := os.Remove(options["export"] + ".gcg")
+			if ferr != nil {
+				log.Err(ferr).Msg("removing gcg output file")
+			}
+			return nil, err
+		}
+		err = f.Close()
 		if err != nil {
 			return nil, err
 		}
@@ -433,11 +454,8 @@ func (sc *ShellController) leave(cmd *shellcmd) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	els, err := strategy.NewExhaustiveLeaveStrategy(
-		sc.config.DefaultLexicon, dist.Alphabet(), sc.config,
-		strategy.LeaveFilename,
-		strategy.PEGAdjustmentFilename)
+	els, err := equity.NewExhaustiveLeaveCalculator(sc.config.DefaultLexicon,
+		sc.config, equity.LeaveFilename)
 	if err != nil {
 		return nil, err
 	}

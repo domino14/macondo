@@ -3,10 +3,13 @@ package puzzles
 import (
 	"errors"
 	"fmt"
+	"reflect"
+	"runtime"
 
-	"github.com/domino14/macondo/ai/runner"
+	"github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -26,6 +29,9 @@ var PuzzleFunctions = []func(g *game.Game, moves []*move.Move) (bool, pb.PuzzleT
 	CELOnlyPuzzle,
 }
 
+func GetFunctionName(i interface{}) string {
+	return runtime.FuncForPC(reflect.ValueOf(i).Pointer()).Name()
+}
 func CreatePuzzlesFromGame(conf *config.Config, eqLossLimit int, g *game.Game, req *pb.PuzzleGenerationRequest) ([]*pb.PuzzleCreationResponse, error) {
 	evts := g.History().Events
 	puzzles := []*pb.PuzzleCreationResponse{}
@@ -34,6 +40,12 @@ func CreatePuzzlesFromGame(conf *config.Config, eqLossLimit int, g *game.Game, r
 		return nil, err
 	}
 	totalEquityLoss := 0.0
+	puzzleCalc, err := equity.NewCombinedStaticCalculator(g.LexiconName(), conf, "", "")
+	if err != nil {
+		return nil, err
+	}
+
+	eqCalcs := []equity.EquityCalculator{puzzleCalc}
 	for evtIdx, evt := range evts {
 		if evt.Type != pb.GameEvent_TILE_PLACEMENT_MOVE &&
 			evt.Type != pb.GameEvent_EXCHANGE &&
@@ -49,20 +61,20 @@ func CreatePuzzlesFromGame(conf *config.Config, eqLossLimit int, g *game.Game, r
 			continue
 		}
 
-		runner, err := runner.NewAIGameRunnerFromGame(g, conf, pb.BotRequest_HASTY_BOT)
+		player, err := turnplayer.NewAIStaticTurnPlayerFromGame(g, conf, eqCalcs)
 		if err != nil {
 			return nil, err
 		}
-		moves := runner.GenerateMoves(1000000)
+
+		moves := player.GenerateMoves(1000000)
 
 		// Let's keep a running tally of equity loss for this game.
 		topEquity := moves[0].Equity()
-
 		madeMove, err := game.MoveFromEvent(evt, g.Alphabet(), g.Board())
 		if err != nil {
 			return nil, err
 		}
-		runner.AssignEquity([]*move.Move{madeMove}, nil)
+		player.AssignEquity([]*move.Move{madeMove}, g.Board(), g.Bag(), nil)
 		totalEquityLoss += (topEquity - madeMove.Equity())
 
 		if totalEquityLoss > float64(eqLossLimit) {
@@ -70,11 +82,9 @@ func CreatePuzzlesFromGame(conf *config.Config, eqLossLimit int, g *game.Game, r
 			return nil, nil
 		}
 
-		turnIsPuzzle := false
 		tags := []pb.PuzzleTag{}
 		for _, puzzleFunc := range PuzzleFunctions {
 			turnIsPuzzleType, tag := puzzleFunc(g, moves)
-			turnIsPuzzle = turnIsPuzzle || turnIsPuzzleType
 			if turnIsPuzzleType {
 				tags = append(tags, tag)
 			}

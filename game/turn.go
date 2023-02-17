@@ -249,8 +249,9 @@ func Leave(rack alphabet.MachineWord, play alphabet.MachineWord) (alphabet.Machi
 			// It should never be 0 unless the GCG is malformed somehow.
 			rackmls[t]--
 		} else {
-			return nil, fmt.Errorf("Tile in play but not in rack: %v %v",
-				string(t.UserVisible(alphabet.EnglishAlphabet())), rackmls[t])
+			return nil, fmt.Errorf("tile in play but not in rack: %v %v",
+				string(t.UserVisible(alphabet.EnglishAlphabet())),
+				rack.UserVisible(alphabet.EnglishAlphabet()))
 		}
 	}
 	leave := []alphabet.MachineLetter{}

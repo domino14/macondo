@@ -15,15 +15,14 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/domino14/macondo/ai/player"
+	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/gaddag"
+	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
-	"github.com/domino14/macondo/strategy"
+	"github.com/domino14/macondo/stats"
 	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v2"
 )
@@ -71,11 +70,11 @@ type LogPlay struct {
 type SimmedPlay struct {
 	sync.Mutex
 	play          *move.Move
-	scoreStats    []Statistic
-	bingoStats    []Statistic
-	equityStats   Statistic
-	leftoverStats Statistic
-	winPctStats   Statistic
+	scoreStats    []stats.Statistic
+	bingoStats    []stats.Statistic
+	equityStats   stats.Statistic
+	leftoverStats stats.Statistic
+	winPctStats   stats.Statistic
 }
 
 func (sp *SimmedPlay) String() string {
@@ -125,11 +124,11 @@ func (sp *SimmedPlay) addEquityStat(initialSpread int, spread int, leftover floa
 		spreadPlusLeftover = -spreadPlusLeftover
 	}
 
-	if spreadPlusLeftover > strategy.MaxRepresentedWinSpread {
-		spreadPlusLeftover = strategy.MaxRepresentedWinSpread
+	if spreadPlusLeftover > equity.MaxRepresentedWinSpread {
+		spreadPlusLeftover = equity.MaxRepresentedWinSpread
 	}
-	if spreadPlusLeftover < -strategy.MaxRepresentedWinSpread {
-		spreadPlusLeftover = -strategy.MaxRepresentedWinSpread
+	if spreadPlusLeftover < -equity.MaxRepresentedWinSpread {
+		spreadPlusLeftover = -equity.MaxRepresentedWinSpread
 	}
 	// winpcts goes from +MaxRepresentedWinSpread to -MaxRespresentedWinSpread
 	// spread = index
@@ -140,8 +139,8 @@ func (sp *SimmedPlay) addEquityStat(initialSpread int, spread int, leftover floa
 	// -1 = 201
 	// -101 = 301
 	// -200 = 400
-	pct := winpcts[strategy.MaxRepresentedWinSpread-spreadPlusLeftover][tilesUnseen]
-	log.Trace().Int("i1", strategy.MaxRepresentedWinSpread-spreadPlusLeftover).Int("i2", tilesUnseen).Float32(
+	pct := winpcts[equity.MaxRepresentedWinSpread-spreadPlusLeftover][tilesUnseen]
+	log.Trace().Int("i1", equity.MaxRepresentedWinSpread-spreadPlusLeftover).Int("i2", tilesUnseen).Float32(
 		"pct", pct).Bool("plies-are-even", pliesAreEven).Msg("calc-win%")
 	if pliesAreEven {
 		// see the above comment re flipping win pct.
@@ -155,9 +154,10 @@ type Simmer struct {
 	origGame *game.Game
 
 	gameCopies []*game.Game
-	movegens   []movegen.MoveGenerator
-
-	aiplayer player.AIPlayer
+	// movegens          []movegen.MoveGenerator
+	equityCalculators []equity.EquityCalculator
+	aiplayers         []aiturnplayer.AITurnPlayer
+	leaveValues       equity.Leaves
 
 	initialSpread int
 	maxPlies      int
@@ -175,18 +175,21 @@ type Simmer struct {
 	logStream io.Writer
 }
 
-func (s *Simmer) Init(game *game.Game, aiplayer player.AIPlayer, cfg *config.Config) {
+func (s *Simmer) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
+	leaves equity.Leaves, cfg *config.Config) {
 	s.origGame = game
-	s.aiplayer = aiplayer
+
+	s.equityCalculators = eqCalcs
+	s.leaveValues = leaves
 	s.threads = int(math.Max(1, float64(runtime.NumCPU()-1)))
 
 	// Hard-code the location of the win-pct file for now.
 	// If we want to make some for other lexica in the future we'll
-	// have to import a "strategy".
+	// have to redo the equity calculator stuff.
 	s.cfg = cfg
 	if s.cfg != nil {
 		// some hardcoded stuff here:
-		winpct, err := cache.Load(s.cfg, "winpctfile:CSW:winpct.csv", strategy.WinPCTLoadFunc)
+		winpct, err := cache.Load(s.cfg, "winpctfile:CSW:winpct.csv", equity.WinPCTLoadFunc)
 		if err != nil {
 			panic(err)
 		}
@@ -209,21 +212,19 @@ func (s *Simmer) SetLogStream(l io.Writer) {
 func (s *Simmer) makeGameCopies() error {
 	log.Debug().Int("threads", s.threads).Msg("makeGameCopies")
 	s.gameCopies = []*game.Game{}
-	s.movegens = []movegen.MoveGenerator{}
 
-	gd, err := gaddag.Get(s.origGame.Config(), s.origGame.LexiconName())
-	if err != nil {
-		return err
-	}
 	// Pre-shuffle bag so we can make identical copies of it with fixedOrder
 	s.origGame.Bag().Shuffle()
 
 	for i := 0; i < s.threads; i++ {
 		s.gameCopies = append(s.gameCopies, s.origGame.Copy())
-		s.movegens = append(s.movegens,
-			movegen.NewGordonGenerator(gd, s.gameCopies[i].Board(),
-				s.gameCopies[i].Bag().LetterDistribution()))
 		s.gameCopies[i].Bag().SetFixedOrder(true)
+
+		player, err := aiturnplayer.NewAIStaticTurnPlayerFromGame(s.gameCopies[i], s.origGame.Config(), s.equityCalculators)
+		if err != nil {
+			return err
+		}
+		s.aiplayers = append(s.aiplayers, player)
 	}
 	return nil
 
@@ -241,8 +242,8 @@ func (s *Simmer) resetStats(plies int, plays []*move.Move) {
 	for idx, play := range plays {
 		s.plays[idx] = &SimmedPlay{}
 		s.plays[idx].play = play
-		s.plays[idx].scoreStats = make([]Statistic, plies)
-		s.plays[idx].bingoStats = make([]Statistic, plies)
+		s.plays[idx].scoreStats = make([]stats.Statistic, plies)
+		s.plays[idx].bingoStats = make([]stats.Statistic, plies)
 	}
 
 }
@@ -393,8 +394,11 @@ func (s *Simmer) TrimBottom(totrim int) error {
 func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan chan []byte) {
 	// Give opponent a random rack from the bag. Note that this also
 	// shuffles the bag!
-	opp := (s.initialPlayer + 1) % s.gameCopies[thread].NumPlayers()
-	s.gameCopies[thread].SetRandomRack(opp)
+
+	g := s.gameCopies[thread]
+
+	opp := (s.initialPlayer + 1) % g.NumPlayers()
+	g.SetRandomRack(opp)
 	logIter := LogIteration{Iteration: iterationCount, Plays: []LogPlay{}, Thread: thread}
 
 	var logPlay LogPlay
@@ -411,19 +415,19 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 		// Play the move, and back up the game state.
 		// log.Debug().Msgf("Playing move %v", play)'
 		// Set the backup mode to simulation mode only to back up the first move:
-		s.gameCopies[thread].SetBackupMode(game.SimulationMode)
-		s.gameCopies[thread].PlayMove(simmedPlay.play, false, 0)
-		s.gameCopies[thread].SetBackupMode(game.NoBackup)
+		g.SetBackupMode(game.SimulationMode)
+		g.PlayMove(simmedPlay.play, false, 0)
+		g.SetBackupMode(game.NoBackup)
 		// Further plies will NOT be backed up.
 		for ply := 0; ply < plies; ply++ {
 			// Each ply is a player taking a turn
-			onTurn := s.gameCopies[thread].PlayerOnTurn()
-			if s.gameCopies[thread].Playing() == pb.PlayState_PLAYING {
+			onTurn := g.PlayerOnTurn()
+			if g.Playing() == pb.PlayState_PLAYING {
 				// Assume there are exactly two players.
 
 				bestPlay := s.bestStaticTurn(onTurn, thread)
 				// log.Debug().Msgf("Ply %v, Best play: %v", ply+1, bestPlay)
-				s.gameCopies[thread].PlayMove(bestPlay, false, 0)
+				g.PlayMove(bestPlay, false, 0)
 				// log.Debug().Msgf("Score is now %v", s.game.Score())
 				if s.logStream != nil {
 					plyChild = LogPlay{Play: bestPlay.ShortDescription(), Rack: bestPlay.FullRack(), Pts: bestPlay.Score()}
@@ -431,7 +435,7 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 				if ply == plies-2 || ply == plies-1 {
 					// It's either OUR last turn or OPP's last turn.
 					// Calculate equity of leftover tiles.
-					thisLeftover := s.aiplayer.Strategizer().LeaveValue(bestPlay.Leave())
+					thisLeftover := s.leaveValues.LeaveValue(bestPlay.Leave())
 					if s.logStream != nil {
 						plyChild.Leftover = thisLeftover
 					}
@@ -454,16 +458,16 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 		// 	s.game.SpreadFor(s.initialPlayer), leftover)
 		simmedPlay.addEquityStat(
 			s.initialSpread,
-			s.gameCopies[thread].SpreadFor(s.initialPlayer),
+			g.SpreadFor(s.initialPlayer),
 			leftover,
-			s.gameCopies[thread].Playing() == pb.PlayState_GAME_OVER,
+			g.Playing() == pb.PlayState_GAME_OVER,
 			s.winPcts,
 			// Tiles unseen: number of tiles in the bag + tiles on my opponent's rack:
-			s.gameCopies[thread].Bag().TilesRemaining()+
-				int(s.gameCopies[thread].RackFor(1-s.initialPlayer).NumTiles()),
+			g.Bag().TilesRemaining()+
+				int(g.RackFor(1-s.initialPlayer).NumTiles()),
 			plies%2 == 0,
 		)
-		s.gameCopies[thread].ResetToFirstState()
+		g.ResetToFirstState()
 		if s.logStream != nil {
 			logPlay.WinRatio = simmedPlay.winPctStats.Last()
 			logIter.Plays = append(logIter.Plays, logPlay)
@@ -480,7 +484,7 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 }
 
 func (s *Simmer) bestStaticTurn(playerID, thread int) *move.Move {
-	return player.GenBestStaticTurn(s.gameCopies[thread], s.movegens[thread], s.aiplayer, playerID)
+	return aiturnplayer.GenBestStaticTurn(s.gameCopies[thread], s.aiplayers[thread], playerID)
 }
 
 func (s *Simmer) sortPlaysByEquity() {

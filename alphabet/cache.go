@@ -59,6 +59,5 @@ func Get(cfg *config.Config, name string) (*LetterDistribution, error) {
 	if !ok {
 		return nil, errors.New("Could not read letter distribution from file")
 	}
-	ret.Name = name
 	return ret, nil
 }

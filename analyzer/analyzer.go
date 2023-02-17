@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"strings"
 
-	airunner "github.com/domino14/macondo/ai/runner"
+	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/config"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/runner"
+	"github.com/domino14/macondo/turnplayer"
 )
 
 var SampleJson = []byte(`{
@@ -56,8 +56,8 @@ type JsonMove struct {
 
 type Analyzer struct {
 	config  *config.Config
-	options *runner.GameOptions
-	game    *airunner.AIGameRunner
+	options *turnplayer.GameOptions
+	game    *aiturnplayer.BotTurnPlayer
 }
 
 func MakeJsonMove(m *move.Move) JsonMove {
@@ -73,7 +73,7 @@ func MakeJsonMove(m *move.Move) JsonMove {
 }
 
 func NewAnalyzer(config *config.Config) *Analyzer {
-	options := &runner.GameOptions{}
+	options := &turnplayer.GameOptions{}
 	an := &Analyzer{}
 	an.config = config
 	an.options = options
@@ -97,7 +97,7 @@ func (an *Analyzer) newGame() error {
 		{Nickname: "opponent", RealName: "Arthur Dent"},
 	}
 
-	game, err := airunner.NewAIGameRunner(an.config, an.options, players, pb.BotRequest_HASTY_BOT)
+	game, err := aiturnplayer.NewBotTurnPlayer(an.config, an.options, players, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return err
 	}

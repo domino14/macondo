@@ -56,23 +56,6 @@ func TestGenBestStaticTurn4(t *testing.T) {
 	is.Equal(move.MoveTypePlay, bestPlay.Action())
 }
 
-// func TestGenBestStaticTurn5(t *testing.T) {
-// 	gd, err := gaddag.LoadGaddag("/tmp/nwl18.gaddag")
-// 	if err != nil {
-// 		t.Errorf("expected err to be nil, got %v", err)
-// 	}
-// 	game := &XWordGame{}
-
-// 	game.Init(gd)
-// 	game.movegen.Reset()
-// 	game.players[0].rack = alphabet.RackFromString("ADNNRST", game.alph)
-// 	game.movegen.GenAll(game.players[0].rack)
-// 	log.Println(game.movegen.Plays())
-// 	// It tries to play STRAND >:(
-// 	// XXX: FIX
-// 	// assert.NotEqual(t, 6, game.movegen.Plays()[0].TilesPlayed())
-// }
-
 func TestGenBestStaticTurn6(t *testing.T) {
 	is := is.New(t)
 
