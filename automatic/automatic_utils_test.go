@@ -52,7 +52,6 @@ func TestCompVsCompStatic(t *testing.T) {
 	}()
 
 	wg.Wait()
-	t.Error()
 
 	if runner.game.Turn() < 6 {
 		t.Errorf("Expected game.turnnum < 6, got %v", runner.game.Turn())
