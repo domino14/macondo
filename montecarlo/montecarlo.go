@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 
@@ -76,18 +77,25 @@ type LogPlay struct {
 }
 
 type SimmedPlay struct {
-	sync.Mutex
+	sync.RWMutex
 	play          *move.Move
 	scoreStats    []stats.Statistic
 	bingoStats    []stats.Statistic
 	equityStats   stats.Statistic
 	leftoverStats stats.Statistic
 	winPctStats   stats.Statistic
+	ignore        bool
 }
 
 func (sp *SimmedPlay) String() string {
 	return fmt.Sprintf("<Simmed play: %v (stats: %v %v %v %v %v)>", sp.play.ShortDescription(),
 		sp.scoreStats, sp.bingoStats, sp.equityStats, sp.leftoverStats, sp.winPctStats)
+}
+
+func (sp *SimmedPlay) Ignore() {
+	sp.Lock()
+	sp.ignore = true
+	sp.Unlock()
 }
 
 func (sp *SimmedPlay) addScoreStat(play *move.Move, ply int) {
@@ -307,23 +315,32 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 	// protect the simmed play statistics with a mutex.
 	log.Debug().Msgf("Simulating with %v threads", s.threads)
 	syncExitChan := make(chan bool, s.threads)
+
 	logChan := make(chan []byte)
 	done := make(chan bool)
 
 	ctrl := errgroup.Group{}
 	writer := errgroup.Group{}
 
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	ctrl.Go(func() error {
 		defer func() {
 			log.Debug().Msgf("Sim controller thread exiting")
 		}()
 		for range ctx.Done() {
-			log.Debug().Msgf("Context is done: %v", ctx.Err())
-			for t := 0; t < s.threads; t++ {
-				syncExitChan <- true
-			}
-			log.Debug().Msgf("Sent sync messages to children threads...")
 		}
+		log.Debug().Msgf("Context is done: %v", ctx.Err())
+		for t := 0; t < s.threads; t++ {
+			syncExitChan <- true
+		}
+		// Send another exit signal to the stopping condition monitor
+		if s.stoppingCondition != StopNone {
+			syncExitChan <- true
+		}
+		log.Debug().Msgf("Sent sync messages to children threads...")
+
 		return ctx.Err()
 	})
 
@@ -373,6 +390,31 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 		})
 	}
 
+	if s.stoppingCondition != StopNone {
+		// If there is some sort of programmatic stopping condition, we must
+		// monitor the stats to determine when to stop!
+		ctrl.Go(func() error {
+			defer func() {
+				log.Debug().Msg("stoppingcondition monitor exiting")
+			}()
+			interval := time.Duration(1) * time.Second
+			tk := time.NewTicker(interval)
+			for {
+				select {
+				case <-syncExitChan:
+					log.Debug().Msg("stopping condition monitor got exit signal")
+					return nil
+				case <-tk.C:
+					stop := shouldStop(s.plays, s.stoppingCondition, s.iterationCount)
+					if stop {
+						cancel()
+					}
+				}
+			}
+
+		})
+	}
+
 	// Wait for threads in errgroup:
 	err := g.Wait()
 	log.Debug().Msgf("errgroup returned err %v", err)
@@ -416,6 +458,9 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 	var logPlay LogPlay
 	var plyChild LogPlay
 	for _, simmedPlay := range s.plays {
+		if simmedPlay.ignore {
+			continue
+		}
 		if s.logStream != nil {
 			logPlay = LogPlay{Play: simmedPlay.play.ShortDescription(),
 				Rack: simmedPlay.play.FullRack(),
@@ -523,11 +568,11 @@ func (s *Simmer) printStats() string {
 func (s *Simmer) EquityStats() string {
 	stats := ""
 	s.sortPlaysByWinRate()
-	stats += fmt.Sprintf("%-20s%6s%8s%8s\n", "Play", "Score", "Win%", "Equity")
+	stats += fmt.Sprintf("%-20s%-9s%-14s%-7s\n", "Play", "Score", "Win%", "Equity")
 
 	for _, play := range s.plays {
-		stats += fmt.Sprintf("%-20s%6d%8.2f%8.3f\n", play.play.ShortDescription(),
-			play.play.Score(), 100.0*play.winPctStats.Mean(), play.equityStats.Mean())
+		stats += fmt.Sprintf("%-20s%-6d%8.2f±%5.2f%8.3f\n", play.play.ShortDescription(),
+			play.play.Score(), 100.0*play.winPctStats.Mean(), 100.0*play.winPctStats.Stdev(), play.equityStats.Mean())
 	}
 	stats += fmt.Sprintf("Iterations: %d\n", s.iterationCount)
 	return stats

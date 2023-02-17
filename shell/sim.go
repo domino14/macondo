@@ -8,43 +8,20 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/domino14/macondo/montecarlo"
 	"github.com/rs/zerolog/log"
 )
 
-func (sc *ShellController) handleSim(args []string) error {
+func (sc *ShellController) handleSim(args []string, options map[string]string) error {
 	var plies, threads int
 	var err error
+	stoppingCondition := montecarlo.StopNone
 	if sc.simmer == nil {
 		return errors.New("load a game or something")
 	}
-	// Determine whether the first argument is a string or not.
+
 	if len(args) > 0 {
-		plies, err = strconv.Atoi(args[0])
-		if err != nil {
-			// It was not able to be converted to an integer!
-			return sc.simControlArguments(args)
-		}
-	}
-
-	// Otherwise, this is a command to start a simulation from scratch.
-
-	switch {
-	case len(args) == 0:
-		plies = 2
-
-	case len(args) == 2:
-		threads, err = strconv.Atoi(args[1])
-		if err != nil {
-			return err
-		}
-		sc.simmer.SetThreads(threads)
-
-	case len(args) == 1:
-		// This is definitely a number, otherwise we would have failed
-		// this conversion up above. Do nothing; we already have the
-		// number of plies.
-	default:
-		return errors.New("unhandled arguments")
+		return sc.simControlArguments(args)
 	}
 
 	if len(sc.curPlayList) == 0 {
@@ -53,12 +30,50 @@ func (sc *ShellController) handleSim(args []string) error {
 	if sc.simmer.IsSimming() {
 		return errors.New("simming already, please do a `sim stop` first")
 	}
-	log.Debug().Int("plies", plies).Int("threads", threads).Msg("will start sim")
+	for opt, val := range options {
+		if opt == "plies" {
+			plies, err = strconv.Atoi(val)
+			if err != nil {
+				return err
+			}
+		}
+		if opt == "threads" {
+			threads, err = strconv.Atoi(val)
+			if err != nil {
+				return err
+			}
+		}
+		if opt == "stop" {
+			sci, err := strconv.Atoi(val)
+			if err != nil {
+				return err
+			}
+			if sci != 95 && sci != 99 {
+				return errors.New("only allowed values are 95 and 99 for stopping condition")
+			}
+			if sci == 95 {
+				stoppingCondition = montecarlo.Stop95
+			}
+			if sci == 99 {
+				stoppingCondition = montecarlo.Stop99
+			}
+		}
+	}
+	if plies == 0 {
+		plies = 2
+	}
+
+	log.Debug().Int("plies", plies).Int("threads", threads).
+		Int("stoppingCondition", int(stoppingCondition)).Msg("will start sim")
 
 	if sc.game != nil {
 		err := sc.simmer.PrepareSim(plies, sc.curPlayList)
 		if err != nil {
 			return err
+		}
+		sc.simmer.SetStoppingCondition(stoppingCondition)
+		if threads != 0 {
+			sc.simmer.SetThreads(threads)
 		}
 		sc.startSim()
 	}

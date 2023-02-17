@@ -228,7 +228,7 @@ func (sc *ShellController) autoplay(cmd *shellcmd) (*Response, error) {
 }
 
 func (sc *ShellController) sim(cmd *shellcmd) (*Response, error) {
-	return nil, sc.handleSim(cmd.args)
+	return nil, sc.handleSim(cmd.args, cmd.options)
 }
 
 func (sc *ShellController) add(cmd *shellcmd) (*Response, error) {
