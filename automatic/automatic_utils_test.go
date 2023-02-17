@@ -52,6 +52,7 @@ func TestCompVsCompStatic(t *testing.T) {
 	}()
 
 	wg.Wait()
+	t.Error()
 
 	if runner.game.Turn() < 6 {
 		t.Errorf("Expected game.turnnum < 6, got %v", runner.game.Turn())
@@ -154,6 +155,5 @@ func TestCompVCompSeries(t *testing.T) {
 	is.Equal(len(subMatches), 2)
 	f, err := strconv.ParseFloat(string(subMatches[1]), 64)
 	is.NoErr(err)
-	fmt.Println("HastyBot won", f, "games")
 	is.True(f > 220)
 }

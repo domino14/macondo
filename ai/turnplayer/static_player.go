@@ -44,7 +44,7 @@ func NewAIStaticTurnPlayer(conf *config.Config, opts *turnplayer.GameOptions,
 }
 
 func NewAIStaticTurnPlayerFromGame(g *game.Game, conf *config.Config, calculators []equity.EquityCalculator) (*AIStaticTurnPlayer, error) {
-	gr := &turnplayer.BaseTurnPlayer{Game: *g}
+	gr := &turnplayer.BaseTurnPlayer{Game: g}
 	return addAIFields(gr, conf, calculators)
 }
 

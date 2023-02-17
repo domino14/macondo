@@ -12,7 +12,7 @@ import (
 // Basic game. Set racks, make moves
 
 type BaseTurnPlayer struct {
-	game.Game
+	*game.Game
 }
 
 // BaseTurnPlayerFromRules is a good entry point
@@ -26,7 +26,7 @@ func BaseTurnPlayerFromRules(opts *GameOptions, players []*pb.PlayerInfo, rules 
 	g.SetBackupMode(game.InteractiveGameplayMode)
 	g.SetStateStackLength(1)
 	g.SetChallengeRule(opts.ChallengeRule)
-	ret := &BaseTurnPlayer{*g}
+	ret := &BaseTurnPlayer{g}
 	return ret, nil
 }
 
@@ -81,5 +81,5 @@ func (p *BaseTurnPlayer) IsPlaying() bool {
 }
 
 func (p *BaseTurnPlayer) SetGame(g *game.Game) {
-	p.Game = *g
+	p.Game = g
 }

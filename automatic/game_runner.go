@@ -104,7 +104,6 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 			AIStaticTurnPlayer: *tp,
 		}
 		btp.SetBotType(botcode)
-		btp.SetGame(r.game)
 		r.aiplayers[idx] = btp
 	}
 	return nil
@@ -137,14 +136,16 @@ func (r *GameRunner) genBestMoveForBot(playerIdx int) *move.Move {
 
 // PlayBestStaticTurn generates the best static move for the player and
 // plays it on the board.
-func (r *GameRunner) PlayBestStaticTurn(playerIdx int, addToHistory bool) {
+func (r *GameRunner) PlayBestStaticTurn(playerIdx int, addToHistory bool) error {
 	bestPlay := r.genBestMoveForBot(playerIdx)
 	// save rackLetters for logging.
 	rackLetters := r.game.RackLettersFor(playerIdx)
 	tilesRemaining := r.game.Bag().TilesRemaining()
 	nickOnTurn := r.game.NickOnTurn()
-	r.game.PlayMove(bestPlay, addToHistory, 0)
-
+	err := r.game.PlayMove(bestPlay, addToHistory, 0)
+	if err != nil {
+		return err
+	}
 	if r.logchan != nil {
 		r.logchan <- fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v,%v,%v,%.3f,%v,%v\n",
 			nickOnTurn,
@@ -160,4 +161,5 @@ func (r *GameRunner) PlayBestStaticTurn(playerIdx int, addToHistory bool) {
 			tilesRemaining,
 			r.game.PointsFor((playerIdx+1)%2))
 	}
+	return nil
 }

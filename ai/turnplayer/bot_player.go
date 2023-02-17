@@ -34,7 +34,7 @@ func NewBotTurnPlayer(conf *config.Config, opts *turnplayer.GameOptions,
 }
 
 func NewBotTurnPlayerFromGame(g *game.Game, conf *config.Config, botType pb.BotRequest_BotCode) (*BotTurnPlayer, error) {
-	gr := &turnplayer.BaseTurnPlayer{Game: *g}
+	gr := &turnplayer.BaseTurnPlayer{Game: g}
 	return addBotFields(gr, conf, botType)
 }
 
@@ -81,7 +81,7 @@ func (p *BotTurnPlayer) GenerateMoves(numPlays int) []*move.Move {
 		sort.Slice(plays, func(i, j int) bool {
 			return plays[i].Equity() > plays[j].Equity()
 		})
-		return []*move.Move{filter(p.cfg, &p.Game, curRack, plays, p.botType)}
+		return []*move.Move{filter(p.cfg, p.Game, curRack, plays, p.botType)}
 	}
 
 	return p.TopPlays(plays, numPlays)

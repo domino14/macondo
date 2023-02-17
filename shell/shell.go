@@ -228,7 +228,7 @@ func (sc *ShellController) initGameDataStructures() error {
 	if err != nil {
 		return err
 	}
-	sc.simmer.Init(&sc.game.Game, []equity.EquityCalculator{c}, c, sc.config)
+	sc.simmer.Init(sc.game.Game, []equity.EquityCalculator{c}, c, sc.config)
 	sc.gen = sc.game.MoveGenerator()
 
 	gd, err := gaddag.Get(sc.config, sc.game.LexiconName())
