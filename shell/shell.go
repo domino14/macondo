@@ -19,7 +19,7 @@ import (
 	"github.com/chzyer/readline"
 	"github.com/rs/zerolog/log"
 
-	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
+	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/automatic"
 	"github.com/domino14/macondo/cgp"
@@ -96,7 +96,7 @@ type ShellController struct {
 
 	options *ShellOptions
 
-	game *aiturnplayer.BotTurnPlayer
+	game *bot.BotTurnPlayer
 
 	simmer        *montecarlo.Simmer
 	simCtx        context.Context
@@ -328,7 +328,7 @@ func (sc *ShellController) loadGCG(args []string) error {
 	if err != nil {
 		return err
 	}
-	sc.game, err = aiturnplayer.NewBotTurnPlayerFromGame(g, sc.config, pb.BotRequest_HASTY_BOT)
+	sc.game, err = bot.NewBotTurnPlayerFromGame(g, sc.config, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return err
 	}
@@ -352,7 +352,7 @@ func (sc *ShellController) loadCGP(cgpstr string) error {
 		log.Info().Msgf("cgp file had no lexicon, so using default lexicon %v",
 			lexicon)
 	}
-	sc.game, err = aiturnplayer.NewBotTurnPlayerFromGame(g, sc.config, pb.BotRequest_HASTY_BOT)
+	sc.game, err = bot.NewBotTurnPlayerFromGame(g, sc.config, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return err
 	}

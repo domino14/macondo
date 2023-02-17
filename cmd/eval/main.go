@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
+	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
@@ -181,7 +181,7 @@ func getEquityLoss(filepath string, lexicon string, playerName string, gameid in
 			if err != nil {
 				panic(err)
 			}
-			runner, err := aiturnplayer.NewBotTurnPlayerFromGame(g, &DefaultConfig, pb.BotRequest_HASTY_BOT)
+			runner, err := bot.NewBotTurnPlayerFromGame(g, &DefaultConfig, pb.BotRequest_HASTY_BOT)
 			if err != nil {
 				panic(err)
 			}

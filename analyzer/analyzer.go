@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
+	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/config"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -57,7 +57,7 @@ type JsonMove struct {
 type Analyzer struct {
 	config  *config.Config
 	options *turnplayer.GameOptions
-	game    *aiturnplayer.BotTurnPlayer
+	game    *bot.BotTurnPlayer
 }
 
 func MakeJsonMove(m *move.Move) JsonMove {
@@ -97,7 +97,7 @@ func (an *Analyzer) newGame() error {
 		{Nickname: "opponent", RealName: "Arthur Dent"},
 	}
 
-	game, err := aiturnplayer.NewBotTurnPlayer(an.config, an.options, players, pb.BotRequest_HASTY_BOT)
+	game, err := bot.NewBotTurnPlayer(an.config, an.options, players, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return err
 	}

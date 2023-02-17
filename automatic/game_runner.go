@@ -4,8 +4,10 @@
 package automatic
 
 import (
+	"context"
 	"fmt"
 
+	"github.com/domino14/macondo/ai/bot"
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
@@ -85,6 +87,7 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 		botcode := players[idx].BotCode
 		log.Info().Msgf("botcode %v", botcode)
 		var calcs []equity.EquityCalculator
+		// XXX: consider using NewBotTurnPlayerFromGame isntead of all this:
 		if botcode == pb.BotRequest_NO_LEAVE_BOT {
 			calc := equity.NewNoLeaveCalculator()
 			calcs = []equity.EquityCalculator{calc}
@@ -100,7 +103,7 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 		if err != nil {
 			return err
 		}
-		btp := &aiturnplayer.BotTurnPlayer{
+		btp := &bot.BotTurnPlayer{
 			AIStaticTurnPlayer: *tp,
 		}
 		btp.SetBotType(botcode)
@@ -131,7 +134,11 @@ func (r *GameRunner) genBestMoveForBot(playerIdx int) *move.Move {
 		return r.genBestStaticTurn(playerIdx)
 	}
 	// Otherwise use the bot's GenerateMoves function.
-	return r.aiplayers[playerIdx].GenerateMoves(1)[0]
+	m, err := r.aiplayers[playerIdx].BestPlay(context.Background())
+	if err != nil {
+		log.Err(err).Msg("generating best move for bot")
+	}
+	return m
 }
 
 // PlayBestStaticTurn generates the best static move for the player and

@@ -46,6 +46,14 @@ import (
 
 */
 
+type StoppingCondition int
+
+const (
+	StopNone StoppingCondition = iota
+	Stop95
+	Stop99
+)
+
 // LogIteration is a struct meant for serializing to a log-file, for debug
 // and other purposes.
 type LogIteration struct {
@@ -149,6 +157,10 @@ func (sp *SimmedPlay) addEquityStat(initialSpread int, spread int, leftover floa
 	sp.winPctStats.Push(float64(pct))
 }
 
+func (s *SimmedPlay) Move() *move.Move {
+	return s.play
+}
+
 // Simmer implements the actual look-ahead search
 type Simmer struct {
 	origGame *game.Game
@@ -172,13 +184,14 @@ type Simmer struct {
 	winPcts    [][]float32
 	cfg        *config.Config
 
-	logStream io.Writer
+	logStream         io.Writer
+	stoppingCondition StoppingCondition
 }
 
 func (s *Simmer) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
 	leaves equity.Leaves, cfg *config.Config) {
 	s.origGame = game
-
+	s.stoppingCondition = StopNone
 	s.equityCalculators = eqCalcs
 	s.leaveValues = leaves
 	s.threads = int(math.Max(1, float64(runtime.NumCPU()-1)))
@@ -199,6 +212,10 @@ func (s *Simmer) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
 			panic("win percentages not correct type")
 		}
 	}
+}
+
+func (s *Simmer) SetStoppingCondition(sc StoppingCondition) {
+	s.stoppingCondition = sc
 }
 
 func (s *Simmer) SetThreads(threads int) {
@@ -289,7 +306,7 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 	// in another goroutine.
 	// protect the simmed play statistics with a mutex.
 	log.Debug().Msgf("Simulating with %v threads", s.threads)
-	syncChan := make(chan bool, s.threads)
+	syncExitChan := make(chan bool, s.threads)
 	logChan := make(chan []byte)
 	done := make(chan bool)
 
@@ -300,19 +317,14 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 		defer func() {
 			log.Debug().Msgf("Sim controller thread exiting")
 		}()
-		for {
-			select {
-			case <-ctx.Done():
-				log.Debug().Msgf("Context is done: %v", ctx.Err())
-				for t := 0; t < s.threads; t++ {
-					syncChan <- true
-				}
-				log.Debug().Msgf("Sent sync messages to children threads...")
-				return ctx.Err()
-			default:
-				// Do nothing
+		for range ctx.Done() {
+			log.Debug().Msgf("Context is done: %v", ctx.Err())
+			for t := 0; t < s.threads; t++ {
+				syncExitChan <- true
 			}
+			log.Debug().Msgf("Sent sync messages to children threads...")
 		}
+		return ctx.Err()
 	})
 
 	if s.logStream != nil {
@@ -351,7 +363,7 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 				iterMutex.Unlock()
 				s.simSingleIteration(s.maxPlies, t, iterNum, logChan)
 				select {
-				case v := <-syncChan:
+				case v := <-syncExitChan:
 					log.Debug().Msgf("Thread %v got sync msg %v", t, v)
 					return nil
 				default:
@@ -541,4 +553,9 @@ func (s *Simmer) ScoreDetails() string {
 	}
 	stats += fmt.Sprintf("Iterations: %d\n", s.iterationCount)
 	return stats
+}
+
+func (s *Simmer) WinningPlays() []*SimmedPlay {
+	s.sortPlaysByWinRate()
+	return s.plays
 }

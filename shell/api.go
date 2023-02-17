@@ -1,16 +1,18 @@
 package shell
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog/log"
 	"lukechampine.com/frand"
 
-	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
+	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/automatic"
 	"github.com/domino14/macondo/endgame/alphabeta"
@@ -68,7 +70,7 @@ func (sc *ShellController) newGame(cmd *shellcmd) (*Response, error) {
 	}
 
 	opts := sc.options.GameOptions
-	g, err := aiturnplayer.NewBotTurnPlayer(sc.config, &opts, players, pb.BotRequest_HASTY_BOT)
+	g, err := bot.NewBotTurnPlayer(sc.config, &opts, players, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return nil, err
 	}
@@ -328,14 +330,12 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 		sc.game.SetBackupMode(game.InteractiveGameplayMode)
 		sc.game.SetStateStackLength(1)
 	}()
-
-	oldmaxtime := sc.config.AlphaBetaTimeLimit
-
-	sc.config.AlphaBetaTimeLimit = maxtime
-
-	defer func() {
-		sc.config.AlphaBetaTimeLimit = oldmaxtime
-	}()
+	var cancel context.CancelFunc
+	ctx := context.Background()
+	if maxtime > 0 {
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(maxtime)*time.Second)
+		defer cancel()
+	}
 
 	// clear out the last value of this endgame node; gc should
 	// delete the tree.
@@ -352,7 +352,7 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 
 	sc.showMessage(sc.game.ToDisplayText())
 
-	val, seq, err := sc.endgameSolver.Solve(plies)
+	val, seq, err := sc.endgameSolver.Solve(ctx, plies)
 	if err != nil {
 		return nil, err
 	}

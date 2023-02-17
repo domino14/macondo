@@ -147,9 +147,9 @@ func TestLongerSim(t *testing.T) {
 	// Note we changed the rack here from AAADERW to AAAENSW because the test kept failing
 	// because of the fairly new word ADWARE.
 	game.SetRackFor(0, alphabet.RackFromString("AAAENSW", game.Alphabet()))
+	calcs, leaves := defaultSimCalculators("NWL18")
 
-	aiplayer, err := aiturnplayer.NewBotTurnPlayer(
-		&DefaultConfig,
+	aiplayer, err := aiturnplayer.NewAIStaticTurnPlayer(&DefaultConfig,
 		&turnplayer.GameOptions{
 			Lexicon: &turnplayer.Lexicon{
 				Name:         "NWL18",
@@ -157,12 +157,9 @@ func TestLongerSim(t *testing.T) {
 			},
 			BoardLayoutName: rules.BoardName(),
 			Variant:         rules.Variant(),
-		},
-		players,
-		pb.BotRequest_HASTY_BOT)
-	is.NoErr(err)
+		}, players, calcs)
 
-	calcs, leaves := defaultSimCalculators("NWL18")
+	is.NoErr(err)
 
 	generator.GenAll(game.RackFor(0), false)
 	aiplayer.AssignEquity(generator.Plays(), game.Board(), game.Bag(),
