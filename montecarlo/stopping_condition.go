@@ -20,6 +20,7 @@ func shouldStop(plays []*SimmedPlay, sc StoppingCondition, iterationCount int) b
 	if iterationCount > IterationsCutoff {
 		return true
 	}
+
 	// Otherwise, do some statistics.
 	// shallow copy the array so we can sort it/play with it.
 	c := make([]*SimmedPlay, len(plays))
@@ -37,12 +38,13 @@ func shouldStop(plays []*SimmedPlay, sc StoppingCondition, iterationCount int) b
 		// if there is only 1 unignored play, exit.
 		return true
 	}
+
 	// sort copy by win pct.
 	sort.Slice(c, func(i, j int) bool {
 		c[i].RLock()
 		c[j].RLock()
-		defer c[i].RUnlock()
 		defer c[j].RUnlock()
+		defer c[i].RUnlock()
 		if c[i].winPctStats.Mean() == c[j].winPctStats.Mean() {
 			return c[i].equityStats.Mean() > c[j].equityStats.Mean()
 		}
