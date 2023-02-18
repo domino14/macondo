@@ -212,7 +212,7 @@ func (s *Simmer) SetLogStream(l io.Writer) {
 func (s *Simmer) makeGameCopies() error {
 	log.Debug().Int("threads", s.threads).Msg("makeGameCopies")
 	s.gameCopies = []*game.Game{}
-
+	s.aiplayers = []aiturnplayer.AITurnPlayer{}
 	// Pre-shuffle bag so we can make identical copies of it with fixedOrder
 	s.origGame.Bag().Shuffle()
 
