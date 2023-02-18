@@ -567,9 +567,9 @@ func (s *Simmer) printStats() string {
 }
 
 func (s *Simmer) EquityStats() string {
-	statsStr := new(strings.Builder)
+	var ss strings.Builder
 	s.sortPlaysByWinRate()
-	statsStr.WriteString(fmt.Sprintf("%-20s%-9s%-16s%-16s\n", "Play", "Score", "Win%", "Equity"))
+	fmt.Fprintf(&ss, "%-20s%-9s%-16s%-16s\n", "Play", "Score", "Win%", "Equity")
 
 	for _, play := range s.plays {
 		wpStats := fmt.Sprintf("%.3f±%.3f", 100.0*play.winPctStats.Mean(), 100.0*play.winPctStats.StandardError(stats.Z99))
@@ -579,11 +579,11 @@ func (s *Simmer) EquityStats() string {
 			ignore = "❌"
 		}
 
-		statsStr.WriteString(fmt.Sprintf("%-20s%-9d%-16s%-16s%s\n", play.play.ShortDescription(),
-			play.play.Score(), wpStats, eqStats, ignore))
+		fmt.Fprintf(&ss, "%-20s%-9d%-16s%-16s%s\n", play.play.ShortDescription(),
+			play.play.Score(), wpStats, eqStats, ignore)
 	}
-	statsStr.WriteString(fmt.Sprintf("Iterations: %d (intervals are 99%% confidence, ❌ marks plays cut off early)\n", s.iterationCount))
-	return statsStr.String()
+	fmt.Fprintf(&ss, "Iterations: %d (intervals are 99%% confidence, ❌ marks plays cut off early)\n", s.iterationCount)
+	return ss.String()
 }
 
 func (s *Simmer) ScoreDetails() string {
