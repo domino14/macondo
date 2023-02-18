@@ -47,8 +47,8 @@ Options:
 
     -stop 95
 
-    You can use 95 or 99 for this option. This makes the sim stop when it is
-    95 (or 99) percent sure that the top move is the winning move. 
+    You can use 95, 98, or 99 for this option. This makes the sim stop when it is
+    X percent sure that the top move is the winning move. 
 
     Note: using this option will stop the simulation after a fixed number of 
     plies (usually 5000). It's possible to get to 5000 plies without having

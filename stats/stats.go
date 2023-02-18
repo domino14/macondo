@@ -58,3 +58,7 @@ func (s *Statistic) Last() float64 {
 func (s *Statistic) StandardError(m float64) float64 {
 	return m * math.Sqrt(s.Variance()/float64(s.totalIterations))
 }
+
+func (s *Statistic) Iterations() int {
+	return s.totalIterations
+}

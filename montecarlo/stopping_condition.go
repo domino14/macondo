@@ -1,13 +1,13 @@
 package montecarlo
 
 import (
-	"math"
 	"sort"
 
+	"github.com/domino14/macondo/stats"
 	"github.com/rs/zerolog/log"
 )
 
-const IterationsCutoff = 10000
+const IterationsCutoff = 5000
 
 // use stats to figure out when to stop simming.
 
@@ -20,7 +20,6 @@ func shouldStop(plays []*SimmedPlay, sc StoppingCondition, iterationCount int) b
 	if iterationCount > IterationsCutoff {
 		return true
 	}
-
 	// Otherwise, do some statistics.
 	// shallow copy the array so we can sort it/play with it.
 	c := make([]*SimmedPlay, len(plays))
@@ -55,22 +54,35 @@ func shouldStop(plays []*SimmedPlay, sc StoppingCondition, iterationCount int) b
 	// assume the very top play is the winner, and then cut off plays that have
 	// no chance of catching up.
 	// "no chance" is of course defined by the stopping condition :)
+
+	var ci float64
+	switch sc {
+	case Stop95:
+		ci = stats.Z95
+	case Stop98:
+		ci = stats.Z98
+	case Stop99:
+		ci = stats.Z99
+	}
+
 	tentativeWinner := c[0]
 	tentativeWinner.RLock()
 	μ := tentativeWinner.winPctStats.Mean()
-	v := tentativeWinner.winPctStats.Variance()
+	e := tentativeWinner.winPctStats.StandardError(ci)
 	tentativeWinner.RUnlock()
 	newIgnored := 0
 	// assume standard normal distribution (?)
-	for i := range c[1:] {
-		c[i].RLock()
-		μi := c[i].winPctStats.Mean()
-		vi := c[i].winPctStats.Variance()
-		c[i].RUnlock()
-		if passTest(μ, v, μi, vi, sc) {
-			c[i].Lock()
-			c[i].Ignore()
-			c[i].Unlock()
+	for _, p := range c[1:] {
+		p.RLock()
+		if p.ignore {
+			p.RUnlock()
+			continue
+		}
+		μi := p.winPctStats.Mean()
+		ei := p.winPctStats.StandardError(ci)
+		p.RUnlock()
+		if passTest(μ, e, μi, ei) {
+			p.Ignore()
 			newIgnored++
 		}
 	}
@@ -82,35 +94,29 @@ func shouldStop(plays []*SimmedPlay, sc StoppingCondition, iterationCount int) b
 
 // passTest: determine if a random variable X > Y with the given
 // confidence level; return true if X > Y.
-func passTest(μ, v, μi, vi float64, sc StoppingCondition) bool {
-	Z := zVal(μ, v, μi, vi)
-	// area LEFT OF CURVE:
-	if sc == Stop95 {
-		return Z <= -1.96
-	} else if sc == Stop99 {
-		return Z <= -2.58
-	}
-	// Should really be either of the two above though.
-	return false
+func passTest(μ, e, μi, ei float64) bool {
+	// Z := zVal(μ, v, μi, vi)
+	// X > Y if (μ - e) > (μi + ei)
+	return (μ - e) > (μi + ei)
 }
 
-func zVal(μ, v, μi, vi float64) float64 {
-	// mean of X - Y = E(X-Y) = E(X) - E(Y)
-	mean := μ - μi
-	// variance of (X-Y) = V(X) + V(Y)
-	variance := v + vi
-	stdev := math.Sqrt(variance)
-	// P(X > Y) = P(X - Y > 0)
-	// let D = X - Y
-	// then P(D > 0)
-	// convert to standard normal variable (mean 0 stdev 1)
-	// = P ((D - mean) / (stdev) > (0 - mean) / stdev)
-	// then P(Z>(0 - mean)/stdev)
-	// 95 percentile is Z 1.96
-	// 99 percentile is Z 2.58
-	return -mean / stdev
-}
+// func zVal(μ, v, μi, vi float64) float64 {
+// 	// mean of X - Y = E(X-Y) = E(X) - E(Y)
+// 	mean := μ - μi
+// 	// variance of (X-Y) = V(X) + V(Y)
+// 	variance := v + vi
+// 	stdev := math.Sqrt(variance)
+// 	// P(X > Y) = P(X - Y > 0)
+// 	// let D = X - Y
+// 	// then P(D > 0)
+// 	// convert to standard normal variable (mean 0 stdev 1)
+// 	// = P ((D - mean) / (stdev) > (0 - mean) / stdev)
+// 	// then P(Z>(0 - mean)/stdev)
+// 	// 95 percentile is Z 1.96
+// 	// 99 percentile is Z 2.58
+// 	return -mean / stdev
+// }
 
-func zValStdev(μ, s, μi, si float64) float64 {
-	return zVal(μ, s*s, μi, si*si)
-}
+// func zValStdev(μ, s, μi, si float64) float64 {
+// 	return zVal(μ, s*s, μi, si*si)
+// }

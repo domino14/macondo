@@ -48,15 +48,17 @@ func (sc *ShellController) handleSim(args []string, options map[string]string) e
 			if err != nil {
 				return err
 			}
-			if sci != 95 && sci != 99 {
+			switch sci {
+			case 95:
+				stoppingCondition = montecarlo.Stop95
+			case 98:
+				stoppingCondition = montecarlo.Stop98
+			case 99:
+				stoppingCondition = montecarlo.Stop99
+			default:
 				return errors.New("only allowed values are 95 and 99 for stopping condition")
 			}
-			if sci == 95 {
-				stoppingCondition = montecarlo.Stop95
-			}
-			if sci == 99 {
-				stoppingCondition = montecarlo.Stop99
-			}
+
 		}
 	}
 	if plies == 0 {

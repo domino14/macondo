@@ -52,6 +52,7 @@ type StoppingCondition int
 const (
 	StopNone StoppingCondition = iota
 	Stop95
+	Stop98
 	Stop99
 )
 
@@ -566,19 +567,23 @@ func (s *Simmer) printStats() string {
 }
 
 func (s *Simmer) EquityStats() string {
-	stats := ""
+	statsStr := new(strings.Builder)
 	s.sortPlaysByWinRate()
-	stats += fmt.Sprintf("%-20s%-9s%-16s%-16s\n", "Play", "Score", "Win%", "Equity")
+	statsStr.WriteString(fmt.Sprintf("%-20s%-9s%-16s%-16s\n", "Play", "Score", "Win%", "Equity"))
 
 	for _, play := range s.plays {
-		wpStats := fmt.Sprintf("%.2f±%.2f", 100.0*play.winPctStats.Mean(), 100.0*play.winPctStats.StandardError(1.96))
-		eqStats := fmt.Sprintf("%.3f±%.3f", play.equityStats.Mean(), play.equityStats.StandardError(1.96))
+		wpStats := fmt.Sprintf("%.3f±%.3f", 100.0*play.winPctStats.Mean(), 100.0*play.winPctStats.StandardError(stats.Z99))
+		eqStats := fmt.Sprintf("%.3f±%.3f", play.equityStats.Mean(), play.equityStats.StandardError(stats.Z99))
+		ignore := ""
+		if play.ignore {
+			ignore = "❌"
+		}
 
-		stats += fmt.Sprintf("%-20s%-9d%-16s%-16s\n", play.play.ShortDescription(),
-			play.play.Score(), wpStats, eqStats)
+		statsStr.WriteString(fmt.Sprintf("%-20s%-9d%-16s%-16s%s\n", play.play.ShortDescription(),
+			play.play.Score(), wpStats, eqStats, ignore))
 	}
-	stats += fmt.Sprintf("Iterations: %d (intervals are 95%% confidence)\n", s.iterationCount)
-	return stats
+	statsStr.WriteString(fmt.Sprintf("Iterations: %d (intervals are 99%% confidence, ❌ marks plays cut off early)\n", s.iterationCount))
+	return statsStr.String()
 }
 
 func (s *Simmer) ScoreDetails() string {
@@ -589,13 +594,13 @@ func (s *Simmer) ScoreDetails() string {
 		if ply%2 == 0 {
 			who = "Opponent"
 		}
-		stats += fmt.Sprintf("**Ply %d (%s)**\n%-20s%8s%8s%8s%8s\n%s\n",
-			ply+1, who, "Play", "Win%", "Mean", "Stdev", "Bingo %", strings.Repeat("-", 52))
+		stats += fmt.Sprintf("**Ply %d (%s)**\n%-20s%8s%8s%8s%8s%8s\n%s\n",
+			ply+1, who, "Play", "Win%", "Mean", "Stdev", "Bingo %", "Iters", strings.Repeat("-", 52))
 		for _, play := range s.plays {
-			stats += fmt.Sprintf("%-20s%8.2f%8.3f%8.3f%8.3f\n",
+			stats += fmt.Sprintf("%-20s%8.2f%8.3f%8.3f%8.3f%8d\n",
 				play.play.ShortDescription(), 100.0*play.winPctStats.Mean(),
 				play.scoreStats[ply].Mean(), play.scoreStats[ply].Stdev(),
-				100.0*play.bingoStats[ply].Mean())
+				100.0*play.bingoStats[ply].Mean(), play.scoreStats[ply].Iterations())
 		}
 		stats += "\n"
 	}
