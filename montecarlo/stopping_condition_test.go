@@ -1,7 +1,7 @@
 package montecarlo
 
 import (
-	"fmt"
+	"math"
 	"testing"
 
 	"github.com/matryer/is"
@@ -22,7 +22,5 @@ func TestPassZTest(t *testing.T) {
 func TestZVal(t *testing.T) {
 	is := is.New(t)
 	is.Equal(zValStdev(10, 5, 10, 2), float64(0))
-	// fmt.Println(zVal(89.97, 77.7924, 78.20, 379.08))
-	// fmt.Println(zValStdev(89.04, 6.51, 68.58, 11.81))
-	// is.True(false)
+	is.True(math.Abs(zValStdev(450, 100, 460, 100)-(0.07071)) < 0.0001)
 }

@@ -568,13 +568,16 @@ func (s *Simmer) printStats() string {
 func (s *Simmer) EquityStats() string {
 	stats := ""
 	s.sortPlaysByWinRate()
-	stats += fmt.Sprintf("%-20s%-9s%-14s%-7s\n", "Play", "Score", "Win%", "Equity")
+	stats += fmt.Sprintf("%-20s%-9s%-16s%-16s\n", "Play", "Score", "Win%", "Equity")
 
 	for _, play := range s.plays {
-		stats += fmt.Sprintf("%-20s%-6d%8.2f±%5.2f%8.3f\n", play.play.ShortDescription(),
-			play.play.Score(), 100.0*play.winPctStats.Mean(), 100.0*play.winPctStats.Stdev(), play.equityStats.Mean())
+		wpStats := fmt.Sprintf("%.2f±%.2f", 100.0*play.winPctStats.Mean(), 100.0*play.winPctStats.StandardError(1.96))
+		eqStats := fmt.Sprintf("%.3f±%.3f", play.equityStats.Mean(), play.equityStats.StandardError(1.96))
+
+		stats += fmt.Sprintf("%-20s%-9d%-16s%-16s\n", play.play.ShortDescription(),
+			play.play.Score(), wpStats, eqStats)
 	}
-	stats += fmt.Sprintf("Iterations: %d\n", s.iterationCount)
+	stats += fmt.Sprintf("Iterations: %d (intervals are 95%% confidence)\n", s.iterationCount)
 	return stats
 }
 
