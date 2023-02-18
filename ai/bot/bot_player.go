@@ -92,7 +92,7 @@ func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
 }
 
 func (p *BotTurnPlayer) SetEquityCalculators(calcs []equity.EquityCalculator) {
-	p.SetEquityCalculators(calcs)
+	p.SetCalculators(calcs)
 }
 
 func (p *BotTurnPlayer) GetBotType() pb.BotRequest_BotCode {

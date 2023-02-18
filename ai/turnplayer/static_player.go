@@ -102,6 +102,10 @@ func (p *AIStaticTurnPlayer) Calculators() []equity.EquityCalculator {
 	return p.calculators
 }
 
+func (p *AIStaticTurnPlayer) SetCalculators(c []equity.EquityCalculator) {
+	p.calculators = c
+}
+
 func (p *AIStaticTurnPlayer) GetBotType() pb.BotRequest_BotCode {
 	// No bot associated with just a plain AIStaticTurnPlayer
 	return pb.BotRequest_UNKNOWN
