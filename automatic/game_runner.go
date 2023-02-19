@@ -6,13 +6,13 @@ package automatic
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/domino14/macondo/ai/bot"
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
@@ -21,6 +21,8 @@ import (
 
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
+
+var MaxTimePerTurn = 10 * time.Second
 
 // GameRunner is the master struct here for the automatic game logic.
 type GameRunner struct {
@@ -86,27 +88,27 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 		pegfile := players[idx].PEGFile
 		botcode := players[idx].BotCode
 		log.Info().Msgf("botcode %v", botcode)
-		var calcs []equity.EquityCalculator
-		// XXX: consider using NewBotTurnPlayerFromGame isntead of all this:
-		if botcode == pb.BotRequest_NO_LEAVE_BOT {
-			calc := equity.NewNoLeaveCalculator()
-			calcs = []equity.EquityCalculator{calc}
-		} else {
-			calc, err := equity.NewCombinedStaticCalculator(r.gaddag.LexiconName(),
-				r.config, leavefile, pegfile)
-			if err != nil {
-				return err
-			}
-			calcs = []equity.EquityCalculator{calc}
+
+		conf := &bot.BotConfig{
+			Config:            *r.config,
+			PEGAdjustmentFile: pegfile,
+			LeavesFile:        leavefile,
 		}
-		tp, err := aiturnplayer.NewAIStaticTurnPlayerFromGame(r.game, r.config, calcs)
+
+		btp, err := bot.NewBotTurnPlayerFromGame(r.game, conf, botcode)
 		if err != nil {
 			return err
 		}
-		btp := &bot.BotTurnPlayer{
-			AIStaticTurnPlayer: *tp,
+		if botcode == pb.BotRequest_SIMMING_BOT {
+			// For this bot only, use 1 single thread to simulate.
+			// This is because we want to parallelize at the game runner
+			// level if possible (since the endgame solver is single-threaded).
+			// Note: once we have a working pre-endgame engine, that'll be
+			// multi-threaded, so at that point we can undo this, and
+			// make the game runner itself single-threaded. Or something.
+			btp.SetSimThreads(1)
 		}
-		btp.SetBotType(botcode)
+
 		r.aiplayers[idx] = btp
 	}
 	return nil
@@ -134,16 +136,17 @@ func (r *GameRunner) genBestMoveForBot(playerIdx int) *move.Move {
 		return r.genBestStaticTurn(playerIdx)
 	}
 	// Otherwise use the bot's GenerateMoves function.
-	m, err := r.aiplayers[playerIdx].BestPlay(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), MaxTimePerTurn)
+	defer cancel()
+	m, err := r.aiplayers[playerIdx].BestPlay(ctx)
 	if err != nil {
 		log.Err(err).Msg("generating best move for bot")
 	}
 	return m
 }
 
-// PlayBestStaticTurn generates the best static move for the player and
-// plays it on the board.
-func (r *GameRunner) PlayBestStaticTurn(playerIdx int, addToHistory bool) error {
+// PlayBestTurn generates the best move for the player and plays it on the board.
+func (r *GameRunner) PlayBestTurn(playerIdx int, addToHistory bool) error {
 	bestPlay := r.genBestMoveForBot(playerIdx)
 	// save rackLetters for logging.
 	rackLetters := r.game.RackLettersFor(playerIdx)

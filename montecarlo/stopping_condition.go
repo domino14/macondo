@@ -87,7 +87,11 @@ func shouldStop(plays []*SimmedPlay, sc StoppingCondition, iterationCount int) b
 		}
 	}
 	if newIgnored > 0 {
-		log.Info().Int("newIgnored", newIgnored).Msg("sim-cut-off")
+		log.Debug().Int("newIgnored", newIgnored).Msg("sim-cut-off")
+	}
+	if ignoredPlays+newIgnored >= len(c)-1 {
+		// if there is only 1 unignored play, exit.
+		return true
 	}
 	return false
 }

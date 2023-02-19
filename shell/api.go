@@ -70,7 +70,9 @@ func (sc *ShellController) newGame(cmd *shellcmd) (*Response, error) {
 	}
 
 	opts := sc.options.GameOptions
-	g, err := bot.NewBotTurnPlayer(sc.config, &opts, players, pb.BotRequest_HASTY_BOT)
+	conf := &bot.BotConfig{Config: *sc.config}
+
+	g, err := bot.NewBotTurnPlayer(conf, &opts, players, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return nil, err
 	}

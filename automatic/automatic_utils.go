@@ -43,7 +43,7 @@ func (r *GameRunner) CompVsCompStatic(addToHistory bool) error {
 	if err != nil {
 		return err
 	}
-	err = r.playFullStatic(addToHistory)
+	err = r.playFull(addToHistory)
 	if err != nil {
 		return err
 	}
@@ -52,12 +52,12 @@ func (r *GameRunner) CompVsCompStatic(addToHistory bool) error {
 	return nil
 }
 
-func (r *GameRunner) playFullStatic(addToHistory bool) error {
+func (r *GameRunner) playFull(addToHistory bool) error {
 	r.StartGame()
-	log.Trace().Msgf("playing full static, game %v", r.game.History().Uid)
+	log.Trace().Msgf("playing full, game %v", r.game.History().Uid)
 
 	for r.game.Playing() == pb.PlayState_PLAYING {
-		err := r.PlayBestStaticTurn(r.game.PlayerOnTurn(), addToHistory)
+		err := r.PlayBestTurn(r.game.PlayerOnTurn(), addToHistory)
 		if err != nil {
 			return err
 		}
@@ -160,9 +160,9 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 			IsPlaying.Add(1)
 			defer IsPlaying.Add(-1)
 			for j := range jobs {
-				err = r.playFullStatic(false)
+				err = r.playFull(false)
 				if err != nil {
-					log.Err(err).Int("job", j.gidx).Msg("error-playFullStatic")
+					log.Err(err).Int("job", j.gidx).Msg("error-playFull")
 					return err
 				}
 				CVCCounter.Add(1)
@@ -197,7 +197,7 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 		}
 
 		close(jobs)
-		log.Info().Msg("Finished queueing all jobs.")
+		log.Info().Int("jobsQueued", i).Msg("Finished queueing all jobs.")
 		wg.Wait()
 		log.Info().Msg("All games finished.")
 		close(logChan)

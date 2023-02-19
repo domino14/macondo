@@ -328,7 +328,8 @@ func (sc *ShellController) loadGCG(args []string) error {
 	if err != nil {
 		return err
 	}
-	sc.game, err = bot.NewBotTurnPlayerFromGame(g, sc.config, pb.BotRequest_HASTY_BOT)
+	conf := &bot.BotConfig{Config: *sc.config}
+	sc.game, err = bot.NewBotTurnPlayerFromGame(g, conf, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return err
 	}
@@ -352,7 +353,8 @@ func (sc *ShellController) loadCGP(cgpstr string) error {
 		log.Info().Msgf("cgp file had no lexicon, so using default lexicon %v",
 			lexicon)
 	}
-	sc.game, err = bot.NewBotTurnPlayerFromGame(g, sc.config, pb.BotRequest_HASTY_BOT)
+	conf := &bot.BotConfig{Config: *sc.config}
+	sc.game, err = bot.NewBotTurnPlayerFromGame(g, conf, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return err
 	}
@@ -615,11 +617,11 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 		block = true
 	}
 
-	if options["numthreads"] == "" {
+	if options["threads"] == "" {
 		numthreads = runtime.NumCPU()
 	} else {
 		var err error
-		numthreads, err = strconv.Atoi(options["numthreads"])
+		numthreads, err = strconv.Atoi(options["threads"])
 		if err != nil {
 			return err
 		}

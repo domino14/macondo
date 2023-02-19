@@ -92,8 +92,8 @@ func (sc *ShellController) startSim() {
 		err := sc.simmer.Simulate(sc.simCtx)
 		if err != nil {
 			sc.showError(err)
-			sc.simTickerDone <- true
 		}
+		sc.simTickerDone <- true
 		log.Debug().Msg("simulation thread exiting...")
 	}()
 

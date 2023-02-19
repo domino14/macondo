@@ -437,11 +437,11 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 					bestSeq = s.findBestSequence(bestNode)
 					s.lastPrincipalVariation = bestSeq
 
-					fmt.Printf("-- Spread swing estimate found after %d plies: %f", p, bestV)
+					log.Info().Msgf("-- Spread swing estimate found after %d plies: %f", p, bestV)
 					for idx, move := range bestSeq {
-						fmt.Printf(" %d) %v", idx+1, move.ShortDescription())
+						log.Info().Msgf(" %d) %v", idx+1, move.ShortDescription())
 					}
-					fmt.Printf(" with %d killer plays %v\n", len(s.killerCache), s.nodeCount)
+					log.Debug().Msgf(" with %d killer plays %v\n", len(s.killerCache), s.nodeCount)
 				}
 			}
 		} else {

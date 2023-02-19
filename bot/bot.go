@@ -51,7 +51,8 @@ func (b *Bot) newGame() error {
 		{Nickname: "opponent", RealName: "Arthur Dent"},
 	}
 
-	game, err := bot.NewBotTurnPlayer(b.config, b.options, players, pb.BotRequest_HASTY_BOT)
+	conf := &bot.BotConfig{Config: *b.config}
+	game, err := bot.NewBotTurnPlayer(conf, b.options, players, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return err
 	}
@@ -164,7 +165,8 @@ func (b *Bot) handle(data []byte) *pb.BotResponse {
 	if err != nil {
 		return errorResponse("Could not parse request", err)
 	}
-	g, err := bot.NewBotTurnPlayerFromGame(ng, b.config, botType)
+	conf := &bot.BotConfig{Config: *b.config}
+	g, err := bot.NewBotTurnPlayerFromGame(ng, conf, botType)
 	if err != nil {
 		return errorResponse("Could not create AI player", err)
 	}

@@ -428,6 +428,13 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 
 	ctrlErr := ctrl.Wait()
 	log.Debug().Msgf("ctrl errgroup returned err %v", ctrlErr)
+	// sort plays at the end anyway.
+	s.sortPlaysByWinRate()
+	if ctrlErr == context.Canceled || ctrlErr == context.DeadlineExceeded {
+		// Not actually an error
+		log.Debug().Msg("it's ok, not an error")
+		return nil
+	}
 	return ctrlErr
 }
 
@@ -595,7 +602,7 @@ func (s *Simmer) ScoreDetails() string {
 			who = "Opponent"
 		}
 		stats += fmt.Sprintf("**Ply %d (%s)**\n%-20s%8s%8s%8s%8s%8s\n%s\n",
-			ply+1, who, "Play", "Win%", "Mean", "Stdev", "Bingo %", "Iters", strings.Repeat("-", 52))
+			ply+1, who, "Play", "Win%", "Mean", "Stdev", "Bingo %", "Iters", strings.Repeat("-", 60))
 		for _, play := range s.plays {
 			stats += fmt.Sprintf("%-20s%8.2f%8.3f%8.3f%8.3f%8d\n",
 				play.play.ShortDescription(), 100.0*play.winPctStats.Mean(),

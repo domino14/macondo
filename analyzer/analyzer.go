@@ -96,8 +96,9 @@ func (an *Analyzer) newGame() error {
 		{Nickname: "self", RealName: "Macondo Bot"},
 		{Nickname: "opponent", RealName: "Arthur Dent"},
 	}
+	conf := &bot.BotConfig{Config: *an.config}
 
-	game, err := bot.NewBotTurnPlayer(an.config, an.options, players, pb.BotRequest_HASTY_BOT)
+	game, err := bot.NewBotTurnPlayer(conf, an.options, players, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return err
 	}

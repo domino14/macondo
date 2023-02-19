@@ -44,7 +44,7 @@ Options:
     - LEVEL1_PROBABILISTIC through LEVEL5_PROBABILISTIC.
     - NO_LEAVE_BOT
 
-    -numthreads 10
+    -threads 10
 
     Uses multiple threads. Defaults to `runtime.NumCPU()`
 

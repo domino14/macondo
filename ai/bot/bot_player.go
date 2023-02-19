@@ -6,23 +6,35 @@ import (
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/endgame/alphabeta"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/turnplayer"
 )
 
-type BotTurnPlayer struct {
-	aiturnplayer.AIStaticTurnPlayer
-	botType pb.BotRequest_BotCode
+type BotConfig struct {
+	config.Config
+	PEGAdjustmentFile string
+	LeavesFile        string
 }
 
-func NewBotTurnPlayer(conf *config.Config, opts *turnplayer.GameOptions,
+type BotTurnPlayer struct {
+	aiturnplayer.AIStaticTurnPlayer
+	botType     pb.BotRequest_BotCode
+	endgamer    *alphabeta.Solver
+	simmer      *montecarlo.Simmer
+	simmerCalcs []equity.EquityCalculator
+	simThreads  int
+}
+
+func NewBotTurnPlayer(conf *BotConfig, opts *turnplayer.GameOptions,
 	players []*pb.PlayerInfo, botType pb.BotRequest_BotCode) (*BotTurnPlayer, error) {
 
-	opts.SetDefaults(conf)
-	rules, err := game.NewBasicGameRules(conf, opts.Lexicon.Name, opts.BoardLayoutName,
+	opts.SetDefaults(&conf.Config)
+	rules, err := game.NewBasicGameRules(&conf.Config, opts.Lexicon.Name, opts.BoardLayoutName,
 		opts.Lexicon.Distribution, game.CrossScoreAndSet, opts.Variant)
 
 	if err != nil {
@@ -35,36 +47,52 @@ func NewBotTurnPlayer(conf *config.Config, opts *turnplayer.GameOptions,
 	return addBotFields(p, conf, botType)
 }
 
-func NewBotTurnPlayerFromGame(g *game.Game, conf *config.Config, botType pb.BotRequest_BotCode) (*BotTurnPlayer, error) {
+func NewBotTurnPlayerFromGame(g *game.Game, conf *BotConfig, botType pb.BotRequest_BotCode) (*BotTurnPlayer, error) {
 	gr := &turnplayer.BaseTurnPlayer{Game: g}
 	return addBotFields(gr, conf, botType)
 }
 
-func addBotFields(p *turnplayer.BaseTurnPlayer, conf *config.Config, botType pb.BotRequest_BotCode) (*BotTurnPlayer, error) {
+func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotRequest_BotCode) (*BotTurnPlayer, error) {
 	var calculators []equity.EquityCalculator
 	if botType == pb.BotRequest_NO_LEAVE_BOT {
 		calculators = []equity.EquityCalculator{equity.NewNoLeaveCalculator()}
 	} else {
-		c1, err := equity.NewExhaustiveLeaveCalculator(p.LexiconName(), conf, equity.LeaveFilename)
+		c1, err := equity.NewExhaustiveLeaveCalculator(
+			p.LexiconName(), &conf.Config, conf.LeavesFile)
 		if err != nil {
 			return nil, err
 		}
 		c2 := &equity.OpeningAdjustmentCalculator{}
-		c3, err := equity.NewPreEndgameAdjustmentCalculator(conf, p.LexiconName(), equity.PEGAdjustmentFilename)
+		c3, err := equity.NewPreEndgameAdjustmentCalculator(
+			&conf.Config, p.LexiconName(), conf.PEGAdjustmentFile)
 		if err != nil {
 			return nil, err
 		}
 		c4 := &equity.EndgameAdjustmentCalculator{}
 		calculators = []equity.EquityCalculator{c1, c2, c3, c4}
 	}
-	aip, err := aiturnplayer.AddAIFields(p, conf, calculators)
+	aip, err := aiturnplayer.AddAIFields(p, &conf.Config, calculators)
 	if err != nil {
 		return nil, err
 	}
-	return &BotTurnPlayer{
+	btp := &BotTurnPlayer{
 		AIStaticTurnPlayer: *aip,
 		botType:            botType,
-	}, nil
+	}
+
+	// If it is a simming bot, add more fields.
+	if botType == pb.BotRequest_SIMMING_BOT {
+		c, err := equity.NewCombinedStaticCalculator(
+			p.LexiconName(), p.Config(), equity.LeaveFilename, equity.PEGAdjustmentFilename)
+		if err != nil {
+			return nil, err
+		}
+		btp.endgamer = &alphabeta.Solver{}
+		btp.simmer = &montecarlo.Simmer{}
+		btp.simmerCalcs = []equity.EquityCalculator{c}
+	}
+
+	return btp, nil
 }
 
 func (p *BotTurnPlayer) GenerateMoves(numPlays int) []*move.Move {
@@ -88,6 +116,9 @@ func (p *BotTurnPlayer) GenerateMoves(numPlays int) []*move.Move {
 }
 
 func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
+	if p.botType == pb.BotRequest_SIMMING_BOT {
+		return eliteBestPlay(ctx, p)
+	}
 	return p.GenerateMoves(1)[0], nil
 }
 
@@ -101,4 +132,8 @@ func (p *BotTurnPlayer) GetBotType() pb.BotRequest_BotCode {
 
 func (p *BotTurnPlayer) SetBotType(b pb.BotRequest_BotCode) {
 	p.botType = b
+}
+
+func (p *BotTurnPlayer) SetSimThreads(t int) {
+	p.simThreads = t
 }
