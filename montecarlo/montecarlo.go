@@ -400,13 +400,14 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 			}()
 			interval := time.Duration(1) * time.Second
 			tk := time.NewTicker(interval)
+			playSimilarityCache := map[string]bool{}
 			for {
 				select {
 				case <-syncExitChan:
 					log.Debug().Msg("stopping condition monitor got exit signal")
 					return nil
 				case <-tk.C:
-					stop := shouldStop(s.plays, s.stoppingCondition, s.iterationCount)
+					stop := shouldStop(s.plays, s.stoppingCondition, s.iterationCount, playSimilarityCache)
 					if stop {
 						cancel()
 					}
