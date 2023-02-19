@@ -136,7 +136,7 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	log.Info().Msgf("Starting %v games, %v threads", numGames, threads)
 
 	CVCCounter.Set(0)
-	jobs := make(chan Job, 100)
+	jobs := make(chan Job, threads*5)
 	logChan := make(chan string, 100)
 	gameChan := make(chan string, 10)
 	var wg sync.WaitGroup

@@ -43,6 +43,7 @@ Options:
     - LEVEL1_CEL_BOT through LEVEL4_CEL_BOT (Common English Lexicon),
     - LEVEL1_PROBABILISTIC through LEVEL5_PROBABILISTIC.
     - NO_LEAVE_BOT
+    - SIMMING_BOT
 
     -threads 10
 
@@ -61,3 +62,6 @@ leaves that must already be in the data/strategy directory. If you don't have
 any values or wish to try with no values, you can use the botcode NO_LEAVE_BOT.
 
 In the future, we will add other types of players.
+
+Note: If using SIMMING_BOT, we strongly recommend to set number of threads to 1.
+This is because SIMMING_BOT already uses multithreading for its own sims.

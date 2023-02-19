@@ -99,15 +99,6 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 		if err != nil {
 			return err
 		}
-		if botcode == pb.BotRequest_SIMMING_BOT {
-			// For this bot only, use 1 single thread to simulate.
-			// This is because we want to parallelize at the game runner
-			// level if possible (since the endgame solver is single-threaded).
-			// Note: once we have a working pre-endgame engine, that'll be
-			// multi-threaded, so at that point we can undo this, and
-			// make the game runner itself single-threaded. Or something.
-			btp.SetSimThreads(1)
-		}
 
 		r.aiplayers[idx] = btp
 	}
