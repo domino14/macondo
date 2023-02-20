@@ -30,20 +30,20 @@ func (sc *ShellController) handleSim(args []string, options map[string]string) e
 	if sc.simmer.IsSimming() {
 		return errors.New("simming already, please do a `sim stop` first")
 	}
+	knownOppRack := ""
 	for opt, val := range options {
-		if opt == "plies" {
+		switch opt {
+		case "plies":
 			plies, err = strconv.Atoi(val)
 			if err != nil {
 				return err
 			}
-		}
-		if opt == "threads" {
+		case "threads":
 			threads, err = strconv.Atoi(val)
 			if err != nil {
 				return err
 			}
-		}
-		if opt == "stop" {
+		case "stop":
 			sci, err := strconv.Atoi(val)
 			if err != nil {
 				return err
@@ -58,7 +58,10 @@ func (sc *ShellController) handleSim(args []string, options map[string]string) e
 			default:
 				return errors.New("only allowed values are 95 and 99 for stopping condition")
 			}
-
+		case "opprack":
+			knownOppRack = val
+		default:
+			return errors.New("option " + opt + " not recognized")
 		}
 	}
 	if plies == 0 {
@@ -76,6 +79,12 @@ func (sc *ShellController) handleSim(args []string, options map[string]string) e
 		sc.simmer.SetStoppingCondition(stoppingCondition)
 		if threads != 0 {
 			sc.simmer.SetThreads(threads)
+		}
+		if knownOppRack != "" {
+			err := sc.simmer.SetKnownOppRack(knownOppRack)
+			if err != nil {
+				return err
+			}
 		}
 		sc.startSim()
 	}

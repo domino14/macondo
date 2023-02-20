@@ -11,6 +11,7 @@ Example:
     sim details
     sim log
     sim trim 3
+    sim -opprack AENST
 
 A list of plays must have been generated or added in another way already.
 
@@ -54,4 +55,7 @@ Options:
     plies (usually 5000). It's possible to get to 5000 plies without having
     a clear winner, but this usually means the winning plays are pretty similar.
 
+    -opprack AENST
 
+    You can specify the opponent's rack (or partial rack) if you know it, for a
+    more accurate sim.

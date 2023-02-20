@@ -57,6 +57,9 @@ func (b *Bag) DrawAtMost(n int, ml []MachineLetter) int {
 // NOTE: this function does not resize ml at all. It must
 // be the correct size to allow tiles to fit in!
 func (b *Bag) Draw(n int, ml []MachineLetter) error {
+	if n == 0 {
+		return nil
+	}
 	if n > len(b.tiles) {
 		return fmt.Errorf("tried to draw %v tiles, tile bag has %v",
 			n, len(b.tiles))

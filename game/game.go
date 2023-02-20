@@ -772,7 +772,7 @@ func (g *Game) PlayToTurn(turnnum int) error {
 		} else {
 			// They're both blank.
 			// We don't have a recorded rack, so set it to a random one.
-			g.SetRandomRack(g.onturn)
+			g.SetRandomRack(g.onturn, nil)
 		}
 
 		log.Debug().Str("r0", g.players[0].rackLetters()).Str("r1", g.players[1].rackLetters()).Msg("PlayToTurn-set-racks")
@@ -938,7 +938,7 @@ func (g *Game) SetRackFor(playerIdx int, rack *alphabet.Rack) error {
 	// success; set our rack
 	g.players[playerIdx].rack = rack
 	// And redraw a random rack for opponent.
-	g.SetRandomRack(otherPlayer(playerIdx))
+	g.SetRandomRack(otherPlayer(playerIdx), nil)
 
 	return nil
 }
@@ -965,20 +965,36 @@ func (g *Game) ThrowRacksIn() {
 	g.players[1].throwRackIn(g.bag)
 }
 
-// SetRandomRack sets the player's rack to a random rack drawn from the bag.
+// SetRandomRack sets the player's  rack to a random rack drawn from the bag.
 // It tosses the current rack back in first. This is used for simulations.
-func (g *Game) SetRandomRack(playerIdx int) {
-	// XXX: use other player's rack as a placeholder as well.
-	// /shrug
+func (g *Game) SetRandomRack(playerIdx int, knownRack []alphabet.MachineLetter) error {
 	n := g.RackFor(playerIdx).NoAllocTilesOn(g.players[1-playerIdx].placeholderRack)
-	ndrawn := g.bag.Redraw(g.players[1-playerIdx].placeholderRack[:n],
-		g.players[playerIdx].placeholderRack)
-
-	// note that ndrawn does not need to match n
-
-	g.players[playerIdx].setRackTiles(g.players[playerIdx].placeholderRack[:ndrawn], g.alph)
+	if len(knownRack) == 0 {
+		// we're using the other player's rack as a placeholder. This is ugly.
+		ndrawn := g.bag.Redraw(g.players[1-playerIdx].placeholderRack[:n],
+			g.players[playerIdx].placeholderRack)
+		// note that ndrawn does not need to match n
+		g.players[playerIdx].setRackTiles(g.players[playerIdx].placeholderRack[:ndrawn], g.alph)
+	} else {
+		// we're using the other player's rack as a placeholder. This is ugly!
+		g.bag.PutBack(g.players[1-playerIdx].placeholderRack[:n])
+		err := g.bag.RemoveTiles(knownRack)
+		if err != nil {
+			// if there is an error we need to undo the PutBack!
+			g.bag.RemoveTiles(g.players[1-playerIdx].placeholderRack[:n])
+			return err
+		}
+		nTilesToDraw := n - len(knownRack)
+		copy(g.players[1-playerIdx].placeholderRack, knownRack)
+		err = g.bag.Draw(nTilesToDraw, g.players[1-playerIdx].placeholderRack[len(knownRack):])
+		if err != nil {
+			return err
+		}
+		g.players[playerIdx].setRackTiles(g.players[1-playerIdx].placeholderRack[:n], g.alph)
+	}
 	// log.Debug().Int("player", playerIdx).Str("newrack", g.players[playerIdx].rackLetters).
 	// 	Msg("set random rack")
+	return nil
 }
 
 // RackFor returns the rack for the player with the passed-in index

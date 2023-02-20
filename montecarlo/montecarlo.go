@@ -17,6 +17,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
+	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/equity"
@@ -187,11 +188,12 @@ type Simmer struct {
 	iterationCount int
 	threads        int
 
-	simming    bool
-	readyToSim bool
-	plays      []*SimmedPlay
-	winPcts    [][]float32
-	cfg        *config.Config
+	simming      bool
+	readyToSim   bool
+	plays        []*SimmedPlay
+	winPcts      [][]float32
+	cfg          *config.Config
+	knownOppRack []alphabet.MachineLetter
 
 	logStream         io.Writer
 	stoppingCondition StoppingCondition
@@ -233,6 +235,15 @@ func (s *Simmer) SetThreads(threads int) {
 
 func (s *Simmer) SetLogStream(l io.Writer) {
 	s.logStream = l
+}
+
+func (s *Simmer) SetKnownOppRack(rack string) error {
+	var err error
+	s.knownOppRack, err = alphabet.ToMachineLetters(rack, s.origGame.Alphabet())
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *Simmer) makeGameCopies() error {
@@ -292,6 +303,7 @@ func (s *Simmer) PrepareSim(plies int, plays []*move.Move) error {
 	}
 	s.resetStats(plies, plays)
 	s.readyToSim = true
+	s.knownOppRack = nil
 	return nil
 }
 
@@ -461,7 +473,7 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 	g := s.gameCopies[thread]
 
 	opp := (s.initialPlayer + 1) % g.NumPlayers()
-	g.SetRandomRack(opp)
+	g.SetRandomRack(opp, s.knownOppRack)
 	logIter := LogIteration{Iteration: iterationCount, Plays: []LogPlay{}, Thread: thread}
 
 	var logPlay LogPlay
@@ -488,37 +500,39 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 		for ply := 0; ply < plies; ply++ {
 			// Each ply is a player taking a turn
 			onTurn := g.PlayerOnTurn()
-			if g.Playing() == pb.PlayState_PLAYING {
-				// Assume there are exactly two players.
-
-				bestPlay := s.bestStaticTurn(onTurn, thread)
-				// log.Debug().Msgf("Ply %v, Best play: %v", ply+1, bestPlay)
-				g.PlayMove(bestPlay, false, 0)
-				// log.Debug().Msgf("Score is now %v", s.game.Score())
-				if s.logStream != nil {
-					plyChild = LogPlay{Play: bestPlay.ShortDescription(), Rack: bestPlay.FullRack(), Pts: bestPlay.Score()}
-				}
-				if ply == plies-2 || ply == plies-1 {
-					// It's either OUR last turn or OPP's last turn.
-					// Calculate equity of leftover tiles.
-					thisLeftover := s.leaveValues.LeaveValue(bestPlay.Leave())
-					if s.logStream != nil {
-						plyChild.Leftover = thisLeftover
-					}
-
-					// log.Debug().Msgf("Calculated leftover %v", plyChild.Leftover)
-					if onTurn == s.initialPlayer {
-						leftover += thisLeftover
-					} else {
-						leftover -= thisLeftover
-					}
-				}
-
-				logPlay.Plies = append(logPlay.Plies, plyChild)
-				// Maybe these add{X}Stat functions can instead write them to
-				// a channel to avoid mutices
-				simmedPlay.addScoreStat(bestPlay, ply)
+			if g.Playing() != pb.PlayState_PLAYING {
+				break
 			}
+			// Assume there are exactly two players.
+
+			bestPlay := s.bestStaticTurn(onTurn, thread)
+			// log.Debug().Msgf("Ply %v, Best play: %v", ply+1, bestPlay)
+			g.PlayMove(bestPlay, false, 0)
+			// log.Debug().Msgf("Score is now %v", s.game.Score())
+			if s.logStream != nil {
+				plyChild = LogPlay{Play: bestPlay.ShortDescription(), Rack: bestPlay.FullRack(), Pts: bestPlay.Score()}
+			}
+			if ply == plies-2 || ply == plies-1 {
+				// It's either OUR last turn or OPP's last turn.
+				// Calculate equity of leftover tiles.
+				thisLeftover := s.leaveValues.LeaveValue(bestPlay.Leave())
+				if s.logStream != nil {
+					plyChild.Leftover = thisLeftover
+				}
+
+				// log.Debug().Msgf("Calculated leftover %v", plyChild.Leftover)
+				if onTurn == s.initialPlayer {
+					leftover += thisLeftover
+				} else {
+					leftover -= thisLeftover
+				}
+			}
+
+			logPlay.Plies = append(logPlay.Plies, plyChild)
+			// Maybe these add{X}Stat functions can instead write them to
+			// a channel to avoid mutices
+			simmedPlay.addScoreStat(bestPlay, ply)
+
 		}
 		// log.Debug().Msgf("Spread for initial player: %v, leftover: %v",
 		// 	s.game.SpreadFor(s.initialPlayer), leftover)
