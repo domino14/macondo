@@ -58,4 +58,4 @@ Options:
     -opprack AENST
 
     You can specify the opponent's rack (or partial rack) if you know it, for a
-    more accurate sim.
+    more accurate sim. Use ? for blanks.

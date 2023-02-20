@@ -237,13 +237,8 @@ func (s *Simmer) SetLogStream(l io.Writer) {
 	s.logStream = l
 }
 
-func (s *Simmer) SetKnownOppRack(rack string) error {
-	var err error
-	s.knownOppRack, err = alphabet.ToMachineLetters(rack, s.origGame.Alphabet())
-	if err != nil {
-		return err
-	}
-	return nil
+func (s *Simmer) SetKnownOppRack(r []alphabet.MachineLetter) {
+	s.knownOppRack = r
 }
 
 func (s *Simmer) makeGameCopies() error {
@@ -391,7 +386,11 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 				s.iterationCount++
 				iterNum := s.iterationCount
 				iterMutex.Unlock()
-				s.simSingleIteration(s.maxPlies, t, iterNum, logChan)
+				err := s.simSingleIteration(s.maxPlies, t, iterNum, logChan)
+				if err != nil {
+					log.Err(err).Msg("error simming iteration; canceling")
+					cancel()
+				}
 				select {
 				case v := <-syncExitChan:
 					log.Debug().Msgf("Thread %v got sync msg %v", t, v)
@@ -466,14 +465,17 @@ func (s *Simmer) TrimBottom(totrim int) error {
 	return nil
 }
 
-func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan chan []byte) {
+func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan chan []byte) error {
 	// Give opponent a random rack from the bag. Note that this also
 	// shuffles the bag!
 
 	g := s.gameCopies[thread]
 
 	opp := (s.initialPlayer + 1) % g.NumPlayers()
-	g.SetRandomRack(opp, s.knownOppRack)
+	err := g.SetRandomRack(opp, s.knownOppRack)
+	if err != nil {
+		return err
+	}
 	logIter := LogIteration{Iteration: iterationCount, Plays: []LogPlay{}, Thread: thread}
 
 	var logPlay LogPlay
@@ -557,10 +559,11 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 		out, err := yaml.Marshal([]LogIteration{logIter})
 		if err != nil {
 			log.Error().Err(err).Msg("marshalling log")
-			return
+			return err
 		}
 		logChan <- out
 	}
+	return nil
 }
 
 func (s *Simmer) bestStaticTurn(playerID, thread int) *move.Move {

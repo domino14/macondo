@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/rs/zerolog/log"
 )
@@ -81,10 +83,12 @@ func (sc *ShellController) handleSim(args []string, options map[string]string) e
 			sc.simmer.SetThreads(threads)
 		}
 		if knownOppRack != "" {
-			err := sc.simmer.SetKnownOppRack(knownOppRack)
+			knownOppRack = strings.ToUpper(knownOppRack)
+			r, err := alphabet.ToMachineLetters(knownOppRack, sc.game.Alphabet())
 			if err != nil {
 				return err
 			}
+			sc.simmer.SetKnownOppRack(r)
 		}
 		sc.startSim()
 	}
