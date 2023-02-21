@@ -522,7 +522,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 			// and search it first
 			found := false
 			for idx, play := range plays {
-				if play.Equals(killerPlay) {
+				if play.Equals(killerPlay, false, false) {
 					plays[0], plays[idx] = plays[idx], plays[0]
 					found = true
 					break
@@ -581,7 +581,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 			// and search it first
 			found := false
 			for idx, play := range plays {
-				if play.Equals(killerPlay) {
+				if play.Equals(killerPlay, false, false) {
 					plays[0], plays[idx] = plays[idx], plays[0]
 					found = true
 					break

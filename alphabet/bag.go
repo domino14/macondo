@@ -92,6 +92,10 @@ func (b *Bag) Peek() []MachineLetter {
 	return ret
 }
 
+func (b *Bag) PeekMap() []uint8 {
+	return copyTileMap(b.tileMap)
+}
+
 // Shuffle shuffles the bag.
 func (b *Bag) Shuffle() {
 	// log.Debug().Int("numtiles", len(b.tiles)).Msg("shuffling bag")

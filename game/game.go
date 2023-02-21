@@ -15,6 +15,7 @@ import (
 	"github.com/domino14/macondo/lexicon"
 	"github.com/domino14/macondo/move"
 	"github.com/rs/zerolog/log"
+	"github.com/samber/lo"
 )
 
 const (
@@ -967,8 +968,11 @@ func (g *Game) ThrowRacksIn() {
 
 // SetRandomRack sets the player's  rack to a random rack drawn from the bag.
 // It tosses the current rack back in first. This is used for simulations.
-func (g *Game) SetRandomRack(playerIdx int, knownRack []alphabet.MachineLetter) error {
+// If a second argument (knownRack) is provided, the randomRack will contain
+// the known rack. Any extra drawn tiles are returned as well, in this case.
+func (g *Game) SetRandomRack(playerIdx int, knownRack []alphabet.MachineLetter) ([]alphabet.MachineLetter, error) {
 	n := g.RackFor(playerIdx).NoAllocTilesOn(g.players[1-playerIdx].placeholderRack)
+	var extraDrawn []alphabet.MachineLetter
 	if len(knownRack) == 0 {
 		// we're using the other player's rack as a placeholder. This is ugly.
 		ndrawn := g.bag.Redraw(g.players[1-playerIdx].placeholderRack[:n],
@@ -982,19 +986,19 @@ func (g *Game) SetRandomRack(playerIdx int, knownRack []alphabet.MachineLetter) 
 		if err != nil {
 			// if there is an error we need to undo the PutBack!
 			g.bag.RemoveTiles(g.players[1-playerIdx].placeholderRack[:n])
-			return err
+			return nil, err
 		}
-		nTilesToDraw := n - len(knownRack)
+		// In case we didn't have a full rack.
+		nTilesToDraw := lo.Max([]int{n, RackTileLimit}) - len(knownRack)
+
 		copy(g.players[1-playerIdx].placeholderRack, knownRack)
-		err = g.bag.Draw(nTilesToDraw, g.players[1-playerIdx].placeholderRack[len(knownRack):])
-		if err != nil {
-			return err
-		}
-		g.players[playerIdx].setRackTiles(g.players[1-playerIdx].placeholderRack[:n], g.alph)
+		ndrawn := g.bag.DrawAtMost(nTilesToDraw, g.players[1-playerIdx].placeholderRack[len(knownRack):])
+		g.players[playerIdx].setRackTiles(g.players[1-playerIdx].placeholderRack[:len(knownRack)+ndrawn], g.alph)
+		extraDrawn = g.players[1-playerIdx].placeholderRack[len(knownRack) : len(knownRack)+ndrawn]
 	}
 	// log.Debug().Int("player", playerIdx).Str("newrack", g.players[playerIdx].rackLetters).
 	// 	Msg("set random rack")
-	return nil
+	return extraDrawn, nil
 }
 
 // RackFor returns the rack for the player with the passed-in index

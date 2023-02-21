@@ -472,7 +472,7 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 	g := s.gameCopies[thread]
 
 	opp := (s.initialPlayer + 1) % g.NumPlayers()
-	err := g.SetRandomRack(opp, s.knownOppRack)
+	_, err := g.SetRandomRack(opp, s.knownOppRack)
 	if err != nil {
 		return err
 	}
