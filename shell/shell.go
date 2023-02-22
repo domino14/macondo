@@ -392,7 +392,7 @@ func moveTableHeader() string {
 }
 
 func MoveTableRow(idx int, m *move.Move, alph *alphabet.Alphabet) string {
-	return fmt.Sprintf("%3d: %-20s%-7s%-6d%-6.2f", idx+1,
+	return fmt.Sprintf("%3d: %-20s%-7s%5d %6.2f", idx+1,
 		m.ShortDescription(), m.Leave().UserVisible(alph), m.Score(), m.Equity())
 }
 
