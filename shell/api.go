@@ -364,6 +364,80 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	return nil, nil
 }
 
+func (sc *ShellController) infer(cmd *shellcmd) (*Response, error) {
+	if sc.game == nil {
+		return nil, errors.New("please load a game first with the `load` command")
+	}
+	var err error
+	var threads, timesec int
+
+	if len(cmd.args) > 0 {
+		switch cmd.args[0] {
+		case "log":
+			sc.rangefinderFile, err = os.Create(InferLog)
+			if err != nil {
+				return nil, err
+			}
+			sc.rangefinder.SetLogStream(sc.rangefinderFile)
+			sc.showMessage("inference engine will log to " + InferLog)
+
+		case "details":
+			sc.showMessage(sc.rangefinder.AnalyzeInferences(true))
+
+		default:
+			return nil, errors.New("don't recognize " + cmd.args[0])
+		}
+
+		return nil, nil
+	}
+
+	for opt, val := range cmd.options {
+		switch opt {
+		case "threads":
+			threads, err = strconv.Atoi(val)
+			if err != nil {
+				return nil, err
+			}
+
+		case "time":
+			timesec, err = strconv.Atoi(val)
+			if err != nil {
+				return nil, err
+			}
+
+		default:
+			return nil, errors.New("option " + opt + " not recognized")
+
+		}
+	}
+	if threads != 0 {
+		sc.rangefinder.SetThreads(threads)
+	}
+	if timesec == 0 {
+		timesec = 5
+	}
+	err = sc.rangefinder.PrepareFinder(sc.game.RackFor(sc.game.PlayerOnTurn()).TilesOn())
+	if err != nil {
+		return nil, err
+	}
+	timeout, _ := context.WithTimeout(
+		context.Background(), time.Duration(timesec*int(time.Second)))
+
+	sc.showMessage("Rangefinding started. Please wait until it is done.")
+
+	go func() {
+		err := sc.rangefinder.Infer(timeout)
+		if err != nil {
+			sc.showError(err)
+		}
+		sc.showMessage(sc.rangefinder.AnalyzeInferences(false))
+		log.Debug().Msg("inference thread exiting...")
+	}()
+
+	return nil, nil
+
+}
+
 func (sc *ShellController) help(cmd *shellcmd) (*Response, error) {
 	if cmd.args == nil {
 		return usage("standard")

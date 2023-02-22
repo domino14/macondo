@@ -32,6 +32,7 @@ func (sc *ShellController) handleSim(args []string, options map[string]string) e
 	if sc.simmer.IsSimming() {
 		return errors.New("simming already, please do a `sim stop` first")
 	}
+	inferMode := montecarlo.InferenceOff
 	knownOppRack := ""
 	for opt, val := range options {
 		switch opt {
@@ -58,10 +59,30 @@ func (sc *ShellController) handleSim(args []string, options map[string]string) e
 			case 99:
 				stoppingCondition = montecarlo.Stop99
 			default:
-				return errors.New("only allowed values are 95 and 99 for stopping condition")
+				return errors.New("only allowed values are 95, 98, and 99 for stopping condition")
 			}
 		case "opprack":
 			knownOppRack = val
+
+		case "useinferences":
+			inferences := sc.rangefinder.Inferences()
+			if len(inferences) == 0 {
+				return errors.New("you must run `infer` first")
+			}
+			switch val {
+			case "cycle":
+				inferMode = montecarlo.InferenceCycle
+				sc.showMessage(fmt.Sprintf(
+					"Set inference mode to 'cycle' with %d inferences", len(inferences)))
+			case "random":
+				inferMode = montecarlo.InferenceRandom
+				sc.showMessage(fmt.Sprintf(
+					"Set inference mode to 'random' with %d inferences", len(inferences)))
+
+			default:
+				return errors.New("that inference mode is not supported")
+			}
+
 		default:
 			return errors.New("option " + opt + " not recognized")
 		}
@@ -74,14 +95,15 @@ func (sc *ShellController) handleSim(args []string, options map[string]string) e
 		Int("stoppingCondition", int(stoppingCondition)).Msg("will start sim")
 
 	if sc.game != nil {
+		if threads != 0 {
+			sc.simmer.SetThreads(threads)
+		}
 		err := sc.simmer.PrepareSim(plies, sc.curPlayList)
 		if err != nil {
 			return err
 		}
 		sc.simmer.SetStoppingCondition(stoppingCondition)
-		if threads != 0 {
-			sc.simmer.SetThreads(threads)
-		}
+
 		if knownOppRack != "" {
 			knownOppRack = strings.ToUpper(knownOppRack)
 			r, err := alphabet.ToMachineLetters(knownOppRack, sc.game.Alphabet())
@@ -89,6 +111,9 @@ func (sc *ShellController) handleSim(args []string, options map[string]string) e
 				return err
 			}
 			sc.simmer.SetKnownOppRack(r)
+		}
+		if inferMode != montecarlo.InferenceOff {
+			sc.simmer.SetInferences(sc.rangefinder.Inferences(), inferMode)
 		}
 		sc.startSim()
 	}

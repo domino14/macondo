@@ -944,6 +944,20 @@ func (g *Game) SetRackFor(playerIdx int, rack *alphabet.Rack) error {
 	return nil
 }
 
+// SetRackForOnly is like SetRackFor, but it doesn't redraw random racks for
+// opponent, or throw racks in. It assumes these tasks have already been done,
+// or will be done properly.
+func (g *Game) SetRackForOnly(playerIdx int, rack *alphabet.Rack) error {
+	err := g.bag.RemoveTiles(rack.TilesOn())
+	if err != nil {
+		log.Error().Msgf("Unable to set rack: %v", err)
+		return err
+	}
+	// success; set our rack
+	g.players[playerIdx].rack = rack
+	return nil
+}
+
 // SetRacksForBoth sets both racks at the same time.
 func (g *Game) SetRacksForBoth(racks []*alphabet.Rack) error {
 	g.ThrowRacksIn()

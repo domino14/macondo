@@ -122,6 +122,10 @@ func (m *Move) Set(tiles alphabet.MachineWord, leave alphabet.MachineWord, score
 	m.alph = alph
 }
 
+func (m *Move) SetLeave(leave alphabet.MachineWord) {
+	m.leave = leave
+}
+
 func (m *Move) SetAction(action MoveType) {
 	m.action = action
 }

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"golang.org/x/sync/errgroup"
+	"lukechampine.com/frand"
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/alphabet"
@@ -55,6 +56,14 @@ const (
 	Stop95
 	Stop98
 	Stop99
+)
+
+type InferenceMode int
+
+const (
+	InferenceOff InferenceMode = iota
+	InferenceCycle
+	InferenceRandom
 )
 
 // LogIteration is a struct meant for serializing to a log-file, for debug
@@ -197,6 +206,10 @@ type Simmer struct {
 
 	logStream         io.Writer
 	stoppingCondition StoppingCondition
+
+	// See rangefinder.
+	inferences    [][]alphabet.MachineLetter
+	inferenceMode InferenceMode
 }
 
 func (s *Simmer) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
@@ -239,6 +252,11 @@ func (s *Simmer) SetLogStream(l io.Writer) {
 
 func (s *Simmer) SetKnownOppRack(r []alphabet.MachineLetter) {
 	s.knownOppRack = r
+}
+
+func (s *Simmer) SetInferences(i [][]alphabet.MachineLetter, mode InferenceMode) {
+	s.inferences = i
+	s.inferenceMode = mode
 }
 
 func (s *Simmer) makeGameCopies() error {
@@ -299,6 +317,7 @@ func (s *Simmer) PrepareSim(plies int, plays []*move.Move) error {
 	s.resetStats(plies, plays)
 	s.readyToSim = true
 	s.knownOppRack = nil
+	s.inferenceMode = InferenceOff
 	return nil
 }
 
@@ -472,7 +491,13 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 	g := s.gameCopies[thread]
 
 	opp := (s.initialPlayer + 1) % g.NumPlayers()
-	_, err := g.SetRandomRack(opp, s.knownOppRack)
+	rackToSet := s.knownOppRack
+	if s.inferenceMode == InferenceCycle {
+		rackToSet = s.inferences[iterationCount%len(s.inferences)]
+	} else if s.inferenceMode == InferenceRandom {
+		rackToSet = s.inferences[frand.Intn(len(s.inferences))]
+	}
+	_, err := g.SetRandomRack(opp, rackToSet)
 	if err != nil {
 		return err
 	}

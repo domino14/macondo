@@ -33,11 +33,13 @@ import (
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
+	"github.com/domino14/macondo/rangefinder"
 	"github.com/domino14/macondo/turnplayer"
 )
 
 const (
-	SimLog = "/tmp/simlog"
+	SimLog   = "/tmp/simlog"
+	InferLog = "/tmp/inferlog"
 )
 
 var (
@@ -104,6 +106,9 @@ type ShellController struct {
 	simTicker     *time.Ticker
 	simTickerDone chan bool
 	simLogFile    *os.File
+
+	rangefinder     *rangefinder.RangeFinder
+	rangefinderFile *os.File
 
 	gameRunnerCtx     context.Context
 	gameRunnerCancel  context.CancelFunc
@@ -237,6 +242,9 @@ func (sc *ShellController) initGameDataStructures() error {
 	}
 
 	sc.backupgen = movegen.NewGordonGenerator(gd, sc.game.Board(), sc.game.Bag().LetterDistribution())
+
+	sc.rangefinder = &rangefinder.RangeFinder{}
+	sc.rangefinder.Init(sc.game.Game, []equity.EquityCalculator{c}, sc.config)
 	return nil
 }
 
@@ -381,6 +389,7 @@ func (sc *ShellController) setToTurn(turnnum int) error {
 	log.Debug().Msgf("Set to turn %v", turnnum)
 	sc.curPlayList = nil
 	sc.simmer.Reset()
+	sc.rangefinder.Reset()
 	sc.curTurnNum = sc.game.Turn()
 	if sc.curTurnNum != turnnum {
 		return errors.New("unexpected turn number")
@@ -745,6 +754,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.autoplay(cmd)
 	case "sim":
 		return sc.sim(cmd)
+	case "infer":
+		return sc.infer(cmd)
 	case "add":
 		return sc.add(cmd)
 	case "challenge":

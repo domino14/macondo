@@ -3,6 +3,7 @@ package rangefinder
 import (
 	"context"
 	"errors"
+	"io"
 	"math"
 	"runtime"
 	"sync"
@@ -10,6 +11,8 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/protobuf/proto"
+	"gopkg.in/yaml.v2"
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/alphabet"
@@ -28,8 +31,20 @@ var ErrBagEmpty = errors.New("bag is empty")
 const (
 	// If the player found a play within this limit, then count the rack
 	// for inferences.
-	InferenceEquityLimit = 1
+	InferenceEquityLimit = 3
 )
+
+type LogIteration struct {
+	Iteration     int     `json:"iteration" yaml:"iteration"`
+	Thread        int     `json:"thread" yaml:"thread"`
+	Rack          string  `json:"rack" yaml:"rack"`
+	TopMoveEquity float64 `json:"topMoveEquity" yaml:"topMoveEquity"`
+	TopMove       string  `json:"topMove" yaml:"topMove"`
+	// InferredMoveEquity is the equity of the move we are inferring, given
+	// that they drew "Rack"
+	InferredMoveEquity float64 `json:"inferredMoveEquity" yaml:"inferredMoveEquity"`
+	PossibleRack       bool    `json:"possibleRack" yaml:"possibleRack"`
+}
 
 type RangeFinder struct {
 	origGame          *game.Game
@@ -48,6 +63,9 @@ type RangeFinder struct {
 	// tiles used by the last opponent's move, from their rack:
 	lastOppMoveRackTiles []alphabet.MachineLetter
 	inferences           [][]alphabet.MachineLetter
+	myRack               []alphabet.MachineLetter
+
+	logStream io.Writer
 }
 
 func (r *RangeFinder) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
@@ -63,8 +81,12 @@ func (r *RangeFinder) SetThreads(t int) {
 	r.threads = t
 }
 
-func (r *RangeFinder) PrepareFinder() error {
-	evts := r.origGame.History().Events
+func (r *RangeFinder) SetLogStream(l io.Writer) {
+	r.logStream = l
+}
+
+func (r *RangeFinder) PrepareFinder(myRack []alphabet.MachineLetter) error {
+	evts := r.origGame.History().Events[:r.origGame.Turn()]
 	if len(evts) == 0 {
 		return ErrNoEvents
 	}
@@ -73,12 +95,13 @@ func (r *RangeFinder) PrepareFinder() error {
 	}
 	oppEvt := evts[len(evts)-1]
 	if oppEvt.Type != macondo.GameEvent_EXCHANGE && oppEvt.Type != macondo.GameEvent_TILE_PLACEMENT_MOVE {
+		log.Info().Str("oppEvtType", oppEvt.Type.String()).Msg("type")
 		return ErrMoveTypeNotSupported
 	}
 
 	// We must reset the game back to what it looked like before the opp's move.
 	// Do this with a copy.
-	history := r.origGame.History()
+	history := proto.Clone(r.origGame.History()).(*macondo.GameHistory)
 
 	history.Events = history.Events[:len(evts)-1]
 	gameCopy, err := game.NewFromHistory(history, r.origGame.Rules(), len(history.Events))
@@ -96,16 +119,39 @@ func (r *RangeFinder) PrepareFinder() error {
 	})
 	gameCopy.ThrowRacksIn()
 
-	r.inferenceBagMap = gameCopy.Bag().PeekMap()
-
-	gameCopy.SetRandomRack(gameCopy.PlayerOnTurn(), r.lastOppMoveRackTiles)
-	// Save the state of the bag after we assign the random rack. Remove only
-	// lastOppMove rack but nothing else.
-	for _, ml := range r.lastOppMoveRackTiles {
-		idx, _ := ml.IntrinsicTileIdx()
-		r.inferenceBagMap[idx]--
+	if len(myRack) > 0 {
+		// Assign my rack first, so that the inferencer doesn't try to
+		// assign letters from my rack.
+		rack := alphabet.NewRack(r.origGame.Alphabet())
+		rack.Set(myRack)
+		err = gameCopy.SetRackForOnly(1-gameCopy.PlayerOnTurn(), rack)
+		if err != nil {
+			return err
+		}
 	}
 
+	r.inferenceBagMap = gameCopy.Bag().PeekMap()
+	if oppEvt.Type == macondo.GameEvent_TILE_PLACEMENT_MOVE {
+
+		_, err = gameCopy.SetRandomRack(gameCopy.PlayerOnTurn(), r.lastOppMoveRackTiles)
+		if err != nil {
+			return err
+		}
+		// Save the state of the bag after we assign the random rack. Remove only
+		// lastOppMove rack but nothing else.
+		for _, ml := range r.lastOppMoveRackTiles {
+			idx, playedTile := ml.IntrinsicTileIdx()
+			if playedTile {
+				r.inferenceBagMap[idx]--
+			}
+		}
+	} else if oppEvt.Type == macondo.GameEvent_EXCHANGE {
+		// If this is an exchange move, lastOppMove etc is just a guess.
+		// Set any random rack, and don't remove anything from the bagMap.
+		// The bagMap already contains the tiles we're about to assign to
+		// the user here:
+		gameCopy.SetRandomRack(gameCopy.PlayerOnTurn(), nil)
+	}
 	r.gameCopies = []*game.Game{}
 	r.aiplayers = []*aiturnplayer.AIStaticTurnPlayer{}
 
@@ -121,6 +167,7 @@ func (r *RangeFinder) PrepareFinder() error {
 
 	r.readyToInfer = true
 	r.iterationCount = 0
+	r.inferences = [][]alphabet.MachineLetter{}
 	return nil
 }
 
@@ -134,8 +181,12 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 		log.Info().Msg("inference engine quitting")
 	}()
 
+	logChan := make(chan []byte)
 	syncExitChan := make(chan bool, r.threads)
+	logDone := make(chan bool)
+
 	ctrl := errgroup.Group{}
+	writer := errgroup.Group{}
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -155,6 +206,23 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 		return ctx.Err()
 	})
 
+	if r.logStream != nil {
+		writer.Go(func() error {
+			defer func() {
+				log.Debug().Msgf("Writer routine exiting")
+			}()
+			for {
+				select {
+				case bytes := <-logChan:
+					r.logStream.Write(bytes)
+				case <-logDone:
+					log.Debug().Msgf("Got quit signal...")
+					return nil
+				}
+			}
+		})
+	}
+
 	g := errgroup.Group{}
 	var iterMutex sync.Mutex
 	for t := 0; t < r.threads; t++ {
@@ -167,16 +235,17 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 			for {
 				iterMutex.Lock()
 				r.iterationCount++
+				iterNum := r.iterationCount
 				iterMutex.Unlock()
 				// TODO: single iteration of infer
-				inference, err := r.inferSingle(t)
+				inference, err := r.inferSingle(t, iterNum, logChan)
 				if err != nil {
 					log.Err(err).Msg("infer-single-error")
 					cancel()
 				}
 				if len(inference) > 0 {
 					iterMutex.Lock()
-					r.inferences = append(r.inferences, inference)
+					r.inferences = append(r.inferences, inference...)
 					iterMutex.Unlock()
 				}
 				select {
@@ -193,6 +262,11 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 	err := g.Wait()
 	log.Debug().Msgf("errgroup returned err %v", err)
 
+	if r.logStream != nil {
+		close(logDone)
+		writer.Wait()
+	}
+
 	ctrlErr := ctrl.Wait()
 	log.Debug().Msgf("ctrl errgroup returned err %v", ctrlErr)
 
@@ -205,33 +279,129 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 
 }
 
-func (r *RangeFinder) inferSingle(thread int) ([]alphabet.MachineLetter, error) {
+func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) ([][]alphabet.MachineLetter, error) {
 	g := r.gameCopies[thread]
 	// Since we took back the last move, the player on turn should be our opponent
 	// (the person whose rack we are inferring)
 	opp := g.PlayerOnTurn()
-	extraDrawn, err := g.SetRandomRack(opp, r.lastOppMoveRackTiles)
+	var extraDrawn []alphabet.MachineLetter
+	var err error
+	isExchange := r.lastOppMove.Action() == move.MoveTypeExchange
+	// otherwise, it's a tile placement play.
+
+	if isExchange {
+		return r.inferSingleExchange(thread, iterNum, logChan)
+	}
+
+	extraDrawn, err = g.SetRandomRack(opp, r.lastOppMoveRackTiles)
 	if err != nil {
 		return nil, err
 	}
+
+	logIter := LogIteration{Iteration: iterNum, Thread: thread, Rack: g.RackLettersFor(opp)}
 	log.Debug().Interface("rack", g.RackLettersFor(opp)).Msg("rack")
 	log.Debug().Interface("extra-drawn", extraDrawn).Msg("extra-drawn")
 
-	bestMoves := r.aiplayers[thread].GenerateMoves(15)
-
+	bestMoves := r.aiplayers[thread].GenerateMoves(20)
 	winningEquity := bestMoves[0].Equity()
+	if r.logStream != nil {
+		logIter.TopMove = bestMoves[0].ShortDescription()
+		logIter.TopMoveEquity = winningEquity
+	}
+	var tiles []alphabet.MachineLetter
 	for _, m := range bestMoves {
 		if m.Equity()+InferenceEquityLimit >= winningEquity {
 			// consider this move
 			if movesAreSame(m, r.lastOppMove, g.Board()) {
 				// copy extraDrawn, as setRandomRack does not allocate for it.
-				tiles := make([]alphabet.MachineLetter, len(extraDrawn))
+				tiles = make([]alphabet.MachineLetter, len(extraDrawn))
 				copy(tiles, extraDrawn)
-				return tiles, nil
+
+				if r.logStream != nil {
+					logIter.InferredMoveEquity = m.Equity()
+					logIter.PossibleRack = true
+					out, err := yaml.Marshal([]LogIteration{logIter})
+					if err != nil {
+						log.Err(err).Msg("marshalling log")
+						return nil, err
+					}
+					logChan <- out
+				}
+				return [][]alphabet.MachineLetter{tiles}, nil
 			}
 		}
 	}
+	if r.logStream != nil {
+		// if not found, calculate equity anyway
+		m := new(move.Move)
+		m.CopyFrom(r.lastOppMove)
+		leave, err := game.Leave(g.RackFor(opp).TilesOn(), m.Tiles())
+		if err != nil {
+			return nil, err
+		}
+		m.SetLeave(leave)
+
+		r.aiplayers[thread].AssignEquity([]*move.Move{m}, g.Board(), g.Bag(), g.RackFor(1-opp))
+		logIter.InferredMoveEquity = m.Equity()
+		out, err := yaml.Marshal([]LogIteration{logIter})
+		if err != nil {
+			log.Err(err).Msg("marshalling log")
+			return nil, err
+		}
+		logChan <- out
+	}
 	return nil, nil
+}
+
+func (r *RangeFinder) inferSingleExchange(thread, iterNum int, logChan chan []byte) ([][]alphabet.MachineLetter, error) {
+	g := r.gameCopies[thread]
+	// Since we took back the last move, the player on turn should be our opponent
+	// (the person whose rack we are inferring)
+	opp := g.PlayerOnTurn()
+	g.SetRandomRack(opp, nil)
+	logIter := LogIteration{Iteration: iterNum, Thread: thread, Rack: g.RackLettersFor(opp)}
+
+	bestMoves := r.aiplayers[thread].GenerateMoves(20)
+	winningEquity := bestMoves[0].Equity()
+	if r.logStream != nil {
+		logIter.TopMove = bestMoves[0].ShortDescription()
+		logIter.TopMoveEquity = winningEquity
+	}
+	var ret [][]alphabet.MachineLetter
+	var tiles []alphabet.MachineLetter
+	// Infer more than one move if possible, since "movesAreSame" returns
+	// true for exchanges with the same number of tiles.
+	for _, m := range bestMoves {
+		if m.Equity()+InferenceEquityLimit >= winningEquity {
+			// consider this move
+			if movesAreSame(m, r.lastOppMove, g.Board()) {
+				// We just want to copy the new leave
+				tiles = make([]alphabet.MachineLetter, len(m.Leave()))
+				copy(tiles, m.Leave())
+				if r.logStream != nil {
+					logIter.InferredMoveEquity = m.Equity()
+					logIter.PossibleRack = true
+					out, err := yaml.Marshal([]LogIteration{logIter})
+					if err != nil {
+						log.Err(err).Msg("marshalling log")
+						return nil, err
+					}
+					logChan <- out
+				}
+				ret = append(ret, tiles)
+			}
+		}
+	}
+	return ret, nil
+}
+
+func (r *RangeFinder) Inferences() [][]alphabet.MachineLetter {
+	return r.inferences
+}
+
+func (r *RangeFinder) Reset() {
+	r.inferences = [][]alphabet.MachineLetter{}
+	r.readyToInfer = false
 }
 
 func movesAreSame(m1 *move.Move, m2 *move.Move, g *board.GameBoard) bool {
