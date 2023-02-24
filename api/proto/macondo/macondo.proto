@@ -143,6 +143,8 @@ message BotRequest {
 
     NO_LEAVE_BOT = 10;
     SIMMING_BOT = 11;
+    HASTY_PLUS_ENDGAME_BOT = 12;
+    SIMMING_INFER_BOT = 13;
 
     // harder bots here? inference? ml, etc.
 

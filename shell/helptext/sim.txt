@@ -66,3 +66,6 @@ Options:
     `infer` command prior to using this. The different options are:
         cycle - cycle through inferences indefinitely
         random - pick a random rack from the inferences each time
+
+    Note: the opprack option is not compatible with this. If you use both,
+    it will ignore the opprack.

@@ -12,6 +12,7 @@ import (
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/rangefinder"
 	"github.com/domino14/macondo/turnplayer"
 )
 
@@ -28,6 +29,8 @@ type BotTurnPlayer struct {
 	simmer      *montecarlo.Simmer
 	simmerCalcs []equity.EquityCalculator
 	simThreads  int
+
+	inferencer *rangefinder.RangeFinder
 }
 
 func NewBotTurnPlayer(conf *BotConfig, opts *turnplayer.GameOptions,
@@ -54,6 +57,7 @@ func NewBotTurnPlayerFromGame(g *game.Game, conf *BotConfig, botType pb.BotReque
 
 func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotRequest_BotCode) (*BotTurnPlayer, error) {
 	var calculators []equity.EquityCalculator
+
 	if botType == pb.BotRequest_NO_LEAVE_BOT {
 		calculators = []equity.EquityCalculator{equity.NewNoLeaveCalculator()}
 	} else {
@@ -81,15 +85,20 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 	}
 
 	// If it is a simming bot, add more fields.
-	if botType == pb.BotRequest_SIMMING_BOT {
+	if hasSimming(botType) {
 		c, err := equity.NewCombinedStaticCalculator(
 			p.LexiconName(), p.Config(), equity.LeaveFilename, equity.PEGAdjustmentFilename)
 		if err != nil {
 			return nil, err
 		}
-		btp.endgamer = &alphabeta.Solver{}
 		btp.simmer = &montecarlo.Simmer{}
 		btp.simmerCalcs = []equity.EquityCalculator{c}
+	}
+	if hasEndgame(botType) {
+		btp.endgamer = &alphabeta.Solver{}
+	}
+	if HasInfer(botType) {
+		btp.inferencer = &rangefinder.RangeFinder{}
 	}
 
 	return btp, nil
@@ -116,7 +125,7 @@ func (p *BotTurnPlayer) GenerateMoves(numPlays int) []*move.Move {
 }
 
 func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
-	if p.botType == pb.BotRequest_SIMMING_BOT {
+	if hasSimming(p.botType) || hasEndgame(p.botType) || HasInfer(p.botType) {
 		return eliteBestPlay(ctx, p)
 	}
 	return p.GenerateMoves(1)[0], nil

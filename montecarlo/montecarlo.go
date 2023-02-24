@@ -463,7 +463,7 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 	s.sortPlaysByWinRate()
 	if ctrlErr == context.Canceled || ctrlErr == context.DeadlineExceeded {
 		// Not actually an error
-		log.Debug().Msg("it's ok, not an error")
+		log.Debug().AnErr("ctrlErr", ctrlErr).Msg("montecarlo-it's ok, not an error")
 		return nil
 	}
 	return ctrlErr

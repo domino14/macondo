@@ -22,7 +22,8 @@ import (
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
 
-var MaxTimePerTurn = 10 * time.Second
+var MaxTimePerTurn = 15 * time.Second
+var MaxTimePerEndgame = 10 * time.Second
 
 // GameRunner is the master struct here for the automatic game logic.
 type GameRunner struct {
@@ -126,8 +127,13 @@ func (r *GameRunner) genBestMoveForBot(playerIdx int) *move.Move {
 		// For HastyBot we only need to generate one single best static turn.
 		return r.genBestStaticTurn(playerIdx)
 	}
+	maxTime := MaxTimePerTurn
+	if r.game.Bag().TilesRemaining() == 0 {
+		log.Debug().Msg("runner-bag-is-empty")
+		maxTime = MaxTimePerEndgame
+	}
 	// Otherwise use the bot's GenerateMoves function.
-	ctx, cancel := context.WithTimeout(context.Background(), MaxTimePerTurn)
+	ctx, cancel := context.WithTimeout(context.Background(), maxTime)
 	defer cancel()
 	m, err := r.aiplayers[playerIdx].BestPlay(ctx)
 	if err != nil {

@@ -2,6 +2,7 @@ package bot
 
 import (
 	"context"
+	"time"
 
 	"github.com/rs/zerolog/log"
 
@@ -13,6 +14,8 @@ import (
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 )
+
+const InferencesSimLimit = 400
 
 // Elite bot uses Monte Carlo simulations to rank plays, plays an endgame,
 // a pre-endgame (when ready).
@@ -67,42 +70,88 @@ func eliteBestPlay(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 		Int("consideredMoves", len(moves)).Msg("elite-player")
 
 	if useEndgame {
-		gd, err := gaddag.Get(p.Game.Config(), p.Game.LexiconName())
-		if err != nil {
-			return nil, err
-		}
-		// make a copy of the game.
-		gameCopy := p.Game.Copy()
-		gameCopy.SetBackupMode(game.SimulationMode)
-		gameCopy.SetStateStackLength(endgamePlies)
-		gen1 := movegen.NewGordonGenerator(gd, gameCopy.Board(), p.Game.Rules().LetterDistribution())
-		gen2 := movegen.NewGordonGenerator(gd, gameCopy.Board(), p.Game.Rules().LetterDistribution())
-		err = p.endgamer.Init(gen1, gen2, gameCopy, p.Game.Config())
-		if err != nil {
-			return nil, err
-		}
-		v, seq, err := p.endgamer.Solve(ctx, endgamePlies)
-		if err != nil {
-			return nil, err
-		}
-		log.Debug().Float32("best-endgame-val", v).Interface("seq", seq).Msg("endgame-solve-done")
-		return seq[0], nil
+		return endGameBest(ctx, p, endgamePlies)
 	} else {
-		// use montecarlo.
-		p.simmer.Init(p.Game, p.simmerCalcs, p.simmerCalcs[0].(*equity.CombinedStaticCalculator), p.Config())
-		if p.simThreads != 0 {
-			p.simmer.SetThreads(p.simThreads)
-		}
-		p.simmer.PrepareSim(simPlies, moves)
-		p.simmer.SetStoppingCondition(montecarlo.Stop99)
-		// Simulate is a blocking play:
-		err := p.simmer.Simulate(ctx)
-		if err != nil {
-			return nil, err
-		}
-		plays := p.simmer.WinningPlays()
-		log.Debug().Interface("winning-move", plays[0].Move().String()).Msg("sim-done")
-		return plays[0].Move(), nil
+		return nonEndgameBest(ctx, p, simPlies, moves)
 	}
+
+}
+
+func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move.Move, error) {
+	if !hasEndgame(p.botType) {
+		// Just return the static best play if we don't have an endgame engine.
+		return p.GenerateMoves(1)[0], nil
+	}
+	gd, err := gaddag.Get(p.Game.Config(), p.Game.LexiconName())
+	if err != nil {
+		return nil, err
+	}
+	// make a copy of the game.
+	gameCopy := p.Game.Copy()
+	gameCopy.SetBackupMode(game.SimulationMode)
+	gameCopy.SetStateStackLength(endgamePlies)
+	gen1 := movegen.NewGordonGenerator(gd, gameCopy.Board(), p.Game.Rules().LetterDistribution())
+	gen2 := movegen.NewGordonGenerator(gd, gameCopy.Board(), p.Game.Rules().LetterDistribution())
+	err = p.endgamer.Init(gen1, gen2, gameCopy, p.Game.Config())
+	if err != nil {
+		return nil, err
+	}
+	v, seq, err := p.endgamer.Solve(ctx, endgamePlies)
+	if err != nil {
+		return nil, err
+	}
+	log.Debug().Float32("best-endgame-val", v).Interface("seq", seq).Msg("endgame-solve-done")
+	return seq[0], nil
+}
+
+func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves []*move.Move) (*move.Move, error) {
+	// use montecarlo if we have it.
+	if !hasSimming(p.botType) {
+		return moves[0], nil
+	}
+	var inferTimeout context.Context
+	var cancel context.CancelFunc
+	if HasInfer(p.botType) {
+		log.Debug().Msg("running inference..")
+		p.inferencer.Init(p.Game, p.simmerCalcs, p.Config())
+		if p.simThreads != 0 {
+			p.inferencer.SetThreads(p.simThreads)
+		}
+		err := p.inferencer.PrepareFinder(p.Game.RackFor(p.Game.PlayerOnTurn()).TilesOn())
+		if err != nil {
+			// ignore all errors and move on.
+			log.Debug().AnErr("inference-prepare-error", err).Msg("probably-ok")
+		} else {
+			inferTimeout, cancel = context.WithTimeout(context.Background(),
+				time.Duration(5*int(time.Second)))
+			defer cancel()
+			err = p.inferencer.Infer(inferTimeout)
+			if err != nil {
+				// ignore all errors and move on.
+				log.Debug().AnErr("inference-error", err).Msg("probably-ok")
+			}
+		}
+	}
+
+	p.simmer.Init(p.Game, p.simmerCalcs, p.simmerCalcs[0].(*equity.CombinedStaticCalculator), p.Config())
+	if p.simThreads != 0 {
+		p.simmer.SetThreads(p.simThreads)
+	}
+	p.simmer.PrepareSim(simPlies, moves)
+	p.simmer.SetStoppingCondition(montecarlo.Stop99)
+
+	if HasInfer(p.botType) && len(p.inferencer.Inferences()) > InferencesSimLimit {
+		log.Debug().Int("inferences", len(p.inferencer.Inferences())).Msg("using inferences in sim")
+		p.simmer.SetInferences(p.inferencer.Inferences(), montecarlo.InferenceCycle)
+	}
+
+	// Simulate is a blocking play:
+	err := p.simmer.Simulate(ctx)
+	if err != nil {
+		return nil, err
+	}
+	plays := p.simmer.WinningPlays()
+	log.Debug().Interface("winning-move", plays[0].Move().String()).Msg("sim-done")
+	return plays[0].Move(), nil
 
 }

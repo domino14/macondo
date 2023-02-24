@@ -18,6 +18,7 @@ import (
 	"github.com/samber/lo"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/config"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
@@ -143,6 +144,12 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	// var fwg sync.WaitGroup
 
 	g, ctx := errgroup.WithContext(ctx)
+	addToHistory := false
+	if lo.SomeBy(players, func(p AutomaticRunnerPlayer) bool {
+		return bot.HasInfer(p.BotCode)
+	}) {
+		addToHistory = true
+	}
 
 	for i := 1; i <= threads; i++ {
 		wg.Add(1)
@@ -160,7 +167,7 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 			IsPlaying.Add(1)
 			defer IsPlaying.Add(-1)
 			for j := range jobs {
-				err = r.playFull(false)
+				err = r.playFull(addToHistory)
 				if err != nil {
 					log.Err(err).Int("job", j.gidx).Msg("error-playFull")
 					return err
