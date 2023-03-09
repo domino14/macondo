@@ -221,43 +221,52 @@ func (bot *Bot) handle(data []byte) *pb.BotResponse {
 // caller would need to block and wait for a response. Instead, we must
 // send a bot move on a separate per-game-id channel when ready.
 func Main(channel string, bot *Bot) {
-	bot.newGame()
+	err := bot.newGame()
+	if err != nil {
+		log.Fatal().AnErr("newGameErr", err).Msg(":(")
+	}
 	nc, err := nats.Connect(bot.config.NatsURL)
 	if err != nil {
-		log.Fatal()
+		log.Fatal().AnErr("natsConnectErr", err).Msg(":(")
 	}
 	// A user of the bot should send the data to only one bot instance.
 	// Using a QueueSubscribe guarantees that only one listening bot will
 	// receive a message.
 	nc.QueueSubscribe(channel, "bot_queue", func(m *nats.Msg) {
-		log.Info().Msgf("RECV: %d bytes", len(m.Data))
+		log.Info().Str("replyChannel", m.Reply).Msgf("RECV: %d bytes", len(m.Data))
 		resp := bot.handle(m.Data)
 		// debugWriteln(proto.MarshalTextString(resp))
 		data, err := proto.Marshal(resp)
-
 		if err != nil {
 			// Should never happen, ideally, but we need to do something sensible here.
 			m.Respond([]byte(err.Error()))
 		} else {
-			err := retry.Do(
-				func() error {
-					_, err := nc.Request(
-						"bot.publish_event."+resp.GameId, data, 3*time.Second)
-					if err != nil {
-						return err
-					}
-					// We're just waiting for an acknowledgement. The actual
-					// data doesn't matter.
-					return nil
-				},
-				retry.DelayType(func(n uint, err error, config *retry.Config) time.Duration {
-					log.Err(err).Uint("n", n).Str("gameID", resp.GameId).
-						Msg("did-not-receive-ack-try-again")
-					return retry.BackOffDelay(n, err, config)
-				}),
-			)
-			if err != nil {
-				log.Err(err).Msg("bot-move-failed")
+			if m.Reply != "" {
+				err = m.Respond(data)
+				if err != nil {
+					log.Err(err).Msg("error-responding")
+				}
+			} else {
+				err := retry.Do(
+					func() error {
+						_, err := nc.Request(
+							"bot.publish_event."+resp.GameId, data, 3*time.Second)
+						if err != nil {
+							return err
+						}
+						// We're just waiting for an acknowledgement. The actual
+						// data doesn't matter.
+						return nil
+					},
+					retry.DelayType(func(n uint, err error, config *retry.Config) time.Duration {
+						log.Err(err).Uint("n", n).Str("gameID", resp.GameId).
+							Msg("did-not-receive-ack-try-again")
+						return retry.BackOffDelay(n, err, config)
+					}),
+				)
+				if err != nil {
+					log.Err(err).Msg("bot-move-failed")
+				}
 			}
 		}
 	})
