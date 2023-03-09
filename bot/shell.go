@@ -13,7 +13,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
 
-	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
+	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/config"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
@@ -92,7 +92,7 @@ type ShellController struct {
 	config   *config.Config
 	execPath string
 	options  *ShellOptions
-	game     *aiturnplayer.BotTurnPlayer
+	game     *bot.BotTurnPlayer
 	client   Client
 }
 
@@ -170,7 +170,8 @@ func (sc *ShellController) newGame() (*Response, error) {
 	}
 
 	opts := sc.options.GameOptions
-	g, err := aiturnplayer.NewBotTurnPlayer(sc.config, &opts, players, pb.BotRequest_HASTY_BOT)
+	conf := &bot.BotConfig{Config: *sc.config}
+	g, err := bot.NewBotTurnPlayer(conf, &opts, players, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return nil, err
 	}

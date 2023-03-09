@@ -1,6 +1,7 @@
 package alphabeta
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"testing"
@@ -94,7 +95,7 @@ func TestSolveComplex(t *testing.T) {
 		1)
 	is.NoErr(err)
 
-	v, _, _ := s.Solve(plies)
+	v, _, _ := s.Solve(context.Background(), plies)
 	is.Equal(v, 116)
 	// Quackle finds a 122-pt win. However, I think it's wrong because it
 	// doesn't take into account that opp can pass to prevent a setup
@@ -192,7 +193,7 @@ func TestSolveOther3(t *testing.T) {
 		1)
 	is.NoErr(err)
 
-	v, _, _ := s.Solve(plies)
+	v, _, _ := s.Solve(context.Background(), plies)
 	is.True(v > 0)
 }
 
@@ -207,7 +208,7 @@ func TestSolveStandard(t *testing.T) {
 		1)
 	is.NoErr(err)
 
-	v, moves, _ := s.Solve(plies)
+	v, moves, _ := s.Solve(context.Background(), plies)
 
 	is.Equal(moves[0].ShortDescription(), " 1G VIG.")
 	is.True(moves[1].ShortDescription() == " 4A HOER" ||
@@ -227,7 +228,7 @@ func TestSolveStandard2(t *testing.T) {
 		1)
 	is.NoErr(err)
 
-	v, _, _ := s.Solve(plies)
+	v, _, _ := s.Solve(context.Background(), plies)
 	is.Equal(v, float32(25))
 }
 
@@ -255,7 +256,7 @@ func TestVeryDeep(t *testing.T) {
 	s := new(Solver)
 	s.Init(gen1, gen2, g, &DefaultConfig)
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
-	v, seq, _ := s.Solve(plies)
+	v, seq, _ := s.Solve(context.Background(), plies)
 
 	is.Equal(v, float32(-116))
 	is.Equal(len(seq), 25)
@@ -288,7 +289,7 @@ func TestPassFirst(t *testing.T) {
 	s := new(Solver)
 	s.Init(gen1, gen2, g, &DefaultConfig)
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
-	v, seq, _ := s.Solve(plies)
+	v, seq, _ := s.Solve(context.Background(), plies)
 
 	is.Equal(v, float32(-60))
 	is.Equal(seq[0].MoveTypeString(), "Pass")
@@ -303,7 +304,7 @@ func TestPolish(t *testing.T) {
 		258, 0)
 
 	is.NoErr(err)
-	v, seq, err := s.Solve(plies)
+	v, seq, err := s.Solve(context.Background(), plies)
 	is.NoErr(err)
 
 	/*
@@ -361,7 +362,7 @@ func TestPolishFromGcg(t *testing.T) {
 	s.Init(gen1, gen2, g, &DefaultConfig)
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 
-	v, seq, _ := s.Solve(plies)
+	v, seq, _ := s.Solve(context.Background(), plies)
 	is.Equal(v, float32(5))
 	is.Equal(len(seq), 8)
 }
@@ -376,7 +377,7 @@ func TestSpuriousPasses(t *testing.T) {
 		258, 1)
 
 	is.NoErr(err)
-	v, seq, err := s.Solve(plies)
+	v, seq, err := s.Solve(context.Background(), plies)
 	is.NoErr(err)
 
 	/* optimal endgame should look like this:
@@ -430,7 +431,7 @@ func TestSpuriousPassesFromGcg(t *testing.T) {
 	// s.simpleEvaluation = true
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 
-	v, seq, _ := s.Solve(plies)
+	v, seq, _ := s.Solve(context.Background(), plies)
 	is.Equal(v, float32(7))
 	is.Equal(len(seq), 7)
 }
@@ -915,7 +916,7 @@ func TestProperIterativeDeepening(t *testing.T) {
 		// Prior to solving the endgame, set to simulation mode.
 		g.SetBackupMode(game.SimulationMode)
 		g.SetStateStackLength(plies)
-		v, seq, _ := s.Solve(plies)
+		v, seq, _ := s.Solve(context.Background(), plies)
 		is.Equal(v, float32(44))
 		// In particular, the sequence should start with 6I A.
 		// Player on turn needs to block the P spot. Anything else
@@ -965,7 +966,7 @@ func BenchmarkID(b *testing.B) {
 		g.SetBackupMode(game.SimulationMode)
 		g.SetStateStackLength(plies)
 
-		v, seq, _ := s.Solve(plies)
+		v, seq, _ := s.Solve(context.Background(), plies)
 		is.Equal(v, float32(44))
 		is.Equal(len(seq), 5)
 		is.Equal(seq[0].ShortDescription(), " 6I A.")
@@ -1011,7 +1012,7 @@ func BenchmarkID2(b *testing.B) {
 		g.SetBackupMode(game.SimulationMode)
 		g.SetStateStackLength(plies)
 
-		v, seq, _ := s.Solve(plies)
+		v, seq, _ := s.Solve(context.Background(), plies)
 		is.Equal(v, float32(7))
 		is.Equal(len(seq), 7)
 	}
@@ -1049,7 +1050,7 @@ func TestFromGCG(t *testing.T) {
 	// s.iterativeDeepeningOn = false
 	// s.simpleEvaluation = true
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
-	v, seq, _ := s.Solve(plies)
+	v, seq, _ := s.Solve(context.Background(), plies)
 	is.Equal(v, float32(99))
 	is.Equal(len(seq), 1)
 	// t.Fail()

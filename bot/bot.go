@@ -13,7 +13,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"google.golang.org/protobuf/proto"
 
-	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
+	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -34,7 +34,7 @@ type Bot struct {
 	config  *config.Config
 	options *turnplayer.GameOptions
 
-	game *aiturnplayer.BotTurnPlayer
+	game *bot.BotTurnPlayer
 }
 
 func NewBot(config *config.Config, options *turnplayer.GameOptions) *Bot {
@@ -45,17 +45,18 @@ func NewBot(config *config.Config, options *turnplayer.GameOptions) *Bot {
 	return bot
 }
 
-func (bot *Bot) newGame() error {
+func (b *Bot) newGame() error {
 	players := []*pb.PlayerInfo{
 		{Nickname: "self", RealName: "Macondo Bot"},
 		{Nickname: "opponent", RealName: "Arthur Dent"},
 	}
 
-	game, err := aiturnplayer.NewBotTurnPlayer(bot.config, bot.options, players, pb.BotRequest_HASTY_BOT)
+	conf := &bot.BotConfig{Config: *b.config}
+	game, err := bot.NewBotTurnPlayer(conf, b.options, players, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return err
 	}
-	bot.game = game
+	b.game = game
 	return nil
 }
 
@@ -91,7 +92,7 @@ func (bot *Bot) Deserialize(data []byte) (*game.Game, *pb.EvaluationRequest, pb.
 	return ng, req.EvaluationRequest, req.BotType, nil
 }
 
-func evalSingleMove(g *aiturnplayer.BotTurnPlayer, evtIdx int) *pb.SingleEvaluation {
+func evalSingleMove(g *bot.BotTurnPlayer, evtIdx int) *pb.SingleEvaluation {
 	evts := g.History().Events
 	playedEvt := evts[evtIdx]
 
@@ -159,22 +160,23 @@ func (bot *Bot) evaluationResponse(req *pb.EvaluationRequest) *pb.BotResponse {
 	}
 }
 
-func (bot *Bot) handle(data []byte) *pb.BotResponse {
-	ng, evalReq, botType, err := bot.Deserialize(data)
+func (b *Bot) handle(data []byte) *pb.BotResponse {
+	ng, evalReq, botType, err := b.Deserialize(data)
 	if err != nil {
 		return errorResponse("Could not parse request", err)
 	}
-	g, err := aiturnplayer.NewBotTurnPlayerFromGame(ng, bot.config, botType)
+	conf := &bot.BotConfig{Config: *b.config}
+	g, err := bot.NewBotTurnPlayerFromGame(ng, conf, botType)
 	if err != nil {
 		return errorResponse("Could not create AI player", err)
 	}
-	bot.game = g
+	b.game = g
 
 	if evalReq != nil {
 		// We are asking it to evaluate the last play in the position
 		// that we passed in.
 		// Generate all possible moves.
-		return bot.evaluationResponse(evalReq)
+		return b.evaluationResponse(evalReq)
 	}
 	isWordSmog := g.Rules().Variant() == game.VarWordSmog || g.Rules().Variant() == game.VarWordSmogSuper
 	// See if we need to challenge the last move
@@ -194,13 +196,13 @@ func (bot *Bot) handle(data []byte) *pb.BotResponse {
 		} else {
 			var moves []*move.Move
 			if !isWordSmog {
-				moves = bot.game.GenerateMoves(1)
+				moves = b.game.GenerateMoves(1)
 			} else {
-				moves, err = wolgesAnalyze(bot.config, bot.game)
+				moves, err = wolgesAnalyze(b.config, b.game)
 				if err != nil {
 					log.Err(err).Msg("wolges-analyze-error")
 					// Just generate a move using the regular generator.
-					moves = bot.game.GenerateMoves(1)
+					moves = b.game.GenerateMoves(1)
 				}
 			}
 			m = moves[0]
@@ -209,7 +211,7 @@ func (bot *Bot) handle(data []byte) *pb.BotResponse {
 		m, _ = g.NewPassMove(g.PlayerOnTurn())
 	}
 	log.Info().Msgf("Generated move: %s", m.ShortDescription())
-	evt := bot.game.EventFromMove(m)
+	evt := b.game.EventFromMove(m)
 	return &pb.BotResponse{
 		Response: &pb.BotResponse_Move{Move: evt},
 		GameId:   g.Uid(),

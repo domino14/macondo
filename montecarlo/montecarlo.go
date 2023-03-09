@@ -12,10 +12,13 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/sync/errgroup"
+	"lukechampine.com/frand"
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
+	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/equity"
@@ -46,6 +49,23 @@ import (
 
 */
 
+type StoppingCondition int
+
+const (
+	StopNone StoppingCondition = iota
+	Stop95
+	Stop98
+	Stop99
+)
+
+type InferenceMode int
+
+const (
+	InferenceOff InferenceMode = iota
+	InferenceCycle
+	InferenceRandom
+)
+
 // LogIteration is a struct meant for serializing to a log-file, for debug
 // and other purposes.
 type LogIteration struct {
@@ -68,18 +88,25 @@ type LogPlay struct {
 }
 
 type SimmedPlay struct {
-	sync.Mutex
+	sync.RWMutex
 	play          *move.Move
 	scoreStats    []stats.Statistic
 	bingoStats    []stats.Statistic
 	equityStats   stats.Statistic
 	leftoverStats stats.Statistic
 	winPctStats   stats.Statistic
+	ignore        bool
 }
 
 func (sp *SimmedPlay) String() string {
 	return fmt.Sprintf("<Simmed play: %v (stats: %v %v %v %v %v)>", sp.play.ShortDescription(),
 		sp.scoreStats, sp.bingoStats, sp.equityStats, sp.leftoverStats, sp.winPctStats)
+}
+
+func (sp *SimmedPlay) Ignore() {
+	sp.Lock()
+	sp.ignore = true
+	sp.Unlock()
 }
 
 func (sp *SimmedPlay) addScoreStat(play *move.Move, ply int) {
@@ -149,6 +176,10 @@ func (sp *SimmedPlay) addEquityStat(initialSpread int, spread int, leftover floa
 	sp.winPctStats.Push(float64(pct))
 }
 
+func (s *SimmedPlay) Move() *move.Move {
+	return s.play
+}
+
 // Simmer implements the actual look-ahead search
 type Simmer struct {
 	origGame *game.Game
@@ -166,19 +197,25 @@ type Simmer struct {
 	iterationCount int
 	threads        int
 
-	simming    bool
-	readyToSim bool
-	plays      []*SimmedPlay
-	winPcts    [][]float32
-	cfg        *config.Config
+	simming      bool
+	readyToSim   bool
+	plays        []*SimmedPlay
+	winPcts      [][]float32
+	cfg          *config.Config
+	knownOppRack []alphabet.MachineLetter
 
-	logStream io.Writer
+	logStream         io.Writer
+	stoppingCondition StoppingCondition
+
+	// See rangefinder.
+	inferences    [][]alphabet.MachineLetter
+	inferenceMode InferenceMode
 }
 
 func (s *Simmer) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
 	leaves equity.Leaves, cfg *config.Config) {
 	s.origGame = game
-
+	s.stoppingCondition = StopNone
 	s.equityCalculators = eqCalcs
 	s.leaveValues = leaves
 	s.threads = int(math.Max(1, float64(runtime.NumCPU()-1)))
@@ -201,12 +238,25 @@ func (s *Simmer) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
 	}
 }
 
+func (s *Simmer) SetStoppingCondition(sc StoppingCondition) {
+	s.stoppingCondition = sc
+}
+
 func (s *Simmer) SetThreads(threads int) {
 	s.threads = threads
 }
 
 func (s *Simmer) SetLogStream(l io.Writer) {
 	s.logStream = l
+}
+
+func (s *Simmer) SetKnownOppRack(r []alphabet.MachineLetter) {
+	s.knownOppRack = r
+}
+
+func (s *Simmer) SetInferences(i [][]alphabet.MachineLetter, mode InferenceMode) {
+	s.inferences = i
+	s.inferenceMode = mode
 }
 
 func (s *Simmer) makeGameCopies() error {
@@ -266,6 +316,8 @@ func (s *Simmer) PrepareSim(plies int, plays []*move.Move) error {
 	}
 	s.resetStats(plies, plays)
 	s.readyToSim = true
+	s.knownOppRack = nil
+	s.inferenceMode = InferenceOff
 	return nil
 }
 
@@ -289,30 +341,34 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 	// in another goroutine.
 	// protect the simmed play statistics with a mutex.
 	log.Debug().Msgf("Simulating with %v threads", s.threads)
-	syncChan := make(chan bool, s.threads)
+	syncExitChan := make(chan bool, s.threads)
+
 	logChan := make(chan []byte)
 	done := make(chan bool)
 
 	ctrl := errgroup.Group{}
 	writer := errgroup.Group{}
 
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	ctrl.Go(func() error {
 		defer func() {
 			log.Debug().Msgf("Sim controller thread exiting")
 		}()
-		for {
-			select {
-			case <-ctx.Done():
-				log.Debug().Msgf("Context is done: %v", ctx.Err())
-				for t := 0; t < s.threads; t++ {
-					syncChan <- true
-				}
-				log.Debug().Msgf("Sent sync messages to children threads...")
-				return ctx.Err()
-			default:
-				// Do nothing
-			}
+		for range ctx.Done() {
 		}
+		log.Debug().Msgf("Context is done: %v", ctx.Err())
+		for t := 0; t < s.threads; t++ {
+			syncExitChan <- true
+		}
+		// Send another exit signal to the stopping condition monitor
+		if s.stoppingCondition != StopNone {
+			syncExitChan <- true
+		}
+		log.Debug().Msgf("Sent sync messages to children threads...")
+
+		return ctx.Err()
 	})
 
 	if s.logStream != nil {
@@ -349,15 +405,45 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 				s.iterationCount++
 				iterNum := s.iterationCount
 				iterMutex.Unlock()
-				s.simSingleIteration(s.maxPlies, t, iterNum, logChan)
+				err := s.simSingleIteration(s.maxPlies, t, iterNum, logChan)
+				if err != nil {
+					log.Err(err).Msg("error simming iteration; canceling")
+					cancel()
+				}
 				select {
-				case v := <-syncChan:
+				case v := <-syncExitChan:
 					log.Debug().Msgf("Thread %v got sync msg %v", t, v)
 					return nil
 				default:
 					// Do nothing
 				}
 			}
+		})
+	}
+
+	if s.stoppingCondition != StopNone {
+		// If there is some sort of programmatic stopping condition, we must
+		// monitor the stats to determine when to stop!
+		ctrl.Go(func() error {
+			defer func() {
+				log.Debug().Msg("stoppingcondition monitor exiting")
+			}()
+			interval := time.Duration(1) * time.Second
+			tk := time.NewTicker(interval)
+			playSimilarityCache := map[string]bool{}
+			for {
+				select {
+				case <-syncExitChan:
+					log.Debug().Msg("stopping condition monitor got exit signal")
+					return nil
+				case <-tk.C:
+					stop := shouldStop(s.plays, s.stoppingCondition, s.iterationCount, playSimilarityCache)
+					if stop {
+						cancel()
+					}
+				}
+			}
+
 		})
 	}
 
@@ -373,6 +459,13 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 
 	ctrlErr := ctrl.Wait()
 	log.Debug().Msgf("ctrl errgroup returned err %v", ctrlErr)
+	// sort plays at the end anyway.
+	s.sortPlaysByWinRate()
+	if ctrlErr == context.Canceled || ctrlErr == context.DeadlineExceeded {
+		// Not actually an error
+		log.Debug().AnErr("ctrlErr", ctrlErr).Msg("montecarlo-it's ok, not an error")
+		return nil
+	}
 	return ctrlErr
 }
 
@@ -391,19 +484,31 @@ func (s *Simmer) TrimBottom(totrim int) error {
 	return nil
 }
 
-func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan chan []byte) {
+func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan chan []byte) error {
 	// Give opponent a random rack from the bag. Note that this also
 	// shuffles the bag!
 
 	g := s.gameCopies[thread]
 
 	opp := (s.initialPlayer + 1) % g.NumPlayers()
-	g.SetRandomRack(opp)
+	rackToSet := s.knownOppRack
+	if s.inferenceMode == InferenceCycle {
+		rackToSet = s.inferences[iterationCount%len(s.inferences)]
+	} else if s.inferenceMode == InferenceRandom {
+		rackToSet = s.inferences[frand.Intn(len(s.inferences))]
+	}
+	_, err := g.SetRandomRack(opp, rackToSet)
+	if err != nil {
+		return err
+	}
 	logIter := LogIteration{Iteration: iterationCount, Plays: []LogPlay{}, Thread: thread}
 
 	var logPlay LogPlay
 	var plyChild LogPlay
 	for _, simmedPlay := range s.plays {
+		if simmedPlay.ignore {
+			continue
+		}
 		if s.logStream != nil {
 			logPlay = LogPlay{Play: simmedPlay.play.ShortDescription(),
 				Rack: simmedPlay.play.FullRack(),
@@ -422,37 +527,39 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 		for ply := 0; ply < plies; ply++ {
 			// Each ply is a player taking a turn
 			onTurn := g.PlayerOnTurn()
-			if g.Playing() == pb.PlayState_PLAYING {
-				// Assume there are exactly two players.
-
-				bestPlay := s.bestStaticTurn(onTurn, thread)
-				// log.Debug().Msgf("Ply %v, Best play: %v", ply+1, bestPlay)
-				g.PlayMove(bestPlay, false, 0)
-				// log.Debug().Msgf("Score is now %v", s.game.Score())
-				if s.logStream != nil {
-					plyChild = LogPlay{Play: bestPlay.ShortDescription(), Rack: bestPlay.FullRack(), Pts: bestPlay.Score()}
-				}
-				if ply == plies-2 || ply == plies-1 {
-					// It's either OUR last turn or OPP's last turn.
-					// Calculate equity of leftover tiles.
-					thisLeftover := s.leaveValues.LeaveValue(bestPlay.Leave())
-					if s.logStream != nil {
-						plyChild.Leftover = thisLeftover
-					}
-
-					// log.Debug().Msgf("Calculated leftover %v", plyChild.Leftover)
-					if onTurn == s.initialPlayer {
-						leftover += thisLeftover
-					} else {
-						leftover -= thisLeftover
-					}
-				}
-
-				logPlay.Plies = append(logPlay.Plies, plyChild)
-				// Maybe these add{X}Stat functions can instead write them to
-				// a channel to avoid mutices
-				simmedPlay.addScoreStat(bestPlay, ply)
+			if g.Playing() != pb.PlayState_PLAYING {
+				break
 			}
+			// Assume there are exactly two players.
+
+			bestPlay := s.bestStaticTurn(onTurn, thread)
+			// log.Debug().Msgf("Ply %v, Best play: %v", ply+1, bestPlay)
+			g.PlayMove(bestPlay, false, 0)
+			// log.Debug().Msgf("Score is now %v", s.game.Score())
+			if s.logStream != nil {
+				plyChild = LogPlay{Play: bestPlay.ShortDescription(), Rack: bestPlay.FullRack(), Pts: bestPlay.Score()}
+			}
+			if ply == plies-2 || ply == plies-1 {
+				// It's either OUR last turn or OPP's last turn.
+				// Calculate equity of leftover tiles.
+				thisLeftover := s.leaveValues.LeaveValue(bestPlay.Leave())
+				if s.logStream != nil {
+					plyChild.Leftover = thisLeftover
+				}
+
+				// log.Debug().Msgf("Calculated leftover %v", plyChild.Leftover)
+				if onTurn == s.initialPlayer {
+					leftover += thisLeftover
+				} else {
+					leftover -= thisLeftover
+				}
+			}
+
+			logPlay.Plies = append(logPlay.Plies, plyChild)
+			// Maybe these add{X}Stat functions can instead write them to
+			// a channel to avoid mutices
+			simmedPlay.addScoreStat(bestPlay, ply)
+
 		}
 		// log.Debug().Msgf("Spread for initial player: %v, leftover: %v",
 		// 	s.game.SpreadFor(s.initialPlayer), leftover)
@@ -477,10 +584,11 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 		out, err := yaml.Marshal([]LogIteration{logIter})
 		if err != nil {
 			log.Error().Err(err).Msg("marshalling log")
-			return
+			return err
 		}
 		logChan <- out
 	}
+	return nil
 }
 
 func (s *Simmer) bestStaticTurn(playerID, thread int) *move.Move {
@@ -509,16 +617,23 @@ func (s *Simmer) printStats() string {
 }
 
 func (s *Simmer) EquityStats() string {
-	stats := ""
+	var ss strings.Builder
 	s.sortPlaysByWinRate()
-	stats += fmt.Sprintf("%-20s%6s%8s%8s\n", "Play", "Score", "Win%", "Equity")
+	fmt.Fprintf(&ss, "%-20s%-9s%-16s%-16s\n", "Play", "Score", "Win%", "Equity")
 
 	for _, play := range s.plays {
-		stats += fmt.Sprintf("%-20s%6d%8.2f%8.3f\n", play.play.ShortDescription(),
-			play.play.Score(), 100.0*play.winPctStats.Mean(), play.equityStats.Mean())
+		wpStats := fmt.Sprintf("%.3f±%.3f", 100.0*play.winPctStats.Mean(), 100.0*play.winPctStats.StandardError(stats.Z99))
+		eqStats := fmt.Sprintf("%.3f±%.3f", play.equityStats.Mean(), play.equityStats.StandardError(stats.Z99))
+		ignore := ""
+		if play.ignore {
+			ignore = "❌"
+		}
+
+		fmt.Fprintf(&ss, "%-20s%-9d%-16s%-16s%s\n", play.play.ShortDescription(),
+			play.play.Score(), wpStats, eqStats, ignore)
 	}
-	stats += fmt.Sprintf("Iterations: %d\n", s.iterationCount)
-	return stats
+	fmt.Fprintf(&ss, "Iterations: %d (intervals are 99%% confidence, ❌ marks plays cut off early)\n", s.iterationCount)
+	return ss.String()
 }
 
 func (s *Simmer) ScoreDetails() string {
@@ -529,16 +644,21 @@ func (s *Simmer) ScoreDetails() string {
 		if ply%2 == 0 {
 			who = "Opponent"
 		}
-		stats += fmt.Sprintf("**Ply %d (%s)**\n%-20s%8s%8s%8s%8s\n%s\n",
-			ply+1, who, "Play", "Win%", "Mean", "Stdev", "Bingo %", strings.Repeat("-", 52))
+		stats += fmt.Sprintf("**Ply %d (%s)**\n%-20s%8s%8s%8s%8s%8s\n%s\n",
+			ply+1, who, "Play", "Win%", "Mean", "Stdev", "Bingo %", "Iters", strings.Repeat("-", 60))
 		for _, play := range s.plays {
-			stats += fmt.Sprintf("%-20s%8.2f%8.3f%8.3f%8.3f\n",
+			stats += fmt.Sprintf("%-20s%8.2f%8.3f%8.3f%8.3f%8d\n",
 				play.play.ShortDescription(), 100.0*play.winPctStats.Mean(),
 				play.scoreStats[ply].Mean(), play.scoreStats[ply].Stdev(),
-				100.0*play.bingoStats[ply].Mean())
+				100.0*play.bingoStats[ply].Mean(), play.scoreStats[ply].Iterations())
 		}
 		stats += "\n"
 	}
 	stats += fmt.Sprintf("Iterations: %d\n", s.iterationCount)
 	return stats
+}
+
+func (s *Simmer) WinningPlays() []*SimmedPlay {
+	s.sortPlaysByWinRate()
+	return s.plays
 }

@@ -1,6 +1,7 @@
 package turnplayer
 
 import (
+	"context"
 	"sort"
 
 	"github.com/domino14/macondo/alphabet"
@@ -40,15 +41,15 @@ func NewAIStaticTurnPlayer(conf *config.Config, opts *turnplayer.GameOptions,
 	if err != nil {
 		return nil, err
 	}
-	return addAIFields(p, conf, calculators)
+	return AddAIFields(p, conf, calculators)
 }
 
 func NewAIStaticTurnPlayerFromGame(g *game.Game, conf *config.Config, calculators []equity.EquityCalculator) (*AIStaticTurnPlayer, error) {
 	gr := &turnplayer.BaseTurnPlayer{Game: g}
-	return addAIFields(gr, conf, calculators)
+	return AddAIFields(gr, conf, calculators)
 }
 
-func addAIFields(p *turnplayer.BaseTurnPlayer, conf *config.Config, calculators []equity.EquityCalculator) (*AIStaticTurnPlayer, error) {
+func AddAIFields(p *turnplayer.BaseTurnPlayer, conf *config.Config, calculators []equity.EquityCalculator) (*AIStaticTurnPlayer, error) {
 	gd, err := gaddag.Get(conf, p.LexiconName())
 	if err != nil {
 		return nil, err
@@ -77,6 +78,10 @@ func (p *AIStaticTurnPlayer) TopPlays(plays []*move.Move, ct int) []*move.Move {
 	return plays[:ct]
 }
 
+func (p *AIStaticTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
+	return p.GenerateMoves(1)[0], nil
+}
+
 func (p *AIStaticTurnPlayer) GenerateMoves(numPlays int) []*move.Move {
 	curRack := p.RackFor(p.PlayerOnTurn())
 	oppRack := p.RackFor(p.NextPlayer())
@@ -95,6 +100,10 @@ func (p *AIStaticTurnPlayer) MoveGenerator() movegen.MoveGenerator {
 
 func (p *AIStaticTurnPlayer) Calculators() []equity.EquityCalculator {
 	return p.calculators
+}
+
+func (p *AIStaticTurnPlayer) SetCalculators(c []equity.EquityCalculator) {
+	p.calculators = c
 }
 
 func (p *AIStaticTurnPlayer) GetBotType() pb.BotRequest_BotCode {

@@ -60,7 +60,19 @@ func init() {
 	reHorizontal = regexp.MustCompile(`^(?P<row>[0-9]+)(?P<col>[A-Z])$`)
 }
 
-func (m *Move) Equals(o *Move) bool {
+func (m *Move) equalPositions(o *Move, alsoCheckTransposition bool) bool {
+	if m.rowStart == o.rowStart && m.colStart == o.colStart && m.vertical == o.vertical {
+		return true
+	}
+	if alsoCheckTransposition {
+		if m.rowStart == o.colStart && m.colStart == o.rowStart && m.vertical != o.vertical {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Move) Equals(o *Move, alsoCheckTransposition, ignoreLeave bool) bool {
 	if m.score != o.score {
 		return false
 	}
@@ -70,19 +82,13 @@ func (m *Move) Equals(o *Move) bool {
 	if m.tilesPlayed != o.tilesPlayed {
 		return false
 	}
-	if m.rowStart != o.rowStart {
-		return false
-	}
-	if m.colStart != o.colStart {
-		return false
-	}
-	if m.vertical != o.vertical {
+	if !m.equalPositions(o, alsoCheckTransposition) {
 		return false
 	}
 	if len(m.tiles) != len(o.tiles) {
 		return false
 	}
-	if len(m.leave) != len(o.leave) {
+	if !ignoreLeave && len(m.leave) != len(o.leave) {
 		return false
 	}
 	for idx, i := range m.tiles {
@@ -90,9 +96,11 @@ func (m *Move) Equals(o *Move) bool {
 			return false
 		}
 	}
-	for idx, i := range m.leave {
-		if o.leave[idx] != i {
-			return false
+	if !ignoreLeave {
+		for idx, i := range m.leave {
+			if o.leave[idx] != i {
+				return false
+			}
 		}
 	}
 	return true
@@ -112,6 +120,10 @@ func (m *Move) Set(tiles alphabet.MachineWord, leave alphabet.MachineWord, score
 	// everything else can be calculated.
 	m.action = action
 	m.alph = alph
+}
+
+func (m *Move) SetLeave(leave alphabet.MachineWord) {
+	m.leave = leave
 }
 
 func (m *Move) SetAction(action MoveType) {

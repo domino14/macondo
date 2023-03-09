@@ -8,7 +8,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"google.golang.org/protobuf/proto"
 
-	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
+	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/config"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
@@ -20,7 +20,7 @@ type Client struct {
 	channel string
 }
 
-func MakeRequest(game *aiturnplayer.BotTurnPlayer, config *config.Config) ([]byte, error) {
+func MakeRequest(game *bot.BotTurnPlayer, config *config.Config) ([]byte, error) {
 	history := game.History()
 	if history.Lexicon == "" {
 		history.Lexicon = config.DefaultLexicon
@@ -30,7 +30,7 @@ func MakeRequest(game *aiturnplayer.BotTurnPlayer, config *config.Config) ([]byt
 }
 
 // Send a game to the bot and get a move back.
-func (c *Client) RequestMove(game *aiturnplayer.BotTurnPlayer, config *config.Config) (*move.Move, error) {
+func (c *Client) RequestMove(game *bot.BotTurnPlayer, config *config.Config) (*move.Move, error) {
 	data, err := MakeRequest(game, config)
 	if err != nil {
 		return nil, err

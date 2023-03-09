@@ -50,3 +50,15 @@ func (s *Statistic) Stdev() float64 {
 func (s *Statistic) Last() float64 {
 	return s.last
 }
+
+// StandardError returns the standard error of the statistic, multiplied
+// by a factor. i.e. if you pass in 1.96, that would be a 95% confidence
+// interval, 2.58 is a 99% confidence interval. (see math for more details)
+// 1 is just 68% or 1 stdev.
+func (s *Statistic) StandardError(m float64) float64 {
+	return m * math.Sqrt(s.Variance()/float64(s.totalIterations))
+}
+
+func (s *Statistic) Iterations() int {
+	return s.totalIterations
+}

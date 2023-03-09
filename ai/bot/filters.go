@@ -1,4 +1,4 @@
-package turnplayer
+package bot
 
 import (
 	"math"

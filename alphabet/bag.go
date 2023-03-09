@@ -57,6 +57,9 @@ func (b *Bag) DrawAtMost(n int, ml []MachineLetter) int {
 // NOTE: this function does not resize ml at all. It must
 // be the correct size to allow tiles to fit in!
 func (b *Bag) Draw(n int, ml []MachineLetter) error {
+	if n == 0 {
+		return nil
+	}
 	if n > len(b.tiles) {
 		return fmt.Errorf("tried to draw %v tiles, tile bag has %v",
 			n, len(b.tiles))
@@ -87,6 +90,10 @@ func (b *Bag) Peek() []MachineLetter {
 	ret := make([]MachineLetter, len(b.tiles))
 	copy(ret, b.tiles)
 	return ret
+}
+
+func (b *Bag) PeekMap() []uint8 {
+	return copyTileMap(b.tileMap)
 }
 
 // Shuffle shuffles the bag.
@@ -124,7 +131,7 @@ func (b *Bag) PutBack(letters []MachineLetter) {
 
 // hasRack returns a boolean indicating whether the passed-in rack is
 // in the bag, in its entirety.
-func (b *Bag) hasRack(letters []MachineLetter) bool {
+func (b *Bag) HasRack(letters []MachineLetter) bool {
 	submap := make(map[MachineLetter]uint8)
 
 	for _, ml := range letters {
@@ -187,7 +194,7 @@ func (b *Bag) Redraw(currentRack []MachineLetter, ml []MachineLetter) int {
 // RemoveTiles removes the given tiles from the bag, and returns an error
 // if it can't.
 func (b *Bag) RemoveTiles(tiles []MachineLetter) error {
-	if !b.hasRack(tiles) {
+	if !b.HasRack(tiles) {
 		return fmt.Errorf("cannot remove the tiles %v from the bag, as they are not in the bag",
 			MachineWord(tiles).UserVisible(b.LetterDistribution().alph))
 	}

@@ -19,7 +19,7 @@ import (
 	"github.com/chzyer/readline"
 	"github.com/rs/zerolog/log"
 
-	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
+	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/automatic"
 	"github.com/domino14/macondo/cgp"
@@ -33,11 +33,13 @@ import (
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
+	"github.com/domino14/macondo/rangefinder"
 	"github.com/domino14/macondo/turnplayer"
 )
 
 const (
-	SimLog = "/tmp/simlog"
+	SimLog   = "/tmp/simlog"
+	InferLog = "/tmp/inferlog"
 )
 
 var (
@@ -96,7 +98,7 @@ type ShellController struct {
 
 	options *ShellOptions
 
-	game *aiturnplayer.BotTurnPlayer
+	game *bot.BotTurnPlayer
 
 	simmer        *montecarlo.Simmer
 	simCtx        context.Context
@@ -104,6 +106,9 @@ type ShellController struct {
 	simTicker     *time.Ticker
 	simTickerDone chan bool
 	simLogFile    *os.File
+
+	rangefinder     *rangefinder.RangeFinder
+	rangefinderFile *os.File
 
 	gameRunnerCtx     context.Context
 	gameRunnerCancel  context.CancelFunc
@@ -237,6 +242,9 @@ func (sc *ShellController) initGameDataStructures() error {
 	}
 
 	sc.backupgen = movegen.NewGordonGenerator(gd, sc.game.Board(), sc.game.Bag().LetterDistribution())
+
+	sc.rangefinder = &rangefinder.RangeFinder{}
+	sc.rangefinder.Init(sc.game.Game, []equity.EquityCalculator{c}, sc.config)
 	return nil
 }
 
@@ -328,7 +336,8 @@ func (sc *ShellController) loadGCG(args []string) error {
 	if err != nil {
 		return err
 	}
-	sc.game, err = aiturnplayer.NewBotTurnPlayerFromGame(g, sc.config, pb.BotRequest_HASTY_BOT)
+	conf := &bot.BotConfig{Config: *sc.config}
+	sc.game, err = bot.NewBotTurnPlayerFromGame(g, conf, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return err
 	}
@@ -352,7 +361,8 @@ func (sc *ShellController) loadCGP(cgpstr string) error {
 		log.Info().Msgf("cgp file had no lexicon, so using default lexicon %v",
 			lexicon)
 	}
-	sc.game, err = aiturnplayer.NewBotTurnPlayerFromGame(g, sc.config, pb.BotRequest_HASTY_BOT)
+	conf := &bot.BotConfig{Config: *sc.config}
+	sc.game, err = bot.NewBotTurnPlayerFromGame(g, conf, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return err
 	}
@@ -379,6 +389,7 @@ func (sc *ShellController) setToTurn(turnnum int) error {
 	log.Debug().Msgf("Set to turn %v", turnnum)
 	sc.curPlayList = nil
 	sc.simmer.Reset()
+	sc.rangefinder.Reset()
 	sc.curTurnNum = sc.game.Turn()
 	if sc.curTurnNum != turnnum {
 		return errors.New("unexpected turn number")
@@ -615,11 +626,11 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 		block = true
 	}
 
-	if options["numthreads"] == "" {
+	if options["threads"] == "" {
 		numthreads = runtime.NumCPU()
 	} else {
 		var err error
-		numthreads, err = strconv.Atoi(options["numthreads"])
+		numthreads, err = strconv.Atoi(options["threads"])
 		if err != nil {
 			return err
 		}
@@ -743,6 +754,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.autoplay(cmd)
 	case "sim":
 		return sc.sim(cmd)
+	case "infer":
+		return sc.infer(cmd)
 	case "add":
 		return sc.add(cmd)
 	case "challenge":

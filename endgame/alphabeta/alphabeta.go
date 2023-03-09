@@ -374,14 +374,13 @@ func (s *Solver) findBestSequence(endNode *GameNode) []*move.Move {
 
 // Solve solves the endgame given the current state of s.game, for the
 // current player whose turn it is in that state.
-func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
+func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, error) {
 	if s.game.Bag().TilesRemaining() > 0 {
 		return 0, nil, errors.New("bag is not empty; cannot use endgame solver")
 	}
 	log.Debug().Int("plies", plies).
 		Bool("iterative-deepening", s.iterativeDeepeningOn).
 		Bool("complex-evaluation", s.complexEvaluation).
-		Int("maxtimesecs", s.config.AlphaBetaTimeLimit).
 		Msg("alphabeta-solve-config")
 
 	tstart := time.Now()
@@ -405,13 +404,6 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 	// the root node is basically the board state prior to making any moves.
 	// the children of these nodes are the board states after every move.
 	// however we treat the children as those actual moves themsselves.
-
-	ctx := context.Background()
-	var cancel context.CancelFunc
-	if s.config.AlphaBetaTimeLimit > 0 {
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(s.config.AlphaBetaTimeLimit)*time.Second)
-		defer cancel()
-	}
 
 	s.initialSpread = s.game.CurrentSpread()
 	s.initialTurnNum = s.game.Turn()
@@ -437,7 +429,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 				s.currentIDDepth = p
 				bestNode, err := s.alphabeta(ctx, s.rootNode, initialHashKey, p, plies, float32(-Infinity), float32(Infinity), true)
 				if err != nil {
-					log.Err(err).Msg("alphabeta-error")
+					log.Info().AnErr("alphabeta-err", err).Msg("iterative-deepening-on")
 					break
 				} else {
 					bestNodeSoFar = bestNode
@@ -445,11 +437,11 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 					bestSeq = s.findBestSequence(bestNode)
 					s.lastPrincipalVariation = bestSeq
 
-					fmt.Printf("-- Spread swing estimate found after %d plies: %f", p, bestV)
+					log.Info().Msgf("-- Spread swing estimate found after %d plies: %f", p, bestV)
 					for idx, move := range bestSeq {
-						fmt.Printf(" %d) %v", idx+1, move.ShortDescription())
+						log.Info().Msgf(" %d) %v", idx+1, move.ShortDescription())
 					}
-					fmt.Printf(" with %d killer plays %v\n", len(s.killerCache), s.nodeCount)
+					log.Debug().Msgf(" with %d killer plays %v\n", len(s.killerCache), s.nodeCount)
 				}
 			}
 		} else {
@@ -457,7 +449,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 			s.lastPrincipalVariation = nil
 			bestNode, err := s.alphabeta(ctx, s.rootNode, initialHashKey, plies, plies, float32(-Infinity), float32(Infinity), true)
 			if err != nil {
-				log.Err(err).Msg("alphabeta-error")
+				log.Info().AnErr("alphabeta-err", err).Msg("iterative-deepening-off")
 			} else {
 				bestNodeSoFar = bestNode
 				bestV = bestNode.heuristicValue.value
@@ -530,7 +522,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 			// and search it first
 			found := false
 			for idx, play := range plays {
-				if play.Equals(killerPlay) {
+				if play.Equals(killerPlay, false, false) {
 					plays[0], plays[idx] = plays[idx], plays[0]
 					found = true
 					break
@@ -589,7 +581,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 			// and search it first
 			found := false
 			for idx, play := range plays {
-				if play.Equals(killerPlay) {
+				if play.Equals(killerPlay, false, false) {
 					plays[0], plays[idx] = plays[idx], plays[0]
 					found = true
 					break

@@ -6,45 +6,24 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/montecarlo"
 	"github.com/rs/zerolog/log"
 )
 
-func (sc *ShellController) handleSim(args []string) error {
+func (sc *ShellController) handleSim(args []string, options map[string]string) error {
 	var plies, threads int
 	var err error
+	stoppingCondition := montecarlo.StopNone
 	if sc.simmer == nil {
 		return errors.New("load a game or something")
 	}
-	// Determine whether the first argument is a string or not.
+
 	if len(args) > 0 {
-		plies, err = strconv.Atoi(args[0])
-		if err != nil {
-			// It was not able to be converted to an integer!
-			return sc.simControlArguments(args)
-		}
-	}
-
-	// Otherwise, this is a command to start a simulation from scratch.
-
-	switch {
-	case len(args) == 0:
-		plies = 2
-
-	case len(args) == 2:
-		threads, err = strconv.Atoi(args[1])
-		if err != nil {
-			return err
-		}
-		sc.simmer.SetThreads(threads)
-
-	case len(args) == 1:
-		// This is definitely a number, otherwise we would have failed
-		// this conversion up above. Do nothing; we already have the
-		// number of plies.
-	default:
-		return errors.New("unhandled arguments")
+		return sc.simControlArguments(args)
 	}
 
 	if len(sc.curPlayList) == 0 {
@@ -53,12 +32,88 @@ func (sc *ShellController) handleSim(args []string) error {
 	if sc.simmer.IsSimming() {
 		return errors.New("simming already, please do a `sim stop` first")
 	}
-	log.Debug().Int("plies", plies).Int("threads", threads).Msg("will start sim")
+	inferMode := montecarlo.InferenceOff
+	knownOppRack := ""
+	for opt, val := range options {
+		switch opt {
+		case "plies":
+			plies, err = strconv.Atoi(val)
+			if err != nil {
+				return err
+			}
+		case "threads":
+			threads, err = strconv.Atoi(val)
+			if err != nil {
+				return err
+			}
+		case "stop":
+			sci, err := strconv.Atoi(val)
+			if err != nil {
+				return err
+			}
+			switch sci {
+			case 95:
+				stoppingCondition = montecarlo.Stop95
+			case 98:
+				stoppingCondition = montecarlo.Stop98
+			case 99:
+				stoppingCondition = montecarlo.Stop99
+			default:
+				return errors.New("only allowed values are 95, 98, and 99 for stopping condition")
+			}
+		case "opprack":
+			knownOppRack = val
+
+		case "useinferences":
+			inferences := sc.rangefinder.Inferences()
+			if len(inferences) == 0 {
+				return errors.New("you must run `infer` first")
+			}
+			switch val {
+			case "cycle":
+				inferMode = montecarlo.InferenceCycle
+				sc.showMessage(fmt.Sprintf(
+					"Set inference mode to 'cycle' with %d inferences", len(inferences)))
+			case "random":
+				inferMode = montecarlo.InferenceRandom
+				sc.showMessage(fmt.Sprintf(
+					"Set inference mode to 'random' with %d inferences", len(inferences)))
+
+			default:
+				return errors.New("that inference mode is not supported")
+			}
+
+		default:
+			return errors.New("option " + opt + " not recognized")
+		}
+	}
+	if plies == 0 {
+		plies = 2
+	}
+
+	log.Debug().Int("plies", plies).Int("threads", threads).
+		Int("stoppingCondition", int(stoppingCondition)).Msg("will start sim")
 
 	if sc.game != nil {
+		if threads != 0 {
+			sc.simmer.SetThreads(threads)
+		}
 		err := sc.simmer.PrepareSim(plies, sc.curPlayList)
 		if err != nil {
 			return err
+		}
+		sc.simmer.SetStoppingCondition(stoppingCondition)
+
+		if knownOppRack != "" {
+			knownOppRack = strings.ToUpper(knownOppRack)
+			r, err := alphabet.ToMachineLetters(knownOppRack, sc.game.Alphabet())
+			if err != nil {
+				return err
+			}
+			sc.simmer.SetKnownOppRack(r)
+		}
+		if inferMode != montecarlo.InferenceOff {
+			sc.simmer.SetInferences(sc.rangefinder.Inferences(), inferMode)
 		}
 		sc.startSim()
 	}
@@ -75,8 +130,8 @@ func (sc *ShellController) startSim() {
 		err := sc.simmer.Simulate(sc.simCtx)
 		if err != nil {
 			sc.showError(err)
-			sc.simTickerDone <- true
 		}
+		sc.simTickerDone <- true
 		log.Debug().Msg("simulation thread exiting...")
 	}()
 

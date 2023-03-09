@@ -1,6 +1,11 @@
 package move
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/domino14/macondo/alphabet"
+	"github.com/matryer/is"
+)
 
 type coordTestStruct struct {
 	row      int
@@ -38,4 +43,36 @@ func TestFromBoardGameCoords(t *testing.T) {
 				tc.output, tc.row, tc.col, tc.vertical, row, col, vertical)
 		}
 	}
+}
+
+func TestEquals(t *testing.T) {
+	is := is.New(t)
+	m1 := NewScoringMoveSimple(35, "A7", "HELLO", "QI", alphabet.EnglishAlphabet())
+	m2 := NewScoringMoveSimple(35, "A7", "HELLO", "QI", alphabet.EnglishAlphabet())
+	is.True(m1.Equals(m2, false, false))
+	m3 := NewScoringMoveSimple(35, "A7", "HELLO", "Q?", alphabet.EnglishAlphabet())
+	is.True(!m1.Equals(m3, false, false))
+}
+
+func TestEqualsWithTransposition(t *testing.T) {
+	is := is.New(t)
+	m1 := NewScoringMoveSimple(66, "H8", "TERTIAL", "", alphabet.EnglishAlphabet())
+	m2 := NewScoringMoveSimple(66, "8H", "TERTIAL", "", alphabet.EnglishAlphabet())
+	is.True(!m1.Equals(m2, false, false))
+	is.True(m1.Equals(m2, true, false))
+
+	m3 := NewScoringMoveSimple(24, "8H", "PHEW", "", alphabet.EnglishAlphabet())
+	m4 := NewScoringMoveSimple(24, "8F", "PHEW", "", alphabet.EnglishAlphabet())
+	is.True(!m3.Equals(m4, true, false))
+
+}
+
+func TestEqualsWithLeaveIgnore(t *testing.T) {
+	is := is.New(t)
+	m1 := NewScoringMoveSimple(66, "H8", "WHAT", "ABC", alphabet.EnglishAlphabet())
+	m2 := NewScoringMoveSimple(66, "8H", "WHAT", "F", alphabet.EnglishAlphabet())
+	is.True(!m1.Equals(m2, false, false))
+	is.True(!m1.Equals(m2, false, true))
+	is.True(m1.Equals(m2, true, true))
+	is.True(!m1.Equals(m2, true, false))
 }

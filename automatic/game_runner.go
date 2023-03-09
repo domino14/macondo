@@ -4,13 +4,15 @@
 package automatic
 
 import (
+	"context"
 	"fmt"
+	"time"
 
+	"github.com/domino14/macondo/ai/bot"
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
@@ -19,6 +21,9 @@ import (
 
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
+
+var MaxTimePerTurn = 15 * time.Second
+var MaxTimePerEndgame = 10 * time.Second
 
 // GameRunner is the master struct here for the automatic game logic.
 type GameRunner struct {
@@ -84,26 +89,18 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 		pegfile := players[idx].PEGFile
 		botcode := players[idx].BotCode
 		log.Info().Msgf("botcode %v", botcode)
-		var calcs []equity.EquityCalculator
-		if botcode == pb.BotRequest_NO_LEAVE_BOT {
-			calc := equity.NewNoLeaveCalculator()
-			calcs = []equity.EquityCalculator{calc}
-		} else {
-			calc, err := equity.NewCombinedStaticCalculator(r.gaddag.LexiconName(),
-				r.config, leavefile, pegfile)
-			if err != nil {
-				return err
-			}
-			calcs = []equity.EquityCalculator{calc}
+
+		conf := &bot.BotConfig{
+			Config:            *r.config,
+			PEGAdjustmentFile: pegfile,
+			LeavesFile:        leavefile,
 		}
-		tp, err := aiturnplayer.NewAIStaticTurnPlayerFromGame(r.game, r.config, calcs)
+
+		btp, err := bot.NewBotTurnPlayerFromGame(r.game, conf, botcode)
 		if err != nil {
 			return err
 		}
-		btp := &aiturnplayer.BotTurnPlayer{
-			AIStaticTurnPlayer: *tp,
-		}
-		btp.SetBotType(botcode)
+
 		r.aiplayers[idx] = btp
 	}
 	return nil
@@ -130,13 +127,23 @@ func (r *GameRunner) genBestMoveForBot(playerIdx int) *move.Move {
 		// For HastyBot we only need to generate one single best static turn.
 		return r.genBestStaticTurn(playerIdx)
 	}
+	maxTime := MaxTimePerTurn
+	if r.game.Bag().TilesRemaining() == 0 {
+		log.Debug().Msg("runner-bag-is-empty")
+		maxTime = MaxTimePerEndgame
+	}
 	// Otherwise use the bot's GenerateMoves function.
-	return r.aiplayers[playerIdx].GenerateMoves(1)[0]
+	ctx, cancel := context.WithTimeout(context.Background(), maxTime)
+	defer cancel()
+	m, err := r.aiplayers[playerIdx].BestPlay(ctx)
+	if err != nil {
+		log.Err(err).Msg("generating best move for bot")
+	}
+	return m
 }
 
-// PlayBestStaticTurn generates the best static move for the player and
-// plays it on the board.
-func (r *GameRunner) PlayBestStaticTurn(playerIdx int, addToHistory bool) error {
+// PlayBestTurn generates the best move for the player and plays it on the board.
+func (r *GameRunner) PlayBestTurn(playerIdx int, addToHistory bool) error {
 	bestPlay := r.genBestMoveForBot(playerIdx)
 	// save rackLetters for logging.
 	rackLetters := r.game.RackLettersFor(playerIdx)
