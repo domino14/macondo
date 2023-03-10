@@ -4,7 +4,6 @@ import (
 	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/gaddag"
-	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/move"
 )
 
@@ -169,7 +168,7 @@ func genCrossScore(b *Board, row int, col int, dir board.BoardDirection,
 
 type GaddagCrossSetGenerator struct {
 	Dist   *alphabet.LetterDistribution
-	Gaddag gaddag.GenericDawg
+	Gaddag gaddag.WordGraph
 }
 
 func (g GaddagCrossSetGenerator) Generate(b *Board, row int, col int, dir board.BoardDirection) {
@@ -186,13 +185,13 @@ func (g GaddagCrossSetGenerator) UpdateForMove(b *Board, m *move.Move) {
 
 // Wrapper functions to save rewriting all the tests
 
-func GenAllCrossSets(b *Board, gd gaddag.GenericDawg, ld *alphabet.LetterDistribution) {
+func GenAllCrossSets(b *Board, gd gaddag.WordGraph, ld *alphabet.LetterDistribution) {
 	gen := GaddagCrossSetGenerator{Dist: ld, Gaddag: gd}
 	gen.GenerateAll(b)
 }
 
 func UpdateCrossSetsForMove(b *Board, m *move.Move,
-	gd gaddag.GenericDawg, ld *alphabet.LetterDistribution) {
+	gd gaddag.WordGraph, ld *alphabet.LetterDistribution) {
 	gen := GaddagCrossSetGenerator{Dist: ld, Gaddag: gd}
 	gen.UpdateForMove(b, m)
 }
@@ -202,7 +201,7 @@ func UpdateCrossSetsForMove(b *Board, m *move.Move,
 
 func traverseBackwards(b *Board, row int, col int,
 	nodeIdx uint32, checkLetterSet bool, leftMostCol int,
-	gaddag gaddag.GenericDawg) (uint32, bool) {
+	gaddag gaddag.WordGraph) (uint32, bool) {
 	// Traverse the letters on the board backwards (left). Return the index
 	// of the node in the gaddag for the left-most letter, and a boolean
 	// indicating if the gaddag path was valid.
@@ -241,7 +240,7 @@ func traverseBackwards(b *Board, row int, col int,
 
 // GenCrossSet generates a cross-set for each individual square.
 func GenCrossSet(b *Board, row int, col int, dir board.BoardDirection,
-	gaddag gaddag.GenericDawg, ld *alphabet.LetterDistribution) {
+	gaddag gaddag.WordGraph, ld *alphabet.LetterDistribution) {
 
 	if row < 0 || row >= b.Dim() || col < 0 || col >= b.Dim() {
 		return
@@ -309,21 +308,16 @@ func GenCrossSet(b *Board, row int, col int, dir board.BoardDirection,
 			// Both the left and the right have a tile. Go through the
 			// siblings, from the right, to see what nodes lead to the left.
 
-			numArcs := gaddag.NumArcs(lNodeIdx)
 			b.SetCrossSet(row, col, 0, dir)
-			for i := lNodeIdx + 1; i <= uint32(numArcs)+lNodeIdx; i++ {
-				ml := alphabet.MachineLetter(gaddag.Nodes()[i] >>
-					gaddagmaker.LetterBitLoc)
+			gaddag.IterateSiblings(lNodeIdx, func(ml alphabet.MachineLetter, nnidx uint32) {
 				if ml == alphabet.SeparationMachineLetter {
-					continue
+					return
 				}
-				nnIdx := gaddag.Nodes()[i] & gaddagmaker.NodeIdxBitMask
-				_, success := traverseBackwards(b, row, col-1, nnIdx, true,
-					leftCol, gaddag)
+				_, success := traverseBackwards(b, row, col-1, nnidx, true, leftCol, gaddag)
 				if success {
 					b.SetCrossSetLetter(row, col, dir, ml)
 				}
-			}
+			})
 		}
 	}
 }

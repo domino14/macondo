@@ -59,7 +59,7 @@ type GordonGenerator struct {
 	// These are pointers to the actual structures in `game`. They are
 	// duplicated here to speed up the algorithm, since we access them
 	// so frequently (yes it makes a difference)
-	gaddag *gaddag.SimpleGaddag
+	gaddag gaddag.WordGraph
 	board  *board.GameBoard
 	// Used for scoring:
 	letterDistribution *alphabet.LetterDistribution
@@ -79,13 +79,13 @@ type GordonGenerator struct {
 }
 
 // NewGordonGenerator returns a Gordon move generator.
-func NewGordonGenerator(gd *gaddag.SimpleGaddag, board *board.GameBoard,
+func NewGordonGenerator(gd gaddag.WordGraph, board *board.GameBoard,
 	ld *alphabet.LetterDistribution) *GordonGenerator {
 
 	gen := &GordonGenerator{
 		gaddag:             gd,
 		board:              board,
-		numPossibleLetters: int(gd.GetAlphabet().NumLetters()),
+		numPossibleLetters: int(ld.Alphabet().NumLetters()),
 		sortingParameter:   SortByScore,
 		letterDistribution: ld,
 		strip:              make([]alphabet.MachineLetter, board.Dim()),

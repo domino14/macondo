@@ -32,7 +32,7 @@ func AllPlaysRecorder(gen *GordonGenerator, rack *alphabet.Rack, leftstrip, righ
 		word := make([]alphabet.MachineLetter, length)
 		copy(word, gen.strip[startCol:startCol+length])
 
-		alph := gen.gaddag.GetAlphabet()
+		alph := gen.letterDistribution.Alphabet()
 		play := move.NewScoringMove(gen.scoreMove(word, startRow, startCol, tilesPlayed),
 			word, rack.TilesOn(), gen.vertical,
 			tilesPlayed, alph, row, col)
@@ -43,7 +43,7 @@ func AllPlaysRecorder(gen *GordonGenerator, rack *alphabet.Rack, leftstrip, righ
 		if rightstrip == 0 {
 			return
 		}
-		alph := gen.gaddag.GetAlphabet()
+		alph := gen.letterDistribution.Alphabet()
 		exchanged := make([]alphabet.MachineLetter, rightstrip)
 		copy(exchanged, gen.exchangestrip[:rightstrip])
 		play := move.NewExchangeMove(exchanged, rack.TilesOn(), alph)

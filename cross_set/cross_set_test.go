@@ -11,6 +11,7 @@ import (
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddag"
+	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/testcommon"
 	"github.com/matryer/is"
@@ -47,8 +48,7 @@ func TestMain(m *testing.M) {
 func TestGenCrossSetLoadedGame(t *testing.T) {
 	is := is.New(t)
 
-	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
-	gd, err := gaddag.LoadGaddag(path)
+	gd, err := kwg.Get(&DefaultConfig, "NWL18")
 	is.NoErr(err)
 	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 	is.NoErr(err)
@@ -97,8 +97,7 @@ type crossSetEdgeTestCase struct {
 func TestGenCrossSetEdges(t *testing.T) {
 	is := is.New(t)
 
-	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
-	gd, err := gaddag.LoadGaddag(path)
+	gd, err := kwg.Get(&DefaultConfig, "NWL20")
 	is.NoErr(err)
 	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 	is.NoErr(err)
@@ -144,8 +143,7 @@ func TestGenCrossSetEdges(t *testing.T) {
 func TestGenAllCrossSets(t *testing.T) {
 	is := is.New(t)
 
-	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
-	gd, err := gaddag.LoadGaddag(path)
+	gd, err := kwg.Get(&DefaultConfig, "America")
 	is.NoErr(err)
 	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 	is.NoErr(err)
@@ -225,8 +223,7 @@ func TestGenAllCrossSets(t *testing.T) {
 func TestBoardsEqual(t *testing.T) {
 	is := is.New(t)
 
-	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
-	gd, err := gaddag.LoadGaddag(path)
+	gd, err := kwg.Get(&DefaultConfig, "NWL20")
 	is.NoErr(err)
 	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 	is.NoErr(err)
@@ -247,7 +244,7 @@ func TestBoardsEqual(t *testing.T) {
 
 func TestPlaceMoveTiles(t *testing.T) {
 
-	gd, _ := GaddagFromLexicon("America")
+	gd, _ := kwg.Get(&DefaultConfig, "NWL20")
 	b := board.MakeBoard(board.CrosswordGameBoard)
 	alph := gd.GetAlphabet()
 
@@ -261,7 +258,7 @@ func TestPlaceMoveTiles(t *testing.T) {
 }
 
 func TestUnplaceMoveTiles(t *testing.T) {
-	gd, _ := GaddagFromLexicon("America")
+	gd, _ := kwg.Get(&DefaultConfig, "NWL20")
 	b := board.MakeBoard(board.CrosswordGameBoard)
 	alph := gd.GetAlphabet()
 
@@ -284,8 +281,7 @@ type updateCrossesForMoveTestCase struct {
 func TestUpdateCrossSetsForMove(t *testing.T) {
 	is := is.New(t)
 
-	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
-	gd, err := gaddag.LoadGaddag(path)
+	gd, err := kwg.Get(&DefaultConfig, "NWL20")
 	is.NoErr(err)
 	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 	is.NoErr(err)
@@ -383,8 +379,7 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 func TestUpdateSingleCrossSet(t *testing.T) {
 	is := is.New(t)
 
-	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
-	gd, err := gaddag.LoadGaddag(path)
+	gd, err := kwg.Get(&DefaultConfig, "NWL20")
 	is.NoErr(err)
 	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 	is.NoErr(err)
@@ -563,8 +558,7 @@ func compareCrossScores(t *testing.T, b1 *board.GameBoard, b2 *board.GameBoard) 
 func TestCompareUpdate(t *testing.T) {
 	is := is.New(t)
 
-	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
-	gd, err := gaddag.LoadGaddag(path)
+	gd, err := kwg.Get(&DefaultConfig, "NWL20")
 	is.NoErr(err)
 	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 	is.NoErr(err)
@@ -610,8 +604,7 @@ func TestCompareUpdate(t *testing.T) {
 func TestCompareGenAll(t *testing.T) {
 	is := is.New(t)
 
-	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
-	gd, err := gaddag.LoadGaddag(path)
+	gd, err := kwg.Get(&DefaultConfig, "NWL20")
 	is.NoErr(err)
 	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 	is.NoErr(err)
@@ -643,8 +636,7 @@ func TestCompareGenAll(t *testing.T) {
 func BenchmarkGenAnchorsAndCrossSets(b *testing.B) {
 	is := is.New(b)
 
-	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
-	gd, err := gaddag.LoadGaddag(path)
+	gd, err := kwg.Get(&DefaultConfig, "NWL20")
 	is.NoErr(err)
 	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 	is.NoErr(err)
@@ -666,8 +658,7 @@ func BenchmarkMakePlay(b *testing.B) {
 	// (as opposed to generating all of them from scratch)
 	is := is.New(b)
 
-	path := filepath.Join(DefaultConfig.LexiconPath, "gaddag", "America.gaddag")
-	gd, err := gaddag.LoadGaddag(path)
+	gd, err := kwg.Get(&DefaultConfig, "NWL20")
 	is.NoErr(err)
 	dist, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
 	is.NoErr(err)

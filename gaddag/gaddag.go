@@ -193,3 +193,12 @@ func (g *SimpleGaddag) Type() GenericDawgType {
 func (g *SimpleGaddag) Nodes() []uint32 {
 	return g.nodes
 }
+
+func (g *SimpleGaddag) IterateSiblings(nodeIdx uint32, cb func(ml alphabet.MachineLetter, nextNodeIdx uint32)) {
+	numArcs := g.NumArcs(nodeIdx)
+	for i := nodeIdx + 1; i <= uint32(numArcs)+nodeIdx; i++ {
+		ml := alphabet.MachineLetter(g.nodes[i] >> gaddagmaker.LetterBitLoc)
+		nn := g.nodes[i] & gaddagmaker.NodeIdxBitMask
+		cb(ml, nn)
+	}
+}

@@ -16,6 +16,7 @@ type GenericDawgType string
 const (
 	TypeGaddag GenericDawgType = "gaddag"
 	TypeDawg   GenericDawgType = "dawg"
+	TypeKwg    GenericDawgType = "kwg"
 )
 
 type GenericDawg interface {

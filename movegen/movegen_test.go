@@ -13,6 +13,7 @@ import (
 	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/gaddag"
+	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/testcommon"
 	"github.com/matryer/is"
@@ -28,8 +29,12 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func GaddagFromLexicon(lex string) (*gaddag.SimpleGaddag, error) {
-	return gaddag.LoadGaddag(filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag"))
+// func GaddagFromLexicon(lex string) (*gaddag.SimpleGaddag, error) {
+// 	return gaddag.LoadGaddag(filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag"))
+// }
+
+func GaddagFromLexicon(lex string) (gaddag.WordGraph, error) {
+	return kwg.LoadKWG(&DefaultConfig, filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".kwg"))
 }
 
 func Filter(moves []*move.Move, f func(*move.Move) bool) []*move.Move {
@@ -58,7 +63,7 @@ func TestGenBase(t *testing.T) {
 	// Sanity check. A board with no cross checks should generate nothing.
 	is := is.New(t)
 
-	gd, err := GaddagFromLexicon("America")
+	gd, err := GaddagFromLexicon("NWL18")
 	is.NoErr(err)
 	rack := alphabet.RackFromString("AEINRST", gd.GetAlphabet())
 	board := board.MakeBoard(board.CrosswordGameBoard)
@@ -88,7 +93,7 @@ type SimpleGenTestCase struct {
 func TestSimpleRowGen(t *testing.T) {
 	is := is.New(t)
 
-	gd, err := GaddagFromLexicon("America")
+	gd, err := GaddagFromLexicon("NWL20")
 	is.NoErr(err)
 	var cases = []SimpleGenTestCase{
 		{"P", 11, 2, "     REGNANT", 1},
@@ -126,7 +131,7 @@ func TestGenThroughBothWaysAllowedLetters(t *testing.T) {
 	// Basically, allow HITHERMOST but not NETHERMOST.
 	is := is.New(t)
 
-	gd, err := GaddagFromLexicon("America")
+	gd, err := GaddagFromLexicon("NWL20")
 	is.NoErr(err)
 	rack := alphabet.RackFromString("ABEHINT", gd.GetAlphabet())
 	bd := board.MakeBoard(board.CrosswordGameBoard)
@@ -157,7 +162,7 @@ func TestGenThroughBothWaysAllowedLetters(t *testing.T) {
 func TestRowGen(t *testing.T) {
 	is := is.New(t)
 
-	gd, err := GaddagFromLexicon("America")
+	gd, err := GaddagFromLexicon("NWL20")
 	is.NoErr(err)
 	bd := board.MakeBoard(board.CrosswordGameBoard)
 	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
@@ -192,7 +197,7 @@ func TestRowGen(t *testing.T) {
 func TestOtherRowGen(t *testing.T) {
 	is := is.New(t)
 
-	gd, err := GaddagFromLexicon("America")
+	gd, err := GaddagFromLexicon("NWL20")
 	is.NoErr(err)
 
 	bd := board.MakeBoard(board.CrosswordGameBoard)
@@ -221,7 +226,7 @@ func TestOtherRowGen(t *testing.T) {
 func TestOneMoreRowGen(t *testing.T) {
 	is := is.New(t)
 
-	gd, err := GaddagFromLexicon("America")
+	gd, err := GaddagFromLexicon("NWL20")
 	is.NoErr(err)
 
 	bd := board.MakeBoard(board.CrosswordGameBoard)
@@ -249,7 +254,7 @@ func TestOneMoreRowGen(t *testing.T) {
 func TestGenMoveJustOnce(t *testing.T) {
 	is := is.New(t)
 
-	gd, err := GaddagFromLexicon("America")
+	gd, err := GaddagFromLexicon("NWL20")
 	is.NoErr(err)
 
 	bd := board.MakeBoard(board.CrosswordGameBoard)
@@ -272,14 +277,14 @@ func TestGenMoveJustOnce(t *testing.T) {
 		generator.lastAnchorCol = anchorCol
 	}
 	if len(generator.plays) != 34 {
-		t.Errorf("Expected %v, got %v plays", 34, generator.plays)
+		t.Errorf("Expected %v, got %v (%d) plays", 34, generator.plays, len(generator.plays))
 	}
 }
 
 func TestGenAllMovesSingleTile(t *testing.T) {
 	is := is.New(t)
 
-	gd, err := GaddagFromLexicon("America")
+	gd, err := GaddagFromLexicon("NWL20")
 	is.NoErr(err)
 	alph := gd.GetAlphabet()
 
@@ -298,7 +303,7 @@ func TestGenAllMovesSingleTile(t *testing.T) {
 func TestGenAllMovesFullRack(t *testing.T) {
 	is := is.New(t)
 
-	gd, err := GaddagFromLexicon("America")
+	gd, err := GaddagFromLexicon("NWL20")
 	is.NoErr(err)
 	alph := gd.GetAlphabet()
 
@@ -310,8 +315,9 @@ func TestGenAllMovesFullRack(t *testing.T) {
 	cross_set.GenAllCrossSets(bd, gd, ld)
 
 	generator.GenAll(alphabet.RackFromString("AABDELT", alph), true)
-	// There should be 673 unique scoring plays and 95 exchanges.
-	assert.Equal(t, 673, len(scoringPlays(generator.plays)))
+
+	// There should be 667 unique scoring plays and 95 exchanges.
+	assert.Equal(t, 667, len(scoringPlays(generator.plays)))
 	assert.Equal(t, 95, len(nonScoringPlays(generator.plays)))
 
 	highestScores := []int{38, 36, 36, 34, 34, 33, 30, 30, 30, 28}
@@ -323,7 +329,7 @@ func TestGenAllMovesFullRack(t *testing.T) {
 func TestGenAllMovesFullRackAgain(t *testing.T) {
 	is := is.New(t)
 
-	gd, err := GaddagFromLexicon("America")
+	gd, err := GaddagFromLexicon("NWL20")
 	is.NoErr(err)
 	alph := gd.GetAlphabet()
 
@@ -445,7 +451,7 @@ func TestGenAllMovesWithBlanks(t *testing.T) {
 func TestTopPlayOnlyRecorder(t *testing.T) {
 	is := is.New(t)
 
-	gd, err := GaddagFromLexicon("America")
+	gd, err := GaddagFromLexicon("NWL20")
 	is.NoErr(err)
 	alph := gd.GetAlphabet()
 
@@ -518,7 +524,7 @@ func TestGenerateEmptyBoard(t *testing.T) {
 func TestGenerateNoPlays(t *testing.T) {
 	is := is.New(t)
 
-	gd, err := GaddagFromLexicon("America")
+	gd, err := GaddagFromLexicon("NWL20")
 	is.NoErr(err)
 	alph := gd.GetAlphabet()
 
@@ -540,7 +546,7 @@ func TestRowEquivalent(t *testing.T) {
 	is := is.New(t)
 
 	// XXX: This test should probably be in the board.
-	gd, err := GaddagFromLexicon("America")
+	gd, err := GaddagFromLexicon("NWL20")
 	is.NoErr(err)
 	alph := gd.GetAlphabet()
 
@@ -677,7 +683,7 @@ func TestGenExchange(t *testing.T) {
 	rack := alphabet.RackFromString("ABCDEF?", alphabet.EnglishAlphabet())
 
 	bd := board.MakeBoard(board.CrosswordGameBoard)
-	gd, _ := GaddagFromLexicon("America")
+	gd, _ := GaddagFromLexicon("NWL20")
 	ld, _ := alphabet.EnglishLetterDistribution(&DefaultConfig)
 	gen := NewGordonGenerator(gd, bd, ld)
 
