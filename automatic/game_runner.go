@@ -28,7 +28,7 @@ var MaxTimePerEndgame = 10 * time.Second
 // GameRunner is the master struct here for the automatic game logic.
 type GameRunner struct {
 	game     *game.Game
-	gaddag   gaddag.GenericDawg
+	gaddag   gaddag.WordGraph
 	alphabet *alphabet.Alphabet
 
 	lexicon            string
