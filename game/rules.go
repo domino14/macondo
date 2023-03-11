@@ -3,12 +3,12 @@ package game
 import (
 	"errors"
 
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/cross_set"
-	"github.com/domino14/macondo/gaddag"
+	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/lexicon"
+	"github.com/domino14/macondo/tilemapping"
 )
 
 type Variant string
@@ -32,7 +32,7 @@ const (
 type GameRules struct {
 	cfg         *config.Config
 	board       *board.GameBoard
-	dist        *alphabet.LetterDistribution
+	dist        *tilemapping.LetterDistribution
 	lexicon     lexicon.Lexicon
 	crossSetGen cross_set.Generator
 	variant     Variant
@@ -48,7 +48,7 @@ func (g GameRules) Board() *board.GameBoard {
 	return g.board
 }
 
-func (g GameRules) LetterDistribution() *alphabet.LetterDistribution {
+func (g GameRules) LetterDistribution() *tilemapping.LetterDistribution {
 	return g.dist
 }
 
@@ -80,7 +80,7 @@ func NewBasicGameRules(cfg *config.Config,
 	lexiconName, boardLayoutName, letterDistributionName, csetGenName string,
 	variant Variant) (*GameRules, error) {
 
-	dist, err := alphabet.Get(cfg, letterDistributionName)
+	dist, err := tilemapping.GetDistribution(cfg, letterDistributionName)
 	if err != nil {
 		return nil, err
 	}
@@ -99,27 +99,26 @@ func NewBasicGameRules(cfg *config.Config,
 	var csgen cross_set.Generator
 	switch csetGenName {
 	case CrossScoreOnly:
-		// just use dawg
 		if lexiconName == "" {
-			lex = &lexicon.AcceptAll{Alph: dist.Alphabet()}
+			lex = &lexicon.AcceptAll{Alph: dist.TileMapping()}
 		} else {
-			dawg, err := gaddag.GetDawg(cfg, lexiconName)
+			k, err := kwg.Get(cfg, lexiconName)
 			if err != nil {
 				return nil, err
 			}
-			lex = &gaddag.Lexicon{GenericDawg: dawg}
+			lex = &kwg.Lexicon{KWG: *k}
 		}
 		csgen = cross_set.CrossScoreOnlyGenerator{Dist: dist}
 	case CrossScoreAndSet:
 		if lexiconName == "" {
 			return nil, errors.New("lexicon name is required for this cross-set option")
 		} else {
-			gd, err := gaddag.Get(cfg, lexiconName)
+			k, err := kwg.Get(cfg, lexiconName)
 			if err != nil {
 				return nil, err
 			}
-			lex = &gaddag.Lexicon{GenericDawg: gd}
-			csgen = cross_set.GaddagCrossSetGenerator{Dist: dist, Gaddag: gd}
+			lex = &kwg.Lexicon{KWG: *k}
+			csgen = cross_set.GaddagCrossSetGenerator{Dist: dist, Gaddag: k}
 		}
 	}
 

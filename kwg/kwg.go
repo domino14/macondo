@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"io"
 
-	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/rs/zerolog/log"
 )
 
@@ -13,8 +13,9 @@ import (
 // Thanks to Andy Kurnia.
 type KWG struct {
 	// Nodes is just a slice of 32-bit elements, the node array.
-	nodes    []uint32
-	alphabet *alphabet.Alphabet
+	nodes       []uint32
+	alphabet    *tilemapping.TileMapping
+	lexiconName string
 }
 
 func ScanKWG(data io.Reader) (*KWG, error) {
@@ -38,22 +39,17 @@ func (k *KWG) GetRootNodeIndex() uint32 {
 	return k.arcIndex(1)
 }
 
-func (k *KWG) GetAlphabet() *alphabet.Alphabet {
+func (k *KWG) GetAlphabet() *tilemapping.TileMapping {
 	return k.alphabet
 }
 
-func (k *KWG) NextNodeIdx(nodeIdx uint32, letter alphabet.MachineLetter) uint32 {
-	// we need to add 1 to an alphabet.MachineLetter to turn it into a Kurnia
-	// machine letter.
-	// XXX: let's fix this later and make them match.
-	// Kurnia: 1-26 A-Z, 0: special GADDAG token
-	// Cesar: 0-25 A-Z, 50: special GADDAG token
-	var kletter uint8
-	if letter != alphabet.SeparationMachineLetter {
-		kletter = uint8(letter) + 1
-	} // else already 0
+func (k *KWG) LexiconName() string {
+	return k.lexiconName
+}
+
+func (k *KWG) NextNodeIdx(nodeIdx uint32, letter tilemapping.MachineLetter) uint32 {
 	for i := nodeIdx; ; i++ {
-		if k.tile(i) == kletter {
+		if k.tile(i) == uint8(letter) {
 			return k.arcIndex(i)
 		}
 		if k.isEnd(i) {
@@ -62,16 +58,10 @@ func (k *KWG) NextNodeIdx(nodeIdx uint32, letter alphabet.MachineLetter) uint32 
 	}
 }
 
-func (k *KWG) InLetterSet(letter alphabet.MachineLetter, nodeIdx uint32) bool {
-	if letter >= alphabet.BlankOffset {
-		letter -= alphabet.BlankOffset
-	}
-	var kletter uint8
-	if letter != alphabet.SeparationMachineLetter {
-		kletter = uint8(letter) + 1
-	} // else already 0
+func (k *KWG) InLetterSet(letter tilemapping.MachineLetter, nodeIdx uint32) bool {
+	letter = letter.Unblank()
 	for i := nodeIdx; ; i++ {
-		if k.tile(i) == kletter {
+		if k.tile(i) == uint8(letter) {
 			return k.accepts(i)
 		}
 		if k.isEnd(i) {
@@ -80,16 +70,10 @@ func (k *KWG) InLetterSet(letter alphabet.MachineLetter, nodeIdx uint32) bool {
 	}
 }
 
-func (k *KWG) GetLetterSet(nodeIdx uint32) alphabet.LetterSet {
-	var ls alphabet.LetterSet
+func (k *KWG) GetLetterSet(nodeIdx uint32) tilemapping.LetterSet {
+	var ls tilemapping.LetterSet
 	for i := nodeIdx; ; i++ {
 		t := k.tile(i)
-		// XXX Ugly conversion to undo later:
-		if t == 0 {
-			t = alphabet.SeparationMachineLetter
-		} else {
-			t--
-		}
 		if k.accepts(i) {
 			ls |= (1 << t)
 		}
@@ -116,21 +100,15 @@ func (k *KWG) tile(nodeIdx uint32) uint8 {
 	return uint8(k.nodes[nodeIdx] >> 24)
 }
 
-func (k *KWG) IterateSiblings(nodeIdx uint32, cb func(ml alphabet.MachineLetter, nnidx uint32)) {
+func (k *KWG) IterateSiblings(nodeIdx uint32, cb func(ml tilemapping.MachineLetter, nnidx uint32)) {
 	if k.isEnd(nodeIdx) {
 		// no siblings.
 		return
 	}
 	for i := nodeIdx + 1; ; i++ {
 		t := k.tile(i)
-		// XXX Ugly conversion to undo later:
-		if t == 0 {
-			t = alphabet.SeparationMachineLetter
-		} else {
-			t--
-		}
 		nn := k.arcIndex(i)
-		cb(alphabet.MachineLetter(t), nn)
+		cb(tilemapping.MachineLetter(t), nn)
 		if k.isEnd(i) {
 			break
 		}

@@ -1,9 +1,9 @@
 package equity
 
 import (
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/tilemapping"
 )
 
 // EndgameAdjustmentCalculator returns an equity adjustment for endgame plays.
@@ -12,7 +12,7 @@ import (
 type EndgameAdjustmentCalculator struct{}
 
 func (eac EndgameAdjustmentCalculator) Equity(play *move.Move, board *board.GameBoard,
-	bag *alphabet.Bag, oppRack *alphabet.Rack) float64 {
+	bag *tilemapping.Bag, oppRack *tilemapping.Rack) float64 {
 
 	if bag.TilesRemaining() > 0 {
 		return 0.0
@@ -20,7 +20,7 @@ func (eac EndgameAdjustmentCalculator) Equity(play *move.Move, board *board.Game
 	return endgameAdjustment(play, oppRack, bag.LetterDistribution())
 }
 
-func endgameAdjustment(play *move.Move, oppRack *alphabet.Rack, ld *alphabet.LetterDistribution) float64 {
+func endgameAdjustment(play *move.Move, oppRack *tilemapping.Rack, ld *tilemapping.LetterDistribution) float64 {
 	if len(play.Leave()) != 0 {
 		// This play is not going out. We should penalize it by our own score
 		// plus some constant. XXX: Determine this in a better way.

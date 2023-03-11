@@ -3,19 +3,20 @@ package game
 import (
 	"testing"
 
-	"github.com/domino14/macondo/alphabet"
+	"github.com/matryer/is"
+
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
-	"github.com/matryer/is"
+	"github.com/domino14/macondo/tilemapping"
 )
 
 func TestEventFromMove(t *testing.T) {
 	is := is.New(t)
-	alph := alphabet.EnglishAlphabet()
+	alph := tilemapping.EnglishAlphabet()
 
-	tiles, err := alphabet.ToMachineWord("?EGKMNO", alph)
+	tiles, err := tilemapping.ToMachineWord("?EGKMNO", alph)
 	is.NoErr(err)
-	leave, err := alphabet.ToMachineWord("", alph)
+	leave, err := tilemapping.ToMachineWord("", alph)
 	is.NoErr(err)
 
 	m := move.NewExchangeMove(tiles, leave, alph)

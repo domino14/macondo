@@ -3,12 +3,12 @@ package game_test
 import (
 	"testing"
 
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/tilemapping"
 
 	"github.com/matryer/is"
 )
@@ -26,7 +26,7 @@ func TestChallengeVoid(t *testing.T) {
 	alph := game.Alphabet()
 	game.StartGame()
 	game.SetPlayerOnTurn(0)
-	game.SetRackFor(0, alphabet.RackFromString("EFFISTW", alph))
+	game.SetRackFor(0, tilemapping.RackFromString("EFFISTW", alph))
 	game.SetChallengeRule(pb.ChallengeRule_VOID)
 	m := move.NewScoringMoveSimple(90, "8C", "SWIFFET", "", alph)
 	_, err = game.ValidateMove(m)
@@ -45,7 +45,7 @@ func TestChallengeDoubleIsLegal(t *testing.T) {
 	alph := g.Alphabet()
 	g.StartGame()
 	g.SetPlayerOnTurn(0)
-	g.SetRackFor(0, alphabet.RackFromString("IFFIEST", alph))
+	g.SetRackFor(0, tilemapping.RackFromString("IFFIEST", alph))
 	g.SetChallengeRule(pb.ChallengeRule_DOUBLE)
 	m := move.NewScoringMoveSimple(84, "8C", "IFFIEST", "", alph)
 	_, err = g.ValidateMove(m)
@@ -73,7 +73,7 @@ func TestChallengeDoubleIsIllegal(t *testing.T) {
 	g.SetBackupMode(game.InteractiveGameplayMode)
 	g.SetStateStackLength(1)
 	g.SetPlayerOnTurn(0)
-	g.SetRackFor(0, alphabet.RackFromString("IFFIEST", alph))
+	g.SetRackFor(0, tilemapping.RackFromString("IFFIEST", alph))
 	g.SetChallengeRule(pb.ChallengeRule_DOUBLE)
 	m := move.NewScoringMoveSimple(84, "8C", "IFFITES", "", alph)
 	_, err = g.ValidateMove(m)
@@ -160,7 +160,7 @@ func TestChallengeTripleUnsuccessful(t *testing.T) {
 	alph := g.Alphabet()
 	g.StartGame()
 	g.SetPlayerOnTurn(0)
-	g.SetRackFor(0, alphabet.RackFromString("IFFIEST", alph))
+	g.SetRackFor(0, tilemapping.RackFromString("IFFIEST", alph))
 	g.SetChallengeRule(pb.ChallengeRule_TRIPLE)
 	m := move.NewScoringMoveSimple(84, "8C", "IFFIEST", "", alph)
 	_, err = g.ValidateMove(m)
@@ -189,7 +189,7 @@ func TestChallengeTripleSuccessful(t *testing.T) {
 	g.SetBackupMode(game.InteractiveGameplayMode)
 	g.SetStateStackLength(1)
 	g.SetPlayerOnTurn(0)
-	g.SetRackFor(0, alphabet.RackFromString("IFFIEST", alph))
+	g.SetRackFor(0, tilemapping.RackFromString("IFFIEST", alph))
 	g.SetChallengeRule(pb.ChallengeRule_TRIPLE)
 	m := move.NewScoringMoveSimple(84, "8C", "IFFISET", "", alph)
 	_, err = g.ValidateMove(m)

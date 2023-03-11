@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/rs/zerolog/log"
 )
 
@@ -41,6 +41,7 @@ func LoadKWG(cfg *config.Config, filename string) (*KWG, error) {
 	if err != nil {
 		return nil, err
 	}
+	kwg.lexiconName = lexname
 	lexname = strings.ToLower(lexname)
 	var alphabetName string
 	switch {
@@ -55,12 +56,12 @@ func LoadKWG(cfg *config.Config, filename string) (*KWG, error) {
 		return nil, errors.New("cannot determine alphabet from lexicon name " + lexname)
 	}
 
-	ld, err := alphabet.NamedLetterDistribution(cfg, alphabetName)
+	ld, err := tilemapping.NamedLetterDistribution(cfg, alphabetName)
 	if err != nil {
 		return nil, err
 	}
-	// we don't care about the distribution right now, just the alphabet.
-	kwg.alphabet = ld.Alphabet()
+	// we don't care about the distribution right now, just the tilemapping.
+	kwg.alphabet = ld.TileMapping()
 
 	return kwg, nil
 

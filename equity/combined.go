@@ -1,11 +1,11 @@
 package equity
 
 import (
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/rs/zerolog/log"
 )
 
@@ -50,7 +50,7 @@ func NewCombinedStaticCalculator(lexiconName string,
 }
 
 func (csc CombinedStaticCalculator) Equity(play *move.Move, board *board.GameBoard,
-	bag *alphabet.Bag, oppRack *alphabet.Rack) float64 {
+	bag *tilemapping.Bag, oppRack *tilemapping.Rack) float64 {
 
 	leave := play.Leave()
 	score := play.Score()
@@ -59,7 +59,7 @@ func (csc CombinedStaticCalculator) Equity(play *move.Move, board *board.GameBoa
 	otherAdjustments := 0.0
 
 	if board.IsEmpty() {
-		otherAdjustments += placementAdjustment(play, board)
+		otherAdjustments += placementAdjustment(play, board, bag.LetterDistribution())
 	}
 
 	if bag.TilesRemaining() > 0 {
@@ -78,6 +78,6 @@ func (csc CombinedStaticCalculator) Equity(play *move.Move, board *board.GameBoa
 	return float64(score) + leaveAdjustment + otherAdjustments
 }
 
-func (csc CombinedStaticCalculator) LeaveValue(leave alphabet.MachineWord) float64 {
+func (csc CombinedStaticCalculator) LeaveValue(leave tilemapping.MachineWord) float64 {
 	return csc.leaveValues.LeaveValue(leave)
 }

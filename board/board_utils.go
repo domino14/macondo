@@ -6,19 +6,19 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/tilemapping"
 )
 
 type TilesInPlay struct {
-	OnBoard []alphabet.MachineLetter
-	Rack1   []alphabet.MachineLetter
-	Rack2   []alphabet.MachineLetter
+	OnBoard []tilemapping.MachineLetter
+	Rack1   []tilemapping.MachineLetter
+	Rack2   []tilemapping.MachineLetter
 }
 
 var boardPlaintextRegex = regexp.MustCompile(`\|(.+)\|`)
 var userRackRegex = regexp.MustCompile(`(?U).+\s+([A-Z\?]*)\s+-?[0-9]+`)
 
-func (g *GameBoard) sqDisplayStr(row, col int, alph *alphabet.Alphabet) string {
+func (g *GameBoard) sqDisplayStr(row, col int, alph *tilemapping.TileMapping) string {
 	pos := g.getSqIdx(row, col)
 	var bonusdisp string
 	if g.bonuses[pos] != ' ' {
@@ -26,13 +26,13 @@ func (g *GameBoard) sqDisplayStr(row, col int, alph *alphabet.Alphabet) string {
 	} else {
 		bonusdisp = " "
 	}
-	if g.squares[pos] == alphabet.EmptySquareMarker {
+	if g.squares[pos] == 0 {
 		return bonusdisp
 	}
-	return string(g.squares[pos].UserVisible(alph))
+	return string(g.squares[pos].UserVisible(alph, true))
 }
 
-func (g *GameBoard) ToDisplayText(alph *alphabet.Alphabet) string {
+func (g *GameBoard) ToDisplayText(alph *tilemapping.TileMapping) string {
 	var str string
 	n := g.Dim()
 	row := "   "
@@ -57,19 +57,19 @@ func (g *GameBoard) ToDisplayText(alph *alphabet.Alphabet) string {
 // It returns a list of all played machine letters (tiles) so that the
 // caller can reconcile the tile bag appropriately.
 func (g *GameBoard) setFromPlaintext(qText string,
-	alph *alphabet.Alphabet) *TilesInPlay {
+	alph *tilemapping.TileMapping) *TilesInPlay {
 
 	g.Clear()
 	tilesInPlay := &TilesInPlay{}
 	// Take a Quackle Plaintext Board and turn it into an internal structure.
-	playedTiles := []alphabet.MachineLetter(nil)
+	playedTiles := []tilemapping.MachineLetter(nil)
 	result := boardPlaintextRegex.FindAllStringSubmatch(qText, -1)
 	if len(result) != 15 {
 		panic("Wrongly implemented")
 	}
 	g.tilesPlayed = 0
 	var err error
-	var letter alphabet.MachineLetter
+	var letter tilemapping.MachineLetter
 	for i := range result {
 		// result[i][1] has the string
 		j := -1
@@ -84,7 +84,7 @@ func (g *GameBoard) setFromPlaintext(qText string,
 				// Ignore the error; we are passing in a space or another
 				// board marker.
 
-				g.squares[pos] = alphabet.EmptySquareMarker
+				g.squares[pos] = 0
 			} else {
 				g.squares[pos] = letter
 				g.tilesPlayed++
@@ -98,7 +98,7 @@ func (g *GameBoard) setFromPlaintext(qText string,
 			break
 		}
 		rack := userRacks[i][1]
-		rackTiles := []alphabet.MachineLetter{}
+		rackTiles := []tilemapping.MachineLetter{}
 		for _, ch := range rack {
 			letter, err = alph.Val(ch)
 			if err != nil {
@@ -117,12 +117,12 @@ func (g *GameBoard) setFromPlaintext(qText string,
 	return tilesInPlay
 }
 
-func (b *GameBoard) SetRow(rowNum int, letters string, alph *alphabet.Alphabet) []alphabet.MachineLetter {
+func (b *GameBoard) SetRow(rowNum int, letters string, alph *tilemapping.TileMapping) []tilemapping.MachineLetter {
 	// Set the row in board to the passed in letters array.
 	for idx := 0; idx < b.Dim(); idx++ {
-		b.SetLetter(int(rowNum), idx, alphabet.EmptySquareMarker)
+		b.SetLetter(int(rowNum), idx, 0)
 	}
-	lettersPlayed := []alphabet.MachineLetter{}
+	lettersPlayed := []tilemapping.MachineLetter{}
 	for idx, r := range letters {
 		if r != ' ' {
 			letter, err := alph.Val(r)

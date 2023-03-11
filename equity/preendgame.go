@@ -1,11 +1,11 @@
 package equity
 
 import (
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/rs/zerolog/log"
 )
 
@@ -35,7 +35,7 @@ func NewPreEndgameAdjustmentCalculator(cfg *config.Config, lexiconName string, p
 }
 
 func (pac PreEndgameAdjustmentCalculator) Equity(play *move.Move, board *board.GameBoard,
-	bag *alphabet.Bag, oppRack *alphabet.Rack) float64 {
+	bag *tilemapping.Bag, oppRack *tilemapping.Rack) float64 {
 
 	bagPlusSeven := bag.TilesRemaining() - play.TilesPlayed() + 7
 	var preEndgameAdjustment float64

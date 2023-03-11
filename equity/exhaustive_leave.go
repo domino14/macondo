@@ -5,16 +5,16 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/tilemapping"
 )
 
 type BlankLeaves struct{}
 
-func (b *BlankLeaves) LeaveValue(leave alphabet.MachineWord) float64 {
+func (b *BlankLeaves) LeaveValue(leave tilemapping.MachineWord) float64 {
 	return float64(0.0)
 }
 
@@ -70,7 +70,7 @@ func NewExhaustiveLeaveCalculator(lexiconName string,
 }
 
 func (els ExhaustiveLeaveCalculator) Equity(play *move.Move, board *board.GameBoard,
-	bag *alphabet.Bag, oppRack *alphabet.Rack) float64 {
+	bag *tilemapping.Bag, oppRack *tilemapping.Rack) float64 {
 
 	if bag.TilesRemaining() > 0 {
 		return float64(play.Score()) + els.LeaveValue(play.Leave())
@@ -78,6 +78,6 @@ func (els ExhaustiveLeaveCalculator) Equity(play *move.Move, board *board.GameBo
 	return float64(play.Score())
 }
 
-func (els ExhaustiveLeaveCalculator) LeaveValue(leave alphabet.MachineWord) float64 {
+func (els ExhaustiveLeaveCalculator) LeaveValue(leave tilemapping.MachineWord) float64 {
 	return els.leaveValues.LeaveValue(leave)
 }

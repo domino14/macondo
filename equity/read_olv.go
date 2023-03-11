@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/tilemapping"
 )
 
 // type OriginalCHD struct { // All are LittleEndian.
@@ -37,10 +37,10 @@ type OldLeaves struct {
 	buf         []byte
 }
 
-func (olv *OldLeaves) LeaveValue(leave alphabet.MachineWord) float64 {
+func (olv *OldLeaves) LeaveValue(leave tilemapping.MachineWord) float64 {
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Printf("Recovered from panic; leave was %v\n", leave.UserVisible(alphabet.EnglishAlphabet()))
+			fmt.Printf("Recovered from panic; leave was %v\n", leave.UserVisible(tilemapping.EnglishAlphabet()))
 			// Panic anyway; the recover was just to figure out which leave did it.
 			panic("panicking anyway")
 		}

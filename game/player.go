@@ -3,21 +3,21 @@ package game
 import (
 	"fmt"
 
-	"github.com/domino14/macondo/alphabet"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/rs/zerolog/log"
 )
 
 type playerState struct {
 	pb.PlayerInfo
 
-	rack   *alphabet.Rack
+	rack   *tilemapping.Rack
 	points int
 	bingos int
 	turns  int
 
 	// to minimize allocs:
-	placeholderRack []alphabet.MachineLetter
+	placeholderRack []tilemapping.MachineLetter
 }
 
 func newPlayerState(nickname, userid, realname string) *playerState {
@@ -27,7 +27,7 @@ func newPlayerState(nickname, userid, realname string) *playerState {
 			UserId:   userid,
 			RealName: realname,
 		},
-		placeholderRack: make([]alphabet.MachineLetter, RackTileLimit),
+		placeholderRack: make([]tilemapping.MachineLetter, RackTileLimit),
 	}
 }
 
@@ -37,14 +37,14 @@ func (p *playerState) resetScore() {
 	p.turns = 0
 }
 
-func (p *playerState) throwRackIn(bag *alphabet.Bag) {
+func (p *playerState) throwRackIn(bag *tilemapping.Bag) {
 	log.Trace().Str("rack", p.rack.String()).Str("player", p.Nickname).
 		Msg("throwing rack in")
 	bag.PutBack(p.rack.TilesOn())
-	p.rack.Set([]alphabet.MachineLetter{})
+	p.rack.Set([]tilemapping.MachineLetter{})
 }
 
-func (p *playerState) setRackTiles(tiles []alphabet.MachineLetter, alph *alphabet.Alphabet) {
+func (p *playerState) setRackTiles(tiles []tilemapping.MachineLetter, alph *tilemapping.TileMapping) {
 	p.rack.Set(tiles)
 }
 

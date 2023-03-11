@@ -7,9 +7,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/testcommon"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/board"
@@ -63,7 +63,7 @@ func TestBackup(t *testing.T) {
 	game.SetPlayerOnTurn(0)
 	alph := game.Alphabet()
 	fmt.Println("Here")
-	game.SetRackFor(0, alphabet.RackFromString("ACEOTV?", alph))
+	game.SetRackFor(0, tilemapping.RackFromString("ACEOTV?", alph))
 
 	m := move.NewScoringMoveSimple(20, "H7", "AVOCET", "?", alph)
 	game.PlayMove(m, false, 0)
@@ -97,7 +97,7 @@ func TestValidate(t *testing.T) {
 	alph := g.Alphabet()
 	g.StartGame()
 	g.SetPlayerOnTurn(0)
-	g.SetRackFor(0, alphabet.RackFromString("HIS", alph))
+	g.SetRackFor(0, tilemapping.RackFromString("HIS", alph))
 	g.SetChallengeRule(pb.ChallengeRule_DOUBLE)
 	m := move.NewScoringMoveSimple(12, "H7", "HIS", "", alph)
 	words, err := g.ValidateMove(m)
@@ -106,7 +106,7 @@ func TestValidate(t *testing.T) {
 	g.PlayMove(m, true, 0)
 	is.Equal(g.history.Events[len(g.history.Events)-1].WordsFormed,
 		[]string{"HIS"})
-	g.SetRackFor(1, alphabet.RackFromString("OIK", alph))
+	g.SetRackFor(1, tilemapping.RackFromString("OIK", alph))
 	m = move.NewScoringMoveSimple(13, "G8", "OIK", "", alph)
 	words, err = g.ValidateMove(m)
 	is.NoErr(err)
@@ -115,7 +115,7 @@ func TestValidate(t *testing.T) {
 	is.Equal(g.history.Events[len(g.history.Events)-1].WordsFormed,
 		[]string{"OIK", "OI", "IS"})
 
-	g.SetRackFor(0, alphabet.RackFromString("ADITT", alph))
+	g.SetRackFor(0, tilemapping.RackFromString("ADITT", alph))
 	m = move.NewScoringMoveSimple(22, "10E", "DI.TAT", "", alph)
 	words, err = g.ValidateMove(m)
 	is.NoErr(err)
@@ -145,9 +145,9 @@ func TestPlayToTurnWithPhony(t *testing.T) {
 	g, err := NewFromHistory(gameHistory, rules, len(gameHistory.Events))
 	is.NoErr(err)
 
-	is.Equal(g.RackFor(0).TilesOn().UserVisible(alphabet.EnglishAlphabet()),
+	is.Equal(g.RackFor(0).TilesOn().UserVisible(tilemapping.EnglishAlphabet()),
 		"EEHKNOQ")
-	is.Equal(g.RackFor(1).TilesOn().UserVisible(alphabet.EnglishAlphabet()),
+	is.Equal(g.RackFor(1).TilesOn().UserVisible(tilemapping.EnglishAlphabet()),
 		"DEMOOW?")
 	log.Debug().Interface("lex", g.lexicon.Name()).Interface("wf", g.lastWordsFormed).Msg("info")
 	// Player 0 challenges opponent's phony
@@ -166,9 +166,9 @@ func TestPlayToTurnWithPhony(t *testing.T) {
 	is.Equal(g.Board().GetLetter(6, 7).IsPlayedTile(), false)
 
 	// p1 gets their phony tiles back
-	is.Equal(g.RackFor(1).TilesOn().UserVisible(alphabet.EnglishAlphabet()),
+	is.Equal(g.RackFor(1).TilesOn().UserVisible(tilemapping.EnglishAlphabet()),
 		"DEIMNOR")
 	// p0 still has their rack
-	is.Equal(g.RackFor(0).TilesOn().UserVisible(alphabet.EnglishAlphabet()),
+	is.Equal(g.RackFor(0).TilesOn().UserVisible(tilemapping.EnglishAlphabet()),
 		"EEHKNOQ")
 }
