@@ -198,35 +198,30 @@ func (gen *GordonGenerator) recursiveGen(col int, rack *tilemapping.Rack,
 		gen.goOn(col, curLetter, rack, nnIdx, nodeIdx, leftstrip, rightstrip, uniquePlay)
 
 	} else if !rack.Empty() {
-		for ml := tilemapping.MachineLetter(1); ml < tilemapping.MachineLetter(gen.numPossibleLetters)+1; ml++ {
-			if rack.LetArr[ml] == 0 {
-				continue
-			}
-			if crossSet.Allowed(ml) {
-				nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, ml)
-				rack.Take(ml)
-				gen.tilesPlayed++
-				gen.goOn(col, ml, rack, nnIdx, nodeIdx, leftstrip, rightstrip, uniquePlay)
-				rack.Add(ml)
-				gen.tilesPlayed--
-			}
-
-		}
-
-		if rack.LetArr[0] > 0 {
-			// It's a blank. Loop only through letters in the cross-set.
-			for i := 1; i < gen.numPossibleLetters+1; i++ {
-				if crossSet.Allowed(tilemapping.MachineLetter(i)) {
-					nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, tilemapping.MachineLetter(i))
+		for i := nodeIdx; ; i++ {
+			ml := tilemapping.MachineLetter(gen.gaddag.Tile(i))
+			if ml != 0 && (rack.LetArr[ml] != 0 || rack.LetArr[0] != 0) && crossSet.Allowed(ml) {
+				nnIdx := gen.gaddag.ArcIndex(i)
+				if rack.LetArr[ml] > 0 {
+					rack.Take(ml)
+					gen.tilesPlayed++
+					gen.goOn(col, ml, rack, nnIdx, nodeIdx, leftstrip, rightstrip, uniquePlay)
+					gen.tilesPlayed--
+					rack.Add(ml)
+				}
+				// check blank
+				if rack.LetArr[0] > 0 {
 					rack.Take(0)
 					gen.tilesPlayed++
-					gen.goOn(col, tilemapping.MachineLetter(i).Blank(), rack, nnIdx, nodeIdx, leftstrip, rightstrip, uniquePlay)
-					rack.Add(0)
+					gen.goOn(col, ml.Blank(), rack, nnIdx, nodeIdx, leftstrip, rightstrip, uniquePlay)
 					gen.tilesPlayed--
+					rack.Add(0)
 				}
 			}
+			if gen.gaddag.IsEnd(i) {
+				break
+			}
 		}
-
 	}
 }
 

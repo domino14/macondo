@@ -36,7 +36,7 @@ func ScanKWG(data io.Reader) (*KWG, error) {
 }
 
 func (k *KWG) GetRootNodeIndex() uint32 {
-	return k.arcIndex(1)
+	return k.ArcIndex(1)
 }
 
 func (k *KWG) GetAlphabet() *tilemapping.TileMapping {
@@ -49,10 +49,10 @@ func (k *KWG) LexiconName() string {
 
 func (k *KWG) NextNodeIdx(nodeIdx uint32, letter tilemapping.MachineLetter) uint32 {
 	for i := nodeIdx; ; i++ {
-		if k.tile(i) == uint8(letter) {
-			return k.arcIndex(i)
+		if k.Tile(i) == uint8(letter) {
+			return k.ArcIndex(i)
 		}
-		if k.isEnd(i) {
+		if k.IsEnd(i) {
 			return 0
 		}
 	}
@@ -61,10 +61,10 @@ func (k *KWG) NextNodeIdx(nodeIdx uint32, letter tilemapping.MachineLetter) uint
 func (k *KWG) InLetterSet(letter tilemapping.MachineLetter, nodeIdx uint32) bool {
 	letter = letter.Unblank()
 	for i := nodeIdx; ; i++ {
-		if k.tile(i) == uint8(letter) {
+		if k.Tile(i) == uint8(letter) {
 			return k.accepts(i)
 		}
-		if k.isEnd(i) {
+		if k.IsEnd(i) {
 			return false
 		}
 	}
@@ -73,18 +73,18 @@ func (k *KWG) InLetterSet(letter tilemapping.MachineLetter, nodeIdx uint32) bool
 func (k *KWG) GetLetterSet(nodeIdx uint32) tilemapping.LetterSet {
 	var ls tilemapping.LetterSet
 	for i := nodeIdx; ; i++ {
-		t := k.tile(i)
+		t := k.Tile(i)
 		if k.accepts(i) {
 			ls |= (1 << t)
 		}
-		if k.isEnd(i) {
+		if k.IsEnd(i) {
 			break
 		}
 	}
 	return ls
 }
 
-func (k *KWG) isEnd(nodeIdx uint32) bool {
+func (k *KWG) IsEnd(nodeIdx uint32) bool {
 	return k.nodes[nodeIdx]&0x400000 != 0
 }
 
@@ -92,24 +92,24 @@ func (k *KWG) accepts(nodeIdx uint32) bool {
 	return k.nodes[nodeIdx]&0x800000 != 0
 }
 
-func (k *KWG) arcIndex(nodeIdx uint32) uint32 {
+func (k *KWG) ArcIndex(nodeIdx uint32) uint32 {
 	return k.nodes[nodeIdx] & 0x3fffff
 }
 
-func (k *KWG) tile(nodeIdx uint32) uint8 {
+func (k *KWG) Tile(nodeIdx uint32) uint8 {
 	return uint8(k.nodes[nodeIdx] >> 24)
 }
 
 func (k *KWG) IterateSiblings(nodeIdx uint32, cb func(ml tilemapping.MachineLetter, nnidx uint32)) {
-	if k.isEnd(nodeIdx) {
+	if k.IsEnd(nodeIdx) {
 		// no siblings.
 		return
 	}
 	for i := nodeIdx + 1; ; i++ {
-		t := k.tile(i)
-		nn := k.arcIndex(i)
+		t := k.Tile(i)
+		nn := k.ArcIndex(i)
 		cb(tilemapping.MachineLetter(t), nn)
-		if k.isEnd(i) {
+		if k.IsEnd(i) {
 			break
 		}
 	}

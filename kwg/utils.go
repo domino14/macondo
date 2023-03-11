@@ -47,8 +47,8 @@ func findMachineWord(d *KWG, nodeIdx uint32, word tilemapping.MachineWord, curId
 
 	found := false
 	for i = byte(1); ; i++ {
-		nextNodeIdx = d.arcIndex(nodeIdx + uint32(i))
-		letter = tilemapping.MachineLetter(d.tile(nodeIdx + uint32(i)))
+		nextNodeIdx = d.ArcIndex(nodeIdx + uint32(i))
+		letter = tilemapping.MachineLetter(d.Tile(nodeIdx + uint32(i)))
 
 		curml := word[curIdx]
 		if letter == curml {
@@ -57,7 +57,7 @@ func findMachineWord(d *KWG, nodeIdx uint32, word tilemapping.MachineWord, curId
 			found = true
 			break
 		}
-		if d.isEnd(nodeIdx + uint32(i)) {
+		if d.IsEnd(nodeIdx + uint32(i)) {
 			break
 		}
 	}

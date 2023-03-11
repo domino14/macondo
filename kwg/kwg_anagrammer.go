@@ -72,12 +72,12 @@ func (da *KWGAnagrammer) iterate(kwg *KWG, nodeIdx uint32, minLen int, minExact 
 	letterSet := kwg.GetLetterSet(nodeIdx)
 	// numArcs := kwg.NumArcs(nodeIdx)
 	j := tilemapping.MachineLetter(0)
-	if kwg.isEnd(nodeIdx) {
+	if kwg.IsEnd(nodeIdx) {
 		return nil // ??
 	}
 	for i := byte(1); ; i++ {
-		nextNodeIdx := kwg.arcIndex(nodeIdx + uint32(i))
-		nextLetter := kwg.tile(nodeIdx + uint32(i))
+		nextNodeIdx := kwg.ArcIndex(nodeIdx + uint32(i))
+		nextLetter := kwg.Tile(nodeIdx + uint32(i))
 		if uint8(nextLetter) >= numLetters {
 			continue
 		}
@@ -123,7 +123,7 @@ func (da *KWGAnagrammer) iterate(kwg *KWG, nodeIdx uint32, minLen int, minExact 
 			da.ans = da.ans[:len(da.ans)-1]
 			da.blanks++
 		}
-		if kwg.isEnd(nodeIdx + uint32(i)) {
+		if kwg.IsEnd(nodeIdx + uint32(i)) {
 			break
 		}
 	}

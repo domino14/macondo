@@ -12,4 +12,8 @@ type WordGraph interface {
 	GetLetterSet(nodeIdx uint32) tilemapping.LetterSet
 	IterateSiblings(nodeIdx uint32, cb func(ml tilemapping.MachineLetter, nn uint32))
 	LexiconName() string
+	// For speed expose these...
+	IsEnd(nodeIdx uint32) bool
+	ArcIndex(nodeIdx uint32) uint32
+	Tile(nodeIdx uint32) uint8
 }

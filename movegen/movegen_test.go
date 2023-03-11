@@ -1,6 +1,7 @@
 package movegen
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -439,6 +440,7 @@ func TestGenAllMovesWithBlanks(t *testing.T) {
 	// There are 7 plays worth 32 pts.
 	rewards := 0
 	for i := 2; i < 9; i++ {
+		fmt.Println(generator.plays[i].ShortDescription(), generator.plays[i].Score())
 		assert.Equal(t, 32, generator.plays[i].Score())
 		if generator.plays[i].Tiles().UserVisiblePlayedTiles(alph) == "rEW..DS" {
 			rewards = i
