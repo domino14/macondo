@@ -202,6 +202,7 @@ func (gen *GordonGenerator) recursiveGen(col int, rack *tilemapping.Rack,
 			if gen.gaddag.Tile(i) == uint8(raw) {
 				nnIdx = gen.gaddag.ArcIndex(i)
 				accepts = gen.gaddag.Accepts(i)
+				break
 			}
 			if gen.gaddag.IsEnd(i) {
 				break
