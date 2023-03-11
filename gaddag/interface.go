@@ -16,4 +16,5 @@ type WordGraph interface {
 	IsEnd(nodeIdx uint32) bool
 	ArcIndex(nodeIdx uint32) uint32
 	Tile(nodeIdx uint32) uint8
+	Accepts(nodeIdx uint32) bool
 }

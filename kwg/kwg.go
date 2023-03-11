@@ -62,7 +62,7 @@ func (k *KWG) InLetterSet(letter tilemapping.MachineLetter, nodeIdx uint32) bool
 	letter = letter.Unblank()
 	for i := nodeIdx; ; i++ {
 		if k.Tile(i) == uint8(letter) {
-			return k.accepts(i)
+			return k.Accepts(i)
 		}
 		if k.IsEnd(i) {
 			return false
@@ -74,7 +74,7 @@ func (k *KWG) GetLetterSet(nodeIdx uint32) tilemapping.LetterSet {
 	var ls tilemapping.LetterSet
 	for i := nodeIdx; ; i++ {
 		t := k.Tile(i)
-		if k.accepts(i) {
+		if k.Accepts(i) {
 			ls |= (1 << t)
 		}
 		if k.IsEnd(i) {
@@ -88,7 +88,7 @@ func (k *KWG) IsEnd(nodeIdx uint32) bool {
 	return k.nodes[nodeIdx]&0x400000 != 0
 }
 
-func (k *KWG) accepts(nodeIdx uint32) bool {
+func (k *KWG) Accepts(nodeIdx uint32) bool {
 	return k.nodes[nodeIdx]&0x800000 != 0
 }
 

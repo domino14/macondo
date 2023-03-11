@@ -194,17 +194,31 @@ func (gen *GordonGenerator) recursiveGen(col int, rack *tilemapping.Rack,
 	crossSet := gen.board.GetCrossSet(gen.curRowIdx, col, csDirection)
 
 	if curLetter != 0 {
-		nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, curLetter.Unblank())
-		gen.goOn(col, curLetter, rack, nnIdx, nodeIdx, leftstrip, rightstrip, uniquePlay)
+		// nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, curLetter.Unblank())
+		raw := curLetter.Unblank()
+		var nnIdx uint32
+		var accepts bool
+		for i := nodeIdx; ; i++ {
+			if gen.gaddag.Tile(i) == uint8(raw) {
+				nnIdx = gen.gaddag.ArcIndex(i)
+				accepts = gen.gaddag.Accepts(i)
+			}
+			if gen.gaddag.IsEnd(i) {
+				break
+			}
+		}
+		// is curLetter in the letter set of the nodeIdx?
+		gen.goOn(col, curLetter, rack, nnIdx, accepts, leftstrip, rightstrip, uniquePlay)
 	} else if !rack.Empty() {
 		for i := nodeIdx; ; i++ {
 			ml := tilemapping.MachineLetter(gen.gaddag.Tile(i))
 			if ml != 0 && (rack.LetArr[ml] != 0 || rack.LetArr[0] != 0) && crossSet.Allowed(ml) {
 				nnIdx := gen.gaddag.ArcIndex(i)
+				accepts := gen.gaddag.Accepts(i)
 				if rack.LetArr[ml] > 0 {
 					rack.Take(ml)
 					gen.tilesPlayed++
-					gen.goOn(col, ml, rack, nnIdx, nodeIdx, leftstrip, rightstrip, uniquePlay)
+					gen.goOn(col, ml, rack, nnIdx, accepts, leftstrip, rightstrip, uniquePlay)
 					gen.tilesPlayed--
 					rack.Add(ml)
 				}
@@ -212,7 +226,7 @@ func (gen *GordonGenerator) recursiveGen(col int, rack *tilemapping.Rack,
 				if rack.LetArr[0] > 0 {
 					rack.Take(0)
 					gen.tilesPlayed++
-					gen.goOn(col, ml.Blank(), rack, nnIdx, nodeIdx, leftstrip, rightstrip, uniquePlay)
+					gen.goOn(col, ml.Blank(), rack, nnIdx, accepts, leftstrip, rightstrip, uniquePlay)
 					gen.tilesPlayed--
 					rack.Add(0)
 				}
@@ -226,7 +240,7 @@ func (gen *GordonGenerator) recursiveGen(col int, rack *tilemapping.Rack,
 
 // goOn is an implementation of the Gordon GoOn function.
 func (gen *GordonGenerator) goOn(curCol int, L tilemapping.MachineLetter,
-	rack *tilemapping.Rack, newNodeIdx uint32, oldNodeIdx uint32,
+	rack *tilemapping.Rack, newNodeIdx uint32, accepts bool,
 	leftstrip, rightstrip int, uniquePlay bool) {
 
 	if curCol <= gen.curAnchorCol {
@@ -249,7 +263,7 @@ func (gen *GordonGenerator) goOn(curCol int, L tilemapping.MachineLetter,
 			!gen.board.HasLetter(gen.curRowIdx, curCol-1)
 
 		// Check to see if there is a letter directly to the left.
-		if gen.gaddag.InLetterSet(L, oldNodeIdx) && noLetterDirectlyLeft && gen.tilesPlayed > 0 {
+		if accepts && noLetterDirectlyLeft && gen.tilesPlayed > 0 {
 			// Only record the play if it is unique:
 			// if 1 tile has been played, there should be no letters in the across
 			// direction (otherwise the cross-set is not trivial)
@@ -291,7 +305,7 @@ func (gen *GordonGenerator) goOn(curCol int, L tilemapping.MachineLetter,
 
 		noLetterDirectlyRight := curCol == gen.board.Dim()-1 ||
 			!gen.board.HasLetter(gen.curRowIdx, curCol+1)
-		if gen.gaddag.InLetterSet(L, oldNodeIdx) && noLetterDirectlyRight && gen.tilesPlayed > 0 {
+		if accepts && noLetterDirectlyRight && gen.tilesPlayed > 0 {
 			if uniquePlay || gen.tilesPlayed > 1 {
 				gen.playRecorder(gen, rack, leftstrip, rightstrip, move.MoveTypePlay)
 			}
