@@ -196,7 +196,6 @@ func (gen *GordonGenerator) recursiveGen(col int, rack *tilemapping.Rack,
 	if curLetter != 0 {
 		nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, curLetter.Unblank())
 		gen.goOn(col, curLetter, rack, nnIdx, nodeIdx, leftstrip, rightstrip, uniquePlay)
-
 	} else if !rack.Empty() {
 		for i := nodeIdx; ; i++ {
 			ml := tilemapping.MachineLetter(gen.gaddag.Tile(i))

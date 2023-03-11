@@ -16,9 +16,7 @@ import (
 // - a "played-through" letter on the board, when used in the description of a play.
 // The letter A is represented by 1, B by 2, ... all the way to 26, for the English
 // alphabet, for example.
-// A blank letter is just the negative value: -1 for a, ..., -26 for z
-// Since a byte cannot be negative, we use the value that an int8 would have;
-// for example, 255 for a, 254 for b ... 230 for z
+// A blank letter is the same but with the high bit set (0x80 | ml)
 const (
 	// MaxAlphabetSize should be below 64 so that a letterset can be a 64-bit int.
 	MaxAlphabetSize = 62
