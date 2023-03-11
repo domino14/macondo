@@ -3,10 +3,10 @@ package automatic
 import (
 	"testing"
 
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/matryer/is"
 )
 
@@ -15,7 +15,7 @@ func TestGenBestStaticTurn(t *testing.T) {
 
 	runner := NewGameRunner(nil, &DefaultConfig)
 	runner.StartGame()
-	runner.game.SetRackFor(0, alphabet.RackFromString("DRRIRDF", runner.alphabet))
+	runner.game.SetRackFor(0, tilemapping.RackFromString("DRRIRDF", runner.alphabet))
 	bestPlay := runner.genBestStaticTurn(0)
 	is.Equal(move.MoveTypeExchange, bestPlay.Action())
 }
@@ -25,7 +25,7 @@ func TestGenBestStaticTurn2(t *testing.T) {
 
 	runner := NewGameRunner(nil, &DefaultConfig)
 	runner.StartGame()
-	runner.game.SetRackFor(0, alphabet.RackFromString("COTTTV?", runner.alphabet))
+	runner.game.SetRackFor(0, tilemapping.RackFromString("COTTTV?", runner.alphabet))
 	bestPlay := runner.genBestStaticTurn(0)
 	is.Equal(move.MoveTypeExchange, bestPlay.Action())
 }
@@ -40,7 +40,7 @@ func TestGenBestStaticTurn2(t *testing.T) {
 // 	game.Init(gd)
 // 	game.movegen.Reset()
 
-// 	game.players[0].rack = alphabet.RackFromString("INNRUVW", game.alph)
+// 	game.players[0].rack = tilemapping.RackFromString("INNRUVW", game.alph)
 // 	game.movegen.GenAll(game.players[0].rack)
 // 	// assert.Equal(t, move.MoveTypeExchange, game.movegen.Plays()[0].Action())
 // }
@@ -51,7 +51,7 @@ func TestGenBestStaticTurn4(t *testing.T) {
 	runner := NewGameRunner(nil, &DefaultConfig)
 	runner.StartGame()
 	// this rack has so much equity that the player might pass/exchange.
-	runner.game.SetRackFor(0, alphabet.RackFromString("CDEERS?", runner.alphabet))
+	runner.game.SetRackFor(0, tilemapping.RackFromString("CDEERS?", runner.alphabet))
 	bestPlay := runner.genBestStaticTurn(0)
 	is.Equal(move.MoveTypePlay, bestPlay.Action())
 }
@@ -70,8 +70,8 @@ func TestGenBestStaticTurn6(t *testing.T) {
 	err := runner.game.Bag().RemoveTiles(tilesInPlay.OnBoard)
 	is.NoErr(err)
 
-	runner.game.SetRackFor(0, alphabet.RackFromString("APRS?", runner.alphabet))
-	runner.game.SetRackFor(1, alphabet.RackFromString("ENNR", runner.alphabet))
+	runner.game.SetRackFor(0, tilemapping.RackFromString("APRS?", runner.alphabet))
+	runner.game.SetRackFor(1, tilemapping.RackFromString("ENNR", runner.alphabet))
 
 	is.Equal(runner.game.RackLettersFor(0), "APRS?")
 	is.Equal(runner.game.RackLettersFor(1), "ENNR")

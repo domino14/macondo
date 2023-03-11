@@ -17,6 +17,7 @@ import (
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
+	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tilemapping"
 )
@@ -59,7 +60,7 @@ type GordonGenerator struct {
 	// These are pointers to the actual structures in `game`. They are
 	// duplicated here to speed up the algorithm, since we access them
 	// so frequently (yes it makes a difference)
-	gaddag gaddag.WordGraph
+	gaddag *kwg.KWG
 	board  *board.GameBoard
 	// Used for scoring:
 	letterDistribution *tilemapping.LetterDistribution
@@ -83,7 +84,7 @@ func NewGordonGenerator(gd gaddag.WordGraph, board *board.GameBoard,
 	ld *tilemapping.LetterDistribution) *GordonGenerator {
 
 	gen := &GordonGenerator{
-		gaddag:             gd,
+		gaddag:             gd.(*kwg.KWG),
 		board:              board,
 		numPossibleLetters: int(ld.TileMapping().NumLetters()),
 		sortingParameter:   SortByScore,
@@ -153,6 +154,7 @@ func (gen *GordonGenerator) GenAll(rack *tilemapping.Rack, addExchange bool) []*
 			break
 		}
 	}
+
 	if addExchange {
 		gen.generateExchangeMoves(rack, 0, 0)
 	}
@@ -192,19 +194,19 @@ func (gen *GordonGenerator) recursiveGen(col int, rack *tilemapping.Rack,
 		csDirection = board.VerticalDirection
 	}
 	crossSet := gen.board.GetCrossSet(gen.curRowIdx, col, csDirection)
-
+	gd := gen.gaddag
 	if curLetter != 0 {
 		// nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, curLetter.Unblank())
 		raw := curLetter.Unblank()
 		var nnIdx uint32
 		var accepts bool
 		for i := nodeIdx; ; i++ {
-			if gen.gaddag.Tile(i) == uint8(raw) {
-				nnIdx = gen.gaddag.ArcIndex(i)
-				accepts = gen.gaddag.Accepts(i)
+			if gd.Tile(i) == uint8(raw) {
+				nnIdx = gd.ArcIndex(i)
+				accepts = gd.Accepts(i)
 				break
 			}
-			if gen.gaddag.IsEnd(i) {
+			if gd.IsEnd(i) {
 				break
 			}
 		}
@@ -212,10 +214,10 @@ func (gen *GordonGenerator) recursiveGen(col int, rack *tilemapping.Rack,
 		gen.goOn(col, curLetter, rack, nnIdx, accepts, leftstrip, rightstrip, uniquePlay)
 	} else if !rack.Empty() {
 		for i := nodeIdx; ; i++ {
-			ml := tilemapping.MachineLetter(gen.gaddag.Tile(i))
+			ml := tilemapping.MachineLetter(gd.Tile(i))
 			if ml != 0 && (rack.LetArr[ml] != 0 || rack.LetArr[0] != 0) && crossSet.Allowed(ml) {
-				nnIdx := gen.gaddag.ArcIndex(i)
-				accepts := gen.gaddag.Accepts(i)
+				nnIdx := gd.ArcIndex(i)
+				accepts := gd.Accepts(i)
 				if rack.LetArr[ml] > 0 {
 					rack.Take(ml)
 					gen.tilesPlayed++
@@ -232,7 +234,7 @@ func (gen *GordonGenerator) recursiveGen(col int, rack *tilemapping.Rack,
 					rack.Add(0)
 				}
 			}
-			if gen.gaddag.IsEnd(i) {
+			if gd.IsEnd(i) {
 				break
 			}
 		}

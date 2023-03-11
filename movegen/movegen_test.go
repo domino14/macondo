@@ -625,7 +625,7 @@ func BenchmarkJustMovegen(b *testing.B) {
 	ld, err := tilemapping.EnglishLetterDistribution(&DefaultConfig)
 	is.NoErr(err)
 	generator := NewGordonGenerator(gd, bd, ld)
-	// generator.SetPlayRecorder(NullPlayRecorder)
+	generator.SetPlayRecorder(TopPlayOnlyRecorder)
 	bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
 	cross_set.GenAllCrossSets(bd, gd, ld)
 	b.ReportAllocs()

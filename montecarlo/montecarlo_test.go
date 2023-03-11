@@ -12,14 +12,14 @@ import (
 	"github.com/rs/zerolog/log"
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
+	"github.com/domino14/macondo/kwg"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/domino14/macondo/turnplayer"
 
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/equity"
-	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/movegen"
@@ -55,7 +55,7 @@ func TestSimSingleIteration(t *testing.T) {
 	game, err := game.NewGame(rules, players)
 	is.NoErr(err)
 
-	gd, err := gaddag.Get(game.Config(), game.LexiconName())
+	gd, err := kwg.Get(game.Config(), game.LexiconName())
 	is.NoErr(err)
 
 	generator := movegen.NewGordonGenerator(gd, game.Board(), rules.LetterDistribution())
@@ -64,7 +64,7 @@ func TestSimSingleIteration(t *testing.T) {
 	game.StartGame()
 	game.SetPlayerOnTurn(0)
 	// Overwrite the first rack
-	game.SetRackFor(0, alphabet.RackFromString("AAADERW", game.Alphabet()))
+	game.SetRackFor(0, tilemapping.RackFromString("AAADERW", game.Alphabet()))
 	generator.GenAll(game.RackFor(0), false)
 	oldOppRack := game.RackFor(1).String()
 	plays := generator.Plays()[:10]
@@ -99,7 +99,7 @@ func BenchmarkSim(b *testing.B) {
 	game.RecalculateBoard()
 	calcs, leaves := defaultSimCalculators("NWL18")
 
-	gd, err := gaddag.Get(game.Config(), game.LexiconName())
+	gd, err := kwg.Get(game.Config(), game.LexiconName())
 	is.NoErr(err)
 
 	generator := movegen.NewGordonGenerator(gd, game.Board(), game.Rules().LetterDistribution())
@@ -135,7 +135,7 @@ func TestLongerSim(t *testing.T) {
 	game, err := game.NewGame(rules, players)
 	is.NoErr(err)
 
-	gd, err := gaddag.Get(game.Config(), game.LexiconName())
+	gd, err := kwg.Get(game.Config(), game.LexiconName())
 	is.NoErr(err)
 
 	generator := movegen.NewGordonGenerator(gd, game.Board(), rules.LetterDistribution())
@@ -146,7 +146,7 @@ func TestLongerSim(t *testing.T) {
 	// AWA should sim best.
 	// Note we changed the rack here from AAADERW to AAAENSW because the test kept failing
 	// because of the fairly new word ADWARE.
-	game.SetRackFor(0, alphabet.RackFromString("AAAENSW", game.Alphabet()))
+	game.SetRackFor(0, tilemapping.RackFromString("AAAENSW", game.Alphabet()))
 	calcs, leaves := defaultSimCalculators("NWL18")
 
 	aiplayer, err := aiturnplayer.NewAIStaticTurnPlayer(&DefaultConfig,
@@ -197,7 +197,7 @@ func TestLongerSim(t *testing.T) {
 // 	if err != nil {
 // 		t.Errorf("Expected error to be nil, got %v", err)
 // 	}
-// 	dist := alphabet.EnglishLetterDistribution()
+// 	dist := tilemapping.EnglishLetterDistribution()
 
 // 	game := &mechanics.XWordGame{}
 // 	game.Init(gd, dist)
@@ -207,7 +207,7 @@ func TestLongerSim(t *testing.T) {
 
 // 	// Deal out racks.
 // 	game.StartGame()
-// 	game.SetRackFor(0, alphabet.RackFromString("AAADERW", gd.GetAlphabet()))
+// 	game.SetRackFor(0, tilemapping.RackFromString("AAADERW", gd.GetAlphabet()))
 
 // 	simmer := &Simmer{}
 // 	simmer.Init(generator, game)

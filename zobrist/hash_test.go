@@ -5,11 +5,11 @@ import (
 	"os"
 	"testing"
 
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/testcommon"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/matryer/is"
 )
 
@@ -30,8 +30,8 @@ func TestPlayAndUnplay(t *testing.T) {
 
 	g, err := cgp.ParseCGP(&DefaultConfig, endgameCGP)
 	is.NoErr(err)
-	alph := alphabet.EnglishAlphabet()
-	h := z.Hash(g.Board().GetSquares(), alphabet.RackFromString("AAFIRTW", alph), false)
+	alph := tilemapping.EnglishAlphabet()
+	h := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("AAFIRTW", alph), false)
 	m := move.NewScoringMoveSimple(18, "2A", "WAR", "AFIT", alph)
 	// play and unplay a move. The final hash should be the same as the beginning hash.
 	h1 := z.AddMove(h, m, false)
@@ -49,10 +49,10 @@ func TestPlayAndUnplayMoreLevels(t *testing.T) {
 
 	g, err := cgp.ParseCGP(&DefaultConfig, endgameCGP)
 	is.NoErr(err)
-	alph := alphabet.EnglishAlphabet()
-	h := z.Hash(g.Board().GetSquares(), alphabet.RackFromString("AAFIRTW", alph), false)
+	alph := tilemapping.EnglishAlphabet()
+	h := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("AAFIRTW", alph), false)
 
-	passrack, err := alphabet.ToMachineWord("EIQSS", alph)
+	passrack, err := tilemapping.ToMachineWord("EIQSS", alph)
 	is.NoErr(err)
 	m1 := move.NewScoringMoveSimple(18, "2A", "WAR", "AFIT", alph)
 	m2 := move.NewPassMove(passrack, alph)
@@ -80,8 +80,8 @@ func TestHashAfterMakingPlay(t *testing.T) {
 
 	g, err := cgp.ParseCGP(&DefaultConfig, endgameCGP)
 	is.NoErr(err)
-	alph := alphabet.EnglishAlphabet()
-	h := z.Hash(g.Board().GetSquares(), alphabet.RackFromString("ADENOOO", alph), alphabet.RackFromString("AHIILMM", alph), false)
+	alph := tilemapping.EnglishAlphabet()
+	h := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("ADENOOO", alph), tilemapping.RackFromString("AHIILMM", alph), false)
 
 	m1 := move.NewScoringMoveSimple(8, "15J", "END", "AOOO", alph)
 	h1 := z.AddMove(h, m1, true)
@@ -90,7 +90,7 @@ func TestHashAfterMakingPlay(t *testing.T) {
 	err = g.PlayMove(m1, false, 0)
 	is.NoErr(err)
 
-	h2 := z.Hash(g.Board().GetSquares(), alphabet.RackFromString("AOOO", alph), alphabet.RackFromString("AHIILMM", alph), true)
+	h2 := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("AOOO", alph), tilemapping.RackFromString("AHIILMM", alph), true)
 	is.Equal(h1, h2)
 }
 
@@ -103,15 +103,15 @@ func TestHashAfterPassing(t *testing.T) {
 
 	g, err := cgp.ParseCGP(&DefaultConfig, endgameCGP)
 	is.NoErr(err)
-	alph := alphabet.EnglishAlphabet()
-	h := z.Hash(g.Board().GetSquares(), alphabet.RackFromString("ADENOOO", alph), alphabet.RackFromString("AHIILMM", alph), false)
+	alph := tilemapping.EnglishAlphabet()
+	h := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("ADENOOO", alph), tilemapping.RackFromString("AHIILMM", alph), false)
 
-	m1 := move.NewPassMove(alphabet.RackFromString("ADENOOO", alph).TilesOn(), alph)
+	m1 := move.NewPassMove(tilemapping.RackFromString("ADENOOO", alph).TilesOn(), alph)
 	h1 := z.AddMove(h, m1, true)
 	err = g.PlayMove(m1, false, 0)
 	is.NoErr(err)
 
-	h2 := z.Hash(g.Board().GetSquares(), alphabet.RackFromString("ADENOOO", alph), alphabet.RackFromString("AHIILMM", alph), true)
+	h2 := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("ADENOOO", alph), tilemapping.RackFromString("AHIILMM", alph), true)
 	is.Equal(h1, h2)
 }
 
@@ -124,8 +124,8 @@ func TestHashAfterMakingAnotherPlay(t *testing.T) {
 
 	g, err := cgp.ParseCGP(&DefaultConfig, endgameCGP)
 	is.NoErr(err)
-	alph := alphabet.EnglishAlphabet()
-	h := z.Hash(g.Board().GetSquares(), alphabet.RackFromString("AOOO", alph), alphabet.RackFromString("HI", alph), false)
+	alph := tilemapping.EnglishAlphabet()
+	h := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("AOOO", alph), tilemapping.RackFromString("HI", alph), false)
 	fmt.Println(g.ToDisplayText())
 	m1 := move.NewScoringMoveSimple(11, "13G", ".O.O", "AO", alph)
 	h1 := z.AddMove(h, m1, true)
@@ -136,6 +136,6 @@ func TestHashAfterMakingAnotherPlay(t *testing.T) {
 	fmt.Println("game2")
 	fmt.Println(g.ToDisplayText())
 
-	h2 := z.Hash(g.Board().GetSquares(), alphabet.RackFromString("AO", alph), alphabet.RackFromString("HI", alph), true)
+	h2 := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("AO", alph), tilemapping.RackFromString("HI", alph), true)
 	is.Equal(h1, h2)
 }

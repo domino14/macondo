@@ -11,10 +11,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/tilemapping"
 
 	"github.com/domino14/macondo/game"
 
@@ -277,7 +277,7 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 
 		tp := 0
 		for _, t := range evt.PlayedTiles {
-			if t != alphabet.ASCIIPlayedThrough {
+			if t != tilemapping.ASCIIPlayedThrough {
 				tp++
 			}
 		}

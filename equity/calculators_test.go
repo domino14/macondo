@@ -29,7 +29,7 @@ func GaddagFromLexicon(lex string) (gaddag.WordGraph, error) {
 	return kwg.LoadKWG(&DefaultConfig, filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".kwg"))
 }
 
-func TestLeaveMPH(t *testing.T) {
+func TestLeaveValues(t *testing.T) {
 	alph := tilemapping.EnglishAlphabet()
 
 	els, err := equity.NewExhaustiveLeaveCalculator("NWL18", &DefaultConfig, "")

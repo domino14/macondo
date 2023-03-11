@@ -10,12 +10,13 @@ import (
 
 	"github.com/domino14/macondo/ai/bot"
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
+	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/rs/zerolog/log"
 	"lukechampine.com/frand"
 
@@ -29,7 +30,7 @@ var MaxTimePerEndgame = 10 * time.Second
 type GameRunner struct {
 	game     *game.Game
 	gaddag   gaddag.WordGraph
-	alphabet *alphabet.Alphabet
+	alphabet *tilemapping.TileMapping
 
 	lexicon            string
 	letterDistribution string
@@ -76,7 +77,7 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 		return err
 	}
 
-	gd, err := gaddag.Get(r.config, r.lexicon)
+	gd, err := kwg.Get(r.config, r.lexicon)
 	if err != nil {
 		return err
 	}

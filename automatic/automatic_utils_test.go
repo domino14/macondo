@@ -13,11 +13,11 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/testcommon"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/matryer/is"
 	"github.com/rs/zerolog"
 )
@@ -41,7 +41,7 @@ func TestCompVsCompStatic(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		fmt.Println(runner.game.Board().ToDisplayText(alphabet.EnglishAlphabet()))
+		fmt.Println(runner.game.Board().ToDisplayText(tilemapping.EnglishAlphabet()))
 		close(logchan)
 	}()
 

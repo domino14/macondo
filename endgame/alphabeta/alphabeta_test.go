@@ -9,16 +9,16 @@ import (
 	"github.com/matryer/is"
 	"github.com/rs/zerolog"
 
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/cross_set"
-	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
+	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/testcommon"
+	"github.com/domino14/macondo/tilemapping"
 
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
@@ -54,7 +54,7 @@ func setUpSolver(lex, distName string, bvs board.VsWho, plies int, rack1, rack2 
 	// Throw in the random racks dealt to our players.
 	g.ThrowRacksIn()
 
-	gd, err := gaddag.Get(g.Config(), lex)
+	gd, err := kwg.Get(g.Config(), lex)
 	if err != nil {
 		panic(err)
 	}
@@ -71,9 +71,9 @@ func setUpSolver(lex, distName string, bvs board.VsWho, plies int, rack1, rack2 
 	}
 	cross_set.GenAllCrossSets(g.Board(), gd, dist)
 
-	g.SetRacksForBoth([]*alphabet.Rack{
-		alphabet.RackFromString(rack1, alph),
-		alphabet.RackFromString(rack2, alph),
+	g.SetRacksForBoth([]*tilemapping.Rack{
+		tilemapping.RackFromString(rack1, alph),
+		tilemapping.RackFromString(rack2, alph),
 	})
 	g.SetPointsFor(0, p1pts)
 	g.SetPointsFor(1, p2pts)
@@ -114,7 +114,7 @@ func TestSolveOther(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
-	dist := alphabet.EnglishLetterDistribution()
+	dist := tilemapping.EnglishLetterDistribution()
 
 	game := &mechanics.XWordGame{}
 	game.Init(gd, dist)
@@ -125,8 +125,8 @@ func TestSolveOther(t *testing.T) {
 		game, &strategy.NoLeaveStrategy{},
 	)
 	alph := game.Alphabet()
-	ourRack := alphabet.RackFromString("DGILOPR", alph)
-	theirRack := alphabet.RackFromString("EGNOQR", alph)
+	ourRack := tilemapping.RackFromString("DGILOPR", alph)
+	theirRack := tilemapping.RackFromString("EGNOQR", alph)
 	game.SetRackFor(1, ourRack)
 	game.SetRackFor(0, theirRack)
 
@@ -155,7 +155,7 @@ func TestSolveOther2(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
-	dist := alphabet.EnglishLetterDistribution()
+	dist := tilemapping.EnglishLetterDistribution()
 
 	game := &mechanics.XWordGame{}
 	game.Init(gd, dist)
@@ -166,8 +166,8 @@ func TestSolveOther2(t *testing.T) {
 		game, &strategy.NoLeaveStrategy{},
 	)
 	alph := game.Alphabet()
-	ourRack := alphabet.RackFromString("DGILOR", alph)
-	theirRack := alphabet.RackFromString("ENQR", alph)
+	ourRack := tilemapping.RackFromString("DGILOR", alph)
+	theirRack := tilemapping.RackFromString("ENQR", alph)
 	game.SetRackFor(1, ourRack)
 	game.SetRackFor(0, theirRack)
 	generator.SetBoardToGame(alph, board.VsAlec2)
@@ -239,7 +239,7 @@ func TestVeryDeep(t *testing.T) {
 	deepEndgame := "14C/13QI/12FIE/10VEE1R/9KIT2G/8CIG1IDE/8UTA2AS/7ST1SYPh1/6JA5A1/5WOLD2BOBA/3PLOT1R1NU1EX/Y1VEIN1NOR1mOA1/UT1AT1N1L2FEH1/GUR2WIRER5/SNEEZED8 ADENOOO/AHIILMM 353/236 0 lex CSW19;"
 	g, err := cgp.ParseCGP(&DefaultConfig, deepEndgame)
 	is.NoErr(err)
-	gd, err := gaddag.Get(&DefaultConfig, "CSW19")
+	gd, err := kwg.Get(&DefaultConfig, "CSW19")
 	is.NoErr(err)
 	g.SetBackupMode(game.SimulationMode)
 	g.SetStateStackLength(plies)
@@ -272,7 +272,7 @@ func TestPassFirst(t *testing.T) {
 	pos := "GATELEGs1POGOED/R4MOOLI3X1/AA10U2/YU4BREDRIN2/1TITULE3E1IN1/1E4N3c1BOK/1C2O4CHARD1/QI1FLAWN2E1OE1/IS2E1HIN1A1W2/1MOTIVATE1T1S2/1S2N5S4/3PERJURY5/15/15/15 FV/AADIZ 442/388 0 lex CSW15;"
 	g, err := cgp.ParseCGP(&DefaultConfig, pos)
 	is.NoErr(err)
-	gd, err := gaddag.Get(&DefaultConfig, "CSW19")
+	gd, err := kwg.Get(&DefaultConfig, "CSW19")
 	is.NoErr(err)
 	g.SetBackupMode(game.SimulationMode)
 	g.SetStateStackLength(plies)
@@ -344,7 +344,7 @@ func TestPolishFromGcg(t *testing.T) {
 	g, err := game.NewFromHistory(gameHistory, rules, 46)
 	is.NoErr(err)
 
-	gd, err := gaddag.Get(&DefaultConfig, "OSPS44")
+	gd, err := kwg.Get(&DefaultConfig, "OSPS44")
 	is.NoErr(err)
 
 	g.SetBackupMode(game.SimulationMode)
@@ -412,7 +412,7 @@ func TestSpuriousPassesFromGcg(t *testing.T) {
 	g, err := game.NewFromHistory(gameHistory, rules, 47)
 	is.NoErr(err)
 
-	gd, err := gaddag.Get(&DefaultConfig, "OSPS44")
+	gd, err := kwg.Get(&DefaultConfig, "OSPS44")
 	is.NoErr(err)
 
 	g.SetBackupMode(game.SimulationMode)
@@ -447,7 +447,7 @@ func TestSolveMaven(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
-	dist := alphabet.EnglishLetterDistribution()
+	dist := tilemapping.EnglishLetterDistribution()
 
 	game := &mechanics.XWordGame{}
 	game.Init(gd, dist)
@@ -458,8 +458,8 @@ func TestSolveMaven(t *testing.T) {
 		game, &strategy.NoLeaveStrategy{},
 	)
 	alph := game.Alphabet()
-	ourRack := alphabet.RackFromString("?AEIR", alph)
-	theirRack := alphabet.RackFromString("LZ", alph)
+	ourRack := tilemapping.RackFromString("?AEIR", alph)
+	theirRack := tilemapping.RackFromString("LZ", alph)
 
 	game.SetRackFor(1, ourRack)
 	game.SetRackFor(0, theirRack)
@@ -488,8 +488,8 @@ func TestStuck(t *testing.T) {
 		1)
 	is.NoErr(err)
 	alph := s.game.Alphabet()
-	ourRack := alphabet.RackFromString("DGILOPR", alph)
-	theirRack := alphabet.RackFromString("EGNOQR", alph)
+	ourRack := tilemapping.RackFromString("DGILOPR", alph)
+	theirRack := tilemapping.RackFromString("EGNOQR", alph)
 	s.clearStuckTables()
 	s.stmMovegen.GenAll(ourRack, false)
 	stmPlays := s.stmMovegen.Plays()
@@ -499,7 +499,7 @@ func TestStuck(t *testing.T) {
 	otsStuck := s.computeStuck(otsPlays, theirRack, s.otsPlayed)
 	is.Equal(len(stmStuck), 0)
 	is.Equal(len(otsStuck), 1)
-	is.Equal(otsStuck[0].UserVisible(alph), 'Q')
+	is.Equal(otsStuck[0].UserVisible(alph, false), 'Q')
 }
 
 func TestValuation(t *testing.T) {
@@ -516,17 +516,17 @@ func TestValuation(t *testing.T) {
 	alph := s.game.Alphabet()
 	is.Equal(plays[0].Valuation(), float32(36.5))
 	// K1 DONORS
-	is.Equal(plays[0].Tiles().UserVisible(alph), "DO..R.")
+	is.Equal(plays[0].Tiles().UserVisiblePlayedTiles(alph), "DO..R.")
 }
 
 /*
 
 type TestGenerator struct {
 	plays []*move.Move
-	alph  *alphabet.Alphabet
+	alph  *tilemapping.Alphabet
 }
 
-func (t *TestGenerator) GenAll(rack *alphabet.Rack) {
+func (t *TestGenerator) GenAll(rack *tilemapping.Rack) {
 	if rack.String() == "BGIV" {
 		t.plays = []*move.Move{
 			move.NewScoringMoveSimple(24, "1G", "VIG.", "B", t.alph),
@@ -585,7 +585,7 @@ func (t *TestGenerator) Plays() []*move.Move {
 
 func (t *TestGenerator) Reset() {}
 
-func (t *TestGenerator) SetOppRack(rack *alphabet.Rack) {}
+func (t *TestGenerator) SetOppRack(rack *tilemapping.Rack) {}
 
 func TestMinimalCase(t *testing.T) {
 	plies := 2
@@ -594,7 +594,7 @@ func TestMinimalCase(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
-	dist := alphabet.EnglishLetterDistribution()
+	dist := tilemapping.EnglishLetterDistribution()
 
 	game := &mechanics.XWordGame{}
 	game.Init(gd, dist)
@@ -602,8 +602,8 @@ func TestMinimalCase(t *testing.T) {
 	alph := game.Alphabet()
 
 	generator := &TestGenerator{alph: alph}
-	ourRack := alphabet.RackFromString("BGIV", alph)
-	theirRack := alphabet.RackFromString("DEHILOR", alph)
+	ourRack := tilemapping.RackFromString("BGIV", alph)
+	theirRack := tilemapping.RackFromString("DEHILOR", alph)
 	game.SetRackFor(1, ourRack)
 	game.SetRackFor(0, theirRack)
 	// That should set the board, the player racks, scores, etc - the whole state
@@ -640,7 +640,7 @@ func TestMinimalCase2(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
-	dist := alphabet.EnglishLetterDistribution()
+	dist := tilemapping.EnglishLetterDistribution()
 
 	game := &mechanics.XWordGame{}
 	game.Init(gd, dist)
@@ -648,8 +648,8 @@ func TestMinimalCase2(t *testing.T) {
 	alph := game.Alphabet()
 
 	generator := &TestGenerator{alph: alph}
-	ourRack := alphabet.RackFromString("BGIV", alph)
-	theirRack := alphabet.RackFromString("DEHILOR", alph)
+	ourRack := tilemapping.RackFromString("BGIV", alph)
+	theirRack := tilemapping.RackFromString("DEHILOR", alph)
 	game.SetRackFor(1, ourRack)
 	game.SetRackFor(0, theirRack)
 
@@ -692,14 +692,14 @@ func TestMinimalCase3(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
-	dist := alphabet.EnglishLetterDistribution()
+	dist := tilemapping.EnglishLetterDistribution()
 
 	game := &mechanics.XWordGame{}
 	game.Init(gd, dist)
 	game.SetStateStackLength(plies)
 	alph := game.Alphabet()
-	ourRack := alphabet.RackFromString("BGIV", alph)
-	theirRack := alphabet.RackFromString("DEHILOR", alph)
+	ourRack := tilemapping.RackFromString("BGIV", alph)
+	theirRack := tilemapping.RackFromString("DEHILOR", alph)
 	game.SetRackFor(0, ourRack)
 	game.SetRackFor(1, theirRack)
 	generator := &TestGenerator{alph: alph}
@@ -741,14 +741,14 @@ func TestMinimalCase4(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
-	dist := alphabet.EnglishLetterDistribution()
+	dist := tilemapping.EnglishLetterDistribution()
 
 	game := &mechanics.XWordGame{}
 	game.Init(gd, dist)
 	game.SetStateStackLength(plies)
 	alph := game.Alphabet()
-	ourRack := alphabet.RackFromString("BGIV", alph)
-	theirRack := alphabet.RackFromString("DEHILOR", alph)
+	ourRack := tilemapping.RackFromString("BGIV", alph)
+	theirRack := tilemapping.RackFromString("DEHILOR", alph)
 	game.SetRackFor(1, ourRack)
 	game.SetRackFor(0, theirRack)
 	generator := &TestGenerator{alph: alph}
@@ -793,7 +793,7 @@ func TestAnotherOneTiler(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
-	dist := alphabet.EnglishLetterDistribution()
+	dist := tilemapping.EnglishLetterDistribution()
 
 	game := &mechanics.XWordGame{}
 	game.Init(gd, dist)
@@ -804,8 +804,8 @@ func TestAnotherOneTiler(t *testing.T) {
 		game, &strategy.NoLeaveStrategy{},
 	)
 	alph := game.Alphabet()
-	ourRack := alphabet.RackFromString("AEEIRUW", alph)
-	theirRack := alphabet.RackFromString("V", alph)
+	ourRack := tilemapping.RackFromString("AEEIRUW", alph)
+	theirRack := tilemapping.RackFromString("V", alph)
 	game.SetRackFor(0, ourRack)
 	game.SetRackFor(1, theirRack)
 	// XXX: Refactor this; we should have something like:
@@ -842,7 +842,7 @@ func TestYetAnotherOneTiler(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected error to be nil, got %v", err)
 	}
-	dist := alphabet.EnglishLetterDistribution()
+	dist := tilemapping.EnglishLetterDistribution()
 
 	game := &mechanics.XWordGame{}
 	game.Init(gd, dist)
@@ -854,8 +854,8 @@ func TestYetAnotherOneTiler(t *testing.T) {
 	)
 	alph := game.Alphabet()
 
-	ourRack := alphabet.RackFromString("AEIINTY", alph)
-	theirRack := alphabet.RackFromString("CLLPR", alph)
+	ourRack := tilemapping.RackFromString("AEIINTY", alph)
+	theirRack := tilemapping.RackFromString("CLLPR", alph)
 	game.SetRackFor(0, ourRack)
 	game.SetRackFor(1, theirRack)
 	generator.SetBoardToGame(alph, board.NoahVsMishu)
@@ -901,7 +901,7 @@ func TestProperIterativeDeepening(t *testing.T) {
 		is.Equal(g.PointsFor(0), 339)
 		is.Equal(g.PointsFor(1), 381)
 
-		gd, err := gaddag.Get(g.Config(), g.LexiconName())
+		gd, err := kwg.Get(g.Config(), g.LexiconName())
 		is.NoErr(err)
 
 		gen1 := movegen.NewGordonGenerator(
@@ -945,7 +945,7 @@ func BenchmarkID(b *testing.B) {
 	is.Equal(g.PointsFor(0), 339)
 	is.Equal(g.PointsFor(1), 381)
 
-	gd, err := gaddag.Get(g.Config(), g.LexiconName())
+	gd, err := kwg.Get(g.Config(), g.LexiconName())
 	is.NoErr(err)
 
 	gen1 := movegen.NewGordonGenerator(
@@ -991,7 +991,7 @@ func BenchmarkID2(b *testing.B) {
 	g, err := game.NewFromHistory(gameHistory, rules, 47)
 	is.NoErr(err)
 
-	gd, err := gaddag.Get(g.Config(), g.LexiconName())
+	gd, err := kwg.Get(g.Config(), g.LexiconName())
 	is.NoErr(err)
 
 	gen1 := movegen.NewGordonGenerator(
@@ -1031,7 +1031,7 @@ func TestFromGCG(t *testing.T) {
 	g, err := game.NewFromHistory(gameHistory, rules, 22)
 	is.NoErr(err)
 
-	gd, err := gaddag.Get(&DefaultConfig, "CSW19")
+	gd, err := kwg.Get(&DefaultConfig, "CSW19")
 	is.NoErr(err)
 
 	g.SetBackupMode(game.SimulationMode)
@@ -1079,7 +1079,7 @@ func TestFromGCG(t *testing.T) {
 // RYE
 // TI`
 
-// 	gd := gaddag.GaddagToSimpleGaddag(
+// 	gd := kwg.GaddagToSimpleGaddag(
 // 		gaddagmaker.GenerateGaddagFromStream(strings.NewReader(reducedDict), "TESTENG"))
 
 // 	curGameRepr, err := gcgio.ParseGCG("../../gcgio/testdata/noah_vs_mishu.gcg")
@@ -1089,7 +1089,7 @@ func TestFromGCG(t *testing.T) {
 // 	game := mechanics.StateFromRepr(curGameRepr, "NWL18", 0)
 // 	// Use the gaddag we just created, instead of "NWL18":
 // 	fmt.Println("Replacing gaddag")
-// 	game.Init(gd, alphabet.EnglishLetterDistribution())
+// 	game.Init(gd, tilemapping.EnglishLetterDistribution())
 // 	game.SetStateStackLength(plies)
 // 	// Make a few plays:
 // 	mechanics.AppendScoringMoveAt(game, curGameRepr, 28, "H7", "T...")

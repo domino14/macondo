@@ -12,14 +12,15 @@ import (
 	"github.com/rs/zerolog/log"
 	"lukechampine.com/frand"
 
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+
 	"github.com/domino14/macondo/ai/bot"
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/automatic"
 	"github.com/domino14/macondo/endgame/alphabeta"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
-	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/tilemapping"
 )
 
 type Response struct {
@@ -526,7 +527,7 @@ func (sc *ShellController) leave(cmd *shellcmd) (*Response, error) {
 	if len(cmd.args) != 1 {
 		return nil, errors.New("please provide a leave")
 	}
-	dist, err := alphabet.Get(sc.config, sc.config.DefaultLetterDistribution)
+	dist, err := tilemapping.GetDistribution(sc.config, sc.config.DefaultLetterDistribution)
 	if err != nil {
 		return nil, err
 	}
@@ -535,7 +536,7 @@ func (sc *ShellController) leave(cmd *shellcmd) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	leave, err := alphabet.ToMachineWord(cmd.args[0], dist.Alphabet())
+	leave, err := tilemapping.ToMachineWord(cmd.args[0], dist.TileMapping())
 	if err != nil {
 		return nil, err
 	}

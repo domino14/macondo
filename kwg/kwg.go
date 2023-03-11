@@ -39,7 +39,7 @@ func (k *KWG) GetRootNodeIndex() uint32 {
 	return k.ArcIndex(1)
 }
 
-func (k *KWG) GetAlphabet() *tilemapping.TileMapping {
+func (k KWG) GetAlphabet() *tilemapping.TileMapping {
 	return k.alphabet
 }
 

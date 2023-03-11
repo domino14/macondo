@@ -15,13 +15,13 @@ import (
 	"gopkg.in/yaml.v2"
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/tilemapping"
 )
 
 var ErrMoveTypeNotSupported = errors.New("opponent move type not suitable for inference")
@@ -62,9 +62,9 @@ type RangeFinder struct {
 	cfg             *config.Config
 	lastOppMove     *move.Move
 	// tiles used by the last opponent's move, from their rack:
-	lastOppMoveRackTiles []alphabet.MachineLetter
-	inferences           [][]alphabet.MachineLetter
-	myRack               []alphabet.MachineLetter
+	lastOppMoveRackTiles []tilemapping.MachineLetter
+	inferences           [][]tilemapping.MachineLetter
+	myRack               []tilemapping.MachineLetter
 
 	logStream io.Writer
 }
@@ -86,8 +86,8 @@ func (r *RangeFinder) SetLogStream(l io.Writer) {
 	r.logStream = l
 }
 
-func (r *RangeFinder) PrepareFinder(myRack []alphabet.MachineLetter) error {
-	r.inferences = [][]alphabet.MachineLetter{}
+func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
+	r.inferences = [][]tilemapping.MachineLetter{}
 	evts := r.origGame.History().Events[:r.origGame.Turn()]
 	if len(evts) == 0 {
 		return ErrNoEvents
@@ -120,12 +120,14 @@ func (r *RangeFinder) PrepareFinder(myRack []alphabet.MachineLetter) error {
 	if r.lastOppMove.TilesPlayed() == game.RackTileLimit {
 		return ErrNoInformation
 	}
-	r.lastOppMoveRackTiles = []alphabet.MachineLetter{}
+	r.lastOppMoveRackTiles = []tilemapping.MachineLetter{}
 	for _, t := range r.lastOppMove.Tiles() {
-		ml, playedTile := t.IntrinsicTileIdx()
-		if playedTile {
-			r.lastOppMoveRackTiles = append(r.lastOppMoveRackTiles, ml)
+		if t == 0 {
+			// 0 is the played-through marker when part of a played move.
+			continue
 		}
+		ml := t.IntrinsicTileIdx()
+		r.lastOppMoveRackTiles = append(r.lastOppMoveRackTiles, ml)
 	}
 
 	// Sort to make it easy to compare to other plays:
@@ -137,7 +139,7 @@ func (r *RangeFinder) PrepareFinder(myRack []alphabet.MachineLetter) error {
 	if len(myRack) > 0 {
 		// Assign my rack first, so that the inferencer doesn't try to
 		// assign letters from my rack.
-		rack := alphabet.NewRack(r.origGame.Alphabet())
+		rack := tilemapping.NewRack(r.origGame.Alphabet())
 		rack.Set(myRack)
 		err = gameCopy.SetRackForOnly(1-gameCopy.PlayerOnTurn(), rack)
 		if err != nil {
@@ -155,10 +157,7 @@ func (r *RangeFinder) PrepareFinder(myRack []alphabet.MachineLetter) error {
 		// Save the state of the bag after we assign the random rack. Remove only
 		// lastOppMove rack but nothing else.
 		for _, ml := range r.lastOppMoveRackTiles {
-			idx, playedTile := ml.IntrinsicTileIdx()
-			if playedTile {
-				r.inferenceBagMap[idx]--
-			}
+			r.inferenceBagMap[ml]--
 		}
 	} else if oppEvt.Type == macondo.GameEvent_EXCHANGE {
 		// If this is an exchange move, lastOppMove etc is just a guess.
@@ -292,12 +291,12 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 
 }
 
-func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) ([][]alphabet.MachineLetter, error) {
+func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) ([][]tilemapping.MachineLetter, error) {
 	g := r.gameCopies[thread]
 	// Since we took back the last move, the player on turn should be our opponent
 	// (the person whose rack we are inferring)
 	opp := g.PlayerOnTurn()
-	var extraDrawn []alphabet.MachineLetter
+	var extraDrawn []tilemapping.MachineLetter
 	var err error
 	isExchange := r.lastOppMove.Action() == move.MoveTypeExchange
 	// otherwise, it's a tile placement play.
@@ -321,13 +320,13 @@ func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) ([][
 		logIter.TopMoveEquity = winningEquity
 	}
 
-	var inferences [][]alphabet.MachineLetter
+	var inferences [][]tilemapping.MachineLetter
 	for _, m := range bestMoves {
 		if m.Equity()+InferenceEquityLimit >= winningEquity {
 			// consider this move
 			if movesAreKindaTheSame(m, r.lastOppMove, r.lastOppMoveRackTiles, g.Board()) {
 				// copy extraDrawn, as setRandomRack does not allocate for it.
-				tiles := make([]alphabet.MachineLetter, len(extraDrawn))
+				tiles := make([]tilemapping.MachineLetter, len(extraDrawn))
 				copy(tiles, extraDrawn)
 
 				if r.logStream != nil {
@@ -340,7 +339,7 @@ func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) ([][
 					}
 					logChan <- out
 				}
-				return [][]alphabet.MachineLetter{tiles}, nil
+				return [][]tilemapping.MachineLetter{tiles}, nil
 			}
 		}
 	}
@@ -356,7 +355,7 @@ func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) ([][
 	m.SetLeave(leave)
 	r.aiplayers[thread].AssignEquity([]*move.Move{m}, g.Board(), g.Bag(), g.RackFor(1-opp))
 	if m.Equity()+InferenceEquityLimit >= winningEquity {
-		tiles := make([]alphabet.MachineLetter, len(extraDrawn))
+		tiles := make([]tilemapping.MachineLetter, len(extraDrawn))
 		copy(tiles, extraDrawn)
 		inferences = append(inferences, tiles)
 		logIter.PossibleRack = true
@@ -373,7 +372,7 @@ func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) ([][
 	return inferences, nil
 }
 
-func (r *RangeFinder) inferSingleExchange(thread, iterNum int, logChan chan []byte) ([][]alphabet.MachineLetter, error) {
+func (r *RangeFinder) inferSingleExchange(thread, iterNum int, logChan chan []byte) ([][]tilemapping.MachineLetter, error) {
 	g := r.gameCopies[thread]
 	// Since we took back the last move, the player on turn should be our opponent
 	// (the person whose rack we are inferring)
@@ -387,8 +386,8 @@ func (r *RangeFinder) inferSingleExchange(thread, iterNum int, logChan chan []by
 		logIter.TopMove = bestMoves[0].ShortDescription()
 		logIter.TopMoveEquity = winningEquity
 	}
-	var ret [][]alphabet.MachineLetter
-	var tiles []alphabet.MachineLetter
+	var ret [][]tilemapping.MachineLetter
+	var tiles []tilemapping.MachineLetter
 	// Infer more than one move if possible, since "movesAreSame" returns
 	// true for exchanges with the same number of tiles.
 	for _, m := range bestMoves {
@@ -396,7 +395,7 @@ func (r *RangeFinder) inferSingleExchange(thread, iterNum int, logChan chan []by
 			// consider this move
 			if m.TilesPlayed() == r.lastOppMove.TilesPlayed() {
 				// We just want to copy the new leave
-				tiles = make([]alphabet.MachineLetter, len(m.Leave()))
+				tiles = make([]tilemapping.MachineLetter, len(m.Leave()))
 				copy(tiles, m.Leave())
 				if r.logStream != nil {
 					logIter.InferredMoveEquity = m.Equity()
@@ -415,16 +414,16 @@ func (r *RangeFinder) inferSingleExchange(thread, iterNum int, logChan chan []by
 	return ret, nil
 }
 
-func (r *RangeFinder) Inferences() [][]alphabet.MachineLetter {
+func (r *RangeFinder) Inferences() [][]tilemapping.MachineLetter {
 	return r.inferences
 }
 
 func (r *RangeFinder) Reset() {
-	r.inferences = [][]alphabet.MachineLetter{}
+	r.inferences = [][]tilemapping.MachineLetter{}
 	r.readyToInfer = false
 }
 
-func movesAreKindaTheSame(m1 *move.Move, m2 *move.Move, m2tiles []alphabet.MachineLetter,
+func movesAreKindaTheSame(m1 *move.Move, m2 *move.Move, m2tiles []tilemapping.MachineLetter,
 	g *board.GameBoard) bool {
 	// This is a bit of a fuzzy equality function. We want to see if two
 	// tile-play moves are "materially" the same.
@@ -448,12 +447,13 @@ func movesAreKindaTheSame(m1 *move.Move, m2 *move.Move, m2tiles []alphabet.Machi
 	}
 
 	// Otherwise, check if they use the same tiles.
-	m1tiles := []alphabet.MachineLetter{}
+	m1tiles := []tilemapping.MachineLetter{}
 	for _, t := range m1.Tiles() {
-		ml, playedTile := t.IntrinsicTileIdx()
-		if playedTile {
-			m1tiles = append(m1tiles, ml)
+		if t == 0 {
+			continue
 		}
+		ml := t.IntrinsicTileIdx()
+		m1tiles = append(m1tiles, ml)
 	}
 	if len(m1tiles) != len(m2tiles) {
 		return false
@@ -476,9 +476,9 @@ func movesAreKindaTheSame(m1 *move.Move, m2 *move.Move, m2tiles []alphabet.Machi
 func uniqueSingleTileKey(m *move.Move) int {
 	// Find the tile.
 	var idx int
-	var tile alphabet.MachineLetter
+	var tile tilemapping.MachineLetter
 	for idx, tile = range m.Tiles() {
-		if tile != alphabet.PlayedThroughMarker {
+		if tile != 0 {
 			break
 		}
 	}
@@ -490,6 +490,6 @@ func uniqueSingleTileKey(m *move.Move) int {
 		col += idx
 	}
 	// A unique, fast to compute key for this play.
-	return row + alphabet.MaxAlphabetSize*col +
-		alphabet.MaxAlphabetSize*alphabet.MaxAlphabetSize*int(tile)
+	return row + tilemapping.MaxAlphabetSize*col +
+		tilemapping.MaxAlphabetSize*tilemapping.MaxAlphabetSize*int(tile)
 }

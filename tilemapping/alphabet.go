@@ -198,16 +198,20 @@ func (mw MachineWord) Score(ld *LetterDistribution) int {
 	return score
 }
 
+// IntrinsicTileIdx returns the index that this tile would have in a
+// rack's LetArr.
+func (ml MachineLetter) IntrinsicTileIdx() MachineLetter {
+	if ml.IsBlanked() || ml == 0 {
+		return 0
+	}
+	return ml
+}
+
 // IsPlayedTile returns true if this represents a tile that was actually
 // played on the board. It has to be an assigned blank or a letter, not
 // a played-through-marker.
 func (ml MachineLetter) IsPlayedTile() bool {
-	if ml.IsBlanked() {
-		return true
-	} else if ml == 0 {
-		return false
-	}
-	return true
+	return ml != 0
 }
 
 func (ml MachineLetter) IsVowel(ld *LetterDistribution) bool {

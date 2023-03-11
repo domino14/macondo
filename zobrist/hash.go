@@ -3,9 +3,9 @@ package zobrist
 import (
 	"lukechampine.com/frand"
 
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/tilemapping"
 )
 
 const bignum = 1<<63 - 2
@@ -20,7 +20,7 @@ type Zobrist struct {
 	minRackTable [][]uint64 // rack for the minimizing player
 
 	boardDim        int
-	placeholderRack []alphabet.MachineLetter
+	placeholderRack []tilemapping.MachineLetter
 }
 
 func (z *Zobrist) Initialize(boardDim int) {
@@ -37,15 +37,15 @@ func (z *Zobrist) Initialize(boardDim int) {
 			z.posTable[i][j] = frand.Uint64n(bignum) + 1
 		}
 	}
-	z.maxRackTable = make([][]uint64, alphabet.MaxAlphabetSize+1)
-	for i := 0; i < alphabet.MaxAlphabetSize+1; i++ {
+	z.maxRackTable = make([][]uint64, tilemapping.MaxAlphabetSize+1)
+	for i := 0; i < tilemapping.MaxAlphabetSize+1; i++ {
 		z.maxRackTable[i] = make([]uint64, game.RackTileLimit)
 		for j := 0; j < game.RackTileLimit; j++ {
 			z.maxRackTable[i][j] = frand.Uint64n(bignum) + 1
 		}
 	}
-	z.minRackTable = make([][]uint64, alphabet.MaxAlphabetSize+1)
-	for i := 0; i < alphabet.MaxAlphabetSize+1; i++ {
+	z.minRackTable = make([][]uint64, tilemapping.MaxAlphabetSize+1)
+	for i := 0; i < tilemapping.MaxAlphabetSize+1; i++ {
 		z.minRackTable[i] = make([]uint64, game.RackTileLimit)
 		for j := 0; j < game.RackTileLimit; j++ {
 			z.minRackTable[i][j] = frand.Uint64n(bignum) + 1
@@ -54,15 +54,15 @@ func (z *Zobrist) Initialize(boardDim int) {
 
 	z.minimizingPlayerToMove = frand.Uint64n(bignum) + 1
 
-	z.placeholderRack = make([]alphabet.MachineLetter, alphabet.MaxAlphabetSize+1)
+	z.placeholderRack = make([]tilemapping.MachineLetter, tilemapping.MaxAlphabetSize+1)
 }
 
-func (z *Zobrist) Hash(squares alphabet.MachineWord, maxPlayerRack *alphabet.Rack,
-	minPlayerRack *alphabet.Rack, minimizingPlayerToMove bool) uint64 {
+func (z *Zobrist) Hash(squares tilemapping.MachineWord, maxPlayerRack *tilemapping.Rack,
+	minPlayerRack *tilemapping.Rack, minimizingPlayerToMove bool) uint64 {
 
 	key := uint64(0)
 	for i, letter := range squares {
-		if letter == alphabet.EmptySquareMarker {
+		if letter == 0 {
 			continue
 		}
 		key ^= z.posTable[i][letter]
@@ -104,47 +104,31 @@ func (z *Zobrist) AddMove(key uint64, m *move.Move, maxPlayer bool) uint64 {
 			ri, ci = 1, 0
 		}
 		// clear out placeholder rack first:
-		for i := 0; i < alphabet.MaxAlphabetSize+1; i++ {
+		for i := 0; i < tilemapping.MaxAlphabetSize+1; i++ {
 			z.placeholderRack[i] = 0
 		}
 
 		for idx, tile := range m.Tiles() {
 			newRow := row + (ri * idx)
 			newCol := col + (ci * idx)
-			if tile == alphabet.PlayedThroughMarker {
+			if tile == 0 {
+				// 0 is a played-through marker if it's part of a move's tiles
 				continue
 			}
 			key ^= z.posTable[newRow*z.boardDim+newCol][tile]
 			// build up placeholder rack.
-			tileIdx, isPlayedTile := tile.IntrinsicTileIdx()
-			if !isPlayedTile {
-				// isPlayedTile should never be false here, since
-				// the PlayedThroughMarker case would have been handled
-				// above.
-				panic("unexpected isPlayedTile")
-			}
+			tileIdx := tile.IntrinsicTileIdx()
 			z.placeholderRack[tileIdx]++
 		}
 		for _, tile := range m.Leave() {
-			tileIdx, isPlayedTile := tile.IntrinsicTileIdx()
-			if !isPlayedTile {
-				panic("unexpected isPlayedTile during leave hashing")
-			}
-			z.placeholderRack[tileIdx]++
+			z.placeholderRack[tile]++
 		}
 		// now "Play" all the tiles in the rack
 		for _, tile := range m.Tiles() {
-			tileIdx, isPlayedTile := tile.IntrinsicTileIdx()
-			if tile == alphabet.PlayedThroughMarker {
+			if tile == 0 {
 				continue
 			}
-			if !isPlayedTile {
-				// isPlayedTile should never be false here, since
-				// the PlayedThroughMarker case would have been handled
-				// above.
-				panic("unexpected isPlayedTile - 2nd go")
-			}
-
+			tileIdx := tile.IntrinsicTileIdx()
 			key ^= ourRackTable[tileIdx][z.placeholderRack[tileIdx]]
 			z.placeholderRack[tileIdx]--
 			key ^= ourRackTable[tileIdx][z.placeholderRack[tileIdx]]

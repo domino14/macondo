@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/tilemapping"
 )
 
 func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
 	totalCt := 0
-	mlcts := map[alphabet.MachineLetter]int{}
+	mlcts := map[tilemapping.MachineLetter]int{}
 	for _, inf := range r.inferences {
 		for _, ml := range inf {
 			mlcts[ml]++
@@ -33,33 +33,29 @@ func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
 
 		printLetterStats := func(i int) {
 			fmt.Fprintf(&ss, "%-5c%-12.3f%-12.3f%d\n",
-				alphabet.MachineLetter(i).UserVisible(alph),
-				100.0*float64(mlcts[alphabet.MachineLetter(i)])/float64(totalCt),
+				tilemapping.MachineLetter(i).UserVisible(alph, false),
+				100.0*float64(mlcts[tilemapping.MachineLetter(i)])/float64(totalCt),
 				100.0*float64(bagmap[i])/float64(inbag),
 				bagmap[i])
 		}
 
-		for i := 0; i < int(alph.NumLetters()); i++ {
+		for i := 0; i < int(alph.NumLetters())+1; i++ {
 			printLetterStats(i)
 		}
-		printLetterStats(alphabet.BlankMachineLetter)
 		fmt.Fprintf(&ss, "Considered %d racks, inferred %d racks\n", r.iterationCount, len(r.inferences))
 
 		return ss.String()
 	}
 	// From likelihood to unlikelihood (index 0 to 7)
 	// Index 7 is not found at all.
-	bins := [8][]alphabet.MachineLetter{}
+	bins := [8][]tilemapping.MachineLetter{}
 
 	// Otherwise do a very rough statistical analysis.
 	for i := 0; i < int(alph.NumLetters()+1); i++ {
-		if i == int(alph.NumLetters()) {
-			i = alphabet.BlankMachineLetter
-		}
-		found := float64(mlcts[alphabet.MachineLetter(i)]) / float64(totalCt)
+		found := float64(mlcts[tilemapping.MachineLetter(i)]) / float64(totalCt)
 		expected := float64(bagmap[i]) / float64(inbag)
 		if expected == 0 {
-			bins[7] = append(bins[7], alphabet.MachineLetter(i))
+			bins[7] = append(bins[7], tilemapping.MachineLetter(i))
 			continue
 		}
 		ratio := found / expected
@@ -82,14 +78,14 @@ func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
 		default:
 			bin = 0
 		}
-		bins[bin] = append(bins[bin], alphabet.MachineLetter(i))
+		bins[bin] = append(bins[bin], tilemapping.MachineLetter(i))
 	}
 
 	var ss strings.Builder
 
-	printTiles := func(tiles []alphabet.MachineLetter) {
+	printTiles := func(tiles []tilemapping.MachineLetter) {
 		for _, t := range tiles {
-			fmt.Fprintf(&ss, " %c ", t.UserVisible(alph))
+			fmt.Fprintf(&ss, " %c ", t.UserVisible(alph, false))
 		}
 		fmt.Fprintln(&ss)
 		fmt.Fprintln(&ss)

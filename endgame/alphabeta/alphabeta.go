@@ -10,12 +10,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/domino14/macondo/zobrist"
 	"github.com/rs/zerolog/log"
 )
@@ -123,8 +123,8 @@ func (s *Solver) Init(m1 movegen.MoveGenerator, m2 movegen.MoveGenerator, game *
 	s.nodeCount = make(map[uint8]uint32)
 	s.iterativeDeepeningOn = true
 
-	s.stmPlayed = make([]bool, alphabet.MaxAlphabetSize+1)
-	s.otsPlayed = make([]bool, alphabet.MaxAlphabetSize+1)
+	s.stmPlayed = make([]bool, tilemapping.MaxAlphabetSize+1)
+	s.otsPlayed = make([]bool, tilemapping.MaxAlphabetSize+1)
 	s.stmBlockingRects = make([]rect, 20)
 	s.otsBlockingRects = make([]rect, 25)
 	s.config = cfg
@@ -132,7 +132,7 @@ func (s *Solver) Init(m1 movegen.MoveGenerator, m2 movegen.MoveGenerator, game *
 }
 
 func (s *Solver) clearStuckTables() {
-	for i := 0; i < alphabet.MaxAlphabetSize+1; i++ {
+	for i := 0; i < tilemapping.MaxAlphabetSize+1; i++ {
 		s.stmPlayed[i] = false
 		s.otsPlayed[i] = false
 	}
@@ -140,32 +140,32 @@ func (s *Solver) clearStuckTables() {
 
 // Given the plays and the given rack, return a list of tiles that were
 // never played.
-func (s *Solver) computeStuck(plays []*move.Move, rack *alphabet.Rack,
-	stuckBitArray []bool) []alphabet.MachineLetter {
+func (s *Solver) computeStuck(plays []*move.Move, rack *tilemapping.Rack,
+	stuckBitArray []bool) []tilemapping.MachineLetter {
 
-	stuck := []alphabet.MachineLetter{}
+	stuck := []tilemapping.MachineLetter{}
 	for _, play := range plays {
 		for _, t := range play.Tiles() {
-			idx, ok := t.IntrinsicTileIdx()
-			if ok {
-				stuckBitArray[idx] = true
+			if t == 0 {
+				continue
 			}
+			idx := t.IntrinsicTileIdx()
+			stuckBitArray[idx] = true
+
 		}
 	}
 	for _, ml := range rack.TilesOn() {
-		idx, ok := ml.IntrinsicTileIdx()
-		if ok {
-			if !stuckBitArray[idx] {
-				// this tile was never played.
-				stuck = append(stuck, idx)
-			}
+		if !stuckBitArray[ml] {
+			// this tile was never played.
+			stuck = append(stuck, ml)
 		}
+
 	}
 	return stuck
 }
 
-func leaveAdjustment(myLeave, oppLeave alphabet.MachineWord,
-	myStuck, otherStuck []alphabet.MachineLetter, ld *alphabet.LetterDistribution) float32 {
+func leaveAdjustment(myLeave, oppLeave tilemapping.MachineWord,
+	myStuck, otherStuck []tilemapping.MachineLetter, ld *tilemapping.LetterDistribution) float32 {
 	if len(myStuck) == 0 && len(otherStuck) == 0 {
 		// Neither player is stuck so the adjustment is sum(stm)
 		// minus 2 * sum(ots). This prioritizes moves as if the side to move
@@ -173,8 +173,8 @@ func leaveAdjustment(myLeave, oppLeave alphabet.MachineWord,
 		// XXX: this formula doesn't make sense to me. Change to
 		// + instead of - for now.
 		// log.Debug().Msgf("Calculating adjustment; myLeave, oppLeave (%v %v)",
-		// 	myLeave.UserVisible(alphabet.EnglishAlphabet()),
-		// 	oppLeave.UserVisible(alphabet.EnglishAlphabet()))
+		// 	myLeave.UserVisible(tilemapping.EnglishAlphabet()),
+		// 	oppLeave.UserVisible(tilemapping.EnglishAlphabet()))
 		var adjustment float32
 		if len(oppLeave) == 0 {
 			// The opponent went out with their play, so our adjustment
@@ -201,7 +201,7 @@ func leaveAdjustment(myLeave, oppLeave alphabet.MachineWord,
 
 	if len(myStuck) > 0 {
 		// Opp gets all my tiles
-		stuckValue := alphabet.MachineWord(myStuck).Score(ld)
+		stuckValue := tilemapping.MachineWord(myStuck).Score(ld)
 		oppAdjustment = float32(b * stuckValue)
 		// Opp can also one-tile me:
 		oppAdjustment += c * float32(oppLeave.Score(ld))
@@ -211,7 +211,7 @@ func leaveAdjustment(myLeave, oppLeave alphabet.MachineWord,
 	if len(otherStuck) > 0 {
 		// Same as above in reverse. In practice a lot of this will end up
 		// nearly canceling out.
-		stuckValue := alphabet.MachineWord(otherStuck).Score(ld)
+		stuckValue := tilemapping.MachineWord(otherStuck).Score(ld)
 		myAdjustment = float32(b * stuckValue)
 		myAdjustment += c * float32(myLeave.Score(ld))
 		myAdjustment -= d * float32(oppLeave.Score(ld)-stuckValue)
@@ -302,7 +302,7 @@ func (s *Solver) generateSTMPlays(parentMove *move.Move, depth int, plies int) [
 			// subtract off the score of the opponent's highest scoring move
 			// that is not blocked.
 			var oScore int
-			var oLeave alphabet.MachineWord
+			var oLeave tilemapping.MachineWord
 			blockedAll := true
 			for _, o := range otherSidePlays {
 				if s.blocks(play, o, board) {

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/montecarlo"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/rs/zerolog/log"
 )
 
@@ -106,7 +106,7 @@ func (sc *ShellController) handleSim(args []string, options map[string]string) e
 
 		if knownOppRack != "" {
 			knownOppRack = strings.ToUpper(knownOppRack)
-			r, err := alphabet.ToMachineLetters(knownOppRack, sc.game.Alphabet())
+			r, err := tilemapping.ToMachineLetters(knownOppRack, sc.game.Alphabet())
 			if err != nil {
 				return err
 			}

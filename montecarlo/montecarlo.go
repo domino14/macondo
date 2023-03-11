@@ -18,7 +18,6 @@ import (
 	"lukechampine.com/frand"
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/equity"
@@ -26,6 +25,7 @@ import (
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/stats"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v2"
 )
@@ -202,13 +202,13 @@ type Simmer struct {
 	plays        []*SimmedPlay
 	winPcts      [][]float32
 	cfg          *config.Config
-	knownOppRack []alphabet.MachineLetter
+	knownOppRack []tilemapping.MachineLetter
 
 	logStream         io.Writer
 	stoppingCondition StoppingCondition
 
 	// See rangefinder.
-	inferences    [][]alphabet.MachineLetter
+	inferences    [][]tilemapping.MachineLetter
 	inferenceMode InferenceMode
 }
 
@@ -250,11 +250,11 @@ func (s *Simmer) SetLogStream(l io.Writer) {
 	s.logStream = l
 }
 
-func (s *Simmer) SetKnownOppRack(r []alphabet.MachineLetter) {
+func (s *Simmer) SetKnownOppRack(r []tilemapping.MachineLetter) {
 	s.knownOppRack = r
 }
 
-func (s *Simmer) SetInferences(i [][]alphabet.MachineLetter, mode InferenceMode) {
+func (s *Simmer) SetInferences(i [][]tilemapping.MachineLetter, mode InferenceMode) {
 	s.inferences = i
 	s.inferenceMode = mode
 }

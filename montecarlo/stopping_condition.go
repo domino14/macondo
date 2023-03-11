@@ -3,8 +3,8 @@ package montecarlo
 import (
 	"sort"
 
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/stats"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/rs/zerolog/log"
 )
 
@@ -146,8 +146,8 @@ func materiallySimilar(p1, p2 *SimmedPlay, pcache map[string]bool) bool {
 	}
 	// these plays start at the same square and are the same length.
 	// do they use the same tiles?
-	a1 := make([]alphabet.MachineLetter, len(p1.play.Tiles()))
-	a2 := make([]alphabet.MachineLetter, len(p2.play.Tiles()))
+	a1 := make([]tilemapping.MachineLetter, len(p1.play.Tiles()))
+	a2 := make([]tilemapping.MachineLetter, len(p2.play.Tiles()))
 	copy(a1, p1.play.Tiles())
 	copy(a2, p2.play.Tiles())
 	sort.Slice(a1, func(i, j int) bool { return a1[i] < a1[j] })

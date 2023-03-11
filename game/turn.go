@@ -32,7 +32,7 @@ func (g *Game) EventFromMove(m *move.Move) *pb.GameEvent {
 	switch m.Action() {
 	case move.MoveTypePlay:
 		evt.Position = m.BoardCoords()
-		evt.PlayedTiles = m.Tiles().UserVisible(m.Alphabet())
+		evt.PlayedTiles = m.Tiles().UserVisiblePlayedTiles(m.Alphabet())
 		evt.Score = int32(m.Score())
 		evt.Type = pb.GameEvent_TILE_PLACEMENT_MOVE
 		evt.IsBingo = m.TilesPlayed() == RackTileLimit

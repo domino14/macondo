@@ -20,20 +20,20 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/ai/bot"
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/automatic"
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/endgame/alphabeta"
 	"github.com/domino14/macondo/equity"
-	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/rangefinder"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/domino14/macondo/turnplayer"
 )
 
@@ -236,7 +236,7 @@ func (sc *ShellController) initGameDataStructures() error {
 	sc.simmer.Init(sc.game.Game, []equity.EquityCalculator{c}, c, sc.config)
 	sc.gen = sc.game.MoveGenerator()
 
-	gd, err := gaddag.Get(sc.config, sc.game.LexiconName())
+	gd, err := kwg.Get(sc.config, sc.game.LexiconName())
 	if err != nil {
 		return err
 	}
@@ -402,7 +402,7 @@ func moveTableHeader() string {
 	return "     Move                Leave  Score Equity"
 }
 
-func MoveTableRow(idx int, m *move.Move, alph *alphabet.Alphabet) string {
+func MoveTableRow(idx int, m *move.Move, alph *tilemapping.TileMapping) string {
 	return fmt.Sprintf("%3d: %-20s%-7s%5d %6.2f", idx+1,
 		m.ShortDescription(), m.Leave().UserVisible(alph), m.Score(), m.Equity())
 }
