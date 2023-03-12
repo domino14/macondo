@@ -170,11 +170,9 @@ func (k *KWG) GetWordIndexOf(nodeIdx uint32, letters tilemapping.MachineWord) in
 			}
 			return -1
 		}
-		accepts := int32(0)
 		if k.Accepts(nodeIdx) {
-			accepts = int32(1)
+			idx += 1
 		}
-		idx += accepts
 		nodeIdx = k.ArcIndex(nodeIdx)
 	}
 	return -1
