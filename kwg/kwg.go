@@ -16,6 +16,7 @@ type KWG struct {
 	nodes       []uint32
 	alphabet    *tilemapping.TileMapping
 	lexiconName string
+	wordCounts  []int32
 }
 
 func ScanKWG(data io.Reader) (*KWG, error) {
@@ -113,4 +114,68 @@ func (k *KWG) IterateSiblings(nodeIdx uint32, cb func(ml tilemapping.MachineLett
 			break
 		}
 	}
+}
+
+// I have no idea what is going on in these functions. See wolges kwg.rs
+func (k *KWG) countWordsAt(p uint32) int {
+	if p >= uint32(len(k.wordCounts)) {
+		return 0
+	}
+	if k.wordCounts[p] == -1 {
+		panic("unexpected -1")
+	}
+	if k.wordCounts[p] == 0 {
+		k.wordCounts[p] = -1
+
+		a := 0
+		if k.Accepts(p) {
+			a = 1
+		}
+		b := 0
+		if k.ArcIndex(p) != 0 {
+			b = k.countWordsAt(k.ArcIndex(p))
+		}
+		c := 0
+		if !k.IsEnd(p) {
+			c = k.countWordsAt(p + 1)
+		}
+		k.wordCounts[p] = int32(a + b + c)
+	}
+	return int(k.wordCounts[p])
+}
+
+func (k *KWG) CountWords() {
+	k.wordCounts = make([]int32, len(k.nodes))
+	for p := len(k.wordCounts) - 1; p >= 0; p-- {
+		k.countWordsAt(uint32(p))
+	}
+}
+
+func (k *KWG) GetWordIndexOf(nodeIdx uint32, letters tilemapping.MachineWord) int32 {
+	idx := int32(0)
+	lidx := 0
+
+	for nodeIdx != 0 {
+		for k.Tile(nodeIdx) != uint8(letters[lidx]) {
+			if k.IsEnd(nodeIdx) {
+				return -1
+			}
+			idx += k.wordCounts[nodeIdx] - k.wordCounts[nodeIdx+1]
+			nodeIdx++
+		}
+		lidx++
+		if lidx > len(letters)-1 {
+			if k.Accepts(nodeIdx) {
+				return int32(idx)
+			}
+			return -1
+		}
+		accepts := int32(0)
+		if k.Accepts(nodeIdx) {
+			accepts = int32(1)
+		}
+		idx += accepts
+		nodeIdx = k.ArcIndex(nodeIdx)
+	}
+	return -1
 }

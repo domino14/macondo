@@ -32,7 +32,7 @@ func GaddagFromLexicon(lex string) (gaddag.WordGraph, error) {
 func TestLeaveValues(t *testing.T) {
 	alph := tilemapping.EnglishAlphabet()
 
-	els, err := equity.NewExhaustiveLeaveCalculator("NWL18", &DefaultConfig, "")
+	els, err := equity.NewExhaustiveLeaveCalculator("NWL18", &DefaultConfig, "english.klv")
 	assert.Nil(t, err)
 
 	type testcase struct {
@@ -51,8 +51,20 @@ func TestLeaveValues(t *testing.T) {
 		{"SATINE", 30.734148025512695},
 	} {
 		leave, _ := tilemapping.ToMachineLetters(tc.leave, alph)
-		assert.InEpsilon(t, tc.ev, els.LeaveValue(leave), 0.00001)
+		assert.InEpsilon(t, tc.ev, els.LeaveValue(leave), 0.001)
 	}
+}
+
+func BenchmarkLeaveValue(b *testing.B) {
+	alph := tilemapping.EnglishAlphabet()
+
+	els, _ := equity.NewExhaustiveLeaveCalculator("NWL18", &DefaultConfig, "english.klv")
+	leave, _ := tilemapping.ToMachineLetters("AENST", alph)
+
+	for i := 0; i <= b.N; i++ {
+		els.LeaveValue(leave)
+	}
+
 }
 
 func TestEndgameTiming(t *testing.T) {

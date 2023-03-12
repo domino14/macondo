@@ -22,7 +22,7 @@ func NewCombinedStaticCalculator(lexiconName string,
 
 	calc := &CombinedStaticCalculator{}
 	if leaveFilename == "" {
-		leaveFilename = LeaveFilename
+		leaveFilename = defaultLeaveFileForLexicon(lexiconName)
 	}
 	if pegfile == "" {
 		pegfile = PEGAdjustmentFilename
@@ -36,7 +36,7 @@ func NewCombinedStaticCalculator(lexiconName string,
 		log.Err(err).Msg("loading-peg-values")
 	}
 	var ok bool
-	calc.leaveValues, ok = leaves.(*OldLeaves)
+	calc.leaveValues, ok = leaves.(*KLV)
 	if !ok {
 		log.Info().Msg("no leaves found, will use greedy strategy")
 		calc.leaveValues = &BlankLeaves{}

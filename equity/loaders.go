@@ -13,7 +13,6 @@ import (
 )
 
 const (
-	LeaveFilename         = "leaves.olv"
 	PEGAdjustmentFilename = "preendgame.json"
 )
 
@@ -29,6 +28,23 @@ func stratFileForLexicon(strategyDir string, filename string, lexiconName string
 			"no lexicon-specific strategy")
 	}
 	return file, nil
+}
+
+func loadKLV(strategyPath, leavefile, lexiconName string) (*KLV, error) {
+	file, err := stratFileForLexicon(strategyPath, leavefile, lexiconName)
+	if err != nil {
+		return nil, err
+	}
+	var leaves *KLV
+	defer file.Close()
+	leaves, err = ReadKLV(file)
+	if err != nil {
+		return nil, err
+	}
+	log.Debug().Str("lexiconName", lexiconName).
+		Int("leaves-size", len(leaves.leaveValues)).
+		Msg("loaded-klv")
+	return leaves, nil
 }
 
 // Load the exhaustive-leave minimal perfect hash.
