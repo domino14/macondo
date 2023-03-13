@@ -35,7 +35,7 @@ func TestMain(m *testing.M) {
 
 func defaultSimCalculators(lexiconName string) ([]equity.EquityCalculator, equity.EquityCalculator) {
 	c, err := equity.NewCombinedStaticCalculator(
-		lexiconName, &DefaultConfig, equity.LeaveFilename, equity.PEGAdjustmentFilename)
+		lexiconName, &DefaultConfig, "", equity.PEGAdjustmentFilename)
 	if err != nil {
 		panic(err)
 	}
@@ -116,6 +116,8 @@ func BenchmarkSim(b *testing.B) {
 	b.ResetTimer()
 	// benchmark 2022-08-20 on monolith (12th gen Intel computer)
 	// 362	   3448347 ns/op	    7980 B/op	      60 allocs/op
+	// 2023-03-12:
+	// 504	   2228889 ns/op	    8619 B/op	      78 allocs/op
 	for i := 0; i < b.N; i++ {
 		simmer.simSingleIteration(plies, 0, i+1, nil)
 	}

@@ -229,7 +229,7 @@ func (sc *ShellController) initGameDataStructures() error {
 	sc.simmer = &montecarlo.Simmer{}
 	c, err := equity.NewCombinedStaticCalculator(
 		sc.game.LexiconName(),
-		sc.config, equity.LeaveFilename, equity.PEGAdjustmentFilename)
+		sc.config, "", equity.PEGAdjustmentFilename)
 	if err != nil {
 		return err
 	}

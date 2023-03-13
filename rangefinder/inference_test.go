@@ -22,7 +22,7 @@ var DefaultConfig = config.DefaultConfig()
 
 func defaultSimCalculators(lexiconName string) []equity.EquityCalculator {
 	c, err := equity.NewCombinedStaticCalculator(
-		lexiconName, &DefaultConfig, equity.LeaveFilename, equity.PEGAdjustmentFilename)
+		lexiconName, &DefaultConfig, "", equity.PEGAdjustmentFilename)
 	if err != nil {
 		panic(err)
 	}

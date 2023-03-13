@@ -532,7 +532,7 @@ func (sc *ShellController) leave(cmd *shellcmd) (*Response, error) {
 		return nil, err
 	}
 	els, err := equity.NewExhaustiveLeaveCalculator(sc.config.DefaultLexicon,
-		sc.config, equity.LeaveFilename)
+		sc.config, "")
 	if err != nil {
 		return nil, err
 	}
