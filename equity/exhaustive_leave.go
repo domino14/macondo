@@ -45,32 +45,13 @@ func defaultForLexicon(lexiconName string) string {
 	return ""
 }
 
-func defaultLeaveFileForLexicon(lexiconName string) string {
-	if strings.HasPrefix(lexiconName, "CSW") ||
-		strings.HasPrefix(lexiconName, "TWL") ||
-		strings.HasPrefix(lexiconName, "NWL") ||
-		strings.HasPrefix(lexiconName, "ECWL") || // obsolete name for CEL
-		strings.HasPrefix(lexiconName, "CEL") || // common english words
-		strings.HasPrefix(lexiconName, "NSWL") {
-
-		return "english.klv"
-	} else if strings.HasPrefix(lexiconName, "RD") {
-		return "german.klv"
-	} else if strings.HasPrefix(lexiconName, "NSF") {
-		return "norwegian.klv"
-	} else if strings.HasPrefix(lexiconName, "FRA") {
-		return "french.klv"
-	}
-	return ""
-}
-
 func NewExhaustiveLeaveCalculator(lexiconName string,
 	cfg *config.Config, leaveFilename string) (
 	*ExhaustiveLeaveCalculator, error) {
 
 	calc := &ExhaustiveLeaveCalculator{}
 	if leaveFilename == "" {
-		leaveFilename = defaultLeaveFileForLexicon(lexiconName)
+		leaveFilename = LeavesFilename
 	}
 
 	leaves, err := cache.Load(cfg, "leavefile:"+lexiconName+":"+leaveFilename, LeaveCacheLoadFunc)

@@ -22,7 +22,7 @@ func NewCombinedStaticCalculator(lexiconName string,
 
 	calc := &CombinedStaticCalculator{}
 	if leaveFilename == "" {
-		leaveFilename = defaultLeaveFileForLexicon(lexiconName)
+		leaveFilename = LeavesFilename
 	}
 	if pegfile == "" {
 		pegfile = PEGAdjustmentFilename

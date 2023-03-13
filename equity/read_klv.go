@@ -6,6 +6,7 @@ import (
 
 	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/tilemapping"
+	"github.com/samber/lo"
 )
 
 const LeaveScale = 1 / 256.0
@@ -14,7 +15,7 @@ const LeaveScale = 1 / 256.0
 // int16s that represent scaled leave values.
 type KLV struct {
 	kwg         *kwg.KWG
-	leaveValues []int16
+	leaveValues []float64
 }
 
 func ReadKLV(file io.Reader) (*KLV, error) {
@@ -38,7 +39,10 @@ func ReadKLV(file io.Reader) (*KLV, error) {
 	}
 	// Count words so we can figure out how to map leaves to indexes.
 	k.CountWords()
-	return &KLV{kwg: k, leaveValues: leaveValues}, nil
+	floatLeaves := lo.Map(leaveValues, func(item int16, idx int) float64 {
+		return float64(item) * LeaveScale
+	})
+	return &KLV{kwg: k, leaveValues: floatLeaves}, nil
 }
 
 func (k *KLV) LeaveValue(leave tilemapping.MachineWord) float64 {
@@ -54,7 +58,7 @@ func (k *KLV) LeaveValue(leave tilemapping.MachineWord) float64 {
 
 	idx := k.kwg.GetWordIndexOf(k.kwg.ArcIndex(0), leave)
 	if idx != -1 {
-		return float64(k.leaveValues[idx]) * LeaveScale
+		return k.leaveValues[idx]
 	}
 	return 0.0
 }

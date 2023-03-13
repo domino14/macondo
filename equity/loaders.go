@@ -14,6 +14,7 @@ import (
 
 const (
 	PEGAdjustmentFilename = "preendgame.json"
+	LeavesFilename        = "leaves.klv"
 )
 
 func stratFileForLexicon(strategyDir string, filename string, lexiconName string) (io.ReadCloser, error) {

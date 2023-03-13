@@ -131,7 +131,6 @@ func TestInferExchange(t *testing.T) {
 	fmt.Println("analyze inferences")
 	fmt.Println(rangeFinder.AnalyzeInferences(true))
 	fmt.Println(rangeFinder.AnalyzeInferences(false))
-	is.True(false)
 }
 
 func TestInferSingle(t *testing.T) {
