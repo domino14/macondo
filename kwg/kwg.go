@@ -37,7 +37,7 @@ func ScanKWG(data io.Reader) (*KWG, error) {
 }
 
 func (k *KWG) GetRootNodeIndex() uint32 {
-	return k.ArcIndex(1)
+	return k.ArcIndex(1) // (1) for a GADDAG, (0) for a DAWG
 }
 
 func (k KWG) GetAlphabet() *tilemapping.TileMapping {

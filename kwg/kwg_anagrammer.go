@@ -15,7 +15,7 @@ type KWGAnagrammer struct {
 	queryLength int
 }
 
-func (da KWGAnagrammer) commonInit(kwg *KWG) {
+func (da *KWGAnagrammer) commonInit(kwg *KWG) {
 	alph := kwg.GetAlphabet()
 	numLetters := alph.NumLetters()
 	if cap(da.freq) < int(numLetters)+1 {
@@ -56,7 +56,7 @@ func (da *KWGAnagrammer) InitForMachineWord(kwg *KWG, machineTiles tilemapping.M
 	for _, v := range machineTiles {
 		if v == 0 {
 			da.blanks++
-		} else if uint8(v) < numLetters {
+		} else if uint8(v) < numLetters+1 {
 			da.freq[v]++
 		} else {
 			return fmt.Errorf("invalid byte %v", v)
@@ -66,108 +66,59 @@ func (da *KWGAnagrammer) InitForMachineWord(kwg *KWG, machineTiles tilemapping.M
 }
 
 // f must not modify the given slice. if f returns error, abort iteration.
-func (da *KWGAnagrammer) iterate(kwg *KWG, nodeIdx uint32, minLen int, minExact int, f func(tilemapping.MachineWord) error) error {
-	alph := kwg.GetAlphabet()
-	numLetters := alph.NumLetters()
-	letterSet := kwg.GetLetterSet(nodeIdx)
-	// numArcs := kwg.NumArcs(nodeIdx)
-	j := tilemapping.MachineLetter(0)
-	if kwg.IsEnd(nodeIdx) {
-		return nil // ??
-	}
-	for i := byte(1); ; i++ {
-		nextNodeIdx := kwg.ArcIndex(nodeIdx + uint32(i))
-		nextLetter := kwg.Tile(nodeIdx + uint32(i))
-		if uint8(nextLetter) >= numLetters {
-			continue
-		}
-		for ; j <= tilemapping.MachineLetter(nextLetter); j++ {
-			if letterSet&(1<<j) != 0 {
-				if da.freq[j] > 0 {
-					da.freq[j]--
-					da.ans = append(da.ans, j)
-					if minLen <= 1 && minExact <= 1 {
-						if err := f(da.ans); err != nil {
-							return err
-						}
-					}
-					da.ans = da.ans[:len(da.ans)-1]
-					da.freq[j]++
-				} else if da.blanks > 0 {
-					da.blanks--
-					da.ans = append(da.ans, j)
-					if minLen <= 1 && minExact <= 0 {
-						if err := f(da.ans); err != nil {
-							return err
-						}
-					}
-					da.ans = da.ans[:len(da.ans)-1]
-					da.blanks++
+func (ka *KWGAnagrammer) iterate(kwg *KWG, nodeIdx uint32, minLen int, minExact int, f func(tilemapping.MachineWord) error) error {
+	for ; ; nodeIdx++ {
+		j := kwg.Tile(nodeIdx)
+		if ka.freq[j] > 0 {
+			ka.freq[j]--
+			ka.ans = append(ka.ans, tilemapping.MachineLetter(j))
+			if minLen <= 1 && minExact <= 1 && kwg.Accepts(nodeIdx) {
+				if err := f(ka.ans); err != nil {
+					return err
 				}
 			}
-		}
-		if da.freq[nextLetter] > 0 {
-			da.freq[nextLetter]--
-			da.ans = append(da.ans, tilemapping.MachineLetter(nextLetter))
-			if err := da.iterate(kwg, nextNodeIdx, minLen-1, minExact-1, f); err != nil {
-				return err
+			if arcIndex := kwg.ArcIndex(nodeIdx); arcIndex != 0 {
+				if err := ka.iterate(kwg, arcIndex, minLen-1, minExact-1, f); err != nil {
+					return err
+				}
 			}
-			da.ans = da.ans[:len(da.ans)-1]
-			da.freq[nextLetter]++
-		} else if da.blanks > 0 {
-			da.blanks--
-			da.ans = append(da.ans, tilemapping.MachineLetter(nextLetter))
-			if err := da.iterate(kwg, nextNodeIdx, minLen-1, minExact, f); err != nil {
-				return err
+			ka.ans = ka.ans[:len(ka.ans)-1]
+			ka.freq[j]++
+		} else if ka.blanks > 0 {
+			ka.blanks--
+			ka.ans = append(ka.ans, tilemapping.MachineLetter(j))
+			if minLen <= 1 && minExact <= 0 && kwg.Accepts(nodeIdx) {
+				if err := f(ka.ans); err != nil {
+					return err
+				}
 			}
-			da.ans = da.ans[:len(da.ans)-1]
-			da.blanks++
+			if arcIndex := kwg.ArcIndex(nodeIdx); arcIndex != 0 {
+				if err := ka.iterate(kwg, arcIndex, minLen-1, minExact, f); err != nil {
+					return err
+				}
+			}
+			ka.ans = ka.ans[:len(ka.ans)-1]
+			ka.blanks++
 		}
-		if kwg.IsEnd(nodeIdx + uint32(i)) {
-			break
+		if kwg.IsEnd(nodeIdx) {
+			return nil
 		}
 	}
-	for ; uint8(j) < numLetters; j++ {
-		if letterSet&(1<<j) != 0 {
-			if da.freq[j] > 0 {
-				da.freq[j]--
-				da.ans = append(da.ans, j)
-				if minLen <= 1 && minExact <= 1 {
-					if err := f(da.ans); err != nil {
-						return err
-					}
-				}
-				da.ans = da.ans[:len(da.ans)-1]
-				da.freq[j]++
-			} else if da.blanks > 0 {
-				da.blanks--
-				da.ans = append(da.ans, j)
-				if minLen <= 1 && minExact <= 0 {
-					if err := f(da.ans); err != nil {
-						return err
-					}
-				}
-				da.ans = da.ans[:len(da.ans)-1]
-				da.blanks++
-			}
-		}
-	}
-	return nil
 }
 
 func (da *KWGAnagrammer) Anagram(dawg *KWG, f func(tilemapping.MachineWord) error) error {
-	return da.iterate(dawg, dawg.GetRootNodeIndex(), da.queryLength, 0, f)
+	return da.iterate(dawg, dawg.ArcIndex(0), da.queryLength, 0, f)
 }
 
 func (da *KWGAnagrammer) Subanagram(dawg *KWG, f func(tilemapping.MachineWord) error) error {
-	return da.iterate(dawg, dawg.GetRootNodeIndex(), 1, 0, f)
+	return da.iterate(dawg, dawg.ArcIndex(0), 1, 0, f)
 }
 
 func (da *KWGAnagrammer) Superanagram(dawg *KWG, f func(tilemapping.MachineWord) error) error {
 	minExact := da.queryLength - int(da.blanks)
 	blanks := da.blanks
 	da.blanks = 255
-	err := da.iterate(dawg, dawg.GetRootNodeIndex(), da.queryLength, minExact, f)
+	err := da.iterate(dawg, dawg.ArcIndex(0), da.queryLength, minExact, f)
 	da.blanks = blanks
 	return err
 }

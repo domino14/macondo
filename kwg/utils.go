@@ -7,64 +7,50 @@ import (
 
 // FindWord finds a word in a KWG
 func FindWord(d *KWG, word string) bool {
-	found, _ := findWord(d, d.GetRootNodeIndex(), word, 0)
-	return found
+	return findWord(d, d.ArcIndex(0), word)
 }
 
-// FindMachineWord finds a word in a dawg or gaddag.
+// FindMachineWord finds a word in a LWG
 func FindMachineWord(d *KWG, word tilemapping.MachineWord) bool {
-	var found bool
-
-	found, _ = findMachineWord(d, d.GetRootNodeIndex(), word, 0)
-
-	return found
+	return findMachineWord(d, d.ArcIndex(0), word)
 }
 
-func findWord(d *KWG, nodeIdx uint32, word string, curIdx uint8) (
-	bool, uint32) {
+func findWord(d *KWG, nodeIdx uint32, word string) bool {
 
 	mw, err := tilemapping.ToMachineWord(word, d.GetAlphabet())
 	if err != nil {
 		log.Err(err).Msg("convert-to-mw")
-		return false, 0
+		return false
 	}
-	return findMachineWord(d, nodeIdx, mw, curIdx)
+	return findMachineWord(d, nodeIdx, mw)
 }
 
-func findMachineWord(d *KWG, nodeIdx uint32, word tilemapping.MachineWord, curIdx uint8) (
-	bool, uint32) {
-
-	var i byte
-	var letter tilemapping.MachineLetter
-	var nextNodeIdx uint32
-
-	if curIdx == uint8(len(word)-1) {
-		// log.Println("checking letter set last Letter", string(letter),
-		// 	"nodeIdx", nodeIdx, "word", string(word))
-		ml := word[curIdx]
-		return d.InLetterSet(ml, nodeIdx), nodeIdx
+func findMachineWord(d *KWG, nodeIdx uint32, word tilemapping.MachineWord) bool {
+	if len(word) < 2 {
+		return false
 	}
+	lidx := 0
 
-	found := false
-	for i = byte(1); ; i++ {
-		nextNodeIdx = d.ArcIndex(nodeIdx + uint32(i))
-		letter = tilemapping.MachineLetter(d.Tile(nodeIdx + uint32(i)))
-
-		curml := word[curIdx]
-		if letter == curml {
-			// log.Println("Letter", string(letter), "this node idx", nodeIdx,
-			// 	"next node idx", nextNodeIdx, "word", string(word))
+	for {
+		if lidx > len(word)-1 {
+			// If we've gone too far the word is not found.
+			return false
+		}
+		letter := word[lidx]
+		oldI := nodeIdx
+		found := false
+		if d.Tile(nodeIdx) == uint8(letter) {
+			if lidx == len(word)-1 {
+				return d.Accepts(nodeIdx)
+			}
+			nodeIdx = d.ArcIndex(nodeIdx)
 			found = true
-			break
+			lidx++
+		} else {
+			nodeIdx++
 		}
-		if d.IsEnd(nodeIdx + uint32(i)) {
-			break
+		if d.IsEnd(oldI) && !found {
+			return false
 		}
 	}
-
-	if !found {
-		return false, 0
-	}
-	curIdx++
-	return findMachineWord(d, nextNodeIdx, word, curIdx)
 }

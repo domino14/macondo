@@ -245,11 +245,9 @@ func TestVeryDeep(t *testing.T) {
 	g.SetStateStackLength(plies)
 	g.RecalculateBoard()
 	gen1 := movegen.NewGordonGenerator(
-		// The strategy doesn't matter right here
 		gd, g.Board(), g.Bag().LetterDistribution(),
 	)
 	gen2 := movegen.NewGordonGenerator(
-		// The strategy doesn't matter right here
 		gd, g.Board(), g.Bag().LetterDistribution(),
 	)
 

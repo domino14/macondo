@@ -87,7 +87,7 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 	// If it is a simming bot, add more fields.
 	if hasSimming(botType) {
 		c, err := equity.NewCombinedStaticCalculator(
-			p.LexiconName(), p.Config(), equity.LeaveFilename, equity.PEGAdjustmentFilename)
+			p.LexiconName(), p.Config(), "", equity.PEGAdjustmentFilename)
 		if err != nil {
 			return nil, err
 		}
