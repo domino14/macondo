@@ -78,7 +78,7 @@ func TestBackup(t *testing.T) {
 	is.Equal(game.players[0].points, 0)
 	is.Equal(game.players[1].points, 0)
 	is.Equal(game.bag.TilesRemaining(), 86)
-	is.Equal(game.players[0].rackLetters(), "ACEOTV?")
+	is.Equal(game.players[0].rackLetters(), "?ACEOTV")
 }
 
 func TestValidate(t *testing.T) {
@@ -148,7 +148,7 @@ func TestPlayToTurnWithPhony(t *testing.T) {
 	is.Equal(g.RackFor(0).TilesOn().UserVisible(tilemapping.EnglishAlphabet()),
 		"EEHKNOQ")
 	is.Equal(g.RackFor(1).TilesOn().UserVisible(tilemapping.EnglishAlphabet()),
-		"DEMOOW?")
+		"?DEMOOW")
 	log.Debug().Interface("lex", g.lexicon.Name()).Interface("wf", g.lastWordsFormed).Msg("info")
 	// Player 0 challenges opponent's phony
 	valid, err := g.ChallengeEvent(0, 1000)
