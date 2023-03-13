@@ -9,7 +9,7 @@ import (
 )
 
 func BenchmarkAnagramBlanks(b *testing.B) {
-	// ~1.78 ms on 12thgen-monolith
+	// ~0.62 ms on 12thgen-monolith
 	is := is.New(b)
 	kwg, err := Get(&DefaultConfig, "CSW21")
 	is.NoErr(err)
