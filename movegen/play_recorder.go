@@ -29,6 +29,9 @@ func AllPlaysRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, r
 		}
 
 		length := rightstrip - leftstrip + 1
+		if length < 2 {
+			return
+		}
 		word := make([]tilemapping.MachineLetter, length)
 		copy(word, gen.strip[startCol:startCol+length])
 
@@ -78,7 +81,9 @@ func TopPlayOnlyRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip
 		}
 		tilesLength = rightstrip - leftstrip + 1
 		// word is in gen.strip[startCol:startCol+length]
-
+		if tilesLength < 2 {
+			return
+		}
 		// note that this is a pointer right now:
 		word := gen.strip[startCol : startCol+tilesLength]
 
