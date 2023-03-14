@@ -13,7 +13,7 @@ require (
 	github.com/yuin/gopher-lua v1.1.0
 	golang.org/x/sync v0.1.0
 	golang.org/x/text v0.8.0
-	google.golang.org/protobuf v1.29.0
+	google.golang.org/protobuf v1.29.1
 	gopkg.in/yaml.v2 v2.4.0
 	lukechampine.com/frand v1.4.2
 )
