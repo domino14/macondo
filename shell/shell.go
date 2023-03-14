@@ -43,8 +43,7 @@ const (
 )
 
 var (
-	errNoData            = errors.New("no data in this line")
-	errWrongOptionSyntax = errors.New("wrong format; all options need arguments")
+	errNoData = errors.New("no data in this line")
 )
 
 // Options to configure the interactve shell
@@ -704,11 +703,7 @@ func extractFields(line string) (*shellcmd, error) {
 			args = append(args, fields[idx])
 		}
 	}
-
-	if lastWasOption {
-		// all options are non-boolean, cannot have a naked option.
-		return nil, errWrongOptionSyntax
-	}
+	log.Debug().Msgf("cmd: %v, args: %v, options: %v", args, options, cmd)
 
 	return &shellcmd{
 		cmd:     cmd,

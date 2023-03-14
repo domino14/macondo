@@ -37,20 +37,17 @@ func findMachineWord(d *KWG, nodeIdx uint32, word tilemapping.MachineWord) bool 
 			return false
 		}
 		letter := word[lidx]
-		oldI := nodeIdx
-		found := false
 		if d.Tile(nodeIdx) == uint8(letter) {
 			if lidx == len(word)-1 {
 				return d.Accepts(nodeIdx)
 			}
 			nodeIdx = d.ArcIndex(nodeIdx)
-			found = true
 			lidx++
 		} else {
+			if d.IsEnd(nodeIdx) {
+				return false
+			}
 			nodeIdx++
-		}
-		if d.IsEnd(oldI) && !found {
-			return false
 		}
 	}
 }

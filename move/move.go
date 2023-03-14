@@ -8,7 +8,6 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/tilemapping"
 )
 
@@ -241,13 +240,15 @@ func (m *Move) FullRack() string {
 	rack := []rune(m.LeaveString())
 	for _, ml := range m.tiles {
 		switch {
-		case ml >= alphabet.BlankOffset:
-			rack = append(rack, alphabet.BlankToken)
-		case ml == alphabet.BlankMachineLetter:
-			// Only if you exchange the blank
-			rack = append(rack, alphabet.BlankToken)
-		case ml == alphabet.PlayedThroughMarker || ml == alphabet.EmptySquareMarker:
-			// do nothing
+		case ml.IsBlanked():
+			rack = append(rack, tilemapping.BlankToken)
+		case ml == 0:
+			if m.action == MoveTypeExchange {
+				// Only if you exchange the blank
+				rack = append(rack, tilemapping.BlankToken)
+			}
+			// Otherwise, don't add this to the rack representation. It
+			// is a played-through marker.
 
 		default:
 			rack = append(rack, m.alph.Letter(ml))

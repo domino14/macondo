@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/domino14/macondo/ai/bot"
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/rs/zerolog/log"
 )
 
@@ -288,7 +288,7 @@ func wolgesAnalyze(cfg *config.Config, g *bot.BotTurnPlayer) ([]*move.Move, erro
 		runes := make([]rune, 0, len(best.Word))
 		for _, t := range best.Word {
 			if t == 0 {
-				runes = append(runes, alphabet.ASCIIPlayedThrough)
+				runes = append(runes, tilemapping.ASCIIPlayedThrough)
 			} else {
 				runes = append(runes, numToLabel(t))
 			}
