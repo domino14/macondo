@@ -1,7 +1,6 @@
 package equity_test
 
 import (
-	"os"
 	"path/filepath"
 	"sort"
 	"testing"
@@ -13,17 +12,11 @@ import (
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/movegen"
-	"github.com/domino14/macondo/testcommon"
 	"github.com/domino14/macondo/tilemapping"
 	"github.com/stretchr/testify/assert"
 )
 
 var DefaultConfig = config.DefaultConfig()
-
-func TestMain(m *testing.M) {
-	testcommon.CreateGaddags(DefaultConfig, []string{"NWL18"})
-	os.Exit(m.Run())
-}
 
 func GaddagFromLexicon(lex string) (gaddag.WordGraph, error) {
 	return kwg.LoadKWG(&DefaultConfig, filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".kwg"))

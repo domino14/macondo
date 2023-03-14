@@ -23,15 +23,9 @@ import (
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/movegen"
-	"github.com/domino14/macondo/testcommon"
 )
 
 var DefaultConfig = config.DefaultConfig()
-
-func TestMain(m *testing.M) {
-	testcommon.CreateGaddags(DefaultConfig, []string{"NWL18"})
-	os.Exit(m.Run())
-}
 
 func defaultSimCalculators(lexiconName string) ([]equity.EquityCalculator, equity.EquityCalculator) {
 	c, err := equity.NewCombinedStaticCalculator(
@@ -106,7 +100,7 @@ func BenchmarkSim(b *testing.B) {
 
 	generator.GenAll(game.RackFor(0), false)
 	plays := generator.Plays()[:10]
-	zerolog.SetGlobalLevel(zerolog.ErrorLevel)
+	zerolog.SetGlobalLevel(zerolog.Disabled)
 
 	simmer := &Simmer{}
 	simmer.Init(game, calcs, leaves.(*equity.CombinedStaticCalculator), &DefaultConfig)

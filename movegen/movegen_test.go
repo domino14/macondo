@@ -15,7 +15,6 @@ import (
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/testcommon"
 	"github.com/domino14/macondo/tilemapping"
 	"github.com/matryer/is"
 	"github.com/rs/zerolog"
@@ -26,7 +25,6 @@ var DefaultConfig = config.DefaultConfig()
 
 func TestMain(m *testing.M) {
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
-	testcommon.CreateGaddags(DefaultConfig, []string{"America"})
 	os.Exit(m.Run())
 }
 

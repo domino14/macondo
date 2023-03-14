@@ -2,23 +2,16 @@ package zobrist
 
 import (
 	"fmt"
-	"os"
 	"testing"
 
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/testcommon"
 	"github.com/domino14/macondo/tilemapping"
 	"github.com/matryer/is"
 )
 
 var DefaultConfig = config.DefaultConfig()
-
-func TestMain(m *testing.M) {
-	testcommon.CreateGaddags(DefaultConfig, []string{"NWL18", "CSW19"})
-	os.Exit(m.Run())
-}
 
 /*
 func TestPlayAndUnplay(t *testing.T) {

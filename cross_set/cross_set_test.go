@@ -3,16 +3,12 @@ package cross_set
 import (
 	"fmt"
 	"log"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/testcommon"
 	"github.com/domino14/macondo/tilemapping"
 	"github.com/matryer/is"
 	"github.com/stretchr/testify/assert"
@@ -28,8 +24,8 @@ const (
 	VsOxy    = board.VsOxy
 )
 
-func GaddagFromLexicon(lex string) (*gaddag.SimpleGaddag, error) {
-	return gaddag.LoadGaddag(filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag"))
+func GaddagFromLexicon(lex string) (*kwg.KWG, error) {
+	return kwg.Get(&DefaultConfig, lex)
 }
 
 type crossSetTestCase struct {
@@ -38,11 +34,6 @@ type crossSetTestCase struct {
 	crossSet board.CrossSet
 	dir      board.BoardDirection
 	score    int
-}
-
-func TestMain(m *testing.M) {
-	testcommon.CreateGaddags(DefaultConfig, []string{"America", "NWL18"})
-	os.Exit(m.Run())
 }
 
 func TestGenCrossSetLoadedGame(t *testing.T) {
@@ -143,7 +134,7 @@ func TestGenCrossSetEdges(t *testing.T) {
 func TestGenAllCrossSets(t *testing.T) {
 	is := is.New(t)
 
-	gd, err := kwg.Get(&DefaultConfig, "America")
+	gd, err := kwg.Get(&DefaultConfig, "NWL18")
 	is.NoErr(err)
 	dist, err := tilemapping.EnglishLetterDistribution(&DefaultConfig)
 	is.NoErr(err)
@@ -201,7 +192,7 @@ func TestGenAllCrossSets(t *testing.T) {
 		{11, 8, board.CrossSet(0), board.HorizontalDirection, 4},
 		{11, 8, board.CrossSetFromString("AEOU", alph), board.VerticalDirection, 1},
 		{1, 8, board.CrossSetFromString("AEO", alph), board.HorizontalDirection, 1},
-		{1, 8, board.CrossSetFromString("DFHLMNRSTX", alph), board.VerticalDirection, 1},
+		{1, 8, board.CrossSetFromString("DFHLMNRSTWX", alph), board.VerticalDirection, 1},
 		{10, 10, board.CrossSetFromString("E", alph), board.HorizontalDirection, 11},
 		{10, 10, board.TrivialCrossSet, board.VerticalDirection, 0},
 	}

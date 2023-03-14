@@ -3,7 +3,6 @@ package alphabeta
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 
 	"github.com/matryer/is"
@@ -17,18 +16,12 @@ import (
 	"github.com/domino14/macondo/gcgio"
 	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/movegen"
-	"github.com/domino14/macondo/testcommon"
 	"github.com/domino14/macondo/tilemapping"
 
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
 
 var DefaultConfig = config.DefaultConfig()
-
-func TestMain(m *testing.M) {
-	testcommon.CreateGaddags(DefaultConfig, []string{"America", "CSW15", "NWL18", "pseudo_twl1979", "CSW19", "OSPS44"})
-	os.Exit(m.Run())
-}
 
 func setUpSolver(lex, distName string, bvs board.VsWho, plies int, rack1, rack2 string,
 	p1pts, p2pts int, onTurn int) (*Solver, error) {
@@ -267,7 +260,7 @@ func TestPassFirst(t *testing.T) {
 
 	plies := 8
 	// https://www.cross-tables.com/annotated.php?u=25243#22
-	pos := "GATELEGs1POGOED/R4MOOLI3X1/AA10U2/YU4BREDRIN2/1TITULE3E1IN1/1E4N3c1BOK/1C2O4CHARD1/QI1FLAWN2E1OE1/IS2E1HIN1A1W2/1MOTIVATE1T1S2/1S2N5S4/3PERJURY5/15/15/15 FV/AADIZ 442/388 0 lex CSW15;"
+	pos := "GATELEGs1POGOED/R4MOOLI3X1/AA10U2/YU4BREDRIN2/1TITULE3E1IN1/1E4N3c1BOK/1C2O4CHARD1/QI1FLAWN2E1OE1/IS2E1HIN1A1W2/1MOTIVATE1T1S2/1S2N5S4/3PERJURY5/15/15/15 FV/AADIZ 442/388 0 lex CSW19;"
 	g, err := cgp.ParseCGP(&DefaultConfig, pos)
 	is.NoErr(err)
 	gd, err := kwg.Get(&DefaultConfig, "CSW19")

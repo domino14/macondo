@@ -73,7 +73,7 @@ func TestGenBestStaticTurn6(t *testing.T) {
 	runner.game.SetRackFor(0, tilemapping.RackFromString("APRS?", runner.alphabet))
 	runner.game.SetRackFor(1, tilemapping.RackFromString("ENNR", runner.alphabet))
 
-	is.Equal(runner.game.RackLettersFor(0), "APRS?")
+	is.Equal(runner.game.RackLettersFor(0), "?APRS")
 	is.Equal(runner.game.RackLettersFor(1), "ENNR")
 
 	is.Equal(runner.game.Bag().TilesRemaining(), 0)

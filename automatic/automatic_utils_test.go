@@ -16,18 +16,12 @@ import (
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/domino14/macondo/testcommon"
 	"github.com/domino14/macondo/tilemapping"
 	"github.com/matryer/is"
 	"github.com/rs/zerolog"
 )
 
 var DefaultConfig = config.DefaultConfig()
-
-func TestMain(m *testing.M) {
-	testcommon.CreateGaddags(DefaultConfig, []string{"NWL20"})
-	os.Exit(m.Run())
-}
 
 func TestCompVsCompStatic(t *testing.T) {
 	logchan := make(chan string)

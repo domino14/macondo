@@ -41,7 +41,7 @@ func (pac PreEndgameAdjustmentCalculator) Equity(play *move.Move, board *board.G
 	var preEndgameAdjustment float64
 	if bagPlusSeven < len(pac.preEndgameAdjustmentValues) {
 		preEndgameAdjustment = pac.preEndgameAdjustmentValues[bagPlusSeven]
-		// log.Debug().Float64("peg-adjust", preEndgameAdjustment).Int("bagPlusSeven", bagPlusSeven).Msg("equity calc")
+		log.Debug().Float64("peg-adjust", preEndgameAdjustment).Int("bagPlusSeven", bagPlusSeven).Msg("equity calc")
 	}
 
 	return preEndgameAdjustment

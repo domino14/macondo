@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/testcommon"
 	"github.com/domino14/macondo/tilemapping"
 	"github.com/rs/zerolog/log"
 
@@ -19,13 +18,6 @@ import (
 )
 
 var DefaultConfig = config.DefaultConfig()
-
-func TestMain(m *testing.M) {
-	testcommon.CreateGaddags(DefaultConfig, []string{"NWL18"})
-	testcommon.CreateDawgs(DefaultConfig, []string{"CSW19", "America"})
-
-	os.Exit(m.Run())
-}
 
 func TestNewGame(t *testing.T) {
 	is := is.New(t)

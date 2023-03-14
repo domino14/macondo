@@ -167,8 +167,7 @@ func (sp *SimmedPlay) addEquityStat(initialSpread int, spread int, leftover floa
 	// -101 = 301
 	// -200 = 400
 	pct := winpcts[equity.MaxRepresentedWinSpread-spreadPlusLeftover][tilesUnseen]
-	log.Trace().Int("i1", equity.MaxRepresentedWinSpread-spreadPlusLeftover).Int("i2", tilesUnseen).Float32(
-		"pct", pct).Bool("plies-are-even", pliesAreEven).Msg("calc-win%")
+
 	if pliesAreEven {
 		// see the above comment re flipping win pct.
 		pct = 1 - pct
@@ -501,7 +500,7 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 	if err != nil {
 		return err
 	}
-	logIter := LogIteration{Iteration: iterationCount, Plays: []LogPlay{}, Thread: thread}
+	logIter := LogIteration{Iteration: iterationCount, Plays: nil, Thread: thread}
 
 	var logPlay LogPlay
 	var plyChild LogPlay

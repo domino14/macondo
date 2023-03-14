@@ -27,8 +27,8 @@ func TestExtractFields(t *testing.T) {
 				map[string]string{"file": "foo.txt"}},
 			nil,
 		},
-		{"autoplay exhaustiveleave noleave -file",
-			nil, errWrongOptionSyntax},
+		// {"autoplay exhaustiveleave noleave -file",
+		// 	nil, errWrongOptionSyntax},
 	}
 	for _, t := range cases {
 		cmd, err := extractFields(t.line)

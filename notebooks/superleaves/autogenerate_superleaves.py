@@ -15,8 +15,7 @@ TILES = [x for x in ascii_uppercase] + ['?']
 ALPHABETICAL_KEY = '?ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 SORT_FUNC = lambda x: ALPHABETICAL_KEY.index(x)
 
-LEAVES_STRUCTURE_FILENAME = 'data.idx'
-OLV_STRUCTURE_FILENAME = 'data.olv'
+KLV_STRUCTURE_FILENAME = 'data.klv'
 ALL_LEAVES_FILENAME = 'all_leaves.p'
 PATH_TO_DEFAULT_ENGLISH = '../../data/strategy/default_english/'
 TILE_LIMIT = 1
@@ -226,7 +225,6 @@ def main():
     for x in range(iterations):
         autoplay_logfile = output + '_autoplay_{}.csv'.format(x + 1)
         leaves_csv_file = output + '_leaves_{}.csv'.format(x + 1)
-        leaves_idx_file = output + '_leaves_{}.idx'.format(x + 1)
 
         # Autoplay
         autoplay_cmd = "../../bin/shell autoplay -numgames {} -lexicon {} -logfile {} -block true".format(games, lexicon, autoplay_logfile)
@@ -244,9 +242,8 @@ def main():
             print ("Make leaves structure exited with return code {}".format(return_code))
 
         # Copy files to the right places
-        copyfile(LEAVES_STRUCTURE_FILENAME, leaves_idx_file)
         copyfile(LEAVES_STRUCTURE_FILENAME, PATH_TO_DEFAULT_ENGLISH + 'leaves.idx')
-        copyfile(OLV_STRUCTURE_FILENAME, PATH_TO_DEFAULT_ENGLISH + 'leaves.olv')
+        copyfile(KLV_STRUCTURE_FILENAME, PATH_TO_DEFAULT_ENGLISH + 'leaves.klv')
 
 
 if __name__ == "__main__":
