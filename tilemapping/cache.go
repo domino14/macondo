@@ -21,7 +21,7 @@ func CacheLoadFunc(cfg *config.Config, key string) (interface{}, error) {
 // NamedLetterDistribution loads a letter distribution by name.
 func NamedLetterDistribution(cfg *config.Config, name string) (*LetterDistribution, error) {
 	name = strings.ToLower(name)
-	filename := filepath.Join(cfg.DataPath, "letterdistributions", name+".csv")
+	filename := filepath.Join(cfg.DataPath, "letterdistributions", name)
 
 	file, err := cache.Open(filename)
 	if err != nil {
