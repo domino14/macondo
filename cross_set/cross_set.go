@@ -309,15 +309,24 @@ func GenCrossSet(b *Board, row int, col int, dir board.BoardDirection,
 			// siblings, from the right, to see what nodes lead to the left.
 
 			b.SetCrossSet(row, col, 0, dir)
-			gaddag.IterateSiblings(lNodeIdx, func(ml tilemapping.MachineLetter, nnidx uint32) {
-				if ml == 0 {
-					return
+			if gaddag.IsEnd(lNodeIdx) {
+				return
+			}
+			for i := lNodeIdx + 1; ; i++ {
+				t := gaddag.Tile(i)
+				nn := gaddag.ArcIndex(i)
+				if t == 0 {
+					continue
 				}
-				_, success := traverseBackwards(b, row, col-1, nnidx, true, leftCol, gaddag)
+				_, success := traverseBackwards(b, row, col-1, nn, true, leftCol, gaddag)
 				if success {
-					b.SetCrossSetLetter(row, col, dir, ml)
+					b.SetCrossSetLetter(row, col, dir, tilemapping.MachineLetter(t))
 				}
-			})
+				if gaddag.IsEnd(i) {
+					break
+				}
+			}
+
 		}
 	}
 }
