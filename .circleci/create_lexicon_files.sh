@@ -1,13 +1,50 @@
-set -e
+#!/bin/sh
+# why no bash :-(
+
+set -euo pipefail
+
 for lex in "NWL20" "NWL18" "America" "CSW21" "CSW19"
 do
-    awk '{print $1}' $LEXICON_PATH/$lex.txt > $LEXICON_PATH/$lex-stripped.txt
+    awk '{print $1}' "$LEXICON_PATH/$lex.txt" > "$LEXICON_PATH/$lex-stripped.txt"
     echo "lex $lex"
-    ls -al $LEXICON_PATH
-    docker run --rm -v $LEXICON_PATH:/opt kbuilder -- english-kwg /opt/$lex-stripped.txt /opt/gaddag/$lex.kwg
+    ls -alR "$LEXICON_PATH"
+
+    CONTAINER_ID="$(docker create kbuilder -- english-kwg /home/in.txt /home/out.kwg )"
+    trap "docker rm $CONTAINER_ID" EXIT
+    echo "$CONTAINER_ID"
+
+    docker cp "$LEXICON_PATH/$lex-stripped.txt" "$CONTAINER_ID:/home/in.txt"
+    docker start "$CONTAINER_ID"
+    docker attach "$CONTAINER_ID" || true
+    docker cp "$CONTAINER_ID:/home/out.kwg" "$LEXICON_PATH/gaddag/$lex.kwg"
+
+    docker rm "$CONTAINER_ID"
+    trap "" EXIT
+
+    echo "after $lex"
+    ls -alR "$LEXICON_PATH"
 done
 
-awk '{print $1}' $LEXICON_PATH/OSPS44.txt > $LEXICON_PATH/OSPS44-stripped.txt
-docker run --rm -v $LEXICON_PATH:/opt kbuilder -- polish-kwg /opt/OSPS44-stripped.txt /opt/gaddag/OSPS44.kwg
+for lex in "OSPS44"
+do
+    awk '{print $1}' "$LEXICON_PATH/$lex.txt" > "$LEXICON_PATH/$lex-stripped.txt"
+    echo "lex $lex"
+    ls -alR "$LEXICON_PATH"
+
+    CONTAINER_ID="$(docker create kbuilder -- polish-kwg /home/in.txt /home/out.kwg )"
+    trap "docker rm $CONTAINER_ID" EXIT
+    echo "$CONTAINER_ID"
+
+    docker cp "$LEXICON_PATH/$lex-stripped.txt" "$CONTAINER_ID:/home/in.txt"
+    docker start "$CONTAINER_ID"
+    docker attach "$CONTAINER_ID" || true
+    docker cp "$CONTAINER_ID:/home/out.kwg" "$LEXICON_PATH/gaddag/$lex.kwg"
+
+    docker rm "$CONTAINER_ID"
+    trap "" EXIT
+
+    echo "after $lex"
+    ls -alR "$LEXICON_PATH"
+done
 
 echo "done creating kwgs"
