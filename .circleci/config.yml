@@ -11,42 +11,49 @@ jobs:
       STRATEGY_PARAMS_PATH: /opt/data/strategy
       LETTER_DISTRIBUTION_PATH: /opt/data/letterdistributions
       DATA_PATH: /opt/data
-      AUTH_KEY: abcdef
     docker:
-      - image: golang:alpine
+      - image: docker:17.05.0-ce-git
     working_directory: /opt/macondo
     steps:
       - checkout
+      - setup_remote_docker
       - add_ssh_keys:
           fingerprints:
             - "bf:37:1b:e1:b2:b0:ec:20:92:43:20:86:40:7c:c4:e0"
-      - run:
-          name: Install git, ssh, build-base, bash (for tests)
-          command: apk update && apk upgrade && apk add git openssh build-base bash curl
-      - run:
-          name: Install ssl
-          command: apk add --update ca-certificates openssl && update-ca-certificates
       - run: if [ ! -n "$(grep "^github.com " ~/.ssh/known_hosts)" ]; then ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null; fi
       - run:
           name: Clone lexicon repo
           command: git clone git@github.com:domino14/word-game-lexica /opt/word-game-lexica
+      - run:
+          name: Clone wolges
+          command: git clone https://github.com/andy-k/wolges /opt/wolges
       - run: mkdir $LEXICON_PATH
       - run: mkdir $LEXICON_PATH/gaddag
-      - run: mkdir $LEXICON_PATH/dawg
       - run: mv /opt/word-game-lexica/*.txt $LEXICON_PATH
       - run: cp -r /opt/macondo/data /opt/data
-      - run: go build cmd/shell/main.go
-      # build GADDAGs
-      - restore_cache:
-          keys:
-            - gaddag-cache
-      - run: cd testcommon && go generate 
-      - run: cd /opt/macondo && go test $(go list ./... | grep -v wasm)
-      - save_cache:
-          key: gaddag-cache
-          paths:
-            - /opt/lexica/gaddag
-            - /opt/lexica/dawg
+      - run: docker build -t macondo -f Dockerfile-dev .
+      - run: docker run --rm macondo make
+      # # build GADDAGs
+      # - restore_cache:
+      #     keys:
+      #       - kwg-cache
+      - run: cp Dockerfile-kbuilder /opt/wolges
+      - run: cd /opt/wolges && docker build -t kbuilder -f Dockerfile-kbuilder .
+      - run: >
+          docker run --rm -v $LEXICON_PATH:/workdir kbuilder 
+          -- english-kwg $LEXICON_PATH/NWL20.txt $LEXICON_PATH/gaddag/NWL20.kwg
+      - run: >
+          docker run --rm -e LEXICON_PATH=$LEXICON_PATH
+          -e STRATEGY_PARAMS_PATH=$STRATEGY_PARAMS_PATH
+          -e DATA_PATH=$DATA_PATH
+          -e LETTER_DISTRIBUTION_PATH=$LETTER_DISTRIBUTION_PATH
+          -v /opt/data:/opt/data
+          -v /opt/lexica:/opt/lexica
+          macondo go test $(go list ./... | grep -v wasm)
+      # - save_cache:
+      #     key: kwg-cache
+      #     paths:
+      #       - /opt/lexica/gaddag
       - discord/status: &discord-webhook-setting
           webhook: "${DISCORD_WEBHOOK}"
           success_message: ":tada: A $CIRCLE_JOB job has succeeded! (Branch: $CIRCLE_BRANCH)"
