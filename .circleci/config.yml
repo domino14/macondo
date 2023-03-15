@@ -40,6 +40,7 @@ jobs:
       - run: cp Dockerfile-kbuilder /opt/wolges
       - run: cd /opt/wolges && docker build -t kbuilder -f Dockerfile-kbuilder .
       - run: cd /opt/macondo/.circleci && ./create_lexicon_files.sh
+      - run: ls -al $LEXICON_PATH
       - run: >
           docker run --rm -e LEXICON_PATH=$LEXICON_PATH
           -e STRATEGY_PARAMS_PATH=$STRATEGY_PARAMS_PATH
