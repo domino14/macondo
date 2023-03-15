@@ -258,7 +258,7 @@ func (b *Bag) Copy() *Bag {
 // structures we need! (letter distribution, etc).
 // It should have been created from the Copy function above.
 func (b *Bag) CopyFrom(other *Bag) {
-
+	// This might be allocating.
 	if cap(b.tiles) < len(other.tiles) {
 		b.tiles = make([]MachineLetter, len(other.tiles))
 	}

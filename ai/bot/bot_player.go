@@ -29,6 +29,7 @@ type BotTurnPlayer struct {
 	simmer      *montecarlo.Simmer
 	simmerCalcs []equity.EquityCalculator
 	simThreads  int
+	minSimPlies int
 
 	inferencer *rangefinder.RangeFinder
 }
@@ -93,6 +94,9 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 		}
 		btp.simmer = &montecarlo.Simmer{}
 		btp.simmerCalcs = []equity.EquityCalculator{c}
+		if botType == pb.BotRequest_SIMMING_BOT_MORE_PLIES {
+			btp.SetMinSimPlies(4)
+		}
 	}
 	if hasEndgame(botType) {
 		btp.endgamer = &alphabeta.Solver{}
@@ -145,4 +149,8 @@ func (p *BotTurnPlayer) SetBotType(b pb.BotRequest_BotCode) {
 
 func (p *BotTurnPlayer) SetSimThreads(t int) {
 	p.simThreads = t
+}
+
+func (p *BotTurnPlayer) SetMinSimPlies(t int) {
+	p.minSimPlies = t
 }

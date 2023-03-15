@@ -60,7 +60,11 @@ func eliteBestPlay(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 		simPlies = unseen
 	} else {
 		moves = p.GenerateMoves(40)
-		simPlies = 2
+		if p.minSimPlies > 2 {
+			simPlies = p.minSimPlies
+		} else {
+			simPlies = 2
+		}
 	}
 	log.Debug().Int("simPlies", simPlies).
 		Int("simThreads", p.simThreads).

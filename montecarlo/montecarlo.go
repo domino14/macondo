@@ -333,7 +333,8 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 	s.simming = true
 	defer func() {
 		s.simming = false
-		log.Info().Msgf("Simulation ended after %v iterations", s.iterationCount)
+		log.Info().Int("plies", s.maxPlies).Int("iterationCt", s.iterationCount).
+			Msg("sim-ended")
 	}()
 
 	// use an errgroup here and listen for a ctx done outside this loop, but
