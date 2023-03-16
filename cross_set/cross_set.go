@@ -109,15 +109,15 @@ type CrossScoreOnlyGenerator struct {
 	Dist *tilemapping.LetterDistribution
 }
 
-func (g CrossScoreOnlyGenerator) Generate(b *Board, row int, col int, dir board.BoardDirection) {
+func (g *CrossScoreOnlyGenerator) Generate(b *Board, row int, col int, dir board.BoardDirection) {
 	genCrossScore(b, row, col, dir, g.Dist)
 }
 
-func (g CrossScoreOnlyGenerator) GenerateAll(b *Board) {
+func (g *CrossScoreOnlyGenerator) GenerateAll(b *Board) {
 	generateAll(g, b)
 }
 
-func (g CrossScoreOnlyGenerator) UpdateForMove(b *Board, m *move.Move) {
+func (g *CrossScoreOnlyGenerator) UpdateForMove(b *Board, m *move.Move) {
 	updateForMove(g, b, m)
 }
 
@@ -171,15 +171,15 @@ type GaddagCrossSetGenerator struct {
 	Gaddag gaddag.WordGraph
 }
 
-func (g GaddagCrossSetGenerator) Generate(b *Board, row int, col int, dir board.BoardDirection) {
+func (g *GaddagCrossSetGenerator) Generate(b *Board, row int, col int, dir board.BoardDirection) {
 	GenCrossSet(b, row, col, dir, g.Gaddag, g.Dist)
 }
 
-func (g GaddagCrossSetGenerator) GenerateAll(b *Board) {
+func (g *GaddagCrossSetGenerator) GenerateAll(b *Board) {
 	generateAll(g, b)
 }
 
-func (g GaddagCrossSetGenerator) UpdateForMove(b *Board, m *move.Move) {
+func (g *GaddagCrossSetGenerator) UpdateForMove(b *Board, m *move.Move) {
 	updateForMove(g, b, m)
 }
 

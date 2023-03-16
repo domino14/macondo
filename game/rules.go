@@ -108,7 +108,7 @@ func NewBasicGameRules(cfg *config.Config,
 			}
 			lex = &kwg.Lexicon{KWG: *k}
 		}
-		csgen = cross_set.CrossScoreOnlyGenerator{Dist: dist}
+		csgen = &cross_set.CrossScoreOnlyGenerator{Dist: dist}
 	case CrossScoreAndSet:
 		if lexiconName == "" {
 			return nil, errors.New("lexicon name is required for this cross-set option")
@@ -118,7 +118,7 @@ func NewBasicGameRules(cfg *config.Config,
 				return nil, err
 			}
 			lex = &kwg.Lexicon{KWG: *k}
-			csgen = cross_set.GaddagCrossSetGenerator{Dist: dist, Gaddag: k}
+			csgen = &cross_set.GaddagCrossSetGenerator{Dist: dist, Gaddag: k}
 		}
 	}
 

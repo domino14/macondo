@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
 	"testing"
 	"time"
 
@@ -85,6 +86,7 @@ func TestSimSingleIteration(t *testing.T) {
 func BenchmarkSim(b *testing.B) {
 	is := is.New(b)
 	plies := 2
+	runtime.MemProfileRate = 0
 
 	cgpstr := "C14/O2TOY9/mIRADOR8/F4DAB2PUGH1/I5GOOEY3V/T4XI2MALTHA/14N/6GUM3OWN/7PEW2DOE/9EF1DOR/2KUNA1J1BEVELS/3TURRETs2S2/7A4T2/7N7/7S7 EEEIILZ/ 336/298 0 lex NWL20;"
 
@@ -108,6 +110,7 @@ func BenchmarkSim(b *testing.B) {
 	simmer.PrepareSim(plies, plays)
 	log.Debug().Msg("About to start")
 	b.ResetTimer()
+	runtime.MemProfileRate = 1
 	// benchmark 2022-08-20 on monolith (12th gen Intel computer)
 	// 362	   3448347 ns/op	    7980 B/op	      60 allocs/op
 	// 2023-03-12:
