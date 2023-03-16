@@ -115,6 +115,8 @@ func BenchmarkSim(b *testing.B) {
 	// 362	   3448347 ns/op	    7980 B/op	      60 allocs/op
 	// 2023-03-12:
 	// 504	   2228889 ns/op	    8619 B/op	      78 allocs/op
+	// 2023-03-15:
+	// 543	   2170050 ns/op	       0 B/op	       0 allocs/op
 	for i := 0; i < b.N; i++ {
 		simmer.simSingleIteration(plies, 0, i+1, nil)
 	}
@@ -124,7 +126,7 @@ func TestLongerSim(t *testing.T) {
 	// t.Skip()
 	is := is.New(t)
 	plies := 2
-
+	runtime.MemProfileRate = 0
 	players := []*pb.PlayerInfo{
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
@@ -174,9 +176,11 @@ func TestLongerSim(t *testing.T) {
 	f, err := os.Create("/tmp/simlog")
 	is.NoErr(err)
 	defer f.Close()
-	simmer.logStream = f
+	// simmer.logStream = f
 	simmer.SetThreads(3)
 	simmer.PrepareSim(plies, plays)
+	runtime.MemProfileRate = 1
+
 	simmer.Simulate(timeout)
 
 	// Board should be reset back to empty after the simulation.

@@ -87,6 +87,21 @@ type LogPlay struct {
 	Plies    []LogPlay `json:"plies,omitempty" yaml:"plies,omitempty,flow"`
 }
 
+/**
+type statUpdateType int
+
+const (
+	UpdateIgnore statUpdateType = iota
+	AddScoreStat
+	AddEquityStat
+)
+
+type StatUpdate struct {
+	play *SimmedPlay
+	updateType statUpdateType
+}
+*/
+
 type SimmedPlay struct {
 	sync.RWMutex
 	play          *move.Move
@@ -121,12 +136,17 @@ func (sp *SimmedPlay) addScoreStat(play *move.Move, ply int) {
 	sp.bingoStats[ply].Push(float64(bingos))
 }
 
-func (sp *SimmedPlay) addEquityStat(initialSpread int, spread int, leftover float64,
-	gameover bool, winpcts [][]float32, tilesUnseen int, pliesAreEven bool) {
+func (sp *SimmedPlay) addEquityStat(initialSpread int, spread int, leftover float64) {
 	sp.Lock()
 	defer sp.Unlock()
 	sp.equityStats.Push(float64(spread-initialSpread) + leftover)
-	sp.leftoverStats.Push(float64(leftover))
+	sp.leftoverStats.Push(leftover)
+}
+
+func (sp *SimmedPlay) addWinPctStat(spread int, leftover float64, gameover bool, winpcts [][]float32,
+	tilesUnseen int, pliesAreEven bool) {
+	sp.Lock()
+	defer sp.Unlock()
 	if gameover || tilesUnseen == 0 {
 		if spread == 0 {
 			sp.winPctStats.Push(0.5)
@@ -564,9 +584,14 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 		}
 		// log.Debug().Msgf("Spread for initial player: %v, leftover: %v",
 		// 	s.game.SpreadFor(s.initialPlayer), leftover)
+		spread := g.SpreadFor(s.initialPlayer)
 		simmedPlay.addEquityStat(
 			s.initialSpread,
-			g.SpreadFor(s.initialPlayer),
+			spread,
+			leftover,
+		)
+		simmedPlay.addWinPctStat(
+			spread,
 			leftover,
 			g.Playing() == pb.PlayState_GAME_OVER,
 			s.winPcts,
