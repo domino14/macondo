@@ -554,8 +554,9 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 					leftover -= thisLeftover
 				}
 			}
-
-			logPlay.Plies = append(logPlay.Plies, plyChild)
+			if s.logStream != nil {
+				logPlay.Plies = append(logPlay.Plies, plyChild)
+			}
 			// Maybe these add{X}Stat functions can instead write them to
 			// a channel to avoid mutices
 			simmedPlay.addScoreStat(bestPlay, ply)
