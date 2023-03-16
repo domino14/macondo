@@ -16,7 +16,6 @@ jobs:
     working_directory: /opt/macondo
     steps:
       - checkout
-      - setup_remote_docker
       - add_ssh_keys:
           fingerprints:
             - "bf:37:1b:e1:b2:b0:ec:20:92:43:20:86:40:7c:c4:e0"
