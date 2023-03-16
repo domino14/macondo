@@ -11,8 +11,8 @@ jobs:
       STRATEGY_PARAMS_PATH: /opt/data/strategy
       LETTER_DISTRIBUTION_PATH: /opt/data/letterdistributions
       DATA_PATH: /opt/data
-    docker:
-      - image: docker:17.05.0-ce-git
+    machine: # executor type
+      image: ubuntu-2004:202010-01
     working_directory: /opt/macondo
     steps:
       - checkout
