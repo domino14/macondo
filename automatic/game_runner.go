@@ -18,7 +18,6 @@ import (
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tilemapping"
 	"github.com/rs/zerolog/log"
-	"lukechampine.com/frand"
 
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
@@ -38,6 +37,7 @@ type GameRunner struct {
 	logchan            chan string
 	gamechan           chan string
 	aiplayers          [2]aiturnplayer.AITurnPlayer
+	order              [2]int
 }
 
 // NewGameRunner just instantiates and initializes a game runner.
@@ -104,13 +104,27 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 
 		r.aiplayers[idx] = btp
 	}
+	r.order = [2]int{0, 1}
 	return nil
 }
 
-func (r *GameRunner) StartGame() {
-	if frand.Intn(2) == 1 {
+func (r *GameRunner) StartGame(gidx int) {
+	// r.order must be {0, 1} if gidx is even, and {1, 0} if odd
+	flip := false
+	if gidx%2 == 1 {
+		if r.order[0] == 0 {
+			flip = true
+		}
+	} else {
+		if r.order[1] == 0 {
+			flip = true
+		}
+	}
+
+	if flip {
 		r.game.FlipPlayers()
 		r.aiplayers[0], r.aiplayers[1] = r.aiplayers[1], r.aiplayers[0]
+		r.order[0], r.order[1] = r.order[1], r.order[0]
 	}
 	r.game.StartGame()
 }

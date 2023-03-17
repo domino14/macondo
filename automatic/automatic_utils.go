@@ -44,7 +44,7 @@ func (r *GameRunner) CompVsCompStatic(addToHistory bool) error {
 	if err != nil {
 		return err
 	}
-	err = r.playFull(addToHistory)
+	err = r.playFull(addToHistory, 0)
 	if err != nil {
 		return err
 	}
@@ -53,8 +53,8 @@ func (r *GameRunner) CompVsCompStatic(addToHistory bool) error {
 	return nil
 }
 
-func (r *GameRunner) playFull(addToHistory bool) error {
-	r.StartGame()
+func (r *GameRunner) playFull(addToHistory bool, gidx int) error {
+	r.StartGame(gidx)
 	log.Trace().Msgf("playing full, game %v", r.game.History().Uid)
 
 	for r.game.Playing() == pb.PlayState_PLAYING {
@@ -167,7 +167,7 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 			IsPlaying.Add(1)
 			defer IsPlaying.Add(-1)
 			for j := range jobs {
-				err = r.playFull(addToHistory)
+				err = r.playFull(addToHistory, j.gidx)
 				if err != nil {
 					log.Err(err).Int("job", j.gidx).Msg("error-playFull")
 					return err
