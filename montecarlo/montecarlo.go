@@ -87,21 +87,6 @@ type LogPlay struct {
 	Plies    []LogPlay `json:"plies,omitempty" yaml:"plies,omitempty,flow"`
 }
 
-/**
-type statUpdateType int
-
-const (
-	UpdateIgnore statUpdateType = iota
-	AddScoreStat
-	AddEquityStat
-)
-
-type StatUpdate struct {
-	play *SimmedPlay
-	updateType statUpdateType
-}
-*/
-
 type SimmedPlay struct {
 	sync.RWMutex
 	play          *move.Move
@@ -145,54 +130,55 @@ func (sp *SimmedPlay) addEquityStat(initialSpread int, spread int, leftover floa
 
 func (sp *SimmedPlay) addWinPctStat(spread int, leftover float64, gameover bool, winpcts [][]float32,
 	tilesUnseen int, pliesAreEven bool) {
-	sp.Lock()
-	defer sp.Unlock()
+	winPct := float64(0.0)
+
 	if gameover || tilesUnseen == 0 {
 		if spread == 0 {
-			sp.winPctStats.Push(0.5)
+			winPct = 0.5
 		} else if spread > 0 {
-			sp.winPctStats.Push(1.0)
-		} else {
-			sp.winPctStats.Push(0.0)
+			winPct = 1.0
 		}
-		return
-	}
-	if tilesUnseen > 93 {
-		// Only for ZOMGWords or similar; this is a bit of a hack.
-		tilesUnseen = 93
-	}
-	// for an even-ply sim, it is our opponent's turn at the end of the sim.
-	// the table is calculated from our perspective, so flip the spread.
-	// i.e. if we are winning by 20 pts at the end of the sim, and our opponent
-	// is on turn, we want to look up -20 as the spread, and then flip the win %
-	// as well.
-	spreadPlusLeftover := spread + int(math.Round(leftover))
-	if pliesAreEven {
-		spreadPlusLeftover = -spreadPlusLeftover
-	}
+	} else {
+		if tilesUnseen > 93 {
+			// Only for ZOMGWords or similar; this is a bit of a hack.
+			tilesUnseen = 93
+		}
+		// for an even-ply sim, it is our opponent's turn at the end of the sim.
+		// the table is calculated from our perspective, so flip the spread.
+		// i.e. if we are winning by 20 pts at the end of the sim, and our opponent
+		// is on turn, we want to look up -20 as the spread, and then flip the win %
+		// as well.
+		spreadPlusLeftover := spread + int(math.Round(leftover))
+		if pliesAreEven {
+			spreadPlusLeftover = -spreadPlusLeftover
+		}
 
-	if spreadPlusLeftover > equity.MaxRepresentedWinSpread {
-		spreadPlusLeftover = equity.MaxRepresentedWinSpread
-	}
-	if spreadPlusLeftover < -equity.MaxRepresentedWinSpread {
-		spreadPlusLeftover = -equity.MaxRepresentedWinSpread
-	}
-	// winpcts goes from +MaxRepresentedWinSpread to -MaxRespresentedWinSpread
-	// spread = index
-	// 200 = 0
-	// 199 = 1
-	// 99 = 101
-	// 0 = 200
-	// -1 = 201
-	// -101 = 301
-	// -200 = 400
-	pct := winpcts[equity.MaxRepresentedWinSpread-spreadPlusLeftover][tilesUnseen]
+		if spreadPlusLeftover > equity.MaxRepresentedWinSpread {
+			spreadPlusLeftover = equity.MaxRepresentedWinSpread
+		}
+		if spreadPlusLeftover < -equity.MaxRepresentedWinSpread {
+			spreadPlusLeftover = -equity.MaxRepresentedWinSpread
+		}
+		// winpcts goes from +MaxRepresentedWinSpread to -MaxRespresentedWinSpread
+		// spread = index
+		// 200 = 0
+		// 199 = 1
+		// 99 = 101
+		// 0 = 200
+		// -1 = 201
+		// -101 = 301
+		// -200 = 400
+		pct := winpcts[equity.MaxRepresentedWinSpread-spreadPlusLeftover][tilesUnseen]
 
-	if pliesAreEven {
-		// see the above comment re flipping win pct.
-		pct = 1 - pct
+		if pliesAreEven {
+			// see the above comment re flipping win pct.
+			pct = 1 - pct
+		}
+		winPct = float64(pct)
 	}
-	sp.winPctStats.Push(float64(pct))
+	sp.Lock()
+	defer sp.Unlock()
+	sp.winPctStats.Push(float64(winPct))
 }
 
 func (s *SimmedPlay) Move() *move.Move {
