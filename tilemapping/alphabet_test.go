@@ -44,3 +44,10 @@ func TestUV(t *testing.T) {
 	}).UserVisible(cat.TileMapping())
 	is.Equal(uv, "Al·lOQUIMIquES")
 }
+
+func TestCts(t *testing.T) {
+	is := is.New(t)
+	eng, err := GetDistribution(&DefaultConfig, "english")
+	is.NoErr(err)
+	is.Equal(eng.TileMapping().NumLetters(), uint8(27))
+}

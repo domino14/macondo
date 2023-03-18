@@ -41,6 +41,8 @@ func defaultForLexicon(lexiconName string) string {
 		return "norwegian"
 	} else if strings.HasPrefix(lexiconName, "FRA") {
 		return "french"
+	} else if strings.HasPrefix(lexiconName, "DISC") {
+		return "catalan"
 	}
 	return ""
 }

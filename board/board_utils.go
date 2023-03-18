@@ -119,23 +119,23 @@ func (g *GameBoard) setFromPlaintext(qText string,
 }
 
 // SetRow sets the row in board to the passed-in letters array.
-// This has undefined behavior for multi-character tiles.
+// Callers should use a " " (space character) for an empty space
 func (b *GameBoard) SetRow(rowNum int, letters string, alph *tilemapping.TileMapping) []tilemapping.MachineLetter {
 	// Set the row in board to the passed in letters array.
 	for idx := 0; idx < b.Dim(); idx++ {
 		b.SetLetter(int(rowNum), idx, 0)
 	}
 	lettersPlayed := []tilemapping.MachineLetter{}
-	for idx, r := range letters {
-		if r != ' ' {
-			letter, err := alph.Val(string(r))
-			if err != nil {
-				log.Fatalf(err.Error())
-			}
-			b.SetLetter(int(rowNum), idx, letter)
-			b.tilesPlayed++
-			lettersPlayed = append(lettersPlayed, letter)
-		}
+
+	mls, err := tilemapping.ToMachineLetters(letters, alph)
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+
+	for idx, ml := range mls {
+		b.SetLetter(int(rowNum), idx, ml)
+		b.tilesPlayed++
+		lettersPlayed = append(lettersPlayed, ml)
 	}
 	return lettersPlayed
 }

@@ -39,7 +39,7 @@ func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
 				bagmap[i])
 		}
 
-		for i := 0; i < int(alph.NumLetters())+1; i++ {
+		for i := 0; i < int(alph.NumLetters()); i++ {
 			printLetterStats(i)
 		}
 		fmt.Fprintf(&ss, "Considered %d racks, inferred %d racks\n", r.iterationCount, len(r.inferences))
@@ -51,7 +51,7 @@ func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
 	bins := [8][]tilemapping.MachineLetter{}
 
 	// Otherwise do a very rough statistical analysis.
-	for i := 0; i < int(alph.NumLetters()+1); i++ {
+	for i := 0; i < int(alph.NumLetters()); i++ {
 		found := float64(mlcts[tilemapping.MachineLetter(i)]) / float64(totalCt)
 		expected := float64(bagmap[i]) / float64(inbag)
 		if expected == 0 {

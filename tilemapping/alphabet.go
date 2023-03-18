@@ -160,8 +160,9 @@ func FromByteArr(bts []byte) MachineWord {
 }
 
 // NumLetters returns the number of letters in this alphabet.
+// It includes the blank.
 func (rm *TileMapping) NumLetters() uint8 {
-	return uint8(len(rm.letters))
+	return uint8(len(rm.vals))
 }
 
 func (rm *TileMapping) Vals() map[string]MachineLetter {
@@ -236,7 +237,14 @@ func ToMachineLetters(word string, rm *TileMapping) ([]MachineLetter, error) {
 			}
 		}
 		if !match {
-			return nil, fmt.Errorf("cannot convert %v to MachineLetters", word)
+			// Check if it's an empty space.
+			// This is not very clean.
+			if runes[i] == ' ' || runes[i] == ASCIIPlayedThrough {
+				letters = append(letters, 0)
+				i++
+			} else {
+				return nil, fmt.Errorf("cannot convert %v to MachineLetters", word)
+			}
 		}
 	}
 	return letters, nil

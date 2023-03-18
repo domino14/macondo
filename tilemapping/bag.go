@@ -211,7 +211,7 @@ func (b *Bag) RemoveTiles(tiles []MachineLetter) error {
 func NewBag(ld *LetterDistribution, alph *TileMapping) *Bag {
 
 	tiles := make([]MachineLetter, ld.numLetters)
-	tileMap := make([]uint8, MaxAlphabetSize)
+	tileMap := make([]uint8, alph.NumLetters())
 
 	idx := 0
 	for mlidx, ct := range ld.distribution {
@@ -235,7 +235,7 @@ func NewBag(ld *LetterDistribution, alph *TileMapping) *Bag {
 // we don't ever expect these to change after initialization.
 func (b *Bag) Copy() *Bag {
 	tiles := make([]MachineLetter, len(b.tiles))
-	tileMap := make([]uint8, MaxAlphabetSize+1)
+	tileMap := make([]uint8, len(b.tileMap))
 	copy(tiles, b.tiles)
 	copy(tileMap, b.tileMap)
 

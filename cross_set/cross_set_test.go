@@ -244,7 +244,7 @@ func TestPlaceMoveTiles(t *testing.T) {
 	m := move.NewScoringMoveSimple(1780, "A1", "OX.P...B..AZ..E", "", alph)
 	b.PlaceMoveTiles(m)
 	for i, c := range "OXYPHENBUTAZONE" {
-		assert.Equal(t, c, b.GetLetter(i, 0).UserVisible(alph, true))
+		assert.Equal(t, string(c), b.GetLetter(i, 0).UserVisible(alph, true))
 	}
 }
 
@@ -259,7 +259,7 @@ func TestUnplaceMoveTiles(t *testing.T) {
 	b.PlaceMoveTiles(m)
 	b.UnplaceMoveTiles(m)
 	for i, c := range "..Y.HEN.UT..ON" {
-		assert.Equal(t, c, b.GetLetter(i, 0).UserVisible(alph, true))
+		assert.Equal(t, string(c), b.GetLetter(i, 0).UserVisible(alph, true))
 	}
 }
 
@@ -323,7 +323,7 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 				colInc = i
 			}
 			uv := b.GetLetter(row+rowInc, col+colInc).UserVisible(alph, true)
-			assert.Equal(t, c, uv)
+			assert.Equal(t, string(c), uv)
 		}
 	}
 }
@@ -523,7 +523,7 @@ func TestUpdateCrossScoresForMove(t *testing.T) {
 				colInc = i
 			}
 			uv := b.GetLetter(row+rowInc, col+colInc).UserVisible(alph, true)
-			assert.Equal(t, c, uv)
+			assert.Equal(t, string(c), uv)
 		}
 	}
 }

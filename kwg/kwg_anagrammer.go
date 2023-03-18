@@ -18,10 +18,10 @@ type KWGAnagrammer struct {
 func (da *KWGAnagrammer) commonInit(kwg *KWG) {
 	alph := kwg.GetAlphabet()
 	numLetters := alph.NumLetters()
-	if cap(da.freq) < int(numLetters)+1 {
-		da.freq = make([]uint8, numLetters+1)
+	if cap(da.freq) < int(numLetters) {
+		da.freq = make([]uint8, numLetters)
 	} else {
-		da.freq = da.freq[:numLetters+1]
+		da.freq = da.freq[:numLetters]
 		for i := range da.freq {
 			da.freq[i] = 0
 		}
@@ -50,7 +50,7 @@ func (da *KWGAnagrammer) InitForMachineWord(kwg *KWG, machineTiles tilemapping.M
 	for _, v := range machineTiles {
 		if v == 0 {
 			da.blanks++
-		} else if uint8(v) < numLetters+1 {
+		} else if uint8(v) < numLetters {
 			da.freq[v]++
 		} else {
 			return fmt.Errorf("invalid byte %v", v)

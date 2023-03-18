@@ -39,7 +39,7 @@ func TestRackFromString(t *testing.T) {
 	alph := EnglishAlphabet()
 	rack := RackFromString("AENPPSW", alph)
 
-	expected := make([]int, MaxAlphabetSize+1)
+	expected := make([]int, alph.NumLetters())
 	expected[1] = 1
 	expected[5] = 1
 	expected[14] = 1
@@ -55,7 +55,7 @@ func TestRackTake(t *testing.T) {
 	alph := EnglishAlphabet()
 	rack := RackFromString("AENPPSW", alph)
 	rack.Take(MachineLetter(16))
-	expected := make([]int, MaxAlphabetSize+1)
+	expected := make([]int, alph.NumLetters())
 	expected[1] = 1
 	expected[5] = 1
 	expected[14] = 1
@@ -81,7 +81,7 @@ func TestRackTakeAll(t *testing.T) {
 	rack.Take(MachineLetter(14))
 	rack.Take(MachineLetter(19))
 	rack.Take(MachineLetter(23))
-	expected := make([]int, MaxAlphabetSize+1)
+	expected := make([]int, alph.NumLetters())
 
 	assert.Equal(t, expected, rack.LetArr)
 }
@@ -95,7 +95,7 @@ func TestRackTakeAndAdd(t *testing.T) {
 	rack.Take(MachineLetter(1))
 	rack.Add(MachineLetter(1))
 
-	expected := make([]int, MaxAlphabetSize+1)
+	expected := make([]int, alph.NumLetters())
 	expected[1] = 1
 	expected[5] = 1
 	expected[14] = 1

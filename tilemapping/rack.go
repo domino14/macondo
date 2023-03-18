@@ -6,8 +6,8 @@ import (
 
 // Rack is a machine-friendly representation of a user's rack.
 type Rack struct {
-	// letArr is an array of letter codes from 0 to MaxAlphabetSize.
-	// The blank can go at the MaxAlphabetSize place.
+	// letArr is an array of letter codes from 0 to alphabet.NumLetters.
+	// The blank goes at 0.
 	LetArr     []int
 	numLetters uint8
 	alphabet   *TileMapping
@@ -17,7 +17,7 @@ type Rack struct {
 
 // NewRack creates a brand new rack structure with an alphabet.
 func NewRack(alph *TileMapping) *Rack {
-	return &Rack{alphabet: alph, LetArr: make([]int, MaxAlphabetSize+1)}
+	return &Rack{alphabet: alph, LetArr: make([]int, alph.NumLetters())}
 }
 
 // String returns a user-visible version of this rack.
@@ -41,9 +41,8 @@ func (r *Rack) CopyFrom(other *Rack) {
 	r.numLetters = other.numLetters
 	r.alphabet = other.alphabet
 	r.repr = other.repr
-	// These will always be the same size: MaxAlphabetSize + 1
 	if r.LetArr == nil {
-		r.LetArr = make([]int, MaxAlphabetSize+1)
+		r.LetArr = make([]int, len(other.LetArr))
 	}
 	copy(r.LetArr, other.LetArr)
 }
@@ -58,7 +57,7 @@ func RackFromString(rack string, a *TileMapping) *Rack {
 
 func (r *Rack) setFromStr(rack string) {
 	if r.LetArr == nil {
-		r.LetArr = make([]int, MaxAlphabetSize+1)
+		r.LetArr = make([]int, r.alphabet.NumLetters())
 	} else {
 		r.Clear()
 	}
@@ -86,7 +85,7 @@ func (r *Rack) Set(mls []MachineLetter) {
 
 func (r *Rack) Clear() {
 	// Clear the rack
-	for i := 0; i < MaxAlphabetSize+1; i++ {
+	for i := 0; i < int(r.Alphabet().NumLetters()); i++ {
 		r.LetArr[i] = 0
 	}
 	r.numLetters = 0
@@ -129,7 +128,7 @@ func (r *Rack) NoAllocTilesOn(letters []MachineLetter) int {
 	ct := 0
 	numPossibleLetters := r.alphabet.NumLetters()
 	var i MachineLetter
-	for i = 0; i <= MachineLetter(numPossibleLetters); i++ {
+	for i = 0; i < MachineLetter(numPossibleLetters); i++ {
 		if r.LetArr[i] > 0 {
 			for j := 0; j < r.LetArr[i]; j++ {
 				letters[ct] = i
@@ -146,7 +145,7 @@ func (r *Rack) ScoreOn(ld *LetterDistribution) int {
 	score := 0
 	var i MachineLetter
 	numPossibleLetters := r.alphabet.NumLetters()
-	for i = 0; i <= MachineLetter(numPossibleLetters); i++ {
+	for i = 0; i < MachineLetter(numPossibleLetters); i++ {
 		if r.LetArr[i] > 0 {
 			score += ld.Score(i) * r.LetArr[i]
 		}
