@@ -554,6 +554,8 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 	var numgames, numthreads int
 	var block bool
 	var botcode1, botcode2 pb.BotRequest_BotCode
+	var minsimplies1, minsimplies2 int
+	var err error
 	if options["logfile"] == "" {
 		logfile = "/tmp/autoplay.txt"
 	} else {
@@ -610,6 +612,17 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 		botcode2 = pb.BotRequest_BotCode(botcode2Value)
 	}
 
+	if options["minsimplies1"] == "" {
+		minsimplies1 = 0
+	} else {
+		minsimplies1, err = strconv.Atoi(options["minsimplies1"])
+	}
+	if options["minsimplies2"] == "" {
+		minsimplies2 = 0
+	} else {
+		minsimplies2, err = strconv.Atoi(options["minsimplies2"])
+	}
+
 	if options["numgames"] == "" {
 		numgames = 1e9
 	} else {
@@ -655,12 +668,12 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 
 	sc.showMessage("automatic game runner will log to " + logfile)
 	sc.gameRunnerCtx, sc.gameRunnerCancel = context.WithCancel(context.Background())
-	err := automatic.StartCompVCompStaticGames(
+	err = automatic.StartCompVCompStaticGames(
 		sc.gameRunnerCtx, sc.config, numgames, block, numthreads,
 		logfile, lexicon, letterDistribution,
 		[]automatic.AutomaticRunnerPlayer{
-			{LeaveFile: leavefile1, PEGFile: pegfile1, BotCode: botcode1},
-			{LeaveFile: leavefile2, PEGFile: pegfile2, BotCode: botcode2},
+			{LeaveFile: leavefile1, PEGFile: pegfile1, BotCode: botcode1, MinSimPlies: minsimplies1},
+			{LeaveFile: leavefile2, PEGFile: pegfile2, BotCode: botcode2, MinSimPlies: minsimplies2},
 		})
 
 	if err != nil {

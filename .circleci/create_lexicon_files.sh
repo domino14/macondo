@@ -7,7 +7,6 @@ for lex in "NWL20" "NWL18" "America" "CSW21" "CSW19"
 do
     awk '{print $1}' "$LEXICON_PATH/$lex.txt" > "$LEXICON_PATH/$lex-stripped.txt"
     echo "lex $lex"
-    ls -alR "$LEXICON_PATH"
 
     CONTAINER_ID="$(docker create kbuilder -- english-kwg /home/in.txt /home/out.kwg )"
     trap "docker rm $CONTAINER_ID" EXIT
@@ -22,14 +21,12 @@ do
     trap "" EXIT
 
     echo "after $lex"
-    ls -alR "$LEXICON_PATH"
 done
 
 for lex in "OSPS44"
 do
     awk '{print $1}' "$LEXICON_PATH/$lex.txt" > "$LEXICON_PATH/$lex-stripped.txt"
     echo "lex $lex"
-    ls -alR "$LEXICON_PATH"
 
     CONTAINER_ID="$(docker create kbuilder -- polish-kwg /home/in.txt /home/out.kwg )"
     trap "docker rm $CONTAINER_ID" EXIT
@@ -44,7 +41,6 @@ do
     trap "" EXIT
 
     echo "after $lex"
-    ls -alR "$LEXICON_PATH"
 done
 
 echo "done creating kwgs"

@@ -145,7 +145,6 @@ message BotRequest {
     SIMMING_BOT = 11;
     HASTY_PLUS_ENDGAME_BOT = 12;
     SIMMING_INFER_BOT = 13;
-    SIMMING_BOT_MORE_PLIES = 14;
     // harder bots here? inference? ml, etc.
 
     // This should have probably been number 0.

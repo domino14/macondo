@@ -20,6 +20,7 @@ type BotConfig struct {
 	config.Config
 	PEGAdjustmentFile string
 	LeavesFile        string
+	MinSimPlies       int
 }
 
 type BotTurnPlayer struct {
@@ -94,8 +95,8 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 		}
 		btp.simmer = &montecarlo.Simmer{}
 		btp.simmerCalcs = []equity.EquityCalculator{c}
-		if botType == pb.BotRequest_SIMMING_BOT_MORE_PLIES {
-			btp.SetMinSimPlies(6)
+		if conf.MinSimPlies > 0 {
+			btp.SetMinSimPlies(conf.MinSimPlies)
 		}
 	}
 	if hasEndgame(botType) {

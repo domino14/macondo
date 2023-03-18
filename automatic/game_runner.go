@@ -44,17 +44,18 @@ type GameRunner struct {
 func NewGameRunner(logchan chan string, config *config.Config) *GameRunner {
 	r := &GameRunner{logchan: logchan, config: config, lexicon: config.DefaultLexicon, letterDistribution: config.DefaultLetterDistribution}
 	r.Init([]AutomaticRunnerPlayer{
-		{"", "", pb.BotRequest_HASTY_BOT},
-		{"", "", pb.BotRequest_HASTY_BOT},
+		{"", "", pb.BotRequest_HASTY_BOT, 0},
+		{"", "", pb.BotRequest_HASTY_BOT, 0},
 	})
 
 	return r
 }
 
 type AutomaticRunnerPlayer struct {
-	LeaveFile string
-	PEGFile   string
-	BotCode   pb.BotRequest_BotCode
+	LeaveFile   string
+	PEGFile     string
+	BotCode     pb.BotRequest_BotCode
+	MinSimPlies int
 }
 
 // Init initializes the runner
@@ -95,6 +96,7 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 			Config:            *r.config,
 			PEGAdjustmentFile: pegfile,
 			LeavesFile:        leavefile,
+			MinSimPlies:       players[idx].MinSimPlies,
 		}
 
 		btp, err := bot.NewBotTurnPlayerFromGame(r.game, conf, botcode)

@@ -105,8 +105,8 @@ func TestCompVCompSeries(t *testing.T) {
 		context.Background(), &DefaultConfig, nGames, true, nThreads,
 		"/tmp/testcompvcomp.txt", "NWL20", "English",
 		[]AutomaticRunnerPlayer{
-			{"", "", macondo.BotRequest_HASTY_BOT},
-			{"", "", macondo.BotRequest_NO_LEAVE_BOT},
+			{"", "", macondo.BotRequest_HASTY_BOT, 0},
+			{"", "", macondo.BotRequest_NO_LEAVE_BOT, 0},
 		})
 
 	is.NoErr(err)
