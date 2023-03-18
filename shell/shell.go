@@ -616,11 +616,17 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 		minsimplies1 = 0
 	} else {
 		minsimplies1, err = strconv.Atoi(options["minsimplies1"])
+		if err != nil {
+			return err
+		}
 	}
 	if options["minsimplies2"] == "" {
 		minsimplies2 = 0
 	} else {
 		minsimplies2, err = strconv.Atoi(options["minsimplies2"])
+		if err != nil {
+			return err
+		}
 	}
 
 	if options["numgames"] == "" {
