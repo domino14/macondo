@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/rs/zerolog/log"
 
@@ -56,8 +57,8 @@ type Move struct {
 var reVertical, reHorizontal *regexp.Regexp
 
 func init() {
-	reVertical = regexp.MustCompile(`^(?P<col>[A-Z])(?P<row>[0-9]+)$`)
-	reHorizontal = regexp.MustCompile(`^(?P<row>[0-9]+)(?P<col>[A-Z])$`)
+	reVertical = regexp.MustCompile(`^(?P<col>[A-Za-z])(?P<row>[0-9]+)$`)
+	reHorizontal = regexp.MustCompile(`^(?P<row>[0-9]+)(?P<col>[A-Za-z])$`)
 }
 
 func (m *Move) equalPositions(o *Move, alsoCheckTransposition bool) bool {
@@ -435,14 +436,14 @@ func FromBoardGameCoords(c string) (int, int, bool) {
 	if len(vMatches) == 3 {
 		// It's vertical
 		row, _ = strconv.Atoi(vMatches[2])
-		col = int(vMatches[1][0] - 'A')
+		col = int(strings.ToUpper(vMatches[1])[0] - 'A')
 		vertical = true
 		return row - 1, col, vertical
 	}
 	hMatches := reHorizontal.FindStringSubmatch(c)
 	if len(hMatches) == 3 {
 		row, _ = strconv.Atoi(hMatches[1])
-		col = int(hMatches[2][0] - 'A')
+		col = int(strings.ToUpper(hMatches[2])[0] - 'A')
 		vertical = false
 		return row - 1, col, vertical
 	}
