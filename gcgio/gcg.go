@@ -61,6 +61,7 @@ const (
 	BoardLayoutToken
 	TileDistributionNameToken
 	ContinuationToken
+	IncompleteToken
 )
 
 type gcgdatum struct {
@@ -94,6 +95,7 @@ const (
 	EndRackPointsRegex        = `>(?P<nick>\S+):\s+\((?P<rack>\S+)\)\s+\+(?P<score>\d+)\s+(?P<cumul>-?\d+)`
 	TimePenaltyRegex          = `>(?P<nick>\S+):\s+(?P<rack>\S*)\s+\(time\)\s+\-(?P<penalty>\d+)\s+(?P<cumul>-?\d+)`
 	PtsLostForLastRackRegex   = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+\((?P<rack>\S+)\)\s+\-(?P<penalty>\d+)\s+(?P<cumul>-?\d+)`
+	IncompleteRegex           = "#incomplete.*"
 )
 
 var compiledEncodingRegexp *regexp.Regexp
@@ -138,6 +140,7 @@ func init() {
 		{ContinuationToken, regexp.MustCompile(ContinuationRegex)},
 		{BoardLayoutToken, regexp.MustCompile(BoardLayoutRegex)},
 		{TileDistributionNameToken, regexp.MustCompile(TileDistributionNameRegex)},
+		{IncompleteToken, regexp.MustCompile(IncompleteRegex)},
 	}
 }
 
@@ -467,7 +470,8 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 		evt.Type = pb.GameEvent_EXCHANGE
 		p.history.Events = append(p.history.Events, evt)
 		return p.game.PlayLatestEvent()
-
+	default:
+		log.Info().Int("token", int(token)).Interface("match", match).Msg("ignoring-token")
 	}
 	return nil
 }
