@@ -1,5 +1,4 @@
-#!/bin/sh
-# why no bash :-(
+#!/bin/bash
 
 set -euo pipefail
 
