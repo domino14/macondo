@@ -4,7 +4,7 @@ set -euo pipefail
 
 ls $LEXICON_PATH
 
-for lex in "NWL20" "NWL18" "America" "CSW21" "CSW19"
+for lex in "NWL20" "NWL18" "America" "CSW21" "CSW19" "ECWL"
 do
     awk '{print $1}' "$LEXICON_PATH/$lex.txt" > "$LEXICON_PATH/$lex-stripped.txt"
     echo "lex $lex"

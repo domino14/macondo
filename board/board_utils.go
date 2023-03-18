@@ -133,9 +133,11 @@ func (b *GameBoard) SetRow(rowNum int, letters string, alph *tilemapping.TileMap
 	}
 
 	for idx, ml := range mls {
-		b.SetLetter(int(rowNum), idx, ml)
-		b.tilesPlayed++
-		lettersPlayed = append(lettersPlayed, ml)
+		if ml != 0 {
+			b.SetLetter(int(rowNum), idx, ml)
+			b.tilesPlayed++
+			lettersPlayed = append(lettersPlayed, ml)
+		}
 	}
 	return lettersPlayed
 }
