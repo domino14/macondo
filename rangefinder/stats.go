@@ -32,7 +32,7 @@ func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
 		fmt.Fprintf(&ss, "%-5s%-12s%-12s%-10s\n", "Tile", "Found %", "Expected %", "# unseen")
 
 		printLetterStats := func(i int) {
-			fmt.Fprintf(&ss, "%-5c%-12.3f%-12.3f%d\n",
+			fmt.Fprintf(&ss, "%-5s%-12.3f%-12.3f%d\n",
 				tilemapping.MachineLetter(i).UserVisible(alph, false),
 				100.0*float64(mlcts[tilemapping.MachineLetter(i)])/float64(totalCt),
 				100.0*float64(bagmap[i])/float64(inbag),
@@ -85,7 +85,7 @@ func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
 
 	printTiles := func(tiles []tilemapping.MachineLetter) {
 		for _, t := range tiles {
-			fmt.Fprintf(&ss, " %c ", t.UserVisible(alph, false))
+			fmt.Fprintf(&ss, " %s ", t.UserVisible(alph, false))
 		}
 		fmt.Fprintln(&ss)
 		fmt.Fprintln(&ss)

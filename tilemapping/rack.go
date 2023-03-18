@@ -1,8 +1,6 @@
 package tilemapping
 
 import (
-	"unicode/utf8"
-
 	"github.com/rs/zerolog/log"
 )
 
@@ -64,15 +62,17 @@ func (r *Rack) setFromStr(rack string) {
 	} else {
 		r.Clear()
 	}
-	for _, c := range rack {
-		ml, err := r.alphabet.Val(c)
-		if err == nil && int(ml) < len(r.LetArr) {
-			r.LetArr[ml]++
-		} else {
-			log.Error().Msgf("Rack has an illegal character: %v", string(c))
-		}
+	mls, err := ToMachineLetters(rack, r.Alphabet())
+	if err != nil {
+		log.Error().AnErr("err", err).Msg("unable to convert rack")
+		return
 	}
-	r.numLetters = uint8(utf8.RuneCountInString(rack))
+
+	for _, ml := range mls {
+		r.LetArr[ml]++
+	}
+
+	r.numLetters = uint8(len(mls))
 }
 
 // Set sets the rack from a list of machine letters

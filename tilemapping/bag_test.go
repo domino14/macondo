@@ -14,27 +14,28 @@ func TestBag(t *testing.T) {
 	ld, err := EnglishLetterDistribution(&DefaultConfig)
 	is.NoErr(err)
 	bag := ld.MakeBag()
-	if len(bag.tiles) != ld.numLetters {
+	if uint(len(bag.tiles)) != ld.numLetters {
 		t.Error("Tile bag and letter distribution do not match.")
 	}
-	tileMap := make(map[rune]uint8)
+	tileMap := make([]uint8, len(ld.distribution))
 	numTiles := 0
-	ml := make([]MachineLetter, 7)
+	mls := make([]MachineLetter, 7)
 
 	for range bag.tiles {
-		err := bag.Draw(1, ml)
+		err := bag.Draw(1, mls)
 		numTiles++
-		uv := ml[0].UserVisible(ld.tilemapping, false)
-		t.Logf("Drew a %c! , %v", uv, numTiles)
+		uv := mls[0].UserVisible(ld.tilemapping, false)
+		t.Logf("Drew a %v! , %v", uv, numTiles)
 		if err != nil {
 			t.Error("Error drawing from tile bag.")
 		}
-		tileMap[uv]++
+		tileMap[mls[0]]++
 	}
-	if !reflect.DeepEqual(tileMap, ld.Distribution) {
+	if !reflect.DeepEqual(tileMap, ld.distribution) {
 		t.Error("Distribution and tilemap were not identical.")
 	}
-	err = bag.Draw(1, ml)
+
+	err = bag.Draw(1, mls)
 	if err == nil {
 		t.Error("Should not have been able to draw from an empty bag.")
 	}

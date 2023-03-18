@@ -34,18 +34,12 @@ func (da *KWGAnagrammer) InitForString(kwg *KWG, tiles string) error {
 	da.commonInit(kwg)
 	da.queryLength = 0
 	alph := kwg.GetAlphabet()
-	vals := alph.Vals()
-	for _, r := range tiles {
-		da.queryLength++ // count number of runes, not number of bytes
-		if r == tilemapping.BlankToken {
-			da.blanks++
-		} else if val, ok := vals[r]; ok {
-			da.freq[val]++
-		} else {
-			return fmt.Errorf("invalid rune %v", r)
-		}
+
+	mls, err := tilemapping.ToMachineLetters(tiles, alph)
+	if err != nil {
+		return err
 	}
-	return nil
+	return da.InitForMachineWord(kwg, mls)
 }
 
 func (da *KWGAnagrammer) InitForMachineWord(kwg *KWG, machineTiles tilemapping.MachineWord) error {

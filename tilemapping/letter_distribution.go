@@ -11,25 +11,24 @@ import (
 // LetterDistribution encodes the tile distribution for the relevant game.
 type LetterDistribution struct {
 	tilemapping      *TileMapping
-	Distribution     map[rune]uint8
-	PointValues      map[rune]uint8
-	SortOrder        map[rune]int
-	Vowels           []rune
-	numUniqueLetters int
-	numLetters       int
+	Vowels           []MachineLetter
+	distribution     []uint8
 	scores           []int
+	numUniqueLetters uint
+	numLetters       uint
 	Name             string
 }
 
 func ScanLetterDistribution(data io.Reader) (*LetterDistribution, error) {
 	r := csv.NewReader(data)
-	dist := map[rune]uint8{}
-	ptValues := map[rune]uint8{}
-	sortOrder := []rune{}
-	vowels := []rune{}
+	dist := []uint8{}
+	ptValues := []int{}
+	vowels := []MachineLetter{}
 	alph := &TileMapping{}
 	alph.Init()
 	// letter,quantity,value,vowel
+	idx := 0
+	letters := []string{}
 	for {
 		record, err := r.Read()
 		if err == io.EOF {
@@ -38,8 +37,7 @@ func ScanLetterDistribution(data io.Reader) (*LetterDistribution, error) {
 		if err != nil {
 			return nil, err
 		}
-		letter := []rune(record[0])[0]
-		sortOrder = append(sortOrder, letter)
+		letter := record[0]
 		n, err := strconv.Atoi(record[1])
 		if err != nil {
 			return nil, err
@@ -53,55 +51,40 @@ func ScanLetterDistribution(data io.Reader) (*LetterDistribution, error) {
 			return nil, err
 		}
 		if v == 1 {
-			vowels = append(vowels, letter)
+			vowels = append(vowels, MachineLetter(idx))
 		}
-		dist[letter] = uint8(n)
-		ptValues[letter] = uint8(p)
-		if letter != BlankToken {
-			// The Blank should not be part of the alphabet, only the letter dist.
-			alph.Update(string(letter))
-		}
+		dist = append(dist, uint8(n))
+		ptValues = append(ptValues, p)
+		letters = append(letters, letter)
+		idx++
 	}
-	sortMap := makeSortMap(sortOrder)
-	alph.Reconcile(sortMap)
-	return newLetterDistribution(alph, dist, ptValues, sortMap, vowels), nil
+	alph.Reconcile(letters)
+	return newLetterDistribution(alph, dist, ptValues, vowels), nil
 }
 
-func newLetterDistribution(alph *TileMapping, dist map[rune]uint8,
-	ptValues map[rune]uint8, sortOrder map[rune]int, vowels []rune) *LetterDistribution {
+func newLetterDistribution(alph *TileMapping, dist []uint8,
+	ptValues []int, vowels []MachineLetter) *LetterDistribution {
 
-	numTotalLetters := 0
-	numUniqueLetters := len(dist)
+	numTotalLetters := uint(0)
+	numUniqueLetters := uint(len(dist))
 	for _, v := range dist {
-		numTotalLetters += int(v)
+		numTotalLetters += uint(v)
 	}
-	// Make an array of scores in alphabet order. This will allow for
-	// fast lookups in move generators, etc, vs looking up a map.
 	// Note: numUniqueLetters/numTotalLetters includes the blank.
-	scores := make([]int, numUniqueLetters)
-	for rn, ptVal := range ptValues {
-		ml, err := alph.Val(rn)
-		if err != nil {
-			panic("Wrongly initialized")
-		}
-		scores[ml] = int(ptVal)
-	}
 
 	return &LetterDistribution{
 		tilemapping:      alph,
-		Distribution:     dist,
-		PointValues:      ptValues,
-		SortOrder:        sortOrder,
+		distribution:     dist,
+		scores:           ptValues,
 		Vowels:           vowels,
 		numUniqueLetters: numUniqueLetters,
 		numLetters:       numTotalLetters,
-		scores:           scores,
 	}
 
 }
 
-func makeSortMap(order []rune) map[rune]int {
-	sortMap := make(map[rune]int)
+func makeSortMap(order []string) map[string]int {
+	sortMap := make(map[string]int)
 	for idx, letter := range order {
 		sortMap[letter] = idx
 	}
@@ -128,6 +111,10 @@ func (ld *LetterDistribution) WordScore(mw MachineWord) int {
 		score += ld.Score(c)
 	}
 	return score
+}
+
+func (ld *LetterDistribution) Distribution() []uint8 {
+	return ld.distribution
 }
 
 // EnglishLetterDistribution returns the English letter distribution.

@@ -64,7 +64,6 @@ type RangeFinder struct {
 	// tiles used by the last opponent's move, from their rack:
 	lastOppMoveRackTiles []tilemapping.MachineLetter
 	inferences           [][]tilemapping.MachineLetter
-	myRack               []tilemapping.MachineLetter
 
 	logStream io.Writer
 }

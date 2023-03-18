@@ -1,50 +1,46 @@
 package tilemapping
 
 import (
-	"reflect"
 	"testing"
+
+	"github.com/matryer/is"
 )
 
-func TestUserVisible(t *testing.T) {
-	// Initialize an alphabet.
-	rm := &TileMapping{}
-	rm.Init()
-	rm.Update("AEROLITH")
-	rm.Update("HOMEMADE")
-	rm.Update("GAMODEME")
-	rm.Update("XU")
-	rm.Reconcile(nil)
-	expected := LetterSlice([]rune{
-		'A', 'D', 'E', 'G', 'H', 'I', 'L', 'M', 'O', 'R', 'T', 'U', 'X'})
-	if !reflect.DeepEqual(rm.letterSlice, expected) {
-		t.Errorf("Did not equal, expected %v got %v", expected, rm.letterSlice)
-	}
-	mw := MachineWord([]MachineLetter{5, 9, 8, 6, 3})
-	uv := mw.UserVisible(rm)
-	if uv != "HOMIE" {
-		t.Errorf("Did not equal, expected %v got %v", "HOMIE", uv)
-	}
-
-	mw2 := MachineWord([]MachineLetter{13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0})
-	uv2 := mw2.UserVisible(rm)
-	if uv2 != "XUTROMLIHGEDA?" {
-		t.Errorf("Did not equal, expected %v got %v", "XUTROMLIHGEDA?", uv2)
-	}
+func TestToMachineLetters(t *testing.T) {
+	is := is.New(t)
+	cat, err := GetDistribution(&DefaultConfig, "catalan")
+	is.NoErr(err)
+	// AL·LOQUIMIQUES is only 10 tiles despite being 14 codepoints long.
+	// A L·L O QU I M I QU E S
+	mls, err := ToMachineLetters("AL·LOQUIMIQUES", cat.TileMapping())
+	is.NoErr(err)
+	is.Equal(mls, []MachineLetter{
+		1, 13, 17, 19, 10, 14, 10, 19, 6, 21,
+	})
+	mls, err = ToMachineLetters("Al·lOQUIMIquES", cat.TileMapping())
+	is.NoErr(err)
+	is.Equal(mls, []MachineLetter{
+		1, 13 | 0x80, 17, 19, 10, 14, 10, 19 | 0x80, 6, 21,
+	})
+	mls, err = ToMachineLetters("ARQUEGESSIU", cat.TileMapping())
+	is.NoErr(err)
+	is.Equal(mls, []MachineLetter{
+		1, 20, 19, 6, 8, 6, 21, 21, 10, 23,
+	})
 }
 
-func TestUserVisibleWithBlank(t *testing.T) {
-	// Initialize an alphabet.
-	rm := &TileMapping{}
-	rm.Init()
-	rm.Update("AEROLITH")
-	rm.Update("HOMEMADE")
-	rm.Update("GAMODEME")
-	rm.Update("XU")
-	rm.Reconcile(nil)
+func TestUV(t *testing.T) {
+	is := is.New(t)
+	cat, err := GetDistribution(&DefaultConfig, "catalan")
+	is.NoErr(err)
 
-	mw := MachineWord([]MachineLetter{0x85, 0x89, 0x88, 0x86, 0x83})
-	uv := mw.UserVisible(rm)
-	if uv != "homie" {
-		t.Errorf("Did not equal, expected %v got %v", "homie", uv)
-	}
+	uv := MachineWord([]MachineLetter{
+		1, 13, 17, 19, 10, 14, 10, 19, 6, 21,
+	}).UserVisible(cat.TileMapping())
+	is.Equal(uv, "AL·LOQUIMIQUES")
+
+	uv = MachineWord([]MachineLetter{
+		1, 13 | 0x80, 17, 19, 10, 14, 10, 19 | 0x80, 6, 21,
+	}).UserVisible(cat.TileMapping())
+	is.Equal(uv, "Al·lOQUIMIquES")
 }

@@ -78,8 +78,7 @@ func filter(cfg *config.Config, g *game.Game, rack *tilemapping.Rack, plays []*m
 			mw := mws[0] // assume len > 0
 			// Check for long words (7 or more letters)
 			if len(mw) >= game.ExchangeLimit {
-				userVisibleString := mw.UserVisible(dist.TileMapping())
-				ans *= probableFindability(len(mw), combinations(dist, subChooseCombos, userVisibleString, true)) * botConfig.longWordFindability
+				ans *= probableFindability(len(mw), combinations(dist, subChooseCombos, mw, true)) * botConfig.longWordFindability
 			}
 			log.Debug().Float64("ans", ans).Float64("r", r).Msg("checking-answer")
 			return r < ans, nil
@@ -127,7 +126,7 @@ func createSubCombos(dist *tilemapping.LetterDistribution) [][]uint64 {
 	// Adapted from GPL Zyzzyva's calculation code.
 	maxFrequency := uint8(0)
 	totalLetters := uint8(0)
-	for _, value := range dist.Distribution {
+	for _, value := range dist.Distribution() {
 		freq := value
 		totalLetters += freq
 		if freq > maxFrequency {
@@ -154,9 +153,10 @@ func createSubCombos(dist *tilemapping.LetterDistribution) [][]uint64 {
 	return subChooseCombos
 }
 
-func combinations(dist *tilemapping.LetterDistribution, subChooseCombos [][]uint64, alphagram string, withBlanks bool) uint64 {
+func combinations(dist *tilemapping.LetterDistribution, subChooseCombos [][]uint64,
+	alphagram tilemapping.MachineWord, withBlanks bool) uint64 {
 	// Adapted from GPL Zyzzyva's calculation code.
-	letters := make([]rune, 0)
+	letters := make([]tilemapping.MachineLetter, 0)
 	counts := make([]uint8, 0)
 	combos := make([][]uint64, 0)
 	for _, letter := range alphagram {
@@ -172,7 +172,7 @@ func combinations(dist *tilemapping.LetterDistribution, subChooseCombos [][]uint
 			letters = append(letters, letter)
 			counts = append(counts, 1)
 			combos = append(combos,
-				subChooseCombos[dist.Distribution[letter]])
+				subChooseCombos[dist.Distribution()[letter]])
 
 		}
 	}
@@ -190,7 +190,7 @@ func combinations(dist *tilemapping.LetterDistribution, subChooseCombos [][]uint
 	// Calculate combinations with one blank
 	for i := 0; i < numLetters; i++ {
 		counts[i]--
-		thisCombo = subChooseCombos[dist.Distribution['?']][1]
+		thisCombo = subChooseCombos[dist.Distribution()[0]][1]
 		for j := 0; j < numLetters; j++ {
 			thisCombo *= combos[j][counts[j]]
 		}
@@ -205,7 +205,7 @@ func combinations(dist *tilemapping.LetterDistribution, subChooseCombos [][]uint
 				continue
 			}
 			counts[j]--
-			thisCombo = subChooseCombos[dist.Distribution['?']][2]
+			thisCombo = subChooseCombos[dist.Distribution()[0]][2]
 
 			for k := 0; k < numLetters; k++ {
 				thisCombo *= combos[k][counts[k]]

@@ -1,11 +1,10 @@
 package tilemapping
 
 import (
-	"errors"
 	"fmt"
-	"sort"
-	"unicode"
+	"strings"
 
+	"github.com/domino14/macondo/config"
 	"github.com/rs/zerolog/log"
 )
 
@@ -44,85 +43,65 @@ type MachineLetter byte
 
 type MachineWord []MachineLetter
 
-// LetterSlice is a slice of runes. We make it a separate type for ease in
-// defining sort functions on it.
-type LetterSlice []rune
-
 // A TileMapping contains the structures needed to map a user-visible "rune",
 // like the letter B, into its "MachineLetter" counterpart (for example,
 // MachineLetter(2) in the english-alphabet), and vice-versa.
 type TileMapping struct {
 	// vals is a map of the actual physical letter rune (like 'A') to a
 	// number representing it, from 0 to MaxAlphabetSize.
-	vals map[rune]MachineLetter
+	vals map[string]MachineLetter
 	// letters is a map of the 0 to MaxAlphabetSize value back to a letter.
-	letters map[MachineLetter]rune
-
-	letterSlice LetterSlice
-	curIdx      MachineLetter
+	letters [MaxAlphabetSize]string
+	// maxTileLength is the maximum length of any tile for this mapping,
+	// in runes. For example, Catalan's L·L tile is 3 runes long.
+	maxTileLength int
 }
 
 // Init initializes the alphabet data structures
 func (rm *TileMapping) Init() {
-	rm.vals = make(map[rune]MachineLetter)
-	rm.letters = make(map[MachineLetter]rune)
-}
-
-// update the alphabet map.
-func (rm *TileMapping) Update(word string) error {
-	for _, char := range word {
-		if _, ok := rm.vals[char]; !ok {
-			rm.vals[char] = rm.curIdx
-			rm.curIdx++
-		}
-	}
-
-	if rm.curIdx == MaxAlphabetSize {
-		return errors.New("exceeded max alphabet size")
-	}
-	return nil
+	rm.vals = make(map[string]MachineLetter)
 }
 
 // Letter returns the letter that this position in the alphabet corresponds to.
-func (rm *TileMapping) Letter(b MachineLetter) rune {
+func (rm *TileMapping) Letter(b MachineLetter) string {
 	if b == 0 {
-		return BlankToken
+		return string(BlankToken)
 	}
 	if b.IsBlanked() {
-		return unicode.ToLower(rm.letters[b.Unblank()])
+		return strings.ToLower(rm.letters[b.Unblank()])
 	}
 	return rm.letters[b]
 }
 
 // Val returns the 'value' of this rune in the alphabet.
 // Takes into account blanks (lowercase letters).
-func (rm *TileMapping) Val(r rune) (MachineLetter, error) {
-	if r == BlankToken {
+func (rm *TileMapping) Val(s string) (MachineLetter, error) {
+	if s == string(BlankToken) {
 		return 0, nil
 	}
-	val, ok := rm.vals[r]
+	val, ok := rm.vals[s]
 	if ok {
 		return val, nil
 	}
-	if r == unicode.ToLower(r) {
-		val, ok = rm.vals[unicode.ToUpper(r)]
+	if s == strings.ToLower(s) {
+		val, ok = rm.vals[strings.ToUpper(s)]
 		if ok {
 			return val.Blank(), nil
 		}
 	}
-	if r == ASCIIPlayedThrough {
+	if s == string(ASCIIPlayedThrough) {
 		return 0, nil
 	}
-	return 0, fmt.Errorf("letter `%c` not found in alphabet", r)
+	return 0, fmt.Errorf("letter `%v` not found in alphabet", s)
 }
 
-// UserVisible turns the passed-in machine letter into a user-visible rune.
-func (ml MachineLetter) UserVisible(rm *TileMapping, zeroForPlayedThrough bool) rune {
+// UserVisible turns the passed-in machine letter into a user-visible string.
+func (ml MachineLetter) UserVisible(rm *TileMapping, zeroForPlayedThrough bool) string {
 	if ml == 0 {
 		if zeroForPlayedThrough {
-			return ASCIIPlayedThrough
+			return string(ASCIIPlayedThrough)
 		}
-		return BlankToken
+		return string(BlankToken)
 	}
 	return rm.Letter(ml)
 }
@@ -144,22 +123,22 @@ func (ml MachineLetter) IsBlanked() bool {
 
 // UserVisible turns the passed-in machine word into a user-visible string.
 func (mw MachineWord) UserVisible(rm *TileMapping) string {
-	runes := make([]rune, len(mw))
+	strs := make([]string, len(mw))
 	for i, l := range mw {
-		runes[i] = l.UserVisible(rm, false)
+		strs[i] = l.UserVisible(rm, false)
 	}
-	return string(runes)
+	return strings.Join(strs, "")
 }
 
 // UserVisiblePlayedTiles turns the passed-in machine word into a user-visible string.
 // It assumes that the MachineWord represents played tiles and not just
 // tiles on a rack, so it uses the PlayedThrough character for 0.
 func (mw MachineWord) UserVisiblePlayedTiles(rm *TileMapping) string {
-	runes := make([]rune, len(mw))
+	strs := make([]string, len(mw))
 	for i, l := range mw {
-		runes[i] = l.UserVisible(rm, true)
+		strs[i] = l.UserVisible(rm, true)
 	}
-	return string(runes)
+	return strings.Join(strs, "")
 }
 
 // Convert the MachineLetter array into a byte array. For now, wastefully
@@ -185,7 +164,7 @@ func (rm *TileMapping) NumLetters() uint8 {
 	return uint8(len(rm.letters))
 }
 
-func (rm *TileMapping) Vals() map[rune]MachineLetter {
+func (rm *TileMapping) Vals() map[string]MachineLetter {
 	return rm.vals
 }
 
@@ -216,10 +195,10 @@ func (ml MachineLetter) IsPlayedTile() bool {
 
 func (ml MachineLetter) IsVowel(ld *LetterDistribution) bool {
 	ml = ml.Unblank()
-	rn := ld.TileMapping().Letter(ml)
+	s := ld.TileMapping().Letter(ml)
 
 	for _, v := range ld.Vowels {
-		if rn == v {
+		if s == string(v) {
 			return true
 		}
 	}
@@ -236,77 +215,63 @@ func ToMachineWord(word string, tm *TileMapping) (MachineWord, error) {
 
 // ToMachineLetters creates an array of MachineLetters from the given string.
 func ToMachineLetters(word string, rm *TileMapping) ([]MachineLetter, error) {
-	letters := make([]MachineLetter, len([]rune(word)))
-	runeIdx := 0
-	for _, ch := range word {
-		ml, err := rm.Val(ch)
-		if err != nil {
-			return nil, err
+	letters := []MachineLetter{}
+	i := 0
+	var match bool
+	runes := []rune(word)
+	for i < len(runes) {
+		match = false
+		for j := i + rm.maxTileLength; j > i; j-- {
+			possibleLetter := string(runes[i:j])
+			if ml, ok := rm.vals[possibleLetter]; ok {
+				letters = append(letters, ml)
+				i = j
+				match = true
+				break
+			} else if ml, ok := rm.vals[strings.ToUpper(possibleLetter)]; ok {
+				letters = append(letters, ml|BlankMask)
+				i = j
+				match = true
+				break
+			}
 		}
-		letters[runeIdx] = ml
-		runeIdx++
+		if !match {
+			return nil, fmt.Errorf("cannot convert %v to MachineLetters", word)
+		}
 	}
 	return letters, nil
 }
 
-func (rm *TileMapping) genLetterSlice(sortMap map[rune]int) {
-	rm.letterSlice = []rune{}
-	for rn := range rm.vals {
-		rm.letterSlice = append(rm.letterSlice, rn)
-	}
-
-	if sortMap != nil {
-		sort.Slice(rm.letterSlice, func(i, j int) bool {
-			return sortMap[rm.letterSlice[i]] < sortMap[rm.letterSlice[j]]
-		})
-	} else {
-		sort.Sort(rm.letterSlice)
-	}
-	log.Debug().Msgf("After sorting: %v", rm.letterSlice)
+// Reconcile will take a populated alphabet, sort the glyphs, and re-index
+// the numbers.
+func (rm *TileMapping) Reconcile(letters []string) {
+	log.Debug().Msgf("Reconciling alphabet: %v", letters)
 	// These maps are now deterministic. Renumber them according to
 	// sort order.
-	for idx, rn := range rm.letterSlice {
-		rm.vals[rn] = MachineLetter(idx + 1)
-		rm.letters[MachineLetter(idx+1)] = rn
+	maxLength := 0
+	for idx, letter := range letters {
+		rm.vals[letter] = MachineLetter(idx)
+		rm.letters[MachineLetter(idx)] = letter
+		if len([]rune(letter)) > maxLength {
+			maxLength = len([]rune(letter))
+		}
 	}
+	rm.maxTileLength = maxLength
 	log.Debug().
 		Interface("letters", rm.letters).
 		Interface("vals", rm.vals).
+		Int("maxTileLength", rm.maxTileLength).
 		Msg("TileMapping-letters")
-}
-
-// Reconcile will take a populated alphabet, sort the glyphs, and re-index
-// the numbers.
-func (rm *TileMapping) Reconcile(sortMap map[rune]int) {
-	log.Debug().Msg("Reconciling alphabet")
-	rm.genLetterSlice(sortMap)
-}
-
-// FromSlice creates an alphabet from a serialized array. It is the
-// opposite of the Serialize function, except the length is implicitly passed
-// in as the length of the slice.
-func FromSlice(arr []uint32) *TileMapping {
-	rm := &TileMapping{}
-	rm.Init()
-	numRunes := uint8(len(arr))
-
-	for i := uint8(1); i < numRunes+1; i++ {
-		rm.vals[rune(arr[i-1])] = MachineLetter(i)
-		rm.letters[MachineLetter(i)] = rune(arr[i-1])
-	}
-	return rm
 }
 
 // EnglishAlphabet returns a TileMapping that corresponds to the English
 // alphabet. This function should be used for testing. In production
 // we will load the alphabet from the gaddag.
 func EnglishAlphabet() *TileMapping {
-	return FromSlice([]uint32{
-		'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
-		'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
-	})
+	cfg := config.DefaultConfig()
+	ld, err := GetDistribution(&cfg, "english")
+	if err != nil {
+		panic(err)
+	}
+	return ld.TileMapping()
 }
-
-func (a LetterSlice) Len() int           { return len(a) }
-func (a LetterSlice) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a LetterSlice) Less(i, j int) bool { return a[i] < a[j] }

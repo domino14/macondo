@@ -731,8 +731,7 @@ func (g *GameBoard) ScoreWord(word tilemapping.MachineWord, row, col, tilesPlaye
 	}
 	wordMultiplier := 1
 
-	for idx, rn := range word {
-		ml := tilemapping.MachineLetter(rn)
+	for idx, ml := range word {
 		bonusSq := g.GetBonus(row, col+idx)
 		letterMultiplier := 1
 		thisWordMultiplier := 1

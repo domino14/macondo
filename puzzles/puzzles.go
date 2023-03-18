@@ -148,10 +148,9 @@ func NonBingoPuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
 
 // XXX: Must be expanded to other languages
 func PowerTilePuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
-	alph := g.Alphabet()
-	pointValues := g.Bag().LetterDistribution().PointValues
+	ld := g.Bag().LetterDistribution()
 	for _, tile := range moves[0].Tiles() {
-		if pointValues[alph.Letter(tile)] > 6 {
+		if ld.Score(tile) > 6 {
 			return true, pb.PuzzleTag_POWER_TILE
 		}
 	}

@@ -211,17 +211,13 @@ func (b *Bag) RemoveTiles(tiles []MachineLetter) error {
 func NewBag(ld *LetterDistribution, alph *TileMapping) *Bag {
 
 	tiles := make([]MachineLetter, ld.numLetters)
-	tileMap := make([]uint8, MaxAlphabetSize+1)
+	tileMap := make([]uint8, MaxAlphabetSize)
 
 	idx := 0
-	for rn, ct := range ld.Distribution {
-		val, err := alph.Val(rn)
-		if err != nil {
-			log.Fatal().Msgf("Attempt to initialize bag failed: %v", err)
-		}
-		tileMap[val] = ct
+	for mlidx, ct := range ld.distribution {
+		tileMap[mlidx] = ct
 		for j := uint8(0); j < ct; j++ {
-			tiles[idx] = val
+			tiles[idx] = MachineLetter(mlidx)
 			idx++
 		}
 	}

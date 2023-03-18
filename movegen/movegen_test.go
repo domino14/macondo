@@ -140,7 +140,8 @@ func TestGenThroughBothWaysAllowedLetters(t *testing.T) {
 	generator.curAnchorCol = 9
 	bd.SetRow(4, "   THERMOS  A", gd.GetAlphabet())
 	generator.curRowIdx = 4
-	ml, _ := gd.GetAlphabet().Val('I')
+	ml, err := gd.GetAlphabet().Val("I")
+	is.NoErr(err)
 	bd.ClearCrossSet(int(generator.curRowIdx), 2, board.VerticalDirection)
 	bd.SetCrossSetLetter(int(generator.curRowIdx), 2, board.VerticalDirection, ml)
 	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true)

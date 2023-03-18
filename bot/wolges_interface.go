@@ -54,7 +54,7 @@ type WolgesAnalyzeResponse struct {
 	Score  int     `json:"score"`
 }
 
-func englishLabelToNum(c rune) int {
+func englishLabelToNum(c string) int {
 	if c >= 'A' && c <= 'Z' {
 		return int(c - 0x40)
 	}
@@ -64,7 +64,7 @@ func englishLabelToNum(c rune) int {
 	return 0
 }
 
-func germanLabelToNum(c rune) int {
+func germanLabelToNum(c string) int {
 	for i := 0; i < len(GermanTiles); i++ {
 		if c == GermanTiles[i] {
 			return i + 1
@@ -78,7 +78,7 @@ func germanLabelToNum(c rune) int {
 	return 0
 }
 
-func norwegianLabelToNum(c rune) int {
+func norwegianLabelToNum(c string) int {
 	for i := 0; i < len(NorwegianTiles); i++ {
 		if c == NorwegianTiles[i] {
 			return i + 1
@@ -124,7 +124,7 @@ func norwegianNumToLabel(n int) rune {
 	return '?'
 }
 
-func labelToNumFor(ld string) func(rune) int {
+func labelToNumFor(ld string) func(string) int {
 	switch ld {
 	case "english":
 		return englishLabelToNum

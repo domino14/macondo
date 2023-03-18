@@ -27,10 +27,12 @@ func (c *CrossSet) Set(letter tilemapping.MachineLetter) {
 	*c = *c | (1 << letter)
 }
 
+// CrossSetFromString is used for testing only and has undefined
+// behavior for multi-char tiles.
 func CrossSetFromString(letters string, alph *tilemapping.TileMapping) CrossSet {
 	c := CrossSet(0)
 	for _, l := range letters {
-		v, err := alph.Val(l)
+		v, err := alph.Val(string(l))
 		if err != nil {
 			panic("Letter error: " + string(l))
 		}

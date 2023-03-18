@@ -92,7 +92,7 @@ func BenchmarkPlayFull(b *testing.B) {
 	// 87	  12813797 ns/op	    4971 B/op	     140 allocs/op
 	runner := NewGameRunner(nil, &DefaultConfig)
 	for i := 0; i < b.N; i++ {
-		runner.playFull(false)
+		runner.playFull(false, i)
 	}
 }
 

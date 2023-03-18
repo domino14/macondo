@@ -237,27 +237,30 @@ func (m *Move) ShortDescription() string {
 // FullRack returns the entire rack that the move was made from. This
 // can be calculated from the tiles it uses and the leave.
 func (m *Move) FullRack() string {
-	rack := []rune(m.LeaveString())
+
+	rack := []tilemapping.MachineLetter{}
 	for _, ml := range m.tiles {
 		switch {
 		case ml.IsBlanked():
-			rack = append(rack, tilemapping.BlankToken)
+			rack = append(rack, 0)
 		case ml == 0:
 			if m.action == MoveTypeExchange {
 				// Only if you exchange the blank
-				rack = append(rack, tilemapping.BlankToken)
+				rack = append(rack, 0)
 			}
 			// Otherwise, don't add this to the rack representation. It
 			// is a played-through marker.
-
 		default:
-			rack = append(rack, m.alph.Letter(ml))
+			rack = append(rack, ml)
 		}
+	}
+	for _, ml := range m.leave {
+		rack = append(rack, ml)
 	}
 	sort.Slice(rack, func(i, j int) bool {
 		return rack[i] < rack[j]
 	})
-	return string(rack)
+	return tilemapping.MachineWord(rack).UserVisible(m.Alphabet())
 }
 
 func (m *Move) Action() MoveType {

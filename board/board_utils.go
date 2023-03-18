@@ -56,6 +56,7 @@ func (g *GameBoard) ToDisplayText(alph *tilemapping.TileMapping) string {
 // SetFromPlaintext sets the board from the given plaintext board.
 // It returns a list of all played machine letters (tiles) so that the
 // caller can reconcile the tile bag appropriately.
+// Note: this does not work with multi-character tiles!
 func (g *GameBoard) setFromPlaintext(qText string,
 	alph *tilemapping.TileMapping) *TilesInPlay {
 
@@ -78,7 +79,7 @@ func (g *GameBoard) setFromPlaintext(qText string,
 			if j%2 != 0 {
 				continue
 			}
-			letter, err = alph.Val(ch)
+			letter, err = alph.Val(string(ch))
 			pos := i*15 + (j / 2)
 			if err != nil {
 				// Ignore the error; we are passing in a space or another
@@ -100,7 +101,7 @@ func (g *GameBoard) setFromPlaintext(qText string,
 		rack := userRacks[i][1]
 		rackTiles := []tilemapping.MachineLetter{}
 		for _, ch := range rack {
-			letter, err = alph.Val(ch)
+			letter, err = alph.Val(string(ch))
 			if err != nil {
 				panic(err)
 			}
@@ -117,6 +118,8 @@ func (g *GameBoard) setFromPlaintext(qText string,
 	return tilesInPlay
 }
 
+// SetRow sets the row in board to the passed-in letters array.
+// This has undefined behavior for multi-character tiles.
 func (b *GameBoard) SetRow(rowNum int, letters string, alph *tilemapping.TileMapping) []tilemapping.MachineLetter {
 	// Set the row in board to the passed in letters array.
 	for idx := 0; idx < b.Dim(); idx++ {
@@ -125,7 +128,7 @@ func (b *GameBoard) SetRow(rowNum int, letters string, alph *tilemapping.TileMap
 	lettersPlayed := []tilemapping.MachineLetter{}
 	for idx, r := range letters {
 		if r != ' ' {
-			letter, err := alph.Val(r)
+			letter, err := alph.Val(string(r))
 			if err != nil {
 				log.Fatalf(err.Error())
 			}
