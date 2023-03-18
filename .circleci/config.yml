@@ -7,7 +7,7 @@ orbs:
 jobs:
   build:
     environment:
-      LEXICON_PATH: $HOME/lexica
+      LEXICON_PATH: /home/circleci/lexica
     machine: # executor type
       image: ubuntu-2004:current
       docker_layer_caching: true
