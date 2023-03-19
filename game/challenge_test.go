@@ -3,13 +3,12 @@ package game_test
 import (
 	"testing"
 
-	airunner "github.com/domino14/macondo/ai/runner"
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/tilemapping"
 
 	"github.com/matryer/is"
 )
@@ -20,15 +19,14 @@ func TestChallengeVoid(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, err := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic, "NWL18",
-		"English")
+	rules, err := game.NewBasicGameRules(&DefaultConfig, "NWL18", board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
 	is.NoErr(err)
 	game, err := game.NewGame(rules, players)
 	is.NoErr(err)
 	alph := game.Alphabet()
 	game.StartGame()
 	game.SetPlayerOnTurn(0)
-	game.SetRackFor(0, alphabet.RackFromString("EFFISTW", alph))
+	game.SetRackFor(0, tilemapping.RackFromString("EFFISTW", alph))
 	game.SetChallengeRule(pb.ChallengeRule_VOID)
 	m := move.NewScoringMoveSimple(90, "8C", "SWIFFET", "", alph)
 	_, err = game.ValidateMove(m)
@@ -41,16 +39,16 @@ func TestChallengeDoubleIsLegal(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, _ := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic, "NWL18",
-		"English")
+	rules, err := game.NewBasicGameRules(&DefaultConfig, "NWL18", board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
+	is.NoErr(err)
 	g, _ := game.NewGame(rules, players)
 	alph := g.Alphabet()
 	g.StartGame()
 	g.SetPlayerOnTurn(0)
-	g.SetRackFor(0, alphabet.RackFromString("IFFIEST", alph))
+	g.SetRackFor(0, tilemapping.RackFromString("IFFIEST", alph))
 	g.SetChallengeRule(pb.ChallengeRule_DOUBLE)
 	m := move.NewScoringMoveSimple(84, "8C", "IFFIEST", "", alph)
-	_, err := g.ValidateMove(m)
+	_, err = g.ValidateMove(m)
 	is.NoErr(err)
 	err = g.PlayMove(m, true, 0)
 	is.NoErr(err)
@@ -67,18 +65,18 @@ func TestChallengeDoubleIsIllegal(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, _ := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic, "NWL18",
-		"English")
+	rules, err := game.NewBasicGameRules(&DefaultConfig, "NWL18", board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
+	is.NoErr(err)
 	g, _ := game.NewGame(rules, players)
 	alph := g.Alphabet()
 	g.StartGame()
 	g.SetBackupMode(game.InteractiveGameplayMode)
 	g.SetStateStackLength(1)
 	g.SetPlayerOnTurn(0)
-	g.SetRackFor(0, alphabet.RackFromString("IFFIEST", alph))
+	g.SetRackFor(0, tilemapping.RackFromString("IFFIEST", alph))
 	g.SetChallengeRule(pb.ChallengeRule_DOUBLE)
 	m := move.NewScoringMoveSimple(84, "8C", "IFFITES", "", alph)
-	_, err := g.ValidateMove(m)
+	_, err = g.ValidateMove(m)
 	is.NoErr(err)
 	err = g.PlayMove(m, true, 0)
 	is.NoErr(err)
@@ -94,8 +92,8 @@ func TestChallengeEndOfGamePlusFive(t *testing.T) {
 
 	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../gcgio/testdata/some_isc_game.gcg")
 	is.NoErr(err)
-	rules, _ := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic, "NWL18",
-		"English")
+	rules, err := game.NewBasicGameRules(&DefaultConfig, "NWL18", board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
+	is.NoErr(err)
 
 	g, err := game.NewFromHistory(gameHistory, rules, 0)
 	is.NoErr(err)
@@ -123,8 +121,8 @@ func TestChallengeEndOfGamePhony(t *testing.T) {
 
 	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../gcgio/testdata/some_isc_game.gcg")
 	is.NoErr(err)
-	rules, _ := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic, "NWL18",
-		"English")
+	rules, err := game.NewBasicGameRules(&DefaultConfig, "NWL18", board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
+	is.NoErr(err)
 
 	g, err := game.NewFromHistory(gameHistory, rules, 0)
 	is.NoErr(err)
@@ -156,16 +154,16 @@ func TestChallengeTripleUnsuccessful(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, _ := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic, "NWL18",
-		"English")
+	rules, err := game.NewBasicGameRules(&DefaultConfig, "NWL18", board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
+	is.NoErr(err)
 	g, _ := game.NewGame(rules, players)
 	alph := g.Alphabet()
 	g.StartGame()
 	g.SetPlayerOnTurn(0)
-	g.SetRackFor(0, alphabet.RackFromString("IFFIEST", alph))
+	g.SetRackFor(0, tilemapping.RackFromString("IFFIEST", alph))
 	g.SetChallengeRule(pb.ChallengeRule_TRIPLE)
 	m := move.NewScoringMoveSimple(84, "8C", "IFFIEST", "", alph)
-	_, err := g.ValidateMove(m)
+	_, err = g.ValidateMove(m)
 	is.NoErr(err)
 	err = g.PlayMove(m, true, 0)
 	is.NoErr(err)
@@ -183,18 +181,18 @@ func TestChallengeTripleSuccessful(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, _ := airunner.NewAIGameRules(&DefaultConfig, board.CrosswordGameLayout, game.VarClassic, "NWL18",
-		"English")
+	rules, err := game.NewBasicGameRules(&DefaultConfig, "NWL18", board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
+	is.NoErr(err)
 	g, _ := game.NewGame(rules, players)
 	alph := g.Alphabet()
 	g.StartGame()
 	g.SetBackupMode(game.InteractiveGameplayMode)
 	g.SetStateStackLength(1)
 	g.SetPlayerOnTurn(0)
-	g.SetRackFor(0, alphabet.RackFromString("IFFIEST", alph))
+	g.SetRackFor(0, tilemapping.RackFromString("IFFIEST", alph))
 	g.SetChallengeRule(pb.ChallengeRule_TRIPLE)
 	m := move.NewScoringMoveSimple(84, "8C", "IFFISET", "", alph)
-	_, err := g.ValidateMove(m)
+	_, err = g.ValidateMove(m)
 	is.NoErr(err)
 	err = g.PlayMove(m, true, 0)
 	is.NoErr(err)

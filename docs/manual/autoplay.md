@@ -10,9 +10,9 @@ its basic use case, without any arguments, `autoplay` will use two
 "exhaustive leave" players - i.e. computer players that use 1-to-6 tile
 leave values to calculate equity.
 
-The english leave values can be found in `./data/strategy/default_english/leaves.olv`. These were calculated with NWL18 in mind, but still work well for NWL20. Slightly different values for CSW21 are found in `./data/strategy/CSW21/leaves.olv`.
+The english leave values can be found in `./data/strategy/default_english/leaves.klv2`. These were calculated with NWL18 in mind, but still work well for NWL20. Slightly different values for CSW21 are found in `./data/strategy/CSW21/leaves.klv2`.
 
-See [make_leaves_structure](/macondo/manual/make_leaves_structure.html) for how
+See [How to make leaves](/macondo/manual/make_leaves_structure.html) for how
 this file was created.
 
 ## Options
@@ -24,14 +24,9 @@ about each game (the final score and who went first). `foo.txt` will contain mor
 
 `-letterdistribution norwegian` uses the norwegian letter distribution, for example
 
-`-leavefile1 filename.olv` sets the first bot's leavefile to `filename.olv`. Note that the `filename.olv` must be located inside the `./data/strategy/<lexicon>` directory in order to be found.
+`-leavefile1 filename.klv2` sets the first bot's leavefile to `filename.klv2`. Note that the `filename.klv2` must be located inside the `./data/strategy/<lexicon>` directory in order to be found.
 
-`-leavefile2 filename.olv` sets the second bot's leavefile to `filename.olv`.
-
-## Bot types
-
-Right now only two bots are supported: `exhaustiveleave` and `noleave`.
-The `noleave` bot uses no leave values, so it effectively becomes a greedy bot (it maximizes score every turn).
+`-leavefile2 filename.klv2` sets the second bot's leavefile to `filename.klv2`.
 
 ## Starting and stopping
 
@@ -47,7 +42,7 @@ A very simple analyzer can be accessed with the `autoanalyze` command. This comm
 
 ### Player1 is an exhaustive-leave bot, Player2 is a greedy bot:
 
-`autoplay exhaustiveleave noleave`
+`autoplay -botcode2 NO_LEAVE_BOT`
 
 Leave it running for a bit, then do an `autoplay stop` and then an `autoanalyze /tmp/games-autoplay.txt`:
 
@@ -64,13 +59,13 @@ The stats above show that a bot that uses leave values wins nearly 2/3 of its ga
 
 ### Both players are exhaustive-leave bots:
 
-`autoplay` (this is the default, and uses default Macondo values)
+`autoplay` (this is the default - HASTY_BOT, and uses default Macondo values)
 
 ### Player1 uses a special set of leave values, Player2 uses the default set:
 
-`autoplay exhaustiveleave exhaustiveleave -leavefile1 quackleleaves.olv`
+`autoplay -leavefile1 quackleleaves.klv2`
 
-**Note:** The file `quackleleaves.olv` in this case must be in your `./data/strategy/<lexicon>/` directory. You can put it in the special `default_english` lexicon to make it apply to both NWL20 and CSW21 games.
+**Note:** The file `quackleleaves.klv2` in this case must be in your `./data/strategy/<lexicon>/` directory. You can put it in the special `default_english` lexicon to make it apply to both NWL20 and CSW21 games.
 
 Analysis:
 

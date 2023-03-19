@@ -4,11 +4,12 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/domino14/macondo/alphabet"
+	"github.com/rs/zerolog/log"
+
 	"github.com/domino14/macondo/board"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
-	"github.com/rs/zerolog/log"
+	"github.com/domino14/macondo/tilemapping"
 )
 
 func (g *Game) curPlayer() *playerState {
@@ -31,7 +32,7 @@ func (g *Game) EventFromMove(m *move.Move) *pb.GameEvent {
 	switch m.Action() {
 	case move.MoveTypePlay:
 		evt.Position = m.BoardCoords()
-		evt.PlayedTiles = m.Tiles().UserVisible(m.Alphabet())
+		evt.PlayedTiles = m.Tiles().UserVisiblePlayedTiles(m.Alphabet())
 		evt.Score = int32(m.Score())
 		evt.Type = pb.GameEvent_TILE_PLACEMENT_MOVE
 		evt.IsBingo = m.TilesPlayed() == RackTileLimit
@@ -87,13 +88,13 @@ func (g *Game) endRackPenaltyEvt(penalty int) *pb.GameEvent {
 	return evt
 }
 
-func modifyForPlaythrough(tiles alphabet.MachineWord, board *board.GameBoard,
+func modifyForPlaythrough(tiles tilemapping.MachineWord, board *board.GameBoard,
 	vertical bool, row int, col int) error {
 
 	// modify the tiles array to account for situations in which a letter
 	// being played through is not specified as the playthrough marker
 	log.Trace().
-		Str("tiles", tiles.UserVisible(alphabet.EnglishAlphabet())).
+		Str("tiles", tiles.UserVisible(tilemapping.EnglishAlphabet())).
 		Int("row", row).Int("col", col).Bool("vertical", vertical).
 		Msg("Modifying for playthrough")
 
@@ -111,7 +112,7 @@ func modifyForPlaythrough(tiles alphabet.MachineWord, board *board.GameBoard,
 			return errors.New("play out of bounds of board")
 		}
 
-		if tiles[idx] != alphabet.PlayedThroughMarker {
+		if tiles[idx] != 0 {
 			// log.Debug().Int("ml", int(tiles[idx])).Msg("not playthru")
 			// This is either a tile we are placing or a tile on the board.
 			if board.HasLetter(currow, curcol) {
@@ -124,7 +125,7 @@ func modifyForPlaythrough(tiles alphabet.MachineWord, board *board.GameBoard,
 				}
 				// Overwrite to be playthroughmarker
 				log.Debug().Int("idx", idx).Int("ml", int(tiles[idx])).Msg("Overwriting tile at idx")
-				tiles[idx] = alphabet.PlayedThroughMarker
+				tiles[idx] = 0
 			}
 			// Otherwise it's a tile we are placing. Do nothing.
 
@@ -135,10 +136,10 @@ func modifyForPlaythrough(tiles alphabet.MachineWord, board *board.GameBoard,
 }
 
 // MoveFromEvent generates a move from an event
-func MoveFromEvent(evt *pb.GameEvent, alph *alphabet.Alphabet, board *board.GameBoard) (*move.Move, error) {
+func MoveFromEvent(evt *pb.GameEvent, alph *tilemapping.TileMapping, board *board.GameBoard) (*move.Move, error) {
 	var m *move.Move
 
-	rack, err := alphabet.ToMachineWord(evt.Rack, alph)
+	rack, err := tilemapping.ToMachineWord(evt.Rack, alph)
 	if err != nil {
 		log.Error().Err(err).Msg("")
 		return nil, err
@@ -148,7 +149,7 @@ func MoveFromEvent(evt *pb.GameEvent, alph *alphabet.Alphabet, board *board.Game
 	switch evt.Type {
 	case pb.GameEvent_TILE_PLACEMENT_MOVE:
 		// Calculate tiles, leave, tilesPlayed
-		tiles, err := alphabet.ToMachineWord(evt.PlayedTiles, alph)
+		tiles, err := tilemapping.ToMachineWord(evt.PlayedTiles, alph)
 		if err != nil {
 			log.Error().Err(err).Msg("")
 			return nil, err
@@ -174,7 +175,7 @@ func MoveFromEvent(evt *pb.GameEvent, alph *alphabet.Alphabet, board *board.Game
 			len(rack)-len(leaveMW), alph, int(evt.Row), int(evt.Column))
 
 	case pb.GameEvent_EXCHANGE:
-		tiles, err := alphabet.ToMachineWord(evt.Exchanged, alph)
+		tiles, err := tilemapping.ToMachineWord(evt.Exchanged, alph)
 		if err != nil {
 			log.Error().Err(err).Msg("")
 			return nil, err
@@ -233,27 +234,29 @@ func MoveFromEvent(evt *pb.GameEvent, alph *alphabet.Alphabet, board *board.Game
 }
 
 // Leave calculates the leave from the rack and the made play.
-func Leave(rack alphabet.MachineWord, play alphabet.MachineWord) (alphabet.MachineWord, error) {
-	rackmls := map[alphabet.MachineLetter]int{}
+func Leave(rack tilemapping.MachineWord, play tilemapping.MachineWord) (tilemapping.MachineWord, error) {
+	rackmls := map[tilemapping.MachineLetter]int{}
 	for _, t := range rack {
 		rackmls[t]++
 	}
 	for _, t := range play {
-		if t == alphabet.PlayedThroughMarker {
+		if t == 0 {
+			// play-through char
 			continue
 		}
 		if t.IsBlanked() {
-			t = alphabet.BlankMachineLetter
+			t = 0
 		}
 		if rackmls[t] != 0 {
 			// It should never be 0 unless the GCG is malformed somehow.
 			rackmls[t]--
 		} else {
-			return nil, fmt.Errorf("Tile in play but not in rack: %v %v",
-				string(t.UserVisible(alphabet.EnglishAlphabet())), rackmls[t])
+			return nil, fmt.Errorf("tile in play but not in rack: %v %v",
+				string(t.UserVisible(tilemapping.EnglishAlphabet(), false)),
+				rack.UserVisible(tilemapping.EnglishAlphabet()))
 		}
 	}
-	leave := []alphabet.MachineLetter{}
+	leave := []tilemapping.MachineLetter{}
 	for k, v := range rackmls {
 		if v > 0 {
 			for i := 0; i < v; i++ {

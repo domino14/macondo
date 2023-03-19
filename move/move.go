@@ -5,10 +5,11 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/tilemapping"
 )
 
 // MoveType is a type of move; a play, an exchange, pass, etc.
@@ -35,8 +36,8 @@ const (
 type Move struct {
 	// The ordering here should only be changed if it makes the structure smaller.
 	// This Move should be kept as small as possible.
-	tiles alphabet.MachineWord
-	leave alphabet.MachineWord
+	tiles tilemapping.MachineWord
+	leave tilemapping.MachineWord
 	score int
 
 	rowStart    int
@@ -50,17 +51,29 @@ type Move struct {
 	action   MoveType
 	vertical bool
 
-	alph *alphabet.Alphabet
+	alph *tilemapping.TileMapping
 }
 
 var reVertical, reHorizontal *regexp.Regexp
 
 func init() {
-	reVertical = regexp.MustCompile(`^(?P<col>[A-Z])(?P<row>[0-9]+)$`)
-	reHorizontal = regexp.MustCompile(`^(?P<row>[0-9]+)(?P<col>[A-Z])$`)
+	reVertical = regexp.MustCompile(`^(?P<col>[A-Za-z])(?P<row>[0-9]+)$`)
+	reHorizontal = regexp.MustCompile(`^(?P<row>[0-9]+)(?P<col>[A-Za-z])$`)
 }
 
-func (m *Move) Equals(o *Move) bool {
+func (m *Move) equalPositions(o *Move, alsoCheckTransposition bool) bool {
+	if m.rowStart == o.rowStart && m.colStart == o.colStart && m.vertical == o.vertical {
+		return true
+	}
+	if alsoCheckTransposition {
+		if m.rowStart == o.colStart && m.colStart == o.rowStart && m.vertical != o.vertical {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Move) Equals(o *Move, alsoCheckTransposition, ignoreLeave bool) bool {
 	if m.score != o.score {
 		return false
 	}
@@ -70,19 +83,13 @@ func (m *Move) Equals(o *Move) bool {
 	if m.tilesPlayed != o.tilesPlayed {
 		return false
 	}
-	if m.rowStart != o.rowStart {
-		return false
-	}
-	if m.colStart != o.colStart {
-		return false
-	}
-	if m.vertical != o.vertical {
+	if !m.equalPositions(o, alsoCheckTransposition) {
 		return false
 	}
 	if len(m.tiles) != len(o.tiles) {
 		return false
 	}
-	if len(m.leave) != len(o.leave) {
+	if !ignoreLeave && len(m.leave) != len(o.leave) {
 		return false
 	}
 	for idx, i := range m.tiles {
@@ -90,17 +97,19 @@ func (m *Move) Equals(o *Move) bool {
 			return false
 		}
 	}
-	for idx, i := range m.leave {
-		if o.leave[idx] != i {
-			return false
+	if !ignoreLeave {
+		for idx, i := range m.leave {
+			if o.leave[idx] != i {
+				return false
+			}
 		}
 	}
 	return true
 }
 
-func (m *Move) Set(tiles alphabet.MachineWord, leave alphabet.MachineWord, score int,
+func (m *Move) Set(tiles tilemapping.MachineWord, leave tilemapping.MachineWord, score int,
 	rowStart, colStart, tilesPlayed int, vertical bool, action MoveType,
-	alph *alphabet.Alphabet) {
+	alph *tilemapping.TileMapping) {
 
 	m.tiles = tiles
 	m.leave = leave
@@ -114,11 +123,15 @@ func (m *Move) Set(tiles alphabet.MachineWord, leave alphabet.MachineWord, score
 	m.alph = alph
 }
 
+func (m *Move) SetLeave(leave tilemapping.MachineWord) {
+	m.leave = leave
+}
+
 func (m *Move) SetAction(action MoveType) {
 	m.action = action
 }
 
-func (m *Move) SetAlphabet(alph *alphabet.Alphabet) {
+func (m *Move) SetAlphabet(alph *tilemapping.TileMapping) {
 	m.alph = alph
 }
 
@@ -126,11 +139,11 @@ func (m *Move) SetAlphabet(alph *alphabet.Alphabet) {
 func (m *Move) CopyFrom(other *Move) {
 	m.action = other.action
 	if cap(m.tiles) < len(other.tiles) {
-		m.tiles = make([]alphabet.MachineLetter, len(other.tiles))
+		m.tiles = make([]tilemapping.MachineLetter, len(other.tiles))
 	}
 	m.tiles = m.tiles[:len(other.tiles)]
 	if cap(m.leave) < len(other.leave) {
-		m.leave = make([]alphabet.MachineLetter, len(other.leave))
+		m.leave = make([]tilemapping.MachineLetter, len(other.leave))
 	}
 	m.leave = m.leave[:len(other.leave)]
 	copy(m.tiles, other.tiles)
@@ -195,6 +208,10 @@ func (m *Move) MoveTypeString() string {
 }
 
 func (m *Move) TilesString() string {
+	return m.tiles.UserVisiblePlayedTiles(m.alph)
+}
+
+func (m *Move) TilesStringExchange() string {
 	return m.tiles.UserVisible(m.alph)
 }
 
@@ -211,7 +228,7 @@ func (m *Move) ShortDescription() string {
 	case MoveTypePass:
 		return "(Pass)"
 	case MoveTypeExchange:
-		return fmt.Sprintf("(exch %s)", m.TilesString())
+		return fmt.Sprintf("(exch %s)", m.TilesStringExchange())
 	case MoveTypeChallenge:
 		return "(Challenge!)"
 	}
@@ -221,25 +238,30 @@ func (m *Move) ShortDescription() string {
 // FullRack returns the entire rack that the move was made from. This
 // can be calculated from the tiles it uses and the leave.
 func (m *Move) FullRack() string {
-	rack := []rune(m.LeaveString())
+
+	rack := []tilemapping.MachineLetter{}
 	for _, ml := range m.tiles {
 		switch {
-		case ml >= alphabet.BlankOffset:
-			rack = append(rack, alphabet.BlankToken)
-		case ml == alphabet.BlankMachineLetter:
-			// Only if you exchange the blank
-			rack = append(rack, alphabet.BlankToken)
-		case ml == alphabet.PlayedThroughMarker || ml == alphabet.EmptySquareMarker:
-			// do nothing
-
+		case ml.IsBlanked():
+			rack = append(rack, 0)
+		case ml == 0:
+			if m.action == MoveTypeExchange {
+				// Only if you exchange the blank
+				rack = append(rack, 0)
+			}
+			// Otherwise, don't add this to the rack representation. It
+			// is a played-through marker.
 		default:
-			rack = append(rack, m.alph.Letter(ml))
+			rack = append(rack, ml)
 		}
+	}
+	for _, ml := range m.leave {
+		rack = append(rack, ml)
 	}
 	sort.Slice(rack, func(i, j int) bool {
 		return rack[i] < rack[j]
 	})
-	return string(rack)
+	return tilemapping.MachineWord(rack).UserVisible(m.Alphabet())
 }
 
 func (m *Move) Action() MoveType {
@@ -256,9 +278,9 @@ func (m *Move) BingoPlayed() bool {
 }
 
 // NewScoringMove creates a scoring *Move and returns it.
-func NewScoringMove(score int, tiles alphabet.MachineWord,
-	leave alphabet.MachineWord, vertical bool, tilesPlayed int,
-	alph *alphabet.Alphabet, rowStart int, colStart int) *Move {
+func NewScoringMove(score int, tiles tilemapping.MachineWord,
+	leave tilemapping.MachineWord, vertical bool, tilesPlayed int,
+	alph *tilemapping.TileMapping, rowStart int, colStart int) *Move {
 
 	move := &Move{
 		action: MoveTypePlay, score: score, tiles: tiles, leave: leave, vertical: vertical,
@@ -271,23 +293,23 @@ func NewScoringMove(score int, tiles alphabet.MachineWord,
 // NewScoringMoveSimple takes in user-visible strings. Consider moving to this
 // (it is a little slower, though, so maybe only for tests)
 func NewScoringMoveSimple(score int, coords string, word string, leave string,
-	alph *alphabet.Alphabet) *Move {
+	alph *tilemapping.TileMapping) *Move {
 
 	row, col, vertical := FromBoardGameCoords(coords)
 
-	tiles, err := alphabet.ToMachineWord(word, alph)
+	tiles, err := tilemapping.ToMachineWord(word, alph)
 	if err != nil {
 		log.Error().Err(err).Msg("")
 		return nil
 	}
-	leaveMW, err := alphabet.ToMachineWord(leave, alph)
+	leaveMW, err := tilemapping.ToMachineWord(leave, alph)
 	if err != nil {
 		log.Error().Err(err).Msg("")
 		return nil
 	}
 	tilesPlayed := 0
 	for _, t := range tiles {
-		if t != alphabet.PlayedThroughMarker {
+		if t != 0 {
 			tilesPlayed++
 		}
 	}
@@ -307,8 +329,8 @@ func NewScoringMoveSimple(score int, coords string, word string, leave string,
 }
 
 // NewExchangeMove creates an exchange.
-func NewExchangeMove(tiles alphabet.MachineWord, leave alphabet.MachineWord,
-	alph *alphabet.Alphabet) *Move {
+func NewExchangeMove(tiles tilemapping.MachineWord, leave tilemapping.MachineWord,
+	alph *tilemapping.TileMapping) *Move {
 	move := &Move{
 		action:      MoveTypeExchange,
 		score:       0,
@@ -320,7 +342,7 @@ func NewExchangeMove(tiles alphabet.MachineWord, leave alphabet.MachineWord,
 	return move
 }
 
-func NewBonusScoreMove(t MoveType, tiles alphabet.MachineWord, score int) *Move {
+func NewBonusScoreMove(t MoveType, tiles tilemapping.MachineWord, score int) *Move {
 	move := &Move{
 		action: t,
 		score:  score,
@@ -329,7 +351,7 @@ func NewBonusScoreMove(t MoveType, tiles alphabet.MachineWord, score int) *Move 
 	return move
 }
 
-func NewLostScoreMove(t MoveType, rack alphabet.MachineWord, score int) *Move {
+func NewLostScoreMove(t MoveType, rack tilemapping.MachineWord, score int) *Move {
 	move := &Move{
 		action: t,
 		tiles:  rack,
@@ -338,7 +360,7 @@ func NewLostScoreMove(t MoveType, rack alphabet.MachineWord, score int) *Move {
 	return move
 }
 
-func NewUnsuccessfulChallengePassMove(leave alphabet.MachineWord, alph *alphabet.Alphabet) *Move {
+func NewUnsuccessfulChallengePassMove(leave tilemapping.MachineWord, alph *tilemapping.TileMapping) *Move {
 	return &Move{
 		action: MoveTypeUnsuccessfulChallengePass,
 		leave:  leave,
@@ -347,7 +369,7 @@ func NewUnsuccessfulChallengePassMove(leave alphabet.MachineWord, alph *alphabet
 }
 
 // Alphabet is the alphabet used by this move
-func (m *Move) Alphabet() *alphabet.Alphabet {
+func (m *Move) Alphabet() *tilemapping.TileMapping {
 	return m.alph
 }
 
@@ -376,11 +398,11 @@ func (m *Move) Score() int {
 	return m.score
 }
 
-func (m *Move) Leave() alphabet.MachineWord {
+func (m *Move) Leave() tilemapping.MachineWord {
 	return m.leave
 }
 
-func (m *Move) Tiles() alphabet.MachineWord {
+func (m *Move) Tiles() tilemapping.MachineWord {
 	return m.tiles
 }
 
@@ -414,14 +436,14 @@ func FromBoardGameCoords(c string) (int, int, bool) {
 	if len(vMatches) == 3 {
 		// It's vertical
 		row, _ = strconv.Atoi(vMatches[2])
-		col = int(vMatches[1][0] - 'A')
+		col = int(strings.ToUpper(vMatches[1])[0] - 'A')
 		vertical = true
 		return row - 1, col, vertical
 	}
 	hMatches := reHorizontal.FindStringSubmatch(c)
 	if len(hMatches) == 3 {
 		row, _ = strconv.Atoi(hMatches[1])
-		col = int(hMatches[2][0] - 'A')
+		col = int(strings.ToUpper(hMatches[2])[0] - 'A')
 		vertical = false
 		return row - 1, col, vertical
 	}
@@ -430,7 +452,7 @@ func FromBoardGameCoords(c string) (int, int, bool) {
 }
 
 // NewPassMove creates a pass with the given leave.
-func NewPassMove(leave alphabet.MachineWord, alph *alphabet.Alphabet) *Move {
+func NewPassMove(leave tilemapping.MachineWord, alph *tilemapping.TileMapping) *Move {
 	return &Move{
 		action: MoveTypePass,
 		leave:  leave,
@@ -439,7 +461,7 @@ func NewPassMove(leave alphabet.MachineWord, alph *alphabet.Alphabet) *Move {
 }
 
 // NewChallengeMove creates a challenge with the given leave.
-func NewChallengeMove(leave alphabet.MachineWord, alph *alphabet.Alphabet) *Move {
+func NewChallengeMove(leave tilemapping.MachineWord, alph *tilemapping.TileMapping) *Move {
 	return &Move{
 		action: MoveTypeChallenge,
 		leave:  leave,

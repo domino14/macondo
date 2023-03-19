@@ -3,8 +3,6 @@ package alphabeta
 import (
 	"fmt"
 
-	"github.com/domino14/macondo/alphabet"
-
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/move"
 )
@@ -139,26 +137,26 @@ func (s *Solver) setHookBlockingRectangles(play *move.Move, board *board.GameBoa
 
 		if !vert {
 			for x = r - 1; x >= 0; x-- {
-				if board.GetLetter(x, idx+c) == alphabet.EmptySquareMarker {
+				if board.GetLetter(x, idx+c) == 0 {
 					break
 				}
 			}
 			s.addRectangle(idx+c, x, idx+c, x, false)
 			for x = r + 1; x < board.Dim(); x++ {
-				if board.GetLetter(x, idx+c) == alphabet.EmptySquareMarker {
+				if board.GetLetter(x, idx+c) == 0 {
 					break
 				}
 			}
 			s.addRectangle(idx+c, x, idx+c, x, false)
 		} else {
 			for x = c - 1; x >= 0; x-- {
-				if board.GetLetter(idx+r, c) == alphabet.EmptySquareMarker {
+				if board.GetLetter(idx+r, c) == 0 {
 					break
 				}
 			}
 			s.addRectangle(x, idx+r, x, idx+r, false)
 			for x = c + 1; x < board.Dim(); x++ {
-				if board.GetLetter(idx+r, c) == alphabet.EmptySquareMarker {
+				if board.GetLetter(idx+r, c) == 0 {
 					break
 				}
 			}

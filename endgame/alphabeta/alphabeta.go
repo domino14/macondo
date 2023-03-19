@@ -10,12 +10,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/domino14/macondo/zobrist"
 	"github.com/rs/zerolog/log"
 )
@@ -123,8 +123,8 @@ func (s *Solver) Init(m1 movegen.MoveGenerator, m2 movegen.MoveGenerator, game *
 	s.nodeCount = make(map[uint8]uint32)
 	s.iterativeDeepeningOn = true
 
-	s.stmPlayed = make([]bool, alphabet.MaxAlphabetSize+1)
-	s.otsPlayed = make([]bool, alphabet.MaxAlphabetSize+1)
+	s.stmPlayed = make([]bool, tilemapping.MaxAlphabetSize+1)
+	s.otsPlayed = make([]bool, tilemapping.MaxAlphabetSize+1)
 	s.stmBlockingRects = make([]rect, 20)
 	s.otsBlockingRects = make([]rect, 25)
 	s.config = cfg
@@ -132,7 +132,7 @@ func (s *Solver) Init(m1 movegen.MoveGenerator, m2 movegen.MoveGenerator, game *
 }
 
 func (s *Solver) clearStuckTables() {
-	for i := 0; i < alphabet.MaxAlphabetSize+1; i++ {
+	for i := 0; i < tilemapping.MaxAlphabetSize+1; i++ {
 		s.stmPlayed[i] = false
 		s.otsPlayed[i] = false
 	}
@@ -140,32 +140,32 @@ func (s *Solver) clearStuckTables() {
 
 // Given the plays and the given rack, return a list of tiles that were
 // never played.
-func (s *Solver) computeStuck(plays []*move.Move, rack *alphabet.Rack,
-	stuckBitArray []bool) []alphabet.MachineLetter {
+func (s *Solver) computeStuck(plays []*move.Move, rack *tilemapping.Rack,
+	stuckBitArray []bool) []tilemapping.MachineLetter {
 
-	stuck := []alphabet.MachineLetter{}
+	stuck := []tilemapping.MachineLetter{}
 	for _, play := range plays {
 		for _, t := range play.Tiles() {
-			idx, ok := t.IntrinsicTileIdx()
-			if ok {
-				stuckBitArray[idx] = true
+			if t == 0 {
+				continue
 			}
+			idx := t.IntrinsicTileIdx()
+			stuckBitArray[idx] = true
+
 		}
 	}
 	for _, ml := range rack.TilesOn() {
-		idx, ok := ml.IntrinsicTileIdx()
-		if ok {
-			if !stuckBitArray[idx] {
-				// this tile was never played.
-				stuck = append(stuck, idx)
-			}
+		if !stuckBitArray[ml] {
+			// this tile was never played.
+			stuck = append(stuck, ml)
 		}
+
 	}
 	return stuck
 }
 
-func leaveAdjustment(myLeave, oppLeave alphabet.MachineWord,
-	myStuck, otherStuck []alphabet.MachineLetter, ld *alphabet.LetterDistribution) float32 {
+func leaveAdjustment(myLeave, oppLeave tilemapping.MachineWord,
+	myStuck, otherStuck []tilemapping.MachineLetter, ld *tilemapping.LetterDistribution) float32 {
 	if len(myStuck) == 0 && len(otherStuck) == 0 {
 		// Neither player is stuck so the adjustment is sum(stm)
 		// minus 2 * sum(ots). This prioritizes moves as if the side to move
@@ -173,8 +173,8 @@ func leaveAdjustment(myLeave, oppLeave alphabet.MachineWord,
 		// XXX: this formula doesn't make sense to me. Change to
 		// + instead of - for now.
 		// log.Debug().Msgf("Calculating adjustment; myLeave, oppLeave (%v %v)",
-		// 	myLeave.UserVisible(alphabet.EnglishAlphabet()),
-		// 	oppLeave.UserVisible(alphabet.EnglishAlphabet()))
+		// 	myLeave.UserVisible(tilemapping.EnglishAlphabet()),
+		// 	oppLeave.UserVisible(tilemapping.EnglishAlphabet()))
 		var adjustment float32
 		if len(oppLeave) == 0 {
 			// The opponent went out with their play, so our adjustment
@@ -201,7 +201,7 @@ func leaveAdjustment(myLeave, oppLeave alphabet.MachineWord,
 
 	if len(myStuck) > 0 {
 		// Opp gets all my tiles
-		stuckValue := alphabet.MachineWord(myStuck).Score(ld)
+		stuckValue := tilemapping.MachineWord(myStuck).Score(ld)
 		oppAdjustment = float32(b * stuckValue)
 		// Opp can also one-tile me:
 		oppAdjustment += c * float32(oppLeave.Score(ld))
@@ -211,7 +211,7 @@ func leaveAdjustment(myLeave, oppLeave alphabet.MachineWord,
 	if len(otherStuck) > 0 {
 		// Same as above in reverse. In practice a lot of this will end up
 		// nearly canceling out.
-		stuckValue := alphabet.MachineWord(otherStuck).Score(ld)
+		stuckValue := tilemapping.MachineWord(otherStuck).Score(ld)
 		myAdjustment = float32(b * stuckValue)
 		myAdjustment += c * float32(myLeave.Score(ld))
 		myAdjustment -= d * float32(oppLeave.Score(ld)-stuckValue)
@@ -302,7 +302,7 @@ func (s *Solver) generateSTMPlays(parentMove *move.Move, depth int, plies int) [
 			// subtract off the score of the opponent's highest scoring move
 			// that is not blocked.
 			var oScore int
-			var oLeave alphabet.MachineWord
+			var oLeave tilemapping.MachineWord
 			blockedAll := true
 			for _, o := range otherSidePlays {
 				if s.blocks(play, o, board) {
@@ -374,14 +374,13 @@ func (s *Solver) findBestSequence(endNode *GameNode) []*move.Move {
 
 // Solve solves the endgame given the current state of s.game, for the
 // current player whose turn it is in that state.
-func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
+func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, error) {
 	if s.game.Bag().TilesRemaining() > 0 {
 		return 0, nil, errors.New("bag is not empty; cannot use endgame solver")
 	}
 	log.Debug().Int("plies", plies).
 		Bool("iterative-deepening", s.iterativeDeepeningOn).
 		Bool("complex-evaluation", s.complexEvaluation).
-		Int("maxtimesecs", s.config.AlphaBetaTimeLimit).
 		Msg("alphabeta-solve-config")
 
 	tstart := time.Now()
@@ -405,13 +404,6 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 	// the root node is basically the board state prior to making any moves.
 	// the children of these nodes are the board states after every move.
 	// however we treat the children as those actual moves themsselves.
-
-	ctx := context.Background()
-	var cancel context.CancelFunc
-	if s.config.AlphaBetaTimeLimit > 0 {
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(s.config.AlphaBetaTimeLimit)*time.Second)
-		defer cancel()
-	}
 
 	s.initialSpread = s.game.CurrentSpread()
 	s.initialTurnNum = s.game.Turn()
@@ -437,7 +429,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 				s.currentIDDepth = p
 				bestNode, err := s.alphabeta(ctx, s.rootNode, initialHashKey, p, plies, float32(-Infinity), float32(Infinity), true)
 				if err != nil {
-					log.Err(err).Msg("alphabeta-error")
+					log.Info().AnErr("alphabeta-err", err).Msg("iterative-deepening-on")
 					break
 				} else {
 					bestNodeSoFar = bestNode
@@ -445,11 +437,11 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 					bestSeq = s.findBestSequence(bestNode)
 					s.lastPrincipalVariation = bestSeq
 
-					fmt.Printf("-- Spread swing estimate found after %d plies: %f", p, bestV)
+					log.Info().Msgf("-- Spread swing estimate found after %d plies: %f", p, bestV)
 					for idx, move := range bestSeq {
-						fmt.Printf(" %d) %v", idx+1, move.ShortDescription())
+						log.Info().Msgf(" %d) %v", idx+1, move.ShortDescription())
 					}
-					fmt.Printf(" with %d killer plays %v\n", len(s.killerCache), s.nodeCount)
+					log.Debug().Msgf(" with %d killer plays %v\n", len(s.killerCache), s.nodeCount)
 				}
 			}
 		} else {
@@ -457,7 +449,7 @@ func (s *Solver) Solve(plies int) (float32, []*move.Move, error) {
 			s.lastPrincipalVariation = nil
 			bestNode, err := s.alphabeta(ctx, s.rootNode, initialHashKey, plies, plies, float32(-Infinity), float32(Infinity), true)
 			if err != nil {
-				log.Err(err).Msg("alphabeta-error")
+				log.Info().AnErr("alphabeta-err", err).Msg("iterative-deepening-off")
 			} else {
 				bestNodeSoFar = bestNode
 				bestV = bestNode.heuristicValue.value
@@ -530,7 +522,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 			// and search it first
 			found := false
 			for idx, play := range plays {
-				if play.Equals(killerPlay) {
+				if play.Equals(killerPlay, false, false) {
 					plays[0], plays[idx] = plays[idx], plays[0]
 					found = true
 					break
@@ -589,7 +581,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 			// and search it first
 			found := false
 			for idx, play := range plays {
-				if play.Equals(killerPlay) {
+				if play.Equals(killerPlay, false, false) {
 					plays[0], plays[idx] = plays[idx], plays[0]
 					found = true
 					break

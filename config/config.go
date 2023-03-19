@@ -11,6 +11,7 @@ import (
 
 type Config struct {
 	Debug                     bool
+	DataPath                  string
 	LetterDistributionPath    string
 	StrategyParamsPath        string
 	LexiconPath               string
@@ -22,8 +23,6 @@ type Config struct {
 
 	CPUProfile string
 	MemProfile string
-
-	AlphaBetaTimeLimit int
 }
 
 // Default config from environment variables. Since the config struct is
@@ -33,6 +32,7 @@ var defaultConfig = Config{
 	StrategyParamsPath:        os.Getenv("STRATEGY_PARAMS_PATH"),
 	LexiconPath:               os.Getenv("LEXICON_PATH"),
 	LetterDistributionPath:    os.Getenv("LETTER_DISTRIBUTION_PATH"),
+	DataPath:                  os.Getenv("DATA_PATH"),
 	DefaultLexicon:            "NWL20",
 	DefaultLetterDistribution: "English",
 }
@@ -49,12 +49,11 @@ func (c *Config) Load(args []string) error {
 	fs.StringVar(&c.LexiconPath, "lexicon-path", "./data/lexica", "directory holding lexicon files")
 	fs.StringVar(&c.DefaultLexicon, "default-lexicon", "NWL20", "the default lexicon to use")
 	fs.StringVar(&c.DefaultLetterDistribution, "default-letter-distribution", "English", "the default letter distribution to use. English, EnglishSuper, Spanish, Polish, etc.")
+	fs.StringVar(&c.DataPath, "data-path", "./data", "data path")
 	fs.StringVar(&c.NatsURL, "nats-url", "nats://127.0.0.1:4222", "The URL of the NATS server")
 	fs.StringVar(&c.CPUProfile, "cpu-profile", "", "file to save cpu profile in")
 	fs.StringVar(&c.MemProfile, "mem-profile", "", "file to save mem profile in")
 	fs.StringVar(&c.WolgesAwsmURL, "wolges-awsm-url", "", "URL for the wolges-awsm server. Needed for WordSmog bot.")
-
-	fs.IntVar(&c.AlphaBetaTimeLimit, "alpha-beta-time-limit", 0, "time limit for alpha-beta endgame in seconds. 0 = no limit.")
 	err := fs.Parse(args)
 	return err
 }

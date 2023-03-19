@@ -3,14 +3,17 @@ package puzzles
 import (
 	"errors"
 	"fmt"
+	"reflect"
+	"runtime"
 
-	"github.com/domino14/macondo/ai/runner"
-	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/gaddag"
+	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/tilemapping"
 
 	"github.com/rs/zerolog/log"
 )
@@ -26,6 +29,9 @@ var PuzzleFunctions = []func(g *game.Game, moves []*move.Move) (bool, pb.PuzzleT
 	CELOnlyPuzzle,
 }
 
+func GetFunctionName(i interface{}) string {
+	return runtime.FuncForPC(reflect.ValueOf(i).Pointer()).Name()
+}
 func CreatePuzzlesFromGame(conf *config.Config, eqLossLimit int, g *game.Game, req *pb.PuzzleGenerationRequest) ([]*pb.PuzzleCreationResponse, error) {
 	evts := g.History().Events
 	puzzles := []*pb.PuzzleCreationResponse{}
@@ -34,6 +40,12 @@ func CreatePuzzlesFromGame(conf *config.Config, eqLossLimit int, g *game.Game, r
 		return nil, err
 	}
 	totalEquityLoss := 0.0
+	puzzleCalc, err := equity.NewCombinedStaticCalculator(g.LexiconName(), conf, "", "")
+	if err != nil {
+		return nil, err
+	}
+
+	eqCalcs := []equity.EquityCalculator{puzzleCalc}
 	for evtIdx, evt := range evts {
 		if evt.Type != pb.GameEvent_TILE_PLACEMENT_MOVE &&
 			evt.Type != pb.GameEvent_EXCHANGE &&
@@ -49,20 +61,20 @@ func CreatePuzzlesFromGame(conf *config.Config, eqLossLimit int, g *game.Game, r
 			continue
 		}
 
-		runner, err := runner.NewAIGameRunnerFromGame(g, conf, pb.BotRequest_HASTY_BOT)
+		player, err := turnplayer.NewAIStaticTurnPlayerFromGame(g, conf, eqCalcs)
 		if err != nil {
 			return nil, err
 		}
-		moves := runner.GenerateMoves(1000000)
+
+		moves := player.GenerateMoves(1000000)
 
 		// Let's keep a running tally of equity loss for this game.
 		topEquity := moves[0].Equity()
-
 		madeMove, err := game.MoveFromEvent(evt, g.Alphabet(), g.Board())
 		if err != nil {
 			return nil, err
 		}
-		runner.AssignEquity([]*move.Move{madeMove}, nil)
+		player.AssignEquity([]*move.Move{madeMove}, g.Board(), g.Bag(), nil)
 		totalEquityLoss += (topEquity - madeMove.Equity())
 
 		if totalEquityLoss > float64(eqLossLimit) {
@@ -70,11 +82,9 @@ func CreatePuzzlesFromGame(conf *config.Config, eqLossLimit int, g *game.Game, r
 			return nil, nil
 		}
 
-		turnIsPuzzle := false
 		tags := []pb.PuzzleTag{}
 		for _, puzzleFunc := range PuzzleFunctions {
 			turnIsPuzzleType, tag := puzzleFunc(g, moves)
-			turnIsPuzzle = turnIsPuzzle || turnIsPuzzleType
 			if turnIsPuzzleType {
 				tags = append(tags, tag)
 			}
@@ -138,10 +148,9 @@ func NonBingoPuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
 
 // XXX: Must be expanded to other languages
 func PowerTilePuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
-	alphabet := g.Alphabet()
-	pointValues := g.Bag().LetterDistribution().PointValues
+	ld := g.Bag().LetterDistribution()
 	for _, tile := range moves[0].Tiles() {
-		if pointValues[alphabet.Letter(tile)] > 6 {
+		if ld.Score(tile) > 6 {
 			return true, pb.PuzzleTag_POWER_TILE
 		}
 	}
@@ -256,7 +265,7 @@ func moveIsBingo(m *move.Move) bool {
 
 func moveContainsBlank(m *move.Move) bool {
 	for _, ml := range m.Tiles() {
-		if ml >= alphabet.BlankOffset {
+		if ml.IsBlanked() {
 			return true
 		}
 	}
@@ -264,12 +273,12 @@ func moveContainsBlank(m *move.Move) bool {
 }
 
 func isCELEvent(event *pb.GameEvent, history *pb.GameHistory, cfg *config.Config) (bool, error) {
-	dawg, err := gaddag.GetDawg(cfg, "ECWL")
+	kwg, err := kwg.Get(cfg, "ECWL")
 	if err != nil {
 		return false, err
 	}
 	for _, word := range event.WordsFormed {
-		phony, err := isPhony(dawg, word, history.Variant)
+		phony, err := isPhony(kwg, word, history.Variant)
 		if err != nil || phony {
 			return false, err
 		}
@@ -277,9 +286,9 @@ func isCELEvent(event *pb.GameEvent, history *pb.GameHistory, cfg *config.Config
 	return true, nil
 }
 
-func isPhony(gd gaddag.GenericDawg, word, variant string) (bool, error) {
-	lex := gaddag.Lexicon{GenericDawg: gd}
-	machineWord, err := alphabet.ToMachineWord(word, lex.GetAlphabet())
+func isPhony(k *kwg.KWG, word, variant string) (bool, error) {
+	lex := kwg.Lexicon{KWG: *k}
+	machineWord, err := tilemapping.ToMachineWord(word, lex.GetAlphabet())
 	if err != nil {
 		return false, err
 	}
@@ -293,8 +302,7 @@ func isPhony(gd gaddag.GenericDawg, word, variant string) (bool, error) {
 	return !valid, nil
 }
 
-func convertToVisible(words []alphabet.MachineWord,
-	alph *alphabet.Alphabet) []string {
+func convertToVisible(words []tilemapping.MachineWord, alph *tilemapping.TileMapping) []string {
 
 	uvstrs := make([]string, len(words))
 	for idx, w := range words {

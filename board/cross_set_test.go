@@ -3,7 +3,7 @@ package board
 import (
 	"testing"
 
-	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/tilemapping"
 )
 
 func TestCrossSet(t *testing.T) {
@@ -20,7 +20,7 @@ func TestCrossSet(t *testing.T) {
 }
 
 type testpair struct {
-	l       alphabet.MachineLetter
+	l       tilemapping.MachineLetter
 	allowed bool
 }
 
@@ -28,11 +28,11 @@ func TestCrossSetAllowed(t *testing.T) {
 	cs := CrossSet(8193)
 
 	var allowedTests = []testpair{
-		{alphabet.MachineLetter(1), false},
-		{alphabet.MachineLetter(0), true},
-		{alphabet.MachineLetter(14), false},
-		{alphabet.MachineLetter(13), true},
-		{alphabet.MachineLetter(12), false},
+		{tilemapping.MachineLetter(1), false},
+		{tilemapping.MachineLetter(0), true},
+		{tilemapping.MachineLetter(14), false},
+		{tilemapping.MachineLetter(13), true},
+		{tilemapping.MachineLetter(12), false},
 	}
 
 	for _, pair := range allowedTests {

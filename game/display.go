@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/domino14/macondo/alphabet"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/rs/zerolog/log"
 )
 
@@ -67,8 +67,8 @@ func (g *Game) ToDisplayText() string {
 	inbag := g.bag.Peek()
 	opprack := g.players[otherPlayer(g.onturn)].rack.TilesOn()
 	bagAndUnseen := append(inbag, opprack...)
-	log.Debug().Str("inbag", alphabet.MachineWord(inbag).UserVisible(g.alph)).Msg("")
-	log.Debug().Str("opprack", alphabet.MachineWord(opprack).UserVisible(g.alph)).Msg("")
+	log.Debug().Str("inbag", tilemapping.MachineWord(inbag).UserVisible(g.alph)).Msg("")
+	log.Debug().Str("opprack", tilemapping.MachineWord(opprack).UserVisible(g.alph)).Msg("")
 
 	addText(bts, vpadding+3, hpadding, fmt.Sprintf("Bag + unseen: (%d)", len(bagAndUnseen)))
 
@@ -81,7 +81,7 @@ func (g *Game) ToDisplayText() string {
 	cCtr := 0
 	bagStr := ""
 	for i := 0; i < len(bagAndUnseen); i++ {
-		bagStr += string(bagAndUnseen[i].UserVisible(g.alph)) + " "
+		bagStr += string(bagAndUnseen[i].UserVisible(g.alph, false)) + " "
 		cCtr++
 		if cCtr == bagColCount {
 			bagDisp = append(bagDisp, bagStr)

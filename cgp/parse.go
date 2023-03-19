@@ -138,7 +138,6 @@ func ParseCGP(cfg *config.Config, cgpstr string) (*game.Game, error) {
 		})
 		lastKnownRacks = append(lastKnownRacks, rack)
 	}
-
 	g, err := game.NewFromSnapshot(rules, players, lastKnownRacks, scores, fullRows)
 	if err != nil {
 		return nil, err

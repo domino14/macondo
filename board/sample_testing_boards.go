@@ -2,7 +2,9 @@ package board
 
 // This file contains some sample filled boards, used solely for testing.
 
-import "github.com/domino14/macondo/alphabet"
+import (
+	"github.com/domino14/macondo/tilemapping"
+)
 
 // VsWho is a string representation of a board.
 type VsWho string
@@ -495,7 +497,7 @@ maven: Turn 23
 
 // SetToGame sets the board to a specific game in progress. It is used to
 // generate test cases.
-func (b *GameBoard) SetToGame(alph *alphabet.Alphabet, game VsWho) *TilesInPlay {
+func (b *GameBoard) SetToGame(alph *tilemapping.TileMapping, game VsWho) *TilesInPlay {
 	// Set the board to a game
 	tip := b.setFromPlaintext(string(game), alph)
 	b.UpdateAllAnchors()

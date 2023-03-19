@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"strings"
 
-	airunner "github.com/domino14/macondo/ai/runner"
-	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/config"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/runner"
+	"github.com/domino14/macondo/tilemapping"
+	"github.com/domino14/macondo/turnplayer"
 )
 
 var SampleJson = []byte(`{
@@ -56,8 +56,8 @@ type JsonMove struct {
 
 type Analyzer struct {
 	config  *config.Config
-	options *runner.GameOptions
-	game    *airunner.AIGameRunner
+	options *turnplayer.GameOptions
+	game    *bot.BotTurnPlayer
 }
 
 func MakeJsonMove(m *move.Move) JsonMove {
@@ -73,7 +73,7 @@ func MakeJsonMove(m *move.Move) JsonMove {
 }
 
 func NewAnalyzer(config *config.Config) *Analyzer {
-	options := &runner.GameOptions{}
+	options := &turnplayer.GameOptions{}
 	an := &Analyzer{}
 	an.config = config
 	an.options = options
@@ -96,8 +96,9 @@ func (an *Analyzer) newGame() error {
 		{Nickname: "self", RealName: "Macondo Bot"},
 		{Nickname: "opponent", RealName: "Arthur Dent"},
 	}
+	conf := &bot.BotConfig{Config: *an.config}
 
-	game, err := airunner.NewAIGameRunner(an.config, an.options, players, pb.BotRequest_HASTY_BOT)
+	game, err := bot.NewBotTurnPlayer(conf, an.options, players, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return err
 	}
@@ -117,7 +118,7 @@ func (an *Analyzer) loadJson(j []byte) error {
 	}
 	var g = an.game
 	bd := g.Board()
-	letters := []alphabet.MachineLetter{}
+	letters := []tilemapping.MachineLetter{}
 	for row, str := range b.Board {
 		str = strings.Replace(str, ".", " ", -1)
 		letters = append(letters, bd.SetRow(row, str, g.Alphabet())...)

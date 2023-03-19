@@ -10,10 +10,15 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/rs/zerolog/log"
+	"github.com/samber/lo"
+	"golang.org/x/sync/errgroup"
 
+	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/config"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
@@ -30,22 +35,33 @@ func init() {
 
 // CompVsCompStatic plays out a game to the end using best static turns.
 func (r *GameRunner) CompVsCompStatic(addToHistory bool) error {
-	err := r.Init("exhaustiveleave", "exhaustiveleave", "", "", "", "", pb.BotRequest_HASTY_BOT, pb.BotRequest_HASTY_BOT)
+	err := r.Init(
+		[]AutomaticRunnerPlayer{
+			{"", "", pb.BotRequest_HASTY_BOT, 0},
+			{"", "", pb.BotRequest_HASTY_BOT, 0},
+		})
+
 	if err != nil {
 		return err
 	}
-	r.playFullStatic(addToHistory)
+	err = r.playFull(addToHistory, 0)
+	if err != nil {
+		return err
+	}
 	log.Debug().Msgf("Game over. Score: %v - %v", r.game.PointsFor(0),
 		r.game.PointsFor(1))
 	return nil
 }
 
-func (r *GameRunner) playFullStatic(addToHistory bool) {
-	r.StartGame()
-	log.Trace().Msgf("playing full static, game %v", r.game.History().Uid)
+func (r *GameRunner) playFull(addToHistory bool, gidx int) error {
+	r.StartGame(gidx)
+	log.Trace().Msgf("playing full, game %v", r.game.History().Uid)
 
 	for r.game.Playing() == pb.PlayState_PLAYING {
-		r.PlayBestStaticTurn(r.game.PlayerOnTurn(), addToHistory)
+		err := r.PlayBestTurn(r.game.PlayerOnTurn(), addToHistory)
+		if err != nil {
+			return err
+		}
 	}
 
 	if r.gamechan != nil {
@@ -60,18 +76,46 @@ func (r *GameRunner) playFullStatic(addToHistory bool) {
 			r.game.FirstPlayer().RealName,
 		)
 	}
+	return nil
 }
 
-type Job struct{}
+func prettyName(b pb.BotRequest_BotCode) string {
+	protoName := b.String()
+
+	components := strings.Split(protoName, "_")
+	return strings.Join(lo.Map(components, func(i string, idx int) string {
+		return strings.Title(strings.ToLower(i))
+	}), "")
+}
+
+func playerNames(players []AutomaticRunnerPlayer) []string {
+	botct := map[string]int{}
+	botctorig := map[string]int{}
+	for _, p := range players {
+		s := p.BotCode.String()
+		botct[s]++
+		botctorig[s]++
+	}
+	names := []string{}
+	for _, p := range players {
+		s := p.BotCode.String()
+
+		if botct[s] == botctorig[s] {
+			names = append(names, prettyName(p.BotCode))
+		} else {
+			names = append(names, prettyName(p.BotCode)+strconv.Itoa(botctorig[s]-botct[s]))
+		}
+		botct[s]--
+	}
+	return names
+}
+
+type Job struct{ gidx int }
 
 func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
-	numGames int, block bool, threads int, outputFilename, player1, player2, lexicon, letterDistribution,
-	leavefile1, leavefile2, pegfile1, pegfile2 string, botcode1, botcode2 pb.BotRequest_BotCode) error {
-	for _, p := range []string{player1, player2} {
-		if p != ExhaustiveLeavePlayer && p != NoLeavePlayer {
-			return errors.New("unhandled player type")
-		}
-	}
+	numGames int, block bool, threads int,
+	outputFilename, lexicon, letterDistribution string,
+	players []AutomaticRunnerPlayer) error {
 
 	if IsPlaying.Value() > 0 {
 		return errors.New("games are already being played, please wait till complete")
@@ -93,43 +137,59 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	log.Info().Msgf("Starting %v games, %v threads", numGames, threads)
 
 	CVCCounter.Set(0)
-	jobs := make(chan Job, 100)
+	jobs := make(chan Job, threads*5)
 	logChan := make(chan string, 100)
 	gameChan := make(chan string, 10)
 	var wg sync.WaitGroup
-	var fwg sync.WaitGroup
-	wg.Add(threads)
-	fwg.Add(3)
+	// var fwg sync.WaitGroup
+
+	g, ctx := errgroup.WithContext(ctx)
+	addToHistory := false
+	if lo.SomeBy(players, func(p AutomaticRunnerPlayer) bool {
+		return bot.HasInfer(p.BotCode)
+	}) {
+		addToHistory = true
+	}
 
 	for i := 1; i <= threads; i++ {
-		go func(i int) {
+		wg.Add(1)
+		i := i
+		g.Go(func() error {
 			defer wg.Done()
 			r := GameRunner{logchan: logChan, gamechan: gameChan,
 				config: cfg, lexicon: lexicon, letterDistribution: letterDistribution}
-			err := r.Init(player1, player2, leavefile1, leavefile2, pegfile1, pegfile2, botcode1, botcode2)
+			err := r.Init(players)
 			if err != nil {
 				log.Err(err).Msg("error initializing runner")
-				return
+				return err
 			}
 
 			IsPlaying.Add(1)
-			for range jobs {
-				r.playFullStatic(false)
+			defer IsPlaying.Add(-1)
+			for j := range jobs {
+				err = r.playFull(addToHistory, j.gidx)
+				if err != nil {
+					log.Err(err).Int("job", j.gidx).Msg("error-playFull")
+					return err
+				}
 				CVCCounter.Add(1)
 			}
-			IsPlaying.Add(-1)
-		}(i)
+			log.Err(err).Msgf("exiting-gameplay-thread-%d", i)
+			return nil
+		})
 	}
 
-	go func() {
-		defer fwg.Done()
+	g.Go(func() error {
+		queuingJobs := true
+		i := 0
 	gameLoop:
-		for i := 1; i < numGames+1; i++ {
-			jobs <- Job{}
-			if i%1000 == 0 {
-				log.Info().Msgf("Queued %v jobs", i)
-			}
+		for queuingJobs {
 			select {
+			case jobs <- Job{i}:
+				if i%1000 == 0 {
+					log.Info().Msgf("Queued %v jobs", i)
+				}
+				i++
 			case <-ctx.Done():
 				// exit early
 				log.Info().Msg("Got stop signal, exiting soon...")
@@ -138,31 +198,35 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 				// do nothing
 
 			}
+			if i == numGames {
+				queuingJobs = false
+			}
 		}
 
 		close(jobs)
-		log.Info().Msg("Finished queueing all jobs.")
+		log.Info().Int("jobsQueued", i).Msg("Finished queueing all jobs.")
 		wg.Wait()
 		log.Info().Msg("All games finished.")
 		close(logChan)
 		close(gameChan)
 		log.Info().Msg("Exiting feeder subroutine!")
-	}()
+		return ctx.Err()
+	})
 
-	go func() {
-		defer fwg.Done()
+	g.Go(func() error {
 		logfile.WriteString("playerID,gameID,turn,rack,play,score,totalscore,tilesplayed,leave,equity,tilesremaining,oppscore\n")
 		for msg := range logChan {
 			logfile.WriteString(msg)
 		}
 		logfile.Close()
 		log.Info().Msg("Exiting turn logger goroutine!")
-	}()
+		return nil
+	})
 
-	go func() {
-		defer fwg.Done()
+	g.Go(func() error {
+		pnames := playerNames(players)
 		header := fmt.Sprintf("gameID,%s_score,%s_score,%s_bingos,%s_bingos,%s_turns,%s_turns,first\n",
-			player1+"-1", player2+"-2", player1+"-1", player2+"-2", player1+"-1", player2+"-2")
+			pnames[0], pnames[1], pnames[0], pnames[1], pnames[0], pnames[1])
 
 		gamelogfile.WriteString(header)
 		for msg := range gameChan {
@@ -170,10 +234,12 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 		}
 		gamelogfile.Close()
 		log.Info().Msg("Exiting game logger goroutine!")
-	}()
+		return nil
+	})
 
 	if block {
-		fwg.Wait()
+		err = g.Wait()
+		return err
 	}
 	return nil
 

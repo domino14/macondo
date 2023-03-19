@@ -1,23 +1,26 @@
 package shell
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog/log"
 	"lukechampine.com/frand"
 
-	airunner "github.com/domino14/macondo/ai/runner"
-	"github.com/domino14/macondo/alphabet"
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+
+	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/automatic"
 	"github.com/domino14/macondo/endgame/alphabeta"
+	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
-	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/domino14/macondo/strategy"
+	"github.com/domino14/macondo/tilemapping"
 )
 
 type Response struct {
@@ -68,7 +71,9 @@ func (sc *ShellController) newGame(cmd *shellcmd) (*Response, error) {
 	}
 
 	opts := sc.options.GameOptions
-	g, err := airunner.NewAIGameRunner(sc.config, &opts, players, pb.BotRequest_HASTY_BOT)
+	conf := &bot.BotConfig{Config: *sc.config}
+
+	g, err := bot.NewBotTurnPlayer(conf, &opts, players, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +231,7 @@ func (sc *ShellController) autoplay(cmd *shellcmd) (*Response, error) {
 }
 
 func (sc *ShellController) sim(cmd *shellcmd) (*Response, error) {
-	return nil, sc.handleSim(cmd.args)
+	return nil, sc.handleSim(cmd.args, cmd.options)
 }
 
 func (sc *ShellController) add(cmd *shellcmd) (*Response, error) {
@@ -328,20 +333,18 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 		sc.game.SetBackupMode(game.InteractiveGameplayMode)
 		sc.game.SetStateStackLength(1)
 	}()
-
-	oldmaxtime := sc.config.AlphaBetaTimeLimit
-
-	sc.config.AlphaBetaTimeLimit = maxtime
-
-	defer func() {
-		sc.config.AlphaBetaTimeLimit = oldmaxtime
-	}()
+	var cancel context.CancelFunc
+	ctx := context.Background()
+	if maxtime > 0 {
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(maxtime)*time.Second)
+		defer cancel()
+	}
 
 	// clear out the last value of this endgame node; gc should
 	// delete the tree.
 	sc.curEndgameNode = nil
 	sc.endgameSolver = new(alphabeta.Solver)
-	err = sc.endgameSolver.Init(sc.gen, sc.backupgen, &sc.game.Game, sc.config)
+	err = sc.endgameSolver.Init(sc.gen, sc.backupgen, sc.game.Game, sc.config)
 	if err != nil {
 		return nil, err
 	}
@@ -352,7 +355,7 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 
 	sc.showMessage(sc.game.ToDisplayText())
 
-	val, seq, err := sc.endgameSolver.Solve(plies)
+	val, seq, err := sc.endgameSolver.Solve(ctx, plies)
 	if err != nil {
 		return nil, err
 	}
@@ -360,6 +363,80 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	sc.showMessage(fmt.Sprintf("Best sequence has a spread difference of %v", val))
 	sc.printEndgameSequence(seq)
 	return nil, nil
+}
+
+func (sc *ShellController) infer(cmd *shellcmd) (*Response, error) {
+	if sc.game == nil {
+		return nil, errors.New("please load a game first with the `load` command")
+	}
+	var err error
+	var threads, timesec int
+
+	if len(cmd.args) > 0 {
+		switch cmd.args[0] {
+		case "log":
+			sc.rangefinderFile, err = os.Create(InferLog)
+			if err != nil {
+				return nil, err
+			}
+			sc.rangefinder.SetLogStream(sc.rangefinderFile)
+			sc.showMessage("inference engine will log to " + InferLog)
+
+		case "details":
+			sc.showMessage(sc.rangefinder.AnalyzeInferences(true))
+
+		default:
+			return nil, errors.New("don't recognize " + cmd.args[0])
+		}
+
+		return nil, nil
+	}
+
+	for opt, val := range cmd.options {
+		switch opt {
+		case "threads":
+			threads, err = strconv.Atoi(val)
+			if err != nil {
+				return nil, err
+			}
+
+		case "time":
+			timesec, err = strconv.Atoi(val)
+			if err != nil {
+				return nil, err
+			}
+
+		default:
+			return nil, errors.New("option " + opt + " not recognized")
+
+		}
+	}
+	if threads != 0 {
+		sc.rangefinder.SetThreads(threads)
+	}
+	if timesec == 0 {
+		timesec = 5
+	}
+	err = sc.rangefinder.PrepareFinder(sc.game.RackFor(sc.game.PlayerOnTurn()).TilesOn())
+	if err != nil {
+		return nil, err
+	}
+	timeout, _ := context.WithTimeout(
+		context.Background(), time.Duration(timesec*int(time.Second)))
+
+	sc.showMessage("Rangefinding started. Please wait until it is done.")
+
+	go func() {
+		err := sc.rangefinder.Infer(timeout)
+		if err != nil {
+			sc.showError(err)
+		}
+		sc.showMessage(sc.rangefinder.AnalyzeInferences(false))
+		log.Debug().Msg("inference thread exiting...")
+	}()
+
+	return nil, nil
+
 }
 
 func (sc *ShellController) help(cmd *shellcmd) (*Response, error) {
@@ -410,9 +487,30 @@ func (sc *ShellController) autoAnalyze(cmd *shellcmd) (*Response, error) {
 	filename := cmd.args[0]
 	options := cmd.options
 	if options["export"] != "" {
-		err := automatic.ExportGCG(
+
+		f, err := os.Create(options["export"] + ".gcg")
+		if err != nil {
+			return nil, err
+		}
+
+		if options["letterdist"] == "" {
+			options["letterdist"] = sc.config.DefaultLetterDistribution
+		}
+		if options["lexicon"] == "" {
+			options["lexicon"] = sc.config.DefaultLexicon
+		}
+
+		err = automatic.ExportGCG(
 			sc.config, filename, options["letterdist"], options["lexicon"],
-			options["boardlayout"], options["export"])
+			options["boardlayout"], options["export"], f)
+		if err != nil {
+			ferr := os.Remove(options["export"] + ".gcg")
+			if ferr != nil {
+				log.Err(ferr).Msg("removing gcg output file")
+			}
+			return nil, err
+		}
+		err = f.Close()
 		if err != nil {
 			return nil, err
 		}
@@ -429,19 +527,16 @@ func (sc *ShellController) leave(cmd *shellcmd) (*Response, error) {
 	if len(cmd.args) != 1 {
 		return nil, errors.New("please provide a leave")
 	}
-	dist, err := alphabet.Get(sc.config, sc.config.DefaultLetterDistribution)
+	dist, err := tilemapping.GetDistribution(sc.config, sc.config.DefaultLetterDistribution)
 	if err != nil {
 		return nil, err
 	}
-
-	els, err := strategy.NewExhaustiveLeaveStrategy(
-		sc.config.DefaultLexicon, dist.Alphabet(), sc.config,
-		strategy.LeaveFilename,
-		strategy.PEGAdjustmentFilename)
+	els, err := equity.NewExhaustiveLeaveCalculator(sc.config.DefaultLexicon,
+		sc.config, "")
 	if err != nil {
 		return nil, err
 	}
-	leave, err := alphabet.ToMachineWord(cmd.args[0], dist.Alphabet())
+	leave, err := tilemapping.ToMachineWord(cmd.args[0], dist.TileMapping())
 	if err != nil {
 		return nil, err
 	}

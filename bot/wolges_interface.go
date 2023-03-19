@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	airunner "github.com/domino14/macondo/ai/runner"
-	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/rs/zerolog/log"
 )
 
@@ -28,11 +28,11 @@ import (
 
 const WolgesTimeout = 5 * time.Second
 
-// Wolges ordering:
-var GermanTiles = []rune("AÄBCDEFGHIJKLMNOÖPQRSTUÜVWXYZ")
-var GermanBlankTiles = []rune("aäbcdefghijklmnoöpqrstuüvwxyz")
-var NorwegianTiles = []rune("ABCDEFGHIJKLMNOPQRSTUVWXYÜZÆÄØÖÅ")
-var NorwegianBlankTiles = []rune("abcdefghijklmnopqrstuvwxyüzæäøöå")
+// // Wolges ordering:
+// var GermanTiles = []rune("AÄBCDEFGHIJKLMNOÖPQRSTUÜVWXYZ")
+// var GermanBlankTiles = []rune("aäbcdefghijklmnoöpqrstuüvwxyz")
+// var NorwegianTiles = []rune("ABCDEFGHIJKLMNOPQRSTUVWXYÜZÆÄØÖÅ")
+// var NorwegianBlankTiles = []rune("abcdefghijklmnopqrstuvwxyüzæäøöå")
 
 type WolgesAnalyzePayload struct {
 	Rack    []int   `json:"rack"`
@@ -54,101 +54,7 @@ type WolgesAnalyzeResponse struct {
 	Score  int     `json:"score"`
 }
 
-func englishLabelToNum(c rune) int {
-	if c >= 'A' && c <= 'Z' {
-		return int(c - 0x40)
-	}
-	if c >= 'a' && c <= 'z' {
-		return -int(c - 0x60)
-	}
-	return 0
-}
-
-func germanLabelToNum(c rune) int {
-	for i := 0; i < len(GermanTiles); i++ {
-		if c == GermanTiles[i] {
-			return i + 1
-		}
-	}
-	for i := 0; i < len(GermanBlankTiles); i++ {
-		if c == GermanBlankTiles[i] {
-			return -(i + 1)
-		}
-	}
-	return 0
-}
-
-func norwegianLabelToNum(c rune) int {
-	for i := 0; i < len(NorwegianTiles); i++ {
-		if c == NorwegianTiles[i] {
-			return i + 1
-		}
-	}
-	for i := 0; i < len(NorwegianBlankTiles); i++ {
-		if c == NorwegianBlankTiles[i] {
-			return -(i + 1)
-		}
-	}
-	return 0
-}
-
-func englishNumToLabel(n int) rune {
-	switch {
-	case n > 0:
-		return rune(0x40 + n)
-	case n < 0:
-		return rune(0x60 - n)
-	case n == 0:
-		return '?'
-	}
-	return '?'
-}
-
-func germanNumToLabel(n int) rune {
-	switch {
-	case n > 0:
-		return GermanTiles[n-1]
-	case n < 0:
-		return GermanBlankTiles[-1-n]
-	}
-	return '?'
-}
-
-func norwegianNumToLabel(n int) rune {
-	switch {
-	case n > 0:
-		return NorwegianTiles[n-1]
-	case n < 0:
-		return NorwegianBlankTiles[-1-n]
-	}
-	return '?'
-}
-
-func labelToNumFor(ld string) func(rune) int {
-	switch ld {
-	case "english":
-		return englishLabelToNum
-	case "german":
-		return germanLabelToNum
-	case "norwegian":
-		return norwegianLabelToNum
-	}
-	return englishLabelToNum
-}
-
-func numToLabelFor(ld string) func(int) rune {
-	switch ld {
-	case "english":
-		return englishNumToLabel
-	case "german":
-		return germanNumToLabel
-	case "norwegian":
-		return norwegianNumToLabel
-	}
-	return englishNumToLabel
-}
-
-func wolgesAnalyze(cfg *config.Config, g *airunner.AIGameRunner) ([]*move.Move, error) {
+func wolgesAnalyze(cfg *config.Config, g *bot.BotTurnPlayer) ([]*move.Move, error) {
 	// cfg.WolgesAwsmURL
 	// convert game to the needed data structure
 	dim := g.Board().Dim()
@@ -174,6 +80,8 @@ func wolgesAnalyze(cfg *config.Config, g *airunner.AIGameRunner) ([]*move.Move, 
 		leave = "norwegian"
 	case strings.HasPrefix(lowercasedLexicon, "fra"):
 		leave = "french"
+	case strings.HasPrefix(lowercasedLexicon, "disc"):
+		leave = "catalan"
 	default:
 		leave = "english"
 	}
@@ -199,19 +107,23 @@ func wolgesAnalyze(cfg *config.Config, g *airunner.AIGameRunner) ([]*move.Move, 
 		wap.Rules += "/" + leave
 	}
 
+	tm := g.Bag().LetterDistribution().TileMapping()
+
 	// populate board
-	labelToNum := labelToNumFor(leave)
 	for i := 0; i < g.Board().Dim(); i++ {
 		for j := 0; j < g.Board().Dim(); j++ {
-			// since wolges doesn't use our same letter ordering, let's just do
-			// the conversion this way
-			letter := g.Board().GetLetter(i, j).UserVisible(g.Alphabet())
-			wap.Board[i][j] = labelToNum(letter)
+			// wolges now uses our letter ordering, except blanks are encoded differently.
+			letter := g.Board().GetLetter(i, j)
+			code := int(letter)
+			if letter.IsBlanked() {
+				code = -int(letter.Unblank())
+			}
+			wap.Board[i][j] = code
 		}
 	}
 
-	for _, c := range ourRack.String() {
-		wap.Rack = append(wap.Rack, labelToNum(c))
+	for _, c := range ourRack.TilesOn() {
+		wap.Rack = append(wap.Rack, int(c))
 	}
 
 	wap.Count = 1
@@ -228,6 +140,7 @@ func wolgesAnalyze(cfg *config.Config, g *airunner.AIGameRunner) ([]*move.Move, 
 	if err != nil {
 		return nil, err
 	}
+	log.Debug().Msg("made HTTP post, getting response...")
 	resp, err := http.DefaultClient.Do(req.WithContext(ctx))
 	if err != nil {
 		return nil, err
@@ -237,6 +150,7 @@ func wolgesAnalyze(cfg *config.Config, g *airunner.AIGameRunner) ([]*move.Move, 
 	if err != nil {
 		return nil, err
 	}
+	log.Debug().Str("body", string(readbts)).Msg("raw-from-wolges")
 	var r []WolgesAnalyzeResponse
 	err = json.Unmarshal(readbts, &r)
 	if err != nil {
@@ -248,7 +162,6 @@ func wolgesAnalyze(cfg *config.Config, g *airunner.AIGameRunner) ([]*move.Move, 
 		return nil, errors.New("unexpected-wolges-response-length")
 	}
 
-	numToLabel := numToLabelFor(leave)
 	best := r[0]
 	switch best.Action {
 	case "exchange":
@@ -262,11 +175,11 @@ func wolgesAnalyze(cfg *config.Config, g *airunner.AIGameRunner) ([]*move.Move, 
 			return []*move.Move{p}, nil
 
 		} else {
-			runes := make([]rune, 0, len(best.Tiles))
+			var str strings.Builder
 			for _, t := range best.Tiles {
-				runes = append(runes, numToLabel(t))
+				str.WriteString(tm.Letter(tilemapping.MachineLetter(t)))
 			}
-			exch, err := g.NewExchangeMove(g.PlayerOnTurn(), string(runes))
+			exch, err := g.NewExchangeMove(g.PlayerOnTurn(), str.String())
 			if err != nil {
 				return nil, err
 			}
@@ -285,16 +198,21 @@ func wolgesAnalyze(cfg *config.Config, g *airunner.AIGameRunner) ([]*move.Move, 
 		}
 		coords := move.ToBoardGameCoords(row, col, vertical)
 		rack := g.RackLettersFor(g.PlayerOnTurn())
-		runes := make([]rune, 0, len(best.Word))
+		var str strings.Builder
 		for _, t := range best.Word {
 			if t == 0 {
-				runes = append(runes, alphabet.ASCIIPlayedThrough)
+				str.WriteString(string(tilemapping.ASCIIPlayedThrough))
 			} else {
-				runes = append(runes, numToLabel(t))
+				if t < 0 {
+					// re-encode blank.
+					t = (-t) | tilemapping.BlankMask
+				}
+				letter := tm.Letter(tilemapping.MachineLetter(t))
+				str.WriteString(letter)
 			}
 		}
 
-		m, err := g.CreateAndScorePlacementMove(coords, string(runes), string(rack))
+		m, err := g.CreateAndScorePlacementMove(coords, str.String(), string(rack))
 		if err != nil {
 			return nil, err
 		}

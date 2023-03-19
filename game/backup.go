@@ -1,9 +1,9 @@
 package game
 
 import (
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/tilemapping"
 )
 
 type BackupMode int
@@ -24,7 +24,7 @@ const (
 // stateBackup is a subset of Game, meant only for backup purposes.
 type stateBackup struct {
 	board          *board.GameBoard
-	bag            *alphabet.Bag
+	bag            *tilemapping.Bag
 	playing        pb.PlayState
 	scorelessTurns int
 	onturn         int
@@ -68,7 +68,7 @@ func copyPlayers(ps playerStates) playerStates {
 			turns:  porig.turns,
 			rack:   porig.rack.Copy(),
 			// Just need to allocate, no need to actually copy it.
-			placeholderRack: make([]alphabet.MachineLetter, len(porig.placeholderRack)),
+			placeholderRack: make([]tilemapping.MachineLetter, len(porig.placeholderRack)),
 		}
 	}
 	return p

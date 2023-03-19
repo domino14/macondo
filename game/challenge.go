@@ -3,10 +3,10 @@ package game
 import (
 	"errors"
 
-	"github.com/domino14/macondo/alphabet"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/lexicon"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/rs/zerolog/log"
 )
 
@@ -108,9 +108,9 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 		// Explicitly set racks for both players. This prevents a bug where
 		// part of the game may have been loaded from a GameHistory (through the
 		// PlayGameToTurn flow) and the racks continually get reset.
-		g.SetRacksForBoth([]*alphabet.Rack{
-			alphabet.RackFromString(g.history.LastKnownRacks[0], g.alph),
-			alphabet.RackFromString(g.history.LastKnownRacks[1], g.alph),
+		g.SetRacksForBoth([]*tilemapping.Rack{
+			tilemapping.RackFromString(g.history.LastKnownRacks[0], g.alph),
+			tilemapping.RackFromString(g.history.LastKnownRacks[1], g.alph),
 		})
 
 		// Note that if backup mode is InteractiveGameplayMode, which it should be,
@@ -196,7 +196,7 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 	return playLegal, err
 }
 
-func validateWords(lex lexicon.Lexicon, words []alphabet.MachineWord, variant Variant) []string {
+func validateWords(lex lexicon.Lexicon, words []tilemapping.MachineWord, variant Variant) []string {
 	var illegalWords []string
 	alph := lex.GetAlphabet()
 	for _, word := range words {
@@ -215,7 +215,7 @@ func validateWords(lex lexicon.Lexicon, words []alphabet.MachineWord, variant Va
 
 // ValidateWords validates all `words` with the passed-in lexicon, and
 // the game's variant. We don't use the game's lexicon because of Reasons.
-func (g *Game) ValidateWords(lex lexicon.Lexicon, words []alphabet.MachineWord) error {
+func (g *Game) ValidateWords(lex lexicon.Lexicon, words []tilemapping.MachineWord) error {
 	illegalWords := validateWords(lex, words, g.Rules().Variant())
 	if len(illegalWords) > 0 {
 		return errIllegalWords

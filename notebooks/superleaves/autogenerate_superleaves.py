@@ -15,8 +15,7 @@ TILES = [x for x in ascii_uppercase] + ['?']
 ALPHABETICAL_KEY = '?ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 SORT_FUNC = lambda x: ALPHABETICAL_KEY.index(x)
 
-LEAVES_STRUCTURE_FILENAME = 'data.idx'
-OLV_STRUCTURE_FILENAME = 'data.olv'
+KLV_STRUCTURE_FILENAME = 'data.klv'
 ALL_LEAVES_FILENAME = 'all_leaves.p'
 PATH_TO_DEFAULT_ENGLISH = '../../data/strategy/default_english/'
 TILE_LIMIT = 1
@@ -226,7 +225,6 @@ def main():
     for x in range(iterations):
         autoplay_logfile = output + '_autoplay_{}.csv'.format(x + 1)
         leaves_csv_file = output + '_leaves_{}.csv'.format(x + 1)
-        leaves_idx_file = output + '_leaves_{}.idx'.format(x + 1)
 
         # Autoplay
         autoplay_cmd = "../../bin/shell autoplay -numgames {} -lexicon {} -logfile {} -block true".format(games, lexicon, autoplay_logfile)
@@ -238,15 +236,13 @@ def main():
         calculate_superleaves(autoplay_logfile, leaves_csv_file)
 
         # Create superleave structure
-        make_leaves_structure_cmd = "../../bin/make_leaves_structure -filename {}".format(leaves_csv_file)
-        return_code = subprocess.call(make_leaves_structure_cmd, shell=True)  
-        if return_code != 0:
-            print ("Make leaves structure exited with return code {}".format(return_code))
-
+        # make_leaves_structure_cmd = "../../bin/make_leaves_structure -filename {}".format(leaves_csv_file)
+        # return_code = subprocess.call(make_leaves_structure_cmd, shell=True)  
+        # if return_code != 0:
+        #     print ("Make leaves structure exited with return code {}".format(return_code))
+        print("leaves CSV file created. Please run wolges program to convert to klv2 format for autoplay.")
         # Copy files to the right places
-        copyfile(LEAVES_STRUCTURE_FILENAME, leaves_idx_file)
-        copyfile(LEAVES_STRUCTURE_FILENAME, PATH_TO_DEFAULT_ENGLISH + 'leaves.idx')
-        copyfile(OLV_STRUCTURE_FILENAME, PATH_TO_DEFAULT_ENGLISH + 'leaves.olv')
+        # copyfile(KLV_STRUCTURE_FILENAME, PATH_TO_DEFAULT_ENGLISH + 'leaves.klv')
 
 
 if __name__ == "__main__":

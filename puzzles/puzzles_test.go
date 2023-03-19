@@ -3,17 +3,14 @@ package puzzles
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"testing"
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/gaddagmaker"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/domino14/macondo/testcommon"
 	"github.com/matryer/is"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -30,22 +27,6 @@ var DefaultPuzzleGenerationReq = &pb.PuzzleGenerationRequest{
 			Excludes: []pb.PuzzleTag{},
 		},
 	},
-}
-
-func TestMain(m *testing.M) {
-	testcommon.CreateGaddags(DefaultConfig, []string{"CSW21"})
-
-	// make sure ECWL.dawg exists for CEL puzzles
-	dawgPath := filepath.Join(DefaultConfig.LexiconPath, "dawg", "ECWL.dawg")
-	if _, err := os.Stat(dawgPath); os.IsNotExist(err) {
-		gaddagmaker.GenerateDawg(filepath.Join(DefaultConfig.LexiconPath, "ECWL.txt"), true, true, false)
-		err = os.Rename("out.dawg", dawgPath)
-		if err != nil {
-			panic(err)
-		}
-	}
-	zerolog.SetGlobalLevel(zerolog.InfoLevel)
-	os.Exit(m.Run())
 }
 
 func TestPuzzles(t *testing.T) {
@@ -308,7 +289,7 @@ func TestPhonyTilesReturned(t *testing.T) {
 
 func TestEquityLossLimit(t *testing.T) {
 	is := is.New(t)
-	zerolog.SetGlobalLevel(zerolog.Disabled)
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	// A little less than 22 total equity loss this game
 	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "./testdata/well_played_game.gcg")
 	is.NoErr(err)
@@ -343,17 +324,13 @@ func TestEquityLossLimit(t *testing.T) {
 	is.NoErr(err)
 
 	pzls, err := CreatePuzzlesFromGame(&DefaultConfig, 22, game, puzzleGenerationReq)
-	if err != nil {
-		panic(err)
-	}
+	is.NoErr(err)
 	is.True(len(pzls) > 0)
 
 	/* set an equity loss limit of 21. this should fail, as the players lost more than 21 equity */
 
 	pzls, err = CreatePuzzlesFromGame(&DefaultConfig, 21, game, puzzleGenerationReq)
-	if err != nil {
-		panic(err)
-	}
+	is.NoErr(err)
 	is.Equal(len(pzls), 0)
 }
 

@@ -1,6 +1,8 @@
 package endgame
 
 import (
+	"context"
+
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
@@ -10,5 +12,5 @@ import (
 // solver maximizes spread.
 type Solver interface {
 	Init(movegen movegen.MoveGenerator, game *game.Game)
-	Solve(plies int) (float32, *move.Move)
+	Solve(ctx context.Context, plies int) (float32, *move.Move)
 }
