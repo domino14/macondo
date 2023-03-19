@@ -93,11 +93,6 @@ func modifyForPlaythrough(tiles tilemapping.MachineWord, board *board.GameBoard,
 
 	// modify the tiles array to account for situations in which a letter
 	// being played through is not specified as the playthrough marker
-	log.Trace().
-		Str("tiles", tiles.UserVisible(tilemapping.EnglishAlphabet())).
-		Int("row", row).Int("col", col).Bool("vertical", vertical).
-		Msg("Modifying for playthrough")
-
 	currow := row
 	curcol := col
 	for idx := range tiles {
@@ -251,9 +246,7 @@ func Leave(rack tilemapping.MachineWord, play tilemapping.MachineWord) (tilemapp
 			// It should never be 0 unless the GCG is malformed somehow.
 			rackmls[t]--
 		} else {
-			return nil, fmt.Errorf("tile in play but not in rack: %v %v",
-				string(t.UserVisible(tilemapping.EnglishAlphabet(), false)),
-				rack.UserVisible(tilemapping.EnglishAlphabet()))
+			return nil, fmt.Errorf("tile in play but not in rack: %v %v", t, rack.ToByteArr())
 		}
 	}
 	leave := []tilemapping.MachineLetter{}
