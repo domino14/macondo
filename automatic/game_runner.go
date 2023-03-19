@@ -10,14 +10,14 @@ import (
 
 	"github.com/domino14/macondo/ai/bot"
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
+	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/rs/zerolog/log"
-	"lukechampine.com/frand"
 
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
@@ -28,8 +28,8 @@ var MaxTimePerEndgame = 10 * time.Second
 // GameRunner is the master struct here for the automatic game logic.
 type GameRunner struct {
 	game     *game.Game
-	gaddag   gaddag.GenericDawg
-	alphabet *alphabet.Alphabet
+	gaddag   gaddag.WordGraph
+	alphabet *tilemapping.TileMapping
 
 	lexicon            string
 	letterDistribution string
@@ -37,23 +37,25 @@ type GameRunner struct {
 	logchan            chan string
 	gamechan           chan string
 	aiplayers          [2]aiturnplayer.AITurnPlayer
+	order              [2]int
 }
 
 // NewGameRunner just instantiates and initializes a game runner.
 func NewGameRunner(logchan chan string, config *config.Config) *GameRunner {
 	r := &GameRunner{logchan: logchan, config: config, lexicon: config.DefaultLexicon, letterDistribution: config.DefaultLetterDistribution}
 	r.Init([]AutomaticRunnerPlayer{
-		{"", "", pb.BotRequest_HASTY_BOT},
-		{"", "", pb.BotRequest_HASTY_BOT},
+		{"", "", pb.BotRequest_HASTY_BOT, 0},
+		{"", "", pb.BotRequest_HASTY_BOT, 0},
 	})
 
 	return r
 }
 
 type AutomaticRunnerPlayer struct {
-	LeaveFile string
-	PEGFile   string
-	BotCode   pb.BotRequest_BotCode
+	LeaveFile   string
+	PEGFile     string
+	BotCode     pb.BotRequest_BotCode
+	MinSimPlies int
 }
 
 // Init initializes the runner
@@ -76,7 +78,7 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 		return err
 	}
 
-	gd, err := gaddag.Get(r.config, r.lexicon)
+	gd, err := kwg.Get(r.config, r.lexicon)
 	if err != nil {
 		return err
 	}
@@ -94,6 +96,7 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 			Config:            *r.config,
 			PEGAdjustmentFile: pegfile,
 			LeavesFile:        leavefile,
+			MinSimPlies:       players[idx].MinSimPlies,
 		}
 
 		btp, err := bot.NewBotTurnPlayerFromGame(r.game, conf, botcode)
@@ -103,13 +106,27 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 
 		r.aiplayers[idx] = btp
 	}
+	r.order = [2]int{0, 1}
 	return nil
 }
 
-func (r *GameRunner) StartGame() {
-	if frand.Intn(2) == 1 {
+func (r *GameRunner) StartGame(gidx int) {
+	// r.order must be {0, 1} if gidx is even, and {1, 0} if odd
+	flip := false
+	if gidx%2 == 1 {
+		if r.order[0] == 0 {
+			flip = true
+		}
+	} else {
+		if r.order[1] == 0 {
+			flip = true
+		}
+	}
+
+	if flip {
 		r.game.FlipPlayers()
 		r.aiplayers[0], r.aiplayers[1] = r.aiplayers[1], r.aiplayers[0]
+		r.order[0], r.order[1] = r.order[1], r.order[0]
 	}
 	r.game.StartGame()
 }

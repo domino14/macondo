@@ -3,10 +3,10 @@ package turnplayer
 import (
 	"strings"
 
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/tilemapping"
 )
 
 // Basic game. Set racks, make moves
@@ -31,7 +31,7 @@ func BaseTurnPlayerFromRules(opts *GameOptions, players []*pb.PlayerInfo, rules 
 }
 
 func (p *BaseTurnPlayer) SetPlayerRack(playerid int, letters string) error {
-	rack := alphabet.RackFromString(letters, p.Alphabet())
+	rack := tilemapping.RackFromString(letters, p.Alphabet())
 	return p.SetRackFor(playerid, rack)
 }
 
@@ -54,7 +54,7 @@ func (p *BaseTurnPlayer) NewChallengeMove(playerid int) (*move.Move, error) {
 func (p *BaseTurnPlayer) NewExchangeMove(playerid int, letters string) (*move.Move, error) {
 	alph := p.Alphabet()
 	rack := p.RackFor(playerid)
-	tiles, err := alphabet.ToMachineWord(letters, alph)
+	tiles, err := tilemapping.ToMachineWord(letters, alph)
 	if err != nil {
 		return nil, err
 	}

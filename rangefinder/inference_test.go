@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/matryer/is"
 	"github.com/rs/zerolog"
 )
@@ -22,7 +22,7 @@ var DefaultConfig = config.DefaultConfig()
 
 func defaultSimCalculators(lexiconName string) []equity.EquityCalculator {
 	c, err := equity.NewCombinedStaticCalculator(
-		lexiconName, &DefaultConfig, equity.LeaveFilename, equity.PEGAdjustmentFilename)
+		lexiconName, &DefaultConfig, "", equity.PEGAdjustmentFilename)
 	if err != nil {
 		panic(err)
 	}
@@ -47,7 +47,7 @@ func TestInferTilePlay(t *testing.T) {
 	game.StartGame()
 	game.SetPlayerOnTurn(0)
 
-	game.SetRackFor(0, alphabet.RackFromString("PHEW", game.Alphabet()))
+	game.SetRackFor(0, tilemapping.RackFromString("PHEW", game.Alphabet()))
 	_, err = game.PlayScoringMove("H6", "PHEW", true)
 	is.NoErr(err)
 
@@ -94,11 +94,11 @@ func TestInferExchange(t *testing.T) {
 	game.StartGame()
 	game.SetPlayerOnTurn(0)
 
-	game.SetRackFor(0, alphabet.RackFromString("AENSTUU", game.Alphabet()))
+	game.SetRackFor(0, tilemapping.RackFromString("AENSTUU", game.Alphabet()))
 
-	uu, err := alphabet.ToMachineLetters("UU", game.Alphabet())
+	uu, err := tilemapping.ToMachineLetters("UU", game.Alphabet())
 	is.NoErr(err)
-	aenst, err := alphabet.ToMachineLetters("AENST", game.Alphabet())
+	aenst, err := tilemapping.ToMachineLetters("AENST", game.Alphabet())
 	is.NoErr(err)
 
 	m := move.NewExchangeMove(uu, aenst, game.Alphabet())
@@ -116,7 +116,7 @@ func TestInferExchange(t *testing.T) {
 	rangeFinder.logStream = f
 
 	// Nigel's rack was AELNOQT.
-	aelnoqt, err := alphabet.ToMachineLetters("AELNOQT", game.Alphabet())
+	aelnoqt, err := tilemapping.ToMachineLetters("AELNOQT", game.Alphabet())
 	is.NoErr(err)
 	err = rangeFinder.PrepareFinder(aelnoqt)
 	is.NoErr(err)
@@ -131,7 +131,6 @@ func TestInferExchange(t *testing.T) {
 	fmt.Println("analyze inferences")
 	fmt.Println(rangeFinder.AnalyzeInferences(true))
 	fmt.Println(rangeFinder.AnalyzeInferences(false))
-
 }
 
 func TestInferSingle(t *testing.T) {
@@ -151,7 +150,7 @@ func TestInferSingle(t *testing.T) {
 	game.StartGame()
 	game.SetPlayerOnTurn(0)
 
-	game.SetRackFor(0, alphabet.RackFromString("PHEW", game.Alphabet()))
+	game.SetRackFor(0, tilemapping.RackFromString("PHEW", game.Alphabet()))
 	_, err = game.PlayScoringMove("8F", "PHEW", true)
 	is.NoErr(err)
 

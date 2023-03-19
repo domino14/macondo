@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
@@ -16,6 +15,7 @@ import (
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/stats"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/domino14/macondo/turnplayer"
 )
 
@@ -200,7 +200,7 @@ func ExportGCG(cfg *config.Config, filename, letterdist, lexicon, boardlayout, g
 		if g.History().Players[1].Nickname == row[0] {
 			pidx = 1
 		}
-		err = g.SetRackFor(pidx, alphabet.RackFromString(row[3], g.Alphabet()))
+		err = g.SetRackFor(pidx, tilemapping.RackFromString(row[3], g.Alphabet()))
 		if err != nil {
 			return err
 		}

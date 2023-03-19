@@ -6,10 +6,10 @@ import (
 	"strings"
 
 	"github.com/domino14/macondo/ai/bot"
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/config"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/domino14/macondo/turnplayer"
 )
 
@@ -118,7 +118,7 @@ func (an *Analyzer) loadJson(j []byte) error {
 	}
 	var g = an.game
 	bd := g.Board()
-	letters := []alphabet.MachineLetter{}
+	letters := []tilemapping.MachineLetter{}
 	for row, str := range b.Board {
 		str = strings.Replace(str, ".", " ", -1)
 		letters = append(letters, bd.SetRow(row, str, g.Alphabet())...)

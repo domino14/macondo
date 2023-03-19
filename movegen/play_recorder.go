@@ -1,18 +1,18 @@
 package movegen
 
 import (
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/samber/lo"
 )
 
-type PlayRecorderFunc func(*GordonGenerator, *alphabet.Rack, int, int, move.MoveType)
+type PlayRecorderFunc func(*GordonGenerator, *tilemapping.Rack, int, int, move.MoveType)
 
-func NullPlayRecorder(gen *GordonGenerator, a *alphabet.Rack, leftstrip, rightstrip int, t move.MoveType) {
+func NullPlayRecorder(gen *GordonGenerator, a *tilemapping.Rack, leftstrip, rightstrip int, t move.MoveType) {
 }
 
-func AllPlaysRecorder(gen *GordonGenerator, rack *alphabet.Rack, leftstrip, rightstrip int, t move.MoveType) {
+func AllPlaysRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, rightstrip int, t move.MoveType) {
 
 	switch t {
 	case move.MoveTypePlay:
@@ -29,10 +29,13 @@ func AllPlaysRecorder(gen *GordonGenerator, rack *alphabet.Rack, leftstrip, righ
 		}
 
 		length := rightstrip - leftstrip + 1
-		word := make([]alphabet.MachineLetter, length)
+		if length < 2 {
+			return
+		}
+		word := make([]tilemapping.MachineLetter, length)
 		copy(word, gen.strip[startCol:startCol+length])
 
-		alph := gen.gaddag.GetAlphabet()
+		alph := gen.letterDistribution.TileMapping()
 		play := move.NewScoringMove(gen.scoreMove(word, startRow, startCol, tilesPlayed),
 			word, rack.TilesOn(), gen.vertical,
 			tilesPlayed, alph, row, col)
@@ -43,8 +46,8 @@ func AllPlaysRecorder(gen *GordonGenerator, rack *alphabet.Rack, leftstrip, righ
 		if rightstrip == 0 {
 			return
 		}
-		alph := gen.gaddag.GetAlphabet()
-		exchanged := make([]alphabet.MachineLetter, rightstrip)
+		alph := gen.letterDistribution.TileMapping()
+		exchanged := make([]tilemapping.MachineLetter, rightstrip)
 		copy(exchanged, gen.exchangestrip[:rightstrip])
 		play := move.NewExchangeMove(exchanged, rack.TilesOn(), alph)
 		gen.plays = append(gen.plays, play)
@@ -57,7 +60,7 @@ func AllPlaysRecorder(gen *GordonGenerator, rack *alphabet.Rack, leftstrip, righ
 
 // TopPlayOnlyRecorder is a heavily optimized, ugly function to avoid allocating
 // a lot of moves just to throw them out. It only records the very top move.
-func TopPlayOnlyRecorder(gen *GordonGenerator, rack *alphabet.Rack, leftstrip, rightstrip int, t move.MoveType) {
+func TopPlayOnlyRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, rightstrip int, t move.MoveType) {
 
 	var eq float64
 	var tilesLength int
@@ -78,7 +81,9 @@ func TopPlayOnlyRecorder(gen *GordonGenerator, rack *alphabet.Rack, leftstrip, r
 		}
 		tilesLength = rightstrip - leftstrip + 1
 		// word is in gen.strip[startCol:startCol+length]
-
+		if tilesLength < 2 {
+			return
+		}
 		// note that this is a pointer right now:
 		word := gen.strip[startCol : startCol+tilesLength]
 
@@ -87,7 +92,7 @@ func TopPlayOnlyRecorder(gen *GordonGenerator, rack *alphabet.Rack, leftstrip, r
 
 		gen.placeholder.Set(word, gen.leavestrip[:leaveLength], score,
 			row, col, tilesPlayed, gen.vertical, move.MoveTypePlay,
-			gen.letterDistribution.Alphabet())
+			gen.letterDistribution.TileMapping())
 
 		eq = lo.SumBy(gen.equityCalculators, func(c equity.EquityCalculator) float64 {
 			return c.Equity(gen.placeholder, gen.board, gen.game.Bag(), gen.game.RackFor(gen.game.NextPlayer()))
@@ -104,7 +109,7 @@ func TopPlayOnlyRecorder(gen *GordonGenerator, rack *alphabet.Rack, leftstrip, r
 
 		gen.placeholder.Set(exchanged, gen.leavestrip[:leaveLength], 0,
 			0, 0, tilesLength, gen.vertical, move.MoveTypeExchange,
-			gen.letterDistribution.Alphabet())
+			gen.letterDistribution.TileMapping())
 
 		eq = lo.SumBy(gen.equityCalculators, func(c equity.EquityCalculator) float64 {
 			return c.Equity(gen.placeholder, gen.board, gen.game.Bag(), gen.game.RackFor(gen.game.NextPlayer()))

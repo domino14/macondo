@@ -4,13 +4,13 @@ import (
 	"context"
 	"sort"
 
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/equity"
-	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/samber/lo"
 
 	"github.com/domino14/macondo/config"
@@ -50,7 +50,7 @@ func NewAIStaticTurnPlayerFromGame(g *game.Game, conf *config.Config, calculator
 }
 
 func AddAIFields(p *turnplayer.BaseTurnPlayer, conf *config.Config, calculators []equity.EquityCalculator) (*AIStaticTurnPlayer, error) {
-	gd, err := gaddag.Get(conf, p.LexiconName())
+	gd, err := kwg.Get(conf, p.LexiconName())
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +60,7 @@ func AddAIFields(p *turnplayer.BaseTurnPlayer, conf *config.Config, calculators 
 	return ret, nil
 }
 
-func (p *AIStaticTurnPlayer) AssignEquity(plays []*move.Move, board *board.GameBoard, bag *alphabet.Bag, oppRack *alphabet.Rack) {
+func (p *AIStaticTurnPlayer) AssignEquity(plays []*move.Move, board *board.GameBoard, bag *tilemapping.Bag, oppRack *tilemapping.Rack) {
 	for _, m := range plays {
 		m.SetEquity(lo.SumBy(p.calculators, func(c equity.EquityCalculator) float64 {
 			return c.Equity(m, board, bag, oppRack)

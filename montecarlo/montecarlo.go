@@ -18,7 +18,6 @@ import (
 	"lukechampine.com/frand"
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/equity"
@@ -26,6 +25,7 @@ import (
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/stats"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v2"
 )
@@ -121,59 +121,64 @@ func (sp *SimmedPlay) addScoreStat(play *move.Move, ply int) {
 	sp.bingoStats[ply].Push(float64(bingos))
 }
 
-func (sp *SimmedPlay) addEquityStat(initialSpread int, spread int, leftover float64,
-	gameover bool, winpcts [][]float32, tilesUnseen int, pliesAreEven bool) {
+func (sp *SimmedPlay) addEquityStat(initialSpread int, spread int, leftover float64) {
 	sp.Lock()
 	defer sp.Unlock()
 	sp.equityStats.Push(float64(spread-initialSpread) + leftover)
-	sp.leftoverStats.Push(float64(leftover))
+	sp.leftoverStats.Push(leftover)
+}
+
+func (sp *SimmedPlay) addWinPctStat(spread int, leftover float64, gameover bool, winpcts [][]float32,
+	tilesUnseen int, pliesAreEven bool) {
+	winPct := float64(0.0)
+
 	if gameover || tilesUnseen == 0 {
 		if spread == 0 {
-			sp.winPctStats.Push(0.5)
+			winPct = 0.5
 		} else if spread > 0 {
-			sp.winPctStats.Push(1.0)
-		} else {
-			sp.winPctStats.Push(0.0)
+			winPct = 1.0
 		}
-		return
-	}
-	if tilesUnseen > 93 {
-		// Only for ZOMGWords or similar; this is a bit of a hack.
-		tilesUnseen = 93
-	}
-	// for an even-ply sim, it is our opponent's turn at the end of the sim.
-	// the table is calculated from our perspective, so flip the spread.
-	// i.e. if we are winning by 20 pts at the end of the sim, and our opponent
-	// is on turn, we want to look up -20 as the spread, and then flip the win %
-	// as well.
-	spreadPlusLeftover := spread + int(math.Round(leftover))
-	if pliesAreEven {
-		spreadPlusLeftover = -spreadPlusLeftover
-	}
+	} else {
+		if tilesUnseen > 93 {
+			// Only for ZOMGWords or similar; this is a bit of a hack.
+			tilesUnseen = 93
+		}
+		// for an even-ply sim, it is our opponent's turn at the end of the sim.
+		// the table is calculated from our perspective, so flip the spread.
+		// i.e. if we are winning by 20 pts at the end of the sim, and our opponent
+		// is on turn, we want to look up -20 as the spread, and then flip the win %
+		// as well.
+		spreadPlusLeftover := spread + int(math.Round(leftover))
+		if pliesAreEven {
+			spreadPlusLeftover = -spreadPlusLeftover
+		}
 
-	if spreadPlusLeftover > equity.MaxRepresentedWinSpread {
-		spreadPlusLeftover = equity.MaxRepresentedWinSpread
+		if spreadPlusLeftover > equity.MaxRepresentedWinSpread {
+			spreadPlusLeftover = equity.MaxRepresentedWinSpread
+		}
+		if spreadPlusLeftover < -equity.MaxRepresentedWinSpread {
+			spreadPlusLeftover = -equity.MaxRepresentedWinSpread
+		}
+		// winpcts goes from +MaxRepresentedWinSpread to -MaxRespresentedWinSpread
+		// spread = index
+		// 200 = 0
+		// 199 = 1
+		// 99 = 101
+		// 0 = 200
+		// -1 = 201
+		// -101 = 301
+		// -200 = 400
+		pct := winpcts[equity.MaxRepresentedWinSpread-spreadPlusLeftover][tilesUnseen]
+
+		if pliesAreEven {
+			// see the above comment re flipping win pct.
+			pct = 1 - pct
+		}
+		winPct = float64(pct)
 	}
-	if spreadPlusLeftover < -equity.MaxRepresentedWinSpread {
-		spreadPlusLeftover = -equity.MaxRepresentedWinSpread
-	}
-	// winpcts goes from +MaxRepresentedWinSpread to -MaxRespresentedWinSpread
-	// spread = index
-	// 200 = 0
-	// 199 = 1
-	// 99 = 101
-	// 0 = 200
-	// -1 = 201
-	// -101 = 301
-	// -200 = 400
-	pct := winpcts[equity.MaxRepresentedWinSpread-spreadPlusLeftover][tilesUnseen]
-	log.Trace().Int("i1", equity.MaxRepresentedWinSpread-spreadPlusLeftover).Int("i2", tilesUnseen).Float32(
-		"pct", pct).Bool("plies-are-even", pliesAreEven).Msg("calc-win%")
-	if pliesAreEven {
-		// see the above comment re flipping win pct.
-		pct = 1 - pct
-	}
-	sp.winPctStats.Push(float64(pct))
+	sp.Lock()
+	defer sp.Unlock()
+	sp.winPctStats.Push(float64(winPct))
 }
 
 func (s *SimmedPlay) Move() *move.Move {
@@ -202,13 +207,13 @@ type Simmer struct {
 	plays        []*SimmedPlay
 	winPcts      [][]float32
 	cfg          *config.Config
-	knownOppRack []alphabet.MachineLetter
+	knownOppRack []tilemapping.MachineLetter
 
 	logStream         io.Writer
 	stoppingCondition StoppingCondition
 
 	// See rangefinder.
-	inferences    [][]alphabet.MachineLetter
+	inferences    [][]tilemapping.MachineLetter
 	inferenceMode InferenceMode
 }
 
@@ -250,11 +255,11 @@ func (s *Simmer) SetLogStream(l io.Writer) {
 	s.logStream = l
 }
 
-func (s *Simmer) SetKnownOppRack(r []alphabet.MachineLetter) {
+func (s *Simmer) SetKnownOppRack(r []tilemapping.MachineLetter) {
 	s.knownOppRack = r
 }
 
-func (s *Simmer) SetInferences(i [][]alphabet.MachineLetter, mode InferenceMode) {
+func (s *Simmer) SetInferences(i [][]tilemapping.MachineLetter, mode InferenceMode) {
 	s.inferences = i
 	s.inferenceMode = mode
 }
@@ -334,7 +339,8 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 	s.simming = true
 	defer func() {
 		s.simming = false
-		log.Info().Msgf("Simulation ended after %v iterations", s.iterationCount)
+		log.Info().Int("plies", s.maxPlies).Int("iterationCt", s.iterationCount).
+			Msg("sim-ended")
 	}()
 
 	// use an errgroup here and listen for a ctx done outside this loop, but
@@ -501,7 +507,7 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 	if err != nil {
 		return err
 	}
-	logIter := LogIteration{Iteration: iterationCount, Plays: []LogPlay{}, Thread: thread}
+	logIter := LogIteration{Iteration: iterationCount, Plays: nil, Thread: thread}
 
 	var logPlay LogPlay
 	var plyChild LogPlay
@@ -554,8 +560,9 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 					leftover -= thisLeftover
 				}
 			}
-
-			logPlay.Plies = append(logPlay.Plies, plyChild)
+			if s.logStream != nil {
+				logPlay.Plies = append(logPlay.Plies, plyChild)
+			}
 			// Maybe these add{X}Stat functions can instead write them to
 			// a channel to avoid mutices
 			simmedPlay.addScoreStat(bestPlay, ply)
@@ -563,9 +570,14 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 		}
 		// log.Debug().Msgf("Spread for initial player: %v, leftover: %v",
 		// 	s.game.SpreadFor(s.initialPlayer), leftover)
+		spread := g.SpreadFor(s.initialPlayer)
 		simmedPlay.addEquityStat(
 			s.initialSpread,
-			g.SpreadFor(s.initialPlayer),
+			spread,
+			leftover,
+		)
+		simmedPlay.addWinPctStat(
+			spread,
 			leftover,
 			g.Playing() == pb.PlayState_GAME_OVER,
 			s.winPcts,

@@ -13,21 +13,15 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/domino14/macondo/testcommon"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/matryer/is"
 	"github.com/rs/zerolog"
 )
 
 var DefaultConfig = config.DefaultConfig()
-
-func TestMain(m *testing.M) {
-	testcommon.CreateGaddags(DefaultConfig, []string{"NWL20"})
-	os.Exit(m.Run())
-}
 
 func TestCompVsCompStatic(t *testing.T) {
 	logchan := make(chan string)
@@ -41,7 +35,7 @@ func TestCompVsCompStatic(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		fmt.Println(runner.game.Board().ToDisplayText(alphabet.EnglishAlphabet()))
+		fmt.Println(runner.game.Board().ToDisplayText(tilemapping.EnglishAlphabet()))
 		close(logchan)
 	}()
 
@@ -61,27 +55,27 @@ func TestCompVsCompStatic(t *testing.T) {
 func TestPlayerNames(t *testing.T) {
 	is := is.New(t)
 	is.Equal(playerNames([]AutomaticRunnerPlayer{
-		{"", "", macondo.BotRequest_HASTY_BOT},
-		{"", "", macondo.BotRequest_HASTY_BOT},
+		{"", "", macondo.BotRequest_HASTY_BOT, 0},
+		{"", "", macondo.BotRequest_HASTY_BOT, 0},
 	}), []string{"HastyBot", "HastyBot1"})
 	is.Equal(playerNames([]AutomaticRunnerPlayer{
-		{"", "", macondo.BotRequest_HASTY_BOT},
-		{"", "", macondo.BotRequest_HASTY_BOT},
-		{"", "", macondo.BotRequest_HASTY_BOT},
+		{"", "", macondo.BotRequest_HASTY_BOT, 0},
+		{"", "", macondo.BotRequest_HASTY_BOT, 0},
+		{"", "", macondo.BotRequest_HASTY_BOT, 0},
 	}), []string{"HastyBot", "HastyBot1", "HastyBot2"})
 	is.Equal(playerNames([]AutomaticRunnerPlayer{
-		{"", "", macondo.BotRequest_HASTY_BOT},
-		{"", "", macondo.BotRequest_NO_LEAVE_BOT},
-		{"", "", macondo.BotRequest_HASTY_BOT},
+		{"", "", macondo.BotRequest_HASTY_BOT, 0},
+		{"", "", macondo.BotRequest_NO_LEAVE_BOT, 0},
+		{"", "", macondo.BotRequest_HASTY_BOT, 0},
 	}), []string{"HastyBot", "NoLeaveBot", "HastyBot1"})
 	is.Equal(playerNames([]AutomaticRunnerPlayer{
-		{"", "", macondo.BotRequest_NO_LEAVE_BOT},
-		{"", "", macondo.BotRequest_HASTY_BOT},
-		{"", "", macondo.BotRequest_HASTY_BOT},
+		{"", "", macondo.BotRequest_NO_LEAVE_BOT, 0},
+		{"", "", macondo.BotRequest_HASTY_BOT, 0},
+		{"", "", macondo.BotRequest_HASTY_BOT, 0},
 	}), []string{"NoLeaveBot", "HastyBot", "HastyBot1"})
 	is.Equal(playerNames([]AutomaticRunnerPlayer{
-		{"", "", macondo.BotRequest_LEVEL1_CEL_BOT},
-		{"", "", macondo.BotRequest_LEVEL3_CEL_BOT},
+		{"", "", macondo.BotRequest_LEVEL1_CEL_BOT, 0},
+		{"", "", macondo.BotRequest_LEVEL3_CEL_BOT, 0},
 	}), []string{"Level1CelBot", "Level3CelBot"})
 }
 
@@ -98,7 +92,7 @@ func BenchmarkPlayFull(b *testing.B) {
 	// 87	  12813797 ns/op	    4971 B/op	     140 allocs/op
 	runner := NewGameRunner(nil, &DefaultConfig)
 	for i := 0; i < b.N; i++ {
-		runner.playFull(false)
+		runner.playFull(false, i)
 	}
 }
 
@@ -111,8 +105,8 @@ func TestCompVCompSeries(t *testing.T) {
 		context.Background(), &DefaultConfig, nGames, true, nThreads,
 		"/tmp/testcompvcomp.txt", "NWL20", "English",
 		[]AutomaticRunnerPlayer{
-			{"", "", macondo.BotRequest_HASTY_BOT},
-			{"", "", macondo.BotRequest_NO_LEAVE_BOT},
+			{"", "", macondo.BotRequest_HASTY_BOT, 0},
+			{"", "", macondo.BotRequest_NO_LEAVE_BOT, 0},
 		})
 
 	is.NoErr(err)

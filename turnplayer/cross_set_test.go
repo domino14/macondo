@@ -1,24 +1,17 @@
 package turnplayer
 
 import (
-	"os"
 	"testing"
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/domino14/macondo/testcommon"
 	"github.com/matryer/is"
 	"github.com/stretchr/testify/assert"
 )
 
 var DefaultConfig = config.DefaultConfig()
-
-func TestMain(m *testing.M) {
-	testcommon.CreateGaddags(DefaultConfig, []string{"America", "NWL18"})
-	os.Exit(m.Run())
-}
 
 func compareCrossScores(t *testing.T, b1 *board.GameBoard, b2 *board.GameBoard) {
 	dim := b1.Dim()

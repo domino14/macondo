@@ -5,16 +5,16 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/tilemapping"
 )
 
 type BlankLeaves struct{}
 
-func (b *BlankLeaves) LeaveValue(leave alphabet.MachineWord) float64 {
+func (b *BlankLeaves) LeaveValue(leave tilemapping.MachineWord) float64 {
 	return float64(0.0)
 }
 
@@ -41,6 +41,8 @@ func defaultForLexicon(lexiconName string) string {
 		return "norwegian"
 	} else if strings.HasPrefix(lexiconName, "FRA") {
 		return "french"
+	} else if strings.HasPrefix(lexiconName, "DISC") {
+		return "catalan"
 	}
 	return ""
 }
@@ -51,7 +53,7 @@ func NewExhaustiveLeaveCalculator(lexiconName string,
 
 	calc := &ExhaustiveLeaveCalculator{}
 	if leaveFilename == "" {
-		leaveFilename = LeaveFilename
+		leaveFilename = LeavesFilename
 	}
 
 	leaves, err := cache.Load(cfg, "leavefile:"+lexiconName+":"+leaveFilename, LeaveCacheLoadFunc)
@@ -60,7 +62,7 @@ func NewExhaustiveLeaveCalculator(lexiconName string,
 	}
 
 	var ok bool
-	calc.leaveValues, ok = leaves.(*OldLeaves)
+	calc.leaveValues, ok = leaves.(*KLV)
 	if !ok {
 		log.Info().Msg("no leaves found, will use greedy strategy")
 		calc.leaveValues = &BlankLeaves{}
@@ -70,7 +72,7 @@ func NewExhaustiveLeaveCalculator(lexiconName string,
 }
 
 func (els ExhaustiveLeaveCalculator) Equity(play *move.Move, board *board.GameBoard,
-	bag *alphabet.Bag, oppRack *alphabet.Rack) float64 {
+	bag *tilemapping.Bag, oppRack *tilemapping.Rack) float64 {
 
 	if bag.TilesRemaining() > 0 {
 		return float64(play.Score()) + els.LeaveValue(play.Leave())
@@ -78,6 +80,6 @@ func (els ExhaustiveLeaveCalculator) Equity(play *move.Move, board *board.GameBo
 	return float64(play.Score())
 }
 
-func (els ExhaustiveLeaveCalculator) LeaveValue(leave alphabet.MachineWord) float64 {
+func (els ExhaustiveLeaveCalculator) LeaveValue(leave tilemapping.MachineWord) float64 {
 	return els.leaveValues.LeaveValue(leave)
 }

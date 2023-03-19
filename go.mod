@@ -1,7 +1,6 @@
 module github.com/domino14/macondo
 
 require (
-	github.com/alecthomas/mph v0.0.0-20190930022807-712982e3d8a2
 	github.com/avast/retry-go v3.0.0+incompatible
 	github.com/chzyer/readline v1.5.1
 	github.com/matryer/is v1.4.0
@@ -20,7 +19,6 @@ require (
 
 require (
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
-	github.com/alecthomas/unsafeslice v0.1.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.17 // indirect
@@ -36,4 +34,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.0-20200605160147-a5ece683394c // indirect
 )
 
-go 1.19
+go 1.20

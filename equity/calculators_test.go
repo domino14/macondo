@@ -1,35 +1,29 @@
 package equity_test
 
 import (
-	"os"
 	"path/filepath"
 	"sort"
 	"testing"
 
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/gaddag"
+	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/movegen"
-	"github.com/domino14/macondo/testcommon"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/stretchr/testify/assert"
 )
 
 var DefaultConfig = config.DefaultConfig()
 
-func TestMain(m *testing.M) {
-	testcommon.CreateGaddags(DefaultConfig, []string{"NWL18"})
-	os.Exit(m.Run())
+func GaddagFromLexicon(lex string) (gaddag.WordGraph, error) {
+	return kwg.LoadKWG(&DefaultConfig, filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".kwg"))
 }
 
-func GaddagFromLexicon(lex string) (*gaddag.SimpleGaddag, error) {
-	return gaddag.LoadGaddag(filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag"))
-}
-
-func TestLeaveMPH(t *testing.T) {
-	alph := alphabet.EnglishAlphabet()
+func TestLeaveValues(t *testing.T) {
+	alph := tilemapping.EnglishAlphabet()
 
 	els, err := equity.NewExhaustiveLeaveCalculator("NWL18", &DefaultConfig, "")
 	assert.Nil(t, err)
@@ -49,9 +43,41 @@ func TestLeaveMPH(t *testing.T) {
 		{"AEINST", 30.734148025512695},
 		{"SATINE", 30.734148025512695},
 	} {
-		leave, _ := alphabet.ToMachineLetters(tc.leave, alph)
-		assert.InEpsilon(t, tc.ev, els.LeaveValue(leave), 0.00001)
+		leave, _ := tilemapping.ToMachineLetters(tc.leave, alph)
+		assert.Equal(t, tc.ev, els.LeaveValue(leave))
 	}
+}
+
+func TestOtherLeaveValues(t *testing.T) {
+	alph := tilemapping.EnglishAlphabet()
+
+	els, err := equity.NewExhaustiveLeaveCalculator("NWL18", &DefaultConfig, "")
+	assert.Nil(t, err)
+
+	type testcase struct {
+		leave string
+		ev    float64
+	}
+
+	for _, tc := range []testcase{
+		{"", 0},
+		{"ABCDEFG", 0},
+	} {
+		leave, _ := tilemapping.ToMachineLetters(tc.leave, alph)
+		assert.Equal(t, tc.ev, els.LeaveValue(leave))
+	}
+}
+
+func BenchmarkLeaveValue(b *testing.B) {
+	alph := tilemapping.EnglishAlphabet()
+
+	els, _ := equity.NewExhaustiveLeaveCalculator("NWL18", &DefaultConfig, "leaves.klv2")
+	leave, _ := tilemapping.ToMachineLetters("AENST", alph)
+
+	for i := 0; i <= b.N; i++ {
+		els.LeaveValue(leave)
+	}
+
 }
 
 func TestEndgameTiming(t *testing.T) {
@@ -59,24 +85,24 @@ func TestEndgameTiming(t *testing.T) {
 	assert.Nil(t, err)
 	alph := gd.GetAlphabet()
 	bd := board.MakeBoard(board.CrosswordGameBoard)
-	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
+	ld, err := tilemapping.EnglishLetterDistribution(&DefaultConfig)
 	assert.Nil(t, err)
 	generator := movegen.NewGordonGenerator(gd, bd, ld)
 	tilesInPlay := bd.SetToGame(gd.GetAlphabet(), board.MavenVsMacondo)
 	cross_set.GenAllCrossSets(bd, gd, ld)
-	generator.GenAll(alphabet.RackFromString("AEEORS?", alph), false)
+	generator.GenAll(tilemapping.RackFromString("AEEORS?", alph), false)
 
 	els, err := equity.NewExhaustiveLeaveCalculator("NWL18", &DefaultConfig, "")
 	assert.Nil(t, err)
 
 	eac := &equity.EndgameAdjustmentCalculator{}
 
-	oppRack := alphabet.NewRack(alph)
+	oppRack := tilemapping.NewRack(alph)
 	oppRack.Set(tilesInPlay.Rack1)
 	assert.Equal(t, oppRack.NumTiles(), uint8(2))
 
-	bag := alphabet.NewBag(ld, alph)
-	ml := make([]alphabet.MachineLetter, 100)
+	bag := tilemapping.NewBag(ld, alph)
+	ml := make([]tilemapping.MachineLetter, 100)
 	err = bag.Draw(100, ml)
 	assert.Nil(t, err)
 	plays := generator.Plays()
@@ -103,18 +129,18 @@ func TestPreendgameTiming(t *testing.T) {
 	assert.Nil(t, err)
 	alph := gd.GetAlphabet()
 	bd := board.MakeBoard(board.CrosswordGameBoard)
-	ld, err := alphabet.EnglishLetterDistribution(&DefaultConfig)
+	ld, err := tilemapping.EnglishLetterDistribution(&DefaultConfig)
 	assert.Nil(t, err)
 	generator := movegen.NewGordonGenerator(gd, bd, ld)
 	tilesInPlay := bd.SetToGame(gd.GetAlphabet(), board.VsOxy)
 	cross_set.GenAllCrossSets(bd, gd, ld)
-	generator.GenAll(alphabet.RackFromString("OXPBAZE", alph), false)
+	generator.GenAll(tilemapping.RackFromString("OXPBAZE", alph), false)
 
 	els, err := equity.NewExhaustiveLeaveCalculator("NWL18", &DefaultConfig, "")
 	assert.Nil(t, err)
 	pac, err := equity.NewPreEndgameAdjustmentCalculator(&DefaultConfig, "NWL18", "quackle_preendgame.json")
 	assert.Nil(t, err)
-	bag := alphabet.NewBag(ld, alph)
+	bag := tilemapping.NewBag(ld, alph)
 	bag.RemoveTiles(tilesInPlay.OnBoard)
 	bag.RemoveTiles(tilesInPlay.Rack1)
 	bag.RemoveTiles(tilesInPlay.Rack2)

@@ -16,7 +16,7 @@ func LeaveCacheLoadFunc(cfg *config.Config, key string) (interface{}, error) {
 	if len(fields) != 3 {
 		return nil, errors.New("cache key missing fields")
 	}
-	return loadExhaustiveMPH(cfg.StrategyParamsPath, fields[2], fields[1])
+	return loadKLV(cfg.StrategyParamsPath, fields[2], fields[1])
 }
 
 func PEGCacheLoadFunc(cfg *config.Config, key string) (interface{}, error) {

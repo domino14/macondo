@@ -7,13 +7,13 @@ import (
 	"runtime"
 
 	"github.com/domino14/macondo/ai/turnplayer"
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/equity"
-	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/tilemapping"
 
 	"github.com/rs/zerolog/log"
 )
@@ -148,10 +148,9 @@ func NonBingoPuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
 
 // XXX: Must be expanded to other languages
 func PowerTilePuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
-	alphabet := g.Alphabet()
-	pointValues := g.Bag().LetterDistribution().PointValues
+	ld := g.Bag().LetterDistribution()
 	for _, tile := range moves[0].Tiles() {
-		if pointValues[alphabet.Letter(tile)] > 6 {
+		if ld.Score(tile) > 6 {
 			return true, pb.PuzzleTag_POWER_TILE
 		}
 	}
@@ -266,7 +265,7 @@ func moveIsBingo(m *move.Move) bool {
 
 func moveContainsBlank(m *move.Move) bool {
 	for _, ml := range m.Tiles() {
-		if ml >= alphabet.BlankOffset {
+		if ml.IsBlanked() {
 			return true
 		}
 	}
@@ -274,12 +273,12 @@ func moveContainsBlank(m *move.Move) bool {
 }
 
 func isCELEvent(event *pb.GameEvent, history *pb.GameHistory, cfg *config.Config) (bool, error) {
-	dawg, err := gaddag.GetDawg(cfg, "ECWL")
+	kwg, err := kwg.Get(cfg, "ECWL")
 	if err != nil {
 		return false, err
 	}
 	for _, word := range event.WordsFormed {
-		phony, err := isPhony(dawg, word, history.Variant)
+		phony, err := isPhony(kwg, word, history.Variant)
 		if err != nil || phony {
 			return false, err
 		}
@@ -287,9 +286,9 @@ func isCELEvent(event *pb.GameEvent, history *pb.GameHistory, cfg *config.Config
 	return true, nil
 }
 
-func isPhony(gd gaddag.GenericDawg, word, variant string) (bool, error) {
-	lex := gaddag.Lexicon{GenericDawg: gd}
-	machineWord, err := alphabet.ToMachineWord(word, lex.GetAlphabet())
+func isPhony(k *kwg.KWG, word, variant string) (bool, error) {
+	lex := kwg.Lexicon{KWG: *k}
+	machineWord, err := tilemapping.ToMachineWord(word, lex.GetAlphabet())
 	if err != nil {
 		return false, err
 	}
@@ -303,8 +302,7 @@ func isPhony(gd gaddag.GenericDawg, word, variant string) (bool, error) {
 	return !valid, nil
 }
 
-func convertToVisible(words []alphabet.MachineWord,
-	alph *alphabet.Alphabet) []string {
+func convertToVisible(words []tilemapping.MachineWord, alph *tilemapping.TileMapping) []string {
 
 	uvstrs := make([]string, len(words))
 	for idx, w := range words {

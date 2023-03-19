@@ -5,7 +5,7 @@ Example:
     autoplay
     autoplay stop
     autoplay -logfile /path/to/log.txt
-    autoplay -logfile foo.txt -leavefile1 trial.olv
+    autoplay -logfile foo.txt -leavefile1 trial.klv2
 
 Options:
     -logfile foo.txt   -- logs games to foo.txt
@@ -14,8 +14,8 @@ Options:
         (you should probably set the lexicon option to be that of a Norwegian
         gaddag name as well)
 
-    -leavefile1 filename.olv
-    -leavefile2 filename.olv
+    -leavefile1 filename.klv2
+    -leavefile2 filename.klv2
 
     The two options above will use leavefile1 for player1 and leavefile2
     for player2. Note that leave files only make sense for the `exhaustiveleave`
@@ -48,6 +48,14 @@ Options:
     -threads 10
 
     Uses multiple threads. Defaults to `runtime.NumCPU()`
+
+    -minsimplies1 2
+    -minsimplies2 3
+
+    Minimum sim plies for player 1 is set to 2 plies, and minimum for player 2
+    is set to 3 plies. If not specified, this defaults to 2 plies per bot,
+    if the bot is a simming bot.
+    This is used for Monte Carlo simulations (`help sim` for more info).
 
 autoplay can be used to generate computer vs computer games for research
 purposes.

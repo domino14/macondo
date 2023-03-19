@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/matryer/is"
 	"github.com/rs/zerolog/log"
 )
@@ -48,7 +48,7 @@ func TestBlocks(t *testing.T) {
 	is := is.New(t)
 	row := "  SUP  AT ON  " // SUPS does not block ATTONE, etc.
 	// U(P) should not be blocked by or block SUPINATION
-	alph := alphabet.EnglishAlphabet()
+	alph := tilemapping.EnglishAlphabet()
 	b := board.MakeBoard(board.CrosswordGameBoard)
 	b.SetRow(3, row, alph)
 	fmt.Println(b.ToDisplayText(alph))
@@ -90,7 +90,7 @@ func TestComplexBlocks(t *testing.T) {
 	is := is.New(t)
 	row1 := "    BETA      "
 	row2 := "   HA   OSES  "
-	alph := alphabet.EnglishAlphabet()
+	alph := tilemapping.EnglishAlphabet()
 	b := board.MakeBoard(board.CrosswordGameBoard)
 	b.SetRow(10, row1, alph)
 	b.SetRow(11, row2, alph)
@@ -162,7 +162,7 @@ func TestMoreComplexBlocks(t *testing.T) {
 	row1 := "    BETA      "
 	row2 := "   HA   OSES  "
 	row3 := "    AMEER     "
-	alph := alphabet.EnglishAlphabet()
+	alph := tilemapping.EnglishAlphabet()
 	b := board.MakeBoard(board.CrosswordGameBoard)
 	b.SetRow(10, row1, alph)
 	b.SetRow(11, row2, alph)

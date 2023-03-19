@@ -1,9 +1,9 @@
 package equity
 
 import (
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/tilemapping"
 )
 
 // OpeningAdjustmentCalculator returns an equity adjustment for an opening play.
@@ -11,15 +11,15 @@ import (
 type OpeningAdjustmentCalculator struct{}
 
 func (oac OpeningAdjustmentCalculator) Equity(play *move.Move, board *board.GameBoard,
-	bag *alphabet.Bag, oppRack *alphabet.Rack) float64 {
+	bag *tilemapping.Bag, oppRack *tilemapping.Rack) float64 {
 
 	if !board.IsEmpty() {
 		return 0.0
 	}
-	return placementAdjustment(play, board)
+	return placementAdjustment(play, board, bag.LetterDistribution())
 }
 
-func placementAdjustment(play *move.Move, board *board.GameBoard) float64 {
+func placementAdjustment(play *move.Move, board *board.GameBoard, ld *tilemapping.LetterDistribution) float64 {
 	// Very simply just checks how many vowels are overlapping bonus squares.
 	// This only gets considered when the board is empty.
 	if play.Action() != move.MoveTypePlay {
@@ -37,7 +37,7 @@ func placementAdjustment(play *move.Move, board *board.GameBoard) float64 {
 	penalty := 0.0
 	vPenalty := -0.7 // VERY ROUGH approximation from Maven paper.
 	for j < end {
-		if play.Tiles()[j-start].IsVowel(play.Alphabet()) {
+		if play.Tiles()[j-start].IsVowel(ld) {
 			if board.Dim() == 15 {
 				switch j {
 				case 2, 6, 8, 12:

@@ -3,12 +3,12 @@ package bot
 import (
 	"math"
 
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/rs/zerolog/log"
 	"lukechampine.com/frand"
 )
@@ -33,7 +33,7 @@ var BotConfigs = map[pb.BotRequest_BotCode]struct {
 	pb.BotRequest_LEVEL5_PROBABILISTIC: {baseFindability: 0.9, longWordFindability: 0.8, parallelFindability: 0.85, isCel: false},
 }
 
-func filter(cfg *config.Config, g *game.Game, rack *alphabet.Rack, plays []*move.Move, botType pb.BotRequest_BotCode) *move.Move {
+func filter(cfg *config.Config, g *game.Game, rack *tilemapping.Rack, plays []*move.Move, botType pb.BotRequest_BotCode) *move.Move {
 	passMove := move.NewPassMove(rack.TilesOn(), g.Alphabet())
 	botConfig, botConfigExists := BotConfigs[botType]
 	if !botConfigExists {
@@ -43,15 +43,15 @@ func filter(cfg *config.Config, g *game.Game, rack *alphabet.Rack, plays []*move
 		return passMove
 	}
 
-	filterFunction := func([]alphabet.MachineWord, float64) (bool, error) { return true, nil }
+	filterFunction := func([]tilemapping.MachineWord, float64) (bool, error) { return true, nil }
 	if botConfig.isCel {
-		gd, err := gaddag.GetDawg(cfg, "ECWL")
+		gd, err := kwg.Get(cfg, "ECWL")
 		if err != nil {
 			log.Err(err).Msg("could-not-load-ecwl")
-			filterFunction = func([]alphabet.MachineWord, float64) (bool, error) { return false, err }
+			filterFunction = func([]tilemapping.MachineWord, float64) (bool, error) { return false, err }
 		} else {
-			lex := gaddag.Lexicon{GenericDawg: gd}
-			filterFunction = func(mws []alphabet.MachineWord, r float64) (bool, error) {
+			lex := kwg.Lexicon{KWG: *gd}
+			filterFunction = func(mws []tilemapping.MachineWord, r float64) (bool, error) {
 				err = g.ValidateWords(lex, mws)
 				if err != nil {
 					// validation error means at least one word is phony.
@@ -68,7 +68,7 @@ func filter(cfg *config.Config, g *game.Game, rack *alphabet.Rack, plays []*move
 		// XXX: This should be cached
 		subChooseCombos := createSubCombos(dist)
 		filterFunctionPrev := filterFunction
-		filterFunction = func(mws []alphabet.MachineWord, r float64) (bool, error) {
+		filterFunction = func(mws []tilemapping.MachineWord, r float64) (bool, error) {
 			allowed, err := filterFunctionPrev(mws, r)
 			if !allowed || err != nil {
 				return allowed, err
@@ -78,15 +78,14 @@ func filter(cfg *config.Config, g *game.Game, rack *alphabet.Rack, plays []*move
 			mw := mws[0] // assume len > 0
 			// Check for long words (7 or more letters)
 			if len(mw) >= game.ExchangeLimit {
-				userVisibleString := mw.UserVisible(dist.Alphabet())
-				ans *= probableFindability(len(mw), combinations(dist, subChooseCombos, userVisibleString, true)) * botConfig.longWordFindability
+				ans *= probableFindability(len(mw), combinations(dist, subChooseCombos, mw, true)) * botConfig.longWordFindability
 			}
 			log.Debug().Float64("ans", ans).Float64("r", r).Msg("checking-answer")
 			return r < ans, nil
 		}
 	}
 
-	var mws []alphabet.MachineWord
+	var mws []tilemapping.MachineWord
 	for _, play := range plays {
 		var err error
 		allowed := true
@@ -123,11 +122,11 @@ func probableFindability(wordLen int, combos uint64) float64 {
 	return math.Min(math.Log10(float64(combos))/float64(wordLen-1), 1.0)
 }
 
-func createSubCombos(dist *alphabet.LetterDistribution) [][]uint64 {
+func createSubCombos(dist *tilemapping.LetterDistribution) [][]uint64 {
 	// Adapted from GPL Zyzzyva's calculation code.
 	maxFrequency := uint8(0)
 	totalLetters := uint8(0)
-	for _, value := range dist.Distribution {
+	for _, value := range dist.Distribution() {
 		freq := value
 		totalLetters += freq
 		if freq > maxFrequency {
@@ -154,9 +153,10 @@ func createSubCombos(dist *alphabet.LetterDistribution) [][]uint64 {
 	return subChooseCombos
 }
 
-func combinations(dist *alphabet.LetterDistribution, subChooseCombos [][]uint64, alphagram string, withBlanks bool) uint64 {
+func combinations(dist *tilemapping.LetterDistribution, subChooseCombos [][]uint64,
+	alphagram tilemapping.MachineWord, withBlanks bool) uint64 {
 	// Adapted from GPL Zyzzyva's calculation code.
-	letters := make([]rune, 0)
+	letters := make([]tilemapping.MachineLetter, 0)
 	counts := make([]uint8, 0)
 	combos := make([][]uint64, 0)
 	for _, letter := range alphagram {
@@ -172,7 +172,7 @@ func combinations(dist *alphabet.LetterDistribution, subChooseCombos [][]uint64,
 			letters = append(letters, letter)
 			counts = append(counts, 1)
 			combos = append(combos,
-				subChooseCombos[dist.Distribution[letter]])
+				subChooseCombos[dist.Distribution()[letter]])
 
 		}
 	}
@@ -190,7 +190,7 @@ func combinations(dist *alphabet.LetterDistribution, subChooseCombos [][]uint64,
 	// Calculate combinations with one blank
 	for i := 0; i < numLetters; i++ {
 		counts[i]--
-		thisCombo = subChooseCombos[dist.Distribution['?']][1]
+		thisCombo = subChooseCombos[dist.Distribution()[0]][1]
 		for j := 0; j < numLetters; j++ {
 			thisCombo *= combos[j][counts[j]]
 		}
@@ -205,7 +205,7 @@ func combinations(dist *alphabet.LetterDistribution, subChooseCombos [][]uint64,
 				continue
 			}
 			counts[j]--
-			thisCombo = subChooseCombos[dist.Distribution['?']][2]
+			thisCombo = subChooseCombos[dist.Distribution()[0]][2]
 
 			for k := 0; k < numLetters; k++ {
 				thisCombo *= combos[k][counts[k]]

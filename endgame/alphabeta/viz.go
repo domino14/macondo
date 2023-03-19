@@ -2,7 +2,7 @@ package alphabeta
 
 import (
 	"fmt"
-	"io/ioutil"
+	"os"
 )
 
 // Attempt to visualize minimax graph with dot
@@ -47,5 +47,5 @@ func saveDotFile(root *GameNode, d *dotfile, outFile string) {
 		out += fmt.Sprintf(" %v\n", d)
 	}
 	out += fmt.Sprint("}\n")
-	ioutil.WriteFile(outFile, []byte(out), 0644)
+	os.WriteFile(outFile, []byte(out), 0644)
 }

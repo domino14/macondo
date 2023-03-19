@@ -10,13 +10,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/testcommon"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/matryer/is"
 	"github.com/stretchr/testify/assert"
 )
@@ -27,11 +26,6 @@ var goldenFileUpdate bool
 
 func init() {
 	flag.BoolVar(&goldenFileUpdate, "update", false, "update golden files")
-}
-
-func TestMain(m *testing.M) {
-	testcommon.CreateGaddags(DefaultConfig, []string{"NWL18", "NWL20"})
-	os.Exit(m.Run())
 }
 
 func slurp(filename string) string {
@@ -172,7 +166,7 @@ func TestNewFromHistoryExcludePenultimatePass(t *testing.T) {
 	err = g.PlayMove(m, true, 0)
 	is.NoErr(err)
 
-	l, err := alphabet.ToMachineWord("", alph)
+	l, err := tilemapping.ToMachineWord("", alph)
 	is.NoErr(err)
 	m = move.NewPassMove(l, alph)
 	_, err = g.ValidateMove(m)
@@ -224,7 +218,7 @@ func TestNewFromHistoryExcludePenultimateChallengeTurnLoss(t *testing.T) {
 	err = g.PlayMove(m, true, 0)
 	is.NoErr(err)
 
-	l, err := alphabet.ToMachineWord("", alph)
+	l, err := tilemapping.ToMachineWord("", alph)
 	is.NoErr(err)
 	m = move.NewUnsuccessfulChallengePassMove(l, alph)
 	_, err = g.ValidateMove(m)

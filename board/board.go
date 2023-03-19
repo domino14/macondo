@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/rs/zerolog/log"
 )
 
@@ -82,7 +82,7 @@ func (b BonusSquare) displayString() string {
 
 // GameBoard will store a one-dimensional array of tiles played.
 type GameBoard struct {
-	squares     []alphabet.MachineLetter
+	squares     []tilemapping.MachineLetter
 	bonuses     []BonusSquare
 	tilesPlayed int
 	dim         int
@@ -112,7 +112,7 @@ func MakeBoard(desc []string) *GameBoard {
 	for _, s := range desc {
 		totalLen += len(s)
 	}
-	sqs := make([]alphabet.MachineLetter, totalLen)
+	sqs := make([]tilemapping.MachineLetter, totalLen)
 	bs := make([]BonusSquare, totalLen)
 	vc := make([]int, totalLen)
 	hc := make([]int, totalLen)
@@ -125,7 +125,7 @@ func MakeBoard(desc []string) *GameBoard {
 	for _, s := range desc {
 		for _, c := range s {
 			bs[sqi] = BonusSquare(byte(c))
-			sqs[sqi] = alphabet.EmptySquareMarker
+			sqs[sqi] = 0
 			sqi++
 		}
 
@@ -186,11 +186,11 @@ func (g *GameBoard) GetBonus(row int, col int) BonusSquare {
 	return g.bonuses[g.getSqIdx(row, col)]
 }
 
-func (g *GameBoard) SetLetter(row int, col int, letter alphabet.MachineLetter) {
+func (g *GameBoard) SetLetter(row int, col int, letter tilemapping.MachineLetter) {
 	g.squares[g.getSqIdx(row, col)] = letter
 }
 
-func (g *GameBoard) GetLetter(row int, col int) alphabet.MachineLetter {
+func (g *GameBoard) GetLetter(row int, col int) tilemapping.MachineLetter {
 	return g.squares[g.getSqIdx(row, col)]
 }
 
@@ -257,7 +257,7 @@ func (g *GameBoard) ClearCrossSet(row int, col int, dir BoardDirection) {
 }
 
 func (g *GameBoard) SetCrossSetLetter(row int, col int, dir BoardDirection,
-	ml alphabet.MachineLetter) {
+	ml tilemapping.MachineLetter) {
 	pos := g.getSqIdx(row, col)
 	switch dir {
 	case HorizontalDirection:
@@ -303,13 +303,13 @@ func (g *GameBoard) ClearAllCrosses() {
 }
 
 func (g *GameBoard) HasLetter(row int, col int) bool {
-	return g.GetLetter(row, col) != alphabet.EmptySquareMarker
+	return g.GetLetter(row, col) != 0
 }
 
 // Clear clears the board.
 func (g *GameBoard) Clear() {
 	for i := 0; i < len(g.squares); i++ {
-		g.squares[i] = alphabet.EmptySquareMarker
+		g.squares[i] = 0
 	}
 	g.tilesPlayed = 0
 	// We set all crosses because every letter is technically allowed
@@ -441,11 +441,11 @@ func (g *GameBoard) WordEdge(row int, col int, dir WordDirection) int {
 	return col - int(dir)
 }
 
-func (g *GameBoard) TraverseBackwardsForScore(row int, col int, ld *alphabet.LetterDistribution) int {
+func (g *GameBoard) TraverseBackwardsForScore(row int, col int, ld *tilemapping.LetterDistribution) int {
 	score := 0
 	for g.PosExists(row, col) {
 		ml := g.GetLetter(row, col)
-		if ml == alphabet.EmptySquareMarker {
+		if ml == 0 {
 			break
 		}
 		score += ld.Score(ml)
@@ -487,7 +487,7 @@ func (g *GameBoard) PlaceMoveTiles(m *move.Move) {
 	rowStart, colStart, vertical := m.CoordsAndVertical()
 	var row, col int
 	for idx, tile := range m.Tiles() {
-		if tile == alphabet.PlayedThroughMarker {
+		if tile == 0 {
 			continue
 		}
 		if vertical {
@@ -505,7 +505,7 @@ func (g *GameBoard) UnplaceMoveTiles(m *move.Move) {
 	rowStart, colStart, vertical := m.CoordsAndVertical()
 	var row, col int
 	for idx, tile := range m.Tiles() {
-		if tile == alphabet.PlayedThroughMarker {
+		if tile == 0 {
 			continue
 		}
 		if vertical {
@@ -515,13 +515,13 @@ func (g *GameBoard) UnplaceMoveTiles(m *move.Move) {
 			col = colStart + idx
 			row = rowStart
 		}
-		g.squares[g.getSqIdx(row, col)] = alphabet.EmptySquareMarker
+		g.squares[g.getSqIdx(row, col)] = 0
 	}
 }
 
 // PlayMove plays a move on a board. It must place tiles on the board,
 // regenerate cross-sets and cross-points, and recalculate anchors.
-func (g *GameBoard) PlayMove(m *move.Move, ld *alphabet.LetterDistribution) {
+func (g *GameBoard) PlayMove(m *move.Move, ld *tilemapping.LetterDistribution) {
 
 	// g.playHistory = append(g.playHistory, m.ShortDescription())
 	if m.Action() != move.MoveTypePlay {
@@ -537,7 +537,7 @@ func (g *GameBoard) PlayMove(m *move.Move, ld *alphabet.LetterDistribution) {
 // We are not checking the actual validity of the word, but whether it is a
 // legal Crossword Game move.
 func (g *GameBoard) ErrorIfIllegalPlay(row, col int, vertical bool,
-	word alphabet.MachineWord) error {
+	word tilemapping.MachineWord) error {
 
 	ri, ci := 0, 1
 	if vertical {
@@ -558,16 +558,16 @@ func (g *GameBoard) ErrorIfIllegalPlay(row, col int, vertical bool,
 			return errors.New("play extends off of the board")
 		}
 
-		if ml == alphabet.PlayedThroughMarker {
+		if ml == 0 {
 			ml = g.GetLetter(newrow, newcol)
-			if ml == alphabet.EmptySquareMarker {
+			if ml == 0 {
 				return errors.New("a played-through marker was specified, but " +
 					"there is no tile at the given location")
 			}
 			bordersATile = true
 		} else {
 			ml = g.GetLetter(newrow, newcol)
-			if ml != alphabet.EmptySquareMarker {
+			if ml != 0 {
 				return fmt.Errorf("tried to play through a letter already on "+
 					"the board; please use the played-through marker (.) instead "+
 					"(row %v col %v ml %v)", newrow, newcol, ml)
@@ -579,7 +579,7 @@ func (g *GameBoard) ErrorIfIllegalPlay(row, col int, vertical bool,
 			for d := -1; d <= 1; d += 2 {
 				// only check perpendicular hooks
 				checkrow, checkcol := newrow+ci*d, newcol+ri*d
-				if g.PosExists(checkrow, checkcol) && g.GetLetter(checkrow, checkcol) != alphabet.EmptySquareMarker {
+				if g.PosExists(checkrow, checkcol) && g.GetLetter(checkrow, checkcol) != 0 {
 					bordersATile = true
 				}
 			}
@@ -602,13 +602,13 @@ func (g *GameBoard) ErrorIfIllegalPlay(row, col int, vertical bool,
 	}
 	{
 		checkrow, checkcol := row-ri, col-ci
-		if g.PosExists(checkrow, checkcol) && g.GetLetter(checkrow, checkcol) != alphabet.EmptySquareMarker {
+		if g.PosExists(checkrow, checkcol) && g.GetLetter(checkrow, checkcol) != 0 {
 			return errors.New("your play must include the whole word")
 		}
 	}
 	{
 		checkrow, checkcol := row+ri*len(word), col+ci*len(word)
-		if g.PosExists(checkrow, checkcol) && g.GetLetter(checkrow, checkcol) != alphabet.EmptySquareMarker {
+		if g.PosExists(checkrow, checkcol) && g.GetLetter(checkrow, checkcol) != 0 {
 			return errors.New("your play must include the whole word")
 		}
 	}
@@ -617,10 +617,10 @@ func (g *GameBoard) ErrorIfIllegalPlay(row, col int, vertical bool,
 
 // FormedWords returns an array of all machine words formed by this move.
 // The move is assumed to be of type Play
-func (g *GameBoard) FormedWords(m *move.Move) ([]alphabet.MachineWord, error) {
+func (g *GameBoard) FormedWords(m *move.Move) ([]tilemapping.MachineWord, error) {
 	// Reserve space for main word.
-	words := []alphabet.MachineWord{nil}
-	mainWord := []alphabet.MachineLetter{}
+	words := []tilemapping.MachineWord{nil}
+	mainWord := []tilemapping.MachineLetter{}
 
 	row, col, vertical := m.CoordsAndVertical()
 	ri, ci := 0, 1
@@ -638,7 +638,7 @@ func (g *GameBoard) FormedWords(m *move.Move) ([]alphabet.MachineWord, error) {
 		newrow, newcol := row+(ri*idx), col+(ci*idx)
 
 		// This is the main word.
-		if letter == alphabet.PlayedThroughMarker {
+		if letter == 0 {
 			letter = g.GetLetter(newrow, newcol).Unblank()
 			mainWord = append(mainWord, letter)
 			continue
@@ -657,8 +657,8 @@ func (g *GameBoard) FormedWords(m *move.Move) ([]alphabet.MachineWord, error) {
 	return words, nil
 }
 
-func (g *GameBoard) formedCrossWord(crossVertical bool, letter alphabet.MachineLetter,
-	row, col int) alphabet.MachineWord {
+func (g *GameBoard) formedCrossWord(crossVertical bool, letter tilemapping.MachineLetter,
+	row, col int) tilemapping.MachineWord {
 
 	ri, ci := 0, 1
 	if crossVertical {
@@ -668,7 +668,7 @@ func (g *GameBoard) formedCrossWord(crossVertical bool, letter alphabet.MachineL
 	// Given the cross-word direction (crossVertical) and a letter located at row, col
 	// find the cross-word that contains this letter (if any)
 	// Look in the cross direction for newly played tiles.
-	crossword := []alphabet.MachineLetter{}
+	crossword := []tilemapping.MachineLetter{}
 
 	newrow := row - ri
 	newcol := col - ci
@@ -717,8 +717,8 @@ func (g *GameBoard) formedCrossWord(crossVertical bool, letter alphabet.MachineL
 // function is called when the board is potentially transposed, so we
 // assume the row stays static as we iterate through the letters of the
 // word.
-func (g *GameBoard) ScoreWord(word alphabet.MachineWord, row, col, tilesPlayed int,
-	crossDir BoardDirection, ld *alphabet.LetterDistribution) int {
+func (g *GameBoard) ScoreWord(word tilemapping.MachineWord, row, col, tilesPlayed int,
+	crossDir BoardDirection, ld *tilemapping.LetterDistribution) int {
 
 	// letterScore:
 	var ls int
@@ -731,13 +731,12 @@ func (g *GameBoard) ScoreWord(word alphabet.MachineWord, row, col, tilesPlayed i
 	}
 	wordMultiplier := 1
 
-	for idx, rn := range word {
-		ml := alphabet.MachineLetter(rn)
+	for idx, ml := range word {
 		bonusSq := g.GetBonus(row, col+idx)
 		letterMultiplier := 1
 		thisWordMultiplier := 1
 		freshTile := false
-		if ml == alphabet.PlayedThroughMarker {
+		if ml == 0 {
 			ml = g.GetLetter(row, col+idx)
 		} else {
 			freshTile = true
@@ -762,7 +761,7 @@ func (g *GameBoard) ScoreWord(word alphabet.MachineWord, row, col, tilesPlayed i
 			// else all the multipliers are 1.
 		}
 		cs := g.GetCrossScore(row, col+idx, crossDir)
-		if ml >= alphabet.BlankOffset {
+		if ml.IsBlanked() {
 			// letter score is 0
 			ls = 0
 		} else {
@@ -786,7 +785,7 @@ func (g *GameBoard) ScoreWord(word alphabet.MachineWord, row, col, tilesPlayed i
 // Copy returns a deep copy of this board.
 func (g *GameBoard) Copy() *GameBoard {
 	newg := &GameBoard{}
-	newg.squares = make([]alphabet.MachineLetter, len(g.squares))
+	newg.squares = make([]tilemapping.MachineLetter, len(g.squares))
 	newg.bonuses = make([]BonusSquare, len(g.bonuses))
 	newg.vCrossScores = make([]int, len(g.vCrossScores))
 	newg.hCrossScores = make([]int, len(g.hCrossScores))
@@ -832,7 +831,7 @@ func (g *GameBoard) CopyFrom(b *GameBoard) {
 	g.colMul = b.colMul
 }
 
-func (g *GameBoard) GetSquares() []alphabet.MachineLetter {
+func (g *GameBoard) GetSquares() []tilemapping.MachineLetter {
 	return g.squares
 }
 

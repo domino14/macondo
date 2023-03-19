@@ -6,13 +6,13 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/equity"
-	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
+	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
+	"github.com/domino14/macondo/tilemapping"
 )
 
 const InferencesSimLimit = 400
@@ -42,7 +42,7 @@ func eliteBestPlay(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 		if tr > 0 {
 			log.Debug().Msg("assigning all unseen to opp")
 			// bag is actually empty. Assign all of unseen to the opponent.
-			mls := make([]alphabet.MachineLetter, tr)
+			mls := make([]tilemapping.MachineLetter, tr)
 			err := p.Game.Bag().Draw(tr, mls)
 			if err != nil {
 				return nil, err
@@ -60,7 +60,11 @@ func eliteBestPlay(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 		simPlies = unseen
 	} else {
 		moves = p.GenerateMoves(40)
-		simPlies = 2
+		if p.minSimPlies > 2 {
+			simPlies = p.minSimPlies
+		} else {
+			simPlies = 2
+		}
 	}
 	log.Debug().Int("simPlies", simPlies).
 		Int("simThreads", p.simThreads).
@@ -82,7 +86,7 @@ func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move
 		// Just return the static best play if we don't have an endgame engine.
 		return p.GenerateMoves(1)[0], nil
 	}
-	gd, err := gaddag.Get(p.Game.Config(), p.Game.LexiconName())
+	gd, err := kwg.Get(p.Game.Config(), p.Game.LexiconName())
 	if err != nil {
 		return nil, err
 	}

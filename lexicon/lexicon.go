@@ -1,27 +1,27 @@
 package lexicon
 
 import (
-	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/tilemapping"
 )
 
-type Word = alphabet.MachineWord
+type Word = tilemapping.MachineWord
 
 type Lexicon interface {
 	Name() string
-	GetAlphabet() *alphabet.Alphabet
+	GetAlphabet() *tilemapping.TileMapping
 	HasWord(word Word) bool
 	HasAnagram(word Word) bool
 }
 
 type AcceptAll struct {
-	Alph *alphabet.Alphabet
+	Alph *tilemapping.TileMapping
 }
 
 func (lex AcceptAll) Name() string {
 	return "AcceptAll"
 }
 
-func (lex AcceptAll) GetAlphabet() *alphabet.Alphabet {
+func (lex AcceptAll) GetAlphabet() *tilemapping.TileMapping {
 	return lex.Alph
 }
 

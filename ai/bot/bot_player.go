@@ -20,6 +20,7 @@ type BotConfig struct {
 	config.Config
 	PEGAdjustmentFile string
 	LeavesFile        string
+	MinSimPlies       int
 }
 
 type BotTurnPlayer struct {
@@ -29,6 +30,7 @@ type BotTurnPlayer struct {
 	simmer      *montecarlo.Simmer
 	simmerCalcs []equity.EquityCalculator
 	simThreads  int
+	minSimPlies int
 
 	inferencer *rangefinder.RangeFinder
 }
@@ -87,12 +89,15 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 	// If it is a simming bot, add more fields.
 	if hasSimming(botType) {
 		c, err := equity.NewCombinedStaticCalculator(
-			p.LexiconName(), p.Config(), equity.LeaveFilename, equity.PEGAdjustmentFilename)
+			p.LexiconName(), p.Config(), "", equity.PEGAdjustmentFilename)
 		if err != nil {
 			return nil, err
 		}
 		btp.simmer = &montecarlo.Simmer{}
 		btp.simmerCalcs = []equity.EquityCalculator{c}
+		if conf.MinSimPlies > 0 {
+			btp.SetMinSimPlies(conf.MinSimPlies)
+		}
 	}
 	if hasEndgame(botType) {
 		btp.endgamer = &alphabeta.Solver{}
@@ -145,4 +150,8 @@ func (p *BotTurnPlayer) SetBotType(b pb.BotRequest_BotCode) {
 
 func (p *BotTurnPlayer) SetSimThreads(t int) {
 	p.simThreads = t
+}
+
+func (p *BotTurnPlayer) SetMinSimPlies(t int) {
+	p.minSimPlies = t
 }
