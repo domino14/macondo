@@ -490,7 +490,7 @@ func TestStuck(t *testing.T) {
 	otsStuck := s.computeStuck(otsPlays, theirRack, s.otsPlayed)
 	is.Equal(len(stmStuck), 0)
 	is.Equal(len(otsStuck), 1)
-	is.Equal(otsStuck[0].UserVisible(alph, false), 'Q')
+	is.Equal(otsStuck[0].UserVisible(alph, false), "Q")
 }
 
 func TestValuation(t *testing.T) {
