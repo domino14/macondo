@@ -71,7 +71,7 @@ func TestOtherLeaveValues(t *testing.T) {
 func BenchmarkLeaveValue(b *testing.B) {
 	alph := tilemapping.EnglishAlphabet()
 
-	els, _ := equity.NewExhaustiveLeaveCalculator("NWL18", &DefaultConfig, "english.klv2")
+	els, _ := equity.NewExhaustiveLeaveCalculator("NWL18", &DefaultConfig, "leaves.klv2")
 	leave, _ := tilemapping.ToMachineLetters("AENST", alph)
 
 	for i := 0; i <= b.N; i++ {
