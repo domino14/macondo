@@ -10,7 +10,7 @@ import (
 )
 
 // KLV is a Kurnia Leave Value file. It contains a KWG and a list of
-// float32 leave values.
+// float32 leave values. We convert to float64 for our internal structures.
 type KLV struct {
 	kwg         *kwg.KWG
 	leaveValues []float64

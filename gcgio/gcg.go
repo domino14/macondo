@@ -62,6 +62,7 @@ const (
 	TileDistributionNameToken
 	ContinuationToken
 	IncompleteToken
+	TileDeclarationToken
 )
 
 type gcgdatum struct {
@@ -78,7 +79,7 @@ const (
 	IDRegex                   = `#id\s*(?P<id_authority>\S+)\s+(?P<id>\S+)`
 	Rack1Regex                = `#rack1 (?P<rack>\S+)`
 	Rack2Regex                = `#rack2 (?P<rack>\S+)`
-	MoveRegex                 = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+(?P<pos>\w+)\s+(?P<play>[\p{L}\\.]+)\s+\+(?P<score>\d+)\s+(?P<cumul>\d+)`
+	MoveRegex                 = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+(?P<pos>\w+)\s+(?P<play>\S+)\s+\+(?P<score>\d+)\s+(?P<cumul>\d+)`
 	NoteRegex                 = `#note (?P<note>.+)`
 	LexiconRegex              = `#lexicon (?P<lexicon>.+)`
 	CharacterEncodingRegex    = `#character-encoding (?P<encoding>[[:graph:]]+)`
@@ -96,6 +97,7 @@ const (
 	TimePenaltyRegex          = `>(?P<nick>\S+):\s+(?P<rack>\S*)\s+\(time\)\s+\-(?P<penalty>\d+)\s+(?P<cumul>-?\d+)`
 	PtsLostForLastRackRegex   = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+\((?P<rack>\S+)\)\s+\-(?P<penalty>\d+)\s+(?P<cumul>-?\d+)`
 	IncompleteRegex           = "#incomplete.*"
+	TileDeclarationRegex      = `#tile (?P<uppercase>\S+)\s+(?P<lowercase>\S+)`
 )
 
 var compiledEncodingRegexp *regexp.Regexp
@@ -141,6 +143,7 @@ func init() {
 		{BoardLayoutToken, regexp.MustCompile(BoardLayoutRegex)},
 		{TileDistributionNameToken, regexp.MustCompile(TileDistributionNameRegex)},
 		{IncompleteToken, regexp.MustCompile(IncompleteRegex)},
+		{TileDeclarationToken, regexp.MustCompile(TileDeclarationRegex)},
 	}
 }
 
@@ -279,8 +282,13 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 		evt.Type = pb.GameEvent_TILE_PLACEMENT_MOVE
 
 		tp := 0
-		for _, t := range evt.PlayedTiles {
-			if t != tilemapping.ASCIIPlayedThrough {
+		ld := p.game.Bag().LetterDistribution()
+		tiles, err := tilemapping.ToMachineLetters(evt.PlayedTiles, ld.TileMapping())
+		if err != nil {
+			return err
+		}
+		for _, t := range tiles {
+			if t != 0 {
 				tp++
 			}
 		}
@@ -470,6 +478,10 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 		evt.Type = pb.GameEvent_EXCHANGE
 		p.history.Events = append(p.history.Events, evt)
 		return p.game.PlayLatestEvent()
+
+	case TileDeclarationToken:
+		// for now, just ignore this token. We're going to go by the letter
+		// distribution to parse the gcg.
 	default:
 		log.Info().Int("token", int(token)).Interface("match", match).Msg("ignoring-token")
 	}
@@ -635,6 +647,19 @@ func writeGCGHeader(s *strings.Builder, h *pb.GameHistory, addlInfo bool) {
 		}
 		if h.LetterDistribution != "" && h.LetterDistribution != "english" {
 			s.WriteString("#tile-distribution " + h.LetterDistribution + "\n")
+			// Write out multi-tile pragmata
+			cfg := config.DefaultConfig()
+			tm, err := tilemapping.GetDistribution(&cfg, h.LetterDistribution)
+			if err != nil {
+				// Log the error
+				log.Err(err).Str("dist", h.LetterDistribution).Msg("cannot-get-distribution")
+			}
+			for idx := uint8(0); idx < tm.TileMapping().NumLetters(); idx++ {
+				letter := tm.TileMapping().Letter(tilemapping.MachineLetter(idx))
+				if len([]rune(letter)) > 1 {
+					s.WriteString("#tile " + letter + " " + strings.ToLower(letter) + "\n")
+				}
+			}
 		}
 	}
 	log.Debug().Msg("wrote header")
