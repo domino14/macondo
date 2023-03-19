@@ -55,27 +55,27 @@ func TestCompVsCompStatic(t *testing.T) {
 func TestPlayerNames(t *testing.T) {
 	is := is.New(t)
 	is.Equal(playerNames([]AutomaticRunnerPlayer{
-		{"", "", macondo.BotRequest_HASTY_BOT},
-		{"", "", macondo.BotRequest_HASTY_BOT},
+		{"", "", macondo.BotRequest_HASTY_BOT, 0},
+		{"", "", macondo.BotRequest_HASTY_BOT, 0},
 	}), []string{"HastyBot", "HastyBot1"})
 	is.Equal(playerNames([]AutomaticRunnerPlayer{
-		{"", "", macondo.BotRequest_HASTY_BOT},
-		{"", "", macondo.BotRequest_HASTY_BOT},
-		{"", "", macondo.BotRequest_HASTY_BOT},
+		{"", "", macondo.BotRequest_HASTY_BOT, 0},
+		{"", "", macondo.BotRequest_HASTY_BOT, 0},
+		{"", "", macondo.BotRequest_HASTY_BOT, 0},
 	}), []string{"HastyBot", "HastyBot1", "HastyBot2"})
 	is.Equal(playerNames([]AutomaticRunnerPlayer{
-		{"", "", macondo.BotRequest_HASTY_BOT},
-		{"", "", macondo.BotRequest_NO_LEAVE_BOT},
-		{"", "", macondo.BotRequest_HASTY_BOT},
+		{"", "", macondo.BotRequest_HASTY_BOT, 0},
+		{"", "", macondo.BotRequest_NO_LEAVE_BOT, 0},
+		{"", "", macondo.BotRequest_HASTY_BOT, 0},
 	}), []string{"HastyBot", "NoLeaveBot", "HastyBot1"})
 	is.Equal(playerNames([]AutomaticRunnerPlayer{
-		{"", "", macondo.BotRequest_NO_LEAVE_BOT},
-		{"", "", macondo.BotRequest_HASTY_BOT},
-		{"", "", macondo.BotRequest_HASTY_BOT},
+		{"", "", macondo.BotRequest_NO_LEAVE_BOT, 0},
+		{"", "", macondo.BotRequest_HASTY_BOT, 0},
+		{"", "", macondo.BotRequest_HASTY_BOT, 0},
 	}), []string{"NoLeaveBot", "HastyBot", "HastyBot1"})
 	is.Equal(playerNames([]AutomaticRunnerPlayer{
-		{"", "", macondo.BotRequest_LEVEL1_CEL_BOT},
-		{"", "", macondo.BotRequest_LEVEL3_CEL_BOT},
+		{"", "", macondo.BotRequest_LEVEL1_CEL_BOT, 0},
+		{"", "", macondo.BotRequest_LEVEL3_CEL_BOT, 0},
 	}), []string{"Level1CelBot", "Level3CelBot"})
 }
 
