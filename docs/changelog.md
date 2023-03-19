@@ -1,3 +1,21 @@
+# v0.6.0 (Mar 19, 2023)
+- Significant refactoring
+- Support multi-letter tiles (for Catalan)
+- Use KWG and KLV files instead of old gaddag/olv leave files
+    - Requires use of wolges for now (https://github.com/andy-k/wolges) for kwg/klv file generation
+- Speed up Monte Carlo sim by about 40%; make it zero-allocation
+
+# v0.5.0 (Mar 8, 2023)
+- Macondo is now in beta. It still is command-line only, however.
+- Add an "infer" command that attempts to infer what your opponent kept
+- Add inference-based Monte Carlo simming
+- Add a new simming bot for autoplay and other uses
+
+# v0.4.13 (Jan 28, 2023)
+- Changes to puzzle maker for liwords; add a total equity loss limit
+- Remove obsolete protobuf fields
+- A few bug fixes
+
 # v0.4.9 (Aug 20, 2022)
 
 - Drastic optimizations to speed, allocation, and memory usage
