@@ -236,14 +236,13 @@ def main():
         calculate_superleaves(autoplay_logfile, leaves_csv_file)
 
         # Create superleave structure
-        make_leaves_structure_cmd = "../../bin/make_leaves_structure -filename {}".format(leaves_csv_file)
-        return_code = subprocess.call(make_leaves_structure_cmd, shell=True)  
-        if return_code != 0:
-            print ("Make leaves structure exited with return code {}".format(return_code))
-
+        # make_leaves_structure_cmd = "../../bin/make_leaves_structure -filename {}".format(leaves_csv_file)
+        # return_code = subprocess.call(make_leaves_structure_cmd, shell=True)  
+        # if return_code != 0:
+        #     print ("Make leaves structure exited with return code {}".format(return_code))
+        print("leaves CSV file created. Please run wolges program to convert to klv2 format for autoplay.")
         # Copy files to the right places
-        copyfile(LEAVES_STRUCTURE_FILENAME, PATH_TO_DEFAULT_ENGLISH + 'leaves.idx')
-        copyfile(KLV_STRUCTURE_FILENAME, PATH_TO_DEFAULT_ENGLISH + 'leaves.klv')
+        # copyfile(KLV_STRUCTURE_FILENAME, PATH_TO_DEFAULT_ENGLISH + 'leaves.klv')
 
 
 if __name__ == "__main__":

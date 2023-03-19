@@ -10,9 +10,9 @@ its basic use case, without any arguments, `autoplay` will use two
 "exhaustive leave" players - i.e. computer players that use 1-to-6 tile
 leave values to calculate equity.
 
-The english leave values can be found in `./data/strategy/default_english/leaves.klv`. These were calculated with NWL18 in mind, but still work well for NWL20. Slightly different values for CSW21 are found in `./data/strategy/CSW21/leaves.klv`.
+The english leave values can be found in `./data/strategy/default_english/leaves.klv2`. These were calculated with NWL18 in mind, but still work well for NWL20. Slightly different values for CSW21 are found in `./data/strategy/CSW21/leaves.klv2`.
 
-See [make_leaves_structure](/macondo/manual/make_leaves_structure.html) for how
+See [How to make leaves](/macondo/manual/make_leaves_structure.html) for how
 this file was created.
 
 ## Options
@@ -24,9 +24,9 @@ about each game (the final score and who went first). `foo.txt` will contain mor
 
 `-letterdistribution norwegian` uses the norwegian letter distribution, for example
 
-`-leavefile1 filename.klv` sets the first bot's leavefile to `filename.klv`. Note that the `filename.klv` must be located inside the `./data/strategy/<lexicon>` directory in order to be found.
+`-leavefile1 filename.klv2` sets the first bot's leavefile to `filename.klv2`. Note that the `filename.klv2` must be located inside the `./data/strategy/<lexicon>` directory in order to be found.
 
-`-leavefile2 filename.klv` sets the second bot's leavefile to `filename.klv`.
+`-leavefile2 filename.klv2` sets the second bot's leavefile to `filename.klv2`.
 
 ## Starting and stopping
 
@@ -63,9 +63,9 @@ The stats above show that a bot that uses leave values wins nearly 2/3 of its ga
 
 ### Player1 uses a special set of leave values, Player2 uses the default set:
 
-`autoplay -leavefile1 quackleleaves.klv`
+`autoplay -leavefile1 quackleleaves.klv2`
 
-**Note:** The file `quackleleaves.klv` in this case must be in your `./data/strategy/<lexicon>/` directory. You can put it in the special `default_english` lexicon to make it apply to both NWL20 and CSW21 games.
+**Note:** The file `quackleleaves.klv2` in this case must be in your `./data/strategy/<lexicon>/` directory. You can put it in the special `default_english` lexicon to make it apply to both NWL20 and CSW21 games.
 
 Analysis:
 

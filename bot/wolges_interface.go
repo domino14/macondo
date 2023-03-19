@@ -140,6 +140,7 @@ func wolgesAnalyze(cfg *config.Config, g *bot.BotTurnPlayer) ([]*move.Move, erro
 	if err != nil {
 		return nil, err
 	}
+	log.Debug().Msg("made HTTP post, getting response...")
 	resp, err := http.DefaultClient.Do(req.WithContext(ctx))
 	if err != nil {
 		return nil, err
@@ -149,6 +150,7 @@ func wolgesAnalyze(cfg *config.Config, g *bot.BotTurnPlayer) ([]*move.Move, erro
 	if err != nil {
 		return nil, err
 	}
+	log.Debug().Str("body", string(readbts)).Msg("raw-from-wolges")
 	var r []WolgesAnalyzeResponse
 	err = json.Unmarshal(readbts, &r)
 	if err != nil {

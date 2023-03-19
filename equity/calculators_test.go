@@ -44,7 +44,7 @@ func TestLeaveValues(t *testing.T) {
 		{"SATINE", 30.734148025512695},
 	} {
 		leave, _ := tilemapping.ToMachineLetters(tc.leave, alph)
-		assert.InEpsilon(t, tc.ev, els.LeaveValue(leave), 0.001)
+		assert.Equal(t, tc.ev, els.LeaveValue(leave))
 	}
 }
 
@@ -71,7 +71,7 @@ func TestOtherLeaveValues(t *testing.T) {
 func BenchmarkLeaveValue(b *testing.B) {
 	alph := tilemapping.EnglishAlphabet()
 
-	els, _ := equity.NewExhaustiveLeaveCalculator("NWL18", &DefaultConfig, "english.klv")
+	els, _ := equity.NewExhaustiveLeaveCalculator("NWL18", &DefaultConfig, "english.klv2")
 	leave, _ := tilemapping.ToMachineLetters("AENST", alph)
 
 	for i := 0; i <= b.N; i++ {

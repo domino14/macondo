@@ -9,10 +9,8 @@ import (
 	"github.com/samber/lo"
 )
 
-const LeaveScale = 1 / 256.0
-
 // KLV is a Kurnia Leave Value file. It contains a KWG and a list of
-// int16s that represent scaled leave values.
+// float32 leave values.
 type KLV struct {
 	kwg         *kwg.KWG
 	leaveValues []float64
@@ -33,16 +31,16 @@ func ReadKLV(file io.Reader) (*KLV, error) {
 	if err := binary.Read(file, binary.LittleEndian, &numLeaves); err != nil {
 		return nil, err
 	}
-	leaveValues := make([]int16, numLeaves)
+	leaveValues := make([]float32, numLeaves)
 	if err := binary.Read(file, binary.LittleEndian, &leaveValues); err != nil {
 		return nil, err
 	}
 	// Count words so we can figure out how to map leaves to indexes.
 	k.CountWords()
-	floatLeaves := lo.Map(leaveValues, func(item int16, idx int) float64 {
-		return float64(item) * LeaveScale
+	float64Leaves := lo.Map(leaveValues, func(item float32, idx int) float64 {
+		return float64(item)
 	})
-	return &KLV{kwg: k, leaveValues: floatLeaves}, nil
+	return &KLV{kwg: k, leaveValues: float64Leaves}, nil
 }
 
 func (k *KLV) LeaveValue(leave tilemapping.MachineWord) float64 {

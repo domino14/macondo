@@ -4,7 +4,6 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"io"
-	"io/ioutil"
 	"path/filepath"
 	"strconv"
 
@@ -14,7 +13,7 @@ import (
 
 const (
 	PEGAdjustmentFilename = "preendgame.json"
-	LeavesFilename        = "leaves.klv"
+	LeavesFilename        = "leaves.klv2"
 )
 
 func stratFileForLexicon(strategyDir string, filename string, lexiconName string) (io.ReadCloser, error) {
@@ -77,7 +76,7 @@ func loadPEGParams(strategyPath, filepath, lexiconName string) ([]float64, error
 	}
 	defer pegfile.Close()
 
-	bts, err := ioutil.ReadAll(pegfile)
+	bts, err := io.ReadAll(pegfile)
 	if err != nil {
 		return nil, err
 	}
