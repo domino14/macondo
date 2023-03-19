@@ -56,7 +56,7 @@ do
     trap "docker rm $CONTAINER_ID" EXIT
     echo "$CONTAINER_ID"
 
-    docker cp "$LEXICON_PATH/$lex-stripped.txt" "$CONTAINER_ID:/home/in.txt"
+    docker cp "$LEXICON_PATH/$lex-toupper.txt" "$CONTAINER_ID:/home/in.txt"
     docker start "$CONTAINER_ID"
     docker attach "$CONTAINER_ID" || true
     docker cp "$CONTAINER_ID:/home/out.kwg" "$LEXICON_PATH/gaddag/$lex.kwg"
