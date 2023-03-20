@@ -49,3 +49,39 @@ func TestEventFromMove(t *testing.T) {
 	})
 
 }
+
+func TestMoveFromEventExchange(t *testing.T) {
+	is := is.New(t)
+	evt := &pb.GameEvent{
+		Cumulative:  0,
+		Rack:        "?EGKMNO",
+		Exchanged:   "GKMO",
+		Type:        pb.GameEvent_EXCHANGE,
+		PlayerIndex: 1,
+	}
+
+	alph := tilemapping.EnglishAlphabet()
+
+	m, err := MoveFromEvent(evt, alph, nil)
+	is.NoErr(err)
+	is.Equal(m, move.NewExchangeMove(tilemapping.MachineWord{7, 11, 13, 15},
+		tilemapping.MachineWord{0, 5, 14}, alph))
+}
+
+func TestMoveFromEventExchangeBlank(t *testing.T) {
+	is := is.New(t)
+	evt := &pb.GameEvent{
+		Cumulative:  0,
+		Rack:        "?EGKMNO",
+		Exchanged:   "?",
+		Type:        pb.GameEvent_EXCHANGE,
+		PlayerIndex: 1,
+	}
+
+	alph := tilemapping.EnglishAlphabet()
+
+	m, err := MoveFromEvent(evt, alph, nil)
+	is.NoErr(err)
+	is.Equal(m, move.NewExchangeMove(tilemapping.MachineWord{0},
+		tilemapping.MachineWord{5, 7, 11, 13, 14, 15}, alph))
+}

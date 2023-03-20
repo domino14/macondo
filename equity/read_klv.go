@@ -48,11 +48,7 @@ func (k *KLV) LeaveValue(leave tilemapping.MachineWord) float64 {
 	if ll == 0 {
 		return 0.0
 	}
-	for i := 1; i < ll; i++ {
-		for j := i; j > 0 && leave[j-1] > leave[j]; j-- {
-			leave[j-1], leave[j] = leave[j], leave[j-1]
-		}
-	}
+	tilemapping.SortMW(leave)
 
 	idx := k.kwg.GetWordIndexOf(k.kwg.ArcIndex(0), leave)
 	if idx != -1 {

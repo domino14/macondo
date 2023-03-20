@@ -177,7 +177,7 @@ func (m *Move) String() string {
 		return fmt.Sprintf(
 			"<%p action: exchange %v score: %v tp: %v leave: %v equity: %.3f>",
 			m,
-			m.TilesString(), m.score, m.tilesPlayed,
+			m.TilesStringExchange(), m.score, m.tilesPlayed,
 			m.LeaveString(), m.equity)
 	case MoveTypeChallenge:
 		return fmt.Sprintf("<%p action: challenge leave: %v equity: %.3f valu: %.3f>",

@@ -157,7 +157,7 @@ func MoveFromEvent(evt *pb.GameEvent, alph *tilemapping.TileMapping, board *boar
 			return nil, err
 		}
 
-		leaveMW, err := Leave(rack, tiles)
+		leaveMW, err := tilemapping.Leave(rack, tiles, false)
 		if err != nil {
 			log.Error().Err(err).Msg("")
 			return nil, err
@@ -175,7 +175,8 @@ func MoveFromEvent(evt *pb.GameEvent, alph *tilemapping.TileMapping, board *boar
 			log.Error().Err(err).Msg("")
 			return nil, err
 		}
-		leaveMW, err := Leave(rack, tiles)
+		leaveMW, err := tilemapping.Leave(rack, tiles, true)
+		fmt.Println("leave was", leaveMW, "racktiles", rack, tiles)
 		if err != nil {
 			log.Error().Err(err).Msg("")
 			return nil, err
@@ -226,38 +227,6 @@ func MoveFromEvent(evt *pb.GameEvent, alph *tilemapping.TileMapping, board *boar
 
 	}
 	return m, nil
-}
-
-// Leave calculates the leave from the rack and the made play.
-func Leave(rack tilemapping.MachineWord, play tilemapping.MachineWord) (tilemapping.MachineWord, error) {
-	rackmls := map[tilemapping.MachineLetter]int{}
-	for _, t := range rack {
-		rackmls[t]++
-	}
-	for _, t := range play {
-		if t == 0 {
-			// play-through char
-			continue
-		}
-		if t.IsBlanked() {
-			t = 0
-		}
-		if rackmls[t] != 0 {
-			// It should never be 0 unless the GCG is malformed somehow.
-			rackmls[t]--
-		} else {
-			return nil, fmt.Errorf("tile in play but not in rack: %v %v", t, rack.ToByteArr())
-		}
-	}
-	leave := []tilemapping.MachineLetter{}
-	for k, v := range rackmls {
-		if v > 0 {
-			for i := 0; i < v; i++ {
-				leave = append(leave, k)
-			}
-		}
-	}
-	return leave, nil
 }
 
 func summary(players []*pb.PlayerInfo, evt *pb.GameEvent) string {
