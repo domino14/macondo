@@ -65,10 +65,8 @@ Quick tutorial video: [https://youtu.be/07Dpa-oTTFY](https://youtu.be/07Dpa-oTTF
 
 4. Note that many commands are very primitive. I did not want to expand this shell interface too much as I expect the actual interface to be a GUI. As such there are things that you probably shouldn't do, like sim a position and generate other positions at the same time.
 
-5. See this quick video tutorial. Note that this can quickly go out of date. I'll make another tutorial when a GUI is ready.
+5. See this quick video tutorial. Note that this can quickly go out of date. I'll make another tutorial when a GUI is ready. [https://youtu.be/07Dpa-oTTFY](https://youtu.be/07Dpa-oTTFY)
 
-[https://youtu.be/07Dpa-oTTFY](https://youtu.be/07Dpa-oTTFY)
+6. This more recent video (March 2023) shows how to use inference mode, simming, etc:
 
-6. This more recent video shows how to use inference mode, simming, etc:
-
-https://www.youtube.com/watch?v=oa4gXVVvfyc
+[https://www.youtube.com/watch?v=oa4gXVVvfyc](https://www.youtube.com/watch?v=oa4gXVVvfyc)
