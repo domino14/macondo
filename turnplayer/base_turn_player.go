@@ -58,7 +58,7 @@ func (p *BaseTurnPlayer) NewExchangeMove(playerid int, letters string) (*move.Mo
 	if err != nil {
 		return nil, err
 	}
-	leaveMW, err := game.Leave(rack.TilesOn(), tiles)
+	leaveMW, err := tilemapping.Leave(rack.TilesOn(), tiles, true)
 	if err != nil {
 		return nil, err
 	}

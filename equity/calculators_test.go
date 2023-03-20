@@ -77,7 +77,6 @@ func BenchmarkLeaveValue(b *testing.B) {
 	for i := 0; i <= b.N; i++ {
 		els.LeaveValue(leave)
 	}
-
 }
 
 func TestEndgameTiming(t *testing.T) {

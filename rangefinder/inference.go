@@ -347,7 +347,7 @@ func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) ([][
 	// with high equity and we may want to infer anyway.
 	m := new(move.Move)
 	m.CopyFrom(r.lastOppMove)
-	leave, err := game.Leave(g.RackFor(opp).TilesOn(), m.Tiles())
+	leave, err := tilemapping.Leave(g.RackFor(opp).TilesOn(), m.Tiles(), false)
 	if err != nil {
 		return nil, err
 	}
