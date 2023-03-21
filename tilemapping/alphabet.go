@@ -196,10 +196,8 @@ func (ml MachineLetter) IsPlayedTile() bool {
 
 func (ml MachineLetter) IsVowel(ld *LetterDistribution) bool {
 	ml = ml.Unblank()
-	s := ld.TileMapping().Letter(ml)
-
 	for _, v := range ld.Vowels {
-		if s == string(v) {
+		if ml == v {
 			return true
 		}
 	}

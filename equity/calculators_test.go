@@ -161,3 +161,33 @@ func TestPreendgameTiming(t *testing.T) {
 
 	assert.Equal(t, plays[0].Equity(), float64(1780-3.5))
 }
+
+func TestOpeningPlayHeuristic(t *testing.T) {
+	gd, err := GaddagFromLexicon("NWL20")
+	assert.Nil(t, err)
+	alph := gd.GetAlphabet()
+	bd := board.MakeBoard(board.CrosswordGameBoard)
+	ld, err := tilemapping.EnglishLetterDistribution(&DefaultConfig)
+	assert.Nil(t, err)
+	generator := movegen.NewGordonGenerator(gd, bd, ld)
+	cross_set.GenAllCrossSets(bd, gd, ld)
+	generator.GenAll(tilemapping.RackFromString("AEFLR", alph), false)
+	els, err := equity.NewCombinedStaticCalculator(
+		"NWL20", &DefaultConfig, "", "")
+	assert.Nil(t, err)
+	plays := generator.Plays()
+	bag := tilemapping.NewBag(ld, alph)
+	for _, m := range plays {
+		// OppRack can be nil because that branch of code that checks it
+		// will never be called.
+		m.SetEquity(els.Equity(m, bd, bag, nil))
+	}
+	sort.Slice(plays, func(i, j int) bool {
+		return plays[j].Equity() < plays[i].Equity()
+	})
+	// first two plays have 24 equity: FLARE and FARLE, because they
+	// do not expose any vowels next to 2LS
+	// third play FERAL even though it scores 24 should have a penalty.
+	assert.Equal(t, plays[2].ShortDescription(), " 8D FERAL")
+	assert.Equal(t, plays[2].Equity(), 23.3)
+}
