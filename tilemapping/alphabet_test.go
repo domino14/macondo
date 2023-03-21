@@ -51,3 +51,17 @@ func TestCts(t *testing.T) {
 	is.NoErr(err)
 	is.Equal(eng.TileMapping().NumLetters(), uint8(27))
 }
+
+func TestIsVowel(t *testing.T) {
+	is := is.New(t)
+	eng, err := GetDistribution(&DefaultConfig, "english")
+	is.NoErr(err)
+	is.True(MachineLetter(5).IsVowel(eng))
+	is.True(MachineLetter(9).IsVowel(eng))
+	is.True(!MachineLetter(0).IsVowel(eng))
+	is.True(MachineLetter(1).IsVowel(eng))
+	is.True(!MachineLetter(2).IsVowel(eng))
+	is.True(!MachineLetter(25).IsVowel(eng))
+	is.True(!MachineLetter(26).IsVowel(eng))
+	is.True(MachineLetter(21).IsVowel(eng))
+}
