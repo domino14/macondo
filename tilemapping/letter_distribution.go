@@ -83,14 +83,6 @@ func newLetterDistribution(alph *TileMapping, dist []uint8,
 
 }
 
-func makeSortMap(order []string) map[string]int {
-	sortMap := make(map[string]int)
-	for idx, letter := range order {
-		sortMap[letter] = idx
-	}
-	return sortMap
-}
-
 // Score gives the score of the given machine letter. This is used by the
 // move generator to score plays more rapidly than looking up a map.
 func (ld *LetterDistribution) Score(ml MachineLetter) int {
@@ -129,4 +121,8 @@ func (ld *LetterDistribution) MakeBag() *Bag {
 	b.Shuffle()
 
 	return b
+}
+
+func (ld *LetterDistribution) NumTotalLetters() uint {
+	return ld.numLetters
 }
