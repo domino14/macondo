@@ -101,21 +101,6 @@ func (k *KWG) Tile(nodeIdx uint32) uint8 {
 	return uint8(k.nodes[nodeIdx] >> 24)
 }
 
-func (k *KWG) IterateSiblings(nodeIdx uint32, cb func(ml tilemapping.MachineLetter, nnidx uint32)) {
-	if k.IsEnd(nodeIdx) {
-		// no siblings.
-		return
-	}
-	for i := nodeIdx + 1; ; i++ {
-		t := k.Tile(i)
-		nn := k.ArcIndex(i)
-		cb(tilemapping.MachineLetter(t), nn)
-		if k.IsEnd(i) {
-			break
-		}
-	}
-}
-
 // I have no idea what is going on in these functions. See wolges kwg.rs
 func (k *KWG) countWordsAt(p uint32) int {
 	if p >= uint32(len(k.wordCounts)) {
