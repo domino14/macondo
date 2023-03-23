@@ -101,6 +101,7 @@ func TestGenCrossSetEdges(t *testing.T) {
 		{1, "A", board.CrossSetFromString("ABDEGHILMNRSTWXY", alph), 1},
 		{1, "R VOTED", board.CrossSetFromString("E", alph), 10},
 		{2, "PA ABLE", board.CrossSetFromString("RY", alph), 10},
+		{1, "W SIWYG", board.CrossSetFromString("Y", alph), 16},
 		{13, "              F", board.CrossSetFromString("EIO", alph), 4},
 		{14, "             F ", board.CrossSetFromString("AE", alph), 4},
 		{14, "          WECH ", board.CrossSetFromString("T", alph), 12}, // phony!
