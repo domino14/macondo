@@ -99,6 +99,8 @@ func TestGenCrossSetEdges(t *testing.T) {
 	var testCases = []crossSetEdgeTestCase{
 		{0, " A", board.CrossSetFromString("ABDFHKLMNPTYZ", alph), 1},
 		{1, "A", board.CrossSetFromString("ABDEGHILMNRSTWXY", alph), 1},
+		{1, "R VOTED", board.CrossSetFromString("E", alph), 10},
+		{2, "PA ABLE", board.CrossSetFromString("RY", alph), 10},
 		{13, "              F", board.CrossSetFromString("EIO", alph), 4},
 		{14, "             F ", board.CrossSetFromString("AE", alph), 4},
 		{14, "          WECH ", board.CrossSetFromString("T", alph), 12}, // phony!
