@@ -312,12 +312,13 @@ func GenCrossSet(b *Board, row int, col int, dir board.BoardDirection,
 			if gaddag.IsEnd(lNodeIdx) {
 				return
 			}
-			for i := lNodeIdx + 1; ; i++ {
+			for i := lNodeIdx; ; i++ {
 				t := gaddag.Tile(i)
-				nn := gaddag.ArcIndex(i)
 				if t == 0 {
 					continue
 				}
+				nn := gaddag.ArcIndex(i)
+
 				_, success := traverseBackwards(b, row, col-1, nn, true, leftCol, gaddag)
 				if success {
 					b.SetCrossSetLetter(row, col, dir, tilemapping.MachineLetter(t))
