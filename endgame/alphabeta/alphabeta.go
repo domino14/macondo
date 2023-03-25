@@ -94,8 +94,10 @@ type Solver struct {
 
 	lastPrincipalVariation []*move.Move
 	currentIDDepth         int
+	requestedPlies         int
 
-	config *config.Config
+	config       *config.Config
+	skippedPlays int
 }
 
 // max returns the larger of x or y.
@@ -128,6 +130,13 @@ func (s *Solver) Init(m1 movegen.MoveGenerator, m2 movegen.MoveGenerator, game *
 	s.stmBlockingRects = make([]rect, 20)
 	s.otsBlockingRects = make([]rect, 25)
 	s.config = cfg
+	if s.stmMovegen != nil {
+		s.stmMovegen.SetGenPass(true)
+	}
+	if s.otsMovegen != nil {
+		s.otsMovegen.SetGenPass(true)
+	}
+
 	return nil
 }
 
@@ -219,17 +228,17 @@ func leaveAdjustment(myLeave, oppLeave tilemapping.MachineWord,
 	return myAdjustment - oppAdjustment
 }
 
-func (s *Solver) addPass(plays []*move.Move, ponturn int) []*move.Move {
-	if len(plays) > 0 && plays[0].Action() != move.MoveTypePass {
-		// movegen doesn't generate a pass move if unneeded (actually, I'm not
-		// totally sure why). So generate it here, as sometimes a pass is beneficial
-		// in the endgame.
-		plays = append(plays, move.NewPassMove(s.game.RackFor(ponturn).TilesOn(), s.game.Alphabet()))
-	}
-	return plays
-}
+// func (s *Solver) addPass(plays []*move.Move, ponturn int) []*move.Move {
+// 	if len(plays) > 0 && plays[0].Action() != move.MoveTypePass {
+// 		// movegen doesn't generate a pass move if unneeded (actually, I'm not
+// 		// totally sure why). So generate it here, as sometimes a pass is beneficial
+// 		// in the endgame.
+// 		plays = append([]*move.Move{move.NewPassMove(s.game.RackFor(ponturn).TilesOn(), s.game.Alphabet())}, plays...)
+// 	}
+// 	return plays
+// }
 
-func (s *Solver) generateSTMPlays(parentMove *move.Move, depth int, plies int) []*move.Move {
+func (s *Solver) generateSTMPlays(parentMove *move.Move, depth int) []*move.Move {
 	// STM means side-to-move
 	stmRack := s.game.RackFor(s.game.PlayerOnTurn())
 	pnot := (s.game.PlayerOnTurn() + 1) % s.game.NumPlayers()
@@ -239,14 +248,14 @@ func (s *Solver) generateSTMPlays(parentMove *move.Move, depth int, plies int) [
 	ld := s.game.Bag().LetterDistribution()
 
 	sideToMovePlays := s.stmMovegen.GenAll(stmRack, false)
-	if stmRack.NumTiles() > 1 && (plies > 1 || parentMove == nil || len(parentMove.Tiles()) == 0) {
-		// If opponent just scored and depth is 1, "6-pass" scoring is not available.
-		// Skip adding pass if player has an out play ("6-pass" scoring never outperforms an out play).
-		// This is more about "don't search a dubious pass subtree" than about memory allocation.
-		if !containsOutPlay(sideToMovePlays, int(numTilesOnRack)) {
-			sideToMovePlays = s.addPass(sideToMovePlays, s.game.PlayerOnTurn())
-		}
-	}
+	// if stmRack.NumTiles() > 1 && (s.requestedPlies > 1 || parentMove == nil || len(parentMove.Tiles()) == 0) {
+	// If opponent just scored and depth is 1, "6-pass" scoring is not available.
+	// Skip adding pass if player has an out play ("6-pass" scoring never outperforms an out play).
+	// This is more about "don't search a dubious pass subtree" than about memory allocation.
+	// if !containsOutPlay(sideToMovePlays, int(numTilesOnRack)) {
+	// sideToMovePlays = s.addPass(sideToMovePlays, s.game.PlayerOnTurn())
+	// 	}
+	// }
 	// log.Debug().Msgf("stm plays %v", sideToMovePlays)
 	if !s.complexEvaluation {
 		// Static evaluation must be fast and resource-efficient
@@ -263,7 +272,7 @@ func (s *Solver) generateSTMPlays(parentMove *move.Move, depth int, plies int) [
 			// if s.currentIDDepth
 			return sideToMovePlays[i].Valuation() > sideToMovePlays[j].Valuation()
 		})
-
+		// need to make a copy because we'll be reusing the movegen's plays slice
 		stmCopy := make([]*move.Move, len(sideToMovePlays))
 		for idx := range stmCopy {
 			stmCopy[idx] = new(move.Move)
@@ -283,7 +292,7 @@ func (s *Solver) generateSTMPlays(parentMove *move.Move, depth int, plies int) [
 	if TwoPlyOppSearchLimit < toConsider {
 		toConsider = TwoPlyOppSearchLimit
 	}
-	otherSidePlays := s.addPass(s.otsMovegen.Plays()[:toConsider], pnot)
+	otherSidePlays := s.otsMovegen.Plays()[:toConsider]
 
 	// Compute for which tiles we are stuck
 	s.clearStuckTables()
@@ -305,7 +314,7 @@ func (s *Solver) generateSTMPlays(parentMove *move.Move, depth int, plies int) [
 			var oLeave tilemapping.MachineWord
 			blockedAll := true
 			for _, o := range otherSidePlays {
-				if s.blocks(play, o, board) {
+				if s.blocks(play, o, board, true) {
 					continue
 				}
 				blockedAll = false
@@ -382,10 +391,11 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 		Bool("iterative-deepening", s.iterativeDeepeningOn).
 		Bool("complex-evaluation", s.complexEvaluation).
 		Msg("alphabeta-solve-config")
-
+	s.requestedPlies = plies
 	tstart := time.Now()
 	s.maxCount = 0
 	s.minCount = 0
+	s.skippedPlays = 0
 	s.zobrist.Initialize(s.game.Board().Dim())
 	// Generate children moves.
 	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
@@ -427,7 +437,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 			for p := 1; p <= plies; p++ {
 				log.Debug().Msgf("%v %d Spread at beginning of endgame: %v (%d)", s.maximizingPlayer, s.initialTurnNum, s.initialSpread, s.game.ScorelessTurns())
 				s.currentIDDepth = p
-				bestNode, err := s.alphabeta(ctx, s.rootNode, initialHashKey, p, plies, float32(-Infinity), float32(Infinity), true)
+				bestNode, err := s.alphabeta(ctx, s.rootNode, initialHashKey, p, float32(-Infinity), float32(Infinity), true)
 				if err != nil {
 					log.Info().AnErr("alphabeta-err", err).Msg("iterative-deepening-on")
 					break
@@ -447,7 +457,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 		} else {
 			s.currentIDDepth = 0
 			s.lastPrincipalVariation = nil
-			bestNode, err := s.alphabeta(ctx, s.rootNode, initialHashKey, plies, plies, float32(-Infinity), float32(Infinity), true)
+			bestNode, err := s.alphabeta(ctx, s.rootNode, initialHashKey, plies, float32(-Infinity), float32(Infinity), true)
 			if err != nil {
 				log.Info().AnErr("alphabeta-err", err).Msg("iterative-deepening-off")
 			} else {
@@ -492,12 +502,13 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 	// }
 	log.Info().
 		Float64("time-elapsed-sec", time.Since(tstart).Seconds()).
+		Int("passprune-plays", s.skippedPlays).
 		Msg("solve-returning")
 	return bestV, bestSeq, err
 }
 
 func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint64,
-	depth int, plies int, α float32, β float32, maximizingPlayer bool) (*GameNode, error) {
+	depth int, α float32, β float32, maximizingPlayer bool) (*GameNode, error) {
 
 	select {
 	case <-ctx.Done():
@@ -512,60 +523,96 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 		return parent, nil
 	}
 
-	killerPlay := s.killerCache[parentKey]
+	// killerPlay := s.killerCache[parentKey]
+	// oppPassed := parent.move != nil && parent.move.Action() == move.MoveTypePass
+
+	plays := s.generateSTMPlays(parent.move, depth)
+	priorityPlays := []*move.Move{}
+	// if oppPassed {
+	// 	// Add the last play the movegen generated to be considered at the
+	// 	// beginning. This might provide a quick exit. The last play
+	// 	// should always be a pass!
+	// 	priorityPlays = append(priorityPlays, plays[len(plays)-1])
+	// 	plays = plays[:len(plays)-1]
+	// }
+	// if killerPlay != nil {
+	// 	priorityPlays = append(priorityPlays, killerPlay)
+	// }
 
 	if maximizingPlayer {
 		value := float32(-Infinity)
-		plays := s.generateSTMPlays(parent.move, depth, plies)
-		if killerPlay != nil {
-			// look in the cached node for the winning play last time,
-			// and search it first
-			found := false
-			for idx, play := range plays {
-				if play.Equals(killerPlay, false, false) {
-					plays[0], plays[idx] = plays[idx], plays[0]
-					found = true
-					break
-				}
-			}
-			if !found {
-				fmt.Println("killerPlay", killerPlay,
-					"plays", plays,
-					"Zobrist collision - maximizing")
-			}
-		}
+
+		// if killerPlay != nil {
+		// 	// look in the cached node for the winning play last time,
+		// 	// and search it first
+		// 	found := false
+		// 	for idx, play := range plays {
+		// 		if play.Equals(killerPlay, false, false) {
+		// 			plays[0], plays[idx] = plays[idx], plays[0]
+		// 			found = true
+		// 			break
+		// 		}
+		// 	}
+		// 	if !found {
+		// 		fmt.Println("killerPlay", killerPlay,
+		// 			"plays", plays,
+		// 			"Zobrist collision - maximizing")
+		// 	}
+		// }
+		// if killerPlay != nil {
+		// 	plays = append([]*move.Move{})
+		// }
 
 		var winningPlay *move.Move
 		var winningNode *GameNode
-		for _, play := range plays {
-			// Play the child
-			s.game.PlayMove(play, false, 0)
-			childKey := s.zobrist.AddMove(parentKey, play, true)
-			child := new(GameNode)
-			child.move = play
-			child.parent = parent
-			child.depth = uint8(depth - 1)
-			wn, err := s.alphabeta(ctx, child, childKey, depth-1, plies, α, β, false)
-			if err != nil {
+		for _, q := range [2][]*move.Move{priorityPlays, plays} {
+			for _, play := range q {
+				// if qidx == 1 && killerPlay != nil {
+				// 	if play.Equals(killerPlay, false, false) {
+				// 		// We already considered this play.
+				// 		continue
+				// 	}
+				// }
+				if skip, err := s.canSkipIfOppStuck(play, parent, depth); err != nil {
+					return nil, err
+				} else if skip {
+					continue
+				}
+				// Play the child
+				err := s.game.PlayMove(play, false, 0)
+				if err != nil {
+					return nil, err
+				}
+				childKey := s.zobrist.AddMove(parentKey, play, true)
+				child := new(GameNode)
+				child.move = play
+				child.parent = parent
+				child.depth = uint8(depth - 1)
+				if len(plays) == 1 && play.Action() == move.MoveTypePass {
+					child.onlyPassPossible = true
+				}
+				wn, err := s.alphabeta(ctx, child, childKey, depth-1, α, β, false)
+				if err != nil {
+					s.game.UnplayLastMove()
+					return nil, err
+				}
 				s.game.UnplayLastMove()
-				return nil, err
-			}
-			s.game.UnplayLastMove()
 
-			if wn.heuristicValue.value > value {
-				value = wn.heuristicValue.value
-				// I don't know how to make this algorithm not allocate, but
-				// at least these homeless nodes will get collected.
-				winningPlay = play
-				winningNode = wn.Copy()
-			}
+				if wn.heuristicValue.value > value {
+					value = wn.heuristicValue.value
+					// I don't know how to make this algorithm not allocate, but
+					// at least these homeless nodes will get collected.
+					winningPlay = play
+					winningNode = wn.Copy()
+				}
 
-			// if !s.disablePruning {
-			α = max(α, value)
-			if α >= β {
-				break // beta cut-off
+				// if !s.disablePruning {
+				α = max(α, value)
+				if α >= β {
+					break // beta cut-off
+				}
+				// }
 			}
-			// }
 		}
 		parent.heuristicValue = nodeValue{
 			value:    value,
@@ -575,52 +622,70 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 	} else {
 		// Otherwise, not maximizing
 		value := float32(Infinity)
-		plays := s.generateSTMPlays(parent.move, depth, plies)
-		if killerPlay != nil {
-			// look in the cached node for the winning play last time,
-			// and search it first
-			found := false
-			for idx, play := range plays {
-				if play.Equals(killerPlay, false, false) {
-					plays[0], plays[idx] = plays[idx], plays[0]
-					found = true
-					break
-				}
-			}
-			if !found {
-				fmt.Println("killerPlay", killerPlay,
-					"plays", plays,
-					"Zobrist collision - minimizing")
-			}
-		}
+		// if killerPlay != nil {
+		// 	// look in the cached node for the winning play last time,
+		// 	// and search it first
+		// 	found := false
+		// 	for idx, play := range plays {
+		// 		if play.Equals(killerPlay, false, false) {
+		// 			plays[0], plays[idx] = plays[idx], plays[0]
+		// 			found = true
+		// 			break
+		// 		}
+		// 	}
+		// 	if !found {
+		// 		fmt.Println("killerPlay", killerPlay,
+		// 			"plays", plays,
+		// 			"Zobrist collision - minimizing")
+		// 	}
+		// }
 
 		var winningPlay *move.Move
 		var winningNode *GameNode
-		for _, play := range plays {
-			s.game.PlayMove(play, false, 0)
-			childKey := s.zobrist.AddMove(parentKey, play, false)
-			child := new(GameNode)
-			child.move = play
-			child.parent = parent
-			child.depth = uint8(depth - 1)
-			wn, err := s.alphabeta(ctx, child, childKey, depth-1, plies, α, β, true)
-			if err != nil {
+		for _, q := range [2][]*move.Move{priorityPlays, plays} {
+			for _, play := range q {
+				// if qidx == 1 && killerPlay != nil {
+				// 	if play.Equals(killerPlay, false, false) {
+				// 		// We already considered this play.
+				// 		continue
+				// 	}
+				// }
+				if skip, err := s.canSkipIfOppStuck(play, parent, depth); err != nil {
+					return nil, err
+				} else if skip {
+					continue
+				}
+				err := s.game.PlayMove(play, false, 0)
+				if err != nil {
+					return nil, err
+				}
+				childKey := s.zobrist.AddMove(parentKey, play, false)
+				child := new(GameNode)
+				child.move = play
+				child.parent = parent
+				child.depth = uint8(depth - 1)
+				if len(plays) == 1 && play.Action() == move.MoveTypePass {
+					child.onlyPassPossible = true
+				}
+				wn, err := s.alphabeta(ctx, child, childKey, depth-1, α, β, true)
+				if err != nil {
+					s.game.UnplayLastMove()
+					return nil, err
+				}
 				s.game.UnplayLastMove()
-				return nil, err
-			}
-			s.game.UnplayLastMove()
-			if wn.heuristicValue.value < value {
-				value = wn.heuristicValue.value
-				winningPlay = play
-				winningNode = wn.Copy()
-			}
+				if wn.heuristicValue.value < value {
+					value = wn.heuristicValue.value
+					winningPlay = play
+					winningNode = wn.Copy()
+				}
 
-			// if !s.disablePruning {
-			β = min(β, value)
-			if α >= β {
-				break // alpha cut-off
+				// if !s.disablePruning {
+				β = min(β, value)
+				if α >= β {
+					break // alpha cut-off
+				}
+				// }
 			}
-			// }
 		}
 		parent.heuristicValue = nodeValue{
 			value:    value,
@@ -628,6 +693,109 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 		s.killerCache[parentKey] = winningPlay
 		return winningNode, nil
 	}
+}
+
+func (s *Solver) canSkipIfOppStuck(play *move.Move, parent *GameNode, depth int) (bool, error) {
+	// If the opponent is stuck with a tile, it is possible to trim the tree
+	// early and avoid analyzing so many moves.
+	// We are about to analyze "play".
+	if play.Action() == move.MoveTypePass {
+		// never skip a pass.
+		log.Trace().Msg("cond0-fail")
+		return false, nil
+	}
+	if !parent.onlyPassPossible {
+		log.Trace().Msg("cond1-fail")
+		return false, nil
+	}
+	if parent.parent.move == nil {
+		log.Trace().Msg("cond2-fail")
+		return false, nil
+	}
+	// If we are here, the opponent's last move was a forced pass, which
+	// means they are stuck with one or more tiles.
+
+	// Check: are they stuck if we made "play" instead of our last move?
+	// Are they stuck if we make both "play" and our last move?
+	// Do "play" and our last move intersect?
+	// Does "play" score less than our last move? -- analyze if so
+	// skip if "play" scores more
+	// If they are the same score, sort alphabetically and only handle
+	// the first one alphabetically.
+	ourLastMove := parent.parent.move
+	forcedPass := parent.move
+	// checkpoint-1
+	s.game.UnplayLastMove() // unplay opponent's pass
+	s.game.UnplayLastMove() // unplay our previous move.
+	err := s.game.PlayMove(play, false, 0)
+	if err != nil {
+		log.Err(err).Msg("skip-1")
+		// if this fails there's a serious issue.
+		return false, err
+	}
+	// Generate other side's plays and see if they're stuck.
+	hasPlay := s.stmMovegen.AtLeastOneTileMove(s.game.RackFor(s.game.PlayerOnTurn()))
+
+	// Set the play stack to what it used to be (at checkpoint-1),
+	// before comparing.
+	s.game.UnplayLastMove()
+	err = s.game.PlayMove(ourLastMove, false, 0)
+	if err != nil {
+		log.Err(err).Msg("skip-2")
+		return false, err
+	}
+	err = s.game.PlayMove(forcedPass, false, 0)
+	if err != nil {
+		log.Err(err).Msg("skip-3")
+		return false, err
+	}
+	// Check if the opp is stuck.
+	if hasPlay {
+		// opp is not stuck after this play.
+		log.Trace().Msg("cond3-fail")
+		return false, nil
+	}
+	// OK, let's try playing this play on our turn and see if the opp
+	// is stuck.
+	err = s.game.PlayMove(play, false, 0)
+	if err != nil {
+		log.Err(err).Msg("skip-4")
+		return false, err
+	}
+	hasPlay = s.stmMovegen.AtLeastOneTileMove(s.game.RackFor(s.game.PlayerOnTurn()))
+
+	// rewind the stack again
+	s.game.UnplayLastMove()
+	// Check if the opp is stuck.
+	if hasPlay {
+		// opp is not stuck after this play.
+		log.Trace().Msg("cond4-fail")
+		return false, nil
+	}
+	// checkpt-2
+	// If we are here, opp is stuck in these three situations:
+	// - after `ourLastMove` (we already knew this because they had a forced pass)
+	// - after `ourLastMove` and `play`
+	// - after `play` _instead of_ `ourLastMove`
+	// Check if the two plays are "independent". If they block each other
+	// they are not independent and we can't skip examining the tree.
+	if s.blocks(play, ourLastMove, s.game.Board(), true) {
+		log.Trace().Msg("cond5-fail")
+		return false, nil
+	}
+	if play.Score() > ourLastMove.Score() {
+		log.Trace().Msg("cond6-fail")
+		return false, nil
+	} else if play.Score() == ourLastMove.Score() {
+		if play.ShortDescription() > ourLastMove.ShortDescription() {
+			log.Trace().Msg("cond7-fail")
+			return false, nil
+		}
+	}
+	// OK fine. Let's skip examining this branch of the tree.
+	log.Trace().Str("play", play.ShortDescription()).Msg("skipping")
+	s.skippedPlays++
+	return true, nil
 }
 
 func (s *Solver) SetIterativeDeepening(i bool) {

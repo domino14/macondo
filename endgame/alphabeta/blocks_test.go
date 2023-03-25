@@ -82,7 +82,7 @@ func TestBlocks(t *testing.T) {
 
 	for _, tc := range testcases {
 		log.Debug().Msgf("trying %v blocks %v, expect %v", tc.stmPlay, tc.otsPlay, tc.blocks)
-		is.True(s.blocks(tc.stmPlay, tc.otsPlay, b) == tc.blocks)
+		is.True(s.blocks(tc.stmPlay, tc.otsPlay, b, true) == tc.blocks)
 	}
 }
 
@@ -153,7 +153,7 @@ func TestComplexBlocks(t *testing.T) {
 	}
 	for _, tc := range testcases {
 		log.Debug().Msgf("trying %v blocks %v, expect %v", tc.stmPlay, tc.otsPlay, tc.blocks)
-		is.True(s.blocks(tc.stmPlay, tc.otsPlay, b) == tc.blocks)
+		is.True(s.blocks(tc.stmPlay, tc.otsPlay, b, true) == tc.blocks)
 	}
 	// is.Fail()
 }
@@ -217,7 +217,7 @@ func TestMoreComplexBlocks(t *testing.T) {
 	}
 	for _, tc := range testcases {
 		log.Debug().Msgf("trying %v blocks %v, expect %v", tc.stmPlay, tc.otsPlay, tc.blocks)
-		is.True(s.blocks(tc.stmPlay, tc.otsPlay, b) == tc.blocks)
+		is.True(s.blocks(tc.stmPlay, tc.otsPlay, b, true) == tc.blocks)
 	}
 
 }

@@ -48,20 +48,22 @@ func (nv *nodeValue) less(other *nodeValue) bool {
 // a game node has to have enough information to allow the game and turns
 // to be reconstructed.
 type GameNode struct {
-	move           *move.Move
-	parent         *GameNode
-	heuristicValue nodeValue
-	depth          uint8
+	move             *move.Move
+	parent           *GameNode
+	heuristicValue   nodeValue
+	depth            uint8
+	onlyPassPossible bool
 }
 
 func (g *GameNode) Copy() *GameNode {
 	mv := &move.Move{}
 	mv.CopyFrom(g.move)
 	return &GameNode{
-		move:           mv,
-		parent:         g.parent,
-		heuristicValue: g.heuristicValue,
-		depth:          g.depth,
+		move:             mv,
+		parent:           g.parent,
+		heuristicValue:   g.heuristicValue,
+		depth:            g.depth,
+		onlyPassPossible: g.onlyPassPossible,
 	}
 }
 
@@ -70,6 +72,7 @@ func (g *GameNode) CopyFrom(o *GameNode) {
 	g.move.CopyFrom(o.move)
 	g.parent = o.parent
 	g.depth = o.depth
+	g.onlyPassPossible = o.onlyPassPossible
 }
 
 func (g *GameNode) Parent() *GameNode {
@@ -117,9 +120,9 @@ func (g *GameNode) calculateValue(s *Solver, negateHeurVal bool) {
 		// in the solver right now; that's why the game node doesn't matter
 		// right here:
 		g.heuristicValue = nodeValue{
-			value:          float32(spreadNow - initialSpread),
-			knownEnd:       true,
-			isPass:         g.move.Action() == move.MoveTypePass}
+			value:    float32(spreadNow - initialSpread),
+			knownEnd: true,
+			isPass:   g.move.Action() == move.MoveTypePass}
 	} else {
 		// The valuation is already an estimate of the overall gain or loss
 		// in spread for this move (if taken to the end of the game).
@@ -131,9 +134,9 @@ func (g *GameNode) calculateValue(s *Solver, negateHeurVal bool) {
 		// What is the spread right now? The valuation should be relative
 		// to that.
 		g.heuristicValue = nodeValue{
-			value:          float32(spreadNow) + moveVal - float32(initialSpread),
-			knownEnd:       false,
-			isPass:         g.move.Action() == move.MoveTypePass}
+			value:    float32(spreadNow) + moveVal - float32(initialSpread),
+			knownEnd: false,
+			isPass:   g.move.Action() == move.MoveTypePass}
 	}
 	if negateHeurVal {
 		// The maximizing player is always "us" - the player that we are

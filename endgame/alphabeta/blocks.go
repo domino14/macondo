@@ -167,7 +167,7 @@ func (s *Solver) setHookBlockingRectangles(play *move.Move, board *board.GameBoa
 }
 
 // Returns whether `play` blocks `other`
-func (s *Solver) blocks(play *move.Move, other *move.Move, board *board.GameBoard) bool {
+func (s *Solver) blocks(play *move.Move, other *move.Move, board *board.GameBoard, checkHooks bool) bool {
 	// `play` blocks `other` if any square in `play` occupies any square
 	// covered by `other`, or adjacent to it, or hooks onto a word formed
 	// by `other`
@@ -194,6 +194,9 @@ func (s *Solver) blocks(play *move.Move, other *move.Move, board *board.GameBoar
 				return true
 			}
 		}
+	}
+	if !checkHooks {
+		return false
 	}
 	// If we haven't found a block yet, look for hooks.
 	s.otsRectIndex = 0

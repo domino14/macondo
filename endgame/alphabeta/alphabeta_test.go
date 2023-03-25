@@ -3,6 +3,7 @@ package alphabeta
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/matryer/is"
@@ -15,11 +16,17 @@ import (
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	"github.com/domino14/macondo/kwg"
+	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/tilemapping"
 
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
+
+func TestMain(m *testing.M) {
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	os.Exit(m.Run())
+}
 
 var DefaultConfig = config.DefaultConfig()
 
@@ -500,14 +507,111 @@ func TestValuation(t *testing.T) {
 		420, 369, 1)
 	is.NoErr(err)
 	s.SetComplexEvaluator(true)
+	s.requestedPlies = 2
 
-	plays := s.generateSTMPlays(nil, 2, 2)
+	plays := s.generateSTMPlays(nil, 2)
 	// This is subject to change depending on the C & D values, but
 	// it's roughly accurate
 	alph := s.game.Alphabet()
 	is.Equal(plays[0].Valuation(), float32(36.5))
 	// K1 DONORS
 	is.Equal(plays[0].Tiles().UserVisiblePlayedTiles(alph), "DO..R.")
+}
+
+// func TestStuckPruning(t *testing.T) {
+// 	is := is.New(t)
+// 	plies := 4
+// 	// See EldarVsNigel in sample_testing_boards.go
+// 	// In this endgame, Eldar is stuck with a V and Nigel can 1-tile him.
+// 	// The optimal sequences are:
+
+// 	// 1.	+72	13►	1. [AL 11B 8 EEIRUW] [none V] 2. [DUM 15F 6 EEIRW] [none V] 3. [IT 11J 4 EERW] [none V] 4. [EWT 10I 28 ER] [none V] 5. [RE 3F 18] [-] 6. [end V +8]
+// 	// 1.	+72	14►	1. [DUM 15F 6 AEEIRW] [none V] 2. [AL 11B 8 EEIRW] [none V] 3. [IT 11J 4 EERW] [none V] 4. [EWT 10I 28 ER] [none V] 5. [RE 3F 18] [-] 6. [end V +8]
+// 	// 1.	+72	10►	1. [IT 11J 4 AEERUW] [none V] 2. [EWT 10I 28 AERU] [none V] 3. [AL 11B 8 ERU] [none V] 4. [DUM 15F 6 ER] [none V] 5. [RE 3F 18] [-] 6. [end V +8]
+// 	// 1.	+72	13►	1. [RASH F3 7 AEEIUW] [none V] 2. [AL 11B 8 EEIUW] [none V] 3. [DUM 15F 6 EEIW] [none V] 4. [IT 11J 4 EEW] [none V] 5. [EWT 10I 28 E] [none V] 6. [RE 3F 11] [-] 7. [end V +8]
+// 	// 1.	+72	5►	1. [RE 3F 18 AEIUW] [none V] 2. [AL 11B 8 EIUW] [none V] 3. [DUM 15F 6 EIW] [none V] 4. [IT 11J 4 EW] [none V] 5. [EWT 10I 28] [-] 6. [end V +8]
+// 	// Courtesy of elbbarcs.com -- thank you
+
+// 	deepEndgame := "4EXODE6/1DOFF1KERATIN1U/1OHO8YEN/1POOJA1B3MEWS/5SQUINTY2A/4RHINO1e3V/2B4C2R3E/GOAT1D1E2ZIN1d/1URACILS2E4/1PIG1S4T4/2L2R4T4/2L2A1GENII3/2A2T1L7/5E1A7/5D1M7 AEEIRUW/V 410/409 0 lex CSW19;"
+// 	g, err := cgp.ParseCGP(&DefaultConfig, deepEndgame)
+// 	is.NoErr(err)
+// 	gd, err := kwg.Get(&DefaultConfig, "CSW19")
+// 	is.NoErr(err)
+// 	g.SetBackupMode(game.SimulationMode)
+// 	g.SetStateStackLength(plies)
+// 	g.RecalculateBoard()
+// 	gen1 := movegen.NewGordonGenerator(
+// 		gd, g.Board(), g.Bag().LetterDistribution(),
+// 	)
+// 	gen2 := movegen.NewGordonGenerator(
+// 		gd, g.Board(), g.Bag().LetterDistribution(),
+// 	)
+
+// 	s := new(Solver)
+// 	s.Init(gen1, gen2, g, &DefaultConfig)
+// 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
+// 	s.Solve(context.Background(), plies)
+// }
+
+func TestSkipIfOppStuck(t *testing.T) {
+	is := is.New(t)
+	plies := 14
+	eg := "4EXODE6/1DOFF1KERATIN1U/1OHO8YEN/1POOJA1B3MEWS/5SQUINTY2A/4RHINO1e3V/2B4C2R3E/GOAT1D1E2ZIN1d/1URACILS2E4/1PIG1S4T4/2L2R4T4/2L2A1GENII3/2A2T1L7/5E1A7/5D1M7 AEEIRUW/V 410/409 0 lex CSW19;"
+	g, err := cgp.ParseCGP(&DefaultConfig, eg)
+	is.NoErr(err)
+	gd, err := kwg.Get(&DefaultConfig, "CSW19")
+	is.NoErr(err)
+	g.SetBackupMode(game.SimulationMode)
+	g.SetStateStackLength(plies)
+	g.RecalculateBoard()
+	gen1 := movegen.NewGordonGenerator(
+		gd, g.Board(), g.Bag().LetterDistribution(),
+	)
+	gen2 := movegen.NewGordonGenerator(
+		gd, g.Board(), g.Bag().LetterDistribution(),
+	)
+
+	s := new(Solver)
+	s.Init(gen1, gen2, g, &DefaultConfig)
+
+	m1 := move.NewScoringMoveSimple(18, "3F", "RE", "AEIUW", gd.GetAlphabet())
+	p1 := move.NewPassMove([]tilemapping.MachineLetter{22}, gd.GetAlphabet())
+	m2 := move.NewScoringMoveSimple(8, "11B", "A.", "EIUW", gd.GetAlphabet())
+	p2 := move.NewPassMove([]tilemapping.MachineLetter{22}, gd.GetAlphabet())
+	m3 := move.NewScoringMoveSimple(6, "15F", ".U.", "EIW", gd.GetAlphabet())
+
+	s.rootNode = &GameNode{}
+	gnm1 := &GameNode{move: m1, parent: s.rootNode}
+	gnp1 := &GameNode{move: p1, parent: gnm1, onlyPassPossible: true}
+	gnm2 := &GameNode{move: m2, parent: gnp1}
+	gnp2 := &GameNode{move: p2, parent: gnm2, onlyPassPossible: true}
+
+	err = s.game.PlayMove(m1, false, 0)
+	is.NoErr(err)
+	err = s.game.PlayMove(p1, false, 0)
+	is.NoErr(err)
+	err = s.game.PlayMove(m2, false, 0)
+	is.NoErr(err)
+	err = s.game.PlayMove(p2, false, 0)
+	is.NoErr(err)
+	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
+
+	skip, err := s.canSkipIfOppStuck(m3, gnp2, 5)
+	is.NoErr(err)
+	is.True(skip)
+
+	// but we cannot skip the other order.
+	s.game.UnplayLastMove()
+	s.game.UnplayLastMove()
+	err = s.game.PlayMove(m3, false, 0)
+	is.NoErr(err)
+	err = s.game.PlayMove(p2, false, 0)
+	is.NoErr(err)
+	gnm2.move = m3
+	skip, err = s.canSkipIfOppStuck(m2, gnp2, 5)
+	is.NoErr(err)
+	is.True(!skip)
+
 }
 
 /*
