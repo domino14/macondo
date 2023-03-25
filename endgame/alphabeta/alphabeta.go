@@ -523,7 +523,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 		return parent, nil
 	}
 
-	// killerPlay := s.killerCache[parentKey]
+	killerPlay := s.killerCache[parentKey]
 	// oppPassed := parent.move != nil && parent.move.Action() == move.MoveTypePass
 
 	plays := s.generateSTMPlays(parent.move, depth)
@@ -534,10 +534,13 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 	// 	// should always be a pass!
 	// 	priorityPlays = append(priorityPlays, plays[len(plays)-1])
 	// 	plays = plays[:len(plays)-1]
+	// 	if priorityPlays[0].Action() != move.MoveTypePass {
+	// 		panic("unexpected play " + priorityPlays[0].ShortDescription())
+	// 	}
 	// }
-	// if killerPlay != nil {
-	// 	priorityPlays = append(priorityPlays, killerPlay)
-	// }
+	if killerPlay != nil {
+		priorityPlays = append(priorityPlays, killerPlay)
+	}
 
 	if maximizingPlayer {
 		value := float32(-Infinity)
@@ -565,14 +568,14 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 
 		var winningPlay *move.Move
 		var winningNode *GameNode
-		for _, q := range [2][]*move.Move{priorityPlays, plays} {
+		for qidx, q := range [2][]*move.Move{priorityPlays, plays} {
 			for _, play := range q {
-				// if qidx == 1 && killerPlay != nil {
-				// 	if play.Equals(killerPlay, false, false) {
-				// 		// We already considered this play.
-				// 		continue
-				// 	}
-				// }
+				if qidx == 1 && killerPlay != nil {
+					if play.Equals(killerPlay, false, false) {
+						// We already considered this play.
+						continue
+					}
+				}
 				if skip, err := s.canSkipIfOppStuck(play, parent, depth); err != nil {
 					return nil, err
 				} else if skip {
@@ -642,14 +645,14 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 
 		var winningPlay *move.Move
 		var winningNode *GameNode
-		for _, q := range [2][]*move.Move{priorityPlays, plays} {
+		for qidx, q := range [2][]*move.Move{priorityPlays, plays} {
 			for _, play := range q {
-				// if qidx == 1 && killerPlay != nil {
-				// 	if play.Equals(killerPlay, false, false) {
-				// 		// We already considered this play.
-				// 		continue
-				// 	}
-				// }
+				if qidx == 1 && killerPlay != nil {
+					if play.Equals(killerPlay, false, false) {
+						// We already considered this play.
+						continue
+					}
+				}
 				if skip, err := s.canSkipIfOppStuck(play, parent, depth); err != nil {
 					return nil, err
 				} else if skip {
