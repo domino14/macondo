@@ -79,6 +79,7 @@ type Solver struct {
 	iterativeDeepeningOn bool
 	disablePruning       bool
 	rootNode             *GameNode
+	earlyPassOptim       bool
 	// Some helpful variables to avoid big allocations
 	// stm: side-to-move  ots: other side
 	stmPlayed []bool
@@ -124,6 +125,7 @@ func (s *Solver) Init(m1 movegen.MoveGenerator, m2 movegen.MoveGenerator, game *
 	s.killerCache = make(map[uint64]*move.Move)
 	s.nodeCount = make(map[uint8]uint32)
 	s.iterativeDeepeningOn = true
+	s.earlyPassOptim = true
 
 	s.stmPlayed = make([]bool, tilemapping.MaxAlphabetSize+1)
 	s.otsPlayed = make([]bool, tilemapping.MaxAlphabetSize+1)
@@ -524,20 +526,20 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 	}
 
 	killerPlay := s.killerCache[parentKey]
-	// oppPassed := parent.move != nil && parent.move.Action() == move.MoveTypePass
+	oppPassed := parent.move != nil && parent.move.Action() == move.MoveTypePass
 
 	plays := s.generateSTMPlays(parent.move, depth)
 	priorityPlays := []*move.Move{}
-	// if oppPassed {
-	// 	// Add the last play the movegen generated to be considered at the
-	// 	// beginning. This might provide a quick exit. The last play
-	// 	// should always be a pass!
-	// 	priorityPlays = append(priorityPlays, plays[len(plays)-1])
-	// 	plays = plays[:len(plays)-1]
-	// 	if priorityPlays[0].Action() != move.MoveTypePass {
-	// 		panic("unexpected play " + priorityPlays[0].ShortDescription())
-	// 	}
-	// }
+	if s.earlyPassOptim && oppPassed {
+		// Add the last play the movegen generated to be considered at the
+		// beginning. This might provide a quick exit. The last play
+		// should always be a pass!
+		priorityPlays = append(priorityPlays, plays[len(plays)-1])
+		plays = plays[:len(plays)-1]
+		if priorityPlays[0].Action() != move.MoveTypePass {
+			panic("unexpected play " + priorityPlays[0].ShortDescription())
+		}
+	}
 	if killerPlay != nil {
 		priorityPlays = append(priorityPlays, killerPlay)
 	}

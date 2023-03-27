@@ -302,6 +302,7 @@ func TestPolish(t *testing.T) {
 		258, 0)
 
 	is.NoErr(err)
+	s.earlyPassOptim = false
 	v, seq, err := s.Solve(context.Background(), plies)
 	is.NoErr(err)
 
@@ -321,6 +322,38 @@ func TestPolish(t *testing.T) {
 
 	is.Equal(v, float32(5))
 	is.Equal(len(seq), 8)
+
+}
+
+func TestEarlyPassOptim(t *testing.T) {
+	// See polish_endgame_notes.md
+	// It happens that this long sequence is exactly equivalent
+	// to moves 1, 2, and 2 passes in a row, in terms of spread.
+	// So this is a good algorithm to test our "early pass optimization".
+	is := is.New(t)
+	plies := 14
+	s, err := setUpSolver(
+		"OSPS44", "polish", board.APolishEndgame, plies, "BGHUWZZ", "IKMÓŹŻ", 304,
+		258, 0)
+
+	is.NoErr(err)
+	// This already defaults to true but let's be explicit.
+	s.earlyPassOptim = true
+	v, seq, err := s.Solve(context.Background(), plies)
+	is.NoErr(err)
+
+	/*
+	   Best sequence has a spread difference of 5
+	   Best sequence:
+	   1) N7 ZG..
+	   2) M1 ŻM..
+	   3) (Pass)
+	   4) (Pass)
+
+	*/
+
+	is.Equal(v, float32(5))
+	is.Equal(len(seq), 4)
 
 }
 
@@ -358,6 +391,7 @@ func TestPolishFromGcg(t *testing.T) {
 
 	s := new(Solver)
 	s.Init(gen1, gen2, g, &DefaultConfig)
+	s.earlyPassOptim = false
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 
 	v, seq, _ := s.Solve(context.Background(), plies)
@@ -375,6 +409,7 @@ func TestSpuriousPasses(t *testing.T) {
 		258, 1)
 
 	is.NoErr(err)
+	s.earlyPassOptim = false
 	v, seq, err := s.Solve(context.Background(), plies)
 	is.NoErr(err)
 
@@ -425,6 +460,7 @@ func TestSpuriousPassesFromGcg(t *testing.T) {
 	)
 	s := new(Solver)
 	s.Init(gen1, gen2, g, &DefaultConfig)
+	s.earlyPassOptim = false
 	// s.iterativeDeepeningOn = false
 	// s.simpleEvaluation = true
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
