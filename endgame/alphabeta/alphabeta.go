@@ -70,7 +70,6 @@ type Solver struct {
 	otsMovegen       movegen.MoveGenerator
 	game             *game.Game
 	killerCache      map[uint64]*move.Move
-	nodeCount        map[uint8]uint32
 	initialSpread    int
 	initialTurnNum   int
 	maximizingPlayer int // This is the player who we call this function for.
@@ -90,8 +89,6 @@ type Solver struct {
 	stmRectIndex     int
 	otsRectIndex     int
 	// moveCache        map[int][]*minimalMove
-	maxCount int
-	minCount int
 
 	lastPrincipalVariation []*move.Move
 	currentIDDepth         int
@@ -123,7 +120,6 @@ func (s *Solver) Init(m1 movegen.MoveGenerator, m2 movegen.MoveGenerator, game *
 	s.otsMovegen = m2
 	s.game = game
 	s.killerCache = make(map[uint64]*move.Move)
-	s.nodeCount = make(map[uint8]uint32)
 	s.iterativeDeepeningOn = true
 	s.earlyPassOptim = true
 
@@ -395,8 +391,6 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 		Msg("alphabeta-solve-config")
 	s.requestedPlies = plies
 	tstart := time.Now()
-	s.maxCount = 0
-	s.minCount = 0
 	s.skippedPlays = 0
 	s.zobrist.Initialize(s.game.Board().Dim())
 	// Generate children moves.
@@ -453,7 +447,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 					for idx, move := range bestSeq {
 						log.Info().Msgf(" %d) %v", idx+1, move.ShortDescription())
 					}
-					log.Debug().Msgf(" with %d killer plays %v\n", len(s.killerCache), s.nodeCount)
+					log.Debug().Msgf(" with %d killer plays", len(s.killerCache))
 				}
 			}
 		} else {
@@ -472,7 +466,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 				for idx, move := range bestSeq {
 					fmt.Printf(" %d) %v", idx+1, move.ShortDescription())
 				}
-				fmt.Printf(" with %d killer plays %v\n", len(s.killerCache), s.nodeCount)
+				fmt.Printf(" with %d killer plays", len(s.killerCache))
 			}
 		}
 
@@ -489,11 +483,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 		err = ErrNoEndgameSolution
 	}
 	// Go down tree and find best variation:
-	log.Debug().Msgf("Number of cached killer plays: %d", len(s.killerCache))
-	log.Debug().Msgf("Number of expanded nodes: %v", s.nodeCount)
-	log.Debug().Msgf("Allocated maximal moves: %d", s.maxCount)
-	log.Debug().Msgf("Allocated minimal moves: %d", s.minCount)
-
+	log.Info().Msgf("Number of cached killer plays: %d", len(s.killerCache))
 	log.Debug().Msgf("Best sequence: (len=%v) %v", len(bestSeq), bestSeq)
 	// for k, v := range s.moveCache {
 	// 	fmt.Printf("%d: ", k)
@@ -546,27 +536,6 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 
 	if maximizingPlayer {
 		value := float32(-Infinity)
-
-		// if killerPlay != nil {
-		// 	// look in the cached node for the winning play last time,
-		// 	// and search it first
-		// 	found := false
-		// 	for idx, play := range plays {
-		// 		if play.Equals(killerPlay, false, false) {
-		// 			plays[0], plays[idx] = plays[idx], plays[0]
-		// 			found = true
-		// 			break
-		// 		}
-		// 	}
-		// 	if !found {
-		// 		fmt.Println("killerPlay", killerPlay,
-		// 			"plays", plays,
-		// 			"Zobrist collision - maximizing")
-		// 	}
-		// }
-		// if killerPlay != nil {
-		// 	plays = append([]*move.Move{})
-		// }
 
 		var winningPlay *move.Move
 		var winningNode *GameNode
@@ -627,23 +596,6 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 	} else {
 		// Otherwise, not maximizing
 		value := float32(Infinity)
-		// if killerPlay != nil {
-		// 	// look in the cached node for the winning play last time,
-		// 	// and search it first
-		// 	found := false
-		// 	for idx, play := range plays {
-		// 		if play.Equals(killerPlay, false, false) {
-		// 			plays[0], plays[idx] = plays[idx], plays[0]
-		// 			found = true
-		// 			break
-		// 		}
-		// 	}
-		// 	if !found {
-		// 		fmt.Println("killerPlay", killerPlay,
-		// 			"plays", plays,
-		// 			"Zobrist collision - minimizing")
-		// 	}
-		// }
 
 		var winningPlay *move.Move
 		var winningNode *GameNode
