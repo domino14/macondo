@@ -556,6 +556,12 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 	}
 	if killerPlay != nil {
 		priorityPlays = append(priorityPlays, killerPlay)
+		for idx, play := range plays {
+			if play.Equals(killerPlay, false, false) {
+				plays[idx] = nil
+			}
+
+		}
 	}
 
 	if maximizingPlayer {
@@ -563,13 +569,10 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 
 		var winningPlay *move.Move
 		var winningNode *GameNode
-		for qidx, q := range [2][]*move.Move{priorityPlays, plays} {
+		for _, q := range [2][]*move.Move{priorityPlays, plays} {
 			for _, play := range q {
-				if qidx == 1 && killerPlay != nil {
-					if play.Equals(killerPlay, false, false) {
-						// We already considered this play.
-						continue
-					}
+				if play == nil {
+					continue
 				}
 				if skip, err := s.canSkipIfOppStuck(play, parent, depth); err != nil {
 					return nil, err
@@ -607,9 +610,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 				// if !s.disablePruning {
 				α = max(α, value)
 				if value >= β {
-					if s.killerPlayOptim {
-						s.killerCache[parentKey] = winningPlay
-					}
+
 					break // beta cut-off
 				}
 				// }
@@ -618,7 +619,9 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 		parent.heuristicValue = nodeValue{
 			value:    value,
 			knownEnd: winningNode.heuristicValue.knownEnd}
-
+		if s.killerPlayOptim {
+			s.killerCache[parentKey] = winningPlay
+		}
 		return winningNode, nil
 	} else {
 		// Otherwise, not maximizing
@@ -626,13 +629,10 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 
 		var winningPlay *move.Move
 		var winningNode *GameNode
-		for qidx, q := range [2][]*move.Move{priorityPlays, plays} {
+		for _, q := range [2][]*move.Move{priorityPlays, plays} {
 			for _, play := range q {
-				if qidx == 1 && killerPlay != nil {
-					if play.Equals(killerPlay, false, false) {
-						// We already considered this play.
-						continue
-					}
+				if play == nil {
+					continue // the killer play
 				}
 				if skip, err := s.canSkipIfOppStuck(play, parent, depth); err != nil {
 					return nil, err
@@ -668,9 +668,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 				if α >= value {
 					// don't check killer play here; we only use killer play for
 					// beta-cutoffs (why? i have no idea, ask chessprogramming.org)
-					if s.killerPlayOptim {
-						s.killerCache[parentKey] = winningPlay
-					}
+
 					break // alpha cut-off
 				}
 				// }
@@ -679,7 +677,9 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 		parent.heuristicValue = nodeValue{
 			value:    value,
 			knownEnd: winningNode.heuristicValue.knownEnd}
-
+		if s.killerPlayOptim {
+			s.killerCache[parentKey] = winningPlay
+		}
 		return winningNode, nil
 	}
 }
