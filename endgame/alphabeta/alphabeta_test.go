@@ -610,6 +610,7 @@ func TestSkipIfOppStuck(t *testing.T) {
 
 	s := new(Solver)
 	s.Init(gen1, gen2, g, &DefaultConfig)
+	s.SetStuckTileOrderOptim(true)
 
 	m1 := move.NewScoringMoveSimple(18, "3F", "RE", "AEIUW", gd.GetAlphabet())
 	p1 := move.NewPassMove([]tilemapping.MachineLetter{22}, gd.GetAlphabet())

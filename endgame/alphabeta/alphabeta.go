@@ -64,6 +64,8 @@ const (
 	// blocked. We just make it 1 because our 2-ply evaluation function
 	// is reasonably accurate.
 	FutureAdjustment = float32(1)
+
+	killersPerPly = 3
 )
 
 // Solver implements the minimax + alphabeta algorithm.
@@ -104,7 +106,8 @@ type Solver struct {
 
 	config       *config.Config
 	skippedPlays int
-	ctxCancel    context.CancelFunc
+
+	killers [][killersPerPly]*move.Move
 }
 
 // max returns the larger of x or y.
@@ -269,10 +272,10 @@ func (s *Solver) generateSTMPlays(parentMove *move.Move, depth int) []*move.Move
 	if !s.complexEvaluation {
 		// Static evaluation must be fast and resource-efficient
 		for _, m := range sideToMovePlays {
-			if depth > 2 {
-				m.SetValuation(float32(m.Score() + 3*m.TilesPlayed()))
-			} else if m.TilesPlayed() == int(numTilesOnRack) {
+			if m.TilesPlayed() == int(numTilesOnRack) {
 				m.SetValuation(float32(m.Score() + 2*otherRack.ScoreOn(ld)))
+			} else if depth > 2 {
+				m.SetValuation(float32(m.Score() + 3*m.TilesPlayed()))
 			} else {
 				m.SetValuation(float32(m.Score()))
 			}
@@ -404,6 +407,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 	tstart := time.Now()
 	s.skippedPlays = 0
 	s.zobrist.Initialize(s.game.Board().Dim())
+	s.killers = make([][killersPerPly]*move.Move, plies)
 	// Generate children moves.
 	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
 	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)
@@ -536,10 +540,10 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 		}
 		return parent, nil
 	}
-	var killerPlay *move.Move
-	if s.killerPlayOptim {
-		killerPlay = s.killerCache[parentKey]
-	}
+	// var killerPlay *move.Move
+	// if s.killerPlayOptim {
+	// 	killerPlay = s.killers[]
+	// }
 	oppPassed := parent.move != nil && parent.move.Action() == move.MoveTypePass
 
 	plays := s.generateSTMPlays(parent.move, depth)
@@ -549,11 +553,29 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 		// beginning. This might provide a quick exit. The last play
 		// should always be a pass!
 		priorityPlays = append(priorityPlays, plays[len(plays)-1])
-		// plays = plays[:len(plays)-1]
+		plays = plays[:len(plays)-1]
 		if priorityPlays[0].Action() != move.MoveTypePass {
 			panic("unexpected play " + priorityPlays[0].ShortDescription())
 		}
 	}
+	if s.killerPlayOptim {
+		ply := s.requestedPlies - depth
+		for slot := 0; slot < killersPerPly; slot++ {
+			if s.killers[ply][slot] == nil {
+				continue
+			}
+			for idx, play := range plays {
+				if plays[idx] == nil {
+					continue
+				}
+				if play.Equals(s.killers[ply][slot], false, false) {
+					priorityPlays = append(priorityPlays, play)
+					plays[idx] = nil
+				}
+			}
+		}
+	}
+
 	// if killerPlay != nil {
 	// 	priorityPlays = append(priorityPlays, killerPlay)
 	// 	for idx, play := range plays {
@@ -564,140 +586,143 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 	// 	}
 	// }
 
-	if killerPlay != nil {
-		// look in the cached node for the winning play last time,
-		// and search it first
-		found := false
-		for idx, play := range plays {
-			if play.Equals(killerPlay, false, false) {
-				plays[0], plays[idx] = plays[idx], plays[0]
-				found = true
-				break
-			}
-		}
-		if !found {
-			fmt.Println("killerPlay", killerPlay,
-				"plays", plays,
-				"Zobrist collision - maximizing")
-		}
-	}
+	// if killerPlay != nil {
+	// 	// look in the cached node for the winning play last time,
+	// 	// and search it first
+	// 	found := false
+	// 	for idx, play := range plays {
+	// 		if play.Equals(killerPlay, false, false) {
+	// 			plays[0], plays[idx] = plays[idx], plays[0]
+	// 			found = true
+	// 			break
+	// 		}
+	// 	}
+	// 	if !found {
+	// 		fmt.Println("killerPlay", killerPlay,
+	// 			"plays", plays,
+	// 			"Zobrist collision - maximizing")
+	// 	}
+	// }
 
 	if maximizingPlayer {
 		value := float32(-Infinity)
 
 		var winningPlay *move.Move
 		var winningNode *GameNode
-		// for _, q := range [2][]*move.Move{priorityPlays, plays} {
-		for _, play := range plays {
-			if play == nil {
-				continue
-			}
-			if skip, err := s.canSkipIfOppStuck(play, parent, depth); err != nil {
-				return nil, err
-			} else if skip {
-				continue
-			}
-			// Play the child
-			err := s.game.PlayMove(play, false, 0)
-			if err != nil {
-				return nil, err
-			}
-			childKey := s.zobrist.AddMove(parentKey, play, true)
-			child := new(GameNode)
-			child.move = play
-			child.parent = parent
-			child.depth = uint8(depth - 1)
-			if len(plays) == 1 && play.Action() == move.MoveTypePass {
-				child.onlyPassPossible = true
-			}
-			wn, err := s.alphabeta(ctx, child, childKey, depth-1, α, β, false)
-			if err != nil {
+		for _, q := range [2][]*move.Move{priorityPlays, plays} {
+			for _, play := range q {
+				if play == nil {
+					continue
+				}
+				if skip, err := s.canSkipIfOppStuck(play, parent, depth); err != nil {
+					return nil, err
+				} else if skip {
+					continue
+				}
+				// Play the child
+				err := s.game.PlayMove(play, false, 0)
+				if err != nil {
+					return nil, err
+				}
+				childKey := s.zobrist.AddMove(parentKey, play, true)
+				child := new(GameNode)
+				child.move = play
+				child.parent = parent
+				child.depth = uint8(depth - 1)
+				if len(plays) == 1 && play.Action() == move.MoveTypePass {
+					child.onlyPassPossible = true
+				}
+				wn, err := s.alphabeta(ctx, child, childKey, depth-1, α, β, false)
+				if err != nil {
+					s.game.UnplayLastMove()
+					return wn, err
+				}
 				s.game.UnplayLastMove()
-				return wn, err
-			}
-			s.game.UnplayLastMove()
 
-			if wn.heuristicValue.value > value {
-				value = wn.heuristicValue.value
-				// I don't know how to make this algorithm not allocate, but
-				// at least these homeless nodes will get collected.
-				winningPlay = play
-				winningNode = wn.Copy()
-			}
+				if wn.heuristicValue.value > value {
+					value = wn.heuristicValue.value
+					// I don't know how to make this algorithm not allocate, but
+					// at least these homeless nodes will get collected.
+					winningPlay = play
+					winningNode = wn.Copy()
+				}
 
-			// if !s.disablePruning {
-			α = max(α, value)
-			if value >= β {
-
-				break // beta cut-off
+				// if !s.disablePruning {
+				α = max(α, value)
+				if value >= β {
+					ply := s.requestedPlies - depth
+					if s.killerPlayOptim {
+						for i := killersPerPly - 2; i >= 0; i-- {
+							s.killers[ply][i+1] = s.killers[ply][i]
+						}
+						s.killers[ply][0] = winningPlay
+					}
+					break // beta cut-off
+				}
 			}
-			// }
 		}
 		// }
 		parent.heuristicValue = nodeValue{
 			value:    value,
 			knownEnd: winningNode.heuristicValue.knownEnd}
-		if s.killerPlayOptim {
-			s.killerCache[parentKey] = winningPlay
-		}
+		// if s.killerPlayOptim {
+		// 	s.killerCache[parentKey] = winningPlay
+		// }
 		return winningNode, nil
 	} else {
 		// Otherwise, not maximizing
 		value := float32(Infinity)
 
-		var winningPlay *move.Move
+		// var winningPlay *move.Move
 		var winningNode *GameNode
-		// for _, q := range [2][]*move.Move{priorityPlays, plays} {
-		for _, play := range plays {
-			if play == nil {
-				continue // the killer play
-			}
-			if skip, err := s.canSkipIfOppStuck(play, parent, depth); err != nil {
-				return nil, err
-			} else if skip {
-				continue
-			}
-			err := s.game.PlayMove(play, false, 0)
-			if err != nil {
-				return nil, err
-			}
-			childKey := s.zobrist.AddMove(parentKey, play, false)
-			child := new(GameNode)
-			child.move = play
-			child.parent = parent
-			child.depth = uint8(depth - 1)
-			if len(plays) == 1 && play.Action() == move.MoveTypePass {
-				child.onlyPassPossible = true
-			}
-			wn, err := s.alphabeta(ctx, child, childKey, depth-1, α, β, true)
-			if err != nil {
+		for _, q := range [2][]*move.Move{priorityPlays, plays} {
+			for _, play := range q {
+				if play == nil {
+					continue // the killer play
+				}
+				if skip, err := s.canSkipIfOppStuck(play, parent, depth); err != nil {
+					return nil, err
+				} else if skip {
+					continue
+				}
+				err := s.game.PlayMove(play, false, 0)
+				if err != nil {
+					return nil, err
+				}
+				childKey := s.zobrist.AddMove(parentKey, play, false)
+				child := new(GameNode)
+				child.move = play
+				child.parent = parent
+				child.depth = uint8(depth - 1)
+				if len(plays) == 1 && play.Action() == move.MoveTypePass {
+					child.onlyPassPossible = true
+				}
+				wn, err := s.alphabeta(ctx, child, childKey, depth-1, α, β, true)
+				if err != nil {
+					s.game.UnplayLastMove()
+					return wn, err
+				}
 				s.game.UnplayLastMove()
-				return wn, err
-			}
-			s.game.UnplayLastMove()
-			if wn.heuristicValue.value < value {
-				value = wn.heuristicValue.value
-				winningPlay = play
-				winningNode = wn.Copy()
-			}
+				if wn.heuristicValue.value < value {
+					value = wn.heuristicValue.value
+					// winningPlay = play
+					winningNode = wn.Copy()
+				}
 
-			// if !s.disablePruning {
-			β = min(β, value)
-			if α >= value {
-				// don't check killer play here; we only use killer play for
-				// beta-cutoffs (why? i have no idea, ask chessprogramming.org)
+				// if !s.disablePruning {
+				β = min(β, value)
+				if α >= value {
+					// don't check killer play here; we only use killer play for
+					// beta-cutoffs (why? i have no idea, ask chessprogramming.org)
 
-				break // alpha cut-off
+					break // alpha cut-off
+				}
+				// }
 			}
-			// }
 		}
-		// }
 		parent.heuristicValue = nodeValue{
 			value:    value,
 			knownEnd: winningNode.heuristicValue.knownEnd}
-		if s.killerPlayOptim {
-			s.killerCache[parentKey] = winningPlay
-		}
 		return winningNode, nil
 	}
 }
