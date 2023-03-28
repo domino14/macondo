@@ -65,7 +65,7 @@ const (
 	// is reasonably accurate.
 	FutureAdjustment = float32(1)
 
-	killersPerPly = 3
+	killersPerPly = 2
 )
 
 // Solver implements the minimax + alphabeta algorithm.
@@ -652,10 +652,18 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 				if value >= β {
 					ply := s.requestedPlies - depth
 					if s.killerPlayOptim {
-						for i := killersPerPly - 2; i >= 0; i-- {
-							s.killers[ply][i+1] = s.killers[ply][i]
+						insert := true
+						for i := 0; i < killersPerPly; i++ {
+							if s.killers[ply][i] != nil && s.killers[ply][i].Equals(winningPlay, false, false) {
+								insert = false // already in the cache
+							}
 						}
-						s.killers[ply][0] = winningPlay
+						if insert {
+							for i := killersPerPly - 2; i >= 0; i-- {
+								s.killers[ply][i+1] = s.killers[ply][i]
+							}
+							s.killers[ply][0] = winningPlay
+						}
 					}
 					break // beta cut-off
 				}
