@@ -624,7 +624,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 				if err != nil {
 					return nil, err
 				}
-				childKey := s.zobrist.AddMove(parentKey, play, true)
+				// childKey := s.zobrist.AddMove(parentKey, play, true)
 				child := new(GameNode)
 				child.move = play
 				child.parent = parent
@@ -632,7 +632,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 				if len(plays) == 1 && play.Action() == move.MoveTypePass {
 					child.onlyPassPossible = true
 				}
-				wn, err := s.alphabeta(ctx, child, childKey, depth-1, α, β, false)
+				wn, err := s.alphabeta(ctx, child, parentKey, depth-1, α, β, false)
 				if err != nil {
 					s.game.UnplayLastMove()
 					return wn, err
@@ -689,7 +689,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 				if err != nil {
 					return nil, err
 				}
-				childKey := s.zobrist.AddMove(parentKey, play, false)
+				// childKey := s.zobrist.AddMove(parentKey, play, false)
 				child := new(GameNode)
 				child.move = play
 				child.parent = parent
@@ -697,7 +697,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 				if len(plays) == 1 && play.Action() == move.MoveTypePass {
 					child.onlyPassPossible = true
 				}
-				wn, err := s.alphabeta(ctx, child, childKey, depth-1, α, β, true)
+				wn, err := s.alphabeta(ctx, child, parentKey, depth-1, α, β, true)
 				if err != nil {
 					s.game.UnplayLastMove()
 					return wn, err
