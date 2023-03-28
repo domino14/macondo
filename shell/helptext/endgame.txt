@@ -65,3 +65,26 @@ Options:
     to run and doesn't provide a good enough benefit. It may be possible that some
     endgames are solved a lot faster with this estimator though. It is worth
     trying on endgames where someone is stuck with a tile.
+
+    -stuck-tile-order-optim true
+
+    Stuck Tile Order optimization is OFF by default. If one player is stuck
+    with a tile, we avoid analyzing plays A and B and plays B and A (different
+    permutations of the same two plays) if they don't interfere with each other.
+    This can often result in a drastic tree reduction. However, the checks
+    themselves are kind of slow and an advantage is only seen for very complicated
+    endgames that will take a long time anyway.
+
+    -disable-killer-play-optim true
+
+    A "Killer" play is a play that won its tree. We consider it first when 
+    looking at similar trees. This option may take a lot of memory for a long/
+    complex endgame. Killer play optimization is on by default; pass in true
+    to this option to disable it.
+
+    -first-win-optim true
+
+    Apply a "first win optimization". No need to find the very best play.
+    If we find a sure win, return it right away. Note: player scores actually
+    matter if this option is on, and if the game is unwinnable for a player,
+    this will just do a fully exhaustive search to confirm this.

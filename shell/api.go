@@ -289,6 +289,9 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	var disablePruning bool
 	var disableID bool
 	var complexEstimator bool
+	var firstWinOptim bool
+	var stuckTileOrderOptim bool
+	var disableKillerPlayOptim bool
 	var err error
 
 	if cmd.options["plies"] != "" {
@@ -321,7 +324,15 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	if cmd.options["complex-estimator"] == "true" {
 		complexEstimator = true
 	}
-
+	if cmd.options["stuck-tile-order-optim"] == "true" {
+		stuckTileOrderOptim = true
+	}
+	if cmd.options["disable-killer-play-optim"] == "true" {
+		disableKillerPlayOptim = true
+	}
+	if cmd.options["first-win-optim"] == "true" {
+		firstWinOptim = true
+	}
 	sc.showMessage(fmt.Sprintf(
 		"plies %v, maxtime %v, maxnodes %v",
 		plies, maxtime, maxnodes))
@@ -352,6 +363,9 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	sc.endgameSolver.SetIterativeDeepening(!disableID)
 	sc.endgameSolver.SetComplexEvaluator(complexEstimator)
 	sc.endgameSolver.SetPruningDisabled(disablePruning)
+	sc.endgameSolver.SetKillerPlayOptim(!disableKillerPlayOptim)
+	sc.endgameSolver.SetStuckTileOrderOptim(stuckTileOrderOptim)
+	sc.endgameSolver.SetFirstWinOptim(firstWinOptim)
 
 	sc.showMessage(sc.game.ToDisplayText())
 

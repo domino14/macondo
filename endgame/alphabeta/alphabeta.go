@@ -20,6 +20,11 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+var (
+	ErrEndEarly          = errors.New("ending early") // not an error
+	ErrNoEndgameSolution = errors.New("no endgame solution found")
+)
+
 // thanks Wikipedia:
 /**function alphabeta(node, depth, α, β, maximizingPlayer) is
     if depth = 0 or node is a terminal node then
@@ -61,8 +66,6 @@ const (
 	FutureAdjustment = float32(1)
 )
 
-var ErrNoEndgameSolution = errors.New("no endgame solution found")
-
 // Solver implements the minimax + alphabeta algorithm.
 type Solver struct {
 	zobrist          *zobrist.Zobrist
@@ -78,7 +81,12 @@ type Solver struct {
 	iterativeDeepeningOn bool
 	disablePruning       bool
 	rootNode             *GameNode
-	earlyPassOptim       bool
+	// early pass optimization - if opponent passed, examine a pass first,
+	// to get an early value for the end of the game.
+	earlyPassOptim      bool
+	stuckTileOrderOptim bool
+	killerPlayOptim     bool
+	firstWinOptim       bool
 	// Some helpful variables to avoid big allocations
 	// stm: side-to-move  ots: other side
 	stmPlayed []bool
@@ -96,6 +104,7 @@ type Solver struct {
 
 	config       *config.Config
 	skippedPlays int
+	ctxCancel    context.CancelFunc
 }
 
 // max returns the larger of x or y.
@@ -122,6 +131,8 @@ func (s *Solver) Init(m1 movegen.MoveGenerator, m2 movegen.MoveGenerator, game *
 	s.killerCache = make(map[uint64]*move.Move)
 	s.iterativeDeepeningOn = true
 	s.earlyPassOptim = true
+	s.killerPlayOptim = true
+	s.firstWinOptim = false
 
 	s.stmPlayed = make([]bool, tilemapping.MaxAlphabetSize+1)
 	s.otsPlayed = make([]bool, tilemapping.MaxAlphabetSize+1)
@@ -434,7 +445,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 				log.Debug().Msgf("%v %d Spread at beginning of endgame: %v (%d)", s.maximizingPlayer, s.initialTurnNum, s.initialSpread, s.game.ScorelessTurns())
 				s.currentIDDepth = p
 				bestNode, err := s.alphabeta(ctx, s.rootNode, initialHashKey, p, float32(-Infinity), float32(Infinity), true)
-				if err != nil {
+				if err != nil && err != ErrEndEarly {
 					log.Info().AnErr("alphabeta-err", err).Msg("iterative-deepening-on")
 					break
 				} else {
@@ -448,13 +459,17 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 						log.Info().Msgf(" %d) %v", idx+1, move.ShortDescription())
 					}
 					log.Debug().Msgf(" with %d killer plays", len(s.killerCache))
+					if err == ErrEndEarly {
+						log.Info().Msg("found-win-ending-early")
+						break
+					}
 				}
 			}
 		} else {
 			s.currentIDDepth = 0
 			s.lastPrincipalVariation = nil
 			bestNode, err := s.alphabeta(ctx, s.rootNode, initialHashKey, plies, float32(-Infinity), float32(Infinity), true)
-			if err != nil {
+			if err != nil && err != ErrEndEarly {
 				log.Info().AnErr("alphabeta-err", err).Msg("iterative-deepening-off")
 			} else {
 				bestNodeSoFar = bestNode
@@ -467,6 +482,9 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 					fmt.Printf(" %d) %v", idx+1, move.ShortDescription())
 				}
 				fmt.Printf(" with %d killer plays", len(s.killerCache))
+				if err == ErrEndEarly {
+					log.Info().Msg("found-win-ended-early")
+				}
 			}
 		}
 
@@ -502,20 +520,26 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint64,
 	depth int, α float32, β float32, maximizingPlayer bool) (*GameNode, error) {
 
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("context done -- time limit reached?")
-	default:
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
 	}
 
 	if depth == 0 || s.game.Playing() != pb.PlayState_PLAYING {
 		// s.game.Playing() happens if the game is over; i.e. if the
 		// parent node is terminal.
 		parent.calculateValue(s, maximizingPlayer)
+		if s.firstWinOptim && parent.heuristicValue.knownEnd &&
+			parent.heuristicValue.value > 0.0 {
+			// known win. End early.
+			log.Info().Interface("parent", parent.move.ShortDescription()).Msg("known-win-bye")
+			return parent, ErrEndEarly
+		}
 		return parent, nil
 	}
-
-	killerPlay := s.killerCache[parentKey]
+	var killerPlay *move.Move
+	if s.killerPlayOptim {
+		killerPlay = s.killerCache[parentKey]
+	}
 	oppPassed := parent.move != nil && parent.move.Action() == move.MoveTypePass
 
 	plays := s.generateSTMPlays(parent.move, depth)
@@ -568,7 +592,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 				wn, err := s.alphabeta(ctx, child, childKey, depth-1, α, β, false)
 				if err != nil {
 					s.game.UnplayLastMove()
-					return nil, err
+					return wn, err
 				}
 				s.game.UnplayLastMove()
 
@@ -583,6 +607,9 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 				// if !s.disablePruning {
 				α = max(α, value)
 				if α >= β {
+					if s.killerPlayOptim {
+						s.killerCache[parentKey] = winningPlay
+					}
 					break // beta cut-off
 				}
 				// }
@@ -591,13 +618,13 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 		parent.heuristicValue = nodeValue{
 			value:    value,
 			knownEnd: winningNode.heuristicValue.knownEnd}
-		s.killerCache[parentKey] = winningPlay
+
 		return winningNode, nil
 	} else {
 		// Otherwise, not maximizing
 		value := float32(Infinity)
 
-		var winningPlay *move.Move
+		// var winningPlay *move.Move
 		var winningNode *GameNode
 		for qidx, q := range [2][]*move.Move{priorityPlays, plays} {
 			for _, play := range q {
@@ -627,18 +654,20 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 				wn, err := s.alphabeta(ctx, child, childKey, depth-1, α, β, true)
 				if err != nil {
 					s.game.UnplayLastMove()
-					return nil, err
+					return wn, err
 				}
 				s.game.UnplayLastMove()
 				if wn.heuristicValue.value < value {
 					value = wn.heuristicValue.value
-					winningPlay = play
+					// winningPlay = play
 					winningNode = wn.Copy()
 				}
 
 				// if !s.disablePruning {
 				β = min(β, value)
 				if α >= β {
+					// don't check killer play here; we only use killer play for
+					// beta-cutoffs (why? i have no idea, ask chessprogramming.org)
 					break // alpha cut-off
 				}
 				// }
@@ -647,12 +676,15 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 		parent.heuristicValue = nodeValue{
 			value:    value,
 			knownEnd: winningNode.heuristicValue.knownEnd}
-		s.killerCache[parentKey] = winningPlay
+
 		return winningNode, nil
 	}
 }
 
 func (s *Solver) canSkipIfOppStuck(play *move.Move, parent *GameNode, depth int) (bool, error) {
+	if !s.stuckTileOrderOptim {
+		return false, nil
+	}
 	// If the opponent is stuck with a tile, it is possible to trim the tree
 	// early and avoid analyzing so many moves.
 	// We are about to analyze "play".
@@ -769,4 +801,16 @@ func (s *Solver) SetPruningDisabled(i bool) {
 
 func (s *Solver) RootNode() *GameNode {
 	return s.rootNode
+}
+
+func (s *Solver) SetStuckTileOrderOptim(i bool) {
+	s.stuckTileOrderOptim = i
+}
+
+func (s *Solver) SetKillerPlayOptim(i bool) {
+	s.killerPlayOptim = i
+}
+
+func (s *Solver) SetFirstWinOptim(i bool) {
+	s.firstWinOptim = i
 }
