@@ -606,7 +606,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 
 				// if !s.disablePruning {
 				α = max(α, value)
-				if α >= β {
+				if value >= β {
 					if s.killerPlayOptim {
 						s.killerCache[parentKey] = winningPlay
 					}
@@ -624,7 +624,7 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 		// Otherwise, not maximizing
 		value := float32(Infinity)
 
-		// var winningPlay *move.Move
+		var winningPlay *move.Move
 		var winningNode *GameNode
 		for qidx, q := range [2][]*move.Move{priorityPlays, plays} {
 			for _, play := range q {
@@ -659,15 +659,18 @@ func (s *Solver) alphabeta(ctx context.Context, parent *GameNode, parentKey uint
 				s.game.UnplayLastMove()
 				if wn.heuristicValue.value < value {
 					value = wn.heuristicValue.value
-					// winningPlay = play
+					winningPlay = play
 					winningNode = wn.Copy()
 				}
 
 				// if !s.disablePruning {
 				β = min(β, value)
-				if α >= β {
+				if α >= value {
 					// don't check killer play here; we only use killer play for
 					// beta-cutoffs (why? i have no idea, ask chessprogramming.org)
+					if s.killerPlayOptim {
+						s.killerCache[parentKey] = winningPlay
+					}
 					break // alpha cut-off
 				}
 				// }
