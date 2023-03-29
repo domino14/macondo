@@ -105,25 +105,8 @@ func (g *GameNode) Negative() *GameNode {
 // calculateNValue calculates the value of a node for use in negamax.
 // The value must always be from the POV of the maximizing player!
 func (g *GameNode) calculateNValue(s *Solver) {
-	// calculate the heuristic value of this node, and store it.
-	// we start with a max node. At 1-ply (and all odd plies), maximizing
-	// is always false.
-
-	// Because calculateValue is called after PlayMove has been called,
-	// the "playerOnTurn" is actually not the player who made the move
-	// whose value we are calculating. So we must flip this.
-	// opponent := s.game.PlayerOnTurn()
-	// playerWhoMadeMove := (opponent + 1) % (s.game.NumPlayers())
-	// playerWhoMadeMove is the player who we are calculating the value
-	// of this node for.
-
 	// The initial spread is always from the maximizing point of view.
 	initialSpread := s.initialSpread
-	// if playerWhoMadeMove != s.maximizingPlayer {
-	// 	initialSpread = -initialSpread
-	// }
-	// now, initialSpread is from the POV of the player who made the move.
-
 	// spreadNow is from the POV of the maximizing player
 	spreadNow := s.game.PointsFor(s.maximizingPlayer) -
 		s.game.PointsFor(1-s.maximizingPlayer)
@@ -154,66 +137,5 @@ func (g *GameNode) calculateNValue(s *Solver) {
 			value:    float32(spreadNow) + moveVal - float32(initialSpread),
 			knownEnd: false,
 			isPass:   g.move.Action() == move.MoveTypePass}
-	}
-	// g.heuristicValue is always from the POV of the player who is on turn.
-	// higher heuristic values means situations more favorable for this player
-}
-
-func (g *GameNode) calculateValue(s *Solver, negateHeurVal bool) {
-	// calculate the heuristic value of this node, and store it.
-	// we start with a max node. At 1-ply (and all odd plies), maximizing
-	// is always false.
-
-	// Because calculateValue is called after PlayMove has been called,
-	// the "playerOnTurn" is actually not the player who made the move
-	// whose value we are calculating.
-	opponent := s.game.PlayerOnTurn()
-	playerWhoMadeMove := (opponent + 1) % (s.game.NumPlayers())
-
-	// The initial spread is always from the maximizing point of view.
-	initialSpread := s.initialSpread
-	spreadNow := s.game.PointsFor(playerWhoMadeMove) - s.game.PointsFor(opponent)
-	if negateHeurVal {
-		// Alpha-Beta (min) measures spread from the perspective of the
-		// player who made the move, measures improvement, negates it,
-		// then selects the minimum (least improved for opponent) node.
-		// https://www.chessprogramming.org/Alpha-Beta#Max_versus_Min
-		initialSpread = -initialSpread
-	}
-	gameOver := s.game.Playing() != pb.PlayState_PLAYING
-	// If the game is over, the value should just be the spread change.
-	if gameOver {
-		// Technically no one is on turn, but the player NOT on turn is
-		// the one that just ended the game.
-		// Note that because of the way we track state, it is the state
-		// in the solver right now; that's why the game node doesn't matter
-		// right here:
-		g.heuristicValue = nodeValue{
-			value:    float32(spreadNow - initialSpread),
-			knownEnd: true,
-			isPass:   g.move.Action() == move.MoveTypePass}
-	} else {
-		// The valuation is already an estimate of the overall gain or loss
-		// in spread for this move (if taken to the end of the game).
-
-		// `player` is NOT the one that just made a move.
-		ptValue := g.move.Score()
-		// don't double-count score; it's already in the valuation:
-		moveVal := g.move.Valuation() - float32(ptValue)
-		// What is the spread right now? The valuation should be relative
-		// to that.
-		g.heuristicValue = nodeValue{
-			value:    float32(spreadNow) + moveVal - float32(initialSpread),
-			knownEnd: false,
-			isPass:   g.move.Action() == move.MoveTypePass}
-	}
-	if negateHeurVal {
-		// The maximizing player is always "us" - the player that we are
-		// solving the endgame for. So if this not the maximizing node,
-		// we want to negate the heuristic value, as it needs to be as
-		// negative as possible relative to "us". I know, minimax is
-		// hard to reason about, but I think this makes sense. At least
-		// it seems to work.
-		g.heuristicValue.negate()
 	}
 }

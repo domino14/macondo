@@ -82,6 +82,9 @@ Options:
     complex endgame. Killer play optimization is on by default; pass in true
     to this option to disable it.
 
+    Note: this is not the typical definition of the killer heuristic, which only
+    stores a handful of plays per ply. This takes significantly more memory.
+
     -first-win-optim true
 
     Apply a "first win optimization". No need to find the very best play.
