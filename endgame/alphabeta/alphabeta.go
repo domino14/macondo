@@ -528,7 +528,7 @@ func (s *Solver) nalphabeta(ctx context.Context, node *GameNode, nodeKey uint64,
 		// parent node  is terminal.
 		node.calculateValue(s, maximizingPlayer)
 		if !maximizingPlayer {
-			return node.Negative(), nil
+			node.heuristicValue.negate()
 		}
 
 		return node, nil
@@ -574,14 +574,10 @@ func (s *Solver) nalphabeta(ctx context.Context, node *GameNode, nodeKey uint64,
 			s.game.UnplayLastMove()
 
 			// for negamax, take the max of value and the negative wn value.
-			nwn := wn.Negative()
-
-			if nwn.heuristicValue.value > value {
-				value = nwn.heuristicValue.value
-				winningNode = nwn
-				// if !maximizingPlayer {
-				// 	winningNode = wn
-				// }
+			if -wn.heuristicValue.value > value {
+				value = -wn.heuristicValue.value
+				// wn.Negative() makes a copy. figure out how to allocate less.
+				winningNode = wn.Negative()
 			}
 
 			α = max(α, value)
@@ -590,13 +586,6 @@ func (s *Solver) nalphabeta(ctx context.Context, node *GameNode, nodeKey uint64,
 			}
 		}
 	}
-	// }
-	// node.heuristicValue = nodeValue{
-	// 	value:    value,
-	// 	knownEnd: winningNode.heuristicValue.knownEnd}
-	// if s.killerPlayOptim {
-	// 	s.killerCache[nodeKey] = winningPlay
-	// }
 	//  The negamax node's return value is a heuristic score from the point
 	// of view of the node's current player.
 	return winningNode, nil
