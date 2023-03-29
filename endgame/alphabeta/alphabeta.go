@@ -26,31 +26,22 @@ var (
 )
 
 // thanks Wikipedia:
-/**function alphabeta(node, depth, α, β, maximizingPlayer) is
+/*
+function negamax(node, depth, α, β, color) is
     if depth = 0 or node is a terminal node then
-        return the heuristic value of node
-    if maximizingPlayer then
-        value := −∞
-		for each child of node do
-			play(child)
-			value := max(value, alphabeta(child, depth − 1, α, β, FALSE))
-			unplayLastMove()
-            α := max(α, value)
-            if α ≥ β then
-                break (* β cut-off *)
-        return value
-    else
-        value := +∞
-		for each child of node do
-			play(child)
-			value := min(value, alphabeta(child, depth − 1, α, β, TRUE))
-			unplayLastMove()
-            β := min(β, value)
-            if α ≥ β then
-                break (* α cut-off *)
-        return value
-(* Initial call *)
-alphabeta(origin, depth, −∞, +∞, TRUE)
+        return color × the heuristic value of node
+
+    childNodes := generateMoves(node)
+    childNodes := orderMoves(childNodes)
+    value := −∞
+    foreach child in childNodes do
+        value := max(value, −negamax(child, depth − 1, −β, −α, −color))
+        α := max(α, value)
+        if α ≥ β then
+            break (* cut-off *)
+    return value
+(* Initial call for Player A's root node *)
+negamax(rootNode, depth, −∞, +∞, 1)
 **/
 
 const (
@@ -475,7 +466,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 		} else {
 			s.currentIDDepth = 0
 			s.lastPrincipalVariation = nil
-			bestNode, err := s.alphabeta(ctx, s.rootNode, initialHashKey, plies, float32(-Infinity), float32(Infinity), true)
+			bestNode, err := s.nalphabeta(ctx, s.rootNode, initialHashKey, plies, float32(-Infinity), float32(Infinity), true)
 			if err != nil && err != ErrEndEarly {
 				log.Info().AnErr("alphabeta-err", err).Msg("iterative-deepening-off")
 			} else {
@@ -543,47 +534,61 @@ func (s *Solver) nalphabeta(ctx context.Context, node *GameNode, nodeKey uint64,
 		return node, nil
 	}
 
+	oppPassed := node.move != nil && node.move.Action() == move.MoveTypePass
+
 	plays := s.generateSTMPlays(node.move, depth)
+	priorityPlays := []*move.Move{}
+	if s.earlyPassOptim && oppPassed {
+		// Add the last play the movegen generated to be considered at the
+		// beginning. This might provide a quick exit. The last play
+		// should always be a pass!
+		priorityPlays = append(priorityPlays, plays[len(plays)-1])
+		plays = plays[:len(plays)-1]
+		if priorityPlays[0].Action() != move.MoveTypePass {
+			panic("unexpected play " + priorityPlays[0].ShortDescription())
+		}
+	}
 	value := float32(-Infinity)
 
 	// var winningPlay *move.Move
 	var winningNode *GameNode
-	for _, play := range plays {
-		// Play the child
-		err := s.game.PlayMove(play, false, 0)
-		if err != nil {
-			return nil, err
-		}
-		child := new(GameNode)
-		child.move = play
-		child.parent = node
-		child.depth = uint8(depth - 1)
-		if len(plays) == 1 && play.Action() == move.MoveTypePass {
-			child.onlyPassPossible = true
-		}
-		wn, err := s.nalphabeta(ctx, child, nodeKey, depth-1, -β, -α, !maximizingPlayer)
-		if err != nil {
+	for _, q := range [2][]*move.Move{priorityPlays, plays} {
+		for _, play := range q {
+			// Play the child
+			err := s.game.PlayMove(play, false, 0)
+			if err != nil {
+				return nil, err
+			}
+			child := new(GameNode)
+			child.move = play
+			child.parent = node
+			child.depth = uint8(depth - 1)
+			if len(plays) == 1 && play.Action() == move.MoveTypePass {
+				child.onlyPassPossible = true
+			}
+			wn, err := s.nalphabeta(ctx, child, nodeKey, depth-1, -β, -α, !maximizingPlayer)
+			if err != nil {
+				s.game.UnplayLastMove()
+				return wn, err
+			}
 			s.game.UnplayLastMove()
-			return wn, err
+
+			// for negamax, take the max of value and the negative wn value.
+			nwn := wn.Negative()
+
+			if nwn.heuristicValue.value > value {
+				value = nwn.heuristicValue.value
+				winningNode = nwn
+				// if !maximizingPlayer {
+				// 	winningNode = wn
+				// }
+			}
+
+			α = max(α, value)
+			if α >= β {
+				break // beta cut-off
+			}
 		}
-		s.game.UnplayLastMove()
-
-		// for negamax, take the max of value and the negative wn value.
-		nwn := wn.Negative()
-
-		if nwn.heuristicValue.value > value {
-			value = nwn.heuristicValue.value
-			winningNode = nwn
-			// if !maximizingPlayer {
-			// 	winningNode = wn
-			// }
-		}
-
-		α = max(α, value)
-		if α >= β {
-			break // beta cut-off
-		}
-
 	}
 	// }
 	// node.heuristicValue = nodeValue{
