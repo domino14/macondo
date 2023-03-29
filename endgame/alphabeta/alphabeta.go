@@ -537,6 +537,7 @@ func (s *Solver) nalphabeta(ctx context.Context, node *GameNode, nodeKey uint64,
 
 	plays := s.generateSTMPlays(node.move, depth)
 	priorityPlays := []*move.Move{}
+	skipKiller := false
 	if s.earlyPassOptim && oppPassed {
 		// Add the last play the movegen generated to be considered at the
 		// beginning. This might provide a quick exit. The last play
@@ -546,9 +547,12 @@ func (s *Solver) nalphabeta(ctx context.Context, node *GameNode, nodeKey uint64,
 		if priorityPlays[0].Action() != move.MoveTypePass {
 			panic("unexpected play " + priorityPlays[0].ShortDescription())
 		}
+		if killerPlay != nil && killerPlay.Equals(priorityPlays[0], false, false) {
+			skipKiller = true
+		}
 	}
 
-	if killerPlay != nil {
+	if !skipKiller && killerPlay != nil {
 		// look in the cached node for the winning play last time,
 		// and search it first
 		found := false
@@ -560,9 +564,8 @@ func (s *Solver) nalphabeta(ctx context.Context, node *GameNode, nodeKey uint64,
 			}
 		}
 		if !found {
-			fmt.Println("killerPlay", killerPlay,
-				"plays", plays,
-				"Zobrist collision - maximizing")
+			log.Info().Interface("killerPlay", killerPlay).
+				Interface("plays", plays).Msg("Zobrist collision - maximizing")
 		}
 	}
 
@@ -577,7 +580,7 @@ func (s *Solver) nalphabeta(ctx context.Context, node *GameNode, nodeKey uint64,
 			if err != nil {
 				return nil, err
 			}
-			childKey := s.zobrist.AddMove(nodeKey, play, true)
+			childKey := s.zobrist.AddMove(nodeKey, play, maximizingPlayer)
 			child := new(GameNode)
 			child.move = play
 			child.parent = node
