@@ -202,6 +202,7 @@ func TestSolveStandard(t *testing.T) {
 	// start with 3 plies (so the first player can do an out in 2) and
 	// then proceed with iterative deepening.
 	plies := 4
+
 	is := is.New(t)
 
 	s, err := setUpSolver("NWL18", "english", board.VsCanik, plies, "DEHILOR", "BGIV", 389, 384,
