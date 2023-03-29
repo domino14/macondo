@@ -531,51 +531,19 @@ func (s *Solver) nalphabeta(ctx context.Context, node *GameNode, nodeKey uint64,
 		return node, nil
 	}
 
-	killerPlay := s.killerCache[nodeKey]
-
-	oppPassed := node.move != nil && node.move.Action() == move.MoveTypePass
-
 	plays := s.generateSTMPlays(node.move, depth)
-	priorityPlays := []*move.Move{}
-	skipKiller := false
-	if s.earlyPassOptim && oppPassed {
-		// Add the last play the movegen generated to be considered at the
-		// beginning. This might provide a quick exit. The last play
-		// should always be a pass!
-		priorityPlays = append(priorityPlays, plays[len(plays)-1])
-		plays = plays[:len(plays)-1]
-		if priorityPlays[0].Action() != move.MoveTypePass {
-			panic("unexpected play " + priorityPlays[0].ShortDescription())
-		}
-		if killerPlay != nil && killerPlay.Equals(priorityPlays[0], false, false) {
-			skipKiller = true
-		}
-	}
-
-	if !skipKiller && killerPlay != nil {
-		// look in the cached node for the winning play last time,
-		// and search it first
-		found := false
-		for idx, play := range plays {
-			if play.Equals(killerPlay, false, false) {
-				plays[0], plays[idx] = plays[idx], plays[0]
-				found = true
-				break
-			}
-		}
-		if !found {
-			log.Info().Interface("killerPlay", killerPlay).
-				Interface("plays", plays).Msg("Zobrist collision - maximizing")
-		}
-	}
+	sortedPlays := s.sortPlaysForConsideration(plays, depth, node, nodeKey)
 
 	value := float32(-Infinity)
 
 	var winningPlay *move.Move
 	var winningNode *GameNode
-	for _, q := range [2][]*move.Move{priorityPlays, plays} {
+	for _, q := range sortedPlays {
 		for _, play := range q {
 			// Play the child
+			if play == nil {
+				continue
+			}
 			err := s.game.PlayMove(play, false, 0)
 			if err != nil {
 				return nil, err
@@ -615,6 +583,79 @@ func (s *Solver) nalphabeta(ctx context.Context, node *GameNode, nodeKey uint64,
 	//  The negamax node's return value is a heuristic score from the point
 	// of view of the node's current player.
 	return winningNode, nil
+
+}
+
+func (s *Solver) sortPlaysForConsideration(plays []*move.Move, depth int,
+	node *GameNode, nodeKey uint64) [2][]*move.Move {
+	killerPlay := s.killerCache[nodeKey]
+
+	oppPassed := node.move != nil && node.move.Action() == move.MoveTypePass
+
+	// Sort the plays into a "high priority" list and a "regular" list,
+	// depending on our various optimizations.
+	priorityPlays := []*move.Move{}
+	skipKiller := false
+	addedPass := false
+	if s.earlyPassOptim && oppPassed {
+		// Add the last play the movegen generated to be considered at the
+		// beginning. This might provide a quick exit. The last play
+		// should always be a pass!
+		priorityPlays = append(priorityPlays, plays[len(plays)-1])
+		plays = plays[:len(plays)-1]
+		if priorityPlays[0].Action() != move.MoveTypePass {
+			panic("unexpected play " + priorityPlays[0].ShortDescription())
+		}
+		if killerPlay != nil && killerPlay.Equals(priorityPlays[0], false, false) {
+			skipKiller = true
+		}
+		addedPass = true
+	}
+
+	if s.iterativeDeepeningOn && s.currentIDDepth == depth && len(s.lastPrincipalVariation) > 0 {
+		// We are generating plays for the first time in this iterative deepening
+		lastWinner := s.lastPrincipalVariation[0]
+		if addedPass && lastWinner.Action() == move.MoveTypePass {
+			// skip adding pass again.
+		} else {
+			log.Info().Str("move", lastWinner.ShortDescription()).Msg("trying-last-winner-first")
+			found := false
+			for idx, play := range plays {
+				if play.Equals(lastWinner, false, false) {
+					priorityPlays = append(priorityPlays, play)
+					plays[idx] = nil
+					found = true
+					break
+				}
+			}
+			if killerPlay != nil && killerPlay.Equals(lastWinner, false, false) {
+				skipKiller = true
+			}
+			if !found {
+				log.Warn().Msg("did not find move in iterative deepening - this should not happen")
+			}
+		}
+	}
+
+	if !skipKiller && killerPlay != nil {
+		// look in the cached node for the winning play last time,
+		// and search it first
+		found := false
+		for idx, play := range plays {
+			if play.Equals(killerPlay, false, false) {
+				priorityPlays = append(priorityPlays, play)
+				plays[idx] = nil
+				// plays[0], plays[idx] = plays[idx], plays[0]
+				found = true
+				break
+			}
+		}
+		if !found {
+			log.Info().Interface("killerPlay", killerPlay).
+				Interface("plays", plays).Msg("Zobrist collision - maximizing")
+		}
+	}
+	return [2][]*move.Move{priorityPlays, plays}
 
 }
 
