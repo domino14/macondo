@@ -444,10 +444,10 @@ func convertToVisible(words []tilemapping.MachineWord,
 // gameplay engines as much as possible.
 // If the millis argument is passed in, it adds this value to the history
 // as the time remaining for the user (when they played the move).
-func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
+func (g *Game) PlayMove(m move.PlayMaker, addToHistory bool, millis int) error {
 
 	// We need to handle challenges separately.
-	if m.Action() == move.MoveTypeChallenge {
+	if m.Type() == move.MoveTypeChallenge {
 		_, err := g.ChallengeEvent(0, 0)
 		return err
 	}
@@ -457,14 +457,14 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 	}
 	if addToHistory {
 		// Also, validate that the move follows the rules.
-		wordsFormed, err := g.ValidateMove(m)
+		wordsFormed, err := g.ValidateMove(m.(*move.Move))
 		if err != nil {
 			return err
 		}
 		g.lastWordsFormed = wordsFormed
 	}
 
-	switch m.Action() {
+	switch m.Type() {
 	case move.MoveTypePlay:
 		ld := g.bag.LetterDistribution()
 		g.board.PlayMove(m, ld)
@@ -485,7 +485,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		g.players[g.onturn].setRackTiles(g.players[g.onturn].placeholderRack[:drew+len(m.Leave())], g.alph)
 
 		if addToHistory {
-			evt := g.EventFromMove(m)
+			evt := g.EventFromMove(m.(*move.Move))
 			evt.MillisRemaining = int32(millis)
 			evt.WordsFormed = convertToVisible(g.lastWordsFormed, g.alph)
 			g.history.LastKnownRacks[g.onturn] = g.RackLettersFor(g.onturn)
@@ -519,7 +519,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		}
 		// Add the pass first so it comes before the end rack bonus
 		if addToHistory {
-			evt := g.EventFromMove(m)
+			evt := g.EventFromMove(m.(*move.Move))
 			evt.MillisRemaining = int32(millis)
 			g.addEventToHistory(evt)
 		}
@@ -551,7 +551,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		g.scorelessTurns++
 		g.players[g.onturn].turns += 1
 		if addToHistory {
-			evt := g.EventFromMove(m)
+			evt := g.EventFromMove(m.(*move.Move))
 			evt.MillisRemaining = int32(millis)
 			g.history.LastKnownRacks[g.onturn] = g.RackLettersFor(g.onturn)
 			g.addEventToHistory(evt)

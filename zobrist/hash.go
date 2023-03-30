@@ -79,7 +79,7 @@ func (z *Zobrist) Hash(squares tilemapping.MachineWord, maxPlayerRack *tilemappi
 	return key
 }
 
-func (z *Zobrist) AddMove(key uint64, m *move.Move, maxPlayer bool) uint64 {
+func (z *Zobrist) AddMove(key uint64, m move.PlayMaker, maxPlayer bool) uint64 {
 	// Adding a move:
 	// For every letter in the move (assume it's only a tile placement move
 	// or a pass for now):
@@ -97,8 +97,8 @@ func (z *Zobrist) AddMove(key uint64, m *move.Move, maxPlayer bool) uint64 {
 	if !maxPlayer {
 		ourRackTable = z.minRackTable
 	}
-	if m.Action() == move.MoveTypePlay {
-		row, col, vertical := m.CoordsAndVertical()
+	if m.Type() == move.MoveTypePlay {
+		row, col, vertical := m.RowStart(), m.ColStart(), m.Vertical()
 		ri, ci := 0, 1
 		if vertical {
 			ri, ci = 1, 0
@@ -135,7 +135,7 @@ func (z *Zobrist) AddMove(key uint64, m *move.Move, maxPlayer bool) uint64 {
 
 		}
 
-	} else if m.Action() == move.MoveTypePass {
+	} else if m.Type() == move.MoveTypePass {
 		// it's just a pass. nothing else changes, except for the
 		// minimizingPlayerToMove
 	}

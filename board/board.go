@@ -454,9 +454,10 @@ func (g *GameBoard) TraverseBackwardsForScore(row int, col int, ld *tilemapping.
 	return score
 }
 
-func (g *GameBoard) updateAnchorsForMove(m *move.Move) {
-	row, col, vertical := m.CoordsAndVertical()
-
+func (g *GameBoard) updateAnchorsForMove(m move.PlayMaker) {
+	row := m.RowStart()
+	col := m.ColStart()
+	vertical := m.Vertical()
 	if vertical {
 		// Transpose the logic, but NOT the board. The updateAnchors function
 		// assumes the board is not transposed.
@@ -483,8 +484,10 @@ func (g *GameBoard) updateAnchorsForMove(m *move.Move) {
 
 }
 
-func (g *GameBoard) PlaceMoveTiles(m *move.Move) {
-	rowStart, colStart, vertical := m.CoordsAndVertical()
+func (g *GameBoard) PlaceMoveTiles(m move.PlayMaker) {
+	rowStart := m.RowStart()
+	colStart := m.ColStart()
+	vertical := m.Vertical()
 	var row, col int
 	for idx, tile := range m.Tiles() {
 		if tile == 0 {
@@ -521,10 +524,10 @@ func (g *GameBoard) UnplaceMoveTiles(m *move.Move) {
 
 // PlayMove plays a move on a board. It must place tiles on the board,
 // regenerate cross-sets and cross-points, and recalculate anchors.
-func (g *GameBoard) PlayMove(m *move.Move, ld *tilemapping.LetterDistribution) {
+func (g *GameBoard) PlayMove(m move.PlayMaker, ld *tilemapping.LetterDistribution) {
 
 	// g.playHistory = append(g.playHistory, m.ShortDescription())
-	if m.Action() != move.MoveTypePlay {
+	if m.Type() != move.MoveTypePlay {
 		return
 	}
 	g.PlaceMoveTiles(m)

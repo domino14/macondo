@@ -11,6 +11,9 @@
 package movegen
 
 import (
+	"fmt"
+	"reflect"
+	"runtime"
 	"sort"
 
 	"github.com/domino14/macondo/board"
@@ -31,9 +34,9 @@ const (
 
 // MoveGenerator is a generic interface for generating moves.
 type MoveGenerator interface {
-	GenAll(rack *tilemapping.Rack, addExchange bool) []*move.Move
+	GenAll(rack *tilemapping.Rack, addExchange bool) []move.PlayMaker
 	SetSortingParameter(s SortBy)
-	Plays() []*move.Move
+	Plays() []move.PlayMaker
 	SetPlayRecorder(pf PlayRecorderFunc)
 	SetEquityCalculators([]equity.EquityCalculator)
 	AtLeastOneTileMove(rack *tilemapping.Rack) bool
@@ -55,7 +58,7 @@ type GordonGenerator struct {
 	vertical bool // Are we generating moves vertically or not?
 
 	tilesPlayed        int
-	plays              []*move.Move
+	plays              []move.PlayMaker
 	numPossibleLetters int
 	sortingParameter   SortBy
 
@@ -129,7 +132,8 @@ func (gen *GordonGenerator) SetGenPass(p bool) {
 
 // GenAll generates all moves on the board. It assumes anchors have already
 // been updated, as well as cross-sets / cross-scores.
-func (gen *GordonGenerator) GenAll(rack *tilemapping.Rack, addExchange bool) []*move.Move {
+func (gen *GordonGenerator) GenAll(rack *tilemapping.Rack, addExchange bool) []move.PlayMaker {
+	fmt.Println("genall", runtime.FuncForPC(reflect.ValueOf(gen.playRecorder).Pointer()).Name())
 	gen.winner.SetEmpty()
 	gen.quitEarly = false
 	gen.plays = gen.plays[:0]
@@ -143,9 +147,7 @@ func (gen *GordonGenerator) GenAll(rack *tilemapping.Rack, addExchange bool) []*
 	// Only add a pass move if nothing else is possible. Note: in endgames,
 	// we can have strategic passes. Check genPass variable as well.
 	if len(gen.plays) == 0 || gen.genPass {
-		tilesOnRack := rack.TilesOn()
-		passMove := move.NewPassMove(tilesOnRack, rack.Alphabet())
-		gen.plays = append(gen.plays, passMove)
+		gen.playRecorder(gen, rack, 0, 0, move.MoveTypePass)
 	} else if len(gen.plays) > 1 {
 		switch gen.sortingParameter {
 		case SortByScore:
@@ -370,7 +372,7 @@ func (gen *GordonGenerator) scoreMove(word tilemapping.MachineWord, row, col, ti
 }
 
 // Plays returns the generator's generated plays.
-func (gen *GordonGenerator) Plays() []*move.Move {
+func (gen *GordonGenerator) Plays() []move.PlayMaker {
 	return gen.plays
 }
 

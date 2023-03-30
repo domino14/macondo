@@ -25,7 +25,7 @@ const (
 type Generator interface {
 	Generate(b *Board, row int, col int, dir board.BoardDirection)
 	GenerateAll(b *Board)
-	UpdateForMove(b *Board, m *move.Move)
+	UpdateForMove(b *Board, m move.PlayMaker)
 }
 
 // generateAll generates all cross-sets. It goes through the entire
@@ -51,7 +51,7 @@ func generateAll(g Generator, b *Board) {
 
 // Assumes all across words are HORIZONTAL.
 func calcForAcross(rowStart int, colStart int, csd board.BoardDirection,
-	g Generator, m *move.Move, b *Board) {
+	g Generator, m move.PlayMaker, b *Board) {
 
 	for row := rowStart; row < len(m.Tiles())+rowStart; row++ {
 		if m.Tiles()[row-rowStart] == 0 {
@@ -72,17 +72,19 @@ func calcForAcross(rowStart int, colStart int, csd board.BoardDirection,
 
 // assumes self is HORIZONTAL
 func calcForSelf(rowStart int, colStart int, csd board.BoardDirection,
-	g Generator, m *move.Move, b *Board) {
+	g Generator, m move.PlayMaker, b *Board) {
 	// Generate cross-sets on either side of the word.
 	for col := int(colStart) - 1; col <= int(colStart)+len(m.Tiles()); col++ {
 		g.Generate(b, int(rowStart), col, csd)
 	}
 }
 
-func updateForMove(g Generator, b *Board, m *move.Move) {
+func updateForMove(g Generator, b *Board, m move.PlayMaker) {
 
 	// log.Trace().Msgf("Updating for move: %s", m.ShortDescription())
-	row, col, vertical := m.CoordsAndVertical()
+	row := m.RowStart()
+	col := m.ColStart()
+	vertical := m.Vertical()
 	// Every tile placed by this new move creates new "across" words, and we need
 	// to update the cross sets on both sides of these across words, as well
 	// as the cross sets for THIS word.
@@ -117,7 +119,7 @@ func (g *CrossScoreOnlyGenerator) GenerateAll(b *Board) {
 	generateAll(g, b)
 }
 
-func (g *CrossScoreOnlyGenerator) UpdateForMove(b *Board, m *move.Move) {
+func (g *CrossScoreOnlyGenerator) UpdateForMove(b *Board, m move.PlayMaker) {
 	updateForMove(g, b, m)
 }
 
@@ -179,7 +181,7 @@ func (g *GaddagCrossSetGenerator) GenerateAll(b *Board) {
 	generateAll(g, b)
 }
 
-func (g *GaddagCrossSetGenerator) UpdateForMove(b *Board, m *move.Move) {
+func (g *GaddagCrossSetGenerator) UpdateForMove(b *Board, m move.PlayMaker) {
 	updateForMove(g, b, m)
 }
 
@@ -190,7 +192,7 @@ func GenAllCrossSets(b *Board, gd gaddag.WordGraph, ld *tilemapping.LetterDistri
 	gen.GenerateAll(b)
 }
 
-func UpdateCrossSetsForMove(b *Board, m *move.Move,
+func UpdateCrossSetsForMove(b *Board, m move.PlayMaker,
 	gd gaddag.WordGraph, ld *tilemapping.LetterDistribution) {
 	gen := GaddagCrossSetGenerator{Dist: ld, Gaddag: gd}
 	gen.UpdateForMove(b, m)

@@ -36,9 +36,12 @@ const (
 type PlayMaker interface {
 	Type() MoveType
 	Tiles() tilemapping.MachineWord
+	TilesPlayed() int
+	Leave() tilemapping.MachineWord
 	RowStart() int
 	ColStart() int
 	Vertical() bool
+	Score() int
 }
 
 // Move is a move. It can have a score, position, equity, etc. It doesn't
@@ -418,6 +421,22 @@ func (m *Move) Tiles() tilemapping.MachineWord {
 
 func (m *Move) CoordsAndVertical() (int, int, bool) {
 	return m.rowStart, m.colStart, m.vertical
+}
+
+func (m *Move) ColStart() int {
+	return m.colStart
+}
+
+func (m *Move) RowStart() int {
+	return m.rowStart
+}
+
+func (m *Move) Vertical() bool {
+	return m.vertical
+}
+
+func (m *Move) Type() MoveType {
+	return m.action
 }
 
 func (m *Move) BoardCoords() string {

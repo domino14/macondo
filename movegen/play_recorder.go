@@ -12,6 +12,49 @@ type PlayRecorderFunc func(*GordonGenerator, *tilemapping.Rack, int, int, move.M
 func NullPlayRecorder(gen *GordonGenerator, a *tilemapping.Rack, leftstrip, rightstrip int, t move.MoveType) {
 }
 
+func AllMinimalPlaysRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, rightstrip int, t move.MoveType) {
+	switch t {
+	case move.MoveTypePlay:
+		startRow := gen.curRowIdx
+		tilesPlayed := gen.tilesPlayed
+
+		startCol := leftstrip
+		row := startRow
+		col := startCol
+		if gen.vertical {
+			// We flip it here because we only generate vertical moves when we transpose
+			// the board, so the row and col are actually transposed.
+			row, col = col, row
+		}
+
+		length := rightstrip - leftstrip + 1
+		if length < 2 {
+			return
+		}
+		word := make([]tilemapping.MachineLetter, length)
+		copy(word, gen.strip[startCol:startCol+length])
+		play := move.NewScoringMinimalMove(gen.scoreMove(word, startRow, startCol, tilesPlayed),
+			word, gen.vertical, row, col)
+
+		gen.plays = append(gen.plays, play)
+
+	case move.MoveTypeExchange:
+		// ignore the empty exchange case
+		if rightstrip == 0 {
+			return
+		}
+		exchanged := make([]tilemapping.MachineLetter, rightstrip)
+		copy(exchanged, gen.exchangestrip[:rightstrip])
+		play := move.NewExchangeMinimalMove(exchanged)
+		gen.plays = append(gen.plays, play)
+
+	case move.MoveTypePass:
+		gen.plays = append(gen.plays, move.NewPassMinimalMove(rack.TilesOn()))
+
+	default:
+	}
+}
+
 func AllPlaysRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, rightstrip int, t move.MoveType) {
 
 	switch t {

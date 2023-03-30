@@ -48,17 +48,18 @@ func (nv *nodeValue) less(other *nodeValue) bool {
 // a game node has to have enough information to allow the game and turns
 // to be reconstructed.
 type GameNode struct {
-	move             *move.Move
+	*move.MinimalMove
 	parent           *GameNode
 	heuristicValue   nodeValue
 	onlyPassPossible bool
+	priority         int
 }
 
 func (g *GameNode) Copy() *GameNode {
-	mv := &move.Move{}
-	mv.CopyFrom(g.move)
+	mv := &move.MinimalMove{}
+	mv.CopyFrom(g.MinimalMove)
 	return &GameNode{
-		move:             mv,
+		MinimalMove:      mv,
 		parent:           g.parent,
 		heuristicValue:   g.heuristicValue,
 		onlyPassPossible: g.onlyPassPossible,
@@ -67,7 +68,7 @@ func (g *GameNode) Copy() *GameNode {
 
 func (g *GameNode) CopyFrom(o *GameNode) {
 	g.heuristicValue = o.heuristicValue
-	g.move.CopyFrom(o.move)
+	g.MinimalMove.CopyFrom(o.MinimalMove)
 	g.parent = o.parent
 	g.onlyPassPossible = o.onlyPassPossible
 }
@@ -80,14 +81,14 @@ func (g *GameNode) String() string {
 	// This function allocates but is only used for test purposes.
 	return fmt.Sprintf(
 		"<gamenode move %v, heuristicVal %v>",
-		g.move, g.heuristicValue)
+		g.MinimalMove, g.heuristicValue)
 }
 
 func (g *GameNode) Negative() *GameNode {
 	hv := g.heuristicValue
 	hv.negate()
 	return &GameNode{
-		move:             g.move,
+		MinimalMove:      g.MinimalMove,
 		parent:           g.parent,
 		heuristicValue:   hv,
 		onlyPassPossible: g.onlyPassPossible,
@@ -114,20 +115,20 @@ func (g *GameNode) calculateNValue(s *Solver) {
 		g.heuristicValue = nodeValue{
 			value:    float32(spreadNow - initialSpread),
 			knownEnd: true,
-			isPass:   g.move.Action() == move.MoveTypePass}
+			isPass:   g.Type() == move.MoveTypePass}
 	} else {
 		// The valuation is already an estimate of the overall gain or loss
 		// in spread for this move (if taken to the end of the game).
 
 		// `player` is NOT the one that just made a move.
-		ptValue := g.move.Score()
+		ptValue := g.Score()
 		// don't double-count score; it's already in the valuation:
-		moveVal := g.move.Valuation() - float32(ptValue)
+		moveVal := g.heuristicValue.value - float32(ptValue)
 		// What is the spread right now? The valuation should be relative
 		// to that.
 		g.heuristicValue = nodeValue{
 			value:    float32(spreadNow) + moveVal - float32(initialSpread),
 			knownEnd: false,
-			isPass:   g.move.Action() == move.MoveTypePass}
+			isPass:   g.Type() == move.MoveTypePass}
 	}
 }
