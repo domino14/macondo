@@ -31,6 +31,16 @@ const (
 	MoveTypeUnset
 )
 
+// A PlayMaker is a thing that makes plays. For example, a Move can be a
+// PlayMaker.
+type PlayMaker interface {
+	Type() MoveType
+	Tiles() tilemapping.MachineWord
+	RowStart() int
+	ColStart() int
+	Vertical() bool
+}
+
 // Move is a move. It can have a score, position, equity, etc. It doesn't
 // have to be a scoring move.
 type Move struct {
