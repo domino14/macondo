@@ -91,12 +91,18 @@ type Solver struct {
 	otsRectIndex     int
 	// moveCache        map[int][]*minimalMove
 
-	lastPrincipalVariation []*move.Move
-	currentIDDepth         int
-	requestedPlies         int
+	lastPrincipalVariation      []*move.Move
+	lastPrincipalVariationNodes []*GameNode
+	currentIDDepth              int
+	requestedPlies              int
 
 	config       *config.Config
 	skippedPlays int
+
+	// topLevel is the top level of the tree; all the valid moves that I have
+	// These never change; we can sort them by valuation for future iterations
+	// of iterative deepening.
+	topLevel []*GameNode
 
 	// Should we make this a linear array instead and use modulo?
 	ttable map[uint64]*TNode
@@ -373,15 +379,17 @@ func containsOutPlay(plays []*move.Move, numTilesOnRack int) bool {
 func (s *Solver) findBestSequence(endNode *GameNode) []*move.Move {
 	// findBestSequence assumes we have already run alphabeta / iterative deepening
 	seq := []*move.Move{}
+	nodes := []*GameNode{}
 	child := endNode
 	for {
 		seq = append([]*move.Move{child.move}, seq...)
+		nodes = append([]*GameNode{child}, nodes...)
 		child = child.parent
 		if child == nil || child.move == nil {
 			break
 		}
 	}
-
+	s.lastPrincipalVariationNodes = nodes
 	return seq
 }
 
@@ -434,8 +442,18 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 	go func(ctx context.Context) {
 		defer wg.Done()
 		if s.iterativeDeepeningOn {
-
 			log.Debug().Msgf("Using iterative deepening with %v max plies", plies)
+
+			// Generate first layer of moves.
+			plays := s.generateSTMPlays(nil, 0)
+			for _, p := range plays {
+				child := &GameNode{move: p, parent: s.rootNode}
+				if len(plays) == 1 && p.Action() == move.MoveTypePass {
+					child.onlyPassPossible = true
+				}
+				s.topLevel = append(s.topLevel, child)
+			}
+
 			for p := 1; p <= plies; p++ {
 				log.Debug().Msgf("%v %d Spread at beginning of endgame: %v (%d)", s.maximizingPlayer, s.initialTurnNum, s.initialSpread, s.game.ScorelessTurns())
 				s.currentIDDepth = p
@@ -459,6 +477,9 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 						break
 					}
 				}
+				sort.Slice(s.topLevel, func(i, j int) bool {
+					return s.topLevel[i].Valuation() > s.topLevel[j].Valuation()
+				})
 			}
 		} else {
 			s.currentIDDepth = 0
@@ -530,8 +551,19 @@ func (s *Solver) nalphabeta(ctx context.Context, node *GameNode, nodeKey uint64,
 
 		return node, nil
 	}
+	var plays []*move.Move
 
-	plays := s.generateSTMPlays(node.move, depth)
+	atTopLevel := depth > 0 && s.currentIDDepth == depth
+
+	if atTopLevel {
+		plays = make([]*move.Move, len(s.topLevel))
+		for idx, n := range s.topLevel {
+			plays[idx] = n.move
+		}
+	} else {
+		plays = s.generateSTMPlays(node.move, depth)
+	}
+
 	sortedPlays := s.sortPlaysForConsideration(plays, depth, node, nodeKey)
 
 	value := float32(-Infinity)
@@ -552,7 +584,6 @@ func (s *Solver) nalphabeta(ctx context.Context, node *GameNode, nodeKey uint64,
 			child := new(GameNode)
 			child.move = play
 			child.parent = node
-			child.depth = uint8(depth - 1)
 			if len(plays) == 1 && play.Action() == move.MoveTypePass {
 				child.onlyPassPossible = true
 			}
@@ -596,7 +627,6 @@ func (s *Solver) sortPlaysForConsideration(plays []*move.Move, depth int,
 	// depending on our various optimizations.
 	priorityPlays := []*move.Move{}
 	skipKiller := false
-	addedPass := false
 	if s.earlyPassOptim && oppPassed {
 		// Add the last play the movegen generated to be considered at the
 		// beginning. This might provide a quick exit. The last play
@@ -608,32 +638,6 @@ func (s *Solver) sortPlaysForConsideration(plays []*move.Move, depth int,
 		}
 		if killerPlay != nil && killerPlay.Equals(priorityPlays[0], false, false) {
 			skipKiller = true
-		}
-		addedPass = true
-	}
-
-	if s.iterativeDeepeningOn && s.currentIDDepth == depth && len(s.lastPrincipalVariation) > 0 {
-		// We are generating plays for the first time in this iterative deepening
-		lastWinner := s.lastPrincipalVariation[0]
-		if addedPass && lastWinner.Action() == move.MoveTypePass {
-			// skip adding pass again.
-		} else {
-			log.Info().Str("move", lastWinner.ShortDescription()).Msg("trying-last-winner-first")
-			found := false
-			for idx, play := range plays {
-				if play.Equals(lastWinner, false, false) {
-					priorityPlays = append(priorityPlays, play)
-					plays[idx] = nil
-					found = true
-					break
-				}
-			}
-			if killerPlay != nil && killerPlay.Equals(lastWinner, false, false) {
-				skipKiller = true
-			}
-			if !found {
-				log.Warn().Msg("did not find move in iterative deepening - this should not happen")
-			}
 		}
 	}
 
@@ -791,4 +795,8 @@ func (s *Solver) SetKillerPlayOptim(i bool) {
 
 func (s *Solver) SetFirstWinOptim(i bool) {
 	s.firstWinOptim = i
+}
+
+func (s *Solver) LastPrincipalVariationNodes() []*GameNode {
+	return s.lastPrincipalVariationNodes
 }

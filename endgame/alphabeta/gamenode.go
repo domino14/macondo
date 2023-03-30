@@ -51,7 +51,6 @@ type GameNode struct {
 	move             *move.Move
 	parent           *GameNode
 	heuristicValue   nodeValue
-	depth            uint8
 	onlyPassPossible bool
 }
 
@@ -62,7 +61,6 @@ func (g *GameNode) Copy() *GameNode {
 		move:             mv,
 		parent:           g.parent,
 		heuristicValue:   g.heuristicValue,
-		depth:            g.depth,
 		onlyPassPossible: g.onlyPassPossible,
 	}
 }
@@ -71,16 +69,11 @@ func (g *GameNode) CopyFrom(o *GameNode) {
 	g.heuristicValue = o.heuristicValue
 	g.move.CopyFrom(o.move)
 	g.parent = o.parent
-	g.depth = o.depth
 	g.onlyPassPossible = o.onlyPassPossible
 }
 
 func (g *GameNode) Parent() *GameNode {
 	return g.parent
-}
-
-func (g *GameNode) GetDepth() uint8 {
-	return g.depth
 }
 
 func (g *GameNode) String() string {
@@ -97,7 +90,6 @@ func (g *GameNode) Negative() *GameNode {
 		move:             g.move,
 		parent:           g.parent,
 		heuristicValue:   hv,
-		depth:            g.depth,
 		onlyPassPossible: g.onlyPassPossible,
 	}
 }

@@ -114,13 +114,12 @@ type ShellController struct {
 	gameRunnerRunning bool
 	gameRunnerTicker  *time.Ticker
 
-	curTurnNum     int
-	gen            movegen.MoveGenerator
-	backupgen      movegen.MoveGenerator // used for endgame engine
-	curMode        Mode
-	endgameSolver  *alphabeta.Solver
-	curEndgameNode *alphabeta.GameNode
-	curPlayList    []*move.Move
+	curTurnNum    int
+	gen           movegen.MoveGenerator
+	backupgen     movegen.MoveGenerator // used for endgame engine
+	curMode       Mode
+	endgameSolver *alphabeta.Solver
+	curPlayList   []*move.Move
 }
 
 type Mode int

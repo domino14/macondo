@@ -353,7 +353,6 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 
 	// clear out the last value of this endgame node; gc should
 	// delete the tree.
-	sc.curEndgameNode = nil
 	sc.endgameSolver = new(alphabeta.Solver)
 	err = sc.endgameSolver.Init(sc.gen, sc.backupgen, sc.game.Game, sc.config)
 	if err != nil {
