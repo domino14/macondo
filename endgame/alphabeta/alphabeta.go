@@ -128,8 +128,6 @@ func (s *Solver) Init(m1 movegen.MoveGenerator, m2 movegen.MoveGenerator, game *
 	s.zobrist = &zobrist.Zobrist{}
 	s.stmMovegen = m1
 	s.otsMovegen = m2
-	s.stmMovegen.SetPlayRecorder(movegen.AllMinimalPlaysRecorder)
-	s.otsMovegen.SetPlayRecorder(movegen.AllMinimalPlaysRecorder)
 	s.game = game
 	s.killerCache = make(map[uint64]*GameNode)
 	s.iterativeDeepeningOn = true
@@ -144,9 +142,11 @@ func (s *Solver) Init(m1 movegen.MoveGenerator, m2 movegen.MoveGenerator, game *
 	s.config = cfg
 	if s.stmMovegen != nil {
 		s.stmMovegen.SetGenPass(true)
+		s.stmMovegen.SetPlayRecorder(movegen.AllMinimalPlaysRecorder)
 	}
 	if s.otsMovegen != nil {
 		s.otsMovegen.SetGenPass(true)
+		s.otsMovegen.SetPlayRecorder(movegen.AllMinimalPlaysRecorder)
 	}
 
 	return nil
@@ -269,11 +269,11 @@ func (s *Solver) generateSTMPlays(parentNode *GameNode, depth int) []*GameNode {
 		if n.TilesPlayed() == int(numTilesOnRack) {
 			// don't set knownEnd quite yet. We can let the
 			// calculateNValue function do that.
-			n.heuristicValue.value = float32(n.Score() + 2*otherRack.ScoreOn(ld))
+			n.heuristicValue.initialEstimate = float32(n.Score() + 2*otherRack.ScoreOn(ld))
 		} else if depth > 2 {
-			n.heuristicValue.value = float32(n.Score() + 3*n.TilesPlayed())
+			n.heuristicValue.initialEstimate = float32(n.Score() + 3*n.TilesPlayed())
 		} else {
-			n.heuristicValue.value = float32(n.Score())
+			n.heuristicValue.initialEstimate = float32(n.Score())
 		}
 		nodes[idx] = n
 	}
@@ -568,17 +568,21 @@ func (s *Solver) nalphabeta(ctx context.Context, node *GameNode, nodeKey uint64,
 	var winningNode *GameNode
 	for _, childNode := range children {
 		// Play the child
+		// fmt.Println(strings.Repeat(" ", 8-depth*2), "----------------")
+		// fmt.Println(strings.Repeat(" ", 8-depth*2), childNode)
+
 		err := s.game.PlayMove(childNode.MinimalMove, false, 0)
 		if err != nil {
 			return nil, err
 		}
-		// XXX: this may be broken; might need to store leave after all.
 		childKey := s.zobrist.AddMove(nodeKey, childNode.MinimalMove, maximizingPlayer)
 		wn, err := s.nalphabeta(ctx, childNode, childKey, depth-1, -β, -α, !maximizingPlayer)
 		if err != nil {
 			s.game.UnplayLastMove()
 			return wn, err
 		}
+		// fmt.Println(strings.Repeat(" ", 8-depth*2), "wn", wn)
+
 		s.game.UnplayLastMove()
 
 		// for negamax, take the max of value and the negative wn value.
@@ -586,10 +590,13 @@ func (s *Solver) nalphabeta(ctx context.Context, node *GameNode, nodeKey uint64,
 			value = -wn.heuristicValue.value
 			// wn.Negative() makes a copy. figure out how to allocate less.
 			winningNode = wn.Negative()
+			// fmt.Println(strings.Repeat(" ", 8-depth*2), "value", value)
 		}
 
 		α = max(α, value)
 		if α >= β {
+			// fmt.Println(strings.Repeat(" ", 8-depth*2), "cutoff", α, β)
+
 			break // beta cut-off
 		}
 
@@ -598,8 +605,9 @@ func (s *Solver) nalphabeta(ctx context.Context, node *GameNode, nodeKey uint64,
 		s.killerCache[nodeKey] = winningNode
 	}
 	// propagate the heuristic back to the parent node.
-	node.heuristicValue = winningNode.heuristicValue
-	node.heuristicValue.negate()
+	// node.heuristicValue = winningNode.heuristicValue
+	// node.heuristicValue.negate()
+	// fmt.Println(strings.Repeat(" ", 8-depth*2), "winningNode", winningNode)
 
 	//  The negamax node's return value is a heuristic score from the point
 	// of view of the node's current player.
@@ -612,22 +620,26 @@ func (s *Solver) sortPlaysForConsideration(plays []*GameNode, depth int,
 	killerPlay := s.killerCache[nodeKey]
 
 	oppPassed := node.MinimalMove != nil && node.Type() == move.MoveTypePass
-
+	kpFound := false
 	for _, play := range plays {
 		if s.earlyPassOptim && oppPassed && play.Type() == move.MoveTypePass {
 			play.priority = 2
 		} else if killerPlay != nil && s.killerPlayOptim && play.Equals(killerPlay.MinimalMove) {
 			play.priority = 1
+			kpFound = true
 		} else {
 			play.priority = 0
 		}
+	}
+	if s.killerPlayOptim && !kpFound && killerPlay != nil {
+		log.Warn().Str("killerPlay", killerPlay.ShortDescription(s.game.Alphabet())).Msg("zobrist-collision")
 	}
 
 	// Sort by priority then heuristic value.
 
 	sort.Slice(plays, func(i, j int) bool {
 		if plays[j].priority == plays[i].priority {
-			return plays[j].heuristicValue.less(&plays[i].heuristicValue)
+			return plays[j].heuristicValue.initialEstimate < plays[i].heuristicValue.initialEstimate
 		}
 		return plays[j].priority < plays[i].priority
 	})

@@ -1,7 +1,6 @@
 package movegen
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -246,8 +245,9 @@ func TestOneMoreRowGen(t *testing.T) {
 			len(generator.plays), 1)
 	}
 	m := generator.plays[0]
-	if m.ShortDescription() != " 1L .A" {
-		t.Errorf("Expected 1L .A, got %v", m.ShortDescription())
+	d := m.(*move.Move).ShortDescription()
+	if d != " 1L .A" {
+		t.Errorf("Expected 1L .A, got %v", d)
 	}
 }
 
@@ -439,7 +439,6 @@ func TestGenAllMovesWithBlanks(t *testing.T) {
 	// There are 7 plays worth 32 pts.
 	rewards := 0
 	for i := 2; i < 9; i++ {
-		fmt.Println(generator.plays[i].ShortDescription(), generator.plays[i].Score())
 		assert.Equal(t, 32, generator.plays[i].Score())
 		if generator.plays[i].Tiles().UserVisiblePlayedTiles(alph) == "rEW..DS" {
 			rewards = i

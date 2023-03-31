@@ -33,8 +33,9 @@ func AllMinimalPlaysRecorder(gen *GordonGenerator, rack *tilemapping.Rack, lefts
 		}
 		word := make([]tilemapping.MachineLetter, length)
 		copy(word, gen.strip[startCol:startCol+length])
-		play := move.NewScoringMinimalMove(gen.scoreMove(word, startRow, startCol, tilesPlayed),
-			word, gen.vertical, row, col)
+		play := move.NewScoringMinimalMove(
+			gen.scoreMove(word, startRow, startCol, tilesPlayed),
+			word, rack.TilesOn(), gen.vertical, row, col)
 
 		gen.plays = append(gen.plays, play)
 
@@ -45,7 +46,7 @@ func AllMinimalPlaysRecorder(gen *GordonGenerator, rack *tilemapping.Rack, lefts
 		}
 		exchanged := make([]tilemapping.MachineLetter, rightstrip)
 		copy(exchanged, gen.exchangestrip[:rightstrip])
-		play := move.NewExchangeMinimalMove(exchanged)
+		play := move.NewExchangeMinimalMove(exchanged, rack.TilesOn())
 		gen.plays = append(gen.plays, play)
 
 	case move.MoveTypePass:
@@ -94,6 +95,9 @@ func AllPlaysRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, r
 		copy(exchanged, gen.exchangestrip[:rightstrip])
 		play := move.NewExchangeMove(exchanged, rack.TilesOn(), alph)
 		gen.plays = append(gen.plays, play)
+	case move.MoveTypePass:
+		alph := gen.letterDistribution.TileMapping()
+		gen.plays = append(gen.plays, move.NewPassMove(rack.TilesOn(), alph))
 
 	default:
 
@@ -157,12 +161,18 @@ func TopPlayOnlyRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip
 		eq = lo.SumBy(gen.equityCalculators, func(c equity.EquityCalculator) float64 {
 			return c.Equity(gen.placeholder, gen.board, gen.game.Bag(), gen.game.RackFor(gen.game.NextPlayer()))
 		})
+	case move.MoveTypePass:
+		leaveLength = rack.NoAllocTilesOn(gen.leavestrip)
+		alph := gen.letterDistribution.TileMapping()
+		gen.placeholder.Set(nil, gen.leavestrip[:leaveLength],
+			0, 0, 0, 0, false, move.MoveTypePass, alph)
+		eq = lo.SumBy(gen.equityCalculators, func(c equity.EquityCalculator) float64 {
+			return c.Equity(gen.placeholder, gen.board, gen.game.Bag(), gen.game.RackFor(gen.game.NextPlayer()))
+		})
 	default:
 
 	}
 	if gen.winner.Action() == move.MoveTypeUnset || eq > gen.winner.Equity() {
-		// only allocate if we beat the best move.
-
 		gen.winner.CopyFrom(gen.placeholder)
 		gen.winner.SetEquity(eq)
 		if len(gen.plays) == 0 {

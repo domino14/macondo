@@ -5,18 +5,20 @@ import (
 
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/tilemapping"
 )
 
 const PerTurnPenalty = float32(0.001)
 
 type nodeValue struct {
-	value    float32
-	knownEnd bool
-	isPass   bool
+	initialEstimate float32
+	value           float32
+	knownEnd        bool
+	isPass          bool
 }
 
 func (nv *nodeValue) String() string {
-	return fmt.Sprintf("<val: %v knownEnd: %v>", nv.value, nv.knownEnd)
+	return fmt.Sprintf("<e: ~%v, v: %v, end: %v>", nv.initialEstimate, nv.value, nv.knownEnd)
 }
 
 func (nv *nodeValue) negate() {
@@ -81,7 +83,7 @@ func (g *GameNode) String() string {
 	// This function allocates but is only used for test purposes.
 	return fmt.Sprintf(
 		"<gamenode move %v, heuristicVal %v>",
-		g.MinimalMove, g.heuristicValue)
+		g.MinimalMove.ShortDescription(tilemapping.EnglishAlphabet()), g.heuristicValue.String())
 }
 
 func (g *GameNode) Negative() *GameNode {
@@ -123,7 +125,7 @@ func (g *GameNode) calculateNValue(s *Solver) {
 		// `player` is NOT the one that just made a move.
 		ptValue := g.Score()
 		// don't double-count score; it's already in the valuation:
-		moveVal := g.heuristicValue.value - float32(ptValue)
+		moveVal := g.heuristicValue.initialEstimate - float32(ptValue)
 		// What is the spread right now? The valuation should be relative
 		// to that.
 		g.heuristicValue = nodeValue{

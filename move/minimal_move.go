@@ -28,10 +28,9 @@ const (
 type MinimalMove struct {
 	// the tiles need to be kept separate.
 	tiles tilemapping.MachineWord
+	leave tilemapping.MachineWord
 	// key encodes everything else we need to know about the move
 	key uint32
-	// leave is not included here. If leave is important to know fast,
-	// don't use a MinimalMove
 }
 
 // ShortDescription turns it into a regular move.
@@ -55,7 +54,7 @@ func (mm *MinimalMove) CopyToMove(m *Move) {
 	}
 	m.Set(
 		mm.tiles,
-		nil,
+		mm.leave,
 		int(mm.key>>mmScoreShift),
 		int((mm.key>>mmRowShift)&mmColBitmask),
 		int(mm.key)&mmColBitmask,
@@ -83,10 +82,7 @@ func (mm *MinimalMove) TilesPlayed() int {
 }
 
 func (mm *MinimalMove) Leave() tilemapping.MachineWord {
-	if mm.Type() == MoveTypePass {
-		return mm.tiles
-	}
-	return nil
+	return mm.leave
 }
 
 func (mm *MinimalMove) Type() MoveType {
@@ -114,9 +110,10 @@ func (mm *MinimalMove) Score() int {
 func (mm *MinimalMove) SetEmpty() {
 	mm.key = 0
 	mm.tiles = nil
+	mm.leave = nil
 }
 
-func (mm *MinimalMove) Set(word tilemapping.MachineWord, score, row, col int, vertical bool,
+func (mm *MinimalMove) Set(word, leave tilemapping.MachineWord, score, row, col int, vertical bool,
 	t MoveType) {
 	vbit := uint32(0)
 	if vertical {
@@ -125,11 +122,14 @@ func (mm *MinimalMove) Set(word tilemapping.MachineWord, score, row, col int, ve
 	mm.key = uint32(col) + (uint32(row) << mmRowShift) +
 		(vbit << mmVerticalShift) + (uint32(score) << mmScoreShift)
 	mm.tiles = word
+	mm.leave = leave
 }
 
 func (mm *MinimalMove) CopyFrom(f *MinimalMove) {
 	mm.tiles = make([]tilemapping.MachineLetter, len(f.tiles))
+	mm.leave = make([]tilemapping.MachineLetter, len(f.leave))
 	copy(mm.tiles, f.tiles)
+	copy(mm.leave, f.leave)
 	mm.key = f.key
 }
 
@@ -146,8 +146,16 @@ func (mm *MinimalMove) Equals(o *MinimalMove) bool {
 	if len(mm.tiles) != len(o.tiles) {
 		return false
 	}
+	if len(mm.leave) != len(o.leave) {
+		return false
+	}
 	for idx, t := range mm.tiles {
 		if t != o.tiles[idx] {
+			return false
+		}
+	}
+	for idx, t := range mm.leave {
+		if t != o.leave[idx] {
 			return false
 		}
 	}
@@ -155,8 +163,8 @@ func (mm *MinimalMove) Equals(o *MinimalMove) bool {
 }
 
 // NewScoringMinimalMove creates a minimal move with a score.
-func NewScoringMinimalMove(score int, tiles tilemapping.MachineWord, vertical bool,
-	rowStart, colStart int) *MinimalMove {
+func NewScoringMinimalMove(score int, tiles, leave tilemapping.MachineWord,
+	vertical bool, rowStart, colStart int) *MinimalMove {
 
 	vbit := uint32(0)
 	if vertical {
@@ -168,13 +176,13 @@ func NewScoringMinimalMove(score int, tiles tilemapping.MachineWord, vertical bo
 			tp++
 		}
 	}
-
 	key := uint32(colStart) + (uint32(rowStart) << mmRowShift) +
 		(vbit << mmVerticalShift) + (tp << mmTilesPlayedShift) +
 		(uint32(score) << mmScoreShift)
 
 	return &MinimalMove{
 		tiles: tiles,
+		leave: leave,
 		key:   key,
 	}
 }
@@ -182,13 +190,14 @@ func NewScoringMinimalMove(score int, tiles tilemapping.MachineWord, vertical bo
 func NewPassMinimalMove(leave tilemapping.MachineWord) *MinimalMove {
 	return &MinimalMove{
 		key:   1 << mmTypeShift,
-		tiles: leave, // maybe ok?
+		leave: leave,
 	}
 }
 
-func NewExchangeMinimalMove(toExchange tilemapping.MachineWord) *MinimalMove {
+func NewExchangeMinimalMove(toExchange, leave tilemapping.MachineWord) *MinimalMove {
 	return &MinimalMove{
 		tiles: toExchange,
+		leave: leave,
 		key:   2<<mmTypeShift + (uint32(len(toExchange)) << mmTilesPlayedShift), // 2 = exchange
 	}
 }

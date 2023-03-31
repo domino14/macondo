@@ -11,9 +11,6 @@
 package movegen
 
 import (
-	"fmt"
-	"reflect"
-	"runtime"
 	"sort"
 
 	"github.com/domino14/macondo/board"
@@ -133,7 +130,6 @@ func (gen *GordonGenerator) SetGenPass(p bool) {
 // GenAll generates all moves on the board. It assumes anchors have already
 // been updated, as well as cross-sets / cross-scores.
 func (gen *GordonGenerator) GenAll(rack *tilemapping.Rack, addExchange bool) []move.PlayMaker {
-	fmt.Println("genall", runtime.FuncForPC(reflect.ValueOf(gen.playRecorder).Pointer()).Name())
 	gen.winner.SetEmpty()
 	gen.quitEarly = false
 	gen.plays = gen.plays[:0]
