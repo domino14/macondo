@@ -5,7 +5,6 @@ import (
 
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/tilemapping"
 )
 
 const PerTurnPenalty = float32(0.001)
@@ -83,14 +82,14 @@ func (g *GameNode) String() string {
 	// This function allocates but is only used for test purposes.
 	return fmt.Sprintf(
 		"<gamenode move %v, heuristicVal %v>",
-		g.MinimalMove.ShortDescription(tilemapping.EnglishAlphabet()), g.heuristicValue.String())
+		g.MinimalMove, g.heuristicValue.String())
 }
 
 func (g *GameNode) Negative() *GameNode {
 	hv := g.heuristicValue
 	hv.negate()
 	return &GameNode{
-		MinimalMove:      g.MinimalMove,
+		MinimalMove:      g.MinimalMove.Copy(),
 		parent:           g.parent,
 		heuristicValue:   hv,
 		onlyPassPossible: g.onlyPassPossible,

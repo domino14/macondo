@@ -210,8 +210,6 @@ func TestSolveStandard(t *testing.T) {
 	s, err := setUpSolver("NWL18", "english", board.VsCanik, plies, "DEHILOR", "BGIV", 389, 384,
 		1)
 	is.NoErr(err)
-	s.killerPlayOptim = false
-	s.earlyPassOptim = false
 	v, moves, _ := s.Solve(context.Background(), plies)
 
 	is.Equal(moves[0].ShortDescription(tilemapping.EnglishAlphabet()), " 1G VIG.")

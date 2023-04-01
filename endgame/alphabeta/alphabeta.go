@@ -576,6 +576,7 @@ func (s *Solver) nalphabeta(ctx context.Context, node *GameNode, nodeKey uint64,
 			return nil, err
 		}
 		childKey := s.zobrist.AddMove(nodeKey, childNode.MinimalMove, maximizingPlayer)
+		fmt.Println("childKey was", childKey, "parentKey", nodeKey, "move", childNode.MinimalMove)
 		wn, err := s.nalphabeta(ctx, childNode, childKey, depth-1, -β, -α, !maximizingPlayer)
 		if err != nil {
 			s.game.UnplayLastMove()
@@ -602,6 +603,7 @@ func (s *Solver) nalphabeta(ctx context.Context, node *GameNode, nodeKey uint64,
 
 	}
 	if s.killerPlayOptim {
+		fmt.Println("node won", nodeKey, winningNode)
 		s.killerCache[nodeKey] = winningNode
 	}
 	// propagate the heuristic back to the parent node.
@@ -622,17 +624,17 @@ func (s *Solver) sortPlaysForConsideration(plays []*GameNode, depth int,
 	oppPassed := node.MinimalMove != nil && node.Type() == move.MoveTypePass
 	kpFound := false
 	for _, play := range plays {
+		play.priority = 0
 		if s.earlyPassOptim && oppPassed && play.Type() == move.MoveTypePass {
 			play.priority = 2
-		} else if killerPlay != nil && s.killerPlayOptim && play.Equals(killerPlay.MinimalMove) {
+		}
+		if killerPlay != nil && s.killerPlayOptim && play.Equals(killerPlay.MinimalMove) {
 			play.priority = 1
 			kpFound = true
-		} else {
-			play.priority = 0
 		}
 	}
 	if s.killerPlayOptim && !kpFound && killerPlay != nil {
-		log.Warn().Str("killerPlay", killerPlay.ShortDescription(s.game.Alphabet())).Msg("zobrist-collision")
+		log.Warn().Msgf("zobrist-collision; did not find %v (parent %v, nodekey %v, depth %d)", killerPlay, node, nodeKey, depth)
 	}
 
 	// Sort by priority then heuristic value.
