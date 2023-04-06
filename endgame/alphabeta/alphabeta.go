@@ -548,7 +548,6 @@ func (s *Solver) nalphabeta(ctx context.Context, node *GameNode, nodeKey uint64,
 		if !maximizingPlayer {
 			node.heuristicValue.negate()
 		}
-
 		return node, nil
 	}
 	var children []*GameNode
@@ -566,55 +565,43 @@ func (s *Solver) nalphabeta(ctx context.Context, node *GameNode, nodeKey uint64,
 	value := float32(-Infinity)
 
 	var winningNode *GameNode
+	// The winningNode will be set to one of these children. The parent
+	// of the winning node will always be `node`; this is set in generateSTMPlays
 	for _, childNode := range children {
-		// Play the child
-		// fmt.Println(strings.Repeat(" ", 8-depth*2), "----------------")
-		// fmt.Println(strings.Repeat(" ", 8-depth*2), childNode)
 
 		err := s.game.PlayMove(childNode.MinimalMove, false, 0)
 		if err != nil {
 			return nil, err
 		}
+
 		childKey := s.zobrist.AddMove(nodeKey, childNode.MinimalMove, maximizingPlayer)
-		fmt.Println("childKey was", childKey, "parentKey", nodeKey, "move", childNode.MinimalMove)
 		wn, err := s.nalphabeta(ctx, childNode, childKey, depth-1, -β, -α, !maximizingPlayer)
 		if err != nil {
 			s.game.UnplayLastMove()
 			return wn, err
 		}
-		// fmt.Println(strings.Repeat(" ", 8-depth*2), "wn", wn)
 
 		s.game.UnplayLastMove()
 
 		// for negamax, take the max of value and the negative wn value.
 		if -wn.heuristicValue.value > value {
 			value = -wn.heuristicValue.value
-			// wn.Negative() makes a copy. figure out how to allocate less.
-			winningNode = wn.Negative()
-			// fmt.Println(strings.Repeat(" ", 8-depth*2), "value", value)
+			winningNode = wn
+			if s.killerPlayOptim {
+				s.killerCache[nodeKey] = childNode
+			}
 		}
-
 		α = max(α, value)
 		if α >= β {
-			// fmt.Println(strings.Repeat(" ", 8-depth*2), "cutoff", α, β)
-
 			break // beta cut-off
 		}
 
 	}
-	if s.killerPlayOptim {
-		fmt.Println("node won", nodeKey, winningNode)
-		s.killerCache[nodeKey] = winningNode
-	}
-	// propagate the heuristic back to the parent node.
-	// node.heuristicValue = winningNode.heuristicValue
-	// node.heuristicValue.negate()
-	// fmt.Println(strings.Repeat(" ", 8-depth*2), "winningNode", winningNode)
 
 	//  The negamax node's return value is a heuristic score from the point
 	// of view of the node's current player.
-	return winningNode, nil
-
+	// wn.Negative() makes a copy. figure out how to allocate less.
+	return winningNode.Negative(), nil
 }
 
 func (s *Solver) sortPlaysForConsideration(plays []*GameNode, depth int,

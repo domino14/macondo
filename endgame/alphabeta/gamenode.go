@@ -81,15 +81,15 @@ func (g *GameNode) Parent() *GameNode {
 func (g *GameNode) String() string {
 	// This function allocates but is only used for test purposes.
 	return fmt.Sprintf(
-		"<gamenode move %v, heuristicVal %v>",
-		g.MinimalMove, g.heuristicValue.String())
+		"<gamenode (%p) move %v (%p), heuristicVal %v>", g,
+		g.MinimalMove, g.MinimalMove, g.heuristicValue.String())
 }
 
 func (g *GameNode) Negative() *GameNode {
 	hv := g.heuristicValue
 	hv.negate()
 	return &GameNode{
-		MinimalMove:      g.MinimalMove.Copy(),
+		MinimalMove:      g.MinimalMove,
 		parent:           g.parent,
 		heuristicValue:   hv,
 		onlyPassPossible: g.onlyPassPossible,

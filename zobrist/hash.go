@@ -18,6 +18,7 @@ type Zobrist struct {
 	posTable     [][]uint64
 	maxRackTable [][]uint64 // rack for the maximizing player
 	minRackTable [][]uint64 // rack for the minimizing player
+	passMove     uint64
 
 	boardDim        int
 	placeholderRack []tilemapping.MachineLetter
@@ -53,7 +54,7 @@ func (z *Zobrist) Initialize(boardDim int) {
 	}
 
 	z.minimizingPlayerToMove = frand.Uint64n(bignum) + 1
-
+	z.passMove = frand.Uint64n(bignum) + 1
 	z.placeholderRack = make([]tilemapping.MachineLetter, tilemapping.MaxAlphabetSize+1)
 }
 
@@ -136,8 +137,17 @@ func (z *Zobrist) AddMove(key uint64, m move.PlayMaker, maxPlayer bool) uint64 {
 		}
 
 	} else if m.Type() == move.MoveTypePass {
-		// it's just a pass. nothing else changes, except for the
-		// minimizingPlayerToMove
+		// key ^= z.passMove
+		// for i := 0; i < tilemapping.MaxAlphabetSize+1; i++ {
+		// 	z.placeholderRack[i] = 0
+		// }
+		// for _, tile := range m.Leave() {
+		// 	z.placeholderRack[tile]++
+		// 	key ^= ourRackTable[tile][z.placeholderRack[tile]]
+		// 	z.placeholderRack[tile]--
+		// 	key ^= ourRackTable[tile][z.placeholderRack[tile]]
+		// }
+
 	}
 	// for i, ct := range otherPlayerRack.LetArr {
 	// 	key ^= theirRackTable[i][ct]
