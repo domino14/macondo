@@ -372,6 +372,15 @@ func (gen *GordonGenerator) Plays() []move.PlayMaker {
 	return gen.plays
 }
 
+// PlayMoves type-asserts all the plays as *move.Move.
+func (gen *GordonGenerator) PlayMoves() []*move.Move {
+	ms := make([]*move.Move, len(gen.plays))
+	for idx, p := range gen.plays {
+		ms[idx] = p.(*move.Move)
+	}
+	return ms
+}
+
 // zero-allocation generation of exchange moves without duplicates:
 func (gen *GordonGenerator) generateExchangeMoves(rack *tilemapping.Rack, ml tilemapping.MachineLetter, stripidx int) {
 

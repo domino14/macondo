@@ -91,7 +91,7 @@ func filter(cfg *config.Config, g *game.Game, rack *tilemapping.Rack, plays []*m
 		allowed := true
 		r := frand.Float64()
 
-		if play.Action() == move.MoveTypePlay {
+		if play.Type() == move.MoveTypePlay {
 			mws, err = g.Board().FormedWords(play)
 			if err != nil {
 				log.Err(err).Msg("formed-words-filter-error")
@@ -102,7 +102,7 @@ func filter(cfg *config.Config, g *game.Game, rack *tilemapping.Rack, plays []*m
 				log.Err(err).Msg("bot-type-move-filter-internal-error")
 				break
 			}
-		} else if play.Action() == move.MoveTypeExchange {
+		} else if play.Type() == move.MoveTypeExchange {
 			if r >= botConfig.baseFindability {
 				allowed = false
 			}

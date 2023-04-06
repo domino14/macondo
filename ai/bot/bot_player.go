@@ -12,6 +12,7 @@ import (
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/rangefinder"
 	"github.com/domino14/macondo/turnplayer"
 )
@@ -115,7 +116,7 @@ func (p *BotTurnPlayer) GenerateMoves(numPlays int) []*move.Move {
 	gen := p.MoveGenerator()
 	gen.GenAll(curRack, p.Bag().TilesRemaining() >= game.ExchangeLimit)
 
-	plays := gen.Plays()
+	plays := gen.(*movegen.GordonGenerator).PlayMoves()
 
 	p.AssignEquity(plays, p.Board(), p.Bag(), oppRack)
 	if numPlays == 1 {

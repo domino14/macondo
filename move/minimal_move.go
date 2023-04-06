@@ -41,6 +41,8 @@ func (mm *MinimalMove) ShortDescription(alph *tilemapping.TileMapping) string {
 	return m.ShortDescription()
 }
 
+// CopyToMove copies the minimal move to a move. If the move needs to be
+// visually represented, it should contain an alphabet already.
 func (mm *MinimalMove) CopyToMove(m *Move) {
 	tk := (mm.key >> mmTypeShift) & 0b00000011
 	var t MoveType
@@ -61,7 +63,7 @@ func (mm *MinimalMove) CopyToMove(m *Move) {
 		int((mm.key>>mmTilesPlayedShift)&0b00000111),
 		(mm.key>>mmVerticalShift)&1 == 1,
 		t,
-		nil, // set alphabet later
+		m.alph,
 	)
 }
 

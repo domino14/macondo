@@ -212,9 +212,9 @@ func TestSolveStandard(t *testing.T) {
 	is.NoErr(err)
 	v, moves, _ := s.Solve(context.Background(), plies)
 
-	is.Equal(moves[0].ShortDescription(tilemapping.EnglishAlphabet()), " 1G VIG.")
-	is.True(moves[1].ShortDescription(tilemapping.EnglishAlphabet()) == " 4A HOER" ||
-		moves[1].ShortDescription(tilemapping.EnglishAlphabet()) == " 4A HEIR")
+	is.Equal(moves[0].ShortDescription(), " 1G VIG.")
+	is.True(moves[1].ShortDescription() == " 4A HOER" ||
+		moves[1].ShortDescription() == " 4A HEIR")
 	// There are two spots for the final B that are both worth 9
 	// and right now we don't generate these deterministically.
 	is.Equal(moves[2].Score(), 9)
@@ -1020,7 +1020,6 @@ func TestProperIterativeDeepening(t *testing.T) {
 	plyCount := []int{7, 8}
 	rules, err := game.NewBasicGameRules(&DefaultConfig, "NWL18", board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
 	is.NoErr(err)
-	ealph := tilemapping.EnglishAlphabet()
 	for _, plies := range plyCount {
 
 		gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../../gcgio/testdata/noah_vs_mishu.gcg")
@@ -1059,7 +1058,7 @@ func TestProperIterativeDeepening(t *testing.T) {
 		// Player on turn needs to block the P spot. Anything else
 		// shows a serious bug.
 		is.Equal(len(seq), 5)
-		is.Equal(seq[0].ShortDescription(ealph), " 6I A.")
+		is.Equal(seq[0].ShortDescription(), " 6I A.")
 	}
 }
 
@@ -1094,7 +1093,6 @@ func BenchmarkID(b *testing.B) {
 	)
 
 	b.ResetTimer()
-	ealph := tilemapping.EnglishAlphabet()
 	for i := 0; i < b.N; i++ {
 
 		s := new(Solver)
@@ -1107,7 +1105,7 @@ func BenchmarkID(b *testing.B) {
 		v, seq, _ := s.Solve(context.Background(), plies)
 		is.Equal(v, float32(44))
 		is.Equal(len(seq), 5)
-		is.Equal(seq[0].ShortDescription(ealph), " 6I A.")
+		is.Equal(seq[0].ShortDescription(), " 6I A.")
 	}
 }
 

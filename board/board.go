@@ -620,18 +620,18 @@ func (g *GameBoard) ErrorIfIllegalPlay(row, col int, vertical bool,
 
 // FormedWords returns an array of all machine words formed by this move.
 // The move is assumed to be of type Play
-func (g *GameBoard) FormedWords(m *move.Move) ([]tilemapping.MachineWord, error) {
+func (g *GameBoard) FormedWords(m move.PlayMaker) ([]tilemapping.MachineWord, error) {
 	// Reserve space for main word.
 	words := []tilemapping.MachineWord{nil}
 	mainWord := []tilemapping.MachineLetter{}
 
-	row, col, vertical := m.CoordsAndVertical()
+	row, col, vertical := m.RowStart(), m.ColStart(), m.Vertical()
 	ri, ci := 0, 1
 	if vertical {
 		ri, ci = ci, ri
 	}
 
-	if m.Action() != move.MoveTypePlay {
+	if m.Type() != move.MoveTypePlay {
 		return nil, errors.New("function must be called with a tile placement play")
 	}
 

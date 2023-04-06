@@ -91,7 +91,7 @@ type Solver struct {
 	stmRectIndex     int
 	otsRectIndex     int
 
-	lastPrincipalVariation      []*move.MinimalMove
+	lastPrincipalVariation      []*move.Move
 	lastPrincipalVariationNodes []*GameNode
 	currentIDDepth              int
 	requestedPlies              int
@@ -386,13 +386,17 @@ func containsOutPlay(plays []*move.Move, numTilesOnRack int) bool {
 	return false
 }
 
-func (s *Solver) findBestSequence(endNode *GameNode) []*move.MinimalMove {
+func (s *Solver) findBestSequence(endNode *GameNode) []*move.Move {
 	// findBestSequence assumes we have already run alphabeta / iterative deepening
-	seq := []*move.MinimalMove{}
+	seq := []*move.Move{}
 	nodes := []*GameNode{}
 	child := endNode
 	for {
-		seq = append([]*move.MinimalMove{child.MinimalMove}, seq...)
+		m := new(move.Move)
+		m.SetAlphabet(s.game.Alphabet())
+		child.MinimalMove.CopyToMove(m)
+		fmt.Println("game alph", s.game.Alphabet())
+		seq = append([]*move.Move{m}, seq...)
 		nodes = append([]*GameNode{child}, nodes...)
 		child = child.parent
 		if child == nil || child.MinimalMove == nil {
@@ -405,7 +409,7 @@ func (s *Solver) findBestSequence(endNode *GameNode) []*move.MinimalMove {
 
 // Solve solves the endgame given the current state of s.game, for the
 // current player whose turn it is in that state.
-func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.MinimalMove, error) {
+func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, error) {
 	if s.game.Bag().TilesRemaining() > 0 {
 		return 0, nil, errors.New("bag is not empty; cannot use endgame solver")
 	}
@@ -442,7 +446,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Minimal
 	log.Debug().Msgf("%v %d Spread at beginning of endgame: %v (%d)", s.maximizingPlayer, s.initialTurnNum, s.initialSpread, s.game.ScorelessTurns())
 	var bestV float32
 	var bestNodeSoFar *GameNode
-	var bestSeq []*move.MinimalMove
+	var bestSeq []*move.Move
 
 	initialHashKey := s.zobrist.Hash(s.game.Board().GetSquares(),
 		s.game.RackFor(s.maximizingPlayer), s.game.RackFor(1-s.maximizingPlayer), false)
@@ -474,7 +478,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Minimal
 
 					log.Info().Msgf("-- Spread swing estimate found after %d plies: %f", p, bestV)
 					for idx, move := range bestSeq {
-						log.Info().Msgf(" %d) %v", idx+1, move.ShortDescription(s.game.Alphabet()))
+						log.Info().Msgf(" %d) %v", idx+1, move.ShortDescription())
 					}
 					log.Debug().Msgf(" with %d killer plays", len(s.killerCache))
 					if err == ErrEndEarly {
@@ -501,7 +505,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Minimal
 
 				fmt.Printf("-- Spread swing estimate found after %d plies: %f", plies, bestV)
 				for idx, move := range bestSeq {
-					fmt.Printf(" %d) %v", idx+1, move.ShortDescription(s.game.Alphabet()))
+					fmt.Printf(" %d) %v", idx+1, move.ShortDescription())
 				}
 				fmt.Printf(" with %d killer plays", len(s.killerCache))
 				if err == ErrEndEarly {
