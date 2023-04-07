@@ -395,7 +395,6 @@ func (s *Solver) findBestSequence(endNode *GameNode) []*move.Move {
 		m := new(move.Move)
 		m.SetAlphabet(s.game.Alphabet())
 		child.MinimalMove.CopyToMove(m)
-		fmt.Println("game alph", s.game.Alphabet())
 		seq = append([]*move.Move{m}, seq...)
 		nodes = append([]*GameNode{child}, nodes...)
 		child = child.parent
