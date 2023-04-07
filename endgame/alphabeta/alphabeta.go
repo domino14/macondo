@@ -77,10 +77,11 @@ type Solver struct {
 	rootNode             *GameNode
 	// early pass optimization - if opponent passed, examine a pass first,
 	// to get an early value for the end of the game.
-	earlyPassOptim      bool
-	stuckTileOrderOptim bool
-	killerPlayOptim     bool
-	firstWinOptim       bool
+	earlyPassOptim          bool
+	stuckTileOrderOptim     bool
+	killerPlayOptim         bool
+	firstWinOptim           bool // this is nothing yet
+	transpositionTableOptim bool
 	// Some helpful variables to avoid big allocations
 	// stm: side-to-move  ots: other side
 	stmPlayed []bool
@@ -134,6 +135,7 @@ func (s *Solver) Init(m1 movegen.MoveGenerator, m2 movegen.MoveGenerator, game *
 	s.earlyPassOptim = true
 	s.killerPlayOptim = true
 	s.firstWinOptim = false
+	s.transpositionTableOptim = false
 
 	s.stmPlayed = make([]bool, tilemapping.MaxAlphabetSize+1)
 	s.otsPlayed = make([]bool, tilemapping.MaxAlphabetSize+1)
@@ -418,6 +420,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 		Msg("alphabeta-solve-config")
 	s.requestedPlies = plies
 	s.topLevel = nil
+	s.ttable = make(map[uint64]*TNode)
 	tstart := time.Now()
 	s.skippedPlays = 0
 	s.zobrist.Initialize(s.game.Board().Dim())
@@ -543,6 +546,25 @@ func (s *Solver) nalphabeta(ctx context.Context, node *GameNode, nodeKey uint64,
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
+	αOrig := α
+	var ttEntry *TNode
+	var ok bool
+	if s.transpositionTableOptim {
+		ttEntry, ok = s.ttable[nodeKey]
+		if ok && int(ttEntry.depth) >= depth {
+			if ttEntry.flag == tValid {
+				return ttEntry.gameNode, nil
+			}
+			if ttEntry.flag == tLBound {
+				α = max(α, ttEntry.gameNode.heuristicValue.value)
+			} else if ttEntry.flag == tUBound {
+				β = min(β, ttEntry.gameNode.heuristicValue.value)
+			}
+			if α >= β {
+				return ttEntry.gameNode, nil
+			}
+		}
+	}
 
 	if depth == 0 || s.game.Playing() != pb.PlayState_PLAYING {
 		// s.game.Playing() happens if the game is over; i.e. if the
@@ -600,11 +622,27 @@ func (s *Solver) nalphabeta(ctx context.Context, node *GameNode, nodeKey uint64,
 		}
 
 	}
-
+	// wn.Negative() makes a copy. figure out how to allocate less.
+	wnn := winningNode.Negative()
+	if s.transpositionTableOptim {
+		if ttEntry == nil {
+			ttEntry = &TNode{}
+		}
+		if value <= αOrig {
+			ttEntry.flag = tUBound
+		} else if value >= β {
+			ttEntry.flag = tLBound
+		} else {
+			ttEntry.flag = tValid
+		}
+		ttEntry.depth = int8(depth)
+		ttEntry.gameNode = wnn
+		s.ttable[nodeKey] = ttEntry
+	}
 	//  The negamax node's return value is a heuristic score from the point
 	// of view of the node's current player.
-	// wn.Negative() makes a copy. figure out how to allocate less.
-	return winningNode.Negative(), nil
+
+	return wnn, nil
 }
 
 func (s *Solver) sortPlaysForConsideration(plays []*GameNode, depth int,
@@ -771,6 +809,10 @@ func (s *Solver) SetKillerPlayOptim(i bool) {
 
 func (s *Solver) SetFirstWinOptim(i bool) {
 	s.firstWinOptim = i
+}
+
+func (s *Solver) SetTranspositionTableOptim(i bool) {
+	s.transpositionTableOptim = i
 }
 
 func (s *Solver) LastPrincipalVariationNodes() []*GameNode {

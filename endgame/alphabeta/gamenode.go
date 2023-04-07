@@ -11,7 +11,7 @@ const PerTurnPenalty = float32(0.001)
 
 type nodeValue struct {
 	initialEstimate float32
-	value           float32
+	value           float32 // the actual known value
 	knownEnd        bool
 	isPass          bool
 }

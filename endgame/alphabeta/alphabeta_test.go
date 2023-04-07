@@ -255,6 +255,9 @@ func TestVeryDeep(t *testing.T) {
 
 	s := new(Solver)
 	s.Init(gen1, gen2, g, &DefaultConfig)
+	s.SetKillerPlayOptim(false)
+	s.SetTranspositionTableOptim(true)
+
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 	v, seq, _ := s.Solve(context.Background(), plies)
 

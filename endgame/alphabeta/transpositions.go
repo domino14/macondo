@@ -11,7 +11,7 @@ const (
 type TNode struct {
 	gameNode *GameNode
 	flag     nodeFlag
-	height   int8
+	depth    int8
 }
 
 func (s *Solver) retrieveFromTable(pos uint64) *TNode {
