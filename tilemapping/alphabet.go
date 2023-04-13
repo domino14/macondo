@@ -221,6 +221,9 @@ func ToMachineLetters(word string, rm *TileMapping) ([]MachineLetter, error) {
 	for i < len(runes) {
 		match = false
 		for j := i + rm.maxTileLength; j > i; j-- {
+			if j > len(runes) {
+				continue
+			}
 			possibleLetter := string(runes[i:j])
 			if ml, ok := rm.vals[possibleLetter]; ok {
 				letters = append(letters, ml)
