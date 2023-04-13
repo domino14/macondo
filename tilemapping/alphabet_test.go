@@ -27,6 +27,12 @@ func TestToMachineLetters(t *testing.T) {
 	is.Equal(mls, []MachineLetter{
 		1, 20, 19, 6, 8, 6, 21, 21, 10, 23,
 	})
+	mls, err = ToMachineLetters("L·L", cat.TileMapping())
+	is.NoErr(err)
+	is.Equal(mls, []MachineLetter{13})
+	mls, err = ToMachineLetters("L", cat.TileMapping())
+	is.NoErr(err)
+	is.Equal(mls, []MachineLetter{12})
 }
 
 func TestUV(t *testing.T) {
