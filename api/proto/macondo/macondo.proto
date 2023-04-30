@@ -107,6 +107,9 @@ message GameEvent {
   // The player who played this move is encoded in player_index. This should
   // be the index in GameHistory.players.
   uint32 player_index = 19;
+  // num_tiles_from_rack lets us know how many tiles from the rack were either
+  // played or exchanged. It is only populated for those two fields.
+  uint32 num_tiles_from_rack = 20;
 }
 
 message PlayerInfo {
