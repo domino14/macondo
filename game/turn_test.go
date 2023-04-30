@@ -41,11 +41,12 @@ func TestEventFromMove(t *testing.T) {
 	evt := g.EventFromMove(m)
 
 	is.Equal(evt, &pb.GameEvent{
-		Cumulative:  0,
-		Rack:        "?EGKMNO",
-		Exchanged:   "?EGKMNO",
-		Type:        pb.GameEvent_EXCHANGE,
-		PlayerIndex: 1,
+		Cumulative:       0,
+		Rack:             "?EGKMNO",
+		Exchanged:        "?EGKMNO",
+		Type:             pb.GameEvent_EXCHANGE,
+		PlayerIndex:      1,
+		NumTilesFromRack: 7,
 	})
 
 }
@@ -53,11 +54,12 @@ func TestEventFromMove(t *testing.T) {
 func TestMoveFromEventExchange(t *testing.T) {
 	is := is.New(t)
 	evt := &pb.GameEvent{
-		Cumulative:  0,
-		Rack:        "?EGKMNO",
-		Exchanged:   "GKMO",
-		Type:        pb.GameEvent_EXCHANGE,
-		PlayerIndex: 1,
+		Cumulative:       0,
+		Rack:             "?EGKMNO",
+		Exchanged:        "GKMO",
+		Type:             pb.GameEvent_EXCHANGE,
+		PlayerIndex:      1,
+		NumTilesFromRack: 4,
 	}
 
 	alph := tilemapping.EnglishAlphabet()
@@ -71,11 +73,12 @@ func TestMoveFromEventExchange(t *testing.T) {
 func TestMoveFromEventExchangeBlank(t *testing.T) {
 	is := is.New(t)
 	evt := &pb.GameEvent{
-		Cumulative:  0,
-		Rack:        "?EGKMNO",
-		Exchanged:   "?",
-		Type:        pb.GameEvent_EXCHANGE,
-		PlayerIndex: 1,
+		Cumulative:       0,
+		Rack:             "?EGKMNO",
+		Exchanged:        "?",
+		Type:             pb.GameEvent_EXCHANGE,
+		PlayerIndex:      1,
+		NumTilesFromRack: 1,
 	}
 
 	alph := tilemapping.EnglishAlphabet()
