@@ -28,12 +28,12 @@ func (z *Zobrist) Initialize(boardDim int) {
 	z.posTable = make([][]uint64, boardDim*boardDim)
 	for i := 0; i < boardDim*boardDim; i++ {
 
-		// 160 is MaxAlphabetSize + BlankOffset + some fudge factor.
+		// 200 is MaxAlphabetSize + 0x80 (blank) + some fudge factor.
 		// This is kind of ugly; we should clarify the domain a bit.
 		// We don't lose a huge deal by generating this many random numbers,
 		// however, even if we're not using all of them.
-		z.posTable[i] = make([]uint64, 160)
-		for j := 0; j < 160; j++ {
+		z.posTable[i] = make([]uint64, 200)
+		for j := 0; j < 200; j++ {
 			z.posTable[i][j] = frand.Uint64n(bignum) + 1
 		}
 	}
