@@ -3,11 +3,13 @@ package negamax
 import (
 	"context"
 	"errors"
+	"math"
 	"sort"
 	"sync"
 	"time"
 
 	"github.com/rs/zerolog/log"
+	"github.com/samber/lo"
 
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
@@ -54,12 +56,17 @@ type Solver struct {
 	firstWinOptim           bool // this is nothing yet
 	transpositionTableOptim bool
 
-	lastPrincipalVariation []*move.Move
-	currentIDDepth         int
-	requestedPlies         int
+	pvTable        []*move.Move
+	currentIDDepth int
+	requestedPlies int
 
 	// Should we make this a linear array instead and use modulo?
 	// ttable map[uint64]*TNode
+}
+
+type solution struct {
+	m     *move.MinimalMove
+	score float64
 }
 
 // max returns the larger of x or y.
@@ -129,6 +136,49 @@ func (s *Solver) generateSTMPlays(depth int) []*move.MinimalMove {
 	return moves
 }
 
+func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) {
+	// Generate first layer of moves.
+	plays := s.generateSTMPlays(0)
+
+	for p := 1; p <= plies; p++ {
+		s.searchMoves(ctx, plays, p)
+	}
+}
+
+func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, plies int) ([]*move.MinimalMove, error) {
+	// negamax for every move.
+	α := math.Inf(-1)
+	β := math.Inf(1)
+	bestVal := math.Inf(-1)
+	sols := make([]*solution, len(moves))
+	for _, m := range moves {
+		sol := &solution{m: m, score: math.Inf(-1)}
+		err := s.game.PlayMove(m, false, 0)
+		if err != nil {
+			return nil, err
+		}
+		sol.score = -s.negamax(ctx, plies-1, -β, -α)
+		s.game.UnplayLastMove()
+		if sol.score > bestVal {
+			bestVal = sol.score
+		}
+		if bestVal > α {
+			α = bestVal
+		}
+		if bestVal >= β {
+			break
+		}
+	}
+	// biggest to smallest
+	sort.Slice(sols, func(i, j int) bool {
+		return sols[j].score < sols[i].score
+	})
+
+	return lo.Map(sols, func(item *solution, idx int) *move.MinimalMove {
+		return item.m
+	}), nil
+}
+
 func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, error) {
 	if s.game.Bag().TilesRemaining() > 0 {
 		return 0, nil, errors.New("bag is not empty; cannot use endgame solver")
@@ -163,13 +213,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 	go func(ctx context.Context) {
 		defer wg.Done()
 		log.Debug().Msgf("Using iterative deepening with %v max plies", plies)
-
-		// Generate first layer of moves.
-		plays := s.generateSTMPlays(0)
-
-		for p := 1; p <= plies; p++ {
-
-		}
+		s.iterativelyDeepen(ctx, plies)
 	}(ctx)
 
 	var err error
