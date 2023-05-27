@@ -3,6 +3,7 @@ package negamax
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"sort"
 	"sync"
@@ -12,8 +13,10 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/domino14/macondo/game"
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/domino14/macondo/zobrist"
 )
 
@@ -69,15 +72,21 @@ type solution struct {
 	score float64
 }
 
+func (s *solution) String() string {
+	// debug purposes only
+	return fmt.Sprintf("<score: %f move: %s>", s.score,
+		s.m.ShortDescription(tilemapping.EnglishAlphabet()))
+}
+
 // max returns the larger of x or y.
-func max(x, y float32) float32 {
+func max(x, y float64) float64 {
 	if x < y {
 		return y
 	}
 	return x
 }
 
-func min(x, y float32) float32 {
+func min(x, y float64) float64 {
 	if x < y {
 		return x
 	}
@@ -136,13 +145,17 @@ func (s *Solver) generateSTMPlays(depth int) []*move.MinimalMove {
 	return moves
 }
 
-func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) {
+func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 	// Generate first layer of moves.
 	plays := s.generateSTMPlays(0)
-
+	var err error
 	for p := 1; p <= plies; p++ {
-		s.searchMoves(ctx, plays, p)
+		plays, err = s.searchMoves(ctx, plays, p)
+		if err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, plies int) ([]*move.MinimalMove, error) {
@@ -151,32 +164,113 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 	β := math.Inf(1)
 	bestVal := math.Inf(-1)
 	sols := make([]*solution, len(moves))
-	for _, m := range moves {
+	for idx, m := range moves {
 		sol := &solution{m: m, score: math.Inf(-1)}
 		err := s.game.PlayMove(m, false, 0)
 		if err != nil {
 			return nil, err
 		}
-		sol.score = -s.negamax(ctx, plies-1, -β, -α)
+		score, err := s.negamax(ctx, plies-1, -β, -α, false)
+		if err != nil {
+			s.game.UnplayLastMove()
+			return nil, err
+		}
+		sol.score = -score
 		s.game.UnplayLastMove()
 		if sol.score > bestVal {
 			bestVal = sol.score
 		}
-		if bestVal > α {
-			α = bestVal
-		}
+		α = max(α, bestVal)
 		if bestVal >= β {
 			break
 		}
+		sols[idx] = sol
 	}
 	// biggest to smallest
 	sort.Slice(sols, func(i, j int) bool {
 		return sols[j].score < sols[i].score
 	})
+	fmt.Println("plies", plies, "found sols", sols)
 
 	return lo.Map(sols, func(item *solution, idx int) *move.MinimalMove {
 		return item.m
 	}), nil
+}
+
+func (s *Solver) evaluate(maximizingPlayer bool) float64 {
+	// Evaluate the state.
+	initialSpread := s.initialSpread
+	// spreadNow is from the POV of the maximizing player
+	spreadNow := s.game.PointsFor(s.maximizingPlayer) -
+		s.game.PointsFor(1-s.maximizingPlayer)
+		// A very simple evaluation function for now. Just the difference in spread,
+		// even if the game is not over yet.
+	val := float64(spreadNow - initialSpread)
+	if !maximizingPlayer {
+		return -val
+	}
+	// gameOver := s.game.Playing() != pb.PlayState_PLAYING
+	// val := float64(0)
+
+	// if gameOver {
+	// 	// Technically no one is on turn, but the player NOT on turn is
+	// 	// the one that just ended the game.
+	// 	val = float64(spreadNow - initialSpread)
+	// } else {
+	// 	// The valuation is already an estimate of the overall gain or loss
+	// 	// in spread for this move (if taken to the end of the game).
+
+	// 	// `player` is NOT the one that just made a move.
+	// 	ptValue := g.Score()
+	// 	moveVal := g.initialEstimate - ptValue
+	// 	val = float64(spreadNow) + moveVal - float64(initialSpread)
+	// }
+
+	return val
+}
+
+func (s *Solver) negamax(ctx context.Context, depth int, α, β float64, maximizingPlayer bool) (float64, error) {
+	if ctx.Err() != nil {
+		return 0, ctx.Err()
+	}
+	if depth == 0 || s.game.Playing() != pb.PlayState_PLAYING {
+		// s.game.Playing() happens if the game is over; i.e. if the
+		// parent node  is terminal.
+		// node.calculateNValue(s)
+		// if !maximizingPlayer {
+		// 	node.heuristicValue.negate()
+		// }
+		// return node, nil
+		return s.evaluate(maximizingPlayer), nil
+	}
+
+	children := s.generateSTMPlays(depth)
+	value := math.Inf(-1)
+	for _, child := range children {
+		err := s.game.PlayMove(child, false, 0)
+		if err != nil {
+			return 0, err
+		}
+
+		ws, err := s.negamax(ctx, depth-1, -β, -α, !maximizingPlayer)
+		if err != nil {
+			s.game.UnplayLastMove()
+			return ws, err
+		}
+		s.game.UnplayLastMove()
+
+		if -ws > value {
+			value = -ws
+			// assign winning node?
+		}
+		α = max(α, value)
+		if α >= β {
+			break // beta cut-off
+		}
+	}
+
+	return value, nil
+
 }
 
 func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, error) {
@@ -200,7 +294,6 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 	log.Debug().Msgf("%v %d Spread at beginning of endgame: %v (%d)", s.maximizingPlayer, s.initialTurnNum, s.initialSpread, s.game.ScorelessTurns())
 
 	var bestV float32
-	var bestNodeSoFar *GameNode
 	var bestSeq []*move.Move
 
 	initialHashKey := s.zobrist.Hash(s.game.Board().GetSquares(),
@@ -213,18 +306,21 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 	go func(ctx context.Context) {
 		defer wg.Done()
 		log.Debug().Msgf("Using iterative deepening with %v max plies", plies)
-		s.iterativelyDeepen(ctx, plies)
+		err := s.iterativelyDeepen(ctx, plies)
+		if err != nil {
+			log.Err(err).Msg("error iteratively deepening")
+		}
 	}(ctx)
 
 	var err error
 	wg.Wait()
-	if bestNodeSoFar != nil {
-		log.Debug().Msgf("Best spread found: %v", bestNodeSoFar.heuristicValue.value)
-	} else {
-		// This should never happen unless we gave it an absurdly low time or
-		// node count?
-		err = ErrNoEndgameSolution
-	}
+	// if bestNodeSoFar != nil {
+	// 	log.Debug().Msgf("Best spread found: %v", bestNodeSoFar.heuristicValue.value)
+	// } else {
+	// 	// This should never happen unless we gave it an absurdly low time or
+	// 	// node count?
+	// 	err = ErrNoEndgameSolution
+	// }
 	// Go down tree and find best variation:
 	log.Info().Msgf("Number of cached killer plays: %d", len(s.killerCache))
 	log.Debug().Msgf("Best sequence: (len=%v) %v", len(bestSeq), bestSeq)
