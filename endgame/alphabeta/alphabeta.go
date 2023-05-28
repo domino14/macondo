@@ -6,7 +6,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -106,6 +108,8 @@ type Solver struct {
 
 	// Should we make this a linear array instead and use modulo?
 	ttable map[uint64]*TNode
+
+	logStream io.Writer
 }
 
 // max returns the larger of x or y.
@@ -461,8 +465,11 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 			// Generate first layer of moves.
 			plays := s.generateSTMPlays(s.rootNode, 0)
 			s.topLevel = append(s.topLevel, plays...)
-
 			for p := 1; p <= plies; p++ {
+				if s.logStream != nil {
+					fmt.Fprintf(s.logStream, "- ply: %d\n", p)
+				}
+
 				log.Debug().Msgf("%v %d Spread at beginning of endgame: %v (%d)", s.maximizingPlayer, s.initialTurnNum, s.initialSpread, s.game.ScorelessTurns())
 				s.currentIDDepth = p
 				bestNode, err := s.nalphabeta(ctx, s.rootNode, initialHashKey, p, float32(-Infinity), float32(Infinity), true)
@@ -533,6 +540,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 		Float64("time-elapsed-sec", time.Since(tstart).Seconds()).
 		Int("passprune-plays", s.skippedPlays).
 		Msg("solve-returning")
+
 	return bestV, bestSeq, err
 }
 
@@ -570,8 +578,14 @@ func (s *Solver) nalphabeta(ctx context.Context, node *GameNode, nodeKey uint64,
 	var winningNode *GameNode
 	// The winningNode will be set to one of these children. The parent
 	// of the winning node will always be `node`; this is set in generateSTMPlays
+	indent := 2 * (s.currentIDDepth - depth)
+	if s.logStream != nil {
+		fmt.Fprintf(s.logStream, "  %vplays:\n", strings.Repeat(" ", indent))
+	}
 	for _, childNode := range children {
-
+		if s.logStream != nil {
+			fmt.Fprintf(s.logStream, "  %v- play: %v\n", strings.Repeat(" ", indent), childNode.ShortDescription(s.game.Alphabet()))
+		}
 		err := s.game.PlayMove(childNode.MinimalMove, false, 0)
 		if err != nil {
 			return nil, err
@@ -585,7 +599,9 @@ func (s *Solver) nalphabeta(ctx context.Context, node *GameNode, nodeKey uint64,
 		}
 
 		s.game.UnplayLastMove()
-
+		if s.logStream != nil {
+			fmt.Fprintf(s.logStream, "  %v  value: %q\n", strings.Repeat(" ", indent), wn.heuristicValue.String())
+		}
 		// for negamax, take the max of value and the negative wn value.
 		if -wn.heuristicValue.value > value {
 			value = -wn.heuristicValue.value
@@ -595,6 +611,10 @@ func (s *Solver) nalphabeta(ctx context.Context, node *GameNode, nodeKey uint64,
 			}
 		}
 		α = max(α, value)
+		if s.logStream != nil {
+			fmt.Fprintf(s.logStream, "  %v  α: %v\n", strings.Repeat(" ", indent), α)
+			fmt.Fprintf(s.logStream, "  %v  β: %v\n", strings.Repeat(" ", indent), β)
+		}
 		if α >= β {
 			break // beta cut-off
 		}

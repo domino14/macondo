@@ -210,6 +210,10 @@ func TestSolveStandard(t *testing.T) {
 	s, err := setUpSolver("NWL18", "english", board.VsCanik, plies, "DEHILOR", "BGIV", 389, 384,
 		1)
 	is.NoErr(err)
+	f, err := os.Create("/tmp/endgamelog")
+	is.NoErr(err)
+	defer f.Close()
+	s.logStream = f
 	v, moves, _ := s.Solve(context.Background(), plies)
 
 	is.Equal(moves[0].ShortDescription(), " 1G VIG.")
