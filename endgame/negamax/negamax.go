@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -38,7 +40,7 @@ function negamax(node, depth, α, β, color) is
 negamax(rootNode, depth, −∞, +∞, 1)
 **/
 
-const HugeNumber = float64(1e6)
+const HugeNumber = float64(1e7)
 
 var (
 	ErrNoEndgameSolution = errors.New("no endgame solution found")
@@ -63,6 +65,8 @@ type Solver struct {
 	pvTable        []*move.Move
 	currentIDDepth int
 	requestedPlies int
+
+	logStream io.Writer
 
 	// Should we make this a linear array instead and use modulo?
 	// ttable map[uint64]*TNode
@@ -151,6 +155,10 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 	plays := s.generateSTMPlays(0)
 	var err error
 	for p := 1; p <= plies; p++ {
+		s.currentIDDepth = p
+		if s.logStream != nil {
+			fmt.Fprintf(s.logStream, "- ply: %d\n", p)
+		}
 		plays, err = s.searchMoves(ctx, plays, p)
 		if err != nil {
 			return err
@@ -165,7 +173,15 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 	β := HugeNumber
 	bestVal := -HugeNumber
 	sols := make([]*solution, len(moves))
+	if s.logStream != nil {
+		fmt.Fprint(s.logStream, "  plays:\n")
+	}
+
 	for idx, m := range moves {
+		if s.logStream != nil {
+			fmt.Fprintf(s.logStream, "  - play: %v\n", m.ShortDescription(s.game.Alphabet()))
+		}
+
 		sol := &solution{m: m, score: -HugeNumber}
 		err := s.game.PlayMove(m, false, 0)
 		if err != nil {
@@ -178,10 +194,20 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 		}
 		sol.score = -score
 		s.game.UnplayLastMove()
+
+		if s.logStream != nil {
+			fmt.Fprintf(s.logStream, "    value: %v\n", score)
+		}
+
 		if sol.score > bestVal {
 			bestVal = sol.score
 		}
 		α = max(α, bestVal)
+		if s.logStream != nil {
+			fmt.Fprintf(s.logStream, "    α: %v\n", α)
+			fmt.Fprintf(s.logStream, "    β: %v\n", β)
+		}
+
 		if bestVal >= β {
 			break
 		}
@@ -248,7 +274,14 @@ func (s *Solver) negamax(ctx context.Context, depth int, α, β float64, maximiz
 
 	children := s.generateSTMPlays(depth)
 	value := -HugeNumber
+	indent := 2 * (s.currentIDDepth - depth)
+	if s.logStream != nil {
+		fmt.Fprintf(s.logStream, "  %vplays:\n", strings.Repeat(" ", indent))
+	}
 	for _, child := range children {
+		if s.logStream != nil {
+			fmt.Fprintf(s.logStream, "  %v- play: %v\n", strings.Repeat(" ", indent), child.ShortDescription(s.game.Alphabet()))
+		}
 		err := s.game.PlayMove(child, false, 0)
 		if err != nil {
 			return 0, err
@@ -260,12 +293,18 @@ func (s *Solver) negamax(ctx context.Context, depth int, α, β float64, maximiz
 			return ws, err
 		}
 		s.game.UnplayLastMove()
-
+		if s.logStream != nil {
+			fmt.Fprintf(s.logStream, "  %v  value: %v\n", strings.Repeat(" ", indent), ws)
+		}
 		if -ws > value {
 			value = -ws
 			// assign winning node?
 		}
 		α = max(α, value)
+		if s.logStream != nil {
+			fmt.Fprintf(s.logStream, "  %v  α: %v\n", strings.Repeat(" ", indent), α)
+			fmt.Fprintf(s.logStream, "  %v  β: %v\n", strings.Repeat(" ", indent), β)
+		}
 		if α >= β {
 			break // beta cut-off
 		}
