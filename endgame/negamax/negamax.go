@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"sort"
 	"sync"
 	"time"
@@ -38,6 +37,8 @@ function negamax(node, depth, α, β, color) is
 (* Initial call for Player A's root node *)
 negamax(rootNode, depth, −∞, +∞, 1)
 **/
+
+const HugeNumber = float64(1e6)
 
 var (
 	ErrNoEndgameSolution = errors.New("no endgame solution found")
@@ -135,7 +136,7 @@ func (s *Solver) generateSTMPlays(depth int) []*move.MinimalMove {
 		}
 	}
 	sort.Slice(moves, func(i, j int) bool {
-		return estimates[i] < estimates[j]
+		return estimates[i] > estimates[j]
 	})
 
 	// if len(nodes) == 1 && nodes[0].Type() == move.MoveTypePass {
@@ -160,12 +161,12 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 
 func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, plies int) ([]*move.MinimalMove, error) {
 	// negamax for every move.
-	α := math.Inf(-1)
-	β := math.Inf(1)
-	bestVal := math.Inf(-1)
+	α := -HugeNumber
+	β := HugeNumber
+	bestVal := -HugeNumber
 	sols := make([]*solution, len(moves))
 	for idx, m := range moves {
-		sol := &solution{m: m, score: math.Inf(-1)}
+		sol := &solution{m: m, score: -HugeNumber}
 		err := s.game.PlayMove(m, false, 0)
 		if err != nil {
 			return nil, err
@@ -184,6 +185,7 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 		if bestVal >= β {
 			break
 		}
+		// log.Info().Msgf("Tried move %v, sol %f", m.ShortDescription(s.game.Alphabet()), sol.score)
 		sols[idx] = sol
 	}
 	// biggest to smallest
@@ -245,7 +247,7 @@ func (s *Solver) negamax(ctx context.Context, depth int, α, β float64, maximiz
 	}
 
 	children := s.generateSTMPlays(depth)
-	value := math.Inf(-1)
+	value := -HugeNumber
 	for _, child := range children {
 		err := s.game.PlayMove(child, false, 0)
 		if err != nil {
