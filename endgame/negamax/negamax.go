@@ -116,6 +116,20 @@ func (s *Solver) Init(m movegen.MoveGenerator, game *game.Game) error {
 	return nil
 }
 
+type playSorter struct {
+	estimates []float32
+	moves     []*move.MinimalMove
+}
+
+func (p playSorter) Len() int { return len(p.moves) }
+func (p playSorter) Swap(i, j int) {
+	p.estimates[i], p.estimates[j] = p.estimates[j], p.estimates[i]
+	p.moves[i], p.moves[j] = p.moves[j], p.moves[i]
+}
+func (p playSorter) Less(i, j int) bool {
+	return p.estimates[j] < p.estimates[i]
+}
+
 func (s *Solver) generateSTMPlays(depth int) []*move.MinimalMove {
 	// STM means side-to-move
 	stmRack := s.game.RackFor(s.game.PlayerOnTurn())
@@ -139,15 +153,14 @@ func (s *Solver) generateSTMPlays(depth int) []*move.MinimalMove {
 			estimates[idx] = float32(p.Score())
 		}
 	}
-	sort.Slice(moves, func(i, j int) bool {
-		return estimates[i] > estimates[j]
-	})
+	sorter := playSorter{estimates: estimates, moves: moves}
+	sort.Sort(sorter)
 
 	// if len(nodes) == 1 && nodes[0].Type() == move.MoveTypePass {
 	// 	nodes[0].onlyPassPossible = true
 	// }
 	// return nodes
-	return moves
+	return sorter.moves
 }
 
 func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
