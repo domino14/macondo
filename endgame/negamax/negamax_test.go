@@ -111,3 +111,37 @@ func TestSolveStandard(t *testing.T) {
 	// is.Equal(moves[2].Score(), 9)
 	// is.Equal(v, float32(11))
 }
+
+func TestSolveNegamaxFunc(t *testing.T) {
+	plies := 4
+
+	is := is.New(t)
+
+	s, err := setUpSolver("NWL18", "english", board.VsCanik, plies, "DEHILOR", "BGIV", 389, 384,
+		1)
+	is.NoErr(err)
+	f, err := os.Create("/tmp/endgamelog-new")
+	is.NoErr(err)
+	defer f.Close()
+	s.logStream = f
+
+	// Test just the negamax function without the search etc functionality.
+	s.requestedPlies = 4
+	s.currentIDDepth = 4
+
+	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
+	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)
+
+	s.game.SetMaxScorelessTurns(2)
+	defer s.game.SetMaxScorelessTurns(game.DefaultMaxScorelessTurns)
+
+	s.initialSpread = s.game.CurrentSpread()
+	s.initialTurnNum = s.game.Turn()
+	s.maximizingPlayer = s.game.PlayerOnTurn()
+
+	ctx := context.Background()
+
+	score, err := s.negamax(ctx, s.requestedPlies, -HugeNumber, HugeNumber, true)
+	is.NoErr(err)
+	is.Equal(score, 11)
+}

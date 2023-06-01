@@ -153,7 +153,7 @@ func (s *Solver) generateSTMPlays(depth int) []*move.MinimalMove {
 			estimates[idx] = float32(p.Score())
 		}
 	}
-	sorter := playSorter{estimates: estimates, moves: moves}
+	sorter := &playSorter{estimates: estimates, moves: moves}
 	sort.Sort(sorter)
 
 	// if len(nodes) == 1 && nodes[0].Type() == move.MoveTypePass {
@@ -184,7 +184,7 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 	// negamax for every move.
 	α := -HugeNumber
 	β := HugeNumber
-	bestVal := -HugeNumber
+	bestValue := -HugeNumber
 	sols := make([]*solution, len(moves))
 	if s.logStream != nil {
 		fmt.Fprint(s.logStream, "  plays:\n")
@@ -212,16 +212,16 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 			fmt.Fprintf(s.logStream, "    value: %v\n", score)
 		}
 
-		if sol.score > bestVal {
-			bestVal = sol.score
+		if sol.score > bestValue {
+			bestValue = sol.score
 		}
-		α = max(α, bestVal)
+		α = max(α, bestValue)
 		if s.logStream != nil {
 			fmt.Fprintf(s.logStream, "    α: %v\n", α)
 			fmt.Fprintf(s.logStream, "    β: %v\n", β)
 		}
 
-		if bestVal >= β {
+		if bestValue >= β {
 			break
 		}
 		// log.Info().Msgf("Tried move %v, sol %f", m.ShortDescription(s.game.Alphabet()), sol.score)
@@ -286,7 +286,7 @@ func (s *Solver) negamax(ctx context.Context, depth int, α, β float64, maximiz
 	}
 
 	children := s.generateSTMPlays(depth)
-	value := -HugeNumber
+	bestValue := -HugeNumber
 	indent := 2 * (s.currentIDDepth - depth)
 	if s.logStream != nil {
 		fmt.Fprintf(s.logStream, "  %vplays:\n", strings.Repeat(" ", indent))
@@ -300,30 +300,30 @@ func (s *Solver) negamax(ctx context.Context, depth int, α, β float64, maximiz
 			return 0, err
 		}
 
-		ws, err := s.negamax(ctx, depth-1, -β, -α, !maximizingPlayer)
+		value, err := s.negamax(ctx, depth-1, -β, -α, !maximizingPlayer)
 		if err != nil {
 			s.game.UnplayLastMove()
-			return ws, err
+			return value, err
 		}
 		s.game.UnplayLastMove()
 		if s.logStream != nil {
-			fmt.Fprintf(s.logStream, "  %v  value: %v\n", strings.Repeat(" ", indent), ws)
+			fmt.Fprintf(s.logStream, "  %v  value: %v\n", strings.Repeat(" ", indent), value)
 		}
-		if -ws > value {
-			value = -ws
+		if -value > bestValue {
+			bestValue = -value
 			// assign winning node?
 		}
-		α = max(α, value)
+		α = max(α, bestValue)
 		if s.logStream != nil {
 			fmt.Fprintf(s.logStream, "  %v  α: %v\n", strings.Repeat(" ", indent), α)
 			fmt.Fprintf(s.logStream, "  %v  β: %v\n", strings.Repeat(" ", indent), β)
 		}
-		if α >= β {
+		if bestValue >= β {
 			break // beta cut-off
 		}
 	}
 
-	return value, nil
+	return bestValue, nil
 
 }
 
