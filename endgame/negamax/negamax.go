@@ -127,7 +127,7 @@ func (p playSorter) Swap(i, j int) {
 	p.moves[i], p.moves[j] = p.moves[j], p.moves[i]
 }
 func (p playSorter) Less(i, j int) bool {
-	return p.estimates[j] < p.estimates[i]
+	return p.estimates[j] > p.estimates[i]
 }
 
 func (s *Solver) generateSTMPlays(depth int) []*move.MinimalMove {
@@ -288,6 +288,10 @@ func (s *Solver) negamax(ctx context.Context, depth int, α, β float64, maximiz
 	children := s.generateSTMPlays(depth)
 	bestValue := -HugeNumber
 	indent := 2 * (s.currentIDDepth - depth)
+	atTop := false
+	if depth == s.currentIDDepth {
+		atTop = true
+	}
 	if s.logStream != nil {
 		fmt.Fprintf(s.logStream, "  %vplays:\n", strings.Repeat(" ", indent))
 	}
@@ -317,6 +321,9 @@ func (s *Solver) negamax(ctx context.Context, depth int, α, β float64, maximiz
 		if s.logStream != nil {
 			fmt.Fprintf(s.logStream, "  %v  α: %v\n", strings.Repeat(" ", indent), α)
 			fmt.Fprintf(s.logStream, "  %v  β: %v\n", strings.Repeat(" ", indent), β)
+		}
+		if atTop {
+			fmt.Println(child.ShortDescription(s.game.Alphabet()), -value)
 		}
 		if bestValue >= β {
 			break // beta cut-off
