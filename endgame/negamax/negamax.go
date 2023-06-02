@@ -188,8 +188,8 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 	return nil
 }
 
-func printPV(pv *principalVariation, alph *tilemapping.TileMapping) {
-	fmt.Printf("-----\n")
+func printPV(pv *principalVariation, val float32, alph *tilemapping.TileMapping) {
+	fmt.Printf("PV; val %f\n", val)
 	for i := 0; i < pv.nmoves; i++ {
 		fmt.Printf("%d: %s (%d)\n", i+1, pv.moves[i].ShortDescription(alph), pv.moves[i].Score())
 	}
@@ -235,7 +235,7 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 			pv.nmoves = lpv.nmoves + 1
 			s.principalVariation = &pv
 			s.bestPVValue = sol.score
-			printPV(&pv, s.game.Alphabet())
+			printPV(&pv, sol.score, s.game.Alphabet())
 		}
 		α = max(α, bestValue)
 		if s.logStream != nil {

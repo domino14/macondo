@@ -10,11 +10,14 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/game"
+	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/kwg"
+	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/tilemapping"
 )
@@ -85,6 +88,35 @@ func setUpSolver(lex, distName string, bvs board.VsWho, plies int, rack1, rack2 
 	return s, nil
 }
 
+func TestSolveComplex(t *testing.T) {
+	t.Skip()
+	is := is.New(t)
+	plies := 8
+
+	s, err := setUpSolver("America", "english", board.VsRoy, plies, "WZ", "EFHIKOQ", 427, 331,
+		1)
+	is.NoErr(err)
+
+	v, _, _ := s.Solve(context.Background(), plies)
+	is.Equal(v, float32(116))
+	// Quackle finds a 122-pt win. However, I think it's wrong because it
+	// doesn't take into account that opp can pass to prevent a setup
+	// (the setup being: EF 3F to block the Z, then YO, YOK/KHI, QI)
+	// The setup only works if Roy plays off his W before YO.
+}
+
+func TestSolveOther3(t *testing.T) {
+	// t.Skip()
+	plies := 7
+	is := is.New(t)
+	s, err := setUpSolver("NWL18", "english", board.VsJoey, plies, "DIV", "AEFILMR", 412, 371,
+		1)
+	is.NoErr(err)
+
+	v, _, _ := s.Solve(context.Background(), plies)
+	is.Equal(v, float32(50))
+}
+
 func TestSolveStandard(t *testing.T) {
 	// This endgame is solved with at least 3 plies. Most endgames should
 	// start with 3 plies (so the first player can do an out in 2) and
@@ -96,24 +128,25 @@ func TestSolveStandard(t *testing.T) {
 	s, err := setUpSolver("NWL18", "english", board.VsCanik, plies, "DEHILOR", "BGIV", 389, 384,
 		1)
 	is.NoErr(err)
-	// f, err := os.Create("/tmp/endgamelog-new")
-	// is.NoErr(err)
-	// defer f.Close()
-	// s.logStream = f
 
 	bestV, bestSeq, err := s.Solve(context.Background(), plies)
 	is.NoErr(err)
 	is.Equal(bestV, float32(11))
 	fmt.Println(bestSeq)
 	is.Equal(len(bestSeq), 3)
+}
 
-	// is.Equal(moves[0].ShortDescription(), " 1G VIG.")
-	// is.True(moves[1].ShortDescription() == " 4A HOER" ||
-	// 	moves[1].ShortDescription() == " 4A HEIR")
-	// // There are two spots for the final B that are both worth 9
-	// // and right now we don't generate these deterministically.
-	// is.Equal(moves[2].Score(), 9)
-	// is.Equal(v, float32(11))
+func TestSolveStandard2(t *testing.T) {
+	// Another standard 3-ply endgame.
+	is := is.New(t)
+	plies := 4
+
+	s, err := setUpSolver("NWL18", "english", board.VsJoel, plies, "EIQSS", "AAFIRTW", 393, 373,
+		1)
+	is.NoErr(err)
+
+	v, _, _ := s.Solve(context.Background(), plies)
+	is.Equal(v, float32(25))
 }
 
 func TestSolveNegamaxFunc(t *testing.T) {
@@ -147,7 +180,209 @@ func TestSolveNegamaxFunc(t *testing.T) {
 	pv := &principalVariation{}
 	score, err := s.negamax(ctx, s.requestedPlies, -HugeNumber, HugeNumber, true, pv)
 	is.NoErr(err)
-	printPV(pv, s.game.Alphabet())
 	is.Equal(score, float32(11))
 	is.Equal(pv.nmoves, 3)
+}
+
+func TestVeryDeep(t *testing.T) {
+	is := is.New(t)
+	plies := 25
+	// The following is a very deep endgame that requires 25 plies to solve.
+	deepEndgame := "14C/13QI/12FIE/10VEE1R/9KIT2G/8CIG1IDE/8UTA2AS/7ST1SYPh1/6JA5A1/5WOLD2BOBA/3PLOT1R1NU1EX/Y1VEIN1NOR1mOA1/UT1AT1N1L2FEH1/GUR2WIRER5/SNEEZED8 ADENOOO/AHIILMM 353/236 0 lex CSW19;"
+	g, err := cgp.ParseCGP(&DefaultConfig, deepEndgame)
+	is.NoErr(err)
+	gd, err := kwg.Get(&DefaultConfig, "CSW19")
+	is.NoErr(err)
+	g.SetBackupMode(game.SimulationMode)
+	g.SetStateStackLength(plies)
+	g.RecalculateBoard()
+	gen := movegen.NewGordonGenerator(
+		gd, g.Board(), g.Bag().LetterDistribution(),
+	)
+
+	s := new(Solver)
+	s.Init(gen, g)
+
+	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
+	v, seq, _ := s.Solve(context.Background(), plies)
+
+	is.Equal(v, float32(-116))
+	is.Equal(len(seq), 25)
+}
+
+// This endgame's first move must be a pass, otherwise Nigel can set up
+// an unblockable ZA.
+func TestPassFirst(t *testing.T) {
+	is := is.New(t)
+
+	plies := 8
+	// https://www.cross-tables.com/annotated.php?u=25243#22
+	pos := "GATELEGs1POGOED/R4MOOLI3X1/AA10U2/YU4BREDRIN2/1TITULE3E1IN1/1E4N3c1BOK/1C2O4CHARD1/QI1FLAWN2E1OE1/IS2E1HIN1A1W2/1MOTIVATE1T1S2/1S2N5S4/3PERJURY5/15/15/15 FV/AADIZ 442/388 0 lex CSW19;"
+	g, err := cgp.ParseCGP(&DefaultConfig, pos)
+	is.NoErr(err)
+	gd, err := kwg.Get(&DefaultConfig, "CSW19")
+	is.NoErr(err)
+	g.SetBackupMode(game.SimulationMode)
+	g.SetStateStackLength(plies)
+	g.RecalculateBoard()
+	gen1 := movegen.NewGordonGenerator(
+		gd, g.Board(), g.Bag().LetterDistribution(),
+	)
+
+	s := new(Solver)
+	s.Init(gen1, g)
+	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
+	v, seq, _ := s.Solve(context.Background(), plies)
+
+	is.Equal(v, float32(-60))
+	is.Equal(seq[0].Type(), move.MoveTypePass)
+	is.Equal(len(seq), 6)
+}
+
+func TestPolish(t *testing.T) {
+	is := is.New(t)
+	plies := 14
+	s, err := setUpSolver(
+		"OSPS44", "polish", board.APolishEndgame, plies, "BGHUWZZ", "IKMÓŹŻ", 304,
+		258, 0)
+
+	is.NoErr(err)
+	s.earlyPassOptim = false
+	v, seq, err := s.Solve(context.Background(), plies)
+	is.NoErr(err)
+
+	/*
+	   Best sequence has a spread difference of 5
+	   Best sequence:
+	   1) N7 ZG..
+	   2) M1 ŻM..
+	   3) (Pass)
+	   4) 6L .I
+	   5) B8 ZU.
+	   6) 9A K.
+	   7) (Pass)
+	   8) (Pass)
+
+	*/
+
+	is.Equal(v, float32(5))
+	is.Equal(len(seq), 8)
+
+}
+
+func TestPolishFromGcg(t *testing.T) {
+	plies := 14
+	is := is.New(t)
+
+	rules, err := game.NewBasicGameRules(&DefaultConfig, "OSPS44", board.CrosswordGameLayout, "Polish", game.CrossScoreAndSet, game.VarClassic)
+	is.NoErr(err)
+
+	cfg := config.DefaultConfig()
+	cfg.DefaultLexicon = "OSPS44"
+	cfg.DefaultLetterDistribution = "polish"
+
+	gameHistory, err := gcgio.ParseGCG(&cfg, "../../gcgio/testdata/polish_endgame.gcg")
+	is.NoErr(err)
+	gameHistory.ChallengeRule = pb.ChallengeRule_SINGLE
+
+	g, err := game.NewFromHistory(gameHistory, rules, 46)
+	is.NoErr(err)
+
+	gd, err := kwg.Get(&DefaultConfig, "OSPS44")
+	is.NoErr(err)
+
+	g.SetBackupMode(game.SimulationMode)
+	g.SetStateStackLength(plies)
+	gen := movegen.NewGordonGenerator(
+		// The strategy doesn't matter right here
+		gd, g.Board(), g.Bag().LetterDistribution(),
+	)
+
+	s := new(Solver)
+	s.Init(gen, g)
+	s.earlyPassOptim = false
+	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
+
+	v, seq, _ := s.Solve(context.Background(), plies)
+	is.Equal(v, float32(5))
+	is.Equal(len(seq), 8)
+}
+
+// Test that iterative deepening actually works properly.
+func TestProperIterativeDeepening(t *testing.T) {
+	is := is.New(t)
+	// Should get the same result with 7 or 8 plies.
+	plyCount := []int{7, 8}
+	rules, err := game.NewBasicGameRules(&DefaultConfig, "NWL18", board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
+	is.NoErr(err)
+	for _, plies := range plyCount {
+
+		gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../../gcgio/testdata/noah_vs_mishu.gcg")
+		is.NoErr(err)
+
+		g, err := game.NewFromHistory(gameHistory, rules, 28)
+		is.NoErr(err)
+		// Make a few plays:
+		g.PlayScoringMove("H7", "T...", false)
+		g.PlayScoringMove("N5", "C...", false)
+		g.PlayScoringMove("10A", ".IN", false)
+		// Note that this is not right; user should play the P off at 6I,
+		// but this is for testing purposes only:
+		g.PlayScoringMove("13L", "...R", false)
+		is.Equal(g.PointsFor(0), 339)
+		is.Equal(g.PointsFor(1), 381)
+
+		gd, err := kwg.Get(g.Config(), g.LexiconName())
+		is.NoErr(err)
+
+		gen := movegen.NewGordonGenerator(
+			gd, g.Board(), g.Bag().LetterDistribution(),
+		)
+		s := new(Solver)
+		s.Init(gen, g)
+		fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
+		// Prior to solving the endgame, set to simulation mode.
+		g.SetBackupMode(game.SimulationMode)
+		g.SetStateStackLength(plies)
+		v, seq, _ := s.Solve(context.Background(), plies)
+		is.Equal(v, float32(44))
+		// In particular, the sequence should start with 6I A.
+		// Player on turn needs to block the P spot. Anything else
+		// shows a serious bug.
+		is.Equal(len(seq), 5)
+		is.Equal(seq[0].ShortDescription(), " 6I A.")
+	}
+}
+
+func TestFromGCG(t *testing.T) {
+	plies := 3
+	is := is.New(t)
+
+	rules, err := game.NewBasicGameRules(&DefaultConfig, "CSW19", board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
+	is.NoErr(err)
+
+	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "../../gcgio/testdata/vs_frentz.gcg")
+	is.NoErr(err)
+
+	g, err := game.NewFromHistory(gameHistory, rules, 22)
+	is.NoErr(err)
+
+	gd, err := kwg.Get(&DefaultConfig, "CSW19")
+	is.NoErr(err)
+
+	g.SetBackupMode(game.SimulationMode)
+	g.SetStateStackLength(plies)
+	gen := movegen.NewGordonGenerator(
+		gd, g.Board(), g.Bag().LetterDistribution(),
+	)
+
+	s := new(Solver)
+	s.Init(gen, g)
+	// s.iterativeDeepeningOn = false
+	// s.simpleEvaluation = true
+	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
+	v, seq, _ := s.Solve(context.Background(), plies)
+	is.Equal(v, float32(99))
+	is.Equal(len(seq), 1)
+	// t.Fail()
 }
