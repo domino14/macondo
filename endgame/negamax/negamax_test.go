@@ -96,12 +96,16 @@ func TestSolveStandard(t *testing.T) {
 	s, err := setUpSolver("NWL18", "english", board.VsCanik, plies, "DEHILOR", "BGIV", 389, 384,
 		1)
 	is.NoErr(err)
-	f, err := os.Create("/tmp/endgamelog-new")
-	is.NoErr(err)
-	defer f.Close()
-	s.logStream = f
+	// f, err := os.Create("/tmp/endgamelog-new")
+	// is.NoErr(err)
+	// defer f.Close()
+	// s.logStream = f
 
-	s.Solve(context.Background(), plies)
+	bestV, bestSeq, err := s.Solve(context.Background(), plies)
+	is.NoErr(err)
+	is.Equal(bestV, float32(11))
+	fmt.Println(bestSeq)
+	is.Equal(len(bestSeq), 3)
 
 	// is.Equal(moves[0].ShortDescription(), " 1G VIG.")
 	// is.True(moves[1].ShortDescription() == " 4A HOER" ||
@@ -140,8 +144,10 @@ func TestSolveNegamaxFunc(t *testing.T) {
 	s.maximizingPlayer = s.game.PlayerOnTurn()
 
 	ctx := context.Background()
-
-	score, err := s.negamax(ctx, s.requestedPlies, -HugeNumber, HugeNumber, true)
+	pv := &principalVariation{}
+	score, err := s.negamax(ctx, s.requestedPlies, -HugeNumber, HugeNumber, true, pv)
 	is.NoErr(err)
-	is.Equal(score, float64(11))
+	printPV(pv, s.game.Alphabet())
+	is.Equal(score, float32(11))
+	is.Equal(pv.nmoves, 3)
 }

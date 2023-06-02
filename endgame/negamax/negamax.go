@@ -40,11 +40,17 @@ function negamax(node, depth, α, β, color) is
 negamax(rootNode, depth, −∞, +∞, 1)
 **/
 
-const HugeNumber = float64(1e7)
+const HugeNumber = float32(1e7)
+const MaxVariantLength = 25
 
 var (
 	ErrNoEndgameSolution = errors.New("no endgame solution found")
 )
+
+type principalVariation struct {
+	nmoves int
+	moves  [MaxVariantLength]*move.MinimalMove
+}
 
 type Solver struct {
 	zobrist     *zobrist.Zobrist
@@ -61,8 +67,9 @@ type Solver struct {
 	killerPlayOptim         bool
 	firstWinOptim           bool // this is nothing yet
 	transpositionTableOptim bool
+	principalVariation      *principalVariation
+	bestPVValue             float32
 
-	pvTable        []*move.Move
 	currentIDDepth int
 	requestedPlies int
 
@@ -74,7 +81,7 @@ type Solver struct {
 
 type solution struct {
 	m     *move.MinimalMove
-	score float64
+	score float32
 }
 
 func (s *solution) String() string {
@@ -84,14 +91,14 @@ func (s *solution) String() string {
 }
 
 // max returns the larger of x or y.
-func max(x, y float64) float64 {
+func max(x, y float32) float32 {
 	if x < y {
 		return y
 	}
 	return x
 }
 
-func min(x, y float64) float64 {
+func min(x, y float32) float32 {
 	if x < y {
 		return x
 	}
@@ -168,7 +175,7 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 	plays := s.generateSTMPlays(0)
 	var err error
 	for p := 1; p <= plies; p++ {
-		log.Debug().Int("plies", p).Msg("deepening-iteratively")
+		log.Info().Int("plies", p).Msg("deepening-iteratively")
 		s.currentIDDepth = p
 		if s.logStream != nil {
 			fmt.Fprintf(s.logStream, "- ply: %d\n", p)
@@ -181,6 +188,13 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 	return nil
 }
 
+func printPV(pv *principalVariation, alph *tilemapping.TileMapping) {
+	fmt.Printf("-----\n")
+	for i := 0; i < pv.nmoves; i++ {
+		fmt.Printf("%d: %s (%d)\n", i+1, pv.moves[i].ShortDescription(alph), pv.moves[i].Score())
+	}
+}
+
 func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, plies int) ([]*move.MinimalMove, error) {
 	// negamax for every move.
 	α := -HugeNumber
@@ -190,7 +204,8 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 	if s.logStream != nil {
 		fmt.Fprint(s.logStream, "  plays:\n")
 	}
-
+	pv := principalVariation{} // the winning one
+	lpv := principalVariation{}
 	for idx, m := range moves {
 		if s.logStream != nil {
 			fmt.Fprintf(s.logStream, "  - play: %v\n", m.ShortDescription(s.game.Alphabet()))
@@ -201,7 +216,7 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 		if err != nil {
 			return nil, err
 		}
-		score, err := s.negamax(ctx, plies-1, -β, -α, false)
+		score, err := s.negamax(ctx, plies-1, -β, -α, false, &lpv)
 		if err != nil {
 			s.game.UnplayLastMove()
 			return nil, err
@@ -215,6 +230,12 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 
 		if sol.score > bestValue {
 			bestValue = sol.score
+			pv.moves[0] = m
+			copy(pv.moves[1:], lpv.moves[:lpv.nmoves])
+			pv.nmoves = lpv.nmoves + 1
+			s.principalVariation = &pv
+			s.bestPVValue = sol.score
+			printPV(&pv, s.game.Alphabet())
 		}
 		α = max(α, bestValue)
 		if s.logStream != nil {
@@ -238,7 +259,7 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 	}), nil
 }
 
-func (s *Solver) evaluate(maximizingPlayer bool) float64 {
+func (s *Solver) evaluate(maximizingPlayer bool) float32 {
 	// Evaluate the state.
 	initialSpread := s.initialSpread
 	// spreadNow is from the POV of the maximizing player
@@ -246,17 +267,17 @@ func (s *Solver) evaluate(maximizingPlayer bool) float64 {
 		s.game.PointsFor(1-s.maximizingPlayer)
 		// A very simple evaluation function for now. Just the difference in spread,
 		// even if the game is not over yet.
-	val := float64(spreadNow - initialSpread)
+	val := float32(spreadNow - initialSpread)
 	if !maximizingPlayer {
 		return -val
 	}
 	// gameOver := s.game.Playing() != pb.PlayState_PLAYING
-	// val := float64(0)
+	// val := float32(0)
 
 	// if gameOver {
 	// 	// Technically no one is on turn, but the player NOT on turn is
 	// 	// the one that just ended the game.
-	// 	val = float64(spreadNow - initialSpread)
+	// 	val = float32(spreadNow - initialSpread)
 	// } else {
 	// 	// The valuation is already an estimate of the overall gain or loss
 	// 	// in spread for this move (if taken to the end of the game).
@@ -264,13 +285,15 @@ func (s *Solver) evaluate(maximizingPlayer bool) float64 {
 	// 	// `player` is NOT the one that just made a move.
 	// 	ptValue := g.Score()
 	// 	moveVal := g.initialEstimate - ptValue
-	// 	val = float64(spreadNow) + moveVal - float64(initialSpread)
+	// 	val = float32(spreadNow) + moveVal - float32(initialSpread)
 	// }
 
 	return val
 }
 
-func (s *Solver) negamax(ctx context.Context, depth int, α, β float64, maximizingPlayer bool) (float64, error) {
+func (s *Solver) negamax(ctx context.Context, depth int, α, β float32, maximizingPlayer bool,
+	pv *principalVariation) (float32, error) {
+
 	if ctx.Err() != nil {
 		return 0, ctx.Err()
 	}
@@ -282,8 +305,10 @@ func (s *Solver) negamax(ctx context.Context, depth int, α, β float64, maximiz
 		// 	node.heuristicValue.negate()
 		// }
 		// return node, nil
+		pv.nmoves = 0
 		return s.evaluate(maximizingPlayer), nil
 	}
+	localPV := principalVariation{}
 
 	children := s.generateSTMPlays(depth)
 	bestValue := -HugeNumber
@@ -300,7 +325,7 @@ func (s *Solver) negamax(ctx context.Context, depth int, α, β float64, maximiz
 			return 0, err
 		}
 
-		value, err := s.negamax(ctx, depth-1, -β, -α, !maximizingPlayer)
+		value, err := s.negamax(ctx, depth-1, -β, -α, !maximizingPlayer, &localPV)
 		if err != nil {
 			s.game.UnplayLastMove()
 			return value, err
@@ -311,7 +336,9 @@ func (s *Solver) negamax(ctx context.Context, depth int, α, β float64, maximiz
 		}
 		if -value > bestValue {
 			bestValue = -value
-			// assign winning node?
+			pv.moves[0] = child
+			copy(pv.moves[1:], localPV.moves[:localPV.nmoves])
+			pv.nmoves = localPV.nmoves + 1
 		}
 		α = max(α, bestValue)
 		if s.logStream != nil {
@@ -377,8 +404,15 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 	// }
 	// Go down tree and find best variation:
 	log.Info().Msgf("Number of cached killer plays: %d", len(s.killerCache))
-	log.Debug().Msgf("Best sequence: (len=%v) %v", len(bestSeq), bestSeq)
 
+	bestSeq = make([]*move.Move, s.principalVariation.nmoves)
+	for i := 0; i < s.principalVariation.nmoves; i++ {
+		m := &move.Move{}
+		m.SetAlphabet(s.game.Alphabet())
+		s.principalVariation.moves[i].CopyToMove(m)
+		bestSeq[i] = m
+	}
+	bestV = s.bestPVValue
 	log.Info().
 		Float64("time-elapsed-sec", time.Since(tstart).Seconds()).
 		Msg("solve-returning")
