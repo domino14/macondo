@@ -143,5 +143,5 @@ func TestSolveNegamaxFunc(t *testing.T) {
 
 	score, err := s.negamax(ctx, s.requestedPlies, -HugeNumber, HugeNumber, true)
 	is.NoErr(err)
-	is.Equal(score, 11)
+	is.Equal(score, float64(11))
 }
