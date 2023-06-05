@@ -23,7 +23,7 @@ import (
 	"github.com/domino14/macondo/automatic"
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/endgame/alphabeta"
+	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
@@ -118,7 +118,7 @@ type ShellController struct {
 	gen           movegen.MoveGenerator
 	backupgen     movegen.MoveGenerator // used for endgame engine
 	curMode       Mode
-	endgameSolver *alphabeta.Solver
+	endgameSolver *negamax.Solver
 	curPlayList   []*move.Move
 }
 

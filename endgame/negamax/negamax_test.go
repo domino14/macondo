@@ -89,7 +89,6 @@ func setUpSolver(lex, distName string, bvs board.VsWho, plies int, rack1, rack2 
 }
 
 func TestSolveComplex(t *testing.T) {
-	t.Skip()
 	is := is.New(t)
 	plies := 8
 
@@ -178,7 +177,7 @@ func TestSolveNegamaxFunc(t *testing.T) {
 
 	ctx := context.Background()
 	pv := &principalVariation{}
-	score, err := s.negamax(ctx, s.requestedPlies, -HugeNumber, HugeNumber, true, pv)
+	score, err := s.negamax(ctx, 0, s.requestedPlies, -HugeNumber, HugeNumber, true, pv)
 	is.NoErr(err)
 	is.Equal(score, float32(11))
 	is.Equal(pv.nmoves, 3)
@@ -202,7 +201,7 @@ func TestVeryDeep(t *testing.T) {
 
 	s := new(Solver)
 	s.Init(gen, g)
-
+	// s.transpositionTableOptim = false
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 	v, seq, _ := s.Solve(context.Background(), plies)
 
@@ -306,6 +305,41 @@ func TestPolishFromGcg(t *testing.T) {
 	v, seq, _ := s.Solve(context.Background(), plies)
 	is.Equal(v, float32(5))
 	is.Equal(len(seq), 8)
+}
+
+func TestStuckPruning(t *testing.T) {
+	// This is very slow.
+	// t.Skip(x)
+	is := is.New(t)
+	plies := 11
+	// See EldarVsNigel in sample_testing_boards.go
+	// In this endgame, Eldar is stuck with a V and Nigel can 1-tile him.
+	// The optimal sequences are:
+
+	// 1.	+72	13►	1. [AL 11B 8 EEIRUW] [none V] 2. [DUM 15F 6 EEIRW] [none V] 3. [IT 11J 4 EERW] [none V] 4. [EWT 10I 28 ER] [none V] 5. [RE 3F 18] [-] 6. [end V +8]
+	// 1.	+72	14►	1. [DUM 15F 6 AEEIRW] [none V] 2. [AL 11B 8 EEIRW] [none V] 3. [IT 11J 4 EERW] [none V] 4. [EWT 10I 28 ER] [none V] 5. [RE 3F 18] [-] 6. [end V +8]
+	// 1.	+72	10►	1. [IT 11J 4 AEERUW] [none V] 2. [EWT 10I 28 AERU] [none V] 3. [AL 11B 8 ERU] [none V] 4. [DUM 15F 6 ER] [none V] 5. [RE 3F 18] [-] 6. [end V +8]
+	// 1.	+72	13►	1. [RASH F3 7 AEEIUW] [none V] 2. [AL 11B 8 EEIUW] [none V] 3. [DUM 15F 6 EEIW] [none V] 4. [IT 11J 4 EEW] [none V] 5. [EWT 10I 28 E] [none V] 6. [RE 3F 11] [-] 7. [end V +8]
+	// 1.	+72	5►	1. [RE 3F 18 AEIUW] [none V] 2. [AL 11B 8 EIUW] [none V] 3. [DUM 15F 6 EIW] [none V] 4. [IT 11J 4 EW] [none V] 5. [EWT 10I 28] [-] 6. [end V +8]
+	// Courtesy of elbbarcs.com -- thank you
+
+	deepEndgame := "4EXODE6/1DOFF1KERATIN1U/1OHO8YEN/1POOJA1B3MEWS/5SQUINTY2A/4RHINO1e3V/2B4C2R3E/GOAT1D1E2ZIN1d/1URACILS2E4/1PIG1S4T4/2L2R4T4/2L2A1GENII3/2A2T1L7/5E1A7/5D1M7 AEEIRUW/V 410/409 0 lex CSW19;"
+	g, err := cgp.ParseCGP(&DefaultConfig, deepEndgame)
+	is.NoErr(err)
+	gd, err := kwg.Get(&DefaultConfig, "CSW19")
+	is.NoErr(err)
+	g.SetBackupMode(game.SimulationMode)
+	g.SetStateStackLength(plies)
+	g.RecalculateBoard()
+	gen := movegen.NewGordonGenerator(
+		gd, g.Board(), g.Bag().LetterDistribution(),
+	)
+
+	s := new(Solver)
+	s.Init(gen, g)
+	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
+	v, _, _ := s.Solve(context.Background(), plies)
+	is.Equal(v, float32(72))
 }
 
 // Test that iterative deepening actually works properly.

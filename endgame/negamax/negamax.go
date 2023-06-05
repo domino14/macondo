@@ -114,7 +114,7 @@ func (s *Solver) Init(m movegen.MoveGenerator, game *game.Game) error {
 	s.earlyPassOptim = true
 	s.killerPlayOptim = true
 	s.firstWinOptim = false
-	s.transpositionTableOptim = false
+	s.transpositionTableOptim = true
 
 	if s.stmMovegen != nil {
 		s.stmMovegen.SetGenPass(true)
@@ -197,6 +197,11 @@ func printPV(pv *principalVariation, val float32, alph *tilemapping.TileMapping)
 
 func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, plies int) ([]*move.MinimalMove, error) {
 	// negamax for every move.
+	initialHashKey := s.zobrist.Hash(s.game.Board().GetSquares(),
+		s.game.RackFor(s.maximizingPlayer), s.game.RackFor(1-s.maximizingPlayer), false)
+
+	log.Info().Uint64("initialHashKey", initialHashKey).Msg("starting-zobrist-key")
+
 	α := -HugeNumber
 	β := HugeNumber
 	bestValue := -HugeNumber
@@ -216,7 +221,9 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 		if err != nil {
 			return nil, err
 		}
-		score, err := s.negamax(ctx, plies-1, -β, -α, false, &lpv)
+		childKey := s.zobrist.AddMove(initialHashKey, m, true)
+
+		score, err := s.negamax(ctx, childKey, plies-1, -β, -α, false, &lpv)
 		if err != nil {
 			s.game.UnplayLastMove()
 			return nil, err
@@ -291,12 +298,30 @@ func (s *Solver) evaluate(maximizingPlayer bool) float32 {
 	return val
 }
 
-func (s *Solver) negamax(ctx context.Context, depth int, α, β float32, maximizingPlayer bool,
+func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β float32, maximizingPlayer bool,
 	pv *principalVariation) (float32, error) {
 
 	if ctx.Err() != nil {
 		return 0, ctx.Err()
 	}
+
+	alphaOrig := α
+	if s.transpositionTableOptim {
+		ttEntry := globalTranspositionTable.lookup(nodeKey)
+		if ttEntry != nil && ttEntry.depth >= uint8(depth) {
+			if ttEntry.flag == TTExact {
+				return ttEntry.score, nil
+			} else if ttEntry.flag == TTLower {
+				α = max(α, ttEntry.score)
+			} else if ttEntry.flag == TTUpper {
+				β = min(β, ttEntry.score)
+			}
+			if α >= β {
+				return ttEntry.score, nil
+			}
+		}
+	}
+
 	if depth == 0 || s.game.Playing() != pb.PlayState_PLAYING {
 		// s.game.Playing() happens if the game is over; i.e. if the
 		// parent node  is terminal.
@@ -324,8 +349,8 @@ func (s *Solver) negamax(ctx context.Context, depth int, α, β float32, maximiz
 		if err != nil {
 			return 0, err
 		}
-
-		value, err := s.negamax(ctx, depth-1, -β, -α, !maximizingPlayer, &localPV)
+		childKey := s.zobrist.AddMove(nodeKey, child, maximizingPlayer)
+		value, err := s.negamax(ctx, childKey, depth-1, -β, -α, !maximizingPlayer, &localPV)
 		if err != nil {
 			s.game.UnplayLastMove()
 			return value, err
@@ -349,7 +374,21 @@ func (s *Solver) negamax(ctx context.Context, depth int, α, β float32, maximiz
 			break // beta cut-off
 		}
 	}
-
+	if s.transpositionTableOptim {
+		entryToStore := TableEntry{
+			score: bestValue,
+		}
+		if bestValue <= alphaOrig {
+			entryToStore.flag = TTUpper
+		} else if bestValue >= β {
+			entryToStore.flag = TTLower
+		} else {
+			entryToStore.flag = TTExact
+		}
+		entryToStore.depth = uint8(depth)
+		entryToStore.fullHash = nodeKey
+		globalTranspositionTable.store(nodeKey, entryToStore)
+	}
 	return bestValue, nil
 
 }
@@ -364,7 +403,9 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 	s.zobrist.Initialize(s.game.Board().Dim())
 	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
 	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)
-
+	if s.transpositionTableOptim {
+		globalTranspositionTable.reset()
+	}
 	// Set max scoreless turns to 2 in the endgame so we don't generate
 	// unnecessary sequences of passes.
 	s.game.SetMaxScorelessTurns(2)
@@ -377,10 +418,6 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 	var bestV float32
 	var bestSeq []*move.Move
 
-	initialHashKey := s.zobrist.Hash(s.game.Board().GetSquares(),
-		s.game.RackFor(s.maximizingPlayer), s.game.RackFor(1-s.maximizingPlayer), false)
-
-	log.Info().Uint64("initialHashKey", initialHashKey).Msg("starting-zobrist-key")
 	var wg sync.WaitGroup
 	wg.Add(1)
 
@@ -414,7 +451,12 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 	}
 	bestV = s.bestPVValue
 	log.Info().
+		Uint64("ttable-created", globalTranspositionTable.created).
+		Uint64("ttable-lookups", globalTranspositionTable.lookups).
+		Uint64("ttable-hits", globalTranspositionTable.hits).
+		Uint64("ttable-t2collisions", globalTranspositionTable.t2collisions).
 		Float64("time-elapsed-sec", time.Since(tstart).Seconds()).
 		Msg("solve-returning")
+
 	return bestV, bestSeq, err
 }

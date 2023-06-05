@@ -106,6 +106,15 @@ func TestHashAfterPassing(t *testing.T) {
 
 	h2 := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("ADENOOO", alph), tilemapping.RackFromString("AHIILMM", alph), true)
 	is.Equal(h1, h2)
+
+	// another pass
+	m2 := move.NewPassMove(tilemapping.RackFromString("AHIILMM", alph).TilesOn(), alph)
+	h3 := z.AddMove(h2, m2, false)
+	err = g.PlayMove(m2, false, 0)
+	is.NoErr(err)
+	// should be equal to the very first hash.
+	is.Equal(h, h3)
+
 }
 
 func TestHashAfterMakingAnotherPlay(t *testing.T) {

@@ -12,11 +12,11 @@ import (
 	"github.com/rs/zerolog/log"
 	"lukechampine.com/frand"
 
+	"github.com/domino14/macondo/endgame/negamax"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 
 	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/automatic"
-	"github.com/domino14/macondo/endgame/alphabeta"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
@@ -286,12 +286,12 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	plies := 4
 	var maxtime int
 	var maxnodes int
-	var disablePruning bool
-	var disableID bool
-	var complexEstimator bool
-	var firstWinOptim bool
-	var stuckTileOrderOptim bool
-	var disableKillerPlayOptim bool
+	// var disablePruning bool
+	// var disableID bool
+	// var complexEstimator bool
+	// var firstWinOptim bool
+	// var stuckTileOrderOptim bool
+	// var disableKillerPlayOptim bool
 	var err error
 
 	if cmd.options["plies"] != "" {
@@ -315,24 +315,24 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 		}
 	}
 
-	if cmd.options["disable-pruning"] == "true" {
-		disablePruning = true
-	}
-	if cmd.options["disable-id"] == "true" {
-		disableID = true
-	}
-	if cmd.options["complex-estimator"] == "true" {
-		complexEstimator = true
-	}
-	if cmd.options["stuck-tile-order-optim"] == "true" {
-		stuckTileOrderOptim = true
-	}
-	if cmd.options["disable-killer-play-optim"] == "true" {
-		disableKillerPlayOptim = true
-	}
-	if cmd.options["first-win-optim"] == "true" {
-		firstWinOptim = true
-	}
+	// if cmd.options["disable-pruning"] == "true" {
+	// 	disablePruning = true
+	// }
+	// if cmd.options["disable-id"] == "true" {
+	// 	disableID = true
+	// }
+	// if cmd.options["complex-estimator"] == "true" {
+	// 	complexEstimator = true
+	// }
+	// if cmd.options["stuck-tile-order-optim"] == "true" {
+	// 	stuckTileOrderOptim = true
+	// }
+	// if cmd.options["disable-killer-play-optim"] == "true" {
+	// 	disableKillerPlayOptim = true
+	// }
+	// if cmd.options["first-win-optim"] == "true" {
+	// 	firstWinOptim = true
+	// }
 	sc.showMessage(fmt.Sprintf(
 		"plies %v, maxtime %v, maxnodes %v",
 		plies, maxtime, maxnodes))
@@ -353,18 +353,18 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 
 	// clear out the last value of this endgame node; gc should
 	// delete the tree.
-	sc.endgameSolver = new(alphabeta.Solver)
-	err = sc.endgameSolver.Init(sc.gen, sc.backupgen, sc.game.Game, sc.config)
+	sc.endgameSolver = new(negamax.Solver)
+	err = sc.endgameSolver.Init(sc.gen, sc.game.Game)
 	if err != nil {
 		return nil, err
 	}
 
-	sc.endgameSolver.SetIterativeDeepening(!disableID)
-	sc.endgameSolver.SetComplexEvaluator(complexEstimator)
-	sc.endgameSolver.SetPruningDisabled(disablePruning)
-	sc.endgameSolver.SetKillerPlayOptim(!disableKillerPlayOptim)
-	sc.endgameSolver.SetStuckTileOrderOptim(stuckTileOrderOptim)
-	sc.endgameSolver.SetFirstWinOptim(firstWinOptim)
+	// sc.endgameSolver.SetIterativeDeepening(!disableID)
+	// sc.endgameSolver.SetComplexEvaluator(complexEstimator)
+	// sc.endgameSolver.SetPruningDisabled(disablePruning)
+	// sc.endgameSolver.SetKillerPlayOptim(!disableKillerPlayOptim)
+	// sc.endgameSolver.SetStuckTileOrderOptim(stuckTileOrderOptim)
+	// sc.endgameSolver.SetFirstWinOptim(firstWinOptim)
 
 	sc.showMessage(sc.game.ToDisplayText())
 

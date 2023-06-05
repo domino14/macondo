@@ -18,7 +18,7 @@ type Zobrist struct {
 	posTable     [][]uint64
 	maxRackTable [][]uint64 // rack for the maximizing player
 	minRackTable [][]uint64 // rack for the minimizing player
-	passMove     uint64
+	// lastMoveWasPass uint64     // need for 2-pass endgame rule
 
 	boardDim        int
 	placeholderRack []tilemapping.MachineLetter
@@ -53,8 +53,9 @@ func (z *Zobrist) Initialize(boardDim int) {
 		}
 	}
 
+	// z.lastMoveWasPass = frand.Uint64n(bignum) + 1
+
 	z.minimizingPlayerToMove = frand.Uint64n(bignum) + 1
-	z.passMove = frand.Uint64n(bignum) + 1
 	z.placeholderRack = make([]tilemapping.MachineLetter, tilemapping.MaxAlphabetSize+1)
 }
 
@@ -88,11 +89,9 @@ func (z *Zobrist) AddMove(key uint64, m move.PlayMaker, maxPlayer bool) uint64 {
 	// - XOR with the "position" on the rack hash
 	// Then:
 	// - XOR with p2ToMove since we always alternate
-	// - XOR with lastMoveWasZero if it's a pass (or a zero-score...)
-	// XXX: as a side note, could there be an edge condition with the endgame
-	// where the best move might be to play a zero-point blank play, AND
-	// we are losing the game, so that the opponent may want to pass back
-	// and end the game right away?
+	// If it is a pass:
+	// - XOR with the index at consecutivePass - 1
+	// - XOR with the index at consecutivePass
 
 	ourRackTable := z.maxRackTable
 	if !maxPlayer {
@@ -137,21 +136,8 @@ func (z *Zobrist) AddMove(key uint64, m move.PlayMaker, maxPlayer bool) uint64 {
 		}
 
 	} else if m.Type() == move.MoveTypePass {
-		// key ^= z.passMove
-		// for i := 0; i < tilemapping.MaxAlphabetSize+1; i++ {
-		// 	z.placeholderRack[i] = 0
-		// }
-		// for _, tile := range m.Leave() {
-		// 	z.placeholderRack[tile]++
-		// 	key ^= ourRackTable[tile][z.placeholderRack[tile]]
-		// 	z.placeholderRack[tile]--
-		// 	key ^= ourRackTable[tile][z.placeholderRack[tile]]
-		// }
-
+		// can keep empty?
 	}
-	// for i, ct := range otherPlayerRack.LetArr {
-	// 	key ^= theirRackTable[i][ct]
-	// }
 
 	key ^= z.minimizingPlayerToMove
 	return key

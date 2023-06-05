@@ -31,11 +31,11 @@ func (sc *ShellController) endgameDebugModeSwitch(line string, sig chan os.Signa
 			return nil
 		}
 
-	case "l":
-		for _, n := range sc.endgameSolver.LastPrincipalVariationNodes() {
-			sc.showMessage(n.String())
-			sc.showMessage("-----")
-		}
+	// case "l":
+	// 	for _, n := range sc.endgameSolver.LastPrincipalVariationNodes() {
+	// 		sc.showMessage(n.String())
+	// 		sc.showMessage("-----")
+	// 	}
 
 	default:
 		return errors.New("command not recognized: " + cmd.cmd)
