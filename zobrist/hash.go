@@ -93,9 +93,6 @@ func (z *Zobrist) AddMove(key uint64, m move.PlayMaker, maxPlayer bool, scoreles
 	// - XOR with the "position" on the rack hash
 	// Then:
 	// - XOR with p2ToMove since we always alternate
-	// If it is a pass:
-	// - XOR with the index at consecutivePass - 1
-	// - XOR with the index at consecutivePass
 
 	ourRackTable := z.maxRackTable
 	if !maxPlayer {
@@ -140,8 +137,10 @@ func (z *Zobrist) AddMove(key uint64, m move.PlayMaker, maxPlayer bool, scoreles
 		}
 
 	}
-	key ^= z.scorelessTurns[lastScorelessTurns]
-	key ^= z.scorelessTurns[scorelessTurns]
+	if lastScorelessTurns != scorelessTurns {
+		key ^= z.scorelessTurns[lastScorelessTurns]
+		key ^= z.scorelessTurns[scorelessTurns]
+	}
 
 	key ^= z.minimizingPlayerToMove
 	return key

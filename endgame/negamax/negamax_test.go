@@ -420,3 +420,40 @@ func TestFromGCG(t *testing.T) {
 	is.Equal(len(seq), 1)
 	// t.Fail()
 }
+
+func TestZeroPtFirstPlay(t *testing.T) {
+	is := is.New(t)
+	plies := 11
+	/**
+			Best sequence has a spread difference of -42
+	Best sequence:
+	1)  6M .u
+	2)  6F ...N
+	3)  N1 E.
+	4)  O2 .UAG
+	5) (Pass)
+	6)  6E S....
+	7) (Pass)
+	8)  A1 .O
+	9) (Pass)
+	10) (Pass)
+	*/
+
+	deepEndgame := "IBADAT1B7/2CAFE1OD1TRANQ/2TUT2RENIED2/3REV2YOMIM2/4RAFT1NISI2/5COR2N1x2/6LA1AGEE2/6LIAISED2/5POKY2W3/4JOWS7/V2LUZ9/ORPIN10/L1OE11/TUX12/I14 EEEEGH?/AGHNOSU 308/265 0 lex CSW19;"
+	g, err := cgp.ParseCGP(&DefaultConfig, deepEndgame)
+	is.NoErr(err)
+	gd, err := kwg.Get(&DefaultConfig, "CSW19")
+	is.NoErr(err)
+	g.SetBackupMode(game.SimulationMode)
+	g.SetStateStackLength(plies)
+	g.RecalculateBoard()
+	gen := movegen.NewGordonGenerator(
+		gd, g.Board(), g.Bag().LetterDistribution(),
+	)
+
+	s := new(Solver)
+	s.Init(gen, g)
+	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
+	v, _, _ := s.Solve(context.Background(), plies)
+	is.Equal(v, float32(-42))
+}
