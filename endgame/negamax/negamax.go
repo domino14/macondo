@@ -221,7 +221,7 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 		if err != nil {
 			return nil, err
 		}
-		childKey := s.zobrist.AddMove(initialHashKey, m, true)
+		childKey := s.zobrist.AddMove(initialHashKey, m, true, s.game.ScorelessTurns(), s.game.LastScorelessTurns())
 
 		score, err := s.negamax(ctx, childKey, plies-1, -β, -α, false, &lpv)
 		if err != nil {
@@ -349,7 +349,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		if err != nil {
 			return 0, err
 		}
-		childKey := s.zobrist.AddMove(nodeKey, child, maximizingPlayer)
+		childKey := s.zobrist.AddMove(nodeKey, child, maximizingPlayer, s.game.ScorelessTurns(), s.game.LastScorelessTurns())
 		value, err := s.negamax(ctx, childKey, depth-1, -β, -α, !maximizingPlayer, &localPV)
 		if err != nil {
 			s.game.UnplayLastMove()

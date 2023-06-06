@@ -49,11 +49,14 @@ type Game struct {
 
 	playing pb.PlayState
 
-	scorelessTurns    int
-	maxScorelessTurns int
-	onturn            int
-	turnnum           int
-	players           playerStates
+	scorelessTurns int
+	// lastScorelessTurns - scorelessTurns the turn before this one.
+	// we keep track of this as we need it for "undoing" a Zobrist hash.
+	lastScorelessTurns int
+	maxScorelessTurns  int
+	onturn             int
+	turnnum            int
+	players            playerStates
 	// history has a history of all the moves in this game. Note that
 	// history only gets written to when someone plays a move that is NOT
 	// backed up.
@@ -316,6 +319,7 @@ func (g *Game) StartGame() {
 	g.history.PlayState = g.playing
 	g.turnnum = 0
 	g.scorelessTurns = 0
+	g.lastScorelessTurns = 0
 	g.onturn = 0
 	g.lastWordsFormed = nil
 }
@@ -425,6 +429,7 @@ func (g *Game) SetMaxScorelessTurns(m int) {
 }
 
 func (g *Game) SetScorelessTurns(n int) {
+	g.lastScorelessTurns = g.scorelessTurns
 	g.scorelessTurns = n
 }
 
@@ -474,6 +479,7 @@ func (g *Game) PlayMove(m move.PlayMaker, addToHistory bool, millis int) error {
 		// no international rule counts a score of 0 as a scoreless turn
 		// if it's from tiles being played on the board (like a blank next
 		// to another blank) so always reset this.
+		g.lastScorelessTurns = g.scorelessTurns
 		g.scorelessTurns = 0
 		g.players[g.onturn].points += score
 		g.players[g.onturn].turns += 1
@@ -537,6 +543,7 @@ func (g *Game) PlayMove(m move.PlayMaker, addToHistory bool, millis int) error {
 		} else {
 			// If this is a regular pass (and not an end-of-game-pass) let's
 			// log it in the history.
+			g.lastScorelessTurns = g.scorelessTurns
 			g.scorelessTurns++
 			g.players[g.onturn].turns += 1
 		}
@@ -548,6 +555,7 @@ func (g *Game) PlayMove(m move.PlayMaker, addToHistory bool, millis int) error {
 		}
 		copy(g.players[g.onturn].placeholderRack[len(m.Tiles()):], []tilemapping.MachineLetter(m.Leave()))
 		g.players[g.onturn].setRackTiles(g.players[g.onturn].placeholderRack[:len(m.Tiles())+len(m.Leave())], g.alph)
+		g.lastScorelessTurns = g.scorelessTurns
 		g.scorelessTurns++
 		g.players[g.onturn].turns += 1
 		if addToHistory {
@@ -876,6 +884,7 @@ func (g *Game) playTurn(t int) error {
 		drew := g.bag.DrawAtMost(m.TilesPlayed(), g.players[g.onturn].placeholderRack)
 		copy(g.players[g.onturn].placeholderRack[drew:], []tilemapping.MachineLetter(m.Leave()))
 		g.players[g.onturn].setRackTiles(g.players[g.onturn].placeholderRack[:drew+len(m.Leave())], g.alph)
+		g.lastScorelessTurns = g.scorelessTurns
 		g.scorelessTurns = 0
 		// Don't check game end logic here, as we assume we have the
 		// right event for that (move.MoveTypeEndgameTiles for example).
@@ -884,6 +893,7 @@ func (g *Game) playTurn(t int) error {
 		// to the phony being played.
 		g.UnplayLastMove()
 		g.lastWordsFormed = nil
+		g.lastScorelessTurns = g.scorelessTurns
 		g.scorelessTurns++
 
 	case move.MoveTypeChallengeBonus, move.MoveTypeEndgameTiles,
@@ -906,9 +916,11 @@ func (g *Game) playTurn(t int) error {
 		copy(g.players[g.onturn].placeholderRack[len(m.Tiles()):], []tilemapping.MachineLetter(m.Leave()))
 		g.players[g.onturn].setRackTiles(g.players[g.onturn].placeholderRack[:len(m.Tiles())+len(m.Leave())], g.alph)
 		g.players[g.onturn].turns += 1
+		g.lastScorelessTurns = g.scorelessTurns
 		g.scorelessTurns++
 
 	case move.MoveTypePass, move.MoveTypeUnsuccessfulChallengePass:
+		g.lastScorelessTurns = g.scorelessTurns
 		g.scorelessTurns++
 
 	default:
@@ -1148,4 +1160,8 @@ func (g *Game) RecalculateBoard() {
 
 func (g *Game) ScorelessTurns() int {
 	return g.scorelessTurns
+}
+
+func (g *Game) LastScorelessTurns() int {
+	return g.lastScorelessTurns
 }

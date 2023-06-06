@@ -77,7 +77,7 @@ func TestHashAfterMakingPlay(t *testing.T) {
 	h := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("ADENOOO", alph), tilemapping.RackFromString("AHIILMM", alph), false)
 
 	m1 := move.NewScoringMoveSimple(8, "15J", "END", "AOOO", alph)
-	h1 := z.AddMove(h, m1, true)
+	h1 := z.AddMove(h, m1, true, 0, 0)
 
 	// Actually play the move on the board.
 	err = g.PlayMove(m1, false, 0)
@@ -100,20 +100,21 @@ func TestHashAfterPassing(t *testing.T) {
 	h := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("ADENOOO", alph), tilemapping.RackFromString("AHIILMM", alph), false)
 
 	m1 := move.NewPassMove(tilemapping.RackFromString("ADENOOO", alph).TilesOn(), alph)
-	h1 := z.AddMove(h, m1, true)
+	h1 := z.AddMove(h, m1, true, 1, 0)
 	err = g.PlayMove(m1, false, 0)
 	is.NoErr(err)
 
 	h2 := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("ADENOOO", alph), tilemapping.RackFromString("AHIILMM", alph), true)
-	is.Equal(h1, h2)
+	// Should not be equal because of the number of scoreless turns.
+	is.True(h1 != h2)
 
 	// another pass
 	m2 := move.NewPassMove(tilemapping.RackFromString("AHIILMM", alph).TilesOn(), alph)
-	h3 := z.AddMove(h2, m2, false)
+	h3 := z.AddMove(h2, m2, false, 2, 1)
 	err = g.PlayMove(m2, false, 0)
 	is.NoErr(err)
-	// should be equal to the very first hash.
-	is.Equal(h, h3)
+	// should NOT be equal to the very first hash.
+	is.True(h != h3)
 
 }
 
@@ -130,7 +131,7 @@ func TestHashAfterMakingAnotherPlay(t *testing.T) {
 	h := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("AOOO", alph), tilemapping.RackFromString("HI", alph), false)
 	fmt.Println(g.ToDisplayText())
 	m1 := move.NewScoringMoveSimple(11, "13G", ".O.O", "AO", alph)
-	h1 := z.AddMove(h, m1, true)
+	h1 := z.AddMove(h, m1, true, 0, 0)
 
 	// Actually play the move on the board.
 	err = g.PlayMove(m1, false, 0)

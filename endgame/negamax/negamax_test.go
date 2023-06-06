@@ -309,7 +309,7 @@ func TestPolishFromGcg(t *testing.T) {
 
 func TestStuckPruning(t *testing.T) {
 	// This is very slow.
-	// t.Skip(x)
+	t.Skip()
 	is := is.New(t)
 	plies := 11
 	// See EldarVsNigel in sample_testing_boards.go

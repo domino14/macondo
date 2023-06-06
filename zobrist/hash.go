@@ -15,10 +15,10 @@ const bignum = 1<<63 - 2
 type Zobrist struct {
 	minimizingPlayerToMove uint64
 
-	posTable     [][]uint64
-	maxRackTable [][]uint64 // rack for the maximizing player
-	minRackTable [][]uint64 // rack for the minimizing player
-	// lastMoveWasPass uint64     // need for 2-pass endgame rule
+	posTable       [][]uint64
+	maxRackTable   [][]uint64 // rack for the maximizing player
+	minRackTable   [][]uint64 // rack for the minimizing player
+	scorelessTurns [3]uint64
 
 	boardDim        int
 	placeholderRack []tilemapping.MachineLetter
@@ -53,7 +53,9 @@ func (z *Zobrist) Initialize(boardDim int) {
 		}
 	}
 
-	// z.lastMoveWasPass = frand.Uint64n(bignum) + 1
+	for i := 0; i < 3; i++ {
+		z.scorelessTurns[i] = frand.Uint64n(bignum) + 1
+	}
 
 	z.minimizingPlayerToMove = frand.Uint64n(bignum) + 1
 	z.placeholderRack = make([]tilemapping.MachineLetter, tilemapping.MaxAlphabetSize+1)
@@ -78,10 +80,12 @@ func (z *Zobrist) Hash(squares tilemapping.MachineWord, maxPlayerRack *tilemappi
 	if minimizingPlayerToMove {
 		key ^= z.minimizingPlayerToMove
 	}
+	// assume 0 scoreless turns at the beginning
+	key ^= z.scorelessTurns[0]
 	return key
 }
 
-func (z *Zobrist) AddMove(key uint64, m move.PlayMaker, maxPlayer bool) uint64 {
+func (z *Zobrist) AddMove(key uint64, m move.PlayMaker, maxPlayer bool, scorelessTurns, lastScorelessTurns int) uint64 {
 	// Adding a move:
 	// For every letter in the move (assume it's only a tile placement move
 	// or a pass for now):
@@ -135,9 +139,9 @@ func (z *Zobrist) AddMove(key uint64, m move.PlayMaker, maxPlayer bool) uint64 {
 
 		}
 
-	} else if m.Type() == move.MoveTypePass {
-		// can keep empty?
 	}
+	key ^= z.scorelessTurns[lastScorelessTurns]
+	key ^= z.scorelessTurns[scorelessTurns]
 
 	key ^= z.minimizingPlayerToMove
 	return key

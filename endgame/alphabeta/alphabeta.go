@@ -599,7 +599,7 @@ func (s *Solver) nalphabeta(ctx context.Context, node *GameNode, nodeKey uint64,
 			return nil, err
 		}
 
-		childKey := s.zobrist.AddMove(nodeKey, childNode.MinimalMove, maximizingPlayer)
+		childKey := s.zobrist.AddMove(nodeKey, childNode.MinimalMove, maximizingPlayer, s.game.ScorelessTurns(), s.game.LastScorelessTurns())
 		wn, err := s.nalphabeta(ctx, childNode, childKey, depth-1, -β, -α, !maximizingPlayer)
 		if err != nil {
 			s.game.UnplayLastMove()
