@@ -47,9 +47,37 @@ var (
 	ErrNoEndgameSolution = errors.New("no endgame solution found")
 )
 
-type principalVariation struct {
-	nmoves int
-	moves  [MaxVariantLength]*move.MinimalMove
+// Credit: MIT-licensed https://github.com/algerbrex/blunder/blob/main/engine/search.go
+type PVLine struct {
+	Moves []*move.MinimalMove
+}
+
+// Clear the principal variation line.
+func (pvLine *PVLine) Clear() {
+	pvLine.Moves = nil
+}
+
+// Update the principal variation line with a new best move,
+// and a new line of best play after the best move.
+func (pvLine *PVLine) Update(move *move.MinimalMove, newPVLine PVLine) {
+	pvLine.Clear()
+	pvLine.Moves = append(pvLine.Moves, move)
+	pvLine.Moves = append(pvLine.Moves, newPVLine.Moves...)
+}
+
+// Get the best move from the principal variation line.
+func (pvLine *PVLine) GetPVMove() *move.MinimalMove {
+	return pvLine.Moves[0]
+}
+
+// Convert the principal variation line to a string.
+func (pvLine PVLine) String(val float32, alph *tilemapping.TileMapping) string {
+	var s string
+	s = fmt.Sprintf("PV; val %f\n", val)
+	for i := 0; i < len(pvLine.Moves); i++ {
+		s += fmt.Sprintf("%d: %s (%d)\n", i+1, pvLine.Moves[i].ShortDescription(alph), pvLine.Moves[i].Score())
+	}
+	return s
 }
 
 type Solver struct {
@@ -67,7 +95,7 @@ type Solver struct {
 	killerPlayOptim         bool
 	firstWinOptim           bool // this is nothing yet
 	transpositionTableOptim bool
-	principalVariation      *principalVariation
+	principalVariation      PVLine
 	bestPVValue             float32
 
 	currentIDDepth int
@@ -188,13 +216,6 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 	return nil
 }
 
-func printPV(pv *principalVariation, val float32, alph *tilemapping.TileMapping) {
-	fmt.Printf("PV; val %f\n", val)
-	for i := 0; i < pv.nmoves; i++ {
-		fmt.Printf("%d: %s (%d)\n", i+1, pv.moves[i].ShortDescription(alph), pv.moves[i].Score())
-	}
-}
-
 func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, plies int) ([]*move.MinimalMove, error) {
 	// negamax for every move.
 	initialHashKey := s.zobrist.Hash(s.game.Board().GetSquares(),
@@ -209,8 +230,8 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 	if s.logStream != nil {
 		fmt.Fprint(s.logStream, "  plays:\n")
 	}
-	pv := principalVariation{} // the winning one
-	lpv := principalVariation{}
+	pv := PVLine{}
+	childPV := PVLine{}
 	for idx, m := range moves {
 		if s.logStream != nil {
 			fmt.Fprintf(s.logStream, "  - play: %v\n", m.ShortDescription(s.game.Alphabet()))
@@ -223,7 +244,7 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 		}
 		childKey := s.zobrist.AddMove(initialHashKey, m, true, s.game.ScorelessTurns(), s.game.LastScorelessTurns())
 
-		score, err := s.negamax(ctx, childKey, plies-1, -β, -α, false, &lpv)
+		score, err := s.negamax(ctx, childKey, plies-1, -β, -α, false, &childPV)
 		if err != nil {
 			s.game.UnplayLastMove()
 			return nil, err
@@ -236,20 +257,21 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 		}
 
 		if sol.score > bestValue {
+			// XXX DO I UPDATE TT
 			bestValue = sol.score
-			pv.moves[0] = m
-			copy(pv.moves[1:], lpv.moves[:lpv.nmoves])
-			pv.nmoves = lpv.nmoves + 1
-			s.principalVariation = &pv
+			// s.bestPVValue = sol.score
+			// printPV(&pv, sol.score, s.game.Alphabet())
+			pv.Update(m, childPV)
+			s.principalVariation = pv
 			s.bestPVValue = sol.score
-			printPV(&pv, sol.score, s.game.Alphabet())
+			fmt.Println(pv.String(s.bestPVValue, s.game.Alphabet()))
 		}
 		α = max(α, bestValue)
 		if s.logStream != nil {
 			fmt.Fprintf(s.logStream, "    α: %v\n", α)
 			fmt.Fprintf(s.logStream, "    β: %v\n", β)
 		}
-
+		childPV.Clear()
 		if bestValue >= β {
 			break
 		}
@@ -299,7 +321,7 @@ func (s *Solver) evaluate(maximizingPlayer bool) float32 {
 }
 
 func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β float32, maximizingPlayer bool,
-	pv *principalVariation) (float32, error) {
+	pv *PVLine) (float32, error) {
 
 	if ctx.Err() != nil {
 		return 0, ctx.Err()
@@ -330,10 +352,9 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		// 	node.heuristicValue.negate()
 		// }
 		// return node, nil
-		pv.nmoves = 0
 		return s.evaluate(maximizingPlayer), nil
 	}
-	localPV := principalVariation{}
+	childPV := PVLine{}
 
 	children := s.generateSTMPlays(depth)
 	bestValue := -HugeNumber
@@ -350,7 +371,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			return 0, err
 		}
 		childKey := s.zobrist.AddMove(nodeKey, child, maximizingPlayer, s.game.ScorelessTurns(), s.game.LastScorelessTurns())
-		value, err := s.negamax(ctx, childKey, depth-1, -β, -α, !maximizingPlayer, &localPV)
+		value, err := s.negamax(ctx, childKey, depth-1, -β, -α, !maximizingPlayer, &childPV)
 		if err != nil {
 			s.game.UnplayLastMove()
 			return value, err
@@ -361,9 +382,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		}
 		if -value > bestValue {
 			bestValue = -value
-			pv.moves[0] = child
-			copy(pv.moves[1:], localPV.moves[:localPV.nmoves])
-			pv.nmoves = localPV.nmoves + 1
+			pv.Update(child, childPV)
 		}
 		α = max(α, bestValue)
 		if s.logStream != nil {
@@ -442,11 +461,11 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 	// Go down tree and find best variation:
 	log.Info().Msgf("Number of cached killer plays: %d", len(s.killerCache))
 
-	bestSeq = make([]*move.Move, s.principalVariation.nmoves)
-	for i := 0; i < s.principalVariation.nmoves; i++ {
+	bestSeq = make([]*move.Move, len(s.principalVariation.Moves))
+	for i := 0; i < len(bestSeq); i++ {
 		m := &move.Move{}
 		m.SetAlphabet(s.game.Alphabet())
-		s.principalVariation.moves[i].CopyToMove(m)
+		s.principalVariation.Moves[i].CopyToMove(m)
 		bestSeq[i] = m
 	}
 	bestV = s.bestPVValue

@@ -160,6 +160,8 @@ func TestSolveNegamaxFunc(t *testing.T) {
 	// Test just the negamax function without the search etc functionality.
 	s.requestedPlies = 4
 	s.currentIDDepth = 4
+	s.zobrist.Initialize(s.game.Board().Dim())
+	globalTranspositionTable.reset()
 
 	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
 	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)
@@ -172,11 +174,11 @@ func TestSolveNegamaxFunc(t *testing.T) {
 	s.maximizingPlayer = s.game.PlayerOnTurn()
 
 	ctx := context.Background()
-	pv := &principalVariation{}
+	pv := &PVLine{}
 	score, err := s.negamax(ctx, 0, s.requestedPlies, -HugeNumber, HugeNumber, true, pv)
 	is.NoErr(err)
 	is.Equal(score, float32(11))
-	is.Equal(pv.nmoves, 3)
+	is.Equal(len(pv.Moves), 3)
 }
 
 func TestVeryDeep(t *testing.T) {
@@ -458,4 +460,48 @@ func TestZeroPtFirstPlay(t *testing.T) {
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 	v, _, _ := s.Solve(context.Background(), plies)
 	is.Equal(v, float32(-42))
+}
+
+func TestSolveNegamaxFunc2(t *testing.T) {
+	plies := 11
+
+	is := is.New(t)
+
+	deepEndgame := "IBADAT1B7/2CAFE1OD1TRANQ/2TUT2RENIED2/3REV2YOMIM2/4RAFT1NISI2/5COR2N1x2/6LA1AGEE2/6LIAISED2/5POKY2W3/4JOWS7/V2LUZ9/ORPIN10/L1OE11/TUX12/I14 EEEEGH?/AGHNOSU 308/265 0 lex CSW19;"
+	g, err := cgp.ParseCGP(&DefaultConfig, deepEndgame)
+	is.NoErr(err)
+	gd, err := kwg.Get(&DefaultConfig, "CSW19")
+	is.NoErr(err)
+
+	g.SetBackupMode(game.SimulationMode)
+	g.SetStateStackLength(plies)
+	g.RecalculateBoard()
+	gen := movegen.NewGordonGenerator(
+		gd, g.Board(), g.Bag().LetterDistribution(),
+	)
+	s := new(Solver)
+	s.Init(gen, g)
+
+	// Test just the negamax function without the search etc functionality.
+	s.requestedPlies = plies
+	s.currentIDDepth = plies
+	s.zobrist.Initialize(s.game.Board().Dim())
+	globalTranspositionTable.reset()
+
+	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
+	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)
+
+	s.game.SetMaxScorelessTurns(2)
+	defer s.game.SetMaxScorelessTurns(game.DefaultMaxScorelessTurns)
+
+	s.initialSpread = s.game.CurrentSpread()
+	s.initialTurnNum = s.game.Turn()
+	s.maximizingPlayer = s.game.PlayerOnTurn()
+
+	ctx := context.Background()
+	pv := &PVLine{}
+	score, err := s.negamax(ctx, 0, s.requestedPlies, -HugeNumber, HugeNumber, true, pv)
+	is.NoErr(err)
+	is.Equal(score, float32(-42))
+	is.Equal(len(pv.Moves), 10)
 }
