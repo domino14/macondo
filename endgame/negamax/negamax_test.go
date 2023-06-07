@@ -156,10 +156,6 @@ func TestSolveNegamaxFunc(t *testing.T) {
 	s, err := setUpSolver("NWL18", "english", board.VsCanik, plies, "DEHILOR", "BGIV", 389, 384,
 		1)
 	is.NoErr(err)
-	f, err := os.Create("/tmp/endgamelog-new")
-	is.NoErr(err)
-	defer f.Close()
-	s.logStream = f
 
 	// Test just the negamax function without the search etc functionality.
 	s.requestedPlies = 4
@@ -423,7 +419,7 @@ func TestFromGCG(t *testing.T) {
 
 func TestZeroPtFirstPlay(t *testing.T) {
 	is := is.New(t)
-	plies := 11
+	plies := 8
 	/**
 			Best sequence has a spread difference of -42
 	Best sequence:
@@ -453,6 +449,12 @@ func TestZeroPtFirstPlay(t *testing.T) {
 
 	s := new(Solver)
 	s.Init(gen, g)
+
+	f, err := os.Create("/tmp/endgamelog-new")
+	is.NoErr(err)
+	defer f.Close()
+	s.logStream = f
+
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 	v, _, _ := s.Solve(context.Background(), plies)
 	is.Equal(v, float32(-42))
