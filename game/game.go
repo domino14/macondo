@@ -1165,3 +1165,17 @@ func (g *Game) ScorelessTurns() int {
 func (g *Game) LastScorelessTurns() int {
 	return g.lastScorelessTurns
 }
+
+// ToCGP converts the game to a CGP string. See cgp directory.
+func (g *Game) ToCGP() string {
+	fen := g.board.ToFEN(g.alph)
+	ourRack := g.curPlayer().rack.TilesOn().UserVisible(g.alph)
+	theirRack := g.oppPlayer().rack.TilesOn().UserVisible(g.alph)
+	ourScore := g.curPlayer().points
+	theirScore := g.oppPlayer().points
+	zeroPt := g.scorelessTurns
+	lex := g.lexicon.Name()
+
+	return fmt.Sprintf("%s %s/%s %d/%d %d lex %s;",
+		fen, ourRack, theirRack, ourScore, theirScore, zeroPt, lex)
+}

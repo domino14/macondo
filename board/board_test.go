@@ -148,3 +148,31 @@ func TestFormedWordsBlank(t *testing.T) {
 	}
 	is.Equal(uvWords, []string{"TAEL", "TA", "AN", "RESPONDED", "LO"})
 }
+
+func TestFEN(t *testing.T) {
+	is := is.New(t)
+	b := MakeBoard(CrosswordGameBoard)
+	alph := tilemapping.EnglishAlphabet()
+
+	b.SetToGame(alph, VsMatt)
+
+	is.Equal(b.ToFEN(alph),
+		"7ZEP1F3/1FLUKY3R1R3/5EX2A1U3/2SCARIEST1I3/9TOT3/6GO1LO4/6OR1ETA3/6JABS1b3/5QI4A3/5I1N3N3/3ReSPOND1D3/1HOE3V3O3/1ENCOMIA3N3/7T7/3VENGED6")
+}
+
+func TestFENEmpty(t *testing.T) {
+	is := is.New(t)
+	b := MakeBoard(CrosswordGameBoard)
+	alph := tilemapping.EnglishAlphabet()
+
+	is.Equal(b.ToFEN(alph), "15/15/15/15/15/15/15/15/15/15/15/15/15/15/15")
+}
+
+func TestFENAlmostEmpty(t *testing.T) {
+	is := is.New(t)
+	b := MakeBoard(CrosswordGameBoard)
+	alph := tilemapping.EnglishAlphabet()
+	b.SetToGame(alph, TestDupe)
+
+	is.Equal(b.ToFEN(alph), "15/15/15/15/15/15/15/1INCITES7/IS13/T14/15/15/15/15/15")
+}
