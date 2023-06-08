@@ -39,7 +39,8 @@ type TranspositionTable struct {
 	t2collisions uint64
 }
 
-var globalTranspositionTable TranspositionTable
+// var globalTranspositionTable TranspositionTable
+var globalTranspositionTable DebugTranspositionTable
 
 func init() {
 	totalMem := memory.TotalMemory()
@@ -85,4 +86,42 @@ func (t *TranspositionTable) reset() {
 	t.table = make([]TableEntry, numElems)
 	t.created = 0
 	log.Info().Msg("allocated-transposition-table")
+}
+
+// a debug tt
+
+type DebugTableEntry struct {
+	score float32
+	flag  uint8
+	depth uint8
+}
+
+type DebugTranspositionTable struct {
+	table   map[string]*DebugTableEntry
+	created uint64
+	lookups uint64
+	hits    uint64
+}
+
+func (t *DebugTranspositionTable) lookup(cgp string) *DebugTableEntry {
+	t.lookups++
+	entry := t.table[cgp]
+	if entry != nil {
+		t.hits++
+	}
+	return entry
+}
+
+func (t *DebugTranspositionTable) store(cgp string, tentry DebugTableEntry) {
+	// just overwrite whatever is there for now.
+	t.table[cgp] = &tentry
+	t.created++
+}
+
+func (t *DebugTranspositionTable) reset() {
+	t.table = nil
+	runtime.GC() // ?
+	t.table = make(map[string]*DebugTableEntry)
+	t.created = 0
+	log.Info().Msg("allocated-debug-transposition-table")
 }

@@ -382,7 +382,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	// Something like PVS might do better at keeping the PV intact.
 	alphaOrig := α
 	if s.transpositionTableOptim {
-		ttEntry := globalTranspositionTable.lookup(nodeKey)
+		ttEntry := globalTranspositionTable.lookup(s.game.ToCGP())
 		if ttEntry != nil && ttEntry.depth >= uint8(depth) {
 			if ttEntry.flag == TTExact {
 				return ttEntry.score, nil
@@ -451,7 +451,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		childPV.Clear() // clear the child node's pv for the next child node
 	}
 	if s.transpositionTableOptim {
-		entryToStore := TableEntry{
+		entryToStore := DebugTableEntry{
 			score: bestValue,
 		}
 		if bestValue <= alphaOrig {
@@ -462,8 +462,8 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			entryToStore.flag = TTExact
 		}
 		entryToStore.depth = uint8(depth)
-		entryToStore.fullHash = nodeKey
-		globalTranspositionTable.store(nodeKey, entryToStore)
+		// entryToStore.fullHash = nodeKey
+		globalTranspositionTable.store(s.game.ToCGP(), entryToStore)
 	}
 	return bestValue, nil
 
@@ -530,7 +530,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 		Uint64("ttable-created", globalTranspositionTable.created).
 		Uint64("ttable-lookups", globalTranspositionTable.lookups).
 		Uint64("ttable-hits", globalTranspositionTable.hits).
-		Uint64("ttable-t2collisions", globalTranspositionTable.t2collisions).
+		// Uint64("ttable-t2collisions", globalTranspositionTable.t2collisions).
 		Float64("time-elapsed-sec", time.Since(tstart).Seconds()).
 		Msg("solve-returning")
 
