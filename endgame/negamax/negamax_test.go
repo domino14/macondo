@@ -421,7 +421,7 @@ func TestFromGCG(t *testing.T) {
 
 func TestZeroPtFirstPlay(t *testing.T) {
 	is := is.New(t)
-	plies := 8
+	plies := 11
 	/**
 			Best sequence has a spread difference of -42
 	Best sequence:
@@ -451,6 +451,8 @@ func TestZeroPtFirstPlay(t *testing.T) {
 
 	s := new(Solver)
 	s.Init(gen, g)
+	// s.iterativeDeepeningOptim = false
+	// s.transpositionTableOptim = false
 
 	f, err := os.Create("/tmp/endgamelog-new")
 	is.NoErr(err)

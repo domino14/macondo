@@ -400,7 +400,7 @@ func (g *Game) validateTilePlayMove(m *move.Move) ([]tilemapping.MachineWord, er
 	if err != nil {
 		return nil, err
 	}
-	if g.history.ChallengeRule == pb.ChallengeRule_VOID {
+	if g.history != nil && g.history.ChallengeRule == pb.ChallengeRule_VOID {
 		// Actually check the validity of the words.
 		illegalWords := validateWords(g.lexicon, formedWords, g.rules.Variant())
 

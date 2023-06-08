@@ -100,14 +100,15 @@ func (g *Game) ToDisplayText() string {
 	addText(bts, 12, hpadding, fmt.Sprintf("Turn %d:", g.turnnum))
 
 	vpadding = 13
+	if g.history != nil {
+		for i, evt := range g.history.Events {
+			log.Debug().Msgf("Event %d: %v", i, evt)
+		}
 
-	for i, evt := range g.history.Events {
-		log.Debug().Msgf("Event %d: %v", i, evt)
-	}
-
-	if g.turnnum-1 >= 0 && len(g.history.Events) > g.turnnum-1 {
-		addText(bts, vpadding, hpadding,
-			summary(g.history.Players, g.history.Events[g.turnnum-1]))
+		if g.turnnum-1 >= 0 && len(g.history.Events) > g.turnnum-1 {
+			addText(bts, vpadding, hpadding,
+				summary(g.history.Players, g.history.Events[g.turnnum-1]))
+		}
 	}
 
 	vpadding = 17
@@ -119,10 +120,12 @@ func (g *Game) ToDisplayText() string {
 		addText(bts, vpadding, hpadding, "Waiting for final pass/challenge...")
 	}
 	vpadding = 19
-	if g.turnnum-1 < len(g.history.Events) && g.turnnum-1 >= 0 &&
-		g.history.Events[g.turnnum-1].Note != "" {
-		// add it all the way at the bottom
-		bts = append(bts, g.history.Events[g.turnnum-1].Note)
+	if g.history != nil {
+		if g.turnnum-1 < len(g.history.Events) && g.turnnum-1 >= 0 &&
+			g.history.Events[g.turnnum-1].Note != "" {
+			// add it all the way at the bottom
+			bts = append(bts, g.history.Events[g.turnnum-1].Note)
+		}
 	}
 	return strings.Join(bts, "\n")
 

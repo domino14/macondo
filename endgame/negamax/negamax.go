@@ -50,6 +50,8 @@ var (
 // Credit: MIT-licensed https://github.com/algerbrex/blunder/blob/main/engine/search.go
 type PVLine struct {
 	Moves []*move.MinimalMove
+	g     *game.Game
+	score float32
 }
 
 // Clear the principal variation line.
@@ -59,10 +61,11 @@ func (pvLine *PVLine) Clear() {
 
 // Update the principal variation line with a new best move,
 // and a new line of best play after the best move.
-func (pvLine *PVLine) Update(move *move.MinimalMove, newPVLine PVLine) {
+func (pvLine *PVLine) Update(move *move.MinimalMove, newPVLine PVLine, score float32) {
 	pvLine.Clear()
-	pvLine.Moves = append(pvLine.Moves, move)
+	pvLine.Moves = append(pvLine.Moves, move.Copy())
 	pvLine.Moves = append(pvLine.Moves, newPVLine.Moves...)
+	pvLine.score = score
 }
 
 // Get the best move from the principal variation line.
@@ -71,19 +74,53 @@ func (pvLine *PVLine) GetPVMove() *move.MinimalMove {
 }
 
 // Convert the principal variation line to a string.
-func (pvLine PVLine) String(val float32, alph *tilemapping.TileMapping) string {
+func (pvLine PVLine) String() string {
 	var s string
-	s = fmt.Sprintf("PV; val %f\n", val)
+	s = fmt.Sprintf("PV; val %f\n", pvLine.score)
 	for i := 0; i < len(pvLine.Moves); i++ {
-		s += fmt.Sprintf("%d: %s (%d)\n", i+1, pvLine.Moves[i].ShortDescription(alph), pvLine.Moves[i].Score())
+		s += fmt.Sprintf("%d: %s (%d)\n",
+			i+1,
+			pvLine.Moves[i].ShortDescription(pvLine.g.Alphabet()),
+			pvLine.Moves[i].Score())
 	}
 	return s
+}
+
+// panic if pvline is invalid
+func (p PVLine) verify() {
+	g := p.g.Copy()
+	onturn := g.PlayerOnTurn()
+	initSpread := g.SpreadFor(onturn)
+	for i := 0; i < len(p.Moves); i++ {
+		mc := &move.Move{}
+		p.Moves[i].CopyToMove(mc)
+		_, err := g.ValidateMove(mc)
+		if err != nil {
+			fmt.Println("error with pv", p)
+			panic(err)
+		}
+		err = g.PlayMove(mc, false, 0)
+		if err != nil {
+			panic(err)
+		}
+	}
+	// If the scores don't match, log a warning. This can be because
+	// the transposition table cut off the PV.
+	if g.SpreadFor(onturn)-initSpread != int(p.score) {
+		log.Warn().
+			Int("initSpread", initSpread).
+			Int("nowSpread", g.SpreadFor(onturn)).
+			Int("diffInSpreads", g.SpreadFor(onturn)-initSpread).
+			Float32("expectedDiff", p.score).
+			Msg("pv-cutoff-spreads-do-not-match")
+	}
 }
 
 type Solver struct {
 	zobrist     *zobrist.Zobrist
 	stmMovegen  movegen.MoveGenerator
 	game        *game.Game
+	gameBackup  *game.Game
 	killerCache map[uint64]*move.MinimalMove
 
 	initialSpread    int
@@ -92,6 +129,7 @@ type Solver struct {
 
 	earlyPassOptim          bool
 	stuckTileOrderOptim     bool
+	iterativeDeepeningOptim bool
 	killerPlayOptim         bool
 	firstWinOptim           bool // this is nothing yet
 	transpositionTableOptim bool
@@ -143,6 +181,7 @@ func (s *Solver) Init(m movegen.MoveGenerator, game *game.Game) error {
 	s.killerPlayOptim = true
 	s.firstWinOptim = false
 	s.transpositionTableOptim = true
+	s.iterativeDeepeningOptim = true
 
 	if s.stmMovegen != nil {
 		s.stmMovegen.SetGenPass(true)
@@ -202,7 +241,11 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 	// Generate first layer of moves.
 	plays := s.generateSTMPlays(0)
 	var err error
-	for p := 1; p <= plies; p++ {
+	start := 1
+	if !s.iterativeDeepeningOptim {
+		start = plies
+	}
+	for p := start; p <= plies; p++ {
 		log.Info().Int("plies", p).Msg("deepening-iteratively")
 		s.currentIDDepth = p
 		if s.logStream != nil {
@@ -230,8 +273,8 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 	if s.logStream != nil {
 		fmt.Fprint(s.logStream, "  plays:\n")
 	}
-	pv := PVLine{}
-	childPV := PVLine{}
+	pv := PVLine{g: s.gameBackup}
+	childPV := PVLine{g: s.gameBackup}
 	for idx, m := range moves {
 		if s.logStream != nil {
 			fmt.Fprintf(s.logStream, "  - play: %v\n", m.ShortDescription(s.game.Alphabet()))
@@ -261,10 +304,16 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 			bestValue = sol.score
 			// s.bestPVValue = sol.score
 			// printPV(&pv, sol.score, s.game.Alphabet())
-			pv.Update(m, childPV)
+
+			// fmt.Printf("--BEGIN---UPDATE PV, %f, %v, %v\n--END---\n",
+			// 	bestValue, m.ShortDescription(s.game.Alphabet()),
+			// 	childPV.String())
+
+			pv.Update(m, childPV, sol.score)
+			pv.verify()
 			s.principalVariation = pv
 			s.bestPVValue = sol.score
-			fmt.Println(pv.String(s.bestPVValue, s.game.Alphabet()))
+			fmt.Println(pv.String())
 		}
 		α = max(α, bestValue)
 		if s.logStream != nil {
@@ -327,6 +376,10 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		return 0, ctx.Err()
 	}
 
+	// Note: if I return early as in here, the PV might not be complete.
+	// (the transposition table is cutting off the iterations)
+	// The value should still be correct, though.
+	// Something like PVS might do better at keeping the PV intact.
 	alphaOrig := α
 	if s.transpositionTableOptim {
 		ttEntry := globalTranspositionTable.lookup(nodeKey)
@@ -354,7 +407,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		// return node, nil
 		return s.evaluate(maximizingPlayer), nil
 	}
-	childPV := PVLine{}
+	childPV := PVLine{g: s.gameBackup}
 
 	children := s.generateSTMPlays(depth)
 	bestValue := -HugeNumber
@@ -382,7 +435,10 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		}
 		if -value > bestValue {
 			bestValue = -value
-			pv.Update(child, childPV)
+			// fmt.Printf("%v--BEGIN---childkey %v -- UPDATE PV, %f, %v, %v\n%v--END---\n",
+			// 	strings.Repeat(" ", indent), childKey, bestValue, child.ShortDescription(s.game.Alphabet()),
+			// 	childPV.String(), strings.Repeat(" ", indent))
+			pv.Update(child, childPV, bestValue)
 		}
 		α = max(α, bestValue)
 		if s.logStream != nil {
@@ -392,6 +448,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		if bestValue >= β {
 			break // beta cut-off
 		}
+		childPV.Clear() // clear the child node's pv for the next child node
 	}
 	if s.transpositionTableOptim {
 		entryToStore := TableEntry{
@@ -436,7 +493,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 
 	var bestV float32
 	var bestSeq []*move.Move
-
+	s.gameBackup = s.game.Copy()
 	var wg sync.WaitGroup
 	wg.Add(1)
 

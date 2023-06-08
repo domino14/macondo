@@ -2,6 +2,7 @@ package negamax
 
 import (
 	"math"
+	"runtime"
 
 	"github.com/pbnjay/memory"
 	"github.com/rs/zerolog/log"
@@ -78,6 +79,9 @@ func (t *TranspositionTable) reset() {
 	log.Info().Int("num-elems", numElems).
 		Int("estimated-total-memory-bytes", numElems*entrySize).
 		Msg("transposition-table-size")
+	t.table = nil
+	runtime.GC() // ?
+
 	t.table = make([]TableEntry, numElems)
 	t.created = 0
 	log.Info().Msg("allocated-transposition-table")
