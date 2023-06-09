@@ -63,7 +63,7 @@ func (pvLine *PVLine) Clear() {
 // and a new line of best play after the best move.
 func (pvLine *PVLine) Update(move *move.MinimalMove, newPVLine PVLine, score float32) {
 	pvLine.Clear()
-	pvLine.Moves = append(pvLine.Moves, move.Copy())
+	pvLine.Moves = append(pvLine.Moves, move)
 	pvLine.Moves = append(pvLine.Moves, newPVLine.Moves...)
 	pvLine.score = score
 }
@@ -320,17 +320,8 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 		}
 
 		if sol.score > bestValue {
-			// XXX DO I UPDATE TT
 			bestValue = sol.score
-			// s.bestPVValue = sol.score
-			// printPV(&pv, sol.score, s.game.Alphabet())
-
-			// fmt.Printf("--BEGIN---UPDATE PV, %f, %v, %v\n--END---\n",
-			// 	bestValue, m.ShortDescription(s.game.Alphabet()),
-			// 	childPV.String())
-
 			pv.Update(m, childPV, sol.score)
-			// pv.verify()
 			s.principalVariation = pv
 			s.bestPVValue = sol.score
 			fmt.Println(pv.String())
@@ -368,22 +359,6 @@ func (s *Solver) evaluate(solvingPlayer bool) float32 {
 	if !solvingPlayer {
 		return -val
 	}
-	// gameOver := s.game.Playing() != pb.PlayState_PLAYING
-	// val := float32(0)
-
-	// if gameOver {
-	// 	// Technically no one is on turn, but the player NOT on turn is
-	// 	// the one that just ended the game.
-	// 	val = float32(spreadNow - initialSpread)
-	// } else {
-	// 	// The valuation is already an estimate of the overall gain or loss
-	// 	// in spread for this move (if taken to the end of the game).
-
-	// 	// `player` is NOT the one that just made a move.
-	// 	ptValue := g.Score()
-	// 	moveVal := g.initialEstimate - ptValue
-	// 	val = float32(spreadNow) + moveVal - float32(initialSpread)
-	// }
 
 	return val
 }

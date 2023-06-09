@@ -454,10 +454,10 @@ func TestZeroPtFirstPlay(t *testing.T) {
 	// s.iterativeDeepeningOptim = false
 	// s.transpositionTableOptim = false
 
-	f, err := os.Create("/tmp/endgamelog-new")
-	is.NoErr(err)
-	defer f.Close()
-	s.logStream = f
+	// f, err := os.Create("/tmp/endgamelog-new")
+	// is.NoErr(err)
+	// defer f.Close()
+	// s.logStream = f
 
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 	v, _, _ := s.Solve(context.Background(), plies)
