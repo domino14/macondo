@@ -346,8 +346,8 @@ func (s *Solver) evaluate(solvingPlayer bool) float32 {
 	// spreadNow is from the POV of the maximizing player
 	spreadNow := s.game.PointsFor(s.solvingPlayer) -
 		s.game.PointsFor(1-s.solvingPlayer)
-		// A very simple evaluation function for now. Just the difference in spread,
-		// even if the game is not over yet.
+	// A very simple evaluation function for now. Just the difference in spread,
+	// even if the game is not over yet.
 	val := float32(spreadNow - initialSpread)
 	if !solvingPlayer {
 		return -val

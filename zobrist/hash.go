@@ -24,29 +24,27 @@ type Zobrist struct {
 	placeholderRack []tilemapping.MachineLetter
 }
 
+const MaxLetters = 35
+
 func (z *Zobrist) Initialize(boardDim int) {
 	z.boardDim = boardDim
 	z.posTable = make([][]uint64, boardDim*boardDim)
 	for i := 0; i < boardDim*boardDim; i++ {
 
-		// 200 is MaxAlphabetSize + 0x80 (blank) + some fudge factor.
-		// This is kind of ugly; we should clarify the domain a bit.
-		// We don't lose a huge deal by generating this many random numbers,
-		// however, even if we're not using all of them.
-		z.posTable[i] = make([]uint64, 200)
-		for j := 0; j < 200; j++ {
+		z.posTable[i] = make([]uint64, MaxLetters*2)
+		for j := 0; j < 70; j++ {
 			z.posTable[i][j] = frand.Uint64n(bignum) + 1
 		}
 	}
-	z.maxRackTable = make([][]uint64, tilemapping.MaxAlphabetSize+1)
-	for i := 0; i < tilemapping.MaxAlphabetSize+1; i++ {
+	z.maxRackTable = make([][]uint64, MaxLetters)
+	for i := 0; i < MaxLetters; i++ {
 		z.maxRackTable[i] = make([]uint64, game.RackTileLimit)
 		for j := 0; j < game.RackTileLimit; j++ {
 			z.maxRackTable[i][j] = frand.Uint64n(bignum) + 1
 		}
 	}
-	z.minRackTable = make([][]uint64, tilemapping.MaxAlphabetSize+1)
-	for i := 0; i < tilemapping.MaxAlphabetSize+1; i++ {
+	z.minRackTable = make([][]uint64, MaxLetters)
+	for i := 0; i < MaxLetters; i++ {
 		z.minRackTable[i] = make([]uint64, game.RackTileLimit)
 		for j := 0; j < game.RackTileLimit; j++ {
 			z.minRackTable[i][j] = frand.Uint64n(bignum) + 1
@@ -58,7 +56,7 @@ func (z *Zobrist) Initialize(boardDim int) {
 	}
 
 	z.minimizingPlayerToMove = frand.Uint64n(bignum) + 1
-	z.placeholderRack = make([]tilemapping.MachineLetter, tilemapping.MaxAlphabetSize+1)
+	z.placeholderRack = make([]tilemapping.MachineLetter, MaxLetters)
 }
 
 func (z *Zobrist) Hash(squares tilemapping.MachineWord, maxPlayerRack *tilemapping.Rack,
@@ -68,6 +66,10 @@ func (z *Zobrist) Hash(squares tilemapping.MachineWord, maxPlayerRack *tilemappi
 	for i, letter := range squares {
 		if letter == 0 {
 			continue
+		}
+		if letter&0x80 > 0 {
+			// it's a blank
+			letter = (letter & (0x7F)) + MaxLetters
 		}
 		key ^= z.posTable[i][letter]
 	}
@@ -104,7 +106,7 @@ func (z *Zobrist) AddMove(key uint64, m move.PlayMaker, maxPlayer bool, scoreles
 			ri, ci = 1, 0
 		}
 		// clear out placeholder rack first:
-		for i := 0; i < tilemapping.MaxAlphabetSize+1; i++ {
+		for i := 0; i < MaxLetters; i++ {
 			z.placeholderRack[i] = 0
 		}
 
@@ -115,7 +117,12 @@ func (z *Zobrist) AddMove(key uint64, m move.PlayMaker, maxPlayer bool, scoreles
 				// 0 is a played-through marker if it's part of a move's tiles
 				continue
 			}
-			key ^= z.posTable[newRow*z.boardDim+newCol][tile]
+			boardTile := tile
+			if tile&0x80 > 0 {
+				// it's a blank
+				boardTile = (tile & (0x7F)) + MaxLetters
+			}
+			key ^= z.posTable[newRow*z.boardDim+newCol][boardTile]
 			// build up placeholder rack.
 			tileIdx := tile.IntrinsicTileIdx()
 			z.placeholderRack[tileIdx]++
@@ -126,6 +133,7 @@ func (z *Zobrist) AddMove(key uint64, m move.PlayMaker, maxPlayer bool, scoreles
 		// now "Play" all the tiles in the rack
 		for _, tile := range m.Tiles() {
 			if tile == 0 {
+				// this is a play-through tile, if it's in a move. Ignore it.
 				continue
 			}
 			tileIdx := tile.IntrinsicTileIdx()
