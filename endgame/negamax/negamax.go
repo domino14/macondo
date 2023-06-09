@@ -342,13 +342,12 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 
 func (s *Solver) evaluate(solvingPlayer bool) float32 {
 	// Evaluate the state.
-	initialSpread := s.initialSpread
 	// spreadNow is from the POV of the maximizing player
 	spreadNow := s.game.PointsFor(s.solvingPlayer) -
 		s.game.PointsFor(1-s.solvingPlayer)
 	// A very simple evaluation function for now. Just the difference in spread,
 	// even if the game is not over yet.
-	val := float32(spreadNow - initialSpread)
+	val := float32(spreadNow - s.initialSpread)
 	if !solvingPlayer {
 		return -val
 	}
@@ -385,7 +384,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	// Something like PVS might do better at keeping the PV intact.
 	alphaOrig := α
 	if s.transpositionTableOptim {
-		ttEntry := globalTranspositionTable.lookup(s.game.ToCGP())
+		ttEntry := globalTranspositionTable.lookup(s.game.ToCGPNoScores())
 		if ttEntry != nil && ttEntry.depth >= uint8(depth) {
 			if ttEntry.flag == TTExact {
 				return ttEntry.score, nil
@@ -466,7 +465,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		}
 		entryToStore.depth = uint8(depth)
 		// entryToStore.fullHash = nodeKey
-		globalTranspositionTable.store(s.game.ToCGP(), entryToStore)
+		globalTranspositionTable.store(s.game.ToCGPNoScores(), entryToStore)
 	}
 	return bestValue, nil
 
