@@ -39,8 +39,9 @@ type TranspositionTable struct {
 	t2collisions uint64
 }
 
-// var globalTranspositionTable TranspositionTable
-var globalTranspositionTable DebugTranspositionTable
+var globalTranspositionTable TranspositionTable
+
+// var globalTranspositionTable DebugTranspositionTable
 
 func init() {
 	totalMem := memory.TotalMemory()

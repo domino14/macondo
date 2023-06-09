@@ -123,9 +123,11 @@ type Solver struct {
 	gameBackup  *game.Game
 	killerCache map[uint64]*move.MinimalMove
 
-	initialSpread  int
-	initialTurnNum int
-	solvingPlayer  int // This is the player who we call this function for.
+	initialSpread      int
+	initialTurnNum     int
+	solvingPlayer      int // This is the player who we call this function for.
+	solverInitialScore int
+	oppInitialScore    int
 
 	earlyPassOptim          bool
 	stuckTileOrderOptim     bool
@@ -261,11 +263,15 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 
 func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, plies int) ([]*move.MinimalMove, error) {
 	// negamax for every move.
+
+	ourNormalizedScore := zobrist.NegativeScoreLimit
+	theirNormalizedScore := zobrist.NegativeScoreLimit
+
 	initialHashKey := s.zobrist.Hash(
 		s.game.Board().GetSquares(),
 		s.game.RackFor(s.solvingPlayer),
 		s.game.RackFor(1-s.solvingPlayer),
-		false, s.game.ScorelessTurns())
+		false, s.game.ScorelessTurns(), ourNormalizedScore, theirNormalizedScore)
 
 	log.Info().Uint64("initialHashKey", initialHashKey).Msg("starting-zobrist-key")
 
@@ -284,11 +290,22 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 		}
 
 		sol := &solution{m: m, score: -HugeNumber}
+		onTurn := s.game.PlayerOnTurn()
+		var initialScore int
+		if onTurn == s.solvingPlayer {
+			initialScore = s.solverInitialScore
+		} else {
+			initialScore = s.oppInitialScore
+		}
+		normalizedScoreBefore := s.game.PointsFor(onTurn) - initialScore + zobrist.NegativeScoreLimit
+
 		err := s.game.PlayMove(m, false, 0)
 		if err != nil {
 			return nil, err
 		}
-		childKey := s.zobrist.AddMove(initialHashKey, m, true, s.game.ScorelessTurns(), s.game.LastScorelessTurns())
+		normalizedScoreAfter := s.game.PointsFor(1-onTurn) - initialScore + zobrist.NegativeScoreLimit
+		childKey := s.zobrist.AddMove(initialHashKey, m, true, s.game.ScorelessTurns(), s.game.LastScorelessTurns(),
+			normalizedScoreBefore, normalizedScoreAfter)
 
 		score, err := s.negamax(ctx, childKey, plies-1, -β, -α, false, &childPV)
 		if err != nil {
@@ -313,7 +330,7 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 			// 	childPV.String())
 
 			pv.Update(m, childPV, sol.score)
-			pv.verify()
+			// pv.verify()
 			s.principalVariation = pv
 			s.bestPVValue = sol.score
 			fmt.Println(pv.String())
@@ -384,7 +401,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	// Something like PVS might do better at keeping the PV intact.
 	alphaOrig := α
 	if s.transpositionTableOptim {
-		ttEntry := globalTranspositionTable.lookup(s.game.ToCGPNoScores())
+		ttEntry := globalTranspositionTable.lookup(nodeKey)
 		if ttEntry != nil && ttEntry.depth >= uint8(depth) {
 			if ttEntry.flag == TTExact {
 				return ttEntry.score, nil
@@ -421,11 +438,22 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		if s.logStream != nil {
 			fmt.Fprintf(s.logStream, "  %v- play: %v\n", strings.Repeat(" ", indent), child.ShortDescription(s.game.Alphabet()))
 		}
+		onTurn := s.game.PlayerOnTurn()
+		var initialScore int
+		if onTurn == s.solvingPlayer {
+			initialScore = s.solverInitialScore
+		} else {
+			initialScore = s.oppInitialScore
+		}
+		normalizedScoreBefore := s.game.PointsFor(onTurn) - initialScore + zobrist.NegativeScoreLimit
+
 		err := s.game.PlayMove(child, false, 0)
 		if err != nil {
 			return 0, err
 		}
-		childKey := s.zobrist.AddMove(nodeKey, child, solvingPlayer, s.game.ScorelessTurns(), s.game.LastScorelessTurns())
+		normalizedScoreAfter := s.game.PointsFor(1-onTurn) - initialScore + zobrist.NegativeScoreLimit
+		childKey := s.zobrist.AddMove(nodeKey, child, solvingPlayer, s.game.ScorelessTurns(), s.game.LastScorelessTurns(),
+			normalizedScoreBefore, normalizedScoreAfter)
 		value, err := s.negamax(ctx, childKey, depth-1, -β, -α, !solvingPlayer, &childPV)
 		if err != nil {
 			s.game.UnplayLastMove()
@@ -453,7 +481,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		childPV.Clear() // clear the child node's pv for the next child node
 	}
 	if s.transpositionTableOptim {
-		entryToStore := DebugTableEntry{
+		entryToStore := TableEntry{
 			score: bestValue,
 		}
 		if bestValue <= alphaOrig {
@@ -464,8 +492,8 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			entryToStore.flag = TTExact
 		}
 		entryToStore.depth = uint8(depth)
-		// entryToStore.fullHash = nodeKey
-		globalTranspositionTable.store(s.game.ToCGPNoScores(), entryToStore)
+		entryToStore.fullHash = nodeKey
+		globalTranspositionTable.store(nodeKey, entryToStore)
 	}
 	return bestValue, nil
 
@@ -489,6 +517,8 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 	s.game.SetMaxScorelessTurns(2)
 	defer s.game.SetMaxScorelessTurns(game.DefaultMaxScorelessTurns)
 	s.initialSpread = s.game.CurrentSpread()
+	s.solverInitialScore = s.game.PointsFor(s.game.PlayerOnTurn())
+	s.oppInitialScore = s.game.PointsFor(s.game.NextPlayer())
 	s.initialTurnNum = s.game.Turn()
 	s.solvingPlayer = s.game.PlayerOnTurn()
 	log.Debug().Msgf("%v %d Spread at beginning of endgame: %v (%d)", s.solvingPlayer, s.initialTurnNum, s.initialSpread, s.game.ScorelessTurns())
@@ -532,7 +562,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 		Uint64("ttable-created", globalTranspositionTable.created).
 		Uint64("ttable-lookups", globalTranspositionTable.lookups).
 		Uint64("ttable-hits", globalTranspositionTable.hits).
-		// Uint64("ttable-t2collisions", globalTranspositionTable.t2collisions).
+		Uint64("ttable-t2collisions", globalTranspositionTable.t2collisions).
 		Float64("time-elapsed-sec", time.Since(tstart).Seconds()).
 		Msg("solve-returning")
 
