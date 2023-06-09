@@ -123,9 +123,9 @@ type Solver struct {
 	gameBackup  *game.Game
 	killerCache map[uint64]*move.MinimalMove
 
-	initialSpread    int
-	initialTurnNum   int
-	maximizingPlayer int // This is the player who we call this function for.
+	initialSpread  int
+	initialTurnNum int
+	solvingPlayer  int // This is the player who we call this function for.
 
 	earlyPassOptim          bool
 	stuckTileOrderOptim     bool
@@ -261,8 +261,11 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 
 func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, plies int) ([]*move.MinimalMove, error) {
 	// negamax for every move.
-	initialHashKey := s.zobrist.Hash(s.game.Board().GetSquares(),
-		s.game.RackFor(s.maximizingPlayer), s.game.RackFor(1-s.maximizingPlayer), false)
+	initialHashKey := s.zobrist.Hash(
+		s.game.Board().GetSquares(),
+		s.game.RackFor(s.solvingPlayer),
+		s.game.RackFor(1-s.solvingPlayer),
+		false, s.game.ScorelessTurns())
 
 	log.Info().Uint64("initialHashKey", initialHashKey).Msg("starting-zobrist-key")
 
@@ -337,16 +340,16 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 	}), nil
 }
 
-func (s *Solver) evaluate(maximizingPlayer bool) float32 {
+func (s *Solver) evaluate(solvingPlayer bool) float32 {
 	// Evaluate the state.
 	initialSpread := s.initialSpread
 	// spreadNow is from the POV of the maximizing player
-	spreadNow := s.game.PointsFor(s.maximizingPlayer) -
-		s.game.PointsFor(1-s.maximizingPlayer)
+	spreadNow := s.game.PointsFor(s.solvingPlayer) -
+		s.game.PointsFor(1-s.solvingPlayer)
 		// A very simple evaluation function for now. Just the difference in spread,
 		// even if the game is not over yet.
 	val := float32(spreadNow - initialSpread)
-	if !maximizingPlayer {
+	if !solvingPlayer {
 		return -val
 	}
 	// gameOver := s.game.Playing() != pb.PlayState_PLAYING
@@ -369,7 +372,7 @@ func (s *Solver) evaluate(maximizingPlayer bool) float32 {
 	return val
 }
 
-func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β float32, maximizingPlayer bool,
+func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β float32, solvingPlayer bool,
 	pv *PVLine) (float32, error) {
 
 	if ctx.Err() != nil {
@@ -401,11 +404,11 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		// s.game.Playing() happens if the game is over; i.e. if the
 		// parent node  is terminal.
 		// node.calculateNValue(s)
-		// if !maximizingPlayer {
+		// if !solvingPlayer {
 		// 	node.heuristicValue.negate()
 		// }
 		// return node, nil
-		return s.evaluate(maximizingPlayer), nil
+		return s.evaluate(solvingPlayer), nil
 	}
 	childPV := PVLine{g: s.gameBackup}
 
@@ -423,8 +426,8 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		if err != nil {
 			return 0, err
 		}
-		childKey := s.zobrist.AddMove(nodeKey, child, maximizingPlayer, s.game.ScorelessTurns(), s.game.LastScorelessTurns())
-		value, err := s.negamax(ctx, childKey, depth-1, -β, -α, !maximizingPlayer, &childPV)
+		childKey := s.zobrist.AddMove(nodeKey, child, solvingPlayer, s.game.ScorelessTurns(), s.game.LastScorelessTurns())
+		value, err := s.negamax(ctx, childKey, depth-1, -β, -α, !solvingPlayer, &childPV)
 		if err != nil {
 			s.game.UnplayLastMove()
 			return value, err
@@ -488,8 +491,8 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 	defer s.game.SetMaxScorelessTurns(game.DefaultMaxScorelessTurns)
 	s.initialSpread = s.game.CurrentSpread()
 	s.initialTurnNum = s.game.Turn()
-	s.maximizingPlayer = s.game.PlayerOnTurn()
-	log.Debug().Msgf("%v %d Spread at beginning of endgame: %v (%d)", s.maximizingPlayer, s.initialTurnNum, s.initialSpread, s.game.ScorelessTurns())
+	s.solvingPlayer = s.game.PlayerOnTurn()
+	log.Debug().Msgf("%v %d Spread at beginning of endgame: %v (%d)", s.solvingPlayer, s.initialTurnNum, s.initialSpread, s.game.ScorelessTurns())
 
 	var bestV float32
 	var bestSeq []*move.Move

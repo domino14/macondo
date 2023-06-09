@@ -1179,3 +1179,16 @@ func (g *Game) ToCGP() string {
 	return fmt.Sprintf("%s %s/%s %d/%d %d lex %s;",
 		fen, ourRack, theirRack, ourScore, theirScore, zeroPt, lex)
 }
+
+// ToCGPNoScores converts the game to a CGP string with no scores. Note:
+// this is not a valid CGP string. This is only for debug purposes.
+func (g *Game) ToCGPNoScores() string {
+	fen := g.board.ToFEN(g.alph)
+	ourRack := g.curPlayer().rack.TilesOn().UserVisible(g.alph)
+	theirRack := g.oppPlayer().rack.TilesOn().UserVisible(g.alph)
+	zeroPt := g.scorelessTurns
+	lex := g.lexicon.Name()
+
+	return fmt.Sprintf("%s %s/%s %d lex %s;",
+		fen, ourRack, theirRack, zeroPt, lex)
+}

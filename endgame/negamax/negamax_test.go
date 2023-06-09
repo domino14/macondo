@@ -171,7 +171,7 @@ func TestSolveNegamaxFunc(t *testing.T) {
 
 	s.initialSpread = s.game.CurrentSpread()
 	s.initialTurnNum = s.game.Turn()
-	s.maximizingPlayer = s.game.PlayerOnTurn()
+	s.solvingPlayer = s.game.PlayerOnTurn()
 
 	ctx := context.Background()
 	pv := &PVLine{}
@@ -498,7 +498,7 @@ func TestSolveNegamaxFunc2(t *testing.T) {
 
 	s.initialSpread = s.game.CurrentSpread()
 	s.initialTurnNum = s.game.Turn()
-	s.maximizingPlayer = s.game.PlayerOnTurn()
+	s.solvingPlayer = s.game.PlayerOnTurn()
 
 	ctx := context.Background()
 	pv := &PVLine{}

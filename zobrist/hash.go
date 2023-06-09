@@ -62,7 +62,7 @@ func (z *Zobrist) Initialize(boardDim int) {
 }
 
 func (z *Zobrist) Hash(squares tilemapping.MachineWord, maxPlayerRack *tilemapping.Rack,
-	minPlayerRack *tilemapping.Rack, minimizingPlayerToMove bool) uint64 {
+	minPlayerRack *tilemapping.Rack, minimizingPlayerToMove bool, scorelessTurns int) uint64 {
 
 	key := uint64(0)
 	for i, letter := range squares {
@@ -80,8 +80,7 @@ func (z *Zobrist) Hash(squares tilemapping.MachineWord, maxPlayerRack *tilemappi
 	if minimizingPlayerToMove {
 		key ^= z.minimizingPlayerToMove
 	}
-	// assume 0 scoreless turns at the beginning
-	key ^= z.scorelessTurns[0]
+	key ^= z.scorelessTurns[scorelessTurns]
 	return key
 }
 
