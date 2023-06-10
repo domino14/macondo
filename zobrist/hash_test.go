@@ -74,16 +74,16 @@ func TestHashAfterMakingPlay(t *testing.T) {
 	g, err := cgp.ParseCGP(&DefaultConfig, endgameCGP)
 	is.NoErr(err)
 	alph := tilemapping.EnglishAlphabet()
-	h := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("ADENOOO", alph), tilemapping.RackFromString("AHIILMM", alph), false, 0, 0, 0)
+	h := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("ADENOOO", alph), tilemapping.RackFromString("AHIILMM", alph), false, 0)
 
 	m1 := move.NewScoringMoveSimple(8, "15J", "END", "AOOO", alph)
-	h1 := z.AddMove(h, m1, true, 0, 0, 0, 8)
+	h1 := z.AddMove(h, m1, true, 0, 0)
 
 	// Actually play the move on the board.
 	err = g.PlayMove(m1, false, 0)
 	is.NoErr(err)
 
-	h2 := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("AOOO", alph), tilemapping.RackFromString("AHIILMM", alph), true, 0, 8, 0)
+	h2 := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("AOOO", alph), tilemapping.RackFromString("AHIILMM", alph), true, 0)
 	is.Equal(h1, h2)
 }
 
@@ -97,20 +97,20 @@ func TestHashAfterPassing(t *testing.T) {
 	g, err := cgp.ParseCGP(&DefaultConfig, endgameCGP)
 	is.NoErr(err)
 	alph := tilemapping.EnglishAlphabet()
-	h := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("ADENOOO", alph), tilemapping.RackFromString("AHIILMM", alph), false, 0, 0, 0)
+	h := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("ADENOOO", alph), tilemapping.RackFromString("AHIILMM", alph), false, 0)
 
 	m1 := move.NewPassMove(tilemapping.RackFromString("ADENOOO", alph).TilesOn(), alph)
-	h1 := z.AddMove(h, m1, true, 1, 0, 0, 0)
+	h1 := z.AddMove(h, m1, true, 1, 0)
 	err = g.PlayMove(m1, false, 0)
 	is.NoErr(err)
 
-	h2 := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("ADENOOO", alph), tilemapping.RackFromString("AHIILMM", alph), true, 1, 0, 0)
+	h2 := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("ADENOOO", alph), tilemapping.RackFromString("AHIILMM", alph), true, 1)
 	// Should be equal because of the number of scoreless turns.
 	is.Equal(h1, h2)
 
 	// another pass
 	m2 := move.NewPassMove(tilemapping.RackFromString("AHIILMM", alph).TilesOn(), alph)
-	h3 := z.AddMove(h2, m2, false, 2, 1, 0, 0)
+	h3 := z.AddMove(h2, m2, false, 2, 1)
 	err = g.PlayMove(m2, false, 0)
 	is.NoErr(err)
 	// should NOT be equal to the very first hash.
@@ -128,10 +128,10 @@ func TestHashAfterMakingAnotherPlay(t *testing.T) {
 	g, err := cgp.ParseCGP(&DefaultConfig, endgameCGP)
 	is.NoErr(err)
 	alph := tilemapping.EnglishAlphabet()
-	h := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("AOOO", alph), tilemapping.RackFromString("HI", alph), false, 0, 0, 0)
+	h := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("AOOO", alph), tilemapping.RackFromString("HI", alph), false, 0)
 	fmt.Println(g.ToDisplayText())
 	m1 := move.NewScoringMoveSimple(11, "13G", ".O.O", "AO", alph)
-	h1 := z.AddMove(h, m1, true, 0, 0, 0, 11)
+	h1 := z.AddMove(h, m1, true, 0, 0)
 
 	// Actually play the move on the board.
 	err = g.PlayMove(m1, false, 0)
@@ -139,6 +139,6 @@ func TestHashAfterMakingAnotherPlay(t *testing.T) {
 	fmt.Println("game2")
 	fmt.Println(g.ToDisplayText())
 
-	h2 := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("AO", alph), tilemapping.RackFromString("HI", alph), true, 0, 11, 0)
+	h2 := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("AO", alph), tilemapping.RackFromString("HI", alph), true, 0)
 	is.Equal(h1, h2)
 }

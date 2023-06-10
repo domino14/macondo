@@ -10,13 +10,6 @@ import (
 
 const bignum = 1<<63 - 2
 
-// Both players start endgame at 0-0. Pick a number that is feasible
-// for both players to obtain.
-// Allow -450 - +450 swings in either direction as the endgame gets calculated.
-// what's few extra random numbers? :/
-const NegativeScoreLimit = 450
-const PositiveScoreLimit = 450
-
 // generate a zobrist hash for a crossword game position.
 // https://en.wikipedia.org/wiki/Zobrist_hashing
 type Zobrist struct {
@@ -29,9 +22,6 @@ type Zobrist struct {
 
 	boardDim        int
 	placeholderRack []tilemapping.MachineLetter
-
-	ourNormalizedScore   []uint64
-	theirNormalizedScore []uint64
 }
 
 const MaxLetters = 35
@@ -65,22 +55,12 @@ func (z *Zobrist) Initialize(boardDim int) {
 		z.scorelessTurns[i] = frand.Uint64n(bignum) + 1
 	}
 
-	numScores := NegativeScoreLimit + PositiveScoreLimit
-
-	z.ourNormalizedScore = make([]uint64, numScores)
-	z.theirNormalizedScore = make([]uint64, numScores)
-	for i := 0; i < numScores; i++ {
-		z.ourNormalizedScore[i] = frand.Uint64n(bignum) + 1
-		z.theirNormalizedScore[i] = frand.Uint64n(bignum) + 1
-	}
-
 	z.theirTurn = frand.Uint64n(bignum) + 1
 	z.placeholderRack = make([]tilemapping.MachineLetter, MaxLetters)
 }
 
 func (z *Zobrist) Hash(squares tilemapping.MachineWord,
-	ourRack, theirRack *tilemapping.Rack, theirTurn bool, scorelessTurns int,
-	ourNormalizedScore, theirNormalizedScore int) uint64 {
+	ourRack, theirRack *tilemapping.Rack, theirTurn bool, scorelessTurns int) uint64 {
 
 	key := uint64(0)
 	for i, letter := range squares {
@@ -103,13 +83,11 @@ func (z *Zobrist) Hash(squares tilemapping.MachineWord,
 		key ^= z.theirTurn
 	}
 	key ^= z.scorelessTurns[scorelessTurns]
-	key ^= z.ourNormalizedScore[ourNormalizedScore]
-	key ^= z.theirNormalizedScore[theirNormalizedScore]
 	return key
 }
 
 func (z *Zobrist) AddMove(key uint64, m move.PlayMaker, wasOurMove bool,
-	scorelessTurns, lastScorelessTurns int, normalizedScoreBefore, normalizedScoreAfter int) uint64 {
+	scorelessTurns, lastScorelessTurns int) uint64 {
 
 	// Adding a move:
 	// For every letter in the move (assume it's only a tile placement move
@@ -120,10 +98,8 @@ func (z *Zobrist) AddMove(key uint64, m move.PlayMaker, wasOurMove bool,
 	// - XOR with p2ToMove since we always alternate
 
 	rackTable := z.ourRackTable
-	scoreTable := z.ourNormalizedScore
 	if !wasOurMove {
 		rackTable = z.theirRackTable
-		scoreTable = z.theirNormalizedScore
 	}
 	if m.Type() == move.MoveTypePlay {
 		row, col, vertical := m.RowStart(), m.ColStart(), m.Vertical()
@@ -168,8 +144,6 @@ func (z *Zobrist) AddMove(key uint64, m move.PlayMaker, wasOurMove bool,
 			key ^= rackTable[tileIdx][z.placeholderRack[tileIdx]]
 		}
 
-		key ^= scoreTable[normalizedScoreBefore]
-		key ^= scoreTable[normalizedScoreAfter]
 	}
 	if lastScorelessTurns != scorelessTurns {
 		key ^= z.scorelessTurns[lastScorelessTurns]

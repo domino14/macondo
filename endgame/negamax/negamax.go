@@ -264,14 +264,11 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, plies int) ([]*move.MinimalMove, error) {
 	// negamax for every move.
 
-	ourNormalizedScore := zobrist.NegativeScoreLimit
-	theirNormalizedScore := zobrist.NegativeScoreLimit
-
 	initialHashKey := s.zobrist.Hash(
 		s.game.Board().GetSquares(),
 		s.game.RackFor(s.solvingPlayer),
 		s.game.RackFor(1-s.solvingPlayer),
-		false, s.game.ScorelessTurns(), ourNormalizedScore, theirNormalizedScore)
+		false, s.game.ScorelessTurns())
 
 	log.Info().Uint64("initialHashKey", initialHashKey).Msg("starting-zobrist-key")
 
@@ -290,22 +287,12 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 		}
 
 		sol := &solution{m: m, score: -HugeNumber}
-		onTurn := s.game.PlayerOnTurn()
-		var initialScore int
-		if onTurn == s.solvingPlayer {
-			initialScore = s.solverInitialScore
-		} else {
-			initialScore = s.oppInitialScore
-		}
-		normalizedScoreBefore := s.game.PointsFor(onTurn) - initialScore + zobrist.NegativeScoreLimit
 
 		err := s.game.PlayMove(m, false, 0)
 		if err != nil {
 			return nil, err
 		}
-		normalizedScoreAfter := s.game.PointsFor(1-onTurn) - initialScore + zobrist.NegativeScoreLimit
-		childKey := s.zobrist.AddMove(initialHashKey, m, true, s.game.ScorelessTurns(), s.game.LastScorelessTurns(),
-			normalizedScoreBefore, normalizedScoreAfter)
+		childKey := s.zobrist.AddMove(initialHashKey, m, true, s.game.ScorelessTurns(), s.game.LastScorelessTurns())
 
 		score, err := s.negamax(ctx, childKey, plies-1, -β, -α, false, &childPV)
 		if err != nil {
@@ -413,22 +400,11 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		if s.logStream != nil {
 			fmt.Fprintf(s.logStream, "  %v- play: %v\n", strings.Repeat(" ", indent), child.ShortDescription(s.game.Alphabet()))
 		}
-		onTurn := s.game.PlayerOnTurn()
-		var initialScore int
-		if onTurn == s.solvingPlayer {
-			initialScore = s.solverInitialScore
-		} else {
-			initialScore = s.oppInitialScore
-		}
-		normalizedScoreBefore := s.game.PointsFor(onTurn) - initialScore + zobrist.NegativeScoreLimit
-
 		err := s.game.PlayMove(child, false, 0)
 		if err != nil {
 			return 0, err
 		}
-		normalizedScoreAfter := s.game.PointsFor(1-onTurn) - initialScore + zobrist.NegativeScoreLimit
-		childKey := s.zobrist.AddMove(nodeKey, child, solvingPlayer, s.game.ScorelessTurns(), s.game.LastScorelessTurns(),
-			normalizedScoreBefore, normalizedScoreAfter)
+		childKey := s.zobrist.AddMove(nodeKey, child, solvingPlayer, s.game.ScorelessTurns(), s.game.LastScorelessTurns())
 		value, err := s.negamax(ctx, childKey, depth-1, -β, -α, !solvingPlayer, &childPV)
 		if err != nil {
 			s.game.UnplayLastMove()
