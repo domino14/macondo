@@ -120,7 +120,7 @@ func TestSolveStandard(t *testing.T) {
 	// This endgame is solved with at least 3 plies. Most endgames should
 	// start with 3 plies (so the first player can do an out in 2) and
 	// then proceed with iterative deepening.
-	plies := 4
+	plies := 2
 
 	is := is.New(t)
 
@@ -175,7 +175,7 @@ func TestSolveNegamaxFunc(t *testing.T) {
 
 	ctx := context.Background()
 	pv := &PVLine{}
-	score, err := s.negamax(ctx, 0, s.requestedPlies, -HugeNumber, HugeNumber, true, pv)
+	score, err := s.negamax(ctx, 0, s.requestedPlies, -HugeNumber, HugeNumber, pv)
 	is.NoErr(err)
 	is.Equal(score, float32(11))
 	is.Equal(len(pv.Moves), 3)
@@ -452,7 +452,7 @@ func TestZeroPtFirstPlay(t *testing.T) {
 	s := new(Solver)
 	s.Init(gen, g)
 	// s.iterativeDeepeningOptim = false
-	// s.transpositionTableOptim = false
+	s.transpositionTableOptim = false
 
 	// f, err := os.Create("/tmp/endgamelog-new")
 	// is.NoErr(err)
@@ -500,10 +500,45 @@ func TestSolveNegamaxFunc2(t *testing.T) {
 	s.initialTurnNum = s.game.Turn()
 	s.solvingPlayer = s.game.PlayerOnTurn()
 
+	s.transpositionTableOptim = false
+
 	ctx := context.Background()
 	pv := &PVLine{}
-	score, err := s.negamax(ctx, 0, s.requestedPlies, -HugeNumber, HugeNumber, true, pv)
+	score, err := s.negamax(ctx, 0, s.requestedPlies, -HugeNumber, HugeNumber, pv)
 	is.NoErr(err)
 	is.Equal(score, float32(-42))
 	is.Equal(len(pv.Moves), 10)
+}
+
+func TestSolveNegamaxFuncSimple(t *testing.T) {
+	plies := 2
+
+	is := is.New(t)
+
+	s, err := setUpSolver("NWL18", "english", board.VsCanik, plies, "DEHILOR", "BGIV", 389, 384,
+		1)
+	is.NoErr(err)
+
+	s.requestedPlies = plies
+	s.currentIDDepth = plies
+	s.zobrist.Initialize(s.game.Board().Dim())
+	globalTranspositionTable.reset()
+
+	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
+	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)
+
+	s.game.SetMaxScorelessTurns(2)
+	defer s.game.SetMaxScorelessTurns(game.DefaultMaxScorelessTurns)
+
+	s.initialSpread = s.game.CurrentSpread()
+	s.initialTurnNum = s.game.Turn()
+	s.solvingPlayer = s.game.PlayerOnTurn()
+
+	s.transpositionTableOptim = false
+
+	ctx := context.Background()
+	pv := &PVLine{}
+	score, err := s.negamax(ctx, 0, s.requestedPlies, -HugeNumber, HugeNumber, pv)
+	is.NoErr(err)
+	is.Equal(score, float32(11))
 }

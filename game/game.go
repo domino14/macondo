@@ -69,7 +69,8 @@ type Game struct {
 	stateStack []*stateBackup
 	stackPtr   int
 	// rules contains the original game rules passed in to create this game.
-	rules *GameRules
+	rules      *GameRules
+	lastMoveBy int
 }
 
 func (g *Game) Config() *config.Config {
@@ -565,7 +566,7 @@ func (g *Game) PlayMove(m move.PlayMaker, addToHistory bool, millis int) error {
 			g.addEventToHistory(evt)
 		}
 	}
-
+	g.lastMoveBy = g.onturn
 	gameEnded, err := g.handleConsecutiveScorelessTurns(addToHistory)
 	if err != nil {
 		return err
@@ -1191,4 +1192,8 @@ func (g *Game) ToCGPNoScores() string {
 
 	return fmt.Sprintf("%s %s/%s %d lex %s;",
 		fen, ourRack, theirRack, zeroPt, lex)
+}
+
+func (g *Game) LastMoveBy() int {
+	return g.lastMoveBy
 }

@@ -47,7 +47,7 @@ func init() {
 	totalMem := memory.TotalMemory()
 	desired := float64(totalMem) / float64(1.5) / float64(entrySize)
 	// find biggest power of 2 lower than desired.
-	ttSizePowerOf2 = int(math.Log2(desired / 10))
+	ttSizePowerOf2 = int(math.Log2(desired))
 	ttSizeMask = ((1 << ttSizePowerOf2) - 1)
 }
 
