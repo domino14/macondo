@@ -292,7 +292,7 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 		if err != nil {
 			return nil, err
 		}
-		childKey := s.zobrist.AddMove(initialHashKey, m, true, s.game.ScorelessTurns(), s.game.LastScorelessTurns())
+		childKey := s.zobrist.AddMove(initialHashKey, m, false, s.game.ScorelessTurns(), s.game.LastScorelessTurns())
 
 		score, err := s.negamax(ctx, childKey, plies-1, -β, -α, &childPV)
 		if err != nil {
@@ -380,13 +380,6 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	}
 
 	if depth == 0 || s.game.Playing() != pb.PlayState_PLAYING {
-		// s.game.Playing() happens if the game is over; i.e. if the
-		// parent node  is terminal.
-		// node.calculateNValue(s)
-		// if !solvingPlayer {
-		// 	node.heuristicValue.negate()
-		// }
-		// return node, nil
 		return s.evaluate(), nil
 	}
 	childPV := PVLine{g: s.gameBackup}
@@ -406,7 +399,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		if err != nil {
 			return 0, err
 		}
-		childKey := s.zobrist.AddMove(nodeKey, child, onTurn != s.solvingPlayer, s.game.ScorelessTurns(), s.game.LastScorelessTurns())
+		childKey := s.zobrist.AddMove(nodeKey, child, onTurn == s.solvingPlayer, s.game.ScorelessTurns(), s.game.LastScorelessTurns())
 		value, err := s.negamax(ctx, childKey, depth-1, -β, -α, &childPV)
 		if err != nil {
 			s.game.UnplayLastMove()
@@ -418,9 +411,6 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		}
 		if -value > bestValue {
 			bestValue = -value
-			// fmt.Printf("%v--BEGIN---childkey %v -- UPDATE PV, %f, %v, %v\n%v--END---\n",
-			// 	strings.Repeat(" ", indent), childKey, bestValue, child.ShortDescription(s.game.Alphabet()),
-			// 	childPV.String(), strings.Repeat(" ", indent))
 			pv.Update(child, childPV, bestValue)
 		}
 		α = max(α, bestValue)
