@@ -182,7 +182,7 @@ func (s *Solver) Init(m movegen.MoveGenerator, game *game.Game) error {
 	s.earlyPassOptim = true
 	s.killerPlayOptim = true
 	s.firstWinOptim = false
-	s.transpositionTableOptim = false
+	s.transpositionTableOptim = true
 	s.iterativeDeepeningOptim = true
 
 	if s.stmMovegen != nil {
