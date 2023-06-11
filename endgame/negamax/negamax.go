@@ -268,7 +268,9 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 		s.game.Board().GetSquares(),
 		s.game.RackFor(s.solvingPlayer),
 		s.game.RackFor(1-s.solvingPlayer),
-		false, s.game.ScorelessTurns())
+		false, s.game.ScorelessTurns(),
+		s.game.SpreadFor(s.solvingPlayer),
+	)
 
 	log.Info().Uint64("initialHashKey", initialHashKey).Msg("starting-zobrist-key")
 
@@ -281,6 +283,7 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 	}
 	pv := PVLine{g: s.gameBackup}
 	childPV := PVLine{g: s.gameBackup}
+	solverSpread := s.game.SpreadFor(s.solvingPlayer)
 	for idx, m := range moves {
 		if s.logStream != nil {
 			fmt.Fprintf(s.logStream, "  - play: %v\n", m.ShortDescription(s.game.Alphabet()))
@@ -292,7 +295,9 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 		if err != nil {
 			return nil, err
 		}
-		childKey := s.zobrist.AddMove(initialHashKey, m, false, s.game.ScorelessTurns(), s.game.LastScorelessTurns())
+		curSolverSpread := s.game.SpreadFor(s.solvingPlayer)
+		childKey := s.zobrist.AddMove(initialHashKey, m, true, s.game.ScorelessTurns(), s.game.LastScorelessTurns(),
+			curSolverSpread, solverSpread)
 
 		score, err := s.negamax(ctx, childKey, plies-1, -β, -α, &childPV)
 		if err != nil {
@@ -365,7 +370,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			score := ttEntry.score
 			flag := ttEntry.flag()
 			// add pts back in; we subtract them when storing.
-			score += int16(s.game.PointsFor(s.game.PlayerOnTurn()))
+			// score += int16(s.game.PointsFor(s.game.PlayerOnTurn()))
 			if flag == TTExact {
 				return score, nil
 			} else if flag == TTLower {
@@ -391,6 +396,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		fmt.Fprintf(s.logStream, "  %vplays:\n", strings.Repeat(" ", indent))
 	}
 	onTurn := s.game.PlayerOnTurn()
+	ourSpread := s.game.SpreadFor(onTurn)
 	for _, child := range children {
 		if s.logStream != nil {
 			fmt.Fprintf(s.logStream, "  %v- play: %v\n", strings.Repeat(" ", indent), child.ShortDescription(s.game.Alphabet()))
@@ -399,7 +405,9 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		if err != nil {
 			return 0, err
 		}
-		childKey := s.zobrist.AddMove(nodeKey, child, onTurn == s.solvingPlayer, s.game.ScorelessTurns(), s.game.LastScorelessTurns())
+		curOurSpread := s.game.SpreadFor(onTurn)
+		childKey := s.zobrist.AddMove(nodeKey, child, onTurn == s.solvingPlayer,
+			s.game.ScorelessTurns(), s.game.LastScorelessTurns(), curOurSpread, ourSpread)
 		value, err := s.negamax(ctx, childKey, depth-1, -β, -α, &childPV)
 		if err != nil {
 			s.game.UnplayLastMove()
@@ -426,7 +434,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	if s.transpositionTableOptim {
 		var flag uint8
 		entryToStore := TableEntry{
-			score: bestValue - int16(s.game.PointsFor(s.game.PlayerOnTurn())),
+			score: bestValue, //- int16(s.game.PointsFor(s.game.PlayerOnTurn())),
 		}
 		if bestValue <= alphaOrig {
 			flag = TTUpper
