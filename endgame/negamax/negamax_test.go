@@ -127,7 +127,6 @@ func TestSolveStandard(t *testing.T) {
 	s, err := setUpSolver("NWL18", "english", board.VsCanik, plies, "DEHILOR", "BGIV", 389, 384,
 		1)
 	is.NoErr(err)
-
 	bestV, bestSeq, err := s.Solve(context.Background(), plies)
 	is.NoErr(err)
 	is.Equal(bestV, int16(11))
@@ -175,7 +174,7 @@ func TestSolveNegamaxFunc(t *testing.T) {
 
 	ctx := context.Background()
 	pv := &PVLine{}
-	score, err := s.negamax(ctx, 0, s.requestedPlies, -HugeNumber, HugeNumber, true, pv)
+	score, err := s.negamax(ctx, 0, s.requestedPlies, -HugeNumber, HugeNumber, pv)
 	is.NoErr(err)
 	is.Equal(score, int16(11))
 	is.Equal(len(pv.Moves), 3)
@@ -502,7 +501,7 @@ func TestSolveNegamaxFunc2(t *testing.T) {
 
 	ctx := context.Background()
 	pv := &PVLine{}
-	score, err := s.negamax(ctx, 0, s.requestedPlies, -HugeNumber, HugeNumber, true, pv)
+	score, err := s.negamax(ctx, 0, s.requestedPlies, -HugeNumber, HugeNumber, pv)
 	is.NoErr(err)
 	is.Equal(score, int16(-42))
 	is.Equal(len(pv.Moves), 10)
