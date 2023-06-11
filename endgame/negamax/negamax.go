@@ -40,7 +40,7 @@ function negamax(node, depth, α, β, color) is
 negamax(rootNode, depth, −∞, +∞, 1)
 **/
 
-const HugeNumber = float32(1e7)
+const HugeNumber = int16(32767)
 const MaxVariantLength = 25
 
 var (
@@ -51,7 +51,7 @@ var (
 type PVLine struct {
 	Moves []*move.MinimalMove
 	g     *game.Game
-	score float32
+	score int16
 }
 
 // Clear the principal variation line.
@@ -61,7 +61,7 @@ func (pvLine *PVLine) Clear() {
 
 // Update the principal variation line with a new best move,
 // and a new line of best play after the best move.
-func (pvLine *PVLine) Update(move *move.MinimalMove, newPVLine PVLine, score float32) {
+func (pvLine *PVLine) Update(move *move.MinimalMove, newPVLine PVLine, score int16) {
 	pvLine.Clear()
 	pvLine.Moves = append(pvLine.Moves, move)
 	pvLine.Moves = append(pvLine.Moves, newPVLine.Moves...)
@@ -76,7 +76,7 @@ func (pvLine *PVLine) GetPVMove() *move.MinimalMove {
 // Convert the principal variation line to a string.
 func (pvLine PVLine) String() string {
 	var s string
-	s = fmt.Sprintf("PV; val %f\n", pvLine.score)
+	s = fmt.Sprintf("PV; val %d\n", pvLine.score)
 	for i := 0; i < len(pvLine.Moves); i++ {
 		s += fmt.Sprintf("%d: %s (%d)\n",
 			i+1,
@@ -111,7 +111,7 @@ func (p PVLine) verify() {
 			Int("initSpread", initSpread).
 			Int("nowSpread", g.SpreadFor(onturn)).
 			Int("diffInSpreads", g.SpreadFor(onturn)-initSpread).
-			Float32("expectedDiff", p.score).
+			Int16("expectedDiff", p.score).
 			Msg("pv-cutoff-spreads-do-not-match")
 	}
 }
@@ -136,7 +136,7 @@ type Solver struct {
 	firstWinOptim           bool // this is nothing yet
 	transpositionTableOptim bool
 	principalVariation      PVLine
-	bestPVValue             float32
+	bestPVValue             int16
 
 	currentIDDepth int
 	requestedPlies int
@@ -149,24 +149,24 @@ type Solver struct {
 
 type solution struct {
 	m     *move.MinimalMove
-	score float32
+	score int16
 }
 
 func (s *solution) String() string {
 	// debug purposes only
-	return fmt.Sprintf("<score: %f move: %s>", s.score,
+	return fmt.Sprintf("<score: %d move: %s>", s.score,
 		s.m.ShortDescription(tilemapping.EnglishAlphabet()))
 }
 
 // max returns the larger of x or y.
-func max(x, y float32) float32 {
+func max(x, y int16) int16 {
 	if x < y {
 		return y
 	}
 	return x
 }
 
-func min(x, y float32) float32 {
+func min(x, y int16) int16 {
 	if x < y {
 		return x
 	}
@@ -193,7 +193,7 @@ func (s *Solver) Init(m movegen.MoveGenerator, game *game.Game) error {
 }
 
 type playSorter struct {
-	estimates []float32
+	estimates []int16
 	moves     []*move.MinimalMove
 }
 
@@ -217,16 +217,16 @@ func (s *Solver) generateSTMPlays(depth int) []*move.MinimalMove {
 	genPlays := s.stmMovegen.GenAll(stmRack, false)
 
 	moves := make([]*move.MinimalMove, len(genPlays))
-	estimates := make([]float32, len(genPlays))
+	estimates := make([]int16, len(genPlays))
 	for idx := range genPlays {
 		p := genPlays[idx].(*move.MinimalMove).Copy()
 		moves[idx] = p
 		if p.TilesPlayed() == int(numTilesOnRack) {
-			estimates[idx] = float32(p.Score() + 2*otherRack.ScoreOn(ld))
+			estimates[idx] = int16(p.Score() + 2*otherRack.ScoreOn(ld))
 		} else if depth > 2 {
-			estimates[idx] = float32(p.Score() + 3*p.TilesPlayed())
+			estimates[idx] = int16(p.Score() + 3*p.TilesPlayed())
 		} else {
-			estimates[idx] = float32(p.Score())
+			estimates[idx] = int16(p.Score())
 		}
 	}
 	sorter := &playSorter{estimates: estimates, moves: moves}
@@ -335,14 +335,14 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 	}), nil
 }
 
-func (s *Solver) evaluate(solvingPlayer bool) float32 {
+func (s *Solver) evaluate(solvingPlayer bool) int16 {
 	// Evaluate the state.
 	// spreadNow is from the POV of the maximizing player
 	spreadNow := s.game.PointsFor(s.solvingPlayer) -
 		s.game.PointsFor(1-s.solvingPlayer)
 	// A very simple evaluation function for now. Just the difference in spread,
 	// even if the game is not over yet.
-	val := float32(spreadNow - s.initialSpread)
+	val := int16(spreadNow - s.initialSpread)
 	if !solvingPlayer {
 		return -val
 	}
@@ -350,8 +350,8 @@ func (s *Solver) evaluate(solvingPlayer bool) float32 {
 	return val
 }
 
-func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β float32, solvingPlayer bool,
-	pv *PVLine) (float32, error) {
+func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β int16, solvingPlayer bool,
+	pv *PVLine) (int16, error) {
 
 	if ctx.Err() != nil {
 		return 0, ctx.Err()
@@ -364,16 +364,20 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	alphaOrig := α
 	if s.transpositionTableOptim {
 		ttEntry := globalTranspositionTable.lookup(nodeKey)
-		if ttEntry != nil && ttEntry.depth >= uint8(depth) {
-			if ttEntry.flag == TTExact {
-				return ttEntry.score, nil
-			} else if ttEntry.flag == TTLower {
-				α = max(α, ttEntry.score)
-			} else if ttEntry.flag == TTUpper {
-				β = min(β, ttEntry.score)
+		if ttEntry != nil && ttEntry.depth() >= uint8(depth) {
+			score := ttEntry.score
+			flag := ttEntry.flag()
+			// add pts back in; we subtract them when storing.
+			score += int16(s.game.PointsFor(s.game.PlayerOnTurn()))
+			if flag == TTExact {
+				return score, nil
+			} else if flag == TTLower {
+				α = max(α, score)
+			} else if flag == TTUpper {
+				β = min(β, score)
 			}
 			if α >= β {
-				return ttEntry.score, nil
+				return score, nil
 			}
 		}
 	}
@@ -432,25 +436,25 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		childPV.Clear() // clear the child node's pv for the next child node
 	}
 	if s.transpositionTableOptim {
+		var flag uint8
 		entryToStore := TableEntry{
-			score: bestValue,
+			score: bestValue - int16(s.game.PointsFor(s.game.PlayerOnTurn())),
 		}
 		if bestValue <= alphaOrig {
-			entryToStore.flag = TTUpper
+			flag = TTUpper
 		} else if bestValue >= β {
-			entryToStore.flag = TTLower
+			flag = TTLower
 		} else {
-			entryToStore.flag = TTExact
+			flag = TTExact
 		}
-		entryToStore.depth = uint8(depth)
-		entryToStore.fullHash = nodeKey
+		entryToStore.flagAndDepth = flag<<6 + uint8(depth)
 		globalTranspositionTable.store(nodeKey, entryToStore)
 	}
 	return bestValue, nil
 
 }
 
-func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, error) {
+func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, error) {
 	if s.game.Bag().TilesRemaining() > 0 {
 		return 0, nil, errors.New("bag is not empty; cannot use endgame solver")
 	}
@@ -461,7 +465,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
 	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)
 	if s.transpositionTableOptim {
-		globalTranspositionTable.reset()
+		globalTranspositionTable.reset(0.25)
 	}
 	// Set max scoreless turns to 2 in the endgame so we don't generate
 	// unnecessary sequences of passes.
@@ -474,7 +478,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (float32, []*move.Move, e
 	s.solvingPlayer = s.game.PlayerOnTurn()
 	log.Debug().Msgf("%v %d Spread at beginning of endgame: %v (%d)", s.solvingPlayer, s.initialTurnNum, s.initialSpread, s.game.ScorelessTurns())
 
-	var bestV float32
+	var bestV int16
 	var bestSeq []*move.Move
 	s.gameBackup = s.game.Copy()
 	var wg sync.WaitGroup

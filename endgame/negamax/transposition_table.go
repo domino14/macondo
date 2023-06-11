@@ -11,27 +11,50 @@ import (
 const (
 	TTExact = 0x01
 	TTLower = 0x02
-	TTUpper = 0x04
+	TTUpper = 0x03
 )
 
-const entrySize = 14
+const entrySize = 8
 
-var ttSizePowerOf2 int
-var ttSizeMask int
+const bottom3ByteMask = (1 << 24) - 1
+const depthMask = (1 << 6) - 1
 
-// 14 bytes (entrySize)
+// 8 bytes (entrySize)
 type TableEntry struct {
-	fullHash uint64
-	score    float32
-	flag     uint8
-	depth    uint8
+	// Don't store the full hash, but the top 5 bytes. The bottom 3 bytes
+	// can be determined from the bucket in the array.
+	top4bytes    uint32
+	score        int16
+	fifthbyte    uint8
+	flagAndDepth uint8
+}
+
+// fullHash calculates the full 64-bit hash for this table entry, given the bottom
+// bytes in zval.
+func (t TableEntry) fullHash(idx uint64) uint64 {
+	return uint64(t.top4bytes)<<32 + uint64(t.fifthbyte)<<24 + (idx & bottom3ByteMask)
+}
+
+func (t TableEntry) flag() uint8 {
+	return t.flagAndDepth >> 6
+}
+
+func (t TableEntry) depth() uint8 {
+	return t.flagAndDepth & depthMask
+}
+
+func (t TableEntry) initialized() bool {
+	// a table flag is 1, 2, or 3.
+	return t.flag() == 0
 }
 
 type TranspositionTable struct {
-	table   []TableEntry
-	created uint64
-	lookups uint64
-	hits    uint64
+	table        []TableEntry
+	created      uint64
+	lookups      uint64
+	hits         uint64
+	sizePowerOf2 int
+	sizeMask     int
 	// "type 2" collisions. A type 2 collision happens when two positions share
 	// the same lower bytes. A type 1 collision happens when two positions share the
 	// same overall hash. We don't have a super easy way to detect the latter,
@@ -43,19 +66,12 @@ var globalTranspositionTable TranspositionTable
 
 // var globalTranspositionTable DebugTranspositionTable
 
-func init() {
-	totalMem := memory.TotalMemory()
-	desired := float64(totalMem) / float64(1.5) / float64(entrySize)
-	// find biggest power of 2 lower than desired.
-	ttSizePowerOf2 = int(math.Log2(desired / 10))
-	ttSizeMask = ((1 << ttSizePowerOf2) - 1)
-}
-
 func (t *TranspositionTable) lookup(zval uint64) *TableEntry {
 	t.lookups++
-	idx := zval & uint64(ttSizeMask)
-	if t.table[idx].fullHash != zval {
-		if t.table[idx].fullHash != 0 {
+	idx := zval & uint64(t.sizeMask)
+	fullHash := t.table[idx].fullHash(idx)
+	if fullHash != zval {
+		if !t.table[idx].initialized() {
 			// uninitialized. could also be 0 but there's a 1/(2^64) chance of that.
 			// fmt.Println("type 2 collision", t.table[idx].fullHash, zval, ttSizeMask, zval&uint64(ttSizeMask))
 			t.t2collisions++
@@ -69,16 +85,32 @@ func (t *TranspositionTable) lookup(zval uint64) *TableEntry {
 }
 
 func (t *TranspositionTable) store(zval uint64, tentry TableEntry) {
-	idx := zval & uint64(ttSizeMask)
+	idx := zval & uint64(t.sizeMask)
+	tentry.top4bytes = uint32(zval >> 32)
+	tentry.fifthbyte = uint8(zval >> 24)
 	// just overwrite whatever is there for now.
 	t.table[idx] = tentry
 	t.created++
 }
 
-func (t *TranspositionTable) reset() {
-	numElems := int(math.Pow(2, float64(ttSizePowerOf2)))
+func (t *TranspositionTable) reset(fractionOfMemory float64) {
+
+	totalMem := memory.TotalMemory()
+	desiredNElems := fractionOfMemory * (float64(totalMem) / float64(entrySize))
+	// find biggest power of 2 lower than desired.
+	t.sizePowerOf2 = int(math.Log2(desiredNElems))
+	// Guarantee at least 2^24 elements in the table. Anything less and our
+	// 5-byte full hash proxy won't work.
+	if t.sizePowerOf2 < 24 {
+		t.sizePowerOf2 = 24
+	}
+
+	t.sizeMask = ((1 << t.sizePowerOf2) - 1)
+
+	numElems := int(math.Pow(2, float64(t.sizePowerOf2)))
 
 	log.Info().Int("num-elems", numElems).
+		Float64("desired-num-elems", desiredNElems).
 		Int("estimated-total-memory-bytes", numElems*entrySize).
 		Msg("transposition-table-size")
 	t.table = nil

@@ -97,7 +97,7 @@ func TestSolveComplex(t *testing.T) {
 	is.NoErr(err)
 
 	v, _, _ := s.Solve(context.Background(), plies)
-	is.Equal(v, float32(116))
+	is.Equal(v, int16(116))
 	// Quackle finds a 122-pt win. However, I think it's wrong because it
 	// doesn't take into account that opp can pass to prevent a setup
 	// (the setup being: EF 3F to block the Z, then YO, YOK/KHI, QI)
@@ -113,7 +113,7 @@ func TestSolveOther3(t *testing.T) {
 	is.NoErr(err)
 
 	v, _, _ := s.Solve(context.Background(), plies)
-	is.Equal(v, float32(50))
+	is.Equal(v, int16(50))
 }
 
 func TestSolveStandard(t *testing.T) {
@@ -130,7 +130,7 @@ func TestSolveStandard(t *testing.T) {
 
 	bestV, bestSeq, err := s.Solve(context.Background(), plies)
 	is.NoErr(err)
-	is.Equal(bestV, float32(11))
+	is.Equal(bestV, int16(11))
 	fmt.Println(bestSeq)
 	is.Equal(len(bestSeq), 3)
 }
@@ -145,7 +145,7 @@ func TestSolveStandard2(t *testing.T) {
 	is.NoErr(err)
 
 	v, _, _ := s.Solve(context.Background(), plies)
-	is.Equal(v, float32(25))
+	is.Equal(v, int16(25))
 }
 
 func TestSolveNegamaxFunc(t *testing.T) {
@@ -161,7 +161,7 @@ func TestSolveNegamaxFunc(t *testing.T) {
 	s.requestedPlies = 4
 	s.currentIDDepth = 4
 	s.zobrist.Initialize(s.game.Board().Dim())
-	globalTranspositionTable.reset()
+	globalTranspositionTable.reset(0.01)
 
 	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
 	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)
@@ -177,7 +177,7 @@ func TestSolveNegamaxFunc(t *testing.T) {
 	pv := &PVLine{}
 	score, err := s.negamax(ctx, 0, s.requestedPlies, -HugeNumber, HugeNumber, true, pv)
 	is.NoErr(err)
-	is.Equal(score, float32(11))
+	is.Equal(score, int16(11))
 	is.Equal(len(pv.Moves), 3)
 }
 
@@ -203,7 +203,7 @@ func TestVeryDeep(t *testing.T) {
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 	v, seq, _ := s.Solve(context.Background(), plies)
 
-	is.Equal(v, float32(-116))
+	is.Equal(v, int16(-116))
 	is.Equal(len(seq), 25)
 }
 
@@ -231,7 +231,7 @@ func TestPassFirst(t *testing.T) {
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 	v, seq, _ := s.Solve(context.Background(), plies)
 
-	is.Equal(v, float32(-60))
+	is.Equal(v, int16(-60))
 	is.Equal(seq[0].Type(), move.MoveTypePass)
 	is.Equal(len(seq), 6)
 }
@@ -262,7 +262,7 @@ func TestPolish(t *testing.T) {
 
 	*/
 
-	is.Equal(v, float32(5))
+	is.Equal(v, int16(5))
 	is.Equal(len(seq), 8)
 
 }
@@ -301,7 +301,7 @@ func TestPolishFromGcg(t *testing.T) {
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 
 	v, seq, _ := s.Solve(context.Background(), plies)
-	is.Equal(v, float32(5))
+	is.Equal(v, int16(5))
 	is.Equal(len(seq), 8)
 }
 
@@ -337,7 +337,7 @@ func TestStuckPruning(t *testing.T) {
 	s.Init(gen, g)
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 	v, _, _ := s.Solve(context.Background(), plies)
-	is.Equal(v, float32(72))
+	is.Equal(v, int16(72))
 }
 
 // Test that iterative deepening actually works properly.
@@ -377,7 +377,7 @@ func TestProperIterativeDeepening(t *testing.T) {
 		g.SetBackupMode(game.SimulationMode)
 		g.SetStateStackLength(plies)
 		v, seq, _ := s.Solve(context.Background(), plies)
-		is.Equal(v, float32(44))
+		is.Equal(v, int16(44))
 		// In particular, the sequence should start with 6I A.
 		// Player on turn needs to block the P spot. Anything else
 		// shows a serious bug.
@@ -414,7 +414,7 @@ func TestFromGCG(t *testing.T) {
 	// s.simpleEvaluation = true
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 	v, seq, _ := s.Solve(context.Background(), plies)
-	is.Equal(v, float32(99))
+	is.Equal(v, int16(99))
 	is.Equal(len(seq), 1)
 	// t.Fail()
 }
@@ -461,7 +461,7 @@ func TestZeroPtFirstPlay(t *testing.T) {
 
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 	v, _, _ := s.Solve(context.Background(), plies)
-	is.Equal(v, float32(-42))
+	is.Equal(v, int16(-42))
 }
 
 func TestSolveNegamaxFunc2(t *testing.T) {
@@ -488,7 +488,7 @@ func TestSolveNegamaxFunc2(t *testing.T) {
 	s.requestedPlies = plies
 	s.currentIDDepth = plies
 	s.zobrist.Initialize(s.game.Board().Dim())
-	globalTranspositionTable.reset()
+	globalTranspositionTable.reset(0.01)
 
 	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
 	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)
@@ -504,6 +504,6 @@ func TestSolveNegamaxFunc2(t *testing.T) {
 	pv := &PVLine{}
 	score, err := s.negamax(ctx, 0, s.requestedPlies, -HugeNumber, HugeNumber, true, pv)
 	is.NoErr(err)
-	is.Equal(score, float32(-42))
+	is.Equal(score, int16(-42))
 	is.Equal(len(pv.Moves), 10)
 }
