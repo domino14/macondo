@@ -42,6 +42,7 @@ negamax(rootNode, depth, −∞, +∞, 1)
 
 const HugeNumber = int16(32767)
 const MaxVariantLength = 25
+const EarlyPassOffset = 21000
 
 var (
 	ErrNoEndgameSolution = errors.New("no endgame solution found")
@@ -129,8 +130,10 @@ type Solver struct {
 	solverInitialScore int
 	oppInitialScore    int
 
+	// earlyPassOptim: if the last move was a pass, try a pass first to end
+	// the game. It costs very little to check this case first and results
+	// in a modest speed boost.
 	earlyPassOptim          bool
-	stuckTileOrderOptim     bool
 	iterativeDeepeningOptim bool
 	killerPlayOptim         bool
 	firstWinOptim           bool // this is nothing yet
@@ -215,6 +218,7 @@ func (s *Solver) generateSTMPlays(depth int) []*move.MinimalMove {
 
 	moves := make([]*move.MinimalMove, len(genPlays))
 	estimates := make([]int16, len(genPlays))
+	lastMoveWasPass := s.game.ScorelessTurns() > s.game.LastScorelessTurns()
 	for idx := range genPlays {
 		p := genPlays[idx].(*move.MinimalMove).Copy()
 		moves[idx] = p
@@ -224,6 +228,9 @@ func (s *Solver) generateSTMPlays(depth int) []*move.MinimalMove {
 			estimates[idx] = int16(p.Score() + 3*p.TilesPlayed())
 		} else {
 			estimates[idx] = int16(p.Score())
+		}
+		if s.earlyPassOptim && lastMoveWasPass && p.Type() == move.MoveTypePass {
+			estimates[idx] += EarlyPassOffset
 		}
 	}
 	sorter := &playSorter{estimates: estimates, moves: moves}
