@@ -142,9 +142,6 @@ type Solver struct {
 	requestedPlies int
 
 	logStream io.Writer
-
-	// Should we make this a linear array instead and use modulo?
-	// ttable map[uint64]*TNode
 }
 
 type solution struct {
@@ -269,7 +266,6 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 		s.game.RackFor(s.solvingPlayer),
 		s.game.RackFor(1-s.solvingPlayer),
 		false, s.game.ScorelessTurns(),
-		s.game.SpreadFor(s.solvingPlayer),
 	)
 
 	log.Info().Uint64("initialHashKey", initialHashKey).Msg("starting-zobrist-key")
@@ -294,8 +290,7 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 		if err != nil {
 			return nil, err
 		}
-		childKey := s.zobrist.AddMove(initialHashKey, m, true, s.game.ScorelessTurns(), s.game.LastScorelessTurns(),
-			0, 0)
+		childKey := s.zobrist.AddMove(initialHashKey, m, true, s.game.ScorelessTurns(), s.game.LastScorelessTurns())
 
 		score, err := s.negamax(ctx, childKey, plies-1, -β, -α, &childPV)
 		if err != nil {
@@ -399,7 +394,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			return 0, err
 		}
 		childKey := s.zobrist.AddMove(nodeKey, child, onTurn == s.solvingPlayer,
-			s.game.ScorelessTurns(), s.game.LastScorelessTurns(), 0, 0)
+			s.game.ScorelessTurns(), s.game.LastScorelessTurns())
 		value, err := s.negamax(ctx, childKey, depth-1, -β, -α, &childPV)
 		if err != nil {
 			s.game.UnplayLastMove()
@@ -424,12 +419,9 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		childPV.Clear() // clear the child node's pv for the next child node
 	}
 	if s.transpositionTableOptim {
-		// Don't store the bestValue, which includes the spread difference.
-		// See evaluate function above.
-		// the value of "bestValue" is `spreadNow - initialSpread`
-		// where spreadNow is the spread after the best move was played.
-		// let's subtract away spreadNow
-		// spreadNow := s.game.SpreadFor(onTurn)
+		// We store this value without our spread to make it spread-independent.
+		// Without this, we need to hash the spread as well and this results
+		// in many more TT misses.
 
 		score := bestValue - int16(ourSpread)
 		var flag uint8
@@ -491,13 +483,6 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 
 	var err error
 	wg.Wait()
-	// if bestNodeSoFar != nil {
-	// 	log.Debug().Msgf("Best spread found: %v", bestNodeSoFar.heuristicValue.value)
-	// } else {
-	// 	// This should never happen unless we gave it an absurdly low time or
-	// 	// node count?
-	// 	err = ErrNoEndgameSolution
-	// }
 	// Go down tree and find best variation:
 	log.Info().Msgf("Number of cached killer plays: %d", len(s.killerCache))
 

@@ -59,17 +59,8 @@ func (z *Zobrist) Initialize(boardDim int) {
 	z.placeholderRack = make([]tilemapping.MachineLetter, MaxLetters)
 }
 
-// https://stackoverflow.com/a/12996028/1737333
-func hashUint64(x uint64) uint64 {
-	x = (x ^ (x >> 30)) * uint64(0xbf58476d1ce4e5b9)
-	x = (x ^ (x >> 27)) * uint64(0x94d049bb133111eb)
-	x = x ^ (x >> 31)
-	return x
-}
-
 func (z *Zobrist) Hash(squares tilemapping.MachineWord,
-	ourRack, theirRack *tilemapping.Rack, theirTurn bool, scorelessTurns int,
-	ourSpread int) uint64 {
+	ourRack, theirRack *tilemapping.Rack, theirTurn bool, scorelessTurns int) uint64 {
 
 	key := uint64(0)
 	for i, letter := range squares {
@@ -92,12 +83,11 @@ func (z *Zobrist) Hash(squares tilemapping.MachineWord,
 		key ^= z.theirTurn
 	}
 	key ^= z.scorelessTurns[scorelessTurns]
-	key ^= hashUint64(uint64(ourSpread))
 	return key
 }
 
 func (z *Zobrist) AddMove(key uint64, m move.PlayMaker, wasOurMove bool,
-	scorelessTurns, lastScorelessTurns int, ourSpread, lastOurSpread int) uint64 {
+	scorelessTurns, lastScorelessTurns int) uint64 {
 
 	// Adding a move:
 	// For every letter in the move (assume it's only a tile placement move
@@ -153,9 +143,6 @@ func (z *Zobrist) AddMove(key uint64, m move.PlayMaker, wasOurMove bool,
 			z.placeholderRack[tileIdx]--
 			key ^= rackTable[tileIdx][z.placeholderRack[tileIdx]]
 		}
-		// don't bother hashing the spread for now; delete soon.
-		// key ^= uint64(hashUint64(uint64(lastOurSpread)))
-		// key ^= uint64(hashUint64(uint64(ourSpread)))
 	}
 	if lastScorelessTurns != scorelessTurns {
 		key ^= z.scorelessTurns[lastScorelessTurns]
