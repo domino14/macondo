@@ -42,6 +42,9 @@ negamax(rootNode, depth, −∞, +∞, 1)
 
 const HugeNumber = int16(32767)
 const MaxVariantLength = 25
+const MaxKillers = 2
+const Killer0Offset = 20000
+const Killer1Offset = 19000
 const EarlyPassOffset = 21000
 
 var (
@@ -141,6 +144,8 @@ type Solver struct {
 	principalVariation      PVLine
 	bestPVValue             int16
 
+	killers [MaxVariantLength][MaxKillers]*move.MinimalMove
+
 	currentIDDepth int
 	requestedPlies int
 
@@ -178,9 +183,10 @@ func (s *Solver) Init(m movegen.MoveGenerator, game *game.Game) error {
 	s.zobrist = &zobrist.Zobrist{}
 	s.stmMovegen = m
 	s.game = game
-	s.killerCache = make(map[uint64]*move.MinimalMove)
 	s.earlyPassOptim = true
-	s.killerPlayOptim = true
+	// Can't get killer play optimization to work properly; it's typically
+	// significantly slower with it on. Oh well.
+	s.killerPlayOptim = false
 	s.firstWinOptim = false
 	s.transpositionTableOptim = true
 	s.iterativeDeepeningOptim = true
@@ -228,6 +234,14 @@ func (s *Solver) generateSTMPlays(depth int) []*move.MinimalMove {
 			estimates[idx] = int16(p.Score() + 3*p.TilesPlayed())
 		} else {
 			estimates[idx] = int16(p.Score())
+		}
+		if s.killerPlayOptim {
+			// Force killer plays to be searched first.
+			if p.Equals(s.killers[depth][0]) {
+				estimates[idx] += Killer0Offset
+			} else if p.Equals(s.killers[depth][1]) {
+				estimates[idx] += Killer1Offset
+			}
 		}
 		if s.earlyPassOptim && lastMoveWasPass && p.Type() == move.MoveTypePass {
 			estimates[idx] += EarlyPassOffset
@@ -340,6 +354,21 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 	}), nil
 }
 
+func (s *Solver) storeKiller(ply int, move *move.MinimalMove) {
+	if !move.Equals(s.killers[ply][0]) {
+		s.killers[ply][1] = s.killers[ply][0]
+		s.killers[ply][0] = move
+	}
+}
+
+// Clear the killer moves table.
+func (s *Solver) ClearKillers() {
+	for ply := 0; ply < MaxVariantLength; ply++ {
+		s.killers[ply][0] = nil
+		s.killers[ply][1] = nil
+	}
+}
+
 func (s *Solver) evaluate() int16 {
 	// Evaluate the state.
 	// A very simple evaluation function for now. Just the difference in spread,
@@ -421,6 +450,9 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			fmt.Fprintf(s.logStream, "  %v  β: %v\n", strings.Repeat(" ", indent), β)
 		}
 		if bestValue >= β {
+			if s.killerPlayOptim {
+				s.storeKiller(depth, child)
+			}
 			break // beta cut-off
 		}
 		childPV.Clear() // clear the child node's pv for the next child node
@@ -477,7 +509,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	var bestSeq []*move.Move
 	s.gameBackup = s.game.Copy()
 	var wg sync.WaitGroup
-	wg.Add(1)
+	s.ClearKillers()
 
 	go func(ctx context.Context) {
 		defer wg.Done()
@@ -491,7 +523,6 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	var err error
 	wg.Wait()
 	// Go down tree and find best variation:
-	log.Info().Msgf("Number of cached killer plays: %d", len(s.killerCache))
 
 	bestSeq = make([]*move.Move, len(s.principalVariation.Moves))
 	for i := 0; i < len(bestSeq); i++ {

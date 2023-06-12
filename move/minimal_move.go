@@ -142,6 +142,9 @@ func (mm *MinimalMove) Copy() *MinimalMove {
 }
 
 func (mm *MinimalMove) Equals(o *MinimalMove) bool {
+	if o == nil {
+		return false
+	}
 	if mm.key != o.key {
 		return false
 	}

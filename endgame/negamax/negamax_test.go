@@ -95,7 +95,6 @@ func TestSolveComplex(t *testing.T) {
 	s, err := setUpSolver("America", "english", board.VsRoy, plies, "WZ", "EFHIKOQ", 427, 331,
 		1)
 	is.NoErr(err)
-
 	v, _, _ := s.Solve(context.Background(), plies)
 	is.Equal(v, int16(116))
 	// Quackle finds a 122-pt win. However, I think it's wrong because it
@@ -211,6 +210,7 @@ func TestVeryDeep(t *testing.T) {
 
 	s := new(Solver)
 	s.Init(gen, g)
+	// s.iterativeDeepeningOptim = false
 	// s.transpositionTableOptim = false
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 	v, _, _ := s.Solve(context.Background(), plies)
