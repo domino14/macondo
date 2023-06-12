@@ -283,7 +283,6 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 	}
 	pv := PVLine{g: s.gameBackup}
 	childPV := PVLine{g: s.gameBackup}
-	solverSpread := s.game.SpreadFor(s.solvingPlayer)
 	for idx, m := range moves {
 		if s.logStream != nil {
 			fmt.Fprintf(s.logStream, "  - play: %v\n", m.ShortDescription(s.game.Alphabet()))
@@ -295,9 +294,8 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 		if err != nil {
 			return nil, err
 		}
-		curSolverSpread := s.game.SpreadFor(s.solvingPlayer)
 		childKey := s.zobrist.AddMove(initialHashKey, m, true, s.game.ScorelessTurns(), s.game.LastScorelessTurns(),
-			curSolverSpread, solverSpread)
+			0, 0)
 
 		score, err := s.negamax(ctx, childKey, plies-1, -β, -α, &childPV)
 		if err != nil {
@@ -313,9 +311,9 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 
 		if sol.score > bestValue {
 			bestValue = sol.score
-			pv.Update(m, childPV, sol.score)
+			pv.Update(m, childPV, sol.score-int16(s.initialSpread))
 			s.principalVariation = pv
-			s.bestPVValue = sol.score
+			s.bestPVValue = sol.score - int16(s.initialSpread)
 			fmt.Println(pv.String())
 		}
 		α = max(α, bestValue)
@@ -345,12 +343,7 @@ func (s *Solver) evaluate() int16 {
 	// A very simple evaluation function for now. Just the difference in spread,
 	// even if the game is not over yet.
 	spreadNow := s.game.SpreadFor(s.game.PlayerOnTurn())
-
-	initialSpread := s.initialSpread
-	if s.solvingPlayer != s.game.PlayerOnTurn() {
-		initialSpread = -initialSpread
-	}
-	return int16(spreadNow - initialSpread)
+	return int16(spreadNow)
 }
 
 func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β int16, pv *PVLine) (int16, error) {
@@ -358,6 +351,8 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	if ctx.Err() != nil {
 		return 0, ctx.Err()
 	}
+	onTurn := s.game.PlayerOnTurn()
+	ourSpread := s.game.SpreadFor(onTurn)
 
 	// Note: if I return early as in here, the PV might not be complete.
 	// (the transposition table is cutting off the iterations)
@@ -369,8 +364,8 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		if ttEntry != nil && ttEntry.depth() >= uint8(depth) {
 			score := ttEntry.score
 			flag := ttEntry.flag()
-			// add pts back in; we subtract them when storing.
-			// score += int16(s.game.PointsFor(s.game.PlayerOnTurn()))
+			// add spread back in; we subtract them when storing.
+			score += int16(ourSpread)
 			if flag == TTExact {
 				return score, nil
 			} else if flag == TTLower {
@@ -395,8 +390,6 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	if s.logStream != nil {
 		fmt.Fprintf(s.logStream, "  %vplays:\n", strings.Repeat(" ", indent))
 	}
-	onTurn := s.game.PlayerOnTurn()
-	ourSpread := s.game.SpreadFor(onTurn)
 	for _, child := range children {
 		if s.logStream != nil {
 			fmt.Fprintf(s.logStream, "  %v- play: %v\n", strings.Repeat(" ", indent), child.ShortDescription(s.game.Alphabet()))
@@ -405,9 +398,8 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		if err != nil {
 			return 0, err
 		}
-		curOurSpread := s.game.SpreadFor(onTurn)
 		childKey := s.zobrist.AddMove(nodeKey, child, onTurn == s.solvingPlayer,
-			s.game.ScorelessTurns(), s.game.LastScorelessTurns(), curOurSpread, ourSpread)
+			s.game.ScorelessTurns(), s.game.LastScorelessTurns(), 0, 0)
 		value, err := s.negamax(ctx, childKey, depth-1, -β, -α, &childPV)
 		if err != nil {
 			s.game.UnplayLastMove()
@@ -419,7 +411,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		}
 		if -value > bestValue {
 			bestValue = -value
-			pv.Update(child, childPV, bestValue)
+			pv.Update(child, childPV, bestValue-int16(s.initialSpread))
 		}
 		α = max(α, bestValue)
 		if s.logStream != nil {
@@ -432,9 +424,17 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		childPV.Clear() // clear the child node's pv for the next child node
 	}
 	if s.transpositionTableOptim {
+		// Don't store the bestValue, which includes the spread difference.
+		// See evaluate function above.
+		// the value of "bestValue" is `spreadNow - initialSpread`
+		// where spreadNow is the spread after the best move was played.
+		// let's subtract away spreadNow
+		// spreadNow := s.game.SpreadFor(onTurn)
+
+		score := bestValue - int16(ourSpread)
 		var flag uint8
 		entryToStore := TableEntry{
-			score: bestValue, //- int16(s.game.PointsFor(s.game.PlayerOnTurn())),
+			score: score,
 		}
 		if bestValue <= alphaOrig {
 			flag = TTUpper

@@ -153,8 +153,9 @@ func (z *Zobrist) AddMove(key uint64, m move.PlayMaker, wasOurMove bool,
 			z.placeholderRack[tileIdx]--
 			key ^= rackTable[tileIdx][z.placeholderRack[tileIdx]]
 		}
-		key ^= uint64(hashUint64(uint64(lastOurSpread)))
-		key ^= uint64(hashUint64(uint64(ourSpread)))
+		// don't bother hashing the spread for now; delete soon.
+		// key ^= uint64(hashUint64(uint64(lastOurSpread)))
+		// key ^= uint64(hashUint64(uint64(ourSpread)))
 	}
 	if lastScorelessTurns != scorelessTurns {
 		key ^= z.scorelessTurns[lastScorelessTurns]
