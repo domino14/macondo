@@ -20,8 +20,7 @@ type Zobrist struct {
 	theirRackTable [][]uint64
 	scorelessTurns [3]uint64
 
-	boardDim        int
-	placeholderRack []tilemapping.MachineLetter
+	boardDim int
 }
 
 const MaxLetters = 35
@@ -56,7 +55,6 @@ func (z *Zobrist) Initialize(boardDim int) {
 	}
 
 	z.theirTurn = frand.Uint64n(bignum) + 1
-	z.placeholderRack = make([]tilemapping.MachineLetter, MaxLetters)
 }
 
 func (z *Zobrist) Hash(squares tilemapping.MachineWord,
@@ -107,11 +105,7 @@ func (z *Zobrist) AddMove(key uint64, m move.PlayMaker, wasOurMove bool,
 		if vertical {
 			ri, ci = 1, 0
 		}
-		// clear out placeholder rack first:
-		for i := 0; i < MaxLetters; i++ {
-			z.placeholderRack[i] = 0
-		}
-
+		placeholderRack := [MaxLetters]tilemapping.MachineLetter{}
 		for idx, tile := range m.Tiles() {
 			newRow := row + (ri * idx)
 			newCol := col + (ci * idx)
@@ -127,10 +121,10 @@ func (z *Zobrist) AddMove(key uint64, m move.PlayMaker, wasOurMove bool,
 			key ^= z.posTable[newRow*z.boardDim+newCol][boardTile]
 			// build up placeholder rack.
 			tileIdx := tile.IntrinsicTileIdx()
-			z.placeholderRack[tileIdx]++
+			placeholderRack[tileIdx]++
 		}
 		for _, tile := range m.Leave() {
-			z.placeholderRack[tile]++
+			placeholderRack[tile]++
 		}
 		// now "Play" all the tiles in the rack
 		for _, tile := range m.Tiles() {
@@ -139,9 +133,9 @@ func (z *Zobrist) AddMove(key uint64, m move.PlayMaker, wasOurMove bool,
 				continue
 			}
 			tileIdx := tile.IntrinsicTileIdx()
-			key ^= rackTable[tileIdx][z.placeholderRack[tileIdx]]
-			z.placeholderRack[tileIdx]--
-			key ^= rackTable[tileIdx][z.placeholderRack[tileIdx]]
+			key ^= rackTable[tileIdx][placeholderRack[tileIdx]]
+			placeholderRack[tileIdx]--
+			key ^= rackTable[tileIdx][placeholderRack[tileIdx]]
 		}
 	}
 	if lastScorelessTurns != scorelessTurns {

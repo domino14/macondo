@@ -21,7 +21,7 @@ func TestTTableEntry(t *testing.T) {
 	is.True(tt.sizePowerOf2 >= 24)
 
 	te := tt.lookup(9409641586937047728)
-	is.True(te != nil)
+	is.True(te.valid())
 	is.Equal(te.depth(), uint8(23))
 	is.Equal(te.flag(), uint8(TTUpper))
 	is.Equal(te.score, int16(12))
@@ -31,12 +31,12 @@ func TestTTableEntry(t *testing.T) {
 	is.Equal(tt.t2collisions, uint64(0))
 	// create a collision
 	te = tt.lookup(9409641586953824944)
-	is.Equal(te, nil)
+	is.Equal(te, TableEntry{})
 	is.Equal(tt.t2collisions, uint64(1))
 
 	// another lookup, but this isn't a collision. collision count should not go up.
 	te = tt.lookup(9409641586937047728 + 1)
-	is.Equal(te, nil)
+	is.Equal(te, TableEntry{})
 	is.Equal(tt.lookups, uint64(3))
 	is.Equal(tt.t2collisions, uint64(1))
 

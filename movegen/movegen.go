@@ -404,3 +404,7 @@ func (gen *GordonGenerator) generateExchangeMoves(rack *tilemapping.Rack, ml til
 		}
 	}
 }
+
+func (gen *GordonGenerator) GADDAG() *kwg.KWG {
+	return gen.gaddag
+}

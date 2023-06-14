@@ -3,6 +3,8 @@ package negamax
 import (
 	"math"
 	"runtime"
+	"sync"
+	"sync/atomic"
 
 	"github.com/pbnjay/memory"
 	"github.com/rs/zerolog/log"
@@ -43,12 +45,27 @@ func (t TableEntry) depth() uint8 {
 	return t.flagAndDepth & depthMask
 }
 
-func (t TableEntry) initialized() bool {
+func (t TableEntry) valid() bool {
 	// a table flag is 1, 2, or 3.
-	return t.flag() == 0
+	return t.flag() != 0
 }
 
+type TableLock interface {
+	Lock()
+	Unlock()
+	RLock()
+	RUnlock()
+}
+
+type FakeLock struct{}
+
+func (f FakeLock) Lock()    {}
+func (f FakeLock) Unlock()  {}
+func (f FakeLock) RLock()   {}
+func (f FakeLock) RUnlock() {}
+
 type TranspositionTable struct {
+	TableLock
 	table        []TableEntry
 	created      uint64
 	lookups      uint64
@@ -62,39 +79,49 @@ type TranspositionTable struct {
 	t2collisions uint64
 }
 
-var globalTranspositionTable TranspositionTable
-
 // var globalTranspositionTable DebugTranspositionTable
 
-func (t *TranspositionTable) lookup(zval uint64) *TableEntry {
-	t.lookups++
+func (t *TranspositionTable) setSingleThreadedMode() {
+	t.TableLock = &FakeLock{}
+}
+
+func (t *TranspositionTable) setMultiThreadedMode() {
+	t.TableLock = new(sync.RWMutex)
+}
+
+func (t *TranspositionTable) lookup(zval uint64) TableEntry {
+	t.RLock()
+	defer t.RUnlock()
+	atomic.AddUint64(&t.lookups, 1)
 	idx := zval & uint64(t.sizeMask)
 	fullHash := t.table[idx].fullHash(idx)
 	if fullHash != zval {
-		if !t.table[idx].initialized() {
-			// uninitialized. could also be 0 but there's a 1/(2^64) chance of that.
-			// fmt.Println("type 2 collision", t.table[idx].fullHash, zval, ttSizeMask, zval&uint64(ttSizeMask))
-			t.t2collisions++
+		if t.table[idx].valid() {
+			// There is another unrelated node at this position.
+			atomic.AddUint64(&t.t2collisions, 1)
 		}
-		return nil
+		return TableEntry{}
 	}
-	t.hits++
+	atomic.AddUint64(&t.hits, 1)
 	// otherwise, assume the same zobrist hash is the same position. this fails
 	// very, very rarely. but it could happen.
-	return &t.table[idx]
+	return t.table[idx]
 }
 
 func (t *TranspositionTable) store(zval uint64, tentry TableEntry) {
 	idx := zval & uint64(t.sizeMask)
 	tentry.top4bytes = uint32(zval >> 32)
 	tentry.fifthbyte = uint8(zval >> 24)
+	t.Lock()
+	defer t.Unlock()
 	// just overwrite whatever is there for now.
 	t.table[idx] = tentry
 	t.created++
 }
 
 func (t *TranspositionTable) reset(fractionOfMemory float64) {
-
+	t.Lock()
+	defer t.Unlock()
 	totalMem := memory.TotalMemory()
 	desiredNElems := fractionOfMemory * (float64(totalMem) / float64(entrySize))
 	// find biggest power of 2 lower than desired.
@@ -118,6 +145,9 @@ func (t *TranspositionTable) reset(fractionOfMemory float64) {
 
 	t.table = make([]TableEntry, numElems)
 	t.created = 0
+	t.lookups = 0
+	t.hits = 0
+	t.t2collisions = 0
 	log.Info().Msg("allocated-transposition-table")
 }
 

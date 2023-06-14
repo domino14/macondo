@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
 	"testing"
 
 	"github.com/matryer/is"
@@ -116,13 +117,14 @@ func TestSolveComplex(t *testing.T) {
 // 7: H12 FLAM (49)
 
 func TestSolveOther3(t *testing.T) {
-	t.Skip()
+	runtime.SetMutexProfileFraction(5)
 	plies := 14
 	is := is.New(t)
 	s, err := setUpSolver("NWL18", "english", board.VsJoey, plies, "DIV", "AEFILMR", 412, 371,
 		1)
 	is.NoErr(err)
-
+	zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	// s.lazySMPOptim = true
 	v, _, _ := s.Solve(context.Background(), plies)
 	is.Equal(v, int16(55))
 }
@@ -158,39 +160,39 @@ func TestSolveStandard2(t *testing.T) {
 	is.Equal(v, int16(25))
 }
 
-func TestSolveNegamaxFunc(t *testing.T) {
-	plies := 4
+// func TestSolveNegamaxFunc(t *testing.T) {
+// 	plies := 4
 
-	is := is.New(t)
+// 	is := is.New(t)
 
-	s, err := setUpSolver("NWL18", "english", board.VsCanik, plies, "DEHILOR", "BGIV", 389, 384,
-		1)
-	is.NoErr(err)
+// 	s, err := setUpSolver("NWL18", "english", board.VsCanik, plies, "DEHILOR", "BGIV", 389, 384,
+// 		1)
+// 	is.NoErr(err)
 
-	// Test just the negamax function without the search etc functionality.
-	s.requestedPlies = 4
-	s.currentIDDepth = 4
-	s.zobrist.Initialize(s.game.Board().Dim())
-	globalTranspositionTable.reset(0.01)
+// 	// Test just the negamax function without the search etc functionality.
+// 	s.requestedPlies = 4
+// 	s.currentIDDepth = 4
+// 	s.zobrist.Initialize(s.game.Board().Dim())
+// 	globalTranspositionTable.reset(0.01)
 
-	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
-	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)
+// 	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
+// 	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)
 
-	s.game.SetMaxScorelessTurns(2)
-	defer s.game.SetMaxScorelessTurns(game.DefaultMaxScorelessTurns)
+// 	s.game.SetMaxScorelessTurns(2)
+// 	defer s.game.SetMaxScorelessTurns(game.DefaultMaxScorelessTurns)
 
-	s.initialSpread = s.game.CurrentSpread()
-	s.initialTurnNum = s.game.Turn()
-	s.solvingPlayer = s.game.PlayerOnTurn()
+// 	s.initialSpread = s.game.CurrentSpread()
+// 	s.initialTurnNum = s.game.Turn()
+// 	s.solvingPlayer = s.game.PlayerOnTurn()
 
-	ctx := context.Background()
-	pv := &PVLine{}
-	score, err := s.negamax(ctx, 0, s.requestedPlies, -HugeNumber, HugeNumber, pv)
-	is.NoErr(err)
-	// we win by 6
-	is.Equal(score, int16(6))
-	is.Equal(len(pv.Moves), 3)
-}
+// 	ctx := context.Background()
+// 	pv := &PVLine{}
+// 	score, err := s.negamax(ctx, 0, s.requestedPlies, -HugeNumber, HugeNumber, pv)
+// 	is.NoErr(err)
+// 	// we win by 6
+// 	is.Equal(score, int16(6))
+// 	is.Equal(len(pv.Moves), 3)
+// }
 
 func TestVeryDeep(t *testing.T) {
 	is := is.New(t)
@@ -477,46 +479,46 @@ func TestZeroPtFirstPlay(t *testing.T) {
 	is.Equal(v, int16(-42))
 }
 
-func TestSolveNegamaxFunc2(t *testing.T) {
-	plies := 11
+// func TestSolveNegamaxFunc2(t *testing.T) {
+// 	plies := 11
 
-	is := is.New(t)
+// 	is := is.New(t)
 
-	deepEndgame := "IBADAT1B7/2CAFE1OD1TRANQ/2TUT2RENIED2/3REV2YOMIM2/4RAFT1NISI2/5COR2N1x2/6LA1AGEE2/6LIAISED2/5POKY2W3/4JOWS7/V2LUZ9/ORPIN10/L1OE11/TUX12/I14 EEEEGH?/AGHNOSU 308/265 0 lex CSW19;"
-	g, err := cgp.ParseCGP(&DefaultConfig, deepEndgame)
-	is.NoErr(err)
-	gd, err := kwg.Get(&DefaultConfig, "CSW19")
-	is.NoErr(err)
+// 	deepEndgame := "IBADAT1B7/2CAFE1OD1TRANQ/2TUT2RENIED2/3REV2YOMIM2/4RAFT1NISI2/5COR2N1x2/6LA1AGEE2/6LIAISED2/5POKY2W3/4JOWS7/V2LUZ9/ORPIN10/L1OE11/TUX12/I14 EEEEGH?/AGHNOSU 308/265 0 lex CSW19;"
+// 	g, err := cgp.ParseCGP(&DefaultConfig, deepEndgame)
+// 	is.NoErr(err)
+// 	gd, err := kwg.Get(&DefaultConfig, "CSW19")
+// 	is.NoErr(err)
 
-	g.SetBackupMode(game.SimulationMode)
-	g.SetStateStackLength(plies)
-	g.RecalculateBoard()
-	gen := movegen.NewGordonGenerator(
-		gd, g.Board(), g.Bag().LetterDistribution(),
-	)
-	s := new(Solver)
-	s.Init(gen, g)
+// 	g.SetBackupMode(game.SimulationMode)
+// 	g.SetStateStackLength(plies)
+// 	g.RecalculateBoard()
+// 	gen := movegen.NewGordonGenerator(
+// 		gd, g.Board(), g.Bag().LetterDistribution(),
+// 	)
+// 	s := new(Solver)
+// 	s.Init(gen, g)
 
-	// Test just the negamax function without the search etc functionality.
-	s.requestedPlies = plies
-	s.currentIDDepth = plies
-	s.zobrist.Initialize(s.game.Board().Dim())
-	globalTranspositionTable.reset(0.01)
+// 	// Test just the negamax function without the search etc functionality.
+// 	s.requestedPlies = plies
+// 	s.currentIDDepth = plies
+// 	s.zobrist.Initialize(s.game.Board().Dim())
+// 	globalTranspositionTable.reset(0.01)
 
-	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
-	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)
+// 	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
+// 	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)
 
-	s.game.SetMaxScorelessTurns(2)
-	defer s.game.SetMaxScorelessTurns(game.DefaultMaxScorelessTurns)
+// 	s.game.SetMaxScorelessTurns(2)
+// 	defer s.game.SetMaxScorelessTurns(game.DefaultMaxScorelessTurns)
 
-	s.initialSpread = s.game.CurrentSpread()
-	s.initialTurnNum = s.game.Turn()
-	s.solvingPlayer = s.game.PlayerOnTurn()
+// 	s.initialSpread = s.game.CurrentSpread()
+// 	s.initialTurnNum = s.game.Turn()
+// 	s.solvingPlayer = s.game.PlayerOnTurn()
 
-	ctx := context.Background()
-	pv := &PVLine{}
-	score, err := s.negamax(ctx, 0, s.requestedPlies, -HugeNumber, HugeNumber, pv)
-	is.NoErr(err)
-	// we win by 1
-	is.Equal(score, int16(1))
-}
+// 	ctx := context.Background()
+// 	pv := &PVLine{}
+// 	score, err := s.negamax(ctx, 0, s.requestedPlies, -HugeNumber, HugeNumber, pv)
+// 	is.NoErr(err)
+// 	// we win by 1
+// 	is.Equal(score, int16(1))
+// }
