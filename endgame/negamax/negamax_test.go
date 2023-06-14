@@ -50,7 +50,6 @@ func setUpSolver(lex, distName string, bvs board.VsWho, plies int, rack1, rack2 
 
 	g.StartGame()
 	g.SetBackupMode(game.SimulationMode)
-	g.SetStateStackLength(plies)
 	// Throw in the random racks dealt to our players.
 	g.ThrowRacksIn()
 
@@ -206,7 +205,6 @@ func TestVeryDeep(t *testing.T) {
 	gd, err := kwg.Get(&DefaultConfig, "CSW19")
 	is.NoErr(err)
 	g.SetBackupMode(game.SimulationMode)
-	g.SetStateStackLength(plies)
 	g.RecalculateBoard()
 	gen := movegen.NewGordonGenerator(
 		gd, g.Board(), g.Bag().LetterDistribution(),
@@ -237,7 +235,6 @@ func TestPassFirst(t *testing.T) {
 	gd, err := kwg.Get(&DefaultConfig, "CSW19")
 	is.NoErr(err)
 	g.SetBackupMode(game.SimulationMode)
-	g.SetStateStackLength(plies)
 	g.RecalculateBoard()
 	gen1 := movegen.NewGordonGenerator(
 		gd, g.Board(), g.Bag().LetterDistribution(),
@@ -306,7 +303,6 @@ func TestPolishFromGcg(t *testing.T) {
 	is.NoErr(err)
 
 	g.SetBackupMode(game.SimulationMode)
-	g.SetStateStackLength(plies)
 	gen := movegen.NewGordonGenerator(
 		// The strategy doesn't matter right here
 		gd, g.Board(), g.Bag().LetterDistribution(),
@@ -344,7 +340,6 @@ func TestStuckPruning(t *testing.T) {
 	gd, err := kwg.Get(&DefaultConfig, "CSW19")
 	is.NoErr(err)
 	g.SetBackupMode(game.SimulationMode)
-	g.SetStateStackLength(plies)
 	g.RecalculateBoard()
 	gen := movegen.NewGordonGenerator(
 		gd, g.Board(), g.Bag().LetterDistribution(),
@@ -392,7 +387,6 @@ func TestProperIterativeDeepening(t *testing.T) {
 		fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 		// Prior to solving the endgame, set to simulation mode.
 		g.SetBackupMode(game.SimulationMode)
-		g.SetStateStackLength(plies)
 		v, seq, _ := s.Solve(context.Background(), plies)
 		is.Equal(v, int16(44))
 		// In particular, the sequence should start with 6I A.
@@ -420,7 +414,6 @@ func TestFromGCG(t *testing.T) {
 	is.NoErr(err)
 
 	g.SetBackupMode(game.SimulationMode)
-	g.SetStateStackLength(plies)
 	gen := movegen.NewGordonGenerator(
 		gd, g.Board(), g.Bag().LetterDistribution(),
 	)
@@ -460,7 +453,6 @@ func TestZeroPtFirstPlay(t *testing.T) {
 	gd, err := kwg.Get(&DefaultConfig, "CSW19")
 	is.NoErr(err)
 	g.SetBackupMode(game.SimulationMode)
-	g.SetStateStackLength(plies)
 	g.RecalculateBoard()
 	gen := movegen.NewGordonGenerator(
 		gd, g.Board(), g.Bag().LetterDistribution(),

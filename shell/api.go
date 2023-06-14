@@ -324,7 +324,6 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 		"plies %v, maxtime %v, threads %v",
 		plies, maxtime, maxthreads))
 
-	sc.game.SetStateStackLength(plies)
 	sc.game.SetBackupMode(game.SimulationMode)
 
 	defer func() {

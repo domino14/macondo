@@ -373,7 +373,7 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 					helperCtx, initialHashKey, p+t%2, -HugeNumber, HugeNumber,
 					&pv, t, &nodeCt)
 				if err != nil {
-					log.Err(err).Msgf("Thread %d error", t)
+					log.Debug().Msgf("Thread %d error %v", t, err)
 				}
 				log.Debug().Msgf("Thread %d done; nodeCt %d, val returned %d, pv %s", t, nodeCt, val, pv.NLBString())
 				return err
@@ -680,6 +680,8 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	if !s.lazySMPOptim {
 		s.ttable.setSingleThreadedMode()
 	}
+	// + 1 since lazysmp can search at a higher ply count
+	s.game.SetStateStackLength(plies + 1)
 
 	wg.Add(1)
 
@@ -729,4 +731,8 @@ func (s *Solver) SetKillerPlayOptim(k bool) {
 
 func (s *Solver) SetTranspositionTableOptim(tt bool) {
 	s.transpositionTableOptim = tt
+}
+
+func (s *Solver) SetTranspositionTable(tt *TranspositionTable) {
+	s.ttable = tt
 }
