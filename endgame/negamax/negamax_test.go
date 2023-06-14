@@ -124,7 +124,9 @@ func TestSolveOther3(t *testing.T) {
 		1)
 	is.NoErr(err)
 	zerolog.SetGlobalLevel(zerolog.DebugLevel)
-	// s.lazySMPOptim = true
+	s.lazySMPOptim = true
+	// sweet spot seems to be threads = 3 for now
+	s.threads = 3
 	v, _, _ := s.Solve(context.Background(), plies)
 	is.Equal(v, int16(55))
 }

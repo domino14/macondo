@@ -237,7 +237,14 @@ func (p playSorter) Less(i, j int) bool {
 }
 
 func (s *Solver) SetThreads(threads int) {
-	s.threads = threads
+	switch {
+	case threads < 2:
+		s.threads = 1
+		s.lazySMPOptim = false
+	case threads >= 2:
+		s.threads = threads
+		s.lazySMPOptim = true
+	}
 }
 
 func (s *Solver) makeGameCopies() error {
@@ -314,7 +321,7 @@ func (s *Solver) generateSTMPlays(depth int, thread int) []*move.MinimalMove {
 func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error {
 	// Generate first layer of moves.
 	s.makeGameCopies()
-
+	log.Info().Int("threads", s.threads).Msg("using-lazy-smp")
 	plays := s.generateSTMPlays(0, 0)
 	var err error
 	start := 1
@@ -670,8 +677,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	var wg sync.WaitGroup
 	s.ClearKillers()
 
-	if s.lazySMPOptim {
-	} else {
+	if !s.lazySMPOptim {
 		s.ttable.setSingleThreadedMode()
 	}
 
@@ -711,4 +717,16 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 		Msg("solve-returning")
 
 	return bestV, bestSeq, err
+}
+
+func (s *Solver) SetIterativeDeepening(id bool) {
+	s.iterativeDeepeningOptim = id
+}
+
+func (s *Solver) SetKillerPlayOptim(k bool) {
+	s.killerPlayOptim = k
+}
+
+func (s *Solver) SetTranspositionTableOptim(tt bool) {
+	s.transpositionTableOptim = tt
 }

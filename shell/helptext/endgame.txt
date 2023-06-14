@@ -54,39 +54,29 @@ Options:
     are time-limited, it is likely that the first few answers will be good
     enough for many endgames.
 
-    -complex-estimator true
+    -killer-optim true
 
-    This option will turn on the complex estimator. By default, the endgame
-    solver has an estimator that takes into account plays that are blocked and
-    does some hand-wavy math to try to rank plays. It is very important in an
-    alpha-beta minimax search to try to estimate the values of plays accurately.
+    A "Killer" play is a play that caused a Beta cut-off. We consider it first when 
+    looking at similar trees. Killer play optimization is off by default,
+    as it did not seem to help a great deal when we tested it.
 
-    However, in practice, the complex estimator often takes a significantly longer time
-    to run and doesn't provide a good enough benefit. It may be possible that some
-    endgames are solved a lot faster with this estimator though. It is worth
-    trying on endgames where someone is stuck with a tile.
+    -lazysmp-threads 3
 
-    -stuck-tile-order-optim true
+    Use LazySMP to recruit more cores to help solve the endgame. Our current
+    implementation has a sweet spot around 3 threads, which can result in a 2x or
+    more speedup. Any more and it actually starts to get slower. We will 
+    continue trying to improve this.
 
-    Stuck Tile Order optimization is OFF by default. If one player is stuck
-    with a tile, we avoid analyzing plays A and B and plays B and A (different
-    permutations of the same two plays) if they don't interfere with each other.
-    This can often result in a drastic tree reduction. However, the checks
-    themselves are kind of slow and an advantage is only seen for very complicated
-    endgames that will take a long time anyway.
+    -disable-tt true
 
-    -disable-killer-play-optim true
-
-    A "Killer" play is a play that won its tree. We consider it first when 
-    looking at similar trees. This option may take a lot of memory for a long/
-    complex endgame. Killer play optimization is on by default; pass in true
-    to this option to disable it.
-
-    Note: this is not the typical definition of the killer heuristic, which only
-    stores a handful of plays per ply. This takes significantly more memory.
+    This option disables the transposition table. Transposition table can take
+    up a significant portion of your memory; we currently have it hard-coded around
+    25% of total RAM. However, it can greatly speed up many stuck tile endgames
+    and is also needed for multithreading (see lazysmp-threads option).
 
     -first-win-optim true
 
+    NOT YET IMPLEMENTED
     Apply a "first win optimization". No need to find the very best play.
     If we find a sure win, return it right away. Note: player scores actually
     matter if this option is on, and if the game is unwinnable for a player,

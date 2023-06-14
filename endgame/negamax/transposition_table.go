@@ -3,7 +3,6 @@ package negamax
 import (
 	"math"
 	"runtime"
-	"sync"
 	"sync/atomic"
 
 	"github.com/pbnjay/memory"
@@ -86,7 +85,8 @@ func (t *TranspositionTable) setSingleThreadedMode() {
 }
 
 func (t *TranspositionTable) setMultiThreadedMode() {
-	t.TableLock = new(sync.RWMutex)
+	// t.TableLock = new(sync.RWMutex)
+	t.TableLock = &FakeLock{}
 }
 
 func (t *TranspositionTable) lookup(zval uint64) TableEntry {

@@ -285,13 +285,10 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	}
 	plies := 4
 	var maxtime int
-	var maxnodes int
-	// var disablePruning bool
-	// var disableID bool
-	// var complexEstimator bool
-	// var firstWinOptim bool
-	// var stuckTileOrderOptim bool
-	// var disableKillerPlayOptim bool
+	var maxthreads = 1
+	var disableID bool
+	var disableTT bool
+	var enableKillerPlayOptim bool
 	var err error
 
 	if cmd.options["plies"] != "" {
@@ -308,34 +305,24 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 		}
 	}
 
-	if cmd.options["maxnodes"] != "" {
-		maxnodes, err = strconv.Atoi(cmd.options["maxnodes"])
+	if cmd.options["disable-id"] == "true" {
+		disableID = true
+	}
+	if cmd.options["disable-tt"] == "true" {
+		disableTT = true
+	}
+	if cmd.options["killer-optim"] == "true" {
+		enableKillerPlayOptim = true
+	}
+	if cmd.options["lazysmp-threads"] != "" {
+		maxthreads, err = strconv.Atoi(cmd.options["lazysmp-threads"])
 		if err != nil {
 			return nil, err
 		}
 	}
-
-	// if cmd.options["disable-pruning"] == "true" {
-	// 	disablePruning = true
-	// }
-	// if cmd.options["disable-id"] == "true" {
-	// 	disableID = true
-	// }
-	// if cmd.options["complex-estimator"] == "true" {
-	// 	complexEstimator = true
-	// }
-	// if cmd.options["stuck-tile-order-optim"] == "true" {
-	// 	stuckTileOrderOptim = true
-	// }
-	// if cmd.options["disable-killer-play-optim"] == "true" {
-	// 	disableKillerPlayOptim = true
-	// }
-	// if cmd.options["first-win-optim"] == "true" {
-	// 	firstWinOptim = true
-	// }
 	sc.showMessage(fmt.Sprintf(
-		"plies %v, maxtime %v, maxnodes %v",
-		plies, maxtime, maxnodes))
+		"plies %v, maxtime %v, threads %v",
+		plies, maxtime, maxthreads))
 
 	sc.game.SetStateStackLength(plies)
 	sc.game.SetBackupMode(game.SimulationMode)
@@ -359,12 +346,10 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 		return nil, err
 	}
 
-	// sc.endgameSolver.SetIterativeDeepening(!disableID)
-	// sc.endgameSolver.SetComplexEvaluator(complexEstimator)
-	// sc.endgameSolver.SetPruningDisabled(disablePruning)
-	// sc.endgameSolver.SetKillerPlayOptim(!disableKillerPlayOptim)
-	// sc.endgameSolver.SetStuckTileOrderOptim(stuckTileOrderOptim)
-	// sc.endgameSolver.SetFirstWinOptim(firstWinOptim)
+	sc.endgameSolver.SetIterativeDeepening(!disableID)
+	sc.endgameSolver.SetKillerPlayOptim(enableKillerPlayOptim)
+	sc.endgameSolver.SetTranspositionTableOptim(!disableTT)
+	sc.endgameSolver.SetThreads(maxthreads)
 
 	sc.showMessage(sc.game.ToDisplayText())
 
