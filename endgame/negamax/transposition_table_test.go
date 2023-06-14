@@ -9,6 +9,7 @@ import (
 func TestTTableEntry(t *testing.T) {
 	is := is.New(t)
 	tt := &TranspositionTable{}
+	tt.setSingleThreadedMode()
 	// Assure minimum size of 2<<24 elems
 	tt.reset(0)
 	tentry := TableEntry{
