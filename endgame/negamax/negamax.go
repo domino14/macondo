@@ -144,11 +144,8 @@ type Solver struct {
 	gameCopies []*game.Game
 	movegens   []movegen.MoveGenerator
 
-	initialSpread      int
-	initialTurnNum     int
-	solvingPlayer      int // This is the player who we call this function for.
-	solverInitialScore int
-	oppInitialScore    int
+	initialSpread int
+	solvingPlayer int // This is the player who we call this function for.
 
 	// earlyPassOptim: if the last move was a pass, try a pass first to end
 	// the game. It costs very little to check this case first and results
@@ -213,7 +210,7 @@ func (s *Solver) Init(m movegen.MoveGenerator, game *game.Game) error {
 	s.iterativeDeepeningOptim = true
 	s.threads = int(math.Max(1, float64(runtime.NumCPU()-1)))
 	s.ttable = &TranspositionTable{}
-	s.ttable.setSingleThreadedMode()
+	s.ttable.SetSingleThreadedMode()
 
 	if s.stmMovegen != nil {
 		s.stmMovegen.SetGenPass(true)
@@ -653,24 +650,21 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)
 	if s.lazySMPOptim {
 		if s.transpositionTableOptim {
-			s.ttable.setMultiThreadedMode()
+			s.ttable.SetMultiThreadedMode()
 		} else {
 			return 0, nil, errors.New("cannot use lazySMP optimization without transposition table")
 		}
 	}
 	if s.transpositionTableOptim {
-		s.ttable.reset(0.25)
+		s.ttable.Reset(0.25)
 	}
 	// Set max scoreless turns to 2 in the endgame so we don't generate
 	// unnecessary sequences of passes.
 	s.game.SetMaxScorelessTurns(2)
 	defer s.game.SetMaxScorelessTurns(game.DefaultMaxScorelessTurns)
 	s.initialSpread = s.game.CurrentSpread()
-	s.solverInitialScore = s.game.PointsFor(s.game.PlayerOnTurn())
-	s.oppInitialScore = s.game.PointsFor(s.game.NextPlayer())
-	s.initialTurnNum = s.game.Turn()
 	s.solvingPlayer = s.game.PlayerOnTurn()
-	log.Debug().Msgf("%v %d Spread at beginning of endgame: %v (%d)", s.solvingPlayer, s.initialTurnNum, s.initialSpread, s.game.ScorelessTurns())
+	log.Debug().Msgf("Player %v spread at beginning of endgame: %v (%d)", s.solvingPlayer, s.initialSpread, s.game.ScorelessTurns())
 
 	var bestV int16
 	var bestSeq []*move.Move
@@ -678,7 +672,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	s.ClearKillers()
 
 	if !s.lazySMPOptim {
-		s.ttable.setSingleThreadedMode()
+		s.ttable.SetSingleThreadedMode()
 	}
 	// + 1 since lazysmp can search at a higher ply count
 	s.game.SetStateStackLength(plies + 1)
@@ -721,6 +715,50 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	return bestV, bestSeq, err
 }
 
+// QuickAndDirtySolve is meant for a pre-endgame engine to call this function
+// without having to initialize everything. The caller is responsible for
+// initializations of data structures. It is single-threaded as well.
+func (s *Solver) QuickAndDirtySolve(ctx context.Context, plies int) (int16, []*move.Move, error) {
+	if s.game.Bag().TilesRemaining() > 0 {
+		return 0, nil, errors.New("bag is not empty; cannot use endgame solver")
+	}
+	log.Debug().Int("plies", plies).Msg("qdsolve-alphabeta-solve-config")
+	s.requestedPlies = plies
+	tstart := time.Now()
+	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
+	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)
+
+	s.initialSpread = s.game.CurrentSpread()
+	s.solvingPlayer = s.game.PlayerOnTurn()
+	log.Debug().Msgf("Player %v spread at beginning of endgame: %v (%d)", s.solvingPlayer, s.initialSpread, s.game.ScorelessTurns())
+
+	var bestV int16
+	var bestSeq []*move.Move
+
+	err := s.iterativelyDeepen(ctx, plies)
+	if err != nil {
+		log.Err(err).Msg("error iteratively deepening")
+	}
+
+	bestSeq = make([]*move.Move, len(s.principalVariation.Moves))
+	for i := 0; i < len(bestSeq); i++ {
+		m := &move.Move{}
+		m.SetAlphabet(s.game.Alphabet())
+		s.principalVariation.Moves[i].CopyToMove(m)
+		bestSeq[i] = m
+	}
+	bestV = s.bestPVValue
+	log.Debug().
+		Uint64("ttable-created", s.ttable.created).
+		Uint64("ttable-lookups", s.ttable.lookups).
+		Uint64("ttable-hits", s.ttable.hits).
+		Uint64("ttable-t2collisions", s.ttable.t2collisions).
+		Float64("time-elapsed-sec", time.Since(tstart).Seconds()).
+		Msg("solve-returning")
+
+	return bestV, bestSeq, err
+}
+
 func (s *Solver) SetIterativeDeepening(id bool) {
 	s.iterativeDeepeningOptim = id
 }
@@ -735,4 +773,8 @@ func (s *Solver) SetTranspositionTableOptim(tt bool) {
 
 func (s *Solver) SetTranspositionTable(tt *TranspositionTable) {
 	s.ttable = tt
+}
+
+func (s *Solver) SetZobrist(z *zobrist.Zobrist) {
+	s.zobrist = z
 }

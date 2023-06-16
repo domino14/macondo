@@ -80,11 +80,11 @@ type TranspositionTable struct {
 
 // var globalTranspositionTable DebugTranspositionTable
 
-func (t *TranspositionTable) setSingleThreadedMode() {
+func (t *TranspositionTable) SetSingleThreadedMode() {
 	t.TableLock = &FakeLock{}
 }
 
-func (t *TranspositionTable) setMultiThreadedMode() {
+func (t *TranspositionTable) SetMultiThreadedMode() {
 	// t.TableLock = new(sync.RWMutex)
 	t.TableLock = &FakeLock{}
 }
@@ -119,7 +119,7 @@ func (t *TranspositionTable) store(zval uint64, tentry TableEntry) {
 	t.created++
 }
 
-func (t *TranspositionTable) reset(fractionOfMemory float64) {
+func (t *TranspositionTable) Reset(fractionOfMemory float64) {
 	t.Lock()
 	defer t.Unlock()
 	totalMem := memory.TotalMemory()

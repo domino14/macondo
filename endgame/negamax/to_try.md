@@ -2,8 +2,8 @@
     - [ ] buckets
     - [x] smallify the size of it
     - [ ] replacement strats?
-- [ ] early pass optim
-- [ ] killer heuristic
+- [x] early pass optim
+- [x] killer heuristic
     - [ ] generalized (maybe too big?)
 - [x] LazySMP 
     - it's a bit underwhelming but about 2X speedup with 3 threads. Any more threads and it slows down. Need further research.
