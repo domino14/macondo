@@ -16,7 +16,8 @@ About:
     For a large number of endgames, minimax search will finish rapidly and this
     will be a good approach. For more complex endgames, for example involving
     1-tile plays, or blanks, the tree will be very wide and the endgame algorithm
-    will be very slow.
+    can be very slow. Transposition tables (on by default) should help a lot in these
+    cases.
 
     We use iterative deepening, which allows you to get a decent answer very
     quickly, and with further time, this answer will be improved, as the algorithm
@@ -35,11 +36,11 @@ Options:
     -plies 25 
 
     The above option will look 25 plies deep. As plies go up, the endgame
-    solver often allocates and takes exponentially longer. However, there 
-    are exceptions, especially if the endgame doesn't have many choices,
-    or if we are deeper into the endgame where each player only has a few tiles
-    left. In this case it is possible that the latter plies will be searched
-    very fast, because there is nothing else to search.
+    solver takes exponentially longer. However, there are exceptions, 
+    especially if the endgame doesn't have many choices, or if we are deeper
+    into the endgame where each player only has a few tiles left. In this 
+    case it is possible that the latter plies will be searched very fast, because 
+    there is nothing else to search.
 
     -maxtime 120
 
@@ -76,8 +77,12 @@ Options:
 
     -first-win-optim true
 
-    NOT YET IMPLEMENTED
     Apply a "first win optimization". No need to find the very best play.
-    If we find a sure win, return it right away. Note: player scores actually
-    matter if this option is on, and if the game is unwinnable for a player,
-    this will just do a fully exhaustive search to confirm this.
+    If we find a sure win, return it right away. Important notes for 
+    this mode:
+    
+    1) player scores actually matter if this option is on, and if the game is 
+    unwinnable for a player, this will just do a fully exhaustive search to confirm 
+    this.
+    2) if this mode cannot find a win, it may return a slightly incorrect losing
+    sequence. Turn this mode off to accurately find the best losing sequence.

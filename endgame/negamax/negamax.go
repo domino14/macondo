@@ -153,7 +153,7 @@ type Solver struct {
 	earlyPassOptim          bool
 	iterativeDeepeningOptim bool
 	killerPlayOptim         bool
-	firstWinOptim           bool // this is nothing yet
+	firstWinOptim           bool
 	transpositionTableOptim bool
 	lazySMPOptim            bool
 	principalVariation      PVLine
@@ -354,7 +354,12 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 			p := p
 			helperCtx, cancel := context.WithCancel(ctx)
 			cancels[t] = cancel
-
+			helperAlpha := -HugeNumber
+			helperBeta := HugeNumber
+			if s.firstWinOptim {
+				helperAlpha = -1
+				helperBeta = 1
+			}
 			g.Go(func() error {
 				defer func() {
 					log.Debug().Msgf("Thread %d exiting", t)
@@ -367,7 +372,7 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 				nodeCt := 0
 				val, err := s.negamax(
 					// search a ply deeper for odd threads
-					helperCtx, initialHashKey, p+t%2, -HugeNumber, HugeNumber,
+					helperCtx, initialHashKey, p+t%2, helperAlpha, helperBeta,
 					&pv, t, &nodeCt)
 				if err != nil {
 					log.Debug().Msgf("Thread %d error %v", t, err)
@@ -448,8 +453,17 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 
 	α := -HugeNumber
 	β := HugeNumber
+	if s.firstWinOptim {
+		// Search a very small window centered around 0. We're just trying
+		// to find something that surpasses it.
+		α = -1
+		β = 1
+	}
 	bestValue := -HugeNumber
 	sols := make([]*solution, len(moves))
+	for idx, m := range moves {
+		sols[idx] = &solution{m: m, score: -HugeNumber}
+	}
 	if s.logStream != nil {
 		fmt.Fprint(s.logStream, "  plays:\n")
 	}
@@ -462,8 +476,6 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 			fmt.Fprintf(s.logStream, "  - play: %v\n", m.ShortDescription(g.Alphabet()))
 		}
 
-		sol := &solution{m: m, score: -HugeNumber}
-
 		err := g.PlayMove(m, false, 0)
 		if err != nil {
 			return nil, err
@@ -474,19 +486,19 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 			g.UnplayLastMove()
 			return nil, err
 		}
-		sol.score = -score
+		sols[idx].score = -score
 		g.UnplayLastMove()
 
 		if s.logStream != nil {
 			fmt.Fprintf(s.logStream, "    value: %v\n", score)
 		}
 
-		if sol.score > bestValue {
-			bestValue = sol.score
-			pv.Update(m, childPV, sol.score-int16(s.initialSpread))
+		if sols[idx].score > bestValue {
+			bestValue = sols[idx].score
+			pv.Update(m, childPV, sols[idx].score-int16(s.initialSpread))
 			s.principalVariation = pv
-			s.bestPVValue = sol.score - int16(s.initialSpread)
-			fmt.Println(pv.String())
+			s.bestPVValue = sols[idx].score - int16(s.initialSpread)
+			log.Info().Str("pv", pv.NLBString()).Msg("potential-pv")
 		}
 		α = max(α, bestValue)
 		if s.logStream != nil {
@@ -498,7 +510,6 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 			break
 		}
 		// log.Info().Msgf("Tried move %v, sol %f", m.ShortDescription(s.game.Alphabet()), sol.score)
-		sols[idx] = sol
 	}
 	// biggest to smallest
 	sort.Slice(sols, func(i, j int) bool {
@@ -563,7 +574,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 
 	if depth == 0 || g.Playing() != pb.PlayState_PLAYING {
 		// Evaluate the state.
-		// A very simple evaluation function for now. Just the difference in spread,
+		// A very simple evaluation function for now. Just the current spread,
 		// even if the game is not over yet.
 		spreadNow := g.SpreadFor(g.PlayerOnTurn())
 		return int16(spreadNow), nil
@@ -777,4 +788,8 @@ func (s *Solver) SetTranspositionTable(tt *TranspositionTable) {
 
 func (s *Solver) SetZobrist(z *zobrist.Zobrist) {
 	s.zobrist = z
+}
+
+func (s *Solver) SetFirstWinOptim(w bool) {
+	s.firstWinOptim = w
 }

@@ -288,6 +288,7 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	var maxthreads = 1
 	var disableID bool
 	var disableTT bool
+	var enableFW bool
 	var enableKillerPlayOptim bool
 	var err error
 
@@ -320,6 +321,9 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 			return nil, err
 		}
 	}
+	if cmd.options["first-win-optim"] == "true" {
+		enableFW = true
+	}
 	sc.showMessage(fmt.Sprintf(
 		"plies %v, maxtime %v, threads %v",
 		plies, maxtime, maxthreads))
@@ -349,6 +353,7 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	sc.endgameSolver.SetKillerPlayOptim(enableKillerPlayOptim)
 	sc.endgameSolver.SetTranspositionTableOptim(!disableTT)
 	sc.endgameSolver.SetThreads(maxthreads)
+	sc.endgameSolver.SetFirstWinOptim(enableFW)
 
 	sc.showMessage(sc.game.ToDisplayText())
 
@@ -356,8 +361,17 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	sc.showMessage(fmt.Sprintf("Best sequence has a spread difference of %v", val))
+	if !enableFW {
+		sc.showMessage(fmt.Sprintf("Best sequence has a spread difference of %v", val))
+	} else {
+		if val+int16(sc.game.CurrentSpread()) > 0 {
+			sc.showMessage("Win found!")
+		} else {
+			sc.showMessage("Win was not found.")
+		}
+		sc.showMessage(fmt.Sprintf("Spread diff: %v. Note: this sequence may not be correct. Turn off first-win-optim to search more accurately.", val))
+	}
+	sc.showMessage(fmt.Sprintf("Final spread after seq: %d", val+int16(sc.game.CurrentSpread())))
 	sc.printEndgameSequence(seq)
 	return nil, nil
 }
