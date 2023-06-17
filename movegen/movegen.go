@@ -31,9 +31,9 @@ const (
 
 // MoveGenerator is a generic interface for generating moves.
 type MoveGenerator interface {
-	GenAll(rack *tilemapping.Rack, addExchange bool) []move.PlayMaker
+	GenAll(rack *tilemapping.Rack, addExchange bool) []*move.Move
 	SetSortingParameter(s SortBy)
-	Plays() []move.PlayMaker
+	Plays() []*move.Move
 	SetPlayRecorder(pf PlayRecorderFunc)
 	SetEquityCalculators([]equity.EquityCalculator)
 	AtLeastOneTileMove(rack *tilemapping.Rack) bool
@@ -55,7 +55,7 @@ type GordonGenerator struct {
 	vertical bool // Are we generating moves vertically or not?
 
 	tilesPlayed        int
-	plays              []move.PlayMaker
+	plays              []*move.Move
 	numPossibleLetters int
 	sortingParameter   SortBy
 
@@ -129,7 +129,7 @@ func (gen *GordonGenerator) SetGenPass(p bool) {
 
 // GenAll generates all moves on the board. It assumes anchors have already
 // been updated, as well as cross-sets / cross-scores.
-func (gen *GordonGenerator) GenAll(rack *tilemapping.Rack, addExchange bool) []move.PlayMaker {
+func (gen *GordonGenerator) GenAll(rack *tilemapping.Rack, addExchange bool) []*move.Move {
 	gen.winner.SetEmpty()
 	gen.quitEarly = false
 	gen.plays = gen.plays[:0]
@@ -368,17 +368,8 @@ func (gen *GordonGenerator) scoreMove(word tilemapping.MachineWord, row, col, ti
 }
 
 // Plays returns the generator's generated plays.
-func (gen *GordonGenerator) Plays() []move.PlayMaker {
+func (gen *GordonGenerator) Plays() []*move.Move {
 	return gen.plays
-}
-
-// PlayMoves type-asserts all the plays as *move.Move.
-func (gen *GordonGenerator) PlayMoves() []*move.Move {
-	ms := make([]*move.Move, len(gen.plays))
-	for idx, p := range gen.plays {
-		ms[idx] = p.(*move.Move)
-	}
-	return ms
 }
 
 // zero-allocation generation of exchange moves without duplicates:

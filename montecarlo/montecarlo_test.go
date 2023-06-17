@@ -62,7 +62,7 @@ func TestSimSingleIteration(t *testing.T) {
 	game.SetRackFor(0, tilemapping.RackFromString("AAADERW", game.Alphabet()))
 	generator.GenAll(game.RackFor(0), false)
 	oldOppRack := game.RackFor(1).String()
-	plays := generator.PlayMoves()[:10]
+	plays := generator.Plays()[:10]
 	simmer := &Simmer{}
 	calcs, leaves := defaultSimCalculators("NWL18")
 	simmer.Init(game, calcs, leaves.(*equity.CombinedStaticCalculator), &DefaultConfig)
@@ -101,7 +101,7 @@ func BenchmarkSim(b *testing.B) {
 	generator := movegen.NewGordonGenerator(gd, game.Board(), game.Rules().LetterDistribution())
 
 	generator.GenAll(game.RackFor(0), false)
-	plays := generator.PlayMoves()[:10]
+	plays := generator.Plays()[:10]
 	zerolog.SetGlobalLevel(zerolog.Disabled)
 
 	simmer := &Simmer{}
@@ -163,9 +163,9 @@ func TestLongerSim(t *testing.T) {
 	is.NoErr(err)
 
 	generator.GenAll(game.RackFor(0), false)
-	aiplayer.AssignEquity(generator.PlayMoves(), game.Board(), game.Bag(),
+	aiplayer.AssignEquity(generator.Plays(), game.Board(), game.Bag(),
 		game.RackFor(1))
-	plays := aiplayer.TopPlays(generator.PlayMoves(), 10)
+	plays := aiplayer.TopPlays(generator.Plays(), 10)
 	simmer := &Simmer{}
 	simmer.Init(game, calcs, leaves.(*equity.CombinedStaticCalculator), &DefaultConfig)
 

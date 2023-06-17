@@ -88,7 +88,7 @@ func (p *AIStaticTurnPlayer) GenerateMoves(numPlays int) []*move.Move {
 
 	p.gen.GenAll(curRack, p.Bag().TilesRemaining() >= game.ExchangeLimit)
 
-	plays := p.gen.(*movegen.GordonGenerator).PlayMoves()
+	plays := p.gen.(*movegen.GordonGenerator).Plays()
 	p.AssignEquity(plays, p.Board(), p.Bag(), oppRack)
 	return p.TopPlays(plays, numPlays)
 }

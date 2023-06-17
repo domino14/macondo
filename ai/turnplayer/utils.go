@@ -19,5 +19,5 @@ func GenBestStaticTurn(g *game.Game, p AITurnPlayer, playerIdx int) *move.Move {
 
 	// Add an exchange only if there are 7 or more tiles in the bag.
 	mg.GenAll(g.RackFor(playerIdx), g.Bag().TilesRemaining() >= game.ExchangeLimit)
-	return mg.Plays()[0].(*move.Move)
+	return mg.Plays()[0]
 }

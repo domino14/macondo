@@ -456,7 +456,7 @@ func (g *GameBoard) TraverseBackwardsForScore(row int, col int, ld *tilemapping.
 	return score
 }
 
-func (g *GameBoard) updateAnchorsForMove(m move.PlayMaker) {
+func (g *GameBoard) updateAnchorsForMove(m *move.Move) {
 	row := m.RowStart()
 	col := m.ColStart()
 	vertical := m.Vertical()
@@ -486,7 +486,7 @@ func (g *GameBoard) updateAnchorsForMove(m move.PlayMaker) {
 
 }
 
-func (g *GameBoard) PlaceMoveTiles(m move.PlayMaker) {
+func (g *GameBoard) PlaceMoveTiles(m *move.Move) {
 	rowStart := m.RowStart()
 	colStart := m.ColStart()
 	vertical := m.Vertical()
@@ -526,7 +526,7 @@ func (g *GameBoard) UnplaceMoveTiles(m *move.Move) {
 
 // PlayMove plays a move on a board. It must place tiles on the board,
 // regenerate cross-sets and cross-points, and recalculate anchors.
-func (g *GameBoard) PlayMove(m move.PlayMaker, ld *tilemapping.LetterDistribution) {
+func (g *GameBoard) PlayMove(m *move.Move, ld *tilemapping.LetterDistribution) {
 
 	// g.playHistory = append(g.playHistory, m.ShortDescription())
 	if m.Type() != move.MoveTypePlay {
@@ -622,7 +622,7 @@ func (g *GameBoard) ErrorIfIllegalPlay(row, col int, vertical bool,
 
 // FormedWords returns an array of all machine words formed by this move.
 // The move is assumed to be of type Play
-func (g *GameBoard) FormedWords(m move.PlayMaker) ([]tilemapping.MachineWord, error) {
+func (g *GameBoard) FormedWords(m *move.Move) ([]tilemapping.MachineWord, error) {
 	// Reserve space for main word.
 	words := []tilemapping.MachineWord{nil}
 	mainWord := []tilemapping.MachineLetter{}

@@ -104,7 +104,7 @@ func TestEndgameTiming(t *testing.T) {
 	ml := make([]tilemapping.MachineLetter, 100)
 	err = bag.Draw(100, ml)
 	assert.Nil(t, err)
-	plays := generator.PlayMoves()
+	plays := generator.Plays()
 
 	for _, m := range plays {
 		m.SetEquity(els.Equity(m, bd, bag, oppRack) + eac.Equity(m, bd, bag, oppRack))
@@ -144,7 +144,7 @@ func TestPreendgameTiming(t *testing.T) {
 	bag.RemoveTiles(tilesInPlay.Rack1)
 	bag.RemoveTiles(tilesInPlay.Rack2)
 
-	plays := generator.PlayMoves()
+	plays := generator.Plays()
 
 	for _, m := range plays {
 		// OppRack can be nil because that branch of code that checks it
@@ -175,7 +175,7 @@ func TestOpeningPlayHeuristic(t *testing.T) {
 	els, err := equity.NewCombinedStaticCalculator(
 		"NWL20", &DefaultConfig, "", "")
 	assert.Nil(t, err)
-	plays := generator.PlayMoves()
+	plays := generator.Plays()
 	bag := tilemapping.NewBag(ld, alph)
 	for _, m := range plays {
 		// OppRack can be nil because that branch of code that checks it

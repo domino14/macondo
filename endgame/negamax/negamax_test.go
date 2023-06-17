@@ -60,7 +60,7 @@ func setUpSolver(lex, distName string, bvs board.VsWho, plies int, rack1, rack2 
 
 	dist := rules.LetterDistribution()
 	gen := movegen.NewGordonGenerator(gd, g.Board(), dist)
-	gen.SetPlayRecorder(movegen.AllMinimalPlaysRecorder)
+	gen.SetPlayRecorder(movegen.AllPlaysRecorder)
 	alph := g.Alphabet()
 
 	tilesInPlay := g.Board().SetToGame(alph, bvs)
@@ -122,7 +122,6 @@ func TestSolveOther3(t *testing.T) {
 	s, err := setUpSolver("NWL18", "english", board.VsJoey, plies, "DIV", "AEFILMR", 412, 371,
 		1)
 	is.NoErr(err)
-	zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	s.lazySMPOptim = true
 	// sweet spot seems to be threads = 3 for now
 	s.threads = 3

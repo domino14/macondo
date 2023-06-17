@@ -449,7 +449,7 @@ func convertToVisible(words []tilemapping.MachineWord,
 // gameplay engines as much as possible.
 // If the millis argument is passed in, it adds this value to the history
 // as the time remaining for the user (when they played the move).
-func (g *Game) PlayMove(m move.PlayMaker, addToHistory bool, millis int) error {
+func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 
 	// We need to handle challenges separately.
 	if m.Type() == move.MoveTypeChallenge {
@@ -462,7 +462,7 @@ func (g *Game) PlayMove(m move.PlayMaker, addToHistory bool, millis int) error {
 	}
 	if addToHistory {
 		// Also, validate that the move follows the rules.
-		wordsFormed, err := g.ValidateMove(m.(*move.Move))
+		wordsFormed, err := g.ValidateMove(m)
 		if err != nil {
 			return err
 		}
@@ -491,7 +491,7 @@ func (g *Game) PlayMove(m move.PlayMaker, addToHistory bool, millis int) error {
 		g.players[g.onturn].setRackTiles(g.players[g.onturn].placeholderRack[:drew+len(m.Leave())], g.alph)
 
 		if addToHistory {
-			evt := g.EventFromMove(m.(*move.Move))
+			evt := g.EventFromMove(m)
 			evt.MillisRemaining = int32(millis)
 			evt.WordsFormed = convertToVisible(g.lastWordsFormed, g.alph)
 			g.history.LastKnownRacks[g.onturn] = g.RackLettersFor(g.onturn)
@@ -525,7 +525,7 @@ func (g *Game) PlayMove(m move.PlayMaker, addToHistory bool, millis int) error {
 		}
 		// Add the pass first so it comes before the end rack bonus
 		if addToHistory {
-			evt := g.EventFromMove(m.(*move.Move))
+			evt := g.EventFromMove(m)
 			evt.MillisRemaining = int32(millis)
 			g.addEventToHistory(evt)
 		}
@@ -559,7 +559,7 @@ func (g *Game) PlayMove(m move.PlayMaker, addToHistory bool, millis int) error {
 		g.scorelessTurns++
 		g.players[g.onturn].turns += 1
 		if addToHistory {
-			evt := g.EventFromMove(m.(*move.Move))
+			evt := g.EventFromMove(m)
 			evt.MillisRemaining = int32(millis)
 			g.history.LastKnownRacks[g.onturn] = g.RackLettersFor(g.onturn)
 			g.addEventToHistory(evt)

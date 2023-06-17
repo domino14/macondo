@@ -35,8 +35,8 @@ func GaddagFromLexicon(lex string) (gaddag.WordGraph, error) {
 	return kwg.LoadKWG(&DefaultConfig, filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".kwg"))
 }
 
-func Filter(moves []move.PlayMaker, f func(move.PlayMaker) bool) []move.PlayMaker {
-	ms := make([]move.PlayMaker, 0)
+func Filter(moves []*move.Move, f func(*move.Move) bool) []*move.Move {
+	ms := make([]*move.Move, 0)
 	for _, m := range moves {
 		if f(m) {
 			ms = append(ms, m)
@@ -45,14 +45,14 @@ func Filter(moves []move.PlayMaker, f func(move.PlayMaker) bool) []move.PlayMake
 	return ms
 }
 
-func scoringPlays(moves []move.PlayMaker) []move.PlayMaker {
-	return Filter(moves, func(m move.PlayMaker) bool {
+func scoringPlays(moves []*move.Move) []*move.Move {
+	return Filter(moves, func(m *move.Move) bool {
 		return m.Type() == move.MoveTypePlay
 	})
 }
 
-func nonScoringPlays(moves []move.PlayMaker) []move.PlayMaker {
-	return Filter(moves, func(m move.PlayMaker) bool {
+func nonScoringPlays(moves []*move.Move) []*move.Move {
+	return Filter(moves, func(m *move.Move) bool {
 		return m.Type() != move.MoveTypePlay
 	})
 }
@@ -245,7 +245,7 @@ func TestOneMoreRowGen(t *testing.T) {
 			len(generator.plays), 1)
 	}
 	m := generator.plays[0]
-	d := m.(*move.Move).ShortDescription()
+	d := m.ShortDescription()
 	if d != " 1L .A" {
 		t.Errorf("Expected 1L .A, got %v", d)
 	}

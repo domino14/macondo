@@ -84,7 +84,7 @@ func (z *Zobrist) Hash(squares tilemapping.MachineWord,
 	return key
 }
 
-func (z *Zobrist) AddMove(key uint64, m move.PlayMaker, wasOurMove bool,
+func (z *Zobrist) AddMove(key uint64, m *move.Move, wasOurMove bool,
 	scorelessTurns, lastScorelessTurns int) uint64 {
 
 	// Adding a move:

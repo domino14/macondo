@@ -20,7 +20,6 @@ import (
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
-	"github.com/domino14/macondo/tilemapping"
 	"github.com/domino14/macondo/zobrist"
 )
 
@@ -56,7 +55,7 @@ var (
 
 // Credit: MIT-licensed https://github.com/algerbrex/blunder/blob/main/engine/search.go
 type PVLine struct {
-	Moves []*move.MinimalMove
+	Moves []*move.Move
 	g     *game.Game
 	score int16
 }
@@ -68,7 +67,7 @@ func (pvLine *PVLine) Clear() {
 
 // Update the principal variation line with a new best move,
 // and a new line of best play after the best move.
-func (pvLine *PVLine) Update(move *move.MinimalMove, newPVLine PVLine, score int16) {
+func (pvLine *PVLine) Update(move *move.Move, newPVLine PVLine, score int16) {
 	pvLine.Clear()
 	pvLine.Moves = append(pvLine.Moves, move)
 	pvLine.Moves = append(pvLine.Moves, newPVLine.Moves...)
@@ -76,7 +75,7 @@ func (pvLine *PVLine) Update(move *move.MinimalMove, newPVLine PVLine, score int
 }
 
 // Get the best move from the principal variation line.
-func (pvLine *PVLine) GetPVMove() *move.MinimalMove {
+func (pvLine *PVLine) GetPVMove() *move.Move {
 	return pvLine.Moves[0]
 }
 
@@ -87,7 +86,7 @@ func (pvLine PVLine) String() string {
 	for i := 0; i < len(pvLine.Moves); i++ {
 		s += fmt.Sprintf("%d: %s (%d)\n",
 			i+1,
-			pvLine.Moves[i].ShortDescription(pvLine.g.Alphabet()),
+			pvLine.Moves[i].ShortDescription(),
 			pvLine.Moves[i].Score())
 	}
 	return s
@@ -100,7 +99,7 @@ func (pvLine PVLine) NLBString() string {
 	for i := 0; i < len(pvLine.Moves); i++ {
 		s += fmt.Sprintf("%d: %s (%d); ",
 			i+1,
-			pvLine.Moves[i].ShortDescription(pvLine.g.Alphabet()),
+			pvLine.Moves[i].ShortDescription(),
 			pvLine.Moves[i].Score())
 	}
 	return s
@@ -159,7 +158,7 @@ type Solver struct {
 	principalVariation      PVLine
 	bestPVValue             int16
 
-	killers [MaxVariantLength][MaxKillers]*move.MinimalMove
+	killers [MaxVariantLength][MaxKillers]*move.Move
 
 	ttable *TranspositionTable
 
@@ -171,14 +170,14 @@ type Solver struct {
 }
 
 type solution struct {
-	m     *move.MinimalMove
+	m     *move.Move
 	score int16
 }
 
 func (s *solution) String() string {
 	// debug purposes only
 	return fmt.Sprintf("<score: %d move: %s>", s.score,
-		s.m.ShortDescription(tilemapping.EnglishAlphabet()))
+		s.m.ShortDescription())
 }
 
 // max returns the larger of x or y.
@@ -214,14 +213,14 @@ func (s *Solver) Init(m movegen.MoveGenerator, game *game.Game) error {
 
 	if s.stmMovegen != nil {
 		s.stmMovegen.SetGenPass(true)
-		s.stmMovegen.SetPlayRecorder(movegen.AllMinimalPlaysRecorder)
+		s.stmMovegen.SetPlayRecorder(movegen.AllPlaysRecorder)
 	}
 	return nil
 }
 
 type playSorter struct {
 	estimates []int16
-	moves     []*move.MinimalMove
+	moves     []*move.Move
 }
 
 func (p playSorter) Len() int { return len(p.moves) }
@@ -257,13 +256,13 @@ func (s *Solver) makeGameCopies() error {
 		mg := movegen.NewGordonGenerator(gaddag, s.gameCopies[i].Board(), s.gameCopies[i].Bag().LetterDistribution())
 		mg.SetSortingParameter(movegen.SortByNone)
 		mg.SetGenPass(true)
-		mg.SetPlayRecorder(movegen.AllMinimalPlaysRecorder)
+		mg.SetPlayRecorder(movegen.AllPlaysRecorder)
 		s.movegens = append(s.movegens, mg)
 	}
 	return nil
 }
 
-func (s *Solver) generateSTMPlays(depth int, thread int) []*move.MinimalMove {
+func (s *Solver) generateSTMPlays(depth int, thread int) []*move.Move {
 	// STM means side-to-move
 	g := s.game
 	mg := s.stmMovegen
@@ -280,11 +279,12 @@ func (s *Solver) generateSTMPlays(depth int, thread int) []*move.MinimalMove {
 	ld := g.Bag().LetterDistribution()
 	genPlays := mg.GenAll(stmRack, false)
 
-	moves := make([]*move.MinimalMove, len(genPlays))
+	moves := make([]*move.Move, len(genPlays))
 	estimates := make([]int16, len(genPlays))
 	lastMoveWasPass := g.ScorelessTurns() > g.LastScorelessTurns()
 	for idx := range genPlays {
-		p := genPlays[idx].(*move.MinimalMove).Copy()
+		p := &move.Move{}
+		p.CopyFrom(genPlays[idx])
 		moves[idx] = p
 		if p.TilesPlayed() == int(numTilesOnRack) {
 			estimates[idx] = int16(p.Score() + 2*otherRack.ScoreOn(ld))
@@ -295,9 +295,9 @@ func (s *Solver) generateSTMPlays(depth int, thread int) []*move.MinimalMove {
 		}
 		if s.killerPlayOptim {
 			// Force killer plays to be searched first.
-			if p.Equals(s.killers[depth][0]) {
+			if p.Equals(s.killers[depth][0], false, false) {
 				estimates[idx] += Killer0Offset
-			} else if p.Equals(s.killers[depth][1]) {
+			} else if p.Equals(s.killers[depth][1], false, false) {
 				estimates[idx] += Killer1Offset
 			}
 		}
@@ -346,9 +346,11 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 		g := errgroup.Group{}
 		cancels := make([]context.CancelFunc, s.threads)
 		for t := 1; t < s.threads; t++ {
-			playsCopy := make([]*move.MinimalMove, len(plays))
+			playsCopy := make([]*move.Move, len(plays))
 			for i, play := range plays {
-				playsCopy[i] = play.Copy()
+				p := &move.Move{}
+				p.CopyFrom(play)
+				playsCopy[i] = p
 			}
 			t := t
 			p := p
@@ -437,8 +439,8 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 
 }
 
-func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, plies int) (
-	[]*move.MinimalMove, error) {
+func (s *Solver) searchMoves(ctx context.Context, moves []*move.Move, plies int) (
+	[]*move.Move, error) {
 	// negamax for every move.
 	g := s.game
 
@@ -473,7 +475,7 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 
 	for idx, m := range moves {
 		if s.logStream != nil {
-			fmt.Fprintf(s.logStream, "  - play: %v\n", m.ShortDescription(g.Alphabet()))
+			fmt.Fprintf(s.logStream, "  - play: %v\n", m.ShortDescription())
 		}
 
 		err := g.PlayMove(m, false, 0)
@@ -516,13 +518,13 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.MinimalMove, pli
 		return sols[j].score < sols[i].score
 	})
 	log.Debug().Int("nodeCt", nodeCt).Msg("main-search-routine-ending")
-	return lo.Map(sols, func(item *solution, idx int) *move.MinimalMove {
+	return lo.Map(sols, func(item *solution, idx int) *move.Move {
 		return item.m
 	}), nil
 }
 
-func (s *Solver) storeKiller(ply int, move *move.MinimalMove) {
-	if !move.Equals(s.killers[ply][0]) {
+func (s *Solver) storeKiller(ply int, move *move.Move) {
+	if !move.Equals(s.killers[ply][0], false, false) {
 		s.killers[ply][1] = s.killers[ply][0]
 		s.killers[ply][0] = move
 	}
@@ -589,7 +591,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	}
 	for _, child := range children {
 		if s.logStream != nil {
-			fmt.Fprintf(s.logStream, "  %v- play: %v\n", strings.Repeat(" ", indent), child.ShortDescription(g.Alphabet()))
+			fmt.Fprintf(s.logStream, "  %v- play: %v\n", strings.Repeat(" ", indent), child.ShortDescription())
 		}
 		err := g.PlayMove(child, false, 0)
 		if err != nil {
@@ -707,13 +709,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	wg.Wait()
 	// Go down tree and find best variation:
 
-	bestSeq = make([]*move.Move, len(s.principalVariation.Moves))
-	for i := 0; i < len(bestSeq); i++ {
-		m := &move.Move{}
-		m.SetAlphabet(s.game.Alphabet())
-		s.principalVariation.Moves[i].CopyToMove(m)
-		bestSeq[i] = m
-	}
+	bestSeq = s.principalVariation.Moves
 	bestV = s.bestPVValue
 	log.Info().
 		Uint64("ttable-created", s.ttable.created).
@@ -751,13 +747,7 @@ func (s *Solver) QuickAndDirtySolve(ctx context.Context, plies int) (int16, []*m
 		log.Err(err).Msg("error iteratively deepening")
 	}
 
-	bestSeq = make([]*move.Move, len(s.principalVariation.Moves))
-	for i := 0; i < len(bestSeq); i++ {
-		m := &move.Move{}
-		m.SetAlphabet(s.game.Alphabet())
-		s.principalVariation.Moves[i].CopyToMove(m)
-		bestSeq[i] = m
-	}
+	bestSeq = s.principalVariation.Moves
 	bestV = s.bestPVValue
 	log.Debug().
 		Uint64("ttable-created", s.ttable.created).

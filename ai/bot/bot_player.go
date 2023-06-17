@@ -121,7 +121,7 @@ func (p *BotTurnPlayer) GenerateMoves(numPlays int) []*move.Move {
 	gen.SetPlayRecorder(movegen.AllPlaysRecorder)
 	gen.GenAll(curRack, p.Bag().TilesRemaining() >= game.ExchangeLimit)
 
-	plays := gen.(*movegen.GordonGenerator).PlayMoves()
+	plays := gen.(*movegen.GordonGenerator).Plays()
 
 	p.AssignEquity(plays, p.Board(), p.Bag(), oppRack)
 	if numPlays == 1 {
