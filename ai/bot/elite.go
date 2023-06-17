@@ -93,10 +93,9 @@ func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move
 	// make a copy of the game.
 	gameCopy := p.Game.Copy()
 	gameCopy.SetBackupMode(game.SimulationMode)
-	gameCopy.SetStateStackLength(endgamePlies)
+	gameCopy.SetStateStackLength(endgamePlies + 1)
 	gen1 := movegen.NewGordonGenerator(gd, gameCopy.Board(), p.Game.Rules().LetterDistribution())
-	gen2 := movegen.NewGordonGenerator(gd, gameCopy.Board(), p.Game.Rules().LetterDistribution())
-	err = p.endgamer.Init(gen1, gen2, gameCopy, p.Game.Config())
+	err = p.endgamer.Init(gen1, gameCopy)
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +103,7 @@ func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move
 	if err != nil {
 		return nil, err
 	}
-	log.Debug().Float32("best-endgame-val", v).Interface("seq", seq).Msg("endgame-solve-done")
+	log.Debug().Int16("best-endgame-val", v).Interface("seq", seq).Msg("endgame-solve-done")
 	return seq[0], nil
 }
 

@@ -1,7 +1,6 @@
 package movegen
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -246,8 +245,9 @@ func TestOneMoreRowGen(t *testing.T) {
 			len(generator.plays), 1)
 	}
 	m := generator.plays[0]
-	if m.ShortDescription() != " 1L .A" {
-		t.Errorf("Expected 1L .A, got %v", m.ShortDescription())
+	d := m.ShortDescription()
+	if d != " 1L .A" {
+		t.Errorf("Expected 1L .A, got %v", d)
 	}
 }
 
@@ -439,7 +439,6 @@ func TestGenAllMovesWithBlanks(t *testing.T) {
 	// There are 7 plays worth 32 pts.
 	rewards := 0
 	for i := 2; i < 9; i++ {
-		fmt.Println(generator.plays[i].ShortDescription(), generator.plays[i].Score())
 		assert.Equal(t, 32, generator.plays[i].Score())
 		if generator.plays[i].Tiles().UserVisiblePlayedTiles(alph) == "rEW..DS" {
 			rewards = i
@@ -568,6 +567,27 @@ func TestRowEquivalent(t *testing.T) {
 	assert.True(t, bd.Equals(bd2))
 }
 
+func TestAtLeastOneTileMove(t *testing.T) {
+	is := is.New(t)
+
+	gd, err := GaddagFromLexicon("America")
+	is.NoErr(err)
+	alph := gd.GetAlphabet()
+	bd := board.MakeBoard(board.CrosswordGameBoard)
+	ld, err := tilemapping.EnglishLetterDistribution(&DefaultConfig)
+	is.NoErr(err)
+	generator := NewGordonGenerator(gd, bd, ld)
+	bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
+	cross_set.GenAllCrossSets(bd, gd, ld)
+
+	rack := tilemapping.RackFromString("AABDELT", alph)
+
+	is.True(generator.AtLeastOneTileMove(rack))
+	rackQ := tilemapping.RackFromString("Q", alph)
+	is.True(!generator.AtLeastOneTileMove(rackQ))
+
+}
+
 // Note about the comments on the following benchmarks:
 // The benchmarks are a bit slower now. This largely comes
 // from the sorting / equity stuff that wasn't there before.
@@ -631,11 +651,35 @@ func BenchmarkJustMovegen(b *testing.B) {
 	b.ResetTimer()
 	rack := tilemapping.RackFromString("AABDELT", alph)
 	for i := 0; i < b.N; i++ {
-		// Benchmark run 2022-08-13 on M1 MBP (Docker not running):
-		// go 1.18
+		// themonolith
+		// go 1.20
 
-		// 3349	    334262 ns/op	  147152 B/op	    2991 allocs/op
+		// 9517	    117747 ns/op	       0 B/op	       0 allocs/op
 		generator.GenAll(rack, true)
+	}
+}
+
+func BenchmarkAtLeastOneTileMove(b *testing.B) {
+	is := is.New(b)
+
+	gd, err := GaddagFromLexicon("America")
+	is.NoErr(err)
+	alph := gd.GetAlphabet()
+	bd := board.MakeBoard(board.CrosswordGameBoard)
+	ld, err := tilemapping.EnglishLetterDistribution(&DefaultConfig)
+	is.NoErr(err)
+	generator := NewGordonGenerator(gd, bd, ld)
+	bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
+	cross_set.GenAllCrossSets(bd, gd, ld)
+	b.ReportAllocs()
+	b.ResetTimer()
+	rack := tilemapping.RackFromString("AABDELT", alph)
+	for i := 0; i < b.N; i++ {
+		// themonolith
+		// go 1.20
+
+		// 2416358	       485.4 ns/op	      16 B/op	       1 allocs/op
+		generator.AtLeastOneTileMove(rack)
 	}
 }
 

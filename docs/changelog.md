@@ -1,3 +1,8 @@
+# v0.7.0 (Jun 16, 2023)
+- Many bug fixes from the last refactor
+- Significant (can be 20X or more) speed increase in endgame engine for complex endgames.
+- Allow endgames to be multi-threaded. (Use up to 3-4 threads. Any more makes it slower).
+
 # v0.6.0 (Mar 19, 2023)
 - Significant refactoring
 - Support multi-letter tiles (for Catalan)

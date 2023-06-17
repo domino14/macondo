@@ -16,7 +16,8 @@ About:
     For a large number of endgames, minimax search will finish rapidly and this
     will be a good approach. For more complex endgames, for example involving
     1-tile plays, or blanks, the tree will be very wide and the endgame algorithm
-    will be very slow.
+    can be very slow. Transposition tables (on by default) should help a lot in these
+    cases.
 
     We use iterative deepening, which allows you to get a decent answer very
     quickly, and with further time, this answer will be improved, as the algorithm
@@ -35,11 +36,11 @@ Options:
     -plies 25 
 
     The above option will look 25 plies deep. As plies go up, the endgame
-    solver often allocates and takes exponentially longer. However, there 
-    are exceptions, especially if the endgame doesn't have many choices,
-    or if we are deeper into the endgame where each player only has a few tiles
-    left. In this case it is possible that the latter plies will be searched
-    very fast, because there is nothing else to search.
+    solver takes exponentially longer. However, there are exceptions, 
+    especially if the endgame doesn't have many choices, or if we are deeper
+    into the endgame where each player only has a few tiles left. In this 
+    case it is possible that the latter plies will be searched very fast, because 
+    there is nothing else to search.
 
     -maxtime 120
 
@@ -54,14 +55,34 @@ Options:
     are time-limited, it is likely that the first few answers will be good
     enough for many endgames.
 
-    -complex-estimator true
+    -killer-optim true
 
-    This option will turn on the complex estimator. By default, the endgame
-    solver has an estimator that takes into account plays that are blocked and
-    does some hand-wavy math to try to rank plays. It is very important in an
-    alpha-beta minimax search to try to estimate the values of plays accurately.
+    A "Killer" play is a play that caused a Beta cut-off. We consider it first when 
+    looking at similar trees. Killer play optimization is off by default,
+    as it did not seem to help a great deal when we tested it.
 
-    However, in practice, the complex estimator often takes a significantly longer time
-    to run and doesn't provide a good enough benefit. It may be possible that some
-    endgames are solved a lot faster with this estimator though. It is worth
-    trying on endgames where someone is stuck with a tile.
+    -lazysmp-threads 3
+
+    Use LazySMP to recruit more cores to help solve the endgame. Our current
+    implementation has a sweet spot around 3 threads, which can result in a 2x or
+    more speedup. Any more and it actually starts to get slower. We will 
+    continue trying to improve this.
+
+    -disable-tt true
+
+    This option disables the transposition table. Transposition table can take
+    up a significant portion of your memory; we currently have it hard-coded around
+    25% of total RAM. However, it can greatly speed up many stuck tile endgames
+    and is also needed for multithreading (see lazysmp-threads option).
+
+    -first-win-optim true
+
+    Apply a "first win optimization". No need to find the very best play.
+    If we find a sure win, return it right away. Important notes for 
+    this mode:
+    
+    1) player scores actually matter if this option is on, and if the game is 
+    unwinnable for a player, this will just do a fully exhaustive search to confirm 
+    this.
+    2) if this mode cannot find a win, it may return a slightly incorrect losing
+    sequence. Turn this mode off to accurately find the best losing sequence.

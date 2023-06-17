@@ -36,6 +36,8 @@ type MoveGenerator interface {
 	Plays() []*move.Move
 	SetPlayRecorder(pf PlayRecorderFunc)
 	SetEquityCalculators([]equity.EquityCalculator)
+	AtLeastOneTileMove(rack *tilemapping.Rack) bool
+	SetGenPass(bool)
 }
 
 // GordonGenerator is the main move generation struct. It implements
@@ -77,6 +79,9 @@ type GordonGenerator struct {
 	winner      *move.Move
 	placeholder *move.Move
 	game        *game.Game
+
+	genPass   bool
+	quitEarly bool
 }
 
 // NewGordonGenerator returns a Gordon move generator.
@@ -118,30 +123,27 @@ func (gen *GordonGenerator) SetGame(g *game.Game) {
 	gen.game = g
 }
 
+func (gen *GordonGenerator) SetGenPass(p bool) {
+	gen.genPass = p
+}
+
 // GenAll generates all moves on the board. It assumes anchors have already
 // been updated, as well as cross-sets / cross-scores.
 func (gen *GordonGenerator) GenAll(rack *tilemapping.Rack, addExchange bool) []*move.Move {
 	gen.winner.SetEmpty()
-
+	gen.quitEarly = false
 	gen.plays = gen.plays[:0]
-
-	orientations := [2]board.BoardDirection{
-		board.HorizontalDirection, board.VerticalDirection}
-
-	// Once for each orientation
-	for idx, dir := range orientations {
-		gen.vertical = idx%2 != 0
-		gen.genByOrientation(rack, dir)
-		gen.board.Transpose()
-	}
+	gen.vertical = false
+	gen.genByOrientation(rack, board.HorizontalDirection)
+	gen.board.Transpose()
+	gen.vertical = true
+	gen.genByOrientation(rack, board.VerticalDirection)
+	gen.board.Transpose()
 
 	// Only add a pass move if nothing else is possible. Note: in endgames,
-	// we will have to add a pass move another way (if it's a strategic pass).
-	// Probably in the endgame package.
-	if len(gen.plays) == 0 {
-		tilesOnRack := rack.TilesOn()
-		passMove := move.NewPassMove(tilesOnRack, rack.Alphabet())
-		gen.plays = append(gen.plays, passMove)
+	// we can have strategic passes. Check genPass variable as well.
+	if len(gen.plays) == 0 || gen.genPass {
+		gen.playRecorder(gen, rack, 0, 0, move.MoveTypePass)
 	} else if len(gen.plays) > 1 {
 		switch gen.sortingParameter {
 		case SortByScore:
@@ -159,6 +161,34 @@ func (gen *GordonGenerator) GenAll(rack *tilemapping.Rack, addExchange bool) []*
 		gen.generateExchangeMoves(rack, 0, 0)
 	}
 	return gen.plays
+}
+
+// AtLeastOneTileMove generates moves. We don't care what they are; return true
+// if there is at least one move that plays tiles, false otherwise.
+func (gen *GordonGenerator) AtLeastOneTileMove(rack *tilemapping.Rack) bool {
+	pr := gen.playRecorder
+	gen.quitEarly = false
+	defer gen.SetPlayRecorder(pr)
+
+	gen.SetPlayRecorder(
+		func(*GordonGenerator, *tilemapping.Rack, int, int, move.MoveType) {
+			gen.quitEarly = true
+		},
+	)
+
+	gen.plays = gen.plays[:0]
+	gen.vertical = false
+	gen.genByOrientation(rack, board.HorizontalDirection)
+
+	if gen.quitEarly {
+		return true
+	}
+	gen.board.Transpose()
+	gen.vertical = true
+	gen.genByOrientation(rack, board.VerticalDirection)
+	gen.board.Transpose()
+
+	return gen.quitEarly
 }
 
 func (gen *GordonGenerator) genByOrientation(rack *tilemapping.Rack, dir board.BoardDirection) {
@@ -182,6 +212,10 @@ func (gen *GordonGenerator) genByOrientation(rack *tilemapping.Rack, dir board.B
 // recursiveGen is an implementation of the Gordon Gen function.
 func (gen *GordonGenerator) recursiveGen(col int, rack *tilemapping.Rack,
 	nodeIdx uint32, leftstrip, rightstrip int, uniquePlay bool) {
+
+	if gen.quitEarly {
+		return
+	}
 
 	var csDirection board.BoardDirection
 	// If a letter L is already on this square, then goOn...
@@ -318,6 +352,7 @@ func (gen *GordonGenerator) goOn(curCol int, L tilemapping.MachineLetter,
 			gen.recursiveGen(curCol+1, rack, newNodeIdx, leftstrip, rightstrip, uniquePlay)
 		}
 	}
+
 }
 
 func (gen *GordonGenerator) crossDirection() board.BoardDirection {
@@ -359,4 +394,8 @@ func (gen *GordonGenerator) generateExchangeMoves(rack *tilemapping.Rack, ml til
 			rack.Add(ml)
 		}
 	}
+}
+
+func (gen *GordonGenerator) GADDAG() *kwg.KWG {
+	return gen.gaddag
 }

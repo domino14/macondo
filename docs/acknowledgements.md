@@ -8,3 +8,5 @@ The following people have helped during the development of Macondo. They have pr
 - Brian Sheppard
 - Erickson Smith
 - Noah Walton
+- KarelPeeters
+- Twipply

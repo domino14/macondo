@@ -23,7 +23,7 @@ import (
 	"github.com/domino14/macondo/automatic"
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/endgame/alphabeta"
+	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
@@ -114,13 +114,12 @@ type ShellController struct {
 	gameRunnerRunning bool
 	gameRunnerTicker  *time.Ticker
 
-	curTurnNum     int
-	gen            movegen.MoveGenerator
-	backupgen      movegen.MoveGenerator // used for endgame engine
-	curMode        Mode
-	endgameSolver  *alphabeta.Solver
-	curEndgameNode *alphabeta.GameNode
-	curPlayList    []*move.Move
+	curTurnNum    int
+	gen           movegen.MoveGenerator
+	backupgen     movegen.MoveGenerator // used for endgame engine
+	curMode       Mode
+	endgameSolver *negamax.Solver
+	curPlayList   []*move.Move
 }
 
 type Mode int

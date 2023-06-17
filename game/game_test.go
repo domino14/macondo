@@ -164,3 +164,25 @@ func TestPlayToTurnWithPhony(t *testing.T) {
 	is.Equal(g.RackFor(0).TilesOn().UserVisible(tilemapping.EnglishAlphabet()),
 		"EEHKNOQ")
 }
+
+func TestToCGP(t *testing.T) {
+	is := is.New(t)
+
+	rules, err := NewBasicGameRules(
+		&DefaultConfig, "CSW19", board.CrosswordGameLayout, "english",
+		CrossScoreOnly, "")
+	is.NoErr(err)
+	jsonFile, err := os.Open("./testdata/history1.json")
+	is.NoErr(err)
+	defer jsonFile.Close()
+
+	bytes, err := io.ReadAll(jsonFile)
+	is.NoErr(err)
+	gameHistory := &pb.GameHistory{}
+	err = json.Unmarshal(bytes, gameHistory)
+	is.NoErr(err)
+
+	g, err := NewFromHistory(gameHistory, rules, len(gameHistory.Events))
+	is.NoErr(err)
+	is.Equal(g.ToCGP(), "15/15/15/15/15/15/7DORMINE1/5IBEX6/15/15/15/15/15/15/15 EEHKNOQ/?DEMOOW 26/75 0 lex CSW19;")
+}

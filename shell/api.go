@@ -12,11 +12,11 @@ import (
 	"github.com/rs/zerolog/log"
 	"lukechampine.com/frand"
 
+	"github.com/domino14/macondo/endgame/negamax"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 
 	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/automatic"
-	"github.com/domino14/macondo/endgame/alphabeta"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
@@ -285,10 +285,11 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	}
 	plies := 4
 	var maxtime int
-	var maxnodes int
-	var disablePruning bool
+	var maxthreads = 1
 	var disableID bool
-	var complexEstimator bool
+	var disableTT bool
+	var enableFW bool
+	var enableKillerPlayOptim bool
 	var err error
 
 	if cmd.options["plies"] != "" {
@@ -305,28 +306,28 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 		}
 	}
 
-	if cmd.options["maxnodes"] != "" {
-		maxnodes, err = strconv.Atoi(cmd.options["maxnodes"])
+	if cmd.options["disable-id"] == "true" {
+		disableID = true
+	}
+	if cmd.options["disable-tt"] == "true" {
+		disableTT = true
+	}
+	if cmd.options["killer-optim"] == "true" {
+		enableKillerPlayOptim = true
+	}
+	if cmd.options["lazysmp-threads"] != "" {
+		maxthreads, err = strconv.Atoi(cmd.options["lazysmp-threads"])
 		if err != nil {
 			return nil, err
 		}
 	}
-
-	if cmd.options["disable-pruning"] == "true" {
-		disablePruning = true
+	if cmd.options["first-win-optim"] == "true" {
+		enableFW = true
 	}
-	if cmd.options["disable-id"] == "true" {
-		disableID = true
-	}
-	if cmd.options["complex-estimator"] == "true" {
-		complexEstimator = true
-	}
-
 	sc.showMessage(fmt.Sprintf(
-		"plies %v, maxtime %v, maxnodes %v",
-		plies, maxtime, maxnodes))
+		"plies %v, maxtime %v, threads %v",
+		plies, maxtime, maxthreads))
 
-	sc.game.SetStateStackLength(plies)
 	sc.game.SetBackupMode(game.SimulationMode)
 
 	defer func() {
@@ -342,16 +343,17 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 
 	// clear out the last value of this endgame node; gc should
 	// delete the tree.
-	sc.curEndgameNode = nil
-	sc.endgameSolver = new(alphabeta.Solver)
-	err = sc.endgameSolver.Init(sc.gen, sc.backupgen, sc.game.Game, sc.config)
+	sc.endgameSolver = new(negamax.Solver)
+	err = sc.endgameSolver.Init(sc.gen, sc.game.Game)
 	if err != nil {
 		return nil, err
 	}
 
 	sc.endgameSolver.SetIterativeDeepening(!disableID)
-	sc.endgameSolver.SetComplexEvaluator(complexEstimator)
-	sc.endgameSolver.SetPruningDisabled(disablePruning)
+	sc.endgameSolver.SetKillerPlayOptim(enableKillerPlayOptim)
+	sc.endgameSolver.SetTranspositionTableOptim(!disableTT)
+	sc.endgameSolver.SetThreads(maxthreads)
+	sc.endgameSolver.SetFirstWinOptim(enableFW)
 
 	sc.showMessage(sc.game.ToDisplayText())
 
@@ -359,8 +361,17 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	sc.showMessage(fmt.Sprintf("Best sequence has a spread difference of %v", val))
+	if !enableFW {
+		sc.showMessage(fmt.Sprintf("Best sequence has a spread difference of %v", val))
+	} else {
+		if val+int16(sc.game.CurrentSpread()) > 0 {
+			sc.showMessage("Win found!")
+		} else {
+			sc.showMessage("Win was not found.")
+		}
+		sc.showMessage(fmt.Sprintf("Spread diff: %v. Note: this sequence may not be correct. Turn off first-win-optim to search more accurately.", val))
+	}
+	sc.showMessage(fmt.Sprintf("Final spread after seq: %d", val+int16(sc.game.CurrentSpread())))
 	sc.printEndgameSequence(seq)
 	return nil, nil
 }

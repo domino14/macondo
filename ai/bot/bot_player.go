@@ -6,12 +6,13 @@ import (
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/endgame/alphabeta"
+	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/rangefinder"
 	"github.com/domino14/macondo/turnplayer"
 )
@@ -26,7 +27,7 @@ type BotConfig struct {
 type BotTurnPlayer struct {
 	aiturnplayer.AIStaticTurnPlayer
 	botType     pb.BotRequest_BotCode
-	endgamer    *alphabeta.Solver
+	endgamer    *negamax.Solver
 	simmer      *montecarlo.Simmer
 	simmerCalcs []equity.EquityCalculator
 	simThreads  int
@@ -100,7 +101,7 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 		}
 	}
 	if hasEndgame(botType) {
-		btp.endgamer = &alphabeta.Solver{}
+		btp.endgamer = &negamax.Solver{}
 	}
 	if HasInfer(botType) {
 		btp.inferencer = &rangefinder.RangeFinder{}
@@ -115,7 +116,7 @@ func (p *BotTurnPlayer) GenerateMoves(numPlays int) []*move.Move {
 	gen := p.MoveGenerator()
 	gen.GenAll(curRack, p.Bag().TilesRemaining() >= game.ExchangeLimit)
 
-	plays := gen.Plays()
+	plays := gen.(*movegen.GordonGenerator).Plays()
 
 	p.AssignEquity(plays, p.Board(), p.Bag(), oppRack)
 	if numPlays == 1 {

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tilemapping"
@@ -456,7 +458,6 @@ func (g *GameBoard) TraverseBackwardsForScore(row int, col int, ld *tilemapping.
 
 func (g *GameBoard) updateAnchorsForMove(m *move.Move) {
 	row, col, vertical := m.CoordsAndVertical()
-
 	if vertical {
 		// Transpose the logic, but NOT the board. The updateAnchors function
 		// assumes the board is not transposed.
@@ -841,4 +842,35 @@ func (g *GameBoard) GetTilesPlayed() int {
 
 func (g *GameBoard) TestSetTilesPlayed(n int) {
 	g.tilesPlayed = n
+}
+
+// ToFEN converts the game board to a FEN string, which is the board component
+// of the CGP data format. See cgp directory for more info.
+func (g *GameBoard) ToFEN(alph *tilemapping.TileMapping) string {
+	var bd strings.Builder
+	for i := 0; i < g.dim; i++ {
+		var r strings.Builder
+		zeroCt := 0
+		for j := 0; j < g.dim; j++ {
+			l := g.GetLetter(i, j)
+			if l == 0 {
+				zeroCt++
+				continue
+			}
+			// Otherwise, it's a letter.
+			if zeroCt > 0 {
+				r.WriteString(strconv.Itoa(zeroCt))
+				zeroCt = 0
+			}
+			r.WriteString(l.UserVisible(alph, false))
+		}
+		if zeroCt > 0 {
+			r.WriteString(strconv.Itoa(zeroCt))
+		}
+		bd.WriteString(r.String())
+		if i != g.dim-1 {
+			bd.WriteString("/")
+		}
+	}
+	return bd.String()
 }
