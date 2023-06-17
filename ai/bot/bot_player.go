@@ -114,11 +114,6 @@ func (p *BotTurnPlayer) GenerateMoves(numPlays int) []*move.Move {
 	curRack := p.RackFor(p.PlayerOnTurn())
 	oppRack := p.RackFor(p.NextPlayer())
 	gen := p.MoveGenerator()
-	// re-set back to all-plays recorder, in case the movegen was re-used
-	// by the endgame engine that only uses "minimal moves".
-	// XXX: this is ugly, do we even need minimal moves?
-	gen.SetGenPass(false)
-	gen.SetPlayRecorder(movegen.AllPlaysRecorder)
 	gen.GenAll(curRack, p.Bag().TilesRemaining() >= game.ExchangeLimit)
 
 	plays := gen.(*movegen.GordonGenerator).Plays()
