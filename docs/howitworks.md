@@ -62,6 +62,12 @@ The picture below shows an example of a simple endgame and some generated nodes,
 
 ![Two-ply endgame example](assets/alphabeta.png "Sample alpha-beta nodes")
 
+We now use techniques such as transposition tables and aspiration windows to make search significantly faster. 
+
+For more info see:
+
+[https://www.cesardelsolar.com/posts/2023-06-14-scrabble-endgames-chess-techniques/](https://www.cesardelsolar.com/posts/2023-06-14-scrabble-endgames-chess-techniques/)
+
 ## Move Generator
 
 The move generator uses the GADDAG data structure, proposed in a 90s paper titled "A Faster Scrabble Move Generation Algorithm", by Steven Gordon.
