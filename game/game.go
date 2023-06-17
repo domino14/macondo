@@ -452,7 +452,7 @@ func convertToVisible(words []tilemapping.MachineWord,
 func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 
 	// We need to handle challenges separately.
-	if m.Type() == move.MoveTypeChallenge {
+	if m.Action() == move.MoveTypeChallenge {
 		_, err := g.ChallengeEvent(0, 0)
 		return err
 	}
@@ -469,7 +469,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		g.lastWordsFormed = wordsFormed
 	}
 
-	switch m.Type() {
+	switch m.Action() {
 	case move.MoveTypePlay:
 		ld := g.bag.LetterDistribution()
 		g.board.PlayMove(m, ld)

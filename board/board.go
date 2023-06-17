@@ -457,9 +457,7 @@ func (g *GameBoard) TraverseBackwardsForScore(row int, col int, ld *tilemapping.
 }
 
 func (g *GameBoard) updateAnchorsForMove(m *move.Move) {
-	row := m.RowStart()
-	col := m.ColStart()
-	vertical := m.Vertical()
+	row, col, vertical := m.CoordsAndVertical()
 	if vertical {
 		// Transpose the logic, but NOT the board. The updateAnchors function
 		// assumes the board is not transposed.
@@ -487,9 +485,7 @@ func (g *GameBoard) updateAnchorsForMove(m *move.Move) {
 }
 
 func (g *GameBoard) PlaceMoveTiles(m *move.Move) {
-	rowStart := m.RowStart()
-	colStart := m.ColStart()
-	vertical := m.Vertical()
+	rowStart, colStart, vertical := m.CoordsAndVertical()
 	var row, col int
 	for idx, tile := range m.Tiles() {
 		if tile == 0 {
@@ -529,7 +525,7 @@ func (g *GameBoard) UnplaceMoveTiles(m *move.Move) {
 func (g *GameBoard) PlayMove(m *move.Move, ld *tilemapping.LetterDistribution) {
 
 	// g.playHistory = append(g.playHistory, m.ShortDescription())
-	if m.Type() != move.MoveTypePlay {
+	if m.Action() != move.MoveTypePlay {
 		return
 	}
 	g.PlaceMoveTiles(m)
@@ -627,13 +623,13 @@ func (g *GameBoard) FormedWords(m *move.Move) ([]tilemapping.MachineWord, error)
 	words := []tilemapping.MachineWord{nil}
 	mainWord := []tilemapping.MachineLetter{}
 
-	row, col, vertical := m.RowStart(), m.ColStart(), m.Vertical()
+	row, col, vertical := m.CoordsAndVertical()
 	ri, ci := 0, 1
 	if vertical {
 		ri, ci = ci, ri
 	}
 
-	if m.Type() != move.MoveTypePlay {
+	if m.Action() != move.MoveTypePlay {
 		return nil, errors.New("function must be called with a tile placement play")
 	}
 

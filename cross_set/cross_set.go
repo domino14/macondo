@@ -82,9 +82,7 @@ func calcForSelf(rowStart int, colStart int, csd board.BoardDirection,
 func updateForMove(g Generator, b *Board, m *move.Move) {
 
 	// log.Trace().Msgf("Updating for move: %s", m.ShortDescription())
-	row := m.RowStart()
-	col := m.ColStart()
-	vertical := m.Vertical()
+	row, col, vertical := m.CoordsAndVertical()
 	// Every tile placed by this new move creates new "across" words, and we need
 	// to update the cross sets on both sides of these across words, as well
 	// as the cross sets for THIS word.

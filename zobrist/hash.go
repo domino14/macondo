@@ -99,8 +99,8 @@ func (z *Zobrist) AddMove(key uint64, m *move.Move, wasOurMove bool,
 	if !wasOurMove {
 		rackTable = z.theirRackTable
 	}
-	if m.Type() == move.MoveTypePlay {
-		row, col, vertical := m.RowStart(), m.ColStart(), m.Vertical()
+	if m.Action() == move.MoveTypePlay {
+		row, col, vertical := m.CoordsAndVertical()
 		ri, ci := 0, 1
 		if vertical {
 			ri, ci = 1, 0

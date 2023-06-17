@@ -410,22 +410,6 @@ func (m *Move) CoordsAndVertical() (int, int, bool) {
 	return m.rowStart, m.colStart, m.vertical
 }
 
-func (m *Move) ColStart() int {
-	return m.colStart
-}
-
-func (m *Move) RowStart() int {
-	return m.rowStart
-}
-
-func (m *Move) Vertical() bool {
-	return m.vertical
-}
-
-func (m *Move) Type() MoveType {
-	return m.action
-}
-
 func (m *Move) BoardCoords() string {
 	return ToBoardGameCoords(m.rowStart, m.colStart, m.vertical)
 }

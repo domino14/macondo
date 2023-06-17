@@ -301,17 +301,13 @@ func (s *Solver) generateSTMPlays(depth int, thread int) []*move.Move {
 				estimates[idx] += Killer1Offset
 			}
 		}
-		if s.earlyPassOptim && lastMoveWasPass && p.Type() == move.MoveTypePass {
+		if s.earlyPassOptim && lastMoveWasPass && p.Action() == move.MoveTypePass {
 			estimates[idx] += EarlyPassOffset
 		}
 	}
 	sorter := &playSorter{estimates: estimates, moves: moves}
 	sort.Sort(sorter)
 
-	// if len(nodes) == 1 && nodes[0].Type() == move.MoveTypePass {
-	// 	nodes[0].onlyPassPossible = true
-	// }
-	// return nodes
 	return sorter.moves
 }
 

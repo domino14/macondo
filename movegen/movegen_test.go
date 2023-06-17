@@ -47,13 +47,13 @@ func Filter(moves []*move.Move, f func(*move.Move) bool) []*move.Move {
 
 func scoringPlays(moves []*move.Move) []*move.Move {
 	return Filter(moves, func(m *move.Move) bool {
-		return m.Type() == move.MoveTypePlay
+		return m.Action() == move.MoveTypePlay
 	})
 }
 
 func nonScoringPlays(moves []*move.Move) []*move.Move {
 	return Filter(moves, func(m *move.Move) bool {
-		return m.Type() != move.MoveTypePlay
+		return m.Action() != move.MoveTypePlay
 	})
 }
 
@@ -539,7 +539,7 @@ func TestGenerateNoPlays(t *testing.T) {
 	// V won't play anywhere
 	assert.Equal(t, 0, len(scoringPlays(generator.plays)))
 	assert.Equal(t, 1, len(nonScoringPlays(generator.plays)))
-	assert.Equal(t, move.MoveTypePass, generator.plays[0].Type())
+	assert.Equal(t, move.MoveTypePass, generator.plays[0].Action())
 }
 
 func TestRowEquivalent(t *testing.T) {

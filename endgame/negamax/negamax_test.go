@@ -245,7 +245,7 @@ func TestPassFirst(t *testing.T) {
 	v, seq, _ := s.Solve(context.Background(), plies)
 
 	is.Equal(v, int16(-60))
-	is.Equal(seq[0].Type(), move.MoveTypePass)
+	is.Equal(seq[0].Action(), move.MoveTypePass)
 	is.Equal(len(seq), 6)
 }
 
