@@ -15,12 +15,12 @@ const (
 	TTUpper = 0x03
 )
 
-const entrySize = 8
+const entrySize = 16
 
 const bottom3ByteMask = (1 << 24) - 1
 const depthMask = (1 << 6) - 1
 
-// 8 bytes (entrySize)
+// 16 bytes (entrySize)
 type TableEntry struct {
 	// Don't store the full hash, but the top 5 bytes. The bottom 3 bytes
 	// can be determined from the bucket in the array.
@@ -28,6 +28,7 @@ type TableEntry struct {
 	score        int16
 	fifthbyte    uint8
 	flagAndDepth uint8
+	play         TinyMove
 }
 
 // fullHash calculates the full 64-bit hash for this table entry, given the bottom
@@ -47,6 +48,10 @@ func (t TableEntry) depth() uint8 {
 func (t TableEntry) valid() bool {
 	// a table flag is 1, 2, or 3.
 	return t.flag() != 0
+}
+
+func (t TableEntry) move() TinyMove {
+	return t.play
 }
 
 type TableLock interface {
