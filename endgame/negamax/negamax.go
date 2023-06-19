@@ -48,6 +48,7 @@ const MaxKillers = 2
 const Killer0Offset = 20000
 const Killer1Offset = 19000
 const EarlyPassOffset = 21000
+const HashMoveOffset = 6000
 
 var (
 	ErrNoEndgameSolution = errors.New("no endgame solution found")
@@ -262,7 +263,7 @@ func (s *Solver) makeGameCopies() error {
 	return nil
 }
 
-func (s *Solver) generateSTMPlays(depth int, thread int) []*move.Move {
+func (s *Solver) generateSTMPlays(depth int, thread int, ttMove *move.Move) []*move.Move {
 	// STM means side-to-move
 	g := s.game
 	mg := s.stmMovegen
@@ -301,6 +302,10 @@ func (s *Solver) generateSTMPlays(depth int, thread int) []*move.Move {
 				estimates[idx] += Killer1Offset
 			}
 		}
+		if ttMove != nil && minimallyEqual(p, ttMove) {
+			estimates[idx] += HashMoveOffset
+		}
+		// XXX: should also verify validity of ttMove later.
 		if s.earlyPassOptim && lastMoveWasPass && p.Action() == move.MoveTypePass {
 			estimates[idx] += EarlyPassOffset
 		}
@@ -315,7 +320,7 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 	// Generate first layer of moves.
 	s.makeGameCopies()
 	log.Info().Int("threads", s.threads).Msg("using-lazy-smp")
-	plays := s.generateSTMPlays(0, 0)
+	plays := s.generateSTMPlays(0, 0, nil)
 	var err error
 	start := 1
 
@@ -414,7 +419,7 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 	}
 
 	// Generate first layer of moves.
-	plays := s.generateSTMPlays(0, 0)
+	plays := s.generateSTMPlays(0, 0, nil)
 	var err error
 	start := 1
 	if !s.iterativeDeepeningOptim {
@@ -550,6 +555,8 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	// The value should still be correct, though.
 	// Something like PVS might do better at keeping the PV intact.
 	alphaOrig := α
+	var ttMove *move.Move
+
 	if s.transpositionTableOptim {
 		ttEntry := s.ttable.lookup(nodeKey)
 		if ttEntry.valid() && ttEntry.depth() >= uint8(depth) {
@@ -567,6 +574,8 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			if α >= β {
 				return score, nil
 			}
+			// search hash move first.
+			ttMove = tinyMoveToMove(ttEntry.move(), g.Board())
 		}
 	}
 
@@ -579,12 +588,13 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	}
 	childPV := PVLine{g: g}
 
-	children := s.generateSTMPlays(depth, thread)
+	children := s.generateSTMPlays(depth, thread, ttMove)
 	bestValue := -HugeNumber
 	indent := 2 * (s.currentIDDepth - depth)
 	if s.logStream != nil {
 		fmt.Fprintf(s.logStream, "  %vplays:\n", strings.Repeat(" ", indent))
 	}
+	var bestMove *move.Move
 	for _, child := range children {
 		if s.logStream != nil {
 			fmt.Fprintf(s.logStream, "  %v- play: %v\n", strings.Repeat(" ", indent), child.ShortDescription())
@@ -608,6 +618,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		}
 		if -value > bestValue {
 			bestValue = -value
+			bestMove = child
 			pv.Update(child, childPV, bestValue-int16(s.initialSpread))
 		}
 		α = max(α, bestValue)
@@ -641,6 +652,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			flag = TTExact
 		}
 		entryToStore.flagAndDepth = flag<<6 + uint8(depth)
+		entryToStore.play = moveToTinyMove(bestMove)
 		s.ttable.store(nodeKey, entryToStore)
 	}
 	return bestValue, nil
