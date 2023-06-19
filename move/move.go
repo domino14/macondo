@@ -46,7 +46,7 @@ type Move struct {
 
 	equity float64
 
-	valuation float32
+	estimatedValue int16 // used only for endgames
 
 	action   MoveType
 	vertical bool
@@ -156,7 +156,7 @@ func (m *Move) CopyFrom(other *Move) {
 	m.tilesPlayed = other.tilesPlayed
 	m.vertical = other.vertical
 
-	m.valuation = other.valuation
+	m.estimatedValue = other.estimatedValue
 	m.equity = other.equity
 }
 
@@ -165,14 +165,14 @@ func (m *Move) String() string {
 	switch m.action {
 	case MoveTypePlay:
 		return fmt.Sprintf(
-			"<%p action: play word: %v %v score: %v tp: %v leave: %v equity: %.3f valu: %.3f>",
+			"<%p action: play word: %v %v score: %v tp: %v leave: %v equity: %.3f valu: %d>",
 			m,
 			m.BoardCoords(), m.TilesString(), m.score,
-			m.tilesPlayed, m.LeaveString(), m.equity, m.valuation)
+			m.tilesPlayed, m.LeaveString(), m.equity, m.estimatedValue)
 	case MoveTypePass:
-		return fmt.Sprintf("<%p action: pass leave: %v equity: %.3f valu: %.3f>",
+		return fmt.Sprintf("<%p action: pass leave: %v equity: %.3f valu: %d>",
 			m,
-			m.LeaveString(), m.equity, m.valuation)
+			m.LeaveString(), m.equity, m.estimatedValue)
 	case MoveTypeExchange:
 		return fmt.Sprintf(
 			"<%p action: exchange %v score: %v tp: %v leave: %v equity: %.3f>",
@@ -180,11 +180,11 @@ func (m *Move) String() string {
 			m.TilesStringExchange(), m.score, m.tilesPlayed,
 			m.LeaveString(), m.equity)
 	case MoveTypeChallenge:
-		return fmt.Sprintf("<%p action: challenge leave: %v equity: %.3f valu: %.3f>",
+		return fmt.Sprintf("<%p action: challenge leave: %v equity: %.3f valu: %d>",
 			m,
-			m.LeaveString(), m.equity, m.valuation)
+			m.LeaveString(), m.equity, m.estimatedValue)
 	}
-	return fmt.Sprint("<Unhandled move>")
+	return "<Unhandled move>"
 
 }
 
@@ -383,15 +383,21 @@ func (m *Move) SetEquity(e float64) {
 	m.equity = e
 }
 
-// Valuation is the "value" of this move. This is an internal value that is used
-// in calculating endgames and other such metrics.
-func (m *Move) Valuation() float32 {
-	return m.valuation
+// EstimatedValue is an internal value that is used in calculating endgames and related metrics.
+func (m *Move) EstimatedValue() int16 {
+	return m.estimatedValue
 }
 
-// SetValuation sets the valuation of this move. It is calculated outside of this package.
-func (m *Move) SetValuation(v float32) {
-	m.valuation = v
+// SetEstimatedValue sets the estimated value of this move. It is calculated
+// outside of this package.
+func (m *Move) SetEstimatedValue(v int16) {
+	m.estimatedValue = v
+}
+
+// AddEstimatedValue adds an estimate to the existing estimated value of this
+// estimate. Estimate.
+func (m *Move) AddEstimatedValue(v int16) {
+	m.estimatedValue += v
 }
 
 func (m *Move) Score() int {

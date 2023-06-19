@@ -9,11 +9,10 @@ import (
 	"runtime"
 	"sort"
 	"strings"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog/log"
-	"github.com/samber/lo"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/domino14/macondo/game"
@@ -137,9 +136,10 @@ func (pvLine PVLine) NLBString() string {
 // }
 
 type Solver struct {
-	zobrist    *zobrist.Zobrist
-	stmMovegen movegen.MoveGenerator
-	game       *game.Game
+	zobrist      *zobrist.Zobrist
+	stmMovegen   movegen.MoveGenerator
+	game         *game.Game
+	initialMoves [][]*move.Move
 
 	gameCopies []*game.Game
 	movegens   []movegen.MoveGenerator
@@ -166,6 +166,7 @@ type Solver struct {
 	currentIDDepth int
 	requestedPlies int
 	threads        int
+	nodes          atomic.Uint64
 
 	logStream io.Writer
 }
@@ -219,20 +220,6 @@ func (s *Solver) Init(m movegen.MoveGenerator, game *game.Game) error {
 	return nil
 }
 
-type playSorter struct {
-	estimates []int16
-	moves     []*move.Move
-}
-
-func (p playSorter) Len() int { return len(p.moves) }
-func (p playSorter) Swap(i, j int) {
-	p.estimates[i], p.estimates[j] = p.estimates[j], p.estimates[i]
-	p.moves[i], p.moves[j] = p.moves[j], p.moves[i]
-}
-func (p playSorter) Less(i, j int) bool {
-	return p.estimates[j] < p.estimates[i]
-}
-
 func (s *Solver) SetThreads(threads int) {
 	switch {
 	case threads < 2:
@@ -263,7 +250,7 @@ func (s *Solver) makeGameCopies() error {
 	return nil
 }
 
-func (s *Solver) generateSTMPlays(depth int, thread int, ttMove *move.Move) []*move.Move {
+func (s *Solver) generateSTMPlays(depth, thread int) []*move.Move {
 	// STM means side-to-move
 	g := s.game
 	mg := s.stmMovegen
@@ -272,50 +259,67 @@ func (s *Solver) generateSTMPlays(depth int, thread int, ttMove *move.Move) []*m
 		mg = s.movegens[thread]
 		g = s.gameCopies[thread]
 	}
+	var genPlays []*move.Move
+
+	stmRack := g.RackFor(g.PlayerOnTurn())
+	if s.currentIDDepth == depth {
+		genPlays = s.initialMoves[thread]
+	} else {
+		plays := mg.GenAll(stmRack, false)
+		// movegen owns the plays array. Make a copy of these.
+		genPlays = make([]*move.Move, len(plays))
+		for idx := range plays {
+			genPlays[idx] = &move.Move{}
+			genPlays[idx].CopyFrom(plays[idx])
+		}
+	}
+	return genPlays
+}
+
+func (s *Solver) assignEstimates(moves []*move.Move, depth, thread int, ttMove *move.Move) {
+	g := s.game
+
+	if thread > 0 {
+		g = s.gameCopies[thread]
+	}
 
 	stmRack := g.RackFor(g.PlayerOnTurn())
 	pnot := (g.PlayerOnTurn() + 1) % g.NumPlayers()
 	otherRack := g.RackFor(pnot)
 	numTilesOnRack := stmRack.NumTiles()
 	ld := g.Bag().LetterDistribution()
-	genPlays := mg.GenAll(stmRack, false)
 
-	moves := make([]*move.Move, len(genPlays))
-	estimates := make([]int16, len(genPlays))
 	lastMoveWasPass := g.ScorelessTurns() > g.LastScorelessTurns()
-	for idx := range genPlays {
-		p := &move.Move{}
-		p.CopyFrom(genPlays[idx])
-		moves[idx] = p
+	for _, p := range moves {
 		if p.TilesPlayed() == int(numTilesOnRack) {
-			estimates[idx] = int16(p.Score() + 2*otherRack.ScoreOn(ld))
+			p.SetEstimatedValue(int16(p.Score() + 2*otherRack.ScoreOn(ld)))
 		} else if depth > 2 {
-			estimates[idx] = int16(p.Score() + 3*p.TilesPlayed())
+			p.SetEstimatedValue(int16(p.Score() + 3*p.TilesPlayed()))
 		} else {
-			estimates[idx] = int16(p.Score())
+			p.SetEstimatedValue(int16(p.Score()))
 		}
 		if s.killerPlayOptim {
 			// Force killer plays to be searched first.
 			if p.Equals(s.killers[depth][0], false, false) {
-				estimates[idx] += Killer0Offset
+				p.AddEstimatedValue(Killer0Offset)
 			} else if p.Equals(s.killers[depth][1], false, false) {
-				estimates[idx] += Killer1Offset
+				p.AddEstimatedValue(Killer1Offset)
 			}
 		}
 		if ttMove != nil && minimallyEqual(p, ttMove) {
-			estimates[idx] += HashMoveOffset
+			p.AddEstimatedValue(HashMoveOffset)
 		}
 		// XXX: should also verify validity of ttMove later.
 		if s.earlyPassOptim && lastMoveWasPass && p.Action() == move.MoveTypePass {
-			estimates[idx] += EarlyPassOffset
+			p.AddEstimatedValue(EarlyPassOffset)
 		}
 	}
-	sorter := &playSorter{estimates: estimates, moves: moves}
-	sort.Sort(sorter)
-
-	return sorter.moves
+	sort.Slice(moves, func(i int, j int) bool {
+		return moves[i].EstimatedValue() > moves[j].EstimatedValue()
+	})
 }
 
+/*
 func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error {
 	// Generate first layer of moves.
 	s.makeGameCopies()
@@ -372,15 +376,14 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 				// ignore the score for these helper threads; we're just
 				// using them to help build up the transposition table.
 				pv := PVLine{g: s.gameCopies[t]} // not being used for anything
-				nodeCt := 0
 				val, err := s.negamax(
 					// search a ply deeper for odd threads
 					helperCtx, initialHashKey, p+t%2, helperAlpha, helperBeta,
-					&pv, t, &nodeCt)
+					&pv, t)
 				if err != nil {
 					log.Debug().Msgf("Thread %d error %v", t, err)
 				}
-				log.Debug().Msgf("Thread %d done; nodeCt %d, val returned %d, pv %s", t, nodeCt, val, pv.NLBString())
+				log.Debug().Msgf("Thread %d done; val returned %d, pv %s", t, val, pv.NLBString())
 				return err
 			})
 		}
@@ -412,37 +415,14 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 	}
 	return nil
 }
-
+*/
+// iterativelyDeepen is single-threaded version.
 func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 	if s.lazySMPOptim {
-		return s.iterativelyDeepenLazySMP(ctx, plies)
+		return errors.New("not implemented")
+		// return s.iterativelyDeepenLazySMP(ctx, plies)
 	}
 
-	// Generate first layer of moves.
-	plays := s.generateSTMPlays(0, 0, nil)
-	var err error
-	start := 1
-	if !s.iterativeDeepeningOptim {
-		start = plies
-	}
-	for p := start; p <= plies; p++ {
-		log.Info().Int("plies", p).Msg("deepening-iteratively")
-		s.currentIDDepth = p
-		if s.logStream != nil {
-			fmt.Fprintf(s.logStream, "- ply: %d\n", p)
-		}
-		plays, err = s.searchMoves(ctx, plays, p)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-
-}
-
-func (s *Solver) searchMoves(ctx context.Context, moves []*move.Move, plies int) (
-	[]*move.Move, error) {
-	// negamax for every move.
 	g := s.game
 
 	initialHashKey := s.zobrist.Hash(
@@ -452,8 +432,6 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.Move, plies int)
 		false, g.ScorelessTurns(),
 	)
 
-	log.Info().Uint64("initialHashKey", initialHashKey).Msg("starting-zobrist-key")
-
 	α := -HugeNumber
 	β := HugeNumber
 	if s.firstWinOptim {
@@ -462,68 +440,128 @@ func (s *Solver) searchMoves(ctx context.Context, moves []*move.Move, plies int)
 		α = -1
 		β = 1
 	}
-	bestValue := -HugeNumber
-	sols := make([]*solution, len(moves))
-	for idx, m := range moves {
-		sols[idx] = &solution{m: m, score: -HugeNumber}
-	}
-	if s.logStream != nil {
-		fmt.Fprint(s.logStream, "  plays:\n")
-	}
-	pv := PVLine{g: g}
-	childPV := PVLine{g: g}
-	nodeCt := 0
 
-	for idx, m := range moves {
+	// Generate first layer of moves.
+	s.currentIDDepth = -1 // so that generateSTMPlays generates all moves first properly.
+	s.initialMoves = make([][]*move.Move, 1)
+	s.initialMoves[0] = s.generateSTMPlays(0, 0)
+	// assignEstimates for the very first time around.
+	s.assignEstimates(s.initialMoves[0], 0, 0, nil)
+	start := 1
+	if !s.iterativeDeepeningOptim {
+		start = plies
+	}
+
+	for p := start; p <= plies; p++ {
+		log.Info().Int("plies", p).Msg("deepening-iteratively")
+		s.currentIDDepth = p
 		if s.logStream != nil {
-			fmt.Fprintf(s.logStream, "  - play: %v\n", m.ShortDescription())
+			fmt.Fprintf(s.logStream, "- ply: %d\n", p)
 		}
-
-		err := g.PlayMove(m, false, 0)
+		pv := PVLine{g: g}
+		val, err := s.negamax(ctx, initialHashKey, p, α, β, &pv, 0)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		childKey := s.zobrist.AddMove(initialHashKey, m, true, g.ScorelessTurns(), g.LastScorelessTurns())
-		score, err := s.negamax(ctx, childKey, plies-1, -β, -α, &childPV, 0, &nodeCt)
-		if err != nil {
-			g.UnplayLastMove()
-			return nil, err
-		}
-		sols[idx].score = -score
-		g.UnplayLastMove()
-
-		if s.logStream != nil {
-			fmt.Fprintf(s.logStream, "    value: %v\n", score)
-		}
-
-		if sols[idx].score > bestValue {
-			bestValue = sols[idx].score
-			pv.Update(m, childPV, sols[idx].score-int16(s.initialSpread))
-			s.principalVariation = pv
-			s.bestPVValue = sols[idx].score - int16(s.initialSpread)
-			log.Info().Str("pv", pv.NLBString()).Msg("potential-pv")
-		}
-		α = max(α, bestValue)
-		if s.logStream != nil {
-			fmt.Fprintf(s.logStream, "    α: %v\n", α)
-			fmt.Fprintf(s.logStream, "    β: %v\n", β)
-		}
-		childPV.Clear()
-		if bestValue >= β {
-			break
-		}
-		// log.Info().Msgf("Tried move %v, sol %f", m.ShortDescription(s.game.Alphabet()), sol.score)
+		log.Info().Int16("spread", val).Int("ply", p).Str("pv", pv.NLBString()).Msg("best-val")
+		// Sort top layer of moves by value for the next time around.
+		sort.Slice(s.initialMoves[0], func(i, j int) bool {
+			return s.initialMoves[0][i].EstimatedValue() > s.initialMoves[0][j].EstimatedValue()
+		})
+		s.principalVariation = pv
+		s.bestPVValue = val - int16(s.initialSpread)
 	}
-	// biggest to smallest
-	sort.Slice(sols, func(i, j int) bool {
-		return sols[j].score < sols[i].score
-	})
-	log.Debug().Int("nodeCt", nodeCt).Msg("main-search-routine-ending")
-	return lo.Map(sols, func(item *solution, idx int) *move.Move {
-		return item.m
-	}), nil
+	return nil
+
 }
 
+/*
+// searchMoves generates the first layer of plays, and calls negamax. If we want
+// to remove this function and just call negamax directly, we'll need to figure out
+// a way to keep the first ply of plays around
+func (s *Solver) searchMoves(ctx context.Context, moves []*move.Move, plies int) (
+
+		[]*move.Move, error) {
+		// negamax for every move.
+		g := s.game
+
+		initialHashKey := s.zobrist.Hash(
+			g.Board().GetSquares(),
+			g.RackFor(s.solvingPlayer),
+			g.RackFor(1-s.solvingPlayer),
+			false, g.ScorelessTurns(),
+		)
+
+		log.Info().Uint64("initialHashKey", initialHashKey).Msg("starting-zobrist-key")
+
+		α := -HugeNumber
+		β := HugeNumber
+		if s.firstWinOptim {
+			// Search a very small window centered around 0. We're just trying
+			// to find something that surpasses it.
+			α = -1
+			β = 1
+		}
+		bestValue := -HugeNumber
+		sols := make([]*solution, len(moves))
+		for idx, m := range moves {
+			sols[idx] = &solution{m: m, score: -HugeNumber}
+		}
+		if s.logStream != nil {
+			fmt.Fprint(s.logStream, "  plays:\n")
+		}
+		pv := PVLine{g: g}
+		childPV := PVLine{g: g}
+
+		for idx, m := range moves {
+			if s.logStream != nil {
+				fmt.Fprintf(s.logStream, "  - play: %v\n", m.ShortDescription())
+			}
+
+			err := g.PlayMove(m, false, 0)
+			if err != nil {
+				return nil, err
+			}
+			childKey := s.zobrist.AddMove(initialHashKey, m, true, g.ScorelessTurns(), g.LastScorelessTurns())
+			score, err := s.negamax(ctx, childKey, plies-1, -β, -α, &childPV, 0)
+			if err != nil {
+				g.UnplayLastMove()
+				return nil, err
+			}
+			sols[idx].score = -score
+			g.UnplayLastMove()
+
+			if s.logStream != nil {
+				fmt.Fprintf(s.logStream, "    value: %v\n", score)
+			}
+
+			if sols[idx].score > bestValue {
+				bestValue = sols[idx].score
+				pv.Update(m, childPV, sols[idx].score-int16(s.initialSpread))
+				s.principalVariation = pv
+				s.bestPVValue = sols[idx].score - int16(s.initialSpread)
+				log.Info().Str("pv", pv.NLBString()).Msg("potential-pv")
+			}
+			α = max(α, bestValue)
+			if s.logStream != nil {
+				fmt.Fprintf(s.logStream, "    α: %v\n", α)
+				fmt.Fprintf(s.logStream, "    β: %v\n", β)
+			}
+			childPV.Clear()
+			if bestValue >= β {
+				break
+			}
+			// log.Info().Msgf("Tried move %v, sol %f", m.ShortDescription(s.game.Alphabet()), sol.score)
+		}
+		// biggest to smallest
+		sort.Slice(sols, func(i, j int) bool {
+			return sols[j].score < sols[i].score
+		})
+		return lo.Map(sols, func(item *solution, idx int) *move.Move {
+			return item.m
+		}), nil
+	}
+*/
 func (s *Solver) storeKiller(ply int, move *move.Move) {
 	if !move.Equals(s.killers[ply][0], false, false) {
 		s.killers[ply][1] = s.killers[ply][0]
@@ -539,7 +577,7 @@ func (s *Solver) ClearKillers() {
 	}
 }
 
-func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β int16, pv *PVLine, thread int, nodeCt *int) (int16, error) {
+func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β int16, pv *PVLine, thread int) (int16, error) {
 	if ctx.Err() != nil {
 		return 0, ctx.Err()
 	}
@@ -588,7 +626,13 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	}
 	childPV := PVLine{g: g}
 
-	children := s.generateSTMPlays(depth, thread, ttMove)
+	children := s.generateSTMPlays(depth, thread)
+	if s.currentIDDepth != depth {
+		// If we're not at the top level, assign estimates. Otherwise,
+		// we assign the values as estimates in the loop below.
+		s.assignEstimates(children, depth, thread, ttMove)
+	}
+
 	bestValue := -HugeNumber
 	indent := 2 * (s.currentIDDepth - depth)
 	if s.logStream != nil {
@@ -603,11 +647,10 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		if err != nil {
 			return 0, err
 		}
-		// number of played moves is a decent proxy for node ct.
-		(*nodeCt)++
+		s.nodes.Add(1)
 		childKey := s.zobrist.AddMove(nodeKey, child, onTurn == s.solvingPlayer,
 			g.ScorelessTurns(), g.LastScorelessTurns())
-		value, err := s.negamax(ctx, childKey, depth-1, -β, -α, &childPV, thread, nodeCt)
+		value, err := s.negamax(ctx, childKey, depth-1, -β, -α, &childPV, thread)
 		if err != nil {
 			g.UnplayLastMove()
 			return value, err
@@ -621,6 +664,10 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			bestMove = child
 			pv.Update(child, childPV, bestValue-int16(s.initialSpread))
 		}
+		if s.currentIDDepth == depth {
+			child.SetEstimatedValue(-value)
+		}
+
 		α = max(α, bestValue)
 		if s.logStream != nil {
 			fmt.Fprintf(s.logStream, "  %v  α: %v\n", strings.Repeat(" ", indent), α)
@@ -686,10 +733,9 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	s.initialSpread = s.game.CurrentSpread()
 	s.solvingPlayer = s.game.PlayerOnTurn()
 	log.Debug().Msgf("Player %v spread at beginning of endgame: %v (%d)", s.solvingPlayer, s.initialSpread, s.game.ScorelessTurns())
-
+	s.nodes.Store(0)
 	var bestV int16
 	var bestSeq []*move.Move
-	var wg sync.WaitGroup
 	s.ClearKillers()
 
 	if !s.lazySMPOptim {
@@ -698,23 +744,36 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	// + 1 since lazysmp can search at a higher ply count
 	s.game.SetStateStackLength(plies + 1)
 
-	wg.Add(1)
+	g := &errgroup.Group{}
+	done := make(chan bool)
 
-	go func(ctx context.Context) {
-		defer wg.Done()
+	g.Go(func() error {
+		ticker := time.NewTicker(1 * time.Second)
+		var lastNodes uint64
+		for {
+			select {
+			case <-done:
+				return nil
+			case <-ticker.C:
+				nodes := s.nodes.Load()
+				log.Debug().Uint64("nps", nodes-lastNodes).Msg("nodes-per-second")
+				lastNodes = nodes
+			}
+		}
+
+	})
+
+	g.Go(func() error {
 		if s.lazySMPOptim && !s.iterativeDeepeningOptim {
-			log.Error().Msg("cannot use lazySMP if iterative deepening is off")
-			return
+			return errors.New("cannot use lazySMP if iterative deepening is off")
 		}
 		log.Debug().Msgf("Using iterative deepening with %v max plies", plies)
 		err := s.iterativelyDeepen(ctx, plies)
-		if err != nil {
-			log.Err(err).Msg("error iteratively deepening")
-		}
-	}(ctx)
+		done <- true
+		return err
+	})
 
-	var err error
-	wg.Wait()
+	err := g.Wait()
 	// Go down tree and find best variation:
 
 	bestSeq = s.principalVariation.Moves

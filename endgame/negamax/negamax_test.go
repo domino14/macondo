@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"runtime"
 	"testing"
 
 	"github.com/matryer/is"
@@ -116,7 +115,6 @@ func TestSolveComplex(t *testing.T) {
 // 7: H12 FLAM (49)
 
 func TestSolveOther3(t *testing.T) {
-	runtime.SetMutexProfileFraction(5)
 	plies := 14
 	is := is.New(t)
 	s, err := setUpSolver("NWL18", "english", board.VsJoey, plies, "DIV", "AEFILMR", 412, 371,
