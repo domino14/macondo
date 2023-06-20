@@ -253,6 +253,7 @@ func (s *Solver) generateSTMPlays(depth, thread int) []*move.Move {
 	stmRack := g.RackFor(g.PlayerOnTurn())
 	if s.currentIDDepths[thread] == depth {
 		genPlays = s.initialMoves[thread]
+
 	} else {
 		plays := mg.GenAll(stmRack, false)
 		// movegen owns the plays array. Make a copy of these.
@@ -310,6 +311,9 @@ func (s *Solver) assignEstimates(moves []*move.Move, depth, thread int, ttMove *
 
 func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error {
 	// Generate first layer of moves.
+	if plies < 2 {
+		return errors.New("use at least 2 plies")
+	}
 	s.makeGameCopies()
 	log.Info().Int("threads", s.threads).Msg("using-lazy-smp")
 	s.currentIDDepths = make([]int, s.threads)
@@ -335,7 +339,21 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 	s.initialMoves = make([][]*move.Move, s.threads)
 	s.initialMoves[0] = s.generateSTMPlays(0, 0)
 
-	// copy these moves to per-thread subarrays
+	// assignEstimates for the very first time around.
+	s.assignEstimates(s.initialMoves[0], 0, 0, nil)
+
+	pv := PVLine{g: s.game}
+	// Do initial search so that we can have a good estimate for
+	// move ordering.
+	s.currentIDDepths[0] = 1
+	s.negamax(ctx, initialHashKey, 1, α, β, &pv, 0)
+	// Sort the moves by valuation.
+	sort.Slice(s.initialMoves[0], func(i, j int) bool {
+		return s.initialMoves[0][i].EstimatedValue() > s.initialMoves[0][j].EstimatedValue()
+	})
+
+	// copy these moves to per-thread subarrays. This will also copy
+	// the initial estimated valuation and order.
 	for t := 1; t < s.threads; t++ {
 		s.initialMoves[t] = make([]*move.Move, len(s.initialMoves[0]))
 		for idx, m := range s.initialMoves[0] {
@@ -345,16 +363,7 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 		}
 	}
 
-	// assignEstimates for the very first time around.
-	for t := 0; t < s.threads; t++ {
-		s.assignEstimates(s.initialMoves[t], 0, 0, nil)
-	}
-	// pv := PVLine{g: s.game}
-	// Do initial search so that we can have a good estimate for
-	// move ordering.
-	// s.negamax(ctx, initialHashKey, 1, α, β, &pv, 0)
-
-	for p := 1; p <= plies; p++ {
+	for p := 2; p <= plies; p++ {
 		log.Info().Int("plies", p).Msg("deepening-iteratively")
 		s.currentIDDepths[0] = p
 		if s.logStream != nil {
@@ -398,6 +407,11 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 		}
 		pv := PVLine{g: s.game}
 		val, err := s.negamax(ctx, initialHashKey, p, α, β, &pv, 0)
+
+		sort.Slice(s.initialMoves[0], func(i, j int) bool {
+			return s.initialMoves[0][i].EstimatedValue() > s.initialMoves[0][j].EstimatedValue()
+		})
+
 		s.principalVariation = pv
 		s.bestPVValue = val - int16(s.initialSpread)
 		log.Info().Int16("spread", val).Int("ply", p).Str("pv", pv.NLBString()).Msg("best-val")
