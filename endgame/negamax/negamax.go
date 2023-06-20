@@ -304,9 +304,15 @@ func (s *Solver) assignEstimates(moves []*move.Move, depth, thread int, ttMove *
 			p.AddEstimatedValue(EarlyPassOffset)
 		}
 	}
+	// if thread <= 3 {
 	sort.Slice(moves, func(i int, j int) bool {
 		return moves[i].EstimatedValue() > moves[j].EstimatedValue()
 	})
+	// } else {
+	// 	frand.Shuffle(len(moves), func(i, j int) {
+	// 		moves[i], moves[j] = moves[j], moves[i]
+	// 	})
+	// }
 }
 
 func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error {
