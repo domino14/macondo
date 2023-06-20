@@ -14,6 +14,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
+	"lukechampine.com/frand"
 
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -253,7 +254,6 @@ func (s *Solver) generateSTMPlays(depth, thread int) []*move.Move {
 	stmRack := g.RackFor(g.PlayerOnTurn())
 	if s.currentIDDepths[thread] == depth {
 		genPlays = s.initialMoves[thread]
-
 	} else {
 		plays := mg.GenAll(stmRack, false)
 		// movegen owns the plays array. Make a copy of these.
@@ -402,6 +402,19 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 					log.Debug().Msgf("Thread %d error %v", t, err)
 				}
 				log.Debug().Msgf("Thread %d done; val returned %d, pv %s", t, val, pv.NLBString())
+				// Try a few schemes to really randomize stuff.
+				if t == 1 {
+					// sort after each iteration
+					sort.Slice(s.initialMoves[t], func(i, j int) bool {
+						return s.initialMoves[t][i].EstimatedValue() > s.initialMoves[t][j].EstimatedValue()
+					})
+				} else if t == 2 {
+					// do nothing, don't sort (use original order?)
+				} else {
+					frand.Shuffle(len(s.initialMoves[t]), func(i, j int) {
+						s.initialMoves[t][i], s.initialMoves[t][j] = s.initialMoves[t][j], s.initialMoves[t][i]
+					})
+				}
 				return err
 			})
 		}
