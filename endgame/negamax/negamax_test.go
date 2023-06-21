@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"runtime"
 	"testing"
 
 	"github.com/matryer/is"
@@ -116,15 +115,14 @@ func TestSolveComplex(t *testing.T) {
 // 7: H12 FLAM (49)
 
 func TestSolveOther3(t *testing.T) {
-	runtime.SetMutexProfileFraction(5)
 	plies := 14
 	is := is.New(t)
 	s, err := setUpSolver("NWL18", "english", board.VsJoey, plies, "DIV", "AEFILMR", 412, 371,
 		1)
 	is.NoErr(err)
 	s.lazySMPOptim = true
-	// sweet spot seems to be threads = 3 for now
-	s.threads = 3
+	// sweet spot seems to be threads = 8 for now
+	s.threads = 6
 	v, _, _ := s.Solve(context.Background(), plies)
 	is.Equal(v, int16(55))
 }

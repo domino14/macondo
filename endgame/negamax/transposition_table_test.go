@@ -29,16 +29,16 @@ func TestTTableEntry(t *testing.T) {
 	is.Equal(te.top4bytes, uint32(2190852907))
 	is.Equal(te.fifthbyte, uint8(61))
 
-	is.Equal(tt.t2collisions, uint64(0))
+	is.Equal(tt.t2collisions.Load(), uint64(0))
 	// create a collision
 	te = tt.lookup(9409641586953824944)
 	is.Equal(te, TableEntry{})
-	is.Equal(tt.t2collisions, uint64(1))
+	is.Equal(tt.t2collisions.Load(), uint64(1))
 
 	// another lookup, but this isn't a collision. collision count should not go up.
 	te = tt.lookup(9409641586937047728 + 1)
 	is.Equal(te, TableEntry{})
-	is.Equal(tt.lookups, uint64(3))
-	is.Equal(tt.t2collisions, uint64(1))
+	is.Equal(tt.lookups.Load(), uint64(3))
+	is.Equal(tt.t2collisions.Load(), uint64(1))
 
 }
