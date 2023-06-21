@@ -283,6 +283,9 @@ func (s *Solver) assignEstimates(moves []*move.Move, depth, thread int, ttMove *
 	for _, p := range moves {
 		if p.TilesPlayed() == int(numTilesOnRack) {
 			p.SetEstimatedValue(int16(p.Score() + 2*otherRack.ScoreOn(ld)))
+			// } else if thread == 4 {
+			// 	// Some handwavy LazySMP thing.
+			// 	p.SetEstimatedValue(int16(7 - p.TilesPlayed()))
 		} else if depth > 2 {
 			p.SetEstimatedValue(int16(p.Score() + 3*p.TilesPlayed()))
 		} else {
@@ -382,8 +385,8 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 		for t := 1; t < s.threads; t++ {
 			t := t
 			p := p
-			// search a ply deeper for odd threads
-			s.currentIDDepths[t] = p + t%2
+			// search to different plies for different threads
+			s.currentIDDepths[t] = p + t%3
 			helperCtx, cancel := context.WithCancel(ctx)
 			cancels[t-1] = cancel
 			helperAlpha := -HugeNumber
@@ -410,15 +413,25 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 				log.Debug().Msgf("Thread %d done; val returned %d, pv %s", t, val, pv.NLBString())
 				// Try a few schemes to really randomize stuff.
 				if t == 1 {
-					// sort after each iteration
 					sort.Slice(s.initialMoves[t], func(i, j int) bool {
 						return s.initialMoves[t][i].EstimatedValue() > s.initialMoves[t][j].EstimatedValue()
 					})
 				} else if t == 2 {
-					// do nothing, don't sort (use original order?)
-				} else {
+					// do nothing, use original order
+				} else if t > 2 && t <= 7 {
+					// Shuffle the order of root nodes
 					frand.Shuffle(len(s.initialMoves[t]), func(i, j int) {
 						s.initialMoves[t][i], s.initialMoves[t][j] = s.initialMoves[t][j], s.initialMoves[t][i]
+					})
+				} else if t > 7 {
+					// A sort of restricted shuffle?
+					topfew := len(s.initialMoves[t]) / 3
+
+					frand.Shuffle(topfew, func(i, j int) {
+						s.initialMoves[t][i], s.initialMoves[t][j] = s.initialMoves[t][j], s.initialMoves[t][i]
+					})
+					frand.Shuffle(len(s.initialMoves)-topfew, func(i, j int) {
+						s.initialMoves[t][i+topfew], s.initialMoves[t][j+topfew] = s.initialMoves[t][j+topfew], s.initialMoves[t][i+topfew]
 					})
 				}
 				return err
@@ -699,8 +712,8 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	if !s.lazySMPOptim {
 		s.ttable.SetSingleThreadedMode()
 	}
-	// + 1 since lazysmp can search at a higher ply count
-	s.game.SetStateStackLength(plies + 1)
+	// + 2 since lazysmp can search at a higher ply count
+	s.game.SetStateStackLength(plies + 2)
 
 	g := &errgroup.Group{}
 	done := make(chan bool)
@@ -737,10 +750,10 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	bestSeq = s.principalVariation.Moves
 	bestV = s.bestPVValue
 	log.Info().
-		Uint64("ttable-created", s.ttable.created).
-		Uint64("ttable-lookups", s.ttable.lookups).
-		Uint64("ttable-hits", s.ttable.hits).
-		Uint64("ttable-t2collisions", s.ttable.t2collisions).
+		Uint64("ttable-created", s.ttable.created.Load()).
+		Uint64("ttable-lookups", s.ttable.lookups.Load()).
+		Uint64("ttable-hits", s.ttable.hits.Load()).
+		Uint64("ttable-t2collisions", s.ttable.t2collisions.Load()).
 		Float64("time-elapsed-sec", time.Since(tstart).Seconds()).
 		Msg("solve-returning")
 
@@ -775,10 +788,10 @@ func (s *Solver) QuickAndDirtySolve(ctx context.Context, plies int) (int16, []*m
 	bestSeq = s.principalVariation.Moves
 	bestV = s.bestPVValue
 	log.Debug().
-		Uint64("ttable-created", s.ttable.created).
-		Uint64("ttable-lookups", s.ttable.lookups).
-		Uint64("ttable-hits", s.ttable.hits).
-		Uint64("ttable-t2collisions", s.ttable.t2collisions).
+		Uint64("ttable-created", s.ttable.created.Load()).
+		Uint64("ttable-lookups", s.ttable.lookups.Load()).
+		Uint64("ttable-hits", s.ttable.hits.Load()).
+		Uint64("ttable-t2collisions", s.ttable.t2collisions.Load()).
 		Float64("time-elapsed-sec", time.Since(tstart).Seconds()).
 		Msg("solve-returning")
 

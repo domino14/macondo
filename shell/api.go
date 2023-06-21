@@ -373,7 +373,7 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	}
 	sc.showMessage(fmt.Sprintf("Final spread after seq: %d", val+int16(sc.game.CurrentSpread())))
 	sc.printEndgameSequence(seq)
-	return nil, nil
+	return msg("done"), nil
 }
 
 func (sc *ShellController) infer(cmd *shellcmd) (*Response, error) {

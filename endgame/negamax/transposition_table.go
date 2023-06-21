@@ -71,16 +71,16 @@ func (f FakeLock) RUnlock() {}
 type TranspositionTable struct {
 	TableLock
 	table        []TableEntry
-	created      uint64
-	lookups      uint64
-	hits         uint64
+	created      atomic.Uint64
+	lookups      atomic.Uint64
+	hits         atomic.Uint64
 	sizePowerOf2 int
 	sizeMask     int
 	// "type 2" collisions. A type 2 collision happens when two positions share
 	// the same lower bytes. A type 1 collision happens when two positions share the
 	// same overall hash. We don't have a super easy way to detect the latter,
 	// but it should be much less common.
-	t2collisions uint64
+	t2collisions atomic.Uint64
 }
 
 // var globalTranspositionTable DebugTranspositionTable
@@ -97,17 +97,17 @@ func (t *TranspositionTable) SetMultiThreadedMode() {
 func (t *TranspositionTable) lookup(zval uint64) TableEntry {
 	t.RLock()
 	defer t.RUnlock()
-	atomic.AddUint64(&t.lookups, 1)
+	t.lookups.Add(1)
 	idx := zval & uint64(t.sizeMask)
 	fullHash := t.table[idx].fullHash(idx)
 	if fullHash != zval {
 		if t.table[idx].valid() {
 			// There is another unrelated node at this position.
-			atomic.AddUint64(&t.t2collisions, 1)
+			t.t2collisions.Add(1)
 		}
 		return TableEntry{}
 	}
-	atomic.AddUint64(&t.hits, 1)
+	t.hits.Add(1)
 	// otherwise, assume the same zobrist hash is the same position. this fails
 	// very, very rarely. but it could happen.
 	return t.table[idx]
@@ -121,7 +121,7 @@ func (t *TranspositionTable) store(zval uint64, tentry TableEntry) {
 	defer t.Unlock()
 	// just overwrite whatever is there for now.
 	t.table[idx] = tentry
-	t.created++
+	t.created.Add(1)
 }
 
 func (t *TranspositionTable) Reset(fractionOfMemory float64) {
@@ -149,10 +149,10 @@ func (t *TranspositionTable) Reset(fractionOfMemory float64) {
 	runtime.GC() // ?
 
 	t.table = make([]TableEntry, numElems)
-	t.created = 0
-	t.lookups = 0
-	t.hits = 0
-	t.t2collisions = 0
+	t.created.Store(0)
+	t.lookups.Store(0)
+	t.hits.Store(0)
+	t.t2collisions.Store(0)
 	log.Info().Msg("allocated-transposition-table")
 }
 
