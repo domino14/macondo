@@ -554,3 +554,8 @@ func (sc *ShellController) leave(cmd *shellcmd) (*Response, error) {
 	res := els.LeaveValue(leave)
 	return msg(strconv.FormatFloat(res, 'f', 3, 64)), nil
 }
+
+func (sc *ShellController) cgp(cmd *shellcmd) (*Response, error) {
+	cgpstr := sc.game.ToCGP()
+	return msg(cgpstr), nil
+}

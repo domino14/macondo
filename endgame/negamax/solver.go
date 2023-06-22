@@ -678,6 +678,14 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 }
 
 func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, error) {
+	s.solvingPlayer = s.game.PlayerOnTurn()
+	// Make sure the other player's rack isn't empty.
+	if s.game.RackFor(1-s.solvingPlayer).NumTiles() == 0 {
+		_, err := s.game.SetRandomRack(1-s.solvingPlayer, nil)
+		if err != nil {
+			return 0, nil, err
+		}
+	}
 	if s.game.Bag().TilesRemaining() > 0 {
 		return 0, nil, errors.New("bag is not empty; cannot use endgame solver")
 	}
@@ -702,7 +710,6 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	s.game.SetMaxScorelessTurns(2)
 	defer s.game.SetMaxScorelessTurns(game.DefaultMaxScorelessTurns)
 	s.initialSpread = s.game.CurrentSpread()
-	s.solvingPlayer = s.game.PlayerOnTurn()
 	log.Debug().Msgf("Player %v spread at beginning of endgame: %v (%d)", s.solvingPlayer, s.initialSpread, s.game.ScorelessTurns())
 	s.nodes.Store(0)
 	var bestV int16
@@ -763,19 +770,30 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 // QuickAndDirtySolve is meant for a pre-endgame engine to call this function
 // without having to initialize everything. The caller is responsible for
 // initializations of data structures. It is single-threaded as well.
-func (s *Solver) QuickAndDirtySolve(ctx context.Context, plies int) (int16, []*move.Move, error) {
+func (s *Solver) QuickAndDirtySolve(ctx context.Context, plies, thread int) (int16, []*move.Move, error) {
+	// Make sure the other player's rack isn't empty.
+	s.solvingPlayer = s.game.PlayerOnTurn()
+	if s.game.RackFor(1-s.solvingPlayer).NumTiles() == 0 {
+		_, err := s.game.SetRandomRack(1-s.solvingPlayer, nil)
+		if err != nil {
+			return 0, nil, err
+		}
+	}
 	if s.game.Bag().TilesRemaining() > 0 {
 		return 0, nil, errors.New("bag is not empty; cannot use endgame solver")
 	}
-	log.Debug().Int("plies", plies).Msg("qdsolve-alphabeta-solve-config")
+	log.Debug().
+		Int("thread", thread).
+		Str("ourRack", s.game.RackLettersFor(s.solvingPlayer)).
+		Str("theirRack", s.game.RackLettersFor(1-s.solvingPlayer)).
+		Int("plies", plies).Msg("qdsolve-alphabeta-solve-config")
 	s.requestedPlies = plies
 	tstart := time.Now()
 	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
 	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)
 
 	s.initialSpread = s.game.CurrentSpread()
-	s.solvingPlayer = s.game.PlayerOnTurn()
-	log.Debug().Msgf("Player %v spread at beginning of endgame: %v (%d)", s.solvingPlayer, s.initialSpread, s.game.ScorelessTurns())
+	log.Debug().Int("thread", thread).Msgf("Player %v spread at beginning of endgame: %v (%d)", s.solvingPlayer, s.initialSpread, s.game.ScorelessTurns())
 
 	var bestV int16
 	var bestSeq []*move.Move
@@ -788,11 +806,14 @@ func (s *Solver) QuickAndDirtySolve(ctx context.Context, plies int) (int16, []*m
 	bestSeq = s.principalVariation.Moves
 	bestV = s.bestPVValue
 	log.Debug().
+		Int("thread", thread).
 		Uint64("ttable-created", s.ttable.created.Load()).
 		Uint64("ttable-lookups", s.ttable.lookups.Load()).
 		Uint64("ttable-hits", s.ttable.hits.Load()).
 		Uint64("ttable-t2collisions", s.ttable.t2collisions.Load()).
 		Float64("time-elapsed-sec", time.Since(tstart).Seconds()).
+		Int16("bestV", bestV).
+		Str("bestSeq", s.principalVariation.NLBString()).
 		Msg("solve-returning")
 
 	return bestV, bestSeq, err
@@ -820,4 +841,8 @@ func (s *Solver) SetZobrist(z *zobrist.Zobrist) {
 
 func (s *Solver) SetFirstWinOptim(w bool) {
 	s.firstWinOptim = w
+}
+
+func (s *Solver) Game() *game.Game {
+	return s.game
 }
