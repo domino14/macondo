@@ -29,9 +29,58 @@ If the opponent doesn't pass back, then we must try every possible play from the
         - Make the play
         - Solve the endgame from OUR perspective
         - If there is a loss for us, mark this combination as a loss for us and break early.
+            - Note that this isn't a guaranteed loss, because the opponent doesn't have to make this play. But a potential loss should still count as a loss for the purposes of win % and sorting.
         - If there is a draw or win, continue.
     - If there is a draw, mark the game as a draw from our perspective, only if there is no loss.
     - Otherwise, mark this game as a win from our perspective.
+
+It might be illuminating to step through a PASS example.
+
+#### Example: Our first move is a Pass
+
+Our rack is `<R>`, our spread relative to our opponent is `<S>`, and there is one tile in the bag. Unseen to us is `AACEISUY`, and we decide to pass.
+
+First, we solve the easier "opp passes back" case, and this ends the game. We solve it for each of the 8 possible opponent racks (in this case there's actually 7, but `ACEISUY` happens twice).
+
+Let's say 6 of those 8 possible games result in a win for us, 1 is a tie, and 1 is a loss. Let's pretend Y in the bag is a loss for us, and C in the bag is a tie.
+
+Since Y in the bag is a loss for us if the opponent passes back, we don't need to consider any more Y-in-the-bag cases. Even if every single other Y-in-the-bag case when the opponent makes a non-passing play are all wins for us, and even though the opponent may miss his win and not pass back, the fact that it's possible for us to lose should still mark Y as a potential loss.
+
+C in the bag is a tie for us if the opponent passes back. We still need to consider other cases, until we at least find a loss (and stop searching, marking C in the bag as a loss), or get to the very end of the search. If we're at the end of the search, and the worst we found for us is a tie, then we mark C in the bag as a tie.
+
+AAEISU in the bag are wins for us if the opponent passes back. We still need to consider other cases as above, until we find a tie or loss. Only if we don't find a single tie or a loss can we be assured that AAEISU in the bag are guaranteed wins.
+
+
+We can then generate all possible plays with `AACEISUY` from our opponent's perspective, that use AT MOST 7 of those 8 tiles. Note: we can take a shortcut here, and just consider all plays with `AACEISU`, since we already know we have a potential loss if the Y is in the bag, so there's no need to analyze that case. However, for the purposes of this example, let's forget about that temporarily and generate all plays with `AACEISUY`.
+
+Let's imagine that we analyze the play `CAUSEY`. We make it so the opponent plays `CAUSEY` and then solve the endgame from our perspective. Our rack `<R>` is known and fixed (since we passed to start), so we know no matter what that after `CAUSEY` our opponent's rack is `AI`. So we can perfectly solve this endgame.
+
+It happens that `CAUSEY` causeys us to lose. We then enumerate which racks the opponent could have had to play `CAUSEY`:
+
+- AACESUY (I in the bag)
+- ACEISUY (A in the bag)
+- ACEISUY (A in the bag, again)
+
+And racks the opponent could not have had:
+- AAEISUY (C in the bag)
+- AACEIUY (S in the bag)
+- AACEISY (U in the bag)
+- AACISUY (E in the bag)
+- AACEISU (Y in the bag)
+
+So, we know that I in the bag and A in the bag are losses for us if we decide to pass to start the endgame. This means we can stop analyzing those cases as well, and just mark them as losses.
+
+We then analyze `SAUCY`. Before even starting analysis, we see that opponent could only make SAUCY if:
+
+- I is in the bag
+- A is in the bag (2X)
+- E is in the bag 
+
+We already know that I and A in the bag are losses for us. We analyze SAUCY only to determine if E in the bag is also a loss for us. If it is, we mark that down so that we can avoid extra computation for other future plays.
+
+We then analyze `YUCAS`. We can immediately skip that analysis, since it doesn't give us any new information about which letters in the bag lose.
+
+And so on. So it is often possible to exit early.
 
 ### 2-in-the-bag
 
@@ -57,3 +106,11 @@ We proceed as above in generating all our possible plays. Then:
         - Make the play from their perspective
         - Solve the 1-in-the bag pre-endgame for us if they don't empty the bag, or solve the endgame if they do. Use the "best moves" heuristic from above for pre-endgame.
             - 1-in-the-bag is tricky. You must check what happens if they draw 2 tiles in either order. Might be easier to do the loop of 9 and loop of 8.
+
+### Speed improvement ideas
+
+- We typically care about the winningest play. 
+    - We should sort plays initially by some metric: score or short sim performance
+    - Let's say we examine a play and it wins 6/8 endgames
+    - If we then examine a play and it's already lost 3 endgames, we don't need to examine that play any further since it's going to lose.
+    - When we queue jobs we should have a shared structure with best performers so that we can determine inside the job whether we should quit early.

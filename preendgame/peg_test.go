@@ -8,6 +8,7 @@ import (
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/kwg"
+	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tilemapping"
 	"github.com/matryer/is"
 )
@@ -74,23 +75,49 @@ func TestStraightforward1PEG(t *testing.T) {
 	// 13L ONYX wins 7.5/8 endgames, tying only with the Y. it is counter-intuitive.
 	is.Equal(peg.plays[0].play.ShortDescription(), "13L ONYX")
 	is.Equal(peg.plays[0].wins, float32(7.5))
-	is.Equal(peg.plays[0].drawsWith, [][]tilemapping.MachineLetter{{25}})
+	is.Equal(peg.plays[0].OutcomeFor([]tilemapping.MachineLetter{25}), PEGDraw)
 }
 
 // Test a complex pre-endgame with 1 in the bag.
 // the best move here is to pass to avoid the Q.
-/*
+
 func TestComplicated1PEG(t *testing.T) {
 	is := is.New(t)
 	// https://www.cross-tables.com/annotated.php?u=42794#26#
 	// note: the game above has the wrong rack for Matt. EEILOSS gives the 100% win pass.
-	cgpStr := "13AW/11F1LI/10JURAT/9LINER1/8O1T4/5C1WAsTiNG1/4DAMAR1E4/3PARED2ROUEN/2YA1K9/1BERG1OATH4V/3COUP1I5E/3H1TESTILY2N/4FAN1I2OXID/9MIB2U/7ZEES3E EEILOSS/ 297/300 lex NWL20;"
+	cgpStr := "13AW/11F1LI/10JURAT/9LINER1/8O1T4/5C1WAsTiNG1/4DAMAR1E4/3PARED2ROUEN/2YA1K9/1BERG1OATH4V/3COUP1I5E/3H1TESTILY2N/4FAN1I2OXID/9MIB2U/7ZEES3E EEILOSS/ 297/300 0 lex NWL20;"
 	g, err := cgp.ParseCGP(&DefaultConfig, cgpStr)
 	is.NoErr(err)
+	g.RecalculateBoard()
+
 	gd, err := kwg.Get(&DefaultConfig, "NWL20")
 	is.NoErr(err)
 	peg := new(Solver)
 	err = peg.Init(g, gd)
+	peg.endgamePlies = 5
 	is.NoErr(err)
 
-}*/
+	ctx := context.Background()
+	err = peg.Solve(ctx)
+	is.NoErr(err)
+
+	fmt.Println(peg.plays)
+}
+
+func TestPossibleTilesInBag(t *testing.T) {
+	is := is.New(t)
+	m := move.NewScoringMove(0, []tilemapping.MachineLetter{3, 1, 21, 19, 5, 25}, nil, false, 6, nil, 0, 0)
+	unseenTiles := []tilemapping.MachineLetter{1, 1, 3, 5, 9, 19, 21, 25}
+	pt := possibleTilesInBag(unseenTiles, m)
+
+	is.Equal(pt, []tilemapping.MachineLetter{1, 9})
+
+	unseenTiles = []tilemapping.MachineLetter{1, 1, 1, 3, 5, 19, 21, 25}
+	pt = possibleTilesInBag(unseenTiles, m)
+	is.Equal(pt, []tilemapping.MachineLetter{1})
+
+	m = move.NewScoringMove(0, []tilemapping.MachineLetter{1, 1}, nil, false, 6, nil, 0, 0)
+	unseenTiles = []tilemapping.MachineLetter{1, 1, 3, 5, 9, 19, 21, 25}
+	pt = possibleTilesInBag(unseenTiles, m)
+	is.Equal(pt, []tilemapping.MachineLetter{3, 5, 9, 19, 21, 25})
+}
