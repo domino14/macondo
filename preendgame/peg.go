@@ -623,6 +623,7 @@ func possibleTilesInBag(unseenTiles []tilemapping.MachineLetter, move *move.Move
 		if t == 0 {
 			continue // not a played tile
 		}
+		t = t.IntrinsicTileIdx()
 		for _, u := range unseenTiles {
 			if t == u {
 				uc[u]--

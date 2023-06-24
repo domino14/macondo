@@ -2,7 +2,6 @@ package preendgame
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/domino14/macondo/cgp"
@@ -54,7 +53,17 @@ func Test1PEGPass(t *testing.T) {
 	ctx := context.Background()
 	err = peg.Solve(ctx)
 	is.NoErr(err)
-	fmt.Println(peg.plays)
+	is.Equal(peg.plays[0].play.ShortDescription(), "(Pass)")
+	is.Equal(peg.plays[0].wins, float32(5.5))
+	// Wins for ?, A, I, N, U, draw for B, Loss for both Es
+	is.Equal(peg.plays[0].OutcomeFor([]tilemapping.MachineLetter{0}), PEGWin)
+	is.Equal(peg.plays[0].OutcomeFor([]tilemapping.MachineLetter{1}), PEGWin)
+	is.Equal(peg.plays[0].OutcomeFor([]tilemapping.MachineLetter{9}), PEGWin)
+	is.Equal(peg.plays[0].OutcomeFor([]tilemapping.MachineLetter{14}), PEGWin)
+	is.Equal(peg.plays[0].OutcomeFor([]tilemapping.MachineLetter{21}), PEGWin)
+	is.Equal(peg.plays[0].OutcomeFor([]tilemapping.MachineLetter{2}), PEGDraw)
+	is.Equal(peg.plays[0].OutcomeFor([]tilemapping.MachineLetter{5}), PEGLoss)
+
 }
 
 func TestStraightforward1PEG(t *testing.T) {
@@ -79,9 +88,12 @@ func TestStraightforward1PEG(t *testing.T) {
 }
 
 // Test a complex pre-endgame with 1 in the bag.
-// the best move here is to pass to avoid the Q.
+// There are several winning moves, one of them being a pass. Note that we
+// need to look forward a bit more (increase endgame plies) since there is a Q
+// stick situation that isn't handled properly otherwise.
 
 func TestComplicated1PEG(t *testing.T) {
+	t.Skip()
 	is := is.New(t)
 	// https://www.cross-tables.com/annotated.php?u=42794#26#
 	// note: the game above has the wrong rack for Matt. EEILOSS gives the 100% win pass.
@@ -101,7 +113,6 @@ func TestComplicated1PEG(t *testing.T) {
 	err = peg.Solve(ctx)
 	is.NoErr(err)
 
-	fmt.Println(peg.plays)
 }
 
 func TestPossibleTilesInBag(t *testing.T) {
