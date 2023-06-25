@@ -14,6 +14,8 @@ import (
 
 	"github.com/domino14/macondo/endgame/negamax"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/kwg"
+	"github.com/domino14/macondo/preendgame"
 
 	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/automatic"
@@ -373,7 +375,75 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	}
 	sc.showMessage(fmt.Sprintf("Final spread after seq: %d", val+int16(sc.game.CurrentSpread())))
 	sc.printEndgameSequence(seq)
-	return msg("done"), nil
+	return msg(""), nil
+}
+
+func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
+	if sc.game == nil {
+		return nil, errors.New("please load a game first with the `load` command")
+	}
+	endgamePlies := 4
+
+	var maxtime int
+	var maxthreads = 0
+	var err error
+
+	if cmd.options["endgameplies"] != "" {
+		endgamePlies, err = strconv.Atoi(cmd.options["endgameplies"])
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if cmd.options["maxtime"] != "" {
+		maxtime, err = strconv.Atoi(cmd.options["maxtime"])
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if cmd.options["threads"] != "" {
+		maxthreads, err = strconv.Atoi(cmd.options["threads"])
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	sc.showMessage(fmt.Sprintf(
+		"endgameplies %v, maxtime %v, threads %v",
+		endgamePlies, maxtime, maxthreads))
+	gd, err := kwg.Get(sc.game.Config(), sc.game.LexiconName())
+	if err != nil {
+		return nil, err
+	}
+	sc.showMessage(sc.game.ToDisplayText())
+	sc.preendgameSolver = new(preendgame.Solver)
+	sc.preendgameSolver.Init(sc.game.Game, gd)
+	if maxthreads != 0 {
+		sc.preendgameSolver.SetThreads(maxthreads)
+	}
+	sc.preendgameSolver.SetEndgamePlies(endgamePlies)
+
+	var cancel context.CancelFunc
+	ctx := context.Background()
+	if maxtime > 0 {
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(maxtime)*time.Second)
+		defer cancel()
+	}
+
+	moves, err := sc.preendgameSolver.Solve(ctx)
+	if err != nil {
+		return nil, err
+	}
+	maxMoves := 15
+	if len(moves) < maxMoves {
+		maxMoves = len(moves)
+	}
+	sc.showMessage("Play\t\t\tWins")
+	for _, m := range moves[:maxMoves] {
+		sc.showMessage(fmt.Sprintf("%s:\t\t%.1f", m.Play.ShortDescription(), m.Wins))
+	}
+	return msg(""), nil
 }
 
 func (sc *ShellController) infer(cmd *shellcmd) (*Response, error) {

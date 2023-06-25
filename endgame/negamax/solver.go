@@ -511,7 +511,7 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 	}
 
 	for p := start; p <= plies; p++ {
-		log.Info().Int("plies", p).Msg("deepening-iteratively")
+		log.Debug().Int("plies", p).Msg("deepening-iteratively")
 		s.currentIDDepths[0] = p
 		if s.logStream != nil {
 			fmt.Fprintf(s.logStream, "- ply: %d\n", p)
@@ -521,7 +521,7 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 		if err != nil {
 			return err
 		}
-		log.Info().Int16("spread", val).Int("ply", p).Str("pv", pv.NLBString()).Msg("best-val")
+		log.Debug().Int16("spread", val).Int("ply", p).Str("pv", pv.NLBString()).Msg("best-val")
 		// Sort top layer of moves by value for the next time around.
 		sort.Slice(s.initialMoves[0], func(i, j int) bool {
 			return s.initialMoves[0][i].EstimatedValue() > s.initialMoves[0][j].EstimatedValue()

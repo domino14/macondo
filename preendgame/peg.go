@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/endgame/negamax"
+	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/kwg"
@@ -55,8 +56,8 @@ func Equal(a, b []tilemapping.MachineLetter) bool {
 
 type PreEndgamePlay struct {
 	sync.RWMutex
-	play          *move.Move
-	wins          float32
+	Play          *move.Move
+	Wins          float32
 	outcomesArray []Outcome
 	ignore        bool
 }
@@ -85,9 +86,9 @@ func (p *PreEndgamePlay) addWinPctStat(result PEGOutcome, ct int, tiles []tilema
 	p.outcomesArray[found].outcome = result
 	switch result {
 	case PEGWin:
-		p.wins += float32(ct)
+		p.Wins += float32(ct)
 	case PEGDraw:
-		p.wins += float32(ct) / 2
+		p.Wins += float32(ct) / 2
 	case PEGLoss:
 		// no wins
 	}
@@ -112,7 +113,7 @@ func (p *PreEndgamePlay) setWinPctStat(result PEGOutcome, ct int, tiles []tilema
 			// Add to the win counter only if it wasn't already marked a win.
 			// Note that this win is not necessarily known yet.
 			if p.outcomesArray[found].outcome != PEGWin {
-				p.wins += float32(ct)
+				p.Wins += float32(ct)
 			}
 
 			p.outcomesArray[found].outcome = PEGWin
@@ -124,16 +125,16 @@ func (p *PreEndgamePlay) setWinPctStat(result PEGOutcome, ct int, tiles []tilema
 			// Note that this draw is not necessarily known yet.
 
 			if p.outcomesArray[found].outcome != PEGDraw {
-				p.wins += float32(ct) / 2
+				p.Wins += float32(ct) / 2
 			}
 			p.outcomesArray[found].outcome = PEGDraw
 
 		}
 	case PEGLoss:
 		if p.outcomesArray[found].outcome == PEGDraw {
-			p.wins -= float32(ct) / 2
+			p.Wins -= float32(ct) / 2
 		} else if p.outcomesArray[found].outcome == PEGWin {
-			p.wins -= float32(ct)
+			p.Wins -= float32(ct)
 		}
 		p.outcomesArray[found].outcome = PEGLoss
 
@@ -195,7 +196,7 @@ func (p *PreEndgamePlay) OutcomeFor(tiles []tilemapping.MachineLetter) PEGOutcom
 }
 
 func (p *PreEndgamePlay) String() string {
-	return fmt.Sprintf("<play %v, wins %f>", p.play.ShortDescription(), p.wins)
+	return fmt.Sprintf("<play %v, wins %f>", p.Play.ShortDescription(), p.Wins)
 }
 
 type Solver struct {
@@ -224,19 +225,19 @@ func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
 	return nil
 }
 
-func (s *Solver) Solve(ctx context.Context) error {
+func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 	playerOnTurn := s.game.PlayerOnTurn()
 	if s.game.RackFor(1-playerOnTurn).NumTiles() == 0 {
 		_, err := s.game.SetRandomRack(1-playerOnTurn, nil)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
 	if s.game.Bag().TilesRemaining() > InBagMaxLimit {
-		return fmt.Errorf("bag has too many tiles remaining; limit is %d", InBagMaxLimit)
+		return nil, fmt.Errorf("bag has too many tiles remaining; limit is %d", InBagMaxLimit)
 	} else if s.game.Bag().TilesRemaining() == 0 {
-		return errors.New("bag is empty; use endgame solver instead")
+		return nil, errors.New("bag is empty; use endgame solver instead")
 	}
 	s.endgameSolvers = make([]*negamax.Solver, s.threads)
 	s.ttable.Reset(0.25)
@@ -262,7 +263,7 @@ func (s *Solver) Solve(ctx context.Context) error {
 		mg := movegen.NewGordonGenerator(s.gaddag, g.Board(), g.Bag().LetterDistribution())
 		err := es.Init(mg, g)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		// Endgame itself should be single-threaded; we are solving many individual
 		// endgames in parallel.
@@ -279,13 +280,24 @@ func (s *Solver) Solve(ctx context.Context) error {
 	s.movegen.SetGenPass(true)
 	// Don't allow pre-endgame opponent to use more than 7 tiles.
 	s.movegen.SetMaxTileUsage(7)
-	fmt.Println(s.game.ToDisplayText())
-
+	// Examine high equity plays first.
 	moves := s.movegen.GenAll(s.game.RackFor(s.game.PlayerOnTurn()), false)
-	log.Info().Int("nmoves", len(moves)).Msg("peg-generated-moves")
-	err := s.multithreadSolve(ctx, moves)
+	c, err := equity.NewCombinedStaticCalculator(
+		s.game.LexiconName(), s.game.Config(), "", equity.PEGAdjustmentFilename)
+	if err != nil {
+		return nil, err
+	}
+	for _, m := range moves {
+		m.SetEquity(c.Equity(m, s.game.Board(), s.game.Bag(), nil))
+	}
+	sort.Slice(moves, func(i, j int) bool {
+		return moves[i].Equity() > moves[j].Equity()
+	})
 
-	return err
+	log.Info().Int("nmoves", len(moves)).Msg("peg-generated-moves")
+	winners, err := s.multithreadSolve(ctx, moves)
+
+	return winners, err
 }
 
 type job struct {
@@ -295,7 +307,7 @@ type job struct {
 	numDraws  int // how many ways can inbag be drawn?
 }
 
-func (s *Solver) multithreadSolve(ctx context.Context, moves []*move.Move) error {
+func (s *Solver) multithreadSolve(ctx context.Context, moves []*move.Move) ([]*PreEndgamePlay, error) {
 	// for every move, solve all the possible endgames.
 	// - make play on board
 	// - for tile in unseen:
@@ -308,7 +320,7 @@ func (s *Solver) multithreadSolve(ctx context.Context, moves []*move.Move) error
 
 	s.plays = make([]*PreEndgamePlay, len(moves))
 	for idx, play := range moves {
-		s.plays[idx] = &PreEndgamePlay{play: play}
+		s.plays[idx] = &PreEndgamePlay{Play: play}
 	}
 
 	unseenTiles := make([]int, tilemapping.MaxAlphabetSize)
@@ -340,7 +352,7 @@ func (s *Solver) multithreadSolve(ctx context.Context, moves []*move.Move) error
 	queuedJobs := 0
 	var ourPass *PreEndgamePlay
 	for _, p := range s.plays {
-		if p.play.Action() == move.MoveTypePass {
+		if p.Play.Action() == move.MoveTypePass {
 			// passes handled differently.
 			ourPass = p
 			continue
@@ -395,20 +407,35 @@ func (s *Solver) multithreadSolve(ctx context.Context, moves []*move.Move) error
 	close(jobChan)
 	err := g.Wait()
 
+	if err != nil {
+		if err.Error() == "context canceled" {
+			// ignore
+			log.Info().Msg("peg-context-canceled")
+			err = nil
+		}
+	}
+
 	// sort plays by win %
 	sort.Slice(s.plays, func(i, j int) bool {
-		return s.plays[i].wins > s.plays[j].wins
+		return s.plays[i].Wins > s.plays[j].Wins
 	})
 
-	return err
+	return s.plays, err
 }
 
-func (s *Solver) setEndgamePlies(p int) {
+func (s *Solver) SetEndgamePlies(p int) {
 	s.endgamePlies = p
 }
 
+func (s *Solver) SetThreads(t int) {
+	s.threads = t
+}
+
 func (s *Solver) handleJob(ctx context.Context, j job, thread int) error {
-	if j.ourMove.play.Action() == move.MoveTypePass && j.theirMove.Action() != move.MoveTypePass {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if j.ourMove.Play.Action() == move.MoveTypePass && j.theirMove.Action() != move.MoveTypePass {
 		return s.handleNonpassResponseToPass(ctx, j, thread)
 	}
 	g := s.endgameSolvers[thread].Game()
@@ -425,21 +452,19 @@ func (s *Solver) handleJob(ctx context.Context, j job, thread int) error {
 		return err
 	}
 	// Finally play move.
-	// XXX: Remove this log line / replace drawnLetters as UserVisible allocates/is slow
-	log.Debug().Interface("drawnLetters",
-		tilemapping.MachineWord(j.inbag).UserVisible(g.Alphabet())).
-		Int("ct", j.numDraws).
-		Int("thread", thread).
-		Str("rack-for-us", g.RackLettersFor(g.PlayerOnTurn())).
-		Str("rack-for-them", g.RackLettersFor(1-g.PlayerOnTurn())).
-		Str("play", j.ourMove.play.ShortDescription()).Msg("trying-peg-play")
+	// log.Debug().Interface("drawnLetters",
+	// 	Int("ct", j.numDraws).
+	// 	Int("thread", thread).
+	// 	Str("rack-for-us", g.RackLettersFor(g.PlayerOnTurn())).
+	// 	Str("rack-for-them", g.RackLettersFor(1-g.PlayerOnTurn())).
+	// 	Str("play", j.ourMove.play.ShortDescription()).Msg("trying-peg-play")
 
-	err = g.PlayMove(j.ourMove.play, false, 0)
+	err = g.PlayMove(j.ourMove.Play, false, 0)
 	if err != nil {
 		return err
 	}
 	var finalSpread int16
-	if j.ourMove.play.Action() == move.MoveTypePass {
+	if j.ourMove.Play.Action() == move.MoveTypePass {
 		// Just try a pass from opponent's perspective. This should end the game.
 		if j.theirMove.Action() != move.MoveTypePass {
 			// we already handled this upon entering this function.
@@ -539,7 +564,7 @@ func (s *Solver) handleNonpassResponseToPass(ctx context.Context, j job, thread 
 		Msgf("trying-peg-play; splitpt=%v", splitPt)
 
 	// Play our pass
-	err := g.PlayMove(j.ourMove.play, false, 0)
+	err := g.PlayMove(j.ourMove.Play, false, 0)
 	if err != nil {
 		return err
 	}

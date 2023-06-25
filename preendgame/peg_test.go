@@ -51,18 +51,18 @@ func Test1PEGPass(t *testing.T) {
 	is.NoErr(err)
 
 	ctx := context.Background()
-	err = peg.Solve(ctx)
+	plays, err := peg.Solve(ctx)
 	is.NoErr(err)
-	is.Equal(peg.plays[0].play.ShortDescription(), "(Pass)")
-	is.Equal(peg.plays[0].wins, float32(5.5))
+	is.Equal(plays[0].Play.ShortDescription(), "(Pass)")
+	is.Equal(plays[0].Wins, float32(5.5))
 	// Wins for ?, A, I, N, U, draw for B, Loss for both Es
-	is.Equal(peg.plays[0].OutcomeFor([]tilemapping.MachineLetter{0}), PEGWin)
-	is.Equal(peg.plays[0].OutcomeFor([]tilemapping.MachineLetter{1}), PEGWin)
-	is.Equal(peg.plays[0].OutcomeFor([]tilemapping.MachineLetter{9}), PEGWin)
-	is.Equal(peg.plays[0].OutcomeFor([]tilemapping.MachineLetter{14}), PEGWin)
-	is.Equal(peg.plays[0].OutcomeFor([]tilemapping.MachineLetter{21}), PEGWin)
-	is.Equal(peg.plays[0].OutcomeFor([]tilemapping.MachineLetter{2}), PEGDraw)
-	is.Equal(peg.plays[0].OutcomeFor([]tilemapping.MachineLetter{5}), PEGLoss)
+	is.Equal(plays[0].OutcomeFor([]tilemapping.MachineLetter{0}), PEGWin)
+	is.Equal(plays[0].OutcomeFor([]tilemapping.MachineLetter{1}), PEGWin)
+	is.Equal(plays[0].OutcomeFor([]tilemapping.MachineLetter{9}), PEGWin)
+	is.Equal(plays[0].OutcomeFor([]tilemapping.MachineLetter{14}), PEGWin)
+	is.Equal(plays[0].OutcomeFor([]tilemapping.MachineLetter{21}), PEGWin)
+	is.Equal(plays[0].OutcomeFor([]tilemapping.MachineLetter{2}), PEGDraw)
+	is.Equal(plays[0].OutcomeFor([]tilemapping.MachineLetter{5}), PEGLoss)
 
 }
 
@@ -79,12 +79,12 @@ func TestStraightforward1PEG(t *testing.T) {
 	err = peg.Init(g, gd)
 	is.NoErr(err)
 	ctx := context.Background()
-	err = peg.Solve(ctx)
+	plays, err := peg.Solve(ctx)
 	is.NoErr(err)
 	// 13L ONYX wins 7.5/8 endgames, tying only with the Y. it is counter-intuitive.
-	is.Equal(peg.plays[0].play.ShortDescription(), "13L ONYX")
-	is.Equal(peg.plays[0].wins, float32(7.5))
-	is.Equal(peg.plays[0].OutcomeFor([]tilemapping.MachineLetter{25}), PEGDraw)
+	is.Equal(plays[0].Play.ShortDescription(), "13L ONYX")
+	is.Equal(plays[0].Wins, float32(7.5))
+	is.Equal(plays[0].OutcomeFor([]tilemapping.MachineLetter{25}), PEGDraw)
 }
 
 // Test a complex pre-endgame with 1 in the bag.
@@ -110,7 +110,7 @@ func TestComplicated1PEG(t *testing.T) {
 	is.NoErr(err)
 
 	ctx := context.Background()
-	err = peg.Solve(ctx)
+	_, err = peg.Solve(ctx)
 	is.NoErr(err)
 
 }
