@@ -800,7 +800,7 @@ func (s *Solver) QuickAndDirtySolve(ctx context.Context, plies, thread int) (int
 
 	err := s.iterativelyDeepen(ctx, plies)
 	if err != nil {
-		log.Err(err).Msg("error iteratively deepening")
+		log.Debug().AnErr("err", err).Msg("error iteratively deepening")
 	}
 
 	bestSeq = s.principalVariation.Moves

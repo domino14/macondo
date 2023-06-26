@@ -343,7 +343,8 @@ func (s *Solver) multithreadSolve(ctx context.Context, moves []*move.Move) ([]*P
 		g.Go(func() error {
 			for j := range jobChan {
 				if err := s.handleJob(ctx, j, t); err != nil {
-					return err
+					log.Debug().AnErr("err", err).Msg("error-handling-job")
+					// Don't exit, to avoid deadlock.
 				}
 			}
 			return nil
@@ -408,11 +409,10 @@ func (s *Solver) multithreadSolve(ctx context.Context, moves []*move.Move) ([]*P
 	err := g.Wait()
 
 	if err != nil {
-		if err.Error() == "context canceled" {
-			// ignore
-			log.Info().Msg("peg-context-canceled")
-			err = nil
-		}
+		return nil, err
+	}
+	if ctx.Err() != nil && ctx.Err().Error() == "context canceled" {
+		log.Info().Msg("timed out; returning best results so far...")
 	}
 
 	// sort plays by win %
