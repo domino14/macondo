@@ -121,7 +121,7 @@ func materiallySimilar(p1, p2 *SimmedPlay, pcache map[string]bool) bool {
 	}
 	lookupstr := p1ps + "|" + p2ps
 	if similar, ok := pcache[lookupstr]; ok {
-		log.Debug().Str("lookupstr", lookupstr).
+		log.Trace().Str("lookupstr", lookupstr).
 			Bool("similar", similar).
 			Msg("in-similarity-cache")
 		return similar

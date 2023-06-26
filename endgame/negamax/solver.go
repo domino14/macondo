@@ -49,6 +49,7 @@ const Killer0Offset = 20000
 const Killer1Offset = 19000
 const EarlyPassOffset = 21000
 const HashMoveOffset = 6000
+const MaxLazySMPThreads = 6
 
 var (
 	ErrNoEndgameSolution = errors.New("no endgame solution found")
@@ -763,7 +764,12 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 		Uint64("ttable-t2collisions", s.ttable.t2collisions.Load()).
 		Float64("time-elapsed-sec", time.Since(tstart).Seconds()).
 		Msg("solve-returning")
-
+	if err != nil {
+		if err == context.Canceled || err == context.DeadlineExceeded {
+			// ignore
+			err = nil
+		}
+	}
 	return bestV, bestSeq, err
 }
 

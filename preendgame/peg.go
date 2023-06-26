@@ -411,7 +411,7 @@ func (s *Solver) multithreadSolve(ctx context.Context, moves []*move.Move) ([]*P
 	if err != nil {
 		return nil, err
 	}
-	if ctx.Err() != nil && ctx.Err().Error() == "context canceled" {
+	if ctx.Err() != nil && (ctx.Err() == context.Canceled || ctx.Err() == context.DeadlineExceeded) {
 		log.Info().Msg("timed out; returning best results so far...")
 	}
 

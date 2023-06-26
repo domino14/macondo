@@ -2,10 +2,12 @@ package bot
 
 import (
 	"context"
+	"runtime"
 	"time"
 
 	"github.com/rs/zerolog/log"
 
+	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/kwg"
@@ -57,8 +59,6 @@ func eliteBestPlay(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 	} else if unseen > 7 && unseen <= 8 {
 		usePreendgame = true
 	} else if unseen > 8 && unseen <= 14 {
-		// at some point check for the specific case of 1 or 2 PEG when
-		// the code is ready.
 		moves = p.GenerateMoves(80)
 		simPlies = unseen
 	} else {
@@ -104,6 +104,11 @@ func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move
 	if err != nil {
 		return nil, err
 	}
+	maxThreads := runtime.NumCPU()
+	if maxThreads > negamax.MaxLazySMPThreads {
+		maxThreads = negamax.MaxLazySMPThreads
+	}
+	p.endgamer.SetThreads(maxThreads)
 	v, seq, err := p.endgamer.Solve(ctx, endgamePlies)
 	if err != nil {
 		return nil, err
@@ -130,7 +135,7 @@ func preendgameBest(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 	if ourSpread < -60 || ourSpread > 60 {
 		p.preendgamer.SetEndgamePlies(2)
 	} else {
-		p.preendgamer.SetEndgamePlies(4)
+		p.preendgamer.SetEndgamePlies(5)
 	}
 	moves, err := p.preendgamer.Solve(ctx)
 	if err != nil {
