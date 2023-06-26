@@ -294,7 +294,7 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 		return moves[i].Equity() > moves[j].Equity()
 	})
 
-	log.Info().Int("nmoves", len(moves)).Msg("peg-generated-moves")
+	log.Info().Int("nmoves", len(moves)).Int("nthreads", s.threads).Msg("peg-generated-moves")
 	winners, err := s.multithreadSolve(ctx, moves)
 
 	return winners, err
