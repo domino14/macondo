@@ -37,6 +37,7 @@ type MoveGenerator interface {
 	SetPlayRecorder(pf PlayRecorderFunc)
 	SetEquityCalculators([]equity.EquityCalculator)
 	AtLeastOneTileMove(rack *tilemapping.Rack) bool
+	SetMaxTileUsage(int)
 	SetGenPass(bool)
 }
 
@@ -80,8 +81,9 @@ type GordonGenerator struct {
 	placeholder *move.Move
 	game        *game.Game
 
-	genPass   bool
-	quitEarly bool
+	genPass      bool
+	quitEarly    bool
+	maxTileUsage int
 }
 
 // NewGordonGenerator returns a Gordon move generator.
@@ -100,6 +102,7 @@ func NewGordonGenerator(gd gaddag.WordGraph, board *board.GameBoard,
 		playRecorder:       AllPlaysRecorder,
 		winner:             new(move.Move),
 		placeholder:        new(move.Move),
+		maxTileUsage:       100, // basically unlimited
 	}
 	return gen
 }
@@ -125,6 +128,10 @@ func (gen *GordonGenerator) SetGame(g *game.Game) {
 
 func (gen *GordonGenerator) SetGenPass(p bool) {
 	gen.genPass = p
+}
+
+func (gen *GordonGenerator) SetMaxTileUsage(t int) {
+	gen.maxTileUsage = t
 }
 
 // GenAll generates all moves on the board. It assumes anchors have already
@@ -304,7 +311,7 @@ func (gen *GordonGenerator) goOn(curCol int, L tilemapping.MachineLetter,
 			// Only record the play if it is unique:
 			// if 1 tile has been played, there should be no letters in the across
 			// direction (otherwise the cross-set is not trivial)
-			if uniquePlay || gen.tilesPlayed > 1 {
+			if (uniquePlay || gen.tilesPlayed > 1) && gen.tilesPlayed <= gen.maxTileUsage {
 				gen.playRecorder(gen, rack, leftstrip, rightstrip, move.MoveTypePlay)
 			}
 		}
@@ -343,7 +350,7 @@ func (gen *GordonGenerator) goOn(curCol int, L tilemapping.MachineLetter,
 		noLetterDirectlyRight := curCol == gen.board.Dim()-1 ||
 			!gen.board.HasLetter(gen.curRowIdx, curCol+1)
 		if accepts && noLetterDirectlyRight && gen.tilesPlayed > 0 {
-			if uniquePlay || gen.tilesPlayed > 1 {
+			if (uniquePlay || gen.tilesPlayed > 1) && gen.tilesPlayed <= gen.maxTileUsage {
 				gen.playRecorder(gen, rack, leftstrip, rightstrip, move.MoveTypePlay)
 			}
 		}

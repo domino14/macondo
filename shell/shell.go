@@ -32,6 +32,7 @@ import (
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
+	"github.com/domino14/macondo/preendgame"
 	"github.com/domino14/macondo/rangefinder"
 	"github.com/domino14/macondo/tilemapping"
 	"github.com/domino14/macondo/turnplayer"
@@ -114,12 +115,13 @@ type ShellController struct {
 	gameRunnerRunning bool
 	gameRunnerTicker  *time.Ticker
 
-	curTurnNum    int
-	gen           movegen.MoveGenerator
-	backupgen     movegen.MoveGenerator // used for endgame engine
-	curMode       Mode
-	endgameSolver *negamax.Solver
-	curPlayList   []*move.Move
+	curTurnNum       int
+	gen              movegen.MoveGenerator
+	backupgen        movegen.MoveGenerator // used for endgame engine
+	curMode          Mode
+	endgameSolver    *negamax.Solver
+	preendgameSolver *preendgame.Solver
+	curPlayList      []*move.Move
 }
 
 type Mode int
@@ -783,6 +785,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.list(cmd)
 	case "endgame":
 		return sc.endgame(cmd)
+	case "peg":
+		return sc.preendgame(cmd)
 	case "mode":
 		return sc.setMode(cmd)
 	case "export":
@@ -795,6 +799,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.gid(cmd)
 	case "leave":
 		return sc.leave(cmd)
+	case "cgp":
+		return sc.cgp(cmd)
 	default:
 		msg := fmt.Sprintf("command %v not found", strconv.Quote(cmd.cmd))
 		log.Info().Msg(msg)

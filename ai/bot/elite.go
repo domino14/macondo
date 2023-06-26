@@ -2,10 +2,12 @@ package bot
 
 import (
 	"context"
+	"runtime"
 	"time"
 
 	"github.com/rs/zerolog/log"
 
+	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/kwg"
@@ -34,6 +36,7 @@ func eliteBestPlay(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 	// Assume our own rack is fully known, however. So if unseen == 7, the bag
 	// is empty and we should assign the oppRack accordingly.
 	useEndgame := false
+	usePreendgame := false
 	endgamePlies := 0
 	simPlies := 0
 
@@ -53,9 +56,9 @@ func eliteBestPlay(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 		}
 		// Just some sort of estimate
 		endgamePlies = unseen + int(p.Game.RackFor(p.Game.PlayerOnTurn()).NumTiles())
-	} else if unseen > 7 && unseen <= 14 {
-		// at some point check for the specific case of 1 or 2 PEG when
-		// the code is ready.
+	} else if unseen > 7 && unseen <= 8 {
+		usePreendgame = true
+	} else if unseen > 8 && unseen <= 14 {
 		moves = p.GenerateMoves(80)
 		simPlies = unseen
 	} else {
@@ -75,6 +78,8 @@ func eliteBestPlay(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 
 	if useEndgame {
 		return endGameBest(ctx, p, endgamePlies)
+	} else if usePreendgame {
+		return preendgameBest(ctx, p)
 	} else {
 		return nonEndgameBest(ctx, p, simPlies, moves)
 	}
@@ -99,12 +104,45 @@ func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move
 	if err != nil {
 		return nil, err
 	}
+	maxThreads := runtime.NumCPU()
+	if maxThreads > negamax.MaxLazySMPThreads {
+		maxThreads = negamax.MaxLazySMPThreads
+	}
+	p.endgamer.SetThreads(maxThreads)
 	v, seq, err := p.endgamer.Solve(ctx, endgamePlies)
 	if err != nil {
 		return nil, err
 	}
 	log.Debug().Int16("best-endgame-val", v).Interface("seq", seq).Msg("endgame-solve-done")
 	return seq[0], nil
+}
+
+func preendgameBest(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
+	if !hasPreendgame(p.botType) {
+		// Just return the static best play if we don't have a pre-endgame engine
+		return p.GenerateMoves(1)[0], nil
+	}
+	gd, err := kwg.Get(p.Game.Config(), p.Game.LexiconName())
+	if err != nil {
+		return nil, err
+	}
+	err = p.preendgamer.Init(p.Game, gd)
+	if err != nil {
+		return nil, err
+	}
+	// If we're down by this much, we will probably need to bingo out, so set endgame plies to only a couple
+	ourSpread := p.Game.SpreadFor(p.Game.PlayerOnTurn())
+	if ourSpread < -60 || ourSpread > 60 {
+		p.preendgamer.SetEndgamePlies(2)
+	} else {
+		p.preendgamer.SetEndgamePlies(5)
+	}
+	moves, err := p.preendgamer.Solve(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return moves[0].Play, nil
+
 }
 
 func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves []*move.Move) (*move.Move, error) {

@@ -1,0 +1,35 @@
+peg [options] - solve pre-endgame exhaustively
+
+Example:
+    peg
+    peg -threads 1
+    peg -threads 8 -endgameplies 6 -maxtime 10
+
+About:
+    Macondo can solve a 1-tile-in-the-bag pre-endgame exhaustively. It does this
+    by solving all possible endgames using a fast search for it (see -first-win-optim
+    option in the endgame).
+
+    When considering `pass` as a move, Macondo will try all options exhaustively
+    for our opponent. Our opponent may make a "mistake" from their perspective,
+    since they do not know what our tiles are. We only add wins in the pass case if
+    we are guaranteed to win with any given tile, even given any mistakes the 
+    opponent might make.
+
+Options:
+    -endgameplies 4
+
+    Endgame plies defaults to 4. This is how far to look in the endgames. You may
+    not need to look any farther than 2 plies if the spread difference is big
+    (since you will likely only lose or win with an out bingo). On the other
+    hand, you may want to look deeper if there's a Q or other stuck tile to draw.
+
+    -threads 8
+
+    Threads defaults to the number of cores in your machine. This is how many
+    cores to use for the pre-endgame.
+
+    -maxtime 10
+
+    How much time to use. If we run out of time it will just return the best plays
+    found so far. Unlimited by default.

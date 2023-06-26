@@ -47,7 +47,10 @@ Options:
 
     -threads 10
 
-    Uses multiple threads. Defaults to `runtime.NumCPU()`
+    Uses multiple threads. Defaults to `runtime.NumCPU()`. 
+    Note: You should set this to `1` if you're using any bots that sim or
+    solve endgames etc. Instead, the simmer, endgamesolver, etc will use as
+    many threads as it can.
 
     -minsimplies1 2
     -minsimplies2 3

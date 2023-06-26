@@ -149,7 +149,6 @@ func (r *GameRunner) genBestMoveForBot(playerIdx int) *move.Move {
 		log.Debug().Msg("runner-bag-is-empty")
 		maxTime = MaxTimePerEndgame
 	}
-	// Otherwise use the bot's GenerateMoves function.
 	ctx, cancel := context.WithTimeout(context.Background(), maxTime)
 	defer cancel()
 	m, err := r.aiplayers[playerIdx].BestPlay(ctx)

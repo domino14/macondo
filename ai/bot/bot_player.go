@@ -13,6 +13,7 @@ import (
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
+	"github.com/domino14/macondo/preendgame"
 	"github.com/domino14/macondo/rangefinder"
 	"github.com/domino14/macondo/turnplayer"
 )
@@ -28,6 +29,7 @@ type BotTurnPlayer struct {
 	aiturnplayer.AIStaticTurnPlayer
 	botType     pb.BotRequest_BotCode
 	endgamer    *negamax.Solver
+	preendgamer *preendgame.Solver
 	simmer      *montecarlo.Simmer
 	simmerCalcs []equity.EquityCalculator
 	simThreads  int
@@ -103,6 +105,9 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 	if hasEndgame(botType) {
 		btp.endgamer = &negamax.Solver{}
 	}
+	if hasPreendgame(botType) {
+		btp.preendgamer = &preendgame.Solver{}
+	}
 	if HasInfer(botType) {
 		btp.inferencer = &rangefinder.RangeFinder{}
 	}
@@ -131,7 +136,7 @@ func (p *BotTurnPlayer) GenerateMoves(numPlays int) []*move.Move {
 }
 
 func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
-	if hasSimming(p.botType) || hasEndgame(p.botType) || HasInfer(p.botType) {
+	if hasSimming(p.botType) || hasEndgame(p.botType) || HasInfer(p.botType) || hasPreendgame(p.botType) {
 		return eliteBestPlay(ctx, p)
 	}
 	return p.GenerateMoves(1)[0], nil

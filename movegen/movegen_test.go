@@ -588,6 +588,28 @@ func TestAtLeastOneTileMove(t *testing.T) {
 
 }
 
+func TestMaxTileUsage(t *testing.T) {
+	is := is.New(t)
+
+	gd, err := GaddagFromLexicon("America")
+	is.NoErr(err)
+	alph := gd.GetAlphabet()
+	bd := board.MakeBoard(board.CrosswordGameBoard)
+	ld, err := tilemapping.EnglishLetterDistribution(&DefaultConfig)
+	is.NoErr(err)
+	generator := NewGordonGenerator(gd, bd, ld)
+	cross_set.GenAllCrossSets(bd, gd, ld)
+
+	rack := tilemapping.RackFromString("VIVIFIC", alph)
+	plays := generator.GenAll(rack, false)
+	// 7 orientations of VIVIFIC and 2 of IF
+	is.Equal(len(plays), 9)
+	generator.SetMaxTileUsage(6)
+	// only allow at most 6 tiles to be used from the rack: both orientations of IF
+	plays = generator.GenAll(rack, false)
+	is.Equal(len(plays), 2)
+}
+
 // Note about the comments on the following benchmarks:
 // The benchmarks are a bit slower now. This largely comes
 // from the sorting / equity stuff that wasn't there before.

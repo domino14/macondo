@@ -86,6 +86,7 @@ func (b *Bag) Draw(n int, ml []MachineLetter) error {
 	return nil
 }
 
+// Peek returns a copy of the tiles array.
 func (b *Bag) Peek() []MachineLetter {
 	ret := make([]MachineLetter, len(b.tiles))
 	copy(ret, b.tiles)
@@ -94,6 +95,11 @@ func (b *Bag) Peek() []MachineLetter {
 
 func (b *Bag) PeekMap() []uint8 {
 	return copyTileMap(b.tileMap)
+}
+
+// Tiles returns the actual tile array. Careful when using this!
+func (b *Bag) Tiles() []MachineLetter {
+	return b.tiles
 }
 
 // Shuffle shuffles the bag.
@@ -271,4 +277,12 @@ func (b *Bag) CopyFrom(other *Bag) {
 
 func (b *Bag) LetterDistribution() *LetterDistribution {
 	return b.letterDistribution
+}
+
+// SwapTile swaps the tiles in the bag at the two given indices. This
+// is only used when we want to control what tiles a player should draw,
+// for pre-endgames, simulations, and related purposes. It very likely
+// should be used in concert with the "fixedOrder" setting.
+func (b *Bag) SwapTile(idx1, idx2 int) {
+	b.tiles[idx1], b.tiles[idx2] = b.tiles[idx2], b.tiles[idx1]
 }

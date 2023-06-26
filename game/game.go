@@ -988,8 +988,13 @@ func (g *Game) SetRacksForBoth(racks []*tilemapping.Rack) error {
 
 // ThrowRacksIn throws both players' racks back in the bag.
 func (g *Game) ThrowRacksIn() {
-	g.players[0].throwRackIn(g.bag)
-	g.players[1].throwRackIn(g.bag)
+	for _, p := range g.players {
+		p.throwRackIn(g.bag)
+	}
+}
+
+func (g *Game) ThrowRacksInFor(pidx int) {
+	g.players[pidx].throwRackIn(g.bag)
 }
 
 // SetRandomRack sets the player's  rack to a random rack drawn from the bag.
@@ -1175,20 +1180,14 @@ func (g *Game) ToCGP() string {
 	theirScore := g.oppPlayer().points
 	zeroPt := g.scorelessTurns
 	lex := g.lexicon.Name()
-
-	return fmt.Sprintf("%s %s/%s %d/%d %d lex %s;",
+	ld := ""
+	if g.history != nil {
+		ld = g.history.LetterDistribution
+	}
+	cgp := fmt.Sprintf("%s %s/%s %d/%d %d lex %s;",
 		fen, ourRack, theirRack, ourScore, theirScore, zeroPt, lex)
-}
-
-// ToCGPNoScores converts the game to a CGP string with no scores. Note:
-// this is not a valid CGP string. This is only for debug purposes.
-func (g *Game) ToCGPNoScores() string {
-	fen := g.board.ToFEN(g.alph)
-	ourRack := g.curPlayer().rack.TilesOn().UserVisible(g.alph)
-	theirRack := g.oppPlayer().rack.TilesOn().UserVisible(g.alph)
-	zeroPt := g.scorelessTurns
-	lex := g.lexicon.Name()
-
-	return fmt.Sprintf("%s %s/%s %d lex %s;",
-		fen, ourRack, theirRack, zeroPt, lex)
+	if ld != "" {
+		cgp += fmt.Sprintf(" ld %s;", ld)
+	}
+	return cgp
 }
