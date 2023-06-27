@@ -1,3 +1,8 @@
+# v0.8.0 (Jun 26, 2023)
+- Made LazySMP implementation a bit better (can now use around 6 threads for best
+endgame performance)
+- Fully exhaustive 1-in-the-bag pre-endgame implementation.
+
 # v0.7.0 (Jun 16, 2023)
 - Many bug fixes from the last refactor
 - Significant (can be 20X or more) speed increase in endgame engine for complex endgames.
