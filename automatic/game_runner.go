@@ -22,7 +22,7 @@ import (
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
 
-var MaxTimePerTurn = 15 * time.Second
+var MaxTimePerTurn = 40 * time.Second
 var MaxTimePerEndgame = 10 * time.Second
 
 // GameRunner is the master struct here for the automatic game logic.

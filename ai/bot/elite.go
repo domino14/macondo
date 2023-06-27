@@ -10,6 +10,7 @@ import (
 	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
+	"github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
@@ -184,6 +185,11 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	if HasInfer(p.botType) && len(p.inferencer.Inferences()) > InferencesSimLimit {
 		log.Debug().Int("inferences", len(p.inferencer.Inferences())).Msg("using inferences in sim")
 		p.simmer.SetInferences(p.inferencer.Inferences(), montecarlo.InferenceCycle)
+	}
+
+	if p.botType == macondo.BotRequest_SIMMING_AB {
+		p.simmer.SetThreads(2)
+		p.simmer.SetNegamaxMode(true)
 	}
 
 	// Simulate is a blocking play:

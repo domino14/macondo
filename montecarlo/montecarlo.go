@@ -69,7 +69,7 @@ const (
 )
 
 const HugeNumber = 1000000
-const MaxNegamaxPlays = 100
+const MaxNegamaxPlays = 50
 
 // LogIteration is a struct meant for serializing to a log-file, for debug
 // and other purposes.
