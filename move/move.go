@@ -48,8 +48,9 @@ type Move struct {
 
 	estimatedValue int16 // used only for endgames
 
-	action   MoveType
-	vertical bool
+	action        MoveType
+	vertical      bool
+	uglyBagOfData any
 
 	alph *tilemapping.TileMapping
 }
@@ -235,6 +236,20 @@ func (m *Move) ShortDescription() string {
 	return fmt.Sprint("UNHANDLED")
 }
 
+func (m *Move) LessShortDescription() string {
+	switch m.action {
+	case MoveTypePlay:
+		return fmt.Sprintf("%3v %s (%s)", m.BoardCoords(), m.TilesString(), m.LeaveString())
+	case MoveTypePass:
+		return fmt.Sprintf("(Pass) (%s)", m.LeaveString())
+	case MoveTypeExchange:
+		return fmt.Sprintf("(exch %s) (%s)", m.TilesStringExchange(), m.LeaveString())
+	case MoveTypeChallenge:
+		return "(Challenge!)"
+	}
+	return fmt.Sprint("UNHANDLED")
+}
+
 // FullRack returns the entire rack that the move was made from. This
 // can be calculated from the tiles it uses and the leave.
 func (m *Move) FullRack() string {
@@ -275,6 +290,14 @@ func (m *Move) TilesPlayed() int {
 
 func (m *Move) BingoPlayed() bool {
 	return (m.action == MoveTypePlay) && (m.tilesPlayed == 7)
+}
+
+func (m *Move) SetUglyBagOfData(b any) {
+	m.uglyBagOfData = b
+}
+
+func (m *Move) UglyBagOfData() any {
+	return m.uglyBagOfData
 }
 
 // NewScoringMove creates a scoring *Move and returns it.

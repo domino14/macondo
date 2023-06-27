@@ -19,11 +19,13 @@ import (
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/cache"
+	"github.com/domino14/macondo/common"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/stats"
 	"github.com/domino14/macondo/tilemapping"
 	"github.com/rs/zerolog/log"
@@ -65,6 +67,9 @@ const (
 	InferenceCycle
 	InferenceRandom
 )
+
+const HugeNumber = 1000000
+const MaxNegamaxPlays = 100
 
 // LogIteration is a struct meant for serializing to a log-file, for debug
 // and other purposes.
@@ -185,12 +190,17 @@ func (s *SimmedPlay) Move() *move.Move {
 	return s.play
 }
 
+type extraPlayData struct {
+	playState   pb.PlayState
+	tilesUnseen int
+}
+
 // Simmer implements the actual look-ahead search
 type Simmer struct {
 	origGame *game.Game
 
-	gameCopies []*game.Game
-	// movegens          []movegen.MoveGenerator
+	gameCopies        []*game.Game
+	movegens          []movegen.MoveGenerator
 	equityCalculators []equity.EquityCalculator
 	aiplayers         []aiturnplayer.AITurnPlayer
 	leaveValues       equity.Leaves
@@ -201,6 +211,8 @@ type Simmer struct {
 	initialPlayer  int
 	iterationCount int
 	threads        int
+
+	negamaxMode bool
 
 	simming      bool
 	readyToSim   bool
@@ -243,6 +255,10 @@ func (s *Simmer) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
 	}
 }
 
+func (s *Simmer) SetNegamaxMode(n bool) {
+	s.negamaxMode = n
+}
+
 func (s *Simmer) SetStoppingCondition(sc StoppingCondition) {
 	s.stoppingCondition = sc
 }
@@ -267,6 +283,7 @@ func (s *Simmer) SetInferences(i [][]tilemapping.MachineLetter, mode InferenceMo
 func (s *Simmer) makeGameCopies() error {
 	log.Debug().Int("threads", s.threads).Msg("makeGameCopies")
 	s.gameCopies = []*game.Game{}
+	s.movegens = []movegen.MoveGenerator{}
 	s.aiplayers = []aiturnplayer.AITurnPlayer{}
 	// Pre-shuffle bag so we can make identical copies of it with fixedOrder
 	s.origGame.Bag().Shuffle()
@@ -274,12 +291,22 @@ func (s *Simmer) makeGameCopies() error {
 	for i := 0; i < s.threads; i++ {
 		s.gameCopies = append(s.gameCopies, s.origGame.Copy())
 		s.gameCopies[i].Bag().SetFixedOrder(true)
+		s.gameCopies[i].SetBackupMode(game.SimulationMode)
 
 		player, err := aiturnplayer.NewAIStaticTurnPlayerFromGame(s.gameCopies[i], s.origGame.Config(), s.equityCalculators)
 		if err != nil {
 			return err
 		}
 		s.aiplayers = append(s.aiplayers, player)
+		// used by the negamax engine:
+		s.movegens = append(s.movegens, movegen.NewGordonGenerator(
+			player.MoveGenerator().(*movegen.GordonGenerator).GADDAG(),
+			s.gameCopies[i].Board(),
+			s.gameCopies[i].Bag().LetterDistribution()))
+		s.movegens[i].SetSortingParameter(movegen.SortByScore)
+		s.movegens[i].SetGenPass(true)
+		s.movegens[i].SetPlayRecorder(movegen.AllPlaysRecorder)
+
 	}
 	return nil
 
@@ -289,7 +316,7 @@ func (s *Simmer) resetStats(plies int, plays []*move.Move) {
 	s.iterationCount = 0
 	s.maxPlies = plies
 	for _, g := range s.gameCopies {
-		g.SetStateStackLength(1)
+		g.SetStateStackLength(plies + 1)
 	}
 	s.initialSpread = s.gameCopies[0].CurrentSpread()
 	s.initialPlayer = s.gameCopies[0].PlayerOnTurn()
@@ -411,11 +438,20 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 				s.iterationCount++
 				iterNum := s.iterationCount
 				iterMutex.Unlock()
-				err := s.simSingleIteration(s.maxPlies, t, iterNum, logChan)
-				if err != nil {
-					log.Err(err).Msg("error simming iteration; canceling")
-					cancel()
+				if !s.negamaxMode {
+					err := s.simSingleIteration(s.maxPlies, t, iterNum, logChan)
+					if err != nil {
+						log.Err(err).Msg("error simming iteration; canceling")
+						cancel()
+					}
+				} else {
+					err := s.simSingleIterationNegamax(s.maxPlies, t, iterNum, logChan)
+					if err != nil {
+						log.Err(err).Msg("error simming iteration; canceling")
+						cancel()
+					}
 				}
+
 				select {
 				case v := <-syncExitChan:
 					log.Debug().Msgf("Thread %v got sync msg %v", t, v)
@@ -601,6 +637,171 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 		logChan <- out
 	}
 	return nil
+}
+
+func (s *Simmer) simSingleIterationNegamax(plies, thread, iterationCount int, logChan chan []byte) error {
+	// Give opponent a random rack from the bag. Note that this also
+	// shuffles the bag!
+
+	g := s.gameCopies[thread]
+
+	opp := (s.initialPlayer + 1) % g.NumPlayers()
+	rackToSet := s.knownOppRack
+	if s.inferenceMode == InferenceCycle {
+		rackToSet = s.inferences[iterationCount%len(s.inferences)]
+	} else if s.inferenceMode == InferenceRandom {
+		rackToSet = s.inferences[frand.Intn(len(s.inferences))]
+	}
+	_, err := g.SetRandomRack(opp, rackToSet)
+	if err != nil {
+		return err
+	}
+	logIter := LogIteration{Iteration: iterationCount, Plays: nil, Thread: thread}
+	// var logPlay LogPlay
+	// var plyChild LogPlay
+	for _, simmedPlay := range s.plays {
+		pv := common.PVLine{}
+		g.PlayMove(simmedPlay.play, false, 0)
+		// common parlance for sim plies usually refers to sim plies + 1.
+		// i.e. a 2-ply sim is our move, their move, our move.
+		val := s.negamax(plies, -HugeNumber, HugeNumber, thread, &pv)
+		// equity of the leftover tiles at the end of the sim
+		leftover := float64(0.0)
+		var lastMove, penultimateMove *move.Move
+		var lmi, pmi int
+		if len(pv.Moves) == 0 {
+
+		} else if len(pv.Moves) == 1 {
+			lastMove = pv.Moves[0]
+			lmi = 0
+		} else {
+			lastMove = pv.Moves[len(pv.Moves)-1]
+			penultimateMove = pv.Moves[len(pv.Moves)-2]
+			lmi = len(pv.Moves) - 1
+			pmi = len(pv.Moves) - 2
+		}
+		// In the sim we make a play, the PV has a list of all plays afterwards.
+		// Therefore, even indexes (0, 2, etc) is our opponents, odds are us.
+		if lastMove != nil {
+			thisLeftover := s.leaveValues.LeaveValue(lastMove.Leave())
+			if lmi%2 != 0 { // odds, our leftover
+				leftover += thisLeftover
+			} else {
+				leftover -= thisLeftover
+			}
+		}
+		if penultimateMove != nil {
+			thisLeftover := s.leaveValues.LeaveValue(penultimateMove.Leave())
+			if pmi%2 != 0 { // odds, our leftover
+				leftover += thisLeftover
+			} else {
+				leftover -= thisLeftover
+			}
+		}
+		spread := int(-val) - s.initialSpread
+		simmedPlay.addEquityStat(
+			s.initialSpread,
+			spread,
+			leftover,
+		)
+		var extraData *extraPlayData
+		var ok bool
+		if lastMove != nil {
+			extraData, ok = lastMove.UglyBagOfData().(*extraPlayData)
+			if !ok {
+				return errors.New("not found ugly bag of data")
+			}
+		}
+		simmedPlay.addWinPctStat(
+			spread,
+			leftover,
+			extraData.playState == pb.PlayState_GAME_OVER,
+			s.winPcts,
+			extraData.tilesUnseen,
+			plies%2 == 0,
+		)
+		g.UnplayLastMove() // go back to beginning state
+
+	}
+
+	if s.logStream != nil {
+		out, err := yaml.Marshal([]LogIteration{logIter})
+		if err != nil {
+			log.Error().Err(err).Msg("marshalling log")
+			return err
+		}
+		logChan <- out
+	}
+	return nil
+}
+
+func (s *Simmer) generateSTMPlays(thread int) []*move.Move {
+	// STM means side-to-move
+	g := s.gameCopies[thread]
+	mg := s.movegens[thread]
+
+	var genPlays []*move.Move
+
+	stmRack := g.RackFor(g.PlayerOnTurn())
+	plays := mg.GenAll(stmRack, g.Bag().TilesRemaining() >= game.ExchangeLimit)
+	// movegen owns the plays array. Make a copy of these.
+	if len(plays) > MaxNegamaxPlays {
+		plays = plays[:MaxNegamaxPlays]
+	}
+	genPlays = make([]*move.Move, len(plays))
+	for idx := range plays {
+		genPlays[idx] = &move.Move{}
+		genPlays[idx].CopyFrom(plays[idx])
+	}
+	// Plays are already sorted by score by the movegen.
+	return genPlays
+}
+
+func (s *Simmer) negamax(depth int, α, β float32, thread int, pv *common.PVLine) float32 {
+	g := s.gameCopies[thread]
+
+	if depth == 0 || g.Playing() != pb.PlayState_PLAYING {
+		// Evaluate the state.
+		// A very simple evaluation function for now. Just the current spread,
+		// even if the game is not over yet.
+		spreadNow := g.SpreadFor(g.PlayerOnTurn())
+		return float32(spreadNow)
+	}
+	childPV := common.PVLine{}
+	children := s.generateSTMPlays(thread)
+
+	bestValue := float32(-HugeNumber)
+	for _, child := range children {
+		err := g.PlayMove(child, false, 0)
+		playing := g.Playing()
+		tilesUnseen := g.Bag().TilesRemaining() +
+			int(g.RackFor(1-s.initialPlayer).NumTiles())
+		if err != nil {
+			log.Err(err).Msg("error-playing-move")
+			return 0
+		}
+
+		value := s.negamax(depth-1, -β, -α, thread, &childPV)
+
+		g.UnplayLastMove()
+		if -value > bestValue {
+			bestValue = -value
+			child.SetUglyBagOfData(&extraPlayData{
+				playState:   playing,
+				tilesUnseen: tilesUnseen,
+			})
+			pv.Update(child, childPV, int16(bestValue))
+		}
+		if bestValue > α {
+			α = bestValue
+		}
+		if bestValue >= β {
+			break // beta cut-off
+		}
+		childPV.Clear()
+	}
+	return bestValue
+
 }
 
 func (s *Simmer) bestStaticTurn(playerID, thread int) *move.Move {

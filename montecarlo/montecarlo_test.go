@@ -122,6 +122,45 @@ func BenchmarkSim(b *testing.B) {
 	}
 }
 
+func BenchmarkSimNegamax(b *testing.B) {
+	is := is.New(b)
+	plies := 2
+	// runtime.MemProfileRate = 0
+
+	cgpstr := "C14/O2TOY9/mIRADOR8/F4DAB2PUGH1/I5GOOEY3V/T4XI2MALTHA/14N/6GUM3OWN/7PEW2DOE/9EF1DOR/2KUNA1J1BEVELS/3TURRETs2S2/7A4T2/7N7/7S7 EEEIILZ/ 336/298 0 lex NWL20;"
+
+	game, err := cgp.ParseCGP(&DefaultConfig, cgpstr)
+	is.NoErr(err)
+	game.RecalculateBoard()
+	calcs, leaves := defaultSimCalculators("NWL18")
+
+	gd, err := kwg.Get(game.Config(), game.LexiconName())
+	is.NoErr(err)
+
+	generator := movegen.NewGordonGenerator(gd, game.Board(), game.Rules().LetterDistribution())
+
+	generator.GenAll(game.RackFor(0), false)
+	plays := generator.Plays()[:10]
+	zerolog.SetGlobalLevel(zerolog.Disabled)
+
+	simmer := &Simmer{}
+	simmer.Init(game, calcs, leaves.(*equity.CombinedStaticCalculator), &DefaultConfig)
+	simmer.SetThreads(1)
+	simmer.PrepareSim(plies, plays)
+	log.Debug().Msg("About to start")
+	b.ResetTimer()
+	// runtime.MemProfileRate = 1
+	// benchmark 2022-08-20 on monolith (12th gen Intel computer)
+	// 362	   3448347 ns/op	    7980 B/op	      60 allocs/op
+	// 2023-03-12:
+	// 504	   2228889 ns/op	    8619 B/op	      78 allocs/op
+	// 2023-03-15:
+	// 543	   2170050 ns/op	       0 B/op	       0 allocs/op
+	for i := 0; i < b.N; i++ {
+		simmer.simSingleIterationNegamax(plies, 0, i+1, nil)
+	}
+}
+
 func TestLongerSim(t *testing.T) {
 	// t.Skip()
 	is := is.New(t)

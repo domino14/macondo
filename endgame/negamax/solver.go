@@ -16,6 +16,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	"lukechampine.com/frand"
 
+	"github.com/domino14/macondo/common"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
@@ -54,58 +55,6 @@ const MaxLazySMPThreads = 6
 var (
 	ErrNoEndgameSolution = errors.New("no endgame solution found")
 )
-
-// Credit: MIT-licensed https://github.com/algerbrex/blunder/blob/main/engine/search.go
-type PVLine struct {
-	Moves []*move.Move
-	g     *game.Game
-	score int16
-}
-
-// Clear the principal variation line.
-func (pvLine *PVLine) Clear() {
-	pvLine.Moves = nil
-}
-
-// Update the principal variation line with a new best move,
-// and a new line of best play after the best move.
-func (pvLine *PVLine) Update(move *move.Move, newPVLine PVLine, score int16) {
-	pvLine.Clear()
-	pvLine.Moves = append(pvLine.Moves, move)
-	pvLine.Moves = append(pvLine.Moves, newPVLine.Moves...)
-	pvLine.score = score
-}
-
-// Get the best move from the principal variation line.
-func (pvLine *PVLine) GetPVMove() *move.Move {
-	return pvLine.Moves[0]
-}
-
-// Convert the principal variation line to a string.
-func (pvLine PVLine) String() string {
-	var s string
-	s = fmt.Sprintf("PV; val %d\n", pvLine.score)
-	for i := 0; i < len(pvLine.Moves); i++ {
-		s += fmt.Sprintf("%d: %s (%d)\n",
-			i+1,
-			pvLine.Moves[i].ShortDescription(),
-			pvLine.Moves[i].Score())
-	}
-	return s
-}
-
-func (pvLine PVLine) NLBString() string {
-	// no line breaks
-	var s string
-	s = fmt.Sprintf("PV; val %d; ", pvLine.score)
-	for i := 0; i < len(pvLine.Moves); i++ {
-		s += fmt.Sprintf("%d: %s (%d); ",
-			i+1,
-			pvLine.Moves[i].ShortDescription(),
-			pvLine.Moves[i].Score())
-	}
-	return s
-}
 
 // panic if pvline is invalid
 // func (p PVLine) verify() {
@@ -158,7 +107,7 @@ type Solver struct {
 	firstWinOptim           bool
 	transpositionTableOptim bool
 	lazySMPOptim            bool
-	principalVariation      PVLine
+	principalVariation      common.PVLine
 	bestPVValue             int16
 
 	killers [MaxVariantLength][MaxKillers]*move.Move
@@ -352,7 +301,7 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 	// assignEstimates for the very first time around.
 	s.assignEstimates(s.initialMoves[0], 0, 0, nil)
 
-	pv := PVLine{g: s.game}
+	pv := common.PVLine{}
 	// Do initial search so that we can have a good estimate for
 	// move ordering.
 	s.currentIDDepths[0] = 1
@@ -404,7 +353,7 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 
 				// ignore the score for these helper threads; we're just
 				// using them to help build up the transposition table.
-				pv := PVLine{g: s.gameCopies[t-1]} // not being used for anything
+				pv := common.PVLine{} // not being used for anything
 				val, err := s.negamax(
 					helperCtx, initialHashKey, s.currentIDDepths[t],
 					helperAlpha, helperBeta, &pv, t)
@@ -438,7 +387,7 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 				return err
 			})
 		}
-		pv := PVLine{g: s.game}
+		pv := common.PVLine{}
 		val, err := s.negamax(ctx, initialHashKey, p, α, β, &pv, 0)
 
 		sort.Slice(s.initialMoves[0], func(i, j int) bool {
@@ -517,7 +466,7 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 		if s.logStream != nil {
 			fmt.Fprintf(s.logStream, "- ply: %d\n", p)
 		}
-		pv := PVLine{g: g}
+		pv := common.PVLine{}
 		val, err := s.negamax(ctx, initialHashKey, p, α, β, &pv, 0)
 		if err != nil {
 			return err
@@ -549,7 +498,7 @@ func (s *Solver) ClearKillers() {
 	}
 }
 
-func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β int16, pv *PVLine, thread int) (int16, error) {
+func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β int16, pv *common.PVLine, thread int) (int16, error) {
 	if ctx.Err() != nil {
 		return 0, ctx.Err()
 	}
@@ -596,7 +545,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		spreadNow := g.SpreadFor(g.PlayerOnTurn())
 		return int16(spreadNow), nil
 	}
-	childPV := PVLine{g: g}
+	childPV := common.PVLine{}
 
 	children := s.generateSTMPlays(depth, thread)
 	if s.currentIDDepths[thread] != depth {

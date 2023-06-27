@@ -34,6 +34,7 @@ func (sc *ShellController) handleSim(args []string, options map[string]string) e
 	}
 	inferMode := montecarlo.InferenceOff
 	knownOppRack := ""
+	negamaxMode := false
 	for opt, val := range options {
 		switch opt {
 		case "plies":
@@ -82,6 +83,10 @@ func (sc *ShellController) handleSim(args []string, options map[string]string) e
 			default:
 				return errors.New("that inference mode is not supported")
 			}
+		case "negamax":
+			if strings.ToLower(val) == "true" {
+				negamaxMode = true
+			}
 
 		default:
 			return errors.New("option " + opt + " not recognized")
@@ -115,6 +120,7 @@ func (sc *ShellController) handleSim(args []string, options map[string]string) e
 		if inferMode != montecarlo.InferenceOff {
 			sc.simmer.SetInferences(sc.rangefinder.Inferences(), inferMode)
 		}
+		sc.simmer.SetNegamaxMode(negamaxMode)
 		sc.startSim()
 	}
 	return nil
