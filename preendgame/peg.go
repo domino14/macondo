@@ -57,9 +57,16 @@ func Equal(a, b []tilemapping.MachineLetter) bool {
 type PreEndgamePlay struct {
 	sync.RWMutex
 	Play          *move.Move
-	Wins          float32
+	Points        float32
+	FoundLosses   float32
 	outcomesArray []Outcome
-	ignore        bool
+	Ignore        bool
+}
+
+func (p *PreEndgamePlay) stopAnalyzing() {
+	p.Lock()
+	defer p.Unlock()
+	p.Ignore = true
 }
 
 func (p *PreEndgamePlay) outcomeIndex(tiles []tilemapping.MachineLetter) int {
@@ -86,11 +93,13 @@ func (p *PreEndgamePlay) addWinPctStat(result PEGOutcome, ct int, tiles []tilema
 	p.outcomesArray[found].outcome = result
 	switch result {
 	case PEGWin:
-		p.Wins += float32(ct)
+		p.Points += float32(ct)
 	case PEGDraw:
-		p.Wins += float32(ct) / 2
+		p.Points += float32(ct) / 2
+		p.FoundLosses += float32(ct) / 2
 	case PEGLoss:
 		// no wins
+		p.FoundLosses += float32(ct)
 	}
 }
 
@@ -113,7 +122,7 @@ func (p *PreEndgamePlay) setWinPctStat(result PEGOutcome, ct int, tiles []tilema
 			// Add to the win counter only if it wasn't already marked a win.
 			// Note that this win is not necessarily known yet.
 			if p.outcomesArray[found].outcome != PEGWin {
-				p.Wins += float32(ct)
+				p.Points += float32(ct)
 			}
 
 			p.outcomesArray[found].outcome = PEGWin
@@ -125,16 +134,21 @@ func (p *PreEndgamePlay) setWinPctStat(result PEGOutcome, ct int, tiles []tilema
 			// Note that this draw is not necessarily known yet.
 
 			if p.outcomesArray[found].outcome != PEGDraw {
-				p.Wins += float32(ct) / 2
+				p.Points += float32(ct) / 2
+				p.FoundLosses += float32(ct) / 2
 			}
 			p.outcomesArray[found].outcome = PEGDraw
 
 		}
 	case PEGLoss:
 		if p.outcomesArray[found].outcome == PEGDraw {
-			p.Wins -= float32(ct) / 2
+			p.Points -= float32(ct) / 2
+			p.FoundLosses += float32(ct) / 2
 		} else if p.outcomesArray[found].outcome == PEGWin {
-			p.Wins -= float32(ct)
+			p.Points -= float32(ct)
+			p.FoundLosses += float32(ct)
+		} else if p.outcomesArray[found].outcome == PEGNotInitialized {
+			p.FoundLosses += float32(ct)
 		}
 		p.outcomesArray[found].outcome = PEGLoss
 
@@ -196,7 +210,7 @@ func (p *PreEndgamePlay) OutcomeFor(tiles []tilemapping.MachineLetter) PEGOutcom
 }
 
 func (p *PreEndgamePlay) String() string {
-	return fmt.Sprintf("<play %v, wins %f>", p.Play.ShortDescription(), p.Wins)
+	return fmt.Sprintf("<play %v, wins %f>", p.Play.ShortDescription(), p.Points)
 }
 
 type Solver struct {
@@ -211,6 +225,7 @@ type Solver struct {
 	initialSpread int
 	threads       int
 	plays         []*PreEndgamePlay
+	winnerSoFar   *PreEndgamePlay
 }
 
 // Init initializes the solver. It creates all the parallel endgame solvers.
@@ -335,14 +350,16 @@ func (s *Solver) multithreadSolve(ctx context.Context, moves []*move.Move) ([]*P
 	}
 
 	g := errgroup.Group{}
+	winnerGroup := errgroup.Group{}
 	log.Debug().Interface("unseen-tiles", unseenTiles).Msg("unseen tiles")
 	jobChan := make(chan job, s.threads*2)
+	winnerChan := make(chan *PreEndgamePlay)
 
 	for t := 0; t < s.threads; t++ {
 		t := t
 		g.Go(func() error {
 			for j := range jobChan {
-				if err := s.handleJob(ctx, j, t); err != nil {
+				if err := s.handleJob(ctx, j, t, winnerChan); err != nil {
 					log.Debug().AnErr("err", err).Msg("error-handling-job")
 					// Don't exit, to avoid deadlock.
 				}
@@ -350,6 +367,19 @@ func (s *Solver) multithreadSolve(ctx context.Context, moves []*move.Move) ([]*P
 			return nil
 		})
 	}
+	// The determiner of the winner.
+	winnerGroup.Go(func() error {
+		for p := range winnerChan {
+			if s.winnerSoFar != nil {
+				if p.Points > s.winnerSoFar.Points {
+					s.winnerSoFar = p
+				}
+			} else {
+				s.winnerSoFar = p
+			}
+		}
+		return nil
+	})
 	queuedJobs := 0
 	var ourPass *PreEndgamePlay
 	for _, p := range s.plays {
@@ -407,17 +437,20 @@ func (s *Solver) multithreadSolve(ctx context.Context, moves []*move.Move) ([]*P
 	log.Info().Int("numJobs", queuedJobs).Msg("queued-jobs")
 	close(jobChan)
 	err := g.Wait()
-
 	if err != nil {
 		return nil, err
 	}
+
+	close(winnerChan)
+	winnerGroup.Wait()
+
 	if ctx.Err() != nil && (ctx.Err() == context.Canceled || ctx.Err() == context.DeadlineExceeded) {
 		log.Info().Msg("timed out; returning best results so far...")
 	}
 
 	// sort plays by win %
 	sort.Slice(s.plays, func(i, j int) bool {
-		return s.plays[i].Wins > s.plays[j].Wins
+		return s.plays[i].Points > s.plays[j].Points
 	})
 
 	return s.plays, err
@@ -431,10 +464,22 @@ func (s *Solver) SetThreads(t int) {
 	s.threads = t
 }
 
-func (s *Solver) handleJob(ctx context.Context, j job, thread int) error {
+func (s *Solver) handleJob(ctx context.Context, j job, thread int, winnerChan chan *PreEndgamePlay) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
+
+	j.ourMove.RLock()
+	if s.winnerSoFar != nil && j.ourMove.FoundLosses > s.winnerSoFar.FoundLosses {
+		// cut off this play. We already have more losses than the winning play's
+		// losses (so far).
+		j.ourMove.RUnlock()
+		log.Debug().Msg("stop-analyzing-move")
+		j.ourMove.stopAnalyzing()
+		return nil
+	}
+	j.ourMove.RUnlock()
+
 	if j.ourMove.Play.Action() == move.MoveTypePass && j.theirMove.Action() != move.MoveTypePass {
 		return s.handleNonpassResponseToPass(ctx, j, thread)
 	}
@@ -517,6 +562,7 @@ func (s *Solver) handleJob(ctx context.Context, j job, thread int) error {
 	log.Debug().Int("thread", thread).Msg("peg-unplay")
 
 	g.UnplayLastMove()
+	winnerChan <- j.ourMove
 	return nil
 }
 

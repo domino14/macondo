@@ -435,13 +435,19 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	maxMoves := 15
+	maxMoves := 20
 	if len(moves) < maxMoves {
 		maxMoves = len(moves)
 	}
-	sc.showMessage("Play\t\t\tWins")
+	sc.showMessage("Play\t\t\tWins\t\tKnown Losses\t\t")
 	for _, m := range moves[:maxMoves] {
-		sc.showMessage(fmt.Sprintf("%s:\t\t%.1f", m.Play.ShortDescription(), m.Wins))
+		cutoff := ""
+		if m.Ignore {
+			cutoff = "❌"
+		}
+		sc.showMessage(fmt.Sprintf("%s:\t\t%.1f\t\t%.1f\t\t%s",
+			m.Play.ShortDescription(), m.Points, m.FoundLosses,
+			cutoff))
 	}
 	return msg(""), nil
 }

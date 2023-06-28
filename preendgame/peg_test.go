@@ -54,7 +54,7 @@ func Test1PEGPass(t *testing.T) {
 	plays, err := peg.Solve(ctx)
 	is.NoErr(err)
 	is.Equal(plays[0].Play.ShortDescription(), "(Pass)")
-	is.Equal(plays[0].Wins, float32(5.5))
+	is.Equal(plays[0].Points, float32(5.5))
 	// Wins for ?, A, I, N, U, draw for B, Loss for both Es
 	is.Equal(plays[0].OutcomeFor([]tilemapping.MachineLetter{0}), PEGWin)
 	is.Equal(plays[0].OutcomeFor([]tilemapping.MachineLetter{1}), PEGWin)
@@ -83,7 +83,7 @@ func TestStraightforward1PEG(t *testing.T) {
 	is.NoErr(err)
 	// 13L ONYX wins 7.5/8 endgames, tying only with the Y. it is counter-intuitive.
 	is.Equal(plays[0].Play.ShortDescription(), "13L ONYX")
-	is.Equal(plays[0].Wins, float32(7.5))
+	is.Equal(plays[0].Points, float32(7.5))
 	is.Equal(plays[0].OutcomeFor([]tilemapping.MachineLetter{25}), PEGDraw)
 }
 
