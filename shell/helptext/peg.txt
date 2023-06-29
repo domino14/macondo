@@ -22,7 +22,8 @@ Options:
     Endgame plies defaults to 4. This is how far to look in the endgames. You may
     not need to look any farther than 2 plies if the spread difference is big
     (since you will likely only lose or win with an out bingo). On the other
-    hand, you may want to look deeper if there's a Q or other stuck tile to draw.
+    hand, you may want to look deeper if there's a Q or similar tile to draw,
+    that may result in one player getting stuck with it.
 
     -threads 8
 
@@ -33,3 +34,11 @@ Options:
 
     How much time to use. If we run out of time it will just return the best plays
     found so far. Unlimited by default.
+
+    -early-cutoff true
+
+    Macondo can stop analyzing a certain pre-endgame line if it finds that it will
+    surely perform worse than the best line found so far. This speeds up analysis
+    a lot of the time, at the cost of only the winning play being assured to have
+    accurate results. If you turn this on, plays that were cut-off early will
+    be marked with a ❌ symbol, and their stats may not be fully accurate.

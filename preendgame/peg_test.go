@@ -2,6 +2,7 @@ package preendgame
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/domino14/macondo/cgp"
@@ -10,9 +11,20 @@ import (
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tilemapping"
 	"github.com/matryer/is"
+	"github.com/rs/zerolog"
 )
 
 var DefaultConfig = config.DefaultConfig()
+
+func TestMain(m *testing.M) {
+	// endgame/pre-endgame debug logs are very noisy.
+	level := zerolog.GlobalLevel()
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	exitVal := m.Run()
+	zerolog.SetGlobalLevel(level)
+
+	os.Exit(exitVal)
+}
 
 func TestMoveTilesToBeginning(t *testing.T) {
 	is := is.New(t)
@@ -54,7 +66,7 @@ func Test1PEGPass(t *testing.T) {
 	plays, err := peg.Solve(ctx)
 	is.NoErr(err)
 	is.Equal(plays[0].Play.ShortDescription(), "(Pass)")
-	is.Equal(plays[0].Wins, float32(5.5))
+	is.Equal(plays[0].Points, float32(5.5))
 	// Wins for ?, A, I, N, U, draw for B, Loss for both Es
 	is.Equal(plays[0].OutcomeFor([]tilemapping.MachineLetter{0}), PEGWin)
 	is.Equal(plays[0].OutcomeFor([]tilemapping.MachineLetter{1}), PEGWin)
@@ -63,7 +75,7 @@ func Test1PEGPass(t *testing.T) {
 	is.Equal(plays[0].OutcomeFor([]tilemapping.MachineLetter{21}), PEGWin)
 	is.Equal(plays[0].OutcomeFor([]tilemapping.MachineLetter{2}), PEGDraw)
 	is.Equal(plays[0].OutcomeFor([]tilemapping.MachineLetter{5}), PEGLoss)
-
+	is.Equal(len(plays[0].outcomesArray), 7)
 }
 
 func TestStraightforward1PEG(t *testing.T) {
@@ -83,7 +95,7 @@ func TestStraightforward1PEG(t *testing.T) {
 	is.NoErr(err)
 	// 13L ONYX wins 7.5/8 endgames, tying only with the Y. it is counter-intuitive.
 	is.Equal(plays[0].Play.ShortDescription(), "13L ONYX")
-	is.Equal(plays[0].Wins, float32(7.5))
+	is.Equal(plays[0].Points, float32(7.5))
 	is.Equal(plays[0].OutcomeFor([]tilemapping.MachineLetter{25}), PEGDraw)
 }
 

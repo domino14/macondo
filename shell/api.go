@@ -112,6 +112,11 @@ func (sc *ShellController) load(cmd *shellcmd) (*Response, error) {
 	return msg(sc.game.ToDisplayText()), nil
 }
 
+func (sc *ShellController) unload(cmd *shellcmd) (*Response, error) {
+	sc.game = nil
+	return msg("No active game."), nil
+}
+
 func (sc *ShellController) show(cmd *shellcmd) (*Response, error) {
 	return msg(sc.game.ToDisplayText()), nil
 }
@@ -387,6 +392,7 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 	var maxtime int
 	var maxthreads = 0
 	var err error
+	var earlyCutoff bool
 
 	if cmd.options["endgameplies"] != "" {
 		endgamePlies, err = strconv.Atoi(cmd.options["endgameplies"])
@@ -409,6 +415,10 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 		}
 	}
 
+	if cmd.options["early-cutoff"] == "true" {
+		earlyCutoff = true
+	}
+
 	sc.showMessage(fmt.Sprintf(
 		"endgameplies %v, maxtime %v, threads %v",
 		endgamePlies, maxtime, maxthreads))
@@ -423,6 +433,7 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 		sc.preendgameSolver.SetThreads(maxthreads)
 	}
 	sc.preendgameSolver.SetEndgamePlies(endgamePlies)
+	sc.preendgameSolver.SetEarlyCutoffOptim(earlyCutoff)
 
 	var cancel context.CancelFunc
 	ctx := context.Background()
@@ -435,14 +446,13 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	maxMoves := 15
+	maxMoves := 20
 	if len(moves) < maxMoves {
 		maxMoves = len(moves)
 	}
-	sc.showMessage("Play\t\t\tWins")
-	for _, m := range moves[:maxMoves] {
-		sc.showMessage(fmt.Sprintf("%s:\t\t%.1f", m.Play.ShortDescription(), m.Wins))
-	}
+
+	sc.showMessage(sc.preendgameSolver.SolutionStats(maxMoves))
+
 	return msg(""), nil
 }
 

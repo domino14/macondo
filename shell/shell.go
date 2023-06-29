@@ -9,6 +9,8 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"os/user"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
@@ -180,7 +182,7 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 	switch key {
 	case "lexicon":
 		if sc.IsPlaying() {
-			msg := "Cannot change the lexicon while a game is active"
+			msg := "Cannot change the lexicon while a game is active (try `unload` to quit game)"
 			err = errors.New(msg)
 		} else {
 			err = sc.options.SetLexicon(args)
@@ -194,7 +196,7 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 		}
 	case "board":
 		if sc.IsPlaying() {
-			msg := "Cannot change the board layout while a game is active"
+			msg := "Cannot change the board layout while a game is active (try `unload` to quit game)"
 			err = errors.New(msg)
 		} else {
 			err = sc.options.SetBoardLayoutName(args[0])
@@ -313,9 +315,33 @@ func (sc *ShellController) loadGCG(args []string) error {
 		if err != nil {
 			return err
 		}
+	} else if args[0] == "web" {
+		if len(args) < 2 {
+			return errors.New("need to provide a web URL")
+		}
+		path := args[1]
 
+		resp, err := http.Get(path)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		history, err = gcgio.ParseGCGFromReader(sc.config, resp.Body)
+		if err != nil {
+			return err
+		}
 	} else {
-		history, err = gcgio.ParseGCG(sc.config, args[0])
+		path := args[0]
+		if strings.HasPrefix(path, "~/") {
+			usr, err := user.Current()
+			if err != nil {
+				return err
+			}
+			dir := usr.HomeDir
+			path = filepath.Join(dir, path[2:])
+		}
+		history, err = gcgio.ParseGCG(sc.config, path)
 		if err != nil {
 			return err
 		}
@@ -747,6 +773,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.newGame(cmd)
 	case "load":
 		return sc.load(cmd)
+	case "unload":
+		return sc.unload(cmd)
 	case "n":
 		return sc.next(cmd)
 	case "p":

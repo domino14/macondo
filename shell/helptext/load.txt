@@ -3,6 +3,7 @@ load - Load a game from GCG or CGP
 Example usage:
 
     load /Users/cesar/vs_jesse.gcg
+    load ~/Downloads/game2.gcg
 
 You can also use a cross-tables game ID and it will correctly load
 the game:
@@ -11,6 +12,10 @@ the game:
 
 The above will load the cross-tables game located at
 https://www.cross-tables.com/annotated.php?u=19009
+
+If you want to load a .gcg file from the web, you can just do:
+
+    load web https://example.com/mygame.gcg
 
 You can use a Woogles game ID and it will load the game from https://woogles.io
 as well:

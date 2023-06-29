@@ -3,6 +3,7 @@ package game
 import (
 	"errors"
 	"fmt"
+	"strconv"
 
 	"github.com/rs/zerolog/log"
 
@@ -172,10 +173,23 @@ func MoveFromEvent(evt *pb.GameEvent, alph *tilemapping.TileMapping, board *boar
 			len(rack)-len(leaveMW), alph, int(evt.Row), int(evt.Column))
 
 	case pb.GameEvent_EXCHANGE:
-		tiles, err := tilemapping.ToMachineWord(evt.Exchanged, alph)
-		if err != nil {
-			log.Error().Err(err).Msg("")
-			return nil, err
+		ct, err := strconv.Atoi(evt.Exchanged)
+		var tiles tilemapping.MachineWord
+		if err == nil {
+			// The event contains a number of exchanged tiles, instead
+			// of the actual tiles.
+			// Set the exchanged tiles to just the first N tiles that
+			// are provided.
+			if len(rack) < ct {
+				ct = len(rack)
+			}
+			tiles = rack[:ct]
+		} else {
+			tiles, err = tilemapping.ToMachineWord(evt.Exchanged, alph)
+			if err != nil {
+				log.Error().Err(err).Msg("")
+				return nil, err
+			}
 		}
 		leaveMW, err := tilemapping.Leave(rack, tiles, true)
 		if err != nil {
