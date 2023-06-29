@@ -2,6 +2,7 @@ package preendgame
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/domino14/macondo/cgp"
@@ -10,9 +11,20 @@ import (
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tilemapping"
 	"github.com/matryer/is"
+	"github.com/rs/zerolog"
 )
 
 var DefaultConfig = config.DefaultConfig()
+
+func TestMain(m *testing.M) {
+	// endgame/pre-endgame debug logs are very noisy.
+	level := zerolog.GlobalLevel()
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	exitVal := m.Run()
+	zerolog.SetGlobalLevel(level)
+
+	os.Exit(exitVal)
+}
 
 func TestMoveTilesToBeginning(t *testing.T) {
 	is := is.New(t)
@@ -63,7 +75,7 @@ func Test1PEGPass(t *testing.T) {
 	is.Equal(plays[0].OutcomeFor([]tilemapping.MachineLetter{21}), PEGWin)
 	is.Equal(plays[0].OutcomeFor([]tilemapping.MachineLetter{2}), PEGDraw)
 	is.Equal(plays[0].OutcomeFor([]tilemapping.MachineLetter{5}), PEGLoss)
-
+	is.Equal(len(plays[0].outcomesArray), 7)
 }
 
 func TestStraightforward1PEG(t *testing.T) {
