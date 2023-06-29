@@ -9,6 +9,8 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"os/user"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
@@ -313,9 +315,33 @@ func (sc *ShellController) loadGCG(args []string) error {
 		if err != nil {
 			return err
 		}
+	} else if args[0] == "web" {
+		if len(args) < 2 {
+			return errors.New("need to provide a web URL")
+		}
+		path := args[1]
 
+		resp, err := http.Get(path)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		history, err = gcgio.ParseGCGFromReader(sc.config, resp.Body)
+		if err != nil {
+			return err
+		}
 	} else {
-		history, err = gcgio.ParseGCG(sc.config, args[0])
+		path := args[0]
+		if strings.HasPrefix(path, "~/") {
+			usr, err := user.Current()
+			if err != nil {
+				return err
+			}
+			dir := usr.HomeDir
+			path = filepath.Join(dir, path[2:])
+		}
+		history, err = gcgio.ParseGCG(sc.config, path)
 		if err != nil {
 			return err
 		}
