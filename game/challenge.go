@@ -3,11 +3,15 @@ package game
 import (
 	"errors"
 
-	"github.com/domino14/macondo/alphabet"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/lexicon"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/rs/zerolog/log"
+)
+
+var (
+	errIllegalWords = errors.New("one or more words are invalid for this variant")
 )
 
 // SetChallengeRule sets the challenge rule for a game. The game
@@ -36,7 +40,7 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 	}
 	// Note that the player on turn right now needs to be the player
 	// who is making the challenge.
-	illegalWords := validateWords(g.lexicon, g.lastWordsFormed)
+	illegalWords := validateWords(g.lexicon, g.lastWordsFormed, g.rules.Variant())
 	playLegal := len(illegalWords) == 0
 
 	lastEvent := g.history.Events[len(g.history.Events)-1]
@@ -45,7 +49,7 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 	challengee := otherPlayer(g.onturn)
 
 	offBoardEvent := &pb.GameEvent{
-		Nickname:    lastEvent.Nickname,
+		PlayerIndex: lastEvent.PlayerIndex,
 		Type:        pb.GameEvent_PHONY_TILES_RETURNED,
 		LostScore:   lastEvent.Score,
 		Cumulative:  cumeScoreBeforeChallenge - lastEvent.Score,
@@ -93,12 +97,21 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 
 		// the play comes off the board. Add the offBoardEvent.
 		g.addEventToHistory(offBoardEvent)
+
 		// Unplay the last move to restore everything as it was board-wise
 		// (and un-end the game if it had ended)
 		g.UnplayLastMove()
+
 		// We must also set the last known rack of the challengee back to
 		// their rack before they played the phony.
 		g.history.LastKnownRacks[challengee] = lastEvent.Rack
+		// Explicitly set racks for both players. This prevents a bug where
+		// part of the game may have been loaded from a GameHistory (through the
+		// PlayGameToTurn flow) and the racks continually get reset.
+		g.SetRacksForBoth([]*tilemapping.Rack{
+			tilemapping.RackFromString(g.history.LastKnownRacks[0], g.alph),
+			tilemapping.RackFromString(g.history.LastKnownRacks[1], g.alph),
+		})
 
 		// Note that if backup mode is InteractiveGameplayMode, which it should be,
 		// we do not back up the turn number. So restoring it doesn't change
@@ -122,11 +135,11 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 
 		bonusScoreEvent := func(bonus int32) *pb.GameEvent {
 			return &pb.GameEvent{
-				Nickname:   lastEvent.Nickname,
-				Type:       pb.GameEvent_CHALLENGE_BONUS,
-				Rack:       g.players[challengee].rackLetters,
-				Bonus:      bonus + int32(addlBonus),
-				Cumulative: cumeScoreBeforeChallenge + bonus + int32(addlBonus),
+				PlayerIndex: lastEvent.PlayerIndex,
+				Type:        pb.GameEvent_CHALLENGE_BONUS,
+				Rack:        g.players[challengee].rackLetters(),
+				Bonus:       bonus + int32(addlBonus),
+				Cumulative:  cumeScoreBeforeChallenge + bonus + int32(addlBonus),
 				// Note: these millis remaining would be the challenger's
 				MillisRemaining: int32(millis),
 			}
@@ -183,15 +196,29 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 	return playLegal, err
 }
 
-func validateWords(lex lexicon.Lexicon, words []alphabet.MachineWord) []string {
+func validateWords(lex lexicon.Lexicon, words []tilemapping.MachineWord, variant Variant) []string {
 	var illegalWords []string
 	alph := lex.GetAlphabet()
-	log.Debug().Interface("words", words).Msg("challenge-evt")
 	for _, word := range words {
-		valid := lex.HasWord(word)
+		var valid bool
+		if variant == VarWordSmog || variant == VarWordSmogSuper {
+			valid = lex.HasAnagram(word)
+		} else {
+			valid = lex.HasWord(word)
+		}
 		if !valid {
 			illegalWords = append(illegalWords, word.UserVisible(alph))
 		}
 	}
 	return illegalWords
+}
+
+// ValidateWords validates all `words` with the passed-in lexicon, and
+// the game's variant. We don't use the game's lexicon because of Reasons.
+func (g *Game) ValidateWords(lex lexicon.Lexicon, words []tilemapping.MachineWord) error {
+	illegalWords := validateWords(lex, words, g.Rules().Variant())
+	if len(illegalWords) > 0 {
+		return errIllegalWords
+	}
+	return nil
 }

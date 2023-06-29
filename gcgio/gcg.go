@@ -11,9 +11,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/tilemapping"
 
 	"github.com/domino14/macondo/game"
 
@@ -29,6 +30,7 @@ var (
 	errPragmaPrecedeEvent = errors.New("non-note pragmata should appear before event lines")
 	errEncodingWrongPlace = errors.New("encoding line must be first line in file if present")
 	errPlayerNotSupported = errors.New("player number not supported")
+	errPlayerDoesNotExist = errors.New("player does not exist")
 )
 
 // A Token is an event in a GCG file.
@@ -53,6 +55,14 @@ const (
 	EndRackPointsToken
 	TimePenaltyToken
 	LastRackPenaltyToken
+	GameTypeToken
+	TileSetToken
+	GameBoardToken
+	BoardLayoutToken
+	TileDistributionNameToken
+	ContinuationToken
+	IncompleteToken
+	TileDeclarationToken
 )
 
 type gcgdatum struct {
@@ -63,23 +73,31 @@ type gcgdatum struct {
 var GCGRegexes []gcgdatum
 
 const (
-	PlayerRegex             = `#player(?P<p_number>[1-2])\s+(?P<nick>\S+)\s+(?P<real_name>.+)`
-	TitleRegex              = `#title\s*(?P<title>.*)`
-	DescriptionRegex        = `#description\s*(?P<description>.*)`
-	IDRegex                 = `#id\s*(?P<id_authority>\S+)\s+(?P<id>\S+)`
-	Rack1Regex              = `#rack1 (?P<rack>\S+)`
-	Rack2Regex              = `#rack2 (?P<rack>\S+)`
-	MoveRegex               = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+(?P<pos>\w+)\s+(?P<play>[\w\\.]+)\s+\+(?P<score>\d+)\s+(?P<cumul>\d+)`
-	NoteRegex               = `#note (?P<note>.+)`
-	LexiconRegex            = `#lexicon (?P<lexicon>.+)`
-	CharacterEncodingRegex  = `#character-encoding (?P<encoding>[[:graph:]]+)`
-	PhonyTilesReturnedRegex = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+--\s+-(?P<lost_score>\d+)\s+(?P<cumul>\d+)`
-	PassRegex               = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+-\s+\+0\s+(?P<cumul>\d+)`
-	ChallengeBonusRegex     = `>(?P<nick>\S+):\s+(?P<rack>\S*)\s+\(challenge\)\s+\+(?P<bonus>\d+)\s+(?P<cumul>\d+)`
-	ExchangeRegex           = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+-(?P<exchanged>\S+)\s+\+0\s+(?P<cumul>\d+)`
-	EndRackPointsRegex      = `>(?P<nick>\S+):\s+\((?P<rack>\S+)\)\s+\+(?P<score>\d+)\s+(?P<cumul>-?\d+)`
-	TimePenaltyRegex        = `>(?P<nick>\S+):\s+(?P<rack>\S*)\s+\(time\)\s+\-(?P<penalty>\d+)\s+(?P<cumul>-?\d+)`
-	PtsLostForLastRackRegex = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+\((?P<rack>\S+)\)\s+\-(?P<penalty>\d+)\s+(?P<cumul>-?\d+)`
+	PlayerRegex               = `#player(?P<p_number>[1-2])\s+(?P<nick>\S+)\s+(?P<real_name>.+)`
+	TitleRegex                = `#title\s*(?P<title>.*)`
+	DescriptionRegex          = `#description\s*(?P<description>.*)`
+	IDRegex                   = `#id\s*(?P<id_authority>\S+)\s+(?P<id>\S+)`
+	Rack1Regex                = `#rack1 (?P<rack>\S+)`
+	Rack2Regex                = `#rack2 (?P<rack>\S+)`
+	MoveRegex                 = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+(?P<pos>\w+)\s+(?P<play>\S+)\s+\+(?P<score>\d+)\s+(?P<cumul>\d+)`
+	NoteRegex                 = `#note (?P<note>.+)`
+	LexiconRegex              = `#lexicon (?P<lexicon>.+)`
+	CharacterEncodingRegex    = `#character-encoding (?P<encoding>[[:graph:]]+)`
+	GameTypeRegex             = `#game-type (?P<gameType>.*)`
+	TileSetRegex              = `#tile-set (?P<tileSet>.*)`
+	GameBoardRegex            = `#game-board (?P<gameBoard>.*)`
+	BoardLayoutRegex          = `#board-layout (?P<boardLayoutName>.*)`
+	TileDistributionNameRegex = `#tile-distribution (?P<tileDistributionName>.*)`
+	ContinuationRegex         = `#- (?P<continuation>.*)`
+	PhonyTilesReturnedRegex   = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+--\s+-(?P<lost_score>\d+)\s+(?P<cumul>\d+)`
+	PassRegex                 = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+-\s+\+0\s+(?P<cumul>\d+)`
+	ChallengeBonusRegex       = `>(?P<nick>\S+):\s+(?P<rack>\S*)\s+\(challenge\)\s+\+(?P<bonus>\d+)\s+(?P<cumul>\d+)`
+	ExchangeRegex             = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+-(?P<exchanged>\S+)\s+\+0\s+(?P<cumul>\d+)`
+	EndRackPointsRegex        = `>(?P<nick>\S+):\s+\((?P<rack>\S+)\)\s+\+(?P<score>\d+)\s+(?P<cumul>-?\d+)`
+	TimePenaltyRegex          = `>(?P<nick>\S+):\s+(?P<rack>\S*)\s+\(time\)\s+\-(?P<penalty>\d+)\s+(?P<cumul>-?\d+)`
+	PtsLostForLastRackRegex   = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+\((?P<rack>\S+)\)\s+\-(?P<penalty>\d+)\s+(?P<cumul>-?\d+)`
+	IncompleteRegex           = "#incomplete.*"
+	TileDeclarationRegex      = `#tile (?P<uppercase>\S+)\s+(?P<lowercase>\S+)`
 )
 
 var compiledEncodingRegexp *regexp.Regexp
@@ -118,6 +136,14 @@ func init() {
 		{EndRackPointsToken, regexp.MustCompile(EndRackPointsRegex)},
 		{TimePenaltyToken, regexp.MustCompile(TimePenaltyRegex)},
 		{LastRackPenaltyToken, regexp.MustCompile(PtsLostForLastRackRegex)},
+		{GameTypeToken, regexp.MustCompile(GameTypeRegex)},
+		{TileSetToken, regexp.MustCompile(TileSetRegex)},
+		{GameBoardToken, regexp.MustCompile(GameBoardRegex)},
+		{ContinuationToken, regexp.MustCompile(ContinuationRegex)},
+		{BoardLayoutToken, regexp.MustCompile(BoardLayoutRegex)},
+		{TileDistributionNameToken, regexp.MustCompile(TileDistributionNameRegex)},
+		{IncompleteToken, regexp.MustCompile(IncompleteRegex)},
+		{TileDeclarationToken, regexp.MustCompile(TileDeclarationRegex)},
 	}
 }
 
@@ -129,6 +155,15 @@ func matchToInt32(str string) (int32, error) {
 	return int32(x), nil
 }
 
+func nickToPIndex(nick string, players []*pb.PlayerInfo) (uint32, error) {
+	for i, p := range players {
+		if nick == p.Nickname {
+			return uint32(i), nil
+		}
+	}
+	return 0, errPlayerDoesNotExist
+}
+
 func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []string) error {
 	var err error
 
@@ -138,17 +173,22 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 			return errors.New("wrong number of players defined")
 		}
 		if p.game == nil {
-
-			if p.history.Variant == "" {
-				p.history.Variant = "CrosswordGame"
-			}
 			if p.history.Lexicon == "" {
 				p.history.Lexicon = cfg.DefaultLexicon
 			}
-			boardLayout, letterDistributionName := game.HistoryToVariant(p.history)
+			boardLayout, letterDistributionName, variant := game.HistoryToVariant(p.history)
+
+			log.Info().Str("boardLayout", boardLayout).
+				Str("letterDistributionName", letterDistributionName).
+				Str("lexicon", p.history.Lexicon).
+				Str("variant", string(variant)).Msg("creating game")
 
 			// We have both players. Initialize a new game.
-			rules, err := game.NewBasicGameRules(cfg, boardLayout, letterDistributionName)
+			// Don't pass in lexicon to new basic game rules. We don't want GCG
+			// parsing to have to load in an actual lexicon to verify any plays.
+			rules, err := game.NewBasicGameRules(
+				cfg, "",
+				boardLayout, letterDistributionName, game.CrossScoreOnly, variant)
 			if err != nil {
 				return err
 			}
@@ -156,8 +196,9 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 			if err != nil {
 				return err
 			}
-			p.game.SetNextFirst(0)
 			p.game.StartGame()
+			p.game.SetBackupMode(game.InteractiveGameplayMode)
+			p.game.SetStateStackLength(1)
 			// And set the history to the gcg's history.
 			p.game.SetHistory(p.history)
 			p.history.PlayState = pb.PlayState_PLAYING
@@ -221,7 +262,11 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 		return errEncodingWrongPlace
 	case MoveToken:
 		evt := &pb.GameEvent{}
-		evt.Nickname = match[1]
+		evt.PlayerIndex, err = nickToPIndex(match[1], p.history.Players)
+		if err != nil {
+			return errPlayerDoesNotExist
+		}
+
 		evt.Rack = match[2]
 		evt.Position = match[3]
 		evt.PlayedTiles = match[4]
@@ -237,13 +282,18 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 		evt.Type = pb.GameEvent_TILE_PLACEMENT_MOVE
 
 		tp := 0
-		for _, t := range evt.PlayedTiles {
-			if t != alphabet.ASCIIPlayedThrough {
+		ld := p.game.Bag().LetterDistribution()
+		tiles, err := tilemapping.ToMachineLetters(evt.PlayedTiles, ld.TileMapping())
+		if err != nil {
+			return err
+		}
+		for _, t := range tiles {
+			if t != 0 {
 				tp++
 			}
 		}
 
-		evt.IsBingo = tp == 7
+		evt.IsBingo = tp == game.RackTileLimit
 		p.history.Events = append(p.history.Events, evt)
 		// Try playing the move
 		log.Debug().Msg("PLAYING LATEST EVENT for MoveToken")
@@ -252,7 +302,11 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 
 	case NoteToken:
 		lastEvtIdx := len(p.history.Events) - 1
-		p.history.Events[lastEvtIdx].Note += match[1]
+		if lastEvtIdx < 0 {
+			log.Warn().Msg("note pragma may not precede events")
+		} else {
+			p.history.Events[lastEvtIdx].Note += match[1]
+		}
 		return nil
 	case LexiconToken:
 		if len(p.history.Events) > 0 {
@@ -260,9 +314,31 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 		}
 		p.history.Lexicon = match[1]
 		return nil
+	case BoardLayoutToken:
+		if len(p.history.Events) > 0 {
+			return errPragmaPrecedeEvent
+		}
+		p.history.BoardLayout = match[1]
+		return nil
+	case TileDistributionNameToken:
+		if len(p.history.Events) > 0 {
+			return errPragmaPrecedeEvent
+		}
+		p.history.LetterDistribution = match[1]
+		return nil
+	case GameTypeToken:
+		if len(p.history.Events) > 0 {
+			return errPragmaPrecedeEvent
+		}
+		p.history.Variant = match[1]
+		return nil
+	// need to handle continuation as well as the actual tileSet or gameBoard pragmas.
 	case PhonyTilesReturnedToken:
 		evt := &pb.GameEvent{}
-		evt.Nickname = match[1]
+		evt.PlayerIndex, err = nickToPIndex(match[1], p.history.Players)
+		if err != nil {
+			return errPlayerDoesNotExist
+		}
 		evt.Rack = match[2]
 
 		score, err := matchToInt32(match[3])
@@ -286,7 +362,11 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 
 	case TimePenaltyToken:
 		evt := &pb.GameEvent{}
-		evt.Nickname = match[1]
+		evt.PlayerIndex, err = nickToPIndex(match[1], p.history.Players)
+		if err != nil {
+			return errPlayerDoesNotExist
+		}
+
 		evt.Rack = match[2]
 
 		score, err := matchToInt32(match[3])
@@ -313,7 +393,10 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 
 	case LastRackPenaltyToken:
 		evt := &pb.GameEvent{}
-		evt.Nickname = match[1]
+		evt.PlayerIndex, err = nickToPIndex(match[1], p.history.Players)
+		if err != nil {
+			return errPlayerDoesNotExist
+		}
 		evt.Rack = match[2]
 		if evt.Rack != match[3] {
 			return fmt.Errorf("last rack penalty event malformed")
@@ -338,7 +421,10 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 
 	case PassToken:
 		evt := &pb.GameEvent{}
-		evt.Nickname = match[1]
+		evt.PlayerIndex, err = nickToPIndex(match[1], p.history.Players)
+		if err != nil {
+			return errPlayerDoesNotExist
+		}
 		evt.Rack = match[2]
 		evt.Cumulative, err = matchToInt32(match[3])
 		if err != nil {
@@ -350,7 +436,10 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 
 	case ChallengeBonusToken, EndRackPointsToken:
 		evt := &pb.GameEvent{}
-		evt.Nickname = match[1]
+		evt.PlayerIndex, err = nickToPIndex(match[1], p.history.Players)
+		if err != nil {
+			return errPlayerDoesNotExist
+		}
 		evt.Rack = match[2]
 		if token == ChallengeBonusToken {
 			evt.Bonus, err = matchToInt32(match[3])
@@ -376,7 +465,10 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 
 	case ExchangeToken:
 		evt := &pb.GameEvent{}
-		evt.Nickname = match[1]
+		evt.PlayerIndex, err = nickToPIndex(match[1], p.history.Players)
+		if err != nil {
+			return errPlayerDoesNotExist
+		}
 		evt.Rack = match[2]
 		evt.Exchanged = match[3]
 		evt.Cumulative, err = matchToInt32(match[4])
@@ -387,6 +479,11 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 		p.history.Events = append(p.history.Events, evt)
 		return p.game.PlayLatestEvent()
 
+	case TileDeclarationToken:
+		// for now, just ignore this token. We're going to go by the letter
+		// distribution to parse the gcg.
+	default:
+		log.Info().Int("token", int(token)).Interface("match", match).Msg("ignoring-token")
 	}
 	return nil
 }
@@ -471,7 +568,7 @@ func ParseGCGFromReader(cfg *config.Config, reader io.Reader) (*pb.GameHistory, 
 			// We are making the challenge rule anything but VOID, which would
 			// check the validity of every play.
 			ChallengeRule: pb.ChallengeRule_SINGLE,
-			Version:       1},
+			Version:       game.CurrentGameHistoryVersion},
 	}
 	originalGCG := ""
 
@@ -542,13 +639,35 @@ func writeGCGHeader(s *strings.Builder, h *pb.GameHistory, addlInfo bool) {
 		if h.Lexicon != "" {
 			s.WriteString("#lexicon " + h.Lexicon + "\n")
 		}
+		if h.Variant != "" {
+			s.WriteString("#game-type " + h.Variant + "\n")
+		}
+		if h.BoardLayout != "" && h.BoardLayout != board.CrosswordGameLayout {
+			s.WriteString("#board-layout " + h.BoardLayout + "\n")
+		}
+		if h.LetterDistribution != "" && h.LetterDistribution != "english" {
+			s.WriteString("#tile-distribution " + h.LetterDistribution + "\n")
+			// Write out multi-tile pragmata
+			cfg := config.DefaultConfig()
+			tm, err := tilemapping.GetDistribution(&cfg, h.LetterDistribution)
+			if err != nil {
+				// Log the error
+				log.Err(err).Str("dist", h.LetterDistribution).Msg("cannot-get-distribution")
+			}
+			for idx := uint8(0); idx < tm.TileMapping().NumLetters(); idx++ {
+				letter := tm.TileMapping().Letter(tilemapping.MachineLetter(idx))
+				if len([]rune(letter)) > 1 {
+					s.WriteString("#tile " + letter + " " + strings.ToLower(letter) + "\n")
+				}
+			}
+		}
 	}
 	log.Debug().Msg("wrote header")
 }
 
-func writeEvent(s *strings.Builder, evt *pb.GameEvent) error {
+func writeEvent(s *strings.Builder, h *pb.GameHistory, evt *pb.GameEvent) error {
 
-	nick := evt.GetNickname()
+	nick := h.Players[evt.GetPlayerIndex()].Nickname
 	rack := evt.GetRack()
 	evtType := evt.GetType()
 	note := evt.GetNote()
@@ -615,14 +734,9 @@ func writePlayer(s *strings.Builder, pn int, p *pb.PlayerInfo) {
 	fmt.Fprintf(s, "#player%d %v %v\n", pn, p.Nickname, realname)
 }
 
-func writePlayers(s *strings.Builder, players []*pb.PlayerInfo, flip bool) {
-	if flip {
-		writePlayer(s, 1, players[1])
-		writePlayer(s, 2, players[0])
-	} else {
-		writePlayer(s, 1, players[0])
-		writePlayer(s, 2, players[1])
-	}
+func writePlayers(s *strings.Builder, players []*pb.PlayerInfo) {
+	writePlayer(s, 1, players[0])
+	writePlayer(s, 2, players[1])
 }
 
 func isPassBeforeEndRackPoints(h *pb.GameHistory, i int) bool {
@@ -634,14 +748,16 @@ func isPassBeforeEndRackPoints(h *pb.GameHistory, i int) bool {
 
 // GameHistoryToGCG returns a string GCG representation of the GameHistory.
 func GameHistoryToGCG(h *pb.GameHistory, addlHeaderInfo bool) (string, error) {
-
+	if h.StartingCgp != "" {
+		return "", errors.New("cannot turn a game history with a starting CGP into a GCG file")
+	}
 	var str strings.Builder
 	writeGCGHeader(&str, h, addlHeaderInfo)
-	writePlayers(&str, h.Players, h.SecondWentFirst)
+	writePlayers(&str, h.Players)
 
 	for i, evt := range h.Events {
 		if !isPassBeforeEndRackPoints(h, i) {
-			err := writeEvent(&str, evt)
+			err := writeEvent(&str, h, evt)
 			if err != nil {
 				return "", err
 			}

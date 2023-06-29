@@ -1,10 +1,11 @@
 package main
 
 import (
-	"flag"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/pprof"
+	"strings"
 	"syscall"
 	"time"
 
@@ -19,9 +20,8 @@ const (
 	GracefulShutdownTimeout = 20 * time.Second
 )
 
-var profilePath = flag.String("profilepath", "", "path for profile")
-
 func main() {
+
 	// Determine the directory of the executable. We will use this
 	// directory to find the data files if an absolute path is not
 	// provided for these!
@@ -32,7 +32,8 @@ func main() {
 	exPath := filepath.Dir(ex)
 
 	cfg := &config.Config{}
-	cfg.Load(os.Args[1:])
+	args := os.Args[1:]
+	cfg.Load(args)
 	log.Info().Msgf("Loaded config: %v", cfg)
 	cfg.AdjustRelativePaths(exPath)
 
@@ -41,6 +42,19 @@ func main() {
 	} else {
 		zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	}
+
+	if cfg.CPUProfile != "" {
+		f, err := os.Create(cfg.CPUProfile)
+		if err != nil {
+			panic("could not create CPU profile: " + err.Error())
+		}
+		defer f.Close()
+		if err := pprof.StartCPUProfile(f); err != nil {
+			panic("could not start CPU profile: " + err.Error())
+		}
+		defer pprof.StopCPUProfile()
+	}
+
 	idleConnsClosed := make(chan struct{})
 	sig := make(chan os.Signal, 1)
 	go func() {
@@ -51,9 +65,30 @@ func main() {
 		close(idleConnsClosed)
 	}()
 
-	sc := shell.NewShellController(cfg, exPath)
-	go sc.Loop(sig)
+	argsLine := strings.Join(args, " ")
+	argsLineTrimmed := strings.TrimSpace(argsLine)
 
+	sc := shell.NewShellController(cfg, exPath)
+	if argsLineTrimmed == "" {
+		go sc.Loop(sig)
+	} else {
+		sc.Execute(sig, argsLineTrimmed)
+		sig <- syscall.SIGINT
+	}
 	<-idleConnsClosed
+
+	if cfg.MemProfile != "" {
+		f, err := os.Create(cfg.MemProfile)
+		if err != nil {
+			panic("could not create memory profile: " + err.Error())
+		}
+		defer f.Close() // error handling omitted for example
+		// runtime.GC()    // get up-to-date statistics
+		if err := pprof.WriteHeapProfile(f); err != nil {
+			panic("could not write memory profile: " + err.Error())
+		}
+		log.Info().Msg("wrote memory profile")
+	}
+
 	log.Info().Msg("server gracefully shutting down")
 }

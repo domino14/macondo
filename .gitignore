@@ -18,8 +18,12 @@ log*.csv
 data/lexica
 *.tar.gz
 notebooks/superleaves/leave*
-notebooks/superleaves/*.csv
+notebooks/*/*.csv
+notebooks/*/*.idx
 notebooks/logs/*
 *.p
 *Untitled*
 bin/
+data/strategy/default_english/quackleleaves*
+*.vscode
+

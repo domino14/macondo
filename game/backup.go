@@ -1,10 +1,9 @@
 package game
 
 import (
-	"github.com/domino14/macondo/alphabet"
 	"github.com/domino14/macondo/board"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/rs/zerolog/log"
+	"github.com/domino14/macondo/tilemapping"
 )
 
 type BackupMode int
@@ -25,7 +24,7 @@ const (
 // stateBackup is a subset of Game, meant only for backup purposes.
 type stateBackup struct {
 	board          *board.GameBoard
-	bag            *alphabet.Bag
+	bag            *tilemapping.Bag
 	playing        pb.PlayState
 	scorelessTurns int
 	onturn         int
@@ -35,9 +34,6 @@ type stateBackup struct {
 
 func (g *Game) SetBackupMode(m BackupMode) {
 	g.backupMode = m
-	if g.backupMode == InteractiveGameplayMode {
-		g.SetStateStackLength(1)
-	} // otherwise, let the caller handle this.
 }
 
 func (g *Game) backupState() {
@@ -67,10 +63,12 @@ func copyPlayers(ps playerStates) playerStates {
 				Nickname: porig.Nickname,
 				RealName: porig.RealName,
 			},
-			points:      porig.points,
-			bingos:      porig.bingos,
-			rack:        porig.rack.Copy(),
-			rackLetters: porig.rackLetters,
+			points: porig.points,
+			bingos: porig.bingos,
+			turns:  porig.turns,
+			rack:   porig.rack.Copy(),
+			// Just need to allocate, no need to actually copy it.
+			placeholderRack: make([]tilemapping.MachineLetter, len(porig.placeholderRack)),
 		}
 	}
 	return p
@@ -81,23 +79,24 @@ func (ps *playerStates) copyFrom(other playerStates) {
 		// Note: this ugly pointer nonsense is purely to make this as fast
 		// as possible and avoid allocations.
 		(*ps)[idx].rack.CopyFrom(other[idx].rack)
-		(*ps)[idx].rackLetters = other[idx].rackLetters
 		(*ps)[idx].Nickname = other[idx].Nickname
 		(*ps)[idx].RealName = other[idx].RealName
 		// XXX: Do I have to copy all the other auto-generated protobuf nonsense fields?
 		(*ps)[idx].points = other[idx].points
 		(*ps)[idx].bingos = other[idx].bingos
+		(*ps)[idx].turns = other[idx].turns
 	}
 }
 
 func (g *Game) SetStateStackLength(length int) {
+	// log.Debug().Int("length", length).Msg("SetStateStackLength")
 	g.stateStack = make([]*stateBackup, length)
 	for idx := range g.stateStack {
 		// Initialize each element of the stack now to avoid having
 		// allocations and GC.
 		g.stateStack[idx] = &stateBackup{
 			board:          g.board.Copy(),
-			bag:            g.bag.Copy(nil),
+			bag:            g.bag.Copy(),
 			playing:        g.playing,
 			scorelessTurns: g.scorelessTurns,
 			players:        copyPlayers(g.players),
@@ -115,10 +114,7 @@ func (g *Game) UnplayLastMove() {
 	if g.backupMode == SimulationMode {
 		b = g.stateStack[g.stackPtr-1]
 		g.stackPtr--
-		// Turn number and on turn do not need to be restored from backup
-		// as they're assumed to increase logically after every turn. Just
-		// decrease them.
-		g.turnnum--
+		g.turnnum = b.turnnum
 		g.onturn = (g.onturn + (len(g.players) - 1)) % len(g.players)
 	} else {
 		b = g.stateStack[0]
@@ -152,24 +148,20 @@ func (g *Game) ResetToFirstState() {
 // alphabet are not deep-copied because these are not expected to change.
 // The history is not copied because this only changes with the main Game,
 // and not these copies.
-// The bag is copied with a NEW random source, as random sources are not thread-safe.
 func (g *Game) Copy() *Game {
-
-	randSeed, randSource := seededRandSource()
-	log.Debug().Msgf("Created new random seed for bag copy %v", randSeed)
-
 	copy := &Game{
-		config:         g.config,
-		onturn:         g.onturn,
-		turnnum:        g.turnnum,
-		board:          g.board.Copy(),
-		bag:            g.bag.Copy(randSource),
-		lexicon:        g.lexicon,
-		crossSetGen:    g.crossSetGen,
-		alph:           g.alph,
-		playing:        g.playing,
-		scorelessTurns: g.scorelessTurns,
-		players:        copyPlayers(g.players),
+		config:            g.config,
+		onturn:            g.onturn,
+		turnnum:           g.turnnum,
+		board:             g.board.Copy(),
+		bag:               g.bag.Copy(),
+		lexicon:           g.lexicon,
+		crossSetGen:       g.crossSetGen,
+		alph:              g.alph,
+		playing:           g.playing,
+		scorelessTurns:    g.scorelessTurns,
+		maxScorelessTurns: g.maxScorelessTurns,
+		players:           copyPlayers(g.players),
 		// stackPtr only changes during a sim, etc. This Copy should
 		// only be called at the beginning of everything.
 		stackPtr: 0,

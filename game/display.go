@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/domino14/macondo/alphabet"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/rs/zerolog/log"
 )
 
@@ -35,6 +35,12 @@ func addText(lines []string, row int, hpad int, text string) {
 	sp := splitSubN(text, maxTextSize)
 
 	for _, chunk := range sp {
+		if row >= len(lines) {
+			l := len(lines)
+			for i := l; i <= row; i++ {
+				lines = append(lines, "")
+			}
+		}
 		str := lines[row] + strings.Repeat(" ", hpad) + chunk
 		lines[row] = str
 		row++
@@ -51,22 +57,18 @@ func (g *Game) ToDisplayText() string {
 	vpadding := 1
 	bagColCount := 20
 
-	notfirst := otherPlayer(g.wentfirst)
-
-	log.Debug().Int("onturn", g.onturn).
-		Int("wentfirst", g.wentfirst).Msg("todisplaytext")
-
-	addText(bts, vpadding, hpadding,
-		g.players[g.wentfirst].stateString(g.playing == pb.PlayState_PLAYING && g.onturn == g.wentfirst))
-	addText(bts, vpadding+1, hpadding,
-		g.players[notfirst].stateString(g.playing == pb.PlayState_PLAYING && g.onturn == notfirst))
+	log.Debug().Int("onturn", g.onturn).Msg("todisplaytext")
+	for pi := 0; pi < 2; pi++ {
+		addText(bts, vpadding+pi, hpadding,
+			g.players[pi].stateString(g.playing == pb.PlayState_PLAYING && g.onturn == pi))
+	}
 
 	// Peek into the bag, and append the opponent's tiles:
 	inbag := g.bag.Peek()
 	opprack := g.players[otherPlayer(g.onturn)].rack.TilesOn()
 	bagAndUnseen := append(inbag, opprack...)
-	log.Debug().Str("inbag", alphabet.MachineWord(inbag).UserVisible(g.alph)).Msg("")
-	log.Debug().Str("opprack", alphabet.MachineWord(opprack).UserVisible(g.alph)).Msg("")
+	log.Debug().Str("inbag", tilemapping.MachineWord(inbag).UserVisible(g.alph)).Msg("")
+	log.Debug().Str("opprack", tilemapping.MachineWord(opprack).UserVisible(g.alph)).Msg("")
 
 	addText(bts, vpadding+3, hpadding, fmt.Sprintf("Bag + unseen: (%d)", len(bagAndUnseen)))
 
@@ -79,7 +81,7 @@ func (g *Game) ToDisplayText() string {
 	cCtr := 0
 	bagStr := ""
 	for i := 0; i < len(bagAndUnseen); i++ {
-		bagStr += string(bagAndUnseen[i].UserVisible(g.alph)) + " "
+		bagStr += string(bagAndUnseen[i].UserVisible(g.alph, false)) + " "
 		cCtr++
 		if cCtr == bagColCount {
 			bagDisp = append(bagDisp, bagStr)
@@ -98,14 +100,15 @@ func (g *Game) ToDisplayText() string {
 	addText(bts, 12, hpadding, fmt.Sprintf("Turn %d:", g.turnnum))
 
 	vpadding = 13
+	if g.history != nil {
+		for i, evt := range g.history.Events {
+			log.Debug().Msgf("Event %d: %v", i, evt)
+		}
 
-	for i, evt := range g.history.Events {
-		log.Debug().Msgf("Event %d: %v", i, evt)
-	}
-
-	if g.turnnum-1 >= 0 {
-		addText(bts, vpadding, hpadding,
-			summary(g.history.Events[g.turnnum-1]))
+		if g.turnnum-1 >= 0 && len(g.history.Events) > g.turnnum-1 {
+			addText(bts, vpadding, hpadding,
+				summary(g.history.Players, g.history.Events[g.turnnum-1]))
+		}
 	}
 
 	vpadding = 17
@@ -113,7 +116,17 @@ func (g *Game) ToDisplayText() string {
 	if g.playing == pb.PlayState_GAME_OVER && g.turnnum == len(g.history.Events) {
 		addText(bts, vpadding, hpadding, "Game is over.")
 	}
-
+	if g.playing == pb.PlayState_WAITING_FOR_FINAL_PASS {
+		addText(bts, vpadding, hpadding, "Waiting for final pass/challenge...")
+	}
+	vpadding = 19
+	if g.history != nil {
+		if g.turnnum-1 < len(g.history.Events) && g.turnnum-1 >= 0 &&
+			g.history.Events[g.turnnum-1].Note != "" {
+			// add it all the way at the bottom
+			bts = append(bts, g.history.Events[g.turnnum-1].Note)
+		}
+	}
 	return strings.Join(bts, "\n")
 
 }

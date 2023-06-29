@@ -52,7 +52,7 @@ func main() {
 	}()
 
 	sc := bot.NewShellController(cfg, exPath)
-	go sc.Loop("macondo.bot", sig)
+	go sc.Loop("bot.commands", sig)
 
 	<-idleConnsClosed
 	log.Info().Msg("server gracefully shutting down")

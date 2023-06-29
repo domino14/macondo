@@ -4,14 +4,14 @@ import (
 	"errors"
 	"time"
 
-	"github.com/golang/protobuf/proto"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
+	"google.golang.org/protobuf/proto"
 
+	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/config"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/runner"
 )
 
 type Client struct {
@@ -20,11 +20,8 @@ type Client struct {
 	channel string
 }
 
-func MakeRequest(game *runner.GameRunner, config *config.Config) ([]byte, error) {
+func MakeRequest(game *bot.BotTurnPlayer, config *config.Config) ([]byte, error) {
 	history := game.History()
-	if history.Variant == "" {
-		history.Variant = "CrosswordGame"
-	}
 	if history.Lexicon == "" {
 		history.Lexicon = config.DefaultLexicon
 	}
@@ -33,7 +30,7 @@ func MakeRequest(game *runner.GameRunner, config *config.Config) ([]byte, error)
 }
 
 // Send a game to the bot and get a move back.
-func (c *Client) RequestMove(game *runner.GameRunner, config *config.Config) (*move.Move, error) {
+func (c *Client) RequestMove(game *bot.BotTurnPlayer, config *config.Config) (*move.Move, error) {
 	data, err := MakeRequest(game, config)
 	if err != nil {
 		return nil, err
@@ -55,7 +52,7 @@ func (c *Client) RequestMove(game *runner.GameRunner, config *config.Config) (*m
 	}
 	switch r := resp.Response.(type) {
 	case *pb.BotResponse_Move:
-		return game.MoveFromEvent(r.Move), nil
+		return game.MoveFromEvent(r.Move)
 	case *pb.BotResponse_Error:
 		return nil, errors.New("Bot returned: " + r.Error)
 	default:

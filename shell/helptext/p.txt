@@ -1,4 +1,4 @@
-n - Step backwards in a game
+p - Step backwards in a game
 
 You must have a game loaded into memory with the `load` command or similar.
 

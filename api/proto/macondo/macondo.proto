@@ -7,6 +7,7 @@ option go_package = "github.com/domino14/macondo/gen/api/proto/macondo";
 // to be an instantiation of a GCG file.
 message GameHistory {
   repeated GameEvent events = 1;
+  // players are in order of who went first.
   repeated PlayerInfo players = 2;
   int32 version = 3;
   string original_gcg = 4;
@@ -20,22 +21,26 @@ message GameHistory {
   repeated string last_known_racks = 10;
   // Add letter distribution (basically game name), board config, and more
   // in the future.
-
-  // If second_went_first is set, the second player in `players` actually
-  // went first. not that this does NOT change the order of `last_known_racks`,
-  // which is always in the order of the listed players!
-  bool second_went_first = 11;
+  bool second_went_first = 11 [ deprecated = true ];
   ChallengeRule challenge_rule = 12;
   PlayState play_state = 13;
   // Final scores of the game; the order is in the order of the listed players!
   repeated int32 final_scores = 14;
-  // The variant, together with the lexicon, would encode the initial board
-  // and tile configuration.
+  // The variant is the game variant used. If blank, should
+  // default to "classic".
   string variant = 15;
   // The index of the player who won. It's not always the person with the
   // highest score, because there can be timeouts, etc. If it's a tie,
   // it will be a -1.
   int32 winner = 16;
+  // The board layout is just the name for the layout of the board.
+  // It should have a sensible default, if blank.
+  string board_layout = 17;
+  // The letter distribution is the name of the distribution of tiles used for
+  // this game. If blank, should default to "english".
+  string letter_distribution = 18;
+  // If provided, the starting CGP is a crossword-game position string.
+  string starting_cgp = 19;
 }
 
 enum PlayState {
@@ -76,7 +81,7 @@ message GameEvent {
     HORIZONTAL = 0;
     VERTICAL = 1;
   }
-  string nickname = 1;
+  string nickname = 1 [ deprecated = true ];
   string note = 2;
   string rack = 3;
   Type type = 4;
@@ -99,6 +104,12 @@ message GameEvent {
   // cross-words.
   repeated string words_formed = 17;
   int32 millis_remaining = 18;
+  // The player who played this move is encoded in player_index. This should
+  // be the index in GameHistory.players.
+  uint32 player_index = 19;
+  // num_tiles_from_rack lets us know how many tiles from the rack were either
+  // played or exchanged. It is only populated for those two fields.
+  uint32 num_tiles_from_rack = 20;
 }
 
 message PlayerInfo {
@@ -117,11 +128,87 @@ message PlayerInfo {
 
 // Interface for bots. Bots should accept a BotRequest and return a BotResponse.
 
-message BotRequest { GameHistory game_history = 1; }
+message BotRequest {
+  GameHistory game_history = 1;
+  EvaluationRequest evaluation_request = 2;
+
+  enum BotCode {
+    HASTY_BOT = 0;
+    LEVEL1_CEL_BOT = 1;
+    LEVEL2_CEL_BOT = 2;
+    LEVEL3_CEL_BOT = 3;
+    LEVEL4_CEL_BOT = 4;
+    LEVEL1_PROBABILISTIC = 5;
+    LEVEL2_PROBABILISTIC = 6;
+    LEVEL3_PROBABILISTIC = 7;
+    LEVEL4_PROBABILISTIC = 8;
+    LEVEL5_PROBABILISTIC = 9;
+
+    NO_LEAVE_BOT = 10;
+    SIMMING_BOT = 11;
+    HASTY_PLUS_ENDGAME_BOT = 12;
+    SIMMING_INFER_BOT = 13;
+    // harder bots here? inference? ml, etc.
+
+    // This should have probably been number 0.
+    UNKNOWN = 100;
+  }
+
+  BotCode bot_type = 3;
+}
+
+message EvaluationRequest {
+  // Evaluate for this user
+  string user = 1;
+  // Later: evaluation type (static/sim/etc)
+}
+
+message Evaluation { repeated SingleEvaluation play_eval = 1; }
+
+message SingleEvaluation {
+  double equity_loss = 1;
+  double win_pct_loss = 2;
+  bool missed_bingo = 3;
+  bool possible_star_play = 4;
+  bool missed_star_play = 5;
+  bool top_is_bingo = 6;
+}
 
 message BotResponse {
   oneof response {
     GameEvent move = 1;
     string error = 2;
   }
+  Evaluation eval = 3;
+  string game_id = 4;
 }
+
+// Puzzles
+
+enum PuzzleTag {
+  EQUITY = 0;
+  BINGO = 1;
+  ONLY_BINGO = 2;
+  BLANK_BINGO = 3;
+  NON_BINGO = 4;
+  POWER_TILE = 5;
+  BINGO_NINE_OR_ABOVE = 6;
+  CEL_ONLY = 7;
+}
+
+message PuzzleCreationResponse {
+  string game_id = 1;
+  int32 turn_number = 2;
+  GameEvent answer = 3;
+  repeated PuzzleTag tags = 4;
+  int32 bucket_index = 5;
+}
+
+message PuzzleBucket {
+  int32 index = 1;
+  int32 size = 2;
+  repeated PuzzleTag includes = 3;
+  repeated PuzzleTag excludes = 4;
+}
+
+message PuzzleGenerationRequest { repeated PuzzleBucket buckets = 1; }

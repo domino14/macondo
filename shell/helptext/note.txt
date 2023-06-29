@@ -1,0 +1,8 @@
+note <note> - Add a note for the preceding game event.
+
+Usage:
+
+    note Wow, I really screwed up that board position!
+
+This command allows you to enter a note to save into the GCG for this game
+position.

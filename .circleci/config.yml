@@ -3,41 +3,54 @@
 # Check https://circleci.com/docs/2.0/language-go/ for more details
 version: 2.1
 orbs:
-  slack: circleci/slack@3.4.2
+  discord: antonioned/discord@0.1.0
 jobs:
   build:
     environment:
-      LEXICON_PATH: /opt/lexica/
-      STRATEGY_PARAMS_PATH: /opt/data/strategy
-      LETTER_DISTRIBUTION_PATH: /opt/data/letterdistributions
-      AUTH_KEY: abcdef
-    docker:
-      - image: golang:alpine
-    working_directory: /opt/macondo
+      LEXICON_PATH: /home/circleci/lexica
+    machine: # executor type
+      image: ubuntu-2004:current
+      docker_layer_caching: true
+    working_directory: ~/macondo
     steps:
       - checkout
       - add_ssh_keys:
           fingerprints:
             - "bf:37:1b:e1:b2:b0:ec:20:92:43:20:86:40:7c:c4:e0"
-      - run:
-          name: Install git, ssh, build-base, bash (for tests)
-          command: apk update && apk upgrade && apk add git openssh build-base bash curl
-      - run:
-          name: Install ssl
-          command: apk add --update ca-certificates openssl && update-ca-certificates
       - run: if [ ! -n "$(grep "^github.com " ~/.ssh/known_hosts)" ]; then ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null; fi
       - run:
           name: Clone lexicon repo
-          command: git clone git@github.com:domino14/word-game-lexica /opt/word-game-lexica
-      - run: mkdir $LEXICON_PATH
-      - run: mkdir $LEXICON_PATH/gaddag
-      - run: mkdir $LEXICON_PATH/dawg
-      - run: mv /opt/word-game-lexica/*.txt $LEXICON_PATH
-      - run: cp -r /opt/macondo/data /opt/data
-      - run: go build cmd/shell/main.go
-      - run: go test $(go list ./... | grep -v wasm)
-      - slack/status: &slack-webhook-setting
-          webhook: "${SLACK_WEBHOOK}"
+          command: git clone git@github.com:domino14/word-game-lexica ~/word-game-lexica
+      - run:
+          name: Clone wolges
+          command: git clone https://github.com/andy-k/wolges ~/wolges
+      - run: mkdir ~/lexica
+      - run: mkdir ~/lexica/gaddag
+      - run: mv ~/word-game-lexica/*.txt ~/lexica
+      - run: cp -r ~/macondo/data ~/data
+      - run: docker build -t macondo -f Dockerfile-dev .
+      - run: docker run --rm macondo make
+      # # build GADDAGs
+      # - restore_cache:
+      #     keys:
+      #       - kwg-cache
+      - run: cp Dockerfile-kbuilder ~/wolges
+      - run: cd ~/wolges && docker build -t kbuilder -f Dockerfile-kbuilder .
+      - run: cd ~/macondo/.circleci && ./create_lexicon_files.sh
+      - run: >
+          docker run --rm -e LEXICON_PATH=/opt/lexica
+          -e STRATEGY_PARAMS_PATH=/opt/data/strategy
+          -e DATA_PATH=/opt/data
+          -e LETTER_DISTRIBUTION_PATH=/opt/data/letterdistributions
+          -v ~/data:/opt/data
+          -v ~/lexica:/opt/lexica
+          macondo go test $(go list ./... | grep -v wasm)
+      # - save_cache:
+      #     key: kwg-cache
+      #     paths:
+      #       - /opt/lexica/gaddag
+      - discord/status: &discord-webhook-setting
+          webhook: "${DISCORD_WEBHOOK}"
           success_message: ":tada: A $CIRCLE_JOB job has succeeded! (Branch: $CIRCLE_BRANCH)"
           failure_message: ":red_circle: A $CIRCLE_JOB job has failed! (Branch: $CIRCLE_BRANCH)"
 
@@ -48,7 +61,7 @@ jobs:
       - run: echo $GHCR_TOKEN | docker login ghcr.io -u domino14 --password-stdin
       - run: docker build -f Dockerfile-bot-prod -t ghcr.io/domino14/macondo-bot:${CIRCLE_BRANCH}-${CIRCLE_BUILD_NUM} .
       - run: docker push ghcr.io/domino14/macondo-bot:${CIRCLE_BRANCH}-${CIRCLE_BUILD_NUM}
-      - slack/status: *slack-webhook-setting
+      - discord/status: *discord-webhook-setting
 
 workflows:
   version: 2

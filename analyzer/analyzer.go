@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/equity"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/runner"
+	"github.com/domino14/macondo/tilemapping"
+	"github.com/domino14/macondo/turnplayer"
 )
 
 var SampleJson = []byte(`{
@@ -61,10 +63,10 @@ type JsonMove struct {
 
 type Analyzer struct {
 	config  *config.Config
-	options *runner.GameOptions
-	game    *runner.AIGameRunner
 	moves   []*move.Move
 	simmer  *montecarlo.Simmer
+	options *turnplayer.GameOptions
+	game    *bot.BotTurnPlayer
 }
 
 func MakeJsonMove(m *move.Move) JsonMove {
@@ -80,7 +82,7 @@ func MakeJsonMove(m *move.Move) JsonMove {
 }
 
 func NewAnalyzer(config *config.Config) *Analyzer {
-	options := &runner.GameOptions{}
+	options := &turnplayer.GameOptions{}
 	an := &Analyzer{}
 	an.config = config
 	an.options = options
@@ -103,8 +105,9 @@ func (an *Analyzer) newGame() error {
 		{Nickname: "self", RealName: "Macondo Bot"},
 		{Nickname: "opponent", RealName: "Arthur Dent"},
 	}
+	conf := &bot.BotConfig{Config: *an.config}
 
-	game, err := runner.NewAIGameRunner(an.config, an.options, players)
+	game, err := bot.NewBotTurnPlayer(conf, an.options, players, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return err
 	}
@@ -135,7 +138,7 @@ func (an *Analyzer) loadJson(j []byte) error {
 	g.SetPointsFor(1, b.Scores[1])
 	g.SetPlayerOnTurn(b.Onturn)
 	bd := g.Board()
-	letters := []alphabet.MachineLetter{}
+	letters := []tilemapping.MachineLetter{}
 	for row, str := range b.Board {
 		str = strings.Replace(str, ".", " ", -1)
 		letters = append(letters, bd.SetRow(row, str, g.Alphabet())...)
@@ -217,9 +220,16 @@ func AnalyzeBoard(jsonBoard []byte) ([]byte, error) {
 
 func (an *Analyzer) SimInit() error {
 	simmer := &montecarlo.Simmer{}
-	simmer.Init(&an.game.Game, an.game.AIPlayer())
+
+	c, err := equity.NewCombinedStaticCalculator(
+		an.game.LexiconName(),
+		an.config, "", equity.PEGAdjustmentFilename)
+	if err != nil {
+		return fmt.Errorf("init sim failed: %w", err)
+	}
+	simmer.Init(an.game.Game, []equity.EquityCalculator{c}, c, an.config)
 	simmer.Reset()
-	err := simmer.PrepareSim(2, an.moves)
+	err = simmer.PrepareSim(2, an.moves)
 	if err != nil {
 		return fmt.Errorf("init sim failed: %w", err)
 	}

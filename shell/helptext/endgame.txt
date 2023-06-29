@@ -1,0 +1,88 @@
+endgame [options] - solve endgame exhaustively
+
+Example:
+
+    endgame   
+    endgame -plies 25   
+    endgame -plies 25 -maxtime 120
+
+About:
+
+    Macondo uses minimax search to solve an endgame - i.e. it can exhaustively
+    try all possible options for both players down a tree of plays. It uses 
+    alpha-beta pruning, which is a way to stop searching branches of the tree
+    when it becomes clear they can't possibly do better than other branches.
+
+    For a large number of endgames, minimax search will finish rapidly and this
+    will be a good approach. For more complex endgames, for example involving
+    1-tile plays, or blanks, the tree will be very wide and the endgame algorithm
+    can be very slow. Transposition tables (on by default) should help a lot in these
+    cases.
+
+    We use iterative deepening, which allows you to get a decent answer very
+    quickly, and with further time, this answer will be improved, as the algorithm
+    looks further down the tree. So for even these very complex endgames, it is likely
+    that you will get a good answer after a few seconds or minutes.
+
+    The recommended way to call this is something akin to:
+
+        endgame -plies 25 -maxtime 300
+
+    This will make sure the algorithm uses at most 5 minutes of search. 
+    It is also possible that the 25 plies will be reached before the time
+    limit, depending on the complexity of the endgame.
+
+Options:
+    -plies 25 
+
+    The above option will look 25 plies deep. As plies go up, the endgame
+    solver takes exponentially longer. However, there are exceptions, 
+    especially if the endgame doesn't have many choices, or if we are deeper
+    into the endgame where each player only has a few tiles left. In this 
+    case it is possible that the latter plies will be searched very fast, because 
+    there is nothing else to search.
+
+    -maxtime 120
+
+    This option will set a maximum time in seconds. The endgame solver uses
+    iterative deepening by default, so a good enough solution should be found
+    rapidly, and this solution will be improved upon.
+
+    -disable-id true
+
+    This option disables iterative deepening. Iterative Deepening allows the 
+    endgame algorithm to check depth 1, 2, 3, etc plies successively. If you 
+    are time-limited, it is likely that the first few answers will be good
+    enough for many endgames.
+
+    -killer-optim true
+
+    A "Killer" play is a play that caused a Beta cut-off. We consider it first when 
+    looking at similar trees. Killer play optimization is off by default,
+    as it did not seem to help a great deal when we tested it.
+
+    -lazysmp-threads 3
+
+    Use LazySMP to recruit more cores to help solve the endgame. Our current
+    implementation has a sweet spot around 3 threads, which can result in a 2x or
+    more speedup. Any more and it actually starts to get slower. We will 
+    continue trying to improve this.
+
+    -disable-tt true
+
+    This option disables the transposition table. Transposition table can take
+    up a significant portion of your memory; we currently have it hard-coded around
+    25% of total RAM. However, it can greatly speed up many stuck tile endgames
+    and is also needed for multithreading (see lazysmp-threads option).
+
+    -first-win-optim true
+
+    Apply a "first win optimization". No need to find the very best play.
+    If we find a sure win, return it right away. Important notes for 
+    this mode:
+    
+    1) player scores actually matter if this option is on, and if the game is 
+    unwinnable for a player, this will just do a fully exhaustive search to confirm 
+    this.
+    2) if this mode cannot find a win, it may return a slightly incorrect losing
+    sequence. Turn this mode off to accurately find the best losing sequence.

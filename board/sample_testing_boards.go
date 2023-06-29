@@ -2,7 +2,9 @@ package board
 
 // This file contains some sample filled boards, used solely for testing.
 
-import "github.com/domino14/macondo/alphabet"
+import (
+	"github.com/domino14/macondo/tilemapping"
+)
 
 // VsWho is a string representation of a board.
 type VsWho string
@@ -296,6 +298,7 @@ joe: Turn 12
    ------------------------------
 `
 	// VsJoel from Manhattan November 2019
+	// load cgp 1LEMNISCI2L1ER/7O1PAINT1/4A2L1RAVE2/WEDGE2Z1I1R3/4R1JAUNTEd2/4OXO2K5/2YOB3P6/3FAUNAE6/4T3GUY4/6BESTEaD2/7T2HIE2/7H4VUG/2CORMOID6/7O7/7NONIDEAL AAFIRTW/EIQSS 373/393 0 lex NWL18;
 	VsJoel = `
 cesar: Turn 11
    A B C D E F G H I J K L M N O      joel s                   EIQSS     393
@@ -318,6 +321,7 @@ cesar: Turn 11
    ------------------------------
 `
 	// Endgame from 2019 Worlds
+	// load cgp 4EXODE6/1DOFF1KERATIN1U/1OHO8YEN/1POOJA1B3MEWS/5SQUINTY2A/4RHINO1e3V/2B4C2R3E/GOAT1D1E2ZIN1d/1URACILS2E4/1PIG1S4T4/2L2R4T4/2L2A1GENII3/2A2T1L7/5E1A7/5D1M7 AEEIRUW/V 410/409 0 lex CSW19;
 	EldarVsNigel = `
 Nigel Richards: Turn 11
    A B C D E F G H I J K L M N O   -> Nigel Richards           AEEIRUW   410
@@ -447,11 +451,53 @@ maven: Turn 23
 15|=   T '       =       '     =|
    ------------------------------
 `
+
+	APolishEndgame = `
+   A B C D E F G H I J K L M N O     ->                    1  BGHUWZZ  304
+   ------------------------------                          2           258
+ 1|=     '       =       '     E |
+ 2|  -       "       "       E T |   Bag + unseen: (6)
+ 3|    -       '   '     F i Ś   |
+ 4|'     -       '       L I   ' |   I K M Ó Ź Ż
+ 5|        -         C Ł A       |
+ 6|  "       "       Z   N   "   |
+ 7|    '       '   H O I   '     |
+ 8|=     '     S T Ę P I Ć     = |
+ 9|    '     A U R ' Y     R O K |
+10|  P O   S A M Y   " G N A Ń   |   Turn 46:
+11|    C L E     P   J A   K     |   2 played 9M .OK for 12 pts from a rack of
+12|'   L A R W O ' S A M B I E ' |   IKKMOŹŻ
+13|C N I   W E N T O   O   I W Ą |
+14|E - S     "   E N D       Y   |
+15|Z D Z I A Ł a J   Y A R D   = |
+   ------------------------------
+   `
+
+	APolishEndgame2 = `
+   A B C D E F G H I J K L M N O                           1   BHUWZ   316
+   ------------------------------    ->                    2   IKMÓŹŻ  258
+ 1|=     '       =       '     E|
+ 2|  -       "       "       E T|    Bag + unseen: (5)
+ 3|    -       '   '     F i Ś  |
+ 4|'     -       '       L I   '|    B H U W Z
+ 5|        -         C Ł A      |
+ 6|  "       "       Z   N   "  |
+ 7|    '       '   H O I   ' Z  |
+ 8|=     '     S T Ę P I Ć   G =|
+ 9|    '     A U R ' Y     R O K|
+10|  P O   S A M Y   " G N A Ń  |    Turn 47:
+11|    C L E     P   J A   K    |    1 played N7 ZG.. for 12 pts from a rack of
+12|'   L A R W O ' S A M B I E '|     BGHUWZZ
+13|C N I   W E N T O   O   I W Ą|
+14|E - S     "   E N D       Y  |
+15|Z D Z I A Ł a J   Y A R D   =|
+   ------------------------------
+   `
 )
 
 // SetToGame sets the board to a specific game in progress. It is used to
 // generate test cases.
-func (b *GameBoard) SetToGame(alph *alphabet.Alphabet, game VsWho) *TilesInPlay {
+func (b *GameBoard) SetToGame(alph *tilemapping.TileMapping, game VsWho) *TilesInPlay {
 	// Set the board to a game
 	tip := b.setFromPlaintext(string(game), alph)
 	b.UpdateAllAnchors()

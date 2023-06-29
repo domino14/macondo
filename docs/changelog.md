@@ -1,3 +1,36 @@
+# v0.8.0 (Jun 26, 2023)
+- Made LazySMP implementation a bit better (can now use around 6 threads for best
+endgame performance)
+- Fully exhaustive 1-in-the-bag pre-endgame implementation.
+
+# v0.7.0 (Jun 16, 2023)
+- Many bug fixes from the last refactor
+- Significant (can be 20X or more) speed increase in endgame engine for complex endgames.
+- Allow endgames to be multi-threaded. (Use up to 3-4 threads. Any more makes it slower).
+
+# v0.6.0 (Mar 19, 2023)
+- Significant refactoring
+- Support multi-letter tiles (for Catalan)
+- Use KWG and KLV files instead of old gaddag/olv leave files
+    - Requires use of wolges for now (https://github.com/andy-k/wolges) for kwg/klv file generation
+- Speed up Monte Carlo sim by about 40%; make it zero-allocation
+
+# v0.5.0 (Mar 8, 2023)
+- Macondo is now in beta. It still is command-line only, however.
+- Add an "infer" command that attempts to infer what your opponent kept
+- Add inference-based Monte Carlo simming
+- Add a new simming bot for autoplay and other uses
+
+# v0.4.13 (Jan 28, 2023)
+- Changes to puzzle maker for liwords; add a total equity loss limit
+- Remove obsolete protobuf fields
+- A few bug fixes
+
+# v0.4.9 (Aug 20, 2022)
+
+- Drastic optimizations to speed, allocation, and memory usage
+- Experimental win% calculation
+
 # v0.4.5 (rc)
 
 - Add challenge rules and `challenge` command to the shell to handle these.

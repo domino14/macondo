@@ -74,9 +74,9 @@ func Load(cfg *config.Config, name string, loadFunc loadFunc) (interface{}, erro
 }
 
 func Open(filename string) (io.ReadCloser, error) {
-        // Most of the time, it seems we are already holding the lock here.
-        // It would deadlock to lock again, so we avoid it.
-        // Hopefully it works.
+	// Most of the time, it seems we are already holding the lock here.
+	// It would deadlock to lock again, so we avoid it.
+	// Hopefully it works.
 
 	cached, err := GlobalObjectCache.get(nil, "file:"+filename,
 		func(*config.Config, string) (interface{}, error) {

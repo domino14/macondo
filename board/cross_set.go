@@ -1,13 +1,13 @@
 package board
 
 import (
-	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/tilemapping"
 )
 
 const (
 	// TrivialCrossSet allows every possible letter. It is the default
 	// state of a square.
-	TrivialCrossSet = (1 << alphabet.MaxAlphabetSize) - 1
+	TrivialCrossSet = (1 << tilemapping.MaxAlphabetSize) - 1
 )
 
 // A CrossSet is a bit mask of letters that are allowed on a square. It is
@@ -19,18 +19,20 @@ const (
 // valid words.
 type CrossSet uint64
 
-func (c CrossSet) Allowed(letter alphabet.MachineLetter) bool {
+func (c CrossSet) Allowed(letter tilemapping.MachineLetter) bool {
 	return c&(1<<uint8(letter)) != 0
 }
 
-func (c *CrossSet) Set(letter alphabet.MachineLetter) {
+func (c *CrossSet) Set(letter tilemapping.MachineLetter) {
 	*c = *c | (1 << letter)
 }
 
-func CrossSetFromString(letters string, alph *alphabet.Alphabet) CrossSet {
+// CrossSetFromString is used for testing only and has undefined
+// behavior for multi-char tiles.
+func CrossSetFromString(letters string, alph *tilemapping.TileMapping) CrossSet {
 	c := CrossSet(0)
 	for _, l := range letters {
-		v, err := alph.Val(l)
+		v, err := alph.Val(string(l))
 		if err != nil {
 			panic("Letter error: " + string(l))
 		}

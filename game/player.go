@@ -3,44 +3,61 @@ package game
 import (
 	"fmt"
 
-	"github.com/domino14/macondo/alphabet"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/tilemapping"
 	"github.com/rs/zerolog/log"
 )
 
 type playerState struct {
 	pb.PlayerInfo
 
-	rack        *alphabet.Rack
-	rackLetters string
-	points      int
-	bingos      int
+	rack   *tilemapping.Rack
+	points int
+	bingos int
+	turns  int
+
+	// to minimize allocs:
+	placeholderRack []tilemapping.MachineLetter
+}
+
+func newPlayerState(nickname, userid, realname string) *playerState {
+	return &playerState{
+		PlayerInfo: pb.PlayerInfo{
+			Nickname: nickname,
+			UserId:   userid,
+			RealName: realname,
+		},
+		placeholderRack: make([]tilemapping.MachineLetter, RackTileLimit),
+	}
 }
 
 func (p *playerState) resetScore() {
 	p.points = 0
 	p.bingos = 0
+	p.turns = 0
 }
 
-func (p *playerState) throwRackIn(bag *alphabet.Bag) {
-	log.Debug().Str("rack", p.rack.String()).Str("player", p.Nickname).
+func (p *playerState) throwRackIn(bag *tilemapping.Bag) {
+	log.Trace().Str("rack", p.rack.String()).Str("player", p.Nickname).
 		Msg("throwing rack in")
 	bag.PutBack(p.rack.TilesOn())
-	p.rack.Set([]alphabet.MachineLetter{})
-	p.rackLetters = ""
+	p.rack.Set([]tilemapping.MachineLetter{})
 }
 
-func (p *playerState) setRackTiles(tiles []alphabet.MachineLetter, alph *alphabet.Alphabet) {
+func (p *playerState) setRackTiles(tiles []tilemapping.MachineLetter, alph *tilemapping.TileMapping) {
 	p.rack.Set(tiles)
-	p.rackLetters = alphabet.MachineWord(tiles).UserVisible(alph)
 }
 
-func (p playerState) stateString(myturn bool) string {
+func (p *playerState) rackLetters() string {
+	return p.rack.String()
+}
+
+func (p *playerState) stateString(myturn bool) string {
 	onturn := ""
 	if myturn {
 		onturn = "-> "
 	}
-	rackLetters := p.rackLetters
+	rackLetters := p.rackLetters()
 	if !myturn {
 		// Don't show rack letters.
 		rackLetters = ""
@@ -53,7 +70,6 @@ type playerStates []*playerState
 func (p playerStates) resetRacks() {
 	for idx := range p {
 		p[idx].rack.Clear()
-		p[idx].rackLetters = ""
 	}
 }
 

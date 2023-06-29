@@ -1,20 +1,28 @@
 package shell
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog/log"
+	"lukechampine.com/frand"
 
+	"github.com/domino14/macondo/endgame/negamax"
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/kwg"
+	"github.com/domino14/macondo/preendgame"
+
+	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/automatic"
-	"github.com/domino14/macondo/endgame/alphabeta"
+	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
-	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/domino14/macondo/runner"
+	"github.com/domino14/macondo/tilemapping"
 )
 
 type Response struct {
@@ -42,14 +50,32 @@ func (sc *ShellController) set(cmd *shellcmd) (*Response, error) {
 	return msg("set " + opt + " to " + ret), nil
 }
 
+func (sc *ShellController) gid(cmd *shellcmd) (*Response, error) {
+	if sc.game == nil {
+		return nil, errors.New("no currently loaded game")
+	}
+	gid := sc.game.History().Uid
+	if gid != "" {
+		idauth := sc.game.History().IdAuth
+		fullID := strings.TrimSpace(idauth + " " + gid)
+		return msg(fullID), nil
+	}
+	return nil, errors.New("no ID set for this game")
+}
+
 func (sc *ShellController) newGame(cmd *shellcmd) (*Response, error) {
 	players := []*pb.PlayerInfo{
 		{Nickname: "arcadio", RealName: "José Arcadio Buendía"},
 		{Nickname: "úrsula", RealName: "Úrsula Iguarán Buendía"},
 	}
+	if frand.Intn(2) == 1 {
+		players[0], players[1] = players[1], players[0]
+	}
 
 	opts := sc.options.GameOptions
-	g, err := runner.NewAIGameRunner(sc.config, &opts, players)
+	conf := &bot.BotConfig{Config: *sc.config}
+
+	g, err := bot.NewBotTurnPlayer(conf, &opts, players, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return nil, err
 	}
@@ -66,12 +92,29 @@ func (sc *ShellController) load(cmd *shellcmd) (*Response, error) {
 	if cmd.args == nil {
 		return nil, errors.New("need arguments for load")
 	}
-	err := sc.loadGCG(cmd.args)
-	if err != nil {
-		return nil, err
+	if cmd.args[0] == "cgp" {
+		if len(cmd.args) < 2 {
+			return nil, errors.New("need to provide a cgp string")
+		}
+		cgpStr := strings.Join(cmd.args[1:], " ")
+		err := sc.loadCGP(cgpStr)
+		if err != nil {
+			return nil, err
+		}
+
+	} else {
+		err := sc.loadGCG(cmd.args)
+		if err != nil {
+			return nil, err
+		}
 	}
 	sc.curTurnNum = 0
 	return msg(sc.game.ToDisplayText()), nil
+}
+
+func (sc *ShellController) unload(cmd *shellcmd) (*Response, error) {
+	sc.game = nil
+	return msg("No active game."), nil
 }
 
 func (sc *ShellController) show(cmd *shellcmd) (*Response, error) {
@@ -79,8 +122,8 @@ func (sc *ShellController) show(cmd *shellcmd) (*Response, error) {
 }
 
 func (sc *ShellController) list(cmd *shellcmd) (*Response, error) {
-	sc.displayMoveList()
-	return nil, nil
+	res := sc.genDisplayMoveList()
+	return msg(res), nil
 }
 
 func (sc *ShellController) next(cmd *shellcmd) (*Response, error) {
@@ -93,6 +136,50 @@ func (sc *ShellController) next(cmd *shellcmd) (*Response, error) {
 
 func (sc *ShellController) prev(cmd *shellcmd) (*Response, error) {
 	err := sc.setToTurn(sc.curTurnNum - 1)
+	if err != nil {
+		return nil, err
+	}
+	return msg(sc.game.ToDisplayText()), nil
+}
+
+func (sc *ShellController) name(cmd *shellcmd) (*Response, error) {
+	if len(cmd.args) < 3 {
+		return nil, errors.New("need 3 arguments for name")
+	}
+	if sc.game == nil {
+		return nil, errors.New("no game is loaded")
+	}
+	p, err := strconv.Atoi(cmd.args[0])
+	if err != nil {
+		return nil, err
+	}
+	p -= 1
+	if p < 0 || p >= len(sc.game.History().Players) {
+		return nil, errors.New("player index not in range")
+	}
+	err = sc.game.RenamePlayer(p, &pb.PlayerInfo{
+		Nickname: cmd.args[1],
+		RealName: strings.Join(cmd.args[2:], " "),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return msg(sc.game.ToDisplayText()), nil
+}
+
+func (sc *ShellController) note(cmd *shellcmd) (*Response, error) {
+	if len(cmd.args) < 1 {
+		return nil, errors.New("need at least one argument for note")
+	}
+	if sc.game == nil {
+		return nil, errors.New("no game is loaded")
+	}
+	if sc.game.Turn() == 0 {
+		return nil, errors.New("there must be at least one turn that has been played")
+	}
+	note := strings.Join(cmd.args, " ")
+	err := sc.game.AddNote(note)
 	if err != nil {
 		return nil, err
 	}
@@ -130,6 +217,10 @@ func (sc *ShellController) generate(cmd *shellcmd) (*Response, error) {
 	var numPlays int
 	var err error
 
+	if sc.game == nil {
+		return nil, errors.New("please load or create a game first")
+	}
+
 	if cmd.args == nil {
 		numPlays = 15
 	} else {
@@ -138,12 +229,8 @@ func (sc *ShellController) generate(cmd *shellcmd) (*Response, error) {
 			return nil, err
 		}
 	}
-	if sc.game == nil {
-		return nil, errors.New("please load or create a game first")
-	} else {
-		sc.genMovesAndDisplay(numPlays)
-	}
-	return nil, nil
+
+	return msg(sc.genMovesAndDescription(numPlays)), nil
 }
 
 func (sc *ShellController) autoplay(cmd *shellcmd) (*Response, error) {
@@ -151,7 +238,7 @@ func (sc *ShellController) autoplay(cmd *shellcmd) (*Response, error) {
 }
 
 func (sc *ShellController) sim(cmd *shellcmd) (*Response, error) {
-	return nil, sc.handleSim(cmd.args)
+	return nil, sc.handleSim(cmd.args, cmd.options)
 }
 
 func (sc *ShellController) add(cmd *shellcmd) (*Response, error) {
@@ -203,48 +290,252 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	if sc.game == nil {
 		return nil, errors.New("please load a game first with the `load` command")
 	}
-	plies, deepening, simpleEval, disablePruning, err := endgameArgs(cmd.args)
-	if err != nil {
-		return nil, err
+	plies := 4
+	var maxtime int
+	var maxthreads = 1
+	var disableID bool
+	var disableTT bool
+	var enableFW bool
+	var enableKillerPlayOptim bool
+	var err error
+
+	if cmd.options["plies"] != "" {
+		plies, err = strconv.Atoi(cmd.options["plies"])
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if cmd.options["maxtime"] != "" {
+		maxtime, err = strconv.Atoi(cmd.options["maxtime"])
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if cmd.options["disable-id"] == "true" {
+		disableID = true
+	}
+	if cmd.options["disable-tt"] == "true" {
+		disableTT = true
+	}
+	if cmd.options["killer-optim"] == "true" {
+		enableKillerPlayOptim = true
+	}
+	if cmd.options["lazysmp-threads"] != "" {
+		maxthreads, err = strconv.Atoi(cmd.options["lazysmp-threads"])
+		if err != nil {
+			return nil, err
+		}
+	}
+	if cmd.options["first-win-optim"] == "true" {
+		enableFW = true
 	}
 	sc.showMessage(fmt.Sprintf(
-		"plies %v, deepening %v, simpleEval %v, pruningDisabled %v",
-		plies, deepening, simpleEval, disablePruning))
+		"plies %v, maxtime %v, threads %v",
+		plies, maxtime, maxthreads))
 
-	sc.game.SetStateStackLength(plies)
 	sc.game.SetBackupMode(game.SimulationMode)
+
+	defer func() {
+		sc.game.SetBackupMode(game.InteractiveGameplayMode)
+		sc.game.SetStateStackLength(1)
+	}()
+	var cancel context.CancelFunc
+	ctx := context.Background()
+	if maxtime > 0 {
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(maxtime)*time.Second)
+		defer cancel()
+	}
 
 	// clear out the last value of this endgame node; gc should
 	// delete the tree.
-	sc.curEndgameNode = nil
-	sc.endgameSolver = new(alphabeta.Solver)
-	err = sc.endgameSolver.Init(sc.gen, &sc.game.Game)
+	sc.endgameSolver = new(negamax.Solver)
+	err = sc.endgameSolver.Init(sc.gen, sc.game.Game)
 	if err != nil {
 		return nil, err
 	}
-	sc.endgameSolver.SetIterativeDeepening(deepening)
-	sc.endgameSolver.SetSimpleEvaluator(simpleEval)
-	sc.endgameSolver.SetPruningDisabled(disablePruning)
+
+	sc.endgameSolver.SetIterativeDeepening(!disableID)
+	sc.endgameSolver.SetKillerPlayOptim(enableKillerPlayOptim)
+	sc.endgameSolver.SetTranspositionTableOptim(!disableTT)
+	sc.endgameSolver.SetThreads(maxthreads)
+	sc.endgameSolver.SetFirstWinOptim(enableFW)
 
 	sc.showMessage(sc.game.ToDisplayText())
 
-	val, seq, err := sc.endgameSolver.Solve(plies)
+	val, seq, err := sc.endgameSolver.Solve(ctx, plies)
 	if err != nil {
 		return nil, err
 	}
-	// And turn off simulation mode again.
-	sc.game.SetBackupMode(game.InteractiveGameplayMode)
-	sc.showMessage(fmt.Sprintf("Best sequence has a spread difference of %v", val))
+	if !enableFW {
+		sc.showMessage(fmt.Sprintf("Best sequence has a spread difference of %v", val))
+	} else {
+		if val+int16(sc.game.CurrentSpread()) > 0 {
+			sc.showMessage("Win found!")
+		} else {
+			sc.showMessage("Win was not found.")
+		}
+		sc.showMessage(fmt.Sprintf("Spread diff: %v. Note: this sequence may not be correct. Turn off first-win-optim to search more accurately.", val))
+	}
+	sc.showMessage(fmt.Sprintf("Final spread after seq: %d", val+int16(sc.game.CurrentSpread())))
 	sc.printEndgameSequence(seq)
+	return msg(""), nil
+}
+
+func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
+	if sc.game == nil {
+		return nil, errors.New("please load a game first with the `load` command")
+	}
+	endgamePlies := 4
+
+	var maxtime int
+	var maxthreads = 0
+	var err error
+	var earlyCutoff bool
+
+	if cmd.options["endgameplies"] != "" {
+		endgamePlies, err = strconv.Atoi(cmd.options["endgameplies"])
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if cmd.options["maxtime"] != "" {
+		maxtime, err = strconv.Atoi(cmd.options["maxtime"])
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if cmd.options["threads"] != "" {
+		maxthreads, err = strconv.Atoi(cmd.options["threads"])
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if cmd.options["early-cutoff"] == "true" {
+		earlyCutoff = true
+	}
+
+	sc.showMessage(fmt.Sprintf(
+		"endgameplies %v, maxtime %v, threads %v",
+		endgamePlies, maxtime, maxthreads))
+	gd, err := kwg.Get(sc.game.Config(), sc.game.LexiconName())
+	if err != nil {
+		return nil, err
+	}
+	sc.showMessage(sc.game.ToDisplayText())
+	sc.preendgameSolver = new(preendgame.Solver)
+	sc.preendgameSolver.Init(sc.game.Game, gd)
+	if maxthreads != 0 {
+		sc.preendgameSolver.SetThreads(maxthreads)
+	}
+	sc.preendgameSolver.SetEndgamePlies(endgamePlies)
+	sc.preendgameSolver.SetEarlyCutoffOptim(earlyCutoff)
+
+	var cancel context.CancelFunc
+	ctx := context.Background()
+	if maxtime > 0 {
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(maxtime)*time.Second)
+		defer cancel()
+	}
+
+	moves, err := sc.preendgameSolver.Solve(ctx)
+	if err != nil {
+		return nil, err
+	}
+	maxMoves := 20
+	if len(moves) < maxMoves {
+		maxMoves = len(moves)
+	}
+
+	sc.showMessage(sc.preendgameSolver.SolutionStats(maxMoves))
+
+	return msg(""), nil
+}
+
+func (sc *ShellController) infer(cmd *shellcmd) (*Response, error) {
+	if sc.game == nil {
+		return nil, errors.New("please load a game first with the `load` command")
+	}
+	var err error
+	var threads, timesec int
+
+	if len(cmd.args) > 0 {
+		switch cmd.args[0] {
+		case "log":
+			sc.rangefinderFile, err = os.Create(InferLog)
+			if err != nil {
+				return nil, err
+			}
+			sc.rangefinder.SetLogStream(sc.rangefinderFile)
+			sc.showMessage("inference engine will log to " + InferLog)
+
+		case "details":
+			sc.showMessage(sc.rangefinder.AnalyzeInferences(true))
+
+		default:
+			return nil, errors.New("don't recognize " + cmd.args[0])
+		}
+
+		return nil, nil
+	}
+
+	for opt, val := range cmd.options {
+		switch opt {
+		case "threads":
+			threads, err = strconv.Atoi(val)
+			if err != nil {
+				return nil, err
+			}
+
+		case "time":
+			timesec, err = strconv.Atoi(val)
+			if err != nil {
+				return nil, err
+			}
+
+		default:
+			return nil, errors.New("option " + opt + " not recognized")
+
+		}
+	}
+	if threads != 0 {
+		sc.rangefinder.SetThreads(threads)
+	}
+	if timesec == 0 {
+		timesec = 5
+	}
+	err = sc.rangefinder.PrepareFinder(sc.game.RackFor(sc.game.PlayerOnTurn()).TilesOn())
+	if err != nil {
+		return nil, err
+	}
+	timeout, _ := context.WithTimeout(
+		context.Background(), time.Duration(timesec*int(time.Second)))
+
+	sc.showMessage("Rangefinding started. Please wait until it is done.")
+
+	go func() {
+		err := sc.rangefinder.Infer(timeout)
+		if err != nil {
+			sc.showError(err)
+		}
+		sc.showMessage(sc.rangefinder.AnalyzeInferences(false))
+		log.Debug().Msg("inference thread exiting...")
+	}()
+
 	return nil, nil
+
 }
 
 func (sc *ShellController) help(cmd *shellcmd) (*Response, error) {
 	if cmd.args == nil {
-		return usage("standard", sc.execPath)
+		return usage("standard")
 	} else {
 		helptopic := cmd.args[0]
-		return usageTopic(helptopic, sc.execPath)
+		return usageTopic(helptopic)
 	}
 }
 
@@ -285,9 +576,66 @@ func (sc *ShellController) autoAnalyze(cmd *shellcmd) (*Response, error) {
 		return nil, errors.New("please provide a filename to analyze")
 	}
 	filename := cmd.args[0]
+	options := cmd.options
+	if options["export"] != "" {
+
+		f, err := os.Create(options["export"] + ".gcg")
+		if err != nil {
+			return nil, err
+		}
+
+		if options["letterdist"] == "" {
+			options["letterdist"] = sc.config.DefaultLetterDistribution
+		}
+		if options["lexicon"] == "" {
+			options["lexicon"] = sc.config.DefaultLexicon
+		}
+
+		err = automatic.ExportGCG(
+			sc.config, filename, options["letterdist"], options["lexicon"],
+			options["boardlayout"], options["export"], f)
+		if err != nil {
+			ferr := os.Remove(options["export"] + ".gcg")
+			if ferr != nil {
+				log.Err(ferr).Msg("removing gcg output file")
+			}
+			return nil, err
+		}
+		err = f.Close()
+		if err != nil {
+			return nil, err
+		}
+		return msg("exported to " + options["export"] + ".gcg"), nil
+	}
 	analysis, err := automatic.AnalyzeLogFile(filename)
 	if err != nil {
 		return nil, err
 	}
 	return msg(analysis), nil
+}
+
+func (sc *ShellController) leave(cmd *shellcmd) (*Response, error) {
+	if len(cmd.args) != 1 {
+		return nil, errors.New("please provide a leave")
+	}
+	dist, err := tilemapping.GetDistribution(sc.config, sc.config.DefaultLetterDistribution)
+	if err != nil {
+		return nil, err
+	}
+	els, err := equity.NewExhaustiveLeaveCalculator(sc.config.DefaultLexicon,
+		sc.config, "")
+	if err != nil {
+		return nil, err
+	}
+	leave, err := tilemapping.ToMachineWord(cmd.args[0], dist.TileMapping())
+	if err != nil {
+		return nil, err
+	}
+	res := els.LeaveValue(leave)
+	return msg(strconv.FormatFloat(res, 'f', 3, 64)), nil
+}
+
+func (sc *ShellController) cgp(cmd *shellcmd) (*Response, error) {
+	cgpstr := sc.game.ToCGP()
+	return msg(cgpstr), nil
 }

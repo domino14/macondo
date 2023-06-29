@@ -9,6 +9,8 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"os/user"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
@@ -19,37 +21,43 @@ import (
 	"github.com/chzyer/readline"
 	"github.com/rs/zerolog/log"
 
-	"github.com/domino14/macondo/alphabet"
+	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/automatic"
+	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/endgame/alphabeta"
+	"github.com/domino14/macondo/endgame/negamax"
+	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
-	"github.com/domino14/macondo/runner"
+	"github.com/domino14/macondo/preendgame"
+	"github.com/domino14/macondo/rangefinder"
+	"github.com/domino14/macondo/tilemapping"
+	"github.com/domino14/macondo/turnplayer"
 )
 
 const (
-	SimLog = "/tmp/simlog"
+	SimLog   = "/tmp/simlog"
+	InferLog = "/tmp/inferlog"
 )
 
 var (
-	errNoData            = errors.New("no data in this line")
-	errWrongOptionSyntax = errors.New("wrong format; all options need arguments")
+	errNoData = errors.New("no data in this line")
 )
 
 // Options to configure the interactve shell
 type ShellOptions struct {
-	runner.GameOptions
+	turnplayer.GameOptions
 	lowercaseMoves bool
 }
 
 func NewShellOptions() *ShellOptions {
 	return &ShellOptions{
-		GameOptions: runner.GameOptions{
+		GameOptions: turnplayer.GameOptions{
 			Lexicon:       nil,
 			ChallengeRule: pb.ChallengeRule_DOUBLE,
 		},
@@ -64,8 +72,10 @@ func (opts *ShellOptions) Show(key string) (bool, string) {
 	case "lower":
 		return true, fmt.Sprintf("%v", opts.lowercaseMoves)
 	case "challenge":
-		rule := runner.ShowChallengeRule(opts.ChallengeRule)
+		rule := turnplayer.ShowChallengeRule(opts.ChallengeRule)
 		return true, fmt.Sprintf("%v", rule)
+	case "board":
+		return true, opts.BoardLayoutName
 	default:
 		return false, "No such option: " + key
 	}
@@ -90,7 +100,7 @@ type ShellController struct {
 
 	options *ShellOptions
 
-	game *runner.AIGameRunner
+	game *bot.BotTurnPlayer
 
 	simmer        *montecarlo.Simmer
 	simCtx        context.Context
@@ -99,17 +109,21 @@ type ShellController struct {
 	simTickerDone chan bool
 	simLogFile    *os.File
 
+	rangefinder     *rangefinder.RangeFinder
+	rangefinderFile *os.File
+
 	gameRunnerCtx     context.Context
 	gameRunnerCancel  context.CancelFunc
 	gameRunnerRunning bool
 	gameRunnerTicker  *time.Ticker
 
-	curTurnNum     int
-	gen            movegen.MoveGenerator
-	curMode        Mode
-	endgameSolver  *alphabeta.Solver
-	curEndgameNode *alphabeta.GameNode
-	curPlayList    []*move.Move
+	curTurnNum       int
+	gen              movegen.MoveGenerator
+	backupgen        movegen.MoveGenerator // used for endgame engine
+	curMode          Mode
+	endgameSolver    *negamax.Solver
+	preendgameSolver *preendgame.Solver
+	curPlayList      []*move.Move
 }
 
 type Mode int
@@ -168,11 +182,25 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 	switch key {
 	case "lexicon":
 		if sc.IsPlaying() {
-			msg := "Cannot change the lexicon while a game is active"
+			msg := "Cannot change the lexicon while a game is active (try `unload` to quit game)"
 			err = errors.New(msg)
 		} else {
 			err = sc.options.SetLexicon(args)
+			if err == nil {
+				// Overwrite the config options since other parts of the code
+				// use these to determine the lexicon
+				sc.config.DefaultLexicon = sc.options.Lexicon.Name
+				sc.config.DefaultLetterDistribution = sc.options.Lexicon.Distribution
+			}
 			_, ret = sc.options.Show("lexicon")
+		}
+	case "board":
+		if sc.IsPlaying() {
+			msg := "Cannot change the board layout while a game is active (try `unload` to quit game)"
+			err = errors.New(msg)
+		} else {
+			err = sc.options.SetBoardLayoutName(args[0])
+			_, ret = sc.options.Show("board")
 		}
 	case "challenge":
 		err = sc.options.SetChallenge(args[0])
@@ -201,8 +229,24 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 
 func (sc *ShellController) initGameDataStructures() error {
 	sc.simmer = &montecarlo.Simmer{}
-	sc.simmer.Init(&sc.game.Game, sc.game.AIPlayer())
+	c, err := equity.NewCombinedStaticCalculator(
+		sc.game.LexiconName(),
+		sc.config, "", equity.PEGAdjustmentFilename)
+	if err != nil {
+		return err
+	}
+	sc.simmer.Init(sc.game.Game, []equity.EquityCalculator{c}, c, sc.config)
 	sc.gen = sc.game.MoveGenerator()
+
+	gd, err := kwg.Get(sc.config, sc.game.LexiconName())
+	if err != nil {
+		return err
+	}
+
+	sc.backupgen = movegen.NewGordonGenerator(gd, sc.game.Board(), sc.game.Bag().LetterDistribution())
+
+	sc.rangefinder = &rangefinder.RangeFinder{}
+	sc.rangefinder.Init(sc.game.Game, []equity.EquityCalculator{c}, sc.config)
 	return nil
 }
 
@@ -271,9 +315,33 @@ func (sc *ShellController) loadGCG(args []string) error {
 		if err != nil {
 			return err
 		}
+	} else if args[0] == "web" {
+		if len(args) < 2 {
+			return errors.New("need to provide a web URL")
+		}
+		path := args[1]
 
+		resp, err := http.Get(path)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		history, err = gcgio.ParseGCGFromReader(sc.config, resp.Body)
+		if err != nil {
+			return err
+		}
 	} else {
-		history, err = gcgio.ParseGCG(sc.config, args[0])
+		path := args[0]
+		if strings.HasPrefix(path, "~/") {
+			usr, err := user.Current()
+			if err != nil {
+				return err
+			}
+			dir := usr.HomeDir
+			path = filepath.Join(dir, path[2:])
+		}
+		history, err = gcgio.ParseGCG(sc.config, path)
 		if err != nil {
 			return err
 		}
@@ -285,8 +353,8 @@ func (sc *ShellController) loadGCG(args []string) error {
 		log.Info().Msgf("gcg file had no lexicon, so using default lexicon %v",
 			lexicon)
 	}
-	boardLayout, ldName := game.HistoryToVariant(history)
-	rules, err := runner.NewAIGameRules(sc.config, boardLayout, lexicon, ldName)
+	boardLayout, ldName, variant := game.HistoryToVariant(history)
+	rules, err := game.NewBasicGameRules(sc.config, lexicon, boardLayout, ldName, game.CrossScoreAndSet, variant)
 	if err != nil {
 		return err
 	}
@@ -294,14 +362,44 @@ func (sc *ShellController) loadGCG(args []string) error {
 	if err != nil {
 		return err
 	}
-	sc.game, err = runner.NewAIGameRunnerFromGame(g, sc.config)
+	conf := &bot.BotConfig{Config: *sc.config}
+	sc.game, err = bot.NewBotTurnPlayerFromGame(g, conf, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return err
 	}
 	sc.game.SetBackupMode(game.InteractiveGameplayMode)
+	sc.game.SetStateStackLength(1)
+
 	// Set challenge rule to double by default. This can be overridden.
 	sc.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
 
+	return sc.initGameDataStructures()
+}
+
+func (sc *ShellController) loadCGP(cgpstr string) error {
+	g, err := cgp.ParseCGP(sc.config, cgpstr)
+	if err != nil {
+		return err
+	}
+	lexicon := g.History().Lexicon
+	if lexicon == "" {
+		lexicon = sc.config.DefaultLexicon
+		log.Info().Msgf("cgp file had no lexicon, so using default lexicon %v",
+			lexicon)
+	}
+	conf := &bot.BotConfig{Config: *sc.config}
+	sc.game, err = bot.NewBotTurnPlayerFromGame(g, conf, pb.BotRequest_HASTY_BOT)
+	if err != nil {
+		return err
+	}
+	sc.game.SetBackupMode(game.InteractiveGameplayMode)
+	sc.game.SetStateStackLength(1)
+
+	// Set challenge rule to double by default. This can be overridden.
+	// XXX: can read from cgp file.
+	sc.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
+
+	sc.game.RecalculateBoard()
 	return sc.initGameDataStructures()
 }
 
@@ -317,6 +415,7 @@ func (sc *ShellController) setToTurn(turnnum int) error {
 	log.Debug().Msgf("Set to turn %v", turnnum)
 	sc.curPlayList = nil
 	sc.simmer.Reset()
+	sc.rangefinder.Reset()
 	sc.curTurnNum = sc.game.Turn()
 	if sc.curTurnNum != turnnum {
 		return errors.New("unexpected turn number")
@@ -326,11 +425,11 @@ func (sc *ShellController) setToTurn(turnnum int) error {
 }
 
 func moveTableHeader() string {
-	return "     Move                Leave  Score Equity\n"
+	return "     Move                Leave  Score Equity"
 }
 
-func MoveTableRow(idx int, m *move.Move, alph *alphabet.Alphabet) string {
-	return fmt.Sprintf("%3d: %-20s%-7s%-6d%-6.2f", idx+1,
+func MoveTableRow(idx int, m *move.Move, alph *tilemapping.TileMapping) string {
+	return fmt.Sprintf("%3d: %-20s%-7s%5d %6.2f", idx+1,
 		m.ShortDescription(), m.Leave().UserVisible(alph), m.Score(), m.Equity())
 }
 
@@ -341,63 +440,22 @@ func (sc *ShellController) printEndgameSequence(moves []*move.Move) {
 	}
 }
 
-func (sc *ShellController) genMovesAndDisplay(numPlays int) {
+func (sc *ShellController) genMovesAndDescription(numPlays int) string {
 	sc.genMoves(numPlays)
-	sc.displayMoveList()
+	return sc.genDisplayMoveList()
 }
 
 func (sc *ShellController) genMoves(numPlays int) {
 	sc.curPlayList = sc.game.GenerateMoves(numPlays)
 }
 
-func (sc *ShellController) displayMoveList() {
-	sc.showMessage(moveTableHeader())
+func (sc *ShellController) genDisplayMoveList() string {
+	var s strings.Builder
+	s.WriteString(moveTableHeader() + "\n")
 	for i, p := range sc.curPlayList {
-		sc.showMessage(MoveTableRow(i, p, sc.game.Alphabet()))
+		s.WriteString(MoveTableRow(i, p, sc.game.Alphabet()) + "\n")
 	}
-}
-
-func endgameArgs(args []string) (plies int, deepening, simple, disablePruning bool, err error) {
-	deepening = true
-	plies = 4
-	simple = false
-	disablePruning = false
-
-	if len(args) > 0 {
-		plies, err = strconv.Atoi(args[0])
-		if err != nil {
-			return
-		}
-	}
-	if len(args) > 1 {
-		var id int
-		id, err = strconv.Atoi(args[1])
-		if err != nil {
-			return
-		}
-		deepening = id == 1
-	}
-	if len(args) > 2 {
-		var sp int
-		sp, err = strconv.Atoi(args[2])
-		if err != nil {
-			return
-		}
-		simple = sp == 1
-	}
-	if len(args) > 3 {
-		var d int
-		d, err = strconv.Atoi(args[3])
-		if err != nil {
-			return
-		}
-		disablePruning = d == 1
-	}
-	if len(args) > 4 {
-		err = errors.New("endgame only takes 5 arguments")
-		return
-	}
-	return
+	return s.String()
 }
 
 func modeFromStr(mode string) (Mode, error) {
@@ -433,12 +491,12 @@ func (sc *ShellController) addRack(rack string) error {
 func (sc *ShellController) addMoveToList(playerid int, m *move.Move) error {
 	opp := (playerid + 1) % sc.game.NumPlayers()
 	oppRack := sc.game.RackFor(opp)
-	sc.game.AssignEquity([]*move.Move{m}, oppRack)
+	sc.game.AssignEquity([]*move.Move{m}, sc.game.Board(), sc.game.Bag(), oppRack)
 	sc.curPlayList = append(sc.curPlayList, m)
 	sort.Slice(sc.curPlayList, func(i, j int) bool {
 		return sc.curPlayList[j].Equity() < sc.curPlayList[i].Equity()
 	})
-	sc.displayMoveList()
+	sc.showMessage(sc.genDisplayMoveList())
 	return nil
 }
 
@@ -519,7 +577,12 @@ func (sc *ShellController) commitAIMove() error {
 }
 
 func (sc *ShellController) handleAutoplay(args []string, options map[string]string) error {
-	var logfile, lexicon, leavefile1, leavefile2, pegfile1, pegfile2 string
+	var logfile, lexicon, letterDistribution, leavefile1, leavefile2, pegfile1, pegfile2 string
+	var numgames, numthreads int
+	var block bool
+	var botcode1, botcode2 pb.BotRequest_BotCode
+	var minsimplies1, minsimplies2 int
+	var err error
 	if options["logfile"] == "" {
 		logfile = "/tmp/autoplay.txt"
 	} else {
@@ -529,6 +592,11 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 		lexicon = sc.config.DefaultLexicon
 	} else {
 		lexicon = options["lexicon"]
+	}
+	if options["letterdistribution"] == "" {
+		letterDistribution = sc.config.DefaultLetterDistribution
+	} else {
+		letterDistribution = options["letterdistribution"]
 	}
 	if options["leavefile1"] == "" {
 		leavefile1 = ""
@@ -550,9 +618,71 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 	} else {
 		pegfile2 = options["pegfile2"]
 	}
+	if options["botcode1"] == "" {
+		botcode1 = pb.BotRequest_HASTY_BOT
+	} else {
+		botcode1String := options["botcode1"]
+		botcode1Value, exists := pb.BotRequest_BotCode_value[botcode1String]
+		if !exists {
+			return fmt.Errorf("bot code %s does not exist", botcode1String)
+		}
+		botcode1 = pb.BotRequest_BotCode(botcode1Value)
+	}
+	if options["botcode2"] == "" {
+		botcode2 = pb.BotRequest_HASTY_BOT
+	} else {
+		botcode2String := options["botcode2"]
+		botcode2Value, exists := pb.BotRequest_BotCode_value[botcode2String]
+		if !exists {
+			return fmt.Errorf("bot code %s does not exist", botcode2String)
+		}
+		botcode2 = pb.BotRequest_BotCode(botcode2Value)
+	}
 
-	player1 := "exhaustiveleave"
-	player2 := player1
+	if options["minsimplies1"] == "" {
+		minsimplies1 = 0
+	} else {
+		minsimplies1, err = strconv.Atoi(options["minsimplies1"])
+		if err != nil {
+			return err
+		}
+	}
+	if options["minsimplies2"] == "" {
+		minsimplies2 = 0
+	} else {
+		minsimplies2, err = strconv.Atoi(options["minsimplies2"])
+		if err != nil {
+			return err
+		}
+	}
+
+	if options["numgames"] == "" {
+		numgames = 1e9
+	} else {
+		var err error
+		numgames, err = strconv.Atoi(options["numgames"])
+		if err != nil {
+			return err
+		}
+	}
+	if options["block"] == "" {
+		block = false
+	} else {
+		block = true
+	}
+
+	if options["threads"] == "" {
+		numthreads = runtime.NumCPU()
+	} else {
+		var err error
+		numthreads, err = strconv.Atoi(options["threads"])
+		if err != nil {
+			return err
+		}
+	}
+	if numthreads < 1 {
+		return errors.New("need at least one thread")
+	}
 	if len(args) == 1 {
 		if args[0] == "stop" {
 			if !sc.gameRunnerRunning {
@@ -561,11 +691,9 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 			sc.gameRunnerCancel()
 			sc.gameRunnerRunning = false
 			return nil
+		} else {
+			return errors.New("argument not recognized")
 		}
-	} else if len(args) == 2 {
-		// It's player names
-		player1 = args[0]
-		player2 = args[1]
 	}
 	if sc.gameRunnerRunning {
 		return errors.New("please stop automatic game runner before running another one")
@@ -573,8 +701,14 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 
 	sc.showMessage("automatic game runner will log to " + logfile)
 	sc.gameRunnerCtx, sc.gameRunnerCancel = context.WithCancel(context.Background())
-	err := automatic.StartCompVCompStaticGames(sc.gameRunnerCtx, sc.config, 1e9, runtime.NumCPU(),
-		logfile, player1, player2, lexicon, leavefile1, leavefile2, pegfile1, pegfile2)
+	err = automatic.StartCompVCompStaticGames(
+		sc.gameRunnerCtx, sc.config, numgames, block, numthreads,
+		logfile, lexicon, letterDistribution,
+		[]automatic.AutomaticRunnerPlayer{
+			{LeaveFile: leavefile1, PEGFile: pegfile1, BotCode: botcode1, MinSimPlies: minsimplies1},
+			{LeaveFile: leavefile2, PEGFile: pegfile2, BotCode: botcode2, MinSimPlies: minsimplies2},
+		})
+
 	if err != nil {
 		return err
 	}
@@ -615,11 +749,7 @@ func extractFields(line string) (*shellcmd, error) {
 			args = append(args, fields[idx])
 		}
 	}
-
-	if lastWasOption {
-		// all options are non-boolean, cannot have a naked option.
-		return nil, errWrongOptionSyntax
-	}
+	log.Debug().Msgf("cmd: %v, args: %v, options: %v", args, options, cmd)
 
 	return &shellcmd{
 		cmd:     cmd,
@@ -643,12 +773,18 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.newGame(cmd)
 	case "load":
 		return sc.load(cmd)
+	case "unload":
+		return sc.unload(cmd)
 	case "n":
 		return sc.next(cmd)
 	case "p":
 		return sc.prev(cmd)
 	case "s":
 		return sc.show(cmd)
+	case "name":
+		return sc.name(cmd)
+	case "note":
+		return sc.note(cmd)
 	case "turn":
 		return sc.turn(cmd)
 	case "rack":
@@ -661,6 +797,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.autoplay(cmd)
 	case "sim":
 		return sc.sim(cmd)
+	case "infer":
+		return sc.infer(cmd)
 	case "add":
 		return sc.add(cmd)
 	case "challenge":
@@ -675,12 +813,22 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.list(cmd)
 	case "endgame":
 		return sc.endgame(cmd)
+	case "peg":
+		return sc.preendgame(cmd)
 	case "mode":
 		return sc.setMode(cmd)
 	case "export":
 		return sc.export(cmd)
 	case "autoanalyze":
 		return sc.autoAnalyze(cmd)
+	case "script":
+		return sc.script(cmd)
+	case "gid":
+		return sc.gid(cmd)
+	case "leave":
+		return sc.leave(cmd)
+	case "cgp":
+		return sc.cgp(cmd)
 	default:
 		msg := fmt.Sprintf("command %v not found", strconv.Quote(cmd.cmd))
 		log.Info().Msg(msg)
@@ -724,4 +872,21 @@ func (sc *ShellController) Loop(sig chan os.Signal) {
 
 	}
 	log.Debug().Msgf("Exiting readline loop...")
+}
+
+func (sc *ShellController) Execute(sig chan os.Signal, line string) {
+	defer sc.l.Close()
+	if sc.curMode == StandardMode {
+		resp, err := sc.standardModeSwitch(line, sig)
+		if err != nil {
+			sc.showError(err)
+		} else if resp != nil {
+			sc.showMessage(resp.message)
+		}
+	} else if sc.curMode == EndgameDebugMode {
+		err := sc.endgameDebugModeSwitch(line, sig)
+		if err != nil {
+			sc.showError(err)
+		}
+	}
 }
