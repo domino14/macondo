@@ -27,6 +27,14 @@ type readFunc func(data []byte) (interface{}, error)
 // GlobalObjectCache is our global object cache, of course.
 var GlobalObjectCache *cache
 
+func (c *cache) Keys() []string {
+	keys := make([]string, 0, len(c.objects))
+	for k := range c.objects {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
 func (c *cache) load(cfg *config.Config, key string, loadFunc loadFunc) error {
 	log.Debug().Str("key", key).Msg("loading into cache")
 
