@@ -112,6 +112,11 @@ func (sc *ShellController) load(cmd *shellcmd) (*Response, error) {
 	return msg(sc.game.ToDisplayText()), nil
 }
 
+func (sc *ShellController) unload(cmd *shellcmd) (*Response, error) {
+	sc.game = nil
+	return msg("No active game."), nil
+}
+
 func (sc *ShellController) show(cmd *shellcmd) (*Response, error) {
 	return msg(sc.game.ToDisplayText()), nil
 }

@@ -180,7 +180,7 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 	switch key {
 	case "lexicon":
 		if sc.IsPlaying() {
-			msg := "Cannot change the lexicon while a game is active"
+			msg := "Cannot change the lexicon while a game is active (try `unload` to quit game)"
 			err = errors.New(msg)
 		} else {
 			err = sc.options.SetLexicon(args)
@@ -194,7 +194,7 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 		}
 	case "board":
 		if sc.IsPlaying() {
-			msg := "Cannot change the board layout while a game is active"
+			msg := "Cannot change the board layout while a game is active (try `unload` to quit game)"
 			err = errors.New(msg)
 		} else {
 			err = sc.options.SetBoardLayoutName(args[0])
@@ -747,6 +747,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.newGame(cmd)
 	case "load":
 		return sc.load(cmd)
+	case "unload":
+		return sc.unload(cmd)
 	case "n":
 		return sc.next(cmd)
 	case "p":
