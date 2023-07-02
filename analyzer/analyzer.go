@@ -2,18 +2,23 @@ package analyzer
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/equity"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tilemapping"
 	"github.com/domino14/macondo/turnplayer"
 )
 
 var SampleJson = []byte(`{
+"scores": [0, 0],
+"onturn": 0,
 "size": 15,
 "rack": "EINRSTZ",
 "lexicon": "CSW19",
@@ -36,6 +41,8 @@ var SampleJson = []byte(`{
 ]}`)
 
 type JsonBoard struct {
+	Scores  []int
+	Onturn  int
 	Size    int
 	Lexicon string
 	Board   []string
@@ -56,6 +63,8 @@ type JsonMove struct {
 
 type Analyzer struct {
 	config  *config.Config
+	moves   []*move.Move
+	simmer  *montecarlo.Simmer
 	options *turnplayer.GameOptions
 	game    *bot.BotTurnPlayer
 }
@@ -109,14 +118,25 @@ func (an *Analyzer) newGame() error {
 func (an *Analyzer) loadJson(j []byte) error {
 	// Load a game position from a json blob
 	var b = JsonBoard{}
-	json.Unmarshal(j, &b)
-	an.options.SetLexicon([]string{b.Lexicon})
-	err := an.newGame()
+	err := json.Unmarshal(j, &b)
 	if err != nil {
-		fmt.Println("Creating game failed!")
-		return err
+		return fmt.Errorf("parse json failed: %w", err)
+	}
+	if len(b.Scores) != 2 {
+		return errors.New("invalid scores")
+	}
+	if b.Onturn < 0 || b.Onturn > 1 {
+		return errors.New("invalid onturn")
+	}
+	an.options.SetLexicon([]string{b.Lexicon})
+	err = an.newGame()
+	if err != nil {
+		return fmt.Errorf("creating game failed: %w", err)
 	}
 	var g = an.game
+	g.SetPointsFor(0, b.Scores[0])
+	g.SetPointsFor(1, b.Scores[1])
+	g.SetPlayerOnTurn(b.Onturn)
 	bd := g.Board()
 	letters := []tilemapping.MachineLetter{}
 	for row, str := range b.Board {
@@ -130,33 +150,46 @@ func (an *Analyzer) loadJson(j []byte) error {
 	// Then remove the visible tiles on the board
 	err = g.Bag().RemoveTiles(letters)
 	if err != nil {
-		fmt.Println("Removing board tiles failed!")
-		return err
+		return fmt.Errorf("removing board tiles failed: %w", err)
 	}
 	// Set the current rack. This will also give opponent a random rack
 	// from what remains, and edit the bag accordingly.
 	err = g.SetCurrentRack(b.Rack)
 	if err != nil {
-		fmt.Println("Setting rack to " + b.Rack + " failed!")
-		return err
+		return fmt.Errorf("setting rack to %v failed: %w", b.Rack, err)
 	}
 	g.RecalculateBoard()
 
 	return nil
 }
 
-func (an *Analyzer) Analyze(jsonBoard []byte) ([]byte, error) {
+func (an *Analyzer) LoadGame(jsonBoard []byte) error {
 	err := an.loadJson(jsonBoard)
 	if err != nil {
-		fmt.Println("Loading game failed!")
-		return nil, err
+		return fmt.Errorf("loading game failed: %w", err)
 	}
-	moves := an.game.GenerateMoves(15)
-	out := make([]JsonMove, len(moves))
-	for i, m := range moves {
+	return nil
+}
+
+func (an *Analyzer) GenerateMoves(numPlays int) {
+	an.moves = an.game.GenerateMoves(numPlays)
+}
+
+func (an *Analyzer) ToJsonMoves() ([]byte, error) {
+	out := make([]JsonMove, len(an.moves))
+	for i, m := range an.moves {
 		out[i] = MakeJsonMove(m)
 	}
 	return json.Marshal(out)
+}
+
+func (an *Analyzer) Analyze(jsonBoard []byte) ([]byte, error) {
+	err := an.LoadGame(jsonBoard)
+	if err != nil {
+		return nil, err
+	}
+	an.GenerateMoves(15)
+	return an.ToJsonMoves()
 }
 
 func (an *Analyzer) RunTest() error {
@@ -170,7 +203,10 @@ func (an *Analyzer) RunTest() error {
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 	// Display the moves
 	var ms []JsonMove
-	json.Unmarshal(moves, &ms)
+	err = json.Unmarshal(moves, &ms)
+	if err != nil {
+		return err
+	}
 	for _, m := range ms {
 		fmt.Printf("%s %-15s %-7s %.1f\n", m.DisplayCoordinates, m.Tiles, m.Leave, m.Equity)
 	}
@@ -180,4 +216,47 @@ func (an *Analyzer) RunTest() error {
 func AnalyzeBoard(jsonBoard []byte) ([]byte, error) {
 	an := NewDefaultAnalyzer()
 	return an.Analyze(jsonBoard)
+}
+
+func (an *Analyzer) SimInit() error {
+	simmer := &montecarlo.Simmer{}
+
+	c, err := equity.NewCombinedStaticCalculator(
+		an.game.LexiconName(),
+		an.config, "", equity.PEGAdjustmentFilename)
+	if err != nil {
+		return fmt.Errorf("init sim failed: %w", err)
+	}
+	simmer.Init(an.game.Game, []equity.EquityCalculator{c}, c, an.config)
+	simmer.Reset()
+	err = simmer.PrepareSim(2, an.moves)
+	if err != nil {
+		return fmt.Errorf("init sim failed: %w", err)
+	}
+	an.simmer = simmer
+	return nil
+}
+
+func (an *Analyzer) SimSingleThread(iters int) error {
+	simmer := an.simmer
+	if simmer == nil {
+		return errors.New("sim not initialized")
+	}
+	simmer.SimSingleThread(iters)
+	return nil
+}
+
+// temp
+func (an *Analyzer) SimState() ([]byte, error) {
+	simmer := an.simmer
+	if simmer == nil {
+		return nil, errors.New("sim not initialized")
+	}
+	return json.Marshal(struct {
+		EquityStats  string `json:"equity_stats"`
+		ScoreDetails string `json:"score_details"`
+	}{
+		EquityStats:  simmer.EquityStats(),
+		ScoreDetails: simmer.ScoreDetails(),
+	})
 }
