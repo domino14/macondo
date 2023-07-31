@@ -29,10 +29,11 @@ Quick tutorial video: [https://youtu.be/07Dpa-oTTFY](https://youtu.be/07Dpa-oTTF
 - Simple static move evaluation engine, using exhaustive leave values. Values
   are slightly better than Quackle's.
 - Multi-core Monte Carlo simulation. Should be a bit faster than Quackle.
-- An exhaustive endgame solver using minimax + alpha-beta pruning + iterative deepening. It should be able to solve every complex endgame. However, depending on the complexity, it can be extremely slow (think many hours if not days). We will work on speeding this up.
+- An exhaustive endgame solver using minimax + alpha-beta pruning + iterative deepening + multithreading. It should be able to solve every complex endgame. However, depending on the complexity, it can be slow (think several hours). We will work on speeding this up.
 
   - For the large majority of endgames, it should be able to find a solution in a few seconds.
 
+- A fully exhaustive 1-in-the-bag pre-endgame solver
 - A very simple opening-move placement heuristic value
 - GCG load and navigation
 - Very fast import from cross-tables
@@ -43,13 +44,12 @@ Quick tutorial video: [https://youtu.be/07Dpa-oTTFY](https://youtu.be/07Dpa-oTTF
 
 - A proper GUI, and all that entails.
 - Pre-endgame heuristic values
-- 1 and 2 in the bag pre-endgame solver (1-PEG and 2-PEG)
+- 2 in the bag pre-endgame solver (Quackle's is not fully exhaustive but still decent)
 - Builds for anything other than Macs
 
 ## Features we will add in the future:
 
 - Heat maps
-- Exact pre-endgame results (which tile draws win and how, etc)
 - Graphs of score distributions per simmed play
 - Machine learning! (taratantara!)
 - And more!
@@ -57,9 +57,9 @@ Quick tutorial video: [https://youtu.be/07Dpa-oTTFY](https://youtu.be/07Dpa-oTTF
 ## How to use
 
 1. Open the executable. If you wish your default lexicon to be CSW21, you
-   must specify set the environment variable `DEFAULT_LEXICON` to `CSW21`. Otherwise, it defaults to NWL20.
+   must set the environment variable `DEFAULT_LEXICON` to `CSW21`. Otherwise, it defaults to NWL20.
 
-2. Move some `*.kwg` files for your desired lexicon to `./data/lexica/gaddag` in this repo. You can find kwg files at https://github.com/domino14/liwords/blob/master/liwords-ui/public/wasm
+2. Move some `*.kwg` files for your desired lexicon to the `./data/lexica/gaddag` folder. You can find kwg files at https://github.com/domino14/liwords/blob/master/liwords-ui/public/wasm
 
 3. Type in `help` for commands
 
