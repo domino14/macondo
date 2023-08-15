@@ -698,6 +698,8 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 		} else {
 			return 0, nil, errors.New("cannot use lazySMP optimization without transposition table")
 		}
+	} else {
+		s.ttable.SetSingleThreadedMode()
 	}
 	if s.transpositionTableOptim {
 		s.ttable.Reset(0.25, s.game.Board().Dim())
@@ -713,9 +715,6 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	var bestSeq []*move.Move
 	s.ClearKillers()
 
-	if !s.lazySMPOptim {
-		s.ttable.SetSingleThreadedMode()
-	}
 	// + 2 since lazysmp can search at a higher ply count
 	s.game.SetStateStackLength(plies + 2)
 
