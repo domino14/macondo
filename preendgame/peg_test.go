@@ -7,6 +7,7 @@ import (
 
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tilemapping"
@@ -58,8 +59,10 @@ func Test1PEGPass(t *testing.T) {
 
 	gd, err := kwg.Get(&DefaultConfig, "FRA20")
 	is.NoErr(err)
+	tt := &negamax.TranspositionTable{}
+
 	peg := new(Solver)
-	err = peg.Init(g, gd)
+	err = peg.Init(g, gd, tt)
 	is.NoErr(err)
 
 	ctx := context.Background()
@@ -88,7 +91,9 @@ func TestStraightforward1PEG(t *testing.T) {
 	gd, err := kwg.Get(&DefaultConfig, "NWL20")
 	is.NoErr(err)
 	peg := new(Solver)
-	err = peg.Init(g, gd)
+	tt := &negamax.TranspositionTable{}
+
+	err = peg.Init(g, gd, tt)
 	is.NoErr(err)
 	ctx := context.Background()
 	plays, err := peg.Solve(ctx)
@@ -117,7 +122,9 @@ func TestComplicated1PEG(t *testing.T) {
 	gd, err := kwg.Get(&DefaultConfig, "NWL20")
 	is.NoErr(err)
 	peg := new(Solver)
-	err = peg.Init(g, gd)
+	tt := &negamax.TranspositionTable{}
+
+	err = peg.Init(g, gd, tt)
 	peg.endgamePlies = 5
 	is.NoErr(err)
 

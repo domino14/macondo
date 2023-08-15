@@ -20,7 +20,6 @@ import (
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
-	"github.com/domino14/macondo/zobrist"
 )
 
 // thanks Wikipedia:
@@ -138,7 +137,6 @@ func (pvLine PVLine) NLBString() string {
 // }
 
 type Solver struct {
-	zobrist      *zobrist.Zobrist
 	stmMovegen   movegen.MoveGenerator
 	game         *game.Game
 	initialMoves [][]*move.Move
@@ -189,8 +187,8 @@ func min(x, y int16) int16 {
 }
 
 // Init initializes the solver
-func (s *Solver) Init(m movegen.MoveGenerator, game *game.Game) error {
-	s.zobrist = &zobrist.Zobrist{}
+func (s *Solver) Init(m movegen.MoveGenerator, game *game.Game, ttable *TranspositionTable) error {
+	s.ttable = ttable
 	s.stmMovegen = m
 	s.game = game
 	s.earlyPassOptim = true
@@ -201,13 +199,12 @@ func (s *Solver) Init(m movegen.MoveGenerator, game *game.Game) error {
 	s.transpositionTableOptim = true
 	s.iterativeDeepeningOptim = true
 	s.threads = int(math.Max(1, float64(runtime.NumCPU()-1)))
-	s.ttable = &TranspositionTable{}
-	s.ttable.SetSingleThreadedMode()
 
 	if s.stmMovegen != nil {
 		s.stmMovegen.SetGenPass(true)
 		s.stmMovegen.SetPlayRecorder(movegen.AllPlaysRecorder)
 	}
+
 	return nil
 }
 
@@ -328,7 +325,7 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 	log.Info().Int("threads", s.threads).Msg("using-lazy-smp")
 	s.currentIDDepths = make([]int, s.threads)
 
-	initialHashKey := s.zobrist.Hash(
+	initialHashKey := s.ttable.Zobrist().Hash(
 		s.game.Board().GetSquares(),
 		s.game.RackFor(s.solvingPlayer),
 		s.game.RackFor(1-s.solvingPlayer),
@@ -484,7 +481,7 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 	s.currentIDDepths = make([]int, 1)
 	g := s.game
 
-	initialHashKey := s.zobrist.Hash(
+	initialHashKey := s.ttable.Zobrist().Hash(
 		g.Board().GetSquares(),
 		g.RackFor(s.solvingPlayer),
 		g.RackFor(1-s.solvingPlayer),
@@ -620,7 +617,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			return 0, err
 		}
 		s.nodes.Add(1)
-		childKey := s.zobrist.AddMove(nodeKey, child, onTurn == s.solvingPlayer,
+		childKey := s.ttable.Zobrist().AddMove(nodeKey, child, onTurn == s.solvingPlayer,
 			g.ScorelessTurns(), g.LastScorelessTurns())
 		value, err := s.negamax(ctx, childKey, depth-1, -β, -α, &childPV, thread)
 		if err != nil {
@@ -693,7 +690,6 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	log.Debug().Int("plies", plies).Msg("alphabeta-solve-config")
 	s.requestedPlies = plies
 	tstart := time.Now()
-	s.zobrist.Initialize(s.game.Board().Dim())
 	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
 	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)
 	if s.lazySMPOptim {
@@ -704,7 +700,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 		}
 	}
 	if s.transpositionTableOptim {
-		s.ttable.Reset(0.25)
+		s.ttable.Reset(0.25, s.game.Board().Dim())
 	}
 	// Set max scoreless turns to 2 in the endgame so we don't generate
 	// unnecessary sequences of passes.
@@ -835,14 +831,6 @@ func (s *Solver) SetKillerPlayOptim(k bool) {
 
 func (s *Solver) SetTranspositionTableOptim(tt bool) {
 	s.transpositionTableOptim = tt
-}
-
-func (s *Solver) SetTranspositionTable(tt *TranspositionTable) {
-	s.ttable = tt
-}
-
-func (s *Solver) SetZobrist(z *zobrist.Zobrist) {
-	s.zobrist = z
 }
 
 func (s *Solver) SetFirstWinOptim(w bool) {
