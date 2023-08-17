@@ -439,7 +439,7 @@ func MoveTableRow(idx int, m *move.Move, alph *tilemapping.TileMapping) string {
 func (sc *ShellController) printEndgameSequence(moves []*move.Move) {
 	sc.showMessage("Best sequence:")
 	for idx, move := range moves {
-		sc.showMessage(fmt.Sprintf("%d) %v", idx+1, move.ShortDescription()))
+		sc.showMessage(fmt.Sprintf("%d) %v (%d)", idx+1, move.ShortDescription(), move.Score()))
 	}
 }
 
