@@ -94,15 +94,34 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 	if r.origGame.Bag().TilesRemaining() == 0 {
 		return ErrBagEmpty
 	}
-	oppEvt := evts[len(evts)-1]
-	if oppEvt.Type != macondo.GameEvent_EXCHANGE && oppEvt.Type != macondo.GameEvent_TILE_PLACEMENT_MOVE {
-		log.Info().Str("oppEvtType", oppEvt.Type.String()).Msg("type")
+
+	oppEvtIdx := len(evts) - 1
+	oppIdx := evts[oppEvtIdx].PlayerIndex
+	var oppEvt *macondo.GameEvent
+	foundOppEvent := false
+	for oppEvtIdx >= 0 {
+		oppEvt = evts[oppEvtIdx]
+		if oppEvt.PlayerIndex != oppIdx {
+			break
+		}
+		if oppEvt.Type == macondo.GameEvent_CHALLENGE_BONUS {
+			oppEvtIdx--
+			continue
+		}
+		if oppEvt.Type == macondo.GameEvent_EXCHANGE || oppEvt.Type == macondo.GameEvent_TILE_PLACEMENT_MOVE {
+			foundOppEvent = true
+			break
+		}
+		oppEvtIdx--
+	}
+	if !foundOppEvent {
 		return ErrMoveTypeNotSupported
 	}
+
 	// We must reset the game back to what it looked like before the opp's move.
 	// Do this with a copy.
 	history := proto.Clone(r.origGame.History()).(*macondo.GameHistory)
-	history.Events = history.Events[:len(evts)-1]
+	history.Events = history.Events[:oppEvtIdx]
 
 	var err error
 	gameCopy, err := game.NewFromHistory(history, r.origGame.Rules(), len(history.Events))
