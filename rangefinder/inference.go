@@ -16,6 +16,7 @@ import (
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
@@ -119,14 +120,33 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 	}
 
 	// We must reset the game back to what it looked like before the opp's move.
-	// Do this with a copy.
+	var gameCopy *game.Game
+	var err error
+
 	history := proto.Clone(r.origGame.History()).(*macondo.GameHistory)
 	history.Events = history.Events[:oppEvtIdx]
 
-	var err error
-	gameCopy, err := game.NewFromHistory(history, r.origGame.Rules(), len(history.Events))
-	if err != nil {
-		return err
+	if r.origGame.History().StartingCgp != "" {
+
+		gameCopy, err = cgp.ParseCGP(r.cfg, r.origGame.History().StartingCgp)
+		if err != nil {
+			return err
+		}
+		gameCopy.History().Events = history.Events
+
+		for t := 0; t < len(history.Events); t++ {
+			err = gameCopy.PlayTurn(t)
+			if err != nil {
+				return err
+			}
+		}
+		gameCopy.SetPlayerOnTurn(int(oppIdx))
+		gameCopy.RecalculateBoard()
+	} else {
+		gameCopy, err = game.NewFromHistory(history, r.origGame.Rules(), len(history.Events))
+		if err != nil {
+			return err
+		}
 	}
 
 	// create rack from the last move.

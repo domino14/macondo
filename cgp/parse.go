@@ -3,21 +3,15 @@ package cgp
 import (
 	"errors"
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/rs/zerolog/log"
 )
-
-var nre *regexp.Regexp
-
-func init() {
-	nre = regexp.MustCompile("[0-9]+")
-}
 
 // ParseCGP returns an instantiated Game instance from the given CGP string.
 func ParseCGP(cfg *config.Config, cgpstr string) (*game.Game, error) {
