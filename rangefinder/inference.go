@@ -16,6 +16,7 @@ import (
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
@@ -94,20 +95,58 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 	if r.origGame.Bag().TilesRemaining() == 0 {
 		return ErrBagEmpty
 	}
-	oppEvt := evts[len(evts)-1]
-	if oppEvt.Type != macondo.GameEvent_EXCHANGE && oppEvt.Type != macondo.GameEvent_TILE_PLACEMENT_MOVE {
-		log.Info().Str("oppEvtType", oppEvt.Type.String()).Msg("type")
+
+	oppEvtIdx := len(evts) - 1
+	oppIdx := evts[oppEvtIdx].PlayerIndex
+	var oppEvt *macondo.GameEvent
+	foundOppEvent := false
+	for oppEvtIdx >= 0 {
+		oppEvt = evts[oppEvtIdx]
+		if oppEvt.PlayerIndex != oppIdx {
+			break
+		}
+		if oppEvt.Type == macondo.GameEvent_CHALLENGE_BONUS {
+			oppEvtIdx--
+			continue
+		}
+		if oppEvt.Type == macondo.GameEvent_EXCHANGE || oppEvt.Type == macondo.GameEvent_TILE_PLACEMENT_MOVE {
+			foundOppEvent = true
+			break
+		}
+		oppEvtIdx--
+	}
+	if !foundOppEvent {
 		return ErrMoveTypeNotSupported
 	}
-	// We must reset the game back to what it looked like before the opp's move.
-	// Do this with a copy.
-	history := proto.Clone(r.origGame.History()).(*macondo.GameHistory)
-	history.Events = history.Events[:len(evts)-1]
 
+	// We must reset the game back to what it looked like before the opp's move.
+	var gameCopy *game.Game
 	var err error
-	gameCopy, err := game.NewFromHistory(history, r.origGame.Rules(), len(history.Events))
-	if err != nil {
-		return err
+
+	history := proto.Clone(r.origGame.History()).(*macondo.GameHistory)
+	history.Events = history.Events[:oppEvtIdx]
+
+	if r.origGame.History().StartingCgp != "" {
+
+		gameCopy, err = cgp.ParseCGP(r.cfg, r.origGame.History().StartingCgp)
+		if err != nil {
+			return err
+		}
+		gameCopy.History().Events = history.Events
+
+		for t := 0; t < len(history.Events); t++ {
+			err = gameCopy.PlayTurn(t)
+			if err != nil {
+				return err
+			}
+		}
+		gameCopy.SetPlayerOnTurn(int(oppIdx))
+		gameCopy.RecalculateBoard()
+	} else {
+		gameCopy, err = game.NewFromHistory(history, r.origGame.Rules(), len(history.Events))
+		if err != nil {
+			return err
+		}
 	}
 
 	// create rack from the last move.

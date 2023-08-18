@@ -28,6 +28,7 @@ type BotConfig struct {
 type BotTurnPlayer struct {
 	aiturnplayer.AIStaticTurnPlayer
 	botType     pb.BotRequest_BotCode
+	ttable      *negamax.TranspositionTable
 	endgamer    *negamax.Solver
 	preendgamer *preendgame.Solver
 	simmer      *montecarlo.Simmer
@@ -111,6 +112,7 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 	if HasInfer(botType) {
 		btp.inferencer = &rangefinder.RangeFinder{}
 	}
+	btp.ttable = &negamax.TranspositionTable{}
 
 	return btp, nil
 }

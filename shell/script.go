@@ -153,6 +153,12 @@ func (sc *ShellController) script(cmd *shellcmd) (*Response, error) {
 	L.SetGlobal("macondo_turn", L.NewFunction(Turn))
 	L.SetGlobal("macondo_endgame", L.NewFunction(Endgame))
 	L.SetGlobal("macondo_sim", L.NewFunction(Sim))
+	if len(cmd.args) > 1 {
+		table := L.NewTable()
+		joinedStr := strings.Join(cmd.args[1:], " ")
+		table.Insert(1, lua.LString(joinedStr))
+		L.SetGlobal("args", table)
+	}
 
 	if err := L.DoFile(filepath); err != nil {
 		log.Err(err).Msg("there was a error")

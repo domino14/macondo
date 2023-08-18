@@ -80,7 +80,9 @@ func setUpSolver(lex, distName string, bvs board.VsWho, plies int, rack1, rack2 
 	fmt.Println(g.Board().ToDisplayText(alph))
 
 	s := new(Solver)
-	err = s.Init(gen, g)
+	tt := &TranspositionTable{}
+
+	err = s.Init(gen, g, tt)
 	if err != nil {
 		panic(err)
 	}
@@ -94,6 +96,7 @@ func TestSolveComplex(t *testing.T) {
 	s, err := setUpSolver("America", "english", board.VsRoy, plies, "WZ", "EFHIKOQ", 427, 331,
 		1)
 	is.NoErr(err)
+
 	v, _, _ := s.Solve(context.Background(), plies)
 	is.Equal(v, int16(116))
 	// Quackle finds a 122-pt win. However, I think it's wrong because it
@@ -208,7 +211,9 @@ func TestVeryDeep(t *testing.T) {
 	)
 
 	s := new(Solver)
-	s.Init(gen, g)
+	tt := &TranspositionTable{}
+
+	s.Init(gen, g, tt)
 	// s.iterativeDeepeningOptim = false
 	// s.transpositionTableOptim = false
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
@@ -238,7 +243,9 @@ func TestPassFirst(t *testing.T) {
 	)
 
 	s := new(Solver)
-	s.Init(gen1, g)
+	tt := &TranspositionTable{}
+
+	s.Init(gen1, g, tt)
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 	v, seq, _ := s.Solve(context.Background(), plies)
 
@@ -306,7 +313,9 @@ func TestPolishFromGcg(t *testing.T) {
 	)
 
 	s := new(Solver)
-	s.Init(gen, g)
+	tt := &TranspositionTable{}
+
+	s.Init(gen, g, tt)
 	s.earlyPassOptim = false
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 
@@ -343,7 +352,9 @@ func TestStuckPruning(t *testing.T) {
 	)
 
 	s := new(Solver)
-	s.Init(gen, g)
+	tt := &TranspositionTable{}
+
+	s.Init(gen, g, tt)
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 	v, _, _ := s.Solve(context.Background(), plies)
 	is.Equal(v, int16(72))
@@ -380,7 +391,9 @@ func TestProperIterativeDeepening(t *testing.T) {
 			gd, g.Board(), g.Bag().LetterDistribution(),
 		)
 		s := new(Solver)
-		s.Init(gen, g)
+		tt := &TranspositionTable{}
+		s.Init(gen, g, tt)
+
 		fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 		// Prior to solving the endgame, set to simulation mode.
 		g.SetBackupMode(game.SimulationMode)
@@ -416,7 +429,9 @@ func TestFromGCG(t *testing.T) {
 	)
 
 	s := new(Solver)
-	s.Init(gen, g)
+	tt := &TranspositionTable{}
+
+	s.Init(gen, g, tt)
 	// s.iterativeDeepeningOn = false
 	// s.simpleEvaluation = true
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
@@ -456,7 +471,9 @@ func TestZeroPtFirstPlay(t *testing.T) {
 	)
 
 	s := new(Solver)
-	s.Init(gen, g)
+	tt := &TranspositionTable{}
+
+	s.Init(gen, g, tt)
 	// s.iterativeDeepeningOptim = false
 	// s.transpositionTableOptim = false
 

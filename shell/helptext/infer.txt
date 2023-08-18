@@ -44,7 +44,3 @@ Options:
     The amount of time in seconds to infer. Defaults to 5 seconds. You may
     want this to be a little bit larger on slower machines / those with 
     fewer cores.
-
-    -logfile /path/to/logfile
-
-    Log inference to a logfile.

@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -200,6 +201,7 @@ type Simmer struct {
 	// initialPlayer is the player for whom we are simming.
 	initialPlayer  int
 	iterationCount int
+	nodeCount      atomic.Uint64
 	threads        int
 
 	simming      bool
@@ -395,7 +397,7 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 			}
 		})
 	}
-
+	tstart := time.Now()
 	var iterMutex sync.Mutex
 	g := errgroup.Group{}
 	for t := 0; t < s.threads; t++ {
@@ -456,7 +458,10 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 	// Wait for threads in errgroup:
 	err := g.Wait()
 	log.Debug().Msgf("errgroup returned err %v", err)
-
+	elapsed := time.Since(tstart) // duration is in nanosecs
+	nodes := s.nodeCount.Load()
+	nps := float64(nodes) / elapsed.Seconds()
+	log.Info().Msgf("time taken: %v, nps: %f", elapsed.Seconds(), nps)
 	// Writer thread will exit now:
 	if s.logStream != nil {
 		close(done)
@@ -528,6 +533,7 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 		// Set the backup mode to simulation mode only to back up the first move:
 		g.SetBackupMode(game.SimulationMode)
 		g.PlayMove(simmedPlay.play, false, 0)
+		s.nodeCount.Add(1)
 		g.SetBackupMode(game.NoBackup)
 		// Further plies will NOT be backed up.
 		for ply := 0; ply < plies; ply++ {
@@ -541,6 +547,7 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 			bestPlay := s.bestStaticTurn(onTurn, thread)
 			// log.Debug().Msgf("Ply %v, Best play: %v", ply+1, bestPlay)
 			g.PlayMove(bestPlay, false, 0)
+			s.nodeCount.Add(1)
 			// log.Debug().Msgf("Score is now %v", s.game.Score())
 			if s.logStream != nil {
 				plyChild = LogPlay{Play: bestPlay.ShortDescription(), Rack: bestPlay.FullRack(), Pts: bestPlay.Score()}

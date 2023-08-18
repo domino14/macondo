@@ -52,9 +52,11 @@ func TestCompareGameMove(t *testing.T) {
 	rules1, err := game.NewBasicGameRules(
 		&DefaultConfig, "America", board.CrosswordGameLayout, "english",
 		game.CrossScoreAndSet, "")
+	is.NoErr(err)
 	rules2, err := game.NewBasicGameRules(
 		&DefaultConfig, "America", board.CrosswordGameLayout, "english",
 		game.CrossScoreOnly, "")
+	is.NoErr(err)
 
 	var testCases = []testMove{
 		{"8D", "QWERTY", "QWERTYU", 62},

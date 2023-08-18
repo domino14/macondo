@@ -177,6 +177,8 @@ func NewGame(rules *GameRules, playerinfo []*pb.PlayerInfo) (*Game, error) {
 // NewFromHistory instantiates a Game from a history, and sets the current
 // turn to the passed in turnnum. It assumes the rules contains the current
 // lexicon in history, if any!
+// Note: NewFromHistory does not currently parse any CGP included in the
+// starting_cgp. We should fix this.
 func NewFromHistory(history *pb.GameHistory, rules *GameRules, turnnum int) (*Game, error) {
 	game, err := NewGame(rules, history.Players)
 	if err != nil {
@@ -750,7 +752,7 @@ func (g *Game) PlayToTurn(turnnum int) error {
 	g.SetBackupMode(InteractiveGameplayMode)
 	g.SetStateStackLength(1)
 	for t = 0; t < turnnum; t++ {
-		err := g.playTurn(t)
+		err := g.PlayTurn(t)
 		if err != nil {
 			return err
 		}
@@ -834,10 +836,10 @@ func (g *Game) PlayToTurn(turnnum int) error {
 // PlayLatestEvent "plays" the latest event on the board. This is used for
 // replaying a game from a GCG.
 func (g *Game) PlayLatestEvent() error {
-	return g.playTurn(len(g.history.Events) - 1)
+	return g.PlayTurn(len(g.history.Events) - 1)
 }
 
-func (g *Game) playTurn(t int) error {
+func (g *Game) PlayTurn(t int) error {
 	// XXX: This function is pretty similar to PlayMove above. It has a
 	// subset of the functionality as it's designed to replay an already
 	// recorded turn on the board.

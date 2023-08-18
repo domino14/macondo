@@ -11,7 +11,7 @@ func TestTTableEntry(t *testing.T) {
 	tt := &TranspositionTable{}
 	tt.SetSingleThreadedMode()
 	// Assure minimum size of 2<<24 elems
-	tt.Reset(0)
+	tt.Reset(0, 15)
 	tentry := TableEntry{
 		score:        12,
 		flagAndDepth: 128 + 64 + 23,

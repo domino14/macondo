@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"sync/atomic"
 
+	"github.com/domino14/macondo/zobrist"
 	"github.com/pbnjay/memory"
 	"github.com/rs/zerolog/log"
 )
@@ -81,6 +82,8 @@ type TranspositionTable struct {
 	// same overall hash. We don't have a super easy way to detect the latter,
 	// but it should be much less common.
 	t2collisions atomic.Uint64
+
+	zobrist *zobrist.Zobrist
 }
 
 // var globalTranspositionTable DebugTranspositionTable
@@ -124,7 +127,7 @@ func (t *TranspositionTable) store(zval uint64, tentry TableEntry) {
 	t.created.Add(1)
 }
 
-func (t *TranspositionTable) Reset(fractionOfMemory float64) {
+func (t *TranspositionTable) Reset(fractionOfMemory float64, boardDim int) {
 	t.Lock()
 	defer t.Unlock()
 	totalMem := memory.TotalMemory()
@@ -140,20 +143,37 @@ func (t *TranspositionTable) Reset(fractionOfMemory float64) {
 	t.sizeMask = ((1 << t.sizePowerOf2) - 1)
 
 	numElems := int(math.Pow(2, float64(t.sizePowerOf2)))
+	reset := false
+	if t.table != nil {
+		reset = true
+		clear(t.table)
+	} else {
+		t.table = make([]TableEntry, numElems)
+	}
+	if t.zobrist == nil {
+		log.Info().Msg("creating zobrist hash")
+		t.zobrist = &zobrist.Zobrist{}
+		t.zobrist.Initialize(boardDim)
+	}
 
 	log.Info().Int("num-elems", numElems).
 		Float64("desired-num-elems", desiredNElems).
 		Int("estimated-total-memory-bytes", numElems*entrySize).
+		Bool("reset", reset).
 		Msg("transposition-table-size")
-	t.table = nil
-	runtime.GC() // ?
 
-	t.table = make([]TableEntry, numElems)
 	t.created.Store(0)
 	t.lookups.Store(0)
 	t.hits.Store(0)
 	t.t2collisions.Store(0)
-	log.Info().Msg("allocated-transposition-table")
+}
+
+func (t *TranspositionTable) Zobrist() *zobrist.Zobrist {
+	return t.zobrist
+}
+
+func (t *TranspositionTable) SetZobrist(z *zobrist.Zobrist) {
+	t.zobrist = z
 }
 
 // a debug tt

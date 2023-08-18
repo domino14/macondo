@@ -123,6 +123,7 @@ type ShellController struct {
 	curMode          Mode
 	endgameSolver    *negamax.Solver
 	preendgameSolver *preendgame.Solver
+	ttable           *negamax.TranspositionTable
 	curPlayList      []*move.Move
 }
 
@@ -173,7 +174,9 @@ func NewShellController(cfg *config.Config, execPath string) *ShellController {
 	execPath = config.FindBasePath(execPath)
 	opts := NewShellOptions()
 	opts.SetDefaults(cfg)
-	return &ShellController{l: l, config: cfg, execPath: execPath, options: opts}
+
+	ttable := &negamax.TranspositionTable{}
+	return &ShellController{l: l, config: cfg, execPath: execPath, options: opts, ttable: ttable}
 }
 
 func (sc *ShellController) Set(key string, args []string) (string, error) {
@@ -436,7 +439,7 @@ func MoveTableRow(idx int, m *move.Move, alph *tilemapping.TileMapping) string {
 func (sc *ShellController) printEndgameSequence(moves []*move.Move) {
 	sc.showMessage("Best sequence:")
 	for idx, move := range moves {
-		sc.showMessage(fmt.Sprintf("%d) %v", idx+1, move.ShortDescription()))
+		sc.showMessage(fmt.Sprintf("%d) %v (%d)", idx+1, move.ShortDescription(), move.Score()))
 	}
 }
 

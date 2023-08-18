@@ -221,7 +221,6 @@ type Solver struct {
 	game          *game.Game
 	gaddag        *kwg.KWG
 	ttable        *negamax.TranspositionTable
-	zobrist       *zobrist.Zobrist
 	endgamePlies  int
 	initialSpread int
 	threads       int
@@ -233,9 +232,9 @@ type Solver struct {
 }
 
 // Init initializes the solver. It creates all the parallel endgame solvers.
-func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
+func (s *Solver) Init(g *game.Game, gd *kwg.KWG, ttable *negamax.TranspositionTable) error {
+	s.ttable = ttable
 	s.threads = int(math.Max(1, float64(runtime.NumCPU()-1)))
-	s.ttable = &negamax.TranspositionTable{}
 	s.ttable.SetMultiThreadedMode()
 	s.game = g.Copy()
 	s.game.SetBackupMode(game.SimulationMode)
@@ -261,13 +260,12 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 	}
 	s.numinbag = s.game.Bag().TilesRemaining()
 	s.endgameSolvers = make([]*negamax.Solver, s.threads)
-	s.ttable.Reset(0.25)
-	s.zobrist = &zobrist.Zobrist{}
-	s.zobrist.Initialize(s.game.Board().Dim())
+	s.ttable.Reset(0.25, s.game.Board().Dim())
 	s.initialSpread = s.game.CurrentSpread()
 
 	for idx := range s.endgameSolvers {
 		es := &negamax.Solver{}
+		// share the same transposition table and zobrist params across all endgames.
 		// Copy the game so each endgame solver can manipulate it independently.
 		g := s.game.Copy()
 		g.SetBackupMode(game.SimulationMode)
@@ -282,17 +280,14 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 		// what tiles we draw after making a move.
 		g.Bag().SetFixedOrder(true)
 		mg := movegen.NewGordonGenerator(s.gaddag, g.Board(), g.Bag().LetterDistribution())
-		err := es.Init(mg, g)
+		err := es.Init(mg, g, s.ttable)
 		if err != nil {
 			return nil, err
 		}
 		// Endgame itself should be single-threaded; we are solving many individual
 		// endgames in parallel.
 		es.SetThreads(1)
-		// share the same transposition table and zobrist params across all endgames.
-		// hopefully this speeds things up.
-		es.SetTranspositionTable(s.ttable)
-		es.SetZobrist(s.zobrist)
+
 		// Endgame should quit early if it finds any win.
 		es.SetFirstWinOptim(true)
 		s.endgameSolvers[idx] = es
