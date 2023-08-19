@@ -245,7 +245,6 @@ type Solver struct {
 }
 
 // Init initializes the solver. It creates all the parallel endgame solvers.
-
 func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
 	s.ttable = negamax.GlobalTranspositionTable
 	s.threads = max(1, runtime.NumCPU())
