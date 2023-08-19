@@ -146,3 +146,7 @@ func (z *Zobrist) AddMove(key uint64, m *move.Move, wasOurMove bool,
 	key ^= z.theirTurn
 	return key
 }
+
+func (z *Zobrist) BoardDim() int {
+	return z.boardDim
+}
