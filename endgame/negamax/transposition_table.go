@@ -76,7 +76,7 @@ type TranspositionTable struct {
 	lookups      atomic.Uint64
 	hits         atomic.Uint64
 	sizePowerOf2 int
-	sizeMask     int
+	sizeMask     uint64
 	// "type 2" collisions. A type 2 collision happens when two positions share
 	// the same lower bytes. A type 1 collision happens when two positions share the
 	// same overall hash. We don't have a super easy way to detect the latter,
@@ -104,7 +104,7 @@ func (t *TranspositionTable) lookup(zval uint64) TableEntry {
 	t.RLock()
 	defer t.RUnlock()
 	t.lookups.Add(1)
-	idx := zval & uint64(t.sizeMask)
+	idx := zval & t.sizeMask
 	fullHash := t.table[idx].fullHash(idx)
 	if fullHash != zval {
 		if t.table[idx].valid() {
@@ -120,7 +120,7 @@ func (t *TranspositionTable) lookup(zval uint64) TableEntry {
 }
 
 func (t *TranspositionTable) store(zval uint64, tentry TableEntry) {
-	idx := zval & uint64(t.sizeMask)
+	idx := zval & t.sizeMask
 	tentry.top4bytes = uint32(zval >> 32)
 	tentry.fifthbyte = uint8(zval >> 24)
 	t.Lock()
@@ -143,16 +143,16 @@ func (t *TranspositionTable) Reset(fractionOfMemory float64, boardDim int) {
 		t.sizePowerOf2 = 24
 	}
 
-	t.sizeMask = ((1 << t.sizePowerOf2) - 1)
-
-	numElems := int(math.Pow(2, float64(t.sizePowerOf2)))
+	numElems := 1 << t.sizePowerOf2
+	t.sizeMask = uint64(numElems - 1)
 	reset := false
-	if t.table != nil {
+	if t.table != nil && len(t.table) == numElems {
 		reset = true
 		clear(t.table)
 	} else {
 		t.table = make([]TableEntry, numElems)
 	}
+
 	if t.zobrist == nil || t.zobrist.BoardDim() != boardDim {
 		log.Info().Msg("creating zobrist hash")
 		t.zobrist = &zobrist.Zobrist{}
