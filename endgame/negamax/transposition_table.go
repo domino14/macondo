@@ -153,7 +153,7 @@ func (t *TranspositionTable) Reset(fractionOfMemory float64, boardDim int) {
 	} else {
 		t.table = make([]TableEntry, numElems)
 	}
-	if t.zobrist == nil {
+	if t.zobrist == nil || t.zobrist.BoardDim() != boardDim {
 		log.Info().Msg("creating zobrist hash")
 		t.zobrist = &zobrist.Zobrist{}
 		t.zobrist.Initialize(boardDim)
