@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"math"
 	"runtime"
 	"sort"
 	"sync"
@@ -74,7 +73,7 @@ func (r *RangeFinder) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
 
 	r.origGame = game
 	r.equityCalculators = eqCalcs
-	r.threads = int(math.Max(1, float64(runtime.NumCPU()-1)))
+	r.threads = max(1, runtime.NumCPU())
 	r.cfg = cfg
 }
 

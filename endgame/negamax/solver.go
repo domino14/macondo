@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"runtime"
 	"sort"
 	"strings"
@@ -171,21 +170,6 @@ type Solver struct {
 	logStream io.Writer
 }
 
-// max returns the larger of x or y.
-func max(x, y int16) int16 {
-	if x < y {
-		return y
-	}
-	return x
-}
-
-func min(x, y int16) int16 {
-	if x < y {
-		return x
-	}
-	return y
-}
-
 // Init initializes the solver
 func (s *Solver) Init(m movegen.MoveGenerator, game *game.Game) error {
 	s.ttable = GlobalTranspositionTable
@@ -198,7 +182,7 @@ func (s *Solver) Init(m movegen.MoveGenerator, game *game.Game) error {
 	s.firstWinOptim = false
 	s.transpositionTableOptim = true
 	s.iterativeDeepeningOptim = true
-	s.threads = int(math.Max(1, float64(runtime.NumCPU()-1)))
+	s.threads = max(1, runtime.NumCPU())
 
 	if s.stmMovegen != nil {
 		s.stmMovegen.SetGenPass(true)
@@ -702,7 +686,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 		s.ttable.SetSingleThreadedMode()
 	}
 	if s.transpositionTableOptim {
-		s.ttable.Reset(0.25, s.game.Board().Dim())
+		s.ttable.Reset(s.game.Config().TTableFractionOfMem, s.game.Board().Dim())
 	}
 	// Set max scoreless turns to 2 in the endgame so we don't generate
 	// unnecessary sequences of passes.

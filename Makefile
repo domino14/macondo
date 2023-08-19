@@ -4,6 +4,10 @@ all: macondo_shell macondo_bot bot_shell analyze
 
 .PHONY: wasm
 
+build-MacondoLambdaFunction:
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bootstrap cmd/lambda/main.go
+	cp ./bootstrap $(ARTIFACTS_DIR)/.
+
 proto:
 	protoc --go_out=gen --go_opt=paths=source_relative ./api/proto/macondo/macondo.proto
 

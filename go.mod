@@ -2,6 +2,7 @@ module github.com/domino14/macondo
 
 require (
 	github.com/avast/retry-go v3.0.0+incompatible
+	github.com/aws/aws-lambda-go v1.41.0
 	github.com/chzyer/readline v1.5.1
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
 	github.com/matryer/is v1.4.0
@@ -10,7 +11,7 @@ require (
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
 	github.com/rs/zerolog v1.29.0
 	github.com/samber/lo v1.37.0
-	github.com/stretchr/testify v1.6.1
+	github.com/stretchr/testify v1.7.2
 	github.com/yuin/gopher-lua v1.1.0
 	golang.org/x/sync v0.1.0
 	golang.org/x/text v0.8.0
@@ -34,7 +35,7 @@ require (
 	golang.org/x/exp v0.0.0-20230321023759-10a507213a29 // indirect
 	golang.org/x/sys v0.6.0 // indirect
 	gopkg.in/check.v1 v1.0.0-20200227125254-8fa46927fb4f // indirect
-	gopkg.in/yaml.v3 v3.0.0-20200605160147-a5ece683394c // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
 go 1.21

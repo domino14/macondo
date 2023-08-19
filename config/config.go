@@ -18,8 +18,8 @@ type Config struct {
 	DefaultLexicon            string
 	DefaultLetterDistribution string
 	NatsURL                   string
-
-	WolgesAwsmURL string
+	TTableFractionOfMem       float64
+	WolgesAwsmURL             string
 
 	CPUProfile string
 	MemProfile string
@@ -35,6 +35,7 @@ var defaultConfig = Config{
 	DataPath:                  os.Getenv("DATA_PATH"),
 	DefaultLexicon:            "NWL20",
 	DefaultLetterDistribution: "English",
+	TTableFractionOfMem:       0.25,
 }
 
 func DefaultConfig() Config {
@@ -54,6 +55,7 @@ func (c *Config) Load(args []string) error {
 	fs.StringVar(&c.CPUProfile, "cpu-profile", "", "file to save cpu profile in")
 	fs.StringVar(&c.MemProfile, "mem-profile", "", "file to save mem profile in")
 	fs.StringVar(&c.WolgesAwsmURL, "wolges-awsm-url", "", "URL for the wolges-awsm server. Needed for WordSmog bot.")
+	fs.Float64Var(&c.TTableFractionOfMem, "ttable-mem-fraction", 0.25, "Fraction of memory that the transposition table should have.")
 	err := fs.Parse(args)
 	return err
 }

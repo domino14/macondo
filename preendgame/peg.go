@@ -245,6 +245,7 @@ type Solver struct {
 }
 
 // Init initializes the solver. It creates all the parallel endgame solvers.
+
 func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
 	s.ttable = negamax.GlobalTranspositionTable
 	s.threads = max(1, runtime.NumCPU())
@@ -275,7 +276,7 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 	}
 	s.numinbag = s.game.Bag().TilesRemaining()
 	s.endgameSolvers = make([]*negamax.Solver, s.threads)
-	s.ttable.Reset(0.25, s.game.Board().Dim())
+	s.ttable.Reset(s.game.Config().TTableFractionOfMem, s.game.Board().Dim())
 	s.initialSpread = s.game.CurrentSpread()
 
 	for idx := range s.endgameSolvers {
