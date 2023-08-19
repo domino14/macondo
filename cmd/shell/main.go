@@ -30,6 +30,7 @@ func main() {
 		panic(err)
 	}
 	exPath := filepath.Dir(ex)
+	log.Info().Msgf("executable path: %v", exPath)
 
 	cfg := &config.Config{}
 	args := os.Args[1:]
