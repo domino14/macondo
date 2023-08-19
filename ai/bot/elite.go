@@ -87,7 +87,7 @@ func eliteBestPlay(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 }
 
 func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move.Move, error) {
-	if !hasEndgame(p.botType) {
+	if !HasEndgame(p.botType) {
 		// Just return the static best play if we don't have an endgame engine.
 		return p.GenerateMoves(1)[0], nil
 	}
@@ -100,7 +100,7 @@ func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move
 	gameCopy.SetBackupMode(game.SimulationMode)
 	gameCopy.SetStateStackLength(endgamePlies + 1)
 	gen1 := movegen.NewGordonGenerator(gd, gameCopy.Board(), p.Game.Rules().LetterDistribution())
-	err = p.endgamer.Init(gen1, gameCopy, p.ttable)
+	err = p.endgamer.Init(gen1, gameCopy)
 	if err != nil {
 		return nil, err
 	}
@@ -118,7 +118,7 @@ func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move
 }
 
 func preendgameBest(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
-	if !hasPreendgame(p.botType) {
+	if !HasPreendgame(p.botType) {
 		// Just return the static best play if we don't have a pre-endgame engine
 		return p.GenerateMoves(1)[0], nil
 	}
@@ -126,7 +126,7 @@ func preendgameBest(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = p.preendgamer.Init(p.Game, gd, p.ttable)
+	err = p.preendgamer.Init(p.Game, gd)
 	if err != nil {
 		return nil, err
 	}

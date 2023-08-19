@@ -86,7 +86,10 @@ type TranspositionTable struct {
 	zobrist *zobrist.Zobrist
 }
 
-// var globalTranspositionTable DebugTranspositionTable
+// GlobalTranspositionTable is a singleton instance. Since transposition tables
+// take up a large enough amount of memory, and they're meant to be shared,
+// we only really want to keep one in memory to avoid re-allocation costs.
+var GlobalTranspositionTable = &TranspositionTable{}
 
 func (t *TranspositionTable) SetSingleThreadedMode() {
 	t.TableLock = &FakeLock{}

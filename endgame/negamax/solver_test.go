@@ -80,9 +80,8 @@ func setUpSolver(lex, distName string, bvs board.VsWho, plies int, rack1, rack2 
 	fmt.Println(g.Board().ToDisplayText(alph))
 
 	s := new(Solver)
-	tt := &TranspositionTable{}
 
-	err = s.Init(gen, g, tt)
+	err = s.Init(gen, g)
 	if err != nil {
 		panic(err)
 	}
@@ -211,9 +210,7 @@ func TestVeryDeep(t *testing.T) {
 	)
 
 	s := new(Solver)
-	tt := &TranspositionTable{}
-
-	s.Init(gen, g, tt)
+	s.Init(gen, g)
 	// s.iterativeDeepeningOptim = false
 	// s.transpositionTableOptim = false
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
@@ -243,9 +240,7 @@ func TestPassFirst(t *testing.T) {
 	)
 
 	s := new(Solver)
-	tt := &TranspositionTable{}
-
-	s.Init(gen1, g, tt)
+	s.Init(gen1, g)
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 	v, seq, _ := s.Solve(context.Background(), plies)
 
@@ -313,9 +308,8 @@ func TestPolishFromGcg(t *testing.T) {
 	)
 
 	s := new(Solver)
-	tt := &TranspositionTable{}
 
-	s.Init(gen, g, tt)
+	s.Init(gen, g)
 	s.earlyPassOptim = false
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 
@@ -352,9 +346,8 @@ func TestStuckPruning(t *testing.T) {
 	)
 
 	s := new(Solver)
-	tt := &TranspositionTable{}
 
-	s.Init(gen, g, tt)
+	s.Init(gen, g)
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 	v, _, _ := s.Solve(context.Background(), plies)
 	is.Equal(v, int16(72))
@@ -391,8 +384,7 @@ func TestProperIterativeDeepening(t *testing.T) {
 			gd, g.Board(), g.Bag().LetterDistribution(),
 		)
 		s := new(Solver)
-		tt := &TranspositionTable{}
-		s.Init(gen, g, tt)
+		s.Init(gen, g)
 
 		fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 		// Prior to solving the endgame, set to simulation mode.
@@ -429,9 +421,8 @@ func TestFromGCG(t *testing.T) {
 	)
 
 	s := new(Solver)
-	tt := &TranspositionTable{}
 
-	s.Init(gen, g, tt)
+	s.Init(gen, g)
 	// s.iterativeDeepeningOn = false
 	// s.simpleEvaluation = true
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
@@ -471,9 +462,8 @@ func TestZeroPtFirstPlay(t *testing.T) {
 	)
 
 	s := new(Solver)
-	tt := &TranspositionTable{}
 
-	s.Init(gen, g, tt)
+	s.Init(gen, g)
 	// s.iterativeDeepeningOptim = false
 	// s.transpositionTableOptim = false
 

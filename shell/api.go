@@ -351,7 +351,7 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	// clear out the last value of this endgame node; gc should
 	// delete the tree.
 	sc.endgameSolver = new(negamax.Solver)
-	err = sc.endgameSolver.Init(sc.gen, sc.game.Game, sc.ttable)
+	err = sc.endgameSolver.Init(sc.gen, sc.game.Game)
 	if err != nil {
 		return nil, err
 	}
@@ -428,7 +428,7 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 	}
 	sc.showMessage(sc.game.ToDisplayText())
 	sc.preendgameSolver = new(preendgame.Solver)
-	sc.preendgameSolver.Init(sc.game.Game, gd, sc.ttable)
+	sc.preendgameSolver.Init(sc.game.Game, gd)
 	if maxthreads != 0 {
 		sc.preendgameSolver.SetThreads(maxthreads)
 	}

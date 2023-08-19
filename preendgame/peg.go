@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"runtime"
 	"sort"
 	"strings"
@@ -232,9 +231,9 @@ type Solver struct {
 }
 
 // Init initializes the solver. It creates all the parallel endgame solvers.
-func (s *Solver) Init(g *game.Game, gd *kwg.KWG, ttable *negamax.TranspositionTable) error {
-	s.ttable = ttable
-	s.threads = int(math.Max(1, float64(runtime.NumCPU()-1)))
+func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
+	s.ttable = negamax.GlobalTranspositionTable
+	s.threads = max(1, runtime.NumCPU())
 	s.ttable.SetMultiThreadedMode()
 	s.game = g.Copy()
 	s.game.SetBackupMode(game.SimulationMode)
@@ -280,7 +279,7 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 		// what tiles we draw after making a move.
 		g.Bag().SetFixedOrder(true)
 		mg := movegen.NewGordonGenerator(s.gaddag, g.Board(), g.Bag().LetterDistribution())
-		err := es.Init(mg, g, s.ttable)
+		err := es.Init(mg, g)
 		if err != nil {
 			return nil, err
 		}

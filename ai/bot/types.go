@@ -11,7 +11,7 @@ func hasSimming(botCode macondo.BotRequest_BotCode) bool {
 	return false
 }
 
-func hasPreendgame(botCode macondo.BotRequest_BotCode) bool {
+func HasPreendgame(botCode macondo.BotRequest_BotCode) bool {
 	switch botCode {
 	case macondo.BotRequest_SIMMING_BOT,
 		macondo.BotRequest_HASTY_PLUS_ENDGAME_BOT,
@@ -22,7 +22,7 @@ func hasPreendgame(botCode macondo.BotRequest_BotCode) bool {
 	return false
 }
 
-func hasEndgame(botCode macondo.BotRequest_BotCode) bool {
+func HasEndgame(botCode macondo.BotRequest_BotCode) bool {
 	switch botCode {
 	case macondo.BotRequest_SIMMING_BOT,
 		macondo.BotRequest_HASTY_PLUS_ENDGAME_BOT,

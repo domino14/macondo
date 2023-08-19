@@ -117,6 +117,16 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	outputFilename, lexicon, letterDistribution string,
 	players []AutomaticRunnerPlayer) error {
 
+	if len(players) != 2 {
+		return errors.New("must have two players")
+	}
+
+	if threads > 1 && lo.SomeBy(players, func(p AutomaticRunnerPlayer) bool {
+		return bot.HasEndgame(p.BotCode) || bot.HasPreendgame(p.BotCode)
+	}) {
+		return errors.New("cannot run multiple games in parallel if either player uses endgame or pre-endgame")
+	}
+
 	if IsPlaying.Value() > 0 {
 		return errors.New("games are already being played, please wait till complete")
 	}

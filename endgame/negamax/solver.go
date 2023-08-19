@@ -187,8 +187,8 @@ func min(x, y int16) int16 {
 }
 
 // Init initializes the solver
-func (s *Solver) Init(m movegen.MoveGenerator, game *game.Game, ttable *TranspositionTable) error {
-	s.ttable = ttable
+func (s *Solver) Init(m movegen.MoveGenerator, game *game.Game) error {
+	s.ttable = GlobalTranspositionTable
 	s.stmMovegen = m
 	s.game = game
 	s.earlyPassOptim = true
