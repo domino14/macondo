@@ -63,6 +63,7 @@ func (c *Config) AdjustRelativePaths(basepath string) {
 	c.LexiconPath = toAbsPath(basepath, c.LexiconPath, "lexiconpath")
 	c.StrategyParamsPath = toAbsPath(basepath, c.StrategyParamsPath, "sppath")
 	c.LetterDistributionPath = toAbsPath(basepath, c.LetterDistributionPath, "ldpath")
+	c.DataPath = toAbsPath(basepath, c.DataPath, "datapath")
 }
 
 func FindBasePath(path string) string {

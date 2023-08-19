@@ -123,7 +123,6 @@ type ShellController struct {
 	curMode          Mode
 	endgameSolver    *negamax.Solver
 	preendgameSolver *preendgame.Solver
-	ttable           *negamax.TranspositionTable
 	curPlayList      []*move.Move
 }
 
@@ -175,8 +174,7 @@ func NewShellController(cfg *config.Config, execPath string) *ShellController {
 	opts := NewShellOptions()
 	opts.SetDefaults(cfg)
 
-	ttable := &negamax.TranspositionTable{}
-	return &ShellController{l: l, config: cfg, execPath: execPath, options: opts, ttable: ttable}
+	return &ShellController{l: l, config: cfg, execPath: execPath, options: opts}
 }
 
 func (sc *ShellController) Set(key string, args []string) (string, error) {

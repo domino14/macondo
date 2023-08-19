@@ -28,7 +28,6 @@ type BotConfig struct {
 type BotTurnPlayer struct {
 	aiturnplayer.AIStaticTurnPlayer
 	botType     pb.BotRequest_BotCode
-	ttable      *negamax.TranspositionTable
 	endgamer    *negamax.Solver
 	preendgamer *preendgame.Solver
 	simmer      *montecarlo.Simmer
@@ -103,16 +102,15 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 			btp.SetMinSimPlies(conf.MinSimPlies)
 		}
 	}
-	if hasEndgame(botType) {
+	if HasEndgame(botType) {
 		btp.endgamer = &negamax.Solver{}
 	}
-	if hasPreendgame(botType) {
+	if HasPreendgame(botType) {
 		btp.preendgamer = &preendgame.Solver{}
 	}
 	if HasInfer(botType) {
 		btp.inferencer = &rangefinder.RangeFinder{}
 	}
-	btp.ttable = &negamax.TranspositionTable{}
 
 	return btp, nil
 }
@@ -138,7 +136,7 @@ func (p *BotTurnPlayer) GenerateMoves(numPlays int) []*move.Move {
 }
 
 func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
-	if hasSimming(p.botType) || hasEndgame(p.botType) || HasInfer(p.botType) || hasPreendgame(p.botType) {
+	if hasSimming(p.botType) || HasEndgame(p.botType) || HasInfer(p.botType) || HasPreendgame(p.botType) {
 		return eliteBestPlay(ctx, p)
 	}
 	return p.GenerateMoves(1)[0], nil
