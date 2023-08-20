@@ -2,6 +2,7 @@ package shell
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -725,7 +726,13 @@ type shellcmd struct {
 }
 
 func extractFields(line string) (*shellcmd, error) {
-	fields := strings.Fields(line)
+
+	r := csv.NewReader(strings.NewReader(line))
+	r.Comma = ' '
+	fields, err := r.Read()
+	if err != nil {
+		return nil, err
+	}
 	if len(fields) == 0 {
 		return nil, errNoData
 	}
