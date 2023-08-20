@@ -3,6 +3,7 @@ module github.com/domino14/macondo
 require (
 	github.com/avast/retry-go v3.0.0+incompatible
 	github.com/chzyer/readline v1.5.1
+	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
 	github.com/matryer/is v1.4.0
 	github.com/namsral/flag v1.7.4-pre
 	github.com/nats-io/nats.go v1.24.0
