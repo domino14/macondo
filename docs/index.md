@@ -20,9 +20,9 @@ Quick tutorial video: [https://youtu.be/07Dpa-oTTFY](https://youtu.be/07Dpa-oTTF
 
 1. Navigate here: [https://github.com/domino14/macondo/releases](https://github.com/domino14/macondo/releases)
 
-2. Download the latest file that looks like `macondo-darwin.tar.gz`. Right now it is **Mac-only**. If you are savvy with compilers, you can build your own Windows or Linux version with `go`. Untar it to your desired directory.
+2. Download the latest file for your operating system.
 
-3. Try opening the `macondo` executable. Your Mac might complain, especially if you're using Catalina. You can open it anyway by going to your Settings -> Security & Privacy -> General and click "Allow anyway" next to macondo. I swear it's not a virus.
+3. Try opening the `macondo` executable. If you are using Mac OS, your system might complain. You can open it anyway by going to your Settings -> Security & Privacy -> General and click "Allow anyway" next to macondo. I swear it's not a virus.
 
 ## Features it has:
 
@@ -45,7 +45,6 @@ Quick tutorial video: [https://youtu.be/07Dpa-oTTFY](https://youtu.be/07Dpa-oTTF
 - A proper GUI, and all that entails.
 - Pre-endgame heuristic values
 - 2 in the bag pre-endgame solver (Quackle's is not fully exhaustive but still decent)
-- Builds for anything other than Macs
 
 ## Features we will add in the future:
 
@@ -57,7 +56,7 @@ Quick tutorial video: [https://youtu.be/07Dpa-oTTFY](https://youtu.be/07Dpa-oTTF
 ## How to use
 
 1. Open the executable. If you wish your default lexicon to be CSW21, you
-   must set the environment variable `DEFAULT_LEXICON` to `CSW21`. Otherwise, it defaults to NWL20.
+   must set the environment variable `DEFAULT_LEXICON` to `CSW21`. Otherwise, it defaults to NWL20. In this case you can set your lexicon by typing in `set lexicon CSW21` into the macondo prompt.
 
 2. Move some `*.kwg` files for your desired lexicon to the `./data/lexica/gaddag` folder. You can find kwg files at https://github.com/domino14/liwords/blob/master/liwords-ui/public/wasm
 
