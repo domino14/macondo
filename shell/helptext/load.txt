@@ -4,6 +4,7 @@ Example usage:
 
     load /Users/cesar/vs_jesse.gcg
     load ~/Downloads/game2.gcg
+    load "/Users/cesar/filepath with spaces.gcg"
 
 You can also use a cross-tables game ID and it will correctly load
 the game:
