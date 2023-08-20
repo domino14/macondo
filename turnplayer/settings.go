@@ -3,6 +3,7 @@ package turnplayer
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
@@ -52,7 +53,7 @@ func (opts *GameOptions) SetLexicon(fields []string) error {
 		msg := "Valid formats are 'lexicon' and 'lexicon alphabet'"
 		return errors.New(msg)
 	}
-	opts.Lexicon = &Lexicon{Name: lexname, Distribution: letdist}
+	opts.Lexicon = &Lexicon{Name: strings.ToUpper(lexname), Distribution: letdist}
 	return nil
 }
 

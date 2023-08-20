@@ -639,3 +639,31 @@ func (sc *ShellController) cgp(cmd *shellcmd) (*Response, error) {
 	cgpstr := sc.game.ToCGP()
 	return msg(cgpstr), nil
 }
+
+func (sc *ShellController) check(cmd *shellcmd) (*Response, error) {
+	if len(cmd.args) != 1 {
+		return nil, errors.New("please provide a word to check")
+	}
+	dist, err := tilemapping.GetDistribution(sc.config, sc.config.DefaultLetterDistribution)
+	if err != nil {
+		return nil, err
+	}
+	wordFriendly := strings.ToUpper(cmd.args[0])
+
+	word, err := tilemapping.ToMachineWord(wordFriendly, dist.TileMapping())
+	if err != nil {
+		return nil, err
+	}
+	k, err := kwg.Get(sc.config, sc.config.DefaultLexicon)
+	if err != nil {
+		return nil, err
+	}
+	lex := kwg.Lexicon{KWG: *k}
+	valid := lex.HasWord(word)
+	validStr := "valid"
+	if !valid {
+		validStr = "invalid"
+	}
+	return msg(fmt.Sprintf("%v is %v in %v", wordFriendly, validStr, sc.config.DefaultLexicon)), nil
+
+}
