@@ -641,16 +641,10 @@ func (sc *ShellController) cgp(cmd *shellcmd) (*Response, error) {
 }
 
 func (sc *ShellController) check(cmd *shellcmd) (*Response, error) {
-	if len(cmd.args) != 1 {
-		return nil, errors.New("please provide a word to check")
+	if len(cmd.args) == 0 {
+		return nil, errors.New("please provide a word or space-separated list of words to check")
 	}
 	dist, err := tilemapping.GetDistribution(sc.config, sc.config.DefaultLetterDistribution)
-	if err != nil {
-		return nil, err
-	}
-	wordFriendly := strings.ToUpper(cmd.args[0])
-
-	word, err := tilemapping.ToMachineWord(wordFriendly, dist.TileMapping())
 	if err != nil {
 		return nil, err
 	}
@@ -659,11 +653,28 @@ func (sc *ShellController) check(cmd *shellcmd) (*Response, error) {
 		return nil, err
 	}
 	lex := kwg.Lexicon{KWG: *k}
-	valid := lex.HasWord(word)
-	validStr := "valid"
-	if !valid {
-		validStr = "invalid"
+
+	playValid := true
+	wordsFriendly := []string{}
+
+	for _, w := range cmd.args {
+		wordFriendly := strings.Trim(strings.ToUpper(w), ",")
+		wordsFriendly = append(wordsFriendly, wordFriendly)
+
+		word, err := tilemapping.ToMachineWord(wordFriendly, dist.TileMapping())
+		if err != nil {
+			return nil, err
+		}
+		valid := lex.HasWord(word)
+		if !valid {
+			playValid = false
+		}
 	}
-	return msg(fmt.Sprintf("%v is %v in %v", wordFriendly, validStr, sc.config.DefaultLexicon)), nil
+	validStr := "VALID"
+	if !playValid {
+		validStr = "INVALID"
+	}
+
+	return msg(fmt.Sprintf("The play (%v) is %v in %v", strings.Join(wordsFriendly, ","), validStr, sc.config.DefaultLexicon)), nil
 
 }
