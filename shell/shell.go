@@ -2,7 +2,6 @@ package shell
 
 import (
 	"context"
-	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,6 +19,7 @@ import (
 	"time"
 
 	"github.com/chzyer/readline"
+	"github.com/kballard/go-shellquote"
 	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/ai/bot"
@@ -726,13 +726,11 @@ type shellcmd struct {
 }
 
 func extractFields(line string) (*shellcmd, error) {
-
-	r := csv.NewReader(strings.NewReader(line))
-	r.Comma = ' '
-	fields, err := r.Read()
+	fields, err := shellquote.Split(line)
 	if err != nil {
 		return nil, err
 	}
+
 	if len(fields) == 0 {
 		return nil, errNoData
 	}
