@@ -837,6 +837,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.leave(cmd)
 	case "cgp":
 		return sc.cgp(cmd)
+	case "check":
+		return sc.check(cmd)
 	default:
 		msg := fmt.Sprintf("command %v not found", strconv.Quote(cmd.cmd))
 		log.Info().Msg(msg)
