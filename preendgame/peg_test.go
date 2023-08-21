@@ -8,7 +8,6 @@ import (
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/kwg"
-	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tilemapping"
 	"github.com/matryer/is"
 	"github.com/rs/zerolog"
@@ -132,18 +131,98 @@ func TestComplicated1PEG(t *testing.T) {
 
 func TestPossibleTilesInBag(t *testing.T) {
 	is := is.New(t)
-	m := move.NewScoringMove(0, []tilemapping.MachineLetter{3, 1, 21, 19, 5, 25}, nil, false, 6, nil, 0, 0)
-	unseenTiles := []tilemapping.MachineLetter{1, 1, 3, 5, 9, 19, 21, 25}
-	pt := possibleTilesInBag(unseenTiles, m)
 
+	mTiles := []tilemapping.MachineLetter{3, 1, 21, 19, 5, 25}
+	unseenTiles := []tilemapping.MachineLetter{1, 1, 3, 5, 9, 19, 21, 25}
+	pt := possibleTilesInBag(unseenTiles, mTiles, nil)
 	is.Equal(pt, []tilemapping.MachineLetter{1, 9})
 
 	unseenTiles = []tilemapping.MachineLetter{1, 1, 1, 3, 5, 19, 21, 25}
-	pt = possibleTilesInBag(unseenTiles, m)
+	pt = possibleTilesInBag(unseenTiles, mTiles, nil)
 	is.Equal(pt, []tilemapping.MachineLetter{1})
 
-	m = move.NewScoringMove(0, []tilemapping.MachineLetter{1, 1}, nil, false, 6, nil, 0, 0)
+	mTiles = []tilemapping.MachineLetter{1, 1}
 	unseenTiles = []tilemapping.MachineLetter{1, 1, 3, 5, 9, 19, 21, 25}
-	pt = possibleTilesInBag(unseenTiles, m)
+	pt = possibleTilesInBag(unseenTiles, mTiles, nil)
 	is.Equal(pt, []tilemapping.MachineLetter{3, 5, 9, 19, 21, 25})
+
+	// player plays AA, unseen is AACEISUY, known rack is ACEIY
+	// possible tiles in the bag should be SU
+	unseenTiles = []tilemapping.MachineLetter{1, 1, 3, 5, 9, 19, 21, 25}
+	knownRack := []tilemapping.MachineLetter{1, 3, 5, 9, 25}
+	pt = possibleTilesInBag(unseenTiles, mTiles, knownRack)
+	is.Equal(pt, []tilemapping.MachineLetter{19, 21})
+
+	unseenTiles = []tilemapping.MachineLetter{1, 1, 3, 5, 9, 19, 21, 25}
+	knownRack = []tilemapping.MachineLetter{1, 1, 3, 5, 9, 25}
+	pt = possibleTilesInBag(unseenTiles, mTiles, knownRack)
+	is.Equal(pt, []tilemapping.MachineLetter{19, 21})
+
+	unseenTiles = []tilemapping.MachineLetter{1, 1, 3, 5, 9, 19, 21, 25}
+	knownRack = []tilemapping.MachineLetter{3, 5, 9, 19, 21, 1}
+	pt = possibleTilesInBag(unseenTiles, mTiles, knownRack)
+	is.Equal(pt, []tilemapping.MachineLetter{25})
+
+	// player plays SAUCY. we know the unseen tiles are AACEISUY.
+	// we know they had ACEISU.
+	// so the only tile that can be in the bag is an A.
+	mTiles = []tilemapping.MachineLetter{19, 1, 21, 3, 25}
+	unseenTiles = []tilemapping.MachineLetter{1, 1, 3, 5, 9, 19, 21, 25}
+	knownRack = []tilemapping.MachineLetter{1, 3, 5, 9, 19, 21}
+	pt = possibleTilesInBag(unseenTiles, mTiles, knownRack)
+	is.Equal(pt, []tilemapping.MachineLetter{1})
+}
+
+func TestMoveIsPossible(t *testing.T) {
+	is := is.New(t)
+	m := []tilemapping.MachineLetter{3, 15, 15, 11, 9, 5}
+	partial := []tilemapping.MachineLetter{11, 12, 12}
+	is.True(!moveIsPossible(m, partial))
+
+	partial = []tilemapping.MachineLetter{11, 12}
+	is.True(moveIsPossible(m, partial))
+
+	partial = []tilemapping.MachineLetter{3, 15, 15, 11, 9, 12}
+	is.True(moveIsPossible(m, partial))
+
+	partial = []tilemapping.MachineLetter{3, 15, 15, 11, 9, 12, 12}
+	is.True(!moveIsPossible(m, partial))
+
+	partial = []tilemapping.MachineLetter{15, 15, 11, 9, 12, 12}
+	is.True(!moveIsPossible(m, partial))
+
+	partial = []tilemapping.MachineLetter{15, 15, 11, 9, 12}
+	is.True(moveIsPossible(m, partial))
+
+	// COoKIE
+	m = []tilemapping.MachineLetter{3, 15, 15 | 0x80, 11, 9, 5}
+	partial = []tilemapping.MachineLetter{11, 12, 12}
+	is.True(!moveIsPossible(m, partial))
+
+	partial = []tilemapping.MachineLetter{11, 12}
+	is.True(moveIsPossible(m, partial))
+
+	partial = []tilemapping.MachineLetter{3, 15, 0, 11, 9, 12}
+	is.True(moveIsPossible(m, partial))
+
+	partial = []tilemapping.MachineLetter{3, 15, 0, 11, 9, 12, 12}
+	is.True(!moveIsPossible(m, partial))
+
+	partial = []tilemapping.MachineLetter{15, 0, 11, 9, 12, 12}
+	is.True(!moveIsPossible(m, partial))
+
+	partial = []tilemapping.MachineLetter{15, 0, 11, 9, 12}
+	is.True(moveIsPossible(m, partial))
+
+	partial = []tilemapping.MachineLetter{15, 15, 11, 9, 12}
+	is.True(!moveIsPossible(m, partial))
+
+	partial = []tilemapping.MachineLetter{15, 15, 11, 9, 0}
+	is.True(moveIsPossible(m, partial))
+
+	// SAUCY
+	partial = []tilemapping.MachineLetter{1, 3, 5, 9, 19, 21}
+	m = []tilemapping.MachineLetter{19, 1, 21, 3, 25}
+	is.True(moveIsPossible(m, partial))
+
 }

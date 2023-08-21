@@ -393,6 +393,8 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 	var maxthreads = 0
 	var err error
 	var earlyCutoff bool
+	var skipPass bool
+	knownOppRack := cmd.options["opprack"]
 
 	if cmd.options["endgameplies"] != "" {
 		endgamePlies, err = strconv.Atoi(cmd.options["endgameplies"])
@@ -415,6 +417,10 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 		}
 	}
 
+	if cmd.options["skip-pass"] == "true" {
+		skipPass = true
+	}
+
 	if cmd.options["early-cutoff"] == "true" {
 		earlyCutoff = true
 	}
@@ -432,9 +438,17 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 	if maxthreads != 0 {
 		sc.preendgameSolver.SetThreads(maxthreads)
 	}
+	if knownOppRack != "" {
+		knownOppRack = strings.ToUpper(knownOppRack)
+		r, err := tilemapping.ToMachineLetters(knownOppRack, sc.game.Alphabet())
+		if err != nil {
+			return nil, err
+		}
+		sc.preendgameSolver.SetKnownOppRack(r)
+	}
 	sc.preendgameSolver.SetEndgamePlies(endgamePlies)
 	sc.preendgameSolver.SetEarlyCutoffOptim(earlyCutoff)
-
+	sc.preendgameSolver.SetSkipPassOptim(skipPass)
 	var cancel context.CancelFunc
 	ctx := context.Background()
 	if maxtime > 0 {

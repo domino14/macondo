@@ -91,6 +91,7 @@ func (p *PreEndgamePlay) addWinPctStat(result PEGOutcome, ct int, tiles []tilema
 	defer p.Unlock()
 	found := p.outcomeIndex(tiles)
 	p.outcomesArray[found].outcome = result
+	p.outcomesArray[found].ct += ct
 	switch result {
 	case PEGWin:
 		p.Points += float32(ct)
@@ -226,8 +227,10 @@ type Solver struct {
 	numinbag      int
 	plays         []*PreEndgamePlay
 	winnerSoFar   *PreEndgamePlay
+	knownOppRack  []tilemapping.MachineLetter
 
 	earlyCutoffOptim bool
+	skipPassOptim    bool
 }
 
 // Init initializes the solver. It creates all the parallel endgame solvers.
@@ -240,6 +243,7 @@ func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
 	s.endgamePlies = 4
 	s.gaddag = gd
 	s.earlyCutoffOptim = true
+	s.skipPassOptim = false
 	return nil
 }
 
@@ -321,6 +325,46 @@ type job struct {
 	numDraws  int // how many ways can inbag be drawn?
 }
 
+func moveIsPossible(mtiles []tilemapping.MachineLetter, partialRack []tilemapping.MachineLetter) bool {
+	// check whether m is a possible move given the total pool of tiles to choose from
+	// (unseenRack) and the known partial rack.
+	// Note: assumes that m can be made from unseenRack.
+	// For example, the following state is impossible:
+	// play: COOKIE
+	// partial: KLL
+	// bag: CEIKLLOO
+
+	partialCopy := make([]int, zobrist.MaxLetters)
+	pcount := 0
+	for _, t := range partialRack {
+		partialCopy[t]++
+		pcount++
+	}
+
+	for _, t := range mtiles {
+		if t == 0 {
+			continue
+		}
+		t = t.IntrinsicTileIdx()
+		if partialCopy[t] > 0 {
+			partialCopy[t]--
+			pcount--
+		}
+	}
+	// unseen: LL
+	// partial: LL
+	// Try to re-add the letters to partialRack.
+	for _, t := range mtiles {
+		if t == 0 {
+			continue
+		}
+		t = t.IntrinsicTileIdx()
+		partialCopy[t]++
+		pcount++
+	}
+	return pcount <= game.RackTileLimit
+}
+
 func (s *Solver) multithreadSolve(ctx context.Context, moves []*move.Move) ([]*PreEndgamePlay, error) {
 	// for every move, solve all the possible endgames.
 	// - make play on board
@@ -337,20 +381,25 @@ func (s *Solver) multithreadSolve(ctx context.Context, moves []*move.Move) ([]*P
 		s.plays[idx] = &PreEndgamePlay{Play: play}
 	}
 
-	unseenTiles := make([]int, tilemapping.MaxAlphabetSize)
+	maybeInBagTiles := make([]int, tilemapping.MaxAlphabetSize)
 	unseenRack := []tilemapping.MachineLetter{}
 	for _, t := range s.game.RackFor(s.game.NextPlayer()).TilesOn() {
-		unseenTiles[t]++
+		maybeInBagTiles[t]++
 		unseenRack = append(unseenRack, t)
 	}
 	for _, t := range s.game.Bag().Peek() {
-		unseenTiles[t]++
+		maybeInBagTiles[t]++
 		unseenRack = append(unseenRack, t)
+	}
+	// If we have a partial or full opponent rack, these tiles cannot be in
+	// the bag.
+	for _, t := range s.knownOppRack {
+		maybeInBagTiles[t]--
 	}
 
 	g := errgroup.Group{}
 	winnerGroup := errgroup.Group{}
-	log.Debug().Interface("unseen-tiles", unseenTiles).Msg("unseen tiles")
+	log.Debug().Interface("maybe-in-bag-tiles", maybeInBagTiles).Msg("unseen tiles")
 	jobChan := make(chan job, s.threads*2)
 	winnerChan := make(chan *PreEndgamePlay)
 
@@ -387,7 +436,7 @@ func (s *Solver) multithreadSolve(ctx context.Context, moves []*move.Move) ([]*P
 			ourPass = p
 			continue
 		}
-		for t, count := range unseenTiles {
+		for t, count := range maybeInBagTiles {
 			if count == 0 {
 				continue
 			}
@@ -400,40 +449,46 @@ func (s *Solver) multithreadSolve(ctx context.Context, moves []*move.Move) ([]*P
 			jobChan <- j
 		}
 	}
-	// Handle pass.
-	// First, try to pass back with all possible racks.
-	for t, count := range unseenTiles {
-		if count == 0 {
-			continue
+	if !s.skipPassOptim {
+		// Handle pass.
+		// First, try to pass back with all possible racks.
+		for t, count := range maybeInBagTiles {
+			if count == 0 {
+				continue
+			}
+			j := job{
+				ourMove:   ourPass,
+				theirMove: move.NewPassMove(nil, s.game.Alphabet()),
+				inbag:     []tilemapping.MachineLetter{tilemapping.MachineLetter(t)},
+				numDraws:  count,
+			}
+			queuedJobs++
+			jobChan <- j
 		}
-		j := job{
-			ourMove:   ourPass,
-			theirMove: move.NewPassMove(nil, s.game.Alphabet()),
-			inbag:     []tilemapping.MachineLetter{tilemapping.MachineLetter(t)},
-			numDraws:  count,
-		}
-		queuedJobs++
-		jobChan <- j
-	}
 
-	// Then, for every combination of 7 tiles they could have,
-	// generate all plays, make each play, and solve endgame from our
-	// perspective.
-	theirPossibleRack := tilemapping.NewRack(s.game.Alphabet())
-	theirPossibleRack.Set(unseenRack)
-	// Generate all possible plays for our opponent that are not the pass
-	// back (was just handled above).
-	s.movegen.SetGenPass(false)
-	theirMoves := s.movegen.GenAll(theirPossibleRack, false)
-	s.movegen.SetGenPass(true)
-	for _, m := range theirMoves {
-		j := job{
-			ourMove:   ourPass,
-			theirMove: m,
-			inbag:     unseenRack,
+		// Then, for every combination of 7 tiles they could have,
+		// generate all plays, make each play, and solve endgame from our
+		// perspective.
+		theirPossibleRack := tilemapping.NewRack(s.game.Alphabet())
+		theirPossibleRack.Set(unseenRack)
+		// Generate all possible plays for our opponent that are not the pass
+		// back (was just handled above).
+		s.movegen.SetGenPass(false)
+		theirMoves := s.movegen.GenAll(theirPossibleRack, false)
+		s.movegen.SetGenPass(true)
+		for _, m := range theirMoves {
+			if moveIsPossible(m.Tiles(), s.knownOppRack) {
+				j := job{
+					ourMove:   ourPass,
+					theirMove: m,
+					inbag:     unseenRack,
+				}
+				queuedJobs++
+				jobChan <- j
+			}
 		}
-		queuedJobs++
-		jobChan <- j
+	} else {
+		log.Info().Msg("skipping pass analysis")
 	}
 
 	log.Info().Int("numJobs", queuedJobs).Msg("queued-jobs")
@@ -489,8 +544,9 @@ func (s *Solver) handleJob(ctx context.Context, j job, thread int, winnerChan ch
 	g := s.endgameSolvers[thread].Game()
 	// throw opponent's rack in, and then enforce a tile order.
 	g.ThrowRacksInFor(1 - g.PlayerOnTurn())
-	// Basically, put the tiles we want to draw at the beginning of the bag.
-	// The bag drawing algorithm draws tiles from right to left.
+	// Basically, put the tiles we want to draw on the right side of the bag.
+	// The bag drawing algorithm draws tiles from right to left. We put the
+	// "inbag" tiles to the left/"beginning" of the bag so that we can't draw them.
 	moveTilesToBeginning(j.inbag, g.Bag())
 	// And redraw tiles for opponent. Note that this is not an actual
 	// random rack! We are choosing which tiles to draw via the
@@ -584,8 +640,13 @@ func (s *Solver) handleNonpassResponseToPass(ctx context.Context, j job, thread 
 	// - If for ANY tileset in <T> we have a result of WIN, we must still analyze
 	// to make sure this isn't a draw or loss.
 	// clean this up, way too inefficient.
-	pt := possibleTilesInBag(j.inbag, j.theirMove)
+	pt := possibleTilesInBag(j.inbag, j.theirMove.Tiles(), s.knownOppRack)
 	// XXX: 1-PEG. Change this when we support 2-PEG (and beyond?)
+	if len(pt) == 0 {
+		log.Warn().Msgf("possible tiles in bag is empty; inbag = %v, theirMove = %v, oppRack = %v",
+			j.inbag, j.theirMove, s.knownOppRack)
+		return nil
+	}
 	splitPt := permuteLeaves(pt, 1)
 
 	if j.ourMove.AllHaveLoss(splitPt) {
@@ -682,30 +743,46 @@ func moveTilesToBeginning(order []tilemapping.MachineLetter, bag *tilemapping.Ba
 	}
 }
 
-func possibleTilesInBag(unseenTiles []tilemapping.MachineLetter, move *move.Move) []tilemapping.MachineLetter {
+func possibleTilesInBag(unseenTiles []tilemapping.MachineLetter, moveTiles []tilemapping.MachineLetter,
+	knownPlayerTiles []tilemapping.MachineLetter) []tilemapping.MachineLetter {
 	// given a set of unseenTiles and a move, determine which of the unseen tiles
 	// could be in the bag and still allow for move to be played.
 	// Return a deduplicated set, essentially.
 
-	uc := make([]tilemapping.MachineLetter, zobrist.MaxLetters)
+	ucTally := make([]tilemapping.MachineLetter, zobrist.MaxLetters)
 	for _, u := range unseenTiles {
-		uc[u]++
+		ucTally[u]++
+	}
+	kpTally := make([]tilemapping.MachineLetter, zobrist.MaxLetters)
+	for _, t := range knownPlayerTiles {
+		kpTally[t]++
 	}
 
-	for _, t := range move.Tiles() {
+	// ucTally contains tiles that are unseen and not in the move. However,
+	// if we know that some of these tiles are in our hand, they cannot
+	// possibly be in the bag.
+	for _, t := range moveTiles {
 		if t == 0 {
 			continue // not a played tile
 		}
 		t = t.IntrinsicTileIdx()
 		for _, u := range unseenTiles {
 			if t == u {
-				uc[u]--
+				// First take it away from the known player tiles, if there
+				if kpTally[u] > 0 {
+					kpTally[u]--
+				}
+				ucTally[u]--
 				break
 			}
 		}
 	}
+	for idx := range kpTally {
+		ucTally[idx] -= kpTally[idx]
+	}
+
 	pt := []tilemapping.MachineLetter{}
-	for idx, u := range uc {
+	for idx, u := range ucTally {
 		if u > 0 {
 			pt = append(pt, tilemapping.MachineLetter(idx))
 		}
@@ -717,19 +794,21 @@ func (s *Solver) SolutionStats(maxMoves int) string {
 	// Assume plays are already sorted.
 	var ss strings.Builder
 	fmt.Fprintf(&ss, "%-20s%-5s%-7s%-32s%-2s\n", "Play", "Pts", "%Win", "Outcomes", "")
-	var pctdivisor float32
-	switch s.numinbag {
-	case 1:
-		pctdivisor = 8
-	case 2:
-		pctdivisor = 36 // might be 72 sometimes, revisit later.
-	}
+
 	for _, play := range s.plays[:maxMoves] {
-		wpStats := fmt.Sprintf("%.2f", 100.0*play.Points/pctdivisor)
-		pts := fmt.Sprintf("%.1f", play.Points)
+		noutcomes := 0
+		for _, el := range play.outcomesArray {
+			noutcomes += el.ct
+		}
+
 		ignore := ""
+		wpStats := "---"
+		pts := "---"
 		if play.Ignore {
 			ignore = "❌"
+		} else {
+			wpStats = fmt.Sprintf("%.2f", 100.0*play.Points/float32(noutcomes))
+			pts = fmt.Sprintf("%.1f", play.Points)
 		}
 		var wins, draws, losses [][]tilemapping.MachineLetter
 		var outcomeStr string
@@ -764,6 +843,14 @@ func (s *Solver) SolutionStats(maxMoves int) string {
 
 func (s *Solver) SetEarlyCutoffOptim(o bool) {
 	s.earlyCutoffOptim = o
+}
+
+func (s *Solver) SetSkipPassOptim(o bool) {
+	s.skipPassOptim = o
+}
+
+func (s *Solver) SetKnownOppRack(rack tilemapping.MachineWord) {
+	s.knownOppRack = rack
 }
 
 func toUserFriendly(tilesets [][]tilemapping.MachineLetter, alphabet *tilemapping.TileMapping) string {
