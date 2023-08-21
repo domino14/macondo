@@ -42,3 +42,17 @@ Options:
     a lot of the time, at the cost of only the winning play being assured to have
     accurate results. If you turn this on, plays that were cut-off early will
     be marked with a ❌ symbol, and their stats may not be fully accurate.
+
+    -skip-pass true
+
+    Macondo can skip analyzing a pass if it is clear that there is no
+    way any useful info can be obtained. For example, if we're down by 40 points
+    in the pre-endgame and we don't have a playable bingo, we can be pretty sure
+    we're not winning this game by passing, and this can save some time in the
+    analysis. Macondo can't detect this situation by itself at this time, so
+    you can set skip-pass to true if you want to skip analyzing passes.
+
+    -opprack AENST
+
+    If you have partial rack info for the opponent, enter it here. This can make
+    pre-endgame analysis faster by skipping a bunch of racks the opponent can't have.

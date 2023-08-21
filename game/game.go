@@ -1018,7 +1018,10 @@ func (g *Game) SetRandomRack(playerIdx int, knownRack []tilemapping.MachineLette
 		err := g.bag.RemoveTiles(knownRack)
 		if err != nil {
 			// if there is an error we need to undo the PutBack!
-			g.bag.RemoveTiles(g.players[1-playerIdx].placeholderRack[:n])
+			fixerr := g.bag.RemoveTiles(g.players[1-playerIdx].placeholderRack[:n])
+			if fixerr != nil {
+				panic(fixerr)
+			}
 			return nil, err
 		}
 		// In case we didn't have a full rack.
