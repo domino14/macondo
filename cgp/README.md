@@ -42,6 +42,11 @@ e.g.
 
 Note that this supports any number of players.
 
+**Note** It is recommended that the other player racks not be specified unless they are known for sure to be that value. It is up to the implementer to decide what to do
+with a full or partial rack value for the opponent. For example, the implementer
+can use this full or partial value for Monte Carlo sims, or pre-endgame solving. See 
+also the `oru` opcode.
+
 ### 3. Scores for both players
 
 These are represented as regular numbers, separated by a `/` symbol. The order should be in the order of the racks.
@@ -118,31 +123,33 @@ If not specified, the implementer decides what its default lexicon is. It is rec
 
 The lm opcode is followed by the move, in the following format:
 
-`n8 tiles`
+`n8.TILES`
 
 where n8 is the coordinate - rows are numbered 1 to 15 and columns are lettered from A to O for a 15x15 board. Horizontal plays start with the numbered row, vertical plays start with the lettered column. For boards that are bigger than 26 columns, use "Excel column notation", i.e. Z, AA, AB, ..., AAA, AAB, ...
 
-"Through" tiles, i.e., tiles already on the board, must be specified as a `.`.
+"Through" tiles, i.e., tiles already on the board, must be specified as the letter that they are. Don't use parentheses.
 
-If the move is an exchange, represent as `-tiles` if the tiles are known, or replace the tiles with a number of exchanged tiles.
+If the move is an exchange, represent as `ex.TILES` if the tiles are known, or replace the tiles with a number of exchanged tiles.
 
-If the move is a pass or a failed challenge, represent it as `-`.
+If the move is a pass or a failed challenge, represent it as `pass`.
 
-If the move is a successful challenge, represent it as `challenge n8 tiles` where tiles are the played tiles.
-
-If the move was challenged unsuccessfully, for challenge rules where there is a challenge bonus, represent the play as:
-
-`n8 tiles +5` for example.
-
-If it is single challenge, then represent it as:
-
-`n8 tiles +0`
+If the move is a successful challenge, represent it as `phony.n8.TILES`. This 
+represents a move that was challenged off.
 
 Note: The lm opcode can only be specified once. If you want to specify multiple last moves, you should use a GCG file. This is more meant for immediate state and immediately highlighting the last play.
 
 ### mcnz (max number of consecutive zeroes)
 
 Maximum number of consecutive zeroes until the game ends, for the given rule set. This should default to 6 if not specified.
+
+### oru (opponent rack unknown)
+
+The opponent rack, if provided, should be ignored for purposes of doing Monte 
+Carlo sims, etc.
+
+e.g.
+
+`oru;`
 
 ### ti (timer increment)
 
@@ -154,7 +161,7 @@ e.g.
 
 ### tmr (timer)
 
-Timers can be specified with slashes between players. They must be specified as milliseconds remaining on each player's clock.
+Timers can be specified with slashes between players. They must be specified as integer milliseconds remaining on each player's clock.
 
 e.g.
 

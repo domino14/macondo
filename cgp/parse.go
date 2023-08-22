@@ -13,8 +13,13 @@ import (
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
 
+type ParsedCGP struct {
+	*game.Game
+	Opcodes map[string]string
+}
+
 // ParseCGP returns an instantiated Game instance from the given CGP string.
-func ParseCGP(cfg *config.Config, cgpstr string) (*game.Game, error) {
+func ParseCGP(cfg *config.Config, cgpstr string) (*ParsedCGP, error) {
 
 	var err error
 
@@ -61,6 +66,7 @@ func ParseCGP(cfg *config.Config, cgpstr string) (*game.Game, error) {
 	maxScorelessTurns := game.DefaultMaxScorelessTurns
 	variant := game.VarClassic
 	gid := ""
+	opcodes := map[string]string{}
 
 	for _, op := range ops {
 		op := strings.TrimSpace(op)
@@ -74,22 +80,26 @@ func ParseCGP(cfg *config.Config, cgpstr string) (*game.Game, error) {
 				return nil, errors.New("wrong number of arguments for bdn operation")
 			}
 			boardLayoutName = opWithParams[1]
+			opcodes["bdn"] = opWithParams[1]
 		case "gid":
 			if len(opWithParams) != 2 {
 				return nil, errors.New("wrong number of arguments for gid operation")
 			}
 			gid = opWithParams[1]
+			opcodes["gid"] = opWithParams[1]
 		case "ld":
 			if len(opWithParams) != 2 {
 				return nil, errors.New("wrong number of arguments for ld operation")
 			}
 			letterDistributionName = opWithParams[1]
+			opcodes["ld"] = opWithParams[1]
 
 		case "lex":
 			if len(opWithParams) != 2 {
 				return nil, errors.New("wrong number of arguments for lex operation")
 			}
 			lexiconName = opWithParams[1]
+			opcodes["lex"] = opWithParams[1]
 
 		case "mcnz":
 			if len(opWithParams) != 2 {
@@ -100,13 +110,20 @@ func ParseCGP(cfg *config.Config, cgpstr string) (*game.Game, error) {
 			if err != nil {
 				return nil, err
 			}
+			opcodes["mcnz"] = opWithParams[1]
 
 		case "var":
 			if len(opWithParams) != 2 {
 				return nil, errors.New("wrong number of arguments for var operation")
 			}
 			variant = game.Variant(opWithParams[1])
+			opcodes["var"] = opWithParams[1]
+
+		case "tmr":
+			opcodes["tmr"] = opWithParams[1]
+
 		}
+
 	}
 
 	rules, err := game.NewBasicGameRules(cfg, lexiconName, boardLayoutName, letterDistributionName,
@@ -143,7 +160,7 @@ func ParseCGP(cfg *config.Config, cgpstr string) (*game.Game, error) {
 	g.History().IdAuth = "" //  maybe provide this later, id
 
 	log.Debug().Msgf("got gid %v", gid)
-	return g, nil
+	return &ParsedCGP{Game: g, Opcodes: opcodes}, nil
 }
 
 func rowToLetters(row string) (string, error) {

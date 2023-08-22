@@ -389,7 +389,7 @@ func (sc *ShellController) loadCGP(cgpstr string) error {
 			lexicon)
 	}
 	conf := &bot.BotConfig{Config: *sc.config}
-	sc.game, err = bot.NewBotTurnPlayerFromGame(g, conf, pb.BotRequest_HASTY_BOT)
+	sc.game, err = bot.NewBotTurnPlayerFromGame(g.Game, conf, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return err
 	}

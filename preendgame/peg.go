@@ -261,7 +261,9 @@ func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
 
 func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 	playerOnTurn := s.game.PlayerOnTurn()
-	if s.game.RackFor(1-playerOnTurn).NumTiles() == 0 {
+	// Fill opponent's rack for now. Ignore the "known opp rack", if any. That
+	// is handled properly later.
+	if s.game.RackFor(1-playerOnTurn).NumTiles() < game.RackTileLimit {
 		_, err := s.game.SetRandomRack(1-playerOnTurn, nil)
 		if err != nil {
 			return nil, err

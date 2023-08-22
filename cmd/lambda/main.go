@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-lambda-go/lambda"
@@ -19,13 +21,12 @@ import (
 
 var cfg *config.Config
 
-const HardTimeLimit = 180 // max time per turn
+const HardTimeLimit = 180 // max time per turn in seconds
 
 type MyEvent struct {
-	CGP            string `json:"cgp"`
-	BotType        int    `json:"botType"`
-	ReplyChannel   string `json:"replyChannel"`
-	BotTimeSeconds int    `json:"botTimeSeconds"` // How much time the bot has, in seconds
+	CGP          string `json:"cgp"`
+	BotType      int    `json:"botType"`
+	ReplyChannel string `json:"replyChannel"`
 }
 
 func HandleRequest(ctx context.Context, evt MyEvent) (string, error) {
@@ -34,10 +35,21 @@ func HandleRequest(ctx context.Context, evt MyEvent) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	botTime := HardTimeLimit
+	if tmr, ok := g.Opcodes["tmr"]; ok {
+		tmrs := strings.Split(tmr, "/")
+		if len(tmrs) > 0 {
+			botTime, err = strconv.Atoi(tmrs[0])
+			botTime /= 1000 // convert from milliseconds
+		}
+	} else {
+		log.Warn().Msg("no timer found in CGP")
+	}
+
 	// Estimate: bot plays 4.25 tiles per turn. Divide bag by 2 because bot will only
 	// play half the tiles left.
 	estimatedTurnsLeft := float64(g.Bag().TilesRemaining()/2+int(g.RackFor(g.PlayerOnTurn()).NumTiles())) / 4.25
-	maxTimeShouldTake := min(float64(evt.BotTimeSeconds-5)/estimatedTurnsLeft, HardTimeLimit)
+	maxTimeShouldTake := min(float64(botTime-5)/estimatedTurnsLeft, HardTimeLimit)
 	log.Info().Float64("bot-estimated-turns-left", estimatedTurnsLeft).
 		Int("inbag", g.Bag().TilesRemaining()).
 		Float64("max-time-should-take", maxTimeShouldTake).Msg("time-management")
@@ -51,8 +63,8 @@ func HandleRequest(ctx context.Context, evt MyEvent) (string, error) {
 		log.Info().Msgf("cgp file had no lexicon, so using default lexicon %v",
 			lexicon)
 	}
-	conf := &bot.BotConfig{Config: *cfg, MinSimPlies: 5}
-	tp, err := bot.NewBotTurnPlayerFromGame(g, conf, pb.BotRequest_BotCode(evt.BotType))
+	conf := &bot.BotConfig{Config: *cfg, MinSimPlies: 5, UseOppRacksInAnalysis: true}
+	tp, err := bot.NewBotTurnPlayerFromGame(g.Game, conf, pb.BotRequest_BotCode(evt.BotType))
 	if err != nil {
 		cancel()
 		return "", err

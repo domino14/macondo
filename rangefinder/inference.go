@@ -127,10 +127,11 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 
 	if r.origGame.History().StartingCgp != "" {
 
-		gameCopy, err = cgp.ParseCGP(r.cfg, r.origGame.History().StartingCgp)
+		parsedCGP, err := cgp.ParseCGP(r.cfg, r.origGame.History().StartingCgp)
 		if err != nil {
 			return err
 		}
+		gameCopy = parsedCGP.Game
 		gameCopy.History().Events = history.Events
 
 		for t := 0; t < len(history.Events); t++ {
