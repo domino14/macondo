@@ -184,5 +184,27 @@ func TestToCGP(t *testing.T) {
 
 	g, err := NewFromHistory(gameHistory, rules, len(gameHistory.Events))
 	is.NoErr(err)
-	is.Equal(g.ToCGP(), "15/15/15/15/15/15/7DORMINE1/5IBEX6/15/15/15/15/15/15/15 EEHKNOQ/?DEMOOW 26/75 0 lex CSW19;")
+	is.Equal(g.ToCGP(false), "15/15/15/15/15/15/7DORMINE1/5IBEX6/15/15/15/15/15/15/15 EEHKNOQ/?DEMOOW 26/75 0 lex CSW19;")
+}
+
+func TestToCGPWithOppRack(t *testing.T) {
+	is := is.New(t)
+
+	rules, err := NewBasicGameRules(
+		&DefaultConfig, "CSW19", board.CrosswordGameLayout, "english",
+		CrossScoreOnly, "")
+	is.NoErr(err)
+	jsonFile, err := os.Open("../puzzles/testdata/phony_tiles_history.json")
+	is.NoErr(err)
+	defer jsonFile.Close()
+
+	bytes, err := io.ReadAll(jsonFile)
+	is.NoErr(err)
+	gameHistory := &pb.GameHistory{}
+	err = json.Unmarshal(bytes, gameHistory)
+	is.NoErr(err)
+
+	g, err := NewFromHistory(gameHistory, rules, 31)
+	is.NoErr(err)
+	is.Equal(g.ToCGP(true), "15/15/12L2/12O1V/12U1O/1L10I1T/KI2G1Q2B2ERE/E2FOGIE1R3AD/MUNI3WEANING1/B2A3E1PO2AH/1VINE2R2R3A/1I1C3S1OM3U/1THEN9L/1AAS10E/2J11R AEERSTT/YD 127/334 1 lex CSW19; ld english;")
 }

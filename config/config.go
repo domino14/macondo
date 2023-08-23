@@ -20,6 +20,7 @@ type Config struct {
 	NatsURL                   string
 	TTableFractionOfMem       float64
 	WolgesAwsmURL             string
+	LambdaFunctionName        string
 
 	CPUProfile string
 	MemProfile string
@@ -56,6 +57,7 @@ func (c *Config) Load(args []string) error {
 	fs.StringVar(&c.MemProfile, "mem-profile", "", "file to save mem profile in")
 	fs.StringVar(&c.WolgesAwsmURL, "wolges-awsm-url", "", "URL for the wolges-awsm server. Needed for WordSmog bot.")
 	fs.Float64Var(&c.TTableFractionOfMem, "ttable-mem-fraction", 0.25, "Fraction of memory that the transposition table should have.")
+	fs.StringVar(&c.LambdaFunctionName, "lambda-function-name", "", "function name of the Lambda function that runs our elite simming bots")
 	err := fs.Parse(args)
 	return err
 }

@@ -8,11 +8,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/avast/retry-go"
 	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"google.golang.org/protobuf/proto"
 
-	"github.com/domino14/macondo/ai/bot"
+	aibot "github.com/domino14/macondo/ai/bot"
+	"github.com/domino14/macondo/bot"
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
@@ -20,17 +24,21 @@ import (
 )
 
 var cfg *config.Config
+var nc *nats.Conn
+
+func init() {
+	var err error
+	nc, err = nats.Connect(cfg.NatsURL)
+	if err != nil {
+		log.Fatal().AnErr("natsConnectErr", err).Msg(":(")
+	}
+}
 
 const HardTimeLimit = 180 // max time per turn in seconds
 
-type MyEvent struct {
-	CGP          string `json:"cgp"`
-	BotType      int    `json:"botType"`
-	ReplyChannel string `json:"replyChannel"`
-}
-
-func HandleRequest(ctx context.Context, evt MyEvent) (string, error) {
+func HandleRequest(ctx context.Context, evt bot.LambdaEvent) (string, error) {
 	// Return something but we have to block till we're done.
+
 	g, err := cgp.ParseCGP(cfg, evt.CGP)
 	if err != nil {
 		return "", err
@@ -40,6 +48,9 @@ func HandleRequest(ctx context.Context, evt MyEvent) (string, error) {
 		tmrs := strings.Split(tmr, "/")
 		if len(tmrs) > 0 {
 			botTime, err = strconv.Atoi(tmrs[0])
+			if err != nil {
+				return "", err
+			}
 			botTime /= 1000 // convert from milliseconds
 		}
 	} else {
@@ -63,8 +74,8 @@ func HandleRequest(ctx context.Context, evt MyEvent) (string, error) {
 		log.Info().Msgf("cgp file had no lexicon, so using default lexicon %v",
 			lexicon)
 	}
-	conf := &bot.BotConfig{Config: *cfg, MinSimPlies: 5, UseOppRacksInAnalysis: true}
-	tp, err := bot.NewBotTurnPlayerFromGame(g.Game, conf, pb.BotRequest_BotCode(evt.BotType))
+	conf := &aibot.BotConfig{Config: *cfg, MinSimPlies: 5, UseOppRacksInAnalysis: true}
+	tp, err := aibot.NewBotTurnPlayerFromGame(g.Game, conf, pb.BotRequest_BotCode(evt.BotType))
 	if err != nil {
 		cancel()
 		return "", err
@@ -82,22 +93,38 @@ func HandleRequest(ctx context.Context, evt MyEvent) (string, error) {
 	// on the reply channel in NATS, and that's what liwords should hopefully
 	// be listening to.
 	cancel()
+
+	gevt := tp.EventFromMove(m)
+	resp := &pb.BotResponse{
+		Response: &pb.BotResponse_Move{Move: gevt},
+		GameId:   evt.GameID,
+	}
+	data, err := proto.Marshal(resp)
+	if err != nil {
+		return "", err
+	}
+
+	err = retry.Do(
+		func() error {
+			_, err := nc.Request(evt.ReplyChannel, data, 3*time.Second)
+			if err != nil {
+				return err
+			}
+			// We're just waiting for an acknowledgement. The actual
+			// data doesn't matter.
+			return nil
+		},
+		retry.DelayType(func(n uint, err error, config *retry.Config) time.Duration {
+			log.Err(err).Uint("n", n).Str("gameID", resp.GameId).
+				Msg("did-not-receive-ack-try-again")
+			return retry.BackOffDelay(n, err, config)
+		}),
+	)
+	if err != nil {
+		log.Err(err).Msg("bot-move-failed")
+	}
+
 	return m.ShortDescription(), nil
-
-	// Add bot data structures
-	// c, err := equity.NewCombinedStaticCalculator(
-	// 	tp.LexiconName(),
-	// 	cfg, "", equity.PEGAdjustmentFilename)
-	// if err != nil {
-	// 	return "", err
-	// }
-
-	// gd, err := kwg.Get(cfg, tp.LexiconName())
-	// if err != nil {
-	// 	return "", err
-	// }
-
-	// return fmt.Sprintf("Hello %s!", name.Name), nil
 }
 
 func main() {

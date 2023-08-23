@@ -155,6 +155,7 @@ message BotRequest {
   }
 
   BotCode bot_type = 3;
+  int32 millis_remaining = 4;
 }
 
 message EvaluationRequest {

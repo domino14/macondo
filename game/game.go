@@ -1177,7 +1177,7 @@ func (g *Game) LastScorelessTurns() int {
 }
 
 // ToCGP converts the game to a CGP string. See cgp directory.
-func (g *Game) ToCGP() string {
+func (g *Game) ToCGP(formatForBot bool) string {
 	fen := g.board.ToFEN(g.alph)
 	ourRack := g.curPlayer().rack.TilesOn().UserVisible(g.alph)
 	theirRack := g.oppPlayer().rack.TilesOn().UserVisible(g.alph)
@@ -1189,10 +1189,34 @@ func (g *Game) ToCGP() string {
 	if g.history != nil {
 		ld = g.history.LetterDistribution
 	}
+	if formatForBot {
+		// Clear opponent rack -- if this is a bot move, bot should know
+		// nothing of it.
+		theirRack = ""
+		tm := g.letterDistribution.TileMapping()
+		if g.history != nil && g.turnnum > 0 {
+			oppEvt := g.history.Events[g.turnnum-1]
+			if oppEvt.Type == pb.GameEvent_PHONY_TILES_RETURNED {
+				// we know opp's last partial or full rack
+				if tiles, err := tilemapping.ToMachineLetters(oppEvt.PlayedTiles, tm); err != nil {
+					log.Err(err).Str("playedTiles", oppEvt.PlayedTiles).Msg("unable-to-convert-opp-rack")
+				} else {
+					// convert back to string without the play-through tiles
+					for _, t := range tiles {
+						if t != 0 {
+							theirRack += t.UserVisible(tm, false)
+						}
+					}
+				}
+			}
+		}
+	}
+
 	cgp := fmt.Sprintf("%s %s/%s %d/%d %d lex %s;",
 		fen, ourRack, theirRack, ourScore, theirScore, zeroPt, lex)
 	if ld != "" {
 		cgp += fmt.Sprintf(" ld %s;", ld)
 	}
+
 	return cgp
 }
