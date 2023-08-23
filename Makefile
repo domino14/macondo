@@ -19,12 +19,6 @@ macondo_bot:
 bot_shell:
 	go build -trimpath -o bin/bot_shell cmd/bot_shell/main.go
 
-# gaddag_maker:
-# 	go build -trimpath -o bin/make_gaddag cmd/make_gaddag/main.go
-
-# make_leaves_structure:
-# 	go build -trimpath -o bin/make_leaves_structure cmd/make_leaves_structure/main.go
-
 wasm:
 	GOOS=js GOARCH=wasm go build -trimpath -o ../liwords/liwords-ui/public/wasm/macondo.wasm wasm/*.go
 

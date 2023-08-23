@@ -12,7 +12,7 @@ leave values to calculate equity.
 
 The english leave values can be found in `./data/strategy/default_english/leaves.klv2`. These were calculated with NWL18 in mind, but still work well for NWL20. Slightly different values for CSW21 are found in `./data/strategy/CSW21/leaves.klv2`.
 
-See [How to make leaves](/macondo/manual/make_leaves_structure.html) for how
+See [How to make leaves and GADDAG files](/macondo/manual/make_leaves_structure.html) for how
 this file was created.
 
 ## Options
