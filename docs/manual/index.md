@@ -16,3 +16,4 @@ will be quite different.
 Below we have some more specific manuals for various topics.
 
 - [Autoplay](/macondo/manual/autoplay.html)
+- [Some tips](/macondo/manual/tips.html)

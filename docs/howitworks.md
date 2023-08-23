@@ -68,6 +68,18 @@ For more info see:
 
 [https://www.cesardelsolar.com/posts/2023-06-14-scrabble-endgames-chess-techniques/](https://www.cesardelsolar.com/posts/2023-06-14-scrabble-endgames-chess-techniques/)
 
+## Pre-endgame
+
+Macondo can fully solve a 1-in-the-bag pre-endgame currently (a 1-PEG). Solving 2-in-the-bag and so forth is possible, but becomes exponentially more computationally difficult as you add tiles to the bag.
+
+This is done by generating every possible play with 1 tile in the bag, and then trying to solve all 8 resultant endgames (assuming there are 8 distinct unseen tiles). Macondo then tabulates which moves result in more wins.
+
+Note that in rare situations, a pass may be the best move. This situation is also handled correctly. In this case, Macondo will solve all possible endgames from the opponent's perspective, including passing back.
+
+In order for this to be fast, we limit the endgame algorithm to just 4 plies by default (this can be increased). Additionally, the endgame algorithm is set to a mode where it only tries to find any win.
+
+We have plans to add 2-PEG support in the future.
+
 ## Move Generator
 
 The move generator uses the GADDAG data structure, proposed in a 90s paper titled "A Faster Scrabble Move Generation Algorithm", by Steven Gordon.

@@ -3,16 +3,14 @@
 - [Back to Manual](/macondo/manual)
 - [Back to Main Page](/macondo)
 
-## make_gaddag
+# Tips 
 
-- Usage: `./make_gaddag -filename NWL18.txt`
-- The command above will generate a file named out.gaddag
-- Move this file to your `./data/lexica/gaddag/NWL18.gaddag` in your Macondo download.
+## How to use other languages
 
-You can replace NWL18 with another desired lexicon.
+NWL20 is currently the default lexicon of Macondo.
 
 If you wish to use other lexica, you will need to also
-change the environment variable `DEFAULT_LETTER_DISTRIBUTION` to other values: `spanish`, `polish`, `german`, `norwegian`, `french`. There will be more in the future.
+change the environment variable `DEFAULT_LETTER_DISTRIBUTION` to other values: `spanish`, `polish`, `german`, `norwegian`, `french`, `catalan`. There will be more in the future.
 
 Then, you can change the `DEFAULT_LEXICON` environment variable to your
 desired lexicon (make sure to use the same capitalization schema). For
