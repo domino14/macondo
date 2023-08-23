@@ -19,8 +19,8 @@ macondo_bot:
 bot_shell:
 	go build -trimpath -o bin/bot_shell cmd/bot_shell/main.go
 
-wasm:
-	GOOS=js GOARCH=wasm go build -trimpath -o ../liwords/liwords-ui/public/wasm/macondo.wasm wasm/*.go
+# wasm:
+# 	GOOS=js GOARCH=wasm go build -trimpath -o ../liwords/liwords-ui/public/wasm/macondo.wasm wasm/*.go
 
 clean:
 	rm -f bin/*
