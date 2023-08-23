@@ -24,6 +24,7 @@ import (
 )
 
 const InBagMaxLimit = 1
+const TieBreakerPlays = 10
 
 type PEGOutcome int
 
@@ -59,6 +60,8 @@ type PreEndgamePlay struct {
 	Play          *move.Move
 	Points        float32
 	FoundLosses   float32
+	Spread        int
+	spreadSet     bool
 	outcomesArray []Outcome
 	Ignore        bool
 }
@@ -102,6 +105,13 @@ func (p *PreEndgamePlay) addWinPctStat(result PEGOutcome, ct int, tiles []tilema
 		// no wins
 		p.FoundLosses += float32(ct)
 	}
+}
+
+func (p *PreEndgamePlay) addSpreadStat(spread, ct int) {
+	p.Lock()
+	defer p.Unlock()
+	p.spreadSet = true
+	p.Spread += (spread * ct)
 }
 
 func (p *PreEndgamePlay) setWinPctStat(result PEGOutcome, ct int, tiles []tilemapping.MachineLetter) {
@@ -231,6 +241,7 @@ type Solver struct {
 
 	earlyCutoffOptim bool
 	skipPassOptim    bool
+	skipTiebreaker   bool
 }
 
 // Init initializes the solver. It creates all the parallel endgame solvers.
@@ -244,6 +255,7 @@ func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
 	s.gaddag = gd
 	s.earlyCutoffOptim = true
 	s.skipPassOptim = false
+	s.skipTiebreaker = false
 	return nil
 }
 
@@ -323,6 +335,7 @@ type job struct {
 	theirMove *move.Move
 	inbag     []tilemapping.MachineLetter
 	numDraws  int // how many ways can inbag be drawn?
+	fullSolve bool
 }
 
 func moveIsPossible(mtiles []tilemapping.MachineLetter, partialRack []tilemapping.MachineLetter) bool {
@@ -501,16 +514,129 @@ func (s *Solver) multithreadSolve(ctx context.Context, moves []*move.Move) ([]*P
 	close(winnerChan)
 	winnerGroup.Wait()
 
-	if ctx.Err() != nil && (ctx.Err() == context.Canceled || ctx.Err() == context.DeadlineExceeded) {
-		log.Info().Msg("timed out; returning best results so far...")
-	}
-
 	// sort plays by win %
 	sort.Slice(s.plays, func(i, j int) bool {
 		return s.plays[i].Points > s.plays[j].Points
 	})
 
+	if !s.skipTiebreaker {
+		err = s.maybeTiebreak(ctx, maybeInBagTiles)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if ctx.Err() != nil && (ctx.Err() == context.Canceled || ctx.Err() == context.DeadlineExceeded) {
+		log.Info().Msg("timed out or stopped; returning best results so far...")
+	}
+	log.Info().Str("winner", s.plays[0].String()).Msg("winning-play")
+
 	return s.plays, err
+}
+
+func (s *Solver) maybeTiebreak(ctx context.Context, maybeInBagTiles []int) error {
+	// Now, among all the winners find the top spreads.
+	i := 0
+	for {
+		if i+1 >= len(s.plays) || s.plays[i].Points != s.plays[i+1].Points {
+			break
+		}
+		i++
+	}
+	if i == 0 {
+		log.Info().Str("winner", s.plays[0].String()).Msg("only one clear winner")
+		return nil
+	}
+	numWinners := i + 1
+
+	// We want to solve these endgames fully (to get an accurate spread)
+	for _, es := range s.endgameSolvers {
+		es.SetFirstWinOptim(false)
+	}
+
+	g := errgroup.Group{}
+	winnerGroup := errgroup.Group{}
+	jobChan := make(chan job, s.threads*2)
+	winnerChan := make(chan *PreEndgamePlay)
+
+	for t := 0; t < s.threads; t++ {
+		t := t
+		g.Go(func() error {
+			for j := range jobChan {
+				if err := s.handleJob(ctx, j, t, winnerChan); err != nil {
+					log.Debug().AnErr("err", err).Msg("error-handling-job")
+					// Don't exit, to avoid deadlock.
+				}
+			}
+			return nil
+		})
+	}
+	// The determiner of the winner.
+	winnerGroup.Go(func() error {
+		for p := range winnerChan {
+			if !s.winnerSoFar.spreadSet {
+				s.winnerSoFar = p
+			} else if p.Spread > s.winnerSoFar.Spread {
+				s.winnerSoFar = p
+			}
+
+		}
+		return nil
+	})
+
+	// There is more than one play. Use total points scored as a first tie-breaker
+	topPlays := s.plays[:numWinners]
+	sort.Slice(topPlays, func(i, j int) bool {
+		return topPlays[i].Play.Score() > topPlays[j].Play.Score()
+	})
+	topN := min(TieBreakerPlays, len(topPlays))
+	log.Info().Msgf("%d plays tied for first, taking top %d and tie-breaking...", numWinners, topN)
+	topPlays = topPlays[:topN]
+
+	// for simplicity's sake, let's skip the pass if that's one of the top
+	// plays. gotta cut corners somewhere.
+	queuedJobs := 0
+	for _, p := range topPlays {
+		if p.Play.Action() == move.MoveTypePass {
+			continue
+		}
+		for t, count := range maybeInBagTiles {
+			if count == 0 {
+				continue
+			}
+			j := job{
+				ourMove:   p,
+				inbag:     []tilemapping.MachineLetter{tilemapping.MachineLetter(t)},
+				numDraws:  count,
+				fullSolve: true,
+			}
+			queuedJobs++
+			jobChan <- j
+		}
+	}
+
+	log.Info().Int("numTiebreakerJobs", queuedJobs).Msg("queued-jobs")
+	close(jobChan)
+	err := g.Wait()
+	if err != nil {
+		return err
+	}
+
+	close(winnerChan)
+	winnerGroup.Wait()
+
+	sort.Slice(topPlays, func(i, j int) bool {
+		// plays without spread set should be at the bottom.
+		if !topPlays[i].spreadSet {
+			return false
+		}
+		if !topPlays[j].spreadSet {
+			return true
+		}
+		return topPlays[i].Spread > topPlays[j].Spread
+	})
+
+	return nil
 }
 
 func (s *Solver) SetEndgamePlies(p int) {
@@ -568,6 +694,7 @@ func (s *Solver) handleJob(ctx context.Context, j job, thread int, winnerChan ch
 		return err
 	}
 	var finalSpread int16
+	// Handle the two-pass situation:
 	if j.ourMove.Play.Action() == move.MoveTypePass {
 		// Just try a pass from opponent's perspective. This should end the game.
 		if j.theirMove.Action() != move.MoveTypePass {
@@ -603,21 +730,33 @@ func (s *Solver) handleJob(ctx context.Context, j job, thread int, winnerChan ch
 		finalSpread = val + int16(initialSpread)
 
 	}
-	switch {
+	if !j.fullSolve {
+		switch {
 
-	case finalSpread > 0:
-		// win for our opponent = loss for us
-		log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msg("we-lose")
-		j.ourMove.addWinPctStat(PEGLoss, j.numDraws, j.inbag)
-	case finalSpread == 0:
-		// draw
-		log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msg("we-tie")
-		j.ourMove.addWinPctStat(PEGDraw, j.numDraws, j.inbag)
-	case finalSpread < 0:
-		// loss for our opponent = win for us
-		log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msg("we-win")
-		j.ourMove.addWinPctStat(PEGWin, j.numDraws, j.inbag)
+		case finalSpread > 0:
+			// win for our opponent = loss for us
+			log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msg("we-lose")
+			j.ourMove.addWinPctStat(PEGLoss, j.numDraws, j.inbag)
+		case finalSpread == 0:
+			// draw
+			log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msg("we-tie")
+			j.ourMove.addWinPctStat(PEGDraw, j.numDraws, j.inbag)
+		case finalSpread < 0:
+			// loss for our opponent = win for us
+			log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msg("we-win")
+			j.ourMove.addWinPctStat(PEGWin, j.numDraws, j.inbag)
+		}
+	} else {
+		// If it's a full solve, we actually care about the value of
+		// finalSpread. Negate it because this spread is from the POV of
+		// our opponent:
+		j.ourMove.addSpreadStat(int(-finalSpread), j.numDraws)
+		log.Debug().Str("move", j.ourMove.String()).
+			Str("inbag", tilemapping.MachineWord(j.inbag).UserVisible(j.ourMove.Play.Alphabet())).
+			Int("spread", -int(finalSpread)).Int("ndraws", j.numDraws).Msg("adding-spread-stat")
+
 	}
+
 	log.Debug().Int("thread", thread).Msg("peg-unplay")
 
 	g.UnplayLastMove()
@@ -793,7 +932,7 @@ func possibleTilesInBag(unseenTiles []tilemapping.MachineLetter, moveTiles []til
 func (s *Solver) SolutionStats(maxMoves int) string {
 	// Assume plays are already sorted.
 	var ss strings.Builder
-	fmt.Fprintf(&ss, "%-20s%-5s%-7s%-32s%-2s\n", "Play", "Pts", "%Win", "Outcomes", "")
+	fmt.Fprintf(&ss, "%-20s%-5s%-7s%-9s%-32s%-2s\n", "Play", "Wins", "%Win", "Spread", "Outcomes", "")
 
 	for _, play := range s.plays[:maxMoves] {
 		noutcomes := 0
@@ -804,11 +943,15 @@ func (s *Solver) SolutionStats(maxMoves int) string {
 		ignore := ""
 		wpStats := "---"
 		pts := "---"
+		spdStats := ""
 		if play.Ignore {
 			ignore = "❌"
 		} else {
 			wpStats = fmt.Sprintf("%.2f", 100.0*play.Points/float32(noutcomes))
 			pts = fmt.Sprintf("%.1f", play.Points)
+			if play.spreadSet {
+				spdStats = fmt.Sprintf("%.2f", float32(play.Spread)/float32(noutcomes))
+			}
 		}
 		var wins, draws, losses [][]tilemapping.MachineLetter
 		var outcomeStr string
@@ -833,8 +976,8 @@ func (s *Solver) SolutionStats(maxMoves int) string {
 			outcomeStr += fmt.Sprintf("👎: %s", toUserFriendly(losses, s.game.Alphabet()))
 		}
 
-		fmt.Fprintf(&ss, "%-20s%-5s%-7s%-32s%-2s\n", play.Play.ShortDescription(),
-			pts, wpStats, outcomeStr, ignore)
+		fmt.Fprintf(&ss, "%-20s%-5s%-7s%-9s%-32s%-2s\n", play.Play.ShortDescription(),
+			pts, wpStats, spdStats, outcomeStr, ignore)
 	}
 	fmt.Fprintf(&ss, "❌ marks plays cut off early\n")
 
@@ -851,6 +994,10 @@ func (s *Solver) SetSkipPassOptim(o bool) {
 
 func (s *Solver) SetKnownOppRack(rack tilemapping.MachineWord) {
 	s.knownOppRack = rack
+}
+
+func (s *Solver) SetSkipTiebreaker(o bool) {
+	s.skipTiebreaker = o
 }
 
 func toUserFriendly(tilesets [][]tilemapping.MachineLetter, alphabet *tilemapping.TileMapping) string {

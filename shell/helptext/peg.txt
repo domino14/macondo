@@ -16,6 +16,15 @@ About:
     we are guaranteed to win with any given tile, even given any mistakes the 
     opponent might make.
 
+    If there is more than 1 winner - i.e., more than 1 top play with 
+    the same number of pre-endgame wins, Macondo will solve the resulting 
+    endgames more accurately (-first-win option will be set to false). 
+    Instead of just finding a win, it will try to find the best win, and 
+    keep track of the total spreads. The play with the most wins and most 
+    spread is the overall pre-endgame winner. For now it will just try to 
+    tiebreak among the top 10 highest-scoring plays with the same number 
+    of wins. 
+
 Options:
     -endgameplies 4
 
@@ -56,3 +65,8 @@ Options:
 
     If you have partial rack info for the opponent, enter it here. This can make
     pre-endgame analysis faster by skipping a bunch of racks the opponent can't have.
+
+    -skip-tiebreaker true
+
+    Setting this option to true will skip the spread-based tiebreaker. This can
+    save some time since solving these endgames more accurately will be slower.

@@ -102,7 +102,7 @@ func TestStraightforward1PEG(t *testing.T) {
 
 // Test a complex pre-endgame with 1 in the bag.
 // There are several winning moves, one of them being a pass. Note that we
-// need to look forward a bit more (increase endgame plies) since there is a Q
+// need to look forward a bit more (increase endgame plies to at least 7) since there is a Q
 // stick situation that isn't handled properly otherwise.
 
 func TestComplicated1PEG(t *testing.T) {

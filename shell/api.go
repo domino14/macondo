@@ -394,6 +394,7 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 	var err error
 	var earlyCutoff bool
 	var skipPass bool
+	var skipTiebreaker bool
 	knownOppRack := cmd.options["opprack"]
 
 	if cmd.options["endgameplies"] != "" {
@@ -425,6 +426,10 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 		earlyCutoff = true
 	}
 
+	if cmd.options["skip-tiebreaker"] == "true" {
+		skipTiebreaker = true
+	}
+
 	sc.showMessage(fmt.Sprintf(
 		"endgameplies %v, maxtime %v, threads %v",
 		endgamePlies, maxtime, maxthreads))
@@ -449,6 +454,7 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 	sc.preendgameSolver.SetEndgamePlies(endgamePlies)
 	sc.preendgameSolver.SetEarlyCutoffOptim(earlyCutoff)
 	sc.preendgameSolver.SetSkipPassOptim(skipPass)
+	sc.preendgameSolver.SetSkipTiebreaker(skipTiebreaker)
 	var cancel context.CancelFunc
 	ctx := context.Background()
 	if maxtime > 0 {
