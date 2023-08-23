@@ -168,6 +168,7 @@ type Solver struct {
 	nodes           atomic.Uint64
 
 	logStream io.Writer
+	busy      bool
 }
 
 // Init initializes the solver
@@ -680,6 +681,10 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 }
 
 func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, error) {
+	s.busy = true
+	defer func() {
+		s.busy = false
+	}()
 	s.solvingPlayer = s.game.PlayerOnTurn()
 	// Make sure the other player's rack isn't empty.
 	if s.game.RackFor(1-s.solvingPlayer).NumTiles() == 0 {
@@ -776,6 +781,10 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 // without having to initialize everything. The caller is responsible for
 // initializations of data structures. It is single-threaded as well.
 func (s *Solver) QuickAndDirtySolve(ctx context.Context, plies, thread int) (int16, []*move.Move, error) {
+	s.busy = true
+	defer func() {
+		s.busy = false
+	}()
 	// Make sure the other player's rack isn't empty.
 	s.solvingPlayer = s.game.PlayerOnTurn()
 	if s.game.RackFor(1-s.solvingPlayer).NumTiles() == 0 {
@@ -838,6 +847,10 @@ func (s *Solver) SetTranspositionTableOptim(tt bool) {
 
 func (s *Solver) SetFirstWinOptim(w bool) {
 	s.firstWinOptim = w
+}
+
+func (s *Solver) IsSolving() bool {
+	return s.busy
 }
 
 func (s *Solver) Game() *game.Game {

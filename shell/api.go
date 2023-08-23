@@ -290,6 +290,16 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	if sc.game == nil {
 		return nil, errors.New("please load a game first with the `load` command")
 	}
+
+	if len(cmd.args) > 0 && cmd.args[0] == "stop" {
+		if sc.preendgameSolver.IsSolving() {
+			sc.pegCancel()
+		} else {
+			return nil, errors.New("no pre-endgame to cancel")
+		}
+		return msg(""), nil
+	}
+
 	plies := 4
 	var maxtime int
 	var maxthreads = 1
@@ -341,11 +351,10 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 		sc.game.SetBackupMode(game.InteractiveGameplayMode)
 		sc.game.SetStateStackLength(1)
 	}()
-	var cancel context.CancelFunc
 	ctx := context.Background()
 	if maxtime > 0 {
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(maxtime)*time.Second)
-		defer cancel()
+		ctx, sc.endgameCancel = context.WithTimeout(ctx, time.Duration(maxtime)*time.Second)
+		defer sc.endgameCancel()
 	}
 
 	// clear out the last value of this endgame node; gc should
@@ -388,6 +397,15 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 		return nil, errors.New("please load a game first with the `load` command")
 	}
 	endgamePlies := 4
+
+	if len(cmd.args) > 0 && cmd.args[0] == "stop" {
+		if sc.preendgameSolver.IsSolving() {
+			sc.pegCancel()
+		} else {
+			return nil, errors.New("no pre-endgame to cancel")
+		}
+		return msg(""), nil
+	}
 
 	var maxtime int
 	var maxthreads = 0
@@ -455,11 +473,10 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 	sc.preendgameSolver.SetEarlyCutoffOptim(earlyCutoff)
 	sc.preendgameSolver.SetSkipPassOptim(skipPass)
 	sc.preendgameSolver.SetSkipTiebreaker(skipTiebreaker)
-	var cancel context.CancelFunc
 	ctx := context.Background()
 	if maxtime > 0 {
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(maxtime)*time.Second)
-		defer cancel()
+		ctx, sc.pegCancel = context.WithTimeout(ctx, time.Duration(maxtime)*time.Second)
+		defer sc.pegCancel()
 	}
 
 	moves, err := sc.preendgameSolver.Solve(ctx)

@@ -5,6 +5,7 @@ Example:
     endgame   
     endgame -plies 25   
     endgame -plies 25 -maxtime 120
+    endgame stop
 
 About:
 
@@ -31,6 +32,14 @@ About:
     This will make sure the algorithm uses at most 5 minutes of search. 
     It is also possible that the 25 plies will be reached before the time
     limit, depending on the complexity of the endgame.
+
+
+Optional arguments:
+    endgame stop
+
+    This will cancel a running endgame solve and show the best move
+    found so far.
+
 
 Options:
     -plies 25 

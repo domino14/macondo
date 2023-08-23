@@ -123,7 +123,11 @@ type ShellController struct {
 	curMode          Mode
 	endgameSolver    *negamax.Solver
 	preendgameSolver *preendgame.Solver
-	curPlayList      []*move.Move
+
+	endgameCancel context.CancelFunc
+	pegCancel     context.CancelFunc
+
+	curPlayList []*move.Move
 }
 
 type Mode int

@@ -238,6 +238,7 @@ type Solver struct {
 	plays         []*PreEndgamePlay
 	winnerSoFar   *PreEndgamePlay
 	knownOppRack  []tilemapping.MachineLetter
+	busy          bool
 
 	earlyCutoffOptim bool
 	skipPassOptim    bool
@@ -260,6 +261,10 @@ func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
 }
 
 func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
+	s.busy = true
+	defer func() {
+		s.busy = false
+	}()
 	playerOnTurn := s.game.PlayerOnTurn()
 	// Fill opponent's rack for now. Ignore the "known opp rack", if any. That
 	// is handled properly later.
@@ -1000,6 +1005,10 @@ func (s *Solver) SetKnownOppRack(rack tilemapping.MachineWord) {
 
 func (s *Solver) SetSkipTiebreaker(o bool) {
 	s.skipTiebreaker = o
+}
+
+func (s *Solver) IsSolving() bool {
+	return s.busy
 }
 
 func toUserFriendly(tilesets [][]tilemapping.MachineLetter, alphabet *tilemapping.TileMapping) string {
