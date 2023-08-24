@@ -23,6 +23,8 @@ type BotConfig struct {
 	PEGAdjustmentFile string
 	LeavesFile        string
 	MinSimPlies       int
+	// If UseOppRacksInAnalysis is true, will use opponent rack info for simulation/pre-endgames/etc
+	UseOppRacksInAnalysis bool
 }
 
 type BotTurnPlayer struct {
@@ -34,6 +36,7 @@ type BotTurnPlayer struct {
 	simmerCalcs []equity.EquityCalculator
 	simThreads  int
 	minSimPlies int
+	cfg         *BotConfig
 
 	inferencer *rangefinder.RangeFinder
 }
@@ -87,6 +90,7 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 	btp := &BotTurnPlayer{
 		AIStaticTurnPlayer: *aip,
 		botType:            botType,
+		cfg:                conf,
 	}
 
 	// If it is a simming bot, add more fields.

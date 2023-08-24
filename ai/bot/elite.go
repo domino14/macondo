@@ -69,11 +69,13 @@ func eliteBestPlay(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 			simPlies = 2
 		}
 	}
-	log.Debug().Int("simPlies", simPlies).
+
+	log.Info().Int("simPlies", simPlies).
 		Int("simThreads", p.simThreads).
 		Int("endgamePlies", endgamePlies).
 		Bool("useEndgame", useEndgame).
 		Int("unseen", unseen).
+		Bool("useKnownOppRack", p.cfg.UseOppRacksInAnalysis).
 		Int("consideredMoves", len(moves)).Msg("elite-player")
 
 	if useEndgame {
@@ -137,6 +139,14 @@ func preendgameBest(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 	} else {
 		p.preendgamer.SetEndgamePlies(5)
 	}
+
+	if p.cfg.UseOppRacksInAnalysis {
+		oppRack := p.Game.RackFor(p.Game.NextPlayer())
+		log.Info().Str("rack", oppRack.String()).Msg("setting-known-opp-rack")
+		p.preendgamer.SetKnownOppRack(oppRack.TilesOn())
+	}
+	p.preendgamer.SetEarlyCutoffOptim(true)
+
 	moves, err := p.preendgamer.Solve(ctx)
 	if err != nil {
 		return nil, err
@@ -184,6 +194,11 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	if HasInfer(p.botType) && len(p.inferencer.Inferences()) > InferencesSimLimit {
 		log.Debug().Int("inferences", len(p.inferencer.Inferences())).Msg("using inferences in sim")
 		p.simmer.SetInferences(p.inferencer.Inferences(), montecarlo.InferenceCycle)
+	}
+	if p.cfg.UseOppRacksInAnalysis {
+		oppRack := p.Game.RackFor(p.Game.NextPlayer())
+		log.Info().Str("rack", oppRack.String()).Msg("setting-known-opp-rack")
+		p.simmer.SetKnownOppRack(oppRack.TilesOn())
 	}
 
 	// Simulate is a blocking play:

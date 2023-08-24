@@ -462,7 +462,7 @@ func TestTopPlayOnlyRecorder(t *testing.T) {
 	ld, err := tilemapping.EnglishLetterDistribution(&DefaultConfig)
 	is.NoErr(err)
 	generator := NewGordonGenerator(gd, g.Board(), ld)
-	generator.SetGame(g)
+	generator.SetGame(g.Game)
 	g.RecalculateBoard()
 	generator.SetPlayRecorder(TopPlayOnlyRecorder)
 	elc, err := equity.NewExhaustiveLeaveCalculator("America", &DefaultConfig, "")

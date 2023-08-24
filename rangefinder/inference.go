@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"math"
 	"runtime"
 	"sort"
 	"sync"
@@ -74,7 +73,7 @@ func (r *RangeFinder) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
 
 	r.origGame = game
 	r.equityCalculators = eqCalcs
-	r.threads = int(math.Max(1, float64(runtime.NumCPU()-1)))
+	r.threads = max(1, runtime.NumCPU())
 	r.cfg = cfg
 }
 
@@ -128,10 +127,11 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 
 	if r.origGame.History().StartingCgp != "" {
 
-		gameCopy, err = cgp.ParseCGP(r.cfg, r.origGame.History().StartingCgp)
+		parsedCGP, err := cgp.ParseCGP(r.cfg, r.origGame.History().StartingCgp)
 		if err != nil {
 			return err
 		}
+		gameCopy = parsedCGP.Game
 		gameCopy.History().Events = history.Events
 
 		for t := 0; t < len(history.Events); t++ {

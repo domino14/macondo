@@ -59,7 +59,7 @@ func Test1PEGPass(t *testing.T) {
 	is.NoErr(err)
 
 	peg := new(Solver)
-	err = peg.Init(g, gd)
+	err = peg.Init(g.Game, gd)
 	is.NoErr(err)
 
 	ctx := context.Background()
@@ -89,7 +89,7 @@ func TestStraightforward1PEG(t *testing.T) {
 	is.NoErr(err)
 	peg := new(Solver)
 
-	err = peg.Init(g, gd)
+	err = peg.Init(g.Game, gd)
 	is.NoErr(err)
 	ctx := context.Background()
 	plays, err := peg.Solve(ctx)
@@ -119,7 +119,7 @@ func TestComplicated1PEG(t *testing.T) {
 	is.NoErr(err)
 	peg := new(Solver)
 
-	err = peg.Init(g, gd)
+	err = peg.Init(g.Game, gd)
 	peg.endgamePlies = 5
 	is.NoErr(err)
 

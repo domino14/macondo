@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"os/user"
@@ -298,7 +297,7 @@ func (sc *ShellController) loadGCG(args []string) error {
 		}
 		defer resp.Body.Close()
 
-		body, err := ioutil.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return err
 		}
@@ -390,7 +389,7 @@ func (sc *ShellController) loadCGP(cgpstr string) error {
 			lexicon)
 	}
 	conf := &bot.BotConfig{Config: *sc.config}
-	sc.game, err = bot.NewBotTurnPlayerFromGame(g, conf, pb.BotRequest_HASTY_BOT)
+	sc.game, err = bot.NewBotTurnPlayerFromGame(g.Game, conf, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return err
 	}

@@ -210,7 +210,7 @@ func TestVeryDeep(t *testing.T) {
 	)
 
 	s := new(Solver)
-	s.Init(gen, g)
+	s.Init(gen, g.Game)
 	// s.iterativeDeepeningOptim = false
 	// s.transpositionTableOptim = false
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
@@ -240,7 +240,7 @@ func TestPassFirst(t *testing.T) {
 	)
 
 	s := new(Solver)
-	s.Init(gen1, g)
+	s.Init(gen1, g.Game)
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 	v, seq, _ := s.Solve(context.Background(), plies)
 
@@ -347,7 +347,7 @@ func TestStuckPruning(t *testing.T) {
 
 	s := new(Solver)
 
-	s.Init(gen, g)
+	s.Init(gen, g.Game)
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 	v, _, _ := s.Solve(context.Background(), plies)
 	is.Equal(v, int16(72))
@@ -463,7 +463,7 @@ func TestZeroPtFirstPlay(t *testing.T) {
 
 	s := new(Solver)
 
-	s.Init(gen, g)
+	s.Init(gen, g.Game)
 	// s.iterativeDeepeningOptim = false
 	// s.transpositionTableOptim = false
 

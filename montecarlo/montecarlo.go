@@ -225,7 +225,7 @@ func (s *Simmer) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
 	s.stoppingCondition = StopNone
 	s.equityCalculators = eqCalcs
 	s.leaveValues = leaves
-	s.threads = int(math.Max(1, float64(runtime.NumCPU()-1)))
+	s.threads = max(1, runtime.NumCPU())
 
 	// Hard-code the location of the win-pct file for now.
 	// If we want to make some for other lexica in the future we'll

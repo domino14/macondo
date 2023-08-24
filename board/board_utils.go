@@ -123,7 +123,7 @@ func (g *GameBoard) setFromPlaintext(qText string,
 func (b *GameBoard) SetRow(rowNum int, letters string, alph *tilemapping.TileMapping) []tilemapping.MachineLetter {
 	// Set the row in board to the passed in letters array.
 	for idx := 0; idx < b.Dim(); idx++ {
-		b.SetLetter(int(rowNum), idx, 0)
+		b.SetLetter(rowNum, idx, 0)
 	}
 	lettersPlayed := []tilemapping.MachineLetter{}
 
@@ -134,7 +134,25 @@ func (b *GameBoard) SetRow(rowNum int, letters string, alph *tilemapping.TileMap
 
 	for idx, ml := range mls {
 		if ml != 0 {
-			b.SetLetter(int(rowNum), idx, ml)
+			b.SetLetter(rowNum, idx, ml)
+			b.tilesPlayed++
+			lettersPlayed = append(lettersPlayed, ml)
+		}
+	}
+	return lettersPlayed
+}
+
+func (b *GameBoard) SetRowMLs(rowNum int, mls []tilemapping.MachineLetter) []tilemapping.MachineLetter {
+	lettersPlayed := []tilemapping.MachineLetter{}
+
+	// Set the row in board to the passed in letters array.
+	for idx := 0; idx < b.Dim(); idx++ {
+		b.SetLetter(rowNum, idx, 0)
+	}
+
+	for idx, ml := range mls {
+		if ml != 0 {
+			b.SetLetter(rowNum, idx, ml)
 			b.tilesPlayed++
 			lettersPlayed = append(lettersPlayed, ml)
 		}

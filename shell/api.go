@@ -656,7 +656,7 @@ func (sc *ShellController) leave(cmd *shellcmd) (*Response, error) {
 }
 
 func (sc *ShellController) cgp(cmd *shellcmd) (*Response, error) {
-	cgpstr := sc.game.ToCGP()
+	cgpstr := sc.game.ToCGP(false)
 	return msg(cgpstr), nil
 }
 

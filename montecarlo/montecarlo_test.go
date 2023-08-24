@@ -105,7 +105,7 @@ func BenchmarkSim(b *testing.B) {
 	zerolog.SetGlobalLevel(zerolog.Disabled)
 
 	simmer := &Simmer{}
-	simmer.Init(game, calcs, leaves.(*equity.CombinedStaticCalculator), &DefaultConfig)
+	simmer.Init(game.Game, calcs, leaves.(*equity.CombinedStaticCalculator), &DefaultConfig)
 	simmer.SetThreads(1)
 	simmer.PrepareSim(plies, plays)
 	log.Debug().Msg("About to start")

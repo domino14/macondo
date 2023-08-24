@@ -1,0 +1,81 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Template for building Macondo lambda function. Use 
+  `sam build -t lambda-template.yml` in this directory to build.
+
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Function:
+    Timeout: 240
+
+Resources:
+  MacondoLambdaFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: .
+      Handler: cmd/lambda/bootstrap
+      Runtime: provided.al2
+      MemorySize: 6000   # 4 CPU lowest limit, maybe?
+      Tracing: Active # https://docs.aws.amazon.com/lambda/latest/dg/lambda-x-ray.html
+      # Events:
+      #   CatchAll:
+      #     Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
+      #     Properties:
+      #       Path: /hello
+      #       Method: GET
+      Environment: # More info about Env Vars: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#environment-object
+        Variables:
+          LEXICON_PATH: /mnt/data/data/lexica
+          LETTER_DISTRIBUTION_PATH: /mnt/data/data/letterdistributions
+          STRATEGY_PARAMS_PATH: /mnt/data/data/strategy
+          DATA_PATH: /mnt/data/data
+          NATS_URL: nats://10.0.0.251:4222
+          TTABLE_MEM_FRACTION: 0.5
+          # DEBUG: 1
+      VpcConfig:
+        # This is the woogles VPC Config ids.
+        SecurityGroupIds:
+          - sg-05b3820613e972136
+        SubnetIds:
+          - subnet-0957a537f7ee06915
+          - subnet-00ade167c2786f245
+      FileSystemConfigs:
+        # Our EFS mount with lexica files and stuff
+        - Arn: !Sub arn:aws:elasticfilesystem:${AWS::Region}:${AWS::AccountId}:access-point/fsap-0c06a2b092e4d7046
+          LocalMountPath: "/mnt/data"
+
+      Policies:
+      - Statement:
+        - Sid: AWSLambdaVPCAccessExecutionRole
+          Effect: Allow
+          Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            - ec2:CreateNetworkInterface
+            - ec2:DescribeNetworkInterfaces
+            - ec2:DeleteNetworkInterface
+          Resource: "*"
+        - Sid: AmazonElasticFileSystemClientFullAccess
+          Effect: Allow
+          Action:
+            - elasticfilesystem:ClientMount
+            - elasticfilesystem:ClientRootAccess
+            - elasticfilesystem:ClientWrite
+            - elasticfilesystem:DescribeMountTargets
+          Resource: "*"
+
+    Metadata:
+      BuildMethod: makefile
+
+Outputs:
+  # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
+  # Find out more about other implicit resources you can reference within SAM
+  # https://github.com/awslabs/serverless-application-model/blob/master/docs/internals/generated_resources.rst#api
+  MacondoLambdaFunction:
+    Description: "Macondo Lambda Function ARN"
+    Value: !GetAtt MacondoLambdaFunction.Arn
+  MacondoLambdaFunctionIamRole:
+    Description: "Implicit IAM Role created for Macondo Lambda function"
+    Value: !GetAtt MacondoLambdaFunctionRole.Arn

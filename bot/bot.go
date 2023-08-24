@@ -1,6 +1,9 @@
 package bot
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -9,16 +12,31 @@ import (
 	"time"
 
 	"github.com/avast/retry-go"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/lambda"
+	"github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/domino14/macondo/ai/bot"
-	"github.com/domino14/macondo/config"
+	mcfg "github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/turnplayer"
+)
+
+type LambdaEvent struct {
+	CGP          string `json:"cgp"`
+	BotType      int    `json:"botType"`
+	ReplyChannel string `json:"replyChannel"`
+	GameID       string `json:"gameId"`
+}
+
+var (
+	ErrNeedSimmingBot = errors.New("need simming bot")
 )
 
 const (
@@ -31,17 +49,29 @@ func debugWriteln(msg string) {
 }
 
 type Bot struct {
-	config  *config.Config
+	config  *mcfg.Config
 	options *turnplayer.GameOptions
 
-	game *bot.BotTurnPlayer
+	game         *bot.BotTurnPlayer
+	awscfg       aws.Config
+	lambdaClient *lambda.Client
 }
 
-func NewBot(config *config.Config, options *turnplayer.GameOptions) *Bot {
+func NewBot(cfg *mcfg.Config, options *turnplayer.GameOptions) *Bot {
 	bot := &Bot{}
-	bot.config = config
+	bot.config = cfg
 	bot.options = options
 	bot.game = nil
+
+	ctx := context.Background()
+	var err error
+	bot.awscfg, err = config.LoadDefaultConfig(ctx)
+	if err != nil {
+		log.Err(err).Msg("loading-aws-default-cfg")
+	} else {
+		bot.lambdaClient = lambda.NewFromConfig(bot.awscfg)
+	}
+
 	return bot
 }
 
@@ -70,26 +100,26 @@ func errorResponse(message string, err error) *pb.BotResponse {
 	}
 }
 
-func (bot *Bot) Deserialize(data []byte) (*game.Game, *pb.EvaluationRequest, pb.BotRequest_BotCode, error) {
-	req := pb.BotRequest{}
-	err := proto.Unmarshal(data, &req)
+func (bot *Bot) Deserialize(data []byte) (*game.Game, *pb.BotRequest, error) {
+	req := &pb.BotRequest{}
+	err := proto.Unmarshal(data, req)
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, err
 	}
 	history := req.GameHistory
 	boardLayout, ldName, variant := game.HistoryToVariant(history)
 	rules, err := game.NewBasicGameRules(bot.config, history.Lexicon, boardLayout, ldName, game.CrossScoreAndSet, variant)
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, err
 	}
 	nturns := len(history.Events)
 	ng, err := game.NewFromHistory(history, rules, 0)
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, err
 	}
 	ng.PlayToTurn(nturns)
 	// debugWriteln(ng.ToDisplayText())
-	return ng, req.EvaluationRequest, req.BotType, nil
+	return ng, req, nil
 }
 
 func evalSingleMove(g *bot.BotTurnPlayer, evtIdx int) *pb.SingleEvaluation {
@@ -161,10 +191,13 @@ func (bot *Bot) evaluationResponse(req *pb.EvaluationRequest) *pb.BotResponse {
 }
 
 func (b *Bot) handle(data []byte) *pb.BotResponse {
-	ng, evalReq, botType, err := b.Deserialize(data)
+	ng, req, err := b.Deserialize(data)
 	if err != nil {
 		return errorResponse("Could not parse request", err)
 	}
+	evalReq := req.EvaluationRequest
+	botType := req.BotType
+
 	conf := &bot.BotConfig{Config: *b.config}
 	g, err := bot.NewBotTurnPlayerFromGame(ng, conf, botType)
 	if err != nil {
@@ -194,6 +227,11 @@ func (b *Bot) handle(data []byte) *pb.BotResponse {
 		if g.Game.Playing() == pb.PlayState_WAITING_FOR_FINAL_PASS {
 			m, _ = g.NewPassMove(g.PlayerOnTurn())
 		} else {
+			// Redirect to simming bot if needed.
+			if botType == pb.BotRequest_SIMMING_BOT || botType == pb.BotRequest_SIMMING_INFER_BOT {
+				return errorResponse(ErrNeedSimmingBot.Error(), nil)
+			}
+
 			var moves []*move.Move
 			if !isWordSmog {
 				moves = b.game.GenerateMoves(1)
@@ -218,6 +256,45 @@ func (b *Bot) handle(data []byte) *pb.BotResponse {
 	}
 }
 
+func (b *Bot) asyncLambdaCall(data []byte) {
+	ng, req, err := b.Deserialize(data)
+	if err != nil {
+		return
+	}
+	cgp := ng.ToCGP(true)
+	if req.MillisRemaining > 0 {
+		// Opp MS remaining doesn't matter for now.
+		cgp += fmt.Sprintf(" tmr %d/%d;", req.MillisRemaining, 1000)
+	}
+	lfn := b.config.LambdaFunctionName
+	replyChannel := "bot.publish_event." + ng.Uid()
+	ctx := context.Background()
+
+	lambdaPayload := &LambdaEvent{
+		CGP:          cgp,
+		BotType:      int(req.BotType),
+		ReplyChannel: replyChannel,
+		GameID:       ng.Uid(),
+	}
+	bts, err := json.Marshal(lambdaPayload)
+	if err != nil {
+		log.Err(err).Msg("marshalling-json-payload")
+		return
+	}
+	log.Info().Interface("payload", lambdaPayload).Msg("sending-lambda-payload")
+
+	out, err := b.lambdaClient.Invoke(ctx, &lambda.InvokeInput{
+		FunctionName:   aws.String(lfn),
+		InvocationType: types.InvocationTypeEvent,
+		Payload:        bts,
+	})
+	if err != nil {
+		log.Err(err).Msg("lambda-invocation-error")
+		return
+	}
+	log.Info().Int32("status", out.StatusCode).Msg("lambda-invocation-output")
+}
+
 // Main implements a NATS listener that takes data from a channel.
 // It does not respond on a reply channel, because that implies the
 // caller would need to block and wait for a response. Instead, we must
@@ -237,6 +314,15 @@ func Main(channel string, bot *Bot) {
 	nc.QueueSubscribe(channel, "bot_queue", func(m *nats.Msg) {
 		log.Info().Str("replyChannel", m.Reply).Msgf("RECV: %d bytes", len(m.Data))
 		resp := bot.handle(m.Data)
+		respErr := resp.GetError()
+		if respErr != "" {
+			if respErr == ErrNeedSimmingBot.Error() {
+				// Handle this with an async call to an external Lambda function.
+				bot.asyncLambdaCall(m.Data)
+				return
+			}
+		}
+
 		// debugWriteln(proto.MarshalTextString(resp))
 		data, err := proto.Marshal(resp)
 		if err != nil {
