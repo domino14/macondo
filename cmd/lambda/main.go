@@ -26,14 +26,6 @@ import (
 var cfg *config.Config
 var nc *nats.Conn
 
-func init() {
-	var err error
-	nc, err = nats.Connect(cfg.NatsURL)
-	if err != nil {
-		log.Fatal().AnErr("natsConnectErr", err).Msg(":(")
-	}
-}
-
 const HardTimeLimit = 180 // max time per turn in seconds
 
 func HandleRequest(ctx context.Context, evt bot.LambdaEvent) (string, error) {
@@ -103,7 +95,7 @@ func HandleRequest(ctx context.Context, evt bot.LambdaEvent) (string, error) {
 	if err != nil {
 		return "", err
 	}
-
+	log.Info().Msg("move-success-sending-via-nats")
 	err = retry.Do(
 		func() error {
 			_, err := nc.Request(evt.ReplyChannel, data, 3*time.Second)
@@ -123,7 +115,7 @@ func HandleRequest(ctx context.Context, evt bot.LambdaEvent) (string, error) {
 	if err != nil {
 		log.Err(err).Msg("bot-move-failed")
 	}
-
+	log.Info().Msg("exiting-fn")
 	return m.ShortDescription(), nil
 }
 
@@ -143,6 +135,11 @@ func main() {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	} else {
 		zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	}
+
+	nc, err = nats.Connect(cfg.NatsURL)
+	if err != nil {
+		log.Fatal().AnErr("natsConnectErr", err).Msg(":(")
 	}
 
 	lambda.Start(HandleRequest)

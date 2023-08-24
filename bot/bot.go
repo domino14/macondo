@@ -52,14 +52,26 @@ type Bot struct {
 	config  *mcfg.Config
 	options *turnplayer.GameOptions
 
-	game *bot.BotTurnPlayer
+	game         *bot.BotTurnPlayer
+	awscfg       aws.Config
+	lambdaClient *lambda.Client
 }
 
-func NewBot(config *mcfg.Config, options *turnplayer.GameOptions) *Bot {
+func NewBot(cfg *mcfg.Config, options *turnplayer.GameOptions) *Bot {
 	bot := &Bot{}
-	bot.config = config
+	bot.config = cfg
 	bot.options = options
 	bot.game = nil
+
+	ctx := context.Background()
+	var err error
+	bot.awscfg, err = config.LoadDefaultConfig(ctx)
+	if err != nil {
+		log.Err(err).Msg("loading-aws-default-cfg")
+	} else {
+		bot.lambdaClient = lambda.NewFromConfig(bot.awscfg)
+	}
+
 	return bot
 }
 
@@ -186,10 +198,6 @@ func (b *Bot) handle(data []byte) *pb.BotResponse {
 	evalReq := req.EvaluationRequest
 	botType := req.BotType
 
-	if botType == pb.BotRequest_SIMMING_BOT || botType == pb.BotRequest_SIMMING_INFER_BOT {
-		return errorResponse(ErrNeedSimmingBot.Error(), nil)
-	}
-
 	conf := &bot.BotConfig{Config: *b.config}
 	g, err := bot.NewBotTurnPlayerFromGame(ng, conf, botType)
 	if err != nil {
@@ -219,6 +227,11 @@ func (b *Bot) handle(data []byte) *pb.BotResponse {
 		if g.Game.Playing() == pb.PlayState_WAITING_FOR_FINAL_PASS {
 			m, _ = g.NewPassMove(g.PlayerOnTurn())
 		} else {
+			// Redirect to simming bot if needed.
+			if botType == pb.BotRequest_SIMMING_BOT || botType == pb.BotRequest_SIMMING_INFER_BOT {
+				return errorResponse(ErrNeedSimmingBot.Error(), nil)
+			}
+
 			var moves []*move.Move
 			if !isWordSmog {
 				moves = b.game.GenerateMoves(1)
@@ -257,12 +270,6 @@ func (b *Bot) asyncLambdaCall(data []byte) {
 	replyChannel := "bot.publish_event." + ng.Uid()
 	ctx := context.Background()
 
-	cfg, err := config.LoadDefaultConfig(ctx, config.WithClientLogMode(aws.LogRetries|aws.LogRequestWithBody))
-	if err != nil {
-		log.Err(err).Msg("loading-default-cfg")
-		return
-	}
-
 	lambdaPayload := &LambdaEvent{
 		CGP:          cgp,
 		BotType:      int(req.BotType),
@@ -276,8 +283,7 @@ func (b *Bot) asyncLambdaCall(data []byte) {
 	}
 	log.Info().Interface("payload", lambdaPayload).Msg("sending-lambda-payload")
 
-	lambdaClient := lambda.NewFromConfig(cfg)
-	out, err := lambdaClient.Invoke(ctx, &lambda.InvokeInput{
+	out, err := b.lambdaClient.Invoke(ctx, &lambda.InvokeInput{
 		FunctionName:   aws.String(lfn),
 		InvocationType: types.InvocationTypeEvent,
 		Payload:        bts,
