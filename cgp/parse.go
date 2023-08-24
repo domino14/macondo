@@ -11,6 +11,7 @@ import (
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/tilemapping"
 )
 
 type ParsedCGP struct {
@@ -133,10 +134,10 @@ func ParseCGP(cfg *config.Config, cgpstr string) (*ParsedCGP, error) {
 	}
 
 	// "Decompress" the gameboard letters.
-	fullRows := make([]string, len(rows))
+	fullRows := make([][]tilemapping.MachineLetter, len(rows))
 
 	for i, row := range rows {
-		fullRows[i], err = rowToLetters(row)
+		fullRows[i], err = rowToLetters(row, rules.LetterDistribution().TileMapping())
 		if err != nil {
 			return nil, err
 		}
@@ -163,40 +164,80 @@ func ParseCGP(cfg *config.Config, cgpstr string) (*ParsedCGP, error) {
 	return &ParsedCGP{Game: g, Opcodes: opcodes}, nil
 }
 
-func rowToLetters(row string) (string, error) {
-	// turn row into letters
-	var letters strings.Builder
-
-	writeSpaces := func(letters *strings.Builder, nspaces string) error {
-		if nspaces != "" {
-			n, err := strconv.Atoi(nspaces)
-			if err != nil {
-				return err
-			}
-			for i := 0; i < n; i++ {
-				letters.WriteRune(' ')
-			}
-		}
-		return nil
-	}
-
+func rowToLetters(row string, tm *tilemapping.TileMapping) ([]tilemapping.MachineLetter, error) {
+	mls := []tilemapping.MachineLetter{}
+	var lettersTemp string
+	var multiTile string
+	beganMulti := false
 	lastN := ""
 	for _, rn := range row {
-		if rn >= '0' && rn <= '9' {
+
+		if rn == '[' {
+			if lettersTemp != "" {
+				mout, err := tilemapping.ToMachineLetters(lettersTemp, tm)
+				if err != nil {
+					return nil, err
+				}
+				mls = append(mls, mout...)
+				lettersTemp = ""
+			}
+			beganMulti = true
+			multiTile = ""
+		} else if rn == ']' {
+			mout, err := tilemapping.ToMachineLetters(multiTile, tm)
+			if err != nil {
+				return nil, err
+			}
+			mls = append(mls, mout...)
+			multiTile = ""
+			beganMulti = false
+		} else if rn >= '0' && rn <= '9' {
+			if lettersTemp != "" {
+				mout, err := tilemapping.ToMachineLetters(lettersTemp, tm)
+				if err != nil {
+					return nil, err
+				}
+				mls = append(mls, mout...)
+				lettersTemp = ""
+			}
 			lastN += string(rn)
 		} else {
 			// parse the number then clear it out.
-			err := writeSpaces(&letters, lastN)
-			if err != nil {
-				return "", err
+			if lastN != "" {
+				n, err := strconv.Atoi(lastN)
+				if err != nil {
+					return nil, err
+				}
+				for idx := 0; idx < n; idx++ {
+					mls = append(mls, 0)
+				}
+				lastN = ""
 			}
-			lastN = ""
-			letters.WriteRune(rn)
+			if beganMulti {
+				multiTile += string(rn)
+			} else {
+				lettersTemp += string(rn)
+			}
 		}
 	}
-	err := writeSpaces(&letters, lastN)
-	if err != nil {
-		return "", err
+	if len(lettersTemp) > 0 {
+		mout, err := tilemapping.ToMachineLetters(lettersTemp, tm)
+		if err != nil {
+			return nil, err
+		}
+		mls = append(mls, mout...)
+		lettersTemp = ""
 	}
-	return letters.String(), nil
+
+	if lastN != "" {
+		n, err := strconv.Atoi(lastN)
+		if err != nil {
+			return nil, err
+		}
+		for idx := 0; idx < n; idx++ {
+			mls = append(mls, 0)
+		}
+	}
+
+	return mls, nil
 }

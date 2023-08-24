@@ -210,7 +210,7 @@ func NewFromHistory(history *pb.GameHistory, rules *GameRules, turnnum int) (*Ga
 }
 
 func NewFromSnapshot(rules *GameRules, players []*pb.PlayerInfo, lastKnownRacks []string,
-	scores []int, boardRows []string) (*Game, error) {
+	scores []int, boardRows [][]tilemapping.MachineLetter) (*Game, error) {
 
 	// This NewGame function copies the board from rules as well.
 	game, err := NewGame(rules, players)
@@ -227,8 +227,8 @@ func NewFromSnapshot(rules *GameRules, players []*pb.PlayerInfo, lastKnownRacks 
 
 	playedLetters := []tilemapping.MachineLetter{}
 	for i, row := range boardRows {
-		playedLetters = append(playedLetters,
-			game.board.SetRow(i, row, rules.LetterDistribution().TileMapping())...)
+		game.board.SetRowMLs(i, row)
+		playedLetters = append(playedLetters, row...)
 	}
 
 	err = game.bag.RemoveTiles(playedLetters)

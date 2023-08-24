@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tilemapping"
@@ -862,7 +863,15 @@ func (g *GameBoard) ToFEN(alph *tilemapping.TileMapping) string {
 				r.WriteString(strconv.Itoa(zeroCt))
 				zeroCt = 0
 			}
-			r.WriteString(l.UserVisible(alph, false))
+			uvl := l.UserVisible(alph, false)
+			multichar := utf8.RuneCountInString(uvl) > 1
+			if multichar {
+				r.WriteString("[")
+			}
+			r.WriteString(uvl)
+			if multichar {
+				r.WriteString("]")
+			}
 		}
 		if zeroCt > 0 {
 			r.WriteString(strconv.Itoa(zeroCt))
