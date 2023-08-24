@@ -228,7 +228,7 @@ func NewFromSnapshot(rules *GameRules, players []*pb.PlayerInfo, lastKnownRacks 
 	playedLetters := []tilemapping.MachineLetter{}
 	for i, row := range boardRows {
 		game.board.SetRowMLs(i, row)
-		playedLetters = append(playedLetters, row...)
+		playedLetters = append(playedLetters, game.board.SetRowMLs(i, row)...)
 	}
 
 	err = game.bag.RemoveTiles(playedLetters)

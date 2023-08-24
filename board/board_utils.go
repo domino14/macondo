@@ -142,7 +142,9 @@ func (b *GameBoard) SetRow(rowNum int, letters string, alph *tilemapping.TileMap
 	return lettersPlayed
 }
 
-func (b *GameBoard) SetRowMLs(rowNum int, mls []tilemapping.MachineLetter) {
+func (b *GameBoard) SetRowMLs(rowNum int, mls []tilemapping.MachineLetter) []tilemapping.MachineLetter {
+	lettersPlayed := []tilemapping.MachineLetter{}
+
 	// Set the row in board to the passed in letters array.
 	for idx := 0; idx < b.Dim(); idx++ {
 		b.SetLetter(rowNum, idx, 0)
@@ -152,8 +154,10 @@ func (b *GameBoard) SetRowMLs(rowNum int, mls []tilemapping.MachineLetter) {
 		if ml != 0 {
 			b.SetLetter(rowNum, idx, ml)
 			b.tilesPlayed++
+			lettersPlayed = append(lettersPlayed, ml)
 		}
 	}
+	return lettersPlayed
 }
 
 // Equals checks the boards for equality. Two boards are equal if all
