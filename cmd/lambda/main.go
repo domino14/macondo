@@ -31,6 +31,10 @@ const HardTimeLimit = 180 // max time per turn in seconds
 func HandleRequest(ctx context.Context, evt bot.LambdaEvent) (string, error) {
 	// Return something but we have to block till we're done.
 
+	logger := log.With().
+		Str("gameID", evt.GameID).
+		Logger()
+
 	g, err := cgp.ParseCGP(cfg, evt.CGP)
 	if err != nil {
 		return "", err
@@ -46,15 +50,16 @@ func HandleRequest(ctx context.Context, evt bot.LambdaEvent) (string, error) {
 			botTime /= 1000 // convert from milliseconds
 		}
 	} else {
-		log.Warn().Msg("no timer found in CGP")
+		logger.Warn().Msg("no timer found in CGP")
 	}
 
 	// Estimate: bot plays 4.25 tiles per turn. Divide bag by 2 because bot will only
 	// play half the tiles left.
 	estimatedTurnsLeft := float64(g.Bag().TilesRemaining()/2+int(g.RackFor(g.PlayerOnTurn()).NumTiles())) / 4.25
 	maxTimeShouldTake := min(float64(botTime-5)/estimatedTurnsLeft, HardTimeLimit)
-	log.Info().Float64("bot-estimated-turns-left", estimatedTurnsLeft).
+	logger.Info().Float64("bot-estimated-turns-left", estimatedTurnsLeft).
 		Int("inbag", g.Bag().TilesRemaining()).
+		Str("cgp", evt.CGP).
 		Float64("max-time-should-take", maxTimeShouldTake).Msg("time-management")
 
 	var cancel context.CancelFunc
@@ -63,7 +68,7 @@ func HandleRequest(ctx context.Context, evt bot.LambdaEvent) (string, error) {
 	lexicon := g.History().Lexicon
 	if lexicon == "" {
 		lexicon = cfg.DefaultLexicon
-		log.Info().Msgf("cgp file had no lexicon, so using default lexicon %v",
+		logger.Info().Msgf("cgp file had no lexicon, so using default lexicon %v",
 			lexicon)
 	}
 	conf := &aibot.BotConfig{Config: *cfg, MinSimPlies: 5, UseOppRacksInAnalysis: true}
@@ -95,7 +100,7 @@ func HandleRequest(ctx context.Context, evt bot.LambdaEvent) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	log.Info().Msg("move-success-sending-via-nats")
+	logger.Info().Msg("move-success-sending-via-nats")
 	err = retry.Do(
 		func() error {
 			_, err := nc.Request(evt.ReplyChannel, data, 3*time.Second)
@@ -107,15 +112,15 @@ func HandleRequest(ctx context.Context, evt bot.LambdaEvent) (string, error) {
 			return nil
 		},
 		retry.DelayType(func(n uint, err error, config *retry.Config) time.Duration {
-			log.Err(err).Uint("n", n).Str("gameID", resp.GameId).
+			logger.Err(err).Uint("n", n).
 				Msg("did-not-receive-ack-try-again")
 			return retry.BackOffDelay(n, err, config)
 		}),
 	)
 	if err != nil {
-		log.Err(err).Msg("bot-move-failed")
+		logger.Err(err).Msg("bot-move-failed")
 	}
-	log.Info().Msg("exiting-fn")
+	logger.Info().Msg("exiting-fn")
 	return m.ShortDescription(), nil
 }
 
