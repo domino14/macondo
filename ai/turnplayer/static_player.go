@@ -86,7 +86,7 @@ func (p *AIStaticTurnPlayer) GenerateMoves(numPlays int) []*move.Move {
 	curRack := p.RackFor(p.PlayerOnTurn())
 	oppRack := p.RackFor(p.NextPlayer())
 	// in case we don't have full rack info:
-	unseen := oppRack.NumTiles() + uint8(p.Bag().TilesRemaining())
+	unseen := int(oppRack.NumTiles()) + p.Bag().TilesRemaining()
 	exchAllowed := unseen-game.RackTileLimit >= game.ExchangeLimit
 	p.gen.GenAll(curRack, exchAllowed)
 

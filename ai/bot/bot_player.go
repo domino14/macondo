@@ -124,7 +124,7 @@ func (p *BotTurnPlayer) GenerateMoves(numPlays int) []*move.Move {
 	oppRack := p.RackFor(p.NextPlayer())
 	gen := p.MoveGenerator()
 	// in case we don't have full rack info:
-	unseen := oppRack.NumTiles() + uint8(p.Bag().TilesRemaining())
+	unseen := int(oppRack.NumTiles()) + p.Bag().TilesRemaining()
 	exchAllowed := unseen-game.RackTileLimit >= game.ExchangeLimit
 
 	gen.GenAll(curRack, exchAllowed)
