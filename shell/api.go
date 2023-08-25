@@ -322,8 +322,8 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	if cmd.options["killer-optim"] == "true" {
 		enableKillerPlayOptim = true
 	}
-	if cmd.options["lazysmp-threads"] != "" {
-		maxthreads, err = strconv.Atoi(cmd.options["lazysmp-threads"])
+	if cmd.options["threads"] != "" {
+		maxthreads, err = strconv.Atoi(cmd.options["threads"])
 		if err != nil {
 			return nil, err
 		}
