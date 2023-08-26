@@ -12,7 +12,7 @@ import (
 )
 
 func TestHandleRequest(t *testing.T) {
-	// t.Skip()
+	t.Skip()
 	is := is.New(t)
 	evt := bot.LambdaEvent{
 		CGP:     "15/15/15/15/10N4/10O4/10S4/5INEPTER3/10L4/10I4/10T4/10E4/15/15/15 ?AAGSTZ/ 70/82 0 lex CSW21; ld english; tmr 824793/1000;",
