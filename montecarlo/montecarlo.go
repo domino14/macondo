@@ -27,6 +27,7 @@ import (
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/stats"
 	"github.com/domino14/macondo/tilemapping"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v2"
 )
@@ -66,6 +67,8 @@ const (
 	InferenceCycle
 	InferenceRandom
 )
+
+const StopConditionCheckInterval = 128
 
 // LogIteration is a struct meant for serializing to a log-file, for debug
 // and other purposes.
@@ -200,7 +203,7 @@ type Simmer struct {
 	maxPlies      int
 	// initialPlayer is the player for whom we are simming.
 	initialPlayer  int
-	iterationCount int
+	iterationCount atomic.Uint64
 	nodeCount      atomic.Uint64
 	threads        int
 
@@ -288,7 +291,8 @@ func (s *Simmer) makeGameCopies() error {
 }
 
 func (s *Simmer) resetStats(plies int, plays []*move.Move) {
-	s.iterationCount = 0
+	s.iterationCount.Store(0)
+	s.nodeCount.Store(0)
 	s.maxPlies = plies
 	for _, g := range s.gameCopies {
 		g.SetStateStackLength(1)
@@ -334,6 +338,8 @@ func (s *Simmer) Ready() bool {
 
 // Simulate sims all the plays. It is a blocking function.
 func (s *Simmer) Simulate(ctx context.Context) error {
+	logger := zerolog.Ctx(ctx)
+
 	if len(s.plays) == 0 || len(s.gameCopies) == 0 {
 		return errors.New("please prepare the simulation first")
 	}
@@ -341,14 +347,18 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 	s.simming = true
 	defer func() {
 		s.simming = false
-		log.Info().Int("plies", s.maxPlies).Int("iterationCt", s.iterationCount).
+		logger.Info().Int("plies", s.maxPlies).Uint64("iterationCt", s.iterationCount.Load()).
 			Msg("sim-ended")
 	}()
+
+	nodes := s.nodeCount.Load()
+	// This should be zero, but I think something is wrong with Lambda.
+	logger.Info().Uint64("starting-node-count", nodes).Msg("nodes")
 
 	// use an errgroup here and listen for a ctx done outside this loop, but
 	// in another goroutine.
 	// protect the simmed play statistics with a mutex.
-	log.Debug().Msgf("Simulating with %v threads", s.threads)
+	logger.Debug().Msgf("Simulating with %v threads", s.threads)
 	syncExitChan := make(chan bool, s.threads)
 
 	logChan := make(chan []byte)
@@ -362,11 +372,11 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 
 	ctrl.Go(func() error {
 		defer func() {
-			log.Debug().Msgf("Sim controller thread exiting")
+			logger.Debug().Msgf("Sim controller thread exiting")
 		}()
 		for range ctx.Done() {
 		}
-		log.Debug().Msgf("Context is done: %v", ctx.Err())
+		logger.Debug().Msgf("Context is done: %v", ctx.Err())
 		for t := 0; t < s.threads; t++ {
 			syncExitChan <- true
 		}
@@ -374,7 +384,7 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 		if s.stoppingCondition != StopNone {
 			syncExitChan <- true
 		}
-		log.Debug().Msgf("Sent sync messages to children threads...")
+		logger.Debug().Msgf("Sent sync messages to children threads...")
 
 		return ctx.Err()
 	})
@@ -383,7 +393,7 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 
 		writer.Go(func() error {
 			defer func() {
-				log.Debug().Msgf("Writer routine exiting")
+				logger.Debug().Msgf("Writer routine exiting")
 			}()
 			for {
 				select {
@@ -391,36 +401,45 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 					s.logStream.Write(bytes)
 				case <-done:
 					// Ok, actually quit now.
-					log.Debug().Msgf("Got quit signal...")
+					logger.Debug().Msgf("Got quit signal...")
 					return nil
 				}
 			}
 		})
 	}
 	tstart := time.Now()
-	var iterMutex sync.Mutex
 	g := errgroup.Group{}
+	playSimilarityCache := map[string]bool{}
+
 	for t := 0; t < s.threads; t++ {
 		t := t
 		g.Go(func() error {
 			defer func() {
-				log.Debug().Msgf("Thread %v exiting sim", t)
+				logger.Debug().Msgf("Thread %v exiting sim", t)
 			}()
-			log.Debug().Msgf("Thread %v starting sim", t)
+			logger.Debug().Msgf("Thread %v starting sim", t)
 			for {
-
-				iterMutex.Lock()
-				s.iterationCount++
-				iterNum := s.iterationCount
-				iterMutex.Unlock()
-				err := s.simSingleIteration(s.maxPlies, t, iterNum, logChan)
+				numIters := s.iterationCount.Add(1)
+				err := s.simSingleIteration(ctx, s.maxPlies, t, numIters-1, logChan)
 				if err != nil {
-					log.Err(err).Msg("error simming iteration; canceling")
+					logger.Err(err).Msg("error simming iteration; canceling")
 					cancel()
 				}
+				// check if we need to stop
+				if s.stoppingCondition != StopNone {
+					if numIters%StopConditionCheckInterval == 0 {
+						logger.Debug().Uint64("numIters", numIters).Msg("checking-stopping-condition")
+						stop := s.shouldStop(numIters, playSimilarityCache)
+						if stop {
+							logger.Info().Uint64("numIters", numIters).Msg("reached stopping condition")
+							cancel()
+						}
+					}
+				}
+
 				select {
 				case v := <-syncExitChan:
-					log.Debug().Msgf("Thread %v got sync msg %v", t, v)
+					logger.Debug().Msgf("Thread %v got sync msg %v", t, v)
 					return nil
 				default:
 					// Do nothing
@@ -429,39 +448,13 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 		})
 	}
 
-	if s.stoppingCondition != StopNone {
-		// If there is some sort of programmatic stopping condition, we must
-		// monitor the stats to determine when to stop!
-		ctrl.Go(func() error {
-			defer func() {
-				log.Debug().Msg("stoppingcondition monitor exiting")
-			}()
-			interval := time.Duration(1) * time.Second
-			tk := time.NewTicker(interval)
-			playSimilarityCache := map[string]bool{}
-			for {
-				select {
-				case <-syncExitChan:
-					log.Debug().Msg("stopping condition monitor got exit signal")
-					return nil
-				case <-tk.C:
-					stop := shouldStop(s.plays, s.stoppingCondition, s.iterationCount, playSimilarityCache)
-					if stop {
-						cancel()
-					}
-				}
-			}
-
-		})
-	}
-
 	// Wait for threads in errgroup:
 	err := g.Wait()
-	log.Debug().Msgf("errgroup returned err %v", err)
+	logger.Debug().Msgf("errgroup returned err %v", err)
 	elapsed := time.Since(tstart) // duration is in nanosecs
-	nodes := s.nodeCount.Load()
+	nodes = s.nodeCount.Load()
 	nps := float64(nodes) / elapsed.Seconds()
-	log.Info().Msgf("time taken: %v, nps: %f", elapsed.Seconds(), nps)
+	logger.Info().Msgf("time taken: %v, nps: %f, nodes: %d", elapsed.Seconds(), nps, nodes)
 	// Writer thread will exit now:
 	if s.logStream != nil {
 		close(done)
@@ -469,19 +462,19 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 	}
 
 	ctrlErr := ctrl.Wait()
-	log.Debug().Msgf("ctrl errgroup returned err %v", ctrlErr)
+	logger.Debug().Msgf("ctrl errgroup returned err %v", ctrlErr)
 	// sort plays at the end anyway.
 	s.sortPlaysByWinRate()
 	if ctrlErr == context.Canceled || ctrlErr == context.DeadlineExceeded {
 		// Not actually an error
-		log.Debug().AnErr("ctrlErr", ctrlErr).Msg("montecarlo-it's ok, not an error")
+		logger.Debug().AnErr("ctrlErr", ctrlErr).Msg("montecarlo-it's ok, not an error")
 		return nil
 	}
 	return ctrlErr
 }
 
 func (s *Simmer) Iterations() int {
-	return s.iterationCount
+	return int(s.iterationCount.Load())
 }
 
 func (s *Simmer) TrimBottom(totrim int) error {
@@ -495,16 +488,17 @@ func (s *Simmer) TrimBottom(totrim int) error {
 	return nil
 }
 
-func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan chan []byte) error {
+func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iterationCount uint64, logChan chan []byte) error {
 	// Give opponent a random rack from the bag. Note that this also
 	// shuffles the bag!
+	logger := zerolog.Ctx(ctx)
 
 	g := s.gameCopies[thread]
 
 	opp := (s.initialPlayer + 1) % g.NumPlayers()
 	rackToSet := s.knownOppRack
 	if s.inferenceMode == InferenceCycle {
-		rackToSet = s.inferences[iterationCount%len(s.inferences)]
+		rackToSet = s.inferences[int(iterationCount)%len(s.inferences)]
 	} else if s.inferenceMode == InferenceRandom {
 		rackToSet = s.inferences[frand.Intn(len(s.inferences))]
 	}
@@ -512,7 +506,7 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 	if err != nil {
 		return err
 	}
-	logIter := LogIteration{Iteration: iterationCount, Plays: nil, Thread: thread}
+	logIter := LogIteration{Iteration: int(iterationCount), Plays: nil, Thread: thread}
 
 	var logPlay LogPlay
 	var plyChild LogPlay
@@ -602,7 +596,7 @@ func (s *Simmer) simSingleIteration(plies, thread, iterationCount int, logChan c
 	if s.logStream != nil {
 		out, err := yaml.Marshal([]LogIteration{logIter})
 		if err != nil {
-			log.Error().Err(err).Msg("marshalling log")
+			logger.Error().Err(err).Msg("marshalling log")
 			return err
 		}
 		logChan <- out
@@ -651,7 +645,7 @@ func (s *Simmer) EquityStats() string {
 		fmt.Fprintf(&ss, "%-20s%-9d%-16s%-16s%s\n", play.play.ShortDescription(),
 			play.play.Score(), wpStats, eqStats, ignore)
 	}
-	fmt.Fprintf(&ss, "Iterations: %d (intervals are 99%% confidence, ❌ marks plays cut off early)\n", s.iterationCount)
+	fmt.Fprintf(&ss, "Iterations: %d (intervals are 99%% confidence, ❌ marks plays cut off early)\n", s.iterationCount.Load())
 	return ss.String()
 }
 
@@ -673,16 +667,16 @@ func (s *Simmer) ScoreDetails() string {
 		}
 		stats += "\n"
 	}
-	stats += fmt.Sprintf("Iterations: %d\n", s.iterationCount)
+	stats += fmt.Sprintf("Iterations: %d\n", s.iterationCount.Load())
 	return stats
 }
 
 func (s *Simmer) SimSingleThread(iters int) {
+	ctx := context.Background()
 	for i := 0; i < iters; i++ {
-		iterNum := s.iterationCount + 1
-		s.iterationCount++
+		iters := s.iterationCount.Add(1)
 
-		s.simSingleIteration(s.maxPlies, 0, iterNum, nil)
+		s.simSingleIteration(ctx, s.maxPlies, 0, iters-1, nil)
 	}
 }
 

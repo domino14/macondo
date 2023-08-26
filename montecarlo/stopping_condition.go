@@ -8,19 +8,23 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-const IterationsCutoff = 5000
+const IterationsCutoff = 2000
+const PerPlyStopScaling = 625
 const SimilarPlaysIterationsCutoff = 750
 
 // use stats to figure out when to stop simming.
 
-func shouldStop(plays []*SimmedPlay, sc StoppingCondition, iterationCount int,
+func (s *Simmer) shouldStop(iterationCount uint64,
 	playSimilarityCache map[string]bool) bool {
 	// This function runs as the sim is ongoing. So we should be careful
 	// what we do with memory here.
+	plays := s.plays
+	sc := s.stoppingCondition
+
 	if len(plays) < 2 {
 		return true
 	}
-	if iterationCount > IterationsCutoff {
+	if int(iterationCount) > IterationsCutoff+(s.maxPlies*PerPlyStopScaling) {
 		return true
 	}
 	// Otherwise, do some statistics.

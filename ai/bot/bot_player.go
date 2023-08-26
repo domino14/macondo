@@ -16,6 +16,7 @@ import (
 	"github.com/domino14/macondo/preendgame"
 	"github.com/domino14/macondo/rangefinder"
 	"github.com/domino14/macondo/turnplayer"
+	"github.com/rs/zerolog/log"
 )
 
 type BotConfig struct {
@@ -95,6 +96,7 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 
 	// If it is a simming bot, add more fields.
 	if hasSimming(botType) {
+		log.Info().Msg("adding fields for simmer")
 		c, err := equity.NewCombinedStaticCalculator(
 			p.LexiconName(), p.Config(), "", equity.PEGAdjustmentFilename)
 		if err != nil {
@@ -107,12 +109,15 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 		}
 	}
 	if HasEndgame(botType) {
+		log.Info().Msg("adding fields for endgame")
 		btp.endgamer = &negamax.Solver{}
 	}
 	if HasPreendgame(botType) {
+		log.Info().Msg("adding fields for pre-endgame")
 		btp.preendgamer = &preendgame.Solver{}
 	}
 	if HasInfer(botType) {
+		log.Info().Msg("adding fields for rangefinder")
 		btp.inferencer = &rangefinder.RangeFinder{}
 	}
 

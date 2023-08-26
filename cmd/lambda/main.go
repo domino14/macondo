@@ -68,6 +68,7 @@ func HandleRequest(ctx context.Context, evt bot.LambdaEvent) (string, error) {
 
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithTimeout(ctx, time.Duration(maxTimeShouldTake)*time.Second)
+	ctx = logger.WithContext(ctx)
 
 	lexicon := g.History().Lexicon
 	if lexicon == "" {
@@ -126,7 +127,7 @@ func HandleRequest(ctx context.Context, evt bot.LambdaEvent) (string, error) {
 			logger.Err(err).Msg("bot-move-failed")
 		}
 	}
-	logger.Info().Msg("exiting-fn")
+	logger.Info().Str("winner", m.ShortDescription()).Msg("exiting-fn")
 	return m.ShortDescription(), nil
 }
 

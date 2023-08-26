@@ -12,10 +12,10 @@ import (
 )
 
 func TestHandleRequest(t *testing.T) {
-	t.Skip()
+	// t.Skip()
 	is := is.New(t)
 	evt := bot.LambdaEvent{
-		CGP:     "15/15/15/D2OBO9/ROARERS8/I5COMMoVED1/P4JAPE2I1U1/T2BIOGEN2R1XU/1WHINE4LA2V/1EA1TYG2DUG1KA/4R4AZO1HE/3WAILFUL1E1A1/4N4I1S1N1/NIT1E8S1/1FORTuITY6 ADEELNQ/ 415/450 0 lex CSW21; tmr 60000/0;",
+		CGP:     "15/15/15/15/10N4/10O4/10S4/5INEPTER3/10L4/10I4/10T4/10E4/15/15/15 ?AAGSTZ/ 70/82 0 lex CSW21; ld english; tmr 824793/1000;",
 		GameID:  "foo",
 		BotType: int(pb.BotRequest_SIMMING_BOT),
 	}
