@@ -1203,9 +1203,10 @@ func (g *Game) ToCGP(formatForBot bool) string {
 				} else {
 					// convert back to string without the play-through tiles
 					for _, t := range tiles {
-						if t != 0 {
-							theirRack += t.UserVisible(tm, false)
+						if t == 0 {
+							continue
 						}
+						theirRack += t.IntrinsicTileIdx().UserVisible(tm, false)
 					}
 				}
 			}

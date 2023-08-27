@@ -207,4 +207,20 @@ func TestToCGPWithOppRack(t *testing.T) {
 	g, err := NewFromHistory(gameHistory, rules, 31)
 	is.NoErr(err)
 	is.Equal(g.ToCGP(true), "15/15/12L2/12O1V/12U1O/1L10I1T/KI2G1Q2B2ERE/E2FOGIE1R3AD/MUNI3WEANING1/B2A3E1PO2AH/1VINE2R2R3A/1I1C3S1OM3U/1THEN9L/1AAS10E/2J11R AEERSTT/YD 127/334 1 lex CSW19; ld english;")
+	// try a phony with a blank.
+	jsonFile, err = os.Open("../gcgio/testdata/josh2.json")
+	is.NoErr(err)
+	defer jsonFile.Close()
+
+	bytes, err = io.ReadAll(jsonFile)
+	is.NoErr(err)
+	gameHistory = &pb.GameHistory{}
+	err = json.Unmarshal(bytes, gameHistory)
+	is.NoErr(err)
+	gameHistory.ChallengeRule = pb.ChallengeRule_DOUBLE
+	g, err = NewFromHistory(gameHistory, rules, 23)
+	is.NoErr(err)
+	// opp has blank in rack
+	is.Equal(g.ToCGP(true), "15/9J5/5F3UT4/1SQUARER1TAD3/5I3EMO3/5ZEK2EW3/6MITT1N3/7DOWLY3/5OX1POI4/3ALBUGoS5/3HAO1U7/2CIG2L7/2O2HALON5/1DIETARY7/EINA11 CENNRRT/DEPONE? 316/224 1 lex CSW19;")
+
 }
