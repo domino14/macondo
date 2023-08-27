@@ -61,7 +61,7 @@ Options:
     looking at similar trees. Killer play optimization is off by default,
     as it did not seem to help a great deal when we tested it.
 
-    -lazysmp-threads 3
+    -threads 3
 
     Use LazySMP to recruit more cores to help solve the endgame. Our current
     implementation has a sweet spot around 3 threads, which can result in a 2x or
@@ -73,7 +73,7 @@ Options:
     This option disables the transposition table. Transposition table can take
     up a significant portion of your memory; we currently have it hard-coded around
     25% of total RAM. However, it can greatly speed up many stuck tile endgames
-    and is also needed for multithreading (see lazysmp-threads option).
+    and is also needed for multithreading (see threads option).
 
     -first-win-optim true
 

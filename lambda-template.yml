@@ -13,6 +13,7 @@ Resources:
   MacondoLambdaFunction:
     Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
     Properties:
+      FunctionName: "MacondoLambdaFunction"
       CodeUri: .
       Handler: cmd/lambda/bootstrap
       Runtime: provided.al2
@@ -68,6 +69,13 @@ Resources:
 
     Metadata:
       BuildMethod: makefile
+
+  # It's not being created for some reason?
+  MacondoFunctionLog:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${MacondoLambdaFunction}"
+      RetentionInDays: 14
 
 Outputs:
   # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function

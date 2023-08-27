@@ -18,6 +18,10 @@ func GenBestStaticTurn(g *game.Game, p AITurnPlayer, playerIdx int) *move.Move {
 	mg.(*movegen.GordonGenerator).SetGame(g)
 
 	// Add an exchange only if there are 7 or more tiles in the bag.
-	mg.GenAll(g.RackFor(playerIdx), g.Bag().TilesRemaining() >= game.ExchangeLimit)
+	// in case we don't have full rack info:
+	oppRack := g.RackFor(1 - playerIdx)
+	unseen := int(oppRack.NumTiles()) + g.Bag().TilesRemaining()
+	exchAllowed := unseen-game.RackTileLimit >= game.ExchangeLimit
+	mg.GenAll(g.RackFor(playerIdx), exchAllowed)
 	return mg.Plays()[0]
 }

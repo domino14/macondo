@@ -68,7 +68,7 @@ func TestSimSingleIteration(t *testing.T) {
 	simmer.Init(game, calcs, leaves.(*equity.CombinedStaticCalculator), &DefaultConfig)
 	simmer.PrepareSim(plies, plays)
 
-	simmer.simSingleIteration(plies, 0, 1, nil)
+	simmer.simSingleIteration(context.Background(), plies, 0, 1, nil)
 
 	// Board should be reset back to empty after the simulation.
 	is.True(simmer.gameCopies[0].Board().IsEmpty())
@@ -118,7 +118,7 @@ func BenchmarkSim(b *testing.B) {
 	// 2023-03-15:
 	// 543	   2170050 ns/op	       0 B/op	       0 allocs/op
 	for i := 0; i < b.N; i++ {
-		simmer.simSingleIteration(plies, 0, i+1, nil)
+		simmer.simSingleIteration(context.Background(), plies, 0, uint64(i+1), nil)
 	}
 }
 

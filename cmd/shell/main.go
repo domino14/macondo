@@ -38,12 +38,16 @@ func main() {
 	log.Info().Msgf("Loaded config: %v", cfg)
 	cfg.AdjustRelativePaths(exPath)
 
+	var logger zerolog.Logger
 	if cfg.Debug {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+		logger = zerolog.New(os.Stderr).Level(zerolog.DebugLevel)
 	} else {
 		zerolog.SetGlobalLevel(zerolog.InfoLevel)
+		logger = zerolog.New(os.Stderr).Level(zerolog.InfoLevel)
 	}
-
+	zerolog.DefaultContextLogger = &logger
+	logger.Debug().Msg("Debug logging is on")
 	if cfg.CPUProfile != "" {
 		f, err := os.Create(cfg.CPUProfile)
 		if err != nil {

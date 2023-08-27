@@ -419,35 +419,35 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 				return err
 			})
 		}
+
+		// This is the main thread. All other threads just help update the
+		// transposition table, but this one actually edits the principal
+		// variation.
 		pv := PVLine{g: s.game}
 		val, err := s.negamax(ctx, initialHashKey, p, α, β, &pv, 0)
 
-		sort.Slice(s.initialMoves[0], func(i, j int) bool {
-			return s.initialMoves[0][i].EstimatedValue() > s.initialMoves[0][j].EstimatedValue()
-		})
+		if err != nil {
+			log.Err(err).Msg("negamax-error-most-likely-timeout")
+		} else {
+			sort.Slice(s.initialMoves[0], func(i, j int) bool {
+				return s.initialMoves[0][i].EstimatedValue() > s.initialMoves[0][j].EstimatedValue()
+			})
 
-		s.principalVariation = pv
-		s.bestPVValue = val - int16(s.initialSpread)
-		log.Info().Int16("spread", val).Int("ply", p).Str("pv", pv.NLBString()).Msg("best-val")
-
+			s.principalVariation = pv
+			s.bestPVValue = val - int16(s.initialSpread)
+			log.Info().Int16("spread", val).Int("ply", p).Str("pv", pv.NLBString()).Msg("best-val")
+		}
 		// stop helper threads cleanly
 		for _, c := range cancels {
 			if c != nil {
 				c()
 			}
 		}
-		if err != nil {
-			if err.Error() == "context canceled" {
-				// ignore
-			} else {
-				return err
-			}
-		}
 
 		err = g.Wait()
 		if err != nil {
 			if err.Error() == "context canceled" {
-				// ignore
+				log.Debug().Msg("helper threads exited with a canceled context")
 			} else {
 				return err
 			}

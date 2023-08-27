@@ -14,9 +14,9 @@ def build(c):
     c.run("lipo -create -output macondo macondo-amd64 macondo-arm64")
     c.run(f"zip -r macondo-{tag}-osx-universal.zip ./macondo ./data")
 
-    for os, nickname, arch in [
-        ("linux", "linux-x86_64", "amd64"),
-        ("windows", "win64", "amd64"),
+    for os, nickname, arch, executable in [
+        ("linux", "linux-x86_64", "amd64", "macondo"),
+        ("windows", "win64", "amd64", "macondo.exe"),
     ]:
-        c.run(f"GOOS={os} GOARCH={arch} go build -o macondo ./cmd/shell")
-        c.run(f"zip -r macondo-{tag}-{nickname}.zip ./macondo ./data")
+        c.run(f"GOOS={os} GOARCH={arch} go build -o {executable} ./cmd/shell")
+        c.run(f"zip -r macondo-{tag}-{nickname}.zip ./{executable} ./data")
