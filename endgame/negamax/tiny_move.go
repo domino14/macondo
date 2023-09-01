@@ -2,6 +2,7 @@ package negamax
 
 import (
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tilemapping"
 )
@@ -129,6 +130,35 @@ func tinyMoveToMove(t TinyMove, b *board.GameBoard) *move.Move {
 		}
 	}
 	return move.NewScoringMove(0, mls, nil, vert, tidx, nil, row, col)
+}
+
+func tinyMoveToFullMove(t TinyMove, g *game.Game, onTurnRack *tilemapping.Rack) (*move.Move, error) {
+	m := tinyMoveToMove(t, g.Board())
+	// populate move with missing fields.
+	m.SetAlphabet(g.Alphabet())
+
+	leave, err := tilemapping.Leave(onTurnRack.TilesOn(), m.Tiles(), false)
+	if err != nil {
+		return nil, err
+	}
+	m.SetLeave(leave)
+	// score the play
+	r, c, v := m.CoordsAndVertical()
+
+	crossDir := board.VerticalDirection
+	if v {
+		crossDir = board.HorizontalDirection
+		r, c = c, r
+		g.Board().Transpose()
+	}
+
+	m.SetScore(g.Board().ScoreWord(m.Tiles(), r, c, m.TilesPlayed(), crossDir, g.Bag().LetterDistribution()))
+
+	if v {
+		g.Board().Transpose()
+	}
+
+	return m, nil
 }
 
 func minimallyEqual(m1 *move.Move, m2 *move.Move) bool {
