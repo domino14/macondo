@@ -556,6 +556,16 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			// add spread back in; we subtract them when storing.
 			score += int16(ourSpread)
 			if flag == TTExact {
+				if len(pv.Moves) == 0 {
+					// let's not lose the very first move.
+					log.Info().Msg("exact-tt-move")
+					childPV := PVLine{g: g}
+					child, err := tinyMoveToFullMove(ttEntry.move(), g, g.RackFor(onTurn))
+					if err != nil {
+						return 0, err
+					}
+					pv.Update(child, childPV, score)
+				}
 				return score, nil
 			} else if flag == TTLower {
 				α = max(α, score)
@@ -563,6 +573,16 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 				β = min(β, score)
 			}
 			if α >= β {
+				if len(pv.Moves) == 0 {
+					// let's not lose the very first move.
+					log.Info().Msg("alpha-beta-cutoff-at-tt")
+					childPV := PVLine{g: g}
+					child, err := tinyMoveToFullMove(ttEntry.move(), g, g.RackFor(onTurn))
+					if err != nil {
+						return 0, err
+					}
+					pv.Update(child, childPV, score)
+				}
 				return score, nil
 			}
 			// search hash move first.

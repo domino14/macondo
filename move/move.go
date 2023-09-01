@@ -135,6 +135,10 @@ func (m *Move) SetAlphabet(alph *tilemapping.TileMapping) {
 	m.alph = alph
 }
 
+func (m *Move) SetScore(s int) {
+	m.score = s
+}
+
 // CopyFrom performs a copy of other.
 func (m *Move) CopyFrom(other *Move) {
 	m.action = other.action
