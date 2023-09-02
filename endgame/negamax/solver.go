@@ -753,6 +753,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 
 	err := g.Wait()
 	// Go down tree and find best variation:
+	s.reconstructPV()
 
 	bestSeq = s.principalVariation.Moves
 	bestV = s.bestPVValue
@@ -822,6 +823,34 @@ func (s *Solver) QuickAndDirtySolve(ctx context.Context, plies, thread int) (int
 		Msg("solve-returning")
 
 	return bestV, bestSeq, err
+}
+
+func (s *Solver) reconstructPV() {
+	// s.bestPVValue
+	// s.principalVariation.Moves
+	// s.requestedPlies
+	if !s.transpositionTableOptim {
+		// There is nothing to reconstruct; s.principalVariation should be correct.
+		return
+	}
+	// otherwise we use the TT to help us reconstruct the PV.
+	pvLength := len(s.principalVariation.Moves)
+	if pvLength == s.requestedPlies {
+		// The PV length is already as long as the number of plies we requested.
+		return
+	}
+	oldPVLength := -1
+	plies := s.requestedPlies
+	for oldPVLength != pvLength {
+
+		newPlies := plies - pvLength
+		for _, m := range s.principalVariation.Moves {
+			s.game.PlayMove(m, false, 0)
+		}
+
+	}
+
+	s.game.ResetToFirstState()
 }
 
 func (s *Solver) SetIterativeDeepening(id bool) {
