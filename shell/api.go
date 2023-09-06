@@ -64,6 +64,9 @@ func (sc *ShellController) gid(cmd *shellcmd) (*Response, error) {
 }
 
 func (sc *ShellController) newGame(cmd *shellcmd) (*Response, error) {
+	if sc.solving() {
+		return nil, errMacondoSolving
+	}
 	players := []*pb.PlayerInfo{
 		{Nickname: "arcadio", RealName: "José Arcadio Buendía"},
 		{Nickname: "úrsula", RealName: "Úrsula Iguarán Buendía"},
@@ -99,7 +102,7 @@ func (sc *ShellController) load(cmd *shellcmd) (*Response, error) {
 		return nil, errors.New("need arguments for load")
 	}
 	if sc.solving() {
-		return nil, errors.New("macondo is busy working on a solution to a position")
+		return nil, errMacondoSolving
 	}
 
 	if cmd.args[0] == "cgp" {
@@ -124,7 +127,7 @@ func (sc *ShellController) load(cmd *shellcmd) (*Response, error) {
 
 func (sc *ShellController) unload(cmd *shellcmd) (*Response, error) {
 	if sc.solving() {
-		return nil, errors.New("macondo is busy working on a solution to a position")
+		return nil, errMacondoSolving
 	}
 	sc.game = nil
 	return msg("No active game."), nil
@@ -141,7 +144,7 @@ func (sc *ShellController) list(cmd *shellcmd) (*Response, error) {
 
 func (sc *ShellController) next(cmd *shellcmd) (*Response, error) {
 	if sc.solving() {
-		return nil, errors.New("macondo is busy working on a solution to a position")
+		return nil, errMacondoSolving
 	}
 	err := sc.setToTurn(sc.curTurnNum + 1)
 	if err != nil {
@@ -152,7 +155,7 @@ func (sc *ShellController) next(cmd *shellcmd) (*Response, error) {
 
 func (sc *ShellController) prev(cmd *shellcmd) (*Response, error) {
 	if sc.solving() {
-		return nil, errors.New("macondo is busy working on a solution to a position")
+		return nil, errMacondoSolving
 	}
 	err := sc.setToTurn(sc.curTurnNum - 1)
 	if err != nil {
@@ -209,6 +212,9 @@ func (sc *ShellController) turn(cmd *shellcmd) (*Response, error) {
 	if cmd.args == nil {
 		return nil, errors.New("need argument for turn")
 	}
+	if sc.solving() {
+		return nil, errMacondoSolving
+	}
 	t, err := strconv.Atoi(cmd.args[0])
 	if err != nil {
 		return nil, err
@@ -224,6 +230,9 @@ func (sc *ShellController) rack(cmd *shellcmd) (*Response, error) {
 	if cmd.args == nil {
 		return nil, errors.New("need argument for rack")
 	}
+	if sc.solving() {
+		return nil, errMacondoSolving
+	}
 	rack := cmd.args[0]
 	err := sc.addRack(strings.ToUpper(rack))
 	if err != nil {
@@ -238,6 +247,9 @@ func (sc *ShellController) generate(cmd *shellcmd) (*Response, error) {
 
 	if sc.game == nil {
 		return nil, errors.New("please load or create a game first")
+	}
+	if sc.solving() {
+		return nil, errMacondoSolving
 	}
 
 	if cmd.args == nil {
@@ -288,7 +300,7 @@ func (sc *ShellController) selftest(cmd *shellcmd) (*Response, error) {
 
 func (sc *ShellController) challenge(cmd *shellcmd) (*Response, error) {
 	if sc.solving() {
-		return nil, errors.New("macondo is busy working on a solution to a position")
+		return nil, errMacondoSolving
 	}
 	fields := cmd.args
 	if len(fields) > 0 {
@@ -323,7 +335,7 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	}
 
 	if sc.solving() {
-		return nil, errors.New("macondo is busy working on a solution to a position")
+		return nil, errMacondoSolving
 	}
 
 	plies := 4
@@ -437,7 +449,7 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 	}
 
 	if sc.solving() {
-		return nil, errors.New("macondo is busy working on a solution to a position")
+		return nil, errMacondoSolving
 	}
 
 	var maxtime int
@@ -531,6 +543,10 @@ func (sc *ShellController) infer(cmd *shellcmd) (*Response, error) {
 	if sc.game == nil {
 		return nil, errors.New("please load a game first with the `load` command")
 	}
+	if sc.solving() {
+		return nil, errMacondoSolving
+	}
+
 	var err error
 	var threads, timesec int
 

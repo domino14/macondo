@@ -33,7 +33,7 @@ func (sc *ShellController) handleSim(args []string, options map[string]string) e
 		return errors.New("simming already, please do a `sim stop` first")
 	}
 	if sc.solving() {
-		return errors.New("macondo is busy working on a solution to a position")
+		return errMacondoSolving
 	}
 
 	inferMode := montecarlo.InferenceOff
@@ -193,7 +193,7 @@ func (sc *ShellController) simControlArguments(args []string) error {
 			return errors.New("simmer is not ready; please generate some plays and `sim`")
 		}
 		if sc.solving() {
-			return errors.New("macondo is busy working on a solution to a position")
+			return errMacondoSolving
 		}
 		// No need to prepare sim. startSim will continue from where it left off.
 		sc.startSim()

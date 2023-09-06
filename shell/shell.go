@@ -46,7 +46,8 @@ const (
 )
 
 var (
-	errNoData = errors.New("no data in this line")
+	errNoData         = errors.New("no data in this line")
+	errMacondoSolving = errors.New("macondo is busy working on a solution to a position")
 )
 
 // Options to configure the interactve shell
@@ -555,6 +556,9 @@ func (sc *ShellController) parseCommitMove(playerid int, fields []string) (*move
 }
 
 func (sc *ShellController) commitPlay(fields []string) error {
+	if sc.solving() {
+		return errMacondoSolving
+	}
 	playerid := sc.game.PlayerOnTurn()
 	m, err := sc.parseCommitMove(playerid, fields)
 	if err != nil {
@@ -564,6 +568,9 @@ func (sc *ShellController) commitPlay(fields []string) error {
 }
 
 func (sc *ShellController) addPlay(fields []string) error {
+	if sc.solving() {
+		return errMacondoSolving
+	}
 	playerid := sc.game.PlayerOnTurn()
 	m, err := sc.parseAddMove(playerid, fields)
 	if err != nil {
@@ -575,6 +582,9 @@ func (sc *ShellController) addPlay(fields []string) error {
 func (sc *ShellController) commitAIMove() error {
 	if !sc.IsPlaying() {
 		return errors.New("game is over")
+	}
+	if sc.solving() {
+		return errMacondoSolving
 	}
 	sc.genMoves(15)
 	m := sc.curPlayList[0]
@@ -702,6 +712,9 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 	}
 	if sc.gameRunnerRunning {
 		return errors.New("please stop automatic game runner before running another one")
+	}
+	if sc.solving() {
+		return errMacondoSolving
 	}
 
 	sc.showMessage("automatic game runner will log to " + logfile)
