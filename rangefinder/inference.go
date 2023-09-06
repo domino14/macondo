@@ -461,6 +461,10 @@ func (r *RangeFinder) Reset() {
 	r.readyToInfer = false
 }
 
+func (r *RangeFinder) IsBusy() bool {
+	return r.working
+}
+
 func movesAreKindaTheSame(m1 *move.Move, m2 *move.Move, m2tiles []tilemapping.MachineLetter,
 	g *board.GameBoard) bool {
 	// This is a bit of a fuzzy equality function. We want to see if two

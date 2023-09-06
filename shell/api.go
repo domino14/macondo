@@ -87,11 +87,21 @@ func (sc *ShellController) newGame(cmd *shellcmd) (*Response, error) {
 	sc.curTurnNum = 0
 	return msg(sc.game.ToDisplayText()), nil
 }
+func (sc *ShellController) solving() bool {
+	return (sc.endgameSolver != nil && sc.endgameSolver.IsSolving()) ||
+		(sc.preendgameSolver != nil && sc.preendgameSolver.IsSolving()) ||
+		(sc.simmer != nil && sc.simmer.IsSimming()) ||
+		(sc.rangefinder != nil && sc.rangefinder.IsBusy())
+}
 
 func (sc *ShellController) load(cmd *shellcmd) (*Response, error) {
 	if cmd.args == nil {
 		return nil, errors.New("need arguments for load")
 	}
+	if sc.solving() {
+		return nil, errors.New("macondo is busy working on a solution to a position")
+	}
+
 	if cmd.args[0] == "cgp" {
 		if len(cmd.args) < 2 {
 			return nil, errors.New("need to provide a cgp string")
@@ -113,6 +123,9 @@ func (sc *ShellController) load(cmd *shellcmd) (*Response, error) {
 }
 
 func (sc *ShellController) unload(cmd *shellcmd) (*Response, error) {
+	if sc.solving() {
+		return nil, errors.New("macondo is busy working on a solution to a position")
+	}
 	sc.game = nil
 	return msg("No active game."), nil
 }
@@ -127,6 +140,9 @@ func (sc *ShellController) list(cmd *shellcmd) (*Response, error) {
 }
 
 func (sc *ShellController) next(cmd *shellcmd) (*Response, error) {
+	if sc.solving() {
+		return nil, errors.New("macondo is busy working on a solution to a position")
+	}
 	err := sc.setToTurn(sc.curTurnNum + 1)
 	if err != nil {
 		return nil, err
@@ -135,6 +151,9 @@ func (sc *ShellController) next(cmd *shellcmd) (*Response, error) {
 }
 
 func (sc *ShellController) prev(cmd *shellcmd) (*Response, error) {
+	if sc.solving() {
+		return nil, errors.New("macondo is busy working on a solution to a position")
+	}
 	err := sc.setToTurn(sc.curTurnNum - 1)
 	if err != nil {
 		return nil, err
@@ -268,6 +287,9 @@ func (sc *ShellController) selftest(cmd *shellcmd) (*Response, error) {
 }
 
 func (sc *ShellController) challenge(cmd *shellcmd) (*Response, error) {
+	if sc.solving() {
+		return nil, errors.New("macondo is busy working on a solution to a position")
+	}
 	fields := cmd.args
 	if len(fields) > 0 {
 		addlBonus, err := strconv.Atoi(fields[0])
@@ -292,12 +314,16 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	}
 
 	if len(cmd.args) > 0 && cmd.args[0] == "stop" {
-		if sc.preendgameSolver.IsSolving() {
-			sc.pegCancel()
+		if sc.endgameSolver.IsSolving() {
+			sc.endgameCancel()
 		} else {
-			return nil, errors.New("no pre-endgame to cancel")
+			return nil, errors.New("no endgame to cancel")
 		}
 		return msg(""), nil
+	}
+
+	if sc.solving() {
+		return nil, errors.New("macondo is busy working on a solution to a position")
 	}
 
 	plies := 4
@@ -373,22 +399,25 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 
 	sc.showMessage(sc.game.ToDisplayText())
 
-	val, seq, err := sc.endgameSolver.Solve(ctx, plies)
-	if err != nil {
-		return nil, err
-	}
-	if !enableFW {
-		sc.showMessage(fmt.Sprintf("Best sequence has a spread difference of %v", val))
-	} else {
-		if val+int16(sc.game.CurrentSpread()) > 0 {
-			sc.showMessage("Win found!")
-		} else {
-			sc.showMessage("Win was not found.")
+	go func() {
+		val, seq, err := sc.endgameSolver.Solve(ctx, plies)
+		if err != nil {
+			sc.showError(err)
+			return
 		}
-		sc.showMessage(fmt.Sprintf("Spread diff: %v. Note: this sequence may not be correct. Turn off first-win-optim to search more accurately.", val))
-	}
-	sc.showMessage(fmt.Sprintf("Final spread after seq: %d", val+int16(sc.game.CurrentSpread())))
-	sc.printEndgameSequence(seq)
+		if !enableFW {
+			sc.showMessage(fmt.Sprintf("Best sequence has a spread difference of %v", val))
+		} else {
+			if val+int16(sc.game.CurrentSpread()) > 0 {
+				sc.showMessage("Win found!")
+			} else {
+				sc.showMessage("Win was not found.")
+			}
+			sc.showMessage(fmt.Sprintf("Spread diff: %v. Note: this sequence may not be correct. Turn off first-win-optim to search more accurately.", val))
+		}
+		sc.showMessage(fmt.Sprintf("Final spread after seq: %d", val+int16(sc.game.CurrentSpread())))
+		sc.printEndgameSequence(seq)
+	}()
 	return msg(""), nil
 }
 
@@ -405,6 +434,10 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 			return nil, errors.New("no pre-endgame to cancel")
 		}
 		return msg(""), nil
+	}
+
+	if sc.solving() {
+		return nil, errors.New("macondo is busy working on a solution to a position")
 	}
 
 	var maxtime int
@@ -478,18 +511,19 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 		ctx, sc.pegCancel = context.WithTimeout(ctx, time.Duration(maxtime)*time.Second)
 		defer sc.pegCancel()
 	}
+	go func() {
+		moves, err := sc.preendgameSolver.Solve(ctx)
+		if err != nil {
+			sc.showError(err)
+			return
+		}
+		maxMoves := 20
+		if len(moves) < maxMoves {
+			maxMoves = len(moves)
+		}
 
-	moves, err := sc.preendgameSolver.Solve(ctx)
-	if err != nil {
-		return nil, err
-	}
-	maxMoves := 20
-	if len(moves) < maxMoves {
-		maxMoves = len(moves)
-	}
-
-	sc.showMessage(sc.preendgameSolver.SolutionStats(maxMoves))
-
+		sc.showMessage(sc.preendgameSolver.SolutionStats(maxMoves))
+	}()
 	return msg(""), nil
 }
 
