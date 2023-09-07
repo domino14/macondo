@@ -385,14 +385,9 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 
 	sc.game.SetBackupMode(game.SimulationMode)
 
-	defer func() {
-		sc.game.SetBackupMode(game.InteractiveGameplayMode)
-		sc.game.SetStateStackLength(1)
-	}()
-	ctx := context.Background()
+	sc.endgameCtx, sc.endgameCancel = context.WithCancel(context.Background())
 	if maxtime > 0 {
-		ctx, sc.endgameCancel = context.WithTimeout(ctx, time.Duration(maxtime)*time.Second)
-		defer sc.endgameCancel()
+		sc.endgameCtx, sc.endgameCancel = context.WithTimeout(sc.endgameCtx, time.Duration(maxtime)*time.Second)
 	}
 
 	// clear out the last value of this endgame node; gc should
@@ -412,7 +407,12 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	sc.showMessage(sc.game.ToDisplayText())
 
 	go func() {
-		val, seq, err := sc.endgameSolver.Solve(ctx, plies)
+		defer func() {
+			sc.game.SetBackupMode(game.InteractiveGameplayMode)
+			sc.game.SetStateStackLength(1)
+		}()
+
+		val, seq, err := sc.endgameSolver.Solve(sc.endgameCtx, plies)
 		if err != nil {
 			sc.showError(err)
 			return
@@ -518,13 +518,12 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 	sc.preendgameSolver.SetEarlyCutoffOptim(earlyCutoff)
 	sc.preendgameSolver.SetSkipPassOptim(skipPass)
 	sc.preendgameSolver.SetSkipTiebreaker(skipTiebreaker)
-	ctx := context.Background()
+	sc.pegCtx, sc.pegCancel = context.WithCancel(context.Background())
 	if maxtime > 0 {
-		ctx, sc.pegCancel = context.WithTimeout(ctx, time.Duration(maxtime)*time.Second)
-		defer sc.pegCancel()
+		sc.pegCtx, sc.pegCancel = context.WithTimeout(sc.pegCtx, time.Duration(maxtime)*time.Second)
 	}
 	go func() {
-		moves, err := sc.preendgameSolver.Solve(ctx)
+		moves, err := sc.preendgameSolver.Solve(sc.pegCtx)
 		if err != nil {
 			sc.showError(err)
 			return

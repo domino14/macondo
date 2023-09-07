@@ -125,7 +125,9 @@ type ShellController struct {
 	endgameSolver    *negamax.Solver
 	preendgameSolver *preendgame.Solver
 
+	endgameCtx    context.Context
 	endgameCancel context.CancelFunc
+	pegCtx        context.Context
 	pegCancel     context.CancelFunc
 
 	curPlayList []*move.Move
@@ -154,11 +156,11 @@ func writeln(msg string, w io.Writer) {
 }
 
 func (sc *ShellController) showMessage(msg string) {
-	writeln(msg, sc.l.Stderr())
+	writeln(msg, os.Stdout)
 }
 
 func (sc *ShellController) showError(err error) {
-	sc.showMessage("Error: " + err.Error())
+	sc.showMessage("\033[1;31mError: " + err.Error() + "\033[0m")
 }
 
 func NewShellController(cfg *config.Config, execPath string) *ShellController {
