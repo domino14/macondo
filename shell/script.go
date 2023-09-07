@@ -136,6 +136,9 @@ func (sc *ShellController) script(cmd *shellcmd) (*Response, error) {
 	if cmd.args == nil {
 		return nil, errors.New("need arguments for script")
 	}
+	if sc.solving() {
+		return nil, errMacondoSolving
+	}
 
 	filepath := cmd.args[0]
 

@@ -46,7 +46,8 @@ const (
 )
 
 var (
-	errNoData = errors.New("no data in this line")
+	errNoData         = errors.New("no data in this line")
+	errMacondoSolving = errors.New("macondo is busy working on a solution to a position")
 )
 
 // Options to configure the interactve shell
@@ -123,7 +124,13 @@ type ShellController struct {
 	curMode          Mode
 	endgameSolver    *negamax.Solver
 	preendgameSolver *preendgame.Solver
-	curPlayList      []*move.Move
+
+	endgameCtx    context.Context
+	endgameCancel context.CancelFunc
+	pegCtx        context.Context
+	pegCancel     context.CancelFunc
+
+	curPlayList []*move.Move
 }
 
 type Mode int
@@ -149,11 +156,11 @@ func writeln(msg string, w io.Writer) {
 }
 
 func (sc *ShellController) showMessage(msg string) {
-	writeln(msg, sc.l.Stderr())
+	writeln(msg, os.Stdout)
 }
 
 func (sc *ShellController) showError(err error) {
-	sc.showMessage("Error: " + err.Error())
+	sc.showMessage("\033[1;31mError: " + err.Error() + "\033[0m")
 }
 
 func NewShellController(cfg *config.Config, execPath string) *ShellController {
@@ -551,6 +558,9 @@ func (sc *ShellController) parseCommitMove(playerid int, fields []string) (*move
 }
 
 func (sc *ShellController) commitPlay(fields []string) error {
+	if sc.solving() {
+		return errMacondoSolving
+	}
 	playerid := sc.game.PlayerOnTurn()
 	m, err := sc.parseCommitMove(playerid, fields)
 	if err != nil {
@@ -560,6 +570,9 @@ func (sc *ShellController) commitPlay(fields []string) error {
 }
 
 func (sc *ShellController) addPlay(fields []string) error {
+	if sc.solving() {
+		return errMacondoSolving
+	}
 	playerid := sc.game.PlayerOnTurn()
 	m, err := sc.parseAddMove(playerid, fields)
 	if err != nil {
@@ -571,6 +584,9 @@ func (sc *ShellController) addPlay(fields []string) error {
 func (sc *ShellController) commitAIMove() error {
 	if !sc.IsPlaying() {
 		return errors.New("game is over")
+	}
+	if sc.solving() {
+		return errMacondoSolving
 	}
 	sc.genMoves(15)
 	m := sc.curPlayList[0]
@@ -698,6 +714,9 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 	}
 	if sc.gameRunnerRunning {
 		return errors.New("please stop automatic game runner before running another one")
+	}
+	if sc.solving() {
+		return errMacondoSolving
 	}
 
 	sc.showMessage("automatic game runner will log to " + logfile)

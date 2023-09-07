@@ -4,6 +4,7 @@ Example:
     peg
     peg -threads 1
     peg -threads 8 -endgameplies 6 -maxtime 10
+    peg stop
 
 About:
     Macondo can solve a 1-tile-in-the-bag pre-endgame exhaustively. It does this
@@ -24,6 +25,12 @@ About:
     spread is the overall pre-endgame winner. For now it will just try to 
     tiebreak among the top 10 highest-scoring plays with the same number 
     of wins. 
+
+Optional arguments:
+    peg stop
+
+    This will cancel a running pre-endgame solve and show the best move
+    found so far.
 
 Options:
     -endgameplies 4

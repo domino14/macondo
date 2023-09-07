@@ -64,6 +64,9 @@ func (sc *ShellController) gid(cmd *shellcmd) (*Response, error) {
 }
 
 func (sc *ShellController) newGame(cmd *shellcmd) (*Response, error) {
+	if sc.solving() {
+		return nil, errMacondoSolving
+	}
 	players := []*pb.PlayerInfo{
 		{Nickname: "arcadio", RealName: "José Arcadio Buendía"},
 		{Nickname: "úrsula", RealName: "Úrsula Iguarán Buendía"},
@@ -87,11 +90,21 @@ func (sc *ShellController) newGame(cmd *shellcmd) (*Response, error) {
 	sc.curTurnNum = 0
 	return msg(sc.game.ToDisplayText()), nil
 }
+func (sc *ShellController) solving() bool {
+	return (sc.endgameSolver != nil && sc.endgameSolver.IsSolving()) ||
+		(sc.preendgameSolver != nil && sc.preendgameSolver.IsSolving()) ||
+		(sc.simmer != nil && sc.simmer.IsSimming()) ||
+		(sc.rangefinder != nil && sc.rangefinder.IsBusy())
+}
 
 func (sc *ShellController) load(cmd *shellcmd) (*Response, error) {
 	if cmd.args == nil {
 		return nil, errors.New("need arguments for load")
 	}
+	if sc.solving() {
+		return nil, errMacondoSolving
+	}
+
 	if cmd.args[0] == "cgp" {
 		if len(cmd.args) < 2 {
 			return nil, errors.New("need to provide a cgp string")
@@ -113,6 +126,9 @@ func (sc *ShellController) load(cmd *shellcmd) (*Response, error) {
 }
 
 func (sc *ShellController) unload(cmd *shellcmd) (*Response, error) {
+	if sc.solving() {
+		return nil, errMacondoSolving
+	}
 	sc.game = nil
 	return msg("No active game."), nil
 }
@@ -127,6 +143,9 @@ func (sc *ShellController) list(cmd *shellcmd) (*Response, error) {
 }
 
 func (sc *ShellController) next(cmd *shellcmd) (*Response, error) {
+	if sc.solving() {
+		return nil, errMacondoSolving
+	}
 	err := sc.setToTurn(sc.curTurnNum + 1)
 	if err != nil {
 		return nil, err
@@ -135,6 +154,9 @@ func (sc *ShellController) next(cmd *shellcmd) (*Response, error) {
 }
 
 func (sc *ShellController) prev(cmd *shellcmd) (*Response, error) {
+	if sc.solving() {
+		return nil, errMacondoSolving
+	}
 	err := sc.setToTurn(sc.curTurnNum - 1)
 	if err != nil {
 		return nil, err
@@ -190,6 +212,9 @@ func (sc *ShellController) turn(cmd *shellcmd) (*Response, error) {
 	if cmd.args == nil {
 		return nil, errors.New("need argument for turn")
 	}
+	if sc.solving() {
+		return nil, errMacondoSolving
+	}
 	t, err := strconv.Atoi(cmd.args[0])
 	if err != nil {
 		return nil, err
@@ -205,6 +230,9 @@ func (sc *ShellController) rack(cmd *shellcmd) (*Response, error) {
 	if cmd.args == nil {
 		return nil, errors.New("need argument for rack")
 	}
+	if sc.solving() {
+		return nil, errMacondoSolving
+	}
 	rack := cmd.args[0]
 	err := sc.addRack(strings.ToUpper(rack))
 	if err != nil {
@@ -219,6 +247,9 @@ func (sc *ShellController) generate(cmd *shellcmd) (*Response, error) {
 
 	if sc.game == nil {
 		return nil, errors.New("please load or create a game first")
+	}
+	if sc.solving() {
+		return nil, errMacondoSolving
 	}
 
 	if cmd.args == nil {
@@ -268,6 +299,9 @@ func (sc *ShellController) selftest(cmd *shellcmd) (*Response, error) {
 }
 
 func (sc *ShellController) challenge(cmd *shellcmd) (*Response, error) {
+	if sc.solving() {
+		return nil, errMacondoSolving
+	}
 	fields := cmd.args
 	if len(fields) > 0 {
 		addlBonus, err := strconv.Atoi(fields[0])
@@ -290,6 +324,20 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	if sc.game == nil {
 		return nil, errors.New("please load a game first with the `load` command")
 	}
+
+	if len(cmd.args) > 0 && cmd.args[0] == "stop" {
+		if sc.endgameSolver.IsSolving() {
+			sc.endgameCancel()
+		} else {
+			return nil, errors.New("no endgame to cancel")
+		}
+		return msg(""), nil
+	}
+
+	if sc.solving() {
+		return nil, errMacondoSolving
+	}
+
 	plies := 4
 	var maxtime int
 	var maxthreads = 1
@@ -337,15 +385,9 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 
 	sc.game.SetBackupMode(game.SimulationMode)
 
-	defer func() {
-		sc.game.SetBackupMode(game.InteractiveGameplayMode)
-		sc.game.SetStateStackLength(1)
-	}()
-	var cancel context.CancelFunc
-	ctx := context.Background()
+	sc.endgameCtx, sc.endgameCancel = context.WithCancel(context.Background())
 	if maxtime > 0 {
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(maxtime)*time.Second)
-		defer cancel()
+		sc.endgameCtx, sc.endgameCancel = context.WithTimeout(sc.endgameCtx, time.Duration(maxtime)*time.Second)
 	}
 
 	// clear out the last value of this endgame node; gc should
@@ -364,22 +406,30 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 
 	sc.showMessage(sc.game.ToDisplayText())
 
-	val, seq, err := sc.endgameSolver.Solve(ctx, plies)
-	if err != nil {
-		return nil, err
-	}
-	if !enableFW {
-		sc.showMessage(fmt.Sprintf("Best sequence has a spread difference of %v", val))
-	} else {
-		if val+int16(sc.game.CurrentSpread()) > 0 {
-			sc.showMessage("Win found!")
-		} else {
-			sc.showMessage("Win was not found.")
+	go func() {
+		defer func() {
+			sc.game.SetBackupMode(game.InteractiveGameplayMode)
+			sc.game.SetStateStackLength(1)
+		}()
+
+		val, seq, err := sc.endgameSolver.Solve(sc.endgameCtx, plies)
+		if err != nil {
+			sc.showError(err)
+			return
 		}
-		sc.showMessage(fmt.Sprintf("Spread diff: %v. Note: this sequence may not be correct. Turn off first-win-optim to search more accurately.", val))
-	}
-	sc.showMessage(fmt.Sprintf("Final spread after seq: %d", val+int16(sc.game.CurrentSpread())))
-	sc.printEndgameSequence(seq)
+		if !enableFW {
+			sc.showMessage(fmt.Sprintf("Best sequence has a spread difference of %v", val))
+		} else {
+			if val+int16(sc.game.CurrentSpread()) > 0 {
+				sc.showMessage("Win found!")
+			} else {
+				sc.showMessage("Win was not found.")
+			}
+			sc.showMessage(fmt.Sprintf("Spread diff: %v. Note: this sequence may not be correct. Turn off first-win-optim to search more accurately.", val))
+		}
+		sc.showMessage(fmt.Sprintf("Final spread after seq: %d", val+int16(sc.game.CurrentSpread())))
+		sc.printEndgameSequence(seq)
+	}()
 	return msg(""), nil
 }
 
@@ -388,6 +438,19 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 		return nil, errors.New("please load a game first with the `load` command")
 	}
 	endgamePlies := 4
+
+	if len(cmd.args) > 0 && cmd.args[0] == "stop" {
+		if sc.preendgameSolver.IsSolving() {
+			sc.pegCancel()
+		} else {
+			return nil, errors.New("no pre-endgame to cancel")
+		}
+		return msg(""), nil
+	}
+
+	if sc.solving() {
+		return nil, errMacondoSolving
+	}
 
 	var maxtime int
 	var maxthreads = 0
@@ -455,24 +518,23 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 	sc.preendgameSolver.SetEarlyCutoffOptim(earlyCutoff)
 	sc.preendgameSolver.SetSkipPassOptim(skipPass)
 	sc.preendgameSolver.SetSkipTiebreaker(skipTiebreaker)
-	var cancel context.CancelFunc
-	ctx := context.Background()
+	sc.pegCtx, sc.pegCancel = context.WithCancel(context.Background())
 	if maxtime > 0 {
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(maxtime)*time.Second)
-		defer cancel()
+		sc.pegCtx, sc.pegCancel = context.WithTimeout(sc.pegCtx, time.Duration(maxtime)*time.Second)
 	}
+	go func() {
+		moves, err := sc.preendgameSolver.Solve(sc.pegCtx)
+		if err != nil {
+			sc.showError(err)
+			return
+		}
+		maxMoves := 20
+		if len(moves) < maxMoves {
+			maxMoves = len(moves)
+		}
 
-	moves, err := sc.preendgameSolver.Solve(ctx)
-	if err != nil {
-		return nil, err
-	}
-	maxMoves := 20
-	if len(moves) < maxMoves {
-		maxMoves = len(moves)
-	}
-
-	sc.showMessage(sc.preendgameSolver.SolutionStats(maxMoves))
-
+		sc.showMessage(sc.preendgameSolver.SolutionStats(maxMoves))
+	}()
 	return msg(""), nil
 }
 
@@ -480,6 +542,10 @@ func (sc *ShellController) infer(cmd *shellcmd) (*Response, error) {
 	if sc.game == nil {
 		return nil, errors.New("please load a game first with the `load` command")
 	}
+	if sc.solving() {
+		return nil, errMacondoSolving
+	}
+
 	var err error
 	var threads, timesec int
 
