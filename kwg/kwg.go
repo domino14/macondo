@@ -141,13 +141,14 @@ func (k *KWG) GetWordIndexOf(nodeIdx uint32, letters tilemapping.MachineWord) in
 	lidx := 0
 
 	for nodeIdx != 0 {
+		idx += k.wordCounts[nodeIdx]
 		for k.Tile(nodeIdx) != uint8(letters[lidx]) {
 			if k.IsEnd(nodeIdx) {
 				return -1
 			}
-			idx += k.wordCounts[nodeIdx] - k.wordCounts[nodeIdx+1]
 			nodeIdx++
 		}
+		idx -= k.wordCounts[nodeIdx]
 		lidx++
 		if lidx > len(letters)-1 {
 			if k.Accepts(nodeIdx) {
