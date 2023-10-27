@@ -477,6 +477,40 @@ func TestZeroPtFirstPlay(t *testing.T) {
 	is.Equal(v, int16(-42))
 }
 
+// This benchmark is really only here to measure allocations etc.
+
+func BenchmarkPassFirst(b *testing.B) {
+	is := is.New(b)
+
+	plies := 8
+	// https://www.cross-tables.com/annotated.php?u=25243#22
+	pos := "GATELEGs1POGOED/R4MOOLI3X1/AA10U2/YU4BREDRIN2/1TITULE3E1IN1/1E4N3c1BOK/1C2O4CHARD1/QI1FLAWN2E1OE1/IS2E1HIN1A1W2/1MOTIVATE1T1S2/1S2N5S4/3PERJURY5/15/15/15 FV/AADIZ 442/388 0 lex CSW19;"
+	g, err := cgp.ParseCGP(&DefaultConfig, pos)
+	is.NoErr(err)
+	gd, err := kwg.Get(&DefaultConfig, "CSW19")
+	is.NoErr(err)
+	g.SetBackupMode(game.SimulationMode)
+	g.RecalculateBoard()
+	gen1 := movegen.NewGordonGenerator(
+		gd, g.Board(), g.Bag().LetterDistribution(),
+	)
+
+	s := new(Solver)
+	s.Init(gen1, g.Game)
+	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
+	b.ResetTimer()
+	// 8.7 GB Allocated!!
+	// 10/24/23  1	1578926502 ns/op	8699932296 B/op	 2720435 allocs/op
+
+	for i := 0; i < b.N; i++ {
+		v, seq, _ := s.Solve(context.Background(), plies)
+
+		is.Equal(v, int16(-60))
+		is.Equal(seq[0].Action(), move.MoveTypePass)
+		is.Equal(len(seq), 6)
+	}
+}
+
 // func TestSolveNegamaxFunc2(t *testing.T) {
 // 	plies := 11
 
