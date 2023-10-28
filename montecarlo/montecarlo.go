@@ -98,8 +98,9 @@ type SimmedPlay struct {
 	bingoStats    []stats.Statistic
 	equityStats   stats.Statistic
 	leftoverStats stats.Statistic
-	winPctStats   stats.Statistic
-	ignore        bool
+	// Actually this is win probability (0 to 1), not percent:
+	winPctStats stats.Statistic
+	ignore      bool
 }
 
 func (sp *SimmedPlay) String() string {

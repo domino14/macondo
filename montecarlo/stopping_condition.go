@@ -12,6 +12,8 @@ const IterationsCutoff = 2000
 const PerPlyStopScaling = 625
 const SimilarPlaysIterationsCutoff = 750
 
+const MinReasonableWProb = 0.005
+
 // use stats to figure out when to stop simming.
 
 func (s *Simmer) shouldStop(iterationCount uint64,
@@ -32,6 +34,7 @@ func (s *Simmer) shouldStop(iterationCount uint64,
 	c := make([]*SimmedPlay, len(plays))
 	// count ignored plays
 	ignoredPlays := 0
+	bottomUnignoredWinPct := 0.0
 	for i := range c {
 		c[i] = plays[i]
 		c[i].RLock()
@@ -57,6 +60,17 @@ func (s *Simmer) shouldStop(iterationCount uint64,
 		return c[i].winPctStats.Mean() > c[j].winPctStats.Mean()
 	})
 
+	// find the bottom unignored win pct play
+	for i := len(c) - 1; i >= 0; i-- {
+		c[i].RLock()
+		if !c[i].ignore {
+			bottomUnignoredWinPct = c[i].winPctStats.Mean()
+			c[i].RUnlock()
+			break
+		}
+		c[i].RUnlock()
+	}
+
 	// we want to cut off plays that have no chance of winning.
 	// assume the very top play is the winner, and then cut off plays that have
 	// no chance of catching up.
@@ -71,11 +85,26 @@ func (s *Simmer) shouldStop(iterationCount uint64,
 	case Stop99:
 		ci = stats.Z99
 	}
-
+	tiebreakByEquity := false
 	tentativeWinner := c[0]
 	tentativeWinner.RLock()
 	μ := tentativeWinner.winPctStats.Mean()
 	e := tentativeWinner.winPctStats.StandardError(ci)
+	if μ <= MinReasonableWProb {
+		// If the top play by win % has basically no win chance, tiebreak the whole
+		// thing by equity.
+		tiebreakByEquity = true
+	} else if μ >= (1-MinReasonableWProb) && bottomUnignoredWinPct >= (1-MinReasonableWProb) {
+		// If the top play by win % has basically no losing chance, check if the bottom
+		// play also has no losing chance
+		tiebreakByEquity = true
+	}
+
+	if tiebreakByEquity {
+		μ = tentativeWinner.equityStats.Mean()
+		e = tentativeWinner.equityStats.StandardError(ci)
+		log.Debug().Msg("stopping-condition-tiebreak-by-equity")
+	}
 	tentativeWinner.RUnlock()
 	newIgnored := 0
 	// assume standard normal distribution (?)
@@ -87,6 +116,10 @@ func (s *Simmer) shouldStop(iterationCount uint64,
 		}
 		μi := p.winPctStats.Mean()
 		ei := p.winPctStats.StandardError(ci)
+		if tiebreakByEquity {
+			μi = p.equityStats.Mean()
+			ei = p.equityStats.StandardError(ci)
+		}
 		p.RUnlock()
 		if passTest(μ, e, μi, ei) {
 			p.Ignore()

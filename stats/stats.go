@@ -2,6 +2,14 @@ package stats
 
 import "math"
 
+const (
+	Epsilon = 1e-6
+)
+
+func FuzzyEqual(a, b float64) bool {
+	return math.Abs(a-b) < Epsilon
+}
+
 // Statistic contains statistics per move
 type Statistic struct {
 	totalIterations int
