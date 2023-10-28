@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -340,7 +341,13 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 
 	plies := 4
 	var maxtime int
-	var maxthreads = 1
+	var maxthreads = runtime.NumCPU() - 1
+	if maxthreads == 0 {
+		maxthreads = 1
+	}
+	if maxthreads > negamax.MaxLazySMPThreads {
+		maxthreads = negamax.MaxLazySMPThreads
+	}
 	var disableID bool
 	var disableTT bool
 	var enableFW bool
