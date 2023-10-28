@@ -70,6 +70,10 @@ type Game struct {
 	stackPtr   int
 	// rules contains the original game rules passed in to create this game.
 	rules *GameRules
+
+	// sturnsBackup - a variable used to hold value of scorelessTurns prior to
+	// putting game in endgame mode.
+	sturnsBackup int
 }
 
 func (g *Game) Config() *config.Config {
@@ -433,6 +437,26 @@ func (g *Game) SetMaxScorelessTurns(m int) {
 func (g *Game) SetScorelessTurns(n int) {
 	g.lastScorelessTurns = g.scorelessTurns
 	g.scorelessTurns = n
+}
+
+func (g *Game) SetEndgameMode(m bool) {
+	if m {
+		g.sturnsBackup = g.scorelessTurns
+		// Set max scoreless turns to 2 in the endgame so we don't generate
+		// unnecessary sequences of passes.
+		// We must edit the current value of scoreless turns "relative" to max
+		// so that the endgame solver doesn't think the game is over next turn
+		// if there have been any scoreless turns.
+		if g.scorelessTurns+1 >= g.maxScorelessTurns {
+			g.scorelessTurns = 1
+		} else {
+			g.scorelessTurns = 0
+		}
+		g.maxScorelessTurns = 2
+	} else {
+		g.maxScorelessTurns = DefaultMaxScorelessTurns
+		g.scorelessTurns = g.sturnsBackup
+	}
 }
 
 // Convert the slice of MachineWord to user-visible, using the game's lexicon.

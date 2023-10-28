@@ -296,9 +296,7 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 		// there can also be passes etc. just add a hacky number.
 		// XXX: state stack length should probably just be a fixed large number.
 		g.SetStateStackLength(s.endgamePlies + 5)
-		// Set max scoreless turns to 2 in the endgame so we don't generate
-		// unnecessary sequences of passes.
-		g.SetMaxScorelessTurns(2)
+		g.SetEndgameMode(true)
 		// Set a fixed order for the bag. This makes it easy for us to control
 		// what tiles we draw after making a move.
 		g.Bag().SetFixedOrder(true)
