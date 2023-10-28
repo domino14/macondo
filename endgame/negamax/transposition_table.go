@@ -162,6 +162,7 @@ func (t *TranspositionTable) Reset(fractionOfMemory float64, boardDim int) {
 	log.Info().Int("num-elems", numElems).
 		Float64("desired-num-elems", desiredNElems).
 		Int("estimated-total-memory-bytes", numElems*entrySize).
+		Uint64("total-system-memory-bytes", totalMem).
 		Bool("reset", reset).
 		Msg("transposition-table-size")
 
