@@ -5,6 +5,16 @@ A crossword board game solver. It may be the best one in the world (so far).
 Current master build status:
 [![domino14](https://circleci.com/gh/domino14/macondo.svg?style=svg)](https://circleci.com/gh/domino14/macondo)
 
+# What is a crossword board game?
+
+A crossword board game is a board game where you take turns creating crosswords
+with one or more players. Some examples are:
+
+- Scrabble™️ Brand Crossword Game
+- Words with Friends
+- Lexulous
+- Yahoo! Literati (defunct)
+
 # How to use Macondo:
 
 See the manual and information here:
