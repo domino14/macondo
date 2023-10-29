@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"runtime/pprof"
 	"strings"
 	"syscall"
@@ -88,6 +89,10 @@ func main() {
 			panic("could not create memory profile: " + err.Error())
 		}
 		defer f.Close() // error handling omitted for example
+		memstats := &runtime.MemStats{}
+		runtime.ReadMemStats(memstats)
+		log.Info().Interface("memstats", memstats).Msg("memory-stats")
+
 		// runtime.GC()    // get up-to-date statistics
 		if err := pprof.WriteHeapProfile(f); err != nil {
 			panic("could not write memory profile: " + err.Error())

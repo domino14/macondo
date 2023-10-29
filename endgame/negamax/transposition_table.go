@@ -3,6 +3,7 @@ package negamax
 import (
 	"math"
 	"runtime"
+	"runtime/debug"
 	"sync/atomic"
 
 	"github.com/domino14/macondo/zobrist"
@@ -133,7 +134,13 @@ func (t *TranspositionTable) store(zval uint64, tentry TableEntry) {
 func (t *TranspositionTable) Reset(fractionOfMemory float64, boardDim int) {
 	t.Lock()
 	defer t.Unlock()
+	// Get memory limit, if set.
+	memLimit := debug.SetMemoryLimit(-1)
 	totalMem := memory.TotalMemory()
+	if memLimit != math.MaxInt64 {
+		// Let's obey the set value as the memory limit.
+		totalMem = uint64(memLimit)
+	}
 	desiredNElems := fractionOfMemory * (float64(totalMem) / float64(entrySize))
 	// find biggest power of 2 lower than desired.
 	t.sizePowerOf2 = int(math.Log2(desiredNElems))
@@ -162,6 +169,7 @@ func (t *TranspositionTable) Reset(fractionOfMemory float64, boardDim int) {
 	log.Info().Int("num-elems", numElems).
 		Float64("desired-num-elems", desiredNElems).
 		Int("estimated-total-memory-bytes", numElems*entrySize).
+		Uint64("mem-limit", totalMem).
 		Bool("reset", reset).
 		Msg("transposition-table-size")
 

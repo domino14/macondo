@@ -100,6 +100,37 @@ func TestStraightforward1PEG(t *testing.T) {
 	is.Equal(plays[0].OutcomeFor([]tilemapping.MachineLetter{25}), PEGDraw)
 }
 
+// This benchmark is really only here to measure allocations etc.
+func BenchmarkStraightforward1PEG(b *testing.B) {
+	is := is.New(b)
+	cgpStr := "15/3Q7U3/3U2TAURINE2/1CHANSONS2W3/2AI6JO3/DIRL1PO3IN3/E1D2EF3V4/F1I2p1TRAIK3/O1L2T4E4/ABy1PIT2BRIG2/ME1MOZELLE5/1GRADE1O1NOH3/WE3R1V7/AT5E7/G6D7 ENOSTXY/ACEISUY 356/378 0 lex NWL20;"
+	g, err := cgp.ParseCGP(&DefaultConfig, cgpStr)
+	is.NoErr(err)
+	g.RecalculateBoard()
+
+	gd, err := kwg.Get(&DefaultConfig, "NWL20")
+	is.NoErr(err)
+	peg := new(Solver)
+
+	err = peg.Init(g.Game, gd)
+	is.NoErr(err)
+	ctx := context.Background()
+
+	b.ResetTimer()
+
+	// 10/24/23 -  1	16283647648 ns/op	43704360960 B/op	831437490 allocs/op
+	// Look at those allocations! 43.7 GB mem
+	for i := 0; i < b.N; i++ {
+		plays, err := peg.Solve(ctx)
+		is.NoErr(err)
+
+		// 13L ONYX wins 7.5/8 endgames, tying only with the Y. it is counter-intuitive.
+		is.Equal(plays[0].Play.ShortDescription(), "13L ONYX")
+		is.Equal(plays[0].Points, float32(7.5))
+		is.Equal(plays[0].OutcomeFor([]tilemapping.MachineLetter{25}), PEGDraw)
+	}
+}
+
 // Test a complex pre-endgame with 1 in the bag.
 // There are several winning moves, one of them being a pass. Note that we
 // need to look forward a bit more (increase endgame plies to at least 7) since there is a Q

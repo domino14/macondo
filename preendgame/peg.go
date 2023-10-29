@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/rs/zerolog/log"
 
@@ -295,9 +296,7 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 		// there can also be passes etc. just add a hacky number.
 		// XXX: state stack length should probably just be a fixed large number.
 		g.SetStateStackLength(s.endgamePlies + 5)
-		// Set max scoreless turns to 2 in the endgame so we don't generate
-		// unnecessary sequences of passes.
-		g.SetMaxScorelessTurns(2)
+		g.SetEndgameMode(true)
 		// Set a fixed order for the bag. This makes it easy for us to control
 		// what tiles we draw after making a move.
 		g.Bag().SetFixedOrder(true)
@@ -423,6 +422,8 @@ func (s *Solver) multithreadSolve(ctx context.Context, moves []*move.Move) ([]*P
 	jobChan := make(chan job, s.threads*2)
 	winnerChan := make(chan *PreEndgamePlay)
 
+	var processed atomic.Uint32
+
 	for t := 0; t < s.threads; t++ {
 		t := t
 		g.Go(func() error {
@@ -430,6 +431,11 @@ func (s *Solver) multithreadSolve(ctx context.Context, moves []*move.Move) ([]*P
 				if err := s.handleJob(ctx, j, t, winnerChan); err != nil {
 					log.Debug().AnErr("err", err).Msg("error-handling-job")
 					// Don't exit, to avoid deadlock.
+				}
+				processed.Add(1)
+				n := processed.Load()
+				if n%500 == 0 {
+					log.Info().Msgf("processed %d endgames...", n)
 				}
 			}
 			return nil

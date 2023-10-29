@@ -73,9 +73,10 @@ Options:
     -threads 3
 
     Use LazySMP to recruit more cores to help solve the endgame. Our current
-    implementation has a sweet spot around 3 threads, which can result in a 2x or
+    implementation has a sweet spot around 6 threads, which can result in a 2-3x or
     more speedup. Any more and it actually starts to get slower. We will 
-    continue trying to improve this.
+    continue trying to improve this. Defaults to the minimum of 6 and your number 
+    of cores minus 1. Set to 1 to disable LazySMP.
 
     -disable-tt true
 

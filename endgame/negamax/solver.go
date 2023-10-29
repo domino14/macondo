@@ -713,10 +713,9 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	if s.transpositionTableOptim {
 		s.ttable.Reset(s.game.Config().TTableFractionOfMem, s.game.Board().Dim())
 	}
-	// Set max scoreless turns to 2 in the endgame so we don't generate
-	// unnecessary sequences of passes.
-	s.game.SetMaxScorelessTurns(2)
-	defer s.game.SetMaxScorelessTurns(game.DefaultMaxScorelessTurns)
+	s.game.SetEndgameMode(true)
+	defer s.game.SetEndgameMode(false)
+
 	s.initialSpread = s.game.CurrentSpread()
 	log.Debug().Msgf("Player %v spread at beginning of endgame: %v (%d)", s.solvingPlayer, s.initialSpread, s.game.ScorelessTurns())
 	s.nodes.Store(0)

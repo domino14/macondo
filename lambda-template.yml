@@ -32,7 +32,9 @@ Resources:
           STRATEGY_PARAMS_PATH: /mnt/data/data/strategy
           DATA_PATH: /mnt/data/data
           NATS_URL: nats://10.0.0.251:4222
-          TTABLE_MEM_FRACTION: 0.5
+          TTABLE_MEM_FRACTION: 0.25
+          GOMEMLIMIT: 5500MiB   # lambda uses mebibytes (6000 MiB would be the limit above). Set go mem limit a bit lower.
+          # https://docs.aws.amazon.com/lambda/latest/dg/gettingstarted-limits.html
           # DEBUG: 1
       VpcConfig:
         # This is the woogles VPC Config ids.
