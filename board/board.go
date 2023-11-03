@@ -179,27 +179,56 @@ func (g *GameBoard) Transpose() {
 	g.rowMul, g.colMul = g.colMul, g.rowMul
 }
 
-func (g *GameBoard) getSqIdx(row, col int) int {
+func (g *GameBoard) GetSqIdx(row, col int) int {
 	return row*g.rowMul + col*g.colMul
 }
 
 func (g *GameBoard) GetBonus(row int, col int) BonusSquare {
 	// No need to check for transpositions as bonuses are rotationally invariant
 	// (I feel ok making this assumption for now)
-	return g.bonuses[g.getSqIdx(row, col)]
+	return g.bonuses[g.GetSqIdx(row, col)]
+}
+
+func (g *GameBoard) GetLetterMultiplier(sqIdx int) int {
+	switch g.bonuses[sqIdx] {
+	case Bonus2LS:
+		return 2
+	case Bonus3LS:
+		return 3
+	case Bonus4LS:
+		return 4
+	default:
+		return 1
+	}
+}
+
+func (g *GameBoard) GetWordMultiplier(sqIdx int) int {
+	switch g.bonuses[sqIdx] {
+	case Bonus2WS:
+		return 2
+	case Bonus3WS:
+		return 3
+	case Bonus4WS:
+		return 4
+	default:
+		return 1
+	}
 }
 
 func (g *GameBoard) SetLetter(row int, col int, letter tilemapping.MachineLetter) {
-	g.squares[g.getSqIdx(row, col)] = letter
+	g.squares[g.GetSqIdx(row, col)] = letter
 }
 
 func (g *GameBoard) GetLetter(row int, col int) tilemapping.MachineLetter {
-	return g.squares[g.getSqIdx(row, col)]
+	return g.squares[g.GetSqIdx(row, col)]
 }
 
 func (g *GameBoard) GetCrossScore(row int, col int, dir BoardDirection) int {
-	pos := g.getSqIdx(row, col)
+	pos := g.GetSqIdx(row, col)
+	return g.GetCrossScoreIdx(pos, dir)
+}
 
+func (g *GameBoard) GetCrossScoreIdx(pos int, dir BoardDirection) int {
 	switch dir {
 	case HorizontalDirection:
 		return g.hCrossScores[pos]
@@ -212,7 +241,7 @@ func (g *GameBoard) GetCrossScore(row int, col int, dir BoardDirection) int {
 }
 
 func (g *GameBoard) SetCrossScore(row, col, score int, dir BoardDirection) {
-	pos := g.getSqIdx(row, col)
+	pos := g.GetSqIdx(row, col)
 
 	switch dir {
 	case HorizontalDirection:
@@ -233,9 +262,7 @@ func (g *GameBoard) ResetCrossScores() {
 	}
 }
 
-func (g *GameBoard) GetCrossSet(row int, col int, dir BoardDirection) CrossSet {
-	pos := g.getSqIdx(row, col)
-
+func (g *GameBoard) GetCrossSetIdx(pos int, dir BoardDirection) CrossSet {
 	switch dir {
 	case HorizontalDirection:
 		return g.hCrossSets[pos]
@@ -247,8 +274,13 @@ func (g *GameBoard) GetCrossSet(row int, col int, dir BoardDirection) CrossSet {
 	}
 }
 
+func (g *GameBoard) GetCrossSet(row int, col int, dir BoardDirection) CrossSet {
+	pos := g.GetSqIdx(row, col)
+	return g.GetCrossSetIdx(pos, dir)
+}
+
 func (g *GameBoard) ClearCrossSet(row int, col int, dir BoardDirection) {
-	pos := g.getSqIdx(row, col)
+	pos := g.GetSqIdx(row, col)
 	switch dir {
 	case HorizontalDirection:
 		g.hCrossSets[pos] = 0
@@ -261,7 +293,7 @@ func (g *GameBoard) ClearCrossSet(row int, col int, dir BoardDirection) {
 
 func (g *GameBoard) SetCrossSetLetter(row int, col int, dir BoardDirection,
 	ml tilemapping.MachineLetter) {
-	pos := g.getSqIdx(row, col)
+	pos := g.GetSqIdx(row, col)
 	switch dir {
 	case HorizontalDirection:
 		g.hCrossSets[pos].Set(ml)
@@ -274,7 +306,7 @@ func (g *GameBoard) SetCrossSetLetter(row int, col int, dir BoardDirection,
 
 func (g *GameBoard) SetCrossSet(row int, col int, cs CrossSet,
 	dir BoardDirection) {
-	pos := g.getSqIdx(row, col)
+	pos := g.GetSqIdx(row, col)
 	switch dir {
 	case HorizontalDirection:
 		g.hCrossSets[pos] = cs
@@ -333,7 +365,7 @@ func (g *GameBoard) updateAnchors(row int, col int, vertical bool) {
 		row, col = col, row
 	}
 	// Always reset the anchors before applying anything else.
-	pos := g.getSqIdx(row, col)
+	pos := g.GetSqIdx(row, col)
 	g.hAnchors[pos] = false
 	g.vAnchors[pos] = false
 	var tileAbove, tileBelow, tileLeft, tileRight, tileHere bool
@@ -388,21 +420,21 @@ func (g *GameBoard) UpdateAllAnchors() {
 	} else {
 		for i := 0; i < n; i++ {
 			for j := 0; j < n; j++ {
-				pos := g.getSqIdx(i, j)
+				pos := g.GetSqIdx(i, j)
 				g.hAnchors[pos] = false
 				g.vAnchors[pos] = false
 			}
 		}
 		rc := int(n / 2)
 		// If the board is empty, set just one anchor, in the center square.
-		g.hAnchors[g.getSqIdx(rc, rc)] = true
+		g.hAnchors[g.GetSqIdx(rc, rc)] = true
 	}
 }
 
 // IsAnchor returns whether the row/col pair is an anchor in the given
 // direction.
 func (g *GameBoard) IsAnchor(row int, col int, dir BoardDirection) bool {
-	pos := g.getSqIdx(row, col)
+	pos := g.GetSqIdx(row, col)
 	switch dir {
 	case HorizontalDirection:
 		return g.hAnchors[pos]
@@ -499,7 +531,7 @@ func (g *GameBoard) PlaceMoveTiles(m *move.Move) {
 			col = colStart + idx
 			row = rowStart
 		}
-		g.squares[g.getSqIdx(row, col)] = tile
+		g.squares[g.GetSqIdx(row, col)] = tile
 	}
 }
 
@@ -517,7 +549,7 @@ func (g *GameBoard) UnplaceMoveTiles(m *move.Move) {
 			col = colStart + idx
 			row = rowStart
 		}
-		g.squares[g.getSqIdx(row, col)] = 0
+		g.squares[g.GetSqIdx(row, col)] = 0
 	}
 }
 

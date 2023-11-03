@@ -1,6 +1,7 @@
 package movegen
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -73,7 +74,8 @@ func TestGenBase(t *testing.T) {
 	generator.curAnchorCol = 8
 	// Row 4 for shiz and gig
 	generator.curRowIdx = 4
-	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true)
+	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true,
+		0, 0, 1)
 
 	if len(generator.plays) != 0 {
 		t.Errorf("Generated %v plays, expected %v", len(generator.plays), 0)
@@ -118,7 +120,8 @@ func TestSimpleRowGen(t *testing.T) {
 		rack := tilemapping.RackFromString(tc.rack, gd.GetAlphabet())
 		board.SetRow(tc.row, tc.rowString, gd.GetAlphabet())
 		generator.curRowIdx = tc.row
-		generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true)
+		generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true,
+			0, 0, 1)
 		if len(generator.plays) != tc.expectedPlays {
 			t.Errorf("%v Generated %v plays, expected %v", idx, generator.plays, tc.expectedPlays)
 		}
@@ -143,7 +146,8 @@ func TestGenThroughBothWaysAllowedLetters(t *testing.T) {
 	is.NoErr(err)
 	bd.ClearCrossSet(int(generator.curRowIdx), 2, board.VerticalDirection)
 	bd.SetCrossSetLetter(int(generator.curRowIdx), 2, board.VerticalDirection, ml)
-	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true)
+	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true,
+		0, 0, 1)
 	// it should generate HITHERMOST only
 	if len(generator.plays) != 1 {
 		t.Errorf("Generated %v plays (%v), expected len=%v", generator.plays,
@@ -172,7 +176,8 @@ func TestRowGen(t *testing.T) {
 	rack := tilemapping.RackFromString("AAEIRST", gd.GetAlphabet())
 	generator.curRowIdx = 4
 	generator.curAnchorCol = 8
-	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true)
+	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true,
+		0, 0, 1)
 
 	sort.Slice(generator.plays, func(i, j int) bool {
 		return generator.plays[i].Score() > generator.plays[j].Score()
@@ -209,7 +214,8 @@ func TestOtherRowGen(t *testing.T) {
 	rack := tilemapping.RackFromString("A", gd.GetAlphabet())
 	generator.curRowIdx = 14
 	generator.curAnchorCol = 8
-	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true)
+	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true,
+		0, 0, 1)
 	// Should generate AVENGED only
 	if len(generator.plays) != 1 {
 		t.Errorf("Generated %v plays (%v), expected len=%v", generator.plays,
@@ -238,7 +244,8 @@ func TestOneMoreRowGen(t *testing.T) {
 	rack := tilemapping.RackFromString("A", gd.GetAlphabet())
 	generator.curRowIdx = 0
 	generator.curAnchorCol = 11
-	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true)
+	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true,
+		0, 0, 1)
 
 	if len(generator.plays) != 1 {
 		t.Errorf("Generated %v plays (%v), expected len=%v", generator.plays,
@@ -273,7 +280,8 @@ func TestGenMoveJustOnce(t *testing.T) {
 	generator.lastAnchorCol = 100
 	for anchorCol := 8; anchorCol <= 12; anchorCol++ {
 		generator.curAnchorCol = anchorCol
-		generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, false)
+		generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, false,
+			0, 0, 1)
 		generator.lastAnchorCol = anchorCol
 	}
 	if len(generator.plays) != 34 {
@@ -322,6 +330,7 @@ func TestGenAllMovesFullRack(t *testing.T) {
 
 	highestScores := []int{38, 36, 36, 34, 34, 33, 30, 30, 30, 28}
 	for idx, score := range highestScores {
+		fmt.Println(generator.plays[idx].String())
 		assert.Equal(t, score, generator.plays[idx].Score())
 	}
 }
