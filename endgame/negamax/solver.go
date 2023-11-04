@@ -270,31 +270,33 @@ func (s *Solver) assignEstimates(moves []*move.Move, depth, thread int, ttMove *
 	ld := g.Bag().LetterDistribution()
 
 	lastMoveWasPass := g.ScorelessTurns() > g.LastScorelessTurns()
-	for _, p := range moves {
-		if p.TilesPlayed() == int(numTilesOnRack) {
-			p.SetEstimatedValue(int16(p.Score() + 2*otherRack.ScoreOn(ld)))
+	for idx := range moves {
+		if moves[idx].TilesPlayed() == int(numTilesOnRack) {
+			moves[idx].SetEstimatedValue(int16(moves[idx].Score() + 2*otherRack.ScoreOn(ld)))
 			// } else if thread == 4 {
 			// 	// Some handwavy LazySMP thing.
 			// 	p.SetEstimatedValue(int16(7 - p.TilesPlayed()))
 		} else if depth > 2 {
-			p.SetEstimatedValue(int16(p.Score() + 3*p.TilesPlayed()))
+			moves[idx].SetEstimatedValue(int16(moves[idx].Score() + 3*moves[idx].TilesPlayed()))
 		} else {
-			p.SetEstimatedValue(int16(p.Score()))
+			moves[idx].SetEstimatedValue(int16(moves[idx].Score()))
 		}
 		if s.killerPlayOptim {
 			// Force killer plays to be searched first.
-			if p.Equals(s.killers[depth][0], false, false) {
-				p.AddEstimatedValue(Killer0Offset)
-			} else if p.Equals(s.killers[depth][1], false, false) {
-				p.AddEstimatedValue(Killer1Offset)
-			}
+			// Disable for now since killer play optim didn't work.
+			// if p.Equals(s.killers[depth][0], false, false) {
+			// 	p.AddEstimatedValue(Killer0Offset)
+			// } else if p.Equals(s.killers[depth][1], false, false) {
+			// 	p.AddEstimatedValue(Killer1Offset)
+			// }
 		}
-		if ttMove != nil && tinymove.MinimallyEqual(p, ttMove) {
-			p.AddEstimatedValue(HashMoveOffset)
-		}
+		// XXX: fix HashMoveOffset
+		// if ttMove != nil && tinymove.MinimallyEqual(p, ttMove) {
+		// 	p.AddEstimatedValue(HashMoveOffset)
+		// }
 		// XXX: should also verify validity of ttMove later.
-		if s.earlyPassOptim && lastMoveWasPass && p.Action() == move.MoveTypePass {
-			p.AddEstimatedValue(EarlyPassOffset)
+		if s.earlyPassOptim && lastMoveWasPass && moves[idx].Action() == move.MoveTypePass {
+			moves[idx].AddEstimatedValue(EarlyPassOffset)
 		}
 	}
 	// if thread <= 3 {
@@ -317,12 +319,15 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 	log.Info().Int("threads", s.threads).Msg("using-lazy-smp")
 	s.currentIDDepths = make([]int, s.threads)
 
-	initialHashKey := s.ttable.Zobrist().Hash(
-		s.game.Board().GetSquares(),
-		s.game.RackFor(s.solvingPlayer),
-		s.game.RackFor(1-s.solvingPlayer),
-		false, s.game.ScorelessTurns(),
-	)
+	initialHashKey := uint64(0)
+	if s.transpositionTableOptim {
+		initialHashKey = s.ttable.Zobrist().Hash(
+			s.game.Board().GetSquares(),
+			s.game.RackFor(s.solvingPlayer),
+			s.game.RackFor(1-s.solvingPlayer),
+			false, s.game.ScorelessTurns(),
+		)
+	}
 
 	α := -HugeNumber
 	β := HugeNumber
@@ -473,12 +478,15 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 	s.currentIDDepths = make([]int, 1)
 	g := s.game
 
-	initialHashKey := s.ttable.Zobrist().Hash(
-		g.Board().GetSquares(),
-		g.RackFor(s.solvingPlayer),
-		g.RackFor(1-s.solvingPlayer),
-		false, g.ScorelessTurns(),
-	)
+	initialHashKey := uint64(0)
+	if s.transpositionTableOptim {
+		initialHashKey = s.ttable.Zobrist().Hash(
+			g.Board().GetSquares(),
+			g.RackFor(s.solvingPlayer),
+			g.RackFor(1-s.solvingPlayer),
+			false, g.ScorelessTurns(),
+		)
+	}
 
 	α := -HugeNumber
 	β := HugeNumber
@@ -524,18 +532,20 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 }
 
 func (s *Solver) storeKiller(ply int, move *move.Move) {
-	if !move.Equals(s.killers[ply][0], false, false) {
-		s.killers[ply][1] = s.killers[ply][0]
-		s.killers[ply][0] = move
-	}
+	// XXX: fix or delete killer optim
+	// if !move.Equals(s.killers[ply][0], false, false) {
+	// 	s.killers[ply][1] = s.killers[ply][0]
+	// 	s.killers[ply][0] = move
+	// }
 }
 
 // Clear the killer moves table.
 func (s *Solver) ClearKillers() {
-	for ply := 0; ply < MaxVariantLength; ply++ {
-		s.killers[ply][0] = nil
-		s.killers[ply][1] = nil
-	}
+	// XXX: fix or delete killer optim
+	// for ply := 0; ply < MaxVariantLength; ply++ {
+	// 	s.killers[ply][0] = nil
+	// 	s.killers[ply][1] = nil
+	// }
 }
 
 func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β int16, pv *PVLine, thread int) (int16, error) {
