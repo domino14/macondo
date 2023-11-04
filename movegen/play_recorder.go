@@ -1,9 +1,12 @@
 package movegen
 
 import (
+	"log"
+
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tilemapping"
+	"github.com/domino14/macondo/tinymove"
 	"github.com/samber/lo"
 )
 
@@ -54,6 +57,69 @@ func AllPlaysRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, r
 		alph := gen.letterDistribution.TileMapping()
 		gen.plays = append(gen.plays, move.NewPassMove(rack.TilesOn(), alph))
 
+	default:
+
+	}
+
+}
+
+// AllPlaysSmallRecorder is a recorder that records all plays, but as "SmallMove"s,
+// which allocate much less and are smaller overall than a regular move.Move
+func AllPlaysSmallRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, rightstrip int, t move.MoveType, score int) {
+	switch t {
+
+	case move.MoveTypePlay:
+		startRow := gen.curRowIdx
+		startCol := leftstrip
+		row := startRow
+		col := startCol
+		if gen.vertical {
+			// We flip it here because we only generate vertical moves when we transpose
+			// the board, so the row and col are actually transposed.
+			row, col = col, row
+		}
+
+		length := rightstrip - leftstrip + 1
+		if length < 2 {
+			return
+		}
+		var moveCode uint64
+		tidx := 0
+		bts := 20 // start at a bitshift of 20 for the first tile
+		var blanksMask int
+		for i := startCol; i < startCol+length; i++ {
+			ml := gen.strip[i]
+			if ml == 0 {
+				// play-through tile
+				continue
+			}
+			it := ml.IntrinsicTileIdx()
+			val := ml
+			if it == 0 {
+				blanksMask |= (1 << tidx)
+				// this would be a designated blank
+				val = ml.Unblank()
+			}
+
+			moveCode |= (uint64(val) << bts)
+
+			tidx++
+			bts += 6
+		}
+		if gen.vertical {
+			moveCode |= 1
+		}
+		moveCode |= (uint64(col) << 1)
+		moveCode |= (uint64(row) << 6)
+		moveCode |= (uint64(blanksMask) << 12)
+		gen.smallPlays = append(gen.smallPlays, tinymove.TilePlayMove(
+			tinymove.TinyMove(moveCode), int16(score), uint8(gen.tilesPlayed)))
+
+	case move.MoveTypeExchange:
+		// Not meant for this, yet.
+		log.Fatal("move type exchange is not compatible with SmallMove")
+	case move.MoveTypePass:
+		gen.smallPlays = append(gen.smallPlays, tinymove.PassMove())
 	default:
 
 	}

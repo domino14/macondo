@@ -1,4 +1,4 @@
-package negamax
+package tinymove
 
 import (
 	"github.com/domino14/macondo/board"
@@ -30,7 +30,7 @@ const BlanksBitMask = 127 << 12
 
 var TBitMasks = [7]uint64{63 << 20, 63 << 26, 63 << 32, 63 << 38, 63 << 44, 63 << 50, 63 << 56}
 
-func moveToTinyMove(m *move.Move) TinyMove {
+func MoveToTinyMove(m *move.Move) TinyMove {
 	// convert a regular move to a tiny move.
 	if m.Action() == move.MoveTypePass {
 		return 0
@@ -72,13 +72,14 @@ func moveToTinyMove(m *move.Move) TinyMove {
 	return TinyMove(moveCode)
 }
 
-// tinyMoveToMove creates a very minimal Move from the TinyMove code.
+// TinyMoveToMove creates a very minimal Move from the TinyMove code.
 // This return value does not contain score info, leave info, alphabet info,
 // etc. It's up to the caller to use a good scheme to compare it to an existing
 // move. It should not be used directly on a board!
-func tinyMoveToMove(t TinyMove, b *board.GameBoard) *move.Move {
+func TinyMoveToMove(t TinyMove, b *board.GameBoard, om *move.Move) {
 	if t == 0 {
-		return move.NewPassMove(nil, nil)
+		om.Set(nil, nil, 0, 0, 0, 0, false, move.MoveTypePass, nil)
+		return
 	}
 	// assume it's a tile play move
 	row := int(t&RowBitMask) >> 6
@@ -129,11 +130,12 @@ func tinyMoveToMove(t TinyMove, b *board.GameBoard) *move.Move {
 			break
 		}
 	}
-	return move.NewScoringMove(0, mls, nil, vert, tidx, nil, row, col)
+	om.Set(mls, nil, 0, row, col, tidx, vert, move.MoveTypePlay, nil)
 }
 
-func tinyMoveToFullMove(t TinyMove, g *game.Game, onTurnRack *tilemapping.Rack) (*move.Move, error) {
-	m := tinyMoveToMove(t, g.Board())
+func TinyMoveToFullMove(t TinyMove, g *game.Game, onTurnRack *tilemapping.Rack) (*move.Move, error) {
+	m := &move.Move{}
+	TinyMoveToMove(t, g.Board(), m)
 	// populate move with missing fields.
 	m.SetAlphabet(g.Alphabet())
 
@@ -161,7 +163,7 @@ func tinyMoveToFullMove(t TinyMove, g *game.Game, onTurnRack *tilemapping.Rack) 
 	return m, nil
 }
 
-func minimallyEqual(m1 *move.Move, m2 *move.Move) bool {
+func MinimallyEqual(m1 *move.Move, m2 *move.Move) bool {
 	if m1.Action() != m2.Action() {
 		return false
 	}

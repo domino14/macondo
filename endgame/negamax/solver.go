@@ -19,6 +19,7 @@ import (
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
+	"github.com/domino14/macondo/tinymove"
 )
 
 // thanks Wikipedia:
@@ -282,7 +283,7 @@ func (s *Solver) assignEstimates(moves []*move.Move, depth, thread int, ttMove *
 				p.AddEstimatedValue(Killer1Offset)
 			}
 		}
-		if ttMove != nil && minimallyEqual(p, ttMove) {
+		if ttMove != nil && tinymove.MinimallyEqual(p, ttMove) {
 			p.AddEstimatedValue(HashMoveOffset)
 		}
 		// XXX: should also verify validity of ttMove later.
@@ -561,7 +562,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 					// let's not lose the very first move.
 					log.Debug().Msg("exact-tt-move")
 					childPV := PVLine{g: g}
-					child, err := tinyMoveToFullMove(ttEntry.move(), g, g.RackFor(onTurn))
+					child, err := tinymove.TinyMoveToFullMove(ttEntry.move(), g, g.RackFor(onTurn))
 					if err != nil {
 						return 0, err
 					}
@@ -578,7 +579,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 					// let's not lose the very first move.
 					log.Debug().Msg("alpha-beta-cutoff-at-tt")
 					childPV := PVLine{g: g}
-					child, err := tinyMoveToFullMove(ttEntry.move(), g, g.RackFor(onTurn))
+					child, err := tinymove.TinyMoveToFullMove(ttEntry.move(), g, g.RackFor(onTurn))
 					if err != nil {
 						return 0, err
 					}
@@ -587,7 +588,8 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 				return score, nil
 			}
 			// search hash move first.
-			ttMove = tinyMoveToMove(ttEntry.move(), g.Board())
+			ttMove := &move.Move{}
+			tinymove.TinyMoveToMove(ttEntry.move(), g.Board(), ttMove)
 		}
 	}
 
@@ -673,7 +675,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			flag = TTExact
 		}
 		entryToStore.flagAndDepth = flag<<6 + uint8(depth)
-		entryToStore.play = moveToTinyMove(bestMove)
+		entryToStore.play = tinymove.MoveToTinyMove(bestMove)
 		s.ttable.store(nodeKey, entryToStore)
 	}
 	return bestValue, nil

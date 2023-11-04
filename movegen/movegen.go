@@ -20,6 +20,7 @@ import (
 	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tilemapping"
+	"github.com/domino14/macondo/tinymove"
 )
 
 type SortBy int
@@ -34,6 +35,7 @@ type MoveGenerator interface {
 	GenAll(rack *tilemapping.Rack, addExchange bool) []*move.Move
 	SetSortingParameter(s SortBy)
 	Plays() []*move.Move
+	SmallPlays() []tinymove.SmallMove
 	SetPlayRecorder(pf PlayRecorderFunc)
 	SetEquityCalculators([]equity.EquityCalculator)
 	AtLeastOneTileMove(rack *tilemapping.Rack) bool
@@ -57,6 +59,7 @@ type GordonGenerator struct {
 
 	tilesPlayed      int
 	plays            []*move.Move
+	smallPlays       []tinymove.SmallMove
 	sortingParameter SortBy
 
 	// These are pointers to the actual structures in `game`. They are
@@ -140,6 +143,7 @@ func (gen *GordonGenerator) GenAll(rack *tilemapping.Rack, addExchange bool) []*
 	gen.winner.SetEmpty()
 	gen.quitEarly = false
 	gen.plays = gen.plays[:0]
+	gen.smallPlays = []tinymove.SmallMove{}
 	gen.vertical = false
 	gen.genByOrientation(rack, board.HorizontalDirection)
 	gen.board.Transpose()
@@ -149,7 +153,7 @@ func (gen *GordonGenerator) GenAll(rack *tilemapping.Rack, addExchange bool) []*
 
 	// Only add a pass move if nothing else is possible. Note: in endgames,
 	// we can have strategic passes. Check genPass variable as well.
-	if len(gen.plays) == 0 || gen.genPass {
+	if (len(gen.plays) == 0 && len(gen.smallPlays) == 0) || gen.genPass {
 		gen.playRecorder(gen, rack, 0, 0, move.MoveTypePass, 0)
 	} else if len(gen.plays) > 1 {
 		switch gen.sortingParameter {
@@ -410,6 +414,11 @@ func (gen *GordonGenerator) scoreMove(word tilemapping.MachineWord, row, col, ti
 // Plays returns the generator's generated plays.
 func (gen *GordonGenerator) Plays() []*move.Move {
 	return gen.plays
+}
+
+// SmallPlays returns the generator's generated SmallPlays
+func (gen *GordonGenerator) SmallPlays() []tinymove.SmallMove {
+	return gen.smallPlays
 }
 
 // zero-allocation generation of exchange moves without duplicates:

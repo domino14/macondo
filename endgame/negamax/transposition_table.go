@@ -6,6 +6,7 @@ import (
 	"runtime/debug"
 	"sync/atomic"
 
+	"github.com/domino14/macondo/tinymove"
 	"github.com/domino14/macondo/zobrist"
 	"github.com/pbnjay/memory"
 	"github.com/rs/zerolog/log"
@@ -30,7 +31,7 @@ type TableEntry struct {
 	score        int16
 	fifthbyte    uint8
 	flagAndDepth uint8
-	play         TinyMove
+	play         tinymove.TinyMove
 }
 
 // fullHash calculates the full 64-bit hash for this table entry, given the bottom
@@ -52,7 +53,7 @@ func (t TableEntry) valid() bool {
 	return t.flag() != 0
 }
 
-func (t TableEntry) move() TinyMove {
+func (t TableEntry) move() tinymove.TinyMove {
 	return t.play
 }
 

@@ -16,6 +16,7 @@ import (
 	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tilemapping"
+	"github.com/domino14/macondo/tinymove"
 	"github.com/matryer/is"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
@@ -457,6 +458,52 @@ func TestGenAllMovesWithBlanks(t *testing.T) {
 	assert.Equal(t, "?D", generator.plays[rewards].Leave().UserVisible(alph))
 }
 
+func TestSmallMoveRecorder(t *testing.T) {
+	is := is.New(t)
+
+	gd, err := GaddagFromLexicon("America")
+	is.NoErr(err)
+	alph := gd.GetAlphabet()
+
+	bd := board.MakeBoard(board.CrosswordGameBoard)
+	ld, err := tilemapping.EnglishLetterDistribution(&DefaultConfig)
+	is.NoErr(err)
+	generator := NewGordonGenerator(gd, bd, ld)
+	bd.SetToGame(gd.GetAlphabet(), board.VsJeremy)
+	cross_set.GenAllCrossSets(bd, gd, ld)
+	generator.SetPlayRecorder(AllPlaysSmallRecorder)
+	rack := tilemapping.RackFromString("DDESW??", alph)
+	generator.GenAll(rack, false)
+	// If I do DDESW? in quackle i generate 1483 moves. My movegen generates
+	// 1586, possibly by the same logic as the above.
+	// If I add 103 to the Quackle-generated 8194 moves for both blanks (DDESW??)
+	// I get 8297, so there should be 8297 unique plays
+	assert.Equal(t, 8297, len(generator.smallPlays))
+
+	sort.Slice(generator.smallPlays, func(i, j int) bool {
+		return generator.smallPlays[i].Score() > generator.smallPlays[j].Score()
+	})
+
+	assert.Equal(t, int16(106), generator.smallPlays[0].Score()) // hEaDW(OR)DS!
+	// There are 7 plays worth 32 pts.
+	rewards := 0
+	for i := 2; i < 9; i++ {
+		assert.Equal(t, int16(32), generator.smallPlays[i].Score())
+		m := &move.Move{}
+		tinymove.SmallMoveToMove(&generator.smallPlays[i], m, alph, bd, rack)
+
+		if m.Tiles().UserVisiblePlayedTiles(alph) == "rEW..DS" {
+			rewards = i
+		}
+	}
+	assert.NotEqual(t, 0, rewards)
+
+	m := &move.Move{}
+	tinymove.SmallMoveToMove(&generator.smallPlays[rewards], m, alph, bd, rack)
+
+	assert.Equal(t, "?D", m.Leave().UserVisible(alph))
+}
+
 func TestTopPlayOnlyRecorder(t *testing.T) {
 	is := is.New(t)
 
@@ -747,6 +794,27 @@ func BenchmarkGenBothBlanks(b *testing.B) {
 		ld, err := tilemapping.EnglishLetterDistribution(&DefaultConfig)
 		is.NoErr(err)
 		generator := NewGordonGenerator(gd, bd, ld)
+		bd.SetToGame(gd.GetAlphabet(), board.VsJeremy)
+		cross_set.GenAllCrossSets(bd, gd, ld)
+
+		generator.GenAll(tilemapping.RackFromString("DDESW??", alph), false)
+	}
+}
+
+func BenchmarkGenBothBlanksSmallPlayRecorder(b *testing.B) {
+	is := is.New(b)
+
+	gd, err := GaddagFromLexicon("America")
+	is.NoErr(err)
+	alph := gd.GetAlphabet()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		// ~16.48ms per operation on my macbook pro.
+		bd := board.MakeBoard(board.CrosswordGameBoard)
+		ld, err := tilemapping.EnglishLetterDistribution(&DefaultConfig)
+		is.NoErr(err)
+		generator := NewGordonGenerator(gd, bd, ld)
+		generator.SetPlayRecorder(AllPlaysSmallRecorder)
 		bd.SetToGame(gd.GetAlphabet(), board.VsJeremy)
 		cross_set.GenAllCrossSets(bd, gd, ld)
 
