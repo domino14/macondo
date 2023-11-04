@@ -56,22 +56,28 @@ var (
 
 // Credit: MIT-licensed https://github.com/algerbrex/blunder/blob/main/engine/search.go
 type PVLine struct {
-	Moves []*move.Move
-	g     *game.Game
-	score int16
+	Moves    [MaxVariantLength]*move.Move
+	g        *game.Game
+	score    int16
+	numMoves int
 }
 
 // Clear the principal variation line.
 func (pvLine *PVLine) Clear() {
-	pvLine.Moves = nil
+	pvLine.numMoves = 0
 }
 
 // Update the principal variation line with a new best move,
 // and a new line of best play after the best move.
-func (pvLine *PVLine) Update(move *move.Move, newPVLine PVLine, score int16) {
+func (pvLine *PVLine) Update(m *move.Move, newPVLine PVLine, score int16) {
 	pvLine.Clear()
-	pvLine.Moves = append(pvLine.Moves, move)
-	pvLine.Moves = append(pvLine.Moves, newPVLine.Moves...)
+	mc := &move.Move{}
+	mc.CopyFrom(m)
+	pvLine.Moves[0] = mc
+	for i := 0; i < newPVLine.numMoves; i++ {
+		pvLine.Moves[i+1] = newPVLine.Moves[i]
+	}
+	pvLine.numMoves = newPVLine.numMoves + 1
 	pvLine.score = score
 }
 
@@ -84,7 +90,7 @@ func (pvLine *PVLine) GetPVMove() *move.Move {
 func (pvLine PVLine) String() string {
 	var s string
 	s = fmt.Sprintf("PV; val %d\n", pvLine.score)
-	for i := 0; i < len(pvLine.Moves); i++ {
+	for i := 0; i < pvLine.numMoves; i++ {
 		s += fmt.Sprintf("%d: %s (%d)\n",
 			i+1,
 			pvLine.Moves[i].ShortDescription(),
@@ -97,7 +103,7 @@ func (pvLine PVLine) NLBString() string {
 	// no line breaks
 	var s string
 	s = fmt.Sprintf("PV; val %d; ", pvLine.score)
-	for i := 0; i < len(pvLine.Moves); i++ {
+	for i := 0; i < pvLine.numMoves; i++ {
 		s += fmt.Sprintf("%d: %s (%d); ",
 			i+1,
 			pvLine.Moves[i].ShortDescription(),
@@ -558,7 +564,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			// add spread back in; we subtract them when storing.
 			score += int16(ourSpread)
 			if flag == TTExact {
-				if len(pv.Moves) == 0 {
+				if pv.numMoves == 0 {
 					// let's not lose the very first move.
 					log.Debug().Msg("exact-tt-move")
 					childPV := PVLine{g: g}
@@ -575,7 +581,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 				β = min(β, score)
 			}
 			if α >= β {
-				if len(pv.Moves) == 0 {
+				if pv.numMoves == 0 {
 					// let's not lose the very first move.
 					log.Debug().Msg("alpha-beta-cutoff-at-tt")
 					childPV := PVLine{g: g}
@@ -760,7 +766,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	err := g.Wait()
 	// Go down tree and find best variation:
 
-	bestSeq = s.principalVariation.Moves
+	bestSeq = s.principalVariation.Moves[:s.principalVariation.numMoves]
 	bestV = s.bestPVValue
 	log.Info().
 		Uint64("ttable-created", s.ttable.created.Load()).
@@ -818,7 +824,7 @@ func (s *Solver) QuickAndDirtySolve(ctx context.Context, plies, thread int) (int
 		log.Debug().AnErr("err", err).Msg("error iteratively deepening")
 	}
 
-	bestSeq = s.principalVariation.Moves
+	bestSeq = s.principalVariation.Moves[:s.principalVariation.numMoves]
 	bestV = s.bestPVValue
 	log.Debug().
 		Int("thread", thread).
