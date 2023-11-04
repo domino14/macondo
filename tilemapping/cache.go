@@ -23,7 +23,7 @@ func NamedLetterDistribution(cfg *config.Config, name string) (*LetterDistributi
 	name = strings.ToLower(name)
 	filename := filepath.Join(cfg.DataPath, "letterdistributions", name)
 
-	file, err := cache.Open(filename)
+	file, _, err := cache.Open(filename)
 	if err != nil {
 		return nil, err
 	}

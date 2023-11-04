@@ -17,10 +17,10 @@ const (
 )
 
 func stratFileForLexicon(strategyDir string, filename string, lexiconName string) (io.ReadCloser, error) {
-	file, err := cache.Open(filepath.Join(strategyDir, lexiconName, filename))
+	file, _, err := cache.Open(filepath.Join(strategyDir, lexiconName, filename))
 	if err != nil {
 		defdir := defaultForLexicon(lexiconName)
-		file, err = cache.Open(filepath.Join(strategyDir, defdir, filename))
+		file, _, err = cache.Open(filepath.Join(strategyDir, defdir, filename))
 		if err != nil {
 			return nil, err
 		}

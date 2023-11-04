@@ -3,7 +3,6 @@ package cache
 import (
 	"bytes"
 	"io"
-	"io/ioutil"
 	"os"
 	"sync"
 
@@ -81,7 +80,7 @@ func Load(cfg *config.Config, name string, loadFunc loadFunc) (interface{}, erro
 	return GlobalObjectCache.get(cfg, name, loadFunc, true)
 }
 
-func Open(filename string) (io.ReadCloser, error) {
+func Open(filename string) (io.ReadCloser, int, error) {
 	// Most of the time, it seems we are already holding the lock here.
 	// It would deadlock to lock again, so we avoid it.
 	// Hopefully it works.
@@ -93,10 +92,18 @@ func Open(filename string) (io.ReadCloser, error) {
 	if err != nil {
 		// Intentionally not caching.
 		log.Debug().Str("filename", filename).Msg("not cache, opening from filesystem")
-		return os.Open(filename)
+		f, err := os.Open(filename)
+		if err != nil {
+			return nil, 0, err
+		}
+		var size int
+		if info, err := f.Stat(); err == nil {
+			size = int(info.Size())
+		}
+		return f, size, err
 	}
 	log.Debug().Str("filename", filename).Msg("reading from cache")
-	return ioutil.NopCloser(bytes.NewReader(cached.([]byte))), nil
+	return io.NopCloser(bytes.NewReader(cached.([]byte))), len(cached.([]byte)), nil
 }
 
 func Precache(filename string, rawBytes []byte) {

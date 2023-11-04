@@ -23,7 +23,7 @@ func CacheLoadFunc(cfg *config.Config, key string) (interface{}, error) {
 
 func LoadKWG(cfg *config.Config, filename string) (*KWG, error) {
 	log.Debug().Msgf("Loading %v ...", filename)
-	file, err := cache.Open(filename)
+	file, filesize, err := cache.Open(filename)
 	if err != nil {
 		return nil, err
 	}
@@ -37,7 +37,7 @@ func LoadKWG(cfg *config.Config, filename string) (*KWG, error) {
 		return nil, errors.New("filename not in correct format")
 	}
 
-	kwg, err := ScanKWG(file)
+	kwg, err := ScanKWG(file, filesize)
 	if err != nil {
 		return nil, err
 	}

@@ -8,16 +8,21 @@ import (
 type Rack struct {
 	// letArr is an array of letter codes from 0 to alphabet.NumLetters.
 	// The blank goes at 0.
-	LetArr     []int
-	numLetters uint8
-	alphabet   *TileMapping
-	repr       string
+	LetArr             []int
+	numLetters         uint8
+	alphabet           *TileMapping
+	repr               string
+	numPossibleLetters uint8
 	// letterIdxs []uint8
 }
 
 // NewRack creates a brand new rack structure with an alphabet.
 func NewRack(alph *TileMapping) *Rack {
-	return &Rack{alphabet: alph, LetArr: make([]int, alph.NumLetters())}
+	return &Rack{
+		alphabet:           alph,
+		LetArr:             make([]int, alph.NumLetters()),
+		numPossibleLetters: alph.NumLetters(),
+	}
 }
 
 // String returns a user-visible version of this rack.
@@ -28,9 +33,10 @@ func (r *Rack) String() string {
 // Copy returns a deep copy of this rack
 func (r *Rack) Copy() *Rack {
 	n := &Rack{
-		numLetters: r.numLetters,
-		alphabet:   r.alphabet,
-		repr:       r.repr,
+		numLetters:         r.numLetters,
+		alphabet:           r.alphabet,
+		repr:               r.repr,
+		numPossibleLetters: r.numPossibleLetters,
 	}
 	n.LetArr = make([]int, len(r.LetArr))
 	copy(n.LetArr, r.LetArr)
@@ -41,6 +47,7 @@ func (r *Rack) CopyFrom(other *Rack) {
 	r.numLetters = other.numLetters
 	r.alphabet = other.alphabet
 	r.repr = other.repr
+	r.numPossibleLetters = other.numPossibleLetters
 	if r.LetArr == nil {
 		r.LetArr = make([]int, len(other.LetArr))
 	}
@@ -72,6 +79,7 @@ func (r *Rack) setFromStr(rack string) {
 	}
 
 	r.numLetters = uint8(len(mls))
+	r.numPossibleLetters = r.alphabet.NumLetters()
 }
 
 // Set sets the rack from a list of machine letters
@@ -126,9 +134,8 @@ func (r *Rack) TilesOn() MachineWord {
 // of letters
 func (r *Rack) NoAllocTilesOn(letters []MachineLetter) int {
 	ct := 0
-	numPossibleLetters := r.alphabet.NumLetters()
 	var i MachineLetter
-	for i = 0; i < MachineLetter(numPossibleLetters); i++ {
+	for i = 0; i < MachineLetter(r.numPossibleLetters); i++ {
 		if r.LetArr[i] > 0 {
 			for j := 0; j < r.LetArr[i]; j++ {
 				letters[ct] = i
@@ -144,8 +151,7 @@ func (r *Rack) NoAllocTilesOn(letters []MachineLetter) int {
 func (r *Rack) ScoreOn(ld *LetterDistribution) int {
 	score := 0
 	var i MachineLetter
-	numPossibleLetters := r.alphabet.NumLetters()
-	for i = 0; i < MachineLetter(numPossibleLetters); i++ {
+	for i = 0; i < MachineLetter(r.numPossibleLetters); i++ {
 		if r.LetArr[i] > 0 {
 			score += ld.Score(i) * r.LetArr[i]
 		}

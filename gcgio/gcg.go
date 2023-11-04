@@ -617,7 +617,7 @@ func ParseGCGFromReader(cfg *config.Config, reader io.Reader) (*pb.GameHistory, 
 
 // ParseGCG parses a GCG file into a GameHistory.
 func ParseGCG(cfg *config.Config, filename string) (*pb.GameHistory, error) {
-	f, err := cache.Open(filename)
+	f, _, err := cache.Open(filename)
 	if err != nil {
 		return nil, err
 	}

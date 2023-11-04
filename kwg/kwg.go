@@ -19,9 +19,10 @@ type KWG struct {
 	wordCounts  []int32
 }
 
-func ScanKWG(data io.Reader) (*KWG, error) {
-	nodes := []uint32{}
+func ScanKWG(data io.Reader, filesize int) (*KWG, error) {
+	nodes := make([]uint32, 0, filesize/4)
 	var node uint32
+
 	for {
 		err := binary.Read(data, binary.LittleEndian, &node)
 		if err != nil {

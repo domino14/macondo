@@ -22,7 +22,7 @@ import (
 // AnalyzeLogFile analyzes the given game CSV file and spits out a bunch of
 // statistics.
 func AnalyzeLogFile(filepath string) (string, error) {
-	file, err := cache.Open(filepath)
+	file, _, err := cache.Open(filepath)
 	if err != nil {
 		return "", err
 	}
@@ -147,7 +147,7 @@ func ExportGCG(cfg *config.Config, filename, letterdist, lexicon, boardlayout, g
 		lexicon = "CSW21"
 	}
 
-	file, err := cache.Open(filename)
+	file, _, err := cache.Open(filename)
 	if err != nil {
 		return err
 	}

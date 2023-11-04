@@ -7,12 +7,12 @@ import (
 	"github.com/samber/lo"
 )
 
-type PlayRecorderFunc func(*GordonGenerator, *tilemapping.Rack, int, int, move.MoveType)
+type PlayRecorderFunc func(*GordonGenerator, *tilemapping.Rack, int, int, move.MoveType, int)
 
-func NullPlayRecorder(gen *GordonGenerator, a *tilemapping.Rack, leftstrip, rightstrip int, t move.MoveType) {
+func NullPlayRecorder(gen *GordonGenerator, a *tilemapping.Rack, leftstrip, rightstrip int, t move.MoveType, score int) {
 }
 
-func AllPlaysRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, rightstrip int, t move.MoveType) {
+func AllPlaysRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, rightstrip int, t move.MoveType, score int) {
 
 	switch t {
 	case move.MoveTypePlay:
@@ -36,8 +36,7 @@ func AllPlaysRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, r
 		copy(word, gen.strip[startCol:startCol+length])
 
 		alph := gen.letterDistribution.TileMapping()
-		play := move.NewScoringMove(gen.scoreMove(word, startRow, startCol, tilesPlayed),
-			word, rack.TilesOn(), gen.vertical,
+		play := move.NewScoringMove(score, word, rack.TilesOn(), gen.vertical,
 			tilesPlayed, alph, row, col)
 		gen.plays = append(gen.plays, play)
 
@@ -63,7 +62,7 @@ func AllPlaysRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, r
 
 // TopPlayOnlyRecorder is a heavily optimized, ugly function to avoid allocating
 // a lot of moves just to throw them out. It only records the very top move.
-func TopPlayOnlyRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, rightstrip int, t move.MoveType) {
+func TopPlayOnlyRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, rightstrip int, t move.MoveType, score int) {
 
 	var eq float64
 	var tilesLength int
@@ -89,8 +88,6 @@ func TopPlayOnlyRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip
 		}
 		// note that this is a pointer right now:
 		word := gen.strip[startCol : startCol+tilesLength]
-
-		score := gen.scoreMove(word, startRow, startCol, tilesPlayed)
 		leaveLength = rack.NoAllocTilesOn(gen.leavestrip)
 
 		gen.placeholder.Set(word, gen.leavestrip[:leaveLength], score,

@@ -23,7 +23,7 @@ func ReadKLV(file io.Reader) (*KLV, error) {
 		return nil, err
 	}
 
-	k, err := kwg.ScanKWG(io.LimitReader(file, int64(kwgSize)*4))
+	k, err := kwg.ScanKWG(io.LimitReader(file, int64(kwgSize)*4), int(kwgSize)*4)
 
 	if err != nil {
 		return nil, err
