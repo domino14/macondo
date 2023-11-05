@@ -145,10 +145,11 @@ func (pvLine PVLine) NLBString() string {
 type Solver struct {
 	stmMovegen   movegen.MoveGenerator
 	game         *game.Game
-	initialMoves [][]*move.Move
+	initialMoves [][]tinymove.SmallMove
 
-	gameCopies []*game.Game
-	movegens   []movegen.MoveGenerator
+	gameCopies       []*game.Game
+	placeholderMoves []move.Move
+	movegens         []movegen.MoveGenerator
 
 	initialSpread int
 	solvingPlayer int // This is the player who we call this function for.
@@ -165,7 +166,7 @@ type Solver struct {
 	principalVariation      PVLine
 	bestPVValue             int16
 
-	killers [MaxVariantLength][MaxKillers]*move.Move
+	killers [MaxVariantLength][MaxKillers]tinymove.SmallMove
 
 	ttable *TranspositionTable
 
@@ -191,10 +192,10 @@ func (s *Solver) Init(m movegen.MoveGenerator, game *game.Game) error {
 	s.transpositionTableOptim = true
 	s.iterativeDeepeningOptim = true
 	s.threads = max(1, runtime.NumCPU())
-
+	s.placeholderMoves = make([]move.Move, s.threads)
 	if s.stmMovegen != nil {
 		s.stmMovegen.SetGenPass(true)
-		s.stmMovegen.SetPlayRecorder(movegen.AllPlaysRecorder)
+		s.stmMovegen.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
 	}
 
 	return nil
@@ -209,6 +210,7 @@ func (s *Solver) SetThreads(threads int) {
 		s.threads = threads
 		s.lazySMPOptim = true
 	}
+	s.placeholderMoves = make([]move.Move, s.threads)
 }
 
 func (s *Solver) makeGameCopies() error {
@@ -224,13 +226,13 @@ func (s *Solver) makeGameCopies() error {
 		mg := movegen.NewGordonGenerator(gaddag, s.gameCopies[i].Board(), s.gameCopies[i].Bag().LetterDistribution())
 		mg.SetSortingParameter(movegen.SortByNone)
 		mg.SetGenPass(true)
-		mg.SetPlayRecorder(movegen.AllPlaysRecorder)
+		mg.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
 		s.movegens = append(s.movegens, mg)
 	}
 	return nil
 }
 
-func (s *Solver) generateSTMPlays(depth, thread int) []*move.Move {
+func (s *Solver) generateSTMPlays(depth, thread int) []tinymove.SmallMove {
 	// STM means side-to-move
 	g := s.game
 	mg := s.stmMovegen
@@ -239,24 +241,22 @@ func (s *Solver) generateSTMPlays(depth, thread int) []*move.Move {
 		mg = s.movegens[thread-1]
 		g = s.gameCopies[thread-1]
 	}
-	var genPlays []*move.Move
+	var genPlays []tinymove.SmallMove
 
 	stmRack := g.RackFor(g.PlayerOnTurn())
 	if s.currentIDDepths[thread] == depth {
 		genPlays = s.initialMoves[thread]
 	} else {
-		plays := mg.GenAll(stmRack, false)
+		mg.GenAll(stmRack, false)
+		plays := mg.SmallPlays()
 		// movegen owns the plays array. Make a copy of these.
-		genPlays = make([]*move.Move, len(plays))
-		for idx := range plays {
-			genPlays[idx] = &move.Move{}
-			genPlays[idx].CopyFrom(plays[idx])
-		}
+		genPlays = make([]tinymove.SmallMove, len(plays))
+		copy(genPlays, plays)
 	}
 	return genPlays
 }
 
-func (s *Solver) assignEstimates(moves []*move.Move, depth, thread int, ttMove *move.Move) {
+func (s *Solver) assignEstimates(moves []tinymove.SmallMove, depth, thread int, ttMove *move.Move) {
 	g := s.game
 
 	if thread > 0 {
@@ -271,15 +271,15 @@ func (s *Solver) assignEstimates(moves []*move.Move, depth, thread int, ttMove *
 
 	lastMoveWasPass := g.ScorelessTurns() > g.LastScorelessTurns()
 	for idx := range moves {
-		if moves[idx].TilesPlayed() == int(numTilesOnRack) {
-			moves[idx].SetEstimatedValue(int16(moves[idx].Score() + 2*otherRack.ScoreOn(ld)))
+		if moves[idx].TilesPlayed() == uint8(numTilesOnRack) {
+			moves[idx].SetEstimatedValue(moves[idx].Score() + int16(2*otherRack.ScoreOn(ld)))
 			// } else if thread == 4 {
 			// 	// Some handwavy LazySMP thing.
 			// 	p.SetEstimatedValue(int16(7 - p.TilesPlayed()))
 		} else if depth > 2 {
-			moves[idx].SetEstimatedValue(int16(moves[idx].Score() + 3*moves[idx].TilesPlayed()))
+			moves[idx].SetEstimatedValue(moves[idx].Score() + int16(3*moves[idx].TilesPlayed()))
 		} else {
-			moves[idx].SetEstimatedValue(int16(moves[idx].Score()))
+			moves[idx].SetEstimatedValue(moves[idx].Score())
 		}
 		if s.killerPlayOptim {
 			// Force killer plays to be searched first.
@@ -294,8 +294,9 @@ func (s *Solver) assignEstimates(moves []*move.Move, depth, thread int, ttMove *
 		// if ttMove != nil && tinymove.MinimallyEqual(p, ttMove) {
 		// 	p.AddEstimatedValue(HashMoveOffset)
 		// }
+
 		// XXX: should also verify validity of ttMove later.
-		if s.earlyPassOptim && lastMoveWasPass && moves[idx].Action() == move.MoveTypePass {
+		if s.earlyPassOptim && lastMoveWasPass && moves[idx].IsPass() {
 			moves[idx].AddEstimatedValue(EarlyPassOffset)
 		}
 	}
@@ -318,7 +319,6 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 	s.makeGameCopies()
 	log.Info().Int("threads", s.threads).Msg("using-lazy-smp")
 	s.currentIDDepths = make([]int, s.threads)
-
 	initialHashKey := uint64(0)
 	if s.transpositionTableOptim {
 		initialHashKey = s.ttable.Zobrist().Hash(
@@ -340,7 +340,7 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 
 	// Generate first layer of moves.
 	s.currentIDDepths[0] = -1 // so that generateSTMPlays generates all moves first properly.
-	s.initialMoves = make([][]*move.Move, s.threads)
+	s.initialMoves = make([][]tinymove.SmallMove, s.threads)
 	s.initialMoves[0] = s.generateSTMPlays(0, 0)
 
 	// assignEstimates for the very first time around.
@@ -359,12 +359,8 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 	// copy these moves to per-thread subarrays. This will also copy
 	// the initial estimated valuation and order.
 	for t := 1; t < s.threads; t++ {
-		s.initialMoves[t] = make([]*move.Move, len(s.initialMoves[0]))
-		for idx, m := range s.initialMoves[0] {
-			mc := &move.Move{}
-			mc.CopyFrom(m)
-			s.initialMoves[t][idx] = mc
-		}
+		s.initialMoves[t] = make([]tinymove.SmallMove, len(s.initialMoves[0]))
+		copy(s.initialMoves[t], s.initialMoves[0])
 	}
 
 	for p := 2; p <= plies; p++ {
@@ -499,7 +495,7 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 
 	// Generate first layer of moves.
 	s.currentIDDepths[0] = -1 // so that generateSTMPlays generates all moves first properly.
-	s.initialMoves = make([][]*move.Move, 1)
+	s.initialMoves = make([][]tinymove.SmallMove, 1)
 	s.initialMoves[0] = s.generateSTMPlays(0, 0)
 	// assignEstimates for the very first time around.
 	s.assignEstimates(s.initialMoves[0], 0, 0, nil)
@@ -619,6 +615,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	childPV := PVLine{g: g}
 
 	children := s.generateSTMPlays(depth, thread)
+	stmRack := g.RackFor(g.PlayerOnTurn())
 	if s.currentIDDepths[thread] != depth {
 		// If we're not at the top level, assign estimates. Otherwise,
 		// we assign the values as estimates in the loop below.
@@ -631,17 +628,23 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		fmt.Fprintf(s.logStream, "  %vplays:\n", strings.Repeat(" ", indent))
 	}
 	var bestMove *move.Move
-	for _, child := range children {
+	for idx := range children {
 		if s.logStream != nil {
-			fmt.Fprintf(s.logStream, "  %v- play: %v\n", strings.Repeat(" ", indent), child.ShortDescription())
+			fmt.Fprintf(s.logStream, "  %v- play: %v\n", strings.Repeat(" ", indent), s.placeholderMoves[thread].ShortDescription())
 		}
-		err := g.PlayMove(child, false, 0)
+		// copy child into placeholder
+		tinymove.SmallMoveToMove(&children[idx], &s.placeholderMoves[thread], g.Alphabet(), g.Board(), stmRack)
+		err := g.PlayMove(&s.placeholderMoves[thread], false, 0)
 		if err != nil {
 			return 0, err
 		}
+
 		s.nodes.Add(1)
-		childKey := s.ttable.Zobrist().AddMove(nodeKey, child, onTurn == s.solvingPlayer,
-			g.ScorelessTurns(), g.LastScorelessTurns())
+		childKey := uint64(0)
+		if s.transpositionTableOptim {
+			childKey = s.ttable.Zobrist().AddMove(nodeKey, &s.placeholderMoves[thread], onTurn == s.solvingPlayer,
+				g.ScorelessTurns(), g.LastScorelessTurns())
+		}
 		value, err := s.negamax(ctx, childKey, depth-1, -β, -α, &childPV, thread)
 		if err != nil {
 			g.UnplayLastMove()
@@ -653,11 +656,11 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		}
 		if -value > bestValue {
 			bestValue = -value
-			bestMove = child
-			pv.Update(child, childPV, bestValue-int16(s.initialSpread))
+			bestMove = &s.placeholderMoves[thread]
+			pv.Update(&s.placeholderMoves[thread], childPV, bestValue-int16(s.initialSpread))
 		}
 		if s.currentIDDepths[thread] == depth {
-			child.SetEstimatedValue(-value)
+			children[idx].SetEstimatedValue(-value)
 		}
 
 		α = max(α, bestValue)
@@ -667,7 +670,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		}
 		if bestValue >= β {
 			if s.killerPlayOptim {
-				s.storeKiller(depth, child)
+				s.storeKiller(depth, &s.placeholderMoves[thread])
 			}
 			break // beta cut-off
 		}
