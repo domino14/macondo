@@ -241,8 +241,6 @@ func TestPassFirst(t *testing.T) {
 
 	s := new(Solver)
 	s.Init(gen1, g.Game)
-	// s.transpositionTableOptim = false
-
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 	v, seq, _ := s.Solve(context.Background(), plies)
 

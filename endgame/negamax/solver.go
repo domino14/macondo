@@ -657,7 +657,10 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		if -value > bestValue {
 			bestValue = -value
 			bestMove = children[idx]
-			pv.Update(&s.placeholderMoves[thread], childPV, bestValue-int16(s.initialSpread))
+			// allocate a move to update the pv
+			m := &move.Move{}
+			tinymove.SmallMoveToMove(&bestMove, m, g.Alphabet(), g.Board(), stmRack)
+			pv.Update(m, childPV, bestValue-int16(s.initialSpread))
 		}
 		if s.currentIDDepths[thread] == depth {
 			children[idx].SetEstimatedValue(-value)
