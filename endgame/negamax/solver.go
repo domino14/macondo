@@ -627,7 +627,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	if s.logStream != nil {
 		fmt.Fprintf(s.logStream, "  %vplays:\n", strings.Repeat(" ", indent))
 	}
-	var bestMove *move.Move
+	var bestMove tinymove.SmallMove
 	for idx := range children {
 		if s.logStream != nil {
 			fmt.Fprintf(s.logStream, "  %v- play: %v\n", strings.Repeat(" ", indent), s.placeholderMoves[thread].ShortDescription())
@@ -656,7 +656,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		}
 		if -value > bestValue {
 			bestValue = -value
-			bestMove = &s.placeholderMoves[thread]
+			bestMove = children[idx]
 			pv.Update(&s.placeholderMoves[thread], childPV, bestValue-int16(s.initialSpread))
 		}
 		if s.currentIDDepths[thread] == depth {
@@ -670,6 +670,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		}
 		if bestValue >= β {
 			if s.killerPlayOptim {
+				// XXX: no, this is wrong, need to copy, but remove this.
 				s.storeKiller(depth, &s.placeholderMoves[thread])
 			}
 			break // beta cut-off
@@ -694,7 +695,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			flag = TTExact
 		}
 		entryToStore.flagAndDepth = flag<<6 + uint8(depth)
-		entryToStore.play = tinymove.MoveToTinyMove(bestMove)
+		entryToStore.play = bestMove.TinyMove()
 		s.ttable.store(nodeKey, entryToStore)
 	}
 	return bestValue, nil

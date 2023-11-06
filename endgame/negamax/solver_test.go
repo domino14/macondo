@@ -122,9 +122,9 @@ func TestSolveOther3(t *testing.T) {
 	s, err := setUpSolver("NWL18", "english", board.VsJoey, plies, "DIV", "AEFILMR", 412, 371,
 		1)
 	is.NoErr(err)
-	// s.lazySMPOptim = true
+	s.lazySMPOptim = true
 	// sweet spot seems to be threads = 6 for now
-	// s.threads = 6
+	s.threads = 6
 	v, _, _ := s.Solve(context.Background(), plies)
 	is.Equal(v, int16(55))
 }
