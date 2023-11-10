@@ -396,6 +396,10 @@ func (m *Move) Tiles() tilemapping.MachineWord {
 	return m.tiles
 }
 
+func (m *Move) PlayLength() int {
+	return len(m.tiles)
+}
+
 func (m *Move) CoordsAndVertical() (int, int, bool) {
 	return m.rowStart, m.colStart, m.vertical
 }
@@ -457,4 +461,27 @@ func NewChallengeMove(leave tilemapping.MachineWord, alph *tilemapping.TileMappi
 		leave:  leave,
 		alph:   alph,
 	}
+}
+
+func MinimallyEqual(m1 *Move, m2 *Move) bool {
+	if m1.Action() != m2.Action() {
+		return false
+	}
+	if m1.TilesPlayed() != m2.TilesPlayed() {
+		return false
+	}
+	if len(m1.Tiles()) != len(m2.Tiles()) {
+		return false
+	}
+	r1, c1, v1 := m1.CoordsAndVertical()
+	r2, c2, v2 := m2.CoordsAndVertical()
+	if r1 != r2 || c1 != c2 || v1 != v2 {
+		return false
+	}
+	for idx, i := range m1.Tiles() {
+		if m2.Tiles()[idx] != i {
+			return false
+		}
+	}
+	return true
 }

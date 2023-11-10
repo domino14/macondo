@@ -113,7 +113,8 @@ func AllPlaysSmallRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstr
 		moveCode |= (uint64(row) << 6)
 		moveCode |= (uint64(blanksMask) << 12)
 		gen.smallPlays = append(gen.smallPlays, tinymove.TilePlayMove(
-			tinymove.TinyMove(moveCode), int16(score), uint8(gen.tilesPlayed)))
+			tinymove.TinyMove(moveCode), int16(score), uint8(gen.tilesPlayed),
+			uint8(length)))
 
 	case move.MoveTypeExchange:
 		// Not meant for this, yet.

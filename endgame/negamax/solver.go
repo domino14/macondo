@@ -20,6 +20,7 @@ import (
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/tinymove"
+	"github.com/domino14/macondo/tinymove/conversions"
 )
 
 // thanks Wikipedia:
@@ -43,9 +44,6 @@ negamax(rootNode, depth, −∞, +∞, 1)
 
 const HugeNumber = int16(32767)
 const MaxVariantLength = 25
-const MaxKillers = 2
-const Killer0Offset = 20000
-const Killer1Offset = 19000
 const EarlyPassOffset = 21000
 const HashMoveOffset = 6000
 const MaxLazySMPThreads = 6
@@ -147,9 +145,8 @@ type Solver struct {
 	game         *game.Game
 	initialMoves [][]tinymove.SmallMove
 
-	gameCopies       []*game.Game
-	placeholderMoves []move.Move
-	movegens         []movegen.MoveGenerator
+	gameCopies []*game.Game
+	movegens   []movegen.MoveGenerator
 
 	initialSpread int
 	solvingPlayer int // This is the player who we call this function for.
@@ -159,14 +156,11 @@ type Solver struct {
 	// in a modest speed boost.
 	earlyPassOptim          bool
 	iterativeDeepeningOptim bool
-	killerPlayOptim         bool
 	firstWinOptim           bool
 	transpositionTableOptim bool
 	lazySMPOptim            bool
 	principalVariation      PVLine
 	bestPVValue             int16
-
-	killers [MaxVariantLength][MaxKillers]tinymove.SmallMove
 
 	ttable *TranspositionTable
 
@@ -185,14 +179,11 @@ func (s *Solver) Init(m movegen.MoveGenerator, game *game.Game) error {
 	s.stmMovegen = m
 	s.game = game
 	s.earlyPassOptim = true
-	// Can't get killer play optimization to work properly; it's typically
-	// significantly slower with it on. Oh well.
-	s.killerPlayOptim = false
+
 	s.firstWinOptim = false
 	s.transpositionTableOptim = true
 	s.iterativeDeepeningOptim = true
 	s.threads = max(1, runtime.NumCPU())
-	s.placeholderMoves = make([]move.Move, s.threads)
 	if s.stmMovegen != nil {
 		s.stmMovegen.SetGenPass(true)
 		s.stmMovegen.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
@@ -210,7 +201,6 @@ func (s *Solver) SetThreads(threads int) {
 		s.threads = threads
 		s.lazySMPOptim = true
 	}
-	s.placeholderMoves = make([]move.Move, s.threads)
 }
 
 func (s *Solver) makeGameCopies() error {
@@ -256,7 +246,7 @@ func (s *Solver) generateSTMPlays(depth, thread int) []tinymove.SmallMove {
 	return genPlays
 }
 
-func (s *Solver) assignEstimates(moves []tinymove.SmallMove, depth, thread int, ttMove *move.Move) {
+func (s *Solver) assignEstimates(moves []tinymove.SmallMove, depth, thread int, ttMove tinymove.TinyMove) {
 	g := s.game
 
 	if thread > 0 {
@@ -266,34 +256,24 @@ func (s *Solver) assignEstimates(moves []tinymove.SmallMove, depth, thread int, 
 	stmRack := g.RackFor(g.PlayerOnTurn())
 	pnot := (g.PlayerOnTurn() + 1) % g.NumPlayers()
 	otherRack := g.RackFor(pnot)
-	numTilesOnRack := stmRack.NumTiles()
+	numTilesOnRack := int(stmRack.NumTiles())
 	ld := g.Bag().LetterDistribution()
 
 	lastMoveWasPass := g.ScorelessTurns() > g.LastScorelessTurns()
 	for idx := range moves {
-		if moves[idx].TilesPlayed() == uint8(numTilesOnRack) {
-			moves[idx].SetEstimatedValue(moves[idx].Score() + int16(2*otherRack.ScoreOn(ld)))
+		if moves[idx].TilesPlayed() == numTilesOnRack {
+			moves[idx].SetEstimatedValue(int16(moves[idx].Score() + 2*otherRack.ScoreOn(ld)))
 			// } else if thread == 4 {
 			// 	// Some handwavy LazySMP thing.
 			// 	p.SetEstimatedValue(int16(7 - p.TilesPlayed()))
 		} else if depth > 2 {
-			moves[idx].SetEstimatedValue(moves[idx].Score() + int16(3*moves[idx].TilesPlayed()))
+			moves[idx].SetEstimatedValue(int16(moves[idx].Score() + 3*moves[idx].TilesPlayed()))
 		} else {
-			moves[idx].SetEstimatedValue(moves[idx].Score())
+			moves[idx].SetEstimatedValue(int16(moves[idx].Score()))
 		}
-		if s.killerPlayOptim {
-			// Force killer plays to be searched first.
-			// Disable for now since killer play optim didn't work.
-			// if p.Equals(s.killers[depth][0], false, false) {
-			// 	p.AddEstimatedValue(Killer0Offset)
-			// } else if p.Equals(s.killers[depth][1], false, false) {
-			// 	p.AddEstimatedValue(Killer1Offset)
-			// }
+		if moves[idx].TinyMove() == ttMove {
+			moves[idx].AddEstimatedValue(HashMoveOffset)
 		}
-		// XXX: fix HashMoveOffset
-		// if ttMove != nil && tinymove.MinimallyEqual(p, ttMove) {
-		// 	p.AddEstimatedValue(HashMoveOffset)
-		// }
 
 		// XXX: should also verify validity of ttMove later.
 		if s.earlyPassOptim && lastMoveWasPass && moves[idx].IsPass() {
@@ -301,6 +281,7 @@ func (s *Solver) assignEstimates(moves []tinymove.SmallMove, depth, thread int, 
 		}
 	}
 	// if thread <= 3 {
+
 	sort.Slice(moves, func(i int, j int) bool {
 		return moves[i].EstimatedValue() > moves[j].EstimatedValue()
 	})
@@ -344,7 +325,7 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 	s.initialMoves[0] = s.generateSTMPlays(0, 0)
 
 	// assignEstimates for the very first time around.
-	s.assignEstimates(s.initialMoves[0], 0, 0, nil)
+	s.assignEstimates(s.initialMoves[0], 0, 0, tinymove.InvalidTinyMove)
 
 	pv := PVLine{g: s.game}
 	// Do initial search so that we can have a good estimate for
@@ -498,7 +479,7 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 	s.initialMoves = make([][]tinymove.SmallMove, 1)
 	s.initialMoves[0] = s.generateSTMPlays(0, 0)
 	// assignEstimates for the very first time around.
-	s.assignEstimates(s.initialMoves[0], 0, 0, nil)
+	s.assignEstimates(s.initialMoves[0], 0, 0, tinymove.InvalidTinyMove)
 	start := 1
 	if !s.iterativeDeepeningOptim {
 		start = plies
@@ -527,23 +508,6 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 
 }
 
-func (s *Solver) storeKiller(ply int, move *move.Move) {
-	// XXX: fix or delete killer optim
-	// if !move.Equals(s.killers[ply][0], false, false) {
-	// 	s.killers[ply][1] = s.killers[ply][0]
-	// 	s.killers[ply][0] = move
-	// }
-}
-
-// Clear the killer moves table.
-func (s *Solver) ClearKillers() {
-	// XXX: fix or delete killer optim
-	// for ply := 0; ply < MaxVariantLength; ply++ {
-	// 	s.killers[ply][0] = nil
-	// 	s.killers[ply][1] = nil
-	// }
-}
-
 func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β int16, pv *PVLine, thread int) (int16, error) {
 	if ctx.Err() != nil {
 		return 0, ctx.Err()
@@ -560,7 +524,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	// The value should still be correct, though.
 	// Something like PVS might do better at keeping the PV intact.
 	alphaOrig := α
-	var ttMove *move.Move
+	ttMove := tinymove.InvalidTinyMove
 
 	if s.transpositionTableOptim {
 		ttEntry := s.ttable.lookup(nodeKey)
@@ -574,7 +538,8 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 					// let's not lose the very first move.
 					log.Debug().Msg("exact-tt-move")
 					childPV := PVLine{g: g}
-					child, err := tinymove.TinyMoveToFullMove(ttEntry.move(), g, g.RackFor(onTurn))
+					child, err := conversions.TinyMoveToFullMove(ttEntry.move(), g.Board(),
+						g.Bag().LetterDistribution(), g.RackFor(onTurn))
 					if err != nil {
 						return 0, err
 					}
@@ -591,7 +556,8 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 					// let's not lose the very first move.
 					log.Debug().Msg("alpha-beta-cutoff-at-tt")
 					childPV := PVLine{g: g}
-					child, err := tinymove.TinyMoveToFullMove(ttEntry.move(), g, g.RackFor(onTurn))
+					child, err := conversions.TinyMoveToFullMove(ttEntry.move(), g.Board(),
+						g.Bag().LetterDistribution(), g.RackFor(onTurn))
 					if err != nil {
 						return 0, err
 					}
@@ -600,8 +566,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 				return score, nil
 			}
 			// search hash move first.
-			ttMove := &move.Move{}
-			tinymove.TinyMoveToMove(ttEntry.move(), g.Board(), ttMove)
+			ttMove = ttEntry.move()
 		}
 	}
 
@@ -630,20 +595,18 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	var bestMove tinymove.SmallMove
 	for idx := range children {
 		if s.logStream != nil {
-			fmt.Fprintf(s.logStream, "  %v- play: %v\n", strings.Repeat(" ", indent), s.placeholderMoves[thread].ShortDescription())
+			fmt.Fprintf(s.logStream, "  %v- play: %v\n", strings.Repeat(" ", indent), children[idx].ShortDescription(g.Alphabet()))
 		}
-		// copy child into placeholder
-		tinymove.SmallMoveToMove(&children[idx], &s.placeholderMoves[thread], g.Alphabet(), g.Board(), stmRack)
-		err := g.PlayMove(&s.placeholderMoves[thread], false, 0)
+
+		moveTiles, err := g.PlaySmallMove(&children[idx])
 		if err != nil {
 			return 0, err
 		}
-
 		s.nodes.Add(1)
 		childKey := uint64(0)
 		if s.transpositionTableOptim {
-			childKey = s.ttable.Zobrist().AddMove(nodeKey, &s.placeholderMoves[thread], onTurn == s.solvingPlayer,
-				g.ScorelessTurns(), g.LastScorelessTurns())
+			childKey = s.ttable.Zobrist().AddMove(nodeKey, &children[idx], moveTiles,
+				onTurn == s.solvingPlayer, g.ScorelessTurns(), g.LastScorelessTurns())
 		}
 		value, err := s.negamax(ctx, childKey, depth-1, -β, -α, &childPV, thread)
 		if err != nil {
@@ -659,7 +622,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			bestMove = children[idx]
 			// allocate a move to update the pv
 			m := &move.Move{}
-			tinymove.SmallMoveToMove(&bestMove, m, g.Alphabet(), g.Board(), stmRack)
+			conversions.SmallMoveToMove(&bestMove, m, g.Alphabet(), g.Board(), stmRack)
 			pv.Update(m, childPV, bestValue-int16(s.initialSpread))
 		}
 		if s.currentIDDepths[thread] == depth {
@@ -672,10 +635,6 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			fmt.Fprintf(s.logStream, "  %v  β: %v\n", strings.Repeat(" ", indent), β)
 		}
 		if bestValue >= β {
-			if s.killerPlayOptim {
-				// XXX: no, this is wrong, need to copy, but remove this.
-				s.storeKiller(depth, &s.placeholderMoves[thread])
-			}
 			break // beta cut-off
 		}
 		childPV.Clear() // clear the child node's pv for the next child node
@@ -746,8 +705,6 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	s.nodes.Store(0)
 	var bestV int16
 	var bestSeq []*move.Move
-	s.ClearKillers()
-
 	// + 2 since lazysmp can search at a higher ply count
 	s.game.SetStateStackLength(plies + 2)
 
@@ -859,10 +816,6 @@ func (s *Solver) QuickAndDirtySolve(ctx context.Context, plies, thread int) (int
 
 func (s *Solver) SetIterativeDeepening(id bool) {
 	s.iterativeDeepeningOptim = id
-}
-
-func (s *Solver) SetKillerPlayOptim(k bool) {
-	s.killerPlayOptim = k
 }
 
 func (s *Solver) SetTranspositionTableOptim(tt bool) {

@@ -1,14 +1,15 @@
-package tinymove
+package conversions
 
 import (
 	"testing"
+
+	"github.com/matryer/is"
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tilemapping"
-	"github.com/matryer/is"
 )
 
 var DefaultConfig = config.DefaultConfig()
@@ -25,7 +26,7 @@ func TestTinyMove(t *testing.T) {
 	tm := MoveToTinyMove(m)
 	m2 := &move.Move{}
 	TinyMoveToMove(tm, g.Board(), m2)
-	is.True(MinimallyEqual(m, m2))
+	is.True(move.MinimallyEqual(m, m2))
 }
 
 func TestComplexTinyMove(t *testing.T) {
@@ -40,5 +41,5 @@ func TestComplexTinyMove(t *testing.T) {
 	tm := MoveToTinyMove(m)
 	m2 := &move.Move{}
 	TinyMoveToMove(tm, b, m2)
-	is.True(MinimallyEqual(m, m2))
+	is.True(move.MinimallyEqual(m, m2))
 }

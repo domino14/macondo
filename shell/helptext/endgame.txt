@@ -64,12 +64,6 @@ Options:
     are time-limited, it is likely that the first few answers will be good
     enough for many endgames.
 
-    -killer-optim true
-
-    A "Killer" play is a play that caused a Beta cut-off. We consider it first when 
-    looking at similar trees. Killer play optimization is off by default,
-    as it did not seem to help a great deal when we tested it.
-
     -threads 3
 
     Use LazySMP to recruit more cores to help solve the endgame. Our current

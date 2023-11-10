@@ -351,7 +351,6 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	var disableID bool
 	var disableTT bool
 	var enableFW bool
-	var enableKillerPlayOptim bool
 	var err error
 
 	if cmd.options["plies"] != "" {
@@ -373,9 +372,6 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	}
 	if cmd.options["disable-tt"] == "true" {
 		disableTT = true
-	}
-	if cmd.options["killer-optim"] == "true" {
-		enableKillerPlayOptim = true
 	}
 	if cmd.options["threads"] != "" {
 		maxthreads, err = strconv.Atoi(cmd.options["threads"])
@@ -406,7 +402,6 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	}
 
 	sc.endgameSolver.SetIterativeDeepening(!disableID)
-	sc.endgameSolver.SetKillerPlayOptim(enableKillerPlayOptim)
 	sc.endgameSolver.SetTranspositionTableOptim(!disableTT)
 	sc.endgameSolver.SetThreads(maxthreads)
 	sc.endgameSolver.SetFirstWinOptim(enableFW)

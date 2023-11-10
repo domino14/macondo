@@ -1,8 +1,6 @@
 package tinymove
 
 import (
-	"github.com/domino14/macondo/board"
-	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tilemapping"
 )
 
@@ -14,16 +12,25 @@ type SmallMove struct {
 	tm             TinyMove
 	score          int16
 	estimatedValue int16
-	tilesPlayed    uint8
+	// tilesDescriptor:
+	// CCCC CPPP
+	// 7    3
+	// PPP = a 3-bit number (number of tiles in play that came from rack)
+	// CCCCC = a 5-bit number (total number of tiles in play, including play-through)
+	tilesDescriptor uint8
 }
+
+const tilesPlayedBitMask = 0b00000111
 
 func PassMove() SmallMove {
 	// everything is 0.
 	return SmallMove{}
 }
 
-func TilePlayMove(tm TinyMove, score int16, tilesPlayed uint8) SmallMove {
-	return SmallMove{tm: tm, score: score, tilesPlayed: tilesPlayed}
+func TilePlayMove(tm TinyMove, score int16, tilesPlayed, playLength uint8) SmallMove {
+	tilesDescriptor := tilesPlayed + (playLength << 3)
+
+	return SmallMove{tm: tm, score: score, tilesDescriptor: tilesDescriptor}
 }
 
 // EstimatedValue is an internal value that is used in calculating endgames and related metrics.
@@ -48,12 +55,16 @@ func (m *SmallMove) AddEstimatedValue(v int16) {
 	m.estimatedValue += v
 }
 
-func (m *SmallMove) TilesPlayed() uint8 {
-	return m.tilesPlayed
+func (m *SmallMove) TilesPlayed() int {
+	return int(m.tilesDescriptor) & tilesPlayedBitMask
 }
 
-func (m *SmallMove) Score() int16 {
-	return m.score
+func (m *SmallMove) PlayLength() int {
+	return int(m.tilesDescriptor) >> 3
+}
+
+func (m *SmallMove) Score() int {
+	return int(m.score)
 }
 
 func (m *SmallMove) TinyMove() TinyMove {
@@ -64,15 +75,14 @@ func (m *SmallMove) IsPass() bool {
 	return m.tm == 0
 }
 
-func SmallMoveToMove(sm *SmallMove, m *move.Move, tm *tilemapping.TileMapping,
-	bd *board.GameBoard, onTurnRack *tilemapping.Rack) {
-	TinyMoveToMove(sm.tm, bd, m)
-	// populate move with missing fields.
-	m.SetAlphabet(tm)
-	leave, err := tilemapping.Leave(onTurnRack.TilesOn(), m.Tiles(), false)
-	if err != nil {
-		panic(err)
+func (m *SmallMove) CoordsAndVertical() (int, int, bool) {
+	// assume it's a tile play move
+	t := m.tm
+	row := int(t&RowBitMask) >> 6
+	col := int(t&ColBitMask) >> 1
+	vert := false
+	if t&1 > 0 {
+		vert = true
 	}
-	m.SetLeave(leave)
-	m.SetScore(int(sm.score))
+	return row, col, vert
 }

@@ -3,9 +3,10 @@ package zobrist
 import (
 	"lukechampine.com/frand"
 
+	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/game"
-	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tilemapping"
+	"github.com/domino14/macondo/tinymove"
 )
 
 const bignum = 1<<63 - 2
@@ -84,8 +85,9 @@ func (z *Zobrist) Hash(squares tilemapping.MachineWord,
 	return key
 }
 
-func (z *Zobrist) AddMove(key uint64, m *move.Move, wasOurMove bool,
-	scorelessTurns, lastScorelessTurns int) uint64 {
+func (z *Zobrist) AddMove(key uint64, m *tinymove.SmallMove,
+	moveTiles *[board.MaxBoardDim]tilemapping.MachineLetter,
+	wasOurMove bool, scorelessTurns, lastScorelessTurns int) uint64 {
 
 	// Adding a move:
 	// For every letter in the move (assume it's only a tile placement move
@@ -99,14 +101,15 @@ func (z *Zobrist) AddMove(key uint64, m *move.Move, wasOurMove bool,
 	if !wasOurMove {
 		rackTable = z.theirRackTable
 	}
-	if m.Action() == move.MoveTypePlay {
+	if !m.IsPass() {
 		row, col, vertical := m.CoordsAndVertical()
 		ri, ci := 0, 1
 		if vertical {
 			ri, ci = 1, 0
 		}
 		placeholderRack := [MaxLetters]tilemapping.MachineLetter{}
-		for idx, tile := range m.Tiles() {
+		for idx := 0; idx < m.PlayLength(); idx++ {
+			tile := moveTiles[idx]
 			newRow := row + (ri * idx)
 			newCol := col + (ci * idx)
 			if tile == 0 {
@@ -123,11 +126,10 @@ func (z *Zobrist) AddMove(key uint64, m *move.Move, wasOurMove bool,
 			tileIdx := tile.IntrinsicTileIdx()
 			placeholderRack[tileIdx]++
 		}
-		for _, tile := range m.Leave() {
-			placeholderRack[tile]++
-		}
 		// now "Play" all the tiles in the rack
-		for _, tile := range m.Tiles() {
+		for idx := 0; idx < m.PlayLength(); idx++ {
+			tile := moveTiles[idx]
+
 			if tile == 0 {
 				// this is a play-through tile, if it's in a move. Ignore it.
 				continue

@@ -119,7 +119,8 @@ func BenchmarkStraightforward1PEG(b *testing.B) {
 	b.ResetTimer()
 
 	// 10/24/23 -  1	16283647648 ns/op	43704360960 B/op	831437490 allocs/op
-	// Look at those allocations! 43.7 GB mem
+	// 11/5/23 - 1		15224121119 ns/op	19675753312 B/op	143766012 allocs/op
+	// 11/9/23 - 1		14481023059 ns/op	18559717408 B/op	53698650 allocs/op
 	for i := 0; i < b.N; i++ {
 		plays, err := peg.Solve(ctx)
 		is.NoErr(err)

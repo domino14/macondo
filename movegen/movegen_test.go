@@ -16,7 +16,7 @@ import (
 	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tilemapping"
-	"github.com/domino14/macondo/tinymove"
+	"github.com/domino14/macondo/tinymove/conversions"
 	"github.com/matryer/is"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
@@ -490,7 +490,7 @@ func TestSmallMoveRecorder(t *testing.T) {
 	for i := 2; i < 9; i++ {
 		assert.Equal(t, int16(32), generator.smallPlays[i].Score())
 		m := &move.Move{}
-		tinymove.SmallMoveToMove(&generator.smallPlays[i], m, alph, bd, rack)
+		conversions.SmallMoveToMove(&generator.smallPlays[i], m, alph, bd, rack)
 
 		if m.Tiles().UserVisiblePlayedTiles(alph) == "rEW..DS" {
 			rewards = i
@@ -499,7 +499,7 @@ func TestSmallMoveRecorder(t *testing.T) {
 	assert.NotEqual(t, 0, rewards)
 
 	m := &move.Move{}
-	tinymove.SmallMoveToMove(&generator.smallPlays[rewards], m, alph, bd, rack)
+	conversions.SmallMoveToMove(&generator.smallPlays[rewards], m, alph, bd, rack)
 
 	assert.Equal(t, "?D", m.Leave().UserVisible(alph))
 }

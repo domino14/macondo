@@ -5,13 +5,14 @@ import (
 	"log"
 	"testing"
 
+	"github.com/matryer/is"
+	"github.com/stretchr/testify/assert"
+
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tilemapping"
-	"github.com/matryer/is"
-	"github.com/stretchr/testify/assert"
 )
 
 var DefaultConfig = config.DefaultConfig()
@@ -303,7 +304,7 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 		b.SetToGame(alph, tc.testGame)
 		gen.GenerateAll(b)
 		b.UpdateAllAnchors()
-		b.PlayMove(tc.m, dist)
+		b.PlayMove(tc.m)
 		gen.UpdateForMove(b, tc.m)
 		log.Printf(b.ToDisplayText(alph))
 		// Create an identical board, but generate cross-sets for the entire
@@ -503,7 +504,7 @@ func TestUpdateCrossScoresForMove(t *testing.T) {
 		b.SetToGame(alph, tc.testGame)
 		gen.GenerateAll(b)
 		b.UpdateAllAnchors()
-		b.PlayMove(tc.m, dist)
+		b.PlayMove(tc.m)
 		gen.UpdateForMove(b, tc.m)
 		log.Printf(b.ToDisplayText(alph))
 		// Create an identical board, but generate cross-sets for the entire
@@ -582,7 +583,7 @@ func TestCompareUpdate(t *testing.T) {
 		b1.SetToGame(alph, tc.testGame)
 		gen1.GenerateAll(b1)
 		b1.UpdateAllAnchors()
-		b1.PlayMove(tc.m, dist)
+		b1.PlayMove(tc.m)
 		gen1.UpdateForMove(b1, tc.m)
 
 		// Run the cross score generator on b2
@@ -590,7 +591,7 @@ func TestCompareUpdate(t *testing.T) {
 		b2.SetToGame(alph, tc.testGame)
 		gen2.GenerateAll(b2)
 		b2.UpdateAllAnchors()
-		b2.PlayMove(tc.m, dist)
+		b2.PlayMove(tc.m)
 		gen2.UpdateForMove(b2, tc.m)
 
 		compareCrossScores(t, b1, b2)
@@ -679,7 +680,7 @@ func BenchmarkMakePlay(b *testing.B) {
 	// 2.7 us; more than 10x faster than regenerating all anchors every time.
 	// seems worth it.
 	for i := 0; i < b.N; i++ {
-		bd.PlayMove(m, dist)
+		bd.PlayMove(m)
 		gen.UpdateForMove(bd, m)
 	}
 
