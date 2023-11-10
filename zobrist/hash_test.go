@@ -8,6 +8,8 @@ import (
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tilemapping"
+	"github.com/domino14/macondo/tinymove"
+	"github.com/domino14/macondo/tinymove/conversions"
 	"github.com/matryer/is"
 )
 
@@ -77,7 +79,11 @@ func TestHashAfterMakingPlay(t *testing.T) {
 	h := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("ADENOOO", alph), tilemapping.RackFromString("AHIILMM", alph), false, 0)
 
 	m1 := move.NewScoringMoveSimple(8, "15J", "END", "AOOO", alph)
-	h1 := z.AddMove(h, m1, true, 0, 0)
+	tm := conversions.MoveToTinyMove(m1)
+	sm := tinymove.TilePlayMove(tm, 8, 3, 3)
+	h1 := z.AddMove(h, &sm, &[21]tilemapping.MachineLetter{
+		5, 14, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	}, true, 0, 0)
 
 	// Actually play the move on the board.
 	err = g.PlayMove(m1, false, 0)
@@ -100,7 +106,9 @@ func TestHashAfterPassing(t *testing.T) {
 	h := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("ADENOOO", alph), tilemapping.RackFromString("AHIILMM", alph), false, 0)
 
 	m1 := move.NewPassMove(tilemapping.RackFromString("ADENOOO", alph).TilesOn(), alph)
-	h1 := z.AddMove(h, m1, true, 1, 0)
+	sm := tinymove.PassMove()
+
+	h1 := z.AddMove(h, &sm, &[21]tilemapping.MachineLetter{}, true, 1, 0)
 	err = g.PlayMove(m1, false, 0)
 	is.NoErr(err)
 
@@ -110,7 +118,8 @@ func TestHashAfterPassing(t *testing.T) {
 
 	// another pass
 	m2 := move.NewPassMove(tilemapping.RackFromString("AHIILMM", alph).TilesOn(), alph)
-	h3 := z.AddMove(h2, m2, false, 2, 1)
+	sm2 := tinymove.PassMove()
+	h3 := z.AddMove(h2, &sm2, &[21]tilemapping.MachineLetter{}, false, 2, 1)
 	err = g.PlayMove(m2, false, 0)
 	is.NoErr(err)
 	// should NOT be equal to the very first hash.
@@ -131,7 +140,11 @@ func TestHashAfterMakingAnotherPlay(t *testing.T) {
 	h := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("AOOO", alph), tilemapping.RackFromString("HI", alph), false, 0)
 	fmt.Println(g.ToDisplayText())
 	m1 := move.NewScoringMoveSimple(11, "13G", ".O.O", "AO", alph)
-	h1 := z.AddMove(h, m1, true, 0, 0)
+	tm1 := conversions.MoveToTinyMove(m1)
+	sm1 := tinymove.TilePlayMove(tm1, 11, 2, 4)
+	h1 := z.AddMove(h, &sm1, &[21]tilemapping.MachineLetter{
+		0, 15, 0, 15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	}, true, 0, 0)
 
 	// Actually play the move on the board.
 	err = g.PlayMove(m1, false, 0)

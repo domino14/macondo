@@ -484,11 +484,11 @@ func TestSmallMoveRecorder(t *testing.T) {
 		return generator.smallPlays[i].Score() > generator.smallPlays[j].Score()
 	})
 
-	assert.Equal(t, int16(106), generator.smallPlays[0].Score()) // hEaDW(OR)DS!
+	assert.Equal(t, 106, generator.smallPlays[0].Score()) // hEaDW(OR)DS!
 	// There are 7 plays worth 32 pts.
 	rewards := 0
 	for i := 2; i < 9; i++ {
-		assert.Equal(t, int16(32), generator.smallPlays[i].Score())
+		assert.Equal(t, 32, generator.smallPlays[i].Score())
 		m := &move.Move{}
 		conversions.SmallMoveToMove(&generator.smallPlays[i], m, alph, bd, rack)
 
