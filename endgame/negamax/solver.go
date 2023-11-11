@@ -605,7 +605,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		s.nodes.Add(1)
 		childKey := uint64(0)
 		if s.transpositionTableOptim {
-			childKey = s.ttable.Zobrist().AddMove(nodeKey, &children[idx], moveTiles,
+			childKey = s.ttable.Zobrist().AddMove(nodeKey, &children[idx], stmRack, moveTiles,
 				onTurn == s.solvingPlayer, g.ScorelessTurns(), g.LastScorelessTurns())
 		}
 		value, err := s.negamax(ctx, childKey, depth-1, -β, -α, &childPV, thread)

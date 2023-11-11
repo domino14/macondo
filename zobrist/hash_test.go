@@ -81,7 +81,7 @@ func TestHashAfterMakingPlay(t *testing.T) {
 	m1 := move.NewScoringMoveSimple(8, "15J", "END", "AOOO", alph)
 	tm := conversions.MoveToTinyMove(m1)
 	sm := tinymove.TilePlayMove(tm, 8, 3, 3)
-	h1 := z.AddMove(h, &sm, &[21]tilemapping.MachineLetter{
+	h1 := z.AddMove(h, &sm, tilemapping.RackFromString("AOOO", alph), &[21]tilemapping.MachineLetter{
 		5, 14, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	}, true, 0, 0)
 
@@ -108,7 +108,7 @@ func TestHashAfterPassing(t *testing.T) {
 	m1 := move.NewPassMove(tilemapping.RackFromString("ADENOOO", alph).TilesOn(), alph)
 	sm := tinymove.PassMove()
 
-	h1 := z.AddMove(h, &sm, &[21]tilemapping.MachineLetter{}, true, 1, 0)
+	h1 := z.AddMove(h, &sm, tilemapping.RackFromString("ADENOOO", alph), &[21]tilemapping.MachineLetter{}, true, 1, 0)
 	err = g.PlayMove(m1, false, 0)
 	is.NoErr(err)
 
@@ -119,7 +119,7 @@ func TestHashAfterPassing(t *testing.T) {
 	// another pass
 	m2 := move.NewPassMove(tilemapping.RackFromString("AHIILMM", alph).TilesOn(), alph)
 	sm2 := tinymove.PassMove()
-	h3 := z.AddMove(h2, &sm2, &[21]tilemapping.MachineLetter{}, false, 2, 1)
+	h3 := z.AddMove(h2, &sm2, tilemapping.RackFromString("AHIILMM", alph), &[21]tilemapping.MachineLetter{}, false, 2, 1)
 	err = g.PlayMove(m2, false, 0)
 	is.NoErr(err)
 	// should NOT be equal to the very first hash.
@@ -142,9 +142,10 @@ func TestHashAfterMakingAnotherPlay(t *testing.T) {
 	m1 := move.NewScoringMoveSimple(11, "13G", ".O.O", "AO", alph)
 	tm1 := conversions.MoveToTinyMove(m1)
 	sm1 := tinymove.TilePlayMove(tm1, 11, 2, 4)
-	h1 := z.AddMove(h, &sm1, &[21]tilemapping.MachineLetter{
-		0, 15, 0, 15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	}, true, 0, 0)
+	h1 := z.AddMove(h, &sm1, tilemapping.RackFromString("AO", alph),
+		&[21]tilemapping.MachineLetter{
+			0, 15, 0, 15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		}, true, 0, 0)
 
 	// Actually play the move on the board.
 	err = g.PlayMove(m1, false, 0)

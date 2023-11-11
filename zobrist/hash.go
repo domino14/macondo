@@ -86,7 +86,7 @@ func (z *Zobrist) Hash(squares tilemapping.MachineWord,
 }
 
 func (z *Zobrist) AddMove(key uint64, m *tinymove.SmallMove,
-	moveTiles *[board.MaxBoardDim]tilemapping.MachineLetter,
+	moveRack *tilemapping.Rack, moveTiles *[board.MaxBoardDim]tilemapping.MachineLetter,
 	wasOurMove bool, scorelessTurns, lastScorelessTurns int) uint64 {
 
 	// Adding a move:
@@ -108,6 +108,7 @@ func (z *Zobrist) AddMove(key uint64, m *tinymove.SmallMove,
 			ri, ci = 1, 0
 		}
 		placeholderRack := [MaxLetters]tilemapping.MachineLetter{}
+
 		for idx := 0; idx < m.PlayLength(); idx++ {
 			tile := moveTiles[idx]
 			newRow := row + (ri * idx)
@@ -125,6 +126,12 @@ func (z *Zobrist) AddMove(key uint64, m *tinymove.SmallMove,
 			// build up placeholder rack.
 			tileIdx := tile.IntrinsicTileIdx()
 			placeholderRack[tileIdx]++
+		}
+		// moveRack contains the left-over tiles
+		for idx := range moveRack.LetArr {
+			for j := 0; j < moveRack.LetArr[idx]; j++ {
+				placeholderRack[idx]++
+			}
 		}
 		// now "Play" all the tiles in the rack
 		for idx := 0; idx < m.PlayLength(); idx++ {
