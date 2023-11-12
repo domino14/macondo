@@ -2,6 +2,7 @@ package movegen
 
 import (
 	"log"
+	"sync"
 
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/move"
@@ -9,6 +10,13 @@ import (
 	"github.com/domino14/macondo/tinymove"
 	"github.com/samber/lo"
 )
+
+var SmallPlaySlicePool = sync.Pool{
+	New: func() interface{} {
+		s := make([]tinymove.SmallMove, 0)
+		return &s
+	},
+}
 
 type PlayRecorderFunc func(*GordonGenerator, *tilemapping.Rack, int, int, move.MoveType, int)
 

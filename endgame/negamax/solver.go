@@ -242,6 +242,7 @@ func (s *Solver) generateSTMPlays(depth, thread int) []tinymove.SmallMove {
 		// movegen owns the plays array. Make a copy of these.
 		genPlays = make([]tinymove.SmallMove, len(plays))
 		copy(genPlays, plays)
+		movegen.SmallPlaySlicePool.Put(&plays)
 	}
 	return genPlays
 }

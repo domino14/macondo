@@ -140,10 +140,15 @@ func (gen *GordonGenerator) SetMaxTileUsage(t int) {
 // GenAll generates all moves on the board. It assumes anchors have already
 // been updated, as well as cross-sets / cross-scores.
 func (gen *GordonGenerator) GenAll(rack *tilemapping.Rack, addExchange bool) []*move.Move {
+
 	gen.winner.SetEmpty()
 	gen.quitEarly = false
 	gen.plays = gen.plays[:0]
-	gen.smallPlays = []tinymove.SmallMove{}
+
+	ptr := SmallPlaySlicePool.Get().(*[]tinymove.SmallMove)
+	gen.smallPlays = *ptr
+	gen.smallPlays = gen.smallPlays[0:0]
+
 	gen.vertical = false
 	gen.genByOrientation(rack, board.HorizontalDirection)
 	gen.board.Transpose()
@@ -171,6 +176,8 @@ func (gen *GordonGenerator) GenAll(rack *tilemapping.Rack, addExchange bool) []*
 	if addExchange {
 		gen.generateExchangeMoves(rack, 0, 0)
 	}
+	*ptr = gen.smallPlays
+
 	return gen.plays
 }
 
