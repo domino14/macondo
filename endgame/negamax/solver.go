@@ -537,7 +537,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			if flag == TTExact {
 				if pv.numMoves == 0 {
 					// let's not lose the very first move.
-					log.Debug().Msg("exact-tt-move")
+					log.Trace().Msg("exact-tt-move")
 					childPV := PVLine{g: g}
 					child, err := conversions.TinyMoveToFullMove(ttEntry.move(), g.Board(),
 						g.Bag().LetterDistribution(), g.RackFor(onTurn))
@@ -555,7 +555,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			if α >= β {
 				if pv.numMoves == 0 {
 					// let's not lose the very first move.
-					log.Debug().Msg("alpha-beta-cutoff-at-tt")
+					log.Trace().Msg("alpha-beta-cutoff-at-tt")
 					childPV := PVLine{g: g}
 					child, err := conversions.TinyMoveToFullMove(ttEntry.move(), g.Board(),
 						g.Bag().LetterDistribution(), g.RackFor(onTurn))
