@@ -530,7 +530,7 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 			sc.showError(err)
 			return
 		}
-		maxMoves := 20
+		maxMoves := 30
 		if len(moves) < maxMoves {
 			maxMoves = len(moves)
 		}

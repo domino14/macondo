@@ -123,7 +123,7 @@ func BenchmarkStraightforward1PEG(b *testing.B) {
 	// 11/9/23 -  1		14481023059 ns/op	18559717408 B/op	53698650 allocs/op
 	// 11/11/23 - 1		13938763155 ns/op	18363324144 B/op	52887568 allocs/op
 	// 11/11/23 - 1		13747110199 ns/op	11981979688 B/op	37294808 allocs/op
-
+	// 11/18/23 - 1		8170869576 ns/op	10322733488 B/op	21333124 allocs/op
 	for i := 0; i < b.N; i++ {
 		plays, err := peg.Solve(ctx)
 		is.NoErr(err)
@@ -132,6 +132,32 @@ func BenchmarkStraightforward1PEG(b *testing.B) {
 		is.Equal(plays[0].Play.ShortDescription(), "13L ONYX")
 		is.Equal(plays[0].Points, float32(7.5))
 		is.Equal(plays[0].OutcomeFor([]tilemapping.MachineLetter{25}), PEGDraw)
+	}
+}
+
+func BenchmarkSlowPEG(b *testing.B) {
+	is := is.New(b)
+
+	cgpStr := "AnORETIC7/7R7/2C1EMEU7/1JANNY1X7/2P12/1SIDELING6/2ZAG7Q2/3MOVED3AA2/6FEAL1IT2/2NEGATES2D3/3DOH2KEEFS2/WITH7UN2/I10LO2/LABOUR6B2/Y6POTTOS2 ?AENORW/EIIIRUV 332/384 0 lex NWL20;"
+	g, err := cgp.ParseCGP(&DefaultConfig, cgpStr)
+	is.NoErr(err)
+	g.RecalculateBoard()
+
+	gd, err := kwg.Get(&DefaultConfig, "NWL20")
+	is.NoErr(err)
+	peg := new(Solver)
+
+	err = peg.Init(g.Game, gd)
+	is.NoErr(err)
+	ctx := context.Background()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		plays, err := peg.Solve(ctx)
+		is.NoErr(err)
+
+		is.Equal(plays[0].Play.ShortDescription(), "14M .O")
+		is.Equal(plays[0].Points, float32(7))
 	}
 }
 
