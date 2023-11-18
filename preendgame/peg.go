@@ -244,6 +244,10 @@ type Solver struct {
 	earlyCutoffOptim bool
 	skipPassOptim    bool
 	skipTiebreaker   bool
+
+	numEndgamesSolved  atomic.Uint64
+	numCutoffs         atomic.Uint64
+	minPotentialLosses float32
 }
 
 // Init initializes the solver. It creates all the parallel endgame solvers.
@@ -253,6 +257,8 @@ func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
 	s.ttable.SetMultiThreadedMode()
 	s.game = g.Copy()
 	s.game.SetBackupMode(game.SimulationMode)
+	// To control what tiles we draw:
+	s.game.Bag().SetFixedOrder(true)
 	s.endgamePlies = 4
 	s.gaddag = gd
 	s.earlyCutoffOptim = true
@@ -266,6 +272,11 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 	defer func() {
 		s.busy = false
 	}()
+	s.numEndgamesSolved.Store(0)
+	s.numCutoffs.Store(0)
+
+	s.minPotentialLosses = 100000.0
+
 	playerOnTurn := s.game.PlayerOnTurn()
 	// Fill opponent's rack for now. Ignore the "known opp rack", if any. That
 	// is handled properly later.
@@ -435,7 +446,7 @@ func (s *Solver) multithreadSolve(ctx context.Context, moves []*move.Move) ([]*P
 				processed.Add(1)
 				n := processed.Load()
 				if n%500 == 0 {
-					log.Info().Msgf("processed %d endgames...", n)
+					log.Info().Uint64("cutoffs", s.numCutoffs.Load()).Msgf("processed %d endgames...", n)
 				}
 			}
 			return nil
@@ -451,19 +462,33 @@ func (s *Solver) multithreadSolve(ctx context.Context, moves []*move.Move) ([]*P
 			} else {
 				s.winnerSoFar = p
 			}
+			// e.g. if we have three known losses in 4 games, we have at most 7 possible losses.
+			ppotentialLosses := 8.0 - p.Points // XXX: obviously need to rewrite for non PEG-1
+			if ppotentialLosses < s.minPotentialLosses {
+				log.Info().
+					Float32("potentialLosses", ppotentialLosses).
+					Str("p", p.String()).
+					Float32("n", s.minPotentialLosses).Msg("min potential losses")
+				s.minPotentialLosses = ppotentialLosses
+			}
 		}
 		return nil
 	})
 	queuedJobs := 0
 	var ourPass *PreEndgamePlay
-	for _, p := range s.plays {
-		if p.Play.Action() == move.MoveTypePass {
-			// passes handled differently.
-			ourPass = p
+
+	for t, count := range maybeInBagTiles {
+		if count == 0 {
 			continue
 		}
-		for t, count := range maybeInBagTiles {
-			if count == 0 {
+		// Help the early cutoff optimization by separating out plays in time.
+		// XXX: a better optimization might start with endgames where the
+		// opponent has "better" top equity plays. i.e. let them bingo out
+		// right off the bat for example so that we can get earlier cutoffs)
+		for _, p := range s.plays {
+			if p.Play.Action() == move.MoveTypePass {
+				// passes handled differently.
+				ourPass = p
 				continue
 			}
 			j := job{
@@ -475,6 +500,7 @@ func (s *Solver) multithreadSolve(ctx context.Context, moves []*move.Move) ([]*P
 			jobChan <- j
 		}
 	}
+
 	if !s.skipPassOptim {
 		// Handle pass.
 		// First, try to pass back with all possible racks.
@@ -542,7 +568,9 @@ func (s *Solver) multithreadSolve(ctx context.Context, moves []*move.Move) ([]*P
 	if ctx.Err() != nil && (ctx.Err() == context.Canceled || ctx.Err() == context.DeadlineExceeded) {
 		log.Info().Msg("timed out or stopped; returning best results so far...")
 	}
-	log.Info().Str("winner", s.plays[0].String()).Msg("winning-play")
+	log.Info().Uint64("solved-endgames", s.numEndgamesSolved.Load()).
+		Uint64("cutoff-moves", s.numCutoffs.Load()).
+		Str("winner", s.plays[0].String()).Msg("winning-play")
 
 	return s.plays, err
 }
@@ -666,12 +694,19 @@ func (s *Solver) handleJob(ctx context.Context, j job, thread int, winnerChan ch
 	}
 	if s.earlyCutoffOptim {
 		j.ourMove.RLock()
-		if s.winnerSoFar != nil && j.ourMove.FoundLosses > s.winnerSoFar.FoundLosses {
-			// cut off this play. We already have more losses than the winning play's
-			// losses (so far).
+		// we should check to see if our move has more found losses than
+		// _any_ fully analyzed move. If so, it can't possibly win.
+
+		if j.ourMove.FoundLosses > s.minPotentialLosses {
+			// cut off this play. We already have more losses than the
+			// fully analyzed play with the minimum known number of losses.
 			j.ourMove.RUnlock()
-			log.Debug().Msg("stop-analyzing-move")
+			log.Debug().Float32("foundLosses", j.ourMove.FoundLosses).
+				Float32("minKnownLosses", s.minPotentialLosses).
+				Str("ourMove", j.ourMove.String()).
+				Msg("stop-analyzing-move")
 			j.ourMove.stopAnalyzing()
+			s.numCutoffs.Add(1)
 			return nil
 		}
 		j.ourMove.RUnlock()
@@ -737,6 +772,8 @@ func (s *Solver) handleJob(ctx context.Context, j job, thread int, winnerChan ch
 		if err != nil {
 			return err
 		}
+		s.numEndgamesSolved.Add(1)
+
 		// val is the gain in spread after endgame (or loss, if negative), from
 		// POV of opponent.
 		// so the actual final spread is val + initialSpread
@@ -842,6 +879,8 @@ func (s *Solver) handleNonpassResponseToPass(ctx context.Context, j job, thread 
 	if err != nil {
 		return err
 	}
+	s.numEndgamesSolved.Add(1)
+
 	// val is the gain in spread after endgame (or loss, if negative), from
 	// our own POV.
 	// so the actual final spread is val + initialSpread

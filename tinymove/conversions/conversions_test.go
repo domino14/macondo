@@ -1,14 +1,18 @@
-package negamax
+package conversions
 
 import (
 	"testing"
 
+	"github.com/matryer/is"
+
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cgp"
+	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tilemapping"
-	"github.com/matryer/is"
 )
+
+var DefaultConfig = config.DefaultConfig()
 
 func TestTinyMove(t *testing.T) {
 	is := is.New(t)
@@ -19,10 +23,10 @@ func TestTinyMove(t *testing.T) {
 	m := move.NewScoringMove(0, []tilemapping.MachineLetter{0, 21 | 0x80},
 		nil, false, 1, g.Alphabet(), 5, 12)
 
-	tm := moveToTinyMove(m)
-
-	m2 := tinyMoveToMove(tm, g.Board())
-	is.True(minimallyEqual(m, m2))
+	tm := MoveToTinyMove(m)
+	m2 := &move.Move{}
+	TinyMoveToMove(tm, g.Board(), m2)
+	is.True(move.MinimallyEqual(m, m2))
 }
 
 func TestComplexTinyMove(t *testing.T) {
@@ -34,8 +38,8 @@ func TestComplexTinyMove(t *testing.T) {
 		[]tilemapping.MachineLetter{5, 0, 4 | 0x80, 0, 5},
 		nil, true, 3, tilemapping.EnglishAlphabet(), 9, 9)
 
-	tm := moveToTinyMove(m)
-
-	m2 := tinyMoveToMove(tm, b)
-	is.True(minimallyEqual(m, m2))
+	tm := MoveToTinyMove(m)
+	m2 := &move.Move{}
+	TinyMoveToMove(tm, b, m2)
+	is.True(move.MinimallyEqual(m, m2))
 }

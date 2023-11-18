@@ -10,6 +10,7 @@ import (
 
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tilemapping"
+	"github.com/domino14/macondo/tinymove"
 	"github.com/rs/zerolog/log"
 )
 
@@ -21,6 +22,8 @@ type BonusSquare byte
 
 type BoardDirection uint8
 type WordDirection int
+
+const MaxBoardDim = 21
 
 func (bd BoardDirection) String() string {
 	if bd == HorizontalDirection {
@@ -114,6 +117,10 @@ func MakeBoard(desc []string) *GameBoard {
 	totalLen := 0
 	for _, s := range desc {
 		totalLen += len(s)
+	}
+	if totalLen > (MaxBoardDim * MaxBoardDim) {
+		log.Error().Msg("length is too large")
+		return nil
 	}
 	sqs := make([]tilemapping.MachineLetter, totalLen)
 	bs := make([]BonusSquare, totalLen)
@@ -555,7 +562,7 @@ func (g *GameBoard) UnplaceMoveTiles(m *move.Move) {
 
 // PlayMove plays a move on a board. It must place tiles on the board,
 // regenerate cross-sets and cross-points, and recalculate anchors.
-func (g *GameBoard) PlayMove(m *move.Move, ld *tilemapping.LetterDistribution) {
+func (g *GameBoard) PlayMove(m *move.Move) {
 
 	// g.playHistory = append(g.playHistory, m.ShortDescription())
 	if m.Action() != move.MoveTypePlay {
@@ -564,6 +571,88 @@ func (g *GameBoard) PlayMove(m *move.Move, ld *tilemapping.LetterDistribution) {
 	g.PlaceMoveTiles(m)
 	// Calculate anchors.
 	g.updateAnchorsForMove(m)
+	g.tilesPlayed += m.TilesPlayed()
+}
+
+// PlaySmallMove plays a SmallMove on a board. We unroll the PlaceMoveTiles and
+// updateAnchorsForMove here with some modifications.
+func (g *GameBoard) PlaySmallMove(m *tinymove.SmallMove, moveTiles *[MaxBoardDim]tilemapping.MachineLetter, rack *tilemapping.Rack) {
+
+	rowStart, colStart, vertical := m.CoordsAndVertical()
+	ri, ci := 0, 1
+	if vertical {
+		ri, ci = 1, 0
+	}
+	tm := m.TinyMove()
+	blankMask := int(tm & tinymove.BlanksBitMask)
+	tidx := 0
+	tileShift := 20
+	outOfBounds := false
+	r, c := rowStart, colStart
+	lidx := 0
+	for !outOfBounds {
+		onBoard := g.GetLetter(r, c)
+		if onBoard != 0 {
+			// There's already a tile on the board at this location,
+			// so place a play-through character in the moveTiles array.
+			moveTiles[lidx] = 0
+		}
+		sqIdx := g.GetSqIdx(r, c)
+		r += ri
+		c += ci
+		if r >= g.dim || c >= g.dim {
+			outOfBounds = true
+		}
+		if onBoard != 0 {
+			lidx++
+			continue
+		}
+
+		shifted := uint64(tm) & tinymove.TBitMasks[tidx]
+
+		tile := tilemapping.MachineLetter(shifted >> tilemapping.MachineLetter(tileShift))
+		if tile == 0 {
+			break
+		}
+		if blankMask&(1<<(tidx+12)) > 0 {
+			tile = tile.Blank()
+		}
+		tidx++
+		tileShift += 6
+		g.squares[sqIdx] = tile
+		moveTiles[lidx] = tile
+		rack.Take(tile.IntrinsicTileIdx())
+		lidx++
+		if tidx > 6 {
+			break
+		}
+	}
+
+	// calculate anchors
+	if vertical {
+		// Transpose the logic, but NOT the board. The updateAnchors function
+		// assumes the board is not transposed.
+		colStart, rowStart = rowStart, colStart
+	}
+	playLength := m.PlayLength()
+	// Update anchors all around the play.
+	for i := colStart; i < playLength+colStart; i++ {
+		g.updateAnchors(rowStart, i, vertical)
+		if rowStart > 0 {
+			g.updateAnchors(rowStart-1, i, vertical)
+		}
+		if rowStart < g.Dim()-1 {
+			g.updateAnchors(rowStart+1, i, vertical)
+		}
+	}
+
+	if colStart-1 >= 0 {
+		g.updateAnchors(rowStart, colStart-1, vertical)
+	}
+	if playLength+colStart < g.Dim() {
+		g.updateAnchors(rowStart, colStart+playLength, vertical)
+	}
+
 	g.tilesPlayed += m.TilesPlayed()
 }
 

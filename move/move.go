@@ -46,8 +46,6 @@ type Move struct {
 
 	equity float64
 
-	estimatedValue int16 // used only for endgames
-
 	action   MoveType
 	vertical bool
 
@@ -160,7 +158,6 @@ func (m *Move) CopyFrom(other *Move) {
 	m.tilesPlayed = other.tilesPlayed
 	m.vertical = other.vertical
 
-	m.estimatedValue = other.estimatedValue
 	m.equity = other.equity
 }
 
@@ -169,14 +166,14 @@ func (m *Move) String() string {
 	switch m.action {
 	case MoveTypePlay:
 		return fmt.Sprintf(
-			"<%p action: play word: %v %v score: %v tp: %v leave: %v equity: %.3f valu: %d>",
+			"<%p action: play word: %v %v score: %v tp: %v leave: %v equity: %.3f>",
 			m,
 			m.BoardCoords(), m.TilesString(), m.score,
-			m.tilesPlayed, m.LeaveString(), m.equity, m.estimatedValue)
+			m.tilesPlayed, m.LeaveString(), m.equity)
 	case MoveTypePass:
-		return fmt.Sprintf("<%p action: pass leave: %v equity: %.3f valu: %d>",
+		return fmt.Sprintf("<%p action: pass leave: %v equity: %.3f>",
 			m,
-			m.LeaveString(), m.equity, m.estimatedValue)
+			m.LeaveString(), m.equity)
 	case MoveTypeExchange:
 		return fmt.Sprintf(
 			"<%p action: exchange %v score: %v tp: %v leave: %v equity: %.3f>",
@@ -184,9 +181,9 @@ func (m *Move) String() string {
 			m.TilesStringExchange(), m.score, m.tilesPlayed,
 			m.LeaveString(), m.equity)
 	case MoveTypeChallenge:
-		return fmt.Sprintf("<%p action: challenge leave: %v equity: %.3f valu: %d>",
+		return fmt.Sprintf("<%p action: challenge leave: %v equity: %.3f>",
 			m,
-			m.LeaveString(), m.equity, m.estimatedValue)
+			m.LeaveString(), m.equity)
 	}
 	return "<Unhandled move>"
 
@@ -387,23 +384,6 @@ func (m *Move) SetEquity(e float64) {
 	m.equity = e
 }
 
-// EstimatedValue is an internal value that is used in calculating endgames and related metrics.
-func (m *Move) EstimatedValue() int16 {
-	return m.estimatedValue
-}
-
-// SetEstimatedValue sets the estimated value of this move. It is calculated
-// outside of this package.
-func (m *Move) SetEstimatedValue(v int16) {
-	m.estimatedValue = v
-}
-
-// AddEstimatedValue adds an estimate to the existing estimated value of this
-// estimate. Estimate.
-func (m *Move) AddEstimatedValue(v int16) {
-	m.estimatedValue += v
-}
-
 func (m *Move) Score() int {
 	return m.score
 }
@@ -414,6 +394,10 @@ func (m *Move) Leave() tilemapping.MachineWord {
 
 func (m *Move) Tiles() tilemapping.MachineWord {
 	return m.tiles
+}
+
+func (m *Move) PlayLength() int {
+	return len(m.tiles)
 }
 
 func (m *Move) CoordsAndVertical() (int, int, bool) {
@@ -477,4 +461,27 @@ func NewChallengeMove(leave tilemapping.MachineWord, alph *tilemapping.TileMappi
 		leave:  leave,
 		alph:   alph,
 	}
+}
+
+func MinimallyEqual(m1 *Move, m2 *Move) bool {
+	if m1.Action() != m2.Action() {
+		return false
+	}
+	if m1.TilesPlayed() != m2.TilesPlayed() {
+		return false
+	}
+	if len(m1.Tiles()) != len(m2.Tiles()) {
+		return false
+	}
+	r1, c1, v1 := m1.CoordsAndVertical()
+	r2, c2, v2 := m2.CoordsAndVertical()
+	if r1 != r2 || c1 != c2 || v1 != v2 {
+		return false
+	}
+	for idx, i := range m1.Tiles() {
+		if m2.Tiles()[idx] != i {
+			return false
+		}
+	}
+	return true
 }

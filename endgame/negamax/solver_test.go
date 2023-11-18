@@ -499,9 +499,9 @@ func BenchmarkPassFirst(b *testing.B) {
 	s.Init(gen1, g.Game)
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 	b.ResetTimer()
-	// 8.7 GB Allocated!!
+	// Large majority of this allocation is the transposition table.
 	// 10/24/23  1	1578926502 ns/op	8699932296 B/op	 2720435 allocs/op
-
+	// 11/9/23 1	1572327101 ns/op	8654502392 B/op	 1511844 allocs/op
 	for i := 0; i < b.N; i++ {
 		v, seq, _ := s.Solve(context.Background(), plies)
 

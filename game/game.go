@@ -14,6 +14,7 @@ import (
 	"github.com/domino14/macondo/lexicon"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tilemapping"
+	"github.com/domino14/macondo/tinymove"
 	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
 )
@@ -74,6 +75,7 @@ type Game struct {
 	// sturnsBackup - a variable used to hold value of scorelessTurns prior to
 	// putting game in endgame mode.
 	sturnsBackup int
+	stripBackup  [board.MaxBoardDim]tilemapping.MachineLetter
 }
 
 func (g *Game) Config() *config.Config {
@@ -497,8 +499,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 
 	switch m.Action() {
 	case move.MoveTypePlay:
-		ld := g.bag.LetterDistribution()
-		g.board.PlayMove(m, ld)
+		g.board.PlayMove(m)
 		// Calculate cross-sets.
 		g.crossSetGen.UpdateForMove(g.board, m)
 		score := m.Score()
@@ -567,8 +568,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 				g.AddFinalScoresToHistory()
 			}
 		} else {
-			// If this is a regular pass (and not an end-of-game-pass) let's
-			// log it in the history.
+			// it's a regular pass
 			g.lastScorelessTurns = g.scorelessTurns
 			g.scorelessTurns++
 			g.players[g.onturn].turns += 1
@@ -605,6 +605,63 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 	// log.Debug().Interface("history", g.history).Int("onturn", g.onturn).Int("turnnum", g.turnnum).
 	// 	Msg("newhist")
 	return nil
+}
+
+// PlaySmallMove plays a SmallMove in the game. SmallMove can only be a pass
+// or a tile move play right now. It is meant to be used for pre-endgames and
+// endgames. It is meant for "simulation" mode as opposed to real play mode.
+// A lot of this function is copied from PlayMove. We should try to unite
+// those somehow.
+func (g *Game) PlaySmallMove(m *tinymove.SmallMove) (
+	*[board.MaxBoardDim]tilemapping.MachineLetter, error) {
+
+	if g.backupMode != NoBackup {
+		g.backupState()
+	}
+	if m.IsPass() {
+		if g.playing == pb.PlayState_GAME_OVER {
+			log.Warn().Msg("adding a pass when game is already over")
+		}
+		g.lastScorelessTurns = g.scorelessTurns
+		g.scorelessTurns++
+		g.players[g.onturn].turns += 1
+	} else {
+		// It's a tile-play move.
+		g.board.PlaySmallMove(m, &g.stripBackup, g.players[g.onturn].rack)
+		// Calculate cross-sets.
+		g.crossSetGen.UpdateForSmallMove(g.board, m, &g.stripBackup)
+		score := int(m.Score())
+
+		g.lastScorelessTurns = g.scorelessTurns
+		g.scorelessTurns = 0
+		g.players[g.onturn].points += score
+		g.players[g.onturn].turns += 1
+		if m.TilesPlayed() == RackTileLimit {
+			g.players[g.onturn].bingos++
+		}
+		// XXX: assume we are only using this for endgames! Drawing doesn't work
+		// right now.
+		if g.players[g.onturn].rack.NumTiles() == 0 {
+			g.playing = pb.PlayState_GAME_OVER
+			g.endOfGameCalcs(g.onturn, false)
+		}
+
+	}
+
+	gameEnded, err := g.handleConsecutiveScorelessTurns(false)
+	if err != nil {
+		return nil, err
+	}
+	if !gameEnded {
+		g.onturn = (g.onturn + 1) % len(g.players)
+	}
+
+	g.turnnum++
+
+	// log.Debug().Interface("history", g.history).Int("onturn", g.onturn).Int("turnnum", g.turnnum).
+	// 	Msg("newhist")
+	return &g.stripBackup, nil
+
 }
 
 // AddFinalScoresToHistory adds the final scores and winner to the history.
@@ -894,8 +951,7 @@ func (g *Game) PlayTurn(t int) error {
 		// this play will have to be taken back, if it's a challenged phony.
 		g.backupState()
 
-		ld := g.bag.LetterDistribution()
-		g.board.PlayMove(m, ld)
+		g.board.PlayMove(m)
 		g.crossSetGen.UpdateForMove(g.board, m)
 		g.players[g.onturn].points += m.Score()
 		if m.TilesPlayed() == RackTileLimit {
