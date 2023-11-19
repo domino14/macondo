@@ -69,9 +69,13 @@ func eliteBestPlay(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 			simPlies = 2
 		}
 	}
+	simThreads := p.simThreads
+	if p.simThreads == 0 {
+		simThreads = p.simmer.Threads()
+	}
 
 	logger.Info().Int("simPlies", simPlies).
-		Int("simThreads", p.simThreads).
+		Int("simThreads", simThreads).
 		Int("endgamePlies", endgamePlies).
 		Bool("useEndgame", useEndgame).
 		Int("unseen", unseen).
@@ -211,8 +215,8 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	if err != nil {
 		return nil, err
 	}
-	plays := p.simmer.WinningPlays()
-	logger.Debug().Interface("winning-move", plays[0].Move().String()).Msg("sim-done")
-	return plays[0].Move(), nil
+	play := p.simmer.WinningPlay()
+	logger.Debug().Interface("winning-move", play.Move().String()).Msg("sim-done")
+	return play.Move(), nil
 
 }
