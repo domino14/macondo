@@ -257,6 +257,10 @@ func (s *Simmer) SetThreads(threads int) {
 	s.threads = threads
 }
 
+func (s *Simmer) Threads() int {
+	return s.threads
+}
+
 func (s *Simmer) SetLogStream(l io.Writer) {
 	s.logStream = l
 }
@@ -465,7 +469,7 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 	ctrlErr := ctrl.Wait()
 	logger.Debug().Msgf("ctrl errgroup returned err %v", ctrlErr)
 	// sort plays at the end anyway.
-	s.sortPlaysByWinRate()
+	s.sortPlaysByWinRate(false)
 	if ctrlErr == context.Canceled || ctrlErr == context.DeadlineExceeded {
 		// Not actually an error
 		logger.Debug().AnErr("ctrlErr", ctrlErr).Msg("montecarlo-it's ok, not an error")
@@ -616,9 +620,17 @@ func (s *Simmer) sortPlaysByEquity() {
 	})
 }
 
-func (s *Simmer) sortPlaysByWinRate() {
+func (s *Simmer) sortPlaysByWinRate(ignoredAtBottom bool) {
 	// log.Debug().Msgf("Sorting plays: %v", s.plays)
 	sort.Slice(s.plays, func(i, j int) bool {
+		if ignoredAtBottom {
+			if s.plays[i].ignore {
+				return false
+			}
+			if s.plays[j].ignore {
+				return true
+			}
+		}
 		if s.plays[i].winPctStats.Mean() == s.plays[j].winPctStats.Mean() {
 			return s.plays[i].equityStats.Mean() > s.plays[j].equityStats.Mean()
 		}
@@ -632,7 +644,7 @@ func (s *Simmer) printStats() string {
 
 func (s *Simmer) EquityStats() string {
 	var ss strings.Builder
-	s.sortPlaysByWinRate()
+	s.sortPlaysByWinRate(false)
 	fmt.Fprintf(&ss, "%-20s%-9s%-16s%-16s\n", "Play", "Score", "Win%", "Equity")
 
 	for _, play := range s.plays {
@@ -652,7 +664,7 @@ func (s *Simmer) EquityStats() string {
 
 func (s *Simmer) ScoreDetails() string {
 	stats := ""
-	s.sortPlaysByWinRate()
+	s.sortPlaysByWinRate(false)
 	for ply := 0; ply < s.maxPlies; ply++ {
 		who := "You"
 		if ply%2 == 0 {
@@ -681,7 +693,7 @@ func (s *Simmer) SimSingleThread(iters int) {
 	}
 }
 
-func (s *Simmer) WinningPlays() []*SimmedPlay {
-	s.sortPlaysByWinRate()
-	return s.plays
+func (s *Simmer) WinningPlay() *SimmedPlay {
+	s.sortPlaysByWinRate(true)
+	return s.plays[0]
 }

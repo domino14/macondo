@@ -12,7 +12,7 @@ const IterationsCutoff = 2000
 const PerPlyStopScaling = 625
 const SimilarPlaysIterationsCutoff = 750
 
-const MinReasonableWProb = 0.005
+const MinReasonableWProb = 0.005 // or 0.5%
 
 // use stats to figure out when to stop simming.
 
@@ -99,13 +99,34 @@ func (s *Simmer) shouldStop(iterationCount uint64,
 		// play also has no losing chance
 		tiebreakByEquity = true
 	}
+	tentativeWinner.RUnlock()
 
 	if tiebreakByEquity {
+		// We may need to re-determine the tentative winner.
+		highestEquity := -1000000.0
+		highestEquityIdx := -1
+		for idx, p := range c {
+			p.RLock()
+			eq := p.equityStats.Mean()
+			if eq > highestEquity {
+				highestEquityIdx = idx
+				highestEquity = eq
+			}
+			p.RUnlock()
+		}
+		if highestEquityIdx != 0 {
+			c[0], c[highestEquityIdx] = c[highestEquityIdx], c[0]
+			tentativeWinner = c[0]
+			log.Info().
+				Str("old-tentative-winner", c[highestEquityIdx].play.ShortDescription()).
+				Str("tentative-winner", tentativeWinner.play.ShortDescription()).
+				Msg("tiebreaking by equity, re-determining tentative winner")
+		}
 		μ = tentativeWinner.equityStats.Mean()
 		e = tentativeWinner.equityStats.StandardError(ci)
 		log.Debug().Msg("stopping-condition-tiebreak-by-equity")
 	}
-	tentativeWinner.RUnlock()
+
 	newIgnored := 0
 	// assume standard normal distribution (?)
 	for _, p := range c[1:] {
