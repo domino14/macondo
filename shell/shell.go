@@ -130,7 +130,11 @@ type ShellController struct {
 	pegCtx        context.Context
 	pegCancel     context.CancelFunc
 
-	curPlayList []*move.Move
+	curPlayList  []*move.Move
+	elitebot     *bot.BotTurnPlayer
+	botCtx       context.Context
+	botCtxCancel context.CancelFunc
+	botBusy      bool
 }
 
 type Mode int
@@ -255,6 +259,17 @@ func (sc *ShellController) initGameDataStructures() error {
 
 	sc.rangefinder = &rangefinder.RangeFinder{}
 	sc.rangefinder.Init(sc.game.Game, []equity.EquityCalculator{c}, sc.config)
+
+	// initialize the elite bot
+	conf := &bot.BotConfig{Config: *sc.config, MinSimPlies: 5, UseOppRacksInAnalysis: false}
+	tp, err := bot.NewBotTurnPlayerFromGame(sc.game.Game, conf, pb.BotRequest_BotCode(pb.BotRequest_SIMMING_BOT))
+	if err != nil {
+		return err
+	}
+	tp.SetBackupMode(game.InteractiveGameplayMode)
+	tp.SetStateStackLength(1)
+	sc.elitebot = tp
+
 	return nil
 }
 
@@ -581,7 +596,7 @@ func (sc *ShellController) addPlay(fields []string) error {
 	return sc.addMoveToList(playerid, m)
 }
 
-func (sc *ShellController) commitAIMove() error {
+func (sc *ShellController) commitHastyMove() error {
 	if !sc.IsPlaying() {
 		return errors.New("game is over")
 	}
@@ -591,6 +606,31 @@ func (sc *ShellController) commitAIMove() error {
 	sc.genMoves(15)
 	m := sc.curPlayList[0]
 	return sc.commitMove(m)
+}
+
+func (sc *ShellController) commitAIMove() error {
+	if !sc.IsPlaying() {
+		return errors.New("game is over")
+	}
+	if sc.solving() {
+		return errMacondoSolving
+	}
+
+	go func() {
+		log.Info().Msg("Please wait, thinking for up to a minute...")
+		sc.botCtx, sc.botCtxCancel = context.WithTimeout(context.Background(), time.Second*time.Duration(60))
+		sc.botBusy = true
+		defer func() {
+			sc.botBusy = false
+		}()
+		m, err := sc.elitebot.BestPlay(sc.botCtx)
+		if err != nil {
+			log.Err(err).Msg("error with eliteplay")
+		}
+		sc.commitMove(m)
+	}()
+
+	return nil
 }
 
 func (sc *ShellController) handleAutoplay(args []string, options map[string]string) error {
@@ -830,7 +870,9 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 	case "commit":
 		return sc.commit(cmd)
 	case "aiplay":
-		return sc.aiplay(cmd)
+		return sc.eliteplay(cmd)
+	case "hastyplay":
+		return sc.hastyplay(cmd)
 	case "selftest":
 		return sc.selftest(cmd)
 	case "list":

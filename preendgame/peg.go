@@ -272,6 +272,14 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 	defer func() {
 		s.busy = false
 	}()
+	log.Info().
+		Int("endgame-plies", s.endgamePlies).
+		Bool("early-cutoff-optim", s.earlyCutoffOptim).
+		Bool("skip-pass-optim", s.skipPassOptim).
+		Bool("skip-tiebreaker-optim", s.skipTiebreaker).
+		Int("threads", s.threads).
+		Msg("preendgame-solve-called")
+
 	s.numEndgamesSolved.Store(0)
 	s.numCutoffs.Store(0)
 

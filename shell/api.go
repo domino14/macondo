@@ -95,7 +95,8 @@ func (sc *ShellController) solving() bool {
 	return (sc.endgameSolver != nil && sc.endgameSolver.IsSolving()) ||
 		(sc.preendgameSolver != nil && sc.preendgameSolver.IsSolving()) ||
 		(sc.simmer != nil && sc.simmer.IsSimming()) ||
-		(sc.rangefinder != nil && sc.rangefinder.IsBusy())
+		(sc.rangefinder != nil && sc.rangefinder.IsBusy()) ||
+		sc.botBusy
 }
 
 func (sc *ShellController) load(cmd *shellcmd) (*Response, error) {
@@ -281,8 +282,12 @@ func (sc *ShellController) commit(cmd *shellcmd) (*Response, error) {
 	return nil, sc.commitPlay(cmd.args)
 }
 
-func (sc *ShellController) aiplay(cmd *shellcmd) (*Response, error) {
+func (sc *ShellController) eliteplay(cmd *shellcmd) (*Response, error) {
 	return nil, sc.commitAIMove()
+}
+
+func (sc *ShellController) hastyplay(cmd *shellcmd) (*Response, error) {
+	return nil, sc.commitHastyMove()
 }
 
 func (sc *ShellController) selftest(cmd *shellcmd) (*Response, error) {
