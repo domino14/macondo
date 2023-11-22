@@ -77,3 +77,9 @@ Options:
 
     Setting this option to true will skip the spread-based tiebreaker. This can
     save some time since solving these endgames more accurately will be slower.
+
+    -skip-losses true
+
+    Setting this option to true will skip analyzing any pre-endgame plays as soon
+    as it finds a loss. This can save some time if all you want to find are wins
+    (or perhaps ties).

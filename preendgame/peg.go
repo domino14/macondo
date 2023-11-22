@@ -25,7 +25,7 @@ import (
 )
 
 const InBagMaxLimit = 1
-const TieBreakerPlays = 10
+const TieBreakerPlays = 20
 
 type PEGOutcome int
 
@@ -244,6 +244,7 @@ type Solver struct {
 	earlyCutoffOptim bool
 	skipPassOptim    bool
 	skipTiebreaker   bool
+	skipLossOptim    bool
 
 	numEndgamesSolved  atomic.Uint64
 	numCutoffs         atomic.Uint64
@@ -277,6 +278,7 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 		Bool("early-cutoff-optim", s.earlyCutoffOptim).
 		Bool("skip-pass-optim", s.skipPassOptim).
 		Bool("skip-tiebreaker-optim", s.skipTiebreaker).
+		Bool("skip-loss-optim", s.skipLossOptim).
 		Int("threads", s.threads).
 		Msg("preendgame-solve-called")
 
@@ -700,6 +702,17 @@ func (s *Solver) handleJob(ctx context.Context, j job, thread int, winnerChan ch
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
+	if s.skipLossOptim {
+		j.ourMove.RLock()
+		if j.ourMove.FoundLosses > 0 {
+			j.ourMove.RUnlock()
+			j.ourMove.stopAnalyzing()
+			s.numCutoffs.Add(1)
+			return nil
+		}
+		j.ourMove.RUnlock()
+	}
+
 	if s.earlyCutoffOptim {
 		j.ourMove.RLock()
 		// we should check to see if our move has more found losses than
@@ -1050,6 +1063,10 @@ func (s *Solver) SetEarlyCutoffOptim(o bool) {
 
 func (s *Solver) SetSkipPassOptim(o bool) {
 	s.skipPassOptim = o
+}
+
+func (s *Solver) SetSkipLossOptim(o bool) {
+	s.skipLossOptim = o
 }
 
 func (s *Solver) SetKnownOppRack(rack tilemapping.MachineWord) {
