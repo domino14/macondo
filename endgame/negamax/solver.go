@@ -281,16 +281,9 @@ func (s *Solver) assignEstimates(moves []tinymove.SmallMove, depth, thread int, 
 			moves[idx].AddEstimatedValue(EarlyPassOffset)
 		}
 	}
-	// if thread <= 3 {
-
 	sort.Slice(moves, func(i int, j int) bool {
 		return moves[i].EstimatedValue() > moves[j].EstimatedValue()
 	})
-	// } else {
-	// 	frand.Shuffle(len(moves), func(i, j int) {
-	// 		moves[i], moves[j] = moves[j], moves[i]
-	// 	})
-	// }
 }
 
 func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error {
@@ -794,10 +787,32 @@ func (s *Solver) QuickAndDirtySolve(ctx context.Context, plies, thread int) (int
 	var bestV int16
 	var bestSeq []*move.Move
 
-	err := s.iterativelyDeepen(ctx, plies)
-	if err != nil {
-		log.Debug().AnErr("err", err).Msg("error iteratively deepening")
+	// err := s.iterativelyDeepen(ctx, plies)
+	// if err != nil {
+	// 	log.Debug().AnErr("err", err).Msg("error iteratively deepening")
+	// }
+	initialHashKey := uint64(0)
+	if s.transpositionTableOptim {
+		initialHashKey = s.ttable.Zobrist().Hash(
+			s.game.Board().GetSquares(),
+			s.game.RackFor(s.solvingPlayer),
+			s.game.RackFor(1-s.solvingPlayer),
+			false, s.game.ScorelessTurns(),
+		)
 	}
+	α := -HugeNumber
+	β := HugeNumber
+	if s.firstWinOptim {
+		// Search a very small window centered around 0. We're just trying
+		// to find something that surpasses it.
+		α = -1
+		β = 1
+	}
+	s.currentIDDepths = make([]int, 1) // a hack
+	pv := PVLine{g: s.game}
+	val, err := s.negamax(ctx, initialHashKey, plies, α, β, &pv, 0)
+	s.principalVariation = pv
+	s.bestPVValue = val - int16(s.initialSpread)
 
 	bestSeq = s.principalVariation.Moves[:s.principalVariation.numMoves]
 	bestV = s.bestPVValue
