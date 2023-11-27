@@ -124,6 +124,7 @@ func BenchmarkStraightforward1PEG(b *testing.B) {
 	// 11/11/23 - 1		13938763155 ns/op	18363324144 B/op	52887568 allocs/op
 	// 11/11/23 - 1		13747110199 ns/op	11981979688 B/op	37294808 allocs/op
 	// 11/18/23 - 1		8170869576 ns/op	10322733488 B/op	21333124 allocs/op
+	// 11/26/23 - 1		5073027621 ns/op	9482291240 B/op		12543465 allocs/op
 	for i := 0; i < b.N; i++ {
 		plays, err := peg.Solve(ctx)
 		is.NoErr(err)
