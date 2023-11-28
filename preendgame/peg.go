@@ -58,13 +58,14 @@ func Equal(a, b []tilemapping.MachineLetter) bool {
 
 type PreEndgamePlay struct {
 	sync.RWMutex
-	Play          *move.Move
-	Points        float32
-	FoundLosses   float32
-	Spread        int
-	spreadSet     bool
-	outcomesArray []Outcome
-	Ignore        bool
+	Play           *move.Move
+	Points         float32
+	FoundLosses    float32
+	Spread         int
+	spreadSet      bool
+	outcomesArray  []Outcome
+	Ignore         bool
+	heuristicValue float32
 }
 
 func (p *PreEndgamePlay) stopAnalyzing() {
@@ -358,11 +359,12 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 }
 
 type job struct {
-	ourMove   *PreEndgamePlay
-	theirMove *move.Move
-	inbag     []tilemapping.MachineLetter
-	numDraws  int // how many ways can inbag be drawn?
-	fullSolve bool
+	ourMove        *PreEndgamePlay
+	theirMove      *move.Move
+	inbag          []tilemapping.MachineLetter
+	numDraws       int // how many ways can inbag be drawn?
+	fullSolve      bool
+	heuristicValue float32
 }
 
 func moveIsPossible(mtiles []tilemapping.MachineLetter, partialRack []tilemapping.MachineLetter) bool {
@@ -422,14 +424,11 @@ func (s *Solver) multithreadSolve(ctx context.Context, moves []*move.Move) ([]*P
 	}
 
 	maybeInBagTiles := make([]int, tilemapping.MaxAlphabetSize)
-	unseenRack := []tilemapping.MachineLetter{}
 	for _, t := range s.game.RackFor(s.game.NextPlayer()).TilesOn() {
 		maybeInBagTiles[t]++
-		unseenRack = append(unseenRack, t)
 	}
 	for _, t := range s.game.Bag().Peek() {
 		maybeInBagTiles[t]++
-		unseenRack = append(unseenRack, t)
 	}
 	// If we have a partial or full opponent rack, these tiles cannot be in
 	// the bag.
@@ -484,8 +483,44 @@ func (s *Solver) multithreadSolve(ctx context.Context, moves []*move.Move) ([]*P
 		}
 		return nil
 	})
+
+	s.createPEGJobs(ctx, maybeInBagTiles, jobChan)
+	err := g.Wait()
+	if err != nil {
+		return nil, err
+	}
+
+	close(winnerChan)
+	winnerGroup.Wait()
+
+	// sort plays by win %
+	sort.Slice(s.plays, func(i, j int) bool {
+		return s.plays[i].Points > s.plays[j].Points
+	})
+	if !s.skipTiebreaker {
+		err = s.maybeTiebreak(ctx, maybeInBagTiles)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if ctx.Err() != nil && (ctx.Err() == context.Canceled || ctx.Err() == context.DeadlineExceeded) {
+		log.Info().Msg("timed out or stopped; returning best results so far...")
+	}
+	log.Info().Uint64("solved-endgames", s.numEndgamesSolved.Load()).
+		Uint64("cutoff-moves", s.numCutoffs.Load()).
+		Str("winner", s.plays[0].String()).Msg("winning-play")
+
+	return s.plays, err
+}
+
+func (s *Solver) createPEGJobs(ctx context.Context, maybeInBagTiles []int, jobChan chan job) {
 	queuedJobs := 0
 	var ourPass *PreEndgamePlay
+
+	unseenRack := []tilemapping.MachineLetter{}
+	unseenRack = append(unseenRack, s.game.RackFor(s.game.NextPlayer()).TilesOn()...)
+	unseenRack = append(unseenRack, s.game.Bag().Peek()...)
 
 	for t, count := range maybeInBagTiles {
 		if count == 0 {
@@ -555,34 +590,6 @@ func (s *Solver) multithreadSolve(ctx context.Context, moves []*move.Move) ([]*P
 
 	log.Info().Int("numJobs", queuedJobs).Msg("queued-jobs")
 	close(jobChan)
-	err := g.Wait()
-	if err != nil {
-		return nil, err
-	}
-
-	close(winnerChan)
-	winnerGroup.Wait()
-
-	// sort plays by win %
-	sort.Slice(s.plays, func(i, j int) bool {
-		return s.plays[i].Points > s.plays[j].Points
-	})
-
-	if !s.skipTiebreaker {
-		err = s.maybeTiebreak(ctx, maybeInBagTiles)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	if ctx.Err() != nil && (ctx.Err() == context.Canceled || ctx.Err() == context.DeadlineExceeded) {
-		log.Info().Msg("timed out or stopped; returning best results so far...")
-	}
-	log.Info().Uint64("solved-endgames", s.numEndgamesSolved.Load()).
-		Uint64("cutoff-moves", s.numCutoffs.Load()).
-		Str("winner", s.plays[0].String()).Msg("winning-play")
-
-	return s.plays, err
 }
 
 func (s *Solver) maybeTiebreak(ctx context.Context, maybeInBagTiles []int) error {
