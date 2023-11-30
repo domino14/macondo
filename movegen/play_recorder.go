@@ -168,10 +168,13 @@ func TopPlayOnlyRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip
 		gen.placeholder.Set(word, gen.leavestrip[:leaveLength], score,
 			row, col, tilesPlayed, gen.vertical, move.MoveTypePlay,
 			gen.letterDistribution.TileMapping())
-
-		eq = lo.SumBy(gen.equityCalculators, func(c equity.EquityCalculator) float64 {
-			return c.Equity(gen.placeholder, gen.board, gen.game.Bag(), gen.game.RackFor(gen.game.NextPlayer()))
-		})
+		if len(gen.equityCalculators) > 0 {
+			eq = lo.SumBy(gen.equityCalculators, func(c equity.EquityCalculator) float64 {
+				return c.Equity(gen.placeholder, gen.board, gen.game.Bag(), gen.game.RackFor(gen.game.NextPlayer()))
+			})
+		} else {
+			eq = float64(score)
+		}
 
 	case move.MoveTypeExchange:
 		// ignore the empty exchange case

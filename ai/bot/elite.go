@@ -2,6 +2,7 @@ package bot
 
 import (
 	"context"
+	"math"
 	"runtime"
 	"time"
 
@@ -140,10 +141,15 @@ func preendgameBest(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 		return nil, err
 	}
 	// If we're down by this much, we will probably need to bingo out, so set endgame plies to only a couple
-	ourSpread := p.Game.SpreadFor(p.Game.PlayerOnTurn())
-	if ourSpread < -60 || ourSpread > 60 {
+	ourSpread := math.Abs(float64(p.Game.SpreadFor(p.Game.PlayerOnTurn())))
+	switch {
+	case ourSpread > 70:
 		p.preendgamer.SetEndgamePlies(2)
-	} else {
+	case ourSpread > 60:
+		p.preendgamer.SetEndgamePlies(3)
+	case ourSpread > 40:
+		p.preendgamer.SetEndgamePlies(4)
+	default:
 		p.preendgamer.SetEndgamePlies(5)
 	}
 

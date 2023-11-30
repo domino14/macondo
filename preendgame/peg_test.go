@@ -100,6 +100,42 @@ func TestStraightforward1PEG(t *testing.T) {
 	is.Equal(plays[0].OutcomeFor([]tilemapping.MachineLetter{25}), PEGDraw)
 }
 
+func TestKnownTilesPEG(t *testing.T) {
+	is := is.New(t)
+	cgpStr := "15/3Q7U3/3U2TAURINE2/1CHANSONS2W3/2AI6JO3/DIRL1PO3IN3/E1D2EF3V4/F1I2p1TRAIK3/O1L2T4E4/ABy1PIT2BRIG2/ME1MOZELLE5/1GRADE1O1NOH3/WE3R1V7/AT5E7/G6D7 ENOSTXY/ACEISUY 356/378 0 lex NWL20;"
+	g, err := cgp.ParseCGP(&DefaultConfig, cgpStr)
+	is.NoErr(err)
+	g.RecalculateBoard()
+
+	gd, err := kwg.Get(&DefaultConfig, "NWL20")
+	is.NoErr(err)
+	peg := new(Solver)
+
+	err = peg.Init(g.Game, gd)
+	is.NoErr(err)
+	ctx := context.Background()
+	// Set known opp rack to AACEISU. This means the Y is surely in the bag.
+	// The previous best move of ONYX wins 7.5/8 endgames tying only with the Y.
+	// STEY, STYE, and OXY win if the Y is in the bag, so those are the new winners.
+	peg.SetKnownOppRack([]tilemapping.MachineLetter{1, 1, 3, 5, 9, 19, 21})
+	plays, err := peg.Solve(ctx)
+	is.NoErr(err)
+	is.Equal(plays[0].Play.ShortDescription(), " N3 STEY")
+	is.Equal(plays[0].Points, float32(1.0))
+	is.Equal(plays[0].Spread, 10)
+	is.Equal(plays[0].OutcomeFor([]tilemapping.MachineLetter{25}), PEGWin)
+
+	is.Equal(plays[1].Play.ShortDescription(), " N3 STYE")
+	is.Equal(plays[1].Points, float32(1.0))
+	is.Equal(plays[1].Spread, 9)
+	is.Equal(plays[1].OutcomeFor([]tilemapping.MachineLetter{25}), PEGWin)
+
+	is.Equal(plays[2].Play.ShortDescription(), "13L OXY")
+	is.Equal(plays[2].Points, float32(1.0))
+	is.Equal(plays[2].Spread, 1)
+	is.Equal(plays[2].OutcomeFor([]tilemapping.MachineLetter{25}), PEGWin)
+}
+
 // This benchmark is really only here to measure allocations etc.
 func BenchmarkStraightforward1PEG(b *testing.B) {
 	is := is.New(b)
@@ -125,6 +161,7 @@ func BenchmarkStraightforward1PEG(b *testing.B) {
 	// 11/11/23 - 1		13747110199 ns/op	11981979688 B/op	37294808 allocs/op
 	// 11/18/23 - 1		8170869576 ns/op	10322733488 B/op	21333124 allocs/op
 	// 11/26/23 - 1		5073027621 ns/op	9482291240 B/op		12543465 allocs/op
+	// 11/29/23 - 1		3247604595 ns/op	9274420416 B/op	 	9328476 allocs/op
 	for i := 0; i < b.N; i++ {
 		plays, err := peg.Solve(ctx)
 		is.NoErr(err)

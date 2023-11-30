@@ -259,8 +259,6 @@ func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
 	s.ttable.SetMultiThreadedMode()
 	s.game = g.Copy()
 	s.game.SetBackupMode(game.SimulationMode)
-	// To control what tiles we draw:
-	s.game.Bag().SetFixedOrder(true)
 	s.endgamePlies = 4
 	s.gaddag = gd
 	s.earlyCutoffOptim = true
@@ -359,12 +357,12 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 }
 
 type job struct {
-	ourMove        *PreEndgamePlay
-	theirMove      *move.Move
-	inbag          []tilemapping.MachineLetter
-	numDraws       int // how many ways can inbag be drawn?
-	fullSolve      bool
-	heuristicValue float32
+	ourMove         *PreEndgamePlay
+	theirMove       *move.Move
+	inbag           []tilemapping.MachineLetter
+	numDraws        int // how many ways can inbag be drawn?
+	fullSolve       bool
+	maybeInBagTiles []int
 }
 
 func moveIsPossible(mtiles []tilemapping.MachineLetter, partialRack []tilemapping.MachineLetter) bool {
@@ -522,28 +520,18 @@ func (s *Solver) createPEGJobs(ctx context.Context, maybeInBagTiles []int, jobCh
 	unseenRack = append(unseenRack, s.game.RackFor(s.game.NextPlayer()).TilesOn()...)
 	unseenRack = append(unseenRack, s.game.Bag().Peek()...)
 
-	for t, count := range maybeInBagTiles {
-		if count == 0 {
+	for _, p := range s.plays {
+		if p.Play.Action() == move.MoveTypePass {
+			// passes handled differently.
+			ourPass = p
 			continue
 		}
-		// Help the early cutoff optimization by separating out plays in time.
-		// XXX: a better optimization might start with endgames where the
-		// opponent has "better" top equity plays. i.e. let them bingo out
-		// right off the bat for example so that we can get earlier cutoffs)
-		for _, p := range s.plays {
-			if p.Play.Action() == move.MoveTypePass {
-				// passes handled differently.
-				ourPass = p
-				continue
-			}
-			j := job{
-				ourMove:  p,
-				inbag:    []tilemapping.MachineLetter{tilemapping.MachineLetter(t)},
-				numDraws: count,
-			}
-			queuedJobs++
-			jobChan <- j
+		j := job{
+			ourMove:         p,
+			maybeInBagTiles: maybeInBagTiles,
 		}
+		queuedJobs++
+		jobChan <- j
 	}
 
 	if !s.skipPassOptim {
@@ -739,106 +727,20 @@ func (s *Solver) handleJob(ctx context.Context, j job, thread int, winnerChan ch
 		}
 		j.ourMove.RUnlock()
 	}
-	if j.ourMove.Play.Action() == move.MoveTypePass && j.theirMove.Action() != move.MoveTypePass {
-		return s.handleNonpassResponseToPass(ctx, j, thread)
-	}
-
-	g := s.endgameSolvers[thread].Game()
-	// throw opponent's rack in, and then enforce a tile order.
-	g.ThrowRacksInFor(1 - g.PlayerOnTurn())
-	// Basically, put the tiles we want to draw on the right side of the bag.
-	// The bag drawing algorithm draws tiles from right to left. We put the
-	// "inbag" tiles to the left/"beginning" of the bag so that we can't draw them.
-	moveTilesToBeginning(j.inbag, g.Bag())
-	// And redraw tiles for opponent. Note that this is not an actual
-	// random rack! We are choosing which tiles to draw via the
-	// moveTilesToBeginning call above and the fixedOrder setting for the bag.
-	_, err := g.SetRandomRack(1-g.PlayerOnTurn(), nil)
-	if err != nil {
-		return err
-	}
-	// Finally play move.
-	// log.Debug().Interface("drawnLetters",
-	// 	Int("ct", j.numDraws).
-	// 	Int("thread", thread).
-	// 	Str("rack-for-us", g.RackLettersFor(g.PlayerOnTurn())).
-	// 	Str("rack-for-them", g.RackLettersFor(1-g.PlayerOnTurn())).
-	// 	Str("play", j.ourMove.play.ShortDescription()).Msg("trying-peg-play")
-
-	err = g.PlayMove(j.ourMove.Play, false, 0)
-	if err != nil {
-		return err
-	}
-	var finalSpread int16
-	// Handle the two-pass situation:
 	if j.ourMove.Play.Action() == move.MoveTypePass {
-		// Just try a pass from opponent's perspective. This should end the game.
 		if j.theirMove.Action() != move.MoveTypePass {
-			// we already handled this upon entering this function.
-			panic("unexpected move type for them")
+			return s.handleNonpassResponseToPass(ctx, j, thread)
+		} else {
+			return s.handlePassResponseToPass(ctx, j, thread, winnerChan)
 		}
-		err = g.PlayMove(j.theirMove, false, 0)
-		if err != nil {
-			return err
-		}
-		if g.Playing() != macondo.PlayState_GAME_OVER {
-			panic("unexpected game is still ongoing")
-		}
-		// finalSpread should be calculated from our opponent's perspective
-		// for the below checks.
-		finalSpread = -int16(g.CurrentSpread())
-		// Unplay opponent's pass
-		g.UnplayLastMove()
-
-	} else {
-
-		// This is the spread after we make our play, from the POV of our
-		// opponent.
-		initialSpread := g.CurrentSpread()
-		// Now let's solve the endgame for our opponent.
-		val, _, err := s.endgameSolvers[thread].QuickAndDirtySolve(ctx, s.endgamePlies, thread)
-		if err != nil {
-			return err
-		}
-		s.numEndgamesSolved.Add(1)
-
-		// val is the gain in spread after endgame (or loss, if negative), from
-		// POV of opponent.
-		// so the actual final spread is val + initialSpread
-		finalSpread = val + int16(initialSpread)
-
 	}
-	if !j.fullSolve {
-		switch {
-
-		case finalSpread > 0:
-			// win for our opponent = loss for us
-			log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msg("we-lose")
-			j.ourMove.addWinPctStat(PEGLoss, j.numDraws, j.inbag)
-		case finalSpread == 0:
-			// draw
-			log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msg("we-tie")
-			j.ourMove.addWinPctStat(PEGDraw, j.numDraws, j.inbag)
-		case finalSpread < 0:
-			// loss for our opponent = win for us
-			log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msg("we-win")
-			j.ourMove.addWinPctStat(PEGWin, j.numDraws, j.inbag)
-		}
+	if len(j.maybeInBagTiles) > 0 {
+		return s.handleEntirePreendgamePlay(ctx, j, thread, winnerChan)
+	} else if j.fullSolve {
+		return s.handleFullSolve(ctx, j, thread, winnerChan)
 	} else {
-		// If it's a full solve, we actually care about the value of
-		// finalSpread. Negate it because this spread is from the POV of
-		// our opponent:
-		j.ourMove.addSpreadStat(int(-finalSpread), j.numDraws)
-		log.Debug().Str("move", j.ourMove.String()).
-			Str("inbag", tilemapping.MachineWord(j.inbag).UserVisible(j.ourMove.Play.Alphabet())).
-			Int("spread", -int(finalSpread)).Int("ndraws", j.numDraws).Msg("adding-spread-stat")
-
+		panic("should not be here")
 	}
-
-	log.Debug().Int("thread", thread).Msg("peg-unplay")
-
-	g.UnplayLastMove()
-	winnerChan <- j.ourMove
 	return nil
 }
 
@@ -859,6 +761,7 @@ func (s *Solver) handleNonpassResponseToPass(ctx context.Context, j job, thread 
 	// clean this up, way too inefficient.
 	pt := possibleTilesInBag(j.inbag, j.theirMove.Tiles(), s.knownOppRack)
 	// XXX: 1-PEG. Change this when we support 2-PEG (and beyond?)
+	// XXX: Figure out why we don't need to send to winnerChan in this function
 	if len(pt) == 0 {
 		log.Warn().Msgf("possible tiles in bag is empty; inbag = %v, theirMove = %v, oppRack = %v",
 			j.inbag, j.theirMove, s.knownOppRack)
@@ -943,6 +846,239 @@ func (s *Solver) handleNonpassResponseToPass(ctx context.Context, j job, thread 
 	g.UnplayLastMove() // Unplay opponent's last move.
 	g.UnplayLastMove() // and unplay the pass from our end that started this whole thing.
 
+	return nil
+}
+
+func (s *Solver) handleEntirePreendgamePlay(ctx context.Context, j job, thread int,
+	winnerChan chan *PreEndgamePlay) error {
+	// j.maybeInBagTiles has all the tiles possibly in bag.
+	// We must:
+	// 1) Figure out a heuristic order in which to run the endgames
+	// 2) Start endgames sequentially
+	// 3) Check after each endgame whether we should cut off further evaluation
+	// Note: do not handle passes here.
+	g := s.endgameSolvers[thread].Game()
+	mg := s.endgameSolvers[thread].Movegen()
+	type option struct {
+		ml          tilemapping.MachineLetter
+		ct          int
+		oppEstimate float64
+	}
+	options := []option{}
+	mg.SetPlayRecorder(movegen.TopPlayOnlyRecorder)
+	for t, ct := range j.maybeInBagTiles {
+		if ct == 0 {
+			continue
+		}
+		// use FixedOrder setting to draw known tiles for opponent
+		g.ThrowRacksInFor(1 - g.PlayerOnTurn())
+		// Basically, put the tiles we (player on turn) want to draw on the left side
+		// of the bag.
+		// The bag drawing algorithm draws tiles from right to left. We put the
+		// "inbag" tiles to the left/"beginning" of the bag so that the player
+		// NOT ON TURN can't draw them.
+		moveTilesToBeginning(
+			[]tilemapping.MachineLetter{tilemapping.MachineLetter(t)},
+			g.Bag())
+		// And redraw tiles for opponent. Note that this is not an actual
+		// random rack! We are choosing which tiles to draw via the
+		// moveTilesToBeginning call above and the fixedOrder setting for the bag.
+		// This will leave the tiles in "j.inbag" in the bag, for us (player on turn)
+		// to draw after we make our play.
+		_, err := g.SetRandomRack(1-g.PlayerOnTurn(), nil)
+		if err != nil {
+			return err
+		}
+		err = g.PlayMove(j.ourMove.Play, false, 0)
+		if err != nil {
+			return err
+		}
+		// gen top move, find score, sort by scores. We just need
+		// a rough estimate of how good our opp's next move will be.
+
+		mg.GenAll(g.RackFor(g.PlayerOnTurn()), false)
+		options = append(options, option{
+			ml:          tilemapping.MachineLetter(t),
+			ct:          ct,
+			oppEstimate: mg.Plays()[0].Equity(),
+		})
+		g.UnplayLastMove()
+	}
+	// Sort by oppEstimate from most to least.
+	// We want to get losing endgames (for us) out of the way early
+	// to help with cutoff.
+	sort.Slice(options, func(i, j int) bool {
+		return options[i].oppEstimate > options[j].oppEstimate
+	})
+	mg.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
+	// Now solve all endgames sequentially.
+	for idx := range options {
+		if s.earlyCutoffOptim {
+			j.ourMove.RLock()
+			if j.ourMove.FoundLosses > s.minPotentialLosses {
+				// cut off this play. We already have more losses than the
+				// fully analyzed play with the minimum known number of losses.
+				j.ourMove.RUnlock()
+				log.Debug().Float32("foundLosses", j.ourMove.FoundLosses).
+					Float32("minKnownLosses", s.minPotentialLosses).
+					Str("ourMove", j.ourMove.String()).
+					Msg("stop-analyzing-move-handleentireloop")
+				j.ourMove.stopAnalyzing()
+				s.numCutoffs.Add(1)
+				return nil
+			}
+			j.ourMove.RUnlock()
+		}
+
+		inbag := []tilemapping.MachineLetter{options[idx].ml}
+
+		// see comments above. We are establishing a known tile order.
+		g.ThrowRacksInFor(1 - g.PlayerOnTurn())
+		moveTilesToBeginning(inbag, g.Bag())
+		_, err := g.SetRandomRack(1-g.PlayerOnTurn(), nil)
+		if err != nil {
+			return err
+		}
+		err = g.PlayMove(j.ourMove.Play, false, 0)
+		if err != nil {
+			return err
+		}
+		var finalSpread int16
+		// This is the spread after we make our play, from the POV of our
+		// opponent.
+		initialSpread := g.CurrentSpread()
+		// Now let's solve the endgame for our opponent.
+		val, _, err := s.endgameSolvers[thread].QuickAndDirtySolve(ctx, s.endgamePlies, thread)
+		if err != nil {
+			return err
+		}
+		s.numEndgamesSolved.Add(1)
+
+		// val is the gain in spread after endgame (or loss, if negative), from
+		// POV of opponent.
+		// so the actual final spread is val + initialSpread
+		finalSpread = val + int16(initialSpread)
+
+		switch {
+
+		case finalSpread > 0:
+			// win for our opponent = loss for us
+			log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msg("we-lose")
+			j.ourMove.addWinPctStat(PEGLoss, options[idx].ct, inbag)
+		case finalSpread == 0:
+			// draw
+			log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msg("we-tie")
+			j.ourMove.addWinPctStat(PEGDraw, options[idx].ct, inbag)
+		case finalSpread < 0:
+			// loss for our opponent = win for us
+			log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msg("we-win")
+			j.ourMove.addWinPctStat(PEGWin, options[idx].ct, inbag)
+		}
+		g.UnplayLastMove()
+		winnerChan <- j.ourMove
+	}
+	return nil
+}
+
+func (s *Solver) handlePassResponseToPass(ctx context.Context, j job, thread int,
+	winnerChan chan *PreEndgamePlay) error {
+
+	g := s.endgameSolvers[thread].Game()
+	g.ThrowRacksInFor(1 - g.PlayerOnTurn())
+	if len(j.inbag) == 0 {
+		panic("unexpected j.inbag")
+	}
+	moveTilesToBeginning(j.inbag, g.Bag())
+	_, err := g.SetRandomRack(1-g.PlayerOnTurn(), nil)
+	if err != nil {
+		return err
+	}
+	err = g.PlayMove(j.ourMove.Play, false, 0)
+	if err != nil {
+		return err
+	}
+	var finalSpread int16
+	err = g.PlayMove(j.theirMove, false, 0)
+	if err != nil {
+		return err
+	}
+	if g.Playing() != macondo.PlayState_GAME_OVER {
+		panic("unexpected game is still ongoing")
+	}
+	// finalSpread should be calculated from our opponent's perspective
+	// for the below checks.
+	finalSpread = -int16(g.CurrentSpread())
+	// Unplay opponent's pass
+	g.UnplayLastMove()
+
+	switch {
+
+	case finalSpread > 0:
+		// win for our opponent = loss for us
+		log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msg("we-lose")
+		j.ourMove.addWinPctStat(PEGLoss, j.numDraws, j.inbag)
+	case finalSpread == 0:
+		// draw
+		log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msg("we-tie")
+		j.ourMove.addWinPctStat(PEGDraw, j.numDraws, j.inbag)
+	case finalSpread < 0:
+		// loss for our opponent = win for us
+		log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msg("we-win")
+		j.ourMove.addWinPctStat(PEGWin, j.numDraws, j.inbag)
+	}
+
+	g.UnplayLastMove()
+	winnerChan <- j.ourMove
+	return nil
+}
+
+func (s *Solver) handleFullSolve(ctx context.Context, j job, thread int,
+	winnerChan chan *PreEndgamePlay) error {
+
+	g := s.endgameSolvers[thread].Game()
+	// throw opponent's rack in, and then enforce a tile order.
+	g.ThrowRacksInFor(1 - g.PlayerOnTurn())
+	moveTilesToBeginning(j.inbag, g.Bag())
+	// And redraw tiles for opponent. Note that this is not an actual
+	// random rack! We are choosing which tiles to draw via the
+	// moveTilesToBeginning call above and the fixedOrder setting for the bag.
+	// This will leave the tiles in "j.inbag" in the bag, for us (player on turn)
+	// to draw after we make our play.
+	_, err := g.SetRandomRack(1-g.PlayerOnTurn(), nil)
+	if err != nil {
+		return err
+	}
+	err = g.PlayMove(j.ourMove.Play, false, 0)
+	if err != nil {
+		return err
+	}
+	var finalSpread int16
+	// This is the spread after we make our play, from the POV of our
+	// opponent.
+	initialSpread := g.CurrentSpread()
+	// Now let's solve the endgame for our opponent.
+	val, _, err := s.endgameSolvers[thread].QuickAndDirtySolve(ctx, s.endgamePlies, thread)
+	if err != nil {
+		return err
+	}
+	s.numEndgamesSolved.Add(1)
+
+	// val is the gain in spread after endgame (or loss, if negative), from
+	// POV of opponent.
+	// so the actual final spread is val + initialSpread
+	finalSpread = val + int16(initialSpread)
+	// If it's a full solve, we actually care about the value of
+	// finalSpread. Negate it because this spread is from the POV of
+	// our opponent:
+	j.ourMove.addSpreadStat(int(-finalSpread), j.numDraws)
+	log.Debug().Str("move", j.ourMove.String()).
+		Str("inbag", tilemapping.MachineWord(j.inbag).UserVisible(j.ourMove.Play.Alphabet())).
+		Int("spread", -int(finalSpread)).Int("ndraws", j.numDraws).Msg("adding-spread-stat")
+
+	log.Debug().Int("thread", thread).Msg("peg-unplay")
+
+	g.UnplayLastMove()
+	winnerChan <- j.ourMove
 	return nil
 }
 

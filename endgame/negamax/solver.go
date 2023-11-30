@@ -192,6 +192,10 @@ func (s *Solver) Init(m movegen.MoveGenerator, game *game.Game) error {
 	return nil
 }
 
+func (s *Solver) Movegen() movegen.MoveGenerator {
+	return s.stmMovegen
+}
+
 func (s *Solver) SetThreads(threads int) {
 	switch {
 	case threads < 2:
