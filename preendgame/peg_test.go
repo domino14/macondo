@@ -219,13 +219,15 @@ func TestComplicated1PEG(t *testing.T) {
 	peg := new(Solver)
 
 	err = peg.Init(g.Game, gd)
-	peg.endgamePlies = 5
+	peg.endgamePlies = 7
 	is.NoErr(err)
 
 	ctx := context.Background()
-	_, err = peg.Solve(ctx)
+	winners, err := peg.Solve(ctx)
 	is.NoErr(err)
-
+	is.Equal(winners[0].Points, float32(8))
+	is.Equal(winners[6].Points, float32(8))
+	is.Equal(winners[7].Points, float32(7))
 }
 
 func TestPossibleTilesInBag(t *testing.T) {
