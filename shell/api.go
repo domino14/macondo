@@ -464,6 +464,7 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 	var err error
 	var earlyCutoff bool
 	var skipPass bool
+	var skipLoss bool
 	var skipTiebreaker bool
 	knownOppRack := cmd.options["opprack"]
 
@@ -490,6 +491,10 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 
 	if cmd.options["skip-pass"] == "true" {
 		skipPass = true
+	}
+
+	if cmd.options["skip-loss"] == "true" {
+		skipLoss = true
 	}
 
 	if cmd.options["early-cutoff"] == "true" {
@@ -525,6 +530,7 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 	sc.preendgameSolver.SetEarlyCutoffOptim(earlyCutoff)
 	sc.preendgameSolver.SetSkipPassOptim(skipPass)
 	sc.preendgameSolver.SetSkipTiebreaker(skipTiebreaker)
+	sc.preendgameSolver.SetSkipLossOptim(skipLoss)
 	sc.pegCtx, sc.pegCancel = context.WithCancel(context.Background())
 	if maxtime > 0 {
 		sc.pegCtx, sc.pegCancel = context.WithTimeout(sc.pegCtx, time.Duration(maxtime)*time.Second)
