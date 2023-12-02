@@ -14,17 +14,17 @@ About:
     When considering `pass` as a move, Macondo will try all options exhaustively
     for our opponent. Our opponent may make a "mistake" from their perspective,
     since they do not know what our tiles are. We only add wins in the pass case if
-    we are guaranteed to win with any given tile, even given any mistakes the 
+    we are guaranteed to win with any given tile, even given any mistakes the
     opponent might make.
 
-    If there is more than 1 winner - i.e., more than 1 top play with 
-    the same number of pre-endgame wins, Macondo will solve the resulting 
-    endgames more accurately (-first-win option will be set to false). 
-    Instead of just finding a win, it will try to find the best win, and 
-    keep track of the total spreads. The play with the most wins and most 
-    spread is the overall pre-endgame winner. For now it will just try to 
-    tiebreak among the top 10 highest-scoring plays with the same number 
-    of wins. 
+    If there is more than 1 winner - i.e., more than 1 top play with
+    the same number of pre-endgame wins, Macondo will solve the resulting
+    endgames more accurately (-first-win option will be set to false).
+    Instead of just finding a win, it will try to find the best win, and
+    keep track of the total spreads. The play with the most wins and most
+    spread is the overall pre-endgame winner. For now it will just try to
+    tiebreak among the top 10 highest-scoring plays with the same number
+    of wins.
 
 Optional arguments:
     peg stop
@@ -83,3 +83,10 @@ Options:
     Setting this option to true will skip analyzing any pre-endgame plays as soon
     as it finds a loss. This can save some time if all you want to find are wins
     (or perhaps ties).
+
+    -disable-id true
+
+    Setting this option to true will disable iterative deepening. iterative
+    deepening will try setting endgamePlies to 1, 2, 3, and so on until
+    the maximum that you specify. This will allow you to have a potential
+    answer much earlier.

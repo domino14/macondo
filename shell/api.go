@@ -466,6 +466,7 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 	var skipPass bool
 	var skipLoss bool
 	var skipTiebreaker bool
+	var disableIterativeDeepening bool
 	knownOppRack := cmd.options["opprack"]
 
 	if cmd.options["endgameplies"] != "" {
@@ -505,6 +506,10 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 		skipTiebreaker = true
 	}
 
+	if cmd.options["disable-id"] == "true" {
+		disableIterativeDeepening = true
+	}
+
 	sc.showMessage(fmt.Sprintf(
 		"endgameplies %v, maxtime %v, threads %v",
 		endgamePlies, maxtime, maxthreads))
@@ -531,6 +536,7 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 	sc.preendgameSolver.SetSkipPassOptim(skipPass)
 	sc.preendgameSolver.SetSkipTiebreaker(skipTiebreaker)
 	sc.preendgameSolver.SetSkipLossOptim(skipLoss)
+	sc.preendgameSolver.SetIterativeDeepening(!disableIterativeDeepening)
 	sc.pegCtx, sc.pegCancel = context.WithCancel(context.Background())
 	if maxtime > 0 {
 		sc.pegCtx, sc.pegCancel = context.WithTimeout(sc.pegCtx, time.Duration(maxtime)*time.Second)

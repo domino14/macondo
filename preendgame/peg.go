@@ -24,6 +24,8 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+var ErrCanceledEarly = errors.New("canceled early")
+
 const InBagMaxLimit = 1
 const TieBreakerPlays = 20
 
@@ -58,14 +60,13 @@ func Equal(a, b []tilemapping.MachineLetter) bool {
 
 type PreEndgamePlay struct {
 	sync.RWMutex
-	Play           *move.Move
-	Points         float32
-	FoundLosses    float32
-	Spread         int
-	spreadSet      bool
-	outcomesArray  []Outcome
-	Ignore         bool
-	heuristicValue float32
+	Play          *move.Move
+	Points        float32
+	FoundLosses   float32
+	Spread        int
+	spreadSet     bool
+	outcomesArray []Outcome
+	Ignore        bool
 }
 
 func (p *PreEndgamePlay) stopAnalyzing() {
@@ -229,23 +230,25 @@ func (p *PreEndgamePlay) String() string {
 type Solver struct {
 	endgameSolvers []*negamax.Solver
 
-	movegen       movegen.MoveGenerator
-	game          *game.Game
-	gaddag        *kwg.KWG
-	ttable        *negamax.TranspositionTable
-	endgamePlies  int
-	initialSpread int
-	threads       int
-	numinbag      int
-	plays         []*PreEndgamePlay
-	winnerSoFar   *PreEndgamePlay
-	knownOppRack  []tilemapping.MachineLetter
-	busy          bool
+	movegen         movegen.MoveGenerator
+	game            *game.Game
+	gaddag          *kwg.KWG
+	ttable          *negamax.TranspositionTable
+	curEndgamePlies int
+	maxEndgamePlies int
+	initialSpread   int
+	threads         int
+	numinbag        int
+	plays           []*PreEndgamePlay
+	winnerSoFar     *PreEndgamePlay
+	knownOppRack    []tilemapping.MachineLetter
+	busy            bool
 
-	earlyCutoffOptim bool
-	skipPassOptim    bool
-	skipTiebreaker   bool
-	skipLossOptim    bool
+	earlyCutoffOptim   bool
+	skipPassOptim      bool
+	skipTiebreaker     bool
+	skipLossOptim      bool
+	iterativeDeepening bool
 
 	numEndgamesSolved  atomic.Uint64
 	numCutoffs         atomic.Uint64
@@ -259,7 +262,9 @@ func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
 	s.ttable.SetMultiThreadedMode()
 	s.game = g.Copy()
 	s.game.SetBackupMode(game.SimulationMode)
-	s.endgamePlies = 4
+	s.curEndgamePlies = 4
+	s.maxEndgamePlies = s.curEndgamePlies
+	s.iterativeDeepening = true
 	s.gaddag = gd
 	s.earlyCutoffOptim = true
 	s.skipPassOptim = false
@@ -273,66 +278,27 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 		s.busy = false
 	}()
 	log.Info().
-		Int("endgame-plies", s.endgamePlies).
+		Int("endgame-plies", s.maxEndgamePlies).
 		Bool("early-cutoff-optim", s.earlyCutoffOptim).
 		Bool("skip-pass-optim", s.skipPassOptim).
 		Bool("skip-tiebreaker-optim", s.skipTiebreaker).
 		Bool("skip-loss-optim", s.skipLossOptim).
+		Bool("iterative-deepening", s.iterativeDeepening).
 		Int("threads", s.threads).
 		Msg("preendgame-solve-called")
+
+	if s.iterativeDeepening {
+		s.curEndgamePlies = 1
+	} else {
+		s.curEndgamePlies = s.maxEndgamePlies
+	}
 
 	s.numEndgamesSolved.Store(0)
 	s.numCutoffs.Store(0)
 
-	s.minPotentialLosses = 100000.0
+	var winners []*PreEndgamePlay
+	var err error
 
-	playerOnTurn := s.game.PlayerOnTurn()
-	// Fill opponent's rack for now. Ignore the "known opp rack", if any. That
-	// is handled properly later.
-	if s.game.RackFor(1-playerOnTurn).NumTiles() < game.RackTileLimit {
-		_, err := s.game.SetRandomRack(1-playerOnTurn, nil)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	if s.game.Bag().TilesRemaining() > InBagMaxLimit {
-		return nil, fmt.Errorf("bag has too many tiles remaining; limit is %d", InBagMaxLimit)
-	} else if s.game.Bag().TilesRemaining() == 0 {
-		return nil, errors.New("bag is empty; use endgame solver instead")
-	}
-	s.numinbag = s.game.Bag().TilesRemaining()
-	s.endgameSolvers = make([]*negamax.Solver, s.threads)
-	s.ttable.Reset(s.game.Config().TTableFractionOfMem, s.game.Board().Dim())
-	s.initialSpread = s.game.CurrentSpread()
-
-	for idx := range s.endgameSolvers {
-		es := &negamax.Solver{}
-		// share the same transposition table and zobrist params across all endgames.
-		// Copy the game so each endgame solver can manipulate it independently.
-		g := s.game.Copy()
-		g.SetBackupMode(game.SimulationMode)
-		// we need to set the state stack length now to account for the PEG move.
-		// there can also be passes etc. just add a hacky number.
-		// XXX: state stack length should probably just be a fixed large number.
-		g.SetStateStackLength(s.endgamePlies + 5)
-		g.SetEndgameMode(true)
-		// Set a fixed order for the bag. This makes it easy for us to control
-		// what tiles we draw after making a move.
-		g.Bag().SetFixedOrder(true)
-		mg := movegen.NewGordonGenerator(s.gaddag, g.Board(), g.Bag().LetterDistribution())
-		err := es.Init(mg, g)
-		if err != nil {
-			return nil, err
-		}
-		// Endgame itself should be single-threaded; we are solving many individual
-		// endgames in parallel.
-		es.SetThreads(1)
-
-		// Endgame should quit early if it finds any win.
-		es.SetFirstWinOptim(true)
-		s.endgameSolvers[idx] = es
-	}
 	s.movegen = movegen.NewGordonGenerator(s.gaddag, s.game.Board(), s.game.Bag().LetterDistribution())
 	s.movegen.SetGenPass(true)
 	// Don't allow pre-endgame opponent to use more than 7 tiles.
@@ -350,9 +316,81 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 	sort.Slice(moves, func(i, j int) bool {
 		return moves[i].Equity() > moves[j].Equity()
 	})
+	s.ttable.Reset(s.game.Config().TTableFractionOfMem, s.game.Board().Dim())
+	var lastWinners []*PreEndgamePlay
 
-	log.Info().Int("nmoves", len(moves)).Int("nthreads", s.threads).Msg("peg-generated-moves")
-	winners, err := s.multithreadSolve(ctx, moves)
+	for s.curEndgamePlies <= s.maxEndgamePlies {
+		if s.iterativeDeepening {
+			log.Info().Int("endgame-plies", s.curEndgamePlies).Msg("iterative-deepening")
+			if len(winners) > 0 {
+				// sort moves by the last iteration's winners.
+				moves = make([]*move.Move, len(winners))
+				for widx, w := range winners {
+					moves[widx] = w.Play
+				}
+				log.Info().Str("move", moves[0].ShortDescription()).Msg("last-iteration-winner")
+				lastWinners = winners
+			}
+		}
+		s.minPotentialLosses = 100000.0
+
+		playerOnTurn := s.game.PlayerOnTurn()
+		// Fill opponent's rack for now. Ignore the "known opp rack", if any. That
+		// is handled properly later.
+		if s.game.RackFor(1-playerOnTurn).NumTiles() < game.RackTileLimit {
+			_, err := s.game.SetRandomRack(1-playerOnTurn, nil)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		if s.game.Bag().TilesRemaining() > InBagMaxLimit {
+			return nil, fmt.Errorf("bag has too many tiles remaining; limit is %d", InBagMaxLimit)
+		} else if s.game.Bag().TilesRemaining() == 0 {
+			return nil, errors.New("bag is empty; use endgame solver instead")
+		}
+		s.numinbag = s.game.Bag().TilesRemaining()
+		s.endgameSolvers = make([]*negamax.Solver, s.threads)
+		s.initialSpread = s.game.CurrentSpread()
+
+		for idx := range s.endgameSolvers {
+			es := &negamax.Solver{}
+			// share the same transposition table and zobrist params across all endgames.
+			// Copy the game so each endgame solver can manipulate it independently.
+			g := s.game.Copy()
+			g.SetBackupMode(game.SimulationMode)
+			// we need to set the state stack length now to account for the PEG move.
+			// there can also be passes etc. just add a hacky number.
+			// XXX: state stack length should probably just be a fixed large number.
+			g.SetStateStackLength(s.curEndgamePlies + 5)
+			g.SetEndgameMode(true)
+			// Set a fixed order for the bag. This makes it easy for us to control
+			// what tiles we draw after making a move.
+			g.Bag().SetFixedOrder(true)
+			mg := movegen.NewGordonGenerator(s.gaddag, g.Board(), g.Bag().LetterDistribution())
+			err := es.Init(mg, g)
+			if err != nil {
+				return nil, err
+			}
+			// Endgame itself should be single-threaded; we are solving many individual
+			// endgames in parallel.
+			es.SetThreads(1)
+
+			// Endgame should quit early if it finds any win.
+			es.SetFirstWinOptim(true)
+			s.endgameSolvers[idx] = es
+		}
+
+		log.Info().Int("nmoves", len(moves)).Int("nthreads", s.threads).Msg("peg-generated-moves")
+		winners, err = s.multithreadSolve(ctx, moves)
+		if err != nil {
+			if err == ErrCanceledEarly {
+				return lastWinners, nil
+			}
+			return winners, err
+		}
+		s.curEndgamePlies++
+	}
 	return winners, err
 }
 
@@ -436,8 +474,8 @@ func (s *Solver) multithreadSolve(ctx context.Context, moves []*move.Move) ([]*P
 
 	g := errgroup.Group{}
 	winnerGroup := errgroup.Group{}
-	log.Debug().Interface("maybe-in-bag-tiles", maybeInBagTiles).Msg("unseen tiles")
-	jobChan := make(chan job, s.threads*2)
+	// log.Debug().Interface("maybe-in-bag-tiles", maybeInBagTiles).Msg("unseen tiles")
+	jobChan := make(chan job, s.threads)
 	winnerChan := make(chan *PreEndgamePlay)
 
 	var processed atomic.Uint32
@@ -504,6 +542,7 @@ func (s *Solver) multithreadSolve(ctx context.Context, moves []*move.Move) ([]*P
 
 	if ctx.Err() != nil && (ctx.Err() == context.Canceled || ctx.Err() == context.DeadlineExceeded) {
 		log.Info().Msg("timed out or stopped; returning best results so far...")
+		err = ErrCanceledEarly
 	}
 	log.Info().Uint64("solved-endgames", s.numEndgamesSolved.Load()).
 		Uint64("cutoff-moves", s.numCutoffs.Load()).
@@ -602,7 +641,7 @@ func (s *Solver) maybeTiebreak(ctx context.Context, maybeInBagTiles []int) error
 
 	g := errgroup.Group{}
 	winnerGroup := errgroup.Group{}
-	jobChan := make(chan job, s.threads*2)
+	jobChan := make(chan job, s.threads)
 	winnerChan := make(chan *PreEndgamePlay)
 
 	for t := 0; t < s.threads; t++ {
@@ -686,7 +725,7 @@ func (s *Solver) maybeTiebreak(ctx context.Context, maybeInBagTiles []int) error
 }
 
 func (s *Solver) SetEndgamePlies(p int) {
-	s.endgamePlies = p
+	s.maxEndgamePlies = p
 }
 
 func (s *Solver) SetThreads(t int) {
@@ -717,10 +756,10 @@ func (s *Solver) handleJob(ctx context.Context, j job, thread int, winnerChan ch
 			// cut off this play. We already have more losses than the
 			// fully analyzed play with the minimum known number of losses.
 			j.ourMove.RUnlock()
-			log.Debug().Float32("foundLosses", j.ourMove.FoundLosses).
-				Float32("minKnownLosses", s.minPotentialLosses).
-				Str("ourMove", j.ourMove.String()).
-				Msg("stop-analyzing-move")
+			// log.Debug().Float32("foundLosses", j.ourMove.FoundLosses).
+			// 	Float32("minKnownLosses", s.minPotentialLosses).
+			// 	Str("ourMove", j.ourMove.String()).
+			// 	Msg("stop-analyzing-move")
 			j.ourMove.stopAnalyzing()
 			s.numCutoffs.Add(1)
 			return nil
@@ -770,8 +809,8 @@ func (s *Solver) handleNonpassResponseToPass(ctx context.Context, j job, thread 
 	splitPt := permuteLeaves(pt, 1)
 
 	if j.ourMove.AllHaveLoss(splitPt) {
-		log.Debug().Str("their-move", j.theirMove.ShortDescription()).
-			Msg("exiting-early-no-new-info")
+		// log.Debug().Str("their-move", j.theirMove.ShortDescription()).
+		// 	Msg("exiting-early-no-new-info")
 		return nil
 	}
 
@@ -784,14 +823,14 @@ func (s *Solver) handleNonpassResponseToPass(ctx context.Context, j job, thread 
 	// Assign opponent the entire rack, which may be longer than 7 tiles long.
 	g.SetRackForOnly(1-g.PlayerOnTurn(), rack)
 
-	log.Debug().Interface("drawnLetters",
-		tilemapping.MachineWord(j.inbag).UserVisible(g.Alphabet())).
-		Int("ct", j.numDraws).
-		Int("thread", thread).
-		Str("rack-for-us", g.RackLettersFor(g.PlayerOnTurn())).
-		Str("rack-for-them", g.RackLettersFor(1-g.PlayerOnTurn())).
-		Str("their-play", j.theirMove.ShortDescription()).
-		Msgf("trying-peg-play; splitpt=%v", splitPt)
+	// log.Debug().Interface("drawnLetters",
+	// 	tilemapping.MachineWord(j.inbag).UserVisible(g.Alphabet())).
+	// 	Int("ct", j.numDraws).
+	// 	Int("thread", thread).
+	// 	Str("rack-for-us", g.RackLettersFor(g.PlayerOnTurn())).
+	// 	Str("rack-for-them", g.RackLettersFor(1-g.PlayerOnTurn())).
+	// 	Str("their-play", j.theirMove.ShortDescription()).
+	// 	Msgf("trying-peg-play; splitpt=%v", splitPt)
 
 	// Play our pass
 	err := g.PlayMove(j.ourMove.Play, false, 0)
@@ -806,7 +845,7 @@ func (s *Solver) handleNonpassResponseToPass(ctx context.Context, j job, thread 
 	// solve the endgame from OUR perspective
 	// This is the spread for us currently.
 	initialSpread := g.CurrentSpread()
-	val, _, err := s.endgameSolvers[thread].QuickAndDirtySolve(ctx, s.endgamePlies, thread)
+	val, _, err := s.endgameSolvers[thread].QuickAndDirtySolve(ctx, s.curEndgamePlies, thread)
 	if err != nil {
 		return err
 	}
@@ -830,15 +869,15 @@ func (s *Solver) handleNonpassResponseToPass(ctx context.Context, j job, thread 
 
 		case finalSpread > 0:
 			// win for us
-			log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msgf("p-we-win-tileset-%v", tileset)
+			// log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msgf("p-we-win-tileset-%v", tileset)
 			j.ourMove.setWinPctStat(PEGWin, ct, tileset)
 		case finalSpread == 0:
 			// draw
-			log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msgf("p-we-tie-tileset-%v", tileset)
+			// log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msgf("p-we-tie-tileset-%v", tileset)
 			j.ourMove.setWinPctStat(PEGDraw, ct, tileset)
 		case finalSpread < 0:
 			// loss for us
-			log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msgf("p-we-lose-tileset-%v", tileset)
+			// log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msgf("p-we-lose-tileset-%v", tileset)
 			j.ourMove.setWinPctStat(PEGLoss, ct, tileset)
 		}
 	}
@@ -919,12 +958,15 @@ func (s *Solver) handleEntirePreendgamePlay(ctx context.Context, j job, thread i
 				// cut off this play. We already have more losses than the
 				// fully analyzed play with the minimum known number of losses.
 				j.ourMove.RUnlock()
-				log.Debug().Float32("foundLosses", j.ourMove.FoundLosses).
-					Float32("minKnownLosses", s.minPotentialLosses).
-					Str("ourMove", j.ourMove.String()).
-					Msg("stop-analyzing-move-handleentireloop")
+				// log.Debug().Float32("foundLosses", j.ourMove.FoundLosses).
+				// 	Float32("minKnownLosses", s.minPotentialLosses).
+				// 	Str("ourMove", j.ourMove.String()).
+				// 	Int("optionsIdx", idx).
+				// 	Int("thread", thread).
+				// 	Int("cutoff", len(options)-idx).
+				// 	Msg("stop-analyzing-move-handleentireloop")
 				j.ourMove.stopAnalyzing()
-				s.numCutoffs.Add(1)
+				s.numCutoffs.Add(uint64(len(options) - idx))
 				return nil
 			}
 			j.ourMove.RUnlock()
@@ -948,7 +990,8 @@ func (s *Solver) handleEntirePreendgamePlay(ctx context.Context, j job, thread i
 		// opponent.
 		initialSpread := g.CurrentSpread()
 		// Now let's solve the endgame for our opponent.
-		val, _, err := s.endgameSolvers[thread].QuickAndDirtySolve(ctx, s.endgamePlies, thread)
+		// log.Debug().Int("thread", thread).Str("ourMove", j.ourMove.String()).Int("initialSpread", initialSpread).Msg("about-to-solve-endgame")
+		val, _, err := s.endgameSolvers[thread].QuickAndDirtySolve(ctx, s.curEndgamePlies, thread)
 		if err != nil {
 			return err
 		}
@@ -963,15 +1006,15 @@ func (s *Solver) handleEntirePreendgamePlay(ctx context.Context, j job, thread i
 
 		case finalSpread > 0:
 			// win for our opponent = loss for us
-			log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msg("we-lose")
+			// log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Str("ourMove", j.ourMove.String()).Msg("we-lose")
 			j.ourMove.addWinPctStat(PEGLoss, options[idx].ct, inbag)
 		case finalSpread == 0:
 			// draw
-			log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msg("we-tie")
+			// log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Str("ourMove", j.ourMove.String()).Msg("we-tie")
 			j.ourMove.addWinPctStat(PEGDraw, options[idx].ct, inbag)
 		case finalSpread < 0:
 			// loss for our opponent = win for us
-			log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msg("we-win")
+			// log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Str("ourMove", j.ourMove.String()).Msg("we-win")
 			j.ourMove.addWinPctStat(PEGWin, options[idx].ct, inbag)
 		}
 		g.UnplayLastMove()
@@ -1015,15 +1058,15 @@ func (s *Solver) handlePassResponseToPass(ctx context.Context, j job, thread int
 
 	case finalSpread > 0:
 		// win for our opponent = loss for us
-		log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msg("we-lose")
+		// log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Str("ourMove", j.ourMove.String()).Msg("we-lose")
 		j.ourMove.addWinPctStat(PEGLoss, j.numDraws, j.inbag)
 	case finalSpread == 0:
 		// draw
-		log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msg("we-tie")
+		// log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Str("ourMove", j.ourMove.String()).Msg("we-tie")
 		j.ourMove.addWinPctStat(PEGDraw, j.numDraws, j.inbag)
 	case finalSpread < 0:
 		// loss for our opponent = win for us
-		log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msg("we-win")
+		// log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Str("ourMove", j.ourMove.String()).Msg("we-win")
 		j.ourMove.addWinPctStat(PEGWin, j.numDraws, j.inbag)
 	}
 
@@ -1057,7 +1100,7 @@ func (s *Solver) handleFullSolve(ctx context.Context, j job, thread int,
 	// opponent.
 	initialSpread := g.CurrentSpread()
 	// Now let's solve the endgame for our opponent.
-	val, _, err := s.endgameSolvers[thread].QuickAndDirtySolve(ctx, s.endgamePlies, thread)
+	val, _, err := s.endgameSolvers[thread].QuickAndDirtySolve(ctx, s.curEndgamePlies, thread)
 	if err != nil {
 		return err
 	}
@@ -1071,9 +1114,9 @@ func (s *Solver) handleFullSolve(ctx context.Context, j job, thread int,
 	// finalSpread. Negate it because this spread is from the POV of
 	// our opponent:
 	j.ourMove.addSpreadStat(int(-finalSpread), j.numDraws)
-	log.Debug().Str("move", j.ourMove.String()).
-		Str("inbag", tilemapping.MachineWord(j.inbag).UserVisible(j.ourMove.Play.Alphabet())).
-		Int("spread", -int(finalSpread)).Int("ndraws", j.numDraws).Msg("adding-spread-stat")
+	// log.Debug().Str("move", j.ourMove.String()).
+	// Str("inbag", tilemapping.MachineWord(j.inbag).UserVisible(j.ourMove.Play.Alphabet())).
+	// Int("spread", -int(finalSpread)).Int("ndraws", j.numDraws).Msg("adding-spread-stat")
 
 	log.Debug().Int("thread", thread).Msg("peg-unplay")
 
@@ -1218,6 +1261,10 @@ func (s *Solver) SetKnownOppRack(rack tilemapping.MachineWord) {
 
 func (s *Solver) SetSkipTiebreaker(o bool) {
 	s.skipTiebreaker = o
+}
+
+func (s *Solver) SetIterativeDeepening(d bool) {
+	s.iterativeDeepening = d
 }
 
 func (s *Solver) IsSolving() bool {
