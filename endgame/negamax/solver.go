@@ -484,7 +484,9 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 	}
 
 	for p := start; p <= plies; p++ {
-		log.Info().Int("plies", p).Msg("deepening-iteratively")
+		if s.iterativeDeepeningOptim {
+			log.Info().Int("plies", p).Msg("deepening-iteratively")
+		}
 		s.currentIDDepths[0] = p
 		if s.logStream != nil {
 			fmt.Fprintf(s.logStream, "- ply: %d\n", p)
@@ -727,6 +729,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 
 	g.Go(func() error {
 		if s.lazySMPOptim && !s.iterativeDeepeningOptim {
+			done <- true
 			return errors.New("cannot use lazySMP if iterative deepening is off")
 		}
 		log.Debug().Msgf("Using iterative deepening with %v max plies", plies)
@@ -775,13 +778,13 @@ func (s *Solver) QuickAndDirtySolve(ctx context.Context, plies, thread int) (int
 	if s.game.Bag().TilesRemaining() > 0 {
 		return 0, nil, errors.New("bag is not empty; cannot use endgame solver")
 	}
-	log.Debug().
-		Int("thread", thread).
-		Str("ourRack", s.game.RackLettersFor(s.solvingPlayer)).
-		Str("theirRack", s.game.RackLettersFor(1-s.solvingPlayer)).
-		Int("plies", plies).Msg("qdsolve-alphabeta-solve-config")
+	// log.Debug().
+	// 	Int("thread", thread).
+	// 	Str("ourRack", s.game.RackLettersFor(s.solvingPlayer)).
+	// 	Str("theirRack", s.game.RackLettersFor(1-s.solvingPlayer)).
+	// 	Int("plies", plies).Msg("qdsolve-alphabeta-solve-config")
 	s.requestedPlies = plies
-	tstart := time.Now()
+	// tstart := time.Now()
 	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
 	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)
 
@@ -820,16 +823,16 @@ func (s *Solver) QuickAndDirtySolve(ctx context.Context, plies, thread int) (int
 
 	bestSeq = s.principalVariation.Moves[:s.principalVariation.numMoves]
 	bestV = s.bestPVValue
-	log.Debug().
-		Int("thread", thread).
-		Uint64("ttable-created", s.ttable.created.Load()).
-		Uint64("ttable-lookups", s.ttable.lookups.Load()).
-		Uint64("ttable-hits", s.ttable.hits.Load()).
-		Uint64("ttable-t2collisions", s.ttable.t2collisions.Load()).
-		Float64("time-elapsed-sec", time.Since(tstart).Seconds()).
-		Int16("bestV", bestV).
-		Str("bestSeq", s.principalVariation.NLBString()).
-		Msg("solve-returning")
+	// log.Debug().
+	// 	Int("thread", thread).
+	// 	Uint64("ttable-created", s.ttable.created.Load()).
+	// 	Uint64("ttable-lookups", s.ttable.lookups.Load()).
+	// 	Uint64("ttable-hits", s.ttable.hits.Load()).
+	// 	Uint64("ttable-t2collisions", s.ttable.t2collisions.Load()).
+	// 	Float64("time-elapsed-sec", time.Since(tstart).Seconds()).
+	// 	Int16("bestV", bestV).
+	// 	Str("bestSeq", s.principalVariation.NLBString()).
+	// 	Msg("solve-returning")
 
 	return bestV, bestSeq, err
 }

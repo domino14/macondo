@@ -436,7 +436,7 @@ func (s *Solver) multithreadSolve(ctx context.Context, moves []*move.Move) ([]*P
 
 	g := errgroup.Group{}
 	winnerGroup := errgroup.Group{}
-	log.Debug().Interface("maybe-in-bag-tiles", maybeInBagTiles).Msg("unseen tiles")
+	// log.Debug().Interface("maybe-in-bag-tiles", maybeInBagTiles).Msg("unseen tiles")
 	jobChan := make(chan job, s.threads*2)
 	winnerChan := make(chan *PreEndgamePlay)
 
@@ -717,10 +717,10 @@ func (s *Solver) handleJob(ctx context.Context, j job, thread int, winnerChan ch
 			// cut off this play. We already have more losses than the
 			// fully analyzed play with the minimum known number of losses.
 			j.ourMove.RUnlock()
-			log.Debug().Float32("foundLosses", j.ourMove.FoundLosses).
-				Float32("minKnownLosses", s.minPotentialLosses).
-				Str("ourMove", j.ourMove.String()).
-				Msg("stop-analyzing-move")
+			// log.Debug().Float32("foundLosses", j.ourMove.FoundLosses).
+			// 	Float32("minKnownLosses", s.minPotentialLosses).
+			// 	Str("ourMove", j.ourMove.String()).
+			// 	Msg("stop-analyzing-move")
 			j.ourMove.stopAnalyzing()
 			s.numCutoffs.Add(1)
 			return nil
@@ -770,8 +770,8 @@ func (s *Solver) handleNonpassResponseToPass(ctx context.Context, j job, thread 
 	splitPt := permuteLeaves(pt, 1)
 
 	if j.ourMove.AllHaveLoss(splitPt) {
-		log.Debug().Str("their-move", j.theirMove.ShortDescription()).
-			Msg("exiting-early-no-new-info")
+		// log.Debug().Str("their-move", j.theirMove.ShortDescription()).
+		// 	Msg("exiting-early-no-new-info")
 		return nil
 	}
 
@@ -784,14 +784,14 @@ func (s *Solver) handleNonpassResponseToPass(ctx context.Context, j job, thread 
 	// Assign opponent the entire rack, which may be longer than 7 tiles long.
 	g.SetRackForOnly(1-g.PlayerOnTurn(), rack)
 
-	log.Debug().Interface("drawnLetters",
-		tilemapping.MachineWord(j.inbag).UserVisible(g.Alphabet())).
-		Int("ct", j.numDraws).
-		Int("thread", thread).
-		Str("rack-for-us", g.RackLettersFor(g.PlayerOnTurn())).
-		Str("rack-for-them", g.RackLettersFor(1-g.PlayerOnTurn())).
-		Str("their-play", j.theirMove.ShortDescription()).
-		Msgf("trying-peg-play; splitpt=%v", splitPt)
+	// log.Debug().Interface("drawnLetters",
+	// 	tilemapping.MachineWord(j.inbag).UserVisible(g.Alphabet())).
+	// 	Int("ct", j.numDraws).
+	// 	Int("thread", thread).
+	// 	Str("rack-for-us", g.RackLettersFor(g.PlayerOnTurn())).
+	// 	Str("rack-for-them", g.RackLettersFor(1-g.PlayerOnTurn())).
+	// 	Str("their-play", j.theirMove.ShortDescription()).
+	// 	Msgf("trying-peg-play; splitpt=%v", splitPt)
 
 	// Play our pass
 	err := g.PlayMove(j.ourMove.Play, false, 0)
@@ -830,15 +830,15 @@ func (s *Solver) handleNonpassResponseToPass(ctx context.Context, j job, thread 
 
 		case finalSpread > 0:
 			// win for us
-			log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msgf("p-we-win-tileset-%v", tileset)
+			// log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msgf("p-we-win-tileset-%v", tileset)
 			j.ourMove.setWinPctStat(PEGWin, ct, tileset)
 		case finalSpread == 0:
 			// draw
-			log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msgf("p-we-tie-tileset-%v", tileset)
+			// log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msgf("p-we-tie-tileset-%v", tileset)
 			j.ourMove.setWinPctStat(PEGDraw, ct, tileset)
 		case finalSpread < 0:
 			// loss for us
-			log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msgf("p-we-lose-tileset-%v", tileset)
+			// log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msgf("p-we-lose-tileset-%v", tileset)
 			j.ourMove.setWinPctStat(PEGLoss, ct, tileset)
 		}
 	}
@@ -919,12 +919,15 @@ func (s *Solver) handleEntirePreendgamePlay(ctx context.Context, j job, thread i
 				// cut off this play. We already have more losses than the
 				// fully analyzed play with the minimum known number of losses.
 				j.ourMove.RUnlock()
-				log.Debug().Float32("foundLosses", j.ourMove.FoundLosses).
-					Float32("minKnownLosses", s.minPotentialLosses).
-					Str("ourMove", j.ourMove.String()).
-					Msg("stop-analyzing-move-handleentireloop")
+				// log.Debug().Float32("foundLosses", j.ourMove.FoundLosses).
+				// 	Float32("minKnownLosses", s.minPotentialLosses).
+				// 	Str("ourMove", j.ourMove.String()).
+				// 	Int("optionsIdx", idx).
+				// 	Int("thread", thread).
+				// 	Int("cutoff", len(options)-idx).
+				// 	Msg("stop-analyzing-move-handleentireloop")
 				j.ourMove.stopAnalyzing()
-				s.numCutoffs.Add(1)
+				s.numCutoffs.Add(uint64(len(options) - idx))
 				return nil
 			}
 			j.ourMove.RUnlock()
@@ -948,6 +951,7 @@ func (s *Solver) handleEntirePreendgamePlay(ctx context.Context, j job, thread i
 		// opponent.
 		initialSpread := g.CurrentSpread()
 		// Now let's solve the endgame for our opponent.
+		// log.Debug().Int("thread", thread).Str("ourMove", j.ourMove.String()).Int("initialSpread", initialSpread).Msg("about-to-solve-endgame")
 		val, _, err := s.endgameSolvers[thread].QuickAndDirtySolve(ctx, s.endgamePlies, thread)
 		if err != nil {
 			return err
@@ -963,15 +967,15 @@ func (s *Solver) handleEntirePreendgamePlay(ctx context.Context, j job, thread i
 
 		case finalSpread > 0:
 			// win for our opponent = loss for us
-			log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msg("we-lose")
+			// log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Str("ourMove", j.ourMove.String()).Msg("we-lose")
 			j.ourMove.addWinPctStat(PEGLoss, options[idx].ct, inbag)
 		case finalSpread == 0:
 			// draw
-			log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msg("we-tie")
+			// log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Str("ourMove", j.ourMove.String()).Msg("we-tie")
 			j.ourMove.addWinPctStat(PEGDraw, options[idx].ct, inbag)
 		case finalSpread < 0:
 			// loss for our opponent = win for us
-			log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msg("we-win")
+			// log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Str("ourMove", j.ourMove.String()).Msg("we-win")
 			j.ourMove.addWinPctStat(PEGWin, options[idx].ct, inbag)
 		}
 		g.UnplayLastMove()
@@ -1015,15 +1019,15 @@ func (s *Solver) handlePassResponseToPass(ctx context.Context, j job, thread int
 
 	case finalSpread > 0:
 		// win for our opponent = loss for us
-		log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msg("we-lose")
+		// log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Str("ourMove", j.ourMove.String()).Msg("we-lose")
 		j.ourMove.addWinPctStat(PEGLoss, j.numDraws, j.inbag)
 	case finalSpread == 0:
 		// draw
-		log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msg("we-tie")
+		// log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Str("ourMove", j.ourMove.String()).Msg("we-tie")
 		j.ourMove.addWinPctStat(PEGDraw, j.numDraws, j.inbag)
 	case finalSpread < 0:
 		// loss for our opponent = win for us
-		log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msg("we-win")
+		// log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Str("ourMove", j.ourMove.String()).Msg("we-win")
 		j.ourMove.addWinPctStat(PEGWin, j.numDraws, j.inbag)
 	}
 
@@ -1071,9 +1075,9 @@ func (s *Solver) handleFullSolve(ctx context.Context, j job, thread int,
 	// finalSpread. Negate it because this spread is from the POV of
 	// our opponent:
 	j.ourMove.addSpreadStat(int(-finalSpread), j.numDraws)
-	log.Debug().Str("move", j.ourMove.String()).
-		Str("inbag", tilemapping.MachineWord(j.inbag).UserVisible(j.ourMove.Play.Alphabet())).
-		Int("spread", -int(finalSpread)).Int("ndraws", j.numDraws).Msg("adding-spread-stat")
+	// log.Debug().Str("move", j.ourMove.String()).
+	// Str("inbag", tilemapping.MachineWord(j.inbag).UserVisible(j.ourMove.Play.Alphabet())).
+	// Int("spread", -int(finalSpread)).Int("ndraws", j.numDraws).Msg("adding-spread-stat")
 
 	log.Debug().Int("thread", thread).Msg("peg-unplay")
 
