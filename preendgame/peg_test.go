@@ -188,8 +188,9 @@ func BenchmarkSlowPEG(b *testing.B) {
 	err = peg.Init(g.Game, gd)
 	is.NoErr(err)
 	ctx := context.Background()
-
+	peg.SetEndgamePlies(5)
 	b.ResetTimer()
+	// ~135.7 seconds on themonolith
 	for i := 0; i < b.N; i++ {
 		plays, err := peg.Solve(ctx)
 		is.NoErr(err)

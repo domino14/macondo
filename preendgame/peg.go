@@ -437,7 +437,7 @@ func (s *Solver) multithreadSolve(ctx context.Context, moves []*move.Move) ([]*P
 	g := errgroup.Group{}
 	winnerGroup := errgroup.Group{}
 	// log.Debug().Interface("maybe-in-bag-tiles", maybeInBagTiles).Msg("unseen tiles")
-	jobChan := make(chan job, s.threads*2)
+	jobChan := make(chan job, s.threads)
 	winnerChan := make(chan *PreEndgamePlay)
 
 	var processed atomic.Uint32
@@ -602,7 +602,7 @@ func (s *Solver) maybeTiebreak(ctx context.Context, maybeInBagTiles []int) error
 
 	g := errgroup.Group{}
 	winnerGroup := errgroup.Group{}
-	jobChan := make(chan job, s.threads*2)
+	jobChan := make(chan job, s.threads)
 	winnerChan := make(chan *PreEndgamePlay)
 
 	for t := 0; t < s.threads; t++ {
