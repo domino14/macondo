@@ -151,7 +151,7 @@ func BenchmarkStraightforward1PEG(b *testing.B) {
 	err = peg.Init(g.Game, gd)
 	is.NoErr(err)
 	ctx := context.Background()
-
+	peg.SetIterativeDeepening(false)
 	b.ResetTimer()
 
 	// 10/24/23 - 1		16283647648 ns/op	43704360960 B/op	831437490 allocs/op
@@ -189,6 +189,7 @@ func BenchmarkSlowPEG(b *testing.B) {
 	is.NoErr(err)
 	ctx := context.Background()
 	peg.SetEndgamePlies(5)
+	peg.SetIterativeDeepening(true)
 	b.ResetTimer()
 	// ~135.7 seconds on themonolith
 	for i := 0; i < b.N; i++ {
@@ -220,7 +221,7 @@ func TestComplicated1PEG(t *testing.T) {
 	peg := new(Solver)
 
 	err = peg.Init(g.Game, gd)
-	peg.endgamePlies = 7
+	peg.maxEndgamePlies = 7
 	is.NoErr(err)
 
 	ctx := context.Background()

@@ -140,19 +140,22 @@ func preendgameBest(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 	if err != nil {
 		return nil, err
 	}
-	// If we're down by this much, we will probably need to bingo out, so set endgame plies to only a couple
+	// If we're down by a lot, we will probably need to bingo out, so set
+	// endgame plies to only a couple
 	ourSpread := math.Abs(float64(p.Game.SpreadFor(p.Game.PlayerOnTurn())))
 	switch {
-	case ourSpread > 70:
+	case ourSpread >= 100:
 		p.preendgamer.SetEndgamePlies(2)
-	case ourSpread > 60:
+	case ourSpread >= 80:
 		p.preendgamer.SetEndgamePlies(3)
-	case ourSpread > 40:
+	case ourSpread >= 60:
 		p.preendgamer.SetEndgamePlies(4)
-	default:
+	case ourSpread >= 50:
 		p.preendgamer.SetEndgamePlies(5)
+	default:
+		p.preendgamer.SetEndgamePlies(7)
 	}
-
+	p.preendgamer.SetIterativeDeepening(true)
 	if p.cfg.UseOppRacksInAnalysis {
 		oppRack := p.Game.RackFor(p.Game.NextPlayer())
 		logger.Info().Str("rack", oppRack.String()).Msg("setting-known-opp-rack")
