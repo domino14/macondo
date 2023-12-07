@@ -27,7 +27,7 @@ import (
 
 var ErrCanceledEarly = errors.New("canceled early")
 
-const InBagMaxLimit = 1
+const InBagMaxLimit = 2
 const TieBreakerPlays = 20
 
 type PEGOutcome int
@@ -383,7 +383,12 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 		}
 
 		log.Info().Int("nmoves", len(moves)).Int("nthreads", s.threads).Msg("peg-generated-moves")
-		winners, err = s.multithreadSolve(ctx, moves)
+		// if s.game.Bag().TilesRemaining() == 1 {
+		// 	winners, err = s.multithreadSolve(ctx, moves)
+		// } else if s.game.Bag().TilesRemaining() == 2 {
+		// 	winners, err = s.multithreadSolve2(ctx, moves)
+		// }
+		winners, err = s.multithreadSolveGeneric(ctx, moves)
 		if err != nil {
 			if err == ErrCanceledEarly {
 				return lastWinners, nil

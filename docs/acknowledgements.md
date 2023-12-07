@@ -10,3 +10,4 @@ The following people have helped during the development of Macondo. They have pr
 - Noah Walton
 - KarelPeeters
 - Twipply
+- Francis Desjardins
