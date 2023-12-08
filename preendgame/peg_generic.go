@@ -5,10 +5,13 @@ import (
 	"sort"
 	"sync/atomic"
 
+	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/tilemapping"
+	"github.com/domino14/macondo/tinymove"
+	"github.com/domino14/macondo/tinymove/conversions"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
 	"gonum.org/v1/gonum/stat/combin"
@@ -82,7 +85,7 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 				s.winnerSoFar = p
 			}
 			// e.g. if we have three known losses in 4 games, we have at most 7 possible losses.
-			ppotentialLosses := float32(numCombos) - p.Points // XXX: obviously need to rewrite for non PEG-1
+			ppotentialLosses := float32(numCombos) - p.Points
 			if ppotentialLosses < s.minPotentialLosses {
 				log.Info().
 					Float32("potentialLosses", ppotentialLosses).
@@ -185,6 +188,12 @@ func (s *Solver) createGenericPEGJobs(ctx context.Context, maybeInBagTiles []int
 	close(jobChan)
 }
 
+type option struct {
+	mls         []tilemapping.MachineLetter
+	ct          int
+	oppEstimate float64
+}
+
 func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 	winnerChan chan *PreEndgamePlay) error {
 	// handle a job generically.
@@ -221,53 +230,201 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 	}
 	g := s.endgameSolvers[thread].Game()
 	mg := s.endgameSolvers[thread].Movegen()
-	type option struct {
-		ml          tilemapping.MachineLetter
-		ct          int
-		oppEstimate float64
-	}
 
 	options := []option{}
 	mg.SetPlayRecorder(movegen.TopPlayOnlyRecorder)
-
 	permutations := generatePermutations(j.maybeInBagTiles, s.numinbag)
+	firstPlayEmptiesBag := j.ourMove.Play.TilesPlayed() >= s.numinbag
 
 	for _, perm := range permutations {
 		// use FixedOrder setting to draw known tiles for opponent
-		g.ThrowRacksInFor(1 - g.PlayerOnTurn())
+		topEquity := 0.0 // or something
 		// Basically, put the tiles we (player on turn) want to draw on the left side
 		// of the bag.
 		// The bag drawing algorithm draws tiles from right to left. We put the
-		// "inbag" tiles to the left/"beginning" of the bag so that the player
-		// NOT ON TURN can't draw them.
-		moveTilesToBeginning(
-			[]tilemapping.MachineLetter{tilemapping.MachineLetter(t)},
-			g.Bag())
-		// And redraw tiles for opponent. Note that this is not an actual
-		// random rack! We are choosing which tiles to draw via the
-		// moveTilesToBeginning call above and the fixedOrder setting for the bag.
-		// This will leave the tiles in "j.inbag" in the bag, for us (player on turn)
-		// to draw after we make our play.
-		_, err := g.SetRandomRack(1-g.PlayerOnTurn(), nil)
-		if err != nil {
-			return err
+		// "inbag" tiles to the left/"beginning" of the bag.
+		tiles := make([]tilemapping.MachineLetter, len(perm.Perm))
+		for idx, el := range perm.Perm {
+			// Essentially flip the order of the permutation. Since
+			// we draw right to left, we want to present the permutation
+			// to the user as the order that the bag is being drawn in.
+			tiles[len(perm.Perm)-idx-1] = tilemapping.MachineLetter(el)
 		}
-		err = g.PlayMove(j.ourMove.Play, false, 0)
-		if err != nil {
-			return err
+		// If our first play empties the bag, we want to try to solve the resulting
+		// endgames in an advantageous order.
+		if firstPlayEmptiesBag {
+			g.ThrowRacksInFor(1 - g.PlayerOnTurn())
+			moveTilesToBeginning(tiles, g.Bag())
+			// And redraw tiles for opponent. Note that this is not an actual
+			// random rack! We are choosing which tiles to draw via the
+			// moveTilesToBeginning call above and the fixedOrder setting for the bag.
+			// This will leave the tiles in "j.inbag" in the bag, for us (player on turn)
+			// to draw after we make our play.
+			_, err := g.SetRandomRack(1-g.PlayerOnTurn(), nil)
+			if err != nil {
+				return err
+			}
+			err = g.PlayMove(j.ourMove.Play, false, 0)
+			if err != nil {
+				return err
+			}
+			mg.GenAll(g.RackFor(g.PlayerOnTurn()), false)
+			topEquity = mg.Plays()[0].Equity()
+			g.UnplayLastMove()
 		}
 		// gen top move, find score, sort by scores. We just need
 		// a rough estimate of how good our opp's next move will be.
 
-		mg.GenAll(g.RackFor(g.PlayerOnTurn()), false)
 		options = append(options, option{
-			ml:          tilemapping.MachineLetter(t),
-			ct:          ct,
-			oppEstimate: mg.Plays()[0].Equity(),
+			mls:         tiles,
+			ct:          perm.Count,
+			oppEstimate: float64(topEquity),
 		})
-		g.UnplayLastMove()
+	}
+	// Sort by oppEstimate from most to least.
+	// We want to get losing endgames (for us) out of the way early
+	// to help with cutoff.
+	if firstPlayEmptiesBag {
+		sort.Slice(options, func(i, j int) bool {
+			return options[i].oppEstimate > options[j].oppEstimate
+		})
 	}
 
+	mg.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
+
+	// now recursively solve endgames and stuff.
+	for idx := range options {
+		j.ourMove.RLock()
+		if j.ourMove.FoundLosses > s.minPotentialLosses {
+			// cut off this play. We already have more losses than the
+			// fully analyzed play with the minimum known number of losses.
+			j.ourMove.RUnlock()
+			// log.Debug().Float32("foundLosses", j.ourMove.FoundLosses).
+			// 	Float32("minKnownLosses", s.minPotentialLosses).
+			// 	Str("ourMove", j.ourMove.String()).
+			// 	Int("optionsIdx", idx).
+			// 	Int("thread", thread).
+			// 	Int("cutoff", len(options)-idx).
+			// 	Msg("stop-analyzing-move-handleentireloop")
+			j.ourMove.stopAnalyzing()
+			s.numCutoffs.Add(uint64(len(options) - idx))
+			return nil
+		}
+		j.ourMove.RUnlock()
+
+		g.ThrowRacksInFor(1 - g.PlayerOnTurn())
+		moveTilesToBeginning(options[idx].mls, g.Bag())
+		// not actually a random rack, but it should have been established
+		_, err := g.SetRandomRack(1-g.PlayerOnTurn(), nil)
+		if err != nil {
+			return err
+		}
+
+		var sm tinymove.SmallMove
+		if j.ourMove.Play.Action() == move.MoveTypePass {
+			sm = tinymove.PassMove()
+		} else {
+			tm := conversions.MoveToTinyMove(j.ourMove.Play)
+			sm = tinymove.TilePlayMove(tm, int16(j.ourMove.Play.Score()),
+				uint8(j.ourMove.Play.TilesPlayed()), uint8(j.ourMove.Play.PlayLength()))
+		}
+
+		err = s.recursiveSolve(ctx, thread, j.ourMove, &sm,
+			options[idx], winnerChan)
+		if err != nil {
+			return err
+		}
+
+	}
+	return nil
+}
+
+func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEndgamePlay,
+	moveToMake *tinymove.SmallMove, inbagOption option, winnerChan chan *PreEndgamePlay) error {
+
+	g := s.endgameSolvers[thread].Game()
+	mg := s.endgameSolvers[thread].Movegen()
+
+	// if the bag is empty, we just have to solve endgames.
+	if g.Bag().TilesRemaining() == 0 {
+		oppOnTurn := false
+		if g.PlayerOnTurn() != s.solvingForPlayer {
+			oppOnTurn = true
+		}
+		var finalSpread int16
+		// This is the spread after we make our play, from the POV of our
+		// opponent.
+		initialSpread := g.CurrentSpread()
+		// Now let's solve the endgame for our opponent.
+		// log.Debug().Int("thread", thread).Str("ourMove", pegPlay.String()).Int("initialSpread", initialSpread).Msg("about-to-solve-endgame")
+		val, _, err := s.endgameSolvers[thread].QuickAndDirtySolve(ctx, s.curEndgamePlies, thread)
+		if err != nil {
+			return err
+		}
+		s.numEndgamesSolved.Add(1)
+		finalSpread = val + int16(initialSpread)
+
+		switch {
+
+		case finalSpread > 0 && oppOnTurn:
+			// win for our opponent = loss for us
+			// log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Str("ourMove", pegPlay.String()).Msg("we-lose")
+			pegPlay.addWinPctStat(PEGLoss, inbagOption.ct, inbagOption.mls)
+		case finalSpread == 0 && oppOnTurn:
+			// draw
+			// log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Str("ourMove", pegPlay.String()).Msg("we-tie")
+			pegPlay.addWinPctStat(PEGDraw, inbagOption.ct, inbagOption.mls)
+		case finalSpread < 0 && oppOnTurn:
+			// loss for our opponent = win for us
+			// log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Str("ourMove", pegPlay.String()).Msg("we-win")
+			pegPlay.addWinPctStat(PEGWin, inbagOption.ct, inbagOption.mls)
+		}
+		winnerChan <- pegPlay
+		return nil
+	}
+
+	// If the bag is not empty, we must recursively play until it is empty.
+
+	_, err := g.PlaySmallMove(moveToMake)
+	if err != nil {
+		return err
+	}
+
+	var mm *tinymove.SmallMove
+	if g.Bag().TilesRemaining() > 0 {
+
+		mg.GenAll(g.RackFor(g.PlayerOnTurn()), false)
+		plays := mg.SmallPlays()
+		genPlays := make([]tinymove.SmallMove, len(plays))
+		copy(genPlays, plays)
+		movegen.SmallPlaySlicePool.Put(&plays)
+
+		for idx := range plays {
+			plays[idx].SetEstimatedValue(int16(plays[idx].Score()))
+			// Always consider passes first as a reply to passes, in order
+			// to get some easy info fast.
+			if moveToMake.IsPass() && plays[idx].IsPass() {
+				plays[idx].AddEstimatedValue(negamax.EarlyPassOffset)
+			}
+		}
+		sort.Slice(plays, func(i int, j int) bool {
+			return plays[i].EstimatedValue() > plays[j].EstimatedValue()
+		})
+
+		for idx := range plays {
+			mm = &plays[idx]
+			err = s.recursiveSolve(ctx, thread, pegPlay, mm, inbagOption, winnerChan)
+			if err != nil {
+				return err
+			}
+		}
+	} else {
+		// if the bag is empty after we've played moveToMake, the next
+		// iteration here will solve the endgames.
+		err = s.recursiveSolve(ctx, thread, pegPlay, mm, inbagOption, winnerChan)
+	}
+	g.UnplayLastMove()
+	return err
 }
 
 type Permutation struct {

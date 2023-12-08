@@ -231,19 +231,20 @@ func (p *PreEndgamePlay) String() string {
 type Solver struct {
 	endgameSolvers []*negamax.Solver
 
-	movegen         movegen.MoveGenerator
-	game            *game.Game
-	gaddag          *kwg.KWG
-	ttable          *negamax.TranspositionTable
-	curEndgamePlies int
-	maxEndgamePlies int
-	initialSpread   int
-	threads         int
-	numinbag        int
-	plays           []*PreEndgamePlay
-	winnerSoFar     *PreEndgamePlay
-	knownOppRack    []tilemapping.MachineLetter
-	busy            bool
+	movegen          movegen.MoveGenerator
+	game             *game.Game
+	gaddag           *kwg.KWG
+	ttable           *negamax.TranspositionTable
+	curEndgamePlies  int
+	maxEndgamePlies  int
+	initialSpread    int
+	threads          int
+	numinbag         int
+	plays            []*PreEndgamePlay
+	winnerSoFar      *PreEndgamePlay
+	knownOppRack     []tilemapping.MachineLetter
+	busy             bool
+	solvingForPlayer int
 
 	earlyCutoffOptim   bool
 	skipPassOptim      bool
@@ -319,6 +320,7 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 	})
 	s.ttable.Reset(s.game.Config().GetFloat64(config.ConfigTtableMemFraction), s.game.Board().Dim())
 	var lastWinners []*PreEndgamePlay
+	s.solvingForPlayer = s.game.PlayerOnTurn()
 
 	for s.curEndgamePlies <= s.maxEndgamePlies {
 		if s.iterativeDeepening {
@@ -335,11 +337,10 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 		}
 		s.minPotentialLosses = 100000.0
 
-		playerOnTurn := s.game.PlayerOnTurn()
 		// Fill opponent's rack for now. Ignore the "known opp rack", if any. That
 		// is handled properly later.
-		if s.game.RackFor(1-playerOnTurn).NumTiles() < game.RackTileLimit {
-			_, err := s.game.SetRandomRack(1-playerOnTurn, nil)
+		if s.game.RackFor(1-s.solvingForPlayer).NumTiles() < game.RackTileLimit {
+			_, err := s.game.SetRandomRack(1-s.solvingForPlayer, nil)
 			if err != nil {
 				return nil, err
 			}
