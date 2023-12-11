@@ -7,6 +7,7 @@ import (
 
 	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/game"
+	"github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/tilemapping"
@@ -345,42 +346,56 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 	g := s.endgameSolvers[thread].Game()
 	mg := s.endgameSolvers[thread].Movegen()
 
-	// if the bag is empty, we just have to solve endgames.
-	if g.Bag().TilesRemaining() == 0 {
-		oppOnTurn := false
-		if g.PlayerOnTurn() != s.solvingForPlayer {
-			oppOnTurn = true
-		}
+	// Quit early if we already have a loss for this bag option.
+	if pegPlay.HasLoss(inbagOption.mls) {
+		return nil
+	}
+
+	if g.Playing() == macondo.PlayState_GAME_OVER || g.Bag().TilesRemaining() == 0 {
 		var finalSpread int16
-		// This is the spread after we make our play, from the POV of our
-		// opponent.
-		initialSpread := g.CurrentSpread()
-		// Now let's solve the endgame for our opponent.
-		// log.Debug().Int("thread", thread).Str("ourMove", pegPlay.String()).Int("initialSpread", initialSpread).Msg("about-to-solve-endgame")
-		val, _, err := s.endgameSolvers[thread].QuickAndDirtySolve(ctx, s.curEndgamePlies, thread)
-		if err != nil {
-			return err
+		var oppPerspective bool
+		if g.Playing() == macondo.PlayState_GAME_OVER {
+			// game ended. Should have been because of two-pass
+			finalSpread = int16(g.SpreadFor(s.solvingForPlayer))
+			if g.CurrentSpread() == -int(finalSpread) {
+				oppPerspective = true
+			}
+		} else if g.Bag().TilesRemaining() == 0 {
+			// if the bag is empty, we just have to solve endgames.
+			if g.PlayerOnTurn() != s.solvingForPlayer {
+				oppPerspective = true
+			}
+			// This is the spread after we make our play, from the POV of our
+			// opponent.
+			initialSpread := g.CurrentSpread()
+			// Now let's solve the endgame for our opponent.
+			// log.Debug().Int("thread", thread).Str("ourMove", pegPlay.String()).Int("initialSpread", initialSpread).Msg("about-to-solve-endgame")
+			val, _, err := s.endgameSolvers[thread].QuickAndDirtySolve(ctx, s.curEndgamePlies, thread)
+			if err != nil {
+				return err
+			}
+			s.numEndgamesSolved.Add(1)
+			finalSpread = val + int16(initialSpread)
 		}
-		s.numEndgamesSolved.Add(1)
-		finalSpread = val + int16(initialSpread)
 
 		switch {
-
-		case finalSpread > 0 && oppOnTurn:
+		case (finalSpread > 0 && oppPerspective) || (finalSpread < 0 && !oppPerspective):
 			// win for our opponent = loss for us
 			// log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Str("ourMove", pegPlay.String()).Msg("we-lose")
 			pegPlay.addWinPctStat(PEGLoss, inbagOption.ct, inbagOption.mls)
-		case finalSpread == 0 && oppOnTurn:
+		case finalSpread == 0:
 			// draw
 			// log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Str("ourMove", pegPlay.String()).Msg("we-tie")
 			pegPlay.addWinPctStat(PEGDraw, inbagOption.ct, inbagOption.mls)
-		case finalSpread < 0 && oppOnTurn:
+		case (finalSpread < 0 && oppPerspective) || (finalSpread > 0 && !oppPerspective):
 			// loss for our opponent = win for us
 			// log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Str("ourMove", pegPlay.String()).Msg("we-win")
 			pegPlay.addWinPctStat(PEGWin, inbagOption.ct, inbagOption.mls)
 		}
+
 		winnerChan <- pegPlay
 		return nil
+
 	}
 
 	// If the bag is not empty, we must recursively play until it is empty.
@@ -399,20 +414,24 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 		copy(genPlays, plays)
 		movegen.SmallPlaySlicePool.Put(&plays)
 
-		for idx := range plays {
-			plays[idx].SetEstimatedValue(int16(plays[idx].Score()))
+		for idx := range genPlays {
+			genPlays[idx].SetEstimatedValue(int16(genPlays[idx].Score()))
 			// Always consider passes first as a reply to passes, in order
 			// to get some easy info fast.
-			if moveToMake.IsPass() && plays[idx].IsPass() {
-				plays[idx].AddEstimatedValue(negamax.EarlyPassOffset)
+			if moveToMake.IsPass() && genPlays[idx].IsPass() {
+				genPlays[idx].AddEstimatedValue(negamax.EarlyPassOffset)
 			}
 		}
-		sort.Slice(plays, func(i int, j int) bool {
-			return plays[i].EstimatedValue() > plays[j].EstimatedValue()
+		sort.Slice(genPlays, func(i int, j int) bool {
+			return genPlays[i].EstimatedValue() > genPlays[j].EstimatedValue()
 		})
+		// XXX: we also need to ignore plays that are not among the best
+		// we found. We assume that we (player who the PEG is being solved for)
+		// would never make an incorrect play (i.e. one that doesn't win
+		// as much as the winners).
 
-		for idx := range plays {
-			mm = &plays[idx]
+		for idx := range genPlays {
+			mm = &genPlays[idx]
 			err = s.recursiveSolve(ctx, thread, pegPlay, mm, inbagOption, winnerChan)
 			if err != nil {
 				return err
@@ -421,7 +440,7 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 	} else {
 		// if the bag is empty after we've played moveToMake, the next
 		// iteration here will solve the endgames.
-		err = s.recursiveSolve(ctx, thread, pegPlay, mm, inbagOption, winnerChan)
+		err = s.recursiveSolve(ctx, thread, pegPlay, nil, inbagOption, winnerChan)
 	}
 	g.UnplayLastMove()
 	return err

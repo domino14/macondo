@@ -97,17 +97,44 @@ func (p *PreEndgamePlay) addWinPctStat(result PEGOutcome, ct int, tiles []tilema
 	p.Lock()
 	defer p.Unlock()
 	found := p.outcomeIndex(tiles)
-	p.outcomesArray[found].outcome = result
-	p.outcomesArray[found].ct += ct
+	if p.outcomesArray[found].outcome == PEGNotInitialized {
+		p.outcomesArray[found].ct += ct
+	}
 	switch result {
 	case PEGWin:
-		p.Points += float32(ct)
+		if p.outcomesArray[found].outcome != PEGDraw &&
+			p.outcomesArray[found].outcome != PEGLoss {
+
+			// Add to the win counter only if it wasn't already marked a win.
+			// Note that this win is not necessarily known yet.
+			if p.outcomesArray[found].outcome != PEGWin {
+				p.Points += float32(ct)
+			}
+			p.outcomesArray[found].outcome = PEGWin
+		}
 	case PEGDraw:
-		p.Points += float32(ct) / 2
-		p.FoundLosses += float32(ct) / 2
+		if p.outcomesArray[found].outcome != PEGLoss {
+			// Add to the win counter only if it wasn't already marked a draw.
+			// Note that this draw is not necessarily known yet.
+
+			if p.outcomesArray[found].outcome != PEGDraw {
+				p.Points += float32(ct) / 2
+				p.FoundLosses += float32(ct) / 2
+			}
+			p.outcomesArray[found].outcome = PEGDraw
+		}
 	case PEGLoss:
-		// no wins
-		p.FoundLosses += float32(ct)
+		if p.outcomesArray[found].outcome == PEGDraw {
+			p.Points -= float32(ct) / 2
+			p.FoundLosses += float32(ct) / 2
+		} else if p.outcomesArray[found].outcome == PEGWin {
+			p.Points -= float32(ct)
+			p.FoundLosses += float32(ct)
+		} else if p.outcomesArray[found].outcome == PEGNotInitialized {
+			p.FoundLosses += float32(ct)
+		}
+		p.outcomesArray[found].outcome = PEGLoss
+
 	}
 }
 
