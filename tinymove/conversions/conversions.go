@@ -116,9 +116,6 @@ func TinyMoveToMove(t tinymove.TinyMove, b *board.GameBoard, om *move.Move) {
 		tileShift += 6
 
 		mls = append(mls, tile)
-		if tidx > 6 {
-			break
-		}
 	}
 	om.Set(mls, nil, 0, row, col, tidx, vert, move.MoveTypePlay, nil)
 }
