@@ -2,6 +2,7 @@ package preendgame
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"sync/atomic"
 
@@ -399,7 +400,9 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 	}
 
 	// If the bag is not empty, we must recursively play until it is empty.
-
+	tempm := &move.Move{}
+	conversions.SmallMoveToMove(moveToMake, tempm, g.Alphabet(), g.Board(), g.RackFor(g.PlayerOnTurn()))
+	fmt.Println(thread, "playing", tempm)
 	_, err := g.PlaySmallMove(moveToMake)
 	if err != nil {
 		return err
@@ -442,6 +445,7 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 		// iteration here will solve the endgames.
 		err = s.recursiveSolve(ctx, thread, pegPlay, nil, inbagOption, winnerChan)
 	}
+	fmt.Println(thread, "unplaying")
 	g.UnplayLastMove()
 	return err
 }
