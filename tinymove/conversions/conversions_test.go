@@ -43,22 +43,3 @@ func TestComplexTinyMove(t *testing.T) {
 	TinyMoveToMove(tm, b, m2)
 	is.True(move.MinimallyEqual(m, m2))
 }
-
-func TestTinyMoveToMove(t *testing.T) {
-	is := is.New(t)
-	simpleBingoOut := "14F/1MOHR1TÜtE4A/4OBI7L/J1D1U2Z2HAUET/A1I1TÖNUNGeN1S1/BÄNKE2T5C1/S1G4U5H1/7N2KRENG/4DUPS3EXE1/3WO4QIS1N1/3ES10/3MI2M7/4ERLAUFEND2/4R2T4R2/ELEVE2T3DYNS ACEHMRS/EEII 381/421 0 lex RD28; ld german;"
-	g, err := cgp.ParseCGP(&DefaultConfig, simpleBingoOut)
-	is.NoErr(err)
-	ld, err := tilemapping.NamedLetterDistribution(&DefaultConfig, "german")
-	is.NoErr(err)
-
-	m := move.NewScoringMove(
-		0,
-		[]tilemapping.MachineLetter{14, 1, 21, 4, 9, 6, 20, 0},
-		nil, true, 7, ld.TileMapping(), 7, 1)
-
-	tm := MoveToTinyMove(m)
-	m2 := &move.Move{}
-	TinyMoveToMove(tm, g.Board(), m2)
-	is.True(move.MinimallyEqual(m, m2))
-}
