@@ -102,7 +102,9 @@ func TinyMoveToMove(t tinymove.TinyMove, b *board.GameBoard, om *move.Move) {
 			mls = append(mls, 0)
 			continue
 		}
-
+		if tidx > 6 {
+			break
+		}
 		shifted := uint64(t) & tinymove.TBitMasks[tidx]
 
 		tile := tilemapping.MachineLetter(shifted >> tilemapping.MachineLetter(tileShift))
