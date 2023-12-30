@@ -82,6 +82,8 @@ func wolgesAnalyze(cfg *config.Config, g *bot.BotTurnPlayer) ([]*move.Move, erro
 		letterDistribution = "french"
 	case strings.HasPrefix(lowercasedLexicon, "disc"):
 		letterDistribution = "catalan"
+	case strings.HasPrefix(lowercasedLexicon, "osps"):
+		letterDistribution = "polish"
 	default:
 		letterDistribution = "english"
 	}

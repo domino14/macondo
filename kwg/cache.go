@@ -67,6 +67,8 @@ func LoadKWG(cfg *config.Config, filename string) (*KWG, error) {
 		alphabetName = "german"
 	case strings.HasPrefix(lexname, "disc"):
 		alphabetName = "catalan"
+	case strings.HasPrefix(lexname, "osps"):
+		alphabetName = "polish"
 	default:
 		return nil, errors.New("cannot determine alphabet from lexicon name " + lexname)
 	}
