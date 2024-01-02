@@ -63,6 +63,7 @@ func Test1PEGPass(t *testing.T) {
 	peg := new(Solver)
 	err = peg.Init(g.Game, gd)
 	is.NoErr(err)
+	peg.threads = 1
 
 	ctx := context.Background()
 	plays, err := peg.Solve(ctx)

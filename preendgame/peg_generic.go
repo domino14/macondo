@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync/atomic"
 
 	"github.com/domino14/macondo/endgame/negamax"
@@ -332,7 +333,7 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 		}
 
 		err = s.recursiveSolve(ctx, thread, j.ourMove, &sm,
-			options[idx], winnerChan)
+			options[idx], winnerChan, 0)
 		if err != nil {
 			return err
 		}
@@ -342,7 +343,7 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 }
 
 func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEndgamePlay,
-	moveToMake *tinymove.SmallMove, inbagOption option, winnerChan chan *PreEndgamePlay) error {
+	moveToMake *tinymove.SmallMove, inbagOption option, winnerChan chan *PreEndgamePlay, depth int) error {
 
 	g := s.endgameSolvers[thread].Game()
 	mg := s.endgameSolvers[thread].Movegen()
@@ -402,7 +403,7 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 	// If the bag is not empty, we must recursively play until it is empty.
 	tempm := &move.Move{}
 	conversions.SmallMoveToMove(moveToMake, tempm, g.Alphabet(), g.Board(), g.RackFor(g.PlayerOnTurn()))
-	fmt.Println(thread, "playing", tempm)
+	fmt.Println(strings.Repeat(" ", depth), thread, "playing", tempm)
 	_, err := g.PlaySmallMove(moveToMake)
 	if err != nil {
 		return err
@@ -435,7 +436,7 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 
 		for idx := range genPlays {
 			mm = &genPlays[idx]
-			err = s.recursiveSolve(ctx, thread, pegPlay, mm, inbagOption, winnerChan)
+			err = s.recursiveSolve(ctx, thread, pegPlay, mm, inbagOption, winnerChan, depth+1)
 			if err != nil {
 				return err
 			}
@@ -443,9 +444,9 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 	} else {
 		// if the bag is empty after we've played moveToMake, the next
 		// iteration here will solve the endgames.
-		err = s.recursiveSolve(ctx, thread, pegPlay, nil, inbagOption, winnerChan)
+		err = s.recursiveSolve(ctx, thread, pegPlay, nil, inbagOption, winnerChan, depth+1)
 	}
-	fmt.Println(thread, "unplaying")
+	fmt.Println(strings.Repeat(" ", depth), thread, "unplaying")
 	g.UnplayLastMove()
 	return err
 }
