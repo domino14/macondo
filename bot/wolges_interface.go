@@ -14,7 +14,7 @@ import (
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/tilemapping"
+	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
 )
 
@@ -136,7 +136,7 @@ func wolgesAnalyze(cfg *config.Config, g *bot.BotTurnPlayer) ([]*move.Move, erro
 	// Now let's send a request.
 	ctx, cancel := context.WithTimeout(context.Background(), WolgesTimeout)
 	defer cancel()
-	req, err := http.NewRequest("POST", cfg.WolgesAwsmURL+"/analyze", bytes.NewReader(bts))
+	req, err := http.NewRequest("POST", cfg.GetString(config.ConfigWolgesAwsmUrl)+"/analyze", bytes.NewReader(bts))
 	if err != nil {
 		return nil, err
 	}

@@ -3,11 +3,12 @@ package automatic
 import (
 	"testing"
 
+	"github.com/domino14/word-golib/tilemapping"
+	"github.com/matryer/is"
+
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/tilemapping"
-	"github.com/matryer/is"
 )
 
 func TestGenBestStaticTurn(t *testing.T) {

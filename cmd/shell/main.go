@@ -36,11 +36,11 @@ func main() {
 	cfg := &config.Config{}
 	args := os.Args[1:]
 	cfg.Load(args)
-	log.Info().Msgf("Loaded config: %v", cfg)
+	log.Info().Msgf("Loaded config: %v", cfg.AllSettings())
 	cfg.AdjustRelativePaths(exPath)
 
 	var logger zerolog.Logger
-	if cfg.Debug {
+	if cfg.GetBool("debug") {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 		logger = zerolog.New(os.Stderr).Level(zerolog.DebugLevel)
 	} else {
@@ -49,8 +49,8 @@ func main() {
 	}
 	zerolog.DefaultContextLogger = &logger
 	logger.Debug().Msg("Debug logging is on")
-	if cfg.CPUProfile != "" {
-		f, err := os.Create(cfg.CPUProfile)
+	if cfg.GetString("cpu-profile") != "" {
+		f, err := os.Create(cfg.GetString("cpu-profile"))
 		if err != nil {
 			panic("could not create CPU profile: " + err.Error())
 		}
@@ -83,8 +83,8 @@ func main() {
 	}
 	<-idleConnsClosed
 
-	if cfg.MemProfile != "" {
-		f, err := os.Create(cfg.MemProfile)
+	if cfg.GetString("mem-profile") != "" {
+		f, err := os.Create(cfg.GetString("mem-profile"))
 		if err != nil {
 			panic("could not create memory profile: " + err.Error())
 		}

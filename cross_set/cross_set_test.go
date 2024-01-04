@@ -5,14 +5,14 @@ import (
 	"log"
 	"testing"
 
+	"github.com/domino14/word-golib/kwg"
+	"github.com/domino14/word-golib/tilemapping"
 	"github.com/matryer/is"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/tilemapping"
 )
 
 var DefaultConfig = config.DefaultConfig()
@@ -26,7 +26,7 @@ const (
 )
 
 func GaddagFromLexicon(lex string) (*kwg.KWG, error) {
-	return kwg.Get(&DefaultConfig, lex)
+	return kwg.Get(DefaultConfig.AllSettings(), lex)
 }
 
 type crossSetTestCase struct {
@@ -40,9 +40,9 @@ type crossSetTestCase struct {
 func TestGenCrossSetLoadedGame(t *testing.T) {
 	is := is.New(t)
 
-	gd, err := kwg.Get(&DefaultConfig, "NWL18")
+	gd, err := kwg.Get(DefaultConfig.AllSettings(), "NWL18")
 	is.NoErr(err)
-	dist, err := tilemapping.EnglishLetterDistribution(&DefaultConfig)
+	dist, err := tilemapping.EnglishLetterDistribution(DefaultConfig.AllSettings())
 	is.NoErr(err)
 	alph := dist.TileMapping()
 
@@ -89,9 +89,9 @@ type crossSetEdgeTestCase struct {
 func TestGenCrossSetEdges(t *testing.T) {
 	is := is.New(t)
 
-	gd, err := kwg.Get(&DefaultConfig, "NWL20")
+	gd, err := kwg.Get(DefaultConfig.AllSettings(), "NWL20")
 	is.NoErr(err)
-	dist, err := tilemapping.EnglishLetterDistribution(&DefaultConfig)
+	dist, err := tilemapping.EnglishLetterDistribution(DefaultConfig.AllSettings())
 	is.NoErr(err)
 	alph := dist.TileMapping()
 
@@ -140,9 +140,9 @@ func TestGenCrossSetEdges(t *testing.T) {
 func TestGenAllCrossSets(t *testing.T) {
 	is := is.New(t)
 
-	gd, err := kwg.Get(&DefaultConfig, "NWL18")
+	gd, err := kwg.Get(DefaultConfig.AllSettings(), "NWL18")
 	is.NoErr(err)
-	dist, err := tilemapping.EnglishLetterDistribution(&DefaultConfig)
+	dist, err := tilemapping.EnglishLetterDistribution(DefaultConfig.AllSettings())
 	is.NoErr(err)
 	alph := dist.TileMapping()
 
@@ -220,9 +220,9 @@ func TestGenAllCrossSets(t *testing.T) {
 func TestBoardsEqual(t *testing.T) {
 	is := is.New(t)
 
-	gd, err := kwg.Get(&DefaultConfig, "NWL20")
+	gd, err := kwg.Get(DefaultConfig.AllSettings(), "NWL20")
 	is.NoErr(err)
-	dist, err := tilemapping.EnglishLetterDistribution(&DefaultConfig)
+	dist, err := tilemapping.EnglishLetterDistribution(DefaultConfig.AllSettings())
 	is.NoErr(err)
 	alph := dist.TileMapping()
 
@@ -241,7 +241,7 @@ func TestBoardsEqual(t *testing.T) {
 
 func TestPlaceMoveTiles(t *testing.T) {
 
-	gd, _ := kwg.Get(&DefaultConfig, "NWL20")
+	gd, _ := kwg.Get(DefaultConfig.AllSettings(), "NWL20")
 	b := board.MakeBoard(board.CrosswordGameBoard)
 	alph := gd.GetAlphabet()
 
@@ -255,7 +255,7 @@ func TestPlaceMoveTiles(t *testing.T) {
 }
 
 func TestUnplaceMoveTiles(t *testing.T) {
-	gd, _ := kwg.Get(&DefaultConfig, "NWL20")
+	gd, _ := kwg.Get(DefaultConfig.AllSettings(), "NWL20")
 	b := board.MakeBoard(board.CrosswordGameBoard)
 	alph := gd.GetAlphabet()
 
@@ -278,9 +278,9 @@ type updateCrossesForMoveTestCase struct {
 func TestUpdateCrossSetsForMove(t *testing.T) {
 	is := is.New(t)
 
-	gd, err := kwg.Get(&DefaultConfig, "NWL20")
+	gd, err := kwg.Get(DefaultConfig.AllSettings(), "NWL20")
 	is.NoErr(err)
-	dist, err := tilemapping.EnglishLetterDistribution(&DefaultConfig)
+	dist, err := tilemapping.EnglishLetterDistribution(DefaultConfig.AllSettings())
 	is.NoErr(err)
 	gen := GaddagCrossSetGenerator{Dist: dist, Gaddag: gd}
 	alph := dist.TileMapping()
@@ -376,9 +376,9 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 func TestUpdateSingleCrossSet(t *testing.T) {
 	is := is.New(t)
 
-	gd, err := kwg.Get(&DefaultConfig, "NWL20")
+	gd, err := kwg.Get(DefaultConfig.AllSettings(), "NWL20")
 	is.NoErr(err)
-	dist, err := tilemapping.EnglishLetterDistribution(&DefaultConfig)
+	dist, err := tilemapping.EnglishLetterDistribution(DefaultConfig.AllSettings())
 	is.NoErr(err)
 	alph := dist.TileMapping()
 
@@ -412,7 +412,7 @@ func TestUpdateSingleCrossSet(t *testing.T) {
 func TestGenAllCrossScores(t *testing.T) {
 	is := is.New(t)
 
-	dist, err := tilemapping.EnglishLetterDistribution(&DefaultConfig)
+	dist, err := tilemapping.EnglishLetterDistribution(DefaultConfig.AllSettings())
 	is.NoErr(err)
 	alph := dist.TileMapping()
 
@@ -480,7 +480,7 @@ func TestGenAllCrossScores(t *testing.T) {
 func TestUpdateCrossScoresForMove(t *testing.T) {
 	is := is.New(t)
 
-	dist, err := tilemapping.EnglishLetterDistribution(&DefaultConfig)
+	dist, err := tilemapping.EnglishLetterDistribution(DefaultConfig.AllSettings())
 	is.NoErr(err)
 	gen := CrossScoreOnlyGenerator{Dist: dist}
 	alph := dist.TileMapping()
@@ -555,9 +555,9 @@ func compareCrossScores(t *testing.T, b1 *board.GameBoard, b2 *board.GameBoard) 
 func TestCompareUpdate(t *testing.T) {
 	is := is.New(t)
 
-	gd, err := kwg.Get(&DefaultConfig, "NWL20")
+	gd, err := kwg.Get(DefaultConfig.AllSettings(), "NWL20")
 	is.NoErr(err)
-	dist, err := tilemapping.EnglishLetterDistribution(&DefaultConfig)
+	dist, err := tilemapping.EnglishLetterDistribution(DefaultConfig.AllSettings())
 	is.NoErr(err)
 	gen1 := GaddagCrossSetGenerator{Dist: dist, Gaddag: gd}
 	gen2 := CrossScoreOnlyGenerator{Dist: dist}
@@ -601,9 +601,9 @@ func TestCompareUpdate(t *testing.T) {
 func TestCompareGenAll(t *testing.T) {
 	is := is.New(t)
 
-	gd, err := kwg.Get(&DefaultConfig, "NWL20")
+	gd, err := kwg.Get(DefaultConfig.AllSettings(), "NWL20")
 	is.NoErr(err)
-	dist, err := tilemapping.EnglishLetterDistribution(&DefaultConfig)
+	dist, err := tilemapping.EnglishLetterDistribution(DefaultConfig.AllSettings())
 	is.NoErr(err)
 	alph := dist.TileMapping()
 
@@ -633,9 +633,9 @@ func TestCompareGenAll(t *testing.T) {
 func BenchmarkGenAnchorsAndCrossSets(b *testing.B) {
 	is := is.New(b)
 
-	gd, err := kwg.Get(&DefaultConfig, "NWL20")
+	gd, err := kwg.Get(DefaultConfig.AllSettings(), "NWL20")
 	is.NoErr(err)
-	dist, err := tilemapping.EnglishLetterDistribution(&DefaultConfig)
+	dist, err := tilemapping.EnglishLetterDistribution(DefaultConfig.AllSettings())
 	is.NoErr(err)
 	alph := dist.TileMapping()
 
@@ -655,9 +655,9 @@ func BenchmarkMakePlay(b *testing.B) {
 	// (as opposed to generating all of them from scratch)
 	is := is.New(b)
 
-	gd, err := kwg.Get(&DefaultConfig, "NWL20")
+	gd, err := kwg.Get(DefaultConfig.AllSettings(), "NWL20")
 	is.NoErr(err)
-	dist, err := tilemapping.EnglishLetterDistribution(&DefaultConfig)
+	dist, err := tilemapping.EnglishLetterDistribution(DefaultConfig.AllSettings())
 	is.NoErr(err)
 	gen := GaddagCrossSetGenerator{Dist: dist, Gaddag: gd}
 	alph := dist.TileMapping()

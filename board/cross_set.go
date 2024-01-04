@@ -1,7 +1,7 @@
 package board
 
 import (
-	"github.com/domino14/macondo/tilemapping"
+	"github.com/domino14/word-golib/tilemapping"
 )
 
 const (

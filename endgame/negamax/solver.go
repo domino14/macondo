@@ -15,6 +15,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	"lukechampine.com/frand"
 
+	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
@@ -695,7 +696,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 		s.ttable.SetSingleThreadedMode()
 	}
 	if s.transpositionTableOptim {
-		s.ttable.Reset(s.game.Config().TTableFractionOfMem, s.game.Board().Dim())
+		s.ttable.Reset(s.game.Config().GetFloat64(config.ConfigTtableMemFraction), s.game.Board().Dim())
 	}
 	s.game.SetEndgameMode(true)
 	defer s.game.SetEndgameMode(false)

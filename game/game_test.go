@@ -7,14 +7,15 @@ import (
 	"os"
 	"testing"
 
-	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/tilemapping"
+	"github.com/domino14/word-golib/tilemapping"
+	"github.com/matryer/is"
 	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/matryer/is"
+	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/testhelpers"
 )
 
 var DefaultConfig = config.DefaultConfig()
@@ -137,9 +138,9 @@ func TestPlayToTurnWithPhony(t *testing.T) {
 	g, err := NewFromHistory(gameHistory, rules, len(gameHistory.Events))
 	is.NoErr(err)
 
-	is.Equal(g.RackFor(0).TilesOn().UserVisible(tilemapping.EnglishAlphabet()),
+	is.Equal(g.RackFor(0).TilesOn().UserVisible(testhelpers.EnglishAlphabet()),
 		"EEHKNOQ")
-	is.Equal(g.RackFor(1).TilesOn().UserVisible(tilemapping.EnglishAlphabet()),
+	is.Equal(g.RackFor(1).TilesOn().UserVisible(testhelpers.EnglishAlphabet()),
 		"?DEMOOW")
 	log.Debug().Interface("lex", g.lexicon.Name()).Interface("wf", g.lastWordsFormed).Msg("info")
 	// Player 0 challenges opponent's phony
@@ -158,10 +159,10 @@ func TestPlayToTurnWithPhony(t *testing.T) {
 	is.Equal(g.Board().GetLetter(6, 7).IsPlayedTile(), false)
 
 	// p1 gets their phony tiles back
-	is.Equal(g.RackFor(1).TilesOn().UserVisible(tilemapping.EnglishAlphabet()),
+	is.Equal(g.RackFor(1).TilesOn().UserVisible(testhelpers.EnglishAlphabet()),
 		"DEIMNOR")
 	// p0 still has their rack
-	is.Equal(g.RackFor(0).TilesOn().UserVisible(tilemapping.EnglishAlphabet()),
+	is.Equal(g.RackFor(0).TilesOn().UserVisible(testhelpers.EnglishAlphabet()),
 		"EEHKNOQ")
 }
 

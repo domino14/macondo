@@ -3,16 +3,17 @@ package game
 import (
 	"testing"
 
+	"github.com/domino14/word-golib/tilemapping"
 	"github.com/matryer/is"
 
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/tilemapping"
+	"github.com/domino14/macondo/testhelpers"
 )
 
 func TestEventFromMove(t *testing.T) {
 	is := is.New(t)
-	alph := tilemapping.EnglishAlphabet()
+	alph := testhelpers.EnglishAlphabet()
 
 	tiles, err := tilemapping.ToMachineWord("?EGKMNO", alph)
 	is.NoErr(err)
@@ -62,7 +63,7 @@ func TestMoveFromEventExchange(t *testing.T) {
 		NumTilesFromRack: 4,
 	}
 
-	alph := tilemapping.EnglishAlphabet()
+	alph := testhelpers.EnglishAlphabet()
 
 	m, err := MoveFromEvent(evt, alph, nil)
 	is.NoErr(err)
@@ -81,7 +82,7 @@ func TestMoveFromEventExchangeBlank(t *testing.T) {
 		NumTilesFromRack: 1,
 	}
 
-	alph := tilemapping.EnglishAlphabet()
+	alph := testhelpers.EnglishAlphabet()
 
 	m, err := MoveFromEvent(evt, alph, nil)
 	is.NoErr(err)

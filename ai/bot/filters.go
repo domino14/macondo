@@ -3,14 +3,15 @@ package bot
 import (
 	"math"
 
+	"github.com/domino14/word-golib/kwg"
+	"github.com/domino14/word-golib/tilemapping"
+	"github.com/rs/zerolog/log"
+	"lukechampine.com/frand"
+
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/tilemapping"
-	"github.com/rs/zerolog/log"
-	"lukechampine.com/frand"
 )
 
 // Note: because of the nature of this algorithm, the lower these numbers, the
@@ -45,7 +46,7 @@ func filter(cfg *config.Config, g *game.Game, rack *tilemapping.Rack, plays []*m
 
 	filterFunction := func([]tilemapping.MachineWord, float64) (bool, error) { return true, nil }
 	if botConfig.isCel {
-		gd, err := kwg.Get(cfg, "ECWL")
+		gd, err := kwg.Get(cfg.AllSettings(), "ECWL")
 		if err != nil {
 			log.Err(err).Msg("could-not-load-ecwl")
 			filterFunction = func([]tilemapping.MachineWord, float64) (bool, error) { return false, err }

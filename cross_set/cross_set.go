@@ -4,8 +4,8 @@ import (
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/tilemapping"
 	"github.com/domino14/macondo/tinymove"
+	"github.com/domino14/word-golib/tilemapping"
 )
 
 type CrossSet = board.CrossSet

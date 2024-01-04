@@ -1,9 +1,10 @@
 package conversions
 
 import (
+	"github.com/domino14/word-golib/tilemapping"
+
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/tilemapping"
 	"github.com/domino14/macondo/tinymove"
 )
 

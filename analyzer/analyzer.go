@@ -6,13 +6,14 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/domino14/word-golib/tilemapping"
+
 	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/equity"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/tilemapping"
 	"github.com/domino14/macondo/turnplayer"
 )
 
@@ -96,7 +97,7 @@ func NewAnalyzer(config *config.Config) *Analyzer {
 func NewDefaultAnalyzer() *Analyzer {
 	cfg := &config.Config{}
 	cfg.Load([]string{})
-	cfg.Debug = false
+	cfg.Set("Debug", false)
 	return NewAnalyzer(cfg)
 }
 

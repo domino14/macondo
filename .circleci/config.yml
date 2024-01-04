@@ -7,7 +7,7 @@ orbs:
 jobs:
   build:
     environment:
-      LEXICON_PATH: /home/circleci/lexica
+      MACONDO_DATA_PATH: /home/circleci/data
     machine: # executor type
       image: ubuntu-2004:current
       docker_layer_caching: true
@@ -24,10 +24,9 @@ jobs:
       - run:
           name: Clone wolges
           command: git clone https://github.com/andy-k/wolges ~/wolges
-      - run: mkdir ~/lexica
-      - run: mkdir ~/lexica/gaddag
-      - run: mv ~/word-game-lexica/*.txt ~/lexica
+      - run: mkdir -p ~/data/lexica/gaddag
       - run: cp -r ~/macondo/data ~/data
+      - run: mv ~/word-game-lexica/*.txt ~/data/lexica
       - run: docker build -t macondo -f Dockerfile-dev .
       - run: docker run --rm macondo make
       # # build GADDAGs
@@ -38,12 +37,9 @@ jobs:
       - run: cd ~/wolges && docker build -t kbuilder -f Dockerfile-kbuilder .
       - run: cd ~/macondo/.circleci && ./create_lexicon_files.sh
       - run: >
-          docker run --rm -e LEXICON_PATH=/opt/lexica
-          -e STRATEGY_PARAMS_PATH=/opt/data/strategy
-          -e DATA_PATH=/opt/data
-          -e LETTER_DISTRIBUTION_PATH=/opt/data/letterdistributions
+          docker run --rm
+          -e MACONDO_DATA_PATH=/opt/data
           -v ~/data:/opt/data
-          -v ~/lexica:/opt/lexica
           macondo go test $(go list ./... | grep -v wasm)
       # - save_cache:
       #     key: kwg-cache

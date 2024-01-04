@@ -7,9 +7,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
-
-	"github.com/domino14/macondo/tilemapping"
 )
 
 // MoveType is a type of move; a play, an exchange, pass, etc.

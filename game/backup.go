@@ -1,9 +1,10 @@
 package game
 
 import (
+	"github.com/domino14/word-golib/tilemapping"
+
 	"github.com/domino14/macondo/board"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/domino14/macondo/tilemapping"
 )
 
 type BackupMode int
