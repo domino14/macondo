@@ -63,9 +63,11 @@ func (c *Config) Load(args []string) error {
 		}
 	}
 	c.SetEnvPrefix("macondo")
+	// allow env vars to be specified with `_` instead of `-`
 	replacer := strings.NewReplacer("-", "_")
 	c.SetEnvKeyReplacer(replacer)
 
+	// Explicitly bind env vars.
 	c.BindEnv(ConfigDataPath)
 	c.BindEnv(ConfigDefaultLexicon)
 	c.BindEnv(ConfigDefaultLetterDistribution)
@@ -74,8 +76,8 @@ func (c *Config) Load(args []string) error {
 	c.BindEnv(ConfigNatsURL)
 	c.BindEnv(ConfigWolgesAwsmUrl)
 	c.BindEnv(ConfigDebug)
-	// allow env vars to be specified with `_` instead of `-`
 
+	c.SetDefault(ConfigDataPath, "./data") // will be fixed by toAbsPath below if unspecified.
 	c.SetDefault(ConfigDefaultLexicon, "NWL20")
 	c.SetDefault(ConfigDefaultLetterDistribution, "English")
 	c.SetDefault(ConfigTtableMemFraction, 0.25)
@@ -85,7 +87,9 @@ func (c *Config) Load(args []string) error {
 
 func (c *Config) AdjustRelativePaths(basepath string) {
 	basepath = FindBasePath(basepath)
-	c.Set(ConfigDataPath, toAbsPath(basepath, c.GetString(ConfigDataPath), "datapath"))
+	absPath := toAbsPath(basepath, c.GetString(ConfigDataPath), "datapath")
+	log.Info().Str("absPath", absPath).Msg("setting absolute data path")
+	c.Set(ConfigDataPath, absPath)
 }
 
 func (c *Config) Write() error {
