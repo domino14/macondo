@@ -19,7 +19,7 @@ import (
 var (
 	// Support standard NO_COLOR env var. Also disable color on windows. Temporary
 	// fix for their terminal issues.
-	ColorSupport = os.Getenv("NO_COLOR") != "" && runtime.GOOS != "windows"
+	ColorSupport = os.Getenv("NO_COLOR") == "" && runtime.GOOS != "windows"
 )
 
 type BonusSquare byte
