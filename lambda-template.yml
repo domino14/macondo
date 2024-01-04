@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  Template for building Macondo lambda function. Use 
+  Template for building Macondo lambda function. Use
   `sam build -t lambda-template.yml` in this directory to build.
 
 # More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
@@ -27,12 +27,9 @@ Resources:
       #       Method: GET
       Environment: # More info about Env Vars: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#environment-object
         Variables:
-          LEXICON_PATH: /mnt/data/data/lexica
-          LETTER_DISTRIBUTION_PATH: /mnt/data/data/letterdistributions
-          STRATEGY_PARAMS_PATH: /mnt/data/data/strategy
-          DATA_PATH: /mnt/data/data
-          NATS_URL: nats://10.0.0.251:4222
-          TTABLE_MEM_FRACTION: 0.25
+          MACONDO_DATA_PATH: /mnt/data/data
+          MACONDO_NATS_URL: nats://10.0.0.251:4222
+          MACONDO_TTABLE_MEM_FRACTION: 0.25
           GOMEMLIMIT: 5500MiB   # lambda uses mebibytes (6000 MiB would be the limit above). Set go mem limit a bit lower.
           # https://docs.aws.amazon.com/lambda/latest/dg/gettingstarted-limits.html
           # DEBUG: 1

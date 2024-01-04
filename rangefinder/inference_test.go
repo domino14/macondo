@@ -7,15 +7,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/domino14/word-golib/tilemapping"
+	"github.com/matryer/is"
+	"github.com/rs/zerolog"
+
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/tilemapping"
-	"github.com/matryer/is"
-	"github.com/rs/zerolog"
 )
 
 var DefaultConfig = config.DefaultConfig()

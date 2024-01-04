@@ -3,13 +3,14 @@ package conversions
 import (
 	"testing"
 
+	"github.com/domino14/word-golib/tilemapping"
 	"github.com/matryer/is"
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/tilemapping"
+	"github.com/domino14/macondo/testhelpers"
 )
 
 var DefaultConfig = config.DefaultConfig()
@@ -32,11 +33,11 @@ func TestTinyMove(t *testing.T) {
 func TestComplexTinyMove(t *testing.T) {
 	is := is.New(t)
 	b := board.MakeBoard(board.CrosswordGameBoard)
-	b.SetToGame(tilemapping.EnglishAlphabet(), board.VsMatt2)
+	b.SetToGame(testhelpers.EnglishAlphabet(), board.VsMatt2)
 
 	m := move.NewScoringMove(0,
 		[]tilemapping.MachineLetter{5, 0, 4 | 0x80, 0, 5},
-		nil, true, 3, tilemapping.EnglishAlphabet(), 9, 9)
+		nil, true, 3, testhelpers.EnglishAlphabet(), 9, 9)
 
 	tm := MoveToTinyMove(m)
 	m2 := &move.Move{}

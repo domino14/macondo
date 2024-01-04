@@ -7,16 +7,17 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/domino14/word-golib/tilemapping"
+	"github.com/rs/zerolog/log"
+	"github.com/samber/lo"
+
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/cross_set"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/lexicon"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/tilemapping"
 	"github.com/domino14/macondo/tinymove"
-	"github.com/rs/zerolog/log"
-	"github.com/samber/lo"
 )
 
 const (

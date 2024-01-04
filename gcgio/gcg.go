@@ -11,18 +11,16 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/domino14/macondo/board"
-	"github.com/domino14/macondo/cache"
-	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/tilemapping"
-
-	"github.com/domino14/macondo/game"
-
+	"github.com/domino14/word-golib/cache"
+	"github.com/domino14/word-golib/tilemapping"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/text/encoding/charmap"
 	"golang.org/x/text/transform"
 
+	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/rs/zerolog/log"
 )
 
 var (
@@ -174,7 +172,7 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 		}
 		if p.game == nil {
 			if p.history.Lexicon == "" {
-				p.history.Lexicon = cfg.DefaultLexicon
+				p.history.Lexicon = cfg.GetString(config.ConfigDefaultLexicon)
 			}
 			boardLayout, letterDistributionName, variant := game.HistoryToVariant(p.history)
 
@@ -649,7 +647,7 @@ func writeGCGHeader(s *strings.Builder, h *pb.GameHistory, addlInfo bool) {
 			s.WriteString("#tile-distribution " + h.LetterDistribution + "\n")
 			// Write out multi-tile pragmata
 			cfg := config.DefaultConfig()
-			tm, err := tilemapping.GetDistribution(&cfg, h.LetterDistribution)
+			tm, err := tilemapping.GetDistribution(cfg.AllSettings(), h.LetterDistribution)
 			if err != nil {
 				// Log the error
 				log.Err(err).Str("dist", h.LetterDistribution).Msg("cannot-get-distribution")

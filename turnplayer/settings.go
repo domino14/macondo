@@ -28,9 +28,9 @@ type GameOptions struct {
 	Variant         game.Variant
 }
 
-func (opts *GameOptions) SetDefaults(config *config.Config) {
+func (opts *GameOptions) SetDefaults(cfg *config.Config) {
 	if opts.Lexicon == nil {
-		opts.Lexicon = &Lexicon{config.DefaultLexicon, config.DefaultLetterDistribution}
+		opts.Lexicon = &Lexicon{cfg.GetString(config.ConfigDefaultLexicon), cfg.GetString(config.ConfigDefaultLetterDistribution)}
 		log.Info().Msgf("using default lexicon %v", opts.Lexicon)
 	}
 	if opts.BoardLayoutName == "" {

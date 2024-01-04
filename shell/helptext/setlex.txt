@@ -18,16 +18,12 @@ Acceptable letter distributions so far are:
     polish
     german
     norwegian
+    catalan
 
 More will be added in the future.
 
 Note that the ./data/lexica directory must contain a word-finding data
 structure (usually a GADDAG) for the lexicon that you chose.
 
-To set your default lexicon and letter distribution permanently, please
-set the following environment variables before running this program:
-
-    DEFAULT_LEXICON
-    DEFAULT_LETTER_DISTRIBUTION
-
-For example: DEFAULT_LEXICON=CSW19 ./bin/shell
+Your default lexicon and letter distribution will be saved to a local config file
+for future use; you should typically only need to set the defaults once.

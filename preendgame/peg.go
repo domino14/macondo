@@ -10,18 +10,19 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/domino14/word-golib/kwg"
+	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/sync/errgroup"
 
+	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
-	"github.com/domino14/macondo/tilemapping"
 	"github.com/domino14/macondo/zobrist"
-	"golang.org/x/sync/errgroup"
 )
 
 var ErrCanceledEarly = errors.New("canceled early")
@@ -316,7 +317,7 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 	sort.Slice(moves, func(i, j int) bool {
 		return moves[i].Equity() > moves[j].Equity()
 	})
-	s.ttable.Reset(s.game.Config().TTableFractionOfMem, s.game.Board().Dim())
+	s.ttable.Reset(s.game.Config().GetFloat64(config.ConfigTtableMemFraction), s.game.Board().Dim())
 	var lastWinners []*PreEndgamePlay
 
 	for s.curEndgamePlies <= s.maxEndgamePlies {

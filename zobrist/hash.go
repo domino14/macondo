@@ -1,11 +1,11 @@
 package zobrist
 
 import (
+	"github.com/domino14/word-golib/tilemapping"
 	"lukechampine.com/frand"
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/game"
-	"github.com/domino14/macondo/tilemapping"
 	"github.com/domino14/macondo/tinymove"
 )
 

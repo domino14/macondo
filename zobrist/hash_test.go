@@ -4,13 +4,15 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/domino14/word-golib/tilemapping"
+	"github.com/matryer/is"
+
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/tilemapping"
+	"github.com/domino14/macondo/testhelpers"
 	"github.com/domino14/macondo/tinymove"
 	"github.com/domino14/macondo/tinymove/conversions"
-	"github.com/matryer/is"
 )
 
 var DefaultConfig = config.DefaultConfig()
@@ -25,7 +27,7 @@ func TestPlayAndUnplay(t *testing.T) {
 
 	g, err := cgp.ParseCGP(&DefaultConfig, endgameCGP)
 	is.NoErr(err)
-	alph := tilemapping.EnglishAlphabet()
+	alph := testhelpers.EnglishAlphabet()
 	h := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("AAFIRTW", alph), false)
 	m := move.NewScoringMoveSimple(18, "2A", "WAR", "AFIT", alph)
 	// play and unplay a move. The final hash should be the same as the beginning hash.
@@ -44,7 +46,7 @@ func TestPlayAndUnplayMoreLevels(t *testing.T) {
 
 	g, err := cgp.ParseCGP(&DefaultConfig, endgameCGP)
 	is.NoErr(err)
-	alph := tilemapping.EnglishAlphabet()
+	alph := testhelpers.EnglishAlphabet()
 	h := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("AAFIRTW", alph), false)
 
 	passrack, err := tilemapping.ToMachineWord("EIQSS", alph)
@@ -75,7 +77,7 @@ func TestHashAfterMakingPlay(t *testing.T) {
 
 	g, err := cgp.ParseCGP(&DefaultConfig, endgameCGP)
 	is.NoErr(err)
-	alph := tilemapping.EnglishAlphabet()
+	alph := testhelpers.EnglishAlphabet()
 	h := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("ADENOOO", alph), tilemapping.RackFromString("AHIILMM", alph), false, 0)
 
 	m1 := move.NewScoringMoveSimple(8, "15J", "END", "AOOO", alph)
@@ -102,7 +104,7 @@ func TestHashAfterPassing(t *testing.T) {
 
 	g, err := cgp.ParseCGP(&DefaultConfig, endgameCGP)
 	is.NoErr(err)
-	alph := tilemapping.EnglishAlphabet()
+	alph := testhelpers.EnglishAlphabet()
 	h := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("ADENOOO", alph), tilemapping.RackFromString("AHIILMM", alph), false, 0)
 
 	m1 := move.NewPassMove(tilemapping.RackFromString("ADENOOO", alph).TilesOn(), alph)
@@ -136,7 +138,7 @@ func TestHashAfterMakingAnotherPlay(t *testing.T) {
 
 	g, err := cgp.ParseCGP(&DefaultConfig, endgameCGP)
 	is.NoErr(err)
-	alph := tilemapping.EnglishAlphabet()
+	alph := testhelpers.EnglishAlphabet()
 	h := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("AOOO", alph), tilemapping.RackFromString("HI", alph), false, 0)
 	fmt.Println(g.ToDisplayText())
 	m1 := move.NewScoringMoveSimple(11, "13G", ".O.O", "AO", alph)

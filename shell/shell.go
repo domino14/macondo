@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"github.com/chzyer/readline"
+	"github.com/domino14/word-golib/kwg"
+	"github.com/domino14/word-golib/tilemapping"
 	"github.com/kballard/go-shellquote"
 	"github.com/rs/zerolog/log"
 
@@ -30,13 +32,11 @@ import (
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/preendgame"
 	"github.com/domino14/macondo/rangefinder"
-	"github.com/domino14/macondo/tilemapping"
 	"github.com/domino14/macondo/turnplayer"
 )
 
@@ -201,8 +201,12 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 			if err == nil {
 				// Overwrite the config options since other parts of the code
 				// use these to determine the lexicon
-				sc.config.DefaultLexicon = sc.options.Lexicon.Name
-				sc.config.DefaultLetterDistribution = sc.options.Lexicon.Distribution
+				sc.config.Set(config.ConfigDefaultLexicon, sc.options.Lexicon.Name)
+				sc.config.Set(config.ConfigDefaultLetterDistribution, sc.options.Lexicon.Distribution)
+				err = sc.config.Write()
+				if err != nil {
+					log.Err(err).Msg("error-writing-config")
+				}
 			}
 			_, ret = sc.options.Show("lexicon")
 		}
@@ -250,7 +254,7 @@ func (sc *ShellController) initGameDataStructures() error {
 	sc.simmer.Init(sc.game.Game, []equity.EquityCalculator{c}, c, sc.config)
 	sc.gen = sc.game.MoveGenerator()
 
-	gd, err := kwg.Get(sc.config, sc.game.LexiconName())
+	gd, err := kwg.Get(sc.config.AllSettings(), sc.game.LexiconName())
 	if err != nil {
 		return err
 	}
@@ -372,7 +376,7 @@ func (sc *ShellController) loadGCG(args []string) error {
 	log.Debug().Msgf("Loaded game repr; players: %v", history.Players)
 	lexicon := history.Lexicon
 	if lexicon == "" {
-		lexicon = sc.config.DefaultLexicon
+		lexicon = sc.config.GetString(config.ConfigDefaultLexicon)
 		log.Info().Msgf("gcg file had no lexicon, so using default lexicon %v",
 			lexicon)
 	}
@@ -406,7 +410,7 @@ func (sc *ShellController) loadCGP(cgpstr string) error {
 	}
 	lexicon := g.History().Lexicon
 	if lexicon == "" {
-		lexicon = sc.config.DefaultLexicon
+		lexicon = sc.config.GetString(config.ConfigDefaultLexicon)
 		log.Info().Msgf("cgp file had no lexicon, so using default lexicon %v",
 			lexicon)
 	}
@@ -646,12 +650,12 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 		logfile = options["logfile"]
 	}
 	if options["lexicon"] == "" {
-		lexicon = sc.config.DefaultLexicon
+		lexicon = sc.config.GetString(config.ConfigDefaultLexicon)
 	} else {
 		lexicon = options["lexicon"]
 	}
 	if options["letterdistribution"] == "" {
-		letterDistribution = sc.config.DefaultLetterDistribution
+		letterDistribution = sc.config.GetString(config.ConfigDefaultLetterDistribution)
 	} else {
 		letterDistribution = options["letterdistribution"]
 	}

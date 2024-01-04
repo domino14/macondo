@@ -5,12 +5,14 @@ import (
 	"os"
 	"testing"
 
-	"github.com/domino14/macondo/cgp"
-	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/kwg"
-	"github.com/domino14/macondo/tilemapping"
+	"github.com/domino14/word-golib/kwg"
+	"github.com/domino14/word-golib/tilemapping"
 	"github.com/matryer/is"
 	"github.com/rs/zerolog"
+
+	"github.com/domino14/macondo/cgp"
+	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/testhelpers"
 )
 
 var DefaultConfig = config.DefaultConfig()
@@ -27,11 +29,11 @@ func TestMain(m *testing.M) {
 
 func TestMoveTilesToBeginning(t *testing.T) {
 	is := is.New(t)
-	ld, err := tilemapping.EnglishLetterDistribution(&DefaultConfig)
+	ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.AllSettings())
 	is.NoErr(err)
 	for i := 0; i < 1000; i++ {
 
-		bag := tilemapping.NewBag(ld, tilemapping.EnglishAlphabet())
+		bag := tilemapping.NewBag(ld, testhelpers.EnglishAlphabet())
 		bag.Shuffle()
 		// Q, A, B, ?
 		lastTiles := []tilemapping.MachineLetter{17, 1, 2, 0}
@@ -55,7 +57,7 @@ func Test1PEGPass(t *testing.T) {
 
 	g.RecalculateBoard()
 
-	gd, err := kwg.Get(&DefaultConfig, "FRA20")
+	gd, err := kwg.Get(DefaultConfig.AllSettings(), "FRA20")
 	is.NoErr(err)
 
 	peg := new(Solver)
@@ -85,7 +87,7 @@ func TestStraightforward1PEG(t *testing.T) {
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.Get(&DefaultConfig, "NWL20")
+	gd, err := kwg.Get(DefaultConfig.AllSettings(), "NWL20")
 	is.NoErr(err)
 	peg := new(Solver)
 
@@ -107,7 +109,7 @@ func TestKnownTilesPEG(t *testing.T) {
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.Get(&DefaultConfig, "NWL20")
+	gd, err := kwg.Get(DefaultConfig.AllSettings(), "NWL20")
 	is.NoErr(err)
 	peg := new(Solver)
 
@@ -144,7 +146,7 @@ func BenchmarkStraightforward1PEG(b *testing.B) {
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.Get(&DefaultConfig, "NWL20")
+	gd, err := kwg.Get(DefaultConfig.AllSettings(), "NWL20")
 	is.NoErr(err)
 	peg := new(Solver)
 
@@ -181,7 +183,7 @@ func BenchmarkSlowPEG(b *testing.B) {
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.Get(&DefaultConfig, "NWL20")
+	gd, err := kwg.Get(DefaultConfig.AllSettings(), "NWL20")
 	is.NoErr(err)
 	peg := new(Solver)
 
@@ -216,7 +218,7 @@ func TestComplicated1PEG(t *testing.T) {
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.Get(&DefaultConfig, "NWL20")
+	gd, err := kwg.Get(DefaultConfig.AllSettings(), "NWL20")
 	is.NoErr(err)
 	peg := new(Solver)
 

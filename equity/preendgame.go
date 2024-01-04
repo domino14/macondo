@@ -1,12 +1,13 @@
 package equity
 
 import (
+	"github.com/domino14/word-golib/cache"
+	"github.com/domino14/word-golib/tilemapping"
+	"github.com/rs/zerolog/log"
+
 	"github.com/domino14/macondo/board"
-	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/tilemapping"
-	"github.com/rs/zerolog/log"
 )
 
 // PreEndgameAdjustmentCalculator returns an equity adjustment for preendgame plays.
@@ -20,7 +21,7 @@ func NewPreEndgameAdjustmentCalculator(cfg *config.Config, lexiconName string, p
 	if pegfile == "" {
 		pegfile = PEGAdjustmentFilename
 	}
-	pegValues, err := cache.Load(cfg, "pegfile:"+lexiconName+":"+pegfile, PEGCacheLoadFunc)
+	pegValues, err := cache.Load(cfg.AllSettings(), "pegfile:"+lexiconName+":"+pegfile, PEGCacheLoadFunc)
 	if err != nil {
 		log.Err(err).Msg("loading-peg-values")
 	}

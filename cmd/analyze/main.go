@@ -26,9 +26,9 @@ func main() {
 	cfg.Load([]string{})
 	log.Info().Msgf("Loaded config: %v", cfg)
 	cfg.AdjustRelativePaths(exPath)
-	cfg.Debug = false
+	cfg.Set("debug", false)
 
-	if cfg.Debug {
+	if cfg.GetBool("debug") {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	} else {
 		zerolog.SetGlobalLevel(zerolog.InfoLevel)

@@ -10,20 +10,20 @@ import (
 	"strings"
 	"time"
 
+	"github.com/domino14/word-golib/kwg"
+	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
 	"lukechampine.com/frand"
 
-	"github.com/domino14/macondo/endgame/negamax"
-	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/domino14/macondo/kwg"
-	"github.com/domino14/macondo/preendgame"
-
 	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/automatic"
+	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
-	"github.com/domino14/macondo/tilemapping"
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/preendgame"
 )
 
 type Response struct {
@@ -513,7 +513,7 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 	sc.showMessage(fmt.Sprintf(
 		"endgameplies %v, maxtime %v, threads %v",
 		endgamePlies, maxtime, maxthreads))
-	gd, err := kwg.Get(sc.game.Config(), sc.game.LexiconName())
+	gd, err := kwg.Get(sc.game.Config().AllSettings(), sc.game.LexiconName())
 	if err != nil {
 		return nil, err
 	}
@@ -690,10 +690,10 @@ func (sc *ShellController) autoAnalyze(cmd *shellcmd) (*Response, error) {
 		}
 
 		if options["letterdist"] == "" {
-			options["letterdist"] = sc.config.DefaultLetterDistribution
+			options["letterdist"] = sc.config.GetString(config.ConfigDefaultLetterDistribution)
 		}
 		if options["lexicon"] == "" {
-			options["lexicon"] = sc.config.DefaultLexicon
+			options["lexicon"] = sc.config.GetString(config.ConfigDefaultLexicon)
 		}
 
 		err = automatic.ExportGCG(
@@ -723,11 +723,12 @@ func (sc *ShellController) leave(cmd *shellcmd) (*Response, error) {
 	if len(cmd.args) != 1 {
 		return nil, errors.New("please provide a leave")
 	}
-	dist, err := tilemapping.GetDistribution(sc.config, sc.config.DefaultLetterDistribution)
+	dist, err := tilemapping.GetDistribution(sc.config.AllSettings(),
+		sc.config.GetString(config.ConfigDefaultLetterDistribution))
 	if err != nil {
 		return nil, err
 	}
-	els, err := equity.NewExhaustiveLeaveCalculator(sc.config.DefaultLexicon,
+	els, err := equity.NewExhaustiveLeaveCalculator(sc.config.GetString(config.ConfigDefaultLexicon),
 		sc.config, "")
 	if err != nil {
 		return nil, err
@@ -749,11 +750,12 @@ func (sc *ShellController) check(cmd *shellcmd) (*Response, error) {
 	if len(cmd.args) == 0 {
 		return nil, errors.New("please provide a word or space-separated list of words to check")
 	}
-	dist, err := tilemapping.GetDistribution(sc.config, sc.config.DefaultLetterDistribution)
+	dist, err := tilemapping.GetDistribution(sc.config.AllSettings(),
+		sc.config.GetString(config.ConfigDefaultLetterDistribution))
 	if err != nil {
 		return nil, err
 	}
-	k, err := kwg.Get(sc.config, sc.config.DefaultLexicon)
+	k, err := kwg.Get(sc.config.AllSettings(), sc.config.GetString(config.ConfigDefaultLexicon))
 	if err != nil {
 		return nil, err
 	}
@@ -780,6 +782,6 @@ func (sc *ShellController) check(cmd *shellcmd) (*Response, error) {
 		validStr = "INVALID"
 	}
 
-	return msg(fmt.Sprintf("The play (%v) is %v in %v", strings.Join(wordsFriendly, ","), validStr, sc.config.DefaultLexicon)), nil
+	return msg(fmt.Sprintf("The play (%v) is %v in %v", strings.Join(wordsFriendly, ","), validStr, sc.config.GetString(config.ConfigDefaultLexicon))), nil
 
 }

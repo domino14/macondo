@@ -266,7 +266,7 @@ func (b *Bot) asyncLambdaCall(data []byte) {
 		// Opp MS remaining doesn't matter for now.
 		cgp += fmt.Sprintf(" tmr %d/%d;", req.MillisRemaining, 1000)
 	}
-	lfn := b.config.LambdaFunctionName
+	lfn := b.config.GetString(mcfg.ConfigLambdaFunctionName)
 	replyChannel := "bot.publish_event." + ng.Uid()
 	ctx := context.Background()
 
@@ -304,7 +304,7 @@ func Main(channel string, bot *Bot) {
 	if err != nil {
 		log.Fatal().AnErr("newGameErr", err).Msg(":(")
 	}
-	nc, err := nats.Connect(bot.config.NatsURL)
+	nc, err := nats.Connect(bot.config.GetString(mcfg.ConfigNatsURL))
 	if err != nil {
 		log.Fatal().AnErr("natsConnectErr", err).Msg(":(")
 	}

@@ -4,16 +4,16 @@ import (
 	"context"
 	"sort"
 
+	"github.com/domino14/word-golib/kwg"
+	"github.com/domino14/word-golib/tilemapping"
+	"github.com/samber/lo"
+
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/tilemapping"
-	"github.com/samber/lo"
-
-	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/turnplayer"
 )
@@ -50,7 +50,7 @@ func NewAIStaticTurnPlayerFromGame(g *game.Game, conf *config.Config, calculator
 }
 
 func AddAIFields(p *turnplayer.BaseTurnPlayer, conf *config.Config, calculators []equity.EquityCalculator) (*AIStaticTurnPlayer, error) {
-	gd, err := kwg.Get(conf, p.LexiconName())
+	gd, err := kwg.Get(conf.AllSettings(), p.LexiconName())
 	if err != nil {
 		return nil, err
 	}

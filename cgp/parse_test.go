@@ -6,7 +6,8 @@ import (
 	"github.com/matryer/is"
 
 	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/tilemapping"
+	"github.com/domino14/macondo/testhelpers"
+	"github.com/domino14/word-golib/tilemapping"
 )
 
 var DefaultConfig = config.DefaultConfig()
@@ -23,7 +24,7 @@ func TestRowToLetters(t *testing.T) {
 		{"1A1B2C3D4", []tilemapping.MachineLetter{0, 1, 0, 2, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0, 0}},
 	}
 	for _, tc := range testcases {
-		parsed, err := rowToLetters(tc.row, tilemapping.EnglishAlphabet())
+		parsed, err := rowToLetters(tc.row, testhelpers.EnglishAlphabet())
 		is.NoErr(err)
 		is.Equal(parsed, tc.parsed)
 	}
@@ -31,7 +32,7 @@ func TestRowToLetters(t *testing.T) {
 
 func TestRowToLettersMultichar(t *testing.T) {
 	is := is.New(t)
-	catalan, err := tilemapping.NamedLetterDistribution(&DefaultConfig, "catalan")
+	catalan, err := tilemapping.NamedLetterDistribution(DefaultConfig.AllSettings(), "catalan")
 	is.NoErr(err)
 	testcases := []struct {
 		row    string

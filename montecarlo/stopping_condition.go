@@ -3,9 +3,10 @@ package montecarlo
 import (
 	"sort"
 
-	"github.com/domino14/macondo/stats"
-	"github.com/domino14/macondo/tilemapping"
+	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
+
+	"github.com/domino14/macondo/stats"
 )
 
 const IterationsCutoff = 2000

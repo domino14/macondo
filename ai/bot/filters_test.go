@@ -3,15 +3,16 @@ package bot
 import (
 	"testing"
 
-	"github.com/domino14/macondo/config"
-	"github.com/domino14/macondo/tilemapping"
 	"github.com/matryer/is"
+
+	"github.com/domino14/macondo/config"
+	"github.com/domino14/word-golib/tilemapping"
 )
 
 func TestCombinations(t *testing.T) {
 	is := is.New(t)
 	cfg := config.DefaultConfig()
-	ld, err := tilemapping.EnglishLetterDistribution(&cfg)
+	ld, err := tilemapping.EnglishLetterDistribution(cfg.AllSettings())
 	is.NoErr(err)
 
 	scc := createSubCombos(ld)

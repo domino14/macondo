@@ -72,7 +72,7 @@ func HandleRequest(ctx context.Context, evt bot.LambdaEvent) (string, error) {
 
 	lexicon := g.History().Lexicon
 	if lexicon == "" {
-		lexicon = cfg.DefaultLexicon
+		lexicon = cfg.GetString(config.ConfigDefaultLexicon)
 		logger.Info().Msgf("cgp file had no lexicon, so using default lexicon %v",
 			lexicon)
 	}
@@ -141,15 +141,15 @@ func main() {
 	cfg = &config.Config{}
 	args := os.Args[1:]
 	cfg.Load(args)
-	log.Info().Msgf("Loaded config: %v", cfg)
+	log.Info().Msgf("Loaded config: %v", cfg.AllSettings())
 	cfg.AdjustRelativePaths(exPath)
-	if cfg.Debug {
+	if cfg.GetBool("debug") {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	} else {
 		zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	}
 
-	nc, err = nats.Connect(cfg.NatsURL)
+	nc, err = nats.Connect(cfg.GetString(config.ConfigNatsURL))
 	if err != nil {
 		log.Fatal().AnErr("natsConnectErr", err).Msg(":(")
 	}

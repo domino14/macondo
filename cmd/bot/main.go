@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -39,16 +38,7 @@ func main() {
 	cfg.AdjustRelativePaths(exPath)
 	log.Info().Msg("adjusted paths")
 
-	if strings.HasPrefix(cfg.LexiconPath, "./") {
-		cfg.LexiconPath = filepath.Join(exPath, cfg.LexiconPath)
-		log.Info().Str("path", cfg.LexiconPath).Msgf("new lexicon path")
-	}
-	if strings.HasPrefix(cfg.StrategyParamsPath, "./") {
-		cfg.StrategyParamsPath = filepath.Join(exPath, cfg.StrategyParamsPath)
-		log.Info().Str("sppath", cfg.StrategyParamsPath).Msgf("new strat params path")
-	}
-
-	if cfg.Debug {
+	if cfg.GetBool("debug") {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	} else {
 		zerolog.SetGlobalLevel(zerolog.InfoLevel)

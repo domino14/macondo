@@ -3,12 +3,13 @@ package game
 import (
 	"errors"
 
+	"github.com/domino14/word-golib/kwg"
+	"github.com/domino14/word-golib/tilemapping"
+
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/cross_set"
-	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/lexicon"
-	"github.com/domino14/macondo/tilemapping"
 )
 
 type Variant string
@@ -80,7 +81,7 @@ func NewBasicGameRules(cfg *config.Config,
 	lexiconName, boardLayoutName, letterDistributionName, csetGenName string,
 	variant Variant) (*GameRules, error) {
 
-	dist, err := tilemapping.GetDistribution(cfg, letterDistributionName)
+	dist, err := tilemapping.GetDistribution(cfg.AllSettings(), letterDistributionName)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +103,7 @@ func NewBasicGameRules(cfg *config.Config,
 		if lexiconName == "" {
 			lex = &lexicon.AcceptAll{Alph: dist.TileMapping()}
 		} else {
-			k, err := kwg.Get(cfg, lexiconName)
+			k, err := kwg.Get(cfg.AllSettings(), lexiconName)
 			if err != nil {
 				return nil, err
 			}
@@ -113,7 +114,7 @@ func NewBasicGameRules(cfg *config.Config,
 		if lexiconName == "" {
 			return nil, errors.New("lexicon name is required for this cross-set option")
 		} else {
-			k, err := kwg.Get(cfg, lexiconName)
+			k, err := kwg.Get(cfg.AllSettings(), lexiconName)
 			if err != nil {
 				return nil, err
 			}
