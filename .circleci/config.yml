@@ -24,8 +24,8 @@ jobs:
       - run:
           name: Clone wolges
           command: git clone https://github.com/andy-k/wolges ~/wolges
-      - run: mkdir -p ~/data/lexica/gaddag
       - run: cp -r ~/macondo/data ~/data
+      - run: mkdir -p ~/data/lexica/gaddag
       - run: mv ~/word-game-lexica/*.txt ~/data/lexica
       - run: docker build -t macondo -f Dockerfile-dev .
       - run: docker run --rm macondo make
