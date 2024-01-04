@@ -203,9 +203,9 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 				// use these to determine the lexicon
 				sc.config.Set(config.ConfigDefaultLexicon, sc.options.Lexicon.Name)
 				sc.config.Set(config.ConfigDefaultLetterDistribution, sc.options.Lexicon.Distribution)
-				werr := sc.config.WriteConfig()
-				if werr != nil {
-					log.Err(werr).Msg("error-writing-config")
+				err = sc.config.Write()
+				if err != nil {
+					log.Err(err).Msg("error-writing-config")
 				}
 			}
 			_, ret = sc.options.Show("lexicon")

@@ -49,9 +49,10 @@ func (c *Config) Load(args []string) error {
 	c.Viper = *viper.New()
 	c.SetConfigName("macondo_config")
 	c.SetConfigType("yaml")
-	c.AddConfigPath("/etc/macondo/")
-	c.AddConfigPath("$HOME/.macondo")
+
 	c.AddConfigPath(".")
+	c.AddConfigPath("$HOME/.macondo")
+	c.AddConfigPath("/etc/macondo/")
 	err := c.ReadInConfig()
 	if err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
@@ -85,6 +86,16 @@ func (c *Config) Load(args []string) error {
 func (c *Config) AdjustRelativePaths(basepath string) {
 	basepath = FindBasePath(basepath)
 	c.Set(ConfigDataPath, toAbsPath(basepath, c.GetString(ConfigDataPath), "datapath"))
+}
+
+func (c *Config) Write() error {
+	werr := c.WriteConfig()
+	if werr != nil {
+		if _, ok := werr.(viper.ConfigFileNotFoundError); ok {
+			return c.WriteConfigAs("./macondo_config.yaml")
+		}
+	}
+	return werr
 }
 
 func FindBasePath(path string) string {
