@@ -20,10 +20,7 @@ jobs:
       - run: if [ ! -n "$(grep "^github.com " ~/.ssh/known_hosts)" ]; then ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null; fi
       - run:
           name: Clone lexicon repo
-          command: git clone git@github.com:domino14/word-game-lexica ~/word-game-lexica
-      - run:
-          name: Clone wolges
-          command: git clone https://github.com/andy-k/wolges ~/wolges
+          command: git clone --depth 1 git@github.com:domino14/word-game-lexica ~/word-game-lexica
       - run: cp -r ~/macondo/data ~/data
       - run: mkdir -p ~/data/lexica/gaddag
       - run: mv ~/word-game-lexica/kwg/*.kwg ~/data/lexica/gaddag
