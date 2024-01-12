@@ -26,16 +26,13 @@ jobs:
           command: git clone https://github.com/andy-k/wolges ~/wolges
       - run: cp -r ~/macondo/data ~/data
       - run: mkdir -p ~/data/lexica/gaddag
-      - run: mv ~/word-game-lexica/*.txt ~/data/lexica
+      - run: mv ~/word-game-lexica/kwg/*.kwg ~/data/lexica/gaddag
       - run: docker build -t macondo -f Dockerfile-dev .
       - run: docker run --rm macondo make
       # # build GADDAGs
       # - restore_cache:
       #     keys:
       #       - kwg-cache
-      - run: cp Dockerfile-kbuilder ~/wolges
-      - run: cd ~/wolges && docker build -t kbuilder -f Dockerfile-kbuilder .
-      - run: cd ~/macondo/.circleci && ./create_lexicon_files.sh
       - run: >
           docker run --rm
           -e MACONDO_DATA_PATH=/opt/data
