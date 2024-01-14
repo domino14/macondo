@@ -23,7 +23,7 @@ jobs:
           command: git clone --depth 1 git@github.com:domino14/word-game-lexica ~/word-game-lexica
       - run: cp -r ~/macondo/data ~/data
       - run: mkdir -p ~/data/lexica/gaddag
-      - run: mv ~/word-game-lexica/kwg/*.kwg ~/data/lexica/gaddag
+      - run: mv ~/word-game-lexica/gaddag/*.kwg ~/data/lexica/gaddag
       - run: docker build -t macondo -f Dockerfile-dev .
       - run: docker run --rm macondo make
       # # build GADDAGs
