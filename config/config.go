@@ -1,73 +1,105 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/namsral/flag"
 	"github.com/rs/zerolog/log"
+	"github.com/spf13/viper"
+)
+
+// Known config names
+const (
+	ConfigDebug                            = "debug"
+	ConfigDataPath                         = "data-path"
+	ConfigDefaultLexicon            string = "default-lexicon"
+	ConfigDefaultLetterDistribution        = "default-letter-distribution"
+	ConfigTtableMemFraction                = "ttable-mem-fraction"
+	ConfigLambdaFunctionName               = "lambda-function-name"
+	ConfigNatsURL                          = "nats-url"
+	ConfigWolgesAwsmUrl                    = "wolges-awsm-url"
 )
 
 type Config struct {
-	Debug                     bool
-	DataPath                  string
-	LetterDistributionPath    string
-	StrategyParamsPath        string
-	LexiconPath               string
-	DefaultLexicon            string
-	DefaultLetterDistribution string
-	NatsURL                   string
-	TTableFractionOfMem       float64
-	WolgesAwsmURL             string
-	LambdaFunctionName        string
-
-	CPUProfile string
-	MemProfile string
-}
-
-// Default config from environment variables. Since the config struct is
-// mutable we don't just make this a global shared variable, but provide a
-// factory function to copy it on every call.
-var defaultConfig = Config{
-	StrategyParamsPath:        os.Getenv("STRATEGY_PARAMS_PATH"),
-	LexiconPath:               os.Getenv("LEXICON_PATH"),
-	LetterDistributionPath:    os.Getenv("LETTER_DISTRIBUTION_PATH"),
-	DataPath:                  os.Getenv("DATA_PATH"),
-	DefaultLexicon:            "NWL20",
-	DefaultLetterDistribution: "English",
-	TTableFractionOfMem:       0.25,
+	viper.Viper
 }
 
 func DefaultConfig() Config {
-	return defaultConfig
+	var c Config
+	c.Viper = *viper.New()
+
+	replacer := strings.NewReplacer("-", "_")
+	c.SetEnvKeyReplacer(replacer)
+
+	c.AutomaticEnv()
+	c.SetEnvPrefix("macondo")
+
+	c.SetDefault(ConfigDefaultLexicon, "NWL20")
+	c.SetDefault(ConfigDefaultLetterDistribution, "English")
+	c.SetDefault(ConfigTtableMemFraction, 0.25)
+	// Read from an env var MACONDO_DATA_PATH. This might not be a good way to do it:
+	c.SetDefault(ConfigDataPath, c.GetString(ConfigDataPath))
+
+	return c
 }
 
 func (c *Config) Load(args []string) error {
-	fs := flag.NewFlagSet("macondo", flag.ContinueOnError)
-	fs.BoolVar(&c.Debug, "debug", false, "debug logging on")
-	fs.StringVar(&c.StrategyParamsPath, "strategy-params-path", "./data/strategy", "directory holding strategy files")
-	fs.StringVar(&c.LetterDistributionPath, "letter-distribution-path", "./data/letterdistributions", "directory holding letter distribution files")
-	fs.StringVar(&c.LexiconPath, "lexicon-path", "./data/lexica", "directory holding lexicon files")
-	fs.StringVar(&c.DefaultLexicon, "default-lexicon", "NWL20", "the default lexicon to use")
-	fs.StringVar(&c.DefaultLetterDistribution, "default-letter-distribution", "English", "the default letter distribution to use. English, EnglishSuper, Spanish, Polish, etc.")
-	fs.StringVar(&c.DataPath, "data-path", "./data", "data path")
-	fs.StringVar(&c.NatsURL, "nats-url", "nats://127.0.0.1:4222", "The URL of the NATS server")
-	fs.StringVar(&c.CPUProfile, "cpu-profile", "", "file to save cpu profile in")
-	fs.StringVar(&c.MemProfile, "mem-profile", "", "file to save mem profile in")
-	fs.StringVar(&c.WolgesAwsmURL, "wolges-awsm-url", "", "URL for the wolges-awsm server. Needed for WordSmog bot.")
-	fs.Float64Var(&c.TTableFractionOfMem, "ttable-mem-fraction", 0.25, "Fraction of memory that the transposition table should have.")
-	fs.StringVar(&c.LambdaFunctionName, "lambda-function-name", "", "function name of the Lambda function that runs our elite simming bots")
-	err := fs.Parse(args)
-	return err
+	c.Viper = *viper.New()
+	c.SetConfigName("macondo_config")
+	c.SetConfigType("yaml")
+
+	c.AddConfigPath(".")
+	c.AddConfigPath("$HOME/.macondo")
+	c.AddConfigPath("/etc/macondo/")
+	err := c.ReadInConfig()
+	if err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+			// it's ok if config file is not found. fall back to environment.
+			log.Info().Msg("no config file found; falling back to environment variables")
+		} else {
+			panic(fmt.Errorf("fatal error config file: %w", err))
+		}
+	}
+	c.SetEnvPrefix("macondo")
+	// allow env vars to be specified with `_` instead of `-`
+	replacer := strings.NewReplacer("-", "_")
+	c.SetEnvKeyReplacer(replacer)
+
+	// Explicitly bind env vars.
+	c.BindEnv(ConfigDataPath)
+	c.BindEnv(ConfigDefaultLexicon)
+	c.BindEnv(ConfigDefaultLetterDistribution)
+	c.BindEnv(ConfigTtableMemFraction)
+	c.BindEnv(ConfigLambdaFunctionName)
+	c.BindEnv(ConfigNatsURL)
+	c.BindEnv(ConfigWolgesAwsmUrl)
+	c.BindEnv(ConfigDebug)
+
+	c.SetDefault(ConfigDataPath, "./data") // will be fixed by toAbsPath below if unspecified.
+	c.SetDefault(ConfigDefaultLexicon, "NWL20")
+	c.SetDefault(ConfigDefaultLetterDistribution, "English")
+	c.SetDefault(ConfigTtableMemFraction, 0.25)
+
+	return nil
 }
 
 func (c *Config) AdjustRelativePaths(basepath string) {
 	basepath = FindBasePath(basepath)
-	c.LexiconPath = toAbsPath(basepath, c.LexiconPath, "lexiconpath")
-	c.StrategyParamsPath = toAbsPath(basepath, c.StrategyParamsPath, "sppath")
-	c.LetterDistributionPath = toAbsPath(basepath, c.LetterDistributionPath, "ldpath")
-	c.DataPath = toAbsPath(basepath, c.DataPath, "datapath")
+	absPath := toAbsPath(basepath, c.GetString(ConfigDataPath), "datapath")
+	log.Info().Str("absPath", absPath).Msg("setting absolute data path")
+	c.Set(ConfigDataPath, absPath)
+}
+
+func (c *Config) Write() error {
+	werr := c.WriteConfig()
+	if werr != nil {
+		if _, ok := werr.(viper.ConfigFileNotFoundError); ok {
+			return c.WriteConfigAs("./macondo_config.yaml")
+		}
+	}
+	return werr
 }
 
 func FindBasePath(path string) string {

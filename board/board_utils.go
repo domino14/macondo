@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/domino14/macondo/tilemapping"
+	"github.com/domino14/word-golib/tilemapping"
 )
 
 type TilesInPlay struct {

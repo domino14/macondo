@@ -1,7 +1,7 @@
 package tinymove
 
 import (
-	"github.com/domino14/macondo/tilemapping"
+	"github.com/domino14/word-golib/tilemapping"
 )
 
 // A SmallMove consists of a TinyMove which encodes all the positional

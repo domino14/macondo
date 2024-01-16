@@ -7,9 +7,10 @@ import (
 	"syscall/js"
 	"unsafe"
 
-	"github.com/domino14/macondo/analyzer"
-	"github.com/domino14/macondo/cache"
+	"github.com/domino14/word-golib/cache"
 	"github.com/rs/zerolog"
+
+	"github.com/domino14/macondo/analyzer"
 )
 
 func precache(this js.Value, args []js.Value) interface{} {

@@ -3,7 +3,7 @@ package board
 // This file contains some sample filled boards, used solely for testing.
 
 import (
-	"github.com/domino14/macondo/tilemapping"
+	"github.com/domino14/word-golib/tilemapping"
 )
 
 // VsWho is a string representation of a board.

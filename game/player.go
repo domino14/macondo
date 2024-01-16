@@ -3,9 +3,10 @@ package game
 import (
 	"fmt"
 
-	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/domino14/macondo/tilemapping"
+	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
+
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
 
 type playerState struct {

@@ -8,14 +8,15 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/domino14/word-golib/cache"
+	"github.com/domino14/word-golib/tilemapping"
+
 	"github.com/domino14/macondo/board"
-	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/stats"
-	"github.com/domino14/macondo/tilemapping"
 	"github.com/domino14/macondo/turnplayer"
 )
 

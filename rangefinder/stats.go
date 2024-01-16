@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/domino14/macondo/tilemapping"
+	"github.com/domino14/word-golib/tilemapping"
 )
 
 func (r *RangeFinder) AnalyzeInferences(detailed bool) string {

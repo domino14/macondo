@@ -3,7 +3,7 @@ package board
 import (
 	"testing"
 
-	"github.com/domino14/macondo/tilemapping"
+	"github.com/domino14/word-golib/tilemapping"
 )
 
 func TestCrossSet(t *testing.T) {

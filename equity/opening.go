@@ -1,9 +1,10 @@
 package equity
 
 import (
+	"github.com/domino14/word-golib/tilemapping"
+
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/tilemapping"
 )
 
 // OpeningAdjustmentCalculator returns an equity adjustment for an opening play.

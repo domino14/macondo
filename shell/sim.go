@@ -9,9 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/domino14/macondo/montecarlo"
-	"github.com/domino14/macondo/tilemapping"
+	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
+
+	"github.com/domino14/macondo/montecarlo"
 )
 
 func (sc *ShellController) handleSim(args []string, options map[string]string) error {

@@ -1,12 +1,14 @@
 package equity
 
 import (
+	"github.com/domino14/word-golib/cache"
+	"github.com/domino14/word-golib/tilemapping"
+
+	"github.com/rs/zerolog/log"
+
 	"github.com/domino14/macondo/board"
-	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/tilemapping"
-	"github.com/rs/zerolog/log"
 )
 
 // CombinedStaticCalculator is a redundant struct that combines
@@ -27,11 +29,11 @@ func NewCombinedStaticCalculator(lexiconName string,
 	if pegfile == "" {
 		pegfile = PEGAdjustmentFilename
 	}
-	leaves, err := cache.Load(cfg, "leavefile:"+lexiconName+":"+leaveFilename, LeaveCacheLoadFunc)
+	leaves, err := cache.Load(cfg.AllSettings(), "leavefile:"+lexiconName+":"+leaveFilename, LeaveCacheLoadFunc)
 	if err != nil {
 		log.Err(err).Msg("loading-leaves")
 	}
-	pegValues, err := cache.Load(cfg, "pegfile:"+lexiconName+":"+pegfile, PEGCacheLoadFunc)
+	pegValues, err := cache.Load(cfg.AllSettings(), "pegfile:"+lexiconName+":"+pegfile, PEGCacheLoadFunc)
 	if err != nil {
 		log.Err(err).Msg("loading-peg-values")
 	}

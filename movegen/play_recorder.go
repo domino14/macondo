@@ -4,11 +4,12 @@ import (
 	"log"
 	"sync"
 
+	"github.com/domino14/word-golib/tilemapping"
+	"github.com/samber/lo"
+
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/tilemapping"
 	"github.com/domino14/macondo/tinymove"
-	"github.com/samber/lo"
 )
 
 var SmallPlaySlicePool = sync.Pool{

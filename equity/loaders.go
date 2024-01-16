@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/domino14/macondo/cache"
+	"github.com/domino14/word-golib/cache"
 	"github.com/rs/zerolog/log"
 )
 
@@ -44,28 +44,6 @@ func loadKLV(strategyPath, leavefile, lexiconName string) (*KLV, error) {
 	log.Debug().Str("lexiconName", lexiconName).
 		Int("leaves-size", len(leaves.leaveValues)).
 		Msg("loaded-klv")
-	return leaves, nil
-}
-
-// Load the exhaustive-leave minimal perfect hash.
-func loadExhaustiveMPH(strategyPath, leavefile, lexiconName string) (*OldLeaves, error) {
-	// XXX: This function doesn't take into account the different letter distributions
-	// For now it doesn't matter but it will in the future when we have variants.
-
-	file, err := stratFileForLexicon(strategyPath, leavefile, lexiconName)
-	if err != nil {
-		return nil, err
-	}
-	var leaves *OldLeaves
-
-	defer file.Close()
-	leaves, err = ReadOldLeaves(file)
-	if err != nil {
-		return nil, err
-	}
-	log.Debug().Str("lexiconName", lexiconName).
-		Int("mph-size", leaves.Len()).
-		Msg("loaded-mph")
 	return leaves, nil
 }
 

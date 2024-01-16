@@ -20,10 +20,10 @@ type Client struct {
 	channel string
 }
 
-func MakeRequest(game *bot.BotTurnPlayer, config *config.Config) ([]byte, error) {
+func MakeRequest(game *bot.BotTurnPlayer, cfg *config.Config) ([]byte, error) {
 	history := game.History()
 	if history.Lexicon == "" {
-		history.Lexicon = config.DefaultLexicon
+		history.Lexicon = cfg.GetString(config.ConfigDefaultLexicon)
 	}
 	req := pb.BotRequest{GameHistory: history}
 	return proto.Marshal(&req)

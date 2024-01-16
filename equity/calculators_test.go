@@ -5,25 +5,29 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/domino14/word-golib/kwg"
+	"github.com/domino14/word-golib/tilemapping"
+	"github.com/stretchr/testify/assert"
+
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/gaddag"
-	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/movegen"
-	"github.com/domino14/macondo/tilemapping"
-	"github.com/stretchr/testify/assert"
+	"github.com/domino14/macondo/testhelpers"
 )
 
 var DefaultConfig = config.DefaultConfig()
 
 func GaddagFromLexicon(lex string) (gaddag.WordGraph, error) {
-	return kwg.LoadKWG(&DefaultConfig, filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".kwg"))
+	return kwg.LoadKWG(
+		DefaultConfig.AllSettings(),
+		filepath.Join(DefaultConfig.GetString(config.ConfigDataPath), "lexica", "gaddag", lex+".kwg"))
 }
 
 func TestLeaveValues(t *testing.T) {
-	alph := tilemapping.EnglishAlphabet()
+	alph := testhelpers.EnglishAlphabet()
 
 	els, err := equity.NewExhaustiveLeaveCalculator("NWL18", &DefaultConfig, "")
 	assert.Nil(t, err)
@@ -49,7 +53,7 @@ func TestLeaveValues(t *testing.T) {
 }
 
 func TestOtherLeaveValues(t *testing.T) {
-	alph := tilemapping.EnglishAlphabet()
+	alph := testhelpers.EnglishAlphabet()
 
 	els, err := equity.NewExhaustiveLeaveCalculator("NWL18", &DefaultConfig, "")
 	assert.Nil(t, err)
@@ -69,7 +73,7 @@ func TestOtherLeaveValues(t *testing.T) {
 }
 
 func BenchmarkLeaveValue(b *testing.B) {
-	alph := tilemapping.EnglishAlphabet()
+	alph := testhelpers.EnglishAlphabet()
 
 	els, _ := equity.NewExhaustiveLeaveCalculator("NWL18", &DefaultConfig, "leaves.klv2")
 	leave, _ := tilemapping.ToMachineLetters("AENST", alph)
@@ -84,7 +88,7 @@ func TestEndgameTiming(t *testing.T) {
 	assert.Nil(t, err)
 	alph := gd.GetAlphabet()
 	bd := board.MakeBoard(board.CrosswordGameBoard)
-	ld, err := tilemapping.EnglishLetterDistribution(&DefaultConfig)
+	ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.AllSettings())
 	assert.Nil(t, err)
 	generator := movegen.NewGordonGenerator(gd, bd, ld)
 	tilesInPlay := bd.SetToGame(gd.GetAlphabet(), board.MavenVsMacondo)
@@ -128,7 +132,7 @@ func TestPreendgameTiming(t *testing.T) {
 	assert.Nil(t, err)
 	alph := gd.GetAlphabet()
 	bd := board.MakeBoard(board.CrosswordGameBoard)
-	ld, err := tilemapping.EnglishLetterDistribution(&DefaultConfig)
+	ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.AllSettings())
 	assert.Nil(t, err)
 	generator := movegen.NewGordonGenerator(gd, bd, ld)
 	tilesInPlay := bd.SetToGame(gd.GetAlphabet(), board.VsOxy)
@@ -167,7 +171,7 @@ func TestOpeningPlayHeuristic(t *testing.T) {
 	assert.Nil(t, err)
 	alph := gd.GetAlphabet()
 	bd := board.MakeBoard(board.CrosswordGameBoard)
-	ld, err := tilemapping.EnglishLetterDistribution(&DefaultConfig)
+	ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.AllSettings())
 	assert.Nil(t, err)
 	generator := movegen.NewGordonGenerator(gd, bd, ld)
 	cross_set.GenAllCrossSets(bd, gd, ld)

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
@@ -21,7 +22,6 @@ import (
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/tilemapping"
 )
 
 var ErrMoveTypeNotSupported = errors.New("opponent move type not suitable for inference")

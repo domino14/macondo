@@ -6,16 +6,16 @@ import (
 	"reflect"
 	"runtime"
 
+	"github.com/domino14/word-golib/kwg"
+	"github.com/domino14/word-golib/tilemapping"
+	"github.com/rs/zerolog/log"
+
 	"github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/domino14/macondo/kwg"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/tilemapping"
-
-	"github.com/rs/zerolog/log"
 )
 
 var PuzzleFunctions = []func(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag){
@@ -273,7 +273,7 @@ func moveContainsBlank(m *move.Move) bool {
 }
 
 func isCELEvent(event *pb.GameEvent, history *pb.GameHistory, cfg *config.Config) (bool, error) {
-	kwg, err := kwg.Get(cfg, "ECWL")
+	kwg, err := kwg.Get(cfg.AllSettings(), "ECWL")
 	if err != nil {
 		return false, err
 	}

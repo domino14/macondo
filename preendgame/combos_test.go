@@ -3,7 +3,7 @@ package preendgame
 import (
 	"testing"
 
-	"github.com/domino14/macondo/tilemapping"
+	"github.com/domino14/word-golib/tilemapping"
 	"github.com/matryer/is"
 )
 

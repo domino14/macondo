@@ -3,13 +3,13 @@ package equity
 import (
 	"strings"
 
+	"github.com/domino14/word-golib/cache"
+	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/board"
-	"github.com/domino14/macondo/cache"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/tilemapping"
 )
 
 type BlankLeaves struct{}
@@ -58,7 +58,7 @@ func NewExhaustiveLeaveCalculator(lexiconName string,
 		leaveFilename = LeavesFilename
 	}
 
-	leaves, err := cache.Load(cfg, "leavefile:"+lexiconName+":"+leaveFilename, LeaveCacheLoadFunc)
+	leaves, err := cache.Load(cfg.AllSettings(), "leavefile:"+lexiconName+":"+leaveFilename, LeaveCacheLoadFunc)
 	if err != nil {
 		log.Err(err).Msg("loading-leaves")
 	}

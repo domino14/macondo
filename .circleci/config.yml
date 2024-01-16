@@ -7,7 +7,7 @@ orbs:
 jobs:
   build:
     environment:
-      LEXICON_PATH: /home/circleci/lexica
+      MACONDO_DATA_PATH: /home/circleci/data
     machine: # executor type
       image: ubuntu-2004:current
       docker_layer_caching: true
@@ -20,30 +20,20 @@ jobs:
       - run: if [ ! -n "$(grep "^github.com " ~/.ssh/known_hosts)" ]; then ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null; fi
       - run:
           name: Clone lexicon repo
-          command: git clone git@github.com:domino14/word-game-lexica ~/word-game-lexica
-      - run:
-          name: Clone wolges
-          command: git clone https://github.com/andy-k/wolges ~/wolges
-      - run: mkdir ~/lexica
-      - run: mkdir ~/lexica/gaddag
-      - run: mv ~/word-game-lexica/*.txt ~/lexica
+          command: git clone --depth 1 git@github.com:domino14/word-game-lexica ~/word-game-lexica
       - run: cp -r ~/macondo/data ~/data
+      - run: mkdir -p ~/data/lexica/gaddag
+      - run: mv ~/word-game-lexica/gaddag/*.kwg ~/data/lexica/gaddag
       - run: docker build -t macondo -f Dockerfile-dev .
       - run: docker run --rm macondo make
       # # build GADDAGs
       # - restore_cache:
       #     keys:
       #       - kwg-cache
-      - run: cp Dockerfile-kbuilder ~/wolges
-      - run: cd ~/wolges && docker build -t kbuilder -f Dockerfile-kbuilder .
-      - run: cd ~/macondo/.circleci && ./create_lexicon_files.sh
       - run: >
-          docker run --rm -e LEXICON_PATH=/opt/lexica
-          -e STRATEGY_PARAMS_PATH=/opt/data/strategy
-          -e DATA_PATH=/opt/data
-          -e LETTER_DISTRIBUTION_PATH=/opt/data/letterdistributions
+          docker run --rm
+          -e MACONDO_DATA_PATH=/opt/data
           -v ~/data:/opt/data
-          -v ~/lexica:/opt/lexica
           macondo go test $(go list ./... | grep -v wasm)
       # - save_cache:
       #     key: kwg-cache

@@ -4,18 +4,22 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"unicode/utf8"
 
-	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/tilemapping"
-	"github.com/domino14/macondo/tinymove"
+	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
+
+	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/tinymove"
 )
 
 var (
-	ColorSupport = os.Getenv("MACONDO_DISABLE_COLOR") != "on"
+	// Support standard NO_COLOR env var. Also disable color on windows. Temporary
+	// fix for their terminal issues.
+	ColorSupport = os.Getenv("NO_COLOR") == "" && runtime.GOOS != "windows"
 )
 
 type BonusSquare byte

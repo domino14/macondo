@@ -8,15 +8,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/domino14/word-golib/kwg"
+	"github.com/domino14/word-golib/tilemapping"
 	"github.com/matryer/is"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
-	"github.com/domino14/macondo/kwg"
-	"github.com/domino14/macondo/tilemapping"
-	"github.com/domino14/macondo/turnplayer"
-
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
@@ -24,6 +22,7 @@ import (
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/movegen"
+	"github.com/domino14/macondo/turnplayer"
 )
 
 var DefaultConfig = config.DefaultConfig()
@@ -50,7 +49,7 @@ func TestSimSingleIteration(t *testing.T) {
 	game, err := game.NewGame(rules, players)
 	is.NoErr(err)
 
-	gd, err := kwg.Get(game.Config(), game.LexiconName())
+	gd, err := kwg.Get(game.Config().AllSettings(), game.LexiconName())
 	is.NoErr(err)
 
 	generator := movegen.NewGordonGenerator(gd, game.Board(), rules.LetterDistribution())
@@ -95,7 +94,7 @@ func BenchmarkSim(b *testing.B) {
 	game.RecalculateBoard()
 	calcs, leaves := defaultSimCalculators("NWL18")
 
-	gd, err := kwg.Get(game.Config(), game.LexiconName())
+	gd, err := kwg.Get(game.Config().AllSettings(), game.LexiconName())
 	is.NoErr(err)
 
 	generator := movegen.NewGordonGenerator(gd, game.Board(), game.Rules().LetterDistribution())
@@ -136,7 +135,7 @@ func TestLongerSim(t *testing.T) {
 	game, err := game.NewGame(rules, players)
 	is.NoErr(err)
 
-	gd, err := kwg.Get(game.Config(), game.LexiconName())
+	gd, err := kwg.Get(game.Config().AllSettings(), game.LexiconName())
 	is.NoErr(err)
 
 	generator := movegen.NewGordonGenerator(gd, game.Board(), rules.LetterDistribution())
@@ -186,7 +185,7 @@ func TestLongerSim(t *testing.T) {
 	// Board should be reset back to empty after the simulation.
 	is.True(game.Board().IsEmpty())
 	fmt.Println(simmer.printStats())
-	fmt.Println("Total iterations", simmer.iterationCount)
+	fmt.Println("Total iterations", simmer.iterationCount.Load())
 	// AWA wins (note that the print above also sorts the plays by equity)
 	is.Equal(simmer.plays[0].play.Tiles().UserVisible(game.Alphabet()), "AWA")
 	is.Equal(simmer.gameCopies[0].Turn(), 0)

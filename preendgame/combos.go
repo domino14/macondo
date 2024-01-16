@@ -1,9 +1,8 @@
 package preendgame
 
 import (
+	"github.com/domino14/word-golib/tilemapping"
 	"gonum.org/v1/gonum/stat/combin"
-
-	"github.com/domino14/macondo/tilemapping"
 )
 
 type rackCombo struct {

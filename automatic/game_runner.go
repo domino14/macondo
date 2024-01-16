@@ -8,18 +8,18 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/domino14/word-golib/kwg"
+	"github.com/domino14/word-golib/tilemapping"
+	"github.com/rs/zerolog/log"
+
 	"github.com/domino14/macondo/ai/bot"
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
-	"github.com/domino14/macondo/kwg"
-	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/tilemapping"
-	"github.com/rs/zerolog/log"
-
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/move"
 )
 
 var MaxTimePerTurn = 15 * time.Second
@@ -41,8 +41,13 @@ type GameRunner struct {
 }
 
 // NewGameRunner just instantiates and initializes a game runner.
-func NewGameRunner(logchan chan string, config *config.Config) *GameRunner {
-	r := &GameRunner{logchan: logchan, config: config, lexicon: config.DefaultLexicon, letterDistribution: config.DefaultLetterDistribution}
+func NewGameRunner(logchan chan string, cfg *config.Config) *GameRunner {
+	r := &GameRunner{
+		logchan:            logchan,
+		config:             cfg,
+		lexicon:            cfg.GetString(config.ConfigDefaultLexicon),
+		letterDistribution: cfg.GetString(config.ConfigDefaultLetterDistribution),
+	}
 	r.Init([]AutomaticRunnerPlayer{
 		{"", "", pb.BotRequest_HASTY_BOT, 0},
 		{"", "", pb.BotRequest_HASTY_BOT, 0},
@@ -78,7 +83,7 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 		return err
 	}
 
-	gd, err := kwg.Get(r.config, r.lexicon)
+	gd, err := kwg.Get(r.config.AllSettings(), r.lexicon)
 	if err != nil {
 		return err
 	}

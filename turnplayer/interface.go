@@ -1,9 +1,10 @@
 package turnplayer
 
 import (
+	"github.com/domino14/word-golib/tilemapping"
+
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/tilemapping"
 )
 
 // TurnPlayer encapsulates all the functions needed to play a single turn
