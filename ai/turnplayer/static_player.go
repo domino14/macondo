@@ -18,6 +18,9 @@ import (
 	"github.com/domino14/macondo/turnplayer"
 )
 
+// StaticPassPenalty is a penalty for passing without making a move.
+const StaticPassPenalty = -50.0
+
 type AIStaticTurnPlayer struct {
 	turnplayer.BaseTurnPlayer
 
@@ -62,9 +65,13 @@ func AddAIFields(p *turnplayer.BaseTurnPlayer, conf *config.Config, calculators 
 
 func (p *AIStaticTurnPlayer) AssignEquity(plays []*move.Move, board *board.GameBoard, bag *tilemapping.Bag, oppRack *tilemapping.Rack) {
 	for _, m := range plays {
-		m.SetEquity(lo.SumBy(p.calculators, func(c equity.EquityCalculator) float64 {
-			return c.Equity(m, board, bag, oppRack)
-		}))
+		if m.Action() == move.MoveTypePass {
+			m.SetEquity(StaticPassPenalty)
+		} else {
+			m.SetEquity(lo.SumBy(p.calculators, func(c equity.EquityCalculator) float64 {
+				return c.Equity(m, board, bag, oppRack)
+			}))
+		}
 	}
 }
 
