@@ -25,6 +25,7 @@ import (
 
 	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/automatic"
+	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/endgame/negamax"
@@ -83,7 +84,7 @@ func (opts *ShellOptions) Show(key string) (bool, string) {
 }
 
 func (opts *ShellOptions) ToDisplayText() string {
-	keys := []string{"lexicon", "challenge", "lower"}
+	keys := []string{"lexicon", "challenge", "lower", "board"}
 	out := strings.Builder{}
 	out.WriteString("Settings:\n")
 	for _, key := range keys {
@@ -265,7 +266,14 @@ func (sc *ShellController) initGameDataStructures() error {
 	sc.rangefinder.Init(sc.game.Game, []equity.EquityCalculator{c}, sc.config)
 
 	// initialize the elite bot
-	conf := &bot.BotConfig{Config: *sc.config, MinSimPlies: 5, UseOppRacksInAnalysis: false}
+
+	leavesFile := ""
+	if sc.game.Board().Dim() == 21 { // ghetto
+		leavesFile = "super-leaves.klv2"
+	}
+
+	conf := &bot.BotConfig{Config: *sc.config, MinSimPlies: 5, LeavesFile: leavesFile,
+		UseOppRacksInAnalysis: false}
 	tp, err := bot.NewBotTurnPlayerFromGame(sc.game.Game, conf, pb.BotRequest_BotCode(pb.BotRequest_SIMMING_BOT))
 	if err != nil {
 		return err
@@ -389,7 +397,12 @@ func (sc *ShellController) loadGCG(args []string) error {
 	if err != nil {
 		return err
 	}
-	conf := &bot.BotConfig{Config: *sc.config}
+	leavesFile := ""
+	if strings.HasSuffix(ldName, "_super") {
+		leavesFile = "super-leaves.klv2"
+	}
+
+	conf := &bot.BotConfig{Config: *sc.config, LeavesFile: leavesFile}
 	sc.game, err = bot.NewBotTurnPlayerFromGame(g, conf, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return err
@@ -414,7 +427,13 @@ func (sc *ShellController) loadCGP(cgpstr string) error {
 		log.Info().Msgf("cgp file had no lexicon, so using default lexicon %v",
 			lexicon)
 	}
-	conf := &bot.BotConfig{Config: *sc.config}
+
+	leavesFile := ""
+	if g.History().BoardLayout == board.SuperCrosswordGameLayout {
+		leavesFile = "super-leaves.klv2"
+	}
+
+	conf := &bot.BotConfig{Config: *sc.config, LeavesFile: leavesFile}
 	sc.game, err = bot.NewBotTurnPlayerFromGame(g.Game, conf, pb.BotRequest_HASTY_BOT)
 	if err != nil {
 		return err

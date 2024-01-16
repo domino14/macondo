@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
+	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/equity"
@@ -97,8 +98,12 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 	// If it is a simming bot, add more fields.
 	if hasSimming(botType) {
 		log.Info().Msg("adding fields for simmer")
+		leaveFile := "" // use default
+		if p.Rules().BoardName() == board.SuperCrosswordGameLayout {
+			leaveFile = "super-leaves.klv2"
+		}
 		c, err := equity.NewCombinedStaticCalculator(
-			p.LexiconName(), p.Config(), "", equity.PEGAdjustmentFilename)
+			p.LexiconName(), p.Config(), leaveFile, equity.PEGAdjustmentFilename)
 		if err != nil {
 			return nil, err
 		}

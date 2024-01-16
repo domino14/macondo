@@ -237,7 +237,7 @@ func (s *Simmer) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
 	s.cfg = cfg
 	if s.cfg != nil {
 		// some hardcoded stuff here:
-		winpct, err := cache.Load(s.cfg.AllSettings(), "winpctfile:CSW:winpct.csv", equity.WinPCTLoadFunc)
+		winpct, err := cache.Load(s.cfg.AllSettings(), "winpctfile:NWL20:winpct.csv", equity.WinPCTLoadFunc)
 		if err != nil {
 			panic(err)
 		}

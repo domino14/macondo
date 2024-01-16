@@ -22,7 +22,12 @@ func stratFileForLexicon(strategyDir string, filename string, lexiconName string
 		defdir := defaultForLexicon(lexiconName)
 		file, _, err = cache.Open(filepath.Join(strategyDir, defdir, filename))
 		if err != nil {
-			return nil, err
+			// last-ditch effort. Try "default" path.
+			defdir = "default"
+			file, _, err = cache.Open(filepath.Join(strategyDir, defdir, filename))
+			if err != nil {
+				return nil, err
+			}
 		}
 		log.Debug().Str("strat-file", filename).Str("dir", defdir).Msgf(
 			"no lexicon-specific strategy")
@@ -81,7 +86,7 @@ func loadWinPCTParams(strategyPath, filepath, lexiconName string) ([][]float32, 
 	r := csv.NewReader(winpctfile)
 	idx := -1
 
-	// from 200 to -200 in spread, including 0
+	// from 300 to -300 in spread, including 0
 	wpct := make([][]float32, MaxRepresentedWinSpread*2+1)
 	for i := range wpct {
 		wpct[i] = make([]float32, 94)

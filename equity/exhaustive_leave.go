@@ -27,24 +27,26 @@ type ExhaustiveLeaveCalculator struct {
 func defaultForLexicon(lexiconName string) string {
 	// If there doesn't exist a specific folder with the name of the
 	// lexicon, we'll call this function.
-	if strings.HasPrefix(lexiconName, "CSW") ||
-		strings.HasPrefix(lexiconName, "TWL") ||
+	if strings.HasPrefix(lexiconName, "CSW") {
+		return "CSW21"
+	} else if strings.HasPrefix(lexiconName, "TWL") ||
 		strings.HasPrefix(lexiconName, "NWL") ||
-		strings.HasPrefix(lexiconName, "ECWL") || // obsolete name for CEL
-		strings.HasPrefix(lexiconName, "CEL") || // common english words
 		strings.HasPrefix(lexiconName, "NSWL") {
 
-		return "default_english"
+		return "NWL20"
+	} else if strings.HasPrefix(lexiconName, "ECWL") || // obsolete name for CEL
+		strings.HasPrefix(lexiconName, "CEL") { // common english words
+		return "ECWL"
 	} else if strings.HasPrefix(lexiconName, "RD") {
-		return "german"
+		return "RD28"
 	} else if strings.HasPrefix(lexiconName, "NSF") {
-		return "norwegian"
+		return "NSF23"
 	} else if strings.HasPrefix(lexiconName, "FRA") {
-		return "french"
+		return "FRA24"
 	} else if strings.HasPrefix(lexiconName, "DISC") {
-		return "catalan"
+		return "DISC2"
 	} else if strings.HasPrefix(lexiconName, "OSPS") {
-		return "polish"
+		return "OSPS49"
 	}
 	return ""
 }
