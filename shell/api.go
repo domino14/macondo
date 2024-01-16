@@ -729,13 +729,17 @@ func (sc *ShellController) leave(cmd *shellcmd) (*Response, error) {
 	if len(cmd.args) != 1 {
 		return nil, errors.New("please provide a leave")
 	}
-	dist, err := tilemapping.GetDistribution(sc.config.AllSettings(),
-		sc.config.GetString(config.ConfigDefaultLetterDistribution))
+	ldName := sc.config.GetString(config.ConfigDefaultLetterDistribution)
+	dist, err := tilemapping.GetDistribution(sc.config.AllSettings(), ldName)
 	if err != nil {
 		return nil, err
 	}
+	leaves := ""
+	if strings.HasSuffix(ldName, "_super") {
+		leaves = "super-leaves.klv2"
+	}
 	els, err := equity.NewExhaustiveLeaveCalculator(sc.config.GetString(config.ConfigDefaultLexicon),
-		sc.config, "")
+		sc.config, leaves)
 	if err != nil {
 		return nil, err
 	}
