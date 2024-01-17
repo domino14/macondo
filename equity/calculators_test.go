@@ -1,7 +1,6 @@
 package equity_test
 
 import (
-	"path/filepath"
 	"sort"
 	"testing"
 
@@ -21,9 +20,7 @@ import (
 var DefaultConfig = config.DefaultConfig()
 
 func GaddagFromLexicon(lex string) (gaddag.WordGraph, error) {
-	return kwg.LoadKWG(
-		DefaultConfig.AllSettings(),
-		filepath.Join(DefaultConfig.GetString(config.ConfigDataPath), "lexica", "gaddag", lex+".kwg"))
+	return kwg.Get(DefaultConfig.AllSettings(), lex)
 }
 
 func TestLeaveValues(t *testing.T) {

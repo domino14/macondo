@@ -3,7 +3,6 @@ package movegen
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"testing"
 
@@ -31,15 +30,8 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// func GaddagFromLexicon(lex string) (*gaddag.SimpleGaddag, error) {
-// 	return gaddag.LoadGaddag(filepath.Join(DefaultConfig.LexiconPath, "gaddag", lex+".gaddag"))
-// }
-
 func GaddagFromLexicon(lex string) (gaddag.WordGraph, error) {
-	fmt.Println("allsettings", DefaultConfig.AllSettings())
-
-	return kwg.LoadKWG(DefaultConfig.AllSettings(),
-		filepath.Join(DefaultConfig.GetString(config.ConfigDataPath), "lexica", "gaddag", lex+".kwg"))
+	return kwg.Get(DefaultConfig.AllSettings(), lex)
 }
 
 func Filter(moves []*move.Move, f func(*move.Move) bool) []*move.Move {

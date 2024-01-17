@@ -12,9 +12,10 @@ import (
 
 // Known config names
 const (
-	ConfigDebug                            = "debug"
+	ConfigDebug                     string = "debug"
+	ConfigKWGPathPrefix                    = "kwg-path-prefix"
 	ConfigDataPath                         = "data-path"
-	ConfigDefaultLexicon            string = "default-lexicon"
+	ConfigDefaultLexicon                   = "default-lexicon"
 	ConfigDefaultLetterDistribution        = "default-letter-distribution"
 	ConfigTtableMemFraction                = "ttable-mem-fraction"
 	ConfigLambdaFunctionName               = "lambda-function-name"
