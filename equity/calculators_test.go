@@ -1,7 +1,6 @@
 package equity_test
 
 import (
-	"path/filepath"
 	"sort"
 	"testing"
 
@@ -21,15 +20,13 @@ import (
 var DefaultConfig = config.DefaultConfig()
 
 func GaddagFromLexicon(lex string) (gaddag.WordGraph, error) {
-	return kwg.LoadKWG(
-		DefaultConfig.AllSettings(),
-		filepath.Join(DefaultConfig.GetString(config.ConfigDataPath), "lexica", "gaddag", lex+".kwg"))
+	return kwg.Get(DefaultConfig.AllSettings(), lex)
 }
 
 func TestLeaveValues(t *testing.T) {
 	alph := testhelpers.EnglishAlphabet()
 
-	els, err := equity.NewExhaustiveLeaveCalculator("NWL18", &DefaultConfig, "")
+	els, err := equity.NewExhaustiveLeaveCalculator("NWL20", &DefaultConfig, "")
 	assert.Nil(t, err)
 
 	type testcase struct {
@@ -38,14 +35,14 @@ func TestLeaveValues(t *testing.T) {
 	}
 
 	for _, tc := range []testcase{
-		{"?", 25.19870376586914},
-		{"Q", -7.26110315322876},
-		{"?I", 26.448156356811523},
-		{"I?", 26.448156356811523},
-		{"?DLQSV", -1.2257566452026367},
-		{"HMRRSS", -7.6917290687561035},
-		{"AEINST", 30.734148025512695},
-		{"SATINE", 30.734148025512695},
+		{"?", 24.504596710205078},
+		{"Q", -6.793293476104736},
+		{"?I", 25.864593505859375},
+		{"I?", 25.864593505859375},
+		{"?DLQSV", 10.06197452545166},
+		{"HMRRSS", -2.2670013904571533},
+		{"AEINST", 30.4634952545166},
+		{"SATINE", 30.4634952545166},
 	} {
 		leave, _ := tilemapping.ToMachineLetters(tc.leave, alph)
 		assert.Equal(t, tc.ev, els.LeaveValue(leave))
@@ -128,7 +125,7 @@ func TestEndgameTiming(t *testing.T) {
 }
 
 func TestPreendgameTiming(t *testing.T) {
-	gd, err := GaddagFromLexicon("NWL18")
+	gd, err := GaddagFromLexicon("NWL20")
 	assert.Nil(t, err)
 	alph := gd.GetAlphabet()
 	bd := board.MakeBoard(board.CrosswordGameBoard)
@@ -139,9 +136,9 @@ func TestPreendgameTiming(t *testing.T) {
 	cross_set.GenAllCrossSets(bd, gd, ld)
 	generator.GenAll(tilemapping.RackFromString("OXPBAZE", alph), false)
 
-	els, err := equity.NewExhaustiveLeaveCalculator("NWL18", &DefaultConfig, "")
+	els, err := equity.NewExhaustiveLeaveCalculator("NWL20", &DefaultConfig, "")
 	assert.Nil(t, err)
-	pac, err := equity.NewPreEndgameAdjustmentCalculator(&DefaultConfig, "NWL18", "quackle_preendgame.json")
+	pac, err := equity.NewPreEndgameAdjustmentCalculator(&DefaultConfig, "NWL20", "quackle_preendgame.json")
 	assert.Nil(t, err)
 	bag := tilemapping.NewBag(ld, alph)
 	bag.RemoveTiles(tilesInPlay.OnBoard)

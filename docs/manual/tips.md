@@ -10,7 +10,7 @@
 NWL20 is currently the default lexicon of Macondo.
 
 If you wish to use other lexica, you will need to also
-change the environment variable `DEFAULT_LETTER_DISTRIBUTION` to other values: `spanish`, `polish`, `german`, `norwegian`, `french`, `catalan`. There will be more in the future.
+change the environment variable `DEFAULT_LETTER_DISTRIBUTION` to other values: `spanish`, `polish`, `german`, `norwegian`, `french`, `catalan`, `polish`. There will be more in the future.
 
 Then, you can change the `DEFAULT_LEXICON` environment variable to your
 desired lexicon (make sure to use the same capitalization schema). For

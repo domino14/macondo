@@ -17,6 +17,7 @@ import (
 
 	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/automatic"
+	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/equity"
@@ -77,7 +78,12 @@ func (sc *ShellController) newGame(cmd *shellcmd) (*Response, error) {
 	}
 
 	opts := sc.options.GameOptions
-	conf := &bot.BotConfig{Config: *sc.config}
+	leavesFile := ""
+	if opts.BoardLayoutName == board.SuperCrosswordGameLayout {
+		leavesFile = "super-leaves.klv2"
+	}
+
+	conf := &bot.BotConfig{Config: *sc.config, LeavesFile: leavesFile}
 
 	g, err := bot.NewBotTurnPlayer(conf, &opts, players, pb.BotRequest_HASTY_BOT)
 	if err != nil {
@@ -723,13 +729,17 @@ func (sc *ShellController) leave(cmd *shellcmd) (*Response, error) {
 	if len(cmd.args) != 1 {
 		return nil, errors.New("please provide a leave")
 	}
-	dist, err := tilemapping.GetDistribution(sc.config.AllSettings(),
-		sc.config.GetString(config.ConfigDefaultLetterDistribution))
+	ldName := sc.config.GetString(config.ConfigDefaultLetterDistribution)
+	dist, err := tilemapping.GetDistribution(sc.config.AllSettings(), ldName)
 	if err != nil {
 		return nil, err
 	}
+	leaves := ""
+	if strings.HasSuffix(ldName, "_super") {
+		leaves = "super-leaves.klv2"
+	}
 	els, err := equity.NewExhaustiveLeaveCalculator(sc.config.GetString(config.ConfigDefaultLexicon),
-		sc.config, "")
+		sc.config, leaves)
 	if err != nil {
 		return nil, err
 	}

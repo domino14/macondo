@@ -21,6 +21,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/domino14/macondo/ai/bot"
+	"github.com/domino14/macondo/board"
 	mcfg "github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -198,7 +199,12 @@ func (b *Bot) handle(data []byte) *pb.BotResponse {
 	evalReq := req.EvaluationRequest
 	botType := req.BotType
 
-	conf := &bot.BotConfig{Config: *b.config}
+	leavesFile := ""
+	if ng.History().BoardLayout == board.SuperCrosswordGameLayout {
+		leavesFile = "super-leaves.klv2"
+	}
+
+	conf := &bot.BotConfig{Config: *b.config, LeavesFile: leavesFile}
 	g, err := bot.NewBotTurnPlayerFromGame(ng, conf, botType)
 	if err != nil {
 		return errorResponse("Could not create AI player", err)

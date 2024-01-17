@@ -33,6 +33,8 @@ func HistoryToVariant(h *pb.GameHistory) (boardLayoutName, letterDistributionNam
 			letterDistributionName = "french"
 		case strings.HasPrefix(lexicon, "disc"):
 			letterDistributionName = "catalan"
+		case strings.HasPrefix(lexicon, "osps"):
+			letterDistributionName = "polish"
 		}
 		// Technically, SuperCrosswordGame is not a variant, at least as far as Macondo is concerned.
 		// It is the same classic rules as CrosswordGame, but with a different board layout and

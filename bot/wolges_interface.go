@@ -71,40 +71,50 @@ func wolgesAnalyze(cfg *config.Config, g *bot.BotTurnPlayer) ([]*move.Move, erro
 
 	wap.Lexicon = g.LexiconName()
 
-	leave := ""
+	letterDistribution := ""
 	lowercasedLexicon := strings.ToLower(wap.Lexicon)
 	switch {
 	case strings.HasPrefix(lowercasedLexicon, "rd"):
-		leave = "german"
+		letterDistribution = "german"
 	case strings.HasPrefix(lowercasedLexicon, "nsf"):
-		leave = "norwegian"
+		letterDistribution = "norwegian"
 	case strings.HasPrefix(lowercasedLexicon, "fra"):
-		leave = "french"
+		letterDistribution = "french"
 	case strings.HasPrefix(lowercasedLexicon, "disc"):
-		leave = "catalan"
+		letterDistribution = "catalan"
+	case strings.HasPrefix(lowercasedLexicon, "osps"):
+		letterDistribution = "polish"
 	default:
-		leave = "english"
-	}
-	if lowercasedLexicon == "csw21" {
-		wap.Leave = "CSW21"
-	} else {
-		wap.Leave = leave
+		letterDistribution = "english"
 	}
 
+	// assume english and catalan have super
+	hasSuper := letterDistribution == "english" || letterDistribution == "catalan"
+	wap.Leave = wap.Lexicon
 	switch g.Rules().Variant() {
 	case "", game.VarClassic:
 		wap.Rules = "CrosswordGame"
 	case game.VarWordSmog:
 		wap.Rules = "WordSmog"
 		wap.Lexicon += ".WordSmog"
+		// assume always same leaves as classic
 	case game.VarClassicSuper:
 		wap.Rules = "CrosswordGameSuper"
+		// assume always same lexicon as classic
+		if hasSuper {
+			wap.Leave = "super-" + wap.Leave
+		}
 	case game.VarWordSmogSuper:
 		wap.Rules = "WordSmogSuper"
+		// assume always same lexicon as wordsmog
 		wap.Lexicon += ".WordSmog"
+		if hasSuper {
+			// assume always same leaves as classic super
+			wap.Leave = "super-" + wap.Leave
+		}
 	}
-	if leave != "english" {
-		wap.Rules += "/" + leave
+	if letterDistribution != "english" {
+		wap.Rules += "/" + letterDistribution
 	}
 
 	tm := g.Bag().LetterDistribution().TileMapping()
