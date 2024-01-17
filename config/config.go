@@ -77,6 +77,7 @@ func (c *Config) Load(args []string) error {
 	c.BindEnv(ConfigNatsURL)
 	c.BindEnv(ConfigWolgesAwsmUrl)
 	c.BindEnv(ConfigDebug)
+	c.BindEnv(ConfigKWGPathPrefix)
 
 	c.SetDefault(ConfigDataPath, "./data") // will be fixed by toAbsPath below if unspecified.
 	c.SetDefault(ConfigDefaultLexicon, "NWL20")
