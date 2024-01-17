@@ -34,7 +34,7 @@ func main() {
 
 	cfg := &config.Config{}
 	cfg.Load(os.Args[1:])
-	log.Info().Msgf("Loaded config: %v, exPath: %v", cfg, exPath)
+	log.Info().Msgf("Loaded config: %v, exPath: %v", cfg.AllSettings(), exPath)
 	cfg.AdjustRelativePaths(exPath)
 	log.Info().Msg("adjusted paths")
 
