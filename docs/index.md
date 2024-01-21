@@ -10,7 +10,7 @@ Tutorial video: [https://youtu.be/MOyzyKskr_4](https://youtu.be/MOyzyKskr_4)
 
 - [The Macondo team](/macondo/team.html)
 - [Change Log](/macondo/changelog.html)
-- [CGP File Format](https://github.com/domino14/macondo/tree/master/cgp#readme)
+- [CGP File Format](https://github.com/woogles-io/open-protocols/tree/master/cgp#readme)
 - [Manual / Documentation](/macondo/manual)
 - [How it works](/macondo/howitworks.html)
 - [Why the name Macondo?](/macondo/name.html)
@@ -58,7 +58,7 @@ Tutorial video: [https://youtu.be/MOyzyKskr_4](https://youtu.be/MOyzyKskr_4)
 1. Open the executable. If you wish your default lexicon to be CSW21, you
    must set the environment variable `DEFAULT_LEXICON` to `CSW21`. Otherwise, it defaults to NWL20. In this case you can set your lexicon by typing in `set lexicon CSW21` into the macondo prompt.
 
-2. Move some `*.kwg` files for your desired lexicon to the `./data/lexica/gaddag` folder. You can find kwg files at [https://github.com/domino14/liwords/blob/master/liwords-ui/public/wasm](https://github.com/domino14/liwords/blob/master/liwords-ui/public/wasm)
+2. Move some `*.kwg` files for your desired lexicon to the `./data/lexica/gaddag` folder. You can find kwg files at [https://github.com/woogles-io/liwords/blob/master/liwords-ui/public/wasm](https://github.com/woogles-io/liwords/blob/master/liwords-ui/public/wasm)
 
 3. Type in `help` for commands
 
