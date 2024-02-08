@@ -21,6 +21,8 @@ const (
 	ConfigLambdaFunctionName               = "lambda-function-name"
 	ConfigNatsURL                          = "nats-url"
 	ConfigWolgesAwsmUrl                    = "wolges-awsm-url"
+	ConfigCPUProfile                       = "cpu-profile"
+	ConfigMEMProfile                       = "mem-profile"
 )
 
 type Config struct {
@@ -78,6 +80,8 @@ func (c *Config) Load(args []string) error {
 	c.BindEnv(ConfigWolgesAwsmUrl)
 	c.BindEnv(ConfigDebug)
 	c.BindEnv(ConfigKWGPathPrefix)
+	c.BindEnv(ConfigCPUProfile)
+	c.BindEnv(ConfigMEMProfile)
 
 	c.SetDefault(ConfigDataPath, "./data") // will be fixed by toAbsPath below if unspecified.
 	c.SetDefault(ConfigDefaultLexicon, "NWL20")
