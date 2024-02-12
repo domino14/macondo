@@ -334,6 +334,59 @@ func TestEquityLossLimit(t *testing.T) {
 	is.Equal(len(pzls), 0)
 }
 
+func TestIsPuzzleStillValid(t *testing.T) {
+	is := is.New(t)
+	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, "./testdata/well_played_game.gcg")
+	is.NoErr(err)
+
+	// Set the correct challenge rule
+	gameHistory.ChallengeRule = pb.ChallengeRule_DOUBLE
+
+	rules, err := game.NewBasicGameRules(&DefaultConfig, "NWL18", board.CrosswordGameLayout, "english", game.CrossScoreAndSet, game.VarClassic)
+	is.NoErr(err)
+
+	game, err := game.NewFromHistory(gameHistory, rules, 0)
+	is.NoErr(err)
+
+	puzzleGenerationReq := &pb.PuzzleGenerationRequest{
+		Buckets: []*pb.PuzzleBucket{
+			{
+				Includes: []pb.PuzzleTag{pb.PuzzleTag_CEL_ONLY},
+				Excludes: []pb.PuzzleTag{pb.PuzzleTag_POWER_TILE},
+			},
+			{
+				Includes: []pb.PuzzleTag{pb.PuzzleTag_POWER_TILE},
+				Excludes: []pb.PuzzleTag{},
+			},
+			{
+				Includes: []pb.PuzzleTag{pb.PuzzleTag_EQUITY, pb.PuzzleTag_BINGO},
+				Excludes: []pb.PuzzleTag{pb.PuzzleTag_CEL_ONLY, pb.PuzzleTag_POWER_TILE},
+			},
+		},
+	}
+	err = InitializePuzzleGenerationRequest(puzzleGenerationReq)
+	is.NoErr(err)
+
+	pzls, err := CreatePuzzlesFromGame(&DefaultConfig, 22, game, puzzleGenerationReq)
+	is.NoErr(err)
+	is.True(len(pzls) > 0)
+	for i := range pzls {
+		fmt.Println(pzls[i])
+	}
+
+	is.Equal(pzls[2].TurnNumber, int32(2))
+	valid, err := IsEquityPuzzleStillValid(&DefaultConfig, game, 2, pzls[2].Answer, "NWL23")
+	is.NoErr(err)
+	is.True(valid)
+
+	// turn 8 had PEDDL(I)nG as the answer. DOGPILED, new in NWL23, scores 3 more pts.
+	is.Equal(pzls[5].TurnNumber, int32(8))
+	valid, err = IsEquityPuzzleStillValid(&DefaultConfig, game, 8, pzls[5].Answer, "NWL23")
+	is.NoErr(err)
+	is.Equal(valid, false)
+	is.True(false)
+}
+
 func puzzlesMatch(is *is.I, gcgfile string, puzzleGenerationReq *pb.PuzzleGenerationRequest, expectedPzl *pb.PuzzleCreationResponse) {
 	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, fmt.Sprintf("./testdata/%s.gcg", gcgfile))
 	if err != nil {

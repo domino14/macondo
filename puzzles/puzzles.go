@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"regexp"
 	"runtime"
 
 	"github.com/domino14/word-golib/kwg"
@@ -11,6 +12,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/ai/turnplayer"
+	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
@@ -309,4 +311,46 @@ func convertToVisible(words []tilemapping.MachineWord, alph *tilemapping.TileMap
 		uvstrs[idx] = w.UserVisible(alph)
 	}
 	return uvstrs
+}
+
+var lexre = regexp.MustCompile(`(.* lex )([A-Za-z\d]+)(;.*)`)
+
+// IsEquityPuzzleStillValid returns a boolean indicating whether an equity puzzle is stll
+// valid given a new lexicon. The old answer must still be the clear winner.
+func IsEquityPuzzleStillValid(conf *config.Config, g *game.Game, turnNumber int,
+	answer *pb.GameEvent, updatedLexiconName string) (bool, error) {
+	// Recalculate equity using the updated lexicon
+	puzzleCalc, err := equity.NewCombinedStaticCalculator(updatedLexiconName, conf, "", "")
+	if err != nil {
+		return false, err
+	}
+
+	err = g.PlayToTurn(turnNumber)
+	if err != nil {
+		return false, err
+	}
+	// In the future puzzles should just use cgp only.
+	cgpRepr := g.ToCGP(false)
+	cgpRepr = lexre.ReplaceAllString(cgpRepr, "${1}"+updatedLexiconName+"${3}")
+	newGame, err := cgp.ParseCGP(conf, cgpRepr)
+	if err != nil {
+		return false, err
+	}
+
+	answerMove, err := game.MoveFromEvent(answer, g.Alphabet(), g.Board())
+	if err != nil {
+		return false, err
+	}
+
+	player, err := turnplayer.NewAIStaticTurnPlayerFromGame(newGame.Game, conf, []equity.EquityCalculator{puzzleCalc})
+	if err != nil {
+		return false, err
+	}
+	// Calculate anchors and cross-sets:
+	player.RecalculateBoard()
+
+	moves := player.GenerateMoves(1000000)
+	ok, _ := EquityPuzzle(newGame.Game, moves)
+
+	return ok && moves[0].ShortDescription() == answerMove.ShortDescription(), nil
 }
