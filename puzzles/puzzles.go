@@ -324,6 +324,7 @@ func IsEquityPuzzleStillValid(conf *config.Config, g *game.Game, turnNumber int,
 	if err != nil {
 		return false, err
 	}
+	// add the rack to the game event. It is saved without a rack.
 
 	err = g.PlayToTurn(turnNumber)
 	if err != nil {
@@ -333,11 +334,6 @@ func IsEquityPuzzleStillValid(conf *config.Config, g *game.Game, turnNumber int,
 	cgpRepr := g.ToCGP(false)
 	cgpRepr = lexre.ReplaceAllString(cgpRepr, "${1}"+updatedLexiconName+"${3}")
 	newGame, err := cgp.ParseCGP(conf, cgpRepr)
-	if err != nil {
-		return false, err
-	}
-
-	answerMove, err := game.MoveFromEvent(answer, g.Alphabet(), g.Board())
 	if err != nil {
 		return false, err
 	}
@@ -352,5 +348,17 @@ func IsEquityPuzzleStillValid(conf *config.Config, g *game.Game, turnNumber int,
 	moves := player.GenerateMoves(1000000)
 	ok, _ := EquityPuzzle(newGame.Game, moves)
 
-	return ok && moves[0].ShortDescription() == answerMove.ShortDescription(), nil
+	newAnsEvt := g.EventFromMove(moves[0])
+
+	return ok &&
+		// for legacy reasons the new answer event would contain a rack but
+		// the one that comes in (answer) might or might not, depending on whether
+		// it was loaded from the database (which strips the rack :( )
+		newAnsEvt.Row == answer.Row &&
+		newAnsEvt.Column == answer.Column &&
+		newAnsEvt.PlayedTiles == answer.PlayedTiles &&
+		newAnsEvt.Exchanged == answer.Exchanged &&
+		newAnsEvt.NumTilesFromRack == answer.NumTilesFromRack &&
+		newAnsEvt.Score == answer.Score &&
+		newAnsEvt.Type == answer.Type, nil
 }

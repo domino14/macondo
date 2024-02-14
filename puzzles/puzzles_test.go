@@ -384,7 +384,6 @@ func TestIsPuzzleStillValid(t *testing.T) {
 	valid, err = IsEquityPuzzleStillValid(&DefaultConfig, game, 8, pzls[5].Answer, "NWL23")
 	is.NoErr(err)
 	is.Equal(valid, false)
-	is.True(false)
 }
 
 func puzzlesMatch(is *is.I, gcgfile string, puzzleGenerationReq *pb.PuzzleGenerationRequest, expectedPzl *pb.PuzzleCreationResponse) {
