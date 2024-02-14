@@ -349,18 +349,14 @@ func IsEquityPuzzleStillValid(conf *config.Config, g *game.Game, turnNumber int,
 	ok, _ := EquityPuzzle(newGame.Game, moves)
 
 	newAnsEvt := g.EventFromMove(moves[0])
-	fmt.Println("ok", ok)
-	fmt.Println("newAnsEvt", newAnsEvt)
-	fmt.Println("oldAns", answer)
 	return ok &&
 		// for legacy reasons the new answer event would contain a rack but
 		// the one that comes in (answer) might or might not, depending on whether
 		// it was loaded from the database (which strips the rack :( )
-		newAnsEvt.Row == answer.Row &&
-		newAnsEvt.Column == answer.Column &&
+		newAnsEvt.Position == answer.Position &&
 		newAnsEvt.PlayedTiles == answer.PlayedTiles &&
 		newAnsEvt.Exchanged == answer.Exchanged &&
-		newAnsEvt.NumTilesFromRack == answer.NumTilesFromRack &&
 		newAnsEvt.Score == answer.Score &&
+		newAnsEvt.IsBingo == answer.IsBingo &&
 		newAnsEvt.Type == answer.Type, nil
 }
