@@ -234,6 +234,31 @@ func TestComplicated1PEG(t *testing.T) {
 	is.Equal(winners[7].Points, float32(7))
 }
 
+func TestPolishPEGEarlyCutoff(t *testing.T) {
+	is := is.New(t)
+	cgpStr := "13P1/12SYĆ/11HET1/11IMA1/3C6T1EN1/2PiLŻE2WOŹNI1/1K1C5SI1Y2/DASHI2ZATNĘ3/1R1A4BAO4/1M1C1Z1ROŃ5/3ZŁU1A7/3Y1PÓKI1WERS1/GOJ2Y1IWIE4/1BOA3JĄŁ5/KANADZIE7 GLLMNOŚ/?DEFRUZ 307/288 0 lex OSPS49; ld polish;"
+
+	g, err := cgp.ParseCGP(&DefaultConfig, cgpStr)
+	is.NoErr(err)
+	g.RecalculateBoard()
+
+	gd, err := kwg.Get(DefaultConfig.AllSettings(), "OSPS49")
+	is.NoErr(err)
+	peg := new(Solver)
+
+	err = peg.Init(g.Game, gd)
+	peg.maxEndgamePlies = 5
+	peg.earlyCutoffOptim = true
+	peg.iterativeDeepening = false
+	is.NoErr(err)
+
+	ctx := context.Background()
+	winners, err := peg.Solve(ctx)
+	is.NoErr(err)
+	is.Equal(winners[0].Points, float32(3))
+	is.Equal(winners[0].Play.ShortDescription(), " G4 ŚL.")
+}
+
 func TestPossibleTilesInBag(t *testing.T) {
 	is := is.New(t)
 

@@ -118,7 +118,7 @@ func (p *PreEndgamePlay) addSpreadStat(spread, ct int) {
 	p.Spread += (spread * ct)
 }
 
-func (p *PreEndgamePlay) setWinPctStat(result PEGOutcome, ct int, tiles []tilemapping.MachineLetter) {
+func (p *PreEndgamePlay) setUnfinalizedWinPctStat(result PEGOutcome, ct int, tiles []tilemapping.MachineLetter) {
 	p.Lock()
 	defer p.Unlock()
 	found := p.outcomeIndex(tiles)
@@ -498,7 +498,9 @@ func (s *Solver) multithreadSolve(ctx context.Context, moves []*move.Move) ([]*P
 			return nil
 		})
 	}
-	// The determiner of the winner.
+
+	// winnerChan takes in potential winners and updates minimum potential losses
+	// etc for cutoff purposes.
 	winnerGroup.Go(func() error {
 		for p := range winnerChan {
 			if s.winnerSoFar != nil {
@@ -514,7 +516,7 @@ func (s *Solver) multithreadSolve(ctx context.Context, moves []*move.Move) ([]*P
 				log.Info().
 					Float32("potentialLosses", ppotentialLosses).
 					Str("p", p.String()).
-					Float32("n", s.minPotentialLosses).Msg("min potential losses")
+					Float32("minPotentialLosses", s.minPotentialLosses).Msg("new-fewest-potential-losses")
 				s.minPotentialLosses = ppotentialLosses
 			}
 		}
@@ -768,10 +770,16 @@ func (s *Solver) handleJob(ctx context.Context, j job, thread int, winnerChan ch
 		j.ourMove.RUnlock()
 	}
 	if j.ourMove.Play.Action() == move.MoveTypePass {
+		// don't pass winnerChan if the move we are examining for ourselves
+		// is a pass. Why? because of the way pass works, we can't be sure
+		// whether a pass is a sure win for us for some tile in the bag until
+		// we have examined that there are absolutely no losses for that tile.
+		// Therefore we can't do cutoffs on wins/losses that might not be
+		// finalized.
 		if j.theirMove.Action() != move.MoveTypePass {
 			return s.handleNonpassResponseToPass(ctx, j, thread)
 		} else {
-			return s.handlePassResponseToPass(ctx, j, thread, winnerChan)
+			return s.handlePassResponseToPass(ctx, j, thread)
 		}
 	}
 	if len(j.maybeInBagTiles) > 0 {
@@ -801,7 +809,6 @@ func (s *Solver) handleNonpassResponseToPass(ctx context.Context, j job, thread 
 	// clean this up, way too inefficient.
 	pt := possibleTilesInBag(j.inbag, j.theirMove.Tiles(), s.knownOppRack)
 	// XXX: 1-PEG. Change this when we support 2-PEG (and beyond?)
-	// XXX: Figure out why we don't need to send to winnerChan in this function
 	if len(pt) == 0 {
 		log.Warn().Msgf("possible tiles in bag is empty; inbag = %v, theirMove = %v, oppRack = %v",
 			j.inbag, j.theirMove, s.knownOppRack)
@@ -871,15 +878,15 @@ func (s *Solver) handleNonpassResponseToPass(ctx context.Context, j job, thread 
 		case finalSpread > 0:
 			// win for us
 			// log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msgf("p-we-win-tileset-%v", tileset)
-			j.ourMove.setWinPctStat(PEGWin, ct, tileset)
+			j.ourMove.setUnfinalizedWinPctStat(PEGWin, ct, tileset)
 		case finalSpread == 0:
 			// draw
 			// log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msgf("p-we-tie-tileset-%v", tileset)
-			j.ourMove.setWinPctStat(PEGDraw, ct, tileset)
+			j.ourMove.setUnfinalizedWinPctStat(PEGDraw, ct, tileset)
 		case finalSpread < 0:
 			// loss for us
 			// log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Msgf("p-we-lose-tileset-%v", tileset)
-			j.ourMove.setWinPctStat(PEGLoss, ct, tileset)
+			j.ourMove.setUnfinalizedWinPctStat(PEGLoss, ct, tileset)
 		}
 	}
 
@@ -1024,8 +1031,7 @@ func (s *Solver) handleEntirePreendgamePlay(ctx context.Context, j job, thread i
 	return nil
 }
 
-func (s *Solver) handlePassResponseToPass(ctx context.Context, j job, thread int,
-	winnerChan chan *PreEndgamePlay) error {
+func (s *Solver) handlePassResponseToPass(ctx context.Context, j job, thread int) error {
 
 	g := s.endgameSolvers[thread].Game()
 	g.ThrowRacksInFor(1 - g.PlayerOnTurn())
@@ -1072,7 +1078,6 @@ func (s *Solver) handlePassResponseToPass(ctx context.Context, j job, thread int
 	}
 
 	g.UnplayLastMove()
-	winnerChan <- j.ourMove
 	return nil
 }
 
