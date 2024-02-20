@@ -253,7 +253,7 @@ func TestPolish(t *testing.T) {
 	is := is.New(t)
 	plies := 14
 	s, err := setUpSolver(
-		"OSPS44", "polish", board.APolishEndgame, plies, "BGHUWZZ", "IKMÓŹŻ", 304,
+		"OSPS49", "polish", board.APolishEndgame, plies, "BGHUWZZ", "IKMÓŹŻ", 304,
 		258, 0)
 
 	is.NoErr(err)
@@ -284,11 +284,11 @@ func TestPolishFromGcg(t *testing.T) {
 	plies := 14
 	is := is.New(t)
 
-	rules, err := game.NewBasicGameRules(&DefaultConfig, "OSPS44", board.CrosswordGameLayout, "Polish", game.CrossScoreAndSet, game.VarClassic)
+	rules, err := game.NewBasicGameRules(&DefaultConfig, "OSPS49", board.CrosswordGameLayout, "Polish", game.CrossScoreAndSet, game.VarClassic)
 	is.NoErr(err)
 
 	cfg := config.DefaultConfig()
-	cfg.Set(config.ConfigDefaultLexicon, "OSPS44")
+	cfg.Set(config.ConfigDefaultLexicon, "OSPS49")
 	cfg.Set(config.ConfigDefaultLetterDistribution, "polish")
 
 	gameHistory, err := gcgio.ParseGCG(&cfg, "../../gcgio/testdata/polish_endgame.gcg")
@@ -298,7 +298,7 @@ func TestPolishFromGcg(t *testing.T) {
 	g, err := game.NewFromHistory(gameHistory, rules, 46)
 	is.NoErr(err)
 
-	gd, err := kwg.Get(cfg.AllSettings(), "OSPS44")
+	gd, err := kwg.Get(cfg.AllSettings(), "OSPS49")
 	is.NoErr(err)
 
 	g.SetBackupMode(game.SimulationMode)
