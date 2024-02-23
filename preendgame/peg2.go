@@ -1,16 +1,6 @@
 package preendgame
 
-import (
-	"context"
-	"sort"
-	"sync/atomic"
-
-	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/movegen"
-	"github.com/domino14/macondo/tilemapping"
-	"github.com/rs/zerolog/log"
-	"golang.org/x/sync/errgroup"
-)
+/*
 
 // peg2 contains code for solving a 2-in-the-bag preendgame.
 // of course we should be able to make the peg code generic so it can solve
@@ -498,3 +488,4 @@ func (s *Solver) handleEntirePreendgamePlay2(ctx context.Context, j job, thread 
 	}
 	return nil
 }
+*/

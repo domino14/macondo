@@ -2,22 +2,22 @@ package preendgame
 
 import (
 	"context"
-	"fmt"
 	"sort"
-	"strings"
 	"sync/atomic"
+
+	"github.com/rs/zerolog/log"
+	"golang.org/x/sync/errgroup"
+	"gonum.org/v1/gonum/stat/combin"
+
+	"github.com/domino14/word-golib/tilemapping"
 
 	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
-	"github.com/domino14/macondo/tilemapping"
 	"github.com/domino14/macondo/tinymove"
 	"github.com/domino14/macondo/tinymove/conversions"
-	"github.com/rs/zerolog/log"
-	"golang.org/x/sync/errgroup"
-	"gonum.org/v1/gonum/stat/combin"
 )
 
 func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move) ([]*PreEndgamePlay, error) {
@@ -403,15 +403,13 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 	// If the bag is not empty, we must recursively play until it is empty.
 	tempm := &move.Move{}
 	conversions.SmallMoveToMove(moveToMake, tempm, g.Alphabet(), g.Board(), g.RackFor(g.PlayerOnTurn()))
-	fmt.Println(strings.Repeat(" ", depth), thread, "playing", tempm)
-	_, err := g.PlaySmallMove(moveToMake)
+	err := g.PlayMove(tempm, false, 0)
 	if err != nil {
 		return err
 	}
 
 	var mm *tinymove.SmallMove
 	if g.Bag().TilesRemaining() > 0 {
-
 		mg.GenAll(g.RackFor(g.PlayerOnTurn()), false)
 		plays := mg.SmallPlays()
 		genPlays := make([]tinymove.SmallMove, len(plays))
@@ -446,7 +444,6 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 		// iteration here will solve the endgames.
 		err = s.recursiveSolve(ctx, thread, pegPlay, nil, inbagOption, winnerChan, depth+1)
 	}
-	fmt.Println(strings.Repeat(" ", depth), thread, "unplaying")
 	g.UnplayLastMove()
 	return err
 }
