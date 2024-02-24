@@ -57,7 +57,6 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 	var processed atomic.Uint32
 
 	for t := 0; t < s.threads; t++ {
-		t := t
 		g.Go(func() error {
 			for j := range jobChan {
 				if err := s.handleJobGeneric(ctx, j, t, winnerChan); err != nil {
@@ -93,7 +92,7 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 				log.Info().
 					Float32("potentialLosses", ppotentialLosses).
 					Str("p", p.String()).
-					Float32("n", s.minPotentialLosses).Msg("min potential losses")
+					Float32("minPotentialLosses", s.minPotentialLosses).Msg("new-fewest-potential-losses")
 				s.minPotentialLosses = ppotentialLosses
 			}
 		}
@@ -333,7 +332,7 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 		}
 
 		err = s.recursiveSolve(ctx, thread, j.ourMove, &sm,
-			options[idx], winnerChan, 0)
+			options[idx], winnerChan, 0, firstPlayEmptiesBag)
 		if err != nil {
 			return err
 		}
@@ -343,7 +342,8 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 }
 
 func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEndgamePlay,
-	moveToMake *tinymove.SmallMove, inbagOption option, winnerChan chan *PreEndgamePlay, depth int) error {
+	moveToMake *tinymove.SmallMove, inbagOption option, winnerChan chan *PreEndgamePlay, depth int,
+	pegPlayEmptiesBag bool) error {
 
 	g := s.endgameSolvers[thread].Game()
 	mg := s.endgameSolvers[thread].Movegen()
@@ -384,18 +384,35 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 		case (finalSpread > 0 && oppPerspective) || (finalSpread < 0 && !oppPerspective):
 			// win for our opponent = loss for us
 			// log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Str("ourMove", pegPlay.String()).Msg("we-lose")
-			pegPlay.addWinPctStat(PEGLoss, inbagOption.ct, inbagOption.mls)
+			if pegPlayEmptiesBag {
+				pegPlay.addWinPctStat(PEGLoss, inbagOption.ct, inbagOption.mls)
+			} else {
+				pegPlay.setUnfinalizedWinPctStat(PEGLoss, inbagOption.ct, inbagOption.mls)
+			}
 		case finalSpread == 0:
 			// draw
 			// log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Str("ourMove", pegPlay.String()).Msg("we-tie")
-			pegPlay.addWinPctStat(PEGDraw, inbagOption.ct, inbagOption.mls)
+			if pegPlayEmptiesBag {
+				pegPlay.addWinPctStat(PEGDraw, inbagOption.ct, inbagOption.mls)
+			} else {
+				pegPlay.setUnfinalizedWinPctStat(PEGDraw, inbagOption.ct, inbagOption.mls)
+			}
 		case (finalSpread < 0 && oppPerspective) || (finalSpread > 0 && !oppPerspective):
 			// loss for our opponent = win for us
 			// log.Debug().Int16("finalSpread", finalSpread).Int("thread", thread).Str("ourMove", pegPlay.String()).Msg("we-win")
-			pegPlay.addWinPctStat(PEGWin, inbagOption.ct, inbagOption.mls)
+			if pegPlayEmptiesBag {
+				pegPlay.addWinPctStat(PEGWin, inbagOption.ct, inbagOption.mls)
+			} else {
+				pegPlay.setUnfinalizedWinPctStat(PEGWin, inbagOption.ct, inbagOption.mls)
+			}
 		}
-
-		winnerChan <- pegPlay
+		if pegPlayEmptiesBag {
+			winnerChan <- pegPlay
+		}
+		// Otherwise, don't send via winnerChan. We would not be sure enough of the
+		// pegPlay's actual Points value, since all of its points could still
+		// be unsettled (i.e. they could be eventual draws or losses).
+		// XXX: figure out a better cutoff algorithm.
 		return nil
 
 	}
@@ -409,6 +426,7 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 	}
 
 	var mm *tinymove.SmallMove
+	// If the bag is STILL not empty after making our last move:
 	if g.Bag().TilesRemaining() > 0 {
 		mg.GenAll(g.RackFor(g.PlayerOnTurn()), false)
 		plays := mg.SmallPlays()
@@ -434,7 +452,7 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 
 		for idx := range genPlays {
 			mm = &genPlays[idx]
-			err = s.recursiveSolve(ctx, thread, pegPlay, mm, inbagOption, winnerChan, depth+1)
+			err = s.recursiveSolve(ctx, thread, pegPlay, mm, inbagOption, winnerChan, depth+1, pegPlayEmptiesBag)
 			if err != nil {
 				return err
 			}
@@ -442,7 +460,7 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 	} else {
 		// if the bag is empty after we've played moveToMake, the next
 		// iteration here will solve the endgames.
-		err = s.recursiveSolve(ctx, thread, pegPlay, nil, inbagOption, winnerChan, depth+1)
+		err = s.recursiveSolve(ctx, thread, pegPlay, nil, inbagOption, winnerChan, depth+1, pegPlayEmptiesBag)
 	}
 	g.UnplayLastMove()
 	return err
