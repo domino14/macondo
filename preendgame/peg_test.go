@@ -2,6 +2,7 @@ package preendgame
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 
@@ -354,5 +355,32 @@ func TestMoveIsPossible(t *testing.T) {
 	partial = []tilemapping.MachineLetter{1, 3, 5, 9, 19, 21}
 	m = []tilemapping.MachineLetter{19, 1, 21, 3, 25}
 	is.True(moveIsPossible(m, partial))
+
+}
+
+func TestTwoInBag(t *testing.T) {
+	t.Skip()
+	is := is.New(t)
+	// https://www.cross-tables.com/annotated.php?u=34161#17
+	cgpStr := "1T13/1W3Q9/VERB1U9/1E1OPIUM5C1/1LAWIN1I5O1/1Y3A1E5R1/7V4NO1/NOTArIZE1C2UN1/6ODAH2LA1/3TAHA2I2LED/2JUT4R2A1O/3G5P4D/3R3BrIEFING/3I5L4E/3K2DESYNES1M AEFGSTX/EEIOOST 370/341 0 lex CSW19;"
+
+	g, err := cgp.ParseCGP(&DefaultConfig, cgpStr)
+	is.NoErr(err)
+	g.RecalculateBoard()
+
+	gd, err := kwg.Get(DefaultConfig.AllSettings(), "CSW19")
+	is.NoErr(err)
+	peg := new(Solver)
+
+	err = peg.Init(g.Game, gd)
+	peg.maxEndgamePlies = 2
+	peg.skipTiebreaker = true
+	is.NoErr(err)
+
+	ctx := context.Background()
+	winners, err := peg.Solve(ctx)
+
+	is.NoErr(err)
+	fmt.Println(winners)
 
 }

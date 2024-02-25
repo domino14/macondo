@@ -88,6 +88,7 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 			}
 			// e.g. if we have three known losses in 4 games, we have at most 7 possible losses.
 			ppotentialLosses := float32(numCombos) - p.Points
+			s.potentialWinnerMutex.Lock()
 			if ppotentialLosses < s.minPotentialLosses {
 				log.Info().
 					Float32("potentialLosses", ppotentialLosses).
@@ -95,6 +96,7 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 					Float32("minPotentialLosses", s.minPotentialLosses).Msg("new-fewest-potential-losses")
 				s.minPotentialLosses = ppotentialLosses
 			}
+			s.potentialWinnerMutex.Unlock()
 		}
 		return nil
 	})
@@ -112,7 +114,7 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 	sort.Slice(s.plays, func(i, j int) bool {
 		return s.plays[i].Points > s.plays[j].Points
 	})
-	// handle this in a bit.
+	// XXX: handle this in a bit.
 
 	// if !s.skipTiebreaker {
 	// 	err = s.maybeTiebreak(ctx, maybeInBagTiles)
@@ -215,10 +217,11 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 		}
 		// we should check to see if our move has more found losses than
 		// _any_ fully analyzed move. If so, it can't possibly win.
-
+		s.potentialWinnerMutex.RLock()
 		if s.earlyCutoffOptim && j.ourMove.FoundLosses > s.minPotentialLosses {
 			// cut off this play. We already have more losses than the
 			// fully analyzed play with the minimum known number of losses.
+			s.potentialWinnerMutex.RUnlock()
 			j.ourMove.RUnlock()
 			// log.Debug().Float32("foundLosses", j.ourMove.FoundLosses).
 			// 	Float32("minKnownLosses", s.minPotentialLosses).
@@ -228,6 +231,7 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 			s.numCutoffs.Add(1)
 			return nil
 		}
+		s.potentialWinnerMutex.RUnlock()
 		j.ourMove.RUnlock()
 	}
 	g := s.endgameSolvers[thread].Game()
@@ -273,6 +277,9 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 			mg.GenAll(g.RackFor(g.PlayerOnTurn()), false)
 			topEquity = mg.Plays()[0].Equity()
 			g.UnplayLastMove()
+		} else {
+			// XXX: HANDLE ONLY BAG-EMPTYING PLAYS FOR NOW. fix later.
+			return nil
 		}
 		// gen top move, find score, sort by scores. We just need
 		// a rough estimate of how good our opp's next move will be.
@@ -297,7 +304,9 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 	// now recursively solve endgames and stuff.
 	for idx := range options {
 		j.ourMove.RLock()
+		s.potentialWinnerMutex.RLock()
 		if j.ourMove.FoundLosses > s.minPotentialLosses {
+			s.potentialWinnerMutex.RUnlock()
 			// cut off this play. We already have more losses than the
 			// fully analyzed play with the minimum known number of losses.
 			j.ourMove.RUnlock()
@@ -312,6 +321,7 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 			s.numCutoffs.Add(uint64(len(options) - idx))
 			return nil
 		}
+		s.potentialWinnerMutex.RUnlock()
 		j.ourMove.RUnlock()
 
 		g.ThrowRacksInFor(1 - g.PlayerOnTurn())
@@ -407,7 +417,7 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 			}
 		}
 		if pegPlayEmptiesBag {
-			winnerChan <- pegPlay
+			winnerChan <- pegPlay.Copy()
 		}
 		// Otherwise, don't send via winnerChan. We would not be sure enough of the
 		// pegPlay's actual Points value, since all of its points could still
@@ -428,6 +438,7 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 	var mm *tinymove.SmallMove
 	// If the bag is STILL not empty after making our last move:
 	if g.Bag().TilesRemaining() > 0 {
+		panic("sohuldn't be here")
 		mg.GenAll(g.RackFor(g.PlayerOnTurn()), false)
 		plays := mg.SmallPlays()
 		genPlays := make([]tinymove.SmallMove, len(plays))
@@ -474,7 +485,8 @@ type Permutation struct {
 func generatePermutations(list []int, k int) []Permutation {
 	var result []Permutation
 	origList := append([]int{}, list...)
-	generate(list, origList, k, []int{}, &result)
+	listCpy := append([]int{}, list...)
+	generate(listCpy, origList, k, []int{}, &result)
 	return result
 }
 
