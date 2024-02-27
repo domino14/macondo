@@ -467,6 +467,7 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 
 	var maxtime int
 	var maxthreads = 0
+	var maxsolutions = 30
 	var err error
 	var earlyCutoff bool
 	var skipPass bool
@@ -491,6 +492,13 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 
 	if cmd.options["threads"] != "" {
 		maxthreads, err = strconv.Atoi(cmd.options["threads"])
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if cmd.options["maxsolutions"] != "" {
+		maxsolutions, err = strconv.Atoi(cmd.options["maxsolutions"])
 		if err != nil {
 			return nil, err
 		}
@@ -553,12 +561,11 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 			sc.showError(err)
 			return
 		}
-		maxMoves := 30
-		if len(moves) < maxMoves {
-			maxMoves = len(moves)
+		if len(moves) < maxsolutions {
+			maxsolutions = len(moves)
 		}
 
-		sc.showMessage(sc.preendgameSolver.SolutionStats(maxMoves))
+		sc.showMessage(sc.preendgameSolver.SolutionStats(maxsolutions))
 	}()
 	return msg(""), nil
 }

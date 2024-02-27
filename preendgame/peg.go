@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"runtime"
 	"sort"
 	"strings"
@@ -258,6 +259,7 @@ type Solver struct {
 	knownOppRack     []tilemapping.MachineLetter
 	busy             bool
 	solvingForPlayer int
+	logStream        io.Writer
 
 	earlyCutoffOptim   bool
 	skipPassOptim      bool
@@ -286,6 +288,10 @@ func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
 	s.skipPassOptim = false
 	s.skipTiebreaker = false
 	return nil
+}
+
+func (s *Solver) SetLogStream(l io.Writer) {
+	s.logStream = l
 }
 
 func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
@@ -335,6 +341,28 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 	s.ttable.Reset(s.game.Config().GetFloat64(config.ConfigTtableMemFraction), s.game.Board().Dim())
 	var lastWinners []*PreEndgamePlay
 	s.solvingForPlayer = s.game.PlayerOnTurn()
+
+	// writer := errgroup.Group{}
+	// logChan := make(chan []byte)
+	// done := make(chan bool)
+
+	// if s.logStream != nil {
+	// 	writer.Go(func() error {
+	// 		defer func() {
+	// 			log.Debug().Msgf("Writer routine exiting")
+	// 		}()
+	// 		for {
+	// 			select {
+	// 			case bytes := <-logChan:
+	// 				s.logStream.Write(bytes)
+	// 			case <-done:
+	// 				// Ok, actually quit now.
+	// 				log.Debug().Msgf("Got quit signal...")
+	// 				return nil
+	// 			}
+	// 		}
+	// 	})
+	// }
 
 	for s.curEndgamePlies <= s.maxEndgamePlies {
 		if s.iterativeDeepening {
@@ -412,6 +440,12 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 		}
 		s.curEndgamePlies++
 	}
+
+	// if s.logStream != nil {
+	// 	close(done)
+	// 	writer.Wait()
+	// }
+
 	return winners, err
 }
 
