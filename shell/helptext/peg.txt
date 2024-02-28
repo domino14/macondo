@@ -59,14 +59,16 @@ Options:
     accurate results. If you turn this on, plays that were cut-off early will
     be marked with a ❌ symbol, and their stats may not be fully accurate.
 
-    -skip-pass true
+    -skip-non-emptying true
 
-    Macondo can skip analyzing a pass if it is clear that there is no
+    Macondo can skip analyzing plays that don't empty the bag.
+    For example, Macondo can skip analyzing a pass if it is clear that there is no
     way any useful info can be obtained. For example, if we're down by 40 points
     in the pre-endgame and we don't have a playable bingo, we can be pretty sure
     we're not winning this game by passing, and this can save some time in the
     analysis. Macondo can't detect this situation by itself at this time, so
-    you can set skip-pass to true if you want to skip analyzing passes.
+    you can set skip-non-emptying to true if you want to skip analyzing plays
+    that don't empty the bag, such as passes, or other short plays.
 
     -opprack AENST
 

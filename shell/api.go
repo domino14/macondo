@@ -470,7 +470,7 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 	var maxsolutions = 30
 	var err error
 	var earlyCutoff bool
-	var skipPass bool
+	var skipNonEmptying bool
 	var skipLoss bool
 	var skipTiebreaker bool
 	var disableIterativeDeepening bool
@@ -504,8 +504,8 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 		}
 	}
 
-	if cmd.options["skip-pass"] == "true" {
-		skipPass = true
+	if cmd.options["skip-non-emptying"] == "true" {
+		skipNonEmptying = true
 	}
 
 	if cmd.options["skip-loss"] == "true" {
@@ -557,7 +557,7 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 	}
 	sc.preendgameSolver.SetEndgamePlies(endgamePlies)
 	sc.preendgameSolver.SetEarlyCutoffOptim(earlyCutoff)
-	sc.preendgameSolver.SetSkipPassOptim(skipPass)
+	sc.preendgameSolver.SetSkipNonEmptyingOptim(skipNonEmptying)
 	sc.preendgameSolver.SetSkipTiebreaker(skipTiebreaker)
 	sc.preendgameSolver.SetSkipLossOptim(skipLoss)
 	sc.preendgameSolver.SetIterativeDeepening(!disableIterativeDeepening)

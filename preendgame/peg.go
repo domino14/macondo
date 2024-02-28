@@ -264,6 +264,7 @@ type jobOptionLog struct {
 	OppPerspective           bool   `yaml:"opp_perspective"`
 	EndgameMoves             string `yaml:"endgame_moves"`
 	GameEnded                bool   `yaml:"game_ended"`
+	TimeToSolveMs            int64  `yaml:"time_to_solve_ms"`
 }
 
 type Solver struct {
@@ -285,11 +286,11 @@ type Solver struct {
 	solvingForPlayer int
 	logStream        io.Writer
 
-	earlyCutoffOptim   bool
-	skipPassOptim      bool
-	skipTiebreaker     bool
-	skipLossOptim      bool
-	iterativeDeepening bool
+	earlyCutoffOptim     bool
+	skipNonEmptyingOptim bool
+	skipTiebreaker       bool
+	skipLossOptim        bool
+	iterativeDeepening   bool
 
 	numEndgamesSolved    atomic.Uint64
 	numCutoffs           atomic.Uint64
@@ -312,7 +313,7 @@ func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
 	s.iterativeDeepening = true
 	s.gaddag = gd
 	s.earlyCutoffOptim = true
-	s.skipPassOptim = false
+	s.skipNonEmptyingOptim = false
 	s.skipTiebreaker = false
 	return nil
 }
@@ -329,7 +330,7 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 	log.Info().
 		Int("endgame-plies", s.maxEndgamePlies).
 		Bool("early-cutoff-optim", s.earlyCutoffOptim).
-		Bool("skip-pass-optim", s.skipPassOptim).
+		Bool("skip-non-emptying-optim", s.skipNonEmptyingOptim).
 		Bool("skip-tiebreaker-optim", s.skipTiebreaker).
 		Bool("skip-loss-optim", s.skipLossOptim).
 		Bool("iterative-deepening", s.iterativeDeepening).
@@ -765,8 +766,8 @@ func (s *Solver) SetEarlyCutoffOptim(o bool) {
 	s.earlyCutoffOptim = o
 }
 
-func (s *Solver) SetSkipPassOptim(o bool) {
-	s.skipPassOptim = o
+func (s *Solver) SetSkipNonEmptyingOptim(o bool) {
+	s.skipNonEmptyingOptim = o
 }
 
 func (s *Solver) SetSkipLossOptim(o bool) {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"sync/atomic"
+	"time"
 
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
@@ -260,8 +261,9 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 			mg.GenAll(g.RackFor(g.PlayerOnTurn()), false)
 			topEquity = mg.Plays()[0].Equity()
 			g.UnplayLastMove()
-		} else {
-			// XXX: HANDLE ONLY BAG-EMPTYING PLAYS FOR NOW. fix later.
+		} else if s.skipNonEmptyingOptim {
+			// If the play does not empty the bag, then return if we
+			// want to skip plays that don't empty the bag.
 			return nil
 		}
 		// gen top move, find score, sort by scores. We just need
@@ -368,6 +370,7 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 		var seq []*move.Move
 		var val int16
 		var err error
+		var timeToSolve time.Duration
 		if g.Playing() == macondo.PlayState_GAME_OVER {
 			// game ended. Should have been because of two-pass
 			finalSpread = int16(g.SpreadFor(s.solvingForPlayer))
@@ -384,10 +387,12 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 			initialSpread := g.CurrentSpread()
 			// Now let's solve the endgame for our opponent.
 			// log.Debug().Int("thread", thread).Str("ourMove", pegPlay.String()).Int("initialSpread", initialSpread).Msg("about-to-solve-endgame")
+			st := time.Now()
 			val, seq, err = s.endgameSolvers[thread].QuickAndDirtySolve(ctx, s.curEndgamePlies, thread)
 			if err != nil {
 				return err
 			}
+			timeToSolve = time.Since(st)
 			s.numEndgamesSolved.Add(1)
 			finalSpread = val + int16(initialSpread)
 		}
@@ -424,6 +429,7 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 			s.threadLogs[thread].Options[inbagOption.idx].OppPerspective = oppPerspective
 			s.threadLogs[thread].Options[inbagOption.idx].EndgameMoves = fmt.Sprintf("%v", seq)
 			s.threadLogs[thread].Options[inbagOption.idx].GameEnded = g.Playing() == macondo.PlayState_GAME_OVER
+			s.threadLogs[thread].Options[inbagOption.idx].TimeToSolveMs = timeToSolve.Milliseconds()
 		}
 
 		if pegPlayEmptiesBag {
@@ -448,7 +454,6 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 	var mm *tinymove.SmallMove
 	// If the bag is STILL not empty after making our last move:
 	if g.Bag().TilesRemaining() > 0 {
-		panic("sohuldn't be here")
 		mg.GenAll(g.RackFor(g.PlayerOnTurn()), false)
 		plays := mg.SmallPlays()
 		genPlays := make([]tinymove.SmallMove, len(plays))
