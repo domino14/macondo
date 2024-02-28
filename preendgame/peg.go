@@ -14,6 +14,7 @@ import (
 	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/endgame/negamax"
@@ -242,6 +243,29 @@ func (p *PreEndgamePlay) String() string {
 	return fmt.Sprintf("<play %v, wins %f>", p.Play.ShortDescription(), p.Points)
 }
 
+type jobLog struct {
+	PEGPlay              string         `yaml:"peg_play"`
+	FoundLosses          int            `yaml:"found_losses"`
+	MinPotentialLosses   int            `yaml:"min_potential_losses"`
+	CutoffAtStart        bool           `yaml:"cutoff_at_start"`
+	CutoffWhileIterating bool           `yaml:"cutoff_while_iterating"`
+	PEGPlayEmptiesBag    bool           `yaml:"peg_play_empties_bag"`
+	Options              []jobOptionLog `yaml:"options"`
+	EndgamePlies         int            `yaml:"endgame_plies"`
+}
+
+type jobOptionLog struct {
+	PermutationInBag         string `yaml:"perm_in_bag"`
+	PermutationCount         int    `yaml:"perm_ct"`
+	OppRack                  string `yaml:"opp_rack"`
+	OurRack                  string `yaml:"our_rack"`
+	CutoffBecauseAlreadyLoss bool   `yaml:"cutoff_already_loss"`
+	FinalSpread              int    `yaml:"final_spread"`
+	OppPerspective           bool   `yaml:"opp_perspective"`
+	EndgameMoves             string `yaml:"endgame_moves"`
+	GameEnded                bool   `yaml:"game_ended"`
+}
+
 type Solver struct {
 	endgameSolvers []*negamax.Solver
 
@@ -269,14 +293,17 @@ type Solver struct {
 
 	numEndgamesSolved    atomic.Uint64
 	numCutoffs           atomic.Uint64
-	minPotentialLosses   float32
 	potentialWinnerMutex sync.RWMutex
+	minPotentialLosses   float32
+
+	threadLogs []jobLog
 }
 
 // Init initializes the solver. It creates all the parallel endgame solvers.
 func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
 	s.ttable = negamax.GlobalTranspositionTable
 	s.threads = max(1, runtime.NumCPU())
+	s.threadLogs = make([]jobLog, s.threads)
 	s.ttable.SetMultiThreadedMode()
 	s.game = g.Copy()
 	s.game.SetBackupMode(game.SimulationMode)
@@ -342,27 +369,27 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 	var lastWinners []*PreEndgamePlay
 	s.solvingForPlayer = s.game.PlayerOnTurn()
 
-	// writer := errgroup.Group{}
-	// logChan := make(chan []byte)
-	// done := make(chan bool)
+	writer := errgroup.Group{}
+	logChan := make(chan []byte)
+	done := make(chan bool)
 
-	// if s.logStream != nil {
-	// 	writer.Go(func() error {
-	// 		defer func() {
-	// 			log.Debug().Msgf("Writer routine exiting")
-	// 		}()
-	// 		for {
-	// 			select {
-	// 			case bytes := <-logChan:
-	// 				s.logStream.Write(bytes)
-	// 			case <-done:
-	// 				// Ok, actually quit now.
-	// 				log.Debug().Msgf("Got quit signal...")
-	// 				return nil
-	// 			}
-	// 		}
-	// 	})
-	// }
+	if s.logStream != nil {
+		writer.Go(func() error {
+			defer func() {
+				log.Debug().Msgf("Writer routine exiting")
+			}()
+			for {
+				select {
+				case bytes := <-logChan:
+					s.logStream.Write(bytes)
+				case <-done:
+					// Ok, actually quit now.
+					log.Debug().Msgf("Got quit signal...")
+					return nil
+				}
+			}
+		})
+	}
 
 	for s.curEndgamePlies <= s.maxEndgamePlies {
 		if s.iterativeDeepening {
@@ -431,7 +458,7 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 		// } else if s.game.Bag().TilesRemaining() == 2 {
 		// 	winners, err = s.multithreadSolve2(ctx, moves)
 		// }
-		winners, err = s.multithreadSolveGeneric(ctx, moves)
+		winners, err = s.multithreadSolveGeneric(ctx, moves, logChan)
 		if err != nil {
 			if err == ErrCanceledEarly {
 				return lastWinners, nil
@@ -441,10 +468,10 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 		s.curEndgamePlies++
 	}
 
-	// if s.logStream != nil {
-	// 	close(done)
-	// 	writer.Wait()
-	// }
+	if s.logStream != nil {
+		close(done)
+		writer.Wait()
+	}
 
 	return winners, err
 }
@@ -608,18 +635,24 @@ func (s *Solver) SetEndgamePlies(p int) {
 
 func (s *Solver) SetThreads(t int) {
 	s.threads = t
+	s.threadLogs = make([]jobLog, t)
 }
 
 func moveTilesToBeginning(order []tilemapping.MachineLetter, bag *tilemapping.Bag) {
+	// move tiles to the beginning of the bag. The tiles should be in the order given.
+	// (i.e. order[0] should be at the beginning of the bag)
+
 	bagContents := bag.Tiles()
-	lastPlacedTile := 0
-	for didx := lastPlacedTile; didx < len(order); didx++ {
-		for bidx, bagTile := range bagContents {
-			place := len(order) - didx - 1
-			desiredTile := order[didx]
-			if desiredTile == bagTile {
-				bag.SwapTile(place, bidx)
-				lastPlacedTile++
+	lastPlacedIdx := 0
+
+	for oidx := lastPlacedIdx; oidx < len(order); oidx++ {
+		// We want to place the tile at order[oidx] in spot oidx in the bag.
+		desiredTile := order[oidx]
+
+		for idx := lastPlacedIdx; idx < len(bagContents); idx++ {
+			if bagContents[idx] == desiredTile {
+				bag.SwapTile(idx, lastPlacedIdx)
+				lastPlacedIdx++
 				break
 			}
 		}

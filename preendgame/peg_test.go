@@ -32,6 +32,17 @@ func TestMoveTilesToBeginning(t *testing.T) {
 	is := is.New(t)
 	ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.AllSettings())
 	is.NoErr(err)
+
+	ct := func(bag *tilemapping.Bag, letter tilemapping.MachineLetter, from int) int {
+		n := 0
+		for i := from; i < len(bag.Tiles()); i++ {
+			if bag.Tiles()[i] == letter {
+				n++
+			}
+		}
+		return n
+	}
+
 	for i := 0; i < 1000; i++ {
 
 		bag := tilemapping.NewBag(ld, testhelpers.EnglishAlphabet())
@@ -42,10 +53,32 @@ func TestMoveTilesToBeginning(t *testing.T) {
 
 		bagTiles := bag.Peek()
 		is.Equal(len(bagTiles), 100)
-		is.Equal(bagTiles[3], tilemapping.MachineLetter(17))
-		is.Equal(bagTiles[2], tilemapping.MachineLetter(1))
-		is.Equal(bagTiles[1], tilemapping.MachineLetter(2))
-		is.Equal(bagTiles[0], tilemapping.MachineLetter(0))
+		is.Equal(bagTiles[0], tilemapping.MachineLetter(17))
+		is.Equal(bagTiles[1], tilemapping.MachineLetter(1))
+		is.Equal(bagTiles[2], tilemapping.MachineLetter(2))
+		is.Equal(bagTiles[3], tilemapping.MachineLetter(0))
+		is.Equal(ct(bag, 17, 4), 0)
+		is.Equal(ct(bag, 1, 4), 8)
+		is.Equal(ct(bag, 2, 4), 1)
+		is.Equal(ct(bag, 0, 4), 1)
+	}
+
+	for i := 0; i < 1000; i++ {
+
+		bag := tilemapping.NewBag(ld, testhelpers.EnglishAlphabet())
+		bag.Shuffle()
+		// E, E, E, E
+		lastTiles := []tilemapping.MachineLetter{5, 5, 5, 5}
+		moveTilesToBeginning(lastTiles, bag)
+
+		bagTiles := bag.Peek()
+		is.Equal(len(bagTiles), 100)
+		fmt.Println(i)
+		is.Equal(bagTiles[3], tilemapping.MachineLetter(5))
+		is.Equal(bagTiles[2], tilemapping.MachineLetter(5))
+		is.Equal(bagTiles[1], tilemapping.MachineLetter(5))
+		is.Equal(bagTiles[0], tilemapping.MachineLetter(5))
+		is.Equal(ct(bag, 5, 4), 8)
 	}
 }
 

@@ -2,12 +2,14 @@ package preendgame
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"sync/atomic"
 
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
 	"gonum.org/v1/gonum/stat/combin"
+	"gopkg.in/yaml.v3"
 
 	"github.com/domino14/word-golib/tilemapping"
 
@@ -20,7 +22,7 @@ import (
 	"github.com/domino14/macondo/tinymove/conversions"
 )
 
-func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move) ([]*PreEndgamePlay, error) {
+func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move, logChan chan []byte) ([]*PreEndgamePlay, error) {
 	// for every move, solve all the possible endgames.
 	// - make play on board
 	// - for tile in unseen:
@@ -62,6 +64,14 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 				if err := s.handleJobGeneric(ctx, j, t, winnerChan); err != nil {
 					log.Debug().AnErr("err", err).Msg("error-handling-job")
 					// Don't exit, to avoid deadlock.
+				}
+				if s.logStream != nil {
+					out, err := yaml.Marshal(s.threadLogs[t])
+					if err != nil {
+						log.Err(err).Msg("error-marshaling-logs")
+					}
+					logChan <- out
+					logChan <- []byte("\n")
 				}
 				processed.Add(1)
 				n := processed.Load()
@@ -146,48 +156,6 @@ func (s *Solver) createGenericPEGJobs(ctx context.Context, maybeInBagTiles []int
 		jobChan <- j
 	}
 
-	// if !s.skipPassOptim {
-	// 	// Handle pass.
-	// 	// First, try to pass back with all possible racks.
-	// 	for t, count := range maybeInBagTiles {
-	// 		if count == 0 {
-	// 			continue
-	// 		}
-	// 		j := job{
-	// 			ourMove:   ourPass,
-	// 			theirMove: move.NewPassMove(nil, s.game.Alphabet()),
-	// 			inbag:     []tilemapping.MachineLetter{tilemapping.MachineLetter(t)},
-	// 			numDraws:  count,
-	// 		}
-	// 		queuedJobs++
-	// 		jobChan <- j
-	// 	}
-
-	// 	// Then, for every combination of 7 tiles they could have,
-	// 	// generate all plays, make each play, and solve endgame from our
-	// 	// perspective.
-	// 	theirPossibleRack := tilemapping.NewRack(s.game.Alphabet())
-	// 	theirPossibleRack.Set(unseenRack)
-	// 	// Generate all possible plays for our opponent that are not the pass
-	// 	// back (was just handled above).
-	// 	s.movegen.SetGenPass(false)
-	// 	theirMoves := s.movegen.GenAll(theirPossibleRack, false)
-	// 	s.movegen.SetGenPass(true)
-	// 	for _, m := range theirMoves {
-	// 		if moveIsPossible(m.Tiles(), s.knownOppRack) {
-	// 			j := job{
-	// 				ourMove:   ourPass,
-	// 				theirMove: m,
-	// 				inbag:     unseenRack,
-	// 			}
-	// 			queuedJobs++
-	// 			jobChan <- j
-	// 		}
-	// 	}
-	// } else {
-	// 	log.Info().Msg("skipping pass analysis")
-	// }
-
 	log.Info().Int("numJobs", queuedJobs).Msg("queued-jobs")
 	close(jobChan)
 }
@@ -196,6 +164,7 @@ type option struct {
 	mls         []tilemapping.MachineLetter
 	ct          int
 	oppEstimate float64
+	idx         int
 }
 
 func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
@@ -206,6 +175,9 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 
 	if ctx.Err() != nil {
 		return ctx.Err()
+	}
+	if s.logStream != nil {
+		s.threadLogs[thread] = jobLog{PEGPlay: j.ourMove.String()}
 	}
 	if s.skipLossOptim || s.earlyCutoffOptim {
 		j.ourMove.RLock()
@@ -229,6 +201,11 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 			// 	Msg("stop-analyzing-move")
 			j.ourMove.stopAnalyzing()
 			s.numCutoffs.Add(1)
+			if s.logStream != nil {
+				s.threadLogs[thread].CutoffAtStart = true
+				s.threadLogs[thread].FoundLosses = int(j.ourMove.FoundLosses)
+				s.threadLogs[thread].MinPotentialLosses = int(s.minPotentialLosses)
+			}
 			return nil
 		}
 		s.potentialWinnerMutex.RUnlock()
@@ -241,7 +218,11 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 	mg.SetPlayRecorder(movegen.TopPlayOnlyRecorder)
 	permutations := generatePermutations(j.maybeInBagTiles, s.numinbag)
 	firstPlayEmptiesBag := j.ourMove.Play.TilesPlayed() >= s.numinbag
-
+	if s.logStream != nil {
+		s.threadLogs[thread].Options = make([]jobOptionLog, len(permutations))
+		s.threadLogs[thread].PEGPlayEmptiesBag = firstPlayEmptiesBag
+		s.threadLogs[thread].EndgamePlies = s.curEndgamePlies
+	}
 	for _, perm := range permutations {
 		// use FixedOrder setting to draw known tiles for opponent
 		topEquity := 0.0 // or something
@@ -254,7 +235,9 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 			// Essentially flip the order of the permutation. Since
 			// we draw right to left, we want to present the permutation
 			// to the user as the order that the bag is being drawn in.
-			tiles[len(perm.Perm)-idx-1] = tilemapping.MachineLetter(el)
+			// XXX: do we need this?
+			// tiles[len(perm.Perm)-idx-1] = tilemapping.MachineLetter(el)
+			tiles[idx] = tilemapping.MachineLetter(el)
 		}
 		// If our first play empties the bag, we want to try to solve the resulting
 		// endgames in an advantageous order.
@@ -303,9 +286,10 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 
 	// now recursively solve endgames and stuff.
 	for idx := range options {
+		options[idx].idx = idx
 		j.ourMove.RLock()
 		s.potentialWinnerMutex.RLock()
-		if j.ourMove.FoundLosses > s.minPotentialLosses {
+		if j.ourMove.FoundLosses > s.minPotentialLosses && s.earlyCutoffOptim {
 			s.potentialWinnerMutex.RUnlock()
 			// cut off this play. We already have more losses than the
 			// fully analyzed play with the minimum known number of losses.
@@ -319,6 +303,11 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 			// 	Msg("stop-analyzing-move-handleentireloop")
 			j.ourMove.stopAnalyzing()
 			s.numCutoffs.Add(uint64(len(options) - idx))
+			if s.logStream != nil {
+				s.threadLogs[thread].CutoffWhileIterating = true
+				s.threadLogs[thread].FoundLosses = int(j.ourMove.FoundLosses)
+				s.threadLogs[thread].MinPotentialLosses = int(s.minPotentialLosses)
+			}
 			return nil
 		}
 		s.potentialWinnerMutex.RUnlock()
@@ -326,6 +315,7 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 
 		g.ThrowRacksInFor(1 - g.PlayerOnTurn())
 		moveTilesToBeginning(options[idx].mls, g.Bag())
+
 		// not actually a random rack, but it should have been established
 		_, err := g.SetRandomRack(1-g.PlayerOnTurn(), nil)
 		if err != nil {
@@ -339,6 +329,12 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 			tm := conversions.MoveToTinyMove(j.ourMove.Play)
 			sm = tinymove.TilePlayMove(tm, int16(j.ourMove.Play.Score()),
 				uint8(j.ourMove.Play.TilesPlayed()), uint8(j.ourMove.Play.PlayLength()))
+		}
+		if s.logStream != nil {
+			s.threadLogs[thread].Options[idx].PermutationCount = options[idx].ct
+			s.threadLogs[thread].Options[idx].PermutationInBag = tilemapping.MachineWord(options[idx].mls).UserVisible(g.Alphabet())
+			s.threadLogs[thread].Options[idx].OppRack = g.RackLettersFor(1 - g.PlayerOnTurn())
+			s.threadLogs[thread].Options[idx].OurRack = g.RackLettersFor(g.PlayerOnTurn())
 		}
 
 		err = s.recursiveSolve(ctx, thread, j.ourMove, &sm,
@@ -360,12 +356,18 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 
 	// Quit early if we already have a loss for this bag option.
 	if pegPlay.HasLoss(inbagOption.mls) {
+		if s.logStream != nil {
+			s.threadLogs[thread].Options[inbagOption.idx].CutoffBecauseAlreadyLoss = true
+		}
 		return nil
 	}
 
 	if g.Playing() == macondo.PlayState_GAME_OVER || g.Bag().TilesRemaining() == 0 {
 		var finalSpread int16
 		var oppPerspective bool
+		var seq []*move.Move
+		var val int16
+		var err error
 		if g.Playing() == macondo.PlayState_GAME_OVER {
 			// game ended. Should have been because of two-pass
 			finalSpread = int16(g.SpreadFor(s.solvingForPlayer))
@@ -382,7 +384,7 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 			initialSpread := g.CurrentSpread()
 			// Now let's solve the endgame for our opponent.
 			// log.Debug().Int("thread", thread).Str("ourMove", pegPlay.String()).Int("initialSpread", initialSpread).Msg("about-to-solve-endgame")
-			val, _, err := s.endgameSolvers[thread].QuickAndDirtySolve(ctx, s.curEndgamePlies, thread)
+			val, seq, err = s.endgameSolvers[thread].QuickAndDirtySolve(ctx, s.curEndgamePlies, thread)
 			if err != nil {
 				return err
 			}
@@ -416,6 +418,14 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 				pegPlay.setUnfinalizedWinPctStat(PEGWin, inbagOption.ct, inbagOption.mls)
 			}
 		}
+
+		if s.logStream != nil {
+			s.threadLogs[thread].Options[inbagOption.idx].FinalSpread = int(finalSpread)
+			s.threadLogs[thread].Options[inbagOption.idx].OppPerspective = oppPerspective
+			s.threadLogs[thread].Options[inbagOption.idx].EndgameMoves = fmt.Sprintf("%v", seq)
+			s.threadLogs[thread].Options[inbagOption.idx].GameEnded = g.Playing() == macondo.PlayState_GAME_OVER
+		}
+
 		if pegPlayEmptiesBag {
 			winnerChan <- pegPlay.Copy()
 		}

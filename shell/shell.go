@@ -44,6 +44,7 @@ import (
 const (
 	SimLog   = "/tmp/simlog"
 	InferLog = "/tmp/inferlog"
+	PEGLog   = "/tmp/peglog"
 )
 
 var (
@@ -130,6 +131,7 @@ type ShellController struct {
 	endgameCancel context.CancelFunc
 	pegCtx        context.Context
 	pegCancel     context.CancelFunc
+	pegLogFile    *os.File
 
 	curPlayList  []*move.Move
 	elitebot     *bot.BotTurnPlayer

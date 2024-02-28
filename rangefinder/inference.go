@@ -3,6 +3,7 @@ package rangefinder
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"runtime"
 	"sort"
@@ -407,6 +408,7 @@ func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) ([][
 		}
 		logChan <- out
 	}
+	fmt.Println("inferences", inferences)
 	return inferences, nil
 }
 

@@ -534,6 +534,16 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 	sc.showMessage(sc.game.ToDisplayText())
 	sc.preendgameSolver = new(preendgame.Solver)
 	sc.preendgameSolver.Init(sc.game.Game, gd)
+
+	if cmd.options["log"] == "true" {
+		sc.pegLogFile, err = os.Create(PEGLog)
+		if err != nil {
+			return nil, err
+		}
+		sc.preendgameSolver.SetLogStream(sc.pegLogFile)
+		sc.showMessage("peg will log to " + PEGLog)
+	}
+
 	if maxthreads != 0 {
 		sc.preendgameSolver.SetThreads(maxthreads)
 	}
@@ -564,7 +574,12 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 		if len(moves) < maxsolutions {
 			maxsolutions = len(moves)
 		}
-
+		if sc.pegLogFile != nil {
+			err := sc.pegLogFile.Close()
+			if err != nil {
+				log.Err(err).Msg("closing-log-file")
+			}
+		}
 		sc.showMessage(sc.preendgameSolver.SolutionStats(maxsolutions))
 	}()
 	return msg(""), nil
