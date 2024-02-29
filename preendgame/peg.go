@@ -40,9 +40,10 @@ const (
 )
 
 type Outcome struct {
-	tiles   []tilemapping.MachineLetter
-	ct      int
-	outcome PEGOutcome
+	tiles     []tilemapping.MachineLetter
+	ct        int
+	outcome   PEGOutcome
+	Finalized bool
 }
 
 // Equal tells whether a and b contain the same elements.
@@ -122,6 +123,7 @@ func (p *PreEndgamePlay) addWinPctStat(result PEGOutcome, ct int, tiles []tilema
 		// no wins
 		p.FoundLosses += float32(ct)
 	}
+	p.outcomesArray[found].Finalized = true
 }
 
 func (p *PreEndgamePlay) addSpreadStat(spread, ct int) {
@@ -131,10 +133,37 @@ func (p *PreEndgamePlay) addSpreadStat(spread, ct int) {
 	p.Spread += (spread * ct)
 }
 
-func (p *PreEndgamePlay) setUnfinalizedWinPctStat(result PEGOutcome, ct int, tiles []tilemapping.MachineLetter) {
+func (p *PreEndgamePlay) finalize() {
+	p.Lock()
+	defer p.Unlock()
+	for idx := range p.outcomesArray {
+		if p.outcomesArray[idx].Finalized {
+			continue
+		}
+		// otherwise assign points/losses accordingly
+		ct := p.outcomesArray[idx].ct
+		switch p.outcomesArray[idx].outcome {
+		case PEGWin:
+			p.Points += float32(ct)
+		case PEGDraw:
+			p.Points += float32(ct) / 2
+			p.FoundLosses += float32(ct) / 2
+		case PEGLoss:
+			// no wins
+			p.FoundLosses += float32(ct)
+		}
+		p.outcomesArray[idx].Finalized = true
+	}
+
+}
+
+func (p *PreEndgamePlay) setUnfinalizedWinPctStat(unfinalizedResult PEGOutcome, ct int, tiles []tilemapping.MachineLetter) {
 	p.Lock()
 	defer p.Unlock()
 	found := p.outcomeIndex(tiles)
+	if p.outcomesArray[found].outcome == PEGNotInitialized {
+		p.outcomesArray[found].ct = ct
+	}
 
 	// If any draw is found for a combination of tiles, that whole
 	// combination gets classified as a draw at best, and a loss at worst.
@@ -142,45 +171,22 @@ func (p *PreEndgamePlay) setUnfinalizedWinPctStat(result PEGOutcome, ct int, til
 	// combination is a loss.
 	// If any win is found for a combination of tiles, we must make
 	// sure that they're ALL wins before calling it a win.
-	switch result {
+
+	switch unfinalizedResult {
 	case PEGWin:
 		if p.outcomesArray[found].outcome != PEGDraw &&
 			p.outcomesArray[found].outcome != PEGLoss {
 
-			// Add to the win counter only if it wasn't already marked a win.
-			// Note that this win is not necessarily known yet.
-			if p.outcomesArray[found].outcome != PEGWin {
-				p.Points += float32(ct)
-			}
-
 			p.outcomesArray[found].outcome = PEGWin
-
 		}
 	case PEGDraw:
 		if p.outcomesArray[found].outcome != PEGLoss {
-			// Add to the win counter only if it wasn't already marked a draw.
-			// Note that this draw is not necessarily known yet.
-
-			if p.outcomesArray[found].outcome != PEGDraw {
-				p.Points += float32(ct) / 2
-				p.FoundLosses += float32(ct) / 2
-			}
 			p.outcomesArray[found].outcome = PEGDraw
-
 		}
 	case PEGLoss:
-		if p.outcomesArray[found].outcome == PEGDraw {
-			p.Points -= float32(ct) / 2
-			p.FoundLosses += float32(ct) / 2
-		} else if p.outcomesArray[found].outcome == PEGWin {
-			p.Points -= float32(ct)
-			p.FoundLosses += float32(ct)
-		} else if p.outcomesArray[found].outcome == PEGNotInitialized {
-			p.FoundLosses += float32(ct)
-		}
 		p.outcomesArray[found].outcome = PEGLoss
-
 	}
+
 }
 
 func (p *PreEndgamePlay) HasLoss(tiles []tilemapping.MachineLetter) bool {

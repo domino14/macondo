@@ -344,6 +344,7 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 		if err != nil {
 			return err
 		}
+		j.ourMove.finalize()
 
 	}
 	return nil
