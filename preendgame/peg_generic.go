@@ -233,11 +233,6 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 		// "inbag" tiles to the left/"beginning" of the bag.
 		tiles := make([]tilemapping.MachineLetter, len(perm.Perm))
 		for idx, el := range perm.Perm {
-			// Essentially flip the order of the permutation. Since
-			// we draw right to left, we want to present the permutation
-			// to the user as the order that the bag is being drawn in.
-			// XXX: do we need this?
-			// tiles[len(perm.Perm)-idx-1] = tilemapping.MachineLetter(el)
 			tiles[idx] = tilemapping.MachineLetter(el)
 		}
 		// If our first play empties the bag, we want to try to solve the resulting
@@ -266,9 +261,9 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 			// want to skip plays that don't empty the bag.
 			return nil
 		}
+
 		// gen top move, find score, sort by scores. We just need
 		// a rough estimate of how good our opp's next move will be.
-
 		options = append(options, option{
 			mls:         tiles,
 			ct:          perm.Count,
@@ -356,12 +351,15 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 
 	g := s.endgameSolvers[thread].Game()
 	mg := s.endgameSolvers[thread].Movegen()
-
+	// fmt.Println(strings.Repeat(" ", depth), "entered recursive solve, inbag:",
+	// 	tilemapping.MachineWord(inbagOption.mls).UserVisible(g.Alphabet()))
 	// Quit early if we already have a loss for this bag option.
 	if pegPlay.HasLoss(inbagOption.mls) {
 		if s.logStream != nil {
 			s.threadLogs[thread].Options[inbagOption.idx].CutoffBecauseAlreadyLoss = true
 		}
+		// fmt.Println(strings.Repeat(" ", depth), "already have loss for",
+		// 	tilemapping.MachineWord(inbagOption.mls).UserVisible(g.Alphabet()))
 		return nil
 	}
 
@@ -375,19 +373,18 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 		if g.Playing() == macondo.PlayState_GAME_OVER {
 			// game ended. Should have been because of two-pass
 			finalSpread = int16(g.SpreadFor(s.solvingForPlayer))
-			if g.CurrentSpread() == -int(finalSpread) {
-				oppPerspective = true
-			}
+			// fmt.Println(strings.Repeat(" ", depth), "game ended, score", finalSpread,
+			// 	"solvingPlayer pts", g.PointsFor(s.solvingForPlayer),
+			// 	"opp pts", g.PointsFor(1-s.solvingForPlayer))
 		} else if g.Bag().TilesRemaining() == 0 {
 			// if the bag is empty, we just have to solve endgames.
 			if g.PlayerOnTurn() != s.solvingForPlayer {
 				oppPerspective = true
 			}
-			// This is the spread after we make our play, from the POV of our
-			// opponent.
+			// This is the spread after we make our play, from the POV of
+			// the player currently on turn
 			initialSpread := g.CurrentSpread()
-			// Now let's solve the endgame for our opponent.
-			// log.Debug().Int("thread", thread).Str("ourMove", pegPlay.String()).Int("initialSpread", initialSpread).Msg("about-to-solve-endgame")
+			// Now let's solve the endgame.
 			st := time.Now()
 			val, seq, err = s.endgameSolvers[thread].QuickAndDirtySolve(ctx, s.curEndgamePlies, thread)
 			if err != nil {
@@ -396,6 +393,10 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 			timeToSolve = time.Since(st)
 			s.numEndgamesSolved.Add(1)
 			finalSpread = val + int16(initialSpread)
+			// fmt.Println(strings.Repeat(" ", depth),
+			// 	"inbag:", tilemapping.MachineWord(inbagOption.mls).UserVisible(g.Alphabet()),
+			// 	"val:", val,
+			// 	"seq:", seq)
 		}
 
 		switch {
@@ -406,6 +407,8 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 				pegPlay.addWinPctStat(PEGLoss, inbagOption.ct, inbagOption.mls)
 			} else {
 				pegPlay.setUnfinalizedWinPctStat(PEGLoss, inbagOption.ct, inbagOption.mls)
+				// fmt.Println(strings.Repeat(" ", depth), "setting unfinalized loss")
+				// XXX: should figure out some way to quit early?
 			}
 		case finalSpread == 0:
 			// draw
@@ -414,6 +417,7 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 				pegPlay.addWinPctStat(PEGDraw, inbagOption.ct, inbagOption.mls)
 			} else {
 				pegPlay.setUnfinalizedWinPctStat(PEGDraw, inbagOption.ct, inbagOption.mls)
+				// fmt.Println(strings.Repeat(" ", depth), "setting unfinalized draw")
 			}
 		case (finalSpread < 0 && oppPerspective) || (finalSpread > 0 && !oppPerspective):
 			// loss for our opponent = win for us
@@ -421,7 +425,16 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 			if pegPlayEmptiesBag {
 				pegPlay.addWinPctStat(PEGWin, inbagOption.ct, inbagOption.mls)
 			} else {
+				// if depth > 1 && !oppPerspective {
+				// 	// If the turn is back to us and we've already had an opponent move,
+				// 	// it means that we don't need to try every possible response to
+				// 	// that opp move
+				// 	fmt.Println(strings.Repeat(" ", depth), "setting finalized win - optimistic")
+				// 	pegPlay.addWinPctStat(PEGWin, inbagOption.ct, inbagOption.mls)
+				// } else {
 				pegPlay.setUnfinalizedWinPctStat(PEGWin, inbagOption.ct, inbagOption.mls)
+				// fmt.Println(strings.Repeat(" ", depth), "setting unfinalized win")
+				// }
 			}
 		}
 
@@ -451,10 +464,11 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 	if err != nil {
 		return err
 	}
+	// fmt.Println(strings.Repeat(" ", depth), "playing move", tempm.ShortDescription(), "onturnnow", g.PlayerOnTurn())
 
 	var mm *tinymove.SmallMove
 	// If the bag is STILL not empty after making our last move:
-	if g.Bag().TilesRemaining() > 0 {
+	if g.Bag().TilesRemaining() > 0 && g.Playing() != macondo.PlayState_GAME_OVER {
 		mg.GenAll(g.RackFor(g.PlayerOnTurn()), false)
 		plays := mg.SmallPlays()
 		genPlays := make([]tinymove.SmallMove, len(plays))
@@ -472,23 +486,41 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 		sort.Slice(genPlays, func(i int, j int) bool {
 			return genPlays[i].EstimatedValue() > genPlays[j].EstimatedValue()
 		})
-		// XXX: we also need to ignore plays that are not among the best
-		// we found. We assume that we (player who the PEG is being solved for)
-		// would never make an incorrect play (i.e. one that doesn't win
-		// as much as the winners).
 
 		for idx := range genPlays {
 			mm = &genPlays[idx]
+
+			// remove; only for print purposes
+			tempm := &move.Move{}
+			conversions.SmallMoveToMove(mm, tempm, g.Alphabet(), g.Board(), g.RackFor(g.PlayerOnTurn()))
+
+			// fmt.Println(strings.Repeat(" ", depth), "onturn", g.PlayerOnTurn(), "idx", idx, "try next:", tempm.ShortDescription())
 			err = s.recursiveSolve(ctx, thread, pegPlay, mm, inbagOption, winnerChan, depth+1, pegPlayEmptiesBag)
 			if err != nil {
 				return err
 			}
+			if g.PlayerOnTurn() == s.solvingForPlayer {
+				// We're back to solving for ourselves. We need to be optimistic.
+				// We assume that we (player who the PEG is being solved for)
+				// would never make an incorrect play (i.e. one that doesn't win
+				// as much as the winners). Therefore if we've already found a win
+				// deeper in the tree, exit early and assume we will find the best
+				// reply to our opponent.
+				if pegPlay.OutcomeFor(inbagOption.mls) == PEGWin {
+					// fmt.Println(strings.Repeat(" ", depth), "onturn", g.PlayerOnTurn(), "breaking early cuzza win")
+					break
+				}
+			}
+
 		}
 	} else {
 		// if the bag is empty after we've played moveToMake, the next
 		// iteration here will solve the endgames.
+		// fmt.Println(strings.Repeat(" ", depth), "bag is empty or game is over; recursing again to finalize")
 		err = s.recursiveSolve(ctx, thread, pegPlay, nil, inbagOption, winnerChan, depth+1, pegPlayEmptiesBag)
 	}
+	// fmt.Println(strings.Repeat(" ", depth), "unplaying last move")
+
 	g.UnplayLastMove()
 	return err
 }

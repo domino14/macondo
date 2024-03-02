@@ -92,3 +92,8 @@ Options:
     deepening will try setting endgamePlies to 1, 2, 3, and so on until
     the maximum that you specify. This will allow you to have a potential
     answer much earlier.
+
+    -only-solve "B4 DIEH.RD"
+
+    Setting the -only-solve option will only solve the PEG for the given move. This
+    is good if you want to just examine one move.

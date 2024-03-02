@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -38,6 +39,20 @@ const (
 	PEGDraw           PEGOutcome = 2
 	PEGLoss           PEGOutcome = 3
 )
+
+func (p PEGOutcome) String() string {
+	switch p {
+	case PEGNotInitialized:
+		return "not initialized"
+	case PEGWin:
+		return "win"
+	case PEGDraw:
+		return "draw"
+	case PEGLoss:
+		return "loss"
+	}
+	return "?"
+}
 
 type Outcome struct {
 	tiles     []tilemapping.MachineLetter
@@ -205,6 +220,22 @@ func (p *PreEndgamePlay) HasLoss(tiles []tilemapping.MachineLetter) bool {
 	return p.outcomesArray[found].outcome == PEGLoss
 }
 
+func (p *PreEndgamePlay) HasFinalizedOutcome(tiles []tilemapping.MachineLetter) bool {
+	found := -1
+	for idx, outcome := range p.outcomesArray {
+		if Equal(outcome.tiles, tiles) {
+			found = idx
+			break
+		}
+	}
+	if found == -1 {
+		return false
+	}
+	p.RLock()
+	defer p.RUnlock()
+	return p.outcomesArray[found].Finalized
+}
+
 func (p *PreEndgamePlay) AllHaveLoss(tiles [][]tilemapping.MachineLetter) bool {
 	p.RLock()
 	defer p.RUnlock()
@@ -261,16 +292,18 @@ type jobLog struct {
 }
 
 type jobOptionLog struct {
-	PermutationInBag         string `yaml:"perm_in_bag"`
-	PermutationCount         int    `yaml:"perm_ct"`
-	OppRack                  string `yaml:"opp_rack"`
-	OurRack                  string `yaml:"our_rack"`
-	CutoffBecauseAlreadyLoss bool   `yaml:"cutoff_already_loss"`
-	FinalSpread              int    `yaml:"final_spread"`
-	OppPerspective           bool   `yaml:"opp_perspective"`
-	EndgameMoves             string `yaml:"endgame_moves"`
-	GameEnded                bool   `yaml:"game_ended"`
-	TimeToSolveMs            int64  `yaml:"time_to_solve_ms"`
+	PermutationInBag              string `yaml:"perm_in_bag"`
+	PermutationCount              int    `yaml:"perm_ct"`
+	OppRack                       string `yaml:"opp_rack"`
+	OurRack                       string `yaml:"our_rack"`
+	CutoffBecauseAlreadyLoss      bool   `yaml:"cutoff_already_loss"`
+	CutoffBecauseFinalizedOutcome bool   `yaml:"cutoff_finalized_outcome"`
+	FinalSpread                   int    `yaml:"final_spread"`
+	OppPerspective                bool   `yaml:"opp_perspective"`
+	EndgameMoves                  string `yaml:"endgame_moves"`
+	GameEnded                     bool   `yaml:"game_ended"`
+	TimeToSolveMs                 int64  `yaml:"time_to_solve_ms"`
+	// Options                  []jobOptionLog `yaml:"options"`
 }
 
 type Solver struct {
@@ -291,6 +324,7 @@ type Solver struct {
 	busy             bool
 	solvingForPlayer int
 	logStream        io.Writer
+	solveOnlyMove    *move.Move
 
 	earlyCutoffOptim     bool
 	skipNonEmptyingOptim bool
@@ -360,7 +394,12 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 	// Don't allow pre-endgame opponent to use more than 7 tiles.
 	s.movegen.SetMaxTileUsage(7)
 	// Examine high equity plays first.
-	moves := s.movegen.GenAll(s.game.RackFor(s.game.PlayerOnTurn()), false)
+	var moves []*move.Move
+	if s.solveOnlyMove != nil {
+		moves = []*move.Move{s.solveOnlyMove}
+	} else {
+		moves = s.movegen.GenAll(s.game.RackFor(s.game.PlayerOnTurn()), false)
+	}
 	c, err := equity.NewCombinedStaticCalculator(
 		s.game.LexiconName(), s.game.Config(), "", equity.PEGAdjustmentFilename)
 	if err != nil {
@@ -751,10 +790,10 @@ func (s *Solver) SolutionStats(maxMoves int) string {
 			// otherwise, it's unknown/not calculated.
 		}
 		if len(wins) > 0 {
-			outcomeStr += fmt.Sprintf("👍: %s ", toUserFriendly(wins, s.game.Alphabet()))
+			outcomeStr += fmt.Sprintf("👍: %s", toUserFriendly(wins, s.game.Alphabet()))
 		}
 		if len(draws) > 0 {
-			outcomeStr += fmt.Sprintf("🤝: %s ", toUserFriendly(draws, s.game.Alphabet()))
+			outcomeStr += fmt.Sprintf("🤝: %s", toUserFriendly(draws, s.game.Alphabet()))
 		}
 		if len(losses) > 0 {
 			outcomeStr += fmt.Sprintf("👎: %s", toUserFriendly(losses, s.game.Alphabet()))
@@ -796,19 +835,34 @@ func (s *Solver) IsSolving() bool {
 	return s.busy
 }
 
+func (s *Solver) SetSolveOnly(m *move.Move) {
+	s.solveOnlyMove = m
+}
+
 func toUserFriendly(tilesets [][]tilemapping.MachineLetter, alphabet *tilemapping.TileMapping) string {
 	var ss strings.Builder
-	sort.Slice(tilesets, func(i, j int) bool {
-		// XXX: assumes tilesets are the same size.
-		for idx := range tilesets[i] {
-			if tilesets[i][idx] < tilesets[j][idx] {
-				return true
+
+	tscopy := make([][]tilemapping.MachineLetter, len(tilesets))
+
+	for idx, s := range tilesets {
+		copy(tscopy[idx], s)
+		// Internally, the tilesets are represented in "right-to-left" ordering;
+		// i.e. the order in which they are in the bag is right-to-left.
+		// We wish to represent it to the user in reverse order; left-to-right,
+		// as it is more intuitive.
+		slices.Reverse(tscopy[idx])
+	}
+
+	sort.Slice(tscopy, func(i, j int) bool {
+		for k := 0; k < len(tscopy[i]) && k < len(tscopy[j]); k++ {
+			if tscopy[i][k] != tscopy[j][k] {
+				return tscopy[i][k] < tscopy[j][k]
 			}
 		}
 		return false
 	})
 
-	for _, s := range tilesets {
+	for _, s := range tscopy {
 		ss.WriteString(tilemapping.MachineWord(s).UserVisible(alphabet))
 		ss.WriteString(" ")
 	}

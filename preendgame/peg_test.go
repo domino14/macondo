@@ -13,6 +13,7 @@ import (
 
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/testhelpers"
 )
 
@@ -415,5 +416,35 @@ func TestTwoInBag(t *testing.T) {
 
 	is.NoErr(err)
 	fmt.Println(winners)
+}
 
+func TestTwoInBagSingleMove(t *testing.T) {
+	is := is.New(t)
+	// https://www.cross-tables.com/annotated.php?u=34161#17
+	cgpStr := "1T13/1W3Q9/VERB1U9/1E1OPIUM5C1/1LAWIN1I5O1/1Y3A1E5R1/7V4NO1/NOTArIZE1C2UN1/6ODAH2LA1/3TAHA2I2LED/2JUT4R2A1O/3G5P4D/3R3BrIEFING/3I5L4E/3K2DESYNES1M AEFGSTX/EEIOOST 370/341 0 lex CSW19;"
+
+	g, err := cgp.ParseCGP(&DefaultConfig, cgpStr)
+	is.NoErr(err)
+	g.RecalculateBoard()
+
+	gd, err := kwg.Get(DefaultConfig.AllSettings(), "CSW19")
+	is.NoErr(err)
+	peg := new(Solver)
+
+	err = peg.Init(g.Game, gd)
+	is.NoErr(err)
+	peg.maxEndgamePlies = 3
+	peg.iterativeDeepening = false
+	m := move.NewScoringMoveSimple(10, "6F", ".X.", "AEFGST", g.Alphabet())
+	peg.solveOnlyMove = m
+	ctx := context.Background()
+	winners, err := peg.Solve(ctx)
+
+	is.NoErr(err)
+	is.Equal(winners[0].Points, 70) // wins 70/72 games
+	// It only loses games where IE are in the bag, in that order (i.e. "we" draw the I
+	// after the X and opp bingoes with TOREROS)
+	// Note that internally we represent bag right to left:
+	is.Equal(winners[0].OutcomeFor([]tilemapping.MachineLetter{5, 9}), PEGLoss)
+	is.Equal(winners[0].OutcomeFor([]tilemapping.MachineLetter{9, 5}), PEGWin)
 }

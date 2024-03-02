@@ -24,6 +24,7 @@ import (
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/preendgame"
 )
 
@@ -474,6 +475,7 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 	var skipLoss bool
 	var skipTiebreaker bool
 	var disableIterativeDeepening bool
+	var onlySolveMove *move.Move
 	knownOppRack := cmd.options["opprack"]
 
 	if cmd.options["endgameplies"] != "" {
@@ -524,6 +526,13 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 		disableIterativeDeepening = true
 	}
 
+	if cmd.options["only-solve"] != "" {
+		onlySolveMove, err = sc.game.ParseMove(sc.game.PlayerOnTurn(), sc.options.lowercaseMoves, strings.Fields(cmd.options["only-solve"]))
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	sc.showMessage(fmt.Sprintf(
 		"endgameplies %v, maxtime %v, threads %v",
 		endgamePlies, maxtime, maxthreads))
@@ -561,6 +570,7 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 	sc.preendgameSolver.SetSkipTiebreaker(skipTiebreaker)
 	sc.preendgameSolver.SetSkipLossOptim(skipLoss)
 	sc.preendgameSolver.SetIterativeDeepening(!disableIterativeDeepening)
+	sc.preendgameSolver.SetSolveOnly(onlySolveMove)
 	sc.pegCtx, sc.pegCancel = context.WithCancel(context.Background())
 	if maxtime > 0 {
 		sc.pegCtx, sc.pegCancel = context.WithTimeout(sc.pegCtx, time.Duration(maxtime)*time.Second)
