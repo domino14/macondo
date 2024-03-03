@@ -441,7 +441,7 @@ func TestTwoInBagSingleMove(t *testing.T) {
 	winners, err := peg.Solve(ctx)
 
 	is.NoErr(err)
-	is.Equal(winners[0].Points, 70) // wins 70/72 games
+	is.Equal(winners[0].Points, float32(70)) // wins 70/72 games
 	// It only loses games where IE are in the bag, in that order (i.e. "we" draw the I
 	// after the X and opp bingoes with TOREROS)
 	// Note that internally we represent bag right to left:

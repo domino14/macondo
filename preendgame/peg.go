@@ -845,6 +845,7 @@ func toUserFriendly(tilesets [][]tilemapping.MachineLetter, alphabet *tilemappin
 	tscopy := make([][]tilemapping.MachineLetter, len(tilesets))
 
 	for idx, s := range tilesets {
+		tscopy[idx] = make([]tilemapping.MachineLetter, len(s))
 		copy(tscopy[idx], s)
 		// Internally, the tilesets are represented in "right-to-left" ordering;
 		// i.e. the order in which they are in the bag is right-to-left.
