@@ -92,7 +92,7 @@ const (
 	ChallengeBonusRegex       = `>(?P<nick>\S+):\s+(?P<rack>\S*)\s+\(challenge\)\s+\+(?P<bonus>\d+)\s+(?P<cumul>\d+)`
 	ExchangeRegex             = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+-(?P<exchanged>\S+)\s+\+0\s+(?P<cumul>\d+)`
 	EndRackPointsRegex        = `>(?P<nick>\S+):\s+\((?P<rack>\S+)\)\s+\+(?P<score>\d+)\s+(?P<cumul>-?\d+)`
-	TimePenaltyRegex          = `>(?P<nick>\S+):\s+(?P<rack>\S*)\s+\(time\)\s+\-(?P<penalty>\d+)\s+(?P<cumul>-?\d+)`
+	TimePenaltyRegex          = `>(?P<nick>\S+):(?:\s+(?P<rack>\S*))?\s+\(time\)\s+\-(?P<penalty>\d+)\s+(?P<cumul>-?\d+)`
 	PtsLostForLastRackRegex   = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+\((?P<rack>\S+)\)\s+\-(?P<penalty>\d+)\s+(?P<cumul>-?\d+)`
 	IncompleteRegex           = "#incomplete.*"
 	TileDeclarationRegex      = `#tile (?P<uppercase>\S+)\s+(?P<lowercase>\S+)`
