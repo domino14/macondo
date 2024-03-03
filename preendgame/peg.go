@@ -28,7 +28,7 @@ import (
 
 var ErrCanceledEarly = errors.New("canceled early")
 
-const InBagMaxLimit = 2
+const InBagMaxLimit = 6
 const TieBreakerPlays = 20
 
 type PEGOutcome int
