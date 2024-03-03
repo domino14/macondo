@@ -383,6 +383,10 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 		s.curEndgamePlies = s.maxEndgamePlies
 	}
 
+	if s.game.RackFor(s.solvingForPlayer).NumTiles() < game.RackTileLimit {
+		return nil, errors.New("the rack of the player being solved for must be fully specified")
+	}
+
 	s.numEndgamesSolved.Store(0)
 	s.numCutoffs.Store(0)
 
