@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
@@ -367,6 +368,7 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 	defer func() {
 		s.busy = false
 	}()
+	ts := time.Now()
 	log.Info().
 		Int("endgame-plies", s.maxEndgamePlies).
 		Bool("early-cutoff-optim", s.earlyCutoffOptim).
@@ -522,6 +524,7 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 		close(done)
 		writer.Wait()
 	}
+	log.Info().Str("time-taken", time.Since(ts).String()).Msg("solution-done")
 
 	return winners, err
 }
