@@ -449,3 +449,31 @@ func TestTwoInBagSingleMove(t *testing.T) {
 	is.Equal(winners[0].OutcomeFor([]tilemapping.MachineLetter{5, 9}), PEGLoss)
 	is.Equal(winners[0].OutcomeFor([]tilemapping.MachineLetter{9, 5}), PEGWin)
 }
+
+func TestFourInBag(t *testing.T) {
+	// This test is not expected to finish in any reasonable amount of time yet.
+	// It is only here aspirationally.
+	// t.Skip()
+	is := is.New(t)
+
+	cgpStr := "7LITERARY/6QI7/1YET3NEBULA2/2FAX2G7/4INVOKED4/9T5/9E5/5AVOWs5/9I5/1CLIME1R1A5/4ENWOUND4/PATEN1HO5J1/L5OF4BIG/U5AI1HUE1G1/M6EDITRESS ACEOOSZ/ANOPRRT 331/336 0 lex NWL20;"
+
+	g, err := cgp.ParseCGP(&DefaultConfig, cgpStr)
+	is.NoErr(err)
+	g.RecalculateBoard()
+
+	gd, err := kwg.Get(DefaultConfig.AllSettings(), "NWL20")
+	is.NoErr(err)
+	peg := new(Solver)
+
+	err = peg.Init(g.Game, gd)
+	is.NoErr(err)
+	peg.maxEndgamePlies = 4
+	peg.iterativeDeepening = true
+
+	ctx := context.Background()
+	_, err = peg.Solve(ctx)
+
+	is.NoErr(err)
+
+}

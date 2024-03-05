@@ -623,7 +623,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			bestMove = children[idx]
 			// allocate a move to update the pv
 			m := &move.Move{}
-			conversions.SmallMoveToMove(&bestMove, m, g.Alphabet(), g.Board(), stmRack)
+			conversions.SmallMoveToMove(bestMove, m, g.Alphabet(), g.Board(), stmRack)
 			pv.Update(m, childPV, bestValue-int16(s.initialSpread))
 		}
 		if s.currentIDDepths[thread] == depth {

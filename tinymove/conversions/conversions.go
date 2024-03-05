@@ -8,7 +8,7 @@ import (
 	"github.com/domino14/macondo/tinymove"
 )
 
-func SmallMoveToMove(sm *tinymove.SmallMove, m *move.Move, tm *tilemapping.TileMapping,
+func SmallMoveToMove(sm tinymove.SmallMove, m *move.Move, tm *tilemapping.TileMapping,
 	bd *board.GameBoard, onTurnRack *tilemapping.Rack) {
 	TinyMoveToMove(sm.TinyMove(), bd, m)
 	// populate move with missing fields.

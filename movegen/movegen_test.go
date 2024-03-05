@@ -487,7 +487,7 @@ func TestSmallMoveRecorder(t *testing.T) {
 	for i := 2; i < 9; i++ {
 		assert.Equal(t, 32, generator.smallPlays[i].Score())
 		m := &move.Move{}
-		conversions.SmallMoveToMove(&generator.smallPlays[i], m, alph, bd, rack)
+		conversions.SmallMoveToMove(generator.smallPlays[i], m, alph, bd, rack)
 
 		if m.Tiles().UserVisiblePlayedTiles(alph) == "rEW..DS" {
 			rewards = i
@@ -496,7 +496,7 @@ func TestSmallMoveRecorder(t *testing.T) {
 	assert.NotEqual(t, 0, rewards)
 
 	m := &move.Move{}
-	conversions.SmallMoveToMove(&generator.smallPlays[rewards], m, alph, bd, rack)
+	conversions.SmallMoveToMove(generator.smallPlays[rewards], m, alph, bd, rack)
 
 	assert.Equal(t, "?D", m.Leave().UserVisible(alph))
 }

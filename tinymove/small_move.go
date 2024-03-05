@@ -20,6 +20,9 @@ type SmallMove struct {
 	tilesDescriptor uint8
 }
 
+// DefaultSmallMove is a blank move (a pass)
+var DefaultSmallMove = SmallMove{}
+
 const tilesPlayedBitMask = 0b00000111
 
 func PassMove() SmallMove {
