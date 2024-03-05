@@ -101,7 +101,7 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 			ppotentialLosses := float32(numCombos) - p.Points
 			s.potentialWinnerMutex.Lock()
 			if ppotentialLosses < s.minPotentialLosses {
-				log.Info().
+				log.Debug().
 					Float32("potentialLosses", ppotentialLosses).
 					Str("p", p.String()).
 					Float32("minPotentialLosses", s.minPotentialLosses).Msg("new-fewest-potential-losses")
@@ -218,6 +218,7 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 	options := []option{}
 	mg.SetPlayRecorder(movegen.TopPlayOnlyRecorder)
 	permutations := generatePermutations(j.maybeInBagTiles, s.numinbag)
+	// fmt.Println("perms", permutations)
 	firstPlayEmptiesBag := j.ourMove.Play.TilesPlayed() >= s.numinbag
 	if s.logStream != nil {
 		s.threadLogs[thread].Options = make([]jobOptionLog, len(permutations))
@@ -225,6 +226,7 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 		s.threadLogs[thread].EndgamePlies = s.curEndgamePlies
 	}
 	for _, perm := range permutations {
+		// fmt.Println("perm", perm)
 		// use FixedOrder setting to draw known tiles for opponent
 		topEquity := 0.0 // or something
 		// Basically, put the tiles we (player on turn) want to draw on the left side
