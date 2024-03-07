@@ -453,7 +453,7 @@ func TestTwoInBagSingleMove(t *testing.T) {
 func TestFourInBag(t *testing.T) {
 	// This test is not expected to finish in any reasonable amount of time yet.
 	// It is only here aspirationally.
-	// t.Skip()
+	t.Skip()
 	is := is.New(t)
 
 	cgpStr := "7LITERARY/6QI7/1YET3NEBULA2/2FAX2G7/4INVOKED4/9T5/9E5/5AVOWs5/9I5/1CLIME1R1A5/4ENWOUND4/PATEN1HO5J1/L5OF4BIG/U5AI1HUE1G1/M6EDITRESS ACEOOSZ/ANOPRRT 331/336 0 lex NWL20;"
