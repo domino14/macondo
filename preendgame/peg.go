@@ -762,7 +762,7 @@ func possibleTilesInBag(unseenTiles []tilemapping.MachineLetter, moveTiles []til
 func (s *Solver) SolutionStats(maxMoves int) string {
 	// Assume plays are already sorted.
 	var ss strings.Builder
-	fmt.Fprintf(&ss, "%-20s%-5s%-7s%-9s%-32s%-2s\n", "Play", "Wins", "%Win", "Spread", "Outcomes", "")
+	fmt.Fprintf(&ss, "%-20s%-8s%-8s%-9s%-32s%-2s\n", "Play", "Wins", "%Win", "Spread", "Outcomes", "")
 
 	for _, play := range s.plays[:maxMoves] {
 		noutcomes := 0
@@ -783,33 +783,41 @@ func (s *Solver) SolutionStats(maxMoves int) string {
 				spdStats = fmt.Sprintf("%.2f", float32(play.Spread)/float32(noutcomes))
 			}
 		}
-		var wins, draws, losses [][]tilemapping.MachineLetter
+		var wins, draws, losses []string
 		var outcomeStr string
 		for _, outcome := range play.outcomesArray {
 			// uv := tilemapping.MachineWord(outcome.tiles).UserVisible(s.game.Alphabet())
-			if outcome.outcome == PEGWin {
-				wins = append(wins, outcome.tiles)
-			} else if outcome.outcome == PEGDraw {
-				draws = append(draws, outcome.tiles)
-			} else if outcome.outcome == PEGLoss {
-				losses = append(losses, outcome.tiles)
+			uf := toUserFriendly(outcome.tiles, s.game.Alphabet(), play.Play)
+			if uf != "" {
+				switch outcome.outcome {
+				case PEGWin:
+					wins = append(wins, uf)
+				case PEGDraw:
+					draws = append(draws, uf)
+				case PEGLoss:
+					losses = append(losses, uf)
+				}
 			}
-			// otherwise, it's unknown/not calculated.
 		}
+		slices.Sort(wins)
+		slices.Sort(draws)
+		slices.Sort(losses)
+
 		if len(wins) > 0 {
-			outcomeStr += fmt.Sprintf("👍: %s", toUserFriendly(wins, s.game.Alphabet()))
+			outcomeStr += fmt.Sprintf("👍: %s", strings.Join(wins, " "))
 		}
 		if len(draws) > 0 {
-			outcomeStr += fmt.Sprintf("🤝: %s", toUserFriendly(draws, s.game.Alphabet()))
+			outcomeStr += fmt.Sprintf(" 🤝: %s", strings.Join(draws, " "))
 		}
 		if len(losses) > 0 {
-			outcomeStr += fmt.Sprintf("👎: %s", toUserFriendly(losses, s.game.Alphabet()))
+			outcomeStr += fmt.Sprintf(" 👎: %s", strings.Join(losses, " "))
 		}
 
-		fmt.Fprintf(&ss, "%-20s%-5s%-7s%-9s%-32s%-2s\n", play.Play.ShortDescription(),
+		fmt.Fprintf(&ss, "%-20s%-8s%-8s%-9s%-32s%-2s\n", play.Play.ShortDescription(),
 			pts, wpStats, spdStats, outcomeStr, ignore)
 	}
 	fmt.Fprintf(&ss, "❌ marks plays cut off early\n")
+	fmt.Fprintf(&ss, "[] brackets indicate order does not matter\n")
 
 	return ss.String()
 }
@@ -846,33 +854,52 @@ func (s *Solver) SetSolveOnly(m *move.Move) {
 	s.solveOnlyMove = m
 }
 
-func toUserFriendly(tilesets [][]tilemapping.MachineLetter, alphabet *tilemapping.TileMapping) string {
-	var ss strings.Builder
+func toUserFriendly(tileset []tilemapping.MachineLetter, alphabet *tilemapping.TileMapping, pegPlay *move.Move) string {
 
-	tscopy := make([][]tilemapping.MachineLetter, len(tilesets))
+	// If our pre-endgame play plays off more than 1 tile, and the tileset we
+	// are drawing is at least as long as the number of tiles played, order
+	// doesn't matter for the tiles that we draw for this move.
 
-	for idx, s := range tilesets {
-		tscopy[idx] = make([]tilemapping.MachineLetter, len(s))
-		copy(tscopy[idx], s)
-		// Internally, the tilesets are represented in "right-to-left" ordering;
-		// i.e. the order in which they are in the bag is right-to-left.
-		// We wish to represent it to the user in reverse order; left-to-right,
-		// as it is more intuitive.
-		slices.Reverse(tscopy[idx])
-	}
-
-	sort.Slice(tscopy, func(i, j int) bool {
-		for k := 0; k < len(tscopy[i]) && k < len(tscopy[j]); k++ {
-			if tscopy[i][k] != tscopy[j][k] {
-				return tscopy[i][k] < tscopy[j][k]
-			}
+	orderMatters := true
+	tp := pegPlay.TilesPlayed()
+	if tp > 1 {
+		// order doesn't matter for the tp tiles played.
+		// if order doesn't matter for this sub-tileset, we need to only
+		// display one of the orders; default to the alphabetical one.
+		begin := len(tileset) - tp
+		if begin < 0 {
+			begin = 0
 		}
-		return false
-	})
-
-	for _, s := range tscopy {
-		ss.WriteString(tilemapping.MachineWord(s).UserVisible(alphabet))
-		ss.WriteString(" ")
+		if !slices.IsSortedFunc(tileset[begin:],
+			func(a, b tilemapping.MachineLetter) int {
+				return int(b) - int(a)
+			}) {
+			return ""
+		}
+		//
+		orderMatters = false
 	}
+
+	tsCopy := make([]tilemapping.MachineLetter, len(tileset))
+	copy(tsCopy, tileset)
+	// Internally, the tilesets are represented in "right-to-left" ordering;
+	// i.e. the order in which they are in the bag is right-to-left.
+	// We wish to represent it to the user in reverse order; left-to-right,
+	// as it is more intuitive.
+	slices.Reverse(tsCopy)
+	var ss strings.Builder
+	wl := min(len(tsCopy), tp)
+
+	if !orderMatters {
+		ss.WriteString("[")
+		ss.WriteString(tilemapping.MachineWord(tsCopy[:wl]).UserVisible(alphabet))
+		ss.WriteString("]")
+	} else {
+		ss.WriteString(tilemapping.MachineWord(tsCopy[:wl]).UserVisible(alphabet))
+	}
+	if wl < len(tsCopy) {
+		ss.WriteString(tilemapping.MachineWord(tsCopy[wl:]).UserVisible(alphabet))
+	}
+
 	return ss.String()
 }
