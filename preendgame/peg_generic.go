@@ -174,6 +174,16 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 	// parameters are the job move, and tiles that are unseen to us
 	// (maybe in bag)
 
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("-----RECOVER----")
+			fmt.Printf("Recovered in handleJobGeneric. job=%v thread=%d\n", j, thread)
+			fmt.Println("Game state")
+			fmt.Println(s.endgameSolvers[thread].Game().ToDisplayText())
+			panic("throwing panic again")
+		}
+	}()
+
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -351,6 +361,17 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 	moveToMake tinymove.SmallMove, inbagOption option, winnerChan chan *PreEndgamePlay, depth int,
 	pegPlayEmptiesBag bool) error {
 
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("-----RECOVER----")
+			fmt.Printf("Recovered in recursiveSolve. thread=%d pegPlay=%v moveToMake=%v inBagOption=%v depth=%d pegPlayEmptiesBag=%v\n",
+				thread, pegPlay, moveToMake, inbagOption, depth, pegPlayEmptiesBag)
+			fmt.Println("Game state is")
+			fmt.Println(s.endgameSolvers[thread].Game().ToDisplayText())
+			panic("throwing panic again")
+		}
+	}()
+
 	g := s.endgameSolvers[thread].Game()
 	mg := s.endgameSolvers[thread].Movegen()
 	// fmt.Println(strings.Repeat(" ", depth), "entered recursive solve, inbag:",
@@ -390,6 +411,7 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 			st := time.Now()
 			val, seq, err = s.endgameSolvers[thread].QuickAndDirtySolve(ctx, s.curEndgamePlies, thread)
 			if err != nil {
+				log.Err(err).Msg("quick-and-dirty-solve-error")
 				return err
 			}
 			timeToSolve = time.Since(st)
@@ -464,6 +486,7 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 	conversions.SmallMoveToMove(moveToMake, tempm, g.Alphabet(), g.Board(), g.RackFor(g.PlayerOnTurn()))
 	err := g.PlayMove(tempm, false, 0)
 	if err != nil {
+		log.Err(err).Msg("play-move-err")
 		return err
 	}
 	// fmt.Println(strings.Repeat(" ", depth), "playing move", tempm.ShortDescription(), "onturnnow", g.PlayerOnTurn())
@@ -497,6 +520,7 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 			// fmt.Println(strings.Repeat(" ", depth), "onturn", g.PlayerOnTurn(), "idx", idx, "try next:", tempm.ShortDescription())
 			err = s.recursiveSolve(ctx, thread, pegPlay, genPlays[idx], inbagOption, winnerChan, depth+1, pegPlayEmptiesBag)
 			if err != nil {
+				log.Err(err).Msg("recursive-solve-err")
 				return err
 			}
 			if g.PlayerOnTurn() == s.solvingForPlayer {
@@ -518,6 +542,9 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 		// iteration here will solve the endgames.
 		// fmt.Println(strings.Repeat(" ", depth), "bag is empty or game is over; recursing again to finalize")
 		err = s.recursiveSolve(ctx, thread, pegPlay, tinymove.DefaultSmallMove, inbagOption, winnerChan, depth+1, pegPlayEmptiesBag)
+		if err != nil {
+			log.Err(err).Msg("bag-empty-recursive-solve-err")
+		}
 	}
 	// fmt.Println(strings.Repeat(" ", depth), "unplaying last move")
 
