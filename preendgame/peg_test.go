@@ -200,6 +200,8 @@ func BenchmarkStraightforward1PEG(b *testing.B) {
 	// 11/26/23 - 1		5073027621 ns/op	9482291240 B/op		12543465 allocs/op
 	// 11/29/23 - 1		3247604595 ns/op	9274420416 B/op	 	9328476 allocs/op
 	// 3/3/24   - 1		3157266203 ns/op	9241820392 B/op	 	8688517 allocs/op
+	// With striped-table mutexes: (Think there was a TT-related very rare bug otherwise)
+	// 3/11/24  - 1		3267509980 ns/op	9348210584 B/op		10011243 allocs/op
 	for i := 0; i < b.N; i++ {
 		plays, err := peg.Solve(ctx)
 		is.NoErr(err)

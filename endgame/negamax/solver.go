@@ -542,6 +542,9 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 					child, err := conversions.TinyMoveToFullMove(ttEntry.move(), g.Board(),
 						g.Bag().LetterDistribution(), g.RackFor(onTurn))
 					if err != nil {
+						log.Err(err).Uint64("nodeKey", nodeKey).Int16("score", score).Uint8("flag", flag).
+							Msg("exact-tt-move")
+						fmt.Println(g.ToDisplayText())
 						return 0, err
 					}
 					pv.Update(child, childPV, score)
@@ -560,6 +563,9 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 					child, err := conversions.TinyMoveToFullMove(ttEntry.move(), g.Board(),
 						g.Bag().LetterDistribution(), g.RackFor(onTurn))
 					if err != nil {
+						log.Err(err).Uint64("nodeKey", nodeKey).Int16("score", score).Uint8("flag", flag).
+							Msg("alpha-beta-cutoff-at-tt")
+						fmt.Println(g.ToDisplayText())
 						return 0, err
 					}
 					pv.Update(child, childPV, score)

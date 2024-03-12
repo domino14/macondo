@@ -4,6 +4,7 @@ import (
 	"math"
 	"runtime"
 	"runtime/debug"
+	"sync"
 	"sync/atomic"
 
 	"github.com/domino14/macondo/tinymove"
@@ -22,6 +23,11 @@ const entrySize = 16
 
 const bottom3ByteMask = (1 << 24) - 1
 const depthMask = (1 << 6) - 1
+
+const (
+	mutexStripeSize = 1024
+	mutexStripeMask = mutexStripeSize - 1
+)
 
 // 16 bytes (entrySize)
 type TableEntry struct {
@@ -72,7 +78,7 @@ func (f FakeLock) RLock()   {}
 func (f FakeLock) RUnlock() {}
 
 type TranspositionTable struct {
-	TableLock
+	locks        [mutexStripeSize]TableLock
 	table        []TableEntry
 	created      atomic.Uint64
 	lookups      atomic.Uint64
@@ -94,19 +100,25 @@ type TranspositionTable struct {
 var GlobalTranspositionTable = &TranspositionTable{}
 
 func (t *TranspositionTable) SetSingleThreadedMode() {
-	t.TableLock = &FakeLock{}
+	for i := range mutexStripeSize {
+		t.locks[i] = &FakeLock{}
+	}
 }
 
 func (t *TranspositionTable) SetMultiThreadedMode() {
-	// t.TableLock = new(sync.RWMutex)
-	t.TableLock = &FakeLock{}
+	for i := range mutexStripeSize {
+		t.locks[i] = new(sync.RWMutex)
+		// t.locks[i] = &FakeLock{}
+	}
 }
 
 func (t *TranspositionTable) lookup(zval uint64) TableEntry {
-	t.RLock()
-	defer t.RUnlock()
 	t.lookups.Add(1)
 	idx := zval & t.sizeMask
+
+	t.locks[zval&mutexStripeMask].RLock()
+	defer t.locks[zval&mutexStripeMask].RUnlock()
+
 	fullHash := t.table[idx].fullHash(idx)
 	if fullHash != zval {
 		if t.table[idx].valid() {
@@ -125,16 +137,15 @@ func (t *TranspositionTable) store(zval uint64, tentry TableEntry) {
 	idx := zval & t.sizeMask
 	tentry.top4bytes = uint32(zval >> 32)
 	tentry.fifthbyte = uint8(zval >> 24)
-	t.Lock()
-	defer t.Unlock()
+	t.created.Add(1)
+
+	t.locks[zval&mutexStripeMask].Lock()
+	defer t.locks[zval&mutexStripeMask].Unlock()
 	// just overwrite whatever is there for now.
 	t.table[idx] = tentry
-	t.created.Add(1)
 }
 
 func (t *TranspositionTable) Reset(fractionOfMemory float64, boardDim int) {
-	t.Lock()
-	defer t.Unlock()
 	// Get memory limit, if set.
 	memLimit := debug.SetMemoryLimit(-1)
 	totalMem := memory.TotalMemory()

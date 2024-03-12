@@ -521,6 +521,7 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 			err = s.recursiveSolve(ctx, thread, pegPlay, genPlays[idx], inbagOption, winnerChan, depth+1, pegPlayEmptiesBag)
 			if err != nil {
 				log.Err(err).Msg("recursive-solve-err")
+				g.UnplayLastMove()
 				return err
 			}
 			if g.PlayerOnTurn() == s.solvingForPlayer {
