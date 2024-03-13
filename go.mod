@@ -22,7 +22,7 @@ require (
 	golang.org/x/sync v0.5.0
 	golang.org/x/text v0.14.0
 	gonum.org/v1/gonum v0.14.0
-	google.golang.org/protobuf v1.32.0
+	google.golang.org/protobuf v1.33.0
 	gopkg.in/yaml.v2 v2.4.0
 	lukechampine.com/frand v1.4.2
 )
