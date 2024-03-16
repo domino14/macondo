@@ -28,8 +28,47 @@ import (
 	"github.com/domino14/macondo/preendgame"
 )
 
+const defaultEndgamePlies = 4
+
 type Response struct {
 	message string
+}
+
+type CmdOptions map[string][]string
+
+func (c CmdOptions) String(key string) string {
+	v := c[key]
+	if len(v) > 0 {
+		return v[0]
+	}
+	return ""
+}
+
+func (c CmdOptions) Int(key string) (int, error) {
+	v := c[key]
+	if len(v) == 0 {
+		return 0, errors.New(key + " not found in options")
+	}
+	return strconv.Atoi(v[0])
+}
+func (c CmdOptions) IntDefault(key string, defaultI int) (int, error) {
+	v := c[key]
+	if len(v) == 0 {
+		return defaultI, nil
+	}
+	return strconv.Atoi(v[0])
+}
+
+func (c CmdOptions) Bool(key string) bool {
+	v := c[key]
+	if len(v) == 0 {
+		return false
+	}
+	return strings.ToLower(v[0]) == "true"
+}
+
+func (c CmdOptions) StringArray(key string) []string {
+	return c[key]
 }
 
 func msg(message string) *Response {
@@ -351,7 +390,7 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 		return nil, errMacondoSolving
 	}
 
-	plies := 4
+	var plies int
 	var maxtime int
 	var maxthreads = runtime.NumCPU() - 1
 	if maxthreads == 0 {
@@ -365,35 +404,32 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	var enableFW bool
 	var err error
 
-	if cmd.options["plies"] != "" {
-		plies, err = strconv.Atoi(cmd.options["plies"])
+	if plies, err = cmd.options.IntDefault("plies", defaultEndgamePlies); err != nil {
+		return nil, err
+	}
+	if maxtime, err = cmd.options.IntDefault("maxtime", 0); err != nil {
+		return nil, err
+	}
+	if maxthreads, err = cmd.options.IntDefault("threads", maxthreads); err != nil {
+		return nil, err
+	}
+	disableID = cmd.options.Bool("disable-id")
+	disableTT = cmd.options.Bool("disable-tt")
+	enableFW = cmd.options.Bool("first-win-optim")
+
+	// clear out the last value of this endgame node; gc should
+	// delete the tree.
+	sc.endgameSolver = new(negamax.Solver)
+
+	if cmd.options.Bool("log") {
+		sc.endgameLogFile, err = os.Create(EndgameLog)
 		if err != nil {
 			return nil, err
 		}
+		sc.endgameSolver.SetLogStream(sc.endgameLogFile)
+		sc.showMessage("endgame will log to " + EndgameLog)
 	}
 
-	if cmd.options["maxtime"] != "" {
-		maxtime, err = strconv.Atoi(cmd.options["maxtime"])
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	if cmd.options["disable-id"] == "true" {
-		disableID = true
-	}
-	if cmd.options["disable-tt"] == "true" {
-		disableTT = true
-	}
-	if cmd.options["threads"] != "" {
-		maxthreads, err = strconv.Atoi(cmd.options["threads"])
-		if err != nil {
-			return nil, err
-		}
-	}
-	if cmd.options["first-win-optim"] == "true" {
-		enableFW = true
-	}
 	sc.showMessage(fmt.Sprintf(
 		"plies %v, maxtime %v, threads %v",
 		plies, maxtime, maxthreads))
@@ -405,9 +441,6 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 		sc.endgameCtx, sc.endgameCancel = context.WithTimeout(sc.endgameCtx, time.Duration(maxtime)*time.Second)
 	}
 
-	// clear out the last value of this endgame node; gc should
-	// delete the tree.
-	sc.endgameSolver = new(negamax.Solver)
 	err = sc.endgameSolver.Init(sc.gen, sc.game.Game)
 	if err != nil {
 		return nil, err
@@ -475,64 +508,38 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 	var skipLoss bool
 	var skipTiebreaker bool
 	var disableIterativeDeepening bool
-	var onlySolveMove *move.Move
-	knownOppRack := cmd.options["opprack"]
+	knownOppRack := cmd.options.String("opprack")
 
-	if cmd.options["endgameplies"] != "" {
-		endgamePlies, err = strconv.Atoi(cmd.options["endgameplies"])
+	if endgamePlies, err = cmd.options.IntDefault("endgameplies", defaultEndgamePlies); err != nil {
+		return nil, err
+	}
+	if maxtime, err = cmd.options.IntDefault("maxtime", 0); err != nil {
+		return nil, err
+	}
+	if maxthreads, err = cmd.options.IntDefault("threads", 0); err != nil {
+		return nil, err
+	}
+	if maxsolutions, err = cmd.options.IntDefault("maxsolutions", maxsolutions); err != nil {
+		return nil, err
+	}
+	skipNonEmptying = cmd.options.Bool("skip-non-emptying")
+	skipLoss = cmd.options.Bool("skip-loss")
+	earlyCutoff = cmd.options.Bool("early-cutoff")
+	skipTiebreaker = cmd.options.Bool("skip-tiebreaker")
+	disableIterativeDeepening = cmd.options.Bool("disable-id")
+	movesToSolveStrs := cmd.options.StringArray("only-solve")
+	movesToSolve := []*move.Move{}
+
+	for _, ms := range movesToSolveStrs {
+		m, err := sc.game.ParseMove(
+			sc.game.PlayerOnTurn(),
+			sc.options.lowercaseMoves,
+			strings.Fields(ms))
 		if err != nil {
 			return nil, err
 		}
+		movesToSolve = append(movesToSolve, m)
 	}
-
-	if cmd.options["maxtime"] != "" {
-		maxtime, err = strconv.Atoi(cmd.options["maxtime"])
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	if cmd.options["threads"] != "" {
-		maxthreads, err = strconv.Atoi(cmd.options["threads"])
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	if cmd.options["maxsolutions"] != "" {
-		maxsolutions, err = strconv.Atoi(cmd.options["maxsolutions"])
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	if cmd.options["skip-non-emptying"] == "true" {
-		skipNonEmptying = true
-	}
-
-	if cmd.options["skip-loss"] == "true" {
-		skipLoss = true
-	}
-
-	if cmd.options["early-cutoff"] == "true" {
-		earlyCutoff = true
-	}
-
-	if cmd.options["skip-tiebreaker"] == "true" {
-		skipTiebreaker = true
-	}
-
-	if cmd.options["disable-id"] == "true" {
-		disableIterativeDeepening = true
-	}
-
-	if cmd.options["only-solve"] != "" {
-		onlySolveMove, err = sc.game.ParseMove(sc.game.PlayerOnTurn(), sc.options.lowercaseMoves, strings.Fields(cmd.options["only-solve"]))
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	sc.showMessage(fmt.Sprintf(
 		"endgameplies %v, maxtime %v, threads %v",
 		endgamePlies, maxtime, maxthreads))
@@ -544,7 +551,11 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 	sc.preendgameSolver = new(preendgame.Solver)
 	sc.preendgameSolver.Init(sc.game.Game, gd)
 
-	if cmd.options["log"] == "true" {
+	if maxthreads != 0 {
+		sc.preendgameSolver.SetThreads(maxthreads)
+	}
+
+	if cmd.options.Bool("log") {
 		sc.pegLogFile, err = os.Create(PEGLog)
 		if err != nil {
 			return nil, err
@@ -553,9 +564,6 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 		sc.showMessage("peg will log to " + PEGLog)
 	}
 
-	if maxthreads != 0 {
-		sc.preendgameSolver.SetThreads(maxthreads)
-	}
 	if knownOppRack != "" {
 		knownOppRack = strings.ToUpper(knownOppRack)
 		r, err := tilemapping.ToMachineLetters(knownOppRack, sc.game.Alphabet())
@@ -570,7 +578,7 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 	sc.preendgameSolver.SetSkipTiebreaker(skipTiebreaker)
 	sc.preendgameSolver.SetSkipLossOptim(skipLoss)
 	sc.preendgameSolver.SetIterativeDeepening(!disableIterativeDeepening)
-	sc.preendgameSolver.SetSolveOnly(onlySolveMove)
+	sc.preendgameSolver.SetSolveOnly(movesToSolve)
 	sc.pegCtx, sc.pegCancel = context.WithCancel(context.Background())
 	if maxtime > 0 {
 		sc.pegCtx, sc.pegCancel = context.WithTimeout(sc.pegCtx, time.Duration(maxtime)*time.Second)
@@ -626,16 +634,16 @@ func (sc *ShellController) infer(cmd *shellcmd) (*Response, error) {
 		return nil, nil
 	}
 
-	for opt, val := range cmd.options {
+	for opt := range cmd.options {
 		switch opt {
 		case "threads":
-			threads, err = strconv.Atoi(val)
+			threads, err = cmd.options.Int(opt)
 			if err != nil {
 				return nil, err
 			}
 
 		case "time":
-			timesec, err = strconv.Atoi(val)
+			timesec, err = cmd.options.Int(opt)
 			if err != nil {
 				return nil, err
 			}
@@ -720,25 +728,26 @@ func (sc *ShellController) autoAnalyze(cmd *shellcmd) (*Response, error) {
 	}
 	filename := cmd.args[0]
 	options := cmd.options
-	if options["export"] != "" {
+	if options.String("export") != "" {
 
-		f, err := os.Create(options["export"] + ".gcg")
+		f, err := os.Create(options.String("export") + ".gcg")
 		if err != nil {
 			return nil, err
 		}
-
-		if options["letterdist"] == "" {
-			options["letterdist"] = sc.config.GetString(config.ConfigDefaultLetterDistribution)
+		ld := options.String("letterdist")
+		lex := options.String("lex")
+		if ld == "" {
+			ld = sc.config.GetString(config.ConfigDefaultLetterDistribution)
 		}
-		if options["lexicon"] == "" {
-			options["lexicon"] = sc.config.GetString(config.ConfigDefaultLexicon)
+		if lex == "" {
+			lex = sc.config.GetString(config.ConfigDefaultLexicon)
 		}
 
 		err = automatic.ExportGCG(
-			sc.config, filename, options["letterdist"], options["lexicon"],
-			options["boardlayout"], options["export"], f)
+			sc.config, filename, ld, lex,
+			options.String("boardlayout"), options.String("export"), f)
 		if err != nil {
-			ferr := os.Remove(options["export"] + ".gcg")
+			ferr := os.Remove(options.String("export") + ".gcg")
 			if ferr != nil {
 				log.Err(ferr).Msg("removing gcg output file")
 			}
@@ -748,7 +757,7 @@ func (sc *ShellController) autoAnalyze(cmd *shellcmd) (*Response, error) {
 		if err != nil {
 			return nil, err
 		}
-		return msg("exported to " + options["export"] + ".gcg"), nil
+		return msg("exported to " + options.String("export") + ".gcg"), nil
 	}
 	analysis, err := automatic.AnalyzeLogFile(filename)
 	if err != nil {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"runtime"
 	"slices"
 	"sort"
@@ -325,7 +326,7 @@ type Solver struct {
 	busy             bool
 	solvingForPlayer int
 	logStream        io.Writer
-	solveOnlyMove    *move.Move
+	solveOnlyMoves   []*move.Move
 
 	earlyCutoffOptim     bool
 	skipNonEmptyingOptim bool
@@ -401,8 +402,8 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 	s.movegen.SetMaxTileUsage(7)
 	// Examine high equity plays first.
 	var moves []*move.Move
-	if s.solveOnlyMove != nil {
-		moves = []*move.Move{s.solveOnlyMove}
+	if s.solveOnlyMoves != nil {
+		moves = s.solveOnlyMoves
 	} else {
 		moves = s.movegen.GenAll(s.game.RackFor(s.game.PlayerOnTurn()), false)
 	}
@@ -502,6 +503,14 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 			// Endgame should quit early if it finds any win.
 			es.SetFirstWinOptim(true)
 			s.endgameSolvers[idx] = es
+			if s.logStream != nil {
+				// Also create endgame loggers
+				esLogFile, err := os.Create(fmt.Sprintf("./macondo-endgame-log-%d", idx))
+				if err != nil {
+					return nil, err
+				}
+				es.SetLogStream(esLogFile)
+			}
 		}
 
 		log.Info().Int("nmoves", len(moves)).Int("nthreads", s.threads).Msg("peg-generated-moves")
@@ -524,8 +533,9 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 		close(done)
 		writer.Wait()
 	}
-	log.Info().Str("time-taken", time.Since(ts).String()).Msg("solution-done")
-
+	log.Info().Str("ttable-stats", s.ttable.Stats()).
+		Float64("time-elapsed-sec", time.Since(ts).Seconds()).
+		Msg("solve-returning")
 	return winners, err
 }
 
@@ -850,8 +860,8 @@ func (s *Solver) IsSolving() bool {
 	return s.busy
 }
 
-func (s *Solver) SetSolveOnly(m *move.Move) {
-	s.solveOnlyMove = m
+func (s *Solver) SetSolveOnly(m []*move.Move) {
+	s.solveOnlyMoves = m
 }
 
 func toUserFriendly(tileset []tilemapping.MachineLetter, alphabet *tilemapping.TileMapping, pegPlay *move.Move) string {

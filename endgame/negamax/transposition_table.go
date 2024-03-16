@@ -1,7 +1,9 @@
 package negamax
 
 import (
+	"fmt"
 	"math"
+	"os"
 	"runtime"
 	"runtime/debug"
 	"sync"
@@ -176,6 +178,13 @@ func (t *TranspositionTable) Reset(fractionOfMemory float64, boardDim int) {
 		log.Info().Msg("creating zobrist hash")
 		t.zobrist = &zobrist.Zobrist{}
 		t.zobrist.Initialize(boardDim)
+		zd, err := os.Create("/tmp/macondo-zobrist-dump")
+		if err != nil {
+			log.Err(err).Msg("could not dump zobrist hashes to file")
+		} else {
+			t.zobrist.Dump(zd)
+			zd.Close()
+		}
 	}
 
 	log.Info().Int("num-elems", numElems).
@@ -197,6 +206,11 @@ func (t *TranspositionTable) Zobrist() *zobrist.Zobrist {
 
 func (t *TranspositionTable) SetZobrist(z *zobrist.Zobrist) {
 	t.zobrist = z
+}
+
+func (t *TranspositionTable) Stats() string {
+	return fmt.Sprintf("created: %d lookups: %d hits: %d t2collisions: %d",
+		t.created.Load(), t.lookups.Load(), t.hits.Load(), t.t2collisions.Load())
 }
 
 // a debug tt

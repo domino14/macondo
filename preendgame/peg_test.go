@@ -439,7 +439,7 @@ func TestTwoInBagSingleMove(t *testing.T) {
 	peg.maxEndgamePlies = 3
 	peg.iterativeDeepening = false
 	m := move.NewScoringMoveSimple(10, "6F", ".X.", "AEFGST", g.Alphabet())
-	peg.solveOnlyMove = m
+	peg.solveOnlyMoves = []*move.Move{m}
 	ctx := context.Background()
 	winners, err := peg.Solve(ctx)
 

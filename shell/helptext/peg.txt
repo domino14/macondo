@@ -96,4 +96,5 @@ Options:
     -only-solve "B4 DIEH.RD"
 
     Setting the -only-solve option will only solve the PEG for the given move. This
-    is good if you want to just examine one move.
+    is good if you want to just examine one move. You can specify this option
+    multiple times to specify multiple moves.

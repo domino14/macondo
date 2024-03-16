@@ -42,9 +42,10 @@ import (
 )
 
 const (
-	SimLog   = "/tmp/simlog"
-	InferLog = "/tmp/inferlog"
-	PEGLog   = "/tmp/peglog"
+	SimLog     = "./macondo-simlog"
+	InferLog   = "./macondo-inferlog"
+	PEGLog     = "./macondo-peglog"
+	EndgameLog = "./macondo-endgamelog"
 )
 
 var (
@@ -127,11 +128,12 @@ type ShellController struct {
 	endgameSolver    *negamax.Solver
 	preendgameSolver *preendgame.Solver
 
-	endgameCtx    context.Context
-	endgameCancel context.CancelFunc
-	pegCtx        context.Context
-	pegCancel     context.CancelFunc
-	pegLogFile    *os.File
+	endgameCtx     context.Context
+	endgameCancel  context.CancelFunc
+	endgameLogFile *os.File
+	pegCtx         context.Context
+	pegCancel      context.CancelFunc
+	pegLogFile     *os.File
 
 	curPlayList  []*move.Move
 	elitebot     *bot.BotTurnPlayer
@@ -658,109 +660,63 @@ func (sc *ShellController) commitAIMove() error {
 	return nil
 }
 
-func (sc *ShellController) handleAutoplay(args []string, options map[string]string) error {
+func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) error {
 	var logfile, lexicon, letterDistribution, leavefile1, leavefile2, pegfile1, pegfile2 string
 	var numgames, numthreads int
 	var block bool
 	var botcode1, botcode2 pb.BotRequest_BotCode
 	var minsimplies1, minsimplies2 int
 	var err error
-	if options["logfile"] == "" {
+	if options.String("logfile") == "" {
 		logfile = "/tmp/autoplay.txt"
 	} else {
-		logfile = options["logfile"]
+		logfile = options.String("logfile")
 	}
-	if options["lexicon"] == "" {
+	if options.String("lexicon") == "" {
 		lexicon = sc.config.GetString(config.ConfigDefaultLexicon)
 	} else {
-		lexicon = options["lexicon"]
+		lexicon = options.String("lexicon")
 	}
-	if options["letterdistribution"] == "" {
+	if options.String("letterdistribution") == "" {
 		letterDistribution = sc.config.GetString(config.ConfigDefaultLetterDistribution)
 	} else {
-		letterDistribution = options["letterdistribution"]
+		letterDistribution = options.String("letterdistribution")
 	}
-	if options["leavefile1"] == "" {
-		leavefile1 = ""
-	} else {
-		leavefile1 = options["leavefile1"]
-	}
-	if options["leavefile2"] == "" {
-		leavefile2 = ""
-	} else {
-		leavefile2 = options["leavefile2"]
-	}
-	if options["pegfile1"] == "" {
-		pegfile1 = ""
-	} else {
-		pegfile1 = options["pegfile1"]
-	}
-	if options["pegfile2"] == "" {
-		pegfile2 = ""
-	} else {
-		pegfile2 = options["pegfile2"]
-	}
-	if options["botcode1"] == "" {
+	leavefile1 = options.String("leavefile1")
+	leavefile2 = options.String("leavefile2")
+	pegfile1 = options.String("pegfile1")
+	pegfile1 = options.String("pegfile1")
+
+	if options.String("botcode1") == "" {
 		botcode1 = pb.BotRequest_HASTY_BOT
 	} else {
-		botcode1String := options["botcode1"]
-		botcode1Value, exists := pb.BotRequest_BotCode_value[botcode1String]
+		botcode1Value, exists := pb.BotRequest_BotCode_value[options.String("botcode1")]
 		if !exists {
-			return fmt.Errorf("bot code %s does not exist", botcode1String)
+			return fmt.Errorf("bot code %s does not exist", options.String("botcode1"))
 		}
 		botcode1 = pb.BotRequest_BotCode(botcode1Value)
 	}
-	if options["botcode2"] == "" {
+	if options.String("botcode2") == "" {
 		botcode2 = pb.BotRequest_HASTY_BOT
 	} else {
-		botcode2String := options["botcode2"]
-		botcode2Value, exists := pb.BotRequest_BotCode_value[botcode2String]
+		botcode2Value, exists := pb.BotRequest_BotCode_value[options.String("botcode2")]
 		if !exists {
-			return fmt.Errorf("bot code %s does not exist", botcode2String)
+			return fmt.Errorf("bot code %s does not exist", options.String("botcode2"))
 		}
-		botcode2 = pb.BotRequest_BotCode(botcode2Value)
+		botcode1 = pb.BotRequest_BotCode(botcode2Value)
 	}
-
-	if options["minsimplies1"] == "" {
-		minsimplies1 = 0
-	} else {
-		minsimplies1, err = strconv.Atoi(options["minsimplies1"])
-		if err != nil {
-			return err
-		}
+	if minsimplies1, err = options.IntDefault("minsimplies1", 0); err != nil {
+		return err
 	}
-	if options["minsimplies2"] == "" {
-		minsimplies2 = 0
-	} else {
-		minsimplies2, err = strconv.Atoi(options["minsimplies2"])
-		if err != nil {
-			return err
-		}
+	if minsimplies2, err = options.IntDefault("minsimplies2", 0); err != nil {
+		return err
 	}
-
-	if options["numgames"] == "" {
-		numgames = 1e9
-	} else {
-		var err error
-		numgames, err = strconv.Atoi(options["numgames"])
-		if err != nil {
-			return err
-		}
+	if numgames, err = options.IntDefault("numgames", 1e9); err != nil {
+		return err
 	}
-	if options["block"] == "" {
-		block = false
-	} else {
-		block = true
-	}
-
-	if options["threads"] == "" {
-		numthreads = runtime.NumCPU()
-	} else {
-		var err error
-		numthreads, err = strconv.Atoi(options["threads"])
-		if err != nil {
-			return err
-		}
+	block = options.Bool("block")
+	if numthreads, err = options.IntDefault("threads", runtime.NumCPU()); err != nil {
+		return err
 	}
 	if numthreads < 1 {
 		return errors.New("need at least one thread")
@@ -805,7 +761,7 @@ func (sc *ShellController) handleAutoplay(args []string, options map[string]stri
 type shellcmd struct {
 	cmd     string
 	args    []string
-	options map[string]string
+	options CmdOptions
 }
 
 func extractFields(line string) (*shellcmd, error) {
@@ -819,7 +775,7 @@ func extractFields(line string) (*shellcmd, error) {
 	}
 	cmd := fields[0]
 	var args []string
-	options := map[string]string{}
+	options := CmdOptions{}
 	// handle options
 
 	lastWasOption := false
@@ -833,7 +789,7 @@ func extractFields(line string) (*shellcmd, error) {
 		}
 		if lastWasOption {
 			lastWasOption = false
-			options[lastOption] = fields[idx]
+			options[lastOption] = append(options[lastOption], fields[idx])
 		} else {
 			args = append(args, fields[idx])
 		}

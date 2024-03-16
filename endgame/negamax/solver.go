@@ -7,7 +7,6 @@ import (
 	"io"
 	"runtime"
 	"sort"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -141,6 +140,23 @@ func (pvLine PVLine) NLBString() string {
 // 	}
 // }
 
+type endgameLog struct {
+	Ply   int       `yaml:"ply"`
+	Plays []playLog `yaml:"plays"`
+}
+
+type playLog struct {
+	Play      string    `yaml:"play"`
+	Value     int16     `yaml:"value"`
+	Alpha     int16     `yaml:"α"`
+	Beta      int16     `yaml:"β"`
+	TTNodeKey uint64    `yaml:"ttNodeKey"`
+	Flag      uint8     `yaml:"ttFlag"`
+	Depth     uint8     `yaml:"ttDepth"`
+	Score     int16     `yaml:"ttScore"`
+	Plays     []playLog `yaml:"plays"`
+}
+
 type Solver struct {
 	stmMovegen   movegen.MoveGenerator
 	game         *game.Game
@@ -170,8 +186,9 @@ type Solver struct {
 	threads         int
 	nodes           atomic.Uint64
 
-	logStream io.Writer
-	busy      bool
+	logStream  io.Writer
+	busy       bool
+	threadLogs []playLog
 }
 
 // Init initializes the solver
@@ -191,6 +208,11 @@ func (s *Solver) Init(m movegen.MoveGenerator, game *game.Game) error {
 	}
 
 	return nil
+}
+
+// SetLogStream only prints coherent logs for single-threaded endgames for now.
+func (s *Solver) SetLogStream(l io.Writer) {
+	s.logStream = l
 }
 
 func (s *Solver) Movegen() movegen.MoveGenerator {
@@ -347,7 +369,7 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 		log.Info().Int("plies", p).Msg("deepening-iteratively")
 		s.currentIDDepths[0] = p
 		if s.logStream != nil {
-			fmt.Fprintf(s.logStream, "- ply: %d\n", p)
+			// fmt.Fprintf(s.logStream, "- ply: %d\n", p)
 		}
 
 		// start helper threads
@@ -490,7 +512,7 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 		}
 		s.currentIDDepths[0] = p
 		if s.logStream != nil {
-			fmt.Fprintf(s.logStream, "- ply: %d\n", p)
+			// fmt.Fprintf(s.logStream, "- ply: %d\n", p)
 		}
 		pv := PVLine{g: g}
 		val, err := s.negamax(ctx, initialHashKey, p, α, β, &pv, 0)
@@ -595,14 +617,14 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	}
 
 	bestValue := -HugeNumber
-	indent := 2 * (s.currentIDDepths[thread] - depth)
+	// logIndent := strings.Repeat(" ", max(2*(s.currentIDDepths[thread]-depth), 0))
 	if s.logStream != nil {
-		fmt.Fprintf(s.logStream, "  %vplays:\n", strings.Repeat(" ", indent))
+		// fmt.Fprintf(s.logStream, "  %vplays:\n", logIndent)
 	}
 	var bestMove tinymove.SmallMove
 	for idx := range children {
 		if s.logStream != nil {
-			fmt.Fprintf(s.logStream, "  %v- play: %v\n", strings.Repeat(" ", indent), children[idx].ShortDescription(g.Alphabet()))
+			// fmt.Fprintf(s.logStream, "  %v- play: %v\n", logIndent, children[idx].ShortDescription())
 		}
 
 		moveTiles, err := g.PlaySmallMove(&children[idx])
@@ -622,7 +644,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		}
 		g.UnplayLastMove()
 		if s.logStream != nil {
-			fmt.Fprintf(s.logStream, "  %v  value: %v\n", strings.Repeat(" ", indent), value)
+			// fmt.Fprintf(s.logStream, "  %v  value: %v\n", logIndent, value)
 		}
 		if -value > bestValue {
 			bestValue = -value
@@ -638,8 +660,8 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 
 		α = max(α, bestValue)
 		if s.logStream != nil {
-			fmt.Fprintf(s.logStream, "  %v  α: %v\n", strings.Repeat(" ", indent), α)
-			fmt.Fprintf(s.logStream, "  %v  β: %v\n", strings.Repeat(" ", indent), β)
+			// fmt.Fprintf(s.logStream, "  %v  α: %v\n", logIndent, α)
+			// fmt.Fprintf(s.logStream, "  %v  β: %v\n", logIndent, β)
 		}
 		if bestValue >= β {
 			break // beta cut-off
@@ -666,6 +688,15 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		entryToStore.flagAndDepth = flag<<6 + uint8(depth)
 		entryToStore.play = bestMove.TinyMove()
 		s.ttable.store(nodeKey, entryToStore)
+		if s.logStream != nil {
+			// fmt.Fprintf(s.logStream, "  %vttnodeKey: %v\n", logIndent, nodeKey)
+			// fmt.Fprintf(s.logStream, "  %vttflag: %v\n", logIndent, flag)
+			// fmt.Fprintf(s.logStream, "  %vttdepth: %v\n", logIndent, depth)
+			// fmt.Fprintf(s.logStream, "  %vttscore: %v\n", logIndent, score)
+			// fmt.Fprintf(s.logStream, "  %vttplay: %v\n", logIndent, entryToStore.play)
+			fmt.Fprintf(s.logStream, "%d (d: %d s: %d)\n", nodeKey, depth, score)
+			fmt.Fprintf(s.logStream, " cgp: %v\n\n", g.ToCGP(false))
+		}
 	}
 	return bestValue, nil
 
@@ -750,11 +781,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 
 	bestSeq = s.principalVariation.Moves[:s.principalVariation.numMoves]
 	bestV = s.bestPVValue
-	log.Info().
-		Uint64("ttable-created", s.ttable.created.Load()).
-		Uint64("ttable-lookups", s.ttable.lookups.Load()).
-		Uint64("ttable-hits", s.ttable.hits.Load()).
-		Uint64("ttable-t2collisions", s.ttable.t2collisions.Load()).
+	log.Info().Str("ttable-stats", s.ttable.Stats()).
 		Float64("time-elapsed-sec", time.Since(tstart).Seconds()).
 		Msg("solve-returning")
 	if err != nil {
@@ -791,6 +818,7 @@ func (s *Solver) QuickAndDirtySolve(ctx context.Context, plies, thread int) (int
 	// 	Str("theirRack", s.game.RackLettersFor(1-s.solvingPlayer)).
 	// 	Int("plies", plies).Msg("qdsolve-alphabeta-solve-config")
 	s.requestedPlies = plies
+
 	// tstart := time.Now()
 	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
 	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)

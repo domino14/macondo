@@ -76,7 +76,7 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 				}
 				processed.Add(1)
 				n := processed.Load()
-				if n%500 == 0 {
+				if n%100 == 0 {
 					log.Info().Uint64("cutoffs", s.numCutoffs.Load()).Msgf("processed %d endgames...", n)
 				}
 			}

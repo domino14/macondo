@@ -15,7 +15,7 @@ import (
 	"github.com/domino14/macondo/montecarlo"
 )
 
-func (sc *ShellController) handleSim(args []string, options map[string]string) error {
+func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
 	var plies, threads int
 	var err error
 	stoppingCondition := montecarlo.StopNone
@@ -39,20 +39,20 @@ func (sc *ShellController) handleSim(args []string, options map[string]string) e
 
 	inferMode := montecarlo.InferenceOff
 	knownOppRack := ""
-	for opt, val := range options {
+	for opt := range options {
 		switch opt {
 		case "plies":
-			plies, err = strconv.Atoi(val)
+			plies, err = strconv.Atoi(options.String(opt))
 			if err != nil {
 				return err
 			}
 		case "threads":
-			threads, err = strconv.Atoi(val)
+			threads, err = strconv.Atoi(options.String(opt))
 			if err != nil {
 				return err
 			}
 		case "stop":
-			sci, err := strconv.Atoi(val)
+			sci, err := strconv.Atoi(options.String(opt))
 			if err != nil {
 				return err
 			}
@@ -67,14 +67,14 @@ func (sc *ShellController) handleSim(args []string, options map[string]string) e
 				return errors.New("only allowed values are 95, 98, and 99 for stopping condition")
 			}
 		case "opprack":
-			knownOppRack = val
+			knownOppRack = options.String(opt)
 
 		case "useinferences":
 			inferences := sc.rangefinder.Inferences()
 			if len(inferences) == 0 {
 				return errors.New("you must run `infer` first")
 			}
-			switch val {
+			switch options.String(opt) {
 			case "cycle":
 				inferMode = montecarlo.InferenceCycle
 				sc.showMessage(fmt.Sprintf(
