@@ -369,7 +369,7 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 	// Do initial search so that we can have a good estimate for
 	// move ordering.
 	s.currentIDDepths[0] = 1
-	s.negamax(ctx, initialHashKey, 1, α, β, &pv, 0)
+	s.negamax(ctx, initialHashKey, 1, α, β, &pv, 0, true)
 	// Sort the moves by valuation.
 	sort.Slice(s.initialMoves[0], func(i, j int) bool {
 		return s.initialMoves[0][i].EstimatedValue() > s.initialMoves[0][j].EstimatedValue()
@@ -416,7 +416,7 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 				pv := PVLine{g: s.gameCopies[t-1]} // not being used for anything
 				val, err := s.negamax(
 					helperCtx, initialHashKey, s.currentIDDepths[t],
-					helperAlpha, helperBeta, &pv, t)
+					helperAlpha, helperBeta, &pv, t, true)
 				if err != nil {
 					log.Debug().Msgf("Thread %d error %v", t, err)
 				}
@@ -452,7 +452,7 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 		// transposition table, but this one actually edits the principal
 		// variation.
 		pv := PVLine{g: s.game}
-		val, err := s.negamax(ctx, initialHashKey, p, α, β, &pv, 0)
+		val, err := s.negamax(ctx, initialHashKey, p, α, β, &pv, 0, true)
 
 		if err != nil {
 			log.Err(err).Msg("negamax-error-most-likely-timeout")
@@ -685,7 +685,7 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 			// fmt.Fprintf(s.logStream, "- ply: %d\n", p)
 		}
 		pv := PVLine{g: g}
-		val, err := s.negamax(ctx, initialHashKey, p, α, β, &pv, 0)
+		val, err := s.negamax(ctx, initialHashKey, p, α, β, &pv, 0, true)
 		if err != nil {
 			return err
 		}
@@ -701,7 +701,7 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 
 }
 
-func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β int16, pv *PVLine, thread int) (int16, error) {
+func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β int16, pv *PVLine, thread int, pvNode bool) (int16, error) {
 	if ctx.Err() != nil {
 		return 0, ctx.Err()
 	}
@@ -712,13 +712,11 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	onTurn := g.PlayerOnTurn()
 	ourSpread := g.SpreadFor(onTurn)
 
-	// Note: if I return early as in here, the PV might not be complete.
-	// (the transposition table is cutting off the iterations)
-	// The value should still be correct, though.
-	// Something like PVS might do better at keeping the PV intact.
 	alphaOrig := α
 	ttMove := tinymove.InvalidTinyMove
-
+	if !(pvNode || α == β-1) {
+		panic("bad conditions")
+	}
 	if s.transpositionTableOptim {
 		ttEntry := s.ttable.lookup(nodeKey)
 		if ttEntry.valid() && ttEntry.depth() >= uint8(depth) {
@@ -727,42 +725,18 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			// add spread back in; we subtract them when storing.
 			score += int16(ourSpread)
 			if flag == TTExact {
-				if pv.numMoves == 0 {
-					// let's not lose the very first move.
-					log.Trace().Msg("exact-tt-move")
-					childPV := PVLine{g: g}
-					child, err := conversions.TinyMoveToFullMove(ttEntry.move(), g.Board(),
-						g.Bag().LetterDistribution(), g.RackFor(onTurn))
-					if err != nil {
-						log.Err(err).Uint64("nodeKey", nodeKey).Int16("score", score).Uint8("flag", flag).
-							Msg("exact-tt-move")
-						fmt.Println(g.ToDisplayText())
-						return 0, err
-					}
-					pv.Update(child, childPV, score)
+				if !pvNode {
+					return score, nil
 				}
-				return score, nil
 			} else if flag == TTLower {
 				α = max(α, score)
 			} else if flag == TTUpper {
 				β = min(β, score)
 			}
 			if α >= β {
-				if pv.numMoves == 0 {
-					// let's not lose the very first move.
-					log.Trace().Msg("alpha-beta-cutoff-at-tt")
-					childPV := PVLine{g: g}
-					child, err := conversions.TinyMoveToFullMove(ttEntry.move(), g.Board(),
-						g.Bag().LetterDistribution(), g.RackFor(onTurn))
-					if err != nil {
-						log.Err(err).Uint64("nodeKey", nodeKey).Int16("score", score).Uint8("flag", flag).
-							Msg("alpha-beta-cutoff-at-tt")
-						fmt.Println(g.ToDisplayText())
-						return 0, err
-					}
-					pv.Update(child, childPV, score)
+				if !pvNode { // don't cut off PV node
+					return score, nil
 				}
-				return score, nil
 			}
 			// search hash move first.
 			ttMove = ttEntry.move()
@@ -811,16 +785,16 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		var value int16
 		// negascout
 		if idx == 0 {
-			value, err = s.negamax(ctx, childKey, depth-1, -β, -α, &childPV, thread)
+			value, err = s.negamax(ctx, childKey, depth-1, -β, -α, &childPV, thread, pvNode)
 		} else {
-			value, err = s.negamax(ctx, childKey, depth-1, -α-1, -α, &childPV, thread)
+			value, err = s.negamax(ctx, childKey, depth-1, -α-1, -α, &childPV, thread, false)
 			if err != nil {
 				g.UnplayLastMove()
 				return value, err
 			}
 			if α < -value && -value < β {
 				// re-search with wider window
-				value, err = s.negamax(ctx, childKey, depth-1, -β, -α, &childPV, thread)
+				value, err = s.negamax(ctx, childKey, depth-1, -β, -α, &childPV, thread, pvNode)
 			}
 		}
 		if err != nil {
@@ -1040,7 +1014,7 @@ func (s *Solver) QuickAndDirtySolve(ctx context.Context, plies, thread int) (int
 	}
 	s.currentIDDepths = make([]int, 1) // a hack
 	pv := PVLine{g: s.game}
-	val, err := s.negamax(ctx, initialHashKey, plies, α, β, &pv, 0)
+	val, err := s.negamax(ctx, initialHashKey, plies, α, β, &pv, 0, true)
 	s.principalVariation = pv
 	s.bestPVValue = val - int16(s.initialSpread)
 
