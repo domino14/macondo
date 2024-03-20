@@ -312,7 +312,7 @@ func (s *Solver) assignEstimates(moves []tinymove.SmallMove, depth, thread int, 
 			// 	// Some handwavy LazySMP thing.
 			// 	p.SetEstimatedValue(int16(7 - p.TilesPlayed()))
 		} else if depth > 2 {
-			moves[idx].SetEstimatedValue(int16(moves[idx].Score() + 3*moves[idx].TilesPlayed()))
+			moves[idx].SetEstimatedValue(int16(moves[idx].Score() - 5*moves[idx].TilesPlayed()))
 		} else {
 			moves[idx].SetEstimatedValue(int16(moves[idx].Score()))
 		}
