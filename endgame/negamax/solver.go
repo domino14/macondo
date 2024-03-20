@@ -12,7 +12,6 @@ import (
 
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
-	"lukechampine.com/frand"
 
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
@@ -50,7 +49,11 @@ const MaxVariantLength = 25
 const EarlyPassOffset = 21000
 const HashMoveOffset = 4000
 const PVOffset = 4000
-const MaxLazySMPThreads = 6
+
+// Used for ABDADA:
+const CSSize = 32768
+const CSWays = 4
+const DeferDepth = 3
 
 var (
 	ErrNoEndgameSolution = errors.New("no endgame solution found")
@@ -179,9 +182,7 @@ type Solver struct {
 	iterativeDeepeningOptim bool
 	firstWinOptim           bool
 	transpositionTableOptim bool
-	// lazySMP is a way to optimize the endgame speed, but it doesn't work
-	// super great with Scrabble
-	lazySMPOptim bool
+
 	// ABDADA is another alpha-beta parallelization algorithm
 	abdadaOptim bool
 
@@ -200,6 +201,10 @@ type Solver struct {
 	logStream  io.Writer
 	busy       bool
 	threadLogs []playLog
+
+	// used for ABDADA.
+	// See http://www.tckerrigan.com/Chess/Parallel_Search/Simplified_ABDADA/simplified_abdada.html
+	currentlySearching []uint64
 }
 
 // Init initializes the solver
@@ -234,10 +239,10 @@ func (s *Solver) SetThreads(threads int) {
 	switch {
 	case threads < 2:
 		s.threads = 1
-		s.lazySMPOptim = false
+		s.abdadaOptim = false
 	case threads >= 2:
 		s.threads = threads
-		s.lazySMPOptim = true
+		s.abdadaOptim = true
 	}
 }
 
@@ -308,9 +313,6 @@ func (s *Solver) assignEstimates(moves []tinymove.SmallMove, depth, thread int, 
 	for idx := range moves {
 		if moves[idx].TilesPlayed() == numTilesOnRack {
 			moves[idx].SetEstimatedValue(int16(moves[idx].Score() + 2*otherRack.ScoreOn(ld)))
-			// } else if thread == 4 {
-			// 	// Some handwavy LazySMP thing.
-			// 	p.SetEstimatedValue(int16(7 - p.TilesPlayed()))
 		} else if depth > 2 {
 			moves[idx].SetEstimatedValue(int16(moves[idx].Score() + 3*moves[idx].TilesPlayed()))
 		} else {
@@ -333,13 +335,13 @@ func (s *Solver) assignEstimates(moves []tinymove.SmallMove, depth, thread int, 
 	})
 }
 
-func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error {
-	// Generate first layer of moves.
-	if plies < 2 {
-		return errors.New("use at least 2 plies")
-	}
+func (s *Solver) iterativelyDeepenABDADA(ctx context.Context, plies int) error {
+	// https://dl.acm.org/doi/pdf/10.1145/228329.228345
+
+	s.currentlySearching = make([]uint64, CSSize*CSWays)
+
 	s.makeGameCopies()
-	log.Info().Int("threads", s.threads).Msg("using-lazy-smp")
+	log.Info().Int("threads", s.threads).Msg("using-abdada")
 	s.currentIDDepths = make([]int, s.threads)
 	initialHashKey := s.ttable.Zobrist().Hash(
 		s.game.Board().GetSquares(),
@@ -381,7 +383,6 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 		s.initialMoves[t] = make([]tinymove.SmallMove, len(s.initialMoves[0]))
 		copy(s.initialMoves[t], s.initialMoves[0])
 	}
-
 	for p := 2; p <= plies; p++ {
 		log.Info().Int("plies", p).Msg("deepening-iteratively")
 		s.currentIDDepths[0] = p
@@ -389,14 +390,11 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 			// fmt.Fprintf(s.logStream, "- ply: %d\n", p)
 		}
 
-		// start helper threads
+		// start threads
 		g := errgroup.Group{}
 		cancels := make([]context.CancelFunc, s.threads-1)
 		for t := 1; t < s.threads; t++ {
-			t := t
-			p := p
-			// search to different plies for different threads
-			s.currentIDDepths[t] = p + t%3
+			s.currentIDDepths[t] = p
 			helperCtx, cancel := context.WithCancel(ctx)
 			cancels[t-1] = cancel
 			helperAlpha := -HugeNumber
@@ -411,9 +409,7 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 				}()
 				log.Debug().Msgf("Thread %d starting; searching %d deep", t, p+t%2)
 
-				// ignore the score for these helper threads; we're just
-				// using them to help build up the transposition table.
-				pv := PVLine{g: s.gameCopies[t-1]} // not being used for anything
+				pv := PVLine{g: s.gameCopies[t-1]}
 				val, err := s.negamax(
 					helperCtx, initialHashKey, s.currentIDDepths[t],
 					helperAlpha, helperBeta, &pv, t, true)
@@ -421,29 +417,9 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 					log.Debug().Msgf("Thread %d error %v", t, err)
 				}
 				log.Debug().Msgf("Thread %d done; val returned %d, pv %s", t, val, pv.NLBString())
-				// Try a few schemes to really randomize stuff.
-				if t == 1 {
-					sort.Slice(s.initialMoves[t], func(i, j int) bool {
-						return s.initialMoves[t][i].EstimatedValue() > s.initialMoves[t][j].EstimatedValue()
-					})
-				} else if t == 2 {
-					// do nothing, use original order
-				} else if t > 2 && t <= 7 {
-					// Shuffle the order of root nodes
-					frand.Shuffle(len(s.initialMoves[t]), func(i, j int) {
-						s.initialMoves[t][i], s.initialMoves[t][j] = s.initialMoves[t][j], s.initialMoves[t][i]
-					})
-				} else if t > 7 {
-					// A sort of restricted shuffle?
-					topfew := len(s.initialMoves[t]) / 3
-
-					frand.Shuffle(topfew, func(i, j int) {
-						s.initialMoves[t][i], s.initialMoves[t][j] = s.initialMoves[t][j], s.initialMoves[t][i]
-					})
-					frand.Shuffle(len(s.initialMoves)-topfew, func(i, j int) {
-						s.initialMoves[t][i+topfew], s.initialMoves[t][j+topfew] = s.initialMoves[t][j+topfew], s.initialMoves[t][i+topfew]
-					})
-				}
+				sort.Slice(s.initialMoves[t], func(i, j int) bool {
+					return s.initialMoves[t][i].EstimatedValue() > s.initialMoves[t][j].EstimatedValue()
+				})
 				return err
 			})
 		}
@@ -465,12 +441,12 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 			s.bestPVValue = val - int16(s.initialSpread)
 			log.Info().Int16("spread", val).Int("ply", p).Str("pv", pv.NLBString()).Msg("best-val")
 		}
-		// stop helper threads cleanly
-		for _, c := range cancels {
-			if c != nil {
-				c()
-			}
-		}
+		// wait for helper threads.
+		// for _, c := range cancels {
+		// 	if c != nil {
+		// 		c()
+		// 	}
+		// }
 
 		err = g.Wait()
 		if err != nil {
@@ -482,11 +458,6 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 		}
 
 	}
-	return nil
-}
-
-func (s *Solver) iterativelyDeepenABDADA(ctx context.Context, plies int) error {
-	// https://dl.acm.org/doi/pdf/10.1145/228329.228345
 	return nil
 }
 
@@ -638,9 +609,7 @@ func (s *Solver) iterativelyDeepenABDADA(ctx context.Context, plies int) error {
 
 // iterativelyDeepen is single-threaded version.
 func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
-	if s.lazySMPOptim {
-		return s.iterativelyDeepenLazySMP(ctx, plies)
-	} else if s.abdadaOptim {
+	if s.abdadaOptim {
 		return s.iterativelyDeepenABDADA(ctx, plies)
 	}
 	s.currentIDDepths = make([]int, 1)
@@ -698,7 +667,59 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 		s.bestPVValue = val - int16(s.initialSpread)
 	}
 	return nil
+}
 
+func (s *Solver) deferMove(moveHash uint64, depth int) bool {
+	if !s.abdadaOptim {
+		return false
+	}
+	if depth < DeferDepth {
+		return false
+	}
+	n := int(moveHash & (CSSize - 1))
+	for i := range CSWays {
+		if s.currentlySearching[n+(i*CSSize)] == moveHash {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Solver) startingSearch(moveHash uint64, depth int) {
+	if !s.abdadaOptim {
+		return
+	}
+	if depth < DeferDepth {
+		return
+	}
+	n := int(moveHash & (CSSize - 1))
+	for i := range CSWays {
+		idx := n + (i * CSSize)
+		if s.currentlySearching[idx] == 0 {
+			s.currentlySearching[idx] = moveHash
+			return
+		}
+		if s.currentlySearching[idx] == moveHash {
+			return
+		}
+	}
+	s.currentlySearching[n] = moveHash
+}
+
+func (s *Solver) finishedSearch(moveHash uint64, depth int) {
+	if !s.abdadaOptim {
+		return
+	}
+	if depth < DeferDepth {
+		return
+	}
+	n := int(moveHash & (CSSize - 1))
+	for i := range CSWays {
+		idx := n + (i * CSSize)
+		if s.currentlySearching[idx] == moveHash {
+			s.currentlySearching[idx] = 0
+		}
+	}
 }
 
 func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β int16, pv *PVLine, thread int, pvNode bool) (int16, error) {
@@ -762,49 +783,68 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 
 	bestValue := -HugeNumber
 	// logIndent := strings.Repeat(" ", max(2*(s.currentIDDepths[thread]-depth), 0))
-	if s.logStream != nil {
-		// fmt.Fprintf(s.logStream, "  %vplays:\n", logIndent)
-	}
 	var bestMove tinymove.SmallMove
 	var err error
 	var moveTiles *[21]tilemapping.MachineLetter
+	deferredMoveIdxs := []int{}
+	moveHash := uint64(0)
 	for idx := range children {
-		if s.logStream != nil {
-			// fmt.Fprintf(s.logStream, "  %v- play: %v\n", logIndent, children[idx].ShortDescription())
-		}
-		moveTiles, err = g.PlaySmallMove(&children[idx])
-		if err != nil {
-			return 0, err
-		}
-		s.nodes.Add(1)
-		childKey := uint64(0)
-		if s.transpositionTableOptim {
-			childKey = s.ttable.Zobrist().AddMove(nodeKey, &children[idx], stmRack, moveTiles,
-				onTurn == s.solvingPlayer, g.ScorelessTurns(), g.LastScorelessTurns())
-		}
 		var value int16
 		// negascout
 		if idx == 0 {
+			moveTiles, err = g.PlaySmallMove(&children[idx])
+			if err != nil {
+				return 0, err
+			}
+			s.nodes.Add(1)
+			childKey := uint64(0)
+			if s.transpositionTableOptim {
+				childKey = s.ttable.Zobrist().AddMove(nodeKey, &children[idx], stmRack, moveTiles,
+					onTurn == s.solvingPlayer, g.ScorelessTurns(), g.LastScorelessTurns())
+			}
 			value, err = s.negamax(ctx, childKey, depth-1, -β, -α, &childPV, thread, pvNode)
+			if err != nil {
+				g.UnplayLastMove()
+				return value, err
+			}
+			g.UnplayLastMove()
 		} else {
+			if s.abdadaOptim {
+				moveHash := (nodeKey ^ (uint64(children[idx].TinyMove()) * 1664525)) + 1013904223
+				if s.deferMove(moveHash, depth) {
+					deferredMoveIdxs = append(deferredMoveIdxs, idx)
+					continue
+				}
+			}
+
+			moveTiles, err = g.PlaySmallMove(&children[idx])
+			if err != nil {
+				return 0, err
+			}
+			s.nodes.Add(1)
+			s.startingSearch(moveHash, depth)
+			childKey := uint64(0)
+			if s.transpositionTableOptim {
+				childKey = s.ttable.Zobrist().AddMove(nodeKey, &children[idx], stmRack, moveTiles,
+					onTurn == s.solvingPlayer, g.ScorelessTurns(), g.LastScorelessTurns())
+			}
 			value, err = s.negamax(ctx, childKey, depth-1, -α-1, -α, &childPV, thread, false)
 			if err != nil {
 				g.UnplayLastMove()
 				return value, err
 			}
+			s.finishedSearch(moveHash, depth)
 			if α < -value && -value < β {
 				// re-search with wider window
 				value, err = s.negamax(ctx, childKey, depth-1, -β, -α, &childPV, thread, pvNode)
+				if err != nil {
+					g.UnplayLastMove()
+					return value, err
+				}
 			}
-		}
-		if err != nil {
 			g.UnplayLastMove()
-			return value, err
 		}
-		g.UnplayLastMove()
-		if s.logStream != nil {
-			// fmt.Fprintf(s.logStream, "  %v  value: %v\n", logIndent, value)
-		}
+
 		if -value > bestValue {
 			bestValue = -value
 			bestMove = children[idx]
@@ -818,10 +858,52 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		}
 
 		α = max(α, bestValue)
-		if s.logStream != nil {
-			// fmt.Fprintf(s.logStream, "  %v  α: %v\n", logIndent, α)
-			// fmt.Fprintf(s.logStream, "  %v  β: %v\n", logIndent, β)
+
+		if bestValue >= β {
+			break // beta cut-off
 		}
+		childPV.Clear() // clear the child node's pv for the next child node
+	}
+	for _, idx := range deferredMoveIdxs {
+		var value int16
+		moveTiles, err = g.PlaySmallMove(&children[idx])
+		if err != nil {
+			return 0, err
+		}
+		s.nodes.Add(1)
+		childKey := uint64(0)
+		if s.transpositionTableOptim {
+			childKey = s.ttable.Zobrist().AddMove(nodeKey, &children[idx], stmRack, moveTiles,
+				onTurn == s.solvingPlayer, g.ScorelessTurns(), g.LastScorelessTurns())
+		}
+		value, err = s.negamax(ctx, childKey, depth-1, -α-1, -α, &childPV, thread, false)
+		if err != nil {
+			g.UnplayLastMove()
+			return value, err
+		}
+		if α < -value && -value < β {
+			// re-search with wider window
+			value, err = s.negamax(ctx, childKey, depth-1, -β, -α, &childPV, thread, pvNode)
+			if err != nil {
+				g.UnplayLastMove()
+				return value, err
+			}
+		}
+		g.UnplayLastMove()
+
+		if -value > bestValue {
+			bestValue = -value
+			bestMove = children[idx]
+			// allocate a move to update the pv
+			m := &move.Move{}
+			conversions.SmallMoveToMove(bestMove, m, g.Alphabet(), g.Board(), stmRack)
+			pv.Update(m, childPV, bestValue-int16(s.initialSpread))
+		}
+		if s.currentIDDepths[thread] == depth {
+			children[idx].SetEstimatedValue(-value)
+		}
+
+		α = max(α, bestValue)
 		if bestValue >= β {
 			break // beta cut-off
 		}
@@ -882,10 +964,8 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	tstart := time.Now()
 	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
 	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)
-	if s.lazySMPOptim && s.abdadaOptim {
-		return 0, nil, errors.New("you can only use lazySMP OR solve multiple variants, but not both")
-	}
-	if s.lazySMPOptim || s.abdadaOptim {
+
+	if s.abdadaOptim {
 		if s.transpositionTableOptim {
 			s.ttable.SetMultiThreadedMode()
 		} else {
@@ -905,7 +985,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	s.nodes.Store(0)
 	var bestV int16
 	var bestSeq []*move.Move
-	// + 2 since lazysmp can search at a higher ply count
+	// + 2 since lazysmp (if we are using it, kill this?) can search at a higher ply count
 	s.game.SetStateStackLength(plies + 2)
 
 	g := &errgroup.Group{}
@@ -928,9 +1008,9 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	})
 
 	g.Go(func() error {
-		if s.lazySMPOptim && !s.iterativeDeepeningOptim {
+		if s.abdadaOptim && !s.iterativeDeepeningOptim {
 			done <- true
-			return errors.New("cannot use lazySMP if iterative deepening is off")
+			return errors.New("cannot use ABDADA if iterative deepening is off")
 		}
 		log.Debug().Msgf("Using iterative deepening with %v max plies", plies)
 		err := s.iterativelyDeepen(ctx, plies)

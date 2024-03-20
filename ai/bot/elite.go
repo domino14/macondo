@@ -11,7 +11,6 @@ import (
 	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 
-	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/montecarlo"
@@ -115,9 +114,6 @@ func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move
 		return nil, err
 	}
 	maxThreads := runtime.NumCPU()
-	if maxThreads > negamax.MaxLazySMPThreads {
-		maxThreads = negamax.MaxLazySMPThreads
-	}
 	p.endgamer.SetThreads(maxThreads)
 	v, seq, err := p.endgamer.Solve(ctx, endgamePlies)
 	if err != nil {

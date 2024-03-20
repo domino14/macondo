@@ -396,9 +396,7 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	if maxthreads == 0 {
 		maxthreads = 1
 	}
-	if maxthreads > negamax.MaxLazySMPThreads {
-		maxthreads = negamax.MaxLazySMPThreads
-	}
+
 	var disableID bool
 	var disableTT bool
 	var enableFW bool
