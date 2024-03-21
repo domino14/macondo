@@ -504,7 +504,7 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 			// Always consider passes first as a reply to passes, in order
 			// to get some easy info fast.
 			if moveToMake.IsPass() && genPlays[idx].IsPass() {
-				genPlays[idx].AddEstimatedValue(negamax.EarlyPassOffset)
+				genPlays[idx].AddEstimatedValue(negamax.EarlyPassBF)
 			}
 		}
 		sort.Slice(genPlays, func(i int, j int) bool {

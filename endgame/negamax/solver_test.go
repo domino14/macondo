@@ -257,7 +257,6 @@ func TestPolish(t *testing.T) {
 		258, 0)
 
 	is.NoErr(err)
-	s.earlyPassOptim = false
 	v, seq, err := s.Solve(context.Background(), plies)
 	is.NoErr(err)
 
@@ -310,7 +309,6 @@ func TestPolishFromGcg(t *testing.T) {
 	s := new(Solver)
 
 	s.Init(gen, g)
-	s.earlyPassOptim = false
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 
 	v, seq, _ := s.Solve(context.Background(), plies)

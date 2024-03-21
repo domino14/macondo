@@ -46,10 +46,16 @@ negamax(rootNode, depth, −∞, +∞, 1)
 const HugeNumber = int16(32767)
 const MaxVariantLength = 25
 
-// I think I have to make sure these hacky values don't add up to more than 32767
-const EarlyPassOffset = 21000
-const HashMoveOffset = 4000
-const PVOffset = 4000
+// Bitflags for move estimates.
+const (
+	EarlyPassBF = 1 << 13
+	HashMoveBF  = 1 << 12
+	GoingOutBF  = 1 << 11
+	// Moves that score more than 256 pts in the endgame may have some
+	// sorting issues. Can probably fix this later.
+	TilesPlayedBFOffset = 8
+)
+
 const MaxLazySMPThreads = 6
 
 var (
@@ -172,13 +178,10 @@ type Solver struct {
 	initialSpread int
 	solvingPlayer int // This is the player who we call this function for.
 
-	// earlyPassOptim: if the last move was a pass, try a pass first to end
-	// the game. It costs very little to check this case first and results
-	// in a modest speed boost.
-	earlyPassOptim          bool
 	iterativeDeepeningOptim bool
 	firstWinOptim           bool
 	transpositionTableOptim bool
+	negascoutOptim          bool
 	// lazySMP is a way to optimize the endgame speed, but it doesn't work
 	// super great with Scrabble
 	lazySMPOptim bool
@@ -207,11 +210,11 @@ func (s *Solver) Init(m movegen.MoveGenerator, game *game.Game) error {
 	s.ttable = GlobalTranspositionTable
 	s.stmMovegen = m
 	s.game = game
-	s.earlyPassOptim = true
 
 	s.firstWinOptim = false
 	s.transpositionTableOptim = true
 	s.iterativeDeepeningOptim = true
+	s.negascoutOptim = true
 	s.threads = max(1, runtime.NumCPU())
 	if s.stmMovegen != nil {
 		s.stmMovegen.SetGenPass(true)
@@ -307,25 +310,28 @@ func (s *Solver) assignEstimates(moves []tinymove.SmallMove, depth, thread int, 
 
 	for idx := range moves {
 		if moves[idx].TilesPlayed() == numTilesOnRack {
-			moves[idx].SetEstimatedValue(int16(moves[idx].Score() + 2*otherRack.ScoreOn(ld)))
+			moves[idx].SetEstimatedValue(int16(moves[idx].Score()+2*otherRack.ScoreOn(ld)) + GoingOutBF)
 			// } else if thread == 4 {
 			// 	// Some handwavy LazySMP thing.
 			// 	p.SetEstimatedValue(int16(7 - p.TilesPlayed()))
+			// } else if depth > 2 {
+			// 	moves[idx].SetEstimatedValue(int16(moves[idx].Score() - 5*moves[idx].TilesPlayed()))
+			// } else {
+			// 	moves[idx].SetEstimatedValue(int16(moves[idx].Score()))
+			// }
 		} else if depth > 2 {
 			moves[idx].SetEstimatedValue(int16(moves[idx].Score() - 5*moves[idx].TilesPlayed()))
 		} else {
 			moves[idx].SetEstimatedValue(int16(moves[idx].Score()))
 		}
-		if moves[idx].TinyMove() == ttMove {
-			moves[idx].AddEstimatedValue(HashMoveOffset)
-		}
-		// if depth > 0 && moves[idx].TinyMove() == pvMove {
-		// 	moves[idx].AddEstimatedValue(PVOffset)
-		// }
 
 		// XXX: should also verify validity of ttMove later.
-		if s.earlyPassOptim && lastMoveWasPass && moves[idx].IsPass() {
-			moves[idx].AddEstimatedValue(EarlyPassOffset)
+		if moves[idx].TinyMove() == ttMove {
+			moves[idx].AddEstimatedValue(HashMoveBF)
+		}
+
+		if lastMoveWasPass && moves[idx].IsPass() {
+			moves[idx].AddEstimatedValue(EarlyPassBF)
 		}
 	}
 	sort.Slice(moves, func(i int, j int) bool {
@@ -784,7 +790,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		}
 		var value int16
 		// negascout
-		if idx == 0 {
+		if idx == 0 || !s.negascoutOptim {
 			value, err = s.negamax(ctx, childKey, depth-1, -β, -α, &childPV, thread, pvNode)
 		} else {
 			value, err = s.negamax(ctx, childKey, depth-1, -α-1, -α, &childPV, thread, false)
@@ -1044,6 +1050,10 @@ func (s *Solver) SetTranspositionTableOptim(tt bool) {
 
 func (s *Solver) SetFirstWinOptim(w bool) {
 	s.firstWinOptim = w
+}
+
+func (s *Solver) SetNegascoutOptim(n bool) {
+	s.negascoutOptim = n
 }
 
 func (s *Solver) IsSolving() bool {

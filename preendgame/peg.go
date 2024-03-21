@@ -502,6 +502,8 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 
 			// Endgame should quit early if it finds any win.
 			es.SetFirstWinOptim(true)
+			// Since the endgame search window is already tiny, no need for negascout optimization
+			es.SetNegascoutOptim(true)
 			s.endgameSolvers[idx] = es
 			if s.logStream != nil {
 				// Also create endgame loggers
