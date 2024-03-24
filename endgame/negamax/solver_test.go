@@ -123,8 +123,8 @@ func TestSolveOther3(t *testing.T) {
 		1)
 	is.NoErr(err)
 	s.lazySMPOptim = true
-	// sweet spot seems to be threads = 6 for now
-	s.threads = 6
+	// sweet spot seems to be threads = 8 for now
+	s.threads = 8
 	v, _, _ := s.Solve(context.Background(), plies)
 	is.Equal(v, int16(55))
 }
