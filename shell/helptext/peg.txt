@@ -7,7 +7,7 @@ Example:
     peg stop
 
 About:
-    Macondo can solve a 1-tile-in-the-bag pre-endgame exhaustively. It does this
+    Macondo can solve an n-tile-in-the-bag pre-endgame exhaustively. It does this
     by solving all possible endgames using a fast search for it (see -first-win-optim
     option in the endgame).
 
@@ -17,6 +17,8 @@ About:
     we are guaranteed to win with any given tile, even given any mistakes the
     opponent might make.
 
+    Similar considerations exist when considering any non-bag-emptying play as a move.
+
     If there is more than 1 winner - i.e., more than 1 top play with
     the same number of pre-endgame wins, Macondo will solve the resulting
     endgames more accurately (-first-win option will be set to false).
@@ -25,6 +27,12 @@ About:
     spread is the overall pre-endgame winner. For now it will just try to
     tiebreak among the top 10 highest-scoring plays with the same number
     of wins.
+
+    Important note: n-in-the-bag for n > 1 is not optimized and in certain cases
+    will give incorrect answers for non-bag-emptying plays. (It will also
+    be much slower when considering these plays). It is recommended that
+    the -skip-non-emptying option be set for now. This will be fixed
+    in a future release.
 
 Optional arguments:
     peg stop
