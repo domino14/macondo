@@ -74,7 +74,6 @@ func TestMoveTilesToBeginning(t *testing.T) {
 
 		bagTiles := bag.Peek()
 		is.Equal(len(bagTiles), 100)
-		fmt.Println(i)
 		is.Equal(bagTiles[3], tilemapping.MachineLetter(5))
 		is.Equal(bagTiles[2], tilemapping.MachineLetter(5))
 		is.Equal(bagTiles[1], tilemapping.MachineLetter(5))

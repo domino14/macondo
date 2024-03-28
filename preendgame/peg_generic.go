@@ -125,14 +125,13 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 	sort.Slice(s.plays, func(i, j int) bool {
 		return s.plays[i].Points > s.plays[j].Points
 	})
-	// XXX: handle this in a bit.
 
-	// if !s.skipTiebreaker {
-	// 	err = s.maybeTiebreak(ctx, maybeInBagTiles)
-	// 	if err != nil {
-	// 		return nil, err
-	// 	}
-	// }
+	if !s.skipTiebreaker {
+		err = s.maybeTiebreak(ctx, maybeInBagTiles)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	if ctx.Err() != nil && (ctx.Err() == context.Canceled || ctx.Err() == context.DeadlineExceeded) {
 		log.Info().Msg("timed out or stopped; returning best results so far...")
@@ -159,6 +158,121 @@ func (s *Solver) createGenericPEGJobs(ctx context.Context, maybeInBagTiles []int
 
 	log.Info().Int("numJobs", queuedJobs).Msg("queued-jobs")
 	close(jobChan)
+}
+
+func (s *Solver) maybeTiebreak(ctx context.Context, maybeInBagTiles []int) error {
+	i := 0
+	for {
+		if i+1 >= len(s.plays) || s.plays[i].Points != s.plays[i+1].Points {
+			break
+		}
+		i++
+	}
+	if i == 0 {
+		log.Info().Str("winner", s.plays[0].String()).Msg("only one clear winner")
+		return nil
+	}
+
+	numWinners := i + 1
+
+	topPlayIdxs := []int{}
+	// only tiebreak plays that empty the bag.
+	for i := range numWinners {
+		if s.plays[i].Play.TilesPlayed() >= s.numinbag {
+			topPlayIdxs = append(topPlayIdxs, i)
+		}
+	}
+	if len(topPlayIdxs) == 1 {
+		log.Info().Str("winner", s.plays[topPlayIdxs[0]].String()).Msg("only one winner empties the bag")
+		// Bring winner to the front.
+		s.plays[topPlayIdxs[0]], s.plays[0] = s.plays[0], s.plays[topPlayIdxs[0]]
+		return nil
+	} else if len(topPlayIdxs) == 0 {
+		log.Info().Str("winner", s.plays[0].String()).Msg("all winners do not empty the bag; will not tiebreak by spread")
+		return nil
+	} else if len(topPlayIdxs) != numWinners {
+		log.Info().Int("ndiscarded", numWinners-len(topPlayIdxs)).
+			Msg("non-bag-emptying plays are discarded for tiebreaks")
+	}
+
+	// There is more than one winning play.
+	// Use total points scored as a first tie-breaker
+	// (i.e. prior to solving endgames)
+	sort.Slice(topPlayIdxs, func(i, j int) bool {
+		return s.plays[topPlayIdxs[i]].Play.Score() > s.plays[topPlayIdxs[j]].Play.Score()
+	})
+
+	topN := min(len(topPlayIdxs), TieBreakerPlays)
+	log.Info().Msgf("%d plays tied for first, taking top %d and tie-breaking...", len(topPlayIdxs), topN)
+	topPlayIdxs = topPlayIdxs[:topN]
+
+	// We want to solve these endgames fully (to get an accurate spread)
+	for _, es := range s.endgameSolvers {
+		es.SetFirstWinOptim(false)
+	}
+
+	g := errgroup.Group{}
+	winnerGroup := errgroup.Group{}
+	jobChan := make(chan job, s.threads)
+	winnerChan := make(chan *PreEndgamePlay)
+
+	for t := 0; t < s.threads; t++ {
+		g.Go(func() error {
+			for j := range jobChan {
+				if err := s.handleJobGeneric(ctx, j, t, winnerChan); err != nil {
+					log.Debug().AnErr("err", err).Msg("error-handling-job")
+					// Don't exit, to avoid deadlock.
+				}
+			}
+			return nil
+		})
+	}
+
+	// The determiner of the winner.
+	winnerGroup.Go(func() error {
+		for p := range winnerChan {
+			if !s.winnerSoFar.spreadSet {
+				s.winnerSoFar = p
+			} else if p.Spread > s.winnerSoFar.Spread {
+				s.winnerSoFar = p
+			}
+
+		}
+		return nil
+	})
+
+	queuedJobs := 0
+	for _, pidx := range topPlayIdxs {
+		j := job{
+			ourMove:         s.plays[pidx],
+			maybeInBagTiles: maybeInBagTiles,
+			fullSolve:       true,
+		}
+		queuedJobs++
+		jobChan <- j
+	}
+
+	log.Info().Int("numTiebreakerJobs", queuedJobs).Msg("queued-jobs")
+	close(jobChan)
+	err := g.Wait()
+	if err != nil {
+		return err
+	}
+
+	close(winnerChan)
+	winnerGroup.Wait()
+
+	sort.Slice(s.plays, func(i, j int) bool {
+		// plays without spread set should be at the bottom.
+		if !s.plays[i].spreadSet {
+			return false
+		}
+		if !s.plays[j].spreadSet {
+			return true
+		}
+		return s.plays[i].Spread > s.plays[j].Spread
+	})
+	return nil
 }
 
 type option struct {
@@ -249,7 +363,7 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 		}
 		// If our first play empties the bag, we want to try to solve the resulting
 		// endgames in an advantageous order.
-		if firstPlayEmptiesBag {
+		if firstPlayEmptiesBag && !j.fullSolve {
 			g.ThrowRacksInFor(1 - g.PlayerOnTurn())
 			moveTilesToBeginning(tiles, g.Bag())
 			// And redraw tiles for opponent. Note that this is not an actual
@@ -285,7 +399,7 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 	// Sort by oppEstimate from most to least.
 	// We want to get losing endgames (for us) out of the way early
 	// to help with cutoff.
-	if firstPlayEmptiesBag {
+	if firstPlayEmptiesBag && !j.fullSolve {
 		sort.Slice(options, func(i, j int) bool {
 			return options[i].oppEstimate > options[j].oppEstimate
 		})
@@ -347,7 +461,7 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 		}
 
 		err = s.recursiveSolve(ctx, thread, j.ourMove, sm,
-			options[idx], winnerChan, 0, firstPlayEmptiesBag)
+			options[idx], winnerChan, 0, firstPlayEmptiesBag, j.fullSolve)
 		if err != nil {
 			return err
 		}
@@ -359,7 +473,7 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 
 func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEndgamePlay,
 	moveToMake tinymove.SmallMove, inbagOption option, winnerChan chan *PreEndgamePlay, depth int,
-	pegPlayEmptiesBag bool) error {
+	pegPlayEmptiesBag, fullSolve bool) error {
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -421,6 +535,15 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 			// 	"inbag:", tilemapping.MachineWord(inbagOption.mls).UserVisible(g.Alphabet()),
 			// 	"val:", val,
 			// 	"seq:", seq)
+			if fullSolve {
+				ss := finalSpread
+				if oppPerspective {
+					ss = -ss
+				}
+				pegPlay.addSpreadStat(int(ss), inbagOption.ct)
+				winnerChan <- pegPlay.Copy()
+				return nil
+			}
 		}
 
 		switch {
@@ -518,7 +641,7 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 			conversions.SmallMoveToMove(genPlays[idx], tempm, g.Alphabet(), g.Board(), g.RackFor(g.PlayerOnTurn()))
 
 			// fmt.Println(strings.Repeat(" ", depth), "onturn", g.PlayerOnTurn(), "idx", idx, "try next:", tempm.ShortDescription())
-			err = s.recursiveSolve(ctx, thread, pegPlay, genPlays[idx], inbagOption, winnerChan, depth+1, pegPlayEmptiesBag)
+			err = s.recursiveSolve(ctx, thread, pegPlay, genPlays[idx], inbagOption, winnerChan, depth+1, pegPlayEmptiesBag, fullSolve)
 			if err != nil {
 				log.Err(err).Msg("recursive-solve-err")
 				g.UnplayLastMove()
@@ -542,7 +665,7 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 		// if the bag is empty after we've played moveToMake, the next
 		// iteration here will solve the endgames.
 		// fmt.Println(strings.Repeat(" ", depth), "bag is empty or game is over; recursing again to finalize")
-		err = s.recursiveSolve(ctx, thread, pegPlay, tinymove.DefaultSmallMove, inbagOption, winnerChan, depth+1, pegPlayEmptiesBag)
+		err = s.recursiveSolve(ctx, thread, pegPlay, tinymove.DefaultSmallMove, inbagOption, winnerChan, depth+1, pegPlayEmptiesBag, fullSolve)
 		if err != nil {
 			log.Err(err).Msg("bag-empty-recursive-solve-err")
 		}

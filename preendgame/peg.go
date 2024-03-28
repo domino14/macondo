@@ -402,7 +402,7 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 	s.movegen.SetMaxTileUsage(7)
 	// Examine high equity plays first.
 	var moves []*move.Move
-	if s.solveOnlyMoves != nil {
+	if len(s.solveOnlyMoves) != 0 {
 		moves = s.solveOnlyMoves
 	} else {
 		moves = s.movegen.GenAll(s.game.RackFor(s.game.PlayerOnTurn()), false)
@@ -502,7 +502,8 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 
 			// Endgame should quit early if it finds any win.
 			es.SetFirstWinOptim(true)
-			// Since the endgame search window is already tiny, no need for negascout optimization
+			// Even though the endgame search window is already tiny, this still seems to help
+			// for some reason:
 			es.SetNegascoutOptim(true)
 			s.endgameSolvers[idx] = es
 			if s.logStream != nil {
@@ -516,11 +517,7 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 		}
 
 		log.Info().Int("nmoves", len(moves)).Int("nthreads", s.threads).Msg("peg-generated-moves")
-		// if s.game.Bag().TilesRemaining() == 1 {
-		// 	winners, err = s.multithreadSolve(ctx, moves)
-		// } else if s.game.Bag().TilesRemaining() == 2 {
-		// 	winners, err = s.multithreadSolve2(ctx, moves)
-		// }
+
 		winners, err = s.multithreadSolveGeneric(ctx, moves, logChan)
 		if err != nil {
 			if err == ErrCanceledEarly {
@@ -585,113 +582,6 @@ func moveIsPossible(mtiles []tilemapping.MachineLetter, partialRack []tilemappin
 		pcount++
 	}
 	return pcount <= game.RackTileLimit
-}
-
-func (s *Solver) maybeTiebreak(ctx context.Context, maybeInBagTiles []int) error {
-	// Now, among all the winners find the top spreads.
-	/*
-		i := 0
-		for {
-			if i+1 >= len(s.plays) || s.plays[i].Points != s.plays[i+1].Points {
-				break
-			}
-			i++
-		}
-		if i == 0 {
-			log.Info().Str("winner", s.plays[0].String()).Msg("only one clear winner")
-			return nil
-		}
-		numWinners := i + 1
-
-		// We want to solve these endgames fully (to get an accurate spread)
-		for _, es := range s.endgameSolvers {
-			es.SetFirstWinOptim(false)
-		}
-
-		g := errgroup.Group{}
-		winnerGroup := errgroup.Group{}
-		jobChan := make(chan job, s.threads)
-		winnerChan := make(chan *PreEndgamePlay)
-
-		for t := 0; t < s.threads; t++ {
-			t := t
-			g.Go(func() error {
-				for j := range jobChan {
-					if err := s.handleJob(ctx, j, t, winnerChan); err != nil {
-						log.Debug().AnErr("err", err).Msg("error-handling-job")
-						// Don't exit, to avoid deadlock.
-					}
-				}
-				return nil
-			})
-		}
-		// The determiner of the winner.
-		winnerGroup.Go(func() error {
-			for p := range winnerChan {
-				if !s.winnerSoFar.spreadSet {
-					s.winnerSoFar = p
-				} else if p.Spread > s.winnerSoFar.Spread {
-					s.winnerSoFar = p
-				}
-
-			}
-			return nil
-		})
-
-		// There is more than one play. Use total points scored as a first tie-breaker
-		topPlays := s.plays[:numWinners]
-		sort.Slice(topPlays, func(i, j int) bool {
-			return topPlays[i].Play.Score() > topPlays[j].Play.Score()
-		})
-		topN := min(TieBreakerPlays, len(topPlays))
-		log.Info().Msgf("%d plays tied for first, taking top %d and tie-breaking...", numWinners, topN)
-		topPlays = topPlays[:topN]
-
-		// for simplicity's sake, let's skip the pass if that's one of the top
-		// plays. gotta cut corners somewhere.
-		queuedJobs := 0
-		for _, p := range topPlays {
-			if p.Play.Action() == move.MoveTypePass {
-				continue
-			}
-			for t, count := range maybeInBagTiles {
-				if count == 0 {
-					continue
-				}
-				j := job{
-					ourMove:   p,
-					inbag:     []tilemapping.MachineLetter{tilemapping.MachineLetter(t)},
-					numDraws:  count,
-					fullSolve: true,
-				}
-				queuedJobs++
-				jobChan <- j
-			}
-		}
-
-		log.Info().Int("numTiebreakerJobs", queuedJobs).Msg("queued-jobs")
-		close(jobChan)
-		err := g.Wait()
-		if err != nil {
-			return err
-		}
-
-		close(winnerChan)
-		winnerGroup.Wait()
-
-		sort.Slice(topPlays, func(i, j int) bool {
-			// plays without spread set should be at the bottom.
-			if !topPlays[i].spreadSet {
-				return false
-			}
-			if !topPlays[j].spreadSet {
-				return true
-			}
-			return topPlays[i].Spread > topPlays[j].Spread
-		})
-	*/
-	return nil
-
 }
 
 func (s *Solver) SetEndgamePlies(p int) {
