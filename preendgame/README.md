@@ -74,7 +74,7 @@ We then analyze `SAUCY`. Before even starting analysis, we see that opponent cou
 
 - I is in the bag
 - A is in the bag (2X)
-- E is in the bag 
+- E is in the bag
 
 We already know that I and A in the bag are losses for us. We analyze SAUCY only to determine if E in the bag is also a loss for us. If it is, we mark that down so that we can avoid extra computation for other future plays.
 
@@ -109,8 +109,133 @@ We proceed as above in generating all our possible plays. Then:
 
 ### Speed improvement ideas
 
-- We typically care about the winningest play. 
+- We typically care about the winningest play.
     - We should sort plays initially by some metric: score or short sim performance
     - Let's say we examine a play and it wins 6/8 endgames
     - If we then examine a play and it's already lost 3 endgames, we don't need to examine that play any further since it's going to lose.
     - When we queue jobs we should have a shared structure with best performers so that we can determine inside the job whether we should quit early.
+
+
+3/4/24 - Notes on first implementation of generic N-in-the-bag pre-endgame
+
+## Rough pseudocode description, leaving out optimizations:
+
+### Main thread:
+
+- Initialize N independent endgame solvers, where N is the number of threads
+- Start N job processors
+- Generate all moves available for the player we're solving for
+- For every play:
+    - Queue up a job containing the play and the unseen tiles
+- Wait until all processors are done
+
+### Job processor for play M:
+- If we have found more losses than any analyzed move's losses, then quit analyzing this move
+- Generate bag-length permutations of all unseen tiles. (i.e. if you have 11 tiles unseen, then
+   we create 11P4 permutations of length 4 -- these are all the 4-letter possible draws).
+- For every permutation P:
+    - If play M's found losses has more losses than any analyzed move's losses, then quit analyzing this move (I guess we check again)
+    - Draw a rack for our opponent, leaving the permutation P in the bag to draw from
+    - Call Solve(M, M, P)
+
+#### Solve(M, M, P)
+
+function Solve(M, moveToMake, P):
+    if HasSomeLoss(M):
+        # If M already has a loss, stop analyzing it
+        return
+
+    if bag.IsEmpty() or game.IsOver():
+        if game.IsOver():
+            finalSpread = game.SpreadFor(PlayerWeAreSolvingFor)
+        else if bag.IsEmpty():
+            finalSpread = endgameSolver.Solve(game)
+
+        if M empties the bag:
+            add win, draw, or loss to M for permutation P, depending on finalSpread
+        else:
+            add unfinalized win, draw, or loss to M for permutation P, depending on finalSpread
+
+        return
+
+    PlayMove(moveToMake)
+
+    if not bag.IsEmpty() and not game.IsOver():
+        generate all plays for player on turn
+        for each of those plays nextPlay:
+            Solve(M, nextPlay, P)
+            if player on turn is the player we are solving for:
+                if M.OutcomeFor(P) == WIN:
+                    break
+
+    else:
+        # bag is empty, solve endgames
+        Solve(M, nil, P)
+
+    UnplayLastMove()
+
+## Comments to read
+
+https://www.cross-tables.com/annotated.php?u=37031
+
+https://www.cross-tables.com/annotated.php?u=29275
+
+https://www.cross-tables.com/annotated.php?u=37033
+
+"I just asked for the analysis of 6C FEN in the case you pick NS.
+
+It took 18 hours and it says that NS+JS is a guaranteed win, NS+SJ is a guaranteed draw and everything else is a possible loss (NS+AA, NS+AJ, NS+JA, etc.).
+
+That's wrong, NS+JS and NS+SJ should both be possible losses.
+If Noah passes with AADDIOR then Joshua's objectively best move is 15B SEALANT, which he should play, and then Noah wins the endgame."
+
+## New pseudocode description
+
+### Main thread:
+
+- Initialize N independent endgame solvers, where N is the number of threads
+- Start N job processors
+- Generate all moves available for the player we're solving for
+- For every play:
+    - Queue up a job containing the play and the unseen tiles
+- Wait until all processors are done
+
+### Job processor for play M:
+- If we have found more losses than any analyzed move's losses, then quit analyzing this move
+- Call Solve(M, M)
+
+#### Solve(M, M)
+
+function Solve(M, moveToMake):
+    if HasSomeLoss(M):
+        # If M already has a loss, stop analyzing it
+        return
+
+    if bag.IsEmpty() or game.IsOver():
+        if game.IsOver():
+            finalSpread = game.SpreadFor(PlayerWeAreSolvingFor)
+        else if bag.IsEmpty():
+            finalSpread = endgameSolver.Solve(game)
+
+        if M empties the bag:
+            add win, draw, or loss to M for permutation P, depending on finalSpread
+        else:
+            add unfinalized win, draw, or loss to M for permutation P, depending on finalSpread
+
+        return
+
+    PlayMove(moveToMake)
+
+    if not bag.IsEmpty() and not game.IsOver():
+        generate all plays for player on turn
+        for each of those plays nextPlay:
+            Solve(M, nextPlay, P)
+            if player on turn is the player we are solving for:
+                if M.OutcomeFor(P) == WIN:
+                    break
+
+    else:
+        # bag is empty, solve endgames
+        Solve(M, nil, P)
+
+    UnplayLastMove()

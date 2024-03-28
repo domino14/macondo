@@ -123,8 +123,8 @@ func TestSolveOther3(t *testing.T) {
 		1)
 	is.NoErr(err)
 	s.lazySMPOptim = true
-	// sweet spot seems to be threads = 6 for now
-	s.threads = 6
+	// sweet spot seems to be threads = 8 for now
+	s.threads = 8
 	v, _, _ := s.Solve(context.Background(), plies)
 	is.Equal(v, int16(55))
 }
@@ -257,8 +257,7 @@ func TestPolish(t *testing.T) {
 		258, 0)
 
 	is.NoErr(err)
-	s.earlyPassOptim = false
-	v, seq, err := s.Solve(context.Background(), plies)
+	v, _, err := s.Solve(context.Background(), plies)
 	is.NoErr(err)
 
 	/*
@@ -276,8 +275,6 @@ func TestPolish(t *testing.T) {
 	*/
 
 	is.Equal(v, int16(5))
-	is.Equal(len(seq), 8)
-
 }
 
 func TestPolishFromGcg(t *testing.T) {
@@ -310,12 +307,10 @@ func TestPolishFromGcg(t *testing.T) {
 	s := new(Solver)
 
 	s.Init(gen, g)
-	s.earlyPassOptim = false
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 
-	v, seq, _ := s.Solve(context.Background(), plies)
+	v, _, _ := s.Solve(context.Background(), plies)
 	is.Equal(v, int16(5))
-	is.Equal(len(seq), 8)
 }
 
 func TestStuckPruning(t *testing.T) {

@@ -74,7 +74,7 @@ func TestInferTilePlay(t *testing.T) {
 	fmt.Println("analyze inferences")
 	fmt.Println(rangeFinder.AnalyzeInferences(true))
 	fmt.Println(rangeFinder.AnalyzeInferences(false))
-
+	is.True(len(rangeFinder.inferences) > 1000)
 }
 
 func TestInferExchange(t *testing.T) {

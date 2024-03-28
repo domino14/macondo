@@ -2,6 +2,7 @@ package preendgame
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/testhelpers"
 )
 
@@ -31,6 +33,17 @@ func TestMoveTilesToBeginning(t *testing.T) {
 	is := is.New(t)
 	ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.AllSettings())
 	is.NoErr(err)
+
+	ct := func(bag *tilemapping.Bag, letter tilemapping.MachineLetter, from int) int {
+		n := 0
+		for i := from; i < len(bag.Tiles()); i++ {
+			if bag.Tiles()[i] == letter {
+				n++
+			}
+		}
+		return n
+	}
+
 	for i := 0; i < 1000; i++ {
 
 		bag := tilemapping.NewBag(ld, testhelpers.EnglishAlphabet())
@@ -41,10 +54,31 @@ func TestMoveTilesToBeginning(t *testing.T) {
 
 		bagTiles := bag.Peek()
 		is.Equal(len(bagTiles), 100)
-		is.Equal(bagTiles[3], tilemapping.MachineLetter(17))
-		is.Equal(bagTiles[2], tilemapping.MachineLetter(1))
-		is.Equal(bagTiles[1], tilemapping.MachineLetter(2))
-		is.Equal(bagTiles[0], tilemapping.MachineLetter(0))
+		is.Equal(bagTiles[0], tilemapping.MachineLetter(17))
+		is.Equal(bagTiles[1], tilemapping.MachineLetter(1))
+		is.Equal(bagTiles[2], tilemapping.MachineLetter(2))
+		is.Equal(bagTiles[3], tilemapping.MachineLetter(0))
+		is.Equal(ct(bag, 17, 4), 0)
+		is.Equal(ct(bag, 1, 4), 8)
+		is.Equal(ct(bag, 2, 4), 1)
+		is.Equal(ct(bag, 0, 4), 1)
+	}
+
+	for i := 0; i < 1000; i++ {
+
+		bag := tilemapping.NewBag(ld, testhelpers.EnglishAlphabet())
+		bag.Shuffle()
+		// E, E, E, E
+		lastTiles := []tilemapping.MachineLetter{5, 5, 5, 5}
+		moveTilesToBeginning(lastTiles, bag)
+
+		bagTiles := bag.Peek()
+		is.Equal(len(bagTiles), 100)
+		is.Equal(bagTiles[3], tilemapping.MachineLetter(5))
+		is.Equal(bagTiles[2], tilemapping.MachineLetter(5))
+		is.Equal(bagTiles[1], tilemapping.MachineLetter(5))
+		is.Equal(bagTiles[0], tilemapping.MachineLetter(5))
+		is.Equal(ct(bag, 5, 4), 8)
 	}
 }
 
@@ -164,6 +198,9 @@ func BenchmarkStraightforward1PEG(b *testing.B) {
 	// 11/18/23 - 1		8170869576 ns/op	10322733488 B/op	21333124 allocs/op
 	// 11/26/23 - 1		5073027621 ns/op	9482291240 B/op		12543465 allocs/op
 	// 11/29/23 - 1		3247604595 ns/op	9274420416 B/op	 	9328476 allocs/op
+	// 3/3/24   - 1		3157266203 ns/op	9241820392 B/op	 	8688517 allocs/op
+	// With striped-table mutexes: (Think there was a TT-related very rare bug otherwise)
+	// 3/11/24  - 1		3267509980 ns/op	9348210584 B/op		10011243 allocs/op
 	for i := 0; i < b.N; i++ {
 		plays, err := peg.Solve(ctx)
 		is.NoErr(err)
@@ -354,5 +391,90 @@ func TestMoveIsPossible(t *testing.T) {
 	partial = []tilemapping.MachineLetter{1, 3, 5, 9, 19, 21}
 	m = []tilemapping.MachineLetter{19, 1, 21, 3, 25}
 	is.True(moveIsPossible(m, partial))
+
+}
+
+func TestTwoInBag(t *testing.T) {
+	t.Skip()
+	is := is.New(t)
+	// https://www.cross-tables.com/annotated.php?u=34161#17
+	cgpStr := "1T13/1W3Q9/VERB1U9/1E1OPIUM5C1/1LAWIN1I5O1/1Y3A1E5R1/7V4NO1/NOTArIZE1C2UN1/6ODAH2LA1/3TAHA2I2LED/2JUT4R2A1O/3G5P4D/3R3BrIEFING/3I5L4E/3K2DESYNES1M AEFGSTX/EEIOOST 370/341 0 lex CSW19;"
+
+	g, err := cgp.ParseCGP(&DefaultConfig, cgpStr)
+	is.NoErr(err)
+	g.RecalculateBoard()
+
+	gd, err := kwg.Get(DefaultConfig.AllSettings(), "CSW19")
+	is.NoErr(err)
+	peg := new(Solver)
+
+	err = peg.Init(g.Game, gd)
+	peg.maxEndgamePlies = 2
+	peg.skipTiebreaker = true
+	is.NoErr(err)
+
+	ctx := context.Background()
+	winners, err := peg.Solve(ctx)
+
+	is.NoErr(err)
+	fmt.Println(winners)
+}
+
+func TestTwoInBagSingleMove(t *testing.T) {
+	is := is.New(t)
+	// https://www.cross-tables.com/annotated.php?u=34161#17
+	cgpStr := "1T13/1W3Q9/VERB1U9/1E1OPIUM5C1/1LAWIN1I5O1/1Y3A1E5R1/7V4NO1/NOTArIZE1C2UN1/6ODAH2LA1/3TAHA2I2LED/2JUT4R2A1O/3G5P4D/3R3BrIEFING/3I5L4E/3K2DESYNES1M AEFGSTX/EEIOOST 370/341 0 lex CSW19;"
+
+	g, err := cgp.ParseCGP(&DefaultConfig, cgpStr)
+	is.NoErr(err)
+	g.RecalculateBoard()
+
+	gd, err := kwg.Get(DefaultConfig.AllSettings(), "CSW19")
+	is.NoErr(err)
+	peg := new(Solver)
+
+	err = peg.Init(g.Game, gd)
+	is.NoErr(err)
+	peg.maxEndgamePlies = 3
+	peg.iterativeDeepening = false
+	m := move.NewScoringMoveSimple(10, "6F", ".X.", "AEFGST", g.Alphabet())
+	peg.solveOnlyMoves = []*move.Move{m}
+	ctx := context.Background()
+	winners, err := peg.Solve(ctx)
+
+	is.NoErr(err)
+	is.Equal(winners[0].Points, float32(70)) // wins 70/72 games
+	// It only loses games where IE are in the bag, in that order (i.e. "we" draw the I
+	// after the X and opp bingoes with TOREROS)
+	// Note that internally we represent bag right to left:
+	is.Equal(winners[0].OutcomeFor([]tilemapping.MachineLetter{5, 9}), PEGLoss)
+	is.Equal(winners[0].OutcomeFor([]tilemapping.MachineLetter{9, 5}), PEGWin)
+}
+
+func TestFourInBag(t *testing.T) {
+	// This test is not expected to finish in any reasonable amount of time yet.
+	// It is only here aspirationally.
+	t.Skip()
+	is := is.New(t)
+
+	cgpStr := "7LITERARY/6QI7/1YET3NEBULA2/2FAX2G7/4INVOKED4/9T5/9E5/5AVOWs5/9I5/1CLIME1R1A5/4ENWOUND4/PATEN1HO5J1/L5OF4BIG/U5AI1HUE1G1/M6EDITRESS ACEOOSZ/ANOPRRT 331/336 0 lex NWL20;"
+
+	g, err := cgp.ParseCGP(&DefaultConfig, cgpStr)
+	is.NoErr(err)
+	g.RecalculateBoard()
+
+	gd, err := kwg.Get(DefaultConfig.AllSettings(), "NWL20")
+	is.NoErr(err)
+	peg := new(Solver)
+
+	err = peg.Init(g.Game, gd)
+	is.NoErr(err)
+	peg.maxEndgamePlies = 4
+	peg.iterativeDeepening = true
+
+	ctx := context.Background()
+	_, err = peg.Solve(ctx)
+
+	is.NoErr(err)
 
 }

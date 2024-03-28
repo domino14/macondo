@@ -7,7 +7,6 @@ import (
 	"io"
 	"runtime"
 	"sort"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -22,6 +21,7 @@ import (
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/tinymove"
 	"github.com/domino14/macondo/tinymove/conversions"
+	"github.com/domino14/word-golib/tilemapping"
 )
 
 // thanks Wikipedia:
@@ -43,11 +43,20 @@ function negamax(node, depth, α, β, color) is
 negamax(rootNode, depth, −∞, +∞, 1)
 **/
 
-const HugeNumber = int16(32767)
+const HugeNumber = int16(32000)
 const MaxVariantLength = 25
-const EarlyPassOffset = 21000
-const HashMoveOffset = 6000
-const MaxLazySMPThreads = 6
+
+// Bitflags for move estimates.
+const (
+	EarlyPassBF = 1 << 13
+	HashMoveBF  = 1 << 12
+	GoingOutBF  = 1 << 11
+	// Moves that score more than 256 pts in the endgame may have some
+	// sorting issues. Can probably fix this later.
+	TilesPlayedBFOffset = 8
+)
+
+const MaxLazySMPThreads = 10
 
 var (
 	ErrNoEndgameSolution = errors.New("no endgame solution found")
@@ -141,6 +150,23 @@ func (pvLine PVLine) NLBString() string {
 // 	}
 // }
 
+type endgameLog struct {
+	Ply   int       `yaml:"ply"`
+	Plays []playLog `yaml:"plays"`
+}
+
+type playLog struct {
+	Play      string    `yaml:"play"`
+	Value     int16     `yaml:"value"`
+	Alpha     int16     `yaml:"α"`
+	Beta      int16     `yaml:"β"`
+	TTNodeKey uint64    `yaml:"ttNodeKey"`
+	Flag      uint8     `yaml:"ttFlag"`
+	Depth     uint8     `yaml:"ttDepth"`
+	Score     int16     `yaml:"ttScore"`
+	Plays     []playLog `yaml:"plays"`
+}
+
 type Solver struct {
 	stmMovegen   movegen.MoveGenerator
 	game         *game.Game
@@ -152,16 +178,20 @@ type Solver struct {
 	initialSpread int
 	solvingPlayer int // This is the player who we call this function for.
 
-	// earlyPassOptim: if the last move was a pass, try a pass first to end
-	// the game. It costs very little to check this case first and results
-	// in a modest speed boost.
-	earlyPassOptim          bool
 	iterativeDeepeningOptim bool
 	firstWinOptim           bool
 	transpositionTableOptim bool
-	lazySMPOptim            bool
-	principalVariation      PVLine
-	bestPVValue             int16
+	negascoutOptim          bool
+	// lazySMP is a way to optimize the endgame speed, but it doesn't work
+	// super great with Scrabble
+	lazySMPOptim bool
+	// ABDADA is another alpha-beta parallelization algorithm
+	abdadaOptim bool
+
+	// solveMultipleVariants will solve multiple variants in parallel.
+	solveMultipleVariants bool
+	principalVariation    PVLine
+	bestPVValue           int16
 
 	ttable *TranspositionTable
 
@@ -170,8 +200,9 @@ type Solver struct {
 	threads         int
 	nodes           atomic.Uint64
 
-	logStream io.Writer
-	busy      bool
+	logStream  io.Writer
+	busy       bool
+	threadLogs []playLog
 }
 
 // Init initializes the solver
@@ -179,11 +210,11 @@ func (s *Solver) Init(m movegen.MoveGenerator, game *game.Game) error {
 	s.ttable = GlobalTranspositionTable
 	s.stmMovegen = m
 	s.game = game
-	s.earlyPassOptim = true
 
 	s.firstWinOptim = false
 	s.transpositionTableOptim = true
 	s.iterativeDeepeningOptim = true
+	s.negascoutOptim = true
 	s.threads = max(1, runtime.NumCPU())
 	if s.stmMovegen != nil {
 		s.stmMovegen.SetGenPass(true)
@@ -191,6 +222,11 @@ func (s *Solver) Init(m movegen.MoveGenerator, game *game.Game) error {
 	}
 
 	return nil
+}
+
+// SetLogStream only prints coherent logs for single-threaded endgames for now.
+func (s *Solver) SetLogStream(l io.Writer) {
+	s.logStream = l
 }
 
 func (s *Solver) Movegen() movegen.MoveGenerator {
@@ -266,24 +302,41 @@ func (s *Solver) assignEstimates(moves []tinymove.SmallMove, depth, thread int, 
 	ld := g.Bag().LetterDistribution()
 
 	lastMoveWasPass := g.ScorelessTurns() > g.LastScorelessTurns()
+	// var pvMove tinymove.TinyMove
+
+	// if depth > 0 && s.principalVariation.Moves[depth] != nil {
+	// 	pvMove = conversions.MoveToTinyMove(s.principalVariation.Moves[depth])
+	// }
+
 	for idx := range moves {
 		if moves[idx].TilesPlayed() == numTilesOnRack {
-			moves[idx].SetEstimatedValue(int16(moves[idx].Score() + 2*otherRack.ScoreOn(ld)))
+			moves[idx].SetEstimatedValue(int16(moves[idx].Score()+2*otherRack.ScoreOn(ld)) + GoingOutBF)
 			// } else if thread == 4 {
 			// 	// Some handwavy LazySMP thing.
 			// 	p.SetEstimatedValue(int16(7 - p.TilesPlayed()))
+			// } else if depth > 2 {
+			// 	moves[idx].SetEstimatedValue(int16(moves[idx].Score() - 5*moves[idx].TilesPlayed()))
+			// } else {
+			// 	moves[idx].SetEstimatedValue(int16(moves[idx].Score()))
+			// }
 		} else if depth > 2 {
-			moves[idx].SetEstimatedValue(int16(moves[idx].Score() + 3*moves[idx].TilesPlayed()))
+			if thread >= 6 {
+				// add some more jitter for lazysmp
+				moves[idx].SetEstimatedValue(int16(moves[idx].Score() + 3*moves[idx].TilesPlayed()))
+			} else {
+				moves[idx].SetEstimatedValue(int16(moves[idx].Score() - 5*moves[idx].TilesPlayed()))
+			}
 		} else {
 			moves[idx].SetEstimatedValue(int16(moves[idx].Score()))
 		}
-		if moves[idx].TinyMove() == ttMove {
-			moves[idx].AddEstimatedValue(HashMoveOffset)
-		}
 
 		// XXX: should also verify validity of ttMove later.
-		if s.earlyPassOptim && lastMoveWasPass && moves[idx].IsPass() {
-			moves[idx].AddEstimatedValue(EarlyPassOffset)
+		if moves[idx].TinyMove() == ttMove {
+			moves[idx].AddEstimatedValue(HashMoveBF)
+		}
+
+		if lastMoveWasPass && moves[idx].IsPass() {
+			moves[idx].AddEstimatedValue(EarlyPassBF)
 		}
 	}
 	sort.Slice(moves, func(i int, j int) bool {
@@ -299,15 +352,12 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 	s.makeGameCopies()
 	log.Info().Int("threads", s.threads).Msg("using-lazy-smp")
 	s.currentIDDepths = make([]int, s.threads)
-	initialHashKey := uint64(0)
-	if s.transpositionTableOptim {
-		initialHashKey = s.ttable.Zobrist().Hash(
-			s.game.Board().GetSquares(),
-			s.game.RackFor(s.solvingPlayer),
-			s.game.RackFor(1-s.solvingPlayer),
-			false, s.game.ScorelessTurns(),
-		)
-	}
+	initialHashKey := s.ttable.Zobrist().Hash(
+		s.game.Board().GetSquares(),
+		s.game.RackFor(s.solvingPlayer),
+		s.game.RackFor(1-s.solvingPlayer),
+		false, s.game.ScorelessTurns(),
+	)
 
 	α := -HugeNumber
 	β := HugeNumber
@@ -330,7 +380,7 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 	// Do initial search so that we can have a good estimate for
 	// move ordering.
 	s.currentIDDepths[0] = 1
-	s.negamax(ctx, initialHashKey, 1, α, β, &pv, 0)
+	lastIteration, _ := s.negamax(ctx, initialHashKey, 1, α, β, &pv, 0, true)
 	// Sort the moves by valuation.
 	sort.Slice(s.initialMoves[0], func(i, j int) bool {
 		return s.initialMoves[0][i].EstimatedValue() > s.initialMoves[0][j].EstimatedValue()
@@ -347,109 +397,306 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 		log.Info().Int("plies", p).Msg("deepening-iteratively")
 		s.currentIDDepths[0] = p
 		if s.logStream != nil {
-			fmt.Fprintf(s.logStream, "- ply: %d\n", p)
+			// fmt.Fprintf(s.logStream, "- ply: %d\n", p)
 		}
 
-		// start helper threads
-		g := errgroup.Group{}
-		cancels := make([]context.CancelFunc, s.threads-1)
-		for t := 1; t < s.threads; t++ {
-			t := t
-			p := p
-			// search to different plies for different threads
-			s.currentIDDepths[t] = p + t%3
-			helperCtx, cancel := context.WithCancel(ctx)
-			cancels[t-1] = cancel
-			helperAlpha := -HugeNumber
-			helperBeta := HugeNumber
-			if s.firstWinOptim {
-				helperAlpha = -1
-				helperBeta = 1
+		// aspiration search
+		window := int16(8)
+		α := lastIteration - window
+		β := lastIteration + window
+
+		if s.firstWinOptim {
+			α = -1
+			β = 1
+		}
+		for {
+			α = max(-HugeNumber, α)
+			β = min(HugeNumber, β)
+			log.Debug().Int16("α", α).Int16("β", β).Int16("window", window).Int16("lastIteration", lastIteration).
+				Msg("starting")
+			if !(α < β) {
+				panic("unexpected alphabeta")
 			}
-			g.Go(func() error {
-				defer func() {
-					log.Debug().Msgf("Thread %d exiting", t)
-				}()
-				log.Debug().Msgf("Thread %d starting; searching %d deep", t, p+t%2)
 
-				// ignore the score for these helper threads; we're just
-				// using them to help build up the transposition table.
-				pv := PVLine{g: s.gameCopies[t-1]} // not being used for anything
-				val, err := s.negamax(
-					helperCtx, initialHashKey, s.currentIDDepths[t],
-					helperAlpha, helperBeta, &pv, t)
-				if err != nil {
-					log.Debug().Msgf("Thread %d error %v", t, err)
-				}
-				log.Debug().Msgf("Thread %d done; val returned %d, pv %s", t, val, pv.NLBString())
-				// Try a few schemes to really randomize stuff.
-				if t == 1 {
-					sort.Slice(s.initialMoves[t], func(i, j int) bool {
-						return s.initialMoves[t][i].EstimatedValue() > s.initialMoves[t][j].EstimatedValue()
-					})
-				} else if t == 2 {
-					// do nothing, use original order
-				} else if t > 2 && t <= 7 {
-					// Shuffle the order of root nodes
-					frand.Shuffle(len(s.initialMoves[t]), func(i, j int) {
-						s.initialMoves[t][i], s.initialMoves[t][j] = s.initialMoves[t][j], s.initialMoves[t][i]
-					})
-				} else if t > 7 {
-					// A sort of restricted shuffle?
-					topfew := len(s.initialMoves[t]) / 3
+			// start helper threads
+			g := errgroup.Group{}
+			cancels := make([]context.CancelFunc, s.threads-1)
 
-					frand.Shuffle(topfew, func(i, j int) {
-						s.initialMoves[t][i], s.initialMoves[t][j] = s.initialMoves[t][j], s.initialMoves[t][i]
-					})
-					frand.Shuffle(len(s.initialMoves)-topfew, func(i, j int) {
-						s.initialMoves[t][i+topfew], s.initialMoves[t][j+topfew] = s.initialMoves[t][j+topfew], s.initialMoves[t][i+topfew]
-					})
-				}
-				return err
-			})
-		}
+			for t := 1; t < s.threads; t++ {
+				// search to different plies for different threads
+				s.currentIDDepths[t] = p + t%3
+				helperCtx, cancel := context.WithCancel(ctx)
+				cancels[t-1] = cancel
 
-		// This is the main thread. All other threads just help update the
-		// transposition table, but this one actually edits the principal
-		// variation.
-		pv := PVLine{g: s.game}
-		val, err := s.negamax(ctx, initialHashKey, p, α, β, &pv, 0)
+				g.Go(func() error {
+					defer func() {
+						log.Debug().Msgf("Thread %d exiting", t)
+					}()
+					log.Debug().Msgf("Thread %d starting; searching %d deep", t, p+t%2)
 
-		if err != nil {
-			log.Err(err).Msg("negamax-error-most-likely-timeout")
-		} else {
-			sort.Slice(s.initialMoves[0], func(i, j int) bool {
-				return s.initialMoves[0][i].EstimatedValue() > s.initialMoves[0][j].EstimatedValue()
-			})
+					// ignore the score for these helper threads; we're just
+					// using them to help build up the transposition table.
+					pv := PVLine{g: s.gameCopies[t-1]} // not being used for anything
+					val, err := s.negamax(
+						helperCtx, initialHashKey, s.currentIDDepths[t],
+						α, β, &pv, t, true)
+					if err != nil {
+						log.Debug().Msgf("Thread %d error %v", t, err)
+					}
+					log.Debug().Msgf("Thread %d done; val returned %d, pv %s", t, val, pv.NLBString())
+					// Try a few schemes to really randomize stuff.
+					if t == 1 {
+						sort.Slice(s.initialMoves[t], func(i, j int) bool {
+							return s.initialMoves[t][i].EstimatedValue() > s.initialMoves[t][j].EstimatedValue()
+						})
+					} else if t == 2 {
+						// do nothing, use original order
+					} else if t > 2 && t <= 7 {
+						// Shuffle the order of root nodes
+						frand.Shuffle(len(s.initialMoves[t]), func(i, j int) {
+							s.initialMoves[t][i], s.initialMoves[t][j] = s.initialMoves[t][j], s.initialMoves[t][i]
+						})
+					} else if t > 7 {
+						// A sort of restricted shuffle?
+						topfew := len(s.initialMoves[t]) / 3
 
-			s.principalVariation = pv
-			s.bestPVValue = val - int16(s.initialSpread)
-			log.Info().Int16("spread", val).Int("ply", p).Str("pv", pv.NLBString()).Msg("best-val")
-		}
-		// stop helper threads cleanly
-		for _, c := range cancels {
-			if c != nil {
-				c()
+						frand.Shuffle(topfew, func(i, j int) {
+							s.initialMoves[t][i], s.initialMoves[t][j] = s.initialMoves[t][j], s.initialMoves[t][i]
+						})
+						frand.Shuffle(len(s.initialMoves)-topfew, func(i, j int) {
+							s.initialMoves[t][i+topfew], s.initialMoves[t][j+topfew] = s.initialMoves[t][j+topfew], s.initialMoves[t][i+topfew]
+						})
+					}
+					return err
+				})
 			}
-		}
 
-		err = g.Wait()
-		if err != nil {
-			if err.Error() == "context canceled" {
-				log.Debug().Msg("helper threads exited with a canceled context")
+			// This is the main thread. All other threads just help update the
+			// transposition table, but this one actually edits the principal
+			// variation.
+			pv := PVLine{g: s.game}
+			val, err := s.negamax(ctx, initialHashKey, p, α, β, &pv, 0, true)
+
+			if err != nil {
+				log.Err(err).Msg("negamax-error-most-likely-timeout")
 			} else {
-				return err
-			}
-		}
+				sort.Slice(s.initialMoves[0], func(i, j int) bool {
+					return s.initialMoves[0][i].EstimatedValue() > s.initialMoves[0][j].EstimatedValue()
+				})
 
+				s.principalVariation = pv
+				s.bestPVValue = val - int16(s.initialSpread)
+				log.Info().
+					Int16("α", α).
+					Int16("β", β).
+					Int16("window", window).
+					Int16("spread", val).
+					Int("ply", p).
+					Str("pv", pv.NLBString()).Msg("best-val")
+			}
+			// stop helper threads cleanly
+			for _, c := range cancels {
+				if c != nil {
+					c()
+				}
+			}
+
+			err = g.Wait()
+			if err != nil {
+				if err.Error() == "context canceled" {
+					log.Debug().Msg("helper threads exited with a canceled context")
+				} else {
+					return err
+				}
+			}
+			log.Debug().Int16("α", α).Int16("β", β).Int16("val", val).Msg("iteration-done")
+
+			if val > α && val < β {
+				lastIteration = val
+				break
+			}
+			window *= 2
+
+			if val <= α {
+				// fail low
+				for α-window < -HugeNumber {
+					window /= 2
+				}
+				α -= window
+				β -= window / 3
+			} else {
+				// fail high
+				for β+window > HugeNumber {
+					window /= 2
+				}
+				β += window
+				α += window / 3
+			}
+			log.Debug().Int16("new-α", α).Int16("new-β", β).Int16("new-window", window).Msg("re-iterating")
+
+		}
+		// }
 	}
 	return nil
 }
+
+func (s *Solver) iterativelyDeepenABDADA(ctx context.Context, plies int) error {
+	// https://dl.acm.org/doi/pdf/10.1145/228329.228345
+	return nil
+}
+
+// func (s *Solver) iterativelyDeepenMultipleVariants(ctx context.Context, plies int) error {
+// 	// Generate first layer of moves.
+// 	if plies < 2 {
+// 		return errors.New("use at least 2 plies")
+// 	}
+// 	s.makeGameCopies()
+// 	log.Info().It("threads", s.threads).Msg("using-lazy-smp")
+// 	s.currentIDDepths = make([]int, s.threads)
+// 	initialHashKey := uint64(0)
+// 	if s.transpositionTableOptim {
+// 		initialHashKey = s.ttable.Zobrist().Hash(
+// 			s.game.Board().GetSquares(),
+// 			s.game.RackFor(s.solvingPlayer),
+// 			s.game.RackFor(1-s.solvingPlayer),
+// 			false, s.game.ScorelessTurns(),
+// 		)
+// 	}
+
+// 	α := -HugeNumber
+// 	β := HugeNumbern
+// 	if s.firstWinOptim {
+// 		// Search a very small window centered around 0. We're just trying
+// 		// to find something that surpasses it.
+// 		α = -1
+// 		β = 1
+// 	}
+
+// 	s.initialMoves = make([][]tinymove.SmallMove, 1)
+// 	s.initialMoves[0] = s.generateSTMPlays(0, 0)
+// 	// Generate first layer of moves.
+// 	s.currentIDDepths[0] = -1 // so that generateSTMPlays generates all moves first properly.
+
+// 	// assignEstimates for the very first time around.
+// 	s.assignEstimates(s.initialMoves[0], 0, 0, tinymove.InvalidTinyMove)
+
+// 	pv := PVLine{g: s.game}
+// 	// Do initial search so that we can have a good estimate for
+// 	// move ordering.
+// 	s.currentIDDepths[0] = 1
+// 	s.negamax(ctx, initialHashKey, 1, α, β, &pv, 0)
+// 	// Sort the moves by valuation.
+// 	sort.Slice(s.initialMoves[0], func(i, j int) bool {
+// 		return s.initialMoves[0][i].EstimatedValue() > s.initialMoves[0][j].EstimatedValue()
+// 	})
+
+// 	sortedMoves := make([]tinymove.SmallMove, len(s.initialMoves[0]))
+// 	copy(sortedMoves, s.initialMoves[0])
+
+// 	type job struct {
+// 		move tinymove.SmallMove
+// 	}
+
+// 	// // copy these moves to per-thread subarrays. This will also copy
+// 	// // the initial estimated valuation and order.
+// 	// for t := 1; t < s.threads; t++ {
+// 	// 	s.initialMoves[t] = make([]tinymove.SmallMove, len(s.initialMoves[0]))
+// 	// 	copy(s.initialMoves[t], s.initialMoves[0])
+// 	// }
+
+// 	for p := 2; p <= plies; p++ {
+// 		log.Info().Int("plies", p).Msg("deepening-iteratively")
+// 		if s.logStream != nil {
+// 			// fmt.Fprintf(s.logStream, "- ply: %d\n", p)
+// 		}
+// 		jobChan := make(chan job, s.threads*2)
+
+// 		// start other threads
+// 		g := errgroup.Group{}
+// 		cancels := make([]context.CancelFunc, s.threads)
+// 		for t := 0; t < s.threads; t++ {
+// 			// s.currentIDDepths[t] = p
+// 			helperCtx, cancel := context.WithCancel(ctx)
+// 			cancels[t] = cancel
+
+// 			g.Go(func() error {
+// 				defer func() {
+// 					log.Debug().Msgf("Thread %d exiting", t)
+// 				}()
+// 				log.Debug().Msgf("Thread %d starting; searching %d deep", t, p+t%2)
+
+// 				helperAlpha := -HugeNumber
+// 				helperBeta := HugeNumber
+// 				if s.firstWinOptim {
+// 					helperAlpha = -1
+// 					helperBeta = 1
+// 				}
+
+// 				for j := range jobChan {
+// 					pv := PVLine{g: s.gameCopies[t]} // not being used for anything
+// 					s.initialMoves[t] = []tinymove.SmallMove{j.move}
+// 					s.currentIDDepths[t] = p
+// 					val, err := s.negamax(
+// 						helperCtx, initialHashKey, s.currentIDDepths[t],
+// 						helperAlpha, helperBeta, &pv, t)
+// 					if err != nil {
+// 						log.Debug().Msgf("Thread %d error %v", t, err)
+// 					}
+// 					log.Debug().Msgf("Thread %d done; val returned %d, pv %s", t, val, pv.NLBString())
+// 				}
+// 				// XXX: try sorting opp moves maybe for next iterative deepening??
+// 				return nil
+// 			})
+// 		}
+
+// 		for _, m := range sortedMoves {
+// 			jobChan <- job{m}
+// 		}
+
+// 		// This is the main thread. All other threads just help update the
+// 		// transposition table, but this one actually edits the principal
+// 		// variation.
+// 		// pv := PVLine{g: s.game}
+// 		// val, err := s.negamax(ctx, initialHashKey, p, α, β, &pv, 0)
+
+// 		// if err != nil {
+// 		// 	log.Err(err).Msg("negamax-error-most-likely-timeout")
+// 		// } else {
+// 		// 	sort.Slice(s.initialMoves[0], func(i, j int) bool {
+// 		// 		return s.initialMoves[0][i].EstimatedValue() > s.initialMoves[0][j].EstimatedValue()
+// 		// 	})
+
+// 		// 	s.principalVariation = pv
+// 		// 	s.bestPVValue = val - int16(s.initialSpread)
+// 		// 	log.Info().Int16("spread", val).Int("ply", p).Str("pv", pv.NLBString()).Msg("best-val")
+// 		// }
+// 		// stop helper threads cleanly
+// 		// for _, c := range cancels {
+// 		// 	if c != nil {
+// 		// 		c()
+// 		// 	}
+// 		// }
+// 		close(jobChan)
+// 		err := g.Wait()
+// 		if err != nil {
+// 			if err.Error() == "context canceled" {
+// 				log.Debug().Msg("helper threads exited with a canceled context")
+// 			} else {
+// 				return err
+// 			}
+// 		}
+
+// 	}
+// 	return nil
+
+// }
 
 // iterativelyDeepen is single-threaded version.
 func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 	if s.lazySMPOptim {
 		return s.iterativelyDeepenLazySMP(ctx, plies)
+	} else if s.abdadaOptim {
+		return s.iterativelyDeepenABDADA(ctx, plies)
 	}
 	s.currentIDDepths = make([]int, 1)
 	g := s.game
@@ -490,10 +737,10 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 		}
 		s.currentIDDepths[0] = p
 		if s.logStream != nil {
-			fmt.Fprintf(s.logStream, "- ply: %d\n", p)
+			// fmt.Fprintf(s.logStream, "- ply: %d\n", p)
 		}
 		pv := PVLine{g: g}
-		val, err := s.negamax(ctx, initialHashKey, p, α, β, &pv, 0)
+		val, err := s.negamax(ctx, initialHashKey, p, α, β, &pv, 0, true)
 		if err != nil {
 			return err
 		}
@@ -509,7 +756,7 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 
 }
 
-func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β int16, pv *PVLine, thread int) (int16, error) {
+func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β int16, pv *PVLine, thread int, pvNode bool) (int16, error) {
 	if ctx.Err() != nil {
 		return 0, ctx.Err()
 	}
@@ -520,13 +767,11 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	onTurn := g.PlayerOnTurn()
 	ourSpread := g.SpreadFor(onTurn)
 
-	// Note: if I return early as in here, the PV might not be complete.
-	// (the transposition table is cutting off the iterations)
-	// The value should still be correct, though.
-	// Something like PVS might do better at keeping the PV intact.
 	alphaOrig := α
 	ttMove := tinymove.InvalidTinyMove
-
+	if !(pvNode || α == β-1) {
+		panic("bad conditions")
+	}
 	if s.transpositionTableOptim {
 		ttEntry := s.ttable.lookup(nodeKey)
 		if ttEntry.valid() && ttEntry.depth() >= uint8(depth) {
@@ -535,36 +780,18 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			// add spread back in; we subtract them when storing.
 			score += int16(ourSpread)
 			if flag == TTExact {
-				if pv.numMoves == 0 {
-					// let's not lose the very first move.
-					log.Trace().Msg("exact-tt-move")
-					childPV := PVLine{g: g}
-					child, err := conversions.TinyMoveToFullMove(ttEntry.move(), g.Board(),
-						g.Bag().LetterDistribution(), g.RackFor(onTurn))
-					if err != nil {
-						return 0, err
-					}
-					pv.Update(child, childPV, score)
+				if !pvNode {
+					return score, nil
 				}
-				return score, nil
 			} else if flag == TTLower {
 				α = max(α, score)
 			} else if flag == TTUpper {
 				β = min(β, score)
 			}
 			if α >= β {
-				if pv.numMoves == 0 {
-					// let's not lose the very first move.
-					log.Trace().Msg("alpha-beta-cutoff-at-tt")
-					childPV := PVLine{g: g}
-					child, err := conversions.TinyMoveToFullMove(ttEntry.move(), g.Board(),
-						g.Bag().LetterDistribution(), g.RackFor(onTurn))
-					if err != nil {
-						return 0, err
-					}
-					pv.Update(child, childPV, score)
+				if !pvNode { // don't cut off PV node
+					return score, nil
 				}
-				return score, nil
 			}
 			// search hash move first.
 			ttMove = ttEntry.move()
@@ -589,17 +816,18 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	}
 
 	bestValue := -HugeNumber
-	indent := 2 * (s.currentIDDepths[thread] - depth)
+	// logIndent := strings.Repeat(" ", max(2*(s.currentIDDepths[thread]-depth), 0))
 	if s.logStream != nil {
-		fmt.Fprintf(s.logStream, "  %vplays:\n", strings.Repeat(" ", indent))
+		// fmt.Fprintf(s.logStream, "  %vplays:\n", logIndent)
 	}
 	var bestMove tinymove.SmallMove
+	var err error
+	var moveTiles *[21]tilemapping.MachineLetter
 	for idx := range children {
 		if s.logStream != nil {
-			fmt.Fprintf(s.logStream, "  %v- play: %v\n", strings.Repeat(" ", indent), children[idx].ShortDescription(g.Alphabet()))
+			// fmt.Fprintf(s.logStream, "  %v- play: %v\n", logIndent, children[idx].ShortDescription())
 		}
-
-		moveTiles, err := g.PlaySmallMove(&children[idx])
+		moveTiles, err = g.PlaySmallMove(&children[idx])
 		if err != nil {
 			return 0, err
 		}
@@ -609,21 +837,35 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			childKey = s.ttable.Zobrist().AddMove(nodeKey, &children[idx], stmRack, moveTiles,
 				onTurn == s.solvingPlayer, g.ScorelessTurns(), g.LastScorelessTurns())
 		}
-		value, err := s.negamax(ctx, childKey, depth-1, -β, -α, &childPV, thread)
+		var value int16
+		// negascout
+		if idx == 0 || !s.negascoutOptim {
+			value, err = s.negamax(ctx, childKey, depth-1, -β, -α, &childPV, thread, pvNode)
+		} else {
+			value, err = s.negamax(ctx, childKey, depth-1, -α-1, -α, &childPV, thread, false)
+			if err != nil {
+				g.UnplayLastMove()
+				return value, err
+			}
+			if α < -value && -value < β {
+				// re-search with wider window
+				value, err = s.negamax(ctx, childKey, depth-1, -β, -α, &childPV, thread, pvNode)
+			}
+		}
 		if err != nil {
 			g.UnplayLastMove()
 			return value, err
 		}
 		g.UnplayLastMove()
 		if s.logStream != nil {
-			fmt.Fprintf(s.logStream, "  %v  value: %v\n", strings.Repeat(" ", indent), value)
+			// fmt.Fprintf(s.logStream, "  %v  value: %v\n", logIndent, value)
 		}
 		if -value > bestValue {
 			bestValue = -value
 			bestMove = children[idx]
 			// allocate a move to update the pv
 			m := &move.Move{}
-			conversions.SmallMoveToMove(&bestMove, m, g.Alphabet(), g.Board(), stmRack)
+			conversions.SmallMoveToMove(bestMove, m, g.Alphabet(), g.Board(), stmRack)
 			pv.Update(m, childPV, bestValue-int16(s.initialSpread))
 		}
 		if s.currentIDDepths[thread] == depth {
@@ -632,8 +874,8 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 
 		α = max(α, bestValue)
 		if s.logStream != nil {
-			fmt.Fprintf(s.logStream, "  %v  α: %v\n", strings.Repeat(" ", indent), α)
-			fmt.Fprintf(s.logStream, "  %v  β: %v\n", strings.Repeat(" ", indent), β)
+			// fmt.Fprintf(s.logStream, "  %v  α: %v\n", logIndent, α)
+			// fmt.Fprintf(s.logStream, "  %v  β: %v\n", logIndent, β)
 		}
 		if bestValue >= β {
 			break // beta cut-off
@@ -660,6 +902,15 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		entryToStore.flagAndDepth = flag<<6 + uint8(depth)
 		entryToStore.play = bestMove.TinyMove()
 		s.ttable.store(nodeKey, entryToStore)
+		if s.logStream != nil {
+			// fmt.Fprintf(s.logStream, "  %vttnodeKey: %v\n", logIndent, nodeKey)
+			// fmt.Fprintf(s.logStream, "  %vttflag: %v\n", logIndent, flag)
+			// fmt.Fprintf(s.logStream, "  %vttdepth: %v\n", logIndent, depth)
+			// fmt.Fprintf(s.logStream, "  %vttscore: %v\n", logIndent, score)
+			// fmt.Fprintf(s.logStream, "  %vttplay: %v\n", logIndent, entryToStore.play)
+			fmt.Fprintf(s.logStream, "%d (d: %d s: %d)\n", nodeKey, depth, score)
+			fmt.Fprintf(s.logStream, " cgp: %v\n\n", g.ToCGP(false))
+		}
 	}
 	return bestValue, nil
 
@@ -686,11 +937,14 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	tstart := time.Now()
 	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
 	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)
-	if s.lazySMPOptim {
+	if s.lazySMPOptim && s.abdadaOptim {
+		return 0, nil, errors.New("you can only use lazySMP OR solve multiple variants, but not both")
+	}
+	if s.lazySMPOptim || s.abdadaOptim {
 		if s.transpositionTableOptim {
 			s.ttable.SetMultiThreadedMode()
 		} else {
-			return 0, nil, errors.New("cannot use lazySMP optimization without transposition table")
+			return 0, nil, errors.New("cannot parallelize alphabeta without transposition table")
 		}
 	} else {
 		s.ttable.SetSingleThreadedMode()
@@ -744,11 +998,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 
 	bestSeq = s.principalVariation.Moves[:s.principalVariation.numMoves]
 	bestV = s.bestPVValue
-	log.Info().
-		Uint64("ttable-created", s.ttable.created.Load()).
-		Uint64("ttable-lookups", s.ttable.lookups.Load()).
-		Uint64("ttable-hits", s.ttable.hits.Load()).
-		Uint64("ttable-t2collisions", s.ttable.t2collisions.Load()).
+	log.Info().Str("ttable-stats", s.ttable.Stats()).
 		Float64("time-elapsed-sec", time.Since(tstart).Seconds()).
 		Msg("solve-returning")
 	if err != nil {
@@ -785,6 +1035,7 @@ func (s *Solver) QuickAndDirtySolve(ctx context.Context, plies, thread int) (int
 	// 	Str("theirRack", s.game.RackLettersFor(1-s.solvingPlayer)).
 	// 	Int("plies", plies).Msg("qdsolve-alphabeta-solve-config")
 	s.requestedPlies = plies
+
 	// tstart := time.Now()
 	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
 	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)
@@ -818,7 +1069,7 @@ func (s *Solver) QuickAndDirtySolve(ctx context.Context, plies, thread int) (int
 	}
 	s.currentIDDepths = make([]int, 1) // a hack
 	pv := PVLine{g: s.game}
-	val, err := s.negamax(ctx, initialHashKey, plies, α, β, &pv, 0)
+	val, err := s.negamax(ctx, initialHashKey, plies, α, β, &pv, 0, true)
 	s.principalVariation = pv
 	s.bestPVValue = val - int16(s.initialSpread)
 
@@ -848,6 +1099,10 @@ func (s *Solver) SetTranspositionTableOptim(tt bool) {
 
 func (s *Solver) SetFirstWinOptim(w bool) {
 	s.firstWinOptim = w
+}
+
+func (s *Solver) SetNegascoutOptim(n bool) {
+	s.negascoutOptim = n
 }
 
 func (s *Solver) IsSolving() bool {

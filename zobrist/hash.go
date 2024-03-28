@@ -1,6 +1,9 @@
 package zobrist
 
 import (
+	"encoding/json"
+	"io"
+
 	"github.com/domino14/word-golib/tilemapping"
 	"lukechampine.com/frand"
 
@@ -14,12 +17,12 @@ const bignum = 1<<63 - 2
 // generate a zobrist hash for a crossword game position.
 // https://en.wikipedia.org/wiki/Zobrist_hashing
 type Zobrist struct {
-	theirTurn uint64
+	TheirTurn uint64
 
-	posTable       [][]uint64
-	ourRackTable   [][]uint64
-	theirRackTable [][]uint64
-	scorelessTurns [3]uint64
+	PosTable       [][]uint64
+	OurRackTable   [][]uint64
+	TheirRackTable [][]uint64
+	ScorelessTurns [3]uint64
 
 	boardDim int
 }
@@ -28,34 +31,45 @@ const MaxLetters = 35
 
 func (z *Zobrist) Initialize(boardDim int) {
 	z.boardDim = boardDim
-	z.posTable = make([][]uint64, boardDim*boardDim)
+	z.PosTable = make([][]uint64, boardDim*boardDim)
 	for i := 0; i < boardDim*boardDim; i++ {
 
-		z.posTable[i] = make([]uint64, MaxLetters*2)
+		z.PosTable[i] = make([]uint64, MaxLetters*2)
 		for j := 0; j < 70; j++ {
-			z.posTable[i][j] = frand.Uint64n(bignum) + 1
+			z.PosTable[i][j] = frand.Uint64n(bignum) + 1
 		}
 	}
-	z.ourRackTable = make([][]uint64, MaxLetters)
+	z.OurRackTable = make([][]uint64, MaxLetters)
 	for i := 0; i < MaxLetters; i++ {
-		z.ourRackTable[i] = make([]uint64, game.RackTileLimit)
+		z.OurRackTable[i] = make([]uint64, game.RackTileLimit)
 		for j := 0; j < game.RackTileLimit; j++ {
-			z.ourRackTable[i][j] = frand.Uint64n(bignum) + 1
+			z.OurRackTable[i][j] = frand.Uint64n(bignum) + 1
 		}
 	}
-	z.theirRackTable = make([][]uint64, MaxLetters)
+	z.TheirRackTable = make([][]uint64, MaxLetters)
 	for i := 0; i < MaxLetters; i++ {
-		z.theirRackTable[i] = make([]uint64, game.RackTileLimit)
+		z.TheirRackTable[i] = make([]uint64, game.RackTileLimit)
 		for j := 0; j < game.RackTileLimit; j++ {
-			z.theirRackTable[i][j] = frand.Uint64n(bignum) + 1
+			z.TheirRackTable[i][j] = frand.Uint64n(bignum) + 1
 		}
 	}
 
 	for i := 0; i < 3; i++ {
-		z.scorelessTurns[i] = frand.Uint64n(bignum) + 1
+		z.ScorelessTurns[i] = frand.Uint64n(bignum) + 1
 	}
 
-	z.theirTurn = frand.Uint64n(bignum) + 1
+	z.TheirTurn = frand.Uint64n(bignum) + 1
+}
+
+func (z *Zobrist) Dump(w io.Writer) {
+	bts, err := json.Marshal(z)
+	if err != nil {
+		panic(err)
+	}
+	_, err = w.Write(bts)
+	if err != nil {
+		panic(err)
+	}
 }
 
 func (z *Zobrist) Hash(squares tilemapping.MachineWord,
@@ -70,24 +84,24 @@ func (z *Zobrist) Hash(squares tilemapping.MachineWord,
 			// it's a blank
 			letter = (letter & (0x7F)) + MaxLetters
 		}
-		key ^= z.posTable[i][letter]
+		key ^= z.PosTable[i][letter]
 	}
 	for i, ct := range ourRack.LetArr {
-		key ^= z.ourRackTable[i][ct]
+		key ^= z.OurRackTable[i][ct]
 	}
 	for i, ct := range theirRack.LetArr {
-		key ^= z.theirRackTable[i][ct]
+		key ^= z.TheirRackTable[i][ct]
 	}
 	if theirTurn {
-		key ^= z.theirTurn
+		key ^= z.TheirTurn
 	}
-	key ^= z.scorelessTurns[scorelessTurns]
+	key ^= z.ScorelessTurns[scorelessTurns]
 	return key
 }
 
 func (z *Zobrist) AddMove(key uint64, m *tinymove.SmallMove,
 	moveRack *tilemapping.Rack, moveTiles *[board.MaxBoardDim]tilemapping.MachineLetter,
-	wasOurMove bool, scorelessTurns, lastScorelessTurns int) uint64 {
+	wasOurMove bool, ScorelessTurns, lastScorelessTurns int) uint64 {
 
 	// Adding a move:
 	// For every letter in the move (assume it's only a tile placement move
@@ -97,9 +111,9 @@ func (z *Zobrist) AddMove(key uint64, m *tinymove.SmallMove,
 	// Then:
 	// - XOR with p2ToMove since we always alternate
 
-	rackTable := z.ourRackTable
+	rackTable := z.OurRackTable
 	if !wasOurMove {
-		rackTable = z.theirRackTable
+		rackTable = z.TheirRackTable
 	}
 	if !m.IsPass() {
 		row, col, vertical := m.CoordsAndVertical()
@@ -122,7 +136,7 @@ func (z *Zobrist) AddMove(key uint64, m *tinymove.SmallMove,
 				// it's a blank
 				boardTile = (tile & (0x7F)) + MaxLetters
 			}
-			key ^= z.posTable[newRow*z.boardDim+newCol][boardTile]
+			key ^= z.PosTable[newRow*z.boardDim+newCol][boardTile]
 			// build up placeholder rack.
 			tileIdx := tile.IntrinsicTileIdx()
 			placeholderRack[tileIdx]++
@@ -147,12 +161,12 @@ func (z *Zobrist) AddMove(key uint64, m *tinymove.SmallMove,
 			key ^= rackTable[tileIdx][placeholderRack[tileIdx]]
 		}
 	}
-	if lastScorelessTurns != scorelessTurns {
-		key ^= z.scorelessTurns[lastScorelessTurns]
-		key ^= z.scorelessTurns[scorelessTurns]
+	if lastScorelessTurns != ScorelessTurns {
+		key ^= z.ScorelessTurns[lastScorelessTurns]
+		key ^= z.ScorelessTurns[ScorelessTurns]
 	}
 
-	key ^= z.theirTurn
+	key ^= z.TheirTurn
 	return key
 }
 

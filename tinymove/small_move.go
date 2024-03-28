@@ -1,7 +1,7 @@
 package tinymove
 
 import (
-	"github.com/domino14/word-golib/tilemapping"
+	"fmt"
 )
 
 // A SmallMove consists of a TinyMove which encodes all the positional
@@ -19,6 +19,9 @@ type SmallMove struct {
 	// CCCCC = a 5-bit number (total number of tiles in play, including play-through)
 	tilesDescriptor uint8
 }
+
+// DefaultSmallMove is a blank move (a pass)
+var DefaultSmallMove = SmallMove{}
 
 const tilesPlayedBitMask = 0b00000111
 
@@ -38,9 +41,11 @@ func (m *SmallMove) EstimatedValue() int16 {
 	return m.estimatedValue
 }
 
-func (m *SmallMove) ShortDescription(tm *tilemapping.TileMapping) string {
+func (m *SmallMove) ShortDescription() string {
 	// depends on the board.
-	return "(n/a)"
+	return fmt.Sprintf("<tinyplay: %d score: %d nracktiles: %d nplaytiles: %d>",
+		m.tm,
+		m.score, m.tilesDescriptor&tilesPlayedBitMask, m.tilesDescriptor>>3)
 }
 
 // SetEstimatedValue sets the estimated value of this move. It is calculated

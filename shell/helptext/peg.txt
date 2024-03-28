@@ -7,7 +7,7 @@ Example:
     peg stop
 
 About:
-    Macondo can solve a 1-tile-in-the-bag pre-endgame exhaustively. It does this
+    Macondo can solve an n-tile-in-the-bag pre-endgame exhaustively. It does this
     by solving all possible endgames using a fast search for it (see -first-win-optim
     option in the endgame).
 
@@ -17,6 +17,8 @@ About:
     we are guaranteed to win with any given tile, even given any mistakes the
     opponent might make.
 
+    Similar considerations exist when considering any non-bag-emptying play as a move.
+
     If there is more than 1 winner - i.e., more than 1 top play with
     the same number of pre-endgame wins, Macondo will solve the resulting
     endgames more accurately (-first-win option will be set to false).
@@ -25,6 +27,12 @@ About:
     spread is the overall pre-endgame winner. For now it will just try to
     tiebreak among the top 10 highest-scoring plays with the same number
     of wins.
+
+    Important note: n-in-the-bag for n > 1 is not optimized and in certain cases
+    will give incorrect answers for non-bag-emptying plays. (It will also
+    be much slower when considering these plays). It is recommended that
+    the -skip-non-emptying option be set for now. This will be fixed
+    in a future release.
 
 Optional arguments:
     peg stop
@@ -59,14 +67,16 @@ Options:
     accurate results. If you turn this on, plays that were cut-off early will
     be marked with a ❌ symbol, and their stats may not be fully accurate.
 
-    -skip-pass true
+    -skip-non-emptying true
 
-    Macondo can skip analyzing a pass if it is clear that there is no
+    Macondo can skip analyzing plays that don't empty the bag.
+    For example, Macondo can skip analyzing a pass if it is clear that there is no
     way any useful info can be obtained. For example, if we're down by 40 points
     in the pre-endgame and we don't have a playable bingo, we can be pretty sure
     we're not winning this game by passing, and this can save some time in the
     analysis. Macondo can't detect this situation by itself at this time, so
-    you can set skip-pass to true if you want to skip analyzing passes.
+    you can set skip-non-emptying to true if you want to skip analyzing plays
+    that don't empty the bag, such as passes, or other short plays.
 
     -opprack AENST
 
@@ -90,3 +100,9 @@ Options:
     deepening will try setting endgamePlies to 1, 2, 3, and so on until
     the maximum that you specify. This will allow you to have a potential
     answer much earlier.
+
+    -only-solve "B4 DIEH.RD"
+
+    Setting the -only-solve option will only solve the PEG for the given move. This
+    is good if you want to just examine one move. You can specify this option
+    multiple times to specify multiple moves.

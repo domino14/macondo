@@ -1,6 +1,9 @@
 package conversions
 
 import (
+	"fmt"
+	"time"
+
 	"github.com/domino14/word-golib/tilemapping"
 
 	"github.com/domino14/macondo/board"
@@ -8,13 +11,21 @@ import (
 	"github.com/domino14/macondo/tinymove"
 )
 
-func SmallMoveToMove(sm *tinymove.SmallMove, m *move.Move, tm *tilemapping.TileMapping,
+func SmallMoveToMove(sm tinymove.SmallMove, m *move.Move, tm *tilemapping.TileMapping,
 	bd *board.GameBoard, onTurnRack *tilemapping.Rack) {
 	TinyMoveToMove(sm.TinyMove(), bd, m)
 	// populate move with missing fields.
 	m.SetAlphabet(tm)
 	leave, err := tilemapping.Leave(onTurnRack.TilesOn(), m.Tiles(), false)
 	if err != nil {
+		// this is happening very rarely.. figure out wtf is going on.
+		fmt.Println("Trying to convert small move to move did not succeed")
+		fmt.Printf("sm: %v m: %v tm: %v\n", sm, m, tm)
+		fmt.Printf("rack: %v\n", onTurnRack.TilesOn())
+		fmt.Printf("m.Tiles: %v\n", m.Tiles())
+		fmt.Println("board")
+		fmt.Println(bd.ToDisplayText(tm))
+		fmt.Println(time.Now())
 		panic(err)
 	}
 	m.SetLeave(leave)
