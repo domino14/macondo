@@ -468,7 +468,17 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 			return errPlayerDoesNotExist
 		}
 		evt.Rack = match[2]
-		evt.Exchanged = match[3]
+
+		nexch, err := matchToInt32(match[3])
+		if err != nil {
+			evt.Exchanged = match[3]
+		} else {
+			if int(nexch) > len(match[2]) {
+				return errors.New("error in line `" + match[0] + "`: exchanged more tiles than are on rack")
+			}
+			evt.Exchanged = match[2][:nexch]
+		}
+
 		evt.Cumulative, err = matchToInt32(match[4])
 		if err != nil {
 			return err
