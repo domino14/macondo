@@ -497,7 +497,7 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 }
 
 func (p *parser) parseLine(cfg *config.Config, line string) error {
-
+	line = strings.TrimSpace(line)
 	foundMatch := false
 
 	for _, datum := range GCGRegexes {
@@ -520,7 +520,7 @@ func (p *parser) parseLine(cfg *config.Config, line string) error {
 			return nil
 		}
 		// ignore empty lines
-		if strings.TrimSpace(line) == "" {
+		if line == "" {
 			return nil
 		}
 		return fmt.Errorf("no match found for line '%v'", line)
