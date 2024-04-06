@@ -1,3 +1,15 @@
+# v0.9.0 (April 3, 2024)
+- Generic N-in-the-bag pre-endgame, with N up to 6
+    - When a pre-endgame play shows up as a win for a given set of tiles in the bag, it is always a sure win in this case, provided we play our best endgame.
+    - For bag-emptying plays, it is always correct.
+    - For non-bag-emptying plays, it is almost always correct. A bug fix in the future will make it always correct.
+        - The issue is if the bag is still not empty by the time it is our turn again. Macondo will not solve the inner/recursive pre-endgame exactly, but will instead optimize and find any win for ourselves. This is wrong.
+    - Overall it is very slow for N > 1, especially if we're examining non-bag-emptying plays. See `help peg` for more options.
+- Endgame speedups of 2x or more in some cases:
+    - Endgame LazySMP implementation can now use 8-10 threads or so for best performance, due to aspiration search in multithreaded mode
+    - Added PVS/Negascout for an extra speed boost to the endgame
+- Many other bug fixes and improvements to memory usage, speed, etc.
+
 # v0.8.0 (Jun 26, 2023)
 - Made LazySMP implementation a bit better (can now use around 6 threads for best
 endgame performance)
