@@ -325,7 +325,7 @@ func (sc *ShellController) loadGCG(args []string) error {
 			return errors.New("need to provide a woogles game id")
 		}
 		idstr := args[1]
-		path := "https://woogles.io/twirp/game_service.GameMetadataService/GetGCG"
+		path := "https://woogles.io/api/game_service.GameMetadataService/GetGCG"
 
 		reader := strings.NewReader(`{"gameId": "` + idstr + `"}`)
 
