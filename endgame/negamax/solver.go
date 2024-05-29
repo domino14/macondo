@@ -463,7 +463,7 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 						frand.Shuffle(topfew, func(i, j int) {
 							s.initialMoves[t][i], s.initialMoves[t][j] = s.initialMoves[t][j], s.initialMoves[t][i]
 						})
-						frand.Shuffle(len(s.initialMoves)-topfew, func(i, j int) {
+						frand.Shuffle(len(s.initialMoves[t])-topfew, func(i, j int) {
 							s.initialMoves[t][i+topfew], s.initialMoves[t][j+topfew] = s.initialMoves[t][j+topfew], s.initialMoves[t][i+topfew]
 						})
 					}
