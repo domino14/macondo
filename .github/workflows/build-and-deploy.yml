@@ -62,11 +62,20 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and Tag Docker Image
-        run: cd deploy && ./build-and-tag.sh
+        run: docker build -f Dockerfile-bot-prod -t ghcr.io/domino14/macondo-bot:${GITHUB_REF_NAME}-gh${GITHUB_RUN_NUMBER}
+
+      - name: Push Docker Image
+        run: docker push ghcr.io/domino14/macondo-bot:${GITHUB_REF_NAME}-gh${GITHUB_RUN_NUMBER}
 
       - name: Discord notification
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-        uses: Ilshidur/action-discord@master
+          DISCORD_EMBEDS: |
+            '[{
+              "title": "Macondo docker container uploaded",
+              "description": "tag = {{GITHUB_REF_NAME}}-gh{{GITHUB_RUN_NUMBER}}",
+              "color": 65280
+            }]'
+        uses: Ilshidur/action-discord@0.3.2
         with:
-          args: "Macondo docker container uploaded; tag = {{GITHUB_REF_NAME}}-gh{{GITHUB_RUN_NUMBER}}"
+          args: ""
