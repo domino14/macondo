@@ -1,0 +1,72 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches:
+      - "*"
+
+permissions:
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      MACONDO_DATA_PATH: /opt/data
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Clone lexicon repo
+        uses: actions/checkout@v4
+        with:
+          repository: domino14/word-game-lexica
+          path: word-game-lexica
+          token: ${{ secrets.LEXICA_GH_PAT }}
+
+      - run: mv $GITHUB_WORKSPACE/word-game-lexica /opt/word-game-lexica
+      - run: cp -r data /opt/data
+      - run: mkdir -p /opt/data/lexica/gaddag
+      - run: mv /opt/word-game-lexica/gaddag/*.kwg /opt/data/lexica/gaddag
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ">=1.22"
+
+      - name: Build
+        run: make
+
+      - name: Run tests
+        run: go test $(go list ./... | grep -v wasm)
+
+      - name: Discord notification
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        uses: Ilshidur/action-discord@master
+        with:
+          args: "Macondo backend built successfully for branch {{GITHUB_REF_NAME}}."
+
+  deploy_api_docker:
+    runs-on: ubuntu-latest
+    if: ${{ github.ref == 'refs/heads/master' }}
+    needs: build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to the container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: domino14
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and Tag Docker Image
+        run: cd deploy && ./build-and-tag.sh
+
+      - name: Discord notification
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        uses: Ilshidur/action-discord@master
+        with:
+          args: "Macondo docker container uploaded; tag = {{GITHUB_REF_NAME}}-gh{{GITHUB_RUN_NUMBER}}"
