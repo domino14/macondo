@@ -46,7 +46,7 @@ jobs:
         with:
           args: "Macondo backend built successfully for branch {{GITHUB_REF_NAME}}."
 
-  deploy_api_docker:
+  push_docker:
     runs-on: ubuntu-latest
     if: ${{ github.ref == 'refs/heads/master' }}
     needs: build
