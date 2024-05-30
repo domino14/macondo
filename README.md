@@ -3,7 +3,8 @@
 A crossword board game solver. It may be the best one in the world (so far).
 
 Current master build status:
-[![domino14](https://circleci.com/gh/domino14/macondo.svg?style=svg)](https://circleci.com/gh/domino14/macondo)
+
+![Build status](https://github.com/domino14/macondo/actions/workflows/build-and-deploy-bot.yml/badge.svg)
 
 # What is a crossword board game?
 
