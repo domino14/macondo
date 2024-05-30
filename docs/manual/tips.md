@@ -3,18 +3,14 @@
 - [Back to Manual](/macondo/manual)
 - [Back to Main Page](/macondo)
 
-# Tips 
+# Tips
 
 ## How to use other languages
 
-NWL20 is currently the default lexicon of Macondo.
+NWL23 is currently the default lexicon of Macondo.
 
-If you wish to use other lexica, you will need to also
-change the environment variable `DEFAULT_LETTER_DISTRIBUTION` to other values: `spanish`, `polish`, `german`, `norwegian`, `french`, `catalan`, `polish`. There will be more in the future.
+If you wish to use other lexica, you can just use `set lexicon OSPS42 polish` inside the Macondo shell, for example. The first argument is the lexicon name; the second argument is the letter distribution name.
 
-Then, you can change the `DEFAULT_LEXICON` environment variable to your
-desired lexicon (make sure to use the same capitalization schema). For
-example if your gaddag file is named OSPS42.gaddag, the name of the lexicon
-is `OSPS42`.
+Some other values for letter distribution: `spanish`, `polish`, `german`, `norwegian`, `french`, `catalan`, `polish`. There will be more in the future.
 
-Alternatively, you can just use `set lexicon OSPS42 polish` inside the Macondo shell, for example.
+You can find lexicon kwg files at [https://github.com/woogles-io/liwords/blob/master/liwords-ui/public/wasm](https://github.com/woogles-io/liwords/blob/master/liwords-ui/public/wasm)

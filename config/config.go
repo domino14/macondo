@@ -39,7 +39,7 @@ func DefaultConfig() Config {
 	c.AutomaticEnv()
 	c.SetEnvPrefix("macondo")
 
-	c.SetDefault(ConfigDefaultLexicon, "NWL20")
+	c.SetDefault(ConfigDefaultLexicon, "NWL23")
 	c.SetDefault(ConfigDefaultLetterDistribution, "English")
 	c.SetDefault(ConfigTtableMemFraction, 0.25)
 	// Read from an env var MACONDO_DATA_PATH. This might not be a good way to do it:
@@ -84,7 +84,7 @@ func (c *Config) Load(args []string) error {
 	c.BindEnv(ConfigMEMProfile)
 
 	c.SetDefault(ConfigDataPath, "./data") // will be fixed by toAbsPath below if unspecified.
-	c.SetDefault(ConfigDefaultLexicon, "NWL20")
+	c.SetDefault(ConfigDefaultLexicon, "NWL23")
 	c.SetDefault(ConfigDefaultLetterDistribution, "English")
 	c.SetDefault(ConfigTtableMemFraction, 0.25)
 

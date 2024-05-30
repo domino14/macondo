@@ -10,7 +10,7 @@ its basic use case, without any arguments, `autoplay` will use two
 "exhaustive leave" players - i.e. computer players that use 1-to-6 tile
 leave values to calculate equity.
 
-The NWL20 leave values can be found in `./data/strategy/NWL20/leaves.klv2`. Slightly different values for CSW21 are found in `./data/strategy/CSW21/leaves.klv2`.
+The NWL23 leave values can be found in `./data/strategy/NWL23/leaves.klv2`. Slightly different values for CSW21 are found in `./data/strategy/CSW21/leaves.klv2`.
 
 See [How to make leaves and GADDAG files](/macondo/manual/make_leaves_structure.html) for how
 this file was created.

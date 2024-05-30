@@ -33,7 +33,7 @@ func defaultForLexicon(lexiconName string) string {
 		strings.HasPrefix(lexiconName, "NWL") ||
 		strings.HasPrefix(lexiconName, "NSWL") {
 
-		return "NWL20"
+		return "NWL23"
 	} else if strings.HasPrefix(lexiconName, "ECWL") || // obsolete name for CEL
 		strings.HasPrefix(lexiconName, "CEL") { // common english words
 		return "ECWL"

@@ -63,7 +63,7 @@ func ParseCGP(cfg *config.Config, cgpstr string) (*ParsedCGP, error) {
 	// These are our defaults, but they can be overridden by operations.
 	boardLayoutName := "CrosswordGame"
 	letterDistributionName := "english"
-	lexiconName := "NWL20"
+	lexiconName := "NWL23"
 	maxScorelessTurns := game.DefaultMaxScorelessTurns
 	variant := game.VarClassic
 	gid := ""
