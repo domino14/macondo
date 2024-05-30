@@ -31,6 +31,13 @@ Make sure you have done
 
 `go install google.golang.org/protobuf/cmd/protoc-gen-go@latest`
 
+# Creating a new release
+
+(Notes mostly for myself)
+
+Tag the release; i.e. `git tag vX.Y.Z`, then `git push --tags`. This will kick off a github action that builds and uploads the latest binaries. Then you should generate some release notes manually.
+
+
 ### Attributions
 
 Wolges-awsm is Copyright (C) 2020-2022 Andy Kurnia and released under the MIT license. It can be found at https://github.com/andy-k/wolges-awsm/. Macondo interfaces with it as a server.
