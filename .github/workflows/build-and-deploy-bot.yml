@@ -72,7 +72,7 @@ jobs:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
           DISCORD_EMBEDS: '[{
             "title": "Macondo docker container uploaded",
-            "description": "tag = {{GITHUB_REF_NAME}}-gh{{GITHUB_RUN_NUMBER}}",
+            "description": "tag = ${GITHUB_REF_NAME}-gh${GITHUB_RUN_NUMBER}",
             "color": 65280
             }]'
         uses: Ilshidur/action-discord@0.3.2
