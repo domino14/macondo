@@ -70,11 +70,14 @@ jobs:
       - name: Discord notification
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-          DISCORD_EMBEDS: '[{
-            "title": "Macondo docker container uploaded",
-            "description": "tag = ${GITHUB_REF_NAME}-gh${GITHUB_RUN_NUMBER}",
-            "color": 65280
-            }]'
+          DISCORD_EMBEDS: '[    {
+            "fields": [
+            { "name": "Repository", "value": "[${{github.event.repository.name}}](${{github.event.repository.clone_url}})", "inline": true },
+            { "name": "Branch", "value": "[${{github.ref_name}}](https://github.com/${{github.repository}}/tree/${{github.ref_name}})", "inline": true },
+            { "name": "Tag", "value": "ghcr.io/domino14/macondo-bot:${{github.ref_name}}-gh${{github.run_number}}"}
+            ],
+            "color":1127128,
+            }    ]'
         uses: Ilshidur/action-discord@0.3.2
         with:
           args: ""
