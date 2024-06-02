@@ -328,6 +328,8 @@ const (
 	BotRequest_SIMMING_BOT            BotRequest_BotCode = 11
 	BotRequest_HASTY_PLUS_ENDGAME_BOT BotRequest_BotCode = 12
 	BotRequest_SIMMING_INFER_BOT      BotRequest_BotCode = 13 // harder bots here? inference? ml, etc.
+	BotRequest_LEVEL0_PROBABILISTIC   BotRequest_BotCode = 14
+	BotRequest_LEVEL0_CEL_BOT         BotRequest_BotCode = 15
 	// This should have probably been number 0.
 	BotRequest_UNKNOWN BotRequest_BotCode = 100
 )
@@ -349,6 +351,8 @@ var (
 		11:  "SIMMING_BOT",
 		12:  "HASTY_PLUS_ENDGAME_BOT",
 		13:  "SIMMING_INFER_BOT",
+		14:  "LEVEL0_CEL_BOT",
+		15:  "LEVEL0_PROBABILISTIC",
 		100: "UNKNOWN",
 	}
 	BotRequest_BotCode_value = map[string]int32{
@@ -366,6 +370,8 @@ var (
 		"SIMMING_BOT":            11,
 		"HASTY_PLUS_ENDGAME_BOT": 12,
 		"SIMMING_INFER_BOT":      13,
+		"LEVEL0_CEL_BOT":         14,
+		"LEVEL0_PROBABILISTIC":   15,
 		"UNKNOWN":                100,
 	}
 )
