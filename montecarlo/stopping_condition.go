@@ -1,6 +1,7 @@
 package montecarlo
 
 import (
+	"math"
 	"sort"
 
 	"github.com/domino14/word-golib/tilemapping"
@@ -90,7 +91,7 @@ func (s *Simmer) shouldStop(iterationCount uint64,
 	tentativeWinner := c[0]
 	tentativeWinner.RLock()
 	μ := tentativeWinner.winPctStats.Mean()
-	e := tentativeWinner.winPctStats.StandardError(ci)
+	e := tentativeWinner.winPctStats.StandardError()
 	if μ <= MinReasonableWProb {
 		// If the top play by win % has basically no win chance, tiebreak the whole
 		// thing by equity.
@@ -124,7 +125,7 @@ func (s *Simmer) shouldStop(iterationCount uint64,
 				Msg("tiebreaking by equity, re-determining tentative winner")
 		}
 		μ = tentativeWinner.equityStats.Mean()
-		e = tentativeWinner.equityStats.StandardError(ci)
+		e = tentativeWinner.equityStats.StandardError()
 		log.Debug().Msg("stopping-condition-tiebreak-by-equity")
 	}
 
@@ -137,13 +138,13 @@ func (s *Simmer) shouldStop(iterationCount uint64,
 			continue
 		}
 		μi := p.winPctStats.Mean()
-		ei := p.winPctStats.StandardError(ci)
+		ei := p.winPctStats.StandardError()
 		if tiebreakByEquity {
 			μi = p.equityStats.Mean()
-			ei = p.equityStats.StandardError(ci)
+			ei = p.equityStats.StandardError()
 		}
 		p.RUnlock()
-		if passTest(μ, e, μi, ei) {
+		if passTest(μ, e, μi, ei, ci) {
 			p.Ignore()
 			newIgnored++
 		} else if iterationCount > SimilarPlaysIterationsCutoff {
@@ -163,12 +164,13 @@ func (s *Simmer) shouldStop(iterationCount uint64,
 	return false
 }
 
-// passTest: determine if a random variable X > Y with the given
-// confidence level; return true if X > Y.
-func passTest(μ, e, μi, ei float64) bool {
+// passTest: determine if a random variable X > Y with the given z-score; return true if X > Y.
+func passTest(μ, e, μi, ei, z float64) bool {
 	// Z := zVal(μ, v, μi, vi)
 	// X > Y if (μ - e) > (μi + ei)
-	return (μ - e) > (μi + ei)
+	sediff := math.Sqrt(e*e + ei*ei)
+	zcalc := (μ - μi) / sediff
+	return zcalc > z
 }
 
 func materiallySimilar(p1, p2 *SimmedPlay, pcache map[string]bool) bool {
