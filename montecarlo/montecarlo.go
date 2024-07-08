@@ -55,9 +55,11 @@ type StoppingCondition int
 
 const (
 	StopNone StoppingCondition = iota
+	Stop90
 	Stop95
 	Stop98
 	Stop99
+	Stop999
 )
 
 type InferenceMode int

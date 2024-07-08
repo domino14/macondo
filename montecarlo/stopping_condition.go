@@ -37,6 +37,7 @@ func (s *Simmer) shouldStop(iterationCount uint64,
 	// count ignored plays
 	ignoredPlays := 0
 	bottomUnignoredWinPct := 0.0
+	bottomUnignoredSerr := 0.0
 	for i := range c {
 		c[i] = plays[i]
 		c[i].RLock()
@@ -67,6 +68,7 @@ func (s *Simmer) shouldStop(iterationCount uint64,
 		c[i].RLock()
 		if !c[i].ignore {
 			bottomUnignoredWinPct = c[i].winPctStats.Mean()
+			bottomUnignoredSerr = c[i].winPctStats.StandardError()
 			c[i].RUnlock()
 			break
 		}
@@ -80,23 +82,28 @@ func (s *Simmer) shouldStop(iterationCount uint64,
 
 	var ci float64
 	switch sc {
+	case Stop90:
+		ci = stats.Z90
 	case Stop95:
 		ci = stats.Z95
 	case Stop98:
 		ci = stats.Z98
 	case Stop99:
 		ci = stats.Z99
+	case Stop999:
+		ci = stats.Z999
 	}
 	tiebreakByEquity := false
 	tentativeWinner := c[0]
 	tentativeWinner.RLock()
 	μ := tentativeWinner.winPctStats.Mean()
 	e := tentativeWinner.winPctStats.StandardError()
-	if μ <= MinReasonableWProb {
+	if passTest(MinReasonableWProb, 0, μ, e, ci) {
 		// If the top play by win % has basically no win chance, tiebreak the whole
 		// thing by equity.
 		tiebreakByEquity = true
-	} else if μ >= (1-MinReasonableWProb) && bottomUnignoredWinPct >= (1-MinReasonableWProb) {
+	} else if passTest(μ, e, 1-MinReasonableWProb, 0, ci) &&
+		passTest(bottomUnignoredWinPct, bottomUnignoredSerr, 1-MinReasonableWProb, 0, ci) {
 		// If the top play by win % has basically no losing chance, check if the bottom
 		// play also has no losing chance
 		tiebreakByEquity = true
@@ -165,10 +172,13 @@ func (s *Simmer) shouldStop(iterationCount uint64,
 }
 
 // passTest: determine if a random variable X > Y with the given z-score; return true if X > Y.
+// μ and e are the mean and standard error of variable X
+// μi, ei are the mean and standard error of variable Y
 func passTest(μ, e, μi, ei, z float64) bool {
-	// Z := zVal(μ, v, μi, vi)
-	// X > Y if (μ - e) > (μi + ei)
 	sediff := math.Sqrt(e*e + ei*ei)
+	if sediff == 0 {
+		return true
+	}
 	zcalc := (μ - μi) / sediff
 	return zcalc > z
 }
