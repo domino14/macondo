@@ -1,6 +1,7 @@
 package montecarlo
 
 import (
+	"math"
 	"sort"
 
 	"github.com/domino14/word-golib/tilemapping"
@@ -36,6 +37,7 @@ func (s *Simmer) shouldStop(iterationCount uint64,
 	// count ignored plays
 	ignoredPlays := 0
 	bottomUnignoredWinPct := 0.0
+	bottomUnignoredSerr := 0.0
 	for i := range c {
 		c[i] = plays[i]
 		c[i].RLock()
@@ -66,6 +68,7 @@ func (s *Simmer) shouldStop(iterationCount uint64,
 		c[i].RLock()
 		if !c[i].ignore {
 			bottomUnignoredWinPct = c[i].winPctStats.Mean()
+			bottomUnignoredSerr = c[i].winPctStats.StandardError()
 			c[i].RUnlock()
 			break
 		}
@@ -79,23 +82,28 @@ func (s *Simmer) shouldStop(iterationCount uint64,
 
 	var ci float64
 	switch sc {
+	case Stop90:
+		ci = stats.Z90
 	case Stop95:
 		ci = stats.Z95
 	case Stop98:
 		ci = stats.Z98
 	case Stop99:
 		ci = stats.Z99
+	case Stop999:
+		ci = stats.Z999
 	}
 	tiebreakByEquity := false
 	tentativeWinner := c[0]
 	tentativeWinner.RLock()
 	μ := tentativeWinner.winPctStats.Mean()
-	e := tentativeWinner.winPctStats.StandardError(ci)
-	if μ <= MinReasonableWProb {
+	e := tentativeWinner.winPctStats.StandardError()
+	if passTest(MinReasonableWProb, 0, μ, e, ci) {
 		// If the top play by win % has basically no win chance, tiebreak the whole
 		// thing by equity.
 		tiebreakByEquity = true
-	} else if μ >= (1-MinReasonableWProb) && bottomUnignoredWinPct >= (1-MinReasonableWProb) {
+	} else if passTest(μ, e, 1-MinReasonableWProb, 0, ci) &&
+		passTest(bottomUnignoredWinPct, bottomUnignoredSerr, 1-MinReasonableWProb, 0, ci) {
 		// If the top play by win % has basically no losing chance, check if the bottom
 		// play also has no losing chance
 		tiebreakByEquity = true
@@ -124,7 +132,7 @@ func (s *Simmer) shouldStop(iterationCount uint64,
 				Msg("tiebreaking by equity, re-determining tentative winner")
 		}
 		μ = tentativeWinner.equityStats.Mean()
-		e = tentativeWinner.equityStats.StandardError(ci)
+		e = tentativeWinner.equityStats.StandardError()
 		log.Debug().Msg("stopping-condition-tiebreak-by-equity")
 	}
 
@@ -137,13 +145,13 @@ func (s *Simmer) shouldStop(iterationCount uint64,
 			continue
 		}
 		μi := p.winPctStats.Mean()
-		ei := p.winPctStats.StandardError(ci)
+		ei := p.winPctStats.StandardError()
 		if tiebreakByEquity {
 			μi = p.equityStats.Mean()
-			ei = p.equityStats.StandardError(ci)
+			ei = p.equityStats.StandardError()
 		}
 		p.RUnlock()
-		if passTest(μ, e, μi, ei) {
+		if passTest(μ, e, μi, ei, ci) {
 			p.Ignore()
 			newIgnored++
 		} else if iterationCount > SimilarPlaysIterationsCutoff {
@@ -163,12 +171,16 @@ func (s *Simmer) shouldStop(iterationCount uint64,
 	return false
 }
 
-// passTest: determine if a random variable X > Y with the given
-// confidence level; return true if X > Y.
-func passTest(μ, e, μi, ei float64) bool {
-	// Z := zVal(μ, v, μi, vi)
-	// X > Y if (μ - e) > (μi + ei)
-	return (μ - e) > (μi + ei)
+// passTest: determine if a random variable X > Y with the given z-score; return true if X > Y.
+// μ and e are the mean and standard error of variable X
+// μi, ei are the mean and standard error of variable Y
+func passTest(μ, e, μi, ei, z float64) bool {
+	sediff := math.Sqrt(e*e + ei*ei)
+	if sediff == 0 {
+		return true
+	}
+	zcalc := (μ - μi) / sediff
+	return zcalc > z
 }
 
 func materiallySimilar(p1, p2 *SimmedPlay, pcache map[string]bool) bool {

@@ -57,14 +57,18 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
 				return err
 			}
 			switch sci {
+			case 90:
+				stoppingCondition = montecarlo.Stop90
 			case 95:
 				stoppingCondition = montecarlo.Stop95
 			case 98:
 				stoppingCondition = montecarlo.Stop98
 			case 99:
 				stoppingCondition = montecarlo.Stop99
+			case 999:
+				stoppingCondition = montecarlo.Stop999
 			default:
-				return errors.New("only allowed values are 95, 98, and 99 for stopping condition")
+				return errors.New("only allowed values are 90, 95, 98, 99, and 999 for stopping condition")
 			}
 		case "opprack":
 			knownOppRack = options.String(opt)
@@ -186,6 +190,8 @@ func (sc *ShellController) simControlArguments(args []string) error {
 		sc.showMessage(sc.simmer.ScoreDetails())
 	case "show":
 		sc.showMessage(sc.simmer.EquityStats())
+	case "winner":
+		sc.showMessage(sc.simmer.WinningPlay().Move().ShortDescription())
 	case "continue":
 		if sc.simmer.IsSimming() {
 			return errors.New("there is an ongoing simulation")
