@@ -1,12 +1,26 @@
 package shell
 
 import (
+	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog/log"
 	lua "github.com/yuin/gopher-lua"
 )
+
+var exports = map[string]lua.LGFunction{
+	"load":       load,
+	"set":        set,
+	"gen":        gen,
+	"sim":        sim,
+	"turn":       turn,
+	"gid":        gid,
+	"endgame":    endgame,
+	"busy":       busy,
+	"elite_play": elitePlay,
+}
 
 func getShell(L *lua.LState) *ShellController {
 	shell := L.GetGlobal("macondo_shell")
@@ -21,7 +35,7 @@ func getShell(L *lua.LState) *ShellController {
 	return sc
 }
 
-func Set(L *lua.LState) int {
+func set(L *lua.LState) int {
 	lv := L.ToString(1)
 	sc := getShell(L)
 	r, err := sc.set(&shellcmd{
@@ -38,7 +52,7 @@ func Set(L *lua.LState) int {
 	return 1
 }
 
-func Load(L *lua.LState) int {
+func load(L *lua.LState) int {
 	lv := L.ToString(1)
 	sc := getShell(L)
 	r, err := sc.load(&shellcmd{
@@ -55,7 +69,7 @@ func Load(L *lua.LState) int {
 	return 1
 }
 
-func Gen(L *lua.LState) int {
+func gen(L *lua.LState) int {
 	lv := L.ToString(1)
 	sc := getShell(L)
 	r, err := sc.generate(&shellcmd{
@@ -70,7 +84,7 @@ func Gen(L *lua.LState) int {
 	return 1
 }
 
-func Turn(L *lua.LState) int {
+func turn(L *lua.LState) int {
 	lv := L.ToString(1)
 	sc := getShell(L)
 	r, err := sc.turn(&shellcmd{
@@ -85,7 +99,7 @@ func Turn(L *lua.LState) int {
 	return 1
 }
 
-func Gid(L *lua.LState) int {
+func gid(L *lua.LState) int {
 	sc := getShell(L)
 	r, err := sc.gid(&shellcmd{
 		cmd: "gid",
@@ -98,7 +112,20 @@ func Gid(L *lua.LState) int {
 	return 1
 }
 
-func Endgame(L *lua.LState) int {
+func elitePlay(L *lua.LState) int {
+	sc := getShell(L)
+	sc.botCtx, sc.botCtxCancel = context.WithTimeout(context.Background(), time.Second*time.Duration(60))
+	defer sc.botCtxCancel()
+	m, err := sc.elitebot.BestPlay(sc.botCtx)
+	if err != nil {
+		log.Err(err).Msg("error with eliteplay")
+		return 0
+	}
+	L.Push(lua.LString(m.ShortDescription()))
+	return 1
+}
+
+func endgame(L *lua.LState) int {
 	lv := L.ToString(1)
 	sc := getShell(L)
 	cmd, err := extractFields("endgame " + lv)
@@ -115,7 +142,7 @@ func Endgame(L *lua.LState) int {
 	return 1
 }
 
-func Sim(L *lua.LState) int {
+func sim(L *lua.LState) int {
 	lv := L.ToString(1)
 	sc := getShell(L)
 	cmd, err := extractFields("sim " + lv)
@@ -132,6 +159,19 @@ func Sim(L *lua.LState) int {
 	return 1
 }
 
+func busy(L *lua.LState) int {
+	sc := getShell(L)
+	L.Push(lua.LBool(sc.solving()))
+	return 1
+}
+
+func Loader(L *lua.LState) int {
+	mod := L.SetFuncs(L.NewTable(), exports)
+
+	L.Push(mod)
+	return 1
+}
+
 func (sc *ShellController) script(cmd *shellcmd) (*Response, error) {
 	if cmd.args == nil {
 		return nil, errors.New("need arguments for script")
@@ -145,17 +185,13 @@ func (sc *ShellController) script(cmd *shellcmd) (*Response, error) {
 	L := lua.NewState()
 	defer L.Close()
 
+	L.PreloadModule("macondo", Loader)
+
 	lsc := L.NewUserData()
 	lsc.Value = sc
 
 	L.SetGlobal("macondo_shell", lsc)
-	L.SetGlobal("macondo_gen", L.NewFunction(Gen))
-	L.SetGlobal("macondo_load", L.NewFunction(Load))
-	L.SetGlobal("macondo_gid", L.NewFunction(Gid))
-	L.SetGlobal("macondo_set", L.NewFunction(Set))
-	L.SetGlobal("macondo_turn", L.NewFunction(Turn))
-	L.SetGlobal("macondo_endgame", L.NewFunction(Endgame))
-	L.SetGlobal("macondo_sim", L.NewFunction(Sim))
+
 	if len(cmd.args) > 1 {
 		table := L.NewTable()
 		joinedStr := strings.Join(cmd.args[1:], " ")
