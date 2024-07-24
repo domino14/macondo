@@ -667,61 +667,73 @@ func (s *Solver) SolutionStats(maxMoves int) string {
 	fmt.Fprintf(&ss, "%-20s%-8s%-8s%-9s%-32s%-2s\n", "Play", "Wins", "%Win", "Spread", "Outcomes", "")
 
 	for _, play := range s.plays[:maxMoves] {
-		noutcomes := 0
-		for _, el := range play.outcomesArray {
-			noutcomes += el.ct
-		}
-
-		ignore := ""
-		wpStats := "---"
-		pts := "---"
-		spdStats := ""
-		if play.Ignore {
-			ignore = "❌"
-		} else {
-			wpStats = fmt.Sprintf("%.2f", 100.0*play.Points/float32(noutcomes))
-			pts = fmt.Sprintf("%.1f", play.Points)
-			if play.spreadSet {
-				spdStats = fmt.Sprintf("%.2f", float32(play.Spread)/float32(noutcomes))
-			}
-		}
-		var wins, draws, losses []string
-		var outcomeStr string
-		for _, outcome := range play.outcomesArray {
-			// uv := tilemapping.MachineWord(outcome.tiles).UserVisible(s.game.Alphabet())
-			uf := toUserFriendly(outcome.tiles, s.game.Alphabet(), play.Play)
-			if uf != "" {
-				switch outcome.outcome {
-				case PEGWin:
-					wins = append(wins, uf)
-				case PEGDraw:
-					draws = append(draws, uf)
-				case PEGLoss:
-					losses = append(losses, uf)
-				}
-			}
-		}
-		slices.Sort(wins)
-		slices.Sort(draws)
-		slices.Sort(losses)
-
-		if len(wins) > 0 {
-			outcomeStr += fmt.Sprintf("👍: %s", strings.Join(wins, " "))
-		}
-		if len(draws) > 0 {
-			outcomeStr += fmt.Sprintf(" 🤝: %s", strings.Join(draws, " "))
-		}
-		if len(losses) > 0 {
-			outcomeStr += fmt.Sprintf(" 👎: %s", strings.Join(losses, " "))
-		}
-
-		fmt.Fprintf(&ss, "%-20s%-8s%-8s%-9s%-32s%-2s\n", play.Play.ShortDescription(),
-			pts, wpStats, spdStats, outcomeStr, ignore)
+		fmt.Fprint(&ss, s.SingleSolutionStats(play, false))
 	}
 	fmt.Fprintf(&ss, "❌ marks plays cut off early\n")
 	fmt.Fprintf(&ss, "[] brackets indicate order does not matter\n")
 
 	return ss.String()
+}
+
+func (s *Solver) SingleSolutionStats(play *PreEndgamePlay, pctOnly bool) string {
+	noutcomes := 0
+	for _, el := range play.outcomesArray {
+		noutcomes += el.ct
+	}
+
+	ignore := ""
+	wpStats := "---"
+	pts := "---"
+	spdStats := ""
+	if play.Ignore {
+		ignore = "❌"
+	} else {
+		wpStats = fmt.Sprintf("%.2f", 100.0*play.Points/float32(noutcomes))
+		pts = fmt.Sprintf("%.1f", play.Points)
+		if play.spreadSet {
+			spdStats = fmt.Sprintf("%.2f", float32(play.Spread)/float32(noutcomes))
+		}
+	}
+	var wins, draws, losses []string
+	var outcomeStr string
+	for _, outcome := range play.outcomesArray {
+		// uv := tilemapping.MachineWord(outcome.tiles).UserVisible(s.game.Alphabet())
+		uf := toUserFriendly(outcome.tiles, s.game.Alphabet(), play.Play)
+		if uf != "" {
+			switch outcome.outcome {
+			case PEGWin:
+				wins = append(wins, uf)
+			case PEGDraw:
+				draws = append(draws, uf)
+			case PEGLoss:
+				losses = append(losses, uf)
+			}
+		}
+	}
+	slices.Sort(wins)
+	slices.Sort(draws)
+	slices.Sort(losses)
+
+	if len(wins) > 0 {
+		outcomeStr += fmt.Sprintf("👍: %s", strings.Join(wins, " "))
+	}
+	if len(draws) > 0 {
+		outcomeStr += fmt.Sprintf(" 🤝: %s", strings.Join(draws, " "))
+	}
+	if len(losses) > 0 {
+		outcomeStr += fmt.Sprintf(" 👎: %s", strings.Join(losses, " "))
+	}
+	if pctOnly {
+		return fmt.Sprintf("%-20s%-8s%%%-32s", s.game.Board().MoveDescriptionWithPlaythrough(play.Play),
+			wpStats, outcomeStr)
+	}
+	return fmt.Sprintf("%-20s%-8s%-8s%-9s%-32s%-2s\n",
+		s.game.Board().MoveDescriptionWithPlaythrough(play.Play),
+		pts, wpStats, spdStats, outcomeStr, ignore)
+}
+
+func (s *Solver) ShortDetails() string {
+	return s.SingleSolutionStats(s.plays[0], true)
 }
 
 func (s *Solver) SetEarlyCutoffOptim(o bool) {

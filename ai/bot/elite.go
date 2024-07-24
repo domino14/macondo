@@ -123,6 +123,8 @@ func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move
 	if err != nil {
 		return nil, err
 	}
+	p.lastCalculatedDetails = p.endgamer.ShortDetails()
+
 	logger.Info().Int16("best-endgame-val", v).Interface("seq", seq).Msg("endgame-solve-done")
 	return seq[0], nil
 }
@@ -168,6 +170,8 @@ func preendgameBest(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 	if err != nil {
 		return nil, err
 	}
+	p.lastCalculatedDetails = p.preendgamer.ShortDetails()
+
 	return moves[0].Play, nil
 
 }
@@ -227,6 +231,6 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	}
 	play := p.simmer.WinningPlay()
 	logger.Debug().Interface("winning-move", play.Move().String()).Msg("sim-done")
+	p.lastCalculatedDetails = p.simmer.ShortDetails(4)
 	return play.Move(), nil
-
 }

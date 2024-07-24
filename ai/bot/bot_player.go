@@ -40,7 +40,8 @@ type BotTurnPlayer struct {
 	minSimPlies int
 	cfg         *BotConfig
 
-	inferencer *rangefinder.RangeFinder
+	inferencer            *rangefinder.RangeFinder
+	lastCalculatedDetails string
 }
 
 func NewBotTurnPlayer(conf *BotConfig, opts *turnplayer.GameOptions,
@@ -158,6 +159,15 @@ func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
 		return eliteBestPlay(ctx, p)
 	}
 	return p.GenerateMoves(1)[0], nil
+}
+
+// Returns a string summary of details from a previous call to BestPlay.
+func (p *BotTurnPlayer) BestPlayDetails(ctx context.Context) string {
+	if hasSimming(p.botType) || HasEndgame(p.botType) || HasInfer(p.botType) || HasPreendgame(p.botType) {
+		return p.lastCalculatedDetails
+	} else {
+		return "(No summary)"
+	}
 }
 
 func (p *BotTurnPlayer) SetEquityCalculators(calcs []equity.EquityCalculator) {

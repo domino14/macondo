@@ -657,7 +657,8 @@ func (s *Simmer) EquityStats() string {
 			ignore = "❌"
 		}
 
-		fmt.Fprintf(&ss, "%-20s%-9d%-16s%-16s%s\n", play.play.ShortDescription(),
+		fmt.Fprintf(&ss, "%-20s%-9d%-16s%-16s%s\n",
+			s.origGame.Board().MoveDescriptionWithPlaythrough(play.play),
 			play.play.Score(), wpStats, eqStats, ignore)
 	}
 	fmt.Fprintf(&ss, "Iterations: %d (intervals are 99%% confidence, ❌ marks plays cut off early)\n", s.iterationCount.Load())
@@ -676,7 +677,7 @@ func (s *Simmer) ScoreDetails() string {
 			ply+1, who, "Play", "Win%", "Mean", "Stdev", "Bingo %", "Iters", strings.Repeat("-", 60))
 		for _, play := range s.plays {
 			stats += fmt.Sprintf("%-20s%8.2f%8.3f%8.3f%8.3f%8d\n",
-				play.play.ShortDescription(), 100.0*play.winPctStats.Mean(),
+				s.origGame.Board().MoveDescriptionWithPlaythrough(play.play), 100.0*play.winPctStats.Mean(),
 				play.scoreStats[ply].Mean(), play.scoreStats[ply].Stdev(),
 				100.0*play.bingoStats[ply].Mean(), play.scoreStats[ply].Iterations())
 		}
@@ -684,6 +685,24 @@ func (s *Simmer) ScoreDetails() string {
 	}
 	stats += fmt.Sprintf("Iterations: %d\n", s.iterationCount.Load())
 	return stats
+}
+
+func (s *Simmer) ShortDetails(nplays int) string {
+	var ss strings.Builder
+
+	s.sortPlaysByWinRate(false)
+	plays := s.plays
+	if len(plays) > nplays {
+		plays = plays[:nplays]
+	}
+
+	for idx, play := range plays {
+		fmt.Fprintf(&ss, "%d) %s (%.1f%%)  ", idx+1,
+			s.origGame.Board().MoveDescriptionWithPlaythrough(play.play), 100.0*play.winPctStats.Mean())
+	}
+	fmt.Fprintf(&ss, "; iters = %d", s.iterationCount.Load())
+	return ss.String()
+
 }
 
 func (s *Simmer) SimSingleThread(iters int) {

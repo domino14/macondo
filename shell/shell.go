@@ -820,6 +820,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.load(cmd)
 	case "unload":
 		return sc.unload(cmd)
+	case "last":
+		return sc.last(cmd)
 	case "n":
 		return sc.next(cmd)
 	case "p":

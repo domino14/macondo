@@ -1008,3 +1008,45 @@ func (g *GameBoard) ToFEN(alph *tilemapping.TileMapping) string {
 	}
 	return bd.String()
 }
+
+// MoveDescriptionWithPlaythrough shows a move description with play-through
+// tiles if appropriate.
+func (g *GameBoard) MoveDescriptionWithPlaythrough(m *move.Move) string {
+	if m.MoveTypeString() != "Play" {
+		return m.ShortDescription()
+	}
+	tiles := m.Tiles()
+	row, col, vertical := m.CoordsAndVertical()
+	ri, ci := 0, 1
+	if vertical {
+		ri, ci = 1, 0
+	}
+	var ss strings.Builder
+	fmt.Fprintf(&ss, "%3v ", m.BoardCoords())
+	r, c := row, col
+	playingThru := false
+	for i := 0; i < len(tiles); i++ {
+
+		if tiles[i] != 0 {
+			if playingThru {
+				fmt.Fprint(&ss, ")")
+			}
+			fmt.Fprint(&ss, tiles[i].UserVisible(m.Alphabet(), true))
+			playingThru = false
+		} else {
+			if !playingThru {
+				fmt.Fprint(&ss, "(")
+			}
+			tile := g.GetLetter(r, c)
+			fmt.Fprint(&ss, tile.UserVisible(m.Alphabet(), true))
+			playingThru = true
+		}
+
+		r += ri
+		c += ci
+	}
+	if playingThru {
+		fmt.Fprint(&ss, ")")
+	}
+	return ss.String()
+}

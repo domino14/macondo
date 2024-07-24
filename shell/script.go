@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/rs/zerolog/log"
 	lua "github.com/yuin/gopher-lua"
 )
@@ -20,6 +21,7 @@ var exports = map[string]lua.LGFunction{
 	"endgame":    endgame,
 	"busy":       busy,
 	"elite_play": elitePlay,
+	"last":       last,
 }
 
 func getShell(L *lua.LState) *ShellController {
@@ -61,6 +63,19 @@ func load(L *lua.LState) int {
 	})
 	if err != nil {
 		log.Err(err).Msg("error-executing-load")
+		L.Push(lua.LString("ERROR: " + err.Error()))
+		return 1
+	}
+	L.Push(lua.LString(r.message))
+	// return number of results pushed to stack.
+	return 1
+}
+
+func last(L *lua.LState) int {
+	sc := getShell(L)
+	r, err := sc.last(nil)
+	if err != nil {
+		log.Err(err).Msg("error-executing-last")
 		L.Push(lua.LString("ERROR: " + err.Error()))
 		return 1
 	}
@@ -116,13 +131,20 @@ func elitePlay(L *lua.LState) int {
 	sc := getShell(L)
 	sc.botCtx, sc.botCtxCancel = context.WithTimeout(context.Background(), time.Second*time.Duration(60))
 	defer sc.botCtxCancel()
+
+	if sc.elitebot.History().PlayState == macondo.PlayState_GAME_OVER {
+		log.Error().Msg("game is over")
+		return 0
+	}
+
 	m, err := sc.elitebot.BestPlay(sc.botCtx)
 	if err != nil {
 		log.Err(err).Msg("error with eliteplay")
 		return 0
 	}
-	L.Push(lua.LString(m.ShortDescription()))
-	return 1
+	L.Push(lua.LString(sc.game.Board().MoveDescriptionWithPlaythrough(m)))
+	L.Push(lua.LString(sc.elitebot.BestPlayDetails(sc.botCtx)))
+	return 2
 }
 
 func endgame(L *lua.LState) int {

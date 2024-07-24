@@ -165,7 +165,8 @@ func nickToPIndex(nick string, players []*pb.PlayerInfo) (uint32, error) {
 func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []string) error {
 	var err error
 
-	if token == MoveToken || token == PassToken || token == ExchangeToken {
+	if token == MoveToken || token == PassToken || token == ExchangeToken ||
+		token == Rack1Token || token == Rack2Token {
 		// Start the game if we haven't already.
 		if len(p.history.Players) != 2 {
 			return errors.New("wrong number of players defined")
