@@ -114,6 +114,9 @@ func (pvLine PVLine) NLBString() string {
 	for i := 0; i < pvLine.numMoves; i++ {
 		s += fmt.Sprintf("%d: %s (%d); ",
 			i+1,
+			// XXX: this will only work if we are playing the moves and keeping
+			// track of the playthrough
+			// pvLine.g.Board().MoveDescriptionWithPlaythrough(pvLine.Moves[i]),
 			pvLine.Moves[i].ShortDescription(),
 			pvLine.Moves[i].Score())
 	}
@@ -1008,6 +1011,10 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 		}
 	}
 	return bestV, bestSeq, err
+}
+
+func (s *Solver) ShortDetails() string {
+	return s.principalVariation.NLBString()
 }
 
 // QuickAndDirtySolve is meant for a pre-endgame engine to call this function

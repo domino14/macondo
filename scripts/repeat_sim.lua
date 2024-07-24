@@ -23,9 +23,9 @@ function dump(o)
 local plays = {}
 start_time = os.time()
 
-for i=1,100 do
+for i=1,500 do
     macondo.load('cgp 14Q/13GI/9A1B1U1/9C1O1C1/9TUPIK1/9I5/4R4V3OE/3JIBED1E3uH/2LID1WOOSH2T1/3V1A4I2G1/3EFT1cANNULAE/3YAR4T2Z1/4XI3PENNED/5A3ER2DO/7TANSY2L AEINOST/ 378/316 0 lex NWL23;')
-    local elite_play = macondo.elite_play()
+    local elite_play, details = macondo.elite_play()
     if plays[elite_play] == nil then
         plays[elite_play] = 1
     else

@@ -201,6 +201,17 @@ func (sc *ShellController) next(cmd *shellcmd) (*Response, error) {
 	return msg(sc.game.ToDisplayText()), nil
 }
 
+func (sc *ShellController) last(cmd *shellcmd) (*Response, error) {
+	if sc.solving() {
+		return nil, errMacondoSolving
+	}
+	err := sc.setToTurn(len(sc.game.History().Events))
+	if err != nil {
+		return nil, err
+	}
+	return msg(sc.game.ToDisplayText()), nil
+}
+
 func (sc *ShellController) prev(cmd *shellcmd) (*Response, error) {
 	if sc.solving() {
 		return nil, errMacondoSolving
