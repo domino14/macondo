@@ -34,7 +34,7 @@ func (opts *GameOptions) SetDefaults(cfg *config.Config) {
 		log.Info().Msgf("using default lexicon %v", opts.Lexicon)
 	}
 	if opts.BoardLayoutName == "" {
-		opts.BoardLayoutName = board.CrosswordGameLayout
+		opts.BoardLayoutName = cfg.GetString(config.ConfigDefaultBoardLayout)
 		log.Info().Msgf("using default board layout %v", opts.BoardLayoutName)
 	}
 	if opts.Variant == "" {
