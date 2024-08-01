@@ -17,6 +17,7 @@ const (
 	ConfigDataPath                         = "data-path"
 	ConfigDefaultLexicon                   = "default-lexicon"
 	ConfigDefaultLetterDistribution        = "default-letter-distribution"
+	ConfigDefaultBoardLayout               = "default-board-layout"
 	ConfigTtableMemFraction                = "ttable-mem-fraction"
 	ConfigLambdaFunctionName               = "lambda-function-name"
 	ConfigNatsURL                          = "nats-url"
@@ -27,6 +28,8 @@ const (
 
 type Config struct {
 	viper.Viper
+
+	configPath string
 }
 
 func DefaultConfig() Config {
@@ -42,6 +45,7 @@ func DefaultConfig() Config {
 	c.SetDefault(ConfigDefaultLexicon, "NWL23")
 	c.SetDefault(ConfigDefaultLetterDistribution, "English")
 	c.SetDefault(ConfigTtableMemFraction, 0.25)
+	c.SetDefault(ConfigDefaultBoardLayout, "CrosswordGame")
 	// Read from an env var MACONDO_DATA_PATH. This might not be a good way to do it:
 	c.SetDefault(ConfigDataPath, c.GetString(ConfigDataPath))
 
@@ -50,17 +54,22 @@ func DefaultConfig() Config {
 
 func (c *Config) Load(args []string) error {
 	c.Viper = *viper.New()
-	c.SetConfigName("macondo_config")
+	c.SetConfigName("config")
 	c.SetConfigType("yaml")
 
-	c.AddConfigPath(".")
-	c.AddConfigPath("$HOME/.macondo")
-	c.AddConfigPath("/etc/macondo/")
-	err := c.ReadInConfig()
+	cfgdir, err := os.UserConfigDir()
 	if err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+		return nil
+	}
+	cfgdir = filepath.Join(cfgdir, "macondo")
+
+	c.AddConfigPath(cfgdir)
+	c.configPath = cfgdir
+	err = c.ReadInConfig()
+	if err != nil {
+		if verr, ok := err.(viper.ConfigFileNotFoundError); ok {
 			// it's ok if config file is not found. fall back to environment.
-			log.Info().Msg("no config file found; falling back to environment variables")
+			log.Err(verr).Msg("no config file found; falling back to environment variables")
 		} else {
 			panic(fmt.Errorf("fatal error config file: %w", err))
 		}
@@ -82,11 +91,13 @@ func (c *Config) Load(args []string) error {
 	c.BindEnv(ConfigKWGPathPrefix)
 	c.BindEnv(ConfigCPUProfile)
 	c.BindEnv(ConfigMEMProfile)
+	c.BindEnv(ConfigDefaultBoardLayout)
 
 	c.SetDefault(ConfigDataPath, "./data") // will be fixed by toAbsPath below if unspecified.
 	c.SetDefault(ConfigDefaultLexicon, "NWL23")
 	c.SetDefault(ConfigDefaultLetterDistribution, "English")
 	c.SetDefault(ConfigTtableMemFraction, 0.25)
+	c.SetDefault(ConfigDefaultBoardLayout, "CrosswordGame")
 
 	return nil
 }
@@ -100,10 +111,19 @@ func (c *Config) AdjustRelativePaths(basepath string) {
 
 func (c *Config) Write() error {
 	werr := c.WriteConfig()
-	if werr != nil {
-		if _, ok := werr.(viper.ConfigFileNotFoundError); ok {
-			return c.WriteConfigAs("./macondo_config.yaml")
+	if _, ok := werr.(viper.ConfigFileNotFoundError); ok {
+
+		if _, err := os.Stat(c.configPath); os.IsNotExist(err) {
+			// Directory does not exist, create it
+			err = os.Mkdir(c.configPath, 0700)
+			if err != nil {
+				return err
+			}
+			log.Info().Msgf("Directory created: %s", c.configPath)
+		} else if err != nil {
+			return err
 		}
+		return c.WriteConfigAs(filepath.Join(c.configPath, "config.yaml"))
 	}
 	return werr
 }

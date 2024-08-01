@@ -26,4 +26,3 @@ notebooks/logs/*
 bin/
 data/strategy/default_english/quackleleaves*
 *.vscode
-macondo_config.yaml

@@ -221,6 +221,13 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 			err = errors.New(msg)
 		} else {
 			err = sc.options.SetBoardLayoutName(args[0])
+			if err == nil {
+				sc.config.Set(config.ConfigDefaultBoardLayout, sc.options.BoardLayoutName)
+				err = sc.config.Write()
+				if err != nil {
+					log.Err(err).Msg("error-writing-config")
+				}
+			}
 			_, ret = sc.options.Show("board")
 		}
 	case "challenge":
