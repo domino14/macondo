@@ -14,7 +14,7 @@ import (
 func TestGenBestStaticTurn(t *testing.T) {
 	is := is.New(t)
 
-	runner := NewGameRunner(nil, &DefaultConfig)
+	runner := NewGameRunner(nil, DefaultConfig)
 	runner.StartGame(0)
 	runner.game.SetRackFor(0, tilemapping.RackFromString("DRRIRDF", runner.alphabet))
 	bestPlay := runner.genBestStaticTurn(0)
@@ -24,7 +24,7 @@ func TestGenBestStaticTurn(t *testing.T) {
 func TestGenBestStaticTurn2(t *testing.T) {
 	is := is.New(t)
 
-	runner := NewGameRunner(nil, &DefaultConfig)
+	runner := NewGameRunner(nil, DefaultConfig)
 	runner.StartGame(0)
 	runner.game.SetRackFor(0, tilemapping.RackFromString("COTTTV?", runner.alphabet))
 	bestPlay := runner.genBestStaticTurn(0)
@@ -49,7 +49,7 @@ func TestGenBestStaticTurn2(t *testing.T) {
 func TestGenBestStaticTurn4(t *testing.T) {
 	is := is.New(t)
 
-	runner := NewGameRunner(nil, &DefaultConfig)
+	runner := NewGameRunner(nil, DefaultConfig)
 	runner.StartGame(0)
 	// this rack has so much equity that the player might pass/exchange.
 	runner.game.SetRackFor(0, tilemapping.RackFromString("CDEERS?", runner.alphabet))
@@ -60,7 +60,7 @@ func TestGenBestStaticTurn4(t *testing.T) {
 func TestGenBestStaticTurn6(t *testing.T) {
 	is := is.New(t)
 
-	runner := NewGameRunner(nil, &DefaultConfig)
+	runner := NewGameRunner(nil, DefaultConfig)
 	runner.StartGame(0)
 	runner.game.ThrowRacksIn()
 

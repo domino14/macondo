@@ -46,7 +46,7 @@ func filter(cfg *config.Config, g *game.Game, rack *tilemapping.Rack, plays []*m
 
 	filterFunction := func([]tilemapping.MachineWord, float64) (bool, error) { return true, nil }
 	if botConfig.isCel {
-		gd, err := kwg.Get(cfg.AllSettings(), "ECWL")
+		gd, err := kwg.Get(cfg.WGLConfig(), "ECWL")
 		if err != nil {
 			log.Err(err).Msg("could-not-load-ecwl")
 			filterFunction = func([]tilemapping.MachineWord, float64) (bool, error) { return false, err }

@@ -60,7 +60,7 @@ func NewExhaustiveLeaveCalculator(lexiconName string,
 		leaveFilename = LeavesFilename
 	}
 
-	leaves, err := cache.Load(cfg.AllSettings(), "leavefile:"+lexiconName+":"+leaveFilename, LeaveCacheLoadFunc)
+	leaves, err := cache.Load(cfg.WGLConfig(), "leavefile:"+lexiconName+":"+leaveFilename, LeaveCacheLoadFunc)
 	if err != nil {
 		log.Err(err).Msg("loading-leaves")
 	}

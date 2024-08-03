@@ -32,7 +32,7 @@ func TestRowToLetters(t *testing.T) {
 
 func TestRowToLettersMultichar(t *testing.T) {
 	is := is.New(t)
-	catalan, err := tilemapping.NamedLetterDistribution(DefaultConfig.AllSettings(), "catalan")
+	catalan, err := tilemapping.NamedLetterDistribution(DefaultConfig.WGLConfig(), "catalan")
 	is.NoErr(err)
 	testcases := []struct {
 		row    string

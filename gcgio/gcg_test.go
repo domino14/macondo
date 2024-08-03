@@ -66,7 +66,7 @@ func TestParseGCGs(t *testing.T) {
 	}
 
 	for _, tc := range testcases {
-		history, err := ParseGCG(&DefaultConfig, filepath.Join("testdata", tc.gcgfile))
+		history, err := ParseGCG(DefaultConfig, filepath.Join("testdata", tc.gcgfile))
 		assert.Nil(t, err)
 		assert.NotNil(t, history)
 		history.Lexicon = tc.lexicon
@@ -79,7 +79,7 @@ func TestParseGCGs(t *testing.T) {
 }
 
 func TestParseSpecialChar(t *testing.T) {
-	history, err := ParseGCG(&DefaultConfig, "./testdata/name_iso8859-1.gcg")
+	history, err := ParseGCG(DefaultConfig, "./testdata/name_iso8859-1.gcg")
 	assert.Nil(t, err)
 	assert.NotNil(t, history)
 	assert.Equal(t, "césar", history.Players[0].Nickname)
@@ -87,7 +87,7 @@ func TestParseSpecialChar(t *testing.T) {
 }
 
 func TestParseSpecialUTF8NoHeader(t *testing.T) {
-	history, err := ParseGCG(&DefaultConfig, "./testdata/name_utf8_noheader.gcg")
+	history, err := ParseGCG(DefaultConfig, "./testdata/name_utf8_noheader.gcg")
 	assert.Nil(t, err)
 	assert.NotNil(t, history)
 	// Since there was no encoding header, the name gets all messed up:
@@ -95,21 +95,21 @@ func TestParseSpecialUTF8NoHeader(t *testing.T) {
 }
 
 func TestParseSpecialUTF8WithHeader(t *testing.T) {
-	history, err := ParseGCG(&DefaultConfig, "./testdata/name_utf8_with_header.gcg")
+	history, err := ParseGCG(DefaultConfig, "./testdata/name_utf8_with_header.gcg")
 	assert.Nil(t, err)
 	assert.NotNil(t, history)
 	assert.Equal(t, "césar", history.Players[0].Nickname)
 }
 
 func TestParseUnsupportedEncoding(t *testing.T) {
-	history, err := ParseGCG(&DefaultConfig, "./testdata/name_weird_encoding_with_header.gcg")
+	history, err := ParseGCG(DefaultConfig, "./testdata/name_weird_encoding_with_header.gcg")
 	assert.NotNil(t, err)
 	assert.Nil(t, history)
 }
 
 func TestParseDOSMode(t *testing.T) {
 	// file has CRLF carriage returns. we should handle it.
-	history, err := ParseGCG(&DefaultConfig, "./testdata/utf8_dos.gcg")
+	history, err := ParseGCG(DefaultConfig, "./testdata/utf8_dos.gcg")
 	assert.Nil(t, err)
 	assert.NotNil(t, history)
 	assert.Equal(t, "angwantibo", history.Players[0].Nickname)
@@ -117,7 +117,7 @@ func TestParseDOSMode(t *testing.T) {
 }
 
 func TestToGCG(t *testing.T) {
-	history, err := ParseGCG(&DefaultConfig, "./testdata/doug_v_emely.gcg")
+	history, err := ParseGCG(DefaultConfig, "./testdata/doug_v_emely.gcg")
 
 	assert.Nil(t, err)
 	assert.NotNil(t, history)
@@ -139,7 +139,7 @@ func TestNewFromHistoryExcludePenultimatePass(t *testing.T) {
 	is := is.New(t)
 
 	rules, err := game.NewBasicGameRules(
-		&DefaultConfig,
+		DefaultConfig,
 		"",
 		board.CrosswordGameLayout,
 		"english",
@@ -147,7 +147,7 @@ func TestNewFromHistoryExcludePenultimatePass(t *testing.T) {
 		"")
 	is.NoErr(err)
 
-	gameHistory, err := ParseGCG(&DefaultConfig, "./testdata/guy_vs_bot_almost_complete.gcg")
+	gameHistory, err := ParseGCG(DefaultConfig, "./testdata/guy_vs_bot_almost_complete.gcg")
 	is.NoErr(err)
 	is.Equal(len(gameHistory.Events), 25)
 
@@ -191,7 +191,7 @@ func TestNewFromHistoryExcludePenultimatePass(t *testing.T) {
 func TestNewFromHistoryExcludePenultimateChallengeTurnLoss(t *testing.T) {
 	is := is.New(t)
 	rules, err := game.NewBasicGameRules(
-		&DefaultConfig,
+		DefaultConfig,
 		"",
 		board.CrosswordGameLayout,
 		"english",
@@ -199,7 +199,7 @@ func TestNewFromHistoryExcludePenultimateChallengeTurnLoss(t *testing.T) {
 		"")
 	is.NoErr(err)
 
-	gameHistory, err := ParseGCG(&DefaultConfig, "./testdata/guy_vs_bot_almost_complete.gcg")
+	gameHistory, err := ParseGCG(DefaultConfig, "./testdata/guy_vs_bot_almost_complete.gcg")
 	is.NoErr(err)
 	is.Equal(len(gameHistory.Events), 25)
 
@@ -245,7 +245,7 @@ func TestDuplicateNicknames(t *testing.T) {
 #player1 dougie Doungy B
 #player2 dougie Cesar D
 >dougie: FOO 8D FOO +12 12`)
-	history, err := ParseGCGFromReader(&DefaultConfig, reader)
+	history, err := ParseGCGFromReader(DefaultConfig, reader)
 	assert.Nil(t, history)
 	assert.Equal(t, errDuplicateNames, err)
 }
@@ -256,7 +256,7 @@ func TestPragmaWrongPlace(t *testing.T) {
 #player2 cesar Cesar D
 >dougie: FOO 8H FOO +12 12
 #lexicon OSPD4`)
-	history, err := ParseGCGFromReader(&DefaultConfig, reader)
+	history, err := ParseGCGFromReader(DefaultConfig, reader)
 	assert.Nil(t, history)
 	assert.Equal(t, errPragmaPrecedeEvent, err)
 }
@@ -269,7 +269,7 @@ func TestIsBingo(t *testing.T) {
 >dougie: FOODIES 8D FOODIES +80 80
 >cesar: ABCDEFG D7 E. +5 5
 `)
-	history, err := ParseGCGFromReader(&DefaultConfig, reader)
+	history, err := ParseGCGFromReader(DefaultConfig, reader)
 	assert.Nil(t, err)
 	assert.True(t, history.Events[0].IsBingo)
 	assert.False(t, history.Events[1].IsBingo)

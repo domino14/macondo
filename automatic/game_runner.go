@@ -83,7 +83,7 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 		return err
 	}
 
-	gd, err := kwg.Get(r.config.AllSettings(), r.lexicon)
+	gd, err := kwg.Get(r.config.WGLConfig(), r.lexicon)
 	if err != nil {
 		return err
 	}

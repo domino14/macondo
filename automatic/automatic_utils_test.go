@@ -26,7 +26,7 @@ var DefaultConfig = config.DefaultConfig()
 
 func TestCompVsCompStatic(t *testing.T) {
 	logchan := make(chan string)
-	runner := NewGameRunner(logchan, &DefaultConfig)
+	runner := NewGameRunner(logchan, DefaultConfig)
 	var wg sync.WaitGroup
 	wg.Add(1)
 
@@ -83,7 +83,7 @@ func TestPlayerNames(t *testing.T) {
 func BenchmarkCompVsCompStatic(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		runner := NewGameRunner(nil, &DefaultConfig)
+		runner := NewGameRunner(nil, DefaultConfig)
 		runner.CompVsCompStatic(false)
 	}
 }
@@ -91,7 +91,7 @@ func BenchmarkCompVsCompStatic(b *testing.B) {
 func BenchmarkPlayFull(b *testing.B) {
 	// themonolith - 12th gen linux computer
 	// 87	  12813797 ns/op	    4971 B/op	     140 allocs/op
-	runner := NewGameRunner(nil, &DefaultConfig)
+	runner := NewGameRunner(nil, DefaultConfig)
 	for i := 0; i < b.N; i++ {
 		runner.playFull(false, i)
 	}
@@ -103,7 +103,7 @@ func TestCompVCompSeries(t *testing.T) {
 	nGames := 400
 	nThreads := 4
 	err := StartCompVCompStaticGames(
-		context.Background(), &DefaultConfig, nGames, true, nThreads,
+		context.Background(), DefaultConfig, nGames, true, nThreads,
 		"/tmp/testcompvcomp.txt", "NWL20", "English",
 		[]AutomaticRunnerPlayer{
 			{"", "", macondo.BotRequest_HASTY_BOT, 0},
@@ -132,7 +132,7 @@ func TestCompVCompSeries(t *testing.T) {
 
 	for _, gid := range gameIDs {
 		f := new(strings.Builder)
-		err := ExportGCG(&DefaultConfig, "/tmp/testcompvcomp.txt", "english", "NWL20", board.CrosswordGameLayout,
+		err := ExportGCG(DefaultConfig, "/tmp/testcompvcomp.txt", "english", "NWL20", board.CrosswordGameLayout,
 			gid, f)
 		is.NoErr(err)
 	}

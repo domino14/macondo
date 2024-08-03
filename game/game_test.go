@@ -27,7 +27,7 @@ func TestNewGame(t *testing.T) {
 		{Nickname: "cesar", RealName: "César"},
 	}
 	rules, err := NewBasicGameRules(
-		&DefaultConfig, "CSW19", board.CrosswordGameLayout, "english",
+		DefaultConfig, "CSW19", board.CrosswordGameLayout, "english",
 		CrossScoreOnly, "")
 	is.NoErr(err)
 	game, err := NewGame(rules, players)
@@ -43,7 +43,7 @@ func TestBackup(t *testing.T) {
 		{Nickname: "cesar", RealName: "César"},
 	}
 	rules, err := NewBasicGameRules(
-		&DefaultConfig, "CSW19", board.CrosswordGameLayout, "english",
+		DefaultConfig, "CSW19", board.CrosswordGameLayout, "english",
 		CrossScoreOnly, "")
 	is.NoErr(err)
 	game, _ := NewGame(rules, players)
@@ -82,7 +82,7 @@ func TestValidate(t *testing.T) {
 	}
 
 	rules, err := NewBasicGameRules(
-		&DefaultConfig, "CSW19", board.CrosswordGameLayout, "english",
+		DefaultConfig, "CSW19", board.CrosswordGameLayout, "english",
 		CrossScoreOnly, "")
 	is.NoErr(err)
 
@@ -122,7 +122,7 @@ func TestPlayToTurnWithPhony(t *testing.T) {
 	is := is.New(t)
 
 	rules, err := NewBasicGameRules(
-		&DefaultConfig, "CSW19", board.CrosswordGameLayout, "english",
+		DefaultConfig, "CSW19", board.CrosswordGameLayout, "english",
 		CrossScoreOnly, "")
 	is.NoErr(err)
 	jsonFile, err := os.Open("./testdata/history1.json")
@@ -170,7 +170,7 @@ func TestToCGP(t *testing.T) {
 	is := is.New(t)
 
 	rules, err := NewBasicGameRules(
-		&DefaultConfig, "CSW19", board.CrosswordGameLayout, "english",
+		DefaultConfig, "CSW19", board.CrosswordGameLayout, "english",
 		CrossScoreOnly, "")
 	is.NoErr(err)
 	jsonFile, err := os.Open("./testdata/history1.json")
@@ -192,7 +192,7 @@ func TestToCGPWithOppRack(t *testing.T) {
 	is := is.New(t)
 
 	rules, err := NewBasicGameRules(
-		&DefaultConfig, "CSW19", board.CrosswordGameLayout, "english",
+		DefaultConfig, "CSW19", board.CrosswordGameLayout, "english",
 		CrossScoreOnly, "")
 	is.NoErr(err)
 	jsonFile, err := os.Open("../puzzles/testdata/phony_tiles_history.json")

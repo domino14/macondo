@@ -658,7 +658,7 @@ func writeGCGHeader(s *strings.Builder, h *pb.GameHistory, addlInfo bool) {
 			s.WriteString("#tile-distribution " + h.LetterDistribution + "\n")
 			// Write out multi-tile pragmata
 			cfg := config.DefaultConfig()
-			tm, err := tilemapping.GetDistribution(cfg.AllSettings(), h.LetterDistribution)
+			tm, err := tilemapping.GetDistribution(cfg.WGLConfig(), h.LetterDistribution)
 			if err != nil {
 				// Log the error
 				log.Err(err).Str("dist", h.LetterDistribution).Msg("cannot-get-distribution")

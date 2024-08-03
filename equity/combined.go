@@ -29,11 +29,11 @@ func NewCombinedStaticCalculator(lexiconName string,
 	if pegfile == "" {
 		pegfile = PEGAdjustmentFilename
 	}
-	leaves, err := cache.Load(cfg.AllSettings(), "leavefile:"+lexiconName+":"+leaveFilename, LeaveCacheLoadFunc)
+	leaves, err := cache.Load(cfg.WGLConfig(), "leavefile:"+lexiconName+":"+leaveFilename, LeaveCacheLoadFunc)
 	if err != nil {
 		log.Err(err).Msg("loading-leaves")
 	}
-	pegValues, err := cache.Load(cfg.AllSettings(), "pegfile:"+lexiconName+":"+pegfile, PEGCacheLoadFunc)
+	pegValues, err := cache.Load(cfg.WGLConfig(), "pegfile:"+lexiconName+":"+pegfile, PEGCacheLoadFunc)
 	if err != nil {
 		log.Err(err).Msg("loading-peg-values")
 	}

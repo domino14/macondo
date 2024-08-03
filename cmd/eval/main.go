@@ -146,12 +146,12 @@ func main() {
 }
 
 func getEquityLoss(filepath string, lexicon string, playerName string, gameid int, eqlossData *EqlossData) (float64, error) {
-	rules, err := game.NewBasicGameRules(&DefaultConfig, lexicon, board.CrosswordGameLayout, "english", game.CrossScoreAndSet, game.VarClassic)
+	rules, err := game.NewBasicGameRules(DefaultConfig, lexicon, board.CrosswordGameLayout, "english", game.CrossScoreAndSet, game.VarClassic)
 	if err != nil {
 		panic(err)
 	}
 
-	gameHistory, err := gcgio.ParseGCG(&DefaultConfig, filepath)
+	gameHistory, err := gcgio.ParseGCG(DefaultConfig, filepath)
 	if err != nil {
 		panic(err)
 	}
@@ -172,7 +172,7 @@ func getEquityLoss(filepath string, lexicon string, playerName string, gameid in
 	numMoves := 0
 	history := g.History()
 	players := history.Players
-	botConfig := &bot.BotConfig{Config: DefaultConfig}
+	botConfig := &bot.BotConfig{Config: *DefaultConfig}
 	for evtIdx, evt := range history.Events {
 		if players[evt.PlayerIndex].Nickname == playerName &&
 			(evt.Type == pb.GameEvent_TILE_PLACEMENT_MOVE ||

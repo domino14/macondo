@@ -21,7 +21,7 @@ func NewPreEndgameAdjustmentCalculator(cfg *config.Config, lexiconName string, p
 	if pegfile == "" {
 		pegfile = PEGAdjustmentFilename
 	}
-	pegValues, err := cache.Load(cfg.AllSettings(), "pegfile:"+lexiconName+":"+pegfile, PEGCacheLoadFunc)
+	pegValues, err := cache.Load(cfg.WGLConfig(), "pegfile:"+lexiconName+":"+pegfile, PEGCacheLoadFunc)
 	if err != nil {
 		log.Err(err).Msg("loading-peg-values")
 	}

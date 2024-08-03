@@ -50,11 +50,11 @@ func TestCompareGameMove(t *testing.T) {
 	// gen2 := cross_set.CrossScoreOnlyGenerator{Dist: dist}
 
 	rules1, err := game.NewBasicGameRules(
-		&DefaultConfig, "America", board.CrosswordGameLayout, "english",
+		DefaultConfig, "America", board.CrosswordGameLayout, "english",
 		game.CrossScoreAndSet, "")
 	is.NoErr(err)
 	rules2, err := game.NewBasicGameRules(
-		&DefaultConfig, "America", board.CrosswordGameLayout, "english",
+		DefaultConfig, "America", board.CrosswordGameLayout, "english",
 		game.CrossScoreOnly, "")
 	is.NoErr(err)
 

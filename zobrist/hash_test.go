@@ -75,7 +75,7 @@ func TestHashAfterMakingPlay(t *testing.T) {
 
 	endgameCGP := "14C/13QI/12FIE/10VEE1R/9KIT2G/8CIG1IDE/8UTA2AS/7ST1SYPh1/6JA5A1/5WOLD2BOBA/3PLOT1R1NU1EX/Y1VEIN1NOR1mOA1/UT1AT1N1L2FEH1/GUR2WIRER5/SNEEZED8 ADENOOO/AHIILMM 353/236 0 lex CSW19;"
 
-	g, err := cgp.ParseCGP(&DefaultConfig, endgameCGP)
+	g, err := cgp.ParseCGP(DefaultConfig, endgameCGP)
 	is.NoErr(err)
 	alph := testhelpers.EnglishAlphabet()
 	h := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("ADENOOO", alph), tilemapping.RackFromString("AHIILMM", alph), false, 0)
@@ -102,7 +102,7 @@ func TestHashAfterPassing(t *testing.T) {
 
 	endgameCGP := "14C/13QI/12FIE/10VEE1R/9KIT2G/8CIG1IDE/8UTA2AS/7ST1SYPh1/6JA5A1/5WOLD2BOBA/3PLOT1R1NU1EX/Y1VEIN1NOR1mOA1/UT1AT1N1L2FEH1/GUR2WIRER5/SNEEZED8 ADENOOO/AHIILMM 353/236 0 lex CSW19;"
 
-	g, err := cgp.ParseCGP(&DefaultConfig, endgameCGP)
+	g, err := cgp.ParseCGP(DefaultConfig, endgameCGP)
 	is.NoErr(err)
 	alph := testhelpers.EnglishAlphabet()
 	h := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("ADENOOO", alph), tilemapping.RackFromString("AHIILMM", alph), false, 0)
@@ -136,7 +136,7 @@ func TestHashAfterMakingAnotherPlay(t *testing.T) {
 
 	endgameCGP := "14C/13QI/12FIE/10VEE1R/9KIT2G/8CIG1IDE/8UTA2AS/7ST1SYPh1/6JA5AM/5WOLD2BOBA/3PLOT1R1NU1EX/Y1VEIN1NOR1mOAI/UT1AT1N1L2FEHM/GUR2WIRER4A/SNEEZED2END2L AOOO/HI 353/236 0 lex CSW19;"
 
-	g, err := cgp.ParseCGP(&DefaultConfig, endgameCGP)
+	g, err := cgp.ParseCGP(DefaultConfig, endgameCGP)
 	is.NoErr(err)
 	alph := testhelpers.EnglishAlphabet()
 	h := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("AOOO", alph), tilemapping.RackFromString("HI", alph), false, 0)

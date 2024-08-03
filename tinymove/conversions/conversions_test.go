@@ -18,7 +18,7 @@ var DefaultConfig = config.DefaultConfig()
 func TestTinyMove(t *testing.T) {
 	is := is.New(t)
 	deepEndgame := "IBADAT1B7/2CAFE1OD1TRANQ/2TUT2RENIED2/3REV2YOMIM2/4RAFT1NISI2/5COR2N1x2/6LA1AGEE2/6LIAISED2/5POKY2W3/4JOWS7/V2LUZ9/ORPIN10/L1OE11/TUX12/I14 EEEEGH?/AGHNOSU 308/265 0 lex CSW19;"
-	g, err := cgp.ParseCGP(&DefaultConfig, deepEndgame)
+	g, err := cgp.ParseCGP(DefaultConfig, deepEndgame)
 	is.NoErr(err)
 
 	m := move.NewScoringMove(0, []tilemapping.MachineLetter{0, 21 | 0x80},

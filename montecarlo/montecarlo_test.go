@@ -29,7 +29,7 @@ var DefaultConfig = config.DefaultConfig()
 
 func defaultSimCalculators(lexiconName string) ([]equity.EquityCalculator, equity.EquityCalculator) {
 	c, err := equity.NewCombinedStaticCalculator(
-		lexiconName, &DefaultConfig, "", equity.PEGAdjustmentFilename)
+		lexiconName, DefaultConfig, "", equity.PEGAdjustmentFilename)
 	if err != nil {
 		panic(err)
 	}
@@ -44,12 +44,12 @@ func TestSimSingleIteration(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, err := game.NewBasicGameRules(&DefaultConfig, "NWL18", board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
+	rules, err := game.NewBasicGameRules(DefaultConfig, "NWL18", board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
 	is.NoErr(err)
 	game, err := game.NewGame(rules, players)
 	is.NoErr(err)
 
-	gd, err := kwg.Get(game.Config().AllSettings(), game.LexiconName())
+	gd, err := kwg.Get(game.Config().WGLConfig(), game.LexiconName())
 	is.NoErr(err)
 
 	generator := movegen.NewGordonGenerator(gd, game.Board(), rules.LetterDistribution())
@@ -64,7 +64,7 @@ func TestSimSingleIteration(t *testing.T) {
 	plays := generator.Plays()[:10]
 	simmer := &Simmer{}
 	calcs, leaves := defaultSimCalculators("NWL18")
-	simmer.Init(game, calcs, leaves.(*equity.CombinedStaticCalculator), &DefaultConfig)
+	simmer.Init(game, calcs, leaves.(*equity.CombinedStaticCalculator), DefaultConfig)
 	simmer.PrepareSim(plies, plays)
 
 	simmer.simSingleIteration(context.Background(), plies, 0, 1, nil)
@@ -89,12 +89,12 @@ func BenchmarkSim(b *testing.B) {
 
 	cgpstr := "C14/O2TOY9/mIRADOR8/F4DAB2PUGH1/I5GOOEY3V/T4XI2MALTHA/14N/6GUM3OWN/7PEW2DOE/9EF1DOR/2KUNA1J1BEVELS/3TURRETs2S2/7A4T2/7N7/7S7 EEEIILZ/ 336/298 0 lex NWL20;"
 
-	game, err := cgp.ParseCGP(&DefaultConfig, cgpstr)
+	game, err := cgp.ParseCGP(DefaultConfig, cgpstr)
 	is.NoErr(err)
 	game.RecalculateBoard()
 	calcs, leaves := defaultSimCalculators("NWL18")
 
-	gd, err := kwg.Get(game.Config().AllSettings(), game.LexiconName())
+	gd, err := kwg.Get(game.Config().WGLConfig(), game.LexiconName())
 	is.NoErr(err)
 
 	generator := movegen.NewGordonGenerator(gd, game.Board(), game.Rules().LetterDistribution())
@@ -104,7 +104,7 @@ func BenchmarkSim(b *testing.B) {
 	zerolog.SetGlobalLevel(zerolog.Disabled)
 
 	simmer := &Simmer{}
-	simmer.Init(game.Game, calcs, leaves.(*equity.CombinedStaticCalculator), &DefaultConfig)
+	simmer.Init(game.Game, calcs, leaves.(*equity.CombinedStaticCalculator), DefaultConfig)
 	simmer.SetThreads(1)
 	simmer.PrepareSim(plies, plays)
 	log.Debug().Msg("About to start")
@@ -130,12 +130,12 @@ func TestLongerSim(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, err := game.NewBasicGameRules(&DefaultConfig, "NWL18", board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
+	rules, err := game.NewBasicGameRules(DefaultConfig, "NWL18", board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
 	is.NoErr(err)
 	game, err := game.NewGame(rules, players)
 	is.NoErr(err)
 
-	gd, err := kwg.Get(game.Config().AllSettings(), game.LexiconName())
+	gd, err := kwg.Get(game.Config().WGLConfig(), game.LexiconName())
 	is.NoErr(err)
 
 	generator := movegen.NewGordonGenerator(gd, game.Board(), rules.LetterDistribution())
@@ -149,7 +149,7 @@ func TestLongerSim(t *testing.T) {
 	game.SetRackFor(0, tilemapping.RackFromString("AAAENSW", game.Alphabet()))
 	calcs, leaves := defaultSimCalculators("NWL18")
 
-	aiplayer, err := aiturnplayer.NewAIStaticTurnPlayer(&DefaultConfig,
+	aiplayer, err := aiturnplayer.NewAIStaticTurnPlayer(DefaultConfig,
 		&turnplayer.GameOptions{
 			Lexicon: &turnplayer.Lexicon{
 				Name:         "NWL18",
@@ -166,7 +166,7 @@ func TestLongerSim(t *testing.T) {
 		game.RackFor(1))
 	plays := aiplayer.TopPlays(generator.Plays(), 10)
 	simmer := &Simmer{}
-	simmer.Init(game, calcs, leaves.(*equity.CombinedStaticCalculator), &DefaultConfig)
+	simmer.Init(game, calcs, leaves.(*equity.CombinedStaticCalculator), DefaultConfig)
 
 	timeout, cancel := context.WithTimeout(
 		context.Background(), 20*time.Second)

@@ -20,7 +20,7 @@ func TestHandleRequest(t *testing.T) {
 		BotType: int(pb.BotRequest_SIMMING_BOT),
 	}
 	dc := config.DefaultConfig()
-	cfg = &dc
+	cfg = dc
 	ctx := context.Background()
 	ret, err := HandleRequest(ctx, evt)
 	is.NoErr(err)

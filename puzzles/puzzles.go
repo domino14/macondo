@@ -275,7 +275,7 @@ func moveContainsBlank(m *move.Move) bool {
 }
 
 func isCELEvent(event *pb.GameEvent, history *pb.GameHistory, cfg *config.Config) (bool, error) {
-	kwg, err := kwg.Get(cfg.AllSettings(), "ECWL")
+	kwg, err := kwg.Get(cfg.WGLConfig(), "ECWL")
 	if err != nil {
 		return false, err
 	}

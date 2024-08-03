@@ -5,9 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
+
+	wglconfig "github.com/domino14/word-golib/config"
 )
 
 // Known config names
@@ -27,13 +30,16 @@ const (
 )
 
 type Config struct {
+	sync.Mutex
+
 	viper.Viper
 
 	configPath string
+	wglconfig  *wglconfig.Config
 }
 
-func DefaultConfig() Config {
-	var c Config
+func DefaultConfig() *Config {
+	c := &Config{}
 	c.Viper = *viper.New()
 
 	replacer := strings.NewReplacer("-", "_")
@@ -100,6 +106,22 @@ func (c *Config) Load(args []string) error {
 	c.SetDefault(ConfigDefaultBoardLayout, "CrosswordGame")
 
 	return nil
+}
+
+// the WGLConfig is a config used for the word-golib library. It is a
+// reduced version of this overall config. We calculate it here to avoid
+// passing this entire config to that library (and causing a circular import as well).
+// This sub-config is not meant to change after we first start this program.
+func (c *Config) WGLConfig() *wglconfig.Config {
+	if c.wglconfig == nil {
+		c.Lock()
+		defer c.Unlock()
+		c.wglconfig = &wglconfig.Config{
+			DataPath:      c.GetString(ConfigDataPath),
+			KWGPathPrefix: c.GetString(ConfigKWGPathPrefix),
+		}
+	}
+	return c.wglconfig
 }
 
 func (c *Config) AdjustRelativePaths(basepath string) {

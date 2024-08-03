@@ -12,7 +12,7 @@ import (
 func TestCombinations(t *testing.T) {
 	is := is.New(t)
 	cfg := config.DefaultConfig()
-	ld, err := tilemapping.EnglishLetterDistribution(cfg.AllSettings())
+	ld, err := tilemapping.EnglishLetterDistribution(cfg.WGLConfig())
 	is.NoErr(err)
 
 	scc := createSubCombos(ld)

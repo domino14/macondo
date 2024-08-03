@@ -23,7 +23,7 @@ var DefaultConfig = config.DefaultConfig()
 
 func defaultSimCalculators(lexiconName string) []equity.EquityCalculator {
 	c, err := equity.NewCombinedStaticCalculator(
-		lexiconName, &DefaultConfig, "", equity.PEGAdjustmentFilename)
+		lexiconName, DefaultConfig, "", equity.PEGAdjustmentFilename)
 	if err != nil {
 		panic(err)
 	}
@@ -39,7 +39,7 @@ func TestInferTilePlay(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, err := game.NewBasicGameRules(&DefaultConfig, lex, board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
+	rules, err := game.NewBasicGameRules(DefaultConfig, lex, board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
 	is.NoErr(err)
 	game, err := game.NewGame(rules, players)
 	is.NoErr(err)
@@ -55,7 +55,7 @@ func TestInferTilePlay(t *testing.T) {
 	calcs := defaultSimCalculators(lex)
 
 	rangeFinder := &RangeFinder{}
-	rangeFinder.Init(game, calcs, &DefaultConfig)
+	rangeFinder.Init(game, calcs, DefaultConfig)
 
 	f, err := os.Create("/tmp/inferlog")
 	is.NoErr(err)
@@ -86,7 +86,7 @@ func TestInferExchange(t *testing.T) {
 		{Nickname: "Joel", RealName: "Joel"},
 		{Nickname: "Nigel", RealName: "Nigel"},
 	}
-	rules, err := game.NewBasicGameRules(&DefaultConfig, lex, board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
+	rules, err := game.NewBasicGameRules(DefaultConfig, lex, board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
 	is.NoErr(err)
 	game, err := game.NewGame(rules, players)
 	is.NoErr(err)
@@ -109,7 +109,7 @@ func TestInferExchange(t *testing.T) {
 	calcs := defaultSimCalculators(lex)
 
 	rangeFinder := &RangeFinder{}
-	rangeFinder.Init(game, calcs, &DefaultConfig)
+	rangeFinder.Init(game, calcs, DefaultConfig)
 
 	f, err := os.Create("/tmp/inferlog")
 	is.NoErr(err)
@@ -142,7 +142,7 @@ func TestInferSingle(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, err := game.NewBasicGameRules(&DefaultConfig, "NWL20", board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
+	rules, err := game.NewBasicGameRules(DefaultConfig, "NWL20", board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
 	is.NoErr(err)
 	game, err := game.NewGame(rules, players)
 	is.NoErr(err)
@@ -160,7 +160,7 @@ func TestInferSingle(t *testing.T) {
 	calcs := defaultSimCalculators("NWL20")
 
 	rangeFinder := &RangeFinder{}
-	rangeFinder.Init(game, calcs, &DefaultConfig)
+	rangeFinder.Init(game, calcs, DefaultConfig)
 	rangeFinder.PrepareFinder(nil)
 
 	is.Equal(rangeFinder.gameCopies[0].PlayerOnTurn(), 0)

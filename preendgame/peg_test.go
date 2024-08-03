@@ -31,7 +31,7 @@ func TestMain(m *testing.M) {
 
 func TestMoveTilesToBeginning(t *testing.T) {
 	is := is.New(t)
-	ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.AllSettings())
+	ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.WGLConfig())
 	is.NoErr(err)
 
 	ct := func(bag *tilemapping.Bag, letter tilemapping.MachineLetter, from int) int {
@@ -86,12 +86,12 @@ func Test1PEGPass(t *testing.T) {
 	is := is.New(t)
 	// Pass wins, and has a W-L-D of 5-2-1 in terms of guaranteed wins/ties and possible losses
 	cgpStr := "11ONZE/10J2O1/8A1E1DO/7QUETEE1H/10E1F1U/8ECUMERA/8C1R1TIR/7WOKS2ET/6DUR6/5G2N1M4/4HALLALiS3/1G1P1P1OM1XI3/VIVONS1BETEL3/IF1N3AS1RYAL1/ETUDIAIS7 AEINRST/ 301/300 0 lex FRA20; ld french;"
-	g, err := cgp.ParseCGP(&DefaultConfig, cgpStr)
+	g, err := cgp.ParseCGP(DefaultConfig, cgpStr)
 	is.NoErr(err)
 
 	g.RecalculateBoard()
 
-	gd, err := kwg.Get(DefaultConfig.AllSettings(), "FRA20")
+	gd, err := kwg.Get(DefaultConfig.WGLConfig(), "FRA20")
 	is.NoErr(err)
 
 	peg := new(Solver)
@@ -117,11 +117,11 @@ func Test1PEGPass(t *testing.T) {
 func TestStraightforward1PEG(t *testing.T) {
 	is := is.New(t)
 	cgpStr := "15/3Q7U3/3U2TAURINE2/1CHANSONS2W3/2AI6JO3/DIRL1PO3IN3/E1D2EF3V4/F1I2p1TRAIK3/O1L2T4E4/ABy1PIT2BRIG2/ME1MOZELLE5/1GRADE1O1NOH3/WE3R1V7/AT5E7/G6D7 ENOSTXY/ACEISUY 356/378 0 lex NWL20;"
-	g, err := cgp.ParseCGP(&DefaultConfig, cgpStr)
+	g, err := cgp.ParseCGP(DefaultConfig, cgpStr)
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.Get(DefaultConfig.AllSettings(), "NWL20")
+	gd, err := kwg.Get(DefaultConfig.WGLConfig(), "NWL20")
 	is.NoErr(err)
 	peg := new(Solver)
 
@@ -139,11 +139,11 @@ func TestStraightforward1PEG(t *testing.T) {
 func TestKnownTilesPEG(t *testing.T) {
 	is := is.New(t)
 	cgpStr := "15/3Q7U3/3U2TAURINE2/1CHANSONS2W3/2AI6JO3/DIRL1PO3IN3/E1D2EF3V4/F1I2p1TRAIK3/O1L2T4E4/ABy1PIT2BRIG2/ME1MOZELLE5/1GRADE1O1NOH3/WE3R1V7/AT5E7/G6D7 ENOSTXY/ACEISUY 356/378 0 lex NWL20;"
-	g, err := cgp.ParseCGP(&DefaultConfig, cgpStr)
+	g, err := cgp.ParseCGP(DefaultConfig, cgpStr)
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.Get(DefaultConfig.AllSettings(), "NWL20")
+	gd, err := kwg.Get(DefaultConfig.WGLConfig(), "NWL20")
 	is.NoErr(err)
 	peg := new(Solver)
 
@@ -176,11 +176,11 @@ func TestKnownTilesPEG(t *testing.T) {
 func BenchmarkStraightforward1PEG(b *testing.B) {
 	is := is.New(b)
 	cgpStr := "15/3Q7U3/3U2TAURINE2/1CHANSONS2W3/2AI6JO3/DIRL1PO3IN3/E1D2EF3V4/F1I2p1TRAIK3/O1L2T4E4/ABy1PIT2BRIG2/ME1MOZELLE5/1GRADE1O1NOH3/WE3R1V7/AT5E7/G6D7 ENOSTXY/ACEISUY 356/378 0 lex NWL20;"
-	g, err := cgp.ParseCGP(&DefaultConfig, cgpStr)
+	g, err := cgp.ParseCGP(DefaultConfig, cgpStr)
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.Get(DefaultConfig.AllSettings(), "NWL20")
+	gd, err := kwg.Get(DefaultConfig.WGLConfig(), "NWL20")
 	is.NoErr(err)
 	peg := new(Solver)
 
@@ -216,11 +216,11 @@ func BenchmarkSlowPEG(b *testing.B) {
 	is := is.New(b)
 
 	cgpStr := "AnORETIC7/7R7/2C1EMEU7/1JANNY1X7/2P12/1SIDELING6/2ZAG7Q2/3MOVED3AA2/6FEAL1IT2/2NEGATES2D3/3DOH2KEEFS2/WITH7UN2/I10LO2/LABOUR6B2/Y6POTTOS2 ?AENORW/EIIIRUV 332/384 0 lex NWL20;"
-	g, err := cgp.ParseCGP(&DefaultConfig, cgpStr)
+	g, err := cgp.ParseCGP(DefaultConfig, cgpStr)
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.Get(DefaultConfig.AllSettings(), "NWL20")
+	gd, err := kwg.Get(DefaultConfig.WGLConfig(), "NWL20")
 	is.NoErr(err)
 	peg := new(Solver)
 
@@ -251,11 +251,11 @@ func TestComplicated1PEG(t *testing.T) {
 	// https://www.cross-tables.com/annotated.php?u=42794#26#
 	// note: the game above has the wrong rack for Matt. EEILOSS gives the 100% win pass.
 	cgpStr := "13AW/11F1LI/10JURAT/9LINER1/8O1T4/5C1WAsTiNG1/4DAMAR1E4/3PARED2ROUEN/2YA1K9/1BERG1OATH4V/3COUP1I5E/3H1TESTILY2N/4FAN1I2OXID/9MIB2U/7ZEES3E EEILOSS/ 297/300 0 lex NWL20;"
-	g, err := cgp.ParseCGP(&DefaultConfig, cgpStr)
+	g, err := cgp.ParseCGP(DefaultConfig, cgpStr)
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.Get(DefaultConfig.AllSettings(), "NWL20")
+	gd, err := kwg.Get(DefaultConfig.WGLConfig(), "NWL20")
 	is.NoErr(err)
 	peg := new(Solver)
 
@@ -275,11 +275,11 @@ func TestPolishPEGEarlyCutoff(t *testing.T) {
 	is := is.New(t)
 	cgpStr := "13P1/12SYĆ/11HET1/11IMA1/3C6T1EN1/2PiLŻE2WOŹNI1/1K1C5SI1Y2/DASHI2ZATNĘ3/1R1A4BAO4/1M1C1Z1ROŃ5/3ZŁU1A7/3Y1PÓKI1WERS1/GOJ2Y1IWIE4/1BOA3JĄŁ5/KANADZIE7 GLLMNOŚ/?DEFRUZ 307/288 0 lex OSPS49; ld polish;"
 
-	g, err := cgp.ParseCGP(&DefaultConfig, cgpStr)
+	g, err := cgp.ParseCGP(DefaultConfig, cgpStr)
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.Get(DefaultConfig.AllSettings(), "OSPS49")
+	gd, err := kwg.Get(DefaultConfig.WGLConfig(), "OSPS49")
 	is.NoErr(err)
 	peg := new(Solver)
 
@@ -400,11 +400,11 @@ func TestTwoInBag(t *testing.T) {
 	// https://www.cross-tables.com/annotated.php?u=34161#17
 	cgpStr := "1T13/1W3Q9/VERB1U9/1E1OPIUM5C1/1LAWIN1I5O1/1Y3A1E5R1/7V4NO1/NOTArIZE1C2UN1/6ODAH2LA1/3TAHA2I2LED/2JUT4R2A1O/3G5P4D/3R3BrIEFING/3I5L4E/3K2DESYNES1M AEFGSTX/EEIOOST 370/341 0 lex CSW19;"
 
-	g, err := cgp.ParseCGP(&DefaultConfig, cgpStr)
+	g, err := cgp.ParseCGP(DefaultConfig, cgpStr)
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.Get(DefaultConfig.AllSettings(), "CSW19")
+	gd, err := kwg.Get(DefaultConfig.WGLConfig(), "CSW19")
 	is.NoErr(err)
 	peg := new(Solver)
 
@@ -425,11 +425,11 @@ func TestTwoInBagSingleMove(t *testing.T) {
 	// https://www.cross-tables.com/annotated.php?u=34161#17
 	cgpStr := "1T13/1W3Q9/VERB1U9/1E1OPIUM5C1/1LAWIN1I5O1/1Y3A1E5R1/7V4NO1/NOTArIZE1C2UN1/6ODAH2LA1/3TAHA2I2LED/2JUT4R2A1O/3G5P4D/3R3BrIEFING/3I5L4E/3K2DESYNES1M AEFGSTX/EEIOOST 370/341 0 lex CSW19;"
 
-	g, err := cgp.ParseCGP(&DefaultConfig, cgpStr)
+	g, err := cgp.ParseCGP(DefaultConfig, cgpStr)
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.Get(DefaultConfig.AllSettings(), "CSW19")
+	gd, err := kwg.Get(DefaultConfig.WGLConfig(), "CSW19")
 	is.NoErr(err)
 	peg := new(Solver)
 
@@ -459,11 +459,11 @@ func TestFourInBag(t *testing.T) {
 
 	cgpStr := "7LITERARY/6QI7/1YET3NEBULA2/2FAX2G7/4INVOKED4/9T5/9E5/5AVOWs5/9I5/1CLIME1R1A5/4ENWOUND4/PATEN1HO5J1/L5OF4BIG/U5AI1HUE1G1/M6EDITRESS ACEOOSZ/ANOPRRT 331/336 0 lex NWL20;"
 
-	g, err := cgp.ParseCGP(&DefaultConfig, cgpStr)
+	g, err := cgp.ParseCGP(DefaultConfig, cgpStr)
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.Get(DefaultConfig.AllSettings(), "NWL20")
+	gd, err := kwg.Get(DefaultConfig.WGLConfig(), "NWL20")
 	is.NoErr(err)
 	peg := new(Solver)
 

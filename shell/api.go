@@ -554,7 +554,7 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 	sc.showMessage(fmt.Sprintf(
 		"endgameplies %v, maxtime %v, threads %v",
 		endgamePlies, maxtime, maxthreads))
-	gd, err := kwg.Get(sc.game.Config().AllSettings(), sc.game.LexiconName())
+	gd, err := kwg.Get(sc.game.Config().WGLConfig(), sc.game.LexiconName())
 	if err != nil {
 		return nil, err
 	}
@@ -782,7 +782,7 @@ func (sc *ShellController) leave(cmd *shellcmd) (*Response, error) {
 		return nil, errors.New("please provide a leave")
 	}
 	ldName := sc.config.GetString(config.ConfigDefaultLetterDistribution)
-	dist, err := tilemapping.GetDistribution(sc.config.AllSettings(), ldName)
+	dist, err := tilemapping.GetDistribution(sc.config.WGLConfig(), ldName)
 	if err != nil {
 		return nil, err
 	}
@@ -812,12 +812,12 @@ func (sc *ShellController) check(cmd *shellcmd) (*Response, error) {
 	if len(cmd.args) == 0 {
 		return nil, errors.New("please provide a word or space-separated list of words to check")
 	}
-	dist, err := tilemapping.GetDistribution(sc.config.AllSettings(),
+	dist, err := tilemapping.GetDistribution(sc.config.WGLConfig(),
 		sc.config.GetString(config.ConfigDefaultLetterDistribution))
 	if err != nil {
 		return nil, err
 	}
-	k, err := kwg.Get(sc.config.AllSettings(), sc.config.GetString(config.ConfigDefaultLexicon))
+	k, err := kwg.Get(sc.config.WGLConfig(), sc.config.GetString(config.ConfigDefaultLexicon))
 	if err != nil {
 		return nil, err
 	}

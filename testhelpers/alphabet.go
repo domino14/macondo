@@ -8,7 +8,7 @@ import (
 var DefaultConfig = config.DefaultConfig()
 
 func EnglishAlphabet() *tilemapping.TileMapping {
-	ld, err := tilemapping.GetDistribution(DefaultConfig.AllSettings(), "english")
+	ld, err := tilemapping.GetDistribution(DefaultConfig.WGLConfig(), "english")
 	if err != nil {
 		panic(err)
 	}

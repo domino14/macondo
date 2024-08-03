@@ -5,14 +5,14 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/domino14/macondo/config"
+	wglconfig "github.com/domino14/word-golib/config"
 )
 
-func strategyParamsPath(cfg map[string]any) string {
-	return filepath.Join(cfg[config.ConfigDataPath].(string), "strategy")
+func strategyParamsPath(cfg *wglconfig.Config) string {
+	return filepath.Join(cfg.DataPath, "strategy")
 }
 
-func LeaveCacheLoadFunc(cfg map[string]any, key string) (interface{}, error) {
+func LeaveCacheLoadFunc(cfg *wglconfig.Config, key string) (interface{}, error) {
 	// Key looks like leavefile:lexicon:filename
 	fields := strings.Split(key, ":")
 	if fields[0] != "leavefile" {
@@ -24,7 +24,7 @@ func LeaveCacheLoadFunc(cfg map[string]any, key string) (interface{}, error) {
 	return loadKLV(strategyParamsPath(cfg), fields[2], fields[1])
 }
 
-func PEGCacheLoadFunc(cfg map[string]any, key string) (interface{}, error) {
+func PEGCacheLoadFunc(cfg *wglconfig.Config, key string) (interface{}, error) {
 	fields := strings.Split(key, ":")
 	if fields[0] != "pegfile" {
 		return nil, errors.New("pegcacheloadfunc - bad cache key: " + key)
@@ -35,7 +35,7 @@ func PEGCacheLoadFunc(cfg map[string]any, key string) (interface{}, error) {
 	return loadPEGParams(strategyParamsPath(cfg), fields[2], fields[1])
 }
 
-func WinPCTLoadFunc(cfg map[string]any, key string) (interface{}, error) {
+func WinPCTLoadFunc(cfg *wglconfig.Config, key string) (interface{}, error) {
 	fields := strings.Split(key, ":")
 	if fields[0] != "winpctfile" {
 		return nil, errors.New("winpctcacheloadfunc - bad cache key: " + key)

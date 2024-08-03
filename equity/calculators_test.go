@@ -20,13 +20,13 @@ import (
 var DefaultConfig = config.DefaultConfig()
 
 func GaddagFromLexicon(lex string) (gaddag.WordGraph, error) {
-	return kwg.Get(DefaultConfig.AllSettings(), lex)
+	return kwg.Get(DefaultConfig.WGLConfig(), lex)
 }
 
 func TestLeaveValues(t *testing.T) {
 	alph := testhelpers.EnglishAlphabet()
 
-	els, err := equity.NewExhaustiveLeaveCalculator("NWL20", &DefaultConfig, "")
+	els, err := equity.NewExhaustiveLeaveCalculator("NWL20", DefaultConfig, "")
 	assert.Nil(t, err)
 
 	type testcase struct {
@@ -52,7 +52,7 @@ func TestLeaveValues(t *testing.T) {
 func TestOtherLeaveValues(t *testing.T) {
 	alph := testhelpers.EnglishAlphabet()
 
-	els, err := equity.NewExhaustiveLeaveCalculator("NWL18", &DefaultConfig, "")
+	els, err := equity.NewExhaustiveLeaveCalculator("NWL18", DefaultConfig, "")
 	assert.Nil(t, err)
 
 	type testcase struct {
@@ -72,7 +72,7 @@ func TestOtherLeaveValues(t *testing.T) {
 func BenchmarkLeaveValue(b *testing.B) {
 	alph := testhelpers.EnglishAlphabet()
 
-	els, _ := equity.NewExhaustiveLeaveCalculator("NWL18", &DefaultConfig, "leaves.klv2")
+	els, _ := equity.NewExhaustiveLeaveCalculator("NWL18", DefaultConfig, "leaves.klv2")
 	leave, _ := tilemapping.ToMachineLetters("AENST", alph)
 
 	for i := 0; i <= b.N; i++ {
@@ -85,14 +85,14 @@ func TestEndgameTiming(t *testing.T) {
 	assert.Nil(t, err)
 	alph := gd.GetAlphabet()
 	bd := board.MakeBoard(board.CrosswordGameBoard)
-	ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.AllSettings())
+	ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.WGLConfig())
 	assert.Nil(t, err)
 	generator := movegen.NewGordonGenerator(gd, bd, ld)
 	tilesInPlay := bd.SetToGame(gd.GetAlphabet(), board.MavenVsMacondo)
 	cross_set.GenAllCrossSets(bd, gd, ld)
 	generator.GenAll(tilemapping.RackFromString("AEEORS?", alph), false)
 
-	els, err := equity.NewExhaustiveLeaveCalculator("NWL18", &DefaultConfig, "")
+	els, err := equity.NewExhaustiveLeaveCalculator("NWL18", DefaultConfig, "")
 	assert.Nil(t, err)
 
 	eac := &equity.EndgameAdjustmentCalculator{}
@@ -129,16 +129,16 @@ func TestPreendgameTiming(t *testing.T) {
 	assert.Nil(t, err)
 	alph := gd.GetAlphabet()
 	bd := board.MakeBoard(board.CrosswordGameBoard)
-	ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.AllSettings())
+	ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.WGLConfig())
 	assert.Nil(t, err)
 	generator := movegen.NewGordonGenerator(gd, bd, ld)
 	tilesInPlay := bd.SetToGame(gd.GetAlphabet(), board.VsOxy)
 	cross_set.GenAllCrossSets(bd, gd, ld)
 	generator.GenAll(tilemapping.RackFromString("OXPBAZE", alph), false)
 
-	els, err := equity.NewExhaustiveLeaveCalculator("NWL20", &DefaultConfig, "")
+	els, err := equity.NewExhaustiveLeaveCalculator("NWL20", DefaultConfig, "")
 	assert.Nil(t, err)
-	pac, err := equity.NewPreEndgameAdjustmentCalculator(&DefaultConfig, "NWL20", "quackle_preendgame.json")
+	pac, err := equity.NewPreEndgameAdjustmentCalculator(DefaultConfig, "NWL20", "quackle_preendgame.json")
 	assert.Nil(t, err)
 	bag := tilemapping.NewBag(ld, alph)
 	bag.RemoveTiles(tilesInPlay.OnBoard)
@@ -168,13 +168,13 @@ func TestOpeningPlayHeuristic(t *testing.T) {
 	assert.Nil(t, err)
 	alph := gd.GetAlphabet()
 	bd := board.MakeBoard(board.CrosswordGameBoard)
-	ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.AllSettings())
+	ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.WGLConfig())
 	assert.Nil(t, err)
 	generator := movegen.NewGordonGenerator(gd, bd, ld)
 	cross_set.GenAllCrossSets(bd, gd, ld)
 	generator.GenAll(tilemapping.RackFromString("AEFLR", alph), false)
 	els, err := equity.NewCombinedStaticCalculator(
-		"NWL20", &DefaultConfig, "", "")
+		"NWL20", DefaultConfig, "", "")
 	assert.Nil(t, err)
 	plays := generator.Plays()
 	bag := tilemapping.NewBag(ld, alph)
