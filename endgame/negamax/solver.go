@@ -394,67 +394,38 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 	s.assignEstimates(s.initialMoves[0], 0, 0, tinymove.InvalidTinyMove)
 
 	variationsFound := 0
-	var lastWinner *move.Move
 
 	pv := PVLine{g: s.game}
 	// Do initial search so that we can have a good estimate for
 	// move ordering.
+	s.currentIDDepths[0] = 1
 	lastIteration, _ := s.negamax(ctx, initialHashKey, 1, α, β, &pv, 0, true)
 	// Sort the moves by valuation.
 	sort.Slice(s.initialMoves[0], func(i, j int) bool {
 		return s.initialMoves[0][i].EstimatedValue() > s.initialMoves[0][j].EstimatedValue()
 	})
 
-searchLoop:
-	for variationsFound < s.solveMultipleVariations {
-
-		s.currentIDDepths[0] = 1
-		toDelete := -1
-		if lastWinner != nil {
-			// delete from s.initialMoves[0]
-			tinyWinner := conversions.MoveToTinyMove(lastWinner)
-			for i := range s.initialMoves[0] {
-				if s.initialMoves[0][i].TinyMove() == tinyWinner {
-					toDelete = i
-					log.Info().Str("last-winner", s.game.Board().MoveDescriptionWithPlaythrough(lastWinner)).
-						Msg("finding-new-variation-deleting-last-winner")
-					break
-				}
-			}
-		}
-		if toDelete != -1 {
-			ret := make([]tinymove.SmallMove, 0)
-			ret = append(ret, s.initialMoves[0][:toDelete]...)
-			ret = append(ret, s.initialMoves[0][toDelete+1:]...)
-			s.initialMoves[0] = ret
-		}
-		if len(s.initialMoves[0]) == 0 {
-			// Oops, there are more variations requested than available moves. Quit.
-			break searchLoop
-		}
-
-		// copy these moves to per-thread subarrays. This will also copy
-		// the initial estimated valuation and order.
-		for t := 1; t < s.threads; t++ {
-			s.initialMoves[t] = make([]tinymove.SmallMove, len(s.initialMoves[0]))
-			copy(s.initialMoves[t], s.initialMoves[0])
-		}
-
-		for p := 2; p <= plies; p++ {
-			log.Info().Int("plies", p).Msg("deepening-iteratively")
-			err := s.lazySMP(ctx, &lastIteration, p, initialHashKey)
-			if err != nil {
-				// could be a timeout, most likely.
-				log.Err(err).Msg("lazySMP-possible-error")
-				break searchLoop
-			}
-		}
-
-		// Once we've searched up to "plies" (or timed out?) we increase variations
-		lastWinner = s.principalVariation.Moves[0]
-		variationsFound++
-		s.variations = append(s.variations, s.principalVariation)
+	// copy these moves to per-thread subarrays. This will also copy
+	// the initial estimated valuation and order.
+	for t := 1; t < s.threads; t++ {
+		s.initialMoves[t] = make([]tinymove.SmallMove, len(s.initialMoves[0]))
+		copy(s.initialMoves[t], s.initialMoves[0])
 	}
+
+	for p := 2; p <= plies; p++ {
+		log.Info().Int("plies", p).Msg("deepening-iteratively")
+		err := s.lazySMP(ctx, &lastIteration, p, initialHashKey)
+		if err != nil {
+			// could be a timeout, most likely.
+			log.Err(err).Msg("lazySMP-possible-error")
+			break
+		}
+	}
+
+	// Once we've searched up to "plies" (or timed out?) we increase variations
+	variationsFound++
+	s.variations = append(s.variations, s.principalVariation)
+	// }
 	return nil
 }
 
