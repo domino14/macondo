@@ -481,23 +481,23 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 			return
 		}
 		if !enableFW {
-			sc.showMessage(fmt.Sprintf("Best sequence has a spread difference of %v", val))
+			sc.showMessage(fmt.Sprintf("Best sequence has a spread difference (value) of %+d", val))
 		} else {
 			if val+int16(sc.game.CurrentSpread()) > 0 {
 				sc.showMessage("Win found!")
 			} else {
 				sc.showMessage("Win was not found.")
 			}
-			sc.showMessage(fmt.Sprintf("Spread diff: %v. Note: this sequence may not be correct. Turn off first-win-optim to search more accurately.", val))
+			sc.showMessage(fmt.Sprintf("Spread diff: %+d. Note: this sequence may not be correct. Turn off first-win-optim to search more accurately.", val))
 		}
-		sc.showMessage(fmt.Sprintf("Final spread after seq: %d", val+int16(sc.game.CurrentSpread())))
+		sc.showMessage(fmt.Sprintf("Final spread after seq: %+d", val+int16(sc.game.CurrentSpread())))
 		sc.printEndgameSequence(seq)
 		variations := sc.endgameSolver.Variations()
 		if len(variations) > 1 {
 			sc.showMessage("Other variations: ")
 
 			for i := range variations[1:] {
-				sc.showMessage(fmt.Sprintf("%d) %s", i+2, variations[i].NLBString()))
+				sc.showMessage(fmt.Sprintf("%d) %s", i+2, variations[i+1].NLBString()))
 			}
 		}
 	}()

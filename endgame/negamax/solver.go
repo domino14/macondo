@@ -110,15 +110,21 @@ func (pvLine PVLine) String() string {
 func (pvLine PVLine) NLBString() string {
 	// no line breaks
 	var s string
-	s = fmt.Sprintf("PV; val %d; ", pvLine.score)
+	s = fmt.Sprintf("[Value: %+d] ", pvLine.score)
 	for i := 0; i < pvLine.numMoves; i++ {
-		s += fmt.Sprintf("%d: %s (%d); ",
+		finalSeparator := "|"
+		if i == pvLine.numMoves-1 {
+			finalSeparator = ""
+		}
+		s += fmt.Sprintf("%d) %s (%d) %s ",
 			i+1,
 			// XXX: this will only work if we are playing the moves and keeping
 			// track of the playthrough
 			// pvLine.g.Board().MoveDescriptionWithPlaythrough(pvLine.Moves[i]),
 			pvLine.Moves[i].ShortDescription(),
-			pvLine.Moves[i].Score())
+			pvLine.Moves[i].Score(),
+			finalSeparator,
+		)
 	}
 	return s
 }
@@ -394,6 +400,7 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 	s.assignEstimates(s.initialMoves[0], 0, 0, tinymove.InvalidTinyMove)
 
 	variationsFound := 0
+	var lastWinner *move.Move
 
 	pv := PVLine{g: s.game}
 	// Do initial search so that we can have a good estimate for
@@ -405,27 +412,58 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 		return s.initialMoves[0][i].EstimatedValue() > s.initialMoves[0][j].EstimatedValue()
 	})
 
-	// copy these moves to per-thread subarrays. This will also copy
-	// the initial estimated valuation and order.
-	for t := 1; t < s.threads; t++ {
-		s.initialMoves[t] = make([]tinymove.SmallMove, len(s.initialMoves[0]))
-		copy(s.initialMoves[t], s.initialMoves[0])
-	}
-
-	for p := 2; p <= plies; p++ {
-		log.Info().Int("plies", p).Msg("deepening-iteratively")
-		err := s.lazySMP(ctx, &lastIteration, p, initialHashKey)
-		if err != nil {
-			// could be a timeout, most likely.
-			log.Err(err).Msg("lazySMP-possible-error")
-			break
+searchLoop:
+	for variationsFound < s.solveMultipleVariations {
+		toDelete := -1
+		if lastWinner != nil {
+			// delete from s.initialMoves[0]
+			tinyWinner := conversions.MoveToTinyMove(lastWinner)
+			for i := range s.initialMoves[0] {
+				if s.initialMoves[0][i].TinyMove() == tinyWinner {
+					toDelete = i
+					log.Info().Str("last-winner", s.game.Board().MoveDescriptionWithPlaythrough(lastWinner)).
+						Msg("finding-new-variation-deleting-last-winner")
+					break
+				}
+			}
 		}
-	}
+		if toDelete != -1 {
+			ret := make([]tinymove.SmallMove, 0)
+			ret = append(ret, s.initialMoves[0][:toDelete]...)
+			ret = append(ret, s.initialMoves[0][toDelete+1:]...)
+			s.initialMoves[0] = ret
+		}
+		if len(s.initialMoves[0]) == 0 {
+			// Oops, there are more variations requested than available moves. Quit.
+			break searchLoop
+		}
 
-	// Once we've searched up to "plies" (or timed out?) we increase variations
-	variationsFound++
-	s.variations = append(s.variations, s.principalVariation)
-	// }
+		// copy these moves to per-thread subarrays. This will also copy
+		// the initial estimated valuation and order.
+		for t := 1; t < s.threads; t++ {
+			s.initialMoves[t] = make([]tinymove.SmallMove, len(s.initialMoves[0]))
+			copy(s.initialMoves[t], s.initialMoves[0])
+		}
+
+		for p := 2; p <= plies; p++ {
+			log.Info().Int("plies", p).Msg("deepening-iteratively")
+			err := s.lazySMP(ctx, &lastIteration, p, initialHashKey)
+			if err != nil {
+				// could be a timeout, most likely.
+				log.Err(err).Msg("lazySMP-possible-error")
+				break searchLoop
+			}
+		}
+
+		// Once we've searched up to "plies" (or timed out?) we increase variations
+		lastWinner = s.principalVariation.Moves[0]
+		variationsFound++
+		s.variations = append(s.variations, s.principalVariation)
+	}
+	// If we solved many variations, then the last one solved is in s.principalVariation.
+	// But we want the overall solution to be the very first (best) principal variation
+	s.principalVariation = s.variations[0]
+	s.bestPVValue = s.principalVariation.score
 	return nil
 }
 
@@ -550,7 +588,6 @@ aspirationLoop:
 		if err != nil {
 			if err.Error() == "context canceled" {
 				log.Debug().Msg("helper threads exited with a canceled context")
-				break aspirationLoop
 			} else {
 				return err
 			}
@@ -559,7 +596,6 @@ aspirationLoop:
 
 		if val > α && val < β {
 			*lastIteration = val
-			fmt.Println("CHANGED TO VAL", val)
 			break aspirationLoop
 		}
 		window *= 2
@@ -590,6 +626,10 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 		return s.iterativelyDeepenLazySMP(ctx, plies)
 	} else if s.abdadaOptim {
 		return s.iterativelyDeepenABDADA(ctx, plies)
+	}
+	if s.solveMultipleVariations > 1 {
+		// you don't really have to but i'm too lazy smp to implement it in several places
+		return errors.New("you must use multi-threading to solve multiple variations")
 	}
 	s.currentIDDepths = make([]int, 1)
 	g := s.game
