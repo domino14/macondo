@@ -2,15 +2,15 @@ endgame [options] - solve endgame exhaustively
 
 Example:
 
-    endgame   
-    endgame -plies 25   
+    endgame
+    endgame -plies 25
     endgame -plies 25 -maxtime 120
     endgame stop
 
 About:
 
     Macondo uses minimax search to solve an endgame - i.e. it can exhaustively
-    try all possible options for both players down a tree of plays. It uses 
+    try all possible options for both players down a tree of plays. It uses
     alpha-beta pruning, which is a way to stop searching branches of the tree
     when it becomes clear they can't possibly do better than other branches.
 
@@ -29,7 +29,7 @@ About:
 
         endgame -plies 25 -maxtime 300
 
-    This will make sure the algorithm uses at most 5 minutes of search. 
+    This will make sure the algorithm uses at most 5 minutes of search.
     It is also possible that the 25 plies will be reached before the time
     limit, depending on the complexity of the endgame.
 
@@ -42,13 +42,13 @@ Optional arguments:
 
 
 Options:
-    -plies 25 
+    -plies 25
 
     The above option will look 25 plies deep. As plies go up, the endgame
-    solver takes exponentially longer. However, there are exceptions, 
+    solver takes exponentially longer. However, there are exceptions,
     especially if the endgame doesn't have many choices, or if we are deeper
-    into the endgame where each player only has a few tiles left. In this 
-    case it is possible that the latter plies will be searched very fast, because 
+    into the endgame where each player only has a few tiles left. In this
+    case it is possible that the latter plies will be searched very fast, because
     there is nothing else to search.
 
     -maxtime 120
@@ -59,8 +59,8 @@ Options:
 
     -disable-id true
 
-    This option disables iterative deepening. Iterative Deepening allows the 
-    endgame algorithm to check depth 1, 2, 3, etc plies successively. If you 
+    This option disables iterative deepening. Iterative Deepening allows the
+    endgame algorithm to check depth 1, 2, 3, etc plies successively. If you
     are time-limited, it is likely that the first few answers will be good
     enough for many endgames.
 
@@ -68,8 +68,8 @@ Options:
 
     Use LazySMP to recruit more cores to help solve the endgame. Our current
     implementation has a sweet spot around 6 threads, which can result in a 2-3x or
-    more speedup. Any more and it actually starts to get slower. We will 
-    continue trying to improve this. Defaults to the minimum of 6 and your number 
+    more speedup. Any more and it actually starts to get slower. We will
+    continue trying to improve this. Defaults to the minimum of 6 and your number
     of cores minus 1. Set to 1 to disable LazySMP.
 
     -disable-tt true
@@ -82,11 +82,18 @@ Options:
     -first-win-optim true
 
     Apply a "first win optimization". No need to find the very best play.
-    If we find a sure win, return it right away. Important notes for 
+    If we find a sure win, return it right away. Important notes for
     this mode:
-    
-    1) player scores actually matter if this option is on, and if the game is 
-    unwinnable for a player, this will just do a fully exhaustive search to confirm 
+
+    1) player scores actually matter if this option is on, and if the game is
+    unwinnable for a player, this will just do a fully exhaustive search to confirm
     this.
     2) if this mode cannot find a win, it may return a slightly incorrect losing
     sequence. Turn this mode off to accurately find the best losing sequence.
+
+    -multiple-vars 5
+
+    Show more than one variation. By default, Macondo will find one of the
+    guaranteed best sequences, but a user may want to see other endgame
+    sequences as well. The number argument is the number of variations to show.
+    Note that searching for more variations is slower.
