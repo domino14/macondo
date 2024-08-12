@@ -98,12 +98,13 @@ func (s *Simmer) shouldStop(iterationCount uint64,
 	tentativeWinner.RLock()
 	μ := tentativeWinner.winPctStats.Mean()
 	e := tentativeWinner.winPctStats.StandardError()
-	if passTest(MinReasonableWProb, 0, μ, e, ci) {
+
+	if zTest(MinReasonableWProb, μ, e, -ci, true) {
 		// If the top play by win % has basically no win chance, tiebreak the whole
 		// thing by equity.
 		tiebreakByEquity = true
-	} else if passTest(μ, e, 1-MinReasonableWProb, 0, ci) &&
-		passTest(bottomUnignoredWinPct, bottomUnignoredSerr, 1-MinReasonableWProb, 0, ci) {
+	} else if zTest(1-MinReasonableWProb, μ, e, ci, false) &&
+		zTest(1-MinReasonableWProb, bottomUnignoredWinPct, bottomUnignoredSerr, ci, false) {
 		// If the top play by win % has basically no losing chance, check if the bottom
 		// play also has no losing chance
 		tiebreakByEquity = true
@@ -151,7 +152,7 @@ func (s *Simmer) shouldStop(iterationCount uint64,
 			ei = p.equityStats.StandardError()
 		}
 		p.RUnlock()
-		if passTest(μ, e, μi, ei, ci) {
+		if welchTest(μ, e, μi, ei, ci) {
 			p.Ignore()
 			newIgnored++
 		} else if iterationCount > SimilarPlaysIterationsCutoff {
@@ -171,16 +172,27 @@ func (s *Simmer) shouldStop(iterationCount uint64,
 	return false
 }
 
-// passTest: determine if a random variable X > Y with the given z-score; return true if X > Y.
+// welchTest: determine if a random variable X > Y with the given z-score; return true if X > Y.
 // μ and e are the mean and standard error of variable X
 // μi, ei are the mean and standard error of variable Y
-func passTest(μ, e, μi, ei, z float64) bool {
+func welchTest(μ, e, μi, ei, z float64) bool {
 	sediff := math.Sqrt(e*e + ei*ei)
 	if sediff == 0 {
 		return true
 	}
 	zcalc := (μ - μi) / sediff
 	return zcalc > z
+}
+
+// zTest does a Z-test. M, e are the mean/stderror for the variable we're testing. (sample mean)
+// μ is the population mean.
+func zTest(μ, M, e, z float64, sgnflip bool) bool {
+	zcalc := (M - μ) / e
+	if !sgnflip {
+		return zcalc > z
+	} else {
+		return z > zcalc
+	}
 }
 
 func materiallySimilar(p1, p2 *SimmedPlay, pcache map[string]bool) bool {
