@@ -28,4 +28,5 @@ func TestZTest(t *testing.T) {
 	is.True(zTest(0.995, 0.998, 0.001, stats.Z99, false))
 	// We are NOT 99% sure that 0.997 > 0.995 with the given stderr.
 	is.True(!zTest(0.995, 0.997, 0.001, stats.Z99, false))
+	is.True(!zTest(0.995, 0.990, 0.001, stats.Z99, false))
 }
