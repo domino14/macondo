@@ -410,6 +410,7 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	if maxthreads > negamax.MaxLazySMPThreads {
 		maxthreads = negamax.MaxLazySMPThreads
 	}
+	var multipleVars int
 	var disableID bool
 	var disableTT bool
 	var enableFW bool
@@ -422,6 +423,9 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 		return nil, err
 	}
 	if maxthreads, err = cmd.options.IntDefault("threads", maxthreads); err != nil {
+		return nil, err
+	}
+	if multipleVars, err = cmd.options.IntDefault("multiple-vars", 1); err != nil {
 		return nil, err
 	}
 	disableID = cmd.options.Bool("disable-id")
@@ -461,6 +465,7 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	sc.endgameSolver.SetTranspositionTableOptim(!disableTT)
 	sc.endgameSolver.SetThreads(maxthreads)
 	sc.endgameSolver.SetFirstWinOptim(enableFW)
+	sc.endgameSolver.SetSolveMultipleVariations(multipleVars)
 
 	sc.showMessage(sc.game.ToDisplayText())
 
@@ -476,17 +481,25 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 			return
 		}
 		if !enableFW {
-			sc.showMessage(fmt.Sprintf("Best sequence has a spread difference of %v", val))
+			sc.showMessage(fmt.Sprintf("Best sequence has a spread difference (value) of %+d", val))
 		} else {
 			if val+int16(sc.game.CurrentSpread()) > 0 {
 				sc.showMessage("Win found!")
 			} else {
 				sc.showMessage("Win was not found.")
 			}
-			sc.showMessage(fmt.Sprintf("Spread diff: %v. Note: this sequence may not be correct. Turn off first-win-optim to search more accurately.", val))
+			sc.showMessage(fmt.Sprintf("Spread diff: %+d. Note: this sequence may not be correct. Turn off first-win-optim to search more accurately.", val))
 		}
-		sc.showMessage(fmt.Sprintf("Final spread after seq: %d", val+int16(sc.game.CurrentSpread())))
+		sc.showMessage(fmt.Sprintf("Final spread after seq: %+d", val+int16(sc.game.CurrentSpread())))
 		sc.printEndgameSequence(seq)
+		variations := sc.endgameSolver.Variations()
+		if len(variations) > 1 {
+			sc.showMessage("Other variations: ")
+
+			for i := range variations[1:] {
+				sc.showMessage(fmt.Sprintf("%d) %s", i+2, variations[i+1].NLBString()))
+			}
+		}
 	}()
 	return msg(""), nil
 }
