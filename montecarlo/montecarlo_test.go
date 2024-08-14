@@ -187,7 +187,7 @@ func TestLongerSim(t *testing.T) {
 	fmt.Println(simmer.printStats())
 	fmt.Println("Total iterations", simmer.iterationCount.Load())
 	// AWA wins (note that the print above also sorts the plays by equity)
-	is.Equal(simmer.plays[0].play.Tiles().UserVisible(game.Alphabet()), "AWA")
+	is.Equal(simmer.simmedPlays.plays[0].play.Tiles().UserVisible(game.Alphabet()), "AWA")
 	is.Equal(simmer.gameCopies[0].Turn(), 0)
 }
 

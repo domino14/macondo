@@ -213,6 +213,8 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	}
 	p.simmer.PrepareSim(simPlies, moves)
 	p.simmer.SetStoppingCondition(montecarlo.Stop99)
+	// p.simmer.SetAutostopIterationsCutoff(2500)
+	// p.simmer.SetAutostopPPScaling(1500)
 
 	if HasInfer(p.botType) && len(p.inferencer.Inferences()) > InferencesSimLimit {
 		logger.Debug().Int("inferences", len(p.inferencer.Inferences())).Msg("using inferences in sim")
