@@ -3,6 +3,8 @@ package montecarlo
 import (
 	"math"
 	"sort"
+	"sync"
+	"time"
 
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
@@ -10,69 +12,141 @@ import (
 	"github.com/domino14/macondo/stats"
 )
 
-const IterationsCutoff = 2000
-const PerPlyStopScaling = 625
-const SimilarPlaysIterationsCutoff = 750
+type StoppingCondition int
 
-const MinReasonableWProb = 0.005 // or 0.5%
+const (
+	StopNone StoppingCondition = iota
+	Stop90
+	Stop95
+	Stop98
+	Stop99
+	Stop999
+)
+
+const StopConditionCheckInterval = 128
+
+const (
+	defaultIterationsCutoff             = 2000
+	defaultPerPlyStopScaling            = 625
+	defaultSimilarPlaysIterationsCutoff = 750
+	defaultMinReasonableWProb           = 0.005 // or 0.5%
+
+)
+
+type AutoStopperSimmedPlay struct {
+	equityStats stats.Statistic
+	winPctStats stats.Statistic
+	ignore      bool
+	origPlay    *SimmedPlay
+}
 
 // use stats to figure out when to stop simming.
 
-func (s *Simmer) shouldStop(iterationCount uint64,
-	playSimilarityCache map[string]bool) bool {
+type AutoStopper struct {
+	sync.Mutex
+	iterationsCutoff             int
+	perPlyStopScaling            int
+	similarPlaysIterationsCutoff int
+	minReasonableWProb           float64
+
+	stoppingCondition   StoppingCondition
+	playSimilarityCache map[string]bool
+
+	simmedPlays []*AutoStopperSimmedPlay
+}
+
+// copyForStatCutoff copies parts of the simmed plays array. We only deep-copy
+// what we actually need (which are a subset of the stats and the ignore attribute)
+// to save time.
+func (a *AutoStopper) copyForStatCutoff(plays *SimmedPlays) {
+	plays.RLock()
+	defer plays.RUnlock()
+
+	if len(a.simmedPlays) == 0 {
+		a.simmedPlays = make([]*AutoStopperSimmedPlay, len(plays.plays))
+		for i := range a.simmedPlays {
+			a.simmedPlays[i] = &AutoStopperSimmedPlay{}
+		}
+	}
+
+	for i := range a.simmedPlays {
+		a.simmedPlays[i].equityStats = plays.plays[i].equityStats
+		a.simmedPlays[i].winPctStats = plays.plays[i].winPctStats
+		a.simmedPlays[i].ignore = plays.plays[i].ignore
+		a.simmedPlays[i].origPlay = plays.plays[i]
+	}
+}
+
+func newAutostopper() *AutoStopper {
+	return &AutoStopper{
+		iterationsCutoff:             defaultIterationsCutoff,
+		perPlyStopScaling:            defaultPerPlyStopScaling,
+		similarPlaysIterationsCutoff: defaultSimilarPlaysIterationsCutoff,
+		minReasonableWProb:           defaultMinReasonableWProb,
+		stoppingCondition:            StopNone,
+		playSimilarityCache:          map[string]bool{},
+	}
+}
+
+func (a *AutoStopper) reset() {
+	a.playSimilarityCache = map[string]bool{}
+}
+
+func (a *AutoStopper) shouldStop(iterationCount uint64, simmedPlays *SimmedPlays, maxPlies int) bool {
 	// This function runs as the sim is ongoing. So we should be careful
 	// what we do with memory here.
-	plays := s.plays
-	sc := s.stoppingCondition
+	t := time.Now()
+	a.Lock()
+	defer a.Unlock()
 
-	if len(plays) < 2 {
+	sc := a.stoppingCondition
+
+	if len(simmedPlays.plays) < 2 {
 		return true
 	}
-	if int(iterationCount) > IterationsCutoff+(s.maxPlies*PerPlyStopScaling) {
+	if int(iterationCount) > a.iterationsCutoff+(maxPlies*a.perPlyStopScaling) {
 		return true
 	}
 	// Otherwise, do some statistics.
-	// shallow copy the array so we can sort it/play with it.
-	c := make([]*SimmedPlay, len(plays))
+
+	a.copyForStatCutoff(simmedPlays)
+
 	// count ignored plays
 	ignoredPlays := 0
 	bottomUnignoredWinPct := 0.0
 	bottomUnignoredSerr := 0.0
-	for i := range c {
-		c[i] = plays[i]
-		c[i].RLock()
-		if c[i].ignore {
+	for i := range a.simmedPlays {
+		if a.simmedPlays[i].ignore {
 			ignoredPlays++
 		}
-		c[i].RUnlock()
 	}
-	if ignoredPlays >= len(c)-1 {
+	if ignoredPlays >= len(a.simmedPlays)-1 {
 		// if there is only 1 unignored play, exit.
 		return true
 	}
 
 	// sort copy by win pct.
-	sort.Slice(c, func(i, j int) bool {
-		c[i].RLock()
-		c[j].RLock()
-		defer c[j].RUnlock()
-		defer c[i].RUnlock()
-		if c[i].winPctStats.Mean() == c[j].winPctStats.Mean() {
-			return c[i].equityStats.Mean() > c[j].equityStats.Mean()
+	sort.Slice(a.simmedPlays, func(i, j int) bool {
+		// move ignored plays to the bottom.
+		if a.simmedPlays[i].ignore {
+			return false
 		}
-		return c[i].winPctStats.Mean() > c[j].winPctStats.Mean()
+		if a.simmedPlays[j].ignore {
+			return true
+		}
+		if a.simmedPlays[i].winPctStats.Mean() == a.simmedPlays[j].winPctStats.Mean() {
+			return a.simmedPlays[i].equityStats.Mean() > a.simmedPlays[j].equityStats.Mean()
+		}
+		return a.simmedPlays[i].winPctStats.Mean() > a.simmedPlays[j].winPctStats.Mean()
 	})
 
 	// find the bottom unignored win pct play
-	for i := len(c) - 1; i >= 0; i-- {
-		c[i].RLock()
-		if !c[i].ignore {
-			bottomUnignoredWinPct = c[i].winPctStats.Mean()
-			bottomUnignoredSerr = c[i].winPctStats.StandardError()
-			c[i].RUnlock()
+	for i := len(a.simmedPlays) - 1; i >= 0; i-- {
+		if !a.simmedPlays[i].ignore {
+			bottomUnignoredWinPct = a.simmedPlays[i].winPctStats.Mean()
+			bottomUnignoredSerr = a.simmedPlays[i].winPctStats.StandardError()
 			break
 		}
-		c[i].RUnlock()
 	}
 
 	// we want to cut off plays that have no chance of winning.
@@ -94,42 +168,38 @@ func (s *Simmer) shouldStop(iterationCount uint64,
 		ci = stats.Z999
 	}
 	tiebreakByEquity := false
-	tentativeWinner := c[0]
-	tentativeWinner.RLock()
+	tentativeWinner := a.simmedPlays[0]
 	μ := tentativeWinner.winPctStats.Mean()
 	e := tentativeWinner.winPctStats.StandardError()
 
-	if zTest(MinReasonableWProb, μ, e, -ci, true) {
+	if zTest(float64(a.minReasonableWProb), μ, e, -ci, true) {
 		// If the top play by win % has basically no win chance, tiebreak the whole
 		// thing by equity.
 		tiebreakByEquity = true
-	} else if zTest(1-MinReasonableWProb, μ, e, ci, false) &&
-		zTest(1-MinReasonableWProb, bottomUnignoredWinPct, bottomUnignoredSerr, ci, false) {
+	} else if zTest(1-a.minReasonableWProb, μ, e, ci, false) &&
+		zTest(1-a.minReasonableWProb, bottomUnignoredWinPct, bottomUnignoredSerr, ci, false) {
 		// If the top play by win % has basically no losing chance, check if the bottom
 		// play also has no losing chance
 		tiebreakByEquity = true
 	}
-	tentativeWinner.RUnlock()
 
 	if tiebreakByEquity {
 		// We may need to re-determine the tentative winner.
 		highestEquity := -1000000.0
 		highestEquityIdx := -1
-		for idx, p := range c {
-			p.RLock()
+		for idx, p := range a.simmedPlays {
 			eq := p.equityStats.Mean()
 			if eq > highestEquity {
 				highestEquityIdx = idx
 				highestEquity = eq
 			}
-			p.RUnlock()
 		}
 		if highestEquityIdx != 0 {
-			c[0], c[highestEquityIdx] = c[highestEquityIdx], c[0]
-			tentativeWinner = c[0]
+			a.simmedPlays[0], a.simmedPlays[highestEquityIdx] = a.simmedPlays[highestEquityIdx], a.simmedPlays[0]
+			tentativeWinner = a.simmedPlays[0]
 			log.Info().
-				Str("old-tentative-winner", c[highestEquityIdx].play.ShortDescription()).
-				Str("tentative-winner", tentativeWinner.play.ShortDescription()).
+				Str("old-tentative-winner", a.simmedPlays[highestEquityIdx].origPlay.play.ShortDescription()).
+				Str("tentative-winner", tentativeWinner.origPlay.play.ShortDescription()).
 				Msg("tiebreaking by equity, re-determining tentative winner")
 		}
 		μ = tentativeWinner.equityStats.Mean()
@@ -139,10 +209,8 @@ func (s *Simmer) shouldStop(iterationCount uint64,
 
 	newIgnored := 0
 	// assume standard normal distribution (?)
-	for _, p := range c[1:] {
-		p.RLock()
+	for _, p := range a.simmedPlays[1:] {
 		if p.ignore {
-			p.RUnlock()
 			continue
 		}
 		μi := p.winPctStats.Mean()
@@ -151,13 +219,12 @@ func (s *Simmer) shouldStop(iterationCount uint64,
 			μi = p.equityStats.Mean()
 			ei = p.equityStats.StandardError()
 		}
-		p.RUnlock()
 		if welchTest(μ, e, μi, ei, ci) {
-			p.Ignore()
+			p.origPlay.Ignore()
 			newIgnored++
-		} else if iterationCount > SimilarPlaysIterationsCutoff {
-			if materiallySimilar(tentativeWinner, p, playSimilarityCache) {
-				p.Ignore()
+		} else if iterationCount > uint64(a.similarPlaysIterationsCutoff) {
+			if materiallySimilar(tentativeWinner, p, a.playSimilarityCache) {
+				p.origPlay.Ignore()
 				newIgnored++
 			}
 		}
@@ -165,11 +232,10 @@ func (s *Simmer) shouldStop(iterationCount uint64,
 	if newIgnored > 0 {
 		log.Debug().Int("newIgnored", newIgnored).Msg("sim-cut-off")
 	}
-	if ignoredPlays+newIgnored >= len(c)-1 {
-		// if there is only 1 unignored play, exit.
-		return true
-	}
-	return false
+	log.Debug().Dur("time-elapsed-ms", time.Since(t)).Msg("time-for-cutoff-alg")
+
+	// if there is only 1 unignored play, exit.
+	return ignoredPlays+newIgnored >= len(a.simmedPlays)-1
 }
 
 // welchTest: determine if a random variable X > Y with the given z-score; return true if X > Y.
@@ -195,10 +261,10 @@ func zTest(μ, M, e, z float64, sgnflip bool) bool {
 	}
 }
 
-func materiallySimilar(p1, p2 *SimmedPlay, pcache map[string]bool) bool {
+func materiallySimilar(p1, p2 *AutoStopperSimmedPlay, pcache map[string]bool) bool {
 
-	p1ps := p1.play.ShortDescription()
-	p2ps := p2.play.ShortDescription()
+	p1ps := p1.origPlay.play.ShortDescription()
+	p2ps := p2.origPlay.play.ShortDescription()
 	if p1ps > p2ps {
 		p1ps, p2ps = p2ps, p1ps
 	}
@@ -212,27 +278,27 @@ func materiallySimilar(p1, p2 *SimmedPlay, pcache map[string]bool) bool {
 
 	// two plays are "materially similar" if they use the same tiles and
 	// start at the same square.
-	p1r, p1c, p1v := p1.play.CoordsAndVertical()
-	p2r, p2c, p2v := p2.play.CoordsAndVertical()
+	p1r, p1c, p1v := p1.origPlay.play.CoordsAndVertical()
+	p2r, p2c, p2v := p2.origPlay.play.CoordsAndVertical()
 
 	if !(p1r == p2r && p1c == p2c && p1v == p2v) {
 		pcache[lookupstr] = false
 		return false
 	}
-	if p1.play.TilesPlayed() != p2.play.TilesPlayed() {
+	if p1.origPlay.play.TilesPlayed() != p2.origPlay.play.TilesPlayed() {
 		pcache[lookupstr] = false
 		return false
 	}
-	if len(p1.play.Tiles()) != len(p2.play.Tiles()) {
+	if len(p1.origPlay.play.Tiles()) != len(p2.origPlay.play.Tiles()) {
 		pcache[lookupstr] = false
 		return false
 	}
 	// these plays start at the same square and are the same length.
 	// do they use the same tiles?
-	a1 := make([]tilemapping.MachineLetter, len(p1.play.Tiles()))
-	a2 := make([]tilemapping.MachineLetter, len(p2.play.Tiles()))
-	copy(a1, p1.play.Tiles())
-	copy(a2, p2.play.Tiles())
+	a1 := make([]tilemapping.MachineLetter, len(p1.origPlay.play.Tiles()))
+	a2 := make([]tilemapping.MachineLetter, len(p2.origPlay.play.Tiles()))
+	copy(a1, p1.origPlay.play.Tiles())
+	copy(a2, p2.origPlay.play.Tiles())
 	sort.Slice(a1, func(i, j int) bool { return a1[i] < a1[j] })
 	sort.Slice(a2, func(i, j int) bool { return a2[i] < a2[j] })
 	for i := range a1 {
@@ -245,24 +311,3 @@ func materiallySimilar(p1, p2 *SimmedPlay, pcache map[string]bool) bool {
 	pcache[lookupstr] = true
 	return true
 }
-
-// func zVal(μ, v, μi, vi float64) float64 {
-// 	// mean of X - Y = E(X-Y) = E(X) - E(Y)
-// 	mean := μ - μi
-// 	// variance of (X-Y) = V(X) + V(Y)
-// 	variance := v + vi
-// 	stdev := math.Sqrt(variance)
-// 	// P(X > Y) = P(X - Y > 0)
-// 	// let D = X - Y
-// 	// then P(D > 0)
-// 	// convert to standard normal variable (mean 0 stdev 1)
-// 	// = P ((D - mean) / (stdev) > (0 - mean) / stdev)
-// 	// then P(Z>(0 - mean)/stdev)
-// 	// 95 percentile is Z 1.96
-// 	// 99 percentile is Z 2.58
-// 	return -mean / stdev
-// }
-
-// func zValStdev(μ, s, μi, si float64) float64 {
-// 	return zVal(μ, s*s, μi, si*si)
-// }
