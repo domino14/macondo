@@ -22,6 +22,15 @@ type Statistic struct {
 	newS float64
 }
 
+func (a *Statistic) Reset() {
+	a.totalIterations = 0
+	a.last = 0
+	a.oldM = 0
+	a.newM = 0
+	a.oldS = 0
+	a.newS = 0
+}
+
 func (s *Statistic) Push(val float64) {
 	s.last = val
 	s.totalIterations++

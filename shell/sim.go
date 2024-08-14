@@ -39,20 +39,21 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
 
 	inferMode := montecarlo.InferenceOff
 	knownOppRack := ""
+	var stopPPscaling, stopitercutoff int
 	for opt := range options {
 		switch opt {
 		case "plies":
-			plies, err = strconv.Atoi(options.String(opt))
+			plies, err = options.Int(opt)
 			if err != nil {
 				return err
 			}
 		case "threads":
-			threads, err = strconv.Atoi(options.String(opt))
+			threads, err = options.Int(opt)
 			if err != nil {
 				return err
 			}
 		case "stop":
-			sci, err := strconv.Atoi(options.String(opt))
+			sci, err := options.Int(opt)
 			if err != nil {
 				return err
 			}
@@ -70,6 +71,18 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
 			default:
 				return errors.New("only allowed values are 90, 95, 98, 99, and 999 for stopping condition")
 			}
+		case "stop-ppscaling":
+			stopPPscaling, err = options.Int(opt)
+			if err != nil {
+				return err
+			}
+
+		case "stop-itercutoff":
+			stopitercutoff, err = options.Int(opt)
+			if err != nil {
+				return err
+			}
+
 		case "opprack":
 			knownOppRack = options.String(opt)
 
@@ -101,7 +114,10 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
 	}
 
 	log.Debug().Int("plies", plies).Int("threads", threads).
-		Int("stoppingCondition", int(stoppingCondition)).Msg("will start sim")
+		Int("stoppingCondition", int(stoppingCondition)).
+		Int("ppscaling", stopPPscaling).
+		Int("itercutoff", stopitercutoff).
+		Msg("will start sim")
 
 	if sc.game != nil {
 		if threads != 0 {
@@ -112,6 +128,12 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
 			return err
 		}
 		sc.simmer.SetStoppingCondition(stoppingCondition)
+		if stopPPscaling > 0 {
+			sc.simmer.SetAutostopPPScaling(stopPPscaling)
+		}
+		if stopitercutoff > 0 {
+			sc.simmer.SetAutostopIterationsCutoff(stopitercutoff)
+		}
 
 		if knownOppRack != "" {
 			knownOppRack = strings.ToUpper(knownOppRack)

@@ -51,17 +51,6 @@ import (
 
 */
 
-type StoppingCondition int
-
-const (
-	StopNone StoppingCondition = iota
-	Stop90
-	Stop95
-	Stop98
-	Stop99
-	Stop999
-)
-
 type InferenceMode int
 
 const (
@@ -69,8 +58,6 @@ const (
 	InferenceCycle
 	InferenceRandom
 )
-
-const StopConditionCheckInterval = 128
 
 // LogIteration is a struct meant for serializing to a log-file, for debug
 // and other purposes.
@@ -192,6 +179,17 @@ func (s *SimmedPlay) Move() *move.Move {
 	return s.play
 }
 
+type SimmedPlays struct {
+	sync.RWMutex
+	plays []*SimmedPlay
+}
+
+func (s *SimmedPlays) trimBottom(n int) {
+	s.Lock()
+	defer s.Unlock()
+	s.plays = s.plays[:len(s.plays)-n]
+}
+
 // Simmer implements the actual look-ahead search
 type Simmer struct {
 	origGame *game.Game
@@ -212,26 +210,27 @@ type Simmer struct {
 
 	simming      bool
 	readyToSim   bool
-	plays        []*SimmedPlay
+	simmedPlays  *SimmedPlays
 	winPcts      [][]float32
 	cfg          *config.Config
 	knownOppRack []tilemapping.MachineLetter
 
-	logStream         io.Writer
-	stoppingCondition StoppingCondition
+	logStream io.Writer
 
 	// See rangefinder.
 	inferences    [][]tilemapping.MachineLetter
 	inferenceMode InferenceMode
+
+	autostopper *AutoStopper
 }
 
 func (s *Simmer) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
 	leaves equity.Leaves, cfg *config.Config) {
 	s.origGame = game
-	s.stoppingCondition = StopNone
 	s.equityCalculators = eqCalcs
 	s.leaveValues = leaves
 	s.threads = max(1, runtime.NumCPU())
+	s.autostopper = newAutostopper()
 
 	// Hard-code the location of the win-pct file for now.
 	// If we want to make some for other lexica in the future we'll
@@ -252,7 +251,7 @@ func (s *Simmer) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
 }
 
 func (s *Simmer) SetStoppingCondition(sc StoppingCondition) {
-	s.stoppingCondition = sc
+	s.autostopper.stoppingCondition = sc
 }
 
 func (s *Simmer) SetThreads(threads int) {
@@ -306,12 +305,12 @@ func (s *Simmer) resetStats(plies int, plays []*move.Move) {
 	}
 	s.initialSpread = s.gameCopies[0].CurrentSpread()
 	s.initialPlayer = s.gameCopies[0].PlayerOnTurn()
-	s.plays = make([]*SimmedPlay, len(plays))
+	s.simmedPlays = &SimmedPlays{plays: make([]*SimmedPlay, len(plays))}
 	for idx, play := range plays {
-		s.plays[idx] = &SimmedPlay{}
-		s.plays[idx].play = play
-		s.plays[idx].scoreStats = make([]stats.Statistic, plies)
-		s.plays[idx].bingoStats = make([]stats.Statistic, plies)
+		s.simmedPlays.plays[idx] = &SimmedPlay{}
+		s.simmedPlays.plays[idx].play = play
+		s.simmedPlays.plays[idx].scoreStats = make([]stats.Statistic, plies)
+		s.simmedPlays.plays[idx].bingoStats = make([]stats.Statistic, plies)
 	}
 
 }
@@ -321,7 +320,7 @@ func (s *Simmer) IsSimming() bool {
 }
 
 func (s *Simmer) Reset() {
-	s.plays = nil
+	s.simmedPlays.plays = nil
 	s.gameCopies = nil
 	s.readyToSim = false
 }
@@ -347,7 +346,7 @@ func (s *Simmer) Ready() bool {
 func (s *Simmer) Simulate(ctx context.Context) error {
 	logger := zerolog.Ctx(ctx)
 
-	if len(s.plays) == 0 || len(s.gameCopies) == 0 {
+	if len(s.simmedPlays.plays) == 0 || len(s.gameCopies) == 0 {
 		return errors.New("please prepare the simulation first")
 	}
 
@@ -388,7 +387,7 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 			syncExitChan <- true
 		}
 		// Send another exit signal to the stopping condition monitor
-		if s.stoppingCondition != StopNone {
+		if s.autostopper.stoppingCondition != StopNone {
 			syncExitChan <- true
 		}
 		logger.Debug().Msgf("Sent sync messages to children threads...")
@@ -416,7 +415,7 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 	}
 	tstart := time.Now()
 	g := errgroup.Group{}
-	playSimilarityCache := map[string]bool{}
+	s.autostopper.reset()
 
 	for t := 0; t < s.threads; t++ {
 		t := t
@@ -433,10 +432,10 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 					cancel()
 				}
 				// check if we need to stop
-				if s.stoppingCondition != StopNone {
+				if s.autostopper.stoppingCondition != StopNone {
 					if numIters%StopConditionCheckInterval == 0 {
 						logger.Debug().Uint64("numIters", numIters).Msg("checking-stopping-condition")
-						stop := s.shouldStop(numIters, playSimilarityCache)
+						stop := s.autostopper.shouldStop(numIters, s.simmedPlays, s.maxPlies)
 						if stop {
 							logger.Info().Uint64("numIters", numIters).Msg("reached stopping condition")
 							cancel()
@@ -488,10 +487,10 @@ func (s *Simmer) TrimBottom(totrim int) error {
 	if s.simming {
 		return errors.New("please stop sim before trimming plays")
 	}
-	if totrim > len(s.plays)-1 {
+	if totrim > len(s.simmedPlays.plays)-1 {
 		return errors.New("there are not that many plays to trim away")
 	}
-	s.plays = s.plays[:len(s.plays)-totrim]
+	s.simmedPlays.trimBottom(totrim)
 	return nil
 }
 
@@ -517,7 +516,7 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 
 	var logPlay LogPlay
 	var plyChild LogPlay
-	for _, simmedPlay := range s.plays {
+	for _, simmedPlay := range s.simmedPlays.plays {
 		if simmedPlay.ignore {
 			continue
 		}
@@ -617,26 +616,30 @@ func (s *Simmer) bestStaticTurn(playerID, thread int) *move.Move {
 
 func (s *Simmer) sortPlaysByEquity() {
 	// log.Debug().Msgf("Sorting plays: %v", s.plays)
-	sort.Slice(s.plays, func(i, j int) bool {
-		return s.plays[i].equityStats.Mean() > s.plays[j].equityStats.Mean()
+	s.simmedPlays.Lock()
+	defer s.simmedPlays.Unlock()
+	sort.Slice(s.simmedPlays.plays, func(i, j int) bool {
+		return s.simmedPlays.plays[i].equityStats.Mean() > s.simmedPlays.plays[j].equityStats.Mean()
 	})
 }
 
 func (s *Simmer) sortPlaysByWinRate(ignoredAtBottom bool) {
 	// log.Debug().Msgf("Sorting plays: %v", s.plays)
-	sort.Slice(s.plays, func(i, j int) bool {
+	s.simmedPlays.Lock()
+	defer s.simmedPlays.Unlock()
+	sort.Slice(s.simmedPlays.plays, func(i, j int) bool {
 		if ignoredAtBottom {
-			if s.plays[i].ignore {
+			if s.simmedPlays.plays[i].ignore {
 				return false
 			}
-			if s.plays[j].ignore {
+			if s.simmedPlays.plays[j].ignore {
 				return true
 			}
 		}
-		if s.plays[i].winPctStats.Mean() == s.plays[j].winPctStats.Mean() {
-			return s.plays[i].equityStats.Mean() > s.plays[j].equityStats.Mean()
+		if s.simmedPlays.plays[i].winPctStats.Mean() == s.simmedPlays.plays[j].winPctStats.Mean() {
+			return s.simmedPlays.plays[i].equityStats.Mean() > s.simmedPlays.plays[j].equityStats.Mean()
 		}
-		return s.plays[i].winPctStats.Mean() > s.plays[j].winPctStats.Mean()
+		return s.simmedPlays.plays[i].winPctStats.Mean() > s.simmedPlays.plays[j].winPctStats.Mean()
 	})
 }
 
@@ -648,8 +651,9 @@ func (s *Simmer) EquityStats() string {
 	var ss strings.Builder
 	s.sortPlaysByWinRate(false)
 	fmt.Fprintf(&ss, "%-20s%-9s%-16s%-16s\n", "Play", "Score", "Win%", "Equity")
-
-	for _, play := range s.plays {
+	s.simmedPlays.RLock()
+	defer s.simmedPlays.RUnlock()
+	for _, play := range s.simmedPlays.plays {
 		wpStats := fmt.Sprintf("%.2f±%.2f", 100.0*play.winPctStats.Mean(), 100.0*stats.Z99*play.winPctStats.StandardError())
 		eqStats := fmt.Sprintf("%.2f±%.2f", play.equityStats.Mean(), stats.Z99*play.equityStats.StandardError())
 		ignore := ""
@@ -668,6 +672,9 @@ func (s *Simmer) EquityStats() string {
 func (s *Simmer) ScoreDetails() string {
 	stats := ""
 	s.sortPlaysByWinRate(false)
+	s.simmedPlays.RLock()
+	defer s.simmedPlays.RUnlock()
+
 	for ply := 0; ply < s.maxPlies; ply++ {
 		who := "You"
 		if ply%2 == 0 {
@@ -675,7 +682,7 @@ func (s *Simmer) ScoreDetails() string {
 		}
 		stats += fmt.Sprintf("**Ply %d (%s)**\n%-20s%8s%8s%8s%8s%8s\n%s\n",
 			ply+1, who, "Play", "Win%", "Mean", "Stdev", "Bingo %", "Iters", strings.Repeat("-", 60))
-		for _, play := range s.plays {
+		for _, play := range s.simmedPlays.plays {
 			stats += fmt.Sprintf("%-20s%8.2f%8.3f%8.3f%8.3f%8d\n",
 				s.origGame.Board().MoveDescriptionWithPlaythrough(play.play), 100.0*play.winPctStats.Mean(),
 				play.scoreStats[ply].Mean(), play.scoreStats[ply].Stdev(),
@@ -691,7 +698,11 @@ func (s *Simmer) ShortDetails(nplays int) string {
 	var ss strings.Builder
 
 	s.sortPlaysByWinRate(false)
-	plays := s.plays
+
+	s.simmedPlays.RLock()
+	defer s.simmedPlays.RUnlock()
+
+	plays := s.simmedPlays.plays
 	if len(plays) > nplays {
 		plays = plays[:nplays]
 	}
@@ -716,5 +727,15 @@ func (s *Simmer) SimSingleThread(iters int) {
 
 func (s *Simmer) WinningPlay() *SimmedPlay {
 	s.sortPlaysByWinRate(true)
-	return s.plays[0]
+	s.simmedPlays.RLock()
+	defer s.simmedPlays.RUnlock()
+	return s.simmedPlays.plays[0]
+}
+
+func (s *Simmer) SetAutostopPPScaling(i int) {
+	s.autostopper.perPlyStopScaling = i
+}
+
+func (s *Simmer) SetAutostopIterationsCutoff(i int) {
+	s.autostopper.iterationsCutoff = i
 }
