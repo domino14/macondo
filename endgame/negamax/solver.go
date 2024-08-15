@@ -201,6 +201,7 @@ type Solver struct {
 	solveMultipleVariations int
 	principalVariation      PVLine
 	bestPVValue             int16
+	preventSlowroll         bool
 
 	ttable *TranspositionTable
 
@@ -445,7 +446,10 @@ searchLoop:
 			copy(s.initialMoves[t], s.initialMoves[0])
 		}
 
+		var lastPlyWinner *move.Move
+		var lastPlyWinnerMatches int
 		for p := 2; p <= plies; p++ {
+
 			log.Info().Int("plies", p).Msg("deepening-iteratively")
 			err := s.lazySMP(ctx, &lastIteration, p, initialHashKey)
 			if err != nil {
@@ -453,6 +457,32 @@ searchLoop:
 				log.Err(err).Msg("lazySMP-possible-error")
 				break searchLoop
 			}
+			justWon := s.principalVariation.Moves[0]
+
+			if s.preventSlowroll {
+				if lastPlyWinner != nil {
+					if lastPlyWinner.ShortDescription() == justWon.ShortDescription() {
+						lastPlyWinnerMatches++
+						if lastPlyWinnerMatches > 2 {
+							log.Info().Msg("preventing slowroll; exiting iterative deepening early")
+							break
+						} else {
+							finalSpread := s.principalVariation.score + int16(s.game.CurrentSpread())
+							if finalSpread > 0 && len(lastPlyWinner.Leave()) == 0 {
+								// This move goes out, and it is a sure win.
+								// So don't slowroll and just play it quickly.
+								log.Info().Int16("final-spread", finalSpread).
+									Msg("preventing slowroll on sure win")
+								break
+							}
+						}
+					} else {
+						// they don't match.
+						lastPlyWinnerMatches = 0
+					}
+				}
+			}
+			lastPlyWinner = justWon
 		}
 
 		// Once we've searched up to "plies" (or timed out?) we increase variations
@@ -1048,4 +1078,8 @@ func (s *Solver) IsSolving() bool {
 
 func (s *Solver) Game() *game.Game {
 	return s.game
+}
+
+func (s *Solver) SetPreventSlowroll(p bool) {
+	s.preventSlowroll = p
 }
