@@ -414,6 +414,7 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	var disableID bool
 	var disableTT bool
 	var enableFW bool
+	var preventSR bool
 	var err error
 
 	if plies, err = cmd.options.IntDefault("plies", defaultEndgamePlies); err != nil {
@@ -431,6 +432,7 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	disableID = cmd.options.Bool("disable-id")
 	disableTT = cmd.options.Bool("disable-tt")
 	enableFW = cmd.options.Bool("first-win-optim")
+	preventSR = cmd.options.Bool("prevent-slowroll")
 
 	// clear out the last value of this endgame node; gc should
 	// delete the tree.
@@ -466,6 +468,7 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	sc.endgameSolver.SetThreads(maxthreads)
 	sc.endgameSolver.SetFirstWinOptim(enableFW)
 	sc.endgameSolver.SetSolveMultipleVariations(multipleVars)
+	sc.endgameSolver.SetPreventSlowroll(preventSR)
 
 	sc.showMessage(sc.game.ToDisplayText())
 

@@ -119,6 +119,7 @@ func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move
 		maxThreads = negamax.MaxLazySMPThreads
 	}
 	p.endgamer.SetThreads(maxThreads)
+	p.endgamer.SetPreventSlowroll(true)
 	v, seq, err := p.endgamer.Solve(ctx, endgamePlies)
 	if err != nil {
 		return nil, err

@@ -97,3 +97,13 @@ Options:
     guaranteed best sequences, but a user may want to see other endgame
     sequences as well. The number argument is the number of variations to show.
     Note that searching for more variations is slower.
+
+    -prevent-slowroll true
+
+    The endgame player will always try to find the best endgame for as many plies
+    as are specified. In some situations, for example, a player may have an out-bingo,
+    but the endgame player will try other combinations of plays to see if they
+    perform better. This can be frustrating, especially if the out-bingo already
+    clearly wins. The prevent-slowroll option applies some heuristics to prevent
+    this from happening, at the cost of once in a while missing a better endgame
+    sequence.

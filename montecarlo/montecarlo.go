@@ -320,7 +320,6 @@ func (s *Simmer) IsSimming() bool {
 }
 
 func (s *Simmer) Reset() {
-	s.simmedPlays.plays = nil
 	s.gameCopies = nil
 	s.readyToSim = false
 }
