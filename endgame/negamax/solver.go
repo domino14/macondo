@@ -463,7 +463,7 @@ searchLoop:
 				if lastPlyWinner != nil {
 					if lastPlyWinner.ShortDescription() == justWon.ShortDescription() {
 						lastPlyWinnerMatches++
-						if lastPlyWinnerMatches > 2 {
+						if lastPlyWinnerMatches > 4 {
 							log.Info().Msg("preventing slowroll; exiting iterative deepening early")
 							break
 						} else {
