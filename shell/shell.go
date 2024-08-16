@@ -692,7 +692,7 @@ func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) err
 	leavefile1 = options.String("leavefile1")
 	leavefile2 = options.String("leavefile2")
 	pegfile1 = options.String("pegfile1")
-	pegfile1 = options.String("pegfile1")
+	pegfile2 = options.String("pegfile2")
 
 	if options.String("botcode1") == "" {
 		botcode1 = pb.BotRequest_HASTY_BOT
@@ -710,7 +710,7 @@ func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) err
 		if !exists {
 			return fmt.Errorf("bot code %s does not exist", options.String("botcode2"))
 		}
-		botcode1 = pb.BotRequest_BotCode(botcode2Value)
+		botcode2 = pb.BotRequest_BotCode(botcode2Value)
 	}
 	if minsimplies1, err = options.IntDefault("minsimplies1", 0); err != nil {
 		return err

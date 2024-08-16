@@ -140,7 +140,8 @@ func main() {
 
 	cfg = &config.Config{}
 	args := os.Args[1:]
-	cfg.Load(args)
+	err = cfg.Load(args)
+	log.Err(err).Msg("loading config...")
 	log.Info().Msgf("Loaded config: %v", cfg.AllSettings())
 	cfg.AdjustRelativePaths(exPath)
 	if cfg.GetBool("debug") {

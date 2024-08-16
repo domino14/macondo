@@ -22,8 +22,8 @@ import (
 	"github.com/domino14/macondo/move"
 )
 
-var MaxTimePerTurn = 15 * time.Second
-var MaxTimePerEndgame = 10 * time.Second
+var MaxTimePerTurn = 30 * time.Second
+var MaxTimePerEndgame = 15 * time.Second
 
 // GameRunner is the master struct here for the automatic game logic.
 type GameRunner struct {
