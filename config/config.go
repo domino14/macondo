@@ -65,19 +65,20 @@ func (c *Config) Load(args []string) error {
 
 	cfgdir, err := os.UserConfigDir()
 	if err != nil {
-		return nil
-	}
-	cfgdir = filepath.Join(cfgdir, "macondo")
+		log.Err(err).Msg("could not get cfgdir; falling back to environment variables")
+	} else {
+		cfgdir = filepath.Join(cfgdir, "macondo")
 
-	c.AddConfigPath(cfgdir)
-	c.configPath = cfgdir
-	err = c.ReadInConfig()
-	if err != nil {
-		if verr, ok := err.(viper.ConfigFileNotFoundError); ok {
-			// it's ok if config file is not found. fall back to environment.
-			log.Err(verr).Msg("no config file found; falling back to environment variables")
-		} else {
-			panic(fmt.Errorf("fatal error config file: %w", err))
+		c.AddConfigPath(cfgdir)
+		c.configPath = cfgdir
+		err = c.ReadInConfig()
+		if err != nil {
+			if verr, ok := err.(viper.ConfigFileNotFoundError); ok {
+				// it's ok if config file is not found. fall back to environment.
+				log.Err(verr).Msg("no config file found; falling back to environment variables")
+			} else {
+				panic(fmt.Errorf("fatal error config file: %w", err))
+			}
 		}
 	}
 	c.SetEnvPrefix("macondo")

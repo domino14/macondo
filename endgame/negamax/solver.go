@@ -897,6 +897,8 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	}
 	log.Debug().Int("plies", plies).Msg("alphabeta-solve-config")
 	s.requestedPlies = plies
+	s.variations = []PVLine{}
+
 	tstart := time.Now()
 	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
 	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)
