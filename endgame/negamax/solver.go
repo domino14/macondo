@@ -492,7 +492,9 @@ searchLoop:
 	}
 	// If we solved many variations, then the last one solved is in s.principalVariation.
 	// But we want the overall solution to be the very first (best) principal variation
-	s.principalVariation = s.variations[0]
+	if len(s.variations) > 1 {
+		s.principalVariation = s.variations[0]
+	}
 	s.bestPVValue = s.principalVariation.score
 	return nil
 }
@@ -619,6 +621,7 @@ aspirationLoop:
 			if err.Error() == "context canceled" {
 				log.Debug().Msg("helper threads exited with a canceled context")
 			} else {
+				log.Err(err).Msg("returning an error after waiting for helper threads")
 				return err
 			}
 		}
