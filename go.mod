@@ -7,7 +7,7 @@ require (
 	github.com/aws/aws-lambda-go v1.47.0
 	github.com/aws/aws-sdk-go-v2 v1.30.4
 	github.com/aws/aws-sdk-go-v2/config v1.27.28
-	github.com/aws/aws-sdk-go-v2/service/lambda v1.56.4
+	github.com/aws/aws-sdk-go-v2/service/lambda v1.58.0
 	github.com/chzyer/readline v1.5.1
 	github.com/domino14/word-golib v0.2.0
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
@@ -21,7 +21,7 @@ require (
 	github.com/yuin/gopher-lua v1.1.1
 	golang.org/x/sync v0.8.0
 	golang.org/x/text v0.17.0
-	gonum.org/v1/gonum v0.15.0
+	gonum.org/v1/gonum v0.15.1
 	google.golang.org/protobuf v1.34.2
 	gopkg.in/yaml.v3 v3.0.1
 	lukechampine.com/frand v1.4.2
