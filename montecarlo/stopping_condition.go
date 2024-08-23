@@ -62,7 +62,7 @@ func (a *AutoStopper) copyForStatCutoff(plays *SimmedPlays) {
 	plays.RLock()
 	defer plays.RUnlock()
 
-	if len(a.simmedPlays) == 0 {
+	if len(a.simmedPlays) != len(plays.plays) {
 		a.simmedPlays = make([]*AutoStopperSimmedPlay, len(plays.plays))
 		for i := range a.simmedPlays {
 			a.simmedPlays[i] = &AutoStopperSimmedPlay{}
