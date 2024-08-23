@@ -25,6 +25,7 @@ import (
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/preendgame"
 )
 
@@ -458,7 +459,14 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 		sc.endgameCtx, sc.endgameCancel = context.WithTimeout(sc.endgameCtx, time.Duration(maxtime)*time.Second)
 	}
 
-	err = sc.endgameSolver.Init(sc.gen, sc.game.Game)
+	gd, err := kwg.Get(sc.game.Config().WGLConfig(), sc.game.LexiconName())
+	if err != nil {
+		return nil, err
+	}
+
+	mg := movegen.NewGordonGenerator(gd, sc.game.Board(), sc.game.Bag().LetterDistribution())
+
+	err = sc.endgameSolver.Init(mg, sc.game.Game)
 	if err != nil {
 		return nil, err
 	}
