@@ -169,12 +169,21 @@ func (sc *ShellController) showMessage(msg string) {
 }
 
 func (sc *ShellController) showError(err error) {
-	sc.showMessage("\033[1;31mError: " + err.Error() + "\033[0m")
+	repr := "Error: " + err.Error()
+	if !board.ColorSupport {
+		sc.showMessage(repr)
+		return
+	}
+	sc.showMessage(fmt.Sprintf("\033[1;31m%s\033[0m", repr))
 }
 
 func NewShellController(cfg *config.Config, execPath string) *ShellController {
+	prompt := "macondo>"
+	if os.Getenv("NO_COLOR") == "" {
+		prompt = fmt.Sprintf("\033[31m%s\033[0m", prompt)
+	}
 	l, err := readline.NewEx(&readline.Config{
-		Prompt:          "\033[31mmacondo>\033[0m ",
+		Prompt:          prompt + " ",
 		HistoryFile:     "/tmp/readline.tmp",
 		EOFPrompt:       "exit",
 		InterruptPrompt: "^C",
