@@ -1,6 +1,8 @@
 package main
 
 import (
+	_ "embed"
+	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -17,9 +19,16 @@ import (
 	"github.com/domino14/macondo/shell"
 )
 
+var (
+	ProgramVersion string
+)
+
 const (
 	GracefulShutdownTimeout = 20 * time.Second
 )
+
+//go:embed macondo.txt
+var macondobanner string
 
 func main() {
 
@@ -31,6 +40,9 @@ func main() {
 		panic(err)
 	}
 	exPath := filepath.Dir(ex)
+	fmt.Println(macondobanner)
+	fmt.Println(ProgramVersion)
+
 	log.Info().Msgf("executable path: %v", exPath)
 
 	cfg := &config.Config{}
@@ -81,6 +93,9 @@ func main() {
 		sc.Execute(sig, argsLineTrimmed)
 		sig <- syscall.SIGINT
 	}
+
+	log.Info().Msg("started loop")
+
 	<-idleConnsClosed
 
 	if cfg.GetString("mem-profile") != "" {
