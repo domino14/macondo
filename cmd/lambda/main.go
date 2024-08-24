@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/avast/retry-go"
+	"github.com/avast/retry-go/v4"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
