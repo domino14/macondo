@@ -21,6 +21,6 @@ def build(c):
         ("windows", "win64", "amd64", "macondo.exe"),
     ]:
         c.run(
-            f"GOOS={os} GOARCH={arch} go build {gitflags} -o {executable} ./cmd/shell"
+            f"GOOS={os} GOARCH={arch} go build -o {executable} {gitflags} ./cmd/shell"
         )
         c.run(f"zip -r macondo-{tag}-{nickname}.zip ./{executable} ./data")
