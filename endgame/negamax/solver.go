@@ -492,7 +492,7 @@ searchLoop:
 	}
 	// If we solved many variations, then the last one solved is in s.principalVariation.
 	// But we want the overall solution to be the very first (best) principal variation
-	if len(s.variations) > 1 {
+	if len(s.variations) > 0 {
 		s.principalVariation = s.variations[0]
 	}
 	s.bestPVValue = s.principalVariation.score
