@@ -20,7 +20,7 @@ import (
 )
 
 var (
-	ProgramVersion string
+	GitVersion string
 )
 
 const (
@@ -41,7 +41,7 @@ func main() {
 	}
 	exPath := filepath.Dir(ex)
 	fmt.Println(macondobanner)
-	fmt.Println(ProgramVersion)
+	fmt.Println(GitVersion)
 
 	log.Info().Msgf("executable path: %v", exPath)
 
