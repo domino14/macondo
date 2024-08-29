@@ -311,10 +311,12 @@ func (sc *ShellController) generate(cmd *shellcmd) (*Response, error) {
 	if sc.solving() {
 		return nil, errMacondoSolving
 	}
-
-	if cmd.args == nil {
-		numPlays = 15
-	} else {
+	// Default to reading from a "numplays" option, else the single arg.
+	numPlays, err = cmd.options.IntDefault("numplays", 15)
+	if err != nil {
+		return nil, err
+	}
+	if cmd.args != nil {
 		numPlays, err = strconv.Atoi(cmd.args[0])
 		if err != nil {
 			return nil, err
