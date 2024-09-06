@@ -60,6 +60,14 @@ func (c CmdOptions) IntDefault(key string, defaultI int) (int, error) {
 	return strconv.Atoi(v[0])
 }
 
+func (c CmdOptions) Float(key string) (float64, error) {
+	v := c[key]
+	if len(v) == 0 {
+		return 0, errors.New(key + " not found in options")
+	}
+	return strconv.ParseFloat(v[0], 64)
+}
+
 func (c CmdOptions) Bool(key string) bool {
 	v := c[key]
 	if len(v) == 0 {

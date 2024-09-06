@@ -221,7 +221,10 @@ type Simmer struct {
 	inferences    [][]tilemapping.MachineLetter
 	inferenceMode InferenceMode
 
-	autostopper *AutoStopper
+	autostopper       *AutoStopper
+	z99               float64
+	ucgiPrintInterval int
+	ucgiMode          bool
 }
 
 func (s *Simmer) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
@@ -248,10 +251,15 @@ func (s *Simmer) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
 			panic("win percentages not correct type")
 		}
 	}
+	s.z99 = stats.ZVal(99)
 }
 
-func (s *Simmer) SetStoppingCondition(sc StoppingCondition) {
-	s.autostopper.stoppingCondition = sc
+func (s *Simmer) SetStoppingCondition(sc StoppingCondition, confidence float64) {
+	s.autostopper.setStopCondition(sc, confidence)
+}
+
+func (s *Simmer) SetUCGI(t bool) {
+	s.ucgiMode = t
 }
 
 func (s *Simmer) SetThreads(threads int) {
@@ -432,7 +440,7 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 				}
 				// check if we need to stop
 				if s.autostopper.stoppingCondition != StopNone {
-					if numIters%StopConditionCheckInterval == 0 {
+					if numIters%uint64(s.autostopper.stopConditionCheckInterval) == 0 {
 						logger.Debug().Uint64("numIters", numIters).Msg("checking-stopping-condition")
 						stop := s.autostopper.shouldStop(numIters, s.simmedPlays, s.maxPlies)
 						if stop {
@@ -440,6 +448,9 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 							cancel()
 						}
 					}
+				}
+				if s.ucgiPrintInterval > 0 && numIters%uint64(s.ucgiPrintInterval) == 0 {
+					s.printUCGIStats(s.nodeCount.Load(), time.Since(tstart).Seconds())
 				}
 
 				select {
@@ -469,7 +480,13 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 	ctrlErr := ctrl.Wait()
 	logger.Debug().Msgf("ctrl errgroup returned err %v", ctrlErr)
 	// sort plays at the end anyway.
-	s.sortPlaysByWinRate(false)
+	s.sortPlaysByWinRate(true)
+
+	if len(s.simmedPlays.plays) > 0 {
+		fmt.Printf("bestplay %s\n", s.origGame.Board().MoveDescriptionUCGI(
+			s.simmedPlays.plays[0].play))
+	}
+
 	if ctrlErr == context.Canceled || ctrlErr == context.DeadlineExceeded {
 		// Not actually an error
 		logger.Debug().AnErr("ctrlErr", ctrlErr).Msg("montecarlo-it's ok, not an error")
@@ -653,8 +670,8 @@ func (s *Simmer) EquityStats() string {
 	s.simmedPlays.RLock()
 	defer s.simmedPlays.RUnlock()
 	for _, play := range s.simmedPlays.plays {
-		wpStats := fmt.Sprintf("%.2f±%.2f", 100.0*play.winPctStats.Mean(), 100.0*stats.Z99*play.winPctStats.StandardError())
-		eqStats := fmt.Sprintf("%.2f±%.2f", play.equityStats.Mean(), stats.Z99*play.equityStats.StandardError())
+		wpStats := fmt.Sprintf("%.2f±%.2f", 100.0*play.winPctStats.Mean(), 100.0*s.z99*play.winPctStats.StandardError())
+		eqStats := fmt.Sprintf("%.2f±%.2f", play.equityStats.Mean(), s.z99*play.equityStats.StandardError())
 		ignore := ""
 		if play.ignore {
 			ignore = "❌"
@@ -666,6 +683,53 @@ func (s *Simmer) EquityStats() string {
 	}
 	fmt.Fprintf(&ss, "Iterations: %d (intervals are 99%% confidence, ❌ marks plays cut off early)\n", s.iterationCount.Load())
 	return ss.String()
+}
+
+func b2int(b bool) int8 {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+func (s *Simmer) printUCGIStats(nodecount uint64, secsSinceStart float64) {
+	s.sortPlaysByWinRate(true)
+	// Lock for reading since we have to iterate through them
+	// and something could sort beneath our feet.
+	s.simmedPlays.RLock()
+	defer s.simmedPlays.RUnlock()
+
+	board := s.origGame.Board()
+
+	for _, play := range s.simmedPlays.plays {
+		fmt.Printf("info currmove %s sc %d wp %.3f wpe %.3f eq %.3f eqe %.3f it %d ig %d ",
+			board.MoveDescriptionUCGI(play.play),
+			play.play.Score(),
+			play.winPctStats.Mean(),
+			play.winPctStats.StandardError(),
+			play.equityStats.Mean(),
+			play.equityStats.StandardError(),
+			play.equityStats.Iterations(),
+			b2int(play.ignore),
+		)
+		for ply := range play.scoreStats {
+			fmt.Printf("ply%d-scm %.3f ply%d-scd %.3f ply%d-bp %.3f",
+				ply+1, play.scoreStats[ply].Mean(),
+				ply+1, play.scoreStats[ply].Stdev(),
+				ply+1, play.bingoStats[ply].Mean(),
+			)
+			if ply == len(play.scoreStats)-1 {
+				fmt.Printf("\n")
+			} else {
+				fmt.Printf(" ")
+			}
+		}
+	}
+	if len(s.simmedPlays.plays) > 0 {
+		winner := s.simmedPlays.plays[0]
+		fmt.Printf("bestsofar %s\n", board.MoveDescriptionUCGI(winner.play))
+	}
+	fmt.Printf("info nps %.3f\n", float64(nodecount)/secsSinceStart)
 }
 
 func (s *Simmer) ScoreDetails() string {
@@ -737,4 +801,12 @@ func (s *Simmer) SetAutostopPPScaling(i int) {
 
 func (s *Simmer) SetAutostopIterationsCutoff(i int) {
 	s.autostopper.iterationsCutoff = i
+}
+
+func (s *Simmer) SetAutostopCheckIters(i int) {
+	s.autostopper.stopConditionCheckInterval = i
+}
+
+func (s *Simmer) SetPrintFrequency(i int) {
+	s.ucgiPrintInterval = i
 }

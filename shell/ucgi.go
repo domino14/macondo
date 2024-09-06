@@ -64,7 +64,10 @@ func processCommand(sc *ShellController, command string) error {
 		}
 		fmt.Printf(resp.message)
 	case "sim":
-
+		_, err := sc.sim(cmd)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
