@@ -15,7 +15,7 @@ func TestCombinations(t *testing.T) {
 	ld, err := tilemapping.EnglishLetterDistribution(cfg.WGLConfig())
 	is.NoErr(err)
 
-	scc := createSubCombos(ld)
+	scc := countSubCombos(ld)
 	cmbs := combinations(ld, scc, []tilemapping.MachineLetter{1, 5, 8, 10}, true)
 	is.Equal(cmbs, uint64(1121))
 }

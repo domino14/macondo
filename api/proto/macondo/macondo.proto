@@ -149,6 +149,8 @@ message BotRequest {
     HASTY_PLUS_ENDGAME_BOT = 12;
     SIMMING_INFER_BOT = 13;
     // harder bots here? inference? ml, etc.
+    LEVEL0_CEL_BOT = 14;
+    LEVEL0_PROBABILISTIC = 15;
 
     // This should have probably been number 0.
     UNKNOWN = 100;

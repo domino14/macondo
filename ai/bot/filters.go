@@ -17,21 +17,24 @@ import (
 // Note: because of the nature of this algorithm, the lower these numbers, the
 // more time the bot will take to find its move.
 var BotConfigs = map[pb.BotRequest_BotCode]struct {
+	idxPrevalence      int
 	baseFindability     float64
 	longWordFindability float64
 	parallelFindability float64
 	isCel               bool
 }{
-	pb.BotRequest_LEVEL1_CEL_BOT: {baseFindability: 0.3, longWordFindability: 0.1, parallelFindability: 0.3, isCel: true},
-	pb.BotRequest_LEVEL2_CEL_BOT: {baseFindability: 0.7, longWordFindability: 0.4, parallelFindability: 0.5, isCel: true},
-	pb.BotRequest_LEVEL3_CEL_BOT: {baseFindability: 0.8, longWordFindability: 0.5, parallelFindability: 0.75, isCel: true},
-	pb.BotRequest_LEVEL4_CEL_BOT: {baseFindability: 1.0, longWordFindability: 1.0, parallelFindability: 1.0, isCel: true},
+	pb.BotRequest_LEVEL0_CEL_BOT: {idxPrevalence: 1, baseFindability: 0.3, longWordFindability: 0.1, parallelFindability: 0.3, isCel: true},
+	pb.BotRequest_LEVEL1_CEL_BOT: {idxPrevalence: 99, baseFindability: 0.3, longWordFindability: 0.1, parallelFindability: 0.3, isCel: true},
+	pb.BotRequest_LEVEL2_CEL_BOT: {idxPrevalence: 99, baseFindability: 0.7, longWordFindability: 0.4, parallelFindability: 0.5, isCel: true},
+	pb.BotRequest_LEVEL3_CEL_BOT: {idxPrevalence: 99, baseFindability: 0.8, longWordFindability: 0.5, parallelFindability: 0.75, isCel: true},
+	pb.BotRequest_LEVEL4_CEL_BOT: {idxPrevalence: 99, baseFindability: 1.0, longWordFindability: 1.0, parallelFindability: 1.0, isCel: true},
 
-	pb.BotRequest_LEVEL1_PROBABILISTIC: {baseFindability: 0.2, longWordFindability: 0.07, parallelFindability: 0.15, isCel: false},
-	pb.BotRequest_LEVEL2_PROBABILISTIC: {baseFindability: 0.4, longWordFindability: 0.2, parallelFindability: 0.3, isCel: false},
-	pb.BotRequest_LEVEL3_PROBABILISTIC: {baseFindability: 0.55, longWordFindability: 0.35, parallelFindability: 0.45, isCel: false},
-	pb.BotRequest_LEVEL4_PROBABILISTIC: {baseFindability: 0.85, longWordFindability: 0.45, parallelFindability: 0.85, isCel: false},
-	pb.BotRequest_LEVEL5_PROBABILISTIC: {baseFindability: 0.9, longWordFindability: 0.8, parallelFindability: 0.85, isCel: false},
+	pb.BotRequest_LEVEL0_PROBABILISTIC: {idxPrevalence: 1, baseFindability: 0.2, longWordFindability: 0.07, parallelFindability: 0.15, isCel: false},
+	pb.BotRequest_LEVEL1_PROBABILISTIC: {idxPrevalence: 99, baseFindability: 0.2, longWordFindability: 0.07, parallelFindability: 0.15, isCel: false},
+	pb.BotRequest_LEVEL2_PROBABILISTIC: {idxPrevalence: 99, baseFindability: 0.4, longWordFindability: 0.2, parallelFindability: 0.3, isCel: false},
+	pb.BotRequest_LEVEL3_PROBABILISTIC: {idxPrevalence: 99, baseFindability: 0.55, longWordFindability: 0.35, parallelFindability: 0.45, isCel: false},
+	pb.BotRequest_LEVEL4_PROBABILISTIC: {idxPrevalence: 99, baseFindability: 0.85, longWordFindability: 0.45, parallelFindability: 0.85, isCel: false},
+	pb.BotRequest_LEVEL5_PROBABILISTIC: {idxPrevalence: 99, baseFindability: 0.9, longWordFindability: 0.8, parallelFindability: 0.85, isCel: false},
 }
 
 func filter(cfg *config.Config, g *game.Game, rack *tilemapping.Rack, plays []*move.Move, botType pb.BotRequest_BotCode) *move.Move {
@@ -67,7 +70,7 @@ func filter(cfg *config.Config, g *game.Game, rack *tilemapping.Rack, plays []*m
 	if botType != pb.BotRequest_LEVEL4_CEL_BOT {
 		dist := g.Bag().LetterDistribution()
 		// XXX: This should be cached
-		subChooseCombos := createSubCombos(dist)
+		subChooseCombos := countSubCombos(dist)
 		filterFunctionPrev := filterFunction
 		filterFunction = func(mws []tilemapping.MachineWord, r float64) (bool, error) {
 			allowed, err := filterFunctionPrev(mws, r)
@@ -76,10 +79,16 @@ func filter(cfg *config.Config, g *game.Game, rack *tilemapping.Rack, plays []*m
 			}
 			ans := botConfig.baseFindability * math.Pow(botConfig.parallelFindability, float64(len(mws)-1))
 
-			mw := mws[0] // assume len > 0
-			// Check for long words (7 or more letters)
-			if len(mw) >= game.ExchangeLimit {
-				ans *= probableFindability(len(mw), combinations(dist, subChooseCombos, mw, true)) * botConfig.longWordFindability
+			// Filter long words (7 or more letters) and parallels by prevalence (playability)
+			// RETINAS is more prevalent in the tile distribution than MUUMUUS
+			for idx, mw := range mws {
+				wordLen := len(mw)
+				if idx >= botConfig.idxPrevalence || wordLen >= game.ExchangeLimit {
+					ans *= probableFindability(wordLen, combinations(dist, subChooseCombos, mw, true))
+				}
+				if wordLen >= game.ExchangeLimit {
+					ans *= botConfig.longWordFindability
+				}
 			}
 			log.Debug().Float64("ans", ans).Float64("r", r).Msg("checking-answer")
 			return r < ans, nil
@@ -123,7 +132,7 @@ func probableFindability(wordLen int, combos uint64) float64 {
 	return math.Min(math.Log10(float64(combos))/float64(wordLen-1), 1.0)
 }
 
-func createSubCombos(dist *tilemapping.LetterDistribution) [][]uint64 {
+func countSubCombos(dist *tilemapping.LetterDistribution) [][]uint64 {
 	// Adapted from GPL Zyzzyva's calculation code.
 	maxFrequency := uint8(0)
 	totalLetters := uint8(0)
@@ -188,7 +197,7 @@ func combinations(dist *tilemapping.LetterDistribution, subChooseCombos [][]uint
 	if !withBlanks {
 		return totalCombos
 	}
-	// Calculate combinations with one blank
+	// Count combinations with one blank
 	for i := 0; i < numLetters; i++ {
 		counts[i]--
 		thisCombo = subChooseCombos[dist.Distribution()[0]][1]
@@ -198,7 +207,7 @@ func combinations(dist *tilemapping.LetterDistribution, subChooseCombos [][]uint
 		totalCombos += thisCombo
 		counts[i]++
 	}
-	// Calculate combinations with two blanks
+	// Count combinations with two blanks
 	for i := 0; i < numLetters; i++ {
 		counts[i]--
 		for j := i; j < numLetters; j++ {
