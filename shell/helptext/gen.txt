@@ -4,6 +4,7 @@ Example usage:
 
     gen
     gen 25
+    gen -numplays 25
 
 If no argument is provided, it defaults to generating 15 plays. This
 command will generate plays and sort them by equity, replacing the
@@ -12,3 +13,5 @@ current list of moves. You can view this list at any time with the
 
 You must have a game already loaded. After generating, you can use the
 `sim` command to start a simulation.
+
+`gen -numplays X` is equivalent to `gen X`.

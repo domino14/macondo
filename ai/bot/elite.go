@@ -213,7 +213,7 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 		p.simmer.SetThreads(p.simThreads)
 	}
 	p.simmer.PrepareSim(simPlies, moves)
-	p.simmer.SetStoppingCondition(montecarlo.Stop99)
+	p.simmer.SetStoppingCondition(montecarlo.StopProb, 99)
 	// p.simmer.SetAutostopIterationsCutoff(2500)
 	// p.simmer.SetAutostopPPScaling(1500)
 

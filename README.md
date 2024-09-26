@@ -38,6 +38,20 @@ Make sure you have done
 
 Tag the release; i.e. `git tag vX.Y.Z`, then `git push --tags`. This will kick off a github action that builds and uploads the latest binaries. Then you should generate some release notes manually.
 
+### UCGI
+
+Macondo can talk UCGI.
+
+See https://github.com/woogles-io/open-protocols/blob/main/ucgi/ucgi.md
+
+The above document is very subject to change and is not accurate. This codebase and
+https://github.com/jvc56/MAGPIE should be considered reference implementations.
+If there is a difference between these and the documentation, refer to the code.
+We will update the document as it evolves. We will strive to keep MAGPIE and Macondo
+100% compatible with each other.
+
+The UCGI CLI is at cmd/ucgi_cli
+
 
 ### Attributions
 

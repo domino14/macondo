@@ -1009,9 +1009,7 @@ func (g *GameBoard) ToFEN(alph *tilemapping.TileMapping) string {
 	return bd.String()
 }
 
-// MoveDescriptionWithPlaythrough shows a move description with play-through
-// tiles if appropriate.
-func (g *GameBoard) MoveDescriptionWithPlaythrough(m *move.Move) string {
+func (g *GameBoard) moveDescription(m *move.Move, ucgi bool) string {
 	if m.MoveTypeString() != "Play" {
 		return m.ShortDescription()
 	}
@@ -1022,19 +1020,23 @@ func (g *GameBoard) MoveDescriptionWithPlaythrough(m *move.Move) string {
 		ri, ci = 1, 0
 	}
 	var ss strings.Builder
-	fmt.Fprintf(&ss, "%3v ", m.BoardCoords())
+	if ucgi {
+		fmt.Fprintf(&ss, "%s.", strings.ToLower(m.BoardCoords()))
+	} else {
+		fmt.Fprintf(&ss, "%3v ", m.BoardCoords())
+	}
 	r, c := row, col
 	playingThru := false
 	for i := 0; i < len(tiles); i++ {
 
 		if tiles[i] != 0 {
-			if playingThru {
+			if playingThru && !ucgi {
 				fmt.Fprint(&ss, ")")
 			}
 			fmt.Fprint(&ss, tiles[i].UserVisible(m.Alphabet(), true))
 			playingThru = false
 		} else {
-			if !playingThru {
+			if !playingThru && !ucgi {
 				fmt.Fprint(&ss, "(")
 			}
 			tile := g.GetLetter(r, c)
@@ -1045,8 +1047,19 @@ func (g *GameBoard) MoveDescriptionWithPlaythrough(m *move.Move) string {
 		r += ri
 		c += ci
 	}
-	if playingThru {
+	if playingThru && !ucgi {
 		fmt.Fprint(&ss, ")")
 	}
 	return ss.String()
+}
+
+// MoveDescriptionWithPlaythrough shows a move description with play-through
+// tiles if appropriate.
+func (g *GameBoard) MoveDescriptionWithPlaythrough(m *move.Move) string {
+	return g.moveDescription(m, false)
+}
+
+// MoveDescriptionUCGI shows a short move description in UCGI format.
+func (g *GameBoard) MoveDescriptionUCGI(m *move.Move) string {
+	return g.moveDescription(m, true)
 }

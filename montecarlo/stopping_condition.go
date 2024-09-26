@@ -16,21 +16,16 @@ type StoppingCondition int
 
 const (
 	StopNone StoppingCondition = iota
-	Stop90
-	Stop95
-	Stop98
-	Stop99
-	Stop999
+	StopProb
+	StopIter
 )
-
-const StopConditionCheckInterval = 128
 
 const (
 	defaultIterationsCutoff             = 2000
 	defaultPerPlyStopScaling            = 625
 	defaultSimilarPlaysIterationsCutoff = 750
 	defaultMinReasonableWProb           = 0.005 // or 0.5%
-
+	defaultStopConditionCheckInterval   = 250
 )
 
 type AutoStopperSimmedPlay struct {
@@ -49,7 +44,10 @@ type AutoStopper struct {
 	similarPlaysIterationsCutoff int
 	minReasonableWProb           float64
 
-	stoppingCondition   StoppingCondition
+	stoppingCondition          StoppingCondition
+	stopConditionCheckInterval int
+	stopConditionZValue        float64
+
 	playSimilarityCache map[string]bool
 
 	simmedPlays []*AutoStopperSimmedPlay
@@ -83,6 +81,7 @@ func newAutostopper() *AutoStopper {
 		perPlyStopScaling:            defaultPerPlyStopScaling,
 		similarPlaysIterationsCutoff: defaultSimilarPlaysIterationsCutoff,
 		minReasonableWProb:           defaultMinReasonableWProb,
+		stopConditionCheckInterval:   defaultStopConditionCheckInterval,
 		stoppingCondition:            StopNone,
 		playSimilarityCache:          map[string]bool{},
 	}
@@ -92,21 +91,34 @@ func (a *AutoStopper) reset() {
 	a.playSimilarityCache = map[string]bool{}
 }
 
+func (a *AutoStopper) setStopCondition(sc StoppingCondition, confidence float64) {
+	a.stoppingCondition = sc
+
+	a.stopConditionZValue = stats.ZVal(confidence)
+	log.Info().Float64("zval", a.stopConditionZValue).Msg("stop-cond-z-val")
+}
+
 func (a *AutoStopper) shouldStop(iterationCount uint64, simmedPlays *SimmedPlays, maxPlies int) bool {
 	// This function runs as the sim is ongoing. So we should be careful
 	// what we do with memory here.
 	t := time.Now()
+	sc := a.stoppingCondition
+	if sc == StopIter {
+		return int(iterationCount) > a.iterationsCutoff
+	}
+
+	// Otherwise, we go through the probabilistic cutoff
 	a.Lock()
 	defer a.Unlock()
 
-	sc := a.stoppingCondition
+	if int(iterationCount) > a.iterationsCutoff+(maxPlies*a.perPlyStopScaling) {
+		return true
+	}
 
 	if len(simmedPlays.plays) < 2 {
 		return true
 	}
-	if int(iterationCount) > a.iterationsCutoff+(maxPlies*a.perPlyStopScaling) {
-		return true
-	}
+
 	// Otherwise, do some statistics.
 
 	a.copyForStatCutoff(simmedPlays)
@@ -154,30 +166,18 @@ func (a *AutoStopper) shouldStop(iterationCount uint64, simmedPlays *SimmedPlays
 	// no chance of catching up.
 	// "no chance" is of course defined by the stopping condition :)
 
-	var ci float64
-	switch sc {
-	case Stop90:
-		ci = stats.Z90
-	case Stop95:
-		ci = stats.Z95
-	case Stop98:
-		ci = stats.Z98
-	case Stop99:
-		ci = stats.Z99
-	case Stop999:
-		ci = stats.Z999
-	}
+	ciz := a.stopConditionZValue
 	tiebreakByEquity := false
 	tentativeWinner := a.simmedPlays[0]
 	μ := tentativeWinner.winPctStats.Mean()
 	e := tentativeWinner.winPctStats.StandardError()
 
-	if zTest(float64(a.minReasonableWProb), μ, e, -ci, true) {
+	if zTest(float64(a.minReasonableWProb), μ, e, -ciz, true) {
 		// If the top play by win % has basically no win chance, tiebreak the whole
 		// thing by equity.
 		tiebreakByEquity = true
-	} else if zTest(1-a.minReasonableWProb, μ, e, ci, false) &&
-		zTest(1-a.minReasonableWProb, bottomUnignoredWinPct, bottomUnignoredSerr, ci, false) {
+	} else if zTest(1-a.minReasonableWProb, μ, e, ciz, false) &&
+		zTest(1-a.minReasonableWProb, bottomUnignoredWinPct, bottomUnignoredSerr, ciz, false) {
 		// If the top play by win % has basically no losing chance, check if the bottom
 		// play also has no losing chance
 		tiebreakByEquity = true
@@ -219,7 +219,7 @@ func (a *AutoStopper) shouldStop(iterationCount uint64, simmedPlays *SimmedPlays
 			μi = p.equityStats.Mean()
 			ei = p.equityStats.StandardError()
 		}
-		if welchTest(μ, e, μi, ei, ci) {
+		if welchTest(μ, e, μi, ei, ciz) {
 			p.origPlay.Ignore()
 			newIgnored++
 		} else if iterationCount > uint64(a.similarPlaysIterationsCutoff) {

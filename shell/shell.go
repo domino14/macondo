@@ -53,6 +53,11 @@ var (
 	errMacondoSolving = errors.New("macondo is busy working on a solution to a position")
 )
 
+const (
+	ModeUCGI  = "ucgi"
+	ModeShell = "shell"
+)
+
 // Options to configure the interactve shell
 type ShellOptions struct {
 	turnplayer.GameOptions
@@ -98,9 +103,8 @@ func (opts *ShellOptions) ToDisplayText() string {
 }
 
 type ShellController struct {
-	l        *readline.Instance
-	config   *config.Config
-	execPath string
+	l      *readline.Instance
+	config *config.Config
 
 	options *ShellOptions
 
@@ -140,6 +144,7 @@ type ShellController struct {
 	botCtx       context.Context
 	botCtxCancel context.CancelFunc
 	botBusy      bool
+	mode         string
 }
 
 type Mode int
@@ -177,7 +182,7 @@ func (sc *ShellController) showError(err error) {
 	sc.showMessage(fmt.Sprintf("\033[1;31m%s\033[0m", repr))
 }
 
-func NewShellController(cfg *config.Config, execPath string) *ShellController {
+func NewShellController(cfg *config.Config) *ShellController {
 	prompt := "macondo>"
 	if os.Getenv("NO_COLOR") == "" {
 		prompt = fmt.Sprintf("\033[31m%s\033[0m", prompt)
@@ -195,11 +200,14 @@ func NewShellController(cfg *config.Config, execPath string) *ShellController {
 	if err != nil {
 		panic(err)
 	}
-	execPath = config.FindBasePath(execPath)
 	opts := NewShellOptions()
 	opts.SetDefaults(cfg)
 
-	return &ShellController{l: l, config: cfg, execPath: execPath, options: opts}
+	return &ShellController{l: l, config: cfg, options: opts, mode: ModeShell}
+}
+
+func (sc *ShellController) SetMode(mode string) {
+	sc.mode = mode
 }
 
 func (sc *ShellController) Set(key string, args []string) (string, error) {
@@ -494,9 +502,15 @@ func moveTableHeader() string {
 	return "     Move                Leave  Score Equity"
 }
 
-func MoveTableRow(idx int, m *move.Move, alph *tilemapping.TileMapping) string {
+func shellMoveTableRow(idx int, m *move.Move, alph *tilemapping.TileMapping) string {
 	return fmt.Sprintf("%3d: %-20s%-7s%5d %6.2f", idx+1,
 		m.ShortDescription(), m.Leave().UserVisible(alph), m.Score(), m.Equity())
+}
+
+func ucgiMoveRow(m *move.Move, b *board.GameBoard, alph *tilemapping.TileMapping) string {
+	return fmt.Sprintf("info currmove %s sc %d eq %6.3f it 0",
+		b.MoveDescriptionUCGI(m), m.Score(), m.Equity())
+
 }
 
 func (sc *ShellController) printEndgameSequence(moves []*move.Move) {
@@ -517,10 +531,17 @@ func (sc *ShellController) genMoves(numPlays int) {
 
 func (sc *ShellController) genDisplayMoveList() string {
 	var s strings.Builder
-	s.WriteString(moveTableHeader() + "\n")
-	for i, p := range sc.curPlayList {
-		s.WriteString(MoveTableRow(i, p, sc.game.Alphabet()) + "\n")
+	if sc.mode == ModeShell {
+		s.WriteString(moveTableHeader() + "\n")
+		for i, p := range sc.curPlayList {
+			s.WriteString(shellMoveTableRow(i, p, sc.game.Alphabet()) + "\n")
+		}
+	} else if sc.mode == ModeUCGI {
+		for _, p := range sc.curPlayList {
+			s.WriteString(ucgiMoveRow(p, sc.game.Board(), sc.game.Alphabet()) + "\n")
+		}
 	}
+
 	return s.String()
 }
 
