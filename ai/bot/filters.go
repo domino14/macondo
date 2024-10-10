@@ -78,7 +78,7 @@ func filter(cfg *config.Config, g *game.Game, rack *tilemapping.Rack, plays []*m
 
 			mw := mws[0] // assume len > 0
 			// Check for long words (7 or more letters)
-			if len(mw) >= g.Rules().ExchangeLimit() {
+			if len(mw) >= g.ExchangeLimit() {
 				ans *= probableFindability(len(mw), combinations(dist, subChooseCombos, mw, true)) * botConfig.longWordFindability
 			}
 			log.Debug().Float64("ans", ans).Float64("r", r).Msg("checking-answer")

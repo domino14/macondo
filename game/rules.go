@@ -154,11 +154,3 @@ func MaxCanExchange(inbag, exchLimit int) int {
 	}
 	return min(inbag, RackTileLimit)
 }
-
-// exchlimit = 7  bag = 6    e = 0
-// exchlimit = 7  bag = 7    e = 7
-// exchlimit = 7  bag = 1    e = 0
-// exchlimit = 1  bag = 5    e = 5
-// exchlimit = 1  bag = 2    e = 2
-// exchlimit = 1  bag = 1    e = 1
-// exchlimit = 1  bag = 0    e = 0

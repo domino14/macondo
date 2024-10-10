@@ -70,8 +70,8 @@ type Game struct {
 	stateStack []*stateBackup
 	stackPtr   int
 	// rules contains the original game rules passed in to create this game.
-	rules *GameRules
-
+	rules         *GameRules
+	exchangeLimit int
 	// sturnsBackup - a variable used to hold value of scorelessTurns prior to
 	// putting game in endgame mode.
 	sturnsBackup int
@@ -165,6 +165,7 @@ func NewGame(rules *GameRules, playerinfo []*pb.PlayerInfo) (*Game, error) {
 	game.crossSetGen = rules.CrossSetGen()
 	game.lexicon = rules.Lexicon()
 	game.config = rules.Config()
+	game.exchangeLimit = rules.exchangeLimit
 	game.rules = rules
 	game.maxScorelessTurns = DefaultMaxScorelessTurns
 	game.bag = game.letterDistribution.MakeBag()
@@ -350,9 +351,12 @@ func (g *Game) ValidateMove(m *move.Move) ([]tilemapping.MachineWord, error) {
 		if g.playing == pb.PlayState_WAITING_FOR_FINAL_PASS {
 			return nil, errors.New("you can only pass or challenge")
 		}
-		if g.bag.TilesRemaining() < g.rules.exchangeLimit {
+		if g.bag.TilesRemaining() < g.exchangeLimit {
 			return nil, fmt.Errorf("not allowed to exchange with fewer than %d tiles in the bag",
-				g.rules.exchangeLimit)
+				g.exchangeLimit)
+		}
+		if g.exchangeLimit == 0 {
+			panic("unexpected exchange limit 0")
 		}
 		// Make sure we have the tiles we are trying to exchange.
 		for _, t := range m.Tiles() {
@@ -1254,6 +1258,10 @@ func (g *Game) ScorelessTurns() int {
 
 func (g *Game) LastScorelessTurns() int {
 	return g.lastScorelessTurns
+}
+
+func (g *Game) ExchangeLimit() int {
+	return g.exchangeLimit
 }
 
 // ToCGP converts the game to a CGP string. See cgp directory.
