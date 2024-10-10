@@ -964,6 +964,9 @@ func (g *Game) PlayTurn(t int) error {
 		// at the beginning to whatever was recorded. Drawing like
 		// normal, though, ensures we don't have to reconcile any
 		// tiles with the bag.
+		if cap(g.players[g.onturn].placeholderRack) < m.TilesPlayed()+len(m.Leave()) {
+			g.players[g.onturn].placeholderRack = make([]tilemapping.MachineLetter, m.TilesPlayed()+len(m.Leave()))
+		}
 		drew := g.bag.DrawAtMost(m.TilesPlayed(), g.players[g.onturn].placeholderRack)
 		copy(g.players[g.onturn].placeholderRack[drew:], []tilemapping.MachineLetter(m.Leave()))
 		g.players[g.onturn].setRackTiles(g.players[g.onturn].placeholderRack[:drew+len(m.Leave())], g.alph)
