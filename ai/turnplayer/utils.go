@@ -21,7 +21,9 @@ func GenBestStaticTurn(g *game.Game, p AITurnPlayer, playerIdx int) *move.Move {
 	// in case we don't have full rack info:
 	oppRack := g.RackFor(1 - playerIdx)
 	unseen := int(oppRack.NumTiles()) + g.Bag().TilesRemaining()
-	exchAllowed := unseen-game.RackTileLimit >= game.ExchangeLimit
+	exchAllowed := unseen-game.RackTileLimit >= g.Rules().ExchangeLimit()
+	mg.SetMaxCanExchange(game.MaxCanExchange(unseen-game.RackTileLimit, g.Rules().ExchangeLimit()))
 	mg.GenAll(g.RackFor(playerIdx), exchAllowed)
+
 	return mg.Plays()[0]
 }

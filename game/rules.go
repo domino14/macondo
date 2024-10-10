@@ -28,17 +28,20 @@ const (
 	CrossScoreAndSet = "css"
 )
 
+const DefaultExchangeLimit = 7
+
 // GameRules is a simple struct that encapsulates the instantiated objects
 // needed to actually play a game.
 type GameRules struct {
-	cfg         *config.Config
-	board       *board.GameBoard
-	dist        *tilemapping.LetterDistribution
-	lexicon     lexicon.Lexicon
-	crossSetGen cross_set.Generator
-	variant     Variant
-	boardname   string
-	distname    string
+	cfg           *config.Config
+	board         *board.GameBoard
+	dist          *tilemapping.LetterDistribution
+	lexicon       lexicon.Lexicon
+	crossSetGen   cross_set.Generator
+	variant       Variant
+	boardname     string
+	distname      string
+	exchangeLimit int
 }
 
 func (g GameRules) Config() *config.Config {
@@ -75,6 +78,14 @@ func (g GameRules) CrossSetGen() cross_set.Generator {
 
 func (g GameRules) Variant() Variant {
 	return g.variant
+}
+
+func (g *GameRules) SetExchangeLimit(l int) {
+	g.exchangeLimit = l
+}
+
+func (g GameRules) ExchangeLimit() int {
+	return g.exchangeLimit
 }
 
 func NewBasicGameRules(cfg *config.Config,
@@ -124,14 +135,30 @@ func NewBasicGameRules(cfg *config.Config,
 	}
 
 	rules := &GameRules{
-		cfg:         cfg,
-		dist:        dist,
-		distname:    letterDistributionName,
-		board:       board.MakeBoard(bd),
-		boardname:   boardLayoutName,
-		lexicon:     lex,
-		crossSetGen: csgen,
-		variant:     variant,
+		cfg:           cfg,
+		dist:          dist,
+		distname:      letterDistributionName,
+		board:         board.MakeBoard(bd),
+		boardname:     boardLayoutName,
+		lexicon:       lex,
+		crossSetGen:   csgen,
+		variant:       variant,
+		exchangeLimit: DefaultExchangeLimit,
 	}
 	return rules, nil
 }
+
+func MaxCanExchange(inbag, exchLimit int) int {
+	if inbag < exchLimit {
+		return 0
+	}
+	return min(inbag, RackTileLimit)
+}
+
+// exchlimit = 7  bag = 6    e = 0
+// exchlimit = 7  bag = 7    e = 7
+// exchlimit = 7  bag = 1    e = 0
+// exchlimit = 1  bag = 5    e = 5
+// exchlimit = 1  bag = 2    e = 2
+// exchlimit = 1  bag = 1    e = 1
+// exchlimit = 1  bag = 0    e = 0

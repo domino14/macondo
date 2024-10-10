@@ -94,7 +94,8 @@ func (p *AIStaticTurnPlayer) GenerateMoves(numPlays int) []*move.Move {
 	oppRack := p.RackFor(p.NextPlayer())
 	// in case we don't have full rack info:
 	unseen := int(oppRack.NumTiles()) + p.Bag().TilesRemaining()
-	exchAllowed := unseen-game.RackTileLimit >= game.ExchangeLimit
+	exchAllowed := unseen-game.RackTileLimit >= p.Rules().ExchangeLimit()
+	p.gen.SetMaxCanExchange(game.MaxCanExchange(unseen-game.RackTileLimit, p.Rules().ExchangeLimit()))
 	p.gen.GenAll(curRack, exchAllowed)
 
 	plays := p.gen.(*movegen.GordonGenerator).Plays()

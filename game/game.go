@@ -26,7 +26,6 @@ const (
 
 	MacondoCreation = "Created with Macondo"
 
-	ExchangeLimit = 7
 	RackTileLimit = 7
 
 	DefaultMaxScorelessTurns  = 6
@@ -351,9 +350,9 @@ func (g *Game) ValidateMove(m *move.Move) ([]tilemapping.MachineWord, error) {
 		if g.playing == pb.PlayState_WAITING_FOR_FINAL_PASS {
 			return nil, errors.New("you can only pass or challenge")
 		}
-		if g.bag.TilesRemaining() < ExchangeLimit {
+		if g.bag.TilesRemaining() < g.rules.exchangeLimit {
 			return nil, fmt.Errorf("not allowed to exchange with fewer than %d tiles in the bag",
-				ExchangeLimit)
+				g.rules.exchangeLimit)
 		}
 		// Make sure we have the tiles we are trying to exchange.
 		for _, t := range m.Tiles() {
