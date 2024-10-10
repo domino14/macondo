@@ -80,6 +80,22 @@ func (c *Config) Load(args []string) error {
 				panic(fmt.Errorf("fatal error config file: %w", err))
 			}
 		}
+		// Handle upgrades of macondo by checking to see if data path still exists,
+		// if we are reading from a file.
+		recreateDataPath := false
+		dp := c.GetString(ConfigDataPath)
+		_, err := os.Stat(dp)
+		if err != nil {
+			log.Err(err).Msg("error-checking-for-datapath")
+			recreateDataPath = true
+		}
+		if os.IsNotExist(err) {
+			recreateDataPath = true
+		}
+		if recreateDataPath {
+			log.Info().Str("old-data-path", dp).Msg("Did not find old data path. Recreating.")
+			c.Set(ConfigDataPath, "./data")
+		}
 	}
 	c.SetEnvPrefix("macondo")
 	// allow env vars to be specified with `_` instead of `-`
