@@ -134,6 +134,12 @@ func NewBasicGameRules(cfg *config.Config,
 		}
 	}
 
+	exchLimit := DefaultExchangeLimit
+	if lexicon.IsSpanish(lexiconName) {
+		// XXX: It's a little bit ghetto, for sure.
+		exchLimit = 1
+	}
+
 	rules := &GameRules{
 		cfg:           cfg,
 		dist:          dist,
@@ -143,7 +149,7 @@ func NewBasicGameRules(cfg *config.Config,
 		lexicon:       lex,
 		crossSetGen:   csgen,
 		variant:       variant,
-		exchangeLimit: DefaultExchangeLimit,
+		exchangeLimit: exchLimit,
 	}
 	return rules, nil
 }

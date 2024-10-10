@@ -1,6 +1,8 @@
 package lexicon
 
 import (
+	"strings"
+
 	"github.com/domino14/word-golib/tilemapping"
 )
 
@@ -31,4 +33,9 @@ func (lex AcceptAll) HasWord(word Word) bool {
 
 func (lex AcceptAll) HasAnagram(word Word) bool {
 	return true
+}
+
+func IsSpanish(lexName string) bool {
+	l := strings.ToLower(lexName)
+	return strings.HasPrefix(l, "fise") || strings.HasPrefix(l, "file")
 }

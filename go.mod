@@ -9,7 +9,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.27.36
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.61.0
 	github.com/chzyer/readline v1.5.1
-	github.com/domino14/word-golib v0.2.0
+	github.com/domino14/word-golib v0.2.2
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
 	github.com/matryer/is v1.4.1
 	github.com/nats-io/nats.go v1.37.0
