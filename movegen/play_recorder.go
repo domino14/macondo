@@ -57,6 +57,9 @@ func AllPlaysRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, r
 		if rightstrip == 0 {
 			return
 		}
+		if rightstrip > gen.maxCanExchange {
+			return
+		}
 		alph := gen.letterDistribution.TileMapping()
 		exchanged := make([]tilemapping.MachineLetter, rightstrip)
 		copy(exchanged, gen.exchangestrip[:rightstrip])
@@ -180,6 +183,9 @@ func TopPlayOnlyRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip
 	case move.MoveTypeExchange:
 		// ignore the empty exchange case
 		if rightstrip == 0 {
+			return
+		}
+		if rightstrip > gen.maxCanExchange {
 			return
 		}
 		tilesLength = rightstrip

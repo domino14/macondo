@@ -34,6 +34,7 @@ const (
 // MoveGenerator is a generic interface for generating moves.
 type MoveGenerator interface {
 	GenAll(rack *tilemapping.Rack, addExchange bool) []*move.Move
+	SetMaxCanExchange(int)
 	SetSortingParameter(s SortBy)
 	Plays() []*move.Move
 	SmallPlays() []tinymove.SmallMove
@@ -85,9 +86,10 @@ type GordonGenerator struct {
 	placeholder *move.Move
 	game        *game.Game
 
-	genPass      bool
-	quitEarly    bool
-	maxTileUsage int
+	genPass        bool
+	quitEarly      bool
+	maxTileUsage   int
+	maxCanExchange int
 }
 
 // NewGordonGenerator returns a Gordon move generator.
@@ -107,8 +109,13 @@ func NewGordonGenerator(gd gaddag.WordGraph, board *board.GameBoard,
 		winner:             new(move.Move),
 		placeholder:        new(move.Move),
 		maxTileUsage:       100, // basically unlimited
+		maxCanExchange:     game.DefaultExchangeLimit,
 	}
 	return gen
+}
+
+func (gen *GordonGenerator) SetMaxCanExchange(m int) {
+	gen.maxCanExchange = m
 }
 
 // SetSortingParameter tells the play sorter to sort by score, equity, or

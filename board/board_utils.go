@@ -17,6 +17,22 @@ type TilesInPlay struct {
 
 var boardPlaintextRegex = regexp.MustCompile(`\|(.+)\|`)
 var userRackRegex = regexp.MustCompile(`(?U).+\s+([A-Z\?]*)\s+-?[0-9]+`)
+var ansiCodeRegex = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+
+func stripANSICodes(str string) string {
+	return ansiCodeRegex.ReplaceAllString(str, "")
+}
+
+// Function to pad the string to the desired width
+func padString(str string, width int) string {
+	visibleStr := stripANSICodes(str)
+	visibleLen := len([]rune(visibleStr))
+	padding := width - visibleLen
+	if padding > 0 {
+		str += strings.Repeat(" ", padding)
+	}
+	return str
+}
 
 func (g *GameBoard) sqDisplayStr(row, col int, alph *tilemapping.TileMapping) string {
 	pos := g.GetSqIdx(row, col)
@@ -29,7 +45,23 @@ func (g *GameBoard) sqDisplayStr(row, col int, alph *tilemapping.TileMapping) st
 	if g.squares[pos] == 0 {
 		return bonusdisp
 	}
-	return string(g.squares[pos].UserVisible(alph, true))
+	uv := g.squares[pos].UserVisible(alph, true)
+	// These are very specific cases in order to be able to display these characters
+	// on a CLI-style board properly.
+	switch uv {
+	case "L·L":
+		return "ĿL"
+	case "l·l":
+		return "ŀl"
+	case "1":
+		return "CH"
+	case "2":
+		return "LL"
+	case "3":
+		return "RR"
+	}
+
+	return uv
 }
 
 func (g *GameBoard) ToDisplayText(alph *tilemapping.TileMapping) string {
@@ -44,7 +76,7 @@ func (g *GameBoard) ToDisplayText(alph *tilemapping.TileMapping) string {
 	for i := 0; i < n; i++ {
 		row := fmt.Sprintf("%2d|", i+1)
 		for j := 0; j < n; j++ {
-			row = row + g.sqDisplayStr(i, j, alph) + " "
+			row += padString(g.sqDisplayStr(i, j, alph), 2)
 		}
 		row = row + "|"
 		str = str + row + "\n"

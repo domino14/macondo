@@ -136,10 +136,9 @@ func (p *BotTurnPlayer) GenerateMoves(numPlays int) []*move.Move {
 	gen := p.MoveGenerator()
 	// in case we don't have full rack info:
 	unseen := int(oppRack.NumTiles()) + p.Bag().TilesRemaining()
-	exchAllowed := unseen-game.RackTileLimit >= game.ExchangeLimit
-
+	exchAllowed := unseen-game.RackTileLimit >= p.ExchangeLimit()
+	gen.SetMaxCanExchange(game.MaxCanExchange(unseen-game.RackTileLimit, p.ExchangeLimit()))
 	gen.GenAll(curRack, exchAllowed)
-
 	plays := gen.(*movegen.GordonGenerator).Plays()
 
 	p.AssignEquity(plays, p.Board(), p.Bag(), oppRack)
