@@ -46,13 +46,21 @@ func (g *GameBoard) sqDisplayStr(row, col int, alph *tilemapping.TileMapping) st
 		return bonusdisp
 	}
 	uv := g.squares[pos].UserVisible(alph, true)
-	// This is a very specific case in order to be able to display this character
+	// These are very specific cases in order to be able to display these characters
 	// on a CLI-style board properly.
-	if uv == "L·L" {
+	switch uv {
+	case "L·L":
 		return "ĿL"
-	} else if uv == "l·l" {
+	case "l·l":
 		return "ŀl"
+	case "1":
+		return "CH"
+	case "2":
+		return "LL"
+	case "3":
+		return "RR"
 	}
+
 	return uv
 }
 
