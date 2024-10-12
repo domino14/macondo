@@ -19,6 +19,7 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
 	var plies, threads int
 	var err error
 	stoppingCondition := montecarlo.StopNone
+	stopConditionCI := float64(0)
 	if sc.simmer == nil {
 		return errors.New("load a game or something")
 	}
@@ -39,7 +40,7 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
 
 	inferMode := montecarlo.InferenceOff
 	knownOppRack := ""
-	var stopPPscaling, stopitercutoff int
+	var stopPPscaling, stopitercutoff, printFreq, autostopCheckFreq int
 	for opt := range options {
 		switch opt {
 		case "plies":
@@ -52,32 +53,25 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
 			if err != nil {
 				return err
 			}
-		case "stop":
-			sci, err := options.Int(opt)
+		case "stop", "scond":
+			sci, err := options.Float(opt)
+
 			if err != nil {
 				return err
 			}
-			switch sci {
-			case 90:
-				stoppingCondition = montecarlo.Stop90
-			case 95:
-				stoppingCondition = montecarlo.Stop95
-			case 98:
-				stoppingCondition = montecarlo.Stop98
-			case 99:
-				stoppingCondition = montecarlo.Stop99
-			case 999:
-				stoppingCondition = montecarlo.Stop999
-			default:
-				return errors.New("only allowed values are 90, 95, 98, 99, and 999 for stopping condition")
+			if sci < 80 || sci >= 100 {
+				return errors.New("confidence interval must be >= 80% and less than 100%")
 			}
+			stoppingCondition = montecarlo.StopProb
+			stopConditionCI = sci
+
 		case "stop-ppscaling":
 			stopPPscaling, err = options.Int(opt)
 			if err != nil {
 				return err
 			}
 
-		case "stop-itercutoff":
+		case "stop-itercutoff", "it":
 			stopitercutoff, err = options.Int(opt)
 			if err != nil {
 				return err
@@ -85,6 +79,18 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
 
 		case "opprack":
 			knownOppRack = options.String(opt)
+
+		case "pfreq":
+			printFreq, err = options.Int(opt)
+			if err != nil {
+				return err
+			}
+
+		case "cfreq":
+			autostopCheckFreq, err = options.Int(opt)
+			if err != nil {
+				return err
+			}
 
 		case "useinferences":
 			inferences := sc.rangefinder.Inferences()
@@ -127,12 +133,18 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
 		if err != nil {
 			return err
 		}
-		sc.simmer.SetStoppingCondition(stoppingCondition)
+		sc.simmer.SetStoppingCondition(stoppingCondition, stopConditionCI)
 		if stopPPscaling > 0 {
 			sc.simmer.SetAutostopPPScaling(stopPPscaling)
 		}
 		if stopitercutoff > 0 {
 			sc.simmer.SetAutostopIterationsCutoff(stopitercutoff)
+		}
+		if printFreq > 0 {
+			sc.simmer.SetPrintFrequency(printFreq)
+		}
+		if autostopCheckFreq > 0 {
+			sc.simmer.SetAutostopCheckIters(autostopCheckFreq)
 		}
 
 		if knownOppRack != "" {

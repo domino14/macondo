@@ -27,6 +27,7 @@ const (
 	ConfigWolgesAwsmUrl                    = "wolges-awsm-url"
 	ConfigCPUProfile                       = "cpu-profile"
 	ConfigMEMProfile                       = "mem-profile"
+	ConfigLogLevel                         = "log-level"
 )
 
 type Config struct {
@@ -54,7 +55,6 @@ func DefaultConfig() *Config {
 	c.SetDefault(ConfigDefaultBoardLayout, "CrosswordGame")
 	// Read from an env var MACONDO_DATA_PATH. This might not be a good way to do it:
 	c.SetDefault(ConfigDataPath, c.GetString(ConfigDataPath))
-
 	return c
 }
 
@@ -115,12 +115,14 @@ func (c *Config) Load(args []string) error {
 	c.BindEnv(ConfigCPUProfile)
 	c.BindEnv(ConfigMEMProfile)
 	c.BindEnv(ConfigDefaultBoardLayout)
+	c.BindEnv(ConfigLogLevel)
 
 	c.SetDefault(ConfigDataPath, "./data") // will be fixed by toAbsPath below if unspecified.
 	c.SetDefault(ConfigDefaultLexicon, "NWL23")
 	c.SetDefault(ConfigDefaultLetterDistribution, "English")
 	c.SetDefault(ConfigTtableMemFraction, 0.25)
 	c.SetDefault(ConfigDefaultBoardLayout, "CrosswordGame")
+	c.SetDefault(ConfigLogLevel, "disabled")
 
 	return nil
 }

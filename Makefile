@@ -1,6 +1,6 @@
 everything: all wasm
 
-all: macondo_shell macondo_bot bot_shell analyze
+all: macondo_shell macondo_ucgi macondo_bot bot_shell analyze
 
 .PHONY: wasm
 
@@ -22,6 +22,9 @@ macondo_bot:
 
 bot_shell:
 	go build -trimpath -o bin/bot_shell cmd/bot_shell/main.go
+
+macondo_ucgi:
+	go build -trimpath -o bin/ucgi_cli cmd/ucgi_cli/main.go
 
 # wasm:
 # 	GOOS=js GOARCH=wasm go build -trimpath -o ../liwords/liwords-ui/public/wasm/macondo.wasm wasm/*.go
