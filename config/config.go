@@ -62,6 +62,25 @@ func (c *Config) Load(args []string) error {
 	c.Viper = *viper.New()
 	c.SetConfigName("config")
 	c.SetConfigType("yaml")
+	// If no config file is found:
+	c.SetEnvPrefix("macondo")
+	// allow env vars to be specified with `_` instead of `-`
+	replacer := strings.NewReplacer("-", "_")
+	c.SetEnvKeyReplacer(replacer)
+
+	// Explicitly bind env vars.
+	c.BindEnv(ConfigDataPath)
+	c.BindEnv(ConfigDefaultLexicon)
+	c.BindEnv(ConfigDefaultLetterDistribution)
+	c.BindEnv(ConfigTtableMemFraction)
+	c.BindEnv(ConfigLambdaFunctionName)
+	c.BindEnv(ConfigNatsURL)
+	c.BindEnv(ConfigWolgesAwsmUrl)
+	c.BindEnv(ConfigDebug)
+	c.BindEnv(ConfigKWGPathPrefix)
+	c.BindEnv(ConfigCPUProfile)
+	c.BindEnv(ConfigMEMProfile)
+	c.BindEnv(ConfigDefaultBoardLayout)
 
 	cfgdir, err := os.UserConfigDir()
 	if err != nil {
@@ -97,24 +116,6 @@ func (c *Config) Load(args []string) error {
 			c.Set(ConfigDataPath, "./data")
 		}
 	}
-	c.SetEnvPrefix("macondo")
-	// allow env vars to be specified with `_` instead of `-`
-	replacer := strings.NewReplacer("-", "_")
-	c.SetEnvKeyReplacer(replacer)
-
-	// Explicitly bind env vars.
-	c.BindEnv(ConfigDataPath)
-	c.BindEnv(ConfigDefaultLexicon)
-	c.BindEnv(ConfigDefaultLetterDistribution)
-	c.BindEnv(ConfigTtableMemFraction)
-	c.BindEnv(ConfigLambdaFunctionName)
-	c.BindEnv(ConfigNatsURL)
-	c.BindEnv(ConfigWolgesAwsmUrl)
-	c.BindEnv(ConfigDebug)
-	c.BindEnv(ConfigKWGPathPrefix)
-	c.BindEnv(ConfigCPUProfile)
-	c.BindEnv(ConfigMEMProfile)
-	c.BindEnv(ConfigDefaultBoardLayout)
 
 	c.SetDefault(ConfigDataPath, "./data") // will be fixed by toAbsPath below if unspecified.
 	c.SetDefault(ConfigDefaultLexicon, "NWL23")
