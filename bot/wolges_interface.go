@@ -2,10 +2,10 @@ package bot
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -26,7 +26,7 @@ import (
 // see analyzer.tsx in liwords repo to see where a lot of this conversion
 // code comes from.
 
-const WolgesTimeout = 5 * time.Second
+const WolgesTimeout = 15 * time.Second
 
 // // Wolges ordering:
 // var GermanTiles = []rune("AÄBCDEFGHIJKLMNOÖPQRSTUÜVWXYZ")
@@ -53,6 +53,18 @@ type WolgesAnalyzeResponse struct {
 	Word   []int   `json:"word"`
 	Score  int     `json:"score"`
 }
+
+var (
+	wolgesTransport = &http.Transport{
+		MaxIdleConns:      10,
+		IdleConnTimeout:   30 * time.Second,
+		DisableKeepAlives: false,
+	}
+	wolgesClient = &http.Client{
+		Timeout:   WolgesTimeout,
+		Transport: wolgesTransport,
+	}
+)
 
 func wolgesAnalyze(cfg *config.Config, g *bot.BotTurnPlayer) ([]*move.Move, error) {
 	// cfg.WolgesAwsmURL
@@ -144,18 +156,27 @@ func wolgesAnalyze(cfg *config.Config, g *bot.BotTurnPlayer) ([]*move.Move, erro
 	}
 	log.Debug().Str("payload", string(bts)).Msg("sending-to-wolges")
 	// Now let's send a request.
-	ctx, cancel := context.WithTimeout(context.Background(), WolgesTimeout)
-	defer cancel()
 	req, err := http.NewRequest("POST", cfg.GetString(config.ConfigWolgesAwsmUrl)+"/analyze", bytes.NewReader(bts))
 	if err != nil {
 		return nil, err
 	}
 	log.Debug().Msg("made HTTP post, getting response...")
-	resp, err := http.DefaultClient.Do(req.WithContext(ctx))
+
+	resp, err := wolgesClient.Do(req)
 	if err != nil {
+		if resp != nil {
+			// Ensure the body is closed even if there's an error
+			resp.Body.Close()
+		}
+		if err, ok := err.(net.Error); ok && err.Timeout() {
+			log.Warn().Str("payload", string(bts)).Msg("wolges-request-timed-out")
+		} else {
+			log.Err(err).Msg("err-wolges-request")
+		}
 		return nil, err
 	}
 	defer resp.Body.Close()
+
 	readbts, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
