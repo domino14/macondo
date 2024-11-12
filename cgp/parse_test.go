@@ -45,6 +45,7 @@ func TestRowToLettersMultichar(t *testing.T) {
 		{"[qu]3[L·L]5MA3", []tilemapping.MachineLetter{19 | 0x80, 0, 0, 0, 13, 0, 0, 0, 0, 0, 14, 1, 0, 0, 0}},
 		{"[qu]3[L·L]5MA2Ç", []tilemapping.MachineLetter{19 | 0x80, 0, 0, 0, 13, 0, 0, 0, 0, 0, 14, 1, 0, 0, 4}},
 		{"[QU]3[l·l]9[NY]", []tilemapping.MachineLetter{19, 0, 0, 0, 13 | 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16}},
+		{"QU3l·l9NY", []tilemapping.MachineLetter{19, 0, 0, 0, 13 | 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16}},
 	}
 	for _, tc := range testcases {
 		parsed, err := rowToLetters(tc.row, catalan.TileMapping())
