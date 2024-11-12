@@ -188,6 +188,15 @@ func rowToLetters(row string, tm *tilemapping.TileMapping) ([]tilemapping.Machin
 			if err != nil {
 				return nil, err
 			}
+			if len(mout) > 1 {
+				// If the multitile mapped to more than 1 "machine letter" this
+				// is unexpected. As a last resort, try to parse the tile
+				// _including_ the [].
+				mout, err = tilemapping.ToMachineLetters("["+multiTile+"]", tm)
+				if err != nil {
+					return nil, err
+				}
+			}
 			mls = append(mls, mout...)
 			multiTile = ""
 			beganMulti = false

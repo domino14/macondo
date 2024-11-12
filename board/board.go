@@ -7,7 +7,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
@@ -989,14 +988,7 @@ func (g *GameBoard) ToFEN(alph *tilemapping.TileMapping) string {
 				zeroCt = 0
 			}
 			uvl := l.UserVisible(alph, false)
-			multichar := utf8.RuneCountInString(uvl) > 1
-			if multichar {
-				r.WriteString("[")
-			}
 			r.WriteString(uvl)
-			if multichar {
-				r.WriteString("]")
-			}
 		}
 		if zeroCt > 0 {
 			r.WriteString(strconv.Itoa(zeroCt))

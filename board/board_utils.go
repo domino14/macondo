@@ -53,11 +53,11 @@ func (g *GameBoard) sqDisplayStr(row, col int, alph *tilemapping.TileMapping) st
 		return "ĿL"
 	case "l·l":
 		return "ŀl"
-	case "1":
+	case "[CH]":
 		return "CH"
-	case "2":
+	case "[LL]":
 		return "LL"
-	case "3":
+	case "[RR]":
 		return "RR"
 	}
 
