@@ -28,7 +28,7 @@ func defaultForLexicon(lexiconName string) string {
 	// If there doesn't exist a specific folder with the name of the
 	// lexicon, we'll call this function.
 	if strings.HasPrefix(lexiconName, "CSW") {
-		return "CSW21"
+		return "CSW24"
 	} else if strings.HasPrefix(lexiconName, "TWL") ||
 		strings.HasPrefix(lexiconName, "NWL") ||
 		strings.HasPrefix(lexiconName, "NSWL") {
