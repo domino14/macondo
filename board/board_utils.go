@@ -34,16 +34,16 @@ func padString(str string, width int) string {
 	return str
 }
 
-func (g *GameBoard) sqDisplayStr(row, col int, alph *tilemapping.TileMapping) string {
+func (g *GameBoard) SQDisplayStr(row, col int, alph *tilemapping.TileMapping, colorSupport bool) string {
 	pos := g.GetSqIdx(row, col)
 	var bonusdisp string
 	if g.bonuses[pos] != ' ' {
-		bonusdisp = g.bonuses[pos].displayString()
+		bonusdisp = g.bonuses[pos].displayString(colorSupport)
 	} else {
 		bonusdisp = " "
 	}
 	if g.squares[pos] == 0 {
-		return bonusdisp
+		return padString(bonusdisp, 2)
 	}
 	uv := g.squares[pos].UserVisible(alph, true)
 	// These are very specific cases in order to be able to display these characters
@@ -61,7 +61,7 @@ func (g *GameBoard) sqDisplayStr(row, col int, alph *tilemapping.TileMapping) st
 		return "RR"
 	}
 
-	return uv
+	return padString(uv, 2)
 }
 
 func (g *GameBoard) ToDisplayText(alph *tilemapping.TileMapping) string {
@@ -76,7 +76,7 @@ func (g *GameBoard) ToDisplayText(alph *tilemapping.TileMapping) string {
 	for i := 0; i < n; i++ {
 		row := fmt.Sprintf("%2d|", i+1)
 		for j := 0; j < n; j++ {
-			row += padString(g.sqDisplayStr(i, j, alph), 2)
+			row += g.SQDisplayStr(i, j, alph, ColorSupport)
 		}
 		row = row + "|"
 		str = str + row + "\n"

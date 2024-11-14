@@ -64,9 +64,9 @@ const (
 	NoBonus BonusSquare = 32 // space (hex 20)
 )
 
-func (b BonusSquare) displayString() string {
+func (b BonusSquare) displayString(colorSupport bool) string {
 	repr := string(rune(b))
-	if !ColorSupport {
+	if !colorSupport {
 		return repr
 	}
 	switch b {

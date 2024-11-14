@@ -104,6 +104,15 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
 			default:
 				return errors.New("that inference mode is not supported")
 			}
+		case "collect-heatmap":
+			if options.Bool(opt) {
+				err = sc.simmer.SetCollectHeatmap(true)
+			} else {
+				err = sc.simmer.SetCollectHeatmap(false)
+			}
+			if err != nil {
+				return err
+			}
 
 		default:
 			return errors.New("option " + opt + " not recognized")
@@ -239,6 +248,41 @@ func (sc *ShellController) simControlArguments(args []string) error {
 			return err
 		}
 		sc.showMessage(sc.simmer.EquityStats())
+	case "heatmap":
+		if len(args) < 2 {
+			return errors.New("heatmap needs the play in quotes. See `help sim`")
+		}
+		play := args[1]
+		ply := 0
+		if len(args) == 3 {
+			ply, err = strconv.Atoi(args[2])
+			if err != nil {
+				return err
+			}
+		}
+		heatmap, err := sc.CalculateHeatmap(sc.simmer, sc.game, play, ply)
+		if err != nil {
+			return err
+		}
+
+		// Display with the tiles of our move.
+		err = sc.PlaceMove(sc.game, play)
+		if err != nil {
+			return err
+		}
+
+		heatmap.display()
+		sc.UnplaceMove(sc.game)
+
+	case "playstats":
+		if len(args) != 2 {
+			return errors.New("playstats needs a single argument -- the play in quotes. See `help sim`")
+		}
+		play := args[1]
+		fmt.Println("PLAY WAS", play, ";")
+
+	case "tilestats":
+
 	default:
 		return fmt.Errorf("do not understand sim argument %v", args[0])
 	}
