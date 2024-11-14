@@ -7,7 +7,7 @@ Starting a game:
         it differs from your default lexicon.
 
 Settings
-    set lexicon <lexicon> - set a lexicon (NWL18, CSW19, and maybe others).
+    set lexicon <lexicon> - set a lexicon (NWL23, CSW24, and maybe others).
       Will apply the next time a game is started.
     set challenge <rule> - set the challenge rule
       Options: void, 5pt, 10pt, double, single

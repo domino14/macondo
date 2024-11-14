@@ -35,7 +35,7 @@ jobs:
         run: |
           mkdir -p data/lexica/gaddag
           curl -L https://github.com/woogles-io/liwords/raw/master/liwords-ui/public/wasm/2024/NWL23.kwg -o data/lexica/gaddag/NWL23.kwg
-          curl -L https://github.com/woogles-io/liwords/raw/master/liwords-ui/public/wasm/2024/CSW21.kwg -o data/lexica/gaddag/CSW21.kwg
+          curl -L https://github.com/woogles-io/liwords/raw/master/liwords-ui/public/wasm/2024/CSW24.kwg -o data/lexica/gaddag/CSW24.kwg
 
       - name: Run build script
         run: inv build
