@@ -26,7 +26,7 @@ func GaddagFromLexicon(lex string) (gaddag.WordGraph, error) {
 func TestLeaveValues(t *testing.T) {
 	alph := testhelpers.EnglishAlphabet()
 
-	els, err := equity.NewExhaustiveLeaveCalculator("NWL20", DefaultConfig, "")
+	els, err := equity.NewExhaustiveLeaveCalculator("NWL23", DefaultConfig, "")
 	assert.Nil(t, err)
 
 	type testcase struct {
@@ -35,14 +35,14 @@ func TestLeaveValues(t *testing.T) {
 	}
 
 	for _, tc := range []testcase{
-		{"?", 24.504596710205078},
-		{"Q", -6.793293476104736},
-		{"?I", 25.864593505859375},
-		{"I?", 25.864593505859375},
-		{"?DLQSV", 10.06197452545166},
-		{"HMRRSS", -2.2670013904571533},
-		{"AEINST", 30.4634952545166},
-		{"SATINE", 30.4634952545166},
+		{"?", 24.518878936767578},
+		{"Q", -6.805603981018066},
+		{"?I", 25.869199752807617},
+		{"I?", 25.869199752807617},
+		{"?DLQSV", 10.083020210266113},
+		{"HMRRSS", -1.9739978313446045},
+		{"AEINST", 30.318029403686523},
+		{"SATINE", 30.318029403686523},
 	} {
 		leave, _ := tilemapping.ToMachineLetters(tc.leave, alph)
 		assert.Equal(t, tc.ev, els.LeaveValue(leave))
@@ -52,7 +52,7 @@ func TestLeaveValues(t *testing.T) {
 func TestOtherLeaveValues(t *testing.T) {
 	alph := testhelpers.EnglishAlphabet()
 
-	els, err := equity.NewExhaustiveLeaveCalculator("NWL18", DefaultConfig, "")
+	els, err := equity.NewExhaustiveLeaveCalculator("NWL23", DefaultConfig, "")
 	assert.Nil(t, err)
 
 	type testcase struct {
@@ -125,7 +125,7 @@ func TestEndgameTiming(t *testing.T) {
 }
 
 func TestPreendgameTiming(t *testing.T) {
-	gd, err := GaddagFromLexicon("NWL20")
+	gd, err := GaddagFromLexicon("NWL23")
 	assert.Nil(t, err)
 	alph := gd.GetAlphabet()
 	bd := board.MakeBoard(board.CrosswordGameBoard)
@@ -164,7 +164,7 @@ func TestPreendgameTiming(t *testing.T) {
 }
 
 func TestOpeningPlayHeuristic(t *testing.T) {
-	gd, err := GaddagFromLexicon("NWL20")
+	gd, err := GaddagFromLexicon("NWL23")
 	assert.Nil(t, err)
 	alph := gd.GetAlphabet()
 	bd := board.MakeBoard(board.CrosswordGameBoard)
