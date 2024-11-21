@@ -3,8 +3,10 @@
 package montecarlo
 
 import (
+	"bufio"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -52,6 +54,8 @@ import (
 			compute stats so far
 
 */
+
+const MaxHeatMapIterations = 7500
 
 type InferenceMode int
 
@@ -360,17 +364,25 @@ func (s *Simmer) ReadHeatmap() ([]LogIteration, error) {
 	}
 	defer gzReader.Close()
 
-	// Read all uncompressed data
-	data, err := io.ReadAll(gzReader)
-	if err != nil {
-		return nil, fmt.Errorf("could not read gzip data: %w", err)
-	}
-	// Parse the YAML data into []LogIteration
+	// Create a scanner to read the decompressed data line by line
+	scanner := bufio.NewScanner(gzReader)
+
+	// Parse each line into a LogIteration
 	var logIterations []LogIteration
-	err = yaml.Unmarshal(data, &logIterations)
-	if err != nil {
-		return nil, fmt.Errorf("could not unmarshal YAML data: %w", err)
+	for scanner.Scan() {
+		line := scanner.Text()
+		var logIteration LogIteration
+		err := json.Unmarshal([]byte(line), &logIteration)
+		if err != nil {
+			return nil, fmt.Errorf("could not unmarshal JSON line: %w", err)
+		}
+		logIterations = append(logIterations, logIteration)
 	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error while scanning file: %w", err)
+	}
+
 	s.activeHeatMap = logIterations
 	s.activeHeatMapFilename = s.tempHeatMapFile.Name()
 
@@ -723,12 +735,25 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 		}
 	}
 	if s.logStream != nil {
-		out, err := yaml.Marshal([]LogIteration{logIter})
-		if err != nil {
-			logger.Error().Err(err).Msg("marshalling log")
-			return err
+		var out []byte
+		if s.collectHeatMap && iterationCount < MaxHeatMapIterations {
+			// If heat map collection is on, only collect a fixed number of iterations.
+			out, err = json.Marshal(logIter)
+			if err != nil {
+				logger.Error().Err(err).Msg("marshalling log")
+				return err
+			}
+			out = append(out, '\n')
+			logChan <- out
+		} else if !s.collectHeatMap {
+			out, err = yaml.Marshal([]LogIteration{logIter})
+			if err != nil {
+				logger.Error().Err(err).Msg("marshalling log")
+				return err
+			}
+			logChan <- out
 		}
-		logChan <- out
+
 	}
 	return nil
 }
