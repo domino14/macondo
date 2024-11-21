@@ -9,10 +9,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aybabtme/uniplot/histogram"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
 
+	"github.com/domino14/macondo/ai/bot"
+	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/montecarlo"
+	"github.com/domino14/macondo/montecarlo/stats"
 )
 
 func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
@@ -260,26 +264,41 @@ func (sc *ShellController) simControlArguments(args []string) error {
 				return err
 			}
 		}
-		heatmap, err := sc.CalculateHeatmap(sc.simmer, sc.game, play, ply)
+
+		heatmap, err := sc.simStats.CalculateHeatmap(play, ply)
 		if err != nil {
 			return err
 		}
 
 		// Display with the tiles of our move.
-		err = sc.PlaceMove(sc.game, play)
+		err = sc.placeMove(sc.game, play)
 		if err != nil {
 			return err
 		}
 
-		heatmap.display()
-		sc.UnplaceMove(sc.game)
+		heatmap.Display()
+		sc.unplaceMove(sc.game)
 
 	case "playstats":
-		if len(args) != 2 {
-			return errors.New("playstats needs a single argument -- the play in quotes. See `help sim`")
+		if len(args) < 2 {
+			return errors.New("playstats needs the play in quotes. See `help sim`")
 		}
 		play := args[1]
-		fmt.Println("PLAY WAS", play, ";")
+		stats, err := sc.simStats.CalculatePlayStats(play)
+		if err != nil {
+			return err
+		}
+		sc.showMessage(stats)
+		if len(args) == 3 && args[2] == "histogram" {
+			oppHist, ourHist := sc.simStats.LastHistogram()
+			maxWidth := 40
+			fmt.Println("Opponent score histogram")
+			fmt.Println("Points")
+			err = histogram.Fprint(os.Stdout, oppHist, histogram.Linear(maxWidth))
+			fmt.Println("\n\nOur score histogram")
+			fmt.Println("Points")
+			err = histogram.Fprint(os.Stdout, ourHist, histogram.Linear(maxWidth))
+		}
 
 	case "tilestats":
 
@@ -288,4 +307,24 @@ func (sc *ShellController) simControlArguments(args []string) error {
 	}
 
 	return nil
+}
+
+func (sc *ShellController) placeMove(g *bot.BotTurnPlayer, play string) error {
+	normalizedPlay := stats.Normalize(play)
+	m, err := g.ParseMove(
+		g.PlayerOnTurn(), sc.options.lowercaseMoves, strings.Fields(normalizedPlay))
+
+	if err != nil {
+		return err
+	}
+	g.SetBackupMode(game.SimulationMode)
+	log.Debug().Str("move", m.ShortDescription()).Msg("Playing move")
+	err = g.PlayMove(m, false, 0)
+	return err
+}
+
+func (sc *ShellController) unplaceMove(g *bot.BotTurnPlayer) {
+	log.Debug().Msg("Undoing last move")
+	g.UnplayLastMove()
+	g.SetBackupMode(game.NoBackup)
 }

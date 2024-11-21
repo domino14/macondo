@@ -80,6 +80,7 @@ type LogPlay struct {
 	// recursively.
 	WinRatio float64   `json:"win,omitempty" yaml:"win,omitempty"`
 	Plies    []LogPlay `json:"plies,omitempty" yaml:"plies,omitempty,flow"`
+	Bingo    bool      `json:"bingo,omitempty" yaml:"bingo,omitempty"`
 }
 
 type SimmedPlay struct {
@@ -217,9 +218,11 @@ type Simmer struct {
 	cfg          *config.Config
 	knownOppRack []tilemapping.MachineLetter
 
-	logStream       io.Writer
-	collectHeatMap  bool
-	tempHeatMapFile *os.File
+	logStream             io.Writer
+	collectHeatMap        bool
+	tempHeatMapFile       *os.File
+	activeHeatMap         []LogIteration
+	activeHeatMapFilename string
 
 	// See rangefinder.
 	inferences    [][]tilemapping.MachineLetter
@@ -266,12 +269,25 @@ func (s *Simmer) Threads() int {
 	return s.threads
 }
 
+func (s *Simmer) CleanupTempFile() {
+	if s.tempHeatMapFile != nil {
+		err := os.Remove(s.tempHeatMapFile.Name())
+		if err != nil {
+			log.Err(err).Str("heatMapFile", s.tempHeatMapFile.Name()).Msg("could not remove temporary file")
+		} else {
+			log.Info().Str("heatMapFile", s.tempHeatMapFile.Name()).Msg("deleted temp file")
+		}
+	}
+}
+
 func (s *Simmer) SetCollectHeatmap(b bool) error {
 	if s.logStream != nil && b {
 		return errors.New("cannot collect heat map if log stream already used")
 	}
 	s.collectHeatMap = b
+
 	if b {
+		s.CleanupTempFile()
 		// Create a temporary file
 		tempFile, err := os.CreateTemp("", "heatmap-*.gz")
 		if err != nil {
@@ -286,6 +302,10 @@ func (s *Simmer) SetCollectHeatmap(b bool) error {
 		log.Info().Str("heatmap-file", tempFile.Name()).Msg("collecting-heatmap")
 	}
 	return nil
+}
+
+func (s *Simmer) CollectHeatmap() bool {
+	return s.collectHeatMap
 }
 
 func (s *Simmer) closeHeatMap(ctx context.Context) error {
@@ -321,6 +341,10 @@ func (s *Simmer) ReadHeatmap() ([]LogIteration, error) {
 	if s.tempHeatMapFile == nil {
 		return nil, errors.New("no heatmap data to read")
 	}
+	if s.tempHeatMapFile.Name() == s.activeHeatMapFilename {
+		log.Info().Msg("loading-heatmap-from-cache")
+		return s.activeHeatMap, nil
+	}
 
 	// Reopen the temporary file for reading
 	file, err := os.Open(s.tempHeatMapFile.Name())
@@ -347,6 +371,8 @@ func (s *Simmer) ReadHeatmap() ([]LogIteration, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not unmarshal YAML data: %w", err)
 	}
+	s.activeHeatMap = logIterations
+	s.activeHeatMapFilename = s.tempHeatMapFile.Name()
 
 	return logIterations, nil
 }
@@ -618,8 +644,9 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 		}
 		if s.logStream != nil {
 			logPlay = LogPlay{Play: simmedPlay.play.ShortDescription(),
-				Rack: simmedPlay.play.FullRack(),
-				Pts:  simmedPlay.play.Score()}
+				Rack:  simmedPlay.play.FullRack(),
+				Bingo: simmedPlay.play.BingoPlayed(),
+				Pts:   simmedPlay.play.Score()}
 		}
 		// equity of the leftover tiles at the end of the sim
 		leftover := float64(0.0)
@@ -646,7 +673,7 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 			s.nodeCount.Add(1)
 			// log.Debug().Msgf("Score is now %v", s.game.Score())
 			if s.logStream != nil {
-				plyChild = LogPlay{Play: bestPlay.ShortDescription(), Rack: bestPlay.FullRack(), Pts: bestPlay.Score()}
+				plyChild = LogPlay{Play: bestPlay.ShortDescription(), Rack: bestPlay.FullRack(), Pts: bestPlay.Score(), Bingo: bestPlay.BingoPlayed()}
 			}
 			if ply == plies-2 || ply == plies-1 {
 				// It's either OUR last turn or OPP's last turn.

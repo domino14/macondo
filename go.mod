@@ -8,6 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.31.0
 	github.com/aws/aws-sdk-go-v2/config v1.27.36
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.61.0
+	github.com/aybabtme/uniplot v0.0.0-20151203143629-039c559e5e7e
 	github.com/chzyer/readline v1.5.1
 	github.com/domino14/word-golib v0.2.2
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51

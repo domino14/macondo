@@ -52,6 +52,9 @@ Optional arguments:
     must have been simmed, and the `-collect-heatmap` option must have been set to
     `true`.
 
+    sim playstats "H3 FOO" histogram -- this additionally shows a histogram of score
+    distributions for the next two plies.
+
     sim tilestats shows stats about your opponent's tiles - what the percentage
     chance is of them having a certain tile. It doesn't use inference for this,
     just Monte Carlo, at this time. See `help infer` if you would like to use
