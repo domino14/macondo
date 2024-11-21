@@ -32,17 +32,16 @@ var exchRe = regexp.MustCompile(`\((exch|exchange) ([^)]+)\)`)
 var throughPlayRe = regexp.MustCompile(`\(([^)]+)\)`)
 
 type SimStats struct {
-	board   *board.GameBoard
-	game    *bot.BotTurnPlayer
-	heatMap *HeatMap
-	simmer  *montecarlo.Simmer
+	board  *board.GameBoard
+	game   *bot.BotTurnPlayer
+	simmer *montecarlo.Simmer
 
 	oppHist histogram.Histogram
 	ourHist histogram.Histogram
 }
 
 func NewSimStats(simmer *montecarlo.Simmer, g *bot.BotTurnPlayer) *SimStats {
-	return &SimStats{simmer: simmer, game: g, board: g.Board(), heatMap: nil}
+	return &SimStats{simmer: simmer, game: g, board: g.Board()}
 }
 
 func (ss *SimStats) CalculateHeatmap(play string, ply int) (*HeatMap, error) {
@@ -297,4 +296,53 @@ func (st *SimStats) CalculatePlayStats(play string) (string, error) {
 
 func (st *SimStats) LastHistogram() (histogram.Histogram, histogram.Histogram) {
 	return st.oppHist, st.ourHist
+}
+
+func (st *SimStats) CalculateTileStats() (string, error) {
+	var ss strings.Builder
+
+	iters, err := st.simmer.ReadHeatmap()
+	if err != nil {
+		return "", err
+	}
+
+	oppTileRawCount := map[tilemapping.MachineLetter]int{}
+	oppTileAtLeastCount := map[tilemapping.MachineLetter]int{}
+
+	numRacks := 0
+
+	for i := range iters {
+		for j := range iters[i].Plays {
+			if len(iters[i].Plays[j].Plies) > 0 {
+				nextPlay := iters[i].Plays[j].Plies[0]
+				rack := nextPlay.Rack
+				numRacks++
+
+				mls, err := tilemapping.ToMachineLetters(rack, st.game.Alphabet())
+				if err != nil {
+					return "", err
+				}
+				atLeast := map[tilemapping.MachineLetter]bool{}
+				for _, ml := range mls {
+					oppTileRawCount[ml]++
+					if _, ok := atLeast[ml]; !ok {
+						oppTileAtLeastCount[ml]++
+						atLeast[ml] = true
+					}
+				}
+			}
+		}
+	}
+
+	fmt.Fprintf(&ss, "  Tile        %% Opponent racks with at least one of these\n")
+
+	for ml := range tilemapping.MaxAlphabetSize {
+		if ct, ok := oppTileAtLeastCount[tilemapping.MachineLetter(ml)]; ok {
+			fmt.Fprintf(&ss, "  %s            %.2f\n",
+				tilemapping.MachineLetter(ml).UserVisible(st.game.Alphabet(), false),
+				float64(ct*100)/float64(numRacks))
+		}
+	}
+
+	return ss.String(), nil
 }

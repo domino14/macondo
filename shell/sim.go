@@ -301,7 +301,11 @@ func (sc *ShellController) simControlArguments(args []string) error {
 		}
 
 	case "tilestats":
-
+		stats, err := sc.simStats.CalculateTileStats()
+		if err != nil {
+			return err
+		}
+		sc.showMessage(stats)
 	default:
 		return fmt.Errorf("do not understand sim argument %v", args[0])
 	}
