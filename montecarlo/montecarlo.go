@@ -75,9 +75,10 @@ type LogIteration struct {
 
 // LogPlay is a single play.
 type LogPlay struct {
-	Play string `json:"play" yaml:"play"`
-	Rack string `json:"rack" yaml:"rack"`
-	Pts  int    `json:"pts" yaml:"pts"`
+	Play  string `json:"play" yaml:"play"`
+	Leave string `json:"leave" yaml:"leave"`
+	Rack  string `json:"rack" yaml:"rack"`
+	Pts   int    `json:"pts" yaml:"pts"`
 	// Leftover is the equity of the leftover tiles at the end of the sim.
 	Leftover float64 `json:"left,omitempty" yaml:"left,omitempty"`
 	// Although this is a recursive structure we don't really use it
@@ -655,7 +656,9 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 			continue
 		}
 		if s.logStream != nil {
-			logPlay = LogPlay{Play: simmedPlay.play.ShortDescription(),
+			logPlay = LogPlay{
+				Play:  g.Board().MoveDescriptionWithPlaythrough(simmedPlay.play),
+				Leave: simmedPlay.play.LeaveString(),
 				Rack:  simmedPlay.play.FullRack(),
 				Bingo: simmedPlay.play.BingoPlayed(),
 				Pts:   simmedPlay.play.Score()}
@@ -685,7 +688,12 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 			s.nodeCount.Add(1)
 			// log.Debug().Msgf("Score is now %v", s.game.Score())
 			if s.logStream != nil {
-				plyChild = LogPlay{Play: bestPlay.ShortDescription(), Rack: bestPlay.FullRack(), Pts: bestPlay.Score(), Bingo: bestPlay.BingoPlayed()}
+				plyChild = LogPlay{
+					Play:  g.Board().MoveDescriptionWithPlaythrough(bestPlay),
+					Leave: bestPlay.LeaveString(),
+					Rack:  bestPlay.FullRack(),
+					Pts:   bestPlay.Score(),
+					Bingo: bestPlay.BingoPlayed()}
 			}
 			if ply == plies-2 || ply == plies-1 {
 				// It's either OUR last turn or OPP's last turn.
@@ -798,7 +806,7 @@ func (s *Simmer) printStats() string {
 func (s *Simmer) EquityStats() string {
 	var ss strings.Builder
 	s.sortPlaysByWinRate(false)
-	fmt.Fprintf(&ss, "%-20s%-9s%-16s%-16s\n", "Play", "Score", "Win%", "Equity")
+	fmt.Fprintf(&ss, "%-20s%-14s%-9s%-16s%-16s\n", "Play", "Leave", "Score", "Win%", "Equity")
 	s.simmedPlays.RLock()
 	defer s.simmedPlays.RUnlock()
 	for _, play := range s.simmedPlays.plays {
@@ -809,8 +817,9 @@ func (s *Simmer) EquityStats() string {
 			ignore = "❌"
 		}
 
-		fmt.Fprintf(&ss, "%-20s%-9d%-16s%-16s%s\n",
+		fmt.Fprintf(&ss, "%-20s%-14s%-9d%-16s%-16s%s\n",
 			s.origGame.Board().MoveDescriptionWithPlaythrough(play.play),
+			play.play.LeaveString(),
 			play.play.Score(), wpStats, eqStats, ignore)
 	}
 	fmt.Fprintf(&ss, "Iterations: %d (intervals are 99%% confidence, ❌ marks plays cut off early)\n", s.iterationCount.Load())
@@ -828,11 +837,13 @@ func (s *Simmer) ScoreDetails() string {
 		if ply%2 == 0 {
 			who = "Opponent"
 		}
-		stats += fmt.Sprintf("**Ply %d (%s)**\n%-20s%8s%8s%8s%8s%8s\n%s\n",
-			ply+1, who, "Play", "Win%", "Mean", "Stdev", "Bingo %", "Iters", strings.Repeat("-", 60))
+		stats += fmt.Sprintf("**Ply %d (%s)**\n%-20s%-14s%8s%8s%8s%8s%8s\n%s\n",
+			ply+1, who, "Play", "Leave", "Win%", "Mean", "Stdev", "Bingo %", "Iters", strings.Repeat("-", 75))
 		for _, play := range s.simmedPlays.plays {
-			stats += fmt.Sprintf("%-20s%8.2f%8.3f%8.3f%8.3f%8d\n",
-				s.origGame.Board().MoveDescriptionWithPlaythrough(play.play), 100.0*play.winPctStats.Mean(),
+			stats += fmt.Sprintf("%-20s%-14s%8.2f%8.3f%8.3f%8.3f%8d\n",
+				s.origGame.Board().MoveDescriptionWithPlaythrough(play.play),
+				play.play.LeaveString(),
+				100.0*play.winPctStats.Mean(),
 				play.scoreStats[ply].Mean(), play.scoreStats[ply].Stdev(),
 				100.0*play.bingoStats[ply].Mean(), play.scoreStats[ply].Iterations())
 		}

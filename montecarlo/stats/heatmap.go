@@ -231,7 +231,7 @@ func playStatsStr(nextPlayList []*nextPlay, desc string, maxToDisplay int, total
 		}
 	}
 	if showBingos {
-		fmt.Fprintf(&ss, "Bingo percentage: %.2f%%\n", float64(bingos*100)/float64(totalPlayCount))
+		fmt.Fprintf(&ss, "Bingo probability: %.2f%%\n", float64(bingos*100)/float64(totalPlayCount))
 	}
 	return ss.String()
 }
@@ -274,7 +274,7 @@ func (st *SimStats) CalculatePlayStats(play string) (string, error) {
 
 	oppResponsesList := sortedPlayListByScore(oppResponses)
 
-	ss.WriteString(playStatsStr(oppResponsesList, "Opponent's highest scoring plays", 10, totalOppResponses, false))
+	ss.WriteString(playStatsStr(oppResponsesList, "### Opponent's highest scoring plays", 10, totalOppResponses, false))
 	ss.WriteString("\n\n")
 
 	maxToDisplay := 15
@@ -282,10 +282,10 @@ func (st *SimStats) CalculatePlayStats(play string) (string, error) {
 	oppResponsesList = sortedPlayList(oppResponses)
 	ourNextPlaysList := sortedPlayList(ourNextPlays)
 
-	ss.WriteString(playStatsStr(oppResponsesList, "Opponent's next play", maxToDisplay, totalOppResponses, true))
-	ss.WriteString("\n\n")
+	ss.WriteString(playStatsStr(oppResponsesList, "### Opponent's next play", maxToDisplay, totalOppResponses, true))
+	ss.WriteString("\n")
 
-	ss.WriteString(playStatsStr(ourNextPlaysList, "Our next plays", maxToDisplay, totalOurNextPlays, true))
+	ss.WriteString(playStatsStr(ourNextPlaysList, "### Our follow-up play", maxToDisplay, totalOurNextPlays, true))
 	ss.WriteString("\n")
 
 	st.oppHist = histogram.Hist(15, oppScores)
@@ -333,14 +333,16 @@ func (st *SimStats) CalculateTileStats() (string, error) {
 			}
 		}
 	}
-
-	fmt.Fprintf(&ss, "  Tile        %% Opponent racks with at least one of these\n")
+	fmt.Fprintf(&ss, "Note: these tile counts are obtained by simulation and thus are not mathematically exact.\n")
+	fmt.Fprintf(&ss, "  Tile         %% chance in opp rack   Expected # in opp rack\n")
 
 	for ml := range tilemapping.MaxAlphabetSize {
 		if ct, ok := oppTileAtLeastCount[tilemapping.MachineLetter(ml)]; ok {
-			fmt.Fprintf(&ss, "  %s            %.2f\n",
+			fmt.Fprintf(&ss, "  %s            %.2f%%                 %.2f\n",
 				tilemapping.MachineLetter(ml).UserVisible(st.game.Alphabet(), false),
-				float64(ct*100)/float64(numRacks))
+				float64(ct*100)/float64(numRacks),
+				float64(oppTileRawCount[tilemapping.MachineLetter(ml)])/float64(numRacks),
+			)
 		}
 	}
 
