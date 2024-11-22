@@ -115,5 +115,6 @@ func main() {
 		log.Info().Msg("wrote memory profile")
 	}
 
+	sc.Cleanup()
 	log.Info().Msg("server gracefully shutting down")
 }

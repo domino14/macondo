@@ -12,6 +12,10 @@ Example:
     sim log
     sim trim 3
     sim -opprack AENST
+    sim -collect-heatmap true
+    sim heatmap "F3 BAR" 0
+    sim playstats "H3 FOO"
+    sim tilestats
 
 A list of plays must have been generated or added in another way already.
 
@@ -25,33 +29,56 @@ Optional arguments:
     command, and restart the simulation this way if you wish it to be faster.
 
     Sim `trim` takes in a numerical argument: the number of plays to remove
-    from the BOTTOM of the sorted play list. So, for example, `sim trim 5` 
+    from the BOTTOM of the sorted play list. So, for example, `sim trim 5`
     will remove the bottom 5 plays. You may want to run this after simulating
     for some number of iterations.
 
     Before starting a simulation, you can also do `sim log` to write the log
     to a temporary file.
 
+    Use `heatmap` as an argument to display a heatmap of the last sim for a
+    particular play.
+    You must have set the `-collect-heatmap` option to `true` in order to do this.
+    This argument also requires two additional arguments: the play, and the
+    ply index (starting at 0). For example:
+
+    sim heatmap "H3 FOO" 0
+
+    A ply index of 0 corresponds to your opponent's response. If a ply index is
+    not provided, it defaults to 0. Ply index of 1 is your next move after
+    your opponent's response, and so on.
+
+    sim playstats "H3 FOO" shows detailed stats for a specific play. This play
+    must have been simmed, and the `-collect-heatmap` option must have been set to
+    `true`.
+
+    sim playstats "H3 FOO" histogram -- this additionally shows a histogram of score
+    distributions for the next two plies.
+
+    sim tilestats shows stats about your opponent's tiles - what the percentage
+    chance is of them having a certain tile. It doesn't use inference for this,
+    just Monte Carlo, at this time. See `help infer` if you would like to use
+    inference instead.
 
 Options:
 
     -plies 3
 
-    The above option will use 3 plies of look-ahead. By default, Macondo 
+    The above option will use 3 plies of look-ahead. By default, Macondo
     uses 2 plies.
 
     -threads 3
 
     The above option sets the number of threads that Macondo uses to sim
-    your game (3 in this example). If not set, this number defaults to 
+    your game (3 in this example). If not set, this number defaults to
     the greater or 1 or your number of CPUs minus 1.
 
     -stop 95
 
     You can use 95, 98, or 99 for this option. This makes the sim stop when it is
-    X percent sure that the top move is the winning move. 
+    X percent sure that the top move is the winning move.
 
-    Note: using this option will stop the simulation after a fixed number of 
+    Note: using this option will stop the simulation after a fixed number of
     plies (usually 5000). It's possible to get to 5000 plies without having
     a clear winner, but this usually means the winning plays are pretty similar.
 
@@ -62,10 +89,22 @@ Options:
 
     -useinferences cycle
 
-    You can use automatic inferences while simming. You must have run the 
+    You can use automatic inferences while simming. You must have run the
     `infer` command prior to using this. The different options are:
         cycle - cycle through inferences indefinitely
         random - pick a random rack from the inferences each time
 
     Note: the opprack option is not compatible with this. If you use both,
     it will ignore the opprack.
+
+    -collect-heatmap true
+
+    You can collect a heatmap of a sim if you set this option to true. If you
+    do this, make sure to *not* use the sim log command prior. Otherwise,
+    the heatmap will not be collected.
+
+    Note that collecting a heatmap has a small performance impact on the sim speed.
+
+    After your sim stops, you can visualize the heatmap and stats of the
+    different plays you simmed. See the `heatmap` command for more. Type in
+    `help heatmap`.

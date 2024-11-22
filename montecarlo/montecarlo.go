@@ -3,11 +3,15 @@
 package montecarlo
 
 import (
+	"bufio"
+	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"runtime"
 	"sort"
 	"strings"
@@ -51,6 +55,8 @@ import (
 
 */
 
+const MaxHeatMapIterations = 7500
+
 type InferenceMode int
 
 const (
@@ -69,15 +75,17 @@ type LogIteration struct {
 
 // LogPlay is a single play.
 type LogPlay struct {
-	Play string `json:"play" yaml:"play"`
-	Rack string `json:"rack" yaml:"rack"`
-	Pts  int    `json:"pts" yaml:"pts"`
+	Play  string `json:"play" yaml:"play"`
+	Leave string `json:"leave" yaml:"leave"`
+	Rack  string `json:"rack" yaml:"rack"`
+	Pts   int    `json:"pts" yaml:"pts"`
 	// Leftover is the equity of the leftover tiles at the end of the sim.
 	Leftover float64 `json:"left,omitempty" yaml:"left,omitempty"`
 	// Although this is a recursive structure we don't really use it
 	// recursively.
 	WinRatio float64   `json:"win,omitempty" yaml:"win,omitempty"`
 	Plies    []LogPlay `json:"plies,omitempty" yaml:"plies,omitempty,flow"`
+	Bingo    bool      `json:"bingo,omitempty" yaml:"bingo,omitempty"`
 }
 
 type SimmedPlay struct {
@@ -215,7 +223,11 @@ type Simmer struct {
 	cfg          *config.Config
 	knownOppRack []tilemapping.MachineLetter
 
-	logStream io.Writer
+	logStream             io.Writer
+	collectHeatMap        bool
+	tempHeatMapFile       *os.File
+	activeHeatMap         []LogIteration
+	activeHeatMapFilename string
 
 	// See rangefinder.
 	inferences    [][]tilemapping.MachineLetter
@@ -260,6 +272,122 @@ func (s *Simmer) SetThreads(threads int) {
 
 func (s *Simmer) Threads() int {
 	return s.threads
+}
+
+func (s *Simmer) CleanupTempFile() {
+	if s.tempHeatMapFile != nil {
+		err := os.Remove(s.tempHeatMapFile.Name())
+		if err != nil {
+			log.Err(err).Str("heatMapFile", s.tempHeatMapFile.Name()).Msg("could not remove temporary file")
+		} else {
+			log.Info().Str("heatMapFile", s.tempHeatMapFile.Name()).Msg("deleted temp file")
+		}
+	}
+}
+
+func (s *Simmer) SetCollectHeatmap(b bool) error {
+	if s.logStream != nil && b {
+		return errors.New("cannot collect heat map if log stream already used")
+	}
+	s.collectHeatMap = b
+
+	if b {
+		s.CleanupTempFile()
+		// Create a temporary file
+		tempFile, err := os.CreateTemp("", "heatmap-*.gz")
+		if err != nil {
+			return fmt.Errorf("could not create temp file: %w", err)
+		}
+		s.tempHeatMapFile = tempFile
+		// Create a gzip writer that wraps the temporary file
+		gzipWriter := gzip.NewWriter(tempFile)
+
+		// Set logStream to the gzip writer
+		s.logStream = gzipWriter
+		log.Info().Str("heatmap-file", tempFile.Name()).Msg("collecting-heatmap")
+	}
+	return nil
+}
+
+func (s *Simmer) CollectHeatmap() bool {
+	return s.collectHeatMap
+}
+
+func (s *Simmer) closeHeatMap(ctx context.Context) error {
+	logger := zerolog.Ctx(ctx)
+
+	if s.logStream == nil {
+		return nil
+	}
+	if !s.collectHeatMap {
+		return nil
+	}
+	logger.Info().Msg("closing heatmap writer")
+	// Close the gzip writer (flushes remaining data to temp file)
+	if gzWriter, ok := s.logStream.(*gzip.Writer); ok {
+		if err := gzWriter.Close(); err != nil {
+			return fmt.Errorf("could not close gzip writer: %w", err)
+		}
+	}
+
+	// Close the temporary file
+	if err := s.tempHeatMapFile.Close(); err != nil {
+		return fmt.Errorf("could not close temp file: %w", err)
+	}
+
+	// Reset logStream
+	s.logStream = nil
+	s.collectHeatMap = false
+	return nil
+}
+
+// ReadHeatmap reads the gzipped data from the temporary file
+func (s *Simmer) ReadHeatmap() ([]LogIteration, error) {
+	if s.tempHeatMapFile == nil {
+		return nil, errors.New("no heatmap data to read")
+	}
+	if s.tempHeatMapFile.Name() == s.activeHeatMapFilename {
+		log.Info().Msg("loading-heatmap-from-cache")
+		return s.activeHeatMap, nil
+	}
+
+	// Reopen the temporary file for reading
+	file, err := os.Open(s.tempHeatMapFile.Name())
+	if err != nil {
+		return nil, fmt.Errorf("could not open temp file for reading: %w", err)
+	}
+	defer file.Close()
+
+	// Create a gzip reader
+	gzReader, err := gzip.NewReader(file)
+	if err != nil {
+		return nil, fmt.Errorf("could not create gzip reader: %w", err)
+	}
+	defer gzReader.Close()
+
+	// Create a scanner to read the decompressed data line by line
+	scanner := bufio.NewScanner(gzReader)
+
+	// Parse each line into a LogIteration
+	var logIterations []LogIteration
+	for scanner.Scan() {
+		line := scanner.Text()
+		var logIteration LogIteration
+		err := json.Unmarshal([]byte(line), &logIteration)
+		if err != nil {
+			return nil, fmt.Errorf("could not unmarshal JSON line: %w", err)
+		}
+		logIterations = append(logIterations, logIteration)
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error while scanning file: %w", err)
+	}
+
+	s.activeHeatMap = logIterations
+	s.activeHeatMapFilename = s.tempHeatMapFile.Name()
+
+	return logIterations, nil
 }
 
 func (s *Simmer) SetLogStream(l io.Writer) {
@@ -355,6 +483,10 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 		logger.Info().Int("plies", s.maxPlies).Uint64("iterationCt", s.iterationCount.Load()).
 			Msg("sim-ended")
 	}()
+
+	if !s.collectHeatMap {
+		s.tempHeatMapFile = nil
+	}
 
 	nodes := s.nodeCount.Load()
 	// This should be zero, but I think something is wrong with Lambda.
@@ -460,10 +592,14 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 	nodes = s.nodeCount.Load()
 	nps := float64(nodes) / elapsed.Seconds()
 	logger.Info().Msgf("time taken: %v, nps: %f, nodes: %d", elapsed.Seconds(), nps, nodes)
+
 	// Writer thread will exit now:
 	if s.logStream != nil {
 		close(done)
 		writer.Wait()
+	}
+	if err = s.closeHeatMap(ctx); err != nil {
+		logger.Err(err).Msg("close-heat-map")
 	}
 
 	ctrlErr := ctrl.Wait()
@@ -520,9 +656,12 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 			continue
 		}
 		if s.logStream != nil {
-			logPlay = LogPlay{Play: simmedPlay.play.ShortDescription(),
-				Rack: simmedPlay.play.FullRack(),
-				Pts:  simmedPlay.play.Score()}
+			logPlay = LogPlay{
+				Play:  g.Board().MoveDescriptionWithPlaythrough(simmedPlay.play),
+				Leave: simmedPlay.play.LeaveString(),
+				Rack:  simmedPlay.play.FullRack(),
+				Bingo: simmedPlay.play.BingoPlayed(),
+				Pts:   simmedPlay.play.Score()}
 		}
 		// equity of the leftover tiles at the end of the sim
 		leftover := float64(0.0)
@@ -549,7 +688,12 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 			s.nodeCount.Add(1)
 			// log.Debug().Msgf("Score is now %v", s.game.Score())
 			if s.logStream != nil {
-				plyChild = LogPlay{Play: bestPlay.ShortDescription(), Rack: bestPlay.FullRack(), Pts: bestPlay.Score()}
+				plyChild = LogPlay{
+					Play:  g.Board().MoveDescriptionWithPlaythrough(bestPlay),
+					Leave: bestPlay.LeaveString(),
+					Rack:  bestPlay.FullRack(),
+					Pts:   bestPlay.Score(),
+					Bingo: bestPlay.BingoPlayed()}
 			}
 			if ply == plies-2 || ply == plies-1 {
 				// It's either OUR last turn or OPP's last turn.
@@ -599,12 +743,25 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 		}
 	}
 	if s.logStream != nil {
-		out, err := yaml.Marshal([]LogIteration{logIter})
-		if err != nil {
-			logger.Error().Err(err).Msg("marshalling log")
-			return err
+		var out []byte
+		if s.collectHeatMap && iterationCount < MaxHeatMapIterations {
+			// If heat map collection is on, only collect a fixed number of iterations.
+			out, err = json.Marshal(logIter)
+			if err != nil {
+				logger.Error().Err(err).Msg("marshalling log")
+				return err
+			}
+			out = append(out, '\n')
+			logChan <- out
+		} else if !s.collectHeatMap {
+			out, err = yaml.Marshal([]LogIteration{logIter})
+			if err != nil {
+				logger.Error().Err(err).Msg("marshalling log")
+				return err
+			}
+			logChan <- out
 		}
-		logChan <- out
+
 	}
 	return nil
 }
@@ -649,7 +806,7 @@ func (s *Simmer) printStats() string {
 func (s *Simmer) EquityStats() string {
 	var ss strings.Builder
 	s.sortPlaysByWinRate(false)
-	fmt.Fprintf(&ss, "%-20s%-9s%-16s%-16s\n", "Play", "Score", "Win%", "Equity")
+	fmt.Fprintf(&ss, "%-20s%-14s%-9s%-16s%-16s\n", "Play", "Leave", "Score", "Win%", "Equity")
 	s.simmedPlays.RLock()
 	defer s.simmedPlays.RUnlock()
 	for _, play := range s.simmedPlays.plays {
@@ -660,8 +817,9 @@ func (s *Simmer) EquityStats() string {
 			ignore = "❌"
 		}
 
-		fmt.Fprintf(&ss, "%-20s%-9d%-16s%-16s%s\n",
+		fmt.Fprintf(&ss, "%-20s%-14s%-9d%-16s%-16s%s\n",
 			s.origGame.Board().MoveDescriptionWithPlaythrough(play.play),
+			play.play.LeaveString(),
 			play.play.Score(), wpStats, eqStats, ignore)
 	}
 	fmt.Fprintf(&ss, "Iterations: %d (intervals are 99%% confidence, ❌ marks plays cut off early)\n", s.iterationCount.Load())
@@ -679,11 +837,13 @@ func (s *Simmer) ScoreDetails() string {
 		if ply%2 == 0 {
 			who = "Opponent"
 		}
-		stats += fmt.Sprintf("**Ply %d (%s)**\n%-20s%8s%8s%8s%8s%8s\n%s\n",
-			ply+1, who, "Play", "Win%", "Mean", "Stdev", "Bingo %", "Iters", strings.Repeat("-", 60))
+		stats += fmt.Sprintf("**Ply %d (%s)**\n%-20s%-14s%8s%8s%8s%8s%8s\n%s\n",
+			ply+1, who, "Play", "Leave", "Win%", "Mean", "Stdev", "Bingo %", "Iters", strings.Repeat("-", 75))
 		for _, play := range s.simmedPlays.plays {
-			stats += fmt.Sprintf("%-20s%8.2f%8.3f%8.3f%8.3f%8d\n",
-				s.origGame.Board().MoveDescriptionWithPlaythrough(play.play), 100.0*play.winPctStats.Mean(),
+			stats += fmt.Sprintf("%-20s%-14s%8.2f%8.3f%8.3f%8.3f%8d\n",
+				s.origGame.Board().MoveDescriptionWithPlaythrough(play.play),
+				play.play.LeaveString(),
+				100.0*play.winPctStats.Mean(),
 				play.scoreStats[ply].Mean(), play.scoreStats[ply].Stdev(),
 				100.0*play.bingoStats[ply].Mean(), play.scoreStats[ply].Iterations())
 		}

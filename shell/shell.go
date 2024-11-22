@@ -34,6 +34,7 @@ import (
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/montecarlo"
+	"github.com/domino14/macondo/montecarlo/stats"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/preendgame"
@@ -140,6 +141,8 @@ type ShellController struct {
 	botCtx       context.Context
 	botCtxCancel context.CancelFunc
 	botBusy      bool
+
+	simStats *stats.SimStats
 }
 
 type Mode int
@@ -200,6 +203,12 @@ func NewShellController(cfg *config.Config, execPath string) *ShellController {
 	opts.SetDefaults(cfg)
 
 	return &ShellController{l: l, config: cfg, execPath: execPath, options: opts}
+}
+
+func (sc *ShellController) Cleanup() {
+	if sc.simmer != nil {
+		sc.simmer.CleanupTempFile()
+	}
 }
 
 func (sc *ShellController) Set(key string, args []string) (string, error) {
@@ -265,7 +274,12 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 }
 
 func (sc *ShellController) initGameDataStructures() error {
+	if sc.simmer != nil {
+		sc.simmer.CleanupTempFile()
+	}
 	sc.simmer = &montecarlo.Simmer{}
+	sc.simStats = stats.NewSimStats(sc.simmer, sc.game)
+
 	c, err := equity.NewCombinedStaticCalculator(
 		sc.game.LexiconName(),
 		sc.config, "", equity.PEGAdjustmentFilename)

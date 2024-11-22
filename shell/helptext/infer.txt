@@ -7,11 +7,15 @@ Example:
     infer log
 
 Inference requires a game to be loaded. It tries to infer what tiles the
-last person to make a move kept. The only allowed move types for inference
-at this moment are "exchange" and "tile play".
+last person to make a move kept.
 
-That is, the last move must be an exchange or a tile play in order for
-inference to work.
+Note that it uses Monte Carlo simulation in order to do the inference, but
+it only does so "one level deep". So it is not great at inferring tile setups
+at this time.
+
+The only allowed move types for inference at this moment are "exchange" and
+"tile play". That is, the last move must be an exchange or a tile play in
+order for inference to work.
 
 Inference will return an error if the move was not one of these two types,
 or if there was no previous move. If the bag was empty when the player
@@ -21,9 +25,9 @@ In order to set the rack of the player who is performing the inference,
 so that the player whose rack is being inferred doesn't get assigned this
 rack, just set it in the game using the "rack" option.
 
-When the inferrer is done running, it prints out stats for the tiles. 
+When the inferrer is done running, it prints out stats for the tiles.
 
-Inferences are saved in memory. You can sim using these inferences. 
+Inferences are saved in memory. You can sim using these inferences.
 See `help sim` or do `sim -useinferences cycle`.
 
 Optional arguments:
@@ -36,11 +40,11 @@ Options:
 
     -threads 3
 
-    More threads means a more accurate inference. If not set, this number 
+    More threads means a more accurate inference. If not set, this number
     defaults to the greater or 1 or your number of CPUs minus 1.
 
     -time 5
 
     The amount of time in seconds to infer. Defaults to 5 seconds. You may
-    want this to be a little bit larger on slower machines / those with 
+    want this to be a little bit larger on slower machines / those with
     fewer cores.
