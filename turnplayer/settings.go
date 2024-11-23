@@ -3,13 +3,21 @@ package turnplayer
 import (
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
+
+	"github.com/rs/zerolog/log"
+
+	wglconfig "github.com/domino14/word-golib/config"
+	"github.com/domino14/word-golib/tilemapping"
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
-	"github.com/rs/zerolog/log"
 )
 
 type Lexicon struct {
@@ -42,17 +50,63 @@ func (opts *GameOptions) SetDefaults(cfg *config.Config) {
 	}
 }
 
-func (opts *GameOptions) SetLexicon(fields []string) error {
+func (opts *GameOptions) SetLexicon(fields []string, cfg *wglconfig.Config) error {
 	lexname := ""
-	letdist := "english"
+	letdist := ""
+	var err error
 	if len(fields) == 1 {
 		lexname = fields[0]
+		letdist, err = tilemapping.ProbableLetterDistributionName(lexname)
+		if err != nil {
+			log.Err(err).Msg("letter distribution not found for this lexicon; assuming english")
+			letdist = "english"
+		} else {
+			log.Info().Msgf("assuming letter distribution %v", letdist)
+		}
+
 	} else if len(fields) == 2 {
 		lexname, letdist = fields[0], fields[1]
 	} else {
 		msg := "Valid formats are 'lexicon' and 'lexicon alphabet'"
 		return errors.New(msg)
 	}
+	lexname = strings.ToUpper(lexname)
+	// Attempt to find the kwg file.
+	fullpath := filepath.Join(cfg.DataPath, "lexica", "gaddag", cfg.KWGPathPrefix,
+		lexname+".kwg")
+	_, err = os.Stat(fullpath)
+	if err != nil {
+		log.Err(err).Msg("could not find file; attempting to download...")
+		// Attempt to download it.
+		url := "https://github.com/woogles-io/liwords/raw/refs/heads/master/liwords-ui/public/wasm/2024/" + lexname + ".kwg"
+
+		// Create the file
+		out, err := os.Create(fullpath)
+		if err != nil {
+			return fmt.Errorf("failed to create file: %w", err)
+		}
+		defer out.Close()
+
+		// Make the HTTP GET request
+		resp, err := http.Get(url)
+		if err != nil {
+			return fmt.Errorf("failed to download file: %w", err)
+		}
+		defer resp.Body.Close()
+
+		// Check if the response is successful
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("failed to download file: received status code %d", resp.StatusCode)
+		}
+
+		// Write the response body to the file
+		_, err = io.Copy(out, resp.Body)
+		if err != nil {
+			return fmt.Errorf("failed to write file: %w", err)
+		}
+		log.Info().Msgf("Lexicon word graph successfully downloaded to %s", fullpath)
+	}
+
 	opts.Lexicon = &Lexicon{Name: strings.ToUpper(lexname), Distribution: letdist}
 	return nil
 }

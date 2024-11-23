@@ -106,5 +106,5 @@ Options:
     Note that collecting a heatmap has a small performance impact on the sim speed.
 
     After your sim stops, you can visualize the heatmap and stats of the
-    different plays you simmed. See the `heatmap` command for more. Type in
-    `help heatmap`.
+    different plays you simmed. Use `sim heatmap` for this. Refer to the beginning
+    of this document for more information on the parameters for `sim heatmap`.

@@ -129,7 +129,7 @@ func (an *Analyzer) loadJson(j []byte) error {
 	if b.Onturn < 0 || b.Onturn > 1 {
 		return errors.New("invalid onturn")
 	}
-	an.options.SetLexicon([]string{b.Lexicon})
+	an.options.SetLexicon([]string{b.Lexicon}, nil)
 	err = an.newGame()
 	if err != nil {
 		return fmt.Errorf("creating game failed: %w", err)

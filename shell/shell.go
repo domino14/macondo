@@ -220,7 +220,7 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 			msg := "Cannot change the lexicon while a game is active (try `unload` to quit game)"
 			err = errors.New(msg)
 		} else {
-			err = sc.options.SetLexicon(args)
+			err = sc.options.SetLexicon(args, sc.config.WGLConfig())
 			if err == nil {
 				// Overwrite the config options since other parts of the code
 				// use these to determine the lexicon
