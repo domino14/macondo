@@ -31,11 +31,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install invoke
 
-      - name: Download a couple of lexica
-        run: |
-          mkdir -p data/lexica/gaddag
-          curl -L https://github.com/woogles-io/liwords/raw/master/liwords-ui/public/wasm/2024/NWL23.kwg -o data/lexica/gaddag/NWL23.kwg
-          curl -L https://github.com/woogles-io/liwords/raw/master/liwords-ui/public/wasm/2024/CSW24.kwg -o data/lexica/gaddag/CSW24.kwg
+      - name: Create gaddag directory
+        run: mkdir -p data/lexica/gaddag
 
       - name: Run build script
         run: inv build

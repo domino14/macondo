@@ -81,12 +81,13 @@ func (opts *GameOptions) SetLexicon(fields []string, cfg *wglconfig.Config) erro
 		url := "https://github.com/woogles-io/liwords/raw/refs/heads/master/liwords-ui/public/wasm/2024/" + lexname + ".kwg"
 
 		// Create the file
-		out, err := os.Create(fullpath)
+		out, err := os.CreateTemp(cfg.DataPath, "temp-*.kwg")
 		if err != nil {
 			return fmt.Errorf("failed to create file: %w", err)
 		}
-		defer out.Close()
-
+		defer func() {
+			os.Remove(out.Name())
+		}()
 		// Make the HTTP GET request
 		resp, err := http.Get(url)
 		if err != nil {
@@ -104,6 +105,12 @@ func (opts *GameOptions) SetLexicon(fields []string, cfg *wglconfig.Config) erro
 		if err != nil {
 			return fmt.Errorf("failed to write file: %w", err)
 		}
+		out.Close()
+		err = os.Rename(out.Name(), fullpath)
+		if err != nil {
+			return fmt.Errorf("failed to rename file: %w", err)
+		}
+
 		log.Info().Msgf("Lexicon word graph successfully downloaded to %s", fullpath)
 	}
 

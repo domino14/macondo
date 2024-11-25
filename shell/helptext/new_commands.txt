@@ -1,0 +1,1 @@
+    update [install] - check for and install updates to the Macondo software
