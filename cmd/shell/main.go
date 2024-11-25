@@ -86,7 +86,7 @@ func main() {
 	argsLine := strings.Join(args, " ")
 	argsLineTrimmed := strings.TrimSpace(argsLine)
 
-	sc := shell.NewShellController(cfg, exPath)
+	sc := shell.NewShellController(cfg, exPath, GitVersion)
 	if argsLineTrimmed == "" {
 		go sc.Loop(sig)
 	} else {

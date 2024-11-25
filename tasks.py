@@ -23,4 +23,12 @@ def build(c):
         c.run(
             f"GOOS={os} GOARCH={arch} go build -o {executable} {gitflags} ./cmd/shell"
         )
-        c.run(f"zip -r macondo-{tag}-{nickname}.zip ./{executable} ./data")
+        if os == "windows":
+            c.run(
+                f"GOOS=windows GOARCH={arch} go build -o updater.exe {gitflags} ./cmd/updater"
+            )
+            c.run(
+                f"zip -r macondo-{tag}-{nickname}.zip ./{executable} ./updater.exe ./data"
+            )
+        if os != "windows":
+            c.run(f"zip -r macondo-{tag}-{nickname}.zip ./{executable} ./data")

@@ -7,8 +7,9 @@ Example
 The first example sets the lexicon to CSW19. The second example sets the
 lexicon to OSPS42. Note the distribution argument in the second example.
 
-The default letter distribution is `english`. So if you are using a non-English
-tile distribution, you must specify its name as the second argument.
+Macondo will attempt to guess the letter distribution based on the lexicon
+name. If you are using a non-standard lexicon name, you must specify
+the letter distribution name as the second argument.
 
 Acceptable letter distributions so far are:
 
@@ -27,3 +28,6 @@ structure (usually a GADDAG) for the lexicon that you chose.
 
 Your default lexicon and letter distribution will be saved to a local config file
 for future use; you should typically only need to set the defaults once.
+
+If Macondo can't find your lexicon in its data directory, it will attempt to download
+it from the Woogles codebase. An error will be shown if it's unsuccessful.

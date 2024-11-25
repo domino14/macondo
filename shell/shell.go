@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -53,6 +54,8 @@ var (
 	errNoData         = errors.New("no data in this line")
 	errMacondoSolving = errors.New("macondo is busy working on a solution to a position")
 )
+
+var backtickRegex = regexp.MustCompile("`([^`]*)`")
 
 // Options to configure the interactve shell
 type ShellOptions struct {
@@ -143,6 +146,8 @@ type ShellController struct {
 	botBusy      bool
 
 	simStats *stats.SimStats
+
+	macondoVersion string
 }
 
 type Mode int
@@ -167,8 +172,21 @@ func writeln(msg string, w io.Writer) {
 	io.WriteString(w, "\n")
 }
 
+func formatMessage(msg string) string {
+	formattedMsg := backtickRegex.ReplaceAllStringFunc(msg, func(match string) string {
+		content := match[1 : len(match)-1] // Remove the backticks
+		return underlineText(content)
+	})
+	return formattedMsg
+}
+
 func (sc *ShellController) showMessage(msg string) {
-	writeln(msg, os.Stdout)
+	formattedMsg := formatMessage(msg)
+	writeln(formattedMsg, os.Stdout)
+}
+
+func underlineText(text string) string {
+	return "\x1b[4m" + text + "\x1b[0m"
 }
 
 func (sc *ShellController) showError(err error) {
@@ -180,7 +198,7 @@ func (sc *ShellController) showError(err error) {
 	sc.showMessage(fmt.Sprintf("\033[1;31m%s\033[0m", repr))
 }
 
-func NewShellController(cfg *config.Config, execPath string) *ShellController {
+func NewShellController(cfg *config.Config, execPath, gitVersion string) *ShellController {
 	prompt := "macondo>"
 	if os.Getenv("NO_COLOR") == "" {
 		prompt = fmt.Sprintf("\033[31m%s\033[0m", prompt)
@@ -202,7 +220,7 @@ func NewShellController(cfg *config.Config, execPath string) *ShellController {
 	opts := NewShellOptions()
 	opts.SetDefaults(cfg)
 
-	return &ShellController{l: l, config: cfg, execPath: execPath, options: opts}
+	return &ShellController{l: l, config: cfg, execPath: execPath, options: opts, macondoVersion: gitVersion}
 }
 
 func (sc *ShellController) Cleanup() {
@@ -220,7 +238,7 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 			msg := "Cannot change the lexicon while a game is active (try `unload` to quit game)"
 			err = errors.New(msg)
 		} else {
-			err = sc.options.SetLexicon(args)
+			err = sc.options.SetLexicon(args, sc.config.WGLConfig())
 			if err == nil {
 				// Overwrite the config options since other parts of the code
 				// use these to determine the lexicon
@@ -910,6 +928,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.cgp(cmd)
 	case "check":
 		return sc.check(cmd)
+	case "update":
+		return sc.update(cmd)
 	default:
 		msg := fmt.Sprintf("command %v not found", strconv.Quote(cmd.cmd))
 		log.Info().Msg(msg)

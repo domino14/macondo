@@ -21,8 +21,10 @@ notebooks/superleaves/leave*
 notebooks/*/*.csv
 notebooks/*/*.idx
 notebooks/logs/*
+notebooks/venv
 *.p
 *Untitled*
 bin/
 data/strategy/default_english/quackleleaves*
 *.vscode
+.aws-sam/*
