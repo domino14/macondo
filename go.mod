@@ -10,7 +10,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.69.1
 	github.com/aybabtme/uniplot v0.0.0-20151203143629-039c559e5e7e
 	github.com/chzyer/readline v1.5.1
-	github.com/domino14/word-golib v0.2.3
+	github.com/domino14/word-golib v0.2.4
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
 	github.com/matryer/is v1.4.1
 	github.com/nats-io/nats.go v1.37.0
