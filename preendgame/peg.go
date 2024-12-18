@@ -521,9 +521,18 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 		winners, err = s.multithreadSolveGeneric(ctx, moves, logChan)
 		if err != nil {
 			if err == ErrCanceledEarly {
-				return lastWinners, nil
+				if len(lastWinners) > 0 {
+					log.Info().Int("len(lastWinners)", len(lastWinners)).Msg("returning-last-winners")
+					winners = lastWinners
+				} else {
+					// Otherwise keep winners
+					log.Info().Str("topWinner", winners[0].String()).Msg("no-last-winners")
+				}
+				// If we ran out of time, break out of the outer endgame solvers loop
+				break
+			} else {
+				return nil, err
 			}
-			return winners, err
 		}
 		s.curEndgamePlies++
 	}
@@ -535,7 +544,7 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 	log.Info().Str("ttable-stats", s.ttable.Stats()).
 		Float64("time-elapsed-sec", time.Since(ts).Seconds()).
 		Msg("solve-returning")
-	return winners, err
+	return winners, nil
 }
 
 type job struct {

@@ -9,6 +9,7 @@ import (
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/movegen"
 )
 
 func TestGenBestStaticTurn(t *testing.T) {
@@ -80,4 +81,23 @@ func TestGenBestStaticTurn6(t *testing.T) {
 	is.Equal(runner.game.Bag().TilesRemaining(), 0)
 	bestPlay := runner.genBestStaticTurn(0)
 	is.Equal("F10 .cARPS", bestPlay.ShortDescription())
+}
+
+func TestStochasticTurn(t *testing.T) {
+	is := is.New(t)
+
+	runner := NewGameRunner(nil, DefaultConfig)
+	runner.StartGame(0)
+	// this rack has so much equity that the player might pass/exchange.
+	runner.game.SetRackFor(0, tilemapping.RackFromString("ADFGHIJ", runner.alphabet))
+	runner.aiplayers[0].MoveGenerator().(*movegen.GordonGenerator).SetRecordNTopPlays(2)
+	runner.aiplayers[0].MoveGenerator().(*movegen.GordonGenerator).SetGame(runner.game)
+	plays := map[string]int{}
+	for i := 0; i < 10000; i++ {
+		bestPlay := runner.genStochasticStaticTurn(0)
+		plays[bestPlay.ShortDescription()]++
+	}
+	// JIHAD should get picked around 59% of the time.
+	is.True(plays[" 8D JIHAD"] > 5500 && plays[" 8D JIHAD"] < 6500)
+	is.True(plays[" 8D HADJI"] > 3500 && plays[" 8D HADJI"] < 4500)
 }

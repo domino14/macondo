@@ -50,6 +50,8 @@ const (
 	EndgameLog = "./macondo-endgamelog"
 )
 
+const eliteBotShellTimeout = time.Duration(1) * time.Minute
+
 var (
 	errNoData         = errors.New("no data in this line")
 	errMacondoSolving = errors.New("macondo is busy working on a solution to a position")
@@ -692,8 +694,9 @@ func (sc *ShellController) commitAIMove() error {
 	}
 
 	go func() {
-		log.Info().Msg("Please wait, thinking for up to a minute...")
-		sc.botCtx, sc.botCtxCancel = context.WithTimeout(context.Background(), time.Second*time.Duration(60))
+		log.Info().Msgf("Please wait, thinking for up to %v...", eliteBotShellTimeout)
+		sc.botCtx, sc.botCtxCancel = context.WithTimeout(context.Background(),
+			eliteBotShellTimeout)
 		sc.botBusy = true
 		defer func() {
 			sc.botBusy = false
@@ -714,6 +717,7 @@ func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) err
 	var block bool
 	var botcode1, botcode2 pb.BotRequest_BotCode
 	var minsimplies1, minsimplies2 int
+	var stochastic1, stochastic2 bool
 	var err error
 	if options.String("logfile") == "" {
 		logfile = "/tmp/autoplay.txt"
@@ -762,6 +766,8 @@ func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) err
 	if numgames, err = options.IntDefault("numgames", 1e9); err != nil {
 		return err
 	}
+	stochastic1 = options.Bool("stochastic1")
+	stochastic2 = options.Bool("stochastic2")
 	block = options.Bool("block")
 	if numthreads, err = options.IntDefault("threads", runtime.NumCPU()); err != nil {
 		return err
@@ -794,8 +800,16 @@ func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) err
 		sc.gameRunnerCtx, sc.config, numgames, block, numthreads,
 		logfile, lexicon, letterDistribution,
 		[]automatic.AutomaticRunnerPlayer{
-			{LeaveFile: leavefile1, PEGFile: pegfile1, BotCode: botcode1, MinSimPlies: minsimplies1},
-			{LeaveFile: leavefile2, PEGFile: pegfile2, BotCode: botcode2, MinSimPlies: minsimplies2},
+			{LeaveFile: leavefile1,
+				PEGFile:              pegfile1,
+				BotCode:              botcode1,
+				MinSimPlies:          minsimplies1,
+				StochasticStaticEval: stochastic1},
+			{LeaveFile: leavefile2,
+				PEGFile:              pegfile2,
+				BotCode:              botcode2,
+				MinSimPlies:          minsimplies2,
+				StochasticStaticEval: stochastic2},
 		})
 
 	if err != nil {

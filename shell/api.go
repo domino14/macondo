@@ -320,7 +320,6 @@ func (sc *ShellController) generate(cmd *shellcmd) (*Response, error) {
 			return nil, err
 		}
 	}
-
 	return msg(sc.genMovesAndDescription(numPlays)), nil
 }
 
