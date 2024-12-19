@@ -14,6 +14,7 @@ func GenBestStaticTurn(g *game.Game, p AITurnPlayer, playerIdx int) *move.Move {
 	mg.SetPlayRecorder(movegen.TopPlayOnlyRecorder)
 	// the equity calculators for its movegen should already have been set if this
 	// AITurnPlayer was initialized properly.
+	// mg.(*movegen.GordonGenerator).SetGame(g)
 
 	// Add an exchange only if there are 7 or more tiles in the bag.
 	// in case we don't have full rack info:

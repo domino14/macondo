@@ -20,6 +20,7 @@ import (
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/movegen"
 )
 
 var MaxTimePerTurn = 30 * time.Second
@@ -110,8 +111,9 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 		if err != nil {
 			return err
 		}
-
+		btp.MoveGenerator().(*movegen.GordonGenerator).SetGame(r.game)
 		r.aiplayers[idx] = btp
+
 	}
 	r.order = [2]int{0, 1}
 	return nil
@@ -172,7 +174,7 @@ func (r *GameRunner) genBestMoveForBot(playerIdx int) *move.Move {
 // PlayBestTurn generates the best move for the player and plays it on the board.
 func (r *GameRunner) PlayBestTurn(playerIdx int, addToHistory bool) error {
 	bestPlay := r.genBestMoveForBot(playerIdx)
-	log.Info().Int("playerIdx", playerIdx).
+	log.Debug().Int("playerIdx", playerIdx).
 		Str("bestPlay", bestPlay.ShortDescription()).Msg("play-best-turn")
 	// save rackLetters for logging.
 	rackLetters := r.game.RackLettersFor(playerIdx)
