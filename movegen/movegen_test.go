@@ -709,6 +709,61 @@ func BenchmarkGenFullRack(b *testing.B) {
 	}
 }
 
+func BenchmarkBoardPositionGenFullRackBest(b *testing.B) {
+	is := is.New(b)
+
+	gd, err := GaddagFromLexicon("CSW07")
+	is.NoErr(err)
+	alph := gd.GetAlphabet()
+
+	g, err := cgp.ParseCGP(DefaultConfig,
+		"7L2BOXEN/5ZOARIA1IF1/4FAINE6/3Q3G7/3AR2S7/3TOM1P7/4JA1E7/3HANDLES5/4KO9/15/15/15/15/15/15 ARTHOUS/ 186/228 0 lex CSW07;")
+	is.NoErr(err)
+	ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.WGLConfig())
+	is.NoErr(err)
+	generator := NewGordonGenerator(gd, g.Board(), ld)
+	generator.SetGame(g.Game)
+	g.RecalculateBoard()
+	generator.SetPlayRecorder(TopPlayOnlyRecorder)
+	elc, err := equity.NewExhaustiveLeaveCalculator("CSW07", DefaultConfig, "")
+	is.NoErr(err)
+	generator.SetEquityCalculators([]equity.EquityCalculator{
+		&equity.EndgameAdjustmentCalculator{},
+		elc,
+		&equity.OpeningAdjustmentCalculator{}})
+	rack := tilemapping.RackFromString("ARTHOUS", alph)
+	for i := 0; i < b.N; i++ {
+		generator.GenAll(rack, true)
+	}
+}
+
+func BenchmarkBoardPositionGenFullRackAll(b *testing.B) {
+	is := is.New(b)
+
+	gd, err := GaddagFromLexicon("CSW07")
+	is.NoErr(err)
+	alph := gd.GetAlphabet()
+
+	g, err := cgp.ParseCGP(DefaultConfig,
+		"7L2BOXEN/5ZOARIA1IF1/4FAINE6/3Q3G7/3AR2S7/3TOM1P7/4JA1E7/3HANDLES5/4KO9/15/15/15/15/15/15 ARTHOUS/ 186/228 0 lex CSW07;")
+	is.NoErr(err)
+	ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.WGLConfig())
+	is.NoErr(err)
+	generator := NewGordonGenerator(gd, g.Board(), ld)
+	generator.SetGame(g.Game)
+	g.RecalculateBoard()
+	elc, err := equity.NewExhaustiveLeaveCalculator("CSW07", DefaultConfig, "")
+	is.NoErr(err)
+	generator.SetEquityCalculators([]equity.EquityCalculator{
+		&equity.EndgameAdjustmentCalculator{},
+		elc,
+		&equity.OpeningAdjustmentCalculator{}})
+	rack := tilemapping.RackFromString("ARTHOUS", alph)
+	for i := 0; i < b.N; i++ {
+		generator.GenAll(rack, true)
+	}
+}
+
 func BenchmarkJustMovegen(b *testing.B) {
 	is := is.New(b)
 

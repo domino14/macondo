@@ -192,6 +192,10 @@ func (m *Move) SetEmpty() {
 	m.action = MoveTypeUnset
 }
 
+func (m *Move) IsEmpty() bool {
+	return m.action == MoveTypeUnset
+}
+
 func (m *Move) MoveTypeString() string {
 	// Return the moveype as a string
 	switch m.action {

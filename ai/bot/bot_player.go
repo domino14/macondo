@@ -22,9 +22,10 @@ import (
 
 type BotConfig struct {
 	config.Config
-	PEGAdjustmentFile string
-	LeavesFile        string
-	MinSimPlies       int
+	PEGAdjustmentFile    string
+	LeavesFile           string
+	MinSimPlies          int
+	StochasticStaticEval bool
 	// If UseOppRacksInAnalysis is true, will use opponent rack info for simulation/pre-endgames/etc
 	UseOppRacksInAnalysis bool
 }

@@ -210,7 +210,7 @@ func TopPlayOnlyRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip
 	default:
 
 	}
-	if gen.winner.Action() == move.MoveTypeUnset || eq > gen.winner.Equity() {
+	if gen.winner.IsEmpty() || eq > gen.winner.Equity() {
 		gen.winner.CopyFrom(gen.placeholder)
 		gen.winner.SetEquity(eq)
 		if len(gen.plays) == 0 {
@@ -220,4 +220,96 @@ func TopPlayOnlyRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip
 		}
 	}
 
+}
+
+func TopNPlayRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, rightstrip int, t move.MoveType, score int) {
+
+	var eq float64
+	var tilesLength int
+	var leaveLength int
+
+	switch t {
+	case move.MoveTypePlay:
+		startRow := gen.curRowIdx
+		tilesPlayed := gen.tilesPlayed
+
+		startCol := leftstrip
+		row := startRow
+		col := startCol
+		if gen.vertical {
+			// We flip it here because we only generate vertical moves when we transpose
+			// the board, so the row and col are actually transposed.
+			row, col = col, row
+		}
+		tilesLength = rightstrip - leftstrip + 1
+		// word is in gen.strip[startCol:startCol+length]
+		if tilesLength < 2 {
+			return
+		}
+		// note that this is a pointer right now:
+		word := gen.strip[startCol : startCol+tilesLength]
+		leaveLength = rack.NoAllocTilesOn(gen.leavestrip)
+
+		gen.placeholder.Set(word, gen.leavestrip[:leaveLength], score,
+			row, col, tilesPlayed, gen.vertical, move.MoveTypePlay,
+			gen.letterDistribution.TileMapping())
+		if len(gen.equityCalculators) > 0 {
+			eq = lo.SumBy(gen.equityCalculators, func(c equity.EquityCalculator) float64 {
+				return c.Equity(gen.placeholder, gen.board, gen.game.Bag(), gen.game.RackFor(gen.game.NextPlayer()))
+			})
+		} else {
+			eq = float64(score)
+		}
+
+	case move.MoveTypeExchange:
+		// ignore the empty exchange case
+		if rightstrip == 0 {
+			return
+		}
+		if rightstrip > gen.maxCanExchange {
+			return
+		}
+		tilesLength = rightstrip
+		exchanged := gen.exchangestrip[:rightstrip]
+		leaveLength = rack.NoAllocTilesOn(gen.leavestrip)
+
+		gen.placeholder.Set(exchanged, gen.leavestrip[:leaveLength], 0,
+			0, 0, tilesLength, gen.vertical, move.MoveTypeExchange,
+			gen.letterDistribution.TileMapping())
+
+		eq = lo.SumBy(gen.equityCalculators, func(c equity.EquityCalculator) float64 {
+			return c.Equity(gen.placeholder, gen.board, gen.game.Bag(), gen.game.RackFor(gen.game.NextPlayer()))
+		})
+	case move.MoveTypePass:
+		leaveLength = rack.NoAllocTilesOn(gen.leavestrip)
+		alph := gen.letterDistribution.TileMapping()
+		gen.placeholder.Set(nil, gen.leavestrip[:leaveLength],
+			0, 0, 0, 0, false, move.MoveTypePass, alph)
+		eq = lo.SumBy(gen.equityCalculators, func(c equity.EquityCalculator) float64 {
+			return c.Equity(gen.placeholder, gen.board, gen.game.Bag(), gen.game.RackFor(gen.game.NextPlayer()))
+		})
+	default:
+
+	}
+
+	newIdx := -1
+	// fmt.Printf("finding a spot for eq %v (play %s)\n", eq, gen.placeholder.ShortDescription())
+	for i := 0; i < gen.maxTopMovesSize; i++ {
+		if eq > gen.topNPlays[i].Equity() {
+			newIdx = i
+			// fmt.Printf("inserting eq %v at idx %v\n", eq, newIdx)
+			break
+		}
+	}
+	if newIdx != -1 {
+		// fmt.Println("before", gen.topNPlays)
+		// Shift right the moves to make room for the new move
+		for j := gen.maxTopMovesSize - 1; j > newIdx; j-- {
+			gen.topNPlays[j].CopyFrom(gen.topNPlays[j-1])
+		}
+		// Insert the new move at the correct position
+		gen.topNPlays[newIdx].CopyFrom(gen.placeholder)
+		gen.topNPlays[newIdx].SetEquity(eq)
+		// fmt.Println(gen.topNPlays)
+	}
 }

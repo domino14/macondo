@@ -33,6 +33,7 @@ import (
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/stats"
 )
 
@@ -233,7 +234,8 @@ type Simmer struct {
 	inferences    [][]tilemapping.MachineLetter
 	inferenceMode InferenceMode
 
-	autostopper *AutoStopper
+	autostopper          *AutoStopper
+	stochasticStaticEval bool
 }
 
 func (s *Simmer) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
@@ -272,6 +274,14 @@ func (s *Simmer) SetThreads(threads int) {
 
 func (s *Simmer) Threads() int {
 	return s.threads
+}
+
+func (s *Simmer) SetStochasticStaticEval(j bool) {
+	log.Debug().Msg("set stochastic static evaluator for this bot")
+	s.stochasticStaticEval = j
+	for i := range s.aiplayers {
+		s.aiplayers[i].MoveGenerator().(*movegen.GordonGenerator).SetRecordNTopPlays(2)
+	}
 }
 
 func (s *Simmer) CleanupTempFile() {
@@ -418,6 +428,8 @@ func (s *Simmer) makeGameCopies() error {
 		if err != nil {
 			return err
 		}
+		// not ideal, but refactor later. The play recorder needs it.
+		player.MoveGenerator().(*movegen.GordonGenerator).SetGame(s.gameCopies[i])
 		s.aiplayers = append(s.aiplayers, player)
 	}
 	return nil
@@ -767,7 +779,10 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 }
 
 func (s *Simmer) bestStaticTurn(playerID, thread int) *move.Move {
-	return aiturnplayer.GenBestStaticTurn(s.gameCopies[thread], s.aiplayers[thread], playerID)
+	if !s.stochasticStaticEval {
+		return aiturnplayer.GenBestStaticTurn(s.gameCopies[thread], s.aiplayers[thread], playerID)
+	}
+	return aiturnplayer.GenStochasticStaticTurn(s.gameCopies[thread], s.aiplayers[thread], playerID)
 }
 
 func (s *Simmer) sortPlaysByEquity() {

@@ -129,6 +129,7 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 	if !s.skipTiebreaker {
 		err = s.maybeTiebreak(ctx, maybeInBagTiles)
 		if err != nil {
+			log.Err(err).Msg("in-tiebreak")
 			return nil, err
 		}
 	}

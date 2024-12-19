@@ -37,8 +37,8 @@ func init() {
 func (r *GameRunner) CompVsCompStatic(addToHistory bool) error {
 	err := r.Init(
 		[]AutomaticRunnerPlayer{
-			{"", "", pb.BotRequest_HASTY_BOT, 0},
-			{"", "", pb.BotRequest_HASTY_BOT, 0},
+			{"", "", pb.BotRequest_HASTY_BOT, 0, false},
+			{"", "", pb.BotRequest_HASTY_BOT, 0, false},
 		})
 
 	if err != nil {

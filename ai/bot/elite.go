@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
@@ -82,6 +83,7 @@ func eliteBestPlay(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 		Bool("useEndgame", useEndgame).
 		Int("unseen", unseen).
 		Bool("useKnownOppRack", p.cfg.UseOppRacksInAnalysis).
+		Bool("stochasticStaticEval", p.cfg.StochasticStaticEval).
 		Int("consideredMoves", len(moves)).Msg("elite-player")
 
 	if useEndgame {
@@ -169,6 +171,7 @@ func preendgameBest(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 
 	moves, err := p.preendgamer.Solve(ctx)
 	if err != nil {
+		log.Err(err).Msg("preendgamer-solve-error")
 		return nil, err
 	}
 	p.lastCalculatedDetails = p.preendgamer.ShortDetails()
@@ -214,6 +217,9 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	}
 	p.simmer.PrepareSim(simPlies, moves)
 	p.simmer.SetStoppingCondition(montecarlo.Stop99)
+	if p.cfg.StochasticStaticEval {
+		p.simmer.SetStochasticStaticEval(true)
+	}
 	// p.simmer.SetAutostopIterationsCutoff(2500)
 	// p.simmer.SetAutostopPPScaling(1500)
 

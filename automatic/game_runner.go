@@ -20,6 +20,7 @@ import (
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/movegen"
 )
 
 var MaxTimePerTurn = 30 * time.Second
@@ -49,18 +50,19 @@ func NewGameRunner(logchan chan string, cfg *config.Config) *GameRunner {
 		letterDistribution: cfg.GetString(config.ConfigDefaultLetterDistribution),
 	}
 	r.Init([]AutomaticRunnerPlayer{
-		{"", "", pb.BotRequest_HASTY_BOT, 0},
-		{"", "", pb.BotRequest_HASTY_BOT, 0},
+		{"", "", pb.BotRequest_HASTY_BOT, 0, false},
+		{"", "", pb.BotRequest_HASTY_BOT, 0, false},
 	})
 
 	return r
 }
 
 type AutomaticRunnerPlayer struct {
-	LeaveFile   string
-	PEGFile     string
-	BotCode     pb.BotRequest_BotCode
-	MinSimPlies int
+	LeaveFile            string
+	PEGFile              string
+	BotCode              pb.BotRequest_BotCode
+	MinSimPlies          int
+	StochasticStaticEval bool
 }
 
 // Init initializes the runner
@@ -98,18 +100,20 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 		log.Info().Msgf("botcode %v", botcode)
 
 		conf := &bot.BotConfig{
-			Config:            *r.config,
-			PEGAdjustmentFile: pegfile,
-			LeavesFile:        leavefile,
-			MinSimPlies:       players[idx].MinSimPlies,
+			Config:               *r.config,
+			PEGAdjustmentFile:    pegfile,
+			LeavesFile:           leavefile,
+			MinSimPlies:          players[idx].MinSimPlies,
+			StochasticStaticEval: players[idx].StochasticStaticEval,
 		}
 
 		btp, err := bot.NewBotTurnPlayerFromGame(r.game, conf, botcode)
 		if err != nil {
 			return err
 		}
-
+		btp.MoveGenerator().(*movegen.GordonGenerator).SetGame(r.game)
 		r.aiplayers[idx] = btp
+
 	}
 	r.order = [2]int{0, 1}
 	return nil
@@ -144,6 +148,10 @@ func (r *GameRunner) genBestStaticTurn(playerIdx int) *move.Move {
 	return aiturnplayer.GenBestStaticTurn(r.game, r.aiplayers[playerIdx], playerIdx)
 }
 
+func (r *GameRunner) genStochasticStaticTurn(playerIdx int) *move.Move {
+	return aiturnplayer.GenStochasticStaticTurn(r.game, r.aiplayers[playerIdx], playerIdx)
+}
+
 func (r *GameRunner) genBestMoveForBot(playerIdx int) *move.Move {
 	if r.aiplayers[playerIdx].GetBotType() == pb.BotRequest_HASTY_BOT {
 		// For HastyBot we only need to generate one single best static turn.
@@ -166,6 +174,8 @@ func (r *GameRunner) genBestMoveForBot(playerIdx int) *move.Move {
 // PlayBestTurn generates the best move for the player and plays it on the board.
 func (r *GameRunner) PlayBestTurn(playerIdx int, addToHistory bool) error {
 	bestPlay := r.genBestMoveForBot(playerIdx)
+	log.Debug().Int("playerIdx", playerIdx).
+		Str("bestPlay", bestPlay.ShortDescription()).Msg("play-best-turn")
 	// save rackLetters for logging.
 	rackLetters := r.game.RackLettersFor(playerIdx)
 	tilesRemaining := r.game.Bag().TilesRemaining()
