@@ -11,6 +11,7 @@
 package movegen
 
 import (
+	"math"
 	"sort"
 
 	"github.com/domino14/word-golib/kwg"
@@ -44,6 +45,26 @@ type MoveGenerator interface {
 	SetMaxTileUsage(int)
 	SetGenPass(bool)
 }
+
+// type moveHeap []*move.Move
+
+// func (m moveHeap) Len() int { return len(m) }
+
+// func (m moveHeap) Less(i, j int) bool { return m[i].Equity() < m[j].Equity() }
+
+// func (m moveHeap) Swap(i, j int) { m[i], m[j] = m[j], m[i] }
+
+// func (m *moveHeap) Push(x interface{}) {
+// 	*m = append(*m, x.(*move.Move))
+// }
+
+// func (m *moveHeap) Pop() interface{} {
+// 	old := *m
+// 	n := len(old)
+// 	x := old[n-1]
+// 	*m = old[0 : n-1]
+// 	return x
+// }
 
 // GordonGenerator is the main move generation struct. It implements
 // Steven A. Gordon's algorithm from his paper "A faster Scrabble Move Generation
@@ -90,6 +111,10 @@ type GordonGenerator struct {
 	quitEarly      bool
 	maxTileUsage   int
 	maxCanExchange int
+
+	// For top N only:
+	topNPlays       []*move.Move
+	maxTopMovesSize int
 }
 
 // NewGordonGenerator returns a Gordon move generator.
@@ -127,6 +152,18 @@ func (gen *GordonGenerator) SetSortingParameter(s SortBy) {
 
 func (gen *GordonGenerator) SetPlayRecorder(pr PlayRecorderFunc) {
 	gen.playRecorder = pr
+	gen.maxTopMovesSize = 0
+}
+
+func (gen *GordonGenerator) SetRecordNTopPlays(n int) {
+	gen.playRecorder = TopNPlayRecorder
+	gen.maxTopMovesSize = n
+	gen.topNPlays = make([]*move.Move, n)
+	for i := range gen.topNPlays {
+		gen.topNPlays[i] = new(move.Move)
+		gen.topNPlays[i].SetEquity(math.Inf(-1))
+		gen.topNPlays[i].SetEmpty()
+	}
 }
 
 func (gen *GordonGenerator) SetEquityCalculators(calcs []equity.EquityCalculator) {
@@ -152,7 +189,13 @@ func (gen *GordonGenerator) GenAll(rack *tilemapping.Rack, addExchange bool) []*
 	gen.winner.SetEmpty()
 	gen.quitEarly = false
 	gen.plays = gen.plays[:0]
+	for i := range gen.topNPlays {
+		gen.topNPlays[i].SetEquity(math.Inf(-1))
+		gen.topNPlays[i].SetEmpty()
+	}
 
+	// XXX: I shouldn't be doing this every time GenAll gets called. Only if actually
+	// using the SmallMove recorder. This causes a needless allocation per loop.
 	ptr := SmallPlaySlicePool.Get().(*[]tinymove.SmallMove)
 	gen.smallPlays = *ptr
 	gen.smallPlays = gen.smallPlays[0:0]
@@ -185,6 +228,22 @@ func (gen *GordonGenerator) GenAll(rack *tilemapping.Rack, addExchange bool) []*
 		gen.generateExchangeMoves(rack, 0, 0)
 	}
 	*ptr = gen.smallPlays
+
+	if gen.maxTopMovesSize != 0 {
+		// We're in top-N mode. gen.plays is empty
+		delfrom := -1
+		for i := 0; i < gen.maxTopMovesSize; i++ {
+			if gen.topNPlays[i].IsEmpty() {
+				delfrom = i
+				break
+			}
+		}
+		if delfrom != -1 {
+			return gen.topNPlays[:delfrom]
+		}
+		return gen.topNPlays
+
+	}
 
 	return gen.plays
 }
@@ -428,6 +487,19 @@ func (gen *GordonGenerator) scoreMove(word tilemapping.MachineWord, row, col, ti
 
 // Plays returns the generator's generated plays.
 func (gen *GordonGenerator) Plays() []*move.Move {
+	if gen.maxTopMovesSize > 0 {
+		delfrom := -1
+		for i := 0; i < gen.maxTopMovesSize; i++ {
+			if gen.topNPlays[i].IsEmpty() {
+				delfrom = i
+				break
+			}
+		}
+		if delfrom != -1 {
+			return gen.topNPlays[:delfrom]
+		}
+		return gen.topNPlays
+	}
 	return gen.plays
 }
 
