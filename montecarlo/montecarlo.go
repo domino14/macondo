@@ -188,6 +188,10 @@ func (s *SimmedPlay) Move() *move.Move {
 	return s.play
 }
 
+func (s *SimmedPlay) WinPct() float64 {
+	return s.winPctStats.Mean()
+}
+
 type SimmedPlays struct {
 	sync.RWMutex
 	plays []*SimmedPlay
@@ -576,7 +580,7 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 				}
 				// check if we need to stop
 				if s.autostopper.stoppingCondition != StopNone {
-					if numIters%StopConditionCheckInterval == 0 {
+					if numIters%s.autostopper.stopConditionCheckInterval == 0 {
 						logger.Debug().Uint64("numIters", numIters).Msg("checking-stopping-condition")
 						stop := s.autostopper.shouldStop(numIters, s.simmedPlays, s.maxPlies)
 						if stop {
@@ -652,8 +656,16 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 	rackToSet := s.knownOppRack
 	if s.inferenceMode == InferenceCycle {
 		rackToSet = s.inferences[int(iterationCount)%len(s.inferences)]
+		// Sometimes, just set a random rack anyway.
+		// This number should likely be adjusted.
+		if frand.Float64() >= 0.5 {
+			rackToSet = nil
+		}
 	} else if s.inferenceMode == InferenceRandom {
 		rackToSet = s.inferences[frand.Intn(len(s.inferences))]
+		if frand.Float64() >= 0.5 {
+			rackToSet = nil
+		}
 	}
 	_, err := g.SetRandomRack(opp, rackToSet)
 	if err != nil {
@@ -890,12 +902,24 @@ func (s *Simmer) ShortDetails(nplays int) string {
 
 }
 
-func (s *Simmer) SimSingleThread(iters int) {
+// SimSingleThread is a fast utility function to sim on a single thread with
+// a fixed number of iterations and an optional stopping condition.
+func (s *Simmer) SimSingleThread(iters, plies int) {
 	ctx := context.Background()
-	for i := 0; i < iters; i++ {
-		iters := s.iterationCount.Add(1)
+	for i := range uint64(iters) {
 
-		s.simSingleIteration(ctx, s.maxPlies, 0, iters-1, nil)
+		s.simSingleIteration(ctx, plies, 0, i, nil)
+
+		// check if we need to stop
+		if s.autostopper.stoppingCondition != StopNone {
+			if (i+1)%s.autostopper.stopConditionCheckInterval == 0 {
+				stop := s.autostopper.shouldStop(i+1, s.simmedPlays, plies)
+				if stop {
+					log.Debug().Uint64("numIters", i+1).Msg("reached stopping condition")
+					break
+				}
+			}
+		}
 	}
 }
 
@@ -912,4 +936,25 @@ func (s *Simmer) SetAutostopPPScaling(i int) {
 
 func (s *Simmer) SetAutostopIterationsCutoff(i int) {
 	s.autostopper.iterationsCutoff = i
+}
+
+func (s *Simmer) SetAutostopCheckInterval(i uint64) {
+	s.autostopper.stopConditionCheckInterval = i
+}
+
+type PlayWithWinProb struct {
+	Move    *move.Move
+	WinProb float64
+}
+
+func (s *Simmer) PlaysWithWinProb() []PlayWithWinProb {
+	s.sortPlaysByWinRate(true)
+
+	plays := make([]PlayWithWinProb, len(s.simmedPlays.plays))
+	for i := range plays {
+		plays[i].Move = s.simmedPlays.plays[i].Move()
+		// WinPct is actually from 0 to 1; let's try to use WinProb as it's more accurate.
+		plays[i].WinProb = s.simmedPlays.plays[i].WinPct()
+	}
+	return plays
 }

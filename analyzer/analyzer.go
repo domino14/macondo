@@ -243,7 +243,7 @@ func (an *Analyzer) SimSingleThread(iters int) error {
 	if simmer == nil {
 		return errors.New("sim not initialized")
 	}
-	simmer.SimSingleThread(iters)
+	simmer.SimSingleThread(iters, 2)
 	return nil
 }
 

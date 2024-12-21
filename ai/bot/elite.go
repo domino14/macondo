@@ -20,7 +20,7 @@ import (
 	"github.com/domino14/macondo/movegen"
 )
 
-const InferencesSimLimit = 400
+const InferencesSimLimit = 100
 
 // Elite bot uses Monte Carlo simulations to rank plays, plays an endgame,
 // a pre-endgame (when ready).
@@ -224,7 +224,7 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	// p.simmer.SetAutostopPPScaling(1500)
 
 	if HasInfer(p.botType) && len(p.inferencer.Inferences()) > InferencesSimLimit {
-		logger.Debug().Int("inferences", len(p.inferencer.Inferences())).Msg("using inferences in sim")
+		logger.Info().Int("inferences", len(p.inferencer.Inferences())).Msg("using inferences in sim")
 		p.simmer.SetInferences(p.inferencer.Inferences(), montecarlo.InferenceCycle)
 	}
 	if p.cfg.UseOppRacksInAnalysis {
