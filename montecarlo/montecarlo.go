@@ -658,12 +658,12 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 		rackToSet = s.inferences[int(iterationCount)%len(s.inferences)]
 		// Sometimes, just set a random rack anyway.
 		// This number should likely be adjusted.
-		if frand.Float64() >= 0.5 {
+		if frand.Float64() >= 0.75 {
 			rackToSet = nil
 		}
 	} else if s.inferenceMode == InferenceRandom {
 		rackToSet = s.inferences[frand.Intn(len(s.inferences))]
-		if frand.Float64() >= 0.5 {
+		if frand.Float64() >= 0.75 {
 			rackToSet = nil
 		}
 	}

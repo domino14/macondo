@@ -701,7 +701,7 @@ func (sc *ShellController) infer(cmd *shellcmd) (*Response, error) {
 		context.Background(), time.Duration(timesec*int(time.Second)))
 
 	sc.showMessage("Rangefinding started. Please wait until it is done.")
-	sc.showMessage("Note that the infer timeout has been increased to 60 seconds for more accuracy. See `help infer`.")
+	sc.showMessage("Note that the default infer timeout has been increased to 60 seconds for more accuracy. See `help infer` for more information.")
 
 	go func() {
 		err := sc.rangefinder.Infer(timeout)

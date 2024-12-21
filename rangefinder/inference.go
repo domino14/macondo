@@ -34,7 +34,7 @@ var ErrNoInformation = errors.New("not enough information to infer")
 const (
 	// If the player found a play within this limit, then count the rack
 	// for inferences. Multiply by 100 to visualize as percentage.
-	InferenceWinProbLimit = 0.02
+	InferenceWinProbLimit = 0.035
 )
 
 type LogIteration struct {
@@ -388,7 +388,7 @@ func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) ([][
 					}
 					logChan <- out
 				}
-				return [][]tilemapping.MachineLetter{tiles}, nil
+				inferences = append(inferences, tiles)
 			}
 		}
 	}
