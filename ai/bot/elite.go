@@ -20,7 +20,7 @@ import (
 	"github.com/domino14/macondo/movegen"
 )
 
-const InferencesSimLimit = 400
+const InferencesSimLimit = 100
 
 // Elite bot uses Monte Carlo simulations to rank plays, plays an endgame,
 // a pre-endgame (when ready).
@@ -189,7 +189,7 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	}
 	var inferTimeout context.Context
 	var cancel context.CancelFunc
-	if HasInfer(p.botType) {
+	if HasInfer(p.botType) && p.Game.Bag().TilesRemaining() > 0 {
 		logger.Debug().Msg("running inference..")
 		p.inferencer.Init(p.Game, p.simmerCalcs, p.Config())
 		if p.simThreads != 0 {
@@ -201,7 +201,7 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 			logger.Debug().AnErr("inference-prepare-error", err).Msg("probably-ok")
 		} else {
 			inferTimeout, cancel = context.WithTimeout(context.Background(),
-				time.Duration(5*int(time.Second)))
+				time.Duration(20*int(time.Second)))
 			defer cancel()
 			err = p.inferencer.Infer(inferTimeout)
 			if err != nil {
@@ -224,7 +224,7 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	// p.simmer.SetAutostopPPScaling(1500)
 
 	if HasInfer(p.botType) && len(p.inferencer.Inferences()) > InferencesSimLimit {
-		logger.Debug().Int("inferences", len(p.inferencer.Inferences())).Msg("using inferences in sim")
+		logger.Info().Int("inferences", len(p.inferencer.Inferences())).Msg("using inferences in sim")
 		p.simmer.SetInferences(p.inferencer.Inferences(), montecarlo.InferenceCycle)
 	}
 	if p.cfg.UseOppRacksInAnalysis {
@@ -239,7 +239,7 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 		return nil, err
 	}
 	play := p.simmer.WinningPlay()
-	logger.Debug().Interface("winning-move", play.Move().String()).Msg("sim-done")
+	logger.Info().Interface("winning-move", play.Move().String()).Msg("sim-done")
 	p.lastCalculatedDetails = p.simmer.ShortDetails(4)
 	return play.Move(), nil
 }

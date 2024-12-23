@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"sort"
 	"sync"
+	"sync/atomic"
 
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
@@ -14,6 +15,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"gopkg.in/yaml.v3"
 
+	"github.com/domino14/macondo/ai/simplesimmer"
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cgp"
@@ -31,28 +33,29 @@ var ErrNoInformation = errors.New("not enough information to infer")
 
 const (
 	// If the player found a play within this limit, then count the rack
-	// for inferences.
-	InferenceEquityLimit = 3
+	// for inferences. Multiply by 100 to visualize as percentage.
+	InferenceWinProbLimit = 0.035
 )
 
 type LogIteration struct {
-	Iteration     int     `json:"iteration" yaml:"iteration"`
-	Thread        int     `json:"thread" yaml:"thread"`
-	Rack          string  `json:"rack" yaml:"rack"`
-	TopMoveEquity float64 `json:"topMoveEquity" yaml:"topMoveEquity"`
-	TopMove       string  `json:"topMove" yaml:"topMove"`
-	// InferredMoveEquity is the equity of the move we are inferring, given
+	Iteration      int     `json:"iteration" yaml:"iteration"`
+	Thread         int     `json:"thread" yaml:"thread"`
+	Rack           string  `json:"rack" yaml:"rack"`
+	TopMoveWinProb float64 `json:"topMoveWinProb" yaml:"topMoveWinProb"`
+	TopMove        string  `json:"topMove" yaml:"topMove"`
+	// InferredMoveWinProb is the win prob of the move we are inferring, given
 	// that they drew "Rack"
-	InferredMoveEquity float64 `json:"inferredMoveEquity" yaml:"inferredMoveEquity"`
-	PossibleRack       bool    `json:"possibleRack" yaml:"possibleRack"`
+	InferredMoveWinProb float64 `json:"inferredMoveWinProb" yaml:"inferredMoveWinProb"`
+	PossibleRack        bool    `json:"possibleRack" yaml:"possibleRack"`
 }
 
 type RangeFinder struct {
 	origGame          *game.Game
 	gameCopies        []*game.Game
 	equityCalculators []equity.EquityCalculator
-	aiplayers         []*aiturnplayer.AIStaticTurnPlayer
+	aiplayers         []aiturnplayer.AITurnPlayer
 	iterationCount    int
+	simCount          atomic.Uint64
 	threads           int
 
 	working      bool
@@ -205,20 +208,22 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 		gameCopy.SetRandomRack(gameCopy.PlayerOnTurn(), nil)
 	}
 	r.gameCopies = []*game.Game{}
-	r.aiplayers = []*aiturnplayer.AIStaticTurnPlayer{}
+	r.aiplayers = []aiturnplayer.AITurnPlayer{}
 
 	for i := 0; i < r.threads; i++ {
-		r.gameCopies = append(r.gameCopies, gameCopy.Copy())
-
-		player, err := aiturnplayer.NewAIStaticTurnPlayerFromGame(r.gameCopies[i], r.origGame.Config(), r.equityCalculators)
+		gc := gameCopy.Copy()
+		r.gameCopies = append(r.gameCopies, gc)
+		gc.SetRules(gameCopy.Rules())
+		simmer, err := simplesimmer.NewSimpleSimmerFromGame(r.gameCopies[i])
 		if err != nil {
 			return err
 		}
-		r.aiplayers = append(r.aiplayers, player)
+		r.aiplayers = append(r.aiplayers, simmer)
 	}
 
 	r.readyToInfer = true
 	r.iterationCount = 0
+	r.simCount.Store(0)
 	return nil
 }
 
@@ -351,24 +356,30 @@ func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) ([][
 	logIter := LogIteration{Iteration: iterNum, Thread: thread, Rack: g.RackLettersFor(opp)}
 	log.Trace().Interface("extra-drawn", extraDrawn).Msg("extra-drawn")
 
-	bestMoves := r.aiplayers[thread].GenerateMoves(20)
-	winningEquity := bestMoves[0].Equity()
+	err = r.aiplayers[thread].(*simplesimmer.SimpleSimmer).GenAndSim(context.Background(), r.lastOppMove)
+	if err != nil {
+		return nil, err
+	}
+	r.simCount.Add(1)
+
+	bestPlays := r.aiplayers[thread].(*simplesimmer.SimpleSimmer).BestPlays()
+	winningWinProb := bestPlays[0].WinProb
 	if r.logStream != nil {
-		logIter.TopMove = bestMoves[0].ShortDescription()
-		logIter.TopMoveEquity = winningEquity
+		logIter.TopMove = bestPlays[0].Move.ShortDescription()
+		logIter.TopMoveWinProb = winningWinProb
 	}
 
 	var inferences [][]tilemapping.MachineLetter
-	for _, m := range bestMoves {
-		if m.Equity()+InferenceEquityLimit >= winningEquity {
+	for _, m := range bestPlays {
+		if m.WinProb+InferenceWinProbLimit >= winningWinProb {
 			// consider this move
-			if movesAreKindaTheSame(m, r.lastOppMove, r.lastOppMoveRackTiles, g.Board()) {
+			if movesAreKindaTheSame(m.Move, r.lastOppMove, r.lastOppMoveRackTiles, g.Board()) {
 				// copy extraDrawn, as setRandomRack does not allocate for it.
 				tiles := make([]tilemapping.MachineLetter, len(extraDrawn))
 				copy(tiles, extraDrawn)
 
 				if r.logStream != nil {
-					logIter.InferredMoveEquity = m.Equity()
+					logIter.InferredMoveWinProb = m.WinProb
 					logIter.PossibleRack = true
 					out, err := yaml.Marshal([]LogIteration{logIter})
 					if err != nil {
@@ -377,36 +388,11 @@ func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) ([][
 					}
 					logChan <- out
 				}
-				return [][]tilemapping.MachineLetter{tiles}, nil
+				inferences = append(inferences, tiles)
 			}
 		}
 	}
 
-	// if not found, calculate equity anyway; it might be a phony play
-	// with high equity and we may want to infer anyway.
-	m := new(move.Move)
-	m.CopyFrom(r.lastOppMove)
-	leave, err := tilemapping.Leave(g.RackFor(opp).TilesOn(), m.Tiles(), false)
-	if err != nil {
-		return nil, err
-	}
-	m.SetLeave(leave)
-	r.aiplayers[thread].AssignEquity([]*move.Move{m}, g.Board(), g.Bag(), g.RackFor(1-opp))
-	if m.Equity()+InferenceEquityLimit >= winningEquity {
-		tiles := make([]tilemapping.MachineLetter, len(extraDrawn))
-		copy(tiles, extraDrawn)
-		inferences = append(inferences, tiles)
-		logIter.PossibleRack = true
-	}
-	if r.logStream != nil {
-		logIter.InferredMoveEquity = m.Equity()
-		out, err := yaml.Marshal([]LogIteration{logIter})
-		if err != nil {
-			log.Err(err).Msg("marshalling log")
-			return nil, err
-		}
-		logChan <- out
-	}
 	return inferences, nil
 }
 
@@ -418,25 +404,51 @@ func (r *RangeFinder) inferSingleExchange(thread, iterNum int, logChan chan []by
 	g.SetRandomRack(opp, nil)
 	logIter := LogIteration{Iteration: iterNum, Thread: thread, Rack: g.RackLettersFor(opp)}
 
-	bestMoves := r.aiplayers[thread].GenerateMoves(20)
-	winningEquity := bestMoves[0].Equity()
-	if r.logStream != nil {
-		logIter.TopMove = bestMoves[0].ShortDescription()
-		logIter.TopMoveEquity = winningEquity
+	// Only run the simmer if at least one of these top moves is an exchange (statically)
+	allMoves := r.aiplayers[thread].(*simplesimmer.SimpleSimmer).GenerateMoves(15)
+	hasExchange := false
+	for i := range allMoves {
+		if allMoves[i].Action() == move.MoveTypeExchange {
+			hasExchange = true
+			break
+		}
 	}
+	if !hasExchange {
+		// Don't infer.
+		return nil, nil
+	}
+
+	// Since we don't know what the opp actually exchanged, don't pass in their
+	// specific exchange. The single exchange inferrer just looks for n-tile
+	// plays.
+	err := r.aiplayers[thread].(*simplesimmer.SimpleSimmer).GenAndSim(context.Background(), nil)
+	if err != nil {
+		return nil, err
+	}
+	r.simCount.Add(1)
+
+	bestPlays := r.aiplayers[thread].(*simplesimmer.SimpleSimmer).BestPlays()
+	winningWinProb := bestPlays[0].WinProb
+	if r.logStream != nil {
+		logIter.TopMove = bestPlays[0].Move.ShortDescription()
+		logIter.TopMoveWinProb = winningWinProb
+	}
+
 	var ret [][]tilemapping.MachineLetter
 	var tiles []tilemapping.MachineLetter
 	// Infer more than one move if possible, since "movesAreSame" returns
 	// true for exchanges with the same number of tiles.
-	for _, m := range bestMoves {
-		if m.Equity()+InferenceEquityLimit >= winningEquity {
+	for _, m := range bestPlays {
+		if m.WinProb+InferenceWinProbLimit >= winningWinProb {
 			// consider this move
-			if m.TilesPlayed() == r.lastOppMove.TilesPlayed() {
+			if m.Move.TilesPlayed() == r.lastOppMove.TilesPlayed() &&
+				m.Move.Action() == move.MoveTypeExchange {
+
 				// We just want to copy the new leave
-				tiles = make([]tilemapping.MachineLetter, len(m.Leave()))
-				copy(tiles, m.Leave())
+				tiles = make([]tilemapping.MachineLetter, len(m.Move.Leave()))
+				copy(tiles, m.Move.Leave())
 				if r.logStream != nil {
-					logIter.InferredMoveEquity = m.Equity()
+					logIter.InferredMoveWinProb = m.WinProb
 					logIter.PossibleRack = true
 					out, err := yaml.Marshal([]LogIteration{logIter})
 					if err != nil {

@@ -23,7 +23,7 @@ const (
 	Stop999
 )
 
-const StopConditionCheckInterval = 128
+const defaultStopConditionCheckInterval = 128
 
 const (
 	defaultIterationsCutoff             = 2000
@@ -48,6 +48,7 @@ type AutoStopper struct {
 	perPlyStopScaling            int
 	similarPlaysIterationsCutoff int
 	minReasonableWProb           float64
+	stopConditionCheckInterval   uint64
 
 	stoppingCondition   StoppingCondition
 	playSimilarityCache map[string]bool
@@ -83,6 +84,7 @@ func newAutostopper() *AutoStopper {
 		perPlyStopScaling:            defaultPerPlyStopScaling,
 		similarPlaysIterationsCutoff: defaultSimilarPlaysIterationsCutoff,
 		minReasonableWProb:           defaultMinReasonableWProb,
+		stopConditionCheckInterval:   defaultStopConditionCheckInterval,
 		stoppingCondition:            StopNone,
 		playSimilarityCache:          map[string]bool{},
 	}

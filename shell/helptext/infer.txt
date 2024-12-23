@@ -9,9 +9,9 @@ Example:
 Inference requires a game to be loaded. It tries to infer what tiles the
 last person to make a move kept.
 
-Note that it uses Monte Carlo simulation in order to do the inference, but
-it only does so "one level deep". So it is not great at inferring tile setups
-at this time.
+Note that it uses Monte Carlo simulation in order to do the inference, and it
+goes "two levels deep". So it should be more accurate than it was in the past,
+but definitely significantly slower.
 
 The only allowed move types for inference at this moment are "exchange" and
 "tile play". That is, the last move must be an exchange or a tile play in
@@ -30,6 +30,10 @@ When the inferrer is done running, it prints out stats for the tiles.
 Inferences are saved in memory. You can sim using these inferences.
 See `help sim` or do `sim -useinferences cycle`.
 
+Note: Sometimes the inference engine will display "No inference details". It
+is not broken; it was unable to find racks where the opponent's play ranked
+highly enough for it to be able to infer anything.
+
 Optional arguments:
     `infer log` will log to a temporary file.
 
@@ -43,8 +47,8 @@ Options:
     More threads means a more accurate inference. If not set, this number
     defaults to the greater or 1 or your number of CPUs minus 1.
 
-    -time 5
+    -time 60
 
-    The amount of time in seconds to infer. Defaults to 5 seconds. You may
+    The amount of time in seconds to infer. Defaults to 60 seconds. You may
     want this to be a little bit larger on slower machines / those with
     fewer cores.

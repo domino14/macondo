@@ -98,6 +98,11 @@ func (g *Game) Rules() *GameRules {
 	return g.rules
 }
 
+func (g *Game) SetRules(r *GameRules) {
+	g.rules = r
+	g.lexicon = r.lexicon
+}
+
 func (g *Game) LastEvent() *pb.GameEvent {
 	last := len(g.history.Events) - 1
 	if last < 0 {

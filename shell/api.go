@@ -691,7 +691,7 @@ func (sc *ShellController) infer(cmd *shellcmd) (*Response, error) {
 		sc.rangefinder.SetThreads(threads)
 	}
 	if timesec == 0 {
-		timesec = 5
+		timesec = 60
 	}
 	err = sc.rangefinder.PrepareFinder(sc.game.RackFor(sc.game.PlayerOnTurn()).TilesOn())
 	if err != nil {
@@ -701,6 +701,7 @@ func (sc *ShellController) infer(cmd *shellcmd) (*Response, error) {
 		context.Background(), time.Duration(timesec*int(time.Second)))
 
 	sc.showMessage("Rangefinding started. Please wait until it is done.")
+	sc.showMessage("Note that the default infer timeout has been increased to 60 seconds for more accuracy. See `help infer` for more information.")
 
 	go func() {
 		err := sc.rangefinder.Infer(timeout)

@@ -22,7 +22,7 @@ func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
 		inbag += bagmap[i]
 	}
 	if totalCt == 0 || inbag == 0 {
-		return "No inference details."
+		return "No inference details. Could not draw an inference from the last play."
 	}
 
 	alph := r.origGame.Alphabet()
@@ -42,7 +42,7 @@ func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
 		for i := 0; i < int(alph.NumLetters()); i++ {
 			printLetterStats(i)
 		}
-		fmt.Fprintf(&ss, "Considered %d racks, inferred %d racks\n", r.iterationCount, len(r.inferences))
+		fmt.Fprintf(&ss, "Considered %d racks, simmed %d times, inferred %d racks\n", r.iterationCount, r.simCount.Load(), len(r.inferences))
 
 		return ss.String()
 	}
