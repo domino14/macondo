@@ -375,7 +375,8 @@ func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) (map
 	logIter := LogIteration{Iteration: iterNum, Thread: thread, Rack: g.RackLettersFor(opp)}
 	log.Trace().Interface("extra-drawn", extraDrawn).Msg("extra-drawn")
 
-	err = r.aiplayers[thread].(*simplesimmer.SimpleSimmer).GenAndSim(context.Background(), r.lastOppMove)
+	err = r.aiplayers[thread].(*simplesimmer.SimpleSimmer).GenAndSim(
+		context.Background(), 10, r.lastOppMove)
 	if err != nil {
 		return nil, err
 	}
@@ -432,16 +433,18 @@ func (r *RangeFinder) inferSingleExchange(thread, iterNum int, logChan chan []by
 	g.SetRandomRack(opp, nil)
 	logIter := LogIteration{Iteration: iterNum, Thread: thread, Rack: g.RackLettersFor(opp)}
 
-	// Only run the simmer if at least one of these top moves is an exchange (statically)
-	allMoves := r.aiplayers[thread].(*simplesimmer.SimpleSimmer).GenerateMoves(15)
-	hasExchange := false
+	// Only run the simmer if an exchange with the same number of tiles is found
+	// in the static plays.
+	numMoves := 15
+
+	allMoves := r.aiplayers[thread].(*simplesimmer.SimpleSimmer).GenerateMoves(numMoves)
+	exchangeCount := 0
 	for i := range allMoves {
-		if allMoves[i].Action() == move.MoveTypeExchange {
-			hasExchange = true
-			break
+		if allMoves[i].Action() == move.MoveTypeExchange && allMoves[i].TilesPlayed() == r.lastOppMove.TilesPlayed() {
+			exchangeCount++
 		}
 	}
-	if !hasExchange {
+	if exchangeCount < 1 {
 		// Don't infer.
 		return nil, nil
 	}
@@ -449,7 +452,8 @@ func (r *RangeFinder) inferSingleExchange(thread, iterNum int, logChan chan []by
 	// Since we don't know what the opp actually exchanged, don't pass in their
 	// specific exchange. The single exchange inferrer just looks for n-tile
 	// plays.
-	err := r.aiplayers[thread].(*simplesimmer.SimpleSimmer).GenAndSim(context.Background(), nil)
+	err := r.aiplayers[thread].(*simplesimmer.SimpleSimmer).GenAndSim(
+		context.Background(), numMoves, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -464,8 +468,7 @@ func (r *RangeFinder) inferSingleExchange(thread, iterNum int, logChan chan []by
 
 	ret := make(map[*[]tilemapping.MachineLetter]float64)
 	var tiles []tilemapping.MachineLetter
-	// Infer more than one move if possible, since "movesAreSame" returns
-	// true for exchanges with the same number of tiles.
+
 	for _, m := range bestPlays {
 		if m.WinProb()+InferenceWinProbLimit >= winningWinProb {
 			// consider this move

@@ -1073,5 +1073,5 @@ func (s *Simmer) calculateWeightedProbabilitiesForBag() {
 		s.unseenToSimmingPlayer[t]++
 	}
 
-	log.Info().Interface("bag-probabilities", s.adjustedBagProbabilities).Msg("calculated-weighted-bag")
+	log.Debug().Interface("bag-probabilities", s.adjustedBagProbabilities).Msg("calculated-weighted-bag")
 }

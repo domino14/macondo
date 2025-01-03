@@ -82,9 +82,9 @@ func (p *SimpleSimmer) BestPlay(ctx context.Context) (*move.Move, error) {
 	return wp.Move(), nil
 }
 
-func (p *SimpleSimmer) GenAndSim(ctx context.Context, addedMove *move.Move) error {
+func (p *SimpleSimmer) GenAndSim(ctx context.Context, nMoves int, addedMove *move.Move) error {
 	t := time.Now()
-	moves := p.GenerateMoves(10)
+	moves := p.GenerateMoves(nMoves)
 	if addedMove != nil {
 		log.Debug().Str("adding-move", addedMove.ShortDescription()).Msg("in-gen-and-sim")
 		moveAlreadyThere := false
