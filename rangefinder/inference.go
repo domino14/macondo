@@ -34,7 +34,8 @@ var ErrNoInformation = errors.New("not enough information to infer")
 const (
 	// If the player found a play within this limit, then count the rack
 	// for inferences. Multiply by 100 to visualize as percentage.
-	InferenceWinProbLimit = 0.035
+	InferenceWinProbLimit   = 0.07
+	NextTurnScoreBoostLimit = 20
 )
 
 type LogIteration struct {
@@ -47,6 +48,20 @@ type LogIteration struct {
 	// that they drew "Rack"
 	InferredMoveWinProb float64 `json:"inferredMoveWinProb" yaml:"inferredMoveWinProb"`
 	PossibleRack        bool    `json:"possibleRack" yaml:"possibleRack"`
+	NormalizedWinProb   float64 `json:"normalizedWinProb" yaml:"normalizedWinProb"`
+}
+
+type weightedRacks map[*[]tilemapping.MachineLetter]float64
+
+type Inference struct {
+	RackLength    int
+	InferredRacks weightedRacks
+}
+
+func NewInference() *Inference {
+	return &Inference{
+		InferredRacks: make(map[*[]tilemapping.MachineLetter]float64),
+	}
 }
 
 type RangeFinder struct {
@@ -66,7 +81,7 @@ type RangeFinder struct {
 	lastOppMove     *move.Move
 	// tiles used by the last opponent's move, from their rack:
 	lastOppMoveRackTiles []tilemapping.MachineLetter
-	inferences           [][]tilemapping.MachineLetter
+	inference            *Inference
 
 	logStream io.Writer
 }
@@ -89,7 +104,7 @@ func (r *RangeFinder) SetLogStream(l io.Writer) {
 }
 
 func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
-	r.inferences = [][]tilemapping.MachineLetter{}
+	r.inference = NewInference()
 	evts := r.origGame.History().Events[:r.origGame.Turn()]
 	if len(evts) == 0 {
 		return ErrNoEvents
@@ -170,6 +185,8 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 		ml := t.IntrinsicTileIdx()
 		r.lastOppMoveRackTiles = append(r.lastOppMoveRackTiles, ml)
 	}
+	r.inference.RackLength = game.RackTileLimit - len(r.lastOppMoveRackTiles)
+	log.Info().Int("inference-rack-length", r.inference.RackLength).Msg("preparing inference")
 
 	// Sort to make it easy to compare to other plays:
 	sort.Slice(r.lastOppMoveRackTiles, func(i, j int) bool {
@@ -300,7 +317,9 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 				}
 				if len(inference) > 0 {
 					iterMutex.Lock()
-					r.inferences = append(r.inferences, inference...)
+					for k, v := range inference {
+						r.inference.InferredRacks[k] = v
+					}
 					iterMutex.Unlock()
 				}
 				select {
@@ -334,7 +353,7 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 
 }
 
-func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) ([][]tilemapping.MachineLetter, error) {
+func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) (map[*[]tilemapping.MachineLetter]float64, error) {
 	g := r.gameCopies[thread]
 	// Since we took back the last move, the player on turn should be our opponent
 	// (the person whose rack we are inferring)
@@ -362,25 +381,33 @@ func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) ([][
 	}
 	r.simCount.Add(1)
 
-	bestPlays := r.aiplayers[thread].(*simplesimmer.SimpleSimmer).BestPlays()
-	winningWinProb := bestPlays[0].WinProb
+	bestPlays := r.aiplayers[thread].(*simplesimmer.SimpleSimmer).BestPlays().PlaysNoLock()
+	winningWinProb := bestPlays[0].WinProb()
 	if r.logStream != nil {
-		logIter.TopMove = bestPlays[0].Move.ShortDescription()
+		logIter.TopMove = bestPlays[0].Move().ShortDescription()
 		logIter.TopMoveWinProb = winningWinProb
 	}
 
-	var inferences [][]tilemapping.MachineLetter
+	inferences := make(map[*[]tilemapping.MachineLetter]float64)
 	for _, m := range bestPlays {
-		if m.WinProb+InferenceWinProbLimit >= winningWinProb {
+		if m.WinProb()+InferenceWinProbLimit >= winningWinProb {
 			// consider this move
-			if movesAreKindaTheSame(m.Move, r.lastOppMove, r.lastOppMoveRackTiles, g.Board()) {
+			if movesAreKindaTheSame(m.Move(), r.lastOppMove, r.lastOppMoveRackTiles, g.Board()) {
 				// copy extraDrawn, as setRandomRack does not allocate for it.
 				tiles := make([]tilemapping.MachineLetter, len(extraDrawn))
 				copy(tiles, extraDrawn)
 
+				normalizedWinProb := (m.WinProb() - (winningWinProb - InferenceWinProbLimit)) / InferenceWinProbLimit
+				// Apply a "boost" if the play scores extra well next turn. This helps
+				// in detecting potential setups.
+				if m.WinProb() == winningWinProb && len(bestPlays) > 1 &&
+					float64(bestPlays[1].ScoreStatsNoLock()[1].Mean()) < float64(m.ScoreStatsNoLock()[1].Mean())-NextTurnScoreBoostLimit {
+					normalizedWinProb *= 5
+				}
 				if r.logStream != nil {
-					logIter.InferredMoveWinProb = m.WinProb
+					logIter.InferredMoveWinProb = m.WinProb()
 					logIter.PossibleRack = true
+					logIter.NormalizedWinProb = normalizedWinProb
 					out, err := yaml.Marshal([]LogIteration{logIter})
 					if err != nil {
 						log.Err(err).Msg("marshalling log")
@@ -388,7 +415,8 @@ func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) ([][
 					}
 					logChan <- out
 				}
-				inferences = append(inferences, tiles)
+
+				inferences[&tiles] = normalizedWinProb
 			}
 		}
 	}
@@ -396,7 +424,7 @@ func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) ([][
 	return inferences, nil
 }
 
-func (r *RangeFinder) inferSingleExchange(thread, iterNum int, logChan chan []byte) ([][]tilemapping.MachineLetter, error) {
+func (r *RangeFinder) inferSingleExchange(thread, iterNum int, logChan chan []byte) (weightedRacks, error) {
 	g := r.gameCopies[thread]
 	// Since we took back the last move, the player on turn should be our opponent
 	// (the person whose rack we are inferring)
@@ -427,29 +455,39 @@ func (r *RangeFinder) inferSingleExchange(thread, iterNum int, logChan chan []by
 	}
 	r.simCount.Add(1)
 
-	bestPlays := r.aiplayers[thread].(*simplesimmer.SimpleSimmer).BestPlays()
-	winningWinProb := bestPlays[0].WinProb
+	bestPlays := r.aiplayers[thread].(*simplesimmer.SimpleSimmer).BestPlays().PlaysNoLock()
+	winningWinProb := bestPlays[0].WinProb()
 	if r.logStream != nil {
-		logIter.TopMove = bestPlays[0].Move.ShortDescription()
+		logIter.TopMove = bestPlays[0].Move().ShortDescription()
 		logIter.TopMoveWinProb = winningWinProb
 	}
 
-	var ret [][]tilemapping.MachineLetter
+	ret := make(map[*[]tilemapping.MachineLetter]float64)
 	var tiles []tilemapping.MachineLetter
 	// Infer more than one move if possible, since "movesAreSame" returns
 	// true for exchanges with the same number of tiles.
 	for _, m := range bestPlays {
-		if m.WinProb+InferenceWinProbLimit >= winningWinProb {
+		if m.WinProb()+InferenceWinProbLimit >= winningWinProb {
 			// consider this move
-			if m.Move.TilesPlayed() == r.lastOppMove.TilesPlayed() &&
-				m.Move.Action() == move.MoveTypeExchange {
+			if m.Move().TilesPlayed() == r.lastOppMove.TilesPlayed() &&
+				m.Move().Action() == move.MoveTypeExchange {
 
 				// We just want to copy the new leave
-				tiles = make([]tilemapping.MachineLetter, len(m.Move.Leave()))
-				copy(tiles, m.Move.Leave())
+				tiles = make([]tilemapping.MachineLetter, len(m.Move().Leave()))
+				copy(tiles, m.Move().Leave())
+
+				normalizedWinProb := (m.WinProb() - (winningWinProb - InferenceWinProbLimit)) / InferenceWinProbLimit
+				/// Apply a boost if play scores extra well next turn. This helps in finding
+				// potential fishes.
+				if m.WinProb() == winningWinProb && len(bestPlays) > 1 &&
+					float64(bestPlays[1].ScoreStatsNoLock()[1].Mean()) < float64(m.ScoreStatsNoLock()[1].Mean())-NextTurnScoreBoostLimit {
+					normalizedWinProb *= 5
+				}
+
 				if r.logStream != nil {
-					logIter.InferredMoveWinProb = m.WinProb
+					logIter.InferredMoveWinProb = m.WinProb()
 					logIter.PossibleRack = true
+					logIter.NormalizedWinProb = normalizedWinProb
 					out, err := yaml.Marshal([]LogIteration{logIter})
 					if err != nil {
 						log.Err(err).Msg("marshalling log")
@@ -457,19 +495,19 @@ func (r *RangeFinder) inferSingleExchange(thread, iterNum int, logChan chan []by
 					}
 					logChan <- out
 				}
-				ret = append(ret, tiles)
+				ret[&tiles] = normalizedWinProb
 			}
 		}
 	}
 	return ret, nil
 }
 
-func (r *RangeFinder) Inferences() [][]tilemapping.MachineLetter {
-	return r.inferences
+func (r *RangeFinder) Inferences() *Inference {
+	return r.inference
 }
 
 func (r *RangeFinder) Reset() {
-	r.inferences = [][]tilemapping.MachineLetter{}
+	r.inference = NewInference()
 	r.readyToInfer = false
 }
 

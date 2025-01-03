@@ -109,6 +109,6 @@ func (p *SimpleSimmer) GenAndSim(ctx context.Context, addedMove *move.Move) erro
 	return nil
 }
 
-func (p *SimpleSimmer) BestPlays() []montecarlo.PlayWithWinProb {
-	return p.simmer.PlaysWithWinProb()
+func (p *SimpleSimmer) BestPlays() *montecarlo.SimmedPlays {
+	return p.simmer.PlaysByWinProb()
 }

@@ -28,7 +28,7 @@ rack, just set it in the game using the "rack" option.
 When the inferrer is done running, it prints out stats for the tiles.
 
 Inferences are saved in memory. You can sim using these inferences.
-See `help sim` or do `sim -useinferences cycle`.
+See `help sim` or do `sim -useinferences weightedrandom`.
 
 Note: Sometimes the inference engine will display "No inference details". It
 is not broken; it was unable to find racks where the opponent's play ranked

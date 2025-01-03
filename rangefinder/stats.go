@@ -8,12 +8,12 @@ import (
 )
 
 func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
-	totalCt := 0
-	mlcts := map[tilemapping.MachineLetter]int{}
-	for _, inf := range r.inferences {
-		for _, ml := range inf {
-			mlcts[ml]++
-			totalCt++
+	totalCt := float64(0)
+	mlcts := map[tilemapping.MachineLetter]float64{}
+	for rack, weight := range r.inference.InferredRacks {
+		for _, ml := range *rack {
+			mlcts[ml] += weight
+			totalCt += weight
 		}
 	}
 	inbag := uint8(0)
@@ -34,7 +34,7 @@ func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
 		printLetterStats := func(i int) {
 			fmt.Fprintf(&ss, "%-5s%-12.3f%-12.3f%d\n",
 				tilemapping.MachineLetter(i).UserVisible(alph, false),
-				100.0*float64(mlcts[tilemapping.MachineLetter(i)])/float64(totalCt),
+				100.0*float64(mlcts[tilemapping.MachineLetter(i)])/float64(totalCt), // normalize
 				100.0*float64(bagmap[i])/float64(inbag),
 				bagmap[i])
 		}
@@ -42,7 +42,8 @@ func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
 		for i := 0; i < int(alph.NumLetters()); i++ {
 			printLetterStats(i)
 		}
-		fmt.Fprintf(&ss, "Considered %d racks, simmed %d times, inferred %d racks\n", r.iterationCount, r.simCount.Load(), len(r.inferences))
+		fmt.Fprintf(&ss, "Considered %d racks, simmed %d times, inferred %d racks\n",
+			r.iterationCount, r.simCount.Load(), len(r.inference.InferredRacks))
 
 		return ss.String()
 	}

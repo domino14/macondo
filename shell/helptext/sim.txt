@@ -87,12 +87,11 @@ Options:
     You can specify the opponent's rack (or partial rack) if you know it, for a
     more accurate sim. Use ? for blanks.
 
-    -useinferences cycle
+    -useinferences weightedrandom
 
     You can use automatic inferences while simming. You must have run the
-    `infer` command prior to using this. The different options are:
-        cycle - cycle through inferences indefinitely
-        random - pick a random rack from the inferences each time
+    `infer` command prior to using this. The only available option for
+    `useinferences` is `weightedrandom`.
 
     Note: the opprack option is not compatible with this. If you use both,
     it will ignore the opprack.

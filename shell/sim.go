@@ -92,19 +92,14 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
 
 		case "useinferences":
 			inferences := sc.rangefinder.Inferences()
-			if len(inferences) == 0 {
+			if inferences == nil || len(inferences.InferredRacks) == 0 {
 				return errors.New("you must run `infer` first")
 			}
 			switch options.String(opt) {
-			case "cycle":
-				inferMode = montecarlo.InferenceCycle
+			case "weightedrandom":
+				inferMode = montecarlo.InferenceWeightedRandom
 				sc.showMessage(fmt.Sprintf(
-					"Set inference mode to 'cycle' with %d inferences", len(inferences)))
-			case "random":
-				inferMode = montecarlo.InferenceRandom
-				sc.showMessage(fmt.Sprintf(
-					"Set inference mode to 'random' with %d inferences", len(inferences)))
-
+					"Set inference mode to 'weightedrandom' with %d inferences", len(inferences.InferredRacks)))
 			default:
 				return errors.New("that inference mode is not supported")
 			}
@@ -157,7 +152,9 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
 			sc.simmer.SetKnownOppRack(r)
 		}
 		if inferMode != montecarlo.InferenceOff {
-			sc.simmer.SetInferences(sc.rangefinder.Inferences(), inferMode)
+			sc.simmer.SetInferences(sc.rangefinder.Inferences().InferredRacks,
+				sc.rangefinder.Inferences().RackLength,
+				inferMode)
 		}
 		sc.startSim()
 	}

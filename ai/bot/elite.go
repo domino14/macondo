@@ -223,9 +223,9 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	// p.simmer.SetAutostopIterationsCutoff(2500)
 	// p.simmer.SetAutostopPPScaling(1500)
 
-	if HasInfer(p.botType) && len(p.inferencer.Inferences()) > InferencesSimLimit {
-		logger.Info().Int("inferences", len(p.inferencer.Inferences())).Msg("using inferences in sim")
-		p.simmer.SetInferences(p.inferencer.Inferences(), montecarlo.InferenceCycle)
+	if HasInfer(p.botType) && len(p.inferencer.Inferences().InferredRacks) > InferencesSimLimit {
+		logger.Info().Int("inferences", len(p.inferencer.Inferences().InferredRacks)).Msg("using inferences in sim")
+		p.simmer.SetInferences(p.inferencer.Inferences().InferredRacks, p.inferencer.Inferences().RackLength, montecarlo.InferenceWeightedRandom)
 	}
 	if p.cfg.UseOppRacksInAnalysis {
 		oppRack := p.Game.RackFor(p.Game.NextPlayer())
