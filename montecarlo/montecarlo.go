@@ -62,7 +62,8 @@ type InferenceMode int
 
 const (
 	InferenceOff InferenceMode = iota
-	InferenceWeightedRandom
+	InferenceWeightedRandomTiles
+	InferenceWeightedRandomRacks
 )
 
 // LogIteration is a struct meant for serializing to a log-file, for debug
@@ -535,7 +536,7 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 	ctrl := errgroup.Group{}
 	writer := errgroup.Group{}
 
-	if s.inferenceMode == InferenceWeightedRandom {
+	if s.inferenceMode == InferenceWeightedRandomTiles {
 		s.calculateWeightedProbabilitiesForBag()
 	}
 
@@ -665,8 +666,6 @@ func (s *Simmer) TrimBottom(totrim int) error {
 }
 
 func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iterationCount uint64, logChan chan []byte) error {
-	// Give opponent a random rack from the bag. Note that this also
-	// shuffles the bag!
 	logger := zerolog.Ctx(ctx)
 
 	g := s.gameCopies[thread]
@@ -674,8 +673,13 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 	opp := (s.initialPlayer + 1) % g.NumPlayers()
 	rackToSet := s.knownOppRack
 	var err error
-	if s.inferenceMode == InferenceWeightedRandom {
-		rackToSet, err = s.weightedInferredDraw()
+	if s.inferenceMode == InferenceWeightedRandomTiles {
+		rackToSet, err = s.weightedInferredDrawTiles()
+		if err != nil {
+			return err
+		}
+	} else if s.inferenceMode == InferenceWeightedRandomRacks {
+		rackToSet, err = s.weightedInferredDrawRacks()
 		if err != nil {
 			return err
 		}
@@ -978,7 +982,7 @@ func bagCount(bag []tilemapping.MachineLetter) map[tilemapping.MachineLetter]int
 	return counts
 }
 
-func (s *Simmer) weightedInferredDraw() ([]tilemapping.MachineLetter, error) {
+func (s *Simmer) weightedInferredDrawTiles() ([]tilemapping.MachineLetter, error) {
 	chosen := make([]tilemapping.MachineLetter, 0, s.tilesToInfer)
 
 	unseenMap := map[tilemapping.MachineLetter]int{}
@@ -1043,6 +1047,46 @@ func weightedChoice(tiles []tilemapping.MachineLetter, weights []float64) (tilem
 	}
 
 	return 0, errors.New("weighted choice failed to select a tile")
+}
+
+func (s *Simmer) weightedInferredDrawRacks() ([]tilemapping.MachineLetter, error) {
+
+	picked, err := weightedChoiceRack(s.inferences)
+	if err != nil {
+		return nil, err
+	}
+	return picked, nil
+}
+
+// weightedChoice selects one element from tiles based on the provided weights
+func weightedChoiceRack(choices map[*[]tilemapping.MachineLetter]float64) ([]tilemapping.MachineLetter, error) {
+	// turn into two arrays.
+	racks := [][]tilemapping.MachineLetter{}
+	weights := []float64{}
+	for k, v := range choices {
+		racks = append(racks, *k)
+		weights = append(weights, v)
+	}
+
+	// Calculate the cumulative weights
+	cumulative := make([]float64, len(weights))
+
+	cumulative[0] = weights[0]
+	for i := 1; i < len(weights); i++ {
+		cumulative[i] = cumulative[i-1] + weights[i]
+	}
+
+	// Generate a random number between 0 and total weight
+	r := rand.Float64() * cumulative[len(cumulative)-1]
+
+	// Find the first cumulative weight that is greater than r
+	for i, cw := range cumulative {
+		if r < cw {
+			return racks[i], nil
+		}
+	}
+
+	return nil, errors.New("weighted choice failed to select a rack")
 }
 
 func (s *Simmer) calculateWeightedProbabilitiesForBag() {

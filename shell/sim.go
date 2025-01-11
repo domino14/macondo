@@ -96,10 +96,15 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
 				return errors.New("you must run `infer` first")
 			}
 			switch options.String(opt) {
-			case "weightedrandom":
-				inferMode = montecarlo.InferenceWeightedRandom
+			case "weightedrandomtiles":
+				inferMode = montecarlo.InferenceWeightedRandomTiles
 				sc.showMessage(fmt.Sprintf(
-					"Set inference mode to 'weightedrandom' with %d inferences", len(inferences.InferredRacks)))
+					"Set inference mode to 'weightedrandomtiles' with %d inferences", len(inferences.InferredRacks)))
+			case "weightedrandomracks":
+				inferMode = montecarlo.InferenceWeightedRandomRacks
+				sc.showMessage(fmt.Sprintf(
+					"Set inference mode to 'weightedrandomracks' with %d inferences", len(inferences.InferredRacks)))
+
 			default:
 				return errors.New("that inference mode is not supported")
 			}
