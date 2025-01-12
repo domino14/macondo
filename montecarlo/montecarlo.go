@@ -585,7 +585,6 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 	s.autostopper.reset()
 
 	for t := 0; t < s.threads; t++ {
-		t := t
 		g.Go(func() error {
 			defer func() {
 				logger.Debug().Msgf("Thread %v exiting sim", t)
@@ -932,6 +931,7 @@ func (s *Simmer) ShortDetails(nplays int) string {
 // a fixed number of iterations and an optional stopping condition.
 func (s *Simmer) SimSingleThread(iters, plies int) {
 	ctx := context.Background()
+	s.iterationCount.Store(0)
 	for i := range uint64(iters) {
 
 		s.simSingleIteration(ctx, plies, 0, i, nil)
@@ -947,6 +947,7 @@ func (s *Simmer) SimSingleThread(iters, plies int) {
 			}
 		}
 	}
+	s.iterationCount.Add(uint64(iters))
 }
 
 func (s *Simmer) WinningPlay() *SimmedPlay {

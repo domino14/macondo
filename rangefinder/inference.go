@@ -35,7 +35,7 @@ const (
 	// If the player found a play within this limit, then count the rack
 	// for inferences. Multiply by 100 to visualize as percentage.
 	InferenceWinProbLimit   = 0.07
-	NextTurnScoreBoostLimit = 20
+	NextTurnScoreBoostLimit = 10
 )
 
 type LogIteration struct {
@@ -392,8 +392,8 @@ func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) (map
 	inferences := make(map[*[]tilemapping.MachineLetter]float64)
 	for _, m := range bestPlays {
 		if m.WinProb()+InferenceWinProbLimit >= winningWinProb {
-			// consider this move
-			if movesAreKindaTheSame(m.Move(), r.lastOppMove, r.lastOppMoveRackTiles, g.Board()) {
+			// potentially consider this move
+			if movesAreTheSame(m.Move(), r.lastOppMove, g.Board()) {
 				// copy extraDrawn, as setRandomRack does not allocate for it.
 				tiles := make([]tilemapping.MachineLetter, len(extraDrawn))
 				copy(tiles, extraDrawn)
@@ -518,6 +518,24 @@ func (r *RangeFinder) IsBusy() bool {
 	return r.working
 }
 
+func movesAreTheSame(m1 *move.Move, m2 *move.Move, g *board.GameBoard) bool {
+	checkTransposition := false
+	if g.IsEmpty() {
+		checkTransposition = true
+	}
+	ignoreLeave := true
+	if m1.Equals(m2, checkTransposition, ignoreLeave) {
+		return true
+	}
+
+	// Otherwise check if it's a single-tile move.
+	if m1.TilesPlayed() == 1 && m2.TilesPlayed() == 1 &&
+		uniqueSingleTileKey(m1) == uniqueSingleTileKey(m2) {
+		return true
+	}
+	return false
+}
+
 func movesAreKindaTheSame(m1 *move.Move, m2 *move.Move, m2tiles []tilemapping.MachineLetter,
 	g *board.GameBoard) bool {
 	// This is a bit of a fuzzy equality function. We want to see if two
@@ -527,17 +545,7 @@ func movesAreKindaTheSame(m1 *move.Move, m2 *move.Move, m2tiles []tilemapping.Ma
 	// This is because the person we're inferring for may have missed
 	// a play using the same tiles in a better spot.
 
-	checkTransposition := false
-	if g.IsEmpty() {
-		checkTransposition = true
-	}
-	ignoreLeave := true
-	if m1.Equals(m2, checkTransposition, ignoreLeave) {
-		return true
-	}
-	// Otherwise check if it's a single-tile move.
-	if m1.TilesPlayed() == 1 && m2.TilesPlayed() == 1 &&
-		uniqueSingleTileKey(m1) == uniqueSingleTileKey(m2) {
+	if movesAreTheSame(m1, m2, g) {
 		return true
 	}
 

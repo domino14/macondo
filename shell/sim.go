@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -12,19 +13,24 @@ import (
 	"github.com/aybabtme/uniplot/histogram"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/domino14/macondo/ai/bot"
+	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/montecarlo/stats"
 )
 
 func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
-	var plies, threads int
+	var plies, threads, fixedplies, fixediters, fixedsimcount int
 	var err error
 	stoppingCondition := montecarlo.StopNone
 	if sc.simmer == nil {
 		return errors.New("load a game or something")
+	}
+	if sc.game == nil {
+		return errors.New("game does not exist")
 	}
 
 	if len(args) > 0 {
@@ -43,7 +49,7 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
 
 	inferMode := montecarlo.InferenceOff
 	knownOppRack := ""
-	var stopPPscaling, stopitercutoff int
+	var stopPPscaling, stopitercutoff, stopcheckinterval int
 	for opt := range options {
 		switch opt {
 		case "plies":
@@ -53,6 +59,30 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
 			}
 		case "threads":
 			threads, err = options.Int(opt)
+			if err != nil {
+				return err
+			}
+		case "fixedsimiters":
+			// single thread, fixed iters, fixed plies
+			fixediters, err = options.Int(opt)
+			if err != nil {
+				return err
+			}
+		case "fixedsimplies":
+			// single thread, fixed iters, fixed plies
+			fixedplies, err = options.Int(opt)
+			if err != nil {
+				return err
+			}
+		case "fixedsimcount":
+			// how many single-thread sims to do
+			fixedsimcount, err = options.Int(opt)
+			if err != nil {
+				return err
+			}
+
+		case "autostopcheckinterval":
+			stopcheckinterval, err = options.Int(opt)
 			if err != nil {
 				return err
 			}
@@ -132,36 +162,70 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
 		Int("itercutoff", stopitercutoff).
 		Msg("will start sim")
 
-	if sc.game != nil {
-		if threads != 0 {
-			sc.simmer.SetThreads(threads)
-		}
-		err := sc.simmer.PrepareSim(plies, sc.curPlayList)
+	var kr []tilemapping.MachineLetter
+
+	if knownOppRack != "" {
+		knownOppRack = strings.ToUpper(knownOppRack)
+		kr, err = tilemapping.ToMachineLetters(knownOppRack, sc.game.Alphabet())
 		if err != nil {
 			return err
 		}
-		sc.simmer.SetStoppingCondition(stoppingCondition)
-		if stopPPscaling > 0 {
-			sc.simmer.SetAutostopPPScaling(stopPPscaling)
-		}
-		if stopitercutoff > 0 {
-			sc.simmer.SetAutostopIterationsCutoff(stopitercutoff)
-		}
+	}
 
-		if knownOppRack != "" {
-			knownOppRack = strings.ToUpper(knownOppRack)
-			r, err := tilemapping.ToMachineLetters(knownOppRack, sc.game.Alphabet())
-			if err != nil {
-				return err
-			}
-			sc.simmer.SetKnownOppRack(r)
-		}
-		if inferMode != montecarlo.InferenceOff {
-			sc.simmer.SetInferences(sc.rangefinder.Inferences().InferredRacks,
-				sc.rangefinder.Inferences().RackLength,
-				inferMode)
-		}
-		sc.startSim()
+	params := simParams{
+		threads:               threads,
+		plies:                 plies,
+		stoppingCondition:     stoppingCondition,
+		autostopPPScaling:     stopPPscaling,
+		autostopIterCutoff:    stopitercutoff,
+		autostopCheckInterval: stopcheckinterval,
+		knownOppRack:          kr,
+		inferMode:             inferMode,
+	}
+	if fixediters != 0 {
+		return sc.startMultiSimExperiment(fixediters, fixedplies, fixedsimcount, params)
+	}
+
+	sc.setSimmerParams(sc.simmer, params)
+	sc.startSim()
+
+	return nil
+}
+
+type simParams struct {
+	threads               int
+	plies                 int
+	stoppingCondition     montecarlo.StoppingCondition
+	autostopPPScaling     int
+	autostopIterCutoff    int
+	autostopCheckInterval int
+	knownOppRack          []tilemapping.MachineLetter
+	inferMode             montecarlo.InferenceMode
+}
+
+func (sc *ShellController) setSimmerParams(simmer *montecarlo.Simmer, params simParams) error {
+	if params.threads != 0 {
+		simmer.SetThreads(params.threads)
+	}
+	err := simmer.PrepareSim(params.plies, sc.curPlayList)
+	if err != nil {
+		return err
+	}
+	simmer.SetStoppingCondition(params.stoppingCondition)
+	if params.autostopPPScaling > 0 {
+		simmer.SetAutostopPPScaling(params.autostopPPScaling)
+	}
+	if params.autostopIterCutoff > 0 {
+		simmer.SetAutostopIterationsCutoff(params.autostopIterCutoff)
+	}
+	if params.autostopCheckInterval > 0 {
+		simmer.SetAutostopCheckInterval(uint64(params.autostopCheckInterval))
+	}
+
+	if params.inferMode != montecarlo.InferenceOff {
+		simmer.SetInferences(sc.rangefinder.Inferences().InferredRacks,
+			sc.rangefinder.Inferences().RackLength,
+			params.inferMode)
 	}
 	return nil
 }
@@ -193,6 +257,72 @@ func (sc *ShellController) startSim() {
 			}
 		}
 	}()
+}
+
+func (sc *ShellController) startMultiSimExperiment(iters, plies, simCount int, params simParams) error {
+	// sc.simmer.SimSingleThread(fixediters, fixedplies)
+	sc.simCtx, sc.simCancel = context.WithCancel(context.Background())
+	sc.simTicker = time.NewTicker(10 * time.Second)
+	sc.simTickerDone = make(chan bool)
+	sc.showMessage("Simulation experiments started.")
+
+	threads := max(1, runtime.NumCPU())
+
+	simmers := []*montecarlo.Simmer{}
+	for i := 0; i < threads; i++ {
+		mcsimmer := &montecarlo.Simmer{}
+
+		c, err := equity.NewCombinedStaticCalculator(
+			sc.game.LexiconName(),
+			sc.config, "", equity.PEGAdjustmentFilename)
+		if err != nil {
+			return err
+		}
+		mcsimmer.Init(sc.game.Game, []equity.EquityCalculator{c}, c, sc.config)
+		simmers = append(simmers, mcsimmer)
+	}
+
+	simChan := make(chan struct{}, 32)
+	winningPlays := map[string]int{}
+	go func() {
+
+		g := errgroup.Group{}
+
+		for i := 0; i < threads; i++ {
+
+			g.Go(func() error {
+				for range simChan {
+					simmer := simmers[i]
+					err := sc.setSimmerParams(simmer, params)
+					if err != nil {
+						return err
+					}
+					simmer.SimSingleThread(iters, plies)
+					winningPlays[simmer.WinningPlay().Move().ShortDescription()]++
+				}
+				return nil
+			})
+
+		}
+		go func() {
+			for i := 0; i < simCount; i++ {
+				simChan <- struct{}{}
+				if i%100 == 0 {
+					log.Info().Msgf("Simmer enqueued %d experiments...", i)
+				}
+			}
+			close(simChan)
+		}()
+		log.Info().Msg("simulation feeder exiting...")
+		err := g.Wait()
+		if err != nil {
+			log.Err(err).Msg("experiment-sim-errgroup")
+		}
+		fmt.Println("Winning plays:", winningPlays)
+	}()
+
+	return nil
+
 }
 
 func (sc *ShellController) simControlArguments(args []string) error {
