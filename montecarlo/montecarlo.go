@@ -932,9 +932,28 @@ func (s *Simmer) ShortDetails(nplays int) string {
 func (s *Simmer) SimSingleThread(iters, plies int) {
 	ctx := context.Background()
 	s.iterationCount.Store(0)
+
+	writer := &errgroup.Group{}
+	logChan := make(chan []byte)
+	done := make(chan bool)
+
+	if s.logStream != nil {
+		// I lied, it's not single thread if we're debug logging.
+		writer.Go(func() error {
+			for {
+				select {
+				case bytes := <-logChan:
+					s.logStream.Write(bytes)
+				case <-done:
+					return nil
+				}
+			}
+		})
+	}
+
 	for i := range uint64(iters) {
 
-		s.simSingleIteration(ctx, plies, 0, i, nil)
+		s.simSingleIteration(ctx, plies, 0, i, logChan)
 
 		// check if we need to stop
 		if s.autostopper.stoppingCondition != StopNone {
@@ -945,6 +964,13 @@ func (s *Simmer) SimSingleThread(iters, plies int) {
 					break
 				}
 			}
+		}
+	}
+	if s.logStream != nil {
+		close(done)
+		err := writer.Wait()
+		if err != nil {
+			log.Err(err).Msg("simsinglethread-errgroup-error")
 		}
 	}
 	s.iterationCount.Add(uint64(iters))

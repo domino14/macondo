@@ -260,7 +260,6 @@ func (sc *ShellController) startSim() {
 }
 
 func (sc *ShellController) startMultiSimExperiment(iters, plies, simCount int, params simParams) error {
-	// sc.simmer.SimSingleThread(fixediters, fixedplies)
 	sc.simCtx, sc.simCancel = context.WithCancel(context.Background())
 	sc.simTicker = time.NewTicker(10 * time.Second)
 	sc.simTickerDone = make(chan bool)

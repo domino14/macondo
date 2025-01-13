@@ -49,6 +49,7 @@ type LogIteration struct {
 	InferredMoveWinProb float64 `json:"inferredMoveWinProb" yaml:"inferredMoveWinProb"`
 	PossibleRack        bool    `json:"possibleRack" yaml:"possibleRack"`
 	NormalizedWinProb   float64 `json:"normalizedWinProb" yaml:"normalizedWinProb"`
+	SimLogFile          string  `json:"simLogFile,omitempty" yaml:"simLogFile,omitempty"`
 }
 
 type weightedRacks map[*[]tilemapping.MachineLetter]float64
@@ -371,12 +372,19 @@ func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) (map
 	if err != nil {
 		return nil, err
 	}
+	// Copy the last opp move but set the leave to what would be the leave with
+	// this new rack.
+	lastOppMove := &move.Move{}
+	lastOppMove.CopyFrom(r.lastOppMove)
+	lastOppMove.SetLeave(extraDrawn)
 
 	logIter := LogIteration{Iteration: iterNum, Thread: thread, Rack: g.RackLettersFor(opp)}
-	log.Trace().Interface("extra-drawn", extraDrawn).Msg("extra-drawn")
+	if r.logStream != nil {
+		r.aiplayers[thread].(*simplesimmer.SimpleSimmer).SetLogging(true)
+	}
 
-	err = r.aiplayers[thread].(*simplesimmer.SimpleSimmer).GenAndSim(
-		context.Background(), 10, r.lastOppMove)
+	logfilename, err := r.aiplayers[thread].(*simplesimmer.SimpleSimmer).GenAndSim(
+		context.Background(), 10, lastOppMove)
 	if err != nil {
 		return nil, err
 	}
@@ -387,13 +395,14 @@ func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) (map
 	if r.logStream != nil {
 		logIter.TopMove = bestPlays[0].Move().ShortDescription()
 		logIter.TopMoveWinProb = winningWinProb
+		logIter.SimLogFile = logfilename
 	}
 
 	inferences := make(map[*[]tilemapping.MachineLetter]float64)
 	for _, m := range bestPlays {
 		if m.WinProb()+InferenceWinProbLimit >= winningWinProb {
 			// potentially consider this move
-			if movesAreTheSame(m.Move(), r.lastOppMove, g.Board()) {
+			if movesAreTheSame(m.Move(), lastOppMove, g.Board()) {
 				// copy extraDrawn, as setRandomRack does not allocate for it.
 				tiles := make([]tilemapping.MachineLetter, len(extraDrawn))
 				copy(tiles, extraDrawn)
@@ -452,7 +461,11 @@ func (r *RangeFinder) inferSingleExchange(thread, iterNum int, logChan chan []by
 	// Since we don't know what the opp actually exchanged, don't pass in their
 	// specific exchange. The single exchange inferrer just looks for n-tile
 	// plays.
-	err := r.aiplayers[thread].(*simplesimmer.SimpleSimmer).GenAndSim(
+	if r.logStream != nil {
+		r.aiplayers[thread].(*simplesimmer.SimpleSimmer).SetLogging(true)
+	}
+
+	logfilename, err := r.aiplayers[thread].(*simplesimmer.SimpleSimmer).GenAndSim(
 		context.Background(), numMoves, nil)
 	if err != nil {
 		return nil, err
@@ -464,6 +477,7 @@ func (r *RangeFinder) inferSingleExchange(thread, iterNum int, logChan chan []by
 	if r.logStream != nil {
 		logIter.TopMove = bestPlays[0].Move().ShortDescription()
 		logIter.TopMoveWinProb = winningWinProb
+		logIter.SimLogFile = logfilename
 	}
 
 	ret := make(map[*[]tilemapping.MachineLetter]float64)
@@ -523,7 +537,7 @@ func movesAreTheSame(m1 *move.Move, m2 *move.Move, g *board.GameBoard) bool {
 	if g.IsEmpty() {
 		checkTransposition = true
 	}
-	ignoreLeave := true
+	ignoreLeave := false
 	if m1.Equals(m2, checkTransposition, ignoreLeave) {
 		return true
 	}
