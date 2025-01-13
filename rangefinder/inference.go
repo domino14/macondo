@@ -35,6 +35,10 @@ const (
 	// If the player found a play within this limit, then count the rack
 	// for inferences. Multiply by 100 to visualize as percentage.
 	InferenceWinProbLimit = 0.035
+	// NextTurnScoreBoostLimit - if the player scores more than this many
+	// points on average next turn, boost those inferred racks.
+	// XXX: We may want this to be per-lexicon / per-variant / etc.
+	NextTurnScoreBoostLimit = 45
 )
 
 type LogIteration struct {
@@ -47,6 +51,21 @@ type LogIteration struct {
 	// that they drew "Rack"
 	InferredMoveWinProb float64 `json:"inferredMoveWinProb" yaml:"inferredMoveWinProb"`
 	PossibleRack        bool    `json:"possibleRack" yaml:"possibleRack"`
+	NormalizedWinProb   float64 `json:"normalizedWinProb" yaml:"normalizedWinProb"`
+	SimLogFile          string  `json:"simLogFile,omitempty" yaml:"simLogFile,omitempty"`
+}
+
+type weightedRacks map[*[]tilemapping.MachineLetter]float64
+
+type Inference struct {
+	RackLength    int
+	InferredRacks weightedRacks
+}
+
+func NewInference() *Inference {
+	return &Inference{
+		InferredRacks: make(map[*[]tilemapping.MachineLetter]float64),
+	}
 }
 
 type RangeFinder struct {
@@ -66,7 +85,7 @@ type RangeFinder struct {
 	lastOppMove     *move.Move
 	// tiles used by the last opponent's move, from their rack:
 	lastOppMoveRackTiles []tilemapping.MachineLetter
-	inferences           [][]tilemapping.MachineLetter
+	inference            *Inference
 
 	logStream io.Writer
 }
@@ -89,7 +108,7 @@ func (r *RangeFinder) SetLogStream(l io.Writer) {
 }
 
 func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
-	r.inferences = [][]tilemapping.MachineLetter{}
+	r.inference = NewInference()
 	evts := r.origGame.History().Events[:r.origGame.Turn()]
 	if len(evts) == 0 {
 		return ErrNoEvents
@@ -170,6 +189,8 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 		ml := t.IntrinsicTileIdx()
 		r.lastOppMoveRackTiles = append(r.lastOppMoveRackTiles, ml)
 	}
+	r.inference.RackLength = game.RackTileLimit - len(r.lastOppMoveRackTiles)
+	log.Info().Int("inference-rack-length", r.inference.RackLength).Msg("preparing inference")
 
 	// Sort to make it easy to compare to other plays:
 	sort.Slice(r.lastOppMoveRackTiles, func(i, j int) bool {
@@ -300,7 +321,9 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 				}
 				if len(inference) > 0 {
 					iterMutex.Lock()
-					r.inferences = append(r.inferences, inference...)
+					for k, v := range inference {
+						r.inference.InferredRacks[k] = v
+					}
 					iterMutex.Unlock()
 				}
 				select {
@@ -334,7 +357,7 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 
 }
 
-func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) ([][]tilemapping.MachineLetter, error) {
+func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) (map[*[]tilemapping.MachineLetter]float64, error) {
 	g := r.gameCopies[thread]
 	// Since we took back the last move, the player on turn should be our opponent
 	// (the person whose rack we are inferring)
@@ -352,35 +375,52 @@ func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) ([][
 	if err != nil {
 		return nil, err
 	}
+	// Copy the last opp move but set the leave to what would be the leave with
+	// this new rack.
+	lastOppMove := &move.Move{}
+	lastOppMove.CopyFrom(r.lastOppMove)
+	lastOppMove.SetLeave(extraDrawn)
 
 	logIter := LogIteration{Iteration: iterNum, Thread: thread, Rack: g.RackLettersFor(opp)}
-	log.Trace().Interface("extra-drawn", extraDrawn).Msg("extra-drawn")
+	if r.logStream != nil {
+		r.aiplayers[thread].(*simplesimmer.SimpleSimmer).SetLogging(true)
+	}
 
-	err = r.aiplayers[thread].(*simplesimmer.SimpleSimmer).GenAndSim(context.Background(), r.lastOppMove)
+	logfilename, err := r.aiplayers[thread].(*simplesimmer.SimpleSimmer).GenAndSim(
+		context.Background(), 10, lastOppMove)
 	if err != nil {
 		return nil, err
 	}
 	r.simCount.Add(1)
 
-	bestPlays := r.aiplayers[thread].(*simplesimmer.SimpleSimmer).BestPlays()
-	winningWinProb := bestPlays[0].WinProb
+	bestPlays := r.aiplayers[thread].(*simplesimmer.SimpleSimmer).BestPlays().PlaysNoLock()
+	winningWinProb := bestPlays[0].WinProb()
 	if r.logStream != nil {
-		logIter.TopMove = bestPlays[0].Move.ShortDescription()
+		logIter.TopMove = bestPlays[0].Move().ShortDescription()
 		logIter.TopMoveWinProb = winningWinProb
+		logIter.SimLogFile = logfilename
 	}
 
-	var inferences [][]tilemapping.MachineLetter
+	inferences := make(map[*[]tilemapping.MachineLetter]float64)
 	for _, m := range bestPlays {
-		if m.WinProb+InferenceWinProbLimit >= winningWinProb {
-			// consider this move
-			if movesAreKindaTheSame(m.Move, r.lastOppMove, r.lastOppMoveRackTiles, g.Board()) {
+		if m.WinProb()+InferenceWinProbLimit >= winningWinProb {
+			// potentially consider this move
+			if movesAreTheSame(m.Move(), lastOppMove, g.Board()) {
 				// copy extraDrawn, as setRandomRack does not allocate for it.
 				tiles := make([]tilemapping.MachineLetter, len(extraDrawn))
 				copy(tiles, extraDrawn)
 
+				normalizedWinProb := (m.WinProb() - (winningWinProb - InferenceWinProbLimit)) / InferenceWinProbLimit
+				// Apply a "boost" if the play scores extra well next turn. This helps
+				// in detecting potential setups.
+				if m.WinProb() == winningWinProb && len(bestPlays) > 1 &&
+					float64(m.ScoreStatsNoLock()[1].Mean()) >= NextTurnScoreBoostLimit {
+					normalizedWinProb *= 5
+				}
 				if r.logStream != nil {
-					logIter.InferredMoveWinProb = m.WinProb
+					logIter.InferredMoveWinProb = m.WinProb()
 					logIter.PossibleRack = true
+					logIter.NormalizedWinProb = normalizedWinProb
 					out, err := yaml.Marshal([]LogIteration{logIter})
 					if err != nil {
 						log.Err(err).Msg("marshalling log")
@@ -388,7 +428,8 @@ func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) ([][
 					}
 					logChan <- out
 				}
-				inferences = append(inferences, tiles)
+
+				inferences[&tiles] = normalizedWinProb
 			}
 		}
 	}
@@ -396,7 +437,7 @@ func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) ([][
 	return inferences, nil
 }
 
-func (r *RangeFinder) inferSingleExchange(thread, iterNum int, logChan chan []byte) ([][]tilemapping.MachineLetter, error) {
+func (r *RangeFinder) inferSingleExchange(thread, iterNum int, logChan chan []byte) (weightedRacks, error) {
 	g := r.gameCopies[thread]
 	// Since we took back the last move, the player on turn should be our opponent
 	// (the person whose rack we are inferring)
@@ -404,16 +445,18 @@ func (r *RangeFinder) inferSingleExchange(thread, iterNum int, logChan chan []by
 	g.SetRandomRack(opp, nil)
 	logIter := LogIteration{Iteration: iterNum, Thread: thread, Rack: g.RackLettersFor(opp)}
 
-	// Only run the simmer if at least one of these top moves is an exchange (statically)
-	allMoves := r.aiplayers[thread].(*simplesimmer.SimpleSimmer).GenerateMoves(15)
-	hasExchange := false
+	// Only run the simmer if an exchange with the same number of tiles is found
+	// in the static plays.
+	numMoves := 15
+
+	allMoves := r.aiplayers[thread].(*simplesimmer.SimpleSimmer).GenerateMoves(numMoves)
+	exchangeCount := 0
 	for i := range allMoves {
-		if allMoves[i].Action() == move.MoveTypeExchange {
-			hasExchange = true
-			break
+		if allMoves[i].Action() == move.MoveTypeExchange && allMoves[i].TilesPlayed() == r.lastOppMove.TilesPlayed() {
+			exchangeCount++
 		}
 	}
-	if !hasExchange {
+	if exchangeCount < 1 {
 		// Don't infer.
 		return nil, nil
 	}
@@ -421,35 +464,50 @@ func (r *RangeFinder) inferSingleExchange(thread, iterNum int, logChan chan []by
 	// Since we don't know what the opp actually exchanged, don't pass in their
 	// specific exchange. The single exchange inferrer just looks for n-tile
 	// plays.
-	err := r.aiplayers[thread].(*simplesimmer.SimpleSimmer).GenAndSim(context.Background(), nil)
+	if r.logStream != nil {
+		r.aiplayers[thread].(*simplesimmer.SimpleSimmer).SetLogging(true)
+	}
+
+	logfilename, err := r.aiplayers[thread].(*simplesimmer.SimpleSimmer).GenAndSim(
+		context.Background(), numMoves, nil)
 	if err != nil {
 		return nil, err
 	}
 	r.simCount.Add(1)
 
-	bestPlays := r.aiplayers[thread].(*simplesimmer.SimpleSimmer).BestPlays()
-	winningWinProb := bestPlays[0].WinProb
+	bestPlays := r.aiplayers[thread].(*simplesimmer.SimpleSimmer).BestPlays().PlaysNoLock()
+	winningWinProb := bestPlays[0].WinProb()
 	if r.logStream != nil {
-		logIter.TopMove = bestPlays[0].Move.ShortDescription()
+		logIter.TopMove = bestPlays[0].Move().ShortDescription()
 		logIter.TopMoveWinProb = winningWinProb
+		logIter.SimLogFile = logfilename
 	}
 
-	var ret [][]tilemapping.MachineLetter
+	ret := make(map[*[]tilemapping.MachineLetter]float64)
 	var tiles []tilemapping.MachineLetter
-	// Infer more than one move if possible, since "movesAreSame" returns
-	// true for exchanges with the same number of tiles.
+
 	for _, m := range bestPlays {
-		if m.WinProb+InferenceWinProbLimit >= winningWinProb {
+		if m.WinProb()+InferenceWinProbLimit >= winningWinProb {
 			// consider this move
-			if m.Move.TilesPlayed() == r.lastOppMove.TilesPlayed() &&
-				m.Move.Action() == move.MoveTypeExchange {
+			if m.Move().TilesPlayed() == r.lastOppMove.TilesPlayed() &&
+				m.Move().Action() == move.MoveTypeExchange {
 
 				// We just want to copy the new leave
-				tiles = make([]tilemapping.MachineLetter, len(m.Move.Leave()))
-				copy(tiles, m.Move.Leave())
+				tiles = make([]tilemapping.MachineLetter, len(m.Move().Leave()))
+				copy(tiles, m.Move().Leave())
+
+				normalizedWinProb := (m.WinProb() - (winningWinProb - InferenceWinProbLimit)) / InferenceWinProbLimit
+				/// Apply a boost if play scores extra well next turn. This helps in finding
+				// potential fishes.
+				if m.WinProb() == winningWinProb && len(bestPlays) > 1 &&
+					float64(bestPlays[1].ScoreStatsNoLock()[1].Mean()) < float64(m.ScoreStatsNoLock()[1].Mean())-NextTurnScoreBoostLimit {
+					normalizedWinProb *= 5
+				}
+
 				if r.logStream != nil {
-					logIter.InferredMoveWinProb = m.WinProb
+					logIter.InferredMoveWinProb = m.WinProb()
 					logIter.PossibleRack = true
+					logIter.NormalizedWinProb = normalizedWinProb
 					out, err := yaml.Marshal([]LogIteration{logIter})
 					if err != nil {
 						log.Err(err).Msg("marshalling log")
@@ -457,24 +515,42 @@ func (r *RangeFinder) inferSingleExchange(thread, iterNum int, logChan chan []by
 					}
 					logChan <- out
 				}
-				ret = append(ret, tiles)
+				ret[&tiles] = normalizedWinProb
 			}
 		}
 	}
 	return ret, nil
 }
 
-func (r *RangeFinder) Inferences() [][]tilemapping.MachineLetter {
-	return r.inferences
+func (r *RangeFinder) Inferences() *Inference {
+	return r.inference
 }
 
 func (r *RangeFinder) Reset() {
-	r.inferences = [][]tilemapping.MachineLetter{}
+	r.inference = NewInference()
 	r.readyToInfer = false
 }
 
 func (r *RangeFinder) IsBusy() bool {
 	return r.working
+}
+
+func movesAreTheSame(m1 *move.Move, m2 *move.Move, g *board.GameBoard) bool {
+	checkTransposition := false
+	if g.IsEmpty() {
+		checkTransposition = true
+	}
+	ignoreLeave := false
+	if m1.Equals(m2, checkTransposition, ignoreLeave) {
+		return true
+	}
+
+	// Otherwise check if it's a single-tile move.
+	if m1.TilesPlayed() == 1 && m2.TilesPlayed() == 1 &&
+		uniqueSingleTileKey(m1) == uniqueSingleTileKey(m2) {
+		return true
+	}
+	return false
 }
 
 func movesAreKindaTheSame(m1 *move.Move, m2 *move.Move, m2tiles []tilemapping.MachineLetter,
@@ -486,17 +562,7 @@ func movesAreKindaTheSame(m1 *move.Move, m2 *move.Move, m2tiles []tilemapping.Ma
 	// This is because the person we're inferring for may have missed
 	// a play using the same tiles in a better spot.
 
-	checkTransposition := false
-	if g.IsEmpty() {
-		checkTransposition = true
-	}
-	ignoreLeave := true
-	if m1.Equals(m2, checkTransposition, ignoreLeave) {
-		return true
-	}
-	// Otherwise check if it's a single-tile move.
-	if m1.TilesPlayed() == 1 && m2.TilesPlayed() == 1 &&
-		uniqueSingleTileKey(m1) == uniqueSingleTileKey(m2) {
+	if movesAreTheSame(m1, m2, g) {
 		return true
 	}
 

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/rand/v2"
 	"os"
 	"runtime"
 	"sort"
@@ -25,7 +26,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
 	"gopkg.in/yaml.v3"
-	"lukechampine.com/frand"
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/config"
@@ -62,8 +62,8 @@ type InferenceMode int
 
 const (
 	InferenceOff InferenceMode = iota
-	InferenceCycle
-	InferenceRandom
+	InferenceWeightedRandomTiles
+	InferenceWeightedRandomRacks
 )
 
 // LogIteration is a struct meant for serializing to a log-file, for debug
@@ -76,10 +76,11 @@ type LogIteration struct {
 
 // LogPlay is a single play.
 type LogPlay struct {
-	Play  string `json:"play" yaml:"play"`
-	Leave string `json:"leave" yaml:"leave"`
-	Rack  string `json:"rack" yaml:"rack"`
-	Pts   int    `json:"pts" yaml:"pts"`
+	Play       string `json:"play" yaml:"play"`
+	Leave      string `json:"leave" yaml:"leave"`
+	Rack       string `json:"rack" yaml:"rack"`
+	PresetRack string `json:"preset_rack,omitempty" yaml:"preset_rack,omitempty"`
+	Pts        int    `json:"pts" yaml:"pts"`
 	// Leftover is the equity of the leftover tiles at the end of the sim.
 	Leftover float64 `json:"left,omitempty" yaml:"left,omitempty"`
 	// Although this is a recursive structure we don't really use it
@@ -104,6 +105,11 @@ type SimmedPlay struct {
 func (sp *SimmedPlay) String() string {
 	return fmt.Sprintf("<Simmed play: %v (stats: %v %v %v %v %v)>", sp.play.ShortDescription(),
 		sp.scoreStats, sp.bingoStats, sp.equityStats, sp.leftoverStats, sp.winPctStats)
+}
+
+// ScoreStatsNoLock returns the score stats without locking.
+func (sp *SimmedPlay) ScoreStatsNoLock() []stats.Statistic {
+	return sp.scoreStats
 }
 
 func (sp *SimmedPlay) Ignore() {
@@ -188,13 +194,19 @@ func (s *SimmedPlay) Move() *move.Move {
 	return s.play
 }
 
-func (s *SimmedPlay) WinPct() float64 {
+// WinProb is an actually more accurate name for this statistic.
+func (s *SimmedPlay) WinProb() float64 {
 	return s.winPctStats.Mean()
 }
 
 type SimmedPlays struct {
 	sync.RWMutex
 	plays []*SimmedPlay
+}
+
+// PlaysNoLock returns the plays without locking.
+func (s *SimmedPlays) PlaysNoLock() []*SimmedPlay {
+	return s.plays
 }
 
 func (s *SimmedPlays) trimBottom(n int) {
@@ -235,8 +247,11 @@ type Simmer struct {
 	activeHeatMapFilename string
 
 	// See rangefinder.
-	inferences    [][]tilemapping.MachineLetter
-	inferenceMode InferenceMode
+	inferences               map[*[]tilemapping.MachineLetter]float64
+	inferenceMode            InferenceMode
+	tilesToInfer             int
+	adjustedBagProbabilities []float64
+	unseenToSimmingPlayer    map[tilemapping.MachineLetter]int
 
 	autostopper          *AutoStopper
 	stochasticStaticEval bool
@@ -412,8 +427,9 @@ func (s *Simmer) SetKnownOppRack(r []tilemapping.MachineLetter) {
 	s.knownOppRack = r
 }
 
-func (s *Simmer) SetInferences(i [][]tilemapping.MachineLetter, mode InferenceMode) {
+func (s *Simmer) SetInferences(i map[*[]tilemapping.MachineLetter]float64, t int, mode InferenceMode) {
 	s.inferences = i
+	s.tilesToInfer = t
 	s.inferenceMode = mode
 }
 
@@ -520,6 +536,10 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 	ctrl := errgroup.Group{}
 	writer := errgroup.Group{}
 
+	if s.inferenceMode == InferenceWeightedRandomTiles {
+		s.calculateWeightedProbabilitiesForBag()
+	}
+
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -565,7 +585,6 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 	s.autostopper.reset()
 
 	for t := 0; t < s.threads; t++ {
-		t := t
 		g.Go(func() error {
 			defer func() {
 				logger.Debug().Msgf("Thread %v exiting sim", t)
@@ -646,28 +665,25 @@ func (s *Simmer) TrimBottom(totrim int) error {
 }
 
 func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iterationCount uint64, logChan chan []byte) error {
-	// Give opponent a random rack from the bag. Note that this also
-	// shuffles the bag!
 	logger := zerolog.Ctx(ctx)
 
 	g := s.gameCopies[thread]
 
 	opp := (s.initialPlayer + 1) % g.NumPlayers()
 	rackToSet := s.knownOppRack
-	if s.inferenceMode == InferenceCycle {
-		rackToSet = s.inferences[int(iterationCount)%len(s.inferences)]
-		// Sometimes, just set a random rack anyway.
-		// This number should likely be adjusted.
-		if frand.Float64() >= 0.75 {
-			rackToSet = nil
+	var err error
+	if s.inferenceMode == InferenceWeightedRandomTiles {
+		rackToSet, err = s.weightedInferredDrawTiles()
+		if err != nil {
+			return err
 		}
-	} else if s.inferenceMode == InferenceRandom {
-		rackToSet = s.inferences[frand.Intn(len(s.inferences))]
-		if frand.Float64() >= 0.75 {
-			rackToSet = nil
+	} else if s.inferenceMode == InferenceWeightedRandomRacks {
+		rackToSet, err = s.weightedInferredDrawRacks()
+		if err != nil {
+			return err
 		}
 	}
-	_, err := g.SetRandomRack(opp, rackToSet)
+	_, err = g.SetRandomRack(opp, rackToSet)
 	if err != nil {
 		return err
 	}
@@ -711,13 +727,19 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 			g.PlayMove(bestPlay, false, 0)
 			s.nodeCount.Add(1)
 			// log.Debug().Msgf("Score is now %v", s.game.Score())
+
 			if s.logStream != nil {
+				presetRack := ""
+				if len(rackToSet) > 0 && ply == 0 {
+					presetRack = tilemapping.MachineWord(rackToSet).UserVisible(g.Alphabet())
+				}
 				plyChild = LogPlay{
-					Play:  g.Board().MoveDescriptionWithPlaythrough(bestPlay),
-					Leave: bestPlay.LeaveString(),
-					Rack:  bestPlay.FullRack(),
-					Pts:   bestPlay.Score(),
-					Bingo: bestPlay.BingoPlayed()}
+					Play:       g.Board().MoveDescriptionWithPlaythrough(bestPlay),
+					PresetRack: presetRack,
+					Leave:      bestPlay.LeaveString(),
+					Rack:       bestPlay.FullRack(),
+					Pts:        bestPlay.Score(),
+					Bingo:      bestPlay.BingoPlayed()}
 			}
 			if ply == plies-2 || ply == plies-1 {
 				// It's either OUR last turn or OPP's last turn.
@@ -854,6 +876,9 @@ func (s *Simmer) EquityStats() string {
 }
 
 func (s *Simmer) ScoreDetails() string {
+	if s.simmedPlays == nil {
+		return "No simmed plays."
+	}
 	stats := ""
 	s.sortPlaysByWinRate(false)
 	s.simmedPlays.RLock()
@@ -906,9 +931,29 @@ func (s *Simmer) ShortDetails(nplays int) string {
 // a fixed number of iterations and an optional stopping condition.
 func (s *Simmer) SimSingleThread(iters, plies int) {
 	ctx := context.Background()
+	s.iterationCount.Store(0)
+
+	writer := &errgroup.Group{}
+	logChan := make(chan []byte)
+	done := make(chan bool)
+
+	if s.logStream != nil {
+		// I lied, it's not single thread if we're debug logging.
+		writer.Go(func() error {
+			for {
+				select {
+				case bytes := <-logChan:
+					s.logStream.Write(bytes)
+				case <-done:
+					return nil
+				}
+			}
+		})
+	}
+
 	for i := range uint64(iters) {
 
-		s.simSingleIteration(ctx, plies, 0, i, nil)
+		s.simSingleIteration(ctx, plies, 0, i, logChan)
 
 		// check if we need to stop
 		if s.autostopper.stoppingCondition != StopNone {
@@ -921,6 +966,14 @@ func (s *Simmer) SimSingleThread(iters, plies int) {
 			}
 		}
 	}
+	if s.logStream != nil {
+		close(done)
+		err := writer.Wait()
+		if err != nil {
+			log.Err(err).Msg("simsinglethread-errgroup-error")
+		}
+	}
+	s.iterationCount.Add(uint64(iters))
 }
 
 func (s *Simmer) WinningPlay() *SimmedPlay {
@@ -942,19 +995,154 @@ func (s *Simmer) SetAutostopCheckInterval(i uint64) {
 	s.autostopper.stopConditionCheckInterval = i
 }
 
-type PlayWithWinProb struct {
-	Move    *move.Move
-	WinProb float64
+// PlaysByWinProb returns the simmedplays structure sorted by win probability.
+func (s *Simmer) PlaysByWinProb() *SimmedPlays {
+	s.sortPlaysByWinRate(true)
+	return s.simmedPlays
 }
 
-func (s *Simmer) PlaysWithWinProb() []PlayWithWinProb {
-	s.sortPlaysByWinRate(true)
-
-	plays := make([]PlayWithWinProb, len(s.simmedPlays.plays))
-	for i := range plays {
-		plays[i].Move = s.simmedPlays.plays[i].Move()
-		// WinPct is actually from 0 to 1; let's try to use WinProb as it's more accurate.
-		plays[i].WinProb = s.simmedPlays.plays[i].WinPct()
+func bagCount(bag []tilemapping.MachineLetter) map[tilemapping.MachineLetter]int {
+	counts := map[tilemapping.MachineLetter]int{}
+	for _, t := range bag {
+		counts[t]++
 	}
-	return plays
+	return counts
+}
+
+func (s *Simmer) weightedInferredDrawTiles() ([]tilemapping.MachineLetter, error) {
+	chosen := make([]tilemapping.MachineLetter, 0, s.tilesToInfer)
+
+	unseenMap := map[tilemapping.MachineLetter]int{}
+
+	for k, v := range s.unseenToSimmingPlayer {
+		unseenMap[k] = v
+	}
+
+	for i := 0; i < s.tilesToInfer; i++ {
+		// Build a list of tiles that still have count > 0
+		tiles := []tilemapping.MachineLetter{}
+		weights := []float64{}
+		for tile, c := range unseenMap {
+			if c > 0 {
+				w := s.adjustedBagProbabilities[tile]
+				// If w <= 0, skip as well
+				if w > 0 {
+					tiles = append(tiles, tile)
+					weights = append(weights, w)
+				}
+			}
+		}
+		if len(tiles) == 0 {
+			break // no more tiles can be drawn
+		}
+		// Randomly pick 1 tile from this distribution
+		picked, err := weightedChoice(tiles, weights)
+		if err != nil {
+			return chosen, err
+		}
+		chosen = append(chosen, picked)
+		// Decrement the actual bag count
+		unseenMap[picked]--
+		if unseenMap[picked] == 0 {
+			delete(unseenMap, picked)
+		}
+	}
+	return chosen, nil
+}
+
+// weightedChoice selects one element from tiles based on the provided weights
+func weightedChoice(tiles []tilemapping.MachineLetter, weights []float64) (tilemapping.MachineLetter, error) {
+	if len(tiles) != len(weights) || len(tiles) == 0 {
+		return 0, errors.New("tiles and weights must be of same non-zero length")
+	}
+
+	// Calculate the cumulative weights
+	cumulative := make([]float64, len(weights))
+	cumulative[0] = weights[0]
+	for i := 1; i < len(weights); i++ {
+		cumulative[i] = cumulative[i-1] + weights[i]
+	}
+
+	// Generate a random number between 0 and total weight
+	r := rand.Float64() * cumulative[len(cumulative)-1]
+
+	// Find the first cumulative weight that is greater than r
+	for i, cw := range cumulative {
+		if r < cw {
+			return tiles[i], nil
+		}
+	}
+
+	return 0, errors.New("weighted choice failed to select a tile")
+}
+
+func (s *Simmer) weightedInferredDrawRacks() ([]tilemapping.MachineLetter, error) {
+
+	picked, err := weightedChoiceRack(s.inferences)
+	if err != nil {
+		return nil, err
+	}
+	return picked, nil
+}
+
+// weightedChoice selects one element from tiles based on the provided weights
+func weightedChoiceRack(choices map[*[]tilemapping.MachineLetter]float64) ([]tilemapping.MachineLetter, error) {
+	// turn into two arrays.
+	racks := [][]tilemapping.MachineLetter{}
+	weights := []float64{}
+	for k, v := range choices {
+		racks = append(racks, *k)
+		weights = append(weights, v)
+	}
+
+	// Calculate the cumulative weights
+	cumulative := make([]float64, len(weights))
+
+	cumulative[0] = weights[0]
+	for i := 1; i < len(weights); i++ {
+		cumulative[i] = cumulative[i-1] + weights[i]
+	}
+
+	// Generate a random number between 0 and total weight
+	r := rand.Float64() * cumulative[len(cumulative)-1]
+
+	// Find the first cumulative weight that is greater than r
+	for i, cw := range cumulative {
+		if r < cw {
+			return racks[i], nil
+		}
+	}
+
+	return nil, errors.New("weighted choice failed to select a rack")
+}
+
+func (s *Simmer) calculateWeightedProbabilitiesForBag() {
+	// Calculate weighted probabilities for the bag.
+	totalTiles := float64(0)
+	tileCounts := map[tilemapping.MachineLetter]float64{}
+	for rack, weight := range s.inferences {
+		for _, t := range *rack {
+			tileCounts[t] += weight
+			totalTiles += weight
+		}
+	}
+	tileProbabilities := map[tilemapping.MachineLetter]float64{}
+	for t, c := range tileCounts {
+		tileProbabilities[t] = float64(c) / float64(totalTiles)
+	}
+	s.adjustedBagProbabilities = make([]float64, s.origGame.Alphabet().NumLetters())
+	for i := range s.origGame.Alphabet().NumLetters() {
+		s.adjustedBagProbabilities[i] = tileProbabilities[tilemapping.MachineLetter(i)]
+	}
+	// calculate unseen to simming player
+	s.unseenToSimmingPlayer = map[tilemapping.MachineLetter]int{}
+	for _, t := range s.origGame.Bag().Peek() {
+		s.unseenToSimmingPlayer[t]++
+	}
+	// lower allocations later!
+	for _, t := range s.origGame.RackFor(1 - s.initialPlayer).TilesOn() {
+		s.unseenToSimmingPlayer[t]++
+	}
+
+	log.Debug().Interface("bag-probabilities", s.adjustedBagProbabilities).Msg("calculated-weighted-bag")
 }

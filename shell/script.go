@@ -15,6 +15,7 @@ var exports = map[string]lua.LGFunction{
 	"load":       load,
 	"set":        set,
 	"gen":        gen,
+	"add":        add,
 	"sim":        sim,
 	"turn":       turn,
 	"gid":        gid,
@@ -96,6 +97,22 @@ func gen(L *lua.LState) int {
 		return 0
 	}
 	L.Push(lua.LString(r.message))
+	return 1
+}
+
+func add(L *lua.LState) int {
+	lv := L.ToString(1)
+	sc := getShell(L)
+	cmd, err := extractFields("add " + lv)
+	if err != nil {
+		log.Err(err).Msg("error-parsing-add")
+		return 0
+	}
+	_, err = sc.add(cmd)
+	if err != nil {
+		log.Err(err).Msg("error-executing-add")
+		return 0
+	}
 	return 1
 }
 

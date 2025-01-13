@@ -16,6 +16,7 @@ Example:
     sim heatmap "F3 BAR" 0
     sim playstats "H3 FOO"
     sim tilestats
+    sim -useinferences weightedrandomracks
 
 A list of plays must have been generated or added in another way already.
 
@@ -87,12 +88,21 @@ Options:
     You can specify the opponent's rack (or partial rack) if you know it, for a
     more accurate sim. Use ? for blanks.
 
-    -useinferences cycle
+    -useinferences weightedrandom
 
     You can use automatic inferences while simming. You must have run the
-    `infer` command prior to using this. The different options are:
-        cycle - cycle through inferences indefinitely
-        random - pick a random rack from the inferences each time
+    `infer` command prior to using this. There are two options for inference
+    mode:
+
+        weightedrandomtiles:
+            Inference returns a number of racks with a "weight" attached to them.
+            This mode computes a tile distribution based on all of the racks
+            and randomly draws from this distribution for the opponent's
+            inferred rack.
+
+        weightedrandomracks:
+            This simpler mode just draws the racks themselves with the given
+            weights. It does not draw tile-by-tile. This mode might perform better.
 
     Note: the opprack option is not compatible with this. If you use both,
     it will ignore the opprack.
