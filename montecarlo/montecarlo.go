@@ -672,17 +672,43 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 	opp := (s.initialPlayer + 1) % g.NumPlayers()
 	rackToSet := s.knownOppRack
 	var err error
-	if s.inferenceMode == InferenceWeightedRandomTiles {
-		rackToSet, err = s.weightedInferredDrawTiles()
-		if err != nil {
-			return err
+	if s.inferenceMode != InferenceOff {
+
+		// If we have a very low number of inferred racks, we still want to
+		// try to use their info. But we draw more random racks the fewer inferred
+		// racks we have.
+
+		minInferences := 2
+		maxInferences := 25
+		maxProbability := 0.9 // 90%
+		minProbability := 0.0 // 0%
+
+		numInferences := len(s.inferences)
+
+		probability := maxProbability
+		if numInferences > minInferences {
+			if numInferences < maxInferences {
+				probability = maxProbability -
+					((float64(numInferences-minInferences) / float64(maxInferences-minInferences)) * maxProbability)
+			} else {
+				probability = minProbability
+			}
 		}
-	} else if s.inferenceMode == InferenceWeightedRandomRacks {
-		rackToSet, err = s.weightedInferredDrawRacks()
-		if err != nil {
-			return err
+		if rand.Float64() < probability {
+			rackToSet = nil
+		} else {
+			if s.inferenceMode == InferenceWeightedRandomTiles {
+				rackToSet, err = s.weightedInferredDrawTiles()
+			} else if s.inferenceMode == InferenceWeightedRandomRacks {
+				rackToSet, err = s.weightedInferredDrawRacks()
+			}
+			if err != nil {
+				return err
+			}
 		}
+
 	}
+
 	_, err = g.SetRandomRack(opp, rackToSet)
 	if err != nil {
 		return err

@@ -20,7 +20,7 @@ import (
 	"github.com/domino14/macondo/movegen"
 )
 
-const InferencesSimLimit = 25
+const InferencesSimLimit = 2
 
 // Elite bot uses Monte Carlo simulations to rank plays, plays an endgame,
 // a pre-endgame (when ready).

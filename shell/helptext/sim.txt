@@ -88,7 +88,7 @@ Options:
     You can specify the opponent's rack (or partial rack) if you know it, for a
     more accurate sim. Use ? for blanks.
 
-    -useinferences weightedrandom
+    -useinferences weightedrandomracks
 
     You can use automatic inferences while simming. You must have run the
     `infer` command prior to using this. There are two options for inference
