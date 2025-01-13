@@ -34,8 +34,11 @@ var ErrNoInformation = errors.New("not enough information to infer")
 const (
 	// If the player found a play within this limit, then count the rack
 	// for inferences. Multiply by 100 to visualize as percentage.
-	InferenceWinProbLimit   = 0.07
-	NextTurnScoreBoostLimit = 10
+	InferenceWinProbLimit = 0.035
+	// NextTurnScoreBoostLimit - if the player scores more than this many
+	// points on average next turn, boost those inferred racks.
+	// XXX: We may want this to be per-lexicon / per-variant / etc.
+	NextTurnScoreBoostLimit = 45
 )
 
 type LogIteration struct {
@@ -411,7 +414,7 @@ func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) (map
 				// Apply a "boost" if the play scores extra well next turn. This helps
 				// in detecting potential setups.
 				if m.WinProb() == winningWinProb && len(bestPlays) > 1 &&
-					float64(bestPlays[1].ScoreStatsNoLock()[1].Mean()) < float64(m.ScoreStatsNoLock()[1].Mean())-NextTurnScoreBoostLimit {
+					float64(m.ScoreStatsNoLock()[1].Mean()) >= NextTurnScoreBoostLimit {
 					normalizedWinProb *= 5
 				}
 				if r.logStream != nil {
