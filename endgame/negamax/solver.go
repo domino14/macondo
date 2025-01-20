@@ -710,7 +710,8 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 		if err != nil {
 			return err
 		}
-		log.Info().Int16("spread", val).Int("ply", p).Str("pv", pv.NLBString()).Msg("best-val")
+		nodes := s.nodes.Load()
+		log.Info().Int16("spread", val).Int("ply", p).Str("pv", pv.NLBString()).Uint64("total-nodes", nodes).Msg("best-val")
 		// Sort top layer of moves by value for the next time around.
 		sort.Slice(s.initialMoves[0], func(i, j int) bool {
 			return s.initialMoves[0][i].EstimatedValue() > s.initialMoves[0][j].EstimatedValue()
@@ -940,8 +941,6 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 		for {
 			select {
 			case <-done:
-				nodes := s.nodes.Load()
-				log.Info().Uint64("total-nodes", nodes).Msg("total-nodes")
 				return nil
 			case <-ticker.C:
 				nodes := s.nodes.Load()
