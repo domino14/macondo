@@ -940,6 +940,8 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 		for {
 			select {
 			case <-done:
+				nodes := s.nodes.Load()
+				log.Info().Uint64("totalNodes", nodes).Msg("nodes-per-second")
 				return nil
 			case <-ticker.C:
 				nodes := s.nodes.Load()

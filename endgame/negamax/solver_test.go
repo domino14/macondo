@@ -137,7 +137,7 @@ func TestSolveStandard(t *testing.T) {
 
 	is := is.New(t)
 
-	s, err := setUpSolver("NWL18", "english", board.VsCanik, plies, "DEHILOR", "BGIV", 389, 384,
+	s, err := setUpSolver("NWL20", "english", board.VsCanik, plies, "DEHILOR", "BGIV", 389, 384,
 		1)
 	is.NoErr(err)
 	bestV, bestSeq, err := s.Solve(context.Background(), plies)
@@ -201,7 +201,7 @@ func TestVeryDeep(t *testing.T) {
 	deepEndgame := "14C/13QI/12FIE/10VEE1R/9KIT2G/8CIG1IDE/8UTA2AS/7ST1SYPh1/6JA5A1/5WOLD2BOBA/3PLOT1R1NU1EX/Y1VEIN1NOR1mOA1/UT1AT1N1L2FEH1/GUR2WIRER5/SNEEZED8 ADENOOO/AHIILMM 353/236 0 lex CSW19;"
 	g, err := cgp.ParseCGP(DefaultConfig, deepEndgame)
 	is.NoErr(err)
-	gd, err := kwg.Get(DefaultConfig.WGLConfig(), "CSW19")
+	gd, err := kwg.Get(DefaultConfig.WGLConfig(), "CSW21")
 	is.NoErr(err)
 	g.SetBackupMode(game.SimulationMode)
 	g.RecalculateBoard()
