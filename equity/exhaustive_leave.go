@@ -46,7 +46,7 @@ func defaultForLexicon(lexiconName string) string {
 	} else if strings.HasPrefix(lexiconName, "DISC") {
 		return "DISC2"
 	} else if strings.HasPrefix(lexiconName, "OSPS") {
-		return "OSPS49"
+		return "OSPS50"
 	} else if strings.HasPrefix(lexiconName, "FILE") {
 		return "FILE2017"
 	}
