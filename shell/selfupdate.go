@@ -67,7 +67,7 @@ func (sc *ShellController) update(cmd *shellcmd) (*Response, error) {
 		return nil, fmt.Errorf("failed to perform the update: %v", err)
 	}
 
-	return msg("Update initiated. Please restart the application."), nil
+	return msg("Update initiated. Please `exit` Macondo and restart it."), nil
 }
 
 type ReleaseInfo struct {
@@ -147,15 +147,8 @@ func downloadAsset(asset *Asset) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	// Get path of current executable
-	exePath, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	dir := filepath.Dir(exePath)
-
 	// Download to a temporary file
-	tmpFile, err := os.CreateTemp(dir, "macondo-update-*")
+	tmpFile, err := os.CreateTemp("", "macondo-update-*")
 	if err != nil {
 		return "", err
 	}
