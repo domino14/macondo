@@ -189,6 +189,7 @@ type Solver struct {
 
 	iterativeDeepeningOptim bool
 	firstWinOptim           bool
+	nullWindowOptim         bool
 	transpositionTableOptim bool
 	negascoutOptim          bool
 	// lazySMP is a way to optimize the endgame speed, but it doesn't work
@@ -390,6 +391,9 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 		// to find something that surpasses it.
 		α = -1
 		β = 1
+	} else if s.nullWindowOptim {
+		α = -1
+		β = 0
 	}
 
 	// Generate first layer of moves.
@@ -520,6 +524,9 @@ func (s *Solver) lazySMP(ctx context.Context, lastIteration *int16, ply int,
 	if s.firstWinOptim {
 		α = -1
 		β = 1
+	} else if s.nullWindowOptim {
+		α = -1
+		β = 0
 	}
 
 aspirationLoop:
@@ -684,6 +691,9 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 		// to find something that surpasses it.
 		α = -1
 		β = 1
+	} else if s.nullWindowOptim {
+		α = -1
+		β = 0
 	}
 
 	// Generate first layer of moves.
@@ -1072,6 +1082,10 @@ func (s *Solver) SetTranspositionTableOptim(tt bool) {
 
 func (s *Solver) SetFirstWinOptim(w bool) {
 	s.firstWinOptim = w
+}
+
+func (s *Solver) SetNullWindowOptim(nw bool) {
+	s.nullWindowOptim = nw
 }
 
 func (s *Solver) SetNegascoutOptim(n bool) {

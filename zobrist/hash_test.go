@@ -95,6 +95,33 @@ func TestHashAfterMakingPlay(t *testing.T) {
 	is.Equal(h1, h2)
 }
 
+func TestHashAfterMakingBlankPlay(t *testing.T) {
+	is := is.New(t)
+	z := &Zobrist{}
+	z.Initialize(15)
+
+	endgameCGP := "IBADAT1B7/2CAFE1OD1TRANQ/2TUT2RENIED2/3REV2YOMIM2/4RAFT1NISI2/5COR2N1x2/6LA1AGEE2/6LIAISED2/5POKY2W3/4JOWS7/V2LUZ9/ORPIN10/L1OE11/TUX12/I14 EEEEGH?/AGHNOSU 308/265 0 lex CSW21;"
+
+	g, err := cgp.ParseCGP(DefaultConfig, endgameCGP)
+	is.NoErr(err)
+	alph := testhelpers.EnglishAlphabet()
+	h := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("EEEEGH?", alph), tilemapping.RackFromString("AGHNOSU", alph), false, 0)
+
+	m1 := move.NewScoringMoveSimple(0, "6M", "xu", "EEEEGH", alph)
+	tm := conversions.MoveToTinyMove(m1)
+	sm := tinymove.TilePlayMove(tm, 0, 1, 2)
+	h1 := z.AddMove(h, &sm, tilemapping.RackFromString("EEEEGH", alph), &[21]tilemapping.MachineLetter{
+		0, 21 | 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	}, true, 0, 0)
+
+	// Actually play the move on the board.
+	err = g.PlayMove(m1, false, 0)
+	is.NoErr(err)
+
+	h2 := z.Hash(g.Board().GetSquares(), tilemapping.RackFromString("EEEEGH", alph), tilemapping.RackFromString("AGHNOSU", alph), true, 0)
+	is.Equal(h1, h2)
+}
+
 func TestHashAfterPassing(t *testing.T) {
 	is := is.New(t)
 	z := &Zobrist{}
