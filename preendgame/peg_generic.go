@@ -58,7 +58,7 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 	winnerChan := make(chan *PreEndgamePlay)
 
 	var processed atomic.Uint32
-
+	log.Info().Msgf("starting to process %d possible side-to-move plays", len(moves))
 	for t := 0; t < s.threads; t++ {
 		g.Go(func() error {
 			for j := range jobChan {
@@ -77,7 +77,7 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 				processed.Add(1)
 				n := processed.Load()
 				if n%100 == 0 {
-					log.Info().Uint64("cutoffs", s.numCutoffs.Load()).Msgf("processed %d endgames...", n)
+					log.Info().Uint64("cutoffs", s.numCutoffs.Load()).Msgf("handled %d plays...", n)
 				}
 			}
 			return nil

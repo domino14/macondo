@@ -415,6 +415,8 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	var disableTT bool
 	var enableFW bool
 	var preventSR bool
+	var disableNegascout bool
+	var nullWindow bool
 	var err error
 
 	if plies, err = cmd.options.IntDefault("plies", defaultEndgamePlies); err != nil {
@@ -433,6 +435,8 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	disableTT = cmd.options.Bool("disable-tt")
 	enableFW = cmd.options.Bool("first-win-optim")
 	preventSR = cmd.options.Bool("prevent-slowroll")
+	disableNegascout = cmd.options.Bool("disable-negascout")
+	nullWindow = cmd.options.Bool("null-window")
 
 	// clear out the last value of this endgame node; gc should
 	// delete the tree.
@@ -474,8 +478,10 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	sc.endgameSolver.SetTranspositionTableOptim(!disableTT)
 	sc.endgameSolver.SetThreads(maxthreads)
 	sc.endgameSolver.SetFirstWinOptim(enableFW)
+	sc.endgameSolver.SetNullWindowOptim(nullWindow)
 	sc.endgameSolver.SetSolveMultipleVariations(multipleVars)
 	sc.endgameSolver.SetPreventSlowroll(preventSR)
+	sc.endgameSolver.SetNegascoutOptim(!disableNegascout)
 
 	sc.showMessage(sc.game.ToDisplayText())
 
