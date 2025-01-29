@@ -100,6 +100,7 @@ type SimmedPlay struct {
 	// Actually this is win probability (0 to 1), not percent:
 	winPctStats stats.Statistic
 	ignore      bool
+	unignorable bool
 }
 
 func (sp *SimmedPlay) String() string {
@@ -473,6 +474,19 @@ func (s *Simmer) resetStats(plies int, plays []*move.Move) {
 		s.simmedPlays.plays[idx].bingoStats = make([]stats.Statistic, plies)
 	}
 
+}
+
+// AvoidPruningMoves sets a list of moves that must not be trimmed / pruned away
+// during simulation. this function assumes that `resetStats` has already been called.
+func (s *Simmer) AvoidPruningMoves(plays []*move.Move) {
+	for _, play := range plays {
+		s.simmedPlays.plays = append(s.simmedPlays.plays, &SimmedPlay{
+			play:        play,
+			scoreStats:  make([]stats.Statistic, s.maxPlies),
+			bingoStats:  make([]stats.Statistic, s.maxPlies),
+			unignorable: true,
+		})
+	}
 }
 
 func (s *Simmer) IsSimming() bool {

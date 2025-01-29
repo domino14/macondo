@@ -20,6 +20,7 @@ import (
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/montecarlo/stats"
+	"github.com/domino14/macondo/move"
 )
 
 // simPrepare parses options and prepares the simmer for running.
@@ -48,8 +49,24 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 	inferMode := montecarlo.InferenceOff
 	knownOppRack := ""
 	var stopPPscaling, stopitercutoff, stopcheckinterval int
+	avoidTrimMoveStrs := options.StringArray("avoid-prune")
+	avoidTrimMoves := []*move.Move{}
+
 	for opt := range options {
 		switch opt {
+		case "avoid-prune":
+			for _, ms := range avoidTrimMoveStrs {
+				m, err := sc.game.ParseMove(
+					sc.game.PlayerOnTurn(),
+					sc.options.lowercaseMoves,
+					strings.Fields(ms),
+					false,
+				)
+				if err != nil {
+					return nil, err
+				}
+				avoidTrimMoves = append(avoidTrimMoves, m)
+			}
 		case "plies":
 			plies, err = options.Int(opt)
 			if err != nil {
@@ -179,6 +196,7 @@ func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 		autostopCheckInterval: stopcheckinterval,
 		knownOppRack:          kr,
 		inferMode:             inferMode,
+		avoidTrimMoves:        avoidTrimMoves,
 		// For experiment mode
 		fixediters:    fixediters,
 		fixedplies:    fixedplies,
@@ -257,6 +275,7 @@ type simParams struct {
 	autostopCheckInterval int
 	knownOppRack          []tilemapping.MachineLetter
 	inferMode             montecarlo.InferenceMode
+	avoidTrimMoves        []*move.Move
 	// For experiment mode
 	fixediters    int
 	fixedplies    int
@@ -286,6 +305,9 @@ func (sc *ShellController) setSimmerParams(simmer *montecarlo.Simmer, params sim
 		simmer.SetInferences(sc.rangefinder.Inferences().InferredRacks,
 			sc.rangefinder.Inferences().RackLength,
 			params.inferMode)
+	}
+	if len(params.avoidTrimMoves) > 0 {
+		simmer.AvoidPruningMoves(params.avoidTrimMoves)
 	}
 	if len(params.knownOppRack) > 0 {
 		simmer.SetKnownOppRack(params.knownOppRack)
