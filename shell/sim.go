@@ -20,6 +20,7 @@ import (
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/montecarlo/stats"
+	"github.com/domino14/macondo/move"
 )
 
 func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
@@ -50,8 +51,23 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
 	inferMode := montecarlo.InferenceOff
 	knownOppRack := ""
 	var stopPPscaling, stopitercutoff, stopcheckinterval int
+	avoidTrimMoveStrs := options.StringArray("avoid-prune")
+	avoidTrimMoves := []*move.Move{}
+
 	for opt := range options {
 		switch opt {
+		case "avoid-prune":
+			for _, ms := range avoidTrimMoveStrs {
+				m, err := sc.game.ParseMove(
+					sc.game.PlayerOnTurn(),
+					sc.options.lowercaseMoves,
+					strings.Fields(ms),
+				)
+				if err != nil {
+					return err
+				}
+				avoidTrimMoves = append(avoidTrimMoves, m)
+			}
 		case "plies":
 			plies, err = options.Int(opt)
 			if err != nil {
@@ -181,6 +197,7 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
 		autostopCheckInterval: stopcheckinterval,
 		knownOppRack:          kr,
 		inferMode:             inferMode,
+		avoidTrimMoves:        avoidTrimMoves,
 	}
 	if fixediters != 0 {
 		return sc.startMultiSimExperiment(fixediters, fixedplies, fixedsimcount, params)
@@ -201,6 +218,7 @@ type simParams struct {
 	autostopCheckInterval int
 	knownOppRack          []tilemapping.MachineLetter
 	inferMode             montecarlo.InferenceMode
+	avoidTrimMoves        []*move.Move
 }
 
 func (sc *ShellController) setSimmerParams(simmer *montecarlo.Simmer, params simParams) error {
@@ -226,6 +244,9 @@ func (sc *ShellController) setSimmerParams(simmer *montecarlo.Simmer, params sim
 		simmer.SetInferences(sc.rangefinder.Inferences().InferredRacks,
 			sc.rangefinder.Inferences().RackLength,
 			params.inferMode)
+	}
+	if len(params.avoidTrimMoves) > 0 {
+		simmer.AvoidPruningMoves(params.avoidTrimMoves)
 	}
 	return nil
 }
