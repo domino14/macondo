@@ -495,7 +495,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		_, err := g.ChallengeEvent(0, 0)
 		return err
 	}
-
+	var rackstr string
 	if g.backupMode != NoBackup {
 		g.backupState()
 	}
@@ -506,11 +506,12 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 			return err
 		}
 		g.lastWordsFormed = wordsFormed
+		rackstr = g.RackLettersFor(g.onturn)
 	}
 
 	switch m.Action() {
 	case move.MoveTypePlay:
-		g.board.PlayMove(m)
+		g.placeMoveAndUpdateRack(g.onturn, m)
 		// Calculate cross-sets.
 		g.crossSetGen.UpdateForMove(g.board, m)
 		score := m.Score()
@@ -524,12 +525,14 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		if m.TilesPlayed() == RackTileLimit {
 			g.players[g.onturn].bingos++
 		}
+
 		drew := g.bag.DrawAtMost(m.TilesPlayed(), g.players[g.onturn].placeholderRack)
-		copy(g.players[g.onturn].placeholderRack[drew:], []tilemapping.MachineLetter(m.Leave()))
-		g.players[g.onturn].setRackTiles(g.players[g.onturn].placeholderRack[:drew+len(m.Leave())], g.alph)
+		for i := range drew {
+			g.players[g.onturn].rack.Add(g.players[g.onturn].placeholderRack[i])
+		}
 
 		if addToHistory {
-			evt := g.EventFromMove(m)
+			evt := g.EventFromMove(m, rackstr)
 			evt.MillisRemaining = int32(millis)
 			evt.WordsFormed = convertToVisible(g.lastWordsFormed, g.alph)
 			g.history.LastKnownRacks[g.onturn] = g.RackLettersFor(g.onturn)
@@ -563,7 +566,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		}
 		// Add the pass first so it comes before the end rack bonus
 		if addToHistory {
-			evt := g.EventFromMove(m)
+			evt := g.EventFromMove(m, rackstr)
 			evt.MillisRemaining = int32(millis)
 			g.addEventToHistory(evt)
 		}
@@ -590,13 +593,15 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		if err != nil {
 			return err
 		}
-		copy(g.players[g.onturn].placeholderRack[len(m.Tiles()):], []tilemapping.MachineLetter(m.Leave()))
-		g.players[g.onturn].setRackTiles(g.players[g.onturn].placeholderRack[:len(m.Tiles())+len(m.Leave())], g.alph)
+		g.placeMoveAndUpdateRack(g.onturn, m)
+		for i := range len(m.Tiles()) {
+			g.players[g.onturn].rack.Add(g.players[g.onturn].placeholderRack[i])
+		}
 		g.lastScorelessTurns = g.scorelessTurns
 		g.scorelessTurns++
 		g.players[g.onturn].turns += 1
 		if addToHistory {
-			evt := g.EventFromMove(m)
+			evt := g.EventFromMove(m, rackstr)
 			evt.MillisRemaining = int32(millis)
 			g.history.LastKnownRacks[g.onturn] = g.RackLettersFor(g.onturn)
 			g.addEventToHistory(evt)
@@ -749,6 +754,7 @@ func (g *Game) CreateAndScorePlacementMove(coords string, tiles string, rack str
 	if err != nil {
 		return nil, err
 	}
+
 	rackmw, err := tilemapping.ToMachineWord(rack, g.alph)
 	if err != nil {
 		return nil, err
@@ -759,7 +765,7 @@ func (g *Game) CreateAndScorePlacementMove(coords string, tiles string, rack str
 		return nil, err
 	}
 
-	leavemw, err := tilemapping.Leave(rackmw, mw, false)
+	_, err = tilemapping.Leave(rackmw, mw, false)
 	if err != nil {
 		return nil, err
 	}
@@ -777,7 +783,12 @@ func (g *Game) CreateAndScorePlacementMove(coords string, tiles string, rack str
 		row, col = col, row
 		g.Board().Transpose()
 	}
-	tilesPlayed := len(rackmw) - len(leavemw)
+	tilesPlayed := 0
+	for i := range mw {
+		if mw[i] != 0 {
+			tilesPlayed++
+		}
+	}
 
 	// ScoreWord assumes the play is always horizontal, so we have to
 	// do the transpositions beforehand.
@@ -788,7 +799,7 @@ func (g *Game) CreateAndScorePlacementMove(coords string, tiles string, rack str
 		row, col = col, row
 		g.Board().Transpose()
 	}
-	m := move.NewScoringMove(score, mw, leavemw, vertical, tilesPlayed,
+	m := move.NewScoringMove(score, mw, vertical, tilesPlayed,
 		g.alph, row, col)
 	return m, nil
 
@@ -961,8 +972,7 @@ func (g *Game) PlayTurn(t int) error {
 		// We back up the board and bag since there's a possibility
 		// this play will have to be taken back, if it's a challenged phony.
 		g.backupState()
-
-		g.board.PlayMove(m)
+		g.placeMoveAndUpdateRack(g.onturn, m)
 		g.crossSetGen.UpdateForMove(g.board, m)
 		g.players[g.onturn].points += m.Score()
 		if m.TilesPlayed() == RackTileLimit {
@@ -974,12 +984,10 @@ func (g *Game) PlayTurn(t int) error {
 		// at the beginning to whatever was recorded. Drawing like
 		// normal, though, ensures we don't have to reconcile any
 		// tiles with the bag.
-		if cap(g.players[g.onturn].placeholderRack) < m.TilesPlayed()+len(m.Leave()) {
-			g.players[g.onturn].placeholderRack = make([]tilemapping.MachineLetter, m.TilesPlayed()+len(m.Leave()))
-		}
 		drew := g.bag.DrawAtMost(m.TilesPlayed(), g.players[g.onturn].placeholderRack)
-		copy(g.players[g.onturn].placeholderRack[drew:], []tilemapping.MachineLetter(m.Leave()))
-		g.players[g.onturn].setRackTiles(g.players[g.onturn].placeholderRack[:drew+len(m.Leave())], g.alph)
+		for i := range drew {
+			g.players[g.onturn].rack.Add(g.players[g.onturn].placeholderRack[i])
+		}
 		g.lastScorelessTurns = g.scorelessTurns
 		g.scorelessTurns = 0
 		// Don't check game end logic here, as we assume we have the
@@ -1009,8 +1017,10 @@ func (g *Game) PlayTurn(t int) error {
 		if err != nil {
 			panic(err)
 		}
-		copy(g.players[g.onturn].placeholderRack[len(m.Tiles()):], []tilemapping.MachineLetter(m.Leave()))
-		g.players[g.onturn].setRackTiles(g.players[g.onturn].placeholderRack[:len(m.Tiles())+len(m.Leave())], g.alph)
+		g.placeMoveAndUpdateRack(g.onturn, m)
+		for i := range len(m.Tiles()) {
+			g.players[g.onturn].rack.Add(g.players[g.onturn].placeholderRack[i])
+		}
 		g.players[g.onturn].turns += 1
 		g.lastScorelessTurns = g.scorelessTurns
 		g.scorelessTurns++
@@ -1026,6 +1036,19 @@ func (g *Game) PlayTurn(t int) error {
 
 	g.turnnum++
 	return nil
+}
+
+func (g *Game) placeMoveAndUpdateRack(playerIdx int, m *move.Move) {
+	if m.Action() == move.MoveTypePlay {
+		// playerIdx plays a move on the board. modify rack as appropriate.
+		g.board.PlayMove(m)
+	}
+	rack := g.players[playerIdx].rack
+	for _, t := range m.Tiles() {
+		if t != 0 {
+			rack.Take(t.IntrinsicTileIdx())
+		}
+	}
 }
 
 // SetRackFor sets the player's current rack. It throws an error if

@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/domino14/word-golib/tilemapping"
 	"github.com/matryer/is"
 	"github.com/stretchr/testify/assert"
 
@@ -161,15 +160,13 @@ func TestNewFromHistoryExcludePenultimatePass(t *testing.T) {
 	is.True(g.Playing() == pb.PlayState_PLAYING)
 	is.Equal(g.RackLettersFor(1), "U")
 
-	m := move.NewScoringMoveSimple(6, "11D", ".U", "", alph)
+	m := move.NewScoringMoveSimple(6, "11D", ".U", alph)
 	_, err = g.ValidateMove(m)
 	is.NoErr(err)
 	err = g.PlayMove(m, true, 0)
 	is.NoErr(err)
 
-	l, err := tilemapping.ToMachineWord("", alph)
-	is.NoErr(err)
-	m = move.NewPassMove(l, alph)
+	m = move.NewPassMove(alph)
 	_, err = g.ValidateMove(m)
 	is.NoErr(err)
 	err = g.PlayMove(m, true, 0)
@@ -213,15 +210,13 @@ func TestNewFromHistoryExcludePenultimateChallengeTurnLoss(t *testing.T) {
 	is.True(g.Playing() == pb.PlayState_PLAYING)
 	is.Equal(g.RackLettersFor(1), "U")
 
-	m := move.NewScoringMoveSimple(6, "11D", ".U", "", alph)
+	m := move.NewScoringMoveSimple(6, "11D", ".U", alph)
 	_, err = g.ValidateMove(m)
 	is.NoErr(err)
 	err = g.PlayMove(m, true, 0)
 	is.NoErr(err)
 
-	l, err := tilemapping.ToMachineWord("", alph)
-	is.NoErr(err)
-	m = move.NewUnsuccessfulChallengePassMove(l, alph)
+	m = move.NewUnsuccessfulChallengePassMove(alph)
 	_, err = g.ValidateMove(m)
 	is.NoErr(err)
 	err = g.PlayMove(m, true, 0)

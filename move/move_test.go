@@ -47,32 +47,28 @@ func TestFromBoardGameCoords(t *testing.T) {
 
 func TestEquals(t *testing.T) {
 	is := is.New(t)
-	m1 := NewScoringMoveSimple(35, "A7", "HELLO", "QI", testhelpers.EnglishAlphabet())
-	m2 := NewScoringMoveSimple(35, "A7", "HELLO", "QI", testhelpers.EnglishAlphabet())
-	is.True(m1.Equals(m2, false, false))
-	m3 := NewScoringMoveSimple(35, "A7", "HELLO", "Q?", testhelpers.EnglishAlphabet())
-	is.True(!m1.Equals(m3, false, false))
+	m1 := NewScoringMoveSimple(35, "A7", "HELLO", testhelpers.EnglishAlphabet())
+	m2 := NewScoringMoveSimple(35, "A7", "HELLO", testhelpers.EnglishAlphabet())
+	is.True(m1.Equals(m2, false))
 }
 
 func TestEqualsWithTransposition(t *testing.T) {
 	is := is.New(t)
-	m1 := NewScoringMoveSimple(66, "H8", "TERTIAL", "", testhelpers.EnglishAlphabet())
-	m2 := NewScoringMoveSimple(66, "8H", "TERTIAL", "", testhelpers.EnglishAlphabet())
-	is.True(!m1.Equals(m2, false, false))
-	is.True(m1.Equals(m2, true, false))
+	m1 := NewScoringMoveSimple(66, "H8", "TERTIAL", testhelpers.EnglishAlphabet())
+	m2 := NewScoringMoveSimple(66, "8H", "TERTIAL", testhelpers.EnglishAlphabet())
+	is.True(!m1.Equals(m2, false))
+	is.True(m1.Equals(m2, true))
 
-	m3 := NewScoringMoveSimple(24, "8H", "PHEW", "", testhelpers.EnglishAlphabet())
-	m4 := NewScoringMoveSimple(24, "8F", "PHEW", "", testhelpers.EnglishAlphabet())
-	is.True(!m3.Equals(m4, true, false))
+	m3 := NewScoringMoveSimple(24, "8H", "PHEW", testhelpers.EnglishAlphabet())
+	m4 := NewScoringMoveSimple(24, "8F", "PHEW", testhelpers.EnglishAlphabet())
+	is.True(!m3.Equals(m4, true))
 
 }
 
 func TestEqualsWithLeaveIgnore(t *testing.T) {
 	is := is.New(t)
-	m1 := NewScoringMoveSimple(66, "H8", "WHAT", "ABC", testhelpers.EnglishAlphabet())
-	m2 := NewScoringMoveSimple(66, "8H", "WHAT", "F", testhelpers.EnglishAlphabet())
-	is.True(!m1.Equals(m2, false, false))
-	is.True(!m1.Equals(m2, false, true))
-	is.True(m1.Equals(m2, true, true))
-	is.True(!m1.Equals(m2, true, false))
+	m1 := NewScoringMoveSimple(66, "H8", "WHAT", testhelpers.EnglishAlphabet())
+	m2 := NewScoringMoveSimple(66, "8H", "WHAT", testhelpers.EnglishAlphabet())
+	is.True(!m1.Equals(m2, false))
+	is.True(m1.Equals(m2, true))
 }

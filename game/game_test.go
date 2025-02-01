@@ -58,7 +58,7 @@ func TestBackup(t *testing.T) {
 	fmt.Println("Here")
 	game.SetRackFor(0, tilemapping.RackFromString("ACEOTV?", alph))
 
-	m := move.NewScoringMoveSimple(20, "H7", "AVOCET", "?", alph)
+	m := move.NewScoringMoveSimple(20, "H7", "AVOCET", alph)
 	game.PlayMove(m, false, 0)
 
 	is.Equal(game.stackPtr, 1)
@@ -92,7 +92,7 @@ func TestValidate(t *testing.T) {
 	g.SetPlayerOnTurn(0)
 	g.SetRackFor(0, tilemapping.RackFromString("HIS", alph))
 	g.SetChallengeRule(pb.ChallengeRule_DOUBLE)
-	m := move.NewScoringMoveSimple(12, "H7", "HIS", "", alph)
+	m := move.NewScoringMoveSimple(12, "H7", "HIS", alph)
 	words, err := g.ValidateMove(m)
 	is.NoErr(err)
 	is.Equal(len(words), 1)
@@ -100,7 +100,7 @@ func TestValidate(t *testing.T) {
 	is.Equal(g.history.Events[len(g.history.Events)-1].WordsFormed,
 		[]string{"HIS"})
 	g.SetRackFor(1, tilemapping.RackFromString("OIK", alph))
-	m = move.NewScoringMoveSimple(13, "G8", "OIK", "", alph)
+	m = move.NewScoringMoveSimple(13, "G8", "OIK", alph)
 	words, err = g.ValidateMove(m)
 	is.NoErr(err)
 	is.Equal(len(words), 3)
@@ -109,7 +109,7 @@ func TestValidate(t *testing.T) {
 		[]string{"OIK", "OI", "IS"})
 
 	g.SetRackFor(0, tilemapping.RackFromString("ADITT", alph))
-	m = move.NewScoringMoveSimple(22, "10E", "DI.TAT", "", alph)
+	m = move.NewScoringMoveSimple(22, "10E", "DI.TAT", alph)
 	words, err = g.ValidateMove(m)
 	is.NoErr(err)
 	is.Equal(len(words), 2)

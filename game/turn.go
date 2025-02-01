@@ -21,13 +21,13 @@ func (g *Game) oppPlayer() *playerState {
 	return g.players[(g.onturn+1)%2]
 }
 
-func (g *Game) EventFromMove(m *move.Move) *pb.GameEvent {
+func (g *Game) EventFromMove(m *move.Move, rack string) *pb.GameEvent {
 	curPlayer := g.curPlayer()
 
 	evt := &pb.GameEvent{
 		PlayerIndex: uint32(g.onturn),
 		Cumulative:  int32(curPlayer.points),
-		Rack:        m.FullRack(),
+		Rack:        rack,
 	}
 
 	switch m.Action() {
@@ -168,7 +168,7 @@ func MoveFromEvent(evt *pb.GameEvent, alph *tilemapping.TileMapping, board *boar
 		// log.Debug().Msgf("calculated leave %v from rack %v, tiles %v",
 		// 	leaveMW.UserVisible(alph), rack.UserVisible(alph),
 		// 	tiles.UserVisible(alph))
-		m = move.NewScoringMove(int(evt.Score), tiles, leaveMW,
+		m = move.NewScoringMove(int(evt.Score), tiles,
 			evt.Direction == pb.GameEvent_VERTICAL,
 			len(rack)-len(leaveMW), alph, int(evt.Row), int(evt.Column))
 
@@ -191,18 +191,18 @@ func MoveFromEvent(evt *pb.GameEvent, alph *tilemapping.TileMapping, board *boar
 				return nil, err
 			}
 		}
-		leaveMW, err := tilemapping.Leave(rack, tiles, true)
+		_, err = tilemapping.Leave(rack, tiles, true)
 		if err != nil {
 			log.Error().Err(err).Msg("")
 			return nil, err
 		}
-		m = move.NewExchangeMove(tiles, leaveMW, alph)
+		m = move.NewExchangeMove(tiles, alph)
 
 	case pb.GameEvent_PASS:
-		m = move.NewPassMove(rack, alph)
+		m = move.NewPassMove(alph)
 
 	case pb.GameEvent_CHALLENGE:
-		m = move.NewChallengeMove(rack, alph)
+		m = move.NewChallengeMove(alph)
 
 	case pb.GameEvent_CHALLENGE_BONUS:
 		m = move.NewBonusScoreMove(move.MoveTypeChallengeBonus,
@@ -236,7 +236,7 @@ func MoveFromEvent(evt *pb.GameEvent, alph *tilemapping.TileMapping, board *boar
 		log.Debug().Int("mt", int(mt)).Msg("lost-score-move")
 		m = move.NewLostScoreMove(mt, rack, int(evt.LostScore))
 	case pb.GameEvent_UNSUCCESSFUL_CHALLENGE_TURN_LOSS:
-		m = move.NewUnsuccessfulChallengePassMove(rack, alph)
+		m = move.NewUnsuccessfulChallengePassMove(alph)
 	default:
 		log.Error().Msgf("Unhandled event %v", evt)
 

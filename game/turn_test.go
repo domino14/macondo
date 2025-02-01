@@ -17,10 +17,8 @@ func TestEventFromMove(t *testing.T) {
 
 	tiles, err := tilemapping.ToMachineWord("?EGKMNO", alph)
 	is.NoErr(err)
-	leave, err := tilemapping.ToMachineWord("", alph)
-	is.NoErr(err)
 
-	m := move.NewExchangeMove(tiles, leave, alph)
+	m := move.NewExchangeMove(tiles, alph)
 	g := &Game{}
 	g.players = []*playerState{
 		{
@@ -39,7 +37,7 @@ func TestEventFromMove(t *testing.T) {
 		},
 	}
 	g.onturn = 1 // botty's turn
-	evt := g.EventFromMove(m)
+	evt := g.EventFromMove(m, "?EGKMNO")
 
 	is.Equal(evt, &pb.GameEvent{
 		Cumulative:       0,
@@ -67,8 +65,7 @@ func TestMoveFromEventExchange(t *testing.T) {
 
 	m, err := MoveFromEvent(evt, alph, nil)
 	is.NoErr(err)
-	is.Equal(m, move.NewExchangeMove(tilemapping.MachineWord{7, 11, 13, 15},
-		tilemapping.MachineWord{0, 5, 14}, alph))
+	is.Equal(m, move.NewExchangeMove(tilemapping.MachineWord{7, 11, 13, 15}, alph))
 }
 
 func TestMoveFromEventExchangeBlank(t *testing.T) {
@@ -86,6 +83,5 @@ func TestMoveFromEventExchangeBlank(t *testing.T) {
 
 	m, err := MoveFromEvent(evt, alph, nil)
 	is.NoErr(err)
-	is.Equal(m, move.NewExchangeMove(tilemapping.MachineWord{0},
-		tilemapping.MachineWord{5, 7, 11, 13, 14, 15}, alph))
+	is.Equal(m, move.NewExchangeMove(tilemapping.MachineWord{0}, alph))
 }

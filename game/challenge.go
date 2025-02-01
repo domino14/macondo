@@ -154,8 +154,7 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 			// XXX: Note -- we're not handling the six consecutive zero rule here.
 			// This is an extreme edge case -- it would have to be a zero-point tile placement
 			// move after a number of zero point moves.
-			g.PlayMove(move.NewUnsuccessfulChallengePassMove(
-				g.players[g.onturn].rack.TilesOn(), g.alph), true, millis)
+			g.PlayMove(move.NewUnsuccessfulChallengePassMove(g.alph), true, millis)
 
 		case pb.ChallengeRule_FIVE_POINT:
 			// Append a bonus to the event.

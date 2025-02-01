@@ -97,7 +97,6 @@ type GordonGenerator struct {
 	// Used for play-finding without allocation
 	strip         []tilemapping.MachineLetter
 	exchangestrip []tilemapping.MachineLetter
-	leavestrip    []tilemapping.MachineLetter
 
 	playRecorder      PlayRecorderFunc
 	equityCalculators []equity.EquityCalculator
@@ -129,7 +128,6 @@ func NewGordonGenerator(gd gaddag.WordGraph, board *board.GameBoard,
 		letterDistribution: ld,
 		strip:              make([]tilemapping.MachineLetter, board.Dim()),
 		exchangestrip:      make([]tilemapping.MachineLetter, 7), // max rack size. can make a parameter later.
-		leavestrip:         make([]tilemapping.MachineLetter, 7),
 		playRecorder:       AllPlaysRecorder,
 		winner:             new(move.Move),
 		placeholder:        new(move.Move),

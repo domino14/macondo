@@ -95,8 +95,9 @@ func HandleRequest(ctx context.Context, evt bot.LambdaEvent) (string, error) {
 	// on the reply channel in NATS, and that's what liwords should hopefully
 	// be listening to.
 	cancel()
+	rack := tp.RackLettersFor(tp.PlayerOnTurn())
 
-	gevt := tp.EventFromMove(m)
+	gevt := tp.EventFromMove(m, rack)
 	resp := &pb.BotResponse{
 		Response: &pb.BotResponse_Move{Move: gevt},
 		GameId:   evt.GameID,

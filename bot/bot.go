@@ -139,8 +139,9 @@ func evalSingleMove(g *bot.BotTurnPlayer, evtIdx int) *pb.SingleEvaluation {
 		hasStarPlay = true
 	}
 	missedStarPlay := false
+	onturnRack := g.RackLettersFor(g.PlayerOnTurn())
 	for idx, m := range moves {
-		evt := g.EventFromMove(m)
+		evt := g.EventFromMove(m, onturnRack)
 		if evt.Type == pb.GameEvent_TILE_PLACEMENT_MOVE || evt.Type == pb.GameEvent_EXCHANGE {
 			if evt.PlayedTiles == playedEvt.PlayedTiles &&
 				evt.Exchanged == playedEvt.Exchanged &&
@@ -255,7 +256,8 @@ func (b *Bot) handle(data []byte) *pb.BotResponse {
 		m, _ = g.NewPassMove(g.PlayerOnTurn())
 	}
 	log.Info().Msgf("Generated move: %s", m.ShortDescription())
-	evt := b.game.EventFromMove(m)
+	rack := g.RackLettersFor(g.PlayerOnTurn())
+	evt := b.game.EventFromMove(m, rack)
 	return &pb.BotResponse{
 		Response: &pb.BotResponse_Move{Move: evt},
 		GameId:   g.Uid(),

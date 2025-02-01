@@ -41,14 +41,12 @@ func (p *BaseTurnPlayer) SetCurrentRack(letters string) error {
 }
 
 func (p *BaseTurnPlayer) NewPassMove(playerid int) (*move.Move, error) {
-	rack := p.RackFor(playerid)
-	m := move.NewPassMove(rack.TilesOn(), p.Alphabet())
+	m := move.NewPassMove(p.Alphabet())
 	return m, nil
 }
 
 func (p *BaseTurnPlayer) NewChallengeMove(playerid int) (*move.Move, error) {
-	rack := p.RackFor(playerid)
-	m := move.NewChallengeMove(rack.TilesOn(), p.Alphabet())
+	m := move.NewChallengeMove(p.Alphabet())
 	return m, nil
 }
 
@@ -59,11 +57,11 @@ func (p *BaseTurnPlayer) NewExchangeMove(playerid int, letters string) (*move.Mo
 	if err != nil {
 		return nil, err
 	}
-	leaveMW, err := tilemapping.Leave(rack.TilesOn(), tiles, true)
+	_, err = tilemapping.Leave(rack.TilesOn(), tiles, true)
 	if err != nil {
 		return nil, err
 	}
-	m := move.NewExchangeMove(tiles, leaveMW, alph)
+	m := move.NewExchangeMove(tiles, alph)
 	return m, nil
 }
 

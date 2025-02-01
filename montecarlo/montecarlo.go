@@ -228,10 +228,11 @@ type Simmer struct {
 	initialSpread int
 	maxPlies      int
 	// initialPlayer is the player for whom we are simming.
-	initialPlayer  int
-	iterationCount atomic.Uint64
-	nodeCount      atomic.Uint64
-	threads        int
+	initialPlayer    int
+	iterationCount   atomic.Uint64
+	nodeCount        atomic.Uint64
+	threads          int
+	placeholderRacks []*tilemapping.Rack
 
 	simming      bool
 	readyToSim   bool
@@ -494,6 +495,10 @@ func (s *Simmer) PrepareSim(plies int, plays []*move.Move) error {
 	s.readyToSim = true
 	s.knownOppRack = nil
 	s.inferenceMode = InferenceOff
+	s.placeholderRacks = make([]*tilemapping.Rack, s.threads)
+	for i := range s.threads {
+		s.placeholderRacks[i] = tilemapping.NewRack(s.origGame.Alphabet())
+	}
 	return nil
 }
 
@@ -717,15 +722,21 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 
 	var logPlay LogPlay
 	var plyChild LogPlay
+	ourRack := s.origGame.RackFor(s.origGame.PlayerOnTurn())
 	for _, simmedPlay := range s.simmedPlays.plays {
 		if simmedPlay.ignore {
 			continue
 		}
 		if s.logStream != nil {
+			leave, err := tilemapping.Leave(ourRack.TilesOn(), simmedPlay.play.Tiles(),
+				simmedPlay.play.Action() == move.MoveTypeExchange)
+			if err != nil {
+				return err
+			}
 			logPlay = LogPlay{
 				Play:  g.Board().MoveDescriptionWithPlaythrough(simmedPlay.play),
-				Leave: simmedPlay.play.LeaveString(),
-				Rack:  simmedPlay.play.FullRack(),
+				Leave: leave.UserVisible(s.origGame.Alphabet()),
+				Rack:  ourRack.String(),
 				Bingo: simmedPlay.play.BingoPlayed(),
 				Pts:   simmedPlay.play.Score()}
 		}
@@ -747,11 +758,10 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 				break
 			}
 			// Assume there are exactly two players.
-
+			rack := g.RackFor(onTurn)
 			bestPlay := s.bestStaticTurn(onTurn, thread)
 			// log.Debug().Msgf("Ply %v, Best play: %v", ply+1, bestPlay)
-			g.PlayMove(bestPlay, false, 0)
-			s.nodeCount.Add(1)
+
 			// log.Debug().Msgf("Score is now %v", s.game.Score())
 
 			if s.logStream != nil {
@@ -759,18 +769,32 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 				if len(rackToSet) > 0 && ply == 0 {
 					presetRack = tilemapping.MachineWord(rackToSet).UserVisible(g.Alphabet())
 				}
+				leave, err := tilemapping.Leave(rack.TilesOn(), bestPlay.Tiles(),
+					bestPlay.Action() == move.MoveTypeExchange)
+				if err != nil {
+					return err
+				}
+
 				plyChild = LogPlay{
 					Play:       g.Board().MoveDescriptionWithPlaythrough(bestPlay),
 					PresetRack: presetRack,
-					Leave:      bestPlay.LeaveString(),
-					Rack:       bestPlay.FullRack(),
+					Leave:      leave.UserVisible(s.origGame.Alphabet()),
+					Rack:       rack.String(),
 					Pts:        bestPlay.Score(),
 					Bingo:      bestPlay.BingoPlayed()}
 			}
+			s.placeholderRacks[thread].CopyFrom(g.RackFor(g.PlayerOnTurn()))
+			g.PlayMove(bestPlay, false, 0)
+			s.nodeCount.Add(1)
+
 			if ply == plies-2 || ply == plies-1 {
 				// It's either OUR last turn or OPP's last turn.
 				// Calculate equity of leftover tiles.
-				thisLeftover := s.leaveValues.LeaveValue(bestPlay.Leave())
+				// use placeholder rack to avoid allocating
+				for _, t := range bestPlay.Tiles() {
+					s.placeholderRacks[thread].Take(t.IntrinsicTileIdx())
+				}
+				thisLeftover := s.leaveValues.LeaveValue(
 				if s.logStream != nil {
 					plyChild.Leftover = thisLeftover
 				}
@@ -884,6 +908,7 @@ func (s *Simmer) EquityStats() string {
 	fmt.Fprintf(&ss, "%-20s%-14s%-9s%-16s%-16s\n", "Play", "Leave", "Score", "Win%", "Equity")
 	s.simmedPlays.RLock()
 	defer s.simmedPlays.RUnlock()
+	rack := s.origGame.RackFor(s.origGame.PlayerOnTurn())
 	for _, play := range s.simmedPlays.plays {
 		wpStats := fmt.Sprintf("%.2f±%.2f", 100.0*play.winPctStats.Mean(), 100.0*stats.Z99*play.winPctStats.StandardError())
 		eqStats := fmt.Sprintf("%.2f±%.2f", play.equityStats.Mean(), stats.Z99*play.equityStats.StandardError())
@@ -891,10 +916,11 @@ func (s *Simmer) EquityStats() string {
 		if play.ignore {
 			ignore = "❌"
 		}
+		leave, _ := tilemapping.Leave(rack.TilesOn(), play.play.Tiles(), play.play.Action() == move.MoveTypeExchange)
 
 		fmt.Fprintf(&ss, "%-20s%-14s%-9d%-16s%-16s%s\n",
 			s.origGame.Board().MoveDescriptionWithPlaythrough(play.play),
-			play.play.LeaveString(),
+			leave.UserVisible(s.origGame.Alphabet()),
 			play.play.Score(), wpStats, eqStats, ignore)
 	}
 	fmt.Fprintf(&ss, "Iterations: %d (intervals are 99%% confidence, ❌ marks plays cut off early)\n", s.iterationCount.Load())
@@ -909,6 +935,7 @@ func (s *Simmer) ScoreDetails() string {
 	s.sortPlaysByWinRate(false)
 	s.simmedPlays.RLock()
 	defer s.simmedPlays.RUnlock()
+	rack := s.origGame.RackFor(s.origGame.PlayerOnTurn())
 
 	for ply := 0; ply < s.maxPlies; ply++ {
 		who := "You"
@@ -918,9 +945,11 @@ func (s *Simmer) ScoreDetails() string {
 		stats += fmt.Sprintf("**Ply %d (%s)**\n%-20s%-14s%8s%8s%8s%8s%8s\n%s\n",
 			ply+1, who, "Play", "Leave", "Win%", "Mean", "Stdev", "Bingo %", "Iters", strings.Repeat("-", 75))
 		for _, play := range s.simmedPlays.plays {
+			leave, _ := tilemapping.Leave(rack.TilesOn(), play.play.Tiles(), play.play.Action() == move.MoveTypeExchange)
+
 			stats += fmt.Sprintf("%-20s%-14s%8.2f%8.3f%8.3f%8.3f%8d\n",
 				s.origGame.Board().MoveDescriptionWithPlaythrough(play.play),
-				play.play.LeaveString(),
+				leave.UserVisible(s.origGame.Alphabet()),
 				100.0*play.winPctStats.Mean(),
 				play.scoreStats[ply].Mean(), play.scoreStats[ply].Stdev(),
 				100.0*play.bingoStats[ply].Mean(), play.scoreStats[ply].Iterations())

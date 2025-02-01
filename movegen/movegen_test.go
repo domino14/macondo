@@ -155,9 +155,6 @@ func TestGenThroughBothWaysAllowedLetters(t *testing.T) {
 	if m.Tiles().UserVisiblePlayedTiles(gd.GetAlphabet()) != "HI.......T" {
 		t.Errorf("Got the wrong word: %v", m.Tiles().UserVisiblePlayedTiles(gd.GetAlphabet()))
 	}
-	if m.Leave().UserVisiblePlayedTiles(gd.GetAlphabet()) != "ABEN" {
-		t.Errorf("Got the wrong leave: %v", m.Leave().UserVisiblePlayedTiles(gd.GetAlphabet()))
-	}
 }
 
 func TestRowGen(t *testing.T) {
@@ -186,14 +183,7 @@ func TestRowGen(t *testing.T) {
 		t.Errorf("Generated %v plays (%v), expected len=%v", generator.plays,
 			len(generator.plays), 2)
 	}
-	if generator.plays[0].Leave().UserVisible(gd.GetAlphabet()) != "AEST" {
-		t.Errorf("Leave was wrong: %v",
-			generator.plays[0].Leave().UserVisible(gd.GetAlphabet()))
-	}
-	if generator.plays[1].Leave().UserVisible(gd.GetAlphabet()) != "AAIST" {
-		t.Errorf("Leave was wrong: %v",
-			generator.plays[1].Leave().UserVisible(gd.GetAlphabet()))
-	}
+
 }
 
 func TestOtherRowGen(t *testing.T) {
@@ -441,8 +431,6 @@ func TestGenAllMovesWithBlanks(t *testing.T) {
 	assert.Equal(t, 8297, len(scoringPlays(generator.plays)))
 	assert.Equal(t, 0, len(nonScoringPlays(generator.plays)))
 	assert.Equal(t, 106, generator.plays[0].Score()) // hEaDW(OR)DS!
-	assert.Equal(t, "", generator.plays[0].Leave().UserVisible(alph))
-	assert.Equal(t, "S", generator.plays[1].Leave().UserVisible(alph))
 	// There are 7 plays worth 32 pts.
 	rewards := 0
 	for i := 2; i < 9; i++ {
@@ -452,7 +440,6 @@ func TestGenAllMovesWithBlanks(t *testing.T) {
 		}
 	}
 	assert.NotEqual(t, 0, rewards)
-	assert.Equal(t, "?D", generator.plays[rewards].Leave().UserVisible(alph))
 }
 
 func TestSmallMoveRecorder(t *testing.T) {
@@ -497,8 +484,6 @@ func TestSmallMoveRecorder(t *testing.T) {
 
 	m := &move.Move{}
 	conversions.SmallMoveToMove(generator.smallPlays[rewards], m, alph, bd, rack)
-
-	assert.Equal(t, "?D", m.Leave().UserVisible(alph))
 }
 
 func TestTopPlayOnlyRecorder(t *testing.T) {
@@ -528,7 +513,6 @@ func TestTopPlayOnlyRecorder(t *testing.T) {
 	assert.Equal(t, 1, len(scoringPlays(generator.plays)))
 	assert.Equal(t, 106, generator.plays[0].Score()) // hEaDW(OR)DS!
 	assert.Equal(t, 0, len(nonScoringPlays(generator.plays)))
-	assert.Equal(t, "", generator.plays[0].Leave().UserVisible(alph))
 	assert.Equal(t, generator.plays[0].Tiles().UserVisiblePlayedTiles(alph), "hEaDW..DS")
 }
 
@@ -551,7 +535,6 @@ func TestGiantTwentySevenTimer(t *testing.T) {
 	// Bag has 5 tiles so no exchanges should be generated.
 	assert.Equal(t, 0, len(nonScoringPlays(generator.plays)))
 	assert.Equal(t, 1780, generator.plays[0].Score()) // oxyphenbutazone
-	assert.Equal(t, "", generator.plays[0].Leave().UserVisible(alph))
 }
 
 func TestGenerateEmptyBoard(t *testing.T) {
@@ -571,7 +554,6 @@ func TestGenerateEmptyBoard(t *testing.T) {
 	assert.Equal(t, 3313, len(scoringPlays(generator.plays)))
 	assert.Equal(t, 127, len(nonScoringPlays(generator.plays)))
 	assert.Equal(t, 80, generator.plays[0].Score())
-	assert.Equal(t, "", generator.plays[0].Leave().UserVisible(alph))
 }
 
 func TestGenerateNoPlays(t *testing.T) {

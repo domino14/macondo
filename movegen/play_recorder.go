@@ -48,7 +48,7 @@ func AllPlaysRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, r
 		copy(word, gen.strip[startCol:startCol+length])
 
 		alph := gen.letterDistribution.TileMapping()
-		play := move.NewScoringMove(score, word, rack.TilesOn(), gen.vertical,
+		play := move.NewScoringMove(score, word, gen.vertical,
 			tilesPlayed, alph, row, col)
 		gen.plays = append(gen.plays, play)
 
@@ -63,11 +63,11 @@ func AllPlaysRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, r
 		alph := gen.letterDistribution.TileMapping()
 		exchanged := make([]tilemapping.MachineLetter, rightstrip)
 		copy(exchanged, gen.exchangestrip[:rightstrip])
-		play := move.NewExchangeMove(exchanged, rack.TilesOn(), alph)
+		play := move.NewExchangeMove(exchanged, alph)
 		gen.plays = append(gen.plays, play)
 	case move.MoveTypePass:
 		alph := gen.letterDistribution.TileMapping()
-		gen.plays = append(gen.plays, move.NewPassMove(rack.TilesOn(), alph))
+		gen.plays = append(gen.plays, move.NewPassMove(alph))
 
 	default:
 
@@ -145,7 +145,6 @@ func TopPlayOnlyRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip
 
 	var eq float64
 	var tilesLength int
-	var leaveLength int
 
 	switch t {
 	case move.MoveTypePlay:
@@ -167,9 +166,8 @@ func TopPlayOnlyRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip
 		}
 		// note that this is a pointer right now:
 		word := gen.strip[startCol : startCol+tilesLength]
-		leaveLength = rack.NoAllocTilesOn(gen.leavestrip)
 
-		gen.placeholder.Set(word, gen.leavestrip[:leaveLength], score,
+		gen.placeholder.Set(word, score,
 			row, col, tilesPlayed, gen.vertical, move.MoveTypePlay,
 			gen.letterDistribution.TileMapping())
 		if len(gen.equityCalculators) > 0 {
@@ -190,9 +188,8 @@ func TopPlayOnlyRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip
 		}
 		tilesLength = rightstrip
 		exchanged := gen.exchangestrip[:rightstrip]
-		leaveLength = rack.NoAllocTilesOn(gen.leavestrip)
 
-		gen.placeholder.Set(exchanged, gen.leavestrip[:leaveLength], 0,
+		gen.placeholder.Set(exchanged, 0,
 			0, 0, tilesLength, gen.vertical, move.MoveTypeExchange,
 			gen.letterDistribution.TileMapping())
 
@@ -200,10 +197,8 @@ func TopPlayOnlyRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip
 			return c.Equity(gen.placeholder, gen.board, gen.game.Bag(), gen.game.RackFor(gen.game.NextPlayer()))
 		})
 	case move.MoveTypePass:
-		leaveLength = rack.NoAllocTilesOn(gen.leavestrip)
 		alph := gen.letterDistribution.TileMapping()
-		gen.placeholder.Set(nil, gen.leavestrip[:leaveLength],
-			0, 0, 0, 0, false, move.MoveTypePass, alph)
+		gen.placeholder.Set(nil, 0, 0, 0, 0, false, move.MoveTypePass, alph)
 		eq = lo.SumBy(gen.equityCalculators, func(c equity.EquityCalculator) float64 {
 			return c.Equity(gen.placeholder, gen.board, gen.game.Bag(), gen.game.RackFor(gen.game.NextPlayer()))
 		})
@@ -226,7 +221,6 @@ func TopNPlayRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, r
 
 	var eq float64
 	var tilesLength int
-	var leaveLength int
 
 	switch t {
 	case move.MoveTypePlay:
@@ -248,9 +242,8 @@ func TopNPlayRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, r
 		}
 		// note that this is a pointer right now:
 		word := gen.strip[startCol : startCol+tilesLength]
-		leaveLength = rack.NoAllocTilesOn(gen.leavestrip)
 
-		gen.placeholder.Set(word, gen.leavestrip[:leaveLength], score,
+		gen.placeholder.Set(word, score,
 			row, col, tilesPlayed, gen.vertical, move.MoveTypePlay,
 			gen.letterDistribution.TileMapping())
 		if len(gen.equityCalculators) > 0 {
@@ -271,9 +264,8 @@ func TopNPlayRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, r
 		}
 		tilesLength = rightstrip
 		exchanged := gen.exchangestrip[:rightstrip]
-		leaveLength = rack.NoAllocTilesOn(gen.leavestrip)
 
-		gen.placeholder.Set(exchanged, gen.leavestrip[:leaveLength], 0,
+		gen.placeholder.Set(exchanged, 0,
 			0, 0, tilesLength, gen.vertical, move.MoveTypeExchange,
 			gen.letterDistribution.TileMapping())
 
@@ -281,9 +273,8 @@ func TopNPlayRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, r
 			return c.Equity(gen.placeholder, gen.board, gen.game.Bag(), gen.game.RackFor(gen.game.NextPlayer()))
 		})
 	case move.MoveTypePass:
-		leaveLength = rack.NoAllocTilesOn(gen.leavestrip)
 		alph := gen.letterDistribution.TileMapping()
-		gen.placeholder.Set(nil, gen.leavestrip[:leaveLength],
+		gen.placeholder.Set(nil,
 			0, 0, 0, 0, false, move.MoveTypePass, alph)
 		eq = lo.SumBy(gen.equityCalculators, func(c equity.EquityCalculator) float64 {
 			return c.Equity(gen.placeholder, gen.board, gen.game.Bag(), gen.game.RackFor(gen.game.NextPlayer()))
