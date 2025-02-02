@@ -228,11 +228,12 @@ type Simmer struct {
 	initialSpread int
 	maxPlies      int
 	// initialPlayer is the player for whom we are simming.
-	initialPlayer    int
-	iterationCount   atomic.Uint64
-	nodeCount        atomic.Uint64
-	threads          int
-	placeholderRacks []*tilemapping.Rack
+	initialPlayer      int
+	iterationCount     atomic.Uint64
+	nodeCount          atomic.Uint64
+	threads            int
+	placeholderRacks   []*tilemapping.Rack
+	placeholderRacksML [][]tilemapping.MachineLetter
 
 	simming      bool
 	readyToSim   bool
@@ -496,8 +497,10 @@ func (s *Simmer) PrepareSim(plies int, plays []*move.Move) error {
 	s.knownOppRack = nil
 	s.inferenceMode = InferenceOff
 	s.placeholderRacks = make([]*tilemapping.Rack, s.threads)
+	s.placeholderRacksML = make([][]tilemapping.MachineLetter, s.threads)
 	for i := range s.threads {
 		s.placeholderRacks[i] = tilemapping.NewRack(s.origGame.Alphabet())
+		s.placeholderRacksML[i] = make([]tilemapping.MachineLetter, game.RackTileLimit)
 	}
 	return nil
 }
@@ -794,7 +797,8 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 				for _, t := range bestPlay.Tiles() {
 					s.placeholderRacks[thread].Take(t.IntrinsicTileIdx())
 				}
-				thisLeftover := s.leaveValues.LeaveValue(
+				ntiles := s.placeholderRacks[thread].NoAllocTilesOn(s.placeholderRacksML[thread])
+				thisLeftover := s.leaveValues.LeaveValue(s.placeholderRacksML[thread][:ntiles])
 				if s.logStream != nil {
 					plyChild.Leftover = thisLeftover
 				}
