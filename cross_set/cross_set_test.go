@@ -306,7 +306,7 @@ func TestUpdateCrossSetsForMove(t *testing.T) {
 		b.UpdateAllAnchors()
 		b.PlayMove(tc.m)
 		gen.UpdateForMove(b, tc.m)
-		log.Printf(b.ToDisplayText(alph))
+		log.Print(b.ToDisplayText(alph))
 		// Create an identical board, but generate cross-sets for the entire
 		// board after placing the letters "manually".
 		c := board.MakeBoard(board.CrosswordGameBoard)
@@ -506,7 +506,7 @@ func TestUpdateCrossScoresForMove(t *testing.T) {
 		b.UpdateAllAnchors()
 		b.PlayMove(tc.m)
 		gen.UpdateForMove(b, tc.m)
-		log.Printf(b.ToDisplayText(alph))
+		log.Print(b.ToDisplayText(alph))
 		// Create an identical board, but generate cross-sets for the entire
 		// board after placing the letters "manually".
 		c := board.MakeBoard(board.CrosswordGameBoard)

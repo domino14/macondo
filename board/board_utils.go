@@ -161,7 +161,7 @@ func (b *GameBoard) SetRow(rowNum int, letters string, alph *tilemapping.TileMap
 
 	mls, err := tilemapping.ToMachineLetters(letters, alph)
 	if err != nil {
-		log.Fatalf(err.Error())
+		log.Fatal(err.Error())
 	}
 
 	for idx, ml := range mls {
