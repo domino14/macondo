@@ -106,3 +106,9 @@ Options:
     Setting the -only-solve option will only solve the PEG for the given move. This
     is good if you want to just examine one move. You can specify this option
     multiple times to specify multiple moves.
+
+    -avoid-prune "B4 DIEH.RD"
+
+    If you use the early-cutoff function, any plays you specify with potentially repeated
+    `-avoid-prune` options never get cut off. This is good for comparing plays you
+    made to the top plays.
