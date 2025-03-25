@@ -359,9 +359,21 @@ func (sc *ShellController) loadGCG(args []string) error {
 		prefix := strconv.Itoa(id / 100)
 		xtpath := "https://www.cross-tables.com/annotated/selfgcg/" + prefix +
 			"/anno" + idstr + ".gcg"
-		resp, err := http.Get(xtpath)
+
+		log.Info().Str("xtpath", xtpath).Msg("fetching")
+		req, err := http.NewRequest("GET", xtpath, nil)
 		if err != nil {
 			return err
+		}
+
+		req.Header.Set("User-Agent", fmt.Sprintf("Macondo / v%v", sc.macondoVersion))
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			return err
+		}
+		if resp.StatusCode >= 400 {
+			return errors.New("bad status code: " + resp.Status)
 		}
 		defer resp.Body.Close()
 

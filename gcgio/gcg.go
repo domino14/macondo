@@ -540,7 +540,7 @@ func encodingOrFirstLine(reader io.Reader) (string, string, error) {
 		if _, err := reader.Read(buf[n : n+1]); err != nil {
 			return "", "", err
 		}
-		if buf[n] == 0xa || n == BufSize { // reached CR or size limit
+		if buf[n] == 0xa || n == BufSize-1 { // reached CR or size limit
 			firstLine := buf[:n]
 			match := compiledEncodingRegexp.FindStringSubmatch(string(firstLine))
 			if match != nil {
