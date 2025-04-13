@@ -301,6 +301,65 @@ func (sc *ShellController) rack(cmd *shellcmd) (*Response, error) {
 	return msg(sc.game.ToDisplayText()), nil
 }
 
+func (sc *ShellController) gameState(cmd *shellcmd) (*Response, error) {
+	if sc.solving() {
+		return nil, errMacondoSolving
+	}
+	if sc.game == nil {
+		return nil, errors.New("no game is loaded")
+	}
+	inbag := sc.game.Bag().TilesRemaining()
+	onopprack := sc.game.RackFor(sc.game.NextPlayer()).NumTiles()
+	rack := sc.game.RackFor(sc.game.PlayerOnTurn()).TilesOn().UserVisible(sc.game.Alphabet())
+	spread := sc.game.CurrentSpread()
+
+	var spreadFriendly string
+	if spread == 0 {
+		spreadFriendly = "The game is tied."
+	} else if spread > 0 {
+		spreadFriendly = fmt.Sprintf("We are ahead by %d points.", spread)
+	} else {
+		spreadFriendly = fmt.Sprintf("We are behind by %d points.", -spread)
+	}
+	var bagStats string
+
+	vowels := 0
+	consonants := 0
+	blanks := 0
+	powerTiles := ""
+
+	if inbag > 0 {
+		bagTiles := sc.game.Bag().Peek()
+		oppTiles := sc.game.RackFor(sc.game.NextPlayer()).TilesOn()
+		ld := sc.game.Bag().LetterDistribution()
+
+		combined := append(bagTiles, oppTiles...)
+		for i := range combined {
+			tile := combined[i]
+			if tile.IsVowel(ld) {
+				vowels++
+			} else if tile == 0 {
+				blanks++
+			} else {
+				consonants++
+			}
+			if ld.Score(tile) > 5 || tile == 0 || tile.UserVisible(ld.TileMapping(), false) == "S" {
+				powerTiles += fmt.Sprintf("%s ", tile.UserVisible(ld.TileMapping(), false))
+			}
+		}
+
+		bagStats = fmt.Sprintf(" In the bag: %d vowels, %d consonants, %d blanks.", vowels, consonants, blanks)
+		if powerTiles != "" {
+			bagStats += fmt.Sprintf(" Unseen power tiles: %s", powerTiles)
+		}
+	}
+
+	return msg(fmt.Sprintf("Our rack is %s and there are %d tiles unseen to us (so %d in our opponent's rack, and %d in the bag). %s%s",
+		rack, inbag+int(onopprack), onopprack,
+		inbag, spreadFriendly, bagStats)), nil
+
+}
+
 func (sc *ShellController) generate(cmd *shellcmd) (*Response, error) {
 	var numPlays int
 	var err error
@@ -328,7 +387,7 @@ func (sc *ShellController) autoplay(cmd *shellcmd) (*Response, error) {
 }
 
 func (sc *ShellController) sim(cmd *shellcmd) (*Response, error) {
-	return nil, sc.handleSim(cmd.args, cmd.options)
+	return sc.handleSim(cmd.args, cmd.options)
 }
 
 func (sc *ShellController) add(cmd *shellcmd) (*Response, error) {

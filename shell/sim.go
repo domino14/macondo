@@ -22,15 +22,15 @@ import (
 	"github.com/domino14/macondo/montecarlo/stats"
 )
 
-func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
+func (sc *ShellController) handleSim(args []string, options CmdOptions) (*Response, error) {
 	var plies, threads, fixedplies, fixediters, fixedsimcount int
 	var err error
 	stoppingCondition := montecarlo.StopNone
 	if sc.simmer == nil {
-		return errors.New("load a game or something")
+		return nil, errors.New("load a game or something")
 	}
 	if sc.game == nil {
-		return errors.New("game does not exist")
+		return nil, errors.New("game does not exist")
 	}
 
 	if len(args) > 0 {
@@ -38,13 +38,13 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
 	}
 
 	if len(sc.curPlayList) == 0 {
-		return errors.New("please generate some plays first")
+		return nil, errors.New("please generate some plays first")
 	}
 	if sc.simmer.IsSimming() {
-		return errors.New("simming already, please do a `sim stop` first")
+		return nil, errors.New("simming already, please do a `sim stop` first")
 	}
 	if sc.solving() {
-		return errMacondoSolving
+		return nil, errMacondoSolving
 	}
 
 	inferMode := montecarlo.InferenceOff
@@ -55,41 +55,41 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
 		case "plies":
 			plies, err = options.Int(opt)
 			if err != nil {
-				return err
+				return nil, err
 			}
 		case "threads":
 			threads, err = options.Int(opt)
 			if err != nil {
-				return err
+				return nil, err
 			}
 		case "fixedsimiters":
 			// single thread, fixed iters, fixed plies
 			fixediters, err = options.Int(opt)
 			if err != nil {
-				return err
+				return nil, err
 			}
 		case "fixedsimplies":
 			// single thread, fixed iters, fixed plies
 			fixedplies, err = options.Int(opt)
 			if err != nil {
-				return err
+				return nil, err
 			}
 		case "fixedsimcount":
 			// how many single-thread sims to do
 			fixedsimcount, err = options.Int(opt)
 			if err != nil {
-				return err
+				return nil, err
 			}
 
 		case "autostopcheckinterval":
 			stopcheckinterval, err = options.Int(opt)
 			if err != nil {
-				return err
+				return nil, err
 			}
 		case "stop":
 			sci, err := options.Int(opt)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			switch sci {
 			case 90:
@@ -103,18 +103,18 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
 			case 999:
 				stoppingCondition = montecarlo.Stop999
 			default:
-				return errors.New("only allowed values are 90, 95, 98, 99, and 999 for stopping condition")
+				return nil, errors.New("only allowed values are 90, 95, 98, 99, and 999 for stopping condition")
 			}
 		case "stop-ppscaling":
 			stopPPscaling, err = options.Int(opt)
 			if err != nil {
-				return err
+				return nil, err
 			}
 
 		case "stop-itercutoff":
 			stopitercutoff, err = options.Int(opt)
 			if err != nil {
-				return err
+				return nil, err
 			}
 
 		case "opprack":
@@ -123,7 +123,7 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
 		case "useinferences":
 			inferences := sc.rangefinder.Inferences()
 			if inferences == nil || len(inferences.InferredRacks) == 0 {
-				return errors.New("you must run `infer` first")
+				return nil, errors.New("you must run `infer` first")
 			}
 			switch options.String(opt) {
 			case "weightedrandomtiles":
@@ -136,7 +136,7 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
 					"Set inference mode to 'weightedrandomracks' with %d inferences", len(inferences.InferredRacks)))
 
 			default:
-				return errors.New("that inference mode is not supported")
+				return nil, errors.New("that inference mode is not supported")
 			}
 		case "collect-heatmap":
 			if options.Bool(opt) {
@@ -145,11 +145,11 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
 				err = sc.simmer.SetCollectHeatmap(false)
 			}
 			if err != nil {
-				return err
+				return nil, err
 			}
 
 		default:
-			return errors.New("option " + opt + " not recognized")
+			return nil, errors.New("option " + opt + " not recognized")
 		}
 	}
 	if plies == 0 {
@@ -168,7 +168,7 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
 		knownOppRack = strings.ToUpper(knownOppRack)
 		kr, err = tilemapping.ToMachineLetters(knownOppRack, sc.game.Alphabet())
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
@@ -183,13 +183,13 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) error {
 		inferMode:             inferMode,
 	}
 	if fixediters != 0 {
-		return sc.startMultiSimExperiment(fixediters, fixedplies, fixedsimcount, params)
+		return nil, sc.startMultiSimExperiment(fixediters, fixedplies, fixedsimcount, params)
 	}
 
 	sc.setSimmerParams(sc.simmer, params)
 	sc.startSim()
 
-	return nil
+	return nil, nil
 }
 
 type simParams struct {
@@ -324,22 +324,23 @@ func (sc *ShellController) startMultiSimExperiment(iters, plies, simCount int, p
 
 }
 
-func (sc *ShellController) simControlArguments(args []string) error {
+func (sc *ShellController) simControlArguments(args []string) (*Response, error) {
 	var err error
+	resp := &Response{}
 	switch args[0] {
 	case "log":
 		if sc.simmer.IsSimming() {
-			return errors.New("please stop sim before making any log changes")
+			return nil, errors.New("please stop sim before making any log changes")
 		}
 		sc.simLogFile, err = os.Create(SimLog)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		sc.simmer.SetLogStream(sc.simLogFile)
 		sc.showMessage("sim will log to " + SimLog)
 	case "stop":
 		if !sc.simmer.IsSimming() {
-			return errors.New("no running sim to stop")
+			return nil, errors.New("no running sim to stop")
 		}
 		sc.simTicker.Stop()
 		sc.simTickerDone <- true
@@ -347,64 +348,64 @@ func (sc *ShellController) simControlArguments(args []string) error {
 		if sc.simLogFile != nil {
 			err := sc.simLogFile.Close()
 			if err != nil {
-				return err
+				return nil, err
 			}
 		}
 		// Show the results.
-		sc.showMessage(sc.simmer.EquityStats())
+		resp.message = sc.simmer.EquityStats()
 	case "details":
-		sc.showMessage(sc.simmer.ScoreDetails())
+		resp.message = sc.simmer.ScoreDetails()
 	case "show":
-		sc.showMessage(sc.simmer.EquityStats())
+		resp.message = sc.simmer.EquityStats()
 	case "winner":
-		sc.showMessage(sc.simmer.WinningPlay().Move().ShortDescription())
+		resp.message = sc.simmer.WinningPlay().Move().ShortDescription()
 	case "continue":
 		if sc.simmer.IsSimming() {
-			return errors.New("there is an ongoing simulation")
+			return nil, errors.New("there is an ongoing simulation")
 		}
 		if !sc.simmer.Ready() {
-			return errors.New("simmer is not ready; please generate some plays and `sim`")
+			return nil, errors.New("simmer is not ready; please generate some plays and `sim`")
 		}
 		if sc.solving() {
-			return errMacondoSolving
+			return nil, errMacondoSolving
 		}
 		// No need to prepare sim. startSim will continue from where it left off.
 		sc.startSim()
 	case "trim":
 		if len(args) != 2 {
-			return errors.New("trim needs an argument")
+			return nil, errors.New("trim needs an argument")
 		}
 		totrim, err := strconv.Atoi(args[1])
 		if err != nil {
-			return err
+			return nil, err
 		}
 		err = sc.simmer.TrimBottom(totrim)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		sc.showMessage(sc.simmer.EquityStats())
+		resp.message = sc.simmer.EquityStats()
 	case "heatmap":
 		if len(args) < 2 {
-			return errors.New("heatmap needs the play in quotes. See `help sim`")
+			return nil, errors.New("heatmap needs the play in quotes. See `help sim`")
 		}
 		play := args[1]
 		ply := 0
 		if len(args) == 3 {
 			ply, err = strconv.Atoi(args[2])
 			if err != nil {
-				return err
+				return nil, err
 			}
 		}
 
 		heatmap, err := sc.simStats.CalculateHeatmap(play, ply)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		// Display with the tiles of our move.
 		err = sc.placeMove(sc.game, play)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		heatmap.Display()
@@ -412,36 +413,42 @@ func (sc *ShellController) simControlArguments(args []string) error {
 
 	case "playstats":
 		if len(args) < 2 {
-			return errors.New("playstats needs the play in quotes. See `help sim`")
+			return nil, errors.New("playstats needs the play in quotes. See `help sim`")
 		}
 		play := args[1]
 		stats, err := sc.simStats.CalculatePlayStats(play)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		sc.showMessage(stats)
+		resp.message = stats
 		if len(args) == 3 && args[2] == "histogram" {
 			oppHist, ourHist := sc.simStats.LastHistogram()
 			maxWidth := 40
 			fmt.Println("Opponent score histogram")
 			fmt.Println("Points")
 			err = histogram.Fprint(os.Stdout, oppHist, histogram.Linear(maxWidth))
+			if err != nil {
+				return nil, err
+			}
 			fmt.Println("\n\nOur score histogram")
 			fmt.Println("Points")
 			err = histogram.Fprint(os.Stdout, ourHist, histogram.Linear(maxWidth))
+			if err != nil {
+				return nil, err
+			}
 		}
 
 	case "tilestats":
 		stats, err := sc.simStats.CalculateTileStats()
 		if err != nil {
-			return err
+			return nil, err
 		}
-		sc.showMessage(stats)
+		resp.message = stats
 	default:
-		return fmt.Errorf("do not understand sim argument %v", args[0])
+		return nil, fmt.Errorf("do not understand sim argument %v", args[0])
 	}
 
-	return nil
+	return resp, nil
 }
 
 func (sc *ShellController) placeMove(g *bot.BotTurnPlayer, play string) error {

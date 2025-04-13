@@ -956,6 +956,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.check(cmd)
 	case "update":
 		return sc.update(cmd)
+	case "gamestate":
+		return sc.gameState(cmd)
 	default:
 		msg := fmt.Sprintf("command %v not found", strconv.Quote(cmd.cmd))
 		log.Info().Msg(msg)
