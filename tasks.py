@@ -14,7 +14,7 @@ def build(c):
     c.run(f"GOOS=darwin GOARCH=amd64 go build -o macondo-amd64 {gitflags} ./cmd/shell")
     c.run(f"GOOS=darwin GOARCH=arm64 go build -o macondo-arm64 {gitflags} ./cmd/shell")
     c.run("lipo -create -output macondo macondo-amd64 macondo-arm64")
-    c.run(f"zip -r macondo-{tag}-osx-universal.zip ./macondo ./data")
+    c.run(f"zip -r macondo-{tag}-osx-universal.zip ./macondo ./data ./scripts/lua")
 
     for os, nickname, arch, executable in [
         ("linux", "linux-x86_64", "amd64", "macondo"),
@@ -28,7 +28,9 @@ def build(c):
                 f"GOOS=windows GOARCH={arch} go build -o updater.exe {gitflags} ./cmd/updater"
             )
             c.run(
-                f"zip -r macondo-{tag}-{nickname}.zip ./{executable} ./updater.exe ./data"
+                f"zip -r macondo-{tag}-{nickname}.zip ./{executable} ./updater.exe ./data ./scripts/lua"
             )
         if os != "windows":
-            c.run(f"zip -r macondo-{tag}-{nickname}.zip ./{executable} ./data")
+            c.run(
+                f"zip -r macondo-{tag}-{nickname}.zip ./{executable} ./data ./scripts/lua"
+            )

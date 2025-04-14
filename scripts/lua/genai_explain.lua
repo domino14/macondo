@@ -155,7 +155,7 @@ local prompt_vars = {
 local prompt_text = string.gsub(prompt_template, "{([%w_]+)}", prompt_vars)
 
 local gemini_api_key = os.getenv("GEMINI_API_KEY")
-local model = "gemini-2.5-pro-preview-03-25"
+local model = os.getenv("GEMINI_MODEL") or "gemini-2.5-pro-exp-03-25"
 local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. model .. ":generateContent?key=" .. gemini_api_key
 
 local request_data = {
@@ -173,6 +173,7 @@ local request_data = {
 local request_body = json.encode(request_data)
 
 local response_body = {}
+print("Making request to Gemini API, using model: " .. model)
 local response, error_message = http.request("POST", url, {
     headers={
         Content_Type="application/json"
@@ -183,14 +184,31 @@ if not response then
     print("HTTP request failed: " .. error_message)
     return
 end
+
 local code = response.status_code
+
 if code == 200 then
     print("HTTP request succeeded")
-    print("Response headers:")
-    for key, value in pairs(response.headers) do
-        print(key .. ": " .. tostring(value))
+
+    local body = json.decode(response.body)
+
+    local usage = body.usageMetadata
+    if usage then
+        local inputTokens = usage.promptTokenCount or 0
+        local outputTokens = (usage.candidatesTokenCount or 0) + (usage.thoughtsTokenCount or 0)
+        print("Input tokens: " .. inputTokens)
+        print("Output tokens: " .. outputTokens)
+    else
+        print("No usage metadata found.")
     end
-    print("Response body: " .. response.body)
+
+    local parts = body.candidates[1].content.parts
+    local combined_text = ""
+    for _, part in ipairs(parts) do
+        combined_text = combined_text .. part.text
+    end
+    print("Model response: " .. combined_text)
+    -- print("Response body: " .. json.decode(response.body))
 elseif code == 429 then
     print("HTTP request failed with status code 429: Too Many Requests")
 else
