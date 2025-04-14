@@ -3,12 +3,15 @@ package shell
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 	"time"
 
+	"github.com/cjoudrey/gluahttp"
 	"github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/rs/zerolog/log"
 	lua "github.com/yuin/gopher-lua"
+	luajson "layeh.com/gopher-json"
 )
 
 var exports = map[string]lua.LGFunction{
@@ -242,6 +245,8 @@ func (sc *ShellController) script(cmd *shellcmd) (*Response, error) {
 	defer L.Close()
 
 	L.PreloadModule("macondo", Loader)
+	L.PreloadModule("http", gluahttp.NewHttpModule(&http.Client{}).Loader)
+	luajson.Preload(L)
 
 	lsc := L.NewUserData()
 	lsc.Value = sc

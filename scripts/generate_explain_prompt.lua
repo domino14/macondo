@@ -1,7 +1,7 @@
 local macondo = require("macondo")
-
+local http = require("http")
 local fileutil = require("scripts.fileutil")
-
+local json = require("json")
 macondo.gen("40")
 macondo.sim("-plies 5 -stop 99 -collect-heatmap true")
 os.execute("sleep 1")
@@ -153,4 +153,46 @@ local prompt_vars = {
 }
 
 local prompt_text = string.gsub(prompt_template, "{([%w_]+)}", prompt_vars)
-print("Prompt text:\n\n" .. prompt_text)
+
+local gemini_api_key = os.getenv("GEMINI_API_KEY")
+local model = "gemini-2.5-pro-preview-03-25"
+local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. model .. ":generateContent?key=" .. gemini_api_key
+
+local request_data = {
+    contents = {
+        {
+            parts = {
+                {
+                    text = prompt_text
+                }
+            }
+        }
+    }
+}
+
+local request_body = json.encode(request_data)
+
+local response_body = {}
+local response, error_message = http.request("POST", url, {
+    headers={
+        Content_Type="application/json"
+    },
+    body=json.encode(request_data)
+})
+if not response then
+    print("HTTP request failed: " .. error_message)
+    return
+end
+local code = response.status_code
+if code == 200 then
+    print("HTTP request succeeded")
+    print("Response headers:")
+    for key, value in pairs(response.headers) do
+        print(key .. ": " .. tostring(value))
+    end
+    print("Response body: " .. response.body)
+elseif code == 429 then
+    print("HTTP request failed with status code 429: Too Many Requests")
+else
+    print("HTTP request failed with status code: " .. tostring(code))
+end
