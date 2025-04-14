@@ -40,17 +40,19 @@ macondo> load cgp COXA2B2ROPING/3T1DINGY5/3t2ZO1AINEE1/3A3V2FOWTH/3S3A2FOE1U/1LE
 
 To test it out, please create a Gemini API key here:
 
-https://ai.google.dev/gemini-api/docs
+[https://ai.google.dev/gemini-api/docs](https://ai.google.dev/gemini-api/docs)
 
 You can click Get a Gemini API Key in that page, and place it in an environment variable `GEMINI_API_KEY`.
 
-Then, type the following command into Macondo:
+Then, type the following command into Macondo, once you have a position loaded in:
 
 ```
 macondo> script scripts/lua/genai_explain.lua
 ```
 
-#### Gemini 2.5 Pro Experimental respnse:
+**Note that behind the scenes, Macondo is doing a full simulation and passes a lot of the raw data to an LLM to explain it in plain text.**
+
+#### Gemini 2.5 Pro Experimental response:
 
 This should print something like the following after a few seconds:
 
