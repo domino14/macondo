@@ -51,11 +51,15 @@ Options:
     case it is possible that the latter plies will be searched very fast, because
     there is nothing else to search.
 
+    See this article about Macondo and endgame plies:
+    https://blog.woogles.io/articles/2024-09-07-the-omgwords-endgame-why-more-plies-sometimes-reveal-the-true-best-move/
+
     -maxtime 120
 
     This option will set a maximum time in seconds. The endgame solver uses
     iterative deepening by default, so a good enough solution should be found
-    rapidly, and this solution will be improved upon.
+    rapidly, and this solution will be improved upon as subsequent iterations
+    search deeper.
 
     -disable-id true
 
@@ -67,9 +71,9 @@ Options:
     -threads 3
 
     Use LazySMP to recruit more cores to help solve the endgame. Our current
-    implementation has a sweet spot around 6 threads, which can result in a 2-3x or
+    implementation has a sweet spot around 10 threads, which can result in a 3-4x or
     more speedup. Any more and it actually starts to get slower. We will
-    continue trying to improve this. Defaults to the minimum of 6 and your number
+    continue trying to improve this. Defaults to the minimum of 10 and your number
     of cores minus 1. Set to 1 to disable LazySMP.
 
     -disable-tt true
