@@ -1,7 +1,24 @@
 local macondo = require("macondo")
 local http = require("http")
-local fileutil = require("scripts.fileutil")
+local fileutil = require("scripts.lua.fileutil")
 local json = require("json")
+
+local macondo_game_state = macondo.gamestate()
+
+local unseenStr = macondo_game_state:match("there are (%d+) tiles unseen")
+if unseenStr then
+    local unseenTiles = tonumber(unseenStr)
+    if unseenTiles <= 8 then
+        print("GenAI explainability is currently only available for 2 or more tiles in the bag.")
+        return
+    end
+else
+    print("error")
+    print(macondo_game_state)
+    return
+end
+
+
 macondo.gen("40")
 macondo.sim("-plies 5 -stop 99 -collect-heatmap true")
 os.execute("sleep 1")
@@ -134,8 +151,10 @@ local truncated_winner_playstats = table.concat(output_playstat_lines, "\n")
 
 -- print ("state:"..macondo.gamestate())
 
+
+
 local situation = {
-    game_state = macondo.gamestate(),
+    game_state = macondo_game_state,
     sim_results = top_plays,
     sim_details = truncated_detail_lines,
     best_play = winning_play,
