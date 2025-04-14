@@ -3,12 +3,15 @@ package shell
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 	"time"
 
+	"github.com/cjoudrey/gluahttp"
 	"github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/rs/zerolog/log"
 	lua "github.com/yuin/gopher-lua"
+	luajson "layeh.com/gopher-json"
 )
 
 var exports = map[string]lua.LGFunction{
@@ -23,6 +26,7 @@ var exports = map[string]lua.LGFunction{
 	"busy":       busy,
 	"elite_play": elitePlay,
 	"last":       last,
+	"gamestate":  gamestate,
 }
 
 func getShell(L *lua.LState) *ShellController {
@@ -64,6 +68,19 @@ func load(L *lua.LState) int {
 	})
 	if err != nil {
 		log.Err(err).Msg("error-executing-load")
+		L.Push(lua.LString("ERROR: " + err.Error()))
+		return 1
+	}
+	L.Push(lua.LString(r.message))
+	// return number of results pushed to stack.
+	return 1
+}
+
+func gamestate(L *lua.LState) int {
+	sc := getShell(L)
+	r, err := sc.gameState(nil)
+	if err != nil {
+		log.Err(err).Msg("error-executing-gamestate")
 		L.Push(lua.LString("ERROR: " + err.Error()))
 		return 1
 	}
@@ -189,13 +206,16 @@ func sim(L *lua.LState) int {
 		log.Err(err).Msg("error-parsing-sim")
 		return 0
 	}
-	_, err = sc.sim(cmd)
+	resp, err := sc.sim(cmd)
 	if err != nil {
 		log.Err(err).Msg("error-executing-sim")
 		return 0
 	}
-
-	return 1
+	if resp != nil {
+		L.Push(lua.LString(resp.message))
+		return 1
+	}
+	return 0
 }
 
 func busy(L *lua.LState) int {
@@ -225,6 +245,8 @@ func (sc *ShellController) script(cmd *shellcmd) (*Response, error) {
 	defer L.Close()
 
 	L.PreloadModule("macondo", Loader)
+	L.PreloadModule("http", gluahttp.NewHttpModule(&http.Client{}).Loader)
+	luajson.Preload(L)
 
 	lsc := L.NewUserData()
 	lsc.Value = sc

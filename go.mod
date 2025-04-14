@@ -10,6 +10,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.71.0
 	github.com/aybabtme/uniplot v0.0.0-20151203143629-039c559e5e7e
 	github.com/chzyer/readline v1.5.1
+	github.com/cjoudrey/gluahttp v0.0.0-20201111170219-25003d9adfa9
 	github.com/domino14/word-golib v0.2.6
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
 	github.com/matryer/is v1.4.1
@@ -25,6 +26,7 @@ require (
 	gonum.org/v1/gonum v0.16.0
 	google.golang.org/protobuf v1.36.6
 	gopkg.in/yaml.v3 v3.0.1
+	layeh.com/gopher-json v0.0.0-20201124131017-552bb3c4c3bf
 	lukechampine.com/frand v1.5.1
 )
 

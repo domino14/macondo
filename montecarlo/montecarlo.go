@@ -640,7 +640,7 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 	ctrlErr := ctrl.Wait()
 	logger.Debug().Msgf("ctrl errgroup returned err %v", ctrlErr)
 	// sort plays at the end anyway.
-	s.sortPlaysByWinRate(false)
+	s.sortPlaysByWinRate(true)
 	if ctrlErr == context.Canceled || ctrlErr == context.DeadlineExceeded {
 		// Not actually an error
 		logger.Debug().AnErr("ctrlErr", ctrlErr).Msg("montecarlo-it's ok, not an error")
@@ -847,6 +847,9 @@ func (s *Simmer) bestStaticTurn(playerID, thread int) *move.Move {
 
 func (s *Simmer) sortPlaysByEquity() {
 	// log.Debug().Msgf("Sorting plays: %v", s.plays)
+	if s.simmedPlays == nil {
+		return
+	}
 	s.simmedPlays.Lock()
 	defer s.simmedPlays.Unlock()
 	sort.Slice(s.simmedPlays.plays, func(i, j int) bool {
@@ -855,6 +858,9 @@ func (s *Simmer) sortPlaysByEquity() {
 }
 
 func (s *Simmer) sortPlaysByWinRate(ignoredAtBottom bool) {
+	if s.simmedPlays == nil {
+		return
+	}
 	// log.Debug().Msgf("Sorting plays: %v", s.plays)
 	s.simmedPlays.Lock()
 	defer s.simmedPlays.Unlock()
@@ -879,8 +885,11 @@ func (s *Simmer) printStats() string {
 }
 
 func (s *Simmer) EquityStats() string {
+	if s.simmedPlays == nil {
+		return "No simmed plays."
+	}
 	var ss strings.Builder
-	s.sortPlaysByWinRate(false)
+	s.sortPlaysByWinRate(true)
 	fmt.Fprintf(&ss, "%-20s%-14s%-9s%-16s%-16s\n", "Play", "Leave", "Score", "Win%", "Equity")
 	s.simmedPlays.RLock()
 	defer s.simmedPlays.RUnlock()
@@ -906,7 +915,7 @@ func (s *Simmer) ScoreDetails() string {
 		return "No simmed plays."
 	}
 	stats := ""
-	s.sortPlaysByWinRate(false)
+	s.sortPlaysByWinRate(true)
 	s.simmedPlays.RLock()
 	defer s.simmedPlays.RUnlock()
 
@@ -934,7 +943,7 @@ func (s *Simmer) ScoreDetails() string {
 func (s *Simmer) ShortDetails(nplays int) string {
 	var ss strings.Builder
 
-	s.sortPlaysByWinRate(false)
+	s.sortPlaysByWinRate(true)
 
 	s.simmedPlays.RLock()
 	defer s.simmedPlays.RUnlock()

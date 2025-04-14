@@ -1,3 +1,12 @@
+# v0.10.0 (November 22, 2024)
+- Heat maps (in CLI) and in-depth sim stats for Monte Carlo
+- Multiple variations support for endgame (see option `-multiple-vars`)
+- Argument support for Lua scripts
+- More correct statistical tests for Monte Carlo stopping condition
+- Spanish rules and lexicon support
+- CSW24 support
+- Default lexicon set to NWL23
+
 # v0.9.0 (April 3, 2024)
 - Generic N-in-the-bag pre-endgame, with N up to 6
     - When a pre-endgame play shows up as a win for a given set of tiles in the bag, it is always a sure win in this case, provided we play our best endgame.
