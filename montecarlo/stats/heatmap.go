@@ -173,6 +173,7 @@ func (h HeatMap) Display() {
 
 type nextPlay struct {
 	play          string
+	ifdraw        string
 	score         int
 	bingo         bool
 	count         int
@@ -211,23 +212,84 @@ func sortedPlayListByScore(npmap map[string]*nextPlay) []*nextPlay {
 	return l
 }
 
-func playStatsStr(nextPlayList []*nextPlay, desc string, maxToDisplay int, totalPlayCount int, showBingos bool) string {
+func playStatsStr(st *SimStats, ourPlayLeave string, nextPlayList []*nextPlay, desc string, maxToDisplay int, totalPlayCount int, showBingos bool,
+	showNeededDraw bool) string {
 	var ss strings.Builder
 	if len(nextPlayList) == 0 {
 		return ""
 	}
 	ss.WriteString(desc + "\n")
-	fmt.Fprintf(&ss, "%-20s%-9s%-9s%-16s\n", "Play", "Score", "Count", "% of time")
+	if showNeededDraw {
+		fmt.Fprintf(&ss, "%-20s%-14s%-9s%-9s%-16s\n", "Play", "Needed Draw", "Score", "Count", "% of time")
+	} else {
+		fmt.Fprintf(&ss, "%-20s%-9s%-9s%-16s\n", "Play", "Score", "Count", "% of time")
+	}
 	bingos := 0
 	for i := 0; i < len(nextPlayList); i++ {
 		if nextPlayList[i].bingo {
 			bingos += nextPlayList[i].count
 		}
 		if i < maxToDisplay {
-			fmt.Fprintf(&ss, "%-20s%-9d%-9d%-16.2f\n", nextPlayList[i].play,
-				nextPlayList[i].score,
-				nextPlayList[i].count,
-				float64(nextPlayList[i].count*100)/float64(totalPlayCount))
+			if showNeededDraw {
+				// calculate needed draw
+				analyzedPlay := Normalize(nextPlayList[i].play)
+
+				if strings.HasPrefix(analyzedPlay, "exchange ") ||
+					analyzedPlay == "pass" || analyzedPlay == "UNHANDLED" {
+
+				} else {
+					// this is a tile-play move.
+					playFields := strings.Fields(analyzedPlay)
+					if len(playFields) != 2 {
+						panic("unexpected play " + analyzedPlay)
+					}
+					mw, err := tilemapping.ToMachineWord(playFields[1], st.game.Alphabet())
+					if err != nil {
+						panic("error converting to machine word " + err.Error())
+					}
+					leaveMW, err := tilemapping.ToMachineWord(ourPlayLeave, st.game.Alphabet())
+					if err != nil {
+						panic("error converting to machine word " + err.Error())
+					}
+					// check what letters in leaveMW are in mw, and calculate the
+					// letters we'd need to draw to make the play
+					neededDraw := []tilemapping.MachineLetter{}
+
+					avail := make(map[tilemapping.MachineLetter]int)
+					for _, l := range leaveMW {
+						avail[l]++
+					}
+					for _, l := range mw {
+						if l == 0 {
+							continue // playthrough doesn't create heat map
+						}
+						normalizedLetter := l.IntrinsicTileIdx()
+
+						if avail[normalizedLetter] > 0 {
+							avail[normalizedLetter]--
+						} else {
+							neededDraw = append(neededDraw, normalizedLetter)
+						}
+					}
+
+					if len(neededDraw) > 0 {
+						nextPlayList[i].ifdraw = "{" + tilemapping.MachineWord(neededDraw).UserVisible(st.game.Alphabet()) + "}"
+					} else {
+						nextPlayList[i].ifdraw = ""
+					}
+
+					fmt.Fprintf(&ss, "%-20s%-14s%-9d%-9d%-16.2f\n", nextPlayList[i].play,
+						nextPlayList[i].ifdraw,
+						nextPlayList[i].score,
+						nextPlayList[i].count,
+						float64(nextPlayList[i].count*100)/float64(totalPlayCount))
+				}
+			} else {
+				fmt.Fprintf(&ss, "%-20s%-9d%-9d%-16.2f\n", nextPlayList[i].play,
+					nextPlayList[i].score,
+					nextPlayList[i].count,
+					float64(nextPlayList[i].count*100)/float64(totalPlayCount))
+			}
 		}
 	}
 	if showBingos {
@@ -252,11 +314,13 @@ func (st *SimStats) CalculatePlayStats(play string) (string, error) {
 	totalOurNextPlays := 0
 	oppScores := []float64{}
 	ourScores := []float64{}
+	leave := ""
 	for i := range iters {
 		for j := range iters[i].Plays {
 			if normalizedPlay != Normalize(iters[i].Plays[j].Play) {
 				continue
 			}
+			leave = iters[i].Plays[j].Leave
 			if len(iters[i].Plays[j].Plies) > 0 {
 				nextPlay := iters[i].Plays[j].Plies[0]
 				addNextPlay(nextPlay.Play, nextPlay.Pts, nextPlay.Bingo, oppResponses)
@@ -274,7 +338,7 @@ func (st *SimStats) CalculatePlayStats(play string) (string, error) {
 
 	oppResponsesList := sortedPlayListByScore(oppResponses)
 
-	ss.WriteString(playStatsStr(oppResponsesList, "### Opponent's highest scoring plays", 10, totalOppResponses, false))
+	ss.WriteString(playStatsStr(st, leave, oppResponsesList, "### Opponent's highest scoring plays", 10, totalOppResponses, false, false))
 	ss.WriteString("\n\n")
 
 	maxToDisplay := 15
@@ -282,10 +346,10 @@ func (st *SimStats) CalculatePlayStats(play string) (string, error) {
 	oppResponsesList = sortedPlayList(oppResponses)
 	ourNextPlaysList := sortedPlayList(ourNextPlays)
 
-	ss.WriteString(playStatsStr(oppResponsesList, "### Opponent's next play", maxToDisplay, totalOppResponses, true))
+	ss.WriteString(playStatsStr(st, leave, oppResponsesList, "### Opponent's next play", maxToDisplay, totalOppResponses, true, false))
 	ss.WriteString("\n")
 
-	ss.WriteString(playStatsStr(ourNextPlaysList, "### Our follow-up play", maxToDisplay, totalOurNextPlays, true))
+	ss.WriteString(playStatsStr(st, leave, ourNextPlaysList, "### Our follow-up play", maxToDisplay, totalOurNextPlays, true, true))
 	ss.WriteString("\n")
 
 	st.oppHist = histogram.Hist(15, oppScores)

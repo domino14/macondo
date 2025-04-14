@@ -2,15 +2,6 @@ local macondo = require("macondo")
 
 local fileutil = require("scripts.fileutil")
 
-if args == nil or args[1] == nil then
-    print("This script requires an argument - the CGP string")
-    return
-end
-
-cgp = args[1]
-print("Using provided cgp: ".. cgp)
-
-macondo.load("cgp " .. cgp)
 macondo.gen("40")
 macondo.sim("-plies 5 -stop 99 -collect-heatmap true")
 os.execute("sleep 1")
