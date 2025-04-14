@@ -174,7 +174,7 @@ local prompt_vars = {
 local prompt_text = string.gsub(prompt_template, "{([%w_]+)}", prompt_vars)
 
 local gemini_api_key = os.getenv("GEMINI_API_KEY")
-local model = os.getenv("GEMINI_MODEL") or "gemini-2.0-flash"
+local model = os.getenv("GEMINI_MODEL") or "gemini-2.5-pro-exp-03-25"
 local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. model .. ":generateContent?key=" .. gemini_api_key
 
 local request_data = {
