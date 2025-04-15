@@ -163,40 +163,78 @@ local situation = {
 
 situation_template = fileutil:read_file("explainer/situation_template.md")
 prompt_template = fileutil:read_file("explainer/main_prompt.md")
+quirky_template = fileutil:read_file("explainer/quirky.md")
+
+local genai_quirky = os.getenv("GENAI_QUIRKY") or nil
+if not genai_quirky then
+    quirky_template = ""
+end
 
 situation_text = string.gsub(situation_template, "{([%w_]+)}", situation)
 
+
 local prompt_vars = {
     situation = situation_text,
+    quirky = quirky_template,
     best_play = winning_play
 }
 
 local prompt_text = string.gsub(prompt_template, "{([%w_]+)}", prompt_vars)
 
-local gemini_api_key = os.getenv("GEMINI_API_KEY")
-local model = os.getenv("GEMINI_MODEL") or "gemini-2.5-pro-exp-03-25"
-local url = "https://generativelanguage.googleapis.com/v1beta/models/" .. model .. ":generateContent?key=" .. gemini_api_key
-
-local request_data = {
-    contents = {
-        {
-            parts = {
-                {
-                    text = prompt_text
+local genai_provider = os.getenv("GENAI_PROVIDER") or "gemini"
+local api_key = nil
+local model = nil
+local url = nil
+local request_data = nil
+if genai_provider == "openai" then
+    api_key = os.getenv("OPENAI_API_KEY")
+    model = os.getenv("OPENAI_MODEL") or "gpt-4.1"
+    url = "https://api.openai.com/v1/chat/completions"
+    print("Using OpenAI Provider with model: " .. model)
+    request_data = {
+        model = model,
+        messages = {
+            {
+                role = "user",
+                content = prompt_text
+            }
+        },
+    }
+    headers = {
+        Authorization="Bearer " .. api_key
+    }
+    headers["Content-Type"] = "application/json"
+elseif genai_provider == "gemini" then
+    api_key = os.getenv("GEMINI_API_KEY")
+    model = os.getenv("GEMINI_MODEL") or "gemini-2.5-pro-exp-03-25"
+    url = "https://generativelanguage.googleapis.com/v1beta/models/" .. model .. ":generateContent?key=" .. api_key
+    print("Using Gemini Provider with model: " .. model)
+    request_data = {
+        contents = {
+            {
+                parts = {
+                    {
+                        text = prompt_text
+                    }
                 }
             }
         }
     }
-}
+    headers = {}
+    headers["Content-Type"] = "application/json"
+else
+    print("Unknown GENAI_PROVIDER: " .. genai_provider)
+    return
+end
+
+
 
 local request_body = json.encode(request_data)
 
 local response_body = {}
-print("Making request to Gemini API, using model: " .. model)
+print("Making request to " ..genai_provider .. " API, using model: " .. model)
 local response, error_message = http.request("POST", url, {
-    headers={
-        Content_Type="application/json"
-    },
+    headers=headers,
     body=json.encode(request_data)
 })
 if not response then
@@ -210,26 +248,35 @@ if code == 200 then
     print("HTTP request succeeded")
 
     local body = json.decode(response.body)
-
-    local usage = body.usageMetadata
-    if usage then
+    local usage = nil
+    if genai_provider == "openai" then
+        usage = body.usage
+        local inputTokens = usage.prompt_tokens or 0
+        local outputTokens = usage.completion_tokens or 0
+        print("Input tokens: " .. inputTokens)
+        print("Output tokens: " .. outputTokens)
+        local combined_text = ""
+        for _, choice in ipairs(body.choices) do
+            combined_text = combined_text .. choice.message.content
+        end
+        print("Model response: " .. combined_text)
+    elseif genai_provider == "gemini" then
+        usage = body.usageMetadata
         local inputTokens = usage.promptTokenCount or 0
         local outputTokens = (usage.candidatesTokenCount or 0) + (usage.thoughtsTokenCount or 0)
         print("Input tokens: " .. inputTokens)
         print("Output tokens: " .. outputTokens)
-    else
-        print("No usage metadata found.")
+        local parts = body.candidates[1].content.parts
+        local combined_text = ""
+        for _, part in ipairs(parts) do
+            combined_text = combined_text .. part.text
+        end
+        print("Model response: " .. combined_text)
     end
-
-    local parts = body.candidates[1].content.parts
-    local combined_text = ""
-    for _, part in ipairs(parts) do
-        combined_text = combined_text .. part.text
-    end
-    print("Model response: " .. combined_text)
     -- print("Response body: " .. json.decode(response.body))
 elseif code == 429 then
     print("HTTP request failed with status code 429: Too Many Requests")
 else
     print("HTTP request failed with status code: " .. tostring(code))
+    print(response.body)
 end

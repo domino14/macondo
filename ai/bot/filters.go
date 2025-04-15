@@ -80,7 +80,8 @@ func filter(cfg *config.Config, g *game.Game, rack *tilemapping.Rack, plays []*m
 		}
 	}
 
-	// LEVEL4_COMMON_WORD_BOT is an unfiltered common-word bot bot
+	// LEVEL4_COMMON_WORD_BOT is an unfiltered common-word bot. Only filter if we're
+	// not selecting this particular bot.
 	if botType != pb.BotRequest_LEVEL4_COMMON_WORD_BOT {
 		dist := g.Bag().LetterDistribution()
 		// XXX: This should be cached

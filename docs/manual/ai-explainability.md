@@ -78,3 +78,21 @@ Model response: In this position, `12K QU(ID)` performed best. This is why:
 *   The play `12K QU(ID)` leaves the tiles ACDEP in the rack, which has a more balanced leave (3 consonants, 2 vowels). The fact that there are equal numbers of consonants and vowels left in the bag makes this balanced leave even more valuable.
 
 *   There is a setup opportunity following `12K QU(ID)`. The play `15G PREAD(JUST)` has a 13.52% chance of being played next turn, given the right draw of R. This is a high-scoring play for 57 points, which could help close the 40-point gap.
+
+### Using other providers?
+
+You can also use OpenAI. Set the environment variable `GENAI_PROVIDER` to "openai" before opening Macondo. The default `gpt-4.1` model is uses a lot fewer output tokens than Gemini 2.5 Pro, since it doesn't "think", and actually gives great results as well. The rough cost of the gpt-4.1 model is just around $0.01 per explanation.
+
+#### gpt-4.1 response
+
+Model response: In this position, **12K QU(ID)** is the best performing play. This is why:
+
+- **Setup for a potential bingo:** By playing 12K QU(ID) and keeping the leave ACDEP, you have a strong shot at drawing the R to bingo with PREAD(JUST) for 57 points next turn. The data shows this specific bingo occurs **15.3% of the time**—quite high for a two-turn setup. This built-in setup opportunity is a major reason why this play leads in win percentage.
+- **Maintains high bingo chances overall:** Even if you don't draw the R, your average bingo chance next turn remains above 24%. The ACDEP leave is well-balanced (three consonants, two vowels), and all the tiles are useful for making high-scoring plays or setting up additional bingos—much better than alternatives that leave harder-to-use tiles.
+- **Keeps up volatility and scoring potential:** Since you are behind by 40 points with 16 tiles in the bag, you want plays that offer winning upside—not just steady scoring. 12K QU(ID) gives higher average and maximum scores on your following turn compared to others, and preserves flexibility for both bingos and strong non-bingo plays.
+
+In short, QU(ID) at 12K wins because it keeps your comeback options open: it gives you direct access to a strong bingo setup, keeps good tiles for more bingos, and doesn't sacrifice average score.
+
+#### Other models
+
+As before, you can set the `OPENAI_MODEL` environment variable to other values to use other models.
