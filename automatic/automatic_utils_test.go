@@ -75,8 +75,8 @@ func TestPlayerNames(t *testing.T) {
 		{"", "", macondo.BotRequest_HASTY_BOT, 0, false},
 	}), []string{"NoLeaveBot", "HastyBot", "HastyBot1"})
 	is.Equal(playerNames([]AutomaticRunnerPlayer{
-		{"", "", macondo.BotRequest_LEVEL1_CEL_BOT, 0, false},
-		{"", "", macondo.BotRequest_LEVEL3_CEL_BOT, 0, false},
+		{"", "", macondo.BotRequest_LEVEL1_COMMON_WORD_BOT, 0, false},
+		{"", "", macondo.BotRequest_LEVEL3_COMMON_WORD_BOT, 0, false},
 	}), []string{"Level1CelBot", "Level3CelBot"})
 }
 

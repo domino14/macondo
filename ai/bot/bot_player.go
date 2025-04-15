@@ -148,7 +148,7 @@ func (p *BotTurnPlayer) GenerateMoves(numPlays int) []*move.Move {
 		sort.Slice(plays, func(i, j int) bool {
 			return plays[i].Equity() > plays[j].Equity()
 		})
-		return []*move.Move{filter(p.Config(), p.Game, curRack, plays, p.botType)}
+		return []*move.Move{filter(p.Config(), p.Game, curRack, plays, p.botType, p.LexiconName())}
 	}
 
 	return p.TopPlays(plays, numPlays)

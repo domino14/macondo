@@ -2,6 +2,8 @@
 
 These were run with the macondo shell `autoplay` command and the CSW19 lexicon.
 
+These were run prior to renaming the CEL_BOTs to COMMON_WORD_BOTs.
+
 e.g. `autoplay -lexicon CSW19 -botcode1 LEVEL4_PROBABILISTIC -botcode2 LEVEL3_CEL_BOT`
 
 The numbers in parentheses after the Bot descriptions are the `BotFindabilities` and `BotParallelFindabilities` values for this experiment, respectively. See `/ai/runner/filters.go` for more information.

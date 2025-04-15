@@ -40,14 +40,14 @@ Options:
     which is a raw equity player. Types can be taken from the macondo.proto file.
     So far, these are:
     - HASTY_BOT,
-    - LEVEL1_CEL_BOT through LEVEL4_CEL_BOT (Common English Lexicon),
+    - LEVEL1_COMMON_WORD_BOT through LEVEL4_COMMON_WORD_BOT (for English and German),
     - LEVEL1_PROBABILISTIC through LEVEL5_PROBABILISTIC.
     - NO_LEAVE_BOT
     - SIMMING_BOT
 
     -threads 10
 
-    Uses multiple threads. Defaults to `runtime.NumCPU()`. 
+    Uses multiple threads. Defaults to `runtime.NumCPU()`.
     Note: You should set this to `1` if you're using any bots that sim or
     solve endgames etc. Instead, the simmer, endgamesolver, etc will use as
     many threads as it can.

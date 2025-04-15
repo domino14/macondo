@@ -20,21 +20,22 @@ var BotConfigs = map[pb.BotRequest_BotCode]struct {
 	baseFindability     float64
 	longWordFindability float64
 	parallelFindability float64
-	isCel               bool
+	isCommonWord        bool
 }{
-	pb.BotRequest_LEVEL1_CEL_BOT: {baseFindability: 0.3, longWordFindability: 0.1, parallelFindability: 0.3, isCel: true},
-	pb.BotRequest_LEVEL2_CEL_BOT: {baseFindability: 0.7, longWordFindability: 0.4, parallelFindability: 0.5, isCel: true},
-	pb.BotRequest_LEVEL3_CEL_BOT: {baseFindability: 0.8, longWordFindability: 0.5, parallelFindability: 0.75, isCel: true},
-	pb.BotRequest_LEVEL4_CEL_BOT: {baseFindability: 1.0, longWordFindability: 1.0, parallelFindability: 1.0, isCel: true},
+	pb.BotRequest_LEVEL1_COMMON_WORD_BOT: {baseFindability: 0.3, longWordFindability: 0.1, parallelFindability: 0.3, isCommonWord: true},
+	pb.BotRequest_LEVEL2_COMMON_WORD_BOT: {baseFindability: 0.7, longWordFindability: 0.4, parallelFindability: 0.5, isCommonWord: true},
+	pb.BotRequest_LEVEL3_COMMON_WORD_BOT: {baseFindability: 0.8, longWordFindability: 0.5, parallelFindability: 0.75, isCommonWord: true},
+	pb.BotRequest_LEVEL4_COMMON_WORD_BOT: {baseFindability: 1.0, longWordFindability: 1.0, parallelFindability: 1.0, isCommonWord: true},
 
-	pb.BotRequest_LEVEL1_PROBABILISTIC: {baseFindability: 0.2, longWordFindability: 0.07, parallelFindability: 0.15, isCel: false},
-	pb.BotRequest_LEVEL2_PROBABILISTIC: {baseFindability: 0.4, longWordFindability: 0.2, parallelFindability: 0.3, isCel: false},
-	pb.BotRequest_LEVEL3_PROBABILISTIC: {baseFindability: 0.55, longWordFindability: 0.35, parallelFindability: 0.45, isCel: false},
-	pb.BotRequest_LEVEL4_PROBABILISTIC: {baseFindability: 0.85, longWordFindability: 0.45, parallelFindability: 0.85, isCel: false},
-	pb.BotRequest_LEVEL5_PROBABILISTIC: {baseFindability: 0.9, longWordFindability: 0.8, parallelFindability: 0.85, isCel: false},
+	pb.BotRequest_LEVEL1_PROBABILISTIC: {baseFindability: 0.2, longWordFindability: 0.07, parallelFindability: 0.15, isCommonWord: false},
+	pb.BotRequest_LEVEL2_PROBABILISTIC: {baseFindability: 0.4, longWordFindability: 0.2, parallelFindability: 0.3, isCommonWord: false},
+	pb.BotRequest_LEVEL3_PROBABILISTIC: {baseFindability: 0.55, longWordFindability: 0.35, parallelFindability: 0.45, isCommonWord: false},
+	pb.BotRequest_LEVEL4_PROBABILISTIC: {baseFindability: 0.85, longWordFindability: 0.45, parallelFindability: 0.85, isCommonWord: false},
+	pb.BotRequest_LEVEL5_PROBABILISTIC: {baseFindability: 0.9, longWordFindability: 0.8, parallelFindability: 0.85, isCommonWord: false},
 }
 
-func filter(cfg *config.Config, g *game.Game, rack *tilemapping.Rack, plays []*move.Move, botType pb.BotRequest_BotCode) *move.Move {
+func filter(cfg *config.Config, g *game.Game, rack *tilemapping.Rack, plays []*move.Move, botType pb.BotRequest_BotCode,
+	lexName string) *move.Move {
 	passMove := move.NewPassMove(rack.TilesOn(), g.Alphabet())
 	botConfig, botConfigExists := BotConfigs[botType]
 	if !botConfigExists {
@@ -45,10 +46,26 @@ func filter(cfg *config.Config, g *game.Game, rack *tilemapping.Rack, plays []*m
 	}
 
 	filterFunction := func([]tilemapping.MachineWord, float64) (bool, error) { return true, nil }
-	if botConfig.isCel {
-		gd, err := kwg.Get(cfg.WGLConfig(), "ECWL")
+	if botConfig.isCommonWord {
+		pld, err := tilemapping.ProbableLetterDistributionName(lexName)
 		if err != nil {
-			log.Err(err).Msg("could-not-load-ecwl")
+			log.Err(err).Str("lexicon", lexName).Msg("could-not-load-probable-letter-distribution-name")
+			return passMove
+		}
+		var commonWordLexicon string
+		switch pld {
+		case "english":
+			commonWordLexicon = "ECWL"
+		case "german":
+			commonWordLexicon = "CGL"
+		default:
+			log.Error().Str("ld", pld).Msg("no common word lexicon for this letter distribution")
+			return passMove
+		}
+
+		gd, err := kwg.Get(cfg.WGLConfig(), commonWordLexicon)
+		if err != nil {
+			log.Err(err).Str("commonWordLexicon", commonWordLexicon).Msg("could-not-load-cwl")
 			filterFunction = func([]tilemapping.MachineWord, float64) (bool, error) { return false, err }
 		} else {
 			lex := kwg.Lexicon{KWG: *gd}
@@ -63,8 +80,8 @@ func filter(cfg *config.Config, g *game.Game, rack *tilemapping.Rack, plays []*m
 		}
 	}
 
-	// LEVEL4_CEL_BOT is an unfiltered CEL bot
-	if botType != pb.BotRequest_LEVEL4_CEL_BOT {
+	// LEVEL4_COMMON_WORD_BOT is an unfiltered common-word bot bot
+	if botType != pb.BotRequest_LEVEL4_COMMON_WORD_BOT {
 		dist := g.Bag().LetterDistribution()
 		// XXX: This should be cached
 		subChooseCombos := createSubCombos(dist)
