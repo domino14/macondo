@@ -77,7 +77,7 @@ func TestPlayerNames(t *testing.T) {
 	is.Equal(playerNames([]AutomaticRunnerPlayer{
 		{"", "", macondo.BotRequest_LEVEL1_COMMON_WORD_BOT, 0, false},
 		{"", "", macondo.BotRequest_LEVEL3_COMMON_WORD_BOT, 0, false},
-	}), []string{"Level1CelBot", "Level3CelBot"})
+	}), []string{"Level1CommonWordBot", "Level3CommonWordBot"})
 }
 
 func BenchmarkCompVsCompStatic(b *testing.B) {
