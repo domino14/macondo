@@ -45,8 +45,8 @@ github.com/cjoudrey/gluahttp v0.0.0-20201111170219-25003d9adfa9/go.mod h1:X97UjD
 github.com/coreos/go-systemd/v22 v22.5.0/go.mod h1:Y58oyj3AT4RCenI/lSvhwexgC+NSVTIJ3seZv2GcEnc=
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc h1:U9qPSI2PIWSS1VwoXQT9A3Wy9MM3WgvqSxFWenqJduM=
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
-github.com/domino14/word-golib v0.2.6 h1:rUFr6ygyooIohqLhUB9HNi/0vQAKfyAAWHd7evzkYoE=
-github.com/domino14/word-golib v0.2.6/go.mod h1:jMCDzZSsxBZMa3JB/FwiZCXXCv52S2X6dL5UinW8V1I=
+github.com/domino14/word-golib v0.2.7 h1:ssjfGPqK4jAQBRn84uxd7c2m2G0Va39MLcZOyQnxPJ8=
+github.com/domino14/word-golib v0.2.7/go.mod h1:jMCDzZSsxBZMa3JB/FwiZCXXCv52S2X6dL5UinW8V1I=
 github.com/frankban/quicktest v1.14.6 h1:7Xjx+VpznH+oBnejlPUj8oUpdxnVs4f8XU8WnHkI4W8=
 github.com/frankban/quicktest v1.14.6/go.mod h1:4ptaffx2x8+WTWXmUCuVU6aPUX1/Mz7zb5vbUoiM6w0=
 github.com/fsnotify/fsnotify v1.8.0 h1:dAwr6QBTBZIkG8roQaJjGof0pp0EeF+tNV7YBP3F/8M=
