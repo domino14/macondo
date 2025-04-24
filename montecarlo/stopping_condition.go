@@ -37,6 +37,7 @@ type AutoStopperSimmedPlay struct {
 	equityStats stats.Statistic
 	winPctStats stats.Statistic
 	ignore      bool
+	unignorable bool
 	origPlay    *SimmedPlay
 }
 
@@ -74,6 +75,7 @@ func (a *AutoStopper) copyForStatCutoff(plays *SimmedPlays) {
 		a.simmedPlays[i].equityStats = plays.plays[i].equityStats
 		a.simmedPlays[i].winPctStats = plays.plays[i].winPctStats
 		a.simmedPlays[i].ignore = plays.plays[i].ignore
+		a.simmedPlays[i].unignorable = plays.plays[i].unignorable
 		a.simmedPlays[i].origPlay = plays.plays[i]
 	}
 }
@@ -212,9 +214,11 @@ func (a *AutoStopper) shouldStop(iterationCount uint64, simmedPlays *SimmedPlays
 	newIgnored := 0
 	// assume standard normal distribution (?)
 	for _, p := range a.simmedPlays[1:] {
-		if p.ignore {
+		if p.ignore || p.unignorable {
+			// Either way, we don't have to deal with cutting this play off.
 			continue
 		}
+
 		μi := p.winPctStats.Mean()
 		ei := p.winPctStats.StandardError()
 		if tiebreakByEquity {
