@@ -1,9 +1,8 @@
 package game
 
 import (
-	"strings"
-
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
 
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -15,27 +14,16 @@ func HistoryToVariant(h *pb.GameHistory) (boardLayoutName, letterDistributionNam
 	log.Debug().Interface("h", h).Msg("HistoryToVariant")
 	boardLayoutName = h.BoardLayout
 	letterDistributionName = h.LetterDistribution
+	var err error
 	if h.LetterDistribution == "" {
 		// If the letter distribution is not explicitly specified, we
 		// make some assumptions.
-		letterDistributionName = "english"
-		lexicon := strings.ToLower(h.Lexicon)
-		switch {
-		case strings.HasPrefix(lexicon, "osps"):
-			letterDistributionName = "polish"
-		case strings.HasPrefix(lexicon, "fise") || strings.HasPrefix(lexicon, "file"):
-			letterDistributionName = "spanish"
-		case strings.HasPrefix(lexicon, "rd"):
-			letterDistributionName = "german"
-		case strings.HasPrefix(lexicon, "nsf"):
-			letterDistributionName = "norwegian"
-		case strings.HasPrefix(lexicon, "fra"):
-			letterDistributionName = "french"
-		case strings.HasPrefix(lexicon, "disc"):
-			letterDistributionName = "catalan"
-		case strings.HasPrefix(lexicon, "osps"):
-			letterDistributionName = "polish"
+		letterDistributionName, err = tilemapping.ProbableLetterDistributionName(h.Lexicon)
+		if err != nil {
+			log.Err(err).Str("lexicon", h.Lexicon).Msg("Could not determine letter distribution name. Defaulting to english.")
+			letterDistributionName = "english"
 		}
+
 		// Technically, SuperCrosswordGame is not a variant, at least as far as Macondo is concerned.
 		// It is the same classic rules as CrosswordGame, but with a different board layout and
 		// letter distribution.
