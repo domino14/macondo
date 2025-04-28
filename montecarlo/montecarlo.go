@@ -858,26 +858,43 @@ func (s *Simmer) sortPlaysByEquity() {
 }
 
 func (s *Simmer) sortPlaysByWinRate(ignoredAtBottom bool) {
-	if s.simmedPlays == nil {
+	sp := s.simmedPlays
+	if sp == nil {
 		return
 	}
-	// log.Debug().Msgf("Sorting plays: %v", s.plays)
-	s.simmedPlays.Lock()
-	defer s.simmedPlays.Unlock()
-	sort.Slice(s.simmedPlays.plays, func(i, j int) bool {
-		if ignoredAtBottom {
-			if s.simmedPlays.plays[i].ignore {
-				return false
+
+	sp.Lock()
+	defer sp.Unlock()
+
+	// helper to sort any slice of plays by win% (desc) then equity (desc)
+	sortByMetrics := func(plays []*SimmedPlay) {
+		sort.Slice(plays, func(i, j int) bool {
+			a, b := plays[i], plays[j]
+			wi, wj := a.winPctStats.Mean(), b.winPctStats.Mean()
+			if wi != wj {
+				return wi > wj
 			}
-			if s.simmedPlays.plays[j].ignore {
-				return true
+			return a.equityStats.Mean() > b.equityStats.Mean()
+		})
+	}
+
+	plays := sp.plays
+	if ignoredAtBottom {
+		var active, ignored []*SimmedPlay
+		for _, p := range plays {
+			if p.ignore {
+				ignored = append(ignored, p)
+			} else {
+				active = append(active, p)
 			}
 		}
-		if s.simmedPlays.plays[i].winPctStats.Mean() == s.simmedPlays.plays[j].winPctStats.Mean() {
-			return s.simmedPlays.plays[i].equityStats.Mean() > s.simmedPlays.plays[j].equityStats.Mean()
-		}
-		return s.simmedPlays.plays[i].winPctStats.Mean() > s.simmedPlays.plays[j].winPctStats.Mean()
-	})
+		sortByMetrics(active)
+		sortByMetrics(ignored)
+		// re-assemble: all non-ignored first, then ignored
+		sp.plays = append(active, ignored...)
+	} else {
+		sortByMetrics(plays)
+	}
 }
 
 func (s *Simmer) printStats() string {

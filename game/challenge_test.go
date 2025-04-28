@@ -30,7 +30,7 @@ func TestChallengeVoid(t *testing.T) {
 	game.SetChallengeRule(pb.ChallengeRule_VOID)
 	m := move.NewScoringMoveSimple(90, "8C", "SWIFFET", "", alph)
 	_, err = game.ValidateMove(m)
-	is.Equal(err.Error(), "the play contained illegal words: SWIFFET")
+	is.Equal(err.Error(), "the play contained invalid words: SWIFFET")
 }
 
 func TestChallengeDoubleIsLegal(t *testing.T) {

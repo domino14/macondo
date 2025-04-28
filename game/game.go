@@ -424,7 +424,7 @@ func (g *Game) validateTilePlayMove(m *move.Move) ([]tilemapping.MachineWord, er
 		illegalWords := validateWords(g.lexicon, formedWords, g.rules.Variant())
 
 		if len(illegalWords) > 0 {
-			return nil, fmt.Errorf("the play contained illegal words: %v",
+			return nil, fmt.Errorf("the play contained invalid words: %v",
 				strings.Join(illegalWords, ", "))
 		}
 	}
