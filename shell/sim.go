@@ -227,6 +227,9 @@ func (sc *ShellController) setSimmerParams(simmer *montecarlo.Simmer, params sim
 			sc.rangefinder.Inferences().RackLength,
 			params.inferMode)
 	}
+	if len(params.knownOppRack) > 0 {
+		simmer.SetKnownOppRack(params.knownOppRack)
+	}
 	return nil
 }
 
