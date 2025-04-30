@@ -545,7 +545,7 @@ aspirationLoop:
 
 		for t := 1; t < s.threads; t++ {
 			// search to different plies for different threads
-			s.currentIDDepths[t] = ply + t%3
+			s.currentIDDepths[t] = ply //+ t%3
 			helperCtx, cancel := context.WithCancel(ctx)
 			cancels[t-1] = cancel
 
@@ -929,7 +929,10 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 		s.ttable.SetSingleThreadedMode()
 	}
 	if s.transpositionTableOptim {
+		log.Info().Msg("Resetting transposition table")
 		s.ttable.Reset(s.game.Config().GetFloat64(config.ConfigTtableMemFraction), s.game.Board().Dim())
+	} else {
+		log.Info().Msg("Not using transposition table")
 	}
 	s.game.SetEndgameMode(true)
 	defer s.game.SetEndgameMode(false)
@@ -977,9 +980,12 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 
 	bestSeq = s.principalVariation.Moves[:s.principalVariation.numMoves]
 	bestV = s.bestPVValue
-	log.Info().Str("ttable-stats", s.ttable.Stats()).
-		Float64("time-elapsed-sec", time.Since(tstart).Seconds()).
-		Msg("solve-returning")
+
+	ll := log.Info().Float64("time-elapsed-sec", time.Since(tstart).Seconds())
+	if s.transpositionTableOptim {
+		ll = ll.Str("ttable-stats", s.ttable.Stats())
+	}
+	ll.Msg("solve-returning")
 	if err != nil {
 		if err == context.Canceled || err == context.DeadlineExceeded {
 			// ignore
