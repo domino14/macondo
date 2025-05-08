@@ -103,7 +103,7 @@ func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move
 		// Just return the static best play if we don't have an endgame engine.
 		return p.GenerateMoves(1)[0], nil
 	}
-	gd, err := kwg.Get(p.Game.Config().WGLConfig(), p.Game.LexiconName())
+	gd, err := kwg.GetKWG(p.Game.Config().WGLConfig(), p.Game.LexiconName())
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +138,7 @@ func preendgameBest(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 		// Just return the static best play if we don't have a pre-endgame engine
 		return p.GenerateMoves(1)[0], nil
 	}
-	gd, err := kwg.Get(p.Game.Config().WGLConfig(), p.Game.LexiconName())
+	gd, err := kwg.GetKWG(p.Game.Config().WGLConfig(), p.Game.LexiconName())
 	if err != nil {
 		return nil, err
 	}

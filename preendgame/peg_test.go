@@ -91,7 +91,7 @@ func Test1PEGPass(t *testing.T) {
 
 	g.RecalculateBoard()
 
-	gd, err := kwg.Get(DefaultConfig.WGLConfig(), "FRA20")
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "FRA20")
 	is.NoErr(err)
 
 	peg := new(Solver)
@@ -121,7 +121,7 @@ func TestStraightforward1PEG(t *testing.T) {
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.Get(DefaultConfig.WGLConfig(), "NWL20")
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "NWL20")
 	is.NoErr(err)
 	peg := new(Solver)
 
@@ -143,7 +143,7 @@ func TestKnownTilesPEG(t *testing.T) {
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.Get(DefaultConfig.WGLConfig(), "NWL20")
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "NWL20")
 	is.NoErr(err)
 	peg := new(Solver)
 
@@ -180,7 +180,7 @@ func BenchmarkStraightforward1PEG(b *testing.B) {
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.Get(DefaultConfig.WGLConfig(), "NWL20")
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "NWL20")
 	is.NoErr(err)
 	peg := new(Solver)
 
@@ -220,7 +220,7 @@ func BenchmarkSlowPEG(b *testing.B) {
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.Get(DefaultConfig.WGLConfig(), "NWL20")
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "NWL20")
 	is.NoErr(err)
 	peg := new(Solver)
 
@@ -255,7 +255,7 @@ func TestComplicated1PEG(t *testing.T) {
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.Get(DefaultConfig.WGLConfig(), "NWL20")
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "NWL20")
 	is.NoErr(err)
 	peg := new(Solver)
 
@@ -279,7 +279,7 @@ func TestPolishPEGEarlyCutoff(t *testing.T) {
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.Get(DefaultConfig.WGLConfig(), "OSPS49")
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "OSPS49")
 	is.NoErr(err)
 	peg := new(Solver)
 
@@ -404,7 +404,7 @@ func TestTwoInBag(t *testing.T) {
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.Get(DefaultConfig.WGLConfig(), "CSW19")
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW19")
 	is.NoErr(err)
 	peg := new(Solver)
 
@@ -429,7 +429,7 @@ func TestTwoInBagSingleMove(t *testing.T) {
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.Get(DefaultConfig.WGLConfig(), "CSW19")
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW19")
 	is.NoErr(err)
 	peg := new(Solver)
 
@@ -463,7 +463,7 @@ func TestFourInBag(t *testing.T) {
 	is.NoErr(err)
 	g.RecalculateBoard()
 
-	gd, err := kwg.Get(DefaultConfig.WGLConfig(), "NWL20")
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "NWL20")
 	is.NoErr(err)
 	peg := new(Solver)
 

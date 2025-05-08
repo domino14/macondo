@@ -63,7 +63,7 @@ func filter(cfg *config.Config, g *game.Game, rack *tilemapping.Rack, plays []*m
 			return passMove
 		}
 
-		gd, err := kwg.Get(cfg.WGLConfig(), commonWordLexicon)
+		gd, err := kwg.GetKWG(cfg.WGLConfig(), commonWordLexicon)
 		if err != nil {
 			log.Err(err).Str("commonWordLexicon", commonWordLexicon).Msg("could-not-load-cwl")
 			filterFunction = func([]tilemapping.MachineWord, float64) (bool, error) { return false, err }

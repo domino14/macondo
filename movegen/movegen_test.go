@@ -31,7 +31,7 @@ func TestMain(m *testing.M) {
 }
 
 func GaddagFromLexicon(lex string) (gaddag.WordGraph, error) {
-	return kwg.Get(DefaultConfig.WGLConfig(), lex)
+	return kwg.GetKWG(DefaultConfig.WGLConfig(), lex)
 }
 
 func Filter(moves []*move.Move, f func(*move.Move) bool) []*move.Move {
