@@ -53,7 +53,7 @@ func NewAIStaticTurnPlayerFromGame(g *game.Game, conf *config.Config, calculator
 }
 
 func AddAIFields(p *turnplayer.BaseTurnPlayer, conf *config.Config, calculators []equity.EquityCalculator) (*AIStaticTurnPlayer, error) {
-	gd, err := kwg.Get(conf.WGLConfig(), p.LexiconName())
+	gd, err := kwg.GetKWG(conf.WGLConfig(), p.LexiconName())
 	if err != nil {
 		return nil, err
 	}

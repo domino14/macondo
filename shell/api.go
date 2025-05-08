@@ -521,7 +521,7 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 		sc.endgameCtx, sc.endgameCancel = context.WithTimeout(sc.endgameCtx, time.Duration(maxtime)*time.Second)
 	}
 
-	gd, err := kwg.Get(sc.game.Config().WGLConfig(), sc.game.LexiconName())
+	gd, err := kwg.GetKWG(sc.game.Config().WGLConfig(), sc.game.LexiconName())
 	if err != nil {
 		return nil, err
 	}
@@ -642,7 +642,7 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 	sc.showMessage(fmt.Sprintf(
 		"endgameplies %v, maxtime %v, threads %v",
 		endgamePlies, maxtime, maxthreads))
-	gd, err := kwg.Get(sc.game.Config().WGLConfig(), sc.game.LexiconName())
+	gd, err := kwg.GetKWG(sc.game.Config().WGLConfig(), sc.game.LexiconName())
 	if err != nil {
 		return nil, err
 	}
@@ -906,7 +906,7 @@ func (sc *ShellController) check(cmd *shellcmd) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	k, err := kwg.Get(sc.config.WGLConfig(), sc.config.GetString(config.ConfigDefaultLexicon))
+	k, err := kwg.GetKWG(sc.config.WGLConfig(), sc.config.GetString(config.ConfigDefaultLexicon))
 	if err != nil {
 		return nil, err
 	}

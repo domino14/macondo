@@ -309,7 +309,7 @@ func (sc *ShellController) initGameDataStructures() error {
 	sc.simmer.Init(sc.game.Game, []equity.EquityCalculator{c}, c, sc.config)
 	sc.gen = sc.game.MoveGenerator()
 
-	gd, err := kwg.Get(sc.config.WGLConfig(), sc.game.LexiconName())
+	gd, err := kwg.GetKWG(sc.config.WGLConfig(), sc.game.LexiconName())
 	if err != nil {
 		return err
 	}

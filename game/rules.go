@@ -114,7 +114,7 @@ func NewBasicGameRules(cfg *config.Config,
 		if lexiconName == "" {
 			lex = &lexicon.AcceptAll{Alph: dist.TileMapping()}
 		} else {
-			k, err := kwg.Get(cfg.WGLConfig(), lexiconName)
+			k, err := kwg.GetKWG(cfg.WGLConfig(), lexiconName)
 			if err != nil {
 				return nil, err
 			}
@@ -125,7 +125,7 @@ func NewBasicGameRules(cfg *config.Config,
 		if lexiconName == "" {
 			return nil, errors.New("lexicon name is required for this cross-set option")
 		} else {
-			k, err := kwg.Get(cfg.WGLConfig(), lexiconName)
+			k, err := kwg.GetKWG(cfg.WGLConfig(), lexiconName)
 			if err != nil {
 				return nil, err
 			}

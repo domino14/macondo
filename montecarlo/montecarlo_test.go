@@ -49,7 +49,7 @@ func TestSimSingleIteration(t *testing.T) {
 	game, err := game.NewGame(rules, players)
 	is.NoErr(err)
 
-	gd, err := kwg.Get(game.Config().WGLConfig(), game.LexiconName())
+	gd, err := kwg.GetKWG(game.Config().WGLConfig(), game.LexiconName())
 	is.NoErr(err)
 
 	generator := movegen.NewGordonGenerator(gd, game.Board(), rules.LetterDistribution())
@@ -94,7 +94,7 @@ func BenchmarkSim(b *testing.B) {
 	game.RecalculateBoard()
 	calcs, leaves := defaultSimCalculators("NWL18")
 
-	gd, err := kwg.Get(game.Config().WGLConfig(), game.LexiconName())
+	gd, err := kwg.GetKWG(game.Config().WGLConfig(), game.LexiconName())
 	is.NoErr(err)
 
 	generator := movegen.NewGordonGenerator(gd, game.Board(), game.Rules().LetterDistribution())
@@ -135,7 +135,7 @@ func TestLongerSim(t *testing.T) {
 	game, err := game.NewGame(rules, players)
 	is.NoErr(err)
 
-	gd, err := kwg.Get(game.Config().WGLConfig(), game.LexiconName())
+	gd, err := kwg.GetKWG(game.Config().WGLConfig(), game.LexiconName())
 	is.NoErr(err)
 
 	generator := movegen.NewGordonGenerator(gd, game.Board(), rules.LetterDistribution())
