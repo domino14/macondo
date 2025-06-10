@@ -2,9 +2,11 @@ package main
 
 import (
 	"bufio"
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"strconv"
+	"unsafe"
 
 	"github.com/domino14/macondo/config"
 	"github.com/rs/zerolog"
@@ -32,6 +34,23 @@ func writeVectorText(w *bufio.Writer, vec []float32) error {
 		}
 	}
 	return w.WriteByte('\n') // newline terminator
+}
+
+// write one float32 slice as [uint32 lenBytes][payload]
+func writeVectorBin(w *bufio.Writer, vec []float32) error {
+	// Re-interpret the []float32 backing array as []byte
+	byteSlice := unsafe.Slice(
+		(*byte)(unsafe.Pointer(&vec[0])),
+		len(vec)*4,
+	)
+
+	// 1) length prefix (little-endian uint32)
+	if err := binary.Write(w, binary.LittleEndian, uint32(len(byteSlice))); err != nil {
+		return err
+	}
+	// 2) payload
+	_, err := w.Write(byteSlice)
+	return err
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -63,7 +82,10 @@ func main() {
 	logger.Debug().Msg("Debug logging is on")
 
 	const bufSize = 1 << 20 // 1 MiB buffered stdout
+	const flushEvery = 1000 // emit 1 000 vectors → flush
+
 	out := bufio.NewWriterSize(os.Stdout, bufSize)
+	emitted := 0 // counter
 
 	engine := NewGameAssembler(NPlies)  // holds live games, emits vectors
 	scanner := NewTurnScanner(os.Stdin) // feeds individual turns
@@ -74,8 +96,17 @@ func main() {
 
 		for engine.Ready() { // ≥1 vectors ready
 			vec := engine.PopVector() // []float32
-			if err := writeVectorText(out, vec); err != nil {
+			if err := writeVectorBin(out, vec); err != nil {
 				panic(err) // production: handle/propagate
+			}
+			emitted++
+			if emitted%flushEvery == 0 { // ═══ flush here ═══
+				if err := out.Flush(); err != nil {
+					panic(err)
+				}
+			}
+			if emitted%100000 == 0 {
+				log.Info().Msgf("Emitted %d vectors; games in mem: %d", emitted, len(engine.games))
 			}
 		}
 	}

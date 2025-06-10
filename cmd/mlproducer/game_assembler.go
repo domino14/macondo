@@ -4,14 +4,16 @@ package main
 
 import (
 	"container/list"
-	"log"
 	"strings"
+
+	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/montecarlo/stats"
+	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/turnplayer"
 	"github.com/domino14/word-golib/tilemapping"
 )
@@ -90,7 +92,7 @@ func (ga *GameAssembler) FeedTurn(t Turn) {
 	}
 
 	// 1) Apply move, update board/racks, compute after-move features.
-	stateVec := updateBoardAndExtractFeatures(gw, t) // TODO
+	stateVec := updateBoardAndExtractFeatures(gw, t)
 
 	// 2) Push into sliding window.
 	gw.turns = append(gw.turns, t)
@@ -98,16 +100,32 @@ func (ga *GameAssembler) FeedTurn(t Turn) {
 
 	// 3) Emit when window deep enough.
 	if len(gw.states) > ga.horizon {
-		vec := makeTrainingVector(gw.states[0], gw.states[ga.horizon]) // TODO
+		vec := makeTrainingVector(gw.states[0], gw.states[ga.horizon])
 		ga.queue.PushBack(vec)
 
 		// Slide window forward by dropping the oldest ply.
 		gw.turns = gw.turns[1:]
 		gw.states = gw.states[1:]
 	}
-
+	// log.Info().Msgf("Game %s: fed turn %s, now have %d turns in window",
+	// 	t.GameID, t.Play, len(gw.turns))
 	// 4) Detect end-of-game; flush leftovers then delete.
-	if gw.game.Playing() == pb.PlayState_GAME_OVER {
+	if gw.game.Playing() == pb.PlayState_GAME_OVER ||
+		gw.game.Playing() == pb.PlayState_WAITING_FOR_FINAL_PASS {
+
+		if gw.game.Playing() == pb.PlayState_WAITING_FOR_FINAL_PASS {
+			passMove := move.NewPassMove(gw.game.RackFor(gw.game.PlayerOnTurn()).TilesOn(),
+				gw.game.Alphabet())
+			err := gw.game.PlayMove(passMove, false, 0)
+			if err != nil {
+				log.Fatal().Msgf("Failed to play final pass move: %v, error was %v", passMove, err)
+			}
+		}
+		if gw.game.Playing() != pb.PlayState_GAME_OVER {
+			log.Fatal().Msgf("Game %s is not over, but we got a game end signal. Playing state: %s",
+				t.GameID, gw.game.Playing())
+		}
+
 		ga.flushRemainder(gw)
 		delete(ga.games, t.GameID)
 	}
@@ -121,6 +139,8 @@ func (ga *GameAssembler) PopVector() []float32 {
 	front := ga.queue.Front()
 	vec := front.Value.([]float32)
 	ga.queue.Remove(front)
+	// log.Info().Msgf("Popping a vector of length %d", len(vec))
+
 	return vec
 }
 
@@ -145,23 +165,19 @@ func (ga *GameAssembler) flushRemainder(gw *gameWindow) {
 	}
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Stubs you must fill in
-// ──────────────────────────────────────────────────────────────────────────────
-
 // Given current game window + turn, mutate board state and return features.
 // Must return the *after-move* tensor for that ply.
 func updateBoardAndExtractFeatures(gw *gameWindow, t Turn) []float32 {
 	tp := stats.Normalize(t.Play) // normalize play string
 	gw.game.ThrowRacksIn()
-	err := gw.game.SetRackForOnly(gw.game.PlayerOnTurn(), tilemapping.RackFromString(t.Rack, gw.game.Alphabet()))
+	err := gw.game.SetRackFor(gw.game.PlayerOnTurn(), tilemapping.RackFromString(t.Rack, gw.game.Alphabet()))
 	if err != nil {
-		log.Fatal("Failed to set rack for player: ", gw.game.PlayerOnTurn(), " error was ", err)
+		log.Fatal().Msgf("Failed to set rack for player: %d, error was %v", gw.game.PlayerOnTurn(), err)
 	}
 
 	m, err := gw.game.ParseMove(gw.game.PlayerOnTurn(), false, strings.Fields(tp))
 	if err != nil {
-		log.Fatal("Failed to parse move: ", t, "error was", err)
+		log.Fatal().Msgf("Failed to parse move: %v, error was %v", t, err)
 	}
 	// PlayMove plays the move, updates board, cross-checks, player on turn, scores, etc.
 	// It also draws replenishment tiles from the bag. We don't want that for
@@ -169,7 +185,7 @@ func updateBoardAndExtractFeatures(gw *gameWindow, t Turn) []float32 {
 
 	err = gw.game.PlayMove(m, false, 0)
 	if err != nil {
-		log.Fatal("Failed to play move: ", m.ShortDescription(), " error was ", err)
+		log.Fatal().Msgf("Failed to play move: %s, error was %v", m.ShortDescription(), err)
 	}
 	// Undo rack replenishment.
 	// Throw racks in and assign rack to player who just went; they should
@@ -179,7 +195,7 @@ func updateBoardAndExtractFeatures(gw *gameWindow, t Turn) []float32 {
 		rack := tilemapping.RackFromString(t.Leave, gw.game.Alphabet())
 		err = gw.game.SetRackForOnly(1-gw.game.PlayerOnTurn(), rack)
 		if err != nil {
-			log.Fatal("Failed to set rack for player: ", 1-gw.game.PlayerOnTurn(), " error was ", err)
+			log.Fatal().Msgf("Failed to set rack for player: %d, error was %v", 1-gw.game.PlayerOnTurn(), err)
 		}
 	}
 	// build up vector of features.
@@ -205,7 +221,7 @@ func updateBoardAndExtractFeatures(gw *gameWindow, t Turn) []float32 {
 				// 1 to 26 for A-Z. (Fix later for other alphabets)
 				ll := unblanked - 1 // convert to 0-based index
 				if ll >= 26 {
-					log.Fatalf("Invalid tile index %d for tile %d at position (%d, %d)", ll, tile, j, k)
+					log.Fatal().Msgf("Invalid tile index %d for tile %d at position (%d, %d)", ll, tile, j, k)
 				}
 				// Set the corresponding plane for this letter
 				tilePlanes[int(ll)*225+j*15+k] = 1.0 // this tile is in the letter plane
@@ -271,7 +287,7 @@ func updateBoardAndExtractFeatures(gw *gameWindow, t Turn) []float32 {
 			} else if bonus == board.Bonus3WS {
 				bonus3WPlane[i*15+j] = 1.0 // mark as 3x word bonus
 			} else {
-				log.Fatalf("Unknown bonus type %d at position (%d, %d)", bonus, i, j)
+				log.Fatal().Msgf("Unknown bonus type %d at position (%d, %d)", bonus, i, j)
 			}
 		}
 	}
@@ -293,7 +309,11 @@ func updateBoardAndExtractFeatures(gw *gameWindow, t Turn) []float32 {
 	}
 	// Note the spread is our spread after making this move. The player on turn
 	// switched after playing the move, so that's why we do 1 - gw.game.PlayerOnTurn().
-	spread := float32(gw.game.SpreadFor(1 - gw.game.PlayerOnTurn())) // update spread for opponent
+	// We temporarily encode the player whose spread this is for since we don't
+	// have that data anywhere else.
+	spreadFor := 1 - gw.game.PlayerOnTurn()
+	spread := float32(gw.game.SpreadFor(spreadFor)) // update spread for opponent
+
 	// normalize to -1 to 1 range
 	tilesRemaining := float32(gw.game.Bag().TilesRemaining()) / 100.0 // normalize to 0-1 range
 	// Concatenate all feature planes and vectors into a single flat []float32.
@@ -308,7 +328,7 @@ func updateBoardAndExtractFeatures(gw *gameWindow, t Turn) []float32 {
 	features = append(features, bonus3WPlane...)
 	features = append(features, rackVector...)
 	features = append(features, unseenVector...)
-	features = append(features, tilesRemaining, spread)
+	features = append(features, tilesRemaining, spread, float32(spreadFor))
 	return features
 
 	// XXX: figure out board transposition
@@ -318,32 +338,46 @@ func normalizeSpread(spread float32) float32 {
 	// Normalize spread to -1 to 1 range.
 	// First we clamp it to -300 or 300.
 	if spread < -300 {
-		return -300.0
+		spread = -300.0
 	} else if spread > 300 {
-		return 300.0
+		spread = 300.0
 	}
 	return float32(spread) / 300.0
 }
 
 // Build final training vector from state at ply t and ply t+horizon.
 func makeTrainingVector(stateNow, stateFuture []float32) []float32 {
-
+	if len(stateNow) != len(stateFuture) {
+		log.Fatal().Msgf("State vectors must be of the same length, got %d and %d", len(stateNow), len(stateFuture))
+	}
 	// We want our final model to predict spread change after horizon plies.
 	// So we take the difference between the two states.
-	vec := make([]float32, len(stateNow))
-	copy(vec, stateNow) // copy current state
-	// The last element of the original vector is the spread after the move.
-	// So we compute the difference between the future and current spread.
-	spreadDiff := stateFuture[len(stateFuture)-1] - stateNow[len(stateNow)-1]
-	// if normalizedSpread < -300 {
-	// 	normalizedSpread = -300
-	// } else if normalizedSpread > 300 {
-	// 	normalizedSpread = 300
-	// }
-	// normalizedSpread /= 300.0
+	spreadForNow := int(stateNow[len(stateNow)-1])          // last element is the player index this spread is for.
+	spreadForFuture := int(stateFuture[len(stateFuture)-1]) // same for future state
 
+	vec := make([]float32, len(stateNow)-1)
+	copy(vec, stateNow[:len(stateNow)-1]) // copy current state minus the last element
+
+	// Get the actual spread values for the relevant player.
+	futureSpread := stateFuture[len(stateFuture)-2]
+	nowSpread := stateNow[len(stateNow)-2]
+
+	if spreadForFuture != spreadForNow {
+		// The two players are different. We want the future spread to be
+		// for the same player as the current spread.
+
+		futureSpread = -futureSpread // flip the sign of the future spread
+	}
+
+	spreadDiff := futureSpread - nowSpread
+
+	// log.Info().Msgf("future state spread %f, now spread %f, spreadForNow: %d, spreadForFuture: %d, Spread diff: %f, normalized: %f",
+	// 	stateFuture[len(stateFuture)-2], stateNow[len(stateNow)-2],
+	// 	spreadForNow, spreadForFuture,
+	// 	spreadDiff, normalizeSpread(spreadDiff))
+	// replace previous element with normalized spread of this move only
+	vec[len(vec)-1] = normalizeSpread(vec[len(vec)-1])
 	vec = append(vec, normalizeSpread(spreadDiff))
-	vec[len(vec)-2] = normalizeSpread(stateNow[len(stateNow)-1]) // replace previous element with normalized spread of this move only
 
 	return vec
 }
