@@ -153,6 +153,12 @@ func (ga *GameAssembler) flushRemainder(gw *gameWindow) {
 // Must return the *after-move* tensor for that ply.
 func updateBoardAndExtractFeatures(gw *gameWindow, t Turn) []float32 {
 	tp := stats.Normalize(t.Play) // normalize play string
+	gw.game.ThrowRacksIn()
+	err := gw.game.SetRackForOnly(gw.game.PlayerOnTurn(), tilemapping.RackFromString(t.Rack, gw.game.Alphabet()))
+	if err != nil {
+		log.Fatal("Failed to set rack for player: ", gw.game.PlayerOnTurn(), " error was ", err)
+	}
+
 	m, err := gw.game.ParseMove(gw.game.PlayerOnTurn(), false, strings.Fields(tp))
 	if err != nil {
 		log.Fatal("Failed to parse move: ", t, "error was", err)
@@ -160,9 +166,10 @@ func updateBoardAndExtractFeatures(gw *gameWindow, t Turn) []float32 {
 	// PlayMove plays the move, updates board, cross-checks, player on turn, scores, etc.
 	// It also draws replenishment tiles from the bag. We don't want that for
 	// training purposes.
+
 	err = gw.game.PlayMove(m, false, 0)
 	if err != nil {
-		log.Fatal("Failed to play move: ", m.ShortDescription(), "error was", err)
+		log.Fatal("Failed to play move: ", m.ShortDescription(), " error was ", err)
 	}
 	// Undo rack replenishment.
 	// Throw racks in and assign rack to player who just went; they should
@@ -172,7 +179,7 @@ func updateBoardAndExtractFeatures(gw *gameWindow, t Turn) []float32 {
 		rack := tilemapping.RackFromString(t.Leave, gw.game.Alphabet())
 		err = gw.game.SetRackForOnly(1-gw.game.PlayerOnTurn(), rack)
 		if err != nil {
-			log.Fatal("Failed to set rack for player: ", 1-gw.game.PlayerOnTurn(), "error was", err)
+			log.Fatal("Failed to set rack for player: ", 1-gw.game.PlayerOnTurn(), " error was ", err)
 		}
 	}
 	// build up vector of features.
@@ -286,13 +293,8 @@ func updateBoardAndExtractFeatures(gw *gameWindow, t Turn) []float32 {
 	}
 	// Note the spread is our spread after making this move. The player on turn
 	// switched after playing the move, so that's why we do 1 - gw.game.PlayerOnTurn().
-	normalizedSpread := float32(gw.game.SpreadFor(1 - gw.game.PlayerOnTurn())) // update spread for opponent
-	if normalizedSpread < -300 {
-		normalizedSpread = -300
-	} else if normalizedSpread > 300 {
-		normalizedSpread = 300
-	}
-	normalizedSpread /= 300.0                                         // normalize to -1 to 1 range
+	spread := float32(gw.game.SpreadFor(1 - gw.game.PlayerOnTurn())) // update spread for opponent
+	// normalize to -1 to 1 range
 	tilesRemaining := float32(gw.game.Bag().TilesRemaining()) / 100.0 // normalize to 0-1 range
 	// Concatenate all feature planes and vectors into a single flat []float32.
 	features := []float32{}
@@ -306,10 +308,21 @@ func updateBoardAndExtractFeatures(gw *gameWindow, t Turn) []float32 {
 	features = append(features, bonus3WPlane...)
 	features = append(features, rackVector...)
 	features = append(features, unseenVector...)
-	features = append(features, tilesRemaining, normalizedSpread)
+	features = append(features, tilesRemaining, spread)
 	return features
 
 	// XXX: figure out board transposition
+}
+
+func normalizeSpread(spread float32) float32 {
+	// Normalize spread to -1 to 1 range.
+	// First we clamp it to -300 or 300.
+	if spread < -300 {
+		return -300.0
+	} else if spread > 300 {
+		return 300.0
+	}
+	return float32(spread) / 300.0
 }
 
 // Build final training vector from state at ply t and ply t+horizon.
@@ -321,7 +334,16 @@ func makeTrainingVector(stateNow, stateFuture []float32) []float32 {
 	copy(vec, stateNow) // copy current state
 	// The last element of the original vector is the spread after the move.
 	// So we compute the difference between the future and current spread.
-	vec = append(vec, stateFuture[len(stateFuture)-1]-stateNow[len(stateNow)-1])
+	spreadDiff := stateFuture[len(stateFuture)-1] - stateNow[len(stateNow)-1]
+	// if normalizedSpread < -300 {
+	// 	normalizedSpread = -300
+	// } else if normalizedSpread > 300 {
+	// 	normalizedSpread = 300
+	// }
+	// normalizedSpread /= 300.0
+
+	vec = append(vec, normalizeSpread(spreadDiff))
+	vec[len(vec)-2] = normalizeSpread(stateNow[len(stateNow)-1]) // replace previous element with normalized spread of this move only
 
 	return vec
 }

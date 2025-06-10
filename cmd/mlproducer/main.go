@@ -3,7 +3,12 @@ package main
 import (
 	"bufio"
 	"os"
+	"path/filepath"
 	"strconv"
+
+	"github.com/domino14/macondo/config"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 // NPlies is the number of plies to look ahead in the game assembler. We will predict
@@ -33,6 +38,30 @@ func writeVectorText(w *bufio.Writer, vec []float32) error {
 // main streaming loop
 // ─────────────────────────────────────────────────────────────────────────────
 func main() {
+
+	ex, err := os.Executable()
+	if err != nil {
+		panic(err)
+	}
+	exPath := filepath.Dir(ex)
+
+	cfg := &config.Config{}
+	args := os.Args[1:]
+	cfg.Load(args)
+	log.Info().Msgf("Loaded config: %v", cfg.AllSettings())
+	cfg.AdjustRelativePaths(exPath)
+
+	var logger zerolog.Logger
+	if cfg.GetBool("debug") {
+		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+		logger = zerolog.New(os.Stderr).Level(zerolog.DebugLevel)
+	} else {
+		zerolog.SetGlobalLevel(zerolog.InfoLevel)
+		logger = zerolog.New(os.Stderr).Level(zerolog.InfoLevel)
+	}
+	zerolog.DefaultContextLogger = &logger
+	logger.Debug().Msg("Debug logging is on")
+
 	const bufSize = 1 << 20 // 1 MiB buffered stdout
 	out := bufio.NewWriterSize(os.Stdout, bufSize)
 
