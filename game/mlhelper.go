@@ -177,7 +177,9 @@ func (g *Game) BuildMLVector() ([]float32, error) {
 	for i := range 27 {
 		rackVector[i] = float32(rack.LetArr[i]) / 7.0 // normalize to 0-1 range
 		// technically we can even divide by 12 here i think. (number of Es in the bag)
-		unseenVector[i] = float32(bag[i]) / 100.0 // normalize to 0-1 range
+		// divide by 20 for now. make the vectors "cared about" a little bit sooner.
+		unseenVector[i] = float32(bag[i]) / 20.0 // normalize to 0-1 range
+
 	}
 
 	// Note the spread is our spread after making this move. The player on turn

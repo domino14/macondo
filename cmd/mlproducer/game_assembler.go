@@ -210,7 +210,9 @@ func updateBoardAndExtractFeatures(gw *gameWindow, t Turn) []float32 {
 	// We temporarily encode the player whose spread this is for since we don't
 	// have that data anywhere else.
 	spreadFor := gw.game.PlayerOnTurn()
-	vec = append(vec, float32(spreadFor)) // append player index for spread
+	unNormalizedSpread := gw.game.SpreadFor(spreadFor)
+	vec[len(vec)-1] = float32(unNormalizedSpread) // update spread for player on turn
+	vec = append(vec, float32(spreadFor))         // append player index for spread
 
 	// build up vector of features.
 	/*
