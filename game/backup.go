@@ -118,9 +118,10 @@ func (g *Game) UnplayLastMove() {
 		g.turnnum = b.turnnum
 		g.onturn = (g.onturn + (len(g.players) - 1)) % len(g.players)
 	} else {
+		// In interactive mode, we don't want to change the turn number
+		// because we typically use this when a word is challenged off, or similar.
 		b = g.stateStack[0]
 	}
-
 	g.board.CopyFrom(b.board)
 	g.bag.CopyFrom(b.bag)
 	g.playing = b.playing

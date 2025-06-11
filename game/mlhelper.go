@@ -1,20 +1,126 @@
 package game
 
 import (
+	"bufio"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
+	"strings"
+	"time"
+	"unsafe"
+
+	"github.com/owulveryck/onnx-go"
+	"github.com/owulveryck/onnx-go/backend/x/gorgonnx"
+	"github.com/rs/zerolog/log"
+	"gorgonia.org/tensor"
+
+	"github.com/domino14/word-golib/cache"
+	wglconfig "github.com/domino14/word-golib/config"
+	"github.com/domino14/word-golib/tilemapping"
 
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/dataloaders"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/word-golib/tilemapping"
 )
+
+const (
+	NN_C        = 83
+	NN_H, NN_W  = 15, 15
+	NN_N_PLANES = NN_C * NN_H * NN_W // 18 675
+	NN_N_SCAL   = 56
+	NN_RowLen   = NN_N_PLANES + NN_N_SCAL
+)
+
+type MLModel struct {
+	backend *gorgonnx.Graph
+	model   *onnx.Model
+}
+
+// MLModelTemplate holds the raw ONNX model data.
+type MLModelTemplate struct {
+	data []byte
+}
+
+// NewInstance creates a new MLModel from the template.
+func (t *MLModelTemplate) NewInstance() (*MLModel, error) {
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start).Milliseconds()
+		log.Debug().Int64("onnx_model_init_ms", elapsed).Msg("onnx model instance created")
+	}()
+	backend := gorgonnx.NewGraph()
+	model := onnx.NewModel(backend)
+	err := model.UnmarshalBinary(t.data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal ONNX model: %w", err)
+	}
+	return &MLModel{
+		backend: backend,
+		model:   model,
+	}, nil
+}
+
+func MLLoadFunc(cfg *wglconfig.Config, key string) (interface{}, error) {
+	fields := strings.Split(key, ":")
+	if fields[0] != "onnx" {
+		return nil, errors.New("mlloadfunc - bad cache key: " + key)
+	}
+	if len(fields) != 2 {
+		return nil, errors.New("cache key missing fields")
+	}
+	reader, err := dataloaders.StratFileForLexicon(
+		dataloaders.StrategyParamsPath(cfg), "macondo-nn.onnx", fields[1])
+	if err != nil {
+		return nil, fmt.Errorf("failed to load ONNX model: %w", err)
+	}
+	bytes, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read ONNX model file: %w", err)
+	}
+	err = reader.Close()
+	if err != nil {
+		return nil, fmt.Errorf("failed to close ONNX model file: %w", err)
+	}
+
+	log.Debug().Str("lexiconName", fields[1]).
+		Int("model-size", len(bytes)).
+		Msg("loaded-onnx-model")
+
+	// Return the model template.
+	modelTemplate := &MLModelTemplate{
+		data: bytes,
+	}
+
+	return modelTemplate, nil
+}
 
 // MLEvaluateMove evaluates a move using the machine learning model.
 // Assume that the board and racks etc are already properly assigned.
 func (g *Game) MLEvaluateMove(m *move.Move) (float32, error) {
-	if g.backupMode == NoBackup {
-		return 0, errors.New("ML evaluation can only be used in backup mode")
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start).Milliseconds()
+		log.Debug().Int64("evaluate_move_ms", elapsed).Msg("evaluated move with ML")
+	}()
+	backupMode := g.backupMode
+	g.SetBackupMode(SimulationMode)
+	defer g.SetBackupMode(backupMode)
+
+	net, err := cache.Load(g.config.WGLConfig(), "onnx:"+g.LexiconName(), MLLoadFunc)
+	if err != nil {
+		log.Err(err).Msg("loading-ml-model")
+		return 0, err
 	}
+	modelTemplate, ok := net.(*MLModelTemplate)
+	if !ok {
+		return 0, errors.New("failed to type-assert ONNX model template")
+	}
+	model, err := modelTemplate.NewInstance()
+	if err != nil {
+		return 0, fmt.Errorf("failed to create new ONNX model instance: %w", err)
+	}
+
 	g.backupState()
 	switch m.Action() {
 	case move.MoveTypePlay:
@@ -48,11 +154,35 @@ func (g *Game) MLEvaluateMove(m *move.Move) (float32, error) {
 		return 0, fmt.Errorf("failed to build ML vector: %w", err)
 	}
 
-	g.onturn = (g.onturn + 1) % len(g.players)
-	g.UnplayLastMove() // this undoes the g.onturn change above which is why we even do that in the first place.
+	// Generate a SHA256 checksum for the ML vector.
+	// hasher := sha256.New()
+	// for _, v := range vec {
+	// 	b := make([]byte, 4)
+	// 	binary.LittleEndian.PutUint32(b, math.Float32bits(v))
+	// 	hasher.Write(b)
+	// }
+	// checksum := hex.EncodeToString(hasher.Sum(nil))
+	// log.Info().Str("ml_vector_checksum", checksum).Msg("computed ML vector checksum")
 
-	// xxx changeme
-	return vec[0], nil
+	board := tensor.New(tensor.WithShape(1, NN_C, NN_H, NN_W),
+		tensor.WithBacking(vec[:NN_N_PLANES]))
+	scal := tensor.New(tensor.WithShape(1, NN_N_SCAL), tensor.WithBacking(vec[NN_N_PLANES:]))
+	model.model.SetInput(0, board)
+	model.model.SetInput(1, scal)
+	err = model.backend.Run()
+	if err != nil {
+		return 0, fmt.Errorf("failed to run ONNX model: %w", err)
+	}
+	output, err := model.model.GetOutputTensors()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get output tensors: %w", err)
+	}
+	eval := output[0].Data().(float32) * 300.0 // scale back to -300 to 300 range
+	g.onturn = 1 - g.onturn                    // switch turn back to the original player
+
+	g.UnplayLastMove() // this undoes the g.onturn change above.
+
+	return eval, nil
 }
 
 func NormalizeSpreadForML(spread float32) float32 {
@@ -207,4 +337,21 @@ func (g *Game) BuildMLVector() ([]float32, error) {
 	features = append(features, tilesRemaining, normalizedSpread)
 
 	return features, nil
+}
+
+func BinaryWriteMLVector(w *bufio.Writer, vec []float32) error {
+	// Re-interpret the []float32 backing array as []byte
+	byteSlice := unsafe.Slice(
+		(*byte)(unsafe.Pointer(&vec[0])),
+		len(vec)*4,
+	)
+
+	// 1) length prefix (little-endian uint32)
+	if err := binary.Write(w, binary.LittleEndian, uint32(len(byteSlice))); err != nil {
+		return err
+	}
+	fmt.Println("wrote little endian length:", len(byteSlice))
+	// 2) payload
+	_, err := w.Write(byteSlice)
+	return err
 }

@@ -2,13 +2,12 @@ package main
 
 import (
 	"bufio"
-	"encoding/binary"
 	"os"
 	"path/filepath"
 	"strconv"
-	"unsafe"
 
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/game"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -38,19 +37,7 @@ func writeVectorText(w *bufio.Writer, vec []float32) error {
 
 // write one float32 slice as [uint32 lenBytes][payload]
 func writeVectorBin(w *bufio.Writer, vec []float32) error {
-	// Re-interpret the []float32 backing array as []byte
-	byteSlice := unsafe.Slice(
-		(*byte)(unsafe.Pointer(&vec[0])),
-		len(vec)*4,
-	)
-
-	// 1) length prefix (little-endian uint32)
-	if err := binary.Write(w, binary.LittleEndian, uint32(len(byteSlice))); err != nil {
-		return err
-	}
-	// 2) payload
-	_, err := w.Write(byteSlice)
-	return err
+	return game.BinaryWriteMLVector(w, vec)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

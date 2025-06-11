@@ -936,3 +936,29 @@ func (sc *ShellController) check(cmd *shellcmd) (*Response, error) {
 	return msg(fmt.Sprintf("The play (%v) is %v in %v", strings.Join(wordsFriendly, ","), validStr, sc.config.GetString(config.ConfigDefaultLexicon))), nil
 
 }
+
+func (sc *ShellController) mleval(cmd *shellcmd) (*Response, error) {
+	playerid := sc.game.PlayerOnTurn()
+
+	if len(cmd.args) == 0 {
+		// evaluate all moves
+		for _, m := range sc.curPlayList {
+			eval, err := sc.game.MLEvaluateMove(m)
+			if err != nil {
+				return nil, err
+			}
+			sc.showMessage(fmt.Sprintf("MLEval for %s: %.3f", m.ShortDescription(), eval))
+		}
+		return msg("MLEval for all moves completed."), nil
+	} else {
+		m, err := sc.game.ParseMove(playerid, sc.options.lowercaseMoves, cmd.args)
+		if err != nil {
+			return nil, err
+		}
+		eval, err := sc.game.MLEvaluateMove(m)
+		if err != nil {
+			return nil, err
+		}
+		return msg(fmt.Sprintf("MLEval for %s: %.3f", m.ShortDescription(), eval)), nil
+	}
+}
