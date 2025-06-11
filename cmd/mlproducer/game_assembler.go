@@ -202,11 +202,11 @@ func updateBoardAndExtractFeatures(gw *gameWindow, t Turn) []float32 {
 			log.Fatal().Msgf("Failed to set rack for player: %d, error was %v", gw.game.PlayerOnTurn(), err)
 		}
 	}
-	vec, err := gw.game.BuildMLVector()
+	vecPtr, err := gw.game.Game().BuildMLVector()
 	if err != nil {
 		log.Fatal().Msgf("Failed to build ML vector: %v", err)
 	}
-
+	vec := *vecPtr
 	// We temporarily encode the player whose spread this is for since we don't
 	// have that data anywhere else.
 	spreadFor := gw.game.PlayerOnTurn()
@@ -214,144 +214,10 @@ func updateBoardAndExtractFeatures(gw *gameWindow, t Turn) []float32 {
 	vec[len(vec)-1] = float32(unNormalizedSpread) // update spread for player on turn
 	vec = append(vec, float32(spreadFor))         // append player index for spread
 
-	// build up vector of features.
-	/*
-		tilePlanes := make([]float32, 26*225) // 26 planes for letters A-Z
-		isBlankPlane := make([]float32, 225)  // 15x15 board tiles
-
-		// 26 planes for board tiles
-		// Each plane is a 15x15 grid, flattened to 225 elements.
-		plane := gw.game.Board()
-		for j := range 15 {
-			for k := range 15 {
-				tile := plane.GetLetter(j, k)
-				if tile == 0 {
-					continue // skip empty squares
-				}
-				unblanked := tile.Unblank()
-				if unblanked != tile {
-					// The tile was blanked
-					isBlankPlane[j*15+k] = 1.0 // mark as blank
-				} else {
-					// The tile is a letter. The unblanked tile will range from
-					// 1 to 26 for A-Z. (Fix later for other alphabets)
-					ll := unblanked - 1 // convert to 0-based index
-					if ll >= 26 {
-						log.Fatal().Msgf("Invalid tile index %d for tile %d at position (%d, %d)", ll, tile, j, k)
-					}
-					// Set the corresponding plane for this letter
-					tilePlanes[int(ll)*225+j*15+k] = 1.0 // this tile is in the letter plane
-				}
-			}
-		}
-
-		horCCs := make([]float32, 26*225)
-		verCCs := make([]float32, 26*225)
-
-		// 26 planes for horizontal cross-checks
-		// 26 planes for vertical cross-checks
-		for i := range 15 {
-			for j := range 15 {
-				hc := gw.game.Board().GetCrossSet(i, j, board.HorizontalDirection)
-				vc := gw.game.Board().GetCrossSet(i, j, board.VerticalDirection)
-				if hc == board.TrivialCrossSet && vc == board.TrivialCrossSet {
-					// We skip trivial cross-checks to make this structure nicer to
-					// the neural net. Trivial cross-checks are for empty squares where
-					// technically every tile is allowed. But we really care about
-					// empty squares that are right next to a tile (anchors, basically);
-					// those would always have non-trivial cross-checks.
-					continue
-				}
-				for t := range 26 { // A-Z are 1-26; change for other alphabets in future.
-					// For each letter A-Z, we check if it is in the cross-check set.
-					letter := tilemapping.MachineLetter(t + 1) // convert to 1-based index
-					if hc.Allowed(letter) {
-						horCCs[int(t)*225+i*15+j] = 1.0 // this tile is in the horizontal cross-check
-					}
-					if vc.Allowed(letter) {
-						verCCs[int(t)*225+i*15+j] = 1.0 // this tile is in the vertical cross-check
-					}
-				}
-			}
-		}
-		// Consider a single plane that has all the "anchors" or empty squares that are
-		// adjacent to tiles in the future.
-
-		// uncovered bonus square planes
-		bonus2LPlane := make([]float32, 225) // 2x letter bonus
-		bonus3LPlane := make([]float32, 225) // 3x letter bonus
-		bonus2WPlane := make([]float32, 225) // 2x word bonus
-		bonus3WPlane := make([]float32, 225) // 3x word bonus
-		for i := range 15 {
-			for j := range 15 {
-				letter := gw.game.Board().GetLetter(i, j)
-				if letter != 0 {
-					// This is a letter tile, not an empty square.
-					continue
-				}
-				bonus := gw.game.Board().GetBonus(i, j)
-
-				if bonus == board.NoBonus {
-					continue // no bonus here
-				}
-				if bonus == board.Bonus2LS {
-					bonus2LPlane[i*15+j] = 1.0 // mark as 2x letter bonus
-				} else if bonus == board.Bonus3LS {
-					bonus3LPlane[i*15+j] = 1.0 // mark as 3x letter bonus
-				} else if bonus == board.Bonus2WS {
-					bonus2WPlane[i*15+j] = 1.0 // mark as 2x word bonus
-				} else if bonus == board.Bonus3WS {
-					bonus3WPlane[i*15+j] = 1.0 // mark as 3x word bonus
-				} else {
-					log.Fatal().Msgf("Unknown bonus type %d at position (%d, %d)", bonus, i, j)
-				}
-			}
-		}
-
-		// 1 vector for our rack leave (size = 27 tiles)
-		// 1 vector for unseen tiles in the bag (size = 27 tiles)
-		// scalar for score diff after making move
-		// scalar for num tiles left in bag
-		rackVector := make([]float32, 27)   // 26 letters + 1 for unseen
-		unseenVector := make([]float32, 27) // 26 letters + 1 for unseen
-		if t.Leave != "" {
-			rack := tilemapping.RackFromString(t.Leave, gw.game.Alphabet())
-			bag := gw.game.Bag().PeekMap()
-			for i := range 27 {
-				rackVector[i] = float32(rack.LetArr[i]) / 7.0 // normalize to 0-1 range
-				// technically we can even divide by 12 here i think. (number of Es in the bag)
-				unseenVector[i] = float32(bag[i]) / 100.0 // normalize to 0-1 range
-			}
-		}
-		// Note the spread is our spread after making this move. The player on turn
-		// switched after playing the move, so that's why we do 1 - gw.game.PlayerOnTurn().
-		// We temporarily encode the player whose spread this is for since we don't
-		// have that data anywhere else.
-		spreadFor := 1 - gw.game.PlayerOnTurn()
-		spread := float32(gw.game.SpreadFor(spreadFor)) // update spread for opponent
-
-		// normalize to -1 to 1 range
-		tilesRemaining := float32(gw.game.Bag().TilesRemaining()) / 100.0 // normalize to 0-1 range
-		// Concatenate all feature planes and vectors into a single flat []float32.
-		features := []float32{}
-		features = append(features, tilePlanes...)
-		features = append(features, isBlankPlane...)
-		features = append(features, horCCs...)
-		features = append(features, verCCs...)
-		features = append(features, bonus2LPlane...)
-		features = append(features, bonus3LPlane...)
-		features = append(features, bonus2WPlane...)
-		features = append(features, bonus3WPlane...)
-		features = append(features, rackVector...)
-		features = append(features, unseenVector...)
-		features = append(features, tilesRemaining, spread, float32(spreadFor))
-		return features
-	*/
-
 	// Undo the switch of the player on turn.
 	gw.game.SetPlayerOnTurn(1 - gw.game.PlayerOnTurn())
+	game.MLVectorPool.Put(vecPtr)
 	return vec
-	// XXX: figure out board transposition
 }
 
 // Build final training vector from state at ply t and ply t+horizon.

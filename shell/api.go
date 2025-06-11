@@ -942,13 +942,19 @@ func (sc *ShellController) mleval(cmd *shellcmd) (*Response, error) {
 
 	if len(cmd.args) == 0 {
 		// evaluate all moves
-		for _, m := range sc.curPlayList {
-			eval, err := sc.game.MLEvaluateMove(m)
-			if err != nil {
-				return nil, err
-			}
-			sc.showMessage(fmt.Sprintf("MLEval for %s: %.3f", m.ShortDescription(), eval))
+		evals, err := sc.game.MLEvaluateMoves(sc.curPlayList)
+		if err != nil {
+			return nil, err
 		}
+		sc.showMessage(fmt.Sprintf("MLEval for %d moves:", len(sc.curPlayList)))
+		if len(evals) != len(sc.curPlayList) {
+			return nil, fmt.Errorf("expected %d evaluations, got %d", len(sc.curPlayList), len(evals))
+		}
+		for i, m := range sc.curPlayList {
+			eval := evals[i]
+			sc.showMessage(fmt.Sprintf("%d) %s: %.3f", i+1, m.ShortDescription(), eval))
+		}
+
 		return msg("MLEval for all moves completed."), nil
 	} else {
 		m, err := sc.game.ParseMove(playerid, sc.options.lowercaseMoves, cmd.args)

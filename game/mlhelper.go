@@ -2,11 +2,14 @@ package game
 
 import (
 	"bufio"
+	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strings"
+	"sync"
 	"time"
 	"unsafe"
 
@@ -31,6 +34,14 @@ const (
 	NN_N_SCAL   = 56
 	NN_RowLen   = NN_N_PLANES + NN_N_SCAL
 )
+
+var MLVectorPool = sync.Pool{
+	New: func() interface{} {
+		// The Pool's New function should return a pointer to a slice of float32.
+		v := make([]float32, NN_RowLen)
+		return &v
+	},
+}
 
 type MLModel struct {
 	backend *gorgonnx.Graph
@@ -95,14 +106,30 @@ func MLLoadFunc(cfg *wglconfig.Config, key string) (interface{}, error) {
 	return modelTemplate, nil
 }
 
-// MLEvaluateMove evaluates a move using the machine learning model.
-// Assume that the board and racks etc are already properly assigned.
+// MLEvaluateMove evaluates a single move using the machine learning model.
+// It's a wrapper around MLEvaluateMoves.
 func (g *Game) MLEvaluateMove(m *move.Move) (float32, error) {
+	evals, err := g.MLEvaluateMoves([]*move.Move{m})
+	if err != nil {
+		return 0, err
+	}
+	return evals[0], nil
+}
+
+// MLEvaluateMoves evaluates a slice of moves in a single batch inference.
+func (g *Game) MLEvaluateMoves(moves []*move.Move) ([]float32, error) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start).Milliseconds()
-		log.Debug().Int64("evaluate_move_ms", elapsed).Msg("evaluated move with ML")
+		log.Debug().Int64("evaluate_moves_ms", elapsed).
+			Int("num_moves", len(moves)).
+			Msg("evaluated moves with ML")
 	}()
+
+	if len(moves) == 0 {
+		return []float32{}, nil
+	}
+
 	backupMode := g.backupMode
 	g.SetBackupMode(SimulationMode)
 	defer g.SetBackupMode(backupMode)
@@ -110,79 +137,105 @@ func (g *Game) MLEvaluateMove(m *move.Move) (float32, error) {
 	net, err := cache.Load(g.config.WGLConfig(), "onnx:"+g.LexiconName(), MLLoadFunc)
 	if err != nil {
 		log.Err(err).Msg("loading-ml-model")
-		return 0, err
+		return nil, err
 	}
 	modelTemplate, ok := net.(*MLModelTemplate)
 	if !ok {
-		return 0, errors.New("failed to type-assert ONNX model template")
+		return nil, errors.New("failed to type-assert ONNX model template")
 	}
 	model, err := modelTemplate.NewInstance()
 	if err != nil {
-		return 0, fmt.Errorf("failed to create new ONNX model instance: %w", err)
+		return nil, fmt.Errorf("failed to create new ONNX model instance: %w", err)
 	}
 
-	g.backupState()
-	switch m.Action() {
-	case move.MoveTypePlay:
-		g.board.PlayMove(m)
-		g.crossSetGen.UpdateForMove(g.board, m)
-		score := m.Score()
-		g.lastScorelessTurns = g.scorelessTurns
-		g.scorelessTurns = 0
-		g.players[g.onturn].points += score
-		g.players[g.onturn].turns += 1
-		if m.TilesPlayed() == RackTileLimit {
-			g.players[g.onturn].bingos++
+	numMoves := len(moves)
+	allVectors := make([]float32, 0, numMoves*NN_RowLen)
+
+	for _, m := range moves {
+		g.backupState()
+
+		switch m.Action() {
+		case move.MoveTypePlay:
+			g.board.PlayMove(m)
+			g.crossSetGen.UpdateForMove(g.board, m)
+			score := m.Score()
+			g.lastScorelessTurns = g.scorelessTurns
+			g.scorelessTurns = 0
+			g.players[g.onturn].points += score
+			g.players[g.onturn].turns += 1
+			if m.TilesPlayed() == RackTileLimit {
+				g.players[g.onturn].bingos++
+			}
+		case move.MoveTypePass:
+			g.lastScorelessTurns = g.scorelessTurns
+			g.scorelessTurns++
+			g.players[g.onturn].turns += 1
+		case move.MoveTypeExchange:
+			g.bag.PutBack(m.Tiles())
+			g.lastScorelessTurns = g.scorelessTurns
+			g.scorelessTurns++
+			g.players[g.onturn].turns += 1
 		}
-		// Don't draw replacement tiles.
-		// don't deal with end of game at this moment.
-	case move.MoveTypePass:
-		g.lastScorelessTurns = g.scorelessTurns
-		g.scorelessTurns++
-		g.players[g.onturn].turns += 1
 
-	case move.MoveTypeExchange:
-		// don't actually exchange, but we want to track our leave.
-		g.bag.PutBack(m.Tiles())
-		g.lastScorelessTurns = g.scorelessTurns
-		g.scorelessTurns++
-		g.players[g.onturn].turns += 1
+		vec, err := g.BuildMLVector()
+		if err != nil {
+			g.UnplayLastMove() // Unplay before returning the error
+			return nil, fmt.Errorf("failed to build ML vector for move: %w", err)
+		}
+
+		h := sha256.New()
+		for _, f := range *vec {
+			b := make([]byte, 4)
+			binary.LittleEndian.PutUint32(b, math.Float32bits(f))
+			h.Write(b)
+		}
+		log.Debug().Str("vec_sha256", fmt.Sprintf("%x", h.Sum(nil))).Msg("ml vector hash")
+
+		allVectors = append(allVectors, *vec...)
+		MLVectorPool.Put(vec)   // Return the vector to the pool
+		g.onturn = 1 - g.onturn // switch turn back to the original player
+
+		g.UnplayLastMove()
 	}
 
-	vec, err := g.BuildMLVector()
-	if err != nil {
-		return 0, fmt.Errorf("failed to build ML vector: %w", err)
+	boardTensor := tensor.New(tensor.WithShape(numMoves, NN_C, NN_H, NN_W),
+		tensor.WithBacking(allVectors[:numMoves*NN_N_PLANES]))
+	scalTensor := tensor.New(tensor.WithShape(numMoves, NN_N_SCAL),
+		tensor.WithBacking(allVectors[numMoves*NN_N_PLANES:]))
+
+	model.model.SetInput(0, boardTensor)
+	model.model.SetInput(1, scalTensor)
+
+	if err := model.backend.Run(); err != nil {
+		return nil, fmt.Errorf("failed to run ONNX model: %w", err)
 	}
 
-	// Generate a SHA256 checksum for the ML vector.
-	// hasher := sha256.New()
-	// for _, v := range vec {
-	// 	b := make([]byte, 4)
-	// 	binary.LittleEndian.PutUint32(b, math.Float32bits(v))
-	// 	hasher.Write(b)
-	// }
-	// checksum := hex.EncodeToString(hasher.Sum(nil))
-	// log.Info().Str("ml_vector_checksum", checksum).Msg("computed ML vector checksum")
-
-	board := tensor.New(tensor.WithShape(1, NN_C, NN_H, NN_W),
-		tensor.WithBacking(vec[:NN_N_PLANES]))
-	scal := tensor.New(tensor.WithShape(1, NN_N_SCAL), tensor.WithBacking(vec[NN_N_PLANES:]))
-	model.model.SetInput(0, board)
-	model.model.SetInput(1, scal)
-	err = model.backend.Run()
-	if err != nil {
-		return 0, fmt.Errorf("failed to run ONNX model: %w", err)
-	}
 	output, err := model.model.GetOutputTensors()
 	if err != nil {
-		return 0, fmt.Errorf("failed to get output tensors: %w", err)
+		return nil, fmt.Errorf("failed to get output tensors: %w", err)
 	}
-	eval := output[0].Data().(float32) * 300.0 // scale back to -300 to 300 range
-	g.onturn = 1 - g.onturn                    // switch turn back to the original player
 
-	g.UnplayLastMove() // this undoes the g.onturn change above.
+	var evals []float32
 
-	return eval, nil
+	// fmt.Println("output tensors:", len(output), output[0].Shape(), output[0].Data())
+	switch v := output[0].Data().(type) {
+	case []float32:
+		evals = v
+		fmt.Println("evals", evals)
+
+	case float32:
+		fmt.Println("single eval", v)
+		evals = []float32{v}
+	default:
+		return nil, fmt.Errorf("unexpected output type: %T", v)
+	}
+
+	for i := range evals {
+		evals[i] *= 300.0
+	}
+	fmt.Println("evals after scaling", evals)
+
+	return evals, nil
 }
 
 func NormalizeSpreadForML(spread float32) float32 {
@@ -196,150 +249,97 @@ func NormalizeSpreadForML(spread float32) float32 {
 	return float32(spread) / 300.0
 }
 
-// BuildMLVector builds the feature vector for the current game state. Assumes
-// the player on turn has just put tiles on a board and tallied up their new
-// score but not drawn replacement tiles.
-func (g *Game) BuildMLVector() ([]float32, error) {
+// BuildMLVector builds the feature vector for the current game state.
+func (g *Game) BuildMLVector() (*[]float32, error) {
+	vecPtr := MLVectorPool.Get().(*[]float32)
+	vec := *vecPtr
+	// Clear the vector
+	for i := range vec {
+		vec[i] = 0
+	}
 
-	tilePlanes := make([]float32, 26*225) // 26 planes for letters A-Z
-	isBlankPlane := make([]float32, 225)  // 15x15 board tiles
+	// Define slices for each feature plane, pointing into the main vector `vec`.
+	const planeSize = 15 * 15
+	tilePlanes := vec[0 : 26*planeSize]
+	isBlankPlane := vec[26*planeSize : 27*planeSize]
+	horCCs := vec[27*planeSize : 53*planeSize]
+	verCCs := vec[53*planeSize : 79*planeSize]
+	bonus2LPlane := vec[79*planeSize : 80*planeSize]
+	bonus3LPlane := vec[80*planeSize : 81*planeSize]
+	bonus2WPlane := vec[81*planeSize : 82*planeSize]
+	bonus3WPlane := vec[82*planeSize : 83*planeSize]
 
-	// 26 planes for board tiles
-	// Each plane is a 15x15 grid, flattened to 225 elements.
-	plane := g.Board()
-	for j := range 15 {
-		for k := range 15 {
-			tile := plane.GetLetter(j, k)
-			if tile == 0 {
-				continue // skip empty squares
-			}
-			unblanked := tile.Unblank()
-			if unblanked != tile {
-				// The tile was blanked
-				isBlankPlane[j*15+k] = 1.0 // mark as blank
-			} else {
-				// The tile is a letter. The unblanked tile will range from
-				// 1 to 26 for A-Z. (Fix later for other alphabets)
-				ll := unblanked - 1 // convert to 0-based index
-				if ll >= 26 {
-					return nil, fmt.Errorf("Invalid tile index %d for tile %d at position (%d, %d)", ll, tile, j, k)
+	// Board features
+	b := g.Board()
+	for r := 0; r < 15; r++ {
+		for c := 0; c < 15; c++ {
+			idx := r*15 + c
+			tile := b.GetLetter(r, c)
+			if tile != 0 {
+				unblanked := tile.Unblank()
+				if unblanked != tile {
+					isBlankPlane[idx] = 1.0
+				} else {
+					ll := unblanked - 1
+					if ll >= 26 {
+						return nil, fmt.Errorf("invalid tile index %d for tile %d at position (%d, %d)", ll, tile, r, c)
+					}
+					tilePlanes[int(ll)*planeSize+idx] = 1.0
 				}
-				// Set the corresponding plane for this letter
-				tilePlanes[int(ll)*225+j*15+k] = 1.0 // this tile is in the letter plane
+			} else { // Empty square, check for bonuses
+				bonus := b.GetBonus(r, c)
+				switch bonus {
+				case board.Bonus2LS:
+					bonus2LPlane[idx] = 1.0
+				case board.Bonus3LS:
+					bonus3LPlane[idx] = 1.0
+				case board.Bonus2WS:
+					bonus2WPlane[idx] = 1.0
+				case board.Bonus3WS:
+					bonus3WPlane[idx] = 1.0
+				}
+			}
+
+			// Cross-checks
+			hc := b.GetCrossSet(r, c, board.HorizontalDirection)
+			vc := b.GetCrossSet(r, c, board.VerticalDirection)
+			if hc != board.TrivialCrossSet || vc != board.TrivialCrossSet {
+				for t := 0; t < 26; t++ {
+					letter := tilemapping.MachineLetter(t + 1)
+					if hc.Allowed(letter) {
+						horCCs[t*planeSize+idx] = 1.0
+					}
+					if vc.Allowed(letter) {
+						verCCs[t*planeSize+idx] = 1.0
+					}
+				}
 			}
 		}
 	}
 
-	horCCs := make([]float32, 26*225)
-	verCCs := make([]float32, 26*225)
-
-	// 26 planes for horizontal cross-checks
-	// 26 planes for vertical cross-checks
-	for i := range 15 {
-		for j := range 15 {
-			hc := g.Board().GetCrossSet(i, j, board.HorizontalDirection)
-			vc := g.Board().GetCrossSet(i, j, board.VerticalDirection)
-			if hc == board.TrivialCrossSet && vc == board.TrivialCrossSet {
-				// We skip trivial cross-checks to make this structure nicer to
-				// the neural net. Trivial cross-checks are for empty squares where
-				// technically every tile is allowed. But we really care about
-				// empty squares that are right next to a tile (anchors, basically);
-				// those would always have non-trivial cross-checks.
-				continue
-			}
-			for t := range 26 { // A-Z are 1-26; change for other alphabets in future.
-				// For each letter A-Z, we check if it is in the cross-check set.
-				letter := tilemapping.MachineLetter(t + 1) // convert to 1-based index
-				if hc.Allowed(letter) {
-					horCCs[int(t)*225+i*15+j] = 1.0 // this tile is in the horizontal cross-check
-				}
-				if vc.Allowed(letter) {
-					verCCs[int(t)*225+i*15+j] = 1.0 // this tile is in the vertical cross-check
-				}
-			}
-		}
-	}
-	// Consider a single plane that has all the "anchors" or empty squares that are
-	// adjacent to tiles in the future.
-
-	// uncovered bonus square planes
-	bonus2LPlane := make([]float32, 225) // 2x letter bonus
-	bonus3LPlane := make([]float32, 225) // 3x letter bonus
-	bonus2WPlane := make([]float32, 225) // 2x word bonus
-	bonus3WPlane := make([]float32, 225) // 3x word bonus
-	for i := range 15 {
-		for j := range 15 {
-			letter := g.Board().GetLetter(i, j)
-			if letter != 0 {
-				// This is a letter tile, not an empty square.
-				continue
-			}
-			bonus := g.Board().GetBonus(i, j)
-
-			if bonus == board.NoBonus {
-				continue // no bonus here
-			}
-			if bonus == board.Bonus2LS {
-				bonus2LPlane[i*15+j] = 1.0 // mark as 2x letter bonus
-			} else if bonus == board.Bonus3LS {
-				bonus3LPlane[i*15+j] = 1.0 // mark as 3x letter bonus
-			} else if bonus == board.Bonus2WS {
-				bonus2WPlane[i*15+j] = 1.0 // mark as 2x word bonus
-			} else if bonus == board.Bonus3WS {
-				bonus3WPlane[i*15+j] = 1.0 // mark as 3x word bonus
-			} else {
-				return nil, fmt.Errorf("Unknown bonus type %d at position (%d, %d)", bonus, i, j)
-			}
-		}
-	}
-
-	// 1 vector for our rack leave (size = 27 tiles)
-	// 1 vector for unseen tiles in the bag (size = 27 tiles)
-	// scalar for score diff after making move
-	// scalar for num tiles left in bag
-	rackVector := make([]float32, 27)   // 26 letters + 1 for unseen
-	unseenVector := make([]float32, 27) // 26 letters + 1 for unseen
+	// Scalar features
+	scalarsStart := NN_N_PLANES
+	rackVector := vec[scalarsStart : scalarsStart+27]
+	unseenVector := vec[scalarsStart+27 : scalarsStart+54]
 
 	rack := g.RackFor(g.PlayerOnTurn())
 	oppRack := g.RackFor(1 - g.PlayerOnTurn())
-	g.bag.PutBack(oppRack.TilesOn()) // put back opponent's tiles to calculate all unseen tiles
+	g.bag.PutBack(oppRack.TilesOn())
 	bag := g.Bag().PeekMap()
-	for i := range 27 {
-		rackVector[i] = float32(rack.LetArr[i]) / 7.0 // normalize to 0-1 range
-		// technically we can even divide by 12 here i think. (number of Es in the bag)
-		// divide by 20 for now. make the vectors "cared about" a little bit sooner.
-		unseenVector[i] = float32(bag[i]) / 20.0 // normalize to 0-1 range
 
+	for i := 0; i < 27; i++ {
+		rackVector[i] = float32(rack.LetArr[i]) / 7.0
+		unseenVector[i] = float32(bag[i]) / 20.0
 	}
+	g.bag.PutBack(oppRack.TilesOn()) // Restore opponent's rack
 
-	// Note the spread is our spread after making this move. The player on turn
-	// switched after playing the move, so that's why we do 1 - gw.game.PlayerOnTurn().
-	// We temporarily encode the player whose spread this is for since we don't
-	// have that data anywhere else.
-	// spreadFor := 1 - g.PlayerOnTurn()
-	// spread := float32(g.SpreadFor(spreadFor)) // update spread for opponent
+	vec[NN_RowLen-2] = float32(g.Bag().TilesRemaining()) / 100.0
+	vec[NN_RowLen-1] = NormalizeSpreadForML(float32(g.SpreadFor(g.PlayerOnTurn())))
 
-	normalizedSpread := NormalizeSpreadForML(float32(g.SpreadFor(g.PlayerOnTurn())))
-	// normalize to -1 to 1 range
-	tilesRemaining := float32(g.Bag().TilesRemaining()) / 100.0 // normalize to 0-1 range
-	// Concatenate all feature planes and vectors into a single flat []float32.
-	features := []float32{}
-	features = append(features, tilePlanes...)
-	features = append(features, isBlankPlane...)
-	features = append(features, horCCs...)
-	features = append(features, verCCs...)
-	features = append(features, bonus2LPlane...)
-	features = append(features, bonus3LPlane...)
-	features = append(features, bonus2WPlane...)
-	features = append(features, bonus3WPlane...)
-	features = append(features, rackVector...)
-	features = append(features, unseenVector...)
-	features = append(features, tilesRemaining, normalizedSpread)
-
-	return features, nil
+	return &vec, nil
 }
 
-func BinaryWriteMLVector(w *bufio.Writer, vec []float32) error {
+func (g *Game) BinaryWriteMLVector(w *bufio.Writer, vec []float32) error {
 	// Re-interpret the []float32 backing array as []byte
 	byteSlice := unsafe.Slice(
 		(*byte)(unsafe.Pointer(&vec[0])),
