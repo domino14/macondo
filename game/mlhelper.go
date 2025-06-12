@@ -149,7 +149,8 @@ func (g *Game) MLEvaluateMoves(moves []*move.Move) ([]float32, error) {
 	}
 
 	numMoves := len(moves)
-	allVectors := make([]float32, 0, numMoves*NN_RowLen)
+	allPlaneVectors := make([]float32, 0, numMoves*NN_N_PLANES)
+	allScalarVectors := make([]float32, 0, numMoves*NN_N_SCAL)
 
 	for _, m := range moves {
 		g.backupState()
@@ -191,7 +192,8 @@ func (g *Game) MLEvaluateMoves(moves []*move.Move) ([]float32, error) {
 		}
 		log.Debug().Str("vec_sha256", fmt.Sprintf("%x", h.Sum(nil))).Msg("ml vector hash")
 
-		allVectors = append(allVectors, *vec...)
+		allPlaneVectors = append(allPlaneVectors, (*vec)[:NN_N_PLANES]...)
+		allScalarVectors = append(allScalarVectors, (*vec)[NN_N_PLANES:]...)
 		MLVectorPool.Put(vec)   // Return the vector to the pool
 		g.onturn = 1 - g.onturn // switch turn back to the original player
 
@@ -199,9 +201,9 @@ func (g *Game) MLEvaluateMoves(moves []*move.Move) ([]float32, error) {
 	}
 
 	boardTensor := tensor.New(tensor.WithShape(numMoves, NN_C, NN_H, NN_W),
-		tensor.WithBacking(allVectors[:numMoves*NN_N_PLANES]))
+		tensor.WithBacking(allPlaneVectors))
 	scalTensor := tensor.New(tensor.WithShape(numMoves, NN_N_SCAL),
-		tensor.WithBacking(allVectors[numMoves*NN_N_PLANES:]))
+		tensor.WithBacking(allScalarVectors))
 
 	model.model.SetInput(0, boardTensor)
 	model.model.SetInput(1, scalTensor)
@@ -221,10 +223,7 @@ func (g *Game) MLEvaluateMoves(moves []*move.Move) ([]float32, error) {
 	switch v := output[0].Data().(type) {
 	case []float32:
 		evals = v
-		fmt.Println("evals", evals)
-
 	case float32:
-		fmt.Println("single eval", v)
 		evals = []float32{v}
 	default:
 		return nil, fmt.Errorf("unexpected output type: %T", v)
@@ -233,7 +232,6 @@ func (g *Game) MLEvaluateMoves(moves []*move.Move) ([]float32, error) {
 	for i := range evals {
 		evals[i] *= 300.0
 	}
-	fmt.Println("evals after scaling", evals)
 
 	return evals, nil
 }

@@ -202,7 +202,7 @@ func updateBoardAndExtractFeatures(gw *gameWindow, t Turn) []float32 {
 			log.Fatal().Msgf("Failed to set rack for player: %d, error was %v", gw.game.PlayerOnTurn(), err)
 		}
 	}
-	vecPtr, err := gw.game.Game().BuildMLVector()
+	vecPtr, err := gw.game.BuildMLVector()
 	if err != nil {
 		log.Fatal().Msgf("Failed to build ML vector: %v", err)
 	}
