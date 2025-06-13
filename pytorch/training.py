@@ -6,7 +6,8 @@ stdin  : binary frames  [len | 18 675 board | 58 scalars | 1 target]
 output : best.pt  +  loss_log.csv  (train & val loss)
 """
 
-import io, struct, sys, time, csv, itertools
+import io, struct, sys, time, csv, itertools, os
+from multiprocessing import Process, Queue
 import numpy as np
 import torch
 import torch.nn as nn
@@ -59,6 +60,29 @@ class SkipIterable(IterableDataset):
 
     def __iter__(self):
         return itertools.islice(self.base.__iter__(), self.n_skip, None)
+
+
+# ────────────────────────────────────────────────────────────────────
+def producer(q, stream):
+    """Read from stream and push to queue"""
+    for item in stream:
+        q.put(item)
+    q.put(None)  # sentinel
+
+
+class QueueDataset(IterableDataset):
+    """An iterable dataset that pulls from a multiprocessing queue."""
+
+    def __init__(self, queue):
+        super().__init__()
+        self.queue = queue
+
+    def __iter__(self):
+        while True:
+            item = self.queue.get()
+            if item is None:
+                break
+            yield item
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -138,8 +162,18 @@ def main():
     print(f"Validation set: {len(val_targets)} positions", file=sys.stderr)
 
     # ---- training loader (skip validation slice) ------------------
-    train_ds = SkipIterable(stream, n_skip=VAL_SIZE)
-    loader = DataLoader(train_ds, batch_size=2048, num_workers=0, pin_memory=True)
+    q = Queue(maxsize=1024)
+    train_ds = QueueDataset(q)
+    p = Process(target=producer, args=(q, it))
+    p.daemon = True
+    p.start()
+
+    loader = DataLoader(
+        train_ds,
+        batch_size=2048,
+        num_workers=os.cpu_count(),
+        pin_memory=True,
+    )
 
     net = ScrabbleValueNet().to(device)
     opt = torch.optim.AdamW(net.parameters(), lr=3e-4, weight_decay=1e-4)
