@@ -12,7 +12,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import IterableDataset, DataLoader
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 
 # ── feature sizes ────────────────────────────────────────────────────
 C, H, W = 83, 15, 15
@@ -102,7 +102,7 @@ def validate(net, tensors, device, batch=4096):
         b = boards[i : i + batch].to(device)
         s = scalars[i : i + batch].to(device)
         y = targets[i : i + batch].to(device)
-        with autocast(enabled=torch.cuda.is_available()):
+        with autocast(device.type, enabled=(device.type in ("cuda", "mps"))):
             pred = net(b, s)
             total += F.smooth_l1_loss(pred, y, reduction="sum").item()
         n += y.numel()
@@ -111,7 +111,12 @@ def validate(net, tensors, device, batch=4096):
 
 # ────────────────────────────────────────────────────────────────────
 def main():
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
+    elif torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
     stream = StdinBinDataset()
 
     # ---- collect validation set -----------------------------------
@@ -138,7 +143,7 @@ def main():
 
     net = ScrabbleValueNet().to(device)
     opt = torch.optim.AdamW(net.parameters(), lr=3e-4, weight_decay=1e-4)
-    scaler = GradScaler(enabled=torch.cuda.is_available())
+    scaler = GradScaler(enabled=(device.type in ("cuda", "mps")))
 
     best_val, running, step, t0 = float("inf"), 0.0, 0, time.time()
     csv_fh = open(CSV_PATH, "w", newline="")
@@ -148,7 +153,7 @@ def main():
     for board, scal, y in loader:
         board, scal, y = board.to(device), scal.to(device), y.to(device)
 
-        with autocast(enabled=torch.cuda.is_available()):
+        with autocast(device.type, enabled=(device.type in ("cuda", "mps"))):
             pred = net(board, scal)
             loss = F.smooth_l1_loss(pred, y)
 
