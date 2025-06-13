@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -633,7 +634,8 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 		m, err := sc.game.ParseMove(
 			sc.game.PlayerOnTurn(),
 			sc.options.lowercaseMoves,
-			strings.Fields(ms))
+			strings.Fields(ms),
+			false)
 		if err != nil {
 			return nil, err
 		}
@@ -946,18 +948,37 @@ func (sc *ShellController) mleval(cmd *shellcmd) (*Response, error) {
 		if err != nil {
 			return nil, err
 		}
-		sc.showMessage(fmt.Sprintf("MLEval for %d moves:", len(sc.curPlayList)))
-		if len(evals) != len(sc.curPlayList) {
-			return nil, fmt.Errorf("expected %d evaluations, got %d", len(sc.curPlayList), len(evals))
+
+		// Create a slice of move-evaluation pairs
+		type moveEval struct {
+			move *move.Move
+			eval float32
+			idx  int
 		}
+
+		pairs := make([]moveEval, len(sc.curPlayList))
 		for i, m := range sc.curPlayList {
-			eval := evals[i]
-			sc.showMessage(fmt.Sprintf("%d) %s: %.3f", i+1, m.ShortDescription(), eval))
+			pairs[i] = moveEval{
+				move: m,
+				eval: evals[i],
+				idx:  i + 1, // Store original index for reference
+			}
+		}
+
+		// Sort by evaluation in descending order
+		sort.Slice(pairs, func(i, j int) bool {
+			return pairs[i].eval > pairs[j].eval
+		})
+
+		// Display sorted moves
+		for i, p := range pairs {
+			sc.showMessage(fmt.Sprintf("%d) %s: %.6f (was #%d)",
+				i+1, p.move.ShortDescription(), p.eval, p.idx))
 		}
 
 		return msg("MLEval for all moves completed."), nil
 	} else {
-		m, err := sc.game.ParseMove(playerid, sc.options.lowercaseMoves, cmd.args)
+		m, err := sc.game.ParseMove(playerid, sc.options.lowercaseMoves, cmd.args, false)
 		if err != nil {
 			return nil, err
 		}

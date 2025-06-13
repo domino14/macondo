@@ -2,7 +2,6 @@ package game
 
 import (
 	"bufio"
-	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -31,7 +30,7 @@ const (
 	NN_C        = 83
 	NN_H, NN_W  = 15, 15
 	NN_N_PLANES = NN_C * NN_H * NN_W // 18 675
-	NN_N_SCAL   = 56
+	NN_N_SCAL   = 58
 	NN_RowLen   = NN_N_PLANES + NN_N_SCAL
 )
 
@@ -117,6 +116,7 @@ func (g *Game) MLEvaluateMove(m *move.Move) (float32, error) {
 }
 
 // MLEvaluateMoves evaluates a slice of moves in a single batch inference.
+// Their equities must already be set.
 func (g *Game) MLEvaluateMoves(moves []*move.Move) ([]float32, error) {
 	start := time.Now()
 	defer func() {
@@ -177,20 +177,26 @@ func (g *Game) MLEvaluateMoves(moves []*move.Move) ([]float32, error) {
 			g.scorelessTurns++
 			g.players[g.onturn].turns += 1
 		}
-
-		vec, err := g.BuildMLVector()
+		vec, err := g.BuildMLVector(m.Score(), m.Equity())
 		if err != nil {
 			g.UnplayLastMove() // Unplay before returning the error
 			return nil, fmt.Errorf("failed to build ML vector for move: %w", err)
 		}
+		// write the vector to a test file for debugging
 
-		h := sha256.New()
-		for _, f := range *vec {
-			b := make([]byte, 4)
-			binary.LittleEndian.PutUint32(b, math.Float32bits(f))
-			h.Write(b)
-		}
-		log.Debug().Str("vec_sha256", fmt.Sprintf("%x", h.Sum(nil))).Msg("ml vector hash")
+		// testFile, err := os.Create("/tmp/test-vec-infer.bin")
+		// if err != nil {
+		// 	log.Fatal().Err(err).Msg("Failed to create test file")
+		// }
+
+		// testOut := bufio.NewWriterSize(testFile, 50000)
+		// if err := BinaryWriteMLVector(testOut, *vec); err != nil {
+		// 	log.Fatal().Err(err).Msg("Failed to write test vector to file")
+		// }
+		// if err := testOut.Flush(); err != nil {
+		// 	log.Fatal().Err(err).Msg("Failed to flush test vector to file")
+		// }
+		// testFile.Close()
 
 		allPlaneVectors = append(allPlaneVectors, (*vec)[:NN_N_PLANES]...)
 		allScalarVectors = append(allScalarVectors, (*vec)[NN_N_PLANES:]...)
@@ -229,10 +235,6 @@ func (g *Game) MLEvaluateMoves(moves []*move.Move) ([]float32, error) {
 		return nil, fmt.Errorf("unexpected output type: %T", v)
 	}
 
-	for i := range evals {
-		evals[i] *= 300.0
-	}
-
 	return evals, nil
 }
 
@@ -247,8 +249,16 @@ func NormalizeSpreadForML(spread float32) float32 {
 	return float32(spread) / 300.0
 }
 
+func ScaleScoreWithTanh(score float32, center float32, scaleFactor float32) float32 {
+	// Center the score around the desired value (40 or 50)
+	centered := score - center
+
+	// Apply tanh scaling
+	return float32(math.Tanh(float64(centered / scaleFactor)))
+}
+
 // BuildMLVector builds the feature vector for the current game state.
-func (g *Game) BuildMLVector() (*[]float32, error) {
+func (g *Game) BuildMLVector(lastMoveScore int, lastMoveEquity float64) (*[]float32, error) {
 	vecPtr := MLVectorPool.Get().(*[]float32)
 	vec := *vecPtr
 	// Clear the vector
@@ -269,21 +279,21 @@ func (g *Game) BuildMLVector() (*[]float32, error) {
 
 	// Board features
 	b := g.Board()
-	for r := 0; r < 15; r++ {
-		for c := 0; c < 15; c++ {
+	for r := range 15 {
+		for c := range 15 {
 			idx := r*15 + c
 			tile := b.GetLetter(r, c)
 			if tile != 0 {
 				unblanked := tile.Unblank()
 				if unblanked != tile {
 					isBlankPlane[idx] = 1.0
-				} else {
-					ll := unblanked - 1
-					if ll >= 26 {
-						return nil, fmt.Errorf("invalid tile index %d for tile %d at position (%d, %d)", ll, tile, r, c)
-					}
-					tilePlanes[int(ll)*planeSize+idx] = 1.0
 				}
+				ll := unblanked - 1
+				if ll >= 26 {
+					return nil, fmt.Errorf("invalid tile index %d for tile %d at position (%d, %d)", ll, tile, r, c)
+				}
+				tilePlanes[int(ll)*planeSize+idx] = 1.0
+
 			} else { // Empty square, check for bonuses
 				bonus := b.GetBonus(r, c)
 				switch bonus {
@@ -301,17 +311,17 @@ func (g *Game) BuildMLVector() (*[]float32, error) {
 			// Cross-checks
 			hc := b.GetCrossSet(r, c, board.HorizontalDirection)
 			vc := b.GetCrossSet(r, c, board.VerticalDirection)
-			if hc != board.TrivialCrossSet || vc != board.TrivialCrossSet {
-				for t := 0; t < 26; t++ {
-					letter := tilemapping.MachineLetter(t + 1)
-					if hc.Allowed(letter) {
-						horCCs[t*planeSize+idx] = 1.0
-					}
-					if vc.Allowed(letter) {
-						verCCs[t*planeSize+idx] = 1.0
-					}
+			// if hc != board.TrivialCrossSet || vc != board.TrivialCrossSet {
+			for t := range 26 {
+				letter := tilemapping.MachineLetter(t + 1)
+				if hc.Allowed(letter) {
+					horCCs[t*planeSize+idx] = 1.0
+				}
+				if vc.Allowed(letter) {
+					verCCs[t*planeSize+idx] = 1.0
 				}
 			}
+			// }
 		}
 	}
 
@@ -329,15 +339,16 @@ func (g *Game) BuildMLVector() (*[]float32, error) {
 		rackVector[i] = float32(rack.LetArr[i]) / 7.0
 		unseenVector[i] = float32(bag[i]) / 20.0
 	}
-	g.bag.PutBack(oppRack.TilesOn()) // Restore opponent's rack
-
+	g.bag.PutBack(oppRack.TilesOn())                                                              // Restore opponent's rack
+	vec[NN_RowLen-4] = ScaleScoreWithTanh(float32(lastMoveScore), 45.0, 35.0)                     // last move score
+	vec[NN_RowLen-3] = ScaleScoreWithTanh(float32(lastMoveEquity-float64(lastMoveScore)), 10, 20) // last move leave value
 	vec[NN_RowLen-2] = float32(g.Bag().TilesRemaining()) / 100.0
-	vec[NN_RowLen-1] = NormalizeSpreadForML(float32(g.SpreadFor(g.PlayerOnTurn())))
+	vec[NN_RowLen-1] = ScaleScoreWithTanh(float32(g.SpreadFor(g.PlayerOnTurn())), 0.0, 100.0)
 
 	return &vec, nil
 }
 
-func (g *Game) BinaryWriteMLVector(w *bufio.Writer, vec []float32) error {
+func BinaryWriteMLVector(w *bufio.Writer, vec []float32) error {
 	// Re-interpret the []float32 backing array as []byte
 	byteSlice := unsafe.Slice(
 		(*byte)(unsafe.Pointer(&vec[0])),
@@ -348,7 +359,6 @@ func (g *Game) BinaryWriteMLVector(w *bufio.Writer, vec []float32) error {
 	if err := binary.Write(w, binary.LittleEndian, uint32(len(byteSlice))); err != nil {
 		return err
 	}
-	fmt.Println("wrote little endian length:", len(byteSlice))
 	// 2) payload
 	_, err := w.Write(byteSlice)
 	return err

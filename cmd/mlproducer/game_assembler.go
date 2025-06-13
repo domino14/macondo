@@ -6,6 +6,7 @@ import (
 	"container/list"
 	"strings"
 
+	"github.com/cespare/xxhash"
 	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/board"
@@ -63,6 +64,11 @@ func otherPlayer(playerID string) string {
 		return "p2"
 	}
 	return "p1"
+}
+
+func shouldTranspose(id string) bool {
+	hash := xxhash.Sum64String(id)
+	return hash%2 == 0
 }
 
 // FeedTurn ingests one ply, updates state, and maybe produces vectors.
@@ -168,6 +174,7 @@ func (ga *GameAssembler) flushRemainder(gw *gameWindow) {
 // Given current game window + turn, mutate board state and return features.
 // Must return the *after-move* tensor for that ply.
 func updateBoardAndExtractFeatures(gw *gameWindow, t Turn) []float32 {
+	transpose := shouldTranspose(t.GameID)
 	tp := stats.Normalize(t.Play) // normalize play string
 	gw.game.ThrowRacksIn()
 	err := gw.game.SetRackFor(gw.game.PlayerOnTurn(), tilemapping.RackFromString(t.Rack, gw.game.Alphabet()))
@@ -175,7 +182,7 @@ func updateBoardAndExtractFeatures(gw *gameWindow, t Turn) []float32 {
 		log.Fatal().Msgf("Failed to set rack for player: %d, error was %v", gw.game.PlayerOnTurn(), err)
 	}
 
-	m, err := gw.game.ParseMove(gw.game.PlayerOnTurn(), false, strings.Fields(tp))
+	m, err := gw.game.ParseMove(gw.game.PlayerOnTurn(), false, strings.Fields(tp), transpose)
 	if err != nil {
 		log.Fatal().Msgf("Failed to parse move: %v, error was %v", t, err)
 	}
@@ -202,7 +209,7 @@ func updateBoardAndExtractFeatures(gw *gameWindow, t Turn) []float32 {
 			log.Fatal().Msgf("Failed to set rack for player: %d, error was %v", gw.game.PlayerOnTurn(), err)
 		}
 	}
-	vecPtr, err := gw.game.BuildMLVector()
+	vecPtr, err := gw.game.BuildMLVector(t.Score, t.Equity)
 	if err != nil {
 		log.Fatal().Msgf("Failed to build ML vector: %v", err)
 	}
@@ -235,7 +242,7 @@ func makeTrainingVector(stateNow, stateFuture []float32) []float32 {
 
 	// Get the actual spread values for the relevant player.
 	futureSpread := stateFuture[len(stateFuture)-2]
-	nowSpread := stateNow[len(stateNow)-2]
+	// nowSpread := stateNow[len(stateNow)-2]
 
 	if spreadForFuture != spreadForNow {
 		// The two players are different. We want the future spread to be
@@ -244,7 +251,16 @@ func makeTrainingVector(stateNow, stateFuture []float32) []float32 {
 		futureSpread = -futureSpread // flip the sign of the future spread
 	}
 
-	spreadDiff := futureSpread - nowSpread
+	// spreadDiff := futureSpread - nowSpread
+	// Let's try to just get a win or loss signal. Note we are looking ahead
+	// N Plies and it's not necessarily who won the entire game. We can
+	// train that way later.
+	win := 0.0
+	if futureSpread > 0 {
+		win = 1.0
+	} else if futureSpread < 0 {
+		win = -1.0
+	}
 
 	// log.Info().Msgf("future state spread %f, now spread %f, spreadForNow: %d, spreadForFuture: %d, Spread diff: %f, normalized: %f",
 	// 	stateFuture[len(stateFuture)-2], stateNow[len(stateNow)-2],
@@ -252,7 +268,7 @@ func makeTrainingVector(stateNow, stateFuture []float32) []float32 {
 	// 	spreadDiff, normalizeSpread(spreadDiff))
 	// replace previous element with normalized spread of this move only
 	vec[len(vec)-1] = game.NormalizeSpreadForML(vec[len(vec)-1])
-	vec = append(vec, game.NormalizeSpreadForML(spreadDiff))
+	vec = append(vec, float32(win))
 
 	return vec
 }

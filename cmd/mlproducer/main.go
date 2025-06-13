@@ -2,13 +2,12 @@ package main
 
 import (
 	"bufio"
-	"encoding/binary"
 	"os"
 	"path/filepath"
 	"strconv"
-	"unsafe"
 
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/game"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -34,23 +33,6 @@ func writeVectorText(w *bufio.Writer, vec []float32) error {
 		}
 	}
 	return w.WriteByte('\n') // newline terminator
-}
-
-// write one float32 slice as [uint32 lenBytes][payload]
-func writeVectorBin(w *bufio.Writer, vec []float32) error {
-	// Re-interpret the []float32 backing array as []byte
-	byteSlice := unsafe.Slice(
-		(*byte)(unsafe.Pointer(&vec[0])),
-		len(vec)*4,
-	)
-
-	// 1) length prefix (little-endian uint32)
-	if err := binary.Write(w, binary.LittleEndian, uint32(len(byteSlice))); err != nil {
-		return err
-	}
-	// 2) payload
-	_, err := w.Write(byteSlice)
-	return err
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -96,7 +78,7 @@ func main() {
 
 		for engine.Ready() { // ≥1 vectors ready
 			vec := engine.PopVector() // []float32
-			if err := writeVectorBin(out, vec); err != nil {
+			if err := game.BinaryWriteMLVector(out, vec); err != nil {
 				panic(err) // production: handle/propagate
 			}
 			emitted++
@@ -104,6 +86,22 @@ func main() {
 				if err := out.Flush(); err != nil {
 					panic(err)
 				}
+			}
+			if emitted == 205 {
+				// Output this vec to a file "/tmp/test-vec.bin" for debugging
+				testFile, err := os.Create("/tmp/test-vec.bin")
+				if err != nil {
+					log.Fatal().Err(err).Msg("Failed to create test file")
+				}
+				testOut := bufio.NewWriterSize(testFile, bufSize)
+				if err := game.BinaryWriteMLVector(testOut, vec); err != nil {
+					log.Fatal().Err(err).Msg("Failed to write test vector to file")
+				}
+				if err := testOut.Flush(); err != nil {
+					log.Fatal().Err(err).Msg("Failed to flush test vector to file")
+				}
+				testFile.Close()
+				log.Info().Msgf("Wrote test vector to /tmp/test-vec.bin, length: %d", len(vec))
 			}
 			if emitted%100000 == 0 {
 				log.Info().Msgf("Emitted %d vectors; games in mem: %d", emitted, len(engine.games))

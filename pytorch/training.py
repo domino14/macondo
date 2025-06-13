@@ -1,78 +1,57 @@
 #!/usr/bin/env python3
 """
-Training pipeline for César's Scrabble CNN
------------------------------------------
-• stdin  : rows of float32  (space-separated, newline-terminated)
-           [ 18 675 board floats | 56 scalars | 1 target ]
-• output : checkpoints best.pt and training log
+Streaming trainer + validation logger for the Scrabble CNN
+----------------------------------------------------------
+• stdin  : binary frames [len | 18 675 floats | 58 scalars | 1 target]
+• output : best.pt (checkpoint)  &  loss_log.csv
 """
 
-import io, os, sys, struct, time
-from typing import Iterator
+import io, struct, sys, time, csv
+from typing import List
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import IterableDataset, DataLoader
+from torch.cuda.amp import GradScaler, autocast
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 1.  CONSTANTS  – keep these in sync with Go producer
-# ─────────────────────────────────────────────────────────────────────────────
-C = 83  # planes
-H = W = 15
+# ── constants (sync with Go) ─────────────────────────────────────────
+C, H, W = 83, 15, 15
 N_PLANE = C * H * W  # 18 675
-N_SCAL = 56  # 27 rack + 27 unseen + tilesRem + spread
-ROW_LEN = N_PLANE + N_SCAL + 1  # +1 target
+N_SCAL = 58
+ROW_FLOATS = N_PLANE + N_SCAL + 1  # +1 target
 DTYPE = np.float32
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 2.  STREAMING DATASET
-# ─────────────────────────────────────────────────────────────────────────────
-class StdinFloatStream(IterableDataset):
-    """Reads rows of ASCII floats from sys.stdin."""
-
-    def __iter__(self):
-        stdin = io.BufferedReader(sys.stdin.buffer, buffer_size=1 << 20)
-        for line in stdin:
-            # Slightly faster than str.split  ➜ 1.3 M rec/s on Ryzen 9
-            arr = np.fromstring(line, dtype=DTYPE, sep=" ")
-            if arr.size != ROW_LEN:
-                continue  # skip malformed
-            board = torch.from_numpy(arr[:N_PLANE]).view(C, H, W)
-            scal = torch.from_numpy(arr[N_PLANE : N_PLANE + N_SCAL])
-            target = torch.tensor(arr[-1], dtype=torch.float32)
-            yield board, scal, target
+VAL_SIZE = 50_000  # hold-out vectors ≈ 25 batches @ 2048
+VAL_EVERY = 500  # training steps between evals
+CSV_PATH = "loss_log.csv"
 
 
+# ── binary dataset on stdin ──────────────────────────────────────────
 class StdinBinDataset(IterableDataset):
     def __iter__(self):
-        buf = sys.stdin.buffer  # already a BufferedReader
+        buf = sys.stdin.buffer
         while True:
-            len_hdr = buf.read(4)
-            if not len_hdr:
+            hdr = buf.read(4)
+            if not hdr:
                 break
-            (n_bytes,) = struct.unpack("<I", len_hdr)
+            (n_bytes,) = struct.unpack("<I", hdr)
             payload = buf.read(n_bytes)
             if len(payload) != n_bytes:
                 break
-            vec = np.frombuffer(payload, dtype=np.float32)
+            vec = np.frombuffer(payload, dtype=DTYPE, count=ROW_FLOATS)
             board = torch.from_numpy(vec[:N_PLANE]).view(C, H, W)
-            scal = torch.from_numpy(vec[N_PLANE : N_PLANE + N_SCAL])
-            y = torch.tensor(vec[-1])
-            yield board, scal, y
+            scalars = torch.from_numpy(vec[N_PLANE : N_PLANE + N_SCAL])
+            target = torch.tensor(vec[-1], dtype=torch.float32)
+            yield board, scalars, target
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 3.  MODEL  –  6-block, 64-channel ResNet
-# ─────────────────────────────────────────────────────────────────────────────
+# ── model (unchanged) ───────────────────────────────────────────────
 class ResidBlock(nn.Module):
     def __init__(self, ch=64):
         super().__init__()
-        self.c1 = nn.Conv2d(ch, ch, 3, padding=1, bias=False)
-        self.b1 = nn.BatchNorm2d(ch)
-        self.c2 = nn.Conv2d(ch, ch, 3, padding=1, bias=False)
-        self.b2 = nn.BatchNorm2d(ch)
+        self.c1, self.b1 = nn.Conv2d(ch, ch, 3, 1, 1, bias=False), nn.BatchNorm2d(ch)
+        self.c2, self.b2 = nn.Conv2d(ch, ch, 3, 1, 1, bias=False), nn.BatchNorm2d(ch)
 
     def forward(self, x):
         out = F.relu(self.b1(self.c1(x)))
@@ -83,58 +62,76 @@ class ResidBlock(nn.Module):
 class ScrabbleValueNet(nn.Module):
     def __init__(self, planes=C, scalars=N_SCAL, ch=64, blocks=6):
         super().__init__()
-        self.in_conv = nn.Conv2d(planes, ch, 3, padding=1, bias=False)
+        self.in_conv = nn.Conv2d(planes, ch, 3, 1, 1, bias=False)
         self.in_bn = nn.BatchNorm2d(ch)
         self.res = nn.Sequential(*[ResidBlock(ch) for _ in range(blocks)])
         self.gap = nn.AdaptiveAvgPool2d(1)
         self.fc1 = nn.Linear(ch + scalars, 128)
-        self.fc_out = nn.Linear(128, 1)  # Δ-spread_k
+        self.fc_out = nn.Linear(128, 1)
 
     def forward(self, board, scalars):
-        x = F.relu(self.in_bn(self.in_conv(board)))  # (B, ch, 15, 15)
+        x = F.relu(self.in_bn(self.in_conv(board)))
         x = self.res(x)
-        x = self.gap(x).flatten(1)  # (B, ch)
-        x = torch.cat([x, scalars], dim=1)
+        x = self.gap(x).flatten(1)
+        x = torch.cat([x, scalars], 1)
         x = F.relu(self.fc1(x))
-        return self.fc_out(x).squeeze(1)  # (B,)
+        return torch.tanh(self.fc_out(x)).squeeze(1)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# 4.  TRAINING LOOP
-# ─────────────────────────────────────────────────────────────────────────────
+# ── helper to evaluate on validation tensors ────────────────────────
+@torch.no_grad()
+def validate(net: nn.Module, val_tensors: List[torch.Tensor], device) -> float:
+    boards, scalars, targets = val_tensors
+    bs = 4096
+    total, n = 0.0, 0
+    for i in range(0, len(targets), bs):
+        b = boards[i : i + bs].to(device)
+        s = scalars[i : i + bs].to(device)
+        y = targets[i : i + bs].to(device)
+        with autocast(enabled=torch.cuda.is_available()):
+            pred = net(b, s)
+            total += F.smooth_l1_loss(pred, y, reduction="sum").item()
+        n += y.numel()
+    return total / n
+
+
+# ── main training routine ───────────────────────────────────────────
 def main():
-    print("CUDA available:", torch.cuda.is_available())
-    print("PyTorch version:", torch.__version__)
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
     ds = StdinBinDataset()
-    loader = DataLoader(ds, batch_size=2048, num_workers=0, pin_memory=True)
+    iter_ds = iter(ds)  # manual iterator to skim val
+    print("collecting validation set …", file=sys.stderr)
+    boards, scalars, targets = [], [], []
+    for _ in range(VAL_SIZE):
+        try:
+            b, s, y = next(iter_ds)
+        except StopIteration:
+            break
+        boards.append(b)
+        scalars.append(s)
+        targets.append(y)
+    val_tensors = [torch.stack(boards), torch.stack(scalars), torch.stack(targets)]
+    print(f"validation set size: {len(targets)}", file=sys.stderr)
+
+    # DataLoader continues from current iterator position
+    loader = DataLoader(iter_ds, batch_size=2048, num_workers=0, pin_memory=True)
 
     net = ScrabbleValueNet().to(device)
-    opt = torch.optim.AdamW(net.parameters(), lr=3e-4, weight_decay=1e-4)
-    scaler = torch.amp.GradScaler("cuda" if torch.cuda.is_available() else "cpu")
+    opt = torch.optim.AdamW(net.parameters(), 3e-4, weight_decay=1e-4)
+    scaler = GradScaler(enabled=torch.cuda.is_available())
 
-    running, step, best_loss = 0.0, 0, float("inf")
+    best_val, running, step = float("inf"), 0.0, 0
     t0 = time.time()
+    csv_fh = open(CSV_PATH, "a", newline="")
+    csv_writer = csv.writer(csv_fh)
+    csv_writer.writerow(["step", "train_loss", "val_loss"])
 
-    for board, scal, y in loader:  # endless stream
-        if torch.any(y.abs() > 1.0001):
-            bad = y[y.abs() > 1].tolist()[:10]
-            raise ValueError(f"Detected un-scaled targets: {bad[:3]} …")
-        board = board.to(device, non_blocking=True)
-        scal = scal.to(device, non_blocking=True)
-        y = y.to(device, non_blocking=True)
+    for board, scal, y in loader:
+        board, scal, y = board.to(device), scal.to(device), y.to(device)
 
-        if step == 0:  # or any small step
-            print("target  min/max:", y.min().item(), y.max().item())
-            print("first 5 targets:", y[:5].tolist())
-            print("avg |target|:", y.abs().mean().item())
-            sys.stdout.flush()
-
-        with torch.amp.autocast("cuda" if torch.cuda.is_available() else "cpu"):
+        with autocast(enabled=torch.cuda.is_available()):
             pred = net(board, scal)
-            loss = F.smooth_l1_loss(pred, y)  # Huber
+            loss = F.smooth_l1_loss(pred, y)
 
         scaler.scale(loss).backward()
         scaler.step(opt)
@@ -144,25 +141,26 @@ def main():
         running += loss.item()
         step += 1
 
-        # Every 100 batches print & checkpoint
-        if step % 100 == 0:
-            avg = running / 100
+        # ── periodic validation ────────────────────────────────────
+        if step % VAL_EVERY == 0:
+            train_avg = running / VAL_EVERY
             running = 0.0
+            val_loss = validate(net, val_tensors, device)
+            csv_writer.writerow([step, f"{train_avg:.6f}", f"{val_loss:.6f}"])
+            csv_fh.flush()
+
             elapsed = time.time() - t0
             print(
-                f"{step:>7}  loss={avg:.4f}  {step*loader.batch_size/elapsed:,.0f} pos/s"
+                f"{step:>7}  train={train_avg:.4f}  val={val_loss:.4f}  "
+                f"{step*loader.batch_size/elapsed:,.0f} pos/s"
             )
 
-            if avg < best_loss:
+            if val_loss < best_val:
                 torch.save({"step": step, "model": net.state_dict()}, "best.pt")
-                best_loss = avg
-                print("  ✓ checkpointed (best so far)")
-
-    print(f"Training complete after {step} steps.")
-    print(f"Best loss: {best_loss:.4f}")
-    print(f"Total time: {time.time() - t0:.2f} seconds")
+                best_val = val_loss
+                print("  ✓ checkpointed (best validation)")
 
 
 if __name__ == "__main__":
-    torch.backends.cudnn.benchmark = True  # autotune kernels
+    torch.backends.cudnn.benchmark = True
     main()

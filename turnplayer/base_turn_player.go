@@ -67,10 +67,10 @@ func (p *BaseTurnPlayer) NewExchangeMove(playerid int, letters string) (*move.Mo
 	return m, nil
 }
 
-func (p *BaseTurnPlayer) NewPlacementMove(playerid int, coords string, word string) (*move.Move, error) {
+func (p *BaseTurnPlayer) NewPlacementMove(playerid int, coords string, word string, transpose bool) (*move.Move, error) {
 	coords = strings.ToUpper(coords)
 	rack := p.RackFor(playerid).String()
-	return p.CreateAndScorePlacementMove(coords, word, rack)
+	return p.CreateAndScorePlacementMove(coords, word, rack, transpose)
 }
 
 func (p *BaseTurnPlayer) MoveFromEvent(evt *pb.GameEvent) (*move.Move, error) {

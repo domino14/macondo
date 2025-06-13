@@ -227,7 +227,7 @@ func ExportGCG(cfg *config.Config, filename, letterdist, lexicon, boardlayout, g
 			}
 		} else {
 			play := strings.Split(strings.TrimSpace(row[4]), " ")
-			m, err := g.NewPlacementMove(pidx, play[0], play[1])
+			m, err := g.NewPlacementMove(pidx, play[0], play[1], false)
 			if err != nil {
 				return err
 			}
