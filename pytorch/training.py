@@ -28,46 +28,36 @@ CSV_PATH = "loss_log.csv"
 
 
 # ────────────────────────────────────────────────────────────────────
-class StdinBinDataset(IterableDataset):
-    """Infinite stream of binary records from stdin."""
+def producer(val_q, train_q, val_size):
+    """Read from stdin and push to validation and training queues."""
+    buf = sys.stdin.buffer
+    # Validation data
+    for _ in range(val_size):
+        hdr = buf.read(4)
+        if not hdr:
+            val_q.put(None)
+            train_q.put(None)
+            return
+        (n_bytes,) = struct.unpack("<I", hdr)
+        payload = buf.read(n_bytes)
+        if len(payload) != n_bytes:
+            val_q.put(None)
+            train_q.put(None)
+            return
+        val_q.put(payload)
+    val_q.put(None)  # Sentinel for validation queue
 
-    def __iter__(self):
-        buf = sys.stdin.buffer
-        while True:
-            hdr = buf.read(4)
-            if not hdr:
-                break
-            (n_bytes,) = struct.unpack("<I", hdr)
-            payload = buf.read(n_bytes)
-            if len(payload) != n_bytes:
-                break
-            vec = np.frombuffer(payload, dtype=DTYPE, count=ROW_FLOATS)
-
-            board = torch.from_numpy(vec[:N_PLANE]).view(C, H, W)
-            scalars = torch.from_numpy(vec[N_PLANE : N_PLANE + N_SCAL])
-            target = torch.tensor(vec[-1], dtype=torch.float32)
-            yield board, scalars, target
-
-
-# ────────────────────────────────────────────────────────────────────
-class SkipIterable(IterableDataset):
-    """Wrap another iterable but skip the first `n_skip` records each epoch."""
-
-    def __init__(self, base_iterable, n_skip):
-        super().__init__()
-        self.base = base_iterable
-        self.n_skip = n_skip
-
-    def __iter__(self):
-        return itertools.islice(self.base.__iter__(), self.n_skip, None)
-
-
-# ────────────────────────────────────────────────────────────────────
-def producer(q, stream):
-    """Read from stream and push to queue"""
-    for item in stream:
-        q.put(item)
-    q.put(None)  # sentinel
+    # Training data
+    while True:
+        hdr = buf.read(4)
+        if not hdr:
+            break
+        (n_bytes,) = struct.unpack("<I", hdr)
+        payload = buf.read(n_bytes)
+        if len(payload) != n_bytes:
+            break
+        train_q.put(payload)
+    train_q.put(None)  # Sentinel for training queue
 
 
 class QueueDataset(IterableDataset):
@@ -79,10 +69,14 @@ class QueueDataset(IterableDataset):
 
     def __iter__(self):
         while True:
-            item = self.queue.get()
-            if item is None:
+            payload = self.queue.get()
+            if payload is None:
                 break
-            yield item
+            vec = np.frombuffer(payload, dtype=DTYPE, count=ROW_FLOATS)
+            board = torch.from_numpy(vec[:N_PLANE]).view(C, H, W)
+            scalars = torch.from_numpy(vec[N_PLANE : N_PLANE + N_SCAL])
+            target = torch.tensor(vec[-1], dtype=torch.float32)
+            yield board, scalars, target
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -141,19 +135,26 @@ def main():
         device = torch.device("cuda")
     else:
         device = torch.device("cpu")
-    stream = StdinBinDataset()
+
+    val_q = Queue(maxsize=VAL_SIZE)
+    train_q = Queue(maxsize=1024)
+
+    p = Process(target=producer, args=(val_q, train_q, VAL_SIZE))
+    p.daemon = True
+    p.start()
 
     # ---- collect validation set -----------------------------------
+    val_ds = QueueDataset(val_q)
     val_boards, val_scals, val_targets = [], [], []
-    it = stream.__iter__()
-    for _ in range(VAL_SIZE):
-        try:
-            b, s, y = next(it)
-        except StopIteration:
-            break
+    for b, s, y in val_ds:
         val_boards.append(b)
         val_scals.append(s)
         val_targets.append(y)
+
+    if not val_boards:
+        print("No validation data loaded. Exiting.", file=sys.stderr)
+        sys.exit(1)
+
     val_tensors = [
         torch.stack(val_boards),
         torch.stack(val_scals),
@@ -161,13 +162,8 @@ def main():
     ]
     print(f"Validation set: {len(val_targets)} positions", file=sys.stderr)
 
-    # ---- training loader (skip validation slice) ------------------
-    q = Queue(maxsize=1024)
-    train_ds = QueueDataset(q)
-    p = Process(target=producer, args=(q, it))
-    p.daemon = True
-    p.start()
-
+    # ---- training loader ------------------------------------------
+    train_ds = QueueDataset(train_q)
     loader = DataLoader(
         train_ds,
         batch_size=2048,
