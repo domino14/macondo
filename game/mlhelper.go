@@ -30,7 +30,7 @@ const (
 	NN_C        = 83
 	NN_H, NN_W  = 15, 15
 	NN_N_PLANES = NN_C * NN_H * NN_W // 18 675
-	NN_N_SCAL   = 56
+	NN_N_SCAL   = 58
 	NN_RowLen   = NN_N_PLANES + NN_N_SCAL
 )
 
@@ -258,7 +258,7 @@ func ScaleScoreWithTanh(score float32, center float32, scaleFactor float32) floa
 }
 
 // BuildMLVector builds the feature vector for the current game state.
-func (g *Game) BuildMLVector(lastMoveScore int, lastMoveEquity float64) (*[]float32, error) {
+func (g *Game) BuildMLVector(lastMoveScore int, lastMoveLeaveVal float64) (*[]float32, error) {
 	vecPtr := MLVectorPool.Get().(*[]float32)
 	vec := *vecPtr
 	// Clear the vector
@@ -333,17 +333,18 @@ func (g *Game) BuildMLVector(lastMoveScore int, lastMoveEquity float64) (*[]floa
 	rack := g.RackFor(g.PlayerOnTurn())
 	oppRack := g.RackFor(1 - g.PlayerOnTurn())
 	g.bag.PutBack(oppRack.TilesOn())
-	bag := g.Bag().PeekMap()
+	bag := g.bag.PeekMap()
+	tr := g.bag.TilesRemaining()
 
 	for i := 0; i < 27; i++ {
-		rackVector[i] = float32(rack.LetArr[i]) / 7.0
-		unseenVector[i] = float32(bag[i]) / 20.0
+		rackVector[i] = float32(rack.LetArr[i]) / 7     // Rack tiles
+		unseenVector[i] = float32(bag[i]) / float32(tr) // rough prob of drawing this tile
 	}
-	g.bag.PutBack(oppRack.TilesOn()) // Restore opponent's rack
-	// vec[NN_RowLen-4] = ScaleScoreWithTanh(float32(lastMoveScore), 45.0, 35.0)                     // last move score
-	// vec[NN_RowLen-3] = ScaleScoreWithTanh(float32(lastMoveEquity-float64(lastMoveScore)), 10, 20) // last move leave value
+
+	vec[NN_RowLen-4] = ScaleScoreWithTanh(float32(lastMoveScore), 45.0, 35.0) // last move score
+	vec[NN_RowLen-3] = ScaleScoreWithTanh(float32(lastMoveLeaveVal), 10, 20)  // last move leave value
 	vec[NN_RowLen-2] = float32(g.Bag().TilesRemaining()) / 100.0
-	vec[NN_RowLen-1] = ScaleScoreWithTanh(float32(g.SpreadFor(g.PlayerOnTurn())), 0.0, 100.0)
+	vec[NN_RowLen-1] = ScaleScoreWithTanh(float32(g.SpreadFor(g.PlayerOnTurn())), 0.0, 130.0)
 
 	return &vec, nil
 }

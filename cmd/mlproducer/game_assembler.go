@@ -10,6 +10,7 @@ import (
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/montecarlo/stats"
@@ -26,8 +27,9 @@ var DefaultConfig = config.DefaultConfig()
 
 // GameAssembler emits training vectors once it has look-ahead data for a ply.
 type GameAssembler struct {
-	horizon int                    // #plies to look ahead
-	games   map[string]*gameWindow // live games by GameID
+	horizon int                               // #plies to look ahead
+	games   map[string]*gameWindow            // live games by GameID
+	eqCalc  *equity.ExhaustiveLeaveCalculator // equity calculator for leave values
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -46,9 +48,14 @@ type gameWindow struct {
 // ──────────────────────────────────────────────────────────────────────────────
 
 func NewGameAssembler(horizon int) *GameAssembler {
+	els, err := equity.NewExhaustiveLeaveCalculator("NWL23", DefaultConfig, "")
+	if err != nil {
+		log.Fatal().Msgf("Failed to create exhaustive leave calculator: %v", err)
+	}
 	return &GameAssembler{
 		horizon: horizon,
 		games:   make(map[string]*gameWindow),
+		eqCalc:  els,
 	}
 }
 
@@ -96,7 +103,7 @@ func (ga *GameAssembler) FeedTurn(t Turn) [][]float32 {
 	}
 
 	// 1) Apply move, update board/racks, compute after-move features.
-	stateVec := updateBoardAndExtractFeatures(gw, t)
+	stateVec := updateBoardAndExtractFeatures(gw, t, ga.eqCalc)
 
 	// 2) Push into sliding window.
 	gw.turns = append(gw.turns, t)
@@ -160,7 +167,7 @@ func (ga *GameAssembler) flushRemainder(gw *gameWindow) [][]float32 {
 
 // Given current game window + turn, mutate board state and return features.
 // Must return the *after-move* tensor for that ply.
-func updateBoardAndExtractFeatures(gw *gameWindow, t Turn) []float32 {
+func updateBoardAndExtractFeatures(gw *gameWindow, t Turn, eqCalc *equity.ExhaustiveLeaveCalculator) []float32 {
 	transpose := shouldTranspose(t.GameID)
 	tp := stats.Normalize(t.Play) // normalize play string
 	gw.game.ThrowRacksIn()
@@ -188,15 +195,16 @@ func updateBoardAndExtractFeatures(gw *gameWindow, t Turn) []float32 {
 
 	// switch player on turn back to the one who just played the move.
 	gw.game.SetPlayerOnTurn(1 - gw.game.PlayerOnTurn())
-
+	leaveVal := 0.0
 	if t.Leave != "" {
 		rack := tilemapping.RackFromString(t.Leave, gw.game.Alphabet())
 		err = gw.game.SetRackForOnly(gw.game.PlayerOnTurn(), rack)
 		if err != nil {
 			log.Fatal().Msgf("Failed to set rack for player: %d, error was %v", gw.game.PlayerOnTurn(), err)
 		}
+		leaveVal = eqCalc.LeaveValue(rack.TilesOn())
 	}
-	vecPtr, err := gw.game.BuildMLVector(t.Score, t.Equity)
+	vecPtr, err := gw.game.BuildMLVector(t.Score, leaveVal)
 	if err != nil {
 		log.Fatal().Msgf("Failed to build ML vector: %v", err)
 	}
@@ -210,8 +218,14 @@ func updateBoardAndExtractFeatures(gw *gameWindow, t Turn) []float32 {
 
 	// Undo the switch of the player on turn.
 	gw.game.SetPlayerOnTurn(1 - gw.game.PlayerOnTurn())
+
+	// Make a copy of the vector to return, so the original can be safely
+	// returned to the pool.
+	vecCopy := make([]float32, len(vec))
+	copy(vecCopy, vec)
+
 	game.MLVectorPool.Put(vecPtr)
-	return vec
+	return vecCopy
 }
 
 // Build final training vector from state at ply t and ply t+horizon.

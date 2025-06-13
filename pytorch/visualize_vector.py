@@ -8,8 +8,16 @@ from matplotlib.colors import LinearSegmentedColormap
 import string
 import os
 
+from training import (
+    C,
+    H,
+    W,
+    N_PLANE,
+    N_SCAL,
+)  # Import constants from your training module
 
-def visualize_vector(vector_path="/tmp/test-vec-infer.bin", show_all_planes=False):
+
+def visualize_vector(vector_path="/tmp/test-vec.bin", show_all_planes=False):
     """
     Visualize a binary vector file used for Scrabble ML training.
 
@@ -17,11 +25,6 @@ def visualize_vector(vector_path="/tmp/test-vec-infer.bin", show_all_planes=Fals
         vector_path: Path to the binary vector file
         show_all_planes: If True, show all 83 planes; otherwise show a summary
     """
-    # Constants
-    C = 83  # planes
-    H = W = 15  # board dimensions
-    N_PLANE = C * H * W  # 18,675
-    N_SCAL = 58  # scalar features
 
     # Check if file exists
     if not os.path.exists(vector_path):
@@ -200,9 +203,34 @@ def visualize_vector(vector_path="/tmp/test-vec-infer.bin", show_all_planes=Fals
         # 6. Other scalar features
         ax6 = fig.add_subplot(gs[1, 2])
         other_scalars = scalar_data[54:]
-        labels = ["Last Move Score", "Last Move Leave", "Tiles Remaining", "Spread"]
-        ax6.bar(labels, other_scalars)
-        ax6.set_title("Other Features")
+        expected_labels = [
+            "Last Move Score",
+            "Last Move Leave",
+            "Tiles Remaining",
+            "Spread",
+        ]
+
+        # Use only as many labels as we have data for
+        labels = expected_labels[: len(other_scalars)]
+
+        # Show what we have
+        if len(other_scalars) > 0:
+            ax6.bar(labels, other_scalars)
+            ax6.set_title(f"Other Features ({len(other_scalars)} values)")
+
+            # Show exact values as text
+            for i, v in enumerate(other_scalars):
+                ax6.text(i, v + 0.02, f"{v:.3f}", ha="center")
+        else:
+            ax6.text(
+                0.5,
+                0.5,
+                "No additional features available",
+                ha="center",
+                va="center",
+                fontsize=12,
+            )
+            ax6.axis("off")
 
         # Show exact values as text
         for i, v in enumerate(other_scalars):
