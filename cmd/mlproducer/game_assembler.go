@@ -77,7 +77,7 @@ func (ga *GameAssembler) FeedTurn(t Turn) {
 	if gw == nil {
 		gw = &gameWindow{}
 		// The lexicon doesn't matter below; just choose any random one.
-		rules, err := game.NewBasicGameRules(DefaultConfig, "NWL18",
+		rules, err := game.NewBasicGameRules(DefaultConfig, "NWL23",
 			board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
 		if err != nil {
 			panic(err)
