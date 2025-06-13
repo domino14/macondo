@@ -129,7 +129,7 @@ func (g *Game) addEventToHistory(evt *pb.GameEvent) {
 func CalculateCoordsFromStringPosition(evt *pb.GameEvent) {
 	// Note that this evt.Position has nothing to do with the type Position
 	// we are defining in this package.
-	row, col, vertical := move.FromBoardGameCoords(evt.Position)
+	row, col, vertical := move.FromBoardGameCoords(evt.Position, false)
 	if vertical {
 		evt.Direction = pb.GameEvent_VERTICAL
 	} else {
@@ -727,7 +727,7 @@ func (g *Game) PlayScoringMove(coords, word string, addToHistory bool) (*move.Mo
 	playerid := g.onturn
 	rack := g.RackFor(playerid).String()
 
-	m, err := g.CreateAndScorePlacementMove(coords, word, rack)
+	m, err := g.CreateAndScorePlacementMove(coords, word, rack, false)
 	if err != nil {
 		log.Error().Msgf("Trying to create and score move, err was %v", err)
 		return nil, err
@@ -740,9 +740,9 @@ func (g *Game) PlayScoringMove(coords, word string, addToHistory bool) (*move.Mo
 // CreateAndScorePlacementMove creates a *move.Move from the coords and
 // given tiles. It scores the move, calculates the leave, etc. This should
 // be used when a person is interacting with the interface.
-func (g *Game) CreateAndScorePlacementMove(coords string, tiles string, rack string) (*move.Move, error) {
+func (g *Game) CreateAndScorePlacementMove(coords string, tiles string, rack string, transpose bool) (*move.Move, error) {
 
-	row, col, vertical := move.FromBoardGameCoords(coords)
+	row, col, vertical := move.FromBoardGameCoords(coords, transpose)
 
 	// convert tiles to MachineWord
 	mw, err := tilemapping.ToMachineWord(tiles, g.alph)

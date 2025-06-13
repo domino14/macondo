@@ -53,7 +53,7 @@ func flipCase(s string) string {
 	return string(letters)
 }
 
-func (p *BaseTurnPlayer) ParseMove(playerid int, lowercase bool, fields []string) (*move.Move, error) {
+func (p *BaseTurnPlayer) ParseMove(playerid int, lowercase bool, fields []string, transpose bool) (*move.Move, error) {
 	if len(fields) == 1 {
 		if fields[0] == "pass" {
 			return p.NewPassMove(playerid)
@@ -66,7 +66,7 @@ func (p *BaseTurnPlayer) ParseMove(playerid int, lowercase bool, fields []string
 		if coords == "exchange" || coords == "exch" {
 			return p.NewExchangeMove(playerid, word)
 		} else {
-			return p.NewPlacementMove(playerid, coords, word)
+			return p.NewPlacementMove(playerid, coords, word, transpose)
 		}
 	}
 	msg := fmt.Sprintf("unrecognized move: %s", strings.Join(fields, " "))

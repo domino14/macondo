@@ -138,6 +138,15 @@ func (r *GameRunner) StartGame(gidx int) {
 		r.order[0], r.order[1] = r.order[1], r.order[0]
 	}
 	r.game.StartGame()
+
+	if r.aiplayers[0].GetBotType() == pb.BotRequest_FAST_ML_BOT ||
+		r.aiplayers[1].GetBotType() == pb.BotRequest_FAST_ML_BOT {
+
+		// If we are using a ML bot, it needs to have backup mode enabled
+		// as it evaluates board positions by playing and unplaying moves.
+		r.game.SetBackupMode(game.InteractiveGameplayMode)
+		r.game.SetStateStackLength(1)
+	}
 }
 
 func (r *GameRunner) Game() *game.Game {

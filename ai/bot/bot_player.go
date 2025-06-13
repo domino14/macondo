@@ -154,9 +154,41 @@ func (p *BotTurnPlayer) GenerateMoves(numPlays int) []*move.Move {
 	return p.TopPlays(plays, numPlays)
 }
 
+type moveEval struct {
+	move *move.Move
+	eval float32
+	idx  int
+}
+
 func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
 	if hasSimming(p.botType) || HasEndgame(p.botType) || HasInfer(p.botType) || HasPreendgame(p.botType) {
 		return eliteBestPlay(ctx, p)
+	}
+	if p.botType == pb.BotRequest_FAST_ML_BOT {
+		// Fast ML bot uses a different method
+		moves := p.GenerateMoves(15)
+
+		if len(moves) == 1 {
+			return moves[0], nil
+		}
+		resp, err := p.MLEvaluateMoves(moves)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to evaluate moves for fast ML bot")
+			return nil, err
+		}
+		pairs := make([]moveEval, len(moves))
+		for i, m := range moves {
+			pairs[i] = moveEval{
+				move: m,
+				eval: resp[i],
+				idx:  i + 1, // Store original index for reference
+			}
+		}
+		// Sort by evaluation in descending order
+		sort.Slice(pairs, func(i, j int) bool {
+			return pairs[i].eval > pairs[j].eval
+		})
+		return pairs[0].move, nil
 	}
 	return p.GenerateMoves(1)[0], nil
 }

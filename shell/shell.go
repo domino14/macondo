@@ -649,7 +649,7 @@ func (sc *ShellController) parseAddMove(playerid int, fields []string) (*move.Mo
 			"you may have wanted to use the `commit` command instead"
 		return nil, errors.New(errmsg)
 	}
-	return sc.game.ParseMove(playerid, sc.options.lowercaseMoves, fields)
+	return sc.game.ParseMove(playerid, sc.options.lowercaseMoves, fields, false)
 }
 
 func (sc *ShellController) parseCommitMove(playerid int, fields []string) (*move.Move, error) {
@@ -958,6 +958,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.update(cmd)
 	case "gamestate":
 		return sc.gameState(cmd)
+	case "mleval":
+		return sc.mleval(cmd)
 	default:
 		msg := fmt.Sprintf("command %v not found", strconv.Quote(cmd.cmd))
 		log.Info().Msg(msg)
