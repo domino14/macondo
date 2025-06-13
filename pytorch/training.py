@@ -7,11 +7,10 @@ output : best.pt  +  loss_log.csv  (train & val loss)
 """
 
 import io, struct, sys, time, csv, os
-from multiprocessing import Queue, Event
+from multiprocessing import Queue
 from threading import Thread
 import numpy as np
 import torch
-import torch.multiprocessing as mp
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import IterableDataset, DataLoader
@@ -30,7 +29,7 @@ CSV_PATH = "loss_log.csv"
 
 
 # ────────────────────────────────────────────────────────────────────
-def producer(val_q, train_q, val_size, val_loaded_event):
+def producer(val_q, train_q, val_size):
     """Read from stdin and push to validation and training queues."""
     buf = sys.stdin.buffer
     # Validation data
@@ -39,18 +38,15 @@ def producer(val_q, train_q, val_size, val_loaded_event):
         if not hdr:
             val_q.put(None)
             train_q.put(None)
-            val_loaded_event.set()
             return
         (n_bytes,) = struct.unpack("<I", hdr)
         payload = buf.read(n_bytes)
         if len(payload) != n_bytes:
             val_q.put(None)
             train_q.put(None)
-            val_loaded_event.set()
             return
         val_q.put(payload)
     val_q.put(None)  # Sentinel for validation queue
-    val_loaded_event.set()
 
     # Training data
     while True:
@@ -143,23 +139,12 @@ def main():
 
     val_q = Queue()
     train_q = Queue(maxsize=1024)
-    val_loaded_event = Event()
 
-    # ---- training loader ------------------------------------------
-    train_ds = QueueDataset(train_q)
-    loader = DataLoader(
-        train_ds,
-        batch_size=2048,
-        num_workers=os.cpu_count(),
-        pin_memory=True,
-    )
-
-    p = Thread(target=producer, args=(val_q, train_q, VAL_SIZE, val_loaded_event))
+    p = Thread(target=producer, args=(val_q, train_q, VAL_SIZE))
     p.daemon = True
     p.start()
 
     # ---- collect validation set -----------------------------------
-    val_loaded_event.wait()
     val_ds = QueueDataset(val_q)
     val_boards, val_scals, val_targets = [], [], []
     for b, s, y in val_ds:
@@ -177,6 +162,15 @@ def main():
         torch.stack(val_targets),
     ]
     print(f"Validation set: {len(val_targets)} positions", file=sys.stderr)
+
+    # ---- training loader ------------------------------------------
+    train_ds = QueueDataset(train_q)
+    loader = DataLoader(
+        train_ds,
+        batch_size=2048,
+        num_workers=os.cpu_count(),
+        pin_memory=True,
+    )
 
     net = ScrabbleValueNet().to(device)
     opt = torch.optim.AdamW(net.parameters(), lr=3e-4, weight_decay=1e-4)
@@ -222,9 +216,5 @@ def main():
 
 
 if __name__ == "__main__":
-    try:
-        mp.set_start_method("spawn")
-    except RuntimeError:
-        pass
     torch.backends.cudnn.benchmark = True
     main()
