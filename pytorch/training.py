@@ -11,6 +11,7 @@ from multiprocessing import Queue, Event
 from threading import Thread
 import numpy as np
 import torch
+import torch.multiprocessing as mp
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import IterableDataset, DataLoader
@@ -144,6 +145,15 @@ def main():
     train_q = Queue(maxsize=1024)
     val_loaded_event = Event()
 
+    # ---- training loader ------------------------------------------
+    train_ds = QueueDataset(train_q)
+    loader = DataLoader(
+        train_ds,
+        batch_size=2048,
+        num_workers=os.cpu_count(),
+        pin_memory=True,
+    )
+
     p = Thread(target=producer, args=(val_q, train_q, VAL_SIZE, val_loaded_event))
     p.daemon = True
     p.start()
@@ -167,15 +177,6 @@ def main():
         torch.stack(val_targets),
     ]
     print(f"Validation set: {len(val_targets)} positions", file=sys.stderr)
-
-    # ---- training loader ------------------------------------------
-    train_ds = QueueDataset(train_q)
-    loader = DataLoader(
-        train_ds,
-        batch_size=2048,
-        num_workers=os.cpu_count(),
-        pin_memory=True,
-    )
 
     net = ScrabbleValueNet().to(device)
     opt = torch.optim.AdamW(net.parameters(), lr=3e-4, weight_decay=1e-4)
@@ -221,5 +222,9 @@ def main():
 
 
 if __name__ == "__main__":
+    try:
+        mp.set_start_method("spawn")
+    except RuntimeError:
+        pass
     torch.backends.cudnn.benchmark = True
     main()
