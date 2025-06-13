@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """
-Streaming trainer + validation logger for the Scrabble CNN
-----------------------------------------------------------
-• stdin  : binary frames [len | 18 675 floats | 58 scalars | 1 target]
-• output : best.pt (checkpoint)  &  loss_log.csv
+Streaming trainer for César's Scrabble CNN
+-----------------------------------------
+stdin  : binary frames  [len | 18 675 board | 58 scalars | 1 target]
+output : best.pt  +  loss_log.csv  (train & val loss)
 """
 
-import io, struct, sys, time, csv
-from typing import List
+import io, struct, sys, time, csv, itertools
 import numpy as np
 import torch
 import torch.nn as nn
@@ -15,20 +14,22 @@ import torch.nn.functional as F
 from torch.utils.data import IterableDataset, DataLoader
 from torch.cuda.amp import GradScaler, autocast
 
-# ── constants (sync with Go) ─────────────────────────────────────────
+# ── feature sizes ────────────────────────────────────────────────────
 C, H, W = 83, 15, 15
 N_PLANE = C * H * W  # 18 675
 N_SCAL = 58
-ROW_FLOATS = N_PLANE + N_SCAL + 1  # +1 target
+ROW_FLOATS = N_PLANE + N_SCAL + 1
 DTYPE = np.float32
 
-VAL_SIZE = 50_000  # hold-out vectors ≈ 25 batches @ 2048
-VAL_EVERY = 500  # training steps between evals
+VAL_SIZE = 50_000  # vectors for validation  (~25 batches)
+VAL_EVERY = 500  # train steps between val checks
 CSV_PATH = "loss_log.csv"
 
 
-# ── binary dataset on stdin ──────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────
 class StdinBinDataset(IterableDataset):
+    """Infinite stream of binary records from stdin."""
+
     def __iter__(self):
         buf = sys.stdin.buffer
         while True:
@@ -40,13 +41,27 @@ class StdinBinDataset(IterableDataset):
             if len(payload) != n_bytes:
                 break
             vec = np.frombuffer(payload, dtype=DTYPE, count=ROW_FLOATS)
+
             board = torch.from_numpy(vec[:N_PLANE]).view(C, H, W)
             scalars = torch.from_numpy(vec[N_PLANE : N_PLANE + N_SCAL])
             target = torch.tensor(vec[-1], dtype=torch.float32)
             yield board, scalars, target
 
 
-# ── model (unchanged) ───────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────
+class SkipIterable(IterableDataset):
+    """Wrap another iterable but skip the first `n_skip` records each epoch."""
+
+    def __init__(self, base_iterable, n_skip):
+        super().__init__()
+        self.base = base_iterable
+        self.n_skip = n_skip
+
+    def __iter__(self):
+        return itertools.islice(self.base.__iter__(), self.n_skip, None)
+
+
+# ────────────────────────────────────────────────────────────────────
 class ResidBlock(nn.Module):
     def __init__(self, ch=64):
         super().__init__()
@@ -78,16 +93,15 @@ class ScrabbleValueNet(nn.Module):
         return torch.tanh(self.fc_out(x)).squeeze(1)
 
 
-# ── helper to evaluate on validation tensors ────────────────────────
+# ────────────────────────────────────────────────────────────────────
 @torch.no_grad()
-def validate(net: nn.Module, val_tensors: List[torch.Tensor], device) -> float:
-    boards, scalars, targets = val_tensors
-    bs = 4096
+def validate(net, tensors, device, batch=4096):
+    boards, scalars, targets = tensors
     total, n = 0.0, 0
-    for i in range(0, len(targets), bs):
-        b = boards[i : i + bs].to(device)
-        s = scalars[i : i + bs].to(device)
-        y = targets[i : i + bs].to(device)
+    for i in range(0, len(targets), batch):
+        b = boards[i : i + batch].to(device)
+        s = scalars[i : i + batch].to(device)
+        y = targets[i : i + batch].to(device)
         with autocast(enabled=torch.cuda.is_available()):
             pred = net(b, s)
             total += F.smooth_l1_loss(pred, y, reduction="sum").item()
@@ -95,34 +109,39 @@ def validate(net: nn.Module, val_tensors: List[torch.Tensor], device) -> float:
     return total / n
 
 
-# ── main training routine ───────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    ds = StdinBinDataset()
-    iter_ds = iter(ds)  # manual iterator to skim val
-    print("collecting validation set …", file=sys.stderr)
-    boards, scalars, targets = [], [], []
+    stream = StdinBinDataset()
+
+    # ---- collect validation set -----------------------------------
+    val_boards, val_scals, val_targets = [], [], []
+    it = stream.__iter__()
     for _ in range(VAL_SIZE):
         try:
-            b, s, y = next(iter_ds)
+            b, s, y = next(it)
         except StopIteration:
             break
-        boards.append(b)
-        scalars.append(s)
-        targets.append(y)
-    val_tensors = [torch.stack(boards), torch.stack(scalars), torch.stack(targets)]
-    print(f"validation set size: {len(targets)}", file=sys.stderr)
+        val_boards.append(b)
+        val_scals.append(s)
+        val_targets.append(y)
+    val_tensors = [
+        torch.stack(val_boards),
+        torch.stack(val_scals),
+        torch.stack(val_targets),
+    ]
+    print(f"Validation set: {len(val_targets)} positions", file=sys.stderr)
 
-    # DataLoader continues from current iterator position
-    loader = DataLoader(iter_ds, batch_size=2048, num_workers=0, pin_memory=True)
+    # ---- training loader (skip validation slice) ------------------
+    train_ds = SkipIterable(stream, n_skip=VAL_SIZE)
+    loader = DataLoader(train_ds, batch_size=2048, num_workers=0, pin_memory=True)
 
     net = ScrabbleValueNet().to(device)
-    opt = torch.optim.AdamW(net.parameters(), 3e-4, weight_decay=1e-4)
+    opt = torch.optim.AdamW(net.parameters(), lr=3e-4, weight_decay=1e-4)
     scaler = GradScaler(enabled=torch.cuda.is_available())
 
-    best_val, running, step = float("inf"), 0.0, 0
-    t0 = time.time()
-    csv_fh = open(CSV_PATH, "a", newline="")
+    best_val, running, step, t0 = float("inf"), 0.0, 0, time.time()
+    csv_fh = open(CSV_PATH, "w", newline="")
     csv_writer = csv.writer(csv_fh)
     csv_writer.writerow(["step", "train_loss", "val_loss"])
 
@@ -141,7 +160,6 @@ def main():
         running += loss.item()
         step += 1
 
-        # ── periodic validation ────────────────────────────────────
         if step % VAL_EVERY == 0:
             train_avg = running / VAL_EVERY
             running = 0.0

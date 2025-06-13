@@ -32,24 +32,37 @@ Total time: 21983.80 seconds
 
 
 ```
-Games played: 2261
-HastyBot wins: 1204.5 (53.273%)
-HastyBot Mean Score: 434.4122  Stdev: 61.2653
-FastMlBot Mean Score: 423.5997  Stdev: 54.2278
-HastyBot Mean Bingos: 2.0411  Stdev: 1.0512
-FastMlBot Mean Bingos: 1.6661  Stdev: 0.9765
-HastyBot Mean Points Per Turn: 37.7376  Stdev: 6.5382
-FastMlBot Mean Points Per Turn: 37.0873  Stdev: 5.9293
-HastyBot went first: 1131.0 (50.022%)
-Player who went first wins: 1252.5 (55.396%)
+Games played: 5343
+HastyBot wins: 2840.0 (53.154%)
+HastyBot Mean Score: 433.5289  Stdev: 60.2139
+FastMlBot Mean Score: 423.0625  Stdev: 54.3519
+HastyBot Mean Bingos: 2.0313  Stdev: 1.0436
+FastMlBot Mean Bingos: 1.6697  Stdev: 0.9801
+HastyBot Mean Points Per Turn: 37.6897  Stdev: 6.5587
+FastMlBot Mean Points Per Turn: 37.1053  Stdev: 5.9275
+HastyBot went first: 2672.0 (50.009%)
+Player who went first wins: 2965.0 (55.493%)
 ```
 
 Ideas to try:
 
 - [ ] Inference with Python (faster than ONNX?) - would need server
-- [ ] Validation set (Graph loss/etc)
-- [ ] Train on transposed positions
+- [x] Validation set (Graph loss/etc)
+- [x] Train on transposed positions
 - [ ] Remove our last move/leave values
 - [ ] Normalize bag and rack by count of tile, not by fixed numbers
 - [ ] Include opponent's last play
 - [ ] Set target to win % after Monte Carlo simulation (need a lot of time to collect enough data)
+
+### Add transposition (6/13/25)
+
+- Randomly transpose around 50% of positions
+
+(And validation set is now working - this should be part of any ML training)
+
+```
+  44500  train=0.2211  val=0.2224  4,470 pos/s
+    ✓ checkpointed (best validation)
+```
+
+![](model2.png)
