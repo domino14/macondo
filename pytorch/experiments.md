@@ -49,7 +49,7 @@ Ideas to try:
 - [ ] Inference with Python (faster than ONNX?) - would need server
 - [x] Validation set (Graph loss/etc)
 - [x] Train on transposed positions
-- [ ] Remove our last move/leave values
+- [x] Remove our last move/leave values
 - [ ] Normalize bag and rack by count of tile, not by fixed numbers
 - [ ] Include opponent's last play
 - [ ] Set target to win % after Monte Carlo simulation (need a lot of time to collect enough data)
@@ -66,3 +66,9 @@ Ideas to try:
 ```
 
 ![](model2.png)
+
+
+
+
+### Remove last move and leave values (6/13/25)
+

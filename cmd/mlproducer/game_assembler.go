@@ -3,7 +3,6 @@
 package main
 
 import (
-	"container/list"
 	"strings"
 
 	"github.com/cespare/xxhash"
@@ -29,7 +28,6 @@ var DefaultConfig = config.DefaultConfig()
 type GameAssembler struct {
 	horizon int                    // #plies to look ahead
 	games   map[string]*gameWindow // live games by GameID
-	queue   *list.List             // FIFO of [][]float32 ready to pop
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -51,7 +49,6 @@ func NewGameAssembler(horizon int) *GameAssembler {
 	return &GameAssembler{
 		horizon: horizon,
 		games:   make(map[string]*gameWindow),
-		queue:   list.New(),
 	}
 }
 
@@ -72,7 +69,8 @@ func shouldTranspose(id string) bool {
 }
 
 // FeedTurn ingests one ply, updates state, and maybe produces vectors.
-func (ga *GameAssembler) FeedTurn(t Turn) {
+func (ga *GameAssembler) FeedTurn(t Turn) [][]float32 {
+	outVecs := make([][]float32, 0)
 	gw := ga.games[t.GameID]
 	if gw == nil {
 		gw = &gameWindow{}
@@ -107,7 +105,7 @@ func (ga *GameAssembler) FeedTurn(t Turn) {
 	// 3) Emit when window deep enough.
 	if len(gw.states) > ga.horizon {
 		vec := makeTrainingVector(gw.states[0], gw.states[ga.horizon])
-		ga.queue.PushBack(vec)
+		outVecs = append(outVecs, vec)
 
 		// Slide window forward by dropping the oldest ply.
 		gw.turns = gw.turns[1:]
@@ -132,32 +130,20 @@ func (ga *GameAssembler) FeedTurn(t Turn) {
 				t.GameID, gw.game.Playing())
 		}
 
-		ga.flushRemainder(gw)
+		outVecs = append(outVecs, ga.flushRemainder(gw)...)
 		delete(ga.games, t.GameID)
 	}
-}
-
-// Ready reports whether at least one vector is waiting.
-func (ga *GameAssembler) Ready() bool { return ga.queue.Len() > 0 }
-
-// PopVector returns the next []float32 ready for output.
-func (ga *GameAssembler) PopVector() []float32 {
-	front := ga.queue.Front()
-	vec := front.Value.([]float32)
-	ga.queue.Remove(front)
-	// log.Info().Msgf("Popping a vector of length %d", len(vec))
-
-	return vec
+	return outVecs
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Flush any remaining positions when a game ends.
 // ──────────────────────────────────────────────────────────────────────────────
-func (ga *GameAssembler) flushRemainder(gw *gameWindow) {
+func (ga *GameAssembler) flushRemainder(gw *gameWindow) [][]float32 {
 	if len(gw.states) == 0 {
-		return
+		return nil
 	}
-
+	outVecs := make([][]float32, 0)
 	lastIdx := len(gw.states) - 1
 
 	// Emit vectors for every leftover ply i where i < lastIdx
@@ -167,8 +153,9 @@ func (ga *GameAssembler) flushRemainder(gw *gameWindow) {
 			future = lastIdx // clamp to final
 		}
 		vec := makeTrainingVector(gw.states[i], gw.states[future])
-		ga.queue.PushBack(vec)
+		outVecs = append(outVecs, vec)
 	}
+	return outVecs
 }
 
 // Given current game window + turn, mutate board state and return features.
