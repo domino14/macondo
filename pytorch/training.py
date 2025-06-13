@@ -7,7 +7,8 @@ output : best.pt  +  loss_log.csv  (train & val loss)
 """
 
 import io, struct, sys, time, csv, os
-from multiprocessing import Process, Queue, Event
+from multiprocessing import Queue, Event
+from threading import Thread
 import numpy as np
 import torch
 import torch.nn as nn
@@ -143,7 +144,7 @@ def main():
     train_q = Queue(maxsize=1024)
     val_loaded_event = Event()
 
-    p = Process(target=producer, args=(val_q, train_q, VAL_SIZE, val_loaded_event))
+    p = Thread(target=producer, args=(val_q, train_q, VAL_SIZE, val_loaded_event))
     p.daemon = True
     p.start()
 
