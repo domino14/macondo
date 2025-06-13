@@ -6,8 +6,8 @@ stdin  : binary frames  [len | 18 675 board | 58 scalars | 1 target]
 output : best.pt  +  loss_log.csv  (train & val loss)
 """
 
-import io, struct, sys, time, csv, itertools, os
-from multiprocessing import Process, Queue
+import io, struct, sys, time, csv, os
+from multiprocessing import Process, Queue, Event
 import numpy as np
 import torch
 import torch.nn as nn
@@ -28,7 +28,7 @@ CSV_PATH = "loss_log.csv"
 
 
 # ────────────────────────────────────────────────────────────────────
-def producer(val_q, train_q, val_size):
+def producer(val_q, train_q, val_size, val_loaded_event):
     """Read from stdin and push to validation and training queues."""
     buf = sys.stdin.buffer
     # Validation data
@@ -37,15 +37,18 @@ def producer(val_q, train_q, val_size):
         if not hdr:
             val_q.put(None)
             train_q.put(None)
+            val_loaded_event.set()
             return
         (n_bytes,) = struct.unpack("<I", hdr)
         payload = buf.read(n_bytes)
         if len(payload) != n_bytes:
             val_q.put(None)
             train_q.put(None)
+            val_loaded_event.set()
             return
         val_q.put(payload)
     val_q.put(None)  # Sentinel for validation queue
+    val_loaded_event.set()
 
     # Training data
     while True:
@@ -136,14 +139,16 @@ def main():
     else:
         device = torch.device("cpu")
 
-    val_q = Queue(maxsize=VAL_SIZE)
+    val_q = Queue()
     train_q = Queue(maxsize=1024)
+    val_loaded_event = Event()
 
-    p = Process(target=producer, args=(val_q, train_q, VAL_SIZE))
+    p = Process(target=producer, args=(val_q, train_q, VAL_SIZE, val_loaded_event))
     p.daemon = True
     p.start()
 
     # ---- collect validation set -----------------------------------
+    val_loaded_event.wait()
     val_ds = QueueDataset(val_q)
     val_boards, val_scals, val_targets = [], [], []
     for b, s, y in val_ds:
