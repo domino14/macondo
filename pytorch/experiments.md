@@ -106,4 +106,7 @@ This model is clearly wrong and was stopped early. It for example prefers DUGS w
 
 Same for leave, essentially.
 
-###
+### Normalize bag by count in bag, not by fixed numbers (6/13/25)
+
+This will give us a rough probability of how many of each tile we could be expected to draw. Bring back score/leave as well.
+

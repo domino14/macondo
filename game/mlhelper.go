@@ -22,6 +22,7 @@ import (
 	"github.com/domino14/word-golib/tilemapping"
 
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/dataloaders"
 	"github.com/domino14/macondo/move"
 )
@@ -80,7 +81,7 @@ func MLLoadFunc(cfg *wglconfig.Config, key string) (interface{}, error) {
 		return nil, errors.New("cache key missing fields")
 	}
 	reader, err := dataloaders.StratFileForLexicon(
-		dataloaders.StrategyParamsPath(cfg), "macondo-nn.onnx", fields[1])
+		dataloaders.StrategyParamsPath(cfg), "models/macondo-nn/1/model.onnx", fields[1])
 	if err != nil {
 		return nil, fmt.Errorf("failed to load ONNX model: %w", err)
 	}
@@ -118,35 +119,20 @@ func (g *Game) MLEvaluateMove(m *move.Move) (float32, error) {
 // MLEvaluateMoves evaluates a slice of moves in a single batch inference.
 // Their equities must already be set.
 func (g *Game) MLEvaluateMoves(moves []*move.Move) ([]float32, error) {
+
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start).Milliseconds()
 		log.Debug().Int64("evaluate_moves_ms", elapsed).
 			Int("num_moves", len(moves)).
-			Msg("evaluated moves with ML")
+			Msg("evaluated moves")
 	}()
-
 	if len(moves) == 0 {
 		return []float32{}, nil
 	}
-
 	backupMode := g.backupMode
 	g.SetBackupMode(SimulationMode)
 	defer g.SetBackupMode(backupMode)
-
-	net, err := cache.Load(g.config.WGLConfig(), "onnx:"+g.LexiconName(), MLLoadFunc)
-	if err != nil {
-		log.Err(err).Msg("loading-ml-model")
-		return nil, err
-	}
-	modelTemplate, ok := net.(*MLModelTemplate)
-	if !ok {
-		return nil, errors.New("failed to type-assert ONNX model template")
-	}
-	model, err := modelTemplate.NewInstance()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create new ONNX model instance: %w", err)
-	}
 
 	numMoves := len(moves)
 	allPlaneVectors := make([]float32, 0, numMoves*NN_N_PLANES)
@@ -154,7 +140,6 @@ func (g *Game) MLEvaluateMoves(moves []*move.Move) ([]float32, error) {
 
 	for _, m := range moves {
 		g.backupState()
-
 		switch m.Action() {
 		case move.MoveTypePlay:
 			g.board.PlayMove(m)
@@ -177,42 +162,81 @@ func (g *Game) MLEvaluateMoves(moves []*move.Move) ([]float32, error) {
 			g.scorelessTurns++
 			g.players[g.onturn].turns += 1
 		}
+		// Put the opponent's rack back into the bag for evaluation.
+		// This is necessary to ensure the model sees the correct bag state.
+		oppRack := g.RackFor(1 - g.PlayerOnTurn())
+		g.bag.PutBack(oppRack.TilesOn())
 		vec, err := g.BuildMLVector(m.Score(), m.Equity())
 		if err != nil {
 			g.UnplayLastMove() // Unplay before returning the error
 			return nil, fmt.Errorf("failed to build ML vector for move: %w", err)
 		}
-		// write the vector to a test file for debugging
-
-		// testFile, err := os.Create("/tmp/test-vec-infer.bin")
-		// if err != nil {
-		// 	log.Fatal().Err(err).Msg("Failed to create test file")
-		// }
-
-		// testOut := bufio.NewWriterSize(testFile, 50000)
-		// if err := BinaryWriteMLVector(testOut, *vec); err != nil {
-		// 	log.Fatal().Err(err).Msg("Failed to write test vector to file")
-		// }
-		// if err := testOut.Flush(); err != nil {
-		// 	log.Fatal().Err(err).Msg("Failed to flush test vector to file")
-		// }
-		// testFile.Close()
-
 		allPlaneVectors = append(allPlaneVectors, (*vec)[:NN_N_PLANES]...)
 		allScalarVectors = append(allScalarVectors, (*vec)[NN_N_PLANES:]...)
 		MLVectorPool.Put(vec)   // Return the vector to the pool
 		g.onturn = 1 - g.onturn // switch turn back to the original player
-
 		g.UnplayLastMove()
 	}
 
-	boardTensor := tensor.New(tensor.WithShape(numMoves, NN_C, NN_H, NN_W),
-		tensor.WithBacking(allPlaneVectors))
-	scalTensor := tensor.New(tensor.WithShape(numMoves, NN_N_SCAL),
-		tensor.WithBacking(allScalarVectors))
+	if g.config.GetBool(config.ConfigTritonUseTriton) {
+		return g.mlevaluateMovesTriton(len(moves), allPlaneVectors, allScalarVectors)
+	}
+	return g.mlevaluateMovesLocal(len(moves), allPlaneVectors, allScalarVectors)
+}
+
+func (g *Game) mlevaluateMovesTriton(nmoves int, planeVectors, scalarVectors []float32) ([]float32, error) {
+
+	if g.tritonClient == nil {
+		return nil, errors.New("triton client is not initialized")
+	}
+	log.Debug().Int("num_moves", nmoves).
+		Msg("evaluating moves with Triton")
+	// Ensure the input vectors are of the correct size
+	return g.tritonClient.Infer(planeVectors, scalarVectors, nmoves)
+}
+
+func (g *Game) mlevaluateMovesLocal(nmoves int, planeVectors, scalarVectors []float32) ([]float32, error) {
+
+	net, err := cache.Load(g.config.WGLConfig(), "onnx:"+g.LexiconName(), MLLoadFunc)
+	if err != nil {
+		log.Err(err).Msg("loading-ml-model")
+		return nil, err
+	}
+	modelTemplate, ok := net.(*MLModelTemplate)
+	if !ok {
+		return nil, errors.New("failed to type-assert ONNX model template")
+	}
+	model, err := modelTemplate.NewInstance()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create new ONNX model instance: %w", err)
+	}
+
+	// write the vector to a test file for debugging
+
+	// testFile, err := os.Create("/tmp/test-vec-infer.bin")
+	// if err != nil {
+	// 	log.Fatal().Err(err).Msg("Failed to create test file")
+	// }
+
+	// testOut := bufio.NewWriterSize(testFile, 50000)
+	// if err := BinaryWriteMLVector(testOut, *vec); err != nil {
+	// 	log.Fatal().Err(err).Msg("Failed to write test vector to file")
+	// }
+	// if err := testOut.Flush(); err != nil {
+	// 	log.Fatal().Err(err).Msg("Failed to flush test vector to file")
+	// }
+	// testFile.Close()
+
+	boardTensor := tensor.New(tensor.WithShape(nmoves, NN_C, NN_H, NN_W),
+		tensor.WithBacking(planeVectors))
+	scalTensor := tensor.New(tensor.WithShape(nmoves, NN_N_SCAL),
+		tensor.WithBacking(scalarVectors))
 
 	model.model.SetInput(0, boardTensor)
 	model.model.SetInput(1, scalTensor)
+
+	log.Debug().Int("num_moves", nmoves).
+		Msg("evaluating moves with local ONNX model")
 
 	if err := model.backend.Run(); err != nil {
 		return nil, fmt.Errorf("failed to run ONNX model: %w", err)
@@ -239,14 +263,7 @@ func (g *Game) MLEvaluateMoves(moves []*move.Move) ([]float32, error) {
 }
 
 func NormalizeSpreadForML(spread float32) float32 {
-	// Normalize spread to -1 to 1 range.
-	// First we clamp it to -300 or 300.
-	if spread < -300 {
-		spread = -300.0
-	} else if spread > 300 {
-		spread = 300.0
-	}
-	return float32(spread) / 300.0
+	return ScaleScoreWithTanh(spread, 0.0, 130.0)
 }
 
 func ScaleScoreWithTanh(score float32, center float32, scaleFactor float32) float32 {
@@ -257,7 +274,8 @@ func ScaleScoreWithTanh(score float32, center float32, scaleFactor float32) floa
 	return float32(math.Tanh(float64(centered / scaleFactor)))
 }
 
-// BuildMLVector builds the feature vector for the current game state.
+// BuildMLVector builds the feature vector for the current game state. It
+// should not modify the game state!
 func (g *Game) BuildMLVector(lastMoveScore int, lastMoveLeaveVal float64) (*[]float32, error) {
 	vecPtr := MLVectorPool.Get().(*[]float32)
 	vec := *vecPtr
@@ -331,8 +349,6 @@ func (g *Game) BuildMLVector(lastMoveScore int, lastMoveLeaveVal float64) (*[]fl
 	unseenVector := vec[scalarsStart+27 : scalarsStart+54]
 
 	rack := g.RackFor(g.PlayerOnTurn())
-	oppRack := g.RackFor(1 - g.PlayerOnTurn())
-	g.bag.PutBack(oppRack.TilesOn())
 	bag := g.bag.PeekMap()
 	tr := g.bag.TilesRemaining()
 
@@ -344,7 +360,7 @@ func (g *Game) BuildMLVector(lastMoveScore int, lastMoveLeaveVal float64) (*[]fl
 	vec[NN_RowLen-4] = ScaleScoreWithTanh(float32(lastMoveScore), 45.0, 35.0) // last move score
 	vec[NN_RowLen-3] = ScaleScoreWithTanh(float32(lastMoveLeaveVal), 10, 20)  // last move leave value
 	vec[NN_RowLen-2] = float32(g.Bag().TilesRemaining()) / 100.0
-	vec[NN_RowLen-1] = ScaleScoreWithTanh(float32(g.SpreadFor(g.PlayerOnTurn())), 0.0, 130.0)
+	vec[NN_RowLen-1] = NormalizeSpreadForML(float32(g.SpreadFor(g.PlayerOnTurn())))
 
 	return &vec, nil
 }

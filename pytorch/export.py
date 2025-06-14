@@ -18,11 +18,11 @@ torch.onnx.export(
     (dummy_board, dummy_scalars),
     "macondo-nn.onnx",  # output file name
     input_names=["board", "scalars"],
-    output_names=["delta_spread"],
+    output_names=["win_pred"],
     dynamic_axes={
         "board": {0: "batch_size"},
         "scalars": {0: "batch_size"},
-        "delta_spread": {0: "batch_size"},
+        "win_pred": {0: "batch_size"},
     },
     opset_version=12,
 )

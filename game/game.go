@@ -18,6 +18,7 @@ import (
 	"github.com/domino14/macondo/lexicon"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tinymove"
+	"github.com/domino14/macondo/triton"
 )
 
 const (
@@ -76,6 +77,8 @@ type Game struct {
 	// putting game in endgame mode.
 	sturnsBackup int
 	stripBackup  [board.MaxBoardDim]tilemapping.MachineLetter
+
+	tritonClient *triton.TritonClient
 }
 
 func (g *Game) Config() *config.Config {
@@ -184,6 +187,18 @@ func NewGame(rules *GameRules, playerinfo []*pb.PlayerInfo) (*Game, error) {
 		return nil, errors.New("all player nicknames must be unique")
 	}
 	log.Debug().Int("exch-limit", rules.exchangeLimit).Msg("setting-exchange-limit")
+
+	if game.config.GetBool(config.ConfigTritonUseTriton) {
+		tritonURL := game.config.GetString(config.ConfigTritonURL)
+		modelName := game.config.GetString(config.ConfigTritonModelName)
+		modelVersion := game.config.GetString(config.ConfigTritonModelVersion)
+		var err error
+		game.tritonClient, err = triton.NewTritonClient(tritonURL, modelName, modelVersion)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create triton client: %w", err)
+		}
+	}
+
 	return game, nil
 }
 

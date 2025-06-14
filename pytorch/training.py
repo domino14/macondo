@@ -67,12 +67,18 @@ class QueueDataset(IterableDataset):
     def __init__(self, queue):
         super().__init__()
         self.queue = queue
+        self.worker_sentinel_received = False
 
     def __iter__(self):
         while True:
-            payload = self.queue.get()
-            if payload is None:
+            if self.worker_sentinel_received:
                 break
+
+            payload = self.queue.get(timeout=60)  # Add timeout to avoid hanging
+            if payload is None:
+                self.worker_sentinel_received = True
+                break
+
             vec = np.frombuffer(payload, dtype=DTYPE, count=ROW_FLOATS)
             board = torch.from_numpy(vec[:N_PLANE]).view(C, H, W)
             scalars = torch.from_numpy(vec[N_PLANE : N_PLANE + N_SCAL])

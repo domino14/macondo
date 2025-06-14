@@ -197,7 +197,7 @@ def visualize_vector(vector_path="/tmp/test-vec.bin", show_all_planes=False):
         ax5 = fig.add_subplot(gs[1, 1])
         unseen_data = scalar_data[27:54]
         ax5.bar(["?"] + list(string.ascii_uppercase), unseen_data)
-        ax5.set_title("Unseen Tiles (count / 20.0)")
+        ax5.set_title("Unseen Tiles (count / bagcount)")
         ax5.set_ylim(0, 1.0)
 
         # 6. Other scalar features
@@ -477,7 +477,7 @@ def show_raw_vector_data(vec, N_PLANE, H, W):
 
 if __name__ == "__main__":
     # Example usage
-    result = visualize_vector()
+    result = visualize_vector(show_all_planes=False)
 
     # Detailed exploration - print specific plane sums to check for anomalies
     board_data = result["board_data"]

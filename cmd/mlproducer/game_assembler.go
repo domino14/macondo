@@ -221,6 +221,7 @@ func updateBoardAndExtractFeatures(gw *gameWindow, t Turn, eqCalc *equity.Exhaus
 
 	// Make a copy of the vector to return, so the original can be safely
 	// returned to the pool.
+	// XXX: this defeats the purpose of the pool. Let's fix this later.
 	vecCopy := make([]float32, len(vec))
 	copy(vecCopy, vec)
 

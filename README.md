@@ -38,6 +38,16 @@ Make sure you have done
 
 Tag the release; i.e. `git tag vX.Y.Z`, then `git push --tags`. This will kick off a github action that builds and uploads the latest binaries. Then you should generate some release notes manually.
 
+# Using Triton
+
+If you want to use the neural network model, I recommend you use Triton server
+rather than the default Go server. It's much faster, but it's not trivial to run locally.
+
+If your macondo directory is at `$HOME/code/macondo` you would run `docker run` with these parameters:
+
+```
+docker run --rm -p 8000:8000 -p 8001:8001 -p 8002:8002     -v $HOME/code/macondo/data/strategy/default/models/:/models     nvcr.io/nvidia/tritonserver:25.05-py3     tritonserver --model-repository=/models
+```
 
 ### Attributions
 
