@@ -17,7 +17,7 @@ from training import (
 )  # Import constants from your training module
 
 
-def visualize_vector(vector_path="/tmp/test-vec.bin", show_all_planes=False):
+def visualize_vector(vector_path="/tmp/test-vec-infer.bin", show_all_planes=False):
     """
     Visualize a binary vector file used for Scrabble ML training.
 

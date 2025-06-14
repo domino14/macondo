@@ -183,7 +183,7 @@ func updateBoardAndExtractFeatures(gw *gameWindow, t Turn, eqCalc *equity.Exhaus
 	// PlayMove plays the move, updates board, cross-checks, player on turn, scores, etc.
 	// It also draws replenishment tiles from the bag. We don't want that for
 	// training purposes.
-
+	leaveVal := 0.0
 	err = gw.game.PlayMove(m, false, 0)
 	if err != nil {
 		log.Fatal().Msgf("Failed to play move: %s, error was %v", m.ShortDescription(), err)
@@ -192,22 +192,39 @@ func updateBoardAndExtractFeatures(gw *gameWindow, t Turn, eqCalc *equity.Exhaus
 	// Throw racks in and assign rack to player who just went; they should
 	// only have their leave.
 	gw.game.ThrowRacksIn()
+	if m.Action() == move.MoveTypeExchange {
+		// If it's an exchange, we want to treat this a bit differently.
+		// We don't actually want to throw the player's exchanged tiles into
+		// the bag, as we wish to evaluate what the bag would look like
+		// at the moment they decide to exchange.
+		// So we need to remove the exchanged tiles from the bag, but
+		// re-add them after building the vector so we don't corrupt the game.
+		err = gw.game.Bag().RemoveTiles(m.Tiles())
+		if err != nil {
+			log.Fatal().Msgf("Failed to remove exchanged tiles from bag: %v, error was %v", m.Tiles(), err)
+		}
+	}
 
 	// switch player on turn back to the one who just played the move.
 	gw.game.SetPlayerOnTurn(1 - gw.game.PlayerOnTurn())
-	leaveVal := 0.0
-	if t.Leave != "" {
-		rack := tilemapping.RackFromString(t.Leave, gw.game.Alphabet())
-		err = gw.game.SetRackForOnly(gw.game.PlayerOnTurn(), rack)
-		if err != nil {
-			log.Fatal().Msgf("Failed to set rack for player: %d, error was %v", gw.game.PlayerOnTurn(), err)
-		}
-		leaveVal = eqCalc.LeaveValue(rack.TilesOn())
+	rack := tilemapping.RackFromString(t.Leave, gw.game.Alphabet())
+	err = gw.game.SetRackForOnly(gw.game.PlayerOnTurn(), rack)
+	if err != nil {
+		log.Fatal().Msgf("Failed to set rack for player: %d, error was %v", gw.game.PlayerOnTurn(), err)
 	}
+	leaveVal = eqCalc.LeaveValue(rack.TilesOn())
+
 	vecPtr, err := gw.game.BuildMLVector(t.Score, leaveVal)
 	if err != nil {
 		log.Fatal().Msgf("Failed to build ML vector: %v", err)
 	}
+
+	if m.Action() == move.MoveTypeExchange {
+		// If it's an exchange, we need to re-add the exchanged tiles to the bag.
+		// This is so that the game state is not corrupted for the next player.
+		gw.game.Bag().PutBack(m.Tiles())
+	}
+
 	vec := *vecPtr
 	// We temporarily encode the player whose spread this is for since we don't
 	// have that data anywhere else.

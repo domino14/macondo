@@ -1055,7 +1055,7 @@ func (g *Game) SetRackFor(playerIdx int, rack *tilemapping.Rack) error {
 	log.Trace().Str("rack", rack.TilesOn().UserVisible(g.alph)).Msg("removing from bag")
 	err := g.bag.RemoveTiles(rack.TilesOn())
 	if err != nil {
-		log.Error().Msgf("Unable to set rack: %v", err)
+		log.Error().Msgf("Unable to set rack for: %v", err)
 		return err
 	}
 
@@ -1073,7 +1073,7 @@ func (g *Game) SetRackFor(playerIdx int, rack *tilemapping.Rack) error {
 func (g *Game) SetRackForOnly(playerIdx int, rack *tilemapping.Rack) error {
 	err := g.bag.RemoveTiles(rack.TilesOn())
 	if err != nil {
-		log.Error().Msgf("Unable to set rack: %v", err)
+		log.Error().Msgf("Unable to set rack (only): %v", err)
 		return err
 	}
 	// success; set our rack

@@ -152,15 +152,28 @@ func (g *Game) MLEvaluateMoves(moves []*move.Move) ([]float32, error) {
 			if m.TilesPlayed() == RackTileLimit {
 				g.players[g.onturn].bingos++
 			}
+			// Take the tiles played from the rack.
+			for _, t := range m.Tiles() {
+				if t != 0 {
+					g.players[g.onturn].rack.Take(t.IntrinsicTileIdx())
+				}
+			}
+
 		case move.MoveTypePass:
 			g.lastScorelessTurns = g.scorelessTurns
 			g.scorelessTurns++
 			g.players[g.onturn].turns += 1
 		case move.MoveTypeExchange:
-			g.bag.PutBack(m.Tiles())
+			// Don't throw the exchanged tiles in, since we want to evaluate
+			// the move as if the player was about to draw new tiles.
 			g.lastScorelessTurns = g.scorelessTurns
 			g.scorelessTurns++
 			g.players[g.onturn].turns += 1
+			// Take the tiles exchanged from the rack.
+			for _, t := range m.Tiles() {
+				g.players[g.onturn].rack.Take(t.IntrinsicTileIdx())
+			}
+
 		}
 		// Put the opponent's rack back into the bag for evaluation.
 		// This is necessary to ensure the model sees the correct bag state.
@@ -177,6 +190,22 @@ func (g *Game) MLEvaluateMoves(moves []*move.Move) ([]float32, error) {
 		g.onturn = 1 - g.onturn // switch turn back to the original player
 		g.UnplayLastMove()
 	}
+
+	// write the vector to a test file for debugging. I think this only works
+	// for one single position.
+	// testFile, err := os.Create("/tmp/test-vec-infer.bin")
+	// if err != nil {
+	// 	log.Fatal().Err(err).Msg("Failed to create test file")
+	// }
+
+	// testOut := bufio.NewWriterSize(testFile, 50000)
+	// if err := BinaryWriteMLVector(testOut, append(allPlaneVectors, allScalarVectors...)); err != nil {
+	// 	log.Fatal().Err(err).Msg("Failed to write test vector to file")
+	// }
+	// if err := testOut.Flush(); err != nil {
+	// 	log.Fatal().Err(err).Msg("Failed to flush test vector to file")
+	// }
+	// testFile.Close()
 
 	if g.config.GetBool(config.ConfigTritonUseTriton) {
 		return g.mlevaluateMovesTriton(len(moves), allPlaneVectors, allScalarVectors)
@@ -210,22 +239,6 @@ func (g *Game) mlevaluateMovesLocal(nmoves int, planeVectors, scalarVectors []fl
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new ONNX model instance: %w", err)
 	}
-
-	// write the vector to a test file for debugging
-
-	// testFile, err := os.Create("/tmp/test-vec-infer.bin")
-	// if err != nil {
-	// 	log.Fatal().Err(err).Msg("Failed to create test file")
-	// }
-
-	// testOut := bufio.NewWriterSize(testFile, 50000)
-	// if err := BinaryWriteMLVector(testOut, *vec); err != nil {
-	// 	log.Fatal().Err(err).Msg("Failed to write test vector to file")
-	// }
-	// if err := testOut.Flush(); err != nil {
-	// 	log.Fatal().Err(err).Msg("Failed to flush test vector to file")
-	// }
-	// testFile.Close()
 
 	boardTensor := tensor.New(tensor.WithShape(nmoves, NN_C, NN_H, NN_W),
 		tensor.WithBacking(planeVectors))
@@ -357,7 +370,7 @@ func (g *Game) BuildMLVector(lastMoveScore int, lastMoveLeaveVal float64) (*[]fl
 		unseenVector[i] = float32(bag[i]) / float32(tr) // rough prob of drawing this tile
 	}
 
-	vec[NN_RowLen-4] = ScaleScoreWithTanh(float32(lastMoveScore), 45.0, 35.0) // last move score
+	vec[NN_RowLen-4] = ScaleScoreWithTanh(float32(lastMoveScore), 45.0, 40.0) // last move score
 	vec[NN_RowLen-3] = ScaleScoreWithTanh(float32(lastMoveLeaveVal), 10, 20)  // last move leave value
 	vec[NN_RowLen-2] = float32(g.Bag().TilesRemaining()) / 100.0
 	vec[NN_RowLen-1] = NormalizeSpreadForML(float32(g.SpreadFor(g.PlayerOnTurn())))
