@@ -20,6 +20,10 @@ func (oac OpeningAdjustmentCalculator) Equity(play *move.Move, board *board.Game
 	return placementAdjustment(play, board, bag.LetterDistribution())
 }
 
+func (oac OpeningAdjustmentCalculator) Type() string {
+	return "OpeningAdjustmentCalculator"
+}
+
 func placementAdjustment(play *move.Move, board *board.GameBoard, ld *tilemapping.LetterDistribution) float64 {
 	// Very simply just checks how many vowels are overlapping bonus squares.
 	// This only gets considered when the board is empty.

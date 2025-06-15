@@ -457,7 +457,7 @@ func (sc *ShellController) simControlArguments(args []string) (*Response, error)
 func (sc *ShellController) placeMove(g *bot.BotTurnPlayer, play string) error {
 	normalizedPlay := stats.Normalize(play)
 	m, err := g.ParseMove(
-		g.PlayerOnTurn(), sc.options.lowercaseMoves, strings.Fields(normalizedPlay))
+		g.PlayerOnTurn(), sc.options.lowercaseMoves, strings.Fields(normalizedPlay), false)
 
 	if err != nil {
 		return err

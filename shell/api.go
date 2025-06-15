@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -20,7 +21,6 @@ import (
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/endgame/negamax"
-	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -633,7 +633,8 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 		m, err := sc.game.ParseMove(
 			sc.game.PlayerOnTurn(),
 			sc.options.lowercaseMoves,
-			strings.Fields(ms))
+			strings.Fields(ms),
+			false)
 		if err != nil {
 			return nil, err
 		}
@@ -870,17 +871,14 @@ func (sc *ShellController) leave(cmd *shellcmd) (*Response, error) {
 	if len(cmd.args) != 1 {
 		return nil, errors.New("please provide a leave")
 	}
+	if sc.exhaustiveLeaveCalculator == nil {
+		err := sc.setExhaustiveLeaveCalculator()
+		if err != nil {
+			return nil, err
+		}
+	}
 	ldName := sc.config.GetString(config.ConfigDefaultLetterDistribution)
 	dist, err := tilemapping.GetDistribution(sc.config.WGLConfig(), ldName)
-	if err != nil {
-		return nil, err
-	}
-	leaves := ""
-	if strings.HasSuffix(ldName, "_super") {
-		leaves = "super-leaves.klv2"
-	}
-	els, err := equity.NewExhaustiveLeaveCalculator(sc.config.GetString(config.ConfigDefaultLexicon),
-		sc.config, leaves)
 	if err != nil {
 		return nil, err
 	}
@@ -888,7 +886,7 @@ func (sc *ShellController) leave(cmd *shellcmd) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	res := els.LeaveValue(leave)
+	res := sc.exhaustiveLeaveCalculator.LeaveValue(leave)
 	return msg(strconv.FormatFloat(res, 'f', 3, 64)), nil
 }
 
@@ -935,4 +933,63 @@ func (sc *ShellController) check(cmd *shellcmd) (*Response, error) {
 
 	return msg(fmt.Sprintf("The play (%v) is %v in %v", strings.Join(wordsFriendly, ","), validStr, sc.config.GetString(config.ConfigDefaultLexicon))), nil
 
+}
+
+func (sc *ShellController) mleval(cmd *shellcmd) (*Response, error) {
+	playerid := sc.game.PlayerOnTurn()
+
+	if sc.exhaustiveLeaveCalculator == nil {
+		err := sc.setExhaustiveLeaveCalculator()
+		if err != nil {
+			return nil, err
+		}
+	}
+	// If no arguments are provided, evaluate all move
+
+	if len(cmd.args) == 0 {
+		// evaluate all moves
+		evals, err := sc.game.MLEvaluateMoves(sc.curPlayList, sc.exhaustiveLeaveCalculator)
+		if err != nil {
+			return nil, err
+		}
+
+		// Create a slice of move-evaluation pairs
+		type moveEval struct {
+			move *move.Move
+			eval float32
+			idx  int
+		}
+
+		pairs := make([]moveEval, len(sc.curPlayList))
+		for i, m := range sc.curPlayList {
+			pairs[i] = moveEval{
+				move: m,
+				eval: evals[i],
+				idx:  i + 1, // Store original index for reference
+			}
+		}
+
+		// Sort by evaluation in descending order
+		sort.Slice(pairs, func(i, j int) bool {
+			return pairs[i].eval > pairs[j].eval
+		})
+
+		// Display sorted moves
+		for i, p := range pairs {
+			sc.showMessage(fmt.Sprintf("%d) %s: %.6f (was #%d)",
+				i+1, p.move.ShortDescription(), p.eval, p.idx))
+		}
+
+		return msg("MLEval for all moves completed."), nil
+	} else {
+		m, err := sc.game.ParseMove(playerid, sc.options.lowercaseMoves, cmd.args, false)
+		if err != nil {
+			return nil, err
+		}
+		eval, err := sc.game.MLEvaluateMove(m, sc.exhaustiveLeaveCalculator)
+		if err != nil {
+			return nil, err
+		}
+		return msg(fmt.Sprintf("MLEval for %s: %.3f", m.ShortDescription(), eval)), nil
+	}
 }

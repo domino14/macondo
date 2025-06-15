@@ -245,7 +245,7 @@ func wolgesAnalyze(cfg *config.Config, g *bot.BotTurnPlayer) ([]*move.Move, erro
 			}
 		}
 
-		m, err := g.CreateAndScorePlacementMove(coords, str.String(), string(rack))
+		m, err := g.CreateAndScorePlacementMove(coords, str.String(), string(rack), false)
 		if err != nil {
 			return nil, err
 		}
