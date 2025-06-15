@@ -8,7 +8,7 @@ import argparse
 
 
 def run_inference_batch(
-    vector_paths, model_path="best.pt", output_csv=None, batch_size=32
+    vector_paths, model_path="best.pt.bak", output_csv=None, batch_size=32
 ):
     """
     Run inference on multiple binary vector files using the trained model.

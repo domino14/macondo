@@ -2,6 +2,7 @@ package bot
 
 import (
 	"context"
+	"errors"
 	"sort"
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
@@ -166,12 +167,23 @@ func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
 	}
 	if p.botType == pb.BotRequest_FAST_ML_BOT {
 		// Fast ML bot uses a different method
-		moves := p.GenerateMoves(15)
+		moves := p.GenerateMoves(50)
 
 		if len(moves) == 1 {
 			return moves[0], nil
 		}
-		resp, err := p.MLEvaluateMoves(moves)
+		var lc *equity.ExhaustiveLeaveCalculator
+		for _, c := range p.Calculators() {
+			if e, ok := c.(*equity.ExhaustiveLeaveCalculator); ok {
+				lc = e
+				break
+			}
+		}
+		if lc == nil {
+			return nil, errors.New("no ExhaustiveLeaveCalculator found for fast ML bot")
+		}
+
+		resp, err := p.MLEvaluateMoves(moves, lc)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to evaluate moves for fast ML bot")
 			return nil, err

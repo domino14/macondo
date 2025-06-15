@@ -30,6 +30,10 @@ func (nls *NoLeaveCalculator) Equity(play *move.Move, board *board.GameBoard,
 	return float64(score) + otherAdjustments
 }
 
+func (nls *NoLeaveCalculator) Type() string {
+	return "NoLeaveCalculator"
+}
+
 func (nls *NoLeaveCalculator) LeaveValue(leave tilemapping.MachineWord) float64 {
 	return 0.0
 }

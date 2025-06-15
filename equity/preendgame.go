@@ -35,6 +35,10 @@ func NewPreEndgameAdjustmentCalculator(cfg *config.Config, lexiconName string, p
 	return calc, nil
 }
 
+func (pac PreEndgameAdjustmentCalculator) Type() string {
+	return "PreEndgameAdjustmentCalculator"
+}
+
 func (pac PreEndgameAdjustmentCalculator) Equity(play *move.Move, board *board.GameBoard,
 	bag *tilemapping.Bag, oppRack *tilemapping.Rack) float64 {
 

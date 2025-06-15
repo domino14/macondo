@@ -21,7 +21,6 @@ import (
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/endgame/negamax"
-	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -872,17 +871,14 @@ func (sc *ShellController) leave(cmd *shellcmd) (*Response, error) {
 	if len(cmd.args) != 1 {
 		return nil, errors.New("please provide a leave")
 	}
+	if sc.exhaustiveLeaveCalculator == nil {
+		err := sc.setExhaustiveLeaveCalculator()
+		if err != nil {
+			return nil, err
+		}
+	}
 	ldName := sc.config.GetString(config.ConfigDefaultLetterDistribution)
 	dist, err := tilemapping.GetDistribution(sc.config.WGLConfig(), ldName)
-	if err != nil {
-		return nil, err
-	}
-	leaves := ""
-	if strings.HasSuffix(ldName, "_super") {
-		leaves = "super-leaves.klv2"
-	}
-	els, err := equity.NewExhaustiveLeaveCalculator(sc.config.GetString(config.ConfigDefaultLexicon),
-		sc.config, leaves)
 	if err != nil {
 		return nil, err
 	}
@@ -890,7 +886,7 @@ func (sc *ShellController) leave(cmd *shellcmd) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	res := els.LeaveValue(leave)
+	res := sc.exhaustiveLeaveCalculator.LeaveValue(leave)
 	return msg(strconv.FormatFloat(res, 'f', 3, 64)), nil
 }
 
@@ -942,9 +938,17 @@ func (sc *ShellController) check(cmd *shellcmd) (*Response, error) {
 func (sc *ShellController) mleval(cmd *shellcmd) (*Response, error) {
 	playerid := sc.game.PlayerOnTurn()
 
+	if sc.exhaustiveLeaveCalculator == nil {
+		err := sc.setExhaustiveLeaveCalculator()
+		if err != nil {
+			return nil, err
+		}
+	}
+	// If no arguments are provided, evaluate all move
+
 	if len(cmd.args) == 0 {
 		// evaluate all moves
-		evals, err := sc.game.MLEvaluateMoves(sc.curPlayList)
+		evals, err := sc.game.MLEvaluateMoves(sc.curPlayList, sc.exhaustiveLeaveCalculator)
 		if err != nil {
 			return nil, err
 		}
@@ -982,7 +986,7 @@ func (sc *ShellController) mleval(cmd *shellcmd) (*Response, error) {
 		if err != nil {
 			return nil, err
 		}
-		eval, err := sc.game.MLEvaluateMove(m)
+		eval, err := sc.game.MLEvaluateMove(m, sc.exhaustiveLeaveCalculator)
 		if err != nil {
 			return nil, err
 		}

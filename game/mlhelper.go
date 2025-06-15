@@ -24,6 +24,7 @@ import (
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/dataloaders"
+	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/move"
 )
 
@@ -108,8 +109,8 @@ func MLLoadFunc(cfg *wglconfig.Config, key string) (interface{}, error) {
 
 // MLEvaluateMove evaluates a single move using the machine learning model.
 // It's a wrapper around MLEvaluateMoves.
-func (g *Game) MLEvaluateMove(m *move.Move) (float32, error) {
-	evals, err := g.MLEvaluateMoves([]*move.Move{m})
+func (g *Game) MLEvaluateMove(m *move.Move, leaveCalc *equity.ExhaustiveLeaveCalculator) (float32, error) {
+	evals, err := g.MLEvaluateMoves([]*move.Move{m}, leaveCalc)
 	if err != nil {
 		return 0, err
 	}
@@ -118,7 +119,7 @@ func (g *Game) MLEvaluateMove(m *move.Move) (float32, error) {
 
 // MLEvaluateMoves evaluates a slice of moves in a single batch inference.
 // Their equities must already be set.
-func (g *Game) MLEvaluateMoves(moves []*move.Move) ([]float32, error) {
+func (g *Game) MLEvaluateMoves(moves []*move.Move, leaveCalc *equity.ExhaustiveLeaveCalculator) ([]float32, error) {
 
 	start := time.Now()
 	defer func() {
@@ -179,11 +180,18 @@ func (g *Game) MLEvaluateMoves(moves []*move.Move) ([]float32, error) {
 		// This is necessary to ensure the model sees the correct bag state.
 		oppRack := g.RackFor(1 - g.PlayerOnTurn())
 		g.bag.PutBack(oppRack.TilesOn())
-		vec, err := g.BuildMLVector(m.Score(), m.Equity())
+
+		vec, err := g.BuildMLVector(m.Score(), leaveCalc.LeaveValue(m.Leave()))
 		if err != nil {
 			g.UnplayLastMove() // Unplay before returning the error
 			return nil, fmt.Errorf("failed to build ML vector for move: %w", err)
 		}
+
+		// Compute SHA256 hash of the vector for debugging or deduplication
+		// Import "crypto/sha256" at the top if not already imported
+		// hash := sha256.Sum256(unsafe.Slice((*byte)(unsafe.Pointer(&(*vec)[0])), len(*vec)*4))
+		// fmt.Printf("ML vector SHA256: %x, move %s\n", hash, m.ShortDescription())
+
 		allPlaneVectors = append(allPlaneVectors, (*vec)[:NN_N_PLANES]...)
 		allScalarVectors = append(allScalarVectors, (*vec)[NN_N_PLANES:]...)
 		MLVectorPool.Put(vec)   // Return the vector to the pool

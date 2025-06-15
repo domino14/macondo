@@ -83,3 +83,7 @@ func (csc CombinedStaticCalculator) Equity(play *move.Move, board *board.GameBoa
 func (csc CombinedStaticCalculator) LeaveValue(leave tilemapping.MachineWord) float64 {
 	return csc.leaveValues.LeaveValue(leave)
 }
+
+func (csc CombinedStaticCalculator) Type() string {
+	return "CombinedStaticCalculator"
+}

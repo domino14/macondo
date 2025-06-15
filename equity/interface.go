@@ -14,6 +14,7 @@ type EquityCalculator interface {
 	// leave calculations, any pre-endgame timing heuristics, and more.
 	Equity(play *move.Move, board *board.GameBoard, bag *tilemapping.Bag,
 		oppRack *tilemapping.Rack) float64
+	Type() string
 }
 
 type Leaves interface {

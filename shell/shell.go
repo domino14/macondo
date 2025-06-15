@@ -147,6 +147,8 @@ type ShellController struct {
 	botCtxCancel context.CancelFunc
 	botBusy      bool
 
+	exhaustiveLeaveCalculator *equity.ExhaustiveLeaveCalculator
+
 	simStats *stats.SimStats
 
 	macondoVersion string
@@ -231,6 +233,21 @@ func (sc *ShellController) Cleanup() {
 	}
 }
 
+func (sc *ShellController) setExhaustiveLeaveCalculator() error {
+	ldName := sc.config.GetString(config.ConfigDefaultLetterDistribution)
+	leaves := ""
+	if strings.HasSuffix(ldName, "_super") {
+		leaves = "super-leaves.klv2"
+	}
+	els, err := equity.NewExhaustiveLeaveCalculator(sc.config.GetString(config.ConfigDefaultLexicon),
+		sc.config, leaves)
+	if err != nil {
+		return err
+	}
+	sc.exhaustiveLeaveCalculator = els
+	return nil
+}
+
 func (sc *ShellController) Set(key string, args []string) (string, error) {
 	var err error
 	var ret string
@@ -249,6 +266,10 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 				err = sc.config.Write()
 				if err != nil {
 					log.Err(err).Msg("error-writing-config")
+				}
+				err = sc.setExhaustiveLeaveCalculator()
+				if err != nil {
+					log.Err(err).Msg("error-setting-exhaustive-leave-calculator")
 				}
 			}
 			_, ret = sc.options.Show("lexicon")
