@@ -110,3 +110,25 @@ Same for leave, essentially.
 
 This will give us a rough probability of how many of each tile we could be expected to draw. Bring back score/leave as well.
 
+First experiment failed because there were several untenable bugs.
+
+### Fix bugs, parallelize inference and training (6/15/25)
+
+Adding parallelization to training introduced several bugs and surfaced other bugs that I hadn't known about. I'm about 95% confident the model is actually representing what it's supposed to (I'm more unconfident about exchanges, I'm almost 100% sure that it works fine for tile-play moves). This will need to be spot-checked.
+
+Also added parallelization to inferences, fixed a few bugs around that, and tried Triton with GPU - it speeds up inference about 100X or more!
+
+As a result of it all, we have the first model that barely beats HastyBot!
+
+```
+Games played: 31875
+HastyBot wins: 15891.5 (49.856%)
+HastyBot Mean Score: 446.5599  Stdev: 76.9168
+FastMlBot Mean Score: 423.2252  Stdev: 67.2689
+HastyBot Mean Bingos: 2.0627  Stdev: 1.0968
+FastMlBot Mean Bingos: 2.0682  Stdev: 0.9830
+HastyBot Mean Points Per Turn: 37.3685  Stdev: 6.3035
+FastMlBot Mean Points Per Turn: 36.0960  Stdev: 7.6867
+HastyBot went first: 15938.0 (50.002%)
+Player who went first wins: 17987.5 (56.431%)
+```
