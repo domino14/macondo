@@ -41,13 +41,17 @@ Tag the release; i.e. `git tag vX.Y.Z`, then `git push --tags`. This will kick o
 # Using Triton
 
 If you want to use the neural network model, I recommend you use Triton server
-rather than the default Go server. It's much faster, but it's not trivial to run locally.
+rather than the default Go server. It's _much_ faster, but it's not trivial to run locally.
 
 If your macondo directory is at `$HOME/code/macondo` you would run `docker run` with these parameters:
 
 ```
-docker run --rm -p 8000:8000 -p 8001:8001 -p 8002:8002     -v $HOME/code/macondo/data/strategy/default/models/:/models     nvcr.io/nvidia/tritonserver:25.05-py3     tritonserver --model-repository=/models
+docker run --gpus all --rm -p 8000:8000 -p 8001:8001 -p 8002:8002     -v $HOME/code/macondo/data/strategy/default/models/:/models     nvcr.io/nvidia/tritonserver:25.05-py3     tritonserver --model-repository=/models
 ```
+
+You may need to install the NVIDIA Container Toolkit to use the GPU for inference.
+
+Then you can run Macondo with the `MACONDO_TRITON_USE_TRITON` environment variable set to `true`.
 
 ### Attributions
 
