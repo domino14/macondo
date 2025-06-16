@@ -5,7 +5,7 @@ input [
   {
     name: "board"
     data_type: TYPE_FP32
-    dims: [ 84, 15, 15 ]
+    dims: [ 85, 15, 15 ]
   },
   {
     name: "scalars"

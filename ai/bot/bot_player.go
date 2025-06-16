@@ -36,15 +36,15 @@ type BotConfig struct {
 
 type BotTurnPlayer struct {
 	aiturnplayer.AIStaticTurnPlayer
-	botType     pb.BotRequest_BotCode
-	endgamer    *negamax.Solver
-	preendgamer *preendgame.Solver
-	simmer      *montecarlo.Simmer
-	simmerCalcs []equity.EquityCalculator
-	simThreads  int
-	minSimPlies int
-	cfg         *BotConfig
-
+	botType               pb.BotRequest_BotCode
+	endgamer              *negamax.Solver
+	preendgamer           *preendgame.Solver
+	simmer                *montecarlo.Simmer
+	simmerCalcs           []equity.EquityCalculator
+	simThreads            int
+	minSimPlies           int
+	cfg                   *BotConfig
+	lastMove              *move.Move
 	inferencer            *rangefinder.RangeFinder
 	lastCalculatedDetails string
 }
@@ -221,6 +221,10 @@ func ChooseMoveWithExploration(moves []*move.Move, temperature float64) (*move.M
 	return moves[len(moves)-1], nil
 }
 
+func (p *BotTurnPlayer) SetLastMove(m *move.Move) {
+	p.lastMove = m
+}
+
 func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
 	if hasSimming(p.botType) || HasEndgame(p.botType) || HasInfer(p.botType) || HasPreendgame(p.botType) {
 		return eliteBestPlay(ctx, p)
@@ -243,7 +247,7 @@ func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
 			return nil, errors.New("no ExhaustiveLeaveCalculator found for fast ML bot")
 		}
 
-		resp, err := p.MLEvaluateMoves(moves, lc)
+		resp, err := p.MLEvaluateMoves(moves, lc, p.lastMove)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to evaluate moves for fast ML bot")
 			return nil, err
@@ -261,7 +265,7 @@ func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
 			return pairs[i].eval > pairs[j].eval
 		})
 		return pairs[0].move, nil
-	} else if p.botType == pb.BotRequest_RANDOM_BOT {
+	} else if p.botType == pb.BotRequest_RANDOM_BOT_WITH_TEMPERATURE {
 
 		// Random bot just picks a random move among top N (not currenetly configurable)
 		moves := p.GenerateMoves(50)

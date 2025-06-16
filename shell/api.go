@@ -948,7 +948,7 @@ func (sc *ShellController) mleval(cmd *shellcmd) (*Response, error) {
 
 	if len(cmd.args) == 0 {
 		// evaluate all moves
-		evals, err := sc.game.MLEvaluateMoves(sc.curPlayList, sc.exhaustiveLeaveCalculator)
+		evals, err := sc.game.MLEvaluateMoves(sc.curPlayList, sc.exhaustiveLeaveCalculator, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -986,7 +986,7 @@ func (sc *ShellController) mleval(cmd *shellcmd) (*Response, error) {
 		if err != nil {
 			return nil, err
 		}
-		eval, err := sc.game.MLEvaluateMove(m, sc.exhaustiveLeaveCalculator)
+		eval, err := sc.game.MLEvaluateMove(m, sc.exhaustiveLeaveCalculator, nil)
 		if err != nil {
 			return nil, err
 		}

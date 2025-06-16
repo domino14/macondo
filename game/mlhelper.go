@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	NN_C        = 84
+	NN_C        = 85
 	NN_H, NN_W  = 15, 15
 	NN_N_PLANES = NN_C * NN_H * NN_W
 	NN_N_SCAL   = 66
@@ -140,7 +140,6 @@ func (g *Game) MLEvaluateMoves(moves []*move.Move, leaveCalc *equity.ExhaustiveL
 	numMoves := len(moves)
 	allPlaneVectors := make([]float32, 0, numMoves*NN_N_PLANES)
 	allScalarVectors := make([]float32, 0, numMoves*NN_N_SCAL)
-
 	for _, m := range moves {
 		g.backupState()
 		switch m.Action() {
@@ -183,7 +182,7 @@ func (g *Game) MLEvaluateMoves(moves []*move.Move, leaveCalc *equity.ExhaustiveL
 		oppRack := g.RackFor(1 - g.PlayerOnTurn())
 		g.bag.PutBack(oppRack.TilesOn())
 
-		vec, err := g.BuildMLVector(m.Score(), leaveCalc.LeaveValue(m.Leave()), lastMove)
+		vec, err := g.BuildMLVector(m, leaveCalc.LeaveValue(m.Leave()), lastMove)
 		if err != nil {
 			g.UnplayLastMove() // Unplay before returning the error
 			return nil, fmt.Errorf("failed to build ML vector for move: %w", err)
@@ -299,7 +298,7 @@ func ScaleScoreWithTanh(score float32, center float32, scaleFactor float32) floa
 
 // BuildMLVector builds the feature vector for the current game state. It
 // should not modify the game state!
-func (g *Game) BuildMLVector(evalMoveScore int, evalMoveLeaveVal float64, lastMove *move.Move) (
+func (g *Game) BuildMLVector(m *move.Move, evalMoveLeaveVal float64, lastMove *move.Move) (
 	*[]float32, error) {
 
 	vecPtr := MLVectorPool.Get().(*[]float32)
@@ -320,6 +319,7 @@ func (g *Game) BuildMLVector(evalMoveScore int, evalMoveLeaveVal float64, lastMo
 	bonus2WPlane := vec[81*planeSize : 82*planeSize]
 	bonus3WPlane := vec[82*planeSize : 83*planeSize]
 	lastMovePlane := vec[83*planeSize : 84*planeSize]
+	ourMovePlane := vec[84*planeSize : 85*planeSize]
 
 	// Board features
 	b := g.Board()
@@ -375,18 +375,37 @@ func (g *Game) BuildMLVector(evalMoveScore int, evalMoveLeaveVal float64, lastMo
 			if vertical {
 				ri, ci = 1, 0 // Vertical means row changes, column stays
 			}
-			for i := 0; i < lastMove.TilesPlayed(); i++ {
+			for i := range lastMove.Tiles() {
 				curR := r + i*ri
 				curC := c + i*ci
 				if curR < 0 || curR >= 15 || curC < 0 || curC >= 15 {
 					return nil, fmt.Errorf("last move out of bounds at (%d, %d)", curR, curC)
 				}
 				if lastMove.Tiles()[i] != 0 {
-					lastMovePlane[r*15+c] = 1.0 // Mark the square where the last move was played
+					lastMovePlane[curR*15+curC] = 1.0 // Mark the square where the last move was played
 				}
 			}
 		}
 
+	}
+	if m.Action() == move.MoveTypePlay {
+		// Encode the current move's tiles played.
+		r, c, vertical := m.CoordsAndVertical()
+		ri, ci := 0, 1
+		if vertical {
+			ri, ci = 1, 0 // Vertical means row changes, column stays
+		}
+		for i := range m.Tiles() {
+			curR := r + i*ri
+			curC := c + i*ci
+			if curR < 0 || curR >= 15 || curC < 0 || curC >= 15 {
+				return nil, fmt.Errorf("current move out of bounds at (%d, %d)", curR, curC)
+
+			}
+			if m.Tiles()[i] != 0 {
+				ourMovePlane[curR*15+curC] = 1.0 // Mark the square where the current move is played
+			}
+		}
 	}
 
 	// Scalar features
@@ -411,8 +430,8 @@ func (g *Game) BuildMLVector(evalMoveScore int, evalMoveLeaveVal float64, lastMo
 		lastWasExchangeVector[numExchanged] = 1.0 // mark the number of tiles exchanged
 	}
 
-	vec[NN_RowLen-4] = ScaleScoreWithTanh(float32(evalMoveScore), 45.0, 40.0) // last move score
-	vec[NN_RowLen-3] = ScaleScoreWithTanh(float32(evalMoveLeaveVal), 10, 20)  // last move leave value
+	vec[NN_RowLen-4] = ScaleScoreWithTanh(float32(m.Score()), 45.0, 40.0)    // last move score
+	vec[NN_RowLen-3] = ScaleScoreWithTanh(float32(evalMoveLeaveVal), 10, 20) // last move leave value
 	vec[NN_RowLen-2] = float32(g.Bag().TilesRemaining()) / 100.0
 	vec[NN_RowLen-1] = NormalizeSpreadForML(float32(g.SpreadFor(g.PlayerOnTurn())))
 

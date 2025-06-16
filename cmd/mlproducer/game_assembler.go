@@ -222,7 +222,7 @@ func updateBoardAndExtractFeatures(gw *gameWindow, t Turn, eqCalc *equity.Exhaus
 	}
 	leaveVal = eqCalc.LeaveValue(rack.TilesOn())
 
-	vecPtr, err := gw.game.BuildMLVector(t.Score, leaveVal, lastMove)
+	vecPtr, err := gw.game.BuildMLVector(m, leaveVal, lastMove)
 	if err != nil {
 		log.Fatal().Msgf("Failed to build ML vector: %v", err)
 	}

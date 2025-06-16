@@ -124,9 +124,9 @@ func main() {
 				panic(err)
 			}
 		}
-		if emitted == 234 {
+		if emitted == 2345 {
 			// find the exchange
-			// if math.Abs(float64(vec[len(vec)-5]-(-0.8093011))) < 0.0001 {
+			// if vec[len(vec)-13] == 1.0 {
 			log.Info().Msgf("Found a test vector: %d", emitted)
 			// Output this vec to a file "/tmp/test-vec.bin" for debugging
 			testFile, err := os.Create(fmt.Sprintf("/tmp/test-vec-%d.bin", emitted))

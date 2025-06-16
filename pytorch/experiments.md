@@ -200,9 +200,29 @@ Player who went first wins: 22233.0 (55.737%)
 Better than our first model! This will be model 2.
 
 
-### Add opponent's last play
+### Add opponent's last play (6/16/25)
 
+Was also using Hasty v Rand-softmax since we got good results with this.
 
+```
+macondo> autoanalyze /tmp/games-autoplay.txt
+Games played: 25033
+HastyBot wins: 12644.5 (50.511%)
+HastyBot Mean Score: 444.1086  Stdev: 75.4048
+FastMlBot Mean Score: 422.9002  Stdev: 65.0795
+HastyBot Mean Bingos: 2.0470  Stdev: 1.0815
+FastMlBot Mean Bingos: 2.0332  Stdev: 0.9780
+HastyBot Mean Points Per Turn: 37.4520  Stdev: 6.2960
+FastMlBot Mean Points Per Turn: 36.3930  Stdev: 7.4809
+HastyBot went first: 12517.0 (50.002%)
+Player who went first wins: 14080.5 (56.248%)
+```
+
+Doesn't do as well as without the last play :/
+
+### Add a representation of our play on the board too (6/16/25)
+
+Training set: Hasty v Rand-softmax, about 5M games.
 
 
 ### Train on rand-softmax v rand-softmax

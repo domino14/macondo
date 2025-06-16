@@ -17,12 +17,16 @@ from torch.utils.data import IterableDataset, DataLoader
 from torch.amp import GradScaler, autocast
 
 # ── feature sizes ────────────────────────────────────────────────────
-C, H, W = 84, 15, 15
-N_PLANE = C * H * W  # 18 675
+C, H, W = 85, 15, 15
+N_PLANE = C * H * W  # 18 900
 N_SCAL = 66
 ROW_FLOATS = N_PLANE + N_SCAL + 1
 DTYPE = np.float32
 
+# XXX: loading these vectors into memory at the beginning requires a lot of
+# RAM; about 11 GB! We should probably separate the validation set into
+# its own file and deal with it in another way. If you don't have enough RAM
+# you should lower this size.
 VAL_SIZE = 150_000  # vectors for validation  (~75 batches)
 VAL_EVERY = 500  # train steps between val checks
 CSV_PATH = "loss_log.csv"
@@ -93,11 +97,12 @@ class QueueDataset(IterableDataset):
                 self.worker_sentinel_received = True
                 break
 
-            vec = np.frombuffer(payload, dtype=DTYPE, count=ROW_FLOATS)
+            vec = np.frombuffer(payload, dtype=DTYPE, count=ROW_FLOATS).copy()
             board = torch.from_numpy(vec[:N_PLANE]).view(C, H, W)
             scalars = torch.from_numpy(vec[N_PLANE : N_PLANE + N_SCAL])
             target = torch.tensor(vec[-1], dtype=torch.float32)
             yield board, scalars, target
+            del payload, vec
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -190,7 +195,7 @@ def main():
         train_ds,
         batch_size=2048,
         num_workers=num_workers,
-        pin_memory=True,
+        pin_memory=False,
     )
 
     net = ScrabbleValueNet().to(device)
@@ -234,6 +239,11 @@ def main():
                 torch.save({"step": step, "model": net.state_dict()}, "best.pt")
                 best_val = val_loss
                 print("  ✓ checkpointed (best validation)")
+
+    # Print total training time
+    total_time = time.time() - t0
+    print(f"Total training time: {total_time:.1f} seconds ({total_time/60:.2f} min)")
+    csv_fh.close()
 
 
 if __name__ == "__main__":

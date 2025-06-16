@@ -17,7 +17,7 @@ from training import (
 )  # Import constants from your training module
 
 
-def visualize_vector(vector_path="/tmp/test-vec-234.bin", show_all_planes=True):
+def visualize_vector(vector_path="/tmp/test-vec-2345.bin", show_all_planes=True):
     """
     Visualize a binary vector file used for Scrabble ML training.
 
@@ -176,55 +176,113 @@ def visualize_vector(vector_path="/tmp/test-vec-234.bin", show_all_planes=True):
         ax2.set_xticks(range(W))
         ax2.set_yticks(range(H))
 
-        # 3. Cross-check visualization (combined)
-        ax3 = fig.add_subplot(gs[0, 2])
-        h_cc_sum = np.sum(board_data[27:53], axis=0)
-        v_cc_sum = np.sum(board_data[53:79], axis=0)
-        cc_board = h_cc_sum + v_cc_sum
+        # 3. Cross-check visualization (horizontal and vertical side by side in gs[0,2])
+        gs_cc = GridSpec(
+            1,
+            2,
+            width_ratios=[1, 1],
+            left=gs[0, 2].get_position(fig).xmin,
+            right=gs[0, 2].get_position(fig).xmax,
+            bottom=gs[0, 2].get_position(fig).ymin,
+            top=gs[0, 2].get_position(fig).ymax,
+            figure=fig,
+        )
 
-        im3 = ax3.imshow(cc_board, cmap="hot", vmin=0)
-        ax3.set_title("Cross-Check Density")
+        ax3 = fig.add_subplot(gs_cc[0])
+        h_cc_sum = np.sum(board_data[27:53], axis=0)
+        im3 = ax3.imshow(h_cc_sum, cmap="coolwarm", vmin=0)
+        ax3.set_title("Horizontal Cross-Check Density")
         ax3.set_xticks(range(W))
         ax3.set_yticks(range(H))
-        plt.colorbar(im3, ax=ax3)
+        plt.colorbar(im3, ax=ax3, fraction=0.046, pad=0.04)
 
-        # 4. Rack visualization
-        ax4 = fig.add_subplot(gs[1, 0])
+        ax4 = fig.add_subplot(gs_cc[1])
+        v_cc_sum = np.sum(board_data[53:79], axis=0)
+        im4 = ax4.imshow(v_cc_sum, cmap="coolwarm", vmin=0)
+        ax4.set_title("Vertical Cross-Check Density")
+        ax4.set_xticks(range(W))
+        ax4.set_yticks(range(H))
+        plt.colorbar(im4, ax=ax4, fraction=0.046, pad=0.04)
+
+        # 4. Last opponent move and our last move visualization (move to gs[1,0])
+        ax5 = fig.add_subplot(gs[1, 0])
+        last_opp_move_plane = board_data[83]
+        our_last_move_plane = board_data[84]
+        im5 = ax5.imshow(last_opp_move_plane, cmap="Oranges", vmin=0, vmax=1)
+        im5_our = ax5.imshow(
+            our_last_move_plane, cmap="Blues", vmin=0, vmax=1, alpha=0.5
+        )
+        ax5.set_title("Last Moves: Opponent (orange), Ours (blue)")
+        ax5.set_xticks(range(W))
+        ax5.set_yticks(range(H))
+        for y in range(H):
+            for x in range(W):
+                if last_opp_move_plane[y, x] > 0:
+                    ax5.text(
+                        x,
+                        y,
+                        "O",
+                        ha="center",
+                        va="center",
+                        color="darkorange",
+                        fontweight="bold",
+                    )
+                if our_last_move_plane[y, x] > 0:
+                    ax5.text(
+                        x,
+                        y,
+                        "U",
+                        ha="center",
+                        va="center",
+                        color="blue",
+                        fontweight="bold",
+                    )
+
+        # 5. Rack visualization (move to gs[1,1])
+        ax6 = fig.add_subplot(gs[1, 1])
         rack_data = scalar_data[:27]
-        ax4.bar(["?"] + list(string.ascii_uppercase), rack_data)
-        ax4.set_title("Rack (count / 7.0)")
-        ax4.set_ylim(0, 1.0)
+        ax6.bar(["?"] + list(string.ascii_uppercase), rack_data)
+        ax6.set_title("Rack (count / 7.0)")
+        ax6.set_ylim(0, 1.0)
 
-        # 5. Unseen tiles visualization
-        ax5 = fig.add_subplot(gs[1, 1])
+        # 6. Unseen tiles visualization (move to gs[1,2])
+        ax7 = fig.add_subplot(gs[1, 2])
         unseen_data = scalar_data[27:54]
-        ax5.bar(["?"] + list(string.ascii_uppercase), unseen_data)
-        ax5.set_title("Unseen Tiles (count / bagcount)")
-        ax5.set_ylim(0, 1.0)
+        ax7.bar(["?"] + list(string.ascii_uppercase), unseen_data)
+        ax7.set_title("Unseen Tiles (count / bagcount)")
+        ax7.set_ylim(0, 1.0)
 
-        # 6. Other scalar features
-        ax6 = fig.add_subplot(gs[1, 2])
-        other_scalars = scalar_data[54:]
+        # 7. Last move was exchange scalar features (move to gs[2,0])
+        ax8 = fig.add_subplot(gs[2, 0])
+        last_was_exchange = scalar_data[54:62]
+        exchange_labels = ["Was Exchange"] + [f"{i} Exch" for i in range(1, 8)]
+        ax8.bar(exchange_labels[: len(last_was_exchange)], last_was_exchange)
+        ax8.set_title("Last Opp Move Was Exchange (scalar features)")
+        ax8.set_ylim(0, 1.1)
+        for i, v in enumerate(last_was_exchange):
+            if v > 0:
+                ax8.text(
+                    i, v + 0.02, f"{v:.2f}", ha="center", color="red", fontweight="bold"
+                )
+
+        # 8. Other scalar features (move to gs[2,1])
+        ax9 = fig.add_subplot(gs[2, 1])
+        other_scalars = scalar_data[62:]
         expected_labels = [
             "Last Move Score",
             "Last Move Leave",
             "Tiles Remaining",
             "Spread",
         ]
-
-        # Use only as many labels as we have data for
         labels = expected_labels[: len(other_scalars)]
 
-        # Show what we have
         if len(other_scalars) > 0:
-            ax6.bar(labels, other_scalars)
-            ax6.set_title(f"Other Features ({len(other_scalars)} values)")
-
-            # Show exact values as text
+            ax9.bar(labels, other_scalars)
+            ax9.set_title(f"Other Features ({len(other_scalars)} values)")
             for i, v in enumerate(other_scalars):
-                ax6.text(i, v + 0.02, f"{v:.3f}", ha="center")
+                ax9.text(i, v + 0.02, f"{v:.3f}", ha="center")
         else:
-            ax6.text(
+            ax9.text(
                 0.5,
                 0.5,
                 "No additional features available",
@@ -232,16 +290,12 @@ def visualize_vector(vector_path="/tmp/test-vec-234.bin", show_all_planes=True):
                 va="center",
                 fontsize=12,
             )
-            ax6.axis("off")
+            ax9.axis("off")
 
-        # Show exact values as text
-        for i, v in enumerate(other_scalars):
-            ax6.text(i, v + 0.02, f"{v:.3f}", ha="center")
-
-        # 7. Display target value if available
+        # 9. Display target value if available (move to gs[2,2])
         if target is not None:
-            ax7 = fig.add_subplot(gs[2, 0:])
-            ax7.text(
+            ax10 = fig.add_subplot(gs[2, 2])
+            ax10.text(
                 0.5,
                 0.5,
                 f"Target value (1 = win, -1 = loss, 0 = draw): {target:.6f}",
@@ -249,7 +303,10 @@ def visualize_vector(vector_path="/tmp/test-vec-234.bin", show_all_planes=True):
                 va="center",
                 fontsize=16,
             )
-            ax7.axis("off")
+            ax10.axis("off")
+
+        # Adjust layout for new plots
+        plt.tight_layout()
 
     # Add a button to view raw data
     btn_frame = plt.gcf().add_axes(
