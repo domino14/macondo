@@ -17,7 +17,7 @@ from training import (
 )  # Import constants from your training module
 
 
-def visualize_vector(vector_path="/tmp/test-vec-infer.bin", show_all_planes=False):
+def visualize_vector(vector_path="/tmp/test-vec-234.bin", show_all_planes=True):
     """
     Visualize a binary vector file used for Scrabble ML training.
 
@@ -64,6 +64,7 @@ def visualize_vector(vector_path="/tmp/test-vec-infer.bin", show_all_planes=Fals
         "Horizontal Cross-Checks": slice(27, 53),
         "Vertical Cross-Checks": slice(53, 79),
         "Bonus Squares": slice(79, 83),
+        "Opp Last Play": slice(83, 84),
     }
 
     bonus_labels = ["2L", "3L", "2W", "3W"]
@@ -77,7 +78,7 @@ def visualize_vector(vector_path="/tmp/test-vec-infer.bin", show_all_planes=Fals
 
     # Visualize the planes
     if show_all_planes:
-        # Show all 83 planes individually
+        # Show all 84 planes individually
         for i in range(C):
             ax = fig.add_subplot(gs[i // 7, i % 7])
             im = ax.imshow(board_data[i], cmap=cmap, vmin=0, vmax=1)
@@ -91,9 +92,10 @@ def visualize_vector(vector_path="/tmp/test-vec-infer.bin", show_all_planes=Fals
                 ax.set_title(f"H-CC {string.ascii_uppercase[i-27]}")
             elif i < 79:
                 ax.set_title(f"V-CC {string.ascii_uppercase[i-53]}")
-            else:
+            elif i < 83:
                 ax.set_title(f"Bonus {bonus_labels[i-79]}")
-
+            else:
+                ax.set_title("Opponent's Last Play")
             ax.set_xticks([])
             ax.set_yticks([])
     else:

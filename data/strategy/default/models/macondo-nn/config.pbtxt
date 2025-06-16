@@ -5,12 +5,12 @@ input [
   {
     name: "board"
     data_type: TYPE_FP32
-    dims: [ 83, 15, 15 ]
+    dims: [ 84, 15, 15 ]
   },
   {
     name: "scalars"
     data_type: TYPE_FP32
-    dims: [ 58 ]
+    dims: [ 66 ]
   }
 ]
 output [
@@ -21,3 +21,6 @@ output [
     reshape { shape: [] }
   }
 ]
+version_policy {
+  all { }
+}

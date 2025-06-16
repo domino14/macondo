@@ -49,7 +49,7 @@ If your macondo directory is at `$HOME/code/macondo` you would run `docker run` 
 docker run --gpus all --rm -p 8000:8000 -p 8001:8001 -p 8002:8002     -v $HOME/code/macondo/data/strategy/default/models/:/models     nvcr.io/nvidia/tritonserver:25.05-py3     tritonserver --model-repository=/models
 ```
 
-You may need to install the NVIDIA Container Toolkit to use the GPU for inference.
+You may need to install the NVIDIA Container Toolkit to use your GPU for inference.
 
 Then you can run Macondo with the `MACONDO_TRITON_USE_TRITON` environment variable set to `true`.
 

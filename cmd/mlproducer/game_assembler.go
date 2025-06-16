@@ -38,7 +38,8 @@ type GameAssembler struct {
 
 // Sliding window of recent positions for one game.
 type gameWindow struct {
-	turns  []Turn      // length ≤ horizon+1
+	turns  []Turn // length ≤ horizon+1
+	moves  []*move.Move
 	states [][]float32 // feature vectors after each ply (same len)
 	game   turnplayer.BaseTurnPlayer
 }
@@ -101,12 +102,16 @@ func (ga *GameAssembler) FeedTurn(t Turn) [][]float32 {
 		gw.game = *tp
 		ga.games[t.GameID] = gw
 	}
-
+	var lastMove *move.Move
+	if len(gw.moves) > 0 {
+		lastMove = gw.moves[len(gw.moves)-1]
+	}
 	// 1) Apply move, update board/racks, compute after-move features.
-	stateVec := updateBoardAndExtractFeatures(gw, t, ga.eqCalc)
+	m, stateVec := updateBoardAndExtractFeatures(gw, t, ga.eqCalc, lastMove)
 
 	// 2) Push into sliding window.
 	gw.turns = append(gw.turns, t)
+	gw.moves = append(gw.moves, m)
 	gw.states = append(gw.states, stateVec)
 
 	// 3) Emit when window deep enough.
@@ -117,6 +122,7 @@ func (ga *GameAssembler) FeedTurn(t Turn) [][]float32 {
 		// Slide window forward by dropping the oldest ply.
 		gw.turns = gw.turns[1:]
 		gw.states = gw.states[1:]
+		gw.moves = gw.moves[1:]
 	}
 	// log.Info().Msgf("Game %s: fed turn %s, now have %d turns in window",
 	// 	t.GameID, t.Play, len(gw.turns))
@@ -167,8 +173,10 @@ func (ga *GameAssembler) flushRemainder(gw *gameWindow) [][]float32 {
 
 // Given current game window + turn, mutate board state and return features.
 // Must return the *after-move* tensor for that ply.
-func updateBoardAndExtractFeatures(gw *gameWindow, t Turn, eqCalc *equity.ExhaustiveLeaveCalculator) []float32 {
+func updateBoardAndExtractFeatures(gw *gameWindow, t Turn, eqCalc *equity.ExhaustiveLeaveCalculator,
+	lastMove *move.Move) (*move.Move, []float32) {
 	transpose := shouldTranspose(t.GameID)
+
 	tp := stats.Normalize(t.Play) // normalize play string
 	gw.game.ThrowRacksIn()
 	err := gw.game.SetRackFor(gw.game.PlayerOnTurn(), tilemapping.RackFromString(t.Rack, gw.game.Alphabet()))
@@ -214,7 +222,7 @@ func updateBoardAndExtractFeatures(gw *gameWindow, t Turn, eqCalc *equity.Exhaus
 	}
 	leaveVal = eqCalc.LeaveValue(rack.TilesOn())
 
-	vecPtr, err := gw.game.BuildMLVector(t.Score, leaveVal)
+	vecPtr, err := gw.game.BuildMLVector(t.Score, leaveVal, lastMove)
 	if err != nil {
 		log.Fatal().Msgf("Failed to build ML vector: %v", err)
 	}
@@ -243,7 +251,7 @@ func updateBoardAndExtractFeatures(gw *gameWindow, t Turn, eqCalc *equity.Exhaus
 	copy(vecCopy, vec)
 
 	game.MLVectorPool.Put(vecPtr)
-	return vecCopy
+	return m, vecCopy
 }
 
 // Build final training vector from state at ply t and ply t+horizon.

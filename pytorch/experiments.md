@@ -46,7 +46,7 @@ Player who went first wins: 2965.0 (55.493%)
 
 Ideas to try:
 
-- [ ] Inference with Python (faster than ONNX?) - would need server (use NVIDIA Triton actually)
+- [x] Inference with Python (faster than ONNX?) - would need server (use NVIDIA Triton actually)
 - [x] Validation set (Graph loss/etc)
 - [x] Train on transposed positions
 - [x] Remove our last move/leave values
@@ -132,3 +132,77 @@ FastMlBot Mean Points Per Turn: 36.0960  Stdev: 7.6867
 HastyBot went first: 15938.0 (50.002%)
 Player who went first wins: 17987.5 (56.431%)
 ```
+
+### Train on rand v rand (6/15/25)
+
+Made a bot that plays a random play from the top 10 by equity. Let's train on it to see if anything good happens.
+
+```
+macondo> autoanalyze /tmp/games-autoplay.txt
+Games played: 28759
+HastyBot wins: 15410.5 (53.585%)
+HastyBot Mean Score: 443.2089  Stdev: 76.3776
+FastMlBot Mean Score: 413.8135  Stdev: 65.3490
+HastyBot Mean Bingos: 2.0748  Stdev: 1.0865
+FastMlBot Mean Bingos: 1.7034  Stdev: 0.9669
+HastyBot Mean Points Per Turn: 37.6251  Stdev: 6.5083
+FastMlBot Mean Points Per Turn: 35.7706  Stdev: 7.4254
+HastyBot went first: 14380.0 (50.002%)
+Player who went first wins: 15887.5 (55.244%)
+```
+
+Not very good. Let's use a softmax / temperature parameter.
+
+### Train on hasty v rand-softmax (6/15/25)
+
+Softmax chooser generates 50 top moves and picks from a prob distribution, using temperature = 1.0. When there are 60 or fewer tiles in the bag, it chooses a temperature of 0.0. This causes some early exploration, hopefully allowing the model to see that putting a vowel next to a 2LS in the beginning of the game is bad.
+
+If that doesn't work we can add a feature - 15-size vector that has a 1 for "vowel next to 2LS" and train with that.
+
+```
+macondo> autoanalyze /tmp/games-autoplay.txt
+Games played: 2835007
+HastyBot wins: 1431715.5 (50.501%)
+HastyBot Mean Score: 436.3040  Stdev: 58.8817
+RandomBot Mean Score: 435.0373  Stdev: 58.9473
+HastyBot Mean Bingos: 2.0475  Stdev: 1.0296
+RandomBot Mean Bingos: 2.0432  Stdev: 1.0286
+HastyBot Mean Points Per Turn: 38.3349  Stdev: 6.3499
+RandomBot Mean Points Per Turn: 38.2267  Stdev: 6.3551
+HastyBot went first: 1417504.0 (50.000%)
+Player who went first wins: 1581291.5 (55.777%)
+```
+
+Hasty v Rand-Softmax is a very close matchup. Will it result in a better model?
+
+
+BTW - verified that exchange vectors are being generated correctly, so we are now pretty sure our machine learning vectors are all accurate.
+
+
+- Also step up validation size to 150,000
+
+Results:
+
+```
+Games played: 39889
+HastyBot wins: 19843.0 (49.746%)
+HastyBot Mean Score: 441.5946  Stdev: 70.1797
+FastMlBot Mean Score: 424.4761  Stdev: 61.1595
+HastyBot Mean Bingos: 2.0284  Stdev: 1.0683
+FastMlBot Mean Bingos: 2.0398  Stdev: 0.9785
+HastyBot Mean Points Per Turn: 37.4837  Stdev: 6.3793
+FastMlBot Mean Points Per Turn: 36.6343  Stdev: 6.9273
+HastyBot went first: 19945.0 (50.001%)
+Player who went first wins: 22233.0 (55.737%)
+```
+
+
+Better than our first model! This will be model 2.
+
+
+### Add opponent's last play
+
+
+
+
+### Train on rand-softmax v rand-softmax

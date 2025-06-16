@@ -17,48 +17,62 @@ from torch.utils.data import IterableDataset, DataLoader
 from torch.amp import GradScaler, autocast
 
 # ── feature sizes ────────────────────────────────────────────────────
-C, H, W = 83, 15, 15
+C, H, W = 84, 15, 15
 N_PLANE = C * H * W  # 18 675
-N_SCAL = 58
+N_SCAL = 66
 ROW_FLOATS = N_PLANE + N_SCAL + 1
 DTYPE = np.float32
 
-VAL_SIZE = 50_000  # vectors for validation  (~25 batches)
+VAL_SIZE = 150_000  # vectors for validation  (~75 batches)
 VAL_EVERY = 500  # train steps between val checks
 CSV_PATH = "loss_log.csv"
 
 
 # ────────────────────────────────────────────────────────────────────
-def producer(val_q, train_q, val_size):
+def producer(val_q, train_q, val_size, num_workers):
     """Read from stdin and push to validation and training queues."""
+
+    def _shutdown_queues():
+        """Send sentinel values to terminate all consumer processes."""
+        val_q.put(None)
+        for _ in range(num_workers):
+            train_q.put(None)
+
     buf = sys.stdin.buffer
     # Validation data
     for _ in range(val_size):
-        hdr = buf.read(4)
-        if not hdr:
-            val_q.put(None)
-            train_q.put(None)
+        try:
+            hdr = buf.read(4)
+            if not hdr:
+                _shutdown_queues()
+                return
+            (n_bytes,) = struct.unpack("<I", hdr)
+            payload = buf.read(n_bytes)
+            if len(payload) != n_bytes:
+                _shutdown_queues()
+                return
+            val_q.put(payload)
+        except (IOError, struct.error):
+            _shutdown_queues()
             return
-        (n_bytes,) = struct.unpack("<I", hdr)
-        payload = buf.read(n_bytes)
-        if len(payload) != n_bytes:
-            val_q.put(None)
-            train_q.put(None)
-            return
-        val_q.put(payload)
     val_q.put(None)  # Sentinel for validation queue
 
     # Training data
     while True:
-        hdr = buf.read(4)
-        if not hdr:
+        try:
+            hdr = buf.read(4)
+            if not hdr:
+                break
+            (n_bytes,) = struct.unpack("<I", hdr)
+            payload = buf.read(n_bytes)
+            if len(payload) != n_bytes:
+                break
+            train_q.put(payload)
+        except (IOError, struct.error):
             break
-        (n_bytes,) = struct.unpack("<I", hdr)
-        payload = buf.read(n_bytes)
-        if len(payload) != n_bytes:
-            break
-        train_q.put(payload)
-    train_q.put(None)  # Sentinel for training queue
+
+    for _ in range(num_workers):
+        train_q.put(None)
 
 
 class QueueDataset(IterableDataset):
@@ -146,7 +160,8 @@ def main():
     val_q = Queue()
     train_q = Queue(maxsize=1024)
 
-    p = Thread(target=producer, args=(val_q, train_q, VAL_SIZE))
+    num_workers = os.cpu_count()
+    p = Thread(target=producer, args=(val_q, train_q, VAL_SIZE, num_workers))
     p.daemon = True
     p.start()
 
@@ -174,7 +189,7 @@ def main():
     loader = DataLoader(
         train_ds,
         batch_size=2048,
-        num_workers=os.cpu_count(),
+        num_workers=num_workers,
         pin_memory=True,
     )
 
