@@ -134,7 +134,7 @@ class ScrabbleValueNet(nn.Module):
         x = self.gap(x).flatten(1)
         x = torch.cat([x, scalars], 1)
         x = F.relu(self.fc1(x))
-        return torch.tanh(self.fc_out(x)).squeeze(1)
+        return self.fc_out(x).squeeze(1)
 
 
 # ────────────────────────────────────────────────────────────────────

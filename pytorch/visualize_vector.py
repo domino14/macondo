@@ -298,7 +298,7 @@ def visualize_vector(vector_path="/tmp/test-vec-2345.bin", show_all_planes=True)
             ax10.text(
                 0.5,
                 0.5,
-                f"Target value (1 = win, -1 = loss, 0 = draw): {target:.6f}",
+                f"Target value (bogowin): {target:.6f}",
                 ha="center",
                 va="center",
                 fontsize=16,

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/chzyer/readline"
+	"github.com/domino14/word-golib/cache"
 	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/kballard/go-shellquote"
@@ -150,6 +151,7 @@ type ShellController struct {
 	exhaustiveLeaveCalculator *equity.ExhaustiveLeaveCalculator
 
 	simStats *stats.SimStats
+	winpcts  [][]float32 // win percentages for each spread, indexed by int(equity.MaxRepresentedWinSpread - spread)
 
 	macondoVersion string
 }
@@ -224,7 +226,18 @@ func NewShellController(cfg *config.Config, execPath, gitVersion string) *ShellC
 	opts := NewShellOptions()
 	opts.SetDefaults(cfg)
 
-	return &ShellController{l: l, config: cfg, execPath: execPath, options: opts, macondoVersion: gitVersion}
+	// fix hardcoding later
+	winpct, err := cache.Load(cfg.WGLConfig(), "winpctfile:NWL20:winpct.csv", equity.WinPCTLoadFunc)
+	if err != nil {
+		panic(err)
+	}
+	var ok bool
+	winPcts, ok := winpct.([][]float32)
+	if !ok {
+		panic("win percentages not correct type")
+	}
+
+	return &ShellController{l: l, config: cfg, execPath: execPath, options: opts, macondoVersion: gitVersion, winpcts: winPcts}
 }
 
 func (sc *ShellController) Cleanup() {
@@ -876,7 +889,9 @@ func extractFields(line string) (*shellcmd, error) {
 	lastWasOption := false
 	lastOption := ""
 	for idx := 1; idx < len(fields); idx++ {
-		if strings.HasPrefix(fields[idx], "-") {
+
+		// Only treat as option if it starts with '-' and is not a negative number and is not a single dash
+		if strings.HasPrefix(fields[idx], "-") && len(fields[idx]) > 1 && (fields[idx][1] < '0' || fields[idx][1] > '9') {
 			// option
 			lastWasOption = true
 			lastOption = fields[idx][1:]
@@ -981,6 +996,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.gameState(cmd)
 	case "mleval":
 		return sc.mleval(cmd)
+	case "winpct":
+		return sc.winpct(cmd)
 	default:
 		msg := fmt.Sprintf("command %v not found", strconv.Quote(cmd.cmd))
 		log.Info().Msg(msg)

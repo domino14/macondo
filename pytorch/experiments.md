@@ -224,5 +224,80 @@ Doesn't do as well as without the last play :/
 
 Training set: Hasty v Rand-softmax, about 5M games.
 
+```
+Games played: 55086
+HastyBot wins: 27457.5 (49.845%)
+HastyBot Mean Score: 443.9589  Stdev: 76.4878
+FastMlBot Mean Score: 422.5923  Stdev: 66.0006
+HastyBot Mean Bingos: 2.0485  Stdev: 1.0908
+FastMlBot Mean Bingos: 2.0383  Stdev: 0.9803
+HastyBot Mean Points Per Turn: 37.3446  Stdev: 6.3467
+FastMlBot Mean Points Per Turn: 36.2106  Stdev: 7.5318
+HastyBot went first: 27543.0 (50.000%)
+Player who went first wins: 30723.5 (55.774%)
+```
+
+Decent, about as good as our best model, or statistically indistinguishable.
+
+A longer run:
+
+```
+Games played: 222714
+HastyBot wins: 110070.5 (49.422%)
+HastyBot Mean Score: 443.6442  Stdev: 76.6556
+FastMlBot Mean Score: 422.8754  Stdev: 66.1699
+HastyBot Mean Bingos: 2.0442  Stdev: 1.0915
+FastMlBot Mean Bingos: 2.0432  Stdev: 0.9787
+HastyBot Mean Points Per Turn: 37.3182  Stdev: 6.3709
+FastMlBot Mean Points Per Turn: 36.2385  Stdev: 7.5451
+HastyBot went first: 111357.0 (50.000%)
+Player who went first wins: 125257.5 (56.241%)
+```
+
+Good model!
+
+For CSW24:
+
+```
+macondo> autoanalyze /tmp/games-autoplay.txt
+Games played: 251408
+HastyBot wins: 125448.5 (49.898%)
+HastyBot Mean Score: 466.2470  Stdev: 77.8985
+FastMlBot Mean Score: 444.5643  Stdev: 68.0848
+HastyBot Mean Bingos: 2.2917  Stdev: 1.1265
+FastMlBot Mean Bingos: 2.2603  Stdev: 1.0144
+HastyBot Mean Points Per Turn: 40.6773  Stdev: 6.7721
+FastMlBot Mean Points Per Turn: 39.4990  Stdev: 8.0347
+HastyBot went first: 125704.0 (50.000%)
+Player who went first wins: 141351.5 (56.224%)
+```
+
+Note: the above model is the same (trained on NWL23). We can probably get better
+results for a CSW24-specific model.
+
+
+### Train on bogowin as target variable  (6/17/25)
+
+```
+Games played: 156888
+HastyBot wins: 83533.5 (53.244%)
+HastyBot Mean Score: 456.7695  Stdev: 73.5927
+FastMlBot Mean Score: 400.8373  Stdev: 73.0475
+HastyBot Mean Bingos: 2.0614  Stdev: 1.0645
+FastMlBot Mean Bingos: 1.7964  Stdev: 1.0367
+HastyBot Mean Points Per Turn: 36.2815  Stdev: 6.0308
+FastMlBot Mean Points Per Turn: 32.9691  Stdev: 8.1514
+HastyBot went first: 78444.0 (50.000%)
+Player who went first wins: 87905.5 (56.031%)
+```
+
+Not as good, but shocking difference in average score. That FastMLBot wins 46.75%
+of games is incredible with that difference in average score. Need to analyze these results further.
+
+### Train with HastyBot v STEEBot
+
+Hypothesis is that I want a bot that makes a few more "mistakes" so I can see more positions where it is worth it to sacrifice equity.
+
+We will train on win-after-5 plies, bogowin target seems to be broken.
 
 ### Train on rand-softmax v rand-softmax

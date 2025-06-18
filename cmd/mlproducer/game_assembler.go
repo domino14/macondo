@@ -3,10 +3,14 @@
 package main
 
 import (
+	"math"
 	"strings"
 
 	"github.com/cespare/xxhash"
 	"github.com/rs/zerolog/log"
+
+	"github.com/domino14/word-golib/cache"
+	"github.com/domino14/word-golib/tilemapping"
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
@@ -16,7 +20,6 @@ import (
 	"github.com/domino14/macondo/montecarlo/stats"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/turnplayer"
-	"github.com/domino14/word-golib/tilemapping"
 )
 
 var DefaultConfig = config.DefaultConfig()
@@ -30,6 +33,7 @@ type GameAssembler struct {
 	horizon int                               // #plies to look ahead
 	games   map[string]*gameWindow            // live games by GameID
 	eqCalc  *equity.ExhaustiveLeaveCalculator // equity calculator for leave values
+	winpcts [][]float32
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -53,10 +57,21 @@ func NewGameAssembler(horizon int) *GameAssembler {
 	if err != nil {
 		log.Fatal().Msgf("Failed to create exhaustive leave calculator: %v", err)
 	}
+	// some hardcoded stuff here:
+	winpct, err := cache.Load(DefaultConfig.WGLConfig(), "winpctfile:NWL20:winpct.csv", equity.WinPCTLoadFunc)
+	if err != nil {
+		panic(err)
+	}
+	var ok bool
+	winPcts, ok := winpct.([][]float32)
+	if !ok {
+		panic("win percentages not correct type")
+	}
 	return &GameAssembler{
 		horizon: horizon,
 		games:   make(map[string]*gameWindow),
 		eqCalc:  els,
+		winpcts: winPcts,
 	}
 }
 
@@ -116,7 +131,7 @@ func (ga *GameAssembler) FeedTurn(t Turn) [][]float32 {
 
 	// 3) Emit when window deep enough.
 	if len(gw.states) > ga.horizon {
-		vec := makeTrainingVector(gw.states[0], gw.states[ga.horizon])
+		vec := makeTrainingVector(ga, gw, gw.states[0], gw.states[ga.horizon])
 		outVecs = append(outVecs, vec)
 
 		// Slide window forward by dropping the oldest ply.
@@ -165,7 +180,7 @@ func (ga *GameAssembler) flushRemainder(gw *gameWindow) [][]float32 {
 		if future > lastIdx {
 			future = lastIdx // clamp to final
 		}
-		vec := makeTrainingVector(gw.states[i], gw.states[future])
+		vec := makeTrainingVector(ga, gw, gw.states[i], gw.states[future])
 		outVecs = append(outVecs, vec)
 	}
 	return outVecs
@@ -255,7 +270,7 @@ func updateBoardAndExtractFeatures(gw *gameWindow, t Turn, eqCalc *equity.Exhaus
 }
 
 // Build final training vector from state at ply t and ply t+horizon.
-func makeTrainingVector(stateNow, stateFuture []float32) []float32 {
+func makeTrainingVector(ga *GameAssembler, gw *gameWindow, stateNow, stateFuture []float32) []float32 {
 	if len(stateNow) != len(stateFuture) {
 		log.Fatal().Msgf("State vectors must be of the same length, got %d and %d", len(stateNow), len(stateFuture))
 	}
@@ -270,6 +285,7 @@ func makeTrainingVector(stateNow, stateFuture []float32) []float32 {
 	// Get the actual spread values for the relevant player.
 	futureSpread := stateFuture[len(stateFuture)-2]
 	// nowSpread := stateNow[len(stateNow)-2]
+	bagRemaining := int(math.Round(float64(stateFuture[len(stateFuture)-3] * 100.0))) // second to last element is bag remaining
 
 	if spreadForFuture != spreadForNow {
 		// The two players are different. We want the future spread to be
@@ -282,11 +298,18 @@ func makeTrainingVector(stateNow, stateFuture []float32) []float32 {
 	// Let's try to just get a win or loss signal. Note we are looking ahead
 	// N Plies and it's not necessarily who won the entire game. We can
 	// train that way later.
-	win := 0.0
-	if futureSpread > 0 {
+	win := float32(0.0)
+	if futureSpread > 0 && gw.game.Playing() == pb.PlayState_GAME_OVER {
 		win = 1.0
-	} else if futureSpread < 0 {
+	} else if futureSpread < 0 && gw.game.Playing() == pb.PlayState_GAME_OVER {
 		win = -1.0
+	} else {
+		if futureSpread > equity.MaxRepresentedWinSpread {
+			futureSpread = equity.MaxRepresentedWinSpread
+		} else if futureSpread < -equity.MaxRepresentedWinSpread {
+			futureSpread = -equity.MaxRepresentedWinSpread
+		}
+		win = ga.winpcts[int(equity.MaxRepresentedWinSpread-futureSpread)][bagRemaining]
 	}
 
 	// log.Info().Msgf("future state spread %f, now spread %f, spreadForNow: %d, spreadForFuture: %d, Spread diff: %f, normalized: %f",
@@ -295,7 +318,7 @@ func makeTrainingVector(stateNow, stateFuture []float32) []float32 {
 	// 	spreadDiff, normalizeSpread(spreadDiff))
 	// replace previous element with normalized spread of this move only
 	vec[len(vec)-1] = game.NormalizeSpreadForML(vec[len(vec)-1])
-	vec = append(vec, float32(win))
+	vec = append(vec, win)
 
 	return vec
 }

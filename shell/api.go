@@ -21,6 +21,7 @@ import (
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/endgame/negamax"
+	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -932,6 +933,34 @@ func (sc *ShellController) check(cmd *shellcmd) (*Response, error) {
 	}
 
 	return msg(fmt.Sprintf("The play (%v) is %v in %v", strings.Join(wordsFriendly, ","), validStr, sc.config.GetString(config.ConfigDefaultLexicon))), nil
+
+}
+
+func (sc *ShellController) winpct(cmd *shellcmd) (*Response, error) {
+	if len(cmd.args) != 2 {
+		return nil, errors.New("please provide a spread and tiles remaining to check win percentage")
+	}
+
+	spread, err := strconv.Atoi(cmd.args[0])
+	if err != nil {
+		return nil, fmt.Errorf("invalid spread: %v", err)
+	}
+	tilesRemaining, err := strconv.Atoi(cmd.args[1])
+	if err != nil {
+		return nil, fmt.Errorf("invalid tiles remaining: %v", err)
+	}
+	if tilesRemaining < 0 || tilesRemaining > 93 {
+		return nil, fmt.Errorf("tiles remaining must be between 0 and 93, got %d", tilesRemaining)
+	}
+
+	if spread > equity.MaxRepresentedWinSpread {
+		spread = equity.MaxRepresentedWinSpread
+	} else if spread < -equity.MaxRepresentedWinSpread {
+		spread = -equity.MaxRepresentedWinSpread
+	}
+	wpct := sc.winpcts[int(equity.MaxRepresentedWinSpread-spread)][tilesRemaining]
+
+	return msg(fmt.Sprintf("Win percentage: %.2f%%", wpct*100)), nil
 
 }
 

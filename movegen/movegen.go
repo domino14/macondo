@@ -256,7 +256,7 @@ func (gen *GordonGenerator) AtLeastOneTileMove(rack *tilemapping.Rack) bool {
 	defer gen.SetPlayRecorder(pr)
 
 	gen.SetPlayRecorder(
-		func(*GordonGenerator, *tilemapping.Rack, int, int, move.MoveType, int) {
+		func(MoveGenerator, *tilemapping.Rack, int, int, move.MoveType, int) {
 			gen.quitEarly = true
 		},
 	)
