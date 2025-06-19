@@ -325,4 +325,32 @@ So maybe we want to try something in between to see how it does?
 
 Hasty beats softmax with temp 2 ~56% of the time, let's try this ::shrug::
 
+```
+Games played: 19719
+HastyBot wins: 10217.5 (51.816%)
+HastyBot Mean Score: 456.5801  Stdev: 80.9562
+FastMlBot Mean Score: 394.4646  Stdev: 85.7891
+HastyBot Mean Bingos: 2.0694  Stdev: 1.0804
+FastMlBot Mean Bingos: 1.8179  Stdev: 1.0609
+HastyBot Mean Points Per Turn: 36.9656  Stdev: 6.3370
+FastMlBot Mean Points Per Turn: 33.1946  Stdev: 8.9318
+HastyBot went first: 9860.0 (50.003%)
+Player who went first wins: 11209.5 (56.846%)
+```
+
+Nope. (Interesting bot though. Such a low scoring average for still a good win ratio vs HastyBot)
+
+How about temperature 1 down to 0 tiles left in the bag?. Hasty beats this one ~51.4% of the time. Maybe it'll work better?
+
+
+
+
+
+### Train on actual win instead of win after 5 plies
+
+
+- [ ] try bigger learning rates?
+- [ ]
+
+o
 ### Train on rand-softmax v rand-softmax
