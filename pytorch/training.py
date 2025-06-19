@@ -6,7 +6,7 @@ stdin  : binary frames  [len | 18 675 board | 58 scalars | 1 target]
 output : best.pt  +  loss_log.csv  (train & val loss)
 """
 
-import io, struct, sys, time, csv, os
+import io, struct, sys, time, csv, os, tempfile
 from multiprocessing import Queue
 from threading import Thread
 import numpy as np
@@ -153,6 +153,60 @@ def validate(net, tensors, device, batch=4096):
     return total / n
 
 
+def write_validation_to_file(val_ds, C, H, W, N_SCAL, DTYPE):
+    val_file = tempfile.NamedTemporaryFile(delete=False)
+    val_count = 0
+    for b, s, y in val_ds:
+        b_bytes = b.numpy().astype(DTYPE).tobytes()
+        s_bytes = s.numpy().astype(DTYPE).tobytes()
+        y_bytes = y.numpy().astype(DTYPE).tobytes()
+        val_file.write(struct.pack("<III", len(b_bytes), len(s_bytes), len(y_bytes)))
+        val_file.write(b_bytes)
+        val_file.write(s_bytes)
+        val_file.write(y_bytes)
+        val_count += 1
+    val_file.close()
+    return val_file.name, val_count
+
+
+@torch.no_grad()
+def validate_streaming(net, val_filename, val_count, device, batch=1024):
+    net.eval()
+    total, n = 0.0, 0
+    with open(val_filename, 'rb') as f:
+        batch_boards, batch_scalars, batch_targets = [], [], []
+        for _ in range(val_count):
+            b_size, s_size, y_size = struct.unpack("<III", f.read(12))
+            b_bytes = f.read(b_size)
+            s_bytes = f.read(s_size)
+            y_bytes = f.read(y_size)
+            b = torch.from_numpy(np.frombuffer(b_bytes, dtype=DTYPE).reshape(C, H, W))
+            s = torch.from_numpy(np.frombuffer(s_bytes, dtype=DTYPE))
+            y = torch.from_numpy(np.frombuffer(y_bytes, dtype=DTYPE))[0]
+            batch_boards.append(b)
+            batch_scalars.append(s)
+            batch_targets.append(y)
+            if len(batch_boards) == batch:
+                b_tensor = torch.stack(batch_boards).to(device)
+                s_tensor = torch.stack(batch_scalars).to(device)
+                y_tensor = torch.stack(batch_targets).to(device)
+                with autocast(device.type, enabled=(device.type in ("cuda", "mps"))):
+                    pred = net(b_tensor, s_tensor)
+                    total += F.smooth_l1_loss(pred, y_tensor, reduction="sum").item()
+                n += y_tensor.numel()
+                batch_boards, batch_scalars, batch_targets = [], [], []
+        if batch_boards:
+            b_tensor = torch.stack(batch_boards).to(device)
+            s_tensor = torch.stack(batch_scalars).to(device)
+            y_tensor = torch.stack(batch_targets).to(device)
+            with autocast(device.type, enabled=(device.type in ("cuda", "mps"))):
+                pred = net(b_tensor, s_tensor)
+                total += F.smooth_l1_loss(pred, y_tensor, reduction="sum").item()
+            n += y_tensor.numel()
+    net.train()
+    return total / n
+
+
 # ────────────────────────────────────────────────────────────────────
 def main():
     if torch.backends.mps.is_available():
@@ -172,22 +226,8 @@ def main():
 
     # ---- collect validation set -----------------------------------
     val_ds = QueueDataset(val_q)
-    val_boards, val_scals, val_targets = [], [], []
-    for b, s, y in val_ds:
-        val_boards.append(b)
-        val_scals.append(s)
-        val_targets.append(y)
-
-    if not val_boards:
-        print("No validation data loaded. Exiting.", file=sys.stderr)
-        sys.exit(1)
-
-    val_tensors = [
-        torch.stack(val_boards),
-        torch.stack(val_scals),
-        torch.stack(val_targets),
-    ]
-    print(f"Validation set: {len(val_targets)} positions", file=sys.stderr)
+    val_file_name, val_count = write_validation_to_file(val_ds, C, H, W, N_SCAL, DTYPE)
+    print(f"Validation set: {val_count} positions", file=sys.stderr)
 
     # ---- training loader ------------------------------------------
     train_ds = QueueDataset(train_q)
@@ -225,7 +265,7 @@ def main():
         if step % VAL_EVERY == 0:
             train_avg = running / VAL_EVERY
             running = 0.0
-            val_loss = validate(net, val_tensors, device)
+            val_loss = validate_streaming(net, val_file_name, val_count, device)
             csv_writer.writerow([step, f"{train_avg:.6f}", f"{val_loss:.6f}"])
             csv_fh.flush()
 
@@ -244,6 +284,7 @@ def main():
     total_time = time.time() - t0
     print(f"Total training time: {total_time:.1f} seconds ({total_time/60:.2f} min)")
     csv_fh.close()
+    os.unlink(val_file_name)
 
 
 if __name__ == "__main__":

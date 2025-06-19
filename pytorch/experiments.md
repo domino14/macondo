@@ -300,4 +300,29 @@ Hypothesis is that I want a bot that makes a few more "mistakes" so I can see mo
 
 We will train on win-after-5 plies, bogowin target seems to be broken.
 
+```
+Games played: 34682
+HastyBot wins: 18301.5 (52.769%)
+HastyBot Mean Score: 441.5951  Stdev: 61.6206
+FastMlBot Mean Score: 406.4064  Stdev: 58.2548
+HastyBot Mean Bingos: 2.0274  Stdev: 1.0329
+FastMlBot Mean Bingos: 1.7450  Stdev: 0.9795
+HastyBot Mean Points Per Turn: 37.0319  Stdev: 6.3778
+FastMlBot Mean Points Per Turn: 34.8631  Stdev: 6.3483
+HastyBot went first: 17341.0 (50.000%)
+Player who went first wins: 19528.5 (56.307%)
+```
+
+Not great. Back to softmax
+
+### Train with HastyBot v Softmax again
+
+New softmax parameters: temperature 2 down to 0 tiles left in the bag.
+Hasty beats old softmax bot ~50.6% of the time
+Hasty beats STEEBot more than 70% of the time
+
+So maybe we want to try something in between to see how it does?
+
+Hasty beats softmax with temp 2 ~56% of the time, let's try this ::shrug::
+
 ### Train on rand-softmax v rand-softmax

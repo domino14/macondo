@@ -299,17 +299,36 @@ func makeTrainingVector(ga *GameAssembler, gw *gameWindow, stateNow, stateFuture
 	// N Plies and it's not necessarily who won the entire game. We can
 	// train that way later.
 	win := float32(0.0)
-	if futureSpread > 0 && gw.game.Playing() == pb.PlayState_GAME_OVER {
-		win = 1.0
-	} else if futureSpread < 0 && gw.game.Playing() == pb.PlayState_GAME_OVER {
-		win = -1.0
+	bogowin := float32(0.0)
+	if gw.game.Playing() == pb.PlayState_GAME_OVER {
+		switch {
+		case futureSpread > 0:
+			win = 1.0
+			bogowin = 1.0 // we won, so BOGO win is also 100%
+		case futureSpread < 0:
+			win = -1.0
+			bogowin = 0.0 // we lost, so BOGO win is 0%
+		case futureSpread == 0:
+			win = 0.0
+			bogowin = 0.5 // we can consider this a draw, so 50% chance of winning
+		}
 	} else {
+		// We are not at the end of the game, so calculate bogowin (winpct lookup table)
+		// percentage based on the future spread.
 		if futureSpread > equity.MaxRepresentedWinSpread {
 			futureSpread = equity.MaxRepresentedWinSpread
 		} else if futureSpread < -equity.MaxRepresentedWinSpread {
 			futureSpread = -equity.MaxRepresentedWinSpread
 		}
-		win = ga.winpcts[int(equity.MaxRepresentedWinSpread-futureSpread)][bagRemaining]
+		if bagRemaining >= len(ga.winpcts) || bagRemaining < 0 {
+			log.Fatal().Msgf("Bag remaining %d is out of bounds for winpcts", bagRemaining)
+		}
+		bogowin = ga.winpcts[int(equity.MaxRepresentedWinSpread-futureSpread)][bagRemaining]
+		if futureSpread > 0 {
+			win = 1.0 // win is after N plies
+		} else if futureSpread < 0 {
+			win = -1.0
+		}
 	}
 
 	// log.Info().Msgf("future state spread %f, now spread %f, spreadForNow: %d, spreadForFuture: %d, Spread diff: %f, normalized: %f",
@@ -319,6 +338,8 @@ func makeTrainingVector(ga *GameAssembler, gw *gameWindow, stateNow, stateFuture
 	// replace previous element with normalized spread of this move only
 	vec[len(vec)-1] = game.NormalizeSpreadForML(vec[len(vec)-1])
 	vec = append(vec, win)
+	// vec = append(vec, bogowin)
+	_ = bogowin // ignore bogowin for now, it does badly.
 
 	return vec
 }

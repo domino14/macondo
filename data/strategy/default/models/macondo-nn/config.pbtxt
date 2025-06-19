@@ -24,9 +24,10 @@ output [
 version_policy {
   all { }
 }
-  instance_group [
-    {
-      count: 5
-      kind: KIND_GPU
-    }
-  ]
+instance_group [
+  {
+    count: 5
+    kind: KIND_GPU
+  }
+]
+dynamic_batching { }

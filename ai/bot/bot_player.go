@@ -272,11 +272,11 @@ func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
 		if len(moves) == 0 {
 			return nil, errors.New("no moves available for random bot")
 		}
-		temperature := 0.0
-		// Choose more exploratory moves early in the game.
-		if p.Bag().TilesRemaining() > 60 {
-			temperature = 1.0
-		}
+		temperature := 2.0
+		// // Choose more exploratory moves early in the game.
+		// if p.Bag().TilesRemaining() > 60 {
+		// 	temperature = 1.0
+		// }
 		move, err := ChooseMoveWithExploration(moves, temperature)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to choose move with exploration for random bot")
