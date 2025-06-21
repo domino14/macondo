@@ -23,10 +23,6 @@ N_SCAL = 66
 ROW_FLOATS = N_PLANE + N_SCAL + 1
 DTYPE = np.float32
 
-# XXX: loading these vectors into memory at the beginning requires a lot of
-# RAM; about 11 GB! We should probably separate the validation set into
-# its own file and deal with it in another way. If you don't have enough RAM
-# you should lower this size.
 VAL_SIZE = 150_000  # vectors for validation  (~75 batches)
 VAL_EVERY = 500  # train steps between val checks
 CSV_PATH = "loss_log.csv"
@@ -134,7 +130,7 @@ class ScrabbleValueNet(nn.Module):
         x = self.gap(x).flatten(1)
         x = torch.cat([x, scalars], 1)
         x = F.relu(self.fc1(x))
-        return self.fc_out(x).squeeze(1)
+        return torch.tanh(self.fc_out(x)).squeeze(1)
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -173,7 +169,7 @@ def write_validation_to_file(val_ds, C, H, W, N_SCAL, DTYPE):
 def validate_streaming(net, val_filename, val_count, device, batch=1024):
     net.eval()
     total, n = 0.0, 0
-    with open(val_filename, 'rb') as f:
+    with open(val_filename, "rb") as f:
         batch_boards, batch_scalars, batch_targets = [], [], []
         for _ in range(val_count):
             b_size, s_size, y_size = struct.unpack("<III", f.read(12))

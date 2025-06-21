@@ -19,6 +19,7 @@ import (
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/preendgame"
 	"github.com/domino14/macondo/rangefinder"
+	"github.com/domino14/macondo/stats"
 	"github.com/domino14/macondo/turnplayer"
 	"github.com/rs/zerolog/log"
 	"lukechampine.com/frand"
@@ -230,6 +231,11 @@ func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
 		return eliteBestPlay(ctx, p)
 	}
 	if p.botType == pb.BotRequest_FAST_ML_BOT {
+		if p.Bag().TilesRemaining() == 0 {
+			// The bag is empty. Let's use the HastyBot endgame algorithm.
+			log.Debug().Msg("Using HastyBot endgame algorithm for fast ML bot")
+			return p.GenerateMoves(1)[0], nil
+		}
 		// Fast ML bot uses a different method
 		moves := p.GenerateMoves(50)
 
@@ -262,6 +268,11 @@ func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
 		}
 		// Sort by evaluation in descending order
 		sort.Slice(pairs, func(i, j int) bool {
+			// If the evaluations are equal, prefer the move with more tiles played
+			// This helps in the endgame.
+			if stats.FuzzyEqual(float64(pairs[i].eval), float64(pairs[j].eval)) {
+				return pairs[i].move.TilesPlayed() > pairs[j].move.TilesPlayed()
+			}
 			return pairs[i].eval > pairs[j].eval
 		})
 		return pairs[0].move, nil
@@ -272,11 +283,11 @@ func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
 		if len(moves) == 0 {
 			return nil, errors.New("no moves available for random bot")
 		}
-		temperature := 1.0
+		temperature := 0.0
 		// // Choose more exploratory moves early in the game.
-		// if p.Bag().TilesRemaining() > 60 {
-		// 	temperature = 1.0
-		// }
+		if p.Bag().TilesRemaining() > 60 {
+			temperature = 1.0
+		}
 		move, err := ChooseMoveWithExploration(moves, temperature)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to choose move with exploration for random bot")

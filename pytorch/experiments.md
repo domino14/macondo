@@ -51,7 +51,7 @@ Ideas to try:
 - [x] Train on transposed positions
 - [x] Remove our last move/leave values
 - [x] Normalize bag and rack by count of tile, not by fixed numbers
-- [ ] Include opponent's last play
+- [x] Include opponent's last play
 - [ ] Set target to win % after Monte Carlo simulation (need a lot of time to collect enough data)
 
 ### Add transposition (6/13/25)
@@ -313,13 +313,13 @@ HastyBot went first: 17341.0 (50.000%)
 Player who went first wins: 19528.5 (56.307%)
 ```
 
-Not great. Back to softmax
+Not great. Back to softmax.
 
 ### Train with HastyBot v Softmax again
 
 New softmax parameters: temperature 2 down to 0 tiles left in the bag.
-Hasty beats old softmax bot ~50.6% of the time
-Hasty beats STEEBot more than 70% of the time
+Hasty beats old softmax bot ~50.6% of the time.
+Hasty beats STEEBot more than 70% of the time.
 
 So maybe we want to try something in between to see how it does?
 
@@ -343,14 +343,134 @@ Nope. (Interesting bot though. Such a low scoring average for still a good win r
 How about temperature 1 down to 0 tiles left in the bag?. Hasty beats this one ~51.4% of the time. Maybe it'll work better?
 
 
+`~/data/autoplay-softmax-v-hasty-4.txt`
 
+
+```
+macondo>     autoanalyze /tmp/games-autoplay.txt
+Games played: 34725
+HastyBot wins: 18179.0 (52.351%)
+HastyBot Mean Score: 458.6027  Stdev: 79.7317
+FastMlBot Mean Score: 395.1538  Stdev: 81.8634
+HastyBot Mean Bingos: 2.0870  Stdev: 1.0820
+FastMlBot Mean Bingos: 1.8313  Stdev: 1.0556
+HastyBot Mean Points Per Turn: 36.8781  Stdev: 6.1157
+FastMlBot Mean Points Per Turn: 33.2102  Stdev: 8.7180
+HastyBot went first: 17363.0 (50.001%)
+Player who went first wins: 19319.0 (55.634%)
+```
+
+Nope. Kind of worried that I messed something up now.
+
+Let's try recreating the 50.6% bot, and then try training on different numbers of plies.
+
+Ran 7.46M games (oops, too many) and saved to `~/data/autoplay-softmax-v-hasty-5.txt`. Then train.
+
+I forgot about the `torch.tanh`! Let's try that again.
+
+```
+Games played: 213298
+HastyBot wins: 104547.5 (49.015%)
+HastyBot Mean Score: 439.9196  Stdev: 70.2616
+FastMlBot Mean Score: 425.5268  Stdev: 61.6670
+HastyBot Mean Bingos: 2.0277  Stdev: 1.0681
+FastMlBot Mean Bingos: 2.0686  Stdev: 0.9677
+HastyBot Mean Points Per Turn: 37.2882  Stdev: 6.5674
+FastMlBot Mean Points Per Turn: 36.4596  Stdev: 6.8759
+HastyBot went first: 106649.0 (50.000%)
+Player who went first wins: 119615.5 (56.079%)
+```
+
+**This is great!** It's basically a 51% win model against Hasty! We save this as model 2 now. (The old model 2 became model 1 I think).
+
+
+Trying the `torch.tanh` fix on the previous dataset (`~/data/autoplay-softmax-v-hasty-4.txt`),
+basically training data of Hasty vs SoftmaxBot-Full (i.e., use temperature of 1 throughout a game):
+
+```
+Games played: 67951
+HastyBot wins: 33735.0 (49.646%)
+HastyBot Mean Score: 443.0799  Stdev: 74.4996
+FastMlBot Mean Score: 423.1817  Stdev: 64.9303
+HastyBot Mean Bingos: 2.0453  Stdev: 1.0812
+FastMlBot Mean Bingos: 2.0581  Stdev: 0.9755
+HastyBot Mean Points Per Turn: 37.3700  Stdev: 6.4462
+FastMlBot Mean Points Per Turn: 36.2679  Stdev: 7.3339
+HastyBot went first: 33976.0 (50.001%)
+Player who went first wins: 38028.0 (55.964%)
+```
+
+More sensible, but not as good as the last model. Still, there's probably a bit
+of a margin of error here.
+
+### 3 plies
+
+Look out 3 instead of 5 plies. Maybe there's too much noise at 5 plies and we
+can learn better. Use the best dataset we have so far (`~/data/autoplay-softmax-v-hasty-5.txt`):
+
+```
+Games played: 209547
+HastyBot wins: 105245.5 (50.225%)
+HastyBot Mean Score: 440.6544  Stdev: 72.2606
+FastMlBot Mean Score: 420.9047  Stdev: 62.7507
+HastyBot Mean Bingos: 2.0426  Stdev: 1.0798
+FastMlBot Mean Bingos: 1.9771  Stdev: 0.9552
+HastyBot Mean Points Per Turn: 37.4824  Stdev: 6.7245
+FastMlBot Mean Points Per Turn: 36.1746  Stdev: 6.9951
+HastyBot went first: 104774.0 (50.000%)
+Player who went first wins: 117327.5 (55.991%)
+```
+
+3 plies was too little.
+
+### 4 plies? (6/20/25)
+
+```
+Games played: 206058
+HastyBot wins: 101494.0 (49.255%)
+HastyBot Mean Score: 442.6054  Stdev: 77.1187
+FastMlBot Mean Score: 420.2734  Stdev: 68.0042
+HastyBot Mean Bingos: 2.0443  Stdev: 1.0959
+FastMlBot Mean Bingos: 2.0229  Stdev: 0.9677
+HastyBot Mean Points Per Turn: 37.4071  Stdev: 6.6318
+FastMlBot Mean Points Per Turn: 36.0002  Stdev: 7.5072
+HastyBot went first: 103029.0 (50.000%)
+Player who went first wins: 115859.0 (56.226%)
+```
+
+seems as we add more plies, we get better performance.
+
+One more run of 5 plies, after fixing a potential endgame bug:
+
+```
+Games played: 189506
+HastyBot wins: 93041.0 (49.097%)
+HastyBot Mean Score: 439.0608  Stdev: 69.7367
+FastMlBot Mean Score: 422.9370  Stdev: 63.3336
+HastyBot Mean Bingos: 2.0248  Stdev: 1.0678
+FastMlBot Mean Bingos: 2.0706  Stdev: 0.9645
+HastyBot Mean Points Per Turn: 37.4331  Stdev: 6.5987
+FastMlBot Mean Points Per Turn: 36.3162  Stdev: 6.9383
+HastyBot went first: 94753.0 (50.000%)
+Player who went first wins: 106246.0 (56.065%)
+```
+
+
+### Many plies
+
+
+### Endgame fix
+
+The NN bot is using its own implicit endgame algorithm. If it's behind or ahead by a lot it doesn't prioritize going out. It might even blow close endgames by not going out (I am not sure). We should consider either using the HastyBot endgame algorithm, or handcrafting an algorithm that prioritizes going out if it's possible.
+
+Let's do this and run a couple of matches again to make sure they're not affecting the win rate. I don't think they are, but they seem to be affecting the average score.
 
 
 ### Train on actual win instead of win after 5 plies
 
 
 - [ ] try bigger learning rates?
-- [ ]
+- [ ] try looking out to 2 plies instead of 5 plies? 3 plies?
+- [ ] try temperature varying from 1 to 0 linearly/in a curve depending on # tiles in bag?
 
-o
 ### Train on rand-softmax v rand-softmax
