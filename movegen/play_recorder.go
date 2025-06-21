@@ -19,22 +19,26 @@ var SmallPlaySlicePool = sync.Pool{
 	},
 }
 
-type PlayRecorderFunc func(*GordonGenerator, *tilemapping.Rack, int, int, move.MoveType, int)
+type PlayRecorderFunc func(MoveGenerator, *tilemapping.Rack, int, int, move.MoveType, int)
 
-func NullPlayRecorder(gen *GordonGenerator, a *tilemapping.Rack, leftstrip, rightstrip int, t move.MoveType, score int) {
+func NullPlayRecorder(gen MoveGenerator, a *tilemapping.Rack, leftstrip, rightstrip int, t move.MoveType, score int) {
 }
 
-func AllPlaysRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, rightstrip int, t move.MoveType, score int) {
-
+func AllPlaysRecorder(gen MoveGenerator, rack *tilemapping.Rack, leftstrip, rightstrip int, t move.MoveType, score int) {
+	gordonGen, ok := gen.(*GordonGenerator)
+	if !ok {
+		// For now, only GordonGenerator is supported.
+		return
+	}
 	switch t {
 	case move.MoveTypePlay:
-		startRow := gen.curRowIdx
-		tilesPlayed := gen.tilesPlayed
+		startRow := gordonGen.curRowIdx
+		tilesPlayed := gordonGen.tilesPlayed
 
 		startCol := leftstrip
 		row := startRow
 		col := startCol
-		if gen.vertical {
+		if gordonGen.vertical {
 			// We flip it here because we only generate vertical moves when we transpose
 			// the board, so the row and col are actually transposed.
 			row, col = col, row
@@ -45,29 +49,29 @@ func AllPlaysRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, r
 			return
 		}
 		word := make([]tilemapping.MachineLetter, length)
-		copy(word, gen.strip[startCol:startCol+length])
+		copy(word, gordonGen.strip[startCol:startCol+length])
 
-		alph := gen.letterDistribution.TileMapping()
-		play := move.NewScoringMove(score, word, rack.TilesOn(), gen.vertical,
+		alph := gordonGen.letterDistribution.TileMapping()
+		play := move.NewScoringMove(score, word, rack.TilesOn(), gordonGen.vertical,
 			tilesPlayed, alph, row, col)
-		gen.plays = append(gen.plays, play)
+		gordonGen.plays = append(gordonGen.plays, play)
 
 	case move.MoveTypeExchange:
 		// ignore the empty exchange case
 		if rightstrip == 0 {
 			return
 		}
-		if rightstrip > gen.maxCanExchange {
+		if rightstrip > gordonGen.maxCanExchange {
 			return
 		}
-		alph := gen.letterDistribution.TileMapping()
+		alph := gordonGen.letterDistribution.TileMapping()
 		exchanged := make([]tilemapping.MachineLetter, rightstrip)
-		copy(exchanged, gen.exchangestrip[:rightstrip])
+		copy(exchanged, gordonGen.exchangestrip[:rightstrip])
 		play := move.NewExchangeMove(exchanged, rack.TilesOn(), alph)
-		gen.plays = append(gen.plays, play)
+		gordonGen.plays = append(gordonGen.plays, play)
 	case move.MoveTypePass:
-		alph := gen.letterDistribution.TileMapping()
-		gen.plays = append(gen.plays, move.NewPassMove(rack.TilesOn(), alph))
+		alph := gordonGen.letterDistribution.TileMapping()
+		gordonGen.plays = append(gordonGen.plays, move.NewPassMove(rack.TilesOn(), alph))
 
 	default:
 
@@ -77,15 +81,20 @@ func AllPlaysRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, r
 
 // AllPlaysSmallRecorder is a recorder that records all plays, but as "SmallMove"s,
 // which allocate much less and are smaller overall than a regular move.Move
-func AllPlaysSmallRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, rightstrip int, t move.MoveType, score int) {
+func AllPlaysSmallRecorder(gen MoveGenerator, rack *tilemapping.Rack, leftstrip, rightstrip int, t move.MoveType, score int) {
+	gordonGen, ok := gen.(*GordonGenerator)
+	if !ok {
+		// For now, only GordonGenerator is supported.
+		return
+	}
 	switch t {
 
 	case move.MoveTypePlay:
-		startRow := gen.curRowIdx
+		startRow := gordonGen.curRowIdx
 		startCol := leftstrip
 		row := startRow
 		col := startCol
-		if gen.vertical {
+		if gordonGen.vertical {
 			// We flip it here because we only generate vertical moves when we transpose
 			// the board, so the row and col are actually transposed.
 			row, col = col, row
@@ -100,7 +109,7 @@ func AllPlaysSmallRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstr
 		bts := 20 // start at a bitshift of 20 for the first tile
 		var blanksMask int
 		for i := startCol; i < startCol+length; i++ {
-			ml := gen.strip[i]
+			ml := gordonGen.strip[i]
 			if ml == 0 {
 				// play-through tile
 				continue
@@ -118,21 +127,21 @@ func AllPlaysSmallRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstr
 			tidx++
 			bts += 6
 		}
-		if gen.vertical {
+		if gordonGen.vertical {
 			moveCode |= 1
 		}
 		moveCode |= (uint64(col) << 1)
 		moveCode |= (uint64(row) << 6)
 		moveCode |= (uint64(blanksMask) << 12)
-		gen.smallPlays = append(gen.smallPlays, tinymove.TilePlayMove(
-			tinymove.TinyMove(moveCode), int16(score), uint8(gen.tilesPlayed),
+		gordonGen.smallPlays = append(gordonGen.smallPlays, tinymove.TilePlayMove(
+			tinymove.TinyMove(moveCode), int16(score), uint8(gordonGen.tilesPlayed),
 			uint8(length)))
 
 	case move.MoveTypeExchange:
 		// Not meant for this, yet.
 		log.Fatal("move type exchange is not compatible with SmallMove")
 	case move.MoveTypePass:
-		gen.smallPlays = append(gen.smallPlays, tinymove.PassMove())
+		gordonGen.smallPlays = append(gordonGen.smallPlays, tinymove.PassMove())
 	default:
 
 	}
@@ -141,21 +150,25 @@ func AllPlaysSmallRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstr
 
 // TopPlayOnlyRecorder is a heavily optimized, ugly function to avoid allocating
 // a lot of moves just to throw them out. It only records the very top move.
-func TopPlayOnlyRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, rightstrip int, t move.MoveType, score int) {
-
+func TopPlayOnlyRecorder(gen MoveGenerator, rack *tilemapping.Rack, leftstrip, rightstrip int, t move.MoveType, score int) {
+	gordonGen, ok := gen.(*GordonGenerator)
+	if !ok {
+		// For now, only GordonGenerator is supported.
+		return
+	}
 	var eq float64
 	var tilesLength int
 	var leaveLength int
 
 	switch t {
 	case move.MoveTypePlay:
-		startRow := gen.curRowIdx
-		tilesPlayed := gen.tilesPlayed
+		startRow := gordonGen.curRowIdx
+		tilesPlayed := gordonGen.tilesPlayed
 
 		startCol := leftstrip
 		row := startRow
 		col := startCol
-		if gen.vertical {
+		if gordonGen.vertical {
 			// We flip it here because we only generate vertical moves when we transpose
 			// the board, so the row and col are actually transposed.
 			row, col = col, row
@@ -166,15 +179,15 @@ func TopPlayOnlyRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip
 			return
 		}
 		// note that this is a pointer right now:
-		word := gen.strip[startCol : startCol+tilesLength]
-		leaveLength = rack.NoAllocTilesOn(gen.leavestrip)
+		word := gordonGen.strip[startCol : startCol+tilesLength]
+		leaveLength = rack.NoAllocTilesOn(gordonGen.leavestrip)
 
-		gen.placeholder.Set(word, gen.leavestrip[:leaveLength], score,
-			row, col, tilesPlayed, gen.vertical, move.MoveTypePlay,
-			gen.letterDistribution.TileMapping())
-		if len(gen.equityCalculators) > 0 {
-			eq = lo.SumBy(gen.equityCalculators, func(c equity.EquityCalculator) float64 {
-				return c.Equity(gen.placeholder, gen.board, gen.game.Bag(), gen.game.RackFor(gen.game.NextPlayer()))
+		gordonGen.placeholder.Set(word, gordonGen.leavestrip[:leaveLength], score,
+			row, col, tilesPlayed, gordonGen.vertical, move.MoveTypePlay,
+			gordonGen.letterDistribution.TileMapping())
+		if len(gordonGen.equityCalculators) > 0 {
+			eq = lo.SumBy(gordonGen.equityCalculators, func(c equity.EquityCalculator) float64 {
+				return c.Equity(gordonGen.placeholder, gordonGen.board, gordonGen.game.Bag(), gordonGen.game.RackFor(gordonGen.game.NextPlayer()))
 			})
 		} else {
 			eq = float64(score)
@@ -185,58 +198,62 @@ func TopPlayOnlyRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip
 		if rightstrip == 0 {
 			return
 		}
-		if rightstrip > gen.maxCanExchange {
+		if rightstrip > gordonGen.maxCanExchange {
 			return
 		}
 		tilesLength = rightstrip
-		exchanged := gen.exchangestrip[:rightstrip]
-		leaveLength = rack.NoAllocTilesOn(gen.leavestrip)
+		exchanged := gordonGen.exchangestrip[:rightstrip]
+		leaveLength = rack.NoAllocTilesOn(gordonGen.leavestrip)
 
-		gen.placeholder.Set(exchanged, gen.leavestrip[:leaveLength], 0,
-			0, 0, tilesLength, gen.vertical, move.MoveTypeExchange,
-			gen.letterDistribution.TileMapping())
+		gordonGen.placeholder.Set(exchanged, gordonGen.leavestrip[:leaveLength], 0,
+			0, 0, tilesLength, gordonGen.vertical, move.MoveTypeExchange,
+			gordonGen.letterDistribution.TileMapping())
 
-		eq = lo.SumBy(gen.equityCalculators, func(c equity.EquityCalculator) float64 {
-			return c.Equity(gen.placeholder, gen.board, gen.game.Bag(), gen.game.RackFor(gen.game.NextPlayer()))
+		eq = lo.SumBy(gordonGen.equityCalculators, func(c equity.EquityCalculator) float64 {
+			return c.Equity(gordonGen.placeholder, gordonGen.board, gordonGen.game.Bag(), gordonGen.game.RackFor(gordonGen.game.NextPlayer()))
 		})
 	case move.MoveTypePass:
-		leaveLength = rack.NoAllocTilesOn(gen.leavestrip)
-		alph := gen.letterDistribution.TileMapping()
-		gen.placeholder.Set(nil, gen.leavestrip[:leaveLength],
+		leaveLength = rack.NoAllocTilesOn(gordonGen.leavestrip)
+		alph := gordonGen.letterDistribution.TileMapping()
+		gordonGen.placeholder.Set(nil, gordonGen.leavestrip[:leaveLength],
 			0, 0, 0, 0, false, move.MoveTypePass, alph)
-		eq = lo.SumBy(gen.equityCalculators, func(c equity.EquityCalculator) float64 {
-			return c.Equity(gen.placeholder, gen.board, gen.game.Bag(), gen.game.RackFor(gen.game.NextPlayer()))
+		eq = lo.SumBy(gordonGen.equityCalculators, func(c equity.EquityCalculator) float64 {
+			return c.Equity(gordonGen.placeholder, gordonGen.board, gordonGen.game.Bag(), gordonGen.game.RackFor(gordonGen.game.NextPlayer()))
 		})
 	default:
 
 	}
-	if gen.winner.IsEmpty() || eq > gen.winner.Equity() {
-		gen.winner.CopyFrom(gen.placeholder)
-		gen.winner.SetEquity(eq)
-		if len(gen.plays) == 0 {
-			gen.plays = append(gen.plays, gen.winner)
+	if gordonGen.winner.IsEmpty() || eq > gordonGen.winner.Equity() {
+		gordonGen.winner.CopyFrom(gordonGen.placeholder)
+		gordonGen.winner.SetEquity(eq)
+		if len(gordonGen.plays) == 0 {
+			gordonGen.plays = append(gordonGen.plays, gordonGen.winner)
 		} else {
-			gen.plays[0] = gen.winner
+			gordonGen.plays[0] = gordonGen.winner
 		}
 	}
 
 }
 
-func TopNPlayRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, rightstrip int, t move.MoveType, score int) {
-
+func TopNPlayRecorder(gen MoveGenerator, rack *tilemapping.Rack, leftstrip, rightstrip int, t move.MoveType, score int) {
+	gordonGen, ok := gen.(*GordonGenerator)
+	if !ok {
+		// For now, only GordonGenerator is supported.
+		return
+	}
 	var eq float64
 	var tilesLength int
 	var leaveLength int
 
 	switch t {
 	case move.MoveTypePlay:
-		startRow := gen.curRowIdx
-		tilesPlayed := gen.tilesPlayed
+		startRow := gordonGen.curRowIdx
+		tilesPlayed := gordonGen.tilesPlayed
 
 		startCol := leftstrip
 		row := startRow
 		col := startCol
-		if gen.vertical {
+		if gordonGen.vertical {
 			// We flip it here because we only generate vertical moves when we transpose
 			// the board, so the row and col are actually transposed.
 			row, col = col, row
@@ -247,15 +264,15 @@ func TopNPlayRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, r
 			return
 		}
 		// note that this is a pointer right now:
-		word := gen.strip[startCol : startCol+tilesLength]
-		leaveLength = rack.NoAllocTilesOn(gen.leavestrip)
+		word := gordonGen.strip[startCol : startCol+tilesLength]
+		leaveLength = rack.NoAllocTilesOn(gordonGen.leavestrip)
 
-		gen.placeholder.Set(word, gen.leavestrip[:leaveLength], score,
-			row, col, tilesPlayed, gen.vertical, move.MoveTypePlay,
-			gen.letterDistribution.TileMapping())
-		if len(gen.equityCalculators) > 0 {
-			eq = lo.SumBy(gen.equityCalculators, func(c equity.EquityCalculator) float64 {
-				return c.Equity(gen.placeholder, gen.board, gen.game.Bag(), gen.game.RackFor(gen.game.NextPlayer()))
+		gordonGen.placeholder.Set(word, gordonGen.leavestrip[:leaveLength], score,
+			row, col, tilesPlayed, gordonGen.vertical, move.MoveTypePlay,
+			gordonGen.letterDistribution.TileMapping())
+		if len(gordonGen.equityCalculators) > 0 {
+			eq = lo.SumBy(gordonGen.equityCalculators, func(c equity.EquityCalculator) float64 {
+				return c.Equity(gordonGen.placeholder, gordonGen.board, gordonGen.game.Bag(), gordonGen.game.RackFor(gordonGen.game.NextPlayer()))
 			})
 		} else {
 			eq = float64(score)
@@ -266,27 +283,27 @@ func TopNPlayRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, r
 		if rightstrip == 0 {
 			return
 		}
-		if rightstrip > gen.maxCanExchange {
+		if rightstrip > gordonGen.maxCanExchange {
 			return
 		}
 		tilesLength = rightstrip
-		exchanged := gen.exchangestrip[:rightstrip]
-		leaveLength = rack.NoAllocTilesOn(gen.leavestrip)
+		exchanged := gordonGen.exchangestrip[:rightstrip]
+		leaveLength = rack.NoAllocTilesOn(gordonGen.leavestrip)
 
-		gen.placeholder.Set(exchanged, gen.leavestrip[:leaveLength], 0,
-			0, 0, tilesLength, gen.vertical, move.MoveTypeExchange,
-			gen.letterDistribution.TileMapping())
+		gordonGen.placeholder.Set(exchanged, gordonGen.leavestrip[:leaveLength], 0,
+			0, 0, tilesLength, gordonGen.vertical, move.MoveTypeExchange,
+			gordonGen.letterDistribution.TileMapping())
 
-		eq = lo.SumBy(gen.equityCalculators, func(c equity.EquityCalculator) float64 {
-			return c.Equity(gen.placeholder, gen.board, gen.game.Bag(), gen.game.RackFor(gen.game.NextPlayer()))
+		eq = lo.SumBy(gordonGen.equityCalculators, func(c equity.EquityCalculator) float64 {
+			return c.Equity(gordonGen.placeholder, gordonGen.board, gordonGen.game.Bag(), gordonGen.game.RackFor(gordonGen.game.NextPlayer()))
 		})
 	case move.MoveTypePass:
-		leaveLength = rack.NoAllocTilesOn(gen.leavestrip)
-		alph := gen.letterDistribution.TileMapping()
-		gen.placeholder.Set(nil, gen.leavestrip[:leaveLength],
+		leaveLength = rack.NoAllocTilesOn(gordonGen.leavestrip)
+		alph := gordonGen.letterDistribution.TileMapping()
+		gordonGen.placeholder.Set(nil, gordonGen.leavestrip[:leaveLength],
 			0, 0, 0, 0, false, move.MoveTypePass, alph)
-		eq = lo.SumBy(gen.equityCalculators, func(c equity.EquityCalculator) float64 {
-			return c.Equity(gen.placeholder, gen.board, gen.game.Bag(), gen.game.RackFor(gen.game.NextPlayer()))
+		eq = lo.SumBy(gordonGen.equityCalculators, func(c equity.EquityCalculator) float64 {
+			return c.Equity(gordonGen.placeholder, gordonGen.board, gordonGen.game.Bag(), gordonGen.game.RackFor(gordonGen.game.NextPlayer()))
 		})
 	default:
 
@@ -294,8 +311,8 @@ func TopNPlayRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, r
 
 	newIdx := -1
 	// fmt.Printf("finding a spot for eq %v (play %s)\n", eq, gen.placeholder.ShortDescription())
-	for i := 0; i < gen.maxTopMovesSize; i++ {
-		if eq > gen.topNPlays[i].Equity() {
+	for i := 0; i < gordonGen.maxTopMovesSize; i++ {
+		if eq > gordonGen.topNPlays[i].Equity() {
 			newIdx = i
 			// fmt.Printf("inserting eq %v at idx %v\n", eq, newIdx)
 			break
@@ -304,12 +321,12 @@ func TopNPlayRecorder(gen *GordonGenerator, rack *tilemapping.Rack, leftstrip, r
 	if newIdx != -1 {
 		// fmt.Println("before", gen.topNPlays)
 		// Shift right the moves to make room for the new move
-		for j := gen.maxTopMovesSize - 1; j > newIdx; j-- {
-			gen.topNPlays[j].CopyFrom(gen.topNPlays[j-1])
+		for j := gordonGen.maxTopMovesSize - 1; j > newIdx; j-- {
+			gordonGen.topNPlays[j].CopyFrom(gordonGen.topNPlays[j-1])
 		}
 		// Insert the new move at the correct position
-		gen.topNPlays[newIdx].CopyFrom(gen.placeholder)
-		gen.topNPlays[newIdx].SetEquity(eq)
+		gordonGen.topNPlays[newIdx].CopyFrom(gordonGen.placeholder)
+		gordonGen.topNPlays[newIdx].SetEquity(eq)
 		// fmt.Println(gen.topNPlays)
 	}
 }

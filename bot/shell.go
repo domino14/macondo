@@ -196,7 +196,7 @@ func (sc *ShellController) play(args []string) (*Response, error) {
 		return nil, errors.New("play <coords> <word>")
 	}
 	coords, word := args[0], args[1]
-	m, err := sc.game.NewPlacementMove(SelfPlayer, coords, word)
+	m, err := sc.game.NewPlacementMove(SelfPlayer, coords, word, false)
 	if err != nil {
 		return nil, err
 	}

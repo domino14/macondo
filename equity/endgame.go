@@ -21,6 +21,11 @@ func (eac EndgameAdjustmentCalculator) Equity(play *move.Move, board *board.Game
 	return endgameAdjustment(play, oppRack, bag.LetterDistribution())
 }
 
+// Type returns the type of the equity calculator.
+func (eac EndgameAdjustmentCalculator) Type() string {
+	return "EndgameAdjustmentCalculator"
+}
+
 func endgameAdjustment(play *move.Move, oppRack *tilemapping.Rack, ld *tilemapping.LetterDistribution) float64 {
 	if len(play.Leave()) != 0 {
 		// This play is not going out. We should penalize it by our own score

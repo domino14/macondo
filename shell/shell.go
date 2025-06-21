@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/chzyer/readline"
+	"github.com/domino14/word-golib/cache"
 	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/kballard/go-shellquote"
@@ -147,7 +148,10 @@ type ShellController struct {
 	botCtxCancel context.CancelFunc
 	botBusy      bool
 
+	exhaustiveLeaveCalculator *equity.ExhaustiveLeaveCalculator
+
 	simStats *stats.SimStats
+	winpcts  [][]float32 // win percentages for each spread, indexed by int(equity.MaxRepresentedWinSpread - spread)
 
 	macondoVersion string
 }
@@ -222,13 +226,39 @@ func NewShellController(cfg *config.Config, execPath, gitVersion string) *ShellC
 	opts := NewShellOptions()
 	opts.SetDefaults(cfg)
 
-	return &ShellController{l: l, config: cfg, execPath: execPath, options: opts, macondoVersion: gitVersion}
+	// fix hardcoding later
+	winpct, err := cache.Load(cfg.WGLConfig(), "winpctfile:NWL20:winpct.csv", equity.WinPCTLoadFunc)
+	if err != nil {
+		panic(err)
+	}
+	var ok bool
+	winPcts, ok := winpct.([][]float32)
+	if !ok {
+		panic("win percentages not correct type")
+	}
+
+	return &ShellController{l: l, config: cfg, execPath: execPath, options: opts, macondoVersion: gitVersion, winpcts: winPcts}
 }
 
 func (sc *ShellController) Cleanup() {
 	if sc.simmer != nil {
 		sc.simmer.CleanupTempFile()
 	}
+}
+
+func (sc *ShellController) setExhaustiveLeaveCalculator() error {
+	ldName := sc.config.GetString(config.ConfigDefaultLetterDistribution)
+	leaves := ""
+	if strings.HasSuffix(ldName, "_super") {
+		leaves = "super-leaves.klv2"
+	}
+	els, err := equity.NewExhaustiveLeaveCalculator(sc.config.GetString(config.ConfigDefaultLexicon),
+		sc.config, leaves)
+	if err != nil {
+		return err
+	}
+	sc.exhaustiveLeaveCalculator = els
+	return nil
 }
 
 func (sc *ShellController) Set(key string, args []string) (string, error) {
@@ -249,6 +279,10 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 				err = sc.config.Write()
 				if err != nil {
 					log.Err(err).Msg("error-writing-config")
+				}
+				err = sc.setExhaustiveLeaveCalculator()
+				if err != nil {
+					log.Err(err).Msg("error-setting-exhaustive-leave-calculator")
 				}
 			}
 			_, ret = sc.options.Show("lexicon")
@@ -649,7 +683,7 @@ func (sc *ShellController) parseAddMove(playerid int, fields []string) (*move.Mo
 			"you may have wanted to use the `commit` command instead"
 		return nil, errors.New(errmsg)
 	}
-	return sc.game.ParseMove(playerid, sc.options.lowercaseMoves, fields)
+	return sc.game.ParseMove(playerid, sc.options.lowercaseMoves, fields, false)
 }
 
 func (sc *ShellController) parseCommitMove(playerid int, fields []string) (*move.Move, error) {
@@ -855,7 +889,9 @@ func extractFields(line string) (*shellcmd, error) {
 	lastWasOption := false
 	lastOption := ""
 	for idx := 1; idx < len(fields); idx++ {
-		if strings.HasPrefix(fields[idx], "-") {
+
+		// Only treat as option if it starts with '-' and is not a negative number and is not a single dash
+		if strings.HasPrefix(fields[idx], "-") && len(fields[idx]) > 1 && (fields[idx][1] < '0' || fields[idx][1] > '9') {
 			// option
 			lastWasOption = true
 			lastOption = fields[idx][1:]
@@ -958,6 +994,10 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.update(cmd)
 	case "gamestate":
 		return sc.gameState(cmd)
+	case "mleval":
+		return sc.mleval(cmd)
+	case "winpct":
+		return sc.winpct(cmd)
 	default:
 		msg := fmt.Sprintf("command %v not found", strconv.Quote(cmd.cmd))
 		log.Info().Msg(msg)

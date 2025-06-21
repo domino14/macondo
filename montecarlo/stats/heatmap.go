@@ -84,7 +84,7 @@ func (ss *SimStats) CalculateHeatmap(play string, ply int) (*HeatMap, error) {
 				return nil, errors.New("unexpected play " + analyzedPlay)
 			}
 			coords := strings.ToUpper(playFields[0])
-			row, col, vertical := move.FromBoardGameCoords(coords)
+			row, col, vertical := move.FromBoardGameCoords(coords, false)
 			mw, err := tilemapping.ToMachineWord(playFields[1], ss.game.Alphabet())
 			if err != nil {
 				return nil, err

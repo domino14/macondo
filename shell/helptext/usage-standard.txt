@@ -36,9 +36,11 @@ Other:
     autoplay [options] - start comp v comp autoplay
     autoanalyze <filepath> - simple analysis of a log file created by autoplay
     check <word1> [word2] ... - check all words in the current dictionary. If one is invalid, the play is invalid.
-    mode [modename] - macondo can be in a number of a different modes. The default
+    mode [modename] - Macondo can be in a number of a different modes. The default
       mode is 'standard'. In other modes, other commands are accepted. See
       `help mode` for a list of modes.
+    volunteer - You can donate your computer power to help Macondo improve.
+    Type in `help volunteer` to learn more.
 
 
 try help <command> with any of the above commands for more info

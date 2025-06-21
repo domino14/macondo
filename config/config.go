@@ -27,6 +27,10 @@ const (
 	ConfigWolgesAwsmUrl                    = "wolges-awsm-url"
 	ConfigCPUProfile                       = "cpu-profile"
 	ConfigMEMProfile                       = "mem-profile"
+	ConfigTritonUseTriton                  = "triton-use-triton"
+	ConfigTritonURL                        = "triton-url"
+	ConfigTritonModelName                  = "triton-model-name"
+	ConfigTritonModelVersion               = "triton-model-version"
 )
 
 type Config struct {
@@ -52,6 +56,10 @@ func DefaultConfig() *Config {
 	c.SetDefault(ConfigDefaultLetterDistribution, "English")
 	c.SetDefault(ConfigTtableMemFraction, 0.25)
 	c.SetDefault(ConfigDefaultBoardLayout, "CrosswordGame")
+	c.SetDefault(ConfigTritonUseTriton, false)
+	c.SetDefault(ConfigTritonURL, "localhost:8001")
+	c.SetDefault(ConfigTritonModelName, "macondo-nn")
+	c.SetDefault(ConfigTritonModelVersion, "")
 	// Read from an env var MACONDO_DATA_PATH. This might not be a good way to do it:
 	c.SetDefault(ConfigDataPath, c.GetString(ConfigDataPath))
 
@@ -81,6 +89,10 @@ func (c *Config) Load(args []string) error {
 	c.BindEnv(ConfigCPUProfile)
 	c.BindEnv(ConfigMEMProfile)
 	c.BindEnv(ConfigDefaultBoardLayout)
+	c.BindEnv(ConfigTritonUseTriton)
+	c.BindEnv(ConfigTritonURL)
+	c.BindEnv(ConfigTritonModelName)
+	c.BindEnv(ConfigTritonModelVersion)
 
 	cfgdir, err := os.UserConfigDir()
 	if err != nil {
@@ -122,6 +134,9 @@ func (c *Config) Load(args []string) error {
 	c.SetDefault(ConfigDefaultLetterDistribution, "English")
 	c.SetDefault(ConfigTtableMemFraction, 0.25)
 	c.SetDefault(ConfigDefaultBoardLayout, "CrosswordGame")
+	c.SetDefault(ConfigTritonURL, "localhost:8001")
+	c.SetDefault(ConfigTritonModelName, "macondo-nn")
+	c.SetDefault(ConfigTritonModelVersion, "")
 
 	return nil
 }

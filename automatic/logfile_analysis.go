@@ -1,6 +1,7 @@
 package automatic
 
 import (
+	"compress/gzip"
 	"encoding/csv"
 	"errors"
 	"fmt"
@@ -147,11 +148,30 @@ func ExportGCG(cfg *config.Config, filename, letterdist, lexicon, boardlayout, g
 	if lexicon == "" {
 		lexicon = "CSW21"
 	}
-
-	file, _, err := cache.Open(filename)
-	if err != nil {
-		return err
+	useGzip := strings.HasSuffix(filename, ".gz")
+	var file io.ReadCloser
+	if useGzip {
+		f, _, err := cache.Open(filename)
+		if err != nil {
+			return err
+		}
+		gz, err := gzip.NewReader(f)
+		if err != nil {
+			f.Close()
+			return err
+		}
+		file = struct {
+			io.Reader
+			io.Closer
+		}{gz, f}
+	} else {
+		var err error
+		file, _, err = cache.Open(filename)
+		if err != nil {
+			return err
+		}
 	}
+
 	defer file.Close()
 	r := csv.NewReader(file)
 
@@ -227,7 +247,7 @@ func ExportGCG(cfg *config.Config, filename, letterdist, lexicon, boardlayout, g
 			}
 		} else {
 			play := strings.Split(strings.TrimSpace(row[4]), " ")
-			m, err := g.NewPlacementMove(pidx, play[0], play[1])
+			m, err := g.NewPlacementMove(pidx, play[0], play[1], false)
 			if err != nil {
 				return err
 			}
