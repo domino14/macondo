@@ -123,6 +123,10 @@ func (g *Game) MLEvaluateMove(m *move.Move, leaveCalc *equity.ExhaustiveLeaveCal
 func (g *Game) MLEvaluateMoves(moves []*move.Move, leaveCalc *equity.ExhaustiveLeaveCalculator,
 	lastMove *move.Move) ([]float32, error) {
 
+	if strings.ToLower(g.letterDistribution.Name) != "english" {
+		return nil, fmt.Errorf("machine learning evaluation is only supported for English lexica at this time, got %s", g.letterDistribution.Name)
+	}
+
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start).Milliseconds()

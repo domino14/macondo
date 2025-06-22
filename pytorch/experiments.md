@@ -472,6 +472,7 @@ Player who went first wins: 367239.0 (55.981%)
 ```
 
 FastMLBot wins 51.63% of games against HastyBot!
+(Saved as model `3`)
 
 ### Endgame fix
 
@@ -491,7 +492,21 @@ Train with three more features:
 All of this can be deduced, but apparently it can be helpful to "pre-seed" the
 NN with more features, even if a little redundant? Anyway, let's see if it works.
 
+```
+Games played: 255626
+HastyBot wins: 123589.5 (48.348%)
+HastyBot Mean Score: 436.4643  Stdev: 70.1158
+FastMlBot Mean Score: 425.7528  Stdev: 61.0820
+HastyBot Mean Bingos: 2.0229  Stdev: 1.0709
+FastMlBot Mean Bingos: 1.9990  Stdev: 0.9579
+HastyBot Mean Points Per Turn: 37.4571  Stdev: 6.4241
+FastMlBot Mean Points Per Turn: 36.7565  Stdev: 6.9454
+HastyBot went first: 127813.0 (50.000%)
+Player who went first wins: 143352.5 (56.079%)
+```
 
+MLBot wins 51.65% of the time. Tiniest edge over last model, within margin of error, but since it's annoying to add/remove new features I'll just keep this
+model. This will be our "final" static model (for now) so we can release this.
 
 
 ### Train on actual win instead of win after 5 plies

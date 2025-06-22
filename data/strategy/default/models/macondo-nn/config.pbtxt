@@ -10,7 +10,7 @@ input [
   {
     name: "scalars"
     data_type: TYPE_FP32
-    dims: [ 66 ]
+    dims: [ 76 ]
   }
 ]
 output [
