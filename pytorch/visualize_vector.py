@@ -54,8 +54,14 @@ def visualize_vector(vector_path="/tmp/test-vec-9.bin", show_all_planes=True):
         fig = plt.figure(figsize=(20, 30))
         gs = GridSpec(15, 7, figure=fig)
     else:
-        fig = plt.figure(figsize=(18, 10))
-        gs = GridSpec(3, 3, figure=fig)
+        # Give more height to the first row (letters, bonus, cross-checks)
+        fig = plt.figure(figsize=(26, 16))
+        gs = GridSpec(
+            4,
+            4,
+            figure=fig,
+            height_ratios=[2.2, 1.2, 1.2, 1.2],  # More height for row 0 (cross-checks)
+        )
 
     # Define plane groups with their indices
     plane_groups = {
@@ -176,19 +182,8 @@ def visualize_vector(vector_path="/tmp/test-vec-9.bin", show_all_planes=True):
         ax2.set_xticks(range(W))
         ax2.set_yticks(range(H))
 
-        # 3. Cross-check visualization (horizontal and vertical side by side in gs[0,2])
-        gs_cc = GridSpec(
-            1,
-            2,
-            width_ratios=[1, 1],
-            left=gs[0, 2].get_position(fig).xmin,
-            right=gs[0, 2].get_position(fig).xmax,
-            bottom=gs[0, 2].get_position(fig).ymin,
-            top=gs[0, 2].get_position(fig).ymax,
-            figure=fig,
-        )
-
-        ax3 = fig.add_subplot(gs_cc[0])
+        # 3. Cross-check visualization (horizontal and vertical, now side by side in gs[0,2] and gs[0,3])
+        ax3 = fig.add_subplot(gs[0, 2])
         h_cc_sum = np.sum(board_data[27:53], axis=0)
         im3 = ax3.imshow(h_cc_sum, cmap="coolwarm", vmin=0)
         ax3.set_title("Horizontal Cross-Check Density")
@@ -196,7 +191,7 @@ def visualize_vector(vector_path="/tmp/test-vec-9.bin", show_all_planes=True):
         ax3.set_yticks(range(H))
         plt.colorbar(im3, ax=ax3, fraction=0.046, pad=0.04)
 
-        ax4 = fig.add_subplot(gs_cc[1])
+        ax4 = fig.add_subplot(gs[0, 3])
         v_cc_sum = np.sum(board_data[53:79], axis=0)
         im4 = ax4.imshow(v_cc_sum, cmap="coolwarm", vmin=0)
         ax4.set_title("Vertical Cross-Check Density")
@@ -245,8 +240,8 @@ def visualize_vector(vector_path="/tmp/test-vec-9.bin", show_all_planes=True):
         ax6.set_title("Rack (count / 7.0)")
         ax6.set_ylim(0, 1.0)
 
-        # 6. Unseen tiles visualization (move to gs[1,2])
-        ax7 = fig.add_subplot(gs[1, 2])
+        # 6. Unseen tiles visualization (move to gs[2,2])
+        ax7 = fig.add_subplot(gs[2, 2])
         unseen_data = scalar_data[27:54]
         ax7.bar(["?"] + list(string.ascii_uppercase), unseen_data)
         ax7.set_title("Unseen Tiles (count / bagcount)")
@@ -265,9 +260,41 @@ def visualize_vector(vector_path="/tmp/test-vec-9.bin", show_all_planes=True):
                     i, v + 0.02, f"{v:.2f}", ha="center", color="red", fontweight="bold"
                 )
 
-        # 8. Other scalar features (move to gs[2,1])
+        # 8. Power tiles visualization (move to gs[2,1])
         ax9 = fig.add_subplot(gs[2, 1])
-        other_scalars = scalar_data[62:]
+        power_tiles = scalar_data[62:68]
+        power_labels = ["?", "J", "Q", "S", "X", "Z"]
+        ax9.bar(power_labels, power_tiles)
+        ax9.set_title("Power Tiles Remaining (normalized)")
+        ax9.set_ylim(0, 1.1)
+        for i, v in enumerate(power_tiles):
+            if v > 0:
+                ax9.text(
+                    i,
+                    v + 0.02,
+                    f"{v:.2f}",
+                    ha="center",
+                    color="purple",
+                    fontweight="bold",
+                )
+
+        # 9. V/C ratio in bag (move to gs[3,2])
+        ax10 = fig.add_subplot(gs[3, 2])
+        vc_bag = scalar_data[68:70]
+        ax10.bar(["Vowels", "Consonants"], vc_bag)
+        ax10.set_title("Vowel/Consonant Ratio in Bag")
+        ax10.set_ylim(0, 1.1)
+
+        # 10. V/C ratio in rack (move to gs[3,0])
+        ax11 = fig.add_subplot(gs[3, 0])
+        vc_rack = scalar_data[70:72]
+        ax11.bar(["Vowels", "Consonants"], vc_rack)
+        ax11.set_title("Vowel/Consonant Ratio in Rack")
+        ax11.set_ylim(0, 1.1)
+
+        # 11. Other scalar features (move to gs[3,1])
+        ax12 = fig.add_subplot(gs[3, 1])
+        other_scalars = scalar_data[72:]
         expected_labels = [
             "Last Move Score",
             "Last Move Leave",
@@ -277,12 +304,12 @@ def visualize_vector(vector_path="/tmp/test-vec-9.bin", show_all_planes=True):
         labels = expected_labels[: len(other_scalars)]
 
         if len(other_scalars) > 0:
-            ax9.bar(labels, other_scalars)
-            ax9.set_title(f"Other Features ({len(other_scalars)} values)")
+            ax12.bar(labels, other_scalars)
+            ax12.set_title(f"Other Features ({len(other_scalars)} values)")
             for i, v in enumerate(other_scalars):
-                ax9.text(i, v + 0.02, f"{v:.3f}", ha="center")
+                ax12.text(i, v + 0.02, f"{v:.3f}", ha="center")
         else:
-            ax9.text(
+            ax12.text(
                 0.5,
                 0.5,
                 "No additional features available",
@@ -290,12 +317,12 @@ def visualize_vector(vector_path="/tmp/test-vec-9.bin", show_all_planes=True):
                 va="center",
                 fontsize=12,
             )
-            ax9.axis("off")
+            ax12.axis("off")
 
-        # 9. Display target value if available (move to gs[2,2])
+        # 12. Display target value if available (move to gs[3,2])
         if target is not None:
-            ax10 = fig.add_subplot(gs[2, 2])
-            ax10.text(
+            ax13 = fig.add_subplot(gs[3, 3])
+            ax13.text(
                 0.5,
                 0.5,
                 f"Target value (1 = win, -1 = loss, 0 = draw)): {target:.1f}",
@@ -303,7 +330,7 @@ def visualize_vector(vector_path="/tmp/test-vec-9.bin", show_all_planes=True):
                 va="center",
                 fontsize=16,
             )
-            ax10.axis("off")
+            ax13.axis("off")
 
         # Adjust layout for new plots
         plt.tight_layout()
@@ -377,7 +404,7 @@ def show_raw_vector_data(vec, N_PLANE, H, W):
     # Info display
     info_var = tk.StringVar()
     info_var.set(
-        f"Vector length: {len(vec)}, Board planes: {N_PLANE//(H*W)}, Scalars: {len(vec)-N_PLANE}"
+        f"Vector length: {len(vec)}, Board planes: {N_PLANE//(H*W)}, Scalars: {len(vec)-N_PLANE} (now includes power tiles and v/c ratios)"
     )
     info_label = ttk.Label(main_frame, textvariable=info_var)
     info_label.pack(pady=(5, 0))
@@ -424,11 +451,48 @@ def show_raw_vector_data(vec, N_PLANE, H, W):
 
             text.insert(tk.END, "\n")
 
-        # Add scalar values
+        # Add scalar values with new sections
         text.insert(tk.END, "\n=== SCALAR VALUES ===\n")
-        for i in range(N_PLANE, len(vec)):
+        # Rack (0-26)
+        for i in range(N_PLANE, N_PLANE + 27):
+            text.insert(tk.END, f"[{i:6d}] {vec[i]:10.6f} (rack)")
+            if (i - N_PLANE) % 5 == 4:
+                text.insert(tk.END, "\n")
+            else:
+                text.insert(tk.END, "  |  ")
+        text.insert(tk.END, "\n=== UNSEEN TILES ===\n")
+        for i in range(N_PLANE + 27, N_PLANE + 54):
+            text.insert(tk.END, f"[{i:6d}] {vec[i]:10.6f} (unseen)")
+            if (i - (N_PLANE + 27)) % 5 == 4:
+                text.insert(tk.END, "\n")
+            else:
+                text.insert(tk.END, "  |  ")
+        text.insert(tk.END, "\n=== LAST WAS EXCHANGE ===\n")
+        for i in range(N_PLANE + 54, N_PLANE + 62):
+            text.insert(tk.END, f"[{i:6d}] {vec[i]:10.6f} (exchange)")
+            if (i - (N_PLANE + 54)) % 5 == 4:
+                text.insert(tk.END, "\n")
+            else:
+                text.insert(tk.END, "  |  ")
+        text.insert(tk.END, "\n=== POWER TILES (?, J, Q, S, X, Z) ===\n")
+        for i in range(N_PLANE + 62, N_PLANE + 68):
+            text.insert(tk.END, f"[{i:6d}] {vec[i]:10.6f} (power)")
+            if (i - (N_PLANE + 62)) % 5 == 4:
+                text.insert(tk.END, "\n")
+            else:
+                text.insert(tk.END, "  |  ")
+        text.insert(tk.END, "\n=== V/C RATIO IN BAG ===\n")
+        for i in range(N_PLANE + 68, N_PLANE + 70):
+            text.insert(tk.END, f"[{i:6d}] {vec[i]:10.6f} (vc_bag)")
+            text.insert(tk.END, "  |  ")
+        text.insert(tk.END, "\n=== V/C RATIO IN RACK ===\n")
+        for i in range(N_PLANE + 70, N_PLANE + 72):
+            text.insert(tk.END, f"[{i:6d}] {vec[i]:10.6f} (vc_rack)")
+            text.insert(tk.END, "  |  ")
+        text.insert(tk.END, "\n=== OTHER SCALARS ===\n")
+        for i in range(N_PLANE + 72, len(vec)):
             text.insert(tk.END, f"[{i:6d}] {vec[i]:10.6f}")
-            if (i - N_PLANE) % 5 == 4:  # Group by 5 values per line
+            if (i - (N_PLANE + 72)) % 5 == 4:
                 text.insert(tk.END, "\n")
             else:
                 text.insert(tk.END, "  |  ")

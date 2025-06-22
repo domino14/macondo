@@ -19,7 +19,7 @@ from torch.amp import GradScaler, autocast
 # ── feature sizes ────────────────────────────────────────────────────
 C, H, W = 85, 15, 15
 N_PLANE = C * H * W  # 18 900
-N_SCAL = 66
+N_SCAL = 76
 ROW_FLOATS = N_PLANE + N_SCAL + 1
 DTYPE = np.float32
 
@@ -243,44 +243,49 @@ def main():
     csv_writer = csv.writer(csv_fh)
     csv_writer.writerow(["step", "train_loss", "val_loss"])
 
-    for board, scal, y in loader:
-        board, scal, y = board.to(device), scal.to(device), y.to(device)
+    try:
+        for board, scal, y in loader:
+            board, scal, y = board.to(device), scal.to(device), y.to(device)
 
-        with autocast(device.type, enabled=(device.type in ("cuda", "mps"))):
-            pred = net(board, scal)
-            loss = F.smooth_l1_loss(pred, y)
+            with autocast(device.type, enabled=(device.type in ("cuda", "mps"))):
+                pred = net(board, scal)
+                loss = F.smooth_l1_loss(pred, y)
 
-        scaler.scale(loss).backward()
-        scaler.step(opt)
-        scaler.update()
-        opt.zero_grad(set_to_none=True)
+            scaler.scale(loss).backward()
+            scaler.step(opt)
+            scaler.update()
+            opt.zero_grad(set_to_none=True)
 
-        running += loss.item()
-        step += 1
+            running += loss.item()
+            step += 1
 
-        if step % VAL_EVERY == 0:
-            train_avg = running / VAL_EVERY
-            running = 0.0
-            val_loss = validate_streaming(net, val_file_name, val_count, device)
-            csv_writer.writerow([step, f"{train_avg:.6f}", f"{val_loss:.6f}"])
-            csv_fh.flush()
+            if step % VAL_EVERY == 0:
+                train_avg = running / VAL_EVERY
+                running = 0.0
+                val_loss = validate_streaming(net, val_file_name, val_count, device)
+                csv_writer.writerow([step, f"{train_avg:.6f}", f"{val_loss:.6f}"])
+                csv_fh.flush()
 
-            elapsed = time.time() - t0
-            print(
-                f"{step:>7}  train={train_avg:.4f}  val={val_loss:.4f}  "
-                f"{step*loader.batch_size/elapsed:,.0f} pos/s"
-            )
+                elapsed = time.time() - t0
+                print(
+                    f"{step:>7}  train={train_avg:.4f}  val={val_loss:.4f}  "
+                    f"{step*loader.batch_size/elapsed:,.0f} pos/s"
+                )
 
-            if val_loss < best_val:
-                torch.save({"step": step, "model": net.state_dict()}, "best.pt")
-                best_val = val_loss
-                print("  ✓ checkpointed (best validation)")
+                if val_loss < best_val:
+                    torch.save({"step": step, "model": net.state_dict()}, "best.pt")
+                    best_val = val_loss
+                    print("  ✓ checkpointed (best validation)")
 
-    # Print total training time
-    total_time = time.time() - t0
-    print(f"Total training time: {total_time:.1f} seconds ({total_time/60:.2f} min)")
-    csv_fh.close()
-    os.unlink(val_file_name)
+        # Print total training time
+        total_time = time.time() - t0
+        print(
+            f"Total training time: {total_time:.1f} seconds ({total_time/60:.2f} min)"
+        )
+
+    finally:
+        csv_fh.close()
+        os.unlink(val_file_name)
 
 
 if __name__ == "__main__":

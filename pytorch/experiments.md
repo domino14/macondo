@@ -458,6 +458,20 @@ Player who went first wins: 106246.0 (56.065%)
 
 ### Many plies
 
+```
+Games played: 656009
+HastyBot wins: 317295.0 (48.367%)
+HastyBot Mean Score: 438.3345  Stdev: 70.5534
+FastMlBot Mean Score: 427.2371  Stdev: 62.2173
+HastyBot Mean Bingos: 2.0331  Stdev: 1.0705
+FastMlBot Mean Bingos: 2.0325  Stdev: 0.9657
+HastyBot Mean Points Per Turn: 37.4935  Stdev: 6.4108
+FastMlBot Mean Points Per Turn: 36.7779  Stdev: 7.0184
+HastyBot went first: 328005.0 (50.000%)
+Player who went first wins: 367239.0 (55.981%)
+```
+
+FastMLBot wins 51.63% of games against HastyBot!
 
 ### Endgame fix
 
@@ -465,12 +479,29 @@ The NN bot is using its own implicit endgame algorithm. If it's behind or ahead 
 
 Let's do this and run a couple of matches again to make sure they're not affecting the win rate. I don't think they are, but they seem to be affecting the average score.
 
+(Implemented, in the 51.63% run above)
+
+### More features
+
+Train with three more features:
+- V/C ratio in bag
+- V/C ratio in rack
+- Power tile count in bag
+
+All of this can be deduced, but apparently it can be helpful to "pre-seed" the
+NN with more features, even if a little redundant? Anyway, let's see if it works.
+
+
+
 
 ### Train on actual win instead of win after 5 plies
 
+(See Many plies results above!)
 
+
+- [ ] try adding a few more heads to stabilize model
 - [ ] try bigger learning rates?
-- [ ] try looking out to 2 plies instead of 5 plies? 3 plies?
+- [x] try looking out to 2 plies instead of 5 plies? 3 plies?
 - [ ] try temperature varying from 1 to 0 linearly/in a curve depending on # tiles in bag?
 
 ### Train on rand-softmax v rand-softmax

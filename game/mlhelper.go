@@ -32,7 +32,7 @@ const (
 	NN_C        = 85
 	NN_H, NN_W  = 15, 15
 	NN_N_PLANES = NN_C * NN_H * NN_W
-	NN_N_SCAL   = 66
+	NN_N_SCAL   = 76
 	NN_RowLen   = NN_N_PLANES + NN_N_SCAL
 )
 
@@ -413,14 +413,40 @@ func (g *Game) BuildMLVector(m *move.Move, evalMoveLeaveVal float64, lastMove *m
 	rackVector := vec[scalarsStart : scalarsStart+27]
 	unseenVector := vec[scalarsStart+27 : scalarsStart+54]
 	lastWasExchangeVector := vec[scalarsStart+54 : scalarsStart+62]
+	powerTilesVector := vec[scalarsStart+62 : scalarsStart+68]
+	vcRatioBag := vec[scalarsStart+68 : scalarsStart+70]
+	vcRatioRack := vec[scalarsStart+70 : scalarsStart+72]
 
 	rack := g.RackFor(g.PlayerOnTurn())
 	bag := g.bag.PeekMap()
 	tr := g.bag.TilesRemaining()
-
 	for i := 0; i < 27; i++ {
 		rackVector[i] = float32(rack.LetArr[i]) / 7     // Rack tiles
 		unseenVector[i] = float32(bag[i]) / float32(tr) // rough prob of drawing this tile
+		switch i {
+		case 0: // Blank tile
+			powerTilesVector[0] = float32(bag[i]) / 2.0
+		case 10: // J tile
+			powerTilesVector[1] = float32(bag[i])
+		case 17: // Q tile
+			powerTilesVector[2] = float32(bag[i])
+		case 19: // S tile
+			powerTilesVector[3] = float32(bag[i]) / 4.0
+		case 24: // X tile
+			powerTilesVector[4] = float32(bag[i])
+		case 26: // Z tile
+			powerTilesVector[5] = float32(bag[i])
+		}
+	}
+	vowelsBag := bag[1] + bag[5] + bag[9] + bag[15] + bag[21] // AEIOU
+	vowelsRack := rack.LetArr[1] + rack.LetArr[5] + rack.LetArr[9] + rack.LetArr[15] + rack.LetArr[21]
+	if tr > 0 {
+		vcRatioBag[0] = float32(vowelsBag) / float32(tr)         // Vowel ratio in bag
+		vcRatioBag[1] = float32(tr-int(vowelsBag)) / float32(tr) // Consonant ratio in bag
+	}
+	if rack.NumTiles() > 0 {
+		vcRatioRack[0] = float32(vowelsRack) / float32(rack.NumTiles())                      // Vowel ratio in rack
+		vcRatioRack[1] = float32(int(rack.NumTiles())-vowelsRack) / float32(rack.NumTiles()) // Consonant ratio in rack
 	}
 	if lastMove != nil && lastMove.Action() == move.MoveTypeExchange {
 		numExchanged := lastMove.TilesPlayed()
@@ -429,11 +455,12 @@ func (g *Game) BuildMLVector(m *move.Move, evalMoveLeaveVal float64, lastMove *m
 		lastWasExchangeVector[0] = 1.0
 		lastWasExchangeVector[numExchanged] = 1.0 // mark the number of tiles exchanged
 	}
+	scoreAndBagFeatures := vec[scalarsStart+72 : scalarsStart+76]
 
-	vec[NN_RowLen-4] = ScaleScoreWithTanh(float32(m.Score()), 45.0, 40.0)    // last move score
-	vec[NN_RowLen-3] = ScaleScoreWithTanh(float32(evalMoveLeaveVal), 10, 20) // last move leave value
-	vec[NN_RowLen-2] = float32(g.Bag().TilesRemaining()) / 100.0
-	vec[NN_RowLen-1] = NormalizeSpreadForML(float32(g.SpreadFor(g.PlayerOnTurn())))
+	scoreAndBagFeatures[0] = ScaleScoreWithTanh(float32(m.Score()), 45.0, 40.0)    // last move score
+	scoreAndBagFeatures[1] = ScaleScoreWithTanh(float32(evalMoveLeaveVal), 10, 20) // last move leave value
+	scoreAndBagFeatures[2] = float32(g.Bag().TilesRemaining()) / 100.0
+	scoreAndBagFeatures[3] = NormalizeSpreadForML(float32(g.SpreadFor(g.PlayerOnTurn())))
 
 	return &vec, nil
 }
