@@ -28,3 +28,6 @@ bin/
 data/strategy/default_english/quackleleaves*
 *.vscode
 .aws-sam/*
+__pycache__/
+*.pt
+*.onnx

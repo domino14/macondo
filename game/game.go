@@ -18,6 +18,7 @@ import (
 	"github.com/domino14/macondo/lexicon"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tinymove"
+	"github.com/domino14/macondo/triton"
 )
 
 const (
@@ -76,6 +77,8 @@ type Game struct {
 	// putting game in endgame mode.
 	sturnsBackup int
 	stripBackup  [board.MaxBoardDim]tilemapping.MachineLetter
+
+	tritonClient *triton.TritonClient
 }
 
 func (g *Game) Config() *config.Config {
@@ -129,7 +132,7 @@ func (g *Game) addEventToHistory(evt *pb.GameEvent) {
 func CalculateCoordsFromStringPosition(evt *pb.GameEvent) {
 	// Note that this evt.Position has nothing to do with the type Position
 	// we are defining in this package.
-	row, col, vertical := move.FromBoardGameCoords(evt.Position)
+	row, col, vertical := move.FromBoardGameCoords(evt.Position, false)
 	if vertical {
 		evt.Direction = pb.GameEvent_VERTICAL
 	} else {
@@ -184,6 +187,18 @@ func NewGame(rules *GameRules, playerinfo []*pb.PlayerInfo) (*Game, error) {
 		return nil, errors.New("all player nicknames must be unique")
 	}
 	log.Debug().Int("exch-limit", rules.exchangeLimit).Msg("setting-exchange-limit")
+
+	if game.config.GetBool(config.ConfigTritonUseTriton) {
+		tritonURL := game.config.GetString(config.ConfigTritonURL)
+		modelName := game.config.GetString(config.ConfigTritonModelName)
+		modelVersion := game.config.GetString(config.ConfigTritonModelVersion)
+		var err error
+		game.tritonClient, err = triton.NewTritonClient(tritonURL, modelName, modelVersion)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create triton client: %w", err)
+		}
+	}
+
 	return game, nil
 }
 
@@ -727,7 +742,7 @@ func (g *Game) PlayScoringMove(coords, word string, addToHistory bool) (*move.Mo
 	playerid := g.onturn
 	rack := g.RackFor(playerid).String()
 
-	m, err := g.CreateAndScorePlacementMove(coords, word, rack)
+	m, err := g.CreateAndScorePlacementMove(coords, word, rack, false)
 	if err != nil {
 		log.Error().Msgf("Trying to create and score move, err was %v", err)
 		return nil, err
@@ -740,9 +755,9 @@ func (g *Game) PlayScoringMove(coords, word string, addToHistory bool) (*move.Mo
 // CreateAndScorePlacementMove creates a *move.Move from the coords and
 // given tiles. It scores the move, calculates the leave, etc. This should
 // be used when a person is interacting with the interface.
-func (g *Game) CreateAndScorePlacementMove(coords string, tiles string, rack string) (*move.Move, error) {
+func (g *Game) CreateAndScorePlacementMove(coords string, tiles string, rack string, transpose bool) (*move.Move, error) {
 
-	row, col, vertical := move.FromBoardGameCoords(coords)
+	row, col, vertical := move.FromBoardGameCoords(coords, transpose)
 
 	// convert tiles to MachineWord
 	mw, err := tilemapping.ToMachineWord(tiles, g.alph)
@@ -1040,7 +1055,7 @@ func (g *Game) SetRackFor(playerIdx int, rack *tilemapping.Rack) error {
 	log.Trace().Str("rack", rack.TilesOn().UserVisible(g.alph)).Msg("removing from bag")
 	err := g.bag.RemoveTiles(rack.TilesOn())
 	if err != nil {
-		log.Error().Msgf("Unable to set rack: %v", err)
+		log.Error().Msgf("Unable to set rack for: %v", err)
 		return err
 	}
 
@@ -1058,7 +1073,7 @@ func (g *Game) SetRackFor(playerIdx int, rack *tilemapping.Rack) error {
 func (g *Game) SetRackForOnly(playerIdx int, rack *tilemapping.Rack) error {
 	err := g.bag.RemoveTiles(rack.TilesOn())
 	if err != nil {
-		log.Error().Msgf("Unable to set rack: %v", err)
+		log.Error().Msgf("Unable to set rack (only): %v", err)
 		return err
 	}
 	// success; set our rack

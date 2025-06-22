@@ -1,0 +1,33 @@
+name: "macondo-nn"
+platform: "onnxruntime_onnx"
+max_batch_size: 512
+input [
+  {
+    name: "board"
+    data_type: TYPE_FP32
+    dims: [ 85, 15, 15 ]
+  },
+  {
+    name: "scalars"
+    data_type: TYPE_FP32
+    dims: [ 76 ]
+  }
+]
+output [
+  {
+    name: "win_pred"
+    data_type: TYPE_FP32
+    dims: [1]
+    reshape { shape: [] }
+  }
+]
+version_policy {
+  all { }
+}
+instance_group [
+  {
+    count: 5
+    kind: KIND_GPU
+  }
+]
+dynamic_batching { }

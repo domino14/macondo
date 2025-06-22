@@ -202,6 +202,7 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 				i++
 			case <-ctx.Done():
 				// exit early
+				log.Err(ctx.Err()).Msg("Context done")
 				log.Info().Msg("Got stop signal, exiting soon...")
 				break gameLoop
 			default:

@@ -1,8 +1,6 @@
 package equity
 
 import (
-	"strings"
-
 	"github.com/domino14/word-golib/cache"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
@@ -22,35 +20,6 @@ func (b *BlankLeaves) LeaveValue(leave tilemapping.MachineWord) float64 {
 // exhaustively.
 type ExhaustiveLeaveCalculator struct {
 	leaveValues Leaves
-}
-
-func defaultForLexicon(lexiconName string) string {
-	// If there doesn't exist a specific folder with the name of the
-	// lexicon, we'll call this function.
-	if strings.HasPrefix(lexiconName, "CSW") {
-		return "CSW24"
-	} else if strings.HasPrefix(lexiconName, "TWL") ||
-		strings.HasPrefix(lexiconName, "NWL") ||
-		strings.HasPrefix(lexiconName, "NSWL") {
-
-		return "NWL23"
-	} else if strings.HasPrefix(lexiconName, "ECWL") || // obsolete name for CEL
-		strings.HasPrefix(lexiconName, "CEL") { // common english words
-		return "ECWL"
-	} else if strings.HasPrefix(lexiconName, "RD") {
-		return "RD28"
-	} else if strings.HasPrefix(lexiconName, "NSF") {
-		return "NSF23"
-	} else if strings.HasPrefix(lexiconName, "FRA") {
-		return "FRA24"
-	} else if strings.HasPrefix(lexiconName, "DISC") {
-		return "DISC2"
-	} else if strings.HasPrefix(lexiconName, "OSPS") {
-		return "OSPS50"
-	} else if strings.HasPrefix(lexiconName, "FILE") {
-		return "FILE2017"
-	}
-	return ""
 }
 
 func NewExhaustiveLeaveCalculator(lexiconName string,
@@ -84,6 +53,11 @@ func (els ExhaustiveLeaveCalculator) Equity(play *move.Move, board *board.GameBo
 		return float64(play.Score()) + els.LeaveValue(play.Leave())
 	}
 	return float64(play.Score())
+}
+
+// Type returns the type of the equity calculator.
+func (els ExhaustiveLeaveCalculator) Type() string {
+	return "ExhaustiveLeaveCalculator"
 }
 
 func (els ExhaustiveLeaveCalculator) LeaveValue(leave tilemapping.MachineWord) float64 {

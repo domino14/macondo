@@ -422,14 +422,14 @@ func (g *GameBoard) updateAnchors(row int, col int, vertical bool) {
 func (g *GameBoard) UpdateAllAnchors() {
 	n := g.Dim()
 	if g.tilesPlayed > 0 {
-		for i := 0; i < n; i++ {
-			for j := 0; j < n; j++ {
+		for i := range n {
+			for j := range n {
 				g.updateAnchors(i, j, false)
 			}
 		}
 	} else {
-		for i := 0; i < n; i++ {
-			for j := 0; j < n; j++ {
+		for i := range n {
+			for j := range n {
 				pos := g.GetSqIdx(i, j)
 				g.hAnchors[pos] = false
 				g.vAnchors[pos] = false

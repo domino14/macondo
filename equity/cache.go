@@ -2,15 +2,11 @@ package equity
 
 import (
 	"errors"
-	"path/filepath"
 	"strings"
 
+	"github.com/domino14/macondo/dataloaders"
 	wglconfig "github.com/domino14/word-golib/config"
 )
-
-func strategyParamsPath(cfg *wglconfig.Config) string {
-	return filepath.Join(cfg.DataPath, "strategy")
-}
 
 func LeaveCacheLoadFunc(cfg *wglconfig.Config, key string) (interface{}, error) {
 	// Key looks like leavefile:lexicon:filename
@@ -21,7 +17,7 @@ func LeaveCacheLoadFunc(cfg *wglconfig.Config, key string) (interface{}, error) 
 	if len(fields) != 3 {
 		return nil, errors.New("cache key missing fields")
 	}
-	return loadKLV(strategyParamsPath(cfg), fields[2], fields[1])
+	return loadKLV(dataloaders.StrategyParamsPath(cfg), fields[2], fields[1])
 }
 
 func PEGCacheLoadFunc(cfg *wglconfig.Config, key string) (interface{}, error) {
@@ -32,7 +28,7 @@ func PEGCacheLoadFunc(cfg *wglconfig.Config, key string) (interface{}, error) {
 	if len(fields) != 3 {
 		return nil, errors.New("cache key missing fields")
 	}
-	return loadPEGParams(strategyParamsPath(cfg), fields[2], fields[1])
+	return loadPEGParams(dataloaders.StrategyParamsPath(cfg), fields[2], fields[1])
 }
 
 func WinPCTLoadFunc(cfg *wglconfig.Config, key string) (interface{}, error) {
@@ -43,5 +39,5 @@ func WinPCTLoadFunc(cfg *wglconfig.Config, key string) (interface{}, error) {
 	if len(fields) != 3 {
 		return nil, errors.New("cache key missing fields")
 	}
-	return loadWinPCTParams(strategyParamsPath(cfg), fields[2], fields[1])
+	return loadWinPCTParams(dataloaders.StrategyParamsPath(cfg), fields[2], fields[1])
 }

@@ -299,7 +299,7 @@ func NewScoringMove(score int, tiles tilemapping.MachineWord,
 func NewScoringMoveSimple(score int, coords string, word string, leave string,
 	alph *tilemapping.TileMapping) *Move {
 
-	row, col, vertical := FromBoardGameCoords(coords)
+	row, col, vertical := FromBoardGameCoords(coords, false)
 
 	tiles, err := tilemapping.ToMachineWord(word, alph)
 	if err != nil {
@@ -426,7 +426,7 @@ func ToBoardGameCoords(row int, col int, vertical bool) string {
 }
 
 // FromBoardGameCoords does the inverse operation of ToBoardGameCoords above.
-func FromBoardGameCoords(c string) (int, int, bool) {
+func FromBoardGameCoords(c string, transpose bool) (int, int, bool) {
 	vMatches := reVertical.FindStringSubmatch(c)
 	var row, col int
 	var vertical bool
@@ -435,6 +435,9 @@ func FromBoardGameCoords(c string) (int, int, bool) {
 		row, _ = strconv.Atoi(vMatches[2])
 		col = int(strings.ToUpper(vMatches[1])[0] - 'A')
 		vertical = true
+		if transpose {
+			return col, row - 1, !vertical
+		}
 		return row - 1, col, vertical
 	}
 	hMatches := reHorizontal.FindStringSubmatch(c)
@@ -442,6 +445,9 @@ func FromBoardGameCoords(c string) (int, int, bool) {
 		row, _ = strconv.Atoi(hMatches[1])
 		col = int(strings.ToUpper(hMatches[2])[0] - 'A')
 		vertical = false
+		if transpose {
+			return col, row - 1, !vertical
+		}
 		return row - 1, col, vertical
 	}
 

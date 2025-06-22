@@ -4,10 +4,9 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"io"
-	"path/filepath"
 	"strconv"
 
-	"github.com/domino14/word-golib/cache"
+	"github.com/domino14/macondo/dataloaders"
 	"github.com/rs/zerolog/log"
 )
 
@@ -16,27 +15,8 @@ const (
 	LeavesFilename        = "leaves.klv2"
 )
 
-func stratFileForLexicon(strategyDir string, filename string, lexiconName string) (io.ReadCloser, error) {
-	file, _, err := cache.Open(filepath.Join(strategyDir, lexiconName, filename))
-	if err != nil {
-		defdir := defaultForLexicon(lexiconName)
-		file, _, err = cache.Open(filepath.Join(strategyDir, defdir, filename))
-		if err != nil {
-			// last-ditch effort. Try "default" path.
-			defdir = "default"
-			file, _, err = cache.Open(filepath.Join(strategyDir, defdir, filename))
-			if err != nil {
-				return nil, err
-			}
-		}
-		log.Debug().Str("strat-file", filename).Str("dir", defdir).Msgf(
-			"no lexicon-specific strategy")
-	}
-	return file, nil
-}
-
 func loadKLV(strategyPath, leavefile, lexiconName string) (*KLV, error) {
-	file, err := stratFileForLexicon(strategyPath, leavefile, lexiconName)
+	file, err := dataloaders.StratFileForLexicon(strategyPath, leavefile, lexiconName)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +33,7 @@ func loadKLV(strategyPath, leavefile, lexiconName string) (*KLV, error) {
 }
 
 func loadPEGParams(strategyPath, filepath, lexiconName string) ([]float64, error) {
-	pegfile, err := stratFileForLexicon(strategyPath, filepath, lexiconName)
+	pegfile, err := dataloaders.StratFileForLexicon(strategyPath, filepath, lexiconName)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +57,7 @@ func loadPEGParams(strategyPath, filepath, lexiconName string) ([]float64, error
 const MaxRepresentedWinSpread = 300
 
 func loadWinPCTParams(strategyPath, filepath, lexiconName string) ([][]float32, error) {
-	winpctfile, err := stratFileForLexicon(strategyPath, filepath, lexiconName)
+	winpctfile, err := dataloaders.StratFileForLexicon(strategyPath, filepath, lexiconName)
 	if err != nil {
 		return nil, err
 	}

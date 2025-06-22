@@ -138,6 +138,16 @@ func (r *GameRunner) StartGame(gidx int) {
 		r.order[0], r.order[1] = r.order[1], r.order[0]
 	}
 	r.game.StartGame()
+	r.aiplayers[0].SetLastMove(nil)
+	r.aiplayers[1].SetLastMove(nil)
+	if r.aiplayers[0].GetBotType() == pb.BotRequest_FAST_ML_BOT ||
+		r.aiplayers[1].GetBotType() == pb.BotRequest_FAST_ML_BOT {
+
+		// If we are using a ML bot, it needs to have backup mode enabled
+		// as it evaluates board positions by playing and unplaying moves.
+		r.game.SetBackupMode(game.InteractiveGameplayMode)
+		r.game.SetStateStackLength(1)
+	}
 }
 
 func (r *GameRunner) Game() *game.Game {
@@ -176,6 +186,7 @@ func (r *GameRunner) PlayBestTurn(playerIdx int, addToHistory bool) error {
 	bestPlay := r.genBestMoveForBot(playerIdx)
 	log.Debug().Int("playerIdx", playerIdx).
 		Str("bestPlay", bestPlay.ShortDescription()).Msg("play-best-turn")
+
 	// save rackLetters for logging.
 	rackLetters := r.game.RackLettersFor(playerIdx)
 	tilesRemaining := r.game.Bag().TilesRemaining()
@@ -184,6 +195,10 @@ func (r *GameRunner) PlayBestTurn(playerIdx int, addToHistory bool) error {
 	if err != nil {
 		return err
 	}
+	// Tell both players about the last move.
+	r.aiplayers[0].SetLastMove(bestPlay)
+	r.aiplayers[1].SetLastMove(bestPlay)
+
 	if r.logchan != nil {
 		r.logchan <- fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v,%v,%v,%.3f,%v,%v\n",
 			nickOnTurn,

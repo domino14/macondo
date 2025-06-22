@@ -37,7 +37,7 @@ func TestToBoardGameCoords(t *testing.T) {
 
 func TestFromBoardGameCoords(t *testing.T) {
 	for _, tc := range coordTests {
-		row, col, vertical := FromBoardGameCoords(tc.output)
+		row, col, vertical := FromBoardGameCoords(tc.output, false)
 		if row != tc.row || col != tc.col || vertical != tc.vertical {
 			t.Errorf("For coord %v expected (%v, %v, %v) got (%v, %v, %v)",
 				tc.output, tc.row, tc.col, tc.vertical, row, col, vertical)
