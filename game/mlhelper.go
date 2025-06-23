@@ -82,7 +82,7 @@ func MLLoadFunc(cfg *wglconfig.Config, key string) (interface{}, error) {
 		return nil, errors.New("cache key missing fields")
 	}
 	reader, err := dataloaders.StratFileForLexicon(
-		dataloaders.StrategyParamsPath(cfg), "models/macondo-nn/2/model.onnx", fields[1])
+		dataloaders.StrategyParamsPath(cfg), "models/macondo-nn/1/model.onnx", fields[1])
 	if err != nil {
 		return nil, fmt.Errorf("failed to load ONNX model: %w", err)
 	}
