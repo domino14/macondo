@@ -32,7 +32,7 @@ const (
 	NN_C        = 85
 	NN_H, NN_W  = 15, 15
 	NN_N_PLANES = NN_C * NN_H * NN_W
-	NN_N_SCAL   = 76
+	NN_N_SCAL   = 77
 	NN_RowLen   = NN_N_PLANES + NN_N_SCAL
 )
 
@@ -417,9 +417,10 @@ func (g *Game) BuildMLVector(m *move.Move, evalMoveLeaveVal float64, lastMove *m
 	rackVector := vec[scalarsStart : scalarsStart+27]
 	unseenVector := vec[scalarsStart+27 : scalarsStart+54]
 	lastWasExchangeVector := vec[scalarsStart+54 : scalarsStart+62]
-	powerTilesVector := vec[scalarsStart+62 : scalarsStart+68]
-	vcRatioBag := vec[scalarsStart+68 : scalarsStart+70]
-	vcRatioRack := vec[scalarsStart+70 : scalarsStart+72]
+	lastOppScoreVector := vec[scalarsStart+62 : scalarsStart+63]
+	powerTilesVector := vec[scalarsStart+63 : scalarsStart+69]
+	vcRatioBag := vec[scalarsStart+69 : scalarsStart+71]
+	vcRatioRack := vec[scalarsStart+71 : scalarsStart+73]
 
 	rack := g.RackFor(g.PlayerOnTurn())
 	bag := g.bag.PeekMap()
@@ -442,6 +443,9 @@ func (g *Game) BuildMLVector(m *move.Move, evalMoveLeaveVal float64, lastMove *m
 			powerTilesVector[5] = float32(bag[i])
 		}
 	}
+	if lastMove != nil {
+		lastOppScoreVector[0] = ScaleScoreWithTanh(float32(lastMove.Score()), 45.0, 40.0) // last opponent's move score
+	}
 	vowelsBag := bag[1] + bag[5] + bag[9] + bag[15] + bag[21] // AEIOU
 	vowelsRack := rack.LetArr[1] + rack.LetArr[5] + rack.LetArr[9] + rack.LetArr[15] + rack.LetArr[21]
 	if tr > 0 {
@@ -459,7 +463,7 @@ func (g *Game) BuildMLVector(m *move.Move, evalMoveLeaveVal float64, lastMove *m
 		lastWasExchangeVector[0] = 1.0
 		lastWasExchangeVector[numExchanged] = 1.0 // mark the number of tiles exchanged
 	}
-	scoreAndBagFeatures := vec[scalarsStart+72 : scalarsStart+76]
+	scoreAndBagFeatures := vec[scalarsStart+73 : scalarsStart+77]
 
 	scoreAndBagFeatures[0] = ScaleScoreWithTanh(float32(m.Score()), 45.0, 40.0)    // last move score
 	scoreAndBagFeatures[1] = ScaleScoreWithTanh(float32(evalMoveLeaveVal), 10, 20) // last move leave value

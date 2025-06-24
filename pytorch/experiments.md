@@ -519,4 +519,23 @@ model. This will be our "final" static model (for now) so we can release this.
 - [x] try looking out to 2 plies instead of 5 plies? 3 plies?
 - [ ] try temperature varying from 1 to 0 linearly/in a curve depending on # tiles in bag?
 
+### More features
+
+Forgot to add opponent's last play _score_. This can be a good predictor of the goodness of tiles that they may have kept, and indeed, we get a little bump:
+
+```
+Games played: 170947
+HastyBot wins: 82032.0 (47.987%)
+HastyBot Mean Score: 436.8603  Stdev: 70.4650
+FastMlBot Mean Score: 425.7584  Stdev: 61.4315
+HastyBot Mean Bingos: 2.0230  Stdev: 1.0717
+FastMlBot Mean Bingos: 2.0254  Stdev: 0.9621
+HastyBot Mean Points Per Turn: 37.3172  Stdev: 6.4764
+FastMlBot Mean Points Per Turn: 36.5636  Stdev: 6.9554
+HastyBot went first: 85474.0 (50.000%)
+Player who went first wins: 95373.0 (55.791%)
+```
+
+We passed the 52% barrier for FastMLBot.
+
 ### Train on rand-softmax v rand-softmax
