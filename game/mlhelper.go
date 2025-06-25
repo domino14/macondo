@@ -1,8 +1,6 @@
 package game
 
 import (
-	"bufio"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -10,7 +8,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unsafe"
 
 	"github.com/owulveryck/onnx-go"
 	"github.com/owulveryck/onnx-go/backend/x/gorgonnx"
@@ -32,7 +29,7 @@ const (
 	NN_C        = 85
 	NN_H, NN_W  = 15, 15
 	NN_N_PLANES = NN_C * NN_H * NN_W
-	NN_N_SCAL   = 77
+	NN_N_SCAL   = 71
 	NN_RowLen   = NN_N_PLANES + NN_N_SCAL
 )
 
@@ -416,11 +413,13 @@ func (g *Game) BuildMLVector(m *move.Move, evalMoveLeaveVal float64, lastMove *m
 	scalarsStart := NN_N_PLANES
 	rackVector := vec[scalarsStart : scalarsStart+27]
 	unseenVector := vec[scalarsStart+27 : scalarsStart+54]
-	lastWasExchangeVector := vec[scalarsStart+54 : scalarsStart+62]
-	lastOppScoreVector := vec[scalarsStart+62 : scalarsStart+63]
-	powerTilesVector := vec[scalarsStart+63 : scalarsStart+69]
-	vcRatioBag := vec[scalarsStart+69 : scalarsStart+71]
-	vcRatioRack := vec[scalarsStart+71 : scalarsStart+73]
+	lastOppScoreVector := vec[scalarsStart+54 : scalarsStart+55]
+	lastOppNTilesPlayedVector := vec[scalarsStart+55 : scalarsStart+56]
+	lastOppNTilesExchangedVector := vec[scalarsStart+56 : scalarsStart+57]
+	powerTilesVector := vec[scalarsStart+57 : scalarsStart+63]
+	vcRatioBag := vec[scalarsStart+63 : scalarsStart+65]
+	vcRatioRack := vec[scalarsStart+65 : scalarsStart+67]
+	scoreAndBagFeatures := vec[scalarsStart+67 : scalarsStart+71]
 
 	rack := g.RackFor(g.PlayerOnTurn())
 	bag := g.bag.PeekMap()
@@ -428,6 +427,8 @@ func (g *Game) BuildMLVector(m *move.Move, evalMoveLeaveVal float64, lastMove *m
 	for i := 0; i < 27; i++ {
 		rackVector[i] = float32(rack.LetArr[i]) / 7     // Rack tiles
 		unseenVector[i] = float32(bag[i]) / float32(tr) // rough prob of drawing this tile
+		// power tiles seem very redundant since this info is already in the bag
+		// vector. However, it's not scaled there the same. Let's try it anyway.
 		switch i {
 		case 0: // Blank tile
 			powerTilesVector[0] = float32(bag[i]) / 2.0
@@ -445,6 +446,11 @@ func (g *Game) BuildMLVector(m *move.Move, evalMoveLeaveVal float64, lastMove *m
 	}
 	if lastMove != nil {
 		lastOppScoreVector[0] = ScaleScoreWithTanh(float32(lastMove.Score()), 45.0, 40.0) // last opponent's move score
+		if lastMove.Action() == move.MoveTypePlay {
+			lastOppNTilesPlayedVector[0] = float32(lastMove.TilesPlayed()) / 7.0 // last opponent's move tiles played
+		} else if lastMove.Action() == move.MoveTypeExchange {
+			lastOppNTilesExchangedVector[0] = float32(lastMove.TilesPlayed()) / 7.0 // last opponent's move tiles exchanged
+		}
 	}
 	vowelsBag := bag[1] + bag[5] + bag[9] + bag[15] + bag[21] // AEIOU
 	vowelsRack := rack.LetArr[1] + rack.LetArr[5] + rack.LetArr[9] + rack.LetArr[15] + rack.LetArr[21]
@@ -456,14 +462,6 @@ func (g *Game) BuildMLVector(m *move.Move, evalMoveLeaveVal float64, lastMove *m
 		vcRatioRack[0] = float32(vowelsRack) / float32(rack.NumTiles())                      // Vowel ratio in rack
 		vcRatioRack[1] = float32(int(rack.NumTiles())-vowelsRack) / float32(rack.NumTiles()) // Consonant ratio in rack
 	}
-	if lastMove != nil && lastMove.Action() == move.MoveTypeExchange {
-		numExchanged := lastMove.TilesPlayed()
-		// you can't exchange 0, so this first index would always be 1 to mark
-		// there was an exchange.
-		lastWasExchangeVector[0] = 1.0
-		lastWasExchangeVector[numExchanged] = 1.0 // mark the number of tiles exchanged
-	}
-	scoreAndBagFeatures := vec[scalarsStart+73 : scalarsStart+77]
 
 	scoreAndBagFeatures[0] = ScaleScoreWithTanh(float32(m.Score()), 45.0, 40.0)    // last move score
 	scoreAndBagFeatures[1] = ScaleScoreWithTanh(float32(evalMoveLeaveVal), 10, 20) // last move leave value
@@ -471,20 +469,4 @@ func (g *Game) BuildMLVector(m *move.Move, evalMoveLeaveVal float64, lastMove *m
 	scoreAndBagFeatures[3] = NormalizeSpreadForML(float32(g.SpreadFor(g.PlayerOnTurn())))
 
 	return &vec, nil
-}
-
-func BinaryWriteMLVector(w *bufio.Writer, vec []float32) error {
-	// Re-interpret the []float32 backing array as []byte
-	byteSlice := unsafe.Slice(
-		(*byte)(unsafe.Pointer(&vec[0])),
-		len(vec)*4,
-	)
-
-	// 1) length prefix (little-endian uint32)
-	if err := binary.Write(w, binary.LittleEndian, uint32(len(byteSlice))); err != nil {
-		return err
-	}
-	// 2) payload
-	_, err := w.Write(byteSlice)
-	return err
 }

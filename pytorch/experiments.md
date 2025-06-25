@@ -538,4 +538,25 @@ Player who went first wins: 95373.0 (55.791%)
 
 We passed the 52% barrier for FastMLBot.
 
+Add the opponent's last play number of tiles as well. It's possible it doesn't "see" this from the last tile positions, as that is mostly spatial data. This feature can help it more with inference and the relationship between keeping good tiles and sacrificing points.
+
+This training was accidentally interrupted about 3/4 of the way through. Let's test with this model anyway because most of the training game seems to come very early. Let's see if this is the case.
+
+```
+Games played: 220692
+HastyBot wins: 106472.0 (48.245%)
+HastyBot Mean Score: 436.1501  Stdev: 69.4948
+FastMlBot Mean Score: 427.0988  Stdev: 60.2532
+HastyBot Mean Bingos: 2.0240  Stdev: 1.0658
+FastMlBot Mean Bingos: 2.0283  Stdev: 0.9532
+HastyBot Mean Points Per Turn: 37.3779  Stdev: 6.4125
+FastMlBot Mean Points Per Turn: 36.8260  Stdev: 6.8908
+HastyBot went first: 110346.0 (50.000%)
+Player who went first wins: 123721.0 (56.060%)
+```
+
+Sadly we can't be quite sure what happened here. Maybe we should train all the way to the end.
+
+Let's change the opp exchange tiles to not be a one-hot encoded metric either. The number of tiles exchanged is not a "category".
+
 ### Train on rand-softmax v rand-softmax

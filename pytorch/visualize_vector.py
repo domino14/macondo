@@ -247,14 +247,13 @@ def visualize_vector(vector_path="/tmp/test-vec-9.bin", show_all_planes=True):
         ax7.set_title("Unseen Tiles (count / bagcount)")
         ax7.set_ylim(0, 1.0)
 
-        # 7. Last move was exchange scalar features (move to gs[2,0])
+        # 7. Last opp move features
         ax8 = fig.add_subplot(gs[2, 0])
-        last_was_exchange = scalar_data[54:62]
-        exchange_labels = ["Was Exchange"] + [f"{i} Exch" for i in range(1, 8)]
-        ax8.bar(exchange_labels[: len(last_was_exchange)], last_was_exchange)
-        ax8.set_title("Last Opp Move Was Exchange (scalar features)")
-        ax8.set_ylim(0, 1.1)
-        for i, v in enumerate(last_was_exchange):
+        last_opp_move_features = scalar_data[54:57]
+        labels = ["Opp Move Score", "Opp Move Tiles Played", "Opp Move Tiles Exchanged"]
+        ax8.bar(labels, last_opp_move_features)
+        ax8.set_title("Last Opp Move Features")
+        for i, v in enumerate(last_opp_move_features):
             if v > 0:
                 ax8.text(
                     i, v + 0.02, f"{v:.2f}", ha="center", color="red", fontweight="bold"
@@ -262,7 +261,7 @@ def visualize_vector(vector_path="/tmp/test-vec-9.bin", show_all_planes=True):
 
         # 8. Power tiles visualization (move to gs[2,1])
         ax9 = fig.add_subplot(gs[2, 1])
-        power_tiles = scalar_data[63:69]
+        power_tiles = scalar_data[57:63]
         power_labels = ["?", "J", "Q", "S", "X", "Z"]
         ax9.bar(power_labels, power_tiles)
         ax9.set_title("Power Tiles Remaining (normalized)")
@@ -280,14 +279,14 @@ def visualize_vector(vector_path="/tmp/test-vec-9.bin", show_all_planes=True):
 
         # 9. V/C ratio in bag (move to gs[3,2])
         ax10 = fig.add_subplot(gs[3, 2])
-        vc_bag = scalar_data[69:71]
+        vc_bag = scalar_data[63:65]
         ax10.bar(["Vowels", "Consonants"], vc_bag)
         ax10.set_title("Vowel/Consonant Ratio in Bag")
         ax10.set_ylim(0, 1.1)
 
         # 10. V/C ratio in rack (move to gs[3,0])
         ax11 = fig.add_subplot(gs[3, 0])
-        vc_rack = scalar_data[71:73]
+        vc_rack = scalar_data[65:67]
         ax11.bar(["Vowels", "Consonants"], vc_rack)
         ax11.set_title("Vowel/Consonant Ratio in Rack")
         ax11.set_ylim(0, 1.1)
@@ -295,9 +294,8 @@ def visualize_vector(vector_path="/tmp/test-vec-9.bin", show_all_planes=True):
         # 11. Other scalar features (move to gs[3,1])
         ax12 = fig.add_subplot(gs[3, 1])
 
-        other_scalars = np.concatenate([scalar_data[62:63], scalar_data[73:]])
+        other_scalars = scalar_data[67:71]
         expected_labels = [
-            "Opp Move Score",
             "Our Move Score",
             "Our Move Leave",
             "Tiles Remaining",
@@ -469,49 +467,42 @@ def show_raw_vector_data(vec, N_PLANE, H, W):
                 text.insert(tk.END, "\n")
             else:
                 text.insert(tk.END, "  |  ")
-        text.insert(tk.END, "\n=== LAST WAS EXCHANGE ===\n")
-        for i in range(N_PLANE + 54, N_PLANE + 62):
-            text.insert(tk.END, f"[{i:6d}] {vec[i]:10.6f} (exchange)")
-            if (i - (N_PLANE + 54)) % 5 == 4:
-                text.insert(tk.END, "\n")
-            else:
-                text.insert(tk.END, "  |  ")
-        text.insert(tk.END, "\n=== LAST OPP SCORE===\n")
-        for i in range(N_PLANE + 62, N_PLANE + 63):
-            text.insert(tk.END, f"[{i:6d}] {vec[i]:10.6f} (score)")
+        text.insert(tk.END, "\n=== LAST OPP MOVE ===\n")
+        for i in range(N_PLANE + 54, N_PLANE + 57):
+            text.insert(tk.END, f"[{i:6d}] {vec[i]:10.6f} (last opp move)")
             if (i - (N_PLANE + 54)) % 5 == 4:
                 text.insert(tk.END, "\n")
             else:
                 text.insert(tk.END, "  |  ")
 
         text.insert(tk.END, "\n=== POWER TILES (?, J, Q, S, X, Z) ===\n")
-        for i in range(N_PLANE + 63, N_PLANE + 69):
+        for i in range(N_PLANE + 57, N_PLANE + 63):
             text.insert(tk.END, f"[{i:6d}] {vec[i]:10.6f} (power)")
-            if (i - (N_PLANE + 63)) % 5 == 4:
+            if (i - (N_PLANE + 57)) % 5 == 4:
                 text.insert(tk.END, "\n")
             else:
                 text.insert(tk.END, "  |  ")
         text.insert(tk.END, "\n=== V/C RATIO IN BAG ===\n")
-        for i in range(N_PLANE + 69, N_PLANE + 71):
+        for i in range(N_PLANE + 63, N_PLANE + 65):
             text.insert(tk.END, f"[{i:6d}] {vec[i]:10.6f} (vc_bag)")
             text.insert(tk.END, "  |  ")
         text.insert(tk.END, "\n=== V/C RATIO IN RACK ===\n")
-        for i in range(N_PLANE + 71, N_PLANE + 73):
+        for i in range(N_PLANE + 65, N_PLANE + 67):
             text.insert(tk.END, f"[{i:6d}] {vec[i]:10.6f} (vc_rack)")
             text.insert(tk.END, "  |  ")
         text.insert(tk.END, "\n=== OTHER SCALARS ===\n")
-        for i in range(N_PLANE + 73, len(vec)):
+        for i in range(N_PLANE + 67, len(vec)):
             text.insert(tk.END, f"[{i:6d}] {vec[i]:10.6f}")
-            if (i - (N_PLANE + 73)) % 5 == 4:
+            if (i - (N_PLANE + 67)) % 5 == 4:
                 text.insert(tk.END, "\n")
             else:
                 text.insert(tk.END, "  |  ")
 
         # Final target value if present
-        if len(vec) > N_PLANE + 58:  # If there's a target value
+        if len(vec) > N_PLANE + 71:  # If there's a target value
             text.insert(
                 tk.END,
-                f"\n\n=== TARGET ===\n[{len(vec)-1}] {vec[-1]:10.6f} (unscaled: {vec[-1]*300.0:10.6f})\n",
+                f"\n\n=== TARGET ===\n[{len(vec)-1}] {vec[-1]:10.6f}\n",
             )
 
     def jump_to_index():

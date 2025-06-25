@@ -19,7 +19,7 @@ from torch.amp import GradScaler, autocast
 # ── feature sizes ────────────────────────────────────────────────────
 C, H, W = 85, 15, 15
 N_PLANE = C * H * W  # 18 900
-N_SCAL = 77
+N_SCAL = 71
 ROW_FLOATS = N_PLANE + N_SCAL + 1
 DTYPE = np.float32
 
