@@ -2,12 +2,16 @@ package main
 
 import (
 	"bufio"
+	"encoding/binary"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/pprof"
 	"strconv"
 	"sync"
+	"unsafe"
 
 	"github.com/cespare/xxhash"
 	"github.com/domino14/macondo/config"
@@ -39,10 +43,40 @@ func writeVectorText(w *bufio.Writer, vec []float32) error {
 	return w.WriteByte('\n') // newline terminator
 }
 
+func BinaryWriteMLVector(w *bufio.Writer, vec outputVector) error {
+
+	feat := vec.features
+
+	// Re-interpret the []float32 backing array as []byte
+	featByteSlice := unsafe.Slice(
+		(*byte)(unsafe.Pointer((&(*feat)[0]))),
+		len(*feat)*4,
+	)
+	predByteSlice := unsafe.Slice(
+		(*byte)(unsafe.Pointer(&vec.predictions[0])),
+		len(vec.predictions)*4,
+	)
+	// 1) length prefix (little-endian uint32)
+	if err := binary.Write(w, binary.LittleEndian, uint32(len(featByteSlice)+len(predByteSlice))); err != nil {
+		return err
+	}
+	// 2) payload
+	_, err := w.Write(featByteSlice)
+	if err != nil {
+
+		return err
+	}
+	_, err = w.Write(predByteSlice) // predictions are already []byte
+	return err
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // main streaming loop
 // ─────────────────────────────────────────────────────────────────────────────
 func main() {
+	var profile bool
+	flag.BoolVar(&profile, "profile", false, "Enable CPU and memory profiling")
+	flag.Parse()
 
 	ex, err := os.Executable()
 	if err != nil {
@@ -55,6 +89,34 @@ func main() {
 	cfg.Load(args)
 	log.Info().Msgf("Loaded config: %v", cfg.AllSettings())
 	cfg.AdjustRelativePaths(exPath)
+
+	var cpuProfFile, memProfFile *os.File
+	if profile {
+		cpuProfFile, err = os.Create("/tmp/mlproducer-cpu.prof")
+		if err != nil {
+			log.Fatal().Err(err).Msg("Could not create CPU profile file")
+		}
+		if err := pprof.StartCPUProfile(cpuProfFile); err != nil {
+			log.Fatal().Err(err).Msg("Could not start CPU profiling")
+		}
+		log.Info().Msg("CPU profiling enabled: /tmp/mlproducer-cpu.prof")
+		// Defer stop and mem profile
+		defer func() {
+			pprof.StopCPUProfile()
+			cpuProfFile.Close()
+			memProfFile, err = os.Create("/tmp/mlproducer-mem.prof")
+			if err != nil {
+				log.Error().Err(err).Msg("Could not create memory profile file")
+				return
+			}
+			runtime.GC() // get up-to-date statistics
+			if err := pprof.WriteHeapProfile(memProfFile); err != nil {
+				log.Error().Err(err).Msg("Could not write memory profile")
+			}
+			memProfFile.Close()
+			log.Info().Msg("Memory profile written: /tmp/mlproducer-mem.prof")
+		}()
+	}
 
 	var logger zerolog.Logger
 	if cfg.GetBool("debug") {
@@ -77,7 +139,7 @@ func main() {
 	log.Info().Msgf("Lookahead: %d plies", NPlies)
 	log.Info().Msgf("Using %d workers", numWorkers)
 	jobChans := make([]chan Turn, numWorkers)
-	resultsChan := make(chan []float32, numWorkers)
+	resultsChan := make(chan outputVector, numWorkers)
 	var workersWg sync.WaitGroup
 	log.Info().Msgf("Creating %d job channels", numWorkers)
 	for i := 0; i < numWorkers; i++ {
@@ -117,7 +179,7 @@ func main() {
 	log.Info().Msg("Starting to read turns from resultsChan")
 
 	for vec := range resultsChan {
-		if err := game.BinaryWriteMLVector(out, vec); err != nil {
+		if err := BinaryWriteMLVector(out, vec); err != nil {
 			panic(err) // production: handle/propagate
 		}
 		emitted++
@@ -126,7 +188,7 @@ func main() {
 				panic(err)
 			}
 		}
-		if emitted == 9 {
+		if emitted >= 100 && emitted < 200 {
 			// find the exchange
 			// if vec[len(vec)-13] == 1.0 {
 			log.Info().Msgf("Found a test vector: %d", emitted)
@@ -136,18 +198,19 @@ func main() {
 				log.Fatal().Err(err).Msg("Failed to create test file")
 			}
 			testOut := bufio.NewWriterSize(testFile, bufSize)
-			if err := game.BinaryWriteMLVector(testOut, vec); err != nil {
+			if err := BinaryWriteMLVector(testOut, vec); err != nil {
 				log.Fatal().Err(err).Msg("Failed to write test vector to file")
 			}
 			if err := testOut.Flush(); err != nil {
 				log.Fatal().Err(err).Msg("Failed to flush test vector to file")
 			}
 			testFile.Close()
-			log.Info().Msgf("Wrote test vector to /tmp/test-vec.bin, length: %d", len(vec))
+			log.Info().Msgf("Wrote test vector to /tmp/test-vec.bin, length: %d", len(*vec.features)+len(vec.predictions))
 		}
 		if emitted%100000 == 0 {
 			log.Info().Msgf("Emitted %d vectors", emitted)
 		}
+		game.MLVectorPool.Put(vec.features) // return to pool
 	}
 	log.Info().Msg("Flushing remaining vectors to output")
 
