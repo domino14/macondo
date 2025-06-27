@@ -26,11 +26,24 @@ import (
 )
 
 const (
-	NN_C        = 86
+	NN_C        = 85
 	NN_H, NN_W  = 15, 15
 	NN_N_PLANES = NN_C * NN_H * NN_W
-	NN_N_SCAL   = 74
+	NN_N_SCAL   = 72
 	NN_RowLen   = NN_N_PLANES + NN_N_SCAL
+)
+
+const (
+	HistoryStartIdx      = NN_N_PLANES + 54
+	HistoryEndIdx        = HistoryStartIdx + 3
+	PowerTilesStartIdx   = HistoryEndIdx
+	PowerTilesEndIdx     = PowerTilesStartIdx + 6
+	VCRatioBagStartIdx   = PowerTilesEndIdx
+	VCRatioBagEndIdx     = VCRatioBagStartIdx + 2
+	VCRatioRackStartIdx  = VCRatioBagEndIdx
+	VCRatioRackEndIdx    = VCRatioRackStartIdx + 2
+	AddlFeaturesStartIdx = VCRatioRackEndIdx
+	AddlFeaturesEndIdx   = AddlFeaturesStartIdx + 5
 )
 
 var MLVectorPool = sync.Pool{
@@ -297,6 +310,12 @@ func ScaleScoreWithTanh(score float32, center float32, scaleFactor float32) floa
 	return float32(math.Tanh(float64(centered / scaleFactor)))
 }
 
+func InverseScaleScoreWithTanh(y float32, center float32, scaleFactor float32) float32 {
+	// Use the atanh function: atanh(y) = 0.5 * ln((1 + y) / (1 - y))
+	atanh := 0.5 * math.Log((1+float64(y))/(1-float64(y)))
+	return float32(float64(scaleFactor)*atanh + float64(center))
+}
+
 // BuildMLVector builds the feature vector for the current game state. It
 // should not modify the game state!
 // lastMoves contains the last few moves played, most recent last. (-1 is opponent)
@@ -321,8 +340,8 @@ func (g *Game) BuildMLVector(m *move.Move, evalMoveLeaveVal float64, lastMoves [
 	bonus2WPlane := vec[81*planeSize : 82*planeSize]
 	bonus3WPlane := vec[82*planeSize : 83*planeSize]
 	// historyPlane indices: 0 is used for the immediate move that is being evaluated, on our
-	// side, 1 is the last move played by the opponent, 2 is the next to last move played by the opponent.
-	historyPlanes := vec[83*planeSize : 86*planeSize]
+	// side, 1 is the last move played by the opponent
+	historyPlanes := vec[83*planeSize : 85*planeSize]
 
 	// Board features
 	b := g.Board()
@@ -375,12 +394,16 @@ func (g *Game) BuildMLVector(m *move.Move, evalMoveLeaveVal float64, lastMoves [
 	if len(lastMoves) > 0 {
 		relevantMoves = append(relevantMoves, lastMoves[len(lastMoves)-1]) // Last OPPONENT move
 	}
-	if len(lastMoves) > 2 {
-		relevantMoves = append(relevantMoves, lastMoves[len(lastMoves)-3]) // Second to last OPPONENT move
+	turnsSinceLastOppBingo := 0
+	for i := len(lastMoves) - 1; i >= 0; i -= 2 {
+		if lastMoves[i].Action() == move.MoveTypePlay && lastMoves[i].TilesPlayed() == RackTileLimit {
+			// Bingo played, stop looking for more moves
+			break
+		}
+		turnsSinceLastOppBingo++
 	}
 
 	for lmIdx, lastMove := range relevantMoves {
-
 		if lastMove.Action() == move.MoveTypePlay {
 			r, c, vertical := lastMove.CoordsAndVertical()
 			ri, ci := 0, 1
@@ -408,12 +431,11 @@ func (g *Game) BuildMLVector(m *move.Move, evalMoveLeaveVal float64, lastMoves [
 
 	// History vectors have three elements each, in order:
 	// score, n tiles played, n tiles exchanged.
-	historyVectors := vec[scalarsStart+54 : scalarsStart+60]
-
-	powerTilesVector := vec[scalarsStart+60 : scalarsStart+66]
-	vcRatioBag := vec[scalarsStart+66 : scalarsStart+68]
-	vcRatioRack := vec[scalarsStart+68 : scalarsStart+70]
-	scoreAndBagFeatures := vec[scalarsStart+70 : scalarsStart+74]
+	historyVectors := vec[HistoryStartIdx:HistoryEndIdx]
+	powerTilesVector := vec[PowerTilesStartIdx:PowerTilesEndIdx]
+	vcRatioBag := vec[VCRatioBagStartIdx:VCRatioBagEndIdx]
+	vcRatioRack := vec[VCRatioRackStartIdx:VCRatioRackEndIdx]
+	addlFeatures := vec[AddlFeaturesStartIdx:AddlFeaturesEndIdx]
 
 	rack := g.RackFor(g.PlayerOnTurn())
 	bag := g.bag.PeekMap()
@@ -463,10 +485,10 @@ func (g *Game) BuildMLVector(m *move.Move, evalMoveLeaveVal float64, lastMoves [
 		vcRatioRack[1] = float32(int(rack.NumTiles())-vowelsRack) / float32(rack.NumTiles()) // Consonant ratio in rack
 	}
 
-	scoreAndBagFeatures[0] = ScaleScoreWithTanh(float32(m.Score()), 45.0, 40.0)    // last move score
-	scoreAndBagFeatures[1] = ScaleScoreWithTanh(float32(evalMoveLeaveVal), 10, 20) // last move leave value
-	scoreAndBagFeatures[2] = float32(g.Bag().TilesRemaining()) / 100.0
-	scoreAndBagFeatures[3] = NormalizeSpreadForML(float32(g.SpreadFor(g.PlayerOnTurn())))
-
+	addlFeatures[0] = float32(turnsSinceLastOppBingo) / 25.0                // turns since last opponent bingo
+	addlFeatures[1] = ScaleScoreWithTanh(float32(m.Score()), 45.0, 40.0)    // evaluated move score
+	addlFeatures[2] = ScaleScoreWithTanh(float32(evalMoveLeaveVal), 10, 20) // evaluated move leave value
+	addlFeatures[3] = float32(g.Bag().TilesRemaining()) / 100.0
+	addlFeatures[4] = NormalizeSpreadForML(float32(g.SpreadFor(g.PlayerOnTurn())))
 	return &vec, nil
 }

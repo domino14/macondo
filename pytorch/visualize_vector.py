@@ -51,7 +51,7 @@ def visualize_vector(
     # Extract components
     board_data = vec[:N_PLANE].reshape(C, H, W)
     scalar_data = vec[N_PLANE : N_PLANE + N_SCAL]
-    target = vec[-1] if len(vec) > N_PLANE + N_SCAL else None
+    target = vec[N_PLANE + N_SCAL :] if len(vec) > N_PLANE + N_SCAL else None
 
     # Set up the figure
     if show_all_planes:
@@ -207,10 +207,8 @@ def visualize_vector(
         ax5 = fig.add_subplot(gs[1, 0])
         our_move_plane = board_data[83]
         opp_last_move_plane = board_data[84]
-        opp_2nd_last_move_plane = board_data[85]
         ax5.imshow(our_move_plane, cmap="Blues", vmin=0, vmax=1, alpha=0.5)
         ax5.imshow(opp_last_move_plane, cmap="Oranges", vmin=0, vmax=1)
-        ax5.imshow(opp_2nd_last_move_plane, cmap="Reds", vmin=0, vmax=1, alpha=0.5)
 
         ax5.set_title("Last Moves: Opponent (orange/red), Ours (blue)")
         ax5.set_xticks(range(W))
@@ -228,16 +226,6 @@ def visualize_vector(
                         fontweight="bold",
                     )
 
-                if opp_2nd_last_move_plane[y, x] > 0:
-                    ax5.text(
-                        x,
-                        y,
-                        "O",
-                        ha="center",
-                        va="center",
-                        color="darkred",
-                        fontweight="bold",
-                    )
                 if our_move_plane[y, x] > 0:
                     ax5.text(
                         x,
@@ -265,14 +253,11 @@ def visualize_vector(
 
         # 7. Last opp move features
         ax8 = fig.add_subplot(gs[2, 0])
-        history_features = scalar_data[54:60]
+        history_features = scalar_data[54:57]
         labels = [
-            "1 PTS",  # score
-            "1 TP",  # tiles played
-            "1 TEX",  # tiles exchanged
-            "2 PTS",
-            "2 TP",
-            "2 TEX",
+            "PTS",  # score
+            "TP",  # tiles played
+            "TEXCH",  # tiles exchanged
         ]
         ax8.bar(labels, history_features)
         ax8.set_title("Move History Features")
@@ -284,7 +269,7 @@ def visualize_vector(
 
         # 8. Power tiles visualization (move to gs[2,1])
         ax9 = fig.add_subplot(gs[2, 1])
-        power_tiles = scalar_data[60:66]
+        power_tiles = scalar_data[57:63]
         power_labels = ["?", "J", "Q", "S", "X", "Z"]
         ax9.bar(power_labels, power_tiles)
         ax9.set_title("Power Tiles Remaining (normalized)")
@@ -302,14 +287,14 @@ def visualize_vector(
 
         # 9. V/C ratio in bag (move to gs[3,2])
         ax10 = fig.add_subplot(gs[3, 2])
-        vc_bag = scalar_data[66:68]
+        vc_bag = scalar_data[63:65]
         ax10.bar(["Vowels", "Consonants"], vc_bag)
         ax10.set_title("Vowel/Consonant Ratio in Bag")
         ax10.set_ylim(0, 1.1)
 
         # 10. V/C ratio in rack (move to gs[3,0])
         ax11 = fig.add_subplot(gs[3, 0])
-        vc_rack = scalar_data[68:70]
+        vc_rack = scalar_data[65:67]
         ax11.bar(["Vowels", "Consonants"], vc_rack)
         ax11.set_title("Vowel/Consonant Ratio in Rack")
         ax11.set_ylim(0, 1.1)
@@ -317,8 +302,9 @@ def visualize_vector(
         # 11. Other scalar features (move to gs[3,1])
         ax12 = fig.add_subplot(gs[3, 1])
 
-        other_scalars = scalar_data[70:74]
+        other_scalars = scalar_data[67:72]
         expected_labels = [
+            "Turns Since Last Opp Bingo",
             "Our Move Score",
             "Our Move Leave",
             "Tiles Remaining",
@@ -342,18 +328,56 @@ def visualize_vector(
             )
             ax12.axis("off")
 
-        # 12. Display target value if available (move to gs[3,2])
+        # 12. Display target values if available
         if target is not None:
             ax13 = fig.add_subplot(gs[3, 3])
+
+            # Extract all 4 targets
+            target_labels = [
+                "Value\n(W/L)",
+                "Total\nPoints",
+                "Opp Bingo\nProb",
+                "Opp\nScore",
+            ]
+
+            # Create colored bars for different targets
+            bars = ax13.bar(
+                target_labels,
+                target,
+                color=["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"],
+            )
+
+            # Add value labels above each bar
+            for bar in bars:
+                height = bar.get_height()
+                # Position above if positive, below if negative
+                y_pos = max(0.01, height + 0.05) if height >= 0 else height - 0.15
+                ax13.text(
+                    bar.get_x() + bar.get_width() / 2.0,
+                    y_pos,
+                    f"{height:.2f}",
+                    ha="center",
+                    va="bottom" if height >= 0 else "top",
+                    fontweight="bold",
+                )
+
+            # Add title and adjust layout
+            ax13.set_title("Target Values", fontsize=14)
+            ax13.set_ylim(min(-1.1, min(target) - 0.2), max(1.1, max(target) + 0.2))
+
+            # Add a line at y=0 for reference
+            ax13.axhline(y=0, color="black", linestyle="-", alpha=0.3)
+
+            # Add descriptions under the axis
             ax13.text(
                 0.5,
-                0.5,
-                f"Target value (1 = win, -1 = loss, 0 = draw)): {target:.1f}",
+                -0.15,
+                "Value: -1=loss, +1=win | Total Points: scaled | Bingo Prob: 0-1 | Opp Score: scaled",
+                transform=ax13.transAxes,
                 ha="center",
-                va="center",
-                fontsize=16,
+                fontsize=8,
+                style="italic",
             )
-            ax13.axis("off")
 
         # Adjust layout for new plots
         plt.tight_layout()
@@ -504,7 +528,7 @@ def show_raw_vector_data(vec, N_PLANE, H, W):
             else:
                 text.insert(tk.END, "  |  ")
         text.insert(tk.END, "\n=== MOVE HISTORY ===\n")
-        for i in range(N_PLANE + 54, N_PLANE + 60):
+        for i in range(N_PLANE + 54, N_PLANE + 57):
             text.insert(tk.END, f"[{i:6d}] {vec[i]:10.6f} (last move history)")
             if (i - (N_PLANE + 54)) % 5 == 4:
                 text.insert(tk.END, "\n")
@@ -512,34 +536,47 @@ def show_raw_vector_data(vec, N_PLANE, H, W):
                 text.insert(tk.END, "  |  ")
 
         text.insert(tk.END, "\n=== POWER TILES (?, J, Q, S, X, Z) ===\n")
-        for i in range(N_PLANE + 60, N_PLANE + 66):
+        for i in range(N_PLANE + 57, N_PLANE + 63):
             text.insert(tk.END, f"[{i:6d}] {vec[i]:10.6f} (power)")
-            if (i - (N_PLANE + 60)) % 5 == 4:
+            if (i - (N_PLANE + 57)) % 5 == 4:
                 text.insert(tk.END, "\n")
             else:
                 text.insert(tk.END, "  |  ")
         text.insert(tk.END, "\n=== V/C RATIO IN BAG ===\n")
-        for i in range(N_PLANE + 66, N_PLANE + 68):
+        for i in range(N_PLANE + 63, N_PLANE + 65):
             text.insert(tk.END, f"[{i:6d}] {vec[i]:10.6f} (vc_bag)")
             text.insert(tk.END, "  |  ")
         text.insert(tk.END, "\n=== V/C RATIO IN RACK ===\n")
-        for i in range(N_PLANE + 68, N_PLANE + 70):
+        for i in range(N_PLANE + 65, N_PLANE + 67):
             text.insert(tk.END, f"[{i:6d}] {vec[i]:10.6f} (vc_rack)")
             text.insert(tk.END, "  |  ")
         text.insert(tk.END, "\n=== OTHER SCALARS ===\n")
-        for i in range(N_PLANE + 70, len(vec)):
+        for i in range(N_PLANE + 67, len(vec)):
             text.insert(tk.END, f"[{i:6d}] {vec[i]:10.6f}")
-            if (i - (N_PLANE + 70)) % 5 == 4:
+            if (i - (N_PLANE + 67)) % 5 == 4:
                 text.insert(tk.END, "\n")
             else:
                 text.insert(tk.END, "  |  ")
 
-        # Final target value if present
-        if len(vec) > N_PLANE + 74:  # If there's a target value
-            text.insert(
-                tk.END,
-                f"\n\n=== TARGET ===\n[{len(vec)-1}] {vec[-1]:10.6f}\n",
-            )
+        # Final target values if present
+        if len(vec) > N_PLANE + 72:  # If there are target values
+            target_names = [
+                "Value (W/L)",
+                "Total Points",
+                "Opp Bingo Prob",
+                "Opp Next Score",
+            ]
+            text.insert(tk.END, "\n\n=== TARGET VALUES ===\n")
+
+            # Get the last 4 values from the vector
+            target_values = vec[-(min(4, len(vec) - (N_PLANE + 72))) :]
+
+            for i, target_val in enumerate(target_values):
+                name = target_names[i] if i < len(target_names) else f"Target {i+1}"
+                text.insert(
+                    tk.END,
+                    f"[{len(vec)-len(target_values)+i}] {target_val:10.6f} ({name})\n",
+                )
 
     def jump_to_index():
         try:

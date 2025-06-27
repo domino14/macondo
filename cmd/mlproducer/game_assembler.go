@@ -94,7 +94,7 @@ func shouldTranspose(id string) bool {
 
 type outputVector struct {
 	features    *[]float32
-	predictions []float32
+	predictions []float32 // [0]=win (-1 to 1), [1]=points, [2]=bingo_prob, [3]=opp_score
 }
 
 // FeedTurn ingests one ply, updates state, and maybe produces vectors.
@@ -135,7 +135,7 @@ func (ga *GameAssembler) FeedTurn(t Turn) []outputVector {
 
 	// 3) Emit when window deep enough.
 	if len(gw.states) > ga.horizon {
-		vec := makeTrainingVector(ga, gw, gw.states[0], gw.states[ga.horizon], gw.spreadsFor[0], gw.spreadsFor[ga.horizon])
+		vec := makeTrainingVector(ga, gw, gw.states[0], gw.states[1], gw.states[ga.horizon], gw.spreadsFor[0], gw.spreadsFor[ga.horizon])
 		outVecs = append(outVecs, vec)
 
 		// Slide window forward by dropping the oldest ply.
@@ -186,7 +186,11 @@ func (ga *GameAssembler) flushRemainder(gw *gameWindow) []outputVector {
 		if future > lastIdx {
 			future = lastIdx // clamp to final
 		}
-		vec := makeTrainingVector(ga, gw, gw.states[i], gw.states[future], gw.spreadsFor[i], gw.spreadsFor[future])
+		next := i + 1
+		if next > lastIdx {
+			next = lastIdx // clamp to final
+		}
+		vec := makeTrainingVector(ga, gw, gw.states[i], gw.states[next], gw.states[future], gw.spreadsFor[i], gw.spreadsFor[future])
 		outVecs = append(outVecs, vec)
 	}
 	game.MLVectorPool.Put(gw.states[lastIdx]) // return last state to pool
@@ -268,7 +272,7 @@ func updateBoardAndExtractFeatures(gw *gameWindow, t Turn, eqCalc *equity.Exhaus
 }
 
 // Build final training vector from state at ply t and ply t+horizon.
-func makeTrainingVector(ga *GameAssembler, gw *gameWindow, stateNow, stateFuture *[]float32,
+func makeTrainingVector(ga *GameAssembler, gw *gameWindow, stateNow, stateNext, stateFuture *[]float32,
 	spreadForNow, spreadForFuture int) outputVector {
 	if len(*stateNow) != len(*stateFuture) {
 		log.Fatal().Msgf("State vectors must be of the same length, got %d and %d", len(*stateNow), len(*stateFuture))
@@ -331,10 +335,37 @@ func makeTrainingVector(ga *GameAssembler, gw *gameWindow, stateNow, stateFuture
 	(*stateNow)[len(*stateNow)-1] = game.NormalizeSpreadForML((*stateNow)[len((*stateNow))-1])
 	ov := outputVector{
 		features:    stateNow,
-		predictions: make([]float32, 1),
+		predictions: make([]float32, 4),
 	}
+	// Prediction 0: Win value (-1 to 1)
 	ov.predictions[0] = win // 1 if we win, -1 if we lose, 0 if draw
-	_ = bogowin             // ignore bogowin for now, it does badly.
+
+	// Prediction 1: Total points scored (pre-scaled to range)
+	totalPts := gw.game.PointsFor(gw.game.PlayerOnTurn()) + gw.game.PointsFor(1-gw.game.PlayerOnTurn())
+	if totalPts > 1600 {
+		totalPts = 1600 // cap at 1600 for normalization
+	}
+	ov.predictions[1] = float32(totalPts) / 1600.0
+
+	// Prediction 2: Bingo probability (0-1)
+	// This is the probability that the opponent plays a bingo on the next turn
+	bingoed := ((*stateNext)[game.VCRatioRackStartIdx] == 0.0 && (*stateNext)[game.VCRatioRackStartIdx+1] == 0.0)
+	bp := float32(0.0)
+	if bingoed {
+		bp = 1.0
+	}
+	ov.predictions[2] = bp
+
+	// Prediction 3: Opponent's next score
+	oppScaledScore := (*stateNext)[game.AddlFeaturesStartIdx+1] // already scaled with tanh
+	// unscale
+	score := game.InverseScaleScoreWithTanh(oppScaledScore, 45.0, 40.0)
+	if score > 300 {
+		score = 300 // cap at 300 for normalization
+	}
+	ov.predictions[3] = score
+
+	_ = bogowin // ignore bogowin for now, it does badly.
 
 	return ov
 }
