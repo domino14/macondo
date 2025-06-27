@@ -7,6 +7,7 @@ from matplotlib.colors import LinearSegmentedColormap
 
 import string
 import os
+import sys
 
 from training import (
     C,
@@ -17,13 +18,16 @@ from training import (
 )  # Import constants from your training module
 
 
-def visualize_vector(vector_path="/tmp/test-vec-9.bin", show_all_planes=True):
+def visualize_vector(
+    vector_path="/tmp/test-vec-9.bin", show_all_planes=False, output_image=None
+):
     """
     Visualize a binary vector file used for Scrabble ML training.
 
     Args:
         vector_path: Path to the binary vector file
         show_all_planes: If True, show all 83 planes; otherwise show a summary
+        output_image: Path to save the output image file. If None, display the plot instead
     """
 
     # Check if file exists
@@ -84,7 +88,7 @@ def visualize_vector(vector_path="/tmp/test-vec-9.bin", show_all_planes=True):
 
     # Visualize the planes
     if show_all_planes:
-        # Show all 84 planes individually
+        # Show all 87 planes individually
         for i in range(C):
             ax = fig.add_subplot(gs[i // 7, i % 7])
             im = ax.imshow(board_data[i], cmap=cmap, vmin=0, vmax=1)
@@ -100,8 +104,8 @@ def visualize_vector(vector_path="/tmp/test-vec-9.bin", show_all_planes=True):
                 ax.set_title(f"V-CC {string.ascii_uppercase[i-53]}")
             elif i < 83:
                 ax.set_title(f"Bonus {bonus_labels[i-79]}")
-            else:
-                ax.set_title("Opponent's Last Play")
+            elif i < 87:
+                ax.set_title("History")
             ax.set_xticks([])
             ax.set_yticks([])
     else:
@@ -201,18 +205,19 @@ def visualize_vector(vector_path="/tmp/test-vec-9.bin", show_all_planes=True):
 
         # 4. Last opponent move and our last move visualization (move to gs[1,0])
         ax5 = fig.add_subplot(gs[1, 0])
-        last_opp_move_plane = board_data[83]
-        our_last_move_plane = board_data[84]
-        im5 = ax5.imshow(last_opp_move_plane, cmap="Oranges", vmin=0, vmax=1)
-        im5_our = ax5.imshow(
-            our_last_move_plane, cmap="Blues", vmin=0, vmax=1, alpha=0.5
-        )
-        ax5.set_title("Last Moves: Opponent (orange), Ours (blue)")
+        our_move_plane = board_data[83]
+        opp_last_move_plane = board_data[84]
+        opp_2nd_last_move_plane = board_data[85]
+        ax5.imshow(our_move_plane, cmap="Blues", vmin=0, vmax=1, alpha=0.5)
+        ax5.imshow(opp_last_move_plane, cmap="Oranges", vmin=0, vmax=1)
+        ax5.imshow(opp_2nd_last_move_plane, cmap="Reds", vmin=0, vmax=1, alpha=0.5)
+
+        ax5.set_title("Last Moves: Opponent (orange/red), Ours (blue)")
         ax5.set_xticks(range(W))
         ax5.set_yticks(range(H))
         for y in range(H):
             for x in range(W):
-                if last_opp_move_plane[y, x] > 0:
+                if opp_last_move_plane[y, x] > 0:
                     ax5.text(
                         x,
                         y,
@@ -222,14 +227,25 @@ def visualize_vector(vector_path="/tmp/test-vec-9.bin", show_all_planes=True):
                         color="darkorange",
                         fontweight="bold",
                     )
-                if our_last_move_plane[y, x] > 0:
+
+                if opp_2nd_last_move_plane[y, x] > 0:
+                    ax5.text(
+                        x,
+                        y,
+                        "O",
+                        ha="center",
+                        va="center",
+                        color="darkred",
+                        fontweight="bold",
+                    )
+                if our_move_plane[y, x] > 0:
                     ax5.text(
                         x,
                         y,
                         "U",
                         ha="center",
                         va="center",
-                        color="blue",
+                        color="darkgreen",
                         fontweight="bold",
                     )
 
@@ -249,11 +265,18 @@ def visualize_vector(vector_path="/tmp/test-vec-9.bin", show_all_planes=True):
 
         # 7. Last opp move features
         ax8 = fig.add_subplot(gs[2, 0])
-        last_opp_move_features = scalar_data[54:57]
-        labels = ["Opp Move Score", "Opp Move Tiles Played", "Opp Move Tiles Exchanged"]
-        ax8.bar(labels, last_opp_move_features)
-        ax8.set_title("Last Opp Move Features")
-        for i, v in enumerate(last_opp_move_features):
+        history_features = scalar_data[54:60]
+        labels = [
+            "1 PTS",  # score
+            "1 TP",  # tiles played
+            "1 TEX",  # tiles exchanged
+            "2 PTS",
+            "2 TP",
+            "2 TEX",
+        ]
+        ax8.bar(labels, history_features)
+        ax8.set_title("Move History Features")
+        for i, v in enumerate(history_features):
             if v > 0:
                 ax8.text(
                     i, v + 0.02, f"{v:.2f}", ha="center", color="red", fontweight="bold"
@@ -261,7 +284,7 @@ def visualize_vector(vector_path="/tmp/test-vec-9.bin", show_all_planes=True):
 
         # 8. Power tiles visualization (move to gs[2,1])
         ax9 = fig.add_subplot(gs[2, 1])
-        power_tiles = scalar_data[57:63]
+        power_tiles = scalar_data[60:66]
         power_labels = ["?", "J", "Q", "S", "X", "Z"]
         ax9.bar(power_labels, power_tiles)
         ax9.set_title("Power Tiles Remaining (normalized)")
@@ -279,14 +302,14 @@ def visualize_vector(vector_path="/tmp/test-vec-9.bin", show_all_planes=True):
 
         # 9. V/C ratio in bag (move to gs[3,2])
         ax10 = fig.add_subplot(gs[3, 2])
-        vc_bag = scalar_data[63:65]
+        vc_bag = scalar_data[66:68]
         ax10.bar(["Vowels", "Consonants"], vc_bag)
         ax10.set_title("Vowel/Consonant Ratio in Bag")
         ax10.set_ylim(0, 1.1)
 
         # 10. V/C ratio in rack (move to gs[3,0])
         ax11 = fig.add_subplot(gs[3, 0])
-        vc_rack = scalar_data[65:67]
+        vc_rack = scalar_data[68:70]
         ax11.bar(["Vowels", "Consonants"], vc_rack)
         ax11.set_title("Vowel/Consonant Ratio in Rack")
         ax11.set_ylim(0, 1.1)
@@ -294,7 +317,7 @@ def visualize_vector(vector_path="/tmp/test-vec-9.bin", show_all_planes=True):
         # 11. Other scalar features (move to gs[3,1])
         ax12 = fig.add_subplot(gs[3, 1])
 
-        other_scalars = scalar_data[67:71]
+        other_scalars = scalar_data[70:74]
         expected_labels = [
             "Our Move Score",
             "Our Move Leave",
@@ -343,7 +366,20 @@ def visualize_vector(vector_path="/tmp/test-vec-9.bin", show_all_planes=True):
     raw_data_btn.on_clicked(lambda _: show_raw_vector_data(vec, N_PLANE, H, W))
 
     plt.tight_layout()
-    plt.show()
+
+    # Save to image file if output_image is specified, otherwise show the plot
+    if output_image:
+        # Ensure directory exists
+        output_dir = os.path.dirname(output_image)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir, exist_ok=True)
+
+        # Save the figure to the specified file
+        plt.savefig(output_image, dpi=300, bbox_inches="tight")
+        print(f"Visualization saved to {output_image}")
+    else:
+        # Display the plot interactively
+        plt.show()
 
     return {"board_data": board_data, "scalar_data": scalar_data, "target": target}
 
@@ -467,39 +503,39 @@ def show_raw_vector_data(vec, N_PLANE, H, W):
                 text.insert(tk.END, "\n")
             else:
                 text.insert(tk.END, "  |  ")
-        text.insert(tk.END, "\n=== LAST OPP MOVE ===\n")
-        for i in range(N_PLANE + 54, N_PLANE + 57):
-            text.insert(tk.END, f"[{i:6d}] {vec[i]:10.6f} (last opp move)")
+        text.insert(tk.END, "\n=== MOVE HISTORY ===\n")
+        for i in range(N_PLANE + 54, N_PLANE + 60):
+            text.insert(tk.END, f"[{i:6d}] {vec[i]:10.6f} (last move history)")
             if (i - (N_PLANE + 54)) % 5 == 4:
                 text.insert(tk.END, "\n")
             else:
                 text.insert(tk.END, "  |  ")
 
         text.insert(tk.END, "\n=== POWER TILES (?, J, Q, S, X, Z) ===\n")
-        for i in range(N_PLANE + 57, N_PLANE + 63):
+        for i in range(N_PLANE + 60, N_PLANE + 66):
             text.insert(tk.END, f"[{i:6d}] {vec[i]:10.6f} (power)")
-            if (i - (N_PLANE + 57)) % 5 == 4:
+            if (i - (N_PLANE + 60)) % 5 == 4:
                 text.insert(tk.END, "\n")
             else:
                 text.insert(tk.END, "  |  ")
         text.insert(tk.END, "\n=== V/C RATIO IN BAG ===\n")
-        for i in range(N_PLANE + 63, N_PLANE + 65):
+        for i in range(N_PLANE + 66, N_PLANE + 68):
             text.insert(tk.END, f"[{i:6d}] {vec[i]:10.6f} (vc_bag)")
             text.insert(tk.END, "  |  ")
         text.insert(tk.END, "\n=== V/C RATIO IN RACK ===\n")
-        for i in range(N_PLANE + 65, N_PLANE + 67):
+        for i in range(N_PLANE + 68, N_PLANE + 70):
             text.insert(tk.END, f"[{i:6d}] {vec[i]:10.6f} (vc_rack)")
             text.insert(tk.END, "  |  ")
         text.insert(tk.END, "\n=== OTHER SCALARS ===\n")
-        for i in range(N_PLANE + 67, len(vec)):
+        for i in range(N_PLANE + 70, len(vec)):
             text.insert(tk.END, f"[{i:6d}] {vec[i]:10.6f}")
-            if (i - (N_PLANE + 67)) % 5 == 4:
+            if (i - (N_PLANE + 70)) % 5 == 4:
                 text.insert(tk.END, "\n")
             else:
                 text.insert(tk.END, "  |  ")
 
         # Final target value if present
-        if len(vec) > N_PLANE + 71:  # If there's a target value
+        if len(vec) > N_PLANE + 74:  # If there's a target value
             text.insert(
                 tk.END,
                 f"\n\n=== TARGET ===\n[{len(vec)-1}] {vec[-1]:10.6f}\n",
@@ -601,7 +637,32 @@ def show_raw_vector_data(vec, N_PLANE, H, W):
 
 if __name__ == "__main__":
     # Example usage
-    result = visualize_vector(show_all_planes=False)
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Visualize vector data for Scrabble ML training"
+    )
+    parser.add_argument("vector_path", nargs="?", help="Path to the vector binary file")
+    parser.add_argument(
+        "--output", "-o", help="Path to save the output image (e.g., 'output.png')"
+    )
+    parser.add_argument(
+        "--all-planes",
+        "-a",
+        action="store_true",
+        help="Show all planes instead of summary",
+    )
+    args = parser.parse_args()
+
+    vector_path = args.vector_path
+    output_image = args.output
+    show_all_planes = args.all_planes
+
+    result = visualize_vector(
+        vector_path=vector_path,
+        show_all_planes=show_all_planes,
+        output_image=output_image,
+    )
 
     # Detailed exploration - print specific plane sums to check for anomalies
     board_data = result["board_data"]

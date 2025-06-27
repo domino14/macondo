@@ -188,7 +188,7 @@ func main() {
 				panic(err)
 			}
 		}
-		if emitted == 9 {
+		if emitted >= 100 && emitted < 200 {
 			// find the exchange
 			// if vec[len(vec)-13] == 1.0 {
 			log.Info().Msgf("Found a test vector: %d", emitted)

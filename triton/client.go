@@ -40,12 +40,12 @@ func (c *TritonClient) Infer(boardTensorData []float32, scalarTensorData []float
 	boardInput := &grpc_client.ModelInferRequest_InferInputTensor{
 		Name:     "board",
 		Datatype: "FP32",
-		Shape:    []int64{int64(numMoves), 85, 15, 15},
+		Shape:    []int64{int64(numMoves), 86, 15, 15},
 	}
 	scalarInput := &grpc_client.ModelInferRequest_InferInputTensor{
 		Name:     "scalars",
 		Datatype: "FP32",
-		Shape:    []int64{int64(numMoves), 78},
+		Shape:    []int64{int64(numMoves), 74},
 	}
 
 	inferRequest := &grpc_client.ModelInferRequest{

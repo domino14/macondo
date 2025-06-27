@@ -123,12 +123,9 @@ func (ga *GameAssembler) FeedTurn(t Turn) []outputVector {
 		gw.game = *tp
 		ga.games[t.GameID] = gw
 	}
-	var lastMove *move.Move
-	if len(gw.moves) > 0 {
-		lastMove = gw.moves[len(gw.moves)-1]
-	}
+
 	// 1) Apply move, update board/racks, compute after-move features.
-	m, stateVec, spreadFor := updateBoardAndExtractFeatures(gw, t, ga.eqCalc, lastMove)
+	m, stateVec, spreadFor := updateBoardAndExtractFeatures(gw, t, ga.eqCalc, gw.moves)
 
 	// 2) Push into sliding window.
 	gw.turns = append(gw.turns, t)
@@ -199,7 +196,7 @@ func (ga *GameAssembler) flushRemainder(gw *gameWindow) []outputVector {
 // Given current game window + turn, mutate board state and return features.
 // Must return the *after-move* tensor for that ply.
 func updateBoardAndExtractFeatures(gw *gameWindow, t Turn, eqCalc *equity.ExhaustiveLeaveCalculator,
-	lastMove *move.Move) (*move.Move, *[]float32, int) {
+	lastMoves []*move.Move) (*move.Move, *[]float32, int) {
 	transpose := shouldTranspose(t.GameID)
 
 	tp := stats.Normalize(t.Play) // normalize play string
@@ -247,7 +244,7 @@ func updateBoardAndExtractFeatures(gw *gameWindow, t Turn, eqCalc *equity.Exhaus
 	}
 	leaveVal = eqCalc.LeaveValue(rack.TilesOn())
 
-	vecPtr, err := gw.game.BuildMLVector(m, leaveVal, lastMove)
+	vecPtr, err := gw.game.BuildMLVector(m, leaveVal, lastMoves)
 	if err != nil {
 		log.Fatal().Msgf("Failed to build ML vector: %v", err)
 	}
