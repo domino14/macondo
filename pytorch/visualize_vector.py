@@ -5,6 +5,7 @@ from matplotlib.gridspec import GridSpec
 import matplotlib.colors as mcolors
 from matplotlib.colors import LinearSegmentedColormap
 
+
 import string
 import os
 import sys
@@ -330,7 +331,7 @@ def visualize_vector(
 
         # 12. Display target values if available
         if target is not None:
-            ax13 = fig.add_subplot(gs[3, 3])
+            ax13 = fig.add_subplot(gs[2, 3])
 
             # Extract all 4 targets
             target_labels = [
@@ -371,7 +372,7 @@ def visualize_vector(
             # Add descriptions under the axis
             ax13.text(
                 0.5,
-                -0.15,
+                -0.35,
                 "Value: -1=loss, +1=win | Total Points: scaled | Bingo Prob: 0-1 | Opp Score: scaled",
                 transform=ax13.transAxes,
                 ha="center",
@@ -382,12 +383,12 @@ def visualize_vector(
         # Adjust layout for new plots
         plt.tight_layout()
 
-    # Add a button to view raw data
-    btn_frame = plt.gcf().add_axes(
-        [0.85, 0.01, 0.14, 0.04]
-    )  # [left, bottom, width, height]
-    raw_data_btn = plt.Button(btn_frame, "View Raw Data")
-    raw_data_btn.on_clicked(lambda _: show_raw_vector_data(vec, N_PLANE, H, W))
+        # Add a button to view raw data
+        btn_frame = plt.gcf().add_axes(
+            [0.9, 0.01, 0.05, 0.04]
+        )  # [left, bottom, width, height]
+        raw_data_btn = plt.Button(btn_frame, "View Raw Data")
+        raw_data_btn.on_clicked(lambda _: show_raw_vector_data(vec, N_PLANE, H, W))
 
     plt.tight_layout()
 

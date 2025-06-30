@@ -97,13 +97,17 @@ class QueueDataset(IterableDataset):
             vec = np.frombuffer(payload, dtype=DTYPE, count=ROW_FLOATS).copy()
             board = torch.from_numpy(vec[:N_PLANE]).view(C, H, W)
             scalars = torch.from_numpy(vec[N_PLANE : N_PLANE + N_SCAL])
-
+            target_start = N_PLANE + N_SCAL
             # Extract multiple targets
             targets = {
-                "value": torch.tensor(vec[-N_TARGETS], dtype=torch.float32),
-                "points": torch.tensor(vec[-N_TARGETS + 1], dtype=torch.float32),
-                "bingo_prob": torch.tensor(vec[-N_TARGETS + 2], dtype=torch.float32),
-                "opp_score": torch.tensor(vec[-N_TARGETS + 3], dtype=torch.float32),
+                "value": torch.tensor(vec[target_start], dtype=torch.float32),
+                "total_game_points": torch.tensor(
+                    vec[target_start + 1], dtype=torch.float32
+                ),
+                "opp_bingo_prob": torch.tensor(
+                    vec[target_start + 2], dtype=torch.float32
+                ),
+                "opp_score": torch.tensor(vec[target_start + 3], dtype=torch.float32),
             }
 
             yield board, scalars, targets
@@ -134,8 +138,8 @@ class ScrabbleValueNet(nn.Module):
 
         # Original value (-1 to 1). The value of the move. (-1 = strong loss, 1 = strong win)
         self.value_head = nn.Linear(128, 1)
-        self.points_head = nn.Linear(128, 1)  # Total points scored
-        self.bingo_prob_head = nn.Linear(128, 1)  # Bingo probability
+        self.total_points_head = nn.Linear(128, 1)  # Total points scored
+        self.opp_bingo_prob_head = nn.Linear(128, 1)  # Bingo probability
         self.opp_score_head = nn.Linear(128, 1)  # Opponent score
 
     def forward(self, board, scalars):
@@ -145,17 +149,18 @@ class ScrabbleValueNet(nn.Module):
         x = torch.cat([x, scalars], 1)
         x = F.relu(self.fc1(x))
         value = torch.tanh(self.value_head(x)).squeeze(1)  # -1 to 1
-        points = self.points_head(x).squeeze(1)  # No activation if pre-scaled
-        # Bingo probability: use sigmoid for 0-1 range
-        bingo_prob = torch.sigmoid(self.bingo_prob_head(x)).squeeze(1)
-        # Opponent score: use ReLU to ensure non-negative
-        opp_score = F.relu(self.opp_score_head(x)).squeeze(1)
+        # total_game_points = self.total_points_head(x).squeeze(
+        #     1
+        # )  # No activation if pre-scaled
+        # opp_bingo_prob = self.opp_bingo_prob_head(x).squeeze(1)
+        # # Opponent score: use ReLU to ensure non-negative
+        # opp_score = F.relu(self.opp_score_head(x)).squeeze(1)
 
         return {
             "value": value,
-            "points": points,
-            "bingo_prob": bingo_prob,
-            "opp_score": opp_score,
+            # "total_game_points": total_game_points,
+            # "opp_bingo_prob": opp_bingo_prob,
+            # "opp_score": opp_score,
         }
 
 
@@ -192,9 +197,9 @@ def write_validation_to_file(val_ds, C, H, W, N_SCAL, DTYPE):
         targets_array = np.array(
             [
                 targets["value"].numpy(),
-                targets["points"].numpy(),
-                targets["bingo_prob"].numpy(),
-                targets["opp_score"].numpy(),
+                # targets["total_game_points"].numpy(),
+                # targets["opp_bingo_prob"].numpy(),
+                # targets["opp_score"].numpy(),
             ],
             dtype=DTYPE,
         )
@@ -227,9 +232,9 @@ def validate_streaming(net, val_filename, val_count, device, batch=1024):
             # Unpack targets
             targets = {
                 "value": torch.tensor(t[0], dtype=torch.float32),
-                "points": torch.tensor(t[1], dtype=torch.float32),
-                "bingo_prob": torch.tensor(t[2], dtype=torch.float32),
-                "opp_score": torch.tensor(t[3], dtype=torch.float32),
+                # "total_game_points": torch.tensor(t[1], dtype=torch.float32),
+                # "opp_bingo_prob": torch.tensor(t[2], dtype=torch.float32),
+                # "opp_score": torch.tensor(t[3], dtype=torch.float32),
             }
 
             batch_boards.append(b)
@@ -290,46 +295,47 @@ def compute_loss(predictions, targets, target_weights=None):
         # Default weights
         target_weights = {
             "value": 1.0,
-            "points": 0.5,
-            "bingo_prob": 0.3,
-            "opp_score": 0.3,
+            # "total_game_points": 0.25,
+            # "opp_bingo_prob": 0.5,
+            # "opp_score": 0.25,
         }
 
     # Unpack predictions
     pred_value = predictions["value"]
-    pred_points = predictions["points"]
-    pred_bingo_prob = predictions["bingo_prob"]
-    pred_opp_score = predictions["opp_score"]
+    # pred_points = predictions["total_game_points"]
+    # pred_bingo_prob = predictions["opp_bingo_prob"]
+    # pred_opp_score = predictions["opp_score"]
 
     # Unpack targets
     target_value = targets["value"]
-    target_points = targets["points"]
-    target_bingo_prob = targets["bingo_prob"]
-    target_opp_score = targets["opp_score"]
+    # target_points = targets["total_game_points"]
+    # target_bingo_prob = targets["opp_bingo_prob"]
+    # target_opp_score = targets["opp_score"]
 
     # Calculate individual losses
     value_loss = F.smooth_l1_loss(pred_value, target_value)
-    points_loss = F.smooth_l1_loss(pred_points, target_points)
+    # points_loss = F.smooth_l1_loss(pred_points, target_points)
 
-    # For binary classification, use BCE loss
-    bingo_loss = F.binary_cross_entropy(pred_bingo_prob, target_bingo_prob)
+    # # For binary classification, use BCE loss
+    # bingo_loss = F.binary_cross_entropy_with_logits(pred_bingo_prob, target_bingo_prob)
 
-    # For score prediction
-    opp_score_loss = F.smooth_l1_loss(pred_opp_score, target_opp_score)
+    # # For score prediction
+    # opp_score_loss = F.smooth_l1_loss(pred_opp_score, target_opp_score)
 
     # Combine losses with weights
     total_loss = (
-        target_weights["value"] * value_loss
-        + target_weights["points"] * points_loss
-        + target_weights["bingo_prob"] * bingo_loss
-        + target_weights["opp_score"] * opp_score_loss
+        target_weights["value"]
+        * value_loss
+        # + target_weights["total_game_points"] * points_loss
+        # + target_weights["opp_bingo_prob"] * bingo_loss
+        # + target_weights["opp_score"] * opp_score_loss
     )
 
     return total_loss, {
         "value_loss": value_loss.item(),
-        "points_loss": points_loss.item(),
-        "bingo_loss": bingo_loss.item(),
-        "opp_score_loss": opp_score_loss.item(),
+        # "points_loss": points_loss.item(),
+        # "bingo_loss": bingo_loss.item(),
+        # "opp_score_loss": opp_score_loss.item(),
         "total_loss": total_loss.item(),
     }
 
@@ -344,7 +350,7 @@ def main():
         device = torch.device("cpu")
 
     val_q = Queue()
-    train_q = Queue(maxsize=1024)
+    train_q = Queue(maxsize=2048)
 
     num_workers = os.cpu_count()
     p = Thread(target=producer, args=(val_q, train_q, VAL_SIZE, num_workers))
@@ -373,9 +379,9 @@ def main():
     running = {
         "total": 0.0,
         "value": 0.0,
-        "points": 0.0,
-        "bingo": 0.0,
-        "opp_score": 0.0,
+        # "points": 0.0,
+        # "bingo": 0.0,
+        # "opp_score": 0.0,
     }
     csv_fh = open(CSV_PATH, "w", newline="")
     csv_writer = csv.writer(csv_fh)
@@ -385,9 +391,9 @@ def main():
             "train_loss",
             "val_loss",
             "value_loss",
-            "points_loss",
-            "bingo_loss",
-            "opp_score_loss",
+            # "points_loss",
+            # "bingo_loss",
+            # "opp_score_loss",
         ]
     )
 
@@ -409,9 +415,9 @@ def main():
             # Track all loss components
             running["total"] += loss.item()
             running["value"] += loss_dict["value_loss"]
-            running["points"] += loss_dict["points_loss"]
-            running["bingo"] += loss_dict["bingo_loss"]
-            running["opp_score"] += loss_dict["opp_score_loss"]
+            # running["points"] += loss_dict["points_loss"]
+            # running["bingo"] += loss_dict["bingo_loss"]
+            # running["opp_score"] += loss_dict["opp_score_loss"]
             step += 1
 
             if step % VAL_EVERY == 0:
@@ -419,17 +425,17 @@ def main():
                 # Store current loss components
                 val_loss_dict = {
                     "value_loss": running["value"] / VAL_EVERY,
-                    "points_loss": running["points"] / VAL_EVERY,
-                    "bingo_loss": running["bingo"] / VAL_EVERY,
-                    "opp_score_loss": running["opp_score"] / VAL_EVERY,
+                    # "points_loss": running["points"] / VAL_EVERY,
+                    # "bingo_loss": running["bingo"] / VAL_EVERY,
+                    # "opp_score_loss": running["opp_score"] / VAL_EVERY,
                 }
                 # Reset running losses
                 running = {
                     "total": 0.0,
                     "value": 0.0,
-                    "points": 0.0,
-                    "bingo": 0.0,
-                    "opp_score": 0.0,
+                    # "points": 0.0,
+                    # "bingo": 0.0,
+                    # "opp_score": 0.0,
                 }
                 val_loss = validate_streaming(net, val_file_name, val_count, device)
                 # Include loss components in CSV
@@ -439,9 +445,9 @@ def main():
                         f"{train_avg:.6f}",
                         f"{val_loss:.6f}",
                         f"{val_loss_dict.get('value_loss', 0.0):.6f}",
-                        f"{val_loss_dict.get('points_loss', 0.0):.6f}",
-                        f"{val_loss_dict.get('bingo_loss', 0.0):.6f}",
-                        f"{val_loss_dict.get('opp_score_loss', 0.0):.6f}",
+                        # f"{val_loss_dict.get('points_loss', 0.0):.6f}",
+                        # f"{val_loss_dict.get('bingo_loss', 0.0):.6f}",
+                        # f"{val_loss_dict.get('opp_score_loss', 0.0):.6f}",
                     ]
                 )
                 csv_fh.flush()
@@ -450,9 +456,9 @@ def main():
                 print(
                     f"{step:>7}  train={train_avg:.4f}  val={val_loss:.4f}  "
                     f"v_loss={val_loss_dict.get('value_loss', 0.0):.4f}  "
-                    f"p_loss={val_loss_dict.get('points_loss', 0.0):.4f}  "
-                    f"b_loss={val_loss_dict.get('bingo_loss', 0.0):.4f}  "
-                    f"o_loss={val_loss_dict.get('opp_score_loss', 0.0):.4f}  "
+                    # f"p_loss={val_loss_dict.get('points_loss', 0.0):.4f}  "
+                    # f"b_loss={val_loss_dict.get('bingo_loss', 0.0):.4f}  "
+                    # f"o_loss={val_loss_dict.get('opp_score_loss', 0.0):.4f}  "
                     f"{step*loader.batch_size/elapsed:,.0f} pos/s"
                 )
 

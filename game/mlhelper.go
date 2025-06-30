@@ -23,6 +23,7 @@ import (
 	"github.com/domino14/macondo/dataloaders"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/triton"
 )
 
 const (
@@ -120,18 +121,18 @@ func MLLoadFunc(cfg *wglconfig.Config, key string) (interface{}, error) {
 // MLEvaluateMove evaluates a single move using the machine learning model.
 // It's a wrapper around MLEvaluateMoves.
 func (g *Game) MLEvaluateMove(m *move.Move, leaveCalc *equity.ExhaustiveLeaveCalculator,
-	lastMoves []*move.Move) (float32, error) {
+	lastMoves []*move.Move) (*triton.ModelOutputs, error) {
 	evals, err := g.MLEvaluateMoves([]*move.Move{m}, leaveCalc, lastMoves)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return evals[0], nil
+	return evals, nil
 }
 
 // MLEvaluateMoves evaluates a slice of moves in a single batch inference.
 // Their equities must already be set.
 func (g *Game) MLEvaluateMoves(moves []*move.Move, leaveCalc *equity.ExhaustiveLeaveCalculator,
-	lastMoves []*move.Move) ([]float32, error) {
+	lastMoves []*move.Move) (*triton.ModelOutputs, error) {
 
 	if strings.ToLower(g.letterDistribution.Name) != "english" {
 		return nil, fmt.Errorf("machine learning evaluation is only supported for English lexica at this time, got %s", g.letterDistribution.Name)
@@ -145,7 +146,7 @@ func (g *Game) MLEvaluateMoves(moves []*move.Move, leaveCalc *equity.ExhaustiveL
 			Msg("evaluated moves")
 	}()
 	if len(moves) == 0 {
-		return []float32{}, nil
+		return nil, nil
 	}
 	backupMode := g.backupMode
 	g.SetBackupMode(SimulationMode)
@@ -236,7 +237,7 @@ func (g *Game) MLEvaluateMoves(moves []*move.Move, leaveCalc *equity.ExhaustiveL
 	return g.mlevaluateMovesLocal(len(moves), allPlaneVectors, allScalarVectors)
 }
 
-func (g *Game) mlevaluateMovesTriton(nmoves int, planeVectors, scalarVectors []float32) ([]float32, error) {
+func (g *Game) mlevaluateMovesTriton(nmoves int, planeVectors, scalarVectors []float32) (*triton.ModelOutputs, error) {
 
 	if g.tritonClient == nil {
 		return nil, errors.New("triton client is not initialized")
@@ -247,7 +248,7 @@ func (g *Game) mlevaluateMovesTriton(nmoves int, planeVectors, scalarVectors []f
 	return g.tritonClient.Infer(planeVectors, scalarVectors, nmoves)
 }
 
-func (g *Game) mlevaluateMovesLocal(nmoves int, planeVectors, scalarVectors []float32) ([]float32, error) {
+func (g *Game) mlevaluateMovesLocal(nmoves int, planeVectors, scalarVectors []float32) (*triton.ModelOutputs, error) {
 
 	net, err := cache.Load(g.config.WGLConfig(), "onnx:"+g.LexiconName(), MLLoadFunc)
 	if err != nil {
@@ -278,24 +279,26 @@ func (g *Game) mlevaluateMovesLocal(nmoves int, planeVectors, scalarVectors []fl
 		return nil, fmt.Errorf("failed to run ONNX model: %w", err)
 	}
 
-	output, err := model.model.GetOutputTensors()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get output tensors: %w", err)
-	}
+	// XXX: FIX ME
 
-	var evals []float32
+	// output, err := model.model.GetOutputTensors()
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to get output tensors: %w", err)
+	// }
 
-	// fmt.Println("output tensors:", len(output), output[0].Shape(), output[0].Data())
-	switch v := output[0].Data().(type) {
-	case []float32:
-		evals = v
-	case float32:
-		evals = []float32{v}
-	default:
-		return nil, fmt.Errorf("unexpected output type: %T", v)
-	}
+	// var evals []float32
 
-	return evals, nil
+	// // fmt.Println("output tensors:", len(output), output[0].Shape(), output[0].Data())
+	// switch v := output[0].Data().(type) {
+	// case []float32:
+	// 	evals = v
+	// case float32:
+	// 	evals = []float32{v}
+	// default:
+	// 	return nil, fmt.Errorf("unexpected output type: %T", v)
+	// }
+
+	return nil, nil
 }
 
 func NormalizeSpreadForML(spread float32) float32 {

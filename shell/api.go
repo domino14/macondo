@@ -25,6 +25,7 @@ import (
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/magpie"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/preendgame"
@@ -964,6 +965,11 @@ func (sc *ShellController) winpct(cmd *shellcmd) (*Response, error) {
 
 }
 
+func (sc *ShellController) magpie(cmd *shellcmd) (*Response, error) {
+	magpie.SanityTest()
+	return nil, nil
+}
+
 func (sc *ShellController) mleval(cmd *shellcmd) (*Response, error) {
 	playerid := sc.game.PlayerOnTurn()
 
@@ -984,17 +990,23 @@ func (sc *ShellController) mleval(cmd *shellcmd) (*Response, error) {
 
 		// Create a slice of move-evaluation pairs
 		type moveEval struct {
-			move *move.Move
-			eval float32
-			idx  int
+			move         *move.Move
+			eval         float32
+			oppBingoProb float32
+			totalPts     float32
+			oppNextScore float32
+			idx          int
 		}
 
 		pairs := make([]moveEval, len(sc.curPlayList))
 		for i, m := range sc.curPlayList {
 			pairs[i] = moveEval{
 				move: m,
-				eval: evals[i],
-				idx:  i + 1, // Store original index for reference
+				eval: evals.Value[i],
+				// oppBingoProb: evals.BingoProb[i],
+				// totalPts:     evals.Points[i],
+				// oppNextScore: evals.OppScore[i],
+				idx: i + 1, // Store original index for reference
 			}
 		}
 
@@ -1005,8 +1017,8 @@ func (sc *ShellController) mleval(cmd *shellcmd) (*Response, error) {
 
 		// Display sorted moves
 		for i, p := range pairs {
-			sc.showMessage(fmt.Sprintf("%d) %s: %.6f (was #%d)",
-				i+1, p.move.ShortDescription(), p.eval, p.idx))
+			sc.showMessage(fmt.Sprintf("%d) %s: %.6f (was #%d) (opp-bingo-prob %.3f, total-pts %.3f, opp-next-score %.3f)",
+				i+1, p.move.ShortDescription(), p.eval, p.idx, p.oppBingoProb, p.totalPts, p.oppNextScore))
 		}
 
 		return msg("MLEval for all moves completed."), nil
@@ -1019,6 +1031,7 @@ func (sc *ShellController) mleval(cmd *shellcmd) (*Response, error) {
 		if err != nil {
 			return nil, err
 		}
-		return msg(fmt.Sprintf("MLEval for %s: %.3f", m.ShortDescription(), eval)), nil
+		return msg(fmt.Sprintf("MLEval for %s: %.3f",
+			m.ShortDescription(), eval.Value[0])), nil
 	}
 }

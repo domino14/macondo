@@ -265,7 +265,7 @@ func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
 		for i, m := range moves {
 			pairs[i] = moveEval{
 				move: m,
-				eval: resp[i],
+				eval: resp.Value[i],
 				idx:  i + 1, // Store original index for reference
 			}
 		}

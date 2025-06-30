@@ -129,16 +129,17 @@ def plot_loss(
             ax.grid(True, linestyle="--", alpha=0.7)
             ax.legend(loc="upper right")
 
-            # Set reasonable y limits
+            # Set reasonable y limits using percentiles to handle outliers
             min_y = df[col].min()
-            ax.set_ylim(max(0, min_y * 0.9), None)
+            max_y = np.percentile(df[col], 95)  # Use 95th percentile instead of max
+            ax.set_ylim(max(0, min_y * 0.9), max_y * 1.1)  # Add 10% padding to the top
 
         main_ax = None  # No main axis in components-only mode
 
     else:
         # Original layout with main plot + component plots if available
         if has_component_losses and not components_only:
-            fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+            fig, axes = plt.subplots(3, 2, figsize=(15, 15))  # Changed from 2x2 to 3x2
             axes = axes.flatten()
             main_ax = axes[0]  # First subplot for overall loss
         else:
@@ -223,6 +224,12 @@ def plot_loss(
                 "title": "Bingo Probability Loss",
                 "color": "purple",
             },
+            {
+                "ax_idx": 4,  # Changed from 3 to 4
+                "column": "opp_score_loss",
+                "title": "Opponent Score Loss",
+                "color": "orange",
+            },
         ]
 
         for plot in component_plots:
@@ -262,54 +269,22 @@ def plot_loss(
             ax.grid(True, linestyle="--", alpha=0.7)
             ax.legend(loc="upper right")
 
-            # Set reasonable y limits
+            # Set reasonable y limits using percentiles to handle outliers
             min_y = df[col].min()
-            ax.set_ylim(max(0, min_y * 0.9), None)
+            max_y = np.percentile(df[col], 95)  # Use 95th percentile instead of max
+            ax.set_ylim(max(0, min_y * 0.9), max_y * 1.1)  # Add 10% padding to the top
 
     # Add a title for the whole figure if we have multiple plots
     if has_component_losses:
         fig.suptitle("Scrabble Neural Network Training Progress", fontsize=20, y=0.98)
 
-        # Add opponent score loss subplot in the mixed mode only
-        if not components_only and main_ax is not None:
-            opp_ax = axes[3]
-            opp_ax.plot(df["step"], df["opp_score_loss"], color="orange", linewidth=2)
-
-            # Add moving average
-            if len(df) > window:
-                smooth = df["opp_score_loss"].rolling(window=window).mean()
-                opp_ax.plot(
-                    df["step"], smooth, "--", color="orange", alpha=0.7, linewidth=1
-                )
-
-            # Mark minimum
-            min_idx = df["opp_score_loss"].idxmin()
-            min_val = df.loc[min_idx]
-            opp_ax.scatter(
-                min_val["step"],
-                min_val["opp_score_loss"],
-                color="lime",
-                s=80,
-                zorder=5,
-                label=f"Min: {min_val['opp_score_loss']:.4f}",
-            )
-
-            # Customize subplot
-            opp_ax.set_title("Opponent Score Loss", fontsize=14)
-            opp_ax.set_xlabel("Steps", fontsize=12)
-            opp_ax.set_ylabel("Loss", fontsize=12)
-            opp_ax.grid(True, linestyle="--", alpha=0.7)
-            opp_ax.legend(loc="upper right")
-
-            # Set reasonable y limits
-            min_y = df["opp_score_loss"].min()
-            opp_ax.set_ylim(max(0, min_y * 0.9), None)
-
     plt.tight_layout()
 
     # Adjust layout if we have a figure title
     if has_component_losses:
-        plt.subplots_adjust(top=0.92)
+        plt.subplots_adjust(
+            top=0.92, hspace=0.3, wspace=0.3
+        )  # Added spacing adjustments
 
     # Save or show
     if output_path:

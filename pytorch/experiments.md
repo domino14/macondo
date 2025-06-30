@@ -609,6 +609,24 @@ HastyBot went first: 109077.0 (50.000%)
 Player who went first wins: 122300.5 (56.062%)
 ```
 
+Try just adding a feature for "number of turns since last opp bingo" and go back
+to single history?
+
+```
+Games played: 1001786
+HastyBot wins: 480160.5 (47.930%)
+HastyBot Mean Score: 435.5182  Stdev: 68.8356
+FastMlBot Mean Score: 426.4469  Stdev: 60.3782
+HastyBot Mean Bingos: 2.0197  Stdev: 1.0671
+FastMlBot Mean Bingos: 2.0049  Stdev: 0.9600
+HastyBot Mean Points Per Turn: 37.4524  Stdev: 6.5060
+FastMlBot Mean Points Per Turn: 36.8241  Stdev: 6.8077
+HastyBot went first: 500893.0 (50.000%)
+Player who went first wins: 561082.5 (56.008%)
+```
+
+Probably should try taking away that feature again and see...
+
 
 
 ### Train on rand-softmax v rand-softmax

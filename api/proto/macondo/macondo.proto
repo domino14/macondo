@@ -152,6 +152,9 @@ message BotRequest {
     FAST_ML_BOT = 14;
     RANDOM_BOT_WITH_TEMPERATURE = 15;
     SIMMING_WITH_ML_EVAL_BOT = 16;
+    // custom bots can be used to run custom algorithms.
+    // They should be used with the BotSpec below.
+    CUSTOM_BOT = 20;
     // This should have probably been number 0.
     UNKNOWN = 100;
   }

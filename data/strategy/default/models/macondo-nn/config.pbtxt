@@ -5,21 +5,39 @@ input [
   {
     name: "board"
     data_type: TYPE_FP32
-    dims: [ 86, 15, 15 ]
+    dims: [ 85, 15, 15 ]
   },
   {
     name: "scalars"
     data_type: TYPE_FP32
-    dims: [ 74 ]
+    dims: [ 72 ]
   }
 ]
 output [
   {
-    name: "win_pred"
+    name: "value"
     data_type: TYPE_FP32
-    dims: [1]
+    dims: [ 1 ]
     reshape { shape: [] }
   }
+#   {
+#     name: "total_game_points"
+#     data_type: TYPE_FP32
+#     dims: [ 1 ]
+#     reshape { shape: [] }
+#   },
+#   {
+#     name: "opp_bingo_prob"
+#     data_type: TYPE_FP32
+#     dims: [ 1 ]
+#     reshape { shape: [] }
+#   },
+#   {
+#     name: "opp_score"
+#     data_type: TYPE_FP32
+#     dims: [ 1 ]
+#     reshape { shape: [] }
+#   }
 ]
 version_policy {
   all { }

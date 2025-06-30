@@ -345,6 +345,9 @@ func makeTrainingVector(ga *GameAssembler, gw *gameWindow, stateNow, stateNext, 
 	if totalPts > 1600 {
 		totalPts = 1600 // cap at 1600 for normalization
 	}
+	if totalPts < 0 {
+		totalPts = 0 // cap at 0 for normalization
+	}
 	ov.predictions[1] = float32(totalPts) / 1600.0
 
 	// Prediction 2: Bingo probability (0-1)
@@ -363,7 +366,7 @@ func makeTrainingVector(ga *GameAssembler, gw *gameWindow, stateNow, stateNext, 
 	if score > 300 {
 		score = 300 // cap at 300 for normalization
 	}
-	ov.predictions[3] = score
+	ov.predictions[3] = score / 300.0
 
 	_ = bogowin // ignore bogowin for now, it does badly.
 

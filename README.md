@@ -26,7 +26,7 @@ https://domino14.github.io/macondo
 
 To generate pb files, run this in the macondo directory:
 
-`protoc --go_out=gen --go_opt=paths=source_relative ./api/proto/macondo/macondo.proto`
+`go generate`
 
 Make sure you have done
 
