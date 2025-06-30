@@ -625,6 +625,10 @@ HastyBot went first: 500893.0 (50.000%)
 Player who went first wins: 561082.5 (56.008%)
 ```
 
+95% CI for this feature is (0.47832, 0.48028)
+95% CI for last best model without this feature is (0.47663, 0.48043)
+
+
 Probably should try taking away that feature again and see...
 
 
