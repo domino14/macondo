@@ -18,9 +18,10 @@ from torch.amp import GradScaler, autocast
 
 # ── feature sizes ────────────────────────────────────────────────────
 C, H, W = 85, 15, 15
-N_PLANE = C * H * W  # 18 900
-N_SCAL = 76
-ROW_FLOATS = N_PLANE + N_SCAL + 1
+N_PLANE = C * H * W  # 19_575
+N_SCAL = 72
+N_TARGETS = 4  # [win, points, bingo_prob, opp_score]
+ROW_FLOATS = N_PLANE + N_SCAL + N_TARGETS
 DTYPE = np.float32
 
 VAL_SIZE = 150_000  # vectors for validation  (~75 batches)
@@ -96,8 +97,20 @@ class QueueDataset(IterableDataset):
             vec = np.frombuffer(payload, dtype=DTYPE, count=ROW_FLOATS).copy()
             board = torch.from_numpy(vec[:N_PLANE]).view(C, H, W)
             scalars = torch.from_numpy(vec[N_PLANE : N_PLANE + N_SCAL])
-            target = torch.tensor(vec[-1], dtype=torch.float32)
-            yield board, scalars, target
+            target_start = N_PLANE + N_SCAL
+            # Extract multiple targets
+            targets = {
+                "value": torch.tensor(vec[target_start], dtype=torch.float32),
+                "total_game_points": torch.tensor(
+                    vec[target_start + 1], dtype=torch.float32
+                ),
+                "opp_bingo_prob": torch.tensor(
+                    vec[target_start + 2], dtype=torch.float32
+                ),
+                "opp_score": torch.tensor(vec[target_start + 3], dtype=torch.float32),
+            }
+
+            yield board, scalars, targets
             del payload, vec
 
 
@@ -122,7 +135,12 @@ class ScrabbleValueNet(nn.Module):
         self.res = nn.Sequential(*[ResidBlock(ch) for _ in range(blocks)])
         self.gap = nn.AdaptiveAvgPool2d(1)
         self.fc1 = nn.Linear(ch + scalars, 128)
-        self.fc_out = nn.Linear(128, 1)
+
+        # Original value (-1 to 1). The value of the move. (-1 = strong loss, 1 = strong win)
+        self.value_head = nn.Linear(128, 1)
+        self.total_points_head = nn.Linear(128, 1)  # Total points scored
+        self.opp_bingo_prob_head = nn.Linear(128, 1)  # Bingo probability
+        self.opp_score_head = nn.Linear(128, 1)  # Opponent score
 
     def forward(self, board, scalars):
         x = F.relu(self.in_bn(self.in_conv(board)))
@@ -130,36 +148,67 @@ class ScrabbleValueNet(nn.Module):
         x = self.gap(x).flatten(1)
         x = torch.cat([x, scalars], 1)
         x = F.relu(self.fc1(x))
-        return torch.tanh(self.fc_out(x)).squeeze(1)
+        value = torch.tanh(self.value_head(x)).squeeze(1)  # -1 to 1
+        # total_game_points = self.total_points_head(x).squeeze(
+        #     1
+        # )  # No activation if pre-scaled
+        # opp_bingo_prob = self.opp_bingo_prob_head(x).squeeze(1)
+        # # Opponent score: use ReLU to ensure non-negative
+        # opp_score = F.relu(self.opp_score_head(x)).squeeze(1)
+
+        return {
+            "value": value,
+            # "total_game_points": total_game_points,
+            # "opp_bingo_prob": opp_bingo_prob,
+            # "opp_score": opp_score,
+        }
 
 
 # ────────────────────────────────────────────────────────────────────
 @torch.no_grad()
 def validate(net, tensors, device, batch=4096):
-    boards, scalars, targets = tensors
+    boards, scalars, targets_dict = tensors
     total, n = 0.0, 0
-    for i in range(0, len(targets), batch):
+    for i in range(0, len(list(targets_dict.values())[0]), batch):
         b = boards[i : i + batch].to(device)
         s = scalars[i : i + batch].to(device)
-        y = targets[i : i + batch].to(device)
+
+        # Move all targets to device
+        batch_targets = {
+            k: v[i : i + batch].to(device) for k, v in targets_dict.items()
+        }
+
         with autocast(device.type, enabled=(device.type in ("cuda", "mps"))):
             pred = net(b, s)
-            total += F.smooth_l1_loss(pred, y, reduction="sum").item()
-        n += y.numel()
+            loss, _ = compute_loss(pred, batch_targets)
+            total += loss.item() * b.size(0)
+        n += b.size(0)
     return total / n
 
 
 def write_validation_to_file(val_ds, C, H, W, N_SCAL, DTYPE):
     val_file = tempfile.NamedTemporaryFile(delete=False)
     val_count = 0
-    for b, s, y in val_ds:
+    for b, s, targets in val_ds:
         b_bytes = b.numpy().astype(DTYPE).tobytes()
         s_bytes = s.numpy().astype(DTYPE).tobytes()
-        y_bytes = y.numpy().astype(DTYPE).tobytes()
-        val_file.write(struct.pack("<III", len(b_bytes), len(s_bytes), len(y_bytes)))
+
+        # Pack all targets into a single array
+        targets_array = np.array(
+            [
+                targets["value"].numpy(),
+                # targets["total_game_points"].numpy(),
+                # targets["opp_bingo_prob"].numpy(),
+                # targets["opp_score"].numpy(),
+            ],
+            dtype=DTYPE,
+        )
+
+        t_bytes = targets_array.tobytes()
+        val_file.write(struct.pack("<III", len(b_bytes), len(s_bytes), len(t_bytes)))
         val_file.write(b_bytes)
         val_file.write(s_bytes)
-        val_file.write(y_bytes)
+        val_file.write(t_bytes)
         val_count += 1
     val_file.close()
     return val_file.name, val_count
@@ -172,35 +221,123 @@ def validate_streaming(net, val_filename, val_count, device, batch=1024):
     with open(val_filename, "rb") as f:
         batch_boards, batch_scalars, batch_targets = [], [], []
         for _ in range(val_count):
-            b_size, s_size, y_size = struct.unpack("<III", f.read(12))
+            b_size, s_size, t_size = struct.unpack("<III", f.read(12))
             b_bytes = f.read(b_size)
             s_bytes = f.read(s_size)
-            y_bytes = f.read(y_size)
+            t_bytes = f.read(t_size)
             b = torch.from_numpy(np.frombuffer(b_bytes, dtype=DTYPE).reshape(C, H, W))
             s = torch.from_numpy(np.frombuffer(s_bytes, dtype=DTYPE))
-            y = torch.from_numpy(np.frombuffer(y_bytes, dtype=DTYPE))[0]
+            t = np.frombuffer(t_bytes, dtype=DTYPE)
+
+            # Unpack targets
+            targets = {
+                "value": torch.tensor(t[0], dtype=torch.float32),
+                # "total_game_points": torch.tensor(t[1], dtype=torch.float32),
+                # "opp_bingo_prob": torch.tensor(t[2], dtype=torch.float32),
+                # "opp_score": torch.tensor(t[3], dtype=torch.float32),
+            }
+
             batch_boards.append(b)
             batch_scalars.append(s)
-            batch_targets.append(y)
+            batch_targets.append(targets)
+
             if len(batch_boards) == batch:
                 b_tensor = torch.stack(batch_boards).to(device)
                 s_tensor = torch.stack(batch_scalars).to(device)
-                y_tensor = torch.stack(batch_targets).to(device)
+
+                # Stack targets into dict of tensors
+                stacked_targets = {
+                    k: torch.stack([d[k] for d in batch_targets]).to(device)
+                    for k in batch_targets[0]
+                }
+
                 with autocast(device.type, enabled=(device.type in ("cuda", "mps"))):
                     pred = net(b_tensor, s_tensor)
-                    total += F.smooth_l1_loss(pred, y_tensor, reduction="sum").item()
-                n += y_tensor.numel()
+                    loss, _ = compute_loss(pred, stacked_targets)
+                    total += loss.item() * b_tensor.size(0)
+
+                n += b_tensor.size(0)
                 batch_boards, batch_scalars, batch_targets = [], [], []
+
         if batch_boards:
             b_tensor = torch.stack(batch_boards).to(device)
             s_tensor = torch.stack(batch_scalars).to(device)
-            y_tensor = torch.stack(batch_targets).to(device)
+
+            # Stack targets into dict of tensors
+            stacked_targets = {
+                k: torch.stack([d[k] for d in batch_targets]).to(device)
+                for k in batch_targets[0]
+            }
+
             with autocast(device.type, enabled=(device.type in ("cuda", "mps"))):
                 pred = net(b_tensor, s_tensor)
-                total += F.smooth_l1_loss(pred, y_tensor, reduction="sum").item()
-            n += y_tensor.numel()
+                loss, _ = compute_loss(pred, stacked_targets)
+                total += loss.item() * b_tensor.size(0)
+                n += b_tensor.size(0)
     net.train()
     return total / n
+
+
+def compute_loss(predictions, targets, target_weights=None):
+    """
+    Compute weighted loss across multiple prediction heads.
+
+    Args:
+        predictions: Dictionary of model predictions
+        targets: Dictionary of target values
+        target_weights: Optional dictionary of weights for each loss component
+
+    Returns:
+        total_loss: Combined loss value
+        loss_dict: Dictionary of individual losses for logging
+    """
+    if target_weights is None:
+        # Default weights
+        target_weights = {
+            "value": 1.0,
+            # "total_game_points": 0.25,
+            # "opp_bingo_prob": 0.5,
+            # "opp_score": 0.25,
+        }
+
+    # Unpack predictions
+    pred_value = predictions["value"]
+    # pred_points = predictions["total_game_points"]
+    # pred_bingo_prob = predictions["opp_bingo_prob"]
+    # pred_opp_score = predictions["opp_score"]
+
+    # Unpack targets
+    target_value = targets["value"]
+    # target_points = targets["total_game_points"]
+    # target_bingo_prob = targets["opp_bingo_prob"]
+    # target_opp_score = targets["opp_score"]
+
+    # Calculate individual losses
+    value_loss = F.smooth_l1_loss(pred_value, target_value)
+    # points_loss = F.smooth_l1_loss(pred_points, target_points)
+
+    # # For binary classification, use BCE loss
+    # bingo_loss = F.binary_cross_entropy_with_logits(pred_bingo_prob, target_bingo_prob)
+
+    # # For score prediction
+    # opp_score_loss = F.smooth_l1_loss(pred_opp_score, target_opp_score)
+
+    # Combine losses with weights
+    total_loss = (
+        target_weights["value"]
+        * value_loss
+        # + target_weights["total_game_points"] * points_loss
+        # + target_weights["opp_bingo_prob"] * bingo_loss
+        # + target_weights["opp_score"] * opp_score_loss
+    )
+
+    return total_loss, {
+        "value_loss": value_loss.item(),
+        # "points_loss": points_loss.item(),
+        # "bingo_loss": bingo_loss.item(),
+        # "opp_score_loss": opp_score_loss.item(),
+        "total_loss": total_loss.item(),
+    }
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -213,7 +350,7 @@ def main():
         device = torch.device("cpu")
 
     val_q = Queue()
-    train_q = Queue(maxsize=1024)
+    train_q = Queue(maxsize=2048)
 
     num_workers = os.cpu_count()
     p = Thread(target=producer, args=(val_q, train_q, VAL_SIZE, num_workers))
@@ -238,37 +375,90 @@ def main():
     opt = torch.optim.AdamW(net.parameters(), lr=3e-4, weight_decay=1e-4)
     scaler = GradScaler(enabled=(device.type in ("cuda", "mps")))
 
-    best_val, running, step, t0 = float("inf"), 0.0, 0, time.time()
+    best_val, step, t0 = float("inf"), 0, time.time()
+    running = {
+        "total": 0.0,
+        "value": 0.0,
+        # "points": 0.0,
+        # "bingo": 0.0,
+        # "opp_score": 0.0,
+    }
     csv_fh = open(CSV_PATH, "w", newline="")
     csv_writer = csv.writer(csv_fh)
-    csv_writer.writerow(["step", "train_loss", "val_loss"])
+    csv_writer.writerow(
+        [
+            "step",
+            "train_loss",
+            "val_loss",
+            "value_loss",
+            # "points_loss",
+            # "bingo_loss",
+            # "opp_score_loss",
+        ]
+    )
 
     try:
-        for board, scal, y in loader:
-            board, scal, y = board.to(device), scal.to(device), y.to(device)
+        for board, scal, targets in loader:
+            board, scal = board.to(device), scal.to(device)
+            # Move all targets to device
+            targets = {k: v.to(device) for k, v in targets.items()}
 
             with autocast(device.type, enabled=(device.type in ("cuda", "mps"))):
                 pred = net(board, scal)
-                loss = F.smooth_l1_loss(pred, y)
+                loss, loss_dict = compute_loss(pred, targets)
 
             scaler.scale(loss).backward()
             scaler.step(opt)
             scaler.update()
             opt.zero_grad(set_to_none=True)
 
-            running += loss.item()
+            # Track all loss components
+            running["total"] += loss.item()
+            running["value"] += loss_dict["value_loss"]
+            # running["points"] += loss_dict["points_loss"]
+            # running["bingo"] += loss_dict["bingo_loss"]
+            # running["opp_score"] += loss_dict["opp_score_loss"]
             step += 1
 
             if step % VAL_EVERY == 0:
-                train_avg = running / VAL_EVERY
-                running = 0.0
+                train_avg = running["total"] / VAL_EVERY
+                # Store current loss components
+                val_loss_dict = {
+                    "value_loss": running["value"] / VAL_EVERY,
+                    # "points_loss": running["points"] / VAL_EVERY,
+                    # "bingo_loss": running["bingo"] / VAL_EVERY,
+                    # "opp_score_loss": running["opp_score"] / VAL_EVERY,
+                }
+                # Reset running losses
+                running = {
+                    "total": 0.0,
+                    "value": 0.0,
+                    # "points": 0.0,
+                    # "bingo": 0.0,
+                    # "opp_score": 0.0,
+                }
                 val_loss = validate_streaming(net, val_file_name, val_count, device)
-                csv_writer.writerow([step, f"{train_avg:.6f}", f"{val_loss:.6f}"])
+                # Include loss components in CSV
+                csv_writer.writerow(
+                    [
+                        step,
+                        f"{train_avg:.6f}",
+                        f"{val_loss:.6f}",
+                        f"{val_loss_dict.get('value_loss', 0.0):.6f}",
+                        # f"{val_loss_dict.get('points_loss', 0.0):.6f}",
+                        # f"{val_loss_dict.get('bingo_loss', 0.0):.6f}",
+                        # f"{val_loss_dict.get('opp_score_loss', 0.0):.6f}",
+                    ]
+                )
                 csv_fh.flush()
 
                 elapsed = time.time() - t0
                 print(
                     f"{step:>7}  train={train_avg:.4f}  val={val_loss:.4f}  "
+                    f"v_loss={val_loss_dict.get('value_loss', 0.0):.4f}  "
+                    # f"p_loss={val_loss_dict.get('points_loss', 0.0):.4f}  "
+                    # f"b_loss={val_loss_dict.get('bingo_loss', 0.0):.4f}  "
+                    # f"o_loss={val_loss_dict.get('opp_score_loss', 0.0):.4f}  "
                     f"{step*loader.batch_size/elapsed:,.0f} pos/s"
                 )
 

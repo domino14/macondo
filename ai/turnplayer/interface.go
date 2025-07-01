@@ -12,5 +12,6 @@ type AITurnPlayer interface {
 	BestPlay(context.Context) (*move.Move, error)
 	GetBotType() pb.BotRequest_BotCode
 	MoveGenerator() movegen.MoveGenerator
-	SetLastMove(m *move.Move)
+	SetLastMoves([]*move.Move)
+	AddLastMove(*move.Move)
 }

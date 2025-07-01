@@ -45,7 +45,7 @@ type BotTurnPlayer struct {
 	simThreads            int
 	minSimPlies           int
 	cfg                   *BotConfig
-	lastMove              *move.Move
+	lastMoves             []*move.Move
 	inferencer            *rangefinder.RangeFinder
 	lastCalculatedDetails string
 }
@@ -222,8 +222,12 @@ func ChooseMoveWithExploration(moves []*move.Move, temperature float64) (*move.M
 	return moves[len(moves)-1], nil
 }
 
-func (p *BotTurnPlayer) SetLastMove(m *move.Move) {
-	p.lastMove = m
+func (p *BotTurnPlayer) SetLastMoves(m []*move.Move) {
+	p.lastMoves = m
+}
+
+func (p *BotTurnPlayer) AddLastMove(m *move.Move) {
+	p.lastMoves = append(p.lastMoves, m)
 }
 
 func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
@@ -252,8 +256,7 @@ func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
 		if lc == nil {
 			return nil, errors.New("no ExhaustiveLeaveCalculator found for fast ML bot")
 		}
-
-		resp, err := p.MLEvaluateMoves(moves, lc, p.lastMove)
+		resp, err := p.MLEvaluateMoves(moves, lc, p.lastMoves)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to evaluate moves for fast ML bot")
 			return nil, err
@@ -262,7 +265,7 @@ func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
 		for i, m := range moves {
 			pairs[i] = moveEval{
 				move: m,
-				eval: resp[i],
+				eval: resp.Value[i],
 				idx:  i + 1, // Store original index for reference
 			}
 		}

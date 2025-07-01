@@ -89,8 +89,10 @@ func (p *AIStaticTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
 	return p.GenerateMoves(1)[0], nil
 }
 
-// SetLastMove does nothing for now.
-func (p *AIStaticTurnPlayer) SetLastMove(m *move.Move) { panic("I am not used currently") }
+// SetLastMoves does nothing for now.
+func (p *AIStaticTurnPlayer) SetLastMoves(m []*move.Move) { panic("I am not used currently") }
+
+func (p *AIStaticTurnPlayer) AddLastMove(m *move.Move) { panic("I am not used currently") }
 
 func (p *AIStaticTurnPlayer) GenerateMoves(numPlays int) []*move.Move {
 	curRack := p.RackFor(p.PlayerOnTurn())

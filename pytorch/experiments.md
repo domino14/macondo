@@ -519,4 +519,118 @@ model. This will be our "final" static model (for now) so we can release this.
 - [x] try looking out to 2 plies instead of 5 plies? 3 plies?
 - [ ] try temperature varying from 1 to 0 linearly/in a curve depending on # tiles in bag?
 
+### More features
+
+Forgot to add opponent's last play _score_. This can be a good predictor of the goodness of tiles that they may have kept, and indeed, we get a little bump:
+
+```
+Games played: 170947
+HastyBot wins: 82032.0 (47.987%)
+HastyBot Mean Score: 436.8603  Stdev: 70.4650
+FastMlBot Mean Score: 425.7584  Stdev: 61.4315
+HastyBot Mean Bingos: 2.0230  Stdev: 1.0717
+FastMlBot Mean Bingos: 2.0254  Stdev: 0.9621
+HastyBot Mean Points Per Turn: 37.3172  Stdev: 6.4764
+FastMlBot Mean Points Per Turn: 36.5636  Stdev: 6.9554
+HastyBot went first: 85474.0 (50.000%)
+Player who went first wins: 95373.0 (55.791%)
+```
+
+We passed the 52% barrier for FastMLBot.
+
+Add the opponent's last play number of tiles as well. It's possible it doesn't "see" this from the last tile positions, as that is mostly spatial data. This feature can help it more with inference and the relationship between keeping good tiles and sacrificing points.
+
+This training was accidentally interrupted about 3/4 of the way through. Let's test with this model anyway because most of the training game seems to come very early. Let's see if this is the case.
+
+```
+Games played: 220692
+HastyBot wins: 106472.0 (48.245%)
+HastyBot Mean Score: 436.1501  Stdev: 69.4948
+FastMlBot Mean Score: 427.0988  Stdev: 60.2532
+HastyBot Mean Bingos: 2.0240  Stdev: 1.0658
+FastMlBot Mean Bingos: 2.0283  Stdev: 0.9532
+HastyBot Mean Points Per Turn: 37.3779  Stdev: 6.4125
+FastMlBot Mean Points Per Turn: 36.8260  Stdev: 6.8908
+HastyBot went first: 110346.0 (50.000%)
+Player who went first wins: 123721.0 (56.060%)
+```
+
+Sadly we can't be quite sure what happened here. Maybe we should train all the way to the end.
+
+Let's change the opp exchange tiles to not be a one-hot encoded metric either. The number of tiles exchanged is not a "category".
+
+
+```
+Games played: 264786
+HastyBot wins: 126707.5 (47.853%)
+HastyBot Mean Score: 435.2447  Stdev: 68.3678
+FastMlBot Mean Score: 426.5620  Stdev: 60.3480
+HastyBot Mean Bingos: 2.0190  Stdev: 1.0708
+FastMlBot Mean Bingos: 2.0050  Stdev: 0.9623
+HastyBot Mean Points Per Turn: 37.3128  Stdev: 6.4913
+FastMlBot Mean Points Per Turn: 36.7216  Stdev: 6.7899
+HastyBot went first: 132393.0 (50.000%)
+Player who went first wins: 148691.5 (56.155%)
+```
+
+That's better; around 52.15% for FastMLBot.
+
+#### Add more history
+
+Add the last two opponent plays (and our play in between). This should provide
+a better signal for whether our opponent might be about to bingo. If this model
+doesn't do well, can try taking away our "in-between" play. I'm not sure.
+
+```
+Games played: 329363
+HastyBot wins: 158114.0 (48.006%)
+HastyBot Mean Score: 436.2155  Stdev: 69.3642
+FastMlBot Mean Score: 426.7953  Stdev: 60.7719
+HastyBot Mean Bingos: 2.0239  Stdev: 1.0687
+FastMlBot Mean Bingos: 2.0358  Stdev: 0.9584
+HastyBot Mean Points Per Turn: 37.2891  Stdev: 6.4552
+FastMlBot Mean Points Per Turn: 36.6793  Stdev: 6.8931
+HastyBot went first: 164682.0 (50.000%)
+Player who went first wins: 184749.0 (56.093%)
+```
+
+Try taking away our in-between play:
+
+```
+Games played: 218153
+HastyBot wins: 105439.5 (48.333%)
+HastyBot Mean Score: 437.6145  Stdev: 71.6119
+FastMlBot Mean Score: 425.3666  Stdev: 62.4449
+HastyBot Mean Bingos: 2.0286  Stdev: 1.0766
+FastMlBot Mean Bingos: 2.0142  Stdev: 0.9610
+HastyBot Mean Points Per Turn: 37.4438  Stdev: 6.4217
+FastMlBot Mean Points Per Turn: 36.6436  Stdev: 7.1191
+HastyBot went first: 109077.0 (50.000%)
+Player who went first wins: 122300.5 (56.062%)
+```
+
+Try just adding a feature for "number of turns since last opp bingo" and go back
+to single history?
+
+```
+Games played: 1001786
+HastyBot wins: 480160.5 (47.930%)
+HastyBot Mean Score: 435.5182  Stdev: 68.8356
+FastMlBot Mean Score: 426.4469  Stdev: 60.3782
+HastyBot Mean Bingos: 2.0197  Stdev: 1.0671
+FastMlBot Mean Bingos: 2.0049  Stdev: 0.9600
+HastyBot Mean Points Per Turn: 37.4524  Stdev: 6.5060
+FastMlBot Mean Points Per Turn: 36.8241  Stdev: 6.8077
+HastyBot went first: 500893.0 (50.000%)
+Player who went first wins: 561082.5 (56.008%)
+```
+
+95% CI for this feature is (0.47832, 0.48028)
+95% CI for last best model without this feature is (0.47663, 0.48043)
+
+
+Probably should try taking away that feature again and see...
+
+
+
 ### Train on rand-softmax v rand-softmax

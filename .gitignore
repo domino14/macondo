@@ -31,3 +31,7 @@ data/strategy/default_english/quackleleaves*
 __pycache__/
 *.pt
 *.onnx
+data/strategy/default/models-bak*
+*.bin
+*.dat
+*.gcg
