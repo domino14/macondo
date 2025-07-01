@@ -998,8 +998,6 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.mleval(cmd)
 	case "winpct":
 		return sc.winpct(cmd)
-	case "magpie":
-		return sc.magpie(cmd)
 	default:
 		msg := fmt.Sprintf("command %v not found", strconv.Quote(cmd.cmd))
 		log.Info().Msg(msg)
