@@ -65,9 +65,12 @@ Model response: Okay, let's break down this position. The simulation identifies 
 
 ### Models
 
-At the moment of writing this (April 14, 2025) the model we are using, Gemini 2.5 Pro, is perhaps the strongest AI model out there. An experimental version of it is available for free. You should be able to run around 25 explanations per day. Normally, an explanation with this model would cost around $0.04.
+**Updated Jul 2, 2025**:
+Gemini 2.5 Pro is no longer available for free, so we now default to Gemini 2.5 Flash, which is available for free and with a response quality that is almost as good.
 
-You can check the Lua script above (`in the scripts/lua/genai_explain.lua`) to update the model. The default value is `gemini-2.5-pro-exp-03-25`. When the model becomes generally available, this default value is likely to change. You can also change the model used by modifying the `GEMINI_MODEL` API key. For example, `gemini-2.0-flash` is 1-2 orders of magnitude cheaper, and the quality of the response is almost as good:
+~~At the moment of writing this (April 14, 2025) the model we are using, Gemini 2.5 Pro, is perhaps the strongest AI model out there. An experimental version of it is available for free. You should be able to run around 25 explanations per day. Normally, an explanation with this model would cost around $0.04.~~
+
+~~You can check the Lua script above (`in the scripts/lua/genai_explain.lua`) to update the model. The default value is `gemini-2.5-pro-exp-03-25`. When the model becomes generally available, this default value is likely to change.~~ You can also change the model used by modifying the `GEMINI_MODEL` API key. For example, `gemini-2.0-flash` is 1-2 orders of magnitude cheaper, and the quality of the response is almost as good:
 
 #### Gemini 2.0 Flash response:
 

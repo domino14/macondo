@@ -206,7 +206,7 @@ if genai_provider == "openai" then
     headers["Content-Type"] = "application/json"
 elseif genai_provider == "gemini" then
     api_key = os.getenv("GEMINI_API_KEY")
-    model = os.getenv("GEMINI_MODEL") or "gemini-2.5-pro"
+    model = os.getenv("GEMINI_MODEL") or "gemini-2.5-flash"
     url = "https://generativelanguage.googleapis.com/v1beta/models/" .. model .. ":generateContent?key=" .. api_key
     print("Using Gemini Provider with model: " .. model)
     request_data = {
