@@ -965,8 +965,11 @@ func (sc *ShellController) winpct(cmd *shellcmd) (*Response, error) {
 
 }
 
-func (sc *ShellController) magpie(cmd *shellcmd) (*Response, error) {
-	magpie.SanityTest()
+func (sc *ShellController) magpieSanityCheck(cmd *shellcmd) (*Response, error) {
+	if sc.magpie == nil {
+		sc.magpie = magpie.NewMagpie(sc.config)
+	}
+	sc.magpie.SanityTest()
 	return nil, nil
 }
 

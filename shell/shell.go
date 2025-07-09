@@ -35,6 +35,7 @@ import (
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/magpie"
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/montecarlo/stats"
 	"github.com/domino14/macondo/move"
@@ -154,6 +155,7 @@ type ShellController struct {
 	winpcts  [][]float32 // win percentages for each spread, indexed by int(equity.MaxRepresentedWinSpread - spread)
 
 	macondoVersion string
+	magpie         *magpie.Magpie
 }
 
 type Mode int
@@ -999,7 +1001,7 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 	case "winpct":
 		return sc.winpct(cmd)
 	case "magpie":
-		return sc.magpie(cmd)
+		return sc.magpieSanityCheck(cmd)
 	default:
 		msg := fmt.Sprintf("command %v not found", strconv.Quote(cmd.cmd))
 		log.Info().Msg(msg)

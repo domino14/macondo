@@ -16,9 +16,26 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"runtime"
 	"syscall"
 	"unsafe"
+
+	"github.com/domino14/macondo/config"
+	"github.com/rs/zerolog/log"
 )
+
+type Magpie struct {
+	configPaths string
+}
+
+func NewMagpie(cfg *config.Config) *Magpie {
+	cPaths := C.CString(cfg.GetString(config.ConfigMagpieDataPath))
+	defer C.free(unsafe.Pointer(cPaths))
+	C.wasm_init_configs(cPaths)
+	return &Magpie{
+		configPaths: cfg.GetString(config.ConfigMagpieDataPath),
+	}
+}
 
 func sendCmd(cmd string) {
 	cCmd := C.CString(cmd)
@@ -63,20 +80,36 @@ func CaptureCStdout(fn func()) string {
 	return buf.String()
 }
 
-// SanityTest
-func SanityTest() {
-	paths := "../MAGPIE-DATA/data"
-	cPaths := C.CString(paths)
-	defer C.free(unsafe.Pointer(cPaths))
-	C.wasm_init_configs(cPaths)
+func (m *Magpie) BestSimmingMove(cgp string, plies int) string {
+	threads := runtime.NumCPU()
 
-	sendCmd("set -s1 equity -s2 equity -r1 equity -r2 equity -numplays 100 -plies 5 -maxequitydiff 30 -sr tt -threads 16 -thres gk16 -scond 99 -it 1000000 -wmp true")
-	sendCmd("cgp C14/O2TOY9/mIRADOR8/F4DAB2PUGH1/I5GOOEY3V/T4XI2MALTHA/14N/6GUM3OWN/7PEW2DOE/9EF1DOR/2KUNA1J1BEVELS/3TURRETs2S2/7A4T2/7N7/7S7 EEEIILZ/ 336/298 0 -lex NWL23")
+	sendCmd("set -s1 equity -s2 equity -r1 equity -r2 equity -numplays 100 -plies " +
+		fmt.Sprint(plies) + " -maxequitydiff 30 -sr tt -threads " +
+		fmt.Sprint(threads) + " -thres gk16 -scond 99 -it 1000000 -wmp true")
+	sendCmd("cgp " + cgp)
 	CaptureCStdout(func() {
 		sendCmd("gen")
 	})
 	output := CaptureCStdout(func() {
 		sendCmd("sim")
 	})
-	fmt.Println("MAGPIE Simulation Output:", output)
+	// find the string that matches the pattern "bestmove 15f.ELSE or bestmove ex.ABCD or bestmove pass"
+	var bestMove string
+	outputLines := bytes.Split([]byte(output), []byte("\n"))
+	for i := len(outputLines) - 1; i >= 0; i-- {
+		line := outputLines[i]
+		if bytes.HasPrefix(line, []byte("bestmove ")) {
+			move := bytes.TrimPrefix(line, []byte("bestmove "))
+			bestMove = string(move)
+			break
+		}
+	}
+	return bestMove
+}
+
+// SanityTest
+func (m *Magpie) SanityTest() {
+	cgp := "C14/O2TOY9/mIRADOR8/F4DAB2PUGH1/I5GOOEY3V/T4XI2MALTHA/14N/6GUM3OWN/7PEW2DOE/9EF1DOR/2KUNA1J1BEVELS/3TURRETs2S2/7A4T2/7N7/7S7 EEEIILZ/ 336/298 0 -lex NWL23"
+	res := m.BestSimmingMove(cgp, 5)
+	log.Info().Str("bestMove", res).Msg("Best simming move found")
 }
