@@ -371,8 +371,29 @@ def main():
         pin_memory=False,
     )
 
-    net = ScrabbleValueNet().to(device)
-    opt = torch.optim.AdamW(net.parameters(), lr=3e-4, weight_decay=1e-4)
+    net = ScrabbleValueNet(ch=96, blocks=10).to(device)
+    #–– Optimiser -----------------------------------------------------------
+    base_lr   = 1.0e-3          # peak LR after warm-up
+    warm_up   =   2_000         # #steps spent warming up
+    t_total   = 250_000         # #scheduler steps before it restarts at 0
+
+    opt = torch.optim.AdamW(net.parameters(), lr=base_lr, weight_decay=1e-4)
+
+    # 1) linear warm-up from 0 → base_lr
+    warmup_sched = torch.optim.lr_scheduler.LinearLR(
+        opt, start_factor=1e-3, end_factor=1.0, total_iters=warm_up
+    )
+    # 2) cosine decay down to 0
+    cosine_sched = torch.optim.lr_scheduler.CosineAnnealingLR(
+        opt, T_max=t_total - warm_up, eta_min=0.0
+    )
+    # 3) chain them: warm-up runs first, then cosine takes over
+    scheduler = torch.optim.lr_scheduler.SequentialLR(
+        opt, schedulers=[warmup_sched, cosine_sched], milestones=[warm_up]
+    )
+
+
+
     scaler = GradScaler(enabled=(device.type in ("cuda", "mps")))
 
     best_val, step, t0 = float("inf"), 0, time.time()
@@ -411,6 +432,7 @@ def main():
             scaler.step(opt)
             scaler.update()
             opt.zero_grad(set_to_none=True)
+            scheduler.step()
 
             # Track all loss components
             running["total"] += loss.item()

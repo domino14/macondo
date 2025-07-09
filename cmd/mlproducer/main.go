@@ -5,12 +5,14 @@ import (
 	"encoding/binary"
 	"flag"
 	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"runtime"
 	"runtime/pprof"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/cespare/xxhash"
@@ -20,9 +22,11 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+const VectorBufferSize = 20000
+
 // NPlies is the number of plies to look ahead in the game assembler. We will predict
-// the game spread after NPlies.
-const NPlies = 50
+// the win percentage after NPlies.
+const NPlies = 5
 
 // ─────────────────────────────────────────────────────────────────────────────
 // text-based writer  → one line  per vector
@@ -142,6 +146,7 @@ func main() {
 	resultsChan := make(chan outputVector, numWorkers)
 	var workersWg sync.WaitGroup
 	log.Info().Msgf("Creating %d job channels", numWorkers)
+	var totalGames atomic.Int64
 	for i := 0; i < numWorkers; i++ {
 		jobChans[i] = make(chan Turn, 128)
 		workersWg.Add(1)
@@ -154,6 +159,7 @@ func main() {
 					resultsChan <- vec
 				}
 			}
+			totalGames.Add(int64(len(assembler.games)))
 		}(jobChans[i])
 	}
 	log.Info().Msgf("Started %d worker goroutines", numWorkers)
@@ -161,6 +167,32 @@ func main() {
 	go func() {
 		workersWg.Wait()
 		close(resultsChan)
+	}()
+
+	emitChan := make(chan outputVector, VectorBufferSize) // what the writer will read
+
+	go func() {
+		buf := make([]outputVector, 0, VectorBufferSize)
+
+		for vec := range resultsChan { // incoming, possibly correlated
+			if len(buf) < VectorBufferSize { // fill the ring first
+				buf = append(buf, vec)
+				continue
+			}
+
+			// pick a random index in [0, VectorBufferSize)
+			i := rand.Intn(VectorBufferSize)
+			swap := buf[i] // this one will be emitted
+			buf[i] = vec   // new vec takes its place
+
+			emitChan <- swap
+		}
+
+		// resultsChan is closed → drain what’s left in the buffer
+		for _, v := range buf {
+			emitChan <- v
+		}
+		close(emitChan)
 	}()
 
 	// Dispatcher goroutine
@@ -176,9 +208,9 @@ func main() {
 			close(ch)
 		}
 	}()
-	log.Info().Msg("Starting to read turns from resultsChan")
+	log.Info().Msg("Starting to read turns from emitChan")
 
-	for vec := range resultsChan {
+	for vec := range emitChan {
 		if err := BinaryWriteMLVector(out, vec); err != nil {
 			panic(err) // production: handle/propagate
 		}
@@ -215,5 +247,7 @@ func main() {
 	log.Info().Msg("Flushing remaining vectors to output")
 
 	out.Flush() // flush any buffered lines
-	log.Info().Msgf("Finished processing turns, emitted %d vectors", emitted)
+	log.Info().Int64("totalGames", totalGames.Load()).
+		Int64("vectorsEmitted", int64(emitted)).
+		Msg("Finished processing turns")
 }
