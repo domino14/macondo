@@ -44,6 +44,8 @@ Options:
     - LEVEL1_PROBABILISTIC through LEVEL5_PROBABILISTIC.
     - NO_LEAVE_BOT
     - SIMMING_BOT
+    - FAST_ML_BOT
+    - CUSTOM_BOT
 
     -threads 10
 
@@ -76,3 +78,19 @@ In the future, we will add other types of players.
 
 Note: If using SIMMING_BOT, we strongly recommend to set number of threads to 1.
 This is because SIMMING_BOT already uses multithreading for its own sims.
+
+### CUSTOM_BOT
+
+If you use CUSTOM_BOT for either bot, you must provide a BotSpec for each bot
+that is custom with the -botspec1 or -botspec2 commands. The BotSpec is a JSON
+string that looks like
+{"algo":"algo_name","params":{"HasEndgame":false,"HasPreendgame":false,"MinSimPlies":5}}
+
+The valid, case-sensitive param keys at the moment are:
+
+- hasSimming (bool)
+- hasEndgame (bool)
+- hasPreendgame (bool)
+- hasInfer (bool)
+- minSimPlies (int)
+- simUseMagpie(bool)

@@ -31,6 +31,7 @@ type BotConfig struct {
 	LeavesFile           string
 	MinSimPlies          int
 	StochasticStaticEval bool
+	BotSpec              *pb.BotSpec
 	// If UseOppRacksInAnalysis is true, will use opponent rack info for simulation/pre-endgames/etc
 	UseOppRacksInAnalysis bool
 }
@@ -103,7 +104,7 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 	}
 
 	// If it is a simming bot, add more fields.
-	if hasSimming(botType) {
+	if hasSimming(botType, conf.BotSpec) {
 		log.Info().Msg("adding fields for simmer")
 		leaveFile := "" // use default
 		if p.Rules().BoardName() == board.SuperCrosswordGameLayout {
@@ -120,15 +121,15 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 			btp.SetMinSimPlies(conf.MinSimPlies)
 		}
 	}
-	if HasEndgame(botType) {
+	if HasEndgame(botType, conf.BotSpec) {
 		log.Info().Msg("adding fields for endgame")
 		btp.endgamer = &negamax.Solver{}
 	}
-	if HasPreendgame(botType) {
+	if HasPreendgame(botType, conf.BotSpec) {
 		log.Info().Msg("adding fields for pre-endgame")
 		btp.preendgamer = &preendgame.Solver{}
 	}
-	if HasInfer(botType) {
+	if HasInfer(botType, conf.BotSpec) {
 		log.Info().Msg("adding fields for rangefinder")
 		btp.inferencer = &rangefinder.RangeFinder{}
 	}
@@ -231,7 +232,8 @@ func (p *BotTurnPlayer) AddLastMove(m *move.Move) {
 }
 
 func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
-	if hasSimming(p.botType) || HasEndgame(p.botType) || HasInfer(p.botType) || HasPreendgame(p.botType) {
+	// XXX: This function really needs to be refactored.
+	if hasSimming(p.botType, p.cfg.BotSpec) || HasEndgame(p.botType, p.cfg.BotSpec) || HasInfer(p.botType, p.cfg.BotSpec) || HasPreendgame(p.botType, p.cfg.BotSpec) {
 		return eliteBestPlay(ctx, p)
 	}
 	if p.botType == pb.BotRequest_FAST_ML_BOT {
@@ -297,13 +299,19 @@ func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
 			return nil, err
 		}
 		return move, nil
+	} else if p.botType == pb.BotRequest_CUSTOM_BOT {
+		// Determine what to do from botspec.
+		if p.cfg.BotSpec == nil {
+			return nil, errors.New("no bot spec provided for custom bot")
+		}
+		return nil, errors.New("custom bot logic not implemented")
 	}
 	return p.GenerateMoves(1)[0], nil
 }
 
 // Returns a string summary of details from a previous call to BestPlay.
 func (p *BotTurnPlayer) BestPlayDetails(ctx context.Context) string {
-	if hasSimming(p.botType) || HasEndgame(p.botType) || HasInfer(p.botType) || HasPreendgame(p.botType) {
+	if hasSimming(p.botType, p.cfg.BotSpec) || HasEndgame(p.botType, p.cfg.BotSpec) || HasInfer(p.botType, p.cfg.BotSpec) || HasPreendgame(p.botType, p.cfg.BotSpec) {
 		return p.lastCalculatedDetails
 	} else {
 		return "(No summary)"

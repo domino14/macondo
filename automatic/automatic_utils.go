@@ -37,8 +37,8 @@ func init() {
 func (r *GameRunner) CompVsCompStatic(addToHistory bool) error {
 	err := r.Init(
 		[]AutomaticRunnerPlayer{
-			{"", "", pb.BotRequest_HASTY_BOT, 0, false},
-			{"", "", pb.BotRequest_HASTY_BOT, 0, false},
+			{"", "", pb.BotRequest_HASTY_BOT, nil, 0, false},
+			{"", "", pb.BotRequest_HASTY_BOT, nil, 0, false},
 		})
 
 	if err != nil {
@@ -122,7 +122,7 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	}
 
 	if threads > 1 && lo.SomeBy(players, func(p AutomaticRunnerPlayer) bool {
-		return bot.HasEndgame(p.BotCode) || bot.HasPreendgame(p.BotCode)
+		return bot.HasEndgame(p.BotCode, p.BotSpec) || bot.HasPreendgame(p.BotCode, p.BotSpec)
 	}) {
 		return errors.New("cannot run multiple games in parallel if either player uses endgame or pre-endgame")
 	}
@@ -156,7 +156,7 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	g, ctx := errgroup.WithContext(ctx)
 	addToHistory := false
 	if lo.SomeBy(players, func(p AutomaticRunnerPlayer) bool {
-		return bot.HasInfer(p.BotCode)
+		return bot.HasInfer(p.BotCode, p.BotSpec)
 	}) {
 		addToHistory = true
 	}

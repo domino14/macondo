@@ -24,6 +24,7 @@ import (
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/kballard/go-shellquote"
 	"github.com/rs/zerolog/log"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/automatic"
@@ -766,6 +767,7 @@ func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) err
 	var botcode1, botcode2 pb.BotRequest_BotCode
 	var minsimplies1, minsimplies2 int
 	var stochastic1, stochastic2 bool
+	var botspec1, botspec2 *pb.BotSpec
 	var err error
 	if options.String("logfile") == "" {
 		logfile = "/tmp/autoplay.txt"
@@ -811,6 +813,22 @@ func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) err
 	if minsimplies2, err = options.IntDefault("minsimplies2", 0); err != nil {
 		return err
 	}
+	bs1 := options.String("botspec1")
+	bs2 := options.String("botspec2")
+
+	if bs1 != "" {
+		err = protojson.Unmarshal([]byte(bs1), botspec1)
+		if err != nil {
+			return fmt.Errorf("parsing bot spec: %w", err)
+		}
+	}
+	if bs2 != "" {
+		err = protojson.Unmarshal([]byte(bs2), botspec2)
+		if err != nil {
+			return fmt.Errorf("parsing bot spec: %w", err)
+		}
+	}
+
 	if numgames, err = options.IntDefault("numgames", 1e9); err != nil {
 		return err
 	}
@@ -852,11 +870,13 @@ func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) err
 				PEGFile:              pegfile1,
 				BotCode:              botcode1,
 				MinSimPlies:          minsimplies1,
+				BotSpec:              botspec1,
 				StochasticStaticEval: stochastic1},
 			{LeaveFile: leavefile2,
 				PEGFile:              pegfile2,
 				BotCode:              botcode2,
 				MinSimPlies:          minsimplies2,
+				BotSpec:              botspec2,
 				StochasticStaticEval: stochastic2},
 		})
 

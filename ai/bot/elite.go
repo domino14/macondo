@@ -99,7 +99,7 @@ func eliteBestPlay(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move.Move, error) {
 	logger := zerolog.Ctx(ctx)
 
-	if !HasEndgame(p.botType) {
+	if !HasEndgame(p.botType, p.cfg.BotSpec) {
 		// Just return the static best play if we don't have an endgame engine.
 		return p.GenerateMoves(1)[0], nil
 	}
@@ -134,7 +134,7 @@ func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move
 
 func preendgameBest(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 	logger := zerolog.Ctx(ctx)
-	if !HasPreendgame(p.botType) {
+	if !HasPreendgame(p.botType, p.cfg.BotSpec) {
 		// Just return the static best play if we don't have a pre-endgame engine
 		return p.GenerateMoves(1)[0], nil
 	}
@@ -184,12 +184,12 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	// use montecarlo if we have it.
 	logger := zerolog.Ctx(ctx)
 
-	if !hasSimming(p.botType) {
+	if !hasSimming(p.botType, p.cfg.BotSpec) {
 		return moves[0], nil
 	}
 	var inferTimeout context.Context
 	var cancel context.CancelFunc
-	if HasInfer(p.botType) && p.Game.Bag().TilesRemaining() > 0 {
+	if HasInfer(p.botType, p.cfg.BotSpec) && p.Game.Bag().TilesRemaining() > 0 {
 		logger.Debug().Msg("running inference..")
 		p.inferencer.Init(p.Game, p.simmerCalcs, p.Config())
 		if p.simThreads != 0 {
@@ -223,7 +223,7 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	// p.simmer.SetAutostopIterationsCutoff(2500)
 	// p.simmer.SetAutostopPPScaling(1500)
 
-	if HasInfer(p.botType) && len(p.inferencer.Inferences().InferredRacks) > InferencesSimLimit {
+	if HasInfer(p.botType, p.cfg.BotSpec) && len(p.inferencer.Inferences().InferredRacks) > InferencesSimLimit {
 		logger.Info().Int("inferences", len(p.inferencer.Inferences().InferredRacks)).Msg("using inferences in sim")
 		p.simmer.SetInferences(p.inferencer.Inferences().InferredRacks, p.inferencer.Inferences().RackLength, montecarlo.InferenceWeightedRandomRacks)
 	}

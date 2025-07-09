@@ -110,6 +110,10 @@ func (m *Magpie) BestSimmingMove(cgp string, plies int) string {
 // SanityTest
 func (m *Magpie) SanityTest() {
 	cgp := "C14/O2TOY9/mIRADOR8/F4DAB2PUGH1/I5GOOEY3V/T4XI2MALTHA/14N/6GUM3OWN/7PEW2DOE/9EF1DOR/2KUNA1J1BEVELS/3TURRETs2S2/7A4T2/7N7/7S7 EEEIILZ/ 336/298 0 -lex NWL23"
-	res := m.BestSimmingMove(cgp, 5)
-	log.Info().Str("bestMove", res).Msg("Best simming move found")
+	bestMoves := map[string]int{}
+	for range 100 {
+		res := m.BestSimmingMove(cgp, 5)
+		bestMoves[res] += 1
+	}
+	log.Info().Interface("bestMoves", bestMoves).Msg("Best simming move found")
 }
