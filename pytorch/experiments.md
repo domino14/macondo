@@ -631,6 +631,168 @@ Player who went first wins: 561082.5 (56.008%)
 
 Probably should try taking away that feature again and see...
 
+### Train on ML vs softmax
+
+Can we try one of the players being a bot using the 52.1% model and the other
+being softmax?
+
+```
+Games played: 309631
+FastMlBot wins: 156112.5 (50.419%)
+FastMlBot Mean Score: 424.4974  Stdev: 66.2355
+HastyBot Mean Score: 442.3905  Stdev: 75.2271
+FastMlBot Mean Bingos: 2.0268  Stdev: 0.9612
+HastyBot Mean Bingos: 2.0461  Stdev: 1.0842
+FastMlBot Mean Points Per Turn: 36.4770  Stdev: 7.6370
+HastyBot Mean Points Per Turn: 37.5507  Stdev: 6.2719
+FastMlBot went first: 154815.0 (50.000%)
+Player who went first wins: 172804.5 (55.810%)
+```
+
+Didn't do well after training.
+
+### Try bogowin again with 5 plies
+
+Maybe I screwed something up earlier.
+
+```
+Games played: 304811
+FastMlBot wins: 159551.5 (52.344%)
+FastMlBot Mean Score: 427.6470  Stdev: 59.1465
+HastyBot Mean Score: 434.8909  Stdev: 69.4700
+FastMlBot Mean Bingos: 2.0228  Stdev: 0.9632
+HastyBot Mean Bingos: 2.0081  Stdev: 1.0705
+FastMlBot Mean Points Per Turn: 36.7400  Stdev: 6.8699
+HastyBot Mean Points Per Turn: 37.1322  Stdev: 6.4409
+FastMlBot went first: 152406.0 (50.000%)
+Player who went first wins: 170784.5 (56.030%)
+```
+
+52.34%, best model yet! Try now with 3 plies?
+
+```
+Games played: 164109
+FastMlBot wins: 83405.0 (50.823%)
+FastMlBot Mean Score: 423.5841  Stdev: 58.6700
+HastyBot Mean Score: 432.6651  Stdev: 68.7775
+FastMlBot Mean Bingos: 1.8706  Stdev: 0.9768
+HastyBot Mean Bingos: 1.9896  Stdev: 1.0736
+FastMlBot Mean Points Per Turn: 36.0825  Stdev: 6.8554
+HastyBot Mean Points Per Turn: 36.6394  Stdev: 6.4978
+FastMlBot went first: 82055.0 (50.000%)
+Player who went first wins: 91547.0 (55.784%)
+```
+
+No. Try with 7 plies:
+
+```
+Games played: 172623
+FastMlBot wins: 90010.0 (52.143%)
+FastMlBot Mean Score: 425.7617  Stdev: 62.9998
+HastyBot Mean Score: 437.3403  Stdev: 72.3261
+FastMlBot Mean Bingos: 2.0238  Stdev: 0.9613
+HastyBot Mean Bingos: 2.0202  Stdev: 1.0764
+FastMlBot Mean Points Per Turn: 36.4023  Stdev: 7.2569
+HastyBot Mean Points Per Turn: 37.0964  Stdev: 6.3658
+FastMlBot went first: 86312.0 (50.000%)
+Player who went first wins: 96756.0 (56.050%)
+```
+
+6 plies?
+
+```
+Games played: 289613
+FastMlBot wins: 150492.5 (51.963%)
+FastMlBot Mean Score: 425.7795  Stdev: 62.9682
+HastyBot Mean Score: 437.6534  Stdev: 72.4049
+FastMlBot Mean Bingos: 2.0252  Stdev: 0.9642
+HastyBot Mean Bingos: 2.0240  Stdev: 1.0789
+FastMlBot Mean Points Per Turn: 36.4122  Stdev: 7.2737
+HastyBot Mean Points Per Turn: 37.1189  Stdev: 6.3677
+FastMlBot went first: 144807.0 (50.000%)
+Player who went first wins: 162029.5 (55.947%)
+```
+
+4 plies:
+
+```
+Games played: 95615
+FastMlBot wins: 48955.5 (51.201%)
+FastMlBot Mean Score: 426.1207  Stdev: 57.1186
+HastyBot Mean Score: 433.5960  Stdev: 67.8978
+FastMlBot Mean Bingos: 1.9389  Stdev: 0.9673
+HastyBot Mean Bingos: 2.0086  Stdev: 1.0708
+FastMlBot Mean Points Per Turn: 36.7277  Stdev: 6.6532
+HastyBot Mean Points Per Turn: 37.1738  Stdev: 6.3974
+FastMlBot went first: 47807.0 (49.999%)
+Player who went first wins: 53488.5 (55.942%)
+```
+
+### Shuffle training vectors
+
+Use a buffer to shuffle the training vectors more. This should remove correlations since games usually get built up turn by turn and are close together in time. Use 100K size buffer.
+
+```
+Games played: 118997
+FastMlBot wins: 61816.0 (51.948% +/- 0.284)
+FastMlBot Mean Score: 425.3099  Stdev: 61.1140
+HastyBot Mean Score: 435.3854  Stdev: 71.4321
+FastMlBot Mean Bingos: 1.9932  Stdev: 0.9631
+HastyBot Mean Bingos: 2.0069  Stdev: 1.0792
+FastMlBot Mean Points Per Turn: 36.3852  Stdev: 7.1418
+HastyBot Mean Points Per Turn: 36.9522  Stdev: 6.3799
+FastMlBot went first: 59499.0 (50.000%)
+Player who went first wins: 67075.0 (56.367%)
+```
+
+Unexpected poor performance. Try again with 150K instead of 100K for validation vector size (150K was what we used before).
+
+```
+Games played: 811139
+FastMlBot wins: 424911.5 (52.385% +/- 0.109)
+FastMlBot Mean Score: 425.8282  Stdev: 60.5918
+HastyBot Mean Score: 434.5577  Stdev: 69.9602
+FastMlBot Mean Bingos: 1.9968  Stdev: 0.9655
+HastyBot Mean Bingos: 2.0006  Stdev: 1.0708
+FastMlBot Mean Points Per Turn: 36.4742  Stdev: 7.0188
+HastyBot Mean Points Per Turn: 37.0059  Stdev: 6.4583
+FastMlBot went first: 405570.0 (50.000%)
+Player who went first wins: 454474.5 (56.029%)
+```
+
+weird, but best model so far.
+
+
+### Train with bigger model (more params)
+
+Used 96 channels, 10 blocks for CNN (vs 64, 6 used for all other prior models).
+Also used an adaptive learning rate.
+
+This results in a significant improvement!
+
+```
+Games played: 188339
+FastMlBot wins: 99632.0 (52.900% +/- 0.225)
+FastMlBot Mean Score: 426.8498  Stdev: 60.4142
+HastyBot Mean Score: 434.1403  Stdev: 68.6183
+FastMlBot Mean Bingos: 2.0211  Stdev: 0.9755
+HastyBot Mean Bingos: 2.0002  Stdev: 1.0684
+FastMlBot Mean Points Per Turn: 36.4535  Stdev: 6.9247
+HastyBot Mean Points Per Turn: 36.9272  Stdev: 6.4077
+FastMlBot went first: 94167.0 (49.999%)
+Player who went first wins: 105525.0 (56.029%)
+```
+
+**52.9% win rate vs HastyBot** !!
+
+
+Note: The bigger model required shrinking the shuffle buffer from the previous improvement,
+otherwise my 64GB RAM machine OOMed. Shrank buffer from 100K vectors to 20K vectors.
+
+### Try smaller model with learning rate improvement
+
+Try (64, 6) CNN size with the adaptive learning rate to isolate that particular improvement.
+
 
 
 ### Train on rand-softmax v rand-softmax

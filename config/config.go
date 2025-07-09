@@ -31,6 +31,7 @@ const (
 	ConfigTritonURL                        = "triton-url"
 	ConfigTritonModelName                  = "triton-model-name"
 	ConfigTritonModelVersion               = "triton-model-version"
+	ConfigMagpieDataPath                   = "magpie-data-path"
 )
 
 type Config struct {
@@ -62,6 +63,7 @@ func DefaultConfig() *Config {
 	c.SetDefault(ConfigTritonModelVersion, "")
 	// Read from an env var MACONDO_DATA_PATH. This might not be a good way to do it:
 	c.SetDefault(ConfigDataPath, c.GetString(ConfigDataPath))
+	c.SetDefault(ConfigMagpieDataPath, c.GetString(ConfigMagpieDataPath))
 
 	return c
 }
@@ -93,6 +95,7 @@ func (c *Config) Load(args []string) error {
 	c.BindEnv(ConfigTritonURL)
 	c.BindEnv(ConfigTritonModelName)
 	c.BindEnv(ConfigTritonModelVersion)
+	c.BindEnv(ConfigMagpieDataPath)
 
 	cfgdir, err := os.UserConfigDir()
 	if err != nil {
@@ -137,6 +140,7 @@ func (c *Config) Load(args []string) error {
 	c.SetDefault(ConfigTritonURL, "localhost:8001")
 	c.SetDefault(ConfigTritonModelName, "macondo-nn")
 	c.SetDefault(ConfigTritonModelVersion, "")
+	c.SetDefault(ConfigMagpieDataPath, "../magpie/data")
 
 	return nil
 }

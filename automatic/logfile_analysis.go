@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 	"strings"
 
@@ -20,6 +21,16 @@ import (
 	"github.com/domino14/macondo/stats"
 	"github.com/domino14/macondo/turnplayer"
 )
+
+func confidenceInterval(wins, total int, confidenceZ float64) (float64, float64) {
+	if total == 0 {
+		return 0, 0
+	}
+	p := float64(wins) / float64(total)
+	se := math.Sqrt(p * (1 - p) / float64(total))
+	margin := confidenceZ * se
+	return p, margin
+}
 
 // AnalyzeLogFile analyzes the given game CSV file and spits out a bunch of
 // statistics.
@@ -115,9 +126,11 @@ func AnalyzeLogFile(filepath string) (string, error) {
 		gamesPlayed++
 	}
 
+	_, cimargin := confidenceInterval(int(p1wl), gamesPlayed, stats.Z95)
+
 	// build stats string
 	stats := fmt.Sprintf("Games played: %d\n", gamesPlayed)
-	stats += fmt.Sprintf("%v wins: %.1f (%.3f%%)\n", p1Name, p1wl, 100.0*p1wl/float64(gamesPlayed))
+	stats += fmt.Sprintf("%v wins: %.1f (%.3f%% +/- %.3f)\n", p1Name, p1wl, 100.0*p1wl/float64(gamesPlayed), cimargin*100.0)
 	stats += fmt.Sprintf("%v Mean Score: %.4f  Stdev: %.4f\n",
 		p1Name, player1scores.Mean(), player1scores.Stdev())
 	stats += fmt.Sprintf("%v Mean Score: %.4f  Stdev: %.4f\n",

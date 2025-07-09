@@ -30,10 +30,11 @@ var DefaultConfig = config.DefaultConfig()
 
 // GameAssembler emits training vectors once it has look-ahead data for a ply.
 type GameAssembler struct {
-	horizon int                               // #plies to look ahead
-	games   map[string]*gameWindow            // live games by GameID
-	eqCalc  *equity.ExhaustiveLeaveCalculator // equity calculator for leave values
-	winpcts [][]float32
+	horizon        int                               // #plies to look ahead
+	games          map[string]*gameWindow            // live games by GameID
+	eqCalc         *equity.ExhaustiveLeaveCalculator // equity calculator for leave values
+	winpcts        [][]float32
+	gamesProcessed int64
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -166,6 +167,7 @@ func (ga *GameAssembler) FeedTurn(t Turn) []outputVector {
 
 		outVecs = append(outVecs, ga.flushRemainder(gw)...)
 		delete(ga.games, t.GameID)
+		ga.gamesProcessed++
 	}
 	return outVecs
 }
@@ -300,13 +302,14 @@ func makeTrainingVector(ga *GameAssembler, gw *gameWindow, stateNow, stateNext, 
 		switch {
 		case futureSpread > 0:
 			win = 1.0
-			bogowin = 1.0 // we won, so BOGO win is also 100%
+			bogowin = 1.0
 		case futureSpread < 0:
 			win = -1.0
-			bogowin = 0.0 // we lost, so BOGO win is 0%
+			// scale bogowin to [-1, 1] range
+			bogowin = -1.0
 		case futureSpread == 0:
 			win = 0.0
-			bogowin = 0.5 // we can consider this a draw, so 50% chance of winning
+			bogowin = 0.0
 		}
 	} else {
 		// We are not at the end of the game, so calculate bogowin (winpct lookup table)
@@ -320,6 +323,7 @@ func makeTrainingVector(ga *GameAssembler, gw *gameWindow, stateNow, stateNext, 
 			log.Fatal().Msgf("Bag remaining %d is out of bounds for winpcts", bagRemaining)
 		}
 		bogowin = ga.winpcts[int(equity.MaxRepresentedWinSpread-futureSpread)][bagRemaining]
+		bogowin = bogowin*2 - 1 // scale to [-1, 1] range
 		if futureSpread > 0 {
 			win = 1.0 // win is after N plies
 		} else if futureSpread < 0 {
@@ -338,7 +342,7 @@ func makeTrainingVector(ga *GameAssembler, gw *gameWindow, stateNow, stateNext, 
 		predictions: make([]float32, 4),
 	}
 	// Prediction 0: Win value (-1 to 1)
-	ov.predictions[0] = win // 1 if we win, -1 if we lose, 0 if draw
+	ov.predictions[0] = bogowin // 1 if we win, -1 if we lose, 0 if draw
 
 	// Prediction 1: Total points scored (pre-scaled to range)
 	totalPts := gw.game.PointsFor(gw.game.PlayerOnTurn()) + gw.game.PointsFor(1-gw.game.PlayerOnTurn())
@@ -368,7 +372,8 @@ func makeTrainingVector(ga *GameAssembler, gw *gameWindow, stateNow, stateNext, 
 	}
 	ov.predictions[3] = score / 300.0
 
-	_ = bogowin // ignore bogowin for now, it does badly.
+	_ = win
+	// _ = bogowin // ignore bogowin for now, it does badly.
 
 	return ov
 }
