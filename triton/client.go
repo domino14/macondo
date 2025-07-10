@@ -50,18 +50,6 @@ func (c *TritonClient) SetDebug(debug bool) {
 	c.debug = debug
 }
 
-func sigmoidSingle(x float32) float32 {
-	// Use the sigmoid function formula
-	return float32(1.0 / (1.0 + math.Exp(float64(-x))))
-}
-
-func sigmoid(x []float32) []float32 {
-	for i := range x {
-		x[i] = sigmoidSingle(x[i])
-	}
-	return x
-}
-
 // Infer performs inference using the Triton server.
 func (c *TritonClient) Infer(boardTensorData []float32, scalarTensorData []float32, numMoves int) (*ModelOutputs, error) {
 	if c.debug {
