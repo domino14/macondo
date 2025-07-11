@@ -826,5 +826,25 @@ Player who went first wins: 491546.0 (56.091%)
 
 Not bad. Maybe we try an even bigger model? (128 channels instead of 96?)
 
+```
+Games played: 1041365
+HastyBot wins: 495144.0 (47.548% +/- 0.096)
+HastyBot Mean Score: 431.9879  Stdev: 65.3669
+FastMlBot Mean Score: 426.2294  Stdev: 58.0871
+HastyBot Mean Bingos: 1.9900  Stdev: 1.0541
+FastMlBot Mean Bingos: 1.9795  Stdev: 0.9752
+HastyBot Mean Points Per Turn: 36.9933  Stdev: 6.3967
+FastMlBot Mean Points Per Turn: 36.6583  Stdev: 6.6265
+HastyBot went first: 520683.0 (50.000%)
+Player who went first wins: 583944.0 (56.075%)
+```
+
+Win rate for FastMLBot is 52.45%. Could be within margin of error, but with no
+real improvement, we can go back to the 96-channel network.
+
+Try 8-bit quantization for older model (96-channel):
+
+
+
 
 ### Train on rand-softmax v rand-softmax

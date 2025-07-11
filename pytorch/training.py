@@ -371,7 +371,7 @@ def main():
         pin_memory=False,
     )
 
-    net = ScrabbleValueNet(ch=128, blocks=10).to(device)
+    net = ScrabbleValueNet(ch=96, blocks=10).to(device)
     # –– Optimiser -----------------------------------------------------------
     base_lr = 1.0e-3  # peak LR after warm-up
     warm_up = 2_000  # #steps spent warming up

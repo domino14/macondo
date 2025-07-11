@@ -107,6 +107,24 @@ func (c *TritonClient) Infer(boardTensorData []float32, scalarTensorData []float
 
 	// Process all outputs
 	rawValues := byteToFloat32(inferResponse.RawOutputContents[0])
+	//
+	// // Check for NaN values in output
+	// hasNaN := false
+	// for i, v := range rawValues {
+	// 	if math.IsNaN(float64(v)) {
+	// 		if c.debug {
+	// 			log.Debug().Msgf("NaN detected at index %d", i)
+	// 		}
+	// 		hasNaN = true
+	// 		// Replace NaN with a default value of 0
+	// 		rawValues[i] = 0.0
+	// 	}
+	// }
+
+	// if hasNaN && c.debug {
+	// 	log.Warn().Msg("NaN values detected in model output and replaced with 0.0")
+	// }
+
 	// rawPoints := byteToFloat32(inferResponse.RawOutputContents[1])
 	// rawBingoProb := byteToFloat32(inferResponse.RawOutputContents[2])
 	// rawOppScore := byteToFloat32(inferResponse.RawOutputContents[3])
@@ -175,12 +193,22 @@ func (c *TritonClient) InferWithDiagnostics(boardTensorData []float32, scalarTen
 	}
 
 	// Check output shapes
-	diagnostics["output_shapes"] = map[string]int{
-		"value":             len(outputs.Value),
-		"total_game_points": len(outputs.Points),
-		"opp_bingo_prob":    len(outputs.BingoProb),
-		"opp_score":         len(outputs.OppScore),
+	outputShapes := map[string]int{
+		"value": len(outputs.Value),
 	}
+
+	// Add optional outputs if they exist
+	if len(outputs.Points) > 0 {
+		outputShapes["total_game_points"] = len(outputs.Points)
+	}
+	if len(outputs.BingoProb) > 0 {
+		outputShapes["opp_bingo_prob"] = len(outputs.BingoProb)
+	}
+	if len(outputs.OppScore) > 0 {
+		outputShapes["opp_score"] = len(outputs.OppScore)
+	}
+
+	diagnostics["output_shapes"] = outputShapes
 
 	// Restore original debug setting
 	c.debug = originalDebug
