@@ -4,7 +4,7 @@ from training import ScrabbleValueNet, C, H, W, N_SCAL
 
 # Load the trained model
 ckpt = torch.load("best-bak.pt", map_location="cpu")
-net = ScrabbleValueNet(ch=96, blocks=10)
+net = ScrabbleValueNet(ch=128, blocks=10)
 net.load_state_dict(ckpt["model"])
 net.eval()
 

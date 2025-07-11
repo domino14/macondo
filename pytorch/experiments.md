@@ -793,6 +793,38 @@ otherwise my 64GB RAM machine OOMed. Shrank buffer from 100K vectors to 20K vect
 
 Try (64, 6) CNN size with the adaptive learning rate to isolate that particular improvement.
 
+```
+Games played: 237136
+FastMlBot wins: 124018.0 (52.298% +/- 0.201)
+```
+
+Kinda the same as before
+
+### Longer run for bigger model
+
+```
+Games played: 842245
+FastMlBot wins: 442500.5 (52.538% +/- 0.107)
+```
+
+Sadly the 52.9% might have been illusory / good luck / noise. I'm not sure exactly what happened there.
+
+### Convert model to TensorRT architecture + FP16
+
+```
+Games played: 876342
+FastMlBot wins: 460561.0 (52.555% +/- 0.105)
+FastMlBot Mean Score: 425.7805  Stdev: 59.6600
+HastyBot Mean Score: 433.6229  Stdev: 66.9563
+FastMlBot Mean Bingos: 2.0136  Stdev: 0.9726
+HastyBot Mean Bingos: 1.9991  Stdev: 1.0599
+FastMlBot Mean Points Per Turn: 36.4628  Stdev: 6.7907
+HastyBot Mean Points Per Turn: 36.9658  Stdev: 6.3853
+FastMlBot went first: 438171.0 (50.000%)
+Player who went first wins: 491546.0 (56.091%)
+```
+
+Not bad. Maybe we try an even bigger model? (128 channels instead of 96?)
 
 
 ### Train on rand-softmax v rand-softmax
