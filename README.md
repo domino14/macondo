@@ -46,7 +46,7 @@ rather than the default Go server. It's _much_ faster, but it's not trivial to r
 If your macondo directory is at `$HOME/code/macondo` you would run `docker run` with these parameters:
 
 ```
-docker run --gpus all --rm -p 8000:8000 -p 8001:8001 -p 8002:8002     -v $HOME/code/macondo/data/strategy/default/models/:/models     nvcr.io/nvidia/tritonserver:25.05-py3     tritonserver --model-repository=/models
+docker run --gpus all --rm -p 8000:8000 -p 8001:8001 -p 8002:8002     -v $HOME/code/macondo/data/strategy/default/models/:/models     nvcr.io/nvidia/tritonserver:25.06-py3     tritonserver --model-repository=/models
 ```
 
 You may need to install the NVIDIA Container Toolkit to use your GPU for inference.

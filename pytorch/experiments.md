@@ -793,6 +793,87 @@ otherwise my 64GB RAM machine OOMed. Shrank buffer from 100K vectors to 20K vect
 
 Try (64, 6) CNN size with the adaptive learning rate to isolate that particular improvement.
 
+```
+Games played: 237136
+FastMlBot wins: 124018.0 (52.298% +/- 0.201)
+```
 
+Kinda the same as before
 
-### Train on rand-softmax v rand-softmax
+### Longer run for bigger model
+
+```
+Games played: 842245
+FastMlBot wins: 442500.5 (52.538% +/- 0.107)
+```
+
+Sadly the 52.9% might have been illusory / good luck / noise. I'm not sure exactly what happened there.
+
+### Convert model to TensorRT architecture + FP16
+
+```
+Games played: 876342
+FastMlBot wins: 460561.0 (52.555% +/- 0.105)
+FastMlBot Mean Score: 425.7805  Stdev: 59.6600
+HastyBot Mean Score: 433.6229  Stdev: 66.9563
+FastMlBot Mean Bingos: 2.0136  Stdev: 0.9726
+HastyBot Mean Bingos: 1.9991  Stdev: 1.0599
+FastMlBot Mean Points Per Turn: 36.4628  Stdev: 6.7907
+HastyBot Mean Points Per Turn: 36.9658  Stdev: 6.3853
+FastMlBot went first: 438171.0 (50.000%)
+Player who went first wins: 491546.0 (56.091%)
+```
+
+Not bad. Maybe we try an even bigger model? (128 channels instead of 96?)
+
+```
+Games played: 1041365
+HastyBot wins: 495144.0 (47.548% +/- 0.096)
+HastyBot Mean Score: 431.9879  Stdev: 65.3669
+FastMlBot Mean Score: 426.2294  Stdev: 58.0871
+HastyBot Mean Bingos: 1.9900  Stdev: 1.0541
+FastMlBot Mean Bingos: 1.9795  Stdev: 0.9752
+HastyBot Mean Points Per Turn: 36.9933  Stdev: 6.3967
+FastMlBot Mean Points Per Turn: 36.6583  Stdev: 6.6265
+HastyBot went first: 520683.0 (50.000%)
+Player who went first wins: 583944.0 (56.075%)
+```
+
+Win rate for FastMLBot is 52.45%. Could be within margin of error, but with no
+real improvement, we can go back to the 96-channel network.
+
+Try 8-bit quantization for older model (96-channel):
+
+(Can't get it to work. Returns NaN for all inputs)
+
+Try an 80-channel model; maybe the best performance is between 64 and 96 channels?
+
+```
+Games played: 1368951
+HastyBot wins: 650248.0 (47.500% +/- 0.084)
+HastyBot Mean Score: 434.4154  Stdev: 66.6972
+FastMlBot Mean Score: 427.2275  Stdev: 59.8745
+HastyBot Mean Bingos: 2.0033  Stdev: 1.0559
+FastMlBot Mean Bingos: 2.0332  Stdev: 0.9729
+HastyBot Mean Points Per Turn: 37.1745  Stdev: 6.3836
+FastMlBot Mean Points Per Turn: 36.7321  Stdev: 6.8234
+HastyBot went first: 684476.0 (50.000%)
+Player who went first wins: 766876.0 (56.019%)
+```
+
+Models so far:
+
+```
+128-ch: 52.45%
+96-ch: 52.55%
+80-ch: 52.50%
+64-ch: 52.39%
+```
+
+Keep the 96-channel model for now. Don't know if we can ever reproduce the 52.9% result again :/ must have been a fluke / not enough samples.
+
+------
+
+### Better data
+
+Let's collect BestBot / simming data. If we collect multiple plays per position with bogowin pct data up to 5 plies we should have a better model. Hopefully it will win significantly more than this model. But it will take a bunch of time to collect this data.

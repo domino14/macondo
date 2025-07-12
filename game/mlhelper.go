@@ -281,24 +281,27 @@ func (g *Game) mlevaluateMovesLocal(nmoves int, planeVectors, scalarVectors []fl
 
 	// XXX: FIX ME
 
-	// output, err := model.model.GetOutputTensors()
-	// if err != nil {
-	// 	return nil, fmt.Errorf("failed to get output tensors: %w", err)
-	// }
+	output, err := model.model.GetOutputTensors()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get output tensors: %w", err)
+	}
 
-	// var evals []float32
+	var evals []float32
 
-	// // fmt.Println("output tensors:", len(output), output[0].Shape(), output[0].Data())
-	// switch v := output[0].Data().(type) {
-	// case []float32:
-	// 	evals = v
-	// case float32:
-	// 	evals = []float32{v}
-	// default:
-	// 	return nil, fmt.Errorf("unexpected output type: %T", v)
-	// }
+	// fmt.Println("output tensors:", len(output), output[0].Shape(), output[0].Data())
+	switch v := output[0].Data().(type) {
+	case []float32:
+		evals = v
+	case float32:
+		evals = []float32{v}
+	default:
+		return nil, fmt.Errorf("unexpected output type: %T", v)
+	}
+	mo := &triton.ModelOutputs{
+		Value: evals,
+	}
 
-	return nil, nil
+	return mo, nil
 }
 
 func NormalizeSpreadForML(spread float32) float32 {

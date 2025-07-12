@@ -1,51 +1,35 @@
 name: "macondo-nn"
-platform: "onnxruntime_onnx"
-max_batch_size: 512
+platform: "tensorrt_plan"
+max_batch_size: 0
 input [
   {
     name: "board"
     data_type: TYPE_FP32
-    dims: [ 85, 15, 15 ]
+    dims: [ -1, 85, 15, 15 ]
   },
   {
     name: "scalars"
     data_type: TYPE_FP32
-    dims: [ 72 ]
+    dims: [ -1, 72 ]
   }
 ]
 output [
   {
     name: "value"
     data_type: TYPE_FP32
-    dims: [ 1 ]
-    reshape { shape: [] }
+    dims: [ -1 ]
   }
-#   {
-#     name: "total_game_points"
-#     data_type: TYPE_FP32
-#     dims: [ 1 ]
-#     reshape { shape: [] }
-#   },
-#   {
-#     name: "opp_bingo_prob"
-#     data_type: TYPE_FP32
-#     dims: [ 1 ]
-#     reshape { shape: [] }
-#   },
-#   {
-#     name: "opp_score"
-#     data_type: TYPE_FP32
-#     dims: [ 1 ]
-#     reshape { shape: [] }
-#   }
 ]
-version_policy {
-  all { }
-}
+
 instance_group [
   {
-    count: 5
+    count: 1
     kind: KIND_GPU
+    gpus: [ 0 ]
   }
 ]
-dynamic_batching { }
+optimization {
+  execution_accelerators {
+    gpu_execution_accelerator : [ { name : "tensorrt" } ]
+  }
+}

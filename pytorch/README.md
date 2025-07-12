@@ -17,3 +17,8 @@ pip3 install torch torchvision torchaudio --index-url https://download.pytorch.o
 - You can pipe in `pv -br` after the call to `mlproducer` to see what the byte rate is. I see like 700 MiB on my computer. It can probably be made faster with more efficient `mlproducer` code.
 - Wait a long time (maybe not that long, depends on how many games you used).
 - Profit!
+
+#### Convert
+
+export.py - export to onnx
+onnx-to-tensorrt.py - make sure the python tensorrt  version matches whatever the triton container expects. this part is a pain in the ass. (`pip install tensorrt==10.11.0.33` for example)
