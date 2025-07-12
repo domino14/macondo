@@ -84,8 +84,8 @@ func (m *Magpie) BestSimmingMove(cgp string, plies int) string {
 	threads := runtime.NumCPU()
 
 	sendCmd("set -s1 equity -s2 equity -r1 equity -r2 equity -numplays 100 -plies " +
-		fmt.Sprint(plies) + " -maxequitydiff 30 -sr tt -threads " +
-		fmt.Sprint(threads) + " -thres gk16 -scond 99 -it 1000000 -wmp true")
+		fmt.Sprint(plies) + " -maxequitydiff 30 -sr tt -minp 100 -threads " +
+		fmt.Sprint(threads) + " -thres gk16 -scond 95 -it 1000000 -wmp true")
 	sendCmd("cgp " + cgp)
 	CaptureCStdout(func() {
 		sendCmd("gen")
@@ -104,6 +104,17 @@ func (m *Magpie) BestSimmingMove(cgp string, plies int) string {
 			break
 		}
 	}
+	tmpFile, err := os.CreateTemp("", bestMove+"_*")
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to create temp file")
+	} else {
+		defer tmpFile.Close()
+		_, err = tmpFile.WriteString(output)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to write to temp file")
+		}
+	}
+
 	return bestMove
 }
 
@@ -111,9 +122,12 @@ func (m *Magpie) BestSimmingMove(cgp string, plies int) string {
 func (m *Magpie) SanityTest() {
 	cgp := "C14/O2TOY9/mIRADOR8/F4DAB2PUGH1/I5GOOEY3V/T4XI2MALTHA/14N/6GUM3OWN/7PEW2DOE/9EF1DOR/2KUNA1J1BEVELS/3TURRETs2S2/7A4T2/7N7/7S7 EEEIILZ/ 336/298 0 -lex NWL23"
 	bestMoves := map[string]int{}
-	for range 100 {
+	for i := range 100 {
 		res := m.BestSimmingMove(cgp, 5)
 		bestMoves[res] += 1
+		if i%10 == 0 {
+			log.Info().Int("iteration", i).Msg("Best simming move iteration")
+		}
 	}
 	log.Info().Interface("bestMoves", bestMoves).Msg("Best simming move found")
 }
