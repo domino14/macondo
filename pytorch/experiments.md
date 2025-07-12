@@ -844,7 +844,36 @@ real improvement, we can go back to the 96-channel network.
 
 Try 8-bit quantization for older model (96-channel):
 
+(Can't get it to work. Returns NaN for all inputs)
 
+Try an 80-channel model; maybe the best performance is between 64 and 96 channels?
 
+```
+Games played: 1368951
+HastyBot wins: 650248.0 (47.500% +/- 0.084)
+HastyBot Mean Score: 434.4154  Stdev: 66.6972
+FastMlBot Mean Score: 427.2275  Stdev: 59.8745
+HastyBot Mean Bingos: 2.0033  Stdev: 1.0559
+FastMlBot Mean Bingos: 2.0332  Stdev: 0.9729
+HastyBot Mean Points Per Turn: 37.1745  Stdev: 6.3836
+FastMlBot Mean Points Per Turn: 36.7321  Stdev: 6.8234
+HastyBot went first: 684476.0 (50.000%)
+Player who went first wins: 766876.0 (56.019%)
+```
 
-### Train on rand-softmax v rand-softmax
+Models so far:
+
+```
+128-ch: 52.45%
+96-ch: 52.55%
+80-ch: 52.50%
+64-ch: 52.39%
+```
+
+Keep the 96-channel model for now. Don't know if we can ever reproduce the 52.9% result again :/ must have been a fluke / not enough samples.
+
+------
+
+### Better data
+
+Let's collect BestBot / simming data. If we collect multiple plays per position with bogowin pct data up to 5 plies we should have a better model. Hopefully it will win significantly more than this model. But it will take a bunch of time to collect this data.
