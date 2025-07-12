@@ -334,7 +334,7 @@ const (
 	BotRequest_RANDOM_BOT_WITH_TEMPERATURE BotRequest_BotCode = 15
 	BotRequest_SIMMING_WITH_ML_EVAL_BOT    BotRequest_BotCode = 16
 	// custom bots can be used to run custom algorithms.
-	// They should be used with the BotSpec below.
+	// They should be used with the BotSpec.
 	BotRequest_CUSTOM_BOT BotRequest_BotCode = 20
 	// This should have probably been number 0.
 	BotRequest_UNKNOWN BotRequest_BotCode = 100

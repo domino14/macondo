@@ -25,6 +25,7 @@ import (
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/magpie"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/preendgame"
@@ -962,6 +963,14 @@ func (sc *ShellController) winpct(cmd *shellcmd) (*Response, error) {
 
 	return msg(fmt.Sprintf("Win percentage: %.2f%%", wpct*100)), nil
 
+}
+
+func (sc *ShellController) magpieSanityCheck(cmd *shellcmd) (*Response, error) {
+	if sc.magpie == nil {
+		sc.magpie = magpie.NewMagpie(sc.config)
+	}
+	sc.magpie.SanityTest()
+	return nil, nil
 }
 
 func (sc *ShellController) mleval(cmd *shellcmd) (*Response, error) {

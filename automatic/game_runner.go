@@ -50,8 +50,8 @@ func NewGameRunner(logchan chan string, cfg *config.Config) *GameRunner {
 		letterDistribution: cfg.GetString(config.ConfigDefaultLetterDistribution),
 	}
 	r.Init([]AutomaticRunnerPlayer{
-		{"", "", pb.BotRequest_HASTY_BOT, 0, false},
-		{"", "", pb.BotRequest_HASTY_BOT, 0, false},
+		{"", "", pb.BotRequest_HASTY_BOT, nil, 0, false},
+		{"", "", pb.BotRequest_HASTY_BOT, nil, 0, false},
 	})
 
 	return r
@@ -61,6 +61,7 @@ type AutomaticRunnerPlayer struct {
 	LeaveFile            string
 	PEGFile              string
 	BotCode              pb.BotRequest_BotCode
+	BotSpec              *pb.BotSpec
 	MinSimPlies          int
 	StochasticStaticEval bool
 }
@@ -105,6 +106,7 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 			LeavesFile:           leavefile,
 			MinSimPlies:          players[idx].MinSimPlies,
 			StochasticStaticEval: players[idx].StochasticStaticEval,
+			BotSpec:              players[idx].BotSpec,
 		}
 
 		btp, err := bot.NewBotTurnPlayerFromGame(r.game, conf, botcode)

@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+package macondo;
+option go_package = "github.com/domino14/macondo/gen/api/proto/macondo";
+
+import "api/proto/macondo/macondo.proto";
+
+message BotSpec {
+  // "hasty", "ml_eval@20250601", "mcts_v3" …
+  string algo = 1;
+  BotSpecParams params = 2; // e.g. has_simming, has_endgame
+
+  // Free-form parameters (temperature, rollouts, model checksum, etc.)
+  map<string, string> freeform_params = 3;
+}
+
+message BotSpecParams {
+  bool has_simming = 1;    // true if this bot can do simming
+  bool has_preendgame = 2; // true if this bot can do pre-end
+  bool has_endgame = 3;    // true if this bot can do endgame
+  bool has_infer = 4;      // true if this bot can do rangefinder inference
+  bool sim_use_magpie = 5; // true if simming uses magpie
+  int32 min_sim_plies = 6; // min plies for simming
+}
+
+message AutoplayJob {
+  repeated BotSpec players = 1; // size 2
+  int32 num_games = 2;          // e.g. 100
+  int64 random_seed = 3;
+  bool save_evals = 4;      // store EvalRequest/response per ply?
+  string experiment_id = 5; // "leave-ablation-v2"
+}
+
+message JobBundle {
+  repeated AutoplayJob jobs = 1;
+  string engine_version = 2; // "macondo-0.9.7"
+}
+
+message GameResult {
+  AutoplayJob spec = 1;
+  repeated GameHistory games = 2;
+  map<string, string> stats = 3; // n/s, host CPU, wall-clock
+}
+
+// These are the evals for ONE candidate move calculated during the turn
+message CandidateEval {
+  string move_cgp = 1; // "8H/HELLO"
+  float equity = 2;    // e.g. +37.4
+  float win_prob = 3;
+  uint32 sims = 4;         // roll-outs used
+  bool is_played_move = 5; // true for the move committed to GameHistory
+}
+
+// Everything we recorded for ONE TURN
+message TurnEval {
+  uint32 turn_index = 1;            // aligns with GameHistory.events
+  repeated CandidateEval top_k = 2; // usually k ≤ 10
+}
+
+// File that accompanies a GameHistory
+message GameEvaluations {
+  string game_uid = 1;   // copy of GameHistory.uid
+  string engine_ver = 2; // "macondo-0.9.7"
+  repeated TurnEval turns = 3;
+}
