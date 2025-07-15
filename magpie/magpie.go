@@ -80,16 +80,49 @@ func CaptureCStdout(fn func()) string {
 	return buf.String()
 }
 
-func (m *Magpie) BestSimmingMove(cgp string, plies int) string {
+// BestSimmingMove finds the best simming move for a given CGP and plies using Magpie.
+// numPlays is the max number of plays to simulate.
+func (m *Magpie) BestSimmingMove(cgp string, plies int, numPlays int) string {
 	threads := runtime.NumCPU()
 
-	sendCmd("set -s1 equity -s2 equity -r1 equity -r2 equity -numplays 100 -plies " +
-		fmt.Sprint(plies) + " -maxequitydiff 30 -sr tt -minp 100 -threads " +
-		fmt.Sprint(threads) + " -thres gk16 -scond 95 -it 1000000 -wmp true")
+	// Prepare command options as key-value pairs
+	cmdOptions := map[string]interface{}{
+		"s1":            "equity",
+		"s2":            "equity",
+		"r1":            "equity",
+		"r2":            "equity",
+		"numplays":      numPlays,
+		"plies":         plies,
+		"maxequitydiff": 30,
+		"sr":            "tt", // top-two condition for BAI
+		"minp":          100,  // BAI: minimum iterations considered per play
+		"threads":       threads,
+		"thres":         "gk16",
+		"scond":         95,     // BAI stopping condition (percent confidence)
+		"it":            100000, // BAI: max TOTAL iterations across all plays.
+		"wmp":           "true",
+	}
+
+	// Helper to build command string from map
+	buildCmd := func(options map[string]interface{}) string {
+		var buf bytes.Buffer
+		for k, v := range options {
+			buf.WriteString(fmt.Sprintf("-%s %v ", k, v))
+		}
+		return buf.String()
+	}
+
+	settings := buildCmd(cmdOptions)
+
+	sendCmd("set " + settings)
 	sendCmd("cgp " + cgp)
+	log.Info().Str("cgp", cgp).Str("settings", settings).
+		Msg("Running Magpie gen moves")
 	CaptureCStdout(func() {
 		sendCmd("gen")
 	})
+	log.Info().Msg("Running Magpie simming move")
+
 	output := CaptureCStdout(func() {
 		sendCmd("sim")
 	})
@@ -104,16 +137,16 @@ func (m *Magpie) BestSimmingMove(cgp string, plies int) string {
 			break
 		}
 	}
-	tmpFile, err := os.CreateTemp("", bestMove+"_*")
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to create temp file")
-	} else {
-		defer tmpFile.Close()
-		_, err = tmpFile.WriteString(output)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to write to temp file")
-		}
-	}
+	// tmpFile, err := os.CreateTemp("", bestMove+"_*")
+	// if err != nil {
+	// 	log.Error().Err(err).Msg("Failed to create temp file")
+	// } else {
+	// 	defer tmpFile.Close()
+	// 	_, err = tmpFile.WriteString(output)
+	// 	if err != nil {
+	// 		log.Error().Err(err).Msg("Failed to write to temp file")
+	// 	}
+	// }
 
 	return bestMove
 }
@@ -123,7 +156,7 @@ func (m *Magpie) SanityTest() {
 	cgp := "C14/O2TOY9/mIRADOR8/F4DAB2PUGH1/I5GOOEY3V/T4XI2MALTHA/14N/6GUM3OWN/7PEW2DOE/9EF1DOR/2KUNA1J1BEVELS/3TURRETs2S2/7A4T2/7N7/7S7 EEEIILZ/ 336/298 0 -lex NWL23"
 	bestMoves := map[string]int{}
 	for i := range 100 {
-		res := m.BestSimmingMove(cgp, 5)
+		res := m.BestSimmingMove(cgp, 5, 100)
 		bestMoves[res] += 1
 		if i%10 == 0 {
 			log.Info().Int("iteration", i).Msg("Best simming move iteration")

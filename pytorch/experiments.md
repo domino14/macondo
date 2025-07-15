@@ -877,3 +877,13 @@ Keep the 96-channel model for now. Don't know if we can ever reproduce the 52.9%
 ### Better data
 
 Let's collect BestBot / simming data. If we collect multiple plays per position with bogowin pct data up to 5 plies we should have a better model. Hopefully it will win significantly more than this model. But it will take a bunch of time to collect this data.
+
+Data collection experiments:
+
+```
+ autoplay -botcode1 CUSTOM_BOT -botcode2 CUSTOM_BOT -threads 1 -botspec1 '{"algo":"none","params":{"min_sim_plies":5,"has_simming":true}}' -botspec2 '{"algo":"none","params":{"min_sim_plies":5,"has_simming":true,"sim_use_magpie":true}}'
+```
+
+Bot 1 uses built-in simmer. Bot2 uses magpie. Our first purpose is to collect enough data where we can be pretty sure that the magpie bot is a suitable replacement for BestBot.
+
+Note that we've turned off endgame/preendgame for both. They will both use the same algorithm for this. We only care about the sims for this experiment (for speed).

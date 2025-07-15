@@ -84,13 +84,15 @@ This is because SIMMING_BOT already uses multithreading for its own sims.
 If you use CUSTOM_BOT for either bot, you must provide a BotSpec for each bot
 that is custom with the -botspec1 or -botspec2 commands. The BotSpec is a JSON
 string that looks like
-{"algo":"algo_name","params":{"HasEndgame":false,"HasPreendgame":false,"MinSimPlies":5}}
+'{"algo":"none","params":{"has_endgame":true,"has_preendgame":true,"min_sim_plies":6,"has_simming":true}}'
 
 The valid, case-sensitive param keys at the moment are:
 
-- hasSimming (bool)
-- hasEndgame (bool)
-- hasPreendgame (bool)
-- hasInfer (bool)
-- minSimPlies (int)
-- simUseMagpie(bool)
+- has_simming (bool)
+- has_endgame (bool)
+- has_preendgame (bool)
+- has_infer (bool)
+- min_sim_plies (int)
+- sim_use_magpie(bool)
+
+The boolean variables all default to false, and the integer variables default to 0.

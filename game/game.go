@@ -1289,8 +1289,51 @@ func (g *Game) ExchangeLimit() int {
 	return g.exchangeLimit
 }
 
+// CGPOption is a function that modifies CGPOptions.
+type CGPOption func(*CGPOptions)
+
+// WithHideLexicon sets HideLexicon.
+func WithHideLexicon(hide bool) CGPOption {
+	return func(opts *CGPOptions) {
+		opts.HideLexicon = hide
+	}
+}
+
+func WithHideLetterDistribution(hide bool) CGPOption {
+	return func(opts *CGPOptions) {
+		opts.HideLetterDistribution = hide
+	}
+}
+
+func WithMagpieMode(magpie bool) CGPOption {
+	return func(opts *CGPOptions) {
+		opts.MagpieMode = magpie
+	}
+}
+
+// Add HideLexicon to CGPOptions struct
+type CGPOptions struct {
+	HideLexicon            bool
+	HideLetterDistribution bool
+	MagpieMode             bool
+}
+
+func DefaultCGPOptions() *CGPOptions {
+	return &CGPOptions{}
+}
+
+// NewCGPOptions creates CGPOptions with provided option functions.
+func NewCGPOptions(options ...CGPOption) *CGPOptions {
+	opts := DefaultCGPOptions()
+	for _, opt := range options {
+		opt(opts)
+	}
+	return opts
+}
+
 // ToCGP converts the game to a CGP string. See cgp directory.
-func (g *Game) ToCGP(formatForBot bool) string {
+func (g *Game) ToCGP(formatForBot bool, cgpOptions ...CGPOption) string {
+	opts := NewCGPOptions(cgpOptions...)
 	fen := g.board.ToFEN(g.alph)
 	ourRack := g.curPlayer().rack.TilesOn().UserVisible(g.alph)
 	theirRack := g.oppPlayer().rack.TilesOn().UserVisible(g.alph)
@@ -1302,19 +1345,14 @@ func (g *Game) ToCGP(formatForBot bool) string {
 	if g.history != nil {
 		ld = g.history.LetterDistribution
 	}
+
 	if formatForBot {
-		// Clear opponent rack -- if this is a bot move, bot should know
-		// nothing of it.
 		theirRack = ""
 		tm := g.letterDistribution.TileMapping()
-		if g.history != nil && g.turnnum > 0 {
+		if g.history != nil && g.turnnum > 0 && len(g.history.Events) > 0 {
 			oppEvt := g.history.Events[g.turnnum-1]
 			if oppEvt.Type == pb.GameEvent_PHONY_TILES_RETURNED {
-				// we know opp's last partial or full rack
-				if tiles, err := tilemapping.ToMachineLetters(oppEvt.PlayedTiles, tm); err != nil {
-					log.Err(err).Str("playedTiles", oppEvt.PlayedTiles).Msg("unable-to-convert-opp-rack")
-				} else {
-					// convert back to string without the play-through tiles
+				if tiles, err := tilemapping.ToMachineLetters(oppEvt.PlayedTiles, tm); err == nil {
 					for _, t := range tiles {
 						if t == 0 {
 							continue
@@ -1326,10 +1364,20 @@ func (g *Game) ToCGP(formatForBot bool) string {
 		}
 	}
 
-	cgp := fmt.Sprintf("%s %s/%s %d/%d %d lex %s;",
-		fen, ourRack, theirRack, ourScore, theirScore, zeroPt, lex)
-	if ld != "" {
-		cgp += fmt.Sprintf(" ld %s;", ld)
+	cgp := fmt.Sprintf("%s %s/%s %d/%d %d", fen, ourRack, theirRack, ourScore, theirScore, zeroPt)
+	if !opts.HideLexicon {
+		if opts.MagpieMode {
+			cgp += fmt.Sprintf(" -lex %s", lex)
+		} else {
+			cgp += fmt.Sprintf(" lex %s;", lex)
+		}
+	}
+	if ld != "" && !opts.HideLetterDistribution {
+		if opts.MagpieMode {
+			cgp += fmt.Sprintf(" -ld %s", ld)
+		} else {
+			cgp += fmt.Sprintf(" ld %s;", ld)
+		}
 	}
 
 	return cgp

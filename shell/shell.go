@@ -817,12 +817,14 @@ func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) err
 	bs2 := options.String("botspec2")
 
 	if bs1 != "" {
+		botspec1 = &pb.BotSpec{}
 		err = protojson.Unmarshal([]byte(bs1), botspec1)
 		if err != nil {
 			return fmt.Errorf("parsing bot spec: %w", err)
 		}
 	}
 	if bs2 != "" {
+		botspec2 = &pb.BotSpec{}
 		err = protojson.Unmarshal([]byte(bs2), botspec2)
 		if err != nil {
 			return fmt.Errorf("parsing bot spec: %w", err)

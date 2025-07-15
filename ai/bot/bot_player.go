@@ -14,6 +14,7 @@ import (
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/magpie"
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
@@ -21,6 +22,8 @@ import (
 	"github.com/domino14/macondo/rangefinder"
 	"github.com/domino14/macondo/stats"
 	"github.com/domino14/macondo/turnplayer"
+	"github.com/domino14/word-golib/tilemapping"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"lukechampine.com/frand"
 )
@@ -49,6 +52,7 @@ type BotTurnPlayer struct {
 	lastMoves             []*move.Move
 	inferencer            *rangefinder.RangeFinder
 	lastCalculatedDetails string
+	magpie                *magpie.Magpie
 }
 
 func NewBotTurnPlayer(conf *BotConfig, opts *turnplayer.GameOptions,
@@ -119,6 +123,10 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 		btp.simmerCalcs = []equity.EquityCalculator{c}
 		if conf.MinSimPlies > 0 {
 			btp.SetMinSimPlies(conf.MinSimPlies)
+		}
+		// botspec overrides the default conf's minsimplies, if set.
+		if conf.BotSpec != nil && conf.BotSpec.Params.MinSimPlies > 0 {
+			btp.SetMinSimPlies(int(conf.BotSpec.Params.MinSimPlies))
 		}
 	}
 	if HasEndgame(botType, conf.BotSpec) {
@@ -231,58 +239,60 @@ func (p *BotTurnPlayer) AddLastMove(m *move.Move) {
 	p.lastMoves = append(p.lastMoves, m)
 }
 
-func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
-	// XXX: This function really needs to be refactored.
-	if hasSimming(p.botType, p.cfg.BotSpec) || HasEndgame(p.botType, p.cfg.BotSpec) || HasInfer(p.botType, p.cfg.BotSpec) || HasPreendgame(p.botType, p.cfg.BotSpec) {
-		return eliteBestPlay(ctx, p)
+func (p *BotTurnPlayer) bestMLStaticTurn() (*move.Move, error) {
+
+	if p.Bag().TilesRemaining() == 0 {
+		// The bag is empty. Let's use the HastyBot endgame algorithm.
+		log.Debug().Msg("Using HastyBot endgame algorithm for fast ML bot")
+		return p.GenerateMoves(1)[0], nil
 	}
-	if p.botType == pb.BotRequest_FAST_ML_BOT {
-		if p.Bag().TilesRemaining() == 0 {
-			// The bag is empty. Let's use the HastyBot endgame algorithm.
-			log.Debug().Msg("Using HastyBot endgame algorithm for fast ML bot")
-			return p.GenerateMoves(1)[0], nil
-		}
-		// Fast ML bot uses a different method
-		moves := p.GenerateMoves(50)
+	// Fast ML bot uses a different method
+	moves := p.GenerateMoves(50)
 
-		if len(moves) == 1 {
-			return moves[0], nil
+	if len(moves) == 1 {
+		return moves[0], nil
+	}
+	var lc *equity.ExhaustiveLeaveCalculator
+	for _, c := range p.Calculators() {
+		if e, ok := c.(*equity.ExhaustiveLeaveCalculator); ok {
+			lc = e
+			break
 		}
-		var lc *equity.ExhaustiveLeaveCalculator
-		for _, c := range p.Calculators() {
-			if e, ok := c.(*equity.ExhaustiveLeaveCalculator); ok {
-				lc = e
-				break
-			}
+	}
+	if lc == nil {
+		return nil, errors.New("no ExhaustiveLeaveCalculator found for fast ML bot")
+	}
+	resp, err := p.MLEvaluateMoves(moves, lc, p.lastMoves)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to evaluate moves for fast ML bot")
+		return nil, err
+	}
+	pairs := make([]moveEval, len(moves))
+	for i, m := range moves {
+		pairs[i] = moveEval{
+			move: m,
+			eval: resp.Value[i],
+			idx:  i + 1, // Store original index for reference
 		}
-		if lc == nil {
-			return nil, errors.New("no ExhaustiveLeaveCalculator found for fast ML bot")
+	}
+	// Sort by evaluation in descending order
+	sort.Slice(pairs, func(i, j int) bool {
+		// If the evaluations are equal, prefer the move with more tiles played
+		// This helps in the endgame.
+		if stats.FuzzyEqual(float64(pairs[i].eval), float64(pairs[j].eval)) {
+			return pairs[i].move.TilesPlayed() > pairs[j].move.TilesPlayed()
 		}
-		resp, err := p.MLEvaluateMoves(moves, lc, p.lastMoves)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to evaluate moves for fast ML bot")
-			return nil, err
-		}
-		pairs := make([]moveEval, len(moves))
-		for i, m := range moves {
-			pairs[i] = moveEval{
-				move: m,
-				eval: resp.Value[i],
-				idx:  i + 1, // Store original index for reference
-			}
-		}
-		// Sort by evaluation in descending order
-		sort.Slice(pairs, func(i, j int) bool {
-			// If the evaluations are equal, prefer the move with more tiles played
-			// This helps in the endgame.
-			if stats.FuzzyEqual(float64(pairs[i].eval), float64(pairs[j].eval)) {
-				return pairs[i].move.TilesPlayed() > pairs[j].move.TilesPlayed()
-			}
-			return pairs[i].eval > pairs[j].eval
-		})
-		return pairs[0].move, nil
-	} else if p.botType == pb.BotRequest_RANDOM_BOT_WITH_TEMPERATURE {
+		return pairs[i].eval > pairs[j].eval
+	})
+	return pairs[0].move, nil
+}
 
+func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
+	switch p.botType {
+	// HastyBot is handled in the GameRunner.
+	case pb.BotRequest_FAST_ML_BOT:
+		return p.bestMLStaticTurn()
+	case pb.BotRequest_RANDOM_BOT_WITH_TEMPERATURE:
 		// Random bot just picks a random move among top N (not currenetly configurable)
 		moves := p.GenerateMoves(50)
 		if len(moves) == 0 {
@@ -299,19 +309,115 @@ func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
 			return nil, err
 		}
 		return move, nil
-	} else if p.botType == pb.BotRequest_CUSTOM_BOT {
-		// Determine what to do from botspec.
+	case pb.BotRequest_CUSTOM_BOT:
 		if p.cfg.BotSpec == nil {
 			return nil, errors.New("no bot spec provided for custom bot")
 		}
-		return nil, errors.New("custom bot logic not implemented")
+		fallthrough
+	default:
+		return p.bestPlayByBotCapability(ctx)
 	}
+
+}
+
+func (p *BotTurnPlayer) bestPlayByBotCapability(ctx context.Context) (*move.Move, error) {
+	logger := zerolog.Ctx(ctx)
+	var moves []*move.Move
+	// First determine what stage of the game we are in.
+	tr := p.Game.Bag().TilesRemaining()
+	// We don't necessarily know the number of tiles on our opponent's rack.
+	opp := p.Game.RackFor(p.Game.NextPlayer()).NumTiles()
+	// If this is an annotated game, we may not have full rack info.
+	unseen := int(opp) + tr
+	// Assume our own rack is fully known, however. So if unseen == 7, the bag
+	// is empty and we should assign the oppRack accordingly.
+	useEndgame := false
+	usePreendgame := false
+	useMontecarlo := false
+	useStaticAlgo := false
+	endgamePlies := 0
+	simPlies := 0
+
+	// XXX: Get rid of this HasEndgame check right here, as it is only used
+	// to trigger a bug. It's not a valid check.
+	if unseen <= 7 && HasEndgame(p.botType, p.cfg.BotSpec) {
+		if HasEndgame(p.botType, p.cfg.BotSpec) {
+			useEndgame = true
+		} else {
+			// Use the static algorithm for the endgame if no endgame solver is available.
+			useStaticAlgo = true
+		}
+		if tr > 0 {
+			logger.Debug().Msg("assigning all unseen to opp")
+			// bag is actually empty. Assign all of unseen to the opponent.
+			mls := make([]tilemapping.MachineLetter, tr)
+			err := p.Game.Bag().Draw(tr, mls)
+			if err != nil {
+				return nil, err
+			}
+			for _, t := range mls {
+				p.Game.RackFor(p.Game.NextPlayer()).Add(t)
+			}
+		}
+		// Just some sort of estimate
+		endgamePlies = (int(float32(unseen)*1.5) + int(p.Game.RackFor(p.Game.PlayerOnTurn()).NumTiles()))
+	} else if unseen > 7 && unseen <= 8 && HasPreendgame(p.botType, p.cfg.BotSpec) {
+		usePreendgame = true
+	} else if unseen > 8 && unseen <= 14 && hasSimming(p.botType, p.cfg.BotSpec) {
+		moves = p.GenerateMoves(80)
+		simPlies = unseen
+		useMontecarlo = true
+	} else if hasSimming(p.botType, p.cfg.BotSpec) {
+		moves = p.GenerateMoves(40)
+		if p.minSimPlies > 2 {
+			simPlies = p.minSimPlies
+		} else {
+			simPlies = 2
+		}
+		useMontecarlo = true
+	}
+	simThreads := p.simThreads
+	if p.simThreads == 0 {
+		simThreads = p.simmer.Threads()
+	}
+
+	logger.Info().
+		Str("onTurn", p.Game.NickOnTurn()).
+		Int("playerID", p.Game.PlayerOnTurn()).
+		Str("botType", p.botType.String()).
+		Int("simPlies", simPlies).
+		Int("simThreads", simThreads).
+		Int("endgamePlies", endgamePlies).
+		Bool("useEndgame", useEndgame).
+		Bool("usePreendgame", usePreendgame).
+		Bool("useMontecarlo", useMontecarlo).
+		Bool("useStaticAlgo", useStaticAlgo).
+		Int("unseen", unseen).
+		Bool("useKnownOppRack", p.cfg.UseOppRacksInAnalysis).
+		Bool("stochasticStaticEval", p.cfg.StochasticStaticEval).
+		Int("consideredMoves", len(moves)).Msg("best-play-by-bot-capability")
+
+	if useEndgame {
+		return endGameBest(ctx, p, endgamePlies)
+	} else if usePreendgame {
+		return preendgameBest(ctx, p)
+	} else if useMontecarlo {
+		if p.cfg.BotSpec != nil && p.cfg.BotSpec.Params.SimUseMagpie {
+			return montecarloBestWithMagpie(ctx, p, simPlies, moves)
+		}
+		return monteCarloBest(ctx, p, simPlies, moves)
+	}
+	// Otherwise, just use the static best play?
 	return p.GenerateMoves(1)[0], nil
 }
 
 // Returns a string summary of details from a previous call to BestPlay.
 func (p *BotTurnPlayer) BestPlayDetails(ctx context.Context) string {
-	if hasSimming(p.botType, p.cfg.BotSpec) || HasEndgame(p.botType, p.cfg.BotSpec) || HasInfer(p.botType, p.cfg.BotSpec) || HasPreendgame(p.botType, p.cfg.BotSpec) {
+	if hasSimming(p.botType, p.cfg.BotSpec) ||
+		HasEndgame(p.botType, p.cfg.BotSpec) ||
+		HasInfer(p.botType, p.cfg.BotSpec) ||
+		HasPreendgame(p.botType, p.cfg.BotSpec) {
+
 		return p.lastCalculatedDetails
 	} else {
 		return "(No summary)"
