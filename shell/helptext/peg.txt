@@ -106,3 +106,14 @@ Options:
     Setting the -only-solve option will only solve the PEG for the given move. This
     is good if you want to just examine one move. You can specify this option
     multiple times to specify multiple moves.
+
+    -log true
+
+    Setting this option to true will write a detailed YAML log to ./macondo-peglog.
+    This log contains information about every decision made during the solve, including:
+    - Which tiles were drawn for each permutation
+    - Win/loss/draw outcomes for each endgame
+    - Early break decisions and optimistic solve logic
+    - Cutoff decisions and why they were made
+    - Recursive decision tree showing all moves explored
+    The log is essential for debugging complex pre-endgame scenarios.

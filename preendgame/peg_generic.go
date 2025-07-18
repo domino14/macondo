@@ -72,7 +72,7 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 						log.Err(err).Msg("error-marshaling-logs")
 					}
 					logChan <- out
-					logChan <- []byte("\n")
+					logChan <- []byte("\n---\n")
 				}
 				processed.Add(1)
 				n := processed.Load()
@@ -303,7 +303,16 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 		return ctx.Err()
 	}
 	if s.logStream != nil {
-		s.threadLogs[thread] = jobLog{PEGPlay: j.ourMove.String()}
+		s.threadLogs[thread] = jobLog{
+			JobID:   fmt.Sprintf("job_%d_%d", thread, time.Now().UnixNano()),
+			PEGPlay: j.ourMove.String(),
+			Meta: jobMeta{
+				Thread:     thread,
+				Timestamp:  time.Now().Format(time.RFC3339),
+				BagState:   "pending", // Will be set per option
+				EmptiesBag: j.ourMove.Play.TilesPlayed() >= s.numinbag,
+			},
+		}
 	}
 	if s.skipLossOptim || s.earlyCutoffOptim {
 		j.ourMove.RLock()
@@ -462,19 +471,48 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 		}
 
 		err = s.recursiveSolve(ctx, thread, j.ourMove, sm,
-			options[idx], winnerChan, 0, firstPlayEmptiesBag, j.fullSolve)
+			options[idx], winnerChan, 0, firstPlayEmptiesBag, j.fullSolve, nil)
 		if err != nil {
 			return err
 		}
 		j.ourMove.finalize()
 
 	}
+
+	// Send non-bag-emptying plays to winnerChan after all permutations are processed
+	// This allows them to update minPotentialLosses for cutoff optimization
+	if !firstPlayEmptiesBag {
+		winnerChan <- j.ourMove.Copy()
+	}
+
+	// Calculate and update statistics
+	if s.logStream != nil {
+		totalNodes := 0
+		maxDepth := 0
+		cutoffs := 0
+		endgamesSolved := 0
+
+		for _, option := range s.threadLogs[thread].Options {
+			nodeCount, depth, cutoffCount := s.calculateTreeStats(&option.ExecutionTree.Root)
+			totalNodes += nodeCount
+			if depth > maxDepth {
+				maxDepth = depth
+			}
+			cutoffs += cutoffCount
+			if option.TimeToSolveMs > 0 {
+				endgamesSolved++
+			}
+		}
+
+		s.threadLogs[thread].Statistics.updateStats(totalNodes, maxDepth, cutoffs, endgamesSolved)
+	}
+
 	return nil
 }
 
 func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEndgamePlay,
 	moveToMake tinymove.SmallMove, inbagOption option, winnerChan chan *PreEndgamePlay, depth int,
-	pegPlayEmptiesBag, fullSolve bool) error {
+	pegPlayEmptiesBag, fullSolve bool, parentNode *treeNode) error {
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -636,18 +674,43 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 		})
 
 		for idx := range genPlays {
-
-			// remove; only for print purposes
+			if idx == len(genPlays)-1 {
+				fmt.Println("found last play")
+			}
 			tempm := &move.Move{}
 			conversions.SmallMoveToMove(genPlays[idx], tempm, g.Alphabet(), g.Board(), g.RackFor(g.PlayerOnTurn()))
 
+			// Create a tree node for this move
+			var currentNode *treeNode
+			if s.logStream != nil {
+				outcomeBeforeStr := pegPlay.OutcomeFor(inbagOption.mls).String()
+				newNode := createTreeNode(depth, g.PlayerOnTurn(), tempm.ShortDescription())
+				newNode.startTiming()
+				newNode.updateGameState(g.CurrentSpread(), outcomeBeforeStr, "", g.Bag().TilesRemaining(), g.Playing() == macondo.PlayState_GAME_OVER)
+
+				// Add to parent if we have one, otherwise to the top-level execution tree
+				if parentNode != nil {
+					currentNode = parentNode.addChild(newNode)
+				} else {
+					s.threadLogs[thread].Options[inbagOption.idx].ExecutionTree.Root = newNode
+					currentNode = &s.threadLogs[thread].Options[inbagOption.idx].ExecutionTree.Root
+				}
+			}
+
 			// fmt.Println(strings.Repeat(" ", depth), "onturn", g.PlayerOnTurn(), "idx", idx, "try next:", tempm.ShortDescription())
-			err = s.recursiveSolve(ctx, thread, pegPlay, genPlays[idx], inbagOption, winnerChan, depth+1, pegPlayEmptiesBag, fullSolve)
+			err = s.recursiveSolve(ctx, thread, pegPlay, genPlays[idx], inbagOption, winnerChan, depth+1, pegPlayEmptiesBag, fullSolve, currentNode)
 			if err != nil {
 				log.Err(err).Msg("recursive-solve-err")
 				g.UnplayLastMove()
 				return err
 			}
+
+			// Update the tree node with the final outcome and timing
+			if s.logStream != nil && currentNode != nil {
+				currentNode.endTiming()
+				currentNode.updateGameState(g.CurrentSpread(), currentNode.GameState.OutcomeBefore, pegPlay.OutcomeFor(inbagOption.mls).String(), g.Bag().TilesRemaining(), g.Playing() == macondo.PlayState_GAME_OVER)
+			}
+
 			if g.PlayerOnTurn() == s.solvingForPlayer {
 				// We're back to solving for ourselves. We need to be optimistic.
 				// We assume that we (player who the PEG is being solved for)
@@ -655,8 +718,13 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 				// as much as the winners). Therefore if we've already found a win
 				// deeper in the tree, exit early and assume we will find the best
 				// reply to our opponent.
-				if pegPlay.OutcomeFor(inbagOption.mls) == PEGWin {
+				outcome := pegPlay.OutcomeFor(inbagOption.mls)
+				if outcome == PEGWin {
 					// fmt.Println(strings.Repeat(" ", depth), "onturn", g.PlayerOnTurn(), "breaking early cuzza win")
+					if s.logStream != nil && currentNode != nil {
+						currentNode.setCutoff("found_win_optimistic_solve", true, len(genPlays)-idx-1)
+						currentNode.updateGameState(currentNode.GameState.Spread, currentNode.GameState.OutcomeBefore, outcome.String(), currentNode.GameState.BagRemaining, currentNode.GameState.GameOver)
+					}
 					break
 				}
 			}
@@ -666,7 +734,7 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 		// if the bag is empty after we've played moveToMake, the next
 		// iteration here will solve the endgames.
 		// fmt.Println(strings.Repeat(" ", depth), "bag is empty or game is over; recursing again to finalize")
-		err = s.recursiveSolve(ctx, thread, pegPlay, tinymove.DefaultSmallMove, inbagOption, winnerChan, depth+1, pegPlayEmptiesBag, fullSolve)
+		err = s.recursiveSolve(ctx, thread, pegPlay, tinymove.DefaultSmallMove, inbagOption, winnerChan, depth+1, pegPlayEmptiesBag, fullSolve, parentNode)
 		if err != nil {
 			log.Err(err).Msg("bag-empty-recursive-solve-err")
 		}

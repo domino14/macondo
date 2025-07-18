@@ -451,6 +451,39 @@ func TestTwoInBagSingleMove(t *testing.T) {
 	is.Equal(winners[0].OutcomeFor([]tilemapping.MachineLetter{9, 5}), PEGWin)
 }
 
+func TestAnotherTwoInBag(t *testing.T) {
+	is := is.New(t)
+	cgpStr := "12BEN/9JUDOS1/11R1TE/7BRAVI2X/6QI3L2U/5P1OKA1L2L/5O1TOME3T/5U1AA1N1ORe/5R4G1FID/5I4R2Z1/3HIE4A1VAU/3IDS1P1FINO2/2TEE2OY1L1W2/2Y1MaRTENS4/GAGE3EW6 ACDINST/ACEEHIO 345/357 0 lex CSW21;"
+
+	g, err := cgp.ParseCGP(DefaultConfig, cgpStr)
+	is.NoErr(err)
+	g.RecalculateBoard()
+
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW21")
+	is.NoErr(err)
+	peg := new(Solver)
+
+	err = peg.Init(g.Game, gd)
+	is.NoErr(err)
+
+	m := move.NewScoringMoveSimple(8, "11D", "...D", "ACINST", g.Alphabet())
+
+	peg.SetEndgamePlies(4)
+	peg.SetEarlyCutoffOptim(false)
+	peg.SetSkipNonEmptyingOptim(false)
+	peg.SetSkipTiebreaker(false)
+	peg.SetSkipLossOptim(false)
+	peg.SetIterativeDeepening(false)
+	peg.SetSolveOnly([]*move.Move{m})
+
+	ctx := context.Background()
+	winners, err := peg.Solve(ctx)
+	fmt.Println(peg.SolutionStats(1))
+	is.NoErr(err)
+	is.Equal(winners[0].Points, float32(28.5)) // wins 27/72 and ties 3/72 games
+
+}
+
 func TestFourInBag(t *testing.T) {
 	// This test is not expected to finish in any reasonable amount of time yet.
 	// It is only here aspirationally.
