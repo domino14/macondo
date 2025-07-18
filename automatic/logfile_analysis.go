@@ -150,28 +150,18 @@ func AnalyzeLogFile(filepath string) (string, error) {
 	return stats, nil
 }
 
-func ExportGCG(cfg *config.Config, filename, letterdist, lexicon, boardlayout, gid string,
-	out io.Writer) error {
-	if letterdist == "" {
-		letterdist = "english"
-	}
-	if boardlayout == "" {
-		boardlayout = board.CrosswordGameLayout
-	}
-	if lexicon == "" {
-		lexicon = "CSW21"
-	}
+func gameLinesFromLogFile(cfg *config.Config, filename, gid string) ([][]string, error) {
 	useGzip := strings.HasSuffix(filename, ".gz")
 	var file io.ReadCloser
 	if useGzip {
 		f, _, err := cache.Open(filename)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		gz, err := gzip.NewReader(f)
 		if err != nil {
 			f.Close()
-			return err
+			return nil, err
 		}
 		file = struct {
 			io.Reader
@@ -181,7 +171,7 @@ func ExportGCG(cfg *config.Config, filename, letterdist, lexicon, boardlayout, g
 		var err error
 		file, _, err = cache.Open(filename)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
@@ -195,25 +185,40 @@ func ExportGCG(cfg *config.Config, filename, letterdist, lexicon, boardlayout, g
 			break
 		}
 		if err != nil {
-			return err
+			return nil, err
 		}
-		if record[1] == "gameID" {
+		if record[0] == "gameID" {
 			// this is the header line
 			continue
 		}
-		if record[1] != gid {
+		if record[0] != gid {
 			continue
 		}
 		gameLines = append(gameLines, record)
 	}
 	if len(gameLines) == 0 {
-		return errors.New("gameID not found in log file")
+		return nil, errors.New("gameID not found in log file")
+	}
+	return gameLines, nil
+}
+
+func gameHistoryFromGameLines(cfg *config.Config, gameLines [][]string, letterdist,
+	lexicon, boardlayout string) (*pb.GameHistory, error) {
+
+	if letterdist == "" {
+		letterdist = "english"
+	}
+	if boardlayout == "" {
+		boardlayout = board.CrosswordGameLayout
+	}
+	if lexicon == "" {
+		lexicon = "CSW21"
 	}
 
 	rules, err := game.NewBasicGameRules(cfg, lexicon, boardlayout,
 		letterdist, game.CrossScoreOnly, game.VarClassic)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	players := []*pb.PlayerInfo{
 		{Nickname: gameLines[0][0], RealName: gameLines[0][0]},
@@ -225,10 +230,9 @@ func ExportGCG(cfg *config.Config, filename, letterdist, lexicon, boardlayout, g
 		Variant:         game.VarClassic,
 	}, players, rules)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	g.StartGame()
-
 	for _, row := range gameLines {
 		pidx := 0
 		if g.History().Players[1].Nickname == row[0] {
@@ -236,41 +240,57 @@ func ExportGCG(cfg *config.Config, filename, letterdist, lexicon, boardlayout, g
 		}
 		err = g.SetRackFor(pidx, tilemapping.RackFromString(row[3], g.Alphabet()))
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if strings.HasPrefix(row[4], "(exch") {
 			cmd := strings.Split(row[4], " ")
 			exchanged := strings.TrimSuffix(cmd[1], ")")
 			m, err := g.NewExchangeMove(pidx, exchanged)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			err = g.PlayMove(m, true, 0)
 			if err != nil {
-				return err
+				return nil, err
 			}
 		} else if row[4] == "(Pass)" {
 			m, err := g.NewPassMove(pidx)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			err = g.PlayMove(m, true, 0)
 			if err != nil {
-				return err
+				return nil, err
 			}
 		} else {
 			play := strings.Split(strings.TrimSpace(row[4]), " ")
 			m, err := g.NewPlacementMove(pidx, play[0], play[1], false)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			err = g.PlayMove(m, true, 0)
 			if err != nil {
-				return err
+				return nil, err
 			}
 		}
 	}
-	contents, err := gcgio.GameHistoryToGCG(g.History(), true)
+	return g.History(), nil
+}
+
+func ExportGCG(cfg *config.Config, filename, letterdist, lexicon, boardlayout, gid string,
+	out io.Writer) error {
+
+	gameLines, err := gameLinesFromLogFile(cfg, filename, gid)
+	if err != nil {
+		return err
+	}
+
+	gh, err := gameHistoryFromGameLines(cfg, gameLines, letterdist, lexicon, boardlayout)
+	if err != nil {
+		return err
+	}
+
+	contents, err := gcgio.GameHistoryToGCG(gh, true)
 	if err != nil {
 		return err
 	}

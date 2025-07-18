@@ -4,17 +4,19 @@ import (
 	"context"
 	"math"
 	"runtime"
+	"strings"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/word-golib/kwg"
-	"github.com/domino14/word-golib/tilemapping"
 
 	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
+	"github.com/domino14/macondo/magpie"
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
@@ -22,84 +24,10 @@ import (
 
 const InferencesSimLimit = 2
 
-// Elite bot uses Monte Carlo simulations to rank plays, plays an endgame,
-// a pre-endgame (when ready).
-
-// BestPlay picks the highest play by win percentage. It uses montecarlo
-// and some other smart things to figure it out.
-func eliteBestPlay(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
-	logger := zerolog.Ctx(ctx)
-	var moves []*move.Move
-	// First determine what stage of the game we are in.
-	tr := p.Game.Bag().TilesRemaining()
-	// We don't necessarily know the number of tiles on our opponent's rack.
-	opp := p.Game.RackFor(p.Game.NextPlayer()).NumTiles()
-	// If this is an annotated game, we may not have full rack info.
-	unseen := int(opp) + tr
-	// Assume our own rack is fully known, however. So if unseen == 7, the bag
-	// is empty and we should assign the oppRack accordingly.
-	useEndgame := false
-	usePreendgame := false
-	endgamePlies := 0
-	simPlies := 0
-
-	if unseen <= 7 {
-		useEndgame = true
-		if tr > 0 {
-			logger.Debug().Msg("assigning all unseen to opp")
-			// bag is actually empty. Assign all of unseen to the opponent.
-			mls := make([]tilemapping.MachineLetter, tr)
-			err := p.Game.Bag().Draw(tr, mls)
-			if err != nil {
-				return nil, err
-			}
-			for _, t := range mls {
-				p.Game.RackFor(p.Game.NextPlayer()).Add(t)
-			}
-		}
-		// Just some sort of estimate
-		endgamePlies = unseen + int(p.Game.RackFor(p.Game.PlayerOnTurn()).NumTiles())
-	} else if unseen > 7 && unseen <= 8 {
-		usePreendgame = true
-	} else if unseen > 8 && unseen <= 14 {
-		moves = p.GenerateMoves(80)
-		simPlies = unseen
-	} else {
-		moves = p.GenerateMoves(40)
-		if p.minSimPlies > 2 {
-			simPlies = p.minSimPlies
-		} else {
-			simPlies = 2
-		}
-	}
-	simThreads := p.simThreads
-	if p.simThreads == 0 {
-		simThreads = p.simmer.Threads()
-	}
-
-	logger.Info().Int("simPlies", simPlies).
-		Int("simThreads", simThreads).
-		Int("endgamePlies", endgamePlies).
-		Bool("useEndgame", useEndgame).
-		Int("unseen", unseen).
-		Bool("useKnownOppRack", p.cfg.UseOppRacksInAnalysis).
-		Bool("stochasticStaticEval", p.cfg.StochasticStaticEval).
-		Int("consideredMoves", len(moves)).Msg("elite-player")
-
-	if useEndgame {
-		return endGameBest(ctx, p, endgamePlies)
-	} else if usePreendgame {
-		return preendgameBest(ctx, p)
-	} else {
-		return nonEndgameBest(ctx, p, simPlies, moves)
-	}
-
-}
-
 func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move.Move, error) {
 	logger := zerolog.Ctx(ctx)
 
-	if !HasEndgame(p.botType) {
+	if !HasEndgame(p.botType, p.cfg.BotSpec) {
 		// Just return the static best play if we don't have an endgame engine.
 		return p.GenerateMoves(1)[0], nil
 	}
@@ -134,7 +62,7 @@ func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move
 
 func preendgameBest(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 	logger := zerolog.Ctx(ctx)
-	if !HasPreendgame(p.botType) {
+	if !HasPreendgame(p.botType, p.cfg.BotSpec) {
 		// Just return the static best play if we don't have a pre-endgame engine
 		return p.GenerateMoves(1)[0], nil
 	}
@@ -180,16 +108,12 @@ func preendgameBest(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 
 }
 
-func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves []*move.Move) (*move.Move, error) {
-	// use montecarlo if we have it.
+func monteCarloBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves []*move.Move) (*move.Move, error) {
 	logger := zerolog.Ctx(ctx)
 
-	if !hasSimming(p.botType) {
-		return moves[0], nil
-	}
 	var inferTimeout context.Context
 	var cancel context.CancelFunc
-	if HasInfer(p.botType) && p.Game.Bag().TilesRemaining() > 0 {
+	if HasInfer(p.botType, p.cfg.BotSpec) && p.Game.Bag().TilesRemaining() > 0 {
 		logger.Debug().Msg("running inference..")
 		p.inferencer.Init(p.Game, p.simmerCalcs, p.Config())
 		if p.simThreads != 0 {
@@ -223,7 +147,7 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	// p.simmer.SetAutostopIterationsCutoff(2500)
 	// p.simmer.SetAutostopPPScaling(1500)
 
-	if HasInfer(p.botType) && len(p.inferencer.Inferences().InferredRacks) > InferencesSimLimit {
+	if HasInfer(p.botType, p.cfg.BotSpec) && len(p.inferencer.Inferences().InferredRacks) > InferencesSimLimit {
 		logger.Info().Int("inferences", len(p.inferencer.Inferences().InferredRacks)).Msg("using inferences in sim")
 		p.simmer.SetInferences(p.inferencer.Inferences().InferredRacks, p.inferencer.Inferences().RackLength, montecarlo.InferenceWeightedRandomRacks)
 	}
@@ -242,4 +166,30 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	logger.Info().Interface("winning-move", play.Move().String()).Msg("sim-done")
 	p.lastCalculatedDetails = p.simmer.ShortDetails(4)
 	return play.Move(), nil
+}
+
+// note that this function does not obey the context timeout (since it doesn't check it)
+func montecarloBestWithMagpie(ctx context.Context, p *BotTurnPlayer, simPlies int, moves []*move.Move) (*move.Move, string, error) {
+	logger := zerolog.Ctx(ctx)
+
+	if p.magpie == nil {
+		// Initialize Magpie if not already done
+		p.magpie = magpie.NewMagpie(p.Game.Config())
+	}
+
+	cgp := p.Game.ToCGP(true, game.WithMagpieMode(true), game.WithHideLexicon(true))
+	// let magpie generate its own moves, just pass in the length.
+	bestMove, rawOutput := p.magpie.BestSimmingMove(cgp, p.Game.Lexicon().Name(), simPlies, len(moves))
+	logger.Info().Str("best-move", bestMove).Msg("magpie-sim-done")
+
+	// Otherwise, it's a regular tile-play move. Split at the dot to get the position and tiles.
+	parts := strings.SplitN(bestMove, ".", 2)
+
+	m, err := p.ParseMove(p.Game.PlayerOnTurn(), false, parts, false)
+	if err != nil {
+		log.Err(err).Msg("error-parsing-best-move")
+		return nil, "", errors.Wrap(err, "error parsing best move from magpie")
+	}
+
+	return m, rawOutput, nil
 }

@@ -63,7 +63,7 @@ func (p *BaseTurnPlayer) ParseMove(playerid int, lowercase bool, fields []string
 		if lowercase {
 			word = flipCase(word)
 		}
-		if coords == "exchange" || coords == "exch" {
+		if coords == "exchange" || coords == "exch" || coords == "ex" {
 			return p.NewExchangeMove(playerid, word)
 		} else {
 			return p.NewPlacementMove(playerid, coords, word, transpose)

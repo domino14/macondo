@@ -50,8 +50,8 @@ func NewGameRunner(logchan chan string, cfg *config.Config) *GameRunner {
 		letterDistribution: cfg.GetString(config.ConfigDefaultLetterDistribution),
 	}
 	r.Init([]AutomaticRunnerPlayer{
-		{"", "", pb.BotRequest_HASTY_BOT, 0, false},
-		{"", "", pb.BotRequest_HASTY_BOT, 0, false},
+		{"", "", pb.BotRequest_HASTY_BOT, nil, 0, false},
+		{"", "", pb.BotRequest_HASTY_BOT, nil, 0, false},
 	})
 
 	return r
@@ -61,6 +61,7 @@ type AutomaticRunnerPlayer struct {
 	LeaveFile            string
 	PEGFile              string
 	BotCode              pb.BotRequest_BotCode
+	BotSpec              *pb.BotSpec
 	MinSimPlies          int
 	StochasticStaticEval bool
 }
@@ -105,6 +106,7 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 			LeavesFile:           leavefile,
 			MinSimPlies:          players[idx].MinSimPlies,
 			StochasticStaticEval: players[idx].StochasticStaticEval,
+			BotSpec:              players[idx].BotSpec,
 		}
 
 		btp, err := bot.NewBotTurnPlayerFromGame(r.game, conf, botcode)
@@ -138,8 +140,8 @@ func (r *GameRunner) StartGame(gidx int) {
 		r.order[0], r.order[1] = r.order[1], r.order[0]
 	}
 	r.game.StartGame()
-	r.aiplayers[0].SetLastMoves(nil)
-	r.aiplayers[1].SetLastMoves(nil)
+	r.aiplayers[0].Reset()
+	r.aiplayers[1].Reset()
 	if r.aiplayers[0].GetBotType() == pb.BotRequest_FAST_ML_BOT ||
 		r.aiplayers[1].GetBotType() == pb.BotRequest_FAST_ML_BOT {
 
@@ -199,10 +201,13 @@ func (r *GameRunner) PlayBestTurn(playerIdx int, addToHistory bool) error {
 	r.aiplayers[0].AddLastMove(bestPlay)
 	r.aiplayers[1].AddLastMove(bestPlay)
 
+	// XXX: HERE need to get these somewhere.
+	r.aiplayers[0].GetPertinentLogs()
+
 	if r.logchan != nil {
 		r.logchan <- fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v,%v,%v,%.3f,%v,%v\n",
-			nickOnTurn,
 			r.game.Uid(),
+			nickOnTurn,
 			r.game.Turn(),
 			rackLetters,
 			bestPlay.ShortDescription(),
