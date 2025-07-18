@@ -52,6 +52,7 @@ type BotTurnPlayer struct {
 	lastMoves             []*move.Move
 	inferencer            *rangefinder.RangeFinder
 	lastCalculatedDetails string
+	pertinentLogs         []string
 	magpie                *magpie.Magpie
 }
 
@@ -231,8 +232,13 @@ func ChooseMoveWithExploration(moves []*move.Move, temperature float64) (*move.M
 	return moves[len(moves)-1], nil
 }
 
-func (p *BotTurnPlayer) SetLastMoves(m []*move.Move) {
-	p.lastMoves = m
+func (p *BotTurnPlayer) Reset() {
+	p.lastMoves = nil
+	p.pertinentLogs = nil
+}
+
+func (p *BotTurnPlayer) GetPertinentLogs() []string {
+	return p.pertinentLogs
 }
 
 func (p *BotTurnPlayer) AddLastMove(m *move.Move) {
@@ -338,9 +344,7 @@ func (p *BotTurnPlayer) bestPlayByBotCapability(ctx context.Context) (*move.Move
 	endgamePlies := 0
 	simPlies := 0
 
-	// XXX: Get rid of this HasEndgame check right here, as it is only used
-	// to trigger a bug. It's not a valid check.
-	if unseen <= 7 && HasEndgame(p.botType, p.cfg.BotSpec) {
+	if unseen <= 7 {
 		if HasEndgame(p.botType, p.cfg.BotSpec) {
 			useEndgame = true
 		} else {
@@ -403,7 +407,12 @@ func (p *BotTurnPlayer) bestPlayByBotCapability(ctx context.Context) (*move.Move
 		return preendgameBest(ctx, p)
 	} else if useMontecarlo {
 		if p.cfg.BotSpec != nil && p.cfg.BotSpec.Params.SimUseMagpie {
-			return montecarloBestWithMagpie(ctx, p, simPlies, moves)
+			m, rawOutput, err := montecarloBestWithMagpie(ctx, p, simPlies, moves)
+			if err != nil {
+				return nil, err
+			}
+			p.pertinentLogs = append(p.pertinentLogs, rawOutput)
+			return m, nil
 		}
 		return monteCarloBest(ctx, p, simPlies, moves)
 	}

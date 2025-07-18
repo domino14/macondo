@@ -82,7 +82,7 @@ func CaptureCStdout(fn func()) string {
 
 // BestSimmingMove finds the best simming move for a given CGP and plies using Magpie.
 // numPlays is the max number of plays to simulate.
-func (m *Magpie) BestSimmingMove(cgp string, plies int, numPlays int) string {
+func (m *Magpie) BestSimmingMove(cgp string, lex string, plies int, numPlays int) (string, string) {
 	threads := runtime.NumCPU()
 
 	// Prepare command options as key-value pairs
@@ -101,6 +101,7 @@ func (m *Magpie) BestSimmingMove(cgp string, plies int, numPlays int) string {
 		"scond":         95,     // BAI stopping condition (percent confidence)
 		"it":            100000, // BAI: max TOTAL iterations across all plays.
 		"wmp":           "true",
+		"lex":           lex,
 	}
 
 	// Helper to build command string from map
@@ -113,9 +114,12 @@ func (m *Magpie) BestSimmingMove(cgp string, plies int, numPlays int) string {
 	}
 
 	settings := buildCmd(cmdOptions)
-
-	sendCmd("set " + settings)
-	sendCmd("cgp " + cgp)
+	CaptureCStdout(func() {
+		sendCmd("set " + settings)
+	})
+	CaptureCStdout(func() {
+		sendCmd("cgp " + cgp)
+	})
 	log.Info().Str("cgp", cgp).Str("settings", settings).
 		Msg("Running Magpie gen moves")
 	CaptureCStdout(func() {
@@ -148,19 +152,22 @@ func (m *Magpie) BestSimmingMove(cgp string, plies int, numPlays int) string {
 	// 	}
 	// }
 
-	return bestMove
+	return bestMove, output
 }
 
 // SanityTest
 func (m *Magpie) SanityTest() {
-	cgp := "C14/O2TOY9/mIRADOR8/F4DAB2PUGH1/I5GOOEY3V/T4XI2MALTHA/14N/6GUM3OWN/7PEW2DOE/9EF1DOR/2KUNA1J1BEVELS/3TURRETs2S2/7A4T2/7N7/7S7 EEEIILZ/ 336/298 0 -lex NWL23"
-	bestMoves := map[string]int{}
-	for i := range 100 {
-		res := m.BestSimmingMove(cgp, 5, 100)
-		bestMoves[res] += 1
-		if i%10 == 0 {
-			log.Info().Int("iteration", i).Msg("Best simming move iteration")
-		}
-	}
-	log.Info().Interface("bestMoves", bestMoves).Msg("Best simming move found")
+	// cgp := "C14/O2TOY9/mIRADOR8/F4DAB2PUGH1/I5GOOEY3V/T4XI2MALTHA/14N/6GUM3OWN/7PEW2DOE/9EF1DOR/2KUNA1J1BEVELS/3TURRETs2S2/7A4T2/7N7/7S7 EEEIILZ/ 336/298 0 -lex NWL23"
+	// bestMoves := map[string]int{}
+	// for i := range 100 {
+	// 	res := m.BestSimmingMove(cgp, 5, 100)
+	// 	bestMoves[res] += 1
+	// 	if i%10 == 0 {
+	// 		log.Info().Int("iteration", i).Msg("Best simming move iteration")
+	// 	}
+	// }
+	// log.Info().Interface("bestMoves", bestMoves).Msg("Best simming move found")
+	cgp := "DO13/EX13/L9P1F2/V9W1O2/EL8N1I2/1A1FOB1OBJETS2/1LEEK3A1D1T2/EL1MACHER6/PA6T6/ON1G1WAGED2Q2/x2O2YIN3U2/I1ZA4D3I2/E1I9R2/SUGARY4HAEN1/5ATrIUMS3 EIIOORT/ 360/331 0 -lex NWL23 -ld english"
+	res, _ := m.BestSimmingMove(cgp, "NWL23", 11, 80)
+	log.Info().Str("cgp", cgp).Str("bestMove", res).Msg("Best simming move found")
 }

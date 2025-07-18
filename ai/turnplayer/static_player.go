@@ -89,8 +89,9 @@ func (p *AIStaticTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
 	return p.GenerateMoves(1)[0], nil
 }
 
-// SetLastMoves does nothing for now.
-func (p *AIStaticTurnPlayer) SetLastMoves(m []*move.Move) { panic("I am not used currently") }
+// Reset does nothing for now.
+func (p *AIStaticTurnPlayer) Reset()            { panic("I am not used currently") }
+func (p *AIStaticTurnPlayer) GetPertinentLogs() { panic("I am not used currently") }
 
 func (p *AIStaticTurnPlayer) AddLastMove(m *move.Move) { panic("I am not used currently") }
 

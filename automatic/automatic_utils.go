@@ -150,6 +150,8 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	jobs := make(chan Job, threads*5)
 	logChan := make(chan string, 100)
 	gameChan := make(chan string, 10)
+	games := map[string][][]string{}
+
 	var wg sync.WaitGroup
 	// var fwg sync.WaitGroup
 
@@ -225,9 +227,15 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	})
 
 	g.Go(func() error {
-		logfile.WriteString("playerID,gameID,turn,rack,play,score,totalscore,tilesplayed,leave,equity,tilesremaining,oppscore\n")
+		logfile.WriteString("gameID,playerID,turn,rack,play,score,totalscore,tilesplayed,leave,equity,tilesremaining,oppscore\n")
 		for msg := range logChan {
 			logfile.WriteString(msg)
+			i := strings.Index(msg, ",")
+			gid := msg[:i]
+			if _, ok := games[gid]; !ok {
+				games[gid] = [][]string{}
+			}
+			games[gid] = append(games[gid], strings.Split(msg, ","))
 		}
 		logfile.Close()
 		log.Info().Msg("Exiting turn logger goroutine!")
@@ -242,10 +250,25 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 		gamelogfile.WriteString(header)
 		for msg := range gameChan {
 			gamelogfile.WriteString(msg)
+			i := strings.Index(msg, ",")
+			gid := msg[:i]
+
+			gh, err := gameHistoryFromGameLines(cfg, games[gid], letterDistribution, lexicon,
+				"")
+			if err != nil {
+				log.Err(err).Msgf("Error getting game history for %s", gid)
+				continue
+			}
+
+			delete(games, gid)
 		}
 		gamelogfile.Close()
 		log.Info().Msg("Exiting game logger goroutine!")
 		return nil
+	})
+
+	g.Go(func() error {
+
 	})
 
 	if block {

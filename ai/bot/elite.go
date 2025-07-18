@@ -168,7 +168,8 @@ func monteCarloBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	return play.Move(), nil
 }
 
-func montecarloBestWithMagpie(ctx context.Context, p *BotTurnPlayer, simPlies int, moves []*move.Move) (*move.Move, error) {
+// note that this function does not obey the context timeout (since it doesn't check it)
+func montecarloBestWithMagpie(ctx context.Context, p *BotTurnPlayer, simPlies int, moves []*move.Move) (*move.Move, string, error) {
 	logger := zerolog.Ctx(ctx)
 
 	if p.magpie == nil {
@@ -176,9 +177,9 @@ func montecarloBestWithMagpie(ctx context.Context, p *BotTurnPlayer, simPlies in
 		p.magpie = magpie.NewMagpie(p.Game.Config())
 	}
 
-	cgp := p.Game.ToCGP(true, game.WithMagpieMode(true))
+	cgp := p.Game.ToCGP(true, game.WithMagpieMode(true), game.WithHideLexicon(true))
 	// let magpie generate its own moves, just pass in the length.
-	bestMove := p.magpie.BestSimmingMove(cgp, simPlies, len(moves))
+	bestMove, rawOutput := p.magpie.BestSimmingMove(cgp, p.Game.Lexicon().Name(), simPlies, len(moves))
 	logger.Info().Str("best-move", bestMove).Msg("magpie-sim-done")
 
 	// Otherwise, it's a regular tile-play move. Split at the dot to get the position and tiles.
@@ -187,8 +188,8 @@ func montecarloBestWithMagpie(ctx context.Context, p *BotTurnPlayer, simPlies in
 	m, err := p.ParseMove(p.Game.PlayerOnTurn(), false, parts, false)
 	if err != nil {
 		log.Err(err).Msg("error-parsing-best-move")
-		return nil, errors.Wrap(err, "error parsing best move from magpie")
+		return nil, "", errors.Wrap(err, "error parsing best move from magpie")
 	}
 
-	return m, nil
+	return m, rawOutput, nil
 }
