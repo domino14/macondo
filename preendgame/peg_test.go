@@ -451,6 +451,56 @@ func TestTwoInBagSingleMove(t *testing.T) {
 	is.Equal(winners[0].OutcomeFor([]tilemapping.MachineLetter{9, 5}), PEGWin)
 }
 
+// The problem with this test is as follows:
+// By the time it gets to the bag option AH (which is backwards, HA is in the
+// bag, in that order), it does this:
+// - Plays HIED for US, draws the H
+// - Plays every other possible play for opponent with a rack of ACEEINO. They
+// all lose in the endgame.
+// - Finally, play Pass for opponent
+// - Plays Pass for us (it tries pass first as an optimization)
+// - This causes the game to end and we lose the game since we lose more
+// points than the opponent does on our tiles.
+// - This sets an UnfinalizedWinPctStat of PEGLoss for this move (HIED) because
+// we lost a game. It incorrectly thinks that because we lost after the opponent
+// passed, and we passed back, that we're going to lose this eventuality. We have
+// a perfectly valid SCATHING play that wins the game easily.
+// - So,
+// - We need to see the position from our perspective after the opponent has
+// passed. We have a 1-in-the bag pre-endgame:
+/*
+//	  A B C D E F G H I J K L M N O     ->              player1  ACHINST  353
+//	  ------------------------------                    player2           357
+//	1|=     '       =       ' B E N |
+//	2|  -       "       J U D O S   |   Bag + unseen: (8)
+//	3|    -       '   '     R - T E |
+//	4|'     -       B R A V I     X |   A C E E E I N O
+//	5|        -   Q I     - L     U |
+//	6|  "       P   O K A   L   " L |
+//	7|    '     O ' T O M E   '   T |
+//	8|=     '   U   A A   N ' O R e |
+//	9|    '     R '   '   G   F I D |
+// 10|  "       I       " R     Z   |   Turn 2:
+// 11|      H I E D       A   V A U |   player2 passed, holding a rack of ACEEINO
+// 12|'     I D S   P   F I N O   ' |
+// 13|    T E E   ' O Y   L   W     |
+// 14|  - Y   M a R T E N S     -   |
+// 15|G A G E       E W     '     = |
+//	  ------------------------------
+//
+//	If we have _any_ play that wins ALL endgames, then we should mark the top-level play
+// (HIED) as a win. If SCATHING won 7 out of 8 endgames, and that was the biggest number,
+// that means that the opponent might win after passing. In that case, we should
+// check for which endgames SCATHING wins. If it loses for the endgame that has the
+// A in the bag, then we mark HIED as a loss for the (H, A) in the bag scenario,
+// since the opponent can win by passing, then us playing our best play of SCATHING,
+// and then losing because we drew the A.
+// If we have three plays that are tied for winning 7 out of 8 endgames, let's say,
+// and two of them lose if we draw the A, and the third one wins if we draw the A,
+// we still have to mark HIED as a loss for the (H, A) in the bag scenario,
+// because we don't know which of the three plays we might pick. We have to make
+// sure that our best pre-endgame play(s) all win if we draw the A (in this example).
+*/
 func TestAnotherTwoInBag(t *testing.T) {
 	is := is.New(t)
 	cgpStr := "12BEN/9JUDOS1/11R1TE/7BRAVI2X/6QI3L2U/5P1OKA1L2L/5O1TOME3T/5U1AA1N1ORe/5R4G1FID/5I4R2Z1/3HIE4A1VAU/3IDS1P1FINO2/2TEE2OY1L1W2/2Y1MaRTENS4/GAGE3EW6 ACDINST/ACEEHIO 345/357 0 lex CSW21;"
@@ -481,7 +531,12 @@ func TestAnotherTwoInBag(t *testing.T) {
 	fmt.Println(peg.SolutionStats(1))
 	is.NoErr(err)
 	is.Equal(winners[0].Points, float32(28.5)) // wins 27/72 and ties 3/72 games
-
+	/**
+		W-L-T: 27-42-3
+	Guaranteed Wins: 'H+A H+C H+E H+I H+N H+O O+A O+C O+E O+H O+I O+N E+C N+A N+C N+E N+H N+I N+O'
+	Guaranteed Ties: 'E+H'
+	Possible Losses: 'A+E A+O A+I A+N A+C A+H E+A E+E E+I E+N E+O I+C I+E I+H I+A I+N I+O C+E C+H C+I C+N C+O C+A'
+	*/
 }
 
 func TestFourInBag(t *testing.T) {
