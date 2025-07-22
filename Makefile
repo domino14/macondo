@@ -1,6 +1,6 @@
 everything: all wasm
 
-all: macondo_shell macondo_bot bot_shell analyze mlproducer
+all: macondo_shell macondo_tui macondo_bot bot_shell analyze mlproducer
 
 .PHONY: wasm
 
@@ -16,6 +16,9 @@ analyze:
 
 macondo_shell:
 	go build -trimpath -o bin/shell cmd/shell/main.go
+
+macondo_tui:
+	go build -trimpath -o bin/tui cmd/tui/main.go
 
 macondo_bot:
 	go build -trimpath -o bin/bot cmd/bot/main.go

@@ -108,6 +108,7 @@ type ShellController struct {
 	l        *readline.Instance
 	config   *config.Config
 	execPath string
+	writer   io.Writer // Default output writer
 
 	options *ShellOptions
 
@@ -188,7 +189,7 @@ func formatMessage(msg string) string {
 
 func (sc *ShellController) showMessage(msg string) {
 	formattedMsg := formatMessage(msg)
-	writeln(formattedMsg, os.Stdout)
+	writeln(formattedMsg, sc.writer)
 }
 
 func underlineText(text string) string {
@@ -205,6 +206,10 @@ func (sc *ShellController) showError(err error) {
 }
 
 func NewShellController(cfg *config.Config, execPath, gitVersion string) *ShellController {
+	return NewShellControllerWithWriter(cfg, execPath, gitVersion, os.Stdout)
+}
+
+func NewShellControllerWithWriter(cfg *config.Config, execPath, gitVersion string, writer io.Writer) *ShellController {
 	prompt := "macondo>"
 	if os.Getenv("NO_COLOR") == "" {
 		prompt = fmt.Sprintf("\033[31m%s\033[0m", prompt)
@@ -237,7 +242,7 @@ func NewShellController(cfg *config.Config, execPath, gitVersion string) *ShellC
 		panic("win percentages not correct type")
 	}
 
-	return &ShellController{l: l, config: cfg, execPath: execPath, options: opts, macondoVersion: gitVersion, winpcts: winPcts}
+	return &ShellController{l: l, config: cfg, execPath: execPath, writer: writer, options: opts, macondoVersion: gitVersion, winpcts: winPcts}
 }
 
 func (sc *ShellController) Cleanup() {
@@ -328,32 +333,41 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 }
 
 func (sc *ShellController) initGameDataStructures() error {
+	log.Debug().Msg("starting initGameDataStructures")
 	if sc.simmer != nil {
 		sc.simmer.CleanupTempFile()
 	}
+	log.Debug().Msg("creating simmer")
 	sc.simmer = &montecarlo.Simmer{}
 	sc.simStats = stats.NewSimStats(sc.simmer, sc.game)
 
+	log.Debug().Msg("creating equity calculator")
 	c, err := equity.NewCombinedStaticCalculator(
 		sc.game.LexiconName(),
 		sc.config, "", equity.PEGAdjustmentFilename)
 	if err != nil {
+		log.Error().Err(err).Msg("failed to create equity calculator")
 		return err
 	}
+	log.Debug().Msg("initializing simmer")
 	sc.simmer.Init(sc.game.Game, []equity.EquityCalculator{c}, c, sc.config)
 	sc.gen = sc.game.MoveGenerator()
 
+	log.Debug().Msg("loading KWG")
 	gd, err := kwg.GetKWG(sc.config.WGLConfig(), sc.game.LexiconName())
 	if err != nil {
+		log.Error().Err(err).Msg("failed to load KWG")
 		return err
 	}
 
+	log.Debug().Msg("creating backup generator")
 	sc.backupgen = movegen.NewGordonGenerator(gd, sc.game.Board(), sc.game.Bag().LetterDistribution())
 
+	log.Debug().Msg("initializing rangefinder")
 	sc.rangefinder = &rangefinder.RangeFinder{}
 	sc.rangefinder.Init(sc.game.Game, []equity.EquityCalculator{c}, sc.config)
 
-	// initialize the elite bot
+	log.Debug().Msg("setting up elite bot")
 
 	leavesFile := ""
 	if sc.game.Board().Dim() == 21 { // ghetto
@@ -362,14 +376,17 @@ func (sc *ShellController) initGameDataStructures() error {
 
 	conf := &bot.BotConfig{Config: *sc.config, MinSimPlies: 5, LeavesFile: leavesFile,
 		UseOppRacksInAnalysis: false}
+	log.Debug().Str("leavesFile", leavesFile).Msg("creating elite bot")
 	tp, err := bot.NewBotTurnPlayerFromGame(sc.game.Game, conf, pb.BotRequest_BotCode(pb.BotRequest_SIMMING_BOT))
 	if err != nil {
+		log.Error().Err(err).Msg("failed to create elite bot")
 		return err
 	}
 	tp.SetBackupMode(game.InteractiveGameplayMode)
 	tp.SetStateStackLength(1)
 	sc.elitebot = tp
 
+	log.Debug().Msg("initGameDataStructures completed successfully")
 	return nil
 }
 
@@ -423,19 +440,25 @@ func (sc *ShellController) loadGCG(args []string) error {
 		idstr := args[1]
 		path := "https://woogles.io/api/game_service.GameMetadataService/GetGCG"
 
+		log.Debug().Str("gameId", idstr).Msg("starting woogles load")
 		reader := strings.NewReader(`{"gameId": "` + idstr + `"}`)
 
+		log.Debug().Msg("making HTTP request to woogles")
 		resp, err := http.Post(path, "application/json", reader)
 		if err != nil {
+			log.Error().Err(err).Msg("HTTP request failed")
 			return err
 		}
 		defer resp.Body.Close()
 
+		log.Debug().Msg("reading response body")
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
+			log.Error().Err(err).Msg("failed to read response body")
 			return err
 		}
 
+		log.Debug().Int("bodyLen", len(body)).Msg("parsing JSON response")
 		type gcgstruct struct {
 			Gcg string `json:"gcg"`
 		}
@@ -443,13 +466,17 @@ func (sc *ShellController) loadGCG(args []string) error {
 
 		err = json.Unmarshal(body, &gcgObj)
 		if err != nil {
+			log.Error().Err(err).Msg("failed to unmarshal JSON")
 			return err
 		}
 
+		log.Debug().Msg("parsing GCG from response")
 		history, err = gcgio.ParseGCGFromReader(sc.config, strings.NewReader(gcgObj.Gcg))
 		if err != nil {
+			log.Error().Err(err).Msg("failed to parse GCG")
 			return err
 		}
+		log.Debug().Msg("woogles load completed successfully")
 	} else if args[0] == "web" {
 		if len(args) < 2 {
 			return errors.New("need to provide a web URL")
@@ -488,13 +515,18 @@ func (sc *ShellController) loadGCG(args []string) error {
 		log.Info().Msgf("gcg file had no lexicon, so using default lexicon %v",
 			lexicon)
 	}
+	log.Debug().Msg("converting history to variant")
 	boardLayout, ldName, variant := game.HistoryToVariant(history)
+	log.Debug().Str("lexicon", lexicon).Str("boardLayout", boardLayout).Str("ldName", ldName).Msg("creating game rules")
 	rules, err := game.NewBasicGameRules(sc.config, lexicon, boardLayout, ldName, game.CrossScoreAndSet, variant)
 	if err != nil {
+		log.Error().Err(err).Msg("failed to create game rules")
 		return err
 	}
+	log.Debug().Msg("creating game from history")
 	g, err := game.NewFromHistory(history, rules, 0)
 	if err != nil {
+		log.Error().Err(err).Msg("failed to create game from history")
 		return err
 	}
 	leavesFile := ""
@@ -502,17 +534,22 @@ func (sc *ShellController) loadGCG(args []string) error {
 		leavesFile = "super-leaves.klv2"
 	}
 
+	log.Debug().Str("leavesFile", leavesFile).Msg("creating bot config")
 	conf := &bot.BotConfig{Config: *sc.config, LeavesFile: leavesFile}
+	log.Debug().Msg("creating bot turn player")
 	sc.game, err = bot.NewBotTurnPlayerFromGame(g, conf, pb.BotRequest_HASTY_BOT)
 	if err != nil {
+		log.Error().Err(err).Msg("failed to create bot turn player")
 		return err
 	}
+	log.Debug().Msg("setting up game modes")
 	sc.game.SetBackupMode(game.InteractiveGameplayMode)
 	sc.game.SetStateStackLength(1)
 
 	// Set challenge rule to double by default. This can be overridden.
 	sc.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
 
+	log.Debug().Msg("initializing game data structures")
 	return sc.initGameDataStructures()
 }
 
