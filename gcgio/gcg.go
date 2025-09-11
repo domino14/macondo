@@ -71,22 +71,22 @@ type gcgdatum struct {
 var GCGRegexes []gcgdatum
 
 const (
-	PlayerRegex               = `#player(?P<p_number>[1-2])\s+(?P<nick>\S+)\s+(?P<real_name>.+)`
-	TitleRegex                = `#title\s*(?P<title>.*)`
-	DescriptionRegex          = `#description\s*(?P<description>.*)`
-	IDRegex                   = `#id\s*(?P<id_authority>\S+)\s+(?P<id>\S+)`
-	Rack1Regex                = `#rack1 (?P<rack>\S+)`
-	Rack2Regex                = `#rack2 (?P<rack>\S+)`
+	PlayerRegex               = `^#player(?P<p_number>[1-2])\s+(?P<nick>\S+)\s+(?P<real_name>.+)`
+	TitleRegex                = `^#title\s*(?P<title>.*)`
+	DescriptionRegex          = `^#description\s*(?P<description>.*)`
+	IDRegex                   = `^#id\s+(?P<id_authority>\S+)\s+(?P<id>\S+)`
+	Rack1Regex                = `^#rack1 (?P<rack>\S+)`
+	Rack2Regex                = `^#rack2 (?P<rack>\S+)`
 	MoveRegex                 = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+(?P<pos>\w+)\s+(?P<play>\S+)\s+\+(?P<score>\d+)\s+(?P<cumul>\d+)`
-	NoteRegex                 = `#note(?P<note>.*)`
-	LexiconRegex              = `#lexicon (?P<lexicon>.+)`
-	CharacterEncodingRegex    = `#character-encoding (?P<encoding>[[:graph:]]+)`
-	GameTypeRegex             = `#game-type (?P<gameType>.*)`
-	TileSetRegex              = `#tile-set (?P<tileSet>.*)`
-	GameBoardRegex            = `#game-board (?P<gameBoard>.*)`
-	BoardLayoutRegex          = `#board-layout (?P<boardLayoutName>.*)`
-	TileDistributionNameRegex = `#tile-distribution (?P<tileDistributionName>.*)`
-	ContinuationRegex         = `#- (?P<continuation>.*)`
+	NoteRegex                 = `^#note(?P<note>.*)`
+	LexiconRegex              = `^#lexicon (?P<lexicon>.+)`
+	CharacterEncodingRegex    = `^#character-encoding (?P<encoding>[[:graph:]]+)`
+	GameTypeRegex             = `^#game-type (?P<gameType>.*)`
+	TileSetRegex              = `^#tile-set (?P<tileSet>.*)`
+	GameBoardRegex            = `^#game-board (?P<gameBoard>.*)`
+	BoardLayoutRegex          = `^#board-layout (?P<boardLayoutName>.*)`
+	TileDistributionNameRegex = `^#tile-distribution (?P<tileDistributionName>.*)`
+	ContinuationRegex         = `^#- (?P<continuation>.*)`
 	PhonyTilesReturnedRegex   = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+--\s+-(?P<lost_score>\d+)\s+(?P<cumul>\d+)`
 	PassRegex                 = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+-\s+\+0\s+(?P<cumul>\d+)`
 	ChallengeBonusRegex       = `>(?P<nick>\S+):\s+(?P<rack>\S*)\s+\(challenge\)\s+\+(?P<bonus>\d+)\s+(?P<cumul>\d+)`
@@ -94,8 +94,8 @@ const (
 	EndRackPointsRegex        = `>(?P<nick>\S+):\s+\((?P<rack>\S+)\)\s+\+(?P<score>\d+)\s+(?P<cumul>-?\d+)`
 	TimePenaltyRegex          = `>(?P<nick>\S+):(?:\s+(?P<rack>\S*))?\s+\(time\)\s+\+?\-(?P<penalty>\d+)\s+(?P<cumul>-?\d+)`
 	PtsLostForLastRackRegex   = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+\((?P<rack>\S+)\)\s+\-(?P<penalty>\d+)\s+(?P<cumul>-?\d+)`
-	IncompleteRegex           = "#incomplete.*"
-	TileDeclarationRegex      = `#tile (?P<uppercase>\S+)\s+(?P<lowercase>\S+)`
+	IncompleteRegex           = "^#incomplete.*"
+	TileDeclarationRegex      = `^#tile (?P<uppercase>\S+)\s+(?P<lowercase>\S+)`
 )
 
 var compiledEncodingRegexp *regexp.Regexp
