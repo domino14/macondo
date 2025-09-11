@@ -72,20 +72,20 @@ var GCGRegexes []gcgdatum
 
 const (
 	PlayerRegex               = `^#player(?P<p_number>[1-2])\s+(?P<nick>\S+)\s+(?P<real_name>.+)`
-	TitleRegex                = `^#title\s*(?P<title>.*)`
-	DescriptionRegex          = `^#description\s*(?P<description>.*)`
+	TitleRegex                = `^#title\s+(?P<title>.*)`
+	DescriptionRegex          = `^#description\s+(?P<description>.*)`
 	IDRegex                   = `^#id\s+(?P<id_authority>\S+)\s+(?P<id>\S+)`
-	Rack1Regex                = `^#rack1 (?P<rack>\S+)`
-	Rack2Regex                = `^#rack2 (?P<rack>\S+)`
+	Rack1Regex                = `^#rack1\s+(?P<rack>\S+)`
+	Rack2Regex                = `^#rack2\s+(?P<rack>\S+)`
 	MoveRegex                 = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+(?P<pos>\w+)\s+(?P<play>\S+)\s+\+(?P<score>\d+)\s+(?P<cumul>\d+)`
-	NoteRegex                 = `^#note(?P<note>.*)`
-	LexiconRegex              = `^#lexicon (?P<lexicon>.+)`
-	CharacterEncodingRegex    = `^#character-encoding (?P<encoding>[[:graph:]]+)`
-	GameTypeRegex             = `^#game-type (?P<gameType>.*)`
-	TileSetRegex              = `^#tile-set (?P<tileSet>.*)`
-	GameBoardRegex            = `^#game-board (?P<gameBoard>.*)`
-	BoardLayoutRegex          = `^#board-layout (?P<boardLayoutName>.*)`
-	TileDistributionNameRegex = `^#tile-distribution (?P<tileDistributionName>.*)`
+	NoteRegex                 = `^#note\s+(?P<note>.*)`
+	LexiconRegex              = `^#lexicon\s+(?P<lexicon>.+)`
+	CharacterEncodingRegex    = `^#character-encoding\s+(?P<encoding>[[:graph:]]+)`
+	GameTypeRegex             = `^#game-type\s+(?P<gameType>.*)`
+	TileSetRegex              = `^#tile-set\s+(?P<tileSet>.*)`
+	GameBoardRegex            = `^#game-board\s+(?P<gameBoard>.*)`
+	BoardLayoutRegex          = `^#board-layout\s+(?P<boardLayoutName>.*)`
+	TileDistributionNameRegex = `^#tile-distribution\s+(?P<tileDistributionName>.*)`
 	ContinuationRegex         = `^#- (?P<continuation>.*)`
 	PhonyTilesReturnedRegex   = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+--\s+-(?P<lost_score>\d+)\s+(?P<cumul>\d+)`
 	PassRegex                 = `>(?P<nick>\S+):\s+(?P<rack>\S+)\s+-\s+\+0\s+(?P<cumul>\d+)`
