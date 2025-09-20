@@ -30,6 +30,8 @@ func (g *Game) SetChallengeRule(rule pb.ChallengeRule) {
 // out with a phony).
 // Return playLegal, error
 func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
+	log.Debug().Msgf("lastknownracks %v", g.history.LastKnownRacks)
+
 	if len(g.history.Events) == 0 {
 		return false, errors.New("this game has no history")
 	}
@@ -109,10 +111,13 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 		// Explicitly set racks for both players. This prevents a bug where
 		// part of the game may have been loaded from a GameHistory (through the
 		// PlayGameToTurn flow) and the racks continually get reset.
-		g.SetRacksForBoth([]*tilemapping.Rack{
+		err = g.SetRacksForBoth([]*tilemapping.Rack{
 			tilemapping.RackFromString(g.history.LastKnownRacks[0], g.alph),
 			tilemapping.RackFromString(g.history.LastKnownRacks[1], g.alph),
 		})
+		if err != nil {
+			return playLegal, err
+		}
 
 		// Note that if backup mode is InteractiveGameplayMode, which it should be,
 		// we do not back up the turn number. So restoring it doesn't change

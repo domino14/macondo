@@ -1010,7 +1010,9 @@ func (sc *ShellController) Loop(sig chan os.Signal) {
 	defer sc.l.Close()
 
 	for {
-
+		if sc.game != nil && sc.game.History() != nil {
+			log.Debug().Msgf("loop-lastknownracks %v", sc.game.History().LastKnownRacks)
+		}
 		line, err := sc.l.Readline()
 		if err == readline.ErrInterrupt {
 			if len(line) == 0 {

@@ -33,7 +33,16 @@ func BaseTurnPlayerFromRules(opts *GameOptions, players []*pb.PlayerInfo, rules 
 
 func (p *BaseTurnPlayer) SetPlayerRack(playerid int, letters string) error {
 	rack := tilemapping.RackFromString(letters, p.Alphabet())
-	return p.SetRackFor(playerid, rack)
+	err := p.SetRackFor(playerid, rack)
+	if err != nil {
+		return err
+	}
+	// Edit history for both players if it exists!
+	if p.History() != nil && len(p.History().LastKnownRacks) == 2 {
+		p.History().LastKnownRacks[0] = p.RackLettersFor(0)
+		p.History().LastKnownRacks[1] = p.RackLettersFor(1)
+	}
+	return nil
 }
 
 func (p *BaseTurnPlayer) SetCurrentRack(letters string) error {

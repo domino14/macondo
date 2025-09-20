@@ -7,6 +7,7 @@ import (
 	"github.com/matryer/is"
 
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -202,4 +203,38 @@ func TestChallengeTripleSuccessful(t *testing.T) {
 	is.Equal(len(g.History().Events), 2)
 	is.Equal(g.History().PlayState, pb.PlayState_GAME_OVER)
 	is.Equal(g.History().Winner, int32(1))
+}
+
+func TestChallengeRestoreRack(t *testing.T) {
+	is := is.New(t)
+	pos := "4REORIENT3/1Q3LI2NOO3/1U1BAL4V4/1ICE6AA3/1N8TE3/1O7WE4/1L5V1ED4/S6OFT5/H5IXIA5/OP1BHUT1F6/JORAM2AE6/I4A1D7/5WUZ7/5E1E7/COGNiSED7 AEIINST/ADGGKPS 248/385 0 lex NWL23;"
+	g, err := cgp.ParseCGP(DefaultConfig, pos)
+	g.SetChallengeRule(pb.ChallengeRule_DOUBLE)
+	g.SetBackupMode(game.InteractiveGameplayMode)
+	g.SetStateStackLength(1)
+	alph := g.Alphabet()
+	is.NoErr(err)
+	m := move.NewScoringMoveSimple(74, "M3", "ISATINE", "", alph)
+	_, err = g.ValidateMove(m)
+	is.NoErr(err)
+	err = g.PlayMove(m, true, 0)
+	is.NoErr(err)
+
+	err = g.SetRacksForBoth([]*tilemapping.Rack{
+		tilemapping.RackFromString("GNPRUY?", alph),
+		tilemapping.RackFromString("MATLIKE", alph),
+	})
+	is.NoErr(err)
+
+	m2 := move.NewScoringMoveSimple(82, "L9", "MATLIKE", "", alph)
+	_, err = g.ValidateMove(m2)
+	is.NoErr(err)
+	err = g.PlayMove(m2, true, 0)
+	is.NoErr(err)
+
+	legal, err := g.ChallengeEvent(0, 0)
+	is.NoErr(err)
+	is.True(!legal)
+	is.Equal(g.RackLettersFor(0), "?GNPRUY")
+	is.Equal(g.RackLettersFor(1), "AEIKLMT")
 }
