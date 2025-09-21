@@ -30,8 +30,6 @@ func (g *Game) SetChallengeRule(rule pb.ChallengeRule) {
 // out with a phony).
 // Return playLegal, error
 func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
-	log.Debug().Msgf("lastknownracks %v", g.history.LastKnownRacks)
-
 	if len(g.history.Events) == 0 {
 		return false, errors.New("this game has no history")
 	}
@@ -46,7 +44,8 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 	illegalWords := validateWords(g.lexicon, g.lastWordsFormed, g.rules.Variant())
 	playLegal := len(illegalWords) == 0
 
-	lastEvent := g.history.Events[len(g.history.Events)-1]
+	lastEvent := g.history.Events[g.turnnum-1]
+	log.Info().Interface("lastEvent", lastEvent).Msg("in challenge event")
 	cumeScoreBeforeChallenge := lastEvent.Cumulative
 
 	challengee := otherPlayer(g.onturn)
@@ -61,6 +60,7 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 		// Note: these millis remaining would be the challenger's
 		MillisRemaining: int32(millis),
 	}
+	log.Info().Interface("offboardEvent", offBoardEvent).Msg("challenge event")
 
 	var err error
 	// This ideal system makes it so someone always loses

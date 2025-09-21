@@ -953,7 +953,6 @@ func (g *Game) PlayTurn(t int) error {
 	evt := g.history.Events[t]
 	log.Trace().Int("event-type", int(evt.Type)).Int("turn", t).Msg("playTurn")
 	g.onturn = int(evt.PlayerIndex)
-
 	m, err := MoveFromEvent(evt, g.alph, g.board)
 	if err != nil {
 		return err
