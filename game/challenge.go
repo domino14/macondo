@@ -44,7 +44,8 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 	illegalWords := validateWords(g.lexicon, g.lastWordsFormed, g.rules.Variant())
 	playLegal := len(illegalWords) == 0
 
-	lastEvent := g.history.Events[len(g.history.Events)-1]
+	lastEvent := g.history.Events[g.turnnum-1]
+	log.Info().Interface("lastEvent", lastEvent).Msg("in challenge event")
 	cumeScoreBeforeChallenge := lastEvent.Cumulative
 
 	challengee := otherPlayer(g.onturn)
@@ -59,6 +60,7 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 		// Note: these millis remaining would be the challenger's
 		MillisRemaining: int32(millis),
 	}
+	log.Info().Interface("offboardEvent", offBoardEvent).Msg("challenge event")
 
 	var err error
 	// This ideal system makes it so someone always loses
@@ -102,6 +104,7 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 		// Unplay the last move to restore everything as it was board-wise
 		// (and un-end the game if it had ended)
 		g.UnplayLastMove()
+		g.history.PlayState = g.playing
 
 		// We must also set the last known rack of the challengee back to
 		// their rack before they played the phony.
@@ -109,10 +112,13 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 		// Explicitly set racks for both players. This prevents a bug where
 		// part of the game may have been loaded from a GameHistory (through the
 		// PlayGameToTurn flow) and the racks continually get reset.
-		g.SetRacksForBoth([]*tilemapping.Rack{
+		err = g.SetRacksForBoth([]*tilemapping.Rack{
 			tilemapping.RackFromString(g.history.LastKnownRacks[0], g.alph),
 			tilemapping.RackFromString(g.history.LastKnownRacks[1], g.alph),
 		})
+		if err != nil {
+			return playLegal, err
+		}
 
 		// Note that if backup mode is InteractiveGameplayMode, which it should be,
 		// we do not back up the turn number. So restoring it doesn't change

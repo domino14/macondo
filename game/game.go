@@ -953,7 +953,6 @@ func (g *Game) PlayTurn(t int) error {
 	evt := g.history.Events[t]
 	log.Trace().Int("event-type", int(evt.Type)).Int("turn", t).Msg("playTurn")
 	g.onturn = int(evt.PlayerIndex)
-
 	m, err := MoveFromEvent(evt, g.alph, g.board)
 	if err != nil {
 		return err
@@ -1093,6 +1092,10 @@ func (g *Game) SetRacksForBoth(racks []*tilemapping.Rack) error {
 	}
 	for idx, player := range g.players {
 		player.rack = racks[idx]
+	}
+	if g.history != nil {
+		g.history.LastKnownRacks[0] = g.RackLettersFor(0)
+		g.history.LastKnownRacks[1] = g.RackLettersFor(1)
 	}
 	return nil
 }

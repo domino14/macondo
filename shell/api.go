@@ -426,6 +426,7 @@ func (sc *ShellController) challenge(cmd *shellcmd) (*Response, error) {
 		return nil, errMacondoSolving
 	}
 	fields := cmd.args
+
 	if len(fields) > 0 {
 		addlBonus, err := strconv.Atoi(fields[0])
 		if err != nil {
@@ -433,11 +434,17 @@ func (sc *ShellController) challenge(cmd *shellcmd) (*Response, error) {
 		}
 		// Set it to single to have a base bonus of 0, and add passed-in bonus.
 		sc.game.SetChallengeRule(pb.ChallengeRule_SINGLE)
-		sc.game.ChallengeEvent(addlBonus, 0)
+		_, err = sc.game.ChallengeEvent(addlBonus, 0)
+		if err != nil {
+			return nil, err
+		}
 		sc.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
 	} else {
 		// Do double-challenge.
-		sc.game.ChallengeEvent(0, 0)
+		_, err := sc.game.ChallengeEvent(0, 0)
+		if err != nil {
+			return nil, err
+		}
 	}
 	sc.curTurnNum = sc.game.Turn()
 	return msg(sc.game.ToDisplayText()), nil
