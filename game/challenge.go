@@ -104,6 +104,7 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 		// Unplay the last move to restore everything as it was board-wise
 		// (and un-end the game if it had ended)
 		g.UnplayLastMove()
+		g.history.PlayState = g.playing
 
 		// We must also set the last known rack of the challengee back to
 		// their rack before they played the phony.
