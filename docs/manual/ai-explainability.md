@@ -38,17 +38,55 @@ macondo> load cgp COXA2B2ROPING/3T1DINGY5/3t2ZO1AINEE1/3A3V2FOWTH/3S3A2FOE1U/1LE
 
 ### Running AI Explainability
 
-To test it out, please create a Gemini API key here:
+To get started, you'll need an API key from either Gemini or OpenAI:
 
-[https://ai.google.dev/gemini-api/docs](https://ai.google.dev/gemini-api/docs)
+**For Gemini:** Create an API key at [https://ai.google.dev/gemini-api/docs](https://ai.google.dev/gemini-api/docs)
 
-You can click Get a Gemini API Key in that page, and place it in an environment variable `GEMINI_API_KEY`.
+**For OpenAI:** Get an API key from [https://platform.openai.com/api-keys](https://platform.openai.com/api-keys)
 
-Then, type the following command into Macondo, once you have a position loaded in:
+Configure Macondo with your preferred AI provider and API key:
 
 ```
-macondo> script scripts/lua/genai_explain.lua
+macondo> setconfig genai-provider gemini
+macondo> setconfig gemini-api-key your-api-key-here
 ```
+
+Or for OpenAI:
+
+```
+macondo> setconfig genai-provider openai
+macondo> setconfig openai-api-key your-api-key-here
+```
+
+You can also customize the AI model used:
+
+```
+macondo> setconfig gemini-model gemini-1.5-flash
+macondo> setconfig openai-model gpt-4o-mini
+```
+
+Once configured, load a position and run:
+
+```
+macondo> explain
+```
+
+#### Additional Options
+
+The explain command supports several options to customize the analysis:
+
+```
+macondo> explain -plies 3 -stop 95
+macondo> explain -opprack AEINRST
+macondo> explain -plies 4 -stop 95 -opprack TESTING
+```
+
+**Options:**
+- `-plies <n>`: Number of simulation plies (default: 5)
+- `-opprack <rack>`: Set opponent's rack for simulation
+- `-stop <n>`: Stop simulation at n% confidence level (default: 99)
+
+For more details, use `help explain` or `help setconfig` within Macondo.
 
 **Note that behind the scenes, Macondo is doing a full simulation and passes a lot of the raw data to an LLM to explain it in plain text.**
 
@@ -64,6 +102,9 @@ Model response: Okay, let's break down this position. The simulation identifies 
 *   **Winning Chances:** These factors combine to give `12K QU(ID)` the highest win percentage by a considerable margin (37.8% vs. 24-30% for the others). While you're currently 40 points behind, this play maximizes your chances to score well next turn and overtake your opponent, without drastically increasing your opponent's immediate scoring threats (their average score and bingo % are standard).
 
 ### Models
+
+**Updated Sep 24, 2025**
+It seems you can use gemini-2.5-pro for free again (or still?).
 
 **Updated Jul 2, 2025**:
 Gemini 2.5 Pro is no longer available for free, so we now default to Gemini 2.5 Flash, which is available for free and with a response quality that is almost as good.
@@ -82,9 +123,17 @@ Model response: In this position, `12K QU(ID)` performed best. This is why:
 
 *   There is a setup opportunity following `12K QU(ID)`. The play `15G PREAD(JUST)` has a 13.52% chance of being played next turn, given the right draw of R. This is a high-scoring play for 57 points, which could help close the 40-point gap.
 
-### Using other providers?
+### Using OpenAI
 
-You can also use OpenAI. Set the environment variable `GENAI_PROVIDER` to "openai" before opening Macondo. The default `gpt-4.1` model is uses a lot fewer output tokens than Gemini 2.5 Pro, since it doesn't "think", and actually gives great results as well. The rough cost of the gpt-4.1 model is just around $0.01 per explanation.
+You can easily switch to OpenAI by updating your configuration:
+
+```
+macondo> setconfig genai-provider openai
+macondo> setconfig openai-api-key your-openai-key-here
+macondo> setconfig openai-model gpt-4o-mini
+```
+
+The OpenAI models use fewer output tokens than Gemini models since they don't "think out loud", and provide excellent results. The cost is typically lower per explanation compared to Gemini.
 
 #### gpt-4.1 response
 
@@ -98,4 +147,11 @@ In short, QU(ID) at 12K wins because it keeps your comeback options open: it giv
 
 #### Other models
 
-As before, you can set the `OPENAI_MODEL` environment variable to other values to use other models.
+You can use different models by updating your configuration:
+
+```
+macondo> setconfig openai-model gpt-4-turbo
+macondo> setconfig gemini-model gemini-2.0-flash
+```
+
+Use `help setconfig` for more configuration options.

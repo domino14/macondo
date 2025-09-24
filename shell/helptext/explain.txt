@@ -1,0 +1,35 @@
+explain [options] - Generate AI explanation for the current position
+
+  Uses AI (Gemini or OpenAI) to provide detailed explanations of the best plays
+  in the current position. The AI analyzes simulation results and provides
+  insights about tile leaves, strategic considerations, and play selection.
+
+  Requirements:
+  - A game must be loaded or created
+  - At least 9 unseen tiles (not available in endgame positions)
+  - AI provider configured (see `help setconfig` for setup)
+
+  Options:
+    -plies <n>      Number of simulation plies (default: 5)
+    -opprack <rack> Set opponent's rack for simulation
+    -stop <n>       Stop simulation at n% confidence level (default: 99)
+
+  Examples
+      explain
+      explain -plies 3 -stop 95
+      explain -opprack AEINRST
+      explain -plies 4 -stop 95 -opprack TESTING
+
+  The command will:
+  1. Generate top moves if not already done
+  2. Run Monte Carlo simulation to evaluate positions (stops at 99% confidence)
+  3. Send results to AI for detailed analysis
+  4. Return comprehensive explanation with strategic insights
+
+  Configuration:
+  Use `setconfig` to configure AI settings:
+  - setconfig genai-provider gemini     (or openai)
+  - setconfig gemini-api-key <key>      (or openai-api-key)
+  - setconfig gemini-model <model>      (or openai-model)
+
+  See `help setconfig` for more configuration options.

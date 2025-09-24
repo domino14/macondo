@@ -22,9 +22,11 @@ import (
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/equity"
+	"github.com/domino14/macondo/explainer"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/preendgame"
@@ -92,6 +94,26 @@ func (sc *ShellController) set(cmd *shellcmd) (*Response, error) {
 		return nil, err
 	}
 	return msg("set " + opt + " to " + ret), nil
+}
+
+func (sc *ShellController) setConfig(cmd *shellcmd) (*Response, error) {
+	if cmd.args == nil || len(cmd.args) < 2 {
+		return nil, errors.New("usage: setconfig <key> <value>")
+	}
+
+	key := cmd.args[0]
+	value := cmd.args[1]
+
+	// Set the configuration value
+	sc.config.Set(key, value)
+
+	// Save the configuration to file
+	err := sc.config.Write()
+	if err != nil {
+		return nil, fmt.Errorf("failed to save config: %w", err)
+	}
+
+	return msg(fmt.Sprintf("set config %s to %s and saved to file", key, value)), nil
 }
 
 func (sc *ShellController) gid(cmd *shellcmd) (*Response, error) {
@@ -1035,4 +1057,203 @@ func (sc *ShellController) mleval(cmd *shellcmd) (*Response, error) {
 		return msg(fmt.Sprintf("MLEval for %s: %.3f",
 			m.ShortDescription(), eval.Value[0])), nil
 	}
+}
+
+func (sc *ShellController) explain(cmd *shellcmd) (*Response, error) {
+	// explain with genai
+	if sc.game == nil {
+		return nil, errors.New("please load or create a game first")
+	}
+
+	// Check if we're in endgame (too few tiles)
+	unseenTiles := sc.game.Bag().TilesRemaining() + int(sc.game.RackFor(sc.game.NextPlayer()).NumTiles())
+	if unseenTiles <= 8 {
+		return nil, errors.New("GenAI explainability is currently only available for 2 or more tiles in the bag")
+	}
+
+	// Initialize explainer if needed
+	if sc.aiexplainer == nil {
+		sc.aiexplainer = explainer.NewService(sc.config)
+	}
+	sc.aiexplainer.SetGame(sc.game)
+
+	// First generate moves if we haven't already
+	if len(sc.curPlayList) == 0 {
+		// Generate 40 moves like the Lua script does
+		_ = sc.genMovesAndDescription(40)
+	}
+
+	// Parse optional sim parameters
+
+	simOptions := cmd.options
+
+	// Set default simulation parameters matching the Lua script
+	if _, exists := simOptions["plies"]; !exists {
+		simOptions["plies"] = []string{"5"}
+	}
+	if _, exists := simOptions["stop"]; !exists {
+		simOptions["stop"] = []string{"99"}
+	}
+	simOptions["collect-heatmap"] = []string{"true"}
+
+	// Run the simulation
+	sc.showMessage("Running simulation for AI explanation... (sim options " + fmt.Sprint(simOptions) + ")")
+	err := sc.runSimulationForExplain(simOptions)
+	if err != nil {
+		return nil, fmt.Errorf("failed to run simulation: %w", err)
+	}
+
+	// Wait for simulation to complete
+	for sc.simmer.IsSimming() {
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// Collect the game state
+	gameStateResp, err := sc.gameState(&shellcmd{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get game state: %w", err)
+	}
+	gameStateStr := gameStateResp.message
+
+	// Get simulation results (top 5 plays)
+	simResults := sc.simmer.EquityStats()
+
+	// Get simulation details
+	simDetails := sc.simmer.ScoreDetails()
+
+	// Get the winning play
+	winningPlay := sc.simmer.WinningPlay()
+	if winningPlay == nil {
+		return nil, errors.New("no winning play found in simulation")
+	}
+	winningPlayStr := winningPlay.Move().ShortDescription()
+
+	// Get detailed stats for the winning play
+	winningPlayStats, err := sc.simStats.CalculatePlayStats(winningPlayStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get play stats: %w", err)
+	}
+
+	// Call the explainer service
+	ctx := context.Background()
+	result, err := sc.aiexplainer.Explain(
+		ctx,
+		gameStateStr,
+		simResults,
+		simDetails,
+		winningPlayStr,
+		winningPlayStats,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate explanation: %w", err)
+	}
+
+	// Show token usage if available
+	if result.InputTokens > 0 {
+		sc.showMessage(fmt.Sprintf("Input tokens: %d", result.InputTokens))
+		sc.showMessage(fmt.Sprintf("Output tokens: %d", result.OutputTokens))
+	}
+
+	return msg("\n**Explanation**:\n\n" + result.Explanation), nil
+}
+
+// runSimulationForExplain runs a simulation with the given options
+func (sc *ShellController) runSimulationForExplain(options CmdOptions) error {
+	if sc.simmer == nil {
+		return errors.New("simmer not initialized")
+	}
+	if sc.simmer.IsSimming() {
+		// Stop any existing simulation
+		sc.simCancel()
+		for sc.simmer.IsSimming() {
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
+	// Prepare simulation parameters
+	var plies, threads int
+	var err error
+
+	if plies, err = options.IntDefault("plies", 5); err != nil {
+		return err
+	}
+	if threads, err = options.IntDefault("threads", 0); err != nil {
+		return err
+	}
+
+	stoppingCondition := montecarlo.StopNone
+	if stopVal, err := options.IntDefault("stop", 99); err == nil {
+		switch stopVal {
+		case 90:
+			stoppingCondition = montecarlo.Stop90
+		case 95:
+			stoppingCondition = montecarlo.Stop95
+		case 98:
+			stoppingCondition = montecarlo.Stop98
+		case 99:
+			stoppingCondition = montecarlo.Stop99
+		case 999:
+			stoppingCondition = montecarlo.Stop999
+		}
+	}
+
+	// Handle known opponent rack if specified
+	var kr []tilemapping.MachineLetter
+	if knownOppRack := options.String("opprack"); knownOppRack != "" {
+		knownOppRack = strings.ToUpper(knownOppRack)
+		kr, err = tilemapping.ToMachineLetters(knownOppRack, sc.game.Alphabet())
+		if err != nil {
+			return err
+		}
+	}
+
+	// Set up simulation parameters
+	params := simParams{
+		threads:           threads,
+		plies:             plies,
+		stoppingCondition: stoppingCondition,
+		knownOppRack:      kr,
+	}
+
+	// Configure the simmer
+	err = sc.setSimmerParams(sc.simmer, params)
+	if err != nil {
+		return err
+	}
+
+	// Enable heatmap collection
+	sc.simmer.SetCollectHeatmap(true)
+
+	// Run simulation synchronously
+	ctx := context.Background()
+	err = sc.simmer.Simulate(ctx)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// parseSimOptions parses command-line style options into CmdOptions
+func parseSimOptions(fields []string) CmdOptions {
+	fmt.Println("PARSESIMOPTIONS", fields)
+	options := make(CmdOptions)
+	lastWasOption := false
+	lastOption := ""
+
+	for _, field := range fields {
+		// Only treat as option if it starts with '-' and is not a negative number and is not a single dash
+		if strings.HasPrefix(field, "-") && len(field) > 1 && (field[1] < '0' || field[1] > '9') {
+			// option
+			lastWasOption = true
+			lastOption = field[1:]
+			continue
+		}
+		if lastWasOption {
+			lastWasOption = false
+			options[lastOption] = append(options[lastOption], field)
+		}
+	}
+
+	return options
 }

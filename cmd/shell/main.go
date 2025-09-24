@@ -51,15 +51,27 @@ func main() {
 	log.Info().Msgf("Loaded config: %v", cfg.AllSettings())
 	cfg.AdjustRelativePaths(exPath)
 
+	output := zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}
+	output.FormatLevel = func(i interface{}) string {
+		return strings.ToUpper(fmt.Sprintf("| %-6s|", i))
+	}
+	output.FormatMessage = func(i interface{}) string {
+		return fmt.Sprintf("%s", i)
+	}
+	output.FormatFieldName = func(i interface{}) string {
+		return fmt.Sprintf("%s:", i)
+	}
+
 	var logger zerolog.Logger
 	if cfg.GetBool("debug") {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
-		logger = zerolog.New(os.Stderr).Level(zerolog.DebugLevel)
+		logger = zerolog.New(output).Level(zerolog.DebugLevel).With().Timestamp().Logger()
 	} else {
 		zerolog.SetGlobalLevel(zerolog.InfoLevel)
-		logger = zerolog.New(os.Stderr).Level(zerolog.InfoLevel)
+		logger = zerolog.New(output).Level(zerolog.InfoLevel).With().Timestamp().Logger()
 	}
 	zerolog.DefaultContextLogger = &logger
+	log.Logger = logger
 	logger.Debug().Msg("Debug logging is on")
 	if cfg.GetString("cpu-profile") != "" {
 		f, err := os.Create(cfg.GetString("cpu-profile"))

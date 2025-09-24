@@ -11,6 +11,7 @@ Settings
       Will apply the next time a game is started.
     set challenge <rule> - set the challenge rule
       Options: void, 5pt, 10pt, double, single
+    setconfig <key> <value> - set any configuration value and save to config file
 
 Game navigation:
     n - next play
@@ -30,6 +31,7 @@ Examining a game:
     sim [plies] [options] - start simulation, default to two-ply
     endgame [options] - run endgame, search to maxplies (4 is default)
     peg [options] - exhaustively solve 1-in-the-bag pre-endgame
+    explain [options] - generate AI explanation for current position
     challenge [n] - add a challenge bonus to the last play of n points, or challenge play off.
 Other:
     export <filepath> - export a game to .gcg
