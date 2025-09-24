@@ -32,6 +32,7 @@ import (
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/equity"
+	"github.com/domino14/macondo/explainer"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -154,6 +155,7 @@ type ShellController struct {
 	winpcts  [][]float32 // win percentages for each spread, indexed by int(equity.MaxRepresentedWinSpread - spread)
 
 	macondoVersion string
+	aiexplainer    *explainer.Service
 }
 
 type Mode int
@@ -948,6 +950,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.rack(cmd)
 	case "set":
 		return sc.set(cmd)
+	case "setconfig":
+		return sc.setConfig(cmd)
 	case "gen":
 		return sc.generate(cmd)
 	case "autoplay":
@@ -998,6 +1002,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.mleval(cmd)
 	case "winpct":
 		return sc.winpct(cmd)
+	case "explain":
+		return sc.explain(cmd)
 	default:
 		msg := fmt.Sprintf("command %v not found", strconv.Quote(cmd.cmd))
 		log.Info().Msg(msg)

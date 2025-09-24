@@ -1,0 +1,21 @@
+setconfig <key> <value> - Set a configuration value and save to config file
+
+  This command sets any configuration value and saves it to the macondo config file.
+  The config file is typically located at ~/.config/macondo/config.yaml
+
+  Examples
+      setconfig genai-provider gemini
+      setconfig gemini-api-key your-api-key-here
+      setconfig openai-model gpt-4o-mini
+      setconfig debug true
+      setconfig data-path ./my-data
+
+  Common config keys include:
+  - debug: Enable debug logging (true/false)
+  - data-path: Path to data directory
+  - default-lexicon: Default lexicon to use (e.g., NWL23, CSW19)
+  - genai-provider: AI provider for explainer (gemini/openai)
+  - gemini-api-key: API key for Gemini
+  - openai-api-key: API key for OpenAI
+  - gemini-model: Gemini model name
+  - openai-model: OpenAI model name

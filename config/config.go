@@ -32,6 +32,11 @@ const (
 	ConfigTritonModelName                  = "triton-model-name"
 	ConfigTritonModelVersion               = "triton-model-version"
 	ConfigMagpieDataPath                   = "magpie-data-path"
+	ConfigGenaiProvider                    = "genai-provider"
+	ConfigGeminiModel                      = "gemini-model"
+	ConfigOpenaiModel                      = "openai-model"
+	ConfigGeminiApiKey                     = "gemini-api-key"
+	ConfigOpenaiApiKey                     = "openai-api-key"
 )
 
 type Config struct {
@@ -96,6 +101,11 @@ func (c *Config) Load(args []string) error {
 	c.BindEnv(ConfigTritonModelName)
 	c.BindEnv(ConfigTritonModelVersion)
 	c.BindEnv(ConfigMagpieDataPath)
+	c.BindEnv(ConfigGenaiProvider)
+	c.BindEnv(ConfigGeminiModel)
+	c.BindEnv(ConfigOpenaiModel)
+	c.BindEnv(ConfigGeminiApiKey)
+	c.BindEnv(ConfigOpenaiApiKey)
 
 	cfgdir, err := os.UserConfigDir()
 	if err != nil {
@@ -141,6 +151,11 @@ func (c *Config) Load(args []string) error {
 	c.SetDefault(ConfigTritonModelName, "macondo-nn")
 	c.SetDefault(ConfigTritonModelVersion, "")
 	c.SetDefault(ConfigMagpieDataPath, "../magpie/data")
+	c.SetDefault(ConfigGenaiProvider, "gemini")
+	c.SetDefault(ConfigGeminiModel, "gemini-2.5-flash")
+	c.SetDefault(ConfigOpenaiModel, "gpt-4.1")
+	c.SetDefault(ConfigGeminiApiKey, "")
+	c.SetDefault(ConfigOpenaiApiKey, "")
 
 	return nil
 }
