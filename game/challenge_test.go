@@ -86,6 +86,7 @@ func TestChallengeDoubleIsIllegal(t *testing.T) {
 	is.True(!legal)
 	is.Equal(len(g.History().Events), 2)
 	is.Equal(g.History().Events[1].Type, pb.GameEvent_PHONY_TILES_RETURNED)
+
 }
 
 func TestChallengeEndOfGamePlusFive(t *testing.T) {
