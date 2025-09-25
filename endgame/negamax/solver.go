@@ -1001,6 +1001,7 @@ func (s *Solver) QuickAndDirtySolve(ctx context.Context, plies, thread int) (int
 	defer func() {
 		s.busy = false
 	}()
+	fmt.Println(s.game.ToDisplayText())
 	// Make sure the other player's rack isn't empty.
 	s.solvingPlayer = s.game.PlayerOnTurn()
 	if s.game.RackFor(1-s.solvingPlayer).NumTiles() == 0 {
