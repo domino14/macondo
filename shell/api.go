@@ -1115,6 +1115,7 @@ func (sc *ShellController) explain(cmd *shellcmd) (*Response, error) {
 	}
 	gameStateStr := gameStateResp.message
 
+	sc.simmer.TrimBottom(35)
 	// Get simulation results (top 5 plays)
 	simResults := sc.simmer.EquityStats()
 

@@ -658,7 +658,8 @@ func (s *Simmer) TrimBottom(totrim int) error {
 		return errors.New("please stop sim before trimming plays")
 	}
 	if totrim > len(s.simmedPlays.plays)-1 {
-		return errors.New("there are not that many plays to trim away")
+		totrim = len(s.simmedPlays.plays) - 1
+		log.Warn().Msg("there are not that many plays to trim away, trimming all but one")
 	}
 	s.simmedPlays.trimBottom(totrim)
 	return nil
