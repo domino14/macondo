@@ -2,7 +2,6 @@ package game
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"testing"
@@ -55,7 +54,6 @@ func TestBackup(t *testing.T) {
 	// Overwrite the player on turn to be JD:
 	game.SetPlayerOnTurn(0)
 	alph := game.Alphabet()
-	fmt.Println("Here")
 	game.SetRackFor(0, tilemapping.RackFromString("ACEOTV?", alph))
 
 	m := move.NewScoringMoveSimple(20, "H7", "AVOCET", "?", alph)

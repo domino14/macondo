@@ -1062,6 +1062,10 @@ func (g *Game) SetRackFor(playerIdx int, rack *tilemapping.Rack) error {
 	g.players[playerIdx].rack = rack
 	// And redraw a random rack for opponent.
 	g.SetRandomRack(otherPlayer(playerIdx), nil)
+	if g.history != nil && g.history.LastKnownRacks != nil {
+		g.history.LastKnownRacks[0] = g.RackLettersFor(0)
+		g.history.LastKnownRacks[1] = g.RackLettersFor(1)
+	}
 
 	return nil
 }
@@ -1077,6 +1081,9 @@ func (g *Game) SetRackForOnly(playerIdx int, rack *tilemapping.Rack) error {
 	}
 	// success; set our rack
 	g.players[playerIdx].rack = rack
+	if g.history != nil && g.history.LastKnownRacks != nil {
+		g.history.LastKnownRacks[playerIdx] = g.RackLettersFor(playerIdx)
+	}
 	return nil
 }
 
@@ -1093,7 +1100,7 @@ func (g *Game) SetRacksForBoth(racks []*tilemapping.Rack) error {
 	for idx, player := range g.players {
 		player.rack = racks[idx]
 	}
-	if g.history != nil {
+	if g.history != nil && g.history.LastKnownRacks != nil {
 		g.history.LastKnownRacks[0] = g.RackLettersFor(0)
 		g.history.LastKnownRacks[1] = g.RackLettersFor(1)
 	}
