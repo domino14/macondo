@@ -2,7 +2,6 @@ package game
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"testing"
@@ -55,7 +54,6 @@ func TestBackup(t *testing.T) {
 	// Overwrite the player on turn to be JD:
 	game.SetPlayerOnTurn(0)
 	alph := game.Alphabet()
-	fmt.Println("Here")
 	game.SetRackFor(0, tilemapping.RackFromString("ACEOTV?", alph))
 
 	m := move.NewScoringMoveSimple(20, "H7", "AVOCET", "?", alph)
@@ -90,7 +88,9 @@ func TestValidate(t *testing.T) {
 	alph := g.Alphabet()
 	g.StartGame()
 	g.SetPlayerOnTurn(0)
-	g.SetRackFor(0, tilemapping.RackFromString("HIS", alph))
+	err = g.SetRackFor(0, tilemapping.RackFromString("HIS", alph))
+	is.NoErr(err)
+	g.SyncRacksToHistory()
 	g.SetChallengeRule(pb.ChallengeRule_DOUBLE)
 	m := move.NewScoringMoveSimple(12, "H7", "HIS", "", alph)
 	words, err := g.ValidateMove(m)
@@ -99,7 +99,9 @@ func TestValidate(t *testing.T) {
 	g.PlayMove(m, true, 0)
 	is.Equal(g.history.Events[len(g.history.Events)-1].WordsFormed,
 		[]string{"HIS"})
-	g.SetRackFor(1, tilemapping.RackFromString("OIK", alph))
+	err = g.SetRackFor(1, tilemapping.RackFromString("OIK", alph))
+	is.NoErr(err)
+	g.SyncRacksToHistory()
 	m = move.NewScoringMoveSimple(13, "G8", "OIK", "", alph)
 	words, err = g.ValidateMove(m)
 	is.NoErr(err)
@@ -108,7 +110,9 @@ func TestValidate(t *testing.T) {
 	is.Equal(g.history.Events[len(g.history.Events)-1].WordsFormed,
 		[]string{"OIK", "OI", "IS"})
 
-	g.SetRackFor(0, tilemapping.RackFromString("ADITT", alph))
+	err = g.SetRackFor(0, tilemapping.RackFromString("ADITT", alph))
+	is.NoErr(err)
+	g.SyncRacksToHistory()
 	m = move.NewScoringMoveSimple(22, "10E", "DI.TAT", "", alph)
 	words, err = g.ValidateMove(m)
 	is.NoErr(err)

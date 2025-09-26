@@ -69,10 +69,13 @@ func setUpSolver(lex, distName string, bvs board.VsWho, plies int, rack1, rack2 
 	}
 	cross_set.GenAllCrossSets(g.Board(), gd, dist)
 
-	g.SetRacksForBoth([]*tilemapping.Rack{
+	err = g.SetRacksForBoth([]*tilemapping.Rack{
 		tilemapping.RackFromString(rack1, alph),
 		tilemapping.RackFromString(rack2, alph),
 	})
+	if err != nil {
+		panic(err)
+	}
 	g.SetPointsFor(0, p1pts)
 	g.SetPointsFor(1, p2pts)
 	g.SetPlayerOnTurn(onTurn)
