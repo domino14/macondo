@@ -1043,30 +1043,102 @@ func (g *Game) PlayTurn(t int) error {
 }
 
 // SetRackFor sets the player's current rack. It throws an error if
-// the rack is impossible to set from the current unseen tiles. It
-// puts tiles back from opponent racks and our own racks, then sets the rack,
-// and finally redraws for opponent.
+// the rack is impossible to set from the current unseen tiles.
+// This method uses minimal tile reconciliation to avoid disrupting the
+// opponent's rack unless necessary. If opponent has tiles that are needed
+// for the target rack, only those specific tiles are replaced.
+// This is primarily used in analysis mode (endgame solving, game annotation).
 func (g *Game) SetRackFor(playerIdx int, rack *tilemapping.Rack) error {
-	// Put our tiles back in the bag, as well as our opponent's tiles.
-	g.ThrowRacksIn()
-	// Check if we can actually set our rack now that these tiles are in the
-	// bag.
-	log.Trace().Str("rack", rack.TilesOn().UserVisible(g.alph)).Msg("removing from bag")
-	err := g.bag.RemoveTiles(rack.TilesOn())
+	oppIdx := otherPlayer(playerIdx)
+	targetRack := rack.TilesOn()
+	oppRack := g.players[oppIdx].rack.TilesOn()
+
+	// Step 1: Return current player's tiles to bag
+	g.players[playerIdx].throwRackIn(g.bag)
+
+	// Step 2: Try to draw the target rack
+	err := g.bag.RemoveTiles(targetRack)
+	if err == nil {
+		// Easy case - we got everything we needed without touching opponent
+		g.players[playerIdx].rack = rack
+		log.Trace().Str("rack", rack.String()).Int("player", playerIdx).Msg("rack set without touching opponent")
+		return nil
+	}
+
+	// Step 3: We need some tiles potentially from opponent's rack
+	// Figure out what tiles we couldn't get from bag
+	log.Trace().Str("target", targetRack.UserVisible(g.alph)).Str("error", err.Error()).Msg("need tiles from opponent")
+
+	// Make a copy of opponent's rack to track what we're taking
+	oppRackCopy := make([]tilemapping.MachineLetter, len(oppRack))
+	copy(oppRackCopy, oppRack)
+
+	// Try to identify which tiles from target are missing from bag
+	// and remove them from opponent's rack copy
+	removedFromBag := []tilemapping.MachineLetter{}
+	for _, needed := range targetRack {
+		err = g.bag.RemoveTiles(tilemapping.MachineWord{needed})
+		if err != nil {
+			// Tile not in bag, try to take from opponent
+			found := false
+			for i, oppTile := range oppRackCopy {
+				if oppTile == needed {
+					// Remove this tile from opponent's rack copy (we're taking it)
+					oppRackCopy = append(oppRackCopy[:i], oppRackCopy[i+1:]...)
+					found = true
+					break
+				}
+			}
+			if !found {
+				// Can't form the requested rack even with all available tiles
+				// First, put back what we removed from bag
+				if len(removedFromBag) > 0 {
+					g.bag.PutBack(tilemapping.MachineWord(removedFromBag))
+				}
+				return fmt.Errorf("cannot set rack: need %v but it's not available (already checked bag and opponent)",
+					needed.UserVisible(g.alph, false))
+			}
+		} else {
+			// Temporarily store removed tiles to put back later
+			removedFromBag = append(removedFromBag, needed)
+		}
+	}
+	log.Debug().
+		Str("targetRack", targetRack.UserVisible(g.alph)).
+		Str("oppRack", tilemapping.MachineWord(oppRack).UserVisible(g.alph)).
+		Str("opprackCopy (keeping)", tilemapping.MachineWord(oppRackCopy).UserVisible(g.alph)).
+		Msg("getting-from-opp")
+	// Put back any tiles we removed from bag, now we're going to do it for real.
+	if len(removedFromBag) > 0 {
+		g.bag.PutBack(tilemapping.MachineWord(removedFromBag))
+	}
+	// oppRackCopy now contains what opponent keeps
+	oppKeeps := tilemapping.MachineWord(oppRackCopy)
+
+	// Step 4: Put opponent's entire rack in bag, take what we need
+	g.players[oppIdx].throwRackIn(g.bag)
+
+	err = g.bag.RemoveTiles(targetRack)
 	if err != nil {
-		log.Error().Msgf("Unable to set rack for: %v", err)
-		return err
+		// This shouldn't happen given our checking above
+		return fmt.Errorf("unexpected error setting rack: %v", err)
 	}
 
-	// success; set our rack
+	// Step 5: Set target player's rack
 	g.players[playerIdx].rack = rack
-	// And redraw a random rack for opponent.
-	g.SetRandomRack(otherPlayer(playerIdx), nil)
-	if g.history != nil && g.history.LastKnownRacks != nil {
-		g.history.LastKnownRacks[0] = g.RackLettersFor(0)
-		g.history.LastKnownRacks[1] = g.RackLettersFor(1)
+
+	// Step 6: Give opponent their kept tiles + random fills for what we took
+	_, err = g.SetRandomRack(oppIdx, oppKeeps)
+	if err != nil {
+		return fmt.Errorf("error restoring opponent rack: %v", err)
 	}
 
+	log.Trace().Str("player_rack", rack.String()).Str("opp_keeps", oppKeeps.UserVisible(g.alph)).
+		Str("opp_new", g.players[oppIdx].rackLetters()).Msg("rack set with minimal disruption")
+
+	// Note: We removed the automatic history sync here.
+	// Caller should explicitly call SyncRacksToHistory() if needed.
+	// g.SyncRacksToHistory()
 	return nil
 }
 
@@ -1081,9 +1153,9 @@ func (g *Game) SetRackForOnly(playerIdx int, rack *tilemapping.Rack) error {
 	}
 	// success; set our rack
 	g.players[playerIdx].rack = rack
-	if g.history != nil && g.history.LastKnownRacks != nil {
-		g.history.LastKnownRacks[playerIdx] = g.RackLettersFor(playerIdx)
-	}
+	// Note: History sync removed. Caller should use SyncRacksToHistory() if needed.
+	// g.SyncRacksToHistory()
+
 	return nil
 }
 
@@ -1100,10 +1172,8 @@ func (g *Game) SetRacksForBoth(racks []*tilemapping.Rack) error {
 	for idx, player := range g.players {
 		player.rack = racks[idx]
 	}
-	if g.history != nil && g.history.LastKnownRacks != nil {
-		g.history.LastKnownRacks[0] = g.RackLettersFor(0)
-		g.history.LastKnownRacks[1] = g.RackLettersFor(1)
-	}
+	// Note: History sync removed. Caller should use SyncRacksToHistory() if needed.
+	// g.SyncRacksToHistory()
 	return nil
 }
 
@@ -1154,6 +1224,16 @@ func (g *Game) SetRandomRack(playerIdx int, knownRack []tilemapping.MachineLette
 	// log.Debug().Int("player", playerIdx).Str("newrack", g.players[playerIdx].rackLetters).
 	// 	Msg("set random rack")
 	return extraDrawn, nil
+}
+
+// SyncRacksToHistory updates the history with current rack state.
+// Call this only when you need to persist state for external consumption
+// (e.g., before GCG export, after completing moves, etc.).
+func (g *Game) SyncRacksToHistory() {
+	if g.history != nil && g.history.LastKnownRacks != nil {
+		g.history.LastKnownRacks[0] = g.RackLettersFor(0)
+		g.history.LastKnownRacks[1] = g.RackLettersFor(1)
+	}
 }
 
 // RackFor returns the rack for the player with the passed-in index
