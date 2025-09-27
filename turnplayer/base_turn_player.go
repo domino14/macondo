@@ -37,11 +37,6 @@ func (p *BaseTurnPlayer) SetPlayerRack(playerid int, letters string) error {
 	if err != nil {
 		return err
 	}
-	// Edit history for both players if it exists!
-	if p.History() != nil && len(p.History().LastKnownRacks) == 2 {
-		p.History().LastKnownRacks[0] = p.RackLettersFor(0)
-		p.History().LastKnownRacks[1] = p.RackLettersFor(1)
-	}
 	return nil
 }
 

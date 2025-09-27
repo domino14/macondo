@@ -633,7 +633,12 @@ func (sc *ShellController) addRack(rack string) error {
 	if sc.game == nil {
 		return errors.New("please start a game first")
 	}
-	return sc.game.SetCurrentRack(rack)
+	err := sc.game.SetCurrentRack(rack)
+	if err != nil {
+		return err
+	}
+	sc.game.SyncRacksToHistory()
+	return nil
 }
 
 func (sc *ShellController) addMoveToList(playerid int, m *move.Move) error {

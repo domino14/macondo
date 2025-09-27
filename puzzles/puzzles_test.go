@@ -371,7 +371,7 @@ func TestIsPuzzleStillValid(t *testing.T) {
 	is.NoErr(err)
 	is.True(len(pzls) > 0)
 	for i := range pzls {
-		fmt.Println(pzls[i])
+		log.Info().Interface("pzl", pzls[i]).Msg("puzzle")
 	}
 
 	is.Equal(pzls[2].TurnNumber, int32(2))
