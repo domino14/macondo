@@ -231,7 +231,8 @@ func ExportGCG(cfg *config.Config, filename, letterdist, lexicon, boardlayout, g
 
 	for _, row := range gameLines {
 		pidx := 0
-		if g.History().Players[1].Nickname == row[0] {
+		history := g.GenerateSerializableHistory()
+		if history.Players[1].Nickname == row[0] {
 			pidx = 1
 		}
 		err = g.SetRackFor(pidx, tilemapping.RackFromString(row[3], g.Alphabet()))
@@ -270,7 +271,7 @@ func ExportGCG(cfg *config.Config, filename, letterdist, lexicon, boardlayout, g
 			}
 		}
 	}
-	contents, err := gcgio.GameHistoryToGCG(g.History(), true)
+	contents, err := gcgio.GameToGCG(g.Game, true)
 	if err != nil {
 		return err
 	}

@@ -109,7 +109,8 @@ func (r *RangeFinder) SetLogStream(l io.Writer) {
 
 func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 	r.inference = NewInference()
-	evts := r.origGame.History().Events[:r.origGame.Turn()]
+	history := r.origGame.GenerateSerializableHistory()
+	evts := history.Events[:r.origGame.Turn()]
 	if len(evts) == 0 {
 		return ErrNoEvents
 	}
@@ -144,19 +145,20 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 	var gameCopy *game.Game
 	var err error
 
-	history := proto.Clone(r.origGame.History()).(*macondo.GameHistory)
-	history.Events = history.Events[:oppEvtIdx]
+	origHistory := r.origGame.GenerateSerializableHistory()
+	clonedHistory := proto.Clone(origHistory).(*macondo.GameHistory)
+	clonedHistory.Events = clonedHistory.Events[:oppEvtIdx]
 
-	if r.origGame.History().StartingCgp != "" {
+	if origHistory.StartingCgp != "" {
 
-		parsedCGP, err := cgp.ParseCGP(r.cfg, r.origGame.History().StartingCgp)
+		parsedCGP, err := cgp.ParseCGP(r.cfg, origHistory.StartingCgp)
 		if err != nil {
 			return err
 		}
 		gameCopy = parsedCGP.Game
-		gameCopy.History().Events = history.Events
+		gameCopy.SetEventsFromHistory(clonedHistory)
 
-		for t := 0; t < len(history.Events); t++ {
+		for t := 0; t < len(clonedHistory.Events); t++ {
 			err = gameCopy.PlayTurn(t)
 			if err != nil {
 				return err
@@ -165,7 +167,7 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 		gameCopy.SetPlayerOnTurn(int(oppIdx))
 		gameCopy.RecalculateBoard()
 	} else {
-		gameCopy, err = game.NewFromHistory(history, r.origGame.Rules(), len(history.Events))
+		gameCopy, err = game.NewFromHistory(clonedHistory, r.origGame.Rules(), len(clonedHistory.Events))
 		if err != nil {
 			return err
 		}

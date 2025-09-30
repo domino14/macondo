@@ -19,7 +19,7 @@ var (
 // must already be started with StartGame above (call immediately afterwards).
 // It would default to the 0 state (VOID) otherwise.
 func (g *Game) SetChallengeRule(rule pb.ChallengeRule) {
-	g.history.ChallengeRule = rule
+	g.challengeRule = rule
 }
 
 // ChallengeEvent should only be called if there is a history of events.
@@ -30,10 +30,10 @@ func (g *Game) SetChallengeRule(rule pb.ChallengeRule) {
 // out with a phony).
 // Return playLegal, error
 func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
-	if len(g.history.Events) == 0 {
+	if len(g.events) == 0 {
 		return false, errors.New("this game has no history")
 	}
-	if g.history.ChallengeRule == pb.ChallengeRule_VOID {
+	if g.challengeRule == pb.ChallengeRule_VOID {
 		return false, errors.New("challenges are not valid in void")
 	}
 	if len(g.lastWordsFormed) == 0 {
@@ -44,7 +44,7 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 	illegalWords := validateWords(g.lexicon, g.lastWordsFormed, g.rules.Variant())
 	playLegal := len(illegalWords) == 0
 
-	lastEvent := g.history.Events[g.turnnum-1]
+	lastEvent := g.events[g.turnnum-1]
 	log.Info().Interface("lastEvent", lastEvent).Msg("in challenge event")
 	cumeScoreBeforeChallenge := lastEvent.Cumulative
 
@@ -65,7 +65,7 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 	var err error
 	// This ideal system makes it so someone always loses
 	// the game.
-	if g.history.ChallengeRule == pb.ChallengeRule_TRIPLE {
+	if g.challengeRule == pb.ChallengeRule_TRIPLE {
 		// Set the winner and loser before calling PlayMove, as
 		// that changes who is on turn
 		var winner int32
@@ -78,21 +78,20 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 			// Take the play off the board.
 			g.addEventToHistory(offBoardEvent)
 			g.UnplayLastMove()
-			g.history.LastKnownRacks[challengee] = lastEvent.Rack
+			// Note: rack will be restored from lastEvent.Rack later
 		}
-		g.history.Winner = winner
+		g.winner = winner
 
 		// Don't call AddFinalScoresToHistory, this will
 		// overwrite the correct winner
 		g.playing = pb.PlayState_GAME_OVER
-		g.history.PlayState = g.playing
 
 		// This is the only case where the winner needs to be determined
 		// independently from the score, so we copy just these lines from
 		// AddFinalScoresToHistory.
-		g.history.FinalScores = make([]int32, len(g.players))
+		g.finalScores = make([]int32, len(g.players))
 		for pidx, p := range g.players {
-			g.history.FinalScores[pidx] = int32(p.points)
+			g.finalScores[pidx] = int32(p.points)
 		}
 
 	} else if !playLegal {
@@ -104,18 +103,25 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 		// Unplay the last move to restore everything as it was board-wise
 		// (and un-end the game if it had ended)
 		g.UnplayLastMove()
-		g.history.PlayState = g.playing
 
-		// We must also set the last known rack of the challengee back to
-		// their rack before they played the phony.
-		g.history.LastKnownRacks[challengee] = lastEvent.Rack
-		// Explicitly set racks for both players. This prevents a bug where
-		// part of the game may have been loaded from a GameHistory (through the
-		// PlayGameToTurn flow) and the racks continually get reset.
-		err = g.SetRacksForBoth([]*tilemapping.Rack{
-			tilemapping.RackFromString(g.history.LastKnownRacks[0], g.alph),
-			tilemapping.RackFromString(g.history.LastKnownRacks[1], g.alph),
-		})
+		// We must restore the challengee's rack to what it was before the phony.
+		// First get the current rack for the player who didn't play the phony
+		challengerRack := g.RackLettersFor(g.onturn)
+
+		// Build the racks array with the challengee's rack from before the phony
+		var racksToSet []*tilemapping.Rack
+		if challengee == 0 {
+			racksToSet = []*tilemapping.Rack{
+				tilemapping.RackFromString(lastEvent.Rack, g.alph),
+				tilemapping.RackFromString(challengerRack, g.alph),
+			}
+		} else {
+			racksToSet = []*tilemapping.Rack{
+				tilemapping.RackFromString(challengerRack, g.alph),
+				tilemapping.RackFromString(lastEvent.Rack, g.alph),
+			}
+		}
+		err = g.SetRacksForBoth(racksToSet)
 		if err != nil {
 			return playLegal, err
 		}
@@ -152,7 +158,7 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 			}
 		}
 
-		switch g.history.ChallengeRule {
+		switch g.challengeRule {
 		case pb.ChallengeRule_DOUBLE:
 			// This "draconian" American system makes it so someone always loses
 			// their turn.
@@ -186,7 +192,6 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 
 		if g.playing == pb.PlayState_WAITING_FOR_FINAL_PASS {
 			g.playing = pb.PlayState_GAME_OVER
-			g.history.PlayState = g.playing
 			// Game is actually over now, after the failed challenge.
 			// do calculations with the player on turn being the player who
 			// didn't challenge, as this is a special event where the turn
@@ -199,7 +204,7 @@ func (g *Game) ChallengeEvent(addlBonus int, millis int) (bool, error) {
 
 	// Finally set the last words formed to nil.
 	g.lastWordsFormed = nil
-	g.turnnum = len(g.history.Events)
+	g.turnnum = len(g.events)
 	return playLegal, err
 }
 

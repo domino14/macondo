@@ -378,11 +378,18 @@
     }
   ],
   "version": 2,
-  "original_gcg": "#player1 andy andy\n#player2 cesar cesar\n\u003eandy: GPY 8G GYP +18 18\n\u003ecesar: AAIRTUZ 7F ZA +16 16\n#note -3.5 seems like 7H AURA or 7I UTA are good. i did consider keeping the Z, but i couldn't think of a good play. but AIRTU kind of sucks, too.\n\u003eandy: EHTW 6G THEW +22 40\n\u003ecesar: AIMRTTU 5I MAUT +21 37\n\u003eandy: JLO L2 JOL. +22 62\n\u003ecesar: FIIORTT M1 TORI +23 60\n\u003eandy: BDE N2 BED +43 105\n\u003ecesar: FIILRST 7J LIFT +14 74\n\u003eandy: ABEIIRX -IIAB +0 105\n\u003ecesar: ?IINORS O4 ORIgINS +77 151\n#note i missed SORdINI. SIgNIOR is better defensively too, i wasn't 100% on it. -4.5\n\u003eandy: ?DEHRRU 10H DRUtHER. +65 170\n\u003ecesar: ABELMOO 11J MOOL +25 176\n#note i should not try to play defense when i'm down. how many times do i have to tell myself that? ABEL is better than ABE too. MOO is definitely better than my move. DOABLE is best which i just missed. (-6.5)\n\u003eandy: ACEIT H10 .ACITE +36 206\n\u003ecesar: ABEFGIN 12L EF +28 204\n\u003eandy: AEEGISS 5A AEGISES +71 277\n\u003ecesar: AABGINO A4 B.GNIO +36 240\n#note quackle thinks i should go for the leave by playing 4A BOA. it is probably right. (-2)\n\u003eandy: UV C3 VU. +14 291\n\u003ecesar: AAACESW 1M .AW +25 265\n\u003eandy: AUV 14F VA.U +15 306\n\u003ecesar: AACDEES 9M DA. +18 283\n#note damn vatu. DAMN IT. stupid game. i missed MOOLA, N9 ERA seems to be good there because it also sets up DELFS or something like that that i may need. DAN's leave isn't strong enough. -7\n\u003eandy: EENRTX B9 EXTERN +60 366\n\u003ecesar: ACEELPS 15A CEP +35 318\n\u003eandy: KNO 12A K.NO +26 392\n\u003ecesar: AAELNSY 13B .AY +21 339\n#note no chance he's gonna leave it open. raya. -7\n\u003eandy: DEIINQR 6N Q. +31 423\n#note 15G D(E)NIER to block my out.\n\u003ecesar: AELNOS 15H .NOLASE +10 349\n#note SOL is better than going out. -4\n\u003ecesar:  (DEINIR) +14 363",
+  "original_gcg": "#player1 andy andy\n#player2 cesar cesar\n\u003eandy: GPY 8G GYP +18 18\n\u003ecesar: AAIRTUZ 7F ZA +16 16\n#note -3.5 seems like 7H AURA or 7I UTA are good. i did consider keeping the Z, but i couldn't think of a good play. but AIRTU kind of sucks, too.\n\u003eandy: EHTW 6G THEW +22 40\n\u003ecesar: AIMRTTU 5I MAUT +21 37\n\u003eandy: JLO L2 JOL. +22 62\n\u003ecesar: FIIORTT M1 TORI +23 60\n\u003eandy: BDE N2 BED +43 105\n\u003ecesar: FIILRST 7J LIFT +14 74\n\u003eandy: ABEIIRX -IIAB +0 105\n\u003ecesar: ?IINORS O4 ORIgINS +77 151\n#note i missed SORdINI. SIgNIOR is better defensively too, i wasn't 100% on it. -4.5\n\u003eandy: ?DEHRRU 10H DRUtHER. +65 170\n\u003ecesar: ABELMOO 11J MOOL +25 176\n#note i should not try to play defense when i'm down. how many times do i have to tell myself that? ABEL is better than ABE too. MOO is definitely better than my move. DOABLE is best which i just missed. (-6.5)\n\u003eandy: ACEIT H10 .ACITE +36 206\n\u003ecesar: ABEFGIN 12L EF +28 204\n\u003eandy: AEEGISS 5A AEGISES +71 277\n\u003ecesar: AABGINO A4 B.GNIO +36 240\n#note quackle thinks i should go for the leave by playing 4A BOA. it is probably right. (-2)\n\u003eandy: UV C3 VU. +14 291\n\u003ecesar: AAACESW 1M .AW +25 265\n\u003eandy: AUV 14F VA.U +15 306\n\u003ecesar: AACDEES 9M DA. +18 283\n#note damn vatu. DAMN IT. stupid game. i missed MOOLA, N9 ERA seems to be good there because it also sets up DELFS or something like that that i may need. DAN's leave isn't strong enough. -7\n\u003eandy: EENRTX B9 EXTERN +60 366\n\u003ecesar: ACEELPS 15A CEP +35 318\n\u003eandy: KNO 12A K.NO +26 392\n\u003ecesar: AAELNSY 13B .AY +21 339\n#note no chance he's gonna leave it open. raya. -7\n\u003eandy: DEIINQR 6N Q. +31 423\n#note 15G D(E)NIER to block my out.\n\u003ecesar: AELNOS 15H .NOLASE +10 349\n#note SOL is better than going out. -4\n\u003ecesar:  (DEINIR) +14 363\n",
   "lexicon": "TWL06",
+  "last_known_racks": [
+    "DEIINR",
+    ""
+  ],
   "play_state": 2,
   "final_scores": [
     423,
     363
-  ]
+  ],
+  "variant": "classic",
+  "board_layout": "CrosswordGame",
+  "letter_distribution": "english"
 }

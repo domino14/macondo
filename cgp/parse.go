@@ -156,9 +156,9 @@ func ParseCGP(cfg *config.Config, cgpstr string) (*ParsedCGP, error) {
 	}
 	g.SetMaxScorelessTurns(maxScorelessTurns)
 	g.SetScorelessTurns(nzero)
-	g.History().StartingCgp = cgpstr
-	g.History().Uid = gid
-	g.History().IdAuth = "" //  maybe provide this later, id
+	g.SetStartingCGP(cgpstr)
+	g.SetUid(gid)
+	g.SetIdAuth("") //  maybe provide this later, id
 
 	log.Debug().Msgf("got gid %v", gid)
 	return &ParsedCGP{Game: g, Opcodes: opcodes}, nil

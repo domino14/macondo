@@ -381,7 +381,7 @@ func (sc *ShellController) IsPlaying() bool {
 
 func (sc *ShellController) loadGCG(args []string) error {
 	var err error
-	var history *pb.GameHistory
+	var g *game.Game
 	// Try to parse filepath as a network path.
 	if args[0] == "xt" {
 		if len(args) < 2 {
@@ -413,7 +413,7 @@ func (sc *ShellController) loadGCG(args []string) error {
 		}
 		defer resp.Body.Close()
 
-		history, err = gcgio.ParseGCGFromReader(sc.config, resp.Body)
+		g, err = gcgio.ParseGCGFromReader(sc.config, resp.Body)
 		if err != nil {
 			return err
 		}
@@ -448,7 +448,7 @@ func (sc *ShellController) loadGCG(args []string) error {
 			return err
 		}
 
-		history, err = gcgio.ParseGCGFromReader(sc.config, strings.NewReader(gcgObj.Gcg))
+		g, err = gcgio.ParseGCGFromReader(sc.config, strings.NewReader(gcgObj.Gcg))
 		if err != nil {
 			return err
 		}
@@ -464,7 +464,7 @@ func (sc *ShellController) loadGCG(args []string) error {
 		}
 		defer resp.Body.Close()
 
-		history, err = gcgio.ParseGCGFromReader(sc.config, resp.Body)
+		g, err = gcgio.ParseGCGFromReader(sc.config, resp.Body)
 		if err != nil {
 			return err
 		}
@@ -478,27 +478,16 @@ func (sc *ShellController) loadGCG(args []string) error {
 			dir := usr.HomeDir
 			path = filepath.Join(dir, path[2:])
 		}
-		history, err = gcgio.ParseGCG(sc.config, path)
+		g, err = gcgio.ParseGCG(sc.config, path)
 		if err != nil {
 			return err
 		}
 	}
+	history := g.GenerateSerializableHistory()
 	log.Debug().Msgf("Loaded game repr; players: %v", history.Players)
-	lexicon := history.Lexicon
-	if lexicon == "" {
-		lexicon = sc.config.GetString(config.ConfigDefaultLexicon)
-		log.Info().Msgf("gcg file had no lexicon, so using default lexicon %v",
-			lexicon)
-	}
-	boardLayout, ldName, variant := game.HistoryToVariant(history)
-	rules, err := game.NewBasicGameRules(sc.config, lexicon, boardLayout, ldName, game.CrossScoreAndSet, variant)
-	if err != nil {
-		return err
-	}
-	g, err := game.NewFromHistory(history, rules, 0)
-	if err != nil {
-		return err
-	}
+
+	// Extract board layout info for leaves file detection
+	_, ldName, _ := game.HistoryToVariant(history)
 	leavesFile := ""
 	if strings.HasSuffix(ldName, "_super") {
 		leavesFile = "super-leaves.klv2"
@@ -523,7 +512,8 @@ func (sc *ShellController) loadCGP(cgpstr string) error {
 	if err != nil {
 		return err
 	}
-	lexicon := g.History().Lexicon
+	history := g.GenerateSerializableHistory()
+	lexicon := history.Lexicon
 	if lexicon == "" {
 		lexicon = sc.config.GetString(config.ConfigDefaultLexicon)
 		log.Info().Msgf("cgp file had no lexicon, so using default lexicon %v",
@@ -531,7 +521,8 @@ func (sc *ShellController) loadCGP(cgpstr string) error {
 	}
 
 	leavesFile := ""
-	if g.History().BoardLayout == board.SuperCrosswordGameLayout {
+	history2 := g.GenerateSerializableHistory()
+	if history2.BoardLayout == board.SuperCrosswordGameLayout {
 		leavesFile = "super-leaves.klv2"
 	}
 
@@ -556,7 +547,8 @@ func (sc *ShellController) setToTurn(turnnum int) error {
 	if sc.game == nil {
 		return errors.New("please load a game first with the `load` command")
 	}
-	err := sc.game.PlayToTurn(turnnum)
+	history := sc.game.GenerateSerializableHistory()
+	err := sc.game.PlayToTurn(turnnum, history.LastKnownRacks)
 	if err != nil {
 		return err
 	}
@@ -633,12 +625,7 @@ func (sc *ShellController) addRack(rack string) error {
 	if sc.game == nil {
 		return errors.New("please start a game first")
 	}
-	err := sc.game.SetCurrentRack(rack)
-	if err != nil {
-		return err
-	}
-	sc.game.SyncRacksToHistory()
-	return nil
+	return sc.game.SetCurrentRack(rack)
 }
 
 func (sc *ShellController) addMoveToList(playerid int, m *move.Move) error {
@@ -1021,8 +1008,9 @@ func (sc *ShellController) Loop(sig chan os.Signal) {
 	defer sc.l.Close()
 
 	for {
-		if sc.game != nil && sc.game.History() != nil {
-			log.Debug().Msgf("loop-lastknownracks %v", sc.game.History().LastKnownRacks)
+		if sc.game != nil {
+			history := sc.game.GenerateSerializableHistory()
+			log.Debug().Msgf("loop-lastknownracks %v", history.LastKnownRacks)
 		}
 		line, err := sc.l.Readline()
 		if err == readline.ErrInterrupt {

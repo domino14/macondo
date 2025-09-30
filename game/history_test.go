@@ -21,8 +21,9 @@ func TestNewFromHistoryIncomplete1(t *testing.T) {
 		DefaultConfig, "CSW19", board.CrosswordGameLayout, "english",
 		game.CrossScoreOnly, "")
 	is.NoErr(err)
-	gameHistory, err := gcgio.ParseGCG(DefaultConfig, "../gcgio/testdata/incomplete.gcg")
+	parsedGame, err := gcgio.ParseGCG(DefaultConfig, "../gcgio/testdata/incomplete.gcg")
 	is.NoErr(err)
+	gameHistory := parsedGame.GenerateSerializableHistory()
 	game, err := game.NewFromHistory(gameHistory, rules, 0)
 	is.NoErr(err)
 
@@ -35,8 +36,9 @@ func TestNewFromHistoryIncomplete2(t *testing.T) {
 		DefaultConfig, "CSW19", board.CrosswordGameLayout, "english",
 		game.CrossScoreOnly, "")
 	is.NoErr(err)
-	gameHistory, err := gcgio.ParseGCG(DefaultConfig, "../gcgio/testdata/incomplete.gcg")
+	parsedGame, err := gcgio.ParseGCG(DefaultConfig, "../gcgio/testdata/incomplete.gcg")
 	is.NoErr(err)
+	gameHistory := parsedGame.GenerateSerializableHistory()
 	game, err := game.NewFromHistory(gameHistory, rules, 6)
 	is.NoErr(err)
 
@@ -49,8 +51,9 @@ func TestNewFromHistoryIncomplete3(t *testing.T) {
 		DefaultConfig, "CSW19", board.CrosswordGameLayout, "english",
 		game.CrossScoreOnly, "")
 	is.NoErr(err)
-	gameHistory, err := gcgio.ParseGCG(DefaultConfig, "../gcgio/testdata/incomplete.gcg")
+	parsedGame, err := gcgio.ParseGCG(DefaultConfig, "../gcgio/testdata/incomplete.gcg")
 	is.NoErr(err)
+	gameHistory := parsedGame.GenerateSerializableHistory()
 	game, err := game.NewFromHistory(gameHistory, rules, 7)
 	is.NoErr(err)
 
@@ -63,13 +66,14 @@ func TestNewFromHistoryIncomplete4(t *testing.T) {
 		DefaultConfig, "CSW19", board.CrosswordGameLayout, "english",
 		game.CrossScoreOnly, "")
 	is.NoErr(err)
-	gameHistory, err := gcgio.ParseGCG(DefaultConfig, "../gcgio/testdata/incomplete_elise.gcg")
+	parsedGame, err := gcgio.ParseGCG(DefaultConfig, "../gcgio/testdata/incomplete_elise.gcg")
 	is.NoErr(err)
+	gameHistory := parsedGame.GenerateSerializableHistory()
 	is.Equal(len(gameHistory.Events), 20)
 
 	g, err := game.NewFromHistory(gameHistory, rules, 0)
 	is.NoErr(err)
-	err = g.PlayToTurn(20)
+	err = g.PlayToTurn(20, gameHistory.LastKnownRacks)
 	is.NoErr(err)
 
 	// The Elise GCG is very malformed. Besides having play-through letters
@@ -91,14 +95,15 @@ func TestNewFromHistoryIncomplete5(t *testing.T) {
 		DefaultConfig, "CSW19", board.CrosswordGameLayout, "english",
 		game.CrossScoreOnly, "")
 	is.NoErr(err)
-	gameHistory, err := gcgio.ParseGCG(DefaultConfig, "../gcgio/testdata/incomplete.gcg")
+	parsedGame, err := gcgio.ParseGCG(DefaultConfig, "../gcgio/testdata/incomplete.gcg")
 	is.NoErr(err)
+	gameHistory := parsedGame.GenerateSerializableHistory()
 	is.Equal(len(gameHistory.Events), 20)
 
 	g, err := game.NewFromHistory(gameHistory, rules, 0)
 	is.NoErr(err)
 	is.True(g != nil)
-	err = g.PlayToTurn(20)
+	err = g.PlayToTurn(20, gameHistory.LastKnownRacks)
 	is.NoErr(err)
 	is.Equal(g.Playing(), pb.PlayState_PLAYING)
 }
@@ -109,14 +114,15 @@ func TestNewFromHistoryIncomplete6(t *testing.T) {
 		DefaultConfig, "CSW19", board.CrosswordGameLayout, "english",
 		game.CrossScoreOnly, "")
 	is.NoErr(err)
-	gameHistory, err := gcgio.ParseGCG(DefaultConfig, "../gcgio/testdata/incomplete_3.gcg")
+	parsedGame, err := gcgio.ParseGCG(DefaultConfig, "../gcgio/testdata/incomplete_3.gcg")
 	is.NoErr(err)
+	gameHistory := parsedGame.GenerateSerializableHistory()
 	is.Equal(len(gameHistory.Events), 20)
 
 	g, err := game.NewFromHistory(gameHistory, rules, 0)
 	is.NoErr(err)
 	is.True(g != nil)
-	err = g.PlayToTurn(20)
+	err = g.PlayToTurn(20, gameHistory.LastKnownRacks)
 	is.NoErr(err)
 	is.True(g.Playing() == pb.PlayState_PLAYING)
 	is.Equal(g.RackLettersFor(0), "AEEIILZ")
@@ -128,14 +134,15 @@ func TestNewFromHistoryIncomplete7(t *testing.T) {
 		DefaultConfig, "CSW19", board.CrosswordGameLayout, "english",
 		game.CrossScoreOnly, "")
 	is.NoErr(err)
-	gameHistory, err := gcgio.ParseGCG(DefaultConfig, "../gcgio/testdata/incomplete4.gcg")
+	parsedGame, err := gcgio.ParseGCG(DefaultConfig, "../gcgio/testdata/incomplete4.gcg")
 	is.NoErr(err)
+	gameHistory := parsedGame.GenerateSerializableHistory()
 	is.Equal(len(gameHistory.Events), 5)
 
 	g, err := game.NewFromHistory(gameHistory, rules, 0)
 	is.NoErr(err)
 	is.True(g != nil)
-	err = g.PlayToTurn(5)
+	err = g.PlayToTurn(5, gameHistory.LastKnownRacks)
 	is.NoErr(err)
 	is.True(g.Playing() == pb.PlayState_PLAYING)
 	is.Equal(g.RackLettersFor(1), "AEEIILZ")

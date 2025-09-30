@@ -35,7 +35,9 @@ func GetFunctionName(i interface{}) string {
 	return runtime.FuncForPC(reflect.ValueOf(i).Pointer()).Name()
 }
 func CreatePuzzlesFromGame(conf *config.Config, eqLossLimit int, g *game.Game, req *pb.PuzzleGenerationRequest) ([]*pb.PuzzleCreationResponse, error) {
-	evts := g.History().Events
+	history := g.GenerateSerializableHistory()
+	evts := history.Events
+	lastKnownRacks := history.LastKnownRacks
 	puzzles := []*pb.PuzzleCreationResponse{}
 	err := validatePuzzleGenerationRequest(req)
 	if err != nil {
@@ -54,7 +56,7 @@ func CreatePuzzlesFromGame(conf *config.Config, eqLossLimit int, g *game.Game, r
 			evt.Type != pb.GameEvent_PASS {
 			continue
 		}
-		err := g.PlayToTurn(evtIdx)
+		err := g.PlayToTurn(evtIdx, lastKnownRacks)
 		if err != nil {
 			return nil, err
 		}
@@ -173,7 +175,7 @@ func CELOnlyPuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
 		return false, pb.PuzzleTag_CEL_ONLY
 	}
 	evt.WordsFormed = convertToVisible(wordsFormed, g.Alphabet())
-	isCEL, err := isCELEvent(evt, g.History(), g.Config())
+	isCEL, err := isCELEvent(evt, g.GenerateSerializableHistory(), g.Config())
 	if err != nil {
 		log.Err(err).Msg("cel-only-phony-error")
 		return false, pb.PuzzleTag_CEL_ONLY
@@ -325,8 +327,8 @@ func IsEquityPuzzleStillValid(conf *config.Config, g *game.Game, turnNumber int,
 		return false, err
 	}
 	// add the rack to the game event. It is saved without a rack.
-
-	err = g.PlayToTurn(turnNumber)
+	history := g.GenerateSerializableHistory()
+	err = g.PlayToTurn(turnNumber, history.LastKnownRacks)
 	if err != nil {
 		return false, err
 	}

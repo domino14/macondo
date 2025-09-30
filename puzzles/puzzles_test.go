@@ -112,17 +112,11 @@ func TestPuzzles(t *testing.T) {
 func TestPuzzleGeneration(t *testing.T) {
 	is := is.New(t)
 	zerolog.SetGlobalLevel(zerolog.Disabled)
-	gameHistory, err := gcgio.ParseGCG(DefaultConfig, "./testdata/phony_tiles_returned.gcg")
+	game, err := gcgio.ParseGCG(DefaultConfig, "./testdata/phony_tiles_returned.gcg")
 	is.NoErr(err)
 
 	// Set the correct challenge rule
-	gameHistory.ChallengeRule = pb.ChallengeRule_FIVE_POINT
-
-	rules, err := game.NewBasicGameRules(DefaultConfig, "CSW21", board.CrosswordGameLayout, "english", game.CrossScoreAndSet, game.VarClassic)
-	is.NoErr(err)
-
-	game, err := game.NewFromHistory(gameHistory, rules, 0)
-	is.NoErr(err)
+	game.SetChallengeRule(pb.ChallengeRule_FIVE_POINT)
 
 	_, err = CreatePuzzlesFromGame(DefaultConfig, 1000, game, nil)
 	is.True(err != nil)
@@ -245,17 +239,11 @@ func TestPuzzleGeneration(t *testing.T) {
 func TestLostChallenge(t *testing.T) {
 	is := is.New(t)
 
-	gameHistory, err := gcgio.ParseGCG(DefaultConfig, "./testdata/phony_tiles_returned.gcg")
+	game, err := gcgio.ParseGCG(DefaultConfig, "./testdata/phony_tiles_returned.gcg")
 	is.NoErr(err)
 
 	// Set the correct challenge rule
-	gameHistory.ChallengeRule = pb.ChallengeRule_FIVE_POINT
-
-	rules, err := game.NewBasicGameRules(DefaultConfig, "CSW21", board.CrosswordGameLayout, "english", game.CrossScoreAndSet, game.VarClassic)
-	is.NoErr(err)
-
-	game, err := game.NewFromHistory(gameHistory, rules, 0)
-	is.NoErr(err)
+	game.SetChallengeRule(pb.ChallengeRule_FIVE_POINT)
 
 	dpgr := proto.Clone(DefaultPuzzleGenerationReq).(*pb.PuzzleGenerationRequest)
 	err = InitializePuzzleGenerationRequest(dpgr)
@@ -291,17 +279,11 @@ func TestEquityLossLimit(t *testing.T) {
 	is := is.New(t)
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	// A little less than 23 total equity loss this game
-	gameHistory, err := gcgio.ParseGCG(DefaultConfig, "./testdata/well_played_game.gcg")
+	game, err := gcgio.ParseGCG(DefaultConfig, "./testdata/well_played_game.gcg")
 	is.NoErr(err)
 
 	// Set the correct challenge rule
-	gameHistory.ChallengeRule = pb.ChallengeRule_DOUBLE
-
-	rules, err := game.NewBasicGameRules(DefaultConfig, "NWL18", board.CrosswordGameLayout, "english", game.CrossScoreAndSet, game.VarClassic)
-	is.NoErr(err)
-
-	game, err := game.NewFromHistory(gameHistory, rules, 0)
-	is.NoErr(err)
+	game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
 
 	puzzleGenerationReq := &pb.PuzzleGenerationRequest{
 		Buckets: []*pb.PuzzleBucket{
@@ -336,17 +318,11 @@ func TestEquityLossLimit(t *testing.T) {
 
 func TestIsPuzzleStillValid(t *testing.T) {
 	is := is.New(t)
-	gameHistory, err := gcgio.ParseGCG(DefaultConfig, "./testdata/well_played_game.gcg")
+	game, err := gcgio.ParseGCG(DefaultConfig, "./testdata/well_played_game.gcg")
 	is.NoErr(err)
 
 	// Set the correct challenge rule
-	gameHistory.ChallengeRule = pb.ChallengeRule_DOUBLE
-
-	rules, err := game.NewBasicGameRules(DefaultConfig, "NWL18", board.CrosswordGameLayout, "english", game.CrossScoreAndSet, game.VarClassic)
-	is.NoErr(err)
-
-	game, err := game.NewFromHistory(gameHistory, rules, 0)
-	is.NoErr(err)
+	game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
 
 	puzzleGenerationReq := &pb.PuzzleGenerationRequest{
 		Buckets: []*pb.PuzzleBucket{
@@ -387,7 +363,7 @@ func TestIsPuzzleStillValid(t *testing.T) {
 }
 
 func puzzlesMatch(is *is.I, gcgfile string, puzzleGenerationReq *pb.PuzzleGenerationRequest, expectedPzl *pb.PuzzleCreationResponse) {
-	gameHistory, err := gcgio.ParseGCG(DefaultConfig, fmt.Sprintf("./testdata/%s.gcg", gcgfile))
+	game, err := gcgio.ParseGCG(DefaultConfig, fmt.Sprintf("./testdata/%s.gcg", gcgfile))
 	if err != nil {
 		panic(err)
 	}
@@ -395,16 +371,7 @@ func puzzlesMatch(is *is.I, gcgfile string, puzzleGenerationReq *pb.PuzzleGenera
 
 	// Set the challenge rule to five point
 	// so GCGs with challenges will load
-	gameHistory.ChallengeRule = pb.ChallengeRule_FIVE_POINT
-
-	rules, err := game.NewBasicGameRules(DefaultConfig, "CSW21", board.CrosswordGameLayout, "english", game.CrossScoreAndSet, game.VarClassic)
-	if err != nil {
-		panic(err)
-	}
-	game, err := game.NewFromHistory(gameHistory, rules, 0)
-	if err != nil {
-		panic(err)
-	}
+	game.SetChallengeRule(pb.ChallengeRule_FIVE_POINT)
 
 	pzls, err := CreatePuzzlesFromGame(DefaultConfig, 1000, game, puzzleGenerationReq)
 	if err != nil {

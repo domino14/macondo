@@ -70,7 +70,8 @@ func HandleRequest(ctx context.Context, evt bot.LambdaEvent) (string, error) {
 	ctx, cancel = context.WithTimeout(ctx, time.Duration(maxTimeShouldTake)*time.Second)
 	ctx = logger.WithContext(ctx)
 
-	lexicon := g.History().Lexicon
+	history := g.GenerateSerializableHistory()
+	lexicon := history.Lexicon
 	if lexicon == "" {
 		lexicon = cfg.GetString(config.ConfigDefaultLexicon)
 		logger.Info().Msgf("cgp file had no lexicon, so using default lexicon %v",

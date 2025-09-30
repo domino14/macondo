@@ -291,9 +291,10 @@ func TestPolishFromGcg(t *testing.T) {
 	cfg.Set(config.ConfigDefaultLexicon, "OSPS49")
 	cfg.Set(config.ConfigDefaultLetterDistribution, "polish")
 
-	gameHistory, err := gcgio.ParseGCG(cfg, "../../gcgio/testdata/polish_endgame.gcg")
+	parsedGame, err := gcgio.ParseGCG(cfg, "../../gcgio/testdata/polish_endgame.gcg")
 	is.NoErr(err)
-	gameHistory.ChallengeRule = pb.ChallengeRule_SINGLE
+	parsedGame.SetChallengeRule(pb.ChallengeRule_SINGLE)
+	gameHistory := parsedGame.GenerateSerializableHistory()
 
 	g, err := game.NewFromHistory(gameHistory, rules, 46)
 	is.NoErr(err)
@@ -360,8 +361,9 @@ func TestProperIterativeDeepening(t *testing.T) {
 	is.NoErr(err)
 	for _, plies := range plyCount {
 
-		gameHistory, err := gcgio.ParseGCG(DefaultConfig, "../../gcgio/testdata/noah_vs_mishu.gcg")
+		parsedGame, err := gcgio.ParseGCG(DefaultConfig, "../../gcgio/testdata/noah_vs_mishu.gcg")
 		is.NoErr(err)
+		gameHistory := parsedGame.GenerateSerializableHistory()
 
 		g, err := game.NewFromHistory(gameHistory, rules, 28)
 		is.NoErr(err)
@@ -404,8 +406,9 @@ func TestFromGCG(t *testing.T) {
 	rules, err := game.NewBasicGameRules(DefaultConfig, "CSW19", board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
 	is.NoErr(err)
 
-	gameHistory, err := gcgio.ParseGCG(DefaultConfig, "../../gcgio/testdata/vs_frentz.gcg")
+	parsedGame, err := gcgio.ParseGCG(DefaultConfig, "../../gcgio/testdata/vs_frentz.gcg")
 	is.NoErr(err)
+	gameHistory := parsedGame.GenerateSerializableHistory()
 
 	g, err := game.NewFromHistory(gameHistory, rules, 22)
 	is.NoErr(err)

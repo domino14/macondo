@@ -118,16 +118,18 @@ func (bot *Bot) Deserialize(data []byte) (*game.Game, *pb.BotRequest, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	ng.PlayToTurn(nturns)
+	ngHistory := ng.GenerateSerializableHistory()
+	ng.PlayToTurn(nturns, ngHistory.LastKnownRacks)
 	// debugWriteln(ng.ToDisplayText())
 	return ng, req, nil
 }
 
 func evalSingleMove(g *bot.BotTurnPlayer, evtIdx int) *pb.SingleEvaluation {
-	evts := g.History().Events
+	history := g.GenerateSerializableHistory()
+	evts := history.Events
 	playedEvt := evts[evtIdx]
 
-	g.PlayToTurn(evtIdx)
+	g.PlayToTurn(evtIdx, history.LastKnownRacks)
 	moves := g.GenerateMoves(100000)
 	// find the played move in the list of moves
 	topEquity := moves[0].Equity()
@@ -170,8 +172,9 @@ func evalSingleMove(g *bot.BotTurnPlayer, evtIdx int) *pb.SingleEvaluation {
 
 func (bot *Bot) evaluationResponse(req *pb.EvaluationRequest) *pb.BotResponse {
 
-	evts := bot.game.History().Events
-	players := bot.game.History().Players
+	history := bot.game.GenerateSerializableHistory()
+	evts := history.Events
+	players := history.Players
 	evals := []*pb.SingleEvaluation{}
 
 	for idx, evt := range evts {
@@ -200,7 +203,8 @@ func (b *Bot) handle(data []byte) *pb.BotResponse {
 	botType := req.BotType
 
 	leavesFile := ""
-	if ng.History().BoardLayout == board.SuperCrosswordGameLayout {
+	history := ng.GenerateSerializableHistory()
+	if history.BoardLayout == board.SuperCrosswordGameLayout {
 		leavesFile = "super-leaves.klv2"
 	}
 

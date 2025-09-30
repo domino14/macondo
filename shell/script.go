@@ -166,7 +166,8 @@ func elitePlay(L *lua.LState) int {
 	sc.botCtx, sc.botCtxCancel = context.WithTimeout(context.Background(), time.Second*time.Duration(60))
 	defer sc.botCtxCancel()
 
-	if sc.elitebot.History().PlayState == macondo.PlayState_GAME_OVER {
+	history := sc.elitebot.GenerateSerializableHistory()
+	if history.PlayState == macondo.PlayState_GAME_OVER {
 		log.Error().Msg("game is over")
 		return 0
 	}

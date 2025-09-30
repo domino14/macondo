@@ -120,9 +120,10 @@ func (sc *ShellController) gid(cmd *shellcmd) (*Response, error) {
 	if sc.game == nil {
 		return nil, errors.New("no currently loaded game")
 	}
-	gid := sc.game.History().Uid
+	history := sc.game.GenerateSerializableHistory()
+	gid := history.Uid
 	if gid != "" {
-		idauth := sc.game.History().IdAuth
+		idauth := history.IdAuth
 		fullID := strings.TrimSpace(idauth + " " + gid)
 		return msg(fullID), nil
 	}
@@ -229,7 +230,8 @@ func (sc *ShellController) last(cmd *shellcmd) (*Response, error) {
 	if sc.solving() {
 		return nil, errMacondoSolving
 	}
-	err := sc.setToTurn(len(sc.game.History().Events))
+	history := sc.game.GenerateSerializableHistory()
+	err := sc.setToTurn(len(history.Events))
 	if err != nil {
 		return nil, err
 	}
@@ -259,7 +261,8 @@ func (sc *ShellController) name(cmd *shellcmd) (*Response, error) {
 		return nil, err
 	}
 	p -= 1
-	if p < 0 || p >= len(sc.game.History().Players) {
+	history := sc.game.GenerateSerializableHistory()
+	if p < 0 || p >= len(history.Players) {
 		return nil, errors.New("player index not in range")
 	}
 	err = sc.game.RenamePlayer(p, &pb.PlayerInfo{
@@ -839,7 +842,7 @@ func (sc *ShellController) export(cmd *shellcmd) (*Response, error) {
 		return nil, errors.New("please provide a filename to save to")
 	}
 	filename := cmd.args[0]
-	contents, err := gcgio.GameHistoryToGCG(sc.game.History(), true)
+	contents, err := gcgio.GameToGCG(sc.game.Game, true)
 	if err != nil {
 		return nil, err
 	}
@@ -847,7 +850,6 @@ func (sc *ShellController) export(cmd *shellcmd) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.Debug().Interface("game-history", sc.game.History()).Msg("converted game history to gcg")
 	f.WriteString(contents)
 	f.Close()
 	return msg("gcg written to " + filename), nil
