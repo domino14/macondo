@@ -963,6 +963,10 @@ func (g *Game) PlayToTurn(turnnum int, lastKnownRacks []string) error {
 	return nil
 }
 
+func (g *Game) SetEvents(events []*pb.GameEvent) {
+	g.events = events
+}
+
 // PlayEvent adds an event to the game and plays it on the board.
 // This is used for replaying a game from a GCG.
 func (g *Game) PlayEvent(evt *pb.GameEvent) error {

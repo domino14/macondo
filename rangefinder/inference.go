@@ -156,7 +156,7 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 			return err
 		}
 		gameCopy = parsedCGP.Game
-		gameCopy.SetEventsFromHistory(clonedHistory)
+		gameCopy.SetEvents(clonedHistory.Events)
 
 		for t := 0; t < len(clonedHistory.Events); t++ {
 			err = gameCopy.PlayTurn(t)
