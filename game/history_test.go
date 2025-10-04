@@ -9,6 +9,7 @@ import (
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/matryer/is"
+	"github.com/rs/zerolog/log"
 )
 
 var DefaultConfig = config.DefaultConfig()
@@ -24,6 +25,7 @@ func TestNewFromHistoryIncomplete1(t *testing.T) {
 	parsedGame, err := gcgio.ParseGCG(DefaultConfig, "../gcgio/testdata/incomplete.gcg")
 	is.NoErr(err)
 	gameHistory := parsedGame.GenerateSerializableHistory()
+	log.Info().Interface("gameHistory", gameHistory).Msg("generated-gh")
 	game, err := game.NewFromHistory(gameHistory, rules, 0)
 	is.NoErr(err)
 

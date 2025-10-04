@@ -914,6 +914,7 @@ func (g *Game) PlayToTurn(turnnum int, lastKnownRacks []string) error {
 			// They're both blank.
 			// We don't have a recorded rack, so set it to a random one.
 			g.SetRandomRack(g.onturn, nil)
+			g.SetRandomRack(1-g.onturn, nil)
 		}
 
 		log.Debug().Str("r0", g.players[0].rackLetters()).Str("r1", g.players[1].rackLetters()).Msg("PlayToTurn-set-racks")
