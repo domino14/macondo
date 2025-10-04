@@ -3,8 +3,6 @@ package gcgio
 import (
 	"encoding/json"
 	"flag"
-	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +10,7 @@ import (
 
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/matryer/is"
+	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/domino14/macondo/board"
@@ -30,9 +29,9 @@ func init() {
 }
 
 func slurp(filename string) string {
-	contents, err := ioutil.ReadFile(filename)
+	contents, err := os.ReadFile(filename)
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 	return string(contents)
 }
@@ -66,9 +65,10 @@ func TestParseGCGs(t *testing.T) {
 	}
 
 	for _, tc := range testcases {
-		history, err := ParseGCG(DefaultConfig, filepath.Join("testdata", tc.gcgfile))
+		game, err := ParseGCG(DefaultConfig, filepath.Join("testdata", tc.gcgfile))
 		assert.Nil(t, err)
-		assert.NotNil(t, history)
+		assert.NotNil(t, game)
+		history := game.GenerateSerializableHistory()
 		history.Lexicon = tc.lexicon
 
 		repr, err := json.MarshalIndent(history, "", "  ")
@@ -79,48 +79,53 @@ func TestParseGCGs(t *testing.T) {
 }
 
 func TestParseSpecialChar(t *testing.T) {
-	history, err := ParseGCG(DefaultConfig, "./testdata/name_iso8859-1.gcg")
+	game, err := ParseGCG(DefaultConfig, "./testdata/name_iso8859-1.gcg")
 	assert.Nil(t, err)
-	assert.NotNil(t, history)
+	assert.NotNil(t, game)
+	history := game.GenerateSerializableHistory()
 	assert.Equal(t, "césar", history.Players[0].Nickname)
 	assert.Equal(t, "hércules", history.Players[1].Nickname)
 }
 
 func TestParseSpecialUTF8NoHeader(t *testing.T) {
-	history, err := ParseGCG(DefaultConfig, "./testdata/name_utf8_noheader.gcg")
+	game, err := ParseGCG(DefaultConfig, "./testdata/name_utf8_noheader.gcg")
 	assert.Nil(t, err)
-	assert.NotNil(t, history)
+	assert.NotNil(t, game)
+	history := game.GenerateSerializableHistory()
 	// Since there was no encoding header, the name gets all messed up:
 	assert.Equal(t, "cÃ©sar", history.Players[0].Nickname)
 }
 
 func TestParseSpecialUTF8WithHeader(t *testing.T) {
-	history, err := ParseGCG(DefaultConfig, "./testdata/name_utf8_with_header.gcg")
+	game, err := ParseGCG(DefaultConfig, "./testdata/name_utf8_with_header.gcg")
 	assert.Nil(t, err)
-	assert.NotNil(t, history)
+	assert.NotNil(t, game)
+	history := game.GenerateSerializableHistory()
 	assert.Equal(t, "césar", history.Players[0].Nickname)
 }
 
 func TestParseUnsupportedEncoding(t *testing.T) {
-	history, err := ParseGCG(DefaultConfig, "./testdata/name_weird_encoding_with_header.gcg")
+	game, err := ParseGCG(DefaultConfig, "./testdata/name_weird_encoding_with_header.gcg")
 	assert.NotNil(t, err)
-	assert.Nil(t, history)
+	assert.Nil(t, game)
 }
 
 func TestParseDOSMode(t *testing.T) {
 	// file has CRLF carriage returns. we should handle it.
-	history, err := ParseGCG(DefaultConfig, "./testdata/utf8_dos.gcg")
+	game, err := ParseGCG(DefaultConfig, "./testdata/utf8_dos.gcg")
 	assert.Nil(t, err)
-	assert.NotNil(t, history)
+	assert.NotNil(t, game)
+	history := game.GenerateSerializableHistory()
 	assert.Equal(t, "angwantibo", history.Players[0].Nickname)
 	assert.Equal(t, "Michal_Josko", history.Players[1].Nickname)
 }
 
 func TestToGCG(t *testing.T) {
-	history, err := ParseGCG(DefaultConfig, "./testdata/doug_v_emely.gcg")
+	game, err := ParseGCG(DefaultConfig, "./testdata/doug_v_emely.gcg")
 
 	assert.Nil(t, err)
-	assert.NotNil(t, history)
+	assert.NotNil(t, game)
+	history := game.GenerateSerializableHistory()
 
 	gcgstr, err := GameHistoryToGCG(history, false)
 	assert.Nil(t, err)
@@ -147,16 +152,21 @@ func TestNewFromHistoryExcludePenultimatePass(t *testing.T) {
 		"")
 	is.NoErr(err)
 
-	gameHistory, err := ParseGCG(DefaultConfig, "./testdata/guy_vs_bot_almost_complete.gcg")
+	parsedGame, err := ParseGCG(DefaultConfig, "./testdata/guy_vs_bot_almost_complete.gcg")
 	is.NoErr(err)
+	gameHistory := parsedGame.GenerateSerializableHistory()
 	is.Equal(len(gameHistory.Events), 25)
 
-	g, err := game.NewFromHistory(gameHistory, rules, 0)
-	alph := g.Alphabet()
-	g.SetChallengeRule(pb.ChallengeRule_DOUBLE)
+	g, err := game.NewFromHistory(gameHistory, rules, 25)
 	is.NoErr(err)
 	is.True(g != nil)
-	err = g.PlayToTurn(25)
+	alph := g.Alphabet()
+	g.SetChallengeRule(pb.ChallengeRule_DOUBLE)
+	// XXX: The problem below is that the history is generated from the
+	// game at turn zero (see NewFromHistory call above). So the last known
+	// racks in that call are the first turn racks.
+	history := g.GenerateSerializableHistory()
+	err = g.PlayToTurn(25, history.LastKnownRacks)
 	is.NoErr(err)
 	is.True(g.Playing() == pb.PlayState_PLAYING)
 	is.Equal(g.RackLettersFor(1), "U")
@@ -175,7 +185,8 @@ func TestNewFromHistoryExcludePenultimatePass(t *testing.T) {
 	err = g.PlayMove(m, true, 0)
 	is.NoErr(err)
 
-	gcgstr, err := GameHistoryToGCG(g.History(), false)
+	history = g.GenerateSerializableHistory()
+	gcgstr, err := GameHistoryToGCG(history, false)
 	assert.Nil(t, err)
 
 	// ignore encoding line:
@@ -199,16 +210,21 @@ func TestNewFromHistoryExcludePenultimateChallengeTurnLoss(t *testing.T) {
 		"")
 	is.NoErr(err)
 
-	gameHistory, err := ParseGCG(DefaultConfig, "./testdata/guy_vs_bot_almost_complete.gcg")
+	parsedGame, err := ParseGCG(DefaultConfig, "./testdata/guy_vs_bot_almost_complete.gcg")
 	is.NoErr(err)
+	gameHistory := parsedGame.GenerateSerializableHistory()
 	is.Equal(len(gameHistory.Events), 25)
+	log.Info().Interface("gameHistory", gameHistory).Msg("generated-gh")
 
-	g, err := game.NewFromHistory(gameHistory, rules, 0)
+	g, err := game.NewFromHistory(gameHistory, rules, 25)
 	alph := g.Alphabet()
 	g.SetChallengeRule(pb.ChallengeRule_DOUBLE)
 	is.NoErr(err)
 	is.True(g != nil)
-	err = g.PlayToTurn(25)
+	history := g.GenerateSerializableHistory()
+	log.Info().Interface("history2", history).Msg("generated-gh-2")
+
+	err = g.PlayToTurn(25, history.LastKnownRacks)
 	is.NoErr(err)
 	is.True(g.Playing() == pb.PlayState_PLAYING)
 	is.Equal(g.RackLettersFor(1), "U")
@@ -227,7 +243,8 @@ func TestNewFromHistoryExcludePenultimateChallengeTurnLoss(t *testing.T) {
 	err = g.PlayMove(m, true, 0)
 	is.NoErr(err)
 
-	gcgstr, err := GameHistoryToGCG(g.History(), false)
+	history = g.GenerateSerializableHistory()
+	gcgstr, err := GameHistoryToGCG(history, false)
 	assert.Nil(t, err)
 
 	// ignore encoding line:
@@ -245,8 +262,8 @@ func TestDuplicateNicknames(t *testing.T) {
 #player1 dougie Doungy B
 #player2 dougie Cesar D
 >dougie: FOO 8D FOO +12 12`)
-	history, err := ParseGCGFromReader(DefaultConfig, reader)
-	assert.Nil(t, history)
+	game, err := ParseGCGFromReader(DefaultConfig, reader)
+	assert.Nil(t, game)
 	assert.Equal(t, errDuplicateNames, err)
 }
 
@@ -256,8 +273,8 @@ func TestPragmaWrongPlace(t *testing.T) {
 #player2 cesar Cesar D
 >dougie: FOO 8H FOO +12 12
 #lexicon OSPD4`)
-	history, err := ParseGCGFromReader(DefaultConfig, reader)
-	assert.Nil(t, history)
+	game, err := ParseGCGFromReader(DefaultConfig, reader)
+	assert.Nil(t, game)
 	assert.Equal(t, errPragmaPrecedeEvent, err)
 }
 
@@ -269,8 +286,9 @@ func TestIsBingo(t *testing.T) {
 >dougie: FOODIES 8D FOODIES +80 80
 >cesar: ABCDEFG D7 E. +5 5
 `)
-	history, err := ParseGCGFromReader(DefaultConfig, reader)
+	game, err := ParseGCGFromReader(DefaultConfig, reader)
 	assert.Nil(t, err)
+	history := game.GenerateSerializableHistory()
 	assert.True(t, history.Events[0].IsBingo)
 	assert.False(t, history.Events[1].IsBingo)
 }

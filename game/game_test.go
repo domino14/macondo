@@ -2,7 +2,6 @@ package game
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"testing"
@@ -55,7 +54,6 @@ func TestBackup(t *testing.T) {
 	// Overwrite the player on turn to be JD:
 	game.SetPlayerOnTurn(0)
 	alph := game.Alphabet()
-	fmt.Println("Here")
 	game.SetRackFor(0, tilemapping.RackFromString("ACEOTV?", alph))
 
 	m := move.NewScoringMoveSimple(20, "H7", "AVOCET", "?", alph)
@@ -90,31 +88,40 @@ func TestValidate(t *testing.T) {
 	alph := g.Alphabet()
 	g.StartGame()
 	g.SetPlayerOnTurn(0)
-	g.SetRackFor(0, tilemapping.RackFromString("HIS", alph))
+	err = g.SetRackFor(0, tilemapping.RackFromString("HIS", alph))
+	is.NoErr(err)
+	// Rack syncing no longer needed - handled automatically
 	g.SetChallengeRule(pb.ChallengeRule_DOUBLE)
 	m := move.NewScoringMoveSimple(12, "H7", "HIS", "", alph)
 	words, err := g.ValidateMove(m)
 	is.NoErr(err)
 	is.Equal(len(words), 1)
 	g.PlayMove(m, true, 0)
-	is.Equal(g.history.Events[len(g.history.Events)-1].WordsFormed,
+	history := g.GenerateSerializableHistory()
+	is.Equal(history.Events[len(history.Events)-1].WordsFormed,
 		[]string{"HIS"})
-	g.SetRackFor(1, tilemapping.RackFromString("OIK", alph))
+	err = g.SetRackFor(1, tilemapping.RackFromString("OIK", alph))
+	is.NoErr(err)
+	// Rack syncing no longer needed - handled automatically
 	m = move.NewScoringMoveSimple(13, "G8", "OIK", "", alph)
 	words, err = g.ValidateMove(m)
 	is.NoErr(err)
 	is.Equal(len(words), 3)
 	g.PlayMove(m, true, 0)
-	is.Equal(g.history.Events[len(g.history.Events)-1].WordsFormed,
+	history2 := g.GenerateSerializableHistory()
+	is.Equal(history2.Events[len(history2.Events)-1].WordsFormed,
 		[]string{"OIK", "OI", "IS"})
 
-	g.SetRackFor(0, tilemapping.RackFromString("ADITT", alph))
+	err = g.SetRackFor(0, tilemapping.RackFromString("ADITT", alph))
+	is.NoErr(err)
+	// Rack syncing no longer needed - handled automatically
 	m = move.NewScoringMoveSimple(22, "10E", "DI.TAT", "", alph)
 	words, err = g.ValidateMove(m)
 	is.NoErr(err)
 	is.Equal(len(words), 2)
 	g.PlayMove(m, true, 0)
-	is.Equal(g.history.Events[len(g.history.Events)-1].WordsFormed,
+	history3 := g.GenerateSerializableHistory()
+	is.Equal(history3.Events[len(history3.Events)-1].WordsFormed,
 		[]string{"DIKTAT", "HIST"})
 }
 
@@ -149,8 +156,9 @@ func TestPlayToTurnWithPhony(t *testing.T) {
 	is.Equal(valid, false)
 
 	// check that game rolled back successfully
-	is.Equal(len(g.History().Events), 3)
-	is.Equal(g.History().Events[2].Type, pb.GameEvent_PHONY_TILES_RETURNED)
+	history := g.GenerateSerializableHistory()
+	is.Equal(len(history.Events), 3)
+	is.Equal(history.Events[2].Type, pb.GameEvent_PHONY_TILES_RETURNED)
 
 	// The tiles in the phony "DORMINE" should be gone.
 	// An already empty tile to the left of DORMINE*

@@ -59,12 +59,22 @@ type Game struct {
 	onturn             int
 	turnnum            int
 	players            playerStates
-	// history has a history of all the moves in this game. Note that
-	// history only gets written to when someone plays a move that is NOT
-	// backed up.
-	history *pb.GameHistory
+
+	// events stores all the game events. This replaces the history field.
+	events []*pb.GameEvent
+	// Store metadata that was previously in history
+	uid           string
+	idAuth        string
+	title         string
+	description   string
+	originalGcg   string
+	challengeRule pb.ChallengeRule
+	finalScores   []int32
+	winner        int32
+	startingCGP   string
+
 	// lastWordsFormed also does not need to be backed up, it only gets written
-	// to when the history is written to. See comment above.
+	// to when the events are written to. See comment above.
 	lastWordsFormed []tilemapping.MachineWord
 	backupMode      BackupMode
 
@@ -107,23 +117,23 @@ func (g *Game) SetRules(r *GameRules) {
 }
 
 func (g *Game) LastEvent() *pb.GameEvent {
-	last := len(g.history.Events) - 1
+	last := len(g.events) - 1
 	if last < 0 {
 		return nil
 	}
-	return g.history.Events[last]
+	return g.events[last]
 }
 
 func (g *Game) addEventToHistory(evt *pb.GameEvent) {
 	log.Debug().Msgf("Adding event to history: %v", evt)
 
-	if g.turnnum < len(g.history.Events) {
+	if g.turnnum < len(g.events) {
 		log.Info().Interface("evt", evt).Msg("adding-overwriting-history")
-		// log.Info().Interface("history", g.history.Events).Int("turnnum", g.turnnum).
-		// 	Int("len", len(g.history.Events)).Msg("hist")
-		g.history.Events = g.history.Events[:g.turnnum]
+		// log.Info().Interface("history", g.events).Int("turnnum", g.turnnum).
+		// 	Int("len", len(g.events)).Msg("hist")
+		g.events = g.events[:g.turnnum]
 	}
-	g.history.Events = append(g.history.Events, evt)
+	g.events = append(g.events, evt)
 
 }
 
@@ -188,6 +198,14 @@ func NewGame(rules *GameRules, playerinfo []*pb.PlayerInfo) (*Game, error) {
 	}
 	log.Debug().Int("exch-limit", rules.exchangeLimit).Msg("setting-exchange-limit")
 
+	// Initialize new fields that replaced history
+	game.events = []*pb.GameEvent{}
+	game.uid = newRequestId().String()
+	game.idAuth = IdentificationAuthority
+	game.description = MacondoCreation
+	game.challengeRule = pb.ChallengeRule_VOID // Will be set by caller if needed
+	game.winner = -1                           // No winner initially
+
 	if game.config.GetBool(config.ConfigTritonUseTriton) {
 		tritonURL := game.config.GetString(config.ConfigTritonURL)
 		modelName := game.config.GetString(config.ConfigTritonModelName)
@@ -212,16 +230,33 @@ func NewFromHistory(history *pb.GameHistory, rules *GameRules, turnnum int) (*Ga
 	if err != nil {
 		return nil, err
 	}
-	game.history = history
+
+	// Copy over the history data to our new fields
+	game.events = history.Events[:turnnum]
 	if history.Uid == "" {
-		history.Uid = newRequestId().String()
-		history.IdAuth = IdentificationAuthority
+		game.uid = newRequestId().String()
+		game.idAuth = IdentificationAuthority
+	} else {
+		game.uid = history.Uid
+		game.idAuth = history.IdAuth
 	}
 	if history.Description == "" {
-		history.Description = MacondoCreation
+		game.description = MacondoCreation
+	} else {
+		game.description = history.Description
 	}
-	if history.LastKnownRacks == nil {
-		history.LastKnownRacks = []string{"", ""}
+	game.challengeRule = history.ChallengeRule
+	game.finalScores = history.FinalScores
+	game.winner = history.Winner
+	game.startingCGP = history.StartingCgp
+
+	// Store a reference to the last known racks for recovery after PlayToTurn
+	lastKnownRacks := []string{"", ""}
+	if turnnum == len(history.Events) {
+		lastKnownRacks = history.LastKnownRacks
+		if lastKnownRacks == nil {
+			lastKnownRacks = []string{"", ""}
+		}
 	}
 
 	// Initialize the bag and player rack structures to avoid panics.
@@ -230,7 +265,7 @@ func NewFromHistory(history *pb.GameHistory, rules *GameRules, turnnum int) (*Ga
 		game.players[i].rack = tilemapping.NewRack(game.alph)
 	}
 	// Then play to the passed-in turn.
-	err = game.PlayToTurn(turnnum)
+	err = game.PlayToTurn(turnnum, lastKnownRacks)
 	if err != nil {
 		return nil, err
 	}
@@ -246,7 +281,8 @@ func NewFromSnapshot(rules *GameRules, players []*pb.PlayerInfo, lastKnownRacks 
 		return nil, err
 	}
 
-	game.history = newHistory(game.players)
+	// Initialize events array
+	game.events = []*pb.GameEvent{}
 
 	game.bag = game.letterDistribution.MakeBag()
 	for i := 0; i < game.NumPlayers(); i++ {
@@ -263,16 +299,11 @@ func NewFromSnapshot(rules *GameRules, players []*pb.PlayerInfo, lastKnownRacks 
 	if err != nil {
 		return nil, err
 	}
-	game.history.LastKnownRacks = lastKnownRacks
 	// Set racks and tiles
 	racks := []*tilemapping.Rack{
-		tilemapping.RackFromString(game.history.LastKnownRacks[0], game.Alphabet()),
-		tilemapping.RackFromString(game.history.LastKnownRacks[1], game.Alphabet()),
+		tilemapping.RackFromString(lastKnownRacks[0], game.Alphabet()),
+		tilemapping.RackFromString(lastKnownRacks[1], game.Alphabet()),
 	}
-	game.history.Lexicon = game.Lexicon().Name()
-	game.history.Variant = string(game.rules.Variant())
-	game.history.LetterDistribution = game.rules.LetterDistributionName()
-	game.history.BoardLayout = game.rules.BoardName()
 
 	// set racks for both players; this removes the relevant letters from the bag.
 	err = game.SetRacksForBoth(racks)
@@ -288,11 +319,9 @@ func NewFromSnapshot(rules *GameRules, players []*pb.PlayerInfo, lastKnownRacks 
 	// onturn is 0 by default, which is always correct in this function, as
 	// the player to go next is listed first in the players/racks/scores.
 	game.playing = pb.PlayState_PLAYING
-	game.history.PlayState = game.playing
 
 	if game.bag.TilesRemaining() == 0 && (game.RackFor(0).NumTiles() == 0 || game.RackFor(1).NumTiles() == 0) {
 		game.playing = pb.PlayState_GAME_OVER
-		game.history.PlayState = game.playing
 		log.Info().Msg("this game is already over")
 	}
 
@@ -316,9 +345,7 @@ func (g *Game) RenamePlayer(idx int, playerinfo *pb.PlayerInfo) error {
 	g.players[idx].PlayerInfo.RealName = playerinfo.RealName
 	g.players[idx].PlayerInfo.UserId = playerinfo.UserId
 
-	g.history.Players[idx].Nickname = playerinfo.Nickname
-	g.history.Players[idx].RealName = playerinfo.RealName
-	g.history.Players[idx].UserId = playerinfo.UserId
+	// Player info is already updated in g.players[idx]
 	return nil
 }
 
@@ -326,7 +353,15 @@ func (g *Game) RenamePlayer(idx int, playerinfo *pb.PlayerInfo) error {
 func (g *Game) StartGame() {
 	g.Board().Clear()
 	g.bag = g.letterDistribution.MakeBag()
-	g.history = newHistory(g.players)
+
+	// Reset the game metadata
+	g.events = []*pb.GameEvent{}
+	g.uid = newRequestId().String()
+	g.idAuth = IdentificationAuthority
+	g.description = MacondoCreation
+	g.finalScores = nil
+	g.winner = -1
+
 	// Deal out tiles
 	for i := 0; i < g.NumPlayers(); i++ {
 
@@ -338,15 +373,7 @@ func (g *Game) StartGame() {
 		g.players[i].setRackTiles(g.players[i].placeholderRack[:7], g.alph)
 		g.players[i].resetScore()
 	}
-	g.history.LastKnownRacks = []string{
-		g.RackLettersFor(0), g.RackLettersFor(1),
-	}
-	g.history.Lexicon = g.Lexicon().Name()
-	g.history.Variant = string(g.rules.Variant())
-	g.history.LetterDistribution = g.rules.LetterDistributionName()
-	g.history.BoardLayout = g.rules.BoardName()
 	g.playing = pb.PlayState_PLAYING
-	g.history.PlayState = g.playing
 	g.turnnum = 0
 	g.scorelessTurns = 0
 	g.lastScorelessTurns = 0
@@ -434,7 +461,7 @@ func (g *Game) validateTilePlayMove(m *move.Move) ([]tilemapping.MachineWord, er
 	if err != nil {
 		return nil, err
 	}
-	if g.history != nil && g.history.ChallengeRule == pb.ChallengeRule_VOID {
+	if g.challengeRule == pb.ChallengeRule_VOID {
 		// Actually check the validity of the words.
 		illegalWords := validateWords(g.lexicon, formedWords, g.rules.Variant())
 
@@ -547,23 +574,23 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 			evt := g.EventFromMove(m)
 			evt.MillisRemaining = int32(millis)
 			evt.WordsFormed = convertToVisible(g.lastWordsFormed, g.alph)
-			g.history.LastKnownRacks[g.onturn] = g.RackLettersFor(g.onturn)
+			// Rack tracking is now only in GenerateSerializableHistory
 			g.addEventToHistory(evt)
 		}
 
 		if g.players[g.onturn].rack.NumTiles() == 0 {
 			// make sure not in sim mode. sim mode (montecarlo, endgame, etc) does not
 			// generate end-of-game passes.
-			if g.backupMode != SimulationMode && g.history != nil && g.history.ChallengeRule != pb.ChallengeRule_VOID {
+			if g.backupMode != SimulationMode && g.challengeRule != pb.ChallengeRule_VOID {
 				// Basically, if the challenge rule is not void,
 				// wait for the final pass (or challenge).
 				g.playing = pb.PlayState_WAITING_FOR_FINAL_PASS
-				g.history.PlayState = g.playing
+				// Play state is tracked in g.playing field
 				log.Trace().Msg("waiting for final pass... (commit pass)")
 			} else {
 				g.playing = pb.PlayState_GAME_OVER
 				if addToHistory {
-					g.history.PlayState = g.playing
+					// Play state is tracked in g.playing field
 				}
 				g.endOfGameCalcs(g.onturn, addToHistory)
 				if addToHistory {
@@ -584,7 +611,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		}
 		if g.playing == pb.PlayState_WAITING_FOR_FINAL_PASS {
 			g.playing = pb.PlayState_GAME_OVER
-			g.history.PlayState = g.playing
+			// Play state is tracked in g.playing field
 			log.Trace().Msg("waiting -> gameover transition")
 			// Note that the player "on turn" changes here, as we created
 			// a fake virtual turn on the pass. We need to calculate
@@ -613,7 +640,7 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 		if addToHistory {
 			evt := g.EventFromMove(m)
 			evt.MillisRemaining = int32(millis)
-			g.history.LastKnownRacks[g.onturn] = g.RackLettersFor(g.onturn)
+			// Rack tracking is now only in GenerateSerializableHistory
 			g.addEventToHistory(evt)
 		}
 	}
@@ -690,20 +717,20 @@ func (g *Game) PlaySmallMove(m *tinymove.SmallMove) (
 
 }
 
-// AddFinalScoresToHistory adds the final scores and winner to the history.
+// AddFinalScoresToHistory adds the final scores and winner to the game.
 func (g *Game) AddFinalScoresToHistory() {
-	g.history.FinalScores = make([]int32, len(g.players))
+	g.finalScores = make([]int32, len(g.players))
 	for pidx, p := range g.players {
-		g.history.FinalScores[pidx] = int32(p.points)
+		g.finalScores[pidx] = int32(p.points)
 	}
-	if g.history.FinalScores[0] > g.history.FinalScores[1] {
-		g.history.Winner = 0
-	} else if g.history.FinalScores[0] < g.history.FinalScores[1] {
-		g.history.Winner = 1
+	if g.finalScores[0] > g.finalScores[1] {
+		g.winner = 0
+	} else if g.finalScores[0] < g.finalScores[1] {
+		g.winner = 1
 	} else {
-		g.history.Winner = -1
+		g.winner = -1
 	}
-	log.Debug().Interface("finalscores", g.history.FinalScores).Msg("added-final-scores")
+	log.Debug().Interface("finalscores", g.finalScores).Msg("added-final-scores")
 }
 
 func (g *Game) handleConsecutiveScorelessTurns(addToHistory bool) (bool, error) {
@@ -712,7 +739,7 @@ func (g *Game) handleConsecutiveScorelessTurns(addToHistory bool) (bool, error) 
 		ended = true
 		g.playing = pb.PlayState_GAME_OVER
 		if addToHistory {
-			g.history.PlayState = g.playing
+			// Play state is tracked in g.playing field
 		}
 		pts := g.calculateRackPts(g.onturn)
 		g.players[g.onturn].points -= pts
@@ -819,22 +846,19 @@ func otherPlayer(idx int) int {
 }
 
 func (g *Game) AddNote(note string) error {
-	if g.history == nil {
-		return errors.New("nil history")
-	}
 	evtNum := g.turnnum - 1
 	if evtNum < 0 {
 		return errors.New("event number is negative")
 	}
-	g.history.Events[evtNum].Note = note
+	g.events[evtNum].Note = note
 	return nil
 }
 
-func (g *Game) PlayToTurn(turnnum int) error {
+func (g *Game) PlayToTurn(turnnum int, lastKnownRacks []string) error {
 	log.Debug().Int("turnnum", turnnum).Msg("playing to turn")
-	if turnnum < 0 || turnnum > len(g.history.Events) {
+	if turnnum < 0 || turnnum > len(g.events) {
 		return fmt.Errorf("game has %v turns, you have chosen a turn outside the range",
-			len(g.history.Events))
+			len(g.events))
 	}
 	if g.board == nil {
 		return fmt.Errorf("board does not exist")
@@ -850,7 +874,6 @@ func (g *Game) PlayToTurn(turnnum int) error {
 	g.turnnum = 0
 	g.onturn = 0
 	g.playing = pb.PlayState_PLAYING
-	g.history.PlayState = g.playing
 	var t int
 
 	// Set backup mode to interactive gameplay mode so that we always have
@@ -869,21 +892,21 @@ func (g *Game) PlayToTurn(turnnum int) error {
 	}
 	g.SetBackupMode(oldbackupMode)
 
-	if t >= len(g.history.Events) {
-		if len(g.history.LastKnownRacks[0]) > 0 && len(g.history.LastKnownRacks[1]) > 0 {
+	if t >= len(g.events) {
+		if len(lastKnownRacks) >= 2 && len(lastKnownRacks[0]) > 0 && len(lastKnownRacks[1]) > 0 {
 			g.SetRacksForBoth([]*tilemapping.Rack{
-				tilemapping.RackFromString(g.history.LastKnownRacks[0], g.alph),
-				tilemapping.RackFromString(g.history.LastKnownRacks[1], g.alph),
+				tilemapping.RackFromString(lastKnownRacks[0], g.alph),
+				tilemapping.RackFromString(lastKnownRacks[1], g.alph),
 			})
-		} else if len(g.history.LastKnownRacks[0]) > 0 {
+		} else if len(lastKnownRacks) >= 1 && len(lastKnownRacks[0]) > 0 {
 			// Rack1 but not rack2
-			err := g.SetRackFor(0, tilemapping.RackFromString(g.history.LastKnownRacks[0], g.alph))
+			err := g.SetRackFor(0, tilemapping.RackFromString(lastKnownRacks[0], g.alph))
 			if err != nil {
 				return err
 			}
-		} else if len(g.history.LastKnownRacks[1]) > 0 {
+		} else if len(lastKnownRacks) >= 2 && len(lastKnownRacks[1]) > 0 {
 			// Rack2 but not rack1
-			err := g.SetRackFor(1, tilemapping.RackFromString(g.history.LastKnownRacks[1], g.alph))
+			err := g.SetRackFor(1, tilemapping.RackFromString(lastKnownRacks[1], g.alph))
 			if err != nil {
 				return err
 			}
@@ -891,6 +914,7 @@ func (g *Game) PlayToTurn(turnnum int) error {
 			// They're both blank.
 			// We don't have a recorded rack, so set it to a random one.
 			g.SetRandomRack(g.onturn, nil)
+			g.SetRandomRack(1-g.onturn, nil)
 		}
 
 		log.Debug().Str("r0", g.players[0].rackLetters()).Str("r1", g.players[1].rackLetters()).Msg("PlayToTurn-set-racks")
@@ -900,10 +924,10 @@ func (g *Game) PlayToTurn(turnnum int) error {
 		// who was on turn.
 		// So set the currently on turn's rack to whatever is in the history.
 		log.Trace().Int("turn", t).Msg("setting rack from turn")
-		switch g.history.Events[t].Type {
+		switch g.events[t].Type {
 		case pb.GameEvent_TILE_PLACEMENT_MOVE, pb.GameEvent_EXCHANGE:
 			err := g.SetRackFor(g.onturn, tilemapping.RackFromString(
-				g.history.Events[t].Rack, g.alph))
+				g.events[t].Rack, g.alph))
 			if err != nil {
 				return err
 			}
@@ -914,7 +938,7 @@ func (g *Game) PlayToTurn(turnnum int) error {
 		default:
 			// do the same as in the first case for now?
 			err := g.SetRackFor(g.onturn, tilemapping.RackFromString(
-				g.history.Events[t].Rack, g.alph))
+				g.events[t].Rack, g.alph))
 			if err != nil {
 				return err
 			}
@@ -924,7 +948,7 @@ func (g *Game) PlayToTurn(turnnum int) error {
 	for _, p := range g.players {
 		if p.rack.NumTiles() == 0 {
 			log.Debug().Msgf("Player %v has no tiles, game might be over.", p)
-			if len(g.history.FinalScores) == 0 {
+			if len(g.finalScores) == 0 {
 				// This game has never ended before, so it must not have gotten
 				// past this "final pass" state.
 				log.Debug().Msg("restoring waiting for final pass state")
@@ -932,7 +956,7 @@ func (g *Game) PlayToTurn(turnnum int) error {
 			} else {
 				g.playing = pb.PlayState_GAME_OVER
 			}
-			g.history.PlayState = g.playing
+			// Play state is tracked in g.playing field
 
 			break
 		}
@@ -940,17 +964,24 @@ func (g *Game) PlayToTurn(turnnum int) error {
 	return nil
 }
 
-// PlayLatestEvent "plays" the latest event on the board. This is used for
-// replaying a game from a GCG.
-func (g *Game) PlayLatestEvent() error {
-	return g.PlayTurn(len(g.history.Events) - 1)
+func (g *Game) SetEvents(events []*pb.GameEvent) {
+	g.events = events
+}
+
+// PlayEvent adds an event to the game and plays it on the board.
+// This is used for replaying a game from a GCG.
+func (g *Game) PlayEvent(evt *pb.GameEvent) error {
+	// Add the event to our events array
+	g.events = append(g.events, evt)
+	// Play the event using the existing PlayTurn logic
+	return g.PlayTurn(len(g.events) - 1)
 }
 
 func (g *Game) PlayTurn(t int) error {
 	// XXX: This function is pretty similar to PlayMove above. It has a
 	// subset of the functionality as it's designed to replay an already
 	// recorded turn on the board.
-	evt := g.history.Events[t]
+	evt := g.events[t]
 	log.Trace().Int("event-type", int(evt.Type)).Int("turn", t).Msg("playTurn")
 	g.onturn = int(evt.PlayerIndex)
 	m, err := MoveFromEvent(evt, g.alph, g.board)
@@ -1043,26 +1074,110 @@ func (g *Game) PlayTurn(t int) error {
 }
 
 // SetRackFor sets the player's current rack. It throws an error if
-// the rack is impossible to set from the current unseen tiles. It
-// puts tiles back from opponent racks and our own racks, then sets the rack,
-// and finally redraws for opponent.
+// the rack is impossible to set from the current unseen tiles.
+// This method uses minimal tile reconciliation to avoid disrupting the
+// opponent's rack unless necessary. If opponent has tiles that are needed
+// for the target rack, only those specific tiles are replaced.
+// This is primarily used in analysis mode (endgame solving, game annotation).
 func (g *Game) SetRackFor(playerIdx int, rack *tilemapping.Rack) error {
-	// Put our tiles back in the bag, as well as our opponent's tiles.
-	g.ThrowRacksIn()
-	// Check if we can actually set our rack now that these tiles are in the
-	// bag.
-	log.Trace().Str("rack", rack.TilesOn().UserVisible(g.alph)).Msg("removing from bag")
-	err := g.bag.RemoveTiles(rack.TilesOn())
-	if err != nil {
-		log.Error().Msgf("Unable to set rack for: %v", err)
-		return err
+	oppIdx := otherPlayer(playerIdx)
+	targetRack := rack.TilesOn()
+	oppRack := g.players[oppIdx].rack.TilesOn()
+
+	// Step 1: Return current player's tiles to bag
+	g.players[playerIdx].throwRackIn(g.bag)
+
+	// Step 2: Try to draw the target rack
+	err := g.bag.RemoveTiles(targetRack)
+	if err == nil {
+		// Easy case - we got everything we needed without touching opponent
+		g.players[playerIdx].rack = rack
+		log.Trace().Str("rack", rack.String()).Int("player", playerIdx).Msg("rack set without touching opponent")
+		// Make a copy of opponent's rack
+		// If they don't have a full rack at this time, we want to replenish it.
+		oppRackCopy := make([]tilemapping.MachineLetter, len(oppRack))
+		copy(oppRackCopy, oppRack)
+		_, err = g.SetRandomRack(oppIdx, oppRackCopy)
+		if err != nil {
+			return fmt.Errorf("error restoring opponent rack: %v", err)
+		}
+		return nil
 	}
 
-	// success; set our rack
-	g.players[playerIdx].rack = rack
-	// And redraw a random rack for opponent.
-	g.SetRandomRack(otherPlayer(playerIdx), nil)
+	// Step 3: We need some tiles potentially from opponent's rack
+	// Figure out what tiles we couldn't get from bag
+	log.Trace().Str("target", targetRack.UserVisible(g.alph)).Str("error", err.Error()).Msg("need tiles from opponent")
 
+	// Make a copy of opponent's rack to track what we're taking
+	oppRackCopy := make([]tilemapping.MachineLetter, len(oppRack))
+	copy(oppRackCopy, oppRack)
+
+	// Try to identify which tiles from target are missing from bag
+	// and remove them from opponent's rack copy
+	removedFromBag := []tilemapping.MachineLetter{}
+	for _, needed := range targetRack {
+		err = g.bag.RemoveTiles(tilemapping.MachineWord{needed})
+		if err != nil {
+			// Tile not in bag, try to take from opponent
+			found := false
+			for i, oppTile := range oppRackCopy {
+				if oppTile == needed {
+					// Remove this tile from opponent's rack copy (we're taking it)
+					oppRackCopy = append(oppRackCopy[:i], oppRackCopy[i+1:]...)
+					found = true
+					break
+				}
+			}
+			if !found {
+				// Can't form the requested rack even with all available tiles
+				// First, put back what we removed from bag
+				if len(removedFromBag) > 0 {
+					g.bag.PutBack(tilemapping.MachineWord(removedFromBag))
+				}
+				return fmt.Errorf("cannot set rack: need %v but it's not available (already checked bag and opponent)",
+					needed.UserVisible(g.alph, false))
+			}
+		} else {
+			// Temporarily store removed tiles to put back later
+			removedFromBag = append(removedFromBag, needed)
+		}
+	}
+	log.Debug().
+		Str("targetRack", targetRack.UserVisible(g.alph)).
+		Str("oppRack", tilemapping.MachineWord(oppRack).UserVisible(g.alph)).
+		Str("opprackCopy (keeping)", tilemapping.MachineWord(oppRackCopy).UserVisible(g.alph)).
+		Msg("getting-from-opp")
+	// Put back any tiles we removed from bag, now we're going to do it for real.
+	if len(removedFromBag) > 0 {
+		g.bag.PutBack(tilemapping.MachineWord(removedFromBag))
+	}
+	// oppRackCopy now contains what opponent keeps
+	oppKeeps := tilemapping.MachineWord(oppRackCopy)
+
+	// Step 4: Put opponent's entire rack in bag, take what we need
+	g.players[oppIdx].throwRackIn(g.bag)
+
+	err = g.bag.RemoveTiles(targetRack)
+	if err != nil {
+		// This shouldn't happen given our checking above
+		return fmt.Errorf("unexpected error setting rack: %v", err)
+	}
+
+	// Step 5: Set target player's rack
+	g.players[playerIdx].rack = rack
+
+	// Step 6: Give opponent their kept tiles + random fills for what we took
+	_, err = g.SetRandomRack(oppIdx, oppKeeps)
+	if err != nil {
+		return fmt.Errorf("error restoring opponent rack: %v", err)
+	}
+
+	log.Trace().Str("player_rack", rack.String()).Str("opp_keeps", oppKeeps.UserVisible(g.alph)).
+		Str("opp_new", g.players[oppIdx].rackLetters()).Msg("rack set with minimal disruption")
+
+	// Note: We removed the automatic history sync here.
+	// Caller should explicitly call SyncRacksToHistory() if needed.
+	// g.SyncRacksToHistory()
 	return nil
 }
 
@@ -1077,6 +1192,9 @@ func (g *Game) SetRackForOnly(playerIdx int, rack *tilemapping.Rack) error {
 	}
 	// success; set our rack
 	g.players[playerIdx].rack = rack
+	// Note: History sync removed. Caller should use SyncRacksToHistory() if needed.
+	// g.SyncRacksToHistory()
+
 	return nil
 }
 
@@ -1093,10 +1211,8 @@ func (g *Game) SetRacksForBoth(racks []*tilemapping.Rack) error {
 	for idx, player := range g.players {
 		player.rack = racks[idx]
 	}
-	if g.history != nil {
-		g.history.LastKnownRacks[0] = g.RackLettersFor(0)
-		g.history.LastKnownRacks[1] = g.RackLettersFor(1)
-	}
+	// Note: History sync removed. Caller should use SyncRacksToHistory() if needed.
+	// g.SyncRacksToHistory()
 	return nil
 }
 
@@ -1147,6 +1263,44 @@ func (g *Game) SetRandomRack(playerIdx int, knownRack []tilemapping.MachineLette
 	// log.Debug().Int("player", playerIdx).Str("newrack", g.players[playerIdx].rackLetters).
 	// 	Msg("set random rack")
 	return extraDrawn, nil
+}
+
+// SyncRacksToHistory updates the history with current rack state.
+// Call this only when you need to persist state for external consumption
+// (e.g., before GCG export, after completing moves, etc.).
+// GenerateSerializableHistory creates a GameHistory from the current game state.
+// This should be called whenever a serializable history is needed.
+func (g *Game) GenerateSerializableHistory() *pb.GameHistory {
+	// Create players array for history
+	historyPlayers := make([]*pb.PlayerInfo, len(g.players))
+	for i, p := range g.players {
+		historyPlayers[i] = &pb.PlayerInfo{
+			Nickname: p.Nickname,
+			RealName: p.RealName,
+			UserId:   p.UserId,
+		}
+	}
+
+	return &pb.GameHistory{
+		Events:             g.events,
+		Players:            historyPlayers,
+		Version:            CurrentGameHistoryVersion,
+		Lexicon:            g.lexicon.Name(),
+		Title:              g.title,
+		IdAuth:             g.idAuth,
+		Uid:                g.uid,
+		Description:        g.description,
+		OriginalGcg:        g.originalGcg,
+		LastKnownRacks:     []string{g.RackLettersFor(0), g.RackLettersFor(1)},
+		ChallengeRule:      g.challengeRule,
+		PlayState:          g.playing,
+		FinalScores:        g.finalScores,
+		Variant:            string(g.rules.Variant()),
+		Winner:             g.winner,
+		BoardLayout:        g.rules.BoardName(),
+		LetterDistribution: g.rules.LetterDistributionName(),
+		StartingCgp:        g.startingCGP,
+	}
 }
 
 // RackFor returns the rack for the player with the passed-in index
@@ -1219,7 +1373,22 @@ func (g *Game) Turn() int {
 }
 
 func (g *Game) Uid() string {
-	return g.history.Uid
+	return g.uid
+}
+
+// SetUid sets the unique identifier for this game
+func (g *Game) SetUid(uid string) {
+	g.uid = uid
+}
+
+// SetIdAuth sets the identification authority
+func (g *Game) SetIdAuth(idAuth string) {
+	g.idAuth = idAuth
+}
+
+// SetStartingCGP sets the starting CGP string
+func (g *Game) SetStartingCGP(cgp string) {
+	g.startingCGP = cgp
 }
 
 func (g *Game) Playing() pb.PlayState {
@@ -1262,14 +1431,6 @@ func (g *Game) CurrentSpread() int {
 	return g.PointsFor(g.onturn) - g.PointsFor((g.onturn+1)%2)
 }
 
-func (g *Game) History() *pb.GameHistory {
-	return g.history
-}
-
-func (g *Game) SetHistory(h *pb.GameHistory) {
-	g.history = h
-}
-
 func (g *Game) FirstPlayer() *pb.PlayerInfo {
 	return &g.players[0].PlayerInfo
 }
@@ -1292,6 +1453,59 @@ func (g *Game) ExchangeLimit() int {
 	return g.exchangeLimit
 }
 
+// SetTitle sets the game title
+func (g *Game) SetTitle(title string) {
+	g.title = title
+}
+
+// GetTitle returns the game title
+func (g *Game) GetTitle() string {
+	return g.title
+}
+
+// SetDescription sets the game description
+func (g *Game) SetDescription(description string) {
+	g.description = description
+}
+
+func (g *Game) SetOriginalGcg(originalGcg string) {
+	g.originalGcg = originalGcg
+}
+
+// SetUID sets the game UID
+func (g *Game) SetUID(uid string) {
+	g.uid = uid
+}
+
+// SetIDAuth sets the game ID authority
+func (g *Game) SetIDAuth(idAuth string) {
+	g.idAuth = idAuth
+}
+
+// GetLastEvent returns the last event in the events array, or nil if empty
+func (g *Game) GetLastEvent() *pb.GameEvent {
+	if len(g.events) == 0 {
+		return nil
+	}
+	return g.events[len(g.events)-1]
+}
+
+// AppendNoteToLastEvent appends a note to the last event
+func (g *Game) AppendNoteToLastEvent(note string) {
+	if evt := g.GetLastEvent(); evt != nil {
+		evt.Note += note
+	}
+}
+
+// GetPlayers returns the PlayerInfo for all players
+func (g *Game) GetPlayers() []*pb.PlayerInfo {
+	players := make([]*pb.PlayerInfo, len(g.players))
+	for i, p := range g.players {
+		players[i] = &p.PlayerInfo
+	}
+	return players
+}
+
 // ToCGP converts the game to a CGP string. See cgp directory.
 func (g *Game) ToCGP(formatForBot bool) string {
 	fen := g.board.ToFEN(g.alph)
@@ -1302,16 +1516,14 @@ func (g *Game) ToCGP(formatForBot bool) string {
 	zeroPt := g.scorelessTurns
 	lex := g.lexicon.Name()
 	ld := ""
-	if g.history != nil {
-		ld = g.history.LetterDistribution
-	}
+	// Letter distribution is stored in g.rules
 	if formatForBot {
 		// Clear opponent rack -- if this is a bot move, bot should know
 		// nothing of it.
 		theirRack = ""
 		tm := g.letterDistribution.TileMapping()
-		if g.history != nil && g.turnnum > 0 {
-			oppEvt := g.history.Events[g.turnnum-1]
+		if g.turnnum > 0 {
+			oppEvt := g.events[g.turnnum-1]
 			if oppEvt.Type == pb.GameEvent_PHONY_TILES_RETURNED {
 				// we know opp's last partial or full rack
 				if tiles, err := tilemapping.ToMachineLetters(oppEvt.PlayedTiles, tm); err != nil {

@@ -21,7 +21,7 @@ type Client struct {
 }
 
 func MakeRequest(game *bot.BotTurnPlayer, cfg *config.Config) ([]byte, error) {
-	history := game.History()
+	history := game.GenerateSerializableHistory()
 	if history.Lexicon == "" {
 		history.Lexicon = cfg.GetString(config.ConfigDefaultLexicon)
 	}

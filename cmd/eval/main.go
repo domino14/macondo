@@ -151,26 +151,22 @@ func getEquityLoss(filepath string, lexicon string, playerName string, gameid in
 		panic(err)
 	}
 
-	gameHistory, err := gcgio.ParseGCG(DefaultConfig, filepath)
+	g, err := gcgio.ParseGCG(DefaultConfig, filepath)
 	if err != nil {
 		panic(err)
 	}
+	gameHistory := g.GenerateSerializableHistory()
 	p1Nickname := gameHistory.Players[0].Nickname
 	p2Nickname := gameHistory.Players[1].Nickname
 	if playerName != p1Nickname && playerName != p2Nickname {
 		panic(fmt.Sprintf("player %s not found in (%s, %s) for game %d", playerName, p1Nickname, p2Nickname, gameid))
 	}
 
-	gameHistory.ChallengeRule = pb.ChallengeRule_FIVE_POINT
-
-	g, err := game.NewFromHistory(gameHistory, rules, 0)
-	if err != nil {
-		panic(err)
-	}
+	g.SetChallengeRule(pb.ChallengeRule_FIVE_POINT)
 
 	totalEqloss := 0.0
 	numMoves := 0
-	history := g.History()
+	history := g.GenerateSerializableHistory()
 	players := history.Players
 	botConfig := &bot.BotConfig{Config: *DefaultConfig}
 	for evtIdx, evt := range history.Events {

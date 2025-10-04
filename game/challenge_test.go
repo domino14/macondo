@@ -46,7 +46,9 @@ func TestChallengeDoubleIsLegal(t *testing.T) {
 	alph := g.Alphabet()
 	g.StartGame()
 	g.SetPlayerOnTurn(0)
-	g.SetRackFor(0, tilemapping.RackFromString("IFFIEST", alph))
+	err = g.SetRackFor(0, tilemapping.RackFromString("IFFIEST", alph))
+	is.NoErr(err)
+	// Rack syncing no longer needed
 	g.SetChallengeRule(pb.ChallengeRule_DOUBLE)
 	m := move.NewScoringMoveSimple(84, "8C", "IFFIEST", "", alph)
 	_, err = g.ValidateMove(m)
@@ -56,8 +58,9 @@ func TestChallengeDoubleIsLegal(t *testing.T) {
 	legal, err := g.ChallengeEvent(0, 0)
 	is.NoErr(err)
 	is.True(legal)
-	is.Equal(len(g.History().Events), 2)
-	is.Equal(g.History().Events[1].Type, pb.GameEvent_UNSUCCESSFUL_CHALLENGE_TURN_LOSS)
+	history := g.GenerateSerializableHistory()
+	is.Equal(len(history.Events), 2)
+	is.Equal(history.Events[1].Type, pb.GameEvent_UNSUCCESSFUL_CHALLENGE_TURN_LOSS)
 }
 
 func TestChallengeDoubleIsIllegal(t *testing.T) {
@@ -68,41 +71,41 @@ func TestChallengeDoubleIsIllegal(t *testing.T) {
 	}
 	rules, err := game.NewBasicGameRules(DefaultConfig, "NWL18", board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
 	is.NoErr(err)
-	g, _ := game.NewGame(rules, players)
-	alph := g.Alphabet()
-	g.StartGame()
-	g.SetBackupMode(game.InteractiveGameplayMode)
-	g.SetStateStackLength(1)
-	g.SetPlayerOnTurn(0)
-	g.SetRackFor(0, tilemapping.RackFromString("IFFIEST", alph))
-	g.SetChallengeRule(pb.ChallengeRule_DOUBLE)
-	m := move.NewScoringMoveSimple(84, "8C", "IFFITES", "", alph)
-	_, err = g.ValidateMove(m)
-	is.NoErr(err)
-	err = g.PlayMove(m, true, 0)
-	is.NoErr(err)
-	legal, err := g.ChallengeEvent(0, 0)
-	is.NoErr(err)
-	is.True(!legal)
-	is.Equal(len(g.History().Events), 2)
-	is.Equal(g.History().Events[1].Type, pb.GameEvent_PHONY_TILES_RETURNED)
-
+	for range 1000 {
+		g, _ := game.NewGame(rules, players)
+		alph := g.Alphabet()
+		g.StartGame()
+		g.SetBackupMode(game.InteractiveGameplayMode)
+		g.SetStateStackLength(1)
+		g.SetPlayerOnTurn(0)
+		err = g.SetRackFor(0, tilemapping.RackFromString("IFFIEST", alph))
+		is.NoErr(err)
+		// Rack syncing no longer needed
+		g.SetChallengeRule(pb.ChallengeRule_DOUBLE)
+		m := move.NewScoringMoveSimple(84, "8C", "IFFITES", "", alph)
+		_, err = g.ValidateMove(m)
+		is.NoErr(err)
+		err = g.PlayMove(m, true, 0)
+		is.NoErr(err)
+		legal, err := g.ChallengeEvent(0, 0)
+		is.NoErr(err)
+		is.True(!legal)
+		history := g.GenerateSerializableHistory()
+		is.Equal(len(history.Events), 2)
+		is.Equal(history.Events[1].Type, pb.GameEvent_PHONY_TILES_RETURNED)
+	}
 }
 
 func TestChallengeEndOfGamePlusFive(t *testing.T) {
 	is := is.New(t)
 
-	gameHistory, err := gcgio.ParseGCG(DefaultConfig, "../gcgio/testdata/some_isc_game.gcg")
-	is.NoErr(err)
-	rules, err := game.NewBasicGameRules(DefaultConfig, "NWL18", board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
-	is.NoErr(err)
-
-	g, err := game.NewFromHistory(gameHistory, rules, 0)
+	g, err := gcgio.ParseGCG(DefaultConfig, "../gcgio/testdata/some_isc_game.gcg")
 	is.NoErr(err)
 	g.SetBackupMode(game.InteractiveGameplayMode)
 	g.SetStateStackLength(1)
 	g.SetChallengeRule(pb.ChallengeRule_FIVE_POINT)
-	err = g.PlayToTurn(21)
+	gameHistory := g.GenerateSerializableHistory()
+	err = g.PlayToTurn(21, gameHistory.LastKnownRacks)
 	is.NoErr(err)
 	alph := g.Alphabet()
 	m := move.NewScoringMoveSimple(22, "3K", "ABBE", "", alph)
@@ -121,17 +124,13 @@ func TestChallengeEndOfGamePlusFive(t *testing.T) {
 func TestChallengeEndOfGamePhony(t *testing.T) {
 	is := is.New(t)
 
-	gameHistory, err := gcgio.ParseGCG(DefaultConfig, "../gcgio/testdata/some_isc_game.gcg")
-	is.NoErr(err)
-	rules, err := game.NewBasicGameRules(DefaultConfig, "NWL18", board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
-	is.NoErr(err)
-
-	g, err := game.NewFromHistory(gameHistory, rules, 0)
+	g, err := gcgio.ParseGCG(DefaultConfig, "../gcgio/testdata/some_isc_game.gcg")
 	is.NoErr(err)
 	g.SetBackupMode(game.InteractiveGameplayMode)
 	g.SetStateStackLength(1)
 	g.SetChallengeRule(pb.ChallengeRule_FIVE_POINT)
-	err = g.PlayToTurn(21)
+	gameHistory := g.GenerateSerializableHistory()
+	err = g.PlayToTurn(21, gameHistory.LastKnownRacks)
 	is.NoErr(err)
 	alph := g.Alphabet()
 	m := move.NewScoringMoveSimple(22, "3K", "ABEB", "", alph)
@@ -162,7 +161,9 @@ func TestChallengeTripleUnsuccessful(t *testing.T) {
 	alph := g.Alphabet()
 	g.StartGame()
 	g.SetPlayerOnTurn(0)
-	g.SetRackFor(0, tilemapping.RackFromString("IFFIEST", alph))
+	err = g.SetRackFor(0, tilemapping.RackFromString("IFFIEST", alph))
+	is.NoErr(err)
+	// Rack syncing no longer needed
 	g.SetChallengeRule(pb.ChallengeRule_TRIPLE)
 	m := move.NewScoringMoveSimple(84, "8C", "IFFIEST", "", alph)
 	_, err = g.ValidateMove(m)
@@ -172,9 +173,10 @@ func TestChallengeTripleUnsuccessful(t *testing.T) {
 	legal, err := g.ChallengeEvent(0, 0)
 	is.NoErr(err)
 	is.True(legal)
-	is.Equal(len(g.History().Events), 1)
-	is.Equal(g.History().PlayState, pb.PlayState_GAME_OVER)
-	is.Equal(g.History().Winner, int32(0))
+	history := g.GenerateSerializableHistory()
+	is.Equal(len(history.Events), 1)
+	is.Equal(history.PlayState, pb.PlayState_GAME_OVER)
+	is.Equal(history.Winner, int32(0))
 }
 
 func TestChallengeTripleSuccessful(t *testing.T) {
@@ -191,7 +193,9 @@ func TestChallengeTripleSuccessful(t *testing.T) {
 	g.SetBackupMode(game.InteractiveGameplayMode)
 	g.SetStateStackLength(1)
 	g.SetPlayerOnTurn(0)
-	g.SetRackFor(0, tilemapping.RackFromString("IFFIEST", alph))
+	err = g.SetRackFor(0, tilemapping.RackFromString("IFFIEST", alph))
+	is.NoErr(err)
+	// Rack syncing no longer needed
 	g.SetChallengeRule(pb.ChallengeRule_TRIPLE)
 	m := move.NewScoringMoveSimple(84, "8C", "IFFISET", "", alph)
 	_, err = g.ValidateMove(m)
@@ -201,9 +205,10 @@ func TestChallengeTripleSuccessful(t *testing.T) {
 	legal, err := g.ChallengeEvent(0, 0)
 	is.NoErr(err)
 	is.True(!legal)
-	is.Equal(len(g.History().Events), 2)
-	is.Equal(g.History().PlayState, pb.PlayState_GAME_OVER)
-	is.Equal(g.History().Winner, int32(1))
+	history := g.GenerateSerializableHistory()
+	is.Equal(len(history.Events), 2)
+	is.Equal(history.PlayState, pb.PlayState_GAME_OVER)
+	is.Equal(history.Winner, int32(1))
 }
 
 func TestChallengeRestoreRack(t *testing.T) {
@@ -226,6 +231,7 @@ func TestChallengeRestoreRack(t *testing.T) {
 		tilemapping.RackFromString("MATLIKE", alph),
 	})
 	is.NoErr(err)
+	// Rack syncing no longer needed
 
 	m2 := move.NewScoringMoveSimple(82, "L9", "MATLIKE", "", alph)
 	_, err = g.ValidateMove(m2)
