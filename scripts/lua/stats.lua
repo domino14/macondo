@@ -140,7 +140,10 @@ for turn=0,90 do
 		if nextBoard:find("from their rack") then
 			break
 		end
-		if not nextBoard:find("challenged off") then
+		if not nextBoard:find("challenged off") and (
+				nextBoard:find(name .. " played ") or
+				nextBoard:find(name .. " exchanged ") or 
+				nextBoard:find(name .. " passed ")) then
 			local play = nextBoard:match("played%s([%d%a]+%s[%." .. letterRegex .. "]+)%s")
 			local possibleChallengBoard = setTurnAndGetBoard(turn+2)
 			if (possibleChallengBoard ~= nil and possibleChallengBoard:find("challenged off")) or nextBoard:find("passed, holding") then
