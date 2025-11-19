@@ -208,23 +208,6 @@ func (sc *ShellController) showError(err error) {
 }
 
 func NewShellController(cfg *config.Config, execPath, gitVersion string) *ShellController {
-	prompt := "macondo>"
-	if os.Getenv("NO_COLOR") == "" {
-		prompt = fmt.Sprintf("\033[31m%s\033[0m", prompt)
-	}
-	l, err := readline.NewEx(&readline.Config{
-		Prompt:          prompt + " ",
-		HistoryFile:     "/tmp/readline.tmp",
-		EOFPrompt:       "exit",
-		InterruptPrompt: "^C",
-
-		HistorySearchFold:   true,
-		FuncFilterInputRune: filterInput,
-	})
-
-	if err != nil {
-		panic(err)
-	}
 	execPath = config.FindBasePath(execPath)
 	opts := NewShellOptions()
 	opts.SetDefaults(cfg)
@@ -246,7 +229,43 @@ func NewShellController(cfg *config.Config, execPath, gitVersion string) *ShellC
 		aliases = aliasesFromConfig
 	}
 
-	return &ShellController{l: l, config: cfg, execPath: execPath, options: opts, aliases: aliases, macondoVersion: gitVersion, winpcts: winPcts}
+	// Create a partial ShellController so we can create the autocompleter
+	sc := &ShellController{
+		config:         cfg,
+		execPath:       execPath,
+		options:        opts,
+		aliases:        aliases,
+		macondoVersion: gitVersion,
+		winpcts:        winPcts,
+	}
+
+	// Create the autocompleter with reference to the controller
+	completer := NewShellCompleter(sc)
+
+	// Now create the readline instance with autocomplete enabled
+	prompt := "macondo>"
+	if os.Getenv("NO_COLOR") == "" {
+		prompt = fmt.Sprintf("\033[31m%s\033[0m", prompt)
+	}
+	l, err := readline.NewEx(&readline.Config{
+		Prompt:          prompt + " ",
+		HistoryFile:     "/tmp/readline.tmp",
+		EOFPrompt:       "exit",
+		InterruptPrompt: "^C",
+
+		HistorySearchFold:   true,
+		FuncFilterInputRune: filterInput,
+		AutoComplete:        completer,
+	})
+
+	if err != nil {
+		panic(err)
+	}
+
+	// Set the readline instance on the controller
+	sc.l = l
+
+	return sc
 }
 
 func (sc *ShellController) Cleanup() {
