@@ -37,6 +37,7 @@ const (
 	ConfigOpenaiModel                      = "openai-model"
 	ConfigGeminiApiKey                     = "gemini-api-key"
 	ConfigOpenaiApiKey                     = "openai-api-key"
+	ConfigAliases                          = "aliases"
 )
 
 type Config struct {

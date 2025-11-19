@@ -821,6 +821,101 @@ func (sc *ShellController) help(cmd *shellcmd) (*Response, error) {
 	}
 }
 
+func (sc *ShellController) alias(cmd *shellcmd) (*Response, error) {
+	// No arguments - list all aliases
+	if cmd.args == nil || len(cmd.args) == 0 {
+		if len(sc.aliases) == 0 {
+			return msg("No aliases defined"), nil
+		}
+
+		// Sort by alias name for consistent output
+		names := make([]string, 0, len(sc.aliases))
+		for name := range sc.aliases {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+
+		var result strings.Builder
+		result.WriteString("Defined aliases:\n")
+		for _, name := range names {
+			result.WriteString(fmt.Sprintf("  %s = %s\n", name, sc.aliases[name]))
+		}
+		return msg(result.String()), nil
+	}
+
+	subcommand := cmd.args[0]
+
+	switch subcommand {
+	case "set":
+		// alias set <name> <command>
+		if len(cmd.args) < 3 {
+			return nil, errors.New("usage: alias set <name> <command>")
+		}
+		name := cmd.args[1]
+
+		// Reconstruct the full command from args and options
+		commandParts := cmd.args[2:]
+		for opt, values := range cmd.options {
+			for _, val := range values {
+				commandParts = append(commandParts, "-"+opt, val)
+			}
+		}
+		command := strings.Join(commandParts, " ")
+
+		sc.aliases[name] = command
+
+		// Save to config
+		sc.config.Set(config.ConfigAliases, sc.aliases)
+		err := sc.config.Write()
+		if err != nil {
+			return nil, fmt.Errorf("failed to save alias: %w", err)
+		}
+
+		return msg(fmt.Sprintf("Alias '%s' set to: %s", name, command)), nil
+
+	case "delete", "remove", "rm":
+		// alias delete <name>
+		if len(cmd.args) < 2 {
+			return nil, errors.New("usage: alias delete <name>")
+		}
+		name := cmd.args[1]
+
+		if _, exists := sc.aliases[name]; !exists {
+			return nil, fmt.Errorf("alias '%s' not found", name)
+		}
+
+		delete(sc.aliases, name)
+
+		// Save to config
+		sc.config.Set(config.ConfigAliases, sc.aliases)
+		err := sc.config.Write()
+		if err != nil {
+			return nil, fmt.Errorf("failed to save config: %w", err)
+		}
+
+		return msg(fmt.Sprintf("Alias '%s' deleted", name)), nil
+
+	case "show":
+		// alias show <name>
+		if len(cmd.args) < 2 {
+			return nil, errors.New("usage: alias show <name>")
+		}
+		name := cmd.args[1]
+
+		if command, exists := sc.aliases[name]; exists {
+			return msg(fmt.Sprintf("%s = %s", name, command)), nil
+		}
+		return nil, fmt.Errorf("alias '%s' not found", name)
+
+	case "list":
+		// Same as calling with no arguments
+		return sc.alias(&shellcmd{cmd: "alias", args: nil, options: nil})
+
+	default:
+		return nil, fmt.Errorf("unknown subcommand '%s'. Valid: set, delete, show, list", subcommand)
+	}
+}
+
 func (sc *ShellController) setMode(cmd *shellcmd) (*Response, error) {
 	if cmd.args == nil {
 		return msg("Current mode: " + modeToStr(sc.curMode)), nil
