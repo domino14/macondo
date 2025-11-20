@@ -1072,6 +1072,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.setMode(cmd)
 	case "export":
 		return sc.export(cmd)
+	case "render":
+		return sc.render3D(cmd)
 	case "autoanalyze":
 		return sc.autoAnalyze(cmd)
 	case "script":

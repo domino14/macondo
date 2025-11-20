@@ -1,0 +1,43 @@
+render - Render the current board position in 3D
+
+Example usage:
+
+    render
+    render -tile-color pink -board-color blue
+    render -tile-color black
+    render -heatmap "H8 HELLO"
+    render -heatmap "12A JOINT" -ply 0
+    render -heatmap "12A JOINT" -ply 1
+
+This command generates a 3D visualization of the current board position using
+Three.js and opens it in your default web browser. The visualization includes:
+
+- Interactive 3D board with tiles
+- Your rack on an angled stand
+- Unseen tiles (bag + opponent's rack) displayed to the right
+- Bonus squares (double/triple word/letter)
+- Row and column labels
+- Mouse controls: drag to rotate, scroll to zoom, right-click to pan
+- Save button to export the view as PNG
+
+Options:
+    -tile-color    Color of the tiles (default: orange)
+                   Options: orange, yellow, pink, red, blue, black, white
+    -board-color   Color of the board base (default: jade)
+                   Options: jade, teal, blue, purple, green, darkgreen, brown
+    -heatmap       Render heatmap overlay for a specific play (requires simulation data)
+                   Example: -heatmap "H8 HELLO"
+                   Must run 'sim -collect-heatmap true' first to generate heatmap data
+                   Shows blue (low) to red (high) gradient for tile placement frequency
+                   The move will be temporarily placed on the board in the visualization
+                   Board colors are automatically dimmed when heatmap is active
+    -ply           Ply index to analyze (default: 0, meaning opponent's immediate response)
+                   Example: -ply 0 (opponent's response), -ply 1 (your follow-up), etc.
+                   Only valid when used with -heatmap
+
+The rendered HTML file is saved to a temporary location (typically /tmp) and
+automatically opened. The file will persist until your system cleans up temp
+files, so you can revisit it or share it.
+
+You must have a game loaded first. Use the `load` command to load a game.
+

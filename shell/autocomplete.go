@@ -74,6 +74,9 @@ var commandMetadata = map[string]CommandMetadata{
 	"mode": {
 		Args: []string{"standard", "endgamedebug"},
 	},
+	"render": {
+		Options: []string{"-tile-color", "-board-color", "-heatmap", "-ply"},
+	},
 }
 
 // Common command names for command completion
@@ -81,7 +84,7 @@ var commandNames = []string{
 	"help", "alias", "new", "load", "unload", "last", "n", "p", "s",
 	"name", "note", "turn", "rack", "set", "setconfig", "gen", "autoplay",
 	"sim", "infer", "add", "challenge", "commit", "aiplay", "hastyplay",
-	"selftest", "list", "endgame", "peg", "mode", "export", "autoanalyze",
+	"selftest", "list", "endgame", "peg", "mode", "export", "render", "autoanalyze",
 	"script", "gid", "leave", "cgp", "check", "explain", "exit",
 }
 
@@ -184,6 +187,10 @@ func (c *ShellCompleter) Do(line []rune, pos int) ([][]rune, int) {
 				completions = boolValues
 			case "useinferences":
 				completions = []string{"weightedrandomtiles", "weightedrandomracks"}
+			case "tile-color":
+				completions = []string{"orange", "yellow", "pink", "red", "blue", "black", "white"}
+			case "board-color":
+				completions = []string{"jade", "teal", "blue", "purple", "green", "darkgreen", "brown"}
 			}
 		}
 

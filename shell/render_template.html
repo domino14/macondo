@@ -1,0 +1,1205 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Macondo 3D Board Renderer</title>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        font-family: Arial, sans-serif;
+      }
+      #info {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        color: white;
+        background: rgba(0, 0, 0, 0.7);
+        padding: 10px;
+        border-radius: 5px;
+        z-index: 100;
+      }
+      #canvas-container {
+        width: 100vw;
+        height: 100vh;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="info">
+      <strong>Macondo 3D Board</strong><br />
+      Drag to rotate | Scroll to zoom | Right-click to pan
+      <br /><br />
+      <div
+        id="heatmapInfo"
+        style="
+          margin: 10px 0;
+          padding: 8px;
+          background: rgba(255, 255, 255, 0.1);
+          border-radius: 4px;
+          display: none;
+        "
+      >
+        <strong>Heatmap:</strong><br />
+        <span id="heatmapPlay"></span><br />
+        <span id="heatmapPly"></span>
+      </div>
+      <button id="saveBtn" style="padding: 5px 10px; cursor: pointer">
+        Save as PNG
+      </button>
+    </div>
+    <div id="canvas-container"></div>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+
+    <script type="module">
+      import * as THREE from 'three';
+      import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+      import { FontLoader } from 'three/addons/loaders/FontLoader.js';
+      import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
+      import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
+
+      // Board data - will be replaced by Go template
+      const FEN_DATA = "{{.FEN}}";
+      const RACK_DATA = "{{.Rack}}";
+      const REMAINING_TILES = {{.RemainingTiles}};
+      const TILE_COLOR = "{{.TileColor}}";
+      const BOARD_COLOR = "{{.BoardColor}}";
+      const PLAYER0_NAME = "{{.Player0Name}}";
+      const PLAYER1_NAME = "{{.Player1Name}}";
+      const PLAYER0_SCORE = {{.Player0Score}};
+      const PLAYER1_SCORE = {{.Player1Score}};
+      const HEATMAP_DATA = {{.Heatmap}};
+      const HEATMAP_ACTIVE = {{.HeatmapActive}};
+      const HEATMAP_PLAY = "{{.HeatmapPlay}}";
+      const HEATMAP_PLY = {{.HeatmapPly}};
+      const PLAYER_ON_TURN = {{.PlayerOnTurn}};
+      const LAST_PLAY = "{{.LastPlay}}";
+
+      console.log("FEN_DATA:", FEN_DATA);
+      console.log("RACK_DATA:", RACK_DATA);
+      console.log("REMAINING_TILES:", REMAINING_TILES);
+      console.log("TILE_COLOR:", TILE_COLOR);
+      console.log("BOARD_COLOR:", BOARD_COLOR);
+
+      // Color maps
+      const tileColors = {
+          "orange": { hex: 0xff6b35, textColor: 0x000000 },  // True orange
+          "yellow": { hex: 0xffa500, textColor: 0x000000 },  // Bright yellow-orange
+          "pink": { hex: 0xff69b4, textColor: 0x000000 },
+          "red": { hex: 0xe53935, textColor: 0xffffff },
+          "blue": { hex: 0x1976d2, textColor: 0xffffff },    // Deep blue
+          "black": { hex: 0x2c2c2c, textColor: 0xffffff },
+          "white": { hex: 0xf5f5f5, textColor: 0x000000 }
+      };
+
+      const boardColors = {
+          "jade": 0x00ffbd,
+          "teal": 0x00897b,
+          "blue": 0x2196f3,
+          "purple": 0x9c27b0,
+          "green": 0x4caf50,
+          "darkgreen": 0x1b5e20,
+          "brown": 0x795548
+      };
+
+      const tileColorConfig = tileColors[TILE_COLOR] || tileColors["orange"];
+      const boardColorHex = boardColors[BOARD_COLOR] || boardColors["jade"];
+
+      // Calculate label color based on board brightness
+      function getLabelColor(boardColor) {
+          // Extract RGB components
+          const r = (boardColor >> 16) & 0xff;
+          const g = (boardColor >> 8) & 0xff;
+          const b = boardColor & 0xff;
+          // Calculate perceived brightness (0-255)
+          const brightness = (r * 0.299 + g * 0.587 + b * 0.114);
+          // If board is bright, use dark labels, otherwise use lighter labels
+          return brightness > 128 ? 0x333333 : 0x666666;
+      }
+
+      const labelColor = getLabelColor(boardColorHex);
+
+      // Constants from jade
+      const gridSize = 15;
+      const squareSize = 5;
+      const boardThickness = 2;
+      const gridHeight = 1;
+      const tileDepth = 1.5;
+      const offset = (gridSize * squareSize) / 2 - squareSize / 2;
+      const boardTileZPos = boardThickness / 2 + gridHeight;
+
+      // Rack constants
+      const rackHeight = 3;
+      const rackWidth = 50;
+      const rackDepth = 7;
+      const rackYPos = -38;
+
+      // Bonus square layout (Scrabble standard)
+      const gridLayout = [
+          "=  '   =   '  =",
+          ' -   "   "   - ',
+          "  -   ' '   -  ",
+          "'  -   '   -  '",
+          "    -     -    ",
+          ' "   "   "   " ',
+          "  '   ' '   '  ",
+          "=  '   -   '  =",
+          "  '   ' '   '  ",
+          ' "   "   "   " ',
+          "    -     -    ",
+          "'  -   '   -  '",
+          "  -   ' '   -  ",
+          ' -   "   "   - ',
+          "=  '   =   '  ="
+      ];
+
+      const bonusColors = {
+          '=': 0xff3333,  // Triple word
+          '-': 0xff9999,  // Double word
+          '"': 0x3333ff,  // Triple letter
+          "'": 0x4eb7e1,  // Double letter
+          '~': 0x22ff22,  // Quadruple word
+          '^': 0x99ff99,  // Quadruple letter
+          '*': 0x000000,  // Starting square
+          ' ': 0xffffff   // No bonus
+      };
+
+      // Dim a color for heatmap mode - desaturate and lighten
+      function dimColor(hexColor) {
+          const color = new THREE.Color(hexColor);
+          const hsl = {};
+          color.getHSL(hsl);
+
+          // Reduce saturation significantly and increase lightness
+          hsl.s = hsl.s * 0.25;  // Reduce saturation to 25%
+          hsl.l = hsl.l * 0.7 + 0.3;  // Move lightness toward white
+
+          color.setHSL(hsl.h, hsl.s, hsl.l);
+          return color.getHex();
+      }
+
+      const bonusLabels = {
+          '=': '3x',  // Triple word
+          '-': '2x',  // Double word
+          '"': '3x',  // Triple letter
+          "'": '2x',  // Double letter
+          '~': '4x',  // Quadruple word
+          '^': '4x',  // Quadruple letter
+          '*': '',    // Starting square
+          ' ': ''     // No bonus
+      };
+
+      // Letter scores from the current alphabet (passed from Go)
+      const letterScores = {{.AlphabetScores}};
+
+      function getLetterScore(letter) {
+          const upper = letter.toUpperCase();
+          // lowercase in FEN means blank
+          if (letter === letter.toLowerCase() && letter !== letter.toUpperCase()) {
+              return 0;
+          }
+          // Strip brackets for multi-character tiles like [CH], [LL], [RR]
+          const cleanLetter = upper.replace(/[\[\]]/g, '');
+          return letterScores[cleanLetter] || 0;
+      }
+
+      // Parse a string that may contain bracket-enclosed digraphs
+      // Returns an array of tiles (e.g., "AB[CH]D" -> ["A", "B", "CH", "D"])
+      function parseRackString(str) {
+          const tiles = [];
+          let i = 0;
+
+          while (i < str.length) {
+              const char = str[i];
+
+              if (char === '[') {
+                  // Multi-character tile (digraph) like [CH], [LL], [RR]
+                  // Collect everything until ']'
+                  let multiTile = '';
+                  i++; // skip the '['
+                  while (i < str.length && str[i] !== ']') {
+                      multiTile += str[i];
+                      i++;
+                  }
+                  i++; // skip the ']'
+                  tiles.push(multiTile);
+              } else {
+                  // Single character tile
+                  tiles.push(char);
+                  i++;
+              }
+          }
+
+          return tiles;
+      }
+
+      function parseFEN(fen) {
+          const rows = fen.split("/");
+          const board = [];
+
+          for (const row of rows) {
+              const boardRow = [];
+              let i = 0;
+
+              while (i < row.length) {
+                  const char = row[i];
+
+                  if (char === '[') {
+                      // Multi-character tile (digraph) like [CH], [LL], [RR]
+                      // Collect everything until ']'
+                      let multiTile = '';
+                      i++; // skip the '['
+                      while (i < row.length && row[i] !== ']') {
+                          multiTile += row[i];
+                          i++;
+                      }
+                      i++; // skip the ']'
+                      boardRow.push(multiTile);
+                  } else if (!isNaN(parseInt(char))) {
+                      // Number indicating empty spaces
+                      let num = "";
+                      while (i < row.length && !isNaN(parseInt(row[i]))) {
+                          num += row[i];
+                          i++;
+                      }
+                      const emptySpaces = parseInt(num);
+                      for (let j = 0; j < emptySpaces; j++) {
+                          boardRow.push("");
+                      }
+                  } else {
+                      // Single character tile
+                      boardRow.push(char);
+                      i++;
+                  }
+              }
+
+              board.push(boardRow);
+          }
+
+          return board;
+      }
+
+      function createTile(letter, score, font) {
+          const group = new THREE.Group();
+
+          // Tile shape (rounded rectangle)
+          const width = squareSize - 0.75;
+          const height = squareSize - 0.25;
+          const radius = 0.5;
+
+          const shape = new THREE.Shape();
+          shape.moveTo(radius, 0);
+          shape.lineTo(width - radius, 0);
+          shape.quadraticCurveTo(width, 0, width, radius);
+          shape.lineTo(width, height - radius);
+          shape.quadraticCurveTo(width, height, width - radius, height);
+          shape.lineTo(radius, height);
+          shape.quadraticCurveTo(0, height, 0, height - radius);
+          shape.lineTo(0, radius);
+          shape.quadraticCurveTo(0, 0, radius, 0);
+
+          const extrudeSettings = {
+              steps: 1,
+              depth: tileDepth,
+              bevelEnabled: false
+          };
+
+          const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+          const material = new THREE.MeshStandardMaterial({
+              color: tileColorConfig.hex,
+              roughness: 0.7,
+              metalness: 0.1,
+              envMapIntensity: 1.5
+          });
+          const tile = new THREE.Mesh(geometry, material);
+          tile.castShadow = true;
+          tile.receiveShadow = true;
+          group.add(tile);
+
+          // Letter text - strip brackets if present (e.g., "[CH]" -> "CH")
+          const displayLetter = letter.toUpperCase().replace(/[\[\]]/g, '');
+
+          // Adjust font size for multi-character tiles (digraphs like CH, LL, RR)
+          let fontSize;
+          if (displayLetter.length === 1) {
+              fontSize = Math.min(2.6, width * 0.6);
+          } else if (displayLetter.length === 2) {
+              fontSize = Math.min(2.0, width * 0.45);  // Smaller for digraphs
+          } else {
+              fontSize = Math.min(1.6, width * 0.35);  // Even smaller for longer
+          }
+
+          const letterGeometry = new TextGeometry(displayLetter, {
+              font: font,
+              size: fontSize,
+              height: 0.1,  // Some versions use 'height' instead of 'depth'
+              curveSegments: 12,
+              bevelEnabled: false
+          });
+
+          // Check if this is a blank tile (lowercase in original letter)
+          const isBlank = letter === letter.toLowerCase() && letter !== letter.toUpperCase();
+
+          // For blanks, use red text, but use blue if tile is red or pink for contrast
+          let textColor = tileColorConfig.textColor;
+          if (isBlank) {
+              if (TILE_COLOR === 'red' || TILE_COLOR === 'pink') {
+                  textColor = 0x0000ff;  // Blue for contrast on red/pink tiles
+              } else {
+                  textColor = 0xff0000;  // Red for blanks
+              }
+          }
+
+          const letterMaterial = new THREE.MeshBasicMaterial({ color: textColor });
+          const letterMesh = new THREE.Mesh(letterGeometry, letterMaterial);
+          letterMesh.castShadow = true;
+
+          // Adjust horizontal positioning based on letter width
+          let xOffset;
+          if (displayLetter.length >= 2) {
+              // Multi-character tiles need less offset (more centered)
+              xOffset = 0.05;
+          } else if (displayLetter === 'I') {
+              xOffset = 0.4;
+          } else if (displayLetter === 'W' || displayLetter === 'M') {
+              xOffset = 0.1;
+          } else {
+              xOffset = 0.15;
+          }
+          letterMesh.position.set(xOffset * width, 0.2 * height, tileDepth);
+          group.add(letterMesh);
+
+          // Score text
+          if (score > 0) {
+              const scoreGeometry = new TextGeometry(score.toString(), {
+                  font: font,
+                  size: 1,
+                  height: 0.1  // Some versions use 'height' instead of 'depth'
+              });
+              const scoreMesh = new THREE.Mesh(scoreGeometry, letterMaterial);
+              scoreMesh.castShadow = true;
+              const scoreXOffset = score >= 10 ? 0.62 : 0.75;
+              scoreMesh.position.set(scoreXOffset * width, 0.1 * height, tileDepth);
+              group.add(scoreMesh);
+          }
+
+          return group;
+      }
+
+      // Rack geometry parameters
+      function rackGeomParams(rackHeight, rackDepth) {
+          const height1 = rackHeight * 0.4;
+          const height2 = rackHeight * 0.3;
+
+          const depth1 = 0.16 * rackDepth;
+          const depth2 = 0.4 * rackDepth;
+          const depth3 = 0.8 * rackDepth;
+          const radius1 = 0.015 * rackDepth;
+          const radius2 = 0.16 * rackDepth;
+          const slope = (rackHeight - radius1 - height2) / (depth2 + radius1 - depth3);
+
+          return { height1, height2, depth1, depth2, depth3, radius1, radius2, slope };
+      }
+
+      // Create the 3D rack
+      function createRack(scene, x, y, z) {
+          const shape = new THREE.Shape();
+          const { height1, height2, depth1, depth2, depth3, radius1, radius2 } =
+              rackGeomParams(rackHeight, rackDepth);
+
+          shape.moveTo(radius1, 0);
+          shape.lineTo(rackDepth - radius1, 0);
+          shape.quadraticCurveTo(rackDepth, 0, rackDepth, radius1);
+          shape.lineTo(rackDepth, height2);
+
+          const controlPointX = (rackDepth + depth3) / 2;
+          const controlPointY = height2 + radius2;
+
+          shape.bezierCurveTo(
+              controlPointX,
+              controlPointY,
+              controlPointX,
+              height2,
+              depth3,
+              height2
+          );
+
+          shape.lineTo(depth2 + radius1, rackHeight - radius1);
+          shape.quadraticCurveTo(depth2, rackHeight, depth2 - radius1, rackHeight);
+          shape.lineTo(depth1 + radius1, rackHeight);
+          shape.quadraticCurveTo(
+              depth1,
+              rackHeight,
+              depth1 - radius1,
+              rackHeight - radius1
+          );
+          shape.lineTo(0, height1);
+          shape.lineTo(0, radius1);
+          shape.quadraticCurveTo(0, 0, radius1, 0);
+
+          const extrudeSettings = {
+              steps: 1,
+              depth: rackWidth,
+              bevelEnabled: false,
+          };
+
+          const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+          const material = new THREE.MeshStandardMaterial({
+              color: 0xc8a850,
+              roughness: 0.4,
+              metalness: 0.2,
+              envMapIntensity: 1.0
+          });
+
+          const rack = new THREE.Mesh(geometry, material);
+          rack.position.set(x, y, z);
+          rack.rotation.set(Math.PI / 2, (3 * Math.PI) / 2, 0);
+          rack.receiveShadow = true;
+          rack.castShadow = true;
+          scene.add(rack);
+      }
+
+      // Create a tile on the rack
+      function createRackTile(scene, font, pos, letter, score, rackSlope) {
+          const xpos = -rackWidth / 2 + 2 * squareSize + pos * (squareSize - 0.6);
+          const ypos = rackYPos - squareSize - 0.9;
+          const zpos = 1.8;
+          const rotation = -Math.atan(rackSlope);
+
+          const tile = createTile(letter, score, font);
+          tile.position.set(xpos, ypos, zpos);
+          tile.rotation.x = rotation;
+          scene.add(tile);
+      }
+
+      // Create a chair
+      function createChair(scene, x, y, z) {
+          const chairMaterial = new THREE.MeshStandardMaterial({
+              color: 0x654321,
+              roughness: 0.6,
+              metalness: 0.1
+          });
+
+          // Seat
+          const seat = new THREE.Mesh(
+              new THREE.BoxGeometry(35, 35, 4),
+              chairMaterial
+          );
+          seat.position.set(x, y, z);
+          seat.castShadow = true;
+          seat.receiveShadow = true;
+          scene.add(seat);
+
+          // Backrest
+          const backrest = new THREE.Mesh(
+              new THREE.BoxGeometry(35, 4, 40),
+              chairMaterial
+          );
+          backrest.position.set(x, y + 20, z + 22);
+          backrest.castShadow = true;
+          scene.add(backrest);
+
+          // Chair legs
+          const legHeight = 36;
+          const chairLegPositions = [
+              [x - 14, y - 14, z - legHeight/2],
+              [x + 14, y - 14, z - legHeight/2],
+              [x - 14, y + 14, z - legHeight/2],
+              [x + 14, y + 14, z - legHeight/2]
+          ];
+
+          chairLegPositions.forEach(([lx, ly, lz]) => {
+              const leg = new THREE.Mesh(
+                  new THREE.CylinderGeometry(2, 2, legHeight, 8),
+                  chairMaterial
+              );
+              leg.rotation.x = Math.PI / 2;
+              leg.position.set(lx, ly, lz);
+              leg.castShadow = true;
+              scene.add(leg);
+          });
+      }
+
+      // Create a simple person
+      function createPerson(scene, x, y, z) {
+          const skinColor = 0xf0c8a0;
+          const shirtColor = 0x4a90e2;
+          const pantsColor = 0x2c3e50;
+
+          // Head
+          const head = new THREE.Mesh(
+              new THREE.SphereGeometry(7, 16, 16),
+              new THREE.MeshStandardMaterial({
+                  color: skinColor,
+                  roughness: 0.8,
+                  metalness: 0.1
+              })
+          );
+          head.position.set(x, y, z + 36);
+          head.castShadow = true;
+          scene.add(head);
+
+          // Torso
+          const torso = new THREE.Mesh(
+              new THREE.BoxGeometry(14, 9, 18),
+              new THREE.MeshStandardMaterial({
+                  color: shirtColor,
+                  roughness: 0.7,
+                  metalness: 0.1
+              })
+          );
+          torso.position.set(x, y, z + 20);
+          torso.castShadow = true;
+          scene.add(torso);
+
+          // Arms
+          const armGeometry = new THREE.CylinderGeometry(2.5, 2.5, 16, 8);
+          const armMaterial = new THREE.MeshStandardMaterial({
+              color: shirtColor,
+              roughness: 0.7,
+              metalness: 0.1
+          });
+
+          // Left arm
+          const leftArm = new THREE.Mesh(armGeometry, armMaterial);
+          leftArm.rotation.z = Math.PI / 6;
+          leftArm.position.set(x - 9, y + 2, z + 18);
+          leftArm.castShadow = true;
+          scene.add(leftArm);
+
+          // Right arm
+          const rightArm = new THREE.Mesh(armGeometry, armMaterial);
+          rightArm.rotation.z = -Math.PI / 6;
+          rightArm.position.set(x + 9, y + 2, z + 18);
+          rightArm.castShadow = true;
+          scene.add(rightArm);
+
+          // Hands on table
+          const handGeometry = new THREE.SphereGeometry(3, 8, 8);
+          const handMaterial = new THREE.MeshStandardMaterial({
+              color: skinColor,
+              roughness: 0.8,
+              metalness: 0.1
+          });
+
+          const leftHand = new THREE.Mesh(handGeometry, handMaterial);
+          leftHand.position.set(x - 18, y - 10, z + 4);
+          leftHand.castShadow = true;
+          scene.add(leftHand);
+
+          const rightHand = new THREE.Mesh(handGeometry, handMaterial);
+          rightHand.position.set(x + 18, y - 10, z + 4);
+          rightHand.castShadow = true;
+          scene.add(rightHand);
+
+          // Legs (sitting position)
+          const legGeometry = new THREE.CylinderGeometry(3.5, 3.5, 18, 8);
+          const legMaterial = new THREE.MeshStandardMaterial({
+              color: pantsColor,
+              roughness: 0.7,
+              metalness: 0.1
+          });
+
+          const leftLeg = new THREE.Mesh(legGeometry, legMaterial);
+          leftLeg.rotation.x = Math.PI / 2;
+          leftLeg.position.set(x - 5, y + 6, z - 4);
+          leftLeg.castShadow = true;
+          scene.add(leftLeg);
+
+          const rightLeg = new THREE.Mesh(legGeometry, legMaterial);
+          rightLeg.rotation.x = Math.PI / 2;
+          rightLeg.position.set(x + 5, y + 6, z - 4);
+          rightLeg.castShadow = true;
+          scene.add(rightLeg);
+      }
+
+      // Create unseen tiles in a grid to the right of the board
+      function createUnseenTiles(scene, font, remainingTiles) {
+          console.log("Inside createUnseenTiles, remainingTiles:", remainingTiles);
+          if (!remainingTiles || Object.keys(remainingTiles).length === 0) {
+              console.log("No remaining tiles to display");
+              return;
+          }
+
+          // Grid configuration
+          const tilesPerRow = 5;
+          const tileSpacing = squareSize + 0.5;
+          const startX = offset + squareSize * 4.25; // Shift 2.25 tile widths to the right
+          const startY = offset; // Start from top
+          const tableTopZ = -boardThickness / 2; // Table surface height
+
+          let currentIndex = 0;
+
+          // Sort tiles: blanks first, then alphabetically
+          const sortedEntries = Object.entries(remainingTiles).sort((a, b) => {
+              if (a[0] === '?') return -1;
+              if (b[0] === '?') return 1;
+              return a[0].localeCompare(b[0]);
+          });
+
+          console.log("Sorted entries:", sortedEntries);
+
+          for (const [letter, count] of sortedEntries) {
+              const score = getLetterScore(letter);
+
+              for (let i = 0; i < count; i++) {
+                  const row = Math.floor(currentIndex / tilesPerRow);
+                  const col = currentIndex % tilesPerRow;
+
+                  const x = startX + col * tileSpacing;
+                  const y = startY - row * tileSpacing;
+                  const z = tableTopZ; // Bottom of tile sits on table surface
+
+                  console.log(`Creating unseen tile ${currentIndex}: ${letter} at (${x}, ${y}, ${z})`);
+                  const tile = createTile(letter, score, font);
+                  tile.position.set(x, y, z);
+                  scene.add(tile);
+
+                  currentIndex++;
+              }
+          }
+          console.log(`Created ${currentIndex} unseen tiles total`);
+
+          // Add "Unseen Tiles" label above the tile pool
+          const labelGeometry = new TextGeometry('Unseen Tiles', {
+              font: font,
+              size: 2.5,
+              height: 0.1,
+              curveSegments: 8,
+              bevelEnabled: false
+          });
+          const labelMaterial = new THREE.MeshBasicMaterial({ color: 0x333333 });
+          const labelMesh = new THREE.Mesh(labelGeometry, labelMaterial);
+
+          // Center the label above the tile pool
+          const labelX = startX + (tilesPerRow * tileSpacing) / 2 - 7;
+          const labelY = startY + squareSize * 1.5;
+          const labelZ = tableTopZ + 0.1;
+
+          labelMesh.position.set(labelX, labelY, labelZ);
+          scene.add(labelMesh);
+      }
+
+      function createBoard(scene, font, boardArray) {
+          // Create circular base
+          const baseGeometry = new THREE.CylinderGeometry(55, 55, boardThickness, 64);
+          const baseMaterial = new THREE.MeshStandardMaterial({
+              color: boardColorHex,
+              roughness: 0.6,
+              metalness: 0.05,
+              envMapIntensity: 0.8
+          });
+          const base = new THREE.Mesh(baseGeometry, baseMaterial);
+          base.rotation.x = Math.PI / 2;
+          base.position.z = 0;
+          base.receiveShadow = true;
+          scene.add(base);
+
+          const gridBottomZPos = boardThickness / 2;
+          const wallThickness = 0.25;
+          const wallHeight = 0.55;
+
+          // Create grid squares
+          for (let i = 0; i < gridSize; i++) {
+              for (let j = 0; j < gridSize; j++) {
+                  const bonusType = gridLayout[i][j];
+                  let color = bonusColors[bonusType] || 0xffffff;
+
+                  // Dim colors in heatmap mode
+                  if (HEATMAP_ACTIVE) {
+                      color = dimColor(color);
+                  }
+
+                  const squareGeom = new THREE.BoxGeometry(
+                      squareSize,
+                      squareSize,
+                      gridHeight
+                  );
+                  const squareMat = new THREE.MeshStandardMaterial({
+                      color: color,
+                      roughness: 0.8,
+                      metalness: 0.0,
+                      envMapIntensity: 0.5
+                  });
+                  const square = new THREE.Mesh(squareGeom, squareMat);
+
+                  const x = i * squareSize - offset;
+                  const y = j * squareSize - offset;
+                  const z = gridBottomZPos + gridHeight / 2;
+
+                  square.position.set(x, y, z);
+                  square.receiveShadow = true;
+                  scene.add(square);
+
+                  // Add walls around square
+                  const wallMat = new THREE.MeshBasicMaterial({ color: 0x444444 });
+
+                  // Top wall
+                  const topWall = new THREE.Mesh(
+                      new THREE.BoxGeometry(squareSize, wallThickness, wallHeight),
+                      wallMat
+                  );
+                  topWall.position.set(x, y + squareSize / 2, gridBottomZPos + gridHeight);
+                  scene.add(topWall);
+
+                  // Bottom wall
+                  const bottomWall = new THREE.Mesh(
+                      new THREE.BoxGeometry(squareSize, wallThickness, wallHeight),
+                      wallMat
+                  );
+                  bottomWall.position.set(x, y - squareSize / 2, gridBottomZPos + gridHeight);
+                  scene.add(bottomWall);
+
+                  // Left wall
+                  const leftWall = new THREE.Mesh(
+                      new THREE.BoxGeometry(wallThickness, squareSize, wallHeight),
+                      wallMat
+                  );
+                  leftWall.position.set(x - squareSize / 2, y, gridBottomZPos + gridHeight);
+                  scene.add(leftWall);
+
+                  // Right wall
+                  const rightWall = new THREE.Mesh(
+                      new THREE.BoxGeometry(wallThickness, squareSize, wallHeight),
+                      wallMat
+                  );
+                  rightWall.position.set(x + squareSize / 2, y, gridBottomZPos + gridHeight);
+                  scene.add(rightWall);
+
+                  // Add bonus labels
+                  if (bonusType !== ' ' && bonusLabels[bonusType]) {
+                      const labelGeom = new TextGeometry(bonusLabels[bonusType], {
+                          font: font,
+                          size: 1.2,
+                          height: 0.02,  // Some versions use 'height' instead of 'depth'
+                          curveSegments: 4,
+                          bevelEnabled: false
+                      });
+                      const labelColor = 0xffffff;
+                      const labelMat = new THREE.MeshBasicMaterial({ color: labelColor });
+                      const labelMesh = new THREE.Mesh(labelGeom, labelMat);
+                      labelMesh.position.set(
+                          x - squareSize * 0.15,
+                          y - squareSize * 0.1,
+                          gridBottomZPos + gridHeight + 0.01
+                      );
+                      scene.add(labelMesh);
+                  }
+              }
+          }
+
+          // Add column labels (A-O)
+          const columns = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O'];
+          columns.forEach((letter, index) => {
+              const geometry = new TextGeometry(letter, {
+                  font: font,
+                  size: 1.875,
+                  height: 0.05,  // Some versions use 'height' instead of 'depth'
+                  curveSegments: 8,
+                  bevelEnabled: false
+              });
+              const material = new THREE.MeshBasicMaterial({ color: labelColor });
+              const mesh = new THREE.Mesh(geometry, material);
+              mesh.position.set(
+                  index * squareSize - offset - squareSize / 4,
+                  offset + squareSize * 0.8,
+                  boardThickness / 2 + 0.01
+              );
+              scene.add(mesh);
+          });
+
+          // Add row labels (1-15)
+          for (let i = 0; i < 15; i++) {
+              const number = (i + 1).toString();
+              const geometry = new TextGeometry(number, {
+                  font: font,
+                  size: 1.875,
+                  height: 0.05,  // Some versions use 'height' instead of 'depth'
+                  curveSegments: 8,
+                  bevelEnabled: false
+              });
+              const material = new THREE.MeshBasicMaterial({ color: labelColor });
+              const mesh = new THREE.Mesh(geometry, material);
+              const textWidth = number.length * 1.5;
+              mesh.position.set(
+                  -offset - squareSize * 0.65 - textWidth,
+                  (14 - i) * squareSize - offset - squareSize / 4,
+                  boardThickness / 2 + 0.01
+              );
+              scene.add(mesh);
+          }
+
+          // Add tiles
+          boardArray.forEach((row, y) => {
+              row.forEach((tile, x) => {
+                  if (tile !== "") {
+                      const score = getLetterScore(tile);
+                      const tileGroup = createTile(tile, score, font);
+
+                      const posX = x * squareSize - offset - squareSize / 2 + 0.375;
+                      const posY = (gridSize - 1 - y) * squareSize - offset - squareSize / 2 + 0.125;
+
+                      tileGroup.position.set(posX, posY, boardTileZPos);
+                      scene.add(tileGroup);
+                  }
+              });
+          });
+
+          // Add table
+          const tableTop = new THREE.Mesh(
+              new THREE.BoxGeometry(180, 140, 4),
+              new THREE.MeshStandardMaterial({
+                  color: 0x8B4513,
+                  roughness: 0.6,
+                  metalness: 0.1,
+                  envMapIntensity: 0.7
+              })
+          );
+          tableTop.position.set(0, 0, -boardThickness / 2 - 2);
+          tableTop.receiveShadow = true;
+          tableTop.castShadow = true;
+          scene.add(tableTop);
+
+          // Table legs
+          const legMaterial = new THREE.MeshStandardMaterial({
+              color: 0x654321,
+              roughness: 0.5,
+              metalness: 0.1
+          });
+
+          const legPositions = [
+              [-80, -60], [80, -60], [-80, 60], [80, 60]
+          ];
+
+          legPositions.forEach(([x, y]) => {
+              const leg = new THREE.Mesh(
+                  new THREE.BoxGeometry(4, 4, 40),
+                  legMaterial
+              );
+              leg.position.set(x, y, -boardThickness / 2 - 22);
+              leg.castShadow = true;
+              scene.add(leg);
+          });
+      }
+
+      // Create heatmap overlays on the board
+      function createHeatmapOverlays(scene, heatmapData) {
+          if (!heatmapData || heatmapData === null) {
+              console.log("No heatmap data available");
+              return;
+          }
+
+          console.log("Creating heatmap overlays", heatmapData);
+
+          const gridBottomZPos = boardThickness / 2;
+          const boardTileZPos = gridBottomZPos + gridHeight + 0.01;
+
+          for (let row = 0; row < gridSize; row++) {
+              for (let col = 0; col < gridSize; col++) {
+                  const heat = heatmapData[row][col];
+                  if (heat <= 0) continue;
+
+                  // Create color interpolation from blue (cold) to red (hot)
+                  // Using blue → green → orange → red for better saturation
+                  const color = new THREE.Color();
+                  if (heat < 0.33) {
+                      // Blue to green (0.0 - 0.33)
+                      const t = heat * 3;
+                      color.setRGB(0, t, 1 - t);
+                  } else if (heat < 0.67) {
+                      // Green to orange (0.33 - 0.67)
+                      const t = (heat - 0.33) * 3;
+                      color.setRGB(t, 1, 0);
+                  } else {
+                      // Orange to red (0.67 - 1.0)
+                      const t = (heat - 0.67) * 3;
+                      color.setRGB(1, 1 - t, 0);
+                  }
+
+                  // Create semi-transparent overlay plane
+                  const overlayGeom = new THREE.PlaneGeometry(squareSize - 0.3, squareSize - 0.3);
+                  const overlayMat = new THREE.MeshBasicMaterial({
+                      color: color,
+                      transparent: true,
+                      opacity: 0.7,
+                      side: THREE.DoubleSide
+                  });
+                  const overlay = new THREE.Mesh(overlayGeom, overlayMat);
+
+                  // Position overlay on the board square
+                  const x = col * squareSize - offset;
+                  const y = (gridSize - 1 - row) * squareSize - offset;
+                  const z = boardTileZPos + 0.02; // Slightly above tiles
+
+                  overlay.position.set(x, y, z);
+                  scene.add(overlay);
+              }
+          }
+      }
+
+      // Create scorepad with player names and scores
+      function createScorepad(scene, player0Name, player0Score, player1Name, player1Score, playerOnTurn, lastPlay) {
+          // Create canvas for text rendering
+          const canvas = document.createElement('canvas');
+          canvas.width = 768;
+          canvas.height = 480;
+          const ctx = canvas.getContext('2d');
+
+          // Draw notepad background
+          ctx.fillStyle = '#f9f3e8';  // Cream/paper color
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+          // Add notepad lines
+          ctx.strokeStyle = '#a09080';  // Darker lines
+          ctx.lineWidth = 3;
+          for (let i = 0; i < 10; i++) {
+              const y = 75 + i * 45;
+              ctx.beginPath();
+              ctx.moveTo(60, y);
+              ctx.lineTo(canvas.width - 60, y);
+              ctx.stroke();
+          }
+
+          // Add red margin line (like a real notepad)
+          ctx.strokeStyle = '#d32f2f';  // Deeper red
+          ctx.lineWidth = 4;
+          ctx.beginPath();
+          ctx.moveTo(60, 45);
+          ctx.lineTo(60, canvas.height - 45);
+          ctx.stroke();
+
+          // Draw text
+          ctx.fillStyle = '#000000';  // Pure black
+          ctx.font = 'bold 56px Arial';
+          ctx.fillText('Current Scores', 90, 60);
+
+          ctx.font = 'bold 46px Arial';  // Even larger
+
+          // Player 0
+          const p0Text = player0Name + ':';
+          ctx.fillText(p0Text, 90, 128);
+          if (playerOnTurn === 0) {
+              ctx.fillStyle = '#DC143C';  // Crimson red
+              ctx.font = 'bold 42px Arial';
+              ctx.fillText('★', 630, 128);
+              ctx.fillStyle = '#000000';  // Back to black
+              ctx.font = 'bold 46px Arial';
+          }
+          ctx.fillText(player0Score.toString(), 525, 128);
+
+          // Player 1
+          const p1Text = player1Name + ':';
+          ctx.fillText(p1Text, 90, 188);
+          if (playerOnTurn === 1) {
+              ctx.fillStyle = '#DC143C';  // Crimson red
+              ctx.font = 'bold 42px Arial';
+              ctx.fillText('★', 630, 188);
+              ctx.fillStyle = '#000000';  // Back to black
+              ctx.font = 'bold 46px Arial';
+          }
+          ctx.fillText(player1Score.toString(), 525, 188);
+
+          // Last play section
+          if (lastPlay) {
+              ctx.font = 'bold 42px Arial';
+              ctx.fillText('Last play:', 90, 255);
+
+              ctx.font = 'bold 38px Arial';
+              const maxWidth = canvas.width - 150;
+              const lineHeight = 38;
+              let y = 300;
+
+              // Wrap text
+              const words = lastPlay.split(' ');
+              let line = '';
+
+              for (let n = 0; n < words.length; n++) {
+                  const testLine = line + words[n] + ' ';
+                  const metrics = ctx.measureText(testLine);
+                  const testWidth = metrics.width;
+
+                  if (testWidth > maxWidth && n > 0) {
+                      ctx.fillText(line, 60, y);
+                      line = words[n] + ' ';
+                      y += lineHeight;
+                  } else {
+                      line = testLine;
+                  }
+              }
+              ctx.fillText(line, 60, y);
+          }
+
+          // Create texture from canvas
+          const texture = new THREE.CanvasTexture(canvas);
+          texture.needsUpdate = true;
+
+          // Create plane geometry for the scorepad (aspect ratio matches canvas 768x480)
+          const padGeometry = new THREE.PlaneGeometry(35, 21.875);
+          const padMaterial = new THREE.MeshBasicMaterial({
+              map: texture,
+              side: THREE.DoubleSide
+          });
+          const scorepad = new THREE.Mesh(padGeometry, padMaterial);
+
+          // Position to the left/bottom of the board, flat on the table
+          scorepad.position.set(-65, -55, -0.8);
+          scorepad.rotation.x = 0;  // Flat on table
+
+          scene.add(scorepad);
+      }
+
+      // Initialize scene
+      const scene = new THREE.Scene();
+
+      const camera = new THREE.PerspectiveCamera(
+          50,
+          window.innerWidth / window.innerHeight,
+          0.1,
+          1000
+      );
+      camera.position.set(0, -50, 130);
+      camera.lookAt(0, -10, 0);
+
+      const renderer = new THREE.WebGLRenderer({
+          antialias: true
+      });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.2;
+      document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = false;
+      controls.target.set(0, -10, 0);
+      controls.update();
+
+      // Create environment map for reflections
+      const pmremGenerator = new THREE.PMREMGenerator(renderer);
+      pmremGenerator.compileEquirectangularShader();
+
+      // Load HDR environment map
+      // Using Poly Haven's free HDR: apartment (studio and apartment are good indoor environments)
+      const rgbeLoader = new RGBELoader();
+      const envMapURL = 'https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/studio_small_09_1k.hdr';
+
+      rgbeLoader.load(envMapURL, (texture) => {
+          const envMap = pmremGenerator.fromEquirectangular(texture).texture;
+
+          // Use as both environment (for reflections) and background
+          scene.environment = envMap;
+          scene.background = envMap;
+          scene.backgroundBlurriness = 0.25;
+          scene.backgroundIntensity = 0.5;
+
+          texture.dispose();
+          pmremGenerator.dispose();
+      });
+
+      // Enhanced lighting setup - brighter ambient to reduce shadows
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+      scene.add(ambientLight);
+
+      const directionalLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
+      directionalLight1.position.set(50, 100, 50);
+      directionalLight1.castShadow = true;
+      directionalLight1.shadow.mapSize.width = 2048;
+      directionalLight1.shadow.mapSize.height = 2048;
+      directionalLight1.shadow.camera.far = 500;
+      directionalLight1.shadow.camera.left = -100;
+      directionalLight1.shadow.camera.right = 100;
+      directionalLight1.shadow.camera.top = 100;
+      directionalLight1.shadow.camera.bottom = -100;
+      directionalLight1.shadow.bias = -0.0001;  // Reduce shadow artifacts
+      scene.add(directionalLight1);
+
+      const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.4);
+      directionalLight2.position.set(-30, 50, -30);
+      scene.add(directionalLight2);
+
+      const pointLight = new THREE.PointLight(0xfff8e7, 0.3);
+      pointLight.position.set(0, 20, 30);
+      scene.add(pointLight);
+
+      // Display heatmap info if active
+      if (HEATMAP_ACTIVE) {
+          document.getElementById('heatmapInfo').style.display = 'block';
+          document.getElementById('heatmapPlay').innerHTML = 'Play: <span style="font-family: monospace;">' + HEATMAP_PLAY + '</span>';
+          const plyDesc = HEATMAP_PLY === 0 ? "opponent's response" :
+                          HEATMAP_PLY === 1 ? "your follow-up" :
+                          "ply " + HEATMAP_PLY;
+          document.getElementById('heatmapPly').textContent = 'Analyzing: ' + plyDesc;
+      }
+
+      // Load font and create scene
+      const loader = new FontLoader();
+      // Use droid sans for better Unicode support (Ñ, Ł, accented characters, etc.)
+      loader.load('https://threejs.org/examples/fonts/droid/droid_sans_regular.typeface.json', (font) => {
+          const boardArray = parseFEN(FEN_DATA);
+          createBoard(scene, font, boardArray);
+
+          // Create heatmap overlays if available
+          createHeatmapOverlays(scene, HEATMAP_DATA);
+
+          // Create rack
+          createRack(scene, rackWidth / 2, rackYPos, boardThickness / 2);
+
+          // Create rack tiles if rack data is available
+          console.log("Creating rack tiles, RACK_DATA:", RACK_DATA);
+          if (RACK_DATA && RACK_DATA !== '') {
+              const { slope: rackSlope } = rackGeomParams(rackHeight, rackDepth);
+              const rackLetters = parseRackString(RACK_DATA);
+              console.log("Rack letters:", rackLetters);
+              for (let i = 0; i < rackLetters.length; i++) {
+                  const letter = rackLetters[i];
+                  const score = getLetterScore(letter);
+                  console.log(`Creating rack tile ${i}: ${letter} (score: ${score})`);
+                  createRackTile(scene, font, i, letter, score, rackSlope);
+              }
+          }
+
+          // Create unseen tiles in a grid to the right of the board
+          console.log("Creating unseen tiles, REMAINING_TILES:", REMAINING_TILES);
+          createUnseenTiles(scene, font, REMAINING_TILES);
+
+          // Create scorepad
+          createScorepad(scene, PLAYER0_NAME, PLAYER0_SCORE, PLAYER1_NAME, PLAYER1_SCORE, PLAYER_ON_TURN, LAST_PLAY);
+      });
+
+      // Animation loop
+      function animate() {
+          requestAnimationFrame(animate);
+          controls.update();
+          renderer.render(scene, camera);
+      }
+      animate();
+
+      // Handle window resize
+      window.addEventListener('resize', () => {
+          camera.aspect = window.innerWidth / window.innerHeight;
+          camera.updateProjectionMatrix();
+          renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
+      // Save button functionality
+      document.getElementById('saveBtn').addEventListener('click', () => {
+          renderer.render(scene, camera);
+          const dataURL = renderer.domElement.toDataURL('image/png');
+          const link = document.createElement('a');
+          link.download = 'macondo-board-' + new Date().getTime() + '.png';
+          link.href = dataURL;
+          link.click();
+      });
+    </script>
+  </body>
+</html>
