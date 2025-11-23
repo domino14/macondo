@@ -5,6 +5,7 @@ import (
 
 	"github.com/domino14/macondo/board"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"google.golang.org/protobuf/proto"
 )
 
 type BackupMode int
@@ -171,5 +172,19 @@ func (g *Game) Copy() *Game {
 	}
 	// Also set the copy's stack.
 	copy.SetStateStackLength(len(g.stateStack))
+	return copy
+}
+
+// CopyWithHistory creates a deep copy of Game including a deep copy of the history.
+// This is specifically for the variation system where each variation needs its own
+// independent history. Use Copy() for performance-critical paths like simulations.
+func (g *Game) CopyWithHistory() *Game {
+	copy := g.Copy()
+
+	// Deep copy the history so variations don't share the same history object
+	if g.history != nil {
+		copy.history = proto.Clone(g.history).(*pb.GameHistory)
+	}
+
 	return copy
 }

@@ -105,6 +105,17 @@ func (opts *ShellOptions) ToDisplayText() string {
 	return out.String()
 }
 
+// VariationNode represents a position in the variation tree.
+// The tree structure allows exploring different move sequences from the same position.
+type VariationNode struct {
+	gameSnapshot *bot.BotTurnPlayer // Full game copy at this position
+	parent       *VariationNode     // Parent node (nil for root)
+	children     []*VariationNode   // Child variations
+	move         *move.Move         // Move that led to this position (nil for root)
+	variationID  int                // 0 = main line, >0 = variation number
+	turnNumber   int                // Turn number at this position
+}
+
 type ShellController struct {
 	l        *readline.Instance
 	config   *config.Config
@@ -154,6 +165,11 @@ type ShellController struct {
 
 	simStats *stats.SimStats
 	winpcts  [][]float32 // win percentages for each spread, indexed by int(equity.MaxRepresentedWinSpread - spread)
+
+	// Variation tree for exploring different lines of play
+	variationRoot    *VariationNode // Root of the variation tree (initial game position)
+	currentVariation *VariationNode // Current position in the variation tree
+	nextVariationID  int            // Counter for assigning variation IDs
 
 	macondoVersion string
 	aiexplainer    *explainer.Service
@@ -398,7 +414,409 @@ func (sc *ShellController) initGameDataStructures() error {
 	tp.SetStateStackLength(1)
 	sc.elitebot = tp
 
+	// Initialize variation tree with root node (main line)
+	sc.initializeVariationTree()
+
 	return nil
+}
+
+// findNodeAtTurn walks up the variation tree to find a node at the specified turn number.
+// Returns nil if no node is found at that turn.
+func (sc *ShellController) findNodeAtTurn(turnNum int) *VariationNode {
+	// Start from current variation and walk backwards
+	node := sc.currentVariation
+	for node != nil {
+		if node.turnNumber == turnNum {
+			return node
+		}
+		node = node.parent
+	}
+	return nil
+}
+
+// variationList displays all variations available from the current position
+func (sc *ShellController) variationList() (*Response, error) {
+	// Walk back to find the branching point (node with multiple children)
+	node := sc.currentVariation
+	for node != nil && len(node.children) <= 1 {
+		node = node.parent
+	}
+
+	if node == nil {
+		return msg("No variations exist yet."), nil
+	}
+
+	var output strings.Builder
+	fmt.Fprintf(&output, "Variations from turn %d:\n", node.turnNumber)
+
+	// Show all children of this branching node
+	for _, child := range node.children {
+		// Get move description - from the move object or from history
+		var moveStr string
+		if child.move != nil {
+			moveStr = child.move.ShortDescription()
+		} else if child.gameSnapshot != nil && child.gameSnapshot.History() != nil {
+			// Get the event at this child's turn number from the history
+			history := child.gameSnapshot.History()
+			// child.turnNumber is 1-indexed, history.Events is 0-indexed
+			eventIdx := child.turnNumber - 1
+			if eventIdx >= 0 && eventIdx < len(history.Events) {
+				evt := history.Events[eventIdx]
+				moveStr = fmt.Sprintf("%s %s", evt.Position, evt.PlayedTiles)
+			} else if child.turnNumber == 0 {
+				moveStr = "(start)"
+			} else {
+				moveStr = "(unknown)"
+			}
+		} else {
+			moveStr = "(unknown)"
+		}
+
+		isCurrent := child == sc.currentVariation || sc.isAncestor(child, sc.currentVariation)
+
+		varLabel := "main"
+		if child.variationID != 0 {
+			varLabel = fmt.Sprintf("%d", child.variationID)
+		}
+
+		// Count how many moves deep this variation goes
+		depth := sc.countVariationDepth(child)
+
+		if isCurrent {
+			fmt.Fprintf(&output, "* %s: %s (%d turn%s)\n", varLabel, moveStr, depth, pluralize(depth))
+		} else {
+			fmt.Fprintf(&output, "  %s: %s (%d turn%s)\n", varLabel, moveStr, depth, pluralize(depth))
+		}
+	}
+
+	return msg(output.String()), nil
+}
+
+// variationInfo shows information about the current variation
+func (sc *ShellController) variationInfo() (*Response, error) {
+	varLabel := "main line"
+	if sc.currentVariation.variationID != 0 {
+		varLabel = fmt.Sprintf("variation %d", sc.currentVariation.variationID)
+	}
+
+	return msg(fmt.Sprintf("Currently on %s, turn %d", varLabel, sc.currentVariation.turnNumber)), nil
+}
+
+// variationSwitch switches to a different variation by ID
+func (sc *ShellController) variationSwitch(varID int) (*Response, error) {
+	// Find the branching point (parent with multiple children)
+	branchNode := sc.currentVariation
+	for branchNode != nil && len(branchNode.children) <= 1 {
+		branchNode = branchNode.parent
+	}
+
+	if branchNode == nil {
+		return nil, errors.New("no branching point found")
+	}
+
+	// Find the child with the requested variation ID
+	var targetChild *VariationNode
+	for _, child := range branchNode.children {
+		if child.variationID == varID {
+			targetChild = child
+			break
+		}
+	}
+
+	if targetChild == nil {
+		return nil, fmt.Errorf("variation %d not found at this branching point", varID)
+	}
+
+	// Find the deepest node in this variation to get the complete history
+	deepestNode := targetChild
+	for len(deepestNode.children) > 0 {
+		foundChild := false
+		for _, child := range deepestNode.children {
+			if child.variationID == varID {
+				deepestNode = child
+				foundChild = true
+				break
+			}
+		}
+		if !foundChild {
+			break
+		}
+	}
+
+	// Use the deepest node's snapshot (which has complete variation history)
+	// but we'll position it at the branching point for display
+	// This lets you use 'n' to step through the continuation
+
+	// Create a fresh copy of the snapshot's game with independent history
+	// Use the deepest node's snapshot to get complete history
+	leavesFile := ""
+	if deepestNode.gameSnapshot.Board().Dim() == 21 {
+		leavesFile = "super-leaves.klv2"
+	}
+	conf := &bot.BotConfig{Config: *sc.config, LeavesFile: leavesFile}
+
+	gameCopy := deepestNode.gameSnapshot.Game.CopyWithHistory()
+	newBot, err := bot.NewBotTurnPlayerFromGame(gameCopy, conf, pb.BotRequest_HASTY_BOT)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create bot from snapshot: %w", err)
+	}
+	newBot.SetBackupMode(game.InteractiveGameplayMode)
+	newBot.SetStateStackLength(1)
+
+	// Position at the branching point (first move of variation)
+	newBot.PlayToTurn(targetChild.turnNumber)
+
+	// Update shell state
+	oldVariationRoot := sc.variationRoot
+	oldNextID := sc.nextVariationID
+
+	sc.game = newBot
+	sc.curTurnNum = targetChild.turnNumber
+	sc.curPlayList = nil
+
+	// Reinitialize game data structures (but NOT the variation tree)
+	if sc.simmer != nil {
+		sc.simmer.CleanupTempFile()
+	}
+	sc.simmer = &montecarlo.Simmer{}
+	sc.simStats = stats.NewSimStats(sc.simmer, sc.game)
+
+	c, err := equity.NewCombinedStaticCalculator(
+		sc.game.LexiconName(),
+		sc.config, "", equity.PEGAdjustmentFilename)
+	if err != nil {
+		return nil, err
+	}
+	sc.simmer.Init(sc.game.Game, []equity.EquityCalculator{c}, c, sc.config)
+	sc.gen = sc.game.MoveGenerator()
+
+	sc.rangefinder = &rangefinder.RangeFinder{}
+	sc.rangefinder.Init(sc.game.Game, []equity.EquityCalculator{c}, sc.config)
+
+	// Restore variation tree (don't reinitialize it!)
+	sc.variationRoot = oldVariationRoot
+	sc.currentVariation = targetChild
+	sc.nextVariationID = oldNextID
+
+	varLabel := "main line"
+	if varID != 0 {
+		varLabel = fmt.Sprintf("variation %d", varID)
+	}
+
+	sc.showMessage(fmt.Sprintf("[Switched to %s, turn %d]", varLabel, targetChild.turnNumber))
+	return msg(sc.game.ToDisplayText()), nil
+}
+
+// variationDelete removes a variation branch
+func (sc *ShellController) variationDelete(varIDStr string) (*Response, error) {
+	varID, err := strconv.Atoi(varIDStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid variation ID: %s", varIDStr)
+	}
+
+	if varID == 0 {
+		return nil, errors.New("cannot delete the main line")
+	}
+
+	// Find the node with this variation ID
+	targetNode := sc.findVariationByID(sc.variationRoot, varID)
+	if targetNode == nil {
+		return nil, fmt.Errorf("variation %d not found", varID)
+	}
+
+	// Check if we're currently on this variation or one of its descendants
+	if targetNode == sc.currentVariation || sc.isAncestor(targetNode, sc.currentVariation) {
+		return nil, errors.New("cannot delete the current variation - switch to a different variation first")
+	}
+
+	// Remove this node from its parent's children
+	parent := targetNode.parent
+	if parent != nil {
+		for i, child := range parent.children {
+			if child == targetNode {
+				parent.children = append(parent.children[:i], parent.children[i+1:]...)
+				break
+			}
+		}
+	}
+
+	return msg(fmt.Sprintf("Variation %d deleted", varID)), nil
+}
+
+// variationPromote promotes a variation to become the main line
+func (sc *ShellController) variationPromote(varIDStr string) (*Response, error) {
+	varID, err := strconv.Atoi(varIDStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid variation ID: %s", varIDStr)
+	}
+
+	if varID == 0 {
+		return nil, errors.New("variation is already the main line")
+	}
+
+	// Find the branching point
+	branchNode := sc.currentVariation
+	for branchNode != nil && len(branchNode.children) <= 1 {
+		branchNode = branchNode.parent
+	}
+
+	if branchNode == nil {
+		return nil, errors.New("no branching point found")
+	}
+
+	// Find both the target variation and the main line at this branch
+	var targetChild *VariationNode
+	var mainChild *VariationNode
+
+	for _, child := range branchNode.children {
+		if child.variationID == varID {
+			targetChild = child
+		} else if child.variationID == 0 {
+			mainChild = child
+		}
+	}
+
+	if targetChild == nil {
+		return nil, fmt.Errorf("variation %d not found at this branching point", varID)
+	}
+
+	if mainChild == nil {
+		return nil, errors.New("main line not found at branching point")
+	}
+
+	// Swap variation IDs: recursively update all descendant nodes
+	sc.updateVariationID(targetChild, varID, 0)
+	sc.updateVariationID(mainChild, 0, varID)
+
+	return msg(fmt.Sprintf("Variation %d promoted to main line", varID)), nil
+}
+
+// updateVariationID recursively updates variation IDs for a node and all its descendants
+func (sc *ShellController) updateVariationID(node *VariationNode, oldID, newID int) {
+	if node == nil {
+		return
+	}
+
+	if node.variationID == oldID {
+		node.variationID = newID
+	}
+
+	for _, child := range node.children {
+		sc.updateVariationID(child, oldID, newID)
+	}
+}
+
+// Helper functions
+
+func (sc *ShellController) findVariationByID(node *VariationNode, varID int) *VariationNode {
+	if node == nil {
+		return nil
+	}
+	if node.variationID == varID {
+		return node
+	}
+	for _, child := range node.children {
+		if found := sc.findVariationByID(child, varID); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+func (sc *ShellController) isAncestor(ancestor, descendant *VariationNode) bool {
+	node := descendant
+	for node != nil {
+		if node == ancestor {
+			return true
+		}
+		node = node.parent
+	}
+	return false
+}
+
+func (sc *ShellController) countVariationDepth(node *VariationNode) int {
+	if len(node.children) == 0 {
+		return 1
+	}
+	maxDepth := 0
+	for _, child := range node.children {
+		depth := sc.countVariationDepth(child)
+		if depth > maxDepth {
+			maxDepth = depth
+		}
+	}
+	return maxDepth + 1
+}
+
+func pluralize(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
+// initializeVariationTree creates the root node of the variation tree from the current game state.
+// If the game has existing history, it builds nodes for all existing moves on the main line.
+func (sc *ShellController) initializeVariationTree() {
+	// Save the current turn number so we can restore it
+	originalTurn := sc.game.Turn()
+
+	// Build nodes for all existing moves in the game history
+	history := sc.game.History()
+
+	// Create root node at turn 0 (main line, variation ID = 0)
+	// For the root and all main line nodes, we keep the full history
+	// but position the game at the appropriate turn
+	sc.game.PlayToTurn(0)
+	gameCopy := sc.game.Game.CopyWithHistory()
+	botCopy, _ := bot.NewBotTurnPlayerFromGame(gameCopy, &bot.BotConfig{Config: *sc.config}, pb.BotRequest_HASTY_BOT)
+
+	sc.variationRoot = &VariationNode{
+		gameSnapshot: botCopy,
+		parent:       nil,
+		children:     []*VariationNode{},
+		move:         nil,
+		variationID:  0,
+		turnNumber:   0,
+	}
+
+	if history != nil && len(history.Events) > 0 {
+		currentNode := sc.variationRoot
+
+		// For each turn in the main line, create a node with the full history
+		for turnNum := 0; turnNum < len(history.Events); turnNum++ {
+			// Create a copy of the full game (with complete history)
+			sc.game.PlayToTurn(originalTurn) // Restore full history position
+			fullGameCopy := sc.game.Game.CopyWithHistory() // Deep copy with independent history
+			botCopy, _ := bot.NewBotTurnPlayerFromGame(fullGameCopy, &bot.BotConfig{Config: *sc.config}, pb.BotRequest_HASTY_BOT)
+
+			// Position this copy at the specific turn
+			botCopy.PlayToTurn(turnNum + 1)
+
+			newNode := &VariationNode{
+				gameSnapshot: botCopy,
+				parent:       currentNode,
+				children:     []*VariationNode{},
+				move:         nil, // Move info is in snapshot's history
+				variationID:  0,   // Main line
+				turnNumber:   turnNum + 1,
+			}
+
+			currentNode.children = append(currentNode.children, newNode)
+			currentNode = newNode
+		}
+
+		// Set current variation to the last node created
+		sc.currentVariation = currentNode
+	} else {
+		// No history, start at root
+		sc.currentVariation = sc.variationRoot
+	}
+
+	// Restore the original turn
+	sc.game.PlayToTurn(originalTurn)
+
+	sc.nextVariationID = 1 // First variation will be ID 1
 }
 
 func (sc *ShellController) IsPlaying() bool {
@@ -595,6 +1013,50 @@ func (sc *ShellController) setToTurn(turnnum int) error {
 		return errors.New("unexpected turn number")
 	}
 
+	// Update currentVariation to match the turn we're at
+	// Walk up/down the tree to find the node at this turn in our current variation path
+	if sc.currentVariation != nil {
+		targetNode := sc.findNodeAtTurnInPath(turnnum)
+		if targetNode != nil {
+			sc.currentVariation = targetNode
+		}
+	}
+
+	return nil
+}
+
+// findNodeAtTurnInPath finds a node at the specified turn number by walking
+// up the tree from current position, then walking down if needed
+func (sc *ShellController) findNodeAtTurnInPath(turnNum int) *VariationNode {
+	// First, walk up to find a node at or before this turn
+	node := sc.currentVariation
+	for node != nil && node.turnNumber > turnNum {
+		node = node.parent
+	}
+
+	if node == nil {
+		return nil
+	}
+
+	// If we found the exact turn, return it
+	if node.turnNumber == turnNum {
+		return node
+	}
+
+	// Otherwise, walk down the first child path until we reach the turn
+	for node != nil && node.turnNumber < turnNum {
+		if len(node.children) > 0 {
+			// Follow the first child (main line or first variation)
+			node = node.children[0]
+		} else {
+			break
+		}
+	}
+
+	if node != nil && node.turnNumber == turnNum {
+		return node
+	}
+
 	return nil
 }
 
@@ -689,6 +1151,31 @@ func (sc *ShellController) getMoveFromList(playerid int, play string) (*move.Mov
 }
 
 func (sc *ShellController) commitMove(m *move.Move) error {
+	// Check if we're creating a variation by detecting if:
+	// 1. We're at a node that already has children (branching from existing position)
+	// 2. We're committing at a turn number earlier than our current variation node
+	//    (this happens when we used p/n/turn to go back in history)
+	currentTurnBeforeCommit := sc.curTurnNum
+	isCreatingVariation := len(sc.currentVariation.children) > 0 ||
+		currentTurnBeforeCommit < sc.currentVariation.turnNumber
+
+	// If we went back in time, we need to find the right parent node in the tree
+	var parentNode *VariationNode
+	if currentTurnBeforeCommit < sc.currentVariation.turnNumber {
+		// Walk back up the tree to find the node at currentTurnBeforeCommit
+		parentNode = sc.findNodeAtTurn(currentTurnBeforeCommit)
+		if parentNode == nil {
+			// Fallback to current if we can't find the right node
+			parentNode = sc.currentVariation
+		}
+		// Check if this node already has children
+		if len(parentNode.children) > 0 {
+			isCreatingVariation = true
+		}
+	} else {
+		parentNode = sc.currentVariation
+	}
+
 	// Play the actual move on the board, draw tiles, etc.
 	err := sc.game.PlayMove(m, true, 0)
 	if err != nil {
@@ -696,6 +1183,40 @@ func (sc *ShellController) commitMove(m *move.Move) error {
 	}
 	log.Debug().Msgf("Added turn at turn num %v", sc.curTurnNum)
 	sc.curTurnNum = sc.game.Turn()
+
+	// Create variation node after the move is played
+	var newVariationID int
+	if isCreatingVariation {
+		// This is a new variation branch
+		newVariationID = sc.nextVariationID
+		sc.nextVariationID++
+	} else {
+		// Continuing existing line, inherit parent's variation ID
+		newVariationID = parentNode.variationID
+	}
+
+	// Create a snapshot of the game state after this move
+	gameCopy := sc.game.Game.CopyWithHistory()
+	botCopy, _ := bot.NewBotTurnPlayerFromGame(gameCopy, &bot.BotConfig{Config: *sc.config}, pb.BotRequest_HASTY_BOT)
+
+	newNode := &VariationNode{
+		gameSnapshot: botCopy,
+		parent:       parentNode,
+		children:     []*VariationNode{},
+		move:         m,
+		variationID:  newVariationID,
+		turnNumber:   sc.curTurnNum,
+	}
+
+	// Add as child of parent node
+	parentNode.children = append(parentNode.children, newNode)
+	sc.currentVariation = newNode
+
+	if isCreatingVariation {
+		sc.showMessage(fmt.Sprintf("[Variation %d created from turn %d] (type 'var' to display variations)",
+			newVariationID, parentNode.turnNumber))
+	}
+
 	sc.curPlayList = nil
 	sc.simmer.Reset()
 	sc.showMessage(sc.game.ToDisplayText())
@@ -1064,6 +1585,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.selftest(cmd)
 	case "list":
 		return sc.list(cmd)
+	case "var", "variation", "variations":
+		return sc.variation(cmd)
 	case "endgame":
 		return sc.endgame(cmd)
 	case "peg":
