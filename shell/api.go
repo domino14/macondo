@@ -223,10 +223,8 @@ func (sc *ShellController) load(cmd *shellcmd) (*Response, error) {
 		}
 	}
 	sc.curTurnNum = 0
-	// Reset variation tree to root when loading a game
-	if sc.variationRoot != nil {
-		sc.currentVariation = sc.variationRoot
-	}
+	// Initialize a fresh variation tree for the newly loaded game
+	sc.initializeVariationTree()
 	return msg(sc.game.ToDisplayText()), nil
 }
 
