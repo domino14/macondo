@@ -66,27 +66,28 @@ func TestChallengeDoubleIsIllegal(t *testing.T) {
 		{Nickname: "JD", RealName: "Jesse"},
 		{Nickname: "cesar", RealName: "César"},
 	}
-	rules, err := game.NewBasicGameRules(DefaultConfig, "NWL18", board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
-	is.NoErr(err)
-	g, _ := game.NewGame(rules, players)
-	alph := g.Alphabet()
-	g.StartGame()
-	g.SetBackupMode(game.InteractiveGameplayMode)
-	g.SetStateStackLength(1)
-	g.SetPlayerOnTurn(0)
-	g.SetRackFor(0, tilemapping.RackFromString("IFFIEST", alph))
-	g.SetChallengeRule(pb.ChallengeRule_DOUBLE)
-	m := move.NewScoringMoveSimple(84, "8C", "IFFITES", "", alph)
-	_, err = g.ValidateMove(m)
-	is.NoErr(err)
-	err = g.PlayMove(m, true, 0)
-	is.NoErr(err)
-	legal, err := g.ChallengeEvent(0, 0)
-	is.NoErr(err)
-	is.True(!legal)
-	is.Equal(len(g.History().Events), 2)
-	is.Equal(g.History().Events[1].Type, pb.GameEvent_PHONY_TILES_RETURNED)
-
+	for range 100 {
+		rules, err := game.NewBasicGameRules(DefaultConfig, "NWL18", board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
+		is.NoErr(err)
+		g, _ := game.NewGame(rules, players)
+		alph := g.Alphabet()
+		g.StartGame()
+		g.SetBackupMode(game.InteractiveGameplayMode)
+		g.SetStateStackLength(1)
+		g.SetPlayerOnTurn(0)
+		g.SetRackFor(0, tilemapping.RackFromString("IFFIEST", alph))
+		g.SetChallengeRule(pb.ChallengeRule_DOUBLE)
+		m := move.NewScoringMoveSimple(84, "8C", "IFFITES", "", alph)
+		_, err = g.ValidateMove(m)
+		is.NoErr(err)
+		err = g.PlayMove(m, true, 0)
+		is.NoErr(err)
+		legal, err := g.ChallengeEvent(0, 0)
+		is.NoErr(err)
+		is.True(!legal)
+		is.Equal(len(g.History().Events), 2)
+		is.Equal(g.History().Events[1].Type, pb.GameEvent_PHONY_TILES_RETURNED)
+	}
 }
 
 func TestChallengeEndOfGamePlusFive(t *testing.T) {
