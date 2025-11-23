@@ -1,0 +1,32 @@
+alias - Create command shortcuts for frequently used commands
+
+Usage:
+
+    alias                     List all defined aliases
+    alias list                List all defined aliases
+    alias set <name> <cmd>    Create a new alias
+    alias show <name>         Display what an alias expands to
+    alias delete <name>       Remove an alias
+
+Examples:
+
+    alias set simdeep sim -plies 5 -stop 99
+    alias set quick gen 25
+    alias show simdeep
+    alias delete quick
+
+Aliases are stored in your config file (~/.config/macondo/config.yaml) and
+persist across sessions. When you use an alias, any additional arguments or
+options you provide are appended to the expanded command.
+
+For example, if you define:
+    alias set simdeep sim -plies 5 -stop 99
+
+Then running:
+    simdeep -threads 4
+
+Expands to:
+    sim -plies 5 -stop 99 -threads 4
+
+Aliases support chaining - an alias can call another alias. The shell will
+recursively expand aliases up to a depth of 10 to prevent infinite loops.

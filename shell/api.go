@@ -1,10 +1,16 @@
 package shell
 
 import (
+	"bytes"
 	"context"
+	_ "embed"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"html/template"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
@@ -33,6 +39,29 @@ import (
 )
 
 const defaultEndgamePlies = 4
+
+//go:embed render_template.html
+var renderTemplateHTML string
+
+// RenderTemplateData holds all data passed to the 3D render template
+type RenderTemplateData struct {
+	FEN            string
+	Rack           string
+	RemainingTiles template.JS // JSON of remaining tiles
+	TileColor      string
+	BoardColor     string
+	Player0Name    string
+	Player1Name    string
+	Player0Score   int
+	Player1Score   int
+	Heatmap        template.JS // JSON of heatmap data
+	HeatmapActive  bool        // Whether heatmap mode is active
+	HeatmapPlay    string      // The play being analyzed for heatmap
+	HeatmapPly     int         // The ply index for heatmap
+	PlayerOnTurn   int         // 0 or 1 - which player is on turn
+	LastPlay       string      // Last play summary
+	AlphabetScores template.JS // JSON map of letter → score for the current alphabet
+}
 
 type Response struct {
 	message string
@@ -821,6 +850,101 @@ func (sc *ShellController) help(cmd *shellcmd) (*Response, error) {
 	}
 }
 
+func (sc *ShellController) alias(cmd *shellcmd) (*Response, error) {
+	// No arguments - list all aliases
+	if cmd.args == nil || len(cmd.args) == 0 {
+		if len(sc.aliases) == 0 {
+			return msg("No aliases defined"), nil
+		}
+
+		// Sort by alias name for consistent output
+		names := make([]string, 0, len(sc.aliases))
+		for name := range sc.aliases {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+
+		var result strings.Builder
+		result.WriteString("Defined aliases:\n")
+		for _, name := range names {
+			result.WriteString(fmt.Sprintf("  %s = %s\n", name, sc.aliases[name]))
+		}
+		return msg(result.String()), nil
+	}
+
+	subcommand := cmd.args[0]
+
+	switch subcommand {
+	case "set":
+		// alias set <name> <command>
+		if len(cmd.args) < 3 {
+			return nil, errors.New("usage: alias set <name> <command>")
+		}
+		name := cmd.args[1]
+
+		// Reconstruct the full command from args and options
+		commandParts := cmd.args[2:]
+		for opt, values := range cmd.options {
+			for _, val := range values {
+				commandParts = append(commandParts, "-"+opt, val)
+			}
+		}
+		command := strings.Join(commandParts, " ")
+
+		sc.aliases[name] = command
+
+		// Save to config
+		sc.config.Set(config.ConfigAliases, sc.aliases)
+		err := sc.config.Write()
+		if err != nil {
+			return nil, fmt.Errorf("failed to save alias: %w", err)
+		}
+
+		return msg(fmt.Sprintf("Alias '%s' set to: %s", name, command)), nil
+
+	case "delete", "remove", "rm":
+		// alias delete <name>
+		if len(cmd.args) < 2 {
+			return nil, errors.New("usage: alias delete <name>")
+		}
+		name := cmd.args[1]
+
+		if _, exists := sc.aliases[name]; !exists {
+			return nil, fmt.Errorf("alias '%s' not found", name)
+		}
+
+		delete(sc.aliases, name)
+
+		// Save to config
+		sc.config.Set(config.ConfigAliases, sc.aliases)
+		err := sc.config.Write()
+		if err != nil {
+			return nil, fmt.Errorf("failed to save config: %w", err)
+		}
+
+		return msg(fmt.Sprintf("Alias '%s' deleted", name)), nil
+
+	case "show":
+		// alias show <name>
+		if len(cmd.args) < 2 {
+			return nil, errors.New("usage: alias show <name>")
+		}
+		name := cmd.args[1]
+
+		if command, exists := sc.aliases[name]; exists {
+			return msg(fmt.Sprintf("%s = %s", name, command)), nil
+		}
+		return nil, fmt.Errorf("alias '%s' not found", name)
+
+	case "list":
+		// Same as calling with no arguments
+		return sc.alias(&shellcmd{cmd: "alias", args: nil, options: nil})
+
+	default:
+		return nil, fmt.Errorf("unknown subcommand '%s'. Valid: set, delete, show, list", subcommand)
+	}
+}
+
 func (sc *ShellController) setMode(cmd *shellcmd) (*Response, error) {
 	if cmd.args == nil {
 		return msg("Current mode: " + modeToStr(sc.curMode)), nil
@@ -851,6 +975,271 @@ func (sc *ShellController) export(cmd *shellcmd) (*Response, error) {
 	f.WriteString(contents)
 	f.Close()
 	return msg("gcg written to " + filename), nil
+}
+
+func (sc *ShellController) render3D(cmd *shellcmd) (*Response, error) {
+	if sc.game == nil {
+		return nil, errors.New("please load a game first with the `load` command")
+	}
+
+	// Get color options
+	tileColor := cmd.options.String("tile-color")
+	if tileColor == "" {
+		tileColor = "orange"
+	}
+	boardColor := cmd.options.String("board-color")
+	if boardColor == "" {
+		boardColor = "jade"
+	}
+
+	// Get heatmap option
+	heatmapPlay := cmd.options.String("heatmap")
+	heatmapPly := 0
+	if plyStr := cmd.options.String("ply"); plyStr != "" {
+		var err error
+		heatmapPly, err = strconv.Atoi(plyStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ply value: %w", err)
+		}
+	}
+
+	var heatmapData [][]float64
+	var heatmapMove *move.Move
+	if heatmapPlay != "" {
+		if sc.simStats == nil {
+			return nil, errors.New("no simulation stats available - run sim with -collect-heatmap true first")
+		}
+
+		// Parse and validate the move
+		var err error
+		heatmapMove, err = sc.game.ParseMove(
+			sc.game.PlayerOnTurn(), sc.options.lowercaseMoves, strings.Fields(heatmapPlay), false)
+		if err != nil {
+			return nil, fmt.Errorf("invalid heatmap move: %w", err)
+		}
+
+		heatmap, err := sc.simStats.CalculateHeatmap(heatmapPlay, heatmapPly)
+		if err != nil {
+			return nil, fmt.Errorf("failed to calculate heatmap: %w", err)
+		}
+		// Extract fractionOfMax values as 2D array
+		heatmapData = make([][]float64, len(heatmap.Squares()))
+		for i, row := range heatmap.Squares() {
+			heatmapData[i] = make([]float64, len(row))
+			for j, heat := range row {
+				heatmapData[i][j] = heat.FractionOfMax()
+			}
+		}
+	}
+
+	// Get FEN from the board
+	board := sc.game.Board()
+	alph := sc.game.Alphabet()
+
+	// If rendering a heatmap, temporarily place the move on a copy of the board
+	var fen string
+	if heatmapMove != nil {
+		// Create a copy of the board
+		tempBoard := board.Copy()
+		tempBoard.PlaceMoveTiles(heatmapMove)
+		fen = tempBoard.ToFEN(alph)
+	} else {
+		fen = board.ToFEN(alph)
+	}
+
+	// Get rack if available
+	rack := ""
+	if sc.game.RackFor(sc.game.PlayerOnTurn()) != nil {
+		currentRack := sc.game.RackFor(sc.game.PlayerOnTurn())
+
+		// If we're rendering a heatmap with a move, remove the played tiles from the rack
+		if heatmapMove != nil && (heatmapMove.Action() == move.MoveTypePlay || heatmapMove.Action() == move.MoveTypeExchange) {
+			// Make a copy of the rack and remove the tiles
+			rackCopy := currentRack.Copy()
+			for _, t := range heatmapMove.Tiles() {
+				if t != 0 {
+					rackCopy.Take(t.IntrinsicTileIdx())
+				}
+			}
+			rack = rackCopy.String()
+		} else {
+			rack = currentRack.String()
+		}
+	}
+
+	// Get player names and scores
+	history := sc.game.History()
+	var player0Name, player1Name string
+	if history != nil && len(history.Players) >= 2 {
+		player0Name = history.Players[0].Nickname
+		player1Name = history.Players[1].Nickname
+	}
+	if player0Name == "" {
+		player0Name = "Player 1"
+	}
+	if player1Name == "" {
+		player1Name = "Player 2"
+	}
+	player0Score := sc.game.PointsFor(0)
+	player1Score := sc.game.PointsFor(1)
+
+	// Get last play summary - use same logic as ToDisplayText (game/display.go:109-111)
+	lastPlay := ""
+	if history != nil && sc.curTurnNum-1 >= 0 && len(history.Events) > sc.curTurnNum-1 {
+		evt := history.Events[sc.curTurnNum-1]
+		who := history.Players[evt.PlayerIndex].Nickname
+
+		// Match the summary logic from game/turn.go:247
+		switch evt.Type {
+		case pb.GameEvent_TILE_PLACEMENT_MOVE:
+			lastPlay = fmt.Sprintf("%s played %s %s for %d pts from a rack of %s",
+				who, evt.Position, evt.PlayedTiles, evt.Score, evt.Rack)
+		case pb.GameEvent_PASS:
+			lastPlay = fmt.Sprintf("%s passed, holding a rack of %s",
+				who, evt.Rack)
+		case pb.GameEvent_EXCHANGE:
+			lastPlay = fmt.Sprintf("%s exchanged %s from a rack of %s",
+				who, evt.Exchanged, evt.Rack)
+		case pb.GameEvent_CHALLENGE:
+			lastPlay = fmt.Sprintf("%s challenged, holding a rack of %s",
+				who, evt.Rack)
+		case pb.GameEvent_UNSUCCESSFUL_CHALLENGE_TURN_LOSS:
+			lastPlay = fmt.Sprintf("%s challenged unsuccessfully, holding a rack of %s",
+				who, evt.Rack)
+		}
+	}
+
+	// Get unseen tiles (bag + opponent's rack)
+	bag := sc.game.Bag()
+	remainingTiles := make(map[string]int)
+
+	// Add tiles from bag
+	for _, tile := range bag.Tiles() {
+		letter := tile.UserVisible(alph, false)
+		remainingTiles[letter]++
+	}
+
+	// Add opponent's rack tiles
+	playerOnTurn := sc.game.PlayerOnTurn()
+	opponentIdx := (playerOnTurn + 1) % 2
+	opponentRack := sc.game.RackFor(opponentIdx)
+	if opponentRack != nil {
+		for _, tile := range opponentRack.TilesOn() {
+			letter := tile.UserVisible(alph, false)
+			remainingTiles[letter]++
+		}
+	}
+
+	// Convert remaining tiles to JSON
+	remainingTilesJSON, err := json.Marshal(remainingTiles)
+	if err != nil {
+		remainingTilesJSON = []byte("{}")
+	}
+
+	// Convert heatmap to JSON
+	heatmapJSON := "null"
+	if heatmapData != nil {
+		heatmapBytes, err := json.Marshal(heatmapData)
+		if err != nil {
+			heatmapJSON = "null"
+		} else {
+			heatmapJSON = string(heatmapBytes)
+		}
+	}
+
+	// Generate alphabet scores map
+	dist := sc.game.Bag().LetterDistribution()
+	alphabetScores := make(map[string]int)
+
+	// Iterate through all letters in the alphabet
+	for i := tilemapping.MachineLetter(0); i < tilemapping.MachineLetter(alph.NumLetters()); i++ {
+		letter := i.UserVisible(alph, false)
+		score := dist.Score(i)
+		// Strip brackets from digraphs (e.g., "[CH]" -> "CH") for JavaScript lookup
+		cleanLetter := strings.ReplaceAll(strings.ReplaceAll(letter, "[", ""), "]", "")
+		alphabetScores[cleanLetter] = int(score)
+	}
+
+	// Add blank tile explicitly
+	alphabetScores["?"] = 0
+
+	// Convert alphabet scores to JSON
+	alphabetScoresJSON, err := json.Marshal(alphabetScores)
+	if err != nil {
+		alphabetScoresJSON = []byte("{}")
+	}
+
+	// Prepare template data
+	data := RenderTemplateData{
+		FEN:            fen,
+		Rack:           rack,
+		RemainingTiles: template.JS(remainingTilesJSON),
+		TileColor:      tileColor,
+		BoardColor:     boardColor,
+		Player0Name:    player0Name,
+		Player1Name:    player1Name,
+		Player0Score:   player0Score,
+		Player1Score:   player1Score,
+		Heatmap:        template.JS(heatmapJSON),
+		HeatmapActive:  heatmapData != nil,
+		HeatmapPlay:    heatmapPlay,
+		HeatmapPly:     heatmapPly,
+		PlayerOnTurn:   sc.game.PlayerOnTurn(),
+		LastPlay:       lastPlay,
+		AlphabetScores: template.JS(alphabetScoresJSON),
+	}
+
+	// Parse and execute template
+	tmpl, err := template.New("render").Parse(renderTemplateHTML)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse template: %w", err)
+	}
+
+	var htmlBuffer bytes.Buffer
+	err = tmpl.Execute(&htmlBuffer, data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute template: %w", err)
+	}
+
+	// Write to temporary file
+	timestamp := time.Now().Format("20060102-150405")
+	tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("macondo-render-%s.html", timestamp))
+	err = os.WriteFile(tmpFile, htmlBuffer.Bytes(), 0644)
+	if err != nil {
+		return nil, fmt.Errorf("failed to write render file: %w", err)
+	}
+
+	// Open in browser
+	var browserCmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		browserCmd = exec.Command("open", tmpFile)
+	case "linux":
+		// Try common browsers instead of xdg-open to avoid opening with wrong app
+		browsers := []string{"google-chrome", "chromium", "chromium-browser", "firefox"}
+		var browserFound bool
+		for _, browser := range browsers {
+			if _, err := exec.LookPath(browser); err == nil {
+				browserCmd = exec.Command(browser, tmpFile)
+				browserFound = true
+				break
+			}
+		}
+		if !browserFound {
+			return msg(fmt.Sprintf("3D board saved to %s\nNo browser found. Please open manually.", tmpFile)), nil
+		}
+	case "windows":
+		browserCmd = exec.Command("cmd", "/c", "start", tmpFile)
+	default:
+		return msg(fmt.Sprintf("3D board saved to %s\nPlease open manually in your browser", tmpFile)), nil
+	}
+
+	err = browserCmd.Start()
+	if err != nil {
+		return msg(fmt.Sprintf("3D board saved to %s\nFailed to open automatically: %v", tmpFile, err)), nil
+	}
+
+	return msg(fmt.Sprintf("3D board rendered and opened in browser: %s", tmpFile)), nil
 }
 
 func (sc *ShellController) autoAnalyze(cmd *shellcmd) (*Response, error) {

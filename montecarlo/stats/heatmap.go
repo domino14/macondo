@@ -22,10 +22,18 @@ type Heat struct {
 	fractionOfMax float64
 }
 
+func (h Heat) FractionOfMax() float64 {
+	return h.fractionOfMax
+}
+
 type HeatMap struct {
 	board    *board.GameBoard
 	squares  [][]Heat
 	alphabet *tilemapping.TileMapping
+}
+
+func (h HeatMap) Squares() [][]Heat {
+	return h.squares
 }
 
 var exchRe = regexp.MustCompile(`\((exch|exchange) ([^)]+)\)`)

@@ -572,3 +572,33 @@ exhaustiveleave-1 Mean Points Per Turn: 22.8887  Stdev: 4.0306
 exhaustiveleave-1 went first: 9898.0 (49.490%)
 Player who went first wins: 10696.0 (53.480%)
 ```
+
+-----
+
+Oct 12, 2025 experiments (used for creating a rating matrix):
+
+Lexicon is NWL23
+
+- LEVEL1_COMMON_WORD_BOT vs LEVEL2_COMMON_WORD_BOT: wins 9.4% of the time. Beginner v Basic
+- LEVEL2_COMMON_WORD_BOT vs LEVEL4_COMMON_WORD_BOT: wins 17.3% of the time. Basic v Better
+- LEVEL4_COMMON_WORD_BOT vs LEVEL4_PROBABILISTIC: wins 24.7% of the time. Better v STEE
+- LEVEL4_PROBABILISTIC vs HASTY_BOT: wins 29.2% of the time. STEE v Hasty
+
+
+
+Experiment from 8/17/24:
+
+macondo> autoanalyze /tmp/games-autoplay.txt
+Games played: 2126
+HastyBot wins: 779.0 (36.642%)
+HastyBot Mean Score: 421.0155  Stdev: 63.0322
+SimmingBot Mean Score: 437.3589  Stdev: 57.6739
+HastyBot Mean Bingos: 1.9591  Stdev: 1.0461
+SimmingBot Mean Bingos: 2.0644  Stdev: 0.9960
+HastyBot Mean Points Per Turn: 35.9323  Stdev: 6.6449
+SimmingBot Mean Points Per Turn: 36.8546  Stdev: 6.4242
+HastyBot went first: 1063.0 (50.000%)
+Player who went first wins: 1232.0 (57.949%)
+
+(SimmingBot is BestBot)
+

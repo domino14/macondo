@@ -111,6 +111,7 @@ type ShellController struct {
 	execPath string
 
 	options *ShellOptions
+	aliases map[string]string
 
 	game *bot.BotTurnPlayer
 
@@ -207,23 +208,6 @@ func (sc *ShellController) showError(err error) {
 }
 
 func NewShellController(cfg *config.Config, execPath, gitVersion string) *ShellController {
-	prompt := "macondo>"
-	if os.Getenv("NO_COLOR") == "" {
-		prompt = fmt.Sprintf("\033[31m%s\033[0m", prompt)
-	}
-	l, err := readline.NewEx(&readline.Config{
-		Prompt:          prompt + " ",
-		HistoryFile:     "/tmp/readline.tmp",
-		EOFPrompt:       "exit",
-		InterruptPrompt: "^C",
-
-		HistorySearchFold:   true,
-		FuncFilterInputRune: filterInput,
-	})
-
-	if err != nil {
-		panic(err)
-	}
 	execPath = config.FindBasePath(execPath)
 	opts := NewShellOptions()
 	opts.SetDefaults(cfg)
@@ -239,7 +223,49 @@ func NewShellController(cfg *config.Config, execPath, gitVersion string) *ShellC
 		panic("win percentages not correct type")
 	}
 
-	return &ShellController{l: l, config: cfg, execPath: execPath, options: opts, macondoVersion: gitVersion, winpcts: winPcts}
+	// Load aliases from config
+	aliases := make(map[string]string)
+	if aliasesFromConfig := cfg.GetStringMapString(config.ConfigAliases); aliasesFromConfig != nil {
+		aliases = aliasesFromConfig
+	}
+
+	// Create a partial ShellController so we can create the autocompleter
+	sc := &ShellController{
+		config:         cfg,
+		execPath:       execPath,
+		options:        opts,
+		aliases:        aliases,
+		macondoVersion: gitVersion,
+		winpcts:        winPcts,
+	}
+
+	// Create the autocompleter with reference to the controller
+	completer := NewShellCompleter(sc)
+
+	// Now create the readline instance with autocomplete enabled
+	prompt := "macondo>"
+	if os.Getenv("NO_COLOR") == "" {
+		prompt = fmt.Sprintf("\033[31m%s\033[0m", prompt)
+	}
+	l, err := readline.NewEx(&readline.Config{
+		Prompt:          prompt + " ",
+		HistoryFile:     "/tmp/readline.tmp",
+		EOFPrompt:       "exit",
+		InterruptPrompt: "^C",
+
+		HistorySearchFold:   true,
+		FuncFilterInputRune: filterInput,
+		AutoComplete:        completer,
+	})
+
+	if err != nil {
+		panic(err)
+	}
+
+	// Set the readline instance on the controller
+	sc.l = l
+
+	return sc
 }
 
 func (sc *ShellController) Cleanup() {
@@ -915,8 +941,70 @@ func extractFields(line string) (*shellcmd, error) {
 	}, nil
 }
 
-func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (*Response, error) {
+const maxAliasDepth = 10 // Prevent infinite recursion in alias chaining
+
+// expandAliases recursively expands aliases in the command line.
+// It handles chaining (aliases that call other aliases) and prevents infinite loops.
+func (sc *ShellController) expandAliases(line string) (string, error) {
+	return sc.expandAliasesHelper(line, make(map[string]bool), 0)
+}
+
+func (sc *ShellController) expandAliasesHelper(line string, seen map[string]bool, depth int) (string, error) {
+	if depth > maxAliasDepth {
+		return "", fmt.Errorf("alias chain too deep (possible circular reference)")
+	}
+
+	// Parse the command to get the first word
 	cmd, err := extractFields(line)
+	if err != nil {
+		return line, nil // If we can't parse, just return original
+	}
+
+	// Check if this command is an alias
+	aliasValue, isAlias := sc.aliases[cmd.cmd]
+	if !isAlias {
+		return line, nil // Not an alias, return as-is
+	}
+
+	// Check for circular reference
+	if seen[cmd.cmd] {
+		return "", fmt.Errorf("circular alias reference detected: %s", cmd.cmd)
+	}
+
+	// Mark this alias as seen
+	seen[cmd.cmd] = true
+
+	// Build the expanded command
+	// Start with the alias value
+	expandedParts := []string{aliasValue}
+
+	// Add any additional arguments from the original command
+	if len(cmd.args) > 0 {
+		expandedParts = append(expandedParts, cmd.args...)
+	}
+
+	// Add options
+	for opt, values := range cmd.options {
+		for _, val := range values {
+			expandedParts = append(expandedParts, "-"+opt, val)
+		}
+	}
+
+	// Join into a single command line
+	expanded := strings.Join(expandedParts, " ")
+
+	// Recursively expand in case the alias value contains another alias
+	return sc.expandAliasesHelper(expanded, seen, depth+1)
+}
+
+func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (*Response, error) {
+	// Expand any aliases first
+	expandedLine, err := sc.expandAliases(line)
+	if err != nil {
+		return nil, err
+	}
+
+	cmd, err := extractFields(expandedLine)
 	if err != nil {
 		return nil, err
 	}
@@ -926,6 +1014,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return nil, errors.New("sending quit signal")
 	case "help":
 		return sc.help(cmd)
+	case "alias":
+		return sc.alias(cmd)
 	case "new":
 		return sc.newGame(cmd)
 	case "load":
@@ -982,6 +1072,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.setMode(cmd)
 	case "export":
 		return sc.export(cmd)
+	case "render":
+		return sc.render3D(cmd)
 	case "autoanalyze":
 		return sc.autoAnalyze(cmd)
 	case "script":
