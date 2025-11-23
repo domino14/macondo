@@ -223,6 +223,8 @@ func (sc *ShellController) load(cmd *shellcmd) (*Response, error) {
 		}
 	}
 	sc.curTurnNum = 0
+	// Initialize a fresh variation tree for the newly loaded game
+	sc.initializeVariationTree()
 	return msg(sc.game.ToDisplayText()), nil
 }
 
@@ -235,7 +237,18 @@ func (sc *ShellController) unload(cmd *shellcmd) (*Response, error) {
 }
 
 func (sc *ShellController) show(cmd *shellcmd) (*Response, error) {
-	return msg(sc.game.ToDisplayText()), nil
+	output := sc.game.ToDisplayText()
+
+	// Add variation info
+	if sc.currentVariation != nil {
+		varLabel := "main line"
+		if sc.currentVariation.variationID != 0 {
+			varLabel = fmt.Sprintf("Variation %d", sc.currentVariation.variationID)
+		}
+		output += fmt.Sprintf("\n[%s, turn %d]", varLabel, sc.curTurnNum)
+	}
+
+	return msg(output), nil
 }
 
 func (sc *ShellController) list(cmd *shellcmd) (*Response, error) {
@@ -448,6 +461,44 @@ func (sc *ShellController) add(cmd *shellcmd) (*Response, error) {
 
 func (sc *ShellController) commit(cmd *shellcmd) (*Response, error) {
 	return nil, sc.commitPlay(cmd.args)
+}
+
+func (sc *ShellController) variation(cmd *shellcmd) (*Response, error) {
+	if sc.game == nil {
+		return nil, errors.New("please load a game first")
+	}
+
+	if len(cmd.args) == 0 {
+		// Default to "var list"
+		return sc.variationList()
+	}
+
+	subcommand := cmd.args[0]
+	switch subcommand {
+	case "list", "ls":
+		return sc.variationList()
+	case "info":
+		return sc.variationInfo()
+	case "delete", "del", "rm":
+		if len(cmd.args) < 2 {
+			return nil, errors.New("var delete requires a variation ID")
+		}
+		return sc.variationDelete(cmd.args[1])
+	case "promote":
+		if len(cmd.args) < 2 {
+			return nil, errors.New("var promote requires a variation ID")
+		}
+		return sc.variationPromote(cmd.args[1])
+	case "main":
+		return sc.variationSwitch(0)
+	default:
+		// Try to parse as variation ID
+		varID, err := strconv.Atoi(subcommand)
+		if err != nil {
+			return nil, fmt.Errorf("unknown variation subcommand or invalid ID: %s", subcommand)
+		}
+		return sc.variationSwitch(varID)
+	}
 }
 
 func (sc *ShellController) eliteplay(cmd *shellcmd) (*Response, error) {

@@ -118,8 +118,8 @@ func (g *Game) addEventToHistory(evt *pb.GameEvent) {
 	log.Debug().Msgf("Adding event to history: %v", evt)
 
 	if g.turnnum < len(g.history.Events) {
-		log.Info().Interface("evt", evt).Msg("adding-overwriting-history")
-		// log.Info().Interface("history", g.history.Events).Int("turnnum", g.turnnum).
+		log.Debug().Interface("evt", evt).Msg("adding-overwriting-history")
+		// log.Debug().Interface("history", g.history.Events).Int("turnnum", g.turnnum).
 		// 	Int("len", len(g.history.Events)).Msg("hist")
 		g.history.Events = g.history.Events[:g.turnnum]
 	}

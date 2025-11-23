@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/kballard/go-shellquote"
@@ -77,6 +78,12 @@ var commandMetadata = map[string]CommandMetadata{
 	"render": {
 		Options: []string{"-tile-color", "-board-color", "-heatmap", "-ply"},
 	},
+	"var": {
+		Args: []string{"list", "main", "info", "delete", "promote"},
+	},
+	"variation": {
+		Args: []string{"list", "main", "info", "delete", "promote"},
+	},
 }
 
 // Common command names for command completion
@@ -85,7 +92,7 @@ var commandNames = []string{
 	"name", "note", "turn", "rack", "set", "setconfig", "gen", "autoplay",
 	"sim", "infer", "add", "challenge", "commit", "aiplay", "hastyplay",
 	"selftest", "list", "endgame", "peg", "mode", "export", "render", "autoanalyze",
-	"script", "gid", "leave", "cgp", "check", "explain", "exit",
+	"script", "gid", "leave", "cgp", "check", "explain", "exit", "var", "variation",
 }
 
 // Common values for certain option types
@@ -191,6 +198,34 @@ func (c *ShellCompleter) Do(line []rune, pos int) ([][]rune, int) {
 				completions = []string{"orange", "yellow", "pink", "red", "blue", "black", "white"}
 			case "board-color":
 				completions = []string{"jade", "teal", "blue", "purple", "green", "darkgreen", "brown"}
+			}
+		}
+
+		// Special handling for var/variation command to suggest variation IDs
+		if (cmdName == "var" || cmdName == "variation") && completions == nil {
+			// Find the branching point to get available variations
+			if c.sc.currentVariation != nil {
+				node := c.sc.currentVariation
+				for node != nil && len(node.children) <= 1 {
+					node = node.parent
+				}
+				if node != nil && len(node.children) > 1 {
+					// Add variation IDs as suggestions
+					var varIDs []string
+					for _, child := range node.children {
+						if child.variationID == 0 {
+							varIDs = append(varIDs, "main")
+						} else {
+							varIDs = append(varIDs, strconv.Itoa(child.variationID))
+						}
+					}
+					// Combine with static args
+					if metadata, exists := commandMetadata[cmdName]; exists {
+						completions = append(varIDs, metadata.Args...)
+					} else {
+						completions = varIDs
+					}
+				}
 			}
 		}
 

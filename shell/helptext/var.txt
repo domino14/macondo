@@ -1,0 +1,30 @@
+var - Manage variations (alternative lines of play)
+
+Example usage:
+
+    var                    List all variations from the current branching point
+    var list              Same as above
+    var main              Switch to the main line
+    var 1                 Switch to variation 1
+    var info              Show current variation info
+    var delete 1          Delete variation 1
+    var promote 1         Promote variation 1 to become the main line
+
+The variation system lets you explore different lines of play from the same
+position, similar to chess engine analysis. When you commit a move at a
+historical position (after using 'p' or 'turn' to go back), a new variation
+is automatically created.
+
+Variations are stored in-memory only and are cleared when you load a new game
+or exit the shell. The main line is never truncated when creating variations.
+
+When you switch to a variation, you land at the branching point (the first
+move that differs). Use 'n' to step through the continuation moves in that
+variation. Use 'p' to go back.
+
+The 'promote' command lets you swap a variation with the main line. This is
+useful when you discover that a variation is actually the correct line and
+want it to become the main line when exporting to GCG.
+
+The current variation is displayed at the bottom of the board when using the
+'show' command.
