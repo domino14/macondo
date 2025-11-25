@@ -12,11 +12,7 @@ func TestTTableEntry(t *testing.T) {
 	tt.SetSingleThreadedMode()
 	// Assure minimum size of 2<<24 elems
 	tt.Reset(0, 15)
-	tentry := TableEntry{
-		score:        12,
-		flagAndDepth: 128 + 64 + 23,
-	}
-	tt.store(9409641586937047728, tentry)
+	tt.store(9409641586937047728, 12, 128+64+23, 0)
 
 	// arrayLength := len(tt.table)
 	is.True(tt.sizePowerOf2 >= 24)
@@ -25,9 +21,9 @@ func TestTTableEntry(t *testing.T) {
 	is.True(te.valid())
 	is.Equal(te.depth(), uint8(23))
 	is.Equal(te.flag(), uint8(TTUpper))
-	is.Equal(te.score, int16(12))
-	is.Equal(te.top4bytes, uint32(2190852907))
-	is.Equal(te.fifthbyte, uint8(61))
+	is.Equal(te.getScore(), int16(12))
+	is.Equal(te.getTop4bytes(), uint32(2190852907))
+	is.Equal(te.getFifthbyte(), uint8(61))
 
 	is.Equal(tt.t2collisions.Load(), uint64(0))
 	// create a collision

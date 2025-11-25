@@ -752,7 +752,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	if s.transpositionTableOptim {
 		ttEntry := s.ttable.lookup(nodeKey)
 		if ttEntry.valid() && ttEntry.depth() >= uint8(depth) {
-			score := ttEntry.score
+			score := ttEntry.getScore()
 			flag := ttEntry.flag()
 			// add spread back in; we subtract them when storing.
 			score += int16(ourSpread)
@@ -771,7 +771,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 				}
 			}
 			// search hash move first.
-			ttMove = ttEntry.move()
+			ttMove = ttEntry.getPlay()
 		}
 	}
 
@@ -866,9 +866,6 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 
 		score := bestValue - int16(ourSpread)
 		var flag uint8
-		entryToStore := TableEntry{
-			score: score,
-		}
 		if bestValue <= alphaOrig {
 			flag = TTUpper
 		} else if bestValue >= β {
@@ -876,15 +873,15 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		} else {
 			flag = TTExact
 		}
-		entryToStore.flagAndDepth = flag<<6 + uint8(depth)
-		entryToStore.play = bestMove.TinyMove()
-		s.ttable.store(nodeKey, entryToStore)
+		flagAndDepth := flag<<6 + uint8(depth)
+		play := bestMove.TinyMove()
+		s.ttable.store(nodeKey, score, flagAndDepth, play)
 		if s.logStream != nil {
 			// fmt.Fprintf(s.logStream, "  %vttnodeKey: %v\n", logIndent, nodeKey)
 			// fmt.Fprintf(s.logStream, "  %vttflag: %v\n", logIndent, flag)
 			// fmt.Fprintf(s.logStream, "  %vttdepth: %v\n", logIndent, depth)
 			// fmt.Fprintf(s.logStream, "  %vttscore: %v\n", logIndent, score)
-			// fmt.Fprintf(s.logStream, "  %vttplay: %v\n", logIndent, entryToStore.play)
+			// fmt.Fprintf(s.logStream, "  %vttplay: %v\n", logIndent, play)
 			fmt.Fprintf(s.logStream, "%d (d: %d s: %d)\n", nodeKey, depth, score)
 			fmt.Fprintf(s.logStream, " cgp: %v\n\n", g.ToCGP(false))
 		}
