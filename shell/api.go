@@ -586,6 +586,7 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	var preventSR bool
 	var disableNegascout bool
 	var nullWindow bool
+	var parallelAlgo string
 	var err error
 
 	if plies, err = cmd.options.IntDefault("plies", defaultEndgamePlies); err != nil {
@@ -599,6 +600,10 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	}
 	if multipleVars, err = cmd.options.IntDefault("multiple-vars", 1); err != nil {
 		return nil, err
+	}
+	parallelAlgo = cmd.options.String("parallel-algo")
+	if parallelAlgo == "" {
+		parallelAlgo = negamax.ParallelAlgoAuto
 	}
 	disableID = cmd.options.Bool("disable-id")
 	disableTT = cmd.options.Bool("disable-tt")
@@ -646,6 +651,9 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 	sc.endgameSolver.SetIterativeDeepening(!disableID)
 	sc.endgameSolver.SetTranspositionTableOptim(!disableTT)
 	sc.endgameSolver.SetThreads(maxthreads)
+	if err = sc.endgameSolver.SetParallelAlgorithm(parallelAlgo); err != nil {
+		return nil, err
+	}
 	sc.endgameSolver.SetFirstWinOptim(enableFW)
 	sc.endgameSolver.SetNullWindowOptim(nullWindow)
 	sc.endgameSolver.SetSolveMultipleVariations(multipleVars)

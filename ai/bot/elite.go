@@ -121,6 +121,8 @@ func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move
 		maxThreads = negamax.MaxLazySMPThreads
 	}
 	p.endgamer.SetThreads(maxThreads)
+	// Use auto mode: picks ABDADA for 300+ moves, otherwise LazySMP
+	p.endgamer.SetParallelAlgorithm(negamax.ParallelAlgoAuto)
 	p.endgamer.SetPreventSlowroll(true)
 	v, seq, err := p.endgamer.Solve(ctx, endgamePlies)
 	if err != nil {

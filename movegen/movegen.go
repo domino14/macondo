@@ -341,11 +341,11 @@ func (gen *GordonGenerator) recursiveGen(col int, rack *tilemapping.Rack,
 		lm := gen.board.GetLetterMultiplier(sqIdx)
 		cs := gen.board.GetCrossScoreIdx(sqIdx, csDirection)
 		wm := gen.board.GetWordMultiplier(sqIdx)
-		emptyAdjacent := gen.board.GetCrossSetIdx(sqIdx, csDirection) == board.TrivialCrossSet
+		emptyAdjacent := crossSet == board.TrivialCrossSet
 		for i := nodeIdx; ; i++ {
 			ml := tilemapping.MachineLetter(gd.Tile(i))
-			if ml != 0 && (rack.LetArr[ml] != 0 || rack.LetArr[0] != 0) && crossSet.Allowed(ml) {
-				nnIdx := gd.ArcIndex(i)
+			if ml != 0 && crossSet.Allowed(ml) && (rack.LetArr[ml] != 0 || rack.LetArr[0] != 0) {
+				arcIdx := gd.ArcIndex(i)
 				accepts := gd.Accepts(i)
 				if rack.LetArr[ml] > 0 {
 					rack.Take(ml)
@@ -359,7 +359,7 @@ func (gen *GordonGenerator) recursiveGen(col int, rack *tilemapping.Rack,
 							addlCrossScore = cs + sml*lm
 						}
 					}
-					gen.goOn(col, ml, rack, nnIdx, accepts, leftstrip, rightstrip, uniquePlay,
+					gen.goOn(col, ml, rack, arcIdx, accepts, leftstrip, rightstrip, uniquePlay,
 						baseScore+(sml*lm),
 						crossScores+addlCrossScore,
 						wordMultiplier*wm)
@@ -373,7 +373,7 @@ func (gen *GordonGenerator) recursiveGen(col int, rack *tilemapping.Rack,
 					gen.tilesPlayed++
 					// XXX: this won't work for non-zero-score blanks if
 					// that's ever a thing.
-					gen.goOn(col, ml.Blank(), rack, nnIdx, accepts, leftstrip, rightstrip, uniquePlay,
+					gen.goOn(col, ml.Blank(), rack, arcIdx, accepts, leftstrip, rightstrip, uniquePlay,
 						baseScore,
 						crossScores+cs*wm,
 						wordMultiplier*wm)

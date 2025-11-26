@@ -46,6 +46,14 @@ negamax(rootNode, depth, −∞, +∞, 1)
 const HugeNumber = int16(32000)
 const MaxVariantLength = 25
 
+// Parallel algorithm constants
+const (
+	ParallelAlgoAuto      = "auto"
+	ParallelAlgoLazySMP   = "lazysmp"
+	ParallelAlgoABDADA    = "abdada"
+	ParallelAlgoTreeSplit = "treesplit"
+)
+
 // Bitflags for move estimates.
 const (
 	EarlyPassBF = 1 << 13
@@ -197,6 +205,8 @@ type Solver struct {
 	lazySMPOptim bool
 	// ABDADA is another alpha-beta parallelization algorithm
 	abdadaOptim bool
+	// treeSplit distributes root moves across threads with work-stealing
+	treeSplitOptim bool
 
 	// solveMultipleVariations will solve multiple variations in parallel.
 	solveMultipleVariations int
@@ -204,7 +214,8 @@ type Solver struct {
 	bestPVValue             int16
 	preventSlowroll         bool
 
-	ttable *TranspositionTable
+	ttable      *TranspositionTable
+	abdadaTable *ABDADATable
 
 	currentIDDepths []int
 	requestedPlies  int
@@ -251,14 +262,63 @@ func (s *Solver) Variations() []PVLine {
 }
 
 func (s *Solver) SetThreads(threads int) {
-	switch {
-	case threads < 2:
-		s.threads = 1
-		s.lazySMPOptim = false
-	case threads >= 2:
-		s.threads = threads
-		s.lazySMPOptim = true
+	s.threads = max(1, threads)
+	// Auto-enable parallel algorithm selection when using multiple threads
+	if threads >= 2 && !s.lazySMPOptim && !s.abdadaOptim && !s.treeSplitOptim {
+		// Default to "auto" mode - will be resolved based on root move count
+		// No need to set any flag - the dispatcher will handle it
 	}
+}
+
+func (s *Solver) SetLazySMP(enable bool) {
+	s.lazySMPOptim = enable
+	if enable {
+		s.treeSplitOptim = false
+		s.abdadaOptim = false
+	}
+}
+
+func (s *Solver) SetTreeSplit(enable bool) {
+	s.treeSplitOptim = enable
+	if enable {
+		s.lazySMPOptim = false
+		s.abdadaOptim = false
+	}
+}
+
+func (s *Solver) SetABDADA(enable bool) {
+	s.abdadaOptim = enable
+	if enable {
+		s.lazySMPOptim = false
+		s.treeSplitOptim = false
+		if s.abdadaTable == nil {
+			s.abdadaTable = NewABDADATable()
+		}
+	}
+}
+
+// SetParallelAlgorithm sets the parallelization algorithm to use.
+// Options: ParallelAlgoAuto, ParallelAlgoLazySMP, ParallelAlgoABDADA, ParallelAlgoTreeSplit
+// ParallelAlgoAuto will choose ABDADA for 300+ root moves, otherwise LazySMP
+func (s *Solver) SetParallelAlgorithm(algo string) error {
+	switch algo {
+	case ParallelAlgoAuto:
+		// Auto mode: will be resolved when root moves are known
+		s.lazySMPOptim = false
+		s.abdadaOptim = false
+		s.treeSplitOptim = false
+		// Marker: we'll pick algorithm in iterativelyDeepen based on root moves
+	case ParallelAlgoLazySMP:
+		s.SetLazySMP(true)
+	case ParallelAlgoABDADA:
+		s.SetABDADA(true)
+	case ParallelAlgoTreeSplit:
+		s.SetTreeSplit(true)
+	default:
+		return fmt.Errorf("unknown parallel algorithm: %s (options: %s, %s, %s, %s)",
+			algo, ParallelAlgoAuto, ParallelAlgoLazySMP, ParallelAlgoABDADA, ParallelAlgoTreeSplit)
+	}
+	return nil
 }
 
 func (s *Solver) SetSolveMultipleVariations(i int) {
@@ -504,7 +564,337 @@ searchLoop:
 }
 
 func (s *Solver) iterativelyDeepenABDADA(ctx context.Context, plies int) error {
+	// ABDADA (Alpha-Beta Distributed Asynchronous Distributed Asynchronous)
 	// https://dl.acm.org/doi/pdf/10.1145/228329.228345
+	if plies < 2 {
+		return errors.New("use at least 2 plies")
+	}
+	s.makeGameCopies()
+	log.Info().Int("threads", s.threads).Msg("using-abdada")
+	s.currentIDDepths = make([]int, s.threads)
+	initialHashKey := s.ttable.Zobrist().Hash(
+		s.game.Board().GetSquares(),
+		s.game.RackFor(s.solvingPlayer),
+		s.game.RackFor(1-s.solvingPlayer),
+		false, s.game.ScorelessTurns(),
+	)
+
+	α := -HugeNumber
+	β := HugeNumber
+	if s.firstWinOptim {
+		α = -1
+		β = 1
+	} else if s.nullWindowOptim {
+		α = -1
+		β = 0
+	}
+
+	// Generate first layer of moves
+	s.currentIDDepths[0] = -1
+	s.initialMoves = make([][]tinymove.SmallMove, s.threads)
+	s.initialMoves[0] = s.generateSTMPlays(0, 0)
+	s.assignEstimates(s.initialMoves[0], 0, 0, tinymove.InvalidTinyMove)
+
+	// Do initial 1-ply search for move ordering
+	pv := PVLine{g: s.game}
+	s.currentIDDepths[0] = 1
+	lastIteration, _ := s.negamax(ctx, initialHashKey, 1, α, β, &pv, 0, true)
+	sort.Slice(s.initialMoves[0], func(i, j int) bool {
+		return s.initialMoves[0][i].EstimatedValue() > s.initialMoves[0][j].EstimatedValue()
+	})
+
+	// Copy moves to all threads
+	for t := 1; t < s.threads; t++ {
+		s.initialMoves[t] = make([]tinymove.SmallMove, len(s.initialMoves[0]))
+		copy(s.initialMoves[t], s.initialMoves[0])
+	}
+
+	// Iterative deepening loop
+	for p := 2; p <= plies; p++ {
+		log.Info().Int("plies", p).Msg("deepening-iteratively-abdada")
+
+		// Set current depth for all threads
+		for t := 0; t < s.threads; t++ {
+			s.currentIDDepths[t] = p
+		}
+
+		// Aspiration search
+		window := int16(8)
+		aspα := lastIteration - window
+		aspβ := lastIteration + window
+		if s.firstWinOptim {
+			aspα = -1
+			aspβ = 1
+		} else if s.nullWindowOptim {
+			aspα = -1
+			aspβ = 0
+		}
+
+	aspirationLoop:
+		for {
+			aspα = max(-HugeNumber, aspα)
+			aspβ = min(HugeNumber, aspβ)
+			log.Info().Int16("α", aspα).Int16("β", aspβ).Msg("abdada-search")
+
+			// Start helper threads
+			g := errgroup.Group{}
+			cancels := make([]context.CancelFunc, s.threads-1)
+
+			for t := 1; t < s.threads; t++ {
+				helperCtx, cancel := context.WithCancel(ctx)
+				cancels[t-1] = cancel
+				threadID := t
+
+				g.Go(func() error {
+					pv := PVLine{g: s.gameCopies[threadID-1]}
+					_, err := s.negamax(helperCtx, initialHashKey, p, aspα, aspβ, &pv, threadID, true)
+					return err
+				})
+			}
+
+			// Main thread search
+			mainPV := PVLine{g: s.game}
+			val, err := s.negamax(ctx, initialHashKey, p, aspα, aspβ, &mainPV, 0, true)
+
+			// Stop helper threads
+			for _, c := range cancels {
+				if c != nil {
+					c()
+				}
+			}
+			g.Wait()
+
+			if err != nil {
+				log.Err(err).Msg("abdada-error")
+				return err
+			}
+
+			sort.Slice(s.initialMoves[0], func(i, j int) bool {
+				return s.initialMoves[0][i].EstimatedValue() > s.initialMoves[0][j].EstimatedValue()
+			})
+
+			s.principalVariation = mainPV
+			s.bestPVValue = val - int16(s.initialSpread)
+			log.Info().Int16("spread", val).Int("ply", p).Str("pv", mainPV.NLBString()).Msg("abdada-best-val")
+
+			// Check if we're within the aspiration window
+			if val > aspα && val < aspβ {
+				lastIteration = val
+				break aspirationLoop
+			}
+
+			// Widen window
+			window *= 2
+			if val <= aspα {
+				for aspα-window < -HugeNumber {
+					window /= 2
+				}
+				aspα -= window
+				aspβ -= window / 3
+			} else {
+				for aspβ+window > HugeNumber {
+					window /= 2
+				}
+				aspβ += window
+				aspα += window / 3
+			}
+			log.Debug().Int16("new-α", aspα).Int16("new-β", aspβ).Msg("abdada-re-iterating")
+		}
+	}
+	return nil
+}
+
+func (s *Solver) iterativelyDeepenTreeSplit(ctx context.Context, plies int) error {
+	// Tree splitting with work-stealing: distribute root moves across threads
+	// Each thread has a deque of moves, steals from others when empty
+
+	// Initialize game copies and movegens for threads
+	s.makeGameCopies()
+	log.Info().Int("threads", s.threads).Msg("using-tree-split")
+
+	s.currentIDDepths = make([]int, s.threads)
+	g := s.game
+
+	initialHashKey := uint64(0)
+	if s.transpositionTableOptim {
+		initialHashKey = s.ttable.Zobrist().Hash(
+			g.Board().GetSquares(),
+			g.RackFor(s.solvingPlayer),
+			g.RackFor(1-s.solvingPlayer),
+			false, g.ScorelessTurns(),
+		)
+	}
+
+	α := -HugeNumber
+	β := HugeNumber
+	if s.firstWinOptim {
+		α = -1
+		β = 1
+	} else if s.nullWindowOptim {
+		α = -1
+		β = 0
+	}
+
+	// Generate first layer of moves
+	s.currentIDDepths[0] = -1 // so that generateSTMPlays generates all moves first properly
+	s.initialMoves = make([][]tinymove.SmallMove, s.threads)
+	s.initialMoves[0] = s.generateSTMPlays(0, 0)
+	// assignEstimates for the very first time around
+	s.assignEstimates(s.initialMoves[0], 0, 0, tinymove.InvalidTinyMove)
+
+	start := 1
+	if !s.iterativeDeepeningOptim {
+		start = plies
+	}
+
+	for p := start; p <= plies; p++ {
+		if s.iterativeDeepeningOptim {
+			log.Info().Int("plies", p).Msg("deepening-iteratively")
+		}
+
+		rootMoves := s.initialMoves[0]
+		if len(rootMoves) == 0 {
+			return errors.New("no moves generated")
+		}
+
+		// Create work deques for each thread with move indices
+		deques := make([]*WorkDeque, s.threads)
+		movesPerThread := (len(rootMoves) + s.threads - 1) / s.threads
+
+		for t := 0; t < s.threads; t++ {
+			start := t * movesPerThread
+			end := min((t+1)*movesPerThread, len(rootMoves))
+			if start < len(rootMoves) {
+				// Give each thread a slice of indices
+				indices := make([]int, end-start)
+				for i := 0; i < len(indices); i++ {
+					indices[i] = start + i
+				}
+				deques[t] = NewWorkDeque(indices)
+			} else {
+				// Thread has no initial work
+				deques[t] = NewWorkDeque(nil)
+			}
+		}
+
+		// Shared best result
+		var bestValue atomic.Int32
+		bestValue.Store(int32(-HugeNumber))
+
+		// Launch worker threads
+		eg := errgroup.Group{}
+
+		for t := 0; t < s.threads; t++ {
+			threadID := t
+			s.currentIDDepths[threadID] = p
+
+			eg.Go(func() error {
+				threadGame := s.game
+				if threadID > 0 {
+					threadGame = s.gameCopies[threadID-1]
+				}
+				pv := PVLine{g: threadGame}
+				onTurn := threadGame.PlayerOnTurn()
+				stmRack := threadGame.RackFor(onTurn)
+
+				for {
+					// Try to get work from own deque
+					idx, ok := deques[threadID].Pop()
+
+					// If no work, try to steal from others
+					if !ok {
+						stolen := false
+						for victimID := 0; victimID < s.threads; victimID++ {
+							if victimID == threadID {
+								continue
+							}
+							idx, ok = deques[victimID].Steal()
+							if ok {
+								stolen = true
+								break
+							}
+						}
+						if !stolen {
+							// No work anywhere, exit
+							break
+						}
+					}
+
+					// Get the move from rootMoves
+					sm := rootMoves[idx]
+
+					// Search this move
+					moveTiles, err := threadGame.PlaySmallMove(&sm)
+					if err != nil {
+						return err
+					}
+					s.nodes.Add(1)
+
+					childKey := uint64(0)
+					if s.transpositionTableOptim {
+						childKey = s.ttable.Zobrist().AddMove(initialHashKey, &sm, stmRack, moveTiles,
+							onTurn == s.solvingPlayer, threadGame.ScorelessTurns(), threadGame.LastScorelessTurns())
+					}
+
+					val, err := s.negamax(
+						ctx,
+						childKey,
+						p-1,
+						-β, -α,
+						&pv, threadID, true)
+
+					threadGame.UnplayLastMove()
+
+					if err != nil {
+						return err
+					}
+
+					val = -val
+
+					// Update the move in rootMoves
+					rootMoves[idx].SetEstimatedValue(val)
+
+					// Update shared best
+					for {
+						current := bestValue.Load()
+						if int32(val) <= current {
+							break
+						}
+						if bestValue.CompareAndSwap(current, int32(val)) {
+							break
+						}
+					}
+				}
+
+				return nil
+			})
+		}
+
+		err := eg.Wait()
+		if err != nil {
+			return err
+		}
+
+		// Sort moves by their estimated values
+		sort.Slice(rootMoves, func(i, j int) bool {
+			return rootMoves[i].EstimatedValue() > rootMoves[j].EstimatedValue()
+		})
+
+		// Build PV from best move
+		finalBest := int16(bestValue.Load())
+		if len(rootMoves) > 0 {
+			pv := PVLine{g: g}
+			bestMove := &move.Move{}
+			conversions.SmallMoveToMove(rootMoves[0], bestMove, g.Alphabet(), g.Board(), g.RackFor(g.PlayerOnTurn()))
+			pv.Update(bestMove, PVLine{g: g}, finalBest-int16(s.initialSpread))
+			s.principalVariation = pv
+			s.bestPVValue = finalBest - int16(s.initialSpread)
+		}
+
+		nodes := s.nodes.Load()
+		log.Info().Int16("spread", finalBest-int16(s.initialSpread)).Int("ply", p).Str("pv", s.principalVariation.NLBString()).Uint64("total-nodes", nodes).Msg("best-val")
+	}
+
 	return nil
 }
 
@@ -662,10 +1052,32 @@ aspirationLoop:
 
 // iterativelyDeepen is single-threaded version.
 func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
+	// Auto-select parallel algorithm if multi-threaded but no algorithm chosen
+	if s.threads >= 2 && !s.lazySMPOptim && !s.abdadaOptim && !s.treeSplitOptim {
+		// Generate initial moves to determine branching factor
+		s.currentIDDepths = make([]int, 1)
+		s.currentIDDepths[0] = -1
+		s.initialMoves = make([][]tinymove.SmallMove, 1)
+		s.initialMoves[0] = s.generateSTMPlays(0, 0)
+
+		rootMoves := len(s.initialMoves[0])
+
+		// Auto-select based on branching factor
+		if rootMoves >= 300 {
+			log.Info().Int("root-moves", rootMoves).Msg("auto-selecting ABDADA (high branching factor)")
+			s.SetABDADA(true)
+		} else {
+			log.Info().Int("root-moves", rootMoves).Msg("auto-selecting LazySMP")
+			s.SetLazySMP(true)
+		}
+	}
+
 	if s.lazySMPOptim {
 		return s.iterativelyDeepenLazySMP(ctx, plies)
 	} else if s.abdadaOptim {
 		return s.iterativelyDeepenABDADA(ctx, plies)
+	} else if s.treeSplitOptim {
+		return s.iterativelyDeepenTreeSplit(ctx, plies)
 	}
 	if s.solveMultipleVariations > 1 {
 		// you don't really have to but i'm too lazy smp to implement it in several places
@@ -800,7 +1212,22 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	var bestMove tinymove.SmallMove
 	var err error
 	var moveTiles *[21]tilemapping.MachineLetter
+
+	// ABDADA: track deferred moves for second pass
+	var deferredMoves []int
+
+	// First pass: search non-deferred moves
 	for idx := range children {
+		// ABDADA: check if this move should be deferred
+		if s.abdadaOptim && s.abdadaTable.deferMove(nodeKey, children[idx], depth) {
+			deferredMoves = append(deferredMoves, idx)
+			continue
+		}
+
+		// ABDADA: register that we're starting to search this move
+		if s.abdadaOptim {
+			s.abdadaTable.startingSearch(nodeKey, children[idx], depth)
+		}
 		if s.logStream != nil {
 			// fmt.Fprintf(s.logStream, "  %v- play: %v\n", logIndent, children[idx].ShortDescription())
 		}
@@ -818,10 +1245,22 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		// negascout
 		if idx == 0 || !s.negascoutOptim {
 			value, err = s.negamax(ctx, childKey, depth-1, -β, -α, &childPV, thread, pvNode)
+			if err != nil {
+				g.UnplayLastMove()
+				// ABDADA: clean up on error
+				if s.abdadaOptim {
+					s.abdadaTable.finishedSearch(nodeKey, children[idx])
+				}
+				return value, err
+			}
 		} else {
 			value, err = s.negamax(ctx, childKey, depth-1, -α-1, -α, &childPV, thread, false)
 			if err != nil {
 				g.UnplayLastMove()
+				// ABDADA: clean up on error
+				if s.abdadaOptim {
+					s.abdadaTable.finishedSearch(nodeKey, children[idx])
+				}
 				return value, err
 			}
 			if α < -value && -value < β {
@@ -831,9 +1270,18 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		}
 		if err != nil {
 			g.UnplayLastMove()
+			// ABDADA: clean up on error
+			if s.abdadaOptim {
+				s.abdadaTable.finishedSearch(nodeKey, children[idx])
+			}
 			return value, err
 		}
 		g.UnplayLastMove()
+
+		// ABDADA: finished searching this move
+		if s.abdadaOptim {
+			s.abdadaTable.finishedSearch(nodeKey, children[idx])
+		}
 		if s.logStream != nil {
 			// fmt.Fprintf(s.logStream, "  %v  value: %v\n", logIndent, value)
 		}
@@ -859,6 +1307,74 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		}
 		childPV.Clear() // clear the child node's pv for the next child node
 	}
+
+	// ABDADA: Second pass - search deferred moves
+	if s.abdadaOptim && bestValue < β {
+		for _, idx := range deferredMoves {
+			// Don't check defer again, just search
+			s.abdadaTable.startingSearch(nodeKey, children[idx], depth)
+
+			if s.logStream != nil {
+				// fmt.Fprintf(s.logStream, "  %v- play (deferred): %v\n", logIndent, children[idx].ShortDescription())
+			}
+			moveTiles, err = g.PlaySmallMove(&children[idx])
+			if err != nil {
+				return 0, err
+			}
+			s.nodes.Add(1)
+			childKey := uint64(0)
+			if s.transpositionTableOptim {
+				childKey = s.ttable.Zobrist().AddMove(nodeKey, &children[idx], stmRack, moveTiles,
+					onTurn == s.solvingPlayer, g.ScorelessTurns(), g.LastScorelessTurns())
+			}
+			var value int16
+			// negascout - for deferred moves, always use full window first
+			if idx == 0 || !s.negascoutOptim {
+				value, err = s.negamax(ctx, childKey, depth-1, -β, -α, &childPV, thread, pvNode)
+				if err != nil {
+					g.UnplayLastMove()
+					s.abdadaTable.finishedSearch(nodeKey, children[idx])
+					return value, err
+				}
+			} else {
+				value, err = s.negamax(ctx, childKey, depth-1, -α-1, -α, &childPV, thread, false)
+				if err != nil {
+					g.UnplayLastMove()
+					s.abdadaTable.finishedSearch(nodeKey, children[idx])
+					return value, err
+				}
+				if α < -value && -value < β {
+					// re-search with wider window
+					value, err = s.negamax(ctx, childKey, depth-1, -β, -α, &childPV, thread, pvNode)
+				}
+			}
+			if err != nil {
+				g.UnplayLastMove()
+				s.abdadaTable.finishedSearch(nodeKey, children[idx])
+				return value, err
+			}
+			g.UnplayLastMove()
+			s.abdadaTable.finishedSearch(nodeKey, children[idx])
+
+			if -value > bestValue {
+				bestValue = -value
+				bestMove = children[idx]
+				m := &move.Move{}
+				conversions.SmallMoveToMove(bestMove, m, g.Alphabet(), g.Board(), stmRack)
+				pv.Update(m, childPV, bestValue-int16(s.initialSpread))
+			}
+			if s.currentIDDepths[thread] == depth {
+				children[idx].SetEstimatedValue(-value)
+			}
+
+			α = max(α, bestValue)
+			if bestValue >= β {
+				break // beta cut-off
+			}
+			childPV.Clear()
+		}
+	}
+
 	if s.transpositionTableOptim {
 		// We store this value without our spread to make it spread-independent.
 		// Without this, we need to hash the spread as well and this results
@@ -916,7 +1432,10 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	if s.lazySMPOptim && s.abdadaOptim {
 		return 0, nil, errors.New("you can only use lazySMP OR solve multiple variants, but not both")
 	}
-	if s.lazySMPOptim || s.abdadaOptim {
+	if s.lazySMPOptim && s.treeSplitOptim {
+		return 0, nil, errors.New("you can only use lazySMP OR treeSplit, but not both")
+	}
+	if s.lazySMPOptim || s.abdadaOptim || s.treeSplitOptim {
 		if s.transpositionTableOptim {
 			s.ttable.SetMultiThreadedMode()
 		} else {
