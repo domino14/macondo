@@ -758,11 +758,30 @@ func pluralize(n int) string {
 // initializeVariationTree creates the root node of the variation tree from the current game state.
 // If the game has existing history, it builds nodes for all existing moves on the main line.
 func (sc *ShellController) initializeVariationTree() {
-	// Save the current turn number so we can restore it
-	originalTurn := sc.game.Turn()
-
 	// Build nodes for all existing moves in the game history
 	history := sc.game.History()
+
+	// If there's no history (e.g., CGP loaded directly), create a simple root node
+	// without calling PlayToTurn which would clear the board
+	if history == nil || len(history.Events) == 0 {
+		gameCopy := sc.game.Game.CopyWithHistory()
+		botCopy, _ := bot.NewBotTurnPlayerFromGame(gameCopy, &bot.BotConfig{Config: *sc.config}, pb.BotRequest_HASTY_BOT)
+
+		sc.variationRoot = &VariationNode{
+			gameSnapshot: botCopy,
+			parent:       nil,
+			children:     []*VariationNode{},
+			move:         nil,
+			variationID:  0,
+			turnNumber:   0,
+		}
+		sc.currentVariation = sc.variationRoot
+		sc.nextVariationID = 1
+		return
+	}
+
+	// Save the current turn number so we can restore it
+	originalTurn := sc.game.Turn()
 
 	// Create root node at turn 0 (main line, variation ID = 0)
 	// For the root and all main line nodes, we keep the full history
@@ -780,38 +799,33 @@ func (sc *ShellController) initializeVariationTree() {
 		turnNumber:   0,
 	}
 
-	if history != nil && len(history.Events) > 0 {
-		currentNode := sc.variationRoot
+	currentNode := sc.variationRoot
 
-		// For each turn in the main line, create a node with the full history
-		for turnNum := 0; turnNum < len(history.Events); turnNum++ {
-			// Create a copy of the full game (with complete history)
-			sc.game.PlayToTurn(originalTurn) // Restore full history position
-			fullGameCopy := sc.game.Game.CopyWithHistory() // Deep copy with independent history
-			botCopy, _ := bot.NewBotTurnPlayerFromGame(fullGameCopy, &bot.BotConfig{Config: *sc.config}, pb.BotRequest_HASTY_BOT)
+	// For each turn in the main line, create a node with the full history
+	for turnNum := 0; turnNum < len(history.Events); turnNum++ {
+		// Create a copy of the full game (with complete history)
+		sc.game.PlayToTurn(originalTurn) // Restore full history position
+		fullGameCopy := sc.game.Game.CopyWithHistory() // Deep copy with independent history
+		botCopy, _ := bot.NewBotTurnPlayerFromGame(fullGameCopy, &bot.BotConfig{Config: *sc.config}, pb.BotRequest_HASTY_BOT)
 
-			// Position this copy at the specific turn
-			botCopy.PlayToTurn(turnNum + 1)
+		// Position this copy at the specific turn
+		botCopy.PlayToTurn(turnNum + 1)
 
-			newNode := &VariationNode{
-				gameSnapshot: botCopy,
-				parent:       currentNode,
-				children:     []*VariationNode{},
-				move:         nil, // Move info is in snapshot's history
-				variationID:  0,   // Main line
-				turnNumber:   turnNum + 1,
-			}
-
-			currentNode.children = append(currentNode.children, newNode)
-			currentNode = newNode
+		newNode := &VariationNode{
+			gameSnapshot: botCopy,
+			parent:       currentNode,
+			children:     []*VariationNode{},
+			move:         nil, // Move info is in snapshot's history
+			variationID:  0,   // Main line
+			turnNumber:   turnNum + 1,
 		}
 
-		// Set current variation to the last node created
-		sc.currentVariation = currentNode
-	} else {
-		// No history, start at root
-		sc.currentVariation = sc.variationRoot
+		currentNode.children = append(currentNode.children, newNode)
+		currentNode = newNode
 	}
+
+	// Set current variation to the last node created
+	sc.currentVariation = currentNode
 
 	// Restore the original turn
 	sc.game.PlayToTurn(originalTurn)
