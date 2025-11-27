@@ -6,13 +6,13 @@ local macondo = require("macondo")
 
 local cgp = "4EXODE6/1DOFF1KERATIN1U/1OHO8YEN/1POOJA1B3MEWS/5SQUINTY2A/4RHINO1e3V/2B4C2R3E/GOAT1D1E2ZIN1d/1URACILS2E4/1PIG1S4T4/2L2R4T4/2L2A1GENII3/2A2T1L7/5E1A7/5D1M7 AEEIRUW/V 410/409 0 lex CSW24;"
 
-local thread_counts = {2, 4, 8, 12, 16, 20, 24, 28, 32}
+local thread_counts = {1, 2, 4, 8, 12, 16, 20, 24, 28, 32}
 local results = {}
 
 print("\n=== ABDADA Scaling Test: StuckPruning Position ===\n")
 print("Position: Deep endgame with high branching factor")
 print("Solving to 9 plies with -parallel-algo auto\n")
-print("Testing thread counts: 1, 2, 4, 8, 10, 12, 14, 16\n")
+print("Testing thread counts: 1, 2, 4, 8, 12, 16, 20, 24, 28, 32\n")
 
 
 for _, threads in ipairs(thread_counts) do
