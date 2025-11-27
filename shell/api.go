@@ -566,6 +566,13 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 		return msg(""), nil
 	}
 
+	if len(cmd.args) > 0 && cmd.args[0] == "metrics" {
+		if sc.endgameSolver == nil {
+			return nil, errors.New("no endgame has been run yet")
+		}
+		return msg(sc.endgameSolver.GetMetrics()), nil
+	}
+
 	if sc.solving() {
 		return nil, errMacondoSolving
 	}

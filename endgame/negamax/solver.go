@@ -227,6 +227,10 @@ type Solver struct {
 	threadLogs []playLog
 
 	variations []PVLine
+
+	// Metrics from last solve
+	lastSolveTime    float64
+	lastTTableStats  string
 }
 
 // Init initializes the solver
@@ -1493,8 +1497,13 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 
 	bestSeq = s.principalVariation.Moves[:s.principalVariation.numMoves]
 	bestV = s.bestPVValue
-	log.Info().Str("ttable-stats", s.ttable.Stats()).
-		Float64("time-elapsed-sec", time.Since(tstart).Seconds()).
+
+	// Store metrics
+	s.lastSolveTime = time.Since(tstart).Seconds()
+	s.lastTTableStats = s.ttable.Stats()
+
+	log.Info().Str("ttable-stats", s.lastTTableStats).
+		Float64("time-elapsed-sec", s.lastSolveTime).
 		Msg("solve-returning")
 	if err != nil {
 		if err == context.Canceled || err == context.DeadlineExceeded {
@@ -1507,6 +1516,11 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 
 func (s *Solver) ShortDetails() string {
 	return s.principalVariation.NLBString()
+}
+
+// GetMetrics returns the timing and transposition table stats from the last solve
+func (s *Solver) GetMetrics() string {
+	return fmt.Sprintf("time-elapsed-sec:%f ttable-stats:%s", s.lastSolveTime, s.lastTTableStats)
 }
 
 // QuickAndDirtySolve is meant for a pre-endgame engine to call this function
