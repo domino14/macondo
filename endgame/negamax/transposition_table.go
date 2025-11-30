@@ -258,6 +258,30 @@ func (t *TranspositionTable) Stats() string {
 		t.created.Load(), t.lookups.Load(), t.hits.Load(), t.t2collisions.Load(), t.tornReads.Load())
 }
 
+// Created returns the number of TT entries created
+func (t *TranspositionTable) Created() uint64 {
+	return t.created.Load()
+}
+
+// Lookups returns the number of TT lookups performed
+func (t *TranspositionTable) Lookups() uint64 {
+	return t.lookups.Load()
+}
+
+// Hits returns the number of TT hits
+func (t *TranspositionTable) Hits() uint64 {
+	return t.hits.Load()
+}
+
+// ResetStats resets the statistics counters without reallocating the table
+func (t *TranspositionTable) ResetStats() {
+	t.created.Store(0)
+	t.lookups.Store(0)
+	t.hits.Store(0)
+	t.t2collisions.Store(0)
+	t.tornReads.Store(0)
+}
+
 // a debug tt
 
 type DebugTableEntry struct {

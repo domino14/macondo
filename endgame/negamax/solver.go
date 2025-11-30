@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"runtime"
 	"sort"
 	"sync/atomic"
@@ -303,15 +304,20 @@ func (s *Solver) SetABDADA(enable bool) {
 
 // SetParallelAlgorithm sets the parallelization algorithm to use.
 // Options: ParallelAlgoAuto, ParallelAlgoLazySMP, ParallelAlgoABDADA, ParallelAlgoTreeSplit
-// ParallelAlgoAuto will choose ABDADA for 300+ root moves, otherwise LazySMP
+// ParallelAlgoAuto uses a probe-based heuristic:
+//   - < 50 root moves: LazySMP (not enough parallel work for ABDADA)
+//   - > 500 root moves: ABDADA (high branching factor)
+//   - Otherwise: runs a 4-ply probe (max 2s) to measure EBF (effective branching factor)
+//   - EBF >= 17: ABDADA (bushy tree benefits from ABDADA's work distribution)
+//   - EBF < 12: LazySMP (narrow tree, TT sharing works well)
+//   - Default: LazySMP (simpler, lower overhead)
 func (s *Solver) SetParallelAlgorithm(algo string) error {
 	switch algo {
 	case ParallelAlgoAuto:
-		// Auto mode: will be resolved when root moves are known
+		// Auto mode: will be resolved via probe in iterativelyDeepen
 		s.lazySMPOptim = false
 		s.abdadaOptim = false
 		s.treeSplitOptim = false
-		// Marker: we'll pick algorithm in iterativelyDeepen based on root moves
 	case ParallelAlgoLazySMP:
 		s.SetLazySMP(true)
 	case ParallelAlgoABDADA:
@@ -1066,13 +1072,79 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 
 		rootMoves := len(s.initialMoves[0])
 
-		// Auto-select based on branching factor
-		if rootMoves >= 300 {
-			log.Info().Int("root-moves", rootMoves).Msg("auto-selecting ABDADA (high branching factor)")
+		// Quick decisions without probe
+		if rootMoves < 50 {
+			log.Info().Int("root-moves", rootMoves).Msg("auto-selecting LazySMP (few root moves)")
+			s.SetLazySMP(true)
+		} else if rootMoves > 500 {
+			log.Info().Int("root-moves", rootMoves).Msg("auto-selecting ABDADA (very high branching factor)")
 			s.SetABDADA(true)
 		} else {
-			log.Info().Int("root-moves", rootMoves).Msg("auto-selecting LazySMP")
-			s.SetLazySMP(true)
+			// Run a 4-ply probe with 2-second timeout to measure EBF
+			probePlies := 4
+			if probePlies > plies {
+				probePlies = plies
+			}
+
+			// Create timeout context for probe
+			probeCtx, probeCancel := context.WithTimeout(ctx, 2*time.Second)
+
+			// Temporarily enable LazySMP for probe
+			s.lazySMPOptim = true
+			s.ttable.ResetStats()
+
+			log.Info().Int("probe-plies", probePlies).Int("root-moves", rootMoves).Msg("running probe for auto-selection")
+			err := s.iterativelyDeepenLazySMP(probeCtx, probePlies)
+			probeCancel()
+
+			probeTimedOut := err == context.DeadlineExceeded
+			probeCompleted := err == nil
+
+			// Calculate EBF from probe stats
+			created := s.ttable.Created()
+			var ebf float64
+			if created > 0 && probePlies > 0 {
+				ebf = math.Pow(float64(created), 1.0/float64(probePlies))
+			}
+
+			log.Info().
+				Uint64("created", created).
+				Float64("ebf", ebf).
+				Int("root-moves", rootMoves).
+				Int("threads", s.threads).
+				Bool("timed-out", probeTimedOut).
+				Msg("probe stats for auto-selection")
+
+			// If probe completed the full solve, we're done
+			if probeCompleted && probePlies >= plies {
+				log.Info().Msg("probe completed full solve")
+				return nil
+			}
+
+			// Apply heuristic based on EBF
+			// EBF >= 17: ABDADA (bushy tree)
+			// EBF < 12: LazySMP (narrow tree)
+			// 12-17 with many threads and EBF >= 15: try ABDADA
+			// Otherwise: LazySMP (safe default)
+			if ebf >= 17.0 {
+				log.Info().Float64("ebf", ebf).Msg("auto-selecting ABDADA (high EBF)")
+				s.lazySMPOptim = false
+				s.SetABDADA(true)
+			} else if ebf < 12.0 {
+				log.Info().Float64("ebf", ebf).Msg("auto-selecting LazySMP (low EBF)")
+				// Already set to LazySMP
+			} else if s.threads >= 16 && ebf >= 15.0 {
+				log.Info().Float64("ebf", ebf).Int("threads", s.threads).Msg("auto-selecting ABDADA (high thread count, moderate EBF)")
+				s.lazySMPOptim = false
+				s.SetABDADA(true)
+			} else {
+				log.Info().Float64("ebf", ebf).Msg("auto-selecting LazySMP (default)")
+				// Already set to LazySMP
+			}
+
+			// Continue with full solve - TT entries from probe are kept
+			// Reset stats for clean metrics on full solve
+			s.ttable.ResetStats()
 		}
 	}
 

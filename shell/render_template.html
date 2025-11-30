@@ -163,9 +163,9 @@
       ];
 
       const bonusColors = {
-          '=': 0xff3333,  // Triple word
+          '=': 0xcc5555,  // Triple word (desaturated red)
           '-': 0xff9999,  // Double word
-          '"': 0x3333ff,  // Triple letter
+          '"': 0x5566cc,  // Triple letter (desaturated blue)
           "'": 0x4eb7e1,  // Double letter
           '~': 0x22ff22,  // Quadruple word
           '^': 0x99ff99,  // Quadruple letter
@@ -188,12 +188,12 @@
       }
 
       const bonusLabels = {
-          '=': '3x',  // Triple word
-          '-': '2x',  // Double word
-          '"': '3x',  // Triple letter
-          "'": '2x',  // Double letter
-          '~': '4x',  // Quadruple word
-          '^': '4x',  // Quadruple letter
+          '=': '3W',  // Triple word
+          '-': '2W',  // Double word
+          '"': '3L',  // Triple letter
+          "'": '2L',  // Double letter
+          '~': '4W',  // Quadruple word
+          '^': '4L',  // Quadruple letter
           '*': '',    // Starting square
           ' ': ''     // No bonus
       };
@@ -369,7 +369,9 @@
               // Multi-character tiles need less offset (more centered)
               xOffset = 0.05;
           } else if (displayLetter === 'I') {
-              xOffset = 0.4;
+              xOffset = 0.32;
+          } else if (displayLetter === 'J') {
+              xOffset = 0.25;
           } else if (displayLetter === 'W' || displayLetter === 'M') {
               xOffset = 0.1;
           } else {
@@ -777,19 +779,25 @@
 
                   // Add bonus labels
                   if (bonusType !== ' ' && bonusLabels[bonusType]) {
-                      const labelGeom = new TextGeometry(bonusLabels[bonusType], {
+                      const labelText = bonusLabels[bonusType];
+                      const labelGeom = new TextGeometry(labelText, {
                           font: font,
-                          size: 1.2,
+                          size: 1.4,
                           height: 0.02,  // Some versions use 'height' instead of 'depth'
                           curveSegments: 4,
                           bevelEnabled: false
                       });
-                      const labelColor = 0xffffff;
-                      const labelMat = new THREE.MeshBasicMaterial({ color: labelColor });
+                      // Center the geometry
+                      labelGeom.computeBoundingBox();
+                      const textWidth = labelGeom.boundingBox.max.x - labelGeom.boundingBox.min.x;
+                      const textHeight = labelGeom.boundingBox.max.y - labelGeom.boundingBox.min.y;
+                      // L labels need a small rightward nudge since L is visually narrower than W
+                      const xNudge = labelText.endsWith('L') ? 0.15 : 0;
+                      const labelMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
                       const labelMesh = new THREE.Mesh(labelGeom, labelMat);
                       labelMesh.position.set(
-                          x - squareSize * 0.15,
-                          y - squareSize * 0.1,
+                          x - textWidth / 2 + xNudge,
+                          y - textHeight / 2,
                           gridBottomZPos + gridHeight + 0.01
                       );
                       scene.add(labelMesh);
@@ -1106,11 +1114,11 @@
           pmremGenerator.dispose();
       });
 
-      // Enhanced lighting setup - brighter ambient to reduce shadows
-      const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+      // Enhanced lighting setup - high ambient for softer shadows
+      const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
       scene.add(ambientLight);
 
-      const directionalLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
+      const directionalLight1 = new THREE.DirectionalLight(0xffffff, 0.5);
       directionalLight1.position.set(50, 100, 50);
       directionalLight1.castShadow = true;
       directionalLight1.shadow.mapSize.width = 2048;
@@ -1121,9 +1129,10 @@
       directionalLight1.shadow.camera.top = 100;
       directionalLight1.shadow.camera.bottom = -100;
       directionalLight1.shadow.bias = -0.0001;  // Reduce shadow artifacts
+      directionalLight1.shadow.radius = 4;  // Softer shadow edges
       scene.add(directionalLight1);
 
-      const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.4);
+      const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.3);
       directionalLight2.position.set(-30, 50, -30);
       scene.add(directionalLight2);
 
