@@ -1145,6 +1145,8 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 			// Continue with full solve - TT entries from probe are kept
 			// Reset stats for clean metrics on full solve
 			s.ttable.ResetStats()
+			// Reset variations from probe - they should come from the actual solve
+			s.variations = []PVLine{}
 		}
 	}
 
