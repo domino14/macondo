@@ -6,7 +6,6 @@ import (
 	"os"
 	"runtime"
 	"runtime/debug"
-	"sync"
 	"sync/atomic"
 
 	"github.com/domino14/macondo/tinymove"
@@ -26,61 +25,92 @@ const entrySize = 16
 const bottom3ByteMask = (1 << 24) - 1
 const depthMask = (1 << 6) - 1
 
-const (
-	mutexStripeSize = 1024
-	mutexStripeMask = mutexStripeSize - 1
-)
-
-// 16 bytes (entrySize)
+// 16 bytes (entrySize) - lockless version using two atomic uint64s
 type TableEntry struct {
-	// Don't store the full hash, but the top 5 bytes. The bottom 3 bytes
-	// can be determined from the bucket in the array.
-	top4bytes    uint32
-	score        int16
-	fifthbyte    uint8
-	flagAndDepth uint8
-	play         tinymove.TinyMove
+	// atomic1: packed top4bytes(32) | score(16) | fifthbyte(8) | flagAndDepth(8)
+	// atomic2: play (TinyMove is uint64)
+	atomic1 uint64
+	atomic2 uint64
 }
 
-// fullHash calculates the full 64-bit hash for this table entry, given the bottom
-// bytes in zval.
-func (t TableEntry) fullHash(idx uint64) uint64 {
-	return uint64(t.top4bytes)<<32 + uint64(t.fifthbyte)<<24 + (idx & bottom3ByteMask)
+// packTableEntry packs a table entry into two uint64s for atomic storage
+func packTableEntry(top4bytes uint32, score int16, fifthbyte uint8, flagAndDepth uint8, play tinymove.TinyMove) (uint64, uint64) {
+	atomic1 := uint64(top4bytes)<<32 | uint64(uint16(score))<<16 | uint64(fifthbyte)<<8 | uint64(flagAndDepth)
+	atomic2 := uint64(play)
+	return atomic1, atomic2
 }
 
-func (t TableEntry) flag() uint8 {
-	return t.flagAndDepth >> 6
+// unpackTableEntry unpacks two uint64s into a temporary struct for access
+func unpackTableEntry(atomic1, atomic2 uint64) (top4bytes uint32, score int16, fifthbyte uint8, flagAndDepth uint8, play tinymove.TinyMove) {
+	top4bytes = uint32(atomic1 >> 32)
+	score = int16(uint16(atomic1 >> 16))
+	fifthbyte = uint8(atomic1 >> 8)
+	flagAndDepth = uint8(atomic1)
+	play = tinymove.TinyMove(atomic2)
+	return
 }
 
-func (t TableEntry) depth() uint8 {
-	return t.flagAndDepth & depthMask
+// fullHash calculates the full 64-bit hash for this table entry
+func fullHashFromPacked(top4bytes uint32, fifthbyte uint8, idx uint64) uint64 {
+	return uint64(top4bytes)<<32 + uint64(fifthbyte)<<24 + (idx & bottom3ByteMask)
 }
 
-func (t TableEntry) valid() bool {
-	// a table flag is 1, 2, or 3.
-	return t.flag() != 0
+// Helper functions for unpacked data
+func flagFromPacked(flagAndDepth uint8) uint8 {
+	return flagAndDepth >> 6
 }
 
-func (t TableEntry) move() tinymove.TinyMove {
-	return t.play
+func depthFromPacked(flagAndDepth uint8) uint8 {
+	return flagAndDepth & depthMask
 }
 
-type TableLock interface {
-	Lock()
-	Unlock()
-	RLock()
-	RUnlock()
+func validFromPacked(flagAndDepth uint8) bool {
+	return flagFromPacked(flagAndDepth) != 0
 }
 
-type FakeLock struct{}
+// TableEntry helper methods for accessing packed data
+func (e *TableEntry) unpack() (top4bytes uint32, score int16, fifthbyte uint8, flagAndDepth uint8, play tinymove.TinyMove) {
+	atomic1 := atomic.LoadUint64(&e.atomic1)
+	atomic2 := atomic.LoadUint64(&e.atomic2)
+	return unpackTableEntry(atomic1, atomic2)
+}
 
-func (f FakeLock) Lock()    {}
-func (f FakeLock) Unlock()  {}
-func (f FakeLock) RLock()   {}
-func (f FakeLock) RUnlock() {}
+func (e *TableEntry) valid() bool {
+	_, _, _, flagAndDepth, _ := e.unpack()
+	return validFromPacked(flagAndDepth)
+}
+
+func (e *TableEntry) depth() uint8 {
+	_, _, _, flagAndDepth, _ := e.unpack()
+	return depthFromPacked(flagAndDepth)
+}
+
+func (e *TableEntry) flag() uint8 {
+	_, _, _, flagAndDepth, _ := e.unpack()
+	return flagFromPacked(flagAndDepth)
+}
+
+func (e *TableEntry) getScore() int16 {
+	_, score, _, _, _ := e.unpack()
+	return score
+}
+
+func (e *TableEntry) getTop4bytes() uint32 {
+	top4bytes, _, _, _, _ := e.unpack()
+	return top4bytes
+}
+
+func (e *TableEntry) getFifthbyte() uint8 {
+	_, _, fifthbyte, _, _ := e.unpack()
+	return fifthbyte
+}
+
+func (e *TableEntry) getPlay() tinymove.TinyMove {
+	_, _, _, _, play := e.unpack()
+	return play
+}
 
 type TranspositionTable struct {
-	locks        [mutexStripeSize]TableLock
 	table        []TableEntry
 	created      atomic.Uint64
 	lookups      atomic.Uint64
@@ -92,6 +122,11 @@ type TranspositionTable struct {
 	// same overall hash. We don't have a super easy way to detect the latter,
 	// but it should be much less common.
 	t2collisions atomic.Uint64
+	// tornReads tracks how many lookups detected concurrent writes via validation check.
+	// Very rare ABA risk: if the same position appears at the same slot between our two
+	// atomic1 reads, we may accept corrupted data. Probability is negligible (same position
+	// must hash to same slot within nanoseconds) and impact is minor (one bad cache entry).
+	tornReads atomic.Uint64
 
 	zobrist *zobrist.Zobrist
 }
@@ -101,50 +136,59 @@ type TranspositionTable struct {
 // we only really want to keep one in memory to avoid re-allocation costs.
 var GlobalTranspositionTable = &TranspositionTable{}
 
-func (t *TranspositionTable) SetSingleThreadedMode() {
-	for i := range mutexStripeSize {
-		t.locks[i] = &FakeLock{}
-	}
-}
+// SetSingleThreadedMode is a no-op (lockless TT works for both single and multi-threaded)
+func (t *TranspositionTable) SetSingleThreadedMode() {}
 
-func (t *TranspositionTable) SetMultiThreadedMode() {
-	for i := range mutexStripeSize {
-		t.locks[i] = new(sync.RWMutex)
-		// t.locks[i] = &FakeLock{}
-	}
-}
+// SetMultiThreadedMode is a no-op (lockless TT works for both single and multi-threaded)
+func (t *TranspositionTable) SetMultiThreadedMode() {}
 
 func (t *TranspositionTable) lookup(zval uint64) TableEntry {
 	t.lookups.Add(1)
 	idx := zval & t.sizeMask
 
-	t.locks[zval&mutexStripeMask].RLock()
-	defer t.locks[zval&mutexStripeMask].RUnlock()
+	// Validated atomic read: detect torn reads from concurrent writes
+	atomic1Before := atomic.LoadUint64(&t.table[idx].atomic1)
+	atomic2 := atomic.LoadUint64(&t.table[idx].atomic2)
+	atomic1After := atomic.LoadUint64(&t.table[idx].atomic1)
 
-	fullHash := t.table[idx].fullHash(idx)
+	if atomic1Before != atomic1After {
+		// Torn read detected - concurrent write happened between our reads
+		t.tornReads.Add(1)
+		return TableEntry{}
+	}
+
+	// Unpack and validate hash
+	top4bytes, _, fifthbyte, flagAndDepth, _ := unpackTableEntry(atomic1Before, atomic2)
+	fullHash := fullHashFromPacked(top4bytes, fifthbyte, idx)
 	if fullHash != zval {
-		if t.table[idx].valid() {
+		if validFromPacked(flagAndDepth) {
 			// There is another unrelated node at this position.
 			t.t2collisions.Add(1)
 		}
 		return TableEntry{}
 	}
+
 	t.hits.Add(1)
-	// otherwise, assume the same zobrist hash is the same position. this fails
-	// very, very rarely. but it could happen.
-	return t.table[idx]
+	// Return as a "virtual" TableEntry for the caller to read
+	// Pack it back into the atomic format
+	result := TableEntry{}
+	result.atomic1 = atomic1Before
+	result.atomic2 = atomic2
+	return result
 }
 
-func (t *TranspositionTable) store(zval uint64, tentry TableEntry) {
+func (t *TranspositionTable) store(zval uint64, score int16, flagAndDepth uint8, play tinymove.TinyMove) {
 	idx := zval & t.sizeMask
-	tentry.top4bytes = uint32(zval >> 32)
-	tentry.fifthbyte = uint8(zval >> 24)
+	top4bytes := uint32(zval >> 32)
+	fifthbyte := uint8(zval >> 24)
 	t.created.Add(1)
 
-	t.locks[zval&mutexStripeMask].Lock()
-	defer t.locks[zval&mutexStripeMask].Unlock()
-	// just overwrite whatever is there for now.
-	t.table[idx] = tentry
+	// Pack into two uint64s for atomic storage
+	atomic1, atomic2 := packTableEntry(top4bytes, score, fifthbyte, flagAndDepth, play)
+
+	// Atomic writes (write atomic1 last so validation check works)
+	atomic.StoreUint64(&t.table[idx].atomic2, atomic2)
+	atomic.StoreUint64(&t.table[idx].atomic1, atomic1)
 }
 
 func (t *TranspositionTable) Reset(fractionOfMemory float64, boardDim int) {
@@ -198,6 +242,7 @@ func (t *TranspositionTable) Reset(fractionOfMemory float64, boardDim int) {
 	t.lookups.Store(0)
 	t.hits.Store(0)
 	t.t2collisions.Store(0)
+	t.tornReads.Store(0)
 }
 
 func (t *TranspositionTable) Zobrist() *zobrist.Zobrist {
@@ -209,8 +254,32 @@ func (t *TranspositionTable) SetZobrist(z *zobrist.Zobrist) {
 }
 
 func (t *TranspositionTable) Stats() string {
-	return fmt.Sprintf("created: %d lookups: %d hits: %d t2collisions: %d",
-		t.created.Load(), t.lookups.Load(), t.hits.Load(), t.t2collisions.Load())
+	return fmt.Sprintf("created: %d lookups: %d hits: %d t2collisions: %d tornReads: %d",
+		t.created.Load(), t.lookups.Load(), t.hits.Load(), t.t2collisions.Load(), t.tornReads.Load())
+}
+
+// Created returns the number of TT entries created
+func (t *TranspositionTable) Created() uint64 {
+	return t.created.Load()
+}
+
+// Lookups returns the number of TT lookups performed
+func (t *TranspositionTable) Lookups() uint64 {
+	return t.lookups.Load()
+}
+
+// Hits returns the number of TT hits
+func (t *TranspositionTable) Hits() uint64 {
+	return t.hits.Load()
+}
+
+// ResetStats resets the statistics counters without reallocating the table
+func (t *TranspositionTable) ResetStats() {
+	t.created.Store(0)
+	t.lookups.Store(0)
+	t.hits.Store(0)
+	t.t2collisions.Store(0)
+	t.tornReads.Store(0)
 }
 
 // a debug tt

@@ -66,11 +66,26 @@ Options:
 
     -threads 3
 
-    Use LazySMP to recruit more cores to help solve the endgame. Our current
-    implementation has a sweet spot around 6 threads, which can result in a 2-3x or
-    more speedup. Any more and it actually starts to get slower. We will
-    continue trying to improve this. Defaults to the minimum of 6 and your number
-    of cores minus 1. Set to 1 to disable LazySMP.
+    Recruit more cores to help solve the endgame using parallel search. Defaults
+    to your number of cores minus 1. Set to 1 to disable parallel search.
+    The parallel algorithm is selected automatically by default (see -parallel-algo).
+
+    -parallel-algo auto
+
+    Select the parallel search algorithm. Options: auto, lazysmp, abdada, treesplit.
+    - auto (default): Runs a quick 4-ply probe (max 2 seconds) to measure the tree's
+      effective branching factor (EBF), then selects the best algorithm:
+        * Very few root moves (<50): LazySMP
+        * Very high root moves (>500): ABDADA
+        * High EBF (>=17): ABDADA (bushy trees benefit from ABDADA's work distribution)
+        * Low EBF (<12): LazySMP (narrow trees benefit from shared transposition table)
+        * Default: LazySMP (simpler, lower overhead)
+    - lazysmp: Lazy Symmetric Multi-Processing. Threads search independently with a
+      shared transposition table. Works well for most endgames.
+    - abdada: Alpha-Bêta Distribué avec Droit d'Aînesse. Coordinates thread work to avoid
+      redundant searches. Excels at high-branching endgames with bushy search trees.
+    - treesplit: Simple root-level move distribution across threads. Works well
+      for some endgames with high branching.
 
     -disable-tt true
 
