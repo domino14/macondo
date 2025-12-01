@@ -65,8 +65,6 @@ const (
 	TilesPlayedBFOffset = 8
 )
 
-const MaxLazySMPThreads = 10
-
 var (
 	ErrNoEndgameSolution = errors.New("no endgame solution found")
 )

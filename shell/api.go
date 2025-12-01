@@ -579,13 +579,7 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 
 	var plies int
 	var maxtime int
-	var maxthreads = runtime.NumCPU() - 1
-	if maxthreads == 0 {
-		maxthreads = 1
-	}
-	if maxthreads > negamax.MaxLazySMPThreads {
-		maxthreads = negamax.MaxLazySMPThreads
-	}
+	var maxthreads = runtime.NumCPU()
 	var multipleVars int
 	var disableID bool
 	var disableTT bool
