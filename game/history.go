@@ -11,7 +11,7 @@ import (
 // HistoryToVariant takes in a game history and returns the board configuration
 // and letter distribution name.
 func HistoryToVariant(h *pb.GameHistory) (boardLayoutName, letterDistributionName string, variant Variant) {
-	log.Debug().Interface("h", h).Msg("HistoryToVariant")
+	log.Trace().Interface("h", h).Msg("HistoryToVariant")
 	boardLayoutName = h.BoardLayout
 	letterDistributionName = h.LetterDistribution
 	var err error
