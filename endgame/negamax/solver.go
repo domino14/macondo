@@ -228,8 +228,8 @@ type Solver struct {
 	variations []PVLine
 
 	// Metrics from last solve
-	lastSolveTime    float64
-	lastTTableStats  string
+	lastSolveTime   float64
+	lastTTableStats string
 }
 
 // Init initializes the solver

@@ -22,21 +22,19 @@ import (
 	"github.com/domino14/macondo/montecarlo/stats"
 )
 
-func (sc *ShellController) handleSim(args []string, options CmdOptions) (*Response, error) {
+// simPrepare parses options and prepares the simmer for running.
+// Returns the params needed for running, or handles special experiment mode.
+func (sc *ShellController) simPrepare(options CmdOptions) (*simParams, error) {
 	var plies, threads, fixedplies, fixediters, fixedsimcount int
 	var err error
 	stoppingCondition := montecarlo.StopNone
+
 	if sc.simmer == nil {
 		return nil, errors.New("load a game or something")
 	}
 	if sc.game == nil {
 		return nil, errors.New("game does not exist")
 	}
-
-	if len(args) > 0 {
-		return sc.simControlArguments(args)
-	}
-
 	if len(sc.curPlayList) == 0 {
 		return nil, errors.New("please generate some plays first")
 	}
@@ -172,7 +170,7 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) (*Respon
 		}
 	}
 
-	params := simParams{
+	params := &simParams{
 		threads:               threads,
 		plies:                 plies,
 		stoppingCondition:     stoppingCondition,
@@ -181,12 +179,70 @@ func (sc *ShellController) handleSim(args []string, options CmdOptions) (*Respon
 		autostopCheckInterval: stopcheckinterval,
 		knownOppRack:          kr,
 		inferMode:             inferMode,
-	}
-	if fixediters != 0 {
-		return nil, sc.startMultiSimExperiment(fixediters, fixedplies, fixedsimcount, params)
+		// For experiment mode
+		fixediters:    fixediters,
+		fixedplies:    fixedplies,
+		fixedsimcount: fixedsimcount,
 	}
 
-	sc.setSimmerParams(sc.simmer, params)
+	err = sc.setSimmerParams(sc.simmer, *params)
+	if err != nil {
+		return nil, err
+	}
+
+	return params, nil
+}
+
+// simRunSync runs the simulation synchronously and returns the result.
+func (sc *ShellController) simRunSync() (string, error) {
+	sc.simCtx, sc.simCancel = context.WithCancel(context.Background())
+
+	err := sc.simmer.Simulate(sc.simCtx)
+	if err != nil {
+		return "", err
+	}
+	return "Sim winner: " + sc.simmer.WinningPlay().Move().ShortDescription() + "\n" +
+		sc.simmer.EquityStats(), nil
+}
+
+// simSync runs simulation synchronously and returns the result.
+// This is the preferred method for scripts.
+func (sc *ShellController) simSync(cmd *shellcmd) (*Response, error) {
+	params, err := sc.simPrepare(cmd.options)
+	if err != nil {
+		return nil, err
+	}
+
+	// Handle experiment mode (not typical for scripts, but support it)
+	if params.fixediters != 0 {
+		return nil, sc.startMultiSimExperiment(params.fixediters, params.fixedplies, params.fixedsimcount, *params)
+	}
+
+	result, err := sc.simRunSync()
+	if err != nil {
+		return nil, err
+	}
+
+	return msg(result), nil
+}
+
+// handleSim handles the sim command for interactive shell use (async).
+func (sc *ShellController) handleSim(args []string, options CmdOptions) (*Response, error) {
+	// Handle subcommands first
+	if len(args) > 0 {
+		return sc.simControlArguments(args)
+	}
+
+	params, err := sc.simPrepare(options)
+	if err != nil {
+		return nil, err
+	}
+
+	// Handle experiment mode
+	if params.fixediters != 0 {
+		return nil, sc.startMultiSimExperiment(params.fixediters, params.fixedplies, params.fixedsimcount, *params)
+	}
+
 	sc.startSim()
 
 	return nil, nil
@@ -201,6 +257,10 @@ type simParams struct {
 	autostopCheckInterval int
 	knownOppRack          []tilemapping.MachineLetter
 	inferMode             montecarlo.InferenceMode
+	// For experiment mode
+	fixediters    int
+	fixedplies    int
+	fixedsimcount int
 }
 
 func (sc *ShellController) setSimmerParams(simmer *montecarlo.Simmer, params simParams) error {
@@ -246,6 +306,7 @@ func (sc *ShellController) startSim() {
 		}
 		sc.simTickerDone <- true
 		log.Debug().Msg("simulation thread exiting...")
+		sc.showMessage(sc.simmer.EquityStats())
 	}()
 
 	go func() {
@@ -447,6 +508,16 @@ func (sc *ShellController) simControlArguments(args []string) (*Response, error)
 			return nil, err
 		}
 		resp.message = stats
+	case "output":
+		// Short summary suitable for scripts
+		nplays := 5
+		if len(args) > 1 {
+			nplays, err = strconv.Atoi(args[1])
+			if err != nil {
+				return nil, err
+			}
+		}
+		resp.message = sc.simmer.ShortDetails(nplays)
 	default:
 		return nil, fmt.Errorf("do not understand sim argument %v", args[0])
 	}

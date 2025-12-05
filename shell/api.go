@@ -190,6 +190,7 @@ func (sc *ShellController) newGame(cmd *shellcmd) (*Response, error) {
 	sc.curTurnNum = 0
 	return msg(sc.game.ToDisplayText()), nil
 }
+
 func (sc *ShellController) solving() bool {
 	return (sc.endgameSolver != nil && sc.endgameSolver.IsSolving()) ||
 		(sc.preendgameSolver != nil && sc.preendgameSolver.IsSolving()) ||
@@ -552,69 +553,54 @@ func (sc *ShellController) challenge(cmd *shellcmd) (*Response, error) {
 	return msg(sc.game.ToDisplayText()), nil
 }
 
-func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
+// endgameParams holds parsed parameters for endgame solving
+type endgameParams struct {
+	plies      int
+	maxtime    int
+	maxthreads int
+	enableFW   bool // first-win optimization
+}
+
+// endgamePrepare parses options and initializes the endgame solver.
+// Returns the params needed for running.
+func (sc *ShellController) endgamePrepare(cmd *shellcmd) (*endgameParams, error) {
 	if sc.game == nil {
 		return nil, errors.New("please load a game first with the `load` command")
 	}
-
-	if len(cmd.args) > 0 && cmd.args[0] == "stop" {
-		if sc.endgameSolver.IsSolving() {
-			sc.endgameCancel()
-		} else {
-			return nil, errors.New("no endgame to cancel")
-		}
-		return msg(""), nil
-	}
-
-	if len(cmd.args) > 0 && cmd.args[0] == "metrics" {
-		if sc.endgameSolver == nil {
-			return nil, errors.New("no endgame has been run yet")
-		}
-		return msg(sc.endgameSolver.GetMetrics()), nil
-	}
-
 	if sc.solving() {
 		return nil, errMacondoSolving
 	}
 
-	var plies int
-	var maxtime int
-	var maxthreads = runtime.NumCPU()
-	var multipleVars int
-	var disableID bool
-	var disableTT bool
-	var enableFW bool
-	var preventSR bool
-	var disableNegascout bool
-	var nullWindow bool
-	var parallelAlgo string
 	var err error
+	params := &endgameParams{
+		maxthreads: runtime.NumCPU(),
+	}
 
-	if plies, err = cmd.options.IntDefault("plies", defaultEndgamePlies); err != nil {
+	if params.plies, err = cmd.options.IntDefault("plies", defaultEndgamePlies); err != nil {
 		return nil, err
 	}
-	if maxtime, err = cmd.options.IntDefault("maxtime", 0); err != nil {
+	if params.maxtime, err = cmd.options.IntDefault("maxtime", 0); err != nil {
 		return nil, err
 	}
-	if maxthreads, err = cmd.options.IntDefault("threads", maxthreads); err != nil {
+	if params.maxthreads, err = cmd.options.IntDefault("threads", params.maxthreads); err != nil {
 		return nil, err
 	}
-	if multipleVars, err = cmd.options.IntDefault("multiple-vars", 1); err != nil {
+	multipleVars, err := cmd.options.IntDefault("multiple-vars", 1)
+	if err != nil {
 		return nil, err
 	}
-	parallelAlgo = cmd.options.String("parallel-algo")
+	parallelAlgo := cmd.options.String("parallel-algo")
 	if parallelAlgo == "" {
 		parallelAlgo = negamax.ParallelAlgoAuto
 	}
-	disableID = cmd.options.Bool("disable-id")
-	disableTT = cmd.options.Bool("disable-tt")
-	enableFW = cmd.options.Bool("first-win-optim")
-	preventSR = cmd.options.Bool("prevent-slowroll")
-	disableNegascout = cmd.options.Bool("disable-negascout")
-	nullWindow = cmd.options.Bool("null-window")
+	disableID := cmd.options.Bool("disable-id")
+	disableTT := cmd.options.Bool("disable-tt")
+	params.enableFW = cmd.options.Bool("first-win-optim")
+	preventSR := cmd.options.Bool("prevent-slowroll")
+	disableNegascout := cmd.options.Bool("disable-negascout")
+	nullWindow := cmd.options.Bool("null-window")
 
-	// clear out the last value of this endgame node; gc should
-	// delete the tree.
+	// clear out the last value of this endgame node; gc should delete the tree.
 	sc.endgameSolver = new(negamax.Solver)
 
 	if cmd.options.Bool("log") {
@@ -628,13 +614,13 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 
 	sc.showMessage(fmt.Sprintf(
 		"plies %v, maxtime %v, threads %v",
-		plies, maxtime, maxthreads))
+		params.plies, params.maxtime, params.maxthreads))
 
 	sc.game.SetBackupMode(game.SimulationMode)
 
 	sc.endgameCtx, sc.endgameCancel = context.WithCancel(context.Background())
-	if maxtime > 0 {
-		sc.endgameCtx, sc.endgameCancel = context.WithTimeout(sc.endgameCtx, time.Duration(maxtime)*time.Second)
+	if params.maxtime > 0 {
+		sc.endgameCtx, sc.endgameCancel = context.WithTimeout(sc.endgameCtx, time.Duration(params.maxtime)*time.Second)
 	}
 
 	gd, err := kwg.GetKWG(sc.game.Config().WGLConfig(), sc.game.LexiconName())
@@ -651,81 +637,148 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 
 	sc.endgameSolver.SetIterativeDeepening(!disableID)
 	sc.endgameSolver.SetTranspositionTableOptim(!disableTT)
-	sc.endgameSolver.SetThreads(maxthreads)
+	sc.endgameSolver.SetThreads(params.maxthreads)
 	if err = sc.endgameSolver.SetParallelAlgorithm(parallelAlgo); err != nil {
 		return nil, err
 	}
-	sc.endgameSolver.SetFirstWinOptim(enableFW)
+	sc.endgameSolver.SetFirstWinOptim(params.enableFW)
 	sc.endgameSolver.SetNullWindowOptim(nullWindow)
 	sc.endgameSolver.SetSolveMultipleVariations(multipleVars)
 	sc.endgameSolver.SetPreventSlowroll(preventSR)
 	sc.endgameSolver.SetNegascoutOptim(!disableNegascout)
 
-	sc.showMessage(sc.game.ToDisplayText())
-
-	go func() {
-		defer func() {
-			sc.game.SetBackupMode(game.InteractiveGameplayMode)
-			sc.game.SetStateStackLength(1)
-		}()
-
-		val, seq, err := sc.endgameSolver.Solve(sc.endgameCtx, plies)
-		if err != nil {
-			sc.showError(err)
-			return
-		}
-		if !enableFW {
-			sc.showMessage(fmt.Sprintf("Best sequence has a spread difference (value) of %+d", val))
-		} else {
-			if val+int16(sc.game.CurrentSpread()) > 0 {
-				sc.showMessage("Win found!")
-			} else {
-				sc.showMessage("Win was not found.")
-			}
-			sc.showMessage(fmt.Sprintf("Spread diff: %+d. Note: this sequence may not be correct. Turn off first-win-optim to search more accurately.", val))
-		}
-		sc.showMessage(fmt.Sprintf("Final spread after seq: %+d", val+int16(sc.game.CurrentSpread())))
-		sc.printEndgameSequence(seq)
-		variations := sc.endgameSolver.Variations()
-		if len(variations) > 1 {
-			sc.showMessage("Other variations: ")
-
-			for i := range variations[1:] {
-				sc.showMessage(fmt.Sprintf("%d) %s", i+2, variations[i+1].NLBString()))
-			}
-		}
-	}()
-	return msg(""), nil
+	return params, nil
 }
 
-func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
-	if sc.game == nil {
-		return nil, errors.New("please load a game first with the `load` command")
-	}
-	endgamePlies := 4
+// endgameRunSync runs the endgame solver synchronously and returns the result.
+func (sc *ShellController) endgameRunSync(params *endgameParams) (string, error) {
+	defer func() {
+		sc.game.SetBackupMode(game.InteractiveGameplayMode)
+		sc.game.SetStateStackLength(1)
+	}()
 
-	if len(cmd.args) > 0 && cmd.args[0] == "stop" {
-		if sc.preendgameSolver.IsSolving() {
-			sc.pegCancel()
+	val, seq, err := sc.endgameSolver.Solve(sc.endgameCtx, params.plies)
+	if err != nil {
+		return "", err
+	}
+
+	var result strings.Builder
+	if !params.enableFW {
+		result.WriteString(fmt.Sprintf("Best sequence has a spread difference (value) of %+d\n", val))
+	} else {
+		if val+int16(sc.game.CurrentSpread()) > 0 {
+			result.WriteString("Win found!\n")
 		} else {
-			return nil, errors.New("no pre-endgame to cancel")
+			result.WriteString("Win was not found.\n")
+		}
+		result.WriteString(fmt.Sprintf("Spread diff: %+d. Note: this sequence may not be correct. Turn off first-win-optim to search more accurately.\n", val))
+	}
+	result.WriteString(fmt.Sprintf("Final spread after seq: %+d\n", val+int16(sc.game.CurrentSpread())))
+	result.WriteString("Best move: ")
+	result.WriteString(seq[0].ShortDescription() + "\n")
+	// Format sequence using ShortDescription which includes score
+	result.WriteString("Best sequence:\n")
+	for idx, m := range seq {
+		result.WriteString(fmt.Sprintf("%d) %v (%d)\n", idx+1, m.ShortDescription(), m.Score()))
+	}
+
+	variations := sc.endgameSolver.Variations()
+	if len(variations) > 1 {
+		result.WriteString("Other variations:\n")
+		for i := range variations[1:] {
+			result.WriteString(fmt.Sprintf("%d) %s\n", i+2, variations[i+1].NLBString()))
+		}
+	}
+
+	return result.String(), nil
+}
+
+// endgameSync runs endgame synchronously and returns the result.
+// This is the preferred method for scripts.
+func (sc *ShellController) endgameSync(cmd *shellcmd) (*Response, error) {
+	params, err := sc.endgamePrepare(cmd)
+	if err != nil {
+		return nil, err
+	}
+
+	sc.showMessage(sc.game.ToDisplayText())
+
+	result, err := sc.endgameRunSync(params)
+	if err != nil {
+		return nil, err
+	}
+
+	return msg(result), nil
+}
+
+// endgame runs endgame asynchronously (for interactive shell use).
+func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
+	// Handle subcommands first
+	if len(cmd.args) > 0 && cmd.args[0] == "stop" {
+		if sc.endgameSolver != nil && sc.endgameSolver.IsSolving() {
+			sc.endgameCancel()
+		} else {
+			return nil, errors.New("no endgame to cancel")
 		}
 		return msg(""), nil
 	}
 
+	if len(cmd.args) > 0 && cmd.args[0] == "metrics" {
+		if sc.endgameSolver == nil {
+			return nil, errors.New("no endgame has been run yet")
+		}
+		return msg(sc.endgameSolver.GetMetrics()), nil
+	}
+
+	if len(cmd.args) > 0 && cmd.args[0] == "output" {
+		if sc.endgameSolver == nil {
+			return nil, errors.New("no endgame has been run yet")
+		}
+		return msg(sc.endgameSolver.ShortDetails()), nil
+	}
+
+	params, err := sc.endgamePrepare(cmd)
+	if err != nil {
+		return nil, err
+	}
+
+	sc.showMessage(sc.game.ToDisplayText())
+
+	go func() {
+		result, err := sc.endgameRunSync(params)
+		if err != nil {
+			sc.showError(err)
+			return
+		}
+		sc.showMessage(result)
+	}()
+
+	return msg(""), nil
+}
+
+// pegParams holds parsed parameters for pre-endgame solving
+type pegParams struct {
+	maxsolutions int
+}
+
+// pegPrepare parses options and initializes the pre-endgame solver.
+func (sc *ShellController) pegPrepare(cmd *shellcmd) (*pegParams, error) {
+	if sc.game == nil {
+		return nil, errors.New("please load a game first with the `load` command")
+	}
 	if sc.solving() {
 		return nil, errMacondoSolving
 	}
 
 	var maxtime int
 	var maxthreads = 0
-	var maxsolutions = 30
 	var err error
-	var earlyCutoff bool
-	var skipNonEmptying bool
-	var skipLoss bool
-	var skipTiebreaker bool
-	var disableIterativeDeepening bool
+	endgamePlies := 4
+
+	params := &pegParams{
+		maxsolutions: 30,
+	}
+
 	knownOppRack := cmd.options.String("opprack")
 
 	if endgamePlies, err = cmd.options.IntDefault("endgameplies", defaultEndgamePlies); err != nil {
@@ -737,14 +790,14 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 	if maxthreads, err = cmd.options.IntDefault("threads", 0); err != nil {
 		return nil, err
 	}
-	if maxsolutions, err = cmd.options.IntDefault("maxsolutions", maxsolutions); err != nil {
+	if params.maxsolutions, err = cmd.options.IntDefault("maxsolutions", params.maxsolutions); err != nil {
 		return nil, err
 	}
-	skipNonEmptying = cmd.options.Bool("skip-non-emptying")
-	skipLoss = cmd.options.Bool("skip-loss")
-	earlyCutoff = cmd.options.Bool("early-cutoff")
-	skipTiebreaker = cmd.options.Bool("skip-tiebreaker")
-	disableIterativeDeepening = cmd.options.Bool("disable-id")
+	skipNonEmptying := cmd.options.Bool("skip-non-emptying")
+	skipLoss := cmd.options.Bool("skip-loss")
+	earlyCutoff := cmd.options.Bool("early-cutoff")
+	skipTiebreaker := cmd.options.Bool("skip-tiebreaker")
+	disableIterativeDeepening := cmd.options.Bool("disable-id")
 	movesToSolveStrs := cmd.options.StringArray("only-solve")
 	movesToSolve := []*move.Move{}
 
@@ -762,11 +815,12 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 	sc.showMessage(fmt.Sprintf(
 		"endgameplies %v, maxtime %v, threads %v",
 		endgamePlies, maxtime, maxthreads))
+
 	gd, err := kwg.GetKWG(sc.game.Config().WGLConfig(), sc.game.LexiconName())
 	if err != nil {
 		return nil, err
 	}
-	sc.showMessage(sc.game.ToDisplayText())
+
 	sc.preendgameSolver = new(preendgame.Solver)
 	sc.preendgameSolver.Init(sc.game.Game, gd)
 
@@ -798,31 +852,101 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 	sc.preendgameSolver.SetSkipLossOptim(skipLoss)
 	sc.preendgameSolver.SetIterativeDeepening(!disableIterativeDeepening)
 	sc.preendgameSolver.SetSolveOnly(movesToSolve)
+
 	sc.pegCtx, sc.pegCancel = context.WithCancel(context.Background())
 	if maxtime > 0 {
 		sc.pegCtx, sc.pegCancel = context.WithTimeout(sc.pegCtx, time.Duration(maxtime)*time.Second)
 	}
+
+	return params, nil
+}
+
+// pegRunSync runs the pre-endgame solver synchronously and returns the result.
+func (sc *ShellController) pegRunSync(params *pegParams) (string, error) {
+	moves, err := sc.preendgameSolver.Solve(sc.pegCtx)
+	if err != nil {
+		return "", err
+	}
+
+	maxsolutions := params.maxsolutions
+	if len(moves) < maxsolutions {
+		maxsolutions = len(moves)
+	}
+
+	if sc.pegLogFile != nil {
+		err := sc.pegLogFile.Close()
+		if err != nil {
+			log.Err(err).Msg("closing-log-file")
+		}
+	}
+
+	return "Winner: " + moves[0].Play.ShortDescription() + "\n" + sc.preendgameSolver.SolutionStats(maxsolutions), nil
+}
+
+// preendgameSync runs pre-endgame synchronously and returns the result.
+// This is the preferred method for scripts.
+func (sc *ShellController) preendgameSync(cmd *shellcmd) (*Response, error) {
+	params, err := sc.pegPrepare(cmd)
+	if err != nil {
+		return nil, err
+	}
+
+	sc.showMessage(sc.game.ToDisplayText())
+
+	result, err := sc.pegRunSync(params)
+	if err != nil {
+		return nil, err
+	}
+
+	return msg(result), nil
+}
+
+// preendgame runs pre-endgame asynchronously (for interactive shell use).
+func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
+	// Handle subcommands first
+	if len(cmd.args) > 0 && cmd.args[0] == "stop" {
+		if sc.preendgameSolver != nil && sc.preendgameSolver.IsSolving() {
+			sc.pegCancel()
+		} else {
+			return nil, errors.New("no pre-endgame to cancel")
+		}
+		return msg(""), nil
+	}
+
+	if len(cmd.args) > 0 && cmd.args[0] == "output" {
+		if sc.preendgameSolver == nil {
+			return nil, errors.New("no pre-endgame has been run yet")
+		}
+		return msg(sc.preendgameSolver.ShortDetails()), nil
+	}
+
+	params, err := sc.pegPrepare(cmd)
+	if err != nil {
+		return nil, err
+	}
+
+	sc.showMessage(sc.game.ToDisplayText())
+
 	go func() {
-		moves, err := sc.preendgameSolver.Solve(sc.pegCtx)
+		result, err := sc.pegRunSync(params)
 		if err != nil {
 			sc.showError(err)
 			return
 		}
-		if len(moves) < maxsolutions {
-			maxsolutions = len(moves)
-		}
-		if sc.pegLogFile != nil {
-			err := sc.pegLogFile.Close()
-			if err != nil {
-				log.Err(err).Msg("closing-log-file")
-			}
-		}
-		sc.showMessage(sc.preendgameSolver.SolutionStats(maxsolutions))
+		sc.showMessage(result)
 	}()
+
 	return msg(""), nil
 }
 
-func (sc *ShellController) infer(cmd *shellcmd) (*Response, error) {
+// inferParams holds parsed parameters for inference
+type inferParams struct {
+	timesec int
+	ctx     context.Context
+}
+
+// inferPrepare parses options and prepares the rangefinder for inference.
+func (sc *ShellController) inferPrepare(cmd *shellcmd) (*inferParams, error) {
 	if sc.game == nil {
 		return nil, errors.New("please load a game first with the `load` command")
 	}
@@ -832,26 +956,6 @@ func (sc *ShellController) infer(cmd *shellcmd) (*Response, error) {
 
 	var err error
 	var threads, timesec int
-
-	if len(cmd.args) > 0 {
-		switch cmd.args[0] {
-		case "log":
-			sc.rangefinderFile, err = os.Create(InferLog)
-			if err != nil {
-				return nil, err
-			}
-			sc.rangefinder.SetLogStream(sc.rangefinderFile)
-			sc.showMessage("inference engine will log to " + InferLog)
-
-		case "details":
-			sc.showMessage(sc.rangefinder.AnalyzeInferences(true))
-
-		default:
-			return nil, errors.New("don't recognize " + cmd.args[0])
-		}
-
-		return nil, nil
-	}
 
 	for opt := range cmd.options {
 		switch opt {
@@ -869,36 +973,103 @@ func (sc *ShellController) infer(cmd *shellcmd) (*Response, error) {
 
 		default:
 			return nil, errors.New("option " + opt + " not recognized")
-
 		}
 	}
+
 	if threads != 0 {
 		sc.rangefinder.SetThreads(threads)
 	}
 	if timesec == 0 {
 		timesec = 60
 	}
+
 	err = sc.rangefinder.PrepareFinder(sc.game.RackFor(sc.game.PlayerOnTurn()).TilesOn())
 	if err != nil {
 		return nil, err
 	}
-	timeout, _ := context.WithTimeout(
+
+	ctx, _ := context.WithTimeout(
 		context.Background(), time.Duration(timesec*int(time.Second)))
+
+	return &inferParams{
+		timesec: timesec,
+		ctx:     ctx,
+	}, nil
+}
+
+// inferRunSync runs inference synchronously and returns the result.
+func (sc *ShellController) inferRunSync(params *inferParams) (string, error) {
+	err := sc.rangefinder.Infer(params.ctx)
+	if err != nil {
+		return "", err
+	}
+	return sc.rangefinder.AnalyzeInferences(false), nil
+}
+
+// inferSync runs inference synchronously and returns the result.
+// This is the preferred method for scripts.
+func (sc *ShellController) inferSync(cmd *shellcmd) (*Response, error) {
+	params, err := sc.inferPrepare(cmd)
+	if err != nil {
+		return nil, err
+	}
+
+	sc.showMessage("Rangefinding started. Please wait until it is done.")
+
+	result, err := sc.inferRunSync(params)
+	if err != nil {
+		return nil, err
+	}
+
+	return msg(result), nil
+}
+
+// infer runs inference asynchronously (for interactive shell use).
+func (sc *ShellController) infer(cmd *shellcmd) (*Response, error) {
+	// Handle subcommands first
+	if len(cmd.args) > 0 {
+		var err error
+		switch cmd.args[0] {
+		case "log":
+			sc.rangefinderFile, err = os.Create(InferLog)
+			if err != nil {
+				return nil, err
+			}
+			sc.rangefinder.SetLogStream(sc.rangefinderFile)
+			sc.showMessage("inference engine will log to " + InferLog)
+
+		case "details":
+			return msg(sc.rangefinder.AnalyzeInferences(true)), nil
+
+		case "output":
+			return msg(sc.rangefinder.AnalyzeInferences(false)), nil
+
+		default:
+			return nil, errors.New("don't recognize " + cmd.args[0])
+		}
+
+		return nil, nil
+	}
+
+	params, err := sc.inferPrepare(cmd)
+	if err != nil {
+		return nil, err
+	}
 
 	sc.showMessage("Rangefinding started. Please wait until it is done.")
 	sc.showMessage("Note that the default infer timeout has been increased to 60 seconds for more accuracy. See `help infer` for more information.")
 
 	go func() {
-		err := sc.rangefinder.Infer(timeout)
+		result, err := sc.inferRunSync(params)
 		if err != nil {
 			sc.showError(err)
+			return
 		}
-		sc.showMessage(sc.rangefinder.AnalyzeInferences(false))
+		sc.showMessage(result)
 		log.Debug().Msg("inference thread exiting...")
 	}()
 
 	return nil, nil
-
 }
 
 func (sc *ShellController) help(cmd *shellcmd) (*Response, error) {
