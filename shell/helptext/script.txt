@@ -3,21 +3,67 @@ script [filepath] - Execute the Lua script in the file path.
 Macondo is scriptable; many of the shell commands can be run directly
 with Lua 5.1 scripts.
 
-The following commands are currently supported by Lua:
+To use macondo commands in Lua, first require the macondo module:
 
-    - gen
-    - load
-    - set
-    - turn
-    - endgame
-    - sim
+    local macondo = require("macondo")
 
-To invoke the command with Lua, prefix it with the macondo_ namespace.
-For example, macondo_gen, macondo_load, macondo_set, and macondo_turn.
+The following functions are available:
 
-The commands take in a single string with all of its arguments. For example,
-you can call load as such:
+  Game/Position:
+    macondo.new()           - Start a new game
+    macondo.load(args)      - Load a game (cgp, gcg, etc.)
+    macondo.set(args)       - Set options
+    macondo.gen(args)       - Generate moves
+    macondo.add(args)       - Add a play to the game
+    macondo.commit(args)    - Commit a play (e.g., "8D WORD")
+    macondo.rack(tiles)     - Set the current player's rack
+    macondo.turn(args)      - Go to a specific turn
+    macondo.last()          - Go to the last turn
+    macondo.gid()           - Get the game ID
+    macondo.gamestate()     - Get current game state description
 
-    macondo_load('xt 19009')         -- load the cross-tables game 19009
+  Analysis (synchronous - blocks until complete):
+    macondo.endgame(args)   - Run endgame solver, returns result
+    macondo.peg(args)       - Run pre-endgame solver, returns result
+    macondo.sim(args)       - Run Monte Carlo simulation, returns result
+    macondo.infer(args)     - Run rack inference, returns result
 
-See the scripts directory in the main Macondo repo for some sample Lua scripts.
+  Utility:
+    macondo.busy()          - Returns true if a solver is running (see async below)
+    macondo.elite_play()    - Get the elite bot's best play
+
+  Async versions (for advanced use cases):
+    macondo.endgame_async(args)   - Start endgame solver, returns immediately
+    macondo.peg_async(args)       - Start pre-endgame solver, returns immediately
+    macondo.sim_async(args)       - Start simulation, returns immediately
+    macondo.infer_async(args)     - Start inference, returns immediately
+
+    The async versions return immediately without waiting for completion.
+    Use macondo.busy() to poll for completion. Results are printed to the
+    shell output rather than returned. These are useful if you need to show
+    progress or do other work while a solver runs.
+
+All functions take a single string with arguments. Examples:
+
+    macondo.load('cgp 15/15/... AEINRST/ 0/0 0 lex NWL23;')
+    macondo.set('lexicon CSW24')
+    macondo.gen('15')  -- generate top 15 moves
+
+    -- Endgame analysis (blocks until complete)
+    local result = macondo.endgame('-plies 4 -threads 8')
+    print(result)
+
+    -- Pre-endgame analysis
+    local result = macondo.peg('-endgameplies 4 -threads 8')
+    print(result)
+
+    -- Monte Carlo simulation
+    macondo.gen('15')
+    local result = macondo.sim('-plies 5 -stop 99')
+    print(result)
+
+    -- Rack inference
+    local result = macondo.infer('-time 30 -threads 8')
+    print(result)
+
+See the scripts/lua directory in the main Macondo repo for sample scripts.
