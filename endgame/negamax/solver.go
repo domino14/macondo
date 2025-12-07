@@ -438,10 +438,6 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 	if plies < 2 {
 		return errors.New("use at least 2 plies")
 	}
-	if s.solveMultipleVariations == 0 {
-		// if it's unspecified solve only one variation (the best one).
-		s.solveMultipleVariations = 1
-	}
 	s.makeGameCopies()
 	log.Info().Int("threads", s.threads).Msg("using-lazy-smp")
 	s.currentIDDepths = make([]int, s.threads)
@@ -464,109 +460,83 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 		β = 0
 	}
 
-	// Generate first layer of moves.
-	s.currentIDDepths[0] = -1 // so that generateSTMPlays generates all moves first properly.
-	s.initialMoves = make([][]tinymove.SmallMove, s.threads)
-	s.initialMoves[0] = s.generateSTMPlays(0, 0)
+	// Generate first layer of moves (unless already set by wrapper for multiple variations).
+	movesAlreadyGenerated := s.initialMoves != nil && len(s.initialMoves) > 0 && s.initialMoves[0] != nil && len(s.initialMoves[0]) > 0
 
-	// assignEstimates for the very first time around.
-	s.assignEstimates(s.initialMoves[0], 0, 0, tinymove.InvalidTinyMove)
+	var lastIteration int16
+	if !movesAlreadyGenerated {
+		s.currentIDDepths[0] = -1 // so that generateSTMPlays generates all moves first properly.
+		s.initialMoves = make([][]tinymove.SmallMove, s.threads)
+		s.initialMoves[0] = s.generateSTMPlays(0, 0)
+		// assignEstimates for the very first time around.
+		s.assignEstimates(s.initialMoves[0], 0, 0, tinymove.InvalidTinyMove)
 
-	variationsFound := 0
-	var lastWinner *move.Move
-
-	pv := PVLine{g: s.game}
-	// Do initial search so that we can have a good estimate for
-	// move ordering.
-	s.currentIDDepths[0] = 1
-	lastIteration, _ := s.negamax(ctx, initialHashKey, 1, α, β, &pv, 0, true)
-	// Sort the moves by valuation.
-	sort.Slice(s.initialMoves[0], func(i, j int) bool {
-		return s.initialMoves[0][i].EstimatedValue() > s.initialMoves[0][j].EstimatedValue()
-	})
-
-searchLoop:
-	for variationsFound < s.solveMultipleVariations {
-		toDelete := -1
-		if lastWinner != nil {
-			// delete from s.initialMoves[0]
-			tinyWinner := conversions.MoveToTinyMove(lastWinner)
-			for i := range s.initialMoves[0] {
-				if s.initialMoves[0][i].TinyMove() == tinyWinner {
-					toDelete = i
-					log.Info().Str("last-winner", s.game.Board().MoveDescriptionWithPlaythrough(lastWinner)).
-						Msg("finding-new-variation-deleting-last-winner")
-					break
-				}
-			}
+		pv := PVLine{g: s.game}
+		// Do initial search so that we can have a good estimate for
+		// move ordering.
+		s.currentIDDepths[0] = 1
+		lastIteration, _ = s.negamax(ctx, initialHashKey, 1, α, β, &pv, 0, true)
+		// Sort the moves by valuation.
+		sort.Slice(s.initialMoves[0], func(i, j int) bool {
+			return s.initialMoves[0][i].EstimatedValue() > s.initialMoves[0][j].EstimatedValue()
+		})
+	} else {
+		// Moves already set and sorted by wrapper, just ensure array is sized for threads
+		if len(s.initialMoves) < s.threads {
+			newInitialMoves := make([][]tinymove.SmallMove, s.threads)
+			newInitialMoves[0] = s.initialMoves[0]
+			s.initialMoves = newInitialMoves
 		}
-		if toDelete != -1 {
-			ret := make([]tinymove.SmallMove, 0)
-			ret = append(ret, s.initialMoves[0][:toDelete]...)
-			ret = append(ret, s.initialMoves[0][toDelete+1:]...)
-			s.initialMoves[0] = ret
+		// Use a default lastIteration value
+		lastIteration = 0
+	}
+
+	// copy these moves to per-thread subarrays. This will also copy
+	// the initial estimated valuation and order.
+	for t := 1; t < s.threads; t++ {
+		s.initialMoves[t] = make([]tinymove.SmallMove, len(s.initialMoves[0]))
+		copy(s.initialMoves[t], s.initialMoves[0])
+	}
+
+	var lastPlyWinner *move.Move
+	var lastPlyWinnerMatches int
+	for p := 2; p <= plies; p++ {
+
+		log.Info().Int("plies", p).Msg("deepening-iteratively")
+		err := s.lazySMP(ctx, &lastIteration, p, initialHashKey)
+		if err != nil {
+			// could be a timeout, most likely.
+			log.Err(err).Msg("lazySMP-possible-error")
+			return err
 		}
-		if len(s.initialMoves[0]) == 0 {
-			// Oops, there are more variations requested than available moves. Quit.
-			break searchLoop
-		}
+		justWon := s.principalVariation.Moves[0]
 
-		// copy these moves to per-thread subarrays. This will also copy
-		// the initial estimated valuation and order.
-		for t := 1; t < s.threads; t++ {
-			s.initialMoves[t] = make([]tinymove.SmallMove, len(s.initialMoves[0]))
-			copy(s.initialMoves[t], s.initialMoves[0])
-		}
-
-		var lastPlyWinner *move.Move
-		var lastPlyWinnerMatches int
-		for p := 2; p <= plies; p++ {
-
-			log.Info().Int("plies", p).Msg("deepening-iteratively")
-			err := s.lazySMP(ctx, &lastIteration, p, initialHashKey)
-			if err != nil {
-				// could be a timeout, most likely.
-				log.Err(err).Msg("lazySMP-possible-error")
-				break searchLoop
-			}
-			justWon := s.principalVariation.Moves[0]
-
-			if s.preventSlowroll {
-				if lastPlyWinner != nil {
-					if lastPlyWinner.ShortDescription() == justWon.ShortDescription() {
-						lastPlyWinnerMatches++
-						if lastPlyWinnerMatches > 4 {
-							log.Info().Msg("preventing slowroll; exiting iterative deepening early")
-							break
-						} else {
-							finalSpread := s.principalVariation.score + int16(s.game.CurrentSpread())
-							if finalSpread > 0 && len(lastPlyWinner.Leave()) == 0 {
-								// This move goes out, and it is a sure win.
-								// So don't slowroll and just play it quickly.
-								log.Info().Int16("final-spread", finalSpread).
-									Msg("preventing slowroll on sure win")
-								break
-							}
-						}
+		if s.preventSlowroll {
+			if lastPlyWinner != nil {
+				if lastPlyWinner.ShortDescription() == justWon.ShortDescription() {
+					lastPlyWinnerMatches++
+					if lastPlyWinnerMatches > 4 {
+						log.Info().Msg("preventing slowroll; exiting iterative deepening early")
+						break
 					} else {
-						// they don't match.
-						lastPlyWinnerMatches = 0
+						finalSpread := s.principalVariation.score + int16(s.game.CurrentSpread())
+						if finalSpread > 0 && len(lastPlyWinner.Leave()) == 0 {
+							// This move goes out, and it is a sure win.
+							// So don't slowroll and just play it quickly.
+							log.Info().Int16("final-spread", finalSpread).
+								Msg("preventing slowroll on sure win")
+							break
+						}
 					}
+				} else {
+					// they don't match.
+					lastPlyWinnerMatches = 0
 				}
 			}
-			lastPlyWinner = justWon
 		}
+		lastPlyWinner = justWon
+	}
 
-		// Once we've searched up to "plies" (or timed out?) we increase variations
-		lastWinner = s.principalVariation.Moves[0]
-		variationsFound++
-		s.variations = append(s.variations, s.principalVariation)
-	}
-	// If we solved many variations, then the last one solved is in s.principalVariation.
-	// But we want the overall solution to be the very first (best) principal variation
-	if len(s.variations) > 0 {
-		s.principalVariation = s.variations[0]
-	}
 	s.bestPVValue = s.principalVariation.score
 	return nil
 }
@@ -597,19 +567,33 @@ func (s *Solver) iterativelyDeepenABDADA(ctx context.Context, plies int) error {
 		β = 0
 	}
 
-	// Generate first layer of moves
-	s.currentIDDepths[0] = -1
-	s.initialMoves = make([][]tinymove.SmallMove, s.threads)
-	s.initialMoves[0] = s.generateSTMPlays(0, 0)
-	s.assignEstimates(s.initialMoves[0], 0, 0, tinymove.InvalidTinyMove)
+	// Generate first layer of moves (unless already set by wrapper for multiple variations)
+	movesAlreadyGenerated := s.initialMoves != nil && len(s.initialMoves) > 0 && s.initialMoves[0] != nil && len(s.initialMoves[0]) > 0
 
-	// Do initial 1-ply search for move ordering
-	pv := PVLine{g: s.game}
-	s.currentIDDepths[0] = 1
-	lastIteration, _ := s.negamax(ctx, initialHashKey, 1, α, β, &pv, 0, true)
-	sort.Slice(s.initialMoves[0], func(i, j int) bool {
-		return s.initialMoves[0][i].EstimatedValue() > s.initialMoves[0][j].EstimatedValue()
-	})
+	var lastIteration int16
+	if !movesAlreadyGenerated {
+		s.currentIDDepths[0] = -1
+		s.initialMoves = make([][]tinymove.SmallMove, s.threads)
+		s.initialMoves[0] = s.generateSTMPlays(0, 0)
+		s.assignEstimates(s.initialMoves[0], 0, 0, tinymove.InvalidTinyMove)
+
+		// Do initial 1-ply search for move ordering
+		pv := PVLine{g: s.game}
+		s.currentIDDepths[0] = 1
+		lastIteration, _ = s.negamax(ctx, initialHashKey, 1, α, β, &pv, 0, true)
+		sort.Slice(s.initialMoves[0], func(i, j int) bool {
+			return s.initialMoves[0][i].EstimatedValue() > s.initialMoves[0][j].EstimatedValue()
+		})
+	} else {
+		// Moves already set and sorted by wrapper, just ensure array is sized for threads
+		if len(s.initialMoves) < s.threads {
+			newInitialMoves := make([][]tinymove.SmallMove, s.threads)
+			newInitialMoves[0] = s.initialMoves[0]
+			s.initialMoves = newInitialMoves
+		}
+		// Use a default lastIteration value
+		lastIteration = 0
+	}
 
 	// Copy moves to all threads
 	for t := 1; t < s.threads; t++ {
@@ -743,12 +727,23 @@ func (s *Solver) iterativelyDeepenTreeSplit(ctx context.Context, plies int) erro
 		β = 0
 	}
 
-	// Generate first layer of moves
-	s.currentIDDepths[0] = -1 // so that generateSTMPlays generates all moves first properly
-	s.initialMoves = make([][]tinymove.SmallMove, s.threads)
-	s.initialMoves[0] = s.generateSTMPlays(0, 0)
-	// assignEstimates for the very first time around
-	s.assignEstimates(s.initialMoves[0], 0, 0, tinymove.InvalidTinyMove)
+	// Generate first layer of moves (unless already set by wrapper for multiple variations)
+	movesAlreadyGenerated := s.initialMoves != nil && len(s.initialMoves) > 0 && s.initialMoves[0] != nil && len(s.initialMoves[0]) > 0
+
+	if !movesAlreadyGenerated {
+		s.currentIDDepths[0] = -1 // so that generateSTMPlays generates all moves first properly
+		s.initialMoves = make([][]tinymove.SmallMove, s.threads)
+		s.initialMoves[0] = s.generateSTMPlays(0, 0)
+		// assignEstimates for the very first time around
+		s.assignEstimates(s.initialMoves[0], 0, 0, tinymove.InvalidTinyMove)
+	} else {
+		// Moves already set, but need to ensure array is sized for threads
+		if len(s.initialMoves) < s.threads {
+			newInitialMoves := make([][]tinymove.SmallMove, s.threads)
+			newInitialMoves[0] = s.initialMoves[0]
+			s.initialMoves = newInitialMoves
+		}
+	}
 
 	start := 1
 	if !s.iterativeDeepeningOptim {
@@ -1058,6 +1053,104 @@ aspirationLoop:
 	return nil
 }
 
+// solveWithMultipleVariations wraps any algorithm to solve for multiple variations.
+// It repeatedly calls the provided algorithm, each time excluding the previous winner.
+func (s *Solver) solveWithMultipleVariations(ctx context.Context, plies int,
+	algorithmFunc func(context.Context, int) error) error {
+
+	if s.solveMultipleVariations == 0 {
+		s.solveMultipleVariations = 1
+	}
+
+	// Generate initial moves ONCE before the loop, like the original code did
+	s.currentIDDepths = make([]int, s.threads)
+	s.currentIDDepths[0] = -1
+	s.initialMoves = make([][]tinymove.SmallMove, s.threads)
+	s.initialMoves[0] = s.generateSTMPlays(0, 0)
+	s.assignEstimates(s.initialMoves[0], 0, 0, tinymove.InvalidTinyMove)
+
+	// Do initial 1-ply search ONCE for move ordering, just like the original code
+	initialHashKey := s.ttable.Zobrist().Hash(
+		s.game.Board().GetSquares(),
+		s.game.RackFor(s.solvingPlayer),
+		s.game.RackFor(1-s.solvingPlayer),
+		false, s.game.ScorelessTurns(),
+	)
+	α := -HugeNumber
+	β := HugeNumber
+	if s.firstWinOptim {
+		α = -1
+		β = 1
+	} else if s.nullWindowOptim {
+		α = -1
+		β = 0
+	}
+	pv := PVLine{g: s.game}
+	s.currentIDDepths[0] = 1
+	_, _ = s.negamax(context.Background(), initialHashKey, 1, α, β, &pv, 0, true)
+	sort.Slice(s.initialMoves[0], func(i, j int) bool {
+		return s.initialMoves[0][i].EstimatedValue() > s.initialMoves[0][j].EstimatedValue()
+	})
+
+	variationsFound := 0
+	var lastWinner *move.Move
+
+searchLoop:
+	for variationsFound < s.solveMultipleVariations {
+		toDelete := -1
+		if lastWinner != nil {
+			// Delete the last winner from s.initialMoves[0]
+			tinyWinner := conversions.MoveToTinyMove(lastWinner)
+			for i := range s.initialMoves[0] {
+				if s.initialMoves[0][i].TinyMove() == tinyWinner {
+					toDelete = i
+					log.Info().Str("last-winner", s.game.Board().MoveDescriptionWithPlaythrough(lastWinner)).
+						Msg("finding-new-variation-deleting-last-winner")
+					break
+				}
+			}
+		}
+
+		if toDelete != -1 {
+			ret := make([]tinymove.SmallMove, 0)
+			ret = append(ret, s.initialMoves[0][:toDelete]...)
+			ret = append(ret, s.initialMoves[0][toDelete+1:]...)
+			s.initialMoves[0] = ret
+		}
+
+		if len(s.initialMoves[0]) == 0 {
+			// No more moves to try
+			log.Info().Msg("no more moves available for additional variations")
+			break searchLoop
+		}
+
+		// Run the algorithm - it will use the filtered s.initialMoves[0]
+		err := algorithmFunc(ctx, plies)
+		if err != nil {
+			log.Err(err).Msg("algorithm-error-in-multiple-variations")
+			break searchLoop
+		}
+
+		// Save this variation
+		lastWinner = s.principalVariation.Moves[0]
+		variationsFound++
+		s.variations = append(s.variations, s.principalVariation)
+
+		log.Info().Int("variation", variationsFound).
+			Int("requested", s.solveMultipleVariations).
+			Str("pv", s.principalVariation.NLBString()).
+			Msg("found-variation")
+	}
+
+	// If we solved many variations, the best is the first one
+	if len(s.variations) > 0 {
+		s.principalVariation = s.variations[0]
+		s.bestPVValue = s.principalVariation.score
+	}
+
+	return nil
+}
+
 // iterativelyDeepen is single-threaded version.
 func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 	// Auto-select parallel algorithm if multi-threaded but no algorithm chosen
@@ -1113,8 +1206,8 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 				Bool("timed-out", probeTimedOut).
 				Msg("probe stats for auto-selection")
 
-			// If probe completed the full solve, we're done
-			if probeCompleted && probePlies >= plies {
+			// If probe completed the full solve and we don't need multiple variations, we're done
+			if probeCompleted && probePlies >= plies && s.solveMultipleVariations <= 1 {
 				log.Info().Msg("probe completed full solve")
 				return nil
 			}
@@ -1148,16 +1241,28 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 		}
 	}
 
+	// Dispatch to the appropriate algorithm, wrapping with multiple variations if needed
+	if s.solveMultipleVariations > 1 {
+		// Multiple variations requested - wrap the algorithm
+		if s.lazySMPOptim {
+			return s.solveWithMultipleVariations(ctx, plies, s.iterativelyDeepenLazySMP)
+		} else if s.abdadaOptim {
+			return s.solveWithMultipleVariations(ctx, plies, s.iterativelyDeepenABDADA)
+		} else if s.treeSplitOptim {
+			return s.solveWithMultipleVariations(ctx, plies, s.iterativelyDeepenTreeSplit)
+		} else {
+			// Single-threaded doesn't support multiple variations
+			return errors.New("you must use multi-threading to solve multiple variations")
+		}
+	}
+
+	// Single variation - call algorithm directly
 	if s.lazySMPOptim {
 		return s.iterativelyDeepenLazySMP(ctx, plies)
 	} else if s.abdadaOptim {
 		return s.iterativelyDeepenABDADA(ctx, plies)
 	} else if s.treeSplitOptim {
 		return s.iterativelyDeepenTreeSplit(ctx, plies)
-	}
-	if s.solveMultipleVariations > 1 {
-		// you don't really have to but i'm too lazy smp to implement it in several places
-		return errors.New("you must use multi-threading to solve multiple variations")
 	}
 	s.currentIDDepths = make([]int, 1)
 	g := s.game
