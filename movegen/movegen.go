@@ -32,6 +32,69 @@ const (
 	SortByNone
 )
 
+// MaxAnchorCount is the maximum number of anchors we can track.
+// For a 15x15 board this is overkill, but supports 21x21 super boards.
+const MaxAnchorCount = 21 * 21
+
+// Anchor stores shadow generation result for one anchor square.
+// Used for prioritizing move generation by maximum possible equity.
+type Anchor struct {
+	HighestPossibleEquity float64
+	HighestPossibleScore  int16
+	Row                   uint8
+	Col                   uint8
+	LastAnchorCol         int8 // -1 means no previous anchor
+	Vertical              bool
+}
+
+// heapifyAnchors converts gen.anchors[:gen.anchorCount] into a max-heap
+// ordered by HighestPossibleEquity. This is an in-place operation with no allocations.
+func (gen *GordonGenerator) heapifyAnchors() {
+	n := gen.anchorCount
+	// Build heap (heapify)
+	for i := n/2 - 1; i >= 0; i-- {
+		gen.siftDown(i, n)
+	}
+}
+
+// popAnchor removes and returns the anchor with highest equity.
+// Returns a zero Anchor if the heap is empty.
+func (gen *GordonGenerator) popAnchor() Anchor {
+	if gen.anchorCount == 0 {
+		return Anchor{}
+	}
+	// Get the max (root)
+	a := gen.anchors[0]
+	gen.anchorCount--
+	if gen.anchorCount > 0 {
+		// Move last element to root and sift down
+		gen.anchors[0] = gen.anchors[gen.anchorCount]
+		gen.siftDown(0, gen.anchorCount)
+	}
+	return a
+}
+
+// siftDown maintains the max-heap property by sifting element at index i down.
+func (gen *GordonGenerator) siftDown(i, n int) {
+	for {
+		largest := i
+		left := 2*i + 1
+		right := 2*i + 2
+
+		if left < n && gen.anchors[left].HighestPossibleEquity > gen.anchors[largest].HighestPossibleEquity {
+			largest = left
+		}
+		if right < n && gen.anchors[right].HighestPossibleEquity > gen.anchors[largest].HighestPossibleEquity {
+			largest = right
+		}
+		if largest == i {
+			break
+		}
+		gen.anchors[i], gen.anchors[largest] = gen.anchors[largest], gen.anchors[i]
+		i = largest
+	}
+}
+
 // MoveGenerator is a generic interface for generating moves.
 type MoveGenerator interface {
 	GenAll(rack *tilemapping.Rack, addExchange bool) []*move.Move
@@ -115,6 +178,62 @@ type GordonGenerator struct {
 	// For top N only:
 	topNPlays       []*move.Move
 	maxTopMovesSize int
+	isTopPlayMode   bool // True when using TopPlayOnly or TopN recorder
+
+	// Shadow generation state
+	shadowEnabled bool
+	anchors       [MaxAnchorCount]Anchor
+	anchorCount   int
+
+	// Current anchor extension sets (copied per-anchor)
+	anchorLeftExtSet  uint64
+	anchorRightExtSet uint64
+
+	// Rack cross-set (bitmask of letters in rack)
+	rackCrossSet uint64
+
+	// Descending tile scores for shadow (max rack size = 7)
+	descendingTileScores   [7]int
+	fullRackDescTileScores [7]int // Copy for restoration
+	descTileScoresCopy     [7]int // For shadowPlayRight restoration
+
+	// Unrestricted multipliers tracking
+	// Stores effective letter multiplier and cross-word multiplier info
+	descendingEffLetterMuls [7]uint16
+	descendingCrossWordMuls [7]uint16 // Packed: (multiplier << 8) | column
+	numUnrestrictedMuls     int
+	lastWordMultiplier      int
+
+	// Copies for restoration after shadowPlayRight
+	descEffLetterMulsCopy   [7]uint16
+	descCrossWordMulsCopy   [7]uint16
+	numUnrestMulsCopy       int
+
+	// Shadow scoring accumulators (reset per anchor)
+	shadowMainwordRestrictedScore int
+	shadowPerpAdditionalScore     int
+	shadowWordMultiplier          int
+
+	// Shadow result tracking (reset per anchor)
+	highestShadowEquity float64
+	highestShadowScore  int
+	shadowTilesPlayed   int
+
+	// Position tracking for shadow
+	currentLeftCol  int
+	currentRightCol int
+	firstPlayedCol  int
+
+	// Rack copy for shadow restoration
+	shadowRackCopy   tilemapping.Rack // Value type, not pointer
+	rackCrossSetCopy uint64
+
+	// Number of letters on rack (cached)
+	numLettersOnRack int
+
+	// Tile scores lookup (indexed by MachineLetter)
+	// Pre-populated from LetterDistribution. Blanked letters have 0 score.
+	tileScores [64]int
 }
 
 // NewGordonGenerator returns a Gordon move generator.
@@ -136,6 +255,13 @@ func NewGordonGenerator(gd gaddag.WordGraph, board *board.GameBoard,
 		maxTileUsage:       100, // basically unlimited
 		maxCanExchange:     game.DefaultExchangeLimit,
 	}
+
+	// Pre-populate tile scores lookup (once at creation)
+	for ml := 0; ml < int(ld.TileMapping().NumLetters()); ml++ {
+		gen.tileScores[ml] = ld.Score(tilemapping.MachineLetter(ml))
+		// Blanked versions (ml | BlankMask) will have score 0, already zero-initialized
+	}
+
 	return gen
 }
 
@@ -153,11 +279,20 @@ func (gen *GordonGenerator) SetSortingParameter(s SortBy) {
 func (gen *GordonGenerator) SetPlayRecorder(pr PlayRecorderFunc) {
 	gen.playRecorder = pr
 	gen.maxTopMovesSize = 0
+	gen.isTopPlayMode = false
+}
+
+// SetTopPlayOnlyRecorder sets the recorder to TopPlayOnlyRecorder and marks
+// that we're in top-play mode (eligible for shadow optimization).
+func (gen *GordonGenerator) SetTopPlayOnlyRecorder() {
+	gen.playRecorder = TopPlayOnlyRecorder
+	gen.isTopPlayMode = true
 }
 
 func (gen *GordonGenerator) SetRecordNTopPlays(n int) {
 	gen.playRecorder = TopNPlayRecorder
 	gen.maxTopMovesSize = n
+	gen.isTopPlayMode = true
 	gen.topNPlays = make([]*move.Move, n)
 	for i := range gen.topNPlays {
 		gen.topNPlays[i] = new(move.Move)
@@ -168,6 +303,17 @@ func (gen *GordonGenerator) SetRecordNTopPlays(n int) {
 
 func (gen *GordonGenerator) SetEquityCalculators(calcs []equity.EquityCalculator) {
 	gen.equityCalculators = calcs
+}
+
+// SetShadowEnabled enables or disables shadow-based move generation.
+// When enabled and using TopPlayOnly or TopN recorder, anchors will be
+// prioritized by maximum possible equity for early pruning.
+func (gen *GordonGenerator) SetShadowEnabled(enabled bool) {
+	gen.shadowEnabled = enabled
+}
+
+func (gen *GordonGenerator) ShadowEnabled() bool {
+	return gen.shadowEnabled
 }
 
 func (gen *GordonGenerator) SetGame(g *game.Game) {
@@ -200,12 +346,22 @@ func (gen *GordonGenerator) GenAll(rack *tilemapping.Rack, addExchange bool) []*
 	gen.smallPlays = *ptr
 	gen.smallPlays = gen.smallPlays[0:0]
 
-	gen.vertical = false
-	gen.genByOrientation(rack, board.HorizontalDirection)
-	gen.board.Transpose()
-	gen.vertical = true
-	gen.genByOrientation(rack, board.VerticalDirection)
-	gen.board.Transpose()
+	// Use shadow-based generation when enabled and in top-play mode.
+	// Shadow is beneficial when we only need the best move(s) since we can
+	// prune anchors that can't produce better moves than what we've found.
+	useShadow := gen.shadowEnabled && gen.isTopPlayMode
+
+	if useShadow {
+		gen.genShadow(rack)
+		gen.recordScoringPlaysFromAnchors(rack)
+	} else {
+		gen.vertical = false
+		gen.genByOrientation(rack, board.HorizontalDirection)
+		gen.board.Transpose()
+		gen.vertical = true
+		gen.genByOrientation(rack, board.VerticalDirection)
+		gen.board.Transpose()
+	}
 
 	// Only add a pass move if nothing else is possible. Note: in endgames,
 	// we can have strategic passes. Check genPass variable as well.
@@ -478,6 +634,19 @@ func (gen *GordonGenerator) crossDirection() board.BoardDirection {
 		return board.HorizontalDirection
 	}
 	return board.VerticalDirection
+}
+
+// Debug methods for testing
+func (gen *GordonGenerator) GenShadowDebug(rack *tilemapping.Rack) {
+	gen.genShadow(rack)
+}
+
+func (gen *GordonGenerator) AnchorCountDebug() int {
+	return gen.anchorCount
+}
+
+func (gen *GordonGenerator) GetAnchorDebug(i int) Anchor {
+	return gen.anchors[i]
 }
 
 func (gen *GordonGenerator) scoreMove(word tilemapping.MachineWord, row, col, tilesPlayed int) int {

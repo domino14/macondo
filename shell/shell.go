@@ -1378,6 +1378,7 @@ func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) err
 	stochastic1 = options.Bool("stochastic1")
 	stochastic2 = options.Bool("stochastic2")
 	block = options.Bool("block")
+	verifyShadow := options.Bool("verifyshadow")
 	if numthreads, err = options.IntDefault("threads", runtime.NumCPU()); err != nil {
 		return err
 	}
@@ -1386,17 +1387,16 @@ func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) err
 	}
 	if len(args) == 1 {
 		if args[0] == "stop" {
-			if !sc.gameRunnerRunning {
+			if automatic.IsPlaying.Value() == 0 {
 				return errors.New("automatic game runner is not running")
 			}
 			sc.gameRunnerCancel()
-			sc.gameRunnerRunning = false
 			return nil
 		} else {
 			return errors.New("argument not recognized")
 		}
 	}
-	if sc.gameRunnerRunning {
+	if automatic.IsPlaying.Value() > 0 {
 		return errors.New("please stop automatic game runner before running another one")
 	}
 	if sc.solving() {
@@ -1419,12 +1419,16 @@ func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) err
 				BotCode:              botcode2,
 				MinSimPlies:          minsimplies2,
 				StochasticStaticEval: stochastic2},
-		})
+		}, verifyShadow)
 
 	if err != nil {
 		return err
 	}
-	sc.gameRunnerRunning = true
+	if block {
+		// If blocking, the games are already done when we get here
+		sc.showMessage("Automatic game runner finished.")
+		return nil
+	}
 	sc.showMessage("Started automatic game runner...")
 	return nil
 }

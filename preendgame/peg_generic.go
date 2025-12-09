@@ -338,10 +338,11 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 		j.ourMove.RUnlock()
 	}
 	g := s.endgameSolvers[thread].Game()
-	mg := s.endgameSolvers[thread].Movegen()
+	mg := s.endgameSolvers[thread].Movegen().(*movegen.GordonGenerator)
 
 	options := []option{}
-	mg.SetPlayRecorder(movegen.TopPlayOnlyRecorder)
+	mg.SetTopPlayOnlyRecorder()
+	mg.SetShadowEnabled(true)
 	permutations := generatePermutations(j.maybeInBagTiles, s.numinbag)
 	// fmt.Println("perms", permutations)
 	firstPlayEmptiesBag := j.ourMove.Play.TilesPlayed() >= s.numinbag
@@ -407,6 +408,7 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 	}
 
 	mg.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
+	mg.SetShadowEnabled(false)
 
 	// now recursively solve endgames and stuff.
 	for idx := range options {

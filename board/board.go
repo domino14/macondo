@@ -108,6 +108,15 @@ type GameBoard struct {
 	hAnchors   []bool
 	vAnchors   []bool
 
+	// Extension sets for shadow-based move generation.
+	// leftExtSet: letters that can extend leftward from tiles to the right of this square
+	// rightExtSet: letters that can extend rightward from tiles to the left of this square
+	// These are computed alongside cross-sets and used for early pruning in shadow gen.
+	hLeftExtSets  []uint64
+	hRightExtSets []uint64
+	vLeftExtSets  []uint64
+	vRightExtSets []uint64
+
 	rowMul int
 	colMul int
 }
@@ -133,6 +142,10 @@ func MakeBoard(desc []string) *GameBoard {
 	vcs := make([]CrossSet, totalLen)
 	hAs := make([]bool, totalLen)
 	vAs := make([]bool, totalLen)
+	hLe := make([]uint64, totalLen)
+	hRe := make([]uint64, totalLen)
+	vLe := make([]uint64, totalLen)
+	vRe := make([]uint64, totalLen)
 
 	sqi := 0
 	for _, s := range desc {
@@ -144,17 +157,21 @@ func MakeBoard(desc []string) *GameBoard {
 
 	}
 	g := &GameBoard{
-		squares:      sqs,
-		bonuses:      bs,
-		dim:          len(desc),
-		vCrossScores: vc,
-		hCrossScores: hc,
-		hCrossSets:   hcs,
-		vCrossSets:   vcs,
-		hAnchors:     hAs,
-		vAnchors:     vAs,
-		rowMul:       len(desc),
-		colMul:       1,
+		squares:       sqs,
+		bonuses:       bs,
+		dim:           len(desc),
+		vCrossScores:  vc,
+		hCrossScores:  hc,
+		hCrossSets:    hcs,
+		vCrossSets:    vcs,
+		hAnchors:      hAs,
+		vAnchors:      vAs,
+		hLeftExtSets:  hLe,
+		hRightExtSets: hRe,
+		vLeftExtSets:  vLe,
+		vRightExtSets: vRe,
+		rowMul:        len(desc),
+		colMul:        1,
 	}
 	// Call Clear to set all crosses.
 	g.Clear()
@@ -187,6 +204,11 @@ func (g *GameBoard) Transpose() {
 	// 	}
 	// }
 	g.rowMul, g.colMul = g.colMul, g.rowMul
+}
+
+// IsTransposed returns true if the board is currently in transposed state.
+func (g *GameBoard) IsTransposed() bool {
+	return g.rowMul == 1
 }
 
 func (g *GameBoard) GetSqIdx(row, col int) int {
@@ -327,13 +349,76 @@ func (g *GameBoard) SetCrossSet(row int, col int, cs CrossSet,
 	}
 }
 
+// GetLeftExtSetIdx returns the left extension set at the given position.
+// The left extension set indicates which letters can extend leftward from
+// tiles to the right of this square.
+func (g *GameBoard) GetLeftExtSetIdx(pos int, dir BoardDirection) uint64 {
+	if dir == HorizontalDirection {
+		return g.hLeftExtSets[pos]
+	}
+	return g.vLeftExtSets[pos]
+}
+
+// GetRightExtSetIdx returns the right extension set at the given position.
+// The right extension set indicates which letters can extend rightward from
+// tiles to the left of this square.
+func (g *GameBoard) GetRightExtSetIdx(pos int, dir BoardDirection) uint64 {
+	if dir == HorizontalDirection {
+		return g.hRightExtSets[pos]
+	}
+	return g.vRightExtSets[pos]
+}
+
+// SetLeftExtSet sets the left extension set at the given position.
+func (g *GameBoard) SetLeftExtSet(row, col int, dir BoardDirection, extSet uint64) {
+	pos := g.GetSqIdx(row, col)
+	if dir == HorizontalDirection {
+		g.hLeftExtSets[pos] = extSet
+	} else {
+		g.vLeftExtSets[pos] = extSet
+	}
+}
+
+// SetRightExtSet sets the right extension set at the given position.
+func (g *GameBoard) SetRightExtSet(row, col int, dir BoardDirection, extSet uint64) {
+	pos := g.GetSqIdx(row, col)
+	if dir == HorizontalDirection {
+		g.hRightExtSets[pos] = extSet
+	} else {
+		g.vRightExtSets[pos] = extSet
+	}
+}
+
+// SetLeftExtSetWithBlank sets the left extension set, adding the blank bit if any letters are set.
+func (g *GameBoard) SetLeftExtSetWithBlank(row, col int, dir BoardDirection, extSet uint64) {
+	// If any letter bit is set (excluding bit 0), also set bit 0 for blank
+	if extSet != 0 {
+		extSet |= 1
+	}
+	g.SetLeftExtSet(row, col, dir, extSet)
+}
+
+// SetRightExtSetWithBlank sets the right extension set, adding the blank bit if any letters are set.
+func (g *GameBoard) SetRightExtSetWithBlank(row, col int, dir BoardDirection, extSet uint64) {
+	// If any letter bit is set (excluding bit 0), also set bit 0 for blank
+	if extSet != 0 {
+		extSet |= 1
+	}
+	g.SetRightExtSet(row, col, dir, extSet)
+}
+
 // SetAllCrosses sets the cross sets of every square to every acceptable letter.
+// Also sets all extension sets to trivial (all letters allowed).
 func (g *GameBoard) SetAllCrosses() {
 	for i := range g.hCrossScores {
 		g.hCrossSets[i].SetAll()
+		g.hLeftExtSets[i] = TrivialCrossSet
+		g.hRightExtSets[i] = TrivialCrossSet
 	}
 	for i := range g.vCrossScores {
 		g.vCrossSets[i].SetAll()
+		g.vLeftExtSets[i] = TrivialCrossSet
+		g.vRightExtSets[i] = TrivialCrossSet
 	}
 }
 
@@ -919,6 +1004,10 @@ func (g *GameBoard) Copy() *GameBoard {
 	newg.vCrossSets = make([]CrossSet, len(g.vCrossSets))
 	newg.hAnchors = make([]bool, len(g.vCrossSets))
 	newg.vAnchors = make([]bool, len(g.vCrossSets))
+	newg.hLeftExtSets = make([]uint64, len(g.hLeftExtSets))
+	newg.hRightExtSets = make([]uint64, len(g.hRightExtSets))
+	newg.vLeftExtSets = make([]uint64, len(g.vLeftExtSets))
+	newg.vRightExtSets = make([]uint64, len(g.vRightExtSets))
 
 	copy(newg.squares, g.squares)
 	copy(newg.bonuses, g.bonuses)
@@ -928,6 +1017,10 @@ func (g *GameBoard) Copy() *GameBoard {
 	copy(newg.hCrossSets, g.hCrossSets)
 	copy(newg.vAnchors, g.vAnchors)
 	copy(newg.hAnchors, g.hAnchors)
+	copy(newg.hLeftExtSets, g.hLeftExtSets)
+	copy(newg.hRightExtSets, g.hRightExtSets)
+	copy(newg.vLeftExtSets, g.vLeftExtSets)
+	copy(newg.vRightExtSets, g.vRightExtSets)
 
 	newg.tilesPlayed = g.tilesPlayed
 	newg.dim = g.dim
@@ -952,6 +1045,10 @@ func (g *GameBoard) CopyFrom(b *GameBoard) {
 	copy(g.hCrossSets, b.hCrossSets)
 	copy(g.vAnchors, b.vAnchors)
 	copy(g.hAnchors, b.hAnchors)
+	copy(g.hLeftExtSets, b.hLeftExtSets)
+	copy(g.hRightExtSets, b.hRightExtSets)
+	copy(g.vLeftExtSets, b.vLeftExtSets)
+	copy(g.vRightExtSets, b.vRightExtSets)
 	g.tilesPlayed = b.tilesPlayed
 	g.rowMul = b.rowMul
 	g.colMul = b.colMul

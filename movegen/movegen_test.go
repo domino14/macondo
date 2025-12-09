@@ -532,6 +532,43 @@ func TestTopPlayOnlyRecorder(t *testing.T) {
 	assert.Equal(t, generator.plays[0].Tiles().UserVisiblePlayedTiles(alph), "hEaDW..DS")
 }
 
+func TestTopPlayOnlyRecorderWithShadow(t *testing.T) {
+	is := is.New(t)
+
+	gd, err := GaddagFromLexicon("NWL20")
+	is.NoErr(err)
+	alph := gd.GetAlphabet()
+
+	// VsJeremy but as a CGP - same test case as TestTopPlayOnlyRecorder
+	g, err := cgp.ParseCGP(DefaultConfig,
+		"7N6M/5ZOON4AA/7B5UN/2S4L3LADY/2T4E2QI1I1/2A2PORN3NOR/2BICE2AA1DA1E/6GUVS1OP1F/8ET1LA1U/5J3R1E1UT/4VOTE1I1R1NE/5G1MICKIES1/6FE1T1THEW/6OR3E1XI/6OY6G DDESW??/AHIILR 299/352 0 lex America;")
+	is.NoErr(err)
+	ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.WGLConfig())
+	is.NoErr(err)
+	generator := NewGordonGenerator(gd, g.Board(), ld)
+	generator.SetGame(g.Game)
+	g.RecalculateBoard()
+
+	// Enable shadow generation mode
+	generator.SetShadowEnabled(true)
+	generator.SetTopPlayOnlyRecorder()
+
+	elc, err := equity.NewExhaustiveLeaveCalculator("America", DefaultConfig, "")
+	is.NoErr(err)
+	generator.SetEquityCalculators([]equity.EquityCalculator{
+		&equity.EndgameAdjustmentCalculator{},
+		elc,
+		&equity.OpeningAdjustmentCalculator{}})
+	generator.GenAll(tilemapping.RackFromString("DDESW??", alph), false)
+
+	// Shadow should produce the same top play as the non-shadow version
+	assert.Equal(t, 1, len(scoringPlays(generator.plays)))
+	assert.Equal(t, 106, generator.plays[0].Score()) // hEaDW(OR)DS!
+	assert.Equal(t, 0, len(nonScoringPlays(generator.plays)))
+	assert.Equal(t, "", generator.plays[0].Leave().UserVisible(alph))
+	assert.Equal(t, generator.plays[0].Tiles().UserVisiblePlayedTiles(alph), "hEaDW..DS")
+}
+
 func TestGiantTwentySevenTimer(t *testing.T) {
 	is := is.New(t)
 
@@ -550,6 +587,75 @@ func TestGiantTwentySevenTimer(t *testing.T) {
 	assert.Equal(t, 519, len(scoringPlays(generator.plays)))
 	// Bag has 5 tiles so no exchanges should be generated.
 	assert.Equal(t, 0, len(nonScoringPlays(generator.plays)))
+	assert.Equal(t, 1780, generator.plays[0].Score()) // oxyphenbutazone
+	assert.Equal(t, "", generator.plays[0].Leave().UserVisible(alph))
+}
+
+func TestGiantTwentySevenTimerWithShadow(t *testing.T) {
+	is := is.New(t)
+
+	gd, err := GaddagFromLexicon("America")
+	is.NoErr(err)
+	alph := gd.GetAlphabet()
+
+	bd := board.MakeBoard(board.CrosswordGameBoard)
+	ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.WGLConfig())
+	is.NoErr(err)
+	generator := NewGordonGenerator(gd, bd, ld)
+	bd.SetToGame(gd.GetAlphabet(), board.VsOxy)
+	cross_set.GenAllCrossSets(bd, gd, ld)
+
+	t.Logf("Board:\n%s", bd.ToDisplayText(alph))
+
+	// Check vertical anchors at column 0
+	for row := 0; row < 15; row++ {
+		if bd.IsAnchor(row, 0, board.VerticalDirection) {
+			t.Logf("Row %d, Col 0 is V-anchor", row)
+		}
+	}
+
+	// Check extension sets at column 0 for vertical direction
+	for row := 0; row < 5; row++ {
+		sqIdx := bd.GetSqIdx(row, 0)
+		vLeftExt := bd.GetLeftExtSetIdx(sqIdx, board.VerticalDirection)
+		vRightExt := bd.GetRightExtSetIdx(sqIdx, board.VerticalDirection)
+		t.Logf("Row %d, Col 0: sqIdx=%d, vLeftExt=%064b, vRightExt=%064b", row, sqIdx, vLeftExt, vRightExt)
+	}
+
+	// First run without shadow to see what the best play is
+	generator.SetPlayRecorder(TopPlayOnlyRecorder)
+	plays := generator.GenAll(tilemapping.RackFromString("ABEOPXZ", alph), false)
+	row, col, vertical := plays[0].CoordsAndVertical()
+	t.Logf("Without shadow - Top play: score=%d, tiles=%s, coords=(%d,%d,%v)",
+		plays[0].Score(),
+		plays[0].Tiles().UserVisiblePlayedTiles(alph),
+		row, col, vertical)
+
+	// Now run with shadow
+	generator.SetShadowEnabled(true)
+	generator.SetTopPlayOnlyRecorder()
+
+	// Debug: manually call genShadow to see anchors
+	testRack := tilemapping.RackFromString("ABEOPXZ", alph)
+	t.Logf("Calling genShadow with rack: %s", testRack.String())
+	generator.GenShadowDebug(testRack)
+	t.Logf("Anchor count: %d", generator.AnchorCountDebug())
+	for i := 0; i < min(10, generator.AnchorCountDebug()); i++ {
+		a := generator.GetAnchorDebug(i)
+		t.Logf("Anchor %d: row=%d, col=%d, vertical=%v, equity=%.1f, score=%d",
+			i, a.Row, a.Col, a.Vertical, a.HighestPossibleEquity, a.HighestPossibleScore)
+	}
+
+	generator.GenAll(tilemapping.RackFromString("ABEOPXZ", alph), false)
+	t.Logf("With shadow - Number of plays: %d", len(scoringPlays(generator.plays)))
+	if len(generator.plays) > 0 {
+		row2, col2, vertical2 := generator.plays[0].CoordsAndVertical()
+		t.Logf("With shadow - Top play: score=%d, tiles=%s, coords=(%d,%d,%v)",
+			generator.plays[0].Score(),
+			generator.plays[0].Tiles().UserVisiblePlayedTiles(alph),
+			row2, col2, vertical2)
+	}
+	assert.Equal(t, 1, len(scoringPlays(generator.plays)))
 	assert.Equal(t, 1780, generator.plays[0].Score()) // oxyphenbutazone
 	assert.Equal(t, "", generator.plays[0].Leave().UserVisible(alph))
 }
@@ -686,6 +792,26 @@ func BenchmarkGenEmptyBoard(b *testing.B) {
 	}
 }
 
+func BenchmarkGenEmptyBoardWithShadow(b *testing.B) {
+	is := is.New(b)
+
+	gd, err := GaddagFromLexicon("America")
+	is.NoErr(err)
+	alph := gd.GetAlphabet()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		bd := board.MakeBoard(board.CrosswordGameBoard)
+		ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.WGLConfig())
+		is.NoErr(err)
+		generator := NewGordonGenerator(gd, bd, ld)
+		bd.UpdateAllAnchors()
+		cross_set.GenAllCrossSets(bd, gd, ld) // Need cross-sets for extension sets
+		generator.SetShadowEnabled(true)
+		generator.SetTopPlayOnlyRecorder()
+		generator.GenAll(tilemapping.RackFromString("AEINRST", alph), false)
+	}
+}
+
 func BenchmarkGenFullRack(b *testing.B) {
 	is := is.New(b)
 
@@ -706,6 +832,67 @@ func BenchmarkGenFullRack(b *testing.B) {
 		cross_set.GenAllCrossSets(bd, gd, ld)
 
 		generator.GenAll(tilemapping.RackFromString("AABDELT", alph), true)
+	}
+}
+
+func BenchmarkGenFullRackWithShadow(b *testing.B) {
+	is := is.New(b)
+
+	gd, err := GaddagFromLexicon("America")
+	is.NoErr(err)
+	alph := gd.GetAlphabet()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		bd := board.MakeBoard(board.CrosswordGameBoard)
+		ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.WGLConfig())
+		is.NoErr(err)
+		generator := NewGordonGenerator(gd, bd, ld)
+		bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
+		cross_set.GenAllCrossSets(bd, gd, ld)
+		generator.SetShadowEnabled(true)
+		generator.SetTopPlayOnlyRecorder()
+
+		generator.GenAll(tilemapping.RackFromString("AABDELT", alph), false)
+	}
+}
+
+func BenchmarkGenOneBlankWithShadow(b *testing.B) {
+	is := is.New(b)
+
+	gd, err := GaddagFromLexicon("America")
+	is.NoErr(err)
+	alph := gd.GetAlphabet()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		bd := board.MakeBoard(board.CrosswordGameBoard)
+		ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.WGLConfig())
+		is.NoErr(err)
+		generator := NewGordonGenerator(gd, bd, ld)
+		bd.SetToGame(gd.GetAlphabet(), board.VsJeremy)
+		cross_set.GenAllCrossSets(bd, gd, ld)
+		generator.SetShadowEnabled(true)
+
+		generator.GenAll(tilemapping.RackFromString("ADDESW?", alph), false)
+	}
+}
+
+func BenchmarkGenBothBlanksWithShadow(b *testing.B) {
+	is := is.New(b)
+
+	gd, err := GaddagFromLexicon("America")
+	is.NoErr(err)
+	alph := gd.GetAlphabet()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		bd := board.MakeBoard(board.CrosswordGameBoard)
+		ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.WGLConfig())
+		is.NoErr(err)
+		generator := NewGordonGenerator(gd, bd, ld)
+		bd.SetToGame(gd.GetAlphabet(), board.VsJeremy)
+		cross_set.GenAllCrossSets(bd, gd, ld)
+		generator.SetShadowEnabled(true)
+
+		generator.GenAll(tilemapping.RackFromString("DDESW??", alph), false)
 	}
 }
 
@@ -885,4 +1072,51 @@ func TestGenExchange(t *testing.T) {
 
 	gen.generateExchangeMoves(rack, 0, 0)
 	assert.Equal(t, len(gen.plays), 127)
+}
+
+func BenchmarkTopPlayOnly(b *testing.B) {
+	is := is.New(b)
+
+	gd, err := GaddagFromLexicon("America")
+	is.NoErr(err)
+	alph := gd.GetAlphabet()
+
+	bd := board.MakeBoard(board.CrosswordGameBoard)
+	ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.WGLConfig())
+	is.NoErr(err)
+	generator := NewGordonGenerator(gd, bd, ld)
+	bd.SetToGame(gd.GetAlphabet(), board.VsOxy)
+	cross_set.GenAllCrossSets(bd, gd, ld)
+	generator.SetPlayRecorder(TopPlayOnlyRecorder)
+
+	rack := tilemapping.RackFromString("ABEOPXZ", alph)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		generator.GenAll(rack, false)
+	}
+}
+
+func BenchmarkTopPlayOnlyWithShadow(b *testing.B) {
+	is := is.New(b)
+
+	gd, err := GaddagFromLexicon("America")
+	is.NoErr(err)
+	alph := gd.GetAlphabet()
+
+	bd := board.MakeBoard(board.CrosswordGameBoard)
+	ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.WGLConfig())
+	is.NoErr(err)
+	generator := NewGordonGenerator(gd, bd, ld)
+	bd.SetToGame(gd.GetAlphabet(), board.VsOxy)
+	cross_set.GenAllCrossSets(bd, gd, ld)
+	generator.SetShadowEnabled(true)
+	generator.SetTopPlayOnlyRecorder()
+
+	rack := tilemapping.RackFromString("ABEOPXZ", alph)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		generator.GenAll(rack, false)
+	}
 }
