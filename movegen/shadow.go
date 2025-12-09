@@ -213,7 +213,7 @@ func (gen *GordonGenerator) shadowStartNonplaythrough(rack *tilemapping.Rack) {
 		// Successfully restricted - score already accumulated
 	} else {
 		// Multiple tiles possible - add unrestricted multipliers
-		gen.insertUnrestrictedMultiplier(letterMul, wordMul, gen.curAnchorCol)
+		gen.insertUnrestrictedMultiplier(letterMul, wordMul, gen.curAnchorCol, crossScore)
 	}
 
 	gen.shadowTilesPlayed++
@@ -290,7 +290,7 @@ func (gen *GordonGenerator) nonplaythroughShadowPlayLeft(rack *tilemapping.Rack)
 		if gen.tryRestrictTile(possibleLetters, letterMul, wordMul, crossScore, col) {
 			// Successfully restricted
 		} else {
-			gen.insertUnrestrictedMultiplier(letterMul, wordMul, col)
+			gen.insertUnrestrictedMultiplier(letterMul, wordMul, col, crossScore)
 		}
 
 		gen.shadowTilesPlayed++
@@ -358,7 +358,7 @@ func (gen *GordonGenerator) playthroughShadowPlayLeft(rack *tilemapping.Rack) {
 		if gen.tryRestrictTile(possibleLetters, letterMul, wordMul, crossScore, col) {
 			// Successfully restricted
 		} else {
-			gen.insertUnrestrictedMultiplier(letterMul, wordMul, col)
+			gen.insertUnrestrictedMultiplier(letterMul, wordMul, col, crossScore)
 		}
 
 		gen.shadowTilesPlayed++
@@ -417,7 +417,7 @@ func (gen *GordonGenerator) shadowPlayRight(rack *tilemapping.Rack) {
 		if gen.tryRestrictTile(possibleLetters, letterMul, wordMul, crossScore, col) {
 			// Successfully restricted
 		} else {
-			gen.insertUnrestrictedMultiplier(letterMul, wordMul, col)
+			gen.insertUnrestrictedMultiplier(letterMul, wordMul, col, crossScore)
 		}
 
 		gen.shadowTilesPlayed++
@@ -521,9 +521,23 @@ func (gen *GordonGenerator) tryRestrictTile(possibleLetters uint64, letterMul, w
 	return false
 }
 
-// insertUnrestrictedMultiplier adds multiplier info in sorted order
-func (gen *GordonGenerator) insertUnrestrictedMultiplier(letterMul, wordMul int, col int) {
-	effMul := uint16(letterMul * gen.shadowWordMultiplier * wordMul)
+// insertUnrestrictedMultiplier adds multiplier info in sorted order.
+// crossScore > 0 indicates there's a perpendicular word at this square.
+// The effective multiplier formula (matching Magpie) is:
+//   effective_mul = shadow_word_mul * letter_mul + letter_mul * word_mul * is_cross_word
+// where is_cross_word = 1 if crossScore > 0, else 0.
+func (gen *GordonGenerator) insertUnrestrictedMultiplier(letterMul, wordMul int, col int, crossScore int) {
+	// Compute cross-word contribution: letter_mul * word_mul if there's a cross word, else 0
+	isCrossWord := 0
+	if crossScore > 0 {
+		isCrossWord = 1
+	}
+	crossWordContribution := letterMul * wordMul * isCrossWord
+
+	// Effective multiplier = main word contribution + cross word contribution
+	// Main word contribution = shadow_word_mul * letter_mul (applied via shadowWordMultiplier)
+	// But we need to account for THIS square's word_mul too
+	effMul := uint16(letterMul*gen.shadowWordMultiplier*wordMul + crossWordContribution)
 
 	// Insert in descending order
 	insertIdx := gen.numUnrestrictedMuls
@@ -534,15 +548,16 @@ func (gen *GordonGenerator) insertUnrestrictedMultiplier(letterMul, wordMul int,
 		insertIdx--
 	}
 	gen.descendingEffLetterMuls[insertIdx] = effMul
-	gen.descendingCrossWordMuls[insertIdx] = uint16(wordMul<<8) | uint16(col&0xff)
+	// Store cross-word contribution (not just wordMul) for recalculation
+	gen.descendingCrossWordMuls[insertIdx] = uint16(crossWordContribution<<8) | uint16(col&0xff)
 	gen.descendingLetterMuls[insertIdx] = uint8(letterMul)
 	gen.numUnrestrictedMuls++
 }
 
 // maybeRecalculateEffectiveMultipliers recalculates effective letter multipliers
 // when the word multiplier has changed since they were last computed.
-// This is needed because effective_mul = letter_mul * word_mul * crossword_mul,
-// and word_mul accumulates as we traverse the row.
+// Formula: effective_mul = letter_mul * shadow_word_mul + cross_word_contribution
+// where cross_word_contribution = letter_mul * word_mul * is_cross_word (pre-computed and stored)
 func (gen *GordonGenerator) maybeRecalculateEffectiveMultipliers() {
 	if gen.lastWordMultiplier == gen.shadowWordMultiplier {
 		return
@@ -550,11 +565,12 @@ func (gen *GordonGenerator) maybeRecalculateEffectiveMultipliers() {
 	gen.lastWordMultiplier = gen.shadowWordMultiplier
 
 	// Recalculate and re-sort effective letter multipliers
-	// We need to recalculate based on the current shadowWordMultiplier
+	// cross_word_contribution is stored in descendingCrossWordMuls (already includes letterMul * wordMul * isCrossWord)
 	for i := 0; i < gen.numUnrestrictedMuls; i++ {
 		letterMul := int(gen.descendingLetterMuls[i])
-		crossWordMul := int(gen.descendingCrossWordMuls[i] >> 8)
-		newEffMul := uint16(letterMul*gen.shadowWordMultiplier + crossWordMul)
+		crossWordContribution := int(gen.descendingCrossWordMuls[i] >> 8)
+		// effective_mul = letter_mul * shadow_word_mul + cross_word_contribution
+		newEffMul := uint16(letterMul*gen.shadowWordMultiplier + crossWordContribution)
 		gen.descendingEffLetterMuls[i] = newEffMul
 	}
 
