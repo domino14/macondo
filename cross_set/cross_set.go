@@ -342,11 +342,13 @@ func GenCrossSet(b *Board, row int, col int, dir board.BoardDirection,
 	var leftsideLeftxSet, leftsideRightxSet uint64
 	var rightsideLeftxSet, rightsideRightxSet uint64
 	var backHookSet, frontHookSet uint64
+	var leftPathValid, rightPathValid bool
 
 	if nonemptyToLeft {
 		// Traverse the left side tiles to get the node index
 		lNodeIdx, lPathValid := traverseBackwards(b, row, col-1,
 			gd.GetRootNodeIndex(), false, 0, gd)
+		leftPathValid = lPathValid
 
 		if lPathValid {
 			// Get the extension sets from this node
@@ -375,6 +377,7 @@ func GenCrossSet(b *Board, row int, col int, dir board.BoardDirection,
 		// Traverse the right side tiles to get the node index
 		rNodeIdx, rPathValid := traverseBackwards(b, row, rightCol,
 			gd.GetRootNodeIndex(), false, 0, gd)
+		rightPathValid = rPathValid
 
 		if rPathValid {
 			// Get the front hook set (letters that can go before the right-side word)
@@ -396,46 +399,44 @@ func GenCrossSet(b *Board, row int, col int, dir board.BoardDirection,
 	}
 
 	// Now compute the cross-set for this empty square
+	// Use pre-computed hook sets where possible (optimization from Magpie)
 	if !nonemptyToRight {
-		// Only tiles to the left
+		// Only tiles to the left - use backHookSet directly
 		score := b.TraverseBackwardsForScore(row, col-1, ld)
 		b.SetCrossScore(row, col, score, dir)
 
-		lNodeIdx, lPathValid := traverseBackwards(b, row, col-1,
-			gd.GetRootNodeIndex(), false, 0, gd)
-		if !lPathValid {
+		if !leftPathValid {
 			b.SetCrossSet(row, col, 0, dir)
 			return
 		}
-		sIdx := gd.NextNodeIdx(lNodeIdx, 0)
-		letterSet := gd.GetLetterSet(sIdx)
-		b.SetCrossSet(row, col, CrossSet(letterSet), dir)
+		// backHookSet was already computed above when we traversed the left side
+		b.SetCrossSet(row, col, CrossSet(backHookSet), dir)
 	} else if !nonemptyToLeft {
-		// Only tiles to the right
+		// Only tiles to the right - use frontHookSet directly
 		scoreR := b.TraverseBackwardsForScore(row, rightCol, ld)
 		b.SetCrossScore(row, col, scoreR, dir)
 
-		rNodeIdx, rPathValid := traverseBackwards(b, row, rightCol,
-			gd.GetRootNodeIndex(), false, 0, gd)
-		if !rPathValid {
+		if !rightPathValid {
 			b.SetCrossSet(row, col, 0, dir)
 			return
 		}
-		letterSet := gd.GetLetterSet(rNodeIdx)
-		b.SetCrossSet(row, col, CrossSet(letterSet), dir)
+		// frontHookSet was already computed above when we traversed the right side
+		b.SetCrossSet(row, col, CrossSet(frontHookSet), dir)
 	} else {
 		// Tiles on both sides - need to find letters that connect them
 		scoreR := b.TraverseBackwardsForScore(row, rightCol, ld)
 		scoreL := b.TraverseBackwardsForScore(row, col-1, ld)
 		b.SetCrossScore(row, col, scoreR+scoreL, dir)
 
-		// Start from the right and try each letter that could connect
-		rNodeIdx, rPathValid := traverseBackwards(b, row, rightCol,
-			gd.GetRootNodeIndex(), false, 0, gd)
-		if !rPathValid {
+		if !rightPathValid {
 			b.SetCrossSet(row, col, 0, dir)
 			return
 		}
+
+		// Start from the right and try each letter that could connect
+		// We need to re-traverse to get the node index for iteration
+		rNodeIdx, _ := traverseBackwards(b, row, rightCol,
+			gd.GetRootNodeIndex(), false, 0, gd)
 
 		b.SetCrossSet(row, col, 0, dir)
 		for i := rNodeIdx; ; i++ {
@@ -456,8 +457,4 @@ func GenCrossSet(b *Board, row int, col int, dir board.BoardDirection,
 			}
 		}
 	}
-
-	// Use hook sets for cross-set if we haven't computed it yet
-	_ = backHookSet
-	_ = frontHookSet
 }

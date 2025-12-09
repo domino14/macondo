@@ -200,13 +200,15 @@ type GordonGenerator struct {
 	// Unrestricted multipliers tracking
 	// Stores effective letter multiplier and cross-word multiplier info
 	descendingEffLetterMuls [7]uint16
-	descendingCrossWordMuls [7]uint16 // Packed: (multiplier << 8) | column
+	descendingCrossWordMuls [7]uint16 // Packed: (crossWordMul << 8) | column
+	descendingLetterMuls    [7]uint8  // Original letter multipliers for recalculation
 	numUnrestrictedMuls     int
 	lastWordMultiplier      int
 
 	// Copies for restoration after shadowPlayRight
 	descEffLetterMulsCopy   [7]uint16
 	descCrossWordMulsCopy   [7]uint16
+	descLetterMulsCopy      [7]uint8
 	numUnrestMulsCopy       int
 
 	// Shadow scoring accumulators (reset per anchor)
@@ -234,6 +236,15 @@ type GordonGenerator struct {
 	// Tile scores lookup (indexed by MachineLetter)
 	// Pre-populated from LetterDistribution. Blanked letters have 0 score.
 	tileScores [64]int
+
+	// Best leave values for shadow equity calculation.
+	// Index is leave size (0-7), value is max leave value for any leave of that size.
+	// This gives us an upper bound on leave equity for shadow pruning.
+	bestLeaves [8]float64
+
+	// For computing bestLeaves during exchange generation
+	computeBestLeavesInExchange bool
+	leaveCalcForExchange        equity.Leaves
 }
 
 // NewGordonGenerator returns a Gordon move generator.
@@ -351,8 +362,20 @@ func (gen *GordonGenerator) GenAll(rack *tilemapping.Rack, addExchange bool) []*
 	// prune anchors that can't produce better moves than what we've found.
 	useShadow := gen.shadowEnabled && gen.isTopPlayMode
 
+	// When shadow is enabled, we need bestLeaves computed BEFORE shadow generation.
+	// If exchanges are also allowed, we compute bestLeaves during exchange generation
+	// (like Magpie does) - one pass instead of two.
+	exchangesGenerated := false
+	if useShadow && addExchange {
+		// Generate exchanges FIRST (before shadow), computing bestLeaves in the same pass
+		gen.prepareForBestLeavesInExchange()
+		gen.generateExchangeMoves(rack, 0, 0)
+		gen.computeBestLeavesInExchange = false // Reset for safety
+		exchangesGenerated = true
+	}
+
 	if useShadow {
-		gen.genShadow(rack)
+		gen.genShadow(rack, exchangesGenerated)
 		gen.recordScoringPlaysFromAnchors(rack)
 	} else {
 		gen.vertical = false
@@ -380,7 +403,8 @@ func (gen *GordonGenerator) GenAll(rack *tilemapping.Rack, addExchange bool) []*
 		}
 	}
 
-	if addExchange {
+	// Generate exchanges if not already done (non-shadow path)
+	if addExchange && !exchangesGenerated {
 		gen.generateExchangeMoves(rack, 0, 0)
 	}
 	*ptr = gen.smallPlays
@@ -638,7 +662,7 @@ func (gen *GordonGenerator) crossDirection() board.BoardDirection {
 
 // Debug methods for testing
 func (gen *GordonGenerator) GenShadowDebug(rack *tilemapping.Rack) {
-	gen.genShadow(rack)
+	gen.genShadow(rack, false)
 }
 
 func (gen *GordonGenerator) AnchorCountDebug() int {
@@ -677,15 +701,30 @@ func (gen *GordonGenerator) SmallPlays() []tinymove.SmallMove {
 	return gen.smallPlays
 }
 
-// zero-allocation generation of exchange moves without duplicates:
+// generateExchangeMoves generates exchange moves without duplicates (zero-allocation).
+// When computeBestLeavesInExchange is true, it also computes the best leave value
+// for each leave size in the same pass (like Magpie does).
 func (gen *GordonGenerator) generateExchangeMoves(rack *tilemapping.Rack, ml tilemapping.MachineLetter, stripidx int) {
-
 	// magic function written by @andy-k
 	for int(ml) < len(rack.LetArr) && rack.LetArr[ml] == 0 {
 		ml++
 	}
 	if int(ml) == len(rack.LetArr) {
+		// Record exchange move (the rack now contains the leave)
 		gen.playRecorder(gen, rack, 0, stripidx, move.MoveTypeExchange, 0)
+
+		// Also compute best leave value for this leave size if enabled
+		if gen.computeBestLeavesInExchange && gen.leaveCalcForExchange != nil {
+			leaveSize := int(rack.NumTiles())
+			if leaveSize < len(gen.bestLeaves) {
+				leaveLength := rack.NoAllocTilesOn(gen.leavestrip)
+				leave := tilemapping.MachineWord(gen.leavestrip[:leaveLength])
+				leaveValue := gen.leaveCalcForExchange.LeaveValue(leave)
+				if leaveValue > gen.bestLeaves[leaveSize] {
+					gen.bestLeaves[leaveSize] = leaveValue
+				}
+			}
+		}
 	} else {
 		gen.generateExchangeMoves(rack, ml+1, stripidx)
 		numthis := rack.LetArr[ml]
@@ -695,6 +734,72 @@ func (gen *GordonGenerator) generateExchangeMoves(rack *tilemapping.Rack, ml til
 			rack.Take(ml)
 			gen.generateExchangeMoves(rack, ml+1, stripidx)
 		}
+		for i := 0; i < numthis; i++ {
+			rack.Add(ml)
+		}
+	}
+}
+
+// prepareForBestLeavesInExchange sets up for computing bestLeaves during exchange generation.
+// This must be called before generateExchangeMoves when shadow is enabled.
+func (gen *GordonGenerator) prepareForBestLeavesInExchange() {
+	// Initialize bestLeaves to very negative values
+	for i := range gen.bestLeaves {
+		gen.bestLeaves[i] = -math.MaxFloat64
+	}
+
+	// Find a leave calculator among the equity calculators
+	gen.leaveCalcForExchange = nil
+	for _, calc := range gen.equityCalculators {
+		if lc, ok := calc.(equity.Leaves); ok {
+			gen.leaveCalcForExchange = lc
+			break
+		}
+	}
+
+	// If no leave calculator, set bestLeaves to 0 (no leave adjustment)
+	if gen.leaveCalcForExchange == nil {
+		for i := range gen.bestLeaves {
+			gen.bestLeaves[i] = 0
+		}
+		gen.computeBestLeavesInExchange = false
+	} else {
+		gen.computeBestLeavesInExchange = true
+	}
+}
+
+// computeBestLeavesFromExchanges enumerates all possible leaves (like exchange generation)
+// and tracks the best leave value for each leave size. This is used for shadow equity
+// upper bounds when exchanges are NOT allowed (so we can't piggyback on exchange generation).
+func (gen *GordonGenerator) computeBestLeavesFromExchanges(rack *tilemapping.Rack, leaveCalc equity.Leaves, ml tilemapping.MachineLetter) {
+	// Skip empty slots
+	for int(ml) < len(rack.LetArr) && rack.LetArr[ml] == 0 {
+		ml++
+	}
+
+	if int(ml) == len(rack.LetArr) {
+		// Compute leave value for current rack state (the leave)
+		leaveSize := int(rack.NumTiles())
+		if leaveSize < len(gen.bestLeaves) {
+			leaveLength := rack.NoAllocTilesOn(gen.leavestrip)
+			leave := tilemapping.MachineWord(gen.leavestrip[:leaveLength])
+			leaveValue := leaveCalc.LeaveValue(leave)
+			if leaveValue > gen.bestLeaves[leaveSize] {
+				gen.bestLeaves[leaveSize] = leaveValue
+			}
+		}
+	} else {
+		// Try keeping all copies of this tile (don't remove any)
+		gen.computeBestLeavesFromExchanges(rack, leaveCalc, ml+1)
+
+		// Try removing 1, 2, ... copies of this tile
+		numthis := rack.LetArr[ml]
+		for i := 0; i < numthis; i++ {
+			rack.Take(ml)
+			gen.computeBestLeavesFromExchanges(rack, leaveCalc, ml+1)
+		}
+
+		// Restore all copies
 		for i := 0; i < numthis; i++ {
 			rack.Add(ml)
 		}

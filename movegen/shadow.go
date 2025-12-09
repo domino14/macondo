@@ -1,7 +1,10 @@
 package movegen
 
 import (
+	"math"
+
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/equity"
 	"github.com/domino14/word-golib/tilemapping"
 )
 
@@ -69,7 +72,15 @@ func (gen *GordonGenerator) setDescendingTileScores(rack *tilemapping.Rack) {
 // genShadow performs shadow generation for all anchors.
 // It estimates the maximum possible equity for each anchor, then heapifies
 // the anchors for processing in descending equity order.
-func (gen *GordonGenerator) genShadow(rack *tilemapping.Rack) {
+// If bestLeavesAlreadyComputed is true, bestLeaves was already computed during
+// exchange generation (optimization to avoid double enumeration).
+func (gen *GordonGenerator) genShadow(rack *tilemapping.Rack, bestLeavesAlreadyComputed bool) {
+	// Compute best leaves for equity upper bounds (must be done before shadow)
+	// Skip if already computed during exchange generation
+	if !bestLeavesAlreadyComputed {
+		gen.computeBestLeaves(rack)
+	}
+
 	gen.initShadowState(rack)
 	gen.anchorCount = 0
 
@@ -366,10 +377,12 @@ func (gen *GordonGenerator) shadowPlayRight(rack *tilemapping.Rack) {
 	savedMainword := gen.shadowMainwordRestrictedScore
 	savedPerp := gen.shadowPerpAdditionalScore
 	savedWordMul := gen.shadowWordMultiplier
+	savedLastWordMul := gen.lastWordMultiplier
 	savedNumUnrest := gen.numUnrestrictedMuls
 	copy(gen.descTileScoresCopy[:], gen.descendingTileScores[:])
 	copy(gen.descEffLetterMulsCopy[:], gen.descendingEffLetterMuls[:])
 	copy(gen.descCrossWordMulsCopy[:], gen.descendingCrossWordMuls[:])
+	copy(gen.descLetterMulsCopy[:], gen.descendingLetterMuls[:])
 
 	col := gen.curAnchorCol + 1
 
@@ -422,10 +435,12 @@ func (gen *GordonGenerator) shadowPlayRight(rack *tilemapping.Rack) {
 	gen.shadowMainwordRestrictedScore = savedMainword
 	gen.shadowPerpAdditionalScore = savedPerp
 	gen.shadowWordMultiplier = savedWordMul
+	gen.lastWordMultiplier = savedLastWordMul
 	gen.numUnrestrictedMuls = savedNumUnrest
 	copy(gen.descendingTileScores[:], gen.descTileScoresCopy[:])
 	copy(gen.descendingEffLetterMuls[:], gen.descEffLetterMulsCopy[:])
 	copy(gen.descendingCrossWordMuls[:], gen.descCrossWordMulsCopy[:])
+	copy(gen.descendingLetterMuls[:], gen.descLetterMulsCopy[:])
 }
 
 // shadowRecord records shadow result for current position
@@ -433,6 +448,9 @@ func (gen *GordonGenerator) shadowRecord(rack *tilemapping.Rack) {
 	if gen.shadowTilesPlayed == 0 {
 		return
 	}
+
+	// Recalculate effective multipliers if word multiplier changed
+	gen.maybeRecalculateEffectiveMultipliers()
 
 	// Calculate score: mainword * wordMul + perp + unrestricted tiles
 	mainwordScore := gen.shadowMainwordRestrictedScore
@@ -452,8 +470,15 @@ func (gen *GordonGenerator) shadowRecord(rack *tilemapping.Rack) {
 		totalScore += 50 // Standard bingo bonus
 	}
 
-	// For now, equity = score (we'll add leave evaluation later)
-	equity := float64(totalScore)
+	// Compute equity upper bound = score + best possible leave value for this leave size
+	leaveSize := gen.numLettersOnRack - gen.shadowTilesPlayed
+	if leaveSize < 0 {
+		leaveSize = 0
+	}
+	if leaveSize >= len(gen.bestLeaves) {
+		leaveSize = len(gen.bestLeaves) - 1
+	}
+	equity := float64(totalScore) + gen.bestLeaves[leaveSize]
 
 	if equity > gen.highestShadowEquity {
 		gen.highestShadowEquity = equity
@@ -505,11 +530,50 @@ func (gen *GordonGenerator) insertUnrestrictedMultiplier(letterMul, wordMul int,
 	for insertIdx > 0 && gen.descendingEffLetterMuls[insertIdx-1] < effMul {
 		gen.descendingEffLetterMuls[insertIdx] = gen.descendingEffLetterMuls[insertIdx-1]
 		gen.descendingCrossWordMuls[insertIdx] = gen.descendingCrossWordMuls[insertIdx-1]
+		gen.descendingLetterMuls[insertIdx] = gen.descendingLetterMuls[insertIdx-1]
 		insertIdx--
 	}
 	gen.descendingEffLetterMuls[insertIdx] = effMul
 	gen.descendingCrossWordMuls[insertIdx] = uint16(wordMul<<8) | uint16(col&0xff)
+	gen.descendingLetterMuls[insertIdx] = uint8(letterMul)
 	gen.numUnrestrictedMuls++
+}
+
+// maybeRecalculateEffectiveMultipliers recalculates effective letter multipliers
+// when the word multiplier has changed since they were last computed.
+// This is needed because effective_mul = letter_mul * word_mul * crossword_mul,
+// and word_mul accumulates as we traverse the row.
+func (gen *GordonGenerator) maybeRecalculateEffectiveMultipliers() {
+	if gen.lastWordMultiplier == gen.shadowWordMultiplier {
+		return
+	}
+	gen.lastWordMultiplier = gen.shadowWordMultiplier
+
+	// Recalculate and re-sort effective letter multipliers
+	// We need to recalculate based on the current shadowWordMultiplier
+	for i := 0; i < gen.numUnrestrictedMuls; i++ {
+		letterMul := int(gen.descendingLetterMuls[i])
+		crossWordMul := int(gen.descendingCrossWordMuls[i] >> 8)
+		newEffMul := uint16(letterMul*gen.shadowWordMultiplier + crossWordMul)
+		gen.descendingEffLetterMuls[i] = newEffMul
+	}
+
+	// Re-sort in descending order (insertion sort for small arrays)
+	for i := 1; i < gen.numUnrestrictedMuls; i++ {
+		key := gen.descendingEffLetterMuls[i]
+		keyCW := gen.descendingCrossWordMuls[i]
+		keyLM := gen.descendingLetterMuls[i]
+		j := i - 1
+		for j >= 0 && gen.descendingEffLetterMuls[j] < key {
+			gen.descendingEffLetterMuls[j+1] = gen.descendingEffLetterMuls[j]
+			gen.descendingCrossWordMuls[j+1] = gen.descendingCrossWordMuls[j]
+			gen.descendingLetterMuls[j+1] = gen.descendingLetterMuls[j]
+			j--
+		}
+		gen.descendingEffLetterMuls[j+1] = key
+		gen.descendingCrossWordMuls[j+1] = keyCW
+		gen.descendingLetterMuls[j+1] = keyLM
+	}
 }
 
 // removeTileFromDescending removes a tile score from the descending array
@@ -572,4 +636,36 @@ func (gen *GordonGenerator) recordScoringPlaysFromAnchors(rack *tilemapping.Rack
 	if gen.board.IsTransposed() {
 		gen.board.Transpose()
 	}
+}
+
+// computeBestLeaves computes the maximum leave value for each leave size (0-7).
+// This is used for shadow equity upper bounds. We need an upper bound on leave
+// equity to ensure shadow pruning doesn't incorrectly eliminate good moves.
+// This uses the same enumeration pattern as exchange generation.
+func (gen *GordonGenerator) computeBestLeaves(rack *tilemapping.Rack) {
+	// Initialize to very negative values
+	for i := range gen.bestLeaves {
+		gen.bestLeaves[i] = -math.MaxFloat64
+	}
+
+	// Find a leave calculator among the equity calculators
+	var leaveCalc equity.Leaves
+	for _, calc := range gen.equityCalculators {
+		if lc, ok := calc.(equity.Leaves); ok {
+			leaveCalc = lc
+			break
+		}
+	}
+
+	// If no leave calculator, leave values are 0
+	if leaveCalc == nil {
+		for i := range gen.bestLeaves {
+			gen.bestLeaves[i] = 0
+		}
+		return
+	}
+
+	// Enumerate all possible leaves (same pattern as exchange generation)
+	// and track best leave value for each leave size
+	gen.computeBestLeavesFromExchanges(rack, leaveCalc, 0)
 }

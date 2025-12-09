@@ -815,7 +815,7 @@ func BenchmarkGenEmptyBoardWithShadow(b *testing.B) {
 func BenchmarkGenFullRack(b *testing.B) {
 	is := is.New(b)
 
-	gd, err := GaddagFromLexicon("America")
+	gd, err := GaddagFromLexicon("NWL23")
 	is.NoErr(err)
 	alph := gd.GetAlphabet()
 	b.ResetTimer()
@@ -838,7 +838,7 @@ func BenchmarkGenFullRack(b *testing.B) {
 func BenchmarkGenFullRackWithShadow(b *testing.B) {
 	is := is.New(b)
 
-	gd, err := GaddagFromLexicon("America")
+	gd, err := GaddagFromLexicon("NWL23")
 	is.NoErr(err)
 	alph := gd.GetAlphabet()
 	b.ResetTimer()
@@ -954,7 +954,7 @@ func BenchmarkBoardPositionGenFullRackAll(b *testing.B) {
 func BenchmarkJustMovegen(b *testing.B) {
 	is := is.New(b)
 
-	gd, err := GaddagFromLexicon("America")
+	gd, err := GaddagFromLexicon("NWL23")
 	is.NoErr(err)
 	alph := gd.GetAlphabet()
 	bd := board.MakeBoard(board.CrosswordGameBoard)
@@ -973,6 +973,28 @@ func BenchmarkJustMovegen(b *testing.B) {
 
 		// 9517	    117747 ns/op	       0 B/op	       0 allocs/op
 		generator.GenAll(rack, true)
+	}
+}
+
+func BenchmarkJustMovegenWithShadow(b *testing.B) {
+	is := is.New(b)
+
+	gd, err := GaddagFromLexicon("NWL23")
+	is.NoErr(err)
+	alph := gd.GetAlphabet()
+	bd := board.MakeBoard(board.CrosswordGameBoard)
+	ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.WGLConfig())
+	is.NoErr(err)
+	generator := NewGordonGenerator(gd, bd, ld)
+	generator.SetTopPlayOnlyRecorder()
+	generator.SetShadowEnabled(true)
+	bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
+	cross_set.GenAllCrossSets(bd, gd, ld)
+	b.ReportAllocs()
+	b.ResetTimer()
+	rack := tilemapping.RackFromString("AABDELT", alph)
+	for i := 0; i < b.N; i++ {
+		generator.GenAll(rack, false)
 	}
 }
 
@@ -1077,7 +1099,7 @@ func TestGenExchange(t *testing.T) {
 func BenchmarkTopPlayOnly(b *testing.B) {
 	is := is.New(b)
 
-	gd, err := GaddagFromLexicon("America")
+	gd, err := GaddagFromLexicon("NWL23")
 	is.NoErr(err)
 	alph := gd.GetAlphabet()
 
@@ -1100,7 +1122,7 @@ func BenchmarkTopPlayOnly(b *testing.B) {
 func BenchmarkTopPlayOnlyWithShadow(b *testing.B) {
 	is := is.New(b)
 
-	gd, err := GaddagFromLexicon("America")
+	gd, err := GaddagFromLexicon("NWL23")
 	is.NoErr(err)
 	alph := gd.GetAlphabet()
 
