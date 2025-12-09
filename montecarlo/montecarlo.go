@@ -527,7 +527,7 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 	// use an errgroup here and listen for a ctx done outside this loop, but
 	// in another goroutine.
 	// protect the simmed play statistics with a mutex.
-	logger.Debug().Msgf("Simulating with %v threads", s.threads)
+	logger.Info().Msgf("Simulating with %v threads", s.threads)
 	syncExitChan := make(chan bool, s.threads)
 
 	logChan := make(chan []byte)
