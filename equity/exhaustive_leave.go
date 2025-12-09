@@ -55,6 +55,15 @@ func (els ExhaustiveLeaveCalculator) Equity(play *move.Move, board *board.GameBo
 	return float64(play.Score())
 }
 
+func (els ExhaustiveLeaveCalculator) EquityWithLeave(play *move.Move, board *board.GameBoard,
+	bag *tilemapping.Bag, oppRack *tilemapping.Rack, leaveValue float64) float64 {
+
+	if bag.TilesRemaining() > 0 {
+		return float64(play.Score()) + leaveValue
+	}
+	return float64(play.Score())
+}
+
 // Type returns the type of the equity calculator.
 func (els ExhaustiveLeaveCalculator) Type() string {
 	return "ExhaustiveLeaveCalculator"

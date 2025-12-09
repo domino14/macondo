@@ -17,6 +17,12 @@ func NewNoLeaveCalculator() *NoLeaveCalculator {
 
 func (nls *NoLeaveCalculator) Equity(play *move.Move, board *board.GameBoard,
 	bag *tilemapping.Bag, oppRack *tilemapping.Rack) float64 {
+	return nls.EquityWithLeave(play, board, bag, oppRack, 0)
+}
+
+func (nls *NoLeaveCalculator) EquityWithLeave(play *move.Move, board *board.GameBoard,
+	bag *tilemapping.Bag, oppRack *tilemapping.Rack, leaveValue float64) float64 {
+	// NoLeaveCalculator ignores the leave value
 	score := play.Score()
 	otherAdjustments := 0.0
 

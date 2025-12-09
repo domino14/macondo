@@ -245,7 +245,7 @@ func (s *Solver) Init(m movegen.MoveGenerator, game *game.Game) error {
 	s.threads = max(1, runtime.NumCPU())
 	if s.stmMovegen != nil {
 		s.stmMovegen.SetGenPass(true)
-		s.stmMovegen.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
+		s.stmMovegen.SetPlayRecorder(movegen.PlayRecorderSmallMove)
 	}
 
 	return nil
@@ -346,7 +346,7 @@ func (s *Solver) makeGameCopies() error {
 		mg := movegen.NewGordonGenerator(gaddag, s.gameCopies[i].Board(), s.gameCopies[i].Bag().LetterDistribution())
 		mg.SetSortingParameter(movegen.SortByNone)
 		mg.SetGenPass(true)
-		mg.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
+		mg.SetPlayRecorder(movegen.PlayRecorderSmallMove)
 		s.movegens = append(s.movegens, mg)
 	}
 	return nil

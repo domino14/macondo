@@ -14,6 +14,10 @@ type EquityCalculator interface {
 	// leave calculations, any pre-endgame timing heuristics, and more.
 	Equity(play *move.Move, board *board.GameBoard, bag *tilemapping.Bag,
 		oppRack *tilemapping.Rack) float64
+	// EquityWithLeave is like Equity but uses a pre-computed leave value
+	// instead of looking it up. This enables O(1) leave lookups via LeaveMap.
+	EquityWithLeave(play *move.Move, board *board.GameBoard, bag *tilemapping.Bag,
+		oppRack *tilemapping.Rack, leaveValue float64) float64
 	Type() string
 }
 

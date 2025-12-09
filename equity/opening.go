@@ -20,6 +20,12 @@ func (oac OpeningAdjustmentCalculator) Equity(play *move.Move, board *board.Game
 	return placementAdjustment(play, board, bag.LetterDistribution())
 }
 
+func (oac OpeningAdjustmentCalculator) EquityWithLeave(play *move.Move, board *board.GameBoard,
+	bag *tilemapping.Bag, oppRack *tilemapping.Rack, leaveValue float64) float64 {
+	// OpeningAdjustmentCalculator doesn't use leave value
+	return oac.Equity(play, board, bag, oppRack)
+}
+
 func (oac OpeningAdjustmentCalculator) Type() string {
 	return "OpeningAdjustmentCalculator"
 }

@@ -468,7 +468,7 @@ func TestSmallMoveRecorder(t *testing.T) {
 	generator := NewGordonGenerator(gd, bd, ld)
 	bd.SetToGame(gd.GetAlphabet(), board.VsJeremy)
 	cross_set.GenAllCrossSets(bd, gd, ld)
-	generator.SetPlayRecorder(AllPlaysSmallRecorder)
+	generator.SetPlayRecorder(PlayRecorderSmallMove)
 	rack := tilemapping.RackFromString("DDESW??", alph)
 	generator.GenAll(rack, false)
 	// If I do DDESW? in quackle i generate 1483 moves. My movegen generates
@@ -517,7 +517,7 @@ func TestTopPlayOnlyRecorder(t *testing.T) {
 	generator := NewGordonGenerator(gd, g.Board(), ld)
 	generator.SetGame(g.Game)
 	g.RecalculateBoard()
-	generator.SetPlayRecorder(TopPlayOnlyRecorder)
+	generator.SetPlayRecorder(PlayRecorderTopPlayOnly)
 	elc, err := equity.NewExhaustiveLeaveCalculator("America", DefaultConfig, "")
 	is.NoErr(err)
 	generator.SetEquityCalculators([]equity.EquityCalculator{
@@ -623,7 +623,7 @@ func TestGiantTwentySevenTimerWithShadow(t *testing.T) {
 	}
 
 	// First run without shadow to see what the best play is
-	generator.SetPlayRecorder(TopPlayOnlyRecorder)
+	generator.SetPlayRecorder(PlayRecorderTopPlayOnly)
 	plays := generator.GenAll(tilemapping.RackFromString("ABEOPXZ", alph), false)
 	row, col, vertical := plays[0].CoordsAndVertical()
 	t.Logf("Without shadow - Top play: score=%d, tiles=%s, coords=(%d,%d,%v)",
@@ -724,27 +724,6 @@ func TestRowEquivalent(t *testing.T) {
 	cross_set.GenAllCrossSets(bd2, gd, ld)
 
 	assert.True(t, bd.Equals(bd2))
-}
-
-func TestAtLeastOneTileMove(t *testing.T) {
-	is := is.New(t)
-
-	gd, err := GaddagFromLexicon("America")
-	is.NoErr(err)
-	alph := gd.GetAlphabet()
-	bd := board.MakeBoard(board.CrosswordGameBoard)
-	ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.WGLConfig())
-	is.NoErr(err)
-	generator := NewGordonGenerator(gd, bd, ld)
-	bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
-	cross_set.GenAllCrossSets(bd, gd, ld)
-
-	rack := tilemapping.RackFromString("AABDELT", alph)
-
-	is.True(generator.AtLeastOneTileMove(rack))
-	rackQ := tilemapping.RackFromString("Q", alph)
-	is.True(!generator.AtLeastOneTileMove(rackQ))
-
 }
 
 func TestMaxTileUsage(t *testing.T) {
@@ -911,7 +890,7 @@ func BenchmarkBoardPositionGenFullRackBest(b *testing.B) {
 	generator := NewGordonGenerator(gd, g.Board(), ld)
 	generator.SetGame(g.Game)
 	g.RecalculateBoard()
-	generator.SetPlayRecorder(TopPlayOnlyRecorder)
+	generator.SetPlayRecorder(PlayRecorderTopPlayOnly)
 	elc, err := equity.NewExhaustiveLeaveCalculator("CSW07", DefaultConfig, "")
 	is.NoErr(err)
 	generator.SetEquityCalculators([]equity.EquityCalculator{
@@ -961,7 +940,7 @@ func BenchmarkJustMovegen(b *testing.B) {
 	ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.WGLConfig())
 	is.NoErr(err)
 	generator := NewGordonGenerator(gd, bd, ld)
-	generator.SetPlayRecorder(TopPlayOnlyRecorder)
+	generator.SetPlayRecorder(PlayRecorderTopPlayOnly)
 	bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
 	cross_set.GenAllCrossSets(bd, gd, ld)
 	b.ReportAllocs()
@@ -995,30 +974,6 @@ func BenchmarkJustMovegenWithShadow(b *testing.B) {
 	rack := tilemapping.RackFromString("AABDELT", alph)
 	for i := 0; i < b.N; i++ {
 		generator.GenAll(rack, false)
-	}
-}
-
-func BenchmarkAtLeastOneTileMove(b *testing.B) {
-	is := is.New(b)
-
-	gd, err := GaddagFromLexicon("America")
-	is.NoErr(err)
-	alph := gd.GetAlphabet()
-	bd := board.MakeBoard(board.CrosswordGameBoard)
-	ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.WGLConfig())
-	is.NoErr(err)
-	generator := NewGordonGenerator(gd, bd, ld)
-	bd.SetToGame(gd.GetAlphabet(), board.VsMatt)
-	cross_set.GenAllCrossSets(bd, gd, ld)
-	b.ReportAllocs()
-	b.ResetTimer()
-	rack := tilemapping.RackFromString("AABDELT", alph)
-	for i := 0; i < b.N; i++ {
-		// themonolith
-		// go 1.20
-
-		// 2416358	       485.4 ns/op	      16 B/op	       1 allocs/op
-		generator.AtLeastOneTileMove(rack)
 	}
 }
 
@@ -1075,7 +1030,7 @@ func BenchmarkGenBothBlanksSmallPlayRecorder(b *testing.B) {
 		ld, err := tilemapping.EnglishLetterDistribution(DefaultConfig.WGLConfig())
 		is.NoErr(err)
 		generator := NewGordonGenerator(gd, bd, ld)
-		generator.SetPlayRecorder(AllPlaysSmallRecorder)
+		generator.SetPlayRecorder(PlayRecorderSmallMove)
 		bd.SetToGame(gd.GetAlphabet(), board.VsJeremy)
 		cross_set.GenAllCrossSets(bd, gd, ld)
 
@@ -1109,7 +1064,7 @@ func BenchmarkTopPlayOnly(b *testing.B) {
 	generator := NewGordonGenerator(gd, bd, ld)
 	bd.SetToGame(gd.GetAlphabet(), board.VsOxy)
 	cross_set.GenAllCrossSets(bd, gd, ld)
-	generator.SetPlayRecorder(TopPlayOnlyRecorder)
+	generator.SetPlayRecorder(PlayRecorderTopPlayOnly)
 
 	rack := tilemapping.RackFromString("ABEOPXZ", alph)
 	b.ReportAllocs()

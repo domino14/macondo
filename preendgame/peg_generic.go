@@ -407,7 +407,7 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 		})
 	}
 
-	mg.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
+	mg.SetPlayRecorder(movegen.PlayRecorderSmallMove)
 	mg.SetShadowEnabled(false)
 
 	// now recursively solve endgames and stuff.
