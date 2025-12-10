@@ -243,6 +243,8 @@ type GordonGenerator struct {
 	leaveMapBaseIndices  [64]int      // Base bit index for each MachineLetter
 	leaveMapEnabled      bool         // True when LeaveMap is initialized and usable
 	leaveMapReversedBits [7]int       // Maps bit position to reversed bit for complement indexing
+	leaveMapRackCopy     tilemapping.Rack            // Pre-allocated rack for enumeration (avoid alloc)
+	leaveMapLeave        [7]tilemapping.MachineLetter // Pre-allocated leave slice for enumeration
 }
 
 // NewGordonGenerator returns a Gordon move generator.

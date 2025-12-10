@@ -75,8 +75,8 @@ func (gen *GordonGenerator) initLeaveMap(rack *tilemapping.Rack, leaveCalc equit
 // populateLeaveValues fills the leaveMapValues array with leave values
 // for all possible subsets of the rack.
 func (gen *GordonGenerator) populateLeaveValues(rack *tilemapping.Rack, leaveCalc equity.Leaves) {
-	// Make a copy of the rack for enumeration
-	rackCopy := rack.Copy()
+	// Copy rack into pre-allocated struct to avoid allocation
+	gen.leaveMapRackCopy.CopyFrom(rack)
 
 	// Start with complement index = 0 (keeping nothing = full leave = all tiles played)
 	// We'll enumerate what we KEEP and store the value for that leave
@@ -90,17 +90,17 @@ func (gen *GordonGenerator) populateLeaveValues(rack *tilemapping.Rack, leaveCal
 	// The leave value for keeping nothing (index 0) is the value of the empty leave
 	gen.leaveMapValues[0] = 0
 
-	// Enumerate all possible "kept" subsets recursively
-	leave := make(tilemapping.MachineWord, 0, 7)
-	gen.enumerateLeavesForMap(rackCopy, leaveCalc, 0, leave)
+	// Enumerate all possible "kept" subsets recursively using pre-allocated leave array
+	gen.enumerateLeavesForMap(&gen.leaveMapRackCopy, leaveCalc, 0, 0)
 }
 
 // enumerateLeavesForMap recursively enumerates all possible leaves and stores their values.
 // Uses complement indexing: we iterate over what we KEEP.
-func (gen *GordonGenerator) enumerateLeavesForMap(rack *tilemapping.Rack, leaveCalc equity.Leaves, startML tilemapping.MachineLetter, leave tilemapping.MachineWord) {
+// leaveLen is the current length of the leave stored in gen.leaveMapLeave.
+func (gen *GordonGenerator) enumerateLeavesForMap(rack *tilemapping.Rack, leaveCalc equity.Leaves, startML tilemapping.MachineLetter, leaveLen int) {
 	// Record the current leave value at the current complement index
-	if len(leave) > 0 {
-		value := leaveCalc.LeaveValue(leave)
+	if leaveLen > 0 {
+		value := leaveCalc.LeaveValue(gen.leaveMapLeave[:leaveLen])
 		gen.leaveMapValues[gen.leaveMapIndex] = value
 	}
 
@@ -120,16 +120,13 @@ func (gen *GordonGenerator) enumerateLeavesForMap(rack *tilemapping.Rack, leaveC
 				gen.leaveMapIndex |= reversedBit
 			}
 
-			// Add to leave
-			leave = append(leave, ml)
+			// Add to leave (using pre-allocated array)
+			gen.leaveMapLeave[leaveLen] = ml
 
 			// Recurse
-			gen.enumerateLeavesForMap(rack, leaveCalc, ml, leave)
+			gen.enumerateLeavesForMap(rack, leaveCalc, ml, leaveLen+1)
 
-			// Backtrack
-			leave = leave[:len(leave)-1]
-
-			// Clear the bit
+			// Clear the bit (backtrack)
 			if bitIdx < 7 {
 				reversedBit := gen.leaveMapReversedBits[bitIdx]
 				gen.leaveMapIndex &^= reversedBit
