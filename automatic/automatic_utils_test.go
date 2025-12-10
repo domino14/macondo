@@ -93,7 +93,7 @@ func BenchmarkPlayFull(b *testing.B) {
 	// 87	  12813797 ns/op	    4971 B/op	     140 allocs/op
 	runner := NewGameRunner(nil, DefaultConfig)
 	for i := 0; i < b.N; i++ {
-		runner.playFull(false, i)
+		runner.playFull(false, i, [32]byte{})
 	}
 }
 
@@ -108,7 +108,7 @@ func TestCompVCompSeries(t *testing.T) {
 		[]AutomaticRunnerPlayer{
 			{"", "", macondo.BotRequest_HASTY_BOT, 0, false},
 			{"", "", macondo.BotRequest_NO_LEAVE_BOT, 0, false},
-		}, false)
+		}, false, nil)
 
 	is.NoErr(err)
 

@@ -33,6 +33,13 @@ func init() {
 	IsPlaying = expvar.NewInt("isPlaying")
 }
 
+// DeterministicConfig holds configuration for deterministic autoplay runs
+type DeterministicConfig struct {
+	Seeds    [][32]byte // Pre-generated seeds (nil = generate new)
+	SeedFile string     // File to read/write seeds
+	NumGames int        // Number of games (used when generating seeds)
+}
+
 // CompVsCompStatic plays out a game to the end using best static turns.
 func (r *GameRunner) CompVsCompStatic(addToHistory bool) error {
 	err := r.Init(
@@ -44,7 +51,7 @@ func (r *GameRunner) CompVsCompStatic(addToHistory bool) error {
 	if err != nil {
 		return err
 	}
-	err = r.playFull(addToHistory, 0)
+	err = r.playFull(addToHistory, 0, [32]byte{})
 	if err != nil {
 		return err
 	}
@@ -53,8 +60,8 @@ func (r *GameRunner) CompVsCompStatic(addToHistory bool) error {
 	return nil
 }
 
-func (r *GameRunner) playFull(addToHistory bool, gidx int) error {
-	r.StartGame(gidx)
+func (r *GameRunner) playFull(addToHistory bool, gidx int, seed [32]byte) error {
+	r.StartGameWithSeed(gidx, seed)
 	log.Trace().Msgf("playing full, game %v", r.game.History().Uid)
 
 	for r.game.Playing() == pb.PlayState_PLAYING {
@@ -110,15 +117,42 @@ func playerNames(players []AutomaticRunnerPlayer) []string {
 	return names
 }
 
-type Job struct{ gidx int }
+type Job struct {
+	gidx int
+	seed [32]byte
+}
 
 func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	numGames int, block bool, threads int,
 	outputFilename, lexicon, letterDistribution string,
-	players []AutomaticRunnerPlayer, verifyShadow bool) error {
+	players []AutomaticRunnerPlayer, verifyShadow bool, detConfig *DeterministicConfig) error {
 
 	if len(players) != 2 {
 		return errors.New("must have two players")
+	}
+
+	// Handle deterministic mode
+	var seeds [][32]byte
+	if detConfig != nil {
+		if len(detConfig.Seeds) > 0 {
+			// Use provided seeds
+			seeds = detConfig.Seeds
+			if len(seeds) < numGames {
+				return fmt.Errorf("not enough seeds: have %d, need %d", len(seeds), numGames)
+			}
+		} else if detConfig.SeedFile != "" {
+			// Generate new seeds and save
+			var err error
+			seeds, err = GenerateSeeds(numGames)
+			if err != nil {
+				return fmt.Errorf("failed to generate seeds: %w", err)
+			}
+			err = SaveSeeds(seeds, detConfig.SeedFile)
+			if err != nil {
+				return fmt.Errorf("failed to save seeds: %w", err)
+			}
+			log.Info().Msgf("Generated and saved %d seeds to %s", numGames, detConfig.SeedFile)
+		}
 	}
 
 	if threads > 1 && lo.SomeBy(players, func(p AutomaticRunnerPlayer) bool {
@@ -190,7 +224,7 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 			IsPlaying.Add(1)
 			defer IsPlaying.Add(-1)
 			for j := range jobs {
-				err = r.playFull(addToHistory, j.gidx)
+				err = r.playFull(addToHistory, j.gidx, j.seed)
 				if err != nil {
 					log.Err(err).Int("job", j.gidx).Msg("error-playFull")
 					return err
@@ -208,7 +242,15 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	gameLoop:
 		for queuingJobs {
 			select {
-			case jobs <- Job{i}:
+			case jobs <- Job{
+				gidx: i,
+				seed: func() [32]byte {
+					if seeds != nil && i < len(seeds) {
+						return seeds[i]
+					}
+					return [32]byte{}
+				}(),
+			}:
 				if i%1000 == 0 {
 					log.Info().Msgf("Queued %v jobs", i)
 				}

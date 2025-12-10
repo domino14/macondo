@@ -101,3 +101,40 @@ func TestStochasticTurn(t *testing.T) {
 	is.True(plays[" 8D JIHAD"] > 5500 && plays[" 8D JIHAD"] < 6500)
 	is.True(plays[" 8D HADJI"] > 3500 && plays[" 8D HADJI"] < 4500)
 }
+
+func TestBagSeeding(t *testing.T) {
+	is := is.New(t)
+
+	// Create two games with the same seed
+	seed1 := [32]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+		17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32}
+
+	runner1 := NewGameRunner(nil, DefaultConfig)
+	runner1.StartGameWithSeed(0, seed1)
+
+	runner2 := NewGameRunner(nil, DefaultConfig)
+	runner2.StartGameWithSeed(0, seed1)
+
+	// They should have identical racks
+	rack1 := runner1.game.RackLettersFor(0)
+	rack2 := runner2.game.RackLettersFor(0)
+	t.Logf("Runner1 P0: %s, Runner2 P0: %s", rack1, rack2)
+	is.Equal(rack1, rack2)
+
+	rack1 = runner1.game.RackLettersFor(1)
+	rack2 = runner2.game.RackLettersFor(1)
+	t.Logf("Runner1 P1: %s, Runner2 P1: %s", rack1, rack2)
+	is.Equal(rack1, rack2)
+
+	// Create a game with a different seed
+	seed2 := [32]byte{32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17,
+		16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1}
+
+	runner3 := NewGameRunner(nil, DefaultConfig)
+	runner3.StartGameWithSeed(0, seed2)
+
+	// It should have different racks
+	rack3 := runner3.game.RackLettersFor(0)
+	t.Logf("Runner3 P0: %s (should differ from %s)", rack3, rack1)
+	is.True(rack1 != rack3)
+}

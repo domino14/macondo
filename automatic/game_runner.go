@@ -127,6 +127,10 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 }
 
 func (r *GameRunner) StartGame(gidx int) {
+	r.StartGameWithSeed(gidx, [32]byte{})
+}
+
+func (r *GameRunner) StartGameWithSeed(gidx int, seed [32]byte) {
 	// r.order must be {0, 1} if gidx is even, and {1, 0} if odd
 	flip := false
 	if gidx%2 == 1 {
@@ -144,7 +148,16 @@ func (r *GameRunner) StartGame(gidx int) {
 		r.aiplayers[0], r.aiplayers[1] = r.aiplayers[1], r.aiplayers[0]
 		r.order[0], r.order[1] = r.order[1], r.order[0]
 	}
+	// Seed before starting if seed is non-zero
+	var zeroSeed [32]byte
+	if seed != zeroSeed {
+		r.game.SeedBag(seed)
+	}
 	r.game.StartGame()
+	// Set deterministic game ID if seeded
+	if seed != zeroSeed {
+		r.game.SetUidFromSeed(seed)
+	}
 	r.aiplayers[0].SetLastMoves(nil)
 	r.aiplayers[1].SetLastMoves(nil)
 	if r.aiplayers[0].GetBotType() == pb.BotRequest_FAST_ML_BOT ||

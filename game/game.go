@@ -3,6 +3,7 @@
 package game
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
+	"lukechampine.com/frand"
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
@@ -48,6 +50,7 @@ type Game struct {
 	board              *board.GameBoard
 	letterDistribution *tilemapping.LetterDistribution
 	bag                *tilemapping.Bag
+	customRNG          *frand.RNG // for deterministic bag draws
 
 	playing pb.PlayState
 
@@ -325,7 +328,16 @@ func (g *Game) RenamePlayer(idx int, playerinfo *pb.PlayerInfo) error {
 // StartGame starts a game anew, dealing out tiles to both players.
 func (g *Game) StartGame() {
 	g.Board().Clear()
-	g.bag = g.letterDistribution.MakeBag()
+	if g.customRNG != nil {
+		// When using a custom RNG, create bag without initial shuffle
+		// to avoid using the unseeded global RNG
+		g.bag = tilemapping.NewBag(g.letterDistribution, g.alph)
+		g.bag.SetRNG(g.customRNG)
+		g.bag.Shuffle()
+	} else {
+		// Normal path: MakeBag creates and shuffles with global RNG
+		g.bag = g.letterDistribution.MakeBag()
+	}
 	g.history = newHistory(g.players)
 	// Deal out tiles
 	for i := 0; i < g.NumPlayers(); i++ {
@@ -352,6 +364,19 @@ func (g *Game) StartGame() {
 	g.lastScorelessTurns = 0
 	g.onturn = 0
 	g.lastWordsFormed = nil
+}
+
+// SeedBag sets up a seeded RNG for deterministic tile draws.
+// This should be called before StartGame() to ensure the bag is seeded when created.
+func (g *Game) SeedBag(seed [32]byte) {
+	// Create a seeded RNG and store it
+	g.customRNG = frand.NewCustom(seed[:], 0, 0)
+}
+
+// SetUidFromSeed sets the game UID based on the seed for deterministic identification.
+// Format: "seed:<base64_encoded_seed>"
+func (g *Game) SetUidFromSeed(seed [32]byte) {
+	g.history.Uid = "seed:" + base64.RawStdEncoding.EncodeToString(seed[:])
 }
 
 func (g *Game) SetCrossSetGen(gen cross_set.Generator) {
