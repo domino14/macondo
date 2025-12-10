@@ -21,6 +21,12 @@ func (eac EndgameAdjustmentCalculator) Equity(play *move.Move, board *board.Game
 	return endgameAdjustment(play, oppRack, bag.LetterDistribution())
 }
 
+func (eac EndgameAdjustmentCalculator) EquityWithLeave(play *move.Move, board *board.GameBoard,
+	bag *tilemapping.Bag, oppRack *tilemapping.Rack, leaveValue float64) float64 {
+	// EndgameAdjustmentCalculator doesn't use leave value
+	return eac.Equity(play, board, bag, oppRack)
+}
+
 // Type returns the type of the equity calculator.
 func (eac EndgameAdjustmentCalculator) Type() string {
 	return "EndgameAdjustmentCalculator"

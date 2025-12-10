@@ -295,13 +295,27 @@ func traverseBackwards(b *Board, row int, col int,
 	return nodeIdx, true
 }
 
-// GenCrossSet generates a cross-set for each individual square.
+// GenCrossSet generates a cross-set and extension sets for each individual square.
+// Extension sets (leftx/rightx) indicate which letters can extend plays in each direction.
+// These are used for shadow-based move generation to enable early pruning.
 func GenCrossSet(b *Board, row int, col int, dir board.BoardDirection,
-	gaddag gaddag.WordGraph, ld *tilemapping.LetterDistribution) {
+	gd gaddag.WordGraph, ld *tilemapping.LetterDistribution) {
 
 	if row < 0 || row >= b.Dim() || col < 0 || col >= b.Dim() {
 		return
 	}
+
+	// Extension sets are stored for the SAME direction as the cross-set direction.
+	// When we're generating cross-sets for direction D, we're looking at words
+	// perpendicular to D. But the extension sets should tell us what letters
+	// can extend plays in direction D (NOT the perpendicular direction).
+	// This is because extension sets are used during movegen in direction D.
+	//
+	// For horizontal plays (stored in hLeftExtSets), we need extension sets
+	// computed from the horizontal word structure, which happens when we
+	// process with dir=Horizontal.
+	throughDir := dir
+
 	// If the square has a letter in it, its cross set and cross score
 	// should both be 0
 	if b.HasLetter(row, col) {
@@ -314,72 +328,133 @@ func GenCrossSet(b *Board, row int, col int, dir board.BoardDirection,
 	if b.LeftAndRightEmpty(row, col) {
 		b.SetCrossSet(row, col, board.TrivialCrossSet, dir)
 		b.SetCrossScore(row, col, 0, dir)
-
 		return
 	}
+
 	// If we are here, there is a letter to the left, to the right, or both.
-	// start from the right and go backwards.
+	// Find the word edges.
+	leftCol := b.WordEdge(row, col-1, Left)
 	rightCol := b.WordEdge(row, col+1, Right)
-	if rightCol == col {
-		// This means the right was always empty; we only want to go left.
+	nonemptyToLeft := leftCol < col
+	nonemptyToRight := rightCol > col
+
+	// Track extension sets for leftside and rightside tiles
+	var leftsideLeftxSet, leftsideRightxSet uint64
+	var rightsideLeftxSet, rightsideRightxSet uint64
+	var backHookSet, frontHookSet uint64
+	var leftPathValid, rightPathValid bool
+
+	if nonemptyToLeft {
+		// Traverse the left side tiles to get the node index
 		lNodeIdx, lPathValid := traverseBackwards(b, row, col-1,
-			gaddag.GetRootNodeIndex(), false, 0, gaddag)
+			gd.GetRootNodeIndex(), false, 0, gd)
+		leftPathValid = lPathValid
+
+		if lPathValid {
+			// Get the extension sets from this node
+			_, leftsideLeftxSet = gaddag.GetLetterAndExtensionSets(gd, lNodeIdx)
+
+			// Get the back hook set (letters that can go after the left-side word)
+			// by following the separation token
+			sIdx := gd.NextNodeIdx(lNodeIdx, 0)
+			if sIdx != 0 {
+				backHookSet, leftsideRightxSet = gaddag.GetLetterAndExtensionSets(gd, sIdx)
+			}
+		}
+
+		// Set extension sets on the rightmost tile of the left-side word (col-1)
+		b.SetLeftExtSetWithBlank(row, col-1, throughDir, leftsideLeftxSet)
+		b.SetRightExtSetWithBlank(row, col-1, throughDir, leftsideRightxSet)
+
+		// Also set the leftx on the empty square to the left of the left-side tiles
+		// This helps move gen avoid dead ends
+		if leftCol > 0 {
+			b.SetLeftExtSetWithBlank(row, leftCol-1, throughDir, leftsideLeftxSet)
+		}
+	}
+
+	if nonemptyToRight {
+		// Traverse the right side tiles to get the node index
+		rNodeIdx, rPathValid := traverseBackwards(b, row, rightCol,
+			gd.GetRootNodeIndex(), false, 0, gd)
+		rightPathValid = rPathValid
+
+		if rPathValid {
+			// Get the front hook set (letters that can go before the right-side word)
+			frontHookSet, rightsideLeftxSet = gaddag.GetLetterAndExtensionSets(gd, rNodeIdx)
+
+			// Get rightside rightx by following the separation token
+			sIdx := gd.NextNodeIdx(rNodeIdx, 0)
+			if sIdx != 0 {
+				_, rightsideRightxSet = gaddag.GetLetterAndExtensionSets(gd, sIdx)
+			}
+		}
+
+		// Set extension sets on the leftmost tile of the right-side word (rightCol)
+		b.SetLeftExtSetWithBlank(row, rightCol, throughDir, rightsideLeftxSet)
+		b.SetRightExtSetWithBlank(row, rightCol, throughDir, rightsideRightxSet)
+
+		// Set the leftx on this empty square (for rightside tiles)
+		b.SetLeftExtSetWithBlank(row, col, throughDir, rightsideLeftxSet)
+	}
+
+	// Now compute the cross-set for this empty square
+	// Use pre-computed hook sets where possible (optimization from Magpie)
+	if !nonemptyToRight {
+		// Only tiles to the left - use backHookSet directly
 		score := b.TraverseBackwardsForScore(row, col-1, ld)
 		b.SetCrossScore(row, col, score, dir)
 
-		if !lPathValid {
-			// There are no further extensions to the word on the board,
-			// which may also be a phony.
+		if !leftPathValid {
 			b.SetCrossSet(row, col, 0, dir)
 			return
 		}
-		// Otherwise, we have a left node index.
-		sIdx := gaddag.NextNodeIdx(lNodeIdx, 0)
-		// Take the letter set of this sIdx as the cross-set.
-		letterSet := gaddag.GetLetterSet(sIdx)
-		// Miraculously, letter sets and cross sets are compatible.
-		b.SetCrossSet(row, col, CrossSet(letterSet), dir)
-	} else {
+		// backHookSet was already computed above when we traversed the left side
+		b.SetCrossSet(row, col, CrossSet(backHookSet), dir)
+	} else if !nonemptyToLeft {
+		// Only tiles to the right - use frontHookSet directly
+		scoreR := b.TraverseBackwardsForScore(row, rightCol, ld)
+		b.SetCrossScore(row, col, scoreR, dir)
 
-		// Otherwise, the right is not empty. Check if the left is empty,
-		// if so we just traverse right, otherwise, we try every letter.
-		leftCol := b.WordEdge(row, col-1, Left)
-		// Start at the right col and work back to this square.
-		lNodeIdx, lPathValid := traverseBackwards(b, row, rightCol,
-			gaddag.GetRootNodeIndex(), false, 0, gaddag)
+		if !rightPathValid {
+			b.SetCrossSet(row, col, 0, dir)
+			return
+		}
+		// frontHookSet was already computed above when we traversed the right side
+		b.SetCrossSet(row, col, CrossSet(frontHookSet), dir)
+	} else {
+		// Tiles on both sides - need to find letters that connect them
 		scoreR := b.TraverseBackwardsForScore(row, rightCol, ld)
 		scoreL := b.TraverseBackwardsForScore(row, col-1, ld)
 		b.SetCrossScore(row, col, scoreR+scoreL, dir)
-		if !lPathValid {
+
+		if !rightPathValid {
 			b.SetCrossSet(row, col, 0, dir)
 			return
 		}
-		if leftCol == col {
-			// The left is empty, but the right isn't.
-			// The cross-set is just the letter set of the letter directly
-			// to our right.
 
-			letterSet := gaddag.GetLetterSet(lNodeIdx)
-			b.SetCrossSet(row, col, CrossSet(letterSet), dir)
-		} else {
-			// Both the left and the right have a tile. Go through the
-			// siblings, from the right, to see what nodes lead to the left.
+		// Start from the right and try each letter that could connect
+		// We need to re-traverse to get the node index for iteration
+		rNodeIdx, _ := traverseBackwards(b, row, rightCol,
+			gd.GetRootNodeIndex(), false, 0, gd)
 
-			b.SetCrossSet(row, col, 0, dir)
-			for i := lNodeIdx; ; i++ {
-				t := gaddag.Tile(i)
-				if t != 0 {
-					nn := gaddag.ArcIndex(i)
-					_, success := traverseBackwards(b, row, col-1, nn, true, leftCol, gaddag)
+		b.SetCrossSet(row, col, 0, dir)
+		for i := rNodeIdx; ; i++ {
+			t := gd.Tile(i)
+			if t != 0 {
+				// Only try letters that are possible in right extensions
+				// from the left side (optimization from Magpie)
+				if leftsideRightxSet == 0 || (leftsideRightxSet&(uint64(1)<<t)) != 0 {
+					nn := gd.ArcIndex(i)
+					_, success := traverseBackwards(b, row, col-1, nn, true, leftCol, gd)
 					if success {
 						b.SetCrossSetLetter(row, col, dir, tilemapping.MachineLetter(t))
 					}
 				}
-				if gaddag.IsEnd(i) {
-					break
-				}
 			}
-
+			if gd.IsEnd(i) {
+				break
+			}
 		}
 	}
 }

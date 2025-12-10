@@ -10,8 +10,9 @@ import (
 // GenBestStaticTurn is a useful utility function for sims and autoplaying.
 func GenBestStaticTurn(g *game.Game, p AITurnPlayer, playerIdx int) *move.Move {
 
-	mg := p.MoveGenerator()
-	mg.SetPlayRecorder(movegen.TopPlayOnlyRecorder)
+	mg := p.MoveGenerator().(*movegen.GordonGenerator)
+	mg.SetTopPlayOnlyRecorder()
+	mg.SetShadowEnabled(true)
 	// the equity calculators for its movegen should already have been set if this
 	// AITurnPlayer was initialized properly.
 	// mg.(*movegen.GordonGenerator).SetGame(g)

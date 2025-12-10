@@ -59,7 +59,7 @@ func setUpSolver(lex, distName string, bvs board.VsWho, plies int, rack1, rack2 
 
 	dist := rules.LetterDistribution()
 	gen := movegen.NewGordonGenerator(gd, g.Board(), dist)
-	gen.SetPlayRecorder(movegen.AllPlaysRecorder)
+	gen.SetPlayRecorder(movegen.PlayRecorderAllPlays)
 	alph := g.Alphabet()
 
 	tilesInPlay := g.Board().SetToGame(alph, bvs)

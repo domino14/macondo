@@ -55,9 +55,22 @@ func (csc CombinedStaticCalculator) Equity(play *move.Move, board *board.GameBoa
 	bag *tilemapping.Bag, oppRack *tilemapping.Rack) float64 {
 
 	leave := play.Leave()
-	score := play.Score()
-
 	leaveAdjustment := 0.0
+	if bag.TilesRemaining() > 0 {
+		leaveAdjustment = csc.leaveValues.LeaveValue(leave)
+	}
+	return csc.equityWithLeaveInternal(play, board, bag, oppRack, leaveAdjustment)
+}
+
+func (csc CombinedStaticCalculator) EquityWithLeave(play *move.Move, board *board.GameBoard,
+	bag *tilemapping.Bag, oppRack *tilemapping.Rack, leaveValue float64) float64 {
+	return csc.equityWithLeaveInternal(play, board, bag, oppRack, leaveValue)
+}
+
+func (csc CombinedStaticCalculator) equityWithLeaveInternal(play *move.Move, board *board.GameBoard,
+	bag *tilemapping.Bag, oppRack *tilemapping.Rack, leaveAdjustment float64) float64 {
+
+	score := play.Score()
 	otherAdjustments := 0.0
 
 	if board.IsEmpty() {
@@ -65,7 +78,6 @@ func (csc CombinedStaticCalculator) Equity(play *move.Move, board *board.GameBoa
 	}
 
 	if bag.TilesRemaining() > 0 {
-		leaveAdjustment = csc.leaveValues.LeaveValue(leave)
 		bagPlusSeven := bag.TilesRemaining() - play.TilesPlayed() + 7
 		if bagPlusSeven < len(csc.preEndgameAdjustmentValues) {
 			preEndgameAdjustment := csc.preEndgameAdjustmentValues[bagPlusSeven]

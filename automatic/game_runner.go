@@ -6,6 +6,8 @@ package automatic
 import (
 	"context"
 	"fmt"
+	"math"
+	"sync/atomic"
 	"time"
 
 	"github.com/domino14/word-golib/kwg"
@@ -39,6 +41,11 @@ type GameRunner struct {
 	gamechan           chan string
 	aiplayers          [2]aiturnplayer.AITurnPlayer
 	order              [2]int
+
+	// Shadow verification
+	verifyShadow     bool
+	divergenceCount  int64 // atomic counter
+	totalTurnsPlayed int64 // atomic counter
 }
 
 // NewGameRunner just instantiates and initializes a game runner.
@@ -187,6 +194,11 @@ func (r *GameRunner) PlayBestTurn(playerIdx int, addToHistory bool) error {
 	log.Debug().Int("playerIdx", playerIdx).
 		Str("bestPlay", bestPlay.ShortDescription()).Msg("play-best-turn")
 
+	// Verify shadow algorithm if enabled (before playing the move)
+	if r.verifyShadow && r.aiplayers[playerIdx].GetBotType() == pb.BotRequest_HASTY_BOT {
+		r.verifyShadowEquity(playerIdx, bestPlay)
+	}
+
 	// save rackLetters for logging.
 	rackLetters := r.game.RackLettersFor(playerIdx)
 	tilesRemaining := r.game.Bag().TilesRemaining()
@@ -215,4 +227,59 @@ func (r *GameRunner) PlayBestTurn(playerIdx int, addToHistory bool) error {
 			r.game.PointsFor((playerIdx+1)%2))
 	}
 	return nil
+}
+
+// SetVerifyShadow enables shadow move generation verification.
+func (r *GameRunner) SetVerifyShadow(verify bool) {
+	r.verifyShadow = verify
+}
+
+// DivergenceCount returns the number of turns where shadow diverged.
+func (r *GameRunner) DivergenceCount() int64 {
+	return atomic.LoadInt64(&r.divergenceCount)
+}
+
+// TotalTurnsPlayed returns the total number of turns verified.
+func (r *GameRunner) TotalTurnsPlayed() int64 {
+	return atomic.LoadInt64(&r.totalTurnsPlayed)
+}
+
+// verifyShadowEquity verifies that shadow movegen produces the same top equity
+// as non-shadow movegen. Since shadow is now enabled by default, this function
+// disables shadow to compare against the normal (shadow-enabled) play.
+func (r *GameRunner) verifyShadowEquity(playerIdx int, shadowPlay *move.Move) {
+	atomic.AddInt64(&r.totalTurnsPlayed, 1)
+
+	mg := r.aiplayers[playerIdx].MoveGenerator().(*movegen.GordonGenerator)
+	rack := r.game.RackFor(playerIdx)
+	oppRack := r.game.RackFor(1 - playerIdx)
+	unseen := int(oppRack.NumTiles()) + r.game.Bag().TilesRemaining()
+	exchAllowed := unseen-game.RackTileLimit >= r.game.ExchangeLimit()
+
+	// Run with shadow DISABLED for verification (normal play used shadow)
+	mg.SetShadowEnabled(false)
+	mg.SetTopPlayOnlyRecorder()
+	mg.SetMaxCanExchange(game.MaxCanExchange(unseen-game.RackTileLimit, r.game.ExchangeLimit()))
+	mg.GenAll(rack, exchAllowed)
+
+	nonShadowPlay := mg.Plays()[0]
+	nonShadowEquity := nonShadowPlay.Equity()
+	shadowEquity := shadowPlay.Equity()
+
+	// Re-enable shadow for next turn
+	mg.SetShadowEnabled(true)
+
+	// Compare equities with small epsilon for float comparison
+	if math.Abs(shadowEquity-nonShadowEquity) > 0.001 {
+		atomic.AddInt64(&r.divergenceCount, 1)
+		log.Warn().
+			Float64("shadowEquity", shadowEquity).
+			Float64("nonShadowEquity", nonShadowEquity).
+			Str("shadowPlay", shadowPlay.ShortDescription()).
+			Str("nonShadowPlay", nonShadowPlay.ShortDescription()).
+			Str("rack", rack.String()).
+			Int("turn", r.game.Turn()).
+			Str("gameID", r.game.Uid()).
+			Msg("shadow-divergence")
+	}
 }

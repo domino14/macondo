@@ -115,7 +115,7 @@ type Job struct{ gidx int }
 func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	numGames int, block bool, threads int,
 	outputFilename, lexicon, letterDistribution string,
-	players []AutomaticRunnerPlayer) error {
+	players []AutomaticRunnerPlayer, verifyShadow bool) error {
 
 	if len(players) != 2 {
 		return errors.New("must have two players")
@@ -145,6 +145,9 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	}
 
 	log.Info().Msgf("Starting %v games, %v threads", numGames, threads)
+	if verifyShadow {
+		log.Info().Msg("Shadow verification enabled")
+	}
 
 	CVCCounter.Set(0)
 	jobs := make(chan Job, threads*5)
@@ -152,6 +155,10 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	gameChan := make(chan string, 10)
 	var wg sync.WaitGroup
 	// var fwg sync.WaitGroup
+
+	// Track all runners for divergence aggregation
+	runners := make([]*GameRunner, threads)
+	var runnersMu sync.Mutex
 
 	g, ctx := errgroup.WithContext(ctx)
 	addToHistory := false
@@ -166,13 +173,19 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 		i := i
 		g.Go(func() error {
 			defer wg.Done()
-			r := GameRunner{logchan: logChan, gamechan: gameChan,
+			r := &GameRunner{logchan: logChan, gamechan: gameChan,
 				config: cfg, lexicon: lexicon, letterDistribution: letterDistribution}
 			err := r.Init(players)
 			if err != nil {
 				log.Err(err).Msg("error initializing runner")
 				return err
 			}
+			r.SetVerifyShadow(verifyShadow)
+
+			// Store runner for later aggregation
+			runnersMu.Lock()
+			runners[i-1] = r
+			runnersMu.Unlock()
 
 			IsPlaying.Add(1)
 			defer IsPlaying.Add(-1)
@@ -221,6 +234,26 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 		close(logChan)
 		close(gameChan)
 		log.Info().Msg("Exiting feeder subroutine!")
+
+		// Report shadow verification results if enabled
+		if verifyShadow {
+			var totalDivergences, totalTurns int64
+			for _, r := range runners {
+				if r != nil {
+					totalDivergences += r.DivergenceCount()
+					totalTurns += r.TotalTurnsPlayed()
+				}
+			}
+			if totalTurns > 0 {
+				pct := float64(totalDivergences) / float64(totalTurns) * 100
+				log.Info().
+					Int64("divergences", totalDivergences).
+					Int64("totalTurns", totalTurns).
+					Float64("divergencePct", pct).
+					Msg("Shadow verification complete")
+			}
+		}
+
 		return ctx.Err()
 	})
 

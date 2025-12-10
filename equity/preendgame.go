@@ -51,3 +51,9 @@ func (pac PreEndgameAdjustmentCalculator) Equity(play *move.Move, board *board.G
 
 	return preEndgameAdjustment
 }
+
+func (pac PreEndgameAdjustmentCalculator) EquityWithLeave(play *move.Move, board *board.GameBoard,
+	bag *tilemapping.Bag, oppRack *tilemapping.Rack, leaveValue float64) float64 {
+	// PreEndgameAdjustmentCalculator doesn't use leave value
+	return pac.Equity(play, board, bag, oppRack)
+}

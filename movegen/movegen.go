@@ -32,6 +32,69 @@ const (
 	SortByNone
 )
 
+// MaxAnchorCount is the maximum number of anchors we can track.
+// For a 15x15 board this is overkill, but supports 21x21 super boards.
+const MaxAnchorCount = 21 * 21
+
+// Anchor stores shadow generation result for one anchor square.
+// Used for prioritizing move generation by maximum possible equity.
+type Anchor struct {
+	HighestPossibleEquity float64
+	HighestPossibleScore  int16
+	Row                   uint8
+	Col                   uint8
+	LastAnchorCol         int8 // -1 means no previous anchor
+	Vertical              bool
+}
+
+// heapifyAnchors converts gen.anchors[:gen.anchorCount] into a max-heap
+// ordered by HighestPossibleEquity. This is an in-place operation with no allocations.
+func (gen *GordonGenerator) heapifyAnchors() {
+	n := gen.anchorCount
+	// Build heap (heapify)
+	for i := n/2 - 1; i >= 0; i-- {
+		gen.siftDown(i, n)
+	}
+}
+
+// popAnchor removes and returns the anchor with highest equity.
+// Returns a zero Anchor if the heap is empty.
+func (gen *GordonGenerator) popAnchor() Anchor {
+	if gen.anchorCount == 0 {
+		return Anchor{}
+	}
+	// Get the max (root)
+	a := gen.anchors[0]
+	gen.anchorCount--
+	if gen.anchorCount > 0 {
+		// Move last element to root and sift down
+		gen.anchors[0] = gen.anchors[gen.anchorCount]
+		gen.siftDown(0, gen.anchorCount)
+	}
+	return a
+}
+
+// siftDown maintains the max-heap property by sifting element at index i down.
+func (gen *GordonGenerator) siftDown(i, n int) {
+	for {
+		largest := i
+		left := 2*i + 1
+		right := 2*i + 2
+
+		if left < n && gen.anchors[left].HighestPossibleEquity > gen.anchors[largest].HighestPossibleEquity {
+			largest = left
+		}
+		if right < n && gen.anchors[right].HighestPossibleEquity > gen.anchors[largest].HighestPossibleEquity {
+			largest = right
+		}
+		if largest == i {
+			break
+		}
+		gen.anchors[i], gen.anchors[largest] = gen.anchors[largest], gen.anchors[i]
+		i = largest
+	}
+}
+
 // MoveGenerator is a generic interface for generating moves.
 type MoveGenerator interface {
 	GenAll(rack *tilemapping.Rack, addExchange bool) []*move.Move
@@ -39,32 +102,21 @@ type MoveGenerator interface {
 	SetSortingParameter(s SortBy)
 	Plays() []*move.Move
 	SmallPlays() []tinymove.SmallMove
-	SetPlayRecorder(pf PlayRecorderFunc)
+	SetPlayRecorder(pf PlayRecorderType)
 	SetEquityCalculators([]equity.EquityCalculator)
-	AtLeastOneTileMove(rack *tilemapping.Rack) bool
 	SetMaxTileUsage(int)
 	SetGenPass(bool)
 }
 
-// type moveHeap []*move.Move
+type PlayRecorderType int
 
-// func (m moveHeap) Len() int { return len(m) }
-
-// func (m moveHeap) Less(i, j int) bool { return m[i].Equity() < m[j].Equity() }
-
-// func (m moveHeap) Swap(i, j int) { m[i], m[j] = m[j], m[i] }
-
-// func (m *moveHeap) Push(x interface{}) {
-// 	*m = append(*m, x.(*move.Move))
-// }
-
-// func (m *moveHeap) Pop() interface{} {
-// 	old := *m
-// 	n := len(old)
-// 	x := old[n-1]
-// 	*m = old[0 : n-1]
-// 	return x
-// }
+const (
+	PlayRecorderAllPlays PlayRecorderType = iota
+	PlayRecorderSmallMove
+	PlayRecorderTopPlayOnly
+	PlayRecorderTopN
+	PlayRecorderCustom // for user-supplied recorder
+)
 
 // GordonGenerator is the main move generation struct. It implements
 // Steven A. Gordon's algorithm from his paper "A faster Scrabble Move Generation
@@ -100,6 +152,7 @@ type GordonGenerator struct {
 	leavestrip    []tilemapping.MachineLetter
 
 	playRecorder      PlayRecorderFunc
+	playRecorderType  PlayRecorderType
 	equityCalculators []equity.EquityCalculator
 
 	// used for play recorder:
@@ -115,6 +168,84 @@ type GordonGenerator struct {
 	// For top N only:
 	topNPlays       []*move.Move
 	maxTopMovesSize int
+
+	// Shadow generation state
+	shadowEnabled bool
+	anchors       [MaxAnchorCount]Anchor
+	anchorCount   int
+
+	// Current anchor extension sets (copied per-anchor)
+	anchorLeftExtSet  uint64
+	anchorRightExtSet uint64
+
+	// Rack cross-set (bitmask of letters in rack)
+	rackCrossSet uint64
+
+	// Descending tile scores for shadow (max rack size = 7)
+	descendingTileScores   [7]int
+	fullRackDescTileScores [7]int // Copy for restoration
+	descTileScoresCopy     [7]int // For shadowPlayRight restoration
+
+	// Unrestricted multipliers tracking
+	// Stores effective letter multiplier and cross-word multiplier info
+	descendingEffLetterMuls [7]uint16
+	descendingCrossWordMuls [7]uint16 // Packed: (crossWordMul << 8) | column
+	descendingLetterMuls    [7]uint8  // Original letter multipliers for recalculation
+	numUnrestrictedMuls     int
+	lastWordMultiplier      int
+
+	// Copies for restoration after shadowPlayRight
+	descEffLetterMulsCopy [7]uint16
+	descCrossWordMulsCopy [7]uint16
+	descLetterMulsCopy    [7]uint8
+
+	// Shadow scoring accumulators (reset per anchor)
+	shadowMainwordRestrictedScore int
+	shadowPerpAdditionalScore     int
+	shadowWordMultiplier          int
+
+	// Shadow result tracking (reset per anchor)
+	highestShadowEquity  float64
+	highestShadowScore   int
+	shadowTilesPlayed    int
+	maxShadowTilesPlayed int // Maximum shadowTilesPlayed reached during exploration (before backtracking)
+
+	// Position tracking for shadow
+	currentLeftCol  int
+	currentRightCol int
+
+	// Rack copy for shadow restoration
+	shadowRackCopy   tilemapping.Rack // Value type, not pointer
+	rackCrossSetCopy uint64
+
+	// Number of letters on rack (cached)
+	numLettersOnRack int
+
+	// Tile scores lookup (indexed by MachineLetter)
+	// Pre-populated from LetterDistribution. Blanked letters have 0 score.
+	tileScores [64]int
+
+	// Best leave values for shadow equity calculation.
+	// Index is leave size (0-7), value is max leave value for any leave of that size.
+	// This gives us an upper bound on leave equity for shadow pruning.
+	bestLeaves [8]float64
+
+	// For computing bestLeaves during exchange generation
+	computeBestLeavesInExchange bool
+	leaveCalcForExchange        equity.Leaves
+
+	// LeaveMap for O(1) leave value lookups (Magpie-style optimization)
+	// The leave_values array is indexed by a bit pattern where each bit
+	// represents whether a specific tile instance is still on the rack.
+	// For a rack like AEINRST (7 unique tiles), we have 7 bits = 128 possible indices.
+	// For a rack like AAEINST (2 A's), A gets 2 bits, so still 7 bits total.
+	leaveMapValues       [128]float64 // Cached leave values for all 2^n subsets
+	leaveMapIndex        int          // Current bit index (bits set = tiles on rack)
+	leaveMapBaseIndices  [64]int      // Base bit index for each MachineLetter
+	leaveMapEnabled      bool         // True when LeaveMap is initialized and usable
+	leaveMapReversedBits [7]int       // Maps bit position to reversed bit for complement indexing
+	leaveMapRackCopy     tilemapping.Rack            // Pre-allocated rack for enumeration (avoid alloc)
+	leaveMapLeave        [7]tilemapping.MachineLetter // Pre-allocated leave slice for enumeration
 }
 
 // NewGordonGenerator returns a Gordon move generator.
@@ -136,6 +267,13 @@ func NewGordonGenerator(gd gaddag.WordGraph, board *board.GameBoard,
 		maxTileUsage:       100, // basically unlimited
 		maxCanExchange:     game.DefaultExchangeLimit,
 	}
+
+	// Pre-populate tile scores lookup (once at creation)
+	for ml := 0; ml < int(ld.TileMapping().NumLetters()); ml++ {
+		gen.tileScores[ml] = ld.Score(tilemapping.MachineLetter(ml))
+		// Blanked versions (ml | BlankMask) will have score 0, already zero-initialized
+	}
+
 	return gen
 }
 
@@ -150,13 +288,33 @@ func (gen *GordonGenerator) SetSortingParameter(s SortBy) {
 	gen.sortingParameter = s
 }
 
-func (gen *GordonGenerator) SetPlayRecorder(pr PlayRecorderFunc) {
-	gen.playRecorder = pr
+// SetPlayRecorder sets the play recorder type and assigns the corresponding function.
+func (gen *GordonGenerator) SetPlayRecorder(recType PlayRecorderType) {
+	gen.playRecorderType = recType
 	gen.maxTopMovesSize = 0
+	switch recType {
+	case PlayRecorderAllPlays:
+		gen.playRecorder = AllPlaysRecorder
+	case PlayRecorderSmallMove:
+		gen.playRecorder = AllPlaysSmallRecorder
+	case PlayRecorderTopPlayOnly:
+		gen.playRecorder = TopPlayOnlyRecorder
+	case PlayRecorderTopN:
+		gen.playRecorder = TopNPlayRecorder
+	default:
+		gen.playRecorder = AllPlaysRecorder // fallback
+	}
+}
+
+// SetTopPlayOnlyRecorder sets the recorder to TopPlayOnlyRecorder and marks
+// that we're in top-play mode (eligible for shadow optimization).
+
+func (gen *GordonGenerator) SetTopPlayOnlyRecorder() {
+	gen.SetPlayRecorder(PlayRecorderTopPlayOnly)
 }
 
 func (gen *GordonGenerator) SetRecordNTopPlays(n int) {
-	gen.playRecorder = TopNPlayRecorder
+	gen.SetPlayRecorder(PlayRecorderTopN)
 	gen.maxTopMovesSize = n
 	gen.topNPlays = make([]*move.Move, n)
 	for i := range gen.topNPlays {
@@ -168,6 +326,17 @@ func (gen *GordonGenerator) SetRecordNTopPlays(n int) {
 
 func (gen *GordonGenerator) SetEquityCalculators(calcs []equity.EquityCalculator) {
 	gen.equityCalculators = calcs
+}
+
+// SetShadowEnabled enables or disables shadow-based move generation.
+// When enabled and using TopPlayOnly or TopN recorder, anchors will be
+// prioritized by maximum possible equity for early pruning.
+func (gen *GordonGenerator) SetShadowEnabled(enabled bool) {
+	gen.shadowEnabled = enabled
+}
+
+func (gen *GordonGenerator) ShadowEnabled() bool {
+	return gen.shadowEnabled
 }
 
 func (gen *GordonGenerator) SetGame(g *game.Game) {
@@ -185,7 +354,6 @@ func (gen *GordonGenerator) SetMaxTileUsage(t int) {
 // GenAll generates all moves on the board. It assumes anchors have already
 // been updated, as well as cross-sets / cross-scores.
 func (gen *GordonGenerator) GenAll(rack *tilemapping.Rack, addExchange bool) []*move.Move {
-
 	gen.winner.SetEmpty()
 	gen.quitEarly = false
 	gen.plays = gen.plays[:0]
@@ -194,18 +362,50 @@ func (gen *GordonGenerator) GenAll(rack *tilemapping.Rack, addExchange bool) []*
 		gen.topNPlays[i].SetEmpty()
 	}
 
-	// XXX: I shouldn't be doing this every time GenAll gets called. Only if actually
-	// using the SmallMove recorder. This causes a needless allocation per loop.
-	ptr := SmallPlaySlicePool.Get().(*[]tinymove.SmallMove)
-	gen.smallPlays = *ptr
-	gen.smallPlays = gen.smallPlays[0:0]
+	// Initialize LeaveMap for O(1) leave lookups if we have equity calculators
+	// with leave values. This is a Magpie-style optimization.
+	gen.leaveMapEnabled = false
+	if len(gen.equityCalculators) > 0 {
+		// Find a leave calculator from the equity calculators
+		for _, calc := range gen.equityCalculators {
+			if lc, ok := calc.(equity.Leaves); ok {
+				gen.initLeaveMap(rack, lc)
+				break
+			}
+		}
+	}
 
-	gen.vertical = false
-	gen.genByOrientation(rack, board.HorizontalDirection)
-	gen.board.Transpose()
-	gen.vertical = true
-	gen.genByOrientation(rack, board.VerticalDirection)
-	gen.board.Transpose()
+	// Only allocate SmallMove slice if using SmallMove recorder
+	var ptr *[]tinymove.SmallMove
+	if gen.playRecorderType == PlayRecorderSmallMove {
+		ptr = SmallPlaySlicePool.Get().(*[]tinymove.SmallMove)
+		gen.smallPlays = *ptr
+		gen.smallPlays = gen.smallPlays[0:0]
+	}
+
+	// Use shadow-based generation when enabled and in top-play mode.
+	useShadow := gen.shadowEnabled && (gen.playRecorderType == PlayRecorderTopPlayOnly || gen.playRecorderType == PlayRecorderTopN)
+
+	exchangesGenerated := false
+	if useShadow && addExchange {
+		// Generate exchanges FIRST (before shadow), computing bestLeaves in the same pass
+		gen.prepareForBestLeavesInExchange()
+		gen.generateExchangeMoves(rack, 0, 0)
+		gen.computeBestLeavesInExchange = false // Reset for safety
+		exchangesGenerated = true
+	}
+
+	if useShadow {
+		gen.genShadow(rack, exchangesGenerated)
+		gen.recordScoringPlaysFromAnchors(rack)
+	} else {
+		gen.vertical = false
+		gen.genByOrientation(rack, board.HorizontalDirection)
+		gen.board.Transpose()
+		gen.vertical = true
+		gen.genByOrientation(rack, board.VerticalDirection)
+		gen.board.Transpose()
+	}
 
 	// Only add a pass move if nothing else is possible. Note: in endgames,
 	// we can have strategic passes. Check genPass variable as well.
@@ -224,10 +424,13 @@ func (gen *GordonGenerator) GenAll(rack *tilemapping.Rack, addExchange bool) []*
 		}
 	}
 
-	if addExchange {
+	// Generate exchanges if not already done (non-shadow path)
+	if addExchange && !exchangesGenerated {
 		gen.generateExchangeMoves(rack, 0, 0)
 	}
-	*ptr = gen.smallPlays
+	if gen.playRecorderType == PlayRecorderSmallMove && ptr != nil {
+		*ptr = gen.smallPlays
+	}
 
 	if gen.maxTopMovesSize != 0 {
 		// We're in top-N mode. gen.plays is empty
@@ -246,34 +449,6 @@ func (gen *GordonGenerator) GenAll(rack *tilemapping.Rack, addExchange bool) []*
 	}
 
 	return gen.plays
-}
-
-// AtLeastOneTileMove generates moves. We don't care what they are; return true
-// if there is at least one move that plays tiles, false otherwise.
-func (gen *GordonGenerator) AtLeastOneTileMove(rack *tilemapping.Rack) bool {
-	pr := gen.playRecorder
-	gen.quitEarly = false
-	defer gen.SetPlayRecorder(pr)
-
-	gen.SetPlayRecorder(
-		func(MoveGenerator, *tilemapping.Rack, int, int, move.MoveType, int) {
-			gen.quitEarly = true
-		},
-	)
-
-	gen.plays = gen.plays[:0]
-	gen.vertical = false
-	gen.genByOrientation(rack, board.HorizontalDirection)
-
-	if gen.quitEarly {
-		return true
-	}
-	gen.board.Transpose()
-	gen.vertical = true
-	gen.genByOrientation(rack, board.VerticalDirection)
-	gen.board.Transpose()
-
-	return gen.quitEarly
 }
 
 func (gen *GordonGenerator) genByOrientation(rack *tilemapping.Rack, dir board.BoardDirection) {
@@ -350,6 +525,9 @@ func (gen *GordonGenerator) recursiveGen(col int, rack *tilemapping.Rack,
 				if rack.LetArr[ml] > 0 {
 					rack.Take(ml)
 					gen.tilesPlayed++
+					if gen.leaveMapEnabled {
+						gen.leaveMapTakeTile(ml, rack.LetArr[ml])
+					}
 					sml := gen.letterDistribution.Score(ml)
 					addlCrossScore := 0
 					if !emptyAdjacent {
@@ -365,12 +543,18 @@ func (gen *GordonGenerator) recursiveGen(col int, rack *tilemapping.Rack,
 						wordMultiplier*wm)
 
 					gen.tilesPlayed--
+					if gen.leaveMapEnabled {
+						gen.leaveMapReturnTile(ml, rack.LetArr[ml])
+					}
 					rack.Add(ml)
 				}
 				// check blank
 				if rack.LetArr[0] > 0 {
 					rack.Take(0)
 					gen.tilesPlayed++
+					if gen.leaveMapEnabled {
+						gen.leaveMapTakeTile(0, rack.LetArr[0])
+					}
 					// XXX: this won't work for non-zero-score blanks if
 					// that's ever a thing.
 					gen.goOn(col, ml.Blank(), rack, arcIdx, accepts, leftstrip, rightstrip, uniquePlay,
@@ -378,6 +562,9 @@ func (gen *GordonGenerator) recursiveGen(col int, rack *tilemapping.Rack,
 						crossScores+cs*wm,
 						wordMultiplier*wm)
 					gen.tilesPlayed--
+					if gen.leaveMapEnabled {
+						gen.leaveMapReturnTile(0, rack.LetArr[0])
+					}
 					rack.Add(0)
 				}
 			}
@@ -480,6 +667,19 @@ func (gen *GordonGenerator) crossDirection() board.BoardDirection {
 	return board.VerticalDirection
 }
 
+// Debug methods for testing
+func (gen *GordonGenerator) GenShadowDebug(rack *tilemapping.Rack) {
+	gen.genShadow(rack, false)
+}
+
+func (gen *GordonGenerator) AnchorCountDebug() int {
+	return gen.anchorCount
+}
+
+func (gen *GordonGenerator) GetAnchorDebug(i int) Anchor {
+	return gen.anchors[i]
+}
+
 func (gen *GordonGenerator) scoreMove(word tilemapping.MachineWord, row, col, tilesPlayed int) int {
 
 	return gen.board.ScoreWord(word, row, col, tilesPlayed, gen.crossDirection(), gen.letterDistribution)
@@ -508,15 +708,30 @@ func (gen *GordonGenerator) SmallPlays() []tinymove.SmallMove {
 	return gen.smallPlays
 }
 
-// zero-allocation generation of exchange moves without duplicates:
+// generateExchangeMoves generates exchange moves without duplicates (zero-allocation).
+// When computeBestLeavesInExchange is true, it also computes the best leave value
+// for each leave size in the same pass (like Magpie does).
 func (gen *GordonGenerator) generateExchangeMoves(rack *tilemapping.Rack, ml tilemapping.MachineLetter, stripidx int) {
-
 	// magic function written by @andy-k
 	for int(ml) < len(rack.LetArr) && rack.LetArr[ml] == 0 {
 		ml++
 	}
 	if int(ml) == len(rack.LetArr) {
+		// Record exchange move (the rack now contains the leave)
 		gen.playRecorder(gen, rack, 0, stripidx, move.MoveTypeExchange, 0)
+
+		// Also compute best leave value for this leave size if enabled
+		if gen.computeBestLeavesInExchange && gen.leaveCalcForExchange != nil {
+			leaveSize := int(rack.NumTiles())
+			if leaveSize < len(gen.bestLeaves) {
+				leaveLength := rack.NoAllocTilesOn(gen.leavestrip)
+				leave := tilemapping.MachineWord(gen.leavestrip[:leaveLength])
+				leaveValue := gen.leaveCalcForExchange.LeaveValue(leave)
+				if leaveValue > gen.bestLeaves[leaveSize] {
+					gen.bestLeaves[leaveSize] = leaveValue
+				}
+			}
+		}
 	} else {
 		gen.generateExchangeMoves(rack, ml+1, stripidx)
 		numthis := rack.LetArr[ml]
@@ -526,6 +741,72 @@ func (gen *GordonGenerator) generateExchangeMoves(rack *tilemapping.Rack, ml til
 			rack.Take(ml)
 			gen.generateExchangeMoves(rack, ml+1, stripidx)
 		}
+		for i := 0; i < numthis; i++ {
+			rack.Add(ml)
+		}
+	}
+}
+
+// prepareForBestLeavesInExchange sets up for computing bestLeaves during exchange generation.
+// This must be called before generateExchangeMoves when shadow is enabled.
+func (gen *GordonGenerator) prepareForBestLeavesInExchange() {
+	// Initialize bestLeaves to very negative values
+	for i := range gen.bestLeaves {
+		gen.bestLeaves[i] = -math.MaxFloat64
+	}
+
+	// Find a leave calculator among the equity calculators
+	gen.leaveCalcForExchange = nil
+	for _, calc := range gen.equityCalculators {
+		if lc, ok := calc.(equity.Leaves); ok {
+			gen.leaveCalcForExchange = lc
+			break
+		}
+	}
+
+	// If no leave calculator, set bestLeaves to 0 (no leave adjustment)
+	if gen.leaveCalcForExchange == nil {
+		for i := range gen.bestLeaves {
+			gen.bestLeaves[i] = 0
+		}
+		gen.computeBestLeavesInExchange = false
+	} else {
+		gen.computeBestLeavesInExchange = true
+	}
+}
+
+// computeBestLeavesFromExchanges enumerates all possible leaves (like exchange generation)
+// and tracks the best leave value for each leave size. This is used for shadow equity
+// upper bounds when exchanges are NOT allowed (so we can't piggyback on exchange generation).
+func (gen *GordonGenerator) computeBestLeavesFromExchanges(rack *tilemapping.Rack, leaveCalc equity.Leaves, ml tilemapping.MachineLetter) {
+	// Skip empty slots
+	for int(ml) < len(rack.LetArr) && rack.LetArr[ml] == 0 {
+		ml++
+	}
+
+	if int(ml) == len(rack.LetArr) {
+		// Compute leave value for current rack state (the leave)
+		leaveSize := int(rack.NumTiles())
+		if leaveSize < len(gen.bestLeaves) {
+			leaveLength := rack.NoAllocTilesOn(gen.leavestrip)
+			leave := tilemapping.MachineWord(gen.leavestrip[:leaveLength])
+			leaveValue := leaveCalc.LeaveValue(leave)
+			if leaveValue > gen.bestLeaves[leaveSize] {
+				gen.bestLeaves[leaveSize] = leaveValue
+			}
+		}
+	} else {
+		// Try keeping all copies of this tile (don't remove any)
+		gen.computeBestLeavesFromExchanges(rack, leaveCalc, ml+1)
+
+		// Try removing 1, 2, ... copies of this tile
+		numthis := rack.LetArr[ml]
+		for i := 0; i < numthis; i++ {
+			rack.Take(ml)
+			gen.computeBestLeavesFromExchanges(rack, leaveCalc, ml+1)
+		}
+
+		// Restore all copies
 		for i := 0; i < numthis; i++ {
 			rack.Add(ml)
 		}

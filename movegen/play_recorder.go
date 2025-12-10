@@ -186,9 +186,17 @@ func TopPlayOnlyRecorder(gen MoveGenerator, rack *tilemapping.Rack, leftstrip, r
 			row, col, tilesPlayed, gordonGen.vertical, move.MoveTypePlay,
 			gordonGen.letterDistribution.TileMapping())
 		if len(gordonGen.equityCalculators) > 0 {
-			eq = lo.SumBy(gordonGen.equityCalculators, func(c equity.EquityCalculator) float64 {
-				return c.Equity(gordonGen.placeholder, gordonGen.board, gordonGen.game.Bag(), gordonGen.game.RackFor(gordonGen.game.NextPlayer()))
-			})
+			// Use LeaveMap for O(1) leave lookup when available
+			if gordonGen.leaveMapEnabled {
+				leaveValue := gordonGen.leaveMapValue()
+				eq = lo.SumBy(gordonGen.equityCalculators, func(c equity.EquityCalculator) float64 {
+					return c.EquityWithLeave(gordonGen.placeholder, gordonGen.board, gordonGen.game.Bag(), gordonGen.game.RackFor(gordonGen.game.NextPlayer()), leaveValue)
+				})
+			} else {
+				eq = lo.SumBy(gordonGen.equityCalculators, func(c equity.EquityCalculator) float64 {
+					return c.Equity(gordonGen.placeholder, gordonGen.board, gordonGen.game.Bag(), gordonGen.game.RackFor(gordonGen.game.NextPlayer()))
+				})
+			}
 		} else {
 			eq = float64(score)
 		}
@@ -271,9 +279,17 @@ func TopNPlayRecorder(gen MoveGenerator, rack *tilemapping.Rack, leftstrip, righ
 			row, col, tilesPlayed, gordonGen.vertical, move.MoveTypePlay,
 			gordonGen.letterDistribution.TileMapping())
 		if len(gordonGen.equityCalculators) > 0 {
-			eq = lo.SumBy(gordonGen.equityCalculators, func(c equity.EquityCalculator) float64 {
-				return c.Equity(gordonGen.placeholder, gordonGen.board, gordonGen.game.Bag(), gordonGen.game.RackFor(gordonGen.game.NextPlayer()))
-			})
+			// Use LeaveMap for O(1) leave lookup when available
+			if gordonGen.leaveMapEnabled {
+				leaveValue := gordonGen.leaveMapValue()
+				eq = lo.SumBy(gordonGen.equityCalculators, func(c equity.EquityCalculator) float64 {
+					return c.EquityWithLeave(gordonGen.placeholder, gordonGen.board, gordonGen.game.Bag(), gordonGen.game.RackFor(gordonGen.game.NextPlayer()), leaveValue)
+				})
+			} else {
+				eq = lo.SumBy(gordonGen.equityCalculators, func(c equity.EquityCalculator) float64 {
+					return c.Equity(gordonGen.placeholder, gordonGen.board, gordonGen.game.Bag(), gordonGen.game.RackFor(gordonGen.game.NextPlayer()))
+				})
+			}
 		} else {
 			eq = float64(score)
 		}
