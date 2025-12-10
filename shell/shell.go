@@ -1322,8 +1322,9 @@ func (sc *ShellController) commitAIMove() error {
 
 func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) error {
 	var logfile, lexicon, letterDistribution, leavefile1, leavefile2, pegfile1, pegfile2 string
+	var seedfile string
 	var numgames, numthreads int
-	var block bool
+	var block, genseeds, deterministic bool
 	var botcode1, botcode2 pb.BotRequest_BotCode
 	var minsimplies1, minsimplies2 int
 	var stochastic1, stochastic2 bool
@@ -1378,6 +1379,9 @@ func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) err
 	stochastic1 = options.Bool("stochastic1")
 	stochastic2 = options.Bool("stochastic2")
 	block = options.Bool("block")
+	genseeds = options.Bool("genseeds")
+	deterministic = options.Bool("deterministic")
+	seedfile = options.String("seedfile")
 	if numthreads, err = options.IntDefault("threads", runtime.NumCPU()); err != nil {
 		return err
 	}
@@ -1404,6 +1408,46 @@ func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) err
 	}
 
 	sc.showMessage("automatic game runner will log to " + logfile)
+
+	// Handle deterministic mode
+	var detConfig *automatic.DeterministicConfig
+	if deterministic || genseeds || seedfile != "" {
+		detConfig = &automatic.DeterministicConfig{
+			SeedFile: seedfile,
+			NumGames: numgames,
+		}
+
+		if genseeds {
+			// Just generate seeds and exit
+			if seedfile == "" {
+				return errors.New("-genseeds requires -seedfile")
+			}
+			seeds, err := automatic.GenerateSeeds(numgames)
+			if err != nil {
+				return fmt.Errorf("failed to generate seeds: %w", err)
+			}
+			err = automatic.SaveSeeds(seeds, seedfile)
+			if err != nil {
+				return fmt.Errorf("failed to save seeds: %w", err)
+			}
+			sc.showMessage(fmt.Sprintf("Generated and saved %d seeds to %s", numgames, seedfile))
+			return nil
+		}
+
+		if deterministic {
+			// Load seeds from file for deterministic games
+			if seedfile == "" {
+				return errors.New("-deterministic requires -seedfile")
+			}
+			seeds, err := automatic.LoadSeeds(seedfile)
+			if err != nil {
+				return fmt.Errorf("failed to load seeds: %w", err)
+			}
+			detConfig.Seeds = seeds
+			sc.showMessage(fmt.Sprintf("Loaded %d seeds from %s for deterministic play", len(seeds), seedfile))
+		}
+	}
+
 	sc.gameRunnerCtx, sc.gameRunnerCancel = context.WithCancel(context.Background())
 	err = automatic.StartCompVCompStaticGames(
 		sc.gameRunnerCtx, sc.config, numgames, block, numthreads,
@@ -1419,7 +1463,7 @@ func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) err
 				BotCode:              botcode2,
 				MinSimPlies:          minsimplies2,
 				StochasticStaticEval: stochastic2},
-		})
+		}, detConfig)
 
 	if err != nil {
 		return err

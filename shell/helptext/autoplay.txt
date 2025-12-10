@@ -60,6 +60,39 @@ Options:
     if the bot is a simming bot.
     This is used for Monte Carlo simulations (`help sim` for more info).
 
+    -seedfile /path/to/seeds.txt
+    -genseeds
+    -deterministic
+
+    These options enable deterministic autoplay for comparing move sequences
+    across branches (e.g., master vs shadow-movegen).
+
+    -genseeds: Generates N random seeds (N = -numgames) and saves them to
+    the seed file, then exits without running games. Requires -seedfile.
+
+    -deterministic: Loads seeds from the seed file and uses them to create
+    deterministic games. Each game gets its assigned seed regardless of
+    thread execution order. Requires -seedfile.
+
+    Example workflow:
+        # On master branch - generate seeds
+        autoplay -numgames 1000 -genseeds -seedfile /tmp/seeds.txt
+
+        # On master branch - run with seeds
+        autoplay -numgames 1000 -deterministic -seedfile /tmp/seeds.txt \
+            -logfile /tmp/master.txt
+
+        # On shadow-movegen branch - run with same seeds
+        autoplay -numgames 1000 -deterministic -seedfile /tmp/seeds.txt \
+            -logfile /tmp/shadow.txt
+
+        # Compare results (sort by gameID and turn)
+        sort -t, -k2,2 -k3,3n /tmp/master.txt > /tmp/master_sorted.txt
+        sort -t, -k2,2 -k3,3n /tmp/shadow.txt > /tmp/shadow_sorted.txt
+        diff /tmp/master_sorted.txt /tmp/shadow_sorted.txt
+
+    Game IDs in deterministic mode have the format "seed:<base64_seed>".
+
 autoplay can be used to generate computer vs computer games for research
 purposes.
 

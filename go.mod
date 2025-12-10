@@ -115,3 +115,5 @@ require (
 	gorgonia.org/vecf32 v0.9.0 // indirect
 	gorgonia.org/vecf64 v0.9.0 // indirect
 )
+
+replace github.com/domino14/word-golib => /home/cesar/code/word-golib
