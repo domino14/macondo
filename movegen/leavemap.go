@@ -63,11 +63,16 @@ func (gen *GordonGenerator) initLeaveMap(rack *tilemapping.Rack, leaveCalc equit
 	}
 
 	// Set initial index (all bits set = full rack)
-	gen.leaveMapIndex = (1 << currentBase) - 1
+	fullRackIndex := (1 << currentBase) - 1
+	gen.leaveMapIndex = fullRackIndex
 
 	// Populate leave values by enumerating all subsets
 	// We use a recursive approach similar to Magpie's generate_exchange_moves
 	gen.populateLeaveValues(rack, leaveCalc)
+
+	// CRITICAL: Reset index to full rack after enumeration!
+	// populateLeaveValues modifies leaveMapIndex during recursion
+	gen.leaveMapIndex = fullRackIndex
 
 	gen.leaveMapEnabled = true
 }

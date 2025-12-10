@@ -205,9 +205,10 @@ type GordonGenerator struct {
 	shadowWordMultiplier          int
 
 	// Shadow result tracking (reset per anchor)
-	highestShadowEquity float64
-	highestShadowScore  int
-	shadowTilesPlayed   int
+	highestShadowEquity  float64
+	highestShadowScore   int
+	shadowTilesPlayed    int
+	maxShadowTilesPlayed int // Maximum shadowTilesPlayed reached during exploration (before backtracking)
 
 	// Position tracking for shadow
 	currentLeftCol  int

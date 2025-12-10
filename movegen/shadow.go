@@ -152,6 +152,7 @@ func (gen *GordonGenerator) shadowPlayForAnchor(rack *tilemapping.Rack, col int)
 	// Reset result tracking
 	gen.highestShadowEquity = 0
 	gen.highestShadowScore = 0
+	gen.maxShadowTilesPlayed = 0
 
 	// Save rack state
 	gen.shadowRackCopy = *rack
@@ -160,7 +161,9 @@ func (gen *GordonGenerator) shadowPlayForAnchor(rack *tilemapping.Rack, col int)
 	// Perform shadow
 	gen.shadowStart(rack)
 
-	if gen.shadowTilesPlayed == 0 {
+	// Check if any valid plays were found during shadow exploration.
+	// Note: shadowTilesPlayed may be 0 after backtracking, so check maxShadowTilesPlayed instead.
+	if gen.maxShadowTilesPlayed == 0 {
 		return // No valid plays possible from this anchor
 	}
 
@@ -183,6 +186,7 @@ func (gen *GordonGenerator) shadowPlayForAnchor(rack *tilemapping.Rack, col int)
 // shadowStart dispatches to playthrough or non-playthrough shadow
 func (gen *GordonGenerator) shadowStart(rack *tilemapping.Rack) {
 	currentLetter := gen.board.GetLetter(gen.curRowIdx, gen.currentLeftCol)
+
 	if currentLetter == 0 {
 		gen.shadowStartNonplaythrough(rack)
 	} else {
@@ -230,6 +234,7 @@ func (gen *GordonGenerator) shadowStartNonplaythrough(rack *tilemapping.Rack) {
 func (gen *GordonGenerator) shadowStartPlaythrough(rack *tilemapping.Rack, currentLetter tilemapping.MachineLetter) {
 	// Traverse existing tiles on board from right to left, accumulating scores
 	col := gen.curAnchorCol
+
 	for col >= 0 && gen.board.HasLetter(gen.curRowIdx, col) {
 		ml := gen.board.GetLetter(gen.curRowIdx, col)
 		score := gen.tileScores[ml.Unblank()]
@@ -312,6 +317,7 @@ func (gen *GordonGenerator) playthroughShadowPlayLeft(rack *tilemapping.Rack) {
 	for {
 		// First, try extending right from current position
 		possibleTilesRight := gen.anchorRightExtSet & gen.rackCrossSet
+
 		if possibleTilesRight != 0 {
 			gen.shadowPlayRight(rack)
 		}
@@ -403,9 +409,16 @@ func (gen *GordonGenerator) shadowPlayRight(rack *tilemapping.Rack) {
 
 		// For rightward extension, also check rightExtSet at anchor
 		possibleLetters := uint64(crossSet) & gen.rackCrossSet & leftExtSet
+		// Handle blanks: In Macondo, cross-sets don't include the blank bit (bit 0).
+		// If we have a blank, we can designate it as any letter in the crossSet.
+		hasBlank := (gen.rackCrossSet & 1) != 0
+		if hasBlank {
+			possibleLetters |= uint64(crossSet) & leftExtSet
+		}
 		if gen.shadowTilesPlayed == 0 {
 			possibleLetters &= gen.anchorRightExtSet
 		}
+
 		if possibleLetters == 0 {
 			break
 		}
@@ -480,11 +493,26 @@ func (gen *GordonGenerator) shadowRecord(rack *tilemapping.Rack) {
 	}
 	equity := float64(totalScore) + gen.bestLeaves[leaveSize]
 
+	// Add endgame adjustment for upper bound calculation
+	if gen.game != nil && gen.game.Bag().TilesRemaining() == 0 {
+		if leaveSize == 0 {
+			// Going out - add maximum possible endgame bonus (2 * opponent rack score)
+			oppRack := gen.game.RackFor(gen.game.NextPlayer())
+			if oppRack != nil {
+				endgameBonus := 2 * float64(oppRack.ScoreOn(gen.letterDistribution))
+				equity += endgameBonus
+			}
+		}
+	}
+
 	if equity > gen.highestShadowEquity {
 		gen.highestShadowEquity = equity
 	}
 	if totalScore > gen.highestShadowScore {
 		gen.highestShadowScore = totalScore
+	}
+	if gen.shadowTilesPlayed > gen.maxShadowTilesPlayed {
+		gen.maxShadowTilesPlayed = gen.shadowTilesPlayed
 	}
 }
 
