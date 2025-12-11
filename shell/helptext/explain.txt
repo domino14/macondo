@@ -1,6 +1,6 @@
 explain [options] - Generate AI explanation for the current position
 
-  Uses AI (Gemini or OpenAI) to provide detailed explanations of the best plays
+  Uses AI (Gemini, OpenAI, or DeepSeek) to provide detailed explanations of the best plays
   in the current position. The AI analyzes simulation results and provides
   insights about tile leaves, strategic considerations, and play selection.
 
@@ -28,8 +28,8 @@ explain [options] - Generate AI explanation for the current position
 
   Configuration:
   Use `setconfig` to configure AI settings:
-  - setconfig genai-provider gemini     (or openai)
-  - setconfig gemini-api-key <key>      (or openai-api-key)
-  - setconfig gemini-model <model>      (or openai-model)
+  - setconfig genai-provider gemini     (or openai, or deepseek)
+  - setconfig gemini-api-key <key>      (or openai-api-key, or deepseek-api-key)
+  - setconfig gemini-model <model>      (or openai-model, or deepseek-model)
 
   See `help setconfig` for more configuration options.

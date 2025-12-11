@@ -35,8 +35,10 @@ const (
 	ConfigGenaiProvider                    = "genai-provider"
 	ConfigGeminiModel                      = "gemini-model"
 	ConfigOpenaiModel                      = "openai-model"
+	ConfigDeepseekModel                    = "deepseek-model"
 	ConfigGeminiApiKey                     = "gemini-api-key"
 	ConfigOpenaiApiKey                     = "openai-api-key"
+	ConfigDeepseekApiKey                   = "deepseek-api-key"
 	ConfigAliases                          = "aliases"
 )
 
@@ -105,8 +107,10 @@ func (c *Config) Load(args []string) error {
 	c.BindEnv(ConfigGenaiProvider)
 	c.BindEnv(ConfigGeminiModel)
 	c.BindEnv(ConfigOpenaiModel)
+	c.BindEnv(ConfigDeepseekModel)
 	c.BindEnv(ConfigGeminiApiKey)
 	c.BindEnv(ConfigOpenaiApiKey)
+	c.BindEnv(ConfigDeepseekApiKey)
 
 	cfgdir, err := os.UserConfigDir()
 	if err != nil {
@@ -155,8 +159,10 @@ func (c *Config) Load(args []string) error {
 	c.SetDefault(ConfigGenaiProvider, "gemini")
 	c.SetDefault(ConfigGeminiModel, "gemini-2.5-flash")
 	c.SetDefault(ConfigOpenaiModel, "gpt-4.1")
+	c.SetDefault(ConfigDeepseekModel, "deepseek-chat")
 	c.SetDefault(ConfigGeminiApiKey, "")
 	c.SetDefault(ConfigOpenaiApiKey, "")
+	c.SetDefault(ConfigDeepseekApiKey, "")
 
 	return nil
 }
@@ -182,6 +188,39 @@ func (c *Config) AdjustRelativePaths(basepath string) {
 	absPath := toAbsPath(basepath, c.GetString(ConfigDataPath), "datapath")
 	log.Info().Str("absPath", absPath).Msg("setting absolute data path")
 	c.Set(ConfigDataPath, absPath)
+}
+
+// SanitizedSettings returns all settings with API keys elided for safe logging
+func (c *Config) SanitizedSettings() map[string]interface{} {
+	settings := c.AllSettings()
+	sanitized := make(map[string]interface{})
+
+	// Copy all settings
+	for k, v := range settings {
+		sanitized[k] = v
+	}
+
+	// Elide API keys
+	apiKeyFields := []string{
+		ConfigGeminiApiKey,
+		ConfigOpenaiApiKey,
+		ConfigDeepseekApiKey,
+	}
+
+	for _, field := range apiKeyFields {
+		if val, ok := sanitized[field]; ok {
+			if strVal, ok := val.(string); ok && strVal != "" {
+				// Show first 4 chars and elide the rest
+				if len(strVal) > 4 {
+					sanitized[field] = strVal[:4] + "..." + strVal[len(strVal)-4:]
+				} else {
+					sanitized[field] = "***"
+				}
+			}
+		}
+	}
+
+	return sanitized
 }
 
 func (c *Config) Write() error {

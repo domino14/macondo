@@ -24,7 +24,7 @@ func main() {
 
 	cfg := &config.Config{}
 	cfg.Load([]string{})
-	log.Info().Msgf("Loaded config: %v", cfg)
+	log.Info().Msgf("Loaded config: %v", cfg.SanitizedSettings())
 	cfg.AdjustRelativePaths(exPath)
 	cfg.Set("debug", false)
 
