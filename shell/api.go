@@ -1480,8 +1480,13 @@ func (sc *ShellController) autoAnalyze(cmd *shellcmd) (*Response, error) {
 	filename := cmd.args[0]
 	options := cmd.options
 	if options.String("export") != "" {
+		// Sanitize the gameID to make it filesystem-safe
+		// Replace characters that are problematic in filenames
+		safeGameID := strings.ReplaceAll(options.String("export"), ":", "-")
+		safeGameID = strings.ReplaceAll(safeGameID, "/", "_")
+		safeGameID = strings.ReplaceAll(safeGameID, "+", "-")
 
-		f, err := os.Create(options.String("export") + ".gcg")
+		f, err := os.Create(safeGameID + ".gcg")
 		if err != nil {
 			return nil, err
 		}
@@ -1498,7 +1503,7 @@ func (sc *ShellController) autoAnalyze(cmd *shellcmd) (*Response, error) {
 			sc.config, filename, ld, lex,
 			options.String("boardlayout"), options.String("export"), f)
 		if err != nil {
-			ferr := os.Remove(options.String("export") + ".gcg")
+			ferr := os.Remove(safeGameID + ".gcg")
 			if ferr != nil {
 				log.Err(ferr).Msg("removing gcg output file")
 			}
@@ -1508,7 +1513,7 @@ func (sc *ShellController) autoAnalyze(cmd *shellcmd) (*Response, error) {
 		if err != nil {
 			return nil, err
 		}
-		return msg("exported to " + options.String("export") + ".gcg"), nil
+		return msg("exported to " + safeGameID + ".gcg"), nil
 	}
 	analysis, err := automatic.AnalyzeLogFile(filename)
 	if err != nil {

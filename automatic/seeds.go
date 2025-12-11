@@ -33,14 +33,14 @@ func SaveSeeds(seeds [][32]byte, path string) error {
 	defer writer.Flush()
 
 	// Write header comment
-	_, err = writer.WriteString("# Deterministic game seeds (base64 encoded, 32 bytes each)\n")
+	_, err = writer.WriteString("# Deterministic game seeds (base64 URL-safe encoded, 32 bytes each)\n")
 	if err != nil {
 		return fmt.Errorf("failed to write header: %w", err)
 	}
 
-	// Write each seed
+	// Write each seed using URL-safe encoding (avoids / and + characters)
 	for i, seed := range seeds {
-		encoded := base64.RawStdEncoding.EncodeToString(seed[:])
+		encoded := base64.RawURLEncoding.EncodeToString(seed[:])
 		_, err = writer.WriteString(encoded + "\n")
 		if err != nil {
 			return fmt.Errorf("failed to write seed %d: %w", i, err)
@@ -71,10 +71,14 @@ func LoadSeeds(path string) ([][32]byte, error) {
 			continue
 		}
 
-		// Decode base64 seed
-		decoded, err := base64.RawStdEncoding.DecodeString(line)
+		// Decode base64 seed - try URL-safe encoding first, then standard for backwards compatibility
+		decoded, err := base64.RawURLEncoding.DecodeString(line)
 		if err != nil {
-			return nil, fmt.Errorf("failed to decode seed at line %d: %w", lineNum, err)
+			// Try standard encoding for old seed files
+			decoded, err = base64.RawStdEncoding.DecodeString(line)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode seed at line %d: %w", lineNum, err)
+			}
 		}
 
 		if len(decoded) != 32 {

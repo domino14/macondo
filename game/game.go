@@ -376,7 +376,8 @@ func (g *Game) SeedBag(seed [32]byte) {
 // SetUidFromSeed sets the game UID based on the seed for deterministic identification.
 // Format: "seed:<base64_encoded_seed>"
 func (g *Game) SetUidFromSeed(seed [32]byte) {
-	g.history.Uid = "seed:" + base64.RawStdEncoding.EncodeToString(seed[:])
+	// Use URL-safe encoding to avoid filesystem-unfriendly characters like / and +
+	g.history.Uid = "seed:" + base64.RawURLEncoding.EncodeToString(seed[:])
 }
 
 func (g *Game) SetCrossSetGen(gen cross_set.Generator) {
