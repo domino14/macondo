@@ -33,7 +33,7 @@ func main() {
 
 	cfg := &config.Config{}
 	cfg.Load(os.Args[1:])
-	log.Info().Msgf("Loaded config: %v", cfg)
+	log.Info().Msgf("Loaded config: %v", cfg.SanitizedSettings())
 	cfg.AdjustRelativePaths(exPath)
 
 	if cfg.GetBool("debug") {

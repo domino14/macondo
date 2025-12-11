@@ -256,24 +256,38 @@ func (a *Analyzer) EvaluateLeave(leave string) (float64, error) {
 
 // GetPlayMetadata analyzes a play and returns metadata
 func (a *Analyzer) GetPlayMetadata(playString string) (*PlayMetadata, error) {
-	// Remove all characters inside parentheses (including the parentheses themselves)
-	var sb strings.Builder
-	inParens := false
-	for _, ch := range playString {
-		if ch == '(' {
-			inParens = true
-			continue
-		} else if ch == ')' {
-			inParens = false
-			continue
+	// Check if this is an exchange or pass move
+	trimmed := strings.TrimSpace(playString)
+	var dottedPlayStr string
+
+	// Handle exchange moves like "(exch Q)" or "exch Q" or "exchange Q"
+	if strings.HasPrefix(trimmed, "(exch ") || strings.HasPrefix(trimmed, "(exchange ") {
+		// Remove outer parentheses for exchange moves
+		dottedPlayStr = strings.Trim(trimmed, "()")
+	} else if trimmed == "pass" || strings.HasPrefix(trimmed, "exch ") || strings.HasPrefix(trimmed, "exchange ") {
+		// Already in correct format
+		dottedPlayStr = trimmed
+	} else {
+		// For placement moves, convert characters inside parentheses to dots
+		// (parentheses indicate tiles already on the board)
+		var sb strings.Builder
+		inParens := false
+		for _, ch := range playString {
+			if ch == '(' {
+				inParens = true
+				continue
+			} else if ch == ')' {
+				inParens = false
+				continue
+			}
+			if !inParens {
+				sb.WriteRune(ch)
+			} else {
+				sb.WriteRune('.')
+			}
 		}
-		if !inParens {
-			sb.WriteRune(ch)
-		} else {
-			sb.WriteRune('.')
-		}
+		dottedPlayStr = sb.String()
 	}
-	dottedPlayStr := sb.String()
 
 	m, err := a.game.ParseMove(a.game.PlayerOnTurn(), false, strings.Fields(dottedPlayStr), false)
 	if err != nil {
