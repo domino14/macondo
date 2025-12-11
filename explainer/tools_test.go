@@ -12,6 +12,49 @@ import (
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
 
+func TestGetPlayMetadata(t *testing.T) {
+	is := is.New(t)
+	cfg := config.DefaultConfig()
+
+	// Test with opening position
+	bpos := "15/15/15/15/15/15/15/15/15/15/15/15/15/15/15 ADOPQRR/ 0/0 0 lex NWL23;"
+	g, err := cgp.ParseCGP(cfg, bpos)
+	is.NoErr(err)
+	g.SetBackupMode(game.InteractiveGameplayMode)
+	g.SetStateStackLength(1)
+
+	leavesFile := ""
+	conf := &bot.BotConfig{Config: *cfg, LeavesFile: leavesFile}
+
+	tp, err := bot.NewBotTurnPlayerFromGame(g.Game, conf, pb.BotRequest_HASTY_BOT)
+	is.NoErr(err)
+	an := NewAnalyzer()
+	an.game = tp
+	an.SetConfig(cfg)
+
+	// Test exchange move with parentheses format (as reported in issue #425)
+	md, err := an.GetPlayMetadata("(exch Q)")
+	is.NoErr(err)
+	is.Equal(md.Play, "(exch Q)")
+	is.Equal(md.Score, 0)
+	is.Equal(md.TilesUsed, 1) // Exchanging 1 tile
+	is.Equal(md.IsBingo, false)
+
+	// Test exchange move without parentheses
+	md, err = an.GetPlayMetadata("exch Q")
+	is.NoErr(err)
+	is.Equal(md.Play, "exch Q")
+	is.Equal(md.Score, 0)
+	is.Equal(md.TilesUsed, 1)
+
+	// Test pass move
+	md, err = an.GetPlayMetadata("pass")
+	is.NoErr(err)
+	is.Equal(md.Play, "pass")
+	is.Equal(md.Score, 0)
+	is.Equal(md.TilesUsed, 0)
+}
+
 func TestGetFuturePlayMetadata(t *testing.T) {
 	is := is.New(t)
 	cfg := config.DefaultConfig()

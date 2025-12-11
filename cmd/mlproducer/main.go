@@ -91,7 +91,7 @@ func main() {
 	cfg := &config.Config{}
 	args := os.Args[1:]
 	cfg.Load(args)
-	log.Info().Msgf("Loaded config: %v", cfg.AllSettings())
+	log.Info().Msgf("Loaded config: %v", cfg.SanitizedSettings())
 	cfg.AdjustRelativePaths(exPath)
 
 	var cpuProfFile, memProfFile *os.File

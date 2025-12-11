@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
+	"github.com/Ingenimax/agent-sdk-go/pkg/llm/deepseek"
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/gemini"
 	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
 	"github.com/Ingenimax/agent-sdk-go/pkg/logging"
@@ -17,7 +18,7 @@ import (
 
 // Config holds configuration for the explainer service
 type Config struct {
-	Provider         string // "gemini" or "openai"
+	Provider         string // "gemini", "openai", or "deepseek"
 	APIKey           string
 	Model            string
 	UseQuirky        bool
@@ -94,6 +95,13 @@ func (s *Service) Explain(ctx context.Context, gameState, simResults, simDetails
 		}
 		client = openaiClient
 		log.Info().Msg("Using OpenAI client")
+	case "deepseek":
+		deepseekClient, err := s.createDeepSeekClient(ctx)
+		if err != nil {
+			return nil, err
+		}
+		client = deepseekClient
+		log.Info().Msg("Using DeepSeek client")
 	default:
 		return nil, fmt.Errorf("unsupported provider: %s", s.config.Provider)
 	}
@@ -147,6 +155,22 @@ func (s *Service) createOpenAIClient(ctx context.Context) (interfaces.LLM, error
 	), nil
 }
 
+func (s *Service) createDeepSeekClient(ctx context.Context) (interfaces.LLM, error) {
+	model := s.config.Model
+	logger := logging.New()
+
+	if model == "" {
+		model = "deepseek-chat"
+	}
+	modelOption := deepseek.WithModel(model)
+	log.Info().Str("model", model).Msg("Using DeepSeek model")
+	return deepseek.NewClient(
+		s.config.APIKey,
+		modelOption,
+		deepseek.WithLogger(logger),
+	), nil
+}
+
 // DefaultConfig returns a default configuration from macondo config
 func DefaultConfig(macondoConfig *macondo.Config) *Config {
 	provider := macondoConfig.GetString(macondo.ConfigGenaiProvider)
@@ -159,6 +183,9 @@ func DefaultConfig(macondoConfig *macondo.Config) *Config {
 	case "gemini":
 		apiKey = macondoConfig.GetString(macondo.ConfigGeminiApiKey)
 		model = macondoConfig.GetString(macondo.ConfigGeminiModel)
+	case "deepseek":
+		apiKey = macondoConfig.GetString(macondo.ConfigDeepseekApiKey)
+		model = macondoConfig.GetString(macondo.ConfigDeepseekModel)
 	}
 
 	useQuirky := os.Getenv("GENAI_QUIRKY") != ""

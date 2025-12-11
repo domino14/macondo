@@ -142,7 +142,7 @@ func main() {
 	args := os.Args[1:]
 	err = cfg.Load(args)
 	log.Err(err).Msg("loading config...")
-	log.Info().Msgf("Loaded config: %v", cfg.AllSettings())
+	log.Info().Msgf("Loaded config: %v", cfg.SanitizedSettings())
 	cfg.AdjustRelativePaths(exPath)
 	if cfg.GetBool("debug") {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
