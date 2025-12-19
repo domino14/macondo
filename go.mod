@@ -1,6 +1,6 @@
 module github.com/domino14/macondo
 
-go 1.24.0
+go 1.25.5
 
 require (
 	github.com/Ingenimax/agent-sdk-go v0.2.20
@@ -13,7 +13,7 @@ require (
 	github.com/cespare/xxhash v1.1.0
 	github.com/chzyer/readline v1.5.1
 	github.com/cjoudrey/gluahttp v0.0.0-20201111170219-25003d9adfa9
-	github.com/domino14/word-golib v0.2.17
+	github.com/domino14/word-golib v0.2.18
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
 	github.com/matryer/is v1.4.1
 	github.com/nats-io/nats.go v1.42.0

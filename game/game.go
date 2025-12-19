@@ -408,7 +408,7 @@ func (g *Game) ValidateMove(m *move.Move) ([]tilemapping.MachineWord, error) {
 		// Make sure we have the tiles we are trying to exchange.
 		for _, t := range m.Tiles() {
 			// Leave implicitly checks the tiles here.
-			_, err := tilemapping.Leave(g.players[g.onturn].rack.TilesOn(), m.Tiles(), true)
+			_, err := tilemapping.Leave(g.players[g.onturn].rack.TilesOn(), m.Tiles(), false)
 			if err != nil {
 				return nil, err
 			}
@@ -443,7 +443,7 @@ func (g *Game) validateTilePlayMove(m *move.Move) ([]tilemapping.MachineWord, er
 		return nil, errors.New("your play contained too many tiles")
 	}
 	// Check that our move actually uses the tiles on our rack.
-	_, err := tilemapping.Leave(g.players[g.onturn].rack.TilesOn(), m.Tiles(), false)
+	_, err := tilemapping.Leave(g.players[g.onturn].rack.TilesOn(), m.Tiles(), true)
 	if err != nil {
 		return nil, err
 	}
@@ -799,7 +799,7 @@ func (g *Game) CreateAndScorePlacementMove(coords string, tiles string, rack str
 		return nil, err
 	}
 
-	leavemw, err := tilemapping.Leave(rackmw, mw, false)
+	leavemw, err := tilemapping.Leave(rackmw, mw, true)
 	if err != nil {
 		return nil, err
 	}

@@ -74,8 +74,8 @@ github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc/go.mod h1:J7Y8Yc
 github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f h1:lO4WD4F/rVNCu3HqELle0jiPLLBs70cWOduZpkS1E78=
 github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f/go.mod h1:cuUVRXasLTGF7a8hSLbxyZXjz+1KgoB3wDUb6vlszIc=
 github.com/disintegration/imaging v1.6.0/go.mod h1:xuIt+sRxDFrHS0drzXUlCJthkJ8k7lkkUojDSR247MQ=
-github.com/domino14/word-golib v0.2.17 h1:z/vmisymXGg0fvqep5GOxDa8oEgw62QJLQh1Gr3HzPs=
-github.com/domino14/word-golib v0.2.17/go.mod h1:jMCDzZSsxBZMa3JB/FwiZCXXCv52S2X6dL5UinW8V1I=
+github.com/domino14/word-golib v0.2.18 h1:kyKcjFwluwk8ERA5nJs0mK86bVjhTacuhDDm7X60dzU=
+github.com/domino14/word-golib v0.2.18/go.mod h1:jMCDzZSsxBZMa3JB/FwiZCXXCv52S2X6dL5UinW8V1I=
 github.com/felixge/httpsnoop v1.0.4 h1:NFTV2Zj1bL4mc9sqWACXbQFVBBg2W3GPvqp8/ESS2Wg=
 github.com/felixge/httpsnoop v1.0.4/go.mod h1:m8KPJKqk1gH5J9DgRY2ASl2lWCfGKXixSwevea8zH2U=
 github.com/fogleman/gg v1.2.1-0.20190220221249-0403632d5b90/go.mod h1:R/bRT+9gY/C5z7JzPU0zXsXHKM4/ayA+zqcVNZzPa1k=

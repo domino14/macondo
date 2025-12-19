@@ -160,7 +160,7 @@ func MoveFromEvent(evt *pb.GameEvent, alph *tilemapping.TileMapping, board *boar
 			return nil, err
 		}
 
-		leaveMW, err := tilemapping.Leave(rack, tiles, false)
+		leaveMW, err := tilemapping.Leave(rack, tiles, true)
 		if err != nil {
 			log.Error().Err(err).Msg("")
 			return nil, err
@@ -191,7 +191,7 @@ func MoveFromEvent(evt *pb.GameEvent, alph *tilemapping.TileMapping, board *boar
 				return nil, err
 			}
 		}
-		leaveMW, err := tilemapping.Leave(rack, tiles, true)
+		leaveMW, err := tilemapping.Leave(rack, tiles, false)
 		if err != nil {
 			log.Error().Err(err).Msg("")
 			return nil, err

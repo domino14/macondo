@@ -16,7 +16,7 @@ func SmallMoveToMove(sm tinymove.SmallMove, m *move.Move, tm *tilemapping.TileMa
 	TinyMoveToMove(sm.TinyMove(), bd, m)
 	// populate move with missing fields.
 	m.SetAlphabet(tm)
-	leave, err := tilemapping.Leave(onTurnRack.TilesOn(), m.Tiles(), false)
+	leave, err := tilemapping.Leave(onTurnRack.TilesOn(), m.Tiles(), true)
 	if err != nil {
 		// this is happening very rarely.. figure out wtf is going on.
 		fmt.Println("Trying to convert small move to move did not succeed")
@@ -142,7 +142,7 @@ func TinyMoveToFullMove(t tinymove.TinyMove, bd *board.GameBoard, ld *tilemappin
 	// populate move with missing fields.
 	m.SetAlphabet(ld.TileMapping())
 
-	leave, err := tilemapping.Leave(onTurnRack.TilesOn(), m.Tiles(), false)
+	leave, err := tilemapping.Leave(onTurnRack.TilesOn(), m.Tiles(), true)
 	if err != nil {
 		return nil, err
 	}
