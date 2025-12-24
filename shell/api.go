@@ -23,6 +23,7 @@ import (
 	"lukechampine.com/frand"
 
 	"github.com/domino14/macondo/ai/bot"
+	"github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/automatic"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
@@ -446,6 +447,33 @@ func (sc *ShellController) generate(cmd *shellcmd) (*Response, error) {
 		}
 	}
 	return msg(sc.genMovesAndDescription(numPlays)), nil
+}
+
+func (sc *ShellController) bestStatic(cmd *shellcmd) (*Response, error) {
+	if sc.game == nil {
+		return nil, errors.New("please load or create a game first")
+	}
+	if sc.solving() {
+		return nil, errMacondoSolving
+	}
+
+	// Ensure move generator has the game set (same as autoplay does)
+	sc.game.MoveGenerator().(*movegen.GordonGenerator).SetGame(sc.game.Game)
+
+	// Use the same function autoplay uses for generating best static moves
+	playerIdx := sc.game.PlayerOnTurn()
+	bestPlay := turnplayer.GenBestStaticTurn(sc.game.Game, sc.game, playerIdx)
+
+	if bestPlay == nil {
+		return msg("No moves generated"), nil
+	}
+
+	// Show the best move
+	var output strings.Builder
+	output.WriteString(fmt.Sprintf("Best static move (shadow enabled):\n  %s %s %2d %6.2f\n",
+		bestPlay.BoardCoords(), bestPlay.LeaveString(), bestPlay.Score(), bestPlay.Equity()))
+
+	return msg(output.String()), nil
 }
 
 func (sc *ShellController) autoplay(cmd *shellcmd) (*Response, error) {

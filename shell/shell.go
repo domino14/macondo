@@ -1627,6 +1627,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.setConfig(cmd)
 	case "gen":
 		return sc.generate(cmd)
+	case "beststatic":
+		return sc.bestStatic(cmd)
 	case "autoplay":
 		return sc.autoplay(cmd)
 	case "sim":

@@ -1,7 +1,9 @@
 package movegen
 
 import (
+	"fmt"
 	"math"
+	"os"
 
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/equity"
@@ -96,6 +98,16 @@ func (gen *GordonGenerator) genShadow(rack *tilemapping.Rack, bestLeavesAlreadyC
 
 	// Heapify anchors by equity (in-place, no allocation)
 	gen.heapifyAnchors()
+
+	fmt.Fprintf(os.Stderr, "[SHADOW] Generated %d total anchors after heapify\n", gen.anchorCount)
+	// Show all row=13 horizontal anchors
+	for i := 0; i < gen.anchorCount; i++ {
+		a := gen.anchors[i]
+		if a.Row == 13 && !a.Vertical {
+			fmt.Fprintf(os.Stderr, "[SHADOW] Anchor[%d]: row=%d col=%d vert=%v maxEq=%.2f maxScore=%d\n",
+				i, a.Row, a.Col, a.Vertical, a.HighestPossibleEquity, a.HighestPossibleScore)
+		}
+	}
 }
 
 // shadowByOrientation processes all rows in one direction
@@ -105,6 +117,27 @@ func (gen *GordonGenerator) shadowByOrientation(rack *tilemapping.Rack, dir boar
 		gen.lastAnchorCol = -1
 
 		for col := 0; col < gen.boardDim; col++ {
+			// Debug logging - print entire rows 12 and 13 at start
+			if (row == 12 || row == 13) && !gen.vertical && col == 0 {
+				fmt.Fprintf(os.Stderr, "[SHADOW-DEBUG] Row %d tiles: ", row)
+				for c := 0; c < gen.boardDim; c++ {
+					if gen.board.HasLetter(row, c) {
+						letter := gen.board.GetLetter(row, c)
+						fmt.Fprintf(os.Stderr, "[%d:%d] ", c, letter)
+					} else {
+						fmt.Fprintf(os.Stderr, "[%d:.] ", c)
+					}
+				}
+				fmt.Fprintf(os.Stderr, "\n")
+			}
+			// Debug anchor processing for rows 12 and 13
+			if (row == 12 || row == 13) && !gen.vertical && gen.board.IsAnchor(row, col, dir) {
+				boardNotationRow := row + 1
+				boardNotationCol := string(rune('A' + col))
+				fmt.Fprintf(os.Stderr, "[SHADOW-DEBUG] Detected anchor at row=%d col=%d (%d%s) horizontal\n",
+					row, col, boardNotationRow, boardNotationCol)
+			}
+
 			if gen.board.IsAnchor(row, col, dir) {
 				gen.shadowPlayForAnchor(rack, col)
 				gen.lastAnchorCol = col
@@ -212,6 +245,12 @@ func (gen *GordonGenerator) shadowStartNonplaythrough(rack *tilemapping.Rack) {
 	wordMul := gen.board.GetWordMultiplier(sqIdx)
 	crossScore := gen.board.GetCrossScoreIdx(sqIdx, csDir)
 
+	// Initialize perpendicular score (Magpie does this BEFORE restricting tiles)
+	gen.shadowPerpAdditionalScore = crossScore * wordMul
+
+	// Temporarily set word multiplier to 0 for single-tile recording (matches Magpie)
+	gen.shadowWordMultiplier = 0
+
 	// Try to restrict to a single tile if cross-set forces it
 	if gen.tryRestrictTile(possibleLetters, letterMul, wordMul, crossScore, gen.curAnchorCol) {
 		// Successfully restricted - score already accumulated
@@ -221,10 +260,17 @@ func (gen *GordonGenerator) shadowStartNonplaythrough(rack *tilemapping.Rack) {
 	}
 
 	gen.shadowTilesPlayed++
-	gen.shadowWordMultiplier *= wordMul
 
-	// Record single-tile horizontal play (for uniqueness)
-	gen.shadowRecord(rack)
+	// Record single-tile horizontal play (for uniqueness) with word_multiplier = 0
+	if !gen.vertical {
+		gen.shadowRecord(rack)
+	}
+
+	// Now set the actual word multiplier
+	gen.shadowWordMultiplier = wordMul
+
+	// Recalculate effective multipliers (matches Magpie)
+	gen.maybeRecalculateEffectiveMultipliers()
 
 	// Extend left
 	gen.nonplaythroughShadowPlayLeft(rack)
@@ -251,8 +297,6 @@ func (gen *GordonGenerator) shadowStartPlaythrough(rack *tilemapping.Rack, curre
 // Follows Magpie's pattern: call shadowPlayRight at the start of each iteration,
 // before checking if we can extend left further.
 func (gen *GordonGenerator) nonplaythroughShadowPlayLeft(rack *tilemapping.Rack) {
-	col := gen.curAnchorCol
-
 	for {
 		// First, try extending right from current position
 		possibleTilesRight := gen.anchorRightExtSet & gen.rackCrossSet
@@ -262,50 +306,47 @@ func (gen *GordonGenerator) nonplaythroughShadowPlayLeft(rack *tilemapping.Rack)
 		gen.anchorRightExtSet = board.TrivialCrossSet
 
 		// Check exit conditions for left extension
-		if col == 0 || col == gen.lastAnchorCol+1 || gen.shadowTilesPlayed >= gen.numLettersOnRack {
-			break
+		if gen.currentLeftCol == 0 || gen.currentLeftCol == gen.lastAnchorCol+1 ||
+			gen.shadowTilesPlayed >= gen.numLettersOnRack {
+			return
 		}
 
-		// Now try to extend left
-		col--
-
-		// Check if this square has a tile already (playthrough)
-		if gen.board.HasLetter(gen.curRowIdx, col) {
-			ml := gen.board.GetLetter(gen.curRowIdx, col)
-			gen.shadowMainwordRestrictedScore += gen.tileScores[ml.Unblank()]
-			continue
+		// Check if we can extend left
+		possibleTilesLeft := gen.anchorLeftExtSet & gen.rackCrossSet
+		if possibleTilesLeft == 0 {
+			return
 		}
+		gen.anchorLeftExtSet = board.TrivialCrossSet
 
-		sqIdx := gen.board.GetSqIdx(gen.curRowIdx, col)
+		// Extend left (matches Magpie)
+		gen.currentLeftCol--
+		gen.shadowTilesPlayed++
+
+		sqIdx := gen.board.GetSqIdx(gen.curRowIdx, gen.currentLeftCol)
 		csDir := gen.crossDirection()
-		playDir := gen.playDirection()
 		crossSet := gen.board.GetCrossSetIdx(sqIdx, csDir)
-		leftExtSet := gen.board.GetLeftExtSetIdx(sqIdx, playDir)
 
-		// Check if we can play anything here
-		possibleLetters := uint64(crossSet) & gen.rackCrossSet & leftExtSet
+		// Check possible letters at this position
+		possibleLetters := uint64(crossSet) & possibleTilesLeft
 		if possibleLetters == 0 {
-			break
+			return
 		}
 
 		letterMul := gen.board.GetLetterMultiplier(sqIdx)
 		wordMul := gen.board.GetWordMultiplier(sqIdx)
 		crossScore := gen.board.GetCrossScoreIdx(sqIdx, csDir)
 
-		if gen.tryRestrictTile(possibleLetters, letterMul, wordMul, crossScore, col) {
+		gen.shadowWordMultiplier *= wordMul
+
+		if gen.tryRestrictTile(possibleLetters, letterMul, wordMul, crossScore, gen.currentLeftCol) {
 			// Successfully restricted
 		} else {
-			gen.insertUnrestrictedMultiplier(letterMul, wordMul, col, crossScore)
+			gen.insertUnrestrictedMultiplier(letterMul, wordMul, gen.currentLeftCol, crossScore)
 		}
-
-		gen.shadowTilesPlayed++
-		gen.shadowWordMultiplier *= wordMul
 
 		// Record play
 		gen.shadowRecord(rack)
 	}
-
-	gen.currentLeftCol = col
 }
 
 // playthroughShadowPlayLeft extends left from playthrough tiles
@@ -429,6 +470,10 @@ func (gen *GordonGenerator) shadowPlayRight(rack *tilemapping.Rack) {
 
 		if gen.tryRestrictTile(possibleLetters, letterMul, wordMul, crossScore, col) {
 			// Successfully restricted
+			if gen.curRowIdx == 13 && !gen.vertical && gen.curAnchorCol == 10 {
+				fmt.Fprintf(os.Stderr, "[SHADOW-RIGHT] row=13 anchor=10 extended right to col=%d, mainword now=%d\n",
+					col, gen.shadowMainwordRestrictedScore)
+			}
 		} else {
 			gen.insertUnrestrictedMultiplier(letterMul, wordMul, col, crossScore)
 		}
@@ -445,6 +490,11 @@ func (gen *GordonGenerator) shadowPlayRight(rack *tilemapping.Rack) {
 
 	// Restore state
 	gen.shadowTilesPlayed = savedTilesPlayed
+	// Debug: check if we're resetting a non-zero mainword score
+	if gen.curRowIdx == 13 && !gen.vertical && gen.shadowMainwordRestrictedScore != savedMainword {
+		fmt.Fprintf(os.Stderr, "[SHADOW-RESTORE] row=13 resetting mainword from %d to %d (savedMainword=%d)\n",
+			gen.shadowMainwordRestrictedScore, savedMainword, savedMainword)
+	}
 	gen.shadowMainwordRestrictedScore = savedMainword
 	gen.shadowPerpAdditionalScore = savedPerp
 	gen.shadowWordMultiplier = savedWordMul
@@ -467,6 +517,12 @@ func (gen *GordonGenerator) shadowRecord(rack *tilemapping.Rack) {
 
 	// Calculate score: mainword * wordMul + perp + unrestricted tiles
 	mainwordScore := gen.shadowMainwordRestrictedScore
+
+	// Debug for row 13
+	if gen.curRowIdx == 13 && !gen.vertical && gen.curAnchorCol == 10 {
+		fmt.Fprintf(os.Stderr, "[SHADOW-RECORD] row=13 col=10 tilesPlayed=%d mainwordScore=%d at entry\n",
+			gen.shadowTilesPlayed, mainwordScore)
+	}
 
 	// Add unrestricted tile scores (greedy: pair best tiles with best multipliers)
 	unrestrictedScore := 0
@@ -505,6 +561,15 @@ func (gen *GordonGenerator) shadowRecord(rack *tilemapping.Rack) {
 		}
 	}
 
+	// Debug logging for row 13 horizontal anchors
+	if gen.curRowIdx == 13 && !gen.vertical && (gen.curAnchorCol == 10 || gen.curAnchorCol == 11 || gen.curAnchorCol == 12 || gen.curAnchorCol == 13) {
+		fmt.Fprintf(os.Stderr, "[SHADOW-EQUITY] row=13 col=%d: tilesPlayed=%d totalScore=%d (main=%d*%d + perp=%d + unres=%d) leaveSize=%d bestLeave=%.2f equity=%.2f\n",
+			gen.curAnchorCol, gen.shadowTilesPlayed, totalScore,
+			gen.shadowMainwordRestrictedScore, gen.shadowWordMultiplier,
+			gen.shadowPerpAdditionalScore, unrestrictedScore,
+			leaveSize, gen.bestLeaves[leaveSize], equity)
+	}
+
 	if equity > gen.highestShadowEquity {
 		gen.highestShadowEquity = equity
 	}
@@ -534,11 +599,20 @@ func (gen *GordonGenerator) tryRestrictTile(possibleLetters uint64, letterMul, w
 		}
 
 		score := gen.tileScores[ml]
-		gen.shadowMainwordRestrictedScore += score * letterMul
+		lsm := score * letterMul
+		gen.shadowMainwordRestrictedScore += lsm
 
-		// Add cross-word score if there's a perpendicular word
+		// Debug for row 13
+		if gen.curRowIdx == 13 && !gen.vertical {
+			fmt.Fprintf(os.Stderr, "[SHADOW-RESTRICT] row=13 col=%d restricted to letter=%d score=%d letterMul=%d added=%d\n",
+				col, ml, score, letterMul, lsm)
+		}
+
+		// Add tile contribution to perpendicular score if there's a cross word
+		// (cross_score * word_mul is already in shadowPerpAdditionalScore from shadowStartNonplaythrough)
+		// Magpie: gen->shadow_perpendicular_additional_score += (lsm * this_word_multiplier) & (-(int)is_cross_word)
 		if crossScore > 0 {
-			gen.shadowPerpAdditionalScore += (score*letterMul + crossScore) * wordMul
+			gen.shadowPerpAdditionalScore += lsm * wordMul
 		}
 
 		// Remove this tile from descending scores (shift down)
@@ -643,9 +717,15 @@ func (gen *GordonGenerator) recordScoringPlaysFromAnchors(rack *tilemapping.Rack
 	for gen.anchorCount > 0 {
 		anchor := gen.popAnchor()
 
+		fmt.Fprintf(os.Stderr, "[SHADOW] Processing anchor row=%d col=%d vert=%v maxEq=%.2f maxScore=%d winner=%s winnerEq=%.2f\n",
+			anchor.Row, anchor.Col, anchor.Vertical, anchor.HighestPossibleEquity, anchor.HighestPossibleScore,
+			gen.winner.ShortDescription(), gen.winner.Equity())
+
 		// Early termination: if best found move has equity >= max possible from
 		// this anchor, we can skip all remaining anchors (they have lower max equity)
 		if !gen.winner.IsEmpty() && gen.winner.Equity() >= anchor.HighestPossibleEquity {
+			fmt.Fprintf(os.Stderr, "[SHADOW] PRUNING: winnerEq=%.2f >= anchorMaxEq=%.2f\n",
+				gen.winner.Equity(), anchor.HighestPossibleEquity)
 			break
 		}
 
@@ -674,6 +754,9 @@ func (gen *GordonGenerator) recordScoringPlaysFromAnchors(rack *tilemapping.Rack
 		// Generate actual moves from this anchor using the standard recursive algorithm
 		gen.recursiveGen(int(anchor.Col), rack, gen.gaddag.GetRootNodeIndex(),
 			int(anchor.Col), int(anchor.Col), !anchor.Vertical, 0, 0, 1)
+
+		fmt.Fprintf(os.Stderr, "[SHADOW] After gen: winner=%s winnerEq=%.2f\n",
+			gen.winner.ShortDescription(), gen.winner.Equity())
 	}
 
 	// Ensure board is not transposed when we're done
