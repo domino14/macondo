@@ -15,8 +15,8 @@ local letterRegex = "%aÄäÖöÜü"
 local letterRegexWithBrackets = "[" .. letterRegex .. "]"
 
 function sleep(seconds)
-	os.execute("ping -n " .. tonumber(seconds+1).. " localhost > NUL")
---	os.execute("sleep " .. tonumber(seconds))
+--	os.execute("ping -n " .. tonumber(seconds+1).. " localhost > NUL")
+	os.execute("sleep " .. tonumber(seconds))
 end
 
 function findNameAndUnseenTileCount(board)
@@ -65,16 +65,20 @@ function calculateLossBySim(play, playInGen, tileCount)
 	if (foundMove == nil) then
 		macondo.add(play)
 	end
-	if tileCount > 7 and tileCount <= 14 then
-		actualSimSeconds = simSeconds * 2
+	if tileCount <= 14 then
 		actualSimPlies = simPlies * 2
+		if tileCount >= 7 then
+			actualSimSeconds = simSeconds * 2
+		else 
+			actualSimSeconds = simSeconds
+		end
 	else
 		actualSimSeconds = simSeconds
 		actualSimPlies = simPlies
 	end
-	macondo.sim("-plies " .. actualSimPlies)
+	macondo.sim_async("-plies " .. actualSimPlies)
 	sleep(actualSimSeconds)
-	local simRes = macondo.sim("stop")
+	local simRes = macondo.sim_async("stop")
 	while macondo.busy() do
 		sleep(0.1)
 	end
