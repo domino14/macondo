@@ -327,6 +327,7 @@ type Solver struct {
 	solvingForPlayer int
 	logStream        io.Writer
 	solveOnlyMoves   []*move.Move
+	avoidPruneMoves  []*move.Move
 
 	earlyCutoffOptim     bool
 	skipNonEmptyingOptim bool
@@ -775,6 +776,19 @@ func (s *Solver) IsSolving() bool {
 
 func (s *Solver) SetSolveOnly(m []*move.Move) {
 	s.solveOnlyMoves = m
+}
+
+func (s *Solver) SetAvoidPrune(moves []*move.Move) {
+	s.avoidPruneMoves = moves
+}
+
+func (s *Solver) shouldAvoidPrune(m *move.Move) bool {
+	for _, apm := range s.avoidPruneMoves {
+		if apm.ShortDescription() == m.ShortDescription() {
+			return true
+		}
+	}
+	return false
 }
 
 func toUserFriendly(tileset []tilemapping.MachineLetter, alphabet *tilemapping.TileMapping, pegPlay *move.Move) string {

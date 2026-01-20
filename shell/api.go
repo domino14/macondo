@@ -647,6 +647,16 @@ func (sc *ShellController) endgamePrepare(cmd *shellcmd) (*endgameParams, error)
 	sc.endgameSolver.SetPreventSlowroll(preventSR)
 	sc.endgameSolver.SetNegascoutOptim(!disableNegascout)
 
+	alsoSolveVarStr := cmd.options.String("also-solve-var")
+	if alsoSolveVarStr != "" {
+		m, err := sc.game.ParseMove(sc.game.PlayerOnTurn(), sc.options.lowercaseMoves,
+			strings.Fields(alsoSolveVarStr), false)
+		if err != nil {
+			return nil, err
+		}
+		sc.endgameSolver.SetAlsoSolveMove(m)
+	}
+
 	return params, nil
 }
 
@@ -852,6 +862,21 @@ func (sc *ShellController) pegPrepare(cmd *shellcmd) (*pegParams, error) {
 	sc.preendgameSolver.SetSkipLossOptim(skipLoss)
 	sc.preendgameSolver.SetIterativeDeepening(!disableIterativeDeepening)
 	sc.preendgameSolver.SetSolveOnly(movesToSolve)
+
+	avoidPruneStrs := cmd.options.StringArray("avoid-prune")
+	avoidPruneMoves := []*move.Move{}
+	for _, ms := range avoidPruneStrs {
+		m, err := sc.game.ParseMove(
+			sc.game.PlayerOnTurn(),
+			sc.options.lowercaseMoves,
+			strings.Fields(ms),
+			false)
+		if err != nil {
+			return nil, err
+		}
+		avoidPruneMoves = append(avoidPruneMoves, m)
+	}
+	sc.preendgameSolver.SetAvoidPrune(avoidPruneMoves)
 
 	sc.pegCtx, sc.pegCancel = context.WithCancel(context.Background())
 	if maxtime > 0 {

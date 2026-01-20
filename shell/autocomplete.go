@@ -38,6 +38,7 @@ var commandMetadata = map[string]CommandMetadata{
 			"-endgameplies", "-maxtime", "-threads", "-maxsolutions",
 			"-opprack", "-skip-non-emptying", "-skip-loss", "-early-cutoff",
 			"-skip-tiebreaker", "-disable-id", "-only-solve", "-log",
+			"-avoid-prune",
 		},
 	},
 	"endgame": {
@@ -45,6 +46,7 @@ var commandMetadata = map[string]CommandMetadata{
 			"-plies", "-maxtime", "-threads", "-multiple-vars",
 			"-disable-id", "-disable-tt", "-first-win-optim",
 			"-prevent-slowroll", "-disable-negascout", "-null-window",
+			"-also-solve-var",
 		},
 	},
 	"infer": {

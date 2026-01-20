@@ -122,3 +122,9 @@ Options:
     clearly wins. The prevent-slowroll option applies some heuristics to prevent
     this from happening, at the cost of once in a while missing a better endgame
     sequence.
+
+    -also-solve-var "F5 FOO"
+
+    This mode will always solve the variant you specify, in addition to also finding
+    the top play. This mode will tell you how far the optimal sequence beginning
+    with the specified move is from the optimal sequence.

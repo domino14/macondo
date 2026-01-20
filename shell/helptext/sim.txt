@@ -118,3 +118,9 @@ Options:
     After your sim stops, you can visualize the heatmap and stats of the
     different plays you simmed. Use `sim heatmap` for this. Refer to the beginning
     of this document for more information on the parameters for `sim heatmap`.
+
+    -avoid-prune "F5 FOO"
+
+    If you are cutting off plays, any plays you specify with potentially repeated
+    `-avoid-prune` options never get cut off. This is good for comparing plays you
+    made to the top plays.
