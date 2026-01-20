@@ -98,7 +98,7 @@ Options:
             Inference returns a number of racks with a "weight" attached to them.
             This mode computes a tile distribution based on all of the racks
             and randomly draws from this distribution for the opponent's
-            inferred rack.,
+            inferred rack.
 
         weightedrandomracks:
             This simpler mode just draws the racks themselves with the given

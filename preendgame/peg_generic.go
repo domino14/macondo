@@ -306,36 +306,39 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 		s.threadLogs[thread] = jobLog{PEGPlay: j.ourMove.String()}
 	}
 	if s.skipLossOptim || s.earlyCutoffOptim {
-		j.ourMove.RLock()
-		if s.skipLossOptim && j.ourMove.FoundLosses > 0 {
-			j.ourMove.RUnlock()
-			j.ourMove.stopAnalyzing()
-			s.numCutoffs.Add(1)
-			return nil
-		}
-		// we should check to see if our move has more found losses than
-		// _any_ fully analyzed move. If so, it can't possibly win.
-		s.potentialWinnerMutex.RLock()
-		if s.earlyCutoffOptim && j.ourMove.FoundLosses > s.minPotentialLosses {
-			// cut off this play. We already have more losses than the
-			// fully analyzed play with the minimum known number of losses.
+		// Don't cut off moves marked as avoid-prune
+		if !s.shouldAvoidPrune(j.ourMove.Play) {
+			j.ourMove.RLock()
+			if s.skipLossOptim && j.ourMove.FoundLosses > 0 {
+				j.ourMove.RUnlock()
+				j.ourMove.stopAnalyzing()
+				s.numCutoffs.Add(1)
+				return nil
+			}
+			// we should check to see if our move has more found losses than
+			// _any_ fully analyzed move. If so, it can't possibly win.
+			s.potentialWinnerMutex.RLock()
+			if s.earlyCutoffOptim && j.ourMove.FoundLosses > s.minPotentialLosses {
+				// cut off this play. We already have more losses than the
+				// fully analyzed play with the minimum known number of losses.
+				s.potentialWinnerMutex.RUnlock()
+				j.ourMove.RUnlock()
+				// log.Debug().Float32("foundLosses", j.ourMove.FoundLosses).
+				// 	Float32("minKnownLosses", s.minPotentialLosses).
+				// 	Str("ourMove", j.ourMove.String()).
+				// 	Msg("stop-analyzing-move")
+				j.ourMove.stopAnalyzing()
+				s.numCutoffs.Add(1)
+				if s.logStream != nil {
+					s.threadLogs[thread].CutoffAtStart = true
+					s.threadLogs[thread].FoundLosses = int(j.ourMove.FoundLosses)
+					s.threadLogs[thread].MinPotentialLosses = int(s.minPotentialLosses)
+				}
+				return nil
+			}
 			s.potentialWinnerMutex.RUnlock()
 			j.ourMove.RUnlock()
-			// log.Debug().Float32("foundLosses", j.ourMove.FoundLosses).
-			// 	Float32("minKnownLosses", s.minPotentialLosses).
-			// 	Str("ourMove", j.ourMove.String()).
-			// 	Msg("stop-analyzing-move")
-			j.ourMove.stopAnalyzing()
-			s.numCutoffs.Add(1)
-			if s.logStream != nil {
-				s.threadLogs[thread].CutoffAtStart = true
-				s.threadLogs[thread].FoundLosses = int(j.ourMove.FoundLosses)
-				s.threadLogs[thread].MinPotentialLosses = int(s.minPotentialLosses)
-			}
-			return nil
 		}
-		s.potentialWinnerMutex.RUnlock()
-		j.ourMove.RUnlock()
 	}
 	g := s.endgameSolvers[thread].Game()
 	mg := s.endgameSolvers[thread].Movegen()
@@ -413,7 +416,7 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 		options[idx].idx = idx
 		j.ourMove.RLock()
 		s.potentialWinnerMutex.RLock()
-		if j.ourMove.FoundLosses > s.minPotentialLosses && s.earlyCutoffOptim {
+		if j.ourMove.FoundLosses > s.minPotentialLosses && s.earlyCutoffOptim && !s.shouldAvoidPrune(j.ourMove.Play) {
 			s.potentialWinnerMutex.RUnlock()
 			// cut off this play. We already have more losses than the
 			// fully analyzed play with the minimum known number of losses.

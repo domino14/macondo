@@ -480,6 +480,8 @@ func (s *Simmer) resetStats(plies int, plays []*move.Move) {
 // during simulation. this function assumes that `resetStats` has already been called.
 func (s *Simmer) AvoidPruningMoves(plays []*move.Move) {
 	checktrans := s.origGame.Board().IsEmpty()
+	s.simmedPlays.Lock()
+	defer s.simmedPlays.Unlock()
 	for _, play := range plays {
 		alreadyThere := false
 		for _, sp := range s.simmedPlays.plays {

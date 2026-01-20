@@ -227,6 +227,8 @@ type Solver struct {
 
 	variations []PVLine
 
+	alsoSolveMove tinymove.TinyMove
+
 	// Metrics from last solve
 	lastSolveTime   float64
 	lastTTableStats string
@@ -243,6 +245,7 @@ func (s *Solver) Init(m movegen.MoveGenerator, game *game.Game) error {
 	s.iterativeDeepeningOptim = true
 	s.negascoutOptim = true
 	s.threads = max(1, runtime.NumCPU())
+	s.alsoSolveMove = tinymove.InvalidTinyMove
 	if s.stmMovegen != nil {
 		s.stmMovegen.SetGenPass(true)
 		s.stmMovegen.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
@@ -331,6 +334,10 @@ func (s *Solver) SetParallelAlgorithm(algo string) error {
 
 func (s *Solver) SetSolveMultipleVariations(i int) {
 	s.solveMultipleVariations = i
+}
+
+func (s *Solver) SetAlsoSolveMove(m *move.Move) {
+	s.alsoSolveMove = conversions.MoveToTinyMove(m)
 }
 
 func (s *Solver) makeGameCopies() error {
@@ -1142,6 +1149,36 @@ searchLoop:
 			Msg("found-variation")
 	}
 
+	// Handle also-solve-var: solve specified move if not already found
+	if s.alsoSolveMove != tinymove.InvalidTinyMove {
+		found := false
+		for _, v := range s.variations {
+			if len(v.Moves) > 0 && conversions.MoveToTinyMove(v.Moves[0]) == s.alsoSolveMove {
+				found = true
+				break
+			}
+		}
+		if !found {
+			// Filter initialMoves to only the specified move
+			filtered := []tinymove.SmallMove{}
+			for _, sm := range s.initialMoves[0] {
+				if sm.TinyMove() == s.alsoSolveMove {
+					filtered = append(filtered, sm)
+					break
+				}
+			}
+			if len(filtered) > 0 {
+				s.initialMoves[0] = filtered
+				err := algorithmFunc(ctx, plies)
+				if err == nil {
+					s.variations = append(s.variations, s.principalVariation)
+					log.Info().Str("also-solve-move", s.principalVariation.NLBString()).
+						Msg("solved-also-solve-var")
+				}
+			}
+		}
+	}
+
 	// If we solved many variations, the best is the first one
 	if len(s.variations) > 0 {
 		s.principalVariation = s.variations[0]
@@ -1242,8 +1279,8 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 	}
 
 	// Dispatch to the appropriate algorithm, wrapping with multiple variations if needed
-	if s.solveMultipleVariations > 1 {
-		// Multiple variations requested - wrap the algorithm
+	if s.solveMultipleVariations > 1 || s.alsoSolveMove != tinymove.InvalidTinyMove {
+		// Multiple variations requested or also-solve-var specified - wrap the algorithm
 		if s.lazySMPOptim {
 			return s.solveWithMultipleVariations(ctx, plies, s.iterativelyDeepenLazySMP)
 		} else if s.abdadaOptim {
