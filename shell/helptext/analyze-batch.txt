@@ -1,0 +1,79 @@
+analyze-batch [options] <source1> [source2] ... - Analyze multiple games
+
+Example:
+    analyze-batch woog:ABC123 woog:DEF456
+    analyze-batch xt:12345 xt:67890
+    analyze-batch /path/to/game1.gcg /path/to/game2.gcg
+    analyze-batch woog:ABC xt:123 /path/game.gcg
+    analyze-batch -player "nickname" woog:ABC woog:DEF
+    analyze-batch -summary-only woog:ABC woog:DEF
+    analyze-batch woogcollection:UUID-OF-COLLECTION
+
+This command analyzes multiple games from various sources and displays per-game
+analysis tables plus an aggregated summary. It supports loading games from:
+
+  - Woogles: Use format "woog:GAMEID"
+  - Woogles Collection: Use format "woogcollection:UUID" (fetches all games in collection)
+  - Cross-tables: Use format "xt:GAMEID"
+  - Local GCG files: Use file path (e.g., "/path/to/game.gcg")
+  - Web URLs: Use full HTTP/HTTPS URL
+
+Each game is analyzed using the same phase-appropriate analysis as the `analyze`
+command:
+  - Early/mid game (>7 tiles in bag): Monte Carlo simulation
+  - Early pre-endgame (2-7 tiles in bag): More thorough simulation
+  - Pre-endgame (1 tile in bag): PEG solver
+  - Endgame (0 tiles in bag): Negamax solver
+
+Options:
+
+    -player 0
+
+    Analyze only moves by player 0 (the first player) in all games.
+
+    -player 1
+
+    Analyze only moves by player 1 (the second player) in all games.
+
+    -player "nickname"
+
+    Analyze only moves by the player with the specified nickname across all
+    games. The nickname must match exactly (case-sensitive).
+
+    -continue
+
+    Continue processing remaining games even if one fails to load or analyze.
+    By default, the command stops on the first error.
+
+    -summary-only
+
+    Only show the batch summary table. Skip the per-game analysis tables.
+    This is useful when analyzing many games and you only care about the
+    aggregated statistics.
+
+Output:
+
+Without -summary-only, the command shows:
+  1. Per-game analysis table (same format as `analyze` command)
+  2. Batch summary table at the end
+
+The batch summary includes:
+  - Per-game results showing each player's Mistake Index and mistake breakdown
+  - Aggregate statistics by player across all games:
+    * Total games played
+    * Total turns played
+    * Total optimal moves
+    * Breakdown of small/medium/large mistakes
+    * Average Mistake Index
+    * Estimated ELO (based on average MI)
+
+Mistake Index:
+
+0.2 pts for a small mistake, 0.5 pts for a medium mistake, 1.0 pts for a
+large mistake. The batch analysis shows both per-game MI and average MI
+across all games for each player.
+
+You can read more about the Mistake Index here:
+https://nbaniac.com/odds-overview
+
+Thanks to Joey Krafchick for his methodology.

@@ -282,6 +282,31 @@ func (p *PreEndgamePlay) String() string {
 	return fmt.Sprintf("<play %v, wins %f>", p.Play.ShortDescription(), p.Points)
 }
 
+// HasSpread returns whether spread statistics have been calculated for this play.
+func (p *PreEndgamePlay) HasSpread() bool {
+	p.RLock()
+	defer p.RUnlock()
+	return p.spreadSet
+}
+
+// GetSpread returns the total spread accumulated across all outcomes.
+func (p *PreEndgamePlay) GetSpread() int {
+	p.RLock()
+	defer p.RUnlock()
+	return p.Spread
+}
+
+// TotalOutcomes returns the total number of bag permutations across all outcomes.
+func (p *PreEndgamePlay) TotalOutcomes() int {
+	p.RLock()
+	defer p.RUnlock()
+	total := 0
+	for _, el := range p.outcomesArray {
+		total += el.ct
+	}
+	return total
+}
+
 type jobLog struct {
 	PEGPlay              string         `yaml:"peg_play"`
 	FoundLosses          int            `yaml:"found_losses"`

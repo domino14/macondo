@@ -101,6 +101,16 @@ func (pvLine *PVLine) GetPVMove() *move.Move {
 	return pvLine.Moves[0]
 }
 
+// NumMoves returns the number of moves in this variation
+func (pvLine *PVLine) NumMoves() int {
+	return pvLine.numMoves
+}
+
+// Score returns the score (spread) for this variation
+func (pvLine *PVLine) Score() int16 {
+	return pvLine.score
+}
+
 // Convert the principal variation line to a string.
 func (pvLine PVLine) String() string {
 	var s string
@@ -1139,7 +1149,9 @@ searchLoop:
 		}
 
 		// Save this variation
-		lastWinner = s.principalVariation.Moves[0]
+		if s.principalVariation.numMoves > 0 {
+			lastWinner = s.principalVariation.Moves[0]
+		}
 		variationsFound++
 		s.variations = append(s.variations, s.principalVariation)
 
@@ -1153,7 +1165,7 @@ searchLoop:
 	if s.alsoSolveMove != tinymove.InvalidTinyMove {
 		found := false
 		for _, v := range s.variations {
-			if len(v.Moves) > 0 && conversions.MoveToTinyMove(v.Moves[0]) == s.alsoSolveMove {
+			if v.numMoves > 0 && conversions.MoveToTinyMove(v.Moves[0]) == s.alsoSolveMove {
 				found = true
 				break
 			}
