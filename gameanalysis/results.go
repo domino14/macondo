@@ -63,6 +63,11 @@ type TurnAnalysis struct {
 	MistakeCategory string // "Small", "Medium", "Large", or empty if optimal
 	BlownEndgame    bool   // True if the mistake changed a win to a loss/tie in endgame
 
+	// Bingo tracking
+	OptimalIsBingo bool // True if the optimal move is a bingo (7 tiles)
+	PlayedIsBingo  bool // True if the played move is a bingo (7 tiles)
+	MissedBingo    bool // True if optimal was a bingo but player didn't play a bingo
+
 	// Phony handling
 	IsPhony         bool // The played move was a phony
 	PhonyChallenged bool // A phony that was challenged off
@@ -76,8 +81,18 @@ type PlayerSummary struct {
 	OptimalMoves   int
 	AvgWinProbLoss float64
 	AvgSpreadLoss  float64
-	MistakeIndex   float64 // Sum of mistake points (0.2 for small, 0.5 for medium, 1.0 for large)
-	EstimatedELO   string  // Estimated ELO based on mistake index (e.g., "2150" or "<=1650")
+
+	// Mistake breakdown
+	SmallMistakes  int
+	MediumMistakes int
+	LargeMistakes  int
+
+	MistakeIndex float64 // Sum of mistake points (0.2 for small, 0.5 for medium, 1.0 for large)
+	EstimatedELO float64 // Estimated ELO based on mistake index
+
+	// Bingo tracking
+	AvailableBingos int // Number of turns where optimal move was a bingo
+	MissedBingos    int // Number of times player didn't play a bingo when optimal was a bingo
 }
 
 // GameAnalysisResult contains the complete analysis results for a game.

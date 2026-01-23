@@ -325,7 +325,7 @@ func (sc *ShellController) formatBatchResults(batch *gameanalysis.BatchAnalysisR
 						playerName = playerName[:12] + "..."
 					}
 
-					sb.WriteString(fmt.Sprintf("%-25s  %-15s  %-6.1f  %-6d  %-6d  %-6d  %-6d\n",
+					sb.WriteString(fmt.Sprintf("%-25s  %-15s  %-6.2f  %-6d  %-6d  %-6d  %-6d\n",
 						gameID,
 						playerName,
 						summary.MistakeIndex,
@@ -342,9 +342,9 @@ func (sc *ShellController) formatBatchResults(batch *gameanalysis.BatchAnalysisR
 	// Aggregate by player
 	if len(batch.PlayerStats) > 0 {
 		sb.WriteString("Aggregate by Player:\n")
-		sb.WriteString(fmt.Sprintf("%-15s  %-6s  %-6s  %-8s  %-6s  %-6s  %-6s  %-8s  %-8s\n",
-			"Player", "Games", "Turns", "Optimal", "Small", "Medium", "Large", "Avg MI", "Est ELO"))
-		sb.WriteString(strings.Repeat("-", 90))
+		sb.WriteString(fmt.Sprintf("%-15s  %-6s  %-6s  %-8s  %-6s  %-6s  %-6s  %-8s  %-8s  %-12s\n",
+			"Player", "Games", "Turns", "Optimal", "Small", "Medium", "Large", "Avg MI", "Est ELO", "Bingo Rate"))
+		sb.WriteString(strings.Repeat("-", 105))
 		sb.WriteString("\n")
 
 		// Sort players by name for consistent output
@@ -367,7 +367,16 @@ func (sc *ShellController) formatBatchResults(batch *gameanalysis.BatchAnalysisR
 				playerName = playerName[:12] + "..."
 			}
 
-			sb.WriteString(fmt.Sprintf("%-15s  %-6d  %-6d  %-8d  %-6d  %-6d  %-6d  %-8.1f  %-8s\n",
+			// Calculate bingo rate
+			bingoRate := "-"
+			if stats.TotalAvailableBingos > 0 {
+				bingosMade := stats.TotalAvailableBingos - stats.TotalMissedBingos
+				bingoRate = fmt.Sprintf("%d/%d (%.0f%%)",
+					bingosMade, stats.TotalAvailableBingos,
+					100.0*float64(bingosMade)/float64(stats.TotalAvailableBingos))
+			}
+
+			sb.WriteString(fmt.Sprintf("%-15s  %-6d  %-6d  %-8d  %-6d  %-6d  %-6d  %-8.2f  %-8.0f  %-12s\n",
 				playerName,
 				stats.GamesPlayed,
 				stats.TotalTurns,
@@ -376,7 +385,8 @@ func (sc *ShellController) formatBatchResults(batch *gameanalysis.BatchAnalysisR
 				stats.TotalMedium,
 				stats.TotalLarge,
 				stats.AvgMistakeIndex,
-				stats.AvgEstimatedELO))
+				stats.AvgEstimatedELO,
+				bingoRate))
 		}
 		sb.WriteString("\n")
 	}
@@ -453,25 +463,8 @@ func (sc *ShellController) formatGameAnalysisForBatch(result *gameanalysis.GameA
 
 	sb.WriteString("\n")
 
-	// Player summaries
-	sb.WriteString(fmt.Sprintf("%-15s  %-6s  %-8s  %-14s  %-13s\n",
-		"Player", "Turns", "Optimal", "Avg Win% Loss", "Mistake Index"))
-	sb.WriteString(strings.Repeat("-", 70))
-	sb.WriteString("\n")
-
-	for i := 0; i < 2; i++ {
-		summary := result.PlayerSummaries[i]
-		if summary.TurnsPlayed == 0 {
-			continue
-		}
-
-		sb.WriteString(fmt.Sprintf("%-15s  %-6d  %-8d  %-14s  %-13s\n",
-			summary.PlayerName,
-			summary.TurnsPlayed,
-			summary.OptimalMoves,
-			fmt.Sprintf("%.1f%%", summary.AvgWinProbLoss*100),
-			fmt.Sprintf("%.1f", summary.MistakeIndex)))
-	}
+	// Player summaries (use shared formatting function)
+	sb.WriteString(formatPlayerSummaries(result.PlayerSummaries))
 
 	sb.WriteString("\n")
 

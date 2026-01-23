@@ -408,7 +408,7 @@ func mistakePoints(category string) float64 {
 
 // estimateELO returns an estimated ELO rating based on the mistake index
 // estimateELO estimates a player's ELO rating based on their mistake index
-func estimateELO(mistakeIndex float64) string {
+func estimateELO(mistakeIndex float64) float64 {
 	// Data points: (mistakeIndex, elo)
 	dataPoints := []struct {
 		mi  float64
@@ -422,12 +422,12 @@ func estimateELO(mistakeIndex float64) string {
 
 	// Handle edge cases
 	if mistakeIndex <= 0 {
-		return "2300"
+		return 2300.0
 	}
 	if mistakeIndex > 4.2 {
 		// Use formula: 1650 - 125(x - 4.2)
 		elo := 1650.0 - 125.0*(mistakeIndex-4.2)
-		return fmt.Sprintf("%d", int(elo+0.5)) // Round to nearest int
+		return elo
 	}
 
 	// Find bracketing points and interpolate
@@ -438,10 +438,18 @@ func estimateELO(mistakeIndex float64) string {
 			// Linear interpolation
 			t := (mistakeIndex - lower.mi) / (upper.mi - lower.mi)
 			elo := float64(lower.elo) + t*(float64(upper.elo)-float64(lower.elo))
-			return fmt.Sprintf("%d", int(elo+0.5)) // Round to nearest int
+			return elo
 		}
 	}
-	return "1650"
+	return 1650.0
+}
+
+// isBingo returns true if the move is a bingo (plays 7 tiles)
+func isBingo(m *move.Move) bool {
+	if m == nil {
+		return false
+	}
+	return m.BingoPlayed()
 }
 
 // determinePhase determines the game phase based on tiles in bag
@@ -552,6 +560,11 @@ func (a *Analyzer) analyzeWithSim(ctx context.Context, g *game.Game, analysis *T
 
 	analysis.WinProbLoss = analysis.OptimalWinProb - analysis.PlayedWinProb
 	analysis.WasOptimal = analysis.OptimalMove.Equals(analysis.PlayedMove, false, true)
+
+	// Set bingo flags
+	analysis.OptimalIsBingo = isBingo(analysis.OptimalMove)
+	analysis.PlayedIsBingo = isBingo(analysis.PlayedMove)
+	analysis.MissedBingo = analysis.OptimalIsBingo && !analysis.PlayedIsBingo
 
 	return nil
 }
@@ -667,6 +680,11 @@ func (a *Analyzer) analyzeWithPEG(ctx context.Context, g *game.Game, analysis *T
 		}
 	}
 
+	// Set bingo flags
+	analysis.OptimalIsBingo = isBingo(analysis.OptimalMove)
+	analysis.PlayedIsBingo = isBingo(analysis.PlayedMove)
+	analysis.MissedBingo = analysis.OptimalIsBingo && !analysis.PlayedIsBingo
+
 	return nil
 }
 
@@ -744,6 +762,11 @@ func (a *Analyzer) analyzeWithEndgame(ctx context.Context, g *game.Game, analysi
 		}
 	}
 
+	// Set bingo flags
+	analysis.OptimalIsBingo = isBingo(analysis.OptimalMove)
+	analysis.PlayedIsBingo = isBingo(analysis.PlayedMove)
+	analysis.MissedBingo = analysis.OptimalIsBingo && !analysis.PlayedIsBingo
+
 	return nil
 }
 
@@ -779,6 +802,24 @@ func (a *Analyzer) calculatePlayerSummaries(result *GameAnalysisResult) {
 
 			// Add mistake points to the mistake index
 			summary.MistakeIndex += mistakePoints(turn.MistakeCategory)
+
+			// Count mistakes by size
+			switch turn.MistakeCategory {
+			case "Small":
+				summary.SmallMistakes++
+			case "Medium":
+				summary.MediumMistakes++
+			case "Large":
+				summary.LargeMistakes++
+			}
+
+			// Count available and missed bingos
+			if turn.OptimalIsBingo {
+				summary.AvailableBingos++
+				if turn.MissedBingo {
+					summary.MissedBingos++
+				}
+			}
 		}
 
 		if winProbCount > 0 {

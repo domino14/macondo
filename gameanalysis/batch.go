@@ -20,7 +20,11 @@ type BatchPlayerStats struct {
 	TotalLarge      int     // Large mistakes count
 	TotalMistakeIdx float64 // Sum of mistake indices
 	AvgMistakeIndex float64 // Average mistake index
-	AvgEstimatedELO string  // Average estimated ELO
+	AvgEstimatedELO float64 // Average estimated ELO
+
+	// Bingo tracking
+	TotalAvailableBingos int // Total number of bingo opportunities
+	TotalMissedBingos    int // Total number of missed bingos
 }
 
 // BatchAnalysisResult represents the aggregate results of analyzing multiple games
@@ -71,6 +75,8 @@ func (b *BatchAnalysisResult) AddGameResult(gameResult *BatchGameResult) {
 			stats.TotalTurns += playerSummary.TurnsPlayed
 			stats.TotalOptimal += playerSummary.OptimalMoves
 			stats.TotalMistakeIdx += playerSummary.MistakeIndex
+			stats.TotalAvailableBingos += playerSummary.AvailableBingos
+			stats.TotalMissedBingos += playerSummary.MissedBingos
 
 			// Count mistake categories from turns
 			for _, turn := range gameResult.Result.Turns {
@@ -95,8 +101,6 @@ func (b *BatchAnalysisResult) CalculateAverages() {
 		if stats.GamesPlayed > 0 {
 			stats.AvgMistakeIndex = stats.TotalMistakeIdx / float64(stats.GamesPlayed)
 			stats.AvgEstimatedELO = estimateELO(stats.AvgMistakeIndex)
-		} else {
-			stats.AvgEstimatedELO = "N/A"
 		}
 	}
 }

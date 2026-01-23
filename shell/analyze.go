@@ -165,26 +165,7 @@ func (sc *ShellController) formatAnalysisResults(result *gameanalysis.GameAnalys
 	sb.WriteString("\n\n")
 
 	// Player summaries
-	sb.WriteString(fmt.Sprintf("%-15s  %-6s  %-8s  %-14s  %-14s  %-13s  %-8s\n",
-		"Player", "Turns", "Optimal", "Avg Win% Loss", "Avg Spd Loss", "Mistake Index", "Est. ELO"))
-	sb.WriteString(strings.Repeat("-", 95))
-	sb.WriteString("\n")
-
-	for i := 0; i < 2; i++ {
-		summary := result.PlayerSummaries[i]
-		if summary.TurnsPlayed == 0 {
-			continue
-		}
-
-		sb.WriteString(fmt.Sprintf("%-15s  %-6d  %-8d  %-14s  %-14s  %-13s  %-8s\n",
-			summary.PlayerName,
-			summary.TurnsPlayed,
-			summary.OptimalMoves,
-			fmt.Sprintf("%.1f%%", summary.AvgWinProbLoss*100),
-			fmt.Sprintf("%.1f", summary.AvgSpreadLoss),
-			fmt.Sprintf("%.1f", summary.MistakeIndex),
-			summary.EstimatedELO))
-	}
+	sb.WriteString(formatPlayerSummaries(result.PlayerSummaries))
 
 	sb.WriteString("\n")
 
@@ -210,6 +191,44 @@ func (sc *ShellController) formatAnalysisResults(result *gameanalysis.GameAnalys
 	sb.WriteString("  ⚠️ Phony = Played unchallenged phony\n")
 	sb.WriteString("  ❌ Missed challenge = Failed to challenge opponent's phony\n")
 	sb.WriteString("  💥 Blown endgame = Mistake changed winning position to loss/tie\n")
+
+	return sb.String()
+}
+
+// formatPlayerSummaries formats player summary statistics (shared between single and batch analysis)
+func formatPlayerSummaries(summaries [2]*gameanalysis.PlayerSummary) string {
+	var sb strings.Builder
+
+	sb.WriteString(fmt.Sprintf("%-15s  %-6s  %-8s  %-14s  %-14s  %-13s  %-10s  %-12s\n",
+		"Player", "Turns", "Optimal", "Avg Win% Loss", "Avg Spd Loss", "Mistake Index", "Est. ELO", "Bingo Rate"))
+	sb.WriteString(strings.Repeat("-", 110))
+	sb.WriteString("\n")
+
+	for i := 0; i < 2; i++ {
+		summary := summaries[i]
+		if summary.TurnsPlayed == 0 {
+			continue
+		}
+
+		// Calculate bingo rate
+		bingoRate := "-"
+		if summary.AvailableBingos > 0 {
+			bingosMade := summary.AvailableBingos - summary.MissedBingos
+			bingoRate = fmt.Sprintf("%d/%d (%.0f%%)",
+				bingosMade, summary.AvailableBingos,
+				100.0*float64(bingosMade)/float64(summary.AvailableBingos))
+		}
+
+		sb.WriteString(fmt.Sprintf("%-15s  %-6d  %-8d  %-14s  %-14s  %-13s  %-10.0f  %-12s\n",
+			summary.PlayerName,
+			summary.TurnsPlayed,
+			summary.OptimalMoves,
+			fmt.Sprintf("%.1f%%", summary.AvgWinProbLoss*100),
+			fmt.Sprintf("%.1f", summary.AvgSpreadLoss),
+			fmt.Sprintf("%.2f", summary.MistakeIndex),
+			summary.EstimatedELO,
+			bingoRate))
+	}
 
 	return sb.String()
 }
