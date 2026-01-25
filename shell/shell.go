@@ -804,7 +804,7 @@ func (sc *ShellController) initializeVariationTree() {
 	// For each turn in the main line, create a node with the full history
 	for turnNum := 0; turnNum < len(history.Events); turnNum++ {
 		// Create a copy of the full game (with complete history)
-		sc.game.PlayToTurn(originalTurn) // Restore full history position
+		sc.game.PlayToTurn(originalTurn)               // Restore full history position
 		fullGameCopy := sc.game.Game.CopyWithHistory() // Deep copy with independent history
 		botCopy, _ := bot.NewBotTurnPlayerFromGame(fullGameCopy, &bot.BotConfig{Config: *sc.config}, pb.BotRequest_HASTY_BOT)
 
