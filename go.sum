@@ -111,8 +111,8 @@ github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc/go.mod h1:J7Y8Yc
 github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f h1:lO4WD4F/rVNCu3HqELle0jiPLLBs70cWOduZpkS1E78=
 github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f/go.mod h1:cuUVRXasLTGF7a8hSLbxyZXjz+1KgoB3wDUb6vlszIc=
 github.com/disintegration/imaging v1.6.0/go.mod h1:xuIt+sRxDFrHS0drzXUlCJthkJ8k7lkkUojDSR247MQ=
-github.com/domino14/word-golib v0.2.18 h1:kyKcjFwluwk8ERA5nJs0mK86bVjhTacuhDDm7X60dzU=
-github.com/domino14/word-golib v0.2.18/go.mod h1:jMCDzZSsxBZMa3JB/FwiZCXXCv52S2X6dL5UinW8V1I=
+github.com/domino14/word-golib v0.2.19 h1:LFUeTdufNNbPMx/GqNbTVE2exfCOX+0wtppmfderraA=
+github.com/domino14/word-golib v0.2.19/go.mod h1:JA2pCy6BuNzlc1Ix2pCwAxDE1k6xybfwDqq+yfKRl/Y=
 github.com/dustin/go-humanize v1.0.0/go.mod h1:HtrtbFcZ19U5GC7JDqmcUSB87Iq5E25KnS6fMYU6eOk=
 github.com/envoyproxy/go-control-plane v0.9.0/go.mod h1:YTl/9mNaCwkRvm6d1a2C3ymFceY/DCBVvsKhRF0iEA4=
 github.com/envoyproxy/go-control-plane v0.9.1-0.20191026205805-5f8ba28d4473/go.mod h1:YTl/9mNaCwkRvm6d1a2C3ymFceY/DCBVvsKhRF0iEA4=

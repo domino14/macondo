@@ -1,3 +1,16 @@
 *.csv.gz
 *.csv
 notebooks/*
+pytorch
+pytorch/*
+cmd/*
+bin
+bin/*
+*.png
+*.txt
+.git
+.gitignore
+macondo-simlog
+macondo-endgamelog
+endgame
+preendgame
