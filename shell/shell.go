@@ -173,6 +173,12 @@ type ShellController struct {
 
 	macondoVersion string
 	aiexplainer    *explainer.Service
+
+	// Volunteer mode state
+	volunteerMode   bool
+	volunteerStop   bool // Signal to stop after current job
+	volunteerCtx    context.Context
+	volunteerCancel context.CancelFunc
 }
 
 type Mode int
@@ -1684,6 +1690,10 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.analyzeBatch(cmd)
 	case "autoanalyze":
 		return sc.autoAnalyze(cmd)
+	case "volunteer":
+		return sc.volunteer(cmd)
+	case "speedtest":
+		return sc.speedtest(cmd)
 	case "script":
 		return sc.script(cmd)
 	case "gid":

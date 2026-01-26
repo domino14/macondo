@@ -1885,6 +1885,80 @@ func (sc *ShellController) runSimulationForExplain(options CmdOptions) error {
 	return nil
 }
 
+// speedtest runs a brief simulation to measure computer performance
+func (sc *ShellController) speedtest(cmd *shellcmd) (*Response, error) {
+	// Save current game state
+	savedGame := sc.game
+	savedOptions := sc.options
+	defer func() {
+		// Restore game state
+		sc.game = savedGame
+		sc.options = savedOptions
+	}()
+
+	// Create a new options object for the test
+	sc.options = NewShellOptions()
+
+	// Load test CGP with lexicon NWL23
+	cgpStr := "15/15/15/15/15/15/15/15/15/15/15/15/15/15/15 ABEOQRU/BEEFGIR 0/0 0 lex NWL23; ld english;"
+	err := sc.loadCGP(cgpStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load test position: %w", err)
+	}
+
+	// Generate moves (top 40 for testing)
+	sc.genMoves(40)
+
+	if len(sc.curPlayList) == 0 {
+		return nil, errors.New("no moves generated for test position")
+	}
+
+	// Set up simmer with 5 plies and autostop at 99%
+	params := simParams{
+		threads:           runtime.NumCPU(),
+		plies:             5,
+		stoppingCondition: montecarlo.Stop99,
+	}
+
+	err = sc.setSimmerParams(sc.simmer, params)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare simulation: %w", err)
+	}
+
+	// Record start time and node count
+	startTime := time.Now()
+	startNodes := sc.simmer.NodeCount()
+
+	// Create a context with 10-second timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Run simulation
+	err = sc.simmer.Simulate(ctx)
+	if err != nil && err != context.DeadlineExceeded && err != context.Canceled {
+		return nil, fmt.Errorf("simulation failed: %w", err)
+	}
+
+	// Calculate elapsed time and nodes processed
+	elapsed := time.Since(startTime)
+	endNodes := sc.simmer.NodeCount()
+	nodesProcessed := endNodes - startNodes
+
+	// Calculate nodes per second
+	nps := float64(nodesProcessed) / elapsed.Seconds()
+
+	// Clean up
+	sc.simmer.Reset()
+
+	// Report results
+	if nps < 7500 {
+		return msg(fmt.Sprintf("Your computer achieved %.0f nodes/sec. This is below the recommended 7500 nps.\n"+
+			"Your computer may be too slow for volunteering, or you may want to close other applications.", nps)), nil
+	}
+
+	return msg(fmt.Sprintf("Your computer achieved %.0f nodes/sec. You're good to volunteer!", nps)), nil
+}
+
 // parseSimOptions parses command-line style options into CmdOptions
 func parseSimOptions(fields []string) CmdOptions {
 	fmt.Println("PARSESIMOPTIONS", fields)

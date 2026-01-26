@@ -1,0 +1,23 @@
+volunteer - Donate your computer's processing power to analyze Woogles games
+
+Usage:
+    volunteer           Start volunteer mode (begin polling for jobs)
+    volunteer stop      Stop polling after current job completes
+
+Before volunteering:
+    1. Set your Woogles API key: setconfig woogles-api-key YOUR_API_KEY
+    2. Unload any active game: unload
+    3. Run speedtest to check your computer: speedtest
+
+While volunteering:
+    - Your computer will poll for analysis jobs every 30 seconds
+    - When a job is found, Macondo will analyze the game automatically
+    - Polling pauses during analysis and resumes when complete
+    - Avoid running other computationally heavy tasks
+
+To stop:
+    - Use `volunteer stop` to finish current job and stop gracefully
+    - Only quit the shell directly if you absolutely must
+    - Quitting mid-job may cause the job to be reassigned to another volunteer
+
+Thank you for contributing to the Woogles community!

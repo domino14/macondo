@@ -41,8 +41,11 @@ Other:
     mode [modename] - Macondo can be in a number of a different modes. The default
       mode is 'standard'. In other modes, other commands are accepted. See
       `help mode` for a list of modes.
-    volunteer - You can donate your computer power to help Macondo improve.
-    Type in `help volunteer` to learn more.
+
+Volunteering:
+    speedtest - check if your computer is fast enough to volunteer
+    volunteer - donate your computer's processing power to analyze Woogles games
+      Type `help volunteer` or `help speedtest` to learn more.
 
 
 try help <command> with any of the above commands for more info

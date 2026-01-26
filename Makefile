@@ -1,6 +1,6 @@
 everything: all wasm
 
-all: macondo_shell macondo_bot bot_shell analyze mlproducer
+all: macondo_shell macondo_bot bot_shell analyze mlproducer analyzer_worker
 
 .PHONY: wasm
 
@@ -25,6 +25,9 @@ bot_shell:
 
 mlproducer:
 	go build -trimpath -o bin/mlproducer cmd/mlproducer/*.go
+
+analyzer_worker:
+	go build -trimpath -o bin/analyzer-worker cmd/analyzer-worker/main.go
 
 # wasm:
 # 	GOOS=js GOARCH=wasm go build -trimpath -o ../liwords/liwords-ui/public/wasm/macondo.wasm wasm/*.go

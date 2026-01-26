@@ -1,0 +1,13 @@
+speedtest - Check if your computer is fast enough to volunteer
+
+Usage:
+    speedtest
+
+This command runs a brief simulation to measure your computer's performance
+in nodes per second (nps). A minimum of 7500 nps is recommended for
+volunteering.
+
+If your computer is too slow, try:
+    - Closing other applications
+    - Ensuring your computer is plugged in (not on battery)
+    - Using a more powerful computer
