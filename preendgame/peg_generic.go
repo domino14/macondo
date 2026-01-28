@@ -177,23 +177,23 @@ func (s *Solver) maybeTiebreak(ctx context.Context, maybeInBagTiles []int) error
 	numWinners := i + 1
 
 	topPlayIdxs := []int{}
-	// only tiebreak plays that empty the bag.
+	// only tiebreak plays that empty the bag OR are marked as avoid-prune.
 	for i := range numWinners {
-		if s.plays[i].Play.TilesPlayed() >= s.numinbag {
+		if s.plays[i].Play.TilesPlayed() >= s.numinbag || s.shouldAvoidPrune(s.plays[i].Play) {
 			topPlayIdxs = append(topPlayIdxs, i)
 		}
 	}
 	if len(topPlayIdxs) == 1 {
-		log.Info().Str("winner", s.plays[topPlayIdxs[0]].String()).Msg("only one winner empties the bag")
+		log.Info().Str("winner", s.plays[topPlayIdxs[0]].String()).Msg("only one winner empties the bag or is avoid-prune")
 		// Bring winner to the front.
 		s.plays[topPlayIdxs[0]], s.plays[0] = s.plays[0], s.plays[topPlayIdxs[0]]
 		return nil
 	} else if len(topPlayIdxs) == 0 {
-		log.Info().Str("winner", s.plays[0].String()).Msg("all winners do not empty the bag; will not tiebreak by spread")
+		log.Info().Str("winner", s.plays[0].String()).Msg("all winners do not empty the bag and are not avoid-prune; will not tiebreak by spread")
 		return nil
 	} else if len(topPlayIdxs) != numWinners {
 		log.Info().Int("ndiscarded", numWinners-len(topPlayIdxs)).
-			Msg("non-bag-emptying plays are discarded for tiebreaks")
+			Msg("non-bag-emptying, non-avoid-prune plays are discarded for tiebreaks")
 	}
 
 	// There is more than one winning play.
@@ -203,9 +203,35 @@ func (s *Solver) maybeTiebreak(ctx context.Context, maybeInBagTiles []int) error
 		return s.plays[topPlayIdxs[i]].Play.Score() > s.plays[topPlayIdxs[j]].Play.Score()
 	})
 
+	// Ensure avoid-prune plays are always included in tiebreak, even beyond the limit
+	// Only search within the winners (plays tied for highest win%)
+	avoidPruneIdxs := []int{}
+	for i := range numWinners {
+		if s.shouldAvoidPrune(s.plays[i].Play) {
+			avoidPruneIdxs = append(avoidPruneIdxs, i)
+		}
+	}
+
 	topN := min(len(topPlayIdxs), TieBreakerPlays)
-	log.Info().Msgf("%d plays tied for first, taking top %d and tie-breaking...", len(topPlayIdxs), topN)
-	topPlayIdxs = topPlayIdxs[:topN]
+	finalIdxs := topPlayIdxs[:topN]
+
+	// Add any avoid-prune plays that aren't already in the top N
+	for _, idx := range avoidPruneIdxs {
+		found := false
+		for _, topIdx := range finalIdxs {
+			if idx == topIdx {
+				found = true
+				break
+			}
+		}
+		if !found {
+			finalIdxs = append(finalIdxs, idx)
+		}
+	}
+
+	log.Info().Msgf("%d plays tied for first, taking top %d and tie-breaking (including %d avoid-prune plays)...",
+		len(topPlayIdxs), len(finalIdxs), len(avoidPruneIdxs))
+	topPlayIdxs = finalIdxs
 
 	// We want to solve these endgames fully (to get an accurate spread)
 	for _, es := range s.endgameSolvers {
@@ -495,7 +521,9 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 	// fmt.Println(strings.Repeat(" ", depth), "entered recursive solve, inbag:",
 	// 	tilemapping.MachineWord(inbagOption.mls).UserVisible(g.Alphabet()))
 	// Quit early if we already have a loss for this bag option.
-	if pegPlay.HasLoss(inbagOption.mls) {
+	// However, during tiebreak (fullSolve=true), we need to calculate spread values
+	// even for known losses, so we skip this optimization.
+	if pegPlay.HasLoss(inbagOption.mls) && !fullSolve {
 		if s.logStream != nil {
 			s.threadLogs[thread].Options[inbagOption.idx].CutoffBecauseAlreadyLoss = true
 		}

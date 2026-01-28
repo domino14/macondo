@@ -39,6 +39,7 @@ const (
 	ConfigGeminiApiKey                     = "gemini-api-key"
 	ConfigOpenaiApiKey                     = "openai-api-key"
 	ConfigDeepseekApiKey                   = "deepseek-api-key"
+	ConfigWooglesApiKey                    = "woogles-api-key"
 	ConfigAliases                          = "aliases"
 )
 
@@ -111,6 +112,7 @@ func (c *Config) Load(args []string) error {
 	c.BindEnv(ConfigGeminiApiKey)
 	c.BindEnv(ConfigOpenaiApiKey)
 	c.BindEnv(ConfigDeepseekApiKey)
+	c.BindEnv(ConfigWooglesApiKey)
 
 	cfgdir, err := os.UserConfigDir()
 	if err != nil {
@@ -163,6 +165,7 @@ func (c *Config) Load(args []string) error {
 	c.SetDefault(ConfigGeminiApiKey, "")
 	c.SetDefault(ConfigOpenaiApiKey, "")
 	c.SetDefault(ConfigDeepseekApiKey, "")
+	c.SetDefault(ConfigWooglesApiKey, "")
 
 	return nil
 }
@@ -205,6 +208,7 @@ func (c *Config) SanitizedSettings() map[string]interface{} {
 		ConfigGeminiApiKey,
 		ConfigOpenaiApiKey,
 		ConfigDeepseekApiKey,
+		ConfigWooglesApiKey,
 	}
 
 	for _, field := range apiKeyFields {

@@ -28,10 +28,12 @@ var exports = map[string]lua.LGFunction{
 	"gamestate": gamestate,
 
 	// Synchronous versions (preferred for scripts)
-	"endgame": endgameSync, // sync by default
-	"peg":     pegSync,     // sync by default
-	"sim":     simSync,     // sync by default
-	"infer":   inferSync,   // sync by default
+	"endgame":       endgameSync, // sync by default
+	"peg":           pegSync,     // sync by default
+	"sim":           simSync,     // sync by default
+	"infer":         inferSync,   // sync by default
+	"analyze":       analyze,     // game analysis
+	"analyze-batch": analyzeBatch, // batch game analysis
 
 	// Async versions (for advanced use cases)
 	"endgame_async": endgameAsync,
@@ -310,6 +312,44 @@ func inferSync(L *lua.LState) int {
 	r, err := sc.inferSync(cmd)
 	if err != nil {
 		log.Err(err).Msg("error-executing-infer")
+		L.Push(lua.LString("ERROR: " + err.Error()))
+		return 1
+	}
+	L.Push(lua.LString(r.message))
+	return 1
+}
+
+func analyze(L *lua.LState) int {
+	lv := L.ToString(1)
+	sc := getShell(L)
+	cmd, err := extractFields("analyze " + lv)
+	if err != nil {
+		log.Err(err).Msg("error-parsing-analyze")
+		L.Push(lua.LString("ERROR: " + err.Error()))
+		return 1
+	}
+	r, err := sc.analyze(cmd)
+	if err != nil {
+		log.Err(err).Msg("error-executing-analyze")
+		L.Push(lua.LString("ERROR: " + err.Error()))
+		return 1
+	}
+	L.Push(lua.LString(r.message))
+	return 1
+}
+
+func analyzeBatch(L *lua.LState) int {
+	lv := L.ToString(1)
+	sc := getShell(L)
+	cmd, err := extractFields("analyze-batch " + lv)
+	if err != nil {
+		log.Err(err).Msg("error-parsing-analyze-batch")
+		L.Push(lua.LString("ERROR: " + err.Error()))
+		return 1
+	}
+	r, err := sc.analyzeBatch(cmd)
+	if err != nil {
+		log.Err(err).Msg("error-executing-analyze-batch")
 		L.Push(lua.LString("ERROR: " + err.Error()))
 		return 1
 	}

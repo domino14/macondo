@@ -173,6 +173,12 @@ type ShellController struct {
 
 	macondoVersion string
 	aiexplainer    *explainer.Service
+
+	// Volunteer mode state
+	volunteerMode   bool
+	volunteerStop   bool // Signal to stop after current job
+	volunteerCtx    context.Context
+	volunteerCancel context.CancelFunc
 }
 
 type Mode int
@@ -845,68 +851,15 @@ func (sc *ShellController) loadGCG(args []string) error {
 		if len(args) < 2 {
 			return errors.New("need to provide a cross-tables game id")
 		}
-		idstr := args[1]
-		id, err := strconv.Atoi(idstr)
-		if err != nil {
-			return errors.New("badly formatted game ID")
-		}
-		prefix := strconv.Itoa(id / 100)
-		xtpath := "https://www.cross-tables.com/annotated/selfgcg/" + prefix +
-			"/anno" + idstr + ".gcg"
-
-		log.Info().Str("xtpath", xtpath).Msg("fetching")
-		req, err := http.NewRequest("GET", xtpath, nil)
+		history, err = sc.loadGameHistoryFromCrossTables(args[1])
 		if err != nil {
 			return err
 		}
-
-		req.Header.Set("User-Agent", fmt.Sprintf("Macondo / v%v", sc.macondoVersion))
-		client := &http.Client{}
-		resp, err := client.Do(req)
-		if err != nil {
-			return err
-		}
-		if resp.StatusCode >= 400 {
-			return errors.New("bad status code: " + resp.Status)
-		}
-		defer resp.Body.Close()
-
-		history, err = gcgio.ParseGCGFromReader(sc.config, resp.Body)
-		if err != nil {
-			return err
-		}
-
 	} else if args[0] == "woogles" {
 		if len(args) < 2 {
 			return errors.New("need to provide a woogles game id")
 		}
-		idstr := args[1]
-		path := "https://woogles.io/api/game_service.GameMetadataService/GetGCG"
-
-		reader := strings.NewReader(`{"gameId": "` + idstr + `"}`)
-
-		resp, err := http.Post(path, "application/json", reader)
-		if err != nil {
-			return err
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return err
-		}
-
-		type gcgstruct struct {
-			Gcg string `json:"gcg"`
-		}
-		var gcgObj gcgstruct
-
-		err = json.Unmarshal(body, &gcgObj)
-		if err != nil {
-			return err
-		}
-
-		history, err = gcgio.ParseGCGFromReader(sc.config, strings.NewReader(gcgObj.Gcg))
+		history, err = sc.loadGameHistoryFromWoogles(args[1])
 		if err != nil {
 			return err
 		}
@@ -914,29 +867,12 @@ func (sc *ShellController) loadGCG(args []string) error {
 		if len(args) < 2 {
 			return errors.New("need to provide a web URL")
 		}
-		path := args[1]
-
-		resp, err := http.Get(path)
-		if err != nil {
-			return err
-		}
-		defer resp.Body.Close()
-
-		history, err = gcgio.ParseGCGFromReader(sc.config, resp.Body)
+		history, err = sc.loadGameHistoryFromWeb(args[1])
 		if err != nil {
 			return err
 		}
 	} else {
-		path := args[0]
-		if strings.HasPrefix(path, "~/") {
-			usr, err := user.Current()
-			if err != nil {
-				return err
-			}
-			dir := usr.HomeDir
-			path = filepath.Join(dir, path[2:])
-		}
-		history, err = gcgio.ParseGCG(sc.config, path)
+		history, err = sc.loadGameHistoryFromFile(args[0])
 		if err != nil {
 			return err
 		}
@@ -974,6 +910,91 @@ func (sc *ShellController) loadGCG(args []string) error {
 	sc.game.SetChallengeRule(pb.ChallengeRule_DOUBLE)
 
 	return sc.initGameDataStructures()
+}
+
+// loadGameHistoryFromWoogles loads a game from Woogles by game ID
+func (sc *ShellController) loadGameHistoryFromWoogles(gameID string) (*pb.GameHistory, error) {
+	path := "https://woogles.io/api/game_service.GameMetadataService/GetGCG"
+	reader := strings.NewReader(`{"gameId": "` + gameID + `"}`)
+
+	resp, err := http.Post(path, "application/json", reader)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	type gcgstruct struct {
+		Gcg string `json:"gcg"`
+	}
+	var gcgObj gcgstruct
+
+	err = json.Unmarshal(body, &gcgObj)
+	if err != nil {
+		return nil, err
+	}
+
+	return gcgio.ParseGCGFromReader(sc.config, strings.NewReader(gcgObj.Gcg))
+}
+
+// loadGameHistoryFromCrossTables loads a game from Cross-tables by game ID
+func (sc *ShellController) loadGameHistoryFromCrossTables(gameIDStr string) (*pb.GameHistory, error) {
+	id, err := strconv.Atoi(gameIDStr)
+	if err != nil {
+		return nil, errors.New("badly formatted game ID")
+	}
+
+	prefix := strconv.Itoa(id / 100)
+	xtpath := "https://www.cross-tables.com/annotated/selfgcg/" + prefix +
+		"/anno" + gameIDStr + ".gcg"
+
+	log.Info().Str("xtpath", xtpath).Msg("fetching")
+	req, err := http.NewRequest("GET", xtpath, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("User-Agent", fmt.Sprintf("Macondo / v%v", sc.macondoVersion))
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 400 {
+		return nil, errors.New("bad status code: " + resp.Status)
+	}
+	defer resp.Body.Close()
+
+	return gcgio.ParseGCGFromReader(sc.config, resp.Body)
+}
+
+// loadGameHistoryFromWeb loads a game from a web URL
+func (sc *ShellController) loadGameHistoryFromWeb(url string) (*pb.GameHistory, error) {
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	return gcgio.ParseGCGFromReader(sc.config, resp.Body)
+}
+
+// loadGameHistoryFromFile loads a game from a local GCG file
+func (sc *ShellController) loadGameHistoryFromFile(path string) (*pb.GameHistory, error) {
+	if strings.HasPrefix(path, "~/") {
+		usr, err := user.Current()
+		if err != nil {
+			return nil, err
+		}
+		dir := usr.HomeDir
+		path = filepath.Join(dir, path[2:])
+	}
+
+	return gcgio.ParseGCG(sc.config, path)
 }
 
 func (sc *ShellController) loadCGP(cgpstr string) error {
@@ -1499,6 +1520,10 @@ func extractFields(line string) (*shellcmd, error) {
 
 		// Only treat as option if it starts with '-' and is not a negative number and is not a single dash
 		if strings.HasPrefix(fields[idx], "-") && len(fields[idx]) > 1 && (fields[idx][1] < '0' || fields[idx][1] > '9') {
+			// If we had a previous option waiting for a value, treat it as a boolean flag
+			if lastWasOption {
+				options[lastOption] = append(options[lastOption], "true")
+			}
 			// option
 			lastWasOption = true
 			lastOption = fields[idx][1:]
@@ -1510,6 +1535,10 @@ func extractFields(line string) (*shellcmd, error) {
 		} else {
 			args = append(args, fields[idx])
 		}
+	}
+	// Handle boolean flags (flags without values at the end)
+	if lastWasOption {
+		options[lastOption] = append(options[lastOption], "true")
 	}
 	log.Debug().Msgf("cmd: %v, args: %v, options: %v", args, options, cmd)
 
@@ -1655,8 +1684,16 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.export(cmd)
 	case "render":
 		return sc.render3D(cmd)
+	case "analyze":
+		return sc.analyze(cmd)
+	case "analyze-batch":
+		return sc.analyzeBatch(cmd)
 	case "autoanalyze":
 		return sc.autoAnalyze(cmd)
+	case "volunteer":
+		return sc.volunteer(cmd)
+	case "speedtest":
+		return sc.speedtest(cmd)
 	case "script":
 		return sc.script(cmd)
 	case "gid":

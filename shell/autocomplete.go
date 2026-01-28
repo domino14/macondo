@@ -68,6 +68,9 @@ var commandMetadata = map[string]CommandMetadata{
 			"triton-model-version",
 		},
 	},
+	"analyze": {
+		Options: []string{"-player"},
+	},
 	"autoanalyze": {
 		Options: []string{"-count", "-single-turn-only"},
 	},
@@ -93,8 +96,9 @@ var commandNames = []string{
 	"help", "alias", "new", "load", "unload", "last", "n", "p", "s",
 	"name", "note", "turn", "rack", "set", "setconfig", "gen", "autoplay",
 	"sim", "infer", "add", "challenge", "commit", "aiplay", "hastyplay",
-	"selftest", "list", "endgame", "peg", "mode", "export", "render", "autoanalyze",
-	"script", "gid", "leave", "cgp", "check", "explain", "exit", "var", "variation",
+	"selftest", "list", "endgame", "peg", "mode", "export", "render", "analyze",
+	"autoanalyze", "script", "gid", "leave", "cgp", "check", "explain", "exit",
+	"var", "variation",
 }
 
 // Common values for certain option types

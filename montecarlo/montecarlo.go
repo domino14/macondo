@@ -681,6 +681,10 @@ func (s *Simmer) Iterations() int {
 	return int(s.iterationCount.Load())
 }
 
+func (s *Simmer) NodeCount() uint64 {
+	return s.nodeCount.Load()
+}
+
 func (s *Simmer) TrimBottom(totrim int) error {
 	if s.simming {
 		return errors.New("please stop sim before trimming plays")

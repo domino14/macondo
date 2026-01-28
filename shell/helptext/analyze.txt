@@ -1,0 +1,70 @@
+analyze [options] - Analyze every move in a loaded game
+
+Example:
+    analyze
+    analyze -player 0
+    analyze -player "nickname"
+
+This command analyzes every move in the currently loaded game, comparing the
+played move to the optimal move using phase-appropriate analysis:
+  - Early/mid game (>7 tiles in bag): Monte Carlo simulation
+  - Early pre-endgame (2-7 tiles in bag): More thorough simulation
+  - Pre-endgame (1 tile in bag): PEG solver
+  - Endgame (0 tiles in bag): Negamax solver
+
+The analysis shows:
+  - The move that was played vs the optimal move
+  - Win probability loss (or spread loss in endgame)
+  - Phony detection and missed challenges
+  - Per-player accuracy statistics
+
+Note: This command requires a game to be loaded. Use `load` to load a GCG file
+or `load woogles <game-id>` to load a game from Woogles.
+
+Options:
+
+    -player 0
+
+    Analyze only moves by player 0 (the first player). This can speed up
+    analysis if you're only interested in one player's performance.
+
+    -player 1
+
+    Analyze only moves by player 1 (the second player).
+
+    -player "nickname"
+
+    Analyze only moves by the player with the specified nickname. The nickname
+    must match exactly (case-sensitive).
+
+Output:
+
+The command produces a table showing:
+  - Turn number
+  - Player name
+  - Rack
+  - Played move
+  - Optimal move
+  - Win% loss (or spread loss in endgame)
+  - Game phase (Early, EarlyPE, PEG, or Endgame)
+  - Notes (phony warnings, missed challenges, etc.)
+
+Followed by a summary table showing per-player statistics:
+  - Total turns played
+  - Number of optimal moves
+  - Average win% loss
+  - Average spread loss
+  - Mistake Index
+
+The analysis automatically detects phonies by checking words against the
+lexicon and flags unchallenged phonies and missed challenges.
+
+Mistake Index:
+
+0.2 pts for a small mistake, 0.5 pts for a medium mistake, 1.0 pts for a
+large mistake.
+
+You can read more about the Mistake Index here:
+https://nbaniac.com/odds-overview
+
+Thanks to Joey Krafchick for his methodology.
