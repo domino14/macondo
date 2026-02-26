@@ -381,6 +381,7 @@ func (sc *ShellController) initGameDataStructures() error {
 	if sc.simmer != nil {
 		sc.simmer.CleanupTempFile()
 	}
+	sc.curPlayList = nil
 	sc.simmer = &montecarlo.Simmer{}
 	sc.simStats = stats.NewSimStats(sc.simmer, sc.game)
 

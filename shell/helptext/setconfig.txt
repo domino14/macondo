@@ -14,7 +14,8 @@ setconfig <key> <value> - Set a configuration value and save to config file
   - debug: Enable debug logging (true/false)
   - data-path: Path to data directory
   - default-lexicon: Default lexicon to use (e.g., NWL23, CSW19)
-  - genai-provider: AI provider for explainer (gemini/openai)
+  - genai-provider: AI provider for explainer (gemini/openai/deepseek)
+  - openai-base-url: Override OpenAI API endpoint (e.g. http://127.0.0.1:1234/v1 for LM Studio)
   - gemini-api-key: API key for Gemini
   - openai-api-key: API key for OpenAI
   - gemini-model: Gemini model name

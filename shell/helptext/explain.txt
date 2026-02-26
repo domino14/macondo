@@ -32,4 +32,14 @@ explain [options] - Generate AI explanation for the current position
   - setconfig gemini-api-key <key>      (or openai-api-key, or deepseek-api-key)
   - setconfig gemini-model <model>      (or openai-model, or deepseek-model)
 
+  Local LLM (LM Studio, Ollama, vLLM, etc.):
+  Any OpenAI-compatible local server works by pointing the openai provider at it:
+  - setconfig genai-provider openai
+  - setconfig openai-base-url http://127.0.0.1:1234/v1   (LM Studio default port)
+  - setconfig openai-model <model-id>   (copy the model ID shown in LM Studio)
+  No API key is required for local servers.
+
+  Note: tool-calling support depends on the local model. Models with function-
+  calling capability (e.g. Llama 3.1+, Mistral, Gemma 3) work best.
+
   See `help setconfig` for more configuration options.

@@ -38,6 +38,7 @@ const (
 	ConfigDeepseekModel                    = "deepseek-model"
 	ConfigGeminiApiKey                     = "gemini-api-key"
 	ConfigOpenaiApiKey                     = "openai-api-key"
+	ConfigOpenaiBaseURL                    = "openai-base-url"
 	ConfigDeepseekApiKey                   = "deepseek-api-key"
 	ConfigWooglesApiKey                    = "woogles-api-key"
 	ConfigAliases                          = "aliases"
