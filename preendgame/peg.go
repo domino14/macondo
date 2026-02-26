@@ -422,7 +422,7 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 	var winners []*PreEndgamePlay
 	var err error
 
-	s.movegen = movegen.NewGordonGenerator(s.gaddag, s.game.Board(), s.game.Bag().LetterDistribution(), s.game.Rules().BingoBonus())
+	s.movegen = movegen.NewGordonGenerator(s.gaddag, s.game.Board(), s.game.Bag().LetterDistribution())
 	s.movegen.SetGenPass(true)
 	// Don't allow pre-endgame opponent to use more than 7 tiles.
 	s.movegen.SetMaxTileUsage(7)
@@ -517,7 +517,7 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 			// Set a fixed order for the bag. This makes it easy for us to control
 			// what tiles we draw after making a move.
 			g.Bag().SetFixedOrder(true)
-			mg := movegen.NewGordonGenerator(s.gaddag, g.Board(), g.Bag().LetterDistribution(), g.Rules().BingoBonus())
+			mg := movegen.NewGordonGenerator(s.gaddag, g.Board(), g.Bag().LetterDistribution())
 			err := es.Init(mg, g)
 			if err != nil {
 				return nil, err

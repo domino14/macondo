@@ -166,7 +166,6 @@ func (g *Game) Copy() *Game {
 		maxScorelessTurns: g.maxScorelessTurns,
 		exchangeLimit:     g.exchangeLimit,
 		players:           copyPlayers(g.players),
-		rules:             g.rules,
 		// stackPtr only changes during a sim, etc. This Copy should
 		// only be called at the beginning of everything.
 		stackPtr: 0,
