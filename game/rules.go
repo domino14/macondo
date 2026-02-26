@@ -42,7 +42,6 @@ type GameRules struct {
 	boardname     string
 	distname      string
 	exchangeLimit int
-	bingoBonus    int
 }
 
 func (g GameRules) Config() *config.Config {
@@ -89,10 +88,6 @@ func (g GameRules) ExchangeLimit() int {
 	return g.exchangeLimit
 }
 
-func (g GameRules) BingoBonus() int {
-	return g.bingoBonus
-}
-
 func NewBasicGameRules(cfg *config.Config,
 	lexiconName, boardLayoutName, letterDistributionName, csetGenName string,
 	variant Variant) (*GameRules, error) {
@@ -108,8 +103,6 @@ func NewBasicGameRules(cfg *config.Config,
 		bd = board.CrosswordGameBoard
 	case board.SuperCrosswordGameLayout:
 		bd = board.SuperCrosswordGameBoard
-	case board.CrossplayGameLayout:
-		bd = board.CrossplayGameBoard
 	default:
 		return nil, errors.New("unsupported board layout")
 	}
@@ -147,12 +140,6 @@ func NewBasicGameRules(cfg *config.Config,
 		exchLimit = 1
 	}
 
-	// Set bingo bonus based on board layout
-	bingoBonus := cfg.GetInt(config.ConfigBingoBonus)
-	if boardLayoutName == board.CrossplayGameLayout {
-		bingoBonus = 40
-	}
-
 	rules := &GameRules{
 		cfg:           cfg,
 		dist:          dist,
@@ -163,7 +150,6 @@ func NewBasicGameRules(cfg *config.Config,
 		crossSetGen:   csgen,
 		variant:       variant,
 		exchangeLimit: exchLimit,
-		bingoBonus:    bingoBonus,
 	}
 	return rules, nil
 }

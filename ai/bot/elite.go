@@ -111,7 +111,7 @@ func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move
 	gameCopy := p.Game.Copy()
 	gameCopy.SetBackupMode(game.SimulationMode)
 	gameCopy.SetStateStackLength(endgamePlies + 1)
-	gen1 := movegen.NewGordonGenerator(gd, gameCopy.Board(), p.Game.Rules().LetterDistribution(), p.Game.Rules().BingoBonus())
+	gen1 := movegen.NewGordonGenerator(gd, gameCopy.Board(), p.Game.Rules().LetterDistribution())
 	err = p.endgamer.Init(gen1, gameCopy)
 	if err != nil {
 		return nil, err

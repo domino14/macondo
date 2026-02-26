@@ -823,7 +823,7 @@ func (g *Game) CreateAndScorePlacementMove(coords string, tiles string, rack str
 	// ScoreWord assumes the play is always horizontal, so we have to
 	// do the transpositions beforehand.
 	score := g.Board().ScoreWord(mw, row, col, tilesPlayed,
-		crossDir, g.bag.LetterDistribution(), g.rules.BingoBonus())
+		crossDir, g.bag.LetterDistribution())
 	// reset row, col back for the actual creation of the play.
 	if vertical {
 		row, col = col, row

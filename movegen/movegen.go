@@ -111,7 +111,6 @@ type GordonGenerator struct {
 	quitEarly      bool
 	maxTileUsage   int
 	maxCanExchange int
-	bingoBonus      int
 
 	// For top N only:
 	topNPlays       []*move.Move
@@ -120,7 +119,7 @@ type GordonGenerator struct {
 
 // NewGordonGenerator returns a Gordon move generator.
 func NewGordonGenerator(gd gaddag.WordGraph, board *board.GameBoard,
-	ld *tilemapping.LetterDistribution, bingoBonus int) *GordonGenerator {
+	ld *tilemapping.LetterDistribution) *GordonGenerator {
 
 	gen := &GordonGenerator{
 		gaddag:             gd.(*kwg.KWG),
@@ -136,7 +135,6 @@ func NewGordonGenerator(gd gaddag.WordGraph, board *board.GameBoard,
 		placeholder:        new(move.Move),
 		maxTileUsage:       100, // basically unlimited
 		maxCanExchange:     game.DefaultExchangeLimit,
-		bingoBonus:         bingoBonus,
 	}
 	return gen
 }
@@ -396,7 +394,7 @@ func (gen *GordonGenerator) goOn(curCol int, L tilemapping.MachineLetter,
 	leftstrip, rightstrip int, uniquePlay bool, baseScore, crossScores, wordMultiplier int) {
 	var bingoBonus int
 	if gen.tilesPlayed == game.RackTileLimit {
-		bingoBonus = gen.bingoBonus
+		bingoBonus = 50
 	}
 	if curCol <= gen.curAnchorCol {
 		if gen.board.HasLetter(gen.curRowIdx, curCol) {
@@ -484,7 +482,7 @@ func (gen *GordonGenerator) crossDirection() board.BoardDirection {
 
 func (gen *GordonGenerator) scoreMove(word tilemapping.MachineWord, row, col, tilesPlayed int) int {
 
-	return gen.board.ScoreWord(word, row, col, tilesPlayed, gen.crossDirection(), gen.letterDistribution, gen.bingoBonus)
+	return gen.board.ScoreWord(word, row, col, tilesPlayed, gen.crossDirection(), gen.letterDistribution)
 }
 
 // Plays returns the generator's generated plays.
