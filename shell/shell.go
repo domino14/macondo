@@ -398,7 +398,7 @@ func (sc *ShellController) initGameDataStructures() error {
 		return err
 	}
 
-	sc.backupgen = movegen.NewGordonGenerator(gd, sc.game.Board(), sc.game.Bag().LetterDistribution())
+	sc.backupgen = movegen.NewGordonGenerator(gd, sc.game.Board(), sc.game.Bag().LetterDistribution(), sc.game.Rules().BingoBonus())
 
 	sc.rangefinder = &rangefinder.RangeFinder{}
 	sc.rangefinder.Init(sc.game.Game, []equity.EquityCalculator{c}, sc.config)

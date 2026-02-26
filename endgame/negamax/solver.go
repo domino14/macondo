@@ -360,7 +360,7 @@ func (s *Solver) makeGameCopies() error {
 	s.movegens = []movegen.MoveGenerator{}
 	gaddag := s.stmMovegen.(*movegen.GordonGenerator).GADDAG()
 	for i := 0; i < s.threads-1; i++ {
-		mg := movegen.NewGordonGenerator(gaddag, s.gameCopies[i].Board(), s.gameCopies[i].Bag().LetterDistribution())
+		mg := movegen.NewGordonGenerator(gaddag, s.gameCopies[i].Board(), s.gameCopies[i].Bag().LetterDistribution(), s.gameCopies[i].Rules().BingoBonus())
 		mg.SetSortingParameter(movegen.SortByNone)
 		mg.SetGenPass(true)
 		mg.SetPlayRecorder(movegen.AllPlaysSmallRecorder)

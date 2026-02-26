@@ -40,6 +40,7 @@ const (
 	ConfigOpenaiApiKey                     = "openai-api-key"
 	ConfigDeepseekApiKey                   = "deepseek-api-key"
 	ConfigWooglesApiKey                    = "woogles-api-key"
+	ConfigBingoBonus                       = "bingo-bonus"
 	ConfigAliases                          = "aliases"
 )
 
@@ -113,6 +114,7 @@ func (c *Config) Load(args []string) error {
 	c.BindEnv(ConfigOpenaiApiKey)
 	c.BindEnv(ConfigDeepseekApiKey)
 	c.BindEnv(ConfigWooglesApiKey)
+	c.BindEnv(ConfigBingoBonus)
 
 	cfgdir, err := os.UserConfigDir()
 	if err != nil {
@@ -166,6 +168,7 @@ func (c *Config) Load(args []string) error {
 	c.SetDefault(ConfigOpenaiApiKey, "")
 	c.SetDefault(ConfigDeepseekApiKey, "")
 	c.SetDefault(ConfigWooglesApiKey, "")
+	c.SetDefault(ConfigBingoBonus, 50)
 
 	return nil
 }

@@ -7,11 +7,15 @@ var (
 	// SuperCrosswordGameBoard is a board for a bigger Crossword game, featuring
 	// even more wingos and blonks.
 	SuperCrosswordGameBoard []string
+	// CrossplayGameBoard is a board like Crossword but with alternate wingo blonk
+	// arrangement.
+	CrossplayGameBoard []string
 )
 
 const (
 	CrosswordGameLayout      = "CrosswordGame"
 	SuperCrosswordGameLayout = "SuperCrosswordGame"
+	CrossplayGameLayout      = "CrossplayGame"
 )
 
 func init() {
@@ -54,5 +58,22 @@ func init() {
 		`  -  ^   - -   ^  -  `,
 		` -  "   -   -   "  - `,
 		`~  '   =  '  =   '  ~`,
+	}
+	CrossplayGameBoard = []string{
+		`"  =   '   =  "`,
+		` -    " "    - `,
+		`    '     '    `,
+		`=  '   -   '  =`,
+		`  '  "   "  '  `,
+		`    "  '  "    `,
+		` "           " `,
+		`'  - '   ' -  '`,
+		` "           " `,
+		`    "  '  "    `,
+		`  '  "   "  '  `,
+		`=  '   -   '  =`,
+		`    '     '    `,
+		` -    " "    - `,
+		`"  =   '   =  "`,
 	}
 }

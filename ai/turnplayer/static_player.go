@@ -57,7 +57,7 @@ func AddAIFields(p *turnplayer.BaseTurnPlayer, conf *config.Config, calculators 
 	if err != nil {
 		return nil, err
 	}
-	gen := movegen.NewGordonGenerator(gd, p.Board(), p.Bag().LetterDistribution())
+	gen := movegen.NewGordonGenerator(gd, p.Board(), p.Bag().LetterDistribution(), p.Rules().BingoBonus())
 	gen.SetEquityCalculators(calculators)
 	ret := &AIStaticTurnPlayer{*p, calculators, gen, conf}
 	return ret, nil
