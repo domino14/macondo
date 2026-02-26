@@ -21,6 +21,7 @@ type Config struct {
 	Provider         string // "gemini", "openai", or "deepseek"
 	APIKey           string
 	Model            string
+	BaseURL          string // optional: override base URL (e.g. for LM Studio at http://127.0.0.1:1234/v1)
 	UseQuirky        bool
 	MainPromptPath   string
 	QuirkyPromptPath string
@@ -146,13 +147,16 @@ func (s *Service) createOpenAIClient(ctx context.Context) (interfaces.LLM, error
 	if model == "" {
 		model = "gpt-4.1"
 	}
-	modelOption := openai.WithModel(model)
-	log.Info().Str("model", model).Msg("Using OpenAI model")
-	return openai.NewClient(
-		s.config.APIKey,
-		modelOption,
+	opts := []openai.Option{
+		openai.WithModel(model),
 		openai.WithLogger(logger),
-	), nil
+	}
+	if s.config.BaseURL != "" {
+		log.Info().Str("base_url", s.config.BaseURL).Msg("Using custom OpenAI base URL")
+		opts = append(opts, openai.WithBaseURL(s.config.BaseURL))
+	}
+	log.Info().Str("model", model).Msg("Using OpenAI model")
+	return openai.NewClient(s.config.APIKey, opts...), nil
 }
 
 func (s *Service) createDeepSeekClient(ctx context.Context) (interfaces.LLM, error) {
@@ -175,11 +179,12 @@ func (s *Service) createDeepSeekClient(ctx context.Context) (interfaces.LLM, err
 func DefaultConfig(macondoConfig *macondo.Config) *Config {
 	provider := macondoConfig.GetString(macondo.ConfigGenaiProvider)
 
-	var apiKey, model string
+	var apiKey, model, baseURL string
 	switch provider {
 	case "openai":
 		apiKey = macondoConfig.GetString(macondo.ConfigOpenaiApiKey)
 		model = macondoConfig.GetString(macondo.ConfigOpenaiModel)
+		baseURL = macondoConfig.GetString(macondo.ConfigOpenaiBaseURL)
 	case "gemini":
 		apiKey = macondoConfig.GetString(macondo.ConfigGeminiApiKey)
 		model = macondoConfig.GetString(macondo.ConfigGeminiModel)
@@ -194,6 +199,7 @@ func DefaultConfig(macondoConfig *macondo.Config) *Config {
 		Provider:         provider,
 		APIKey:           apiKey,
 		Model:            model,
+		BaseURL:          baseURL,
 		UseQuirky:        useQuirky,
 		MainPromptPath:   "explainer/main_prompt.md",
 		QuirkyPromptPath: "explainer/quirky.md",
