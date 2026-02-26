@@ -129,7 +129,7 @@ func (opts *GameOptions) SetChallenge(rule string) error {
 
 func (opts *GameOptions) SetBoardLayoutName(name string) error {
 	switch name {
-	case board.CrosswordGameLayout, board.SuperCrosswordGameLayout:
+	case board.CrosswordGameLayout, board.SuperCrosswordGameLayout, board.CrossplayGameLayout:
 		opts.BoardLayoutName = name
 	default:
 		return fmt.Errorf("%v is not a supported board layout", name)
