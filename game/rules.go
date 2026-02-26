@@ -42,6 +42,7 @@ type GameRules struct {
 	boardname     string
 	distname      string
 	exchangeLimit int
+	bingoBonus    int
 }
 
 func (g GameRules) Config() *config.Config {
@@ -86,6 +87,10 @@ func (g *GameRules) SetExchangeLimit(l int) {
 
 func (g GameRules) ExchangeLimit() int {
 	return g.exchangeLimit
+}
+
+func (g GameRules) BingoBonus() int {
+	return g.bingoBonus
 }
 
 func NewBasicGameRules(cfg *config.Config,
@@ -142,6 +147,12 @@ func NewBasicGameRules(cfg *config.Config,
 		exchLimit = 1
 	}
 
+	// Set bingo bonus based on board layout
+	bingoBonus := cfg.GetInt(config.ConfigBingoBonus)
+	if boardLayoutName == board.CrossplayGameLayout {
+		bingoBonus = 40
+	}
+
 	rules := &GameRules{
 		cfg:           cfg,
 		dist:          dist,
@@ -152,6 +163,7 @@ func NewBasicGameRules(cfg *config.Config,
 		crossSetGen:   csgen,
 		variant:       variant,
 		exchangeLimit: exchLimit,
+		bingoBonus:    bingoBonus,
 	}
 	return rules, nil
 }

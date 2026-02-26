@@ -844,16 +844,16 @@ func (g *GameBoard) formedCrossWord(crossVertical bool, letter tilemapping.Machi
 // assume the row stays static as we iterate through the letters of the
 // word.
 func (g *GameBoard) ScoreWord(word tilemapping.MachineWord, row, col, tilesPlayed int,
-	crossDir BoardDirection, ld *tilemapping.LetterDistribution) int {
+	crossDir BoardDirection, ld *tilemapping.LetterDistribution, bingoBonus int) int {
 
 	// letterScore:
 	var ls int
 
 	mainWordScore := 0
 	crossScores := 0
-	bingoBonus := 0
+	bonus := 0
 	if tilesPlayed == 7 {
-		bingoBonus = 50
+		bonus = bingoBonus
 	}
 	wordMultiplier := 1
 
@@ -904,7 +904,7 @@ func (g *GameBoard) ScoreWord(word tilemapping.MachineWord, row, col, tilesPlaye
 			crossScores += ls*letterMultiplier*thisWordMultiplier + cs*thisWordMultiplier
 		}
 	}
-	return mainWordScore*wordMultiplier + crossScores + bingoBonus
+	return mainWordScore*wordMultiplier + crossScores + bonus
 
 }
 

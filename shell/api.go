@@ -628,7 +628,7 @@ func (sc *ShellController) endgamePrepare(cmd *shellcmd) (*endgameParams, error)
 		return nil, err
 	}
 
-	mg := movegen.NewGordonGenerator(gd, sc.game.Board(), sc.game.Bag().LetterDistribution())
+	mg := movegen.NewGordonGenerator(gd, sc.game.Board(), sc.game.Bag().LetterDistribution(), sc.game.Rules().BingoBonus())
 
 	err = sc.endgameSolver.Init(mg, sc.game.Game)
 	if err != nil {

@@ -135,7 +135,7 @@ func TinyMoveToMove(t tinymove.TinyMove, b *board.GameBoard, om *move.Move) {
 }
 
 func TinyMoveToFullMove(t tinymove.TinyMove, bd *board.GameBoard, ld *tilemapping.LetterDistribution,
-	onTurnRack *tilemapping.Rack) (*move.Move, error) {
+	onTurnRack *tilemapping.Rack, bingoBonus int) (*move.Move, error) {
 
 	m := &move.Move{}
 	TinyMoveToMove(t, bd, m)
@@ -157,7 +157,7 @@ func TinyMoveToFullMove(t tinymove.TinyMove, bd *board.GameBoard, ld *tilemappin
 		bd.Transpose()
 	}
 
-	m.SetScore(bd.ScoreWord(m.Tiles(), r, c, m.TilesPlayed(), crossDir, ld))
+	m.SetScore(bd.ScoreWord(m.Tiles(), r, c, m.TilesPlayed(), crossDir, ld, bingoBonus))
 
 	if v {
 		bd.Transpose()
