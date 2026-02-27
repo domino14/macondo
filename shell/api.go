@@ -110,11 +110,15 @@ func msg(message string) *Response {
 
 func (sc *ShellController) set(cmd *shellcmd) (*Response, error) {
 	if cmd.args == nil {
-		return msg(sc.options.ToDisplayText()), nil
+		return msg(sc.ToDisplayTextWithConfig()), nil
 	}
 	opt := cmd.args[0]
 	if len(cmd.args) == 1 {
-		_, val := sc.options.Show(opt)
+		ok, val := sc.options.Show(opt)
+		if !ok {
+			// Try showing config option
+			ok, val = sc.ShowConfig(opt)
+		}
 		return msg(val), nil
 	}
 	values := cmd.args[1:]

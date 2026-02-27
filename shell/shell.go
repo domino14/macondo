@@ -93,12 +93,38 @@ func (opts *ShellOptions) Show(key string) (bool, string) {
 	}
 }
 
+// ShowConfig shows a config value from the shell controller
+func (sc *ShellController) ShowConfig(key string) (bool, string) {
+	switch key {
+	case "ttable-mem-fraction":
+		val := sc.config.GetFloat64(config.ConfigTtableMemFraction)
+		return true, fmt.Sprintf("%.2f (%.0f%% of memory)", val, val*100)
+	default:
+		return false, "No such config option: " + key
+	}
+}
+
 func (opts *ShellOptions) ToDisplayText() string {
 	keys := []string{"lexicon", "challenge", "lower", "board"}
 	out := strings.Builder{}
 	out.WriteString("Settings:\n")
 	for _, key := range keys {
 		_, val := opts.Show(key)
+		out.WriteString("  " + key + ": ")
+		out.WriteString(val + "\n")
+	}
+	return out.String()
+}
+
+// ToDisplayTextWithConfig includes both options and config settings
+func (sc *ShellController) ToDisplayTextWithConfig() string {
+	out := strings.Builder{}
+	out.WriteString(sc.options.ToDisplayText())
+
+	// Add config settings
+	configKeys := []string{"ttable-mem-fraction"}
+	for _, key := range configKeys {
+		_, val := sc.ShowConfig(key)
 		out.WriteString("  " + key + ": ")
 		out.WriteString(val + "\n")
 	}
@@ -366,6 +392,21 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 			ret = strconv.FormatBool(val)
 		} else {
 			err = errors.New("Valid options: 'true', 'false'")
+		}
+	case "ttable-mem-fraction":
+		val, err := strconv.ParseFloat(args[0], 64)
+		if err != nil {
+			err = errors.New("ttable-mem-fraction must be a number between 0 and 1")
+		} else if val <= 0 || val > 1 {
+			err = errors.New("ttable-mem-fraction must be between 0 and 1 (e.g., 0.25 for 25% of memory)")
+		} else {
+			sc.config.Set(config.ConfigTtableMemFraction, val)
+			err = sc.config.Write()
+			if err != nil {
+				log.Err(err).Msg("error-writing-config")
+			} else {
+				ret = fmt.Sprintf("%.2f (%.0f%% of memory)", val, val*100)
+			}
 		}
 	default:
 		err = errors.New("No such option: " + key)
