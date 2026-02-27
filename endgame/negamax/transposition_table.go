@@ -12,6 +12,8 @@ import (
 	"github.com/domino14/macondo/zobrist"
 	"github.com/pbnjay/memory"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/text/language"
+	"golang.org/x/text/message"
 )
 
 const (
@@ -231,10 +233,12 @@ func (t *TranspositionTable) Reset(fractionOfMemory float64, boardDim int) {
 		}
 	}
 
-	log.Info().Int("num-elems", numElems).
-		Float64("desired-num-elems", desiredNElems).
-		Int("estimated-total-memory-bytes", numElems*entrySize).
-		Uint64("mem-limit", totalMem).
+	p := message.NewPrinter(language.English)
+	log.Info().
+		Str("num-elems", p.Sprintf("%d", numElems)).
+		Str("desired-num-elems", p.Sprintf("%.0f", desiredNElems)).
+		Str("estimated-total-memory-bytes", p.Sprintf("%d", numElems*entrySize)).
+		Str("mem-limit", p.Sprintf("%d", totalMem)).
 		Bool("reset", reset).
 		Msg("transposition-table-size")
 
