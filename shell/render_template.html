@@ -129,11 +129,11 @@
       const labelColor = getLabelColor(boardColorHex);
 
       // Constants from jade
-      const gridSize = 15;
-      const squareSize = 5;
+      const gridSize = {{.BoardDimension}};
+      const squareSize = 5 * 15 / gridSize;  // Scale so total board footprint is always 75 units
       const boardThickness = 2;
       const gridHeight = 1;
-      const tileDepth = 1.5;
+      const tileDepth = 1.5 * 15 / gridSize;
       const offset = (gridSize * squareSize) / 2 - squareSize / 2;
       const boardTileZPos = boardThickness / 2 + gridHeight;
 
@@ -143,24 +143,8 @@
       const rackDepth = 7;
       const rackYPos = -38;
 
-      // Bonus square layout (Scrabble standard)
-      const gridLayout = [
-          "=  '   =   '  =",
-          ' -   "   "   - ',
-          "  -   ' '   -  ",
-          "'  -   '   -  '",
-          "    -     -    ",
-          ' "   "   "   " ',
-          "  '   ' '   '  ",
-          "=  '   -   '  =",
-          "  '   ' '   '  ",
-          ' "   "   "   " ',
-          "    -     -    ",
-          "'  -   '   -  '",
-          "  -   ' '   -  ",
-          ' -   "   "   - ',
-          "=  '   =   '  ="
-      ];
+      // Bonus square layout (from game board)
+      const gridLayout = {{.BoardLayout}};
 
       const bonusColors = {
           '=': 0xcc5555,  // Triple word (desaturated red)
@@ -384,7 +368,7 @@
           if (score > 0) {
               const scoreGeometry = new TextGeometry(score.toString(), {
                   font: font,
-                  size: 1,
+                  size: squareSize * 0.2,
                   height: 0.1  // Some versions use 'height' instead of 'depth'
               });
               const scoreMesh = new THREE.Mesh(scoreGeometry, letterMaterial);
@@ -635,7 +619,7 @@
           // Grid configuration
           const tilesPerRow = 5;
           const tileSpacing = squareSize + 0.5;
-          const startX = offset + squareSize * 4.25; // Shift 2.25 tile widths to the right
+          const startX = 55 + squareSize * 0.25; // Start just outside the circular board base (radius 55)
           const startY = offset; // Start from top
           const tableTopZ = -boardThickness / 2; // Table surface height
 
@@ -707,8 +691,8 @@
           scene.add(base);
 
           const gridBottomZPos = boardThickness / 2;
-          const wallThickness = 0.25;
-          const wallHeight = 0.55;
+          const wallThickness = squareSize * 0.05;
+          const wallHeight = squareSize * 0.11;
 
           // Create grid squares
           for (let i = 0; i < gridSize; i++) {
@@ -782,7 +766,7 @@
                       const labelText = bonusLabels[bonusType];
                       const labelGeom = new TextGeometry(labelText, {
                           font: font,
-                          size: 1.4,
+                          size: squareSize * 0.28,
                           height: 0.02,  // Some versions use 'height' instead of 'depth'
                           curveSegments: 4,
                           bevelEnabled: false
@@ -805,12 +789,12 @@
               }
           }
 
-          // Add column labels (A-O)
-          const columns = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O'];
+          // Add column labels (A through the board dimension)
+          const columns = Array.from({ length: gridSize }, (_, i) => String.fromCharCode(65 + i));
           columns.forEach((letter, index) => {
               const geometry = new TextGeometry(letter, {
                   font: font,
-                  size: 1.875,
+                  size: squareSize * 0.375,
                   height: 0.05,  // Some versions use 'height' instead of 'depth'
                   curveSegments: 8,
                   bevelEnabled: false
@@ -826,21 +810,21 @@
           });
 
           // Add row labels (1-15)
-          for (let i = 0; i < 15; i++) {
+          for (let i = 0; i < gridSize; i++) {
               const number = (i + 1).toString();
               const geometry = new TextGeometry(number, {
                   font: font,
-                  size: 1.875,
+                  size: squareSize * 0.375,
                   height: 0.05,  // Some versions use 'height' instead of 'depth'
                   curveSegments: 8,
                   bevelEnabled: false
               });
               const material = new THREE.MeshBasicMaterial({ color: labelColor });
               const mesh = new THREE.Mesh(geometry, material);
-              const textWidth = number.length * 1.5;
+              const textWidth = number.length * squareSize * 0.3;
               mesh.position.set(
                   -offset - squareSize * 0.65 - textWidth,
-                  (14 - i) * squareSize - offset - squareSize / 4,
+                  (gridSize - 1 - i) * squareSize - offset - squareSize / 4,
                   boardThickness / 2 + 0.01
               );
               scene.add(mesh);
