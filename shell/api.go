@@ -61,6 +61,8 @@ type RenderTemplateData struct {
 	PlayerOnTurn   int         // 0 or 1 - which player is on turn
 	LastPlay       string      // Last play summary
 	AlphabetScores template.JS // JSON map of letter → score for the current alphabet
+	BoardLayout    template.JS // JSON array of strings, one per row, using bonus square symbols
+	BoardDimension int         // Board size (15 for standard, 21 for super)
 }
 
 type Response struct {
@@ -1429,6 +1431,21 @@ func (sc *ShellController) render3D(cmd *shellcmd) (*Response, error) {
 		alphabetScoresJSON = []byte("{}")
 	}
 
+	// Build board layout from the actual game board bonuses
+	dim := board.Dim()
+	layoutRows := make([]string, dim)
+	for row := 0; row < dim; row++ {
+		rowBytes := make([]byte, dim)
+		for col := 0; col < dim; col++ {
+			rowBytes[col] = byte(board.GetBonus(row, col))
+		}
+		layoutRows[row] = string(rowBytes)
+	}
+	boardLayoutJSON, err := json.Marshal(layoutRows)
+	if err != nil {
+		boardLayoutJSON = []byte("[]")
+	}
+
 	// Prepare template data
 	data := RenderTemplateData{
 		FEN:            fen,
@@ -1447,6 +1464,8 @@ func (sc *ShellController) render3D(cmd *shellcmd) (*Response, error) {
 		PlayerOnTurn:   sc.game.PlayerOnTurn(),
 		LastPlay:       lastPlay,
 		AlphabetScores: template.JS(alphabetScoresJSON),
+		BoardLayout:    template.JS(boardLayoutJSON),
+		BoardDimension: dim,
 	}
 
 	// Parse and execute template
