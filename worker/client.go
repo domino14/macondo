@@ -19,14 +19,16 @@ type WooglesClient struct {
 	baseURL    string
 	apiKey     string
 	httpClient *http.Client
+	cfg        *config.Config
 }
 
 // NewWooglesClient creates a new Woogles API client
-func NewWooglesClient(baseURL, apiKey string) *WooglesClient {
+func NewWooglesClient(baseURL, apiKey string, cfg *config.Config) *WooglesClient {
 	return &WooglesClient{
 		baseURL:    baseURL,
 		apiKey:     apiKey,
 		httpClient: &http.Client{},
+		cfg:        cfg,
 	}
 }
 
@@ -63,17 +65,17 @@ func (c *WooglesClient) ClaimJob(ctx context.Context) (*Job, error) {
 
 	// Parse Connect RPC JSON response
 	var claimResp struct {
-		NoJobs bool `json:"noJobs"`
-		JobId  string `json:"jobId"`
-		GameId string `json:"gameId"`
+		NoJobs bool   `json:"no_jobs"`
+		JobId  string `json:"job_id"`
+		GameId string `json:"game_id"`
 		Config struct {
-			SimPlaysEarlyMid        int32 `json:"simPlaysEarlyMid"`
-			SimPliesEarlyMid        int32 `json:"simPliesEarlyMid"`
-			SimStopEarlyMid         int32 `json:"simStopEarlyMid"`
-			SimPlaysEarlyPreendgame int32 `json:"simPlaysEarlyPreendgame"`
-			SimPliesEarlyPreendgame int32 `json:"simPliesEarlyPreendgame"`
-			SimStopEarlyPreendgame  int32 `json:"simStopEarlyPreendgame"`
-			PegEarlyCutoff          bool  `json:"pegEarlyCutoff"`
+			SimPlaysEarlyMid        int32 `json:"sim_plays_early_mid"`
+			SimPliesEarlyMid        int32 `json:"sim_plies_early_mid"`
+			SimStopEarlyMid         int32 `json:"sim_stop_early_mid"`
+			SimPlaysEarlyPreendgame int32 `json:"sim_plays_early_preendgame"`
+			SimPliesEarlyPreendgame int32 `json:"sim_plies_early_preendgame"`
+			SimStopEarlyPreendgame  int32 `json:"sim_stop_early_preendgame"`
+			PegEarlyCutoff          bool  `json:"peg_early_cutoff"`
 			Threads                 int32 `json:"threads"`
 		} `json:"config"`
 	}
@@ -252,10 +254,7 @@ func (c *WooglesClient) FetchGameHistory(ctx context.Context, gameID string) (*p
 		return nil, fmt.Errorf("failed to unmarshal GCG response: %w", err)
 	}
 
-	// Parse GCG into GameHistory (need a config for parsing, but we don't need full config here)
-	// Use a minimal config just for parsing
-	parseConfig := &config.Config{}
-	history, err := gcgio.ParseGCGFromReader(parseConfig, strings.NewReader(gcgObj.GCG))
+	history, err := gcgio.ParseGCGFromReader(c.cfg, strings.NewReader(gcgObj.GCG))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse GCG: %w", err)
 	}

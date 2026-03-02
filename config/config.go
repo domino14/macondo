@@ -41,6 +41,7 @@ const (
 	ConfigOpenaiBaseURL                    = "openai-base-url"
 	ConfigDeepseekApiKey                   = "deepseek-api-key"
 	ConfigWooglesApiKey                    = "woogles-api-key"
+	ConfigWooglesURL                       = "woogles-url"
 	ConfigAliases                          = "aliases"
 )
 
@@ -114,6 +115,7 @@ func (c *Config) Load(args []string) error {
 	c.BindEnv(ConfigOpenaiApiKey)
 	c.BindEnv(ConfigDeepseekApiKey)
 	c.BindEnv(ConfigWooglesApiKey)
+	c.BindEnv(ConfigWooglesURL)
 
 	cfgdir, err := os.UserConfigDir()
 	if err != nil {
@@ -167,6 +169,7 @@ func (c *Config) Load(args []string) error {
 	c.SetDefault(ConfigOpenaiApiKey, "")
 	c.SetDefault(ConfigDeepseekApiKey, "")
 	c.SetDefault(ConfigWooglesApiKey, "")
+	c.SetDefault(ConfigWooglesURL, "https://woogles.io")
 
 	return nil
 }
