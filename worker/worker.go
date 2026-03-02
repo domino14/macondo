@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
-	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/domino14/macondo/gameanalysis"
 )
@@ -20,7 +20,7 @@ type AnalysisWorker struct {
 
 // NewAnalysisWorker creates a new worker
 func NewAnalysisWorker(cfg *WorkerConfig) *AnalysisWorker {
-	client := NewWooglesClient(cfg.WooglesBaseURL, cfg.APIKey)
+	client := NewWooglesClient(cfg.WooglesBaseURL, cfg.APIKey, cfg.MacondoConfig)
 
 	// Create analyzer with default config if none provided
 	analysisConfig := gameanalysis.DefaultAnalysisConfig()
@@ -149,7 +149,7 @@ func (w *AnalysisWorker) processJob(ctx context.Context, job *Job) error {
 	resultProto := result.ToProto()
 
 	// Serialize to bytes
-	resultBytes, err := proto.Marshal(resultProto)
+	resultBytes, err := protojson.Marshal(resultProto)
 	if err != nil {
 		return fmt.Errorf("failed to marshal result: %w", err)
 	}

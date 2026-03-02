@@ -203,6 +203,7 @@ type ShellController struct {
 	// Volunteer mode state
 	volunteerMode   bool
 	volunteerStop   bool // Signal to stop after current job
+	volunteerBusy   bool // True while processing a job
 	volunteerCtx    context.Context
 	volunteerCancel context.CancelFunc
 }

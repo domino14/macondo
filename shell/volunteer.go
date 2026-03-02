@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
-	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/gameanalysis"
@@ -17,7 +17,6 @@ import (
 const (
 	VolunteerPollInterval      = 30 * time.Second
 	VolunteerHeartbeatInterval = 30 * time.Second
-	WooglesBaseURL             = "https://woogles.io"
 )
 
 // volunteer handles the volunteer command
@@ -62,26 +61,88 @@ func (sc *ShellController) startVolunteer() (*Response, error) {
 	return msg("Volunteer mode started. Polling for jobs every 30 seconds...\nUse 'volunteer stop' to exit gracefully."), nil
 }
 
-// stopVolunteer signals volunteer mode to stop after current job
+// stopVolunteer stops volunteer mode, immediately if idle or after current job if busy
 func (sc *ShellController) stopVolunteer() (*Response, error) {
 	if !sc.volunteerMode {
 		return msg("Not in volunteer mode."), nil
 	}
 
-	sc.volunteerStop = true
-	return msg("Volunteer mode will stop after current job completes."), nil
+	if sc.volunteerBusy {
+		sc.volunteerStop = true
+		return msg("Volunteer mode will stop after current job completes."), nil
+	}
+
+	sc.volunteerCancel()
+	return msg("Volunteer mode stopped."), nil
 }
 
 // volunteerLoop polls for jobs and processes them
 func (sc *ShellController) volunteerLoop() {
 	// Get API key and create client
 	apiKey := sc.config.GetString(config.ConfigWooglesApiKey)
-	client := worker.NewWooglesClient(WooglesBaseURL, apiKey)
+	wooglesURL := sc.config.GetString(config.ConfigWooglesURL)
+	client := worker.NewWooglesClient(wooglesURL, apiKey, sc.config)
 
 	ticker := time.NewTicker(VolunteerPollInterval)
 	defer ticker.Stop()
 
 	log.Info().Msg("volunteer loop started")
+
+	poll := func() bool {
+		// Check if we should stop
+		if sc.volunteerStop {
+			log.Info().Msg("volunteer stop requested")
+			sc.cleanupVolunteerMode()
+			return false
+		}
+
+		// Try to claim a job
+		job, err := client.ClaimJob(sc.volunteerCtx)
+		if err != nil {
+			log.Warn().Err(err).Msg("failed to claim job")
+			writeln(fmt.Sprintf("Warning: Failed to claim job: %v", err), sc.l.Stdout())
+			return true
+		}
+
+		if job == nil {
+			log.Info().Msg("no jobs available, polling again in 30s")
+			writeln("No jobs available, polling again in 30s...", sc.l.Stdout())
+			return true
+		}
+
+		log.Info().
+			Str("job-id", job.JobID).
+			Str("game-id", job.GameID).
+			Msg("claimed job")
+		writeln(fmt.Sprintf("Claimed job %s for game %s", job.JobID, job.GameID), sc.l.Stdout())
+
+		sc.volunteerBusy = true
+		if err := sc.processVolunteerJob(client, job); err != nil {
+			log.Error().
+				Err(err).
+				Str("job-id", job.JobID).
+				Msg("failed to process job")
+			writeln(fmt.Sprintf("Error processing job: %v", err), sc.l.Stdout())
+		} else {
+			log.Info().
+				Str("job-id", job.JobID).
+				Msg("job completed successfully")
+			writeln(fmt.Sprintf("Job %s completed successfully", job.JobID), sc.l.Stdout())
+		}
+		sc.volunteerBusy = false
+
+		if sc.volunteerStop {
+			log.Info().Msg("volunteer stop requested after job completion")
+			sc.cleanupVolunteerMode()
+			return false
+		}
+		return true
+	}
+
+	// Poll immediately on start
+	if !poll() {
+		return
+	}
 
 	for {
 		select {
@@ -91,52 +152,7 @@ func (sc *ShellController) volunteerLoop() {
 			return
 
 		case <-ticker.C:
-			// Check if we should stop
-			if sc.volunteerStop {
-				log.Info().Msg("volunteer stop requested")
-				sc.cleanupVolunteerMode()
-				return
-			}
-
-			// Try to claim a job
-			job, err := client.ClaimJob(sc.volunteerCtx)
-			if err != nil {
-				log.Warn().Err(err).Msg("failed to claim job")
-				writeln(fmt.Sprintf("Warning: Failed to claim job: %v", err), sc.l.Stdout())
-				continue
-			}
-
-			if job == nil {
-				// No jobs available
-				log.Debug().Msg("no jobs available")
-				continue
-			}
-
-			// Got a job! Process it
-			log.Info().
-				Str("job-id", job.JobID).
-				Str("game-id", job.GameID).
-				Msg("claimed job")
-			writeln(fmt.Sprintf("Claimed job %s for game %s", job.JobID, job.GameID), sc.l.Stdout())
-
-			// Process the job
-			if err := sc.processVolunteerJob(client, job); err != nil {
-				log.Error().
-					Err(err).
-					Str("job-id", job.JobID).
-					Msg("failed to process job")
-				writeln(fmt.Sprintf("Error processing job: %v", err), sc.l.Stdout())
-			} else {
-				log.Info().
-					Str("job-id", job.JobID).
-					Msg("job completed successfully")
-				writeln(fmt.Sprintf("Job %s completed successfully", job.JobID), sc.l.Stdout())
-			}
-
-			// After processing, check if we should stop
-			if sc.volunteerStop {
-				log.Info().Msg("volunteer stop requested after job completion")
-				sc.cleanupVolunteerMode()
+			if !poll() {
 				return
 			}
 		}
@@ -256,11 +272,10 @@ func (sc *ShellController) processVolunteerJob(client *worker.WooglesClient, job
 		Int("turns-analyzed", len(result.Turns)).
 		Msg("analysis complete")
 
-	// Convert result to protobuf
+	// Convert result to protobuf and serialize as proto-JSON
 	resultProto := result.ToProto()
 
-	// Serialize to bytes
-	resultBytes, err := proto.Marshal(resultProto)
+	resultBytes, err := protojson.Marshal(resultProto)
 	if err != nil {
 		return fmt.Errorf("failed to marshal result: %w", err)
 	}
