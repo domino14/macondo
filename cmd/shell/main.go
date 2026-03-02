@@ -40,7 +40,7 @@ func main() {
 		panic(err)
 	}
 	exPath := filepath.Dir(ex)
-	fmt.Println(macondobanner)
+	fmt.Printf("%s%d\n", macondobanner, time.Now().Year())
 	fmt.Println(GitVersion)
 
 	log.Info().Msgf("executable path: %v", exPath)
