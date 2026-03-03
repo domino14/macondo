@@ -538,6 +538,12 @@ func (a *Analyzer) analyzeWithSim(ctx context.Context, g *game.Game, analysis *T
 		return errors.New("simulation produced no results")
 	}
 
+	// On an empty board, the move generator only produces horizontal plays;
+	// vertical first plays are transpositions. We must check transpositions
+	// when comparing moves so a vertical opener is matched to its horizontal
+	// equivalent in the sim results.
+	checkTrans := g.Board().IsEmpty()
+
 	// Find optimal move (highest win prob)
 	analysis.OptimalMove = simmedPlays[0].Move()
 	analysis.OptimalWinProb = simmedPlays[0].WinProb()
@@ -545,7 +551,7 @@ func (a *Analyzer) analyzeWithSim(ctx context.Context, g *game.Game, analysis *T
 	// Find played move in results
 	playedFound := false
 	for _, result := range simmedPlays {
-		if result.Move().Equals(analysis.PlayedMove, false, true) {
+		if result.Move().Equals(analysis.PlayedMove, checkTrans, true) {
 			analysis.PlayedWinProb = result.WinProb()
 			playedFound = true
 			break
@@ -559,7 +565,7 @@ func (a *Analyzer) analyzeWithSim(ctx context.Context, g *game.Game, analysis *T
 	}
 
 	analysis.WinProbLoss = analysis.OptimalWinProb - analysis.PlayedWinProb
-	analysis.WasOptimal = analysis.OptimalMove.Equals(analysis.PlayedMove, false, true)
+	analysis.WasOptimal = analysis.OptimalMove.Equals(analysis.PlayedMove, checkTrans, true)
 
 	// Set bingo flags
 	analysis.OptimalIsBingo = isBingo(analysis.OptimalMove)
