@@ -235,10 +235,10 @@ func (t *TranspositionTable) Reset(fractionOfMemory float64, boardDim int) {
 
 	p := message.NewPrinter(language.English)
 	log.Info().
-		Str("num-elems", p.Sprintf("%d", numElems)).
-		Str("desired-num-elems", p.Sprintf("%.0f", desiredNElems)).
-		Str("estimated-total-memory-bytes", p.Sprintf("%d", numElems*entrySize)).
-		Str("mem-limit", p.Sprintf("%d", totalMem)).
+		Str("allocated-elems", p.Sprintf("%d", numElems)).
+		Str("desired-elems", p.Sprintf("%.0f", desiredNElems)).
+		Str("allocated-bytes", p.Sprintf("%d", numElems*entrySize)).
+		Str("memory-budget", p.Sprintf("%d", totalMem)).
 		Bool("reset", reset).
 		Msg("transposition-table-size")
 
