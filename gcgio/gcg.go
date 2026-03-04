@@ -615,7 +615,7 @@ func ParseGCGFromReader(cfg *config.Config, reader io.Reader) (*pb.GameHistory, 
 	parser.history.OriginalGcg = strings.TrimSpace(originalGCG)
 
 	// Determine if the game ended.
-	if parser.game.Playing() == pb.PlayState_GAME_OVER {
+	if parser.game != nil && parser.game.Playing() == pb.PlayState_GAME_OVER {
 		parser.history.PlayState = pb.PlayState_GAME_OVER
 		parser.game.AddFinalScoresToHistory()
 	}
