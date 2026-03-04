@@ -89,9 +89,24 @@ func (m *Move) Equals(o *Move, alsoCheckTransposition, ignoreLeave bool) bool {
 	if !ignoreLeave && len(m.leave) != len(o.leave) {
 		return false
 	}
-	for idx, i := range m.tiles {
-		if o.tiles[idx] != i {
-			return false
+	// For exchange moves, compare tiles as multiset (order doesn't matter)
+	if m.action == MoveTypeExchange {
+		mSorted := make(tilemapping.MachineWord, len(m.tiles))
+		oSorted := make(tilemapping.MachineWord, len(o.tiles))
+		copy(mSorted, m.tiles)
+		copy(oSorted, o.tiles)
+		sort.Slice(mSorted, func(i, j int) bool { return mSorted[i] < mSorted[j] })
+		sort.Slice(oSorted, func(i, j int) bool { return oSorted[i] < oSorted[j] })
+		for idx, i := range mSorted {
+			if oSorted[idx] != i {
+				return false
+			}
+		}
+	} else {
+		for idx, i := range m.tiles {
+			if o.tiles[idx] != i {
+				return false
+			}
 		}
 	}
 	if !ignoreLeave {

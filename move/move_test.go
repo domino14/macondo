@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/domino14/macondo/testhelpers"
+	"github.com/domino14/word-golib/tilemapping"
 	"github.com/matryer/is"
 )
 
@@ -75,4 +76,46 @@ func TestEqualsWithLeaveIgnore(t *testing.T) {
 	is.True(!m1.Equals(m2, false, true))
 	is.True(m1.Equals(m2, true, true))
 	is.True(!m1.Equals(m2, true, false))
+}
+
+func TestEqualsExchangeSameLettersDifferentOrder(t *testing.T) {
+	is := is.New(t)
+	alph := testhelpers.EnglishAlphabet()
+
+	// Exchange DEF vs FED - same tiles, different order
+	tiles1, _ := tilemapping.ToMachineWord("DEF", alph)
+	tiles2, _ := tilemapping.ToMachineWord("FED", alph)
+	leave, _ := tilemapping.ToMachineWord("ABC", alph)
+	m1 := NewExchangeMove(tiles1, leave, alph)
+	m2 := NewExchangeMove(tiles2, leave, alph)
+	is.True(m1.Equals(m2, false, false)) // Should be equal for exchanges
+
+	// Exchange ABC vs CBA - same tiles, different order
+	tiles3, _ := tilemapping.ToMachineWord("ABC", alph)
+	tiles4, _ := tilemapping.ToMachineWord("CBA", alph)
+	leave2, _ := tilemapping.ToMachineWord("GH", alph)
+	m3 := NewExchangeMove(tiles3, leave2, alph)
+	m4 := NewExchangeMove(tiles4, leave2, alph)
+	is.True(m3.Equals(m4, false, false)) // Should be equal for exchanges
+}
+
+func TestEqualsExchangeDifferentLetters(t *testing.T) {
+	is := is.New(t)
+	alph := testhelpers.EnglishAlphabet()
+
+	// Exchange DEF vs DFG - different tiles
+	tiles1, _ := tilemapping.ToMachineWord("DEF", alph)
+	tiles2, _ := tilemapping.ToMachineWord("DFG", alph)
+	leave, _ := tilemapping.ToMachineWord("ABC", alph)
+	m1 := NewExchangeMove(tiles1, leave, alph)
+	m2 := NewExchangeMove(tiles2, leave, alph)
+	is.True(!m1.Equals(m2, false, false)) // Should not be equal
+
+	// Exchange ABC vs ABD - different tiles
+	tiles3, _ := tilemapping.ToMachineWord("ABC", alph)
+	tiles4, _ := tilemapping.ToMachineWord("ABD", alph)
+	leave2, _ := tilemapping.ToMachineWord("GH", alph)
+	m3 := NewExchangeMove(tiles3, leave2, alph)
+	m4 := NewExchangeMove(tiles4, leave2, alph)
+	is.True(!m3.Equals(m4, false, false)) // Should not be equal
 }
