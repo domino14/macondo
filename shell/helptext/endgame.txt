@@ -136,5 +136,5 @@ Options:
     Note: The specified variant will be solved to the same ply depth as the optimal
     move to ensure comparable results. If the main solve times out before reaching
     the requested plies, the variant will be solved to the last completed ply depth.
-    The variant solve gets a fresh 60-second timeout, so if the main solve reaches
-    maxtime, total solve time may be up to maxtime + 60 seconds.
+    The variant solve gets a fresh 180-second timeout, so if the main solve reaches
+    maxtime, total solve time may be up to maxtime + 180 seconds.

@@ -1209,8 +1209,8 @@ searchLoop:
 						Msg("using-last-completed-ply-for-also-solve-move")
 				}
 
-				// Create fresh context with 1 minute timeout for solving just this move
-				freshCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+				// Create fresh context with 3 minute timeout for solving just this move
+				freshCtx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 				defer cancel()
 
 				err := algorithmFunc(freshCtx, pliesToUse)
