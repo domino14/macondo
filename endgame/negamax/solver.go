@@ -239,6 +239,9 @@ type Solver struct {
 
 	alsoSolveMove tinymove.TinyMove
 
+	// Track the last successfully completed ply depth
+	lastCompletedPly int
+
 	// Metrics from last solve
 	lastSolveTime   float64
 	lastTTableStats string
@@ -526,6 +529,8 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 			log.Err(err).Msg("lazySMP-possible-error")
 			return err
 		}
+		// Successfully completed this ply
+		s.lastCompletedPly = p
 		justWon := s.principalVariation.Moves[0]
 
 		if s.preventSlowroll {
@@ -689,6 +694,8 @@ func (s *Solver) iterativelyDeepenABDADA(ctx context.Context, plies int) error {
 			// Check if we're within the aspiration window
 			if val > aspα && val < aspβ {
 				lastIteration = val
+				// Successfully completed this ply
+				s.lastCompletedPly = p
 				break aspirationLoop
 			}
 
@@ -910,6 +917,9 @@ func (s *Solver) iterativelyDeepenTreeSplit(ctx context.Context, plies int) erro
 			s.principalVariation = pv
 			s.bestPVValue = finalBest - int16(s.initialSpread)
 		}
+
+		// Successfully completed this ply
+		s.lastCompletedPly = p
 
 		nodes := s.nodes.Load()
 		log.Info().Int16("spread", finalBest-int16(s.initialSpread)).Int("ply", p).Str("pv", s.principalVariation.NLBString()).Uint64("total-nodes", nodes).Msg("best-val")
@@ -1145,6 +1155,12 @@ searchLoop:
 		err := algorithmFunc(ctx, plies)
 		if err != nil {
 			log.Err(err).Msg("algorithm-error-in-multiple-variations")
+			// Save the best move found so far before breaking
+			if s.principalVariation.numMoves > 0 {
+				s.variations = append(s.variations, s.principalVariation)
+				log.Info().Str("partial-result", s.principalVariation.NLBString()).
+					Msg("saved-partial-result-before-timeout")
+			}
 			break searchLoop
 		}
 
@@ -1181,11 +1197,29 @@ searchLoop:
 			}
 			if len(filtered) > 0 {
 				s.initialMoves[0] = filtered
-				err := algorithmFunc(ctx, plies)
+
+				// Use the same ply depth that was successfully completed for the best move
+				// to ensure comparable results
+				pliesToUse := plies
+				if s.lastCompletedPly > 0 && s.lastCompletedPly < plies {
+					pliesToUse = s.lastCompletedPly
+					log.Info().
+						Int("requested-plies", plies).
+						Int("using-plies", pliesToUse).
+						Msg("using-last-completed-ply-for-also-solve-move")
+				}
+
+				// Create fresh context with 1 minute timeout for solving just this move
+				freshCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+				defer cancel()
+
+				err := algorithmFunc(freshCtx, pliesToUse)
 				if err == nil {
 					s.variations = append(s.variations, s.principalVariation)
 					log.Info().Str("also-solve-move", s.principalVariation.NLBString()).
 						Msg("solved-also-solve-var")
+				} else {
+					log.Warn().Err(err).Msg("failed-to-solve-also-solve-move")
 				}
 			}
 		}
@@ -1655,6 +1689,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	log.Debug().Int("plies", plies).Msg("alphabeta-solve-config")
 	s.requestedPlies = plies
 	s.variations = []PVLine{}
+	s.lastCompletedPly = 0
 
 	tstart := time.Now()
 	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
