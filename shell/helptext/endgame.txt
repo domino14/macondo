@@ -57,6 +57,10 @@ Options:
     iterative deepening by default, so a good enough solution should be found
     rapidly, and this solution will be improved upon.
 
+    Note: When using -also-solve-var (see below), if the main solve times out,
+    the specified variant will be solved with a fresh 60-second timeout. This
+    means the total solve time could be up to maxtime + 60 seconds.
+
     -disable-id true
 
     This option disables iterative deepening. Iterative Deepening allows the
@@ -128,3 +132,9 @@ Options:
     This mode will always solve the variant you specify, in addition to also finding
     the top play. This mode will tell you how far the optimal sequence beginning
     with the specified move is from the optimal sequence.
+
+    Note: The specified variant will be solved to the same ply depth as the optimal
+    move to ensure comparable results. If the main solve times out before reaching
+    the requested plies, the variant will be solved to the last completed ply depth.
+    The variant solve gets a fresh 60-second timeout, so if the main solve reaches
+    maxtime, total solve time may be up to maxtime + 60 seconds.
