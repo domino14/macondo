@@ -542,6 +542,9 @@ func (a *Analyzer) analyzeWithSim(ctx context.Context, g *game.Game, analysis *T
 	if len(knownOppRack) > 0 {
 		simmer.SetKnownOppRack(knownOppRack)
 		analysis.KnownOppRack = tilemapping.MachineWord(knownOppRack).UserVisible(g.Alphabet())
+		log.Info().
+			Str("knownOppRack", analysis.KnownOppRack).
+			Msg("analyzing with known opponent rack from challenged phony")
 	}
 
 	// Prepare simulation
@@ -645,6 +648,9 @@ func (a *Analyzer) analyzeWithPEG(ctx context.Context, g *game.Game, analysis *T
 	if len(knownOppRack) > 0 {
 		pegSolver.SetKnownOppRack(knownOppRack)
 		analysis.KnownOppRack = tilemapping.MachineWord(knownOppRack).UserVisible(g.Alphabet())
+		log.Info().
+			Str("knownOppRack", analysis.KnownOppRack).
+			Msg("analyzing with known opponent rack from challenged phony")
 	}
 
 	if a.analysisCfg.Threads > 0 {
