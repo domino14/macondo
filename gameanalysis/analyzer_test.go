@@ -56,6 +56,10 @@ func TestDefaultAnalysisConfig(t *testing.T) {
 	if cfg.OnlyPlayer != -1 {
 		t.Errorf("expected OnlyPlayer=-1, got %d", cfg.OnlyPlayer)
 	}
+
+	if cfg.UseExposedOppRacks != true {
+		t.Error("expected UseExposedOppRacks=true")
+	}
 }
 
 func TestPhaseString(t *testing.T) {

@@ -41,6 +41,10 @@ type AnalysisConfig struct {
 	// Optional: analyze only one player (-1 = both, 0 = player 0, 1 = player 1, or player nickname)
 	OnlyPlayer       int
 	OnlyPlayerByName string
+
+	// UseExposedOppRacks enables using opponent rack information revealed
+	// through challenged phonies when analyzing the subsequent turn.
+	UseExposedOppRacks bool
 }
 
 // DefaultAnalysisConfig returns sensible defaults
@@ -55,6 +59,7 @@ func DefaultAnalysisConfig() *AnalysisConfig {
 		PEGEarlyCutoff:          true,
 		Threads:                 0, // 0 means use default
 		OnlyPlayer:              -1,
+		UseExposedOppRacks:      true, // Enable by default for more accurate analysis
 	}
 }
 
@@ -135,6 +140,10 @@ func (a *Analyzer) AnalyzeGame(ctx context.Context, history *pb.GameHistory) (*G
 	// Track the previous event for phony detection
 	var prevEvent *pb.GameEvent
 
+	// Track exposed opponent racks from challenged phonies
+	var pendingExposedRack []tilemapping.MachineLetter
+	var exposedRackForPlayer int = -1
+
 	// Count total analyzable turns for progress reporting
 	totalTurns := 0
 	for _, evt := range history.Events {
@@ -202,11 +211,26 @@ func (a *Analyzer) AnalyzeGame(ctx context.Context, history *pb.GameHistory) (*G
 				phonyChallenged = true
 				// Substitute with a pass move for analysis since the phony was challenged off
 				playedMove = move.NewPassMove(g.RackFor(playerIndex).TilesOn(), g.Alphabet())
+
+				// Extract and store exposed tiles for the opponent's next turn
+				if a.analysisCfg.UseExposedOppRacks {
+					pendingExposedRack = extractExposedTiles(nextEvt.PlayedTiles, g.Alphabet())
+					exposedRackForPlayer = 1 - playerIndex // The other player now knows this rack
+				}
 			}
 		}
 
+		// Determine if we have known opponent rack for this player's turn
+		var knownOppRack []tilemapping.MachineLetter
+		if exposedRackForPlayer == playerIndex && len(pendingExposedRack) > 0 {
+			knownOppRack = pendingExposedRack
+			// Clear pending rack after using it (it only applies to this one turn)
+			pendingExposedRack = nil
+			exposedRackForPlayer = -1
+		}
+
 		// Analyze the position
-		analysis, err := a.analyzeTurn(ctx, g, playedMove, turnNum, playerIndex, history.Players)
+		analysis, err := a.analyzeTurn(ctx, g, playedMove, turnNum, playerIndex, history.Players, knownOppRack)
 		if err != nil {
 			log.Warn().Err(err).Int("turn", turnNum).Msg("failed to analyze turn")
 			prevEvent = evt
@@ -252,6 +276,24 @@ func (a *Analyzer) isAnalyzableEvent(evt *pb.GameEvent) bool {
 		evt.Type == pb.GameEvent_PASS
 }
 
+// extractExposedTiles converts PlayedTiles from PHONY_TILES_RETURNED event
+// to MachineLetters, filtering out play-through tiles (0).
+func extractExposedTiles(playedTiles string, alph *tilemapping.TileMapping) []tilemapping.MachineLetter {
+	tiles, err := tilemapping.ToMachineLetters(playedTiles, alph)
+	if err != nil {
+		log.Err(err).Str("playedTiles", playedTiles).Msg("unable-to-convert-exposed-tiles")
+		return nil
+	}
+	// Filter out play-through tiles (represented as 0)
+	var result []tilemapping.MachineLetter
+	for _, t := range tiles {
+		if t != 0 {
+			result = append(result, t)
+		}
+	}
+	return result
+}
+
 // isPhony checks if a move is a phony by validating the words formed
 func (a *Analyzer) isPhony(evt *pb.GameEvent, g *game.Game) bool {
 	// Only tile placements can be phonies
@@ -282,7 +324,8 @@ func (a *Analyzer) isPhony(evt *pb.GameEvent, g *game.Game) bool {
 
 // analyzeTurn analyzes a single turn and returns the analysis
 func (a *Analyzer) analyzeTurn(ctx context.Context, g *game.Game, playedMove *move.Move,
-	turnNum, playerIndex int, players []*pb.PlayerInfo) (*TurnAnalysis, error) {
+	turnNum, playerIndex int, players []*pb.PlayerInfo,
+	knownOppRack []tilemapping.MachineLetter) (*TurnAnalysis, error) {
 
 	tilesInBag := g.Bag().TilesRemaining()
 	phase := a.determinePhase(tilesInBag)
@@ -301,12 +344,12 @@ func (a *Analyzer) analyzeTurn(ctx context.Context, g *game.Game, playedMove *mo
 	switch phase {
 	case PhaseEarlyMid:
 		err = a.analyzeWithSim(ctx, g, analysis, a.analysisCfg.SimPlaysEarlyMid,
-			a.analysisCfg.SimPliesEarlyMid, a.analysisCfg.SimStopEarlyMid)
+			a.analysisCfg.SimPliesEarlyMid, a.analysisCfg.SimStopEarlyMid, knownOppRack)
 	case PhaseEarlyPreEndgame:
 		err = a.analyzeWithSim(ctx, g, analysis, a.analysisCfg.SimPlaysEarlyPreEndgame,
-			a.analysisCfg.SimPliesEarlyPreEndgame, a.analysisCfg.SimStopEarlyPreEndgame)
+			a.analysisCfg.SimPliesEarlyPreEndgame, a.analysisCfg.SimStopEarlyPreEndgame, knownOppRack)
 	case PhasePreEndgame:
-		err = a.analyzeWithPEG(ctx, g, analysis)
+		err = a.analyzeWithPEG(ctx, g, analysis, knownOppRack)
 	case PhaseEndgame:
 		err = a.analyzeWithEndgame(ctx, g, analysis)
 	}
@@ -466,7 +509,7 @@ func (a *Analyzer) determinePhase(tilesInBag int) GamePhase {
 
 // analyzeWithSim analyzes a turn using Monte Carlo simulation
 func (a *Analyzer) analyzeWithSim(ctx context.Context, g *game.Game, analysis *TurnAnalysis,
-	numPlays, plies, stopCondition int) error {
+	numPlays, plies, stopCondition int, knownOppRack []tilemapping.MachineLetter) error {
 
 	// Create bot turn player for move generation
 	botConfig := &bot.BotConfig{Config: *a.cfg}
@@ -493,6 +536,12 @@ func (a *Analyzer) analyzeWithSim(ctx context.Context, g *game.Game, analysis *T
 
 	if a.analysisCfg.Threads > 0 {
 		simmer.SetThreads(a.analysisCfg.Threads)
+	}
+
+	// Set known opponent rack if available
+	if len(knownOppRack) > 0 {
+		simmer.SetKnownOppRack(knownOppRack)
+		analysis.KnownOppRack = tilemapping.MachineWord(knownOppRack).UserVisible(g.Alphabet())
 	}
 
 	// Prepare simulation
@@ -576,7 +625,8 @@ func (a *Analyzer) analyzeWithSim(ctx context.Context, g *game.Game, analysis *T
 }
 
 // analyzeWithPEG analyzes a turn using the PEG solver (1 tile in bag)
-func (a *Analyzer) analyzeWithPEG(ctx context.Context, g *game.Game, analysis *TurnAnalysis) error {
+func (a *Analyzer) analyzeWithPEG(ctx context.Context, g *game.Game, analysis *TurnAnalysis,
+	knownOppRack []tilemapping.MachineLetter) error {
 	// Get the KWG for the lexicon
 	gd, err := kwg.GetKWG(a.cfg.WGLConfig(), g.LexiconName())
 	if err != nil {
@@ -590,6 +640,12 @@ func (a *Analyzer) analyzeWithPEG(ctx context.Context, g *game.Game, analysis *T
 	// Set options
 	pegSolver.SetEarlyCutoffOptim(a.analysisCfg.PEGEarlyCutoff)
 	pegSolver.SetAvoidPrune([]*move.Move{analysis.PlayedMove})
+
+	// Set known opponent rack if available
+	if len(knownOppRack) > 0 {
+		pegSolver.SetKnownOppRack(knownOppRack)
+		analysis.KnownOppRack = tilemapping.MachineWord(knownOppRack).UserVisible(g.Alphabet())
+	}
 
 	if a.analysisCfg.Threads > 0 {
 		pegSolver.SetThreads(a.analysisCfg.Threads)
