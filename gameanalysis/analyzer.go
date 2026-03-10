@@ -277,18 +277,20 @@ func (a *Analyzer) isAnalyzableEvent(evt *pb.GameEvent) bool {
 }
 
 // extractExposedTiles converts PlayedTiles from PHONY_TILES_RETURNED event
-// to MachineLetters, filtering out play-through tiles (0).
+// to MachineLetters, filtering out play-through tiles (0) and converting
+// designated blanks to undesignated blanks (since blanks return to rack undesignated).
 func extractExposedTiles(playedTiles string, alph *tilemapping.TileMapping) []tilemapping.MachineLetter {
 	tiles, err := tilemapping.ToMachineLetters(playedTiles, alph)
 	if err != nil {
 		log.Err(err).Str("playedTiles", playedTiles).Msg("unable-to-convert-exposed-tiles")
 		return nil
 	}
-	// Filter out play-through tiles (represented as 0)
+	// Filter out play-through tiles and convert blanks to undesignated (rack format)
 	var result []tilemapping.MachineLetter
 	for _, t := range tiles {
 		if t != 0 {
-			result = append(result, t)
+			// Use IntrinsicTileIdx to convert designated blanks (blank-A) to undesignated blank (0)
+			result = append(result, t.IntrinsicTileIdx())
 		}
 	}
 	return result
