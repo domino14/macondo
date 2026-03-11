@@ -80,6 +80,96 @@ func New(cfg *config.Config, analysisCfg *AnalysisConfig) *Analyzer {
 	}
 }
 
+// AnalyzeSingleTurn analyzes a single turn in the game
+// This can be used standalone or called in a loop by AnalyzeGame
+func (a *Analyzer) AnalyzeSingleTurn(ctx context.Context, history *pb.GameHistory, rules *game.GameRules, turnNum int) (*TurnAnalysis, error) {
+	if turnNum < 0 || turnNum >= len(history.Events) {
+		return nil, fmt.Errorf("turn %d out of range", turnNum)
+	}
+
+	evt := history.Events[turnNum]
+	if !a.isAnalyzableEvent(evt) {
+		return nil, fmt.Errorf("turn %d is not analyzable (type: %s)", turnNum, evt.Type)
+	}
+
+	playerIndex := int(evt.PlayerIndex)
+
+	// Create a game at this turn
+	g, err := game.NewFromHistory(history, rules, turnNum)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create game at turn %d: %w", turnNum, err)
+	}
+
+	// Skip if game not in playing state
+	if g.Playing() != pb.PlayState_PLAYING {
+		return nil, fmt.Errorf("game not in playing state at turn %d", turnNum)
+	}
+
+	// Get the move that was played
+	playedMove, err := game.MoveFromEvent(evt, g.Alphabet(), g.Board())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create move from event at turn %d: %w", turnNum, err)
+	}
+
+	// Check if previous opponent move was a phony that wasn't challenged
+	missedChallenge := false
+	if turnNum > 0 {
+		prevEvent := history.Events[turnNum-1]
+		if int(prevEvent.PlayerIndex) != playerIndex {
+			if a.isPhony(prevEvent, g) {
+				missedChallenge = true
+			}
+		}
+	}
+
+	// Check if this move is a phony
+	isPhony := a.isPhony(evt, g)
+	phonyChallenged := false
+
+	// Check if the next event is a PHONY_TILES_RETURNED for this move
+	if turnNum+1 < len(history.Events) {
+		nextEvt := history.Events[turnNum+1]
+		if nextEvt.Type == pb.GameEvent_PHONY_TILES_RETURNED {
+			phonyChallenged = true
+			// Substitute with a pass move for analysis since the phony was challenged off
+			playedMove = move.NewPassMove(g.RackFor(playerIndex).TilesOn(), g.Alphabet())
+		}
+	}
+
+	// Check if we have a known opponent rack from a previous challenged phony
+	var knownOppRack []tilemapping.MachineLetter
+	if a.analysisCfg.UseExposedOppRacks && turnNum > 0 {
+		// Look back to see if the previous event was a PHONY_TILES_RETURNED
+		prevEvent := history.Events[turnNum-1]
+		if prevEvent.Type == pb.GameEvent_PHONY_TILES_RETURNED {
+			// The event before that should be the phony play by the opponent
+			if turnNum >= 2 {
+				phonyPlayEvent := history.Events[turnNum-2]
+				if int(phonyPlayEvent.PlayerIndex) != playerIndex {
+					// Opponent's phony was challenged off, we know their rack
+					knownOppRack = extractExposedTiles(prevEvent.PlayedTiles, g.Alphabet())
+				}
+			}
+		}
+	}
+
+	// Analyze the position
+	analysis, err := a.analyzeTurn(ctx, g, playedMove, turnNum, playerIndex, history.Players, knownOppRack)
+	if err != nil {
+		return nil, err
+	}
+
+	// Add phony information
+	analysis.IsPhony = isPhony
+	analysis.PhonyChallenged = phonyChallenged
+	analysis.MissedChallenge = missedChallenge
+
+	// Categorize the mistake
+	analysis.MistakeCategory = categorizeMistake(analysis)
+
+	return analysis, nil
+}
+
 // AnalyzeGame analyzes every move in a game and returns the results
 func (a *Analyzer) AnalyzeGame(ctx context.Context, history *pb.GameHistory) (*GameAnalysisResult, error) {
 	if history == nil {
@@ -137,13 +227,6 @@ func (a *Analyzer) AnalyzeGame(ctx context.Context, history *pb.GameHistory) (*G
 		return playerIndex == a.analysisCfg.OnlyPlayer
 	}
 
-	// Track the previous event for phony detection
-	var prevEvent *pb.GameEvent
-
-	// Track exposed opponent racks from challenged phonies
-	var pendingExposedRack []tilemapping.MachineLetter
-	var exposedRackForPlayer int = -1
-
 	// Count total analyzable turns for progress reporting
 	totalTurns := 0
 	for _, evt := range history.Events {
@@ -157,7 +240,6 @@ func (a *Analyzer) AnalyzeGame(ctx context.Context, history *pb.GameHistory) (*G
 	for turnNum, evt := range history.Events {
 		// Skip non-analyzable events
 		if !a.isAnalyzableEvent(evt) {
-			prevEvent = evt
 			continue
 		}
 
@@ -165,82 +247,15 @@ func (a *Analyzer) AnalyzeGame(ctx context.Context, history *pb.GameHistory) (*G
 
 		// Check if we should analyze this player
 		if !shouldAnalyzePlayer(playerIndex) {
-			prevEvent = evt
 			continue
 		}
 
-		// Create a game at this turn
-		g, err := game.NewFromHistory(history, rules, turnNum)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create game at turn %d: %w", turnNum, err)
-		}
-
-		// Skip analyzing moves when the game is already over or waiting for final pass
-		// This happens for the final pass after someone went out
-		if g.Playing() != pb.PlayState_PLAYING {
-			log.Debug().
-				Int("turn", turnNum).
-				Str("playState", g.Playing().String()).
-				Msg("skipping turn - game not in playing state")
-			prevEvent = evt
-			continue
-		}
-
-		// Get the move that was played
-		playedMove, err := game.MoveFromEvent(evt, g.Alphabet(), g.Board())
-		if err != nil {
-			return nil, fmt.Errorf("failed to create move from event at turn %d: %w", turnNum, err)
-		}
-
-		// Check if previous opponent move was a phony that wasn't challenged
-		missedChallenge := false
-		if prevEvent != nil && int(prevEvent.PlayerIndex) != playerIndex {
-			if a.isPhony(prevEvent, g) {
-				missedChallenge = true
-			}
-		}
-
-		// Check if this move is a phony
-		isPhony := a.isPhony(evt, g)
-		phonyChallenged := false
-
-		// Check if the next event is a PHONY_TILES_RETURNED for this move
-		if turnNum+1 < len(history.Events) {
-			nextEvt := history.Events[turnNum+1]
-			if nextEvt.Type == pb.GameEvent_PHONY_TILES_RETURNED {
-				phonyChallenged = true
-				// Substitute with a pass move for analysis since the phony was challenged off
-				playedMove = move.NewPassMove(g.RackFor(playerIndex).TilesOn(), g.Alphabet())
-
-				// Extract and store exposed tiles for the opponent's next turn
-				if a.analysisCfg.UseExposedOppRacks {
-					pendingExposedRack = extractExposedTiles(nextEvt.PlayedTiles, g.Alphabet())
-					exposedRackForPlayer = 1 - playerIndex // The other player now knows this rack
-				}
-			}
-		}
-
-		// Determine if we have known opponent rack for this player's turn
-		var knownOppRack []tilemapping.MachineLetter
-		if exposedRackForPlayer == playerIndex && len(pendingExposedRack) > 0 {
-			knownOppRack = pendingExposedRack
-			// Clear pending rack after using it (it only applies to this one turn)
-			pendingExposedRack = nil
-			exposedRackForPlayer = -1
-		}
-
-		// Analyze the position
-		analysis, err := a.analyzeTurn(ctx, g, playedMove, turnNum, playerIndex, history.Players, knownOppRack)
+		// Analyze this turn using the shared helper function
+		analysis, err := a.AnalyzeSingleTurn(ctx, history, rules, turnNum)
 		if err != nil {
 			log.Warn().Err(err).Int("turn", turnNum).Msg("failed to analyze turn")
-			prevEvent = evt
 			continue
 		}
-
-		// Add phony information
-		analysis.IsPhony = isPhony
-		analysis.PhonyChallenged = phonyChallenged
-		analysis.MissedChallenge = missedChallenge
 
 		result.Turns = append(result.Turns, analysis)
 
@@ -250,7 +265,7 @@ func (a *Analyzer) AnalyzeGame(ctx context.Context, history *pb.GameHistory) (*G
 			Int("player-turn", analyzedCount).
 			Int("total", totalTurns).
 			Str("player", analysis.PlayerName).
-			Str("move", playedMove.ShortDescription()).
+			Str("move", analysis.PlayedMove.ShortDescription()).
 			Msg("analyzed turn")
 
 		// Update player summary
@@ -259,8 +274,6 @@ func (a *Analyzer) AnalyzeGame(ctx context.Context, history *pb.GameHistory) (*G
 		if analysis.WasOptimal {
 			summary.OptimalMoves++
 		}
-
-		prevEvent = evt
 	}
 
 	// Calculate aggregate statistics
