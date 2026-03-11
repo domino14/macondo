@@ -78,24 +78,13 @@ func (sc *ShellController) formatAnalysisResults(result *gameanalysis.GameAnalys
 
 	for _, turn := range result.Turns {
 		player := turn.PlayerName
-		if len(player) > 12 {
-			player = player[:12]
+		// Truncate player name by character count (not bytes) to avoid corrupting UTF-8
+		if len([]rune(player)) > 12 {
+			player = string([]rune(player)[:12])
 		}
-
 		rack := turn.Rack
-		if len(rack) > 8 {
-			rack = rack[:8]
-		}
-
 		played := turn.PlayedMove.ShortDescription()
-		if len(played) > 18 {
-			played = played[:18]
-		}
-
 		optimal := turn.OptimalMove.ShortDescription()
-		if len(optimal) > 18 {
-			optimal = optimal[:18]
-		}
 
 		// Format difference
 		var diff string
