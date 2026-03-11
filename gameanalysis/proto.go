@@ -48,6 +48,7 @@ func (t *TurnAnalysis) ToProto() *pb.TurnAnalysis {
 		OptimalIsBingo:   t.OptimalIsBingo,
 		PlayedIsBingo:    t.PlayedIsBingo,
 		MissedBingo:      t.MissedBingo,
+		KnownOppRack:     t.KnownOppRack,
 	}
 }
 

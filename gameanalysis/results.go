@@ -72,6 +72,10 @@ type TurnAnalysis struct {
 	IsPhony         bool // The played move was a phony
 	PhonyChallenged bool // A phony that was challenged off
 	MissedChallenge bool // Player failed to challenge opponent's phony
+
+	// KnownOppRack contains the known opponent tiles (if any) used in analysis.
+	// This is populated when the opponent's phony was challenged off, exposing their rack.
+	KnownOppRack string
 }
 
 // PlayerSummary contains aggregate statistics for a player across the game.

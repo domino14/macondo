@@ -1729,6 +1729,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.render3D(cmd)
 	case "analyze":
 		return sc.analyze(cmd)
+	case "analyze-turn":
+		return sc.analyzeTurn(cmd)
 	case "analyze-batch":
 		return sc.analyzeBatch(cmd)
 	case "autoanalyze":

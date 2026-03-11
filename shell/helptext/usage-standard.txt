@@ -33,6 +33,9 @@ Examining a game:
     peg [options] - exhaustively solve 1-in-the-bag pre-endgame
     explain [options] - generate AI explanation for current position
     challenge [n] - add a challenge bonus to the last play of n points, or challenge play off.
+    analyze [options] - analyze all moves in the loaded game
+    analyze-turn - analyze the current turn
+    analyze-batch <filepath> - analyze multiple games from a directory
 Other:
     export <filepath> - export a game to .gcg
     autoplay [options] - start comp v comp autoplay

@@ -1,0 +1,22 @@
+analyze-turn
+
+Analyzes the current turn in the loaded game.
+
+This command analyzes just the current turn instead of the entire game,
+which is much faster for debugging or examining specific positions.
+
+Use 'n' and 'p' to navigate to different turns, then run analyze-turn
+to see the analysis for that position.
+
+The analysis shows:
+  - Player's rack and the move they played
+  - The optimal move according to the analyzer
+  - Win probability loss (for sim/PEG phases) or spread loss (for endgame)
+  - Known opponent rack (if revealed by a challenged phony)
+  - Mistake category (Small/Medium/Large)
+  - Special flags (phony, missed challenge, blown endgame, missed bingo)
+
+Example:
+  analyze-turn -turn 5    # Analyze event #5
+
+See also: analyze, analyze-batch, list
