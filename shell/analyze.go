@@ -232,3 +232,119 @@ func formatPlayerSummaries(summaries [2]*gameanalysis.PlayerSummary) string {
 
 	return sb.String()
 }
+
+// analyzeTurn analyzes a single turn in the loaded game
+func (sc *ShellController) analyzeTurn(cmd *shellcmd) (*Response, error) {
+	if sc.game == nil {
+		return nil, errors.New("no game loaded; please load a game first with 'load'")
+	}
+
+	history := sc.game.History()
+	if history == nil || len(history.Events) == 0 {
+		return nil, errors.New("no game history to analyze")
+	}
+
+	// Get turn number (required)
+	turnNumOpt, err := cmd.options.Int("turn")
+	if err != nil || turnNumOpt < 0 {
+		return nil, errors.New("please specify -turn <number> (0-indexed event number)")
+	}
+
+	if turnNumOpt >= len(history.Events) {
+		return nil, fmt.Errorf("turn %d out of range (game has %d events)", turnNumOpt, len(history.Events))
+	}
+
+	// Create analyzer
+	cfg := gameanalysis.DefaultAnalysisConfig()
+	analyzer := gameanalysis.New(sc.config, cfg)
+
+	// Analyze just this turn
+	ctx := context.Background()
+	analysis, err := analyzer.AnalyzeSingleTurnFromHistory(ctx, history, turnNumOpt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to analyze turn %d: %w", turnNumOpt, err)
+	}
+
+	// Format and return detailed results for this turn
+	output := formatSingleTurnAnalysis(analysis)
+	return msg(output), nil
+}
+
+// formatSingleTurnAnalysis formats detailed analysis for a single turn
+func formatSingleTurnAnalysis(turn *gameanalysis.TurnAnalysis) string {
+	var sb strings.Builder
+
+	sb.WriteString(fmt.Sprintf("Turn %d Analysis\n", turn.TurnNumber))
+	sb.WriteString(strings.Repeat("=", 60))
+	sb.WriteString("\n\n")
+
+	sb.WriteString(fmt.Sprintf("Player: %s\n", turn.PlayerName))
+	sb.WriteString(fmt.Sprintf("Rack: %s\n", turn.Rack))
+	sb.WriteString(fmt.Sprintf("Phase: %s (%d tiles in bag)\n", turn.Phase, turn.TilesInBag))
+	sb.WriteString("\n")
+
+	// Known opponent rack if available
+	if turn.KnownOppRack != "" {
+		sb.WriteString(fmt.Sprintf("Known Opponent Rack: %s\n", turn.KnownOppRack))
+		sb.WriteString("  (from challenged phony)\n\n")
+	}
+
+	// Played move
+	sb.WriteString(fmt.Sprintf("Played Move: %s\n", turn.PlayedMove.ShortDescription()))
+	sb.WriteString(fmt.Sprintf("  Score: %d points\n", turn.PlayedMove.Score()))
+	if turn.PlayedIsBingo {
+		sb.WriteString("  BINGO!\n")
+	}
+	sb.WriteString("\n")
+
+	// Optimal move
+	sb.WriteString(fmt.Sprintf("Optimal Move: %s\n", turn.OptimalMove.ShortDescription()))
+	sb.WriteString(fmt.Sprintf("  Score: %d points\n", turn.OptimalMove.Score()))
+	if turn.OptimalIsBingo {
+		sb.WriteString("  BINGO!\n")
+	}
+	sb.WriteString("\n")
+
+	// Analysis metrics
+	if turn.WasOptimal {
+		sb.WriteString("✓ Optimal play!\n")
+	} else {
+		if turn.Phase == gameanalysis.PhaseEndgame {
+			sb.WriteString(fmt.Sprintf("Spread Loss: %d points\n", turn.SpreadLoss))
+		} else if turn.Phase == gameanalysis.PhasePreEndgame && turn.SpreadLoss > 0 {
+			sb.WriteString(fmt.Sprintf("Win Prob Loss: %.2f%%\n", turn.WinProbLoss*100))
+			sb.WriteString(fmt.Sprintf("Spread Loss (tiebreak): %d points\n", turn.SpreadLoss))
+		} else {
+			sb.WriteString(fmt.Sprintf("Win Prob Loss: %.2f%%\n", turn.WinProbLoss*100))
+		}
+
+		if turn.MistakeCategory != "" {
+			sb.WriteString(fmt.Sprintf("Mistake Category: %s\n", turn.MistakeCategory))
+		}
+	}
+
+	// Special flags
+	if turn.IsPhony {
+		sb.WriteString("\n⚠️ PHONY")
+		if turn.PhonyChallenged {
+			sb.WriteString(" (challenged off)")
+		} else {
+			sb.WriteString(" (unchallenged)")
+		}
+		sb.WriteString("\n")
+	}
+
+	if turn.MissedChallenge {
+		sb.WriteString("\n❌ Missed Challenge - opponent played a phony!\n")
+	}
+
+	if turn.BlownEndgame {
+		sb.WriteString("\n💥 Blown Endgame - changed winning position to loss/tie\n")
+	}
+
+	if turn.MissedBingo {
+		sb.WriteString("\n⚠️ Missed Bingo - a bingo was available but not played\n")
+	}
+
+	return sb.String()
+}

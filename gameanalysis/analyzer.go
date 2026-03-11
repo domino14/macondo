@@ -80,6 +80,31 @@ func New(cfg *config.Config, analysisCfg *AnalysisConfig) *Analyzer {
 	}
 }
 
+// AnalyzeSingleTurnFromHistory analyzes a single turn, building the game rules from history
+// This is a convenience wrapper around AnalyzeSingleTurn for shell commands
+func (a *Analyzer) AnalyzeSingleTurnFromHistory(ctx context.Context, history *pb.GameHistory, turnNum int) (*TurnAnalysis, error) {
+	// Build the game rules from the history
+	boardLayout, ldName, variant := game.HistoryToVariant(history)
+	rules, err := game.NewBasicGameRules(
+		a.cfg,
+		history.Lexicon,
+		boardLayout,
+		ldName,
+		game.CrossScoreAndSet,
+		variant,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create game rules: %w", err)
+	}
+
+	// Set challenge rule to DOUBLE
+	if history.ChallengeRule == pb.ChallengeRule_VOID {
+		history.ChallengeRule = pb.ChallengeRule_DOUBLE
+	}
+
+	return a.AnalyzeSingleTurn(ctx, history, rules, turnNum)
+}
+
 // AnalyzeSingleTurn analyzes a single turn in the game
 // This can be used standalone or called in a loop by AnalyzeGame
 func (a *Analyzer) AnalyzeSingleTurn(ctx context.Context, history *pb.GameHistory, rules *game.GameRules, turnNum int) (*TurnAnalysis, error) {
