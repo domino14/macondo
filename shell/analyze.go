@@ -233,7 +233,7 @@ func formatPlayerSummaries(summaries [2]*gameanalysis.PlayerSummary) string {
 	return sb.String()
 }
 
-// analyzeTurn analyzes a single turn in the loaded game
+// analyzeTurn analyzes the current turn in the loaded game
 func (sc *ShellController) analyzeTurn(cmd *shellcmd) (*Response, error) {
 	if sc.game == nil {
 		return nil, errors.New("no game loaded; please load a game first with 'load'")
@@ -244,14 +244,10 @@ func (sc *ShellController) analyzeTurn(cmd *shellcmd) (*Response, error) {
 		return nil, errors.New("no game history to analyze")
 	}
 
-	// Get turn number (required)
-	turnNumOpt, err := cmd.options.Int("turn")
-	if err != nil || turnNumOpt < 0 {
-		return nil, errors.New("please specify -turn <number> (0-indexed event number)")
-	}
-
+	// Get current turn number
+	turnNumOpt := sc.game.Turn()
 	if turnNumOpt >= len(history.Events) {
-		return nil, fmt.Errorf("turn %d out of range (game has %d events)", turnNumOpt, len(history.Events))
+		return nil, fmt.Errorf("current turn %d is out of range (game has %d events)", turnNumOpt, len(history.Events))
 	}
 
 	// Create analyzer

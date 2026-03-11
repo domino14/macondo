@@ -1,15 +1,12 @@
-analyze-turn -turn <n>
+analyze-turn
 
-Analyzes a single turn in the loaded game.
+Analyzes the current turn in the loaded game.
 
-Options:
-  -turn <n>  Turn number to analyze (0-indexed event number)
-
-This command analyzes just one specific turn instead of the entire game,
+This command analyzes just the current turn instead of the entire game,
 which is much faster for debugging or examining specific positions.
 
-The turn number is the 0-indexed event number from the game history.
-Use 'list' to see all events and their numbers.
+Use 'n' and 'p' to navigate to different turns, then run analyze-turn
+to see the analysis for that position.
 
 The analysis shows:
   - Player's rack and the move they played
