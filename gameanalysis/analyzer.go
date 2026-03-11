@@ -173,6 +173,9 @@ func (a *Analyzer) AnalyzeSingleTurn(ctx context.Context, history *pb.GameHistor
 				if int(phonyPlayEvent.PlayerIndex) != playerIndex {
 					// Opponent's phony was challenged off, we know their rack
 					knownOppRack = extractExposedTiles(prevEvent.PlayedTiles, g.Alphabet())
+					log.Info().
+						Str("exposedTiles", prevEvent.PlayedTiles).
+						Msg("extracted known opponent rack from challenged phony")
 				}
 			}
 		}
@@ -578,19 +581,19 @@ func (a *Analyzer) analyzeWithSim(ctx context.Context, g *game.Game, analysis *T
 		simmer.SetThreads(a.analysisCfg.Threads)
 	}
 
-	// Set known opponent rack if available
+	// Prepare simulation
+	err = simmer.PrepareSim(plies, plays)
+	if err != nil {
+		return fmt.Errorf("failed to prepare simulation: %w", err)
+	}
+
+	// Set known opponent rack if available (MUST be after PrepareSim which clears it)
 	if len(knownOppRack) > 0 {
 		simmer.SetKnownOppRack(knownOppRack)
 		analysis.KnownOppRack = tilemapping.MachineWord(knownOppRack).UserVisible(g.Alphabet())
 		log.Info().
 			Str("knownOppRack", analysis.KnownOppRack).
 			Msg("analyzing with known opponent rack from challenged phony")
-	}
-
-	// Prepare simulation
-	err = simmer.PrepareSim(plies, plays)
-	if err != nil {
-		return fmt.Errorf("failed to prepare simulation: %w", err)
 	}
 
 	// Ensure the played move is simmed (avoid pruning it)
