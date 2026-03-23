@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/domino14/macondo/config"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -25,10 +26,12 @@ type WooglesClient struct {
 // NewWooglesClient creates a new Woogles API client
 func NewWooglesClient(baseURL, apiKey string, cfg *config.Config) *WooglesClient {
 	return &WooglesClient{
-		baseURL:    baseURL,
-		apiKey:     apiKey,
-		httpClient: &http.Client{},
-		cfg:        cfg,
+		baseURL: baseURL,
+		apiKey:  apiKey,
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second, // Timeout for all HTTP requests
+		},
+		cfg: cfg,
 	}
 }
 
