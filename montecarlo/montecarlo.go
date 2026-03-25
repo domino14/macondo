@@ -58,6 +58,12 @@ import (
 
 const MaxHeatMapIterations = 7500
 
+// winPctSortEpsilon is used when sorting plays by win probability: differences
+// smaller than this are treated as ties and broken by equity instead. This avoids
+// floating-point noise causing the equity winner to sort below a play with a
+// negligibly higher win probability.
+const winPctSortEpsilon = 1e-9
+
 type InferenceMode int
 
 const (
@@ -929,7 +935,7 @@ func (s *Simmer) sortPlaysByWinRate(ignoredAtBottom bool) {
 		sort.Slice(plays, func(i, j int) bool {
 			a, b := plays[i], plays[j]
 			wi, wj := a.winPctStats.Mean(), b.winPctStats.Mean()
-			if wi != wj {
+			if math.Abs(wi-wj) > winPctSortEpsilon {
 				return wi > wj
 			}
 			return a.equityStats.Mean() > b.equityStats.Mean()

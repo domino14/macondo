@@ -451,11 +451,13 @@ func categorizeMistake(analysis *TurnAnalysis) string {
 		}
 	}
 
-	// Handle PEG spread tiebreak mistakes
-	if analysis.Phase == PhasePreEndgame && analysis.SpreadLoss > 0 {
+	// Handle spread/equity tiebreak mistakes for PEG and sim phases.
+	// SpreadLoss is set when win probabilities are effectively tied — use
+	// spread-based thresholds rather than win% thresholds.
+	if analysis.SpreadLoss > 0 {
 		loss := float64(analysis.SpreadLoss)
 
-		// Use doubled thresholds for PEG spread: 1-7 small, 8-15 medium, 16+ large
+		// 1-7 small, 8-15 medium, 16+ large
 		if loss <= 7 {
 			return "Small"
 		} else if loss <= 15 {
@@ -651,9 +653,11 @@ func (a *Analyzer) analyzeWithSim(ctx context.Context, g *game.Game, analysis *T
 
 	// Find played move in results
 	playedFound := false
+	var playedEquity float64
 	for _, result := range simmedPlays {
 		if result.Move().Equals(analysis.PlayedMove, checkTrans, true) {
 			analysis.PlayedWinProb = result.WinProb()
+			playedEquity = result.EquityMean()
 			playedFound = true
 			break
 		}
@@ -667,6 +671,22 @@ func (a *Analyzer) analyzeWithSim(ctx context.Context, g *game.Game, analysis *T
 
 	analysis.WinProbLoss = analysis.OptimalWinProb - analysis.PlayedWinProb
 	analysis.WasOptimal = analysis.OptimalMove.Equals(analysis.PlayedMove, checkTrans, true)
+
+	// When all plays are near 0% or 100% win probability, win prob loss is
+	// meaningless. Use equity difference as a spread-based tiebreaker instead,
+	// mirroring how PEG handles tied win probabilities.
+	const simEquityEpsilon = 0.005 // 0.5%, matches autostopper's minReasonableWProb
+	if !analysis.WasOptimal && playedFound {
+		nearZero := analysis.OptimalWinProb < simEquityEpsilon
+		nearOne := analysis.OptimalWinProb > 1-simEquityEpsilon
+		if nearZero || nearOne {
+			optimalEquity := simmedPlays[0].EquityMean()
+			equityDiff := optimalEquity - playedEquity
+			if equityDiff > 0.5 {
+				analysis.SpreadLoss = int16(equityDiff + 0.5)
+			}
+		}
+	}
 
 	// Set bingo flags
 	analysis.OptimalIsBingo = isBingo(analysis.OptimalMove)

@@ -53,6 +53,7 @@ type AutoStopper struct {
 
 	stoppingCondition   StoppingCondition
 	playSimilarityCache map[string]bool
+	roundCount          int
 
 	simmedPlays []*AutoStopperSimmedPlay
 }
@@ -94,6 +95,7 @@ func newAutostopper() *AutoStopper {
 
 func (a *AutoStopper) reset() {
 	a.playSimilarityCache = map[string]bool{}
+	a.roundCount = 0
 }
 
 func (a *AutoStopper) shouldStop(iterationCount uint64, simmedPlays *SimmedPlays, maxPlies int) bool {
@@ -103,6 +105,7 @@ func (a *AutoStopper) shouldStop(iterationCount uint64, simmedPlays *SimmedPlays
 	a.Lock()
 	defer a.Unlock()
 
+	a.roundCount++
 	sc := a.stoppingCondition
 
 	if len(simmedPlays.plays) < 2 {
@@ -138,10 +141,11 @@ func (a *AutoStopper) shouldStop(iterationCount uint64, simmedPlays *SimmedPlays
 		if a.simmedPlays[j].ignore {
 			return true
 		}
-		if a.simmedPlays[i].winPctStats.Mean() == a.simmedPlays[j].winPctStats.Mean() {
+		wi, wj := a.simmedPlays[i].winPctStats.Mean(), a.simmedPlays[j].winPctStats.Mean()
+		if math.Abs(wi-wj) <= winPctSortEpsilon {
 			return a.simmedPlays[i].equityStats.Mean() > a.simmedPlays[j].equityStats.Mean()
 		}
-		return a.simmedPlays[i].winPctStats.Mean() > a.simmedPlays[j].winPctStats.Mean()
+		return wi > wj
 	})
 
 	// find the bottom unignored win pct play
@@ -156,21 +160,32 @@ func (a *AutoStopper) shouldStop(iterationCount uint64, simmedPlays *SimmedPlays
 	// we want to cut off plays that have no chance of winning.
 	// assume the very top play is the winner, and then cut off plays that have
 	// no chance of catching up.
-	// "no chance" is of course defined by the stopping condition :)
+	// "no chance" is defined via UCB/LCB bounds with time-uniform confidence.
 
-	var ci float64
+	// Map stopping condition to δ (total error probability) and a Z-score for
+	// the equity tiebreak detection (single one-shot tests, not repeated).
+	var delta, ci float64
 	switch sc {
 	case Stop90:
+		delta = 0.10
 		ci = stats.Z90
 	case Stop95:
+		delta = 0.05
 		ci = stats.Z95
 	case Stop98:
+		delta = 0.02
 		ci = stats.Z98
 	case Stop99:
+		delta = 0.01
 		ci = stats.Z99
 	case Stop999:
+		delta = 0.001
 		ci = stats.Z999
+	default:
+		delta = 0.05
+		ci = stats.Z95
 	}
+
 	tiebreakByEquity := false
 	tentativeWinner := a.simmedPlays[0]
 	μ := tentativeWinner.winPctStats.Mean()
@@ -201,7 +216,7 @@ func (a *AutoStopper) shouldStop(iterationCount uint64, simmedPlays *SimmedPlays
 		if highestEquityIdx != 0 {
 			a.simmedPlays[0], a.simmedPlays[highestEquityIdx] = a.simmedPlays[highestEquityIdx], a.simmedPlays[0]
 			tentativeWinner = a.simmedPlays[0]
-			log.Info().
+			log.Debug().
 				Str("old-tentative-winner", a.simmedPlays[highestEquityIdx].origPlay.play.ShortDescription()).
 				Str("tentative-winner", tentativeWinner.origPlay.play.ShortDescription()).
 				Msg("tiebreaking by equity, re-determining tentative winner")
@@ -211,8 +226,25 @@ func (a *AutoStopper) shouldStop(iterationCount uint64, simmedPlays *SimmedPlays
 		log.Debug().Msg("stopping-condition-tiebreak-by-equity")
 	}
 
+	// UCB/LCB pruning: prune arm i when UCB(i) < LCB(leader).
+	// c = sqrt(2 * ln(2 * K * round^2 / δ)) provides a time-uniform confidence
+	// bound that accounts for the number of active arms K and the number of
+	// rounds, bounding the total false-prune probability by δ.
+	K := float64(len(a.simmedPlays) - ignoredPlays)
+	round := float64(a.roundCount)
+	if K < 2 {
+		K = 2
+	}
+	if round < 1 {
+		round = 1
+	}
+	c := math.Sqrt(2 * math.Log(2*K*round*round/delta))
+	if c < 1.0 {
+		c = 1.0 // floor: never be more aggressive than 1 SE
+	}
+	lcbLeader := μ - c*e
+
 	newIgnored := 0
-	// assume standard normal distribution (?)
 	for _, p := range a.simmedPlays[1:] {
 		if p.ignore || p.unignorable {
 			// Either way, we don't have to deal with cutting this play off.
@@ -225,7 +257,8 @@ func (a *AutoStopper) shouldStop(iterationCount uint64, simmedPlays *SimmedPlays
 			μi = p.equityStats.Mean()
 			ei = p.equityStats.StandardError()
 		}
-		if welchTest(μ, e, μi, ei, ci) {
+		ucbI := μi + c*ei
+		if lcbLeader > ucbI {
 			p.origPlay.Ignore()
 			newIgnored++
 		} else if iterationCount > uint64(a.similarPlaysIterationsCutoff) {
@@ -242,18 +275,6 @@ func (a *AutoStopper) shouldStop(iterationCount uint64, simmedPlays *SimmedPlays
 
 	// if there is only 1 unignored play, exit.
 	return ignoredPlays+newIgnored >= len(a.simmedPlays)-1
-}
-
-// welchTest: determine if a random variable X > Y with the given z-score; return true if X > Y.
-// μ and e are the mean and standard error of variable X
-// μi, ei are the mean and standard error of variable Y
-func welchTest(μ, e, μi, ei, z float64) bool {
-	sediff := math.Sqrt(e*e + ei*ei)
-	if sediff == 0 {
-		return true
-	}
-	zcalc := (μ - μi) / sediff
-	return zcalc > z
 }
 
 // zTest does a Z-test. M, e are the mean/stderror for the variable we're testing. (sample mean)
