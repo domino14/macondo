@@ -24,20 +24,12 @@ func newTestStopper(sc StoppingCondition) *AutoStopper {
 	return a
 }
 
-// ucbLCBc computes the confidence multiplier for the given parameters,
-// mirroring the formula in shouldStop. Exported for test assertions.
-func ucbLCBc(K, round, delta float64) float64 {
+// ucbLCBc mirrors the confidence multiplier formula in shouldStop.
+func ucbLCBc(K, delta float64) float64 {
 	if K < 2 {
 		K = 2
 	}
-	if round < 1 {
-		round = 1
-	}
-	c := math.Sqrt(2 * math.Log(2*K*round*round/delta))
-	if c < 1.0 {
-		c = 1.0
-	}
-	return c
+	return math.Sqrt(2 * math.Log(K/delta))
 }
 
 // TestShouldStop_EarlyExits checks the fast-exit conditions that don't involve statistics.
@@ -57,7 +49,7 @@ func TestShouldStop_EarlyExits(t *testing.T) {
 
 // TestShouldStop_PrunesClearlyInferior checks that a play with a much lower
 // win probability is pruned when samples are plentiful (tight SE).
-// With 200 pushes each, SE ≈ 0.001, c ≈ 2.96:
+// With 200 pushes each, SE ≈ 0.001, c = sqrt(2*ln(2/0.05)) ≈ 2.72:
 //
 //	LCB(leader=0.80) ≈ 0.797 >> UCB(arm=0.20) ≈ 0.203  →  pruned
 func TestShouldStop_PrunesClearlyInferior(t *testing.T) {
@@ -82,9 +74,9 @@ func TestShouldStop_PrunesClearlyInferior(t *testing.T) {
 
 // TestShouldStop_DoesNotPruneClosePlay checks that plays with similar win
 // probabilities are NOT pruned when samples are sparse (wide SE).
-// With 4 pushes each and d=0.10, SE ≈ 0.058, c ≈ 2.96:
+// With 4 pushes each and d=0.10, SE ≈ 0.058, c ≈ 2.72:
 //
-//	LCB(leader=0.55) ≈ 0.38  <  UCB(arm=0.45) ≈ 0.62  →  not pruned
+//	LCB(leader=0.55) ≈ 0.39  <  UCB(arm=0.45) ≈ 0.61  →  not pruned
 func TestShouldStop_DoesNotPruneClosePlay(t *testing.T) {
 	is := is.New(t)
 	a := newTestStopper(Stop95)
@@ -154,30 +146,17 @@ func TestShouldStop_UnignorablePlayNeverPruned(t *testing.T) {
 	is.True(!arm.ignore) // was not pruned
 }
 
-// TestShouldStop_RoundCountGrows checks that the round counter increments on
-// each call and that c grows accordingly, making later rounds more conservative.
-func TestShouldStop_RoundCountGrows(t *testing.T) {
+// TestShouldStop_MoreArmsMeansWiderBounds verifies that c grows with K,
+// making pruning more conservative when more arms are present.
+// This reflects the Bonferroni correction: more arms share the same error
+// budget δ, so each comparison requires a higher confidence threshold.
+func TestShouldStop_MoreArmsMeansWiderBounds(t *testing.T) {
 	is := is.New(t)
-	a := newTestStopper(Stop95)
-	is.Equal(a.roundCount, 0)
-
-	leader := &SimmedPlay{}
-	arm := &SimmedPlay{}
-	pushAlternating(&leader.winPctStats, 0.80, 0.01, 100)
-	pushAlternating(&leader.equityStats, 15.0, 1.0, 100)
-	pushAlternating(&arm.winPctStats, 0.20, 0.01, 100)
-	pushAlternating(&arm.equityStats, 5.0, 1.0, 100)
-
-	sp := &SimmedPlays{plays: []*SimmedPlay{leader, arm}}
-	a.shouldStop(0, sp, 2)
-	is.Equal(a.roundCount, 1)
-
-	// c grows with round, so bounds widen (more conservative) over time.
-	// Even though we're pruning with lots of samples, the formula itself
-	// must produce a larger c for round=2 than round=1.
-	c1 := ucbLCBc(2, 1, 0.05)
-	c2 := ucbLCBc(2, 2, 0.05)
-	is.True(c2 > c1)
+	c2 := ucbLCBc(2, 0.05)
+	c10 := ucbLCBc(10, 0.05)
+	c30 := ucbLCBc(30, 0.05)
+	is.True(c10 > c2)
+	is.True(c30 > c10)
 }
 
 // TestShouldStop_ThreePlaysTwoPruned checks that shouldStop returns true when

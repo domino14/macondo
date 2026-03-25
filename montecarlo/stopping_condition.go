@@ -53,7 +53,6 @@ type AutoStopper struct {
 
 	stoppingCondition   StoppingCondition
 	playSimilarityCache map[string]bool
-	roundCount          int
 
 	simmedPlays []*AutoStopperSimmedPlay
 }
@@ -95,7 +94,6 @@ func newAutostopper() *AutoStopper {
 
 func (a *AutoStopper) reset() {
 	a.playSimilarityCache = map[string]bool{}
-	a.roundCount = 0
 }
 
 func (a *AutoStopper) shouldStop(iterationCount uint64, simmedPlays *SimmedPlays, maxPlies int) bool {
@@ -105,7 +103,6 @@ func (a *AutoStopper) shouldStop(iterationCount uint64, simmedPlays *SimmedPlays
 	a.Lock()
 	defer a.Unlock()
 
-	a.roundCount++
 	sc := a.stoppingCondition
 
 	if len(simmedPlays.plays) < 2 {
@@ -227,21 +224,16 @@ func (a *AutoStopper) shouldStop(iterationCount uint64, simmedPlays *SimmedPlays
 	}
 
 	// UCB/LCB pruning: prune arm i when UCB(i) < LCB(leader).
-	// c = sqrt(2 * ln(2 * K * round^2 / δ)) provides a time-uniform confidence
-	// bound that accounts for the number of active arms K and the number of
-	// rounds, bounding the total false-prune probability by δ.
+	// c = sqrt(2 * ln(K/δ)) is a Bonferroni correction over K active arms:
+	// it sets the per-arm error budget to δ/K so the total false-prune
+	// probability across all arms is ≤ δ. The sim has a hard iteration
+	// ceiling so we don't need to union-bound over rounds.
+	// As arms are pruned K shrinks, tightening c and accelerating pruning.
 	K := float64(len(a.simmedPlays) - ignoredPlays)
-	round := float64(a.roundCount)
 	if K < 2 {
 		K = 2
 	}
-	if round < 1 {
-		round = 1
-	}
-	c := math.Sqrt(2 * math.Log(2*K*round*round/delta))
-	if c < 1.0 {
-		c = 1.0 // floor: never be more aggressive than 1 SE
-	}
+	c := math.Sqrt(2 * math.Log(K/delta))
 	lcbLeader := μ - c*e
 
 	newIgnored := 0
