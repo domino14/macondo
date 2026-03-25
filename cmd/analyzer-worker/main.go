@@ -14,6 +14,9 @@ import (
 	"github.com/domino14/macondo/worker"
 )
 
+// GitVersion is set at build time via -ldflags "-X main.GitVersion=..."
+var GitVersion = "dev"
+
 func main() {
 	// Parse command-line flags
 	debug := flag.Bool("debug", false, "Enable debug logging")
@@ -46,6 +49,7 @@ func main() {
 	// Create worker config
 	workerConfig := worker.DefaultWorkerConfig()
 	workerConfig.MacondoConfig = macondoConfig
+	workerConfig.MacondoVersion = GitVersion
 
 	log.Info().
 		Str("woogles-url", workerConfig.WooglesBaseURL).

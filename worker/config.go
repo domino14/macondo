@@ -23,6 +23,9 @@ type WorkerConfig struct {
 
 	// Macondo configuration for the analyzer
 	MacondoConfig *config.Config
+
+	// MacondoVersion is the build version of this worker binary (injected via ldflags)
+	MacondoVersion string
 }
 
 // DefaultWorkerConfig creates a WorkerConfig with default values

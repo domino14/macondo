@@ -35,7 +35,9 @@ Examining a game:
     challenge [n] - add a challenge bonus to the last play of n points, or challenge play off.
     analyze [options] - analyze all moves in the loaded game
     analyze-turn - analyze the current turn
-    analyze-batch <filepath> - analyze multiple games from a directory
+    analyze-batch [options] <source> [source ...] - analyze multiple games
+    analyze-browse [options] - list/browse/delete stored analyses
+    analyze-view <name> [name ...] - view a stored analysis
 Other:
     export <filepath> - export a game to .gcg
     autoplay [options] - start comp v comp autoplay

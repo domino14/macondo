@@ -81,7 +81,7 @@ func (sc *ShellController) volunteerLoop() {
 	// Get API key and create client
 	apiKey := sc.config.GetString(config.ConfigWooglesApiKey)
 	wooglesURL := sc.config.GetString(config.ConfigWooglesURL)
-	client := worker.NewWooglesClient(wooglesURL, apiKey, sc.config)
+	client := worker.NewWooglesClient(wooglesURL, apiKey, sc.config, sc.macondoVersion)
 
 	ticker := time.NewTicker(VolunteerPollInterval)
 	defer ticker.Stop()
@@ -253,7 +253,7 @@ func (sc *ShellController) processVolunteerJob(client *worker.WooglesClient, job
 		}
 	}
 
-	analyzer := gameanalysis.New(sc.config, analysisConfig)
+	analyzer := gameanalysis.New(sc.config, analysisConfig, sc.macondoVersion)
 
 	log.Info().
 		Str("job-id", job.JobID).

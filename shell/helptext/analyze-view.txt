@@ -1,0 +1,37 @@
+analyze-view <name> [<name> ...] - View a stored analysis
+
+Example:
+    analyze-view woog:ABC123
+    analyze-view woog:ABC123 woog:DEF456
+    analyze-view -batch my-tournament
+
+This command loads and displays analyses that were previously saved to the
+local store by `analyze` or `analyze-batch`. No re-computation is done; the
+saved results are retrieved from the database and rendered directly.
+
+Use `analyze-browse` to see what analyses are available and to find their
+exact names.
+
+Options:
+
+    -batch <name>
+
+    Load and display all analyses belonging to the given batch, combined
+    into an aggregated summary (same format as `analyze-batch` output).
+
+Output:
+
+Single analysis (one name):
+
+    - Metadata header: name, players, lexicon, analyzer version, date, batch
+    - Turn-by-turn table (same columns as `analyze`)
+    - Player summary table: turns, optimal moves, avg win% loss, avg spread
+      loss, Mistake Index, estimated ELO, bingo rate
+
+Multiple analyses (multiple names or -batch):
+
+    The analyses are combined and an aggregated batch summary is shown,
+    exactly as if `analyze-batch` had been run. Individual per-game rows
+    are listed along with aggregate statistics per player across all games.
+
+See also: analyze, analyze-batch, analyze-browse

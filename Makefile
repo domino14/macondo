@@ -15,7 +15,7 @@ analyze:
 	go build -trimpath -o bin/analyze cmd/analyze/main.go
 
 macondo_shell:
-	go build -trimpath -o bin/shell cmd/shell/main.go
+	go build -trimpath -ldflags "-X main.GitVersion=$(shell git describe --tags --always)" -o bin/shell cmd/shell/main.go
 
 macondo_bot:
 	go build -trimpath -o bin/bot cmd/bot/main.go
@@ -27,7 +27,7 @@ mlproducer:
 	go build -trimpath -o bin/mlproducer cmd/mlproducer/*.go
 
 analyzer_worker:
-	go build -trimpath -o bin/analyzer-worker cmd/analyzer-worker/main.go
+	go build -trimpath -ldflags "-X main.GitVersion=$(shell git describe --tags --always)" -o bin/analyzer-worker cmd/analyzer-worker/main.go
 
 # wasm:
 # 	GOOS=js GOARCH=wasm go build -trimpath -o ../liwords/liwords-ui/public/wasm/macondo.wasm wasm/*.go

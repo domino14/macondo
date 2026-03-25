@@ -88,6 +88,24 @@ type PreEndgamePlay struct {
 	Ignore        bool
 }
 
+// Tiles returns the tile draw associated with this outcome.
+func (o *Outcome) Tiles() []tilemapping.MachineLetter { return o.tiles }
+
+// OutcomeResult returns the win/draw/loss result for this outcome.
+func (o *Outcome) OutcomeResult() PEGOutcome { return o.outcome }
+
+// Count returns the number of bag permutations this outcome covers.
+func (o *Outcome) Count() int { return o.ct }
+
+// OutcomesArray returns a copy of all per-tile outcomes for this play.
+func (p *PreEndgamePlay) OutcomesArray() []Outcome {
+	p.RLock()
+	defer p.RUnlock()
+	result := make([]Outcome, len(p.outcomesArray))
+	copy(result, p.outcomesArray)
+	return result
+}
+
 func (p *PreEndgamePlay) Copy() *PreEndgamePlay {
 	// don't copy the mutex.
 	return &PreEndgamePlay{
@@ -703,6 +721,12 @@ func (s *Solver) SolutionStats(maxMoves int) string {
 
 	for _, play := range s.plays[:maxMoves] {
 		fmt.Fprint(&ss, s.SingleSolutionStats(play, false))
+	}
+	// Always show avoid-prune plays even if they fall outside the top maxMoves.
+	for _, play := range s.plays[maxMoves:] {
+		if s.shouldAvoidPrune(play.Play) {
+			fmt.Fprint(&ss, s.SingleSolutionStats(play, false))
+		}
 	}
 	fmt.Fprintf(&ss, "❌ marks plays cut off early\n")
 	fmt.Fprintf(&ss, "[] brackets indicate order does not matter\n")

@@ -200,6 +200,31 @@ func (s *SimmedPlay) WinProb() float64 {
 	return s.winPctStats.Mean()
 }
 
+func (s *SimmedPlay) WinProbStdErr() float64 {
+	return s.winPctStats.StandardError()
+}
+
+func (s *SimmedPlay) EquityMean() float64 {
+	return s.equityStats.Mean()
+}
+
+func (s *SimmedPlay) EquityStdErr() float64 {
+	return s.equityStats.StandardError()
+}
+
+// BingoStatsNoLock returns per-ply bingo statistics without locking.
+func (s *SimmedPlay) BingoStatsNoLock() []stats.Statistic {
+	return s.bingoStats
+}
+
+func (s *SimmedPlay) WinProbIterations() int {
+	return s.winPctStats.Iterations()
+}
+
+func (s *SimmedPlay) IsIgnored() bool {
+	return s.ignore
+}
+
 type SimmedPlays struct {
 	sync.RWMutex
 	plays []*SimmedPlay

@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
+
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/domino14/macondo/gameanalysis"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -23,6 +26,8 @@ func (sc *ShellController) analyze(cmd *shellcmd) (*Response, error) {
 
 	// Parse options
 	cfg := gameanalysis.DefaultAnalysisConfig()
+	jsonFile := cmd.options.String("json")
+	force := cmd.options.Bool("force")
 
 	// Check for player filter option
 	if playerOpt := cmd.options.String("player"); playerOpt != "" {
@@ -39,7 +44,7 @@ func (sc *ShellController) analyze(cmd *shellcmd) (*Response, error) {
 	}
 
 	// Create analyzer
-	analyzer := gameanalysis.New(sc.config, cfg)
+	analyzer := gameanalysis.New(sc.config, cfg, sc.macondoVersion)
 
 	// Show progress message
 	sc.showMessage(fmt.Sprintf("Analyzing game: %s vs %s (%d turns)",
@@ -52,6 +57,42 @@ func (sc *ShellController) analyze(cmd *shellcmd) (*Response, error) {
 	result, err := analyzer.AnalyzeGame(ctx, history)
 	if err != nil {
 		return nil, fmt.Errorf("analysis failed: %w", err)
+	}
+
+	// Serialize to protojson (used for both JSON export and DB save)
+	resultProto := result.ToProto()
+	resultJSON, err := protojson.Marshal(resultProto)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize analysis: %w", err)
+	}
+
+	// JSON export
+	if jsonFile != "" {
+		if err := os.WriteFile(jsonFile, resultJSON, 0644); err != nil {
+			sc.showMessage(fmt.Sprintf("Warning: failed to write JSON to %s: %v", jsonFile, err))
+		} else {
+			sc.showMessage(fmt.Sprintf("Analysis written to %s", jsonFile))
+		}
+	}
+
+	// DB save (only when game was loaded from a known source)
+	if sc.gameSource != "" {
+		store, err := sc.getAnalysisStore()
+		if err != nil {
+			sc.showMessage(fmt.Sprintf("Warning: cannot open analysis store: %v", err))
+		} else {
+			if store.Exists(sc.gameSource) && !force {
+				sc.showMessage(fmt.Sprintf("Note: Analysis already exists for '%s'. Use -force to overwrite.", sc.gameSource))
+			} else {
+				playerInfo := fmt.Sprintf("%s vs %s", history.Players[0].Nickname, history.Players[1].Nickname)
+				if err := store.Save(sc.gameSource, "", playerInfo, history.Lexicon,
+					result.AnalysisVersion, result.AnalyzerVersion, resultJSON); err != nil {
+					sc.showMessage(fmt.Sprintf("Warning: failed to save analysis to store: %v", err))
+				} else {
+					sc.showMessage(fmt.Sprintf("Analysis saved to local store as '%s'", sc.gameSource))
+				}
+			}
+		}
 	}
 
 	// Format and return results
@@ -252,7 +293,7 @@ func (sc *ShellController) analyzeTurn(cmd *shellcmd) (*Response, error) {
 
 	// Create analyzer
 	cfg := gameanalysis.DefaultAnalysisConfig()
-	analyzer := gameanalysis.New(sc.config, cfg)
+	analyzer := gameanalysis.New(sc.config, cfg, sc.macondoVersion)
 
 	// Analyze just this turn
 	ctx := context.Background()
