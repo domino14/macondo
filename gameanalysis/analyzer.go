@@ -1074,9 +1074,7 @@ func (a *Analyzer) calculatePlayerSummaries(result *GameAnalysisResult) {
 		}
 
 		var totalWinProbLoss float64
-		var totalSpreadLoss float64
 		winProbCount := 0
-		spreadCount := 0
 
 		for _, turn := range result.Turns {
 			if turn.PlayerIndex != i {
@@ -1087,12 +1085,6 @@ func (a *Analyzer) calculatePlayerSummaries(result *GameAnalysisResult) {
 			if turn.Phase != PhaseEndgame {
 				totalWinProbLoss += turn.WinProbLoss
 				winProbCount++
-			}
-
-			// Count spread loss for endgame AND PEG with spread tiebreaks
-			if turn.Phase == PhaseEndgame || (turn.Phase == PhasePreEndgame && turn.SpreadLoss > 0) {
-				totalSpreadLoss += float64(turn.SpreadLoss)
-				spreadCount++
 			}
 
 			// Add mistake points to the mistake index
@@ -1119,9 +1111,6 @@ func (a *Analyzer) calculatePlayerSummaries(result *GameAnalysisResult) {
 
 		if winProbCount > 0 {
 			summary.AvgWinProbLoss = totalWinProbLoss / float64(winProbCount)
-		}
-		if spreadCount > 0 {
-			summary.AvgSpreadLoss = totalSpreadLoss / float64(spreadCount)
 		}
 
 		// Calculate estimated ELO based on mistake index

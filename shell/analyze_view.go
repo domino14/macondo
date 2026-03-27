@@ -134,20 +134,7 @@ func formatStoredAnalysis(s *gameanalysis.StoredAnalysis, result *pb.GameAnalysi
 
 			// Diff
 			var diff string
-			switch turn.Phase {
-			case pb.GamePhase_PHASE_ENDGAME:
-				if turn.WasOptimal {
-					diff = "+0"
-				} else {
-					diff = fmt.Sprintf("%+d", turn.SpreadLoss)
-				}
-			default:
-				if turn.WasOptimal {
-					diff = "0.0%"
-				} else {
-					diff = fmt.Sprintf("%.1f%%", turn.WinProbLoss*100)
-				}
-			}
+			diff = formatDiff(turn.Phase == pb.GamePhase_PHASE_ENDGAME, turn.WasOptimal, turn.WinProbLoss, int(turn.SpreadLoss))
 
 			// Phase name
 			phase := protoPhaseShortName(turn.Phase)
@@ -187,8 +174,8 @@ func formatStoredAnalysis(s *gameanalysis.StoredAnalysis, result *pb.GameAnalysi
 	sb.WriteString("\n\n")
 
 	// Player summaries
-	sb.WriteString(fmt.Sprintf("%-15s  %-6s  %-8s  %-14s  %-14s  %-13s  %-10s  %-12s\n",
-		"Player", "Turns", "Optimal", "Avg Win% Loss", "Avg Spd Loss", "Mistake Index", "Est. ELO", "Bingo Rate"))
+	sb.WriteString(fmt.Sprintf("%-15s  %-6s  %-8s  %-14s  %-13s  %-10s  %-12s\n",
+		"Player", "Turns", "Optimal", "Avg Win% Loss", "Mistake Index", "Est. ELO", "Bingo Rate"))
 	sb.WriteString(strings.Repeat("-", 110))
 	sb.WriteString("\n")
 
@@ -203,12 +190,11 @@ func formatStoredAnalysis(s *gameanalysis.StoredAnalysis, result *pb.GameAnalysi
 				made, ps.AvailableBingos,
 				100.0*float64(made)/float64(ps.AvailableBingos))
 		}
-		sb.WriteString(fmt.Sprintf("%-15s  %-6d  %-8d  %-14s  %-14s  %-13s  %-10.0f  %-12s\n",
+		sb.WriteString(fmt.Sprintf("%-15s  %-6d  %-8d  %-14s  %-13s  %-10.0f  %-12s\n",
 			ps.PlayerName,
 			ps.TurnsPlayed,
 			ps.OptimalMoves,
 			fmt.Sprintf("%.1f%%", ps.AvgWinProbLoss*100),
-			fmt.Sprintf("%.1f", ps.AvgSpreadLoss),
 			fmt.Sprintf("%.2f", ps.MistakeIndex),
 			ps.EstimatedElo,
 			bingoRate))

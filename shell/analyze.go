@@ -142,24 +142,7 @@ func (sc *ShellController) formatAnalysisResults(result *gameanalysis.GameAnalys
 		var diff string
 		var note string
 
-		if turn.Phase == gameanalysis.PhaseEndgame {
-			// Endgame: show spread difference
-			if turn.WasOptimal {
-				diff = "+0"
-			} else {
-				diff = fmt.Sprintf("%+d", turn.SpreadLoss)
-			}
-		} else if turn.Phase == gameanalysis.PhasePreEndgame && turn.SpreadLoss > 0 {
-			// PEG with spread tiebreak: show both win% and spread
-			diff = fmt.Sprintf("%.1f%% (%+d)", turn.WinProbLoss*100, turn.SpreadLoss)
-		} else {
-			// Sim/PEG: show win probability difference
-			if turn.WasOptimal {
-				diff = "0.0%"
-			} else {
-				diff = fmt.Sprintf("%.1f%%", turn.WinProbLoss*100)
-			}
-		}
+		diff = formatDiff(turn.Phase == gameanalysis.PhaseEndgame, turn.WasOptimal, turn.WinProbLoss, int(turn.SpreadLoss))
 
 		// Add notes for special cases
 		if turn.IsPhony {
@@ -240,8 +223,8 @@ func (sc *ShellController) formatAnalysisResults(result *gameanalysis.GameAnalys
 func formatPlayerSummaries(summaries [2]*gameanalysis.PlayerSummary) string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("%-15s  %-6s  %-8s  %-14s  %-14s  %-13s  %-10s  %-12s\n",
-		"Player", "Turns", "Optimal", "Avg Win% Loss", "Avg Spd Loss", "Mistake Index", "Est. ELO", "Bingo Rate"))
+	sb.WriteString(fmt.Sprintf("%-15s  %-6s  %-8s  %-14s  %-13s  %-10s  %-12s\n",
+		"Player", "Turns", "Optimal", "Avg Win% Loss", "Mistake Index", "Est. ELO", "Bingo Rate"))
 	sb.WriteString(strings.Repeat("-", 110))
 	sb.WriteString("\n")
 
@@ -260,12 +243,11 @@ func formatPlayerSummaries(summaries [2]*gameanalysis.PlayerSummary) string {
 				100.0*float64(bingosMade)/float64(summary.AvailableBingos))
 		}
 
-		sb.WriteString(fmt.Sprintf("%-15s  %-6d  %-8d  %-14s  %-14s  %-13s  %-10.0f  %-12s\n",
+		sb.WriteString(fmt.Sprintf("%-15s  %-6d  %-8d  %-14s  %-13s  %-10.0f  %-12s\n",
 			summary.PlayerName,
 			summary.TurnsPlayed,
 			summary.OptimalMoves,
 			fmt.Sprintf("%.1f%%", summary.AvgWinProbLoss*100),
-			fmt.Sprintf("%.1f", summary.AvgSpreadLoss),
 			fmt.Sprintf("%.2f", summary.MistakeIndex),
 			summary.EstimatedELO,
 			bingoRate))
@@ -384,4 +366,25 @@ func formatSingleTurnAnalysis(turn *gameanalysis.TurnAnalysis) string {
 	}
 
 	return sb.String()
+}
+
+// formatDiff formats the equity/win-probability difference for a turn.
+// isEndgame: true if the turn is in the endgame phase.
+// wasOptimal: true if the played move was optimal.
+// winProbLoss: fractional win-probability difference (0–1).
+// spreadLoss: equity/spread loss when win probs are effectively tied.
+func formatDiff(isEndgame, wasOptimal bool, winProbLoss float64, spreadLoss int) string {
+	if isEndgame {
+		if wasOptimal {
+			return "+0"
+		}
+		return fmt.Sprintf("%+d", spreadLoss)
+	}
+	if !wasOptimal && spreadLoss > 0 {
+		return fmt.Sprintf("%.1f%% (%+d)", winProbLoss*100, spreadLoss)
+	}
+	if wasOptimal {
+		return "0.0%"
+	}
+	return fmt.Sprintf("%.1f%%", winProbLoss*100)
 }

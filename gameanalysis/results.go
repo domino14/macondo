@@ -148,7 +148,6 @@ type PlayerSummary struct {
 	TurnsPlayed    int
 	OptimalMoves   int
 	AvgWinProbLoss float64
-	AvgSpreadLoss  float64
 
 	// Mistake breakdown
 	SmallMistakes  int

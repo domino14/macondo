@@ -363,7 +363,6 @@ message PlayerSummary {
 
   // Average losses
   double avg_win_prob_loss = 4;
-  double avg_spread_loss = 5;
 
   // Mistake breakdown
   int32 small_mistakes = 6;

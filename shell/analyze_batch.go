@@ -501,22 +501,7 @@ func (sc *ShellController) formatGameAnalysisForBatch(result *gameanalysis.GameA
 		}
 
 		// Format difference
-		var diff string
-		if turn.Phase == gameanalysis.PhaseEndgame {
-			if turn.WasOptimal {
-				diff = "+0"
-			} else {
-				diff = fmt.Sprintf("%+d", turn.SpreadLoss)
-			}
-		} else if turn.Phase == gameanalysis.PhasePreEndgame && turn.SpreadLoss > 0 {
-			diff = fmt.Sprintf("%.1f%% (%+d)", turn.WinProbLoss*100, turn.SpreadLoss)
-		} else {
-			if turn.WasOptimal {
-				diff = "0.0%"
-			} else {
-				diff = fmt.Sprintf("%.1f%%", turn.WinProbLoss*100)
-			}
-		}
+		diff := formatDiff(turn.Phase == gameanalysis.PhaseEndgame, turn.WasOptimal, turn.WinProbLoss, int(turn.SpreadLoss))
 
 		mistake := turn.MistakeCategory
 		if mistake == "" {
