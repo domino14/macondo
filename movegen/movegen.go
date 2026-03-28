@@ -14,6 +14,8 @@ import (
 	"math"
 	"sort"
 
+	"github.com/rs/zerolog/log"
+
 	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 
@@ -521,6 +523,16 @@ func (gen *GordonGenerator) generateExchangeMoves(rack *tilemapping.Rack, ml til
 		gen.generateExchangeMoves(rack, ml+1, stripidx)
 		numthis := rack.LetArr[ml]
 		for i := 0; i < numthis; i++ {
+			if stripidx >= len(gen.exchangestrip) {
+				// Safety check: rack has more tiles than expected.
+				// Skip generating invalid exchange moves to prevent panic.
+				log.Warn().
+					Int("stripidx", stripidx).
+					Int("exchangestrip_len", len(gen.exchangestrip)).
+					Int("rack_tiles", int(rack.NumTiles())).
+					Msg("rack exceeds maximum exchange limit, skipping invalid exchange moves")
+				break
+			}
 			gen.exchangestrip[stripidx] = ml
 			stripidx += 1
 			rack.Take(ml)
