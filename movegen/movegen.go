@@ -46,6 +46,7 @@ type MoveGenerator interface {
 	AtLeastOneTileMove(rack *tilemapping.Rack) bool
 	SetMaxTileUsage(int)
 	SetGenPass(bool)
+	SetShadowEnabled(bool)
 }
 
 // type moveHeap []*move.Move
@@ -117,6 +118,9 @@ type GordonGenerator struct {
 	// For top N only:
 	topNPlays       []*move.Move
 	maxTopMovesSize int
+
+	// Shadow play state
+	shadow shadowState
 }
 
 // NewGordonGenerator returns a Gordon move generator.
@@ -184,9 +188,17 @@ func (gen *GordonGenerator) SetMaxTileUsage(t int) {
 	gen.maxTileUsage = t
 }
 
+func (gen *GordonGenerator) SetShadowEnabled(enabled bool) {
+	gen.shadow.shadowEnabled = enabled
+}
+
 // GenAll generates all moves on the board. It assumes anchors have already
 // been updated, as well as cross-sets / cross-scores.
 func (gen *GordonGenerator) GenAll(rack *tilemapping.Rack, addExchange bool) []*move.Move {
+
+	if gen.shadow.shadowEnabled {
+		return gen.GenAllWithShadow(rack, addExchange)
+	}
 
 	gen.winner.SetEmpty()
 	gen.quitEarly = false
