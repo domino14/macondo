@@ -17,7 +17,6 @@ Macondo is a crossword board game solver written in Go, designed to be "the best
 - `make macondo_shell` - Interactive shell interface (bin/shell)
 - `make macondo_bot` - Bot client (bin/bot)
 - `make bot_shell` - Bot shell interface (bin/bot_shell)
-- `make analyze` - Analysis tool (bin/analyze)
 - `make mlproducer` - Machine learning data producer (bin/mlproducer)
 
 ### Testing

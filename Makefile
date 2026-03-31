@@ -1,6 +1,6 @@
 everything: all wasm
 
-all: macondo_shell macondo_bot bot_shell analyze mlproducer analyzer_worker
+all: macondo_shell macondo_bot bot_shell mlproducer analyzer_worker
 
 .PHONY: wasm
 
@@ -10,9 +10,6 @@ build-MacondoLambdaFunction:
 
 proto:
 	protoc --go_out=gen --go_opt=paths=source_relative ./api/proto/macondo/macondo.proto
-
-analyze:
-	go build -trimpath -o bin/analyze cmd/analyze/main.go
 
 macondo_shell:
 	go build -trimpath -ldflags "-X main.GitVersion=$(shell git describe --tags --always)" -o bin/shell cmd/shell/main.go
