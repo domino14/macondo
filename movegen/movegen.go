@@ -141,6 +141,7 @@ func NewGordonGenerator(gd gaddag.WordGraph, board *board.GameBoard,
 		placeholder:        new(move.Move),
 		maxTileUsage:       100, // basically unlimited
 		maxCanExchange:     game.DefaultExchangeLimit,
+		shadow:             shadowState{shadowEnabled: true},
 	}
 	return gen
 }
@@ -194,6 +195,10 @@ func (gen *GordonGenerator) SetShadowEnabled(enabled bool) {
 
 // GenAll generates all moves on the board. It assumes anchors have already
 // been updated, as well as cross-sets / cross-scores.
+// When shadow is enabled (the default), GenAll uses the shadow algorithm for
+// best-first move finding, which allows early termination when looking for
+// only the top move(s). Shadow can be disabled for endgame where all moves
+// must be found without the overhead of computing upper bounds.
 func (gen *GordonGenerator) GenAll(rack *tilemapping.Rack, addExchange bool) []*move.Move {
 
 	if gen.shadow.shadowEnabled {

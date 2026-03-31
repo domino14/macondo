@@ -64,22 +64,22 @@ func RunShadowAgreementTest(cfg *config.Config, numGames int) (*ShadowAgreementR
 
 		ld := g.Bag().LetterDistribution()
 		genNS := movegen.NewGordonGenerator(gd, g.Board(), ld)
+		genNS.SetShadowEnabled(false) // baseline: no shadow
 		genS := movegen.NewGordonGenerator(gd, g.Board(), ld)
-		genS.SetShadowEnabled(true)
+		// genS has shadow enabled by default
 
 		turnNum := 0
 		for g.Playing() == pb.PlayState_PLAYING {
 			playerIdx := g.PlayerOnTurn()
 			rack := g.RackFor(playerIdx)
 
-			// Generate with no shadow
+			// Generate with no shadow (AllPlays, find best by score)
 			genNS.SetPlayRecorder(movegen.AllPlaysRecorder)
 			genNS.SetSortingParameter(movegen.SortByScore)
 			playsNS := genNS.GenAll(rack, false)
 
-			// Generate with shadow
-			genS.SetPlayRecorder(movegen.AllPlaysRecorder)
-			genS.SetSortingParameter(movegen.SortByScore)
+			// Generate with shadow (TopPlayOnly)
+			genS.SetPlayRecorder(movegen.TopPlayOnlyRecorder)
 			playsS := genS.GenAll(rack, false)
 
 			result.TurnsPlayed++

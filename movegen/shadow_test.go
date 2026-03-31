@@ -410,8 +410,9 @@ func TestShadowTopPlayAgreement(t *testing.T) {
 		g.StartGame()
 
 		genNS := movegen.NewGordonGenerator(gd, g.Board(), g.Bag().LetterDistribution())
+		genNS.SetShadowEnabled(false) // baseline: no shadow
 		genS := movegen.NewGordonGenerator(gd, g.Board(), g.Bag().LetterDistribution())
-		genS.SetShadowEnabled(true)
+		// genS has shadow enabled by default
 
 		turnNum := 0
 		for g.Playing() == pb.PlayState_PLAYING {

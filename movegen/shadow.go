@@ -10,20 +10,15 @@
 package movegen
 
 import (
-	"fmt"
 	"math"
 	"sort"
 
 	"github.com/domino14/word-golib/tilemapping"
 
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tinymove"
-)
-
-const (
-	maxRackSize       = 7
-	initialLastAnchor = 100 // sentinel larger than any board dim
 )
 
 // Anchor represents a board anchor with its shadow-computed upper bound.
@@ -123,9 +118,9 @@ type shadowState struct {
 	maxTilesToPlay      int
 
 	// Descending tile scores for the rack
-	fullRackDescTileScores [maxRackSize]int
-	descTileScores         [maxRackSize]int
-	descTileScoresCopy     [maxRackSize]int
+	fullRackDescTileScores [game.RackTileLimit]int
+	descTileScores         [game.RackTileLimit]int
+	descTileScoresCopy     [game.RackTileLimit]int
 
 	// Unrestricted multiplier tracking. When a tile placement is NOT
 	// restricted to a single letter (multiple possibilities), we track
@@ -136,12 +131,12 @@ type shadowState struct {
 
 	// Effective letter multipliers in descending order.
 	// effective = wordMul*letterMul + crossWordMul
-	descEffLetterMuls     [maxRackSize]int
-	descEffLetterMulsCopy [maxRackSize]int
+	descEffLetterMuls     [game.RackTileLimit]int
+	descEffLetterMulsCopy [game.RackTileLimit]int
 
 	// Cross-word multipliers with column tracking for recalculation.
-	descCrossWordMuls     [maxRackSize]crossWordMul
-	descCrossWordMulsCopy [maxRackSize]crossWordMul
+	descCrossWordMuls     [game.RackTileLimit]crossWordMul
+	descCrossWordMulsCopy [game.RackTileLimit]crossWordMul
 
 	// Rack state for shadow
 	shadowRack     [tilemapping.MaxAlphabetSize + 1]int
@@ -544,12 +539,12 @@ func (gen *GordonGenerator) shadowRecord() {
 	// Compute unrestricted tiles score: inner product of descending tile scores
 	// and descending effective letter multipliers
 	tilesPlayedScore := 0
-	for i := 0; i < maxRackSize; i++ {
+	for i := 0; i < game.RackTileLimit; i++ {
 		tilesPlayedScore += s.descTileScores[i] * s.descEffLetterMuls[i]
 	}
 
 	bingoBonus := 0
-	if gen.tilesPlayed == maxRackSize {
+	if gen.tilesPlayed == game.RackTileLimit {
 		bingoBonus = 50
 	}
 
@@ -607,7 +602,7 @@ func (gen *GordonGenerator) shadowTryRestrict(possibleLetters uint64, letterMul,
 func (gen *GordonGenerator) removeFromDescTileScores(score int) {
 	s := &gen.shadow
 	total := 0
-	for i := 0; i < maxRackSize; i++ {
+	for i := 0; i < game.RackTileLimit; i++ {
 		if s.descTileScores[i] > 0 {
 			total++
 		}
@@ -698,7 +693,7 @@ func (gen *GordonGenerator) genShadow(rack *tilemapping.Rack) {
 	gen.vertical = false
 	for row := 0; row < dim; row++ {
 		gen.curRowIdx = row
-		gen.lastAnchorCol = initialLastAnchor
+		gen.lastAnchorCol = 100
 		for col := 0; col < dim; col++ {
 			if gen.board.IsAnchor(row, col, board.HorizontalDirection) {
 				gen.shadowPlayForAnchor(row, col, gen.lastAnchorCol, board.HorizontalDirection)
@@ -715,7 +710,7 @@ func (gen *GordonGenerator) genShadow(rack *tilemapping.Rack) {
 	gen.vertical = true
 	for row := 0; row < dim; row++ {
 		gen.curRowIdx = row
-		gen.lastAnchorCol = initialLastAnchor
+		gen.lastAnchorCol = 100
 		for col := 0; col < dim; col++ {
 			if gen.board.IsAnchor(row, col, board.VerticalDirection) {
 				gen.shadowPlayForAnchor(row, col, gen.lastAnchorCol, board.VerticalDirection)
@@ -785,50 +780,16 @@ func (gen *GordonGenerator) genRecordScoringPlaysFromAnchors(rack *tilemapping.R
 	}
 }
 
-// ShadowAnchorCount returns the number of anchors in the shadow heap (for testing).
-func (gen *GordonGenerator) ShadowAnchorCount() int {
-	return len(gen.shadow.anchorHeap.anchors)
-}
-
-// RunShadowOnly runs the shadow pass and returns the anchors sorted by
+// RunShadowOnly runs the shadow pass and returns anchors sorted by
 // descending highest possible score. For testing.
 func (gen *GordonGenerator) RunShadowOnly(rack *tilemapping.Rack) []Anchor {
 	gen.genShadow(rack)
-	// Extract and sort by descending score
 	result := make([]Anchor, len(gen.shadow.anchorHeap.anchors))
 	copy(result, gen.shadow.anchorHeap.anchors)
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].HighestPossibleScore > result[j].HighestPossibleScore
 	})
-	// Export fields
-	exported := make([]Anchor, len(result))
-	for i, a := range result {
-		exported[i] = Anchor{
-			HighestPossibleEquity: a.HighestPossibleEquity,
-			HighestPossibleScore:  a.HighestPossibleScore,
-			Row:                   a.Row,
-			Col:                   a.Col,
-			LastAnchorCol:         a.LastAnchorCol,
-			Dir:                   a.Dir,
-		}
-	}
-	return exported
-}
-
-// PrintShadowAnchors runs the shadow pass and prints all anchors with their
-// upper bounds. For debugging.
-func (gen *GordonGenerator) PrintShadowAnchors(rack *tilemapping.Rack) {
-	gen.genShadow(rack)
-	fmt.Printf("Shadow anchors (%d):\n", gen.shadow.anchorHeap.len())
-	// Print in heap order (not sorted, but max is at top)
-	for _, a := range gen.shadow.anchorHeap.anchors {
-		dir := "H"
-		if a.Dir == board.VerticalDirection {
-			dir = "V"
-		}
-		fmt.Printf("  (%d,%d) %s score=%d equity=%.1f lastAnchor=%d\n",
-			a.Row, a.Col, dir, a.HighestPossibleScore, a.HighestPossibleEquity, a.LastAnchorCol)
-	}
+	return result
 }
 
 // GenAllWithShadow generates all moves using shadow for best-first ordering.
