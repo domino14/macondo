@@ -237,7 +237,8 @@ type Solver struct {
 
 	variations []PVLine
 
-	alsoSolveMove tinymove.TinyMove
+	alsoSolveMove         tinymove.TinyMove
+	alsoSolveMoveOriginal *move.Move
 
 	// Track the last successfully completed ply depth
 	lastCompletedPly int
@@ -351,6 +352,7 @@ func (s *Solver) SetSolveMultipleVariations(i int) {
 
 func (s *Solver) SetAlsoSolveMove(m *move.Move) {
 	s.alsoSolveMove = conversions.MoveToTinyMove(m)
+	s.alsoSolveMoveOriginal = m
 }
 
 func (s *Solver) makeGameCopies() error {
@@ -1194,6 +1196,20 @@ searchLoop:
 					filtered = append(filtered, sm)
 					break
 				}
+			}
+			if len(filtered) == 0 && s.alsoSolveMoveOriginal != nil {
+				// The move was not in the generated legal moves (e.g. a phony word).
+				// PlaySmallMove does no lexicon validation, so we can still solve the
+				// continuation by constructing a SmallMove directly from the original move.
+				sm := tinymove.TilePlayMove(
+					s.alsoSolveMove,
+					int16(s.alsoSolveMoveOriginal.Score()),
+					uint8(s.alsoSolveMoveOriginal.TilesPlayed()),
+					uint8(s.alsoSolveMoveOriginal.PlayLength()),
+				)
+				filtered = []tinymove.SmallMove{sm}
+				log.Info().Str("move", s.alsoSolveMoveOriginal.ShortDescription()).
+					Msg("also-solve-move-not-in-legal-moves-solving-anyway")
 			}
 			if len(filtered) > 0 {
 				s.initialMoves[0] = filtered

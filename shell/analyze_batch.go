@@ -7,8 +7,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
+	"time"
+
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/domino14/macondo/gameanalysis"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
@@ -140,6 +144,13 @@ func (sc *ShellController) analyzeBatch(cmd *shellcmd) (*Response, error) {
 	cfg := gameanalysis.DefaultAnalysisConfig()
 	continueOnError := cmd.options.Bool("continue")
 	summaryOnly := cmd.options.Bool("summary-only")
+	batchName := cmd.options.String("batch")
+	if batchName == "" {
+		batchName = "batch-" + time.Now().Format("2006-01-02-1504")
+		sc.showMessage(fmt.Sprintf("No batch name specified; using '%s'", batchName))
+	}
+	force := cmd.options.Bool("force")
+	jsonFile := cmd.options.String("json")
 
 	// Check for player filter option
 	if playerOpt := cmd.options.String("player"); playerOpt != "" {
@@ -151,6 +162,12 @@ func (sc *ShellController) analyzeBatch(cmd *shellcmd) (*Response, error) {
 			cfg.OnlyPlayerByName = playerOpt
 			cfg.OnlyPlayer = -1
 		}
+	}
+
+	// Open store once for the whole batch
+	store, storeErr := sc.getAnalysisStore()
+	if storeErr != nil {
+		sc.showMessage(fmt.Sprintf("Warning: cannot open analysis store: %v", storeErr))
 	}
 
 	// Parse game sources
@@ -191,15 +208,38 @@ func (sc *ShellController) analyzeBatch(cmd *shellcmd) (*Response, error) {
 	batchResult := gameanalysis.NewBatchAnalysisResult()
 
 	// Create analyzer
-	analyzer := gameanalysis.New(sc.config, cfg)
+	analyzer := gameanalysis.New(sc.config, cfg, sc.macondoVersion)
 	ctx := context.Background()
 
 	// Analyze each game
+	// batchGameResults holds per-game protojson for the optional JSON export
+	type batchExportEntry struct {
+		Name   string          `json:"name"`
+		Result json.RawMessage `json:"result"`
+	}
+	var exportEntries []batchExportEntry
+
 	for i, source := range sources {
 		sc.showMessage(fmt.Sprintf("Analyzing game %d/%d: %s", i+1, len(sources), source.Original))
 
 		gameResult := &gameanalysis.BatchGameResult{
 			GameID: source.Original,
+		}
+
+		// Check if already in DB (skip unless -force)
+		if store != nil && store.Exists(source.Original) && !force {
+			sc.showMessage(fmt.Sprintf("  Skipping '%s' (already analyzed). Use -force to overwrite.", source.Original))
+			// Load from DB so batch stats still include it
+			stored, err := store.Get(source.Original)
+			if err == nil {
+				resultProto := &pb.GameAnalysisResult{}
+				if err := protojson.Unmarshal(stored.ResultJSON, resultProto); err == nil {
+					gameResult.GameInfo = stored.PlayerInfo
+					gameResult.Result = gameanalysis.GameAnalysisResultFromProto(resultProto)
+				}
+			}
+			batchResult.AddGameResult(gameResult)
+			continue
 		}
 
 		// Load game history
@@ -237,10 +277,45 @@ func (sc *ShellController) analyzeBatch(cmd *shellcmd) (*Response, error) {
 
 		gameResult.Result = result
 		batchResult.AddGameResult(gameResult)
+
+		// Save to DB
+		if store != nil {
+			resultJSON, merr := protojson.Marshal(result.ToProto())
+			if merr == nil {
+				if serr := store.Save(source.Original, batchName, gameResult.GameInfo,
+					history.Lexicon, result.AnalysisVersion, result.AnalyzerVersion, resultJSON); serr != nil {
+					sc.showMessage(fmt.Sprintf("  Warning: failed to save to store: %v", serr))
+				} else if jsonFile != "" {
+					exportEntries = append(exportEntries, batchExportEntry{
+						Name:   source.Original,
+						Result: json.RawMessage(resultJSON),
+					})
+				}
+			}
+		} else if jsonFile != "" {
+			if resultJSON, merr := protojson.Marshal(result.ToProto()); merr == nil {
+				exportEntries = append(exportEntries, batchExportEntry{
+					Name:   source.Original,
+					Result: json.RawMessage(resultJSON),
+				})
+			}
+		}
 	}
 
 	// Calculate averages
 	batchResult.CalculateAverages()
+
+	// JSON export for batch
+	if jsonFile != "" {
+		exportData, merr := json.MarshalIndent(map[string]interface{}{"games": exportEntries}, "", "  ")
+		if merr == nil {
+			if werr := os.WriteFile(jsonFile, exportData, 0644); werr != nil {
+				sc.showMessage(fmt.Sprintf("Warning: failed to write JSON to %s: %v", jsonFile, werr))
+			} else {
+				sc.showMessage(fmt.Sprintf("Batch analysis written to %s", jsonFile))
+			}
+		}
+	}
 
 	// Format output
 	output := sc.formatBatchResults(batchResult, summaryOnly)
@@ -426,22 +501,7 @@ func (sc *ShellController) formatGameAnalysisForBatch(result *gameanalysis.GameA
 		}
 
 		// Format difference
-		var diff string
-		if turn.Phase == gameanalysis.PhaseEndgame {
-			if turn.WasOptimal {
-				diff = "+0"
-			} else {
-				diff = fmt.Sprintf("%+d", turn.SpreadLoss)
-			}
-		} else if turn.Phase == gameanalysis.PhasePreEndgame && turn.SpreadLoss > 0 {
-			diff = fmt.Sprintf("%.1f%% (%+d)", turn.WinProbLoss*100, turn.SpreadLoss)
-		} else {
-			if turn.WasOptimal {
-				diff = "0.0%"
-			} else {
-				diff = fmt.Sprintf("%.1f%%", turn.WinProbLoss*100)
-			}
-		}
+		diff := formatDiff(turn.Phase == gameanalysis.PhaseEndgame, turn.WasOptimal, turn.WinProbLoss, int(turn.SpreadLoss))
 
 		mistake := turn.MistakeCategory
 		if mistake == "" {

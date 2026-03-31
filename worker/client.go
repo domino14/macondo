@@ -19,15 +19,17 @@ import (
 type WooglesClient struct {
 	baseURL    string
 	apiKey     string
+	version    string
 	httpClient *http.Client
 	cfg        *config.Config
 }
 
 // NewWooglesClient creates a new Woogles API client
-func NewWooglesClient(baseURL, apiKey string, cfg *config.Config) *WooglesClient {
+func NewWooglesClient(baseURL, apiKey string, cfg *config.Config, version string) *WooglesClient {
 	return &WooglesClient{
 		baseURL: baseURL,
 		apiKey:  apiKey,
+		version: version,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second, // Timeout for all HTTP requests
 		},
@@ -40,8 +42,12 @@ func NewWooglesClient(baseURL, apiKey string, cfg *config.Config) *WooglesClient
 func (c *WooglesClient) ClaimJob(ctx context.Context) (*Job, error) {
 	url := c.baseURL + "/api/analysis_service.AnalysisQueueService/ClaimJob"
 
-	// Empty request body for Connect RPC
-	reqBody := []byte("{}")
+	reqBody, err := json.Marshal(map[string]interface{}{
+		"macondoVersion": c.version,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
 	if err != nil {
@@ -108,17 +114,19 @@ func (c *WooglesClient) ClaimJob(ctx context.Context) (*Job, error) {
 	}, nil
 }
 
-// SubmitResult submits analysis results back to Woogles
-// Sends protobuf bytes directly (not base64)
-func (c *WooglesClient) SubmitResult(ctx context.Context, jobID string, resultProto []byte) error {
+// SubmitResult submits analysis results back to Woogles.
+// resultJSON must be the protojson encoding of a macondo.GameAnalysisResult;
+// it is embedded inline (not base64) so the server deserializes it as a typed proto.
+func (c *WooglesClient) SubmitResult(ctx context.Context, jobID string, resultJSON []byte) error {
 	url := c.baseURL + "/api/analysis_service.AnalysisQueueService/SubmitResult"
 
-	req := map[string]interface{}{
-		"jobId":       jobID,
-		"resultProto": resultProto,
-	}
-
-	reqBody, err := json.Marshal(req)
+	// Embed resultJSON as a raw JSON value so the server receives a typed
+	// macondo.GameAnalysisResult in the "result" field, not base64 bytes.
+	reqBody, err := json.Marshal(map[string]interface{}{
+		"jobId":          jobID,
+		"macondoVersion": c.version,
+		"result":         json.RawMessage(resultJSON),
+	})
 	if err != nil {
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
@@ -147,14 +155,19 @@ func (c *WooglesClient) SubmitResult(ctx context.Context, jobID string, resultPr
 	}
 
 	var submitResp struct {
-		Accepted bool   `json:"accepted"`
-		Error    string `json:"error"`
+		Accepted        bool   `json:"accepted"`
+		Error           string `json:"error"`
+		ExpectedVersion string `json:"expectedVersion"`
 	}
 	if err := json.Unmarshal(body, &submitResp); err != nil {
 		return fmt.Errorf("failed to unmarshal response: %w", err)
 	}
 
 	if !submitResp.Accepted {
+		if submitResp.ExpectedVersion != "" {
+			return fmt.Errorf("result rejected (version mismatch: server wants %s, we sent %s): %s",
+				submitResp.ExpectedVersion, c.version, submitResp.Error)
+		}
 		return fmt.Errorf("result rejected: %s", submitResp.Error)
 	}
 

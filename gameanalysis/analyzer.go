@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/domino14/word-golib/kwg"
@@ -19,6 +20,26 @@ import (
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/preendgame"
+)
+
+// CurrentAnalysisVersion is incremented when the analysis output format gains new fields.
+// The browse table shows ✓ for versions >= 2.
+const CurrentAnalysisVersion = 2
+
+// blowoutWinProbThreshold is the win probability threshold below which (or above
+// 1 minus which) the game is considered a blowout. Matches the sim autostopper's
+// minReasonableWProb — at these extremes win% is meaningless and equity/spread
+// is used instead.
+const blowoutWinProbThreshold = 0.005
+
+// Spread-loss thresholds for mistake categorization.
+const (
+	spreadSmall  = 7
+	spreadMedium = 15
+
+	// Doubled thresholds used for early/mid blowout positions.
+	spreadSmallBlowout  = 15
+	spreadMediumBlowout = 30
 )
 
 // AnalysisConfig holds configuration for game analysis
@@ -67,16 +88,18 @@ func DefaultAnalysisConfig() *AnalysisConfig {
 type Analyzer struct {
 	cfg         *config.Config
 	analysisCfg *AnalysisConfig
+	version     string
 }
 
 // New creates a new Analyzer
-func New(cfg *config.Config, analysisCfg *AnalysisConfig) *Analyzer {
+func New(cfg *config.Config, analysisCfg *AnalysisConfig, version string) *Analyzer {
 	if analysisCfg == nil {
 		analysisCfg = DefaultAnalysisConfig()
 	}
 	return &Analyzer{
 		cfg:         cfg,
 		analysisCfg: analysisCfg,
+		version:     version,
 	}
 }
 
@@ -181,18 +204,14 @@ func (a *Analyzer) AnalyzeSingleTurn(ctx context.Context, history *pb.GameHistor
 		}
 	}
 
-	// Analyze the position
-	analysis, err := a.analyzeTurn(ctx, g, playedMove, turnNum, playerIndex, history.Players, knownOppRack)
+	// Analyze the position (phony flags set before so analyzeWithEndgame can use them)
+	// They will be populated on the analysis struct inside analyzeTurn before dispatching.
+	analysis, err := a.analyzeTurn(ctx, g, playedMove, isPhony, phonyChallenged, missedChallenge, turnNum, playerIndex, history.Players, knownOppRack)
 	if err != nil {
 		return nil, err
 	}
 
-	// Add phony information
-	analysis.IsPhony = isPhony
-	analysis.PhonyChallenged = phonyChallenged
-	analysis.MissedChallenge = missedChallenge
-
-	// Categorize the mistake
+	// Categorize the mistake (authoritative call — runs after all flags are set)
 	analysis.MistakeCategory = categorizeMistake(analysis)
 
 	return analysis, nil
@@ -205,7 +224,9 @@ func (a *Analyzer) AnalyzeGame(ctx context.Context, history *pb.GameHistory) (*G
 	}
 
 	result := &GameAnalysisResult{
-		Turns: make([]*TurnAnalysis, 0),
+		Turns:           make([]*TurnAnalysis, 0),
+		AnalysisVersion: CurrentAnalysisVersion,
+		AnalyzerVersion: a.version,
 		PlayerSummaries: [2]*PlayerSummary{
 			{
 				PlayerName:   history.Players[0].Nickname,
@@ -367,6 +388,7 @@ func (a *Analyzer) isPhony(evt *pb.GameEvent, g *game.Game) bool {
 
 // analyzeTurn analyzes a single turn and returns the analysis
 func (a *Analyzer) analyzeTurn(ctx context.Context, g *game.Game, playedMove *move.Move,
+	isPhony, phonyChallenged, missedChallenge bool,
 	turnNum, playerIndex int, players []*pb.PlayerInfo,
 	knownOppRack []tilemapping.MachineLetter) (*TurnAnalysis, error) {
 
@@ -374,13 +396,16 @@ func (a *Analyzer) analyzeTurn(ctx context.Context, g *game.Game, playedMove *mo
 	phase := a.determinePhase(tilesInBag)
 
 	analysis := &TurnAnalysis{
-		TurnNumber:  turnNum + 1, // 1-indexed for display
-		PlayerIndex: playerIndex,
-		PlayerName:  players[playerIndex].Nickname,
-		Rack:        g.RackFor(playerIndex).String(),
-		Phase:       phase,
-		TilesInBag:  tilesInBag,
-		PlayedMove:  playedMove,
+		TurnNumber:      turnNum + 1, // 1-indexed for display
+		PlayerIndex:     playerIndex,
+		PlayerName:      players[playerIndex].Nickname,
+		Rack:            g.RackFor(playerIndex).String(),
+		Phase:           phase,
+		TilesInBag:      tilesInBag,
+		PlayedMove:      playedMove,
+		IsPhony:         isPhony,
+		PhonyChallenged: phonyChallenged,
+		MissedChallenge: missedChallenge,
 	}
 
 	var err error
@@ -400,9 +425,6 @@ func (a *Analyzer) analyzeTurn(ctx context.Context, g *game.Game, playedMove *mo
 	if err != nil {
 		return nil, err
 	}
-
-	// Categorize the mistake
-	analysis.MistakeCategory = categorizeMistake(analysis)
 
 	return analysis, nil
 }
@@ -435,24 +457,39 @@ func categorizeMistake(analysis *TurnAnalysis) string {
 			return "Large"
 		}
 
-		// Use doubled thresholds for endgame spread: 1-7 small, 8-15 medium, 16+ large
-		if loss <= 7 {
+		// Use standard thresholds for endgame spread.
+		if loss <= spreadSmall {
 			return "Small"
-		} else if loss <= 15 {
+		} else if loss <= spreadMedium {
 			return "Medium"
 		} else {
 			return "Large"
 		}
 	}
 
-	// Handle PEG spread tiebreak mistakes
-	if analysis.Phase == PhasePreEndgame && analysis.SpreadLoss > 0 {
+	// Handle spread/equity tiebreak mistakes for PEG and sim phases.
+	// SpreadLoss is set when win probabilities are effectively tied — use
+	// spread-based thresholds rather than win% thresholds.
+	if analysis.SpreadLoss > 0 {
 		loss := float64(analysis.SpreadLoss)
 
-		// Use doubled thresholds for PEG spread: 1-7 small, 8-15 medium, 16+ large
-		if loss <= 7 {
+		// In early/mid blowout positions (win% near 0 or 100), the game result
+		// is already decided so spread mistakes matter less — use doubled thresholds.
+		if analysis.Phase == PhaseEarlyMid &&
+			(analysis.OptimalWinProb < blowoutWinProbThreshold ||
+				analysis.OptimalWinProb > 1-blowoutWinProbThreshold) {
+			if loss <= spreadSmallBlowout {
+				return "Small"
+			} else if loss <= spreadMediumBlowout {
+				return "Medium"
+			} else {
+				return "Large"
+			}
+		}
+
+		if loss <= spreadSmall {
 			return "Small"
-		} else if loss <= 15 {
+		} else if loss <= spreadMedium {
 			return "Medium"
 		} else {
 			return "Large"
@@ -462,8 +499,8 @@ func categorizeMistake(analysis *TurnAnalysis) string {
 	// For sim/PEG win probability, use win probability loss as percentage
 	loss := analysis.WinProbLoss * 100
 
-	// If loss is essentially zero, don't categorize as a mistake
-	const epsilon = 0.001
+	// Losses <= 0.25% are noise-dominated and don't count as a mistake.
+	const epsilon = 0.25
 	if loss < epsilon {
 		return ""
 	}
@@ -645,9 +682,11 @@ func (a *Analyzer) analyzeWithSim(ctx context.Context, g *game.Game, analysis *T
 
 	// Find played move in results
 	playedFound := false
+	var playedEquity float64
 	for _, result := range simmedPlays {
 		if result.Move().Equals(analysis.PlayedMove, checkTrans, true) {
 			analysis.PlayedWinProb = result.WinProb()
+			playedEquity = result.EquityMean()
 			playedFound = true
 			break
 		}
@@ -662,12 +701,83 @@ func (a *Analyzer) analyzeWithSim(ctx context.Context, g *game.Game, analysis *T
 	analysis.WinProbLoss = analysis.OptimalWinProb - analysis.PlayedWinProb
 	analysis.WasOptimal = analysis.OptimalMove.Equals(analysis.PlayedMove, checkTrans, true)
 
+	// When all plays are near 0% or 100% win probability, win prob loss is
+	// meaningless. Use equity difference as a spread-based tiebreaker instead,
+	// mirroring how PEG handles tied win probabilities.
+	if !analysis.WasOptimal && playedFound {
+		nearZero := analysis.OptimalWinProb < blowoutWinProbThreshold
+		nearOne := analysis.OptimalWinProb > 1-blowoutWinProbThreshold
+		if nearZero || nearOne {
+			optimalEquity := simmedPlays[0].EquityMean()
+			equityDiff := optimalEquity - playedEquity
+			if equityDiff > 0.5 {
+				analysis.SpreadLoss = int16(equityDiff + 0.5)
+			}
+		}
+	}
+
 	// Set bingo flags
 	analysis.OptimalIsBingo = isBingo(analysis.OptimalMove)
 	analysis.PlayedIsBingo = isBingo(analysis.PlayedMove)
 	analysis.MissedBingo = analysis.OptimalIsBingo && !analysis.PlayedIsBingo
 
+	// Extract enriched data: top 5 plays + played move (ignored plays included with flag)
+	analysis.TopSimPlays = extractTopSimPlays(simmedPlays, analysis.PlayedMove, checkTrans, 5)
+
 	return nil
+}
+
+// extractTopSimPlays returns at most maxTop plays plus ensuring the played move is included.
+// Ignored plays are included with IsIgnored=true so the frontend can mark them as pruned.
+func extractTopSimPlays(simmedPlays []*montecarlo.SimmedPlay, playedMove *move.Move, checkTrans bool, maxTop int) []*SimPlayResult {
+	results := make([]*SimPlayResult, 0, maxTop+1)
+	playedIncluded := false
+	for _, sp := range simmedPlays {
+		isPlayed := sp.Move().Equals(playedMove, checkTrans, true)
+		if len(results) < maxTop || (isPlayed && !playedIncluded) {
+			results = append(results, simPlayToResult(sp, isPlayed))
+		}
+		if isPlayed {
+			playedIncluded = true
+		}
+		if len(results) >= maxTop && playedIncluded {
+			break
+		}
+	}
+	return results
+}
+
+func simPlayToResult(sp *montecarlo.SimmedPlay, isPlayed bool) *SimPlayResult {
+	scoreStats := sp.ScoreStatsNoLock()
+	bingoStats := sp.BingoStatsNoLock()
+	plyCount := len(scoreStats)
+	plyResults := make([]*PlyStatResult, plyCount)
+	for i := 0; i < plyCount; i++ {
+		bingoPct := 0.0
+		if i < len(bingoStats) {
+			bingoPct = bingoStats[i].Mean()
+		}
+		plyResults[i] = &PlyStatResult{
+			Ply:        i + 1,
+			ScoreMean:  scoreStats[i].Mean(),
+			ScoreStdev: scoreStats[i].Stdev(),
+			BingoPct:   bingoPct,
+		}
+	}
+	return &SimPlayResult{
+		MoveDescription: strings.TrimSpace(sp.Move().ShortDescription()),
+		Score:           sp.Move().Score(),
+		Leave:           sp.Move().LeaveString(),
+		IsBingo:         sp.Move().BingoPlayed(),
+		WinProb:         sp.WinProb(),
+		WinProbStdErr:   sp.WinProbStdErr(),
+		Equity:          sp.EquityMean(),
+		EquityStdErr:    sp.EquityStdErr(),
+		Iterations:      sp.WinProbIterations(),
+		PlyStats:        plyResults,
+		IsPlayedMove:    isPlayed,
+		IsIgnored:       sp.IsIgnored(),
+	}
 }
 
 // analyzeWithPEG analyzes a turn using the PEG solver (1 tile in bag)
@@ -796,7 +906,74 @@ func (a *Analyzer) analyzeWithPEG(ctx context.Context, g *game.Game, analysis *T
 	analysis.PlayedIsBingo = isBingo(analysis.PlayedMove)
 	analysis.MissedBingo = analysis.OptimalIsBingo && !analysis.PlayedIsBingo
 
+	// Extract enriched PEG data: top 5 plays + played move
+	analysis.TopPEGPlays = extractTopPEGPlays(plays, analysis.PlayedMove, noutcomes, g.Alphabet(), 5)
+
 	return nil
+}
+
+// extractTopPEGPlays returns at most maxTop plays plus ensuring the played move is included.
+// Ignored plays are included with IsIgnored=true so the frontend can mark them as pruned.
+func extractTopPEGPlays(plays []*preendgame.PreEndgamePlay, playedMove *move.Move, noutcomes float32, alph *tilemapping.TileMapping, maxTop int) []*PEGPlayResult {
+	results := make([]*PEGPlayResult, 0, maxTop+1)
+	playedIncluded := false
+	for _, play := range plays {
+		isPlayed := play.Play.Equals(playedMove, false, true)
+		if len(results) < maxTop || (isPlayed && !playedIncluded) {
+			results = append(results, pegPlayToResult(play, noutcomes, alph, isPlayed))
+		}
+		if isPlayed {
+			playedIncluded = true
+		}
+		if len(results) >= maxTop && playedIncluded {
+			break
+		}
+	}
+	return results
+}
+
+func pegPlayToResult(play *preendgame.PreEndgamePlay, noutcomes float32, alph *tilemapping.TileMapping, isPlayed bool) *PEGPlayResult {
+	winProb := 0.0
+	if noutcomes > 0 {
+		winProb = float64(play.Points / noutcomes)
+	}
+	outcomes := play.OutcomesArray()
+	outcomeResults := make([]*PEGOutcomeResult, len(outcomes))
+	for i, o := range outcomes {
+		tilesStr := tilemapping.MachineWord(o.Tiles()).UserVisible(alph)
+		var outcomeStr string
+		switch o.OutcomeResult() {
+		case preendgame.PEGWin:
+			outcomeStr = "win"
+		case preendgame.PEGDraw:
+			outcomeStr = "draw"
+		case preendgame.PEGLoss:
+			outcomeStr = "loss"
+		default:
+			outcomeStr = "unknown"
+		}
+		outcomeResults[i] = &PEGOutcomeResult{
+			Tiles:   tilesStr,
+			Outcome: outcomeStr,
+			Count:   o.Count(),
+		}
+	}
+	avgSpread := 0.0
+	if play.HasSpread() && play.TotalOutcomes() > 0 {
+		avgSpread = float64(play.GetSpread()) / float64(play.TotalOutcomes())
+	}
+	return &PEGPlayResult{
+		MoveDescription: strings.TrimSpace(play.Play.ShortDescription()),
+		Score:           play.Play.Score(),
+		Leave:           play.Play.LeaveString(),
+		IsBingo:         play.Play.BingoPlayed(),
+		WinProb:         winProb,
+		Outcomes:        outcomeResults,
+		HasSpread:       play.HasSpread(),
+		AvgSpread:       avgSpread,
+		IsPlayedMove:    isPlayed,
+		IsIgnored:       play.Ignore,
+	}
 }
 
 // analyzeWithEndgame analyzes a turn using the endgame solver (0 tiles in bag)
@@ -878,7 +1055,42 @@ func (a *Analyzer) analyzeWithEndgame(ctx context.Context, g *game.Game, analysi
 	analysis.PlayedIsBingo = isBingo(analysis.PlayedMove)
 	analysis.MissedBingo = analysis.OptimalIsBingo && !analysis.PlayedIsBingo
 
+	// Extract enriched endgame data: principal variation and other variations
+	analysis.PrincipalVariation = pvLineToResult(principalVariation, bestSpread)
+	variations := endgameSolver.Variations()
+	otherVars := make([]*EndgameVariationResult, 0, len(variations))
+	for _, v := range variations {
+		if v.NumMoves() == 0 {
+			continue
+		}
+		moves := make([]*move.Move, v.NumMoves())
+		for i := 0; i < v.NumMoves(); i++ {
+			moves[i] = v.Moves[i]
+		}
+		otherVars = append(otherVars, pvLineToResult(moves, v.Score()))
+	}
+	analysis.OtherVariations = otherVars
+
 	return nil
+}
+
+// pvLineToResult converts a slice of moves and final spread into an EndgameVariationResult.
+func pvLineToResult(moves []*move.Move, finalSpread int16) *EndgameVariationResult {
+	moveResults := make([]*EndgameMoveResult, 0, len(moves))
+	for i, m := range moves {
+		if m == nil {
+			break
+		}
+		moveResults = append(moveResults, &EndgameMoveResult{
+			MoveDescription: strings.TrimSpace(m.ShortDescription()),
+			Score:           m.Score(),
+			MoveNumber:      i + 1,
+		})
+	}
+	return &EndgameVariationResult{
+		Moves:       moveResults,
+		FinalSpread: finalSpread,
+	}
 }
 
 // calculatePlayerSummaries calculates aggregate statistics for each player
@@ -890,9 +1102,7 @@ func (a *Analyzer) calculatePlayerSummaries(result *GameAnalysisResult) {
 		}
 
 		var totalWinProbLoss float64
-		var totalSpreadLoss float64
 		winProbCount := 0
-		spreadCount := 0
 
 		for _, turn := range result.Turns {
 			if turn.PlayerIndex != i {
@@ -903,12 +1113,6 @@ func (a *Analyzer) calculatePlayerSummaries(result *GameAnalysisResult) {
 			if turn.Phase != PhaseEndgame {
 				totalWinProbLoss += turn.WinProbLoss
 				winProbCount++
-			}
-
-			// Count spread loss for endgame AND PEG with spread tiebreaks
-			if turn.Phase == PhaseEndgame || (turn.Phase == PhasePreEndgame && turn.SpreadLoss > 0) {
-				totalSpreadLoss += float64(turn.SpreadLoss)
-				spreadCount++
 			}
 
 			// Add mistake points to the mistake index
@@ -935,9 +1139,6 @@ func (a *Analyzer) calculatePlayerSummaries(result *GameAnalysisResult) {
 
 		if winProbCount > 0 {
 			summary.AvgWinProbLoss = totalWinProbLoss / float64(winProbCount)
-		}
-		if spreadCount > 0 {
-			summary.AvgSpreadLoss = totalSpreadLoss / float64(spreadCount)
 		}
 
 		// Calculate estimated ELO based on mistake index

@@ -16,21 +16,23 @@ type AnalysisWorker struct {
 	config   *WorkerConfig
 	client   *WooglesClient
 	analyzer *gameanalysis.Analyzer
+	version  string
 }
 
 // NewAnalysisWorker creates a new worker
 func NewAnalysisWorker(cfg *WorkerConfig) *AnalysisWorker {
-	client := NewWooglesClient(cfg.WooglesBaseURL, cfg.APIKey, cfg.MacondoConfig)
+	client := NewWooglesClient(cfg.WooglesBaseURL, cfg.APIKey, cfg.MacondoConfig, cfg.MacondoVersion)
 
 	// Create analyzer with default config if none provided
 	analysisConfig := gameanalysis.DefaultAnalysisConfig()
 
-	analyzer := gameanalysis.New(cfg.MacondoConfig, analysisConfig)
+	analyzer := gameanalysis.New(cfg.MacondoConfig, analysisConfig, cfg.MacondoVersion)
 
 	return &AnalysisWorker{
 		config:   cfg,
 		client:   client,
 		analyzer: analyzer,
+		version:  cfg.MacondoVersion,
 	}
 }
 

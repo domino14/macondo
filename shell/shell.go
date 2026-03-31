@@ -34,6 +34,7 @@ import (
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/explainer"
 	"github.com/domino14/macondo/game"
+	"github.com/domino14/macondo/gameanalysis"
 	"github.com/domino14/macondo/gcgio"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/montecarlo"
@@ -206,6 +207,10 @@ type ShellController struct {
 	volunteerBusy   bool // True while processing a job
 	volunteerCtx    context.Context
 	volunteerCancel context.CancelFunc
+
+	// Local analysis persistence
+	gameSource    string                  // source identifier for the currently loaded game
+	analysisStore *gameanalysis.AnalysisStore // lazily opened SQLite store
 }
 
 type Mode int
@@ -215,6 +220,21 @@ const (
 	EndgameDebugMode
 	InvalidMode
 )
+
+// getAnalysisStore returns the lazily-opened local analysis store.
+// Returns an error if the store cannot be opened.
+func (sc *ShellController) getAnalysisStore() (*gameanalysis.AnalysisStore, error) {
+	if sc.analysisStore != nil {
+		return sc.analysisStore, nil
+	}
+	dataPath := sc.config.GetString(config.ConfigDataPath)
+	store, err := gameanalysis.OpenStore(dataPath)
+	if err != nil {
+		return nil, fmt.Errorf("open analysis store: %w", err)
+	}
+	sc.analysisStore = store
+	return store, nil
+}
 
 func filterInput(r rune) (rune, bool) {
 	switch r {
@@ -898,6 +918,7 @@ func (sc *ShellController) loadGCG(args []string) error {
 		if err != nil {
 			return err
 		}
+		sc.gameSource = "xt:" + args[1]
 	} else if args[0] == "woogles" {
 		if len(args) < 2 {
 			return errors.New("need to provide a woogles game id")
@@ -906,6 +927,7 @@ func (sc *ShellController) loadGCG(args []string) error {
 		if err != nil {
 			return err
 		}
+		sc.gameSource = "woog:" + args[1]
 	} else if args[0] == "web" {
 		if len(args) < 2 {
 			return errors.New("need to provide a web URL")
@@ -914,11 +936,13 @@ func (sc *ShellController) loadGCG(args []string) error {
 		if err != nil {
 			return err
 		}
+		sc.gameSource = args[1]
 	} else {
 		history, err = sc.loadGameHistoryFromFile(args[0])
 		if err != nil {
 			return err
 		}
+		sc.gameSource = args[0]
 	}
 	log.Debug().Msgf("Loaded game repr; players: %v", history.Players)
 	lexicon := history.Lexicon
@@ -1733,6 +1757,10 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.analyzeTurn(cmd)
 	case "analyze-batch":
 		return sc.analyzeBatch(cmd)
+	case "analyze-browse":
+		return sc.analyzeBrowse(cmd)
+	case "analyze-view":
+		return sc.analyzeView(cmd)
 	case "autoanalyze":
 		return sc.autoAnalyze(cmd)
 	case "volunteer":

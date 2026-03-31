@@ -84,7 +84,6 @@ func TestToProto(t *testing.T) {
 				TurnsPlayed:     15,
 				OptimalMoves:    12,
 				AvgWinProbLoss:  0.03,
-				AvgSpreadLoss:   2.5,
 				SmallMistakes:   2,
 				MediumMistakes:  1,
 				LargeMistakes:   0,
@@ -134,7 +133,6 @@ func TestToProto(t *testing.T) {
 	assert.Equal(t, int32(15), summary.TurnsPlayed)
 	assert.Equal(t, int32(12), summary.OptimalMoves)
 	assert.Equal(t, 0.03, summary.AvgWinProbLoss)
-	assert.Equal(t, 2.5, summary.AvgSpreadLoss)
 	assert.Equal(t, int32(2), summary.SmallMistakes)
 	assert.Equal(t, int32(1), summary.MediumMistakes)
 	assert.Equal(t, int32(0), summary.LargeMistakes)

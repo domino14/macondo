@@ -222,6 +222,7 @@ func (sc *ShellController) load(cmd *shellcmd) (*Response, error) {
 		if err != nil {
 			return nil, err
 		}
+		sc.gameSource = "" // CGP positions have no persistent identifier
 
 	} else {
 		err := sc.loadGCG(cmd.args)
@@ -240,6 +241,7 @@ func (sc *ShellController) unload(cmd *shellcmd) (*Response, error) {
 		return nil, errMacondoSolving
 	}
 	sc.game = nil
+	sc.gameSource = ""
 	return msg("No active game."), nil
 }
 

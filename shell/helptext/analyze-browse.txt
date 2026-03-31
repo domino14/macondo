@@ -1,0 +1,52 @@
+analyze-browse [options] - Browse, list, and delete stored analyses
+
+Example:
+    analyze-browse
+    analyze-browse -limit 50
+    analyze-browse -batch my-tournament
+    analyze-browse -delete woog:ABC123
+    analyze-browse -delete woog:ABC123 -yes
+
+This command shows a table of analyses saved to the local store by the
+`analyze` and `analyze-batch` commands. Analyses are stored automatically
+when a game is loaded from a known source (Woogles, cross-tables, a file
+path, or a web URL).
+
+Options:
+
+    -batch <name>
+
+    Only show analyses that belong to the given batch. Batches are created
+    with `analyze-batch -batch <name>`.
+
+    -limit <N>
+
+    Maximum number of analyses to show (default 20). Ignored when -batch
+    is specified (all entries in the batch are shown).
+
+    -delete <name>
+
+    Delete the stored analysis whose name exactly matches <name>. You will
+    be prompted for confirmation unless -yes is also passed.
+
+    -yes
+
+    Skip the confirmation prompt when deleting.
+
+Output:
+
+The table columns are:
+
+    Name       - The game source identifier used as the storage key
+                 (e.g. "woog:ABC123", "xt:12345", or a file path)
+    Players    - "Player0 vs Player1" extracted at analysis time
+    Lexicon    - The lexicon the game was analyzed under
+    MI(0)      - Mistake Index for player 0
+    MI(1)      - Mistake Index for player 1
+    Batch      - Batch name, if the analysis belongs to one (— otherwise)
+    Date       - Date and time the analysis was saved
+
+A ✓ at the end of a row means the analysis was produced by analyzer
+version 2 or later (enriched data including bingo rate, ELO estimate, etc.).
+
+See also: analyze, analyze-batch, analyze-view

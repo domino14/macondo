@@ -2,6 +2,64 @@ package gameanalysis
 
 import "github.com/domino14/macondo/move"
 
+// SimPlayResult holds per-play statistics from Monte Carlo simulation.
+type SimPlayResult struct {
+	MoveDescription string
+	Score           int
+	Leave           string
+	IsBingo         bool
+	WinProb         float64
+	WinProbStdErr   float64
+	Equity          float64
+	EquityStdErr    float64
+	Iterations      int
+	PlyStats        []*PlyStatResult
+	IsPlayedMove    bool
+	IsIgnored       bool
+}
+
+// PlyStatResult holds per-ply score and bingo statistics for a simmed play.
+type PlyStatResult struct {
+	Ply        int
+	ScoreMean  float64
+	ScoreStdev float64
+	BingoPct   float64
+}
+
+// PEGPlayResult holds per-play statistics from the pre-endgame solver.
+type PEGPlayResult struct {
+	MoveDescription string
+	Score           int
+	Leave           string
+	IsBingo         bool
+	WinProb         float64
+	Outcomes        []*PEGOutcomeResult
+	HasSpread       bool
+	AvgSpread       float64
+	IsPlayedMove    bool
+	IsIgnored       bool
+}
+
+// PEGOutcomeResult holds a single tile-draw outcome from PEG analysis.
+type PEGOutcomeResult struct {
+	Tiles   string // human-readable, e.g. "A", "EI"
+	Outcome string // "win", "draw", "loss", "unknown"
+	Count   int
+}
+
+// EndgameVariationResult holds a move sequence from endgame analysis.
+type EndgameVariationResult struct {
+	Moves       []*EndgameMoveResult
+	FinalSpread int16
+}
+
+// EndgameMoveResult is a single move within an endgame variation.
+type EndgameMoveResult struct {
+	MoveDescription string
+	Score           int
+	MoveNumber      int
+}
+
 // GamePhase represents the phase of the game based on tiles remaining in bag.
 type GamePhase int
 
@@ -76,6 +134,12 @@ type TurnAnalysis struct {
 	// KnownOppRack contains the known opponent tiles (if any) used in analysis.
 	// This is populated when the opponent's phony was challenged off, exposing their rack.
 	KnownOppRack string
+
+	// Enriched data (v2+)
+	TopSimPlays        []*SimPlayResult
+	TopPEGPlays        []*PEGPlayResult
+	PrincipalVariation *EndgameVariationResult
+	OtherVariations    []*EndgameVariationResult
 }
 
 // PlayerSummary contains aggregate statistics for a player across the game.
@@ -84,7 +148,6 @@ type PlayerSummary struct {
 	TurnsPlayed    int
 	OptimalMoves   int
 	AvgWinProbLoss float64
-	AvgSpreadLoss  float64
 
 	// Mistake breakdown
 	SmallMistakes  int
@@ -103,4 +166,6 @@ type PlayerSummary struct {
 type GameAnalysisResult struct {
 	Turns           []*TurnAnalysis
 	PlayerSummaries [2]*PlayerSummary
+	AnalysisVersion int
+	AnalyzerVersion string
 }

@@ -133,6 +133,8 @@ func (c *Config) Load(args []string) error {
 			} else {
 				panic(fmt.Errorf("fatal error config file: %w", err))
 			}
+		} else {
+			log.Info().Str("config-file", c.ConfigFileUsed()).Msg("loaded config file")
 		}
 		// Handle upgrades of macondo by checking to see if data path still exists,
 		// if we are reading from a file.

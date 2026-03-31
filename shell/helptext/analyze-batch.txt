@@ -8,9 +8,18 @@ Example:
     analyze-batch -player "nickname" woog:ABC woog:DEF
     analyze-batch -summary-only woog:ABC woog:DEF
     analyze-batch woogcollection:UUID-OF-COLLECTION
+    analyze-batch -batch june-club woog:ABC woog:DEF
+    analyze-batch -force -batch june-club woog:ABC woog:DEF
+    analyze-batch -json /tmp/batch.json woog:ABC woog:DEF
 
 This command analyzes multiple games from various sources and displays per-game
-analysis tables plus an aggregated summary. It supports loading games from:
+analysis tables plus an aggregated summary. Each game's analysis is
+automatically saved to the local store so the results can be revisited later
+with `analyze-view` or listed with `analyze-browse`. If an analysis already
+exists for a game it is skipped (and reloaded from the store so the batch
+stats still include it); use -force to re-analyze and overwrite instead.
+
+It supports loading games from:
 
   - Woogles: Use format "woog:GAMEID"
   - Woogles Collection: Use format "woogcollection:UUID" (fetches all games in collection)
@@ -51,6 +60,25 @@ Options:
     This is useful when analyzing many games and you only care about the
     aggregated statistics.
 
+    -batch <name>
+
+    Assign all analyses in this run to the named batch. The name is stored
+    alongside each result and can be used later to filter with
+    `analyze-browse -batch <name>` or view combined stats with
+    `analyze-view -batch <name>`. If omitted, a name is generated
+    automatically from the current date and time (e.g. batch-2026-03-24-1504)
+    and printed at the start of the run.
+
+    -force
+
+    Re-analyze games even if an analysis already exists in the store.
+    Without this flag, existing analyses are skipped and loaded from the
+    store instead.
+
+    -json <file>
+
+    Write the full batch analysis result as a JSON file to <file>.
+
 Output:
 
 Without -summary-only, the command shows:
@@ -77,3 +105,5 @@ You can read more about the Mistake Index here:
 https://nbaniac.com/odds-overview
 
 Thanks to Joey Krafchick for his methodology.
+
+See also: analyze, analyze-browse, analyze-view

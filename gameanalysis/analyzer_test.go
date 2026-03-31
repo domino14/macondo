@@ -12,7 +12,7 @@ func TestAnalyzerCreation(t *testing.T) {
 	cfg := &config.Config{}
 	analysisCfg := DefaultAnalysisConfig()
 
-	analyzer := New(cfg, analysisCfg)
+	analyzer := New(cfg, analysisCfg, "")
 	if analyzer == nil {
 		t.Fatal("expected non-nil analyzer")
 	}
@@ -82,7 +82,7 @@ func TestPhaseString(t *testing.T) {
 
 func TestDeterminePhase(t *testing.T) {
 	cfg := &config.Config{}
-	analyzer := New(cfg, DefaultAnalysisConfig())
+	analyzer := New(cfg, DefaultAnalysisConfig(), "")
 
 	tests := []struct {
 		tilesInBag int
@@ -107,7 +107,7 @@ func TestDeterminePhase(t *testing.T) {
 
 func TestAnalyzeGame_NilHistory(t *testing.T) {
 	cfg := &config.Config{}
-	analyzer := New(cfg, DefaultAnalysisConfig())
+	analyzer := New(cfg, DefaultAnalysisConfig(), "")
 
 	ctx := context.Background()
 	_, err := analyzer.AnalyzeGame(ctx, nil)
@@ -129,7 +129,7 @@ func TestAnalyzeGame_EmptyHistory(t *testing.T) {
 
 func TestIsAnalyzableEvent(t *testing.T) {
 	cfg := &config.Config{}
-	analyzer := New(cfg, DefaultAnalysisConfig())
+	analyzer := New(cfg, DefaultAnalysisConfig(), "")
 
 	tests := []struct {
 		eventType pb.GameEvent_Type
@@ -190,7 +190,7 @@ func TestCalculatePlayerSummaries(t *testing.T) {
 	}
 
 	cfg := &config.Config{}
-	analyzer := New(cfg, DefaultAnalysisConfig())
+	analyzer := New(cfg, DefaultAnalysisConfig(), "")
 	analyzer.calculatePlayerSummaries(result)
 
 	// Check that mistake index was calculated correctly

@@ -4,6 +4,8 @@ Example:
     analyze
     analyze -player 0
     analyze -player "nickname"
+    analyze -force
+    analyze -json /tmp/result.json
 
 This command analyzes every move in the currently loaded game, comparing the
 played move to the optimal move using phase-appropriate analysis:
@@ -21,6 +23,12 @@ The analysis shows:
 Note: This command requires a game to be loaded. Use `load` to load a GCG file
 or `load woogles <game-id>` to load a game from Woogles.
 
+When a game was loaded from a known source (Woogles, cross-tables, a file
+path, or a web URL), the analysis is automatically saved to the local store
+so it can be revisited later with `analyze-view` or listed with
+`analyze-browse`. If an analysis already exists for that game, you will see
+a warning; use -force to overwrite it.
+
 Options:
 
     -player 0
@@ -36,6 +44,17 @@ Options:
 
     Analyze only moves by the player with the specified nickname. The nickname
     must match exactly (case-sensitive).
+
+    -json <file>
+
+    Write the full analysis result as a JSON file to <file>. This is in
+    addition to (not instead of) the normal text output and store saving.
+
+    -force
+
+    Overwrite an existing stored analysis for this game. Without this flag
+    the command skips saving and prints a warning if the game was already
+    analyzed.
 
 Output:
 
@@ -68,3 +87,5 @@ You can read more about the Mistake Index here:
 https://nbaniac.com/odds-overview
 
 Thanks to Joey Krafchick for his methodology.
+
+See also: analyze-turn, analyze-batch, analyze-browse, analyze-view
