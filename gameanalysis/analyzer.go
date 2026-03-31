@@ -26,6 +26,22 @@ import (
 // The browse table shows ✓ for versions >= 2.
 const CurrentAnalysisVersion = 2
 
+// blowoutWinProbThreshold is the win probability threshold below which (or above
+// 1 minus which) the game is considered a blowout. Matches the sim autostopper's
+// minReasonableWProb — at these extremes win% is meaningless and equity/spread
+// is used instead.
+const blowoutWinProbThreshold = 0.005
+
+// Spread-loss thresholds for mistake categorization.
+const (
+	spreadSmall  = 7
+	spreadMedium = 15
+
+	// Doubled thresholds used for early/mid blowout positions.
+	spreadSmallBlowout  = 15
+	spreadMediumBlowout = 30
+)
+
 // AnalysisConfig holds configuration for game analysis
 type AnalysisConfig struct {
 	// Early/mid game (>7 tiles in bag)
@@ -441,10 +457,10 @@ func categorizeMistake(analysis *TurnAnalysis) string {
 			return "Large"
 		}
 
-		// Use doubled thresholds for endgame spread: 1-7 small, 8-15 medium, 16+ large
-		if loss <= 7 {
+		// Use standard thresholds for endgame spread.
+		if loss <= spreadSmall {
 			return "Small"
-		} else if loss <= 15 {
+		} else if loss <= spreadMedium {
 			return "Medium"
 		} else {
 			return "Large"
@@ -457,10 +473,23 @@ func categorizeMistake(analysis *TurnAnalysis) string {
 	if analysis.SpreadLoss > 0 {
 		loss := float64(analysis.SpreadLoss)
 
-		// 1-7 small, 8-15 medium, 16+ large
-		if loss <= 7 {
+		// In early/mid blowout positions (win% near 0 or 100), the game result
+		// is already decided so spread mistakes matter less — use doubled thresholds.
+		if analysis.Phase == PhaseEarlyMid &&
+			(analysis.OptimalWinProb < blowoutWinProbThreshold ||
+				analysis.OptimalWinProb > 1-blowoutWinProbThreshold) {
+			if loss <= spreadSmallBlowout {
+				return "Small"
+			} else if loss <= spreadMediumBlowout {
+				return "Medium"
+			} else {
+				return "Large"
+			}
+		}
+
+		if loss <= spreadSmall {
 			return "Small"
-		} else if loss <= 15 {
+		} else if loss <= spreadMedium {
 			return "Medium"
 		} else {
 			return "Large"
@@ -470,8 +499,8 @@ func categorizeMistake(analysis *TurnAnalysis) string {
 	// For sim/PEG win probability, use win probability loss as percentage
 	loss := analysis.WinProbLoss * 100
 
-	// If loss is essentially zero, don't categorize as a mistake
-	const epsilon = 0.001
+	// Losses <= 0.25% are noise-dominated and don't count as a mistake.
+	const epsilon = 0.25
 	if loss < epsilon {
 		return ""
 	}
@@ -675,10 +704,9 @@ func (a *Analyzer) analyzeWithSim(ctx context.Context, g *game.Game, analysis *T
 	// When all plays are near 0% or 100% win probability, win prob loss is
 	// meaningless. Use equity difference as a spread-based tiebreaker instead,
 	// mirroring how PEG handles tied win probabilities.
-	const simEquityEpsilon = 0.005 // 0.5%, matches autostopper's minReasonableWProb
 	if !analysis.WasOptimal && playedFound {
-		nearZero := analysis.OptimalWinProb < simEquityEpsilon
-		nearOne := analysis.OptimalWinProb > 1-simEquityEpsilon
+		nearZero := analysis.OptimalWinProb < blowoutWinProbThreshold
+		nearOne := analysis.OptimalWinProb > 1-blowoutWinProbThreshold
 		if nearZero || nearOne {
 			optimalEquity := simmedPlays[0].EquityMean()
 			equityDiff := optimalEquity - playedEquity
