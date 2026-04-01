@@ -144,6 +144,11 @@ type shadowState struct {
 	rackCrossSet   uint64 // bitmask of tiles on rack
 	numLettersOnRack int
 
+	// Best leave values indexed by number of tiles remaining on rack.
+	// bestLeaves[k] = max leave value over all possible leaves of size k.
+	// Computed before shadow to enable equity-aware upper bounds.
+	bestLeaves [game.RackTileLimit + 1]float64
+
 	// Whether shadow is enabled for this generation
 	shadowEnabled bool
 }
@@ -162,6 +167,67 @@ func (s *shadowState) rackPossible(crossSet uint64) uint64 {
 		possible |= crossSet // blank can represent any letter
 	}
 	return possible
+}
+
+// computeBestLeaves populates bestLeaves[k] with the maximum leave value
+// over all possible leaves of size k from the current rack. This provides
+// an upper bound on the leave equity for shadow plays that use (rackSize - k)
+// tiles. Matches magpie's best_leaves computation.
+func (gen *GordonGenerator) computeBestLeaves(rack *tilemapping.Rack) {
+	s := &gen.shadow
+	for i := range s.bestLeaves {
+		s.bestLeaves[i] = math.Inf(-1)
+	}
+
+	// Find the leave value calculator from equity calculators.
+	var leaveCalc interface{ LeaveValue(tilemapping.MachineWord) float64 }
+	for _, calc := range gen.equityCalculators {
+		if lc, ok := calc.(interface{ LeaveValue(tilemapping.MachineWord) float64 }); ok {
+			leaveCalc = lc
+			break
+		}
+	}
+	if leaveCalc == nil {
+		// No leave calculator — use 0 for all leave sizes (score-only mode).
+		for i := range s.bestLeaves {
+			s.bestLeaves[i] = 0
+		}
+		return
+	}
+
+	// Enumerate all possible leaves by choosing 0..count of each letter.
+	// For a 7-tile rack this is at most prod(count_i + 1) subsets.
+	var buf [game.RackTileLimit]tilemapping.MachineLetter
+	gen.enumerateLeaves(rack, leaveCalc, 0, buf[:0])
+}
+
+// enumerateLeaves recursively enumerates all sub-multisets of the rack,
+// building up the leave and recording the best value for each size.
+func (gen *GordonGenerator) enumerateLeaves(
+	rack *tilemapping.Rack,
+	leaveCalc interface{ LeaveValue(tilemapping.MachineWord) float64 },
+	ml tilemapping.MachineLetter,
+	leave tilemapping.MachineWord,
+) {
+	if int(ml) >= len(rack.LetArr) {
+		val := leaveCalc.LeaveValue(leave)
+		if val > gen.shadow.bestLeaves[len(leave)] {
+			gen.shadow.bestLeaves[len(leave)] = val
+		}
+		return
+	}
+	count := rack.LetArr[ml]
+	if count == 0 {
+		gen.enumerateLeaves(rack, leaveCalc, ml+1, leave)
+		return
+	}
+	// Try keeping 0, 1, ..., count copies of this letter in the leave.
+	origLen := len(leave)
+	for k := 0; k <= count; k++ {
+		gen.enumerateLeaves(rack, leaveCalc, ml+1, leave)
+		leave = append(leave, ml)
+	}
+	leave = leave[:origLen] // restore
 }
 
 // initShadow sets up shadow state for a generation pass.
@@ -234,7 +300,7 @@ func (gen *GordonGenerator) shadowPlayForAnchor(row, col, lastAnchorCol int, dir
 	s.shadowWordMultiplier = 1
 
 	// Reset shadow results
-	s.highestShadowEquity = 0
+	s.highestShadowEquity = math.Inf(-1)
 	s.highestShadowScore = 0
 	s.maxTilesToPlay = 0
 
@@ -260,9 +326,8 @@ func (gen *GordonGenerator) shadowPlayForAnchor(row, col, lastAnchorCol int, dir
 		return
 	}
 
-	// Use score as equity for KWG-only shadow (no leave values yet)
 	s.anchorHeap.addUnheaped(row, col, lastAnchorCol, dir,
-		float64(s.highestShadowScore), s.highestShadowScore)
+		s.highestShadowEquity, s.highestShadowScore)
 }
 
 // shadowStartNonplaythrough handles shadow for an anchor on an empty square.
@@ -531,8 +596,8 @@ func (gen *GordonGenerator) shadowPlayRight(row int, isUnique bool, csDir board.
 	gen.shadowMaybeRecalcEffMuls()
 }
 
-// shadowRecord computes the upper bound score for the current shadow state
-// and updates the highest shadow score if it's better.
+// shadowRecord computes the upper bound equity for the current shadow state
+// and updates the highest shadow equity if it's better.
 func (gen *GordonGenerator) shadowRecord() {
 	s := &gen.shadow
 
@@ -553,6 +618,13 @@ func (gen *GordonGenerator) shadowRecord() {
 		s.shadowPerpAdditionalScore +
 		bingoBonus
 
+	// Add leave value upper bound: best possible leave for the remaining tiles.
+	leaveCount := s.numLettersOnRack - gen.tilesPlayed
+	equity := float64(score) + s.bestLeaves[leaveCount]
+
+	if equity > s.highestShadowEquity {
+		s.highestShadowEquity = equity
+	}
 	if score > s.highestShadowScore {
 		s.highestShadowScore = score
 	}
@@ -823,6 +895,9 @@ func (gen *GordonGenerator) GenAllWithShadow(rack *tilemapping.Rack, addExchange
 	ptr := SmallPlaySlicePool.Get().(*[]tinymove.SmallMove)
 	gen.smallPlays = *ptr
 	gen.smallPlays = gen.smallPlays[0:0]
+
+	// Compute best leave values for equity-aware shadow bounds
+	gen.computeBestLeaves(rack)
 
 	// Run shadow to rank anchors
 	gen.genShadow(rack)
