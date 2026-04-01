@@ -11,6 +11,7 @@ package movegen
 
 import (
 	"math"
+	"slices"
 	"sort"
 
 	"github.com/domino14/word-golib/tilemapping"
@@ -155,6 +156,9 @@ type shadowState struct {
 	// Computed before shadow to enable equity-aware upper bounds.
 	bestLeaves [game.RackTileLimit + 1]float64
 
+	// Scratch buffer for enumerateLeaves; avoids heap allocation of a growing slice.
+	leaveBuf [game.RackTileLimit]tilemapping.MachineLetter
+
 	// Endgame equity state (bag empty)
 	tilesInBag     int
 	oppRackScore   int
@@ -221,40 +225,42 @@ func (gen *GordonGenerator) computeBestLeaves(rack *tilemapping.Rack) {
 	if s.tilesInBag > 0 {
 		// Enumerate all possible leaves by choosing 0..count of each letter.
 		// For a 7-tile rack this is at most prod(count_i + 1) subsets.
-		var buf [game.RackTileLimit]tilemapping.MachineLetter
-		gen.enumerateLeaves(rack, leaveCalc, 0, buf[:0])
+		gen.enumerateLeaves(rack, leaveCalc, 0, 0)
 	}
 	// When bag is empty, bestLeaves stays -Inf; shadowRecord uses
 	// endgame adjustment instead.
 }
 
 // enumerateLeaves recursively enumerates all sub-multisets of the rack,
-// building up the leave and recording the best value for each size.
+// recording the best leave value for each leave size in gen.shadow.bestLeaves.
+// depth is the number of letters written into gen.shadow.leaveBuf so far.
 func (gen *GordonGenerator) enumerateLeaves(
 	rack *tilemapping.Rack,
 	leaveCalc interface{ LeaveValue(tilemapping.MachineWord) float64 },
 	ml tilemapping.MachineLetter,
-	leave tilemapping.MachineWord,
+	depth int,
 ) {
 	if int(ml) >= len(rack.LetArr) {
-		val := leaveCalc.LeaveValue(leave)
-		if val > gen.shadow.bestLeaves[len(leave)] {
-			gen.shadow.bestLeaves[len(leave)] = val
+		val := leaveCalc.LeaveValue(gen.shadow.leaveBuf[:depth])
+		if val > gen.shadow.bestLeaves[depth] {
+			gen.shadow.bestLeaves[depth] = val
 		}
 		return
 	}
 	count := rack.LetArr[ml]
 	if count == 0 {
-		gen.enumerateLeaves(rack, leaveCalc, ml+1, leave)
+		gen.enumerateLeaves(rack, leaveCalc, ml+1, depth)
 		return
 	}
 	// Try keeping 0, 1, ..., count copies of this letter in the leave.
-	origLen := len(leave)
+	// After each recursive call we append one more copy of ml into leaveBuf
+	// so the next iteration's recursive call sees it.
 	for k := 0; k <= count; k++ {
-		gen.enumerateLeaves(rack, leaveCalc, ml+1, leave)
-		leave = append(leave, ml)
+		gen.enumerateLeaves(rack, leaveCalc, ml+1, depth+k)
+		if k < count {
+			gen.shadow.leaveBuf[depth+k] = ml
+		}
 	}
-	leave = leave[:origLen] // restore
 }
 
 // initShadow sets up shadow state for a generation pass.
@@ -265,25 +271,22 @@ func (gen *GordonGenerator) initShadow(rack *tilemapping.Rack) {
 	gen.shadow.rackCrossSet = 0
 	gen.shadow.numLettersOnRack = int(rack.NumTiles())
 
-	var scores []int
+	n := 0
 	for ml := tilemapping.MachineLetter(0); int(ml) < len(rack.LetArr); ml++ {
 		gen.shadow.shadowRack[ml] = rack.LetArr[ml]
 		if rack.LetArr[ml] > 0 {
 			gen.shadow.rackCrossSet |= uint64(1) << ml
 			s := gen.letterDistribution.Score(ml)
 			for j := 0; j < rack.LetArr[ml]; j++ {
-				scores = append(scores, s)
+				gen.shadow.fullRackDescTileScores[n] = s
+				n++
 			}
 		}
 	}
-	sort.Sort(sort.Reverse(sort.IntSlice(scores)))
-	for i := range gen.shadow.fullRackDescTileScores {
-		if i < len(scores) {
-			gen.shadow.fullRackDescTileScores[i] = scores[i]
-		} else {
-			gen.shadow.fullRackDescTileScores[i] = 0
-		}
+	for i := n; i < len(gen.shadow.fullRackDescTileScores); i++ {
+		gen.shadow.fullRackDescTileScores[i] = 0
 	}
+	slices.SortFunc(gen.shadow.fullRackDescTileScores[:n], func(a, b int) int { return b - a })
 }
 
 // shadowPlayForAnchor computes the shadow (upper bound score) for a given anchor.
