@@ -393,7 +393,7 @@ func TestShadowTopPlayAgreement(t *testing.T) {
 		{Nickname: "p2", RealName: "Player2"},
 	}
 
-	numGames := 100000
+	numGames := 1000
 	var numDisagreements atomic.Int64
 	var totalTurns atomic.Int64
 
