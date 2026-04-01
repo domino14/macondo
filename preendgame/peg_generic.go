@@ -436,7 +436,7 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 	}
 
 	mg.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
-	mg.SetShadowEnabled(false) // endgame needs all moves
+	mg.SetShadowEnabled(false) // solver needs all moves
 
 	// now recursively solve endgames and stuff.
 	for idx := range options {
