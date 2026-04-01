@@ -144,12 +144,6 @@ type shadowState struct {
 	rackCrossSet   uint64 // bitmask of tiles on rack
 	numLettersOnRack int
 
-	// Direction of the current play (used for extension set access).
-	// Extension sets must be accessed with the play direction, not the
-	// cross-set direction: after Transpose(), sqIdx maps back to the original
-	// position but hExtSets vs vExtSets are separate GADDAG path arrays.
-	playDir board.BoardDirection
-
 	// Whether shadow is enabled for this generation
 	shadowEnabled bool
 }
@@ -217,7 +211,6 @@ func (gen *GordonGenerator) shadowPlayForAnchor(row, col, lastAnchorCol int, dir
 	// Set up state
 	s.currentLeftCol = col
 	s.currentRightCol = col
-	s.playDir = dir
 	s.anchorLeftExtSet = gen.board.GetLeftExtSetIdx(sqIdx, csDir)
 	s.anchorRightExtSet = gen.board.GetRightExtSetIdx(sqIdx, csDir)
 
