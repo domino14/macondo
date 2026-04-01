@@ -21,6 +21,12 @@ import (
 	"github.com/domino14/macondo/tinymove"
 )
 
+const (
+	// Endgame equity constants (see also equity/endgame.go).
+	endgameNonOutplayLeavePenaltyMultiplier = 2
+	endgameNonOutplayConstantPenalty        = 10.0
+)
+
 // Anchor represents a board anchor with its shadow-computed upper bound.
 type Anchor struct {
 	HighestPossibleEquity float64
@@ -149,6 +155,10 @@ type shadowState struct {
 	// Computed before shadow to enable equity-aware upper bounds.
 	bestLeaves [game.RackTileLimit + 1]float64
 
+	// Endgame equity state (bag empty)
+	tilesInBag     int
+	oppRackScore   int
+
 	// Whether shadow is enabled for this generation
 	shadowEnabled bool
 }
@@ -170,13 +180,26 @@ func (s *shadowState) rackPossible(crossSet uint64) uint64 {
 }
 
 // computeBestLeaves populates bestLeaves[k] with the maximum leave value
-// over all possible leaves of size k from the current rack. This provides
-// an upper bound on the leave equity for shadow plays that use (rackSize - k)
-// tiles. Matches magpie's best_leaves computation.
+// over all possible leaves of size k from the current rack. Also sets
+// endgame state (tilesInBag, oppRackScore) for endgame equity adjustments.
+// Matches magpie's best_leaves + static_eval_get_shadow_equity.
 func (gen *GordonGenerator) computeBestLeaves(rack *tilemapping.Rack) {
 	s := &gen.shadow
 	for i := range s.bestLeaves {
 		s.bestLeaves[i] = math.Inf(-1)
+	}
+
+	// Set endgame state
+	if gen.game != nil {
+		s.tilesInBag = gen.game.Bag().TilesRemaining()
+		oppRack := gen.game.RackFor(gen.game.NextPlayer())
+		s.oppRackScore = 0
+		for ml := tilemapping.MachineLetter(1); int(ml) < len(oppRack.LetArr); ml++ {
+			s.oppRackScore += oppRack.LetArr[ml] * gen.letterDistribution.Score(ml)
+		}
+	} else {
+		s.tilesInBag = 100 // assume mid-game if no game reference
+		s.oppRackScore = 0
 	}
 
 	// Find the leave value calculator from equity calculators.
@@ -195,10 +218,14 @@ func (gen *GordonGenerator) computeBestLeaves(rack *tilemapping.Rack) {
 		return
 	}
 
-	// Enumerate all possible leaves by choosing 0..count of each letter.
-	// For a 7-tile rack this is at most prod(count_i + 1) subsets.
-	var buf [game.RackTileLimit]tilemapping.MachineLetter
-	gen.enumerateLeaves(rack, leaveCalc, 0, buf[:0])
+	if s.tilesInBag > 0 {
+		// Enumerate all possible leaves by choosing 0..count of each letter.
+		// For a 7-tile rack this is at most prod(count_i + 1) subsets.
+		var buf [game.RackTileLimit]tilemapping.MachineLetter
+		gen.enumerateLeaves(rack, leaveCalc, 0, buf[:0])
+	}
+	// When bag is empty, bestLeaves stays -Inf; shadowRecord uses
+	// endgame adjustment instead.
 }
 
 // enumerateLeaves recursively enumerates all sub-multisets of the rack,
@@ -618,9 +645,27 @@ func (gen *GordonGenerator) shadowRecord() {
 		s.shadowPerpAdditionalScore +
 		bingoBonus
 
-	// Add leave value upper bound: best possible leave for the remaining tiles.
-	leaveCount := s.numLettersOnRack - gen.tilesPlayed
-	equity := float64(score) + s.bestLeaves[leaveCount]
+	// Add equity adjustment matching magpie's static_eval_get_shadow_equity.
+	equity := float64(score)
+	if s.tilesInBag > 0 {
+		// Bag not empty: add best leave value for remaining tiles.
+		leaveCount := s.numLettersOnRack - gen.tilesPlayed
+		equity += s.bestLeaves[leaveCount]
+	} else {
+		// Bag empty (endgame): adjustment depends on whether we play out.
+		if gen.tilesPlayed < s.numLettersOnRack {
+			// Not playing out: penalty based on lowest possible remaining rack score.
+			// Use the lowest-valued tiles (end of descending scores) for tightest bound.
+			lowestRackScore := 0
+			for i := gen.tilesPlayed; i < s.numLettersOnRack; i++ {
+				lowestRackScore += s.descTileScores[i]
+			}
+			equity += float64(-endgameNonOutplayLeavePenaltyMultiplier*lowestRackScore) - endgameNonOutplayConstantPenalty
+		} else {
+			// Playing out: bonus = 2 * opponent's rack score.
+			equity += float64(2 * s.oppRackScore)
+		}
+	}
 
 	if equity > s.highestShadowEquity {
 		s.highestShadowEquity = equity
