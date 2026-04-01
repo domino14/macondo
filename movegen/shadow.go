@@ -834,18 +834,30 @@ func (gen *GordonGenerator) genRecordScoringPlaysFromAnchors(rack *tilemapping.R
 
 		anchor := gen.shadow.anchorHeap.extractMax()
 
-		// Check if we can stop: no remaining anchor can beat our best
+		// Check if we can stop: no remaining anchor can beat our best.
+		// For TopPlayOnly, winner tracks the best move found.
+		// For TopN, the last slot of topNPlays tracks the Nth-best.
+		bestEquity := math.Inf(-1)
 		if gen.winner != nil && !gen.winner.IsEmpty() {
-			bestScore := float64(gen.winner.Score())
-			if len(gen.equityCalculators) > 0 {
-				bestScore = gen.winner.Equity()
+			bestEquity = gen.winner.Equity()
+			if len(gen.equityCalculators) == 0 {
+				bestEquity = float64(gen.winner.Score())
 			}
-			if anchor.HighestPossibleEquity < bestScore {
-				if currentlyTransposed {
-					gen.board.Transpose()
-				}
-				return
+		}
+		if n := len(gen.topNPlays); n > 0 && !gen.topNPlays[n-1].IsEmpty() {
+			nth := gen.topNPlays[n-1].Equity()
+			if len(gen.equityCalculators) == 0 {
+				nth = float64(gen.topNPlays[n-1].Score())
 			}
+			if nth > bestEquity {
+				bestEquity = nth
+			}
+		}
+		if bestEquity > math.Inf(-1) && anchor.HighestPossibleEquity < bestEquity {
+			if currentlyTransposed {
+				gen.board.Transpose()
+			}
+			return
 		}
 
 		needTransposed := anchor.Dir == board.VerticalDirection
