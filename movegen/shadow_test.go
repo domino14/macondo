@@ -5,7 +5,10 @@ package movegen_test
 
 import (
 	"fmt"
+	"runtime"
 	"sort"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/domino14/word-golib/kwg"
@@ -377,7 +380,6 @@ func TestShadowScore(t *testing.T) {
 
 // TestShadowTopPlayAgreement runs game pairs comparing shadow TopPlayOnly
 // against non-shadow, verifying the same top move score is found every turn.
-// Validated at 100k games (2.5M turns, 0 disagreements).
 func TestShadowTopPlayAgreement(t *testing.T) {
 	is := is.New(t)
 
@@ -391,64 +393,79 @@ func TestShadowTopPlayAgreement(t *testing.T) {
 		{Nickname: "p2", RealName: "Player2"},
 	}
 
-	numGames := 500
-	numDisagreements := 0
-	totalTurns := 0
+	numGames := 100000
+	var numDisagreements atomic.Int64
+	var totalTurns atomic.Int64
 
 	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "NWL23")
 	is.NoErr(err)
 
-	for gidx := 0; gidx < numGames; gidx++ {
-		g, err := game.NewGame(rules, playerInfos)
-		is.NoErr(err)
+	threads := runtime.NumCPU()
+	jobs := make(chan int, threads*2)
 
-		seed := [32]byte{}
-		seed[0] = byte(gidx)
-		seed[1] = byte(gidx >> 8)
-		seed[2] = byte(gidx >> 16)
-		g.SeedBag(seed)
-		g.StartGame()
+	var wg sync.WaitGroup
+	for th := 0; th < threads; th++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for gidx := range jobs {
+				g, err := game.NewGame(rules, playerInfos)
+				if err != nil {
+					t.Errorf("game create: %v", err)
+					return
+				}
 
-		genNS := movegen.NewGordonGenerator(gd, g.Board(), g.Bag().LetterDistribution())
-		genNS.SetShadowEnabled(false) // baseline: no shadow
-		genS := movegen.NewGordonGenerator(gd, g.Board(), g.Bag().LetterDistribution())
-		// genS has shadow enabled by default
+				seed := [32]byte{}
+				seed[0] = byte(gidx)
+				seed[1] = byte(gidx >> 8)
+				seed[2] = byte(gidx >> 16)
+				g.SeedBag(seed)
+				g.StartGame()
 
-		turnNum := 0
-		for g.Playing() == pb.PlayState_PLAYING {
-			rack := g.RackFor(g.PlayerOnTurn())
+				genNS := movegen.NewGordonGenerator(gd, g.Board(), g.Bag().LetterDistribution())
+				genNS.SetShadowEnabled(false)
+				genS := movegen.NewGordonGenerator(gd, g.Board(), g.Bag().LetterDistribution())
 
-			genNS.SetPlayRecorder(movegen.TopPlayOnlyRecorder)
-			playsNS := genNS.GenAll(rack, false)
+				turnNum := 0
+				for g.Playing() == pb.PlayState_PLAYING {
+					rack := g.RackFor(g.PlayerOnTurn())
 
-			genS.SetPlayRecorder(movegen.TopPlayOnlyRecorder)
-			playsS := genS.GenAll(rack, false)
+					genNS.SetPlayRecorder(movegen.TopPlayOnlyRecorder)
+					playsNS := genNS.GenAll(rack, false)
 
-			totalTurns++
+					genS.SetPlayRecorder(movegen.TopPlayOnlyRecorder)
+					playsS := genS.GenAll(rack, false)
 
-			if len(playsNS) > 0 && len(playsS) > 0 {
-				if playsNS[0].Score() != playsS[0].Score() {
-					t.Errorf("Game %d turn %d: score mismatch noshadow=%d(%s) shadow=%d(%s)",
-						gidx, turnNum, playsNS[0].Score(), playsNS[0].ShortDescription(),
-						playsS[0].Score(), playsS[0].ShortDescription())
-					numDisagreements++
-					if numDisagreements >= 10 {
-						t.Fatalf("Too many disagreements, stopping")
+					totalTurns.Add(1)
+
+					if len(playsNS) > 0 && len(playsS) > 0 {
+						if playsNS[0].Score() != playsS[0].Score() {
+							t.Errorf("Game %d turn %d: score mismatch noshadow=%d(%s) shadow=%d(%s)",
+								gidx, turnNum, playsNS[0].Score(), playsNS[0].ShortDescription(),
+								playsS[0].Score(), playsS[0].ShortDescription())
+							numDisagreements.Add(1)
+						}
 					}
+
+					g.PlayMove(playsNS[0], false, 0)
+					turnNum++
 				}
 			}
-
-			bestPlay := playsNS[0]
-			err := g.PlayMove(bestPlay, false, 0)
-			is.NoErr(err)
-			turnNum++
-		}
-
+		}()
 	}
 
-	fmt.Printf("Played %d games, %d turns, %d disagreements\n",
-		numGames, totalTurns, numDisagreements)
-	is.Equal(numDisagreements, 0)
+	for gidx := 0; gidx < numGames; gidx++ {
+		if numDisagreements.Load() >= 10 {
+			break
+		}
+		jobs <- gidx
+	}
+	close(jobs)
+	wg.Wait()
+
+	fmt.Printf("Played %d games, %d turns, %d disagreements (%d threads)\n",
+		numGames, totalTurns.Load(), numDisagreements.Load(), threads)
+	is.Equal(int(numDisagreements.Load()), 0)
 }
 
 func bestByScore(plays []*move.Move) *move.Move {

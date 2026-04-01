@@ -223,7 +223,8 @@ func TopPlayOnlyRecorder(gen MoveGenerator, rack *tilemapping.Rack, leftstrip, r
 	default:
 
 	}
-	if gordonGen.winner.IsEmpty() || eq > gordonGen.winner.Equity() {
+	if gordonGen.winner.IsEmpty() || eq > gordonGen.winner.Equity() ||
+		(eq == gordonGen.winner.Equity() && gordonGen.placeholder.TiebreaksBetter(gordonGen.winner)) {
 		gordonGen.winner.CopyFrom(gordonGen.placeholder)
 		gordonGen.winner.SetEquity(eq)
 		if len(gordonGen.plays) == 0 {

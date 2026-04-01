@@ -144,6 +144,12 @@ type shadowState struct {
 	rackCrossSet   uint64 // bitmask of tiles on rack
 	numLettersOnRack int
 
+	// Direction of the current play (used for extension set access).
+	// Extension sets must be accessed with the play direction, not the
+	// cross-set direction: after Transpose(), sqIdx maps back to the original
+	// position but hExtSets vs vExtSets are separate GADDAG path arrays.
+	playDir board.BoardDirection
+
 	// Whether shadow is enabled for this generation
 	shadowEnabled bool
 }
@@ -211,6 +217,7 @@ func (gen *GordonGenerator) shadowPlayForAnchor(row, col, lastAnchorCol int, dir
 	// Set up state
 	s.currentLeftCol = col
 	s.currentRightCol = col
+	s.playDir = dir
 	s.anchorLeftExtSet = gen.board.GetLeftExtSetIdx(sqIdx, csDir)
 	s.anchorRightExtSet = gen.board.GetRightExtSetIdx(sqIdx, csDir)
 
@@ -579,13 +586,30 @@ func (gen *GordonGenerator) shadowTryRestrict(possibleLetters uint64, letterMul,
 		ml++
 	}
 
-	// Remove from rack
-	s.shadowRack[ml]--
-	if s.shadowRack[ml] == 0 {
-		s.rackCrossSet &= ^possibleLetters
+	// When both a real tile and blank are available for a restricted position,
+	// greedily assigning the real tile may be sub-optimal if a later position
+	// needs the same letter at a higher multiplier. Treat as unrestricted so
+	// the inner-product rearrangement assigns tiles optimally.
+	// Note: ml=0 means the blank itself is the only option (not a real+blank case).
+	var tileScore int
+	if s.shadowRack[ml] > 0 {
+		if ml != 0 && s.shadowRack[0] > 0 {
+			return false
+		}
+		s.shadowRack[ml]--
+		if s.shadowRack[ml] == 0 {
+			s.rackCrossSet &= ^possibleLetters
+		}
+		tileScore = gen.letterDistribution.Score(ml)
+	} else {
+		// Only blank can satisfy this restriction; blank scores 0
+		s.shadowRack[0]--
+		if s.shadowRack[0] == 0 {
+			s.rackCrossSet &= ^uint64(1)
+		}
+		tileScore = 0
 	}
 
-	tileScore := gen.letterDistribution.Score(ml)
 	gen.removeFromDescTileScores(tileScore)
 
 	lsm := tileScore * letterMul

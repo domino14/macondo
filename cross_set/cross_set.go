@@ -432,10 +432,13 @@ func GenCrossSet(b *Board, row int, col int, dir board.BoardDirection,
 		for i := rNodeIdx; ; i++ {
 			t := gd.Tile(i)
 			if t != 0 {
-				nn := gd.ArcIndex(i)
-				_, success := traverseBackwards(b, row, col-1, nn, true, leftCol, gd)
-				if success {
-					b.SetCrossSetLetter(row, col, dir, tilemapping.MachineLetter(t))
+				// Only try letters possible in right extensions from left side.
+				if leftsideRightxSet&(uint64(1)<<t) != 0 {
+					nn := gd.ArcIndex(i)
+					_, success := traverseBackwards(b, row, col-1, nn, true, leftCol, gd)
+					if success {
+						b.SetCrossSetLetter(row, col, dir, tilemapping.MachineLetter(t))
+					}
 				}
 			}
 			if gd.IsEnd(i) {

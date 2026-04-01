@@ -422,6 +422,39 @@ func (m *Move) CoordsAndVertical() (int, int, bool) {
 	return m.rowStart, m.colStart, m.vertical
 }
 
+// TiebreaksBetter returns true if m should be preferred over other when both
+// have the same equity. This provides deterministic tiebreaking independent
+// of move generation order, matching magpie's compare_moves.
+func (m *Move) TiebreaksBetter(other *Move) bool {
+	if m.score != other.score {
+		return m.score > other.score
+	}
+	if m.action != other.action {
+		return m.action < other.action
+	}
+	if m.rowStart != other.rowStart {
+		return m.rowStart < other.rowStart
+	}
+	if m.colStart != other.colStart {
+		return m.colStart < other.colStart
+	}
+	if m.vertical != other.vertical {
+		return !m.vertical // prefer horizontal
+	}
+	if m.tilesPlayed != other.tilesPlayed {
+		return m.tilesPlayed < other.tilesPlayed
+	}
+	if len(m.tiles) != len(other.tiles) {
+		return len(m.tiles) < len(other.tiles)
+	}
+	for i := range m.tiles {
+		if m.tiles[i] != other.tiles[i] {
+			return m.tiles[i] < other.tiles[i]
+		}
+	}
+	return false
+}
+
 func (m *Move) BoardCoords() string {
 	return ToBoardGameCoords(m.rowStart, m.colStart, m.vertical)
 }
