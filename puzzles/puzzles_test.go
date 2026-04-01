@@ -380,8 +380,8 @@ func TestIsPuzzleStillValid(t *testing.T) {
 	is.True(valid)
 
 	// turn 8 had PEDDL(I)nG as the answer. DOGPILED, new in NWL23, scores 3 more pts.
-	is.Equal(pzls[5].TurnNumber, int32(8))
-	valid, err = IsEquityPuzzleStillValid(DefaultConfig, game, 8, pzls[5].Answer, "NWL23")
+	is.Equal(pzls[6].TurnNumber, int32(8))
+	valid, err = IsEquityPuzzleStillValid(DefaultConfig, game, 8, pzls[6].Answer, "NWL23")
 	is.NoErr(err)
 	is.Equal(valid, false)
 }
