@@ -370,7 +370,7 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 	mg := s.endgameSolvers[thread].Movegen()
 
 	options := []option{}
-	mg.SetPlayRecorder(movegen.TopPlayOnlyRecorder)
+	mg.(*movegen.GordonGenerator).SetPlayRecorderTopPlay()
 	permutations := generatePermutations(j.maybeInBagTiles, s.numinbag)
 	// fmt.Println("perms", permutations)
 	firstPlayEmptiesBag := j.ourMove.Play.TilesPlayed() >= s.numinbag
