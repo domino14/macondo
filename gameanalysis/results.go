@@ -103,6 +103,9 @@ type TurnAnalysis struct {
 	PlayedMove *move.Move
 	// The optimal move according to analysis
 	OptimalMove *move.Move
+	// Display strings used when loaded from storage (PlayedMove/OptimalMove are nil)
+	PlayedMoveStr  string
+	OptimalMoveStr string
 
 	// For sim/PEG phases - win probability
 	PlayedWinProb  float64

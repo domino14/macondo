@@ -190,6 +190,34 @@ func GameAnalysisResultFromProto(p *pb.GameAnalysisResult) *GameAnalysisResult {
 		AnalyzerVersion: p.AnalyzerVersion,
 	}
 
+	// Populate turns with display fields (PlayedMove/OptimalMove are nil since
+	// they require live game state; use PlayedMoveStr/OptimalMoveStr for display)
+	r.Turns = make([]*TurnAnalysis, len(p.Turns))
+	for i, pt := range p.Turns {
+		r.Turns[i] = &TurnAnalysis{
+			TurnNumber:      int(pt.TurnNumber),
+			PlayerIndex:     int(pt.PlayerIndex),
+			PlayerName:      pt.PlayerName,
+			Rack:            pt.Rack,
+			Phase:           phaseFromProto(pt.Phase),
+			TilesInBag:      int(pt.TilesInBag),
+			PlayedMoveStr:   pt.PlayedMove,
+			OptimalMoveStr:  pt.OptimalMove,
+			WinProbLoss:     pt.WinProbLoss,
+			SpreadLoss:      int16(pt.SpreadLoss),
+			WasOptimal:      pt.WasOptimal,
+			MistakeCategory: mistakeSizeFromProto(pt.MistakeSize),
+			BlownEndgame:    pt.BlownEndgame,
+			IsPhony:         pt.IsPhony,
+			PhonyChallenged: pt.PhonyChallenged,
+			MissedChallenge: pt.MissedChallenge,
+			MissedBingo:     pt.MissedBingo,
+			OptimalIsBingo:  pt.OptimalIsBingo,
+			PlayedIsBingo:   pt.PlayedIsBingo,
+			KnownOppRack:    pt.KnownOppRack,
+		}
+	}
+
 	// Populate player summaries (used for batch stats aggregation)
 	for i, ps := range p.PlayerSummaries {
 		if i >= 2 {
@@ -211,6 +239,34 @@ func GameAnalysisResultFromProto(p *pb.GameAnalysisResult) *GameAnalysisResult {
 	}
 
 	return r
+}
+
+func phaseFromProto(p pb.GamePhase) GamePhase {
+	switch p {
+	case pb.GamePhase_PHASE_EARLY_MID:
+		return PhaseEarlyMid
+	case pb.GamePhase_PHASE_EARLY_PREENDGAME:
+		return PhaseEarlyPreEndgame
+	case pb.GamePhase_PHASE_PREENDGAME:
+		return PhasePreEndgame
+	case pb.GamePhase_PHASE_ENDGAME:
+		return PhaseEndgame
+	default:
+		return PhaseEarlyMid
+	}
+}
+
+func mistakeSizeFromProto(size pb.MistakeSize) string {
+	switch size {
+	case pb.MistakeSize_SMALL:
+		return "Small"
+	case pb.MistakeSize_MEDIUM:
+		return "Medium"
+	case pb.MistakeSize_LARGE:
+		return "Large"
+	default:
+		return ""
+	}
 }
 
 func phaseToProto(phase GamePhase) pb.GamePhase {

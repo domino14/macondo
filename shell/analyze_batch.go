@@ -490,12 +490,20 @@ func (sc *ShellController) formatGameAnalysisForBatch(result *gameanalysis.GameA
 			rack = string([]rune(rack)[:7])
 		}
 
-		played := turn.PlayedMove.ShortDescription()
+		var played, optimal string
+		if turn.PlayedMove != nil {
+			played = turn.PlayedMove.ShortDescription()
+		} else {
+			played = turn.PlayedMoveStr
+		}
+		if turn.OptimalMove != nil {
+			optimal = turn.OptimalMove.ShortDescription()
+		} else {
+			optimal = turn.OptimalMoveStr
+		}
 		if len([]rune(played)) > 18 {
 			played = string([]rune(played)[:18])
 		}
-
-		optimal := turn.OptimalMove.ShortDescription()
 		if len([]rune(optimal)) > 18 {
 			optimal = string([]rune(optimal)[:18])
 		}
