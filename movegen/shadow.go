@@ -11,16 +11,20 @@ package movegen
 
 import (
 	"math"
+	"math/bits"
 	"slices"
 	"sort"
 
 	"github.com/domino14/word-golib/tilemapping"
 
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tinymove"
 )
+
+func popcount(x int) int { return bits.OnesCount(uint(x)) }
 
 const (
 	// Endgame equity constants (see also equity/endgame.go).
@@ -224,9 +228,20 @@ func (gen *GordonGenerator) computeBestLeaves(rack *tilemapping.Rack) {
 	}
 
 	if s.tilesInBag > 0 {
-		// Enumerate all possible leaves by choosing 0..count of each letter.
-		// For a 7-tile rack this is at most prod(count_i + 1) subsets.
-		gen.enumerateLeaves(rack, leaveCalc, 0, 0)
+		if gen.leavemap.initialized {
+			// Leave map already populated — scan it for best per leave size.
+			totalSubsets := 1 << gen.leavemap.totalTiles
+			for i := 0; i < totalSubsets; i++ {
+				leaveSize := popcount(i)
+				val := gen.leavemap.values[i]
+				if val > s.bestLeaves[leaveSize] {
+					s.bestLeaves[leaveSize] = val
+				}
+			}
+		} else {
+			// No leave map — enumerate directly.
+			gen.enumerateLeaves(rack, leaveCalc, 0, 0)
+		}
 	}
 	// When bag is empty, bestLeaves stays -Inf; shadowRecord uses
 	// endgame adjustment instead.
@@ -921,6 +936,15 @@ func (gen *GordonGenerator) genRecordScoringPlaysFromAnchors(rack *tilemapping.R
 		gen.curAnchorCol = anchor.Col
 		gen.lastAnchorCol = anchor.LastAnchorCol
 
+		// Load row cache for this anchor's row
+		var csDir board.BoardDirection
+		if anchor.Dir == board.HorizontalDirection {
+			csDir = board.VerticalDirection
+		} else {
+			csDir = board.HorizontalDirection
+		}
+		gen.cache.loadRow(gen.board, anchor.Row, csDir, gen.boardDim)
+
 		gen.recursiveGen(anchor.Col, rack, gd.GetRootNodeIndex(),
 			anchor.Col, anchor.Col, !gen.vertical, 0, 0, 1)
 	}
@@ -957,6 +981,27 @@ func (gen *GordonGenerator) GenAllWithShadow(rack *tilemapping.Rack, addExchange
 	gen.smallPlays = *ptr
 	gen.smallPlays = gen.smallPlays[0:0]
 
+	// Cache KLV reference and initialize leave map bit positions.
+	gen.klv = nil
+	for _, calc := range gen.equityCalculators {
+		if elc, ok := calc.(*equity.ExhaustiveLeaveCalculator); ok {
+			gen.klv = elc.KLV()
+			break
+		}
+	}
+	gen.leavemap.init(rack)
+
+	// Generate exchanges first — this populates the leave map with leave
+	// values for all rack subsets (the KLV lookups are needed for exchange
+	// equity anyway, so the leave map population is free).
+	if addExchange {
+		gen.generateExchangeMoves(rack, 0, 0)
+	} else if gen.leavemap.initialized && gen.klv != nil {
+		// Even when exchanges aren't generated, we still need the leave map
+		// populated for move generation. Enumerate all subsets.
+		gen.populateLeaveMap(rack)
+	}
+
 	// Compute best leave values for equity-aware shadow bounds
 	gen.computeBestLeaves(rack)
 
@@ -978,10 +1023,6 @@ func (gen *GordonGenerator) GenAllWithShadow(rack *tilemapping.Rack, addExchange
 		case SortByNone:
 			break
 		}
-	}
-
-	if addExchange {
-		gen.generateExchangeMoves(rack, 0, 0)
 	}
 	*ptr = gen.smallPlays
 

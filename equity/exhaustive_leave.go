@@ -63,3 +63,11 @@ func (els ExhaustiveLeaveCalculator) Type() string {
 func (els ExhaustiveLeaveCalculator) LeaveValue(leave tilemapping.MachineWord) float64 {
 	return els.leaveValues.LeaveValue(leave)
 }
+
+// KLV returns the underlying KLV, or nil if not available.
+func (els *ExhaustiveLeaveCalculator) KLV() *KLV {
+	if klv, ok := els.leaveValues.(*KLV); ok {
+		return klv
+	}
+	return nil
+}

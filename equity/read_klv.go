@@ -56,3 +56,16 @@ func (k *KLV) LeaveValue(leave tilemapping.MachineWord) float64 {
 	}
 	return 0.0
 }
+
+// LeaveValueByIndex returns the leave value at a pre-computed word index.
+func (k *KLV) LeaveValueByIndex(idx int32) float64 {
+	if idx < 0 || int(idx) >= len(k.leaveValues) {
+		return 0.0
+	}
+	return k.leaveValues[idx]
+}
+
+// KWG returns the underlying KWG for incremental traversal.
+func (k *KLV) KWG() *kwg.KWG {
+	return k.kwg
+}

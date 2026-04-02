@@ -169,28 +169,38 @@ func TopPlayOnlyRecorder(gen MoveGenerator, rack *tilemapping.Rack, leftstrip, r
 		row := startRow
 		col := startCol
 		if gordonGen.vertical {
-			// We flip it here because we only generate vertical moves when we transpose
-			// the board, so the row and col are actually transposed.
 			row, col = col, row
 		}
 		tilesLength = rightstrip - leftstrip + 1
-		// word is in gen.strip[startCol:startCol+length]
 		if tilesLength < 2 {
 			return
 		}
-		// note that this is a pointer right now:
-		word := gordonGen.strip[startCol : startCol+tilesLength]
-		leaveLength = rack.NoAllocTilesOn(gordonGen.leavestrip)
 
-		gordonGen.placeholder.Set(word, gordonGen.leavestrip[:leaveLength], score,
-			row, col, tilesPlayed, gordonGen.vertical, move.MoveTypePlay,
-			gordonGen.letterDistribution.TileMapping())
-		if len(gordonGen.equityCalculators) > 0 {
-			eq = lo.SumBy(gordonGen.equityCalculators, func(c equity.EquityCalculator) float64 {
-				return c.Equity(gordonGen.placeholder, gordonGen.board, gordonGen.game.Bag(), gordonGen.game.RackFor(gordonGen.game.NextPlayer()))
-			})
+		if gordonGen.leavemap.initialized {
+			// Fast path: O(1) equity check before building the leave.
+			eq = float64(score) + gordonGen.leavemap.currentValue()
+			// Skip building the leave/placeholder unless this move can win.
+			if !gordonGen.winner.IsEmpty() && eq < gordonGen.winner.Equity() {
+				return
+			}
+			word := gordonGen.strip[startCol : startCol+tilesLength]
+			leaveLength = rack.NoAllocTilesOn(gordonGen.leavestrip)
+			gordonGen.placeholder.Set(word, gordonGen.leavestrip[:leaveLength], score,
+				row, col, tilesPlayed, gordonGen.vertical, move.MoveTypePlay,
+				gordonGen.letterDistribution.TileMapping())
 		} else {
-			eq = float64(score)
+			word := gordonGen.strip[startCol : startCol+tilesLength]
+			leaveLength = rack.NoAllocTilesOn(gordonGen.leavestrip)
+			gordonGen.placeholder.Set(word, gordonGen.leavestrip[:leaveLength], score,
+				row, col, tilesPlayed, gordonGen.vertical, move.MoveTypePlay,
+				gordonGen.letterDistribution.TileMapping())
+			if len(gordonGen.equityCalculators) > 0 {
+				eq = lo.SumBy(gordonGen.equityCalculators, func(c equity.EquityCalculator) float64 {
+					return c.Equity(gordonGen.placeholder, gordonGen.board, gordonGen.game.Bag(), gordonGen.game.RackFor(gordonGen.game.NextPlayer()))
+				})
+			} else {
+				eq = float64(score)
+			}
 		}
 
 	case move.MoveTypeExchange:
