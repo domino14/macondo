@@ -481,23 +481,23 @@ func (sc *ShellController) formatGameAnalysisForBatch(result *gameanalysis.GameA
 
 	for _, turn := range result.Turns {
 		player := turn.PlayerName
-		if len(player) > 12 {
-			player = player[:12]
+		if len([]rune(player)) > 12 {
+			player = string([]rune(player)[:12])
 		}
 
 		rack := turn.Rack
-		if len(rack) > 8 {
-			rack = rack[:8]
+		if len([]rune(rack)) > 7 {
+			rack = string([]rune(rack)[:7])
 		}
 
 		played := turn.PlayedMove.ShortDescription()
-		if len(played) > 18 {
-			played = played[:18]
+		if len([]rune(played)) > 18 {
+			played = string([]rune(played)[:18])
 		}
 
 		optimal := turn.OptimalMove.ShortDescription()
-		if len(optimal) > 18 {
-			optimal = optimal[:18]
+		if len([]rune(optimal)) > 18 {
+			optimal = string([]rune(optimal)[:18])
 		}
 
 		// Format difference

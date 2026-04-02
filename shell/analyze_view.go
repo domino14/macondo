@@ -116,20 +116,20 @@ func formatStoredAnalysis(s *gameanalysis.StoredAnalysis, result *pb.GameAnalysi
 
 		for _, turn := range result.Turns {
 			player := turn.PlayerName
-			if len(player) > 12 {
-				player = player[:12]
+			if len([]rune(player)) > 12 {
+				player = string([]rune(player)[:12])
 			}
 			rack := turn.Rack
-			if len(rack) > 8 {
-				rack = rack[:8]
+			if len([]rune(rack)) > 7 {
+				rack = string([]rune(rack)[:7])
 			}
 			played := turn.PlayedMove
-			if len(played) > 22 {
-				played = played[:22]
+			if len([]rune(played)) > 22 {
+				played = string([]rune(played)[:22])
 			}
 			optimal := turn.OptimalMove
-			if len(optimal) > 22 {
-				optimal = optimal[:22]
+			if len([]rune(optimal)) > 22 {
+				optimal = string([]rune(optimal)[:22])
 			}
 
 			// Diff
