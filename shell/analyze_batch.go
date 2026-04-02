@@ -469,72 +469,7 @@ func (sc *ShellController) formatBatchResults(batch *gameanalysis.BatchAnalysisR
 	return sb.String()
 }
 
-// formatGameAnalysisForBatch formats a single game analysis for batch display (simplified)
+// formatGameAnalysisForBatch formats a single game analysis for batch display.
 func (sc *ShellController) formatGameAnalysisForBatch(result *gameanalysis.GameAnalysisResult) string {
-	var sb strings.Builder
-
-	// Simplified turn-by-turn table
-	sb.WriteString(fmt.Sprintf("%-4s  %-12s  %-8s  %-18s  %-18s  %-6s  %-8s  %-8s\n",
-		"Turn", "Player", "Rack", "Played", "Optimal", "Diff", "Phase", "Mistake"))
-	sb.WriteString(strings.Repeat("-", 100))
-	sb.WriteString("\n")
-
-	for _, turn := range result.Turns {
-		player := turn.PlayerName
-		if len([]rune(player)) > 12 {
-			player = string([]rune(player)[:12])
-		}
-
-		rack := turn.Rack
-		if len([]rune(rack)) > 7 {
-			rack = string([]rune(rack)[:7])
-		}
-
-		var played, optimal string
-		if turn.PlayedMove != nil {
-			played = turn.PlayedMove.ShortDescription()
-		} else {
-			played = turn.PlayedMoveStr
-		}
-		if turn.OptimalMove != nil {
-			optimal = turn.OptimalMove.ShortDescription()
-		} else {
-			optimal = turn.OptimalMoveStr
-		}
-		if len([]rune(played)) > 18 {
-			played = string([]rune(played)[:18])
-		}
-		if len([]rune(optimal)) > 18 {
-			optimal = string([]rune(optimal)[:18])
-		}
-
-		// Format difference
-		diff := formatDiff(turn.Phase == gameanalysis.PhaseEndgame, turn.WasOptimal, turn.WinProbLoss, int(turn.SpreadLoss))
-
-		mistake := turn.MistakeCategory
-		if mistake == "" {
-			mistake = "-"
-		}
-
-		phaseDisplay := turn.Phase.String()
-
-		sb.WriteString(fmt.Sprintf("%-4d  %-12s  %-8s  %-18s  %-18s  %-6s  %-8s  %-8s\n",
-			turn.TurnNumber,
-			player,
-			rack,
-			played,
-			optimal,
-			diff,
-			phaseDisplay,
-			mistake))
-	}
-
-	sb.WriteString("\n")
-
-	// Player summaries (use shared formatting function)
-	sb.WriteString(formatPlayerSummaries(result.PlayerSummaries))
-
-	sb.WriteString("\n")
-
-	return sb.String()
+	return formatTurnTable(result) + formatPlayerSummaries(result.PlayerSummaries) + "\n"
 }

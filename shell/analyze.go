@@ -111,73 +111,12 @@ func (sc *ShellController) formatAnalysisResults(result *gameanalysis.GameAnalys
 	sb.WriteString(strings.Repeat("=", 80))
 	sb.WriteString("\n\n")
 
-	// Turn-by-turn analysis
-	sb.WriteString(fmt.Sprintf("%-4s  %-12s  %-8s  %-18s  %-18s  %-6s  %-8s  %-8s  %s\n",
-		"Turn", "Player", "Rack", "Played", "Optimal", "Diff", "Phase", "Mistake", "Note"))
-	sb.WriteString(strings.Repeat("-", 125))
-	sb.WriteString("\n")
-
-	for _, turn := range result.Turns {
-		player := turn.PlayerName
-		// Truncate player name by character count (not bytes) to avoid corrupting UTF-8
-		if len([]rune(player)) > 12 {
-			player = string([]rune(player)[:12])
-		}
-		rack := turn.Rack
-		played := turn.PlayedMove.ShortDescription()
-		optimal := turn.OptimalMove.ShortDescription()
-
-		// Format difference
-		var diff string
-		var note string
-
-		diff = formatDiff(turn.Phase == gameanalysis.PhaseEndgame, turn.WasOptimal, turn.WinProbLoss, int(turn.SpreadLoss))
-
-		// Add notes for special cases
-		if turn.IsPhony {
-			if turn.PhonyChallenged {
-				note = "❌ Phony (challenged off)"
-			} else {
-				note = "⚠️ Phony (unchallenged)"
-			}
-		} else if turn.MissedChallenge {
-			note = "❌ Missed challenge"
-		} else if turn.BlownEndgame {
-			note = "💥 Blown endgame"
-		}
-
-		// Format mistake category
-		mistake := turn.MistakeCategory
-		if mistake == "" {
-			mistake = "-"
-		}
-
-		// Determine phase display name
-		phaseDisplay := turn.Phase.String()
-		if turn.Phase == gameanalysis.PhaseEarlyMid && turn.TilesInBag <= 50 {
-			phaseDisplay = "Middle"
-		}
-
-		sb.WriteString(fmt.Sprintf("%-4d  %-12s  %-8s  %-18s  %-18s  %-6s  %-8s  %-8s  %s\n",
-			turn.TurnNumber,
-			player,
-			rack,
-			played,
-			optimal,
-			diff,
-			phaseDisplay,
-			mistake,
-			note))
-	}
-
-	sb.WriteString("\n")
+	sb.WriteString(formatTurnTable(result))
 	sb.WriteString(strings.Repeat("=", 80))
 	sb.WriteString("\n")
 	sb.WriteString("Player Summary\n")
 	sb.WriteString(strings.Repeat("=", 80))
 	sb.WriteString("\n\n")
-
-	// Player summaries
 	sb.WriteString(formatPlayerSummaries(result.PlayerSummaries))
 
 	sb.WriteString("\n")
@@ -204,6 +143,84 @@ func (sc *ShellController) formatAnalysisResults(result *gameanalysis.GameAnalys
 	sb.WriteString("  ⚠️ Phony = Played unchallenged phony\n")
 	sb.WriteString("  ❌ Missed challenge = Failed to challenge opponent's phony\n")
 	sb.WriteString("  💥 Blown endgame = Mistake changed winning position to loss/tie\n")
+
+	return sb.String()
+}
+
+// formatTurnTable renders the turn-by-turn table for a game analysis result.
+// Works for both live analysis (PlayedMove/OptimalMove set) and results loaded
+// from storage (PlayedMoveStr/OptimalMoveStr set, move pointers nil).
+func formatTurnTable(result *gameanalysis.GameAnalysisResult) string {
+	var sb strings.Builder
+
+	sb.WriteString(fmt.Sprintf("%-4s  %-12s  %-8s  %-22s  %-22s  %-6s  %-8s  %-8s  %s\n",
+		"Turn", "Player", "Rack", "Played", "Optimal", "Diff", "Phase", "Mistake", "Note"))
+	sb.WriteString(strings.Repeat("-", 125))
+	sb.WriteString("\n")
+
+	for _, turn := range result.Turns {
+		player := turn.PlayerName
+		if len([]rune(player)) > 12 {
+			player = string([]rune(player)[:12])
+		}
+		rack := turn.Rack
+		if len([]rune(rack)) > 7 {
+			rack = string([]rune(rack)[:7])
+		}
+
+		var played, optimal string
+		if turn.PlayedMove != nil {
+			played = turn.PlayedMove.ShortDescription()
+		} else {
+			played = turn.PlayedMoveStr
+		}
+		if turn.OptimalMove != nil {
+			optimal = turn.OptimalMove.ShortDescription()
+		} else {
+			optimal = turn.OptimalMoveStr
+		}
+		if len([]rune(played)) > 22 {
+			played = string([]rune(played)[:22])
+		}
+		if len([]rune(optimal)) > 22 {
+			optimal = string([]rune(optimal)[:22])
+		}
+
+		diff := formatDiff(turn.Phase == gameanalysis.PhaseEndgame, turn.WasOptimal, turn.WinProbLoss, int(turn.SpreadLoss))
+
+		phaseDisplay := turn.Phase.String()
+		if turn.Phase == gameanalysis.PhaseEarlyMid && turn.TilesInBag <= 50 {
+			phaseDisplay = "Middle"
+		}
+
+		mistake := turn.MistakeCategory
+		if mistake == "" {
+			mistake = "-"
+		}
+
+		var notes []string
+		if turn.IsPhony {
+			if turn.PhonyChallenged {
+				notes = append(notes, "Phony(off)")
+			} else {
+				notes = append(notes, "Phony")
+			}
+		}
+		if turn.MissedChallenge {
+			notes = append(notes, "MissedChallenge")
+		}
+		if turn.BlownEndgame {
+			notes = append(notes, "BlownEG")
+		}
+		if turn.MissedBingo {
+			notes = append(notes, "MissedBingo")
+		}
+		note := strings.Join(notes, " ")
+
+		sb.WriteString(fmt.Sprintf("%-4d  %-12s  %-8s  %-22s  %-22s  %-6s  %-8s  %-8s  %s\n",
+			turn.TurnNumber, player, rack, played, optimal, diff, phaseDisplay, mistake, note))
+	}
+	sb.WriteString("\n")
 
 	return sb.String()
 }
