@@ -4,7 +4,6 @@
 package movegen_test
 
 import (
-	"fmt"
 	"runtime"
 	"sort"
 	"sync"
@@ -464,7 +463,7 @@ func TestShadowTopPlayAgreement(t *testing.T) {
 	close(jobs)
 	wg.Wait()
 
-	fmt.Printf("Played %d games, %d turns, %d disagreements (%d threads)\n",
+	t.Logf("Played %d games, %d turns, %d disagreements (%d threads)\n",
 		numGames, totalTurns.Load(), numDisagreements.Load(), threads)
 	is.Equal(int(numDisagreements.Load()), 0)
 }

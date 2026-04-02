@@ -1,7 +1,6 @@
 package movegen_test
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/domino14/word-golib/kwg"
@@ -61,8 +60,8 @@ func TestShadowDisagree137741(t *testing.T) {
 	g, gd := replayToTurn(t, 137741, 25)
 
 	rack := g.RackFor(g.PlayerOnTurn())
-	fmt.Printf("Game 137741 turn 25: rack=%s\n", rack.String())
-	fmt.Printf("Board: %s\n", g.Board().ToFEN(gd.GetAlphabet()))
+	t.Logf("Game 137741 turn 25: rack=%s\n", rack.String())
+	t.Logf("Board: %s\n", g.Board().ToFEN(gd.GetAlphabet()))
 
 	ld := g.Bag().LetterDistribution()
 
@@ -72,28 +71,28 @@ func TestShadowDisagree137741(t *testing.T) {
 	genNS.SetPlayRecorder(movegen.AllPlaysRecorder)
 	playsNS := genNS.GenAll(rack, false)
 	topNS := bestByScore(playsNS)
-	fmt.Printf("No-shadow top: %s (%d) [%d moves]\n", topNS.ShortDescription(), topNS.Score(), len(playsNS))
+	t.Logf("No-shadow top: %s (%d) [%d moves]\n", topNS.ShortDescription(), topNS.Score(), len(playsNS))
 
 	// Shadow - TopPlayOnly
 	genS := movegen.NewGordonGenerator(gd, g.Board(), ld)
 	genS.SetPlayRecorderTopPlay()
 	playsS := genS.GenAll(rack, false)
-	fmt.Printf("Shadow top: %s (%d)\n", playsS[0].ShortDescription(), playsS[0].Score())
+	t.Logf("Shadow top: %s (%d)\n", playsS[0].ShortDescription(), playsS[0].Score())
 
 	// Run shadow only to examine anchors
 	genS2 := movegen.NewGordonGenerator(gd, g.Board(), ld)
 	anchors := genS2.RunShadowOnly(rack)
-	fmt.Printf("Shadow anchors (%d):\n", len(anchors))
+	t.Logf("Shadow anchors (%d):\n", len(anchors))
 	for i, a := range anchors {
 		dir := "H"
 		if a.Dir == board.VerticalDirection {
 			dir = "V"
 		}
-		fmt.Printf("  [%d] (%d,%d) %s score=%d\n", i, a.Row, a.Col, dir, a.HighestPossibleScore)
+		t.Logf("  [%d] (%d,%d) %s score=%d\n", i, a.Row, a.Col, dir, a.HighestPossibleScore)
 	}
 
 	// Find which anchor the winning move belongs to
-	fmt.Printf("\nExpected winning move: %s (%d)\n", topNS.ShortDescription(), topNS.Score())
+	t.Logf("\nExpected winning move: %s (%d)\n", topNS.ShortDescription(), topNS.Score())
 
 	if topNS.Score() != playsS[0].Score() {
 		t.Errorf("DISAGREEMENT: noshadow=%d shadow=%d", topNS.Score(), playsS[0].Score())
@@ -106,8 +105,8 @@ func TestShadowDisagree550396(t *testing.T) {
 	g, gd := replayToTurn(t, 550396, 12)
 
 	rack := g.RackFor(g.PlayerOnTurn())
-	fmt.Printf("Game 550396 turn 12: rack=%s\n", rack.String())
-	fmt.Printf("Board: %s\n", g.Board().ToFEN(gd.GetAlphabet()))
+	t.Logf("Game 550396 turn 12: rack=%s\n", rack.String())
+	t.Logf("Board: %s\n", g.Board().ToFEN(gd.GetAlphabet()))
 
 	ld := g.Bag().LetterDistribution()
 
@@ -117,27 +116,27 @@ func TestShadowDisagree550396(t *testing.T) {
 	genNS.SetPlayRecorder(movegen.AllPlaysRecorder)
 	playsNS := genNS.GenAll(rack, false)
 	topNS := bestByScore(playsNS)
-	fmt.Printf("No-shadow top: %s (%d) [%d moves]\n", topNS.ShortDescription(), topNS.Score(), len(playsNS))
+	t.Logf("No-shadow top: %s (%d) [%d moves]\n", topNS.ShortDescription(), topNS.Score(), len(playsNS))
 
 	// Shadow - TopPlayOnly
 	genS := movegen.NewGordonGenerator(gd, g.Board(), ld)
 	genS.SetPlayRecorderTopPlay()
 	playsS := genS.GenAll(rack, false)
-	fmt.Printf("Shadow top: %s (%d)\n", playsS[0].ShortDescription(), playsS[0].Score())
+	t.Logf("Shadow top: %s (%d)\n", playsS[0].ShortDescription(), playsS[0].Score())
 
 	// Run shadow only to examine anchors
 	genS2 := movegen.NewGordonGenerator(gd, g.Board(), ld)
 	anchors := genS2.RunShadowOnly(rack)
-	fmt.Printf("Shadow anchors (%d):\n", len(anchors))
+	t.Logf("Shadow anchors (%d):\n", len(anchors))
 	for i, a := range anchors {
 		dir := "H"
 		if a.Dir == board.VerticalDirection {
 			dir = "V"
 		}
-		fmt.Printf("  [%d] (%d,%d) %s score=%d\n", i, a.Row, a.Col, dir, a.HighestPossibleScore)
+		t.Logf("  [%d] (%d,%d) %s score=%d\n", i, a.Row, a.Col, dir, a.HighestPossibleScore)
 	}
 
-	fmt.Printf("\nExpected winning move: %s (%d)\n", topNS.ShortDescription(), topNS.Score())
+	t.Logf("\nExpected winning move: %s (%d)\n", topNS.ShortDescription(), topNS.Score())
 
 	if topNS.Score() != playsS[0].Score() {
 		t.Errorf("DISAGREEMENT: noshadow=%d shadow=%d", topNS.Score(), playsS[0].Score())
@@ -150,8 +149,8 @@ func TestShadowDisagree3064(t *testing.T) {
 	g, gd := replayToTurn(t, 3064, 19)
 
 	rack := g.RackFor(g.PlayerOnTurn())
-	fmt.Printf("Game 3064 turn 19: rack=%s\n", rack.String())
-	fmt.Printf("Board: %s\n", g.Board().ToFEN(gd.GetAlphabet()))
+	t.Logf("Game 3064 turn 19: rack=%s\n", rack.String())
+	t.Logf("Board: %s\n", g.Board().ToFEN(gd.GetAlphabet()))
 
 	ld := g.Bag().LetterDistribution()
 
@@ -161,27 +160,27 @@ func TestShadowDisagree3064(t *testing.T) {
 	genNS.SetPlayRecorder(movegen.AllPlaysRecorder)
 	playsNS := genNS.GenAll(rack, false)
 	topNS := bestByScore(playsNS)
-	fmt.Printf("No-shadow top: %s (%d) [%d moves]\n", topNS.ShortDescription(), topNS.Score(), len(playsNS))
+	t.Logf("No-shadow top: %s (%d) [%d moves]\n", topNS.ShortDescription(), topNS.Score(), len(playsNS))
 
 	// Shadow - TopPlayOnly
 	genS := movegen.NewGordonGenerator(gd, g.Board(), ld)
 	genS.SetPlayRecorderTopPlay()
 	playsS := genS.GenAll(rack, false)
-	fmt.Printf("Shadow top: %s (%d)\n", playsS[0].ShortDescription(), playsS[0].Score())
+	t.Logf("Shadow top: %s (%d)\n", playsS[0].ShortDescription(), playsS[0].Score())
 
 	// Run shadow only to examine anchors
 	genS2 := movegen.NewGordonGenerator(gd, g.Board(), ld)
 	anchors := genS2.RunShadowOnly(rack)
-	fmt.Printf("Shadow anchors (%d):\n", len(anchors))
+	t.Logf("Shadow anchors (%d):\n", len(anchors))
 	for i, a := range anchors {
 		dir := "H"
 		if a.Dir == board.VerticalDirection {
 			dir = "V"
 		}
-		fmt.Printf("  [%d] (%d,%d) %s score=%d\n", i, a.Row, a.Col, dir, a.HighestPossibleScore)
+		t.Logf("  [%d] (%d,%d) %s score=%d\n", i, a.Row, a.Col, dir, a.HighestPossibleScore)
 	}
 
-	fmt.Printf("\nExpected winning move: %s (%d)\n", topNS.ShortDescription(), topNS.Score())
+	t.Logf("\nExpected winning move: %s (%d)\n", topNS.ShortDescription(), topNS.Score())
 
 	if topNS.Score() != playsS[0].Score() {
 		t.Errorf("DISAGREEMENT: noshadow=%d shadow=%d", topNS.Score(), playsS[0].Score())
