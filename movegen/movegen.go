@@ -117,6 +117,9 @@ type GordonGenerator struct {
 	// For top N only:
 	topNPlays       []*move.Move
 	maxTopMovesSize int
+
+	// Shadow play state
+	shadow shadowState
 }
 
 // NewGordonGenerator returns a Gordon move generator.
@@ -137,6 +140,7 @@ func NewGordonGenerator(gd gaddag.WordGraph, board *board.GameBoard,
 		placeholder:        new(move.Move),
 		maxTileUsage:       100, // basically unlimited
 		maxCanExchange:     game.DefaultExchangeLimit,
+		// shadow.useShadow starts false; set by SetPlayRecorderTopPlay/SetRecordNTopPlays
 	}
 	return gen
 }
@@ -155,10 +159,22 @@ func (gen *GordonGenerator) SetSortingParameter(s SortBy) {
 func (gen *GordonGenerator) SetPlayRecorder(pr PlayRecorderFunc) {
 	gen.playRecorder = pr
 	gen.maxTopMovesSize = 0
+	// AllPlays recorders don't benefit from shadow; disable it to avoid
+	// the overhead of computing upper bounds.
+	gen.shadow.useShadow = false
+}
+
+// SetPlayRecorderTopPlay sets the play recorder to TopPlayOnlyRecorder
+// with shadow enabled for best-first move finding.
+func (gen *GordonGenerator) SetPlayRecorderTopPlay() {
+	gen.playRecorder = TopPlayOnlyRecorder
+	gen.maxTopMovesSize = 0
+	gen.shadow.useShadow = true
 }
 
 func (gen *GordonGenerator) SetRecordNTopPlays(n int) {
 	gen.playRecorder = TopNPlayRecorder
+	gen.shadow.useShadow = true
 	gen.maxTopMovesSize = n
 	gen.topNPlays = make([]*move.Move, n)
 	for i := range gen.topNPlays {
@@ -186,7 +202,16 @@ func (gen *GordonGenerator) SetMaxTileUsage(t int) {
 
 // GenAll generates all moves on the board. It assumes anchors have already
 // been updated, as well as cross-sets / cross-scores.
+// When shadow is enabled (via SetPlayRecorderTopPlay or SetRecordNTopPlays),
+// GenAll uses the shadow algorithm for
+// best-first move finding, which allows early termination when looking for
+// only the top move(s). Shadow can be disabled for endgame where all moves
+// must be found without the overhead of computing upper bounds.
 func (gen *GordonGenerator) GenAll(rack *tilemapping.Rack, addExchange bool) []*move.Move {
+
+	if gen.shadow.useShadow {
+		return gen.GenAllWithShadow(rack, addExchange)
+	}
 
 	gen.winner.SetEmpty()
 	gen.quitEarly = false

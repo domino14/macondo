@@ -77,7 +77,11 @@ func (p *AIStaticTurnPlayer) AssignEquity(plays []*move.Move, board *board.GameB
 
 func (p *AIStaticTurnPlayer) TopPlays(plays []*move.Move, ct int) []*move.Move {
 	sort.Slice(plays, func(i, j int) bool {
-		return plays[i].Equity() > plays[j].Equity()
+		ei, ej := plays[i].Equity(), plays[j].Equity()
+		if ei != ej {
+			return ei > ej
+		}
+		return plays[i].TiebreaksBetter(plays[j])
 	})
 	if ct > len(plays) {
 		ct = len(plays)

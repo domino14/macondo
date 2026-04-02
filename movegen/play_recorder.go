@@ -223,7 +223,8 @@ func TopPlayOnlyRecorder(gen MoveGenerator, rack *tilemapping.Rack, leftstrip, r
 	default:
 
 	}
-	if gordonGen.winner.IsEmpty() || eq > gordonGen.winner.Equity() {
+	if gordonGen.winner.IsEmpty() || eq > gordonGen.winner.Equity() ||
+		(eq == gordonGen.winner.Equity() && gordonGen.placeholder.TiebreaksBetter(gordonGen.winner)) {
 		gordonGen.winner.CopyFrom(gordonGen.placeholder)
 		gordonGen.winner.SetEquity(eq)
 		if len(gordonGen.plays) == 0 {
@@ -312,9 +313,9 @@ func TopNPlayRecorder(gen MoveGenerator, rack *tilemapping.Rack, leftstrip, righ
 	newIdx := -1
 	// fmt.Printf("finding a spot for eq %v (play %s)\n", eq, gen.placeholder.ShortDescription())
 	for i := 0; i < gordonGen.maxTopMovesSize; i++ {
-		if eq > gordonGen.topNPlays[i].Equity() {
+		ei := gordonGen.topNPlays[i].Equity()
+		if eq > ei || (eq == ei && gordonGen.placeholder.TiebreaksBetter(gordonGen.topNPlays[i])) {
 			newIdx = i
-			// fmt.Printf("inserting eq %v at idx %v\n", eq, newIdx)
 			break
 		}
 	}

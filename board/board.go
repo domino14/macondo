@@ -108,6 +108,15 @@ type GameBoard struct {
 	hAnchors   []bool
 	vAnchors   []bool
 
+	// Extension sets for shadow play. These indicate which letters can extend
+	// a word leftward or rightward from a given square, as determined by the
+	// KWG during cross-set generation. Used by the shadow algorithm to compute
+	// upper bounds on scores achievable from each anchor.
+	hLeftExtSets  []uint64
+	hRightExtSets []uint64
+	vLeftExtSets  []uint64
+	vRightExtSets []uint64
+
 	rowMul int
 	colMul int
 }
@@ -133,6 +142,10 @@ func MakeBoard(desc []string) *GameBoard {
 	vcs := make([]CrossSet, totalLen)
 	hAs := make([]bool, totalLen)
 	vAs := make([]bool, totalLen)
+	hle := make([]uint64, totalLen)
+	hre := make([]uint64, totalLen)
+	vle := make([]uint64, totalLen)
+	vre := make([]uint64, totalLen)
 
 	sqi := 0
 	for _, s := range desc {
@@ -144,17 +157,21 @@ func MakeBoard(desc []string) *GameBoard {
 
 	}
 	g := &GameBoard{
-		squares:      sqs,
-		bonuses:      bs,
-		dim:          len(desc),
-		vCrossScores: vc,
-		hCrossScores: hc,
-		hCrossSets:   hcs,
-		vCrossSets:   vcs,
-		hAnchors:     hAs,
-		vAnchors:     vAs,
-		rowMul:       len(desc),
-		colMul:       1,
+		squares:       sqs,
+		bonuses:       bs,
+		dim:           len(desc),
+		vCrossScores:  vc,
+		hCrossScores:  hc,
+		hCrossSets:    hcs,
+		vCrossSets:    vcs,
+		hAnchors:      hAs,
+		vAnchors:      vAs,
+		hLeftExtSets:  hle,
+		hRightExtSets: hre,
+		vLeftExtSets:  vle,
+		vRightExtSets: vre,
+		rowMul:        len(desc),
+		colMul:        1,
 	}
 	// Call Clear to set all crosses.
 	g.Clear()
@@ -331,9 +348,13 @@ func (g *GameBoard) SetCrossSet(row int, col int, cs CrossSet,
 func (g *GameBoard) SetAllCrosses() {
 	for i := range g.hCrossScores {
 		g.hCrossSets[i].SetAll()
+		g.hLeftExtSets[i] = TrivialCrossSet
+		g.hRightExtSets[i] = TrivialCrossSet
 	}
 	for i := range g.vCrossScores {
 		g.vCrossSets[i].SetAll()
+		g.vLeftExtSets[i] = TrivialCrossSet
+		g.vRightExtSets[i] = TrivialCrossSet
 	}
 }
 
@@ -344,6 +365,56 @@ func (g *GameBoard) ClearAllCrosses() {
 	}
 	for i := range g.vCrossScores {
 		g.vCrossSets[i].Clear()
+	}
+}
+
+// Extension set accessors for shadow play.
+
+func (g *GameBoard) GetLeftExtSet(row, col int, dir BoardDirection) uint64 {
+	pos := g.GetSqIdx(row, col)
+	if dir == HorizontalDirection {
+		return g.hLeftExtSets[pos]
+	}
+	return g.vLeftExtSets[pos]
+}
+
+func (g *GameBoard) GetRightExtSet(row, col int, dir BoardDirection) uint64 {
+	pos := g.GetSqIdx(row, col)
+	if dir == HorizontalDirection {
+		return g.hRightExtSets[pos]
+	}
+	return g.vRightExtSets[pos]
+}
+
+func (g *GameBoard) GetLeftExtSetIdx(pos int, dir BoardDirection) uint64 {
+	if dir == HorizontalDirection {
+		return g.hLeftExtSets[pos]
+	}
+	return g.vLeftExtSets[pos]
+}
+
+func (g *GameBoard) GetRightExtSetIdx(pos int, dir BoardDirection) uint64 {
+	if dir == HorizontalDirection {
+		return g.hRightExtSets[pos]
+	}
+	return g.vRightExtSets[pos]
+}
+
+func (g *GameBoard) SetLeftExtSet(row, col int, dir BoardDirection, es uint64) {
+	pos := g.GetSqIdx(row, col)
+	if dir == HorizontalDirection {
+		g.hLeftExtSets[pos] = es
+	} else {
+		g.vLeftExtSets[pos] = es
+	}
+}
+
+func (g *GameBoard) SetRightExtSet(row, col int, dir BoardDirection, es uint64) {
+	pos := g.GetSqIdx(row, col)
+	if dir == HorizontalDirection {
+		g.hRightExtSets[pos] = es
+	} else {
+		g.vRightExtSets[pos] = es
 	}
 }
 
@@ -911,14 +982,19 @@ func (g *GameBoard) ScoreWord(word tilemapping.MachineWord, row, col, tilesPlaye
 // Copy returns a deep copy of this board.
 func (g *GameBoard) Copy() *GameBoard {
 	newg := &GameBoard{}
-	newg.squares = make([]tilemapping.MachineLetter, len(g.squares))
-	newg.bonuses = make([]BonusSquare, len(g.bonuses))
-	newg.vCrossScores = make([]int, len(g.vCrossScores))
-	newg.hCrossScores = make([]int, len(g.hCrossScores))
-	newg.hCrossSets = make([]CrossSet, len(g.hCrossSets))
-	newg.vCrossSets = make([]CrossSet, len(g.vCrossSets))
-	newg.hAnchors = make([]bool, len(g.vCrossSets))
-	newg.vAnchors = make([]bool, len(g.vCrossSets))
+	n := len(g.squares)
+	newg.squares = make([]tilemapping.MachineLetter, n)
+	newg.bonuses = make([]BonusSquare, n)
+	newg.vCrossScores = make([]int, n)
+	newg.hCrossScores = make([]int, n)
+	newg.hCrossSets = make([]CrossSet, n)
+	newg.vCrossSets = make([]CrossSet, n)
+	newg.hAnchors = make([]bool, n)
+	newg.vAnchors = make([]bool, n)
+	newg.hLeftExtSets = make([]uint64, n)
+	newg.hRightExtSets = make([]uint64, n)
+	newg.vLeftExtSets = make([]uint64, n)
+	newg.vRightExtSets = make([]uint64, n)
 
 	copy(newg.squares, g.squares)
 	copy(newg.bonuses, g.bonuses)
@@ -928,12 +1004,15 @@ func (g *GameBoard) Copy() *GameBoard {
 	copy(newg.hCrossSets, g.hCrossSets)
 	copy(newg.vAnchors, g.vAnchors)
 	copy(newg.hAnchors, g.hAnchors)
+	copy(newg.hLeftExtSets, g.hLeftExtSets)
+	copy(newg.hRightExtSets, g.hRightExtSets)
+	copy(newg.vLeftExtSets, g.vLeftExtSets)
+	copy(newg.vRightExtSets, g.vRightExtSets)
 
 	newg.tilesPlayed = g.tilesPlayed
 	newg.dim = g.dim
 	newg.rowMul = g.rowMul
 	newg.colMul = g.colMul
-	// newg.playHistory = append([]string{}, g.playHistory...)
 	return newg
 }
 
@@ -952,6 +1031,10 @@ func (g *GameBoard) CopyFrom(b *GameBoard) {
 	copy(g.hCrossSets, b.hCrossSets)
 	copy(g.vAnchors, b.vAnchors)
 	copy(g.hAnchors, b.hAnchors)
+	copy(g.hLeftExtSets, b.hLeftExtSets)
+	copy(g.hRightExtSets, b.hRightExtSets)
+	copy(g.vLeftExtSets, b.vLeftExtSets)
+	copy(g.vRightExtSets, b.vRightExtSets)
 	g.tilesPlayed = b.tilesPlayed
 	g.rowMul = b.rowMul
 	g.colMul = b.colMul

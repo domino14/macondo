@@ -373,6 +373,7 @@ func TestIsPuzzleStillValid(t *testing.T) {
 	for i := range pzls {
 		fmt.Println(pzls[i])
 	}
+	is.Equal(len(pzls), 11)
 
 	is.Equal(pzls[2].TurnNumber, int32(2))
 	valid, err := IsEquityPuzzleStillValid(DefaultConfig, game, 2, pzls[2].Answer, "NWL23")
@@ -380,8 +381,8 @@ func TestIsPuzzleStillValid(t *testing.T) {
 	is.True(valid)
 
 	// turn 8 had PEDDL(I)nG as the answer. DOGPILED, new in NWL23, scores 3 more pts.
-	is.Equal(pzls[5].TurnNumber, int32(8))
-	valid, err = IsEquityPuzzleStillValid(DefaultConfig, game, 8, pzls[5].Answer, "NWL23")
+	is.Equal(pzls[6].TurnNumber, int32(8))
+	valid, err = IsEquityPuzzleStillValid(DefaultConfig, game, 8, pzls[6].Answer, "NWL23")
 	is.NoErr(err)
 	is.Equal(valid, false)
 }
