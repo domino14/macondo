@@ -163,8 +163,9 @@ type shadowState struct {
 	tilesInBag     int
 	oppRackScore   int
 
-	// Whether shadow is enabled for this generation
-	shadowEnabled bool
+	// Whether shadow is used for this generator. Automatically true for
+	// TopPlayOnly and TopN recorders, false for AllPlays recorders.
+	useShadow bool
 }
 
 type crossWordMul struct {

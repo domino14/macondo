@@ -262,7 +262,6 @@ func (s *Solver) Init(m movegen.MoveGenerator, game *game.Game) error {
 	if s.stmMovegen != nil {
 		s.stmMovegen.SetGenPass(true)
 		s.stmMovegen.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
-		s.stmMovegen.SetShadowEnabled(false) // solver needs all moves
 	}
 
 	return nil
@@ -368,7 +367,6 @@ func (s *Solver) makeGameCopies() error {
 		mg.SetSortingParameter(movegen.SortByNone)
 		mg.SetGenPass(true)
 		mg.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
-		mg.SetShadowEnabled(false) // solver needs all moves
 		s.movegens = append(s.movegens, mg)
 	}
 	return nil

@@ -46,7 +46,6 @@ func loadAndShadow(t *testing.T, cgpStr, rackStr string) []movegen.Anchor {
 	rack := tilemapping.RackFromString(rackStr, alph)
 
 	gen := movegen.NewGordonGenerator(gd, g.Board(), ld)
-	gen.SetShadowEnabled(true)
 	anchors := gen.RunShadowOnly(rack)
 
 	// Verify anchors are in descending order of score
@@ -378,8 +377,8 @@ func TestShadowScore(t *testing.T) {
 	assertAnchorScore(t, anchors, 0, 15)
 }
 
-// TestShadowTopPlayAgreement runs game pairs comparing shadow TopPlayOnly
-// against non-shadow, verifying the same top move score is found every turn.
+// TestShadowTopPlayAgreement generates all plays (no shadow) and verifies
+// that the shadow top play matches the best play from the full move list.
 func TestShadowTopPlayAgreement(t *testing.T) {
 	is := is.New(t)
 
@@ -422,32 +421,34 @@ func TestShadowTopPlayAgreement(t *testing.T) {
 				g.SeedBag(seed)
 				g.StartGame()
 
-				genNS := movegen.NewGordonGenerator(gd, g.Board(), g.Bag().LetterDistribution())
-				genNS.SetShadowEnabled(false)
+				genAll := movegen.NewGordonGenerator(gd, g.Board(), g.Bag().LetterDistribution())
 				genS := movegen.NewGordonGenerator(gd, g.Board(), g.Bag().LetterDistribution())
 
 				turnNum := 0
 				for g.Playing() == pb.PlayState_PLAYING {
 					rack := g.RackFor(g.PlayerOnTurn())
 
-					genNS.SetPlayRecorder(movegen.TopPlayOnlyRecorder)
-					playsNS := genNS.GenAll(rack, false)
+					// Generate all plays (no shadow)
+					genAll.SetPlayRecorder(movegen.AllPlaysRecorder)
+					allPlays := genAll.GenAll(rack, false)
+					topAll := bestByScore(allPlays)
 
-					genS.SetPlayRecorder(movegen.TopPlayOnlyRecorder)
-					playsS := genS.GenAll(rack, false)
+					// Generate with shadow
+					genS.SetPlayRecorderTopPlay()
+					shadowPlays := genS.GenAll(rack, false)
 
 					totalTurns.Add(1)
 
-					if len(playsNS) > 0 && len(playsS) > 0 {
-						if playsNS[0].Score() != playsS[0].Score() {
-							t.Errorf("Game %d turn %d: score mismatch noshadow=%d(%s) shadow=%d(%s)",
-								gidx, turnNum, playsNS[0].Score(), playsNS[0].ShortDescription(),
-								playsS[0].Score(), playsS[0].ShortDescription())
+					if len(allPlays) > 0 && len(shadowPlays) > 0 {
+						if topAll.Score() != shadowPlays[0].Score() {
+							t.Errorf("Game %d turn %d: score mismatch all=%d(%s) shadow=%d(%s)",
+								gidx, turnNum, topAll.Score(), topAll.ShortDescription(),
+								shadowPlays[0].Score(), shadowPlays[0].ShortDescription())
 							numDisagreements.Add(1)
 						}
 					}
 
-					g.PlayMove(playsNS[0], false, 0)
+					g.PlayMove(allPlays[0], false, 0)
 					turnNum++
 				}
 			}

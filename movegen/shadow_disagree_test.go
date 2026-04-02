@@ -41,14 +41,13 @@ func replayToTurn(t *testing.T, gidx, targetTurn int) (*game.Game, *kwg.KWG) {
 	is.NoErr(err)
 
 	gen := movegen.NewGordonGenerator(gd, g.Board(), g.Bag().LetterDistribution())
-	gen.SetShadowEnabled(false)
 
 	for turn := 0; turn < targetTurn; turn++ {
 		if g.Playing() != pb.PlayState_PLAYING {
 			t.Fatalf("game ended at turn %d, needed %d", turn, targetTurn)
 		}
 		rack := g.RackFor(g.PlayerOnTurn())
-		gen.SetPlayRecorder(movegen.TopPlayOnlyRecorder)
+		gen.SetPlayRecorderTopPlay()
 		plays := gen.GenAll(rack, false)
 		g.PlayMove(plays[0], false, 0)
 	}
@@ -69,7 +68,7 @@ func TestShadowDisagree137741(t *testing.T) {
 
 	// No shadow - find all moves
 	genNS := movegen.NewGordonGenerator(gd, g.Board(), ld)
-	genNS.SetShadowEnabled(false)
+	
 	genNS.SetPlayRecorder(movegen.AllPlaysRecorder)
 	playsNS := genNS.GenAll(rack, false)
 	topNS := bestByScore(playsNS)
@@ -77,7 +76,7 @@ func TestShadowDisagree137741(t *testing.T) {
 
 	// Shadow - TopPlayOnly
 	genS := movegen.NewGordonGenerator(gd, g.Board(), ld)
-	genS.SetPlayRecorder(movegen.TopPlayOnlyRecorder)
+	genS.SetPlayRecorderTopPlay()
 	playsS := genS.GenAll(rack, false)
 	fmt.Printf("Shadow top: %s (%d)\n", playsS[0].ShortDescription(), playsS[0].Score())
 
@@ -114,7 +113,7 @@ func TestShadowDisagree550396(t *testing.T) {
 
 	// No shadow - find all moves
 	genNS := movegen.NewGordonGenerator(gd, g.Board(), ld)
-	genNS.SetShadowEnabled(false)
+	
 	genNS.SetPlayRecorder(movegen.AllPlaysRecorder)
 	playsNS := genNS.GenAll(rack, false)
 	topNS := bestByScore(playsNS)
@@ -122,7 +121,7 @@ func TestShadowDisagree550396(t *testing.T) {
 
 	// Shadow - TopPlayOnly
 	genS := movegen.NewGordonGenerator(gd, g.Board(), ld)
-	genS.SetPlayRecorder(movegen.TopPlayOnlyRecorder)
+	genS.SetPlayRecorderTopPlay()
 	playsS := genS.GenAll(rack, false)
 	fmt.Printf("Shadow top: %s (%d)\n", playsS[0].ShortDescription(), playsS[0].Score())
 
@@ -158,7 +157,7 @@ func TestShadowDisagree3064(t *testing.T) {
 
 	// No shadow - find all moves
 	genNS := movegen.NewGordonGenerator(gd, g.Board(), ld)
-	genNS.SetShadowEnabled(false)
+	
 	genNS.SetPlayRecorder(movegen.AllPlaysRecorder)
 	playsNS := genNS.GenAll(rack, false)
 	topNS := bestByScore(playsNS)
@@ -166,7 +165,7 @@ func TestShadowDisagree3064(t *testing.T) {
 
 	// Shadow - TopPlayOnly
 	genS := movegen.NewGordonGenerator(gd, g.Board(), ld)
-	genS.SetPlayRecorder(movegen.TopPlayOnlyRecorder)
+	genS.SetPlayRecorderTopPlay()
 	playsS := genS.GenAll(rack, false)
 	fmt.Printf("Shadow top: %s (%d)\n", playsS[0].ShortDescription(), playsS[0].Score())
 
