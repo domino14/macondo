@@ -539,9 +539,6 @@ func (gen *GordonGenerator) generateExchangeMoves(rack *tilemapping.Rack, ml til
 		ml++
 	}
 	if int(ml) == len(rack.LetArr) {
-		if gen.leavemap.initialized && gen.klv != nil {
-			gen.leavemap.storeCurrentLeave(gen.klv, rack)
-		}
 		gen.playRecorder(gen, rack, 0, stripidx, move.MoveTypeExchange, 0)
 	} else {
 		gen.generateExchangeMoves(rack, ml+1, stripidx)
