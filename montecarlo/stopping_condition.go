@@ -72,11 +72,13 @@ func (a *AutoStopper) copyForStatCutoff(plays *SimmedPlays) {
 	}
 
 	for i := range a.simmedPlays {
+		plays.plays[i].RLock()
 		a.simmedPlays[i].equityStats = plays.plays[i].equityStats
 		a.simmedPlays[i].winPctStats = plays.plays[i].winPctStats
-		a.simmedPlays[i].ignore = plays.plays[i].ignore
+		a.simmedPlays[i].ignore = plays.plays[i].ignore.Load()
 		a.simmedPlays[i].unignorable = plays.plays[i].unignorable
 		a.simmedPlays[i].origPlay = plays.plays[i]
+		plays.plays[i].RUnlock()
 	}
 }
 
@@ -245,10 +247,21 @@ func (a *AutoStopper) shouldStop(iterationCount uint64, simmedPlays *SimmedPlays
 
 		μi := p.winPctStats.Mean()
 		ei := p.winPctStats.StandardError()
+		iters := p.winPctStats.Iterations()
 		if tiebreakByEquity {
 			μi = p.equityStats.Mean()
 			ei = p.equityStats.StandardError()
+			iters = p.equityStats.Iterations()
 		}
+
+		// Require at least 128 iterations before pruning to ensure reliable
+		// standard error estimates. This matches the default check interval.
+		// Plays become eligible for pruning on the first autostopper check.
+		const minIterationsForPruning = 128
+		if iters < minIterationsForPruning {
+			continue
+		}
+
 		ucbI := μi + c*ei
 		if lcbLeader > ucbI {
 			p.origPlay.Ignore()

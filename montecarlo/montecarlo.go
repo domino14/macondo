@@ -105,7 +105,7 @@ type SimmedPlay struct {
 	leftoverStats stats.Statistic
 	// Actually this is win probability (0 to 1), not percent:
 	winPctStats stats.Statistic
-	ignore      bool
+	ignore      atomic.Bool
 	unignorable bool
 }
 
@@ -120,9 +120,7 @@ func (sp *SimmedPlay) ScoreStatsNoLock() []stats.Statistic {
 }
 
 func (sp *SimmedPlay) Ignore() {
-	sp.Lock()
-	sp.ignore = true
-	sp.Unlock()
+	sp.ignore.Store(true)
 }
 
 func (sp *SimmedPlay) addScoreStat(play *move.Move, ply int) {
@@ -228,7 +226,7 @@ func (s *SimmedPlay) WinProbIterations() int {
 }
 
 func (s *SimmedPlay) IsIgnored() bool {
-	return s.ignore
+	return s.ignore.Load()
 }
 
 type SimmedPlays struct {
@@ -782,7 +780,7 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 	var logPlay LogPlay
 	var plyChild LogPlay
 	for _, simmedPlay := range s.simmedPlays.plays {
-		if simmedPlay.ignore {
+		if simmedPlay.ignore.Load() {
 			continue
 		}
 		if s.logStream != nil {
@@ -946,7 +944,7 @@ func (s *Simmer) sortPlaysByWinRate(ignoredAtBottom bool) {
 	if ignoredAtBottom {
 		var active, ignored []*SimmedPlay
 		for _, p := range plays {
-			if p.ignore {
+			if p.ignore.Load() {
 				ignored = append(ignored, p)
 			} else {
 				active = append(active, p)
@@ -978,7 +976,7 @@ func (s *Simmer) EquityStats() string {
 		wpStats := fmt.Sprintf("%.2f±%.2f", 100.0*play.winPctStats.Mean(), 100.0*stats.Z99*play.winPctStats.StandardError())
 		eqStats := fmt.Sprintf("%.2f±%.2f", play.equityStats.Mean(), stats.Z99*play.equityStats.StandardError())
 		ignore := ""
-		if play.ignore {
+		if play.ignore.Load() {
 			ignore = "❌"
 		}
 
