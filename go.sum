@@ -117,6 +117,8 @@ github.com/domino14/word-golib v0.2.19 h1:LFUeTdufNNbPMx/GqNbTVE2exfCOX+0wtppmfd
 github.com/domino14/word-golib v0.2.19/go.mod h1:JA2pCy6BuNzlc1Ix2pCwAxDE1k6xybfwDqq+yfKRl/Y=
 github.com/domino14/word-golib v0.2.20-0.20260402055407-f6192ef86a17 h1:eaq6RAy5XuhPStMWIpW5or0r+/XJYmmbot/FiiH7meI=
 github.com/domino14/word-golib v0.2.20-0.20260402055407-f6192ef86a17/go.mod h1:JA2pCy6BuNzlc1Ix2pCwAxDE1k6xybfwDqq+yfKRl/Y=
+github.com/domino14/word-golib v0.2.20 h1:KrufAyhSx7Jlq5L7u2siqeS3auhWCMB8dhSsHNeKiKo=
+github.com/domino14/word-golib v0.2.20/go.mod h1:JA2pCy6BuNzlc1Ix2pCwAxDE1k6xybfwDqq+yfKRl/Y=
 github.com/dustin/go-humanize v1.0.0/go.mod h1:HtrtbFcZ19U5GC7JDqmcUSB87Iq5E25KnS6fMYU6eOk=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
 github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
