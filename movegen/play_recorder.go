@@ -8,7 +8,6 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/domino14/macondo/equity"
-	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tinymove"
 )
@@ -178,25 +177,8 @@ func TopPlayOnlyRecorder(gen MoveGenerator, rack *tilemapping.Rack, leftstrip, r
 		}
 
 		if gordonGen.leavemap.initialized {
-			// Fast path: compute equity using leave map + adjustments.
+			// Fast path: leave map values include leave + peg + endgame adjustments.
 			eq = float64(score) + gordonGen.leavemap.currentValue()
-			if gordonGen.tilesInBag > 0 {
-				bagPlusSeven := gordonGen.tilesInBag - tilesPlayed + game.RackTileLimit
-				if bagPlusSeven < len(gordonGen.pegValues) {
-					eq += gordonGen.pegValues[bagPlusSeven]
-				}
-			} else {
-				// Endgame: leave map value is 0, add endgame adjustment.
-				if !rack.Empty() {
-					leaveScore := 0
-					for ml := tilemapping.MachineLetter(0); int(ml) < len(rack.LetArr); ml++ {
-						leaveScore += rack.LetArr[ml] * gordonGen.letterDistribution.Score(ml)
-					}
-					eq += float64(-endgameNonOutplayLeavePenaltyMultiplier*leaveScore) - endgameNonOutplayConstantPenalty
-				} else {
-					eq += float64(2 * gordonGen.oppRackScore)
-				}
-			}
 			// Skip building the leave/placeholder unless this move can win.
 			if !gordonGen.winner.IsEmpty() && eq < gordonGen.winner.Equity() {
 				return

@@ -123,11 +123,30 @@ func (gen *GordonGenerator) populateLeaveMapIncremental(
 		ml++
 	}
 	if int(ml) == len(rack.LetArr) {
-		// Leaf: store leave value using the tracked word index
+		// Leaf: store equity adjustment (leave value + peg adjustment)
 		numOnRack := int(rack.NumTiles())
 		var val float64
-		if numOnRack > 0 && wordIndex != unfoundIndex {
-			val = klv.LeaveValueByIndex(wordIndex - 1)
+		if gen.tilesInBag > 0 {
+			if numOnRack > 0 && wordIndex != unfoundIndex {
+				val = klv.LeaveValueByIndex(wordIndex - 1)
+			}
+			// Bake in pre-endgame peg adjustment
+			tilesPlayed := gen.leavemap.totalTiles - numOnRack
+			bagPlusSeven := gen.tilesInBag - tilesPlayed + 7
+			if bagPlusSeven >= 0 && bagPlusSeven < len(gen.pegValues) {
+				val += gen.pegValues[bagPlusSeven]
+			}
+		} else {
+			// Endgame: compute adjustment instead of leave value
+			if numOnRack > 0 {
+				leaveScore := 0
+				for lml := tilemapping.MachineLetter(0); int(lml) < len(rack.LetArr); lml++ {
+					leaveScore += rack.LetArr[lml] * gen.letterDistribution.Score(lml)
+				}
+				val = float64(-endgameNonOutplayLeavePenaltyMultiplier*leaveScore) - endgameNonOutplayConstantPenalty
+			} else {
+				val = float64(2 * gen.oppRackScore)
+			}
 		}
 		gen.leavemap.values[gen.leavemap.currentIndex] = val
 		if val > gen.shadow.bestLeaves[numOnRack] {
