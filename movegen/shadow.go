@@ -981,20 +981,35 @@ func (gen *GordonGenerator) GenAllWithShadow(rack *tilemapping.Rack, addExchange
 	gen.smallPlays = *ptr
 	gen.smallPlays = gen.smallPlays[0:0]
 
-	// Cache KLV reference and initialize leave map bit positions.
+	// Cache equity state for the fast path in TopPlayOnlyRecorder.
 	gen.klv = nil
+	gen.pegValues = nil
 	for _, calc := range gen.equityCalculators {
 		if elc, ok := calc.(*equity.ExhaustiveLeaveCalculator); ok {
 			gen.klv = elc.KLV()
-			break
+		}
+		if csc, ok := calc.(*equity.CombinedStaticCalculator); ok {
+			gen.klv = csc.KLV()
+			gen.pegValues = csc.PEGValues()
+		}
+	}
+	if gen.game != nil {
+		gen.tilesInBag = gen.game.Bag().TilesRemaining()
+		oppRack := gen.game.RackFor(gen.game.NextPlayer())
+		gen.oppRackScore = 0
+		for ml := tilemapping.MachineLetter(1); int(ml) < len(oppRack.LetArr); ml++ {
+			gen.oppRackScore += oppRack.LetArr[ml] * gen.letterDistribution.Score(ml)
 		}
 	}
 	gen.leavemap.init(rack)
 
 	// Populate leave map via incremental KWG traversal. This also
 	// computes bestLeaves for shadow equity bounds.
-	if gen.leavemap.initialized && gen.klv != nil {
+	if gen.klv != nil {
 		gen.populateLeaveMap(rack)
+	} else {
+		// No KLV available — leave map can't be used for equity lookups.
+		gen.leavemap.initialized = false
 	}
 
 	// Compute best leave values for equity-aware shadow bounds
