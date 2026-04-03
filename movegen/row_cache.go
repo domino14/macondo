@@ -22,7 +22,9 @@ type cachedSquare struct {
 // Populated once per row (or per anchor in shadow best-first mode),
 // replacing scattered reads from separate board arrays.
 type rowCache struct {
-	squares [maxBoardDim]cachedSquare
+	squares   [maxBoardDim]cachedSquare
+	loadedRow int // -1 if not loaded
+	loadedDir board.BoardDirection
 }
 
 // loadRow populates the cache from the board for the given row and
@@ -39,4 +41,6 @@ func (rc *rowCache) loadRow(b *board.GameBoard, row int, csDir board.BoardDirect
 			letter:     b.GetLetter(row, col),
 		}
 	}
+	rc.loadedRow = row
+	rc.loadedDir = csDir
 }

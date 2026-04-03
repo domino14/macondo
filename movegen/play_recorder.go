@@ -153,7 +153,6 @@ func AllPlaysSmallRecorder(gen MoveGenerator, rack *tilemapping.Rack, leftstrip,
 func TopPlayOnlyRecorder(gen MoveGenerator, rack *tilemapping.Rack, leftstrip, rightstrip int, t move.MoveType, score int) {
 	gordonGen, ok := gen.(*GordonGenerator)
 	if !ok {
-		// For now, only GordonGenerator is supported.
 		return
 	}
 	var eq float64
@@ -176,10 +175,9 @@ func TopPlayOnlyRecorder(gen MoveGenerator, rack *tilemapping.Rack, leftstrip, r
 			return
 		}
 
-		if gordonGen.leavemap.initialized {
+		if gordonGen.leavemap.initialized && !gordonGen.board.IsEmpty() {
 			// Fast path: leave map values include leave + peg + endgame adjustments.
 			eq = float64(score) + gordonGen.leavemap.currentValue()
-			// Skip building the leave/placeholder unless this move can win.
 			if !gordonGen.winner.IsEmpty() && eq < gordonGen.winner.Equity() {
 				return
 			}
@@ -204,7 +202,6 @@ func TopPlayOnlyRecorder(gen MoveGenerator, rack *tilemapping.Rack, leftstrip, r
 		}
 
 	case move.MoveTypeExchange:
-		// ignore the empty exchange case
 		if rightstrip == 0 {
 			return
 		}
@@ -219,9 +216,14 @@ func TopPlayOnlyRecorder(gen MoveGenerator, rack *tilemapping.Rack, leftstrip, r
 			0, 0, tilesLength, gordonGen.vertical, move.MoveTypeExchange,
 			gordonGen.letterDistribution.TileMapping())
 
-		eq = lo.SumBy(gordonGen.equityCalculators, func(c equity.EquityCalculator) float64 {
-			return c.Equity(gordonGen.placeholder, gordonGen.board, gordonGen.game.Bag(), gordonGen.game.RackFor(gordonGen.game.NextPlayer()))
-		})
+		if gordonGen.leavemap.initialized && !gordonGen.board.IsEmpty() {
+			// Exchange score is 0; equity comes from leave map (includes peg).
+			eq = gordonGen.leavemap.currentValue()
+		} else {
+			eq = lo.SumBy(gordonGen.equityCalculators, func(c equity.EquityCalculator) float64 {
+				return c.Equity(gordonGen.placeholder, gordonGen.board, gordonGen.game.Bag(), gordonGen.game.RackFor(gordonGen.game.NextPlayer()))
+			})
+		}
 	case move.MoveTypePass:
 		leaveLength = rack.NoAllocTilesOn(gordonGen.leavestrip)
 		alph := gordonGen.letterDistribution.TileMapping()

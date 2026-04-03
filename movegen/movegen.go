@@ -151,6 +151,7 @@ func NewGordonGenerator(gd gaddag.WordGraph, board *board.GameBoard,
 		placeholder:        new(move.Move),
 		maxTileUsage:       100, // basically unlimited
 		maxCanExchange:     game.DefaultExchangeLimit,
+		cache:              rowCache{loadedRow: -1},
 		// shadow.useShadow starts false; set by SetPlayRecorderTopPlay/SetRecordNTopPlays
 	}
 	return gen
@@ -345,6 +346,17 @@ func (gen *GordonGenerator) recursiveGen(col int, rack *tilemapping.Rack,
 
 	if gen.quitEarly {
 		return
+	}
+
+	// Auto-load row cache if not loaded for current row/direction
+	var csDir board.BoardDirection
+	if gen.vertical {
+		csDir = board.HorizontalDirection
+	} else {
+		csDir = board.VerticalDirection
+	}
+	if gen.cache.loadedRow != gen.curRowIdx || gen.cache.loadedDir != csDir {
+		gen.cache.loadRow(gen.board, gen.curRowIdx, csDir, gen.boardDim)
 	}
 
 	sq := &gen.cache.squares[col]

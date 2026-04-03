@@ -982,13 +982,14 @@ func (gen *GordonGenerator) GenAllWithShadow(rack *tilemapping.Rack, addExchange
 	gen.smallPlays = gen.smallPlays[0:0]
 
 	// Cache equity state for the fast path in TopPlayOnlyRecorder.
+	// The leave map fast path only works with CombinedStaticCalculator
+	// (which bundles leave + peg + endgame into one). When separate
+	// calculators are used (e.g., HASTY_BOT with 4 calculators),
+	// the leave map can't replicate the full equity sum.
 	gen.klv = nil
 	gen.pegValues = nil
-	for _, calc := range gen.equityCalculators {
-		if elc, ok := calc.(*equity.ExhaustiveLeaveCalculator); ok {
-			gen.klv = elc.KLV()
-		}
-		if csc, ok := calc.(*equity.CombinedStaticCalculator); ok {
+	if len(gen.equityCalculators) == 1 {
+		if csc, ok := gen.equityCalculators[0].(*equity.CombinedStaticCalculator); ok {
 			gen.klv = csc.KLV()
 			gen.pegValues = csc.PEGValues()
 		}
