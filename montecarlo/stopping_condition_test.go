@@ -67,9 +67,9 @@ func TestShouldStop_PrunesClearlyInferior(t *testing.T) {
 	sp := &SimmedPlays{plays: []*SimmedPlay{leader, arm}}
 	result := a.shouldStop(0, sp, 2)
 
-	is.True(result)         // only leader left, stop
-	is.True(arm.ignore)     // arm was pruned
-	is.True(!leader.ignore) // leader untouched
+	is.True(result)              // only leader left, stop
+	is.True(arm.ignore.Load())     // arm was pruned
+	is.True(!leader.ignore.Load()) // leader untouched
 }
 
 // TestShouldStop_DoesNotPruneClosePlay checks that plays with similar win
@@ -92,8 +92,8 @@ func TestShouldStop_DoesNotPruneClosePlay(t *testing.T) {
 	sp := &SimmedPlays{plays: []*SimmedPlay{leader, arm}}
 	result := a.shouldStop(0, sp, 2)
 
-	is.True(!result)     // can't distinguish yet, keep going
-	is.True(!arm.ignore) // arm was NOT pruned
+	is.True(!result)          // can't distinguish yet, keep going
+	is.True(!arm.ignore.Load()) // arm was NOT pruned
 }
 
 // TestShouldStop_EquityTiebreak checks that when all plays have near-zero
@@ -119,9 +119,9 @@ func TestShouldStop_EquityTiebreak(t *testing.T) {
 	sp := &SimmedPlays{plays: []*SimmedPlay{leader, arm}}
 	result := a.shouldStop(0, sp, 2)
 
-	is.True(result)         // arm pruned by equity difference
-	is.True(arm.ignore)
-	is.True(!leader.ignore)
+	is.True(result)              // arm pruned by equity difference
+	is.True(arm.ignore.Load())
+	is.True(!leader.ignore.Load())
 }
 
 // TestShouldStop_UnignorablePlayNeverPruned checks that a play marked
@@ -142,8 +142,8 @@ func TestShouldStop_UnignorablePlayNeverPruned(t *testing.T) {
 	sp := &SimmedPlays{plays: []*SimmedPlay{leader, arm}}
 	result := a.shouldStop(0, sp, 2)
 
-	is.True(!result)     // unignorable arm keeps sim alive
-	is.True(!arm.ignore) // was not pruned
+	is.True(!result)          // unignorable arm keeps sim alive
+	is.True(!arm.ignore.Load()) // was not pruned
 }
 
 // TestShouldStop_MoreArmsMeansWiderBounds verifies that c grows with K,
@@ -179,10 +179,10 @@ func TestShouldStop_ThreePlaysTwoPruned(t *testing.T) {
 	sp := &SimmedPlays{plays: []*SimmedPlay{leader, arm1, arm2}}
 	result := a.shouldStop(0, sp, 2)
 
-	is.True(result)          // both arms pruned
-	is.True(!leader.ignore)
-	is.True(arm1.ignore)
-	is.True(arm2.ignore)
+	is.True(result)               // both arms pruned
+	is.True(!leader.ignore.Load())
+	is.True(arm1.ignore.Load())
+	is.True(arm2.ignore.Load())
 }
 
 // TestZTest checks the one-shot z-test used for equity tiebreak detection.
