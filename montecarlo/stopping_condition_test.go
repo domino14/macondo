@@ -142,8 +142,11 @@ func TestShouldStop_UnignorablePlayNeverPruned(t *testing.T) {
 	sp := &SimmedPlays{plays: []*SimmedPlay{leader, arm}}
 	result := a.shouldStop(0, sp, 2)
 
-	is.True(!result)          // unignorable arm keeps sim alive
-	is.True(!arm.ignore.Load()) // was not pruned
+	// With the new early stop logic, the sim can stop when the leader
+	// confidently beats all unignorable plays (LCB(leader) > UCB(unignorable)).
+	// In this case: leader 80%±1% vs arm 20%±1%, the leader confidently wins.
+	is.True(result)            // early stop when leader beats unignorable plays
+	is.True(!arm.ignore.Load()) // unignorable arm is never pruned
 }
 
 // TestShouldStop_MoreArmsMeansWiderBounds verifies that c grows with K,

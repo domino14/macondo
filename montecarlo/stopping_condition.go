@@ -238,6 +238,11 @@ func (a *AutoStopper) shouldStop(iterationCount uint64, simmedPlays *SimmedPlays
 	c := math.Sqrt(2 * math.Log(K/delta))
 	lcbLeader := μ - c*e
 
+	// Require at least 128 iterations before pruning to ensure reliable
+	// standard error estimates. This matches the default check interval.
+	// Plays become eligible for pruning on the first autostopper check.
+	const minIterationsForPruning = 128
+
 	newIgnored := 0
 	for _, p := range a.simmedPlays[1:] {
 		if p.ignore || p.unignorable {
@@ -254,10 +259,6 @@ func (a *AutoStopper) shouldStop(iterationCount uint64, simmedPlays *SimmedPlays
 			iters = p.equityStats.Iterations()
 		}
 
-		// Require at least 128 iterations before pruning to ensure reliable
-		// standard error estimates. This matches the default check interval.
-		// Plays become eligible for pruning on the first autostopper check.
-		const minIterationsForPruning = 128
 		if iters < minIterationsForPruning {
 			continue
 		}
@@ -279,7 +280,57 @@ func (a *AutoStopper) shouldStop(iterationCount uint64, simmedPlays *SimmedPlays
 	log.Debug().Dur("time-elapsed-ms", time.Since(t)).Msg("time-for-cutoff-alg")
 
 	// if there is only 1 unignored play, exit.
-	return ignoredPlays+newIgnored >= len(a.simmedPlays)-1
+	if ignoredPlays+newIgnored >= len(a.simmedPlays)-1 {
+		return true
+	}
+
+	// Check if leader confidently beats all unignorable plays.
+	// If only the leader and unignorable plays remain, and the leader's LCB
+	// exceeds the UCB of every unignorable play, we can stop early.
+	// The unignorable plays stay in results (not pruned), but don't block stopping.
+	remainingIgnorable := 0
+	leaderBeatsAllUnignorable := true
+
+	for _, p := range a.simmedPlays[1:] {
+		if p.ignore {
+			continue
+		}
+		if !p.unignorable {
+			// There's still an ignorable play that hasn't been pruned yet
+			remainingIgnorable++
+			continue
+		}
+
+		// This is an unignorable play - check confidence
+		μi := p.winPctStats.Mean()
+		ei := p.winPctStats.StandardError()
+		iters := p.winPctStats.Iterations()
+		if tiebreakByEquity {
+			μi = p.equityStats.Mean()
+			ei = p.equityStats.StandardError()
+			iters = p.equityStats.Iterations()
+		}
+
+		// Need minimum iterations for reliable stats
+		if iters < minIterationsForPruning {
+			leaderBeatsAllUnignorable = false
+			continue
+		}
+
+		ucbI := μi + c*ei
+		if lcbLeader <= ucbI {
+			// Leader doesn't confidently beat this unignorable play
+			leaderBeatsAllUnignorable = false
+		}
+	}
+
+	// If no ignorable plays remain AND leader confidently beats all unignorables, stop
+	if remainingIgnorable == 0 && leaderBeatsAllUnignorable {
+		log.Debug().Msg("early-stop: leader confidently beats all unignorable plays")
+		return true
+	}
+
+	return false
 }
 
 // zTest does a Z-test. M, e are the mean/stderror for the variable we're testing. (sample mean)
