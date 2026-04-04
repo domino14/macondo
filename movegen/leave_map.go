@@ -162,13 +162,20 @@ func (gen *GordonGenerator) populateLeaveMapZero(rack *tilemapping.Rack, ml tile
 	if int(ml) == len(rack.LetArr) {
 		numOnRack := int(rack.NumTiles())
 		var val float64
-		if gen.tilesInBag <= 0 && numOnRack > 0 {
+		if gen.tilesInBag > 0 {
+			// Leave not in KLV (dead path) — leave value is 0, but still apply peg.
+			tilesPlayed := gen.leavemap.totalTiles - numOnRack
+			bagPlusSeven := gen.tilesInBag - tilesPlayed + 7
+			if bagPlusSeven >= 0 && bagPlusSeven < len(gen.pegValues) {
+				val = gen.pegValues[bagPlusSeven]
+			}
+		} else if numOnRack > 0 {
 			leaveScore := 0
 			for lml := tilemapping.MachineLetter(0); int(lml) < len(rack.LetArr); lml++ {
 				leaveScore += rack.LetArr[lml] * gen.letterDistribution.Score(lml)
 			}
 			val = float64(-endgameNonOutplayLeavePenaltyMultiplier*leaveScore) - endgameNonOutplayConstantPenalty
-		} else if gen.tilesInBag <= 0 && numOnRack == 0 {
+		} else {
 			val = float64(2 * gen.oppRackScore)
 		}
 		gen.leavemap.values[gen.leavemap.currentIndex] = val

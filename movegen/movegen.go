@@ -546,10 +546,10 @@ func (gen *GordonGenerator) SmallPlays() []tinymove.SmallMove {
 	return gen.smallPlays
 }
 
-// generateExchangeMoves generates exchange moves without duplicates and
-// populates the leave map with leave values for each rack subset.
+// generateExchangeMoves generates exchange moves without duplicates.
+// Maintains the leave map bitmask index as tiles are exchanged.
 func (gen *GordonGenerator) generateExchangeMoves(rack *tilemapping.Rack, ml tilemapping.MachineLetter, stripidx int) {
-	// magic function written by @andy-k, extended with leave map population
+	// magic function written by @andy-k
 	for int(ml) < len(rack.LetArr) && rack.LetArr[ml] == 0 {
 		ml++
 	}
