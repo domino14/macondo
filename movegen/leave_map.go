@@ -84,12 +84,13 @@ func (gen *GordonGenerator) populateLeaveMapIncremental(
 	if int(ml) == len(rack.LetArr) {
 		// Leaf: compute equity-adjusted leave value.
 		numOnRack := int(rack.NumTiles())
-		var val float64
+		var rawLeave float64 // without peg — for shadow bestLeaves
+		var val float64      // with peg/endgame — for recorder fast path
 		if gen.tilesInBag > 0 {
 			if numOnRack > 0 && wordIndex >= 0 {
-				// Magpie uses word_index - 1 because follow_arc always adds 1.
-				val = gen.klv.LeaveValueByIndex(wordIndex - 1)
+				rawLeave = gen.klv.LeaveValueByIndex(wordIndex - 1)
 			}
+			val = rawLeave
 			tilesPlayed := gen.leavemap.totalTiles - numOnRack
 			bagPlusSeven := gen.tilesInBag - tilesPlayed + 7
 			if bagPlusSeven >= 0 && bagPlusSeven < len(gen.pegValues) {
@@ -105,10 +106,13 @@ func (gen *GordonGenerator) populateLeaveMapIncremental(
 			} else {
 				val = float64(2 * gen.oppRackScore)
 			}
+			rawLeave = val // endgame: adjustment IS the leave value for shadow
 		}
 		gen.leavemap.values[gen.leavemap.currentIndex] = val
-		if val > gen.shadow.bestLeaves[numOnRack] {
-			gen.shadow.bestLeaves[numOnRack] = val
+		// bestLeaves uses raw leave (no peg) so shadow bounds aren't
+		// tightened by peg which varies per play length.
+		if rawLeave > gen.shadow.bestLeaves[numOnRack] {
+			gen.shadow.bestLeaves[numOnRack] = rawLeave
 		}
 		return
 	}
@@ -162,25 +166,29 @@ func (gen *GordonGenerator) populateLeaveMapZero(rack *tilemapping.Rack, ml tile
 	if int(ml) == len(rack.LetArr) {
 		numOnRack := int(rack.NumTiles())
 		var val float64
+		var rawLeave float64
 		if gen.tilesInBag > 0 {
-			// Leave not in KLV (dead path) — leave value is 0, but still apply peg.
+			// Leave not in KLV (dead path) — rawLeave is 0, apply peg for recorder.
 			tilesPlayed := gen.leavemap.totalTiles - numOnRack
 			bagPlusSeven := gen.tilesInBag - tilesPlayed + 7
 			if bagPlusSeven >= 0 && bagPlusSeven < len(gen.pegValues) {
 				val = gen.pegValues[bagPlusSeven]
 			}
+			// rawLeave stays 0
 		} else if numOnRack > 0 {
 			leaveScore := 0
 			for lml := tilemapping.MachineLetter(0); int(lml) < len(rack.LetArr); lml++ {
 				leaveScore += rack.LetArr[lml] * gen.letterDistribution.Score(lml)
 			}
 			val = float64(-endgameNonOutplayLeavePenaltyMultiplier*leaveScore) - endgameNonOutplayConstantPenalty
+			rawLeave = val
 		} else {
 			val = float64(2 * gen.oppRackScore)
+			rawLeave = val
 		}
 		gen.leavemap.values[gen.leavemap.currentIndex] = val
-		if val > gen.shadow.bestLeaves[numOnRack] {
-			gen.shadow.bestLeaves[numOnRack] = val
+		if rawLeave > gen.shadow.bestLeaves[numOnRack] {
+			gen.shadow.bestLeaves[numOnRack] = rawLeave
 		}
 		return
 	}
