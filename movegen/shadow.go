@@ -11,7 +11,6 @@ package movegen
 
 import (
 	"math"
-	"math/bits"
 	"slices"
 	"sort"
 
@@ -24,7 +23,6 @@ import (
 	"github.com/domino14/macondo/tinymove"
 )
 
-func popcount(x int) int { return bits.OnesCount(uint(x)) }
 
 const (
 	// Endgame equity constants (see also equity/endgame.go).
@@ -228,20 +226,9 @@ func (gen *GordonGenerator) computeBestLeaves(rack *tilemapping.Rack) {
 	}
 
 	if s.tilesInBag > 0 {
-		if gen.leavemap.initialized {
-			// Leave map already populated — scan it for best per leave size.
-			totalSubsets := 1 << gen.leavemap.totalTiles
-			for i := 0; i < totalSubsets; i++ {
-				leaveSize := popcount(i)
-				val := gen.leavemap.values[i]
-				if val > s.bestLeaves[leaveSize] {
-					s.bestLeaves[leaveSize] = val
-				}
-			}
-		} else {
-			// No leave map — enumerate directly.
-			gen.enumerateLeaves(rack, leaveCalc, 0, 0)
-		}
+		// Always enumerate directly — leave map values include peg
+		// adjustments that would make bestLeaves too tight for shadow.
+		gen.enumerateLeaves(rack, leaveCalc, 0, 0)
 	}
 	// When bag is empty, bestLeaves stays -Inf; shadowRecord uses
 	// endgame adjustment instead.
@@ -1004,13 +991,14 @@ func (gen *GordonGenerator) GenAllWithShadow(rack *tilemapping.Rack, addExchange
 	}
 	gen.leavemap.init(rack)
 
-	// Initialize bestLeaves before population.
+	// Initialize bestLeaves. Populated during leave map traversal (raw leave,
+	// no peg) or by computeBestLeaves below.
 	for i := range gen.shadow.bestLeaves {
 		gen.shadow.bestLeaves[i] = math.Inf(-1)
 	}
 
-	// Populate leave map via incremental KWG traversal. This also
-	// computes bestLeaves using raw leave values (no peg) for shadow bounds.
+	// Populate leave map via incremental KWG traversal.
+	// Also computes bestLeaves from raw leave values (no peg).
 	if gen.klv != nil && gen.game != nil {
 		gen.populateLeaveMap(rack)
 	} else {
@@ -1018,9 +1006,8 @@ func (gen *GordonGenerator) GenAllWithShadow(rack *tilemapping.Rack, addExchange
 		gen.leavemap.initialized = false
 	}
 
-	// Compute best leave values for shadow equity bounds.
-	// When the leave map was populated, bestLeaves was already computed
-	// from raw leave values during population. Otherwise, enumerate.
+	// bestLeaves was computed during leave map population from raw leave
+	// values. When leave map isn't available, fall back to enumeration.
 	if !gen.leavemap.initialized {
 		gen.computeBestLeaves(rack)
 	}

@@ -198,6 +198,8 @@ func TestLeaveMapValuesMatchKLV(t *testing.T) {
 		"QZ",      // short rack
 		"RETAINS", // another 7
 		"AAAAAAA", // all same
+		"EEEIILZ", // BenchmarkSim rack (3 E's, 2 I's)
+		"AAAEOOS", // from sim: 3 A's, 2 O's — found leave value mismatch
 	}
 
 	bd := testBoard()
@@ -211,6 +213,9 @@ func TestLeaveMapValuesMatchKLV(t *testing.T) {
 			gen.pegValues = calc.PEGValues()
 			gen.tilesInBag = 80
 			gen.oppRackScore = 20
+			gen.shadow.tilesInBag = 80
+			gen.shadow.oppRackScore = 20
+			gen.equityCalculators = []equity.EquityCalculator{calc}
 
 			gen.leavemap.init(rack)
 			is.True(gen.leavemap.initialized)
@@ -220,12 +225,23 @@ func TestLeaveMapValuesMatchKLV(t *testing.T) {
 				gen.shadow.bestLeaves[i] = math.Inf(-1)
 			}
 
-			// Populate via incremental traversal
+			// Populate via incremental traversal (also sets bestLeaves)
 			gen.populateLeaveMap(rack)
 
-			// Now verify every reachable entry by enumerating subsets
-			// and comparing against KLV.LeaveValue + peg adjustment
+			// Verify every reachable entry
 			verifyLeaveMapRecursive(t, gen, klv, rack, 0)
+
+			// Verify bestLeaves matches computeBestLeaves
+			lmBest := gen.shadow.bestLeaves
+			gen.computeBestLeaves(rack)
+			for i := 0; i <= gen.leavemap.totalTiles; i++ {
+				diff := lmBest[i] - gen.shadow.bestLeaves[i]
+				if diff > 0.001 || diff < -0.001 {
+					t.Errorf("bestLeaves[%d] mismatch: leavemap=%.4f compute=%.4f diff=%.4f",
+						i, lmBest[i], gen.shadow.bestLeaves[i], diff)
+				}
+			}
+
 		})
 	}
 }
