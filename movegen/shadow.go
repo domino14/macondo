@@ -226,12 +226,30 @@ func (gen *GordonGenerator) computeBestLeaves(rack *tilemapping.Rack) {
 	}
 
 	if s.tilesInBag > 0 {
-		// Always enumerate directly — leave map values include peg
-		// adjustments that would make bestLeaves too tight for shadow.
 		gen.enumerateLeaves(rack, leaveCalc, 0, 0)
+	} else {
+		// Endgame: compute bestLeaves from tile scores directly.
+		// bestLeaves[0] = outplay bonus.
+		s.bestLeaves[0] = float64(2 * s.oppRackScore)
+		// bestLeaves[k] for k>0 = best non-outplay adjustment =
+		// -2 * (sum of k lowest-scoring tiles) - 10.
+		// Build ascending tile scores from rack.
+		var ascScores [game.RackTileLimit]int
+		n := 0
+		for ml := tilemapping.MachineLetter(0); int(ml) < len(rack.LetArr); ml++ {
+			sc := gen.letterDistribution.Score(ml)
+			for j := 0; j < rack.LetArr[ml]; j++ {
+				ascScores[n] = sc
+				n++
+			}
+		}
+		slices.Sort(ascScores[:n])
+		lowestSum := 0
+		for k := 1; k <= n; k++ {
+			lowestSum += ascScores[k-1]
+			s.bestLeaves[k] = float64(-endgameNonOutplayLeavePenaltyMultiplier*lowestSum) - endgameNonOutplayConstantPenalty
+		}
 	}
-	// When bag is empty, bestLeaves stays -Inf; shadowRecord uses
-	// endgame adjustment instead.
 }
 
 // enumerateLeaves recursively enumerates all sub-multisets of the rack,
