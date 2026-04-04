@@ -1,6 +1,7 @@
 package movegen
 
 import (
+	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 
 	"github.com/domino14/macondo/game"
@@ -60,39 +61,41 @@ func (lm *leaveMap) currentValue() float64 {
 	return lm.values[lm.currentIndex]
 }
 
-// populateLeaveMap enumerates all rack subsets and stores equity-adjusted
-// leave values. Uses KLV.LeaveValue per subset (sort + KWG walk).
-// TODO: port magpie's incremental KWG traversal for ~2% speedup.
+// populateLeaveMap enumerates all rack subsets using incremental KWG
+// traversal matching magpie's generate_exchange_moves. The KWG walk
+// tracks nodeIndex/wordIndex as tiles are added to the leave.
 func (gen *GordonGenerator) populateLeaveMap(rack *tilemapping.Rack) {
-	gen.populateLeaveMapRecursive(rack, 0)
+	klv := gen.klv
+	leaveKWG := klv.KWG()
+	rootIdx := leaveKWG.ArcIndex(0)
+	gen.populateLeaveMapIncremental(rack, leaveKWG, rootIdx, 0, 0)
 }
 
-func (gen *GordonGenerator) populateLeaveMapRecursive(rack *tilemapping.Rack, ml tilemapping.MachineLetter) {
+func (gen *GordonGenerator) populateLeaveMapIncremental(
+	rack *tilemapping.Rack,
+	leaveKWG *kwg.KWG,
+	nodeIndex uint32,
+	wordIndex int32,
+	ml tilemapping.MachineLetter,
+) {
 	for int(ml) < len(rack.LetArr) && rack.LetArr[ml] == 0 {
 		ml++
 	}
 	if int(ml) == len(rack.LetArr) {
+		// Leaf: compute equity-adjusted leave value.
 		numOnRack := int(rack.NumTiles())
 		var val float64
 		if gen.tilesInBag > 0 {
-			// Build leave from current rack state and look up value
-			var leave [game.RackTileLimit]tilemapping.MachineLetter
-			n := 0
-			for lml := tilemapping.MachineLetter(0); int(lml) < len(rack.LetArr); lml++ {
-				for j := 0; j < rack.LetArr[lml]; j++ {
-					leave[n] = lml
-					n++
-				}
+			if numOnRack > 0 && wordIndex >= 0 {
+				// Magpie uses word_index - 1 because follow_arc always adds 1.
+				val = gen.klv.LeaveValueByIndex(wordIndex - 1)
 			}
-			val = gen.klv.LeaveValue(leave[:n])
-			// Bake in pre-endgame peg adjustment
 			tilesPlayed := gen.leavemap.totalTiles - numOnRack
 			bagPlusSeven := gen.tilesInBag - tilesPlayed + 7
 			if bagPlusSeven >= 0 && bagPlusSeven < len(gen.pegValues) {
 				val += gen.pegValues[bagPlusSeven]
 			}
 		} else {
-			// Endgame: compute adjustment instead of leave value
 			if numOnRack > 0 {
 				leaveScore := 0
 				for lml := tilemapping.MachineLetter(0); int(lml) < len(rack.LetArr); lml++ {
@@ -109,15 +112,95 @@ func (gen *GordonGenerator) populateLeaveMapRecursive(rack *tilemapping.Rack, ml
 		}
 		return
 	}
-	gen.populateLeaveMapRecursive(rack, ml+1)
+
+	// Remove all copies of ml from rack first (leave has 0 copies).
 	numthis := rack.LetArr[ml]
 	for i := 0; i < numthis; i++ {
 		rack.Take(ml)
 		gen.leavemap.takeLetter(ml, rack.LetArr[ml])
-		gen.populateLeaveMapRecursive(rack, ml+1)
 	}
+
+	// Recurse with 0 copies of ml in leave — KWG state unchanged.
+	gen.populateLeaveMapIncremental(rack, leaveKWG, nodeIndex, wordIndex, ml+1)
+
+	// Add copies back one at a time, advancing KWG for each.
+	curNode := nodeIndex
+	curWord := wordIndex
 	for i := 0; i < numthis; i++ {
 		gen.leavemap.addLetter(ml, rack.LetArr[ml])
 		rack.Add(ml)
+
+		// incrementNodeToML: find sibling with tile ml
+		curNode, curWord = incrementNodeToML(leaveKWG, curNode, curWord, ml)
+		if curNode == 0 {
+			// Dead path — fill zeros for remaining subsets
+			for j := i + 1; j < numthis; j++ {
+				gen.leavemap.addLetter(ml, rack.LetArr[ml])
+				rack.Add(ml)
+			}
+			gen.populateLeaveMapZero(rack, ml+1)
+			return
+		}
+
+		// followArc: always increment wordIndex by 1 (magpie convention)
+		childNode := leaveKWG.ArcIndex(curNode)
+		childWord := curWord + 1
+
+		gen.populateLeaveMapIncremental(rack, leaveKWG, childNode, childWord, ml+1)
+	}
+}
+
+// populateLeaveMapZero fills 0 values for remaining subsets when KWG path is dead.
+func (gen *GordonGenerator) populateLeaveMapZero(rack *tilemapping.Rack, ml tilemapping.MachineLetter) {
+	for int(ml) < len(rack.LetArr) && rack.LetArr[ml] == 0 {
+		ml++
+	}
+	if int(ml) == len(rack.LetArr) {
+		numOnRack := int(rack.NumTiles())
+		var val float64
+		if gen.tilesInBag <= 0 && numOnRack > 0 {
+			leaveScore := 0
+			for lml := tilemapping.MachineLetter(0); int(lml) < len(rack.LetArr); lml++ {
+				leaveScore += rack.LetArr[lml] * gen.letterDistribution.Score(lml)
+			}
+			val = float64(-endgameNonOutplayLeavePenaltyMultiplier*leaveScore) - endgameNonOutplayConstantPenalty
+		} else if gen.tilesInBag <= 0 && numOnRack == 0 {
+			val = float64(2 * gen.oppRackScore)
+		}
+		gen.leavemap.values[gen.leavemap.currentIndex] = val
+		if val > gen.shadow.bestLeaves[numOnRack] {
+			gen.shadow.bestLeaves[numOnRack] = val
+		}
+		return
+	}
+	gen.populateLeaveMapZero(rack, ml+1)
+	numthis := rack.LetArr[ml]
+	for i := 0; i < numthis; i++ {
+		gen.leavemap.addLetter(ml, rack.LetArr[ml])
+		rack.Add(ml)
+		gen.populateLeaveMapZero(rack, ml+1)
+	}
+	for i := 0; i < numthis; i++ {
+		rack.Take(ml)
+		gen.leavemap.takeLetter(ml, rack.LetArr[ml])
+	}
+}
+
+// incrementNodeToML scans siblings to find tile ml, updating wordIndex
+// for skipped subtrees. Matches magpie's increment_node_to_ml.
+func incrementNodeToML(kwg *kwg.KWG, nodeIndex uint32, wordIndex int32, ml tilemapping.MachineLetter) (uint32, int32) {
+	if nodeIndex == 0 {
+		return 0, -1
+	}
+	wIdx := wordIndex
+	for {
+		if kwg.Tile(nodeIndex) == uint8(ml) {
+			return nodeIndex, wIdx
+		}
+		if kwg.IsEnd(nodeIndex) {
+			return 0, -1
+		}
+		wIdx += kwg.WordCountAt(nodeIndex) - kwg.WordCountAt(nodeIndex+1)
+		nodeIndex++
 	}
 }
