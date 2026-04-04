@@ -1006,15 +1006,19 @@ func (gen *GordonGenerator) GenAllWithShadow(rack *tilemapping.Rack, addExchange
 
 	// Populate leave map via incremental KWG traversal. This also
 	// computes bestLeaves for shadow equity bounds.
-	if gen.klv != nil {
+	if gen.klv != nil && gen.game != nil {
 		gen.populateLeaveMap(rack)
 	} else {
-		// No KLV available — leave map can't be used for equity lookups.
+		// No KLV or game — leave map can't be used for equity lookups.
 		gen.leavemap.initialized = false
 	}
 
-	// Compute best leave values for equity-aware shadow bounds
-	gen.computeBestLeaves(rack)
+	// Compute best leave values for equity-aware shadow bounds.
+	// When the leave map was populated, bestLeaves was already computed
+	// from reachable indices only. Otherwise, fall back to enumeration.
+	if !gen.leavemap.initialized {
+		gen.computeBestLeaves(rack)
+	}
 
 	// Generate exchange moves (leave map is already populated)
 	if addExchange {
