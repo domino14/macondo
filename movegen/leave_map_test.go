@@ -2,10 +2,16 @@
 package movegen
 
 import (
+	"math"
 	"testing"
 
+	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/matryer/is"
+
+	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/equity"
+	"github.com/domino14/macondo/game"
 )
 
 func makeRack(letters map[tilemapping.MachineLetter]int) *tilemapping.Rack {
@@ -166,4 +172,112 @@ func TestLeaveMapDuplicateTiles(t *testing.T) {
 
 	is.Equal(lm.currentIndex, 127)
 	is.Equal(lm.currentValue(), 100.0)
+}
+
+// TestLeaveMapValuesMatchKLV validates that the incremental KWG traversal
+// produces the same leave values as KLV.LeaveValue for every rack subset.
+// Tests multiple racks including duplicates and blanks.
+func TestLeaveMapValuesMatchKLV(t *testing.T) {
+	is := is.New(t)
+
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "NWL20")
+	is.NoErr(err)
+	dist, err := tilemapping.EnglishLetterDistribution(DefaultConfig.WGLConfig())
+	is.NoErr(err)
+
+	calc, err := equity.NewCombinedStaticCalculator("NWL20", DefaultConfig, "", "")
+	is.NoErr(err)
+	klv := calc.KLV()
+	is.True(klv != nil)
+
+	racks := []string{
+		"AEINRST", // common bingo rack
+		"DDDIIUU", // duplicates
+		"?AEINRS", // with blank
+		"??EINRS", // two blanks
+		"QZ",      // short rack
+		"RETAINS", // another 7
+		"AAAAAAA", // all same
+	}
+
+	bd := testBoard()
+
+	for _, rackStr := range racks {
+		t.Run(rackStr, func(t *testing.T) {
+			rack := tilemapping.RackFromString(rackStr, gd.GetAlphabet())
+
+			gen := NewGordonGenerator(gd, bd, dist)
+			gen.klv = klv
+			gen.pegValues = calc.PEGValues()
+			gen.tilesInBag = 80
+			gen.oppRackScore = 20
+
+			gen.leavemap.init(rack)
+			is.True(gen.leavemap.initialized)
+
+			// Initialize bestLeaves
+			for i := range gen.shadow.bestLeaves {
+				gen.shadow.bestLeaves[i] = math.Inf(-1)
+			}
+
+			// Populate via incremental traversal
+			gen.populateLeaveMap(rack)
+
+			// Now verify every reachable entry by enumerating subsets
+			// and comparing against KLV.LeaveValue + peg adjustment
+			verifyLeaveMapRecursive(t, gen, klv, rack, 0)
+		})
+	}
+}
+
+func testBoard() *board.GameBoard {
+	return board.MakeBoard(board.CrosswordGameBoard)
+}
+
+// verifyLeaveMapRecursive checks every subset's leave map value against KLV.
+func verifyLeaveMapRecursive(t *testing.T, gen *GordonGenerator, klv *equity.KLV,
+	rack *tilemapping.Rack, ml tilemapping.MachineLetter) {
+	t.Helper()
+	for int(ml) < len(rack.LetArr) && rack.LetArr[ml] == 0 {
+		ml++
+	}
+	if int(ml) == len(rack.LetArr) {
+		// Leaf: compare leave map value against KLV.LeaveValue + peg
+		numOnRack := int(rack.NumTiles())
+		var expected float64
+		if numOnRack > 0 {
+			var leave [game.RackTileLimit]tilemapping.MachineLetter
+			n := 0
+			for lml := tilemapping.MachineLetter(0); int(lml) < len(rack.LetArr); lml++ {
+				for j := 0; j < rack.LetArr[lml]; j++ {
+					leave[n] = lml
+					n++
+				}
+			}
+			expected = klv.LeaveValue(leave[:n])
+		}
+		tilesPlayed := gen.leavemap.totalTiles - numOnRack
+		bagPlusSeven := gen.tilesInBag - tilesPlayed + 7
+		if bagPlusSeven >= 0 && bagPlusSeven < len(gen.pegValues) {
+			expected += gen.pegValues[bagPlusSeven]
+		}
+
+		got := gen.leavemap.values[gen.leavemap.currentIndex]
+		if diff := got - expected; diff > 0.001 || diff < -0.001 {
+			t.Errorf("leave map mismatch at index %d (numOnRack=%d): got %.4f want %.4f (diff %.4f)",
+				gen.leavemap.currentIndex, numOnRack, got, expected, diff)
+		}
+		return
+	}
+	verifyLeaveMapRecursive(t, gen, klv, rack, ml+1)
+	numthis := rack.LetArr[ml]
+	for i := 0; i < numthis; i++ {
+		rack.Take(ml)
+		gen.leavemap.takeLetter(ml, rack.LetArr[ml])
+		verifyLeaveMapRecursive(t, gen, klv, rack, ml+1)
+	}
+	for i := 0; i < numthis; i++ {
+		gen.leavemap.addLetter(ml, rack.LetArr[ml])
+		rack.Add(ml)
+	}
 }

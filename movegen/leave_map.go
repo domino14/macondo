@@ -124,6 +124,8 @@ func (gen *GordonGenerator) populateLeaveMapIncremental(
 	gen.populateLeaveMapIncremental(rack, leaveKWG, nodeIndex, wordIndex, ml+1)
 
 	// Add copies back one at a time, advancing KWG for each.
+	// curNode/curWord persist across iterations (matching magpie where
+	// node_index and word_index carry over through increment + follow_arc).
 	curNode := nodeIndex
 	curWord := wordIndex
 	for i := 0; i < numthis; i++ {
@@ -142,11 +144,13 @@ func (gen *GordonGenerator) populateLeaveMapIncremental(
 			return
 		}
 
-		// followArc: always increment wordIndex by 1 (magpie convention)
-		childNode := leaveKWG.ArcIndex(curNode)
-		childWord := curWord + 1
+		// followArc: always increment wordIndex by 1, move to children.
+		// Both curNode and curWord persist to the NEXT iteration so the
+		// second copy of the same tile searches at the child level.
+		curNode = leaveKWG.ArcIndex(curNode)
+		curWord = curWord + 1
 
-		gen.populateLeaveMapIncremental(rack, leaveKWG, childNode, childWord, ml+1)
+		gen.populateLeaveMapIncremental(rack, leaveKWG, curNode, curWord, ml+1)
 	}
 }
 
