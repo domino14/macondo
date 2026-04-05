@@ -231,16 +231,7 @@ func TestLeaveMapValuesMatchKLV(t *testing.T) {
 			// Verify every reachable entry
 			verifyLeaveMapRecursive(t, gen, klv, rack, 0)
 
-			// Verify bestLeaves matches computeBestLeaves
-			lmBest := gen.shadow.bestLeaves
-			gen.computeBestLeaves(rack)
-			for i := 0; i <= gen.leavemap.totalTiles; i++ {
-				diff := lmBest[i] - gen.shadow.bestLeaves[i]
-				if diff > 0.001 || diff < -0.001 {
-					t.Errorf("bestLeaves[%d] mismatch: leavemap=%.4f compute=%.4f diff=%.4f",
-						i, lmBest[i], gen.shadow.bestLeaves[i], diff)
-				}
-			}
+			// bestLeaves is now computed by computeBestLeaves, not leave map.
 
 		})
 	}

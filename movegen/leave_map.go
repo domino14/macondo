@@ -84,13 +84,11 @@ func (gen *GordonGenerator) populateLeaveMapIncremental(
 	if int(ml) == len(rack.LetArr) {
 		// Leaf: compute equity-adjusted leave value.
 		numOnRack := int(rack.NumTiles())
-		var rawLeave float64 // raw KLV leave value (no peg) for bestLeaves
-		var val float64      // full equity adjustment for recorder fast path
+		var val float64
 		if gen.tilesInBag > 0 {
 			if numOnRack > 0 && wordIndex >= 0 {
-				rawLeave = gen.klv.LeaveValueByIndex(wordIndex - 1)
+				val = gen.klv.LeaveValueByIndex(wordIndex - 1)
 			}
-			val = rawLeave
 			tilesPlayed := gen.leavemap.totalTiles - numOnRack
 			bagPlusSeven := gen.tilesInBag - tilesPlayed + 7
 			if bagPlusSeven >= 0 && bagPlusSeven < len(gen.pegValues) {
@@ -106,12 +104,8 @@ func (gen *GordonGenerator) populateLeaveMapIncremental(
 			} else {
 				val = float64(2 * gen.oppRackScore)
 			}
-			rawLeave = val // endgame: full adjustment = shadow adjustment
 		}
 		gen.leavemap.values[gen.leavemap.currentIndex] = val
-		if rawLeave > gen.shadow.bestLeaves[numOnRack] {
-			gen.shadow.bestLeaves[numOnRack] = rawLeave
-		}
 		return
 	}
 
@@ -164,9 +158,8 @@ func (gen *GordonGenerator) populateLeaveMapZero(rack *tilemapping.Rack, ml tile
 	if int(ml) == len(rack.LetArr) {
 		numOnRack := int(rack.NumTiles())
 		var val float64
-		var rawLeave float64 // 0 for dead-path mid-game; endgame adjustment otherwise
 		if gen.tilesInBag > 0 {
-			// Leave not in KLV (dead path) — rawLeave is 0, apply peg for recorder.
+			// Leave not in KLV (dead path) — leave value 0, apply peg for recorder.
 			tilesPlayed := gen.leavemap.totalTiles - numOnRack
 			bagPlusSeven := gen.tilesInBag - tilesPlayed + 7
 			if bagPlusSeven >= 0 && bagPlusSeven < len(gen.pegValues) {
@@ -178,15 +171,10 @@ func (gen *GordonGenerator) populateLeaveMapZero(rack *tilemapping.Rack, ml tile
 				leaveScore += rack.LetArr[lml] * gen.letterDistribution.Score(lml)
 			}
 			val = float64(-endgameNonOutplayLeavePenaltyMultiplier*leaveScore) - endgameNonOutplayConstantPenalty
-			rawLeave = val
 		} else {
 			val = float64(2 * gen.oppRackScore)
-			rawLeave = val
 		}
 		gen.leavemap.values[gen.leavemap.currentIndex] = val
-		if rawLeave > gen.shadow.bestLeaves[numOnRack] {
-			gen.shadow.bestLeaves[numOnRack] = rawLeave
-		}
 		return
 	}
 	gen.populateLeaveMapZero(rack, ml+1)

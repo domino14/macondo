@@ -1009,14 +1009,7 @@ func (gen *GordonGenerator) GenAllWithShadow(rack *tilemapping.Rack, addExchange
 	}
 	gen.leavemap.init(rack)
 
-	// Initialize bestLeaves. Populated during leave map traversal (raw leave,
-	// no peg) or by computeBestLeaves below.
-	for i := range gen.shadow.bestLeaves {
-		gen.shadow.bestLeaves[i] = math.Inf(-1)
-	}
-
 	// Populate leave map via incremental KWG traversal.
-	// Also computes bestLeaves from raw leave values (no peg).
 	if gen.klv != nil && gen.game != nil && !gen.disableLeaveMap {
 		gen.populateLeaveMap(rack)
 	} else {
@@ -1026,13 +1019,9 @@ func (gen *GordonGenerator) GenAllWithShadow(rack *tilemapping.Rack, addExchange
 
 	// bestLeaves was computed during leave map population from raw leave
 	// values. When leave map isn't available, fall back to enumeration.
-	if !gen.leavemap.initialized {
+	// Always use canonical bestLeaves computation.
+	{
 		gen.computeBestLeaves(rack)
-	}
-
-	// Generate exchange moves (leave map is already populated)
-	if addExchange {
-		gen.generateExchangeMoves(rack, 0, 0)
 	}
 
 	// Run shadow to rank anchors
@@ -1040,6 +1029,12 @@ func (gen *GordonGenerator) GenAllWithShadow(rack *tilemapping.Rack, addExchange
 
 	// Generate moves from anchors in best-first order
 	gen.genRecordScoringPlaysFromAnchors(rack)
+
+	// Generate exchange moves AFTER tile placements so exchanges don't
+	// set the winner and cause different pruning thresholds.
+	if addExchange {
+		gen.generateExchangeMoves(rack, 0, 0)
+	}
 
 	// Pass handling
 	if (len(gen.plays) == 0 && len(gen.smallPlays) == 0) || gen.genPass {
