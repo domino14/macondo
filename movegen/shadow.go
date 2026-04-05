@@ -1017,7 +1017,7 @@ func (gen *GordonGenerator) GenAllWithShadow(rack *tilemapping.Rack, addExchange
 
 	// Populate leave map via incremental KWG traversal.
 	// Also computes bestLeaves from raw leave values (no peg).
-	if gen.klv != nil && gen.game != nil {
+	if gen.klv != nil && gen.game != nil && !gen.disableLeaveMap {
 		gen.populateLeaveMap(rack)
 	} else {
 		// No KLV or game — leave map can't be used for equity lookups.

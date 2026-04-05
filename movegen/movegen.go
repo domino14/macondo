@@ -122,9 +122,9 @@ type GordonGenerator struct {
 	cache rowCache
 
 	// Leave map for O(1) leave value lookup during move generation.
-	// Populated during exchange generation.
-	leavemap    leaveMap
-	klv         *equity.KLV      // cached KLV reference
+	leavemap        leaveMap
+	klv             *equity.KLV // cached KLV reference
+	disableLeaveMap bool        // testing: prevent leave map activation
 	pegValues   []float64        // pre-endgame adjustment values
 	tilesInBag  int              // cached bag state for equity calc
 	oppRackScore int             // cached for endgame equity
@@ -210,6 +210,11 @@ func (gen *GordonGenerator) SetGenPass(p bool) {
 
 func (gen *GordonGenerator) SetMaxTileUsage(t int) {
 	gen.maxTileUsage = t
+}
+
+// DisableLeaveMap prevents leave map activation (for testing).
+func (gen *GordonGenerator) DisableLeaveMap() {
+	gen.disableLeaveMap = true
 }
 
 // GenAll generates all moves on the board. It assumes anchors have already
