@@ -200,7 +200,8 @@ func TestLeaveMapValuesMatchKLV(t *testing.T) {
 		"AAAAAAA", // all same
 		"EEEIILZ", // BenchmarkSim rack (3 E's, 2 I's)
 		"AAAEOOS", // from sim: 3 A's, 2 O's
-		"AAEFGIK", // from game 1 turn 1 — bestLeaves mismatch
+		"AAEFGIK", // from game 1 turn 1
+		"EIMNORS", // game 0 turn 19 near-endgame
 	}
 
 	bd := testBoard()
