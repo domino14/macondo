@@ -199,7 +199,8 @@ func TestLeaveMapValuesMatchKLV(t *testing.T) {
 		"RETAINS", // another 7
 		"AAAAAAA", // all same
 		"EEEIILZ", // BenchmarkSim rack (3 E's, 2 I's)
-		"AAAEOOS", // from sim: 3 A's, 2 O's — found leave value mismatch
+		"AAAEOOS", // from sim: 3 A's, 2 O's
+		"AAEFGIK", // from game 1 turn 1 — bestLeaves mismatch
 	}
 
 	bd := testBoard()
@@ -231,7 +232,16 @@ func TestLeaveMapValuesMatchKLV(t *testing.T) {
 			// Verify every reachable entry
 			verifyLeaveMapRecursive(t, gen, klv, rack, 0)
 
-			// bestLeaves is now computed by computeBestLeaves, not leave map.
+			// Verify bestLeaves from rawLeave matches computeBestLeaves
+			lmBest := gen.shadow.bestLeaves
+			gen.computeBestLeaves(rack)
+			for i := 0; i <= gen.leavemap.totalTiles; i++ {
+				diff := lmBest[i] - gen.shadow.bestLeaves[i]
+				if diff > 0.001 || diff < -0.001 {
+					t.Errorf("bestLeaves[%d] mismatch: rawLeave=%.4f compute=%.4f diff=%.4f",
+						i, lmBest[i], gen.shadow.bestLeaves[i], diff)
+				}
+			}
 
 		})
 	}

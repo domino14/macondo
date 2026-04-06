@@ -84,11 +84,13 @@ func (gen *GordonGenerator) populateLeaveMapIncremental(
 	if int(ml) == len(rack.LetArr) {
 		// Leaf: compute equity-adjusted leave value.
 		numOnRack := int(rack.NumTiles())
+		var rawLeave float64
 		var val float64
 		if gen.tilesInBag > 0 {
 			if numOnRack > 0 && wordIndex >= 0 {
-				val = gen.klv.LeaveValueByIndex(wordIndex - 1)
+				rawLeave = gen.klv.LeaveValueByIndex(wordIndex - 1)
 			}
+			val = rawLeave
 			tilesPlayed := gen.leavemap.totalTiles - numOnRack
 			bagPlusSeven := gen.tilesInBag - tilesPlayed + 7
 			if bagPlusSeven >= 0 && bagPlusSeven < len(gen.pegValues) {
@@ -104,8 +106,13 @@ func (gen *GordonGenerator) populateLeaveMapIncremental(
 			} else {
 				val = float64(2 * gen.oppRackScore)
 			}
+			rawLeave = val
 		}
 		gen.leavemap.values[gen.leavemap.currentIndex] = val
+		// Update bestLeaves from raw leave (no peg) — only reachable indices.
+		if rawLeave > gen.shadow.bestLeaves[numOnRack] {
+			gen.shadow.bestLeaves[numOnRack] = rawLeave
+		}
 		return
 	}
 
@@ -175,6 +182,14 @@ func (gen *GordonGenerator) populateLeaveMapZero(rack *tilemapping.Rack, ml tile
 			val = float64(2 * gen.oppRackScore)
 		}
 		gen.leavemap.values[gen.leavemap.currentIndex] = val
+		// Dead path: rawLeave = 0 for mid-game, endgame adjustment otherwise
+		var rawLeave float64
+		if gen.tilesInBag <= 0 {
+			rawLeave = val
+		}
+		if rawLeave > gen.shadow.bestLeaves[numOnRack] {
+			gen.shadow.bestLeaves[numOnRack] = rawLeave
+		}
 		return
 	}
 	gen.populateLeaveMapZero(rack, ml+1)
