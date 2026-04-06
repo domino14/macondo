@@ -122,11 +122,11 @@ type GordonGenerator struct {
 	cache rowCache
 
 	// Leave map for O(1) leave value lookup during move generation.
-	leavemap        leaveMap
-	klv             *equity.KLV // cached KLV reference
-	pegValues   []float64        // pre-endgame adjustment values
-	tilesInBag  int              // cached bag state for equity calc
-	oppRackScore int             // cached for endgame equity
+	leavemap     leaveMap
+	klv          *equity.KLV // cached KLV reference
+	pegValues    []float64   // pre-endgame adjustment values
+	tilesInBag   int         // cached bag state for equity calc
+	oppRackScore int         // cached for endgame equity
 
 	// Shadow play state
 	shadow shadowState

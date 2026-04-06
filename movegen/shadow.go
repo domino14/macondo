@@ -1038,8 +1038,7 @@ func (gen *GordonGenerator) GenAllWithShadow(rack *tilemapping.Rack, addExchange
 	// Generate moves from anchors in best-first order
 	gen.genRecordScoringPlaysFromAnchors(rack)
 
-	// Generate exchange moves AFTER tile placements so exchanges don't
-	// set the winner and cause different pruning thresholds.
+	// Generate exchange moves after tile placements.
 	if addExchange {
 		gen.generateExchangeMoves(rack, 0, 0)
 	}
