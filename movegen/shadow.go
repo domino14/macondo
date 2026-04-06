@@ -1006,6 +1006,11 @@ func (gen *GordonGenerator) GenAllWithShadow(rack *tilemapping.Rack, addExchange
 		for ml := tilemapping.MachineLetter(1); int(ml) < len(oppRack.LetArr); ml++ {
 			gen.oppRackScore += oppRack.LetArr[ml] * gen.letterDistribution.Score(ml)
 		}
+		// Also set shadow state (used by shadowRecord for endgame equity).
+		// When computeBestLeaves is skipped (leave map handles bestLeaves),
+		// these must still be current for the shadow pass.
+		gen.shadow.tilesInBag = gen.tilesInBag
+		gen.shadow.oppRackScore = gen.oppRackScore
 	}
 	gen.leavemap.init(rack)
 
