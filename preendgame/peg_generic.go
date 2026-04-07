@@ -1,7 +1,6 @@
 package preendgame
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -669,7 +668,7 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 			}
 		}
 		slices.SortFunc(genPlays, func(a, b tinymove.SmallMove) int {
-			return cmp.Compare(b.EstimatedValue(), a.EstimatedValue())
+			return int(b.EstimatedValue()) - int(a.EstimatedValue())
 		})
 
 		for idx := range genPlays {
