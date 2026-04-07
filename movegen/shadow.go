@@ -21,6 +21,7 @@ import (
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tinymove"
+	"github.com/domino14/macondo/wmp"
 )
 
 
@@ -31,14 +32,43 @@ const (
 )
 
 // Anchor represents a board anchor with its shadow-computed upper bound.
+//
+// The WMP-specific fields (TilesToPlay, PlaythroughBlocks, WordLength,
+// LeftmostStartCol, RightmostStartCol) are populated only when WMP is
+// active and the anchor came out of the per-(blocks, tiles) WMP anchor
+// table. They mirror MAGPIE's Anchor extension fields used by
+// wmp_move_gen_add_anchors / wordmap_gen.
+//
+// Layout-packed: 8 (equity) + 4 (score) + 9 × 1 (uint8 fields) = 21
+// bytes, padded to 24 with 8-byte alignment. Down from 80 bytes when
+// every field was a Go `int`. Smaller anchors mean cheaper heap
+// operations: heapifyDown swaps cost ~3× less and the heap fits more
+// entries per cache line. The sentinel value for LastAnchorCol is
+// math.MaxUint8 (255) instead of the 100 used previously.
+//
+// All "small int" fields use uint8 directly (not a typed alias) so
+// callers don't need ad-hoc conversions every time they read one.
+// Score uses int32 because a 7-tile bingo on triple-triples can
+// exceed 255 but is bounded well below int16's max.
 type Anchor struct {
 	HighestPossibleEquity float64
-	HighestPossibleScore  int
-	Row                   int
-	Col                   int
-	LastAnchorCol         int
+	HighestPossibleScore  int32
+	Row                   uint8
+	Col                   uint8
+	LastAnchorCol         uint8
 	Dir                   board.BoardDirection
+
+	// WMP-only fields. Zero when not produced by the WMP path.
+	TilesToPlay       uint8
+	PlaythroughBlocks uint8
+	WordLength        uint8
+	LeftmostStartCol  uint8
+	RightmostStartCol uint8
 }
+
+// LastAnchorCol uses the existing in-package sentinel value 100
+// (greater than any valid 0..14 column on a 15-board), which fits
+// in uint8 unchanged.
 
 // AnchorHeap is a max-heap of anchors ordered by highestPossibleEquity.
 type AnchorHeap struct {
@@ -53,10 +83,10 @@ func (h *AnchorHeap) addUnheaped(row, col, lastAnchorCol int, dir board.BoardDir
 	equity float64, score int) {
 	h.anchors = append(h.anchors, Anchor{
 		HighestPossibleEquity: equity,
-		HighestPossibleScore:  score,
-		Row:                   row,
-		Col:                   col,
-		LastAnchorCol:         lastAnchorCol,
+		HighestPossibleScore:  int32(score),
+		Row:                   uint8(row),
+		Col:                   uint8(col),
+		LastAnchorCol:         uint8(lastAnchorCol),
 		Dir:                   dir,
 	})
 }
@@ -358,6 +388,14 @@ func (gen *GordonGenerator) shadowPlayForAnchor(row, col, lastAnchorCol int, dir
 	gen.tilesPlayed = 0
 	gen.curAnchorCol = col
 
+	// Reset WMP playthrough/anchor scratch state for this anchor.
+	// Mirrors wmp_move_gen_reset_playthrough +
+	// wmp_move_gen_reset_anchors at the top of shadow_play_for_anchor.
+	if gen.wmpMoveGen.IsActive() {
+		gen.wmpMoveGen.ResetPlaythrough()
+		gen.wmpMoveGen.ResetAnchors()
+	}
+
 	// Copy rack for restoration
 	copy(s.shadowRackCopy[:], s.shadowRack[:])
 	origRackCrossSet := s.rackCrossSet
@@ -377,8 +415,50 @@ func (gen *GordonGenerator) shadowPlayForAnchor(row, col, lastAnchorCol int, dir
 		return
 	}
 
-	s.anchorHeap.addUnheaped(row, col, lastAnchorCol, dir,
-		s.highestShadowEquity, s.highestShadowScore)
+	if gen.wmpMoveGen.IsActive() && gen.wmpRecordSubAnchors {
+		// Dump the per-(blocks, tiles) WMP anchors for this square
+		// into the heap. Mirrors wmp_move_gen_add_anchors. Each
+		// non-empty slot becomes its own Anchor with the
+		// WMP-specific extension fields populated. Only useful
+		// alongside a wordmap_gen-style move generator that can
+		// process them efficiently; the default macondo recursive
+		// generator processes each anchor exhaustively, so adding
+		// N sub-anchors per square turns into N redundant
+		// recursiveGen passes. The non-sub-anchor path below still
+		// benefits from the WMP existence gating in shadow_record
+		// (tighter highestShadowEquity bound).
+		gen.addWMPAnchorsForSquare(row, col, lastAnchorCol, dir)
+	} else {
+		s.anchorHeap.addUnheaped(row, col, lastAnchorCol, dir,
+			s.highestShadowEquity, s.highestShadowScore)
+	}
+}
+
+// addWMPAnchorsForSquare walks the wmp move gen's dirty anchor list
+// (only the per-(blocks, tiles) slots that were touched during the
+// just-finished shadow_play_for_anchor pass) and pushes each into
+// the shadow anchor heap. Mirrors MAGPIE's wmp_move_gen_add_anchors,
+// but uses the dirty-index shortcut so we don't scan all 64 anchor
+// slots per square AND don't copy any Anchor structs into a scratch
+// buffer first.
+func (gen *GordonGenerator) addWMPAnchorsForSquare(row, col, lastAnchorCol int, dir board.BoardDirection) {
+	dirty := gen.wmpMoveGen.DirtyAnchorIndices()
+	for _, idx := range dirty {
+		a := gen.wmpMoveGen.AnchorAt(idx)
+		gen.shadow.anchorHeap.anchors = append(gen.shadow.anchorHeap.anchors, Anchor{
+			HighestPossibleEquity: a.HighestPossibleEquity,
+			HighestPossibleScore:  int32(a.HighestPossibleScore),
+			Row:                   uint8(row),
+			Col:                   uint8(col),
+			LastAnchorCol:         uint8(lastAnchorCol),
+			Dir:                   dir,
+			TilesToPlay:           uint8(a.TilesToPlay),
+			PlaythroughBlocks:     uint8(a.PlaythroughBlocks),
+			WordLength:            uint8(a.WordLength),
+			LeftmostStartCol:      uint8(a.LeftmostStartCol),
+			RightmostStartCol:     uint8(a.RightmostStartCol),
+		})
+	}
 }
 
 // shadowStartNonplaythrough handles shadow for an anchor on an empty square.
@@ -427,6 +507,9 @@ func (gen *GordonGenerator) shadowStartPlaythrough(row, col, lastAnchorCol int,
 	// Traverse the full length of existing tiles leftward
 	for {
 		s.shadowMainwordRestrictedScore += gen.letterDistribution.Score(curLetter)
+		if gen.wmpMoveGen.IsActive() {
+			gen.wmpMoveGen.AddPlaythroughLetter(byte(curLetter.Unblank()))
+		}
 		if s.currentLeftCol == 0 || s.currentLeftCol == lastAnchorCol+1 {
 			break
 		}
@@ -436,6 +519,12 @@ func (gen *GordonGenerator) shadowStartPlaythrough(row, col, lastAnchorCol int,
 			s.currentLeftCol++
 			break
 		}
+	}
+	if gen.wmpMoveGen.IsActive() {
+		// One block of leftward playthrough tiles consumed.
+		// Mirrors wmp_move_gen_increment_playthrough_blocks call at
+		// the bottom of MAGPIE's shadow_start_playthrough.
+		gen.wmpMoveGen.IncrementPlaythroughBlocks()
 	}
 
 	gen.shadowPlaythroughPlayLeft(row, dir == board.HorizontalDirection, csDir)
@@ -571,6 +660,14 @@ func (gen *GordonGenerator) shadowPlayRight(row int, isUnique bool, csDir board.
 	restrictedAny := false
 	changedMuls := false
 
+	// Snapshot WMP playthrough state so we can resume from the
+	// post-shadow_play_left position when we unwind. Mirrors
+	// wmp_move_gen_save_playthrough_state at the top of
+	// MAGPIE's shadow_play_right.
+	if gen.wmpMoveGen.IsActive() {
+		gen.wmpMoveGen.SavePlaythroughState()
+	}
+
 	dim := gen.boardDim
 
 	for s.currentRightCol < dim-1 && gen.tilesPlayed < s.numLettersOnRack {
@@ -611,13 +708,21 @@ func (gen *GordonGenerator) shadowPlayRight(row int, isUnique bool, csDir board.
 		}
 
 		// Scan past consecutive playthrough tiles to the right
+		foundPlaythrough := false
 		for s.currentRightCol+1 < dim {
 			nextLetter := gen.board.GetLetter(row, s.currentRightCol+1)
 			if nextLetter == 0 {
 				break
 			}
+			foundPlaythrough = true
+			if gen.wmpMoveGen.IsActive() {
+				gen.wmpMoveGen.AddPlaythroughLetter(byte(nextLetter.Unblank()))
+			}
 			s.shadowMainwordRestrictedScore += gen.letterDistribution.Score(nextLetter)
 			s.currentRightCol++
+		}
+		if gen.wmpMoveGen.IsActive() && foundPlaythrough {
+			gen.wmpMoveGen.IncrementPlaythroughBlocks()
 		}
 
 		if gen.tilesPlayed > 0 && (isUnique || gen.tilesPlayed > 1) {
@@ -644,6 +749,9 @@ func (gen *GordonGenerator) shadowPlayRight(row int, isUnique bool, csDir board.
 
 	s.currentRightCol = origRightCol
 	gen.tilesPlayed = origTilesPlayed
+	if gen.wmpMoveGen.IsActive() {
+		gen.wmpMoveGen.RestorePlaythroughState()
+	}
 	gen.shadowMaybeRecalcEffMuls()
 }
 
@@ -651,6 +759,33 @@ func (gen *GordonGenerator) shadowPlayRight(row int, isUnique bool, csDir board.
 // and updates the highest shadow equity if it's better.
 func (gen *GordonGenerator) shadowRecord() {
 	s := &gen.shadow
+
+	// WMP existence gating. When WMP is active we either:
+	//   - For full-rack playthrough plays: confirm the rack + board
+	//     tiles spell a real word at the right length, or
+	//   - For nonplaythrough plays of length >= MIN_LENGTH: confirm
+	//     at least one anagram of some subrack of that length is a
+	//     real word.
+	// On a miss the candidate is not recordable, so we return early.
+	// Mirrors the WMP gating block at the top of MAGPIE's shadow_record.
+	wmpActive := gen.wmpMoveGen.IsActive()
+	useWMPLeaves := false
+	if wmpActive {
+		hasPlaythrough := gen.wmpMoveGen.HasPlaythrough()
+		if hasPlaythrough && gen.tilesPlayed == s.numLettersOnRack {
+			if !gen.wmpMoveGen.CheckPlaythroughFullRackExistence() {
+				return
+			}
+		}
+		if !hasPlaythrough && gen.tilesPlayed >= wmp.MinimumWordLength {
+			if !gen.wmpMoveGen.NonplaythroughWordOfLengthExists(gen.tilesPlayed) {
+				return
+			}
+			if s.tilesInBag > 0 {
+				useWMPLeaves = true
+			}
+		}
+	}
 
 	// Compute unrestricted tiles score: inner product of descending tile scores
 	// and descending effective letter multipliers
@@ -674,7 +809,14 @@ func (gen *GordonGenerator) shadowRecord() {
 	if s.tilesInBag > 0 {
 		// Bag not empty: add best leave value for remaining tiles.
 		leaveCount := s.numLettersOnRack - gen.tilesPlayed
-		equity += s.bestLeaves[leaveCount]
+		if useWMPLeaves {
+			// WMP-tightened best leaves only consider leaves whose
+			// played-part actually has a valid word; they are <=
+			// the unfiltered shadow.bestLeaves[leaveCount].
+			equity += gen.wmpMoveGen.NonplaythroughBestLeaveValues()[leaveCount]
+		} else {
+			equity += s.bestLeaves[leaveCount]
+		}
 	} else {
 		// Bag empty (endgame): adjustment depends on whether we play out.
 		if gen.tilesPlayed < s.numLettersOnRack {
@@ -688,6 +830,20 @@ func (gen *GordonGenerator) shadowRecord() {
 		} else {
 			// Playing out: bonus = 2 * opponent's rack score.
 			equity += float64(2 * s.oppRackScore)
+		}
+	}
+
+	if wmpActive {
+		// Record this candidate into the per-(playthrough_blocks,
+		// tiles_to_play) anchor table. The total word length is the
+		// number of new tiles plus any board playthrough tiles
+		// covered by the candidate. Mirrors the
+		// wmp_move_gen_maybe_update_anchor call near the bottom of
+		// MAGPIE's shadow_record.
+		wordLength := gen.wmpMoveGen.NumTilesPlayedThrough() + gen.tilesPlayed
+		if wordLength >= wmp.MinimumWordLength {
+			gen.wmpMoveGen.MaybeUpdateAnchor(gen.tilesPlayed, wordLength,
+				s.currentLeftCol, float64(score), equity)
 		}
 	}
 
@@ -937,9 +1093,11 @@ func (gen *GordonGenerator) genRecordScoringPlaysFromAnchors(rack *tilemapping.R
 		gen.vertical = needTransposed
 
 		// Anchor row/col are already in the correct coordinate system
-		gen.curRowIdx = anchor.Row
-		gen.curAnchorCol = anchor.Col
-		gen.lastAnchorCol = anchor.LastAnchorCol
+		anchorRow := int(anchor.Row)
+		anchorCol := int(anchor.Col)
+		gen.curRowIdx = anchorRow
+		gen.curAnchorCol = anchorCol
+		gen.lastAnchorCol = int(anchor.LastAnchorCol)
 
 		// Load row cache for this anchor's row
 		var csDir board.BoardDirection
@@ -948,10 +1106,19 @@ func (gen *GordonGenerator) genRecordScoringPlaysFromAnchors(rack *tilemapping.R
 		} else {
 			csDir = board.HorizontalDirection
 		}
-		gen.cache.loadRow(gen.board, anchor.Row, csDir, gen.boardDim)
+		gen.cache.loadRow(gen.board, anchorRow, csDir, gen.boardDim)
 
-		gen.recursiveGen(anchor.Col, rack, gd.GetRootNodeIndex(),
-			anchor.Col, anchor.Col, !gen.vertical, 0, 0, 1)
+		// WMP-recorded anchors carry per-(blocks, tiles) extension
+		// fields. Process them via wordmapGen, which retrieves the
+		// word list directly from the WMP and avoids the GADDAG
+		// traversal in recursiveGen. Non-WMP anchors fall back to
+		// the regular Gordon recursive generator.
+		if gen.wmpMoveGen.IsActive() && anchor.TilesToPlay > 0 {
+			gen.wordmapGen(rack, &anchor)
+		} else {
+			gen.recursiveGen(anchorCol, rack, gd.GetRootNodeIndex(),
+				anchorCol, anchorCol, !gen.vertical, 0, 0, 1)
+		}
 	}
 
 	if currentlyTransposed {
@@ -969,6 +1136,48 @@ func (gen *GordonGenerator) RunShadowOnly(rack *tilemapping.Rack) []Anchor {
 		return result[i].HighestPossibleScore > result[j].HighestPossibleScore
 	})
 	return result
+}
+
+// RunShadowOnlyWMP runs the shadow pass with full WMP (and leave map)
+// initialization, mirroring the slice of GenAllWithShadow that comes
+// before recursiveGen. Returns the anchors in descending equity order
+// (the same order MAGPIE's extract_sorted_anchors_for_test produces).
+//
+// tilesInBag and oppRackScore are stamped onto the generator so
+// shadow_record's equity branch matches the MAGPIE shadow tests.
+// For score-only assertions (sortingParameter == SortByScore) the
+// exact tilesInBag value doesn't matter as long as it is > 0, since
+// shadow.bestLeaves remains zero with no equity calculator set.
+//
+// Intended for tests that want to inspect anchor output without
+// running the full recursive_gen pipeline.
+func (gen *GordonGenerator) RunShadowOnlyWMP(rack *tilemapping.Rack, tilesInBag, oppRackScore int) []Anchor {
+	gen.tilesInBag = tilesInBag
+	gen.oppRackScore = oppRackScore
+	gen.shadow.tilesInBag = tilesInBag
+	gen.shadow.oppRackScore = oppRackScore
+
+	gen.leavemap.Init(rack)
+	for i := range gen.shadow.bestLeaves {
+		gen.shadow.bestLeaves[i] = 0
+	}
+
+	gen.wmpMoveGen.Init(gen.letterDistribution, rack, gen.wmpData)
+	if gen.wmpMoveGen.IsActive() {
+		checkLeaves := tilesInBag > 0 && gen.sortingParameter != SortByScore
+		gen.wmpMoveGen.CheckNonplaythroughExistence(checkLeaves, &gen.leavemap)
+	}
+
+	gen.genShadow(rack)
+
+	// Extract anchors in descending equity order, matching MAGPIE's
+	// extract_sorted_anchors_for_test behavior.
+	n := gen.shadow.anchorHeap.len()
+	sorted := make([]Anchor, 0, n)
+	for gen.shadow.anchorHeap.len() > 0 {
+		sorted = append(sorted, gen.shadow.anchorHeap.extractMax())
+	}
+	return sorted
 }
 
 // GenAllWithShadow generates all moves using shadow for best-first ordering.
@@ -1012,7 +1221,7 @@ func (gen *GordonGenerator) GenAllWithShadow(rack *tilemapping.Rack, addExchange
 		gen.shadow.tilesInBag = gen.tilesInBag
 		gen.shadow.oppRackScore = gen.oppRackScore
 	}
-	gen.leavemap.init(rack)
+	gen.leavemap.Init(rack)
 
 	// Initialize bestLeaves before population.
 	for i := range gen.shadow.bestLeaves {
@@ -1024,12 +1233,26 @@ func (gen *GordonGenerator) GenAllWithShadow(rack *tilemapping.Rack, addExchange
 	if gen.klv != nil && gen.game != nil {
 		gen.populateLeaveMap(rack)
 	} else {
-		gen.leavemap.initialized = false
+		gen.leavemap.Initialized = false
 	}
 
 	// When leave map wasn't populated, fall back to enumeration.
-	if !gen.leavemap.initialized {
+	if !gen.leavemap.Initialized {
 		gen.computeBestLeaves(rack)
+	}
+
+	// Initialize the WMP move gen for this rack and (if active) run
+	// the nonplaythrough subrack enumeration so shadow_record can
+	// gate on word-length existence and use WMP-tightened best leaves.
+	// Mirrors generate_moves: wmp_move_gen_init in gen_load_position
+	// followed by wmp_move_gen_check_nonplaythrough_existence between
+	// gen_look_up_leaves_and_record_exchanges and gen_shadow.
+	gen.wmpMoveGen.Init(gen.letterDistribution, rack, gen.wmpData)
+	if gen.wmpMoveGen.IsActive() {
+		// MAGPIE only checks leaves when sorting by equity in mid-game;
+		// we mirror that condition.
+		checkLeaves := gen.shadow.tilesInBag > 0 && gen.sortingParameter != SortByScore
+		gen.wmpMoveGen.CheckNonplaythroughExistence(checkLeaves, &gen.leavemap)
 	}
 
 	// Run shadow to rank anchors

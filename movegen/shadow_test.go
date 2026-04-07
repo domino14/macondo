@@ -67,7 +67,7 @@ func assertAnchorScore(t *testing.T, anchors []movegen.Anchor, idx, expected int
 		t.Errorf("anchor index %d out of range (have %d anchors)", idx, len(anchors))
 		return
 	}
-	actual := anchors[idx].HighestPossibleScore
+	actual := int(anchors[idx].HighestPossibleScore)
 	if actual < expected {
 		t.Errorf("anchor[%d].score = %d, want >= %d (upper bound too low!)", idx, actual, expected)
 	}
