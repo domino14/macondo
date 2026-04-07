@@ -34,6 +34,13 @@ const (
 	SortByNone
 )
 
+// DefaultSmallPlayCapacity is the pre-allocated capacity for the smallPlays
+// slice on each GordonGenerator. It matches magpie's
+// DEFAULT_SMALL_MOVE_LIST_CAPACITY (config_defs.h:10). Two-blank racks can
+// produce very large move counts, so we allocate generously to avoid any
+// reallocation during move generation.
+const DefaultSmallPlayCapacity = 250_000
+
 // MoveGenerator is a generic interface for generating moves.
 type MoveGenerator interface {
 	GenAll(rack *tilemapping.Rack, addExchange bool) []*move.Move
@@ -145,6 +152,7 @@ func NewGordonGenerator(gd gaddag.WordGraph, board *board.GameBoard,
 		strip:              make([]tilemapping.MachineLetter, board.Dim()),
 		exchangestrip:      make([]tilemapping.MachineLetter, 7), // max rack size. can make a parameter later.
 		leavestrip:         make([]tilemapping.MachineLetter, 7),
+		smallPlays:         make([]tinymove.SmallMove, 0, DefaultSmallPlayCapacity),
 		playRecorder:       AllPlaysRecorder,
 		winner:             new(move.Move),
 		placeholder:        new(move.Move),
@@ -233,11 +241,7 @@ func (gen *GordonGenerator) GenAll(rack *tilemapping.Rack, addExchange bool) []*
 		gen.topNPlays[i].SetEmpty()
 	}
 
-	// XXX: I shouldn't be doing this every time GenAll gets called. Only if actually
-	// using the SmallMove recorder. This causes a needless allocation per loop.
-	ptr := SmallPlaySlicePool.Get().(*[]tinymove.SmallMove)
-	gen.smallPlays = *ptr
-	gen.smallPlays = gen.smallPlays[0:0]
+	gen.smallPlays = gen.smallPlays[:0]
 
 	gen.vertical = false
 	gen.genByOrientation(rack, board.HorizontalDirection)
@@ -266,7 +270,6 @@ func (gen *GordonGenerator) GenAll(rack *tilemapping.Rack, addExchange bool) []*
 	if addExchange {
 		gen.generateExchangeMoves(rack, 0, 0)
 	}
-	*ptr = gen.smallPlays
 
 	if gen.maxTopMovesSize != 0 {
 		// We're in top-N mode. gen.plays is empty

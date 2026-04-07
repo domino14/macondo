@@ -1,13 +1,15 @@
 package negamax
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"math"
 	"runtime"
-	"sort"
+	"slices"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -71,10 +73,11 @@ var (
 
 // Credit: MIT-licensed https://github.com/algerbrex/blunder/blob/main/engine/search.go
 type PVLine struct {
-	Moves    [MaxVariantLength]*move.Move
-	g        *game.Game
-	score    int16
-	numMoves int
+	Moves     [MaxVariantLength]*move.Move
+	tinyMoves [MaxVariantLength]tinymove.SmallMove
+	g         *game.Game
+	score     int16
+	numMoves  int
 }
 
 // Clear the principal variation line.
@@ -82,22 +85,43 @@ func (pvLine *PVLine) Clear() {
 	pvLine.numMoves = 0
 }
 
-// Update the principal variation line with a new best move,
-// and a new line of best play after the best move.
-func (pvLine *PVLine) Update(m *move.Move, newPVLine PVLine, score int16) {
-	pvLine.Clear()
-	mc := &move.Move{}
-	mc.CopyFrom(m)
-	pvLine.Moves[0] = mc
-	for i := 0; i < newPVLine.numMoves; i++ {
-		pvLine.Moves[i+1] = newPVLine.Moves[i]
+// Update the principal variation line with a new best move and child PV.
+// Takes a SmallMove directly to avoid allocations in the hot path.
+func (pvLine *PVLine) Update(sm tinymove.SmallMove, childPV *PVLine, score int16) {
+	pvLine.numMoves = 0
+	pvLine.tinyMoves[0] = sm
+	for i := 0; i < childPV.numMoves; i++ {
+		pvLine.tinyMoves[i+1] = childPV.tinyMoves[i]
 	}
-	pvLine.numMoves = newPVLine.numMoves + 1
+	pvLine.numMoves = childPV.numMoves + 1
 	pvLine.score = score
 }
 
-// Get the best move from the principal variation line.
+// MaterializeFull populates Moves[] by replaying the PV from the current
+// (root) game state. Must be called after search completes, when the game
+// is back at the root position.
+func (pvLine *PVLine) MaterializeFull() {
+	if pvLine.numMoves == 0 || pvLine.g == nil {
+		return
+	}
+	g := pvLine.g.Copy()
+	for i := 0; i < pvLine.numMoves; i++ {
+		sm := pvLine.tinyMoves[i]
+		rack := g.RackFor(g.PlayerOnTurn())
+		m := &move.Move{}
+		conversions.SmallMoveToMove(sm, m, g.Alphabet(), g.Board(), rack)
+		pvLine.Moves[i] = m
+		if i < pvLine.numMoves-1 {
+			_ = g.PlayMove(m, false, 0)
+		}
+	}
+}
+
+// GetPVMove returns the best (first) move in the PV, materializing if needed.
 func (pvLine *PVLine) GetPVMove() *move.Move {
+	if pvLine.Moves[0] == nil && pvLine.numMoves > 0 {
+		pvLine.MaterializeFull()
+	}
 	return pvLine.Moves[0]
 }
 
@@ -111,39 +135,48 @@ func (pvLine *PVLine) Score() int16 {
 	return pvLine.score
 }
 
-// Convert the principal variation line to a string.
-func (pvLine PVLine) String() string {
-	var s string
-	s = fmt.Sprintf("PV; val %d\n", pvLine.score)
-	for i := 0; i < pvLine.numMoves; i++ {
-		s += fmt.Sprintf("%d: %s (%d)\n",
-			i+1,
-			pvLine.Moves[i].ShortDescription(),
-			pvLine.Moves[i].Score())
+// writePV writes the PV to sb. It replays moves onto a board copy so that
+// pass-through tiles are shown with their actual letters (e.g. F(Y)KE).
+func (pvLine *PVLine) writePV(sb *strings.Builder, linebreaks bool) {
+	if pvLine.numMoves == 0 || pvLine.g == nil {
+		return
 	}
-	return s
+	bd := pvLine.g.Board().Copy()
+	alph := pvLine.g.Alphabet()
+	var m move.Move
+	for i := 0; i < pvLine.numMoves; i++ {
+		sm := pvLine.tinyMoves[i]
+		conversions.TinyMoveToMove(sm.TinyMove(), bd, &m)
+		m.SetAlphabet(alph)
+		desc := bd.MoveDescriptionWithPlaythrough(&m)
+		if linebreaks {
+			fmt.Fprintf(sb, "%d: %s (%d)\n", i+1, desc, sm.Score())
+		} else {
+			sep := "| "
+			if i == pvLine.numMoves-1 {
+				sep = ""
+			}
+			fmt.Fprintf(sb, "%d) %s (%d) %s", i+1, desc, sm.Score(), sep)
+		}
+		if i < pvLine.numMoves-1 {
+			bd.PlaceMoveTiles(&m)
+		}
+	}
 }
 
-func (pvLine PVLine) NLBString() string {
-	// no line breaks
-	var s string
-	s = fmt.Sprintf("[Value: %+d] ", pvLine.score)
-	for i := 0; i < pvLine.numMoves; i++ {
-		finalSeparator := "|"
-		if i == pvLine.numMoves-1 {
-			finalSeparator = ""
-		}
-		s += fmt.Sprintf("%d) %s (%d) %s ",
-			i+1,
-			// XXX: this will only work if we are playing the moves and keeping
-			// track of the playthrough
-			// pvLine.g.Board().MoveDescriptionWithPlaythrough(pvLine.Moves[i]),
-			pvLine.Moves[i].ShortDescription(),
-			pvLine.Moves[i].Score(),
-			finalSeparator,
-		)
-	}
-	return s
+// Convert the principal variation line to a string.
+func (pvLine *PVLine) String() string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "PV; val %d\n", pvLine.score)
+	pvLine.writePV(&sb, true)
+	return sb.String()
+}
+
+func (pvLine *PVLine) NLBString() string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "[Value: %+d] ", pvLine.score)
+	pvLine.writePV(&sb, false)
+	return sb.String()
 }
 
 // panic if pvline is invalid
@@ -246,6 +279,10 @@ type Solver struct {
 	// Metrics from last solve
 	lastSolveTime   float64
 	lastTTableStats string
+
+	// Per-thread bump allocators for SmallMove slices used during recursive
+	// search. Using arenas avoids per-node make+GC overhead.
+	arenas []*tinymove.SmallMoveArena
 }
 
 // Init initializes the solver
@@ -278,6 +315,9 @@ func (s *Solver) Movegen() movegen.MoveGenerator {
 }
 
 func (s *Solver) Variations() []PVLine {
+	for i := range s.variations {
+		s.variations[i].MaterializeFull()
+	}
 	return s.variations
 }
 
@@ -355,6 +395,18 @@ func (s *Solver) SetAlsoSolveMove(m *move.Move) {
 	s.alsoSolveMoveOriginal = m
 }
 
+// ensureArenas creates per-thread SmallMoveArenas if not already sized for the
+// current thread count. Call this before any negamax search begins.
+func (s *Solver) ensureArenas() {
+	if len(s.arenas) == s.threads {
+		return
+	}
+	s.arenas = make([]*tinymove.SmallMoveArena, s.threads)
+	for i := range s.arenas {
+		s.arenas[i] = tinymove.NewSmallMoveArena(tinymove.DefaultSmallMoveArenaSize)
+	}
+}
+
 func (s *Solver) makeGameCopies() error {
 	log.Debug().Int("threads", s.threads).Msg("makeGameCopies")
 	s.gameCopies = []*game.Game{}
@@ -374,7 +426,12 @@ func (s *Solver) makeGameCopies() error {
 	return nil
 }
 
-func (s *Solver) generateSTMPlays(depth, thread int) []tinymove.SmallMove {
+// generateSTMPlays returns the moves to search at this node.
+// fromArena is true when the returned slice was bump-allocated from the
+// per-thread arena and must be Dealloc'd by the caller after use.
+// It is false when returning s.initialMoves[thread] (root depth) or when
+// generating the initial move list (currentIDDepths == -1, uses make).
+func (s *Solver) generateSTMPlays(depth, thread int) ([]tinymove.SmallMove, bool) {
 	// STM means side-to-move
 	g := s.game
 	mg := s.stmMovegen
@@ -383,20 +440,25 @@ func (s *Solver) generateSTMPlays(depth, thread int) []tinymove.SmallMove {
 		mg = s.movegens[thread-1]
 		g = s.gameCopies[thread-1]
 	}
-	var genPlays []tinymove.SmallMove
 
 	stmRack := g.RackFor(g.PlayerOnTurn())
 	if s.currentIDDepths[thread] == depth {
-		genPlays = s.initialMoves[thread]
-	} else {
-		mg.GenAll(stmRack, false)
-		plays := mg.SmallPlays()
-		// movegen owns the plays array. Make a copy of these.
-		genPlays = make([]tinymove.SmallMove, len(plays))
-		copy(genPlays, plays)
-		movegen.SmallPlaySlicePool.Put(&plays)
+		return s.initialMoves[thread], false
 	}
-	return genPlays
+
+	mg.GenAll(stmRack, false)
+	plays := mg.SmallPlays()
+
+	// Use the arena for recursive (in-search) move generation.
+	// Use make for initial move population (currentIDDepths == -1).
+	if s.currentIDDepths[thread] >= 0 {
+		genPlays := s.arenas[thread].Alloc(len(plays))
+		copy(genPlays, plays)
+		return genPlays, true
+	}
+	genPlays := make([]tinymove.SmallMove, len(plays))
+	copy(genPlays, plays)
+	return genPlays, false
 }
 
 func (s *Solver) assignEstimates(moves []tinymove.SmallMove, depth, thread int, ttMove tinymove.TinyMove) {
@@ -450,8 +512,8 @@ func (s *Solver) assignEstimates(moves []tinymove.SmallMove, depth, thread int, 
 			moves[idx].AddEstimatedValue(EarlyPassBF)
 		}
 	}
-	sort.Slice(moves, func(i int, j int) bool {
-		return moves[i].EstimatedValue() > moves[j].EstimatedValue()
+	slices.SortFunc(moves, func(a, b tinymove.SmallMove) int {
+		return cmp.Compare(b.EstimatedValue(), a.EstimatedValue())
 	})
 }
 
@@ -489,7 +551,7 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 	if !movesAlreadyGenerated {
 		s.currentIDDepths[0] = -1 // so that generateSTMPlays generates all moves first properly.
 		s.initialMoves = make([][]tinymove.SmallMove, s.threads)
-		s.initialMoves[0] = s.generateSTMPlays(0, 0)
+		s.initialMoves[0], _ = s.generateSTMPlays(0, 0)
 		// assignEstimates for the very first time around.
 		s.assignEstimates(s.initialMoves[0], 0, 0, tinymove.InvalidTinyMove)
 
@@ -499,8 +561,8 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 		s.currentIDDepths[0] = 1
 		lastIteration, _ = s.negamax(ctx, initialHashKey, 1, α, β, &pv, 0, true)
 		// Sort the moves by valuation.
-		sort.Slice(s.initialMoves[0], func(i, j int) bool {
-			return s.initialMoves[0][i].EstimatedValue() > s.initialMoves[0][j].EstimatedValue()
+		slices.SortFunc(s.initialMoves[0], func(a, b tinymove.SmallMove) int {
+			return cmp.Compare(b.EstimatedValue(), a.EstimatedValue())
 		})
 	} else {
 		// Moves already set and sorted by wrapper, just ensure array is sized for threads
@@ -520,7 +582,8 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 		copy(s.initialMoves[t], s.initialMoves[0])
 	}
 
-	var lastPlyWinner *move.Move
+	var lastPlyWinner tinymove.SmallMove
+	var lastPlyWinnerSet bool
 	var lastPlyWinnerMatches int
 	for p := 2; p <= plies; p++ {
 
@@ -533,18 +596,19 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 		}
 		// Successfully completed this ply
 		s.lastCompletedPly = p
-		justWon := s.principalVariation.Moves[0]
 
-		if s.preventSlowroll {
-			if lastPlyWinner != nil {
-				if lastPlyWinner.ShortDescription() == justWon.ShortDescription() {
+		if s.preventSlowroll && s.principalVariation.numMoves > 0 {
+			justWon := s.principalVariation.tinyMoves[0]
+			if lastPlyWinnerSet {
+				if lastPlyWinner.TinyMove() == justWon.TinyMove() {
 					lastPlyWinnerMatches++
 					if lastPlyWinnerMatches > 4 {
 						log.Info().Msg("preventing slowroll; exiting iterative deepening early")
 						break
 					} else {
 						finalSpread := s.principalVariation.score + int16(s.game.CurrentSpread())
-						if finalSpread > 0 && len(lastPlyWinner.Leave()) == 0 {
+						rackSize := int(s.game.RackFor(s.solvingPlayer).NumTiles())
+						if finalSpread > 0 && lastPlyWinner.TilesPlayed() == rackSize {
 							// This move goes out, and it is a sure win.
 							// So don't slowroll and just play it quickly.
 							log.Info().Int16("final-spread", finalSpread).
@@ -557,8 +621,9 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 					lastPlyWinnerMatches = 0
 				}
 			}
+			lastPlyWinner = justWon
+			lastPlyWinnerSet = true
 		}
-		lastPlyWinner = justWon
 	}
 
 	s.bestPVValue = s.principalVariation.score
@@ -598,15 +663,15 @@ func (s *Solver) iterativelyDeepenABDADA(ctx context.Context, plies int) error {
 	if !movesAlreadyGenerated {
 		s.currentIDDepths[0] = -1
 		s.initialMoves = make([][]tinymove.SmallMove, s.threads)
-		s.initialMoves[0] = s.generateSTMPlays(0, 0)
+		s.initialMoves[0], _ = s.generateSTMPlays(0, 0)
 		s.assignEstimates(s.initialMoves[0], 0, 0, tinymove.InvalidTinyMove)
 
 		// Do initial 1-ply search for move ordering
 		pv := PVLine{g: s.game}
 		s.currentIDDepths[0] = 1
 		lastIteration, _ = s.negamax(ctx, initialHashKey, 1, α, β, &pv, 0, true)
-		sort.Slice(s.initialMoves[0], func(i, j int) bool {
-			return s.initialMoves[0][i].EstimatedValue() > s.initialMoves[0][j].EstimatedValue()
+		slices.SortFunc(s.initialMoves[0], func(a, b tinymove.SmallMove) int {
+			return cmp.Compare(b.EstimatedValue(), a.EstimatedValue())
 		})
 	} else {
 		// Moves already set and sorted by wrapper, just ensure array is sized for threads
@@ -685,8 +750,8 @@ func (s *Solver) iterativelyDeepenABDADA(ctx context.Context, plies int) error {
 				return err
 			}
 
-			sort.Slice(s.initialMoves[0], func(i, j int) bool {
-				return s.initialMoves[0][i].EstimatedValue() > s.initialMoves[0][j].EstimatedValue()
+			slices.SortFunc(s.initialMoves[0], func(a, b tinymove.SmallMove) int {
+				return cmp.Compare(b.EstimatedValue(), a.EstimatedValue())
 			})
 
 			s.principalVariation = mainPV
@@ -759,7 +824,7 @@ func (s *Solver) iterativelyDeepenTreeSplit(ctx context.Context, plies int) erro
 	if !movesAlreadyGenerated {
 		s.currentIDDepths[0] = -1 // so that generateSTMPlays generates all moves first properly
 		s.initialMoves = make([][]tinymove.SmallMove, s.threads)
-		s.initialMoves[0] = s.generateSTMPlays(0, 0)
+		s.initialMoves[0], _ = s.generateSTMPlays(0, 0)
 		// assignEstimates for the very first time around
 		s.assignEstimates(s.initialMoves[0], 0, 0, tinymove.InvalidTinyMove)
 	} else {
@@ -905,17 +970,16 @@ func (s *Solver) iterativelyDeepenTreeSplit(ctx context.Context, plies int) erro
 		}
 
 		// Sort moves by their estimated values
-		sort.Slice(rootMoves, func(i, j int) bool {
-			return rootMoves[i].EstimatedValue() > rootMoves[j].EstimatedValue()
+		slices.SortFunc(rootMoves, func(a, b tinymove.SmallMove) int {
+			return cmp.Compare(b.EstimatedValue(), a.EstimatedValue())
 		})
 
 		// Build PV from best move
 		finalBest := int16(bestValue.Load())
 		if len(rootMoves) > 0 {
 			pv := PVLine{g: g}
-			bestMove := &move.Move{}
-			conversions.SmallMoveToMove(rootMoves[0], bestMove, g.Alphabet(), g.Board(), g.RackFor(g.PlayerOnTurn()))
-			pv.Update(bestMove, PVLine{g: g}, finalBest-int16(s.initialSpread))
+			emptyChild := PVLine{g: g}
+			pv.Update(rootMoves[0], &emptyChild, finalBest-int16(s.initialSpread))
 			s.principalVariation = pv
 			s.bestPVValue = finalBest - int16(s.initialSpread)
 		}
@@ -986,11 +1050,13 @@ aspirationLoop:
 				if err != nil {
 					log.Debug().Msgf("Thread %d error %v", t, err)
 				}
-				log.Debug().Msgf("Thread %d done; val returned %d, pv %s", t, val, pv.NLBString())
+				if e := log.Debug(); e.Enabled() {
+					e.Msgf("Thread %d done; val returned %d, pv %s", t, val, pv.NLBString())
+				}
 				// Try a few schemes to really randomize stuff.
 				if t == 1 {
-					sort.Slice(s.initialMoves[t], func(i, j int) bool {
-						return s.initialMoves[t][i].EstimatedValue() > s.initialMoves[t][j].EstimatedValue()
+					slices.SortFunc(s.initialMoves[t], func(a, b tinymove.SmallMove) int {
+						return cmp.Compare(b.EstimatedValue(), a.EstimatedValue())
 					})
 				} else if t == 2 {
 					// do nothing, use original order
@@ -1024,8 +1090,8 @@ aspirationLoop:
 			log.Err(err).Msg("negamax-error-most-likely-timeout")
 			// we keep the last known variation; don't change it.
 		} else {
-			sort.Slice(s.initialMoves[0], func(i, j int) bool {
-				return s.initialMoves[0][i].EstimatedValue() > s.initialMoves[0][j].EstimatedValue()
+			slices.SortFunc(s.initialMoves[0], func(a, b tinymove.SmallMove) int {
+				return cmp.Compare(b.EstimatedValue(), a.EstimatedValue())
 			})
 
 			s.principalVariation = pv
@@ -1095,7 +1161,7 @@ func (s *Solver) solveWithMultipleVariations(ctx context.Context, plies int,
 	s.currentIDDepths = make([]int, s.threads)
 	s.currentIDDepths[0] = -1
 	s.initialMoves = make([][]tinymove.SmallMove, s.threads)
-	s.initialMoves[0] = s.generateSTMPlays(0, 0)
+	s.initialMoves[0], _ = s.generateSTMPlays(0, 0)
 	s.assignEstimates(s.initialMoves[0], 0, 0, tinymove.InvalidTinyMove)
 
 	// Do initial 1-ply search ONCE for move ordering, just like the original code
@@ -1117,23 +1183,22 @@ func (s *Solver) solveWithMultipleVariations(ctx context.Context, plies int,
 	pv := PVLine{g: s.game}
 	s.currentIDDepths[0] = 1
 	_, _ = s.negamax(context.Background(), initialHashKey, 1, α, β, &pv, 0, true)
-	sort.Slice(s.initialMoves[0], func(i, j int) bool {
-		return s.initialMoves[0][i].EstimatedValue() > s.initialMoves[0][j].EstimatedValue()
+	slices.SortFunc(s.initialMoves[0], func(a, b tinymove.SmallMove) int {
+		return cmp.Compare(b.EstimatedValue(), a.EstimatedValue())
 	})
 
 	variationsFound := 0
-	var lastWinner *move.Move
+	lastWinner := tinymove.InvalidTinyMove
 
 searchLoop:
 	for variationsFound < s.solveMultipleVariations {
 		toDelete := -1
-		if lastWinner != nil {
+		if lastWinner != tinymove.InvalidTinyMove {
 			// Delete the last winner from s.initialMoves[0]
-			tinyWinner := conversions.MoveToTinyMove(lastWinner)
 			for i := range s.initialMoves[0] {
-				if s.initialMoves[0][i].TinyMove() == tinyWinner {
+				if s.initialMoves[0][i].TinyMove() == lastWinner {
 					toDelete = i
-					log.Info().Str("last-winner", s.game.Board().MoveDescriptionWithPlaythrough(lastWinner)).
+					log.Info().Uint64("last-winner-tinymove", uint64(lastWinner)).
 						Msg("finding-new-variation-deleting-last-winner")
 					break
 				}
@@ -1168,7 +1233,7 @@ searchLoop:
 
 		// Save this variation
 		if s.principalVariation.numMoves > 0 {
-			lastWinner = s.principalVariation.Moves[0]
+			lastWinner = s.principalVariation.tinyMoves[0].TinyMove()
 		}
 		variationsFound++
 		s.variations = append(s.variations, s.principalVariation)
@@ -1183,7 +1248,7 @@ searchLoop:
 	if s.alsoSolveMove != tinymove.InvalidTinyMove {
 		found := false
 		for _, v := range s.variations {
-			if v.numMoves > 0 && conversions.MoveToTinyMove(v.Moves[0]) == s.alsoSolveMove {
+			if v.numMoves > 0 && v.tinyMoves[0].TinyMove() == s.alsoSolveMove {
 				found = true
 				break
 			}
@@ -1258,7 +1323,7 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 		s.currentIDDepths = make([]int, 1)
 		s.currentIDDepths[0] = -1
 		s.initialMoves = make([][]tinymove.SmallMove, 1)
-		s.initialMoves[0] = s.generateSTMPlays(0, 0)
+		s.initialMoves[0], _ = s.generateSTMPlays(0, 0)
 
 		rootMoves := len(s.initialMoves[0])
 
@@ -1391,7 +1456,7 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 	// Generate first layer of moves.
 	s.currentIDDepths[0] = -1 // so that generateSTMPlays generates all moves first properly.
 	s.initialMoves = make([][]tinymove.SmallMove, 1)
-	s.initialMoves[0] = s.generateSTMPlays(0, 0)
+	s.initialMoves[0], _ = s.generateSTMPlays(0, 0)
 	// assignEstimates for the very first time around.
 	s.assignEstimates(s.initialMoves[0], 0, 0, tinymove.InvalidTinyMove)
 	start := 1
@@ -1415,8 +1480,8 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 		nodes := s.nodes.Load()
 		log.Info().Int16("spread", val).Int("ply", p).Str("pv", pv.NLBString()).Uint64("total-nodes", nodes).Msg("best-val")
 		// Sort top layer of moves by value for the next time around.
-		sort.Slice(s.initialMoves[0], func(i, j int) bool {
-			return s.initialMoves[0][i].EstimatedValue() > s.initialMoves[0][j].EstimatedValue()
+		slices.SortFunc(s.initialMoves[0], func(a, b tinymove.SmallMove) int {
+			return cmp.Compare(b.EstimatedValue(), a.EstimatedValue())
 		})
 		s.principalVariation = pv
 		s.bestPVValue = val - int16(s.initialSpread)
@@ -1476,7 +1541,10 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	}
 	childPV := PVLine{g: g}
 
-	children := s.generateSTMPlays(depth, thread)
+	children, fromArena := s.generateSTMPlays(depth, thread)
+	if fromArena {
+		defer s.arenas[thread].Dealloc(len(children))
+	}
 	stmRack := g.RackFor(g.PlayerOnTurn())
 	if s.currentIDDepths[thread] != depth {
 		// If we're not at the top level, assign estimates. Otherwise,
@@ -1568,10 +1636,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		if -value > bestValue {
 			bestValue = -value
 			bestMove = children[idx]
-			// allocate a move to update the pv
-			m := &move.Move{}
-			conversions.SmallMoveToMove(bestMove, m, g.Alphabet(), g.Board(), stmRack)
-			pv.Update(m, childPV, bestValue-int16(s.initialSpread))
+			pv.Update(bestMove, &childPV, bestValue-int16(s.initialSpread))
 		}
 		if s.currentIDDepths[thread] == depth {
 			children[idx].SetEstimatedValue(-value)
@@ -1639,9 +1704,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			if -value > bestValue {
 				bestValue = -value
 				bestMove = children[idx]
-				m := &move.Move{}
-				conversions.SmallMoveToMove(bestMove, m, g.Alphabet(), g.Board(), stmRack)
-				pv.Update(m, childPV, bestValue-int16(s.initialSpread))
+				pv.Update(bestMove, &childPV, bestValue-int16(s.initialSpread))
 			}
 			if s.currentIDDepths[thread] == depth {
 				children[idx].SetEstimatedValue(-value)
@@ -1702,6 +1765,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	if s.game.Bag().TilesRemaining() > 0 {
 		return 0, nil, errors.New("bag is not empty; cannot use endgame solver")
 	}
+	s.ensureArenas()
 	log.Debug().Int("plies", plies).Msg("alphabeta-solve-config")
 	s.requestedPlies = plies
 	s.variations = []PVLine{}
@@ -1772,6 +1836,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	err := g.Wait()
 	// Go down tree and find best variation:
 
+	s.principalVariation.MaterializeFull()
 	bestSeq = s.principalVariation.Moves[:s.principalVariation.numMoves]
 	bestV = s.bestPVValue
 
@@ -1824,6 +1889,7 @@ func (s *Solver) QuickAndDirtySolve(ctx context.Context, plies, thread int) (int
 	// 	Str("ourRack", s.game.RackLettersFor(s.solvingPlayer)).
 	// 	Str("theirRack", s.game.RackLettersFor(1-s.solvingPlayer)).
 	// 	Int("plies", plies).Msg("qdsolve-alphabeta-solve-config")
+	s.ensureArenas()
 	s.requestedPlies = plies
 
 	// tstart := time.Now()
@@ -1863,6 +1929,7 @@ func (s *Solver) QuickAndDirtySolve(ctx context.Context, plies, thread int) (int
 	s.principalVariation = pv
 	s.bestPVValue = val - int16(s.initialSpread)
 
+	s.principalVariation.MaterializeFull()
 	bestSeq = s.principalVariation.Moves[:s.principalVariation.numMoves]
 	bestV = s.bestPVValue
 	// log.Debug().
