@@ -87,3 +87,16 @@ func (csc CombinedStaticCalculator) LeaveValue(leave tilemapping.MachineWord) fl
 func (csc CombinedStaticCalculator) Type() string {
 	return "CombinedStaticCalculator"
 }
+
+// KLV returns the underlying KLV, or nil if not available.
+func (csc *CombinedStaticCalculator) KLV() *KLV {
+	if klv, ok := csc.leaveValues.(*KLV); ok {
+		return klv
+	}
+	return nil
+}
+
+// PEGValues returns the pre-endgame adjustment values.
+func (csc *CombinedStaticCalculator) PEGValues() []float64 {
+	return csc.preEndgameAdjustmentValues
+}

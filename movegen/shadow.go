@@ -17,10 +17,12 @@ import (
 	"github.com/domino14/word-golib/tilemapping"
 
 	"github.com/domino14/macondo/board"
+	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tinymove"
 )
+
 
 const (
 	// Endgame equity constants (see also equity/endgame.go).
@@ -224,12 +226,30 @@ func (gen *GordonGenerator) computeBestLeaves(rack *tilemapping.Rack) {
 	}
 
 	if s.tilesInBag > 0 {
-		// Enumerate all possible leaves by choosing 0..count of each letter.
-		// For a 7-tile rack this is at most prod(count_i + 1) subsets.
 		gen.enumerateLeaves(rack, leaveCalc, 0, 0)
+	} else {
+		// Endgame: compute bestLeaves from tile scores directly.
+		// bestLeaves[0] = outplay bonus.
+		s.bestLeaves[0] = float64(2 * s.oppRackScore)
+		// bestLeaves[k] for k>0 = best non-outplay adjustment =
+		// -2 * (sum of k lowest-scoring tiles) - 10.
+		// Build ascending tile scores from rack.
+		var ascScores [game.RackTileLimit]int
+		n := 0
+		for ml := tilemapping.MachineLetter(0); int(ml) < len(rack.LetArr); ml++ {
+			sc := gen.letterDistribution.Score(ml)
+			for j := 0; j < rack.LetArr[ml]; j++ {
+				ascScores[n] = sc
+				n++
+			}
+		}
+		slices.Sort(ascScores[:n])
+		lowestSum := 0
+		for k := 1; k <= n; k++ {
+			lowestSum += ascScores[k-1]
+			s.bestLeaves[k] = float64(-endgameNonOutplayLeavePenaltyMultiplier*lowestSum) - endgameNonOutplayConstantPenalty
+		}
 	}
-	// When bag is empty, bestLeaves stays -Inf; shadowRecord uses
-	// endgame adjustment instead.
 }
 
 // enumerateLeaves recursively enumerates all sub-multisets of the rack,
@@ -921,6 +941,15 @@ func (gen *GordonGenerator) genRecordScoringPlaysFromAnchors(rack *tilemapping.R
 		gen.curAnchorCol = anchor.Col
 		gen.lastAnchorCol = anchor.LastAnchorCol
 
+		// Load row cache for this anchor's row
+		var csDir board.BoardDirection
+		if anchor.Dir == board.HorizontalDirection {
+			csDir = board.VerticalDirection
+		} else {
+			csDir = board.HorizontalDirection
+		}
+		gen.cache.loadRow(gen.board, anchor.Row, csDir, gen.boardDim)
+
 		gen.recursiveGen(anchor.Col, rack, gd.GetRootNodeIndex(),
 			anchor.Col, anchor.Col, !gen.vertical, 0, 0, 1)
 	}
@@ -957,14 +986,62 @@ func (gen *GordonGenerator) GenAllWithShadow(rack *tilemapping.Rack, addExchange
 	gen.smallPlays = *ptr
 	gen.smallPlays = gen.smallPlays[0:0]
 
-	// Compute best leave values for equity-aware shadow bounds
-	gen.computeBestLeaves(rack)
+	// Cache equity state for the fast path in TopPlayOnlyRecorder.
+	// The leave map fast path only works with CombinedStaticCalculator
+	// (which bundles leave + peg + endgame into one). When separate
+	// calculators are used (e.g., HASTY_BOT with 4 calculators),
+	// the leave map can't replicate the full equity sum.
+	gen.klv = nil
+	gen.pegValues = nil
+	if len(gen.equityCalculators) == 1 {
+		if csc, ok := gen.equityCalculators[0].(*equity.CombinedStaticCalculator); ok {
+			gen.klv = csc.KLV()
+			gen.pegValues = csc.PEGValues()
+		}
+	}
+	if gen.game != nil {
+		gen.tilesInBag = gen.game.Bag().TilesRemaining()
+		oppRack := gen.game.RackFor(gen.game.NextPlayer())
+		gen.oppRackScore = 0
+		for ml := tilemapping.MachineLetter(1); int(ml) < len(oppRack.LetArr); ml++ {
+			gen.oppRackScore += oppRack.LetArr[ml] * gen.letterDistribution.Score(ml)
+		}
+		// Also set shadow state (used by shadowRecord for endgame equity).
+		// When computeBestLeaves is skipped (leave map handles bestLeaves),
+		// these must still be current for the shadow pass.
+		gen.shadow.tilesInBag = gen.tilesInBag
+		gen.shadow.oppRackScore = gen.oppRackScore
+	}
+	gen.leavemap.init(rack)
+
+	// Initialize bestLeaves before population.
+	for i := range gen.shadow.bestLeaves {
+		gen.shadow.bestLeaves[i] = math.Inf(-1)
+	}
+
+	// Populate leave map via incremental KWG traversal.
+	// Also computes bestLeaves from rawLeave (only reachable indices).
+	if gen.klv != nil && gen.game != nil {
+		gen.populateLeaveMap(rack)
+	} else {
+		gen.leavemap.initialized = false
+	}
+
+	// When leave map wasn't populated, fall back to enumeration.
+	if !gen.leavemap.initialized {
+		gen.computeBestLeaves(rack)
+	}
 
 	// Run shadow to rank anchors
 	gen.genShadow(rack)
 
 	// Generate moves from anchors in best-first order
 	gen.genRecordScoringPlaysFromAnchors(rack)
+
+	// Generate exchange moves after tile placements.
+	if addExchange {
+		gen.generateExchangeMoves(rack, 0, 0)
+	}
 
 	// Pass handling
 	if (len(gen.plays) == 0 && len(gen.smallPlays) == 0) || gen.genPass {
@@ -978,10 +1055,6 @@ func (gen *GordonGenerator) GenAllWithShadow(rack *tilemapping.Rack, addExchange
 		case SortByNone:
 			break
 		}
-	}
-
-	if addExchange {
-		gen.generateExchangeMoves(rack, 0, 0)
 	}
 	*ptr = gen.smallPlays
 

@@ -118,6 +118,16 @@ type GordonGenerator struct {
 	topNPlays       []*move.Move
 	maxTopMovesSize int
 
+	// Row cache for cache-friendly board access during move generation.
+	cache rowCache
+
+	// Leave map for O(1) leave value lookup during move generation.
+	leavemap     leaveMap
+	klv          *equity.KLV // cached KLV reference
+	pegValues    []float64   // pre-endgame adjustment values
+	tilesInBag   int         // cached bag state for equity calc
+	oppRackScore int         // cached for endgame equity
+
 	// Shadow play state
 	shadow shadowState
 }
@@ -140,6 +150,7 @@ func NewGordonGenerator(gd gaddag.WordGraph, board *board.GameBoard,
 		placeholder:        new(move.Move),
 		maxTileUsage:       100, // basically unlimited
 		maxCanExchange:     game.DefaultExchangeLimit,
+		cache:              rowCache{loadedRow: -1},
 		// shadow.useShadow starts false; set by SetPlayRecorderTopPlay/SetRecordNTopPlays
 	}
 	return gen
@@ -199,6 +210,7 @@ func (gen *GordonGenerator) SetGenPass(p bool) {
 func (gen *GordonGenerator) SetMaxTileUsage(t int) {
 	gen.maxTileUsage = t
 }
+
 
 // GenAll generates all moves on the board. It assumes anchors have already
 // been updated, as well as cross-sets / cross-scores.
@@ -304,9 +316,16 @@ func (gen *GordonGenerator) AtLeastOneTileMove(rack *tilemapping.Rack) bool {
 }
 
 func (gen *GordonGenerator) genByOrientation(rack *tilemapping.Rack, dir board.BoardDirection) {
+	var csDir board.BoardDirection
+	if dir == board.HorizontalDirection {
+		csDir = board.VerticalDirection
+	} else {
+		csDir = board.HorizontalDirection
+	}
 
 	for row := 0; row < gen.boardDim; row++ {
 		gen.curRowIdx = row
+		gen.cache.loadRow(gen.board, row, csDir, gen.boardDim)
 		// A bit of a hack. Set this to a large number at the beginning of
 		// every loop
 		gen.lastAnchorCol = 100
@@ -328,23 +347,23 @@ func (gen *GordonGenerator) recursiveGen(col int, rack *tilemapping.Rack,
 	if gen.quitEarly {
 		return
 	}
-	sqIdx := gen.board.GetSqIdx(gen.curRowIdx, col)
 
-	var csDirection board.BoardDirection
-	// If a letter L is already on this square, then goOn...
-	// curSquare := gen.board.GetSquare(gen.curRowIdx, col)
-	curLetter := gen.board.GetLetter(gen.curRowIdx, col)
-
+	// Auto-load row cache if not loaded for current row/direction
+	var csDir board.BoardDirection
 	if gen.vertical {
-		csDirection = board.HorizontalDirection
+		csDir = board.HorizontalDirection
 	} else {
-		csDirection = board.VerticalDirection
+		csDir = board.VerticalDirection
 	}
-	crossSet := gen.board.GetCrossSetIdx(sqIdx, csDirection)
+	if gen.cache.loadedRow != gen.curRowIdx || gen.cache.loadedDir != csDir {
+		gen.cache.loadRow(gen.board, gen.curRowIdx, csDir, gen.boardDim)
+	}
+
+	sq := &gen.cache.squares[col]
+	curLetter := sq.letter
+	crossSet := sq.crossSet
 	gd := gen.gaddag
 	if curLetter != 0 {
-		// There is a letter in this square.
-		// nnIdx := gen.gaddag.NextNodeIdx(nodeIdx, curLetter.Unblank())
 		raw := curLetter.Unblank()
 		var nnIdx uint32
 		var accepts bool
@@ -358,16 +377,15 @@ func (gen *GordonGenerator) recursiveGen(col int, rack *tilemapping.Rack,
 				break
 			}
 		}
-		// is curLetter in the letter set of the nodeIdx?
 		gen.goOn(col, curLetter, rack, nnIdx, accepts, leftstrip, rightstrip, uniquePlay,
 			baseScore+gen.letterDistribution.Score(curLetter),
 			crossScores,
 			wordMultiplier,
 		)
 	} else if !rack.Empty() {
-		lm := gen.board.GetLetterMultiplier(sqIdx)
-		cs := gen.board.GetCrossScoreIdx(sqIdx, csDirection)
-		wm := gen.board.GetWordMultiplier(sqIdx)
+		lm := sq.letterMul
+		cs := sq.crossScore
+		wm := sq.wordMul
 		emptyAdjacent := crossSet == board.TrivialCrossSet
 		for i := nodeIdx; ; i++ {
 			ml := tilemapping.MachineLetter(gd.Tile(i))
@@ -376,6 +394,9 @@ func (gen *GordonGenerator) recursiveGen(col int, rack *tilemapping.Rack,
 				accepts := gd.Accepts(i)
 				if rack.LetArr[ml] > 0 {
 					rack.Take(ml)
+					if gen.leavemap.initialized {
+						gen.leavemap.takeLetter(ml, rack.LetArr[ml])
+					}
 					gen.tilesPlayed++
 					sml := gen.letterDistribution.Score(ml)
 					addlCrossScore := 0
@@ -392,11 +413,17 @@ func (gen *GordonGenerator) recursiveGen(col int, rack *tilemapping.Rack,
 						wordMultiplier*wm)
 
 					gen.tilesPlayed--
+					if gen.leavemap.initialized {
+						gen.leavemap.addLetter(ml, rack.LetArr[ml])
+					}
 					rack.Add(ml)
 				}
 				// check blank
 				if rack.LetArr[0] > 0 {
 					rack.Take(0)
+					if gen.leavemap.initialized {
+						gen.leavemap.takeLetter(0, rack.LetArr[0])
+					}
 					gen.tilesPlayed++
 					// XXX: this won't work for non-zero-score blanks if
 					// that's ever a thing.
@@ -405,6 +432,9 @@ func (gen *GordonGenerator) recursiveGen(col int, rack *tilemapping.Rack,
 						crossScores+cs*wm,
 						wordMultiplier*wm)
 					gen.tilesPlayed--
+					if gen.leavemap.initialized {
+						gen.leavemap.addLetter(0, rack.LetArr[0])
+					}
 					rack.Add(0)
 				}
 			}
@@ -424,29 +454,20 @@ func (gen *GordonGenerator) goOn(curCol int, L tilemapping.MachineLetter,
 		bingoBonus = 50
 	}
 	if curCol <= gen.curAnchorCol {
-		if gen.board.HasLetter(gen.curRowIdx, curCol) {
+		if gen.cache.squares[curCol].letter != 0 {
 			gen.strip[curCol] = 0
 		} else {
 			gen.strip[curCol] = L
-			if gen.vertical && gen.board.GetCrossSet(gen.curRowIdx, curCol, board.HorizontalDirection) == board.TrivialCrossSet {
-				// If the horizontal direction is the trivial cross-set, this means
-				// that there are no letters perpendicular to where we just placed
-				// this letter. So any play we generate here should be unique.
-				// We use this to avoid generating duplicates of single-tile plays.
+			if gen.vertical && gen.cache.squares[curCol].crossSet == board.TrivialCrossSet {
 				uniquePlay = true
 			}
 		}
 		leftstrip = curCol
 
-		// if L on OldArc and no letter directly left, then record play.
 		noLetterDirectlyLeft := curCol == 0 ||
-			!gen.board.HasLetter(gen.curRowIdx, curCol-1)
+			gen.cache.squares[curCol-1].letter == 0
 
-		// Check to see if there is a letter directly to the left.
 		if accepts && noLetterDirectlyLeft && gen.tilesPlayed > 0 {
-			// Only record the play if it is unique:
-			// if 1 tile has been played, there should be no letters in the across
-			// direction (otherwise the cross-set is not trivial)
 			if (uniquePlay || gen.tilesPlayed > 1) && gen.tilesPlayed <= gen.maxTileUsage {
 				gen.playRecorder(gen, rack, leftstrip, rightstrip, move.MoveTypePlay,
 					baseScore*wordMultiplier+crossScores+bingoBonus)
@@ -455,37 +476,28 @@ func (gen *GordonGenerator) goOn(curCol int, L tilemapping.MachineLetter,
 		if newNodeIdx == 0 {
 			return
 		}
-		// Keep generating prefixes if there is room to the left, and don't
-		// revisit an anchor we just saw.
-		// This seems to work because we always shift direction afterwards, so we're
-		// only looking at the first of a consecutive set of anchors going backwards,
-		// and then always looking forward from then on.
 		if curCol > 0 && curCol-1 != gen.lastAnchorCol {
 			gen.recursiveGen(curCol-1, rack, newNodeIdx, leftstrip, rightstrip, uniquePlay, baseScore, crossScores, wordMultiplier)
 		}
-		// Then shift direction.
-		// Get the index of the SeparationToken
 		separationNodeIdx := gen.gaddag.NextNodeIdx(newNodeIdx, 0)
-		// Check for no letter directly left AND room to the right (of the anchor
-		// square)
 		if separationNodeIdx != 0 && noLetterDirectlyLeft && gen.curAnchorCol < gen.boardDim-1 {
 			gen.recursiveGen(gen.curAnchorCol+1, rack, separationNodeIdx, leftstrip, rightstrip, uniquePlay, baseScore, crossScores, wordMultiplier)
 		}
 
 	} else {
-		if gen.board.HasLetter(gen.curRowIdx, curCol) {
+		if gen.cache.squares[curCol].letter != 0 {
 			gen.strip[curCol] = 0
 		} else {
 			gen.strip[curCol] = L
-			if gen.vertical && gen.board.GetCrossSet(gen.curRowIdx, curCol, board.HorizontalDirection) == board.TrivialCrossSet {
-				// see explanation above.
+			if gen.vertical && gen.cache.squares[curCol].crossSet == board.TrivialCrossSet {
 				uniquePlay = true
 			}
 		}
 		rightstrip = curCol
 
 		noLetterDirectlyRight := curCol == gen.boardDim-1 ||
-			!gen.board.HasLetter(gen.curRowIdx, curCol+1)
+			gen.cache.squares[curCol+1].letter == 0
+
 		if accepts && noLetterDirectlyRight && gen.tilesPlayed > 0 {
 			if (uniquePlay || gen.tilesPlayed > 1) && gen.tilesPlayed <= gen.maxTileUsage {
 				gen.playRecorder(gen, rack, leftstrip, rightstrip, move.MoveTypePlay,
@@ -493,7 +505,6 @@ func (gen *GordonGenerator) goOn(curCol int, L tilemapping.MachineLetter,
 			}
 		}
 		if newNodeIdx != 0 && curCol < gen.boardDim-1 {
-			// There is room to the right
 			gen.recursiveGen(curCol+1, rack, newNodeIdx, leftstrip, rightstrip, uniquePlay, baseScore, crossScores, wordMultiplier)
 		}
 	}
@@ -535,9 +546,9 @@ func (gen *GordonGenerator) SmallPlays() []tinymove.SmallMove {
 	return gen.smallPlays
 }
 
-// zero-allocation generation of exchange moves without duplicates:
+// generateExchangeMoves generates exchange moves without duplicates.
+// Maintains the leave map bitmask index as tiles are exchanged.
 func (gen *GordonGenerator) generateExchangeMoves(rack *tilemapping.Rack, ml tilemapping.MachineLetter, stripidx int) {
-
 	// magic function written by @andy-k
 	for int(ml) < len(rack.LetArr) && rack.LetArr[ml] == 0 {
 		ml++
@@ -549,8 +560,6 @@ func (gen *GordonGenerator) generateExchangeMoves(rack *tilemapping.Rack, ml til
 		numthis := rack.LetArr[ml]
 		for i := 0; i < numthis; i++ {
 			if stripidx >= len(gen.exchangestrip) {
-				// Safety check: rack has more tiles than expected.
-				// Skip generating invalid exchange moves to prevent panic.
 				log.Warn().
 					Int("stripidx", stripidx).
 					Int("exchangestrip_len", len(gen.exchangestrip)).
@@ -561,9 +570,15 @@ func (gen *GordonGenerator) generateExchangeMoves(rack *tilemapping.Rack, ml til
 			gen.exchangestrip[stripidx] = ml
 			stripidx += 1
 			rack.Take(ml)
+			if gen.leavemap.initialized {
+				gen.leavemap.takeLetter(ml, rack.LetArr[ml])
+			}
 			gen.generateExchangeMoves(rack, ml+1, stripidx)
 		}
 		for i := 0; i < numthis; i++ {
+			if gen.leavemap.initialized {
+				gen.leavemap.addLetter(ml, rack.LetArr[ml])
+			}
 			rack.Add(ml)
 		}
 	}

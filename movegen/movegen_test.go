@@ -12,7 +12,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/domino14/macondo/board"
+	board "github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/cross_set"
@@ -118,6 +118,7 @@ func TestSimpleRowGen(t *testing.T) {
 		rack := tilemapping.RackFromString(tc.rack, gd.GetAlphabet())
 		board.SetRow(tc.row, tc.rowString, gd.GetAlphabet())
 		generator.curRowIdx = tc.row
+		cross_set.GenAllCrossSets(board, gd, dist)
 		generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true,
 			0, 0, 1)
 		if len(generator.plays) != tc.expectedPlays {
@@ -142,6 +143,7 @@ func TestGenThroughBothWaysAllowedLetters(t *testing.T) {
 	generator.curRowIdx = 4
 	ml, err := gd.GetAlphabet().Val("I")
 	is.NoErr(err)
+	cross_set.GenAllCrossSets(bd, gd, dist)
 	bd.ClearCrossSet(int(generator.curRowIdx), 2, board.VerticalDirection)
 	bd.SetCrossSetLetter(int(generator.curRowIdx), 2, board.VerticalDirection, ml)
 	generator.recursiveGen(generator.curAnchorCol, rack, gd.GetRootNodeIndex(), generator.curAnchorCol, generator.curAnchorCol, true,
