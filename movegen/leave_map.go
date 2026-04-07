@@ -3,67 +3,15 @@ package movegen
 import (
 	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
-
-	"github.com/domino14/macondo/game"
 )
-
-// leaveMap enables O(1) leave value lookup during move generation.
-// Each tile on the rack gets a unique bit in a bitmask. As tiles are
-// played/unplayed during recursiveGen, the bitmask is updated with a
-// single AND/OR. The leave value is just values[currentIndex].
-//
-// Populated during exchange generation using incremental KWG traversal
-// (no per-subset sort + KWG walk). Ported from magpie's leave_map.h.
-type leaveMap struct {
-	values          [1 << game.RackTileLimit]float64
-	letterBaseIndex [tilemapping.MaxAlphabetSize + 1]int
-	currentIndex    int
-	totalTiles      int
-	initialized     bool
-}
-
-// init assigns bit positions to rack tiles and sets the initial index
-// to all-bits-set (full rack = empty leave).
-func (lm *leaveMap) init(rack *tilemapping.Rack) {
-	lm.initialized = false
-	currentBase := 0
-	for ml := tilemapping.MachineLetter(0); int(ml) < len(rack.LetArr); ml++ {
-		count := rack.LetArr[ml]
-		if count > 0 {
-			lm.letterBaseIndex[ml] = currentBase
-			currentBase += count
-		}
-	}
-	lm.totalTiles = currentBase
-	if lm.totalTiles == 0 || lm.totalTiles > game.RackTileLimit {
-		return
-	}
-	lm.currentIndex = (1 << lm.totalTiles) - 1 // all bits set = full rack
-	lm.initialized = true
-}
-
-// takeLetter updates the index when a tile is removed from the rack.
-// numberOnRack is the count AFTER removal.
-func (lm *leaveMap) takeLetter(ml tilemapping.MachineLetter, numberOnRack int) {
-	base := lm.letterBaseIndex[ml]
-	lm.currentIndex &= ^(1 << (base + numberOnRack))
-}
-
-// addLetter updates the index when a tile is added back to the rack.
-// numberOnRack is the count BEFORE addition (i.e., current count on rack).
-func (lm *leaveMap) addLetter(ml tilemapping.MachineLetter, numberOnRack int) {
-	base := lm.letterBaseIndex[ml]
-	lm.currentIndex |= 1 << (base + numberOnRack)
-}
-
-// currentValue returns the leave value for the current rack state.
-func (lm *leaveMap) currentValue() float64 {
-	return lm.values[lm.currentIndex]
-}
 
 // populateLeaveMap enumerates all rack subsets using incremental KWG
 // traversal matching magpie's generate_exchange_moves. The KWG walk
 // tracks nodeIndex/wordIndex as tiles are added to the leave.
+//
+// The leave map itself lives in macondo/leavemap; this file holds
+// only the populator (which is tightly coupled to GordonGenerator's
+// klv, peg, and shadow state).
 func (gen *GordonGenerator) populateLeaveMap(rack *tilemapping.Rack) {
 	klv := gen.klv
 	leaveKWG := klv.KWG()
@@ -91,7 +39,7 @@ func (gen *GordonGenerator) populateLeaveMapIncremental(
 				rawLeave = gen.klv.LeaveValueByIndex(wordIndex - 1)
 			}
 			val = rawLeave
-			tilesPlayed := gen.leavemap.totalTiles - numOnRack
+			tilesPlayed := gen.leavemap.TotalTiles - numOnRack
 			bagPlusSeven := gen.tilesInBag - tilesPlayed + 7
 			if bagPlusSeven >= 0 && bagPlusSeven < len(gen.pegValues) {
 				val += gen.pegValues[bagPlusSeven]
@@ -108,7 +56,7 @@ func (gen *GordonGenerator) populateLeaveMapIncremental(
 			}
 			rawLeave = val
 		}
-		gen.leavemap.values[gen.leavemap.currentIndex] = val
+		gen.leavemap.Values[gen.leavemap.CurrentIndex] = val
 		// Update bestLeaves from raw leave (no peg) — only reachable indices.
 		if rawLeave > gen.shadow.bestLeaves[numOnRack] {
 			gen.shadow.bestLeaves[numOnRack] = rawLeave
@@ -120,7 +68,7 @@ func (gen *GordonGenerator) populateLeaveMapIncremental(
 	numthis := rack.LetArr[ml]
 	for i := 0; i < numthis; i++ {
 		rack.Take(ml)
-		gen.leavemap.takeLetter(ml, rack.LetArr[ml])
+		gen.leavemap.TakeLetter(ml, rack.LetArr[ml])
 	}
 
 	// Recurse with 0 copies of ml in leave — KWG state unchanged.
@@ -132,7 +80,7 @@ func (gen *GordonGenerator) populateLeaveMapIncremental(
 	curNode := nodeIndex
 	curWord := wordIndex
 	for i := 0; i < numthis; i++ {
-		gen.leavemap.addLetter(ml, rack.LetArr[ml])
+		gen.leavemap.AddLetter(ml, rack.LetArr[ml])
 		rack.Add(ml)
 
 		// incrementNodeToML: find sibling with tile ml
@@ -140,7 +88,7 @@ func (gen *GordonGenerator) populateLeaveMapIncremental(
 		if curNode == 0 {
 			// Dead path — fill zeros for remaining subsets
 			for j := i + 1; j < numthis; j++ {
-				gen.leavemap.addLetter(ml, rack.LetArr[ml])
+				gen.leavemap.AddLetter(ml, rack.LetArr[ml])
 				rack.Add(ml)
 			}
 			gen.populateLeaveMapZero(rack, ml+1)
@@ -167,7 +115,7 @@ func (gen *GordonGenerator) populateLeaveMapZero(rack *tilemapping.Rack, ml tile
 		var val float64
 		if gen.tilesInBag > 0 {
 			// Leave not in KLV (dead path) — leave value 0, apply peg for recorder.
-			tilesPlayed := gen.leavemap.totalTiles - numOnRack
+			tilesPlayed := gen.leavemap.TotalTiles - numOnRack
 			bagPlusSeven := gen.tilesInBag - tilesPlayed + 7
 			if bagPlusSeven >= 0 && bagPlusSeven < len(gen.pegValues) {
 				val = gen.pegValues[bagPlusSeven]
@@ -181,7 +129,7 @@ func (gen *GordonGenerator) populateLeaveMapZero(rack *tilemapping.Rack, ml tile
 		} else {
 			val = float64(2 * gen.oppRackScore)
 		}
-		gen.leavemap.values[gen.leavemap.currentIndex] = val
+		gen.leavemap.Values[gen.leavemap.CurrentIndex] = val
 		// Dead path: rawLeave = 0 for mid-game, endgame adjustment otherwise
 		var rawLeave float64
 		if gen.tilesInBag <= 0 {
@@ -195,13 +143,13 @@ func (gen *GordonGenerator) populateLeaveMapZero(rack *tilemapping.Rack, ml tile
 	gen.populateLeaveMapZero(rack, ml+1)
 	numthis := rack.LetArr[ml]
 	for i := 0; i < numthis; i++ {
-		gen.leavemap.addLetter(ml, rack.LetArr[ml])
+		gen.leavemap.AddLetter(ml, rack.LetArr[ml])
 		rack.Add(ml)
 		gen.populateLeaveMapZero(rack, ml+1)
 	}
 	for i := 0; i < numthis; i++ {
 		rack.Take(ml)
-		gen.leavemap.takeLetter(ml, rack.LetArr[ml])
+		gen.leavemap.TakeLetter(ml, rack.LetArr[ml])
 	}
 }
 
