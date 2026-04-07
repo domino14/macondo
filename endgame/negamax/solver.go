@@ -1,7 +1,6 @@
 package negamax
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -513,7 +512,7 @@ func (s *Solver) assignEstimates(moves []tinymove.SmallMove, depth, thread int, 
 		}
 	}
 	slices.SortFunc(moves, func(a, b tinymove.SmallMove) int {
-		return cmp.Compare(b.EstimatedValue(), a.EstimatedValue())
+		return int(b.EstimatedValue()) - int(a.EstimatedValue())
 	})
 }
 
@@ -562,7 +561,7 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 		lastIteration, _ = s.negamax(ctx, initialHashKey, 1, α, β, &pv, 0, true)
 		// Sort the moves by valuation.
 		slices.SortFunc(s.initialMoves[0], func(a, b tinymove.SmallMove) int {
-			return cmp.Compare(b.EstimatedValue(), a.EstimatedValue())
+			return int(b.EstimatedValue()) - int(a.EstimatedValue())
 		})
 	} else {
 		// Moves already set and sorted by wrapper, just ensure array is sized for threads
@@ -671,7 +670,7 @@ func (s *Solver) iterativelyDeepenABDADA(ctx context.Context, plies int) error {
 		s.currentIDDepths[0] = 1
 		lastIteration, _ = s.negamax(ctx, initialHashKey, 1, α, β, &pv, 0, true)
 		slices.SortFunc(s.initialMoves[0], func(a, b tinymove.SmallMove) int {
-			return cmp.Compare(b.EstimatedValue(), a.EstimatedValue())
+			return int(b.EstimatedValue()) - int(a.EstimatedValue())
 		})
 	} else {
 		// Moves already set and sorted by wrapper, just ensure array is sized for threads
@@ -751,7 +750,7 @@ func (s *Solver) iterativelyDeepenABDADA(ctx context.Context, plies int) error {
 			}
 
 			slices.SortFunc(s.initialMoves[0], func(a, b tinymove.SmallMove) int {
-				return cmp.Compare(b.EstimatedValue(), a.EstimatedValue())
+				return int(b.EstimatedValue()) - int(a.EstimatedValue())
 			})
 
 			s.principalVariation = mainPV
@@ -971,7 +970,7 @@ func (s *Solver) iterativelyDeepenTreeSplit(ctx context.Context, plies int) erro
 
 		// Sort moves by their estimated values
 		slices.SortFunc(rootMoves, func(a, b tinymove.SmallMove) int {
-			return cmp.Compare(b.EstimatedValue(), a.EstimatedValue())
+			return int(b.EstimatedValue()) - int(a.EstimatedValue())
 		})
 
 		// Build PV from best move
@@ -1056,7 +1055,7 @@ aspirationLoop:
 				// Try a few schemes to really randomize stuff.
 				if t == 1 {
 					slices.SortFunc(s.initialMoves[t], func(a, b tinymove.SmallMove) int {
-						return cmp.Compare(b.EstimatedValue(), a.EstimatedValue())
+						return int(b.EstimatedValue()) - int(a.EstimatedValue())
 					})
 				} else if t == 2 {
 					// do nothing, use original order
@@ -1091,7 +1090,7 @@ aspirationLoop:
 			// we keep the last known variation; don't change it.
 		} else {
 			slices.SortFunc(s.initialMoves[0], func(a, b tinymove.SmallMove) int {
-				return cmp.Compare(b.EstimatedValue(), a.EstimatedValue())
+				return int(b.EstimatedValue()) - int(a.EstimatedValue())
 			})
 
 			s.principalVariation = pv
@@ -1184,7 +1183,7 @@ func (s *Solver) solveWithMultipleVariations(ctx context.Context, plies int,
 	s.currentIDDepths[0] = 1
 	_, _ = s.negamax(context.Background(), initialHashKey, 1, α, β, &pv, 0, true)
 	slices.SortFunc(s.initialMoves[0], func(a, b tinymove.SmallMove) int {
-		return cmp.Compare(b.EstimatedValue(), a.EstimatedValue())
+		return int(b.EstimatedValue()) - int(a.EstimatedValue())
 	})
 
 	variationsFound := 0
@@ -1481,7 +1480,7 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 		log.Info().Int16("spread", val).Int("ply", p).Str("pv", pv.NLBString()).Uint64("total-nodes", nodes).Msg("best-val")
 		// Sort top layer of moves by value for the next time around.
 		slices.SortFunc(s.initialMoves[0], func(a, b tinymove.SmallMove) int {
-			return cmp.Compare(b.EstimatedValue(), a.EstimatedValue())
+			return int(b.EstimatedValue()) - int(a.EstimatedValue())
 		})
 		s.principalVariation = pv
 		s.bestPVValue = val - int16(s.initialSpread)
