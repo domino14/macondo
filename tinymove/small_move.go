@@ -91,3 +91,4 @@ func (m *SmallMove) CoordsAndVertical() (int, int, bool) {
 	}
 	return row, col, vert
 }
+

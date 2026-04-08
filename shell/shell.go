@@ -1166,16 +1166,22 @@ func moveTableHeader() string {
 	return "     Move                Leave  Score Equity"
 }
 
-func MoveTableRow(idx int, m *move.Move, alph *tilemapping.TileMapping) string {
+func MoveTableRow(idx int, m *move.Move, alph *tilemapping.TileMapping, bd *board.GameBoard) string {
 	return fmt.Sprintf("%3d: %-20s%-7s%5d %6.2f", idx+1,
-		m.ShortDescription(), m.Leave().UserVisible(alph), m.Score(), m.Equity())
+		bd.MoveDescriptionWithPlaythrough(m), m.Leave().UserVisible(alph), m.Score(), m.Equity())
 }
 
-func (sc *ShellController) printEndgameSequence(moves []*move.Move) {
-	sc.showMessage("Best sequence:")
-	for idx, move := range moves {
-		sc.showMessage(fmt.Sprintf("%d) %v (%d)", idx+1, move.ShortDescription(), move.Score()))
+func (sc *ShellController) endgameSequenceString(moves []*move.Move) string {
+	var sb strings.Builder
+	bd := sc.game.Board().Copy()
+	sb.WriteString("Best move: ")
+	sb.WriteString(bd.MoveDescriptionWithPlaythrough(moves[0]) + "\n")
+	sb.WriteString("Best sequence:\n")
+	for idx, m := range moves {
+		fmt.Fprintf(&sb, "%d) %v (%d)\n", idx+1, bd.MoveDescriptionWithPlaythrough(m), m.Score())
+		bd.PlaceMoveTiles(m)
 	}
+	return sb.String()
 }
 
 func (sc *ShellController) genMovesAndDescription(numPlays int) string {
@@ -1191,7 +1197,7 @@ func (sc *ShellController) genDisplayMoveList() string {
 	var s strings.Builder
 	s.WriteString(moveTableHeader() + "\n")
 	for i, p := range sc.curPlayList {
-		s.WriteString(MoveTableRow(i, p, sc.game.Alphabet()) + "\n")
+		s.WriteString(MoveTableRow(i, p, sc.game.Alphabet(), sc.game.Board()) + "\n")
 	}
 	return s.String()
 }

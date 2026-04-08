@@ -3,6 +3,7 @@ package preendgame
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"sync/atomic"
 	"time"
@@ -314,6 +315,10 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 	// handle a job generically.
 	// parameters are the job move, and tiles that are unseen to us
 	// (maybe in bag)
+
+	// Reset the arena at the start of each job so it's clean for this thread's
+	// recursiveSolve calls.
+	s.arenas[thread].Reset()
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -650,9 +655,9 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 	if g.Bag().TilesRemaining() > 0 && g.Playing() != macondo.PlayState_GAME_OVER {
 		mg.GenAll(g.RackFor(g.PlayerOnTurn()), false)
 		plays := mg.SmallPlays()
-		genPlays := make([]tinymove.SmallMove, len(plays))
+		genPlays := s.arenas[thread].Alloc(len(plays))
 		copy(genPlays, plays)
-		movegen.SmallPlaySlicePool.Put(&plays)
+		defer s.arenas[thread].Dealloc(len(genPlays))
 
 		for idx := range genPlays {
 			genPlays[idx].SetEstimatedValue(int16(genPlays[idx].Score()))
@@ -662,8 +667,8 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 				genPlays[idx].AddEstimatedValue(negamax.EarlyPassBF)
 			}
 		}
-		sort.Slice(genPlays, func(i int, j int) bool {
-			return genPlays[i].EstimatedValue() > genPlays[j].EstimatedValue()
+		slices.SortFunc(genPlays, func(a, b tinymove.SmallMove) int {
+			return int(b.EstimatedValue()) - int(a.EstimatedValue())
 		})
 
 		for idx := range genPlays {

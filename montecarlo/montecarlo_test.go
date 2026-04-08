@@ -116,6 +116,10 @@ func BenchmarkSim(b *testing.B) {
 	// 504	   2228889 ns/op	    8619 B/op	      78 allocs/op
 	// 2023-03-15:
 	// 543	   2170050 ns/op	       0 B/op	       0 allocs/op
+	// 2026-04-06 (with sync.Pool):
+	// 733	   1571280 ns/op	     496 B/op	      20 allocs/op
+	// 2026-04-06 (arena + fixed-cap smallPlays):
+	// 763	   1570186 ns/op	      16 B/op	       0 allocs/op
 	for i := 0; i < b.N; i++ {
 		simmer.simSingleIteration(context.Background(), plies, 0, uint64(i+1), nil)
 	}
