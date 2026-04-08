@@ -178,23 +178,29 @@ func (s *Solver) maybeTiebreak(ctx context.Context, maybeInBagTiles []int) error
 	numWinners := i + 1
 
 	topPlayIdxs := []int{}
-	// only tiebreak plays that empty the bag OR are marked as avoid-prune.
+	// Only tiebreak plays that empty the bag. Spread tracking is broken
+	// for non-bag-emptying plays: handleJobGeneric recursively explores
+	// opponent responses and calls addSpreadStat at every endgame leaf,
+	// summing spread across many leaves while TotalOutcomes stays fixed
+	// at the inbagOption count. The result is a wildly inflated avgSpread
+	// (see issue #476: a Pass play in the analyzer was reporting an
+	// avgSpread of 27315 instead of values in the typical 60-70 range).
 	for i := range numWinners {
-		if s.plays[i].Play.TilesPlayed() >= s.numinbag || s.shouldAvoidPrune(s.plays[i].Play) {
+		if s.plays[i].Play.TilesPlayed() >= s.numinbag {
 			topPlayIdxs = append(topPlayIdxs, i)
 		}
 	}
 	if len(topPlayIdxs) == 1 {
-		log.Info().Str("winner", s.plays[topPlayIdxs[0]].String()).Msg("only one winner empties the bag or is avoid-prune")
+		log.Info().Str("winner", s.plays[topPlayIdxs[0]].String()).Msg("only one winner empties the bag")
 		// Bring winner to the front.
 		s.plays[topPlayIdxs[0]], s.plays[0] = s.plays[0], s.plays[topPlayIdxs[0]]
 		return nil
 	} else if len(topPlayIdxs) == 0 {
-		log.Info().Str("winner", s.plays[0].String()).Msg("all winners do not empty the bag and are not avoid-prune; will not tiebreak by spread")
+		log.Info().Str("winner", s.plays[0].String()).Msg("all winners do not empty the bag; will not tiebreak by spread")
 		return nil
 	} else if len(topPlayIdxs) != numWinners {
 		log.Info().Int("ndiscarded", numWinners-len(topPlayIdxs)).
-			Msg("non-bag-emptying, non-avoid-prune plays are discarded for tiebreaks")
+			Msg("non-bag-emptying plays are discarded for tiebreaks")
 	}
 
 	// There is more than one winning play.
@@ -204,11 +210,13 @@ func (s *Solver) maybeTiebreak(ctx context.Context, maybeInBagTiles []int) error
 		return s.plays[topPlayIdxs[i]].Play.Score() > s.plays[topPlayIdxs[j]].Play.Score()
 	})
 
-	// Ensure avoid-prune plays are always included in tiebreak, even beyond the limit
-	// Only search within the winners (plays tied for highest win%)
+	// Ensure avoid-prune plays are always included in tiebreak, even beyond
+	// the limit. We only consider avoid-prune plays that empty the bag,
+	// matching the constraint above; the spread for non-bag-emptying plays
+	// is unreliable and would be excluded anyway.
 	avoidPruneIdxs := []int{}
 	for i := range numWinners {
-		if s.shouldAvoidPrune(s.plays[i].Play) {
+		if s.shouldAvoidPrune(s.plays[i].Play) && s.plays[i].Play.TilesPlayed() >= s.numinbag {
 			avoidPruneIdxs = append(avoidPruneIdxs, i)
 		}
 	}
