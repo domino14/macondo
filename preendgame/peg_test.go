@@ -13,6 +13,8 @@ import (
 
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/game"
+	"github.com/domino14/macondo/gcgio"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/testhelpers"
 )
@@ -112,6 +114,80 @@ func Test1PEGPass(t *testing.T) {
 	is.Equal(plays[0].OutcomeFor([]tilemapping.MachineLetter{2}), PEGDraw)
 	is.Equal(plays[0].OutcomeFor([]tilemapping.MachineLetter{5}), PEGLoss)
 	is.Equal(len(plays[0].outcomesArray), 7)
+}
+
+// TestPEGAvoidPruneNonBagEmptyingNoSpread is a regression test for issue #476.
+// The analyzer marks the played move as avoid-prune so the PEG solver always
+// includes it in tiebreak. When the played move is a Pass (non-bag-emptying)
+// AND it is tied with the top plays, the recursive solve descends into many
+// opponent responses and calls addSpreadStat at every endgame leaf,
+// accumulating spread for the same inbagOption count. This produced wildly
+// inflated avgSpread values (issue #476 showed 27315 instead of typical
+// 60-70 values, see https://woogles.io/game/kYmDwcfkbY?turn=25).
+//
+// After the fix, non-bag-emptying plays are excluded from spread tiebreaking
+// even when marked as avoid-prune, so HasSpread() returns false and the
+// downstream avgSpread display is 0.
+func TestPEGAvoidPruneNonBagEmptyingNoSpread(t *testing.T) {
+	is := is.New(t)
+
+	// Load the game from issue #476 and navigate to the position where
+	// whatnoloan passed (turn 25 in 1-indexed analyzer numbering, which is
+	// event 24 0-indexed). At this point all 663 generated plays tie at
+	// 0 wins (the position is lost regardless of the bag draw), so
+	// maybeTiebreak runs over a large set of tied plays — including the
+	// avoid-prune Pass.
+	f, err := os.Open("./testdata/issue_476.gcg")
+	is.NoErr(err)
+	defer f.Close()
+	hist, err := gcgio.ParseGCGFromReader(DefaultConfig, f)
+	is.NoErr(err)
+
+	rules, err := game.NewBasicGameRules(DefaultConfig, hist.Lexicon, "CrosswordGame", "english", game.CrossScoreAndSet, "classic")
+	is.NoErr(err)
+
+	g, err := game.NewFromHistory(hist, rules, 24)
+	is.NoErr(err)
+
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), hist.Lexicon)
+	is.NoErr(err)
+
+	peg := new(Solver)
+	err = peg.Init(g, gd)
+	is.NoErr(err)
+	// Use only 1 thread and ply 1 to keep the test fast; the bug reproduces
+	// at any ply count since it depends on the leaf-count vs inbagOption-ct
+	// mismatch in spread accumulation.
+	peg.SetThreads(1)
+	peg.SetEndgamePlies(1)
+	peg.SetIterativeDeepening(false)
+
+	// Mark the Pass as avoid-prune, mirroring what gameanalysis does for
+	// the played move. Without the fix, this triggers spread tiebreaking
+	// for the Pass and inflates its accumulated Spread by a factor of
+	// (number of endgame leaves visited).
+	passMove := move.NewPassMove(g.RackFor(g.PlayerOnTurn()).TilesOn(), g.Alphabet())
+	peg.SetAvoidPrune([]*move.Move{passMove})
+
+	ctx := context.Background()
+	plays, err := peg.Solve(ctx)
+	is.NoErr(err)
+
+	// Find the Pass play and verify its spread state.
+	var passPlay *PreEndgamePlay
+	for _, p := range plays {
+		if p.Play.Action() == move.MoveTypePass {
+			passPlay = p
+			break
+		}
+	}
+	is.True(passPlay != nil) // Pass play must exist in the results
+
+	// The Pass does not empty the bag, so it must NOT have an accumulated
+	// spread value. With the bug present, HasSpread() returned true and
+	// GetSpread() returned a value in the tens of thousands.
+	is.Equal(passPlay.HasSpread(), false)
+	is.Equal(passPlay.GetSpread(), 0)
 }
 
 func TestStraightforward1PEG(t *testing.T) {
