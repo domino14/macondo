@@ -35,6 +35,7 @@ import (
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/stats"
+	wmppkg "github.com/domino14/macondo/wmp"
 )
 
 /*
@@ -285,6 +286,8 @@ type Simmer struct {
 
 	autostopper          *AutoStopper
 	stochasticStaticEval bool
+
+	wmp *wmppkg.WMP
 }
 
 func (s *Simmer) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
@@ -463,6 +466,14 @@ func (s *Simmer) SetInferences(i map[*[]tilemapping.MachineLetter]float64, t int
 	s.inferenceMode = mode
 }
 
+// SetWMP wires a WMP into every per-thread move generator that the simmer
+// creates in makeGameCopies. Call this once after Init; the WMP is
+// re-applied automatically on each subsequent PrepareSim call.
+// Pass nil to disable WMP.
+func (s *Simmer) SetWMP(w *wmppkg.WMP) {
+	s.wmp = w
+}
+
 func (s *Simmer) makeGameCopies() error {
 	log.Debug().Int("threads", s.threads).Msg("makeGameCopies")
 	s.gameCopies = []*game.Game{}
@@ -479,7 +490,11 @@ func (s *Simmer) makeGameCopies() error {
 			return err
 		}
 		// not ideal, but refactor later. The play recorder needs it.
-		player.MoveGenerator().(*movegen.GordonGenerator).SetGame(s.gameCopies[i])
+		gen := player.MoveGenerator().(*movegen.GordonGenerator)
+		gen.SetGame(s.gameCopies[i])
+		if s.wmp != nil {
+			gen.SetWMP(s.wmp)
+		}
 		s.aiplayers = append(s.aiplayers, player)
 	}
 	return nil

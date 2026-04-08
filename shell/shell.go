@@ -44,6 +44,7 @@ import (
 	"github.com/domino14/macondo/preendgame"
 	"github.com/domino14/macondo/rangefinder"
 	"github.com/domino14/macondo/turnplayer"
+	wmppkg "github.com/domino14/macondo/wmp"
 )
 
 const (
@@ -439,6 +440,26 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 	}
 }
 
+// tryLoadWMP attempts to load a WMP file for the given lexicon from the
+// data directory (data/lexica/<lexicon>.wmp). If the file is not present,
+// it returns nil silently — WMP is optional. On any other error it logs
+// a warning and returns nil so the caller can proceed without WMP.
+func (sc *ShellController) tryLoadWMP(lexiconName string) *wmppkg.WMP {
+	dataPath := sc.config.GetString(config.ConfigDataPath)
+	wmpPath := filepath.Join(dataPath, "lexica", lexiconName+".wmp")
+	if _, err := os.Stat(wmpPath); err != nil {
+		// File not present — WMP is optional, silently skip.
+		return nil
+	}
+	w, err := wmppkg.LoadFromFile(lexiconName, wmpPath)
+	if err != nil {
+		log.Warn().Err(err).Str("path", wmpPath).Msg("failed to load WMP; sim will run without it")
+		return nil
+	}
+	log.Info().Str("lexicon", lexiconName).Str("path", wmpPath).Msg("loaded WMP for sim")
+	return w
+}
+
 func (sc *ShellController) initGameDataStructures() error {
 	if sc.simmer != nil {
 		sc.simmer.CleanupTempFile()
@@ -454,6 +475,7 @@ func (sc *ShellController) initGameDataStructures() error {
 		return err
 	}
 	sc.simmer.Init(sc.game.Game, []equity.EquityCalculator{c}, c, sc.config)
+	sc.simmer.SetWMP(sc.tryLoadWMP(sc.game.LexiconName()))
 	sc.gen = sc.game.MoveGenerator()
 
 	gd, err := kwg.GetKWG(sc.config.WGLConfig(), sc.game.LexiconName())
@@ -657,6 +679,7 @@ func (sc *ShellController) variationSwitch(varID int) (*Response, error) {
 		return nil, err
 	}
 	sc.simmer.Init(sc.game.Game, []equity.EquityCalculator{c}, c, sc.config)
+	sc.simmer.SetWMP(sc.tryLoadWMP(sc.game.LexiconName()))
 	sc.gen = sc.game.MoveGenerator()
 
 	sc.rangefinder = &rangefinder.RangeFinder{}

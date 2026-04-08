@@ -345,8 +345,6 @@ func (gen *GordonGenerator) initShadow(rack *tilemapping.Rack) {
 // csDir is the cross-set direction to check.
 func (gen *GordonGenerator) shadowPlayForAnchor(row, col, lastAnchorCol int, dir board.BoardDirection) {
 	s := &gen.shadow
-	sqIdx := gen.board.GetSqIdx(row, col)
-
 	// When generating horizontal moves, check vertical cross-sets and vice versa
 	var csDir board.BoardDirection
 	if dir == board.HorizontalDirection {
@@ -358,7 +356,10 @@ func (gen *GordonGenerator) shadowPlayForAnchor(row, col, lastAnchorCol int, dir
 	// Set up state
 	s.currentLeftCol = col
 	s.currentRightCol = col
-	s.anchorLeftExtSet = gen.board.GetLeftExtSetIdx(sqIdx, csDir)
+	// leftExtSet comes from the row cache (loaded once per row in genShadow).
+	// rightExtSet is anchor-specific and not cached, so we call the board.
+	s.anchorLeftExtSet = uint64(gen.cache.squares[col].leftExtSet)
+	sqIdx := gen.board.GetSqIdx(row, col)
 	s.anchorRightExtSet = gen.board.GetRightExtSetIdx(sqIdx, csDir)
 
 	if s.anchorLeftExtSet|s.anchorRightExtSet == 0 {
@@ -400,11 +401,11 @@ func (gen *GordonGenerator) shadowPlayForAnchor(row, col, lastAnchorCol int, dir
 	copy(s.shadowRackCopy[:], s.shadowRack[:])
 	origRackCrossSet := s.rackCrossSet
 
-	curLetter := gen.board.GetLetter(row, col)
+	curLetter := gen.cache.squares[col].letter
 	if curLetter == 0 {
-		gen.shadowStartNonplaythrough(row, dir, csDir)
+		gen.shadowStartNonplaythrough(dir)
 	} else {
-		gen.shadowStartPlaythrough(row, col, lastAnchorCol, curLetter, dir, csDir)
+		gen.shadowStartPlaythrough(lastAnchorCol, curLetter, dir)
 	}
 
 	// Restore rack
@@ -462,20 +463,20 @@ func (gen *GordonGenerator) addWMPAnchorsForSquare(row, col, lastAnchorCol int, 
 }
 
 // shadowStartNonplaythrough handles shadow for an anchor on an empty square.
-func (gen *GordonGenerator) shadowStartNonplaythrough(row int, dir, csDir board.BoardDirection) {
+func (gen *GordonGenerator) shadowStartNonplaythrough(dir board.BoardDirection) {
 	s := &gen.shadow
 	col := s.currentLeftCol
-	sqIdx := gen.board.GetSqIdx(row, col)
+	sq := &gen.cache.squares[col]
 
-	crossSet := uint64(gen.board.GetCrossSetIdx(sqIdx, csDir))
+	crossSet := uint64(sq.crossSet)
 	possibleLetters := s.rackPossible(crossSet)
 	if possibleLetters == 0 {
 		return
 	}
 
-	lm := gen.board.GetLetterMultiplier(sqIdx)
-	wm := gen.board.GetWordMultiplier(sqIdx)
-	cs := gen.board.GetCrossScoreIdx(sqIdx, csDir)
+	lm := int(sq.letterMul)
+	wm := int(sq.wordMul)
+	cs := int(sq.crossScore)
 	isCrossWord := cs > 0 || crossSet != board.TrivialCrossSet
 
 	// Set word multiplier to 0 initially since we're recording a single tile
@@ -496,12 +497,12 @@ func (gen *GordonGenerator) shadowStartNonplaythrough(row int, dir, csDir board.
 	gen.shadowMaybeRecalcEffMuls()
 
 	// Now try extending left
-	gen.shadowNonplaythroughPlayLeft(row, dir == board.HorizontalDirection, csDir)
+	gen.shadowNonplaythroughPlayLeft(dir == board.HorizontalDirection)
 }
 
 // shadowStartPlaythrough handles shadow for an anchor on a filled square.
-func (gen *GordonGenerator) shadowStartPlaythrough(row, col, lastAnchorCol int,
-	curLetter tilemapping.MachineLetter, dir, csDir board.BoardDirection) {
+func (gen *GordonGenerator) shadowStartPlaythrough(lastAnchorCol int,
+	curLetter tilemapping.MachineLetter, dir board.BoardDirection) {
 	s := &gen.shadow
 
 	// Traverse the full length of existing tiles leftward
@@ -514,7 +515,7 @@ func (gen *GordonGenerator) shadowStartPlaythrough(row, col, lastAnchorCol int,
 			break
 		}
 		s.currentLeftCol--
-		curLetter = gen.board.GetLetter(row, s.currentLeftCol)
+		curLetter = gen.cache.squares[s.currentLeftCol].letter
 		if curLetter == 0 {
 			s.currentLeftCol++
 			break
@@ -527,18 +528,18 @@ func (gen *GordonGenerator) shadowStartPlaythrough(row, col, lastAnchorCol int,
 		gen.wmpMoveGen.IncrementPlaythroughBlocks()
 	}
 
-	gen.shadowPlaythroughPlayLeft(row, dir == board.HorizontalDirection, csDir)
+	gen.shadowPlaythroughPlayLeft(dir == board.HorizontalDirection)
 }
 
 // shadowNonplaythroughPlayLeft extends shadow leftward from a nonplaythrough anchor.
-func (gen *GordonGenerator) shadowNonplaythroughPlayLeft(row int, isUnique bool, csDir board.BoardDirection) {
+func (gen *GordonGenerator) shadowNonplaythroughPlayLeft(isUnique bool) {
 	s := &gen.shadow
 
 	for {
 		// Try extending right first
 		possibleRight := s.rackPossible(s.anchorRightExtSet)
 		if possibleRight != 0 {
-			gen.shadowPlayRight(row, isUnique, csDir)
+			gen.shadowPlayRight(isUnique)
 		}
 		s.anchorRightExtSet = board.TrivialCrossSet
 
@@ -557,15 +558,15 @@ func (gen *GordonGenerator) shadowNonplaythroughPlayLeft(row int, isUnique bool,
 		s.currentLeftCol--
 		gen.tilesPlayed++
 
-		sqIdx := gen.board.GetSqIdx(row, s.currentLeftCol)
-		crossSet := uint64(gen.board.GetCrossSetIdx(sqIdx, csDir))
+		sq := &gen.cache.squares[s.currentLeftCol]
+		crossSet := uint64(sq.crossSet)
 		possibleHere := s.rackPossible(crossSet)
 		if possibleHere == 0 {
 			return
 		}
-		lm := gen.board.GetLetterMultiplier(sqIdx)
-		wm := gen.board.GetWordMultiplier(sqIdx)
-		cs := gen.board.GetCrossScoreIdx(sqIdx, csDir)
+		lm := int(sq.letterMul)
+		wm := int(sq.wordMul)
+		cs := int(sq.crossScore)
 		isCrossWord := cs > 0 || crossSet != board.TrivialCrossSet
 
 		s.shadowPerpAdditionalScore += cs * wm
@@ -580,14 +581,14 @@ func (gen *GordonGenerator) shadowNonplaythroughPlayLeft(row int, isUnique bool,
 }
 
 // shadowPlaythroughPlayLeft extends shadow leftward from a playthrough anchor.
-func (gen *GordonGenerator) shadowPlaythroughPlayLeft(row int, isUnique bool, csDir board.BoardDirection) {
+func (gen *GordonGenerator) shadowPlaythroughPlayLeft(isUnique bool) {
 	s := &gen.shadow
 
 	for {
 		// Try extending right
 		possibleRight := s.rackPossible(s.anchorRightExtSet)
 		if possibleRight != 0 {
-			gen.shadowPlayRight(row, isUnique, csDir)
+			gen.shadowPlayRight(isUnique)
 		}
 		s.anchorRightExtSet = board.TrivialCrossSet
 
@@ -606,17 +607,17 @@ func (gen *GordonGenerator) shadowPlaythroughPlayLeft(row int, isUnique bool, cs
 		s.currentLeftCol--
 		gen.tilesPlayed++
 
-		sqIdx := gen.board.GetSqIdx(row, s.currentLeftCol)
-		crossSet := uint64(gen.board.GetCrossSetIdx(sqIdx, csDir))
+		sq := &gen.cache.squares[s.currentLeftCol]
+		crossSet := uint64(sq.crossSet)
 
 		possibleHere := s.rackPossible(crossSet)
 		if possibleHere == 0 {
 			break
 		}
 
-		lm := gen.board.GetLetterMultiplier(sqIdx)
-		wm := gen.board.GetWordMultiplier(sqIdx)
-		cs := gen.board.GetCrossScoreIdx(sqIdx, csDir)
+		lm := int(sq.letterMul)
+		wm := int(sq.wordMul)
+		cs := int(sq.crossScore)
 		isCrossWord := cs > 0 || crossSet != board.TrivialCrossSet
 
 		s.shadowPerpAdditionalScore += cs * wm
@@ -640,7 +641,7 @@ func (gen *GordonGenerator) shadowPlaythroughPlayLeft(row int, isUnique bool, cs
 // Matches magpie's shadow_play_right structure: the main loop iterates over
 // EMPTY squares (placing tiles), and after each placement, scans past any
 // consecutive playthrough tiles (adding their scores without using rack tiles).
-func (gen *GordonGenerator) shadowPlayRight(row int, isUnique bool, csDir board.BoardDirection) {
+func (gen *GordonGenerator) shadowPlayRight(isUnique bool) {
 	s := &gen.shadow
 
 	// Save state for restoration
@@ -655,8 +656,7 @@ func (gen *GordonGenerator) shadowPlayRight(row int, isUnique bool, csDir board.
 	copy(s.descCrossWordMulsCopy[:], s.descCrossWordMuls[:])
 	copy(s.descEffLetterMulsCopy[:], s.descEffLetterMuls[:])
 	origRackCrossSet := s.rackCrossSet
-	var rackCopy [tilemapping.MaxAlphabetSize + 1]int
-	copy(rackCopy[:], s.shadowRack[:])
+	rackCopy := s.shadowRack // direct value copy; avoids zero-init + copy
 	restrictedAny := false
 	changedMuls := false
 
@@ -674,13 +674,12 @@ func (gen *GordonGenerator) shadowPlayRight(row int, isUnique bool, csDir board.
 		s.currentRightCol++
 		gen.tilesPlayed++
 
-		sqIdx := gen.board.GetSqIdx(row, s.currentRightCol)
-		crossSet := uint64(gen.board.GetCrossSetIdx(sqIdx, csDir))
-		leftExtHere := gen.board.GetLeftExtSetIdx(sqIdx, csDir)
+		sq := &gen.cache.squares[s.currentRightCol]
+		crossSet := uint64(sq.crossSet)
 
 		// Possible letters: must be in cross-set, left extension set,
 		// anchor right extension set, and on the rack (or blank).
-		possibleHere := s.rackPossible(crossSet & leftExtHere & s.anchorRightExtSet)
+		possibleHere := s.rackPossible(crossSet & uint64(sq.leftExtSet) & s.anchorRightExtSet)
 		// After first use, right extension set becomes trivial
 		s.anchorRightExtSet = board.TrivialCrossSet
 
@@ -688,9 +687,9 @@ func (gen *GordonGenerator) shadowPlayRight(row int, isUnique bool, csDir board.
 			break
 		}
 
-		lm := gen.board.GetLetterMultiplier(sqIdx)
-		wm := gen.board.GetWordMultiplier(sqIdx)
-		cs := gen.board.GetCrossScoreIdx(sqIdx, csDir)
+		lm := int(sq.letterMul)
+		wm := int(sq.wordMul)
+		cs := int(sq.crossScore)
 		isCrossWord := cs > 0 || crossSet != board.TrivialCrossSet
 
 		s.shadowPerpAdditionalScore += cs * wm
@@ -710,7 +709,7 @@ func (gen *GordonGenerator) shadowPlayRight(row int, isUnique bool, csDir board.
 		// Scan past consecutive playthrough tiles to the right
 		foundPlaythrough := false
 		for s.currentRightCol+1 < dim {
-			nextLetter := gen.board.GetLetter(row, s.currentRightCol+1)
+			nextLetter := gen.cache.squares[s.currentRightCol+1].letter
 			if nextLetter == 0 {
 				break
 			}
@@ -737,7 +736,7 @@ func (gen *GordonGenerator) shadowPlayRight(row int, isUnique bool, csDir board.
 	s.shadowWordMultiplier = origWordMul
 
 	if restrictedAny {
-		copy(s.shadowRack[:], rackCopy[:])
+		s.shadowRack = rackCopy
 		s.rackCrossSet = origRackCrossSet
 		s.descTileScores = s.descTileScoresCopy
 	}
@@ -1008,6 +1007,7 @@ func (gen *GordonGenerator) genShadow(rack *tilemapping.Rack) {
 	for row := 0; row < dim; row++ {
 		gen.curRowIdx = row
 		gen.lastAnchorCol = 100
+		gen.cache.loadRow(gen.board, row, board.VerticalDirection, dim)
 		for col := 0; col < dim; col++ {
 			if gen.board.IsAnchor(row, col, board.HorizontalDirection) {
 				gen.shadowPlayForAnchor(row, col, gen.lastAnchorCol, board.HorizontalDirection)
@@ -1025,6 +1025,7 @@ func (gen *GordonGenerator) genShadow(rack *tilemapping.Rack) {
 	for row := 0; row < dim; row++ {
 		gen.curRowIdx = row
 		gen.lastAnchorCol = 100
+		gen.cache.loadRow(gen.board, row, board.HorizontalDirection, dim)
 		for col := 0; col < dim; col++ {
 			if gen.board.IsAnchor(row, col, board.VerticalDirection) {
 				gen.shadowPlayForAnchor(row, col, gen.lastAnchorCol, board.VerticalDirection)
@@ -1051,6 +1052,10 @@ func (gen *GordonGenerator) genRecordScoringPlaysFromAnchors(rack *tilemapping.R
 	// Anchors were stored in the coordinates of their orientation
 	// (horizontal = untransposed, vertical = transposed).
 	currentlyTransposed := false
+
+	// Invalidate the row cache: data from a previous GenAll call (different
+	// board state) must not be reused.
+	gen.cache.loadedRow = -1
 
 	for gen.shadow.anchorHeap.len() > 0 {
 		if gen.quitEarly {
@@ -1089,6 +1094,8 @@ func (gen *GordonGenerator) genRecordScoringPlaysFromAnchors(rack *tilemapping.R
 		if needTransposed != currentlyTransposed {
 			gen.board.Transpose()
 			currentlyTransposed = needTransposed
+			// Board layout changed: cached row data is now stale.
+			gen.cache.loadedRow = -1
 		}
 		gen.vertical = needTransposed
 
@@ -1099,14 +1106,17 @@ func (gen *GordonGenerator) genRecordScoringPlaysFromAnchors(rack *tilemapping.R
 		gen.curAnchorCol = anchorCol
 		gen.lastAnchorCol = int(anchor.LastAnchorCol)
 
-		// Load row cache for this anchor's row
+		// Load row cache for this anchor's row, reusing the cached data
+		// when consecutive anchors share the same row and direction.
 		var csDir board.BoardDirection
 		if anchor.Dir == board.HorizontalDirection {
 			csDir = board.VerticalDirection
 		} else {
 			csDir = board.HorizontalDirection
 		}
-		gen.cache.loadRow(gen.board, anchorRow, csDir, gen.boardDim)
+		if gen.cache.loadedRow != anchorRow || gen.cache.loadedDir != csDir {
+			gen.cache.loadRow(gen.board, anchorRow, csDir, gen.boardDim)
+		}
 
 		// WMP-recorded anchors carry per-(blocks, tiles) extension
 		// fields. Process them via wordmapGen, which retrieves the

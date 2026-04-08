@@ -31,8 +31,8 @@ import (
 )
 
 const (
-	benchMacondoDataPath = "/Users/john/sources/apr06-macwmp/macondo/data"
-	benchMagpieCSW24WMP  = "/Users/john/sources/apr03-noprune/MAGPIE/data/lexica/CSW24.wmp"
+	benchMacondoDataPath = "/home/cesar/code/macondo/data"
+	benchMagpieCSW24WMP  = "/home/cesar/code/magpie/data/lexica/CSW24.wmp"
 	// CGP from the existing BenchmarkSim, switched to CSW24 since
 	// that's the lexicon we have local KWG + leaves + WMP for.
 	benchSimCGP = "C14/O2TOY9/mIRADOR8/F4DAB2PUGH1/I5GOOEY3V/T4XI2MALTHA/14N/6GUM3OWN/7PEW2DOE/9EF1DOR/2KUNA1J1BEVELS/3TURRETs2S2/7A4T2/7N7/7S7 EEEIILZ/ 336/298 0 lex CSW24;"

@@ -13,7 +13,7 @@ require (
 	github.com/cespare/xxhash v1.1.0
 	github.com/chzyer/readline v1.5.1
 	github.com/cjoudrey/gluahttp v0.0.0-20201111170219-25003d9adfa9
-	github.com/domino14/word-golib v0.2.20
+	github.com/domino14/word-golib v0.2.22
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51
 	github.com/matryer/is v1.4.1
 	github.com/nats-io/nats.go v1.50.0
@@ -129,5 +129,3 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
-
-replace github.com/domino14/word-golib => /Users/john/sources/apr01-word-golib/word-golib
