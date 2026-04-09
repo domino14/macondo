@@ -25,6 +25,7 @@ import (
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
+	"github.com/domino14/macondo/tinymove"
 	"github.com/domino14/macondo/zobrist"
 )
 
@@ -384,6 +385,9 @@ type Solver struct {
 	minPotentialLosses   float32
 
 	threadLogs []jobLog
+
+	// Per-thread arenas for SmallMove slices used in recursiveSolve.
+	arenas []*tinymove.SmallMoveArena
 }
 
 // Init initializes the solver. It creates all the parallel endgame solvers.
@@ -560,6 +564,10 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 			}
 		}
 
+		s.arenas = make([]*tinymove.SmallMoveArena, s.threads)
+		for i := range s.arenas {
+			s.arenas[i] = tinymove.NewSmallMoveArena(tinymove.DefaultSmallMoveArenaSize)
+		}
 		log.Info().Int("nmoves", len(moves)).Int("nthreads", s.threads).Msg("peg-generated-moves")
 
 		winners, err = s.multithreadSolveGeneric(ctx, moves, logChan)

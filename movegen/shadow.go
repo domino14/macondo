@@ -20,7 +20,6 @@ import (
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
-	"github.com/domino14/macondo/tinymove"
 	"github.com/domino14/macondo/wmp"
 )
 
@@ -1201,9 +1200,7 @@ func (gen *GordonGenerator) GenAllWithShadow(rack *tilemapping.Rack, addExchange
 		gen.topNPlays[i].SetEmpty()
 	}
 
-	ptr := SmallPlaySlicePool.Get().(*[]tinymove.SmallMove)
-	gen.smallPlays = *ptr
-	gen.smallPlays = gen.smallPlays[0:0]
+	gen.smallPlays = gen.smallPlays[:0]
 
 	// Cache equity state for the fast path in TopPlayOnlyRecorder.
 	// The leave map fast path only works with CombinedStaticCalculator
@@ -1289,8 +1286,6 @@ func (gen *GordonGenerator) GenAllWithShadow(rack *tilemapping.Rack, addExchange
 			break
 		}
 	}
-	*ptr = gen.smallPlays
-
 	if gen.maxTopMovesSize != 0 {
 		delfrom := -1
 		for i := 0; i < gen.maxTopMovesSize; i++ {

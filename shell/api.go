@@ -692,13 +692,7 @@ func (sc *ShellController) endgameRunSync(params *endgameParams) (string, error)
 		result.WriteString(fmt.Sprintf("Spread diff: %+d. Note: this sequence may not be correct. Turn off first-win-optim to search more accurately.\n", val))
 	}
 	result.WriteString(fmt.Sprintf("Final spread after seq: %+d\n", val+int16(sc.game.CurrentSpread())))
-	result.WriteString("Best move: ")
-	result.WriteString(seq[0].ShortDescription() + "\n")
-	// Format sequence using ShortDescription which includes score
-	result.WriteString("Best sequence:\n")
-	for idx, m := range seq {
-		result.WriteString(fmt.Sprintf("%d) %v (%d)\n", idx+1, m.ShortDescription(), m.Score()))
-	}
+	result.WriteString(sc.endgameSequenceString(seq))
 
 	variations := sc.endgameSolver.Variations()
 	if len(variations) > 1 {

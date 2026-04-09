@@ -499,6 +499,9 @@ func BenchmarkPassFirst(b *testing.B) {
 	// Large majority of this allocation is the transposition table.
 	// 10/24/23  1	1578926502 ns/op	8699932296 B/op	 2720435 allocs/op
 	// 11/9/23 1	1572327101 ns/op	8654502392 B/op	 1511844 allocs/op
+	// 4/6/26  1	1190851193 ns/op	8690409824 B/op	   34308 allocs/op
+	// 4/7/26  1	1186071173 ns/op	8672290200 B/op	    6830 allocs/op
+
 	for i := 0; i < b.N; i++ {
 		v, seq, _ := s.Solve(context.Background(), plies)
 
