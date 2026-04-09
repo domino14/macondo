@@ -3,7 +3,6 @@
 package montecarlo
 
 import (
-	"os"
 	"runtime"
 	"testing"
 
@@ -14,10 +13,8 @@ import (
 
 func loadWMPForBench(b *testing.B) *wmppkg.WMP {
 	b.Helper()
-	if _, err := os.Stat(benchMagpieCSW24WMP); err != nil {
-		b.Skipf("WMP file not found at %s", benchMagpieCSW24WMP)
-	}
-	w, err := wmppkg.LoadFromFile("CSW24", benchMagpieCSW24WMP)
+	_, wmpPath := requireWMPSetup(b)
+	w, err := wmppkg.LoadFromFile("CSW24", wmpPath)
 	if err != nil {
 		b.Fatal(err)
 	}

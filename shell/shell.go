@@ -212,6 +212,13 @@ type ShellController struct {
 	// Local analysis persistence
 	gameSource    string                  // source identifier for the currently loaded game
 	analysisStore *gameanalysis.AnalysisStore // lazily opened SQLite store
+
+	// wmpCache stores WMPs by lexicon name so initGameDataStructures
+	// (and the variation switch path) don't re-open / re-parse the
+	// same .wmp file every time the game is rebuilt. nil entries mean
+	// "tried to load and failed (or file not present)" so we don't
+	// keep retrying.
+	wmpCache map[string]*wmppkg.WMP
 }
 
 type Mode int
@@ -440,23 +447,36 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 	}
 }
 
-// tryLoadWMP attempts to load a WMP file for the given lexicon from the
-// data directory (data/lexica/<lexicon>.wmp). If the file is not present,
-// it returns nil silently — WMP is optional. On any other error it logs
-// a warning and returns nil so the caller can proceed without WMP.
+// tryLoadWMP returns the WMP for the given lexicon from the in-process
+// cache, loading it from data/lexica/<lexicon>.wmp on first request. If
+// the file is not present it caches a nil result silently — WMP is
+// optional. On a load error it logs once and caches nil so the caller
+// can proceed without WMP and we don't keep retrying. The shell calls
+// this every time initGameDataStructures runs (once per loaded game,
+// and again on every variation switch); caching keeps that loop cheap.
 func (sc *ShellController) tryLoadWMP(lexiconName string) *wmppkg.WMP {
+	if sc.wmpCache == nil {
+		sc.wmpCache = make(map[string]*wmppkg.WMP)
+	}
+	if w, ok := sc.wmpCache[lexiconName]; ok {
+		return w
+	}
 	dataPath := sc.config.GetString(config.ConfigDataPath)
 	wmpPath := filepath.Join(dataPath, "lexica", lexiconName+".wmp")
 	if _, err := os.Stat(wmpPath); err != nil {
-		// File not present — WMP is optional, silently skip.
+		// File not present — WMP is optional, silently skip and cache
+		// the negative result.
+		sc.wmpCache[lexiconName] = nil
 		return nil
 	}
 	w, err := wmppkg.LoadFromFile(lexiconName, wmpPath)
 	if err != nil {
 		log.Warn().Err(err).Str("path", wmpPath).Msg("failed to load WMP; sim will run without it")
+		sc.wmpCache[lexiconName] = nil
 		return nil
 	}
 	log.Info().Str("lexicon", lexiconName).Str("path", wmpPath).Msg("loaded WMP for sim")
+	sc.wmpCache[lexiconName] = w
 	return w
 }
 
@@ -475,6 +495,14 @@ func (sc *ShellController) initGameDataStructures() error {
 		return err
 	}
 	sc.simmer.Init(sc.game.Game, []equity.EquityCalculator{c}, c, sc.config)
+	// WMP is wired into the simmer only. The interactive `gen` /
+	// `best` / endgame paths use sc.gen (and sc.backupgen below),
+	// which deliberately do NOT get a WMP — those code paths need
+	// the full enumeration that AllPlaysRecorder / endgame solvers
+	// rely on, and WMP's win is only in the shadow + best-first
+	// rollout loop that Monte Carlo sim drives. The TopN equivalence
+	// test (montecarlo/wmp_equivalence_test.go) covers the sim path
+	// only; mirror this constraint if WMP is ever extended elsewhere.
 	sc.simmer.SetWMP(sc.tryLoadWMP(sc.game.LexiconName()))
 	sc.gen = sc.game.MoveGenerator()
 

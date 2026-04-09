@@ -273,11 +273,48 @@ func readEntries(r io.Reader, n uint32) ([]Entry, error) {
 	return entries, nil
 }
 
+// validateBucketCount ensures the bucket count is a non-zero power of
+// two. GetBucketIndex relies on `& (numBuckets - 1)` for hashing, which
+// is only correct for power-of-two sizes; the unsafe-pointer scanBucket
+// loop also depends on the masked index landing within bucketStarts.
+func validateBucketCount(section string, n uint32) error {
+	if n == 0 || (n&(n-1)) != 0 {
+		return fmt.Errorf("wmp: %s bucket count %d is not a non-zero power of two", section, n)
+	}
+	return nil
+}
+
+// validateBucketStarts ensures the bucket-start offsets describe a
+// monotonic, non-overflowing partition of the entries slice. Without
+// these guarantees the no-bounds-check inner loop in scanBucket would
+// happily walk past the end of the entries array on a corrupted file.
+func validateBucketStarts(section string, starts []uint32, numEntries uint32) error {
+	if len(starts) < 2 {
+		return fmt.Errorf("wmp: %s bucket-starts has length %d (need >= 2)", section, len(starts))
+	}
+	if starts[0] != 0 {
+		return fmt.Errorf("wmp: %s bucket-starts[0] is %d (must be 0)", section, starts[0])
+	}
+	for i := 1; i < len(starts); i++ {
+		if starts[i] < starts[i-1] {
+			return fmt.Errorf("wmp: %s bucket-starts not monotonic at index %d (%d < %d)", section, i, starts[i], starts[i-1])
+		}
+	}
+	if starts[len(starts)-1] != numEntries {
+		return fmt.Errorf("wmp: %s bucket-starts terminator is %d (must equal numEntries=%d)",
+			section, starts[len(starts)-1], numEntries)
+	}
+	return nil
+}
+
 func readForLength(wfl *ForLength, length int, r io.Reader) error {
 	// Blankless words section
 	var err error
 	wfl.NumWordBuckets, err = readUint32(r)
 	if err != nil {
+		return err
+	}
+	if err := validateBucketCount("word", wfl.NumWordBuckets); err != nil {
 		return err
 	}
 	wfl.WordBucketStarts, err = readUint32s(r, wfl.NumWordBuckets+1)
@@ -286,6 +323,9 @@ func readForLength(wfl *ForLength, length int, r io.Reader) error {
 	}
 	wfl.NumWordEntries, err = readUint32(r)
 	if err != nil {
+		return err
+	}
+	if err := validateBucketStarts("word", wfl.WordBucketStarts, wfl.NumWordEntries); err != nil {
 		return err
 	}
 	wfl.WordMapEntries, err = readEntries(r, wfl.NumWordEntries)
@@ -308,12 +348,18 @@ func readForLength(wfl *ForLength, length int, r io.Reader) error {
 	if err != nil {
 		return err
 	}
+	if err := validateBucketCount("blank", wfl.NumBlankBuckets); err != nil {
+		return err
+	}
 	wfl.BlankBucketStarts, err = readUint32s(r, wfl.NumBlankBuckets+1)
 	if err != nil {
 		return err
 	}
 	wfl.NumBlankEntries, err = readUint32(r)
 	if err != nil {
+		return err
+	}
+	if err := validateBucketStarts("blank", wfl.BlankBucketStarts, wfl.NumBlankEntries); err != nil {
 		return err
 	}
 	wfl.BlankMapEntries, err = readEntries(r, wfl.NumBlankEntries)
@@ -326,12 +372,18 @@ func readForLength(wfl *ForLength, length int, r io.Reader) error {
 	if err != nil {
 		return err
 	}
+	if err := validateBucketCount("double-blank", wfl.NumDoubleBlankBuckets); err != nil {
+		return err
+	}
 	wfl.DoubleBlankBucketStarts, err = readUint32s(r, wfl.NumDoubleBlankBuckets+1)
 	if err != nil {
 		return err
 	}
 	wfl.NumDoubleBlankEntries, err = readUint32(r)
 	if err != nil {
+		return err
+	}
+	if err := validateBucketStarts("double-blank", wfl.DoubleBlankBucketStarts, wfl.NumDoubleBlankEntries); err != nil {
 		return err
 	}
 	wfl.DoubleBlankMapEntries, err = readEntries(r, wfl.NumDoubleBlankEntries)
