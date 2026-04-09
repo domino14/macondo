@@ -50,8 +50,9 @@ type Config struct {
 
 	viper.Viper
 
-	configPath string
-	wglconfig  *wglconfig.Config
+	configPath    string
+	wglconfig     *wglconfig.Config
+	wglconfigOnce sync.Once
 }
 
 func DefaultConfig() *Config {
@@ -181,14 +182,12 @@ func (c *Config) Load(args []string) error {
 // passing this entire config to that library (and causing a circular import as well).
 // This sub-config is not meant to change after we first start this program.
 func (c *Config) WGLConfig() *wglconfig.Config {
-	if c.wglconfig == nil {
-		c.Lock()
-		defer c.Unlock()
+	c.wglconfigOnce.Do(func() {
 		c.wglconfig = &wglconfig.Config{
 			DataPath:      c.GetString(ConfigDataPath),
 			KWGPathPrefix: c.GetString(ConfigKWGPathPrefix),
 		}
-	}
+	})
 	return c.wglconfig
 }
 
