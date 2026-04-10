@@ -10,20 +10,32 @@ import (
 	"github.com/domino14/macondo/leavemap"
 )
 
-// magpieCSWWMPPath is the path to a MAGPIE-built CSW wmp file used by
-// these integration tests. The MAGPIE C tests use CSW21; we use CSW24
-// (which is a strict superset) since it's what's locally available.
-// All test rack lookups still hold under CSW24.
-const magpieCSWWMPPath = "/Users/john/sources/apr03-noprune/MAGPIE/data/lexica/CSW24.wmp"
+// wmpTestPath returns the path to a CSW24 WMP file for testing.
+// Checks $MACONDO_WMP_FILE first, then $MACONDO_DATA_PATH/lexica/CSW24.wmp.
+// Skips the test if neither is available.
+func wmpTestPath(t *testing.T) string {
+	t.Helper()
+	if p := os.Getenv("MACONDO_WMP_FILE"); p != "" {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	if dp := os.Getenv("MACONDO_DATA_PATH"); dp != "" {
+		p := dp + "/lexica/CSW24.wmp"
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	t.Skip("CSW24.wmp not available (set $MACONDO_WMP_FILE or $MACONDO_DATA_PATH)")
+	return ""
+}
 
-// loadTestWMP returns the test WMP, skipping the test if the MAGPIE
+// loadTestWMP returns the test WMP, skipping the test if the WMP
 // data file is not available.
 func loadTestWMP(t *testing.T) *WMP {
 	t.Helper()
-	if _, err := os.Stat(magpieCSWWMPPath); err != nil {
-		t.Skipf("MAGPIE wmp not present at %s", magpieCSWWMPPath)
-	}
-	w, err := LoadFromFile("CSW24", magpieCSWWMPPath)
+	path := wmpTestPath(t)
+	w, err := LoadFromFile("CSW24", path)
 	if err != nil {
 		t.Fatalf("LoadFromFile failed: %v", err)
 	}

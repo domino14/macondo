@@ -10,6 +10,26 @@ import (
 	"github.com/domino14/word-golib/tilemapping"
 )
 
+// wmpTestFilePath returns the path to a CSW24 WMP file for testing.
+// Checks $MACONDO_WMP_FILE first, then $MACONDO_DATA_PATH/lexica/CSW24.wmp.
+// Skips the test if neither is available.
+func wmpTestFilePath(t *testing.T) string {
+	t.Helper()
+	if p := os.Getenv("MACONDO_WMP_FILE"); p != "" {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	if dp := os.Getenv("MACONDO_DATA_PATH"); dp != "" {
+		p := dp + "/lexica/CSW24.wmp"
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	t.Skip("CSW24.wmp not available (set $MACONDO_WMP_FILE or $MACONDO_DATA_PATH)")
+	return ""
+}
+
 // englishLetterDistributionCSV is a minimal English letter distribution
 // in word-golib's CSV format (letter,quantity,value,vowel). The blank
 // is at row 0 so it gets MachineLetter 0; A=1, B=2, …, Z=26.
@@ -363,12 +383,9 @@ func TestMakeFromWordsRejectsIncompatibleLD(t *testing.T) {
 }
 
 // TestLoadMagpieWMP verifies binary format compatibility with MAGPIE-produced
-// .wmp files. It only runs if a CSW24.wmp file is present at a known path.
+// .wmp files. It only runs if a CSW24.wmp file is present.
 func TestLoadMagpieWMP(t *testing.T) {
-	path := "/Users/john/sources/apr03-noprune/MAGPIE/data/lexica/CSW24.wmp"
-	if _, err := os.Stat(path); err != nil {
-		t.Skipf("MAGPIE wmp not present at %s", path)
-	}
+	path := wmpTestFilePath(t)
 	wmp, err := LoadFromFile("CSW24", path)
 	if err != nil {
 		t.Fatalf("LoadFromFile failed: %v", err)
@@ -409,10 +426,10 @@ func TestLoadMagpieWMP(t *testing.T) {
 // identical to MAGPIE's: it loads a real MAGPIE wmp file, writes it back
 // out with our code, and compares the bytes.
 func TestMagpieBinaryRoundtrip(t *testing.T) {
-	path := "/Users/john/sources/apr03-noprune/MAGPIE/data/lexica/CSW24.wmp"
+	path := wmpTestFilePath(t)
 	original, err := os.ReadFile(path)
 	if err != nil {
-		t.Skipf("MAGPIE wmp not present at %s", path)
+		t.Fatalf("reading wmp file: %v", err)
 	}
 	wmp, err := Load("CSW24", bytes.NewReader(original))
 	if err != nil {
