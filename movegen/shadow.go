@@ -1256,9 +1256,20 @@ func (gen *GordonGenerator) GenAllWithShadow(rack *tilemapping.Rack, addExchange
 	// gen_look_up_leaves_and_record_exchanges and gen_shadow.
 	gen.wmpMoveGen.Init(gen.letterDistribution, rack, gen.wmpData)
 	if gen.wmpMoveGen.IsActive() {
-		// MAGPIE only checks leaves when sorting by equity in mid-game;
-		// we mirror that condition.
-		checkLeaves := gen.shadow.tilesInBag > 0 && gen.sortingParameter != SortByScore
+		// shadowRecord unconditionally consumes
+		// wmpMoveGen.NonplaythroughBestLeaveValues() whenever
+		// tilesInBag > 0 (see useWMPLeaves, shadow.go ~line 783),
+		// so those values must be populated with real leaves
+		// whenever that condition can fire — regardless of the
+		// final sorting parameter, which only controls post-gen
+		// sort and is left as SortByScore even when TopPlayOnly /
+		// TopN recorders pick winners by equity inline. Tying
+		// checkLeaves to the sort parameter (the previous
+		// behavior) caused the WMP shadow bound to assume the best
+		// leave was zero, which pruned low-score / high-leave
+		// plays whose real equity would otherwise have won.
+		// Caught by automatic.RunWMPAgreementTest.
+		checkLeaves := gen.shadow.tilesInBag > 0
 		gen.wmpMoveGen.CheckNonplaythroughExistence(checkLeaves, &gen.leavemap)
 	}
 
