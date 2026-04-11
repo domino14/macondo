@@ -68,25 +68,33 @@ type InferenceMode int
 
 const (
 	InferenceOff InferenceMode = iota
+	// InferenceWeightedRandomTiles is deprecated. Use InferenceWeightedRandomRacks instead.
 	InferenceWeightedRandomTiles
 	InferenceWeightedRandomRacks
 )
 
+// InferredRack is a rack leave inferred from the opponent's last move,
+// with a Bayesian posterior weight proportional to P(play|leave) * P(leave).
+type InferredRack struct {
+	Leave  []tilemapping.MachineLetter
+	Weight float64
+}
+
 // LogIteration is a struct meant for serializing to a log-file, for debug
 // and other purposes.
 type LogIteration struct {
-	Iteration int       `json:"iteration" yaml:"iteration"`
-	Plays     []LogPlay `json:"plays" yaml:"plays"`
-	Thread    int       `json:"thread" yaml:"thread"`
+	Iteration    int       `json:"iteration" yaml:"iteration"`
+	Plays        []LogPlay `json:"plays" yaml:"plays"`
+	Thread       int       `json:"thread" yaml:"thread"`
+	InferredRack string    `json:"inferred_rack,omitempty" yaml:"inferred_rack,omitempty"`
 }
 
 // LogPlay is a single play.
 type LogPlay struct {
-	Play       string `json:"play" yaml:"play"`
-	Leave      string `json:"leave" yaml:"leave"`
-	Rack       string `json:"rack" yaml:"rack"`
-	PresetRack string `json:"preset_rack,omitempty" yaml:"preset_rack,omitempty"`
-	Pts        int    `json:"pts" yaml:"pts"`
+	Play  string `json:"play" yaml:"play"`
+	Leave string `json:"leave" yaml:"leave"`
+	Rack  string `json:"rack" yaml:"rack"`
+	Pts   int    `json:"pts" yaml:"pts"`
 	// Leftover is the equity of the leftover tiles at the end of the sim.
 	Leftover float64 `json:"left,omitempty" yaml:"left,omitempty"`
 	// Although this is a recursive structure we don't really use it
@@ -277,7 +285,7 @@ type Simmer struct {
 	activeHeatMapFilename string
 
 	// See rangefinder.
-	inferences               map[*[]tilemapping.MachineLetter]float64
+	inferences               []InferredRack
 	inferenceMode            InferenceMode
 	tilesToInfer             int
 	adjustedBagProbabilities []float64
@@ -457,9 +465,12 @@ func (s *Simmer) SetKnownOppRack(r []tilemapping.MachineLetter) {
 	s.knownOppRack = r
 }
 
-func (s *Simmer) SetInferences(i map[*[]tilemapping.MachineLetter]float64, t int, mode InferenceMode) {
-	s.inferences = i
-	s.tilesToInfer = t
+func (s *Simmer) SetInferences(racks []InferredRack, rackLength int, mode InferenceMode) {
+	if mode == InferenceWeightedRandomTiles {
+		log.Warn().Msg("InferenceWeightedRandomTiles is deprecated; prefer InferenceWeightedRandomRacks")
+	}
+	s.inferences = racks
+	s.tilesToInfer = rackLength
 	s.inferenceMode = mode
 }
 
@@ -736,27 +747,17 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 	var err error
 	if s.inferenceMode != InferenceOff {
 
-		// If we have a very low number of inferred racks, we still want to
-		// try to use their info. But we draw more random racks the fewer inferred
-		// racks we have.
-
-		minInferences := 2
-		maxInferences := 25
-		maxProbability := 0.9 // 90%
-		minProbability := 0.0 // 0%
+		// Use a sigmoid to determine alpha: the probability of sampling from
+		// inferred racks rather than drawing a fully random rack.
+		// Fewer inferences = lower confidence in coverage = more random fallback.
+		const maxAlpha = 0.95
+		const midpoint = 10.0
+		const sigmoidScale = 5.0
 
 		numInferences := len(s.inferences)
+		alpha := maxAlpha / (1 + math.Exp(-(float64(numInferences)-midpoint)/sigmoidScale))
 
-		probability := maxProbability
-		if numInferences > minInferences {
-			if numInferences < maxInferences {
-				probability = maxProbability -
-					((float64(numInferences-minInferences) / float64(maxInferences-minInferences)) * maxProbability)
-			} else {
-				probability = minProbability
-			}
-		}
-		if rand.Float64() < probability {
+		if rand.Float64() >= alpha {
 			rackToSet = nil
 		} else {
 			if s.inferenceMode == InferenceWeightedRandomTiles {
@@ -776,6 +777,9 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 		return err
 	}
 	logIter := LogIteration{Iteration: int(iterationCount), Plays: nil, Thread: thread}
+	if s.logStream != nil && len(rackToSet) > 0 {
+		logIter.InferredRack = tilemapping.MachineWord(rackToSet).UserVisible(g.Alphabet())
+	}
 
 	var logPlay LogPlay
 	var plyChild LogPlay
@@ -817,17 +821,12 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 			// log.Debug().Msgf("Score is now %v", s.game.Score())
 
 			if s.logStream != nil {
-				presetRack := ""
-				if len(rackToSet) > 0 && ply == 0 {
-					presetRack = tilemapping.MachineWord(rackToSet).UserVisible(g.Alphabet())
-				}
 				plyChild = LogPlay{
-					Play:       g.Board().MoveDescriptionWithPlaythrough(bestPlay),
-					PresetRack: presetRack,
-					Leave:      bestPlay.LeaveString(),
-					Rack:       bestPlay.FullRack(),
-					Pts:        bestPlay.Score(),
-					Bingo:      bestPlay.BingoPlayed()}
+					Play:  g.Board().MoveDescriptionWithPlaythrough(bestPlay),
+					Leave: bestPlay.LeaveString(),
+					Rack:  bestPlay.FullRack(),
+					Pts:   bestPlay.Score(),
+					Bingo: bestPlay.BingoPlayed()}
 			}
 			if ply == plies-2 || ply == plies-1 {
 				// It's either OUR last turn or OPP's last turn.
@@ -1191,53 +1190,34 @@ func weightedChoice(tiles []tilemapping.MachineLetter, weights []float64) (tilem
 }
 
 func (s *Simmer) weightedInferredDrawRacks() ([]tilemapping.MachineLetter, error) {
-
-	picked, err := weightedChoiceRack(s.inferences)
-	if err != nil {
-		return nil, err
-	}
-	return picked, nil
-}
-
-// weightedChoice selects one element from tiles based on the provided weights
-func weightedChoiceRack(choices map[*[]tilemapping.MachineLetter]float64) ([]tilemapping.MachineLetter, error) {
-	// turn into two arrays.
-	racks := [][]tilemapping.MachineLetter{}
-	weights := []float64{}
-	for k, v := range choices {
-		racks = append(racks, *k)
-		weights = append(weights, v)
+	if len(s.inferences) == 0 {
+		return nil, errors.New("no inferences available")
 	}
 
-	// Calculate the cumulative weights
-	cumulative := make([]float64, len(weights))
-
-	cumulative[0] = weights[0]
-	for i := 1; i < len(weights); i++ {
-		cumulative[i] = cumulative[i-1] + weights[i]
+	// Build cumulative weights over the []InferredRack slice.
+	cumulative := make([]float64, len(s.inferences))
+	cumulative[0] = s.inferences[0].Weight
+	for i := 1; i < len(s.inferences); i++ {
+		cumulative[i] = cumulative[i-1] + s.inferences[i].Weight
 	}
 
-	// Generate a random number between 0 and total weight
 	r := rand.Float64() * cumulative[len(cumulative)-1]
-
-	// Find the first cumulative weight that is greater than r
 	for i, cw := range cumulative {
 		if r < cw {
-			return racks[i], nil
+			return s.inferences[i].Leave, nil
 		}
 	}
-
-	return nil, errors.New("weighted choice failed to select a rack")
+	return s.inferences[len(s.inferences)-1].Leave, nil
 }
 
 func (s *Simmer) calculateWeightedProbabilitiesForBag() {
 	// Calculate weighted probabilities for the bag.
 	totalTiles := float64(0)
 	tileCounts := map[tilemapping.MachineLetter]float64{}
-	for rack, weight := range s.inferences {
-		for _, t := range *rack {
-			tileCounts[t] += weight
-			totalTiles += weight
+	for _, ir := range s.inferences {
+		for _, t := range ir.Leave {
+			tileCounts[t] += ir.Weight
+			totalTiles += ir.Weight
 		}
 	}
 	tileProbabilities := map[tilemapping.MachineLetter]float64{}

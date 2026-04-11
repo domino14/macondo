@@ -51,7 +51,7 @@ func NewSimpleSimmerFromGame(g *game.Game) (*SimpleSimmer, error) {
 	btp.AIStaticTurnPlayer = *aip
 
 	btp.numPlies = 2
-	btp.maxIters = 100
+	btp.maxIters = 200
 
 	return btp, nil
 }
@@ -96,7 +96,7 @@ func (p *SimpleSimmer) GenAndSim(ctx context.Context, nMoves int, addedMove *mov
 		moveAlreadyThere := false
 		for i := range moves {
 			checktrans := p.Game.Board().IsEmpty()
-			if moves[i].Equals(addedMove, checktrans, false) {
+			if moves[i].Equals(addedMove, checktrans, true) {
 				moveAlreadyThere = true
 				break
 			}

@@ -10,10 +10,10 @@ import (
 func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
 	totalCt := float64(0)
 	mlcts := map[tilemapping.MachineLetter]float64{}
-	for rack, weight := range r.inference.InferredRacks {
-		for _, ml := range *rack {
-			mlcts[ml] += weight
-			totalCt += weight
+	for _, ir := range r.inference.InferredRacks {
+		for _, ml := range ir.Leave {
+			mlcts[ml] += ir.Weight
+			totalCt += ir.Weight
 		}
 	}
 	inbag := uint8(0)

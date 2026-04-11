@@ -52,3 +52,10 @@ Options:
     The amount of time in seconds to infer. Defaults to 60 seconds. You may
     want this to be a little bit larger on slower machines / those with
     fewer cores.
+
+    -tau 0.03
+
+    Softmax temperature controlling how rational the opponent is assumed to be.
+    Lower values (e.g. 0.01) assume the opponent almost always plays the best
+    move. Higher values (e.g. 0.10) give more weight to sub-optimal plays.
+    Defaults to 0.03.
