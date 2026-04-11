@@ -50,8 +50,8 @@ func NewGameRunner(logchan chan string, cfg *config.Config) *GameRunner {
 		letterDistribution: cfg.GetString(config.ConfigDefaultLetterDistribution),
 	}
 	r.Init([]AutomaticRunnerPlayer{
-		{"", "", pb.BotRequest_HASTY_BOT, 0, false},
-		{"", "", pb.BotRequest_HASTY_BOT, 0, false},
+		{BotCode: pb.BotRequest_HASTY_BOT},
+		{BotCode: pb.BotRequest_HASTY_BOT},
 	})
 
 	return r
@@ -62,6 +62,7 @@ type AutomaticRunnerPlayer struct {
 	PEGFile              string
 	BotCode              pb.BotRequest_BotCode
 	MinSimPlies          int
+	SimThreads           int
 	StochasticStaticEval bool
 }
 
@@ -104,6 +105,7 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 			PEGAdjustmentFile:    pegfile,
 			LeavesFile:           leavefile,
 			MinSimPlies:          players[idx].MinSimPlies,
+			SimThreads:           players[idx].SimThreads,
 			StochasticStaticEval: players[idx].StochasticStaticEval,
 		}
 

@@ -30,6 +30,7 @@ type BotConfig struct {
 	PEGAdjustmentFile    string
 	LeavesFile           string
 	MinSimPlies          int
+	SimThreads           int
 	StochasticStaticEval bool
 	// If UseOppRacksInAnalysis is true, will use opponent rack info for simulation/pre-endgames/etc
 	UseOppRacksInAnalysis bool
@@ -118,6 +119,9 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 		btp.simmerCalcs = []equity.EquityCalculator{c}
 		if conf.MinSimPlies > 0 {
 			btp.SetMinSimPlies(conf.MinSimPlies)
+		}
+		if conf.SimThreads > 0 {
+			btp.SetSimThreads(conf.SimThreads)
 		}
 	}
 	if HasEndgame(botType) {

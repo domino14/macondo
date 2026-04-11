@@ -590,7 +590,7 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 
 	nodes := s.nodeCount.Load()
 	// This should be zero, but I think something is wrong with Lambda.
-	logger.Info().Uint64("starting-node-count", nodes).Msg("nodes")
+	logger.Debug().Uint64("starting-node-count", nodes).Msg("nodes")
 
 	// use an errgroup here and listen for a ctx done outside this loop, but
 	// in another goroutine.

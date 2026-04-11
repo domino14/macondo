@@ -44,8 +44,8 @@ type DeterministicConfig struct {
 func (r *GameRunner) CompVsCompStatic(addToHistory bool) error {
 	err := r.Init(
 		[]AutomaticRunnerPlayer{
-			{"", "", pb.BotRequest_HASTY_BOT, 0, false},
-			{"", "", pb.BotRequest_HASTY_BOT, 0, false},
+			{BotCode: pb.BotRequest_HASTY_BOT},
+			{BotCode: pb.BotRequest_HASTY_BOT},
 		})
 
 	if err != nil {

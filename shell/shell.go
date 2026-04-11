@@ -1421,6 +1421,7 @@ func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) err
 	var block, genseeds, deterministic bool
 	var botcode1, botcode2 pb.BotRequest_BotCode
 	var minsimplies1, minsimplies2 int
+	var simthreads1, simthreads2 int
 	var stochastic1, stochastic2 bool
 	var err error
 	if options.String("logfile") == "" {
@@ -1465,6 +1466,12 @@ func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) err
 		return err
 	}
 	if minsimplies2, err = options.IntDefault("minsimplies2", 0); err != nil {
+		return err
+	}
+	if simthreads1, err = options.IntDefault("simthreads1", 0); err != nil {
+		return err
+	}
+	if simthreads2, err = options.IntDefault("simthreads2", 0); err != nil {
 		return err
 	}
 	if numgames, err = options.IntDefault("numgames", 1e9); err != nil {
@@ -1551,11 +1558,13 @@ func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) err
 				PEGFile:              pegfile1,
 				BotCode:              botcode1,
 				MinSimPlies:          minsimplies1,
+				SimThreads:           simthreads1,
 				StochasticStaticEval: stochastic1},
 			{LeaveFile: leavefile2,
 				PEGFile:              pegfile2,
 				BotCode:              botcode2,
 				MinSimPlies:          minsimplies2,
+				SimThreads:           simthreads2,
 				StochasticStaticEval: stochastic2},
 		}, detConfig)
 
