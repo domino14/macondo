@@ -70,6 +70,11 @@ type Game struct {
 	// to when the history is written to. See comment above.
 	lastWordsFormed []tilemapping.MachineWord
 	backupMode      BackupMode
+	// skipNextCrossSetUpdate skips the cross-set recalculation on the next
+	// PlayMove call. Used by the sim to avoid a wasted update on the final ply,
+	// since ResetToFirstState restores the board (and its cross-sets) anyway.
+	// Reset to false automatically after each PlayMove.
+	skipNextCrossSetUpdate bool
 
 	stateStack []*stateBackup
 	stackPtr   int
@@ -380,6 +385,10 @@ func (g *Game) SetUidFromSeed(seed [32]byte) {
 	g.history.Uid = "seed:" + base64.RawURLEncoding.EncodeToString(seed[:])
 }
 
+func (g *Game) SetSkipNextCrossSetUpdate(skip bool) {
+	g.skipNextCrossSetUpdate = skip
+}
+
 func (g *Game) SetCrossSetGen(gen cross_set.Generator) {
 	g.crossSetGen = gen
 }
@@ -552,8 +561,12 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 	switch m.Action() {
 	case move.MoveTypePlay:
 		g.board.PlayMove(m)
-		// Calculate cross-sets.
-		g.crossSetGen.UpdateForMove(g.board, m)
+		// Calculate cross-sets (skipped on the final sim ply since the board
+		// is about to be restored by ResetToFirstState anyway).
+		if !g.skipNextCrossSetUpdate {
+			g.crossSetGen.UpdateForMove(g.board, m)
+		}
+		g.skipNextCrossSetUpdate = false
 		score := m.Score()
 		// no international rule counts a score of 0 as a scoreless turn
 		// if it's from tiles being played on the board (like a blank next
