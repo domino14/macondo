@@ -381,3 +381,36 @@ message PlayerSummary {
   int32 available_bingos = 11;
   int32 missed_bingos = 12;
 }
+
+// AutoplayPlayerConfig configures one player in an autoplay experiment.
+message AutoplayPlayerConfig {
+  BotRequest.BotCode bot_code = 1;
+  string leave_file = 2;
+  string peg_file = 3;
+  int32 min_sim_plies = 4;
+  int32 sim_threads = 5;
+  bool stochastic_static_eval = 6;
+  // inference_tau is the softmax temperature for P(play|leave) in inference.
+  // If 0, the default SoftmaxTemperature constant is used.
+  double inference_tau = 7;
+}
+
+// AutoplayConfig defines a complete autoplay experiment.
+message AutoplayConfig {
+  // Human-readable description of the experiment.
+  string description = 1;
+  // Unique experiment identifier used for naming output files.
+  // If empty, one is auto-generated from the current timestamp.
+  string experiment_id = 2;
+  string lexicon = 3;
+  string letter_distribution = 4;
+  int32 num_games = 5;
+  // Number of parallel game threads.
+  int32 threads = 6;
+  // Directory where output files are written. Defaults to current directory.
+  string output_dir = 7;
+  AutoplayPlayerConfig player1 = 8;
+  AutoplayPlayerConfig player2 = 9;
+  // If true, block until all games complete before returning.
+  bool block = 10;
+}

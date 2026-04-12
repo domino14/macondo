@@ -32,6 +32,9 @@ type BotConfig struct {
 	MinSimPlies          int
 	SimThreads           int
 	StochasticStaticEval bool
+	// InferenceTau overrides the default softmax temperature for inference.
+	// If 0, the default SoftmaxTemperature constant is used.
+	InferenceTau float64
 	// If UseOppRacksInAnalysis is true, will use opponent rack info for simulation/pre-endgames/etc
 	UseOppRacksInAnalysis bool
 }

@@ -2528,6 +2528,224 @@ func (x *PlayerSummary) GetMissedBingos() int32 {
 	return 0
 }
 
+// AutoplayPlayerConfig configures one player in an autoplay experiment.
+type AutoplayPlayerConfig struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	BotCode              BotRequest_BotCode     `protobuf:"varint,1,opt,name=bot_code,json=botCode,proto3,enum=macondo.BotRequest_BotCode" json:"bot_code,omitempty"`
+	LeaveFile            string                 `protobuf:"bytes,2,opt,name=leave_file,json=leaveFile,proto3" json:"leave_file,omitempty"`
+	PegFile              string                 `protobuf:"bytes,3,opt,name=peg_file,json=pegFile,proto3" json:"peg_file,omitempty"`
+	MinSimPlies          int32                  `protobuf:"varint,4,opt,name=min_sim_plies,json=minSimPlies,proto3" json:"min_sim_plies,omitempty"`
+	SimThreads           int32                  `protobuf:"varint,5,opt,name=sim_threads,json=simThreads,proto3" json:"sim_threads,omitempty"`
+	StochasticStaticEval bool                   `protobuf:"varint,6,opt,name=stochastic_static_eval,json=stochasticStaticEval,proto3" json:"stochastic_static_eval,omitempty"`
+	// inference_tau is the softmax temperature for P(play|leave) in inference.
+	// If 0, the default SoftmaxTemperature constant is used.
+	InferenceTau  float64 `protobuf:"fixed64,7,opt,name=inference_tau,json=inferenceTau,proto3" json:"inference_tau,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AutoplayPlayerConfig) Reset() {
+	*x = AutoplayPlayerConfig{}
+	mi := &file_api_proto_macondo_macondo_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AutoplayPlayerConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AutoplayPlayerConfig) ProtoMessage() {}
+
+func (x *AutoplayPlayerConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_macondo_macondo_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AutoplayPlayerConfig.ProtoReflect.Descriptor instead.
+func (*AutoplayPlayerConfig) Descriptor() ([]byte, []int) {
+	return file_api_proto_macondo_macondo_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *AutoplayPlayerConfig) GetBotCode() BotRequest_BotCode {
+	if x != nil {
+		return x.BotCode
+	}
+	return BotRequest_HASTY_BOT
+}
+
+func (x *AutoplayPlayerConfig) GetLeaveFile() string {
+	if x != nil {
+		return x.LeaveFile
+	}
+	return ""
+}
+
+func (x *AutoplayPlayerConfig) GetPegFile() string {
+	if x != nil {
+		return x.PegFile
+	}
+	return ""
+}
+
+func (x *AutoplayPlayerConfig) GetMinSimPlies() int32 {
+	if x != nil {
+		return x.MinSimPlies
+	}
+	return 0
+}
+
+func (x *AutoplayPlayerConfig) GetSimThreads() int32 {
+	if x != nil {
+		return x.SimThreads
+	}
+	return 0
+}
+
+func (x *AutoplayPlayerConfig) GetStochasticStaticEval() bool {
+	if x != nil {
+		return x.StochasticStaticEval
+	}
+	return false
+}
+
+func (x *AutoplayPlayerConfig) GetInferenceTau() float64 {
+	if x != nil {
+		return x.InferenceTau
+	}
+	return 0
+}
+
+// AutoplayConfig defines a complete autoplay experiment.
+type AutoplayConfig struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Human-readable description of the experiment.
+	Description string `protobuf:"bytes,1,opt,name=description,proto3" json:"description,omitempty"`
+	// Unique experiment identifier used for naming output files.
+	// If empty, one is auto-generated from the current timestamp.
+	ExperimentId       string `protobuf:"bytes,2,opt,name=experiment_id,json=experimentId,proto3" json:"experiment_id,omitempty"`
+	Lexicon            string `protobuf:"bytes,3,opt,name=lexicon,proto3" json:"lexicon,omitempty"`
+	LetterDistribution string `protobuf:"bytes,4,opt,name=letter_distribution,json=letterDistribution,proto3" json:"letter_distribution,omitempty"`
+	NumGames           int32  `protobuf:"varint,5,opt,name=num_games,json=numGames,proto3" json:"num_games,omitempty"`
+	// Number of parallel game threads.
+	Threads int32 `protobuf:"varint,6,opt,name=threads,proto3" json:"threads,omitempty"`
+	// Directory where output files are written. Defaults to current directory.
+	OutputDir string                `protobuf:"bytes,7,opt,name=output_dir,json=outputDir,proto3" json:"output_dir,omitempty"`
+	Player1   *AutoplayPlayerConfig `protobuf:"bytes,8,opt,name=player1,proto3" json:"player1,omitempty"`
+	Player2   *AutoplayPlayerConfig `protobuf:"bytes,9,opt,name=player2,proto3" json:"player2,omitempty"`
+	// If true, block until all games complete before returning.
+	Block         bool `protobuf:"varint,10,opt,name=block,proto3" json:"block,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AutoplayConfig) Reset() {
+	*x = AutoplayConfig{}
+	mi := &file_api_proto_macondo_macondo_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AutoplayConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AutoplayConfig) ProtoMessage() {}
+
+func (x *AutoplayConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_api_proto_macondo_macondo_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AutoplayConfig.ProtoReflect.Descriptor instead.
+func (*AutoplayConfig) Descriptor() ([]byte, []int) {
+	return file_api_proto_macondo_macondo_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *AutoplayConfig) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *AutoplayConfig) GetExperimentId() string {
+	if x != nil {
+		return x.ExperimentId
+	}
+	return ""
+}
+
+func (x *AutoplayConfig) GetLexicon() string {
+	if x != nil {
+		return x.Lexicon
+	}
+	return ""
+}
+
+func (x *AutoplayConfig) GetLetterDistribution() string {
+	if x != nil {
+		return x.LetterDistribution
+	}
+	return ""
+}
+
+func (x *AutoplayConfig) GetNumGames() int32 {
+	if x != nil {
+		return x.NumGames
+	}
+	return 0
+}
+
+func (x *AutoplayConfig) GetThreads() int32 {
+	if x != nil {
+		return x.Threads
+	}
+	return 0
+}
+
+func (x *AutoplayConfig) GetOutputDir() string {
+	if x != nil {
+		return x.OutputDir
+	}
+	return ""
+}
+
+func (x *AutoplayConfig) GetPlayer1() *AutoplayPlayerConfig {
+	if x != nil {
+		return x.Player1
+	}
+	return nil
+}
+
+func (x *AutoplayConfig) GetPlayer2() *AutoplayPlayerConfig {
+	if x != nil {
+		return x.Player2
+	}
+	return nil
+}
+
+func (x *AutoplayConfig) GetBlock() bool {
+	if x != nil {
+		return x.Block
+	}
+	return false
+}
+
 var File_api_proto_macondo_macondo_proto protoreflect.FileDescriptor
 
 const file_api_proto_macondo_macondo_proto_rawDesc = "" +
@@ -2769,7 +2987,30 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\restimated_elo\x18\n" +
 	" \x01(\x01R\festimatedElo\x12)\n" +
 	"\x10available_bingos\x18\v \x01(\x05R\x0favailableBingos\x12#\n" +
-	"\rmissed_bingos\x18\f \x01(\x05R\fmissedBingos*C\n" +
+	"\rmissed_bingos\x18\f \x01(\x05R\fmissedBingos\"\xa8\x02\n" +
+	"\x14AutoplayPlayerConfig\x126\n" +
+	"\bbot_code\x18\x01 \x01(\x0e2\x1b.macondo.BotRequest.BotCodeR\abotCode\x12\x1d\n" +
+	"\n" +
+	"leave_file\x18\x02 \x01(\tR\tleaveFile\x12\x19\n" +
+	"\bpeg_file\x18\x03 \x01(\tR\apegFile\x12\"\n" +
+	"\rmin_sim_plies\x18\x04 \x01(\x05R\vminSimPlies\x12\x1f\n" +
+	"\vsim_threads\x18\x05 \x01(\x05R\n" +
+	"simThreads\x124\n" +
+	"\x16stochastic_static_eval\x18\x06 \x01(\bR\x14stochasticStaticEval\x12#\n" +
+	"\rinference_tau\x18\a \x01(\x01R\finferenceTau\"\x80\x03\n" +
+	"\x0eAutoplayConfig\x12 \n" +
+	"\vdescription\x18\x01 \x01(\tR\vdescription\x12#\n" +
+	"\rexperiment_id\x18\x02 \x01(\tR\fexperimentId\x12\x18\n" +
+	"\alexicon\x18\x03 \x01(\tR\alexicon\x12/\n" +
+	"\x13letter_distribution\x18\x04 \x01(\tR\x12letterDistribution\x12\x1b\n" +
+	"\tnum_games\x18\x05 \x01(\x05R\bnumGames\x12\x18\n" +
+	"\athreads\x18\x06 \x01(\x05R\athreads\x12\x1d\n" +
+	"\n" +
+	"output_dir\x18\a \x01(\tR\toutputDir\x127\n" +
+	"\aplayer1\x18\b \x01(\v2\x1d.macondo.AutoplayPlayerConfigR\aplayer1\x127\n" +
+	"\aplayer2\x18\t \x01(\v2\x1d.macondo.AutoplayPlayerConfigR\aplayer2\x12\x14\n" +
+	"\x05block\x18\n" +
+	" \x01(\bR\x05block*C\n" +
 	"\tPlayState\x12\v\n" +
 	"\aPLAYING\x10\x00\x12\x1a\n" +
 	"\x16WAITING_FOR_FINAL_PASS\x10\x01\x12\r\n" +
@@ -2828,7 +3069,7 @@ func file_api_proto_macondo_macondo_proto_rawDescGZIP() []byte {
 }
 
 var file_api_proto_macondo_macondo_proto_enumTypes = make([]protoimpl.EnumInfo, 9)
-var file_api_proto_macondo_macondo_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
+var file_api_proto_macondo_macondo_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_api_proto_macondo_macondo_proto_goTypes = []any{
 	(PlayState)(0),                  // 0: macondo.PlayState
 	(ChallengeRule)(0),              // 1: macondo.ChallengeRule
@@ -2859,6 +3100,8 @@ var file_api_proto_macondo_macondo_proto_goTypes = []any{
 	(*GameAnalysisResult)(nil),      // 26: macondo.GameAnalysisResult
 	(*TurnAnalysis)(nil),            // 27: macondo.TurnAnalysis
 	(*PlayerSummary)(nil),           // 28: macondo.PlayerSummary
+	(*AutoplayPlayerConfig)(nil),    // 29: macondo.AutoplayPlayerConfig
+	(*AutoplayConfig)(nil),          // 30: macondo.AutoplayConfig
 }
 var file_api_proto_macondo_macondo_proto_depIdxs = []int32{
 	10, // 0: macondo.GameHistory.events:type_name -> macondo.GameEvent
@@ -2890,11 +3133,14 @@ var file_api_proto_macondo_macondo_proto_depIdxs = []int32{
 	22, // 26: macondo.TurnAnalysis.top_peg_plays:type_name -> macondo.PEGPlayInfo
 	24, // 27: macondo.TurnAnalysis.principal_variation:type_name -> macondo.EndgameVariation
 	24, // 28: macondo.TurnAnalysis.other_variations:type_name -> macondo.EndgameVariation
-	29, // [29:29] is the sub-list for method output_type
-	29, // [29:29] is the sub-list for method input_type
-	29, // [29:29] is the sub-list for extension type_name
-	29, // [29:29] is the sub-list for extension extendee
-	0,  // [0:29] is the sub-list for field type_name
+	8,  // 29: macondo.AutoplayPlayerConfig.bot_code:type_name -> macondo.BotRequest.BotCode
+	29, // 30: macondo.AutoplayConfig.player1:type_name -> macondo.AutoplayPlayerConfig
+	29, // 31: macondo.AutoplayConfig.player2:type_name -> macondo.AutoplayPlayerConfig
+	32, // [32:32] is the sub-list for method output_type
+	32, // [32:32] is the sub-list for method input_type
+	32, // [32:32] is the sub-list for extension type_name
+	32, // [32:32] is the sub-list for extension extendee
+	0,  // [0:32] is the sub-list for field type_name
 }
 
 func init() { file_api_proto_macondo_macondo_proto_init() }
@@ -2912,7 +3158,7 @@ func file_api_proto_macondo_macondo_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_proto_macondo_macondo_proto_rawDesc), len(file_api_proto_macondo_macondo_proto_rawDesc)),
 			NumEnums:      9,
-			NumMessages:   20,
+			NumMessages:   22,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

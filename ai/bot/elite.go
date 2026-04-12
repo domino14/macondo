@@ -193,6 +193,9 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 		if p.simThreads != 0 {
 			p.inferencer.SetThreads(p.simThreads)
 		}
+		if p.cfg.InferenceTau > 0 {
+			p.inferencer.SetTau(p.cfg.InferenceTau)
+		}
 		err := p.inferencer.PrepareFinder(p.Game.RackFor(p.Game.PlayerOnTurn()).TilesOn())
 		if err != nil {
 			// ignore all errors and move on.

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/config"
@@ -120,6 +122,68 @@ func playerNames(players []AutomaticRunnerPlayer) []string {
 type Job struct {
 	gidx int
 	seed [32]byte
+}
+
+// StartAutoplayFromConfig runs an autoplay experiment defined by a protojson
+// config file. It returns the resolved experiment ID. Output files are written
+// to cfg.OutputDir (or the current directory if empty):
+//
+//   - {experimentId}.txt       — per-turn log
+//   - games-{experimentId}.txt — per-game summary
+//   - {experimentId}.config.json — copy of the config for reproducibility
+func StartAutoplayFromConfig(ctx context.Context, appCfg *config.Config, expCfg *pb.AutoplayConfig) (string, error) {
+	experimentID := ResolveExperimentID(expCfg)
+
+	outputDir := expCfg.OutputDir
+	if outputDir == "" {
+		outputDir = "."
+	}
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return "", fmt.Errorf("creating output dir: %w", err)
+	}
+
+	// Write a copy of the config for reproducibility (with the resolved ID).
+	expCfg.ExperimentId = experimentID
+	cfgJSON, err := protojson.MarshalOptions{Multiline: true}.Marshal(expCfg)
+	if err != nil {
+		return "", fmt.Errorf("marshalling config: %w", err)
+	}
+	cfgPath := filepath.Join(outputDir, experimentID+".config.json")
+	if err := os.WriteFile(cfgPath, cfgJSON, 0644); err != nil {
+		return "", fmt.Errorf("writing config file: %w", err)
+	}
+
+	logfile := filepath.Join(outputDir, experimentID+".txt")
+	players := PlayersFromConfig(expCfg)
+
+	numGames := int(expCfg.NumGames)
+	if numGames == 0 {
+		numGames = 1_000_000_000
+	}
+	threads := int(expCfg.Threads)
+	if threads == 0 {
+		threads = runtime.NumCPU()
+	}
+
+	lexicon := expCfg.Lexicon
+	if lexicon == "" {
+		lexicon = appCfg.GetString(config.ConfigDefaultLexicon)
+	}
+	letterDist := expCfg.LetterDistribution
+	if letterDist == "" {
+		letterDist = appCfg.GetString(config.ConfigDefaultLetterDistribution)
+	}
+
+	if expCfg.Description != "" {
+		log.Info().Str("experiment", experimentID).Str("description", expCfg.Description).Msg("starting-autoplay")
+	}
+
+	err = StartCompVCompStaticGames(ctx, appCfg, numGames, expCfg.Block, threads,
+		logfile, lexicon, letterDist, players, nil)
+	if err != nil {
+		return experimentID, err
+	}
+	return experimentID, nil
 }
 
 func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
