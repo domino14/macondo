@@ -178,8 +178,42 @@ func StartAutoplayFromConfig(ctx context.Context, appCfg *config.Config, expCfg 
 		log.Info().Str("experiment", experimentID).Str("description", expCfg.Description).Msg("starting-autoplay")
 	}
 
+	// Handle seeding.
+	var detConfig *DeterministicConfig
+	if expCfg.GenerateSeeds || expCfg.Deterministic || expCfg.SeedFile != "" {
+		detConfig = &DeterministicConfig{
+			SeedFile: expCfg.SeedFile,
+			NumGames: numGames,
+		}
+		if expCfg.GenerateSeeds {
+			if expCfg.SeedFile == "" {
+				return experimentID, fmt.Errorf("generate_seeds requires seed_file to be set")
+			}
+			seeds, err := GenerateSeeds(numGames)
+			if err != nil {
+				return experimentID, fmt.Errorf("generating seeds: %w", err)
+			}
+			if err := SaveSeeds(seeds, expCfg.SeedFile); err != nil {
+				return experimentID, fmt.Errorf("saving seeds: %w", err)
+			}
+			log.Info().Int("n", numGames).Str("file", expCfg.SeedFile).Msg("generated-seeds")
+			return experimentID, nil
+		}
+		if expCfg.Deterministic {
+			if expCfg.SeedFile == "" {
+				return experimentID, fmt.Errorf("deterministic requires seed_file to be set")
+			}
+			seeds, err := LoadSeeds(expCfg.SeedFile)
+			if err != nil {
+				return experimentID, fmt.Errorf("loading seeds: %w", err)
+			}
+			detConfig.Seeds = seeds
+			log.Info().Int("n", len(seeds)).Str("file", expCfg.SeedFile).Msg("loaded-seeds")
+		}
+	}
+
 	err = StartCompVCompStaticGames(ctx, appCfg, numGames, expCfg.Block, threads,
-		logfile, lexicon, letterDist, players, nil)
+		logfile, lexicon, letterDist, players, detConfig)
 	if err != nil {
 		return experimentID, err
 	}

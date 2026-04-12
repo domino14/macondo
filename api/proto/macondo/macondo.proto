@@ -413,4 +413,10 @@ message AutoplayConfig {
   AutoplayPlayerConfig player2 = 9;
   // If true, block until all games complete before returning.
   bool block = 10;
+  // Path to a seed file for deterministic autoplay.
+  string seed_file = 11;
+  // If true, generate seeds (numGames worth) and save to seed_file, then exit.
+  bool generate_seeds = 12;
+  // If true, load seeds from seed_file and use them for deterministic games.
+  bool deterministic = 13;
 }

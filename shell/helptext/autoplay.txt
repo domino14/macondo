@@ -54,6 +54,10 @@ Config fields:
     outputDir          Directory for output files. Defaults to current directory.
     block              If true, wait for all games to complete before returning.
 
+    seedFile           Path to a seed file for deterministic/reproducible games.
+    generateSeeds      If true, generate seeds and save to seedFile, then exit.
+    deterministic      If true, load seeds from seedFile and use them for games.
+
 Per-player fields (player1 / player2):
 
     botCode            Bot strategy. Values from the BotRequest.BotCode enum:
@@ -72,6 +76,48 @@ Per-player fields (player1 / player2):
                        Lower = assume opponent plays more optimally.
                        Higher = allow more weight to sub-optimal plays.
                        Try 0.008–0.03 for strong opponents.
+
+CLI overrides:
+
+Any config field can be overridden on the command line without editing the
+JSON file. Override flags are applied on top of the loaded config:
+
+    autoplay base.json -numgames 500
+    autoplay base.json -tau1 0.008
+    autoplay base.json -threads 16 -experimentid infer-tau008-run2
+
+Available override flags:
+    -experimentid ID      Override the experiment ID (and thus output filenames)
+    -outputdir PATH       Override the output directory
+    -lexicon NAME         Override the lexicon
+    -letterdistribution X Override the letter distribution
+    -numgames N           Override the number of games
+    -threads N            Override the number of parallel game threads
+    -block                Wait for all games to complete
+    -seedfile PATH        Override the seed file path
+    -genseeds             Generate seeds and save to seedFile, then exit
+    -deterministic        Load seeds from seedFile for deterministic games
+    -botcode1 CODE        Override player1 bot code
+    -botcode2 CODE        Override player2 bot code
+    -minsimplies1 N       Override player1 minimum sim plies
+    -minsimplies2 N       Override player2 minimum sim plies
+    -simthreads1 N        Override player1 sim threads
+    -simthreads2 N        Override player2 sim threads
+    -tau1 F               Override player1 inference tau
+    -tau2 F               Override player2 inference tau
+
+Deterministic workflow example:
+
+    # Generate seeds
+    autoplay base.json -numgames 1000 -genseeds -seedfile /tmp/seeds.txt
+
+    # Run on master branch with seeds
+    autoplay base.json -numgames 1000 -deterministic -seedfile /tmp/seeds.txt \
+        -experimentid master-run1
+
+    # Run on feature branch with same seeds
+    autoplay base.json -numgames 1000 -deterministic -seedfile /tmp/seeds.txt \
+        -experimentid feature-run1
 
 Note: If using a simming or inference bot, set threads to 1 and let
 simThreads use all CPUs, or balance as needed (e.g. threads=32, simThreads=6

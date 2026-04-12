@@ -1425,7 +1425,7 @@ func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) err
 	}
 
 	if len(args) != 1 {
-		return errors.New("usage: autoplay <config-file.json>  or  autoplay stop")
+		return errors.New("usage: autoplay <config-file.json> [overrides...]  or  autoplay stop")
 	}
 
 	if sc.gameRunnerRunning {
@@ -1440,6 +1440,54 @@ func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) err
 		return err
 	}
 
+	// Apply flag overrides on top of the loaded config.
+	if v := options.String("experimentid"); v != "" {
+		expCfg.ExperimentId = v
+	}
+	if v := options.String("outputdir"); v != "" {
+		expCfg.OutputDir = v
+	}
+	if v := options.String("lexicon"); v != "" {
+		expCfg.Lexicon = v
+	}
+	if v := options.String("letterdistribution"); v != "" {
+		expCfg.LetterDistribution = v
+	}
+	if v, err2 := options.IntDefault("numgames", 0); err2 != nil {
+		return err2
+	} else if v != 0 {
+		expCfg.NumGames = int32(v)
+	}
+	if v, err2 := options.IntDefault("threads", 0); err2 != nil {
+		return err2
+	} else if v != 0 {
+		expCfg.Threads = int32(v)
+	}
+	if options.Bool("block") {
+		expCfg.Block = true
+	}
+
+	// Seeding overrides
+	if v := options.String("seedfile"); v != "" {
+		expCfg.SeedFile = v
+	}
+	if options.Bool("genseeds") {
+		expCfg.GenerateSeeds = true
+	}
+	if options.Bool("deterministic") {
+		expCfg.Deterministic = true
+	}
+
+	// Per-player overrides. Apply only if the flag was explicitly set.
+	if expCfg.Player1 == nil {
+		expCfg.Player1 = &pb.AutoplayPlayerConfig{}
+	}
+	if expCfg.Player2 == nil {
+		expCfg.Player2 = &pb.AutoplayPlayerConfig{}
+	}
+	applyPlayerOverrides(expCfg.Player1, options, "1")
+	applyPlayerOverrides(expCfg.Player2, options, "2")
+
 	sc.gameRunnerCtx, sc.gameRunnerCancel = context.WithCancel(context.Background())
 	experimentID, err := automatic.StartAutoplayFromConfig(sc.gameRunnerCtx, sc.config, expCfg)
 	if err != nil {
@@ -1451,8 +1499,27 @@ func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) err
 		outputDir = "."
 	}
 	sc.showMessage(fmt.Sprintf("Experiment %q started. Output: %s/%s.txt", experimentID, outputDir, experimentID))
-	sc.gameRunnerRunning = true
+	sc.gameRunnerRunning = !expCfg.Block
 	return nil
+}
+
+// applyPlayerOverrides applies per-player CLI flag overrides (suffix "1" or "2")
+// to a player config. Only flags that were explicitly set are applied.
+func applyPlayerOverrides(p *pb.AutoplayPlayerConfig, options CmdOptions, suffix string) {
+	if v := options.String("botcode" + suffix); v != "" {
+		if code, exists := pb.BotRequest_BotCode_value[v]; exists {
+			p.BotCode = pb.BotRequest_BotCode(code)
+		}
+	}
+	if v, err := options.IntDefault("minsimplies"+suffix, -1); err == nil && v >= 0 {
+		p.MinSimPlies = int32(v)
+	}
+	if v, err := options.IntDefault("simthreads"+suffix, -1); err == nil && v >= 0 {
+		p.SimThreads = int32(v)
+	}
+	if v, err := options.Float("tau" + suffix); err == nil && v > 0 {
+		p.InferenceTau = v
+	}
 }
 
 type shellcmd struct {
