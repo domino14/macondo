@@ -201,6 +201,13 @@ func (r *RangeFinder) SetTau(tau float64) {
 	r.tau = tau
 }
 
+func (r *RangeFinder) Tau() float64 {
+	if r.tau == 0 {
+		return SoftmaxTemperature
+	}
+	return r.tau
+}
+
 func (r *RangeFinder) SetLogStream(l io.Writer) {
 	r.logStream = l
 }

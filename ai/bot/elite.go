@@ -187,6 +187,7 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	}
 	var inferTimeout context.Context
 	var cancel context.CancelFunc
+	inferenceRan := false
 	if HasInfer(p.botType) && p.Game.Bag().TilesRemaining() > 0 {
 		logger.Debug().Msg("running inference..")
 		p.inferencer.Init(p.Game, p.simmerCalcs, p.Config())
@@ -198,9 +199,10 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 		}
 		err := p.inferencer.PrepareFinder(p.Game.RackFor(p.Game.PlayerOnTurn()).TilesOn())
 		if err != nil {
-			// ignore all errors and move on.
-			logger.Debug().AnErr("inference-prepare-error", err).Msg("probably-ok")
+			// Expected early in the game (no events yet, bingo, etc.)
+			logger.Debug().AnErr("inference-prepare-error", err).Msg("inference-skipped")
 		} else {
+			logger.Info().Float64("tau", p.inferencer.Tau()).Msg("inference-tau")
 			inferTimeout, cancel = context.WithTimeout(context.Background(),
 				time.Duration(20*int(time.Second)))
 			defer cancel()
@@ -209,6 +211,7 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 				// ignore all errors and move on.
 				logger.Debug().AnErr("inference-error", err).Msg("probably-ok")
 			}
+			inferenceRan = true
 		}
 	}
 
@@ -224,7 +227,7 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	// p.simmer.SetAutostopIterationsCutoff(2500)
 	// p.simmer.SetAutostopPPScaling(1500)
 
-	if HasInfer(p.botType) {
+	if HasInfer(p.botType) && inferenceRan {
 		nInferred := len(p.inferencer.Inferences().InferredRacks)
 		if nInferred > InferencesSimLimit {
 			logger.Info().Int("inferences", nInferred).Msg("using inferences in sim")
