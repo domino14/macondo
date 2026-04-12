@@ -1424,8 +1424,8 @@ func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) err
 		return nil
 	}
 
-	if len(args) != 1 {
-		return errors.New("usage: autoplay <config-file.json> [overrides...]  or  autoplay stop")
+	if len(args) > 1 {
+		return errors.New("usage: autoplay [config-file.json] [overrides...]  or  autoplay stop")
 	}
 
 	if sc.gameRunnerRunning {
@@ -1435,9 +1435,16 @@ func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) err
 		return errMacondoSolving
 	}
 
-	expCfg, err := automatic.LoadAutoplayConfig(args[0])
-	if err != nil {
-		return err
+	var expCfg *pb.AutoplayConfig
+	if len(args) == 1 {
+		var err error
+		expCfg, err = automatic.LoadAutoplayConfig(args[0])
+		if err != nil {
+			return err
+		}
+	} else {
+		// No config file — start from defaults, apply flags only.
+		expCfg = &pb.AutoplayConfig{}
 	}
 
 	// Apply flag overrides on top of the loaded config.

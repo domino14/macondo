@@ -1,8 +1,14 @@
-autoplay <config-file.json> - run a computer vs computer experiment
+autoplay [config-file.json] [overrides] - run a computer vs computer experiment
 
 Usage:
     autoplay my-experiment.json
+    autoplay my-experiment.json -numgames 500 -tau1 0.008
+    autoplay -botcode1 HASTY_BOT -botcode2 NO_LEAVE_BOT -numgames 100
     autoplay stop
+
+If a config file is provided, it is loaded first and any CLI flags override
+individual fields. If no config file is given, all parameters come from flags
+(defaulting to two HASTY_BOT players with default settings).
 
 Experiments are defined in a JSON config file (protojson format).
 When an experiment starts, three output files are created in the
