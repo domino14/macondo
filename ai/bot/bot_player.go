@@ -35,6 +35,12 @@ type BotConfig struct {
 	// InferenceTau overrides the default softmax temperature for inference.
 	// If 0, the default SoftmaxTemperature constant is used.
 	InferenceTau float64
+	// InferenceTimeSecs is the wall-clock budget per turn for inference.
+	// If 0, defaults to 20 seconds.
+	InferenceTimeSecs int
+	// InferenceSimIters is the max mini-sim iterations per rack candidate.
+	// If 0, defaults to 200.
+	InferenceSimIters int
 	// If UseOppRacksInAnalysis is true, will use opponent rack info for simulation/pre-endgames/etc
 	UseOppRacksInAnalysis bool
 }

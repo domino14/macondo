@@ -2539,9 +2539,16 @@ type AutoplayPlayerConfig struct {
 	StochasticStaticEval bool                   `protobuf:"varint,6,opt,name=stochastic_static_eval,json=stochasticStaticEval,proto3" json:"stochastic_static_eval,omitempty"`
 	// inference_tau is the softmax temperature for P(play|leave) in inference.
 	// If 0, the default SoftmaxTemperature constant is used.
-	InferenceTau  float64 `protobuf:"fixed64,7,opt,name=inference_tau,json=inferenceTau,proto3" json:"inference_tau,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	InferenceTau float64 `protobuf:"fixed64,7,opt,name=inference_tau,json=inferenceTau,proto3" json:"inference_tau,omitempty"`
+	// inference_time_secs is the wall-clock budget for inference per turn.
+	// If 0, defaults to 20 seconds.
+	InferenceTimeSecs int32 `protobuf:"varint,8,opt,name=inference_time_secs,json=inferenceTimeSecs,proto3" json:"inference_time_secs,omitempty"`
+	// inference_sim_iters is the max mini-sim iterations per rack candidate.
+	// If 0, defaults to 200. Lower values trade weight accuracy for more
+	// rack coverage in the same time budget.
+	InferenceSimIters int32 `protobuf:"varint,9,opt,name=inference_sim_iters,json=inferenceSimIters,proto3" json:"inference_sim_iters,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *AutoplayPlayerConfig) Reset() {
@@ -2619,6 +2626,20 @@ func (x *AutoplayPlayerConfig) GetStochasticStaticEval() bool {
 func (x *AutoplayPlayerConfig) GetInferenceTau() float64 {
 	if x != nil {
 		return x.InferenceTau
+	}
+	return 0
+}
+
+func (x *AutoplayPlayerConfig) GetInferenceTimeSecs() int32 {
+	if x != nil {
+		return x.InferenceTimeSecs
+	}
+	return 0
+}
+
+func (x *AutoplayPlayerConfig) GetInferenceSimIters() int32 {
+	if x != nil {
+		return x.InferenceSimIters
 	}
 	return 0
 }
@@ -3014,7 +3035,7 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\restimated_elo\x18\n" +
 	" \x01(\x01R\festimatedElo\x12)\n" +
 	"\x10available_bingos\x18\v \x01(\x05R\x0favailableBingos\x12#\n" +
-	"\rmissed_bingos\x18\f \x01(\x05R\fmissedBingos\"\xa8\x02\n" +
+	"\rmissed_bingos\x18\f \x01(\x05R\fmissedBingos\"\x88\x03\n" +
 	"\x14AutoplayPlayerConfig\x126\n" +
 	"\bbot_code\x18\x01 \x01(\x0e2\x1b.macondo.BotRequest.BotCodeR\abotCode\x12\x1d\n" +
 	"\n" +
@@ -3024,7 +3045,9 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\vsim_threads\x18\x05 \x01(\x05R\n" +
 	"simThreads\x124\n" +
 	"\x16stochastic_static_eval\x18\x06 \x01(\bR\x14stochasticStaticEval\x12#\n" +
-	"\rinference_tau\x18\a \x01(\x01R\finferenceTau\"\xea\x03\n" +
+	"\rinference_tau\x18\a \x01(\x01R\finferenceTau\x12.\n" +
+	"\x13inference_time_secs\x18\b \x01(\x05R\x11inferenceTimeSecs\x12.\n" +
+	"\x13inference_sim_iters\x18\t \x01(\x05R\x11inferenceSimIters\"\xea\x03\n" +
 	"\x0eAutoplayConfig\x12 \n" +
 	"\vdescription\x18\x01 \x01(\tR\vdescription\x12#\n" +
 	"\rexperiment_id\x18\x02 \x01(\tR\fexperimentId\x12\x18\n" +

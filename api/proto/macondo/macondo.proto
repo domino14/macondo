@@ -393,6 +393,13 @@ message AutoplayPlayerConfig {
   // inference_tau is the softmax temperature for P(play|leave) in inference.
   // If 0, the default SoftmaxTemperature constant is used.
   double inference_tau = 7;
+  // inference_time_secs is the wall-clock budget for inference per turn.
+  // If 0, defaults to 20 seconds.
+  int32 inference_time_secs = 8;
+  // inference_sim_iters is the max mini-sim iterations per rack candidate.
+  // If 0, defaults to 200. Lower values trade weight accuracy for more
+  // rack coverage in the same time budget.
+  int32 inference_sim_iters = 9;
 }
 
 // AutoplayConfig defines a complete autoplay experiment.

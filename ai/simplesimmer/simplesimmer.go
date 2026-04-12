@@ -60,6 +60,10 @@ func (p *SimpleSimmer) SetLogging(l bool) {
 	p.logging = l
 }
 
+func (p *SimpleSimmer) SetMaxIters(n int) {
+	p.maxIters = n
+}
+
 func (p *SimpleSimmer) GenerateMoves(numPlays int) []*move.Move {
 	curRack := p.RackFor(p.PlayerOnTurn())
 	oppRack := p.RackFor(p.NextPlayer())

@@ -58,5 +58,7 @@ func playerFromProto(p *pb.AutoplayPlayerConfig) AutomaticRunnerPlayer {
 		SimThreads:           int(p.SimThreads),
 		StochasticStaticEval: p.StochasticStaticEval,
 		InferenceTau:         p.InferenceTau,
+		InferenceTimeSecs:    int(p.InferenceTimeSecs),
+		InferenceSimIters:    int(p.InferenceSimIters),
 	}
 }

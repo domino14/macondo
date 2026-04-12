@@ -65,6 +65,8 @@ type AutomaticRunnerPlayer struct {
 	SimThreads           int
 	StochasticStaticEval bool
 	InferenceTau         float64
+	InferenceTimeSecs    int
+	InferenceSimIters    int
 }
 
 // Init initializes the runner
@@ -109,6 +111,8 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 			SimThreads:           players[idx].SimThreads,
 			StochasticStaticEval: players[idx].StochasticStaticEval,
 			InferenceTau:         players[idx].InferenceTau,
+			InferenceTimeSecs:    players[idx].InferenceTimeSecs,
+			InferenceSimIters:    players[idx].InferenceSimIters,
 		}
 
 		btp, err := bot.NewBotTurnPlayerFromGame(r.game, conf, botcode)

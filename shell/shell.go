@@ -1527,6 +1527,12 @@ func applyPlayerOverrides(p *pb.AutoplayPlayerConfig, options CmdOptions, suffix
 	if v, err := options.Float("tau" + suffix); err == nil && v > 0 {
 		p.InferenceTau = v
 	}
+	if v, err := options.IntDefault("inferencetime"+suffix, -1); err == nil && v >= 0 {
+		p.InferenceTimeSecs = int32(v)
+	}
+	if v, err := options.IntDefault("inferenceiters"+suffix, -1); err == nil && v >= 0 {
+		p.InferenceSimIters = int32(v)
+	}
 }
 
 type shellcmd struct {

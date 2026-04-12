@@ -197,14 +197,24 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 		if p.cfg.InferenceTau > 0 {
 			p.inferencer.SetTau(p.cfg.InferenceTau)
 		}
+		if p.cfg.InferenceSimIters > 0 {
+			p.inferencer.SetSimIters(p.cfg.InferenceSimIters)
+		}
 		err := p.inferencer.PrepareFinder(p.Game.RackFor(p.Game.PlayerOnTurn()).TilesOn())
 		if err != nil {
 			// Expected early in the game (no events yet, bingo, etc.)
 			logger.Debug().AnErr("inference-prepare-error", err).Msg("inference-skipped")
 		} else {
-			logger.Info().Float64("tau", p.inferencer.Tau()).Msg("inference-tau")
+			inferTimeSecs := 20
+			if p.cfg.InferenceTimeSecs > 0 {
+				inferTimeSecs = p.cfg.InferenceTimeSecs
+			}
+			logger.Info().Float64("tau", p.inferencer.Tau()).
+				Int("timeSecs", inferTimeSecs).
+				Int("simIters", p.inferencer.SimIters()).
+				Msg("inference-tau")
 			inferTimeout, cancel = context.WithTimeout(context.Background(),
-				time.Duration(20*int(time.Second)))
+				time.Duration(inferTimeSecs)*time.Second)
 			defer cancel()
 			err = p.inferencer.Infer(inferTimeout)
 			if err != nil {

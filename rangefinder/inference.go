@@ -164,6 +164,9 @@ type RangeFinder struct {
 	// Lower values assume the opponent plays more optimally. Defaults to
 	// SoftmaxTemperature if not set explicitly.
 	tau float64
+	// simIters is the max mini-sim iterations per rack candidate.
+	// 0 means use the SimpleSimmer default (200).
+	simIters int
 
 	working      bool
 	readyToInfer bool
@@ -206,6 +209,17 @@ func (r *RangeFinder) Tau() float64 {
 		return SoftmaxTemperature
 	}
 	return r.tau
+}
+
+func (r *RangeFinder) SetSimIters(n int) {
+	r.simIters = n
+}
+
+func (r *RangeFinder) SimIters() int {
+	if r.simIters == 0 {
+		return 200 // default matches SimpleSimmer default
+	}
+	return r.simIters
 }
 
 func (r *RangeFinder) SetLogStream(l io.Writer) {
@@ -343,6 +357,9 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 		simmer, err := simplesimmer.NewSimpleSimmerFromGame(r.gameCopies[i])
 		if err != nil {
 			return err
+		}
+		if r.simIters > 0 {
+			simmer.SetMaxIters(r.simIters)
 		}
 		r.aiplayers = append(r.aiplayers, simmer)
 	}
