@@ -2,9 +2,12 @@ package rangefinder
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/domino14/word-golib/tilemapping"
+
+	"github.com/domino14/macondo/montecarlo"
 )
 
 func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
@@ -26,9 +29,68 @@ func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
 	}
 
 	alph := r.origGame.Alphabet()
+	nInferred := len(r.inference.InferredRacks)
+	iterations := r.iterationCount
+	acceptRate := 0.0
+	if iterations > 0 {
+		acceptRate = 100.0 * float64(nInferred) / float64(iterations)
+	}
+
+	// Compute effective sample size (ESS) = (Σw)² / Σw²
+	sumW := 0.0
+	sumW2 := 0.0
+	for _, ir := range r.inference.InferredRacks {
+		sumW += ir.Weight
+		sumW2 += ir.Weight * ir.Weight
+	}
+	ess := 0.0
+	if sumW2 > 0 {
+		ess = (sumW * sumW) / sumW2
+	}
+
+	headerLine := fmt.Sprintf("Inferred %d unique racks from %d iterations (%.1f%% acceptance), tau=%.3f, ESS=%.1f\n",
+		nInferred, iterations, acceptRate, r.tau, ess)
 
 	if detailed {
 		var ss strings.Builder
+		ss.WriteString(headerLine)
+		ss.WriteString("\n")
+
+		// Top inferred racks by weight
+		ss.WriteString("Top inferred racks (by Bayesian weight):\n")
+		ranked := make([]montecarlo.InferredRack, len(r.inference.InferredRacks))
+		copy(ranked, r.inference.InferredRacks)
+		sort.Slice(ranked, func(i, j int) bool {
+			return ranked[i].Weight > ranked[j].Weight
+		})
+
+		fmt.Fprintf(&ss, "  %-6s%-12s%-12s%-12s\n", "Rank", "Leave", "Weight", "Wt %")
+
+		showN := min(len(ranked), 15)
+		for i := 0; i < showN; i++ {
+			ir := ranked[i]
+			leaveStr := tilemapping.MachineWord(ir.Leave).UserVisible(alph)
+			wtPct := 100.0 * ir.Weight / sumW
+			fmt.Fprintf(&ss, "  %-6d%-12s%-12.4f%-12.1f\n", i+1, leaveStr, ir.Weight, wtPct)
+		}
+		if len(ranked) > showN {
+			fmt.Fprintf(&ss, "  ... and %d more\n", len(ranked)-showN)
+		}
+
+		// Weight concentration summary
+		topN := min(len(ranked), 3)
+		topSum := 0.0
+		for i := 0; i < topN; i++ {
+			topSum += ranked[i].Weight
+		}
+		topPct := 100.0 * topSum / sumW
+		fmt.Fprintf(&ss, "\nWeight concentration: top %d hold %.1f%% of total weight (ESS = %.1f of %d)\n",
+			topN, topPct, ess, nInferred)
+		if ess < 3 && nInferred >= 5 {
+			ss.WriteString("  Note: low ESS means weights are dominated by a few racks.\n")
+		}
+
+		ss.WriteString("\n")
 		fmt.Fprintf(&ss, "%-5s%-12s%-12s%-10s\n", "Tile", "Found %", "Expected %", "# unseen")
 
 		printLetterStats := func(i int) {
@@ -42,16 +104,14 @@ func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
 		for i := 0; i < int(alph.NumLetters()); i++ {
 			printLetterStats(i)
 		}
-		fmt.Fprintf(&ss, "Considered %d racks, simmed %d times, inferred %d racks\n",
-			r.iterationCount, r.simCount.Load(), len(r.inference.InferredRacks))
+		fmt.Fprintf(&ss, "\nSimmed %d times\n", r.simCount.Load())
 
 		return ss.String()
 	}
-	// From likelihood to unlikelihood (index 0 to 7)
-	// Index 7 is not found at all.
+
+	// Summary (bins) mode
 	bins := [8][]tilemapping.MachineLetter{}
 
-	// Otherwise do a very rough statistical analysis.
 	for i := 0; i < int(alph.NumLetters()); i++ {
 		found := float64(mlcts[tilemapping.MachineLetter(i)]) / float64(totalCt)
 		expected := float64(bagmap[i]) / float64(inbag)
@@ -83,6 +143,8 @@ func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
 	}
 
 	var ss strings.Builder
+	ss.WriteString(headerLine)
+	ss.WriteString("\n")
 
 	printTiles := func(tiles []tilemapping.MachineLetter) {
 		for _, t := range tiles {
@@ -110,3 +172,4 @@ func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
 	printTiles(bins[7])
 	return ss.String()
 }
+

@@ -215,7 +215,14 @@ func (r *GameRunner) PlayBestTurn(playerIdx int, addToHistory bool) error {
 	r.aiplayers[1].AddLastMove(bestPlay)
 
 	if r.logchan != nil {
-		r.logchan <- fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v,%v,%v,%.3f,%v,%v\n",
+		inferCount := ""
+		if btp, ok := r.aiplayers[playerIdx].(*bot.BotTurnPlayer); ok {
+			ic := btp.LastInferenceCount()
+			if ic >= 0 {
+				inferCount = fmt.Sprintf(",%v", ic)
+			}
+		}
+		r.logchan <- fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v,%v,%v,%.3f,%v,%v%v\n",
 			nickOnTurn,
 			r.game.Uid(),
 			r.game.Turn(),
@@ -227,7 +234,8 @@ func (r *GameRunner) PlayBestTurn(playerIdx int, addToHistory bool) error {
 			bestPlay.Leave().UserVisible(r.alphabet),
 			bestPlay.Equity(),
 			tilesRemaining,
-			r.game.PointsFor((playerIdx+1)%2))
+			r.game.PointsFor((playerIdx+1)%2),
+			inferCount)
 	}
 	return nil
 }

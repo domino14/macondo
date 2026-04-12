@@ -333,3 +333,16 @@ func (p *BotTurnPlayer) SetSimThreads(t int) {
 func (p *BotTurnPlayer) SetMinSimPlies(t int) {
 	p.minSimPlies = t
 }
+
+// LastInferenceCount returns the number of unique inferred racks found
+// during the last call to BestPlay, or -1 if inference was not attempted.
+func (p *BotTurnPlayer) LastInferenceCount() int {
+	if p.inferencer == nil {
+		return -1
+	}
+	inferences := p.inferencer.Inferences()
+	if inferences == nil {
+		return -1
+	}
+	return len(inferences.InferredRacks)
+}
