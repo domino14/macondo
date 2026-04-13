@@ -51,8 +51,8 @@ Understanding the output:
       - Unique racks: how many distinct leaves were found
       - Iterations: total random racks tried
       - Acceptance rate: % of iterations that produced a valid inference
-        (a very low rate may indicate tau is too low or the opponent's
-        play is unusual)
+        (a very low rate may indicate tau is too small or the opponent's
+        play is unusual — try increasing tau)
       - tau: the softmax temperature used (see below)
       - ESS (Effective Sample Size): measures how spread out the weights
         are. ESS = (sum of weights)^2 / (sum of squared weights).
@@ -75,9 +75,9 @@ Understanding the output:
 
     The detailed view (`infer details`) additionally shows:
       - The top inferred racks with their Bayesian weight and percentage
-        of total weight. Weight = softmax P(play|leave), representing how
-        likely the opponent would choose their observed play given this
-        leave.
+        of total weight. Weight = softmax P(play|leave) computed over
+        log-odds of win probabilities, representing how likely the opponent
+        would choose their observed play given this leave.
       - A per-tile table with exact found % vs expected % and unseen count.
 
 Options:
@@ -93,9 +93,13 @@ Options:
     want this to be a little bit larger on slower machines / those with
     fewer cores.
 
-    -tau 0.03
+    -tau 0.20
 
     Softmax temperature controlling how rational the opponent is assumed to be.
-    Lower values (e.g. 0.01) assume the opponent almost always plays the best
-    move. Higher values (e.g. 0.10) give more weight to sub-optimal plays.
-    Defaults to 0.03.
+    Softmax is applied over the log-odds of win probabilities (not raw win
+    probabilities), so tau is on the log-odds scale. Typical in-game win
+    probabilities (20%–80%) map to log-odds of roughly [-1.4, 1.4]; strongly
+    won/lost positions (5%–95%) reach about [-3, 3]. Lower values assume the
+    opponent almost always plays the best move; higher values give more weight
+    to sub-optimal plays.
+    Defaults to 0.20. A value of 0 is treated as the default.

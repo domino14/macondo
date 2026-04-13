@@ -37,7 +37,14 @@ const (
 	// SoftmaxTemperature controls how "rational" we assume the opponent to be
 	// when computing P(play | leave). Lower values assume near-optimal play;
 	// higher values allow more weight for sub-optimal plays.
-	SoftmaxTemperature = 0.03
+	// Softmax is applied over log-odds of win probabilities, so tau is on the
+	// log-odds scale. Typical positions (20%-80% win prob) span roughly [-1.4, 1.4];
+	// strongly won/lost positions (5%-95%) reach about [-3, 3].
+	SoftmaxTemperature = 0.20
+
+	// logitEps clamps win probabilities away from 0 and 1 before logit
+	// conversion to avoid ±Inf.
+	logitEps = 1e-6
 )
 
 type LogIteration struct {
@@ -121,35 +128,48 @@ func logBinomial(n, k int) float64 {
 	return lgn - lgk - lgnk
 }
 
+// logit converts a win probability to log-odds: ln(p / (1-p)).
+// p is clamped to [logitEps, 1-logitEps] to avoid ±Inf.
+func logit(p float64) float64 {
+	if p < logitEps {
+		p = logitEps
+	} else if p > 1-logitEps {
+		p = 1 - logitEps
+	}
+	return math.Log(p / (1 - p))
+}
+
 // softmaxLikelihood computes P(targetMove | leave) as a softmax over the
-// win probabilities of all simmed plays. Returns (likelihood, targetWinProb);
-// likelihood is 0 if the target move is not found among the plays.
+// log-odds of win probabilities of all simmed plays. Using log-odds undoes
+// the implicit sigmoid in win probabilities, giving softmax unbounded inputs
+// it is designed for. Returns (likelihood, targetWinProb); likelihood is 0
+// if the target move is not found among the plays.
 func softmaxLikelihood(plays []*montecarlo.SimmedPlay, targetMove *move.Move, b *board.GameBoard, tau float64) (float64, float64) {
 	if len(plays) == 0 {
 		return 0, 0
 	}
 
 	targetWinProb := math.NaN()
-	maxWinProb := math.Inf(-1)
+	maxLogOdds := math.Inf(-1)
 	for _, sp := range plays {
-		wp := sp.WinProb()
-		if wp > maxWinProb {
-			maxWinProb = wp
+		lo := logit(sp.WinProb())
+		if lo > maxLogOdds {
+			maxLogOdds = lo
 		}
 		if movesAreTheSame(sp.Move(), targetMove, b) {
-			targetWinProb = wp
+			targetWinProb = sp.WinProb()
 		}
 	}
 	if math.IsNaN(targetWinProb) {
 		return 0, 0
 	}
 
-	// Softmax with numerical stability (subtract max before exp).
+	// Softmax over log-odds with numerical stability (subtract max before exp).
 	sum := 0.0
 	for _, sp := range plays {
-		sum += math.Exp((sp.WinProb() - maxWinProb) / tau)
+		sum += math.Exp((logit(sp.WinProb()) - maxLogOdds) / tau)
 	}
-	return math.Exp((targetWinProb-maxWinProb)/tau) / sum, targetWinProb
+	return math.Exp((logit(targetWinProb)-maxLogOdds)/tau) / sum, targetWinProb
 }
 
 type RangeFinder struct {
