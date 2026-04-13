@@ -2547,8 +2547,12 @@ type AutoplayPlayerConfig struct {
 	// If 0, defaults to 200. Lower values trade weight accuracy for more
 	// rack coverage in the same time budget.
 	InferenceSimIters int32 `protobuf:"varint,9,opt,name=inference_sim_iters,json=inferenceSimIters,proto3" json:"inference_sim_iters,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// oracle_inference skips the Bayesian inference loop and instead passes
+	// the opponent's true leave (from the game history) directly to the simmer.
+	// This establishes an upper bound on how much perfect inference could help.
+	OracleInference bool `protobuf:"varint,10,opt,name=oracle_inference,json=oracleInference,proto3" json:"oracle_inference,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *AutoplayPlayerConfig) Reset() {
@@ -2642,6 +2646,13 @@ func (x *AutoplayPlayerConfig) GetInferenceSimIters() int32 {
 		return x.InferenceSimIters
 	}
 	return 0
+}
+
+func (x *AutoplayPlayerConfig) GetOracleInference() bool {
+	if x != nil {
+		return x.OracleInference
+	}
+	return false
 }
 
 // AutoplayConfig defines a complete autoplay experiment.
@@ -3035,7 +3046,7 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\restimated_elo\x18\n" +
 	" \x01(\x01R\festimatedElo\x12)\n" +
 	"\x10available_bingos\x18\v \x01(\x05R\x0favailableBingos\x12#\n" +
-	"\rmissed_bingos\x18\f \x01(\x05R\fmissedBingos\"\x88\x03\n" +
+	"\rmissed_bingos\x18\f \x01(\x05R\fmissedBingos\"\xb3\x03\n" +
 	"\x14AutoplayPlayerConfig\x126\n" +
 	"\bbot_code\x18\x01 \x01(\x0e2\x1b.macondo.BotRequest.BotCodeR\abotCode\x12\x1d\n" +
 	"\n" +
@@ -3047,7 +3058,9 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\x16stochastic_static_eval\x18\x06 \x01(\bR\x14stochasticStaticEval\x12#\n" +
 	"\rinference_tau\x18\a \x01(\x01R\finferenceTau\x12.\n" +
 	"\x13inference_time_secs\x18\b \x01(\x05R\x11inferenceTimeSecs\x12.\n" +
-	"\x13inference_sim_iters\x18\t \x01(\x05R\x11inferenceSimIters\"\xea\x03\n" +
+	"\x13inference_sim_iters\x18\t \x01(\x05R\x11inferenceSimIters\x12)\n" +
+	"\x10oracle_inference\x18\n" +
+	" \x01(\bR\x0foracleInference\"\xea\x03\n" +
 	"\x0eAutoplayConfig\x12 \n" +
 	"\vdescription\x18\x01 \x01(\tR\vdescription\x12#\n" +
 	"\rexperiment_id\x18\x02 \x01(\tR\fexperimentId\x12\x18\n" +

@@ -56,7 +56,7 @@ var commandMetadata = map[string]CommandMetadata{
 		Options: []string{"-equity"},
 	},
 	"autoplay": {
-		Options: []string{"-botcode1", "-botcode2", "-threads"},
+		Options: []string{"-botcode1", "-botcode2", "-threads", "-oracle1", "-oracle2"},
 	},
 	"set": {
 		Args: []string{"lexicon", "challenge", "variation", "board", "lowercase"},

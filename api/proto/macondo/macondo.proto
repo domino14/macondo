@@ -400,6 +400,10 @@ message AutoplayPlayerConfig {
   // If 0, defaults to 200. Lower values trade weight accuracy for more
   // rack coverage in the same time budget.
   int32 inference_sim_iters = 9;
+  // oracle_inference skips the Bayesian inference loop and instead passes
+  // the opponent's true leave (from the game history) directly to the simmer.
+  // This establishes an upper bound on how much perfect inference could help.
+  bool oracle_inference = 10;
 }
 
 // AutoplayConfig defines a complete autoplay experiment.

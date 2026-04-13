@@ -67,6 +67,7 @@ type AutomaticRunnerPlayer struct {
 	InferenceTau         float64
 	InferenceTimeSecs    int
 	InferenceSimIters    int
+	OracleInference      bool
 }
 
 // Init initializes the runner
@@ -113,6 +114,7 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 			InferenceTau:         players[idx].InferenceTau,
 			InferenceTimeSecs:    players[idx].InferenceTimeSecs,
 			InferenceSimIters:    players[idx].InferenceSimIters,
+			OracleInference:      players[idx].OracleInference,
 		}
 
 		btp, err := bot.NewBotTurnPlayerFromGame(r.game, conf, botcode)

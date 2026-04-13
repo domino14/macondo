@@ -43,6 +43,10 @@ type BotConfig struct {
 	InferenceSimIters int
 	// If UseOppRacksInAnalysis is true, will use opponent rack info for simulation/pre-endgames/etc
 	UseOppRacksInAnalysis bool
+	// OracleInference skips the Bayesian inference loop and instead uses the
+	// opponent's true leave (from game history) directly in simulation.
+	// Establishes the upper bound on inference benefit.
+	OracleInference bool
 }
 
 type BotTurnPlayer struct {

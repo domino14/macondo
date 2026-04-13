@@ -1533,6 +1533,9 @@ func applyPlayerOverrides(p *pb.AutoplayPlayerConfig, options CmdOptions, suffix
 	if v, err := options.IntDefault("inferenceiters"+suffix, -1); err == nil && v >= 0 {
 		p.InferenceSimIters = int32(v)
 	}
+	if options.Bool("oracle" + suffix) {
+		p.OracleInference = true
+	}
 }
 
 type shellcmd struct {

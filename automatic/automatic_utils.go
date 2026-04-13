@@ -286,12 +286,9 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	// var fwg sync.WaitGroup
 
 	g, ctx := errgroup.WithContext(ctx)
-	addToHistory := false
-	if lo.SomeBy(players, func(p AutomaticRunnerPlayer) bool {
-		return bot.HasInfer(p.BotCode)
-	}) {
-		addToHistory = true
-	}
+	addToHistory := lo.SomeBy(players, func(p AutomaticRunnerPlayer) bool {
+		return bot.HasInfer(p.BotCode) || p.OracleInference
+	})
 
 	for i := 1; i <= threads; i++ {
 		wg.Add(1)
