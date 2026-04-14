@@ -560,12 +560,6 @@ func (wfl *ForLength) getWordEntry(br *BitRack) *Entry {
 		return nil
 	}
 	bucketIdx := br.GetBucketIndex(wfl.NumWordBuckets)
-	if useScanBucketAsm && len(wfl.WordMapEntries) > 0 {
-		return scanBucketAsm(
-			&wfl.WordBucketStarts[0],
-			unsafe.Pointer(&wfl.WordMapEntries[0]),
-			bucketIdx, br.Low, br.High)
-	}
 	return scanBucket(wfl.WordBucketStarts, wfl.WordMapEntries, bucketIdx, br.Low, br.High)
 }
 
