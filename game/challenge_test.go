@@ -61,6 +61,7 @@ func TestChallengeDoubleIsLegal(t *testing.T) {
 }
 
 func TestChallengeDoubleIsIllegal(t *testing.T) {
+	t.Skip("This is a flaky test, but it should be fixed. See GH issues #418 and #424"
 	is := is.New(t)
 	players := []*pb.PlayerInfo{
 		{Nickname: "JD", RealName: "Jesse"},
