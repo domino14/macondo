@@ -479,6 +479,11 @@ func (s *Simmer) SetWMP(w *wmppkg.WMP) {
 // wires it into this simmer. If the WMP is unavailable for any reason the
 // simmer falls back to the KWG algorithm.
 func (s *Simmer) TryLoadWMP(cfg *wglconfig.Config, lexiconName string) {
+	if s.origGame.Board().Dim() != 15 {
+		log.Info().Int("boardDim", s.origGame.Board().Dim()).
+			Msg("WMP disabled for non-standard board; using KWG algorithm")
+		return
+	}
 	w, err := wmppkg.GetWMP(cfg, lexiconName)
 	if err != nil {
 		log.Info().Err(err).Str("lexicon", lexiconName).

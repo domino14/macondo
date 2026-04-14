@@ -46,10 +46,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	// boardDim=21 covers all word lengths in any standard crossword lexicon
-	// (CSW/NWL have words up to 21 letters) and is compatible with both the
-	// standard 15×15 board and the SuperCrosswordGame 21×21 board.
-	const boardDim = 21
+	// boardDim=15 for standard crossword boards. WMP only supports 15×15 boards.
+	const boardDim = 15
 	fmt.Fprintf(os.Stderr, "Building WMP from %s (%d threads, boardDim=%d)...\n", *kwgPath, *threads, boardDim)
 	w, err := wmp.MakeFromKWG(gd, ld, boardDim, *threads)
 	if err != nil {

@@ -71,10 +71,8 @@ func EnsureWMP(cfg *wglconfig.Config, name string) (*WMP, error) {
 		if err != nil {
 			return nil, fmt.Errorf("cannot build WMP for %s: letter distribution unavailable: %w", name, err)
 		}
-		// Use boardDim=21 (the largest supported crossword board) so the WMP
-		// covers words of all lengths that appear in any standard lexicon.
-		// CheckCompatible still passes for English (max effective count 14 ≤ 15).
-		w, buildErr := MakeFromKWG(gd, ld, 21, runtime.NumCPU())
+		// Use boardDim=15 for standard crossword boards. WMP only supports 15×15 boards.
+		w, buildErr := MakeFromKWG(gd, ld, 15, runtime.NumCPU())
 		if buildErr != nil {
 			return nil, fmt.Errorf("WMP build failed for %s: %w", name, buildErr)
 		}
