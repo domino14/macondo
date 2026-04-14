@@ -44,6 +44,7 @@ import (
 	"github.com/domino14/macondo/preendgame"
 	"github.com/domino14/macondo/rangefinder"
 	"github.com/domino14/macondo/turnplayer"
+	wmppkg "github.com/domino14/macondo/wmp"
 )
 
 const (
@@ -211,6 +212,7 @@ type ShellController struct {
 	// Local analysis persistence
 	gameSource    string                  // source identifier for the currently loaded game
 	analysisStore *gameanalysis.AnalysisStore // lazily opened SQLite store
+
 }
 
 type Mode int
@@ -381,6 +383,12 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 				if err != nil {
 					log.Err(err).Msg("error-setting-exhaustive-leave-calculator")
 				}
+				// Build WMP if not already on disk (build-on-miss is intentional
+				// here since the user is doing an interactive lexicon switch).
+				if _, wmpErr := wmppkg.EnsureWMP(sc.config.WGLConfig(), sc.options.Lexicon.Name); wmpErr != nil {
+					log.Info().Err(wmpErr).Str("lexicon", sc.options.Lexicon.Name).
+						Msg("WMP not available for this lexicon; sim will use the KWG algorithm")
+				}
 			}
 			_, ret = sc.options.Show("lexicon")
 		}
@@ -439,6 +447,7 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 	}
 }
 
+
 func (sc *ShellController) initGameDataStructures() error {
 	if sc.simmer != nil {
 		sc.simmer.CleanupTempFile()
@@ -454,6 +463,15 @@ func (sc *ShellController) initGameDataStructures() error {
 		return err
 	}
 	sc.simmer.Init(sc.game.Game, []equity.EquityCalculator{c}, c, sc.config)
+	// WMP is wired into the simmer only. The interactive `gen` /
+	// `best` / endgame paths use sc.gen (and sc.backupgen below),
+	// which deliberately do NOT get a WMP — those code paths need
+	// the full enumeration that AllPlaysRecorder / endgame solvers
+	// rely on, and WMP's win is only in the shadow + best-first
+	// rollout loop that Monte Carlo sim drives. The TopN equivalence
+	// test (montecarlo/wmp_equivalence_test.go) covers the sim path
+	// only; mirror this constraint if WMP is ever extended elsewhere.
+	sc.simmer.TryLoadWMP(sc.config.WGLConfig(), sc.game.LexiconName())
 	sc.gen = sc.game.MoveGenerator()
 
 	gd, err := kwg.GetKWG(sc.config.WGLConfig(), sc.game.LexiconName())
@@ -657,6 +675,7 @@ func (sc *ShellController) variationSwitch(varID int) (*Response, error) {
 		return nil, err
 	}
 	sc.simmer.Init(sc.game.Game, []equity.EquityCalculator{c}, c, sc.config)
+	sc.simmer.TryLoadWMP(sc.config.WGLConfig(), sc.game.LexiconName())
 	sc.gen = sc.game.MoveGenerator()
 
 	sc.rangefinder = &rangefinder.RangeFinder{}
@@ -951,6 +970,13 @@ func (sc *ShellController) loadGCG(args []string) error {
 		log.Info().Msgf("gcg file had no lexicon, so using default lexicon %v",
 			lexicon)
 	}
+	if err := turnplayer.EnsureKWG(lexicon, sc.config.WGLConfig()); err != nil {
+		return fmt.Errorf("could not ensure lexicon %s: %w", lexicon, err)
+	}
+	if _, wmpErr := wmppkg.EnsureWMP(sc.config.WGLConfig(), lexicon); wmpErr != nil {
+		log.Info().Err(wmpErr).Str("lexicon", lexicon).
+			Msg("WMP not available for this lexicon; sim will use the KWG algorithm")
+	}
 	boardLayout, ldName, variant := game.HistoryToVariant(history)
 	rules, err := game.NewBasicGameRules(sc.config, lexicon, boardLayout, ldName, game.CrossScoreAndSet, variant)
 	if err != nil {
@@ -1064,7 +1090,40 @@ func (sc *ShellController) loadGameHistoryFromFile(path string) (*pb.GameHistory
 	return gcgio.ParseGCG(sc.config, path)
 }
 
+// lexiconFromCGP extracts the lexicon name from the ops field of a CGP string
+// (the semicolon-separated key-value pairs after the 4th space-delimited
+// field). Returns "" if no "lex" op is present.
+func lexiconFromCGP(cgpstr string) string {
+	fields := strings.SplitN(cgpstr, " ", 5)
+	if len(fields) < 5 {
+		return ""
+	}
+	for _, op := range strings.Split(fields[4], ";") {
+		op = strings.TrimSpace(op)
+		parts := strings.SplitN(op, " ", 2)
+		if len(parts) == 2 && parts[0] == "lex" {
+			return strings.TrimSpace(parts[1])
+		}
+	}
+	return ""
+}
+
 func (sc *ShellController) loadCGP(cgpstr string) error {
+	// Ensure the KWG is present before ParseCGP tries to load it.
+	// If the CGP has no "lex" op, ParseCGP defaults to NWL23; fall back
+	// to the configured default lexicon so the same download behaviour
+	// applies there too.
+	lex := lexiconFromCGP(cgpstr)
+	if lex == "" {
+		lex = sc.config.GetString(config.ConfigDefaultLexicon)
+	}
+	if err := turnplayer.EnsureKWG(lex, sc.config.WGLConfig()); err != nil {
+		return fmt.Errorf("could not ensure lexicon %s: %w", lex, err)
+	}
+	if _, wmpErr := wmppkg.EnsureWMP(sc.config.WGLConfig(), lex); wmpErr != nil {
+		log.Info().Err(wmpErr).Str("lexicon", lex).
+			Msg("WMP not available for this lexicon; sim will use the KWG algorithm")
+	}
 	g, err := cgp.ParseCGP(sc.config, cgpstr)
 	if err != nil {
 		return err
@@ -1793,6 +1852,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.winpct(cmd)
 	case "explain":
 		return sc.explain(cmd)
+	case "build-wmp":
+		return sc.buildWMP(cmd)
 	default:
 		msg := fmt.Sprintf("command %v not found", strconv.Quote(cmd.cmd))
 		log.Info().Msg(msg)

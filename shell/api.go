@@ -36,6 +36,7 @@ import (
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/preendgame"
+	wmppkg "github.com/domino14/macondo/wmp"
 )
 
 const defaultEndgamePlies = 4
@@ -2000,4 +2001,17 @@ func parseSimOptions(fields []string) CmdOptions {
 	}
 
 	return options
+}
+
+func (sc *ShellController) buildWMP(cmd *shellcmd) (*Response, error) {
+	if cmd.args == nil {
+		return nil, errors.New("usage: build-wmp <lexicon>")
+	}
+	lexicon := cmd.args[0]
+
+	_, err := wmppkg.EnsureWMP(sc.config.WGLConfig(), lexicon)
+	if err != nil {
+		return nil, err
+	}
+	return msg(fmt.Sprintf("WMP for %s built successfully.", lexicon)), nil
 }
