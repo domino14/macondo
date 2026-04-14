@@ -62,7 +62,7 @@ func EnsureWMP(cfg *wglconfig.Config, name string) (*WMP, error) {
 
 	if _, err := os.Stat(wmpPath); err != nil {
 		// File not on disk — build from KWG.
-		log.Info().Str("lexicon", name).Msg("WMP not found; building from KWG (this may take a few minutes)...")
+		log.Info().Str("lexicon", name).Msg("WMP not found; building from KWG (this may take a few seconds)...")
 		gd, err := kwg.GetKWG(cfg, name)
 		if err != nil {
 			return nil, fmt.Errorf("cannot build WMP for %s: KWG not available: %w", name, err)
@@ -72,9 +72,9 @@ func EnsureWMP(cfg *wglconfig.Config, name string) (*WMP, error) {
 			return nil, fmt.Errorf("cannot build WMP for %s: letter distribution unavailable: %w", name, err)
 		}
 		// Use boardDim=21 (the largest supported crossword board) so the WMP
-	// covers words of all lengths that appear in any standard lexicon.
-	// CheckCompatible still passes for English (max effective count 14 ≤ 15).
-	w, buildErr := MakeFromKWG(gd, ld, 21, runtime.NumCPU())
+		// covers words of all lengths that appear in any standard lexicon.
+		// CheckCompatible still passes for English (max effective count 14 ≤ 15).
+		w, buildErr := MakeFromKWG(gd, ld, 21, runtime.NumCPU())
 		if buildErr != nil {
 			return nil, fmt.Errorf("WMP build failed for %s: %w", name, buildErr)
 		}

@@ -482,7 +482,7 @@ func (s *Simmer) TryLoadWMP(cfg *wglconfig.Config, lexiconName string) {
 	w, err := wmppkg.GetWMP(cfg, lexiconName)
 	if err != nil {
 		log.Info().Err(err).Str("lexicon", lexiconName).
-			Msg("WMP not available; sim will run without it")
+			Msg("WMP not available; sim will run without it. Use `build-wmp " + lexiconName + "` to build it.")
 		return
 	}
 	s.SetWMP(w)

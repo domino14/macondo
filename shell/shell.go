@@ -1852,6 +1852,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.winpct(cmd)
 	case "explain":
 		return sc.explain(cmd)
+	case "build-wmp":
+		return sc.buildWMP(cmd)
 	default:
 		msg := fmt.Sprintf("command %v not found", strconv.Quote(cmd.cmd))
 		log.Info().Msg(msg)
