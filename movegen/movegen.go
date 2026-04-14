@@ -445,18 +445,25 @@ func (gen *GordonGenerator) recursiveGen(col int, rack *tilemapping.Rack,
 		cs := int(sq.crossScore)
 		wm := int(sq.wordMul)
 		emptyAdjacent := crossSet == board.TrivialCrossSet
+		// Hoist blank count: rack is always restored between iterations
+		// so LetArr[0] is constant across the loop from this call's
+		// perspective. The compiler can't see through the goOn call
+		// boundary, so we hoist manually.
+		nBlank := rack.LetArr[0]
 		for i := nodeIdx; ; i++ {
 			node := nodes[i]
 			ml := tilemapping.MachineLetter(node >> kwg.KWGNodeTileShift)
-			// Read the rack tile counts up front so the gating
-			// expression and the take/restore branches both reuse
-			// them without re-indexing rack.LetArr. The pre-take
-			// count nMl/nBlank lets us compute the post-take count
-			// (nMl-1 / nBlank-1) directly without another slice
-			// access.
-			nMl := rack.LetArr[ml]
-			nBlank := rack.LetArr[0]
-			if ml != 0 && crossSet.Allowed(ml) && (nMl != 0 || nBlank != 0) {
+			// Check cross-set before reading nMl: in restrictive
+			// mid-game positions most nodes fail here, so deferring
+			// the LetArr[ml] read avoids the load on the cold path.
+			if ml != 0 && crossSet.Allowed(ml) {
+				nMl := rack.LetArr[ml]
+				if nMl == 0 && nBlank == 0 {
+					if node&kwg.KWGNodeIsEndBit != 0 {
+						break
+					}
+					continue
+				}
 				arcIdx := node & kwg.KWGNodeArcMask
 				accepts := node&kwg.KWGNodeAcceptsBit != 0
 				if nMl > 0 {

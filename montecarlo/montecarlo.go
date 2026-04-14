@@ -484,12 +484,13 @@ func (s *Simmer) TryLoadWMP(cfg *wglconfig.Config, lexiconName string) {
 			Msg("WMP disabled for non-standard board; using KWG algorithm")
 		return
 	}
-	w, err := wmppkg.GetWMP(cfg, lexiconName)
+	w, err := wmppkg.EnsureWMP(cfg, lexiconName)
 	if err != nil {
 		log.Info().Err(err).Str("lexicon", lexiconName).
-			Msg("WMP not available; sim will run without it. Use `build-wmp " + lexiconName + "` to build it.")
+			Msg("WMP not available for this lexicon; sim will use the KWG algorithm")
 		return
 	}
+	log.Debug().Str("lexicon", lexiconName).Msg("WMP loaded; sim will use faster word map structure")
 	s.SetWMP(w)
 }
 
