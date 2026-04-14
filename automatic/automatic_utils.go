@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
 	"golang.org/x/sync/errgroup"
@@ -171,7 +172,19 @@ func StartAutoplayFromConfig(ctx context.Context, appCfg *config.Config, expCfg 
 	}
 	letterDist := expCfg.LetterDistribution
 	if letterDist == "" {
-		letterDist = appCfg.GetString(config.ConfigDefaultLetterDistribution)
+		// Infer the letter distribution from the resolved lexicon name rather
+		// than falling back to the app config's default. The config default
+		// reflects whatever lexicon the shell last used, which may differ from
+		// the lexicon requested here (e.g., "-lexicon NWL23" with a shell that
+		// has FILE2017/spanish as its default). Using the wrong distribution
+		// gives the game Spanish tiles with an English word graph, causing
+		// immediate KWG dead-paths and a crash in the leave-map populator.
+		inferred, err := tilemapping.ProbableLetterDistributionName(lexicon)
+		if err == nil {
+			letterDist = inferred
+		} else {
+			letterDist = appCfg.GetString(config.ConfigDefaultLetterDistribution)
+		}
 	}
 
 	if expCfg.Description != "" {
