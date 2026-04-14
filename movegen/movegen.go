@@ -23,8 +23,10 @@ import (
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/gaddag"
 	"github.com/domino14/macondo/game"
+	"github.com/domino14/macondo/leavemap"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/tinymove"
+	"github.com/domino14/macondo/wmp"
 )
 
 type SortBy int
@@ -129,8 +131,19 @@ type GordonGenerator struct {
 	cache rowCache
 
 	// Leave map for O(1) leave value lookup during move generation.
-	leavemap     leaveMap
+	leavemap     leavemap.LeaveMap
 	klv          *equity.KLV // cached KLV reference
+
+	// WMP move generator state. Inactive by default; SetWMP enables
+	// it. When active, shadow play uses WMP existence checks to
+	// tighten highestShadowEquity. wmpRecordSubAnchors controls
+	// whether shadow_play_for_anchor dumps per-(blocks, tiles)
+	// sub-anchors into the heap (the MAGPIE behavior, useful only
+	// with a wordmap_gen-style word generator) or sticks with the
+	// single-anchor-per-square macondo path. Default false.
+	wmpData             *wmp.WMP
+	wmpMoveGen          wmp.MoveGen
+	wmpRecordSubAnchors bool
 	pegValues    []float64   // pre-endgame adjustment values
 	tilesInBag   int         // cached bag state for equity calc
 	oppRackScore int         // cached for endgame equity
@@ -166,6 +179,36 @@ func NewGordonGenerator(gd gaddag.WordGraph, board *board.GameBoard,
 
 func (gen *GordonGenerator) SetMaxCanExchange(m int) {
 	gen.maxCanExchange = m
+}
+
+// SetWMP enables WMP-aware move generation. Pass nil to disable.
+// When set, shadow play uses the WMP existence checks to tighten the
+// highestShadowEquity bound for each anchor square AND records
+// per-(playthrough_blocks, tiles_to_play) sub-anchors that are
+// processed by wordmapGen (instead of recursive_gen) during the
+// best-first scoring pass. Mirrors MAGPIE's player_set_wmp + the
+// wmp_move_gen_init call inside gen_load_position.
+func (gen *GordonGenerator) SetWMP(w *wmp.WMP) {
+	gen.wmpData = w
+	// Sub-anchor recording is meaningful only when there's a fast
+	// per-(blocks, tiles) word generator on the consumer side; we
+	// have wordmapGen now, so enable it by default whenever WMP is
+	// turned on. Pass nil to SetWMP to switch back to the non-WMP
+	// path entirely.
+	gen.wmpRecordSubAnchors = w != nil
+}
+
+// SetWMPRecordSubAnchors lets callers override the default
+// sub-anchor recording behavior. SetWMP turns this on automatically;
+// the override is mostly for benchmarks that want to compare the
+// shadow-only-gating variant against the full WMP integration.
+func (gen *GordonGenerator) SetWMPRecordSubAnchors(b bool) {
+	gen.wmpRecordSubAnchors = b
+}
+
+// WMP returns the WMP currently in use, or nil if WMP is disabled.
+func (gen *GordonGenerator) WMP() *wmp.WMP {
+	return gen.wmpData
 }
 
 // SetSortingParameter tells the play sorter to sort by score, equity, or
@@ -365,18 +408,28 @@ func (gen *GordonGenerator) recursiveGen(col int, rack *tilemapping.Rack,
 	sq := &gen.cache.squares[col]
 	curLetter := sq.letter
 	crossSet := sq.crossSet
-	gd := gen.gaddag
+	// Hoist the underlying KWG node slice out of the gaddag once,
+	// so the inner loop can read each node value into a local
+	// uint32 and decode the four bit fields (Tile, ArcIndex,
+	// IsEnd, Accepts) directly on the local instead of going
+	// through four separate kwg.KWG method calls per iteration —
+	// each of which would do its own bounds-checked slice access
+	// into the unexported k.nodes field. The accessor and the
+	// bit-field constants come from word-golib (KWG.Nodes,
+	// kwg.KWGNode*).
+	nodes := gen.gaddag.Nodes()
 	if curLetter != 0 {
-		raw := curLetter.Unblank()
+		raw := uint32(curLetter.Unblank())
 		var nnIdx uint32
 		var accepts bool
 		for i := nodeIdx; ; i++ {
-			if gd.Tile(i) == uint8(raw) {
-				nnIdx = gd.ArcIndex(i)
-				accepts = gd.Accepts(i)
+			node := nodes[i]
+			if node>>kwg.KWGNodeTileShift == raw {
+				nnIdx = node & kwg.KWGNodeArcMask
+				accepts = node&kwg.KWGNodeAcceptsBit != 0
 				break
 			}
-			if gd.IsEnd(i) {
+			if node&kwg.KWGNodeIsEndBit != 0 {
 				break
 			}
 		}
@@ -386,19 +439,37 @@ func (gen *GordonGenerator) recursiveGen(col int, rack *tilemapping.Rack,
 			wordMultiplier,
 		)
 	} else if !rack.Empty() {
-		lm := sq.letterMul
-		cs := sq.crossScore
-		wm := sq.wordMul
+		// Decode packed cachedSquare fields once into ints so the
+		// arithmetic in the inner loop stays in native register width.
+		lm := int(sq.letterMul)
+		cs := int(sq.crossScore)
+		wm := int(sq.wordMul)
 		emptyAdjacent := crossSet == board.TrivialCrossSet
+		// Hoist blank count: rack is always restored between iterations
+		// so LetArr[0] is constant across the loop from this call's
+		// perspective. The compiler can't see through the goOn call
+		// boundary, so we hoist manually.
+		nBlank := rack.LetArr[0]
 		for i := nodeIdx; ; i++ {
-			ml := tilemapping.MachineLetter(gd.Tile(i))
-			if ml != 0 && crossSet.Allowed(ml) && (rack.LetArr[ml] != 0 || rack.LetArr[0] != 0) {
-				arcIdx := gd.ArcIndex(i)
-				accepts := gd.Accepts(i)
-				if rack.LetArr[ml] > 0 {
+			node := nodes[i]
+			ml := tilemapping.MachineLetter(node >> kwg.KWGNodeTileShift)
+			// Check cross-set before reading nMl: in restrictive
+			// mid-game positions most nodes fail here, so deferring
+			// the LetArr[ml] read avoids the load on the cold path.
+			if ml != 0 && crossSet.Allowed(ml) {
+				nMl := rack.LetArr[ml]
+				if nMl == 0 && nBlank == 0 {
+					if node&kwg.KWGNodeIsEndBit != 0 {
+						break
+					}
+					continue
+				}
+				arcIdx := node & kwg.KWGNodeArcMask
+				accepts := node&kwg.KWGNodeAcceptsBit != 0
+				if nMl > 0 {
 					rack.Take(ml)
-					if gen.leavemap.initialized {
-						gen.leavemap.takeLetter(ml, rack.LetArr[ml])
+					if gen.leavemap.Initialized {
+						gen.leavemap.TakeLetter(ml, nMl-1)
 					}
 					gen.tilesPlayed++
 					sml := gen.letterDistribution.Score(ml)
@@ -416,16 +487,16 @@ func (gen *GordonGenerator) recursiveGen(col int, rack *tilemapping.Rack,
 						wordMultiplier*wm)
 
 					gen.tilesPlayed--
-					if gen.leavemap.initialized {
-						gen.leavemap.addLetter(ml, rack.LetArr[ml])
+					if gen.leavemap.Initialized {
+						gen.leavemap.AddLetter(ml, nMl-1)
 					}
 					rack.Add(ml)
 				}
 				// check blank
-				if rack.LetArr[0] > 0 {
+				if nBlank > 0 {
 					rack.Take(0)
-					if gen.leavemap.initialized {
-						gen.leavemap.takeLetter(0, rack.LetArr[0])
+					if gen.leavemap.Initialized {
+						gen.leavemap.TakeLetter(0, nBlank-1)
 					}
 					gen.tilesPlayed++
 					// XXX: this won't work for non-zero-score blanks if
@@ -435,13 +506,13 @@ func (gen *GordonGenerator) recursiveGen(col int, rack *tilemapping.Rack,
 						crossScores+cs*wm,
 						wordMultiplier*wm)
 					gen.tilesPlayed--
-					if gen.leavemap.initialized {
-						gen.leavemap.addLetter(0, rack.LetArr[0])
+					if gen.leavemap.Initialized {
+						gen.leavemap.AddLetter(0, nBlank-1)
 					}
 					rack.Add(0)
 				}
 			}
-			if gd.IsEnd(i) {
+			if node&kwg.KWGNodeIsEndBit != 0 {
 				break
 			}
 		}
@@ -456,12 +527,17 @@ func (gen *GordonGenerator) goOn(curCol int, L tilemapping.MachineLetter,
 	if gen.tilesPlayed == game.RackTileLimit {
 		bingoBonus = 50
 	}
+	// Hoist the per-column cache lookup to a local pointer so the
+	// (up to three) field reads share a single bounds-checked
+	// access. The Go compiler doesn't CSE these on its own across
+	// the if/else branches.
+	curSq := &gen.cache.squares[curCol]
 	if curCol <= gen.curAnchorCol {
-		if gen.cache.squares[curCol].letter != 0 {
+		if curSq.letter != 0 {
 			gen.strip[curCol] = 0
 		} else {
 			gen.strip[curCol] = L
-			if gen.vertical && gen.cache.squares[curCol].crossSet == board.TrivialCrossSet {
+			if gen.vertical && curSq.crossSet == board.TrivialCrossSet {
 				uniquePlay = true
 			}
 		}
@@ -488,11 +564,11 @@ func (gen *GordonGenerator) goOn(curCol int, L tilemapping.MachineLetter,
 		}
 
 	} else {
-		if gen.cache.squares[curCol].letter != 0 {
+		if curSq.letter != 0 {
 			gen.strip[curCol] = 0
 		} else {
 			gen.strip[curCol] = L
-			if gen.vertical && gen.cache.squares[curCol].crossSet == board.TrivialCrossSet {
+			if gen.vertical && curSq.crossSet == board.TrivialCrossSet {
 				uniquePlay = true
 			}
 		}
@@ -573,14 +649,14 @@ func (gen *GordonGenerator) generateExchangeMoves(rack *tilemapping.Rack, ml til
 			gen.exchangestrip[stripidx] = ml
 			stripidx += 1
 			rack.Take(ml)
-			if gen.leavemap.initialized {
-				gen.leavemap.takeLetter(ml, rack.LetArr[ml])
+			if gen.leavemap.Initialized {
+				gen.leavemap.TakeLetter(ml, rack.LetArr[ml])
 			}
 			gen.generateExchangeMoves(rack, ml+1, stripidx)
 		}
 		for i := 0; i < numthis; i++ {
-			if gen.leavemap.initialized {
-				gen.leavemap.addLetter(ml, rack.LetArr[ml])
+			if gen.leavemap.Initialized {
+				gen.leavemap.AddLetter(ml, rack.LetArr[ml])
 			}
 			rack.Add(ml)
 		}

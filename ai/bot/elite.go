@@ -230,6 +230,7 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	}
 
 	p.simmer.Init(p.Game, p.simmerCalcs, p.simmerCalcs[0].(*equity.CombinedStaticCalculator), p.Config())
+	p.simmer.TryLoadWMP(p.Config().WGLConfig(), p.Game.LexiconName())
 	if p.simThreads != 0 {
 		p.simmer.SetThreads(p.simThreads)
 	}

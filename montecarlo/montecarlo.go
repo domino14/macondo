@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/domino14/word-golib/cache"
+	wglconfig "github.com/domino14/word-golib/config"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -35,6 +36,7 @@ import (
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/stats"
+	wmppkg "github.com/domino14/macondo/wmp"
 )
 
 /*
@@ -293,6 +295,8 @@ type Simmer struct {
 
 	autostopper          *AutoStopper
 	stochasticStaticEval bool
+
+	wmp *wmppkg.WMP
 }
 
 func (s *Simmer) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
@@ -474,6 +478,33 @@ func (s *Simmer) SetInferences(racks []InferredRack, rackLength int, mode Infere
 	s.inferenceMode = mode
 }
 
+// SetWMP wires a WMP into every per-thread move generator that the simmer
+// creates in makeGameCopies. Call this once after Init; the WMP is
+// re-applied automatically on each subsequent PrepareSim call.
+// Pass nil to disable WMP.
+func (s *Simmer) SetWMP(w *wmppkg.WMP) {
+	s.wmp = w
+}
+
+// TryLoadWMP loads the WMP for lexiconName from the global object cache and
+// wires it into this simmer. If the WMP is unavailable for any reason the
+// simmer falls back to the KWG algorithm.
+func (s *Simmer) TryLoadWMP(cfg *wglconfig.Config, lexiconName string) {
+	if s.origGame.Board().Dim() != 15 {
+		log.Info().Int("boardDim", s.origGame.Board().Dim()).
+			Msg("WMP disabled for non-standard board; using KWG algorithm")
+		return
+	}
+	w, err := wmppkg.EnsureWMP(cfg, lexiconName)
+	if err != nil {
+		log.Info().Err(err).Str("lexicon", lexiconName).
+			Msg("WMP not available for this lexicon; sim will use the KWG algorithm")
+		return
+	}
+	log.Debug().Str("lexicon", lexiconName).Msg("WMP loaded; sim will use faster word map structure")
+	s.SetWMP(w)
+}
+
 func (s *Simmer) makeGameCopies() error {
 	log.Debug().Int("threads", s.threads).Msg("makeGameCopies")
 	s.gameCopies = []*game.Game{}
@@ -490,7 +521,11 @@ func (s *Simmer) makeGameCopies() error {
 			return err
 		}
 		// not ideal, but refactor later. The play recorder needs it.
-		player.MoveGenerator().(*movegen.GordonGenerator).SetGame(s.gameCopies[i])
+		gen := player.MoveGenerator().(*movegen.GordonGenerator)
+		gen.SetGame(s.gameCopies[i])
+		if s.wmp != nil {
+			gen.SetWMP(s.wmp)
+		}
 		s.aiplayers = append(s.aiplayers, player)
 	}
 	return nil

@@ -111,8 +111,8 @@ github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc/go.mod h1:J7Y8Yc
 github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f h1:lO4WD4F/rVNCu3HqELle0jiPLLBs70cWOduZpkS1E78=
 github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f/go.mod h1:cuUVRXasLTGF7a8hSLbxyZXjz+1KgoB3wDUb6vlszIc=
 github.com/disintegration/imaging v1.6.0/go.mod h1:xuIt+sRxDFrHS0drzXUlCJthkJ8k7lkkUojDSR247MQ=
-github.com/domino14/word-golib v0.2.20 h1:KrufAyhSx7Jlq5L7u2siqeS3auhWCMB8dhSsHNeKiKo=
-github.com/domino14/word-golib v0.2.20/go.mod h1:JA2pCy6BuNzlc1Ix2pCwAxDE1k6xybfwDqq+yfKRl/Y=
+github.com/domino14/word-golib v0.2.22 h1:la67AdO8DMrpSemXVGU+XvlY5B0qlrSft7YeCgi8pMc=
+github.com/domino14/word-golib v0.2.22/go.mod h1:8WokuYNHtOeh2hJKxG6SwbiJQR74L2ViHMiuc7JUCMk=
 github.com/dustin/go-humanize v1.0.0/go.mod h1:HtrtbFcZ19U5GC7JDqmcUSB87Iq5E25KnS6fMYU6eOk=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
 github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=

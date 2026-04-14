@@ -29,7 +29,7 @@ type TritonClient struct {
 
 // NewTritonClient creates a new TritonClient.
 func NewTritonClient(serverURL, modelName, modelVersion string) (*TritonClient, error) {
-	log.Info().Msgf("Connecting to Triton server at %s for model %s version %s", serverURL, modelName, modelVersion)
+	log.Debug().Msgf("Connecting to Triton server at %s for model %s version %s", serverURL, modelName, modelVersion)
 	conn, err := grpc.NewClient(serverURL, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, fmt.Errorf("could not connect to triton server: %w", err)

@@ -229,6 +229,7 @@ func (an *Analyzer) SimInit() error {
 		return fmt.Errorf("init sim failed: %w", err)
 	}
 	simmer.Init(an.game.Game, []equity.EquityCalculator{c}, c, an.config)
+	simmer.TryLoadWMP(an.config.WGLConfig(), an.game.LexiconName())
 	simmer.Reset()
 	err = simmer.PrepareSim(2, an.moves)
 	if err != nil {

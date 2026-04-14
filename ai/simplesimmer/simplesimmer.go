@@ -82,6 +82,7 @@ func (p *SimpleSimmer) GenerateMoves(numPlays int) []*move.Move {
 func (p *SimpleSimmer) BestPlay(ctx context.Context) (*move.Move, error) {
 	moves := p.GenerateMoves(20)
 	p.simmer.Init(p.Game, p.simmerCalcs, p.simmerCalcs[0].(*equity.CombinedStaticCalculator), p.Config())
+	p.simmer.TryLoadWMP(p.Config().WGLConfig(), p.Game.LexiconName())
 	p.simmer.SetThreads(1)
 	// 2 plies for this simple simmer. can maybe configure later.
 	p.simmer.PrepareSim(p.numPlies, moves)
@@ -110,6 +111,7 @@ func (p *SimpleSimmer) GenAndSim(ctx context.Context, nMoves int, addedMove *mov
 		}
 	}
 	p.simmer.Init(p.Game, p.simmerCalcs, p.simmerCalcs[0].(*equity.CombinedStaticCalculator), p.Config())
+	p.simmer.TryLoadWMP(p.Config().WGLConfig(), p.Game.LexiconName())
 	p.simmer.SetThreads(1)
 	p.simmer.PrepareSim(p.numPlies, moves)
 	p.simmer.SetAutostopCheckInterval(64)

@@ -50,6 +50,45 @@ func (opts *GameOptions) SetDefaults(cfg *config.Config) {
 	}
 }
 
+// EnsureKWG checks whether the KWG file for lexname is present and, if not,
+// downloads it from the woogles-io/liwords repository. It is safe to call
+// before any code that calls kwg.GetKWG so that load paths other than
+// "set lexicon" also get the file-not-found download behaviour.
+func EnsureKWG(lexname string, cfg *wglconfig.Config) error {
+	fullpath := filepath.Join(cfg.DataPath, "lexica", "gaddag", cfg.KWGPathPrefix,
+		lexname+".kwg")
+	if _, err := os.Stat(fullpath); err == nil {
+		return nil // already present
+	}
+	log.Info().Str("lexicon", lexname).Msg("KWG not found; attempting to download...")
+	url := "https://github.com/woogles-io/liwords/raw/refs/heads/master/liwords-ui/public/wasm/2024/" + lexname + ".kwg"
+
+	out, err := os.CreateTemp(cfg.DataPath, "temp-*.kwg")
+	if err != nil {
+		return fmt.Errorf("failed to create file: %w", err)
+	}
+	defer func() {
+		os.Remove(out.Name())
+	}()
+	resp, err := http.Get(url)
+	if err != nil {
+		return fmt.Errorf("failed to download file: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to download file: received status code %d", resp.StatusCode)
+	}
+	if _, err = io.Copy(out, resp.Body); err != nil {
+		return fmt.Errorf("failed to write file: %w", err)
+	}
+	out.Close()
+	if err = os.Rename(out.Name(), fullpath); err != nil {
+		return fmt.Errorf("failed to rename file: %w", err)
+	}
+	log.Info().Str("path", fullpath).Msg("lexicon word graph successfully downloaded")
+	return nil
+}
+
 func (opts *GameOptions) SetLexicon(fields []string, cfg *wglconfig.Config) error {
 	lexname := ""
 	letdist := ""
@@ -63,58 +102,16 @@ func (opts *GameOptions) SetLexicon(fields []string, cfg *wglconfig.Config) erro
 		} else {
 			log.Info().Msgf("assuming letter distribution %v", letdist)
 		}
-
 	} else if len(fields) == 2 {
 		lexname, letdist = fields[0], fields[1]
 	} else {
-		msg := "Valid formats are 'lexicon' and 'lexicon alphabet'"
-		return errors.New(msg)
+		return errors.New("Valid formats are 'lexicon' and 'lexicon alphabet'")
 	}
 	lexname = strings.ToUpper(lexname)
-	// Attempt to find the kwg file.
-	fullpath := filepath.Join(cfg.DataPath, "lexica", "gaddag", cfg.KWGPathPrefix,
-		lexname+".kwg")
-	_, err = os.Stat(fullpath)
-	if err != nil {
-		log.Err(err).Msg("could not find file; attempting to download...")
-		// Attempt to download it.
-		url := "https://github.com/woogles-io/liwords/raw/refs/heads/master/liwords-ui/public/wasm/2024/" + lexname + ".kwg"
-
-		// Create the file
-		out, err := os.CreateTemp(cfg.DataPath, "temp-*.kwg")
-		if err != nil {
-			return fmt.Errorf("failed to create file: %w", err)
-		}
-		defer func() {
-			os.Remove(out.Name())
-		}()
-		// Make the HTTP GET request
-		resp, err := http.Get(url)
-		if err != nil {
-			return fmt.Errorf("failed to download file: %w", err)
-		}
-		defer resp.Body.Close()
-
-		// Check if the response is successful
-		if resp.StatusCode != http.StatusOK {
-			return fmt.Errorf("failed to download file: received status code %d", resp.StatusCode)
-		}
-
-		// Write the response body to the file
-		_, err = io.Copy(out, resp.Body)
-		if err != nil {
-			return fmt.Errorf("failed to write file: %w", err)
-		}
-		out.Close()
-		err = os.Rename(out.Name(), fullpath)
-		if err != nil {
-			return fmt.Errorf("failed to rename file: %w", err)
-		}
-
-		log.Info().Msgf("Lexicon word graph successfully downloaded to %s", fullpath)
+	if err := EnsureKWG(lexname, cfg); err != nil {
+		return err
 	}
-
-	opts.Lexicon = &Lexicon{Name: strings.ToUpper(lexname), Distribution: letdist}
+	opts.Lexicon = &Lexicon{Name: lexname, Distribution: letdist}
 	return nil
 }
 

@@ -364,6 +364,7 @@ func (sc *ShellController) startMultiSimExperiment(iters, plies, simCount int, p
 			return err
 		}
 		mcsimmer.Init(sc.game.Game, []equity.EquityCalculator{c}, c, sc.config)
+		mcsimmer.TryLoadWMP(sc.config.WGLConfig(), sc.game.LexiconName())
 		simmers = append(simmers, mcsimmer)
 	}
 

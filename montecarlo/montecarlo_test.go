@@ -101,15 +101,16 @@ func BenchmarkSim(b *testing.B) {
 
 	generator.GenAll(game.RackFor(0), false)
 	plays := generator.Plays()[:10]
-	zerolog.SetGlobalLevel(zerolog.Disabled)
-
 	simmer := &Simmer{}
 	simmer.Init(game.Game, calcs, leaves.(*equity.CombinedStaticCalculator), DefaultConfig)
 	simmer.SetThreads(1)
 	simmer.PrepareSim(plies, plays)
+	simmer.TryLoadWMP(game.Config().WGLConfig(), game.LexiconName())
 	log.Debug().Msg("About to start")
-	b.ResetTimer()
 	runtime.MemProfileRate = 1
+	zerolog.SetGlobalLevel(zerolog.Disabled)
+
+	b.ResetTimer()
 	// benchmark 2022-08-20 on monolith (12th gen Intel computer)
 	// 362	   3448347 ns/op	    7980 B/op	      60 allocs/op
 	// 2023-03-12:
@@ -120,6 +121,10 @@ func BenchmarkSim(b *testing.B) {
 	// 733	   1571280 ns/op	     496 B/op	      20 allocs/op
 	// 2026-04-06 (arena + fixed-cap smallPlays):
 	// 763	   1570186 ns/op	      16 B/op	       0 allocs/op
+	// 2026-04-13 (wmp)
+	// Note: this position doesn't benefit from wmp as much as others.
+	//  781	   1437419 ns/op	       7 B/op	       0 allocs/op
+
 	for i := 0; i < b.N; i++ {
 		simmer.simSingleIteration(context.Background(), plies, 0, uint64(i+1), nil)
 	}

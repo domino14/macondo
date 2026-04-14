@@ -531,10 +531,21 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 			// Copy the game so each endgame solver can manipulate it independently.
 			g := s.game.Copy()
 			g.SetBackupMode(game.SimulationMode)
-			// we need to set the state stack length now to account for the PEG move.
-			// there can also be passes etc. just add a hacky number.
-			// XXX: state stack length should probably just be a fixed large number.
-			g.SetStateStackLength(s.curEndgamePlies + 5)
+			// Size the state stack to cover the deepest path we can hit.
+			//
+			// recursiveSolve plays moves (both ours and opponent responses)
+			// until the bag empties or the game ends, then QuickAndDirtySolve
+			// recurses `curEndgamePlies` more levels via negamax. Each
+			// PlayMove/PlaySmallMove call pushes one state onto the stack.
+			//
+			// In the worst case, every tile play drains only one tile from
+			// the bag and each is interleaved with a forced-pass response
+			// (e.g. opponent has an unplayable rack). With two consecutive
+			// passes ending the game, the pattern "pass, tile, pass, tile,
+			// ..., pass, tile" reaches 2*numinbag PlayMove calls before the
+			// bag is empty. Negamax then adds up to curEndgamePlies more
+			// pushes. Add a small cushion for safety.
+			g.SetStateStackLength(2*s.numinbag + s.curEndgamePlies + 5)
 			g.SetEndgameMode(true)
 			// Set a fixed order for the bag. This makes it easy for us to control
 			// what tiles we draw after making a move.
