@@ -213,12 +213,6 @@ type ShellController struct {
 	gameSource    string                  // source identifier for the currently loaded game
 	analysisStore *gameanalysis.AnalysisStore // lazily opened SQLite store
 
-	// wmpCache stores WMPs by lexicon name so initGameDataStructures
-	// (and the variation switch path) don't re-open / re-parse the
-	// same .wmp file every time the game is rebuilt. nil entries mean
-	// "tried to load and failed (or file not present)" so we don't
-	// keep retrying.
-	wmpCache map[string]*wmppkg.WMP
 }
 
 type Mode int
@@ -389,6 +383,12 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 				if err != nil {
 					log.Err(err).Msg("error-setting-exhaustive-leave-calculator")
 				}
+				// Build WMP if not already on disk (build-on-miss is intentional
+				// here since the user is doing an interactive lexicon switch).
+				if _, wmpErr := wmppkg.EnsureWMP(sc.config.WGLConfig(), sc.options.Lexicon.Name); wmpErr != nil {
+					log.Info().Err(wmpErr).Str("lexicon", sc.options.Lexicon.Name).
+						Msg("WMP not available for this lexicon; sim will use the KWG algorithm")
+				}
 			}
 			_, ret = sc.options.Show("lexicon")
 		}
@@ -447,38 +447,6 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 	}
 }
 
-// tryLoadWMP returns the WMP for the given lexicon from the in-process
-// cache, loading it from data/lexica/<lexicon>.wmp on first request. If
-// the file is not present it caches a nil result silently — WMP is
-// optional. On a load error it logs once and caches nil so the caller
-// can proceed without WMP and we don't keep retrying. The shell calls
-// this every time initGameDataStructures runs (once per loaded game,
-// and again on every variation switch); caching keeps that loop cheap.
-func (sc *ShellController) tryLoadWMP(lexiconName string) *wmppkg.WMP {
-	if sc.wmpCache == nil {
-		sc.wmpCache = make(map[string]*wmppkg.WMP)
-	}
-	if w, ok := sc.wmpCache[lexiconName]; ok {
-		return w
-	}
-	dataPath := sc.config.GetString(config.ConfigDataPath)
-	wmpPath := filepath.Join(dataPath, "lexica", lexiconName+".wmp")
-	if _, err := os.Stat(wmpPath); err != nil {
-		// File not present — WMP is optional, silently skip and cache
-		// the negative result.
-		sc.wmpCache[lexiconName] = nil
-		return nil
-	}
-	w, err := wmppkg.LoadFromFile(lexiconName, wmpPath)
-	if err != nil {
-		log.Warn().Err(err).Str("path", wmpPath).Msg("failed to load WMP; sim will run without it")
-		sc.wmpCache[lexiconName] = nil
-		return nil
-	}
-	log.Info().Str("lexicon", lexiconName).Str("path", wmpPath).Msg("loaded WMP for sim")
-	sc.wmpCache[lexiconName] = w
-	return w
-}
 
 func (sc *ShellController) initGameDataStructures() error {
 	if sc.simmer != nil {
@@ -503,7 +471,7 @@ func (sc *ShellController) initGameDataStructures() error {
 	// rollout loop that Monte Carlo sim drives. The TopN equivalence
 	// test (montecarlo/wmp_equivalence_test.go) covers the sim path
 	// only; mirror this constraint if WMP is ever extended elsewhere.
-	sc.simmer.SetWMP(sc.tryLoadWMP(sc.game.LexiconName()))
+	sc.simmer.TryLoadWMP(sc.config.WGLConfig(), sc.game.LexiconName())
 	sc.gen = sc.game.MoveGenerator()
 
 	gd, err := kwg.GetKWG(sc.config.WGLConfig(), sc.game.LexiconName())
@@ -707,7 +675,7 @@ func (sc *ShellController) variationSwitch(varID int) (*Response, error) {
 		return nil, err
 	}
 	sc.simmer.Init(sc.game.Game, []equity.EquityCalculator{c}, c, sc.config)
-	sc.simmer.SetWMP(sc.tryLoadWMP(sc.game.LexiconName()))
+	sc.simmer.TryLoadWMP(sc.config.WGLConfig(), sc.game.LexiconName())
 	sc.gen = sc.game.MoveGenerator()
 
 	sc.rangefinder = &rangefinder.RangeFinder{}
@@ -1002,6 +970,13 @@ func (sc *ShellController) loadGCG(args []string) error {
 		log.Info().Msgf("gcg file had no lexicon, so using default lexicon %v",
 			lexicon)
 	}
+	if err := turnplayer.EnsureKWG(lexicon, sc.config.WGLConfig()); err != nil {
+		return fmt.Errorf("could not ensure lexicon %s: %w", lexicon, err)
+	}
+	if _, wmpErr := wmppkg.EnsureWMP(sc.config.WGLConfig(), lexicon); wmpErr != nil {
+		log.Info().Err(wmpErr).Str("lexicon", lexicon).
+			Msg("WMP not available for this lexicon; sim will use the KWG algorithm")
+	}
 	boardLayout, ldName, variant := game.HistoryToVariant(history)
 	rules, err := game.NewBasicGameRules(sc.config, lexicon, boardLayout, ldName, game.CrossScoreAndSet, variant)
 	if err != nil {
@@ -1115,7 +1090,40 @@ func (sc *ShellController) loadGameHistoryFromFile(path string) (*pb.GameHistory
 	return gcgio.ParseGCG(sc.config, path)
 }
 
+// lexiconFromCGP extracts the lexicon name from the ops field of a CGP string
+// (the semicolon-separated key-value pairs after the 4th space-delimited
+// field). Returns "" if no "lex" op is present.
+func lexiconFromCGP(cgpstr string) string {
+	fields := strings.SplitN(cgpstr, " ", 5)
+	if len(fields) < 5 {
+		return ""
+	}
+	for _, op := range strings.Split(fields[4], ";") {
+		op = strings.TrimSpace(op)
+		parts := strings.SplitN(op, " ", 2)
+		if len(parts) == 2 && parts[0] == "lex" {
+			return strings.TrimSpace(parts[1])
+		}
+	}
+	return ""
+}
+
 func (sc *ShellController) loadCGP(cgpstr string) error {
+	// Ensure the KWG is present before ParseCGP tries to load it.
+	// If the CGP has no "lex" op, ParseCGP defaults to NWL23; fall back
+	// to the configured default lexicon so the same download behaviour
+	// applies there too.
+	lex := lexiconFromCGP(cgpstr)
+	if lex == "" {
+		lex = sc.config.GetString(config.ConfigDefaultLexicon)
+	}
+	if err := turnplayer.EnsureKWG(lex, sc.config.WGLConfig()); err != nil {
+		return fmt.Errorf("could not ensure lexicon %s: %w", lex, err)
+	}
+	if _, wmpErr := wmppkg.EnsureWMP(sc.config.WGLConfig(), lex); wmpErr != nil {
+		log.Info().Err(wmpErr).Str("lexicon", lex).
+			Msg("WMP not available for this lexicon; sim will use the KWG algorithm")
+	}
 	g, err := cgp.ParseCGP(sc.config, cgpstr)
 	if err != nil {
 		return err

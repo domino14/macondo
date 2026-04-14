@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/domino14/word-golib/cache"
+	wglconfig "github.com/domino14/word-golib/config"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -472,6 +473,19 @@ func (s *Simmer) SetInferences(i map[*[]tilemapping.MachineLetter]float64, t int
 // Pass nil to disable WMP.
 func (s *Simmer) SetWMP(w *wmppkg.WMP) {
 	s.wmp = w
+}
+
+// TryLoadWMP loads the WMP for lexiconName from the global object cache and
+// wires it into this simmer. If the WMP is unavailable for any reason the
+// simmer falls back to the KWG algorithm.
+func (s *Simmer) TryLoadWMP(cfg *wglconfig.Config, lexiconName string) {
+	w, err := wmppkg.GetWMP(cfg, lexiconName)
+	if err != nil {
+		log.Info().Err(err).Str("lexicon", lexiconName).
+			Msg("WMP not available; sim will run without it")
+		return
+	}
+	s.SetWMP(w)
 }
 
 func (s *Simmer) makeGameCopies() error {

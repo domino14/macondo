@@ -22,32 +22,35 @@ import (
 	wmppkg "github.com/domino14/macondo/wmp"
 )
 
-const (
-	magpieCSW21KWG = "/Users/john/sources/apr03-noprune/MAGPIE/data/lexica/CSW21.kwg"
-	magpieCSW21WMP = "/Users/john/sources/apr03-noprune/MAGPIE/data/lexica/CSW21.wmp"
-)
-
-// loadCSW21 loads the CSW21 KWG and WMP directly from MAGPIE's data
-// directory. Skips the calling test if the files are absent.
+// loadCSW21 loads the CSW21 KWG and WMP from the standard data directory.
+// Skips the calling test if MACONDO_DATA_PATH is unset or the files are absent.
 //
-// kwg.LoadKWG calls tilemapping.ProbableLetterDistribution under the
-// hood, which needs a working data path to find the english letter
-// distribution file. We point macondo's DataPath at the in-tree
-// macondo/data directory (which ships letterdistributions/english) so
-// that lookup succeeds even when no system-wide config exists.
+// Required layout under $MACONDO_DATA_PATH:
+//
+//	lexica/gaddag/CSW21.kwg
+//	lexica/CSW21.wmp
+//	letterdistributions/english  (for tilemapping.ProbableLetterDistribution)
+//
+// Example:
+//
+//	MACONDO_DATA_PATH=./data go test ./movegen/ -run TestWMPShadow
 func loadCSW21(t *testing.T) (*kwg.KWG, *wmppkg.WMP, *tilemapping.LetterDistribution) {
 	t.Helper()
-	if _, err := os.Stat(magpieCSW21KWG); err != nil {
-		t.Skipf("MAGPIE CSW21 not present at %s", magpieCSW21KWG)
-	}
-	if _, err := os.Stat(magpieCSW21WMP); err != nil {
-		t.Skipf("MAGPIE CSW21 wmp not present at %s", magpieCSW21WMP)
+	macondoDataPath := os.Getenv("MACONDO_DATA_PATH")
+	if macondoDataPath == "" {
+		t.Skip("MACONDO_DATA_PATH not set; skipping CSW21 shadow tests")
 	}
 
-	const macondoDataPath = "/Users/john/sources/apr06-macwmp/macondo/data"
-	if _, err := os.Stat(macondoDataPath); err != nil {
-		t.Skipf("macondo data dir not present at %s", macondoDataPath)
+	magpieCSW21KWG := macondoDataPath + "/lexica/gaddag/CSW21.kwg"
+	magpieCSW21WMP := macondoDataPath + "/lexica/CSW21.wmp"
+
+	if _, err := os.Stat(magpieCSW21KWG); err != nil {
+		t.Skipf("CSW21.kwg not present at %s", magpieCSW21KWG)
 	}
+	if _, err := os.Stat(magpieCSW21WMP); err != nil {
+		t.Skipf("CSW21.wmp not present at %s", magpieCSW21WMP)
+	}
+
 	DefaultConfig.Set("data-path", macondoDataPath)
 	wglCfg := DefaultConfig.WGLConfig()
 

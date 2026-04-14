@@ -11,23 +11,19 @@ import (
 )
 
 // wmpTestPath returns the path to a CSW24 WMP file for testing.
-// Checks $MACONDO_WMP_FILE first, then $MACONDO_DATA_PATH/lexica/CSW24.wmp.
-// Skips the test if neither is available.
+// Derives the path from $MACONDO_DATA_PATH/lexica/CSW24.wmp.
+// Skips the test if MACONDO_DATA_PATH is unset or the file is absent.
 func wmpTestPath(t *testing.T) string {
 	t.Helper()
-	if p := os.Getenv("MACONDO_WMP_FILE"); p != "" {
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
+	dp := os.Getenv("MACONDO_DATA_PATH")
+	if dp == "" {
+		t.Skip("MACONDO_DATA_PATH not set; skipping WMP tests that need CSW24.wmp")
 	}
-	if dp := os.Getenv("MACONDO_DATA_PATH"); dp != "" {
-		p := dp + "/lexica/CSW24.wmp"
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
+	p := dp + "/lexica/CSW24.wmp"
+	if _, err := os.Stat(p); err != nil {
+		t.Skipf("CSW24.wmp not found at %s", p)
 	}
-	t.Skip("CSW24.wmp not available (set $MACONDO_WMP_FILE or $MACONDO_DATA_PATH)")
-	return ""
+	return p
 }
 
 // loadTestWMP returns the test WMP, skipping the test if the WMP

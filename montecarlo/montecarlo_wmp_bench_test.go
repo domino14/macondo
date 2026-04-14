@@ -8,10 +8,8 @@
 //
 // Lookup order for required files:
 //   - macondo data dir: $MACONDO_DATA_PATH (via DefaultConfig). Must contain
-//     letterdistributions/english, strategy/CSW24/leaves.klv2, and
-//     lexica/gaddag/CSW24.kwg.
-//   - WMP file: $MACONDO_WMP_FILE if set, else
-//     $MACONDO_DATA_PATH/lexica/CSW24.wmp.
+//     letterdistributions/english, strategy/CSW24/leaves.klv2,
+//     lexica/gaddag/CSW24.kwg, and lexica/CSW24.wmp.
 //
 // Benchmarks (and the equivalence test that shares this setup) skip
 // automatically when any required file is missing.
@@ -46,16 +44,6 @@ func wmpDataPath() string {
 	return DefaultConfig.GetString("data-path")
 }
 
-// wmpFilePath returns the path to the CSW24 WMP file. Override with
-// $MACONDO_WMP_FILE; otherwise defaults to lexica/CSW24.wmp under the
-// macondo data directory.
-func wmpFilePath() string {
-	if p := os.Getenv("MACONDO_WMP_FILE"); p != "" {
-		return p
-	}
-	return filepath.Join(wmpDataPath(), "lexica", "CSW24.wmp")
-}
-
 // requireWMPSetup is a test helper (T or B) that skips the caller if any
 // of the files needed by the WMP benchmarks / equivalence test are
 // missing. Returns (dataPath, wmpFilePath) on success.
@@ -71,9 +59,9 @@ func requireWMPSetup(tb testing.TB) (string, string) {
 	if _, err := os.Stat(filepath.Join(dataPath, "strategy", "CSW24", "leaves.klv2")); err != nil {
 		tb.Skipf("CSW24 leaves not found at %s/strategy/CSW24/leaves.klv2", dataPath)
 	}
-	wmpPath := wmpFilePath()
+	wmpPath := filepath.Join(dataPath, "lexica", "CSW24.wmp")
 	if _, err := os.Stat(wmpPath); err != nil {
-		tb.Skipf("WMP file not found at %s (set $MACONDO_WMP_FILE to override location)", wmpPath)
+		tb.Skipf("CSW24.wmp not found at %s", wmpPath)
 	}
 	return dataPath, wmpPath
 }

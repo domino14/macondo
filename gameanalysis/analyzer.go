@@ -613,6 +613,7 @@ func (a *Analyzer) analyzeWithSim(ctx context.Context, g *game.Game, analysis *T
 
 	simmer := &montecarlo.Simmer{}
 	simmer.Init(botPlayer.Game, []equity.EquityCalculator{equityCalc}, equityCalc, a.cfg)
+	simmer.TryLoadWMP(a.cfg.WGLConfig(), g.LexiconName())
 
 	if a.analysisCfg.Threads > 0 {
 		simmer.SetThreads(a.analysisCfg.Threads)

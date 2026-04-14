@@ -36,13 +36,18 @@ func makeBenchLookupKeys(t testing.TB, w *WMP) []BitRack {
 	return keys
 }
 
-// loadCSW24WMPForLookupBench loads the CSW24 WMP from MAGPIE's data
-// directory if available, or skips the benchmark.
+// loadCSW24WMPForLookupBench loads the CSW24 WMP from
+// $MACONDO_DATA_PATH/lexica/CSW24.wmp, or skips the benchmark if
+// MACONDO_DATA_PATH is unset or the file is absent.
 func loadCSW24WMPForLookupBench(t testing.TB) *WMP {
 	t.Helper()
-	const path = "/Users/john/sources/apr03-noprune/MAGPIE/data/lexica/CSW24.wmp"
+	dp := os.Getenv("MACONDO_DATA_PATH")
+	if dp == "" {
+		t.Skip("MACONDO_DATA_PATH not set; skipping WMP lookup benchmarks")
+	}
+	path := dp + "/lexica/CSW24.wmp"
 	if _, err := os.Stat(path); err != nil {
-		t.Skipf("CSW24.wmp not present at %s", path)
+		t.Skipf("CSW24.wmp not found at %s", path)
 	}
 	w, err := LoadFromFile("CSW24", path)
 	if err != nil {

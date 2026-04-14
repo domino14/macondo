@@ -46,8 +46,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Fprintf(os.Stderr, "Building WMP from %s (%d threads)...\n", *kwgPath, *threads)
-	w, err := wmp.MakeFromKWG(gd, ld, 15, *threads)
+	// boardDim=21 covers all word lengths in any standard crossword lexicon
+	// (CSW/NWL have words up to 21 letters) and is compatible with both the
+	// standard 15×15 board and the SuperCrosswordGame 21×21 board.
+	const boardDim = 21
+	fmt.Fprintf(os.Stderr, "Building WMP from %s (%d threads, boardDim=%d)...\n", *kwgPath, *threads, boardDim)
+	w, err := wmp.MakeFromKWG(gd, ld, boardDim, *threads)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "make wmp: %v\n", err)
 		os.Exit(1)

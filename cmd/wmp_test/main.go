@@ -10,9 +10,7 @@
 //
 // The WMP file is located via (in order):
 //  1. -wmpfile flag, if set
-//  2. $MACONDO_WMP_FILE, if set
-//  3. $MACONDO_DATA_PATH/lexica/<lexicon>.wmp (or the default data path
-//     under the macondo binary location)
+//  2. $MACONDO_DATA_PATH/lexica/<lexicon>.wmp
 package main
 
 import (
@@ -31,7 +29,7 @@ import (
 
 func main() {
 	numGames := flag.Int("games", 1000, "number of games to play")
-	wmpFlag := flag.String("wmpfile", "", "path to WMP file (overrides $MACONDO_WMP_FILE and data-path lookup)")
+	wmpFlag := flag.String("wmpfile", "", "path to WMP file (overrides data-path lookup)")
 	flag.Parse()
 
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
@@ -49,8 +47,7 @@ func main() {
 
 	wmpPath := resolveWMPPath(*wmpFlag, cfg, lexicon)
 	if wmpPath == "" {
-		log.Fatal().Msg("could not find a WMP file; pass -wmpfile, set $MACONDO_WMP_FILE, " +
-			"or ensure $MACONDO_DATA_PATH/lexica/<lexicon>.wmp exists")
+		log.Fatal().Msg("could not find a WMP file; pass -wmpfile or ensure $MACONDO_DATA_PATH/lexica/<lexicon>.wmp exists")
 	}
 	if _, err := os.Stat(wmpPath); err != nil {
 		log.Fatal().Err(err).Str("path", wmpPath).Msg("WMP file not found")
@@ -85,14 +82,11 @@ func main() {
 	fmt.Printf("\n100.0000%% agreement across %d turns!\n", result.TurnsPlayed)
 }
 
-// resolveWMPPath mirrors the resolution used by the WMP tests/benches:
-// flag, then $MACONDO_WMP_FILE, then <data-path>/lexica/<lexicon>.wmp.
+// resolveWMPPath returns the WMP file path: the -wmpfile flag if given,
+// otherwise $MACONDO_DATA_PATH/lexica/<lexicon>.wmp.
 func resolveWMPPath(flagVal string, cfg *config.Config, lexicon string) string {
 	if flagVal != "" {
 		return flagVal
-	}
-	if p := os.Getenv("MACONDO_WMP_FILE"); p != "" {
-		return p
 	}
 	dataPath := cfg.GetString(config.ConfigDataPath)
 	if dataPath == "" {
