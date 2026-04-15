@@ -2551,8 +2551,14 @@ type AutoplayPlayerConfig struct {
 	// the opponent's true leave (from the game history) directly to the simmer.
 	// This establishes an upper bound on how much perfect inference could help.
 	OracleInference bool `protobuf:"varint,10,opt,name=oracle_inference,json=oracleInference,proto3" json:"oracle_inference,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// inference_max_enumerated_leaves is the threshold below which exhaustive
+	// enumeration is used instead of Monte Carlo sampling. When the number of
+	// distinct leaves drawable from the bag is at or below this value, every
+	// leave is evaluated exactly once with full Bayesian weighting
+	// (prior × likelihood). If 0, the rangefinder default (750) is used.
+	InferenceMaxEnumeratedLeaves int32 `protobuf:"varint,11,opt,name=inference_max_enumerated_leaves,json=inferenceMaxEnumeratedLeaves,proto3" json:"inference_max_enumerated_leaves,omitempty"`
+	unknownFields                protoimpl.UnknownFields
+	sizeCache                    protoimpl.SizeCache
 }
 
 func (x *AutoplayPlayerConfig) Reset() {
@@ -2653,6 +2659,13 @@ func (x *AutoplayPlayerConfig) GetOracleInference() bool {
 		return x.OracleInference
 	}
 	return false
+}
+
+func (x *AutoplayPlayerConfig) GetInferenceMaxEnumeratedLeaves() int32 {
+	if x != nil {
+		return x.InferenceMaxEnumeratedLeaves
+	}
+	return 0
 }
 
 // AutoplayConfig defines a complete autoplay experiment.
@@ -3046,7 +3059,7 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\restimated_elo\x18\n" +
 	" \x01(\x01R\festimatedElo\x12)\n" +
 	"\x10available_bingos\x18\v \x01(\x05R\x0favailableBingos\x12#\n" +
-	"\rmissed_bingos\x18\f \x01(\x05R\fmissedBingos\"\xb3\x03\n" +
+	"\rmissed_bingos\x18\f \x01(\x05R\fmissedBingos\"\xfa\x03\n" +
 	"\x14AutoplayPlayerConfig\x126\n" +
 	"\bbot_code\x18\x01 \x01(\x0e2\x1b.macondo.BotRequest.BotCodeR\abotCode\x12\x1d\n" +
 	"\n" +
@@ -3060,7 +3073,8 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\x13inference_time_secs\x18\b \x01(\x05R\x11inferenceTimeSecs\x12.\n" +
 	"\x13inference_sim_iters\x18\t \x01(\x05R\x11inferenceSimIters\x12)\n" +
 	"\x10oracle_inference\x18\n" +
-	" \x01(\bR\x0foracleInference\"\xea\x03\n" +
+	" \x01(\bR\x0foracleInference\x12E\n" +
+	"\x1finference_max_enumerated_leaves\x18\v \x01(\x05R\x1cinferenceMaxEnumeratedLeaves\"\xea\x03\n" +
 	"\x0eAutoplayConfig\x12 \n" +
 	"\vdescription\x18\x01 \x01(\tR\vdescription\x12#\n" +
 	"\rexperiment_id\x18\x02 \x01(\tR\fexperimentId\x12\x18\n" +

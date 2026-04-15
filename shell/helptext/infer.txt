@@ -93,7 +93,7 @@ Options:
     want this to be a little bit larger on slower machines / those with
     fewer cores.
 
-    -tau 0.20
+    -tau 0.10
 
     Softmax temperature controlling how rational the opponent is assumed to be.
     Softmax is applied over the log-odds of win probabilities (not raw win
@@ -102,4 +102,21 @@ Options:
     won/lost positions (5%–95%) reach about [-3, 3]. Lower values assume the
     opponent almost always plays the best move; higher values give more weight
     to sub-optimal plays.
-    Defaults to 0.20. A value of 0 is treated as the default.
+    Defaults to 0.10. A value of 0 is treated as the default.
+
+    -maxleaves 5000
+
+    Maximum number of distinct opponent leaves before switching from exhaustive
+    enumeration to Monte Carlo sampling. When the opponent plays many tiles
+    (e.g. 5–6 of 7), the leave space is tiny and the inferrer automatically
+    enumerates every possible leave exactly once, computing the exact Bayesian
+    posterior (prior × likelihood) rather than noisy IS estimates.
+
+    Typical tractability:
+      k=1 (bingo): ≤27 leaves   — always enumerates
+      k=2 (5 tiles played): ≤378 leaves — always enumerates
+      k=3 (4 tiles played): up to ~3650 — enumerates when bag is modest
+      k≥4: only enumerates when the bag is very small (≤~15 tiles)
+
+    Defaults to 5000. Set to 0 to use the default. Set to 1 to always use
+    Monte Carlo sampling (useful for comparison).

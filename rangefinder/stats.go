@@ -30,11 +30,6 @@ func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
 
 	alph := r.origGame.Alphabet()
 	nInferred := len(r.inference.InferredRacks)
-	iterations := r.iterationCount
-	acceptRate := 0.0
-	if iterations > 0 {
-		acceptRate = 100.0 * float64(nInferred) / float64(iterations)
-	}
 
 	// Compute effective sample size (ESS) = (Σw)² / Σw²
 	sumW := 0.0
@@ -48,8 +43,26 @@ func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
 		ess = (sumW * sumW) / sumW2
 	}
 
-	headerLine := fmt.Sprintf("Inferred %d unique racks from %d iterations (%.1f%% acceptance), tau=%.3f, ESS=%.1f\n",
-		nInferred, iterations, acceptRate, r.tau, ess)
+	var headerLine string
+	if r.exhaustiveTotal > 0 {
+		// Enumeration mode: show leaves simmed vs total, and completion %.
+		pct := 100.0 * float64(nInferred) / float64(r.exhaustiveTotal)
+		complete := "complete"
+		if nInferred < r.exhaustiveTotal {
+			complete = "incomplete — context deadline"
+		}
+		headerLine = fmt.Sprintf("Inferred %d of %d leaves (%.1f%%, %s), tau=%.3f, ESS=%.1f\n",
+			nInferred, r.exhaustiveTotal, pct, complete, r.Tau(), ess)
+	} else {
+		// Monte Carlo sampling mode.
+		iterations := r.iterationCount
+		acceptRate := 0.0
+		if iterations > 0 {
+			acceptRate = 100.0 * float64(nInferred) / float64(iterations)
+		}
+		headerLine = fmt.Sprintf("Inferred %d unique racks from %d iterations (%.1f%% acceptance), tau=%.3f, ESS=%.1f\n",
+			nInferred, iterations, acceptRate, r.Tau(), ess)
+	}
 
 	if detailed {
 		var ss strings.Builder
@@ -104,7 +117,14 @@ func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
 		for i := 0; i < int(alph.NumLetters()); i++ {
 			printLetterStats(i)
 		}
-		fmt.Fprintf(&ss, "\nSimmed %d times\n", r.simCount.Load())
+		simCount := r.simCount.Load()
+		elapsed := r.inferElapsed
+		simsPerSec := 0.0
+		if elapsed.Seconds() > 0 {
+			simsPerSec = float64(simCount) / elapsed.Seconds()
+		}
+		fmt.Fprintf(&ss, "\nSimmed %d times in %.1fs (%.1f sims/sec)\n",
+			simCount, elapsed.Seconds(), simsPerSec)
 
 		return ss.String()
 	}

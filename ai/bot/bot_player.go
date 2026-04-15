@@ -41,6 +41,9 @@ type BotConfig struct {
 	// InferenceSimIters is the max mini-sim iterations per rack candidate.
 	// If 0, defaults to 200.
 	InferenceSimIters int
+	// InferenceMaxEnumeratedLeaves is the threshold for switching from Monte Carlo
+	// sampling to exhaustive enumeration. If 0, defaults to DefaultMaxEnumeratedLeaves.
+	InferenceMaxEnumeratedLeaves int
 	// If UseOppRacksInAnalysis is true, will use opponent rack info for simulation/pre-endgames/etc
 	UseOppRacksInAnalysis bool
 	// OracleInference skips the Bayesian inference loop and instead uses the

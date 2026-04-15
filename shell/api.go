@@ -991,7 +991,7 @@ func (sc *ShellController) inferPrepare(cmd *shellcmd) (*inferParams, error) {
 	}
 
 	var err error
-	var threads, timesec int
+	var threads, timesec, simIters, maxLeaves int
 	tau := 0.0
 
 	for opt := range cmd.options {
@@ -1014,6 +1014,18 @@ func (sc *ShellController) inferPrepare(cmd *shellcmd) (*inferParams, error) {
 				return nil, err
 			}
 
+		case "inferenceiters":
+			simIters, err = cmd.options.Int(opt)
+			if err != nil {
+				return nil, err
+			}
+
+		case "maxleaves":
+			maxLeaves, err = cmd.options.Int(opt)
+			if err != nil {
+				return nil, err
+			}
+
 		default:
 			return nil, errors.New("option " + opt + " not recognized")
 		}
@@ -1022,9 +1034,15 @@ func (sc *ShellController) inferPrepare(cmd *shellcmd) (*inferParams, error) {
 	if threads != 0 {
 		sc.rangefinder.SetThreads(threads)
 	}
-	if tau > 0 {
-		sc.rangefinder.SetTau(tau)
+	// Always set tau so a previous call's value doesn't persist.
+	// 0 means "use default" (SoftmaxTemperature) inside Tau().
+	sc.rangefinder.SetTau(tau)
+	if simIters > 0 {
+		sc.rangefinder.SetSimIters(simIters)
 	}
+	// Always set maxLeaves so a previous call's value doesn't persist.
+	// 0 means "use default" inside Infer (DefaultMaxEnumeratedLeaves).
+	sc.rangefinder.SetMaxEnumeratedLeaves(maxLeaves)
 	if timesec == 0 {
 		timesec = 60
 	}

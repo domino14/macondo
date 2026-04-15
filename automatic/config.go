@@ -57,9 +57,10 @@ func playerFromProto(p *pb.AutoplayPlayerConfig) AutomaticRunnerPlayer {
 		MinSimPlies:          int(p.MinSimPlies),
 		SimThreads:           int(p.SimThreads),
 		StochasticStaticEval: p.StochasticStaticEval,
-		InferenceTau:         p.InferenceTau,
-		InferenceTimeSecs:    int(p.InferenceTimeSecs),
-		InferenceSimIters:    int(p.InferenceSimIters),
-		OracleInference:      p.OracleInference,
+		InferenceTau:                p.InferenceTau,
+		InferenceTimeSecs:           int(p.InferenceTimeSecs),
+		InferenceSimIters:           int(p.InferenceSimIters),
+		InferenceMaxEnumeratedLeaves: int(p.InferenceMaxEnumeratedLeaves),
+		OracleInference:             p.OracleInference,
 	}
 }

@@ -204,6 +204,9 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 		if p.cfg.InferenceSimIters > 0 {
 			p.inferencer.SetSimIters(p.cfg.InferenceSimIters)
 		}
+		if p.cfg.InferenceMaxEnumeratedLeaves > 0 {
+			p.inferencer.SetMaxEnumeratedLeaves(p.cfg.InferenceMaxEnumeratedLeaves)
+		}
 		err := p.inferencer.PrepareFinder(p.Game.RackFor(p.Game.PlayerOnTurn()).TilesOn())
 		if err != nil {
 			// Expected early in the game (no events yet, bingo, etc.)

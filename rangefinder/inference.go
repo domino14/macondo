@@ -9,6 +9,7 @@ import (
 	"sort"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
@@ -40,7 +41,7 @@ const (
 	// Softmax is applied over log-odds of win probabilities, so tau is on the
 	// log-odds scale. Typical positions (20%-80% win prob) span roughly [-1.4, 1.4];
 	// strongly won/lost positions (5%-95%) reach about [-3, 3].
-	SoftmaxTemperature = 0.20
+	SoftmaxTemperature = 0.1
 
 	// logitEps clamps win probabilities away from 0 and 1 before logit
 	// conversion to avoid ±Inf.
@@ -89,6 +90,13 @@ func leaveKey(leave []tilemapping.MachineLetter) string {
 // combinatorialPrior computes P(leave) as the multivariate hypergeometric
 // probability of drawing exactly the tiles in leave from the bag described
 // by bagMap. Returns 0 for impossible leaves.
+//
+// NOTE: this function is intentionally NOT called by inferSingle (the Monte Carlo
+// sampling path).  There, SetRandomRack already draws from the hypergeometric prior,
+// so the importance-sampling weight is likelihood only — multiplying by
+// combinatorialPrior again would double-count it.
+// combinatorialPrior IS used by inferEnumerated, where each leaf is visited
+// exactly once (not sampled), so the prior must be supplied explicitly.
 func combinatorialPrior(leave []tilemapping.MachineLetter, bagMap []uint8) float64 {
 	if len(leave) == 0 {
 		return 0
@@ -179,7 +187,12 @@ type RangeFinder struct {
 	aiplayers         []aiturnplayer.AITurnPlayer
 	iterationCount    int
 	simCount          atomic.Uint64
-	threads           int
+	inferElapsed      time.Duration
+	// exhaustiveTotal is set when inferEnumerated is used. It records the total
+	// number of distinct leaves that existed (before any context timeout). When
+	// non-zero, the inference ran in enumeration mode rather than MC sampling.
+	exhaustiveTotal int
+	threads         int
 	// tau is the softmax temperature used when computing P(play | leave).
 	// Lower values assume the opponent plays more optimally. Defaults to
 	// SoftmaxTemperature if not set explicitly.
@@ -187,6 +200,11 @@ type RangeFinder struct {
 	// simIters is the max mini-sim iterations per rack candidate.
 	// 0 means use the SimpleSimmer default (200).
 	simIters int
+	// maxEnumeratedLeaves is the threshold for switching from Monte Carlo sampling
+	// to exhaustive enumeration. When the number of distinct leaves drawable from
+	// the bag (countMultisets) is ≤ this value, inferEnumerated is used instead of
+	// inferSingle. 0 means use DefaultMaxEnumeratedLeaves.
+	maxEnumeratedLeaves int
 
 	working      bool
 	readyToInfer bool
@@ -208,9 +226,6 @@ func (r *RangeFinder) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
 	r.equityCalculators = eqCalcs
 	r.threads = max(1, runtime.NumCPU())
 	r.cfg = cfg
-	if r.tau == 0 {
-		r.tau = SoftmaxTemperature
-	}
 }
 
 func (r *RangeFinder) SetThreads(t int) {
@@ -240,6 +255,13 @@ func (r *RangeFinder) SimIters() int {
 		return 200 // default matches SimpleSimmer default
 	}
 	return r.simIters
+}
+
+// SetMaxEnumeratedLeaves sets the maximum number of distinct leaves for which
+// exhaustive enumeration (inferEnumerated) is used instead of Monte Carlo sampling.
+// If 0, DefaultMaxEnumeratedLeaves is used.
+func (r *RangeFinder) SetMaxEnumeratedLeaves(n int) {
+	r.maxEnumeratedLeaves = n
 }
 
 func (r *RangeFinder) SetLogStream(l io.Writer) {
@@ -387,6 +409,7 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 	r.readyToInfer = true
 	r.iterationCount = 0
 	r.simCount.Store(0)
+	r.exhaustiveTotal = 0
 	return nil
 }
 
@@ -395,10 +418,32 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 		return errors.New("not ready")
 	}
 	r.working = true
+	inferStart := time.Now()
 	defer func() {
+		r.inferElapsed = time.Since(inferStart)
 		r.working = false
 		log.Info().Msg("inference engine quitting")
 	}()
+
+	// Exhaustive enumeration: when the leave space is small enough, visit every
+	// distinct leave exactly once and apply full Bayesian weighting
+	// (prior × likelihood) rather than importance sampling.
+	// Exchange moves are excluded because their "leave" semantics differ.
+	isExchange := r.lastOppMove != nil && r.lastOppMove.Action() == move.MoveTypeExchange
+	if !isExchange && r.inference.RackLength >= 1 {
+		maxLeaves := r.maxEnumeratedLeaves
+		if maxLeaves == 0 {
+			maxLeaves = DefaultMaxEnumeratedLeaves
+		}
+		m := countMultisets(r.inferenceBagMap, r.inference.RackLength)
+		if m <= maxLeaves {
+			log.Info().Int("leaf-count", m).Int("rack-length", r.inference.RackLength).
+				Msg("using-exhaustive-enumeration")
+			return r.inferEnumerated(ctx)
+		}
+		log.Info().Int("leaf-count", m).Int("max-leaves", maxLeaves).
+			Msg("leaf-space-too-large-using-sampling")
+	}
 
 	logChan := make(chan []byte)
 	syncExitChan := make(chan bool, r.threads)
@@ -549,7 +594,7 @@ func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) ([]m
 	// SetRandomRack already samples racks from the hypergeometric (prior)
 	// distribution, so the IS weight is only the likelihood P(play | leave).
 	// Multiplying by the prior again would double-count it.
-	likelihoodP, targetWinProb := softmaxLikelihood(bestPlays, lastOppMove, g.Board(), r.tau)
+	likelihoodP, targetWinProb := softmaxLikelihood(bestPlays, lastOppMove, g.Board(), r.Tau())
 	bayesianWeight := likelihoodP
 
 	if bayesianWeight <= 0 {
@@ -628,7 +673,7 @@ func (r *RangeFinder) inferSingleExchange(thread, iterNum int, logChan chan []by
 		// since we don't know which specific tiles were exchanged — only the kept tiles.
 		leave := m.Move().Leave()
 		// SetRandomRack already samples from the prior; weight = likelihood only.
-		likelihoodP, targetWinProb := softmaxLikelihood(bestPlays, m.Move(), g.Board(), r.tau)
+		likelihoodP, targetWinProb := softmaxLikelihood(bestPlays, m.Move(), g.Board(), r.Tau())
 		bayesianWeight := likelihoodP
 
 		if bayesianWeight <= 0 {

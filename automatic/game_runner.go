@@ -64,10 +64,11 @@ type AutomaticRunnerPlayer struct {
 	MinSimPlies          int
 	SimThreads           int
 	StochasticStaticEval bool
-	InferenceTau         float64
-	InferenceTimeSecs    int
-	InferenceSimIters    int
-	OracleInference      bool
+	InferenceTau                float64
+	InferenceTimeSecs           int
+	InferenceSimIters           int
+	InferenceMaxEnumeratedLeaves int
+	OracleInference             bool
 }
 
 // Init initializes the runner
@@ -111,10 +112,11 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 			MinSimPlies:          players[idx].MinSimPlies,
 			SimThreads:           players[idx].SimThreads,
 			StochasticStaticEval: players[idx].StochasticStaticEval,
-			InferenceTau:         players[idx].InferenceTau,
-			InferenceTimeSecs:    players[idx].InferenceTimeSecs,
-			InferenceSimIters:    players[idx].InferenceSimIters,
-			OracleInference:      players[idx].OracleInference,
+			InferenceTau:                players[idx].InferenceTau,
+			InferenceTimeSecs:           players[idx].InferenceTimeSecs,
+			InferenceSimIters:           players[idx].InferenceSimIters,
+			InferenceMaxEnumeratedLeaves: players[idx].InferenceMaxEnumeratedLeaves,
+			OracleInference:             players[idx].OracleInference,
 		}
 
 		btp, err := bot.NewBotTurnPlayerFromGame(r.game, conf, botcode)
