@@ -179,6 +179,12 @@ func (r *GameRunner) Game() *game.Game {
 	return r.game
 }
 
+// BotTypeFor returns the bot code for the given game-level player index.
+// Accounts for player flips done by StartGameWithSeed.
+func (r *GameRunner) BotTypeFor(playerIdx int) pb.BotRequest_BotCode {
+	return r.aiplayers[playerIdx].GetBotType()
+}
+
 func (r *GameRunner) genBestStaticTurn(playerIdx int) *move.Move {
 	return aiturnplayer.GenBestStaticTurn(r.game, r.aiplayers[playerIdx], playerIdx)
 }

@@ -268,6 +268,25 @@ func (r *RangeFinder) SetLogStream(l io.Writer) {
 	r.logStream = l
 }
 
+// BagMap returns a copy of the inferenceBagMap after PrepareFinder has been
+// called. It represents the pool of tiles from which the opponent's leave was
+// drawn (bag + both racks, minus opp's played tiles this turn).
+func (r *RangeFinder) BagMap() []uint8 {
+	result := make([]uint8, len(r.inferenceBagMap))
+	copy(result, r.inferenceBagMap)
+	return result
+}
+
+// ExhaustiveTotal returns the total number of distinct leaves that existed
+// when inferEnumerated was used. Zero means the MC sampling path was taken.
+func (r *RangeFinder) ExhaustiveTotal() int { return r.exhaustiveTotal }
+
+// SimCount returns the total number of mini-simulations run during Infer.
+func (r *RangeFinder) SimCount() uint64 { return r.simCount.Load() }
+
+// InferElapsed returns the wall-clock duration of the last Infer call.
+func (r *RangeFinder) InferElapsed() time.Duration { return r.inferElapsed }
+
 func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 	r.inference = NewInference()
 	evts := r.origGame.History().Events[:r.origGame.Turn()]

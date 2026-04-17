@@ -104,7 +104,7 @@ Options:
     to sub-optimal plays.
     Defaults to 0.10. A value of 0 is treated as the default.
 
-    -maxleaves 5000
+    -maxleaves 750
 
     Maximum number of distinct opponent leaves before switching from exhaustive
     enumeration to Monte Carlo sampling. When the opponent plays many tiles
