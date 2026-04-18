@@ -52,6 +52,14 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 		maybeInBagTiles[t]--
 	}
 
+	// When plays are fewer than threads, parallelize at the permutation level
+	// so all threads stay busy. Pre-sort before workers start to avoid a race
+	// on thread 0's game state. Otherwise use the cheaper per-play model.
+	var sortedOpts [][]option
+	if len(s.plays) < s.threads {
+		sortedOpts = s.computeSortedOptions(maybeInBagTiles)
+	}
+
 	g := errgroup.Group{}
 	winnerGroup := errgroup.Group{}
 	// log.Debug().Interface("maybe-in-bag-tiles", maybeInBagTiles).Msg("unseen tiles")
@@ -113,7 +121,7 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 		return nil
 	})
 
-	s.createGenericPEGJobs(ctx, maybeInBagTiles, jobChan)
+	s.createGenericPEGJobs(ctx, maybeInBagTiles, sortedOpts, jobChan)
 	err := g.Wait()
 	if err != nil {
 		return nil, err
@@ -146,18 +154,77 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 	return s.plays, err
 }
 
-func (s *Solver) createGenericPEGJobs(ctx context.Context, maybeInBagTiles []int, jobChan chan job) {
-	queuedJobs := 0
+// computeSortedOptions generates all permutations for each play and sorts
+// them by oppEstimate (highest first) so that the hardest permutations are
+// processed first, surfacing losses early for the early-cutoff optimisation.
+// Must be called before worker goroutines start so thread 0's game is not
+// accessed concurrently.
+func (s *Solver) computeSortedOptions(maybeInBagTiles []int) [][]option {
+	permutations := generatePermutations(maybeInBagTiles, s.numinbag)
+	g0 := s.endgameSolvers[0].Game()
+	mg0 := s.endgameSolvers[0].Movegen()
+	mg0.(*movegen.GordonGenerator).SetPlayRecorderTopPlay()
+	snap := snapshotPEGState(g0)
 
-	for _, p := range s.plays {
-		j := job{
-			ourMove:         p,
-			maybeInBagTiles: maybeInBagTiles,
+	result := make([][]option, len(s.plays))
+	for pi, p := range s.plays {
+		firstPlayEmptiesBag := p.Play.TilesPlayed() >= s.numinbag
+		opts := make([]option, len(permutations))
+		for j, perm := range permutations {
+			tiles := make([]tilemapping.MachineLetter, len(perm.Perm))
+			for k, el := range perm.Perm {
+				tiles[k] = tilemapping.MachineLetter(el)
+			}
+			opt := option{mls: tiles, ct: perm.Count}
+			if firstPlayEmptiesBag {
+				g0.ThrowRacksInFor(1 - g0.PlayerOnTurn())
+				moveTilesToBeginning(tiles, g0.Bag())
+				if _, err := g0.SetRandomRack(1-g0.PlayerOnTurn(), nil); err == nil {
+					if err := g0.PlayMove(p.Play, false, 0); err == nil {
+						mg0.GenAll(g0.RackFor(g0.PlayerOnTurn()), false)
+						if len(mg0.Plays()) > 0 {
+							opt.oppEstimate = float64(mg0.Plays()[0].Equity())
+						}
+						g0.UnplayLastMove()
+					}
+				}
+			}
+			opts[j] = opt
 		}
-		queuedJobs++
-		jobChan <- j
+		if firstPlayEmptiesBag {
+			sort.Slice(opts, func(i, j int) bool {
+				return opts[i].oppEstimate > opts[j].oppEstimate
+			})
+		}
+		for k := range opts {
+			opts[k].idx = k
+		}
+		result[pi] = opts
 	}
 
+	snap.restore(g0)
+	mg0.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
+	return result
+}
+
+func (s *Solver) createGenericPEGJobs(ctx context.Context, maybeInBagTiles []int, sortedOpts [][]option, jobChan chan job) {
+	queuedJobs := 0
+	if sortedOpts != nil {
+		// Per-permutation mode: one job per (play, perm), pre-sorted hardest-first.
+		for pi, p := range s.plays {
+			for _, opt := range sortedOpts[pi] {
+				jobChan <- job{ourMove: p, opt: opt}
+				queuedJobs++
+			}
+		}
+	} else {
+		// Per-play mode: one job per play; the job processes all permutations
+		// internally, keeping oppEstimate computation parallelized across threads.
+		for _, p := range s.plays {
+			jobChan <- job{ourMove: p, maybeInBagTiles: maybeInBagTiles}
+			queuedJobs++
+		}
+	}
 	log.Info().Int("numJobs", queuedJobs).Msg("queued-jobs")
 	close(jobChan)
 }
@@ -277,15 +344,21 @@ func (s *Solver) maybeTiebreak(ctx context.Context, maybeInBagTiles []int) error
 		return nil
 	})
 
+	permutations := generatePermutations(maybeInBagTiles, s.numinbag)
 	queuedJobs := 0
 	for _, pidx := range topPlayIdxs {
-		j := job{
-			ourMove:         s.plays[pidx],
-			maybeInBagTiles: maybeInBagTiles,
-			fullSolve:       true,
+		for pi, perm := range permutations {
+			tiles := make([]tilemapping.MachineLetter, len(perm.Perm))
+			for i, el := range perm.Perm {
+				tiles[i] = tilemapping.MachineLetter(el)
+			}
+			jobChan <- job{
+				ourMove:   s.plays[pidx],
+				fullSolve: true,
+				opt:       option{mls: tiles, ct: perm.Count, idx: pi},
+			}
+			queuedJobs++
 		}
-		queuedJobs++
-		jobChan <- j
 	}
 
 	log.Info().Int("numTiebreakerJobs", queuedJobs).Msg("queued-jobs")
@@ -320,12 +393,6 @@ type option struct {
 
 func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 	winnerChan chan *PreEndgamePlay) error {
-	// handle a job generically.
-	// parameters are the job move, and tiles that are unseen to us
-	// (maybe in bag)
-
-	// Reset the arena at the start of each job so it's clean for this thread's
-	// recursiveSolve calls.
 	s.arenas[thread].Reset()
 
 	defer func() {
@@ -354,18 +421,10 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 				s.numCutoffs.Add(1)
 				return nil
 			}
-			// we should check to see if our move has more found losses than
-			// _any_ fully analyzed move. If so, it can't possibly win.
 			s.potentialWinnerMutex.RLock()
 			if s.earlyCutoffOptim && j.ourMove.FoundLosses > s.minPotentialLosses {
-				// cut off this play. We already have more losses than the
-				// fully analyzed play with the minimum known number of losses.
 				s.potentialWinnerMutex.RUnlock()
 				j.ourMove.RUnlock()
-				// log.Debug().Float32("foundLosses", j.ourMove.FoundLosses).
-				// 	Float32("minKnownLosses", s.minPotentialLosses).
-				// 	Str("ourMove", j.ourMove.String()).
-				// 	Msg("stop-analyzing-move")
 				j.ourMove.stopAnalyzing()
 				s.numCutoffs.Add(1)
 				if s.logStream != nil {
@@ -379,13 +438,75 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 			j.ourMove.RUnlock()
 		}
 	}
+
+	if j.maybeInBagTiles != nil {
+		return s.processJobPerPlay(ctx, j, thread, winnerChan)
+	}
+	return s.processJobPerPerm(ctx, j, thread, winnerChan)
+}
+
+// processJobPerPerm handles a single pre-assigned permutation. Used when
+// len(plays) < threads so all threads stay busy even with few candidate plays.
+func (s *Solver) processJobPerPerm(ctx context.Context, j job, thread int,
+	winnerChan chan *PreEndgamePlay) error {
+	g := s.endgameSolvers[thread].Game()
+	mg := s.endgameSolvers[thread].Movegen()
+
+	firstPlayEmptiesBag := j.ourMove.Play.TilesPlayed() >= s.numinbag
+	if s.logStream != nil {
+		s.threadLogs[thread].Options = make([]jobOptionLog, 1)
+		s.threadLogs[thread].PEGPlayEmptiesBag = firstPlayEmptiesBag
+		s.threadLogs[thread].EndgamePlies = s.curEndgamePlies
+	}
+
+	if !firstPlayEmptiesBag && s.skipNonEmptyingOptim {
+		return nil
+	}
+
+	mg.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
+
+	g.ThrowRacksInFor(1 - g.PlayerOnTurn())
+	moveTilesToBeginning(j.opt.mls, g.Bag())
+	_, err := g.SetRandomRack(1-g.PlayerOnTurn(), nil)
+	if err != nil {
+		return err
+	}
+
+	var sm tinymove.SmallMove
+	if j.ourMove.Play.Action() == move.MoveTypePass {
+		sm = tinymove.PassMove()
+	} else {
+		tm := conversions.MoveToTinyMove(j.ourMove.Play)
+		sm = tinymove.TilePlayMove(tm, int16(j.ourMove.Play.Score()),
+			uint8(j.ourMove.Play.TilesPlayed()), uint8(j.ourMove.Play.PlayLength()))
+	}
+	if s.logStream != nil {
+		s.threadLogs[thread].Options[0].PermutationCount = j.opt.ct
+		s.threadLogs[thread].Options[0].PermutationInBag = tilemapping.MachineWord(j.opt.mls).UserVisible(g.Alphabet())
+		s.threadLogs[thread].Options[0].OppRack = g.RackLettersFor(1 - g.PlayerOnTurn())
+		s.threadLogs[thread].Options[0].OurRack = g.RackLettersFor(g.PlayerOnTurn())
+	}
+
+	err = s.recursiveSolve(ctx, thread, j.ourMove, sm, j.opt, winnerChan, 0, firstPlayEmptiesBag, j.fullSolve)
+	if err != nil {
+		return err
+	}
+	j.ourMove.finalize()
+	return nil
+}
+
+// processJobPerPlay handles all permutations for a single candidate play on
+// this thread. Used when len(plays) >= threads so threads stay busy without
+// per-permutation job overhead. OppEstimate computation is parallelized since
+// each thread does it for its own play.
+func (s *Solver) processJobPerPlay(ctx context.Context, j job, thread int,
+	winnerChan chan *PreEndgamePlay) error {
 	g := s.endgameSolvers[thread].Game()
 	mg := s.endgameSolvers[thread].Movegen()
 
 	options := []option{}
 	mg.(*movegen.GordonGenerator).SetPlayRecorderTopPlay()
 	permutations := generatePermutations(j.maybeInBagTiles, s.numinbag)
-	// fmt.Println("perms", permutations)
 	firstPlayEmptiesBag := j.ourMove.Play.TilesPlayed() >= s.numinbag
 	if s.logStream != nil {
 		s.threadLogs[thread].Options = make([]jobOptionLog, len(permutations))
@@ -393,27 +514,14 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 		s.threadLogs[thread].EndgamePlies = s.curEndgamePlies
 	}
 	for _, perm := range permutations {
-		// fmt.Println("perm", perm)
-		// use FixedOrder setting to draw known tiles for opponent
-		topEquity := 0.0 // or something
-		// Basically, put the tiles we (player on turn) want to draw on the left side
-		// of the bag.
-		// The bag drawing algorithm draws tiles from right to left. We put the
-		// "inbag" tiles to the left/"beginning" of the bag.
+		topEquity := 0.0
 		tiles := make([]tilemapping.MachineLetter, len(perm.Perm))
 		for idx, el := range perm.Perm {
 			tiles[idx] = tilemapping.MachineLetter(el)
 		}
-		// If our first play empties the bag, we want to try to solve the resulting
-		// endgames in an advantageous order.
 		if firstPlayEmptiesBag && !j.fullSolve {
 			g.ThrowRacksInFor(1 - g.PlayerOnTurn())
 			moveTilesToBeginning(tiles, g.Bag())
-			// And redraw tiles for opponent. Note that this is not an actual
-			// random rack! We are choosing which tiles to draw via the
-			// moveTilesToBeginning call above and the fixedOrder setting for the bag.
-			// This will leave the tiles in "j.inbag" in the bag, for us (player on turn)
-			// to draw after we make our play.
 			_, err := g.SetRandomRack(1-g.PlayerOnTurn(), nil)
 			if err != nil {
 				return err
@@ -426,22 +534,14 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 			topEquity = mg.Plays()[0].Equity()
 			g.UnplayLastMove()
 		} else if s.skipNonEmptyingOptim {
-			// If the play does not empty the bag, then return if we
-			// want to skip plays that don't empty the bag.
 			return nil
 		}
-
-		// gen top move, find score, sort by scores. We just need
-		// a rough estimate of how good our opp's next move will be.
 		options = append(options, option{
 			mls:         tiles,
 			ct:          perm.Count,
 			oppEstimate: float64(topEquity),
 		})
 	}
-	// Sort by oppEstimate from most to least.
-	// We want to get losing endgames (for us) out of the way early
-	// to help with cutoff.
 	if firstPlayEmptiesBag && !j.fullSolve {
 		sort.Slice(options, func(i, j int) bool {
 			return options[i].oppEstimate > options[j].oppEstimate
@@ -450,23 +550,13 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 
 	mg.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
 
-	// now recursively solve endgames and stuff.
 	for idx := range options {
 		options[idx].idx = idx
 		j.ourMove.RLock()
 		s.potentialWinnerMutex.RLock()
 		if j.ourMove.FoundLosses > s.minPotentialLosses && s.earlyCutoffOptim && !s.shouldAvoidPrune(j.ourMove.Play) {
 			s.potentialWinnerMutex.RUnlock()
-			// cut off this play. We already have more losses than the
-			// fully analyzed play with the minimum known number of losses.
 			j.ourMove.RUnlock()
-			// log.Debug().Float32("foundLosses", j.ourMove.FoundLosses).
-			// 	Float32("minKnownLosses", s.minPotentialLosses).
-			// 	Str("ourMove", j.ourMove.String()).
-			// 	Int("optionsIdx", idx).
-			// 	Int("thread", thread).
-			// 	Int("cutoff", len(options)-idx).
-			// 	Msg("stop-analyzing-move-handleentireloop")
 			j.ourMove.stopAnalyzing()
 			s.numCutoffs.Add(uint64(len(options) - idx))
 			if s.logStream != nil {
@@ -481,8 +571,6 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 
 		g.ThrowRacksInFor(1 - g.PlayerOnTurn())
 		moveTilesToBeginning(options[idx].mls, g.Bag())
-
-		// not actually a random rack, but it should have been established
 		_, err := g.SetRandomRack(1-g.PlayerOnTurn(), nil)
 		if err != nil {
 			return err
@@ -503,13 +591,11 @@ func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 			s.threadLogs[thread].Options[idx].OurRack = g.RackLettersFor(g.PlayerOnTurn())
 		}
 
-		err = s.recursiveSolve(ctx, thread, j.ourMove, sm,
-			options[idx], winnerChan, 0, firstPlayEmptiesBag, j.fullSolve)
+		err = s.recursiveSolve(ctx, thread, j.ourMove, sm, options[idx], winnerChan, 0, firstPlayEmptiesBag, j.fullSolve)
 		if err != nil {
 			return err
 		}
 		j.ourMove.finalize()
-
 	}
 	return nil
 }

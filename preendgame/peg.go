@@ -646,7 +646,8 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 type job struct {
 	ourMove         *PreEndgamePlay
 	fullSolve       bool
-	maybeInBagTiles []int
+	opt             option // set when processing a single pre-assigned permutation
+	maybeInBagTiles []int  // set when processing all permutations for this play (per-play mode)
 }
 
 func moveIsPossible(mtiles []tilemapping.MachineLetter, partialRack []tilemapping.MachineLetter) bool {
