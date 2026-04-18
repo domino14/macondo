@@ -660,11 +660,14 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 
 	// If the bag is STILL not empty after making our last move:
 	if g.Bag().TilesRemaining() > 0 && g.Playing() != macondo.PlayState_GAME_OVER {
-		genPlays := s.allocSortedReplies(thread, moveToMake)
-		defer s.arenas[thread].Dealloc(len(genPlays))
 		if g.PlayerOnTurn() == s.solvingForPlayer {
-			err = s.iterateOurReplies(ctx, thread, pegPlay, inbagOption, winnerChan, depth, pegPlayEmptiesBag, fullSolve, genPlays)
+			// Our turn: run a nested PEG to find if any reply guarantees a win
+			// across all bag orderings we might face.
+			err = s.iterateOurReplies(ctx, thread, pegPlay, inbagOption, pegPlayEmptiesBag)
 		} else {
+			// Opp's turn: enumerate all replies exhaustively (pessimistic).
+			genPlays := s.allocSortedReplies(thread, moveToMake)
+			defer s.arenas[thread].Dealloc(len(genPlays))
 			err = s.iterateOppReplies(ctx, thread, pegPlay, inbagOption, winnerChan, depth, pegPlayEmptiesBag, fullSolve, genPlays)
 		}
 		if err != nil {
@@ -727,21 +730,20 @@ func (s *Solver) iterateOppReplies(ctx context.Context, thread int, pegPlay *Pre
 // recorded a PEGWin for this specific inbagOption, without checking whether that
 // reply also wins across all other bag orderings we would face in a real game.
 // Replaced by nestedOurTurnSolve in a later PR.
+// iterateOurReplies handles the "our turn, bag still non-empty" frame by running
+// a nested PEG: finds if any reply guarantees a win across all bag orderings
+// consistent with our current info state, then records that outcome on the outer
+// inbagOption.
 func (s *Solver) iterateOurReplies(ctx context.Context, thread int, pegPlay *PreEndgamePlay,
-	inbagOption option, winnerChan chan *PreEndgamePlay, depth int,
-	pegPlayEmptiesBag, fullSolve bool, genPlays []tinymove.SmallMove) error {
-	for idx := range genPlays {
-		err := s.recursiveSolve(ctx, thread, pegPlay, genPlays[idx], inbagOption, winnerChan, depth+1, pegPlayEmptiesBag, fullSolve)
-		if err != nil {
-			log.Err(err).Msg("recursive-solve-err")
-			return err
-		}
-		// BUG (replaced in a later PR): exits early when one reply has recorded a win
-		// for this fixed bag ordering — invalid because we don't know the ordering
-		// in a real game and need a reply that wins across all orderings.
-		if pegPlay.OutcomeFor(inbagOption.mls) == PEGWin {
-			break
-		}
+	inbagOption option, pegPlayEmptiesBag bool) error {
+	outcome, err := s.nestedOurTurnSolve(ctx, thread)
+	if err != nil {
+		return err
+	}
+	if pegPlayEmptiesBag {
+		pegPlay.addWinPctStat(outcome, inbagOption.ct, inbagOption.mls)
+	} else {
+		pegPlay.setUnfinalizedWinPctStat(outcome, inbagOption.ct, inbagOption.mls)
 	}
 	return nil
 }
@@ -818,6 +820,12 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int) (PEGOutcome
 			// accounting (minPotentialLosses, earlyCutoffOptim).
 			if err := s.recursiveSolve(ctx, thread, subPegPlay, subM, subOption, nil, 0, subEmptiesBag, false); err != nil {
 				return PEGNotInitialized, err
+			}
+
+			// Early exit: a loss for any sub-perm means this sub-play can never
+			// be guaranteed-win or guaranteed-non-loss. Skip remaining sub-perms.
+			if subPegPlay.HasLoss(subOption.mls) {
+				break
 			}
 		}
 
