@@ -127,6 +127,15 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 		return nil, err
 	}
 
+	// In per-perm mode, each worker processes one permutation of a shared pegPlay
+	// and must not call finalize() (doing so mid-flight would prematurely lock in
+	// a partial outcome). Finalize all plays here, after all workers have finished.
+	if sortedOpts != nil {
+		for _, p := range s.plays {
+			p.finalize()
+		}
+	}
+
 	close(winnerChan)
 	winnerGroup.Wait()
 
@@ -491,7 +500,11 @@ func (s *Solver) processJobPerPerm(ctx context.Context, j job, thread int,
 	if err != nil {
 		return err
 	}
-	j.ourMove.finalize()
+	// Do NOT call j.ourMove.finalize() here. Multiple threads process
+	// different permutations of the same pegPlay concurrently; calling
+	// finalize() mid-flight would prematurely lock in a partial outcome for
+	// another thread's permutation. finalize() is called for all plays after
+	// all workers complete (in multithreadSolveGeneric).
 	return nil
 }
 

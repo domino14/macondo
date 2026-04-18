@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
@@ -591,4 +592,44 @@ func TestFourInBag(t *testing.T) {
 
 	is.NoErr(err)
 
+}
+
+// TestHiedInvestigation investigates the 2-PEG position where HIED is a
+// candidate move. Rack ACDINST, opp rack empty, CSW21. Run with -v to see
+// per-ordering outcomes.
+func TestHiedInvestigation(t *testing.T) {
+	is := is.New(t)
+	cgpStr := "12BEN/9JUDOS1/11R1TE/7BRAVI2X/6QI3L2U/5P1OKA1L2L/5O1TOME3T/5U1AA1N1ORe/5R4G1FID/5I4R2Z1/3HIE4A1VAU/3IDS1P1FINO2/2TEE2OY1L1W2/2Y1MaRTENS4/GAGE3EW6 ACDINST/ 345/357 0 lex CSW21;"
+	g, err := cgp.ParseCGP(DefaultConfig, cgpStr)
+	is.NoErr(err)
+	g.RecalculateBoard()
+
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW21")
+	is.NoErr(err)
+	peg := new(Solver)
+	err = peg.Init(g.Game, gd)
+	is.NoErr(err)
+	peg.maxEndgamePlies = 3
+	peg.iterativeDeepening = false
+
+	// Solve only the (HIE)D extension at 11D.
+	m := move.NewScoringMoveSimple(5, "11D", "...D", "ACINST", g.Alphabet())
+	peg.solveOnlyMoves = []*move.Move{m}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	start := time.Now()
+	winners, err := peg.Solve(ctx)
+	fmt.Printf("Elapsed: %v err: %v\n", time.Since(start), err)
+	if err == nil || err == ErrCanceledEarly {
+		for _, w := range winners {
+			fmt.Printf("Play: %v  Points: %v\n", w.Play.ShortDescription(), w.Points)
+			for _, o := range w.OutcomesArray() {
+				fmt.Printf("  tiles=%-8s outcome=%v ct=%d\n",
+					tilemapping.MachineWord(o.Tiles()).UserVisible(g.Alphabet()),
+					o.OutcomeResult(), o.Count())
+			}
+		}
+	}
+	is.True(err == nil || err == ErrCanceledEarly)
 }
