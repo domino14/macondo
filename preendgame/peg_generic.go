@@ -579,7 +579,7 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 			// 	"inbag:", tilemapping.MachineWord(inbagOption.mls).UserVisible(g.Alphabet()),
 			// 	"val:", val,
 			// 	"seq:", seq)
-			if fullSolve {
+			if fullSolve && winnerChan != nil {
 				ss := finalSpread
 				if oppPerspective {
 					ss = -ss
@@ -629,7 +629,7 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 			}
 		}
 
-		if s.logStream != nil {
+		if s.logStream != nil && winnerChan != nil {
 			s.threadLogs[thread].Options[inbagOption.idx].FinalSpread = int(finalSpread)
 			s.threadLogs[thread].Options[inbagOption.idx].OppPerspective = oppPerspective
 			s.threadLogs[thread].Options[inbagOption.idx].EndgameMoves = fmt.Sprintf("%v", seq)
@@ -637,7 +637,7 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 			s.threadLogs[thread].Options[inbagOption.idx].TimeToSolveMs = timeToSolve.Milliseconds()
 		}
 
-		if pegPlayEmptiesBag {
+		if pegPlayEmptiesBag && winnerChan != nil {
 			winnerChan <- pegPlay.Copy()
 		}
 		// Otherwise, don't send via winnerChan. We would not be sure enough of the
@@ -744,6 +744,97 @@ func (s *Solver) iterateOurReplies(ctx context.Context, thread int, pegPlay *Pre
 		}
 	}
 	return nil
+}
+
+// nestedOurTurnSolve is called when, during recursive descent, it becomes our
+// turn again with the bag still non-empty. Instead of enumerating our replies
+// at the fixed outer bag ordering (which we don't actually know in a real game),
+// it runs a proper nested PEG: for each candidate reply, it checks whether that
+// reply wins across ALL bag orderings consistent with the current info state.
+//
+// Returns:
+//   - PEGWin  if some reply guarantees a win across all sub-orderings.
+//   - PEGDraw if no reply guarantees a win but some guarantees a non-loss.
+//   - PEGLoss otherwise.
+//
+// The caller must call setUnfinalizedWinPctStat with the returned outcome for
+// the outer inbagOption. fullSolve must be false (tiebreak paths never reach
+// our-turn frames because tiebreak only applies to bag-emptying outer plays).
+func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int) (PEGOutcome, error) {
+	if ctx.Err() != nil {
+		return PEGNotInitialized, ctx.Err()
+	}
+	g := s.endgameSolvers[thread].Game()
+	mg := s.endgameSolvers[thread].Movegen()
+
+	// Save bag + racks. The defer restores them once we're done testing
+	// sub-permutations, so the caller's UnplayLastMove sees the right state.
+	snap := snapshotPEGState(g)
+	defer snap.restore(g)
+
+	opp := 1 - g.PlayerOnTurn()
+	subBagSize := g.Bag().TilesRemaining()
+
+	// Build the unseen tile pool from our perspective: current bag + opp's rack.
+	unseenList := make([]int, tilemapping.MaxAlphabetSize)
+	for _, t := range g.Bag().Peek() {
+		unseenList[int(t)]++
+	}
+	for _, t := range g.RackFor(opp).TilesOn() {
+		unseenList[int(t)]++
+	}
+	subPerms := generatePermutations(unseenList, subBagSize)
+
+	// Generate our candidate replies. We snapshot our rack's tile list before
+	// doing anything that might disturb the movegen state.
+	mg.GenAll(g.RackFor(g.PlayerOnTurn()), false)
+	ourPlays := mg.SmallPlays()
+	subPlays := s.arenas[thread].Alloc(len(ourPlays))
+	copy(subPlays, ourPlays)
+	defer s.arenas[thread].Dealloc(len(subPlays))
+
+	anyNonLoss := false
+
+	for _, subM := range subPlays {
+		subPegPlay := &PreEndgamePlay{Play: &move.Move{}}
+		subEmptiesBag := int(subM.TilesPlayed()) >= subBagSize
+
+		for pi, subPerm := range subPerms {
+			tiles := make([]tilemapping.MachineLetter, len(subPerm.Perm))
+			for i, el := range subPerm.Perm {
+				tiles[i] = tilemapping.MachineLetter(el)
+			}
+			subOption := option{mls: tiles, ct: subPerm.Count, idx: pi}
+
+			// Mirror handleJobGeneric's per-permutation setup (peg_generic.go:482-490):
+			// put opp's tiles back in the bag, reorder for this sub-perm, redraw opp's rack.
+			g.ThrowRacksInFor(opp)
+			moveTilesToBeginning(tiles, g.Bag())
+			if _, err := g.SetRandomRack(opp, nil); err != nil {
+				return PEGNotInitialized, err
+			}
+
+			// winnerChan=nil: nested sub-plays must not touch the global winner
+			// accounting (minPotentialLosses, earlyCutoffOptim).
+			if err := s.recursiveSolve(ctx, thread, subPegPlay, subM, subOption, nil, 0, subEmptiesBag, false); err != nil {
+				return PEGNotInitialized, err
+			}
+		}
+
+		subPegPlay.finalize()
+
+		if subPegPlay.IsGuaranteedWin() {
+			return PEGWin, nil
+		}
+		if subPegPlay.IsGuaranteedNonLoss() {
+			anyNonLoss = true
+		}
+	}
+
+	if anyNonLoss {
+		return PEGDraw, nil
+	}
+	return PEGLoss, nil
 }
 
 // pegStateSnapshot captures bag order and both racks so the nested PEG can

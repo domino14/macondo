@@ -241,6 +241,39 @@ func (p *PreEndgamePlay) HasLoss(tiles []tilemapping.MachineLetter) bool {
 	return p.outcomesArray[found].outcome == PEGLoss
 }
 
+// IsGuaranteedWin returns true iff every recorded outcome is PEGWin and at
+// least one outcome exists. Used by nestedOurTurnSolve to decide whether a
+// candidate sub-move wins across all bag orderings.
+func (p *PreEndgamePlay) IsGuaranteedWin() bool {
+	p.RLock()
+	defer p.RUnlock()
+	if len(p.outcomesArray) == 0 {
+		return false
+	}
+	for _, o := range p.outcomesArray {
+		if o.outcome != PEGWin {
+			return false
+		}
+	}
+	return true
+}
+
+// IsGuaranteedNonLoss returns true iff no recorded outcome is PEGLoss and at
+// least one outcome exists. Used to detect a draw-guarantee fallback.
+func (p *PreEndgamePlay) IsGuaranteedNonLoss() bool {
+	p.RLock()
+	defer p.RUnlock()
+	if len(p.outcomesArray) == 0 {
+		return false
+	}
+	for _, o := range p.outcomesArray {
+		if o.outcome == PEGLoss {
+			return false
+		}
+	}
+	return true
+}
+
 func (p *PreEndgamePlay) HasFinalizedOutcome(tiles []tilemapping.MachineLetter) bool {
 	found := -1
 	for idx, outcome := range p.outcomesArray {
