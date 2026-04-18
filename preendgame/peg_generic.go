@@ -746,6 +746,36 @@ func (s *Solver) iterateOurReplies(ctx context.Context, thread int, pegPlay *Pre
 	return nil
 }
 
+// pegStateSnapshot captures bag order and both racks so the nested PEG can
+// restore them after reshuffling state to test sub-permutations.
+type pegStateSnapshot struct {
+	bag   *tilemapping.Bag
+	rack0 []tilemapping.MachineLetter
+	rack1 []tilemapping.MachineLetter
+}
+
+// snapshotPEGState saves the current bag (including its draw order) and both
+// player racks. The saved bag does NOT include the rack tiles; racks are saved
+// separately.
+func snapshotPEGState(g *game.Game) pegStateSnapshot {
+	return pegStateSnapshot{
+		bag:   g.Bag().Copy(),
+		rack0: append([]tilemapping.MachineLetter(nil), g.RackFor(0).TilesOn()...),
+		rack1: append([]tilemapping.MachineLetter(nil), g.RackFor(1).TilesOn()...),
+	}
+}
+
+// restore puts the game back to the saved state by:
+//  1. Throwing current racks into the bag (so the bag absorbs them).
+//  2. Overwriting the bag with the saved copy (correct tile order, excluding racks).
+//  3. Directly setting both racks from the saved slices without removing from bag.
+func (snap *pegStateSnapshot) restore(g *game.Game) {
+	g.ThrowRacksIn()
+	g.Bag().CopyFrom(snap.bag)
+	g.RackFor(0).Set(snap.rack0)
+	g.RackFor(1).Set(snap.rack1)
+}
+
 type Permutation struct {
 	Perm  []int
 	Count int

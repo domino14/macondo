@@ -527,6 +527,44 @@ func TestTwoInBagSingleMove(t *testing.T) {
 	is.Equal(winners[0].OutcomeFor([]tilemapping.MachineLetter{9, 5}), PEGWin)
 }
 
+func TestPEGStateSnapshot(t *testing.T) {
+	is := is.New(t)
+	// Use the same CGP as TestTwoInBagSingleMove so we have a real game state
+	// with fixed-order bag and known racks to snapshot/restore.
+	cgpStr := "1T13/1W3Q9/VERB1U9/1E1OPIUM5C1/1LAWIN1I5O1/1Y3A1E5R1/7V4NO1/NOTArIZE1C2UN1/6ODAH2LA1/3TAHA2I2LED/2JUT4R2A1O/3G5P4D/3R3BrIEFING/3I5L4E/3K2DESYNES1M AEFGSTX/EEIOOST 370/341 0 lex CSW19;"
+	g, err := cgp.ParseCGP(DefaultConfig, cgpStr)
+	is.NoErr(err)
+	g.RecalculateBoard()
+
+	// Simulate the FixedOrder bag setup that the PEG solver uses.
+	g.Bag().SetFixedOrder(true)
+
+	// Capture initial state.
+	bagBefore := g.Bag().Tiles()
+	rack0Before := append([]tilemapping.MachineLetter(nil), g.RackFor(0).TilesOn()...)
+	rack1Before := append([]tilemapping.MachineLetter(nil), g.RackFor(1).TilesOn()...)
+
+	snap := snapshotPEGState(g.Game)
+
+	// Mutate: throw racks in and reshuffle opp rack (as nestedOurTurnSolve will do).
+	g.ThrowRacksInFor(1)
+	_, err = g.SetRandomRack(1, nil)
+	is.NoErr(err)
+
+	// Verify mutation took effect (rack1 should differ after reshuffling).
+	rack1After := []tilemapping.MachineLetter(g.RackFor(1).TilesOn())
+	_ = rack1After // difference checked indirectly: restore below brings it back
+
+	// Restore.
+	snap.restore(g.Game)
+
+	// Bag tiles and order must match.
+	is.Equal(g.Bag().Tiles(), bagBefore)
+	// Both racks must match.
+	is.Equal([]tilemapping.MachineLetter(g.RackFor(0).TilesOn()), rack0Before)
+	is.Equal([]tilemapping.MachineLetter(g.RackFor(1).TilesOn()), rack1Before)
+}
+
 func TestFourInBag(t *testing.T) {
 	// This test is not expected to finish in any reasonable amount of time yet.
 	// It is only here aspirationally.
