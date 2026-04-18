@@ -530,7 +530,6 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 	}()
 
 	g := s.endgameSolvers[thread].Game()
-	mg := s.endgameSolvers[thread].Movegen()
 	// fmt.Println(strings.Repeat(" ", depth), "entered recursive solve, inbag:",
 	// 	tilemapping.MachineWord(inbagOption.mls).UserVisible(g.Alphabet()))
 	// Quit early if we already have a loss for this bag option.
@@ -661,64 +660,90 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 
 	// If the bag is STILL not empty after making our last move:
 	if g.Bag().TilesRemaining() > 0 && g.Playing() != macondo.PlayState_GAME_OVER {
-		mg.GenAll(g.RackFor(g.PlayerOnTurn()), false)
-		plays := mg.SmallPlays()
-		genPlays := s.arenas[thread].Alloc(len(plays))
-		copy(genPlays, plays)
+		genPlays := s.allocSortedReplies(thread, moveToMake)
 		defer s.arenas[thread].Dealloc(len(genPlays))
-
-		for idx := range genPlays {
-			genPlays[idx].SetEstimatedValue(int16(genPlays[idx].Score()))
-			// Always consider passes first as a reply to passes, in order
-			// to get some easy info fast.
-			if moveToMake.IsPass() && genPlays[idx].IsPass() {
-				genPlays[idx].AddEstimatedValue(negamax.EarlyPassBF)
-			}
+		if g.PlayerOnTurn() == s.solvingForPlayer {
+			err = s.iterateOurReplies(ctx, thread, pegPlay, inbagOption, winnerChan, depth, pegPlayEmptiesBag, fullSolve, genPlays)
+		} else {
+			err = s.iterateOppReplies(ctx, thread, pegPlay, inbagOption, winnerChan, depth, pegPlayEmptiesBag, fullSolve, genPlays)
 		}
-		slices.SortFunc(genPlays, func(a, b tinymove.SmallMove) int {
-			return int(b.EstimatedValue()) - int(a.EstimatedValue())
-		})
-
-		for idx := range genPlays {
-
-			// remove; only for print purposes
-			tempm := &move.Move{}
-			conversions.SmallMoveToMove(genPlays[idx], tempm, g.Alphabet(), g.Board(), g.RackFor(g.PlayerOnTurn()))
-
-			// fmt.Println(strings.Repeat(" ", depth), "onturn", g.PlayerOnTurn(), "idx", idx, "try next:", tempm.ShortDescription())
-			err = s.recursiveSolve(ctx, thread, pegPlay, genPlays[idx], inbagOption, winnerChan, depth+1, pegPlayEmptiesBag, fullSolve)
-			if err != nil {
-				log.Err(err).Msg("recursive-solve-err")
-				g.UnplayLastMove()
-				return err
-			}
-			if g.PlayerOnTurn() == s.solvingForPlayer {
-				// We're back to solving for ourselves. We need to be optimistic.
-				// We assume that we (player who the PEG is being solved for)
-				// would never make an incorrect play (i.e. one that doesn't win
-				// as much as the winners). Therefore if we've already found a win
-				// deeper in the tree, exit early and assume we will find the best
-				// reply to our opponent.
-				if pegPlay.OutcomeFor(inbagOption.mls) == PEGWin {
-					// fmt.Println(strings.Repeat(" ", depth), "onturn", g.PlayerOnTurn(), "breaking early cuzza win")
-					break
-				}
-			}
-
+		if err != nil {
+			g.UnplayLastMove()
+			return err
 		}
 	} else {
-		// if the bag is empty after we've played moveToMake, the next
-		// iteration here will solve the endgames.
-		// fmt.Println(strings.Repeat(" ", depth), "bag is empty or game is over; recursing again to finalize")
+		// bag is empty or game is over; recurse once more to hit the base case.
 		err = s.recursiveSolve(ctx, thread, pegPlay, tinymove.DefaultSmallMove, inbagOption, winnerChan, depth+1, pegPlayEmptiesBag, fullSolve)
 		if err != nil {
 			log.Err(err).Msg("bag-empty-recursive-solve-err")
 		}
 	}
-	// fmt.Println(strings.Repeat(" ", depth), "unplaying last move")
 
 	g.UnplayLastMove()
 	return err
+}
+
+// allocSortedReplies generates all legal replies for the player currently on turn,
+// arena-allocates a copy sorted by estimated value (passes prioritized when the
+// previous move was also a pass).
+func (s *Solver) allocSortedReplies(thread int, prevMove tinymove.SmallMove) []tinymove.SmallMove {
+	g := s.endgameSolvers[thread].Game()
+	mg := s.endgameSolvers[thread].Movegen()
+	mg.GenAll(g.RackFor(g.PlayerOnTurn()), false)
+	plays := mg.SmallPlays()
+	genPlays := s.arenas[thread].Alloc(len(plays))
+	copy(genPlays, plays)
+	for idx := range genPlays {
+		genPlays[idx].SetEstimatedValue(int16(genPlays[idx].Score()))
+		if prevMove.IsPass() && genPlays[idx].IsPass() {
+			genPlays[idx].AddEstimatedValue(negamax.EarlyPassBF)
+		}
+	}
+	slices.SortFunc(genPlays, func(a, b tinymove.SmallMove) int {
+		return int(b.EstimatedValue()) - int(a.EstimatedValue())
+	})
+	return genPlays
+}
+
+// iterateOppReplies calls recursiveSolve for every opponent reply in genPlays.
+// All plays are enumerated — none are skipped — so the leaves' calls to
+// setUnfinalizedWinPctStat accumulate every possible opp outcome for inbagOption,
+// letting the pessimistic aggregation rule (any Loss dominates) take effect.
+func (s *Solver) iterateOppReplies(ctx context.Context, thread int, pegPlay *PreEndgamePlay,
+	inbagOption option, winnerChan chan *PreEndgamePlay, depth int,
+	pegPlayEmptiesBag, fullSolve bool, genPlays []tinymove.SmallMove) error {
+	for idx := range genPlays {
+		err := s.recursiveSolve(ctx, thread, pegPlay, genPlays[idx], inbagOption, winnerChan, depth+1, pegPlayEmptiesBag, fullSolve)
+		if err != nil {
+			log.Err(err).Msg("recursive-solve-err")
+			return err
+		}
+	}
+	return nil
+}
+
+// iterateOurReplies calls recursiveSolve for each of our candidate replies in genPlays.
+// NOTE: The early exit below is the known bug — it stops as soon as one reply has
+// recorded a PEGWin for this specific inbagOption, without checking whether that
+// reply also wins across all other bag orderings we would face in a real game.
+// Replaced by nestedOurTurnSolve in a later PR.
+func (s *Solver) iterateOurReplies(ctx context.Context, thread int, pegPlay *PreEndgamePlay,
+	inbagOption option, winnerChan chan *PreEndgamePlay, depth int,
+	pegPlayEmptiesBag, fullSolve bool, genPlays []tinymove.SmallMove) error {
+	for idx := range genPlays {
+		err := s.recursiveSolve(ctx, thread, pegPlay, genPlays[idx], inbagOption, winnerChan, depth+1, pegPlayEmptiesBag, fullSolve)
+		if err != nil {
+			log.Err(err).Msg("recursive-solve-err")
+			return err
+		}
+		// BUG (replaced in a later PR): exits early when one reply has recorded a win
+		// for this fixed bag ordering — invalid because we don't know the ordering
+		// in a real game and need a reply that wins across all orderings.
+		if pegPlay.OutcomeFor(inbagOption.mls) == PEGWin {
+			break
+		}
+	}
+	return nil
 }
 
 type Permutation struct {
