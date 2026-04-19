@@ -187,7 +187,7 @@ func (s *Solver) computeSortedOptions(maybeInBagTiles []int) [][]option {
 			opt := option{mls: tiles, ct: perm.Count}
 			if firstPlayEmptiesBag {
 				g0.ThrowRacksInFor(1 - g0.PlayerOnTurn())
-				moveTilesToBeginning(tiles, g0.Bag())
+				MoveTilesToBeginning(tiles, g0.Bag())
 				if _, err := g0.SetRandomRack(1-g0.PlayerOnTurn(), nil); err == nil {
 					if err := g0.PlayMove(p.Play, false, 0); err == nil {
 						mg0.GenAll(g0.RackFor(g0.PlayerOnTurn()), false)
@@ -475,7 +475,7 @@ func (s *Solver) processJobPerPerm(ctx context.Context, j job, thread int,
 	mg.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
 
 	g.ThrowRacksInFor(1 - g.PlayerOnTurn())
-	moveTilesToBeginning(j.opt.mls, g.Bag())
+	MoveTilesToBeginning(j.opt.mls, g.Bag())
 	_, err := g.SetRandomRack(1-g.PlayerOnTurn(), nil)
 	if err != nil {
 		return err
@@ -534,7 +534,7 @@ func (s *Solver) processJobPerPlay(ctx context.Context, j job, thread int,
 		}
 		if firstPlayEmptiesBag && !j.fullSolve {
 			g.ThrowRacksInFor(1 - g.PlayerOnTurn())
-			moveTilesToBeginning(tiles, g.Bag())
+			MoveTilesToBeginning(tiles, g.Bag())
 			_, err := g.SetRandomRack(1-g.PlayerOnTurn(), nil)
 			if err != nil {
 				return err
@@ -583,7 +583,7 @@ func (s *Solver) processJobPerPlay(ctx context.Context, j job, thread int,
 		j.ourMove.RUnlock()
 
 		g.ThrowRacksInFor(1 - g.PlayerOnTurn())
-		moveTilesToBeginning(options[idx].mls, g.Bag())
+		MoveTilesToBeginning(options[idx].mls, g.Bag())
 		_, err := g.SetRandomRack(1-g.PlayerOnTurn(), nil)
 		if err != nil {
 			return err
@@ -910,7 +910,7 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int) (PEGOutcome
 			// Mirror handleJobGeneric's per-permutation setup (peg_generic.go:482-490):
 			// put opp's tiles back in the bag, reorder for this sub-perm, redraw opp's rack.
 			g.ThrowRacksInFor(opp)
-			moveTilesToBeginning(tiles, g.Bag())
+			MoveTilesToBeginning(tiles, g.Bag())
 			if _, err := g.SetRandomRack(opp, nil); err != nil {
 				return PEGNotInitialized, err
 			}

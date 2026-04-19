@@ -699,7 +699,7 @@ func (s *Solver) SetThreads(t int) {
 	s.threadLogs = make([]jobLog, t)
 }
 
-func moveTilesToBeginning(order []tilemapping.MachineLetter, bag *tilemapping.Bag) {
+func MoveTilesToBeginning(order []tilemapping.MachineLetter, bag *tilemapping.Bag) {
 	// move tiles to the beginning of the bag. The tiles should be in the order given.
 	// (i.e. order[0] should be at the beginning of the bag)
 

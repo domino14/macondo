@@ -470,7 +470,7 @@ func (sc *ShellController) add(cmd *shellcmd) (*Response, error) {
 }
 
 func (sc *ShellController) commit(cmd *shellcmd) (*Response, error) {
-	return nil, sc.commitPlay(cmd.args)
+	return nil, sc.commitPlay(cmd.args, cmd.options)
 }
 
 func (sc *ShellController) variation(cmd *shellcmd) (*Response, error) {
