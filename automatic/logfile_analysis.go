@@ -32,122 +32,205 @@ func confidenceInterval(wins, total int, confidenceZ float64) (float64, float64)
 	return p, margin
 }
 
-// AnalyzeLogFile analyzes the given game CSV file and spits out a bunch of
-// statistics.
-func AnalyzeLogFile(filepath string) (string, error) {
+// PlayerStats holds per-player statistics accumulators.
+type PlayerStats struct {
+	Name   string
+	Score  *stats.Statistic
+	Bingos *stats.Statistic
+	PPT    *stats.Statistic
+}
+
+// AnalysisResult holds the full results of analyzing a log file.
+type AnalysisResult struct {
+	GamesPlayed   int
+	Player1       PlayerStats
+	Player2       PlayerStats
+	P1Wins        float64
+	P1First       float64
+	WentFirstWins float64
+	WinPValue     float64 // two-sided binomial z-test, H0: win rate = 0.5
+	ScorePValue   float64 // two-sided paired z-test on per-game score diff
+	ScoreDiff     *stats.Statistic
+}
+
+// AnalyzeLogFileData analyzes the given game CSV file and returns structured results.
+func AnalyzeLogFileData(filepath string) (*AnalysisResult, error) {
 	file, _, err := cache.Open(filepath)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer file.Close()
 	r := csv.NewReader(file)
 
-	// Record looks like:
-	// gameID,p1score,p2score
+	result := &AnalysisResult{
+		Player1: PlayerStats{
+			Score:  &stats.Statistic{},
+			Bingos: &stats.Statistic{},
+			PPT:    &stats.Statistic{},
+		},
+		Player2: PlayerStats{
+			Score:  &stats.Statistic{},
+			Bingos: &stats.Statistic{},
+			PPT:    &stats.Statistic{},
+		},
+		ScoreDiff: &stats.Statistic{},
+	}
 
-	player1scores := &stats.Statistic{}
-	player2scores := &stats.Statistic{}
-	player1bingos := &stats.Statistic{}
-	player2bingos := &stats.Statistic{}
-	player1ppt := &stats.Statistic{}
-	player2ppt := &stats.Statistic{}
-
-	p1wl := float64(0)
-	p1first := float64(0)
-	wentFirstWL := float64(0)
-	gamesPlayed := 0
-	var p1Name, p2Name string
 	for {
 		record, err := r.Read()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		if record[0] == "gameID" {
-			// this is the header line
-			p1Name = strings.Split(record[1], "_")[0]
-			p2Name = strings.Split(record[2], "_")[0]
+			result.Player1.Name = strings.Split(record[1], "_")[0]
+			result.Player2.Name = strings.Split(record[2], "_")[0]
 			continue
+		}
+		if record[0] == "playerID" {
+			return nil, fmt.Errorf("this looks like a per-turn log; autoanalyze expects the game summary log (e.g. games-*.txt)")
 		}
 		p1score, err := strconv.Atoi(record[1])
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		p2score, err := strconv.Atoi(record[2])
 		if err != nil {
-			return "", err
+			return nil, err
 		}
-
 		p1bingos, err := strconv.Atoi(record[3])
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		p2bingos, err := strconv.Atoi(record[4])
 		if err != nil {
-			return "", err
+			return nil, err
 		}
-
 		p1turns, err := strconv.Atoi(record[5])
 		if err != nil {
-			return "", err
+			return nil, err
 		}
-
 		p2turns, err := strconv.Atoi(record[6])
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 
-		player1scores.Push(float64(p1score))
-		player2scores.Push(float64(p2score))
-		player1bingos.Push(float64(p1bingos))
-		player2bingos.Push(float64(p2bingos))
-		player1ppt.Push(float64(p1score) / float64(p1turns))
-		player2ppt.Push(float64(p2score) / float64(p2turns))
+		result.Player1.Score.Push(float64(p1score))
+		result.Player2.Score.Push(float64(p2score))
+		result.Player1.Bingos.Push(float64(p1bingos))
+		result.Player2.Bingos.Push(float64(p2bingos))
+		result.Player1.PPT.Push(float64(p1score) / float64(p1turns))
+		result.Player2.PPT.Push(float64(p2score) / float64(p2turns))
+		result.ScoreDiff.Push(float64(p1score - p2score))
 
 		if p1score > p2score {
-			p1wl += 1.0
-			if record[7] == p1Name {
-				wentFirstWL += 1.0
+			result.P1Wins += 1.0
+			if record[7] == result.Player1.Name {
+				result.WentFirstWins += 1.0
 			}
 		} else if p1score == p2score {
-			p1wl += 0.5
-			wentFirstWL += 0.5
-		} else if p1score < p2score {
-			if record[7] == p2Name {
-				wentFirstWL += 1.0
+			result.P1Wins += 0.5
+			result.WentFirstWins += 0.5
+		} else {
+			if record[7] == result.Player2.Name {
+				result.WentFirstWins += 1.0
 			}
 		}
-		if record[7] == p1Name {
-			p1first++
+		if record[7] == result.Player1.Name {
+			result.P1First++
 		}
 
-		gamesPlayed++
+		result.GamesPlayed++
 	}
 
-	_, cimargin := confidenceInterval(int(p1wl), gamesPlayed, stats.Z95)
+	result.WinPValue = stats.BinomialZTestPValue(result.P1Wins, float64(result.GamesPlayed))
+	result.ScorePValue = stats.PairedZTestPValue(
+		result.ScoreDiff.Mean(), result.ScoreDiff.Stdev(), result.GamesPlayed)
 
-	// build stats string
-	stats := fmt.Sprintf("Games played: %d\n", gamesPlayed)
-	stats += fmt.Sprintf("%v wins: %.1f (%.3f%% +/- %.3f)\n", p1Name, p1wl, 100.0*p1wl/float64(gamesPlayed), cimargin*100.0)
-	stats += fmt.Sprintf("%v Mean Score: %.4f  Stdev: %.4f\n",
-		p1Name, player1scores.Mean(), player1scores.Stdev())
-	stats += fmt.Sprintf("%v Mean Score: %.4f  Stdev: %.4f\n",
-		p2Name, player2scores.Mean(), player2scores.Stdev())
-	stats += fmt.Sprintf("%v Mean Bingos: %.4f  Stdev: %.4f\n",
-		p1Name, player1bingos.Mean(), player1bingos.Stdev())
-	stats += fmt.Sprintf("%v Mean Bingos: %.4f  Stdev: %.4f\n",
-		p2Name, player2bingos.Mean(), player2bingos.Stdev())
-	stats += fmt.Sprintf("%v Mean Points Per Turn: %.4f  Stdev: %.4f\n",
-		p1Name, player1ppt.Mean(), player1ppt.Stdev())
-	stats += fmt.Sprintf("%v Mean Points Per Turn: %.4f  Stdev: %.4f\n",
-		p2Name, player2ppt.Mean(), player2ppt.Stdev())
+	return result, nil
+}
 
-	stats += fmt.Sprintf("%v went first: %.1f (%.3f%%)\n", p1Name, p1first, 100.0*p1first/float64(gamesPlayed))
-	stats += fmt.Sprintf("Player who went first wins: %.1f (%.3f%%)\n",
-		wentFirstWL, 100.0*wentFirstWL/float64(gamesPlayed))
-	return stats, nil
+// FormatTable formats analysis results as a side-by-side comparison table.
+func FormatTable(r *AnalysisResult) string {
+	n := float64(r.GamesPlayed)
+	_, cimargin := confidenceInterval(int(r.P1Wins), r.GamesPlayed, stats.Z95)
+
+	p1name := r.Player1.Name
+	p2name := r.Player2.Name
+
+	// Truncate long names to fit in table columns
+	const colWidth = 18
+	p1display := truncate(p1name, colWidth)
+	p2display := truncate(p2name, colWidth)
+
+	// Header line
+	s := fmt.Sprintf("Games: %d    %s wins: %.2f%% ± %.2f%%    p = %.4f\n",
+		r.GamesPlayed,
+		p1name,
+		100.0*r.P1Wins/n,
+		cimargin*100.0,
+		r.WinPValue,
+	)
+	s += "\n"
+
+	// Column headers
+	s += fmt.Sprintf("  %-18s  %-20s  %-20s\n", "", p1display, p2display)
+
+	// Score row (with p-value)
+	s += fmt.Sprintf("  %-18s  %6.2f ± %-11.2f  %6.2f ± %-11.2f  (p = %.4f)\n",
+		"Mean Score",
+		r.Player1.Score.Mean(), r.Player1.Score.Stdev(),
+		r.Player2.Score.Mean(), r.Player2.Score.Stdev(),
+		r.ScorePValue,
+	)
+
+	// Bingos row
+	s += fmt.Sprintf("  %-18s  %6.2f ± %-11.2f  %6.2f ± %-11.2f\n",
+		"Mean Bingos",
+		r.Player1.Bingos.Mean(), r.Player1.Bingos.Stdev(),
+		r.Player2.Bingos.Mean(), r.Player2.Bingos.Stdev(),
+	)
+
+	// PPT row
+	s += fmt.Sprintf("  %-18s  %6.2f ± %-11.2f  %6.2f ± %-11.2f\n",
+		"Mean PPT",
+		r.Player1.PPT.Mean(), r.Player1.PPT.Stdev(),
+		r.Player2.PPT.Mean(), r.Player2.PPT.Stdev(),
+	)
+
+	s += "\n"
+
+	// Went first
+	s += fmt.Sprintf("  %-18s  %-20s  %-20s\n",
+		"Went first",
+		fmt.Sprintf("%.2f%%", 100.0*r.P1First/n),
+		fmt.Sprintf("%.2f%%", 100.0*(n-r.P1First)/n),
+	)
+
+	s += fmt.Sprintf("  First player wins: %.2f%%\n",
+		100.0*r.WentFirstWins/n,
+	)
+
+	return s
+}
+
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-1] + "…"
+}
+
+// AnalyzeLogFile analyzes the given game CSV file and returns formatted stats.
+// Kept for backward compatibility.
+func AnalyzeLogFile(filepath string) (string, error) {
+	result, err := AnalyzeLogFileData(filepath)
+	if err != nil {
+		return "", err
+	}
+	return FormatTable(result), nil
 }
 
 func ExportGCG(cfg *config.Config, filename, letterdist, lexicon, boardlayout, gid string,

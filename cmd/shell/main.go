@@ -15,6 +15,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
+	"github.com/domino14/macondo/automatic"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/shell"
 )
@@ -93,6 +94,16 @@ func main() {
 		// We received an interrupt signal, shut down.
 		log.Info().Msg("got quit signal...")
 		close(idleConnsClosed)
+	}()
+
+	serveAddr := os.Getenv("MACONDO_SERVE")
+	if serveAddr == "" {
+		serveAddr = ":8080"
+	}
+	go func() {
+		if err := automatic.StartServer(serveAddr); err != nil {
+			log.Error().Err(err).Msg("analyze server failed")
+		}
 	}()
 
 	argsLine := strings.Join(args, " ")
