@@ -622,14 +622,7 @@ func TestHiedInvestigation(t *testing.T) {
 	winners, err := peg.Solve(ctx)
 	fmt.Printf("Elapsed: %v err: %v\n", time.Since(start), err)
 	if err == nil || err == ErrCanceledEarly {
-		for _, w := range winners {
-			fmt.Printf("Play: %v  Points: %v\n", w.Play.ShortDescription(), w.Points)
-			for _, o := range w.OutcomesArray() {
-				fmt.Printf("  tiles=%-8s outcome=%v ct=%d\n",
-					tilemapping.MachineWord(o.Tiles()).UserVisible(g.Alphabet()),
-					o.OutcomeResult(), o.Count())
-			}
-		}
+		fmt.Print(peg.SolutionStats(len(winners)))
 	}
 	is.True(err == nil || err == ErrCanceledEarly)
 }

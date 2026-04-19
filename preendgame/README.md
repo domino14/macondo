@@ -118,7 +118,7 @@ We proceed as above in generating all our possible plays. Then:
 
 3/4/24 - Notes on first implementation of generic N-in-the-bag pre-endgame
 
-## Rough pseudocode description, leaving out optimizations:
+## Rough pseudocode description, leaving out optimizations (historical — contains the optimistic-break bug; see "Current algorithm" below):
 
 ### Main thread:
 
@@ -189,53 +189,133 @@ It took 18 hours and it says that NS+JS is a guaranteed win, NS+SJ is a guarante
 That's wrong, NS+JS and NS+SJ should both be possible losses.
 If Noah passes with AADDIOR then Joshua's objectively best move is 15B SEALANT, which he should play, and then Noah wins the endgame."
 
-## New pseudocode description
+## Current algorithm
 
 ### Main thread:
 
 - Initialize N independent endgame solvers, where N is the number of threads
 - Start N job processors
 - Generate all moves available for the player we're solving for
-- For every play:
-    - Queue up a job containing the play and the unseen tiles
-- Wait until all processors are done
+- If len(plays) < N threads  **[few-play mode]**:
+    - Pre-compute a sorted permutation ordering for each play (using opp's estimated best
+      reply per permutation, hardest-for-us first, to surface losses early)
+    - Queue one job per (play, permutation) pair — all N×M jobs run across all threads
+- Else  **[many-play mode]**:
+    - Queue one job per play — each job processes all permutations serially on one thread
+- Wait until all workers finish
+- In few-play mode only: call finalize() on every play (workers must not finalize mid-flight
+  because multiple threads share a single PreEndgamePlay concurrently)
 
-### Job processor for play M:
-- If we have found more losses than any analyzed move's losses, then quit analyzing this move
-- Call Solve(M, M)
+### Job processor — many-play mode (one job = one play M, all permutations):
 
-#### Solve(M, M)
+- If M already has more losses than the best play found so far: skip
+- Generate all bag-length permutations of the unseen tiles (nPk where k = tiles in bag)
+- For each permutation P:
+    - If M's loss count exceeds the current best: break
+    - SetupPermutationState(P): throw opp tiles into bag, reorder bag per P, redraw opp rack
+    - Call Solve(M, M, P)
+- finalize(M)
 
-function Solve(M, moveToMake):
+### Job processor — few-play mode (one job = one play M, one permutation P):
+
+- If M already has more losses than the best play found so far: skip
+- SetupPermutationState(P): throw opp tiles into bag, reorder bag per P, redraw opp rack
+- Call Solve(M, M, P)
+- (finalize is deferred to main thread after all workers complete)
+
+### Solve(M, moveToMake, P)
+
+```
+function Solve(M, moveToMake, P):
     if HasSomeLoss(M):
-        # If M already has a loss, stop analyzing it
-        return
-
-    if bag.IsEmpty() or game.IsOver():
-        if game.IsOver():
-            finalSpread = game.SpreadFor(PlayerWeAreSolvingFor)
-        else if bag.IsEmpty():
-            finalSpread = endgameSolver.Solve(game)
-
-        if M empties the bag:
-            add win, draw, or loss to M for permutation P, depending on finalSpread
-        else:
-            add unfinalized win, draw, or loss to M for permutation P, depending on finalSpread
-
-        return
+        return   # early cutoff: M can never be the best play
 
     PlayMove(moveToMake)
 
-    if not bag.IsEmpty() and not game.IsOver():
-        generate all plays for player on turn
-        for each of those plays nextPlay:
-            Solve(M, nextPlay, P)
-            if player on turn is the player we are solving for:
-                if M.OutcomeFor(P) == WIN:
-                    break
+    if bag.IsEmpty() or game.IsOver():
+        if game.IsOver():
+            finalSpread = game.SpreadFor(us)
+        else:
+            finalSpread = endgameSolver.Solve(game)
 
-    else:
-        # bag is empty, solve endgames
-        Solve(M, nil, P)
+        outcome = Win / Draw / Loss depending on finalSpread
+
+        if M emptied the bag on its outer play:
+            addWinPctStat(M, P, outcome)       # finalized immediately
+        else:
+            setUnfinalizedWinPctStat(M, P, outcome)   # may be revised by later opp replies
+
+    else:   # bag not empty, game not over
+        if PlayerOnTurn == Opponent:
+            IterateOppReplies(M, P)
+        else:
+            IterateOurReplies(M, P)
 
     UnplayLastMove()
+```
+
+### IterateOppReplies(M, P)
+
+Pessimistic: any opp reply that produces a loss for us counts as a loss for this permutation.
+
+```
+function IterateOppReplies(M, P):
+    generate all plays for opponent
+    for each play oppPlay:
+        Solve(M, oppPlay, P)
+        if M.OutcomeFor(P) is already a loss: break   # can't get worse; stop early
+```
+
+### IterateOurReplies(M, P)  →  NestedSolve()
+
+When it is our turn and the bag is still non-empty we do NOT simply pick the reply that looks
+best under the fixed outer permutation P — in a real game we cannot see the remaining bag
+ordering.  Instead we run a fresh nested PEG over the current info state.
+
+```
+function IterateOurReplies(M, P):
+    outcome = NestedSolve()
+    setUnfinalizedWinPctStat(M, P, outcome)
+```
+
+```
+function NestedSolve():
+    # Current info state: we know our rack and the board; everything else is unseen.
+    snapshot bag + both racks (restored on return)
+
+    unseen  = bag.tiles ∪ opp.rack
+    subPerms = generatePermutations(unseen, bag.TilesRemaining())
+    ourPlays = generateAllPlays(ourRack)
+
+    anyNonLoss = false
+
+    for each play subM in ourPlays:
+        create fresh subPegPlay
+        subEmptiesBag = (subM.TilesPlayed >= bag.TilesRemaining())
+
+        for each subPerm in subPerms:
+            SetupPermutationState(subPerm)
+            Solve(subPegPlay, subM, subPerm)
+            if subPegPlay.HasLoss(subPerm): break   # this reply can never be guaranteed-win
+                                                     # or guaranteed-non-loss; skip rest
+
+        finalize(subPegPlay)
+
+        # Outcome classification is worst-case across all sub-permutations:
+        if subPegPlay.IsGuaranteedWin():       # every sub-perm is a Win
+            restore bag + racks
+            return PEGWin                      # we can guarantee a win; stop searching
+
+        if subPegPlay.IsGuaranteedNonLoss():   # no sub-perm is a Loss
+            anyNonLoss = true
+
+    restore bag + racks
+
+    if anyNonLoss: return PEGDraw   # best we can guarantee is a non-loss
+    return PEGLoss
+```
+
+**Key invariant:** `NestedSolve` calls `Solve` recursively.  If `Solve` encounters "our turn,
+bag non-empty" at a deeper level it calls `IterateOurReplies` → `NestedSolve` again, creating
+a new local `subPegPlay` at each nesting level.  The final Win/Draw/Loss bubbles back up and
+is recorded on the *outer* permutation P exactly once, regardless of nesting depth.
