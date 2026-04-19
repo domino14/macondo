@@ -166,7 +166,7 @@ func FormatTable(r *AnalysisResult) string {
 	p2display := truncate(p2name, colWidth)
 
 	// Header line
-	s := fmt.Sprintf("Games: %d    %s wins: %.2f%% ± %.2f%%    p = %.4f\n",
+	s := fmt.Sprintf("Games: %d    %s wins: %.3f%% ± %.3f%%    p = %.2e\n",
 		r.GamesPlayed,
 		p1name,
 		100.0*r.P1Wins/n,
@@ -176,42 +176,45 @@ func FormatTable(r *AnalysisResult) string {
 	s += "\n"
 
 	// Column headers
-	s += fmt.Sprintf("  %-18s  %-20s  %-20s\n", "", p1display, p2display)
+	s += fmt.Sprintf("  %-18s  %-22s  %-22s\n", "", p1display, p2display)
 
+	ci95 := stats.Z95
 	// Score row (with p-value)
-	s += fmt.Sprintf("  %-18s  %6.2f ± %-11.2f  %6.2f ± %-11.2f  (p = %.4f)\n",
+	s += fmt.Sprintf("  %-18s  %7.3f ± %-12.3f  %7.3f ± %-12.3f  (p = %.2e)\n",
 		"Mean Score",
-		r.Player1.Score.Mean(), r.Player1.Score.Stdev(),
-		r.Player2.Score.Mean(), r.Player2.Score.Stdev(),
+		r.Player1.Score.Mean(), ci95*r.Player1.Score.StandardError(),
+		r.Player2.Score.Mean(), ci95*r.Player2.Score.StandardError(),
 		r.ScorePValue,
 	)
 
 	// Bingos row
-	s += fmt.Sprintf("  %-18s  %6.2f ± %-11.2f  %6.2f ± %-11.2f\n",
+	s += fmt.Sprintf("  %-18s  %7.3f ± %-12.3f  %7.3f ± %-12.3f\n",
 		"Mean Bingos",
-		r.Player1.Bingos.Mean(), r.Player1.Bingos.Stdev(),
-		r.Player2.Bingos.Mean(), r.Player2.Bingos.Stdev(),
+		r.Player1.Bingos.Mean(), ci95*r.Player1.Bingos.StandardError(),
+		r.Player2.Bingos.Mean(), ci95*r.Player2.Bingos.StandardError(),
 	)
 
 	// PPT row
-	s += fmt.Sprintf("  %-18s  %6.2f ± %-11.2f  %6.2f ± %-11.2f\n",
+	s += fmt.Sprintf("  %-18s  %7.3f ± %-12.3f  %7.3f ± %-12.3f\n",
 		"Mean PPT",
-		r.Player1.PPT.Mean(), r.Player1.PPT.Stdev(),
-		r.Player2.PPT.Mean(), r.Player2.PPT.Stdev(),
+		r.Player1.PPT.Mean(), ci95*r.Player1.PPT.StandardError(),
+		r.Player2.PPT.Mean(), ci95*r.Player2.PPT.StandardError(),
 	)
 
 	s += "\n"
 
 	// Went first
-	s += fmt.Sprintf("  %-18s  %-20s  %-20s\n",
+	s += fmt.Sprintf("  %-18s  %-22s  %-22s\n",
 		"Went first",
-		fmt.Sprintf("%.2f%%", 100.0*r.P1First/n),
-		fmt.Sprintf("%.2f%%", 100.0*(n-r.P1First)/n),
+		fmt.Sprintf("%.3f%%", 100.0*r.P1First/n),
+		fmt.Sprintf("%.3f%%", 100.0*(n-r.P1First)/n),
 	)
 
-	s += fmt.Sprintf("  First player wins: %.2f%%\n",
+	s += fmt.Sprintf("  First player wins: %.3f%%\n",
 		100.0*r.WentFirstWins/n,
 	)
+
+	s += "\n  (± values are 95% confidence intervals on the mean)\n"
 
 	return s
 }
