@@ -103,6 +103,20 @@ func (c CmdOptions) Bool(key string) bool {
 	return strings.ToLower(v[0]) == "true"
 }
 
+func (c CmdOptions) BoolDefault(key string, def bool) (bool, error) {
+	v := c[key]
+	if len(v) == 0 {
+		return def, nil
+	}
+	s := strings.ToLower(v[0])
+	if s == "true" {
+		return true, nil
+	} else if s == "false" {
+		return false, nil
+	}
+	return def, fmt.Errorf("invalid bool value %q for -%s (use true or false)", v[0], key)
+}
+
 func (c CmdOptions) StringArray(key string) []string {
 	return c[key]
 }
@@ -608,7 +622,6 @@ func (sc *ShellController) endgamePrepare(cmd *shellcmd) (*endgameParams, error)
 	preventSR := cmd.options.Bool("prevent-slowroll")
 	disableNegascout := cmd.options.Bool("disable-negascout")
 	nullWindow := cmd.options.Bool("null-window")
-
 	// clear out the last value of this endgame node; gc should delete the tree.
 	sc.endgameSolver = new(negamax.Solver)
 
@@ -806,12 +819,24 @@ func (sc *ShellController) pegPrepare(cmd *shellcmd) (*pegParams, error) {
 	if params.maxsolutions, err = cmd.options.IntDefault("maxsolutions", params.maxsolutions); err != nil {
 		return nil, err
 	}
-	skipNonEmptying := cmd.options.Bool("skip-non-emptying")
+	maxTilesLeft, err := cmd.options.IntDefault("max-tiles-left", 1)
+	if err != nil {
+		return nil, err
+	}
 	skipLoss := cmd.options.Bool("skip-loss")
 	earlyCutoff := cmd.options.Bool("early-cutoff")
 	skipTiebreaker := cmd.options.Bool("skip-tiebreaker")
 	disableIterativeDeepening := cmd.options.Bool("disable-id")
+	nestedDepthLimit, err := cmd.options.IntDefault("max-nested-depth", 1)
+	if err != nil {
+		return nil, err
+	}
+	skipDeepPass, err := cmd.options.BoolDefault("skip-deep-pass", true)
+	if err != nil {
+		return nil, err
+	}
 	movesToSolveStrs := cmd.options.StringArray("only-solve")
+
 	movesToSolve := []*move.Move{}
 
 	for _, ms := range movesToSolveStrs {
@@ -860,10 +885,12 @@ func (sc *ShellController) pegPrepare(cmd *shellcmd) (*pegParams, error) {
 	}
 	sc.preendgameSolver.SetEndgamePlies(endgamePlies)
 	sc.preendgameSolver.SetEarlyCutoffOptim(earlyCutoff)
-	sc.preendgameSolver.SetSkipNonEmptyingOptim(skipNonEmptying)
+	sc.preendgameSolver.SetMaxTilesLeft(maxTilesLeft)
 	sc.preendgameSolver.SetSkipTiebreaker(skipTiebreaker)
 	sc.preendgameSolver.SetSkipLossOptim(skipLoss)
 	sc.preendgameSolver.SetIterativeDeepening(!disableIterativeDeepening)
+	sc.preendgameSolver.SetNestedDepthLimit(nestedDepthLimit)
+	sc.preendgameSolver.SetSkipDeepPass(skipDeepPass)
 	sc.preendgameSolver.SetSolveOnly(movesToSolve)
 
 	avoidPruneStrs := cmd.options.StringArray("avoid-prune")

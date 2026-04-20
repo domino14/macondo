@@ -138,3 +138,4 @@ Options:
     the requested plies, the variant will be solved to the last completed ply depth.
     The variant solve gets a fresh 180-second timeout, so if the main solve reaches
     maxtime, total solve time may be up to maxtime + 180 seconds.
+

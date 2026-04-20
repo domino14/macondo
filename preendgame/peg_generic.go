@@ -76,6 +76,9 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 					// Don't exit, to avoid deadlock.
 				}
 				if s.logStream != nil {
+					s.threadLogs[t].NestedCalls = int(s.threadNestedCalls[t])
+					s.threadLogs[t].MaxNestedDepth = int(s.threadMaxNestedDepth[t])
+					s.threadLogs[t].SubPermsEvaluated = int(s.threadSubPermsEvaluated[t])
 					out, err := yaml.Marshal(s.threadLogs[t])
 					if err != nil {
 						log.Err(err).Msg("error-marshaling-logs")
@@ -92,6 +95,29 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 			return nil
 		})
 	}
+
+	tickerDone := make(chan struct{})
+	go func() {
+		t := time.NewTicker(60 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-tickerDone:
+				return
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				log.Info().
+					Uint32("processed", processed.Load()).
+					Uint64("endgames-solved", s.numEndgamesSolved.Load()).
+					Uint64("cutoffs", s.numCutoffs.Load()).
+					Uint64("nested-calls", s.numNestedCalls.Load()).
+					Uint64("max-nested-depth", s.maxNestedDepth.Load()).
+					Uint64("sub-perms-evaluated", s.numSubPermsEvaluated.Load()).
+					Msg("peg-status")
+			}
+		}
+	}()
 
 	numCombos := combin.NumPermutations(s.numinbag+game.RackTileLimit,
 		s.numinbag)
@@ -123,6 +149,7 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 
 	s.createGenericPEGJobs(ctx, maybeInBagTiles, sortedOpts, jobChan)
 	err := g.Wait()
+	close(tickerDone)
 	if err != nil {
 		return nil, err
 	}
@@ -158,6 +185,9 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 	}
 	log.Info().Uint64("solved-endgames", s.numEndgamesSolved.Load()).
 		Uint64("cutoff-moves", s.numCutoffs.Load()).
+		Uint64("nested-calls", s.numNestedCalls.Load()).
+		Uint64("max-nested-depth", s.maxNestedDepth.Load()).
+		Uint64("sub-perms-evaluated", s.numSubPermsEvaluated.Load()).
 		Str("winner", s.plays[0].String()).Msg("winning-play")
 
 	return s.plays, err
@@ -403,6 +433,9 @@ type option struct {
 func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 	winnerChan chan *PreEndgamePlay) error {
 	s.arenas[thread].Reset()
+	s.threadNestedCalls[thread] = 0
+	s.threadMaxNestedDepth[thread] = 0
+	s.threadSubPermsEvaluated[thread] = 0
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -468,7 +501,8 @@ func (s *Solver) processJobPerPerm(ctx context.Context, j job, thread int,
 		s.threadLogs[thread].EndgamePlies = s.curEndgamePlies
 	}
 
-	if !firstPlayEmptiesBag && s.skipNonEmptyingOptim {
+	tilesLeftAfterPlay := s.numinbag - j.ourMove.Play.TilesPlayed()
+	if s.maxTilesLeft >= 0 && tilesLeftAfterPlay > s.maxTilesLeft && len(s.solveOnlyMoves) == 0 {
 		return nil
 	}
 
@@ -496,7 +530,7 @@ func (s *Solver) processJobPerPerm(ctx context.Context, j job, thread int,
 		s.threadLogs[thread].Options[0].OurRack = g.RackLettersFor(g.PlayerOnTurn())
 	}
 
-	err = s.recursiveSolve(ctx, thread, j.ourMove, sm, j.opt, winnerChan, 0, firstPlayEmptiesBag, j.fullSolve)
+	err = s.recursiveSolve(ctx, thread, j.ourMove, sm, j.opt, winnerChan, 0, firstPlayEmptiesBag, j.fullSolve, 0)
 	if err != nil {
 		return err
 	}
@@ -521,10 +555,14 @@ func (s *Solver) processJobPerPlay(ctx context.Context, j job, thread int,
 	mg.(*movegen.GordonGenerator).SetPlayRecorderTopPlay()
 	permutations := generatePermutations(j.maybeInBagTiles, s.numinbag)
 	firstPlayEmptiesBag := j.ourMove.Play.TilesPlayed() >= s.numinbag
+	tilesLeftAfterPlay := s.numinbag - j.ourMove.Play.TilesPlayed()
 	if s.logStream != nil {
 		s.threadLogs[thread].Options = make([]jobOptionLog, len(permutations))
 		s.threadLogs[thread].PEGPlayEmptiesBag = firstPlayEmptiesBag
 		s.threadLogs[thread].EndgamePlies = s.curEndgamePlies
+	}
+	if s.maxTilesLeft >= 0 && tilesLeftAfterPlay > s.maxTilesLeft && len(s.solveOnlyMoves) == 0 {
+		return nil
 	}
 	for _, perm := range permutations {
 		topEquity := 0.0
@@ -546,8 +584,6 @@ func (s *Solver) processJobPerPlay(ctx context.Context, j job, thread int,
 			mg.GenAll(g.RackFor(g.PlayerOnTurn()), false)
 			topEquity = mg.Plays()[0].Equity()
 			g.UnplayLastMove()
-		} else if s.skipNonEmptyingOptim {
-			return nil
 		}
 		options = append(options, option{
 			mls:         tiles,
@@ -604,7 +640,7 @@ func (s *Solver) processJobPerPlay(ctx context.Context, j job, thread int,
 			s.threadLogs[thread].Options[idx].OurRack = g.RackLettersFor(g.PlayerOnTurn())
 		}
 
-		err = s.recursiveSolve(ctx, thread, j.ourMove, sm, options[idx], winnerChan, 0, firstPlayEmptiesBag, j.fullSolve)
+		err = s.recursiveSolve(ctx, thread, j.ourMove, sm, options[idx], winnerChan, 0, firstPlayEmptiesBag, j.fullSolve, 0)
 		if err != nil {
 			return err
 		}
@@ -615,7 +651,7 @@ func (s *Solver) processJobPerPlay(ctx context.Context, j job, thread int,
 
 func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEndgamePlay,
 	moveToMake tinymove.SmallMove, inbagOption option, winnerChan chan *PreEndgamePlay, depth int,
-	pegPlayEmptiesBag, fullSolve bool) error {
+	pegPlayEmptiesBag, fullSolve bool, nestedDepth int) error {
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -762,12 +798,12 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 		if g.PlayerOnTurn() == s.solvingForPlayer {
 			// Our turn: run a nested PEG to find if any reply guarantees a win
 			// across all bag orderings we might face.
-			err = s.iterateOurReplies(ctx, thread, pegPlay, inbagOption, pegPlayEmptiesBag)
+			err = s.iterateOurReplies(ctx, thread, pegPlay, inbagOption, pegPlayEmptiesBag, nestedDepth)
 		} else {
 			// Opp's turn: enumerate all replies exhaustively (pessimistic).
 			genPlays := s.allocSortedReplies(thread, moveToMake)
 			defer s.arenas[thread].Dealloc(len(genPlays))
-			err = s.iterateOppReplies(ctx, thread, pegPlay, inbagOption, winnerChan, depth, pegPlayEmptiesBag, fullSolve, genPlays)
+			err = s.iterateOppReplies(ctx, thread, pegPlay, inbagOption, winnerChan, depth, pegPlayEmptiesBag, fullSolve, genPlays, nestedDepth)
 		}
 		if err != nil {
 			g.UnplayLastMove()
@@ -775,7 +811,7 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 		}
 	} else {
 		// bag is empty or game is over; recurse once more to hit the base case.
-		err = s.recursiveSolve(ctx, thread, pegPlay, tinymove.DefaultSmallMove, inbagOption, winnerChan, depth+1, pegPlayEmptiesBag, fullSolve)
+		err = s.recursiveSolve(ctx, thread, pegPlay, tinymove.DefaultSmallMove, inbagOption, winnerChan, depth+1, pegPlayEmptiesBag, fullSolve, nestedDepth)
 		if err != nil {
 			log.Err(err).Msg("bag-empty-recursive-solve-err")
 		}
@@ -813,9 +849,9 @@ func (s *Solver) allocSortedReplies(thread int, prevMove tinymove.SmallMove) []t
 // letting the pessimistic aggregation rule (any Loss dominates) take effect.
 func (s *Solver) iterateOppReplies(ctx context.Context, thread int, pegPlay *PreEndgamePlay,
 	inbagOption option, winnerChan chan *PreEndgamePlay, depth int,
-	pegPlayEmptiesBag, fullSolve bool, genPlays []tinymove.SmallMove) error {
+	pegPlayEmptiesBag, fullSolve bool, genPlays []tinymove.SmallMove, nestedDepth int) error {
 	for idx := range genPlays {
-		err := s.recursiveSolve(ctx, thread, pegPlay, genPlays[idx], inbagOption, winnerChan, depth+1, pegPlayEmptiesBag, fullSolve)
+		err := s.recursiveSolve(ctx, thread, pegPlay, genPlays[idx], inbagOption, winnerChan, depth+1, pegPlayEmptiesBag, fullSolve, nestedDepth)
 		if err != nil {
 			log.Err(err).Msg("recursive-solve-err")
 			return err
@@ -825,17 +861,18 @@ func (s *Solver) iterateOppReplies(ctx context.Context, thread int, pegPlay *Pre
 }
 
 // iterateOurReplies calls recursiveSolve for each of our candidate replies in genPlays.
-// NOTE: The early exit below is the known bug — it stops as soon as one reply has
-// recorded a PEGWin for this specific inbagOption, without checking whether that
-// reply also wins across all other bag orderings we would face in a real game.
-// Replaced by nestedOurTurnSolve in a later PR.
 // iterateOurReplies handles the "our turn, bag still non-empty" frame by running
 // a nested PEG: finds if any reply guarantees a win across all bag orderings
 // consistent with our current info state, then records that outcome on the outer
 // inbagOption.
 func (s *Solver) iterateOurReplies(ctx context.Context, thread int, pegPlay *PreEndgamePlay,
-	inbagOption option, pegPlayEmptiesBag bool) error {
-	outcome, err := s.nestedOurTurnSolve(ctx, thread)
+	inbagOption option, pegPlayEmptiesBag bool, nestedDepth int) error {
+	if s.nestedDepthLimit >= 0 && nestedDepth+1 > s.nestedDepthLimit {
+		// Bag not empty but recursion cap reached; skip this bag permutation.
+		// Only bag-emptying continuations are evaluated at the cap depth.
+		return nil
+	}
+	outcome, err := s.nestedOurTurnSolve(ctx, thread, nestedDepth+1)
 	if err != nil {
 		return err
 	}
@@ -861,10 +898,26 @@ func (s *Solver) iterateOurReplies(ctx context.Context, thread int, pegPlay *Pre
 // The caller must call setUnfinalizedWinPctStat with the returned outcome for
 // the outer inbagOption. fullSolve must be false (tiebreak paths never reach
 // our-turn frames because tiebreak only applies to bag-emptying outer plays).
-func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int) (PEGOutcome, error) {
+func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int, nestedDepth int) (PEGOutcome, error) {
 	if ctx.Err() != nil {
 		return PEGNotInitialized, ctx.Err()
 	}
+	// Update diagnostic counters.
+	s.numNestedCalls.Add(1)
+	s.threadNestedCalls[thread]++
+	for {
+		cur := s.maxNestedDepth.Load()
+		if uint64(nestedDepth) <= cur {
+			break
+		}
+		if s.maxNestedDepth.CompareAndSwap(cur, uint64(nestedDepth)) {
+			break
+		}
+	}
+	if uint64(nestedDepth) > s.threadMaxNestedDepth[thread] {
+		s.threadMaxNestedDepth[thread] = uint64(nestedDepth)
+	}
+
 	g := s.endgameSolvers[thread].Game()
 	mg := s.endgameSolvers[thread].Movegen()
 
@@ -888,6 +941,13 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int) (PEGOutcome
 
 	// Generate our candidate replies. We snapshot our rack's tile list before
 	// doing anything that might disturb the movegen state.
+	// With skipDeepPass on, suppress passes in nested sub-PEG generation except
+	// when the previous move was also a pass (two passes end the game — cheap).
+	if s.skipDeepPass {
+		lastMoveWasPass := g.ScorelessTurns() > g.LastScorelessTurns()
+		mg.SetGenPass(lastMoveWasPass)
+		defer mg.SetGenPass(true)
+	}
 	mg.GenAll(g.RackFor(g.PlayerOnTurn()), false)
 	ourPlays := mg.SmallPlays()
 	subPlays := s.arenas[thread].Alloc(len(ourPlays))
@@ -907,6 +967,9 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int) (PEGOutcome
 			}
 			subOption := option{mls: tiles, ct: subPerm.Count, idx: pi}
 
+			s.numSubPermsEvaluated.Add(1)
+			s.threadSubPermsEvaluated[thread]++
+
 			// Mirror handleJobGeneric's per-permutation setup (peg_generic.go:482-490):
 			// put opp's tiles back in the bag, reorder for this sub-perm, redraw opp's rack.
 			g.ThrowRacksInFor(opp)
@@ -917,7 +980,7 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int) (PEGOutcome
 
 			// winnerChan=nil: nested sub-plays must not touch the global winner
 			// accounting (minPotentialLosses, earlyCutoffOptim).
-			if err := s.recursiveSolve(ctx, thread, subPegPlay, subM, subOption, nil, 0, subEmptiesBag, false); err != nil {
+			if err := s.recursiveSolve(ctx, thread, subPegPlay, subM, subOption, nil, 0, subEmptiesBag, false, nestedDepth); err != nil {
 				return PEGNotInitialized, err
 			}
 

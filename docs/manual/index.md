@@ -17,4 +17,5 @@ Below we have some more specific manuals for various topics.
 
 - [Autoplay](/macondo/manual/autoplay.html)
 - [Some tips](/macondo/manual/tips.html)
+- [Preendgame](/macondo/manual/preendgame.html)
 - [AI Explainability](/macondo/manual/ai-explainability.html)

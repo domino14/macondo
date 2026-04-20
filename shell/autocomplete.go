@@ -36,9 +36,9 @@ var commandMetadata = map[string]CommandMetadata{
 	"peg": {
 		Options: []string{
 			"-endgameplies", "-maxtime", "-threads", "-maxsolutions",
-			"-opprack", "-skip-non-emptying", "-skip-loss", "-early-cutoff",
+			"-opprack", "-max-tiles-left", "-skip-loss", "-early-cutoff",
 			"-skip-tiebreaker", "-disable-id", "-only-solve", "-log",
-			"-avoid-prune",
+			"-avoid-prune", "-max-nested-depth", "-skip-deep-pass",
 		},
 	},
 	"endgame": {
@@ -48,6 +48,9 @@ var commandMetadata = map[string]CommandMetadata{
 			"-prevent-slowroll", "-disable-negascout", "-null-window",
 			"-also-solve-var",
 		},
+	},
+	"commit": {
+		Options: []string{"-tileorder"},
 	},
 	"infer": {
 		Options: []string{"-threads", "-time"},
@@ -192,7 +195,7 @@ func (c *ShellCompleter) Do(line []rune, pos int) ([][]rune, int) {
 				completions = stopValues
 			case "botcode1", "botcode2":
 				completions = botCodes
-			case "collect-heatmap", "skip-non-emptying", "skip-loss",
+			case "collect-heatmap", "skip-loss",
 				"early-cutoff", "skip-tiebreaker", "disable-id",
 				"disable-tt", "first-win-optim", "prevent-slowroll",
 				"disable-negascout", "null-window", "single-turn-only",
