@@ -165,6 +165,8 @@ func FormatTable(r *AnalysisResult) string {
 	p1display := truncate(p1name, colWidth)
 	p2display := truncate(p2name, colWidth)
 
+	p2wins := n - r.P1Wins
+
 	// Header line
 	s := fmt.Sprintf("Games: %d    %s wins: %.3f%% ± %.3f%%    p = %.2e\n",
 		r.GamesPlayed,
@@ -177,6 +179,13 @@ func FormatTable(r *AnalysisResult) string {
 
 	// Column headers
 	s += fmt.Sprintf("  %-18s  %-22s  %-22s\n", "", p1display, p2display)
+
+	// Win counts row
+	s += fmt.Sprintf("  %-18s  %-22s  %-22s\n",
+		"Wins",
+		fmt.Sprintf("%.1f (%.3f%%)", r.P1Wins, 100.0*r.P1Wins/n),
+		fmt.Sprintf("%.1f (%.3f%%)", p2wins, 100.0*p2wins/n),
+	)
 
 	ci95 := stats.Z95
 	// Score row (with p-value)
