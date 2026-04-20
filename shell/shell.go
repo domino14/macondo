@@ -1806,6 +1806,9 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 	if err != nil {
 		return nil, err
 	}
+	if err := validateSpecOptions(cmd); err != nil {
+		return nil, err
+	}
 	switch cmd.cmd {
 	case "exit":
 		sig <- syscall.SIGINT
