@@ -615,6 +615,10 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 
 			// Endgame should quit early if it finds any win.
 			es.SetFirstWinOptim(true)
+			// PEG only needs the spread value from QDS, not the move sequence.
+			// Skipping MaterializeFull avoids a full Game.Copy per QDS call
+			// (which was 93% of all allocations in profiles).
+			es.SetSkipMaterialize(true)
 			// Even though the endgame search window is already tiny, this still seems to help
 			// for some reason:
 			es.SetNegascoutOptim(true)

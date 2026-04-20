@@ -716,6 +716,62 @@ func (g *Game) PlaySmallMove(m *tinymove.SmallMove) (
 
 }
 
+// PlaySmallMoveWithDraw plays a SmallMove and draws replacement tiles from the
+// bag into the rack. After board.PlaySmallMove the rack already holds the leave
+// (played tiles were removed via rack.Take); we draw up to TilesPlayed() new
+// tiles and add them with rack.Add — zero heap allocations.
+func (g *Game) PlaySmallMoveWithDraw(m *tinymove.SmallMove) (
+	*[board.MaxBoardDim]tilemapping.MachineLetter, error) {
+
+	if g.backupMode != NoBackup {
+		g.backupState()
+	}
+	if m.IsPass() {
+		if g.playing == pb.PlayState_GAME_OVER {
+			log.Warn().Msg("adding a pass when game is already over")
+		}
+		g.lastScorelessTurns = g.scorelessTurns
+		g.scorelessTurns++
+		g.players[g.onturn].turns += 1
+	} else {
+		g.board.PlaySmallMove(m, &g.stripBackup, g.players[g.onturn].rack)
+		g.crossSetGen.UpdateForSmallMove(g.board, m, &g.stripBackup)
+		score := int(m.Score())
+
+		g.lastScorelessTurns = g.scorelessTurns
+		g.scorelessTurns = 0
+		g.players[g.onturn].points += score
+		g.players[g.onturn].turns += 1
+		if m.TilesPlayed() == RackTileLimit {
+			g.players[g.onturn].bingos++
+		}
+
+		// Draw replacement tiles from the bag directly into the rack.
+		// placeholderRack is a pre-allocated scratch buffer; Add is zero-alloc.
+		drew := g.bag.DrawAtMost(int(m.TilesPlayed()), g.players[g.onturn].placeholderRack)
+		for i := 0; i < drew; i++ {
+			g.players[g.onturn].rack.Add(g.players[g.onturn].placeholderRack[i])
+		}
+
+		if g.players[g.onturn].rack.NumTiles() == 0 {
+			g.playing = pb.PlayState_GAME_OVER
+			g.endOfGameCalcs(g.onturn, false)
+		}
+	}
+
+	gameEnded, err := g.handleConsecutiveScorelessTurns(false)
+	if err != nil {
+		return nil, err
+	}
+	if !gameEnded {
+		g.onturn = (g.onturn + 1) % len(g.players)
+	}
+
+	g.turnnum++
+
+	return &g.stripBackup, nil
+}
+
 // AddFinalScoresToHistory adds the final scores and winner to the history.
 func (g *Game) AddFinalScoresToHistory() {
 	g.history.FinalScores = make([]int32, len(g.players))

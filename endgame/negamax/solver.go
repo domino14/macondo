@@ -238,6 +238,7 @@ type Solver struct {
 
 	iterativeDeepeningOptim bool
 	firstWinOptim           bool
+	skipMaterialize         bool
 	nullWindowOptim         bool
 	transpositionTableOptim bool
 	negascoutOptim          bool
@@ -1922,13 +1923,17 @@ func (s *Solver) QuickAndDirtySolve(ctx context.Context, plies, thread int) (int
 		α = -1
 		β = 1
 	}
-	s.currentIDDepths = make([]int, 1) // a hack
+	if s.currentIDDepths == nil {
+		s.currentIDDepths = make([]int, 1) // a hack; allocate once per solver lifetime
+	}
 	pv := PVLine{g: s.game}
 	val, err := s.negamax(ctx, initialHashKey, plies, α, β, &pv, 0, true)
 	s.principalVariation = pv
 	s.bestPVValue = val - int16(s.initialSpread)
 
-	s.principalVariation.MaterializeFull()
+	if !s.skipMaterialize {
+		s.principalVariation.MaterializeFull()
+	}
 	bestSeq = s.principalVariation.Moves[:s.principalVariation.numMoves]
 	bestV = s.bestPVValue
 	// log.Debug().
@@ -1955,6 +1960,10 @@ func (s *Solver) SetTranspositionTableOptim(tt bool) {
 
 func (s *Solver) SetFirstWinOptim(w bool) {
 	s.firstWinOptim = w
+}
+
+func (s *Solver) SetSkipMaterialize(v bool) {
+	s.skipMaterialize = v
 }
 
 func (s *Solver) SetNullWindowOptim(nw bool) {

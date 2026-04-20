@@ -3,10 +3,13 @@ package main
 import (
 	_ "embed"
 	"fmt"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"runtime/pprof"
 	"strings"
 	"syscall"
@@ -73,6 +76,15 @@ func main() {
 	zerolog.DefaultContextLogger = &logger
 	log.Logger = logger
 	logger.Debug().Msg("Debug logging is on")
+	if pprofAddr := cfg.GetString(config.ConfigPProfAddr); pprofAddr != "" {
+		go func() {
+			log.Info().Str("addr", pprofAddr).Msg("pprof HTTP server listening")
+			if err := http.ListenAndServe(pprofAddr, nil); err != nil {
+				log.Err(err).Msg("pprof server failed")
+			}
+		}()
+	}
+
 	if cfg.GetString("cpu-profile") != "" {
 		f, err := os.Create(cfg.GetString("cpu-profile"))
 		if err != nil {
@@ -93,6 +105,33 @@ func main() {
 		// We received an interrupt signal, shut down.
 		log.Info().Msg("got quit signal...")
 		close(idleConnsClosed)
+	}()
+
+	// SIGUSR1 dumps a heap profile to /tmp/macondo-heap-<timestamp>.prof
+	heapSig := make(chan os.Signal, 1)
+	go func() {
+		signal.Notify(heapSig, syscall.SIGUSR1)
+		for range heapSig {
+			path := fmt.Sprintf("/tmp/macondo-heap-%d.prof", time.Now().Unix())
+			f, err := os.Create(path)
+			if err != nil {
+				log.Err(err).Msg("heap-dump-create-failed")
+				continue
+			}
+			debug.FreeOSMemory()
+			if err := pprof.WriteHeapProfile(f); err != nil {
+				log.Err(err).Msg("heap-dump-write-failed")
+			}
+			f.Close()
+			var ms runtime.MemStats
+			runtime.ReadMemStats(&ms)
+			log.Info().
+				Str("path", path).
+				Uint64("heap-alloc-mb", ms.HeapAlloc/1024/1024).
+				Uint64("heap-sys-mb", ms.HeapSys/1024/1024).
+				Uint64("next-gc-mb", ms.NextGC/1024/1024).
+				Msg("heap-profile-written")
+		}
 	}()
 
 	argsLine := strings.Join(args, " ")

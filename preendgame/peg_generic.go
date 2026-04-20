@@ -653,17 +653,6 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 	moveToMake tinymove.SmallMove, inbagOption option, winnerChan chan *PreEndgamePlay, depth int,
 	pegPlayEmptiesBag, fullSolve bool, nestedDepth int) error {
 
-	defer func() {
-		if r := recover(); r != nil {
-			fmt.Println("-----RECOVER----")
-			fmt.Printf("Recovered in recursiveSolve. thread=%d pegPlay=%v moveToMake=%v inBagOption=%v depth=%d pegPlayEmptiesBag=%v\n",
-				thread, pegPlay, moveToMake, inbagOption, depth, pegPlayEmptiesBag)
-			fmt.Println("Game state is")
-			fmt.Println(s.endgameSolvers[thread].Game().ToDisplayText())
-			panic("throwing panic again")
-		}
-	}()
-
 	g := s.endgameSolvers[thread].Game()
 	// fmt.Println(strings.Repeat(" ", depth), "entered recursive solve, inbag:",
 	// 	tilemapping.MachineWord(inbagOption.mls).UserVisible(g.Alphabet()))
@@ -784,14 +773,12 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 	}
 
 	// If the bag is not empty, we must recursively play until it is empty.
-	tempm := &move.Move{}
-	conversions.SmallMoveToMove(moveToMake, tempm, g.Alphabet(), g.Board(), g.RackFor(g.PlayerOnTurn()))
-	err := g.PlayMove(tempm, false, 0)
+	// Use PlaySmallMoveWithDraw to avoid converting SmallMove→Move (saves allocs).
+	_, err := g.PlaySmallMoveWithDraw(&moveToMake)
 	if err != nil {
 		log.Err(err).Msg("play-move-err")
 		return err
 	}
-	// fmt.Println(strings.Repeat(" ", depth), "playing move", tempm.ShortDescription(), "onturnnow", g.PlayerOnTurn())
 
 	// If the bag is STILL not empty after making our last move:
 	if g.Bag().TilesRemaining() > 0 && g.Playing() != macondo.PlayState_GAME_OVER {
