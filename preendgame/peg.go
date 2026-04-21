@@ -241,6 +241,39 @@ func (p *PreEndgamePlay) HasLoss(tiles []tilemapping.MachineLetter) bool {
 	return p.outcomesArray[found].outcome == PEGLoss
 }
 
+// IsGuaranteedWin returns true iff every recorded outcome is PEGWin and at
+// least one outcome exists. Used by nestedOurTurnSolve to decide whether a
+// candidate sub-move wins across all bag orderings.
+func (p *PreEndgamePlay) IsGuaranteedWin() bool {
+	p.RLock()
+	defer p.RUnlock()
+	if len(p.outcomesArray) == 0 {
+		return false
+	}
+	for _, o := range p.outcomesArray {
+		if o.outcome != PEGWin {
+			return false
+		}
+	}
+	return true
+}
+
+// IsGuaranteedNonLoss returns true iff no recorded outcome is PEGLoss and at
+// least one outcome exists. Used to detect a draw-guarantee fallback.
+func (p *PreEndgamePlay) IsGuaranteedNonLoss() bool {
+	p.RLock()
+	defer p.RUnlock()
+	if len(p.outcomesArray) == 0 {
+		return false
+	}
+	for _, o := range p.outcomesArray {
+		if o.outcome == PEGLoss {
+			return false
+		}
+	}
+	return true
+}
+
 func (p *PreEndgamePlay) HasFinalizedOutcome(tiles []tilemapping.MachineLetter) bool {
 	found := -1
 	for idx, outcome := range p.outcomesArray {
@@ -335,6 +368,9 @@ type jobLog struct {
 	PEGPlayEmptiesBag    bool           `yaml:"peg_play_empties_bag"`
 	Options              []jobOptionLog `yaml:"options"`
 	EndgamePlies         int            `yaml:"endgame_plies"`
+	NestedCalls          int            `yaml:"nested_calls"`
+	MaxNestedDepth       int            `yaml:"max_nested_depth"`
+	SubPermsEvaluated    int            `yaml:"sub_perms_evaluated"`
 }
 
 type jobOptionLog struct {
@@ -373,18 +409,26 @@ type Solver struct {
 	solveOnlyMoves   []*move.Move
 	avoidPruneMoves  []*move.Move
 
-	earlyCutoffOptim     bool
-	skipNonEmptyingOptim bool
-	skipTiebreaker       bool
+	earlyCutoffOptim bool
+	maxTilesLeft     int // -1 = no limit; skip plays leaving more than this many tiles in the bag. default 1
+	skipTiebreaker   bool
 	skipLossOptim        bool
 	iterativeDeepening   bool
+	nestedDepthLimit     int  // -1 = unlimited; default 1
+	skipDeepPass         bool // default true; forwarded to endgame solvers
 
 	numEndgamesSolved    atomic.Uint64
 	numCutoffs           atomic.Uint64
+	numNestedCalls       atomic.Uint64
+	numSubPermsEvaluated atomic.Uint64
+	maxNestedDepth       atomic.Uint64
 	potentialWinnerMutex sync.RWMutex
 	minPotentialLosses   float32
 
-	threadLogs []jobLog
+	threadLogs             []jobLog
+	threadNestedCalls      []uint64
+	threadMaxNestedDepth   []uint64
+	threadSubPermsEvaluated []uint64
 
 	// Per-thread arenas for SmallMove slices used in recursiveSolve.
 	arenas []*tinymove.SmallMoveArena
@@ -395,6 +439,9 @@ func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
 	s.ttable = negamax.GlobalTranspositionTable
 	s.threads = max(1, runtime.NumCPU())
 	s.threadLogs = make([]jobLog, s.threads)
+	s.threadNestedCalls = make([]uint64, s.threads)
+	s.threadMaxNestedDepth = make([]uint64, s.threads)
+	s.threadSubPermsEvaluated = make([]uint64, s.threads)
 	s.ttable.SetMultiThreadedMode()
 	s.game = g.Copy()
 	s.game.SetBackupMode(game.SimulationMode)
@@ -403,8 +450,10 @@ func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
 	s.iterativeDeepening = true
 	s.gaddag = gd
 	s.earlyCutoffOptim = true
-	s.skipNonEmptyingOptim = false
+	s.maxTilesLeft = 1
 	s.skipTiebreaker = false
+	s.nestedDepthLimit = 1
+	s.skipDeepPass = true
 	return nil
 }
 
@@ -421,10 +470,12 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 	log.Info().
 		Int("endgame-plies", s.maxEndgamePlies).
 		Bool("early-cutoff-optim", s.earlyCutoffOptim).
-		Bool("skip-non-emptying-optim", s.skipNonEmptyingOptim).
+		Int("max-tiles-left", s.maxTilesLeft).
 		Bool("skip-tiebreaker-optim", s.skipTiebreaker).
 		Bool("skip-loss-optim", s.skipLossOptim).
 		Bool("iterative-deepening", s.iterativeDeepening).
+		Int("nested-depth-limit", s.nestedDepthLimit).
+		Bool("skip-deep-pass", s.skipDeepPass).
 		Int("threads", s.threads).
 		Msg("preendgame-solve-called")
 
@@ -440,6 +491,9 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 
 	s.numEndgamesSolved.Store(0)
 	s.numCutoffs.Store(0)
+	s.numNestedCalls.Store(0)
+	s.numSubPermsEvaluated.Store(0)
+	s.maxNestedDepth.Store(0)
 
 	var winners []*PreEndgamePlay
 	var err error
@@ -561,6 +615,10 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 
 			// Endgame should quit early if it finds any win.
 			es.SetFirstWinOptim(true)
+			// PEG only needs the spread value from QDS, not the move sequence.
+			// Skipping MaterializeFull avoids a full Game.Copy per QDS call
+			// (which was 93% of all allocations in profiles).
+			es.SetSkipMaterialize(true)
 			// Even though the endgame search window is already tiny, this still seems to help
 			// for some reason:
 			es.SetNegascoutOptim(true)
@@ -605,6 +663,9 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 		writer.Wait()
 	}
 	log.Info().Str("ttable-stats", s.ttable.Stats()).
+		Uint64("nested-calls", s.numNestedCalls.Load()).
+		Uint64("max-nested-depth", s.maxNestedDepth.Load()).
+		Uint64("sub-perms-evaluated", s.numSubPermsEvaluated.Load()).
 		Float64("time-elapsed-sec", time.Since(ts).Seconds()).
 		Msg("solve-returning")
 	return winners, nil
@@ -613,7 +674,8 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 type job struct {
 	ourMove         *PreEndgamePlay
 	fullSolve       bool
-	maybeInBagTiles []int
+	opt             option // set when processing a single pre-assigned permutation
+	maybeInBagTiles []int  // set when processing all permutations for this play (per-play mode)
 }
 
 func moveIsPossible(mtiles []tilemapping.MachineLetter, partialRack []tilemapping.MachineLetter) bool {
@@ -663,9 +725,12 @@ func (s *Solver) SetEndgamePlies(p int) {
 func (s *Solver) SetThreads(t int) {
 	s.threads = t
 	s.threadLogs = make([]jobLog, t)
+	s.threadNestedCalls = make([]uint64, t)
+	s.threadMaxNestedDepth = make([]uint64, t)
+	s.threadSubPermsEvaluated = make([]uint64, t)
 }
 
-func moveTilesToBeginning(order []tilemapping.MachineLetter, bag *tilemapping.Bag) {
+func MoveTilesToBeginning(order []tilemapping.MachineLetter, bag *tilemapping.Bag) {
 	// move tiles to the beginning of the bag. The tiles should be in the order given.
 	// (i.e. order[0] should be at the beginning of the bag)
 
@@ -818,8 +883,8 @@ func (s *Solver) SetEarlyCutoffOptim(o bool) {
 	s.earlyCutoffOptim = o
 }
 
-func (s *Solver) SetSkipNonEmptyingOptim(o bool) {
-	s.skipNonEmptyingOptim = o
+func (s *Solver) SetMaxTilesLeft(n int) {
+	s.maxTilesLeft = n
 }
 
 func (s *Solver) SetSkipLossOptim(o bool) {
@@ -848,6 +913,14 @@ func (s *Solver) SetSolveOnly(m []*move.Move) {
 
 func (s *Solver) SetAvoidPrune(moves []*move.Move) {
 	s.avoidPruneMoves = moves
+}
+
+func (s *Solver) SetNestedDepthLimit(n int) {
+	s.nestedDepthLimit = n
+}
+
+func (s *Solver) SetSkipDeepPass(b bool) {
+	s.skipDeepPass = b
 }
 
 func (s *Solver) shouldAvoidPrune(m *move.Move) bool {

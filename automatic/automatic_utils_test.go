@@ -7,8 +7,6 @@ import (
 	"io"
 	"log"
 	"os"
-	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -137,17 +135,10 @@ func TestCompVCompSeries(t *testing.T) {
 		is.NoErr(err)
 	}
 
-	s, err := AnalyzeLogFile("/tmp/games-testcompvcomp.txt")
-	is.NoErr(err)
-
 	// HastyBot should win more than 64% of its games roughly. Let's make
 	// it 55% for this test, or 220. Test fails 0.013% of the time which
 	// seems acceptable.
-	r, err := regexp.Compile(`HastyBot wins: ?(\d+\.?\d+)\s*`)
+	result, err := AnalyzeLogFileData("/tmp/games-testcompvcomp.txt")
 	is.NoErr(err)
-	subMatches := r.FindSubmatch([]byte(s))
-	is.Equal(len(subMatches), 2)
-	f, err := strconv.ParseFloat(string(subMatches[1]), 64)
-	is.NoErr(err)
-	is.True(f > 220)
+	is.True(result.P1Wins > 220)
 }

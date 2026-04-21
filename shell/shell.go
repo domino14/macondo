@@ -11,6 +11,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1410,7 +1411,7 @@ func (sc *ShellController) parseCommitMove(playerid int, fields []string) (*move
 	return sc.parseAddMove(playerid, fields)
 }
 
-func (sc *ShellController) commitPlay(fields []string) error {
+func (sc *ShellController) commitPlay(fields []string, opts CmdOptions) error {
 	if sc.solving() {
 		return errMacondoSolving
 	}
@@ -1419,7 +1420,64 @@ func (sc *ShellController) commitPlay(fields []string) error {
 	if err != nil {
 		return err
 	}
+	if tileorder := opts.String("tileorder"); tileorder != "" {
+		if err := sc.applyTileOrder(tileorder, playerid); err != nil {
+			return fmt.Errorf("-tileorder: %w", err)
+		}
+		defer sc.game.Bag().SetFixedOrder(false)
+	}
 	return sc.commitMove(m)
+}
+
+// applyTileOrder sets up the bag so that tiles are drawn in the specified order
+// (left-to-right = first drawn). The opponent's rack is auto-set from the unseen
+// pool minus the tileorder. Bag fixed-order mode is enabled; caller must
+// SetFixedOrder(false) when done.
+func (sc *ShellController) applyTileOrder(tileorder string, playerid int) error {
+	alph := sc.game.Alphabet()
+	mls, err := tilemapping.ToMachineLetters(tileorder, alph)
+	if err != nil {
+		return fmt.Errorf("invalid tile string %q: %w", tileorder, err)
+	}
+
+	// Build unseen pool = current bag + opp's rack.
+	opp := 1 - playerid
+	pool := make([]tilemapping.MachineLetter, 0, 20)
+	pool = append(pool, sc.game.Bag().Peek()...)
+	pool = append(pool, sc.game.RackFor(opp).TilesOn()...)
+
+	// Validate length: bag must hold exactly len(mls) after opp gets a full rack.
+	expectedBagSize := len(pool) - min(game.RackTileLimit, len(pool))
+	if len(mls) != expectedBagSize {
+		return fmt.Errorf("length %d doesn't match expected bag size %d (unseen pool is %d tiles, opp needs %d)",
+			len(mls), expectedBagSize, len(pool), len(pool)-expectedBagSize)
+	}
+
+	// Validate multiset: all tileorder tiles must exist in the pool.
+	poolTally := make([]int, tilemapping.MaxAlphabetSize)
+	for _, t := range pool {
+		poolTally[t]++
+	}
+	for _, t := range mls {
+		poolTally[t]--
+		if poolTally[t] < 0 {
+			return fmt.Errorf("tile %q not available in unseen pool",
+				tilemapping.MachineLetter(t).UserVisible(alph, false))
+		}
+	}
+
+	// Rearrange: throw opp rack into bag, place tileorder at front (in bag-array
+	// order = reverse of draw order), then draw opp's rack from the remainder.
+	// SetFixedOrder must be true before SetRandomRack so that the draw pulls from
+	// the end of the bag without shuffling (otherwise it could steal tileorder tiles).
+	sc.game.ThrowRacksInFor(opp)
+	slices.Reverse(mls)
+	preendgame.MoveTilesToBeginning(mls, sc.game.Bag())
+	sc.game.Bag().SetFixedOrder(true)
+	if _, err := sc.game.SetRandomRack(opp, nil); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (sc *ShellController) addPlay(fields []string) error {
@@ -1720,6 +1778,9 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 
 	cmd, err := extractFields(expandedLine)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateSpecOptions(cmd); err != nil {
 		return nil, err
 	}
 	switch cmd.cmd {

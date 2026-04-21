@@ -1,3 +1,21 @@
+# v1.0.0
+- Up to 4x (!)faster Monte Carlo simulations, thanks to John O'Laughlin for implementation of faster algorithms.
+- Improve inference algorithm; results in a 52%+ win-rate vs EliteBot (BestBot)
+
+# v0.12.0 (March 2, 2026)
+- CNN can beat HastyBot ~52.6% of the time
+- Move explainability with Generative AI (`help explain`)
+- 3D board renderer (`help render`)
+- A variations system to allow us to try out different lines (`help var`)
+- ABDADA endgame algorithm can speed up endgames by 1.5x or more
+- Built-in full game analysis (`help analyze`) and a volunteer mode for donating computing power to analyze Woogles games (`help volunteer`)
+
+# v0.11.0 (June 22, 2025)
+- A CNN that can beat HastyBot ~51.5% of the time. See the README for how to use it.
+- Heat maps and in-depth sim stats (`help sim`)
+- A more accurate inference algorithm using Monte Carlo sims(`help infer`)
+- Improved NWL/CSW leaves
+
 # v0.10.0 (November 22, 2024)
 - Heat maps (in CLI) and in-depth sim stats for Monte Carlo
 - Multiple variations support for endgame (see option `-multiple-vars`)
