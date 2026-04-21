@@ -74,6 +74,7 @@ func main() {
 	zerolog.DefaultContextLogger = &logger
 	log.Logger = logger
 	logger.Debug().Msg("Debug logging is on")
+
 	if cfg.GetString("cpu-profile") != "" {
 		f, err := os.Create(cfg.GetString("cpu-profile"))
 		if err != nil {

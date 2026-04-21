@@ -28,11 +28,13 @@ About:
     tiebreak among the top 10 highest-scoring plays with the same number
     of wins.
 
-    Important note: n-in-the-bag for n > 1 is not optimized and in certain cases
-    will give incorrect answers for non-bag-emptying plays. (It will also
-    be much slower when considering these plays). It is recommended that
-    the -skip-non-emptying option be set for now. This will be fixed
-    in a future release.
+    Important note: n-in-the-bag for n > 1 is much slower when considering
+    non-bag-emptying plays. You can try a few options to speed this up: for
+    example, -max-tiles-left 0, -max-nested-depth 0, or -skip-deep-pass true.
+
+    You can also just solve plays individually with -only-solve. See below for
+    more details, or the more in-depth manual at
+    https://domino14.github.io/macondo/manual/preendgame.html.
 
 Optional arguments:
     peg stop
@@ -67,16 +69,22 @@ Options:
     accurate results. If you turn this on, plays that were cut-off early will
     be marked with a ❌ symbol, and their stats may not be fully accurate.
 
-    -skip-non-emptying true
+    -max-tiles-left 1 (default)
 
-    Macondo can skip analyzing plays that don't empty the bag.
-    For example, Macondo can skip analyzing a pass if it is clear that there is no
-    way any useful info can be obtained. For example, if we're down by 40 points
-    in the pre-endgame and we don't have a playable bingo, we can be pretty sure
-    we're not winning this game by passing, and this can save some time in the
-    analysis. Macondo can't detect this situation by itself at this time, so
-    you can set skip-non-emptying to true if you want to skip analyzing plays
-    that don't empty the bag, such as passes, or other short plays.
+    Only analyze plays that leave at most this many tiles in the bag after the play.
+    The default of 1 means Macondo evaluates plays that empty the bag or leave exactly
+    1 tile — so for a 4-in-bag position it only looks at plays using 3 or 4 tiles.
+    Passes and short plays (which leave 2+ tiles) are skipped.
+
+    This scales naturally with bag size: at 5-in-bag with default 1, plays using
+    4 or 5 tiles are analyzed; at 3-in-bag, plays using 2 or 3 tiles are analyzed.
+
+    Set to -1 to analyze all plays regardless of how many tiles they leave in the bag
+    (may take days on positions with many tiles). Set to 0 to only analyze plays
+    that empty the bag entirely.
+
+    Note: if you use -only-solve to specify particular moves, those moves are
+    always solved regardless of this setting.
 
     -opprack AENST
 
@@ -112,3 +120,26 @@ Options:
     If you use the early-cutoff function, any plays you specify with potentially repeated
     `-avoid-prune` options never get cut off. This is good for comparing plays you
     made to the top plays.
+
+    -max-nested-depth 1 (default)
+
+    When a non-bag-emptying line is analyzed, the recursion proceeds as follows: we
+    play non-emptying, the opponent's replies are enumerated (a flat list), and if the
+    opponent also plays non-emptying, Macondo runs a nested sub-PEG for our subsequent
+    candidates across all remaining bag permutations. If within that sub-PEG another
+    round of non-emptying exchanges would occur, a second nested sub-PEG would be needed.
+
+    The default cap of 1 allows exactly one nested sub-PEG. Continuations that would
+    require a second nested sub-PEG are skipped (only bag-emptying lines are evaluated
+    at that depth). This is a slight optimistic approximation: a skipped continuation
+    might have been a loss. Set to -1 for unlimited depth — note this can take days or
+    weeks on positions with many tiles in the bag. Set to 0 to skip all non-bag-emptying
+    analysis (equivalent to -max-tiles-left 0).
+
+    -skip-deep-pass true (default)
+
+    By default, pass moves are suppressed when generating candidates inside the nested
+    sub-PEG, except when the previous move was also a pass (so the bounded
+    "pass → pass → game ends" branch is always evaluated). This prevents rare but
+    expensive pass chains from inflating the nested search. Set to false to allow passes
+    as candidates at every level of the nested sub-PEG.

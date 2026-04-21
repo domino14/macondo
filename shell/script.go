@@ -183,8 +183,9 @@ func commit(L *lua.LState) int {
 	lv := L.ToString(1)
 	sc := getShell(L)
 	_, err := sc.commit(&shellcmd{
-		cmd:  "commit",
-		args: strings.Split(lv, " "),
+		cmd:     "commit",
+		args:    strings.Split(lv, " "),
+		options: CmdOptions{},
 	})
 	if err != nil {
 		log.Err(err).Msg("error-executing-commit")

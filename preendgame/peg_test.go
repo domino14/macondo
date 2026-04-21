@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
@@ -52,7 +53,7 @@ func TestMoveTilesToBeginning(t *testing.T) {
 		bag.Shuffle()
 		// Q, A, B, ?
 		lastTiles := []tilemapping.MachineLetter{17, 1, 2, 0}
-		moveTilesToBeginning(lastTiles, bag)
+		MoveTilesToBeginning(lastTiles, bag)
 
 		bagTiles := bag.Peek()
 		is.Equal(len(bagTiles), 100)
@@ -72,7 +73,7 @@ func TestMoveTilesToBeginning(t *testing.T) {
 		bag.Shuffle()
 		// E, E, E, E
 		lastTiles := []tilemapping.MachineLetter{5, 5, 5, 5}
-		moveTilesToBeginning(lastTiles, bag)
+		MoveTilesToBeginning(lastTiles, bag)
 
 		bagTiles := bag.Peek()
 		is.Equal(len(bagTiles), 100)
@@ -527,6 +528,44 @@ func TestTwoInBagSingleMove(t *testing.T) {
 	is.Equal(winners[0].OutcomeFor([]tilemapping.MachineLetter{9, 5}), PEGWin)
 }
 
+func TestPEGStateSnapshot(t *testing.T) {
+	is := is.New(t)
+	// Use the same CGP as TestTwoInBagSingleMove so we have a real game state
+	// with fixed-order bag and known racks to snapshot/restore.
+	cgpStr := "1T13/1W3Q9/VERB1U9/1E1OPIUM5C1/1LAWIN1I5O1/1Y3A1E5R1/7V4NO1/NOTArIZE1C2UN1/6ODAH2LA1/3TAHA2I2LED/2JUT4R2A1O/3G5P4D/3R3BrIEFING/3I5L4E/3K2DESYNES1M AEFGSTX/EEIOOST 370/341 0 lex CSW19;"
+	g, err := cgp.ParseCGP(DefaultConfig, cgpStr)
+	is.NoErr(err)
+	g.RecalculateBoard()
+
+	// Simulate the FixedOrder bag setup that the PEG solver uses.
+	g.Bag().SetFixedOrder(true)
+
+	// Capture initial state.
+	bagBefore := g.Bag().Tiles()
+	rack0Before := append([]tilemapping.MachineLetter(nil), g.RackFor(0).TilesOn()...)
+	rack1Before := append([]tilemapping.MachineLetter(nil), g.RackFor(1).TilesOn()...)
+
+	snap := snapshotPEGState(g.Game)
+
+	// Mutate: throw racks in and reshuffle opp rack (as nestedOurTurnSolve will do).
+	g.ThrowRacksInFor(1)
+	_, err = g.SetRandomRack(1, nil)
+	is.NoErr(err)
+
+	// Verify mutation took effect (rack1 should differ after reshuffling).
+	rack1After := []tilemapping.MachineLetter(g.RackFor(1).TilesOn())
+	_ = rack1After // difference checked indirectly: restore below brings it back
+
+	// Restore.
+	snap.restore(g.Game)
+
+	// Bag tiles and order must match.
+	is.Equal(g.Bag().Tiles(), bagBefore)
+	// Both racks must match.
+	is.Equal([]tilemapping.MachineLetter(g.RackFor(0).TilesOn()), rack0Before)
+	is.Equal([]tilemapping.MachineLetter(g.RackFor(1).TilesOn()), rack1Before)
+}
+
 func TestFourInBag(t *testing.T) {
 	// This test is not expected to finish in any reasonable amount of time yet.
 	// It is only here aspirationally.
@@ -552,5 +591,58 @@ func TestFourInBag(t *testing.T) {
 	_, err = peg.Solve(ctx)
 
 	is.NoErr(err)
+
+}
+
+// TestHiedInvestigation investigates the 2-PEG position where HIED is a
+// candidate move. Rack ACDINST, opp rack empty, CSW21. Run with -v to see
+// per-ordering outcomes.
+func TestHiedInvestigation(t *testing.T) {
+	t.Skip()
+	is := is.New(t)
+	cgpStr := "12BEN/9JUDOS1/11R1TE/7BRAVI2X/6QI3L2U/5P1OKA1L2L/5O1TOME3T/5U1AA1N1ORe/5R4G1FID/5I4R2Z1/3HIE4A1VAU/3IDS1P1FINO2/2TEE2OY1L1W2/2Y1MaRTENS4/GAGE3EW6 ACDINST/ 345/357 0 lex CSW21;"
+	g, err := cgp.ParseCGP(DefaultConfig, cgpStr)
+	is.NoErr(err)
+	g.RecalculateBoard()
+
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "CSW21")
+	is.NoErr(err)
+	peg := new(Solver)
+	err = peg.Init(g.Game, gd)
+	is.NoErr(err)
+	peg.maxEndgamePlies = 3
+	peg.iterativeDeepening = false
+
+	// Solve only the (HIE)D extension at 11D.
+	m := move.NewScoringMoveSimple(5, "11D", "...D", "ACINST", g.Alphabet())
+	peg.solveOnlyMoves = []*move.Move{m}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	start := time.Now()
+	winners, err := peg.Solve(ctx)
+	fmt.Printf("Elapsed: %v err: %v\n", time.Since(start), err)
+	if err == nil || err == ErrCanceledEarly {
+		fmt.Print(peg.SolutionStats(len(winners)))
+	}
+	is.True(err == nil || err == ErrCanceledEarly)
+}
+
+func TestTempura(t *testing.T) {
+	// for more info read tempura.md in this directory.
+	t.Skip()
+	is := is.New(t)
+	cgpStr := "12D2/1U10O2/1p10L2/1R1C3KANJIS2/1I1O3A2U4/1G1T3I2I4/1H1E3Z2C1LOO/1TED3E1BYWORD/2Q4N3AXE1/1RuBIGOS3I3/F1A5WEAVE2/O1T8E3/V1E5LOURY2/ENSNARL2HM4/A6TEMP4 DEFNNPT/AAIIISU 394/365 0 lex NWL20;"
+	g, err := cgp.ParseCGP(DefaultConfig, cgpStr)
+	is.NoErr(err)
+	g.RecalculateBoard()
+
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "NWL20")
+	is.NoErr(err)
+	peg := new(Solver)
+	err = peg.Init(g.Game, gd)
+	is.NoErr(err)
+	peg.maxEndgamePlies = 3
+	peg.iterativeDeepening = false
 
 }

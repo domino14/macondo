@@ -1,7 +1,6 @@
 package shell
 
 import (
-	"strconv"
 	"strings"
 
 	"github.com/kballard/go-shellquote"
@@ -14,91 +13,6 @@ type ShellCompleter struct {
 
 func NewShellCompleter(sc *ShellController) *ShellCompleter {
 	return &ShellCompleter{sc: sc}
-}
-
-// CommandMetadata holds autocomplete information for a command
-type CommandMetadata struct {
-	Options []string // Available options for this command (e.g., "-plies", "-threads")
-	Args    []string // Possible argument values (for non-option arguments)
-}
-
-// commandMetadata maps command names to their options and arguments
-// These are extracted from the actual command implementations in api.go and sim.go
-var commandMetadata = map[string]CommandMetadata{
-	"sim": {
-		Options: []string{
-			"-plies", "-threads", "-stop", "-opprack", "-useinferences",
-			"-collect-heatmap", "-fixedsimiters", "-fixedsimplies",
-			"-fixedsimcount", "-autostopcheckinterval", "-stop-ppscaling",
-			"-stop-itercutoff",
-		},
-	},
-	"peg": {
-		Options: []string{
-			"-endgameplies", "-maxtime", "-threads", "-maxsolutions",
-			"-opprack", "-skip-non-emptying", "-skip-loss", "-early-cutoff",
-			"-skip-tiebreaker", "-disable-id", "-only-solve", "-log",
-			"-avoid-prune",
-		},
-	},
-	"endgame": {
-		Options: []string{
-			"-plies", "-maxtime", "-threads", "-multiple-vars",
-			"-disable-id", "-disable-tt", "-first-win-optim",
-			"-prevent-slowroll", "-disable-negascout", "-null-window",
-			"-also-solve-var",
-		},
-	},
-	"infer": {
-		Options: []string{"-threads", "-time"},
-	},
-	"gen": {
-		Options: []string{"-equity"},
-	},
-	"autoplay": {
-		Options: []string{"-botcode1", "-botcode2", "-threads"},
-	},
-	"set": {
-		Args: []string{"lexicon", "challenge", "variation", "board", "lowercase"},
-	},
-	"setconfig": {
-		Args: []string{
-			"data-path", "default-lexicon", "default-letter-distribution",
-			"triton-use-triton", "triton-url", "triton-model-name",
-			"triton-model-version",
-		},
-	},
-	"analyze": {
-		Options: []string{"-player"},
-	},
-	"autoanalyze": {
-		Options: []string{"-count", "-single-turn-only"},
-	},
-	"alias": {
-		Args: []string{"set", "delete", "show", "list", "remove", "rm"},
-	},
-	"mode": {
-		Args: []string{"standard", "endgamedebug"},
-	},
-	"render": {
-		Options: []string{"-tile-color", "-board-color", "-heatmap", "-ply"},
-	},
-	"var": {
-		Args: []string{"list", "main", "info", "delete", "promote"},
-	},
-	"variation": {
-		Args: []string{"list", "main", "info", "delete", "promote"},
-	},
-}
-
-// Common command names for command completion
-var commandNames = []string{
-	"help", "alias", "new", "load", "unload", "last", "n", "p", "s",
-	"name", "note", "turn", "rack", "set", "setconfig", "gen", "autoplay",
-	"sim", "infer", "add", "challenge", "commit", "aiplay", "hastyplay",
-	"selftest", "list", "endgame", "peg", "mode", "export", "render", "analyze",
-	"autoanalyze", "script", "gid", "leave", "cgp", "check", "explain", "exit",
-	"var", "variation",
 }
 
 // Common values for certain option types
@@ -127,42 +41,42 @@ var botCodes = []string{
 	"CUSTOM_BOT",
 }
 
-// Do implements the readline.AutoComplete interface
-// It provides context-aware autocomplete based on what's been typed
+// allCommandNames returns all registered command names plus aliases.
+func allCommandNames(aliases map[string]string) []string {
+	names := make([]string, 0, len(commandSpecs)+len(aliases))
+	for name := range commandSpecs {
+		names = append(names, name)
+	}
+	for name := range aliases {
+		names = append(names, name)
+	}
+	return names
+}
+
+// Do implements the readline.AutoComplete interface.
 func (c *ShellCompleter) Do(line []rune, pos int) ([][]rune, int) {
-	// Get the text up to the cursor position
 	text := string(line[:pos])
 
-	// Parse the line using shellquote to handle quoted strings properly
 	fields, err := shellquote.Split(text)
 	if err != nil {
-		// If we can't parse, fall back to simple space splitting
 		fields = strings.Fields(text)
 	}
 
-	// Check if we're in the middle of typing a word or just after a space
 	endsWithSpace := len(text) > 0 && text[len(text)-1] == ' '
 
-	// Determine what we're trying to complete
 	var prefix string
 	var completions []string
 
 	if len(fields) == 0 || (len(fields) == 1 && !endsWithSpace) {
-		// Completing a command name
+		// Completing a command name.
 		if len(fields) == 1 {
 			prefix = fields[0]
 		}
-		completions = commandNames
-
-		// Also include aliases
-		for aliasName := range c.sc.aliases {
-			completions = append(completions, aliasName)
-		}
+		completions = allCommandNames(c.sc.aliases)
 	} else {
-		// We have a command, now complete its arguments/options
 		cmdName := fields[0]
 
-		// Check if this is an alias, and if so, expand it to get the real command
+		// Expand alias to get real command name.
 		if aliasValue, isAlias := c.sc.aliases[cmdName]; isAlias {
 			aliasFields, err := shellquote.Split(aliasValue)
 			if err == nil && len(aliasFields) > 0 {
@@ -174,7 +88,7 @@ func (c *ShellCompleter) Do(line []rune, pos int) ([][]rune, int) {
 			prefix = fields[len(fields)-1]
 		}
 
-		// Get the last complete field to check context
+		// Identify the last fully-typed token for value-completion context.
 		var lastCompleteField string
 		if endsWithSpace && len(fields) > 0 {
 			lastCompleteField = fields[len(fields)-1]
@@ -182,86 +96,41 @@ func (c *ShellCompleter) Do(line []rune, pos int) ([][]rune, int) {
 			lastCompleteField = fields[len(fields)-2]
 		}
 
-		// Check if the last field was an option that expects specific values
+		// Value completion: after "-optname <space>", offer the option's values.
 		if lastCompleteField != "" && strings.HasPrefix(lastCompleteField, "-") {
 			optName := strings.TrimPrefix(lastCompleteField, "-")
-
-			// Provide context-specific completions based on option name
-			switch optName {
-			case "stop":
-				completions = stopValues
-			case "botcode1", "botcode2":
-				completions = botCodes
-			case "collect-heatmap", "skip-non-emptying", "skip-loss",
-				"early-cutoff", "skip-tiebreaker", "disable-id",
-				"disable-tt", "first-win-optim", "prevent-slowroll",
-				"disable-negascout", "null-window", "single-turn-only",
-				"log":
-				completions = boolValues
-			case "useinferences":
-				completions = []string{"weightedrandomtiles", "weightedrandomracks"}
-			case "tile-color":
-				completions = []string{"orange", "yellow", "pink", "red", "blue", "black", "white"}
-			case "board-color":
-				completions = []string{"jade", "teal", "blue", "purple", "green", "darkgreen", "brown"}
-			}
-		}
-
-		// Special handling for var/variation command to suggest variation IDs
-		if (cmdName == "var" || cmdName == "variation") && completions == nil {
-			// Find the branching point to get available variations
-			if c.sc.currentVariation != nil {
-				node := c.sc.currentVariation
-				for node != nil && len(node.children) <= 1 {
-					node = node.parent
-				}
-				if node != nil && len(node.children) > 1 {
-					// Add variation IDs as suggestions
-					var varIDs []string
-					for _, child := range node.children {
-						if child.variationID == 0 {
-							varIDs = append(varIDs, "main")
-						} else {
-							varIDs = append(varIDs, strconv.Itoa(child.variationID))
-						}
-					}
-					// Combine with static args
-					if metadata, exists := commandMetadata[cmdName]; exists {
-						completions = append(varIDs, metadata.Args...)
+			if spec, ok := commandSpecs[cmdName]; ok {
+				if opt := spec.lookupOption(optName); opt != nil {
+					if opt.ValuesFunc != nil {
+						completions = opt.ValuesFunc(c.sc)
 					} else {
-						completions = varIDs
+						completions = opt.Values // nil = free-form
 					}
 				}
 			}
 		}
 
-		// If we haven't determined completions yet, show command options/args
+		// Option-name and verb/arg completion.
 		if completions == nil {
-			if metadata, exists := commandMetadata[cmdName]; exists {
-				// If we're typing something that starts with -, show options
+			if spec, ok := commandSpecs[cmdName]; ok {
 				if strings.HasPrefix(prefix, "-") {
-					completions = metadata.Options
+					completions = specOptionsFor(spec)
 				} else {
-					// Show args if available, otherwise show options
-					if len(metadata.Args) > 0 {
-						completions = metadata.Args
-					} else {
-						completions = metadata.Options
+					completions = append([]string{}, spec.Verbs...)
+					if spec.ArgsFunc != nil {
+						completions = append(completions, spec.ArgsFunc(c.sc)...)
 					}
 				}
 			}
 		}
 	}
 
-	// Filter completions based on prefix
+	// Filter by prefix and return only the suffix to append.
 	var matches [][]rune
 	for _, completion := range completions {
 		if strings.HasPrefix(completion, prefix) {
-			// Return only the part that needs to be added
-			suffix := completion[len(prefix):]
-			matches = append(matches, []rune(suffix))
+			matches = append(matches, []rune(completion[len(prefix):]))
 		}
 	}
-
 	return matches, len(prefix)
 }
