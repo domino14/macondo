@@ -27,7 +27,6 @@ const (
 	ConfigWolgesAwsmUrl                    = "wolges-awsm-url"
 	ConfigCPUProfile                       = "cpu-profile"
 	ConfigMEMProfile                       = "mem-profile"
-	ConfigPProfAddr                        = "pprof-addr"
 	ConfigTritonUseTriton                  = "triton-use-triton"
 	ConfigTritonURL                        = "triton-url"
 	ConfigTritonModelName                  = "triton-model-name"
@@ -103,7 +102,6 @@ func (c *Config) Load(args []string) error {
 	c.BindEnv(ConfigKWGPathPrefix)
 	c.BindEnv(ConfigCPUProfile)
 	c.BindEnv(ConfigMEMProfile)
-	c.BindEnv(ConfigPProfAddr)
 	c.BindEnv(ConfigDefaultBoardLayout)
 	c.BindEnv(ConfigTritonUseTriton)
 	c.BindEnv(ConfigTritonURL)
