@@ -300,6 +300,23 @@ it and only counts the cases that truly lose.
 type still available" as it assigns each draw slot — that gives each distinct
 tile-type sequence its weight, which the solver sums inside each outcome label.)*
 
+## The plot thickens
+
+There are two moves that guarantee that Josh actually never loses!
+
+You can play `E5 FET`:
+
+```
+E5 FET             7914.0  99.92 👍: [AAE]G [AAE]I ... 🤝: [III]A
+```
+
+Or `I3 P(A)NT`:
+```
+I3 P(A)NT          7902.0  99.77            👍: [AAE]G [AAE]I ... 🤝: [AII]I
+```
+
+Note that both of these moves result in, at worst, a tie!
+
 ## Shortcuts and when to disable them
 
 Three on-by-default settings make nested PEG practical on real positions.
