@@ -12,6 +12,7 @@ type OptType int
 const (
 	OptString OptType = iota
 	OptInt
+	OptFloat
 	OptBool
 	OptStringArray
 )
@@ -184,6 +185,10 @@ func init() {
 		Options: []Option{
 			{Name: "threads", Type: OptInt},
 			{Name: "time", Type: OptInt},
+			{Name: "tau", Type: OptFloat},
+
+			{Name: "inferenceiters", Type: OptInt},
+			{Name: "maxleaves", Type: OptInt},
 		},
 	})
 
@@ -393,6 +398,13 @@ func validateOptValues(opt *Option, vals []string) error {
 		}
 		if _, err := strconv.Atoi(vals[0]); err != nil {
 			return fmt.Errorf("option -%s: invalid int %q", opt.Name, vals[0])
+		}
+	case OptFloat:
+		if len(vals) > 1 {
+			return fmt.Errorf("option -%s: expected single value, got %d", opt.Name, len(vals))
+		}
+		if _, err := strconv.ParseFloat(vals[0], 64); err != nil {
+			return fmt.Errorf("option -%s: invalid float %q", opt.Name, vals[0])
 		}
 	case OptBool:
 		if len(vals) > 1 {
