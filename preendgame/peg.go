@@ -436,6 +436,14 @@ type Solver struct {
 
 	// Per-thread arenas for SmallMove slices used in recursiveSolve.
 	arenas []*tinymove.SmallMoveArena
+
+	// Debug trace fields — zero-valued means tracing disabled.
+	traceWriter          io.Writer
+	traceTargetFirstRack string // sorted letters to match for opp rack, e.g. "AEELNRS"
+	traceTargetBagTail   string // ordered bag remainder to match, e.g. "GEI"
+	traceOnce            bool
+	traceSeenMatch       atomic.Bool
+	traceMu              sync.Mutex
 }
 
 // Init initializes the solver. It creates all the parallel endgame solvers.
@@ -463,6 +471,21 @@ func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
 
 func (s *Solver) SetLogStream(l io.Writer) {
 	s.logStream = l
+}
+
+func (s *Solver) SetTraceWriter(w io.Writer)        { s.traceWriter = w }
+func (s *Solver) SetTraceTargetFirstRack(r string)  { s.traceTargetFirstRack = r }
+func (s *Solver) SetTraceTargetBagTail(tail string) { s.traceTargetBagTail = tail }
+func (s *Solver) SetTraceOnce(once bool)            { s.traceOnce = once }
+
+func (s *Solver) trace(indent int, format string, args ...any) {
+	if s.traceWriter == nil {
+		return
+	}
+	s.traceMu.Lock()
+	defer s.traceMu.Unlock()
+	fmt.Fprint(s.traceWriter, strings.Repeat("  ", indent))
+	fmt.Fprintf(s.traceWriter, format+"\n", args...)
 }
 
 func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
@@ -624,7 +647,7 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 			// PEG only needs the spread value from QDS, not the move sequence.
 			// Skipping MaterializeFull avoids a full Game.Copy per QDS call
 			// (which was 93% of all allocations in profiles).
-			es.SetSkipMaterialize(true)
+			es.SetSkipMaterialize(s.traceWriter == nil)
 			// Even though the endgame search window is already tiny, this still seems to help
 			// for some reason:
 			es.SetNegascoutOptim(true)

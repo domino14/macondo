@@ -516,6 +516,53 @@ type option struct {
 	idx         int
 }
 
+// permMatchesTrace returns true when this permutation should be processed.
+// Always true when tracing is off. When tracing is on, matches
+// sorted(mls[:7]) against traceTargetFirstRack and mls[7:] against
+// traceTargetBagTail. When traceOnce is set, only the first matching perm
+// is accepted.
+func (s *Solver) permMatchesTrace(g *game.Game, mls []tilemapping.MachineLetter) bool {
+	if s.traceWriter == nil {
+		return true
+	}
+	if s.traceTargetFirstRack == "" && s.traceTargetBagTail == "" {
+		return true
+	}
+	if s.traceOnce && s.traceSeenMatch.Load() {
+		return false
+	}
+	alpha := g.Alphabet()
+	rackSize := min(game.RackTileLimit, len(mls))
+	if s.traceTargetFirstRack != "" {
+		rackStr := tilemapping.MachineWord(mls[:rackSize]).UserVisible(alpha)
+		rackBytes := []byte(rackStr)
+		sort.Slice(rackBytes, func(i, j int) bool { return rackBytes[i] < rackBytes[j] })
+		if string(rackBytes) != s.traceTargetFirstRack {
+			return false
+		}
+	}
+	if s.traceTargetBagTail != "" && len(mls) > rackSize {
+		tail := tilemapping.MachineWord(mls[rackSize:]).UserVisible(alpha)
+		if tail != s.traceTargetBagTail {
+			return false
+		}
+	}
+	s.traceSeenMatch.Store(true)
+	return true
+}
+
+// smallMoveStr formats a SmallMove into a human-readable coordinate string.
+func smallMoveStr(sm tinymove.SmallMove) string {
+	if sm.IsPass() {
+		return "PASS"
+	}
+	row, col, vert := sm.CoordsAndVertical()
+	if vert {
+		return fmt.Sprintf("%c%d score=%d", 'A'+col, row+1, sm.Score())
+	}
+	return fmt.Sprintf("%d%c score=%d", row+1, 'A'+col, sm.Score())
+}
+
 func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 	winnerChan chan *PreEndgamePlay) error {
 	s.arenas[thread].Reset()
@@ -600,6 +647,16 @@ func (s *Solver) processJobPerPerm(ctx context.Context, j job, thread int,
 	if err != nil {
 		return err
 	}
+
+	if !s.permMatchesTrace(g, j.opt.mls) {
+		return nil
+	}
+	s.trace(0, "[outer] play=%s opp-rack=%s our-rack=%s bag-tail=%s perm-count=%d",
+		j.ourMove.Play.ShortDescription(),
+		g.RackLettersFor(1-g.PlayerOnTurn()),
+		g.RackLettersFor(g.PlayerOnTurn()),
+		s.traceTargetBagTail,
+		j.opt.ct)
 
 	var sm tinymove.SmallMove
 	if j.ourMove.Play.Action() == move.MoveTypePass {
@@ -711,6 +768,16 @@ func (s *Solver) processJobPerPlay(ctx context.Context, j job, thread int,
 			return err
 		}
 
+		if !s.permMatchesTrace(g, options[idx].mls) {
+			continue
+		}
+		s.trace(0, "[outer] play=%s opp-rack=%s our-rack=%s bag-tail=%s perm-count=%d",
+			j.ourMove.Play.ShortDescription(),
+			g.RackLettersFor(1-g.PlayerOnTurn()),
+			g.RackLettersFor(g.PlayerOnTurn()),
+			s.traceTargetBagTail,
+			options[idx].ct)
+
 		var sm tinymove.SmallMove
 		if j.ourMove.Play.Action() == move.MoveTypePass {
 			sm = tinymove.PassMove()
@@ -800,6 +867,10 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 			}
 		}
 
+		s.trace(depth+nestedDepth*4, "[d=%d n=%d] endgame spread=%+d pv=[%s] oppPerspective=%v",
+			depth, nestedDepth, finalSpread,
+			s.endgameSolvers[thread].ShortDetails(), oppPerspective)
+
 		switch {
 		case (finalSpread > 0 && oppPerspective) || (finalSpread < 0 && !oppPerspective):
 			// win for our opponent = loss for us
@@ -865,6 +936,13 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 		log.Err(err).Msg("play-move-err")
 		return err
 	}
+	s.trace(depth+nestedDepth*4, "[d=%d n=%d] played=%s our=%s opp=%s bag-remaining=%d scoreless=%d",
+		depth, nestedDepth,
+		smallMoveStr(moveToMake),
+		g.RackLettersFor(s.solvingForPlayer),
+		g.RackLettersFor(1-s.solvingForPlayer),
+		g.Bag().TilesRemaining(),
+		g.ScorelessTurns())
 
 	// If the bag is STILL not empty after making our last move:
 	if g.Bag().TilesRemaining() > 0 && g.Playing() != macondo.PlayState_GAME_OVER {
@@ -924,6 +1002,8 @@ func (s *Solver) iterateOppReplies(ctx context.Context, thread int, pegPlay *Pre
 	inbagOption option, winnerChan chan *PreEndgamePlay, depth int,
 	pegPlayEmptiesBag, fullSolve bool, genPlays []tinymove.SmallMove, nestedDepth int) error {
 	for idx := range genPlays {
+		s.trace(depth+nestedDepth*4, "[d=%d n=%d] opp-reply %d/%d %s",
+			depth, nestedDepth, idx+1, len(genPlays), smallMoveStr(genPlays[idx]))
 		err := s.recursiveSolve(ctx, thread, pegPlay, genPlays[idx], inbagOption, winnerChan, depth+1, pegPlayEmptiesBag, fullSolve, nestedDepth)
 		if err != nil {
 			log.Err(err).Msg("recursive-solve-err")
@@ -1036,9 +1116,18 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int, nestedDepth
 	copy(subPlays, ourPlays)
 	defer s.arenas[thread].Dealloc(len(subPlays))
 
+	s.trace(nestedDepth*4, "[nested=%d] ENTER our=%s opp=%s bag=%s subBagSize=%d numSubPerms=%d numSubPlays=%d",
+		nestedDepth,
+		g.RackLettersFor(g.PlayerOnTurn()),
+		g.RackLettersFor(opp),
+		tilemapping.MachineWord(g.Bag().Peek()).UserVisible(g.Alphabet()),
+		subBagSize, len(subPerms), len(subPlays))
+
 	anyNonLoss := false
 
-	for _, subM := range subPlays {
+	for subMIdx, subM := range subPlays {
+		s.trace(nestedDepth*4, "[nested=%d] subM %d/%d %s",
+			nestedDepth, subMIdx+1, len(subPlays), smallMoveStr(subM))
 		subPegPlay := &PreEndgamePlay{Play: &move.Move{}}
 		subEmptiesBag := int(subM.TilesPlayed()) >= subBagSize
 
@@ -1051,6 +1140,10 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int, nestedDepth
 
 			s.numSubPermsEvaluated.Add(1)
 			s.threadSubPermsEvaluated[thread]++
+
+			s.trace(nestedDepth*4+2, "[nested=%d]   subPerm %d/%d tiles=%s",
+				nestedDepth, pi+1, len(subPerms),
+				tilemapping.MachineWord(tiles).UserVisible(g.Alphabet()))
 
 			// Mirror handleJobGeneric's per-permutation setup (peg_generic.go:482-490):
 			// put opp's tiles back in the bag, reorder for this sub-perm, redraw opp's rack.
@@ -1069,6 +1162,7 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int, nestedDepth
 			// Early exit: a loss for any sub-perm means this sub-play can never
 			// be guaranteed-win or guaranteed-non-loss. Skip remaining sub-perms.
 			if subPegPlay.HasLoss(subOption.mls) {
+				s.trace(nestedDepth*4+2, "[nested=%d]   LOSS on this subM, skipping remaining perms", nestedDepth)
 				break
 			}
 		}
@@ -1076,6 +1170,7 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int, nestedDepth
 		subPegPlay.finalize()
 
 		if subPegPlay.IsGuaranteedWin() {
+			s.trace(nestedDepth*4, "[nested=%d] VERDICT=WIN (subM %d guaranteed win)", nestedDepth, subMIdx+1)
 			s.nestedCache.store(cacheKey, PEGWin)
 			return PEGWin, nil
 		}
@@ -1086,7 +1181,10 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int, nestedDepth
 
 	result := PEGLoss
 	if anyNonLoss {
+		s.trace(nestedDepth*4, "[nested=%d] VERDICT=DRAW (no guaranteed win, but some non-loss)", nestedDepth)
 		result = PEGDraw
+	} else {
+		s.trace(nestedDepth*4, "[nested=%d] VERDICT=LOSS (all subMs lead to loss)", nestedDepth)
 	}
 	s.nestedCache.store(cacheKey, result)
 	return result, nil
