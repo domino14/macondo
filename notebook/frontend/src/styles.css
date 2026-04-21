@@ -333,10 +333,21 @@ body {
 }
 .move-table tr:last-child td { border-bottom: none; }
 .move-table tr:hover td { background: var(--bg-hover); cursor: pointer; }
+.move-table tr.selected td { background: rgba(240,136,62,0.15); }
 .move-table .rank { color: var(--text-secondary); width: 32px; }
 .move-table .move-name { color: var(--text-code); }
 .move-table .leave { color: #7ee787; }
 .move-table .equity-positive { color: var(--accent); }
+
+/* ── Move Explorer (table + board side by side) ──────────── */
+.move-explorer {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.move-explorer-table { flex: 1; min-width: 260px; }
+.move-explorer-board { flex-shrink: 0; }
 
 /* ── Add cell button ────────────────────────────────────── */
 .add-cell {

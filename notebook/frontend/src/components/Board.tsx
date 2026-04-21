@@ -1,4 +1,4 @@
-import type { BoardData } from '../types'
+import type { BoardData, MoveRow } from '../types'
 
 // Bonus square colors — matched exactly to the 3D renderer defaults (render_template.html).
 // Board background is jade (#00ffbd), tile color is orange (#ff6b35).
@@ -133,7 +133,10 @@ function RackTile({ letter, score, x, y }: { letter: string; score: number; x: n
   )
 }
 
-export default function Board({ data }: { data: BoardData }) {
+const HIGHLIGHT_PLACE = 'rgba(255,230,50,0.85)'   // placed tile: bright yellow
+const HIGHLIGHT_THRU  = 'rgba(255,230,50,0.35)'   // playthrough tile: faint yellow
+
+export default function Board({ data, highlightMove }: { data: BoardData; highlightMove?: MoveRow | null }) {
   const dim = data.dimension
   const board = parseFEN(data.fen)
   const W = LABEL + dim * CELL + 2
@@ -252,6 +255,31 @@ export default function Board({ data }: { data: BoardData }) {
               stroke="rgba(0,0,0,0.12)" strokeWidth={0.5}
             />
           ))}
+
+          {/* Move highlight overlay */}
+          {highlightMove?.tiles?.map((tile, i) => {
+            const r = highlightMove.rowStart + (highlightMove.isVert ? i : 0)
+            const c = highlightMove.colStart + (highlightMove.isVert ? 0 : i)
+            const x = LABEL + c * CELL
+            const y = LABEL + r * CELL
+            const fill = tile.playthrough ? HIGHLIGHT_THRU : HIGHLIGHT_PLACE
+            return (
+              <g key={i}>
+                <rect x={x} y={y} width={CELL} height={CELL} fill={fill} rx={2} />
+                {!tile.playthrough && (
+                  <text
+                    x={x + CELL / 2} y={y + CELL / 2 + 1}
+                    textAnchor="middle" dominantBaseline="middle"
+                    fontSize={14} fontWeight="700"
+                    fontFamily="'Inter', sans-serif"
+                    fill="#333"
+                  >
+                    {tile.letter.toUpperCase()}
+                  </text>
+                )}
+              </g>
+            )
+          })}
         </svg>
 
         {/* Rack */}

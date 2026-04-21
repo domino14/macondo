@@ -3,7 +3,13 @@ import type { MoveTableData, MoveRow } from '../types'
 
 type SortKey = keyof Pick<MoveRow, 'rank' | 'score' | 'equity'>
 
-export default function MoveTable({ data }: { data: MoveTableData }) {
+interface MoveTableProps {
+  data: MoveTableData
+  selectedRank?: number
+  onSelect?: (row: MoveRow | null) => void
+}
+
+export default function MoveTable({ data, selectedRank, onSelect }: MoveTableProps) {
   const [sortKey, setSortKey] = useState<SortKey>('rank')
   const [sortAsc, setSortAsc] = useState(true)
 
@@ -12,7 +18,7 @@ export default function MoveTable({ data }: { data: MoveTableData }) {
       setSortAsc(a => !a)
     } else {
       setSortKey(key)
-      setSortAsc(key === 'rank') // rank asc, others desc by default
+      setSortAsc(key === 'rank')
     }
   }
 
@@ -23,6 +29,11 @@ export default function MoveTable({ data }: { data: MoveTableData }) {
 
   const arrow = (key: SortKey) =>
     sortKey === key ? (sortAsc ? ' ↑' : ' ↓') : ''
+
+  const handleRowClick = (row: MoveRow) => {
+    if (!onSelect) return
+    onSelect(selectedRank === row.rank ? null : row)
+  }
 
   return (
     <table className="move-table">
@@ -43,7 +54,11 @@ export default function MoveTable({ data }: { data: MoveTableData }) {
       </thead>
       <tbody>
         {sorted.map(row => (
-          <tr key={row.rank}>
+          <tr
+            key={row.rank}
+            onClick={() => handleRowClick(row)}
+            className={selectedRank === row.rank ? 'selected' : ''}
+          >
             <td className="rank">{row.rank}</td>
             <td className="move-name">{row.move.trim()}</td>
             <td className="leave">{row.leave}</td>

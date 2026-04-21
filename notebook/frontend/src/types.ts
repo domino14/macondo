@@ -19,16 +19,26 @@ export interface BoardData {
   remainingTiles: Record<string, number>;
 }
 
+export interface TileInfo {
+  letter: string;
+  playthrough: boolean;
+}
+
 export interface MoveRow {
   rank: number;
   move: string;
   leave: string;
   score: number;
   equity: number;
+  rowStart: number;
+  colStart: number;
+  isVert: boolean;
+  tiles?: TileInfo[];
 }
 
 export interface MoveTableData {
   moves: MoveRow[];
+  board?: BoardData;
 }
 
 export interface NotebookOutput {

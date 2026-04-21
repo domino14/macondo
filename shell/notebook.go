@@ -10,6 +10,7 @@ import (
 	"github.com/domino14/word-golib/tilemapping"
 
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/move"
 )
 
 // NotebookOutput is structured output from a notebook cell command execution.
@@ -39,18 +40,31 @@ type BoardData struct {
 	RemainingTiles map[string]int `json:"remainingTiles"`
 }
 
+// TileInfo describes one tile in a play move, for board highlighting.
+type TileInfo struct {
+	Letter      string `json:"letter"`
+	Playthrough bool   `json:"playthrough"` // true = already on board, not placed from rack
+}
+
 // MoveRow is one entry in a generated move list.
 type MoveRow struct {
-	Rank   int     `json:"rank"`
-	Move   string  `json:"move"`
-	Leave  string  `json:"leave"`
-	Score  int     `json:"score"`
-	Equity float64 `json:"equity"`
+	Rank     int        `json:"rank"`
+	Move     string     `json:"move"`
+	Leave    string     `json:"leave"`
+	Score    int        `json:"score"`
+	Equity   float64    `json:"equity"`
+	RowStart int        `json:"rowStart"` // 0-indexed; only valid for play moves
+	ColStart int        `json:"colStart"` // 0-indexed; only valid for play moves
+	IsVert   bool       `json:"isVert"`
+	Tiles    []TileInfo `json:"tiles,omitempty"` // nil for non-play moves
 }
 
 // MoveTableData is the structured move list returned by the gen command.
+// Board is included so the frontend can render a MoveExplorer (click to
+// highlight) without emitting a separate board output.
 type MoveTableData struct {
-	Moves []MoveRow `json:"moves"`
+	Moves []MoveRow  `json:"moves"`
+	Board *BoardData `json:"board,omitempty"`
 }
 
 // getBoardData extracts structured board state from the current game.
@@ -162,13 +176,44 @@ func (sc *ShellController) getMoveTableData() *MoveTableData {
 	bd := sc.game.Board()
 	rows := make([]MoveRow, len(sc.curPlayList))
 	for i, m := range sc.curPlayList {
-		rows[i] = MoveRow{
+		row := MoveRow{
 			Rank:   i + 1,
 			Move:   bd.MoveDescriptionWithPlaythrough(m),
 			Leave:  m.Leave().UserVisible(alph),
 			Score:  m.Score(),
 			Equity: m.Equity(),
 		}
+		if m.Action() == move.MoveTypePlay {
+			rowStart, colStart, isVert := m.CoordsAndVertical()
+			row.RowStart = rowStart
+			row.ColStart = colStart
+			row.IsVert = isVert
+			tiles := m.Tiles()
+			r, c := rowStart, colStart
+			ri, ci := 0, 1
+			if isVert {
+				ri, ci = 1, 0
+			}
+			tileInfos := make([]TileInfo, len(tiles))
+			for j, t := range tiles {
+				if t == 0 {
+					// Playthrough: read the actual letter from the board.
+					tileInfos[j] = TileInfo{
+						Letter:      bd.GetLetter(r, c).UserVisible(alph, true),
+						Playthrough: true,
+					}
+				} else {
+					tileInfos[j] = TileInfo{
+						Letter:      t.UserVisible(alph, true),
+						Playthrough: false,
+					}
+				}
+				r += ri
+				c += ci
+			}
+			row.Tiles = tileInfos
+		}
+		rows[i] = row
 	}
 	return &MoveTableData{Moves: rows}
 }
@@ -224,9 +269,16 @@ func (sc *ShellController) NotebookExecute(line string) ([]*NotebookOutput, erro
 
 	var outputs []*NotebookOutput
 
-	// gen: emit only the move table (board was already shown by the preceding load/show).
+	// gen: emit a single table output that embeds board data for the MoveExplorer.
+	// No separate board output — the board is only used for move highlighting.
 	if cmd.cmd == "gen" && len(sc.curPlayList) > 0 {
-		return []*NotebookOutput{{Kind: "table", Data: sc.getMoveTableData()}}, nil
+		td := sc.getMoveTableData()
+		if sc.game != nil {
+			if boardData, err := sc.getBoardData(); err == nil {
+				td.Board = boardData
+			}
+		}
+		return []*NotebookOutput{{Kind: "table", Data: td}}, nil
 	}
 
 	// Board-affecting commands: emit only the graphic board, dropping the

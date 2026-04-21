@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, useId } from 'react'
 import type { CellData, CellLanguage, NotebookOutput, SSEEvent } from './types'
 import { useSSE } from './hooks/useSSE'
 import Cell from './components/Cell'
@@ -165,6 +165,46 @@ export default function App() {
     setFocusCellId(newCell.id)
   }
 
+  // ── Notebook save/load ─────────────────────────────────────────────────
+  const handleSave = useCallback(() => {
+    const nb = {
+      version: 1,
+      cells: cells.map(c => ({ id: c.id, content: c.content, language: c.language })),
+      outputs: cellOutputs,
+    }
+    const blob = new Blob([JSON.stringify(nb, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'notebook.macondo-nb.json'
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [cells, cellOutputs])
+
+  const fileInputId = useId()
+  const handleLoad = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = ev => {
+      try {
+        const nb = JSON.parse(ev.target!.result as string)
+        const loadedCells: CellData[] = (nb.cells ?? []).map((c: CellData) => ({
+          ...makeCell(c.content, c.language),
+          id: c.id,
+        }))
+        setCells(loadedCells.length > 0 ? loadedCells : [makeCell()])
+        setCellOutputs(nb.outputs ?? {})
+        setCellProgress({})
+        setRunningCells(new Set())
+      } catch {
+        alert('Could not parse notebook file.')
+      }
+    }
+    reader.readAsText(file)
+    e.target.value = '' // reset so the same file can be re-loaded
+  }, [])
+
   return (
     <>
       <header className="header">
@@ -173,6 +213,17 @@ export default function App() {
           Macondo Notebook
         </div>
         <span className="header-spacer" />
+        <label htmlFor={fileInputId} className="header-btn" style={{ cursor: 'pointer' }}>
+          Open
+          <input
+            id={fileInputId}
+            type="file"
+            accept=".json,.macondo-nb.json"
+            style={{ display: 'none' }}
+            onChange={handleLoad}
+          />
+        </label>
+        <button className="header-btn" onClick={handleSave}>Save</button>
         <button className="header-btn" onClick={handleAddCell}>+ Cell</button>
         <button className="header-btn primary" onClick={handleRunAll}>▶▶ Run All</button>
       </header>
