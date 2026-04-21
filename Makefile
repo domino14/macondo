@@ -1,6 +1,6 @@
 everything: all wasm
 
-all: macondo_shell macondo_bot bot_shell mlproducer analyzer_worker
+all: macondo_shell macondo_bot bot_shell mlproducer analyzer_worker macondo_notebook
 
 .PHONY: wasm
 
@@ -25,6 +25,9 @@ mlproducer:
 
 analyzer_worker:
 	go build -trimpath -ldflags "-X main.GitVersion=$(shell git describe --tags --always)" -o bin/analyzer-worker cmd/analyzer-worker/main.go
+
+macondo_notebook:
+	go build -trimpath -ldflags "-X main.GitVersion=$(shell git describe --tags --always)" -o bin/macondo-notebook cmd/notebook/main.go
 
 # wasm:
 # 	GOOS=js GOARCH=wasm go build -trimpath -o ../liwords/liwords-ui/public/wasm/macondo.wasm wasm/*.go

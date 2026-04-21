@@ -211,9 +211,12 @@ type ShellController struct {
 	volunteerCancel context.CancelFunc
 
 	// Local analysis persistence
-	gameSource    string                  // source identifier for the currently loaded game
+	gameSource    string                     // source identifier for the currently loaded game
 	analysisStore *gameanalysis.AnalysisStore // lazily opened SQLite store
 
+	// writer is an optional io.Writer for output redirection (used by notebook server).
+	// When nil, showMessage writes to os.Stdout.
+	writer io.Writer
 }
 
 type Mode int
@@ -261,9 +264,24 @@ func formatMessage(msg string) string {
 	return formattedMsg
 }
 
+// SetWriter sets an optional writer for output redirection. Pass nil to restore
+// the default (os.Stdout). Used by the notebook server to capture output.
+func (sc *ShellController) SetWriter(w io.Writer) {
+	sc.writer = w
+}
+
+// GameLoaded returns true if a game is currently loaded.
+func (sc *ShellController) GameLoaded() bool {
+	return sc.game != nil
+}
+
 func (sc *ShellController) showMessage(msg string) {
 	formattedMsg := formatMessage(msg)
-	writeln(formattedMsg, os.Stdout)
+	w := io.Writer(os.Stdout)
+	if sc.writer != nil {
+		w = sc.writer
+	}
+	writeln(formattedMsg, w)
 }
 
 func underlineText(text string) string {
