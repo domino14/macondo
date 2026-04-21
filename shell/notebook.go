@@ -251,6 +251,11 @@ func (sc *ShellController) NotebookExecute(line string) ([]*NotebookOutput, erro
 		return nil, errors.New("exit is not supported in notebook mode")
 	}
 
+	// sim heatmap "PLAY" [ply] → structured heatmap output.
+	if cmd.cmd == "sim" && len(cmd.args) >= 2 && cmd.args[0] == "heatmap" {
+		return sc.notebookHeatmap(cmd.args[1:])
+	}
+
 	// Capture any text written via showMessage during command execution.
 	var buf strings.Builder
 	sc.SetWriter(&buf)
@@ -296,6 +301,66 @@ func (sc *ShellController) NotebookExecute(line string) ([]*NotebookOutput, erro
 	}
 
 	return outputs, nil
+}
+
+// CommandInfo describes one shell command for the notebook frontend's
+// autocomplete and command palette features.
+type CommandInfo struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description"` // first line of helptext
+	HelpText    string   `json:"helpText"`     // full helptext content
+	Options     []string `json:"options"`      // ["--plies", "--threads", ...]
+	Verbs       []string `json:"verbs"`        // subcommand words like "stop", "show"
+}
+
+// notebookCommands is the ordered list of commands available in notebook mode.
+var notebookCommands = []string{
+	"new", "load", "unload", "show", "n", "p", "turn", "last",
+	"rack", "commit", "gen", "sim", "endgame", "peg", "infer",
+	"aiplay", "hastyplay", "challenge", "add",
+	"analyze", "analyze-turn", "analyze-batch", "analyze-browse", "analyze-view", "autoanalyze",
+	"var", "variation", "variations", "list",
+	"set", "setconfig", "alias", "name", "note", "mode", "export",
+	"cgp", "check", "gid", "leave", "gamestate", "mleval", "winpct", "explain",
+	"build-wmp", "speedtest", "script", "help",
+}
+
+// CommandsForNotebook returns metadata for all notebook-available commands,
+// used by the frontend for autocomplete and the command palette.
+func CommandsForNotebook() []CommandInfo {
+	out := make([]CommandInfo, 0, len(notebookCommands))
+	for _, name := range notebookCommands {
+		info := CommandInfo{Name: name}
+
+		// Load helptext: first line as short description, full text stored too.
+		if dat, err := helptext.ReadFile("helptext/" + name + ".txt"); err == nil {
+			full := strings.TrimSpace(string(dat))
+			info.HelpText = full
+			lines := strings.Split(full, "\n")
+			if len(lines) > 0 {
+				info.Description = strings.TrimSpace(lines[0])
+			}
+		}
+
+		// Options and verbs from the registered spec.
+		if spec, ok := commandSpecs[name]; ok {
+			info.Options = specOptionsFor(spec)
+			info.Verbs = spec.Verbs
+			if spec.ArgsFunc != nil {
+				// ArgsFunc requires a live ShellController; skip for now.
+			}
+		}
+
+		out = append(out, info)
+	}
+	return out
+}
+
+// HeatmapData is returned for `sim heatmap` in notebook mode.
+type HeatmapData struct {
+	Board  *BoardData  `json:"board"`
+	Values [][]float64 `json:"values"` // dim×dim fractions of max heat (0..1)
+	Play   string      `json:"play"`
 }
 
 // ProgressData is sent as the data for "progress" kind outputs during long operations.
@@ -395,7 +460,7 @@ func (sc *ShellController) streamSim(ctx context.Context, cmd *shellcmd, outCh c
 		doneCh <- simResult{err: sc.simmer.Simulate(simCtx)}
 	}()
 
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
 	outCh <- &NotebookOutput{Kind: "progress", Data: ProgressData{Message: "Simulation started..."}}
@@ -458,7 +523,7 @@ func (sc *ShellController) streamEndgame(ctx context.Context, cmd *shellcmd, out
 		doneCh <- endResult{res, err}
 	}()
 
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
 	outCh <- &NotebookOutput{Kind: "progress", Data: ProgressData{Message: "Endgame solver started..."}}
@@ -513,7 +578,7 @@ func (sc *ShellController) streamPeg(ctx context.Context, cmd *shellcmd, outCh c
 		doneCh <- pegResult{res, err}
 	}()
 
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
 	outCh <- &NotebookOutput{Kind: "progress", Data: ProgressData{Message: "Pre-endgame solver started..."}}
@@ -541,6 +606,47 @@ func (sc *ShellController) streamPeg(ctx context.Context, cmd *shellcmd, outCh c
 			outCh <- &NotebookOutput{Kind: "progress", Data: ProgressData{Message: "Solving pre-endgame..."}}
 		}
 	}
+}
+
+// notebookHeatmap handles `sim heatmap "PLAY" [ply]` and returns structured
+// heatmap data for the frontend instead of an ANSI terminal display.
+func (sc *ShellController) notebookHeatmap(args []string) ([]*NotebookOutput, error) {
+	if sc.simStats == nil {
+		return nil, errors.New("no sim stats available — run sim first with --collect-heatmap=true")
+	}
+	play := args[0]
+	ply := 0
+	if len(args) >= 2 {
+		var err error
+		ply, err = fmt.Sscanf(args[1], "%d", &ply)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ply %q", args[1])
+		}
+	}
+
+	heatmap, err := sc.simStats.CalculateHeatmap(play, ply)
+	if err != nil {
+		return nil, err
+	}
+
+	squares := heatmap.Squares()
+	values := make([][]float64, len(squares))
+	for r, row := range squares {
+		values[r] = make([]float64, len(row))
+		for c, h := range row {
+			values[r][c] = h.FractionOfMax()
+		}
+	}
+
+	boardData, err := sc.getBoardData()
+	if err != nil {
+		return nil, err
+	}
+
+	return []*NotebookOutput{{
+		Kind: "heatmap",
+		Data: &HeatmapData{Board: boardData, Values: values, Play: play},
+	}}, nil
 }
 
 // dispatchForNotebook dispatches a parsed command to the appropriate handler.

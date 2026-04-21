@@ -41,6 +41,12 @@ export interface MoveTableData {
   board?: BoardData;
 }
 
+export interface HeatmapData {
+  board: BoardData;
+  values: number[][];  // dim×dim, 0..1
+  play: string;
+}
+
 export interface NotebookOutput {
   kind: 'board' | 'table' | 'text' | 'error' | 'progress' | string;
   data: BoardData | MoveTableData | string | unknown;

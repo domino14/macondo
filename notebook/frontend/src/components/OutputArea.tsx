@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import type { NotebookOutput, BoardData, MoveTableData, MoveRow } from '../types'
+import type { NotebookOutput, BoardData, MoveTableData, MoveRow, HeatmapData } from '../types'
 import Board from './Board'
 import MoveTable from './MoveTable'
+import HeatmapView from './HeatmapView'
 
 export default function OutputArea({ outputs }: { outputs: NotebookOutput[] }) {
   if (outputs.length === 0) return null
@@ -54,6 +55,9 @@ function OutputItem({ output }: { output: NotebookOutput }) {
       const text = stripAnsi(String(output.data))
       return <pre className="output-text">{text}</pre>
     }
+
+    case 'heatmap':
+      return <HeatmapView data={output.data as HeatmapData} />
 
     case 'error':
       return <pre className="output-error">Error: {String(output.data)}</pre>

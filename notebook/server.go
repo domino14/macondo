@@ -80,6 +80,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/execute", s.handleExecute)
 	mux.HandleFunc("/api/cancel", s.handleCancel)
 	mux.HandleFunc("/api/state", s.handleState)
+	mux.HandleFunc("/api/commands", s.handleCommands)
 
 	// Serve built frontend assets (fonts, JS bundles, etc.)
 	sub, err := fs.Sub(frontendFS, "frontend/dist")
@@ -202,7 +203,6 @@ func (s *Server) executeCell(req ExecuteRequest) {
 		}
 	}()
 
-	var execErr error
 	lines := strings.Split(req.Content, "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -215,7 +215,6 @@ func (s *Server) executeCell(req ExecuteRequest) {
 				log.Error().Str("cell_id", req.CellID).Str("line", line).Err(err).Msg("notebook execute error")
 				outCh <- &shell.NotebookOutput{Kind: "error", Data: err.Error()}
 			}
-			execErr = err
 			break
 		}
 	}
@@ -223,11 +222,8 @@ func (s *Server) executeCell(req ExecuteRequest) {
 	close(outCh)
 	<-broadcastDone // ensure all outputs are flushed before Done
 
-	if execErr == nil || errors.Is(execErr, context.Canceled) {
-		s.broadcast(SSEEvent{CellID: req.CellID, Done: true})
-	} else {
-		s.broadcast(SSEEvent{CellID: req.CellID, Done: true, Error: execErr.Error()})
-	}
+	// Always send a plain Done — errors were already emitted as output events above.
+	s.broadcast(SSEEvent{CellID: req.CellID, Done: true})
 }
 
 // handleCancel handles POST /api/cancel.
@@ -253,6 +249,12 @@ func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
 // StateResponse is returned by GET /api/state.
 type StateResponse struct {
 	GameLoaded bool `json:"game_loaded"`
+}
+
+// handleCommands handles GET /api/commands — returns command metadata for autocomplete.
+func (s *Server) handleCommands(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(shell.CommandsForNotebook())
 }
 
 // handleState handles GET /api/state — lightweight poll for game status.

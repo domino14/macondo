@@ -295,6 +295,9 @@ func (sc *ShellController) last(cmd *shellcmd) (*Response, error) {
 	if sc.solving() {
 		return nil, errMacondoSolving
 	}
+	if sc.game == nil {
+		return nil, errors.New("no currently loaded game")
+	}
 	err := sc.setToTurn(len(sc.game.History().Events))
 	if err != nil {
 		return nil, err

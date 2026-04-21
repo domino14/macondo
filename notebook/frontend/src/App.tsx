@@ -1,7 +1,9 @@
 import { useState, useCallback, useEffect, useRef, useId } from 'react'
 import type { CellData, CellLanguage, NotebookOutput, SSEEvent } from './types'
 import { useSSE } from './hooks/useSSE'
+import { useCommands } from './hooks/useCommands'
 import Cell from './components/Cell'
+import CommandPalette from './components/CommandPalette'
 
 interface ProgressData { message: string; iterations?: number }
 
@@ -23,6 +25,8 @@ const INITIAL_CELLS: CellData[] = [
 export default function App() {
   const [cells, setCells] = useState<CellData[]>(INITIAL_CELLS)
   const [focusCellId, setFocusCellId] = useState<string | null>(null)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const commands = useCommands()
   const bottomRef = useRef<HTMLDivElement>(null)
   const prevCellCountRef = useRef(INITIAL_CELLS.length)
 
@@ -32,6 +36,18 @@ export default function App() {
     }
     prevCellCountRef.current = cells.length
   }, [cells.length])
+
+  // Ctrl+P / Cmd+P → command palette
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
+        e.preventDefault()
+        setPaletteOpen(o => !o)
+      }
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [])
 
   // App-level output/running/progress state, keyed by cell id
   const [cellOutputs, setCellOutputs] = useState<Record<string, NotebookOutput[]>>({})
@@ -52,16 +68,6 @@ export default function App() {
           [cell_id]: [...(prev[cell_id] ?? []), event.output!],
         }))
       }
-    }
-
-    if (event.error) {
-      setCellOutputs(prev => ({
-        ...prev,
-        [cell_id]: [
-          ...(prev[cell_id] ?? []),
-          { kind: 'error', data: event.error! },
-        ],
-      }))
     }
 
     if (event.done) {
@@ -207,12 +213,18 @@ export default function App() {
 
   return (
     <>
+      {paletteOpen && (
+        <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />
+      )}
       <header className="header">
         <div className="header-brand">
           <div className="header-dot" />
           Macondo Notebook
         </div>
         <span className="header-spacer" />
+        <button className="header-btn" onClick={() => setPaletteOpen(true)} title="Command palette (Ctrl+P)">
+          ⌘P
+        </button>
         <label htmlFor={fileInputId} className="header-btn" style={{ cursor: 'pointer' }}>
           Open
           <input
