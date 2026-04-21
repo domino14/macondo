@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -22,7 +23,72 @@ import (
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/tinymove"
 	"github.com/domino14/macondo/tinymove/conversions"
+	"github.com/domino14/macondo/zobrist"
 )
+
+// nestedCacheKey uniquely identifies an information state at which
+// nestedOurTurnSolve is entered. The result is a pure function of this state
+// (given fixed solver config), so we can memoize it.
+type nestedCacheKey struct {
+	board          uint64                               // board-only Zobrist hash
+	ourRack        [zobrist.MaxLetters]uint8            // Rack.LetArr narrowed to uint8
+	unseen         [tilemapping.MaxAlphabetSize]uint8   // bag.Peek() ∪ opp.rack multiset
+	scorelessTurns uint8                                // 0 or 1 in practice (2 ends the game)
+}
+
+// nestedCache is a shared, thread-safe memo table for nestedOurTurnSolve
+// results, keyed on info-state. It is reset at the start of each
+// iterative-deepening ply so stale board/ply-depth entries don't accumulate.
+type nestedCache struct {
+	mu sync.RWMutex
+	m  map[nestedCacheKey]PEGOutcome
+}
+
+func (c *nestedCache) reset() {
+	c.mu.Lock()
+	c.m = make(map[nestedCacheKey]PEGOutcome)
+	c.mu.Unlock()
+}
+
+func (c *nestedCache) lookup(key nestedCacheKey) (PEGOutcome, bool) {
+	c.mu.RLock()
+	v, ok := c.m[key]
+	c.mu.RUnlock()
+	return v, ok
+}
+
+func (c *nestedCache) store(key nestedCacheKey, outcome PEGOutcome) {
+	c.mu.Lock()
+	c.m[key] = outcome
+	c.mu.Unlock()
+}
+
+func (c *nestedCache) size() int {
+	c.mu.RLock()
+	n := len(c.m)
+	c.mu.RUnlock()
+	return n
+}
+
+// buildNestedCacheKey constructs the cache key from the current game state
+// visible through the per-thread game copy. Must be called before any
+// sub-permutation reshuffling inside nestedOurTurnSolve.
+func (s *Solver) buildNestedCacheKey(g *game.Game) nestedCacheKey {
+	var k nestedCacheKey
+	k.board = s.ttable.Zobrist().BoardHash(g.Board().GetSquares())
+	for i, ct := range g.RackFor(g.PlayerOnTurn()).LetArr {
+		k.ourRack[i] = uint8(ct)
+	}
+	opp := 1 - g.PlayerOnTurn()
+	for _, t := range g.Bag().Peek() {
+		k.unseen[int(t)]++
+	}
+	for _, t := range g.RackFor(opp).TilesOn() {
+		k.unseen[int(t)]++
+	}
+	k.scorelessTurns = uint8(g.ScorelessTurns())
+	return k
+}
 
 func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move, logChan chan []byte) ([]*PreEndgamePlay, error) {
 	// for every move, solve all the possible endgames.
@@ -107,6 +173,12 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 			case <-ctx.Done():
 				return
 			case <-t.C:
+				ch := s.nestedCacheHits.Load()
+				cm := s.nestedCacheMisses.Load()
+				cr := float64(0)
+				if ch+cm > 0 {
+					cr = float64(ch) / float64(ch+cm)
+				}
 				log.Info().
 					Uint32("processed", processed.Load()).
 					Uint64("endgames-solved", s.numEndgamesSolved.Load()).
@@ -114,6 +186,10 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 					Uint64("nested-calls", s.numNestedCalls.Load()).
 					Uint64("max-nested-depth", s.maxNestedDepth.Load()).
 					Uint64("sub-perms-evaluated", s.numSubPermsEvaluated.Load()).
+					Uint64("nested-cache-hits", ch).
+					Uint64("nested-cache-misses", cm).
+					Float64("nested-cache-hit-rate", cr).
+					Int("nested-cache-size", s.nestedCache.size()).
 					Msg("peg-status")
 			}
 		}
@@ -183,11 +259,21 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 		log.Info().Msg("timed out or stopped; returning best results so far...")
 		err = ErrCanceledEarly
 	}
+	wh := s.nestedCacheHits.Load()
+	wm := s.nestedCacheMisses.Load()
+	wr := float64(0)
+	if wh+wm > 0 {
+		wr = float64(wh) / float64(wh+wm)
+	}
 	log.Info().Uint64("solved-endgames", s.numEndgamesSolved.Load()).
 		Uint64("cutoff-moves", s.numCutoffs.Load()).
 		Uint64("nested-calls", s.numNestedCalls.Load()).
 		Uint64("max-nested-depth", s.maxNestedDepth.Load()).
 		Uint64("sub-perms-evaluated", s.numSubPermsEvaluated.Load()).
+		Uint64("nested-cache-hits", wh).
+		Uint64("nested-cache-misses", wm).
+		Float64("nested-cache-hit-rate", wr).
+		Int("nested-cache-size", s.nestedCache.size()).
 		Str("winner", s.plays[0].String()).Msg("winning-play")
 
 	return s.plays, err
@@ -908,6 +994,15 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int, nestedDepth
 	g := s.endgameSolvers[thread].Game()
 	mg := s.endgameSolvers[thread].Movegen()
 
+	// Cache lookup: many outer permutations collapse to the same info-state.
+	// The result is a pure function of (board, our rack, unseen, scoreless turns).
+	cacheKey := s.buildNestedCacheKey(g)
+	if outcome, ok := s.nestedCache.lookup(cacheKey); ok {
+		s.nestedCacheHits.Add(1)
+		return outcome, nil
+	}
+	s.nestedCacheMisses.Add(1)
+
 	// Save bag + racks. The defer restores them once we're done testing
 	// sub-permutations, so the caller's UnplayLastMove sees the right state.
 	snap := snapshotPEGState(g)
@@ -981,6 +1076,7 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int, nestedDepth
 		subPegPlay.finalize()
 
 		if subPegPlay.IsGuaranteedWin() {
+			s.nestedCache.store(cacheKey, PEGWin)
 			return PEGWin, nil
 		}
 		if subPegPlay.IsGuaranteedNonLoss() {
@@ -988,10 +1084,12 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int, nestedDepth
 		}
 	}
 
+	result := PEGLoss
 	if anyNonLoss {
-		return PEGDraw, nil
+		result = PEGDraw
 	}
-	return PEGLoss, nil
+	s.nestedCache.store(cacheKey, result)
+	return result, nil
 }
 
 // pegStateSnapshot captures bag order and both racks so the nested PEG can

@@ -422,8 +422,12 @@ type Solver struct {
 	numNestedCalls       atomic.Uint64
 	numSubPermsEvaluated atomic.Uint64
 	maxNestedDepth       atomic.Uint64
+	nestedCacheHits      atomic.Uint64
+	nestedCacheMisses    atomic.Uint64
 	potentialWinnerMutex sync.RWMutex
 	minPotentialLosses   float32
+
+	nestedCache nestedCache
 
 	threadLogs             []jobLog
 	threadNestedCalls      []uint64
@@ -494,6 +498,8 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 	s.numNestedCalls.Store(0)
 	s.numSubPermsEvaluated.Store(0)
 	s.maxNestedDepth.Store(0)
+	s.nestedCacheHits.Store(0)
+	s.nestedCacheMisses.Store(0)
 
 	var winners []*PreEndgamePlay
 	var err error
@@ -637,6 +643,7 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 		for i := range s.arenas {
 			s.arenas[i] = tinymove.NewSmallMoveArena(tinymove.DefaultSmallMoveArenaSize)
 		}
+		s.nestedCache.reset()
 		log.Info().Int("nmoves", len(moves)).Int("nthreads", s.threads).Msg("peg-generated-moves")
 
 		winners, err = s.multithreadSolveGeneric(ctx, moves, logChan)
@@ -662,10 +669,20 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 		close(done)
 		writer.Wait()
 	}
+	hits := s.nestedCacheHits.Load()
+	misses := s.nestedCacheMisses.Load()
+	hitRate := float64(0)
+	if hits+misses > 0 {
+		hitRate = float64(hits) / float64(hits+misses)
+	}
 	log.Info().Str("ttable-stats", s.ttable.Stats()).
 		Uint64("nested-calls", s.numNestedCalls.Load()).
 		Uint64("max-nested-depth", s.maxNestedDepth.Load()).
 		Uint64("sub-perms-evaluated", s.numSubPermsEvaluated.Load()).
+		Uint64("nested-cache-hits", hits).
+		Uint64("nested-cache-misses", misses).
+		Float64("nested-cache-hit-rate", hitRate).
+		Int("nested-cache-size", s.nestedCache.size()).
 		Float64("time-elapsed-sec", time.Since(ts).Seconds()).
 		Msg("solve-returning")
 	return winners, nil
