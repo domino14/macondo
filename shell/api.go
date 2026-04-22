@@ -827,6 +827,7 @@ func (sc *ShellController) pegPrepare(cmd *shellcmd) (*pegParams, error) {
 	earlyCutoff := cmd.options.Bool("early-cutoff")
 	skipTiebreaker := cmd.options.Bool("skip-tiebreaker")
 	disableIterativeDeepening := cmd.options.Bool("disable-id")
+	idExplicitlySet := len(cmd.options["disable-id"]) > 0
 	nestedDepthLimit, err := cmd.options.IntDefault("max-nested-depth", 1)
 	if err != nil {
 		return nil, err
@@ -850,9 +851,19 @@ func (sc *ShellController) pegPrepare(cmd *shellcmd) (*pegParams, error) {
 		}
 		movesToSolve = append(movesToSolve, m)
 	}
+
+	idNote := ""
+	if len(movesToSolve) > 0 && !idExplicitlySet {
+		disableIterativeDeepening = true
+		idNote = " (auto-disabled: -only-solve set)"
+	}
+	idStr := "on"
+	if disableIterativeDeepening {
+		idStr = "off"
+	}
 	sc.showMessage(fmt.Sprintf(
-		"endgameplies %v, maxtime %v, threads %v",
-		endgamePlies, maxtime, maxthreads))
+		"endgameplies %v, maxtime %v, threads %v, iterative-deepening %v%v, nested-depth-limit %v",
+		endgamePlies, maxtime, maxthreads, idStr, idNote, nestedDepthLimit))
 
 	gd, err := kwg.GetKWG(sc.game.Config().WGLConfig(), sc.game.LexiconName())
 	if err != nil {
