@@ -14,13 +14,13 @@ import (
 	"github.com/domino14/macondo/move"
 )
 
-// TestDebugPegHiedGEI traces one specific bag outcome (opp=LEANERS, bag=GEI)
+// TestDebugPegLeanersGEI traces one specific bag outcome (opp=LEANERS, bag=GEI)
 // through the full PEG recursion for play 13M P(AH). Remove the t.Skip to run.
-// Output goes to preendgame/peg-debug-hied-GEI.txt.
-func TestDebugPegHiedGEI(t *testing.T) {
-	t.Skip("manual debug harness; comment out to run")
+// Output goes to preendgame/peg-debug-leaners-GEI.txt.
+func TestDebugPegLeanersGEI(t *testing.T) {
+	// t.Skip("manual debug harness; comment out to run")
 
-	const cgpStr = "BEDEL10/R1R9U2/9FLENCHES/15/15/15/15/15/15/15/15/INRO11/15/15/15 ?ANNOPY/AEEGLRS 344/368 0 lex CSW21;"
+	const cgpStr = "BEDEL10/R1R9U2/O1IT1Q5OM2/W1BIDI4YUM2/N2XI5AT3/E3G4T1R3/S1VOILE2OKA3/T3T1DISPACED1/9AWE1O1/9Z1s1FA/14R/13GO/13AH/3JUVIE4UTA/INRO3FLENCHES ?ANNOPY/AEELNRS 344/368 0 lex CSW21;"
 
 	is := is.New(t)
 	g, err := cgp.ParseCGP(DefaultConfig, cgpStr)
@@ -43,12 +43,13 @@ func TestDebugPegHiedGEI(t *testing.T) {
 	peg.SetSkipDeepPass(false)
 	peg.SetSkipTiebreaker(true)
 
-	// Trace only the perm where opp draws LEANERS and bag tail is GEI (in order).
-	peg.SetTraceTargetFirstRack("AEELNRS") // LEANERS sorted
-	peg.SetTraceTargetBagTail("GEI")
+	// Trace only the perm where bag draw order is G, E, I (G drawn first by us).
+	bagTail, err := tilemapping.ToMachineLetters("GEI", g.Alphabet())
+	is.NoErr(err)
+	peg.SetTraceTargetBagTail(bagTail)
 	peg.SetTraceOnce(true)
 
-	f, err := os.Create("peg-debug-hied-GEI.txt")
+	f, err := os.Create("peg-debug-leaners-GEI.txt")
 	is.NoErr(err)
 	defer f.Close()
 	peg.SetTraceWriter(f)

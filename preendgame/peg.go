@@ -439,8 +439,7 @@ type Solver struct {
 
 	// Debug trace fields — zero-valued means tracing disabled.
 	traceWriter          io.Writer
-	traceTargetFirstRack string // sorted letters to match for opp rack, e.g. "AEELNRS"
-	traceTargetBagTail   string // ordered bag remainder to match, e.g. "GEI"
+	traceTargetBagTail tilemapping.MachineWord // draw-order bag tiles to match (first drawn first)
 	traceOnce            bool
 	traceSeenMatch       atomic.Bool
 	traceMu              sync.Mutex
@@ -474,8 +473,9 @@ func (s *Solver) SetLogStream(l io.Writer) {
 }
 
 func (s *Solver) SetTraceWriter(w io.Writer)        { s.traceWriter = w }
-func (s *Solver) SetTraceTargetFirstRack(r string)  { s.traceTargetFirstRack = r }
-func (s *Solver) SetTraceTargetBagTail(tail string) { s.traceTargetBagTail = tail }
+func (s *Solver) SetTraceTargetBagTail(tail tilemapping.MachineWord) {
+	s.traceTargetBagTail = tail
+}
 func (s *Solver) SetTraceOnce(once bool)            { s.traceOnce = once }
 
 func (s *Solver) trace(indent int, format string, args ...any) {
