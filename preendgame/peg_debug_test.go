@@ -18,7 +18,7 @@ import (
 // through the full PEG recursion for play 13M P(AH). Remove the t.Skip to run.
 // Output goes to preendgame/peg-debug-leaners-GEI.txt.
 func TestDebugPegLeanersGEI(t *testing.T) {
-	// t.Skip("manual debug harness; comment out to run")
+	t.Skip("manual debug harness; comment out to run")
 
 	const cgpStr = "BEDEL10/R1R9U2/O1IT1Q5OM2/W1BIDI4YUM2/N2XI5AT3/E3G4T1R3/S1VOILE2OKA3/T3T1DISPACED1/9AWE1O1/9Z1s1FA/14R/13GO/13AH/3JUVIE4UTA/INRO3FLENCHES ?ANNOPY/AEELNRS 344/368 0 lex CSW21;"
 

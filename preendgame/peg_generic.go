@@ -1018,10 +1018,10 @@ func (s *Solver) allocSortedReplies(thread int, prevMove tinymove.SmallMove) []t
 	return genPlays
 }
 
-// iterateOppReplies calls recursiveSolve for every opponent reply in genPlays.
-// All plays are enumerated — none are skipped — so the leaves' calls to
-// setUnfinalizedWinPctStat accumulate every possible opp outcome for inbagOption,
-// letting the pessimistic aggregation rule (any Loss dominates) take effect.
+// iterateOppReplies calls recursiveSolve for each opponent reply in genPlays,
+// stopping as soon as the current inbagOption.mls is confirmed a loss. A loss
+// from any single opp reply is absorbing (setUnfinalizedWinPctStat makes loss
+// irrevocable), so remaining replies cannot change the verdict.
 func (s *Solver) iterateOppReplies(ctx context.Context, thread int, pegPlay *PreEndgamePlay,
 	inbagOption option, winnerChan chan *PreEndgamePlay, depth int,
 	pegPlayEmptiesBag, fullSolve bool, genPlays []tinymove.SmallMove, nestedDepth int) error {
@@ -1032,6 +1032,9 @@ func (s *Solver) iterateOppReplies(ctx context.Context, thread int, pegPlay *Pre
 		if err != nil {
 			log.Err(err).Msg("recursive-solve-err")
 			return err
+		}
+		if !fullSolve && pegPlay.HasLoss(inbagOption.mls) {
+			break
 		}
 	}
 	return nil
