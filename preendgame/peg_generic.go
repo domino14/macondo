@@ -199,18 +199,25 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 				if ch+cm > 0 {
 					cr = float64(ch) / float64(ch+cm)
 				}
-				log.Info().
-					Uint32("processed", processed.Load()).
-					Uint64("endgames-solved", s.numEndgamesSolved.Load()).
-					Uint64("cutoffs", s.numCutoffs.Load()).
-					Uint64("nested-calls", s.numNestedCalls.Load()).
-					Uint64("max-nested-depth", s.maxNestedDepth.Load()).
-					Uint64("sub-perms-evaluated", s.numSubPermsEvaluated.Load()).
-					Uint64("nested-cache-hits", ch).
-					Uint64("nested-cache-misses", cm).
-					Float64("nested-cache-hit-rate", cr).
-					Int("nested-cache-size", s.nestedCache.size()).
-					Msg("peg-status")
+				nestedByBagSize := make(map[int]uint64)
+					for i := 1; i <= InBagMaxLimit; i++ {
+						if n := s.numNestedByBagSize[i].Load(); n > 0 {
+							nestedByBagSize[i] = n
+						}
+					}
+					log.Info().
+						Uint32("processed", processed.Load()).
+						Uint64("endgames-solved", s.numEndgamesSolved.Load()).
+						Uint64("cutoffs", s.numCutoffs.Load()).
+						Uint64("nested-calls", s.numNestedCalls.Load()).
+						Uint64("max-nested-depth", s.maxNestedDepth.Load()).
+						Uint64("sub-perms-evaluated", s.numSubPermsEvaluated.Load()).
+						Uint64("nested-cache-hits", ch).
+						Uint64("nested-cache-misses", cm).
+						Float64("nested-cache-hit-rate", cr).
+						Int("nested-cache-size", s.nestedCache.size()).
+						Interface("nested-calls-by-bag-size", nestedByBagSize).
+						Msg("peg-status")
 			}
 		}
 	}()
@@ -1119,6 +1126,9 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int, nestedDepth
 
 	opp := 1 - g.PlayerOnTurn()
 	subBagSize := g.Bag().TilesRemaining()
+	if subBagSize <= InBagMaxLimit {
+		s.numNestedByBagSize[subBagSize].Add(1)
+	}
 
 	// Unseen pool = current bag + opp's rack. This is our full info-set; we
 	// cannot distinguish which unseen tiles are in the bag vs. on opp's rack.

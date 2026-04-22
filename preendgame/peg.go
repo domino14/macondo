@@ -417,13 +417,14 @@ type Solver struct {
 	nestedDepthLimit     int  // -1 = unlimited; default 1
 	skipDeepPass         bool // default true; forwarded to endgame solvers
 
-	numEndgamesSolved    atomic.Uint64
-	numCutoffs           atomic.Uint64
-	numNestedCalls       atomic.Uint64
-	numSubPermsEvaluated atomic.Uint64
-	maxNestedDepth       atomic.Uint64
-	nestedCacheHits      atomic.Uint64
-	nestedCacheMisses    atomic.Uint64
+	numEndgamesSolved        atomic.Uint64
+	numCutoffs               atomic.Uint64
+	numNestedCalls           atomic.Uint64
+	numSubPermsEvaluated     atomic.Uint64
+	maxNestedDepth           atomic.Uint64
+	nestedCacheHits          atomic.Uint64
+	nestedCacheMisses        atomic.Uint64
+	numNestedByBagSize       [InBagMaxLimit + 1]atomic.Uint64
 	potentialWinnerMutex sync.RWMutex
 	minPotentialLosses   float32
 
