@@ -359,6 +359,15 @@ func (p *PreEndgamePlay) TotalOutcomes() int {
 	return total
 }
 
+type inFlightPermInfo struct {
+	play             string
+	permInBag        string
+	oppRack          string
+	ourRack          string
+	startedAt        time.Time
+	endgamesAtStart  uint64
+}
+
 type jobLog struct {
 	PEGPlay              string         `yaml:"peg_play"`
 	FoundLosses          int            `yaml:"found_losses"`
@@ -418,6 +427,7 @@ type Solver struct {
 	skipDeepPass         bool // default true; forwarded to endgame solvers
 
 	numEndgamesSolved        atomic.Uint64
+	totalPerms               atomic.Uint32
 	numCutoffs               atomic.Uint64
 	numNestedCalls           atomic.Uint64
 	numSubPermsEvaluated     atomic.Uint64
@@ -430,10 +440,15 @@ type Solver struct {
 
 	nestedCache nestedCache
 
-	threadLogs             []jobLog
-	threadNestedCalls      []uint64
-	threadMaxNestedDepth   []uint64
+	threadLogs              []jobLog
+	threadNestedCalls       []uint64
+	threadMaxNestedDepth    []uint64
 	threadSubPermsEvaluated []uint64
+	threadEndgamesSolved    []atomic.Uint64
+	threadNestedBagSize     []atomic.Int32 // subBagSize of the active nested call, 0 if none
+
+	inFlightMu    sync.RWMutex
+	inFlightPerms []inFlightPermInfo
 
 	// Per-thread arenas for SmallMove slices used in recursiveSolve.
 	arenas []*tinymove.SmallMoveArena
@@ -454,6 +469,9 @@ func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
 	s.threadNestedCalls = make([]uint64, s.threads)
 	s.threadMaxNestedDepth = make([]uint64, s.threads)
 	s.threadSubPermsEvaluated = make([]uint64, s.threads)
+	s.threadEndgamesSolved = make([]atomic.Uint64, s.threads)
+	s.threadNestedBagSize = make([]atomic.Int32, s.threads)
+	s.inFlightPerms = make([]inFlightPermInfo, s.threads)
 	s.ttable.SetMultiThreadedMode()
 	s.game = g.Copy()
 	s.game.SetBackupMode(game.SimulationMode)
@@ -467,6 +485,19 @@ func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
 	s.nestedDepthLimit = 1
 	s.skipDeepPass = true
 	return nil
+}
+
+func (s *Solver) setInFlight(thread int, play, permInBag, oppRack, ourRack string) {
+	s.inFlightMu.Lock()
+	s.inFlightPerms[thread] = inFlightPermInfo{
+		play:            play,
+		permInBag:       permInBag,
+		oppRack:         oppRack,
+		ourRack:         ourRack,
+		startedAt:       time.Now(),
+		endgamesAtStart: s.threadEndgamesSolved[thread].Load(),
+	}
+	s.inFlightMu.Unlock()
 }
 
 func (s *Solver) SetLogStream(l io.Writer) {
