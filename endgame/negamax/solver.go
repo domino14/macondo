@@ -1567,6 +1567,14 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	var err error
 	var moveTiles *[21]tilemapping.MachineLetter
 
+	// At depth==1 the child call immediately evaluates the spread without
+	// generating any moves, so cross-sets computed during PlaySmallMove would
+	// be discarded by UnplayLastMove without ever being read. Skip them.
+	playMove := g.PlaySmallMove
+	if depth == 1 {
+		playMove = g.PlaySmallMoveNoCrossSet
+	}
+
 	// ABDADA: track deferred moves for second pass
 	var deferredMoves []int
 
@@ -1585,7 +1593,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		if s.logStream != nil {
 			// fmt.Fprintf(s.logStream, "  %v- play: %v\n", logIndent, children[idx].ShortDescription())
 		}
-		moveTiles, err = g.PlaySmallMove(&children[idx])
+		moveTiles, err = playMove(&children[idx])
 		if err != nil {
 			return 0, err
 		}
@@ -1668,7 +1676,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			if s.logStream != nil {
 				// fmt.Fprintf(s.logStream, "  %v- play (deferred): %v\n", logIndent, children[idx].ShortDescription())
 			}
-			moveTiles, err = g.PlaySmallMove(&children[idx])
+			moveTiles, err = playMove(&children[idx])
 			if err != nil {
 				return 0, err
 			}
