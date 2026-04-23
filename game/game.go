@@ -534,6 +534,18 @@ func convertToVisible(words []tilemapping.MachineWord,
 // If the millis argument is passed in, it adds this value to the history
 // as the time remaining for the user (when they played the move).
 func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
+	return g.playMove(m, addToHistory, millis, true)
+}
+
+// PlayMoveNoCrossSet is like PlayMove but skips cross-set recalculation.
+// Use this when no move generation will happen from the resulting position
+// (e.g. the last ply of a Monte Carlo simulation), so the cross-set work
+// would be discarded by UnplayLastMove anyway.
+func (g *Game) PlayMoveNoCrossSet(m *move.Move, addToHistory bool, millis int) error {
+	return g.playMove(m, addToHistory, millis, false)
+}
+
+func (g *Game) playMove(m *move.Move, addToHistory bool, millis int, updateCrossSets bool) error {
 
 	// We need to handle challenges separately.
 	if m.Action() == move.MoveTypeChallenge {
@@ -556,8 +568,10 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 	switch m.Action() {
 	case move.MoveTypePlay:
 		g.board.PlayMove(m)
-		// Calculate cross-sets.
-		g.crossSetGen.UpdateForMove(g.board, m)
+		if updateCrossSets {
+			// Calculate cross-sets.
+			g.crossSetGen.UpdateForMove(g.board, m)
+		}
 		score := m.Score()
 		// no international rule counts a score of 0 as a scoreless turn
 		// if it's from tiles being played on the board (like a blank next
