@@ -417,6 +417,7 @@ type Solver struct {
 	logStream        io.Writer
 	solveOnlyMoves   []*move.Move
 	avoidPruneMoves  []*move.Move
+	leaveCalc        equity.Leaves
 
 	earlyCutoffOptim bool
 	maxTilesLeft     int // -1 = no limit; skip plays leaving more than this many tiles in the bag. default 1
@@ -575,6 +576,7 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 	if err != nil {
 		return nil, err
 	}
+	s.leaveCalc = c
 	for _, m := range moves {
 		m.SetEquity(c.Equity(m, s.game.Board(), s.game.Bag(), nil))
 	}

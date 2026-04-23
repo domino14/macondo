@@ -363,7 +363,6 @@ func (s *Solver) computeSortedOptions(maybeInBagTiles []int) [][]option {
 
 	result := make([][]option, len(s.plays))
 	for pi, p := range s.plays {
-		firstPlayEmptiesBag := p.Play.TilesPlayed() >= s.numinbag
 		opts := make([]option, len(permutations))
 		for j, perm := range permutations {
 			tiles := make([]tilemapping.MachineLetter, len(perm.Perm))
@@ -371,26 +370,22 @@ func (s *Solver) computeSortedOptions(maybeInBagTiles []int) [][]option {
 				tiles[k] = tilemapping.MachineLetter(el)
 			}
 			opt := option{mls: tiles, ct: perm.Count}
-			if firstPlayEmptiesBag {
-				g0.ThrowRacksInFor(1 - g0.PlayerOnTurn())
-				MoveTilesToBeginning(tiles, g0.Bag())
-				if _, err := g0.SetRandomRack(1-g0.PlayerOnTurn(), nil); err == nil {
-					if err := g0.PlayMove(p.Play, false, 0); err == nil {
-						mg0.GenAll(g0.RackFor(g0.PlayerOnTurn()), false)
-						if len(mg0.Plays()) > 0 {
-							opt.oppEstimate = float64(mg0.Plays()[0].Equity())
-						}
-						g0.UnplayLastMove()
+			g0.ThrowRacksInFor(1 - g0.PlayerOnTurn())
+			MoveTilesToBeginning(tiles, g0.Bag())
+			if _, err := g0.SetRandomRack(1-g0.PlayerOnTurn(), nil); err == nil {
+				if err := g0.PlayMove(p.Play, false, 0); err == nil {
+					mg0.GenAll(g0.RackFor(g0.PlayerOnTurn()), false)
+					if len(mg0.Plays()) > 0 {
+						opt.oppEstimate = float64(mg0.Plays()[0].Equity())
 					}
+					g0.UnplayLastMove()
 				}
 			}
 			opts[j] = opt
 		}
-		if firstPlayEmptiesBag {
-			sort.Slice(opts, func(i, j int) bool {
-				return opts[i].oppEstimate > opts[j].oppEstimate
-			})
-		}
+		sort.Slice(opts, func(i, j int) bool {
+			return opts[i].oppEstimate > opts[j].oppEstimate
+		})
 		for k := range opts {
 			opts[k].idx = k
 		}
@@ -800,20 +795,18 @@ func (s *Solver) processJobPerPlay(ctx context.Context, j job, thread int,
 		for idx, el := range perm.Perm {
 			tiles[idx] = tilemapping.MachineLetter(el)
 		}
-		if firstPlayEmptiesBag && !j.fullSolve {
+		if !j.fullSolve {
 			g.ThrowRacksInFor(1 - g.PlayerOnTurn())
 			MoveTilesToBeginning(tiles, g.Bag())
-			_, err := g.SetRandomRack(1-g.PlayerOnTurn(), nil)
-			if err != nil {
-				return err
+			if _, err := g.SetRandomRack(1-g.PlayerOnTurn(), nil); err == nil {
+				if err := g.PlayMove(j.ourMove.Play, false, 0); err == nil {
+					mg.GenAll(g.RackFor(g.PlayerOnTurn()), false)
+					if len(mg.Plays()) > 0 {
+						topEquity = mg.Plays()[0].Equity()
+					}
+					g.UnplayLastMove()
+				}
 			}
-			err = g.PlayMove(j.ourMove.Play, false, 0)
-			if err != nil {
-				return err
-			}
-			mg.GenAll(g.RackFor(g.PlayerOnTurn()), false)
-			topEquity = mg.Plays()[0].Equity()
-			g.UnplayLastMove()
 		}
 		options = append(options, option{
 			mls:         tiles,
@@ -821,7 +814,7 @@ func (s *Solver) processJobPerPlay(ctx context.Context, j job, thread int,
 			oppEstimate: float64(topEquity),
 		})
 	}
-	if firstPlayEmptiesBag && !j.fullSolve {
+	if !j.fullSolve {
 		sort.Slice(options, func(i, j int) bool {
 			return options[i].oppEstimate > options[j].oppEstimate
 		})
@@ -1206,6 +1199,39 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int, nestedDepth
 	}
 	subPerms := generatePermutations(unseenList, subBagSize)
 
+	// Sort sub-perms by opp's expected best score descending: perms where opp scores
+	// highest (hardest for us) come first, surfacing losses early so the
+	// strict->minLossesSoFar cutoff eliminates weak sub-plays sooner.
+	{
+		type spWithEst struct {
+			sp  Permutation
+			est float64
+		}
+		spe := make([]spWithEst, len(subPerms))
+		mg.(*movegen.GordonGenerator).SetPlayRecorderTopPlay()
+		for i, sp := range subPerms {
+			tiles := make([]tilemapping.MachineLetter, len(sp.Perm))
+			for j, el := range sp.Perm {
+				tiles[j] = tilemapping.MachineLetter(el)
+			}
+			spe[i] = spWithEst{sp: sp}
+			g.ThrowRacksInFor(opp)
+			MoveTilesToBeginning(tiles, g.Bag())
+			if _, err := g.SetRandomRack(opp, nil); err == nil {
+				mg.GenAll(g.RackFor(opp), false)
+				if plays := mg.Plays(); len(plays) > 0 {
+					spe[i].est = plays[0].Equity()
+				}
+			}
+		}
+		snap.restore(g)
+		sort.Slice(spe, func(i, j int) bool { return spe[i].est > spe[j].est })
+		for i := range spe {
+			subPerms[i] = spe[i].sp
+		}
+		mg.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
+	}
+
 	if s.skipDeepPass {
 		lastMoveWasPass := g.ScorelessTurns() > g.LastScorelessTurns()
 		mg.SetGenPass(lastMoveWasPass)
@@ -1216,10 +1242,25 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int, nestedDepth
 	subPlays := s.arenas[thread].Alloc(len(ourPlays))
 	copy(subPlays, ourPlays)
 	defer s.arenas[thread].Dealloc(len(subPlays))
-	// Evaluate best-equity plays first so minLossesSoFar is set tightly early,
-	// enabling the strict-greater cutoff to fire on subsequent plays.
-	for i := range subPlays {
-		subPlays[i].SetEstimatedValue(int16(subPlays[i].Score()))
+	// Sort sub-plays by score + leave so the strongest play is evaluated first,
+	// tightening minLossesSoFar quickly and enabling the strict->cutoff to fire.
+	if s.leaveCalc != nil {
+		tmpMove := &move.Move{}
+		rack := g.RackFor(g.PlayerOnTurn())
+		for i := range subPlays {
+			var est float64
+			if subPlays[i].IsPass() {
+				est = s.leaveCalc.LeaveValue(tilemapping.MachineWord(rack.TilesOn()))
+			} else {
+				conversions.SmallMoveToMove(subPlays[i], tmpMove, g.Alphabet(), g.Board(), rack)
+				est = float64(subPlays[i].Score()) + s.leaveCalc.LeaveValue(tmpMove.Leave())
+			}
+			subPlays[i].SetEstimatedValue(int16(est))
+		}
+	} else {
+		for i := range subPlays {
+			subPlays[i].SetEstimatedValue(int16(subPlays[i].Score()))
+		}
 	}
 	slices.SortFunc(subPlays, func(a, b tinymove.SmallMove) int {
 		return int(b.EstimatedValue()) - int(a.EstimatedValue())
