@@ -1786,6 +1786,7 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	if s.prunedKWGOptim {
 		gg := s.stmMovegen.(*movegen.GordonGenerator)
 		origGADDAG := gg.GADDAG()
+		t0 := time.Now()
 		if prunedKWG, err := wordprune.GeneratePrunedKWG(
 			s.game.Board(),
 			s.game.RackFor(0),
@@ -1799,7 +1800,14 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 				csg.Gaddag = prunedKWG
 				defer func() { csg.Gaddag = origCSGaddag }()
 			}
-			log.Debug().Msg("endgame-using-pruned-kwg")
+			fullNodes := len(origGADDAG.Nodes())
+			prunedNodes := len(prunedKWG.Nodes())
+			log.Info().
+				Int("full-nodes", fullNodes).
+				Int("pruned-nodes", prunedNodes).
+				Int("reduction-pct", 100*(fullNodes-prunedNodes)/fullNodes).
+				Dur("build-ms", time.Since(t0)).
+				Msg("endgame-using-pruned-kwg")
 		}
 	}
 
