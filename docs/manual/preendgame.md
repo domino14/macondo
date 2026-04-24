@@ -11,7 +11,7 @@ my algorithm is also not the most optimized).
 
 Pre-endgames have always worked for bag-emptying plays since their initial
 release, but the bug for non-bag-emptying plays has recently been fixed. Let's look
-at an example position that illustrates how everything works. It's recommended to
+at a couple of example positions that illustrate how everything works. It's recommended to
 read through this if you want to understand how Macondo's implementation of the pre-endgame algorithm works and what kind of data you can obtain.
 
 ## The position
@@ -395,3 +395,5 @@ plays, providing partial opponent rack info, and more.
 `commit` supports `-tileorder` for any position where you want to force a specific
 draw order. Run `help peg` and `help commit` inside the Macondo shell for the full
 option reference.
+
+# How do nested pre-endgames work?
