@@ -657,11 +657,19 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 				allTilesRack.LetArr[int(t)]++
 			}
 			emptyRack := &tilemapping.Rack{LetArr: make([]int, len(allTilesRack.LetArr))}
+			t0 := time.Now()
 			if prunedKWG, err := wordprune.GeneratePrunedKWG(
 				s.game.Board(), allTilesRack, emptyRack, s.gaddag,
 			); err == nil && prunedKWG != nil {
 				gaddagToUse = prunedKWG
-				log.Debug().Msg("preendgame-using-pruned-kwg")
+				fullNodes := len(s.gaddag.Nodes())
+				prunedNodes := len(prunedKWG.Nodes())
+				log.Info().
+					Int("full-nodes", fullNodes).
+					Int("pruned-nodes", prunedNodes).
+					Int("reduction-pct", 100*(fullNodes-prunedNodes)/fullNodes).
+					Dur("build-ms", time.Since(t0)).
+					Msg("preendgame-using-pruned-kwg")
 			}
 		}
 		// Swap crossSetGen to use the pruned KWG. game.Copy() shares crossSetGen
