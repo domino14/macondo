@@ -20,11 +20,13 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
+	"github.com/domino14/macondo/movegen/wordprune"
 	"github.com/domino14/macondo/tinymove"
 	"github.com/domino14/macondo/zobrist"
 )
@@ -639,6 +641,39 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 			return nil, errors.New("bag is empty; use endgame solver instead")
 		}
 		s.numinbag = s.game.Bag().TilesRemaining()
+
+		// Build one pruned KWG for the whole PEG solve. All endgames share the
+		// same total tile pool (our rack + opp rack + bag); the distribution
+		// between racks changes per endgame but the union never changes. We
+		// combine everything into a single synthetic rack and build the pruned
+		// graph once, then hand it to every endgame solver.
+		gaddagToUse := s.gaddag
+		{
+			allTilesRack := &tilemapping.Rack{LetArr: make([]int, len(s.game.RackFor(0).LetArr))}
+			for i := range allTilesRack.LetArr {
+				allTilesRack.LetArr[i] = s.game.RackFor(0).LetArr[i] + s.game.RackFor(1).LetArr[i]
+			}
+			for _, t := range s.game.Bag().Peek() {
+				allTilesRack.LetArr[int(t)]++
+			}
+			emptyRack := &tilemapping.Rack{LetArr: make([]int, len(allTilesRack.LetArr))}
+			if prunedKWG, err := wordprune.GeneratePrunedKWG(
+				s.game.Board(), allTilesRack, emptyRack, s.gaddag,
+			); err == nil && prunedKWG != nil {
+				gaddagToUse = prunedKWG
+				log.Debug().Msg("preendgame-using-pruned-kwg")
+			}
+		}
+		// Swap crossSetGen to use the pruned KWG. game.Copy() shares crossSetGen
+		// by reference, so all endgame solver copies inherit this automatically.
+		if gaddagToUse != s.gaddag {
+			if csg, ok := s.game.CrossSetGen().(*cross_set.GaddagCrossSetGenerator); ok {
+				origCSGaddag := csg.Gaddag
+				csg.Gaddag = gaddagToUse
+				defer func() { csg.Gaddag = origCSGaddag }()
+			}
+		}
+
 		s.endgameSolvers = make([]*negamax.Solver, s.threads)
 		s.initialSpread = s.game.CurrentSpread()
 
@@ -667,11 +702,13 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 			// Set a fixed order for the bag. This makes it easy for us to control
 			// what tiles we draw after making a move.
 			g.Bag().SetFixedOrder(true)
-			mg := movegen.NewGordonGenerator(s.gaddag, g.Board(), g.Bag().LetterDistribution())
+			mg := movegen.NewGordonGenerator(gaddagToUse, g.Board(), g.Bag().LetterDistribution())
 			err := es.Init(mg, g)
 			if err != nil {
 				return nil, err
 			}
+			// PEG already built a pruned KWG above; skip per-endgame rebuilding.
+			es.SetPrunedKWGOptim(false)
 			// Endgame itself should be single-threaded; we are solving many individual
 			// endgames in parallel.
 			es.SetThreads(1)
