@@ -666,3 +666,10 @@ func (gen *GordonGenerator) generateExchangeMoves(rack *tilemapping.Rack, ml til
 func (gen *GordonGenerator) GADDAG() *kwg.KWG {
 	return gen.gaddag
 }
+
+// SetGADDAG replaces the underlying word graph used for move generation.
+// Used by the endgame solver to swap in a pruned KWG for the duration of
+// a solve and restore the original afterwards.
+func (gen *GordonGenerator) SetGADDAG(g *kwg.KWG) {
+	gen.gaddag = g
+}

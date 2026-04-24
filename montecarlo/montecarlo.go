@@ -847,7 +847,13 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 
 			bestPlay := s.bestStaticTurn(onTurn, thread)
 			// log.Debug().Msgf("Ply %v, Best play: %v", ply+1, bestPlay)
-			g.PlayMove(bestPlay, false, 0)
+			// On the last ply no further move generation happens, so cross-set
+			// recalculation would be discarded by UnplayLastMove unused.
+			if ply == plies-1 {
+				g.PlayMoveNoCrossSet(bestPlay, false, 0)
+			} else {
+				g.PlayMove(bestPlay, false, 0)
+			}
 			s.nodeCount.Add(1)
 			// log.Debug().Msgf("Score is now %v", s.game.Score())
 

@@ -17,10 +17,12 @@ import (
 	"lukechampine.com/frand"
 
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/cross_set"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
+	"github.com/domino14/macondo/movegen/wordprune"
 	"github.com/domino14/macondo/tinymove"
 	"github.com/domino14/macondo/tinymove/conversions"
 	"github.com/domino14/word-golib/tilemapping"
@@ -249,6 +251,9 @@ type Solver struct {
 	abdadaOptim bool
 	// treeSplit distributes root moves across threads with work-stealing
 	treeSplitOptim bool
+	// prunedKWGOptim builds a smaller word graph before solving, containing
+	// only words playable with the tiles remaining in the endgame position.
+	prunedKWGOptim bool
 
 	// solveMultipleVariations will solve multiple variations in parallel.
 	solveMultipleVariations int
@@ -295,6 +300,7 @@ func (s *Solver) Init(m movegen.MoveGenerator, game *game.Game) error {
 	s.transpositionTableOptim = true
 	s.iterativeDeepeningOptim = true
 	s.negascoutOptim = true
+	s.prunedKWGOptim = true
 	s.threads = max(1, runtime.NumCPU())
 	s.alsoSolveMove = tinymove.InvalidTinyMove
 	if s.stmMovegen != nil {
@@ -1561,6 +1567,14 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	var err error
 	var moveTiles *[21]tilemapping.MachineLetter
 
+	// At depth==1 the child call immediately evaluates the spread without
+	// generating any moves, so cross-sets computed during PlaySmallMove would
+	// be discarded by UnplayLastMove without ever being read. Skip them.
+	playMove := g.PlaySmallMove
+	if depth == 1 {
+		playMove = g.PlaySmallMoveNoCrossSet
+	}
+
 	// ABDADA: track deferred moves for second pass
 	var deferredMoves []int
 
@@ -1579,7 +1593,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 		if s.logStream != nil {
 			// fmt.Fprintf(s.logStream, "  %v- play: %v\n", logIndent, children[idx].ShortDescription())
 		}
-		moveTiles, err = g.PlaySmallMove(&children[idx])
+		moveTiles, err = playMove(&children[idx])
 		if err != nil {
 			return 0, err
 		}
@@ -1662,7 +1676,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 			if s.logStream != nil {
 				// fmt.Fprintf(s.logStream, "  %v- play (deferred): %v\n", logIndent, children[idx].ShortDescription())
 			}
-			moveTiles, err = g.PlaySmallMove(&children[idx])
+			moveTiles, err = playMove(&children[idx])
 			if err != nil {
 				return 0, err
 			}
@@ -1765,6 +1779,30 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	if s.game.Bag().TilesRemaining() > 0 {
 		return 0, nil, errors.New("bag is not empty; cannot use endgame solver")
 	}
+
+	// Build a pruned KWG containing only words playable in this endgame
+	// position. This shrinks the GADDAG the move generator traverses and
+	// typically cuts solve time by ~20%.
+	if s.prunedKWGOptim {
+		gg := s.stmMovegen.(*movegen.GordonGenerator)
+		origGADDAG := gg.GADDAG()
+		if prunedKWG, err := wordprune.GeneratePrunedKWG(
+			s.game.Board(),
+			s.game.RackFor(0),
+			s.game.RackFor(1),
+			origGADDAG,
+		); err == nil && prunedKWG != nil {
+			gg.SetGADDAG(prunedKWG)
+			defer gg.SetGADDAG(origGADDAG)
+			if csg, ok := s.game.CrossSetGen().(*cross_set.GaddagCrossSetGenerator); ok {
+				origCSGaddag := csg.Gaddag
+				csg.Gaddag = prunedKWG
+				defer func() { csg.Gaddag = origCSGaddag }()
+			}
+			log.Debug().Msg("endgame-using-pruned-kwg")
+		}
+	}
+
 	s.ensureArenas()
 	log.Debug().Int("plies", plies).Msg("alphabeta-solve-config")
 	s.requestedPlies = plies
@@ -1896,6 +1934,26 @@ func (s *Solver) QuickAndDirtySolve(ctx context.Context, plies, thread int) (int
 	s.stmMovegen.SetSortingParameter(movegen.SortByNone)
 	defer s.stmMovegen.SetSortingParameter(movegen.SortByScore)
 
+	// Build a pruned KWG for this endgame position (same optimisation as Solve).
+	if s.prunedKWGOptim {
+		ggQD := s.stmMovegen.(*movegen.GordonGenerator)
+		origGADDAGQD := ggQD.GADDAG()
+		if prunedKWG, err := wordprune.GeneratePrunedKWG(
+			s.game.Board(),
+			s.game.RackFor(0),
+			s.game.RackFor(1),
+			origGADDAGQD,
+		); err == nil && prunedKWG != nil {
+			ggQD.SetGADDAG(prunedKWG)
+			defer ggQD.SetGADDAG(origGADDAGQD)
+			if csg, ok := s.game.CrossSetGen().(*cross_set.GaddagCrossSetGenerator); ok {
+				origCSGaddag := csg.Gaddag
+				csg.Gaddag = prunedKWG
+				defer func() { csg.Gaddag = origCSGaddag }()
+			}
+		}
+	}
+
 	s.initialSpread = s.game.CurrentSpread()
 	log.Debug().Int("thread", thread).Msgf("Player %v spread at beginning of endgame: %v (%d)", s.solvingPlayer, s.initialSpread, s.game.ScorelessTurns())
 
@@ -1972,6 +2030,10 @@ func (s *Solver) SetNullWindowOptim(nw bool) {
 
 func (s *Solver) SetNegascoutOptim(n bool) {
 	s.negascoutOptim = n
+}
+
+func (s *Solver) SetPrunedKWGOptim(v bool) {
+	s.prunedKWGOptim = v
 }
 
 func (s *Solver) IsSolving() bool {

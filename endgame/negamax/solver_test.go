@@ -553,4 +553,34 @@ func BenchmarkPassFirst(b *testing.B) {
 // 	is.NoErr(err)
 // 	// we win by 1
 // 	is.Equal(score, int16(1))
+
+func benchmarkVsRoy(b *testing.B, prunedKWG bool) {
+	b.Helper()
+	plies := 8
+	for range b.N {
+		b.StopTimer()
+		s, err := setUpSolver("America", "english", board.VsRoy, plies, "WZ", "EFHIKOQ", 427, 331, 1)
+		if err != nil {
+			b.Fatal(err)
+		}
+		s.SetPrunedKWGOptim(prunedKWG)
+		b.StartTimer()
+		v, _, err := s.Solve(context.Background(), plies)
+		b.StopTimer()
+		if err != nil {
+			b.Fatal(err)
+		}
+		if v != 116 {
+			b.Fatalf("unexpected result %d", v)
+		}
+	}
+}
+
+func BenchmarkVsRoyWithPrunedKWG(b *testing.B) {
+	benchmarkVsRoy(b, true)
+}
+
+func BenchmarkVsRoyWithoutPrunedKWG(b *testing.B) {
+	benchmarkVsRoy(b, false)
+}
 // }
