@@ -143,3 +143,37 @@ Options:
     "pass → pass → game ends" branch is always evaluated). This prevents rare but
     expensive pass chains from inflating the nested search. Set to false to allow passes
     as candidates at every level of the nested sub-PEG.
+
+    -eventuality "GRL"
+
+    Explain a single pre-endgame outcome. The argument is the draw-order tile sequence
+    Macondo should restrict the solve to — e.g. "GRL" means the bag is drawn in the
+    order G, then R, then L (tiles drawn by you and your opponent over the rest of the
+    game, in that order). Macondo solves only that one outer permutation and prints a
+    structured narrative explanation:
+
+      - Our play, our rack before/after, and the bag content before/after.
+      - Total opponent replies checked, the decisive (loss-forcing) reply if any,
+        and the opp's resulting rack and bag state.
+      - For each nested sub-PEG depth on the actual-draw path: our rack, opp's rack,
+        the unseen tile pool, the best play we'd choose under uncertainty, and the
+        WIN/LOSS/DRAW verdict for every sub-perm — with the actual bag content marked.
+
+    Opponent replies are evaluated in score-descending order; iteration stops at the
+    first loss-forcing reply, so "Opp replies checked: N" means the N-th reply (by
+    score) sealed the verdict and the rest were skipped.
+
+    This mode auto-forces -threads 1, -disable-id true, and -skip-tiebreaker true
+    unless those flags were set explicitly, since explanation collection requires a
+    single deterministic walk of the solve tree.
+
+    Pair this with -only-solve to focus on the single play whose outcome you want
+    to understand. Example:
+
+        peg -only-solve "13M P.." -eventuality GRL
+
+    -trace-file "peg-trace.txt" (default)
+
+    Path for the per-frame trace file written while -eventuality is set. The structured
+    explanation prints directly to the shell; the trace file contains the verbose
+    internal solver trace for deeper debugging.

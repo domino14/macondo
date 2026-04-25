@@ -14,9 +14,9 @@ release, but the bug for non-bag-emptying plays has recently been fixed. Let's l
 at a couple of example positions that illustrate how everything works. It's recommended to
 read through this if you want to understand how Macondo's implementation of the pre-endgame algorithm works and what kind of data you can obtain.
 
-## The position
+## Position #1
 
-This interesting position happened in a game between expert players Josh Sokol and Noah Walton. Thanks to Francis Desjardins for bringing this position to my attention. It is Josh's turn - he holds `DEFNNPT` and the board looks like this:
+This interesting position happened in a game between expert players Josh Sokol and Noah Walton (with the NWL20 lexicon). Thanks to Francis Desjardins for bringing this position to my attention. It is Josh's turn - he holds `DEFNNPT` and the board looks like this:
 
 ```
    A B C D E F G H I J K L M N O     ->                 Josh  DEFNNPT  394
@@ -46,7 +46,7 @@ Load it into Macondo:
 load cgp 12D2/1U10O2/1p10L2/1R1C3KANJIS2/1I1O3A2U4/1G1T3I2I4/1H1E3Z2C1LOO/1TED3E1BYWORD/2Q4N3AXE1/1RuBIGOS3I3/F1A5WEAVE2/O1T8E3/V1E5LOURY2/ENSNARL2HM4/A6TEMP4 DEFNNPT/ 394/365 0 lex NWL20;
 ```
 
-## Scoping analysis to one move with `-only-solve`
+### Scoping analysis to one move with `-only-solve`
 
 Running a full `peg` on 4-in-the-bag with non-bag-emptying candidates is slow.
 If you already have a specific candidate in mind — Josh finds `2L P(O)ND` and wants
@@ -68,7 +68,7 @@ peg -only-solve "2L P.ND" -only-solve "2L F.ND" -endgameplies 4
 `-endgameplies 4` is enough for this position (and is the default). If you need
 to resolve close situations involving tile-stick endgames, for example, bump it to 6 — but expect much longer runtimes.
 
-## Reading the PEG output
+### Reading the PEG output
 
 After the solve completes you will see something like:
 
@@ -92,7 +92,7 @@ Play                Wins    %Win    Spread   Outcomes
 For a 4-in-bag position where Josh's play uses 4 tiles off his rack, he draws 4 and leaves 0 in the bag —
 so the outcomes list will look like `[ABCD]` with nothing after the bracket.
 
-## Stepping into one eventuality with `-tileorder`
+### Stepping into one eventuality with `-tileorder`
 
 The outcome list for 2L P(O)ND contains mostly wins, but `[III]A` appears in the
 `👎` column.
@@ -134,7 +134,7 @@ After committing, the board looks like this — it is now Noah's turn:
 Noah has `AEGRSTU` and there is 1 tile left in the bag (the A).
 Josh is up 43 points heading into a 1-in-the-bag pre-endgame.
 
-## Noah's 1-in-bag PEG
+### Noah's 1-in-bag PEG
 
 From Noah's perspective (run `peg` from the current game state with Noah on turn):
 
@@ -161,18 +161,18 @@ Noah does not know what is in the bag. From his perspective TEMPURA looks like a
 inferior play: it has fewer wins and worse expected spread than his top options.
 A rational opponent will not choose TEMPURA.
 
-## Why `[III]A` is marked a loss — guaranteed wins vs "both sides solve PEG"
+### Why `[III]A` is marked a loss — guaranteed wins vs "both sides solve PEG"
 
 This is the conceptual heart of Macondo's pre-endgame model.
 
-### Guaranteed wins mode (current)
+#### Guaranteed wins mode (current)
 
 Macondo marks an eventuality as a **win** only if Josh wins *regardless of which
 play Noah makes*. For `[III]A`, Josh will not win if Noah plays TEMPURA.
 
 Result: `[III]A` is `👎` — not a guaranteed win for Josh, even though it would not be rational for Noah to play TEMPURA.
 
-### Full PEG on both sides (hypothetical — not yet implemented)
+#### Full PEG on both sides (hypothetical — not yet implemented)
 
 Imagine a mode where both players solve their sub-PEG optimally. Noah would look at
 his 1-in-bag position, compute his best EV plays, and pick among them — specifically
@@ -186,7 +186,7 @@ In this mode `[III]A` would be a `👍` for Josh's 2L P(O)ND.
 computing true game-theoretic value, but it requires solving the nested PEG on the
 opponent's turn (expensive and not yet implemented).
 
-## The full result
+### The full result
 
 Going back to the beginning, we can solve for the play 2L P(O)ND and obtain this result. Running at 6 endgame plies (note: ~11 minutes at 4 plies, ~3 hours at 6 plies on a
 modern machine):
@@ -203,7 +203,7 @@ outcomes are `[III]A`, `[III]E`, `[III]G`, `[III]S`, and `[III]T` — you can go
 Still, if you were Josh at the board, 2L P(O)ND is overwhelmingly correct: it is a
 guaranteed win in 99.55 % of all possible bag draws.
 
-### What about the other plays?
+#### What about the other plays?
 
 It is prohibitive to examine many shorter plays fully. Look at the writeup on shortcuts below for reasons why and for various things you can try.
 
@@ -228,7 +228,7 @@ Note that I1 DEF(A)T only loses with [IIIT] and [IIIU] draws.
 
 But 2L P(O)ND is slightly winninger at 99.55%! But the solver doesn't find it by default because it doesn't empty the bag. The following section explains how to calculate the math for this.
 
-### Calculating number of wins and permutations
+#### Calculating number of wins and permutations
 
 The `Wins` column counts **ordered bag-draw permutations**, not unordered
 combinations. For a 4-in-the-bag position with 11 unseen tiles, the total is
@@ -239,7 +239,7 @@ how the denominator lands on 7920.
 Each label in the `Outcomes` column covers a group of those 7920 permutations.
 **The bracket position controls how many permutations each label is worth.**
 
-#### Bag-emptying plays — `[ABCD]` (all four tiles inside the brackets)
+##### Bag-emptying plays — `[ABCD]` (all four tiles inside the brackets)
 
 Josh plays 4 tiles, draws all 4 out of the bag, and the bag is empty. Every
 ordering of the same four tiles ends him in the same position, so the label
@@ -255,7 +255,7 @@ So for `I1 DEF(A)T`:
 - `[IIIU]`: 24 permutations.
 - **Losses: 24 + 24 = 48. Wins: 7920 − 48 = 7872 (99.39%).** ✓
 
-#### 3-tile plays — `[ABC]D` (three inside, one outside)
+##### 3-tile plays — `[ABC]D` (three inside, one outside)
 
 Josh draws only 3 tiles; the 4th tile stays in the bag and Noah draws it on
 his turn. The label now pins the outside tile to the 4th position in the
@@ -279,7 +279,7 @@ in the unseen pool `A A E G I I I R S T U`:
 
 **Losses: 12 + 6 + 6 + 6 + 6 = 36. Wins: 7920 − 36 = 7884 (99.55%).** ✓
 
-#### Why five losing labels beat two
+##### Why five losing labels beat two
 
 Each bag-emptying `[XYZW]` label is worth 24 permutations, but each 3-tile
 `[XYZ]W` label is worth only 6–12. So `2L P(O)ND`'s five loss labels
@@ -300,7 +300,7 @@ it and only counts the cases that truly lose.
 type still available" as it assigns each draw slot — that gives each distinct
 tile-type sequence its weight, which the solver sums inside each outcome label.)*
 
-## The plot thickens
+### The plot thickens
 
 There are two moves that guarantee that Josh actually never loses!
 
@@ -316,6 +316,115 @@ I3 P(A)NT          7902.0  99.77            👍: [AAE]G [AAE]I ... 🤝: [AII]I
 ```
 
 Note that both of these moves result in, at worst, a tie!
+
+## How do nested pre-endgames work?
+
+In the last game, we showed a position where Josh solves a specific situation for a 4-in-the-bag pre-endgame. Since the play only leaves 1 tile in the bag, by the time it is Josh's turn again, the bag will almost always be empty (unless Noah passes, which is a rare situation - that we can still handle, if needed).
+
+A more interesting situation can be found below, which requires the player on turn to _again_ solve a pre-endgame with the bag still not empty.
+
+### Position #2
+
+This game was between Matthew Tunnicliffe and Jim Brennan with the CSW21 lexicon.
+
+```
+   A B C D E F G H I J K L M N O     ->  Matthew_Tunnicliffe  ?ANNOPY  344
+   ------------------------------                Jim_Brennan           368
+ 1|B E D E L     =       '     = |
+ 2|R - R     "       "     U -   |   Bag + unseen: (10)
+ 3|O   I T   Q '   '     O M     |
+ 4|W   B I D I   '     Y U M   ' |   A E E E G I L N R S
+ 5|N     X I           A T       |
+ 6|E "     G "       T   R   "   |
+ 7|S   V O I L E   ' O K A '     |
+ 8|T     ' T   D I S P A C E D = |
+ 9|    '       '   ' A W E ' O   |
+10|  "       "       Z   s   F A |   Turn 25:
+11|        -           -       R |   Jim_Brennan played 15A INRO for 25 pts fro
+12|'     -       '       -   G O |   m a rack of INOR
+13|    -       '   '       - A H |
+14|  -   J U V I E   "     U T A |
+15|I N R O       F L E N C H E S |
+   ------------------------------
+```
+
+You can load it like:
+
+```
+load cgp BEDEL10/R1R9U2/O1IT1Q5OM2/W1BIDI4YUM2/N2XI5AT3/E3G4T1R3/S1VOILE2OKA3/T3T1DISPACED1/9AWE1O1/9Z1s1FA/14R/13GO/13AH/3JUVIE4UTA/INRO3FLENCHES ?ANNOPY/AEGILNS 344/368 0 lex CSW21;
+```
+
+Or, since the [game is found on cross-tables](https://www.cross-tables.com/annotated.php?u=39443%230%2523#26#), you can do:
+
+```
+set lexicon CSW21
+load xt 39443
+```
+
+Here, Matthew played `13M P(AH)` for 32 points. We can examine this move by doing:
+
+```
+peg -only-solve "13M P.." -skip-deep-pass false
+```
+
+**(Note, this is slow! See below)**
+
+We set `-skip-deep-pass` to false here to make sure that the algorithm examines passes. For this position and many others it likely doesn't really make a difference to examine passes though. They are quite rare in most pre-endgames.
+
+By not specifying endgame plies it defaults to 4, which is sufficient for many endgames.
+
+Note that you can just do `peg -max-tiles-left -1` as well to examine every move. But again, for non-bag-emptying moves, this is going to be very slow without a supercomputer. On my 16-core 12th gen Intel processor it takes around 2h48m to analyze _just this play_!
+
+For many pre-endgames, you might be able to get away with just examining plays that empty the bag. It will be _much_ quicker than examining all plays. You can do this with `peg -max-tiles-left 0`.
+
+#### Solution for P(AH)
+
+PAH has a 27.92 guaranteed win%, counting ties as half a win.
+
+```
+Winner: 13M P..
+Play                Wins    %Win    Spread   Outcomes
+13M P(AH)           201.0   27.92            👍: AEI AEL AES AGI AGL AGS AIE AIG AIL AIN AIR AIS ALE ALG ALI ALN ALR ALS ANI ANL ANS ARI ARL ARS ASE ASG ASI ASL ASN ASR EIA EIG EIN GAI GAR GAS GEI GER GES GIA GIE GIN GIR GIS GLI GLR GLS GNI GNR GNS GRA GRE GRI GRN GRS GSA GSE GSI GSN GSR LAG LAI LAS LGA LGI LNI LRI LSI NAI NAR NGS NIA NIS NLS NRA NRS NSI NSR RIA RIL RIN RIS SAE SAG SAI SAL SAN SAR SEA SEE SEG SEI SEL SEN SER SGA SGE SGI SGL SGN SGR SIA SIE SIG SIL SIN SIR SLA SLE SLG SLI SLN SLR SNA SNE SNG SNI SNL SNR SRA SRE SRG SRI SRL SRN 🤝: LES LGS LIS LNS LRS NAS NEI NER NES NGI NGR NIE NIR NLI NLR NRE NRI NSA NSE RIG 👎: AEE AEG AEN AER AGE AGN AGR ANE ANG ANR ARE ARG ARN EAE EAG EAI EAL EAN EAR EAS EEA EEE EEG EEI EEL EEN EER EES EGA EGE EGI EGL EGN EGR EGS EIE EIL EIR EIS ELA ELE ELG ELI ELN ELR ELS ENA ENE ENG ENI ENL ENR ENS ERA ERE ERG ERI ERL ERN ERS ESA ESE ESG ESI ESL ESN ESR GAE GAL GAN GEA GEE GEL GEN GIL GLA GLE GLN GNA GNE GNL GRL GSL IAE IAG IAL IAN IAR IAS IEA IEE IEG IEL IEN IER IES IGA IGE IGL IGN IGR IGS ILA ILE ILG ILN ILR ILS INA INE ING INL INR INS IRA IRE IRG IRL IRN IRS ISA ISE ISG ISL ISN ISR LAE LAN LAR LEA LEE LEG LEI LEN LER LGE LGN LGR LIA LIE LIG LIN LIR LNA LNE LNG LNR LRA LRE LRG LRN LSA LSE LSG LSN LSR NAE NAG NAL NEA NEE NEG NEL NGA NGE NGL NIG NIL NLA NLE NLG NRG NRL NSG NSL RAE RAG RAI RAL RAN RAS REA REE REG REI REL REN RES RGA RGE RGI RGL RGN RGS RIE RLA RLE RLG RLI RLN RLS RNA RNE RNG RNI RNL RNS RSA RSE RSG RSI RSL RSN
+```
+
+This solution involves solving 9,018,256 endgames!
+
+#### Examining a specific permutation: GRL
+
+Let's think about the following situation: G, R, and L are in the bag, in that order, which means that Jim's rack must be AEEEINS.
+
+Matthew plays P(AH) like above, draws the G, and then Jim has a few hundred choices. Macondo on iterates through all of these choices and tries them, _without actually solving the pre-endgame on Jim's end_. Note that in the discussion above we mentioned that the pre-endgame is not actually solved on both ends.
+
+Let's say that Jim plays `K7 (KAW)A` for 22 points. He would then draw the R.
+
+Now, it's Matthew's turn again and his rack is `?AGNNOY`. Unseen to him is `EEEILNRS`. Matthew doesn't know that the L is in the bag. He can now solve the 1-in-the-bag preendgame (1-PEG) - and indeed, that is what Macondo does.
+
+Note that this differs from the first game. We had no nested pre-endgame in the first game; the opposing side did not actually solve the PEG from their perspective. We only solve the nested pre-endgame for the side-to-solve and not both sides.
+
+##### Nested pre-endgame solution
+
+The solution for this 1-PEG is:
+
+```
+Winner:  1H ANONYm
+Play                Wins    %Win    Spread   Outcomes
+ 1H ANONYm          7.0     87.50            👍: [E] [I] [N] [R] [S] 👎: [L]
+10F NYAN(ZAs)       ---     ---              👍: [E] [L] [N] 🤝: [I] 👎: [R]    ❌
+ N2 GApY            5.0     62.50            👍: [E] [I] [S] 👎: [L] [N] [R]
+13G OrGAN           5.0     62.50            👍: [E] [I] [S] 👎: [L] [N] [R]
+...
+❌ marks plays cut off early
+```
+
+Macondo's PEG uses "guaranteed wins" mode, which means we assume that the side-to-solve would always find their "best" move. We define "best" here as most points, where a win scores 1 point and a tie scores 0.5 points.
+
+In the case above, we assume that Matthew would find ANONYm and play it, as it wins the most games (7 out of 8). He doesn't know that the L happens to be in the bag, for this eventuality. Unfortunately, it is, and he would lose in this case.
+
+Therefore, for the case that GRL is in the bag, in that order, the move P(AH) cannot be called a win. Even if KAWA happens to be the only move the opponent could make that could result in a loss for Matthew, Macondo is pessimistic and will call P(AH) a loss. Note that we don't have to find any other moves besides KAWA. KAWA is enough to call P(AH) a loss in this case.
+
+##### What if more than one play is tied for first in the nested pre-endgame?
+
+Let's imagine for the sake of argument that there was another play that also won 7/8 endgames in the nested PEG, but loses when the opponent draws an R. So Matthew would have a choice between two 7/8 plays, only one of which loses when he draws the L in the bag. But we can't assume he'll choose the correct one here. Macondo will still be pessimistic and call this a potential loss.
 
 ## Shortcuts and when to disable them
 
@@ -413,4 +522,3 @@ plays, providing partial opponent rack info, and more.
 draw order. Run `help peg` and `help commit` inside the Macondo shell for the full
 option reference.
 
-# How do nested pre-endgames work?

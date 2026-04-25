@@ -462,6 +462,22 @@ type Solver struct {
 	traceOnce            bool
 	traceSeenMatch       atomic.Bool
 	traceMu              sync.Mutex
+
+	// Eventuality explanation (single-thread, single-perm diagnostic mode).
+	// Active only when explainResult != nil. All collection sites are guarded.
+	explainResult     *EventualityExplanation
+	explainRerunDepth int // nestedDepth-1 that is currently being driven by a re-run; -1 = none
+	// explainCollectedAtDepth tracks which nested depths have already been
+	// collected so that only the first collecting call per depth fires.
+	explainCollectedAtDepth map[int]bool
+	// Decisive opp SmallMove from Stage 2; used to drive the nested re-run.
+	explainDecisiveOppMove    tinymove.SmallMove
+	explainDecisiveOppMoveSet bool
+	// Temp slot for opp-reply post-play state, written by recursiveSolve at
+	// (depth=1, nestedDepth=0) and committed by iterateOppReplies when the
+	// reply is identified as decisive.
+	explainPendingOppRack    string
+	explainPendingBagAfterOp string
 }
 
 // Init initializes the solver. It creates all the parallel endgame solvers.
@@ -487,6 +503,7 @@ func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
 	s.skipTiebreaker = false
 	s.nestedDepthLimit = 1
 	s.skipDeepPass = true
+	s.explainRerunDepth = -1
 	return nil
 }
 
@@ -512,6 +529,74 @@ func (s *Solver) SetTraceTargetBagTail(tail tilemapping.MachineWord) {
 	s.traceTargetBagTail = tail
 }
 func (s *Solver) SetTraceOnce(once bool)            { s.traceOnce = once }
+
+// SubPermExplanation captures one row of the per-bag-tile outcome table
+// computed by a nested sub-PEG.
+type SubPermExplanation struct {
+	Tiles    string     // user-visible tile letters, e.g. "L"
+	Count    int        // permutation weight
+	Outcome  PEGOutcome // WIN / DRAW / LOSS
+	IsActual bool       // true if this is the real bag content at this depth
+}
+
+// NestedLevelExplanation describes one level of nested pre-endgame analysis.
+// Built at the end of nestedOurTurnSolve when the explanation is on the
+// actual-draw path.
+type NestedLevelExplanation struct {
+	Depth      int    // nestedDepth (1, 2, 3...)
+	OurRack    string // rack at entry to this nested call
+	OppRack    string // opp rack at entry
+	BagContent string // bag tiles at entry, user-visible
+	UnseenPool string // multiset string, e.g. "E×3 I L N R S"
+	BestPlay   string // best sub-play description, e.g. "1H ANONYm +43"
+	SubPerms   []SubPermExplanation
+	Verdict    PEGOutcome // verdict for the actual draw
+}
+
+// EventualityExplanation captures a structured explanation of a single
+// outer-perm verdict, populated during eventuality-mode solve.
+type EventualityExplanation struct {
+	// Stage 1 — our outer play
+	OurPlay      string // e.g. "13M P(AH)"
+	OurScore     int
+	OurRackBefore string // rack before outer play
+	OurRackAfter string // rack after outer play and draw
+	BagBefore    string // bag at outer-perm entry
+	BagAfter     string // bag after our play and draw
+	OppRack      string // opp rack at outer-perm entry
+
+	// Stage 2 — opp replies
+	TotalOppReplies int    // count of opp replies tried
+	DecisiveOppPlay string // formatted move; empty for WIN verdicts
+	OppRackAfter    string // opp rack after the decisive reply + draw
+	BagAfterOppPlay string // bag after the decisive reply
+
+	// Stage 3 — nested sub-PEGs (one per depth, in order)
+	Nested []*NestedLevelExplanation
+
+	// Final verdict
+	Verdict PEGOutcome
+}
+
+// SetExplainMode enables (or disables) eventuality-explanation collection.
+// When enabled, the solver populates s.explainResult during solve. Use only
+// in single-thread, single-perm diagnostic mode (typically alongside
+// SetTraceTargetBagTail).
+func (s *Solver) SetExplainMode(on bool) {
+	if on {
+		s.explainResult = &EventualityExplanation{}
+		s.explainRerunDepth = -1
+		s.explainCollectedAtDepth = map[int]bool{}
+		s.explainDecisiveOppMoveSet = false
+	} else {
+		s.explainResult = nil
+		s.explainCollectedAtDepth = nil
+	}
+}
+
+// ExplainResult returns the populated explanation (or nil if explain mode
+// is off). Safe to call after Solve completes.
+func (s *Solver) ExplainResult() *EventualityExplanation { return s.explainResult }
 
 func (s *Solver) trace(indent int, format string, args ...any) {
 	if s.traceWriter == nil {
@@ -996,6 +1081,64 @@ func (s *Solver) SingleSolutionStats(play *PreEndgamePlay, pctOnly bool) string 
 
 func (s *Solver) ShortDetails() string {
 	return s.SingleSolutionStats(s.plays[0], true)
+}
+
+// FormatExplanation renders the eventuality explanation as a multi-line
+// human-readable block. Returns "" if explain mode was not active.
+func (s *Solver) FormatExplanation() string {
+	e := s.explainResult
+	if e == nil {
+		return ""
+	}
+	var b strings.Builder
+	bar := "═══════════════════════════════════════════════════"
+	fmt.Fprintf(&b, "%s\n", bar)
+	fmt.Fprintf(&b, " Eventuality verdict: %s for %s\n", strings.ToUpper(e.Verdict.String()), e.OurPlay)
+	fmt.Fprintf(&b, "%s\n\n", bar)
+
+	fmt.Fprintf(&b, " We play  %s +%d\n", e.OurPlay, e.OurScore)
+	fmt.Fprintf(&b, "   Rack before: %s   Bag before: [%s]   Opp: %s\n",
+		e.OurRackBefore, e.BagBefore, e.OppRack)
+	fmt.Fprintf(&b, "   Rack after:  %s   Bag after:  [%s]\n",
+		e.OurRackAfter, e.BagAfter)
+
+	if e.TotalOppReplies > 0 {
+		fmt.Fprintln(&b)
+		fmt.Fprintf(&b, " Opp replies checked: %d\n", e.TotalOppReplies)
+		if e.DecisiveOppPlay != "" {
+			fmt.Fprintf(&b, " Decisive reply: %s\n", e.DecisiveOppPlay)
+			fmt.Fprintf(&b, "   Opp rack after: %s   Bag after: [%s]\n",
+				e.OppRackAfter, e.BagAfterOppPlay)
+		} else {
+			fmt.Fprintln(&b, " (all replies handled — no loss-forcing reply found)")
+		}
+	}
+
+	for _, n := range e.Nested {
+		fmt.Fprintln(&b)
+		fmt.Fprintf(&b, " ── Nested pre-endgame (depth %d) ──\n", n.Depth)
+		fmt.Fprintf(&b, "   Our rack: %s   Opp: %s   Bag: [%s]\n",
+			n.OurRack, n.OppRack, n.BagContent)
+		fmt.Fprintf(&b, "   Unseen pool: %s\n", n.UnseenPool)
+		fmt.Fprintf(&b, "   Best play under uncertainty: %s\n", n.BestPlay)
+		for _, sp := range n.SubPerms {
+			marker := ""
+			if sp.IsActual {
+				marker = "   ← actual bag content"
+			}
+			label := sp.Tiles
+			if sp.Count > 1 {
+				label = fmt.Sprintf("%s ×%d", sp.Tiles, sp.Count)
+			}
+			fmt.Fprintf(&b, "     %-10s → %s%s\n", label,
+				strings.ToUpper(sp.Outcome.String()), marker)
+		}
+		fmt.Fprintf(&b, "   Verdict at depth %d: %s\n", n.Depth,
+			strings.ToUpper(n.Verdict.String()))
+	}
+
+	fmt.Fprintf(&b, "\n%s\n", bar)
+	return b.String()
 }
 
 func (s *Solver) SetEarlyCutoffOptim(o bool) {
