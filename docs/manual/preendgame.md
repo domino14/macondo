@@ -422,6 +422,43 @@ In the case above, we assume that Matthew would find ANONYm and play it, as it w
 
 Therefore, for the case that GRL is in the bag, in that order, the move P(AH) cannot be called a win. Even if KAWA happens to be the only move the opponent could make that could result in a loss for Matthew, Macondo is pessimistic and will call P(AH) a loss. Note that we don't have to find any other moves besides KAWA. KAWA is enough to call P(AH) a loss in this case.
 
+##### Showing specific result for this permutation
+
+If you run `peg -only-solve "13M P.." -skip-deep-pass false -eventuality GRL` it will
+solve this particular play for only this eventuality. Note: this solve will be single-threaded, so it might not be as fast as you'd expect. On my computer this takes a
+bit over a minute:
+
+
+```
+═══════════════════════════════════════════════════
+ Eventuality verdict: LOSS for 13M P..
+═══════════════════════════════════════════════════
+
+ We play  13M P.. +32
+   Rack before: ?ANNOPY   Bag before: [LRG]   Opp: AEEEINS
+   Rack after:  ?AGNNOY   Bag after:  [LR]
+
+ Opp replies checked: 8
+ Decisive reply: 10J .A. +22
+   Opp rack after: EEEINRS   Bag after: [L]
+
+ ── Nested pre-endgame (depth 1) ──
+   Our rack: ?AGNNOY   Opp: EEEINRS   Bag: [L]
+   Unseen pool: E×3 I L N R S
+   Best play under uncertainty:  1H ANONYm +43
+     E ×3       → WIN
+     L          → LOSS   ← actual bag content
+     N          → WIN
+     R          → WIN
+     I          → WIN
+     S          → WIN
+   Verdict at depth 1: LOSS
+
+═══════════════════════════════════════════════════
+```
+
+This shows you exactly why this was labeled a loss.
+
 ##### What if more than one play is tied for first in the nested pre-endgame?
 
 Let's imagine for the sake of argument that there was another play that also won 7/8 endgames in the nested PEG, but loses when the opponent draws an R. So Matthew would have a choice between two 7/8 plays, only one of which loses when he draws the L in the bag. But we can't assume he'll choose the correct one here. Macondo will still be pessimistic and call this a potential loss.
