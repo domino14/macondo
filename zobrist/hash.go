@@ -72,20 +72,26 @@ func (z *Zobrist) Dump(w io.Writer) {
 	}
 }
 
-func (z *Zobrist) Hash(squares tilemapping.MachineWord,
-	ourRack, theirRack *tilemapping.Rack, theirTurn bool, scorelessTurns int) uint64 {
-
+// BoardHash returns the Zobrist hash contribution from only the board squares,
+// excluding rack and turn components.
+func (z *Zobrist) BoardHash(squares tilemapping.MachineWord) uint64 {
 	key := uint64(0)
 	for i, letter := range squares {
 		if letter == 0 {
 			continue
 		}
 		if letter&0x80 > 0 {
-			// it's a blank
-			letter = (letter & (0x7F)) + MaxLetters
+			letter = (letter & 0x7F) + MaxLetters
 		}
 		key ^= z.PosTable[i][letter]
 	}
+	return key
+}
+
+func (z *Zobrist) Hash(squares tilemapping.MachineWord,
+	ourRack, theirRack *tilemapping.Rack, theirTurn bool, scorelessTurns int) uint64 {
+
+	key := z.BoardHash(squares)
 	for i, ct := range ourRack.LetArr {
 		key ^= z.OurRackTable[i][ct]
 	}

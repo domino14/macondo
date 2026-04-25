@@ -183,6 +183,7 @@ type ShellController struct {
 	pegCtx         context.Context
 	pegCancel      context.CancelFunc
 	pegLogFile     *os.File
+	pegTraceFile   *os.File
 
 	curPlayList  []*move.Move
 	elitebot     *bot.BotTurnPlayer

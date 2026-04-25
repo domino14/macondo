@@ -133,6 +133,10 @@ func init() {
 				Help: "suppress pass as a candidate inside nested sub-PEGs"},
 			{Name: "log", Type: OptBool, Values: boolValues,
 				Help: "write per-thread solve logs"},
+			{Name: "eventuality", Type: OptString,
+				Help: "draw-order tile sequence (e.g. \"GRL\") to restrict the solve to and print a structured verdict explanation; see `help peg`"},
+			{Name: "trace-file", Type: OptString,
+				Help: "trace file path used with -eventuality (default: peg-trace.txt)"},
 			{Name: "skip-non-emptying", Deprecated: "-max-tiles-left 0"},
 		},
 	})

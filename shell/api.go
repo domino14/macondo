@@ -785,6 +785,7 @@ func (sc *ShellController) endgame(cmd *shellcmd) (*Response, error) {
 // pegParams holds parsed parameters for pre-endgame solving
 type pegParams struct {
 	maxsolutions int
+	explainMode  bool
 }
 
 // pegPrepare parses options and initializes the pre-endgame solver.
@@ -827,6 +828,7 @@ func (sc *ShellController) pegPrepare(cmd *shellcmd) (*pegParams, error) {
 	earlyCutoff := cmd.options.Bool("early-cutoff")
 	skipTiebreaker := cmd.options.Bool("skip-tiebreaker")
 	disableIterativeDeepening := cmd.options.Bool("disable-id")
+	idExplicitlySet := len(cmd.options["disable-id"]) > 0
 	nestedDepthLimit, err := cmd.options.IntDefault("max-nested-depth", 1)
 	if err != nil {
 		return nil, err
@@ -850,9 +852,19 @@ func (sc *ShellController) pegPrepare(cmd *shellcmd) (*pegParams, error) {
 		}
 		movesToSolve = append(movesToSolve, m)
 	}
+
+	idNote := ""
+	if len(movesToSolve) > 0 && !idExplicitlySet {
+		disableIterativeDeepening = true
+		idNote = " (auto-disabled: -only-solve set)"
+	}
+	idStr := "on"
+	if disableIterativeDeepening {
+		idStr = "off"
+	}
 	sc.showMessage(fmt.Sprintf(
-		"endgameplies %v, maxtime %v, threads %v",
-		endgamePlies, maxtime, maxthreads))
+		"endgameplies %v, maxtime %v, threads %v, iterative-deepening %v%v, nested-depth-limit %v",
+		endgamePlies, maxtime, maxthreads, idStr, idNote, nestedDepthLimit))
 
 	gd, err := kwg.GetKWG(sc.game.Config().WGLConfig(), sc.game.LexiconName())
 	if err != nil {
@@ -908,6 +920,38 @@ func (sc *ShellController) pegPrepare(cmd *shellcmd) (*pegParams, error) {
 	}
 	sc.preendgameSolver.SetAvoidPrune(avoidPruneMoves)
 
+	if eventuality := strings.ToUpper(cmd.options.String("eventuality")); eventuality != "" {
+		mls, err := tilemapping.ToMachineLetters(eventuality, sc.game.Alphabet())
+		if err != nil {
+			return nil, fmt.Errorf("eventuality: %w", err)
+		}
+		tracePath := cmd.options.String("trace-file")
+		if tracePath == "" {
+			tracePath = "peg-trace.txt"
+		}
+		sc.pegTraceFile, err = os.Create(tracePath)
+		if err != nil {
+			return nil, err
+		}
+		sc.preendgameSolver.SetTraceTargetBagTail(mls)
+		sc.preendgameSolver.SetTraceOnce(true)
+		sc.preendgameSolver.SetTraceWriter(sc.pegTraceFile)
+		sc.preendgameSolver.SetExplainMode(true)
+		// Auto-force single-threaded, no iterative deepening, no tiebreaker
+		// unless the user has explicitly overridden those flags.
+		if maxthreads == 0 {
+			sc.preendgameSolver.SetThreads(1)
+		}
+		if !idExplicitlySet {
+			sc.preendgameSolver.SetIterativeDeepening(false)
+		}
+		if len(cmd.options["skip-tiebreaker"]) == 0 {
+			sc.preendgameSolver.SetSkipTiebreaker(true)
+		}
+		params.explainMode = true
+		sc.showMessage(fmt.Sprintf("eventuality mode: explaining perm %s → %s", eventuality, tracePath))
+	}
+
 	sc.pegCtx, sc.pegCancel = context.WithCancel(context.Background())
 	if maxtime > 0 {
 		sc.pegCtx, sc.pegCancel = context.WithTimeout(sc.pegCtx, time.Duration(maxtime)*time.Second)
@@ -935,12 +979,25 @@ func (sc *ShellController) pegRunSync(params *pegParams) (string, error) {
 		}
 	}
 
-	return "Winner: " + moves[0].Play.ShortDescription() + "\n" + sc.preendgameSolver.SolutionStats(maxsolutions), nil
+	var prefix string
+	if sc.pegTraceFile != nil {
+		if err := sc.pegTraceFile.Close(); err != nil {
+			log.Err(err).Msg("closing-trace-file")
+		}
+		sc.pegTraceFile = nil
+		prefix = sc.preendgameSolver.FormatExplanation()
+	}
+
+	return prefix + "Winner: " + moves[0].Play.ShortDescription() + "\n" + sc.preendgameSolver.SolutionStats(maxsolutions), nil
 }
 
 // preendgameSync runs pre-endgame synchronously and returns the result.
 // This is the preferred method for scripts.
 func (sc *ShellController) preendgameSync(cmd *shellcmd) (*Response, error) {
+	if len(cmd.args) > 0 {
+		return nil, fmt.Errorf("unknown peg subcommand %q (try `help peg`)", cmd.args[0])
+	}
+
 	params, err := sc.pegPrepare(cmd)
 	if err != nil {
 		return nil, err
@@ -973,6 +1030,10 @@ func (sc *ShellController) preendgame(cmd *shellcmd) (*Response, error) {
 			return nil, errors.New("no pre-endgame has been run yet")
 		}
 		return msg(sc.preendgameSolver.ShortDetails()), nil
+	}
+
+	if len(cmd.args) > 0 {
+		return nil, fmt.Errorf("unknown peg subcommand %q (try `help peg`)", cmd.args[0])
 	}
 
 	params, err := sc.pegPrepare(cmd)

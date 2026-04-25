@@ -361,6 +361,15 @@ func (p *PreEndgamePlay) TotalOutcomes() int {
 	return total
 }
 
+type inFlightPermInfo struct {
+	play             string
+	permInBag        string
+	oppRack          string
+	ourRack          string
+	startedAt        time.Time
+	endgamesAtStart  uint64
+}
+
 type jobLog struct {
 	PEGPlay              string         `yaml:"peg_play"`
 	FoundLosses          int            `yaml:"found_losses"`
@@ -410,6 +419,7 @@ type Solver struct {
 	logStream        io.Writer
 	solveOnlyMoves   []*move.Move
 	avoidPruneMoves  []*move.Move
+	leaveCalc        equity.Leaves
 
 	earlyCutoffOptim bool
 	maxTilesLeft     int // -1 = no limit; skip plays leaving more than this many tiles in the bag. default 1
@@ -419,21 +429,55 @@ type Solver struct {
 	nestedDepthLimit     int  // -1 = unlimited; default 1
 	skipDeepPass         bool // default true; forwarded to endgame solvers
 
-	numEndgamesSolved    atomic.Uint64
-	numCutoffs           atomic.Uint64
-	numNestedCalls       atomic.Uint64
-	numSubPermsEvaluated atomic.Uint64
-	maxNestedDepth       atomic.Uint64
+	numEndgamesSolved        atomic.Uint64
+	totalPerms               atomic.Uint32
+	numCutoffs               atomic.Uint64
+	numNestedCalls           atomic.Uint64
+	numSubPermsEvaluated     atomic.Uint64
+	maxNestedDepth           atomic.Uint64
+	nestedCacheHits          atomic.Uint64
+	nestedCacheMisses        atomic.Uint64
+	numNestedByBagSize       [InBagMaxLimit + 1]atomic.Uint64
 	potentialWinnerMutex sync.RWMutex
 	minPotentialLosses   float32
 
-	threadLogs             []jobLog
-	threadNestedCalls      []uint64
-	threadMaxNestedDepth   []uint64
+	nestedCache nestedCache
+
+	threadLogs              []jobLog
+	threadNestedCalls       []uint64
+	threadMaxNestedDepth    []uint64
 	threadSubPermsEvaluated []uint64
+	threadEndgamesSolved    []atomic.Uint64
+	threadNestedBagSize     []atomic.Int32 // subBagSize of the active nested call, 0 if none
+
+	inFlightMu    sync.RWMutex
+	inFlightPerms []inFlightPermInfo
 
 	// Per-thread arenas for SmallMove slices used in recursiveSolve.
 	arenas []*tinymove.SmallMoveArena
+
+	// Debug trace fields — zero-valued means tracing disabled.
+	traceWriter          io.Writer
+	traceTargetBagTail tilemapping.MachineWord // draw-order bag tiles to match (first drawn first)
+	traceOnce            bool
+	traceSeenMatch       atomic.Bool
+	traceMu              sync.Mutex
+
+	// Eventuality explanation (single-thread, single-perm diagnostic mode).
+	// Active only when explainResult != nil. All collection sites are guarded.
+	explainResult     *EventualityExplanation
+	explainRerunDepth int // nestedDepth-1 that is currently being driven by a re-run; -1 = none
+	// explainCollectedAtDepth tracks which nested depths have already been
+	// collected so that only the first collecting call per depth fires.
+	explainCollectedAtDepth map[int]bool
+	// Decisive opp SmallMove from Stage 2; used to drive the nested re-run.
+	explainDecisiveOppMove    tinymove.SmallMove
+	explainDecisiveOppMoveSet bool
+	// Temp slot for opp-reply post-play state, written by recursiveSolve at
+	// (depth=1, nestedDepth=0) and committed by iterateOppReplies when the
+	// reply is identified as decisive.
+	explainPendingOppRack    string
+	explainPendingBagAfterOp string
 }
 
 // Init initializes the solver. It creates all the parallel endgame solvers.
@@ -444,6 +488,9 @@ func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
 	s.threadNestedCalls = make([]uint64, s.threads)
 	s.threadMaxNestedDepth = make([]uint64, s.threads)
 	s.threadSubPermsEvaluated = make([]uint64, s.threads)
+	s.threadEndgamesSolved = make([]atomic.Uint64, s.threads)
+	s.threadNestedBagSize = make([]atomic.Int32, s.threads)
+	s.inFlightPerms = make([]inFlightPermInfo, s.threads)
 	s.ttable.SetMultiThreadedMode()
 	s.game = g.Copy()
 	s.game.SetBackupMode(game.SimulationMode)
@@ -456,11 +503,109 @@ func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
 	s.skipTiebreaker = false
 	s.nestedDepthLimit = 1
 	s.skipDeepPass = true
+	s.explainRerunDepth = -1
 	return nil
+}
+
+func (s *Solver) setInFlight(thread int, play, permInBag, oppRack, ourRack string) {
+	s.inFlightMu.Lock()
+	s.inFlightPerms[thread] = inFlightPermInfo{
+		play:            play,
+		permInBag:       permInBag,
+		oppRack:         oppRack,
+		ourRack:         ourRack,
+		startedAt:       time.Now(),
+		endgamesAtStart: s.threadEndgamesSolved[thread].Load(),
+	}
+	s.inFlightMu.Unlock()
 }
 
 func (s *Solver) SetLogStream(l io.Writer) {
 	s.logStream = l
+}
+
+func (s *Solver) SetTraceWriter(w io.Writer)        { s.traceWriter = w }
+func (s *Solver) SetTraceTargetBagTail(tail tilemapping.MachineWord) {
+	s.traceTargetBagTail = tail
+}
+func (s *Solver) SetTraceOnce(once bool)            { s.traceOnce = once }
+
+// SubPermExplanation captures one row of the per-bag-tile outcome table
+// computed by a nested sub-PEG.
+type SubPermExplanation struct {
+	Tiles    string     // user-visible tile letters, e.g. "L"
+	Count    int        // permutation weight
+	Outcome  PEGOutcome // WIN / DRAW / LOSS
+	IsActual bool       // true if this is the real bag content at this depth
+}
+
+// NestedLevelExplanation describes one level of nested pre-endgame analysis.
+// Built at the end of nestedOurTurnSolve when the explanation is on the
+// actual-draw path.
+type NestedLevelExplanation struct {
+	Depth      int    // nestedDepth (1, 2, 3...)
+	OurRack    string // rack at entry to this nested call
+	OppRack    string // opp rack at entry
+	BagContent string // bag tiles at entry, user-visible
+	UnseenPool string // multiset string, e.g. "E×3 I L N R S"
+	BestPlay   string // best sub-play description, e.g. "1H ANONYm +43"
+	SubPerms   []SubPermExplanation
+	Verdict    PEGOutcome // verdict for the actual draw
+}
+
+// EventualityExplanation captures a structured explanation of a single
+// outer-perm verdict, populated during eventuality-mode solve.
+type EventualityExplanation struct {
+	// Stage 1 — our outer play
+	OurPlay      string // e.g. "13M P(AH)"
+	OurScore     int
+	OurRackBefore string // rack before outer play
+	OurRackAfter string // rack after outer play and draw
+	BagBefore    string // bag at outer-perm entry
+	BagAfter     string // bag after our play and draw
+	OppRack      string // opp rack at outer-perm entry
+
+	// Stage 2 — opp replies
+	TotalOppReplies int    // count of opp replies tried
+	DecisiveOppPlay string // formatted move; empty for WIN verdicts
+	OppRackAfter    string // opp rack after the decisive reply + draw
+	BagAfterOppPlay string // bag after the decisive reply
+
+	// Stage 3 — nested sub-PEGs (one per depth, in order)
+	Nested []*NestedLevelExplanation
+
+	// Final verdict
+	Verdict PEGOutcome
+}
+
+// SetExplainMode enables (or disables) eventuality-explanation collection.
+// When enabled, the solver populates s.explainResult during solve. Use only
+// in single-thread, single-perm diagnostic mode (typically alongside
+// SetTraceTargetBagTail).
+func (s *Solver) SetExplainMode(on bool) {
+	if on {
+		s.explainResult = &EventualityExplanation{}
+		s.explainRerunDepth = -1
+		s.explainCollectedAtDepth = map[int]bool{}
+		s.explainDecisiveOppMoveSet = false
+	} else {
+		s.explainResult = nil
+		s.explainCollectedAtDepth = nil
+	}
+}
+
+// ExplainResult returns the populated explanation (or nil if explain mode
+// is off). Safe to call after Solve completes.
+func (s *Solver) ExplainResult() *EventualityExplanation { return s.explainResult }
+
+func (s *Solver) trace(indent int, format string, args ...any) {
+	if s.traceWriter == nil {
+		return
+	}
+	s.traceMu.Lock()
+	defer s.traceMu.Unlock()
+	fmt.Fprint(s.traceWriter, strings.Repeat("  ", indent))
+	fmt.Fprintf(s.traceWriter, format+"\n", args...)
 }
 
 func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
@@ -496,6 +641,8 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 	s.numNestedCalls.Store(0)
 	s.numSubPermsEvaluated.Store(0)
 	s.maxNestedDepth.Store(0)
+	s.nestedCacheHits.Store(0)
+	s.nestedCacheMisses.Store(0)
 
 	var winners []*PreEndgamePlay
 	var err error
@@ -516,6 +663,7 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 	if err != nil {
 		return nil, err
 	}
+	s.leaveCalc = c
 	for _, m := range moves {
 		m.SetEquity(c.Equity(m, s.game.Board(), s.game.Bag(), nil))
 	}
@@ -663,7 +811,7 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 			// PEG only needs the spread value from QDS, not the move sequence.
 			// Skipping MaterializeFull avoids a full Game.Copy per QDS call
 			// (which was 93% of all allocations in profiles).
-			es.SetSkipMaterialize(true)
+			es.SetSkipMaterialize(s.traceWriter == nil)
 			// Even though the endgame search window is already tiny, this still seems to help
 			// for some reason:
 			es.SetNegascoutOptim(true)
@@ -682,6 +830,7 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 		for i := range s.arenas {
 			s.arenas[i] = tinymove.NewSmallMoveArena(tinymove.DefaultSmallMoveArenaSize)
 		}
+		s.nestedCache.reset()
 		log.Info().Int("nmoves", len(moves)).Int("nthreads", s.threads).Msg("peg-generated-moves")
 
 		winners, err = s.multithreadSolveGeneric(ctx, moves, logChan)
@@ -707,10 +856,20 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 		close(done)
 		writer.Wait()
 	}
+	hits := s.nestedCacheHits.Load()
+	misses := s.nestedCacheMisses.Load()
+	hitRate := float64(0)
+	if hits+misses > 0 {
+		hitRate = float64(hits) / float64(hits+misses)
+	}
 	log.Info().Str("ttable-stats", s.ttable.Stats()).
 		Uint64("nested-calls", s.numNestedCalls.Load()).
 		Uint64("max-nested-depth", s.maxNestedDepth.Load()).
 		Uint64("sub-perms-evaluated", s.numSubPermsEvaluated.Load()).
+		Uint64("nested-cache-hits", hits).
+		Uint64("nested-cache-misses", misses).
+		Float64("nested-cache-hit-rate", hitRate).
+		Int("nested-cache-size", s.nestedCache.size()).
 		Float64("time-elapsed-sec", time.Since(ts).Seconds()).
 		Msg("solve-returning")
 	return winners, nil
@@ -922,6 +1081,64 @@ func (s *Solver) SingleSolutionStats(play *PreEndgamePlay, pctOnly bool) string 
 
 func (s *Solver) ShortDetails() string {
 	return s.SingleSolutionStats(s.plays[0], true)
+}
+
+// FormatExplanation renders the eventuality explanation as a multi-line
+// human-readable block. Returns "" if explain mode was not active.
+func (s *Solver) FormatExplanation() string {
+	e := s.explainResult
+	if e == nil {
+		return ""
+	}
+	var b strings.Builder
+	bar := "═══════════════════════════════════════════════════"
+	fmt.Fprintf(&b, "%s\n", bar)
+	fmt.Fprintf(&b, " Eventuality verdict: %s for %s\n", strings.ToUpper(e.Verdict.String()), e.OurPlay)
+	fmt.Fprintf(&b, "%s\n\n", bar)
+
+	fmt.Fprintf(&b, " We play  %s +%d\n", e.OurPlay, e.OurScore)
+	fmt.Fprintf(&b, "   Rack before: %s   Bag before: [%s]   Opp: %s\n",
+		e.OurRackBefore, e.BagBefore, e.OppRack)
+	fmt.Fprintf(&b, "   Rack after:  %s   Bag after:  [%s]\n",
+		e.OurRackAfter, e.BagAfter)
+
+	if e.TotalOppReplies > 0 {
+		fmt.Fprintln(&b)
+		fmt.Fprintf(&b, " Opp replies checked: %d\n", e.TotalOppReplies)
+		if e.DecisiveOppPlay != "" {
+			fmt.Fprintf(&b, " Decisive reply: %s\n", e.DecisiveOppPlay)
+			fmt.Fprintf(&b, "   Opp rack after: %s   Bag after: [%s]\n",
+				e.OppRackAfter, e.BagAfterOppPlay)
+		} else {
+			fmt.Fprintln(&b, " (all replies handled — no loss-forcing reply found)")
+		}
+	}
+
+	for _, n := range e.Nested {
+		fmt.Fprintln(&b)
+		fmt.Fprintf(&b, " ── Nested pre-endgame (depth %d) ──\n", n.Depth)
+		fmt.Fprintf(&b, "   Our rack: %s   Opp: %s   Bag: [%s]\n",
+			n.OurRack, n.OppRack, n.BagContent)
+		fmt.Fprintf(&b, "   Unseen pool: %s\n", n.UnseenPool)
+		fmt.Fprintf(&b, "   Best play under uncertainty: %s\n", n.BestPlay)
+		for _, sp := range n.SubPerms {
+			marker := ""
+			if sp.IsActual {
+				marker = "   ← actual bag content"
+			}
+			label := sp.Tiles
+			if sp.Count > 1 {
+				label = fmt.Sprintf("%s ×%d", sp.Tiles, sp.Count)
+			}
+			fmt.Fprintf(&b, "     %-10s → %s%s\n", label,
+				strings.ToUpper(sp.Outcome.String()), marker)
+		}
+		fmt.Fprintf(&b, "   Verdict at depth %d: %s\n", n.Depth,
+			strings.ToUpper(n.Verdict.String()))
+	}
+
+	fmt.Fprintf(&b, "\n%s\n", bar)
+	return b.String()
 }
 
 func (s *Solver) SetEarlyCutoffOptim(o bool) {

@@ -627,22 +627,3 @@ func TestHiedInvestigation(t *testing.T) {
 	}
 	is.True(err == nil || err == ErrCanceledEarly)
 }
-
-func TestTempura(t *testing.T) {
-	// for more info read tempura.md in this directory.
-	t.Skip()
-	is := is.New(t)
-	cgpStr := "12D2/1U10O2/1p10L2/1R1C3KANJIS2/1I1O3A2U4/1G1T3I2I4/1H1E3Z2C1LOO/1TED3E1BYWORD/2Q4N3AXE1/1RuBIGOS3I3/F1A5WEAVE2/O1T8E3/V1E5LOURY2/ENSNARL2HM4/A6TEMP4 DEFNNPT/AAIIISU 394/365 0 lex NWL20;"
-	g, err := cgp.ParseCGP(DefaultConfig, cgpStr)
-	is.NoErr(err)
-	g.RecalculateBoard()
-
-	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "NWL20")
-	is.NoErr(err)
-	peg := new(Solver)
-	err = peg.Init(g.Game, gd)
-	is.NoErr(err)
-	peg.maxEndgamePlies = 3
-	peg.iterativeDeepening = false
-
-}

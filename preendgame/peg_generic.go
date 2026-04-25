@@ -3,8 +3,11 @@ package preendgame
 import (
 	"context"
 	"fmt"
+	"math"
 	"slices"
 	"sort"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -22,7 +25,109 @@ import (
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/tinymove"
 	"github.com/domino14/macondo/tinymove/conversions"
+	"github.com/domino14/macondo/zobrist"
 )
+
+// nestedCacheKey uniquely identifies an information state at which
+// nestedOurTurnSolve is entered. The result is a pure function of this state
+// (given fixed solver config), so we can memoize it.
+type nestedCacheKey struct {
+	board          uint64                               // board-only Zobrist hash
+	ourRack        [zobrist.MaxLetters]uint8            // Rack.LetArr narrowed to uint8
+	unseen         [tilemapping.MaxAlphabetSize]uint8   // bag.Peek() ∪ opp.rack multiset
+	scorelessTurns uint8                                // 0 or 1 in practice (2 ends the game)
+}
+
+// nestedCache is a shared, thread-safe memo table for nestedOurTurnSolve
+// results, keyed on info-state. The value is a per-bag-signature verdict map:
+// for each possible ordered bag content at the call site, what verdict would
+// nestedOurTurnSolve return? This allows callers with the same info-state but
+// different actual bag contents to share a single solve. It is reset at the
+// start of each iterative-deepening ply.
+type nestedCache struct {
+	mu sync.RWMutex
+	m  map[nestedCacheKey]map[string]PEGOutcome
+}
+
+func (c *nestedCache) reset() {
+	c.mu.Lock()
+	c.m = make(map[nestedCacheKey]map[string]PEGOutcome)
+	c.mu.Unlock()
+}
+
+// lookup returns the per-bag verdict map for this info-state. The caller
+// indexes into it by bagSig(currentBag) to get the specific verdict.
+func (c *nestedCache) lookup(key nestedCacheKey) (map[string]PEGOutcome, bool) {
+	c.mu.RLock()
+	v, ok := c.m[key]
+	c.mu.RUnlock()
+	return v, ok
+}
+
+func (c *nestedCache) store(key nestedCacheKey, verdictMap map[string]PEGOutcome) {
+	c.mu.Lock()
+	c.m[key] = verdictMap
+	c.mu.Unlock()
+}
+
+func (c *nestedCache) size() int {
+	c.mu.RLock()
+	n := len(c.m)
+	c.mu.RUnlock()
+	return n
+}
+
+// buildNestedCacheKey constructs the cache key from the current game state
+// visible through the per-thread game copy. Must be called before any
+// sub-permutation reshuffling inside nestedOurTurnSolve.
+func (s *Solver) buildNestedCacheKey(g *game.Game) nestedCacheKey {
+	var k nestedCacheKey
+	k.board = s.ttable.Zobrist().BoardHash(g.Board().GetSquares())
+	for i, ct := range g.RackFor(g.PlayerOnTurn()).LetArr {
+		k.ourRack[i] = uint8(ct)
+	}
+	opp := 1 - g.PlayerOnTurn()
+	for _, t := range g.Bag().Peek() {
+		k.unseen[int(t)]++
+	}
+	for _, t := range g.RackFor(opp).TilesOn() {
+		k.unseen[int(t)]++
+	}
+	k.scorelessTurns = uint8(g.ScorelessTurns())
+	return k
+}
+
+// bagSigFromTiles encodes an ordered tile slice as a string map key.
+func bagSigFromTiles(tiles []tilemapping.MachineLetter) string {
+	b := make([]byte, len(tiles))
+	for i, ml := range tiles {
+		b[i] = byte(ml)
+	}
+	return string(b)
+}
+
+// bagSig returns a string key for the current ordered bag content.
+func bagSig(g *game.Game) string {
+	return bagSigFromTiles(g.Bag().Peek())
+}
+
+// buildUnseenPoolStr formats unseenList (indexed by MachineLetter) into a
+// human-readable multiset string, e.g. "E×3 I L N R S". Used for explain mode.
+func buildUnseenPoolStr(unseenList []int, alphabet *tilemapping.TileMapping) string {
+	parts := make([]string, 0, 16)
+	for idx, count := range unseenList {
+		if count == 0 {
+			continue
+		}
+		letter := tilemapping.MachineWord([]tilemapping.MachineLetter{tilemapping.MachineLetter(idx)}).UserVisible(alphabet)
+		if count > 1 {
+			parts = append(parts, fmt.Sprintf("%s×%d", letter, count))
+		} else {
+			parts = append(parts, letter)
+		}
+	}
+	return strings.Join(parts, " ")
+}
 
 func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move, logChan chan []byte) ([]*PreEndgamePlay, error) {
 	// for every move, solve all the possible endgames.
@@ -107,14 +212,74 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				log.Info().
-					Uint32("processed", processed.Load()).
-					Uint64("endgames-solved", s.numEndgamesSolved.Load()).
-					Uint64("cutoffs", s.numCutoffs.Load()).
-					Uint64("nested-calls", s.numNestedCalls.Load()).
-					Uint64("max-nested-depth", s.maxNestedDepth.Load()).
-					Uint64("sub-perms-evaluated", s.numSubPermsEvaluated.Load()).
-					Msg("peg-status")
+				ch := s.nestedCacheHits.Load()
+				cm := s.nestedCacheMisses.Load()
+				cr := float64(0)
+				if ch+cm > 0 {
+					cr = float64(ch) / float64(ch+cm)
+				}
+				nestedByBagSize := make(map[int]uint64)
+					for i := 1; i <= InBagMaxLimit; i++ {
+						if n := s.numNestedByBagSize[i].Load(); n > 0 {
+							nestedByBagSize[i] = n
+						}
+					}
+					now := time.Now()
+					s.inFlightMu.RLock()
+					type permSnapshot struct {
+						Play           string  `json:"play"`
+						PermInBag      string  `json:"perm_in_bag"`
+						OppRack        string  `json:"opp_rack"`
+						OurRack        string  `json:"our_rack"`
+						ElapsedS       float64 `json:"elapsed_s"`
+						EndgamesOnPerm uint64  `json:"endgames_on_perm"`
+						NestedBagSize  int32   `json:"nested_bag_size,omitempty"`
+					}
+					curEndgames := s.numEndgamesSolved.Load()
+					inFlight := make([]permSnapshot, 0, s.threads)
+					for t := 0; t < s.threads; t++ {
+						p := s.inFlightPerms[t]
+						if p.permInBag == "" {
+							continue
+						}
+						threadNow := s.threadEndgamesSolved[t].Load()
+						var permEndgames uint64
+						if threadNow >= p.endgamesAtStart {
+							permEndgames = threadNow - p.endgamesAtStart
+						}
+						inFlight = append(inFlight, permSnapshot{
+							Play:           p.play,
+							PermInBag:      p.permInBag,
+							OppRack:        p.oppRack,
+							OurRack:        p.ourRack,
+							ElapsedS:       now.Sub(p.startedAt).Seconds(),
+							EndgamesOnPerm: permEndgames,
+							NestedBagSize:  s.threadNestedBagSize[t].Load(),
+						})
+					}
+					s.inFlightMu.RUnlock()
+					total := s.totalPerms.Load()
+					done := processed.Load()
+					remaining := uint32(0)
+					if total > done {
+						remaining = total - done
+					}
+					log.Info().
+						Uint32("processed", done).
+						Uint32("total", total).
+						Uint32("remaining", remaining).
+						Uint64("endgames-solved", curEndgames).
+						Uint64("cutoffs", s.numCutoffs.Load()).
+						Uint64("nested-calls", s.numNestedCalls.Load()).
+						Uint64("max-nested-depth", s.maxNestedDepth.Load()).
+						Uint64("sub-perms-evaluated", s.numSubPermsEvaluated.Load()).
+						Uint64("nested-cache-hits", ch).
+						Uint64("nested-cache-misses", cm).
+						Float64("nested-cache-hit-rate", cr).
+						Int("nested-cache-size", s.nestedCache.size()).
+						Interface("nested-calls-by-bag-size", nestedByBagSize).
+						Interface("in-flight", inFlight).
+						Msg("peg-status")
 			}
 		}
 	}()
@@ -183,11 +348,21 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 		log.Info().Msg("timed out or stopped; returning best results so far...")
 		err = ErrCanceledEarly
 	}
+	wh := s.nestedCacheHits.Load()
+	wm := s.nestedCacheMisses.Load()
+	wr := float64(0)
+	if wh+wm > 0 {
+		wr = float64(wh) / float64(wh+wm)
+	}
 	log.Info().Uint64("solved-endgames", s.numEndgamesSolved.Load()).
 		Uint64("cutoff-moves", s.numCutoffs.Load()).
 		Uint64("nested-calls", s.numNestedCalls.Load()).
 		Uint64("max-nested-depth", s.maxNestedDepth.Load()).
 		Uint64("sub-perms-evaluated", s.numSubPermsEvaluated.Load()).
+		Uint64("nested-cache-hits", wh).
+		Uint64("nested-cache-misses", wm).
+		Float64("nested-cache-hit-rate", wr).
+		Int("nested-cache-size", s.nestedCache.size()).
 		Str("winner", s.plays[0].String()).Msg("winning-play")
 
 	return s.plays, err
@@ -207,7 +382,6 @@ func (s *Solver) computeSortedOptions(maybeInBagTiles []int) [][]option {
 
 	result := make([][]option, len(s.plays))
 	for pi, p := range s.plays {
-		firstPlayEmptiesBag := p.Play.TilesPlayed() >= s.numinbag
 		opts := make([]option, len(permutations))
 		for j, perm := range permutations {
 			tiles := make([]tilemapping.MachineLetter, len(perm.Perm))
@@ -215,26 +389,22 @@ func (s *Solver) computeSortedOptions(maybeInBagTiles []int) [][]option {
 				tiles[k] = tilemapping.MachineLetter(el)
 			}
 			opt := option{mls: tiles, ct: perm.Count}
-			if firstPlayEmptiesBag {
-				g0.ThrowRacksInFor(1 - g0.PlayerOnTurn())
-				MoveTilesToBeginning(tiles, g0.Bag())
-				if _, err := g0.SetRandomRack(1-g0.PlayerOnTurn(), nil); err == nil {
-					if err := g0.PlayMove(p.Play, false, 0); err == nil {
-						mg0.GenAll(g0.RackFor(g0.PlayerOnTurn()), false)
-						if len(mg0.Plays()) > 0 {
-							opt.oppEstimate = float64(mg0.Plays()[0].Equity())
-						}
-						g0.UnplayLastMove()
+			g0.ThrowRacksInFor(1 - g0.PlayerOnTurn())
+			MoveTilesToBeginning(tiles, g0.Bag())
+			if _, err := g0.SetRandomRack(1-g0.PlayerOnTurn(), nil); err == nil {
+				if err := g0.PlayMove(p.Play, false, 0); err == nil {
+					mg0.GenAll(g0.RackFor(g0.PlayerOnTurn()), false)
+					if len(mg0.Plays()) > 0 {
+						opt.oppEstimate = float64(mg0.Plays()[0].Equity())
 					}
+					g0.UnplayLastMove()
 				}
 			}
 			opts[j] = opt
 		}
-		if firstPlayEmptiesBag {
-			sort.Slice(opts, func(i, j int) bool {
-				return opts[i].oppEstimate > opts[j].oppEstimate
-			})
-		}
+		sort.Slice(opts, func(i, j int) bool {
+			return opts[i].oppEstimate > opts[j].oppEstimate
+		})
 		for k := range opts {
 			opts[k].idx = k
 		}
@@ -247,13 +417,23 @@ func (s *Solver) computeSortedOptions(maybeInBagTiles []int) [][]option {
 }
 
 func (s *Solver) createGenericPEGJobs(ctx context.Context, maybeInBagTiles []int, sortedOpts [][]option, jobChan chan job) {
-	queuedJobs := 0
+	// Count jobs first so totalPerms is visible to the status ticker immediately.
+	total := 0
+	if sortedOpts != nil {
+		for _, opts := range sortedOpts {
+			total += len(opts)
+		}
+	} else {
+		total = len(s.plays)
+	}
+	s.totalPerms.Store(uint32(total))
+	log.Info().Int("numJobs", total).Msg("queued-jobs")
+
 	if sortedOpts != nil {
 		// Per-permutation mode: one job per (play, perm), pre-sorted hardest-first.
 		for pi, p := range s.plays {
 			for _, opt := range sortedOpts[pi] {
 				jobChan <- job{ourMove: p, opt: opt}
-				queuedJobs++
 			}
 		}
 	} else {
@@ -261,10 +441,8 @@ func (s *Solver) createGenericPEGJobs(ctx context.Context, maybeInBagTiles []int
 		// internally, keeping oppEstimate computation parallelized across threads.
 		for _, p := range s.plays {
 			jobChan <- job{ourMove: p, maybeInBagTiles: maybeInBagTiles}
-			queuedJobs++
 		}
 	}
-	log.Info().Int("numJobs", queuedJobs).Msg("queued-jobs")
 	close(jobChan)
 }
 
@@ -430,6 +608,57 @@ type option struct {
 	idx         int
 }
 
+// permMatchesTrace returns true when this permutation should be processed.
+// Always true when tracing is off. When tracing is on, matches
+// sorted(mls[:7]) against traceTargetFirstRack and mls[7:] against
+// traceTargetBagTail. When traceOnce is set, only the first matching perm
+// is accepted.
+// permMatchesTrace returns true if the current game state (opp rack + bag
+// content) matches the trace filter targets. It must be called after
+// SetRandomRack has been called for the opponent so that g.RackFor reflects
+// the actual drawn rack. mls is unused; the check reads game state directly
+// so it works regardless of numinbag relative to RackTileLimit.
+func (s *Solver) permMatchesTrace(g *game.Game, _ []tilemapping.MachineLetter) bool {
+	if s.traceWriter == nil {
+		return true
+	}
+	if len(s.traceTargetBagTail) == 0 {
+		return true
+	}
+	if s.traceOnce && s.traceSeenMatch.Load() {
+		return false
+	}
+	if len(s.traceTargetBagTail) > 0 {
+		// Peek() is front→back; drawing is back→front (draw order = reversed Peek()).
+		// traceTargetBagTail is stored in draw order, so compare against reversed Peek().
+		// Machine-letter comparison is allocation-free and correct for any alphabet.
+		bagPeek := g.Bag().Peek()
+		target := s.traceTargetBagTail
+		if len(bagPeek) != len(target) {
+			return false
+		}
+		for i, ml := range bagPeek {
+			if ml != target[len(target)-1-i] {
+				return false
+			}
+		}
+	}
+	s.traceSeenMatch.Store(true)
+	return true
+}
+
+// smallMoveStr formats a SmallMove into a human-readable coordinate string.
+func smallMoveStr(sm tinymove.SmallMove) string {
+	if sm.IsPass() {
+		return "PASS"
+	}
+	row, col, vert := sm.CoordsAndVertical()
+	if vert {
+		return fmt.Sprintf("%c%d score=%d", 'A'+col, row+1, sm.Score())
+	}
+	return fmt.Sprintf("%d%c score=%d", row+1, 'A'+col, sm.Score())
+}
+
 func (s *Solver) handleJobGeneric(ctx context.Context, j job, thread int,
 	winnerChan chan *PreEndgamePlay) error {
 	s.arenas[thread].Reset()
@@ -515,6 +744,21 @@ func (s *Solver) processJobPerPerm(ctx context.Context, j job, thread int,
 		return err
 	}
 
+	s.setInFlight(thread, j.ourMove.Play.ShortDescription(),
+		tilemapping.MachineWord(j.opt.mls).UserVisible(g.Alphabet()),
+		g.RackLettersFor(1-g.PlayerOnTurn()),
+		g.RackLettersFor(g.PlayerOnTurn()))
+
+	if !s.permMatchesTrace(g, j.opt.mls) {
+		return nil
+	}
+	s.trace(0, "[outer] play=%s opp-rack=%s our-rack=%s bag-tail=%s perm-count=%d",
+		j.ourMove.Play.ShortDescription(),
+		g.RackLettersFor(1-g.PlayerOnTurn()),
+		g.RackLettersFor(g.PlayerOnTurn()),
+		s.traceTargetBagTail,
+		j.opt.ct)
+
 	var sm tinymove.SmallMove
 	if j.ourMove.Play.Action() == move.MoveTypePass {
 		sm = tinymove.PassMove()
@@ -570,20 +814,18 @@ func (s *Solver) processJobPerPlay(ctx context.Context, j job, thread int,
 		for idx, el := range perm.Perm {
 			tiles[idx] = tilemapping.MachineLetter(el)
 		}
-		if firstPlayEmptiesBag && !j.fullSolve {
+		if !j.fullSolve {
 			g.ThrowRacksInFor(1 - g.PlayerOnTurn())
 			MoveTilesToBeginning(tiles, g.Bag())
-			_, err := g.SetRandomRack(1-g.PlayerOnTurn(), nil)
-			if err != nil {
-				return err
+			if _, err := g.SetRandomRack(1-g.PlayerOnTurn(), nil); err == nil {
+				if err := g.PlayMove(j.ourMove.Play, false, 0); err == nil {
+					mg.GenAll(g.RackFor(g.PlayerOnTurn()), false)
+					if len(mg.Plays()) > 0 {
+						topEquity = mg.Plays()[0].Equity()
+					}
+					g.UnplayLastMove()
+				}
 			}
-			err = g.PlayMove(j.ourMove.Play, false, 0)
-			if err != nil {
-				return err
-			}
-			mg.GenAll(g.RackFor(g.PlayerOnTurn()), false)
-			topEquity = mg.Plays()[0].Equity()
-			g.UnplayLastMove()
 		}
 		options = append(options, option{
 			mls:         tiles,
@@ -591,7 +833,7 @@ func (s *Solver) processJobPerPlay(ctx context.Context, j job, thread int,
 			oppEstimate: float64(topEquity),
 		})
 	}
-	if firstPlayEmptiesBag && !j.fullSolve {
+	if !j.fullSolve {
 		sort.Slice(options, func(i, j int) bool {
 			return options[i].oppEstimate > options[j].oppEstimate
 		})
@@ -625,6 +867,21 @@ func (s *Solver) processJobPerPlay(ctx context.Context, j job, thread int,
 			return err
 		}
 
+		s.setInFlight(thread, j.ourMove.Play.ShortDescription(),
+			tilemapping.MachineWord(options[idx].mls).UserVisible(g.Alphabet()),
+			g.RackLettersFor(1-g.PlayerOnTurn()),
+			g.RackLettersFor(g.PlayerOnTurn()))
+
+		if !s.permMatchesTrace(g, options[idx].mls) {
+			continue
+		}
+		s.trace(0, "[outer] play=%s opp-rack=%s our-rack=%s bag-tail=%s perm-count=%d",
+			j.ourMove.Play.ShortDescription(),
+			g.RackLettersFor(1-g.PlayerOnTurn()),
+			g.RackLettersFor(g.PlayerOnTurn()),
+			s.traceTargetBagTail,
+			options[idx].ct)
+
 		var sm tinymove.SmallMove
 		if j.ourMove.Play.Action() == move.MoveTypePass {
 			sm = tinymove.PassMove()
@@ -640,11 +897,43 @@ func (s *Solver) processJobPerPlay(ctx context.Context, j job, thread int,
 			s.threadLogs[thread].Options[idx].OurRack = g.RackLettersFor(g.PlayerOnTurn())
 		}
 
+		if s.explainResult != nil {
+			s.explainResult.OurPlay = j.ourMove.Play.ShortDescription()
+			s.explainResult.OurScore = j.ourMove.Play.Score()
+			s.explainResult.OurRackBefore = g.RackLettersFor(g.PlayerOnTurn())
+			s.explainResult.OppRack = g.RackLettersFor(1 - g.PlayerOnTurn())
+			s.explainResult.BagBefore = tilemapping.MachineWord(g.Bag().Peek()).UserVisible(g.Alphabet())
+		}
 		err = s.recursiveSolve(ctx, thread, j.ourMove, sm, options[idx], winnerChan, 0, firstPlayEmptiesBag, j.fullSolve, 0)
 		if err != nil {
 			return err
 		}
 		j.ourMove.finalize()
+		if s.explainResult != nil {
+			s.explainResult.Verdict = j.ourMove.OutcomeFor(options[idx].mls)
+		}
+		// If a decisive opp reply was found, do a targeted re-run to collect nested
+		// sub-PEG explanations on the actual decisive path. This fires at most once
+		// (single-perm, single-trace mode). Game state here is the outer perm staged
+		// (opp rack set, bag has remaining perm tiles ready for our draw).
+		if s.explainResult != nil && s.explainDecisiveOppMoveSet {
+			prevRerun := s.explainRerunDepth
+			s.explainRerunDepth = 0
+			if _, err2 := g.PlaySmallMoveWithDraw(&sm); err2 == nil {
+				decisiveSM := s.explainDecisiveOppMove
+				if _, err3 := g.PlaySmallMoveWithDraw(&decisiveSM); err3 == nil {
+					if g.Bag().TilesRemaining() > 0 &&
+						g.Playing() != macondo.PlayState_GAME_OVER &&
+						g.PlayerOnTurn() == s.solvingForPlayer &&
+						s.nestedDepthLimit >= 1 {
+						_, _ = s.nestedOurTurnSolve(ctx, thread, 1)
+					}
+					g.UnplayLastMove()
+				}
+				g.UnplayLastMove()
+			}
+			s.explainRerunDepth = prevRerun
+		}
 	}
 	return nil
 }
@@ -689,6 +978,8 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 			// This is the spread after we make our play, from the POV of
 			// the player currently on turn
 			initialSpread := g.CurrentSpread()
+			s.numEndgamesSolved.Add(1)
+			s.threadEndgamesSolved[thread].Add(1)
 			// Now let's solve the endgame.
 			st := time.Now()
 			val, seq, err = s.endgameSolvers[thread].QuickAndDirtySolve(ctx, s.curEndgamePlies, thread)
@@ -697,7 +988,6 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 				return err
 			}
 			timeToSolve = time.Since(st)
-			s.numEndgamesSolved.Add(1)
 			finalSpread = val + int16(initialSpread)
 			// fmt.Println(strings.Repeat(" ", depth),
 			// 	"inbag:", tilemapping.MachineWord(inbagOption.mls).UserVisible(g.Alphabet()),
@@ -713,6 +1003,10 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 				return nil
 			}
 		}
+
+		s.trace(depth+nestedDepth*4, "[d=%d n=%d] endgame spread=%+d pv=[%s] oppPerspective=%v",
+			depth, nestedDepth, finalSpread,
+			s.endgameSolvers[thread].ShortDetails(), oppPerspective)
 
 		switch {
 		case (finalSpread > 0 && oppPerspective) || (finalSpread < 0 && !oppPerspective):
@@ -779,6 +1073,22 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 		log.Err(err).Msg("play-move-err")
 		return err
 	}
+	if s.explainResult != nil && nestedDepth == 0 {
+		if depth == 0 {
+			s.explainResult.OurRackAfter = g.RackLettersFor(s.solvingForPlayer)
+			s.explainResult.BagAfter = tilemapping.MachineWord(g.Bag().Peek()).UserVisible(g.Alphabet())
+		} else if depth == 1 {
+			s.explainPendingOppRack = g.RackLettersFor(1 - s.solvingForPlayer)
+			s.explainPendingBagAfterOp = tilemapping.MachineWord(g.Bag().Peek()).UserVisible(g.Alphabet())
+		}
+	}
+	s.trace(depth+nestedDepth*4, "[d=%d n=%d] played=%s our=%s opp=%s bag-remaining=%d scoreless=%d",
+		depth, nestedDepth,
+		smallMoveStr(moveToMake),
+		g.RackLettersFor(s.solvingForPlayer),
+		g.RackLettersFor(1-s.solvingForPlayer),
+		g.Bag().TilesRemaining(),
+		g.ScorelessTurns())
 
 	// If the bag is STILL not empty after making our last move:
 	if g.Bag().TilesRemaining() > 0 && g.Playing() != macondo.PlayState_GAME_OVER {
@@ -830,19 +1140,39 @@ func (s *Solver) allocSortedReplies(thread int, prevMove tinymove.SmallMove) []t
 	return genPlays
 }
 
-// iterateOppReplies calls recursiveSolve for every opponent reply in genPlays.
-// All plays are enumerated — none are skipped — so the leaves' calls to
-// setUnfinalizedWinPctStat accumulate every possible opp outcome for inbagOption,
-// letting the pessimistic aggregation rule (any Loss dominates) take effect.
+// iterateOppReplies calls recursiveSolve for each opponent reply in genPlays,
+// stopping as soon as the current inbagOption.mls is confirmed a loss. A loss
+// from any single opp reply is absorbing (setUnfinalizedWinPctStat makes loss
+// irrevocable), so remaining replies cannot change the verdict.
 func (s *Solver) iterateOppReplies(ctx context.Context, thread int, pegPlay *PreEndgamePlay,
 	inbagOption option, winnerChan chan *PreEndgamePlay, depth int,
 	pegPlayEmptiesBag, fullSolve bool, genPlays []tinymove.SmallMove, nestedDepth int) error {
 	for idx := range genPlays {
+		s.trace(depth+nestedDepth*4, "[d=%d n=%d] opp-reply %d/%d %s",
+			depth, nestedDepth, idx+1, len(genPlays), smallMoveStr(genPlays[idx]))
 		err := s.recursiveSolve(ctx, thread, pegPlay, genPlays[idx], inbagOption, winnerChan, depth+1, pegPlayEmptiesBag, fullSolve, nestedDepth)
 		if err != nil {
 			log.Err(err).Msg("recursive-solve-err")
 			return err
 		}
+		if !fullSolve && pegPlay.HasLoss(inbagOption.mls) {
+			if s.explainResult != nil && nestedDepth == 0 && s.explainResult.DecisiveOppPlay == "" {
+				g := s.endgameSolvers[thread].Game()
+				opp := 1 - s.solvingForPlayer
+				oppMove := &move.Move{}
+				conversions.SmallMoveToMove(genPlays[idx], oppMove, g.Alphabet(), g.Board(), g.RackFor(opp))
+				s.explainResult.DecisiveOppPlay = fmt.Sprintf("%s +%d", oppMove.ShortDescription(), genPlays[idx].Score())
+				s.explainResult.OppRackAfter = s.explainPendingOppRack
+				s.explainResult.BagAfterOppPlay = s.explainPendingBagAfterOp
+				s.explainResult.TotalOppReplies = idx + 1
+				s.explainDecisiveOppMove = genPlays[idx]
+				s.explainDecisiveOppMoveSet = true
+			}
+			break
+		}
+	}
+	if s.explainResult != nil && nestedDepth == 0 && s.explainResult.TotalOppReplies == 0 {
+		s.explainResult.TotalOppReplies = len(genPlays)
 	}
 	return nil
 }
@@ -871,25 +1201,22 @@ func (s *Solver) iterateOurReplies(ctx context.Context, thread int, pegPlay *Pre
 	return nil
 }
 
-// nestedOurTurnSolve is called when, during recursive descent, it becomes our
-// turn again with the bag still non-empty. Instead of enumerating our replies
-// at the fixed outer bag ordering (which we don't actually know in a real game),
-// it runs a proper nested PEG: for each candidate reply, it checks whether that
-// reply wins across ALL bag orderings consistent with the current info state.
+// nestedOurTurnSolve handles the "our turn again with bag still non-empty" frame
+// under an imperfect-info model. We don't know which tile is in the bag; we only
+// know the multiset of unseen tiles (current bag ∪ opp's rack). We evaluate every
+// candidate play P across all bag-orderings consistent with that unseen multiset
+// (sub-perms), score each P by wins + 0.5·draws, then pick the play(s) tied for
+// the best score. The verdict returned to the outer caller is that play's outcome
+// at the *actual* current bag ordering (pessimistic among ties).
 //
-// Returns:
-//   - PEGWin  if some reply guarantees a win across all sub-orderings.
-//   - PEGDraw if no reply guarantees a win but some guarantees a non-loss.
-//   - PEGLoss otherwise.
-//
-// The caller must call setUnfinalizedWinPctStat with the returned outcome for
-// the outer inbagOption. fullSolve must be false (tiebreak paths never reach
-// our-turn frames because tiebreak only applies to bag-emptying outer plays).
+// The result is cached keyed on info-state (board, our rack, unseen multiset,
+// scoreless turns). The cache value is a per-bag-sig verdict map so that any
+// caller reaching the same info-state but with a different actual bag ordering
+// can retrieve its specific verdict without re-solving.
 func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int, nestedDepth int) (PEGOutcome, error) {
 	if ctx.Err() != nil {
 		return PEGNotInitialized, ctx.Err()
 	}
-	// Update diagnostic counters.
 	s.numNestedCalls.Add(1)
 	s.threadNestedCalls[thread]++
 	for {
@@ -908,15 +1235,51 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int, nestedDepth
 	g := s.endgameSolvers[thread].Game()
 	mg := s.endgameSolvers[thread].Movegen()
 
-	// Save bag + racks. The defer restores them once we're done testing
-	// sub-permutations, so the caller's UnplayLastMove sees the right state.
-	snap := snapshotPEGState(g)
-	defer snap.restore(g)
+	// Capture the caller's actual bag ordering before any reshuffling.
+	// This is the key into the per-bag verdict map for this call.
+	currentBagSig := bagSig(g)
 
 	opp := 1 - g.PlayerOnTurn()
 	subBagSize := g.Bag().TilesRemaining()
 
-	// Build the unseen tile pool from our perspective: current bag + opp's rack.
+	// Cache lookup: the verdict is a pure function of (info-state, bag-sig).
+	cacheKey := s.buildNestedCacheKey(g)
+	collecting := s.explainResult != nil &&
+		s.explainRerunDepth == nestedDepth-1 &&
+		!s.explainCollectedAtDepth[nestedDepth]
+	if collecting {
+		s.explainCollectedAtDepth[nestedDepth] = true
+	}
+	var explNOurRack, explNOppRack, explNBag string
+	if collecting {
+		explNOurRack = g.RackLettersFor(g.PlayerOnTurn())
+		explNOppRack = g.RackLettersFor(opp)
+		explNBag = tilemapping.MachineWord(g.Bag().Peek()).UserVisible(g.Alphabet())
+	}
+	if !collecting {
+		if verdictMap, ok := s.nestedCache.lookup(cacheKey); ok {
+			s.nestedCacheHits.Add(1)
+			if v, found := verdictMap[currentBagSig]; found {
+				return v, nil
+			}
+			// Defensive: info-state hit but bag-sig absent — fall through to recompute.
+		}
+	}
+	s.nestedCacheMisses.Add(1)
+	nestedLeafStart := s.threadEndgamesSolved[thread].Load()
+
+	// Save bag + racks; restore on return so the caller's UnplayLastMove is clean.
+	snap := snapshotPEGState(g)
+	defer snap.restore(g)
+
+	if subBagSize <= InBagMaxLimit {
+		s.numNestedByBagSize[subBagSize].Add(1)
+	}
+	s.threadNestedBagSize[thread].Store(int32(subBagSize))
+	defer s.threadNestedBagSize[thread].Store(0)
+
+	// Unseen pool = current bag + opp's rack. This is our full info-set; we
+	// cannot distinguish which unseen tiles are in the bag vs. on opp's rack.
 	unseenList := make([]int, tilemapping.MaxAlphabetSize)
 	for _, t := range g.Bag().Peek() {
 		unseenList[int(t)]++
@@ -926,10 +1289,39 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int, nestedDepth
 	}
 	subPerms := generatePermutations(unseenList, subBagSize)
 
-	// Generate our candidate replies. We snapshot our rack's tile list before
-	// doing anything that might disturb the movegen state.
-	// With skipDeepPass on, suppress passes in nested sub-PEG generation except
-	// when the previous move was also a pass (two passes end the game — cheap).
+	// Sort sub-perms by opp's expected best score descending: perms where opp scores
+	// highest (hardest for us) come first, surfacing losses early so the
+	// strict->minLossesSoFar cutoff eliminates weak sub-plays sooner.
+	{
+		type spWithEst struct {
+			sp  Permutation
+			est float64
+		}
+		spe := make([]spWithEst, len(subPerms))
+		mg.(*movegen.GordonGenerator).SetPlayRecorderTopPlay()
+		for i, sp := range subPerms {
+			tiles := make([]tilemapping.MachineLetter, len(sp.Perm))
+			for j, el := range sp.Perm {
+				tiles[j] = tilemapping.MachineLetter(el)
+			}
+			spe[i] = spWithEst{sp: sp}
+			g.ThrowRacksInFor(opp)
+			MoveTilesToBeginning(tiles, g.Bag())
+			if _, err := g.SetRandomRack(opp, nil); err == nil {
+				mg.GenAll(g.RackFor(opp), false)
+				if plays := mg.Plays(); len(plays) > 0 {
+					spe[i].est = plays[0].Equity()
+				}
+			}
+		}
+		snap.restore(g)
+		sort.Slice(spe, func(i, j int) bool { return spe[i].est > spe[j].est })
+		for i := range spe {
+			subPerms[i] = spe[i].sp
+		}
+		mg.SetPlayRecorder(movegen.AllPlaysSmallRecorder)
+	}
+
 	if s.skipDeepPass {
 		lastMoveWasPass := g.ScorelessTurns() > g.LastScorelessTurns()
 		mg.SetGenPass(lastMoveWasPass)
@@ -940,11 +1332,49 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int, nestedDepth
 	subPlays := s.arenas[thread].Alloc(len(ourPlays))
 	copy(subPlays, ourPlays)
 	defer s.arenas[thread].Dealloc(len(subPlays))
+	// Sort sub-plays by score + leave so the strongest play is evaluated first,
+	// tightening minLossesSoFar quickly and enabling the strict->cutoff to fire.
+	if s.leaveCalc != nil {
+		tmpMove := &move.Move{}
+		rack := g.RackFor(g.PlayerOnTurn())
+		for i := range subPlays {
+			var est float64
+			if subPlays[i].IsPass() {
+				est = s.leaveCalc.LeaveValue(tilemapping.MachineWord(rack.TilesOn()))
+			} else {
+				conversions.SmallMoveToMove(subPlays[i], tmpMove, g.Alphabet(), g.Board(), rack)
+				est = float64(subPlays[i].Score()) + s.leaveCalc.LeaveValue(tmpMove.Leave())
+			}
+			subPlays[i].SetEstimatedValue(int16(est))
+		}
+	} else {
+		for i := range subPlays {
+			subPlays[i].SetEstimatedValue(int16(subPlays[i].Score()))
+		}
+	}
+	slices.SortFunc(subPlays, func(a, b tinymove.SmallMove) int {
+		return int(b.EstimatedValue()) - int(a.EstimatedValue())
+	})
 
-	anyNonLoss := false
+	s.trace(nestedDepth*4, "[nested=%d] ENTER our=%s opp=%s bag=%s subBagSize=%d numSubPerms=%d numSubPlays=%d",
+		nestedDepth,
+		g.RackLettersFor(g.PlayerOnTurn()),
+		g.RackLettersFor(opp),
+		tilemapping.MachineWord(g.Bag().Peek()).UserVisible(g.Alphabet()),
+		subBagSize, len(subPerms), len(subPlays))
 
-	for _, subM := range subPlays {
+	// Evaluate each candidate play across all sub-perms. Track minLossesSoFar
+	// for the early-cutoff: plays whose accumulated losses already exceed the
+	// current leader can never tie, so we skip their remaining sub-perms.
+	allSubPegPlays := make([]*PreEndgamePlay, len(subPlays))
+	minLossesSoFar := float32(math.MaxFloat32)
+
+	for subMIdx, subM := range subPlays {
+		s.trace(nestedDepth*4, "[nested=%d] subM %d/%d %s",
+			nestedDepth, subMIdx+1, len(subPlays), smallMoveStr(subM))
+
 		subPegPlay := &PreEndgamePlay{Play: &move.Move{}}
+		allSubPegPlays[subMIdx] = subPegPlay
 		subEmptiesBag := int(subM.TilesPlayed()) >= subBagSize
 
 		for pi, subPerm := range subPerms {
@@ -957,41 +1387,178 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int, nestedDepth
 			s.numSubPermsEvaluated.Add(1)
 			s.threadSubPermsEvaluated[thread]++
 
-			// Mirror handleJobGeneric's per-permutation setup (peg_generic.go:482-490):
-			// put opp's tiles back in the bag, reorder for this sub-perm, redraw opp's rack.
+			s.trace(nestedDepth*4+2, "[nested=%d]   subPerm %d/%d tiles=%s",
+				nestedDepth, pi+1, len(subPerms),
+				tilemapping.MachineWord(tiles).UserVisible(g.Alphabet()))
+
 			g.ThrowRacksInFor(opp)
 			MoveTilesToBeginning(tiles, g.Bag())
 			if _, err := g.SetRandomRack(opp, nil); err != nil {
 				return PEGNotInitialized, err
 			}
 
-			// winnerChan=nil: nested sub-plays must not touch the global winner
-			// accounting (minPotentialLosses, earlyCutoffOptim).
 			if err := s.recursiveSolve(ctx, thread, subPegPlay, subM, subOption, nil, 0, subEmptiesBag, false, nestedDepth); err != nil {
 				return PEGNotInitialized, err
 			}
 
-			// Early exit: a loss for any sub-perm means this sub-play can never
-			// be guaranteed-win or guaranteed-non-loss. Skip remaining sub-perms.
-			if subPegPlay.HasLoss(subOption.mls) {
+			// Strict-greater cutoff: accumulated losses already exceed the best
+			// play seen so far, so this play can never tie or beat the leader.
+			// Tied plays (==) survive and keep their full outcome row.
+			if subPegPlay.FoundLosses > minLossesSoFar {
+				s.trace(nestedDepth*4+2, "[nested=%d]   CUTOFF losses=%.1f > min=%.1f, skipping rest",
+					nestedDepth, subPegPlay.FoundLosses, minLossesSoFar)
 				break
 			}
 		}
 
 		subPegPlay.finalize()
-
-		if subPegPlay.IsGuaranteedWin() {
-			return PEGWin, nil
+		if subPegPlay.FoundLosses < minLossesSoFar {
+			minLossesSoFar = subPegPlay.FoundLosses
+			// Early exit: this play wins every sub-perm with no draws, and all
+			// sub-perms were actually evaluated (none depth-skipped). Verdict is
+			// WIN for every bag ordering — no need to evaluate remaining plays.
+			if minLossesSoFar == 0 && len(subPegPlay.outcomesArray) == len(subPerms) && !collecting {
+				verdictMap := make(map[string]PEGOutcome, len(subPerms))
+				for _, o := range subPegPlay.outcomesArray {
+					verdictMap[bagSigFromTiles(o.tiles)] = PEGWin
+				}
+				verdict := verdictMap[currentBagSig]
+				s.trace(nestedDepth*4, "[nested=%d] EARLY-WIN verdict=%s leaves=%d",
+					nestedDepth, verdict, s.threadEndgamesSolved[thread].Load()-nestedLeafStart)
+				s.nestedCache.store(cacheKey, verdictMap)
+				return verdict, nil
+			}
 		}
-		if subPegPlay.IsGuaranteedNonLoss() {
-			anyNonLoss = true
+		s.trace(nestedDepth*4, "[nested=%d] subM %d/%d done: points=%.1f losses=%.1f minLosses=%.1f",
+			nestedDepth, subMIdx+1, len(subPlays),
+			subPegPlay.Points, subPegPlay.FoundLosses, minLossesSoFar)
+	}
+
+	// Collect the tied set: all plays at the minimum loss score. By the strict->
+	// cutoff invariant, every tied play completed all its sub-perms, so its
+	// outcomesArray is a complete per-sub-perm outcome row.
+	var tiedPlays []*PreEndgamePlay
+	const epsilon = float32(1e-4)
+	for _, p := range allSubPegPlays {
+		if p != nil && p.FoundLosses <= minLossesSoFar+epsilon {
+			tiedPlays = append(tiedPlays, p)
 		}
 	}
 
-	if anyNonLoss {
-		return PEGDraw, nil
+	// Build the per-bagSig verdict map. For each sub-perm, the verdict is the
+	// worst (most pessimistic) outcome across all tied plays: we don't know which
+	// of the tied plays we'd actually pick, so we assume the worst case.
+	verdictMap := make(map[string]PEGOutcome, len(subPerms))
+	if len(tiedPlays) == 0 {
+		// No candidate plays (e.g., only passes suppressed by skipDeepPass).
+		for _, subPerm := range subPerms {
+			tiles := make([]tilemapping.MachineLetter, len(subPerm.Perm))
+			for i, el := range subPerm.Perm {
+				tiles[i] = tilemapping.MachineLetter(el)
+			}
+			verdictMap[bagSigFromTiles(tiles)] = PEGLoss
+		}
+	} else {
+		// tiedPlays[0] is the reference for sub-perm enumeration order;
+		// all tied plays have the same outcomesArray length and index correspondence.
+		ref := tiedPlays[0]
+		for j, o := range ref.outcomesArray {
+			sig := bagSigFromTiles(o.tiles)
+			worst := o.outcome
+			for _, tp := range tiedPlays[1:] {
+				if tp.outcomesArray[j].outcome > worst { // higher = more pessimistic
+					worst = tp.outcomesArray[j].outcome
+				}
+			}
+			verdictMap[sig] = worst
+		}
 	}
-	return PEGLoss, nil
+
+	verdict := verdictMap[currentBagSig]
+
+	if collecting {
+		bestPlayStr := ""
+		for ji, p := range allSubPegPlays {
+			if len(tiedPlays) > 0 && p == tiedPlays[0] {
+				tmp := &move.Move{}
+				conversions.SmallMoveToMove(subPlays[ji], tmp, g.Alphabet(), g.Board(), g.RackFor(g.PlayerOnTurn()))
+				bestPlayStr = fmt.Sprintf("%s +%d", tmp.ShortDescription(), subPlays[ji].Score())
+				break
+			}
+		}
+		subPermExp := make([]SubPermExplanation, 0, len(subPerms))
+		for _, sp := range subPerms {
+			spTiles := make([]tilemapping.MachineLetter, len(sp.Perm))
+			for i, el := range sp.Perm {
+				spTiles[i] = tilemapping.MachineLetter(el)
+			}
+			sig := bagSigFromTiles(spTiles)
+			o, found := verdictMap[sig]
+			if !found {
+				o = PEGNotInitialized
+			}
+			subPermExp = append(subPermExp, SubPermExplanation{
+				Tiles:    tilemapping.MachineWord(spTiles).UserVisible(g.Alphabet()),
+				Count:    sp.Count,
+				Outcome:  o,
+				IsActual: sig == currentBagSig,
+			})
+		}
+		level := &NestedLevelExplanation{
+			Depth:      nestedDepth,
+			OurRack:    explNOurRack,
+			OppRack:    explNOppRack,
+			BagContent: explNBag,
+			UnseenPool: buildUnseenPoolStr(unseenList, g.Alphabet()),
+			BestPlay:   bestPlayStr,
+			SubPerms:   subPermExp,
+			Verdict:    verdict,
+		}
+		s.explainResult.Nested = append(s.explainResult.Nested, level)
+
+		// Re-run the best sub-play with the actual bag content to drive collection
+		// at deeper nested levels on the actual-draw path.
+		if verdict != PEGWin && nestedDepth < s.nestedDepthLimit && len(tiedPlays) > 0 {
+			bestSubMIdx := -1
+			for ji, p := range allSubPegPlays {
+				if p == tiedPlays[0] {
+					bestSubMIdx = ji
+					break
+				}
+			}
+			if bestSubMIdx >= 0 {
+				for pi, sp := range subPerms {
+					spTiles := make([]tilemapping.MachineLetter, len(sp.Perm))
+					for i2, el := range sp.Perm {
+						spTiles[i2] = tilemapping.MachineLetter(el)
+					}
+					if bagSigFromTiles(spTiles) == currentBagSig {
+						snap.restore(g) // reset to entry state before staging re-run
+						prevRerun := s.explainRerunDepth
+						s.explainRerunDepth = nestedDepth
+						subOpt := option{mls: spTiles, ct: sp.Count, idx: pi}
+						bestSubM := subPlays[bestSubMIdx]
+						subEmptiesBag := int(bestSubM.TilesPlayed()) >= subBagSize
+						g.ThrowRacksInFor(opp)
+						MoveTilesToBeginning(spTiles, g.Bag())
+						if _, err2 := g.SetRandomRack(opp, nil); err2 == nil {
+							dummyPlay := &PreEndgamePlay{Play: &move.Move{}}
+							_ = s.recursiveSolve(ctx, thread, dummyPlay, bestSubM, subOpt, nil, 0, subEmptiesBag, false, nestedDepth)
+						}
+						s.explainRerunDepth = prevRerun
+						break
+					}
+				}
+			}
+		}
+	}
+
+	s.trace(nestedDepth*4, "[nested=%d] VERDICT=%s tied-set=%d minLosses=%.1f leaves=%d",
+		nestedDepth, verdict, len(tiedPlays), minLossesSoFar,
+		s.threadEndgamesSolved[thread].Load()-nestedLeafStart)
+
+	s.nestedCache.store(cacheKey, verdictMap)
+	return verdict, nil
 }
 
 // pegStateSnapshot captures bag order and both racks so the nested PEG can
