@@ -925,6 +925,10 @@ func (sc *ShellController) pegPrepare(cmd *shellcmd) (*pegParams, error) {
 		if err != nil {
 			return nil, fmt.Errorf("eventuality: %w", err)
 		}
+		if nib := sc.game.Bag().TilesRemaining(); len(mls) != nib {
+			return nil, fmt.Errorf("eventuality %q has %d tile(s) but the bag has %d — they must match exactly",
+				eventuality, len(mls), nib)
+		}
 		tracePath := cmd.options.String("trace-file")
 		if tracePath == "" {
 			tracePath = "peg-trace.txt"
