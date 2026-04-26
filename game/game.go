@@ -70,11 +70,6 @@ type Game struct {
 	// to when the history is written to. See comment above.
 	lastWordsFormed []tilemapping.MachineWord
 	backupMode      BackupMode
-	// skipNextCrossSetUpdate skips the cross-set recalculation on the next
-	// PlayMove call. Used by the sim to avoid a wasted update on the final ply,
-	// since ResetToFirstState restores the board (and its cross-sets) anyway.
-	// Reset to false automatically after each PlayMove.
-	skipNextCrossSetUpdate bool
 
 	stateStack []*stateBackup
 	stackPtr   int
@@ -385,10 +380,6 @@ func (g *Game) SetUidFromSeed(seed [32]byte) {
 	g.history.Uid = "seed:" + base64.RawURLEncoding.EncodeToString(seed[:])
 }
 
-func (g *Game) SetSkipNextCrossSetUpdate(skip bool) {
-	g.skipNextCrossSetUpdate = skip
-}
-
 func (g *Game) SetCrossSetGen(gen cross_set.Generator) {
 	g.crossSetGen = gen
 }
@@ -539,6 +530,18 @@ func convertToVisible(words []tilemapping.MachineWord,
 // If the millis argument is passed in, it adds this value to the history
 // as the time remaining for the user (when they played the move).
 func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
+	return g.playMove(m, addToHistory, millis, true)
+}
+
+// PlayMoveNoCrossSet is like PlayMove but skips cross-set recalculation.
+// Use this when no move generation will happen from the resulting position
+// (e.g. the last ply of a Monte Carlo simulation), so the cross-set work
+// would be discarded by UnplayLastMove anyway.
+func (g *Game) PlayMoveNoCrossSet(m *move.Move, addToHistory bool, millis int) error {
+	return g.playMove(m, addToHistory, millis, false)
+}
+
+func (g *Game) playMove(m *move.Move, addToHistory bool, millis int, updateCrossSets bool) error {
 
 	// We need to handle challenges separately.
 	if m.Action() == move.MoveTypeChallenge {
@@ -561,12 +564,10 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 	switch m.Action() {
 	case move.MoveTypePlay:
 		g.board.PlayMove(m)
-		// Calculate cross-sets (skipped on the final sim ply since the board
-		// is about to be restored by ResetToFirstState anyway).
-		if !g.skipNextCrossSetUpdate {
+		if updateCrossSets {
+			// Calculate cross-sets.
 			g.crossSetGen.UpdateForMove(g.board, m)
 		}
-		g.skipNextCrossSetUpdate = false
 		score := m.Score()
 		// no international rule counts a score of 0 as a scoreless turn
 		// if it's from tiles being played on the board (like a blank next
@@ -679,6 +680,20 @@ func (g *Game) PlayMove(m *move.Move, addToHistory bool, millis int) error {
 // those somehow.
 func (g *Game) PlaySmallMove(m *tinymove.SmallMove) (
 	*[board.MaxBoardDim]tilemapping.MachineLetter, error) {
+	return g.playSmallMove(m, true)
+}
+
+// PlaySmallMoveNoCrossSet is like PlaySmallMove but skips cross-set
+// recalculation. Use this when the resulting position will be immediately
+// unplayed without generating any moves from it (e.g. at negamax leaf depth),
+// so the cross-set work would be discarded by UnplayLastMove anyway.
+func (g *Game) PlaySmallMoveNoCrossSet(m *tinymove.SmallMove) (
+	*[board.MaxBoardDim]tilemapping.MachineLetter, error) {
+	return g.playSmallMove(m, false)
+}
+
+func (g *Game) playSmallMove(m *tinymove.SmallMove, updateCrossSets bool) (
+	*[board.MaxBoardDim]tilemapping.MachineLetter, error) {
 
 	if g.backupMode != NoBackup {
 		g.backupState()
@@ -693,8 +708,10 @@ func (g *Game) PlaySmallMove(m *tinymove.SmallMove) (
 	} else {
 		// It's a tile-play move.
 		g.board.PlaySmallMove(m, &g.stripBackup, g.players[g.onturn].rack)
-		// Calculate cross-sets.
-		g.crossSetGen.UpdateForSmallMove(g.board, m, &g.stripBackup)
+		if updateCrossSets {
+			// Calculate cross-sets.
+			g.crossSetGen.UpdateForSmallMove(g.board, m, &g.stripBackup)
+		}
 		score := int(m.Score())
 
 		g.lastScorelessTurns = g.scorelessTurns

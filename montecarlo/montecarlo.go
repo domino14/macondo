@@ -850,13 +850,14 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 			// Assume there are exactly two players.
 
 			bestPlay := s.bestStaticTurn(onTurn, thread)
-			if ply == plies-1 {
-				// Skip the cross-set update on the last ply: the board is
-				// about to be restored by ResetToFirstState anyway.
-				g.SetSkipNextCrossSetUpdate(true)
-			}
 			// log.Debug().Msgf("Ply %v, Best play: %v", ply+1, bestPlay)
-			g.PlayMove(bestPlay, false, 0)
+			// On the last ply no further move generation happens, so cross-set
+			// recalculation would be discarded by UnplayLastMove unused.
+			if ply == plies-1 {
+				g.PlayMoveNoCrossSet(bestPlay, false, 0)
+			} else {
+				g.PlayMove(bestPlay, false, 0)
+			}
 			s.nodeCount.Add(1)
 			// log.Debug().Msgf("Score is now %v", s.game.Score())
 
