@@ -239,7 +239,7 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 					inFlight := make([]permSnapshot, 0, s.threads)
 					for t := 0; t < s.threads; t++ {
 						p := s.inFlightPerms[t]
-						if p.permInBag == "" {
+						if len(p.permInBag) == 0 {
 							continue
 						}
 						threadNow := s.threadEndgamesSolved[t].Load()
@@ -247,11 +247,13 @@ func (s *Solver) multithreadSolveGeneric(ctx context.Context, moves []*move.Move
 						if threadNow >= p.endgamesAtStart {
 							permEndgames = threadNow - p.endgamesAtStart
 						}
+						// Compute display strings lazily here in the ticker (every 60s),
+						// not in the hot per-perm path.
 						inFlight = append(inFlight, permSnapshot{
 							Play:           p.play,
-							PermInBag:      p.permInBag,
-							OppRack:        p.oppRack,
-							OurRack:        p.ourRack,
+							PermInBag:      tilemapping.MachineWord(p.permInBag).UserVisible(p.alphabet),
+							OppRack:        tilemapping.MachineWord(p.oppRack[:p.oppRackLen]).UserVisible(p.alphabet),
+							OurRack:        tilemapping.MachineWord(p.ourRack[:p.ourRackLen]).UserVisible(p.alphabet),
 							ElapsedS:       now.Sub(p.startedAt).Seconds(),
 							EndgamesOnPerm: permEndgames,
 							NestedBagSize:  s.threadNestedBagSize[t].Load(),
@@ -744,20 +746,19 @@ func (s *Solver) processJobPerPerm(ctx context.Context, j job, thread int,
 		return err
 	}
 
-	s.setInFlight(thread, j.ourMove.Play.ShortDescription(),
-		tilemapping.MachineWord(j.opt.mls).UserVisible(g.Alphabet()),
-		g.RackLettersFor(1-g.PlayerOnTurn()),
-		g.RackLettersFor(g.PlayerOnTurn()))
+	s.setInFlight(thread, j.ourMove.Play.ShortDescription(), j.opt.mls, g, 1-g.PlayerOnTurn())
 
 	if !s.permMatchesTrace(g, j.opt.mls) {
 		return nil
 	}
-	s.trace(0, "[outer] play=%s opp-rack=%s our-rack=%s bag-tail=%s perm-count=%d",
-		j.ourMove.Play.ShortDescription(),
-		g.RackLettersFor(1-g.PlayerOnTurn()),
-		g.RackLettersFor(g.PlayerOnTurn()),
-		s.traceTargetBagTail,
-		j.opt.ct)
+	if s.traceWriter != nil {
+		s.trace(0, "[outer] play=%s opp-rack=%s our-rack=%s bag-tail=%s perm-count=%d",
+			j.ourMove.Play.ShortDescription(),
+			g.RackLettersFor(1-g.PlayerOnTurn()),
+			g.RackLettersFor(g.PlayerOnTurn()),
+			s.traceTargetBagTail,
+			j.opt.ct)
+	}
 
 	var sm tinymove.SmallMove
 	if j.ourMove.Play.Action() == move.MoveTypePass {
@@ -867,20 +868,19 @@ func (s *Solver) processJobPerPlay(ctx context.Context, j job, thread int,
 			return err
 		}
 
-		s.setInFlight(thread, j.ourMove.Play.ShortDescription(),
-			tilemapping.MachineWord(options[idx].mls).UserVisible(g.Alphabet()),
-			g.RackLettersFor(1-g.PlayerOnTurn()),
-			g.RackLettersFor(g.PlayerOnTurn()))
+		s.setInFlight(thread, j.ourMove.Play.ShortDescription(), options[idx].mls, g, 1-g.PlayerOnTurn())
 
 		if !s.permMatchesTrace(g, options[idx].mls) {
 			continue
 		}
-		s.trace(0, "[outer] play=%s opp-rack=%s our-rack=%s bag-tail=%s perm-count=%d",
-			j.ourMove.Play.ShortDescription(),
-			g.RackLettersFor(1-g.PlayerOnTurn()),
-			g.RackLettersFor(g.PlayerOnTurn()),
-			s.traceTargetBagTail,
-			options[idx].ct)
+		if s.traceWriter != nil {
+			s.trace(0, "[outer] play=%s opp-rack=%s our-rack=%s bag-tail=%s perm-count=%d",
+				j.ourMove.Play.ShortDescription(),
+				g.RackLettersFor(1-g.PlayerOnTurn()),
+				g.RackLettersFor(g.PlayerOnTurn()),
+				s.traceTargetBagTail,
+				options[idx].ct)
+		}
 
 		var sm tinymove.SmallMove
 		if j.ourMove.Play.Action() == move.MoveTypePass {
@@ -1004,9 +1004,11 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 			}
 		}
 
-		s.trace(depth+nestedDepth*4, "[d=%d n=%d] endgame spread=%+d pv=[%s] oppPerspective=%v",
-			depth, nestedDepth, finalSpread,
-			s.endgameSolvers[thread].ShortDetails(), oppPerspective)
+		if s.traceWriter != nil {
+			s.trace(depth+nestedDepth*4, "[d=%d n=%d] endgame spread=%+d pv=[%s] oppPerspective=%v",
+				depth, nestedDepth, finalSpread,
+				s.endgameSolvers[thread].ShortDetails(), oppPerspective)
+		}
 
 		switch {
 		case (finalSpread > 0 && oppPerspective) || (finalSpread < 0 && !oppPerspective):
@@ -1082,13 +1084,15 @@ func (s *Solver) recursiveSolve(ctx context.Context, thread int, pegPlay *PreEnd
 			s.explainPendingBagAfterOp = tilemapping.MachineWord(g.Bag().Peek()).UserVisible(g.Alphabet())
 		}
 	}
-	s.trace(depth+nestedDepth*4, "[d=%d n=%d] played=%s our=%s opp=%s bag-remaining=%d scoreless=%d",
-		depth, nestedDepth,
-		smallMoveStr(moveToMake),
-		g.RackLettersFor(s.solvingForPlayer),
-		g.RackLettersFor(1-s.solvingForPlayer),
-		g.Bag().TilesRemaining(),
-		g.ScorelessTurns())
+	if s.traceWriter != nil {
+		s.trace(depth+nestedDepth*4, "[d=%d n=%d] played=%s our=%s opp=%s bag-remaining=%d scoreless=%d",
+			depth, nestedDepth,
+			smallMoveStr(moveToMake),
+			g.RackLettersFor(s.solvingForPlayer),
+			g.RackLettersFor(1-s.solvingForPlayer),
+			g.Bag().TilesRemaining(),
+			g.ScorelessTurns())
+	}
 
 	// If the bag is STILL not empty after making our last move:
 	if g.Bag().TilesRemaining() > 0 && g.Playing() != macondo.PlayState_GAME_OVER {
@@ -1148,8 +1152,10 @@ func (s *Solver) iterateOppReplies(ctx context.Context, thread int, pegPlay *Pre
 	inbagOption option, winnerChan chan *PreEndgamePlay, depth int,
 	pegPlayEmptiesBag, fullSolve bool, genPlays []tinymove.SmallMove, nestedDepth int) error {
 	for idx := range genPlays {
-		s.trace(depth+nestedDepth*4, "[d=%d n=%d] opp-reply %d/%d %s",
-			depth, nestedDepth, idx+1, len(genPlays), smallMoveStr(genPlays[idx]))
+		if s.traceWriter != nil {
+			s.trace(depth+nestedDepth*4, "[d=%d n=%d] opp-reply %d/%d %s",
+				depth, nestedDepth, idx+1, len(genPlays), smallMoveStr(genPlays[idx]))
+		}
 		err := s.recursiveSolve(ctx, thread, pegPlay, genPlays[idx], inbagOption, winnerChan, depth+1, pegPlayEmptiesBag, fullSolve, nestedDepth)
 		if err != nil {
 			log.Err(err).Msg("recursive-solve-err")
@@ -1356,12 +1362,14 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int, nestedDepth
 		return int(b.EstimatedValue()) - int(a.EstimatedValue())
 	})
 
-	s.trace(nestedDepth*4, "[nested=%d] ENTER our=%s opp=%s bag=%s subBagSize=%d numSubPerms=%d numSubPlays=%d",
-		nestedDepth,
-		g.RackLettersFor(g.PlayerOnTurn()),
-		g.RackLettersFor(opp),
-		tilemapping.MachineWord(g.Bag().Peek()).UserVisible(g.Alphabet()),
-		subBagSize, len(subPerms), len(subPlays))
+	if s.traceWriter != nil {
+		s.trace(nestedDepth*4, "[nested=%d] ENTER our=%s opp=%s bag=%s subBagSize=%d numSubPerms=%d numSubPlays=%d",
+			nestedDepth,
+			g.RackLettersFor(g.PlayerOnTurn()),
+			g.RackLettersFor(opp),
+			tilemapping.MachineWord(g.Bag().Peek()).UserVisible(g.Alphabet()),
+			subBagSize, len(subPerms), len(subPlays))
+	}
 
 	// Evaluate each candidate play across all sub-perms. Track minLossesSoFar
 	// for the early-cutoff: plays whose accumulated losses already exceed the
@@ -1370,8 +1378,10 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int, nestedDepth
 	minLossesSoFar := float32(math.MaxFloat32)
 
 	for subMIdx, subM := range subPlays {
-		s.trace(nestedDepth*4, "[nested=%d] subM %d/%d %s",
-			nestedDepth, subMIdx+1, len(subPlays), smallMoveStr(subM))
+		if s.traceWriter != nil {
+			s.trace(nestedDepth*4, "[nested=%d] subM %d/%d %s",
+				nestedDepth, subMIdx+1, len(subPlays), smallMoveStr(subM))
+		}
 
 		subPegPlay := &PreEndgamePlay{Play: &move.Move{}}
 		allSubPegPlays[subMIdx] = subPegPlay
@@ -1387,9 +1397,11 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int, nestedDepth
 			s.numSubPermsEvaluated.Add(1)
 			s.threadSubPermsEvaluated[thread]++
 
-			s.trace(nestedDepth*4+2, "[nested=%d]   subPerm %d/%d tiles=%s",
-				nestedDepth, pi+1, len(subPerms),
-				tilemapping.MachineWord(tiles).UserVisible(g.Alphabet()))
+			if s.traceWriter != nil {
+				s.trace(nestedDepth*4+2, "[nested=%d]   subPerm %d/%d tiles=%s",
+					nestedDepth, pi+1, len(subPerms),
+					tilemapping.MachineWord(tiles).UserVisible(g.Alphabet()))
+			}
 
 			g.ThrowRacksInFor(opp)
 			MoveTilesToBeginning(tiles, g.Bag())
@@ -1405,8 +1417,10 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int, nestedDepth
 			// play seen so far, so this play can never tie or beat the leader.
 			// Tied plays (==) survive and keep their full outcome row.
 			if subPegPlay.FoundLosses > minLossesSoFar {
-				s.trace(nestedDepth*4+2, "[nested=%d]   CUTOFF losses=%.1f > min=%.1f, skipping rest",
-					nestedDepth, subPegPlay.FoundLosses, minLossesSoFar)
+				if s.traceWriter != nil {
+					s.trace(nestedDepth*4+2, "[nested=%d]   CUTOFF losses=%.1f > min=%.1f, skipping rest",
+						nestedDepth, subPegPlay.FoundLosses, minLossesSoFar)
+				}
 				break
 			}
 		}
@@ -1423,15 +1437,19 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int, nestedDepth
 					verdictMap[bagSigFromTiles(o.tiles)] = PEGWin
 				}
 				verdict := verdictMap[currentBagSig]
-				s.trace(nestedDepth*4, "[nested=%d] EARLY-WIN verdict=%s leaves=%d",
-					nestedDepth, verdict, s.threadEndgamesSolved[thread].Load()-nestedLeafStart)
+				if s.traceWriter != nil {
+					s.trace(nestedDepth*4, "[nested=%d] EARLY-WIN verdict=%s leaves=%d",
+						nestedDepth, verdict, s.threadEndgamesSolved[thread].Load()-nestedLeafStart)
+				}
 				s.nestedCache.store(cacheKey, verdictMap)
 				return verdict, nil
 			}
 		}
-		s.trace(nestedDepth*4, "[nested=%d] subM %d/%d done: points=%.1f losses=%.1f minLosses=%.1f",
-			nestedDepth, subMIdx+1, len(subPlays),
-			subPegPlay.Points, subPegPlay.FoundLosses, minLossesSoFar)
+		if s.traceWriter != nil {
+			s.trace(nestedDepth*4, "[nested=%d] subM %d/%d done: points=%.1f losses=%.1f minLosses=%.1f",
+				nestedDepth, subMIdx+1, len(subPlays),
+				subPegPlay.Points, subPegPlay.FoundLosses, minLossesSoFar)
+		}
 	}
 
 	// Collect the tied set: all plays at the minimum loss score. By the strict->
@@ -1553,9 +1571,11 @@ func (s *Solver) nestedOurTurnSolve(ctx context.Context, thread int, nestedDepth
 		}
 	}
 
-	s.trace(nestedDepth*4, "[nested=%d] VERDICT=%s tied-set=%d minLosses=%.1f leaves=%d",
-		nestedDepth, verdict, len(tiedPlays), minLossesSoFar,
-		s.threadEndgamesSolved[thread].Load()-nestedLeafStart)
+	if s.traceWriter != nil {
+		s.trace(nestedDepth*4, "[nested=%d] VERDICT=%s tied-set=%d minLosses=%.1f leaves=%d",
+			nestedDepth, verdict, len(tiedPlays), minLossesSoFar,
+			s.threadEndgamesSolved[thread].Load()-nestedLeafStart)
+	}
 
 	s.nestedCache.store(cacheKey, verdictMap)
 	return verdict, nil

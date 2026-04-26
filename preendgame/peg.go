@@ -362,12 +362,17 @@ func (p *PreEndgamePlay) TotalOutcomes() int {
 }
 
 type inFlightPermInfo struct {
-	play             string
-	permInBag        string
-	oppRack          string
-	ourRack          string
-	startedAt        time.Time
-	endgamesAtStart  uint64
+	play            string
+	// Raw tile data instead of pre-formatted strings; strings are computed
+	// lazily in the 60-second status ticker to avoid per-perm allocs.
+	permInBag       []tilemapping.MachineLetter
+	oppRack         [game.RackTileLimit]tilemapping.MachineLetter
+	oppRackLen      int
+	ourRack         [game.RackTileLimit]tilemapping.MachineLetter
+	ourRackLen      int
+	alphabet        *tilemapping.TileMapping
+	startedAt       time.Time
+	endgamesAtStart uint64
 }
 
 type jobLog struct {
@@ -507,16 +512,22 @@ func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
 	return nil
 }
 
-func (s *Solver) setInFlight(thread int, play, permInBag, oppRack, ourRack string) {
-	s.inFlightMu.Lock()
-	s.inFlightPerms[thread] = inFlightPermInfo{
+// setInFlight records which permutation thread t is currently processing.
+// Raw tile slices are stored; strings are computed lazily in the status ticker.
+func (s *Solver) setInFlight(thread int, play string, mls []tilemapping.MachineLetter, g *game.Game, opp int) {
+	info := inFlightPermInfo{
 		play:            play,
-		permInBag:       permInBag,
-		oppRack:         oppRack,
-		ourRack:         ourRack,
+		permInBag:       mls,
+		alphabet:        g.Alphabet(),
 		startedAt:       time.Now(),
 		endgamesAtStart: s.threadEndgamesSolved[thread].Load(),
 	}
+	oppTiles := g.RackFor(opp).TilesOn()
+	info.oppRackLen = copy(info.oppRack[:], oppTiles)
+	ourTiles := g.RackFor(1 - opp).TilesOn()
+	info.ourRackLen = copy(info.ourRack[:], ourTiles)
+	s.inFlightMu.Lock()
+	s.inFlightPerms[thread] = info
 	s.inFlightMu.Unlock()
 }
 
@@ -696,6 +707,63 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 		})
 	}
 
+	// Fill opponent's rack for now. Ignore the "known opp rack", if any. That
+	// is handled properly later.
+	if s.game.RackFor(1-s.solvingForPlayer).NumTiles() < game.RackTileLimit {
+		_, err := s.game.SetRandomRack(1-s.solvingForPlayer, nil)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if s.game.Bag().TilesRemaining() > InBagMaxLimit {
+		return nil, fmt.Errorf("bag has too many tiles remaining; limit is %d", InBagMaxLimit)
+	} else if s.game.Bag().TilesRemaining() == 0 {
+		return nil, errors.New("bag is empty; use endgame solver instead")
+	}
+	s.numinbag = s.game.Bag().TilesRemaining()
+
+	// Build one pruned KWG for the whole PEG solve. All endgames share the
+	// same total tile pool (our rack + opp rack + bag); the distribution
+	// between racks changes per endgame but the union never changes. We
+	// combine everything into a single synthetic rack and build the pruned
+	// graph once, then hand it to every endgame solver. This is done outside
+	// the iterative-deepening loop because the tile pool is constant across plies.
+	gaddagToUse := s.gaddag
+	{
+		allTilesRack := &tilemapping.Rack{LetArr: make([]int, len(s.game.RackFor(0).LetArr))}
+		for i := range allTilesRack.LetArr {
+			allTilesRack.LetArr[i] = s.game.RackFor(0).LetArr[i] + s.game.RackFor(1).LetArr[i]
+		}
+		for _, t := range s.game.Bag().Peek() {
+			allTilesRack.LetArr[int(t)]++
+		}
+		emptyRack := &tilemapping.Rack{LetArr: make([]int, len(allTilesRack.LetArr))}
+		t0 := time.Now()
+		if prunedKWG, err := wordprune.GeneratePrunedKWG(
+			s.game.Board(), allTilesRack, emptyRack, s.gaddag,
+		); err == nil && prunedKWG != nil {
+			gaddagToUse = prunedKWG
+			fullNodes := len(s.gaddag.Nodes())
+			prunedNodes := len(prunedKWG.Nodes())
+			log.Info().
+				Int("full-nodes", fullNodes).
+				Int("pruned-nodes", prunedNodes).
+				Int("reduction-pct", 100*(fullNodes-prunedNodes)/fullNodes).
+				Dur("build-ms", time.Since(t0)).
+				Msg("preendgame-using-pruned-kwg")
+		}
+	}
+	// Swap crossSetGen to use the pruned KWG. game.Copy() shares crossSetGen
+	// by reference, so all endgame solver copies inherit this automatically.
+	if gaddagToUse != s.gaddag {
+		if csg, ok := s.game.CrossSetGen().(*cross_set.GaddagCrossSetGenerator); ok {
+			origCSGaddag := csg.Gaddag
+			csg.Gaddag = gaddagToUse
+			defer func() { csg.Gaddag = origCSGaddag }()
+		}
+	}
+
 	for s.curEndgamePlies <= s.maxEndgamePlies {
 		if s.iterativeDeepening {
 			log.Info().Int("endgame-plies", s.curEndgamePlies).Msg("iterative-deepening")
@@ -710,62 +778,6 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 			}
 		}
 		s.minPotentialLosses = 100000.0
-
-		// Fill opponent's rack for now. Ignore the "known opp rack", if any. That
-		// is handled properly later.
-		if s.game.RackFor(1-s.solvingForPlayer).NumTiles() < game.RackTileLimit {
-			_, err := s.game.SetRandomRack(1-s.solvingForPlayer, nil)
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		if s.game.Bag().TilesRemaining() > InBagMaxLimit {
-			return nil, fmt.Errorf("bag has too many tiles remaining; limit is %d", InBagMaxLimit)
-		} else if s.game.Bag().TilesRemaining() == 0 {
-			return nil, errors.New("bag is empty; use endgame solver instead")
-		}
-		s.numinbag = s.game.Bag().TilesRemaining()
-
-		// Build one pruned KWG for the whole PEG solve. All endgames share the
-		// same total tile pool (our rack + opp rack + bag); the distribution
-		// between racks changes per endgame but the union never changes. We
-		// combine everything into a single synthetic rack and build the pruned
-		// graph once, then hand it to every endgame solver.
-		gaddagToUse := s.gaddag
-		{
-			allTilesRack := &tilemapping.Rack{LetArr: make([]int, len(s.game.RackFor(0).LetArr))}
-			for i := range allTilesRack.LetArr {
-				allTilesRack.LetArr[i] = s.game.RackFor(0).LetArr[i] + s.game.RackFor(1).LetArr[i]
-			}
-			for _, t := range s.game.Bag().Peek() {
-				allTilesRack.LetArr[int(t)]++
-			}
-			emptyRack := &tilemapping.Rack{LetArr: make([]int, len(allTilesRack.LetArr))}
-			t0 := time.Now()
-			if prunedKWG, err := wordprune.GeneratePrunedKWG(
-				s.game.Board(), allTilesRack, emptyRack, s.gaddag,
-			); err == nil && prunedKWG != nil {
-				gaddagToUse = prunedKWG
-				fullNodes := len(s.gaddag.Nodes())
-				prunedNodes := len(prunedKWG.Nodes())
-				log.Info().
-					Int("full-nodes", fullNodes).
-					Int("pruned-nodes", prunedNodes).
-					Int("reduction-pct", 100*(fullNodes-prunedNodes)/fullNodes).
-					Dur("build-ms", time.Since(t0)).
-					Msg("preendgame-using-pruned-kwg")
-			}
-		}
-		// Swap crossSetGen to use the pruned KWG. game.Copy() shares crossSetGen
-		// by reference, so all endgame solver copies inherit this automatically.
-		if gaddagToUse != s.gaddag {
-			if csg, ok := s.game.CrossSetGen().(*cross_set.GaddagCrossSetGenerator); ok {
-				origCSGaddag := csg.Gaddag
-				csg.Gaddag = gaddagToUse
-				defer func() { csg.Gaddag = origCSGaddag }()
-			}
-		}
 
 		s.endgameSolvers = make([]*negamax.Solver, s.threads)
 		s.initialSpread = s.game.CurrentSpread()
