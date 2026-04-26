@@ -1,6 +1,9 @@
-# v1.0.0
+# v0.13.0 (Apr 25, 2026)
 - Up to 4x (!)faster Monte Carlo simulations, thanks to John O'Laughlin for implementation of faster algorithms.
-- Improve inference algorithm; results in a 52%+ win-rate vs EliteBot (BestBot)
+- Improve inference algorithm to be more Bayesian and mathematically correct; results in a 52%+ win-rate vs EliteBot (BestBot)
+- Fix n-peg bug for n >= 1; can now solve pre-endgames exhaustively even for plays that leave tiles in the bag. Note that it is very slow.
+- Pre-endgame speedups, up to twice as fast in some cases
+- Speed improvements to endgame of up to ~20% (using smaller word graphs built on demand)
 
 # v0.12.0 (March 2, 2026)
 - CNN can beat HastyBot ~52.6% of the time
