@@ -41,7 +41,7 @@ const (
 	// Softmax is applied over log-odds of win probabilities, so tau is on the
 	// log-odds scale. Typical positions (20%-80% win prob) span roughly [-1.4, 1.4];
 	// strongly won/lost positions (5%-95%) reach about [-3, 3].
-	SoftmaxTemperature = 0.1
+	SoftmaxTemperature = 0.05
 
 	// logitEps clamps win probabilities away from 0 and 1 before logit
 	// conversion to avoid ±Inf.

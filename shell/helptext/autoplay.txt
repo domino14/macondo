@@ -78,7 +78,7 @@ Per-player fields (player1 / player2):
     minSimPlies        Minimum Monte Carlo sim plies (default 2 for simming bots).
     simThreads         Threads for the bot's internal sim (default: all CPUs).
     stochasticStaticEval  If true, uses stochastic equity evaluation.
-    inferenceTau       Softmax temperature for rack inference (0 = use default 0.03).
+    inferenceTau       Softmax temperature for rack inference (0 = use default 0.05).
                        Lower = assume opponent plays more optimally.
                        Higher = allow more weight to sub-optimal plays.
                        Try 0.008–0.03 for strong opponents.

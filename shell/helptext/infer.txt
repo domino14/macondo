@@ -93,7 +93,7 @@ Options:
     want this to be a little bit larger on slower machines / those with
     fewer cores.
 
-    -tau 0.10
+    -tau 0.05
 
     Softmax temperature controlling how rational the opponent is assumed to be.
     Softmax is applied over the log-odds of win probabilities (not raw win
@@ -102,7 +102,7 @@ Options:
     won/lost positions (5%–95%) reach about [-3, 3]. Lower values assume the
     opponent almost always plays the best move; higher values give more weight
     to sub-optimal plays.
-    Defaults to 0.10. A value of 0 is treated as the default.
+    Defaults to 0.05. A value of 0 is treated as the default.
 
     -maxleaves 750
 

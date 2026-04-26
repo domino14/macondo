@@ -554,7 +554,7 @@ func main() {
 	seed := flag.Int64("seed", 42, "base RNG seed for deterministic games")
 	lexicon := flag.String("lexicon", "NWL23", "lexicon name")
 	letterDist := flag.String("letter-distribution", "English", "letter distribution name")
-	tau := flag.Float64("tau", 0.0, "softmax temperature for inference (0 = use default 0.1)")
+	tau := flag.Float64("tau", 0.0, "softmax temperature for inference (0 = use default 0.05)")
 	simIters := flag.Int("sim-iters", 0, "mini-sim iterations per rack candidate (0 = default 200)")
 	maxEnumLeaves := flag.Int("max-enumerated-leaves", 0, "max leaves for exhaustive enumeration (0 = default 750)")
 	posteriorTopK := flag.Int("posterior-top-k", 1000, "max posterior racks to store per record (by weight)")
