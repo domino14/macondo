@@ -133,6 +133,51 @@ func TestInferExchange(t *testing.T) {
 	fmt.Println(rangeFinder.AnalyzeInferences(false))
 }
 
+func BenchmarkInferTilePlay(b *testing.B) {
+	zerolog.SetGlobalLevel(zerolog.Disabled)
+	lex := "NWL18"
+	players := []*macondo.PlayerInfo{
+		{Nickname: "JD", RealName: "Jesse"},
+		{Nickname: "cesar", RealName: "César"},
+	}
+	rules, err := game.NewBasicGameRules(DefaultConfig, lex, board.CrosswordGameLayout, "English", game.CrossScoreAndSet, game.VarClassic)
+	if err != nil {
+		b.Fatal(err)
+	}
+	g, err := game.NewGame(rules, players)
+	if err != nil {
+		b.Fatal(err)
+	}
+	g.StartGame()
+	g.SetPlayerOnTurn(0)
+	g.SetRackFor(0, tilemapping.RackFromString("PHEW", g.Alphabet()))
+	if _, err = g.PlayScoringMove("H6", "PHEW", true); err != nil {
+		b.Fatal(err)
+	}
+
+	calcs := defaultSimCalculators(lex)
+	rangeFinder := &RangeFinder{}
+	rangeFinder.Init(g, calcs, DefaultConfig)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		if err = rangeFinder.PrepareFinder(nil); err != nil {
+			b.Fatal(err)
+		}
+		b.StartTimer()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err = rangeFinder.Infer(ctx); err != nil {
+			cancel()
+			b.Fatal(err)
+		}
+		cancel()
+	}
+
+	b.ReportMetric(float64(rangeFinder.simCount.Load())/b.Elapsed().Seconds(), "sims/sec")
+}
+
 func TestInferSingle(t *testing.T) {
 	is := is.New(t)
 	zerolog.SetGlobalLevel(zerolog.DebugLevel)

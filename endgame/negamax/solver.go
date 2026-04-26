@@ -1578,6 +1578,14 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	// ABDADA: track deferred moves for second pass
 	var deferredMoves []int
 
+	// At depth==1 the child call immediately evaluates the spread without
+	// generating any moves, so cross-sets computed during PlaySmallMove would
+	// be discarded by UnplayLastMove without ever being read. Skip them.
+	playMove := g.PlaySmallMove
+	if depth == 1 {
+		playMove = g.PlaySmallMoveNoCrossSet
+	}
+
 	// First pass: search non-deferred moves
 	for idx := range children {
 		// ABDADA: check if this move should be deferred

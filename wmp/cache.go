@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/rs/zerolog/log"
 
@@ -15,6 +16,12 @@ import (
 	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 )
+
+// ensureMu serializes concurrent EnsureWMP calls so that only one goroutine
+// attempts to build and write the WMP file for a given lexicon at a time.
+// After the file is on disk the global object cache handles deduplication, so
+// this mutex is only contended during the (rare) initial build.
+var ensureMu sync.Mutex
 
 const CacheKeyPrefixWMP = "wmp:"
 
@@ -60,20 +67,27 @@ func GetWMP(cfg *wglconfig.Config, name string) (*WMP, error) {
 func EnsureWMP(cfg *wglconfig.Config, name string) (*WMP, error) {
 	wmpPath := filepath.Join(cfg.DataPath, "lexica", name+".wmp")
 
-	if _, err := os.Stat(wmpPath); err != nil {
+	// Serialize the check-build-write sequence so that concurrent callers
+	// (e.g. autoplay goroutines) don't all race to build the same file.
+	ensureMu.Lock()
+	_, statErr := os.Stat(wmpPath)
+	if statErr != nil {
 		// File not on disk — build from KWG.
 		log.Info().Str("lexicon", name).Msg("WMP not found; building from KWG (this may take a few seconds)...")
 		gd, err := kwg.GetKWG(cfg, name)
 		if err != nil {
+			ensureMu.Unlock()
 			return nil, fmt.Errorf("cannot build WMP for %s: KWG not available: %w", name, err)
 		}
 		ld, err := tilemapping.ProbableLetterDistribution(cfg, name)
 		if err != nil {
+			ensureMu.Unlock()
 			return nil, fmt.Errorf("cannot build WMP for %s: letter distribution unavailable: %w", name, err)
 		}
 		// Use boardDim=15 for standard crossword boards. WMP only supports 15×15 boards.
 		w, buildErr := MakeFromKWG(gd, ld, 15, runtime.NumCPU())
 		if buildErr != nil {
+			ensureMu.Unlock()
 			return nil, fmt.Errorf("WMP build failed for %s: %w", name, buildErr)
 		}
 		if wErr := w.WriteToFile(wmpPath); wErr != nil {
@@ -83,6 +97,7 @@ func EnsureWMP(cfg *wglconfig.Config, name string) (*WMP, error) {
 			log.Info().Str("lexicon", name).Str("path", wmpPath).Msg("WMP built and saved")
 		}
 	}
+	ensureMu.Unlock()
 
 	// File is now on disk (either pre-existing or just written). Load via cache.
 	return GetWMP(cfg, name)

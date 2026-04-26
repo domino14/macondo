@@ -19,7 +19,8 @@ order for inference to work.
 
 Inference will return an error if the move was not one of these two types,
 or if there was no previous move. If the bag was empty when the player
-made the move, it also does not bother inferring.
+made the move, it also does not bother inferring. Bingos (all 7 tiles
+played) are also skipped since no leave was kept.
 
 In order to set the rack of the player who is performing the inference,
 so that the player whose rack is being inferred doesn't get assigned this
@@ -37,8 +38,47 @@ highly enough for it to be able to infer anything.
 Optional arguments:
     `infer log` will log to a temporary file.
 
-    `infer details` shows a bit more details about the inference, including
-    per-tile counts.
+    `infer details` shows detailed inference output including:
+      - Top 15 inferred racks ranked by Bayesian weight
+      - Weight concentration and effective sample size (ESS)
+      - Per-tile found vs expected percentages
+
+    `infer output` re-displays the summary bins from the last inference.
+
+Understanding the output:
+
+    The header line shows key diagnostics:
+      - Unique racks: how many distinct leaves were found
+      - Iterations: total random racks tried
+      - Acceptance rate: % of iterations that produced a valid inference
+        (a very low rate may indicate tau is too small or the opponent's
+        play is unusual — try increasing tau)
+      - tau: the softmax temperature used (see below)
+      - ESS (Effective Sample Size): measures how spread out the weights
+        are. ESS = (sum of weights)^2 / (sum of squared weights).
+        If ESS is close to the number of inferred racks, the weights are
+        evenly spread. If ESS is much smaller (e.g. 2 out of 20), a few
+        racks dominate the inference. Low ESS can mean the inference is
+        confident about specific racks, or that noise is concentrating
+        weight on a few lucky draws.
+
+    The summary bins categorize tiles by how often they appear in
+    inferred racks compared to their base rate in the unseen tile pool:
+      - "Way more than chance": found/expected ratio >= 2.0
+      - "More than chance": 1.25 to 2.0
+      - "Slightly more than chance": 1.1 to 1.25
+      - "About as expected": 0.9 to 1.1
+      - "Slightly less than chance": 0.75 to 0.9
+      - "Less than chance": 0.25 to 0.75
+      - "Way less than chance": under 0.25
+      - "Unpossible": tile not in the unseen pool at all
+
+    The detailed view (`infer details`) additionally shows:
+      - The top inferred racks with their Bayesian weight and percentage
+        of total weight. Weight = softmax P(play|leave) computed over
+        log-odds of win probabilities, representing how likely the opponent
+        would choose their observed play given this leave.
+      - A per-tile table with exact found % vs expected % and unseen count.
 
 Options:
 
@@ -52,3 +92,31 @@ Options:
     The amount of time in seconds to infer. Defaults to 60 seconds. You may
     want this to be a little bit larger on slower machines / those with
     fewer cores.
+
+    -tau 0.05
+
+    Softmax temperature controlling how rational the opponent is assumed to be.
+    Softmax is applied over the log-odds of win probabilities (not raw win
+    probabilities), so tau is on the log-odds scale. Typical in-game win
+    probabilities (20%–80%) map to log-odds of roughly [-1.4, 1.4]; strongly
+    won/lost positions (5%–95%) reach about [-3, 3]. Lower values assume the
+    opponent almost always plays the best move; higher values give more weight
+    to sub-optimal plays.
+    Defaults to 0.05. A value of 0 is treated as the default.
+
+    -maxleaves 750
+
+    Maximum number of distinct opponent leaves before switching from exhaustive
+    enumeration to Monte Carlo sampling. When the opponent plays many tiles
+    (e.g. 5–6 of 7), the leave space is tiny and the inferrer automatically
+    enumerates every possible leave exactly once, computing the exact Bayesian
+    posterior (prior × likelihood) rather than noisy IS estimates.
+
+    Typical tractability:
+      k=1 (bingo): ≤27 leaves   — always enumerates
+      k=2 (5 tiles played): ≤378 leaves — always enumerates
+      k=3 (4 tiles played): up to ~3650 — enumerates when bag is modest
+      k≥4: only enumerates when the bag is very small (≤~15 tiles)
+
+    Defaults to 5000. Set to 0 to use the default. Set to 1 to always use
+    Monte Carlo sampling (useful for comparison).

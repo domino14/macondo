@@ -26,6 +26,9 @@ mlproducer:
 analyzer_worker:
 	go build -trimpath -ldflags "-X main.GitVersion=$(shell git describe --tags --always)" -o bin/analyzer-worker cmd/analyzer-worker/main.go
 
+inferdiag:
+	go build -trimpath -o bin/inferdiag cmd/inferdiag/main.go
+
 # wasm:
 # 	GOOS=js GOARCH=wasm go build -trimpath -o ../liwords/liwords-ui/public/wasm/macondo.wasm wasm/*.go
 

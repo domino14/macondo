@@ -10,13 +10,16 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 
+	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
 	"github.com/samber/lo"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/config"
@@ -44,8 +47,8 @@ type DeterministicConfig struct {
 func (r *GameRunner) CompVsCompStatic(addToHistory bool) error {
 	err := r.Init(
 		[]AutomaticRunnerPlayer{
-			{"", "", pb.BotRequest_HASTY_BOT, 0, false},
-			{"", "", pb.BotRequest_HASTY_BOT, 0, false},
+			{BotCode: pb.BotRequest_HASTY_BOT},
+			{BotCode: pb.BotRequest_HASTY_BOT},
 		})
 
 	if err != nil {
@@ -122,6 +125,114 @@ type Job struct {
 	seed [32]byte
 }
 
+// StartAutoplayFromConfig runs an autoplay experiment defined by a protojson
+// config file. It returns the resolved experiment ID. Output files are written
+// to cfg.OutputDir (or the current directory if empty):
+//
+//   - {experimentId}.txt       — per-turn log
+//   - games-{experimentId}.txt — per-game summary
+//   - {experimentId}.config.json — copy of the config for reproducibility
+func StartAutoplayFromConfig(ctx context.Context, appCfg *config.Config, expCfg *pb.AutoplayConfig) (string, error) {
+	experimentID := ResolveExperimentID(expCfg)
+
+	outputDir := expCfg.OutputDir
+	if outputDir == "" {
+		outputDir = "."
+	}
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return "", fmt.Errorf("creating output dir: %w", err)
+	}
+
+	// Write a copy of the config for reproducibility (with the resolved ID).
+	expCfg.ExperimentId = experimentID
+	cfgJSON, err := protojson.MarshalOptions{Multiline: true}.Marshal(expCfg)
+	if err != nil {
+		return "", fmt.Errorf("marshalling config: %w", err)
+	}
+	cfgPath := filepath.Join(outputDir, experimentID+".config.json")
+	if err := os.WriteFile(cfgPath, cfgJSON, 0644); err != nil {
+		return "", fmt.Errorf("writing config file: %w", err)
+	}
+
+	logfile := filepath.Join(outputDir, experimentID+".txt")
+	players := PlayersFromConfig(expCfg)
+
+	numGames := int(expCfg.NumGames)
+	if numGames == 0 {
+		numGames = 1_000_000_000
+	}
+	threads := int(expCfg.Threads)
+	if threads == 0 {
+		threads = runtime.NumCPU()
+	}
+
+	lexicon := expCfg.Lexicon
+	if lexicon == "" {
+		lexicon = appCfg.GetString(config.ConfigDefaultLexicon)
+	}
+	letterDist := expCfg.LetterDistribution
+	if letterDist == "" {
+		// Infer the letter distribution from the resolved lexicon name rather
+		// than falling back to the app config's default. The config default
+		// reflects whatever lexicon the shell last used, which may differ from
+		// the lexicon requested here (e.g., "-lexicon NWL23" with a shell that
+		// has FILE2017/spanish as its default). Using the wrong distribution
+		// gives the game Spanish tiles with an English word graph, causing
+		// immediate KWG dead-paths and a crash in the leave-map populator.
+		inferred, err := tilemapping.ProbableLetterDistributionName(lexicon)
+		if err == nil {
+			letterDist = inferred
+		} else {
+			letterDist = appCfg.GetString(config.ConfigDefaultLetterDistribution)
+		}
+	}
+
+	if expCfg.Description != "" {
+		log.Info().Str("experiment", experimentID).Str("description", expCfg.Description).Msg("starting-autoplay")
+	}
+
+	// Handle seeding.
+	var detConfig *DeterministicConfig
+	if expCfg.GenerateSeeds || expCfg.Deterministic || expCfg.SeedFile != "" {
+		detConfig = &DeterministicConfig{
+			SeedFile: expCfg.SeedFile,
+			NumGames: numGames,
+		}
+		if expCfg.GenerateSeeds {
+			if expCfg.SeedFile == "" {
+				return experimentID, fmt.Errorf("generate_seeds requires seed_file to be set")
+			}
+			seeds, err := GenerateSeeds(numGames)
+			if err != nil {
+				return experimentID, fmt.Errorf("generating seeds: %w", err)
+			}
+			if err := SaveSeeds(seeds, expCfg.SeedFile); err != nil {
+				return experimentID, fmt.Errorf("saving seeds: %w", err)
+			}
+			log.Info().Int("n", numGames).Str("file", expCfg.SeedFile).Msg("generated-seeds")
+			return experimentID, nil
+		}
+		if expCfg.Deterministic {
+			if expCfg.SeedFile == "" {
+				return experimentID, fmt.Errorf("deterministic requires seed_file to be set")
+			}
+			seeds, err := LoadSeeds(expCfg.SeedFile)
+			if err != nil {
+				return experimentID, fmt.Errorf("loading seeds: %w", err)
+			}
+			detConfig.Seeds = seeds
+			log.Info().Int("n", len(seeds)).Str("file", expCfg.SeedFile).Msg("loaded-seeds")
+		}
+	}
+
+	err = StartCompVCompStaticGames(ctx, appCfg, numGames, expCfg.Block, threads,
+		logfile, lexicon, letterDist, players, detConfig)
+	if err != nil {
+		return experimentID, err
+	}
+	return experimentID, nil
+}
+
 func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	numGames int, block bool, threads int,
 	outputFilename, lexicon, letterDistribution string,
@@ -188,12 +299,9 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	// var fwg sync.WaitGroup
 
 	g, ctx := errgroup.WithContext(ctx)
-	addToHistory := false
-	if lo.SomeBy(players, func(p AutomaticRunnerPlayer) bool {
-		return bot.HasInfer(p.BotCode)
-	}) {
-		addToHistory = true
-	}
+	addToHistory := lo.SomeBy(players, func(p AutomaticRunnerPlayer) bool {
+		return bot.HasInfer(p.BotCode) || p.OracleInference
+	})
 
 	for i := 1; i <= threads; i++ {
 		wg.Add(1)

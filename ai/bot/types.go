@@ -5,7 +5,9 @@ import "github.com/domino14/macondo/gen/api/proto/macondo"
 func hasSimming(botCode macondo.BotRequest_BotCode) bool {
 	switch botCode {
 	case macondo.BotRequest_SIMMING_BOT,
-		macondo.BotRequest_SIMMING_INFER_BOT:
+		macondo.BotRequest_SIMMING_INFER_BOT,
+		macondo.BotRequest_SIMMING_BOT_NO_EG,
+		macondo.BotRequest_SIMMING_INFER_BOT_NO_EG:
 		return true
 	}
 	return false
@@ -16,7 +18,6 @@ func HasPreendgame(botCode macondo.BotRequest_BotCode) bool {
 	case macondo.BotRequest_SIMMING_BOT,
 		macondo.BotRequest_HASTY_PLUS_ENDGAME_BOT,
 		macondo.BotRequest_SIMMING_INFER_BOT:
-
 		return true
 	}
 	return false
@@ -27,7 +28,6 @@ func HasEndgame(botCode macondo.BotRequest_BotCode) bool {
 	case macondo.BotRequest_SIMMING_BOT,
 		macondo.BotRequest_HASTY_PLUS_ENDGAME_BOT,
 		macondo.BotRequest_SIMMING_INFER_BOT:
-
 		return true
 	}
 	return false
@@ -35,7 +35,8 @@ func HasEndgame(botCode macondo.BotRequest_BotCode) bool {
 
 func HasInfer(botCode macondo.BotRequest_BotCode) bool {
 	switch botCode {
-	case macondo.BotRequest_SIMMING_INFER_BOT:
+	case macondo.BotRequest_SIMMING_INFER_BOT,
+		macondo.BotRequest_SIMMING_INFER_BOT_NO_EG:
 		return true
 	}
 	return false

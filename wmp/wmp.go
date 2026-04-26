@@ -34,7 +34,7 @@ const (
 	EntrySize = InlineValueBytes + BitRackBytes
 	// ResultBufferSize is the maximum number of bytes a single word lookup
 	// can produce. Used to size the lookup result buffer.
-	ResultBufferSize = 7000
+	ResultBufferSize = 10000
 	// minBuckets is the smallest number of hash buckets in any segment.
 	minBuckets = 16
 	// blankMachineLetter is the MachineLetter value for an undesignated

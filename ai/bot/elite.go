@@ -187,25 +187,44 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	}
 	var inferTimeout context.Context
 	var cancel context.CancelFunc
+	inferenceRan := false
 	if HasInfer(p.botType) && p.Game.Bag().TilesRemaining() > 0 {
 		logger.Debug().Msg("running inference..")
 		p.inferencer.Init(p.Game, p.simmerCalcs, p.Config())
 		if p.simThreads != 0 {
 			p.inferencer.SetThreads(p.simThreads)
 		}
+		if p.cfg.InferenceTau > 0 {
+			p.inferencer.SetTau(p.cfg.InferenceTau)
+		}
+		if p.cfg.InferenceSimIters > 0 {
+			p.inferencer.SetSimIters(p.cfg.InferenceSimIters)
+		}
+		if p.cfg.InferenceMaxEnumeratedLeaves > 0 {
+			p.inferencer.SetMaxEnumeratedLeaves(p.cfg.InferenceMaxEnumeratedLeaves)
+		}
 		err := p.inferencer.PrepareFinder(p.Game.RackFor(p.Game.PlayerOnTurn()).TilesOn())
 		if err != nil {
-			// ignore all errors and move on.
-			logger.Debug().AnErr("inference-prepare-error", err).Msg("probably-ok")
+			// Expected early in the game (no events yet, bingo, etc.)
+			logger.Debug().AnErr("inference-prepare-error", err).Msg("inference-skipped")
 		} else {
+			inferTimeSecs := 20
+			if p.cfg.InferenceTimeSecs > 0 {
+				inferTimeSecs = p.cfg.InferenceTimeSecs
+			}
+			logger.Info().Float64("tau", p.inferencer.Tau()).
+				Int("timeSecs", inferTimeSecs).
+				Int("simIters", p.inferencer.SimIters()).
+				Msg("inference-tau")
 			inferTimeout, cancel = context.WithTimeout(context.Background(),
-				time.Duration(20*int(time.Second)))
+				time.Duration(inferTimeSecs)*time.Second)
 			defer cancel()
 			err = p.inferencer.Infer(inferTimeout)
 			if err != nil {
 				// ignore all errors and move on.
 				logger.Debug().AnErr("inference-error", err).Msg("probably-ok")
 			}
+			inferenceRan = true
 		}
 	}
 
@@ -222,14 +241,28 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	// p.simmer.SetAutostopIterationsCutoff(2500)
 	// p.simmer.SetAutostopPPScaling(1500)
 
-	if HasInfer(p.botType) && len(p.inferencer.Inferences().InferredRacks) > InferencesSimLimit {
-		logger.Info().Int("inferences", len(p.inferencer.Inferences().InferredRacks)).Msg("using inferences in sim")
-		p.simmer.SetInferences(p.inferencer.Inferences().InferredRacks, p.inferencer.Inferences().RackLength, montecarlo.InferenceWeightedRandomRacks)
+	if HasInfer(p.botType) && inferenceRan {
+		nInferred := len(p.inferencer.Inferences().InferredRacks)
+		if nInferred > InferencesSimLimit {
+			logger.Info().Int("inferences", nInferred).Msg("using inferences in sim")
+			p.simmer.SetInferences(p.inferencer.Inferences().InferredRacks, p.inferencer.Inferences().RackLength, montecarlo.InferenceWeightedRandomRacks)
+		} else {
+			logger.Info().Int("inferences", nInferred).Msg("too few inferences, skipping")
+		}
 	}
 	if p.cfg.UseOppRacksInAnalysis {
 		oppRack := p.Game.RackFor(p.Game.NextPlayer())
 		logger.Info().Str("rack", oppRack.String()).Msg("setting-known-opp-rack")
 		p.simmer.SetKnownOppRack(oppRack.TilesOn())
+	}
+	if p.cfg.OracleInference && p.Game.Bag().TilesRemaining() > 0 {
+		leave, err := game.ExtractLastOppLeave(p.Game)
+		if err == nil {
+			logger.Info().Str("leave", tilemapping.MachineWord(leave).UserVisible(p.Game.Alphabet())).Msg("oracle-inference")
+			p.simmer.SetKnownOppRack(leave)
+		} else {
+			logger.Debug().AnErr("oracle-inference-err", err).Msg("oracle-inference-skipped")
+		}
 	}
 
 	// Simulate is a blocking play:
@@ -242,3 +275,4 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	p.lastCalculatedDetails = p.simmer.ShortDetails(4)
 	return play.Move(), nil
 }
+

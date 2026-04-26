@@ -30,9 +30,26 @@ type BotConfig struct {
 	PEGAdjustmentFile    string
 	LeavesFile           string
 	MinSimPlies          int
+	SimThreads           int
 	StochasticStaticEval bool
+	// InferenceTau overrides the default softmax temperature for inference.
+	// If 0, the default SoftmaxTemperature constant is used.
+	InferenceTau float64
+	// InferenceTimeSecs is the wall-clock budget per turn for inference.
+	// If 0, defaults to 20 seconds.
+	InferenceTimeSecs int
+	// InferenceSimIters is the max mini-sim iterations per rack candidate.
+	// If 0, defaults to 200.
+	InferenceSimIters int
+	// InferenceMaxEnumeratedLeaves is the threshold for switching from Monte Carlo
+	// sampling to exhaustive enumeration. If 0, defaults to DefaultMaxEnumeratedLeaves.
+	InferenceMaxEnumeratedLeaves int
 	// If UseOppRacksInAnalysis is true, will use opponent rack info for simulation/pre-endgames/etc
 	UseOppRacksInAnalysis bool
+	// OracleInference skips the Bayesian inference loop and instead uses the
+	// opponent's true leave (from game history) directly in simulation.
+	// Establishes the upper bound on inference benefit.
+	OracleInference bool
 }
 
 type BotTurnPlayer struct {
@@ -118,6 +135,9 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 		btp.simmerCalcs = []equity.EquityCalculator{c}
 		if conf.MinSimPlies > 0 {
 			btp.SetMinSimPlies(conf.MinSimPlies)
+		}
+		if conf.SimThreads > 0 {
+			btp.SetSimThreads(conf.SimThreads)
 		}
 	}
 	if HasEndgame(botType) {
@@ -328,4 +348,17 @@ func (p *BotTurnPlayer) SetSimThreads(t int) {
 
 func (p *BotTurnPlayer) SetMinSimPlies(t int) {
 	p.minSimPlies = t
+}
+
+// LastInferenceCount returns the number of unique inferred racks found
+// during the last call to BestPlay, or -1 if inference was not attempted.
+func (p *BotTurnPlayer) LastInferenceCount() int {
+	if p.inferencer == nil {
+		return -1
+	}
+	inferences := p.inferencer.Inferences()
+	if inferences == nil {
+		return -1
+	}
+	return len(inferences.InferredRacks)
 }

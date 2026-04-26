@@ -50,8 +50,8 @@ func NewGameRunner(logchan chan string, cfg *config.Config) *GameRunner {
 		letterDistribution: cfg.GetString(config.ConfigDefaultLetterDistribution),
 	}
 	r.Init([]AutomaticRunnerPlayer{
-		{"", "", pb.BotRequest_HASTY_BOT, 0, false},
-		{"", "", pb.BotRequest_HASTY_BOT, 0, false},
+		{BotCode: pb.BotRequest_HASTY_BOT},
+		{BotCode: pb.BotRequest_HASTY_BOT},
 	})
 
 	return r
@@ -62,7 +62,13 @@ type AutomaticRunnerPlayer struct {
 	PEGFile              string
 	BotCode              pb.BotRequest_BotCode
 	MinSimPlies          int
+	SimThreads           int
 	StochasticStaticEval bool
+	InferenceTau                float64
+	InferenceTimeSecs           int
+	InferenceSimIters           int
+	InferenceMaxEnumeratedLeaves int
+	OracleInference             bool
 }
 
 // Init initializes the runner
@@ -104,7 +110,13 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 			PEGAdjustmentFile:    pegfile,
 			LeavesFile:           leavefile,
 			MinSimPlies:          players[idx].MinSimPlies,
+			SimThreads:           players[idx].SimThreads,
 			StochasticStaticEval: players[idx].StochasticStaticEval,
+			InferenceTau:                players[idx].InferenceTau,
+			InferenceTimeSecs:           players[idx].InferenceTimeSecs,
+			InferenceSimIters:           players[idx].InferenceSimIters,
+			InferenceMaxEnumeratedLeaves: players[idx].InferenceMaxEnumeratedLeaves,
+			OracleInference:             players[idx].OracleInference,
 		}
 
 		btp, err := bot.NewBotTurnPlayerFromGame(r.game, conf, botcode)
@@ -167,6 +179,12 @@ func (r *GameRunner) Game() *game.Game {
 	return r.game
 }
 
+// BotTypeFor returns the bot code for the given game-level player index.
+// Accounts for player flips done by StartGameWithSeed.
+func (r *GameRunner) BotTypeFor(playerIdx int) pb.BotRequest_BotCode {
+	return r.aiplayers[playerIdx].GetBotType()
+}
+
 func (r *GameRunner) genBestStaticTurn(playerIdx int) *move.Move {
 	return aiturnplayer.GenBestStaticTurn(r.game, r.aiplayers[playerIdx], playerIdx)
 }
@@ -213,7 +231,14 @@ func (r *GameRunner) PlayBestTurn(playerIdx int, addToHistory bool) error {
 	r.aiplayers[1].AddLastMove(bestPlay)
 
 	if r.logchan != nil {
-		r.logchan <- fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v,%v,%v,%.3f,%v,%v\n",
+		inferCount := ""
+		if btp, ok := r.aiplayers[playerIdx].(*bot.BotTurnPlayer); ok {
+			ic := btp.LastInferenceCount()
+			if ic >= 0 {
+				inferCount = fmt.Sprintf(",%v", ic)
+			}
+		}
+		r.logchan <- fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v,%v,%v,%.3f,%v,%v%v\n",
 			nickOnTurn,
 			r.game.Uid(),
 			r.game.Turn(),
@@ -225,7 +250,8 @@ func (r *GameRunner) PlayBestTurn(playerIdx int, addToHistory bool) error {
 			bestPlay.Leave().UserVisible(r.alphabet),
 			bestPlay.Equity(),
 			tilesRemaining,
-			r.game.PointsFor((playerIdx+1)%2))
+			r.game.PointsFor((playerIdx+1)%2),
+			inferCount)
 	}
 	return nil
 }

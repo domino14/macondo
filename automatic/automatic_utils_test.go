@@ -54,27 +54,27 @@ func TestCompVsCompStatic(t *testing.T) {
 func TestPlayerNames(t *testing.T) {
 	is := is.New(t)
 	is.Equal(playerNames([]AutomaticRunnerPlayer{
-		{"", "", macondo.BotRequest_HASTY_BOT, 0, false},
-		{"", "", macondo.BotRequest_HASTY_BOT, 0, false},
+		{BotCode: macondo.BotRequest_HASTY_BOT},
+		{BotCode: macondo.BotRequest_HASTY_BOT},
 	}), []string{"HastyBot", "HastyBot1"})
 	is.Equal(playerNames([]AutomaticRunnerPlayer{
-		{"", "", macondo.BotRequest_HASTY_BOT, 0, false},
-		{"", "", macondo.BotRequest_HASTY_BOT, 0, false},
-		{"", "", macondo.BotRequest_HASTY_BOT, 0, false},
+		{BotCode: macondo.BotRequest_HASTY_BOT},
+		{BotCode: macondo.BotRequest_HASTY_BOT},
+		{BotCode: macondo.BotRequest_HASTY_BOT},
 	}), []string{"HastyBot", "HastyBot1", "HastyBot2"})
 	is.Equal(playerNames([]AutomaticRunnerPlayer{
-		{"", "", macondo.BotRequest_HASTY_BOT, 0, false},
-		{"", "", macondo.BotRequest_NO_LEAVE_BOT, 0, false},
-		{"", "", macondo.BotRequest_HASTY_BOT, 0, false},
+		{BotCode: macondo.BotRequest_HASTY_BOT},
+		{BotCode: macondo.BotRequest_NO_LEAVE_BOT},
+		{BotCode: macondo.BotRequest_HASTY_BOT},
 	}), []string{"HastyBot", "NoLeaveBot", "HastyBot1"})
 	is.Equal(playerNames([]AutomaticRunnerPlayer{
-		{"", "", macondo.BotRequest_NO_LEAVE_BOT, 0, false},
-		{"", "", macondo.BotRequest_HASTY_BOT, 0, false},
-		{"", "", macondo.BotRequest_HASTY_BOT, 0, false},
+		{BotCode: macondo.BotRequest_NO_LEAVE_BOT},
+		{BotCode: macondo.BotRequest_HASTY_BOT},
+		{BotCode: macondo.BotRequest_HASTY_BOT},
 	}), []string{"NoLeaveBot", "HastyBot", "HastyBot1"})
 	is.Equal(playerNames([]AutomaticRunnerPlayer{
-		{"", "", macondo.BotRequest_LEVEL1_COMMON_WORD_BOT, 0, false},
-		{"", "", macondo.BotRequest_LEVEL3_COMMON_WORD_BOT, 0, false},
+		{BotCode: macondo.BotRequest_LEVEL1_COMMON_WORD_BOT},
+		{BotCode: macondo.BotRequest_LEVEL3_COMMON_WORD_BOT},
 	}), []string{"Level1CommonWordBot", "Level3CommonWordBot"})
 }
 
@@ -104,8 +104,8 @@ func TestCompVCompSeries(t *testing.T) {
 		context.Background(), DefaultConfig, nGames, true, nThreads,
 		"/tmp/testcompvcomp.txt", "NWL20", "English",
 		[]AutomaticRunnerPlayer{
-			{"", "", macondo.BotRequest_HASTY_BOT, 0, false},
-			{"", "", macondo.BotRequest_NO_LEAVE_BOT, 0, false},
+			{BotCode: macondo.BotRequest_HASTY_BOT},
+			{BotCode: macondo.BotRequest_NO_LEAVE_BOT},
 		}, nil)
 
 	is.NoErr(err)

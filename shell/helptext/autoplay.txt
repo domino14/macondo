@@ -1,111 +1,130 @@
-autoplay [options] - computer vs computer games
+autoplay [config-file.json] [overrides] - run a computer vs computer experiment
 
-Example:
-
-    autoplay
+Usage:
+    autoplay my-experiment.json
+    autoplay my-experiment.json -numgames 500 -tau1 0.008
+    autoplay -botcode1 HASTY_BOT -botcode2 NO_LEAVE_BOT -numgames 100
     autoplay stop
-    autoplay -logfile /path/to/log.txt
-    autoplay -logfile foo.txt -leavefile1 trial.klv2
 
-Options:
-    -logfile foo.txt   -- logs games to foo.txt
-    -lexicon CSW19  -- uses the CSW19 lexicon
-    -letterdistribution norwegian  -- uses the Norwegian letter distribution.
-        (you should probably set the lexicon option to be that of a Norwegian
-        gaddag name as well)
+If a config file is provided, it is loaded first and any CLI flags override
+individual fields. If no config file is given, all parameters come from flags
+(defaulting to two HASTY_BOT players with default settings).
 
-    -leavefile1 filename.klv2
-    -leavefile2 filename.klv2
+Experiments are defined in a JSON config file (protojson format).
+When an experiment starts, three output files are created in the
+configured output directory:
 
-    The two options above will use leavefile1 for player1 and leavefile2
-    for player2. Note that leave files only make sense for the `exhaustiveleave`
-    players.
+    {experimentId}.txt          -- per-turn log (rack, play, score, equity, ...)
+    games-{experimentId}.txt    -- per-game summary (scores, bingos, who went first)
+    {experimentId}.config.json  -- copy of the config for reproducibility
 
-    -pegfile1 pegfile.json
-    -pegfile2 pegfile.json
+If no experiment_id is set in the config, one is auto-generated from the
+current timestamp plus 6 random hex characters.
 
-    pegfile refers to a pre-endgame heuristics file used for equity purposes.
-    By default, it uses a file named preendgame.json.
+To stop a running autoplay: autoplay stop
 
-    The leavefile and/or pegfile must be located inside the
-    ./data/strategy/<lexicon> directory.
-    Make sure to put it in the subdirectory for the correct lexicon.
-    By default, if no file is specified, will use the default leave file
-    for your DEFAULT_LEXICON (or the supplied lexicon).
+Example config file (infer-tau001.json):
 
-    -botcode1 BOT_CODE
-    -botcode2 BOT_CODE
+    {
+      "description": "Test inference at tau=0.01, 5 plies, no endgame",
+      "experimentId": "infer-tau001-5ply",
+      "lexicon": "NWL23",
+      "letterDistribution": "English",
+      "numGames": 1000,
+      "threads": 32,
+      "outputDir": "./experiments",
+      "player1": {
+        "botCode": "SIMMING_INFER_BOT_NO_EG",
+        "minSimPlies": 5,
+        "simThreads": 6,
+        "inferenceTau": 0.01
+      },
+      "player2": {
+        "botCode": "SIMMING_BOT_NO_EG",
+        "minSimPlies": 5,
+        "simThreads": 6
+      }
+    }
 
-    Uses specific bot types / strategies. Defaults to HASTY_BOT if not provided,
-    which is a raw equity player. Types can be taken from the macondo.proto file.
-    So far, these are:
-    - HASTY_BOT,
-    - LEVEL1_COMMON_WORD_BOT through LEVEL4_COMMON_WORD_BOT (for English and German),
-    - LEVEL1_PROBABILISTIC through LEVEL5_PROBABILISTIC.
-    - NO_LEAVE_BOT
-    - SIMMING_BOT
+Config fields:
 
-    -threads 10
+    description        Human-readable label for the experiment (logged at start).
+    experimentId       ID used for output file names. Auto-generated if empty.
+    lexicon            Lexicon name (e.g. "NWL23", "CSW21"). Defaults to the
+                       configured default lexicon.
+    letterDistribution Letter distribution (e.g. "English"). Defaults to the
+                       configured default.
+    numGames           Number of games to play. Defaults to effectively unlimited.
+    threads            Number of parallel game threads. Defaults to NumCPU.
+                       Set to 1 if either bot uses endgame or pre-endgame solving.
+    outputDir          Directory for output files. Defaults to current directory.
+    block              If true, wait for all games to complete before returning.
 
-    Uses multiple threads. Defaults to `runtime.NumCPU()`.
-    Note: You should set this to `1` if you're using any bots that sim or
-    solve endgames etc. Instead, the simmer, endgamesolver, etc will use as
-    many threads as it can.
+    seedFile           Path to a seed file for deterministic/reproducible games.
+    generateSeeds      If true, generate seeds and save to seedFile, then exit.
+    deterministic      If true, load seeds from seedFile and use them for games.
 
-    -minsimplies1 2
-    -minsimplies2 3
+Per-player fields (player1 / player2):
 
-    Minimum sim plies for player 1 is set to 2 plies, and minimum for player 2
-    is set to 3 plies. If not specified, this defaults to 2 plies per bot,
-    if the bot is a simming bot.
-    This is used for Monte Carlo simulations (`help sim` for more info).
+    botCode            Bot strategy. Values from the BotRequest.BotCode enum:
+                         HASTY_BOT, NO_LEAVE_BOT,
+                         SIMMING_BOT, SIMMING_BOT_NO_EG,
+                         SIMMING_INFER_BOT, SIMMING_INFER_BOT_NO_EG,
+                         HASTY_PLUS_ENDGAME_BOT,
+                         LEVEL1_COMMON_WORD_BOT ... LEVEL4_COMMON_WORD_BOT,
+                         LEVEL1_PROBABILISTIC ... LEVEL5_PROBABILISTIC
+    leaveFile          Custom leave file (.klv2) inside data/strategy/<lexicon>/.
+    pegFile            Pre-endgame adjustment file (.json) in the same dir.
+    minSimPlies        Minimum Monte Carlo sim plies (default 2 for simming bots).
+    simThreads         Threads for the bot's internal sim (default: all CPUs).
+    stochasticStaticEval  If true, uses stochastic equity evaluation.
+    inferenceTau       Softmax temperature for rack inference (0 = use default 0.05).
+                       Lower = assume opponent plays more optimally.
+                       Higher = allow more weight to sub-optimal plays.
+                       Try 0.008–0.03 for strong opponents.
 
-    -seedfile /path/to/seeds.txt
-    -genseeds
-    -deterministic
+CLI overrides:
 
-    These options enable deterministic autoplay for comparing move sequences
-    across branches (e.g., master vs shadow-movegen).
+Any config field can be overridden on the command line without editing the
+JSON file. Override flags are applied on top of the loaded config:
 
-    -genseeds: Generates N random seeds (N = -numgames) and saves them to
-    the seed file, then exits without running games. Requires -seedfile.
+    autoplay base.json -numgames 500
+    autoplay base.json -tau1 0.008
+    autoplay base.json -threads 16 -experimentid infer-tau008-run2
 
-    -deterministic: Loads seeds from the seed file and uses them to create
-    deterministic games. Each game gets its assigned seed regardless of
-    thread execution order. Requires -seedfile.
+Available override flags:
+    -experimentid ID      Override the experiment ID (and thus output filenames)
+    -outputdir PATH       Override the output directory
+    -lexicon NAME         Override the lexicon
+    -letterdistribution X Override the letter distribution
+    -numgames N           Override the number of games
+    -threads N            Override the number of parallel game threads
+    -block                Wait for all games to complete
+    -seedfile PATH        Override the seed file path
+    -genseeds             Generate seeds and save to seedFile, then exit
+    -deterministic        Load seeds from seedFile for deterministic games
+    -botcode1 CODE        Override player1 bot code
+    -botcode2 CODE        Override player2 bot code
+    -minsimplies1 N       Override player1 minimum sim plies
+    -minsimplies2 N       Override player2 minimum sim plies
+    -simthreads1 N        Override player1 sim threads
+    -simthreads2 N        Override player2 sim threads
+    -tau1 F               Override player1 inference tau
+    -tau2 F               Override player2 inference tau
 
-    Example workflow:
-        # On master branch - generate seeds
-        autoplay -numgames 1000 -genseeds -seedfile /tmp/seeds.txt
+Deterministic workflow example:
 
-        # On master branch - run with seeds
-        autoplay -numgames 1000 -deterministic -seedfile /tmp/seeds.txt \
-            -logfile /tmp/master.txt
+    # Generate seeds
+    autoplay base.json -numgames 1000 -genseeds -seedfile /tmp/seeds.txt
 
-        # On shadow-movegen branch - run with same seeds
-        autoplay -numgames 1000 -deterministic -seedfile /tmp/seeds.txt \
-            -logfile /tmp/shadow.txt
+    # Run on master branch with seeds
+    autoplay base.json -numgames 1000 -deterministic -seedfile /tmp/seeds.txt \
+        -experimentid master-run1
 
-        # Compare results (sort by gameID and turn)
-        sort -t, -k2,2 -k3,3n /tmp/master.txt > /tmp/master_sorted.txt
-        sort -t, -k2,2 -k3,3n /tmp/shadow.txt > /tmp/shadow_sorted.txt
-        diff /tmp/master_sorted.txt /tmp/shadow_sorted.txt
+    # Run on feature branch with same seeds
+    autoplay base.json -numgames 1000 -deterministic -seedfile /tmp/seeds.txt \
+        -experimentid feature-run1
 
-    Game IDs in deterministic mode have the format "seed:<base64_seed>".
-
-autoplay can be used to generate computer vs computer games for research
-purposes.
-
-To stop autoplay, type `autoplay stop`. If no log file is specified,
-it will default to `/tmp/autoplay.txt`, otherwise, use the desired
-filename as an option.
-
-By default, autoplay will use two identical, fast AI players of type
-'HASTY_BOT'. A HASTY_BOT player uses values for all possible
-leaves that must already be in the data/strategy directory. If you don't have
-any values or wish to try with no values, you can use the botcode NO_LEAVE_BOT.
-
-In the future, we will add other types of players.
-
-Note: If using SIMMING_BOT, we strongly recommend to set number of threads to 1.
-This is because SIMMING_BOT already uses multithreading for its own sims.
+Note: If using a simming or inference bot, set threads to 1 and let
+simThreads use all CPUs, or balance as needed (e.g. threads=32, simThreads=6
+on a 192-core machine).

@@ -152,6 +152,10 @@ message BotRequest {
     FAST_ML_BOT = 14;
     RANDOM_BOT_WITH_TEMPERATURE = 15;
     SIMMING_WITH_ML_EVAL_BOT = 16;
+    // No-endgame variants: sim only, no preendgame or endgame solver.
+    // Used for controlled experiments isolating midgame sim quality.
+    SIMMING_BOT_NO_EG = 17;
+    SIMMING_INFER_BOT_NO_EG = 18;
     // custom bots can be used to run custom algorithms.
     // They should be used with the BotSpec below.
     CUSTOM_BOT = 20;
@@ -307,14 +311,14 @@ message TurnAnalysis {
   int32 tiles_in_bag = 6;
 
   // Moves
-  string played_move = 7;       // e.g., "8D QUIXOTIC" or "(exch AEI)"
+  string played_move = 7; // e.g., "8D QUIXOTIC" or "(exch AEI)"
   int32 played_score = 8;
   string optimal_move = 9;
   int32 optimal_score = 10;
 
   // Loss metrics
-  double win_prob_loss = 11;    // For sim/PEG phases (0-1)
-  int32 spread_loss = 12;       // For endgame phase
+  double win_prob_loss = 11; // For sim/PEG phases (0-1)
+  int32 spread_loss = 12;    // For endgame phase
 
   // Mistake categorization
   bool was_optimal = 13;
@@ -338,7 +342,8 @@ message TurnAnalysis {
   repeated EndgameVariation other_variations = 25;
 
   // Known opponent rack (from challenged phony)
-  string known_opp_rack = 27;  // e.g., "JAM" - tiles revealed by challenged phony
+  string known_opp_rack =
+      27; // e.g., "JAM" - tiles revealed by challenged phony
 }
 
 enum GamePhase {
@@ -376,4 +381,60 @@ message PlayerSummary {
   // Bingo tracking
   int32 available_bingos = 11;
   int32 missed_bingos = 12;
+}
+
+// AutoplayPlayerConfig configures one player in an autoplay experiment.
+message AutoplayPlayerConfig {
+  BotRequest.BotCode bot_code = 1;
+  string leave_file = 2;
+  string peg_file = 3;
+  int32 min_sim_plies = 4;
+  int32 sim_threads = 5;
+  bool stochastic_static_eval = 6;
+  // inference_tau is the softmax temperature for P(play|leave) in inference.
+  // If 0, the default SoftmaxTemperature constant is used.
+  double inference_tau = 7;
+  // inference_time_secs is the wall-clock budget for inference per turn.
+  // If 0, defaults to 20 seconds.
+  int32 inference_time_secs = 8;
+  // inference_sim_iters is the max mini-sim iterations per rack candidate.
+  // If 0, defaults to 200. Lower values trade weight accuracy for more
+  // rack coverage in the same time budget.
+  int32 inference_sim_iters = 9;
+  // oracle_inference skips the Bayesian inference loop and instead passes
+  // the opponent's true leave (from the game history) directly to the simmer.
+  // This establishes an upper bound on how much perfect inference could help.
+  bool oracle_inference = 10;
+  // inference_max_enumerated_leaves is the threshold below which exhaustive
+  // enumeration is used instead of Monte Carlo sampling. When the number of
+  // distinct leaves drawable from the bag is at or below this value, every
+  // leave is evaluated exactly once with full Bayesian weighting
+  // (prior × likelihood). If 0, the rangefinder default (750) is used.
+  int32 inference_max_enumerated_leaves = 11;
+}
+
+// AutoplayConfig defines a complete autoplay experiment.
+message AutoplayConfig {
+  // Human-readable description of the experiment.
+  string description = 1;
+  // Unique experiment identifier used for naming output files.
+  // If empty, one is auto-generated from the current timestamp.
+  string experiment_id = 2;
+  string lexicon = 3;
+  string letter_distribution = 4;
+  int32 num_games = 5;
+  // Number of parallel game threads.
+  int32 threads = 6;
+  // Directory where output files are written. Defaults to current directory.
+  string output_dir = 7;
+  AutoplayPlayerConfig player1 = 8;
+  AutoplayPlayerConfig player2 = 9;
+  // If true, block until all games complete before returning.
+  bool block = 10;
+  // Path to a seed file for deterministic autoplay.
+  string seed_file = 11;
+  // If true, generate seeds (numGames worth) and save to seed_file, then exit.
+  bool generate_seeds = 12;
+  // If true, load seeds from seed_file and use them for deterministic games.
+  bool deterministic = 13;
 }

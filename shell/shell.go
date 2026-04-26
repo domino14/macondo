@@ -11,7 +11,6 @@ import (
 	"os/user"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"sort"
 	"strconv"
@@ -1533,85 +1532,20 @@ func (sc *ShellController) commitAIMove() error {
 }
 
 func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) error {
-	var logfile, lexicon, letterDistribution, leavefile1, leavefile2, pegfile1, pegfile2 string
-	var seedfile string
-	var numgames, numthreads int
-	var block, genseeds, deterministic bool
-	var botcode1, botcode2 pb.BotRequest_BotCode
-	var minsimplies1, minsimplies2 int
-	var stochastic1, stochastic2 bool
-	var err error
-	if options.String("logfile") == "" {
-		logfile = "/tmp/autoplay.txt"
-	} else {
-		logfile = options.String("logfile")
+	// Handle stop subcommand
+	if len(args) == 1 && args[0] == "stop" {
+		if !sc.gameRunnerRunning {
+			return errors.New("automatic game runner is not running")
+		}
+		sc.gameRunnerCancel()
+		sc.gameRunnerRunning = false
+		return nil
 	}
-	if options.String("lexicon") == "" {
-		lexicon = sc.config.GetString(config.ConfigDefaultLexicon)
-	} else {
-		lexicon = options.String("lexicon")
-	}
-	if options.String("letterdistribution") == "" {
-		letterDistribution = sc.config.GetString(config.ConfigDefaultLetterDistribution)
-	} else {
-		letterDistribution = options.String("letterdistribution")
-	}
-	leavefile1 = options.String("leavefile1")
-	leavefile2 = options.String("leavefile2")
-	pegfile1 = options.String("pegfile1")
-	pegfile2 = options.String("pegfile2")
 
-	if options.String("botcode1") == "" {
-		botcode1 = pb.BotRequest_HASTY_BOT
-	} else {
-		botcode1Value, exists := pb.BotRequest_BotCode_value[options.String("botcode1")]
-		if !exists {
-			return fmt.Errorf("bot code %s does not exist", options.String("botcode1"))
-		}
-		botcode1 = pb.BotRequest_BotCode(botcode1Value)
+	if len(args) > 1 {
+		return errors.New("usage: autoplay [config-file.json] [overrides...]  or  autoplay stop")
 	}
-	if options.String("botcode2") == "" {
-		botcode2 = pb.BotRequest_HASTY_BOT
-	} else {
-		botcode2Value, exists := pb.BotRequest_BotCode_value[options.String("botcode2")]
-		if !exists {
-			return fmt.Errorf("bot code %s does not exist", options.String("botcode2"))
-		}
-		botcode2 = pb.BotRequest_BotCode(botcode2Value)
-	}
-	if minsimplies1, err = options.IntDefault("minsimplies1", 0); err != nil {
-		return err
-	}
-	if minsimplies2, err = options.IntDefault("minsimplies2", 0); err != nil {
-		return err
-	}
-	if numgames, err = options.IntDefault("numgames", 1e9); err != nil {
-		return err
-	}
-	stochastic1 = options.Bool("stochastic1")
-	stochastic2 = options.Bool("stochastic2")
-	block = options.Bool("block")
-	genseeds = options.Bool("genseeds")
-	deterministic = options.Bool("deterministic")
-	seedfile = options.String("seedfile")
-	if numthreads, err = options.IntDefault("threads", runtime.NumCPU()); err != nil {
-		return err
-	}
-	if numthreads < 1 {
-		return errors.New("need at least one thread")
-	}
-	if len(args) == 1 {
-		if args[0] == "stop" {
-			if !sc.gameRunnerRunning {
-				return errors.New("automatic game runner is not running")
-			}
-			sc.gameRunnerCancel()
-			sc.gameRunnerRunning = false
-			return nil
-		} else {
-			return errors.New("argument not recognized")
-		}
-	}
+
 	if sc.gameRunnerRunning {
 		return errors.New("please stop automatic game runner before running another one")
 	}
@@ -1619,70 +1553,110 @@ func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) err
 		return errMacondoSolving
 	}
 
-	sc.showMessage("automatic game runner will log to " + logfile)
-
-	// Handle deterministic mode
-	var detConfig *automatic.DeterministicConfig
-	if deterministic || genseeds || seedfile != "" {
-		detConfig = &automatic.DeterministicConfig{
-			SeedFile: seedfile,
-			NumGames: numgames,
+	var expCfg *pb.AutoplayConfig
+	if len(args) == 1 {
+		var err error
+		expCfg, err = automatic.LoadAutoplayConfig(args[0])
+		if err != nil {
+			return err
 		}
-
-		if genseeds {
-			// Just generate seeds and exit
-			if seedfile == "" {
-				return errors.New("-genseeds requires -seedfile")
-			}
-			seeds, err := automatic.GenerateSeeds(numgames)
-			if err != nil {
-				return fmt.Errorf("failed to generate seeds: %w", err)
-			}
-			err = automatic.SaveSeeds(seeds, seedfile)
-			if err != nil {
-				return fmt.Errorf("failed to save seeds: %w", err)
-			}
-			sc.showMessage(fmt.Sprintf("Generated and saved %d seeds to %s", numgames, seedfile))
-			return nil
-		}
-
-		if deterministic {
-			// Load seeds from file for deterministic games
-			if seedfile == "" {
-				return errors.New("-deterministic requires -seedfile")
-			}
-			seeds, err := automatic.LoadSeeds(seedfile)
-			if err != nil {
-				return fmt.Errorf("failed to load seeds: %w", err)
-			}
-			detConfig.Seeds = seeds
-			sc.showMessage(fmt.Sprintf("Loaded %d seeds from %s for deterministic play", len(seeds), seedfile))
-		}
+	} else {
+		// No config file — start from defaults, apply flags only.
+		expCfg = &pb.AutoplayConfig{}
 	}
 
-	sc.gameRunnerCtx, sc.gameRunnerCancel = context.WithCancel(context.Background())
-	err = automatic.StartCompVCompStaticGames(
-		sc.gameRunnerCtx, sc.config, numgames, block, numthreads,
-		logfile, lexicon, letterDistribution,
-		[]automatic.AutomaticRunnerPlayer{
-			{LeaveFile: leavefile1,
-				PEGFile:              pegfile1,
-				BotCode:              botcode1,
-				MinSimPlies:          minsimplies1,
-				StochasticStaticEval: stochastic1},
-			{LeaveFile: leavefile2,
-				PEGFile:              pegfile2,
-				BotCode:              botcode2,
-				MinSimPlies:          minsimplies2,
-				StochasticStaticEval: stochastic2},
-		}, detConfig)
+	// Apply flag overrides on top of the loaded config.
+	if v := options.String("experimentid"); v != "" {
+		expCfg.ExperimentId = v
+	}
+	if v := options.String("outputdir"); v != "" {
+		expCfg.OutputDir = v
+	}
+	if v := options.String("lexicon"); v != "" {
+		expCfg.Lexicon = v
+	}
+	if v := options.String("letterdistribution"); v != "" {
+		expCfg.LetterDistribution = v
+	}
+	if v, err2 := options.IntDefault("numgames", 0); err2 != nil {
+		return err2
+	} else if v != 0 {
+		expCfg.NumGames = int32(v)
+	}
+	if v, err2 := options.IntDefault("threads", 0); err2 != nil {
+		return err2
+	} else if v != 0 {
+		expCfg.Threads = int32(v)
+	}
+	if options.Bool("block") {
+		expCfg.Block = true
+	}
 
+	// Seeding overrides
+	if v := options.String("seedfile"); v != "" {
+		expCfg.SeedFile = v
+	}
+	if options.Bool("genseeds") {
+		expCfg.GenerateSeeds = true
+	}
+	if options.Bool("deterministic") {
+		expCfg.Deterministic = true
+	}
+
+	// Per-player overrides. Apply only if the flag was explicitly set.
+	if expCfg.Player1 == nil {
+		expCfg.Player1 = &pb.AutoplayPlayerConfig{}
+	}
+	if expCfg.Player2 == nil {
+		expCfg.Player2 = &pb.AutoplayPlayerConfig{}
+	}
+	applyPlayerOverrides(expCfg.Player1, options, "1")
+	applyPlayerOverrides(expCfg.Player2, options, "2")
+
+	sc.gameRunnerCtx, sc.gameRunnerCancel = context.WithCancel(context.Background())
+	experimentID, err := automatic.StartAutoplayFromConfig(sc.gameRunnerCtx, sc.config, expCfg)
 	if err != nil {
 		return err
 	}
-	sc.gameRunnerRunning = true
-	sc.showMessage("Started automatic game runner...")
+
+	outputDir := expCfg.OutputDir
+	if outputDir == "" {
+		outputDir = "."
+	}
+	sc.showMessage(fmt.Sprintf("Experiment %q started. Output: %s/%s.txt", experimentID, outputDir, experimentID))
+	sc.gameRunnerRunning = !expCfg.Block
 	return nil
+}
+
+// applyPlayerOverrides applies per-player CLI flag overrides (suffix "1" or "2")
+// to a player config. Only flags that were explicitly set are applied.
+func applyPlayerOverrides(p *pb.AutoplayPlayerConfig, options CmdOptions, suffix string) {
+	if v := options.String("botcode" + suffix); v != "" {
+		if code, exists := pb.BotRequest_BotCode_value[v]; exists {
+			p.BotCode = pb.BotRequest_BotCode(code)
+		}
+	}
+	if v, err := options.IntDefault("minsimplies"+suffix, -1); err == nil && v >= 0 {
+		p.MinSimPlies = int32(v)
+	}
+	if v, err := options.IntDefault("simthreads"+suffix, -1); err == nil && v >= 0 {
+		p.SimThreads = int32(v)
+	}
+	if v, err := options.Float("tau" + suffix); err == nil && v > 0 {
+		p.InferenceTau = v
+	}
+	if v, err := options.IntDefault("inferencetime"+suffix, -1); err == nil && v >= 0 {
+		p.InferenceTimeSecs = int32(v)
+	}
+	if v, err := options.IntDefault("inferenceiters"+suffix, -1); err == nil && v >= 0 {
+		p.InferenceSimIters = int32(v)
+	}
+	if v, err := options.IntDefault("maxleaves"+suffix, -1); err == nil && v >= 0 {
+		p.InferenceMaxEnumeratedLeaves = int32(v)
+	}
+	if options.Bool("oracle" + suffix) {
+		p.OracleInference = true
+	}
 }
 
 type shellcmd struct {
