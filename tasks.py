@@ -17,6 +17,7 @@ def build(c):
     c.run(
         f"zip -r macondo-{tag}-osx-universal.zip ./macondo ./data ./scripts/lua ./explainer"
     )
+    c.run("rm -f macondo macondo-amd64 macondo-arm64")
 
     for os, nickname, arch, executable in [
         ("linux", "linux-x86_64", "amd64", "macondo"),
