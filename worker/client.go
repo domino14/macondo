@@ -233,6 +233,42 @@ func (c *WooglesClient) SendHeartbeat(ctx context.Context, jobID string, progres
 	return nil
 }
 
+// FailJob reports a job as permanently failed to the server. Use this when
+// a panic or unrecoverable error occurs processing a specific game so the
+// job is not retried on other volunteers.
+func (c *WooglesClient) FailJob(ctx context.Context, jobID, errorMessage string) error {
+	url := c.baseURL + "/api/analysis_service.AnalysisQueueService/FailJob"
+
+	reqBody, err := json.Marshal(map[string]interface{}{
+		"jobId":          jobID,
+		"errorMessage":   errorMessage,
+		"macondoVersion": c.version,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("X-Api-Key", c.apiKey)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(body))
+	}
+
+	return nil
+}
+
 // FetchGameHistory fetches the game history from Woogles
 func (c *WooglesClient) FetchGameHistory(ctx context.Context, gameID string) (*pb.GameHistory, error) {
 	url := c.baseURL + "/api/game_service.GameMetadataService/GetGCG"
