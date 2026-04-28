@@ -583,6 +583,10 @@ func (g *Game) playMove(m *move.Move, addToHistory bool, millis int, updateCross
 		if m.TilesPlayed() == RackTileLimit {
 			g.players[g.onturn].bingos++
 		}
+		if m.TilesPlayed()+len(m.Leave()) > cap(g.players[g.onturn].placeholderRack) {
+			return fmt.Errorf("malformed move: tiles played (%d) + leave (%d) exceeds rack capacity (%d)",
+				m.TilesPlayed(), len(m.Leave()), cap(g.players[g.onturn].placeholderRack))
+		}
 		drew := g.bag.DrawAtMost(m.TilesPlayed(), g.players[g.onturn].placeholderRack)
 		copy(g.players[g.onturn].placeholderRack[drew:], []tilemapping.MachineLetter(m.Leave()))
 		g.players[g.onturn].setRackTiles(g.players[g.onturn].placeholderRack[:drew+len(m.Leave())], g.alph)
@@ -645,6 +649,10 @@ func (g *Game) playMove(m *move.Move, addToHistory bool, millis int, updateCross
 		}
 
 	case move.MoveTypeExchange:
+		if len(m.Tiles())+len(m.Leave()) > cap(g.players[g.onturn].placeholderRack) {
+			return fmt.Errorf("malformed exchange: tiles (%d) + leave (%d) exceeds rack capacity (%d)",
+				len(m.Tiles()), len(m.Leave()), cap(g.players[g.onturn].placeholderRack))
+		}
 		err := g.bag.Exchange([]tilemapping.MachineLetter(m.Tiles()), g.players[g.onturn].placeholderRack)
 		if err != nil {
 			return err
