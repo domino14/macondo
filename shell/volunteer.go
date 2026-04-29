@@ -3,7 +3,6 @@ package shell
 import (
 	"context"
 	"fmt"
-	"runtime/debug"
 	"strings"
 	"time"
 
@@ -11,6 +10,7 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gameanalysis"
 	"github.com/domino14/macondo/worker"
 )
@@ -161,24 +161,7 @@ func (sc *ShellController) volunteerLoop() {
 }
 
 // processVolunteerJob analyzes a game and submits the result
-func (sc *ShellController) processVolunteerJob(client *worker.WooglesClient, job *worker.Job) (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			stack := debug.Stack()
-			log.Error().
-				Interface("panic", r).
-				Bytes("stack", stack).
-				Str("job-id", job.JobID).
-				Str("game-id", job.GameID).
-				Msg("recovered from panic in volunteer job; marking job failed")
-			msg := fmt.Sprintf("worker panic on game %s: %v", job.GameID, r)
-			if ferr := client.FailJob(context.Background(), job.JobID, msg); ferr != nil {
-				log.Warn().Err(ferr).Str("job-id", job.JobID).Msg("failed to report job failure to server")
-			}
-			err = fmt.Errorf("panic recovered: %v", r)
-		}
-	}()
-
+func (sc *ShellController) processVolunteerJob(client *worker.WooglesClient, job *worker.Job) error {
 	ctx := sc.volunteerCtx
 
 	// Start heartbeat ticker
@@ -240,6 +223,21 @@ func (sc *ShellController) processVolunteerJob(client *worker.WooglesClient, job
 	err = sc.options.SetLexicon([]string{lexiconName}, sc.config.WGLConfig())
 	if err != nil {
 		return fmt.Errorf("failed to load lexicon %s: %w", lexiconName, err)
+	}
+
+	// Reject corrupt games before they can panic inside the simmer.
+	boardLayout, ldName, variant := game.HistoryToVariant(history)
+	rules, err := game.NewBasicGameRules(sc.config, lexiconName, boardLayout, ldName,
+		game.CrossScoreAndSet, variant)
+	if err != nil {
+		return fmt.Errorf("failed to build rules for validation: %w", err)
+	}
+	if vErr := validateGameHistory(history, rules.LetterDistribution().TileMapping()); vErr != nil {
+		log.Warn().Err(vErr).Str("game-id", job.GameID).Msg("rejecting corrupt game")
+		if ferr := client.FailJob(context.Background(), job.JobID, vErr.Error()); ferr != nil {
+			log.Warn().Err(ferr).Str("job-id", job.JobID).Msg("failed to report corrupt game to server")
+		}
+		return nil
 	}
 
 	// Create analyzer with job config

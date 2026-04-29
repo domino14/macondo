@@ -43,6 +43,10 @@ func (sc *ShellController) analyze(cmd *shellcmd) (*Response, error) {
 		}
 	}
 
+	if err := validateGameHistory(history, sc.game.Alphabet()); err != nil {
+		return nil, fmt.Errorf("game history is corrupt: %w", err)
+	}
+
 	// Create analyzer
 	analyzer := gameanalysis.New(sc.config, cfg, sc.macondoVersion)
 
