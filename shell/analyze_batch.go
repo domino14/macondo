@@ -14,6 +14,7 @@ import (
 
 	"google.golang.org/protobuf/encoding/protojson"
 
+	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gameanalysis"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
@@ -260,6 +261,26 @@ func (sc *ShellController) analyzeBatch(cmd *shellcmd) (*Response, error) {
 			gameResult.GameInfo = fmt.Sprintf("%s vs %s",
 				history.Players[0].Nickname,
 				history.Players[1].Nickname)
+		}
+
+		// Validate racks before analysis to catch corrupt games early.
+		boardLayout, ldName, variant := game.HistoryToVariant(history)
+		rules, err := game.NewBasicGameRules(sc.config, history.Lexicon, boardLayout, ldName,
+			game.CrossScoreAndSet, variant)
+		if err == nil {
+			if vErr := validateGameHistory(history, rules.LetterDistribution().TileMapping()); vErr != nil {
+				err = fmt.Errorf("game history is corrupt: %w", vErr)
+			}
+		}
+		if err != nil {
+			gameResult.AnalysisErr = err
+			batchResult.AddGameResult(gameResult)
+
+			if !continueOnError {
+				return nil, fmt.Errorf("failed to validate game %s: %w", source.Original, err)
+			}
+			sc.showMessage(fmt.Sprintf("  Error validating: %v", err))
+			continue
 		}
 
 		// Analyze game
