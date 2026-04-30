@@ -138,26 +138,47 @@ func MakeFromWords(words []tilemapping.MachineWord, ld *tilemapping.LetterDistri
 // portion is not used. The letter distribution is validated against the
 // WMP's BitRack constraints; see MakeFromWords for details.
 func MakeFromKWG(k *kwg.KWG, ld *tilemapping.LetterDistribution, boardDim, numThreads int) (*WMP, error) {
-	words := ExtractWordsFromKWG(k, boardDim)
+	words, err := ExtractWordsFromKWG(k, boardDim)
+	if err != nil {
+		return nil, err
+	}
 	return MakeFromWords(words, ld, boardDim, numThreads)
 }
 
 // ExtractWordsFromKWG walks the DAWG portion of a KWG and returns all
 // stored words (each as a tilemapping.MachineWord). Words longer than
 // maxLength are skipped.
-func ExtractWordsFromKWG(k *kwg.KWG, maxLength int) []tilemapping.MachineWord {
+//
+// Returns an error if the KWG is too small to contain a root node or
+// if any arc index encountered during the walk points outside the node
+// array (i.e. the KWG file is truncated or corrupted). Without those
+// guards a malformed input would panic with an "index out of range"
+// when accessing k.Tile/k.ArcIndex.
+func ExtractWordsFromKWG(k *kwg.KWG, maxLength int) ([]tilemapping.MachineWord, error) {
 	var words []tilemapping.MachineWord
+	nodesLen := uint32(len(k.Nodes()))
+	if nodesLen < 2 {
+		return nil, fmt.Errorf("wmp: KWG has %d nodes; expected at least 2 (DAWG and GADDAG roots)", nodesLen)
+	}
 	dawgRoot := k.ArcIndex(0)
 	if dawgRoot == 0 {
-		return words
+		return words, nil
+	}
+	if dawgRoot >= nodesLen {
+		return nil, fmt.Errorf("wmp: KWG appears corrupted: DAWG root arc %d is out of bounds for %d-node KWG", dawgRoot, nodesLen)
 	}
 	prefix := make([]tilemapping.MachineLetter, 0, maxLength)
-	extractWordsRecursive(k, dawgRoot, prefix, maxLength, &words)
-	return words
+	if err := extractWordsRecursive(k, dawgRoot, prefix, maxLength, nodesLen, &words); err != nil {
+		return nil, err
+	}
+	return words, nil
 }
 
-func extractWordsRecursive(k *kwg.KWG, nodeIdx uint32, prefix []tilemapping.MachineLetter, maxLength int, words *[]tilemapping.MachineWord) {
+func extractWordsRecursive(k *kwg.KWG, nodeIdx uint32, prefix []tilemapping.MachineLetter, maxLength int, nodesLen uint32, words *[]tilemapping.MachineWord) error {
 	for i := nodeIdx; ; i++ {
+		if i >= nodesLen {
+			return fmt.Errorf("wmp: KWG appears corrupted: arc list starting at node %d ran past end of %d-node KWG", nodeIdx, nodesLen)
+		}
 		tile := k.Tile(i)
 		next := append(prefix, tilemapping.MachineLetter(tile))
 		if k.Accepts(i) {
@@ -168,11 +189,16 @@ func extractWordsRecursive(k *kwg.KWG, nodeIdx uint32, prefix []tilemapping.Mach
 		if len(next) < maxLength {
 			arc := k.ArcIndex(i)
 			if arc != 0 {
-				extractWordsRecursive(k, arc, next, maxLength, words)
+				if arc >= nodesLen {
+					return fmt.Errorf("wmp: KWG appears corrupted: arc %d at node %d is out of bounds for %d-node KWG", arc, i, nodesLen)
+				}
+				if err := extractWordsRecursive(k, arc, next, maxLength, nodesLen, words); err != nil {
+					return err
+				}
 			}
 		}
 		if k.IsEnd(i) {
-			break
+			return nil
 		}
 	}
 }

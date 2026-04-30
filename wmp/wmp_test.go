@@ -2,11 +2,13 @@ package wmp
 
 import (
 	"bytes"
+	"encoding/binary"
 	"os"
 	"sort"
 	"strings"
 	"testing"
 
+	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 )
 
@@ -450,6 +452,124 @@ func TestMagpieBinaryRoundtrip(t *testing.T) {
 			}
 		}
 	}
+}
+
+// scanKWGFromNodes builds an in-memory KWG by serialising the given
+// uint32 nodes to little-endian bytes and re-reading them through the
+// only public KWG constructor.
+func scanKWGFromNodes(t *testing.T, nodes []uint32) *kwg.KWG {
+	t.Helper()
+	buf := &bytes.Buffer{}
+	for _, n := range nodes {
+		if err := binary.Write(buf, binary.LittleEndian, n); err != nil {
+			t.Fatalf("binary.Write: %v", err)
+		}
+	}
+	k, err := kwg.ScanKWG(bytes.NewReader(buf.Bytes()), buf.Len())
+	if err != nil {
+		t.Fatalf("ScanKWG: %v", err)
+	}
+	return k
+}
+
+// TestExtractWordsFromKWGRejectsCorruptInput exercises the safety guards
+// added after a user-reported panic: a CSW24.kwg file ended up on disk
+// in a truncated state (only 227 nodes) and the recursive extractor
+// dereferenced a 22-bit arc index pointing far beyond the loaded nodes,
+// producing a confusing "index out of range" panic instead of a useful
+// error. Now we should get a clean error in each of these scenarios.
+func TestExtractWordsFromKWGRejectsCorruptInput(t *testing.T) {
+	// Case 1: KWG with fewer than 2 nodes — can't even hold the
+	// DAWG/GADDAG root pointer pair.
+	t.Run("too small", func(t *testing.T) {
+		k := scanKWGFromNodes(t, []uint32{0})
+		if _, err := ExtractWordsFromKWG(k, 15); err == nil {
+			t.Errorf("expected error for KWG with 1 node, got nil")
+		}
+	})
+
+	// Case 2: DAWG root arc points past the end of the node array.
+	// Node 0's lower 22 bits are the DAWG root arc; here we set them
+	// to a value way past our 4-node KWG.
+	t.Run("dawg root arc out of bounds", func(t *testing.T) {
+		nodes := []uint32{
+			3108706, // node 0: DAWG root arc -> beyond end
+			0,       // node 1: GADDAG root (unused)
+			0,       // node 2
+			0,       // node 3
+		}
+		k := scanKWGFromNodes(t, nodes)
+		_, err := ExtractWordsFromKWG(k, 15)
+		if err == nil {
+			t.Fatalf("expected error for out-of-bounds DAWG root arc, got nil")
+		}
+		if !strings.Contains(err.Error(), "out of bounds") {
+			t.Errorf("expected 'out of bounds' in error, got %q", err.Error())
+		}
+	})
+
+	// Case 3: A valid root, but a child arc index is out of bounds.
+	// Build a single arc list at index 2 with one node that points its
+	// arc at an out-of-range index.
+	t.Run("child arc out of bounds", func(t *testing.T) {
+		// node layout (little-endian uint32, fields packed by the KWG
+		// bit-layout: bits 0-21 arc, bit 22 isEnd, bit 23 accepts,
+		// bits 24-31 tile):
+		//   node 0: arc=2 (DAWG root)
+		//   node 1: arc=0 (GADDAG root, unused)
+		//   node 2: tile=1, arc=99 (out of bounds), isEnd
+		const tileShift = 24
+		const isEndBit = 1 << 22
+		nodes := []uint32{
+			2,                              // node 0: DAWG root
+			0,                              // node 1: GADDAG root
+			(1 << tileShift) | isEndBit | 99, // node 2: tile=1, arc=99 OOB, isEnd
+			0,
+			0,
+		}
+		k := scanKWGFromNodes(t, nodes)
+		_, err := ExtractWordsFromKWG(k, 15)
+		if err == nil {
+			t.Fatalf("expected error for out-of-bounds child arc, got nil")
+		}
+		if !strings.Contains(err.Error(), "out of bounds") {
+			t.Errorf("expected 'out of bounds' in error, got %q", err.Error())
+		}
+	})
+
+	// Case 4: an arc list that never sets the IsEnd bit. The recursive
+	// extractor would walk past the last node forever; with the guard
+	// it should report corruption.
+	t.Run("missing IsEnd bit", func(t *testing.T) {
+		const tileShift = 24
+		// Two-node arc list at index 2 with neither node setting IsEnd.
+		nodes := []uint32{
+			2, // node 0: DAWG root
+			0, // node 1: GADDAG root
+			(1 << tileShift), // node 2: tile=1, no IsEnd
+			(2 << tileShift), // node 3: tile=2, no IsEnd
+		}
+		k := scanKWGFromNodes(t, nodes)
+		_, err := ExtractWordsFromKWG(k, 15)
+		if err == nil {
+			t.Fatalf("expected error for arc list without IsEnd, got nil")
+		}
+	})
+
+	// Case 5: previously, the build path called MakeFromKWG which would
+	// panic. Now MakeFromKWG should return the wrapped error.
+	t.Run("MakeFromKWG propagates extraction error", func(t *testing.T) {
+		nodes := []uint32{
+			3108706, // node 0: DAWG root arc -> beyond end
+			0,
+		}
+		k := scanKWGFromNodes(t, nodes)
+		ld := testEnglishLD(t)
+		_, err := MakeFromKWG(k, ld, 15, 1)
+		if err == nil {
+			t.Fatalf("expected error from MakeFromKWG, got nil")
+		}
+	})
 }
 
 func sliceEqual(a, b []string) bool {
