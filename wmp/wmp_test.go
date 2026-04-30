@@ -3,6 +3,7 @@ package wmp
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"os"
 	"sort"
 	"strings"
@@ -483,8 +484,12 @@ func TestExtractWordsFromKWGRejectsCorruptInput(t *testing.T) {
 	// DAWG/GADDAG root pointer pair.
 	t.Run("too small", func(t *testing.T) {
 		k := scanKWGFromNodes(t, []uint32{0})
-		if _, err := ExtractWordsFromKWG(k, 15); err == nil {
-			t.Errorf("expected error for KWG with 1 node, got nil")
+		_, err := ExtractWordsFromKWG(k, 15)
+		if err == nil {
+			t.Fatalf("expected error for KWG with 1 node, got nil")
+		}
+		if !errors.Is(err, ErrCorruptKWG) {
+			t.Errorf("expected ErrCorruptKWG, got %v", err)
 		}
 	})
 
@@ -502,6 +507,9 @@ func TestExtractWordsFromKWGRejectsCorruptInput(t *testing.T) {
 		_, err := ExtractWordsFromKWG(k, 15)
 		if err == nil {
 			t.Fatalf("expected error for out-of-bounds DAWG root arc, got nil")
+		}
+		if !errors.Is(err, ErrCorruptKWG) {
+			t.Errorf("expected ErrCorruptKWG, got %v", err)
 		}
 		if !strings.Contains(err.Error(), "out of bounds") {
 			t.Errorf("expected 'out of bounds' in error, got %q", err.Error())
@@ -532,6 +540,9 @@ func TestExtractWordsFromKWGRejectsCorruptInput(t *testing.T) {
 		if err == nil {
 			t.Fatalf("expected error for out-of-bounds child arc, got nil")
 		}
+		if !errors.Is(err, ErrCorruptKWG) {
+			t.Errorf("expected ErrCorruptKWG, got %v", err)
+		}
 		if !strings.Contains(err.Error(), "out of bounds") {
 			t.Errorf("expected 'out of bounds' in error, got %q", err.Error())
 		}
@@ -554,6 +565,9 @@ func TestExtractWordsFromKWGRejectsCorruptInput(t *testing.T) {
 		if err == nil {
 			t.Fatalf("expected error for arc list without IsEnd, got nil")
 		}
+		if !errors.Is(err, ErrCorruptKWG) {
+			t.Errorf("expected ErrCorruptKWG, got %v", err)
+		}
 	})
 
 	// Case 5: previously, the build path called MakeFromKWG which would
@@ -568,6 +582,9 @@ func TestExtractWordsFromKWGRejectsCorruptInput(t *testing.T) {
 		_, err := MakeFromKWG(k, ld, 15, 1)
 		if err == nil {
 			t.Fatalf("expected error from MakeFromKWG, got nil")
+		}
+		if !errors.Is(err, ErrCorruptKWG) {
+			t.Errorf("expected ErrCorruptKWG, got %v", err)
 		}
 	})
 }

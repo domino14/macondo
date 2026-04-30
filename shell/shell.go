@@ -387,6 +387,10 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 				// Build WMP if not already on disk (build-on-miss is intentional
 				// here since the user is doing an interactive lexicon switch).
 				if _, wmpErr := wmppkg.EnsureWMP(sc.config.WGLConfig(), sc.options.Lexicon.Name); wmpErr != nil {
+					if errors.Is(wmpErr, wmppkg.ErrCorruptKWG) {
+						log.Fatal().Err(wmpErr).Str("lexicon", sc.options.Lexicon.Name).
+							Msg("the lexicon's KWG file appears to be corrupted or truncated; please re-download it and try again")
+					}
 					log.Info().Err(wmpErr).Str("lexicon", sc.options.Lexicon.Name).
 						Msg("WMP not available for this lexicon; sim will use the KWG algorithm")
 				}
@@ -975,6 +979,10 @@ func (sc *ShellController) loadGCG(args []string) error {
 		return fmt.Errorf("could not ensure lexicon %s: %w", lexicon, err)
 	}
 	if _, wmpErr := wmppkg.EnsureWMP(sc.config.WGLConfig(), lexicon); wmpErr != nil {
+		if errors.Is(wmpErr, wmppkg.ErrCorruptKWG) {
+			log.Fatal().Err(wmpErr).Str("lexicon", lexicon).
+				Msg("the lexicon's KWG file appears to be corrupted or truncated; please re-download it and try again")
+		}
 		log.Info().Err(wmpErr).Str("lexicon", lexicon).
 			Msg("WMP not available for this lexicon; sim will use the KWG algorithm")
 	}
@@ -1122,6 +1130,10 @@ func (sc *ShellController) loadCGP(cgpstr string) error {
 		return fmt.Errorf("could not ensure lexicon %s: %w", lex, err)
 	}
 	if _, wmpErr := wmppkg.EnsureWMP(sc.config.WGLConfig(), lex); wmpErr != nil {
+		if errors.Is(wmpErr, wmppkg.ErrCorruptKWG) {
+			log.Fatal().Err(wmpErr).Str("lexicon", lex).
+				Msg("the lexicon's KWG file appears to be corrupted or truncated; please re-download it and try again")
+		}
 		log.Info().Err(wmpErr).Str("lexicon", lex).
 			Msg("WMP not available for this lexicon; sim will use the KWG algorithm")
 	}

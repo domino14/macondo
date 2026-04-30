@@ -1,6 +1,7 @@
 package wmp
 
 import (
+	"errors"
 	"fmt"
 	"math/bits"
 	"runtime"
@@ -9,6 +10,14 @@ import (
 	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 )
+
+// ErrCorruptKWG is returned (wrapped) by ExtractWordsFromKWG and
+// MakeFromKWG when the input KWG file is too small or contains arc
+// indices that point outside its node array. Callers can match it
+// with errors.Is to distinguish a broken-on-disk lexicon (the user
+// needs to re-download the file) from other build failures such as
+// an incompatible letter distribution.
+var ErrCorruptKWG = errors.New("wmp: KWG appears corrupted")
 
 // MakeFromWords builds a WMP from a list of words for the given letter
 // distribution. boardDim is the maximum word length supported (typically
@@ -158,14 +167,14 @@ func ExtractWordsFromKWG(k *kwg.KWG, maxLength int) ([]tilemapping.MachineWord, 
 	var words []tilemapping.MachineWord
 	nodesLen := uint32(len(k.Nodes()))
 	if nodesLen < 2 {
-		return nil, fmt.Errorf("wmp: KWG has %d nodes; expected at least 2 (DAWG and GADDAG roots)", nodesLen)
+		return nil, fmt.Errorf("%w: KWG has %d nodes; expected at least 2 (DAWG and GADDAG roots)", ErrCorruptKWG, nodesLen)
 	}
 	dawgRoot := k.ArcIndex(0)
 	if dawgRoot == 0 {
 		return words, nil
 	}
 	if dawgRoot >= nodesLen {
-		return nil, fmt.Errorf("wmp: KWG appears corrupted: DAWG root arc %d is out of bounds for %d-node KWG", dawgRoot, nodesLen)
+		return nil, fmt.Errorf("%w: DAWG root arc %d is out of bounds for %d-node KWG", ErrCorruptKWG, dawgRoot, nodesLen)
 	}
 	prefix := make([]tilemapping.MachineLetter, 0, maxLength)
 	if err := extractWordsRecursive(k, dawgRoot, prefix, maxLength, nodesLen, &words); err != nil {
@@ -177,7 +186,7 @@ func ExtractWordsFromKWG(k *kwg.KWG, maxLength int) ([]tilemapping.MachineWord, 
 func extractWordsRecursive(k *kwg.KWG, nodeIdx uint32, prefix []tilemapping.MachineLetter, maxLength int, nodesLen uint32, words *[]tilemapping.MachineWord) error {
 	for i := nodeIdx; ; i++ {
 		if i >= nodesLen {
-			return fmt.Errorf("wmp: KWG appears corrupted: arc list starting at node %d ran past end of %d-node KWG", nodeIdx, nodesLen)
+			return fmt.Errorf("%w: arc list starting at node %d ran past end of %d-node KWG", ErrCorruptKWG, nodeIdx, nodesLen)
 		}
 		tile := k.Tile(i)
 		next := append(prefix, tilemapping.MachineLetter(tile))
@@ -190,7 +199,7 @@ func extractWordsRecursive(k *kwg.KWG, nodeIdx uint32, prefix []tilemapping.Mach
 			arc := k.ArcIndex(i)
 			if arc != 0 {
 				if arc >= nodesLen {
-					return fmt.Errorf("wmp: KWG appears corrupted: arc %d at node %d is out of bounds for %d-node KWG", arc, i, nodesLen)
+					return fmt.Errorf("%w: arc %d at node %d is out of bounds for %d-node KWG", ErrCorruptKWG, arc, i, nodesLen)
 				}
 				if err := extractWordsRecursive(k, arc, next, maxLength, nodesLen, words); err != nil {
 					return err
