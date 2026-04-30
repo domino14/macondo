@@ -48,16 +48,29 @@ type rowCache struct {
 // loadRow populates the cache from the board for the given row and
 // cross-set direction. After this call, all board lookups for this row
 // can use the cache instead.
+//
+// The direction-dependent slices are resolved once before the loop so each
+// square pays one direct slice index per field instead of a per-call
+// direction switch. The bonuses slice is read once per square to derive both
+// the letter multiplier and the word multiplier.
 func (rc *rowCache) loadRow(b *board.GameBoard, row int, csDir board.BoardDirection, dim int) {
+	crossSets := b.CrossSetsForDir(csDir)
+	leftExtSets := b.LeftExtSetsForDir(csDir)
+	crossScores := b.CrossScoresForDir(csDir)
+	squares := b.SquaresSlice()
+	bonuses := b.BonusesSlice()
+	sqBase := b.GetSqIdx(row, 0) // row*rowMul; col*colMul accumulates below
+	colMul := b.GetSqIdx(0, 1)   // == colMul (1 when normal, dim when transposed)
 	for col := 0; col < dim; col++ {
-		sqIdx := b.GetSqIdx(row, col)
+		sqIdx := sqBase + col*colMul
+		lm, wm := board.BonusMuls(bonuses[sqIdx])
 		rc.squares[col] = cachedSquare{
-			crossSet:   b.GetCrossSetIdx(sqIdx, csDir),
-			leftExtSet: board.CrossSet(b.GetLeftExtSetIdx(sqIdx, csDir)),
-			crossScore: int32(b.GetCrossScoreIdx(sqIdx, csDir)),
-			letterMul:  uint8(b.GetLetterMultiplier(sqIdx)),
-			wordMul:    uint8(b.GetWordMultiplier(sqIdx)),
-			letter:     b.GetLetter(row, col),
+			crossSet:   crossSets[sqIdx],
+			leftExtSet: board.CrossSet(leftExtSets[sqIdx]),
+			crossScore: int32(crossScores[sqIdx]),
+			letterMul:  lm,
+			wordMul:    wm,
+			letter:     squares[sqIdx],
 		}
 	}
 	rc.loadedRow = row

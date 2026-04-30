@@ -400,6 +400,71 @@ func (g *GameBoard) GetRightExtSetIdx(pos int, dir BoardDirection) uint64 {
 	return g.vRightExtSets[pos]
 }
 
+// Slice accessors for the row-cache hot path. Callers select the direction
+// once and then index directly, avoiding per-square direction switches.
+
+func (g *GameBoard) CrossSetsForDir(dir BoardDirection) []CrossSet {
+	if dir == HorizontalDirection {
+		return g.hCrossSets
+	}
+	return g.vCrossSets
+}
+
+func (g *GameBoard) LeftExtSetsForDir(dir BoardDirection) []uint64 {
+	if dir == HorizontalDirection {
+		return g.hLeftExtSets
+	}
+	return g.vLeftExtSets
+}
+
+func (g *GameBoard) CrossScoresForDir(dir BoardDirection) []int {
+	if dir == HorizontalDirection {
+		return g.hCrossScores
+	}
+	return g.vCrossScores
+}
+
+func (g *GameBoard) SquaresSlice() []tilemapping.MachineLetter {
+	return g.squares
+}
+
+func (g *GameBoard) BonusesSlice() []BonusSquare {
+	return g.bonuses
+}
+
+// bonusMulsTable maps each BonusSquare byte to its (letterMul, wordMul) pair.
+// All unlisted entries default to (1, 1), set by init.
+var bonusMulsTable [256]struct{ letter, word uint8 }
+
+func init() {
+	for i := range bonusMulsTable {
+		bonusMulsTable[i] = struct{ letter, word uint8 }{1, 1}
+	}
+	bonusMulsTable[Bonus2LS] = struct{ letter, word uint8 }{2, 1}
+	bonusMulsTable[Bonus3LS] = struct{ letter, word uint8 }{3, 1}
+	bonusMulsTable[Bonus4LS] = struct{ letter, word uint8 }{4, 1}
+	bonusMulsTable[Bonus2WS] = struct{ letter, word uint8 }{1, 2}
+	bonusMulsTable[Bonus3WS] = struct{ letter, word uint8 }{1, 3}
+	bonusMulsTable[Bonus4WS] = struct{ letter, word uint8 }{1, 4}
+}
+
+// BonusMuls returns the letter and word multipliers for a BonusSquare in one
+// table lookup, avoiding two separate switch statements.
+func BonusMuls(b BonusSquare) (letterMul, wordMul uint8) {
+	entry := bonusMulsTable[b]
+	return entry.letter, entry.word
+}
+
+// BonusLetterMul returns the letter multiplier for a BonusSquare.
+func BonusLetterMul(b BonusSquare) int {
+	return int(bonusMulsTable[b].letter)
+}
+
+// BonusWordMul returns the word multiplier for a BonusSquare.
+func BonusWordMul(b BonusSquare) int {
+	return int(bonusMulsTable[b].word)
+}
+
 func (g *GameBoard) SetLeftExtSet(row, col int, dir BoardDirection, es uint64) {
 	pos := g.GetSqIdx(row, col)
 	if dir == HorizontalDirection {

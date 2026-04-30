@@ -44,6 +44,7 @@ var exports = map[string]lua.LGFunction{
 	// Utility functions
 	"busy":       busy,
 	"elite_play": elitePlay,
+	"sim_nodes":  simNodes,
 }
 
 func getShell(L *lua.LState) *ShellController {
@@ -395,6 +396,12 @@ func pegAsync(L *lua.LState) int {
 		return 1
 	}
 	L.Push(lua.LString(r.message))
+	return 1
+}
+
+func simNodes(L *lua.LState) int {
+	sc := getShell(L)
+	L.Push(lua.LNumber(sc.simmer.NodeCount()))
 	return 1
 }
 
