@@ -1146,6 +1146,10 @@ func (g *Game) PlayTurn(t int) error {
 		g.scorelessTurns++
 
 	case move.MoveTypePass, move.MoveTypeUnsuccessfulChallengePass:
+		err := g.SetRackFor(g.onturn, tilemapping.RackFromString(evt.Rack, g.alph))
+		if err != nil {
+			return err
+		}
 		g.lastScorelessTurns = g.scorelessTurns
 		g.scorelessTurns++
 

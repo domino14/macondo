@@ -140,3 +140,27 @@ func TestNewFromHistoryIncomplete7(t *testing.T) {
 	is.True(g.Playing() == pb.PlayState_PLAYING)
 	is.Equal(g.RackLettersFor(1), "AEEIILZ")
 }
+
+func TestNewFromHistoryFirstMoveIsPass(t *testing.T) {
+	is := is.New(t)
+	rules, err := game.NewBasicGameRules(
+		DefaultConfig, "CSW19", board.CrosswordGameLayout, "english",
+		game.CrossScoreOnly, "")
+	is.NoErr(err)
+
+	hist := &pb.GameHistory{
+		Players: []*pb.PlayerInfo{
+			{Nickname: "p0", UserId: "u0"},
+			{Nickname: "p1", UserId: "u1"},
+		},
+		Events: []*pb.GameEvent{
+			{Type: pb.GameEvent_PASS, PlayerIndex: 0, Rack: "AEINSTU"},
+		},
+		Lexicon: "CSW19",
+	}
+
+	g, err := game.NewFromHistory(hist, rules, 1)
+	is.NoErr(err)
+	is.Equal(g.Playing(), pb.PlayState_PLAYING)
+	is.Equal(g.RackLettersFor(0), "AEINSTU")
+}
