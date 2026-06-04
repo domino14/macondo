@@ -72,8 +72,8 @@ var GCGRegexes []gcgdatum
 
 const (
 	PlayerRegex               = `^#player(?P<p_number>[1-2])\s+(?P<nick>\S+)\s+(?P<real_name>.+)`
-	TitleRegex                = `^#title\s+(?P<title>.*)`
-	DescriptionRegex          = `^#description\s+(?P<description>.*)`
+	TitleRegex                = `^#title\s*(?P<title>.*)`
+	DescriptionRegex          = `^#description\s*(?P<description>.*)`
 	IDRegex                   = `^#id\s+(?P<id_authority>\S+)\s+(?P<id>\S+)`
 	Rack1Regex                = `^#rack1\s+(?P<rack>\S+)`
 	Rack2Regex                = `^#rack2\s+(?P<rack>\S+)`

@@ -261,6 +261,15 @@ func TestPragmaWrongPlace(t *testing.T) {
 	assert.Equal(t, errPragmaPrecedeEvent, err)
 }
 
+func TestEmptyDescriptionAndTitle(t *testing.T) {
+	// Trailing spaces after #description or #title should not cause a parse error.
+	reader := strings.NewReader("#character-encoding UTF-8\n#description    \n#title    \n#lexicon CSW19\n#player1 p1 Player One\n#player2 p2 Player Two\n")
+	history, err := ParseGCGFromReader(DefaultConfig, reader)
+	assert.Nil(t, err)
+	assert.Equal(t, "", history.Description)
+	assert.Equal(t, "", history.Title)
+}
+
 func TestIsBingo(t *testing.T) {
 	reader := strings.NewReader(`#character-encoding UTF-8
 #lexicon CSW19
