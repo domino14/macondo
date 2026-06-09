@@ -35,8 +35,8 @@ func analyzeHandler(w http.ResponseWriter, r *http.Request) {
 // StartServer starts an HTTP server on the given address that exposes the
 // autoanalyze endpoint. Call as:
 //
-//	curl 'http://host:8080/analyze?file=games.txt'
-//	curl 'http://host:8080/analyze?file=games.txt&format=json'
+//	curl 'http://host:8180/analyze?file=games.txt'
+//	curl 'http://host:8180/analyze?file=games.txt&format=json'
 func StartServer(addr string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/analyze", analyzeHandler)

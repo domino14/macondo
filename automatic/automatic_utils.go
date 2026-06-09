@@ -300,7 +300,7 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 
 	g, ctx := errgroup.WithContext(ctx)
 	addToHistory := lo.SomeBy(players, func(p AutomaticRunnerPlayer) bool {
-		return bot.HasInfer(p.BotCode) || p.OracleInference
+		return bot.HasInfer(p.BotCode) || p.OracleInference || p.BotCode == pb.BotRequest_CUSTOM_BOT
 	})
 
 	for i := 1; i <= threads; i++ {

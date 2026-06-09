@@ -411,6 +411,12 @@ message AutoplayPlayerConfig {
   // leave is evaluated exactly once with full Bayesian weighting
   // (prior × likelihood). If 0, the rangefinder default (750) is used.
   int32 inference_max_enumerated_leaves = 11;
+  // external_engine_binary is the path to the external engine binary.
+  // Only used when bot_code == CUSTOM_BOT.
+  string external_engine_binary = 12;
+  // external_engine_args are optional extra arguments prepended before the
+  // standard --gcg/--lexicon/--rack flags.
+  repeated string external_engine_args = 14;
 }
 
 // AutoplayConfig defines a complete autoplay experiment.

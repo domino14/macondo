@@ -82,6 +82,7 @@ func eliteBestPlay(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 		Int("endgamePlies", endgamePlies).
 		Bool("useEndgame", useEndgame).
 		Int("unseen", unseen).
+		Str("rack", p.Game.RackLettersFor(p.Game.PlayerOnTurn())).
 		Bool("useKnownOppRack", p.cfg.UseOppRacksInAnalysis).
 		Bool("stochasticStaticEval", p.cfg.StochasticStaticEval).
 		Int("consideredMoves", len(moves)).Msg("elite-player")

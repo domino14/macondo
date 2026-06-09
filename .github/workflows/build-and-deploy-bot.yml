@@ -39,6 +39,9 @@ jobs:
       - name: Build CSW24 WMP for tests
         run: go run ./cmd/make_wmp -kwg /opt/data/lexica/gaddag/CSW24.kwg -out /opt/data/lexica/CSW24.wmp
 
+      - name: Build CSW21 WMP for tests
+        run: go run ./cmd/make_wmp -kwg /opt/data/lexica/gaddag/CSW21.kwg -lex CSW21 -out /opt/data/lexica/CSW21.wmp
+
       - name: Run tests
         run: go test $(go list ./... | grep -v wasm)
 

@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/ai/bot"
+	"github.com/domino14/macondo/ai/externalengine"
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
@@ -69,6 +70,7 @@ type AutomaticRunnerPlayer struct {
 	InferenceSimIters           int
 	InferenceMaxEnumeratedLeaves int
 	OracleInference             bool
+	ExternalEngine              *externalengine.Config // nil unless BotCode == CUSTOM_BOT
 }
 
 // Init initializes the runner
@@ -104,6 +106,19 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 		pegfile := players[idx].PEGFile
 		botcode := players[idx].BotCode
 		log.Info().Msgf("botcode %v", botcode)
+
+		if botcode == pb.BotRequest_CUSTOM_BOT {
+			if players[idx].ExternalEngine == nil {
+				return fmt.Errorf("player %d: CUSTOM_BOT requires ExternalEngine config", idx)
+			}
+			ep, err := externalengine.NewFromGame(r.game, r.config, *players[idx].ExternalEngine)
+			if err != nil {
+				return err
+			}
+			ep.MoveGenerator().(*movegen.GordonGenerator).SetGame(r.game)
+			r.aiplayers[idx] = ep
+			continue
+		}
 
 		conf := &bot.BotConfig{
 			Config:               *r.config,
@@ -193,28 +208,33 @@ func (r *GameRunner) genStochasticStaticTurn(playerIdx int) *move.Move {
 	return aiturnplayer.GenStochasticStaticTurn(r.game, r.aiplayers[playerIdx], playerIdx)
 }
 
-func (r *GameRunner) genBestMoveForBot(playerIdx int) *move.Move {
+func (r *GameRunner) genBestMoveForBot(playerIdx int) (*move.Move, error) {
 	if r.aiplayers[playerIdx].GetBotType() == pb.BotRequest_HASTY_BOT {
 		// For HastyBot we only need to generate one single best static turn.
-		return r.genBestStaticTurn(playerIdx)
+		return r.genBestStaticTurn(playerIdx), nil
 	}
-	maxTime := MaxTimePerTurn
-	if r.game.Bag().TilesRemaining() == 0 {
-		log.Debug().Msg("runner-bag-is-empty")
-		maxTime = MaxTimePerEndgame
+	var ctx context.Context
+	var cancel context.CancelFunc
+	if r.aiplayers[playerIdx].GetBotType() == pb.BotRequest_CUSTOM_BOT {
+		ctx, cancel = context.WithCancel(context.Background())
+	} else {
+		maxTime := MaxTimePerTurn
+		if r.game.Bag().TilesRemaining() == 0 {
+			log.Debug().Msg("runner-bag-is-empty")
+			maxTime = MaxTimePerEndgame
+		}
+		ctx, cancel = context.WithTimeout(context.Background(), maxTime)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), maxTime)
 	defer cancel()
-	m, err := r.aiplayers[playerIdx].BestPlay(ctx)
-	if err != nil {
-		log.Err(err).Msg("generating best move for bot")
-	}
-	return m
+	return r.aiplayers[playerIdx].BestPlay(ctx)
 }
 
 // PlayBestTurn generates the best move for the player and plays it on the board.
 func (r *GameRunner) PlayBestTurn(playerIdx int, addToHistory bool) error {
-	bestPlay := r.genBestMoveForBot(playerIdx)
+	bestPlay, err := r.genBestMoveForBot(playerIdx)
+	if err != nil {
+		return fmt.Errorf("player %d: %w", playerIdx, err)
+	}
 	log.Debug().Int("playerIdx", playerIdx).
 		Str("bestPlay", bestPlay.ShortDescription()).Msg("play-best-turn")
 
@@ -222,7 +242,7 @@ func (r *GameRunner) PlayBestTurn(playerIdx int, addToHistory bool) error {
 	rackLetters := r.game.RackLettersFor(playerIdx)
 	tilesRemaining := r.game.Bag().TilesRemaining()
 	nickOnTurn := r.game.NickOnTurn()
-	err := r.game.PlayMove(bestPlay, addToHistory, 0)
+	err = r.game.PlayMove(bestPlay, addToHistory, 0)
 	if err != nil {
 		return err
 	}

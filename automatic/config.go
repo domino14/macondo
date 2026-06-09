@@ -9,6 +9,7 @@ import (
 
 	"google.golang.org/protobuf/encoding/protojson"
 
+	"github.com/domino14/macondo/ai/externalengine"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
 
@@ -50,7 +51,7 @@ func playerFromProto(p *pb.AutoplayPlayerConfig) AutomaticRunnerPlayer {
 	if p == nil {
 		return AutomaticRunnerPlayer{BotCode: pb.BotRequest_HASTY_BOT}
 	}
-	return AutomaticRunnerPlayer{
+	arp := AutomaticRunnerPlayer{
 		BotCode:              p.BotCode,
 		LeaveFile:            p.LeaveFile,
 		PEGFile:              p.PegFile,
@@ -63,4 +64,11 @@ func playerFromProto(p *pb.AutoplayPlayerConfig) AutomaticRunnerPlayer {
 		InferenceMaxEnumeratedLeaves: int(p.InferenceMaxEnumeratedLeaves),
 		OracleInference:             p.OracleInference,
 	}
+	if p.BotCode == pb.BotRequest_CUSTOM_BOT && p.ExternalEngineBinary != "" {
+		arp.ExternalEngine = &externalengine.Config{
+			BinaryPath: p.ExternalEngineBinary,
+			ExtraArgs:  p.ExternalEngineArgs,
+		}
+	}
+	return arp
 }

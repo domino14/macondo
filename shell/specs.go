@@ -288,6 +288,10 @@ func init() {
 			{Name: "genseeds", Type: OptBool, Values: boolValues},
 			{Name: "deterministic", Type: OptBool, Values: boolValues},
 			{Name: "seedfile", Type: OptString},
+			{Name: "extbinary1", Type: OptString},
+			{Name: "extbinary2", Type: OptString},
+			{Name: "extargs1", Type: OptString},
+			{Name: "extargs2", Type: OptString},
 		},
 	})
 

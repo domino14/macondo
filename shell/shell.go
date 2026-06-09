@@ -1657,6 +1657,12 @@ func applyPlayerOverrides(p *pb.AutoplayPlayerConfig, options CmdOptions, suffix
 	if options.Bool("oracle" + suffix) {
 		p.OracleInference = true
 	}
+	if v := options.String("extbinary" + suffix); v != "" {
+		p.ExternalEngineBinary = v
+	}
+	if v := options.String("extargs" + suffix); v != "" {
+		p.ExternalEngineArgs = strings.Fields(v)
+	}
 }
 
 type shellcmd struct {
