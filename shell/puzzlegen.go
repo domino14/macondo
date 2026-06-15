@@ -20,10 +20,11 @@ import (
 //
 //	puzzlegen woogles <gameID> [<gameID>...] [-filter EXPR] [options]
 //	puzzlegen gcg <path> [<path>...] [-filter EXPR] [options]
+//	puzzlegen xt <gameID> [<gameID>...] [-filter EXPR] [options]
 //	puzzlegen selfplay [-numgames N] [-lexicon NAME] [-filter EXPR] [options]
 func (sc *ShellController) puzzlegen(cmd *shellcmd) (*Response, error) {
 	if len(cmd.args) == 0 {
-		return nil, fmt.Errorf("usage: puzzlegen <woogles|gcg|selfplay> [args...] [options]")
+		return nil, fmt.Errorf("usage: puzzlegen <woogles|gcg|xt|selfplay> [args...] [options]")
 	}
 
 	source := strings.ToLower(cmd.args[0])
@@ -111,6 +112,23 @@ func (sc *ShellController) puzzlegen(cmd *shellcmd) (*Response, error) {
 			totalMatched += matched
 		}
 
+	case "xt":
+		if len(sourceArgs) == 0 {
+			return nil, fmt.Errorf("puzzlegen xt requires at least one cross-tables game ID")
+		}
+		for _, gameID := range sourceArgs {
+			sc.showMessage(fmt.Sprintf("Fetching cross-tables game %s...", gameID))
+			gh, err := sc.loadGameHistoryFromCrossTables(gameID)
+			if err != nil {
+				sc.showMessage(fmt.Sprintf("  [%s] fetch error: %v", gameID, err))
+				continue
+			}
+			all, matched := sc.processPuzzleHistory(gh, lexiconOverride, eqLossLimit, req, filter, tagCounts)
+			sc.showMessage(fmt.Sprintf("  [%s] %d/%d puzzles matched", gameID, matched, all))
+			totalAll += all
+			totalMatched += matched
+		}
+
 	case "selfplay":
 		lexicon := lexiconOverride
 		if lexicon == "" {
@@ -151,7 +169,7 @@ func (sc *ShellController) puzzlegen(cmd *shellcmd) (*Response, error) {
 		}
 
 	default:
-		return nil, fmt.Errorf("unknown source %q; use woogles, gcg, or selfplay", source)
+		return nil, fmt.Errorf("unknown source %q; use woogles, gcg, xt, or selfplay", source)
 	}
 
 	sc.showMessage(fmt.Sprintf("\n━━━ SUMMARY: %d matched / %d total ━━━", totalMatched, totalAll))
