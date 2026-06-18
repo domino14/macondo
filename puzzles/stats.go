@@ -134,13 +134,29 @@ func computeStats(ctx *tagCtx) *pb.PuzzleStats {
 		stats.LongestHookedWordLength = int32(hookedLen)
 	}
 
-	// Extensions: existing word at front/back of play along the main axis
-	endIdx := len(m.Tiles()) - 1
-	frontExtLen := walkCount(brd, rowStart-ri, colStart-ci, -ri, -ci)
-	backExtLen := walkCount(brd, rowStart+ri*(endIdx+1), colStart+ci*(endIdx+1), ri, ci)
-	extLen := frontExtLen
-	if backExtLen > extLen {
-		extLen = backExtLen
+	// Extensions: count through-tiles (tile==0) at the leading and trailing ends
+	// of the play. These represent the existing board tiles the play prepends to
+	// or appends from.
+	tiles := m.Tiles()
+	frontThru := 0
+	for _, t := range tiles {
+		if t == 0 {
+			frontThru++
+		} else {
+			break
+		}
+	}
+	backThru := 0
+	for i := len(tiles) - 1; i >= 0; i-- {
+		if tiles[i] == 0 {
+			backThru++
+		} else {
+			break
+		}
+	}
+	extLen := frontThru
+	if backThru > extLen {
+		extLen = backThru
 	}
 	stats.LongestExtendedWordLength = int32(extLen)
 
@@ -176,12 +192,3 @@ func crossTileCountAt(brd *board.GameBoard, row, col int, vertical bool) int {
 	return count
 }
 
-// walkCount counts contiguous existing tiles starting at (row, col) stepping by (dr, dc).
-// Returns 0 if the starting square is empty or out of bounds.
-func walkCount(brd *board.GameBoard, row, col, dr, dc int) int {
-	n := 0
-	for r, c := row, col; brd.PosExists(r, c) && brd.HasLetter(r, c); r, c = r+dr, c+dc {
-		n++
-	}
-	return n
-}
