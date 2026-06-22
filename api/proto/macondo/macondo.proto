@@ -236,6 +236,12 @@ message PuzzleStats {
   // max_fresh_tile_face_value_on_letter_bonus_with_crossword: "X on DLS forming XI"-type plays
   int32  max_fresh_tile_face_value_on_letter_bonus_with_crossword = 18;
   int32  max_rack_tile_score                                   = 19;
+  // max_fresh_tile_face_value_on_tls: highest face value of a fresh tile placed on a TLS square
+  int32  max_fresh_tile_face_value_on_tls                      = 20;
+  // max_fresh_tile_face_value_on_dls: highest face value of a fresh tile placed on a DLS square
+  int32  max_fresh_tile_face_value_on_dls                      = 21;
+  // total_rack_tile_score: sum of face values of all tiles on the rack
+  int32  total_rack_tile_score                                  = 22;
 }
 
 message PuzzleCreationResponse {

@@ -70,8 +70,6 @@ func computeStats(ctx *tagCtx) *pb.PuzzleStats {
 		ri, ci = 1, 0
 	}
 
-	firstFreshIdx, lastFreshIdx := -1, -1
-
 	for idx, tile := range m.Tiles() {
 		row := rowStart + ri*idx
 		col := colStart + ci*idx
@@ -85,12 +83,6 @@ func computeStats(ctx *tagCtx) *pb.PuzzleStats {
 			}
 			continue
 		}
-
-		// fresh tile
-		if firstFreshIdx == -1 {
-			firstFreshIdx = idx
-		}
-		lastFreshIdx = idx
 
 		bonus := brd.GetBonus(row, col)
 		switch bonus {
@@ -114,24 +106,36 @@ func computeStats(ctx *tagCtx) *pb.PuzzleStats {
 				}
 			}
 		}
+
+		if bonus == board.Bonus3LS {
+			faceVal := int32(ld.Score(tile.Unblank()))
+			if faceVal > stats.MaxFreshTileFaceValueOnTls {
+				stats.MaxFreshTileFaceValueOnTls = faceVal
+			}
+		}
+
+		if bonus == board.Bonus2LS {
+			faceVal := int32(ld.Score(tile.Unblank()))
+			if faceVal > stats.MaxFreshTileFaceValueOnDls {
+				stats.MaxFreshTileFaceValueOnDls = faceVal
+			}
+		}
 	}
 
 	stats.BonusSquaresCovered = stats.TwsCovered + stats.DwsCovered + stats.TlsCovered + stats.DlsCovered
 
-	// Hooks: cross-tile count at the first and last fresh tile (existing tiles perpendicular)
-	if firstFreshIdx != -1 {
-		firstRow := rowStart + ri*firstFreshIdx
-		firstCol := colStart + ci*firstFreshIdx
-		lastRow := rowStart + ri*lastFreshIdx
-		lastCol := colStart + ci*lastFreshIdx
-
-		frontCross := crossTileCountAt(brd, firstRow, firstCol, vertical)
-		backCross := crossTileCountAt(brd, lastRow, lastCol, vertical)
-		hookedLen := frontCross
-		if backCross > hookedLen {
-			hookedLen = backCross
+	// LongestHookedWordLength: length of the longest existing word touched perpendicularly
+	// by any fresh tile in the play.
+	for idx, tile := range m.Tiles() {
+		if tile == 0 {
+			continue
 		}
-		stats.LongestHookedWordLength = int32(hookedLen)
+		row := rowStart + ri*idx
+		col := colStart + ci*idx
+		crossLen := crossTileCountAt(brd, row, col, vertical)
+		if int32(crossLen) > stats.LongestHookedWordLength {
+			stats.LongestHookedWordLength = int32(crossLen)
+		}
 	}
 
 	// Extensions: count through-tiles (tile==0) at the leading and trailing ends
@@ -160,13 +164,14 @@ func computeStats(ctx *tagCtx) *pb.PuzzleStats {
 	}
 	stats.LongestExtendedWordLength = int32(extLen)
 
-	// Max rack tile score
+	// Rack tile scores
 	rack := g.RackFor(g.PlayerOnTurn()).TilesOn()
 	for _, ml := range rack {
 		s := int32(ld.Score(ml))
 		if s > stats.MaxRackTileScore {
 			stats.MaxRackTileScore = s
 		}
+		stats.TotalRackTileScore += s
 	}
 
 	return stats

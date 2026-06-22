@@ -15,13 +15,7 @@ import (
 )
 
 // puzzlegen generates puzzles from game sources and prints matching ones.
-//
-// Usage:
-//
-//	puzzlegen woogles <gameID> [<gameID>...] [-filter EXPR] [options]
-//	puzzlegen gcg <path> [<path>...] [-filter EXPR] [options]
-//	puzzlegen xt <gameID> [<gameID>...] [-filter EXPR] [options]
-//	puzzlegen selfplay [-numgames N] [-lexicon NAME] [-filter EXPR] [options]
+// See "help puzzlegen" for full documentation and filter language reference.
 func (sc *ShellController) puzzlegen(cmd *shellcmd) (*Response, error) {
 	if len(cmd.args) == 0 {
 		return nil, fmt.Errorf("usage: puzzlegen <woogles|gcg|xt|selfplay> [args...] [options]")
@@ -510,7 +504,7 @@ func pgParseAtom(toks []pgTok, pos int) (predicate, int, error) {
 
 	getter, ok := pgResolveStatField(field)
 	if !ok {
-		return nil, pos, fmt.Errorf("unknown field %q (valid stat fields: score, words_formed, main_word_length, tiles_played, equity_advantage, score_advantage, top_score_play_tiles_played, tws_covered, dws_covered, dls_covered, tls_covered, bonus_squares_covered, max_cross_word_length, min_cross_word_length, longest_hooked_word_length, longest_extended_word_length, max_played_through_tile_score, max_fresh_tile_face_value_on_letter_bonus_with_crossword, max_rack_tile_score)", toks[pos].val)
+		return nil, pos, fmt.Errorf("unknown field %q (valid stat fields: score, equity_advantage, score_advantage, words_formed, main_word_length, tiles_played, top_score_play_tiles_played, max_cross_word_length, min_cross_word_length, longest_hooked_word_length, longest_extended_word_length, tws_covered, dws_covered, tls_covered, dls_covered, bonus_squares_covered, max_played_through_tile_score, max_rack_tile_score, total_rack_tile_score, max_fresh_tile_face_value_on_tls, max_fresh_tile_face_value_on_dls, max_fresh_tile_face_value_on_letter_bonus_with_crossword)", toks[pos].val)
 	}
 
 	threshold, err := strconv.ParseFloat(valueStr, 64)
@@ -589,6 +583,12 @@ func pgResolveStatField(name string) (func(*pb.PuzzleStats) float64, bool) {
 		}, true
 	case "max_rack_tile_score":
 		return func(s *pb.PuzzleStats) float64 { return float64(s.GetMaxRackTileScore()) }, true
+	case "max_fresh_tile_face_value_on_tls":
+		return func(s *pb.PuzzleStats) float64 { return float64(s.GetMaxFreshTileFaceValueOnTls()) }, true
+	case "max_fresh_tile_face_value_on_dls":
+		return func(s *pb.PuzzleStats) float64 { return float64(s.GetMaxFreshTileFaceValueOnDls()) }, true
+	case "total_rack_tile_score":
+		return func(s *pb.PuzzleStats) float64 { return float64(s.GetTotalRackTileScore()) }, true
 	}
 	return nil, false
 }
