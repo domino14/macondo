@@ -5,6 +5,35 @@ import (
 	"testing"
 )
 
+func TestPuzzlegenSpecValidation(t *testing.T) {
+	tests := []struct {
+		line        string
+		wantErr     bool
+		errContains string
+	}{
+		{"puzzlegen woogles xWG4z96MUe", false, ""},
+		{"puzzlegen gcg ./game.gcg -filter \"tag=BINGO\"", false, ""},
+		{"puzzlegen selfplay -numgames 5 -lexicon CSW24", false, ""},
+		{"puzzlegen woogles xWG4z96MUe -equity-margin 15", false, ""},
+		{"puzzlegen woogles xWG4z96MUe -bogus foo", true, "unknown option"},
+		{"puzzlegen selfplay -numgames abc", true, "invalid int"},
+	}
+	for _, tt := range tests {
+		cmd, err := extractFields(tt.line)
+		if err != nil {
+			t.Fatalf("parse %q: %v", tt.line, err)
+		}
+		err = validateSpecOptions(cmd)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("validateSpecOptions(%q) err=%v, wantErr=%v", tt.line, err, tt.wantErr)
+			continue
+		}
+		if tt.errContains != "" && (err == nil || !strings.Contains(err.Error(), tt.errContains)) {
+			t.Errorf("validateSpecOptions(%q) err=%v, want it to contain %q", tt.line, err, tt.errContains)
+		}
+	}
+}
+
 func TestPegSpecValidation(t *testing.T) {
 	tests := []struct {
 		line        string

@@ -204,6 +204,44 @@ enum PuzzleTag {
   POWER_TILE = 5;
   BINGO_NINE_OR_ABOVE = 6;
   CEL_ONLY = 7;
+  // POINTS fires when the answer is the top-scoring play by at least score_margin points.
+  POINTS = 8;
+}
+
+// PuzzleStats holds numeric attributes of a puzzle's answer move.
+// These are stored downstream as queryable columns for curriculum filtering
+// (e.g. WHERE words_formed >= 3 AND score >= 30 AND tws_covered >= 1).
+message PuzzleStats {
+  int32  words_formed                                          = 1;
+  int32  main_word_length                                      = 2;
+  int32  tiles_played                                         = 3;
+  int32  score                                                 = 4;
+  double equity_advantage                                      = 5;
+  // score_advantage: moves[0].Score - best_score_among_rest (negative if answer is not the top scorer)
+  int32  score_advantage                                       = 6;
+  // tiles_played of the top-scoring move (7 = bingo); useful for "top score is a bingo but answer isn't"
+  int32  top_score_play_tiles_played                           = 7;
+  int32  tws_covered                                           = 8;
+  int32  dws_covered                                           = 9;
+  int32  dls_covered                                           = 10;
+  int32  tls_covered                                           = 11;
+  int32  bonus_squares_covered                                 = 12;
+  int32  max_cross_word_length                                 = 13;
+  int32  min_cross_word_length                                 = 14;
+  // longest_hooked_word_length: existing tile count perpendicular to the play at its first or last fresh tile
+  int32  longest_hooked_word_length                            = 15;
+  // longest_extended_word_length: existing word length at the front or back of the play along the main axis
+  int32  longest_extended_word_length                          = 16;
+  int32  max_played_through_tile_score                         = 17;
+  // max_fresh_tile_face_value_on_letter_bonus_with_crossword: "X on DLS forming XI"-type plays
+  int32  max_fresh_tile_face_value_on_letter_bonus_with_crossword = 18;
+  int32  max_rack_tile_score                                   = 19;
+  // max_fresh_tile_face_value_on_tls: highest face value of a fresh tile placed on a TLS square
+  int32  max_fresh_tile_face_value_on_tls                      = 20;
+  // max_fresh_tile_face_value_on_dls: highest face value of a fresh tile placed on a DLS square
+  int32  max_fresh_tile_face_value_on_dls                      = 21;
+  // total_rack_tile_score: sum of face values of all tiles on the rack
+  int32  total_rack_tile_score                                  = 22;
 }
 
 message PuzzleCreationResponse {
@@ -212,6 +250,7 @@ message PuzzleCreationResponse {
   GameEvent answer = 3;
   repeated PuzzleTag tags = 4;
   int32 bucket_index = 5;
+  PuzzleStats stats = 6;
 }
 
 message PuzzleBucket {
@@ -221,7 +260,13 @@ message PuzzleBucket {
   repeated PuzzleTag excludes = 4;
 }
 
-message PuzzleGenerationRequest { repeated PuzzleBucket buckets = 1; }
+message PuzzleGenerationRequest {
+  repeated PuzzleBucket buckets = 1;
+  // equity_margin: minimum equity gap for the EQUITY tag. Defaults to 10 when 0.
+  double equity_margin = 2;
+  // score_margin: minimum score gap for the POINTS tag. Defaults to 10 when 0.
+  double score_margin = 3;
+}
 
 // ============================================================================
 // GAME ANALYSIS

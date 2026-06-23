@@ -1,0 +1,103 @@
+puzzlegen <source> [args...] [-filter EXPR] [options]
+
+Generate puzzles from game sources and print matching ones.
+
+Sources:
+
+    puzzlegen woogles <gameID> [<gameID>...]
+        Fetch GCG(s) from Woogles by game ID and generate puzzles.
+
+    puzzlegen gcg <path> [<path>...]
+        Load local GCG file(s) and generate puzzles.
+
+    puzzlegen xt <gameID> [<gameID>...]
+        Fetch GCG(s) from Cross-tables by game ID and generate puzzles.
+
+    puzzlegen selfplay [-numgames N] [-lexicon NAME]
+        Run N HastyBot vs HastyBot games and generate puzzles from each.
+
+Options:
+
+    -filter EXPR        Predicate over tags and stats (see Filter Language below).
+                        If omitted, all puzzles are printed.
+    -equity-margin F    Equity gap required for an EQUITY puzzle (default 10).
+    -score-margin F     Score gap required for a POINTS puzzle (default 10).
+    -eqloss-limit N     Maximum cumulative equity loss per game before skipping
+                        the rest of that game (default 1000).
+    -lexicon NAME       Override the lexicon. For woogles/gcg/xt sources the GCG
+                        lexicon is used by default; for selfplay the configured
+                        default lexicon is used.
+    -numgames N         selfplay only: number of games to generate (default 1).
+
+Filter Language:
+
+    Filters are boolean expressions over puzzle tags and numeric stat fields.
+    Case-insensitive keywords: AND, OR, NOT.  Parens override precedence.
+    Precedence (lowest to highest): OR < AND < NOT < parens.
+
+    Tag atoms:
+        tag = NAME      true if the puzzle has the named tag
+        tag != NAME     true if the puzzle does NOT have the tag
+
+    Stat atoms:
+        FIELD OP VALUE  where OP is >=, <=, >, <, =, !=
+                        and VALUE is a number (int or float)
+
+    Valid tag names:
+        EQUITY  BINGO  ONLY_BINGO  BLANK_BINGO  NON_BINGO
+        POWER_TILE  BINGO_NINE_OR_ABOVE  CEL_ONLY  POINTS
+
+    Valid stat fields:
+
+      Scoring / equity:
+        score                       equity_advantage        score_advantage
+        tiles_played                top_score_play_tiles_played
+
+      Word shape:
+        words_formed                main_word_length
+        max_cross_word_length       min_cross_word_length
+        longest_hooked_word_length      (longest existing word touched perpendicularly by any fresh tile)
+        longest_extended_word_length    (through-tiles at leading/trailing end of the play)
+
+      Bonus squares covered by fresh tiles:
+        tws_covered     dws_covered     tls_covered     dls_covered
+        bonus_squares_covered
+
+      Tile face values:
+        max_played_through_tile_score
+        max_rack_tile_score             total_rack_tile_score
+        max_fresh_tile_face_value_on_tls
+        max_fresh_tile_face_value_on_dls
+        max_fresh_tile_face_value_on_letter_bonus_with_crossword
+
+Examples:
+
+    puzzlegen woogles xWG4z96MUe 9ZCLJPnZ9G
+        All puzzles from two Woogles games (no filter).
+
+    puzzlegen woogles xWG4z96MUe -filter "tag=BINGO"
+        Bingo-only puzzles from one game.
+
+    puzzlegen xt 58369 -filter "score>=40 and tag!=BLANK_BINGO"
+        High-scoring non-blank-bingo plays from a Cross-tables game.
+
+    puzzlegen woogles xWG4z96MUe -filter "(tag=EQUITY or tag=POINTS) and words_formed>=2"
+        Equity or points puzzles that form at least two words.
+
+    puzzlegen woogles xWG4z96MUe -filter "tag=ONLY_BINGO and words_formed>=3"
+        Only-bingo puzzles that also form 3 or more words.
+
+    puzzlegen gcg ./game.gcg -filter "words_formed=2 and longest_hooked_word_length>=3 and score>=30 and score_advantage>=10"
+        Hook plays onto a 3+-letter existing word, 30+ score, 10+ margin.
+
+    puzzlegen woogles xWG4z96MUe -filter "words_formed=1 and tag=NON_BINGO and score>=30 and score_advantage>=10 and tls_covered>=1 and dws_covered>=1 and max_fresh_tile_face_value_on_tls>=4"
+        Single-word non-bingo plays with a 4+-point tile on a TLS square and a DWS also covered.
+
+    puzzlegen selfplay -numgames 5 -filter "words_formed>=3 and max_cross_word_length=2 and score>=30 and score_advantage>=10"
+        Overlap plays (3+ words all forming 2-letter crosswords).
+
+    puzzlegen woogles xWG4z96MUe -filter "words_formed=1 and tag=NON_BINGO and score>=30 and score_advantage>=10 and longest_extended_word_length>=3 and (dws_covered>=1 or tws_covered>=1)"
+        Extension plays that extend a 3+-letter word to a DWS or TWS.
+
+    puzzlegen woogles xWG4z96MUe -filter "tag=NON_BINGO and total_rack_tile_score<=7 and score>=25 and score_advantage>=10 and (max_played_through_tile_score>=8 or words_formed>=4)"
+        One-point-tile rack plays that use a board power tile or form 4+ words.

@@ -291,6 +291,19 @@ func init() {
 		},
 	})
 
+	registerSpec(&CommandSpec{
+		Name:  "puzzlegen",
+		Verbs: []string{"woogles", "gcg", "selfplay"},
+		Options: []Option{
+			{Name: "filter", Type: OptString, Help: `predicate over tags/stats, e.g. "tag=BINGO and words_formed>=3"`},
+			{Name: "equity-margin", Type: OptFloat, Default: 10.0, Help: "equity margin for EQUITY/POINTS detection"},
+			{Name: "score-margin", Type: OptFloat, Default: 10.0, Help: "score margin for POINTS detection"},
+			{Name: "eqloss-limit", Type: OptInt, Default: 1000, Help: "max cumulative equity loss per game before skipping"},
+			{Name: "lexicon", Type: OptString, Help: "override lexicon (default: from game, or config default for selfplay)"},
+			{Name: "numgames", Type: OptInt, Default: 1, Help: "selfplay only: number of games to play"},
+		},
+	})
+
 	// speedtest accepts sim-style options.
 	registerSpec(&CommandSpec{
 		Name: "speedtest",

@@ -3,9 +3,7 @@ package puzzles
 import (
 	"errors"
 	"fmt"
-	"reflect"
 	"regexp"
-	"runtime"
 
 	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
@@ -20,7 +18,57 @@ import (
 	"github.com/domino14/macondo/move"
 )
 
-var PuzzleFunctions = []func(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag){
+const defaultMargin = 10.0
+
+// tagFn is the type for all puzzle tag functions.
+type tagFn func(ctx *tagCtx) (bool, pb.PuzzleTag)
+
+// tagCtx holds per-turn state shared across tag functions and computeStats.
+type tagCtx struct {
+	g            *game.Game
+	moves        []*move.Move // equity-sorted
+	equityMargin float64
+	scoreMargin  float64
+
+	// lazy cached fields
+	wordsFormedCache []tilemapping.MachineWord
+	wordsFormedErr   error
+	wordsDone        bool
+
+	bestByScore  *move.Move
+	secondScore  int
+	scoreDone    bool
+}
+
+func newTagCtx(g *game.Game, moves []*move.Move, req *pb.PuzzleGenerationRequest) *tagCtx {
+	em := req.GetEquityMargin()
+	if em == 0 {
+		em = defaultMargin
+	}
+	sm := req.GetScoreMargin()
+	if sm == 0 {
+		sm = defaultMargin
+	}
+	return &tagCtx{g: g, moves: moves, equityMargin: em, scoreMargin: sm}
+}
+
+func (ctx *tagCtx) getWords() ([]tilemapping.MachineWord, error) {
+	if !ctx.wordsDone {
+		ctx.wordsFormedCache, ctx.wordsFormedErr = ctx.g.ValidateMove(ctx.moves[0])
+		ctx.wordsDone = true
+	}
+	return ctx.wordsFormedCache, ctx.wordsFormedErr
+}
+
+func (ctx *tagCtx) getBestByScore() (*move.Move, int) {
+	if !ctx.scoreDone {
+		ctx.bestByScore, ctx.secondScore = topTwoByScore(ctx.moves)
+		ctx.scoreDone = true
+	}
+	return ctx.bestByScore, ctx.secondScore
+}
+
+var PuzzleFunctions = []tagFn{
 	EquityPuzzle,
 	BingoPuzzle,
 	OnlyBingoPuzzle,
@@ -29,11 +77,9 @@ var PuzzleFunctions = []func(g *game.Game, moves []*move.Move) (bool, pb.PuzzleT
 	PowerTilePuzzle,
 	BingoNineOrAbovePuzzle,
 	CELOnlyPuzzle,
+	PointsPuzzle,
 }
 
-func GetFunctionName(i interface{}) string {
-	return runtime.FuncForPC(reflect.ValueOf(i).Pointer()).Name()
-}
 func CreatePuzzlesFromGame(conf *config.Config, eqLossLimit int, g *game.Game, req *pb.PuzzleGenerationRequest) ([]*pb.PuzzleCreationResponse, error) {
 	evts := g.History().Events
 	puzzles := []*pb.PuzzleCreationResponse{}
@@ -84,13 +130,18 @@ func CreatePuzzlesFromGame(conf *config.Config, eqLossLimit int, g *game.Game, r
 			return nil, nil
 		}
 
+		ctx := newTagCtx(g, moves, req)
+
 		tags := []pb.PuzzleTag{}
-		for _, puzzleFunc := range PuzzleFunctions {
-			turnIsPuzzleType, tag := puzzleFunc(g, moves)
+		for _, fn := range PuzzleFunctions {
+			turnIsPuzzleType, tag := fn(ctx)
 			if turnIsPuzzleType {
 				tags = append(tags, tag)
 			}
 		}
+
+		stats := computeStats(ctx)
+
 		for _, bucket := range req.Buckets {
 			if tagsFitInBucket(tags, bucket) {
 				puzzles = append(puzzles, &pb.PuzzleCreationResponse{
@@ -98,7 +149,9 @@ func CreatePuzzlesFromGame(conf *config.Config, eqLossLimit int, g *game.Game, r
 					TurnNumber:  int32(evtIdx),
 					Answer:      g.EventFromMove(moves[0]),
 					BucketIndex: int32(bucket.Index),
-					Tags:        tags})
+					Tags:        tags,
+					Stats:       stats,
+				})
 				break
 			}
 		}
@@ -117,21 +170,21 @@ func InitializePuzzleGenerationRequest(req *pb.PuzzleGenerationRequest) error {
 	return nil
 }
 
-func EquityPuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
-	return len(moves) >= 2 && moves[0].Equity() > moves[1].Equity()+10, pb.PuzzleTag_EQUITY
+func EquityPuzzle(ctx *tagCtx) (bool, pb.PuzzleTag) {
+	moves := ctx.moves
+	return len(moves) >= 2 && moves[0].Equity() > moves[1].Equity()+ctx.equityMargin, pb.PuzzleTag_EQUITY
 }
 
-func BingoPuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
-	m := moves[0]
-	return moveIsBingo(m), pb.PuzzleTag_BINGO
+func BingoPuzzle(ctx *tagCtx) (bool, pb.PuzzleTag) {
+	return moveIsBingo(ctx.moves[0]), pb.PuzzleTag_BINGO
 }
 
-func OnlyBingoPuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
+func OnlyBingoPuzzle(ctx *tagCtx) (bool, pb.PuzzleTag) {
 	tag := pb.PuzzleTag_ONLY_BINGO
-	if len(moves) == 0 || !moveIsBingo(moves[0]) {
+	if len(ctx.moves) == 0 || !moveIsBingo(ctx.moves[0]) {
 		return false, tag
 	}
-	for _, m := range moves[1:] {
+	for _, m := range ctx.moves[1:] {
 		if moveIsBingo(m) && m.Action() == move.MoveTypePlay {
 			return false, tag
 		}
@@ -139,19 +192,19 @@ func OnlyBingoPuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
 	return true, tag
 }
 
-func BlankBingoPuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
-	m := moves[0]
+func BlankBingoPuzzle(ctx *tagCtx) (bool, pb.PuzzleTag) {
+	m := ctx.moves[0]
 	return moveIsBingo(m) && moveContainsBlank(m), pb.PuzzleTag_BLANK_BINGO
 }
 
-func NonBingoPuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
-	return !moveIsBingo(moves[0]), pb.PuzzleTag_NON_BINGO
+func NonBingoPuzzle(ctx *tagCtx) (bool, pb.PuzzleTag) {
+	return !moveIsBingo(ctx.moves[0]), pb.PuzzleTag_NON_BINGO
 }
 
 // XXX: Must be expanded to other languages
-func PowerTilePuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
-	ld := g.Bag().LetterDistribution()
-	for _, tile := range moves[0].Tiles() {
+func PowerTilePuzzle(ctx *tagCtx) (bool, pb.PuzzleTag) {
+	ld := ctx.g.Bag().LetterDistribution()
+	for _, tile := range ctx.moves[0].Tiles() {
 		if ld.Score(tile) > 6 {
 			return true, pb.PuzzleTag_POWER_TILE
 		}
@@ -159,26 +212,54 @@ func PowerTilePuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
 	return false, pb.PuzzleTag_POWER_TILE
 }
 
-func BingoNineOrAbovePuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
-	m := moves[0]
+func BingoNineOrAbovePuzzle(ctx *tagCtx) (bool, pb.PuzzleTag) {
+	m := ctx.moves[0]
 	return moveIsBingo(m) && moveLength(m) >= 9, pb.PuzzleTag_BINGO_NINE_OR_ABOVE
 }
 
-func CELOnlyPuzzle(g *game.Game, moves []*move.Move) (bool, pb.PuzzleTag) {
-	m := moves[0]
-	evt := g.EventFromMove(m)
-	wordsFormed, err := g.ValidateMove(m)
+func CELOnlyPuzzle(ctx *tagCtx) (bool, pb.PuzzleTag) {
+	m := ctx.moves[0]
+	evt := ctx.g.EventFromMove(m)
+	wordsFormed, err := ctx.getWords()
 	if err != nil {
 		log.Err(err).Msg("cel-only-validation-error")
 		return false, pb.PuzzleTag_CEL_ONLY
 	}
-	evt.WordsFormed = convertToVisible(wordsFormed, g.Alphabet())
-	isCEL, err := isCELEvent(evt, g.History(), g.Config())
+	evt.WordsFormed = convertToVisible(wordsFormed, ctx.g.Alphabet())
+	isCEL, err := isCELEvent(evt, ctx.g.History(), ctx.g.Config())
 	if err != nil {
 		log.Err(err).Msg("cel-only-phony-error")
 		return false, pb.PuzzleTag_CEL_ONLY
 	}
 	return isCEL, pb.PuzzleTag_CEL_ONLY
+}
+
+// PointsPuzzle fires when the answer is the top-scoring play by at least score_margin.
+func PointsPuzzle(ctx *tagCtx) (bool, pb.PuzzleTag) {
+	best, secondScore := ctx.getBestByScore()
+	if best != ctx.moves[0] {
+		return false, pb.PuzzleTag_POINTS
+	}
+	return float64(ctx.moves[0].Score()-secondScore) > ctx.scoreMargin, pb.PuzzleTag_POINTS
+}
+
+// topTwoByScore returns the highest-scoring move and the second-highest score.
+// Does not modify the original slice order.
+func topTwoByScore(moves []*move.Move) (*move.Move, int) {
+	if len(moves) == 0 {
+		return nil, 0
+	}
+	best := moves[0]
+	secondScore := 0
+	for _, m := range moves[1:] {
+		if m.Score() > best.Score() {
+			secondScore = best.Score()
+			best = m
+		} else if m.Score() > secondScore {
+			secondScore = m.Score()
+		}
+	}
+	return best, secondScore
 }
 
 func tagsFitInBucket(tags []pb.PuzzleTag, bucket *pb.PuzzleBucket) bool {
@@ -305,7 +386,6 @@ func isPhony(k *kwg.KWG, word, variant string) (bool, error) {
 }
 
 func convertToVisible(words []tilemapping.MachineWord, alph *tilemapping.TileMapping) []string {
-
 	uvstrs := make([]string, len(words))
 	for idx, w := range words {
 		uvstrs[idx] = w.UserVisible(alph)
@@ -346,7 +426,8 @@ func IsEquityPuzzleStillValid(conf *config.Config, g *game.Game, turnNumber int,
 	player.RecalculateBoard()
 
 	moves := player.GenerateMoves(1000000)
-	ok, _ := EquityPuzzle(newGame.Game, moves)
+	ctx := newTagCtx(newGame.Game, moves, &pb.PuzzleGenerationRequest{})
+	ok, _ := EquityPuzzle(ctx)
 
 	newAnsEvt := g.EventFromMove(moves[0])
 	return ok &&

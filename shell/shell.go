@@ -1822,6 +1822,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.generate(cmd)
 	case "autoplay":
 		return sc.autoplay(cmd)
+	case "puzzlegen":
+		return sc.puzzlegen(cmd)
 	case "sim":
 		return sc.sim(cmd)
 	case "infer":
