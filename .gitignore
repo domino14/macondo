@@ -15,7 +15,10 @@ log*.csv
 *.dot
 *.test
 *.csv.gz
-data/lexica
+data/lexica/*
+!data/lexica/**/
+data/lexica/gaddag/*
+!data/lexica/gaddag/**/
 *.tar.gz
 notebooks/superleaves/leave*
 notebooks/*/*.csv
