@@ -653,7 +653,7 @@ func (sc *ShellController) endgamePrepare(cmd *shellcmd) (*endgameParams, error)
 		sc.endgameCtx, sc.endgameCancel = context.WithTimeout(sc.endgameCtx, time.Duration(params.maxtime)*time.Second)
 	}
 
-	gd, err := kwg.GetKWG(sc.game.Config().WGLConfig(), sc.game.LexiconName())
+	gd, err := kwg.GetKWG(sc.game.Config().WGLConfig(), sc.game.LexiconName(), kwg.WithDistribution(sc.game.Rules().LetterDistributionName()))
 	if err != nil {
 		return nil, err
 	}
@@ -874,7 +874,7 @@ func (sc *ShellController) pegPrepare(cmd *shellcmd) (*pegParams, error) {
 		"endgameplies %v, maxtime %v, threads %v, iterative-deepening %v%v, nested-depth-limit %v",
 		endgamePlies, maxtime, maxthreads, idStr, idNote, nestedDepthLimit))
 
-	gd, err := kwg.GetKWG(sc.game.Config().WGLConfig(), sc.game.LexiconName())
+	gd, err := kwg.GetKWG(sc.game.Config().WGLConfig(), sc.game.LexiconName(), kwg.WithDistribution(sc.game.Rules().LetterDistributionName()))
 	if err != nil {
 		return nil, err
 	}
@@ -1732,7 +1732,8 @@ func (sc *ShellController) check(cmd *shellcmd) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	k, err := kwg.GetKWG(sc.config.WGLConfig(), sc.config.GetString(config.ConfigDefaultLexicon))
+	k, err := kwg.GetKWG(sc.config.WGLConfig(),
+		sc.config.GetString(config.ConfigDefaultLexicon), kwg.WithDistribution(sc.config.GetString(config.ConfigDefaultLetterDistribution)))
 	if err != nil {
 		return nil, err
 	}
