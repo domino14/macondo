@@ -475,7 +475,7 @@ func (sc *ShellController) initGameDataStructures() error {
 	sc.simmer.TryLoadWMP(sc.config.WGLConfig(), sc.game.LexiconName())
 	sc.gen = sc.game.MoveGenerator()
 
-	gd, err := kwg.GetKWG(sc.config.WGLConfig(), sc.game.LexiconName())
+	gd, err := kwg.GetKWG(sc.config.WGLConfig(), sc.game.LexiconName(), kwg.WithDistribution(sc.game.Rules().LetterDistributionName()))
 	if err != nil {
 		return err
 	}

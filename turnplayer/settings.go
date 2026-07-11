@@ -97,11 +97,10 @@ func (opts *GameOptions) SetLexicon(fields []string, cfg *wglconfig.Config) erro
 		lexname = fields[0]
 		letdist, err = tilemapping.ProbableLetterDistributionName(lexname)
 		if err != nil {
-			log.Err(err).Msg("letter distribution not found for this lexicon; assuming english")
-			letdist = "english"
-		} else {
-			log.Info().Msgf("assuming letter distribution %v", letdist)
+			return fmt.Errorf("could not determine a letter distribution for lexicon %q; "+
+				"please specify one explicitly, e.g. 'set lexicon %s english'", lexname, lexname)
 		}
+		log.Info().Msgf("assuming letter distribution %v", letdist)
 	} else if len(fields) == 2 {
 		lexname, letdist = fields[0], fields[1]
 	} else {
