@@ -1663,6 +1663,12 @@ func applyPlayerOverrides(p *pb.AutoplayPlayerConfig, options CmdOptions, suffix
 	if v := options.String("extargs" + suffix); v != "" {
 		p.ExternalEngineArgs = strings.Fields(v)
 	}
+	if v, err := options.IntDefault("egthreads"+suffix, -1); err == nil && v >= 0 {
+		p.EndgameThreads = int32(v)
+	}
+	if v, err := options.IntDefault("pegthreads"+suffix, -1); err == nil && v >= 0 {
+		p.PreendgameThreads = int32(v)
+	}
 }
 
 type shellcmd struct {

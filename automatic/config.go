@@ -63,6 +63,8 @@ func playerFromProto(p *pb.AutoplayPlayerConfig) AutomaticRunnerPlayer {
 		InferenceSimIters:           int(p.InferenceSimIters),
 		InferenceMaxEnumeratedLeaves: int(p.InferenceMaxEnumeratedLeaves),
 		OracleInference:             p.OracleInference,
+		EndgameThreads:              int(p.EndgameThreads),
+		PreendgameThreads:           int(p.PreendgameThreads),
 	}
 	if p.BotCode == pb.BotRequest_CUSTOM_BOT && p.ExternalEngineBinary != "" {
 		arp.ExternalEngine = &externalengine.Config{

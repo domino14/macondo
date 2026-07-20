@@ -269,7 +269,9 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	if threads > 1 && lo.SomeBy(players, func(p AutomaticRunnerPlayer) bool {
 		return bot.HasEndgame(p.BotCode) || bot.HasPreendgame(p.BotCode)
 	}) {
-		return errors.New("cannot run multiple games in parallel if either player uses endgame or pre-endgame")
+		log.Info().Int("threads", threads).
+			Msg("endgame/pre-endgame solves use per-game transposition tables; " +
+				"each game runs its own solve in parallel")
 	}
 
 	if IsPlaying.Value() > 0 {
@@ -309,7 +311,8 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 		g.Go(func() error {
 			defer wg.Done()
 			r := GameRunner{logchan: logChan, gamechan: gameChan,
-				config: cfg, lexicon: lexicon, letterDistribution: letterDistribution}
+				config: cfg, lexicon: lexicon, letterDistribution: letterDistribution,
+				threads: threads}
 			err := r.Init(players)
 			if err != nil {
 				log.Err(err).Msg("error initializing runner")

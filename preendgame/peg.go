@@ -411,6 +411,7 @@ type Solver struct {
 	game             *game.Game
 	gaddag           *kwg.KWG
 	ttable           *negamax.TranspositionTable
+	ttableFraction   float64 // if > 0, overrides config value in Reset
 	curEndgamePlies  int
 	maxEndgamePlies  int
 	initialSpread    int
@@ -487,7 +488,9 @@ type Solver struct {
 
 // Init initializes the solver. It creates all the parallel endgame solvers.
 func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
-	s.ttable = negamax.GlobalTranspositionTable
+	if s.ttable == nil {
+		s.ttable = &negamax.TranspositionTable{}
+	}
 	s.threads = max(1, runtime.NumCPU())
 	s.threadLogs = make([]jobLog, s.threads)
 	s.threadNestedCalls = make([]uint64, s.threads)
@@ -681,7 +684,11 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 	sort.Slice(moves, func(i, j int) bool {
 		return moves[i].Equity() > moves[j].Equity()
 	})
-	s.ttable.Reset(s.game.Config().GetFloat64(config.ConfigTtableMemFraction), s.game.Board().Dim())
+	fraction := s.ttableFraction
+	if fraction == 0 {
+		fraction = s.game.Config().GetFloat64(config.ConfigTtableMemFraction)
+	}
+	s.ttable.Reset(fraction, s.game.Board().Dim())
 	var lastWinners []*PreEndgamePlay
 	s.solvingForPlayer = s.game.PlayerOnTurn()
 
@@ -812,6 +819,12 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 			if err != nil {
 				return nil, err
 			}
+			// Share this game's transposition table (and its fraction override)
+			// across all internal endgame solvers so they benefit from each
+			// other's cached positions. The table was already Reset by the
+			// enclosing Solve; QuickAndDirtySolve does not call Reset.
+			es.SetTTable(s.ttable)
+			es.SetTTableFraction(s.ttableFraction)
 			// PEG already built a pruned KWG above; skip per-endgame rebuilding.
 			es.SetPrunedKWGOptim(false)
 			// Endgame itself should be single-threaded; we are solving many individual
@@ -944,6 +957,19 @@ func (s *Solver) SetThreads(t int) {
 	s.threadNestedCalls = make([]uint64, t)
 	s.threadMaxNestedDepth = make([]uint64, t)
 	s.threadSubPermsEvaluated = make([]uint64, t)
+}
+
+// SetTTable injects an external transposition table shared across this game's
+// endgame and pre-endgame solves. Survives Init (Init only allocates a new
+// table when s.ttable == nil).
+func (s *Solver) SetTTable(t *negamax.TranspositionTable) {
+	s.ttable = t
+}
+
+// SetTTableFraction overrides the memory fraction used when the TT is Reset
+// inside Solve. When > 0, overrides the config value.
+func (s *Solver) SetTTableFraction(f float64) {
+	s.ttableFraction = f
 }
 
 func MoveTilesToBeginning(order []tilemapping.MachineLetter, bag *tilemapping.Bag) {

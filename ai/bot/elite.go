@@ -108,6 +108,11 @@ func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move
 	if err != nil {
 		return nil, err
 	}
+	// Ensure the bot has its own TT (lazily allocated for the shell / interactive
+	// path; already set for autoplay where GameRunner injects a per-game table).
+	if p.endgameTTable == nil {
+		p.endgameTTable = &negamax.TranspositionTable{}
+	}
 	// make a copy of the game.
 	gameCopy := p.Game.Copy()
 	gameCopy.SetBackupMode(game.SimulationMode)
@@ -117,7 +122,15 @@ func endGameBest(ctx context.Context, p *BotTurnPlayer, endgamePlies int) (*move
 	if err != nil {
 		return nil, err
 	}
-	p.endgamer.SetThreads(runtime.NumCPU())
+	// Inject the bot's TT and fraction override (SetTTable after Init so it
+	// overrides any lazy allocation Init may have done).
+	p.endgamer.SetTTable(p.endgameTTable)
+	p.endgamer.SetTTableFraction(p.cfg.EndgameTTableFraction)
+	egThreads := p.endgameThreads
+	if egThreads == 0 {
+		egThreads = runtime.NumCPU()
+	}
+	p.endgamer.SetThreads(egThreads)
 	// Use auto mode: picks ABDADA for 300+ moves, otherwise LazySMP
 	p.endgamer.SetParallelAlgorithm(negamax.ParallelAlgoAuto)
 	p.endgamer.SetPreventSlowroll(true)
@@ -141,10 +154,23 @@ func preendgameBest(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Ensure the bot has its own TT (shared with the endgame solver — they
+	// never run simultaneously within a turn).
+	if p.endgameTTable == nil {
+		p.endgameTTable = &negamax.TranspositionTable{}
+	}
 	err = p.preendgamer.Init(p.Game, gd)
 	if err != nil {
 		return nil, err
 	}
+	// Inject the bot's TT and thread count.
+	p.preendgamer.SetTTable(p.endgameTTable)
+	p.preendgamer.SetTTableFraction(p.cfg.EndgameTTableFraction)
+	pegThreads := p.preendgameThreads
+	if pegThreads == 0 {
+		pegThreads = runtime.NumCPU()
+	}
+	p.preendgamer.SetThreads(pegThreads)
 	// If we're down by a lot, we will probably need to bingo out, so set
 	// endgame plies to only a couple
 	ourSpread := math.Abs(float64(p.Game.SpreadFor(p.Game.PlayerOnTurn())))

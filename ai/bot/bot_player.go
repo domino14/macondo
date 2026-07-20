@@ -50,6 +50,21 @@ type BotConfig struct {
 	// opponent's true leave (from game history) directly in simulation.
 	// Establishes the upper bound on inference benefit.
 	OracleInference bool
+	// EndgameTTable is the transposition table to inject into the endgame and
+	// pre-endgame solvers. When nil (default / shell path) the bot lazily
+	// creates its own table on first use and reuses it across turns.
+	// In autoplay the GameRunner creates one table per concurrent game and
+	// injects it here so games never share TT state.
+	EndgameTTable *negamax.TranspositionTable
+	// EndgameTTableFraction overrides the memory fraction used when the TT is
+	// Reset inside Solve. 0 falls back to the config value.
+	EndgameTTableFraction float64
+	// EndgameThreads sets threads inside a single endgame solve.
+	// 0 defaults to runtime.NumCPU() (shell path).
+	EndgameThreads int
+	// PreendgameThreads sets threads inside a single pre-endgame solve.
+	// 0 defaults to runtime.NumCPU() (shell path).
+	PreendgameThreads int
 }
 
 type BotTurnPlayer struct {
@@ -65,6 +80,12 @@ type BotTurnPlayer struct {
 	lastMoves             []*move.Move
 	inferencer            *rangefinder.RangeFinder
 	lastCalculatedDetails string
+	// endgameTTable is the bot's transposition table, shared between endgame
+	// and pre-endgame solvers (they never run simultaneously within a turn).
+	// Lazily allocated on first use when not injected via BotConfig.
+	endgameTTable     *negamax.TranspositionTable
+	endgameThreads    int
+	preendgameThreads int
 }
 
 func NewBotTurnPlayer(conf *BotConfig, opts *turnplayer.GameOptions,
@@ -147,6 +168,18 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 	if HasPreendgame(botType) {
 		log.Info().Msg("adding fields for pre-endgame")
 		btp.preendgamer = &preendgame.Solver{}
+	}
+	// Wire injected TT and per-solve thread counts (autoplay path).
+	// For the shell / interactive path these are all zero/nil, so the bot
+	// lazily creates its own table and uses NumCPU threads (see elite.go).
+	if conf.EndgameTTable != nil {
+		btp.endgameTTable = conf.EndgameTTable
+	}
+	if conf.EndgameThreads > 0 {
+		btp.endgameThreads = conf.EndgameThreads
+	}
+	if conf.PreendgameThreads > 0 {
+		btp.preendgameThreads = conf.PreendgameThreads
 	}
 	if HasInfer(botType) {
 		log.Info().Msg("adding fields for rangefinder")
@@ -344,6 +377,14 @@ func (p *BotTurnPlayer) SetBotType(b pb.BotRequest_BotCode) {
 
 func (p *BotTurnPlayer) SetSimThreads(t int) {
 	p.simThreads = t
+}
+
+func (p *BotTurnPlayer) SetEndgameThreads(t int) {
+	p.endgameThreads = t
+}
+
+func (p *BotTurnPlayer) SetPreendgameThreads(t int) {
+	p.preendgameThreads = t
 }
 
 func (p *BotTurnPlayer) SetMinSimPlies(t int) {

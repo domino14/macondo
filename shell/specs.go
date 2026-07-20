@@ -292,6 +292,10 @@ func init() {
 			{Name: "extbinary2", Type: OptString},
 			{Name: "extargs1", Type: OptString},
 			{Name: "extargs2", Type: OptString},
+			{Name: "egthreads1", Type: OptInt},
+			{Name: "egthreads2", Type: OptInt},
+			{Name: "pegthreads1", Type: OptInt},
+			{Name: "pegthreads2", Type: OptInt},
 		},
 	})
 

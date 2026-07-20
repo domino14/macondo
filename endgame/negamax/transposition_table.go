@@ -3,7 +3,6 @@ package negamax
 import (
 	"fmt"
 	"math"
-	"os"
 	"runtime"
 	"runtime/debug"
 	"sync/atomic"
@@ -133,10 +132,6 @@ type TranspositionTable struct {
 	zobrist *zobrist.Zobrist
 }
 
-// GlobalTranspositionTable is a singleton instance. Since transposition tables
-// take up a large enough amount of memory, and they're meant to be shared,
-// we only really want to keep one in memory to avoid re-allocation costs.
-var GlobalTranspositionTable = &TranspositionTable{}
 
 // SetSingleThreadedMode is a no-op (lockless TT works for both single and multi-threaded)
 func (t *TranspositionTable) SetSingleThreadedMode() {}
@@ -224,13 +219,6 @@ func (t *TranspositionTable) Reset(fractionOfMemory float64, boardDim int) {
 		log.Info().Msg("creating zobrist hash")
 		t.zobrist = &zobrist.Zobrist{}
 		t.zobrist.Initialize(boardDim)
-		zd, err := os.Create("/tmp/macondo-zobrist-dump")
-		if err != nil {
-			log.Err(err).Msg("could not dump zobrist hashes to file")
-		} else {
-			t.zobrist.Dump(zd)
-			zd.Close()
-		}
 	}
 
 	p := message.NewPrinter(language.English)

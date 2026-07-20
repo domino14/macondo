@@ -417,6 +417,12 @@ message AutoplayPlayerConfig {
   // external_engine_args are optional extra arguments prepended before the
   // standard --gcg/--lexicon/--rack flags.
   repeated string external_engine_args = 14;
+  // endgame_threads sets the number of threads used inside a single endgame
+  // solve. If 0, defaults to max(1, NumCPU / autoplay_threads).
+  int32 endgame_threads = 13;
+  // preendgame_threads sets the number of threads used inside a single
+  // pre-endgame solve. If 0, defaults to max(1, NumCPU / autoplay_threads).
+  int32 preendgame_threads = 15;
 }
 
 // AutoplayConfig defines a complete autoplay experiment.
