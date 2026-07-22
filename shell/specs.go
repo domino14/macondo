@@ -395,7 +395,7 @@ func init() {
 		"exit", "help", "new", "load", "unload", "last", "n", "p", "s",
 		"name", "note", "turn", "rack", "add", "challenge", "aiplay",
 		"hastyplay", "selftest", "list", "export", "script",
-		"analyze-turn", "volunteer", "gid", "leave", "cgp", "check",
+		"analyze-turn", "volunteer", "annowatch", "gid", "leave", "cgp", "check",
 		"update", "gamestate", "mleval", "winpct", "build-wmp",
 	} {
 		registerSpec(&CommandSpec{Name: name})

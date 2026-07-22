@@ -217,6 +217,28 @@ func (a *Analyzer) AnalyzeSingleTurn(ctx context.Context, history *pb.GameHistor
 	return analysis, nil
 }
 
+// AnalyzePosition analyzes a live, to-move position that has no played move yet
+// (e.g. a position from a live annotated game where a rack was just assigned).
+// It reuses the same phase dispatch (sim/PEG/endgame) as AnalyzeSingleTurn by
+// passing a synthetic pass move as the "played move" — this gives the
+// underlying machinery something to avoid-prune and compare against. Callers
+// should ignore the played-vs-optimal fields on the result (WasOptimal,
+// WinProbLoss, SpreadLoss, MistakeCategory, etc.) and use only OptimalMove,
+// Rack, Phase, TilesInBag, TopSimPlays, TopPEGPlays, and PrincipalVariation.
+func (a *Analyzer) AnalyzePosition(ctx context.Context, g *game.Game, playerIndex int, players []*pb.PlayerInfo) (*TurnAnalysis, error) {
+	if g.Playing() != pb.PlayState_PLAYING {
+		return nil, fmt.Errorf("game is not in playing state (state: %s)", g.Playing())
+	}
+
+	pass := move.NewPassMove(g.RackFor(playerIndex).TilesOn(), g.Alphabet())
+
+	analysis, err := a.analyzeTurn(ctx, g, pass, false, false, false, g.Turn(), playerIndex, players, nil)
+	if err != nil {
+		return nil, err
+	}
+	return analysis, nil
+}
+
 // AnalyzeGame analyzes every move in a game and returns the results
 func (a *Analyzer) AnalyzeGame(ctx context.Context, history *pb.GameHistory) (*GameAnalysisResult, error) {
 	if history == nil {

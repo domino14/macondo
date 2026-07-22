@@ -14,6 +14,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"runtime"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -695,7 +696,7 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 			logger.Debug().Msgf("Thread %v starting sim", t)
 			for {
 				numIters := s.iterationCount.Add(1)
-				err := s.simSingleIteration(ctx, s.maxPlies, t, numIters-1, logChan)
+				err := s.simSingleIterationRecover(ctx, s.maxPlies, t, numIters-1, logChan)
 				if err != nil {
 					logger.Err(err).Msg("error simming iteration; canceling")
 					cancel()
@@ -770,6 +771,26 @@ func (s *Simmer) TrimBottom(totrim int) error {
 	}
 	s.simmedPlays.trimBottom(totrim)
 	return nil
+}
+
+// simSingleIterationRecover runs simSingleIteration with a panic guard. It
+// runs in its own goroutine (spawned via errgroup), so a panic here cannot be
+// recovered by any caller up the stack — errgroup deliberately does not
+// recover panics from the functions it runs (see its Go doc comment), which
+// means an unrecovered panic in a single iteration takes down the entire
+// process, not just this simulation. Iteration-generated moves are
+// occasionally inconsistent in rare corner cases (an open issue in the move
+// generator/game engine, independent of this guard), so this converts such a
+// panic into a normal error instead of crashing long-running callers like
+// annowatch, volunteer mode, or batch analysis.
+func (s *Simmer) simSingleIterationRecover(ctx context.Context, plies, thread int, iterationCount uint64, logChan chan []byte) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic in simSingleIteration (thread %d, iteration %d): %v\n%s",
+				thread, iterationCount, r, debug.Stack())
+		}
+	}()
+	return s.simSingleIteration(ctx, plies, thread, iterationCount, logChan)
 }
 
 func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iterationCount uint64, logChan chan []byte) error {

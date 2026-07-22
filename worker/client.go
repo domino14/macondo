@@ -313,3 +313,44 @@ func (c *WooglesClient) FetchGameHistory(ctx context.Context, gameID string) (*p
 
 	return history, nil
 }
+
+// FetchCGP fetches the current position of a game as a CGP string. This is
+// primarily useful for annotated games, where GetCGP returns the position
+// uncensored — including the on-turn player's live assigned rack, which is
+// not available via FetchGameHistory (the GCG text round-trip drops it).
+func (c *WooglesClient) FetchCGP(ctx context.Context, gameID string) (string, error) {
+	url := c.baseURL + "/api/omgwords_service.GameEventService/GetCGP"
+
+	reqBody := fmt.Sprintf(`{"gameId": "%s"}`, gameID)
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(reqBody))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return "", fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response: %w", err)
+	}
+
+	var cgpResp struct {
+		CGP string `json:"cgp"`
+	}
+	if err := json.Unmarshal(body, &cgpResp); err != nil {
+		return "", fmt.Errorf("failed to unmarshal CGP response: %w", err)
+	}
+
+	return cgpResp.CGP, nil
+}

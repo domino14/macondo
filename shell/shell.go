@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -209,6 +210,18 @@ type ShellController struct {
 	volunteerBusy   bool // True while processing a job
 	volunteerCtx    context.Context
 	volunteerCancel context.CancelFunc
+
+	// Annowatch mode state (polls a live annotated Woogles game and analyzes
+	// the current position every time the rack/position changes)
+	annoMu         sync.Mutex // guards annoMode/annoStop/annoBusy/annoLastCGP/annoPendingCGP
+	annoMode       bool
+	annoStop       bool // Signal to stop after current analysis
+	annoBusy       bool // True while an analysis is running
+	annoGameID     string
+	annoLastCGP    string // last CGP that was (or is being) analyzed
+	annoPendingCGP string // newest fetched CGP not yet analyzed
+	annoCtx        context.Context
+	annoCancel     context.CancelFunc
 
 	// Local analysis persistence
 	gameSource    string                  // source identifier for the currently loaded game
@@ -1868,6 +1881,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.autoAnalyze(cmd)
 	case "volunteer":
 		return sc.volunteer(cmd)
+	case "annowatch":
+		return sc.annowatch(cmd)
 	case "speedtest":
 		return sc.speedtest(cmd)
 	case "script":
