@@ -217,22 +217,23 @@ func (a *Analyzer) AnalyzeSingleTurn(ctx context.Context, history *pb.GameHistor
 	return analysis, nil
 }
 
-// AnalyzePosition analyzes a live, to-move position that has no played move yet
-// (e.g. a position from a live annotated game where a rack was just assigned).
-// It reuses the same phase dispatch (sim/PEG/endgame) as AnalyzeSingleTurn by
-// passing a synthetic pass move as the "played move" — this gives the
-// underlying machinery something to avoid-prune and compare against. Callers
-// should ignore the played-vs-optimal fields on the result (WasOptimal,
-// WinProbLoss, SpreadLoss, MistakeCategory, etc.) and use only OptimalMove,
-// Rack, Phase, TilesInBag, TopSimPlays, TopPEGPlays, and PrincipalVariation.
+// AnalyzePosition analyzes a live, to-move position that has no played move
+// yet (e.g. a position from a live annotated game where a rack was just
+// assigned). It passes a nil "played move" through the same phase dispatch
+// (sim/PEG/endgame) as AnalyzeSingleTurn — analyzeWithSim/analyzeWithPEG/
+// analyzeWithEndgame all treat a nil PlayedMove as "just report the best
+// plays, there's nothing played to grade": no played-vs-optimal comparison,
+// and critically no synthetic move injected into the candidate list, so
+// nothing spurious shows up in TopSimPlays/TopPEGPlays. The played-vs-optimal
+// fields on the result (WasOptimal, WinProbLoss, SpreadLoss, MistakeCategory,
+// etc.) are left at their zero values; use OptimalMove, Rack, Phase,
+// TilesInBag, TopSimPlays, TopPEGPlays, and PrincipalVariation.
 func (a *Analyzer) AnalyzePosition(ctx context.Context, g *game.Game, playerIndex int, players []*pb.PlayerInfo) (*TurnAnalysis, error) {
 	if g.Playing() != pb.PlayState_PLAYING {
 		return nil, fmt.Errorf("game is not in playing state (state: %s)", g.Playing())
 	}
 
-	pass := move.NewPassMove(g.RackFor(playerIndex).TilesOn(), g.Alphabet())
-
-	analysis, err := a.analyzeTurn(ctx, g, pass, false, false, false, g.Turn(), playerIndex, players, nil)
+	analysis, err := a.analyzeTurn(ctx, g, nil, false, false, false, g.Turn(), playerIndex, players, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -656,8 +657,10 @@ func (a *Analyzer) analyzeWithSim(ctx context.Context, g *game.Game, analysis *T
 			Msg("analyzing with known opponent rack from challenged phony")
 	}
 
-	// Ensure the played move is simmed (avoid pruning it)
-	simmer.AvoidPruningMoves([]*move.Move{analysis.PlayedMove})
+	// Ensure the played move is simmed (avoid pruning it), if there is one.
+	if analysis.PlayedMove != nil {
+		simmer.AvoidPruningMoves([]*move.Move{analysis.PlayedMove})
+	}
 
 	// Set stopping condition
 	var stop montecarlo.StoppingCondition
@@ -702,49 +705,55 @@ func (a *Analyzer) analyzeWithSim(ctx context.Context, g *game.Game, analysis *T
 	// Find optimal move (highest win prob)
 	analysis.OptimalMove = simmedPlays[0].Move()
 	analysis.OptimalWinProb = simmedPlays[0].WinProb()
+	analysis.OptimalIsBingo = isBingo(analysis.OptimalMove)
 
-	// Find played move in results
-	playedFound := false
-	var playedEquity float64
-	for _, result := range simmedPlays {
-		if result.Move().Equals(analysis.PlayedMove, checkTrans, true) {
-			analysis.PlayedWinProb = result.WinProb()
-			playedEquity = result.EquityMean()
-			playedFound = true
-			break
-		}
-	}
-
-	if !playedFound {
-		// This shouldn't happen if AvoidPruningMoves worked
-		log.Warn().Msg("played move not found in sim results")
-		analysis.PlayedWinProb = 0
-	}
-
-	analysis.WinProbLoss = analysis.OptimalWinProb - analysis.PlayedWinProb
-	analysis.WasOptimal = analysis.OptimalMove.Equals(analysis.PlayedMove, checkTrans, true)
-
-	// When all plays are near 0% or 100% win probability, win prob loss is
-	// meaningless. Use equity difference as a spread-based tiebreaker instead,
-	// mirroring how PEG handles tied win probabilities.
-	if !analysis.WasOptimal && playedFound {
-		nearZero := analysis.OptimalWinProb < blowoutWinProbThreshold
-		nearOne := analysis.OptimalWinProb > 1-blowoutWinProbThreshold
-		if nearZero || nearOne {
-			optimalEquity := simmedPlays[0].EquityMean()
-			equityDiff := optimalEquity - playedEquity
-			if equityDiff > 0.5 {
-				analysis.SpreadLoss = int16(equityDiff + 0.5)
+	// Everything below grades the played move against the optimal one. For a
+	// live to-move position (AnalyzePosition) there is no played move yet —
+	// leave these fields at their zero values rather than fabricating one.
+	if analysis.PlayedMove != nil {
+		// Find played move in results
+		playedFound := false
+		var playedEquity float64
+		for _, result := range simmedPlays {
+			if result.Move().Equals(analysis.PlayedMove, checkTrans, true) {
+				analysis.PlayedWinProb = result.WinProb()
+				playedEquity = result.EquityMean()
+				playedFound = true
+				break
 			}
 		}
+
+		if !playedFound {
+			// This shouldn't happen if AvoidPruningMoves worked
+			log.Warn().Msg("played move not found in sim results")
+			analysis.PlayedWinProb = 0
+		}
+
+		analysis.WinProbLoss = analysis.OptimalWinProb - analysis.PlayedWinProb
+		analysis.WasOptimal = analysis.OptimalMove.Equals(analysis.PlayedMove, checkTrans, true)
+
+		// When all plays are near 0% or 100% win probability, win prob loss is
+		// meaningless. Use equity difference as a spread-based tiebreaker instead,
+		// mirroring how PEG handles tied win probabilities.
+		if !analysis.WasOptimal && playedFound {
+			nearZero := analysis.OptimalWinProb < blowoutWinProbThreshold
+			nearOne := analysis.OptimalWinProb > 1-blowoutWinProbThreshold
+			if nearZero || nearOne {
+				optimalEquity := simmedPlays[0].EquityMean()
+				equityDiff := optimalEquity - playedEquity
+				if equityDiff > 0.5 {
+					analysis.SpreadLoss = int16(equityDiff + 0.5)
+				}
+			}
+		}
+
+		analysis.PlayedIsBingo = isBingo(analysis.PlayedMove)
+		analysis.MissedBingo = analysis.OptimalIsBingo && !analysis.PlayedIsBingo
 	}
 
-	// Set bingo flags
-	analysis.OptimalIsBingo = isBingo(analysis.OptimalMove)
-	analysis.PlayedIsBingo = isBingo(analysis.PlayedMove)
-	analysis.MissedBingo = analysis.OptimalIsBingo && !analysis.PlayedIsBingo
-
-	// Extract enriched data: top 5 plays + played move (ignored plays included with flag)
+	// Extract enriched data: top 5 plays, plus the played move if any
+	// (ignored plays included with flag). With no played move, this is
+	// simply the top 5 simulated plays.
 	analysis.TopSimPlays = extractTopSimPlays(simmedPlays, analysis.PlayedMove, checkTrans, 5)
 
 	return nil
@@ -752,11 +761,13 @@ func (a *Analyzer) analyzeWithSim(ctx context.Context, g *game.Game, analysis *T
 
 // extractTopSimPlays returns at most maxTop plays plus ensuring the played move is included.
 // Ignored plays are included with IsIgnored=true so the frontend can mark them as pruned.
+// playedMove may be nil (no move to grade — e.g. a live to-move position),
+// in which case this is simply the top maxTop plays.
 func extractTopSimPlays(simmedPlays []*montecarlo.SimmedPlay, playedMove *move.Move, checkTrans bool, maxTop int) []*SimPlayResult {
 	results := make([]*SimPlayResult, 0, maxTop+1)
-	playedIncluded := false
+	playedIncluded := playedMove == nil
 	for _, sp := range simmedPlays {
-		isPlayed := sp.Move().Equals(playedMove, checkTrans, true)
+		isPlayed := playedMove != nil && sp.Move().Equals(playedMove, checkTrans, true)
 		if len(results) < maxTop || (isPlayed && !playedIncluded) {
 			results = append(results, simPlayToResult(sp, isPlayed))
 		}
@@ -818,7 +829,9 @@ func (a *Analyzer) analyzeWithPEG(ctx context.Context, g *game.Game, analysis *T
 
 	// Set options
 	pegSolver.SetEarlyCutoffOptim(a.analysisCfg.PEGEarlyCutoff)
-	pegSolver.SetAvoidPrune([]*move.Move{analysis.PlayedMove})
+	if analysis.PlayedMove != nil {
+		pegSolver.SetAvoidPrune([]*move.Move{analysis.PlayedMove})
+	}
 
 	// Set known opponent rack if available
 	if len(knownOppRack) > 0 {
@@ -861,73 +874,77 @@ func (a *Analyzer) analyzeWithPEG(ctx context.Context, g *game.Game, analysis *T
 	}
 
 	analysis.OptimalWinProb = float64(optimalPlay.Points / noutcomes)
-
-	// Find played move
-	var playedPlay *preendgame.PreEndgamePlay
-	for _, play := range plays {
-		if play.Play.Equals(analysis.PlayedMove, false, true) {
-			playedPlay = play
-			break
-		}
-	}
-
-	if playedPlay == nil {
-		return errors.New("played move not found in PEG results")
-	}
-
-	analysis.PlayedWinProb = float64(playedPlay.Points / noutcomes)
-	analysis.WinProbLoss = analysis.OptimalWinProb - analysis.PlayedWinProb
-	analysis.WasOptimal = analysis.OptimalMove.Equals(analysis.PlayedMove, false, true)
-
-	log.Info().
-		Str("optimalMove", optimalPlay.Play.ShortDescription()).
-		Float64("optimalWinProb", analysis.OptimalWinProb).
-		Str("playedMove", playedPlay.Play.ShortDescription()).
-		Float64("playedWinProb", analysis.PlayedWinProb).
-		Float64("winProbLoss", analysis.WinProbLoss).
-		Bool("wasOptimal", analysis.WasOptimal).
-		Msg("peg-analysis")
-
-	// When win probabilities are tied (within epsilon), use spread data for comparison
-	const epsilon = 1e-6
-	if !analysis.WasOptimal && analysis.WinProbLoss < epsilon && analysis.WinProbLoss > -epsilon {
-		// Win probabilities are essentially tied - check spread data
-		if optimalPlay.HasSpread() && playedPlay.HasSpread() {
-			// Calculate average spreads
-			optimalAvgSpread := float64(optimalPlay.GetSpread()) / float64(optimalPlay.TotalOutcomes())
-			playedAvgSpread := float64(playedPlay.GetSpread()) / float64(playedPlay.TotalOutcomes())
-
-			spreadDiff := optimalAvgSpread - playedAvgSpread
-
-			log.Info().
-				Str("optimalMove", optimalPlay.Play.ShortDescription()).
-				Int("optimalTotalSpread", optimalPlay.GetSpread()).
-				Int("optimalTotalOutcomes", optimalPlay.TotalOutcomes()).
-				Float64("optimalAvgSpread", optimalAvgSpread).
-				Str("playedMove", playedPlay.Play.ShortDescription()).
-				Int("playedTotalSpread", playedPlay.GetSpread()).
-				Int("playedTotalOutcomes", playedPlay.TotalOutcomes()).
-				Float64("playedAvgSpread", playedAvgSpread).
-				Float64("spreadDiff", spreadDiff).
-				Msg("peg-spread-tiebreak-analysis")
-
-			if spreadDiff > epsilon {
-				// Optimal has better average spread
-				analysis.SpreadLoss = int16(spreadDiff + 0.5) // Round to nearest int
-				// Keep WinProbLoss at ~0 since win% are tied
-			}
-		} else {
-			log.Info().
-				Bool("optimalHasSpread", optimalPlay.HasSpread()).
-				Bool("playedHasSpread", playedPlay.HasSpread()).
-				Msg("peg-spread-data-missing")
-		}
-	}
-
-	// Set bingo flags
 	analysis.OptimalIsBingo = isBingo(analysis.OptimalMove)
-	analysis.PlayedIsBingo = isBingo(analysis.PlayedMove)
-	analysis.MissedBingo = analysis.OptimalIsBingo && !analysis.PlayedIsBingo
+
+	// Everything below grades the played move against the optimal one. For a
+	// live to-move position (AnalyzePosition) there is no played move yet —
+	// leave these fields at their zero values rather than fabricating one.
+	if analysis.PlayedMove != nil {
+		// Find played move
+		var playedPlay *preendgame.PreEndgamePlay
+		for _, play := range plays {
+			if play.Play.Equals(analysis.PlayedMove, false, true) {
+				playedPlay = play
+				break
+			}
+		}
+
+		if playedPlay == nil {
+			return errors.New("played move not found in PEG results")
+		}
+
+		analysis.PlayedWinProb = float64(playedPlay.Points / noutcomes)
+		analysis.WinProbLoss = analysis.OptimalWinProb - analysis.PlayedWinProb
+		analysis.WasOptimal = analysis.OptimalMove.Equals(analysis.PlayedMove, false, true)
+
+		log.Info().
+			Str("optimalMove", optimalPlay.Play.ShortDescription()).
+			Float64("optimalWinProb", analysis.OptimalWinProb).
+			Str("playedMove", playedPlay.Play.ShortDescription()).
+			Float64("playedWinProb", analysis.PlayedWinProb).
+			Float64("winProbLoss", analysis.WinProbLoss).
+			Bool("wasOptimal", analysis.WasOptimal).
+			Msg("peg-analysis")
+
+		// When win probabilities are tied (within epsilon), use spread data for comparison
+		const epsilon = 1e-6
+		if !analysis.WasOptimal && analysis.WinProbLoss < epsilon && analysis.WinProbLoss > -epsilon {
+			// Win probabilities are essentially tied - check spread data
+			if optimalPlay.HasSpread() && playedPlay.HasSpread() {
+				// Calculate average spreads
+				optimalAvgSpread := float64(optimalPlay.GetSpread()) / float64(optimalPlay.TotalOutcomes())
+				playedAvgSpread := float64(playedPlay.GetSpread()) / float64(playedPlay.TotalOutcomes())
+
+				spreadDiff := optimalAvgSpread - playedAvgSpread
+
+				log.Info().
+					Str("optimalMove", optimalPlay.Play.ShortDescription()).
+					Int("optimalTotalSpread", optimalPlay.GetSpread()).
+					Int("optimalTotalOutcomes", optimalPlay.TotalOutcomes()).
+					Float64("optimalAvgSpread", optimalAvgSpread).
+					Str("playedMove", playedPlay.Play.ShortDescription()).
+					Int("playedTotalSpread", playedPlay.GetSpread()).
+					Int("playedTotalOutcomes", playedPlay.TotalOutcomes()).
+					Float64("playedAvgSpread", playedAvgSpread).
+					Float64("spreadDiff", spreadDiff).
+					Msg("peg-spread-tiebreak-analysis")
+
+				if spreadDiff > epsilon {
+					// Optimal has better average spread
+					analysis.SpreadLoss = int16(spreadDiff + 0.5) // Round to nearest int
+					// Keep WinProbLoss at ~0 since win% are tied
+				}
+			} else {
+				log.Info().
+					Bool("optimalHasSpread", optimalPlay.HasSpread()).
+					Bool("playedHasSpread", playedPlay.HasSpread()).
+					Msg("peg-spread-data-missing")
+			}
+		}
+
+		analysis.PlayedIsBingo = isBingo(analysis.PlayedMove)
+		analysis.MissedBingo = analysis.OptimalIsBingo && !analysis.PlayedIsBingo
+	}
 
 	// Extract enriched PEG data: top 5 plays + played move
 	analysis.TopPEGPlays = extractTopPEGPlays(plays, analysis.PlayedMove, noutcomes, g.Alphabet(), 5)
@@ -937,11 +954,13 @@ func (a *Analyzer) analyzeWithPEG(ctx context.Context, g *game.Game, analysis *T
 
 // extractTopPEGPlays returns at most maxTop plays plus ensuring the played move is included.
 // Ignored plays are included with IsIgnored=true so the frontend can mark them as pruned.
+// playedMove may be nil (no move to grade — e.g. a live to-move position),
+// in which case this is simply the top maxTop plays.
 func extractTopPEGPlays(plays []*preendgame.PreEndgamePlay, playedMove *move.Move, noutcomes float32, alph *tilemapping.TileMapping, maxTop int) []*PEGPlayResult {
 	results := make([]*PEGPlayResult, 0, maxTop+1)
-	playedIncluded := false
+	playedIncluded := playedMove == nil
 	for _, play := range plays {
-		isPlayed := play.Play.Equals(playedMove, false, true)
+		isPlayed := playedMove != nil && play.Play.Equals(playedMove, false, true)
 		if len(results) < maxTop || (isPlayed && !playedIncluded) {
 			results = append(results, pegPlayToResult(play, noutcomes, alph, isPlayed))
 		}
@@ -1026,8 +1045,10 @@ func (a *Analyzer) analyzeWithEndgame(ctx context.Context, g *game.Game, analysi
 		return fmt.Errorf("failed to init endgame solver: %w", err)
 	}
 
-	// Set option to also solve the played move
-	endgameSolver.SetAlsoSolveMove(analysis.PlayedMove)
+	// Set option to also solve the played move, if there is one.
+	if analysis.PlayedMove != nil {
+		endgameSolver.SetAlsoSolveMove(analysis.PlayedMove)
+	}
 
 	// Create timeout context for endgame solving (3 minutes)
 	endgameCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
@@ -1046,37 +1067,40 @@ func (a *Analyzer) analyzeWithEndgame(ctx context.Context, g *game.Game, analysi
 	}
 	analysis.OptimalMove = principalVariation[0]
 	analysis.OptimalFinalSpread = bestSpread
+	analysis.OptimalIsBingo = isBingo(analysis.OptimalMove)
 
-	// Check if the played move is optimal
-	analysis.WasOptimal = analysis.PlayedMove.Equals(analysis.OptimalMove, false, true)
+	// Everything below grades the played move against the optimal one. For a
+	// live to-move position (AnalyzePosition) there is no played move yet —
+	// leave these fields at their zero values rather than fabricating one.
+	if analysis.PlayedMove != nil {
+		analysis.WasOptimal = analysis.PlayedMove.Equals(analysis.OptimalMove, false, true)
 
-	if analysis.WasOptimal {
-		analysis.SpreadLoss = 0
-	} else {
-		// Find the played move in the variations
-		// SetAlsoSolveMove ensures it was solved
-		variations := endgameSolver.Variations()
-		playedFound := false
-		for _, variation := range variations {
-			if variation.NumMoves() > 0 && analysis.PlayedMove.Equals(variation.Moves[0], false, true) {
-				// SpreadLoss is how much worse this move is
-				analysis.SpreadLoss = bestSpread - variation.Score()
-				playedFound = true
-				break
+		if analysis.WasOptimal {
+			analysis.SpreadLoss = 0
+		} else {
+			// Find the played move in the variations
+			// SetAlsoSolveMove ensures it was solved
+			variations := endgameSolver.Variations()
+			playedFound := false
+			for _, variation := range variations {
+				if variation.NumMoves() > 0 && analysis.PlayedMove.Equals(variation.Moves[0], false, true) {
+					// SpreadLoss is how much worse this move is
+					analysis.SpreadLoss = bestSpread - variation.Score()
+					playedFound = true
+					break
+				}
+			}
+			if !playedFound {
+				log.Warn().Str("move", analysis.PlayedMove.ShortDescription()).
+					Msg("played move not found in endgame variations")
+				// This shouldn't happen if SetAlsoSolveMove worked correctly
+				return fmt.Errorf("played move not found in variations")
 			}
 		}
-		if !playedFound {
-			log.Warn().Str("move", analysis.PlayedMove.ShortDescription()).
-				Msg("played move not found in endgame variations")
-			// This shouldn't happen if SetAlsoSolveMove worked correctly
-			return fmt.Errorf("played move not found in variations")
-		}
-	}
 
-	// Set bingo flags
-	analysis.OptimalIsBingo = isBingo(analysis.OptimalMove)
-	analysis.PlayedIsBingo = isBingo(analysis.PlayedMove)
-	analysis.MissedBingo = analysis.OptimalIsBingo && !analysis.PlayedIsBingo
+		analysis.PlayedIsBingo = isBingo(analysis.PlayedMove)
+		analysis.MissedBingo = analysis.OptimalIsBingo && !analysis.PlayedIsBingo
+	}
 
 	// Extract enriched endgame data: principal variation and other variations
 	analysis.PrincipalVariation = pvLineToResult(principalVariation, bestSpread)
