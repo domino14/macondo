@@ -65,7 +65,13 @@ type LogIteration struct {
 type Inference struct {
 	RackLength    int
 	InferredRacks []montecarlo.InferredRack
-	seen          map[string]int // leaveKey -> index in InferredRacks
+	// Complete is true when InferredRacks covers every feasible leave — a
+	// full posterior the simmer can sample from directly, with no random
+	// fallback. Tile-placement inference always produces a complete
+	// posterior (measured leaves use their evaluated likelihood, the rest
+	// are imputed from marginal lifts); exchange inference does not.
+	Complete bool
+	seen     map[string]int // leaveKey -> index in InferredRacks (exchange path)
 }
 
 func NewInference() *Inference {
@@ -230,6 +236,13 @@ type RangeFinder struct {
 	// tiles used by the last opponent's move, from their rack:
 	lastOppMoveRackTiles []tilemapping.MachineLetter
 	inference            *Inference
+
+	// Imputation state (tile-placement inference only): containment-marginal
+	// accumulator, per-distinct-leave measured likelihood means, and the
+	// diagnostics of the last imputation run.
+	acc       *subleaveAccumulator
+	measured  map[string]*measuredLeave
+	imputeRes *imputationResult
 
 	logStream io.Writer
 }
@@ -444,7 +457,53 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 	r.iterationCount = 0
 	r.simCount.Store(0)
 	r.exhaustiveTotal = 0
+	r.acc = nil
+	r.measured = nil
+	r.imputeRes = nil
 	return nil
+}
+
+// recordPlacementSample records one evaluated leave and its measured
+// likelihood into the imputation accumulator and the per-distinct-leave
+// means. The caller must synchronize; leave is sorted in place.
+func (r *RangeFinder) recordPlacementSample(leave []tilemapping.MachineLetter, w float64) {
+	sort.Slice(leave, func(i, j int) bool { return leave[i] < leave[j] })
+	r.acc.record(leave, w)
+	b := make([]byte, len(leave))
+	for i, ml := range leave {
+		b[i] = byte(ml)
+	}
+	key := string(b)
+	ml := r.measured[key]
+	if ml == nil {
+		ml = &measuredLeave{}
+		r.measured[key] = ml
+	}
+	ml.sumW += w
+	ml.count++
+}
+
+// finalizePlacementPosterior turns the recorded samples into a complete
+// posterior over every feasible leave: measured leaves keep their evaluated
+// mean likelihood, unmeasured ones get a likelihood imputed from marginal
+// lifts. No-op if nothing was recorded (Complete stays false and the simmer
+// falls back to random racks).
+func (r *RangeFinder) finalizePlacementPosterior() {
+	if r.acc == nil || r.acc.n == 0 {
+		return
+	}
+	res := imputeFullPosterior(r.inferenceBagMap, r.inference.RackLength, r.acc, r.measured, r.threads)
+	r.imputeRes = res
+	if len(res.racks) == 0 {
+		return
+	}
+	r.inference.InferredRacks = res.racks
+	r.inference.Complete = true
+	log.Info().Int("measured-leaves", res.measuredLeaves).
+		Int("imputed-leaves", res.imputedLeaves).
+		Float64("measured-mass", res.measuredMass).
+		Int("marginal-order", res.marginalOrder).
+		Msg("imputed-complete-posterior")
 }
 
 func (r *RangeFinder) Infer(ctx context.Context) error {
@@ -477,6 +536,14 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 		}
 		log.Info().Int("leaf-count", m).Int("max-leaves", maxLeaves).
 			Msg("leaf-space-too-large-using-sampling")
+	}
+
+	if !isExchange && r.inference.RackLength >= 1 {
+		// Monte Carlo sampling path for tile placements: every sampled leave
+		// (whatever its likelihood) feeds the marginal-lift accumulator so a
+		// complete posterior can be imputed after sampling ends.
+		r.acc = newSubleaveAccumulator(len(r.inferenceBagMap), marginalOrder(r.inference.RackLength))
+		r.measured = map[string]*measuredLeave{}
 	}
 
 	logChan := make(chan []byte)
@@ -542,11 +609,20 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 				}
 				if len(newRacks) > 0 {
 					iterMutex.Lock()
-					for _, ir := range newRacks {
-						key := leaveKey(ir.Leave)
-						if _, exists := r.inference.seen[key]; !exists {
-							r.inference.InferredRacks = append(r.inference.InferredRacks, ir)
-							r.inference.seen[key] = len(r.inference.InferredRacks) - 1
+					if r.acc != nil {
+						// Tile-placement path: Weight carries the measured
+						// likelihood; accumulate for imputation.
+						for _, ir := range newRacks {
+							r.recordPlacementSample(ir.Leave, ir.Weight)
+						}
+					} else {
+						// Exchange path: keep distinct racks, first weight wins.
+						for _, ir := range newRacks {
+							key := leaveKey(ir.Leave)
+							if _, exists := r.inference.seen[key]; !exists {
+								r.inference.InferredRacks = append(r.inference.InferredRacks, ir)
+								r.inference.seen[key] = len(r.inference.InferredRacks) - 1
+							}
 						}
 					}
 					iterMutex.Unlock()
@@ -572,6 +648,11 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 
 	ctrlErr := ctrl.Wait()
 	log.Debug().Msgf("ctrl errgroup returned err %v", ctrlErr)
+
+	// Sampling has ended (typically by deadline); build the complete
+	// posterior from what was measured. CPU-bound and fast, so it runs
+	// even though ctx is already done.
+	r.finalizePlacementPosterior()
 
 	if ctrlErr == context.Canceled || ctrlErr == context.DeadlineExceeded {
 		// Not actually an error
@@ -625,15 +706,12 @@ func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) ([]m
 		logIter.SimLogFile = logfilename
 	}
 
-	// SetRandomRack already samples racks from the hypergeometric (prior)
-	// distribution, so the IS weight is only the likelihood P(play | leave).
-	// Multiplying by the prior again would double-count it.
+	// The returned Weight is the measured likelihood P(play | leave); the
+	// prior enters later, when the full posterior is assembled (measured
+	// leaves get prior × mean measured likelihood). Zero-likelihood samples
+	// are returned too: they still count toward the containment-marginal
+	// denominators used for imputation.
 	likelihoodP, targetWinProb := softmaxLikelihood(bestPlays, lastOppMove, g.Board(), r.Tau())
-	bayesianWeight := likelihoodP
-
-	if bayesianWeight <= 0 {
-		return nil, nil
-	}
 
 	tiles := make([]tilemapping.MachineLetter, len(extraDrawn))
 	copy(tiles, extraDrawn)
@@ -649,7 +727,7 @@ func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) ([]m
 		logChan <- out
 	}
 
-	return []montecarlo.InferredRack{{Leave: tiles, Weight: bayesianWeight}}, nil
+	return []montecarlo.InferredRack{{Leave: tiles, Weight: likelihoodP}}, nil
 }
 
 func (r *RangeFinder) inferSingleExchange(thread, iterNum int, logChan chan []byte) ([]montecarlo.InferredRack, error) {

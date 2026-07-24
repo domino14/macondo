@@ -1216,6 +1216,20 @@ func (sc *ShellController) infer(cmd *shellcmd) (*Response, error) {
 		case "output":
 			return msg(sc.rangefinder.AnalyzeInferences(false)), nil
 
+		case "leave":
+			if len(cmd.args) < 2 {
+				return nil, errors.New("usage: infer leave <LEAVE> [<LEAVE> ...], e.g. `infer leave ITZ`")
+			}
+			var sb strings.Builder
+			for _, leaveStr := range cmd.args[1:] {
+				analysis, err := sc.rangefinder.AnalyzeLeave(leaveStr)
+				if err != nil {
+					return nil, err
+				}
+				sb.WriteString(analysis)
+			}
+			return msg(sb.String()), nil
+
 		default:
 			return nil, errors.New("don't recognize " + cmd.args[0])
 		}

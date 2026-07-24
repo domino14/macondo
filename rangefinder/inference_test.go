@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -74,6 +75,58 @@ func TestInferTilePlay(t *testing.T) {
 	fmt.Println("analyze inferences")
 	fmt.Println(rangeFinder.AnalyzeInferences(true))
 	fmt.Println(rangeFinder.AnalyzeInferences(false))
+
+	// Query a specific leave from the complete posterior.
+	is.True(rangeFinder.inference.Complete)
+	top := rangeFinder.inference.InferredRacks[0]
+	topStr := tilemapping.MachineWord(top.Leave).UserVisible(game.Alphabet())
+	analysis, err := rangeFinder.AnalyzeLeave(topStr)
+	is.NoErr(err)
+	fmt.Println(analysis)
+	is.True(strings.Contains(analysis, "posterior"))
+
+	// An imputed leave gets the full calculation walkthrough: per-subleave φ
+	// table plus the chain from prior and ℓ̂ to the normalized weight. A
+	// measured leave gets its own prior × mean likelihood chain.
+	var imputedStr, measuredStr string
+	for _, ir := range rangeFinder.inference.InferredRacks {
+		str := tilemapping.MachineWord(ir.Leave).UserVisible(game.Alphabet())
+		if ml := rangeFinder.measured[leaveKey(ir.Leave)]; ml == nil || ml.count == 0 {
+			if imputedStr == "" {
+				imputedStr = str
+			}
+		} else if measuredStr == "" {
+			measuredStr = str
+		}
+		if imputedStr != "" && measuredStr != "" {
+			break
+		}
+	}
+	if measuredStr != "" {
+		measuredAnalysis, err := rangeFinder.AnalyzeLeave(measuredStr)
+		is.NoErr(err)
+		fmt.Println(measuredAnalysis)
+		is.True(strings.Contains(measuredAnalysis, "measured: evaluated"))
+		is.True(strings.Contains(measuredAnalysis, "weight = prior × mean likelihood ÷ max"))
+	}
+	if imputedStr != "" {
+		imputedAnalysis, err := rangeFinder.AnalyzeLeave(imputedStr)
+		is.NoErr(err)
+		fmt.Println(imputedAnalysis)
+		is.True(strings.Contains(imputedAnalysis, "imputed"))
+		is.True(strings.Contains(imputedAnalysis, "Σφ"))
+		is.True(strings.Contains(imputedAnalysis, "weight = prior × ℓ̂ ÷ max"))
+	}
+
+	// Lowercase input is treated as regular (capitalized) tiles, not as
+	// blank designations — `infer leave zit` used to panic.
+	lower, err := rangeFinder.AnalyzeLeave(strings.ToLower(topStr))
+	is.NoErr(err)
+	is.Equal(lower, analysis)
+
+	// Wrong leave length errors out.
+	_, err = rangeFinder.AnalyzeLeave("A")
+	is.True(err != nil)
 }
 
 func TestInferExchange(t *testing.T) {

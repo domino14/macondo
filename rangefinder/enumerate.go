@@ -222,18 +222,17 @@ func (r *RangeFinder) inferEnumerated(ctx context.Context) error {
 				r.simCount.Add(1)
 
 				bestPlays := simmer.BestPlays().PlaysNoLock()
-				// weight = prior * likelihood  (prior is explicit here; the sampling path omits it
-				// because SetRandomRack already draws from the prior distribution).
+				// Weight carries the measured likelihood only; the prior is
+				// applied when the complete posterior is assembled below.
+				// Zero-likelihood leaves are recorded too — they are measured
+				// evidence, not missing data, so they must not be imputed.
 				likelihoodP, _ := softmaxLikelihood(bestPlays, lastOppMove, gc.Board(), r.Tau())
-				if likelihoodP <= 0 {
-					continue
-				}
 
 				tiles := make([]tilemapping.MachineLetter, len(leaf.tiles))
 				copy(tiles, leaf.tiles)
 				results[t].racks = append(results[t].racks, montecarlo.InferredRack{
 					Leave:  tiles,
-					Weight: leaf.prior * likelihoodP,
+					Weight: likelihoodP,
 				})
 			}
 		})
@@ -243,9 +242,18 @@ func (r *RangeFinder) inferEnumerated(ctx context.Context) error {
 		return err
 	}
 
+	// Assemble the complete posterior. Evaluated leaves use prior × measured
+	// likelihood; any leaves left unevaluated (context timeout, or the
+	// low-prior tail truncated above) get imputed likelihoods from the
+	// marginal lifts of the evaluated set.
+	r.acc = newSubleaveAccumulator(len(r.inferenceBagMap), marginalOrder(r.inference.RackLength))
+	r.measured = map[string]*measuredLeave{}
 	for _, res := range results {
-		r.inference.InferredRacks = append(r.inference.InferredRacks, res.racks...)
+		for _, ir := range res.racks {
+			r.recordPlacementSample(ir.Leave, ir.Weight)
+		}
 	}
+	r.finalizePlacementPosterior()
 
 	log.Info().
 		Int("inferred-count", len(r.inference.InferredRacks)).

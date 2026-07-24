@@ -39,11 +39,19 @@ Optional arguments:
     `infer log` will log to a temporary file.
 
     `infer details` shows detailed inference output including:
-      - Top 15 inferred racks ranked by Bayesian weight
+      - Top 15 inferred racks ranked by Bayesian weight, each marked as
+        "measured ×N" (directly evaluated N times with mini-sims) or
+        "imputed" (likelihood estimated from marginal lifts)
       - Weight concentration and effective sample size (ESS)
       - Per-tile found vs expected percentages
 
     `infer output` re-displays the summary bins from the last inference.
+
+    `infer leave <LEAVE> [<LEAVE> ...]` looks up specific leaves in the
+    posterior, e.g. `infer leave ITZ` or `infer leave ITZ AEZ`. For each
+    leave it shows its weight, posterior share and rank, the hypergeometric
+    prior, the posterior/prior lift, and whether it was measured (with the
+    evaluation count and mean likelihood) or imputed.
 
 Understanding the output:
 

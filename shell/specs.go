@@ -186,7 +186,7 @@ func init() {
 
 	registerSpec(&CommandSpec{
 		Name:  "infer",
-		Verbs: []string{"log", "details", "output"},
+		Verbs: []string{"log", "details", "output", "leave"},
 		Options: []Option{
 			{Name: "threads", Type: OptInt},
 			{Name: "time", Type: OptInt},

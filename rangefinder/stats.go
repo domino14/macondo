@@ -1,7 +1,9 @@
 package rangefinder
 
 import (
+	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
@@ -9,6 +11,133 @@ import (
 
 	"github.com/domino14/macondo/montecarlo"
 )
+
+// AnalyzeLeave reports the posterior details of one specific leave: weight,
+// rank, posterior share, hypergeometric prior, the posterior/prior lift, and
+// whether the leave was directly measured (with how many evaluations) or
+// imputed from marginal lifts.
+func (r *RangeFinder) AnalyzeLeave(leaveStr string) (string, error) {
+	if r.inference == nil || len(r.inference.InferredRacks) == 0 {
+		return "", errors.New("no inference available; run `infer` first")
+	}
+	alph := r.origGame.Alphabet()
+	// Uppercase the input: in tile notation lowercase means a blank
+	// designated as that letter, but a kept blank in a leave is just "?",
+	// so treat lowercase as the regular tile.
+	mls, err := tilemapping.ToMachineLetters(strings.ToUpper(leaveStr), alph)
+	if err != nil {
+		return "", err
+	}
+	for _, ml := range mls {
+		if int(ml) >= len(r.inferenceBagMap) {
+			return "", fmt.Errorf("tile %s cannot appear in a leave",
+				ml.UserVisible(alph, false))
+		}
+	}
+	if len(mls) != r.inference.RackLength {
+		return "", fmt.Errorf("leave %s has %d tiles; inferred leaves have %d",
+			leaveStr, len(mls), r.inference.RackLength)
+	}
+	key := leaveKey(mls)
+	display := tilemapping.MachineWord(mls).UserVisible(alph)
+
+	// Find the leave, its rank, and the total weight.
+	sumW := 0.0
+	weight := -1.0
+	for _, ir := range r.inference.InferredRacks {
+		sumW += ir.Weight
+		if weight < 0 && leaveKey(ir.Leave) == key {
+			weight = ir.Weight
+		}
+	}
+	prior := combinatorialPrior(mls, r.inferenceBagMap)
+
+	if weight < 0 {
+		if prior == 0 {
+			return fmt.Sprintf("Leave %s is impossible: its tiles are not all available in the unseen pool.\n", display), nil
+		}
+		if ml, ok := r.measured[key]; ok && ml.count > 0 && ml.sumW <= 0 {
+			return fmt.Sprintf("Leave %s: measured %d time(s) with likelihood 0 — the observed play is never chosen with this leave, so it was excluded from the posterior.\n",
+				display, ml.count), nil
+		}
+		return fmt.Sprintf("Leave %s is not in the posterior (weight below the negligible-mass cutoff).\n", display), nil
+	}
+
+	rank := 1
+	for _, ir := range r.inference.InferredRacks {
+		if ir.Weight > weight {
+			rank++
+		}
+	}
+
+	postPct := 100.0 * weight / sumW
+	var ss strings.Builder
+	fmt.Fprintf(&ss, "Leave %s: weight %.6g, posterior %.6g%% (rank %d of %d)\n",
+		display, weight, postPct, rank, len(r.inference.InferredRacks))
+	if prior > 0 {
+		fmt.Fprintf(&ss, "  prior %.6g%%, posterior/prior lift %.6gx\n",
+			100.0*prior, (weight/sumW)/prior)
+	}
+	if ml, ok := r.measured[key]; ok && ml.count > 0 {
+		fmt.Fprintf(&ss, "  measured: evaluated %d time(s), mean likelihood %.6g\n",
+			ml.count, ml.mean())
+		if r.imputeRes != nil && ml.mean() > 0 {
+			fmt.Fprintf(&ss, "  weight = prior × mean likelihood ÷ max = %.4g × %.4g ÷ %.4g = %.6g\n",
+				prior, ml.mean(), math.Exp(r.imputeRes.maxLogW),
+				math.Exp(math.Log(prior)+math.Log(ml.mean())-r.imputeRes.maxLogW))
+		}
+	} else if r.inference.Complete {
+		fmt.Fprintf(&ss, "  imputed: never directly evaluated; likelihood estimated from marginal lifts (order ≤%d)\n",
+			r.imputeRes.marginalOrder)
+		r.writeImputationWalkthrough(&ss, mls, prior)
+	}
+	return ss.String(), nil
+}
+
+// writeImputationWalkthrough prints, for an imputed leave, every sub-multiset
+// φ term with its underlying containment stats, then the chain from prior and
+// imputed likelihood to the normalized posterior weight.
+func (r *RangeFinder) writeImputationWalkthrough(ss *strings.Builder,
+	mls []tilemapping.MachineLetter, prior float64) {
+
+	if r.imputeRes == nil || r.imputeRes.model == nil || r.acc == nil ||
+		r.acc.n == 0 || r.acc.wTotal <= 0 || prior <= 0 {
+		return
+	}
+	alph := r.origGame.Alphabet()
+	mod := r.imputeRes.model
+	sorted := make([]tilemapping.MachineLetter, len(mls))
+	copy(sorted, mls)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	runs := runsOf(sorted, nil)
+	terms := mod.subleaveTerms(runs)
+	wMean := r.acc.wTotal / float64(r.acc.n)
+
+	fmt.Fprintf(ss, "  %-6s%-8s%-13s%-11s%-9s%-11s%-9s\n",
+		"sub", "n", "E[lik|sub]", "lift", "shrink", "φ", "e^φ")
+	sumPhi := 0.0
+	for _, t := range terms {
+		sumPhi += t.phi
+		sub := tilemapping.MachineWord(t.tiles).UserVisible(alph)
+		cnt, wsum := r.acc.accStats(t.tiles)
+		if cnt == 0 {
+			fmt.Fprintf(ss, "  %-6s%-8d%-13s%-11s%-9s%-11s%-9s (no data)\n",
+				sub, 0, "—", "—", "—", "0", "1")
+			continue
+		}
+		condMean := wsum / cnt
+		fmt.Fprintf(ss, "  %-6s%-8d%-13.4g%-11.4g%-9.3f%-+11.4g%-9.4g\n",
+			sub, int(cnt), condMean, condMean/wMean, cnt/(cnt+mod.lambda),
+			t.phi, math.Exp(t.phi))
+	}
+	logCalib := r.imputeRes.logCalib
+	fmt.Fprintf(ss, "  Σφ = %.4g, calibration = %.4g\n", sumPhi, logCalib)
+	lhat := math.Exp(logCalib + sumPhi)
+	fmt.Fprintf(ss, "  imputed likelihood ℓ̂ = exp(calibration + Σφ) = %.6g\n", lhat)
+	fmt.Fprintf(ss, "  weight = prior × ℓ̂ ÷ max = %.4g × %.4g ÷ %.4g = %.6g\n",
+		prior, lhat, math.Exp(r.imputeRes.maxLogW),
+		math.Exp(math.Log(prior)+logCalib+sumPhi-r.imputeRes.maxLogW))
+}
 
 func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
 	totalCt := float64(0)
@@ -44,7 +173,19 @@ func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
 	}
 
 	var headerLine string
-	if r.exhaustiveTotal > 0 {
+	if r.inference.Complete && r.imputeRes != nil {
+		// Complete-posterior mode (tile placements): every feasible leave
+		// has a weight — evaluated leaves keep their measured likelihood,
+		// the rest are imputed from marginal lifts.
+		src := "MC sampling"
+		if r.exhaustiveTotal > 0 {
+			src = "enumeration"
+		}
+		headerLine = fmt.Sprintf(
+			"Complete posterior over %d leaves (%s): %d measured holding %.1f%% of mass, %d imputed (marginal order ≤%d), tau=%.3f, ESS=%.1f\n",
+			nInferred, src, r.imputeRes.measuredLeaves, 100.0*r.imputeRes.measuredMass,
+			r.imputeRes.imputedLeaves, r.imputeRes.marginalOrder, r.Tau(), ess)
+	} else if r.exhaustiveTotal > 0 {
 		// Enumeration mode: show leaves simmed vs total, and completion %.
 		pct := 100.0 * float64(nInferred) / float64(r.exhaustiveTotal)
 		complete := "complete"
@@ -54,7 +195,7 @@ func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
 		headerLine = fmt.Sprintf("Inferred %d of %d leaves (%.1f%%, %s), tau=%.3f, ESS=%.1f\n",
 			nInferred, r.exhaustiveTotal, pct, complete, r.Tau(), ess)
 	} else {
-		// Monte Carlo sampling mode.
+		// Monte Carlo sampling mode (exchanges, or no posterior was built).
 		iterations := r.iterationCount
 		acceptRate := 0.0
 		if iterations > 0 {
@@ -77,14 +218,27 @@ func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
 			return ranked[i].Weight > ranked[j].Weight
 		})
 
-		fmt.Fprintf(&ss, "  %-6s%-12s%-12s%-12s\n", "Rank", "Leave", "Weight", "Wt %")
+		showSource := r.inference.Complete
+		if showSource {
+			fmt.Fprintf(&ss, "  %-6s%-12s%-12s%-12s%-14s\n", "Rank", "Leave", "Weight", "Wt %", "Source")
+		} else {
+			fmt.Fprintf(&ss, "  %-6s%-12s%-12s%-12s\n", "Rank", "Leave", "Weight", "Wt %")
+		}
 
 		showN := min(len(ranked), 15)
 		for i := 0; i < showN; i++ {
 			ir := ranked[i]
 			leaveStr := tilemapping.MachineWord(ir.Leave).UserVisible(alph)
 			wtPct := 100.0 * ir.Weight / sumW
-			fmt.Fprintf(&ss, "  %-6d%-12s%-12.4f%-12.1f\n", i+1, leaveStr, ir.Weight, wtPct)
+			if showSource {
+				src := "imputed"
+				if ml, ok := r.measured[leaveKey(ir.Leave)]; ok && ml.count > 0 {
+					src = fmt.Sprintf("measured ×%d", ml.count)
+				}
+				fmt.Fprintf(&ss, "  %-6d%-12s%-12.4f%-12.1f%-14s\n", i+1, leaveStr, ir.Weight, wtPct, src)
+			} else {
+				fmt.Fprintf(&ss, "  %-6d%-12s%-12.4f%-12.1f\n", i+1, leaveStr, ir.Weight, wtPct)
+			}
 		}
 		if len(ranked) > showN {
 			fmt.Fprintf(&ss, "  ... and %d more\n", len(ranked)-showN)
