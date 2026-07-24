@@ -383,11 +383,16 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 
 		evt.Type = pb.GameEvent_TIME_PENALTY
 		p.history.Events = append(p.history.Events, evt)
-		p.game.SetPlaying(pb.PlayState_GAME_OVER)
+		// p.game is created lazily on the first move/pass/exchange/rack
+		// token; a player can time out before any of those exist (the time
+		// penalty is then the game's only event), leaving p.game nil.
+		if p.game != nil {
+			p.game.SetPlaying(pb.PlayState_GAME_OVER)
 
-		err = p.game.PlayLatestEvent()
-		if err != nil {
-			return err
+			err = p.game.PlayLatestEvent()
+			if err != nil {
+				return err
+			}
 		}
 
 	case LastRackPenaltyToken:
