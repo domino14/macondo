@@ -72,8 +72,18 @@ func (r *RangeFinder) AnalyzeLeave(leaveStr string) (string, error) {
 
 	postPct := 100.0 * weight / sumW
 	var ss strings.Builder
-	fmt.Fprintf(&ss, "Leave %s: weight %.6g, posterior %.6g%% (rank %d of %d)\n",
-		display, weight, postPct, rank, len(r.inference.InferredRacks))
+	// Lead with the leave's provenance so the reader knows up front whether
+	// the weight below comes from direct evaluation or the marginal model.
+	srcTag := ""
+	if r.inference.Complete {
+		if ml, ok := r.measured[key]; ok && ml.count > 0 {
+			srcTag = fmt.Sprintf(" [MEASURED ×%d]", ml.count)
+		} else {
+			srcTag = " [IMPUTED]"
+		}
+	}
+	fmt.Fprintf(&ss, "Leave %s%s: weight %.6g, posterior %.6g%% (rank %d of %d)\n",
+		display, srcTag, weight, postPct, rank, len(r.inference.InferredRacks))
 	if prior > 0 {
 		fmt.Fprintf(&ss, "  prior %.6g%%, posterior/prior lift %.6gx\n",
 			100.0*prior, (weight/sumW)/prior)

@@ -106,6 +106,7 @@ func TestInferTilePlay(t *testing.T) {
 		measuredAnalysis, err := rangeFinder.AnalyzeLeave(measuredStr)
 		is.NoErr(err)
 		fmt.Println(measuredAnalysis)
+		is.True(strings.Contains(measuredAnalysis, "[MEASURED ×"))
 		is.True(strings.Contains(measuredAnalysis, "measured: evaluated"))
 		is.True(strings.Contains(measuredAnalysis, "weight = prior × mean likelihood ÷ max"))
 		is.True(strings.Contains(measuredAnalysis, "imputation model comparison"))
@@ -115,7 +116,7 @@ func TestInferTilePlay(t *testing.T) {
 		imputedAnalysis, err := rangeFinder.AnalyzeLeave(imputedStr)
 		is.NoErr(err)
 		fmt.Println(imputedAnalysis)
-		is.True(strings.Contains(imputedAnalysis, "imputed"))
+		is.True(strings.Contains(imputedAnalysis, "[IMPUTED]"))
 		is.True(strings.Contains(imputedAnalysis, "Σφ"))
 		is.True(strings.Contains(imputedAnalysis, "weight = prior × ℓ̂ ÷ max"))
 	}
