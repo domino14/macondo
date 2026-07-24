@@ -8,9 +8,9 @@ Tile-placement inference asks: *given the play our opponent just made, what
 tiles are they likely holding?* Bayes' rule gives the posterior over leaves
 (the tiles kept after the play):
 
-$$
+```math
 P(L \mid \text{play}) \;\propto\; P(L) \cdot P(\text{play} \mid L)
-$$
+```
 
 - **Prior** $P(L)$: the multivariate hypergeometric probability of drawing
   exactly the multiset $L$ from the unseen pool
@@ -39,10 +39,10 @@ the global mean likelihood.
 For a small sub-multiset $S$ (a single tile, a pair, or a triple — possibly
 with repeats, like $\{A,A\}$), define its **containment lift**:
 
-$$
+```math
 \mathrm{lift}(S) \;=\; \frac{\mathbb{E}[\,w \mid S \subseteq L\,]}{\mathbb{E}[w]}
 \;=\; \frac{\text{wsum}(S)/\text{cnt}(S)}{\bar w}
-$$
+```
 
 where $\text{cnt}(S)$ and $\text{wsum}(S)$ count/sum over evaluated samples
 whose leave contains $S$ (each *distinct* sub-multiset counted once per
@@ -69,9 +69,9 @@ Sub-multisets of a multiset ordered by inclusion form a **divisor lattice**
 (map each tile to a distinct prime; a sub-multiset is a divisor). Interaction
 terms $\varphi$ are defined bottom-up by Möbius inversion on that lattice:
 
-$$
+```math
 \varphi(S) \;=\; \log \mathrm{lift}(S) \;-\; \sum_{\varnothing \ne T \subsetneq S} \varphi(T)
-$$
+```
 
 For all-distinct tiles this reduces to familiar inclusion–exclusion:
 
@@ -93,9 +93,9 @@ The imputed log-likelihood of a full leave $L$ (up to the calibration
 constant of §5) is the sum of $\varphi$ over all its distinct sub-multisets up
 to order $m$:
 
-$$
+```math
 \log \hat\ell(L) \;=\; C + \sum_{\substack{S \subseteq L \\ 1 \le |S| \le m}} \varphi(S)
-$$
+```
 
 **Telescoping identity.** When $m = |L|$ and no shrinkage or clamping is
 applied, the sum telescopes exactly:
@@ -125,11 +125,11 @@ leave); measured likelihoods live on the raw softmax scale. A constant $C$
 aligns them. We choose $C$ by **moment matching over the measured leaves**
 (count-weighted, $w > 0$ only):
 
-$$
+```math
 \sum_i c_i \, e^{\,C + \sum\varphi(L_i)} \;=\; \sum_i c_i w_i
 \qquad\Longrightarrow\qquad
 C \;=\; \log\frac{\sum_i c_i w_i}{\sum_i c_i e^{\sum \varphi(L_i)}}
-$$
+```
 
 computed with log-sum-exp for stability. Under this calibration the model
 reproduces the **arithmetic** mean of the measured likelihoods exactly
@@ -138,7 +138,7 @@ reproduces the **arithmetic** mean of the measured likelihoods exactly
 ### Why not mean-of-logs (historical bug)
 
 The first implementation used
-$C = \operatorname{mean}_i\!\left(\log w_i - \sum\varphi(L_i)\right)$ —
+$C = \mathrm{mean}_i \left(\log w_i - \sum\varphi(L_i)\right)$ —
 an anchor at the **geometric** mean. Bayes' rule consumes likelihoods
 linearly, so the arithmetic scale is the right one, and by Jensen's
 inequality $\mathbb{E}[\log w] \le \log \mathbb{E}[w]$, with the gap growing
@@ -158,14 +158,14 @@ strong unmeasured leaves. Moment matching removes the bias by construction.
 drawable from the unseen pool (parallel recursive enumeration, prior computed
 incrementally in log space) and assigns:
 
-$$
+```math
 W(L) \;\propto\; P(L) \times
 \begin{cases}
 \overline{w}(L) & L \text{ measured, } \overline{w}(L) > 0 \\[2pt]
 \text{(excluded)} & L \text{ measured, } \overline{w}(L) = 0 \\[2pt]
 e^{\,C + \sum \varphi(S)} & L \text{ unmeasured}
 \end{cases}
-$$
+```
 
 where $\overline{w}(L)$ is the mean over repeat evaluations of the same
 leave. Weights are normalized so the max is 1; leaves below $10^{-15}$ of the
@@ -211,7 +211,7 @@ Reading it:
 Net $e^{\Sigma\varphi} = 1.52$: ITZ is estimated ~1.5× as likely as the
 average evaluated leave — Z's pull mostly cancelled by the I, T, and IT
 evidence. Final weight is
-$P(L)\, e^{\,C + \Sigma\varphi}$ normalized by the max.
+$P(L) \cdot e^{C + \Sigma\varphi}$ normalized by the max.
 
 ## 8. Diagnostics
 
