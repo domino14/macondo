@@ -31,6 +31,20 @@ When the inferrer is done running, it prints out stats for the tiles.
 Inferences are saved in memory. You can sim using these inferences.
 See `help sim` or do `sim -useinferences weightedrandom`.
 
+Imputation (tile plays only):
+
+    Within the time budget the engine can directly evaluate only some of the
+    feasible leaves. For tile-play inference it fills in the rest by
+    imputation: for every tile, pair, and triple it tracks how much more (or
+    less) often leaves containing it produced the observed play ("lift"), and
+    combines those lifts — without double-counting overlapping evidence — into
+    an estimated likelihood for each never-evaluated leave. The result is a
+    complete posterior over every feasible leave. Directly evaluated leaves
+    are tagged "measured", the rest "imputed". This happens automatically;
+    there are no extra options. Exchange inference still uses plain Monte
+    Carlo sampling. Sims automatically sample from the complete posterior
+    when one is available. See docs/leave_imputation.md for the math.
+
 Note: Sometimes the inference engine will display "No inference details". It
 is not broken; it was unable to find racks where the opponent's play ranked
 highly enough for it to be able to infer anything.
@@ -48,10 +62,14 @@ Optional arguments:
     `infer output` re-displays the summary bins from the last inference.
 
     `infer leave <LEAVE> [<LEAVE> ...]` looks up specific leaves in the
-    posterior, e.g. `infer leave ITZ` or `infer leave ITZ AEZ`. For each
-    leave it shows its weight, posterior share and rank, the hypergeometric
-    prior, the posterior/prior lift, and whether it was measured (with the
-    evaluation count and mean likelihood) or imputed.
+    posterior, e.g. `infer leave ITZ` or `infer leave ITZ AEZ`. Each leave
+    is tagged [MEASURED ×n] or [IMPUTED] and shows its weight, posterior
+    share and rank, the hypergeometric prior, and the posterior/prior lift,
+    followed by a calculation walkthrough: the per-subleave lift/φ table and
+    the exact chain from prior and likelihood to the final weight. For
+    measured leaves the table is shown as a comparison, ending with the
+    measured/imputed likelihood ratio — a ratio far from 1 on a ×1 leave
+    suggests a noisy single evaluation.
 
 Understanding the output:
 
