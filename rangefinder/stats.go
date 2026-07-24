@@ -85,24 +85,34 @@ func (r *RangeFinder) AnalyzeLeave(leaveStr string) (string, error) {
 			fmt.Fprintf(&ss, "  weight = prior × mean likelihood ÷ max = %.4g × %.4g ÷ %.4g = %.6g\n",
 				prior, ml.mean(), math.Exp(r.imputeRes.maxLogW),
 				math.Exp(math.Log(prior)+math.Log(ml.mean())-r.imputeRes.maxLogW))
+			fmt.Fprintf(&ss, "  imputation model comparison (not used for this leave's weight):\n")
+			if lhat, ok := r.writeSubleaveTable(&ss, mls); ok {
+				fmt.Fprintf(&ss, "  measured/imputed likelihood ratio: %.4gx\n",
+					ml.mean()/lhat)
+			}
 		}
 	} else if r.inference.Complete {
 		fmt.Fprintf(&ss, "  imputed: never directly evaluated; likelihood estimated from marginal lifts (order ≤%d)\n",
 			r.imputeRes.marginalOrder)
-		r.writeImputationWalkthrough(&ss, mls, prior)
+		if lhat, ok := r.writeSubleaveTable(&ss, mls); ok && prior > 0 {
+			fmt.Fprintf(&ss, "  weight = prior × ℓ̂ ÷ max = %.4g × %.4g ÷ %.4g = %.6g\n",
+				prior, lhat, math.Exp(r.imputeRes.maxLogW),
+				math.Exp(math.Log(prior)+math.Log(lhat)-r.imputeRes.maxLogW))
+		}
 	}
 	return ss.String(), nil
 }
 
-// writeImputationWalkthrough prints, for an imputed leave, every sub-multiset
-// φ term with its underlying containment stats, then the chain from prior and
-// imputed likelihood to the normalized posterior weight.
-func (r *RangeFinder) writeImputationWalkthrough(ss *strings.Builder,
-	mls []tilemapping.MachineLetter, prior float64) {
+// writeSubleaveTable prints every sub-multiset φ term of the leave with its
+// underlying containment stats, then Σφ, the calibration constant, and the
+// model's imputed likelihood ℓ̂, which it returns. ok is false (nothing
+// printed) when there is no imputation model to consult.
+func (r *RangeFinder) writeSubleaveTable(ss *strings.Builder,
+	mls []tilemapping.MachineLetter) (lhat float64, ok bool) {
 
 	if r.imputeRes == nil || r.imputeRes.model == nil || r.acc == nil ||
-		r.acc.n == 0 || r.acc.wTotal <= 0 || prior <= 0 {
-		return
+		r.acc.n == 0 || r.acc.wTotal <= 0 {
+		return 0, false
 	}
 	alph := r.origGame.Alphabet()
 	mod := r.imputeRes.model
@@ -132,11 +142,9 @@ func (r *RangeFinder) writeImputationWalkthrough(ss *strings.Builder,
 	}
 	logCalib := r.imputeRes.logCalib
 	fmt.Fprintf(ss, "  Σφ = %.4g, calibration = %.4g\n", sumPhi, logCalib)
-	lhat := math.Exp(logCalib + sumPhi)
+	lhat = math.Exp(logCalib + sumPhi)
 	fmt.Fprintf(ss, "  imputed likelihood ℓ̂ = exp(calibration + Σφ) = %.6g\n", lhat)
-	fmt.Fprintf(ss, "  weight = prior × ℓ̂ ÷ max = %.4g × %.4g ÷ %.4g = %.6g\n",
-		prior, lhat, math.Exp(r.imputeRes.maxLogW),
-		math.Exp(math.Log(prior)+logCalib+sumPhi-r.imputeRes.maxLogW))
+	return lhat, true
 }
 
 func (r *RangeFinder) AnalyzeInferences(detailed bool) string {

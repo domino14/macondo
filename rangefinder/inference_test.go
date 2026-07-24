@@ -108,6 +108,8 @@ func TestInferTilePlay(t *testing.T) {
 		fmt.Println(measuredAnalysis)
 		is.True(strings.Contains(measuredAnalysis, "measured: evaluated"))
 		is.True(strings.Contains(measuredAnalysis, "weight = prior × mean likelihood ÷ max"))
+		is.True(strings.Contains(measuredAnalysis, "imputation model comparison"))
+		is.True(strings.Contains(measuredAnalysis, "measured/imputed likelihood ratio"))
 	}
 	if imputedStr != "" {
 		imputedAnalysis, err := rangeFinder.AnalyzeLeave(imputedStr)
