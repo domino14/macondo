@@ -136,9 +136,9 @@ func logBinomial(n, k int) float64 {
 	return lgn - lgk - lgnk
 }
 
-// logit converts a win probability to log-odds: ln(p / (1-p)).
+// Logit converts a win probability to log-odds: ln(p / (1-p)).
 // p is clamped to [logitEps, 1-logitEps] to avoid ±Inf.
-func logit(p float64) float64 {
+func Logit(p float64) float64 {
 	if p < logitEps {
 		p = logitEps
 	} else if p > 1-logitEps {
@@ -147,37 +147,52 @@ func logit(p float64) float64 {
 	return math.Log(p / (1 - p))
 }
 
+// SoftmaxOverLogOdds returns the probability of the play at targetIdx under a
+// softmax with temperature tau over the given log-odds vector (win
+// probabilities converted with Logit). Using log-odds undoes the implicit
+// sigmoid in win probabilities, giving softmax unbounded inputs it is
+// designed for. Log-odds are tau-independent, so callers (e.g. tau-fitting
+// harnesses) can store them once and evaluate many taus cheaply. This is the
+// single source of truth for the likelihood math.
+func SoftmaxOverLogOdds(logOdds []float64, targetIdx int, tau float64) float64 {
+	if targetIdx < 0 || targetIdx >= len(logOdds) {
+		return 0
+	}
+	// Numerical stability: subtract max before exp.
+	maxLogOdds := math.Inf(-1)
+	for _, lo := range logOdds {
+		if lo > maxLogOdds {
+			maxLogOdds = lo
+		}
+	}
+	sum := 0.0
+	for _, lo := range logOdds {
+		sum += math.Exp((lo - maxLogOdds) / tau)
+	}
+	return math.Exp((logOdds[targetIdx]-maxLogOdds)/tau) / sum
+}
+
 // softmaxLikelihood computes P(targetMove | leave) as a softmax over the
-// log-odds of win probabilities of all simmed plays. Using log-odds undoes
-// the implicit sigmoid in win probabilities, giving softmax unbounded inputs
-// it is designed for. Returns (likelihood, targetWinProb); likelihood is 0
-// if the target move is not found among the plays.
+// log-odds of win probabilities of all simmed plays. Returns (likelihood,
+// targetWinProb); likelihood is 0 if the target move is not found among the
+// plays.
 func softmaxLikelihood(plays []*montecarlo.SimmedPlay, targetMove *move.Move, b *board.GameBoard, tau float64) (float64, float64) {
 	if len(plays) == 0 {
 		return 0, 0
 	}
 
-	targetWinProb := math.NaN()
-	maxLogOdds := math.Inf(-1)
-	for _, sp := range plays {
-		lo := logit(sp.WinProb())
-		if lo > maxLogOdds {
-			maxLogOdds = lo
-		}
+	logOdds := make([]float64, len(plays))
+	targetIdx := -1
+	for i, sp := range plays {
+		logOdds[i] = Logit(sp.WinProb())
 		if movesAreTheSame(sp.Move(), targetMove, b) {
-			targetWinProb = sp.WinProb()
+			targetIdx = i
 		}
 	}
-	if math.IsNaN(targetWinProb) {
+	if targetIdx == -1 {
 		return 0, 0
 	}
-
-	// Softmax over log-odds with numerical stability (subtract max before exp).
-	sum := 0.0
-	for _, sp := range plays {
-		sum += math.Exp((logit(sp.WinProb()) - maxLogOdds) / tau)
-	}
-	return math.Exp((logit(targetWinProb)-maxLogOdds)/tau) / sum, targetWinProb
+	return SoftmaxOverLogOdds(logOdds, targetIdx, tau), plays[targetIdx].WinProb()
 }
 
 type RangeFinder struct {
@@ -728,6 +743,15 @@ func (r *RangeFinder) Reset() {
 
 func (r *RangeFinder) IsBusy() bool {
 	return r.working
+}
+
+// MovesAreTheSame reports whether two moves are considered identical for
+// likelihood purposes: exact equality (with transposition allowed on an empty
+// board) or equivalent single-tile placements. Exported for harnesses that
+// must match an observed move against simmed candidates with the same
+// semantics the rangefinder uses.
+func MovesAreTheSame(m1 *move.Move, m2 *move.Move, g *board.GameBoard) bool {
+	return movesAreTheSame(m1, m2, g)
 }
 
 func movesAreTheSame(m1 *move.Move, m2 *move.Move, g *board.GameBoard) bool {
