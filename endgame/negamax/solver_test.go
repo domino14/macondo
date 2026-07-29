@@ -244,9 +244,15 @@ func TestPassFirst(t *testing.T) {
 	fmt.Println(g.Board().ToDisplayText(g.Alphabet()))
 	v, seq, _ := s.Solve(context.Background(), plies)
 
-	is.Equal(v, int16(-60))
+	// -63 is the true value: solving to 10 plies (7 tiles between the two
+	// racks, so 9 plies covers every line) returns -63 with or without the
+	// heuristics. This test searches only 8 plies, which is not deep enough to
+	// prove it; the greedy playout gets there anyway, where the static leaf
+	// used to report -60.
+	t.Logf("value %d over %d moves, %d of them searched", v, len(seq), s.NumSearchedMoves())
+	is.Equal(v, int16(-63))
 	is.Equal(seq[0].Action(), move.MoveTypePass)
-	is.Equal(len(seq), 6)
+	is.True(len(seq) >= 6)
 }
 
 func TestPolish(t *testing.T) {
@@ -314,7 +320,10 @@ func TestPolishFromGcg(t *testing.T) {
 }
 
 func TestStuckPruning(t *testing.T) {
-	// This is very slow.
+	// This is very slow: solving it exactly needs 11 plies. The greedy playout
+	// reaches the same +72 at 2 plies in a fraction of a second -- see
+	// TestStuckEndgameSolvedShallow in heuristics_test.go, which uses this same
+	// position.
 	t.Skip()
 	is := is.New(t)
 	plies := 11
@@ -505,9 +514,11 @@ func BenchmarkPassFirst(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		v, seq, _ := s.Solve(context.Background(), plies)
 
-		is.Equal(v, int16(-60))
+		// See TestPassFirst: -63 is the true value; 8 plies is not deep enough
+		// to prove it, but the greedy playout gets there anyway.
+		is.Equal(v, int16(-63))
 		is.Equal(seq[0].Action(), move.MoveTypePass)
-		is.Equal(len(seq), 6)
+		is.True(len(seq) >= 6)
 	}
 }
 

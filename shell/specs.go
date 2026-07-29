@@ -157,6 +157,7 @@ func init() {
 			{Name: "prevent-slowroll", Type: OptBool, Values: boolValues},
 			{Name: "disable-negascout", Type: OptBool, Values: boolValues},
 			{Name: "null-window", Type: OptBool, Values: boolValues},
+			{Name: "heuristics", Type: OptBool, Default: true, Values: boolValues},
 			{Name: "log", Type: OptBool, Values: boolValues},
 			{Name: "also-solve-var", Type: OptString},
 		},

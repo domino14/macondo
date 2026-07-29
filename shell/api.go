@@ -630,6 +630,10 @@ func (sc *ShellController) endgamePrepare(cmd *shellcmd) (*endgameParams, error)
 	preventSR := cmd.options.Bool("prevent-slowroll")
 	disableNegascout := cmd.options.Bool("disable-negascout")
 	nullWindow := cmd.options.Bool("null-window")
+	useHeuristics, err := cmd.options.BoolDefault("heuristics", true)
+	if err != nil {
+		return nil, err
+	}
 	// clear out the last value of this endgame node; gc should delete the tree.
 	sc.endgameSolver = new(negamax.Solver)
 
@@ -676,6 +680,7 @@ func (sc *ShellController) endgamePrepare(cmd *shellcmd) (*endgameParams, error)
 	sc.endgameSolver.SetSolveMultipleVariations(multipleVars)
 	sc.endgameSolver.SetPreventSlowroll(preventSR)
 	sc.endgameSolver.SetNegascoutOptim(!disableNegascout)
+	sc.endgameSolver.SetUseHeuristics(useHeuristics)
 
 	alsoSolveVarStr := cmd.options.String("also-solve-var")
 	if alsoSolveVarStr != "" {
@@ -714,7 +719,7 @@ func (sc *ShellController) endgameRunSync(params *endgameParams) (string, error)
 		result.WriteString(fmt.Sprintf("Spread diff: %+d. Note: this sequence may not be correct. Turn off first-win-optim to search more accurately.\n", val))
 	}
 	result.WriteString(fmt.Sprintf("Final spread after seq: %+d\n", val+int16(sc.game.CurrentSpread())))
-	result.WriteString(sc.endgameSequenceString(seq))
+	result.WriteString(sc.endgameSequenceString(seq, sc.endgameSolver.NumSearchedMoves()))
 
 	variations := sc.endgameSolver.Variations()
 	if len(variations) > 1 {

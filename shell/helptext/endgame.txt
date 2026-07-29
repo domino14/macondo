@@ -110,6 +110,22 @@ Options:
     2) if this mode cannot find a win, it may return a slightly incorrect losing
     sequence. Turn this mode off to accurately find the best losing sequence.
 
+    -heuristics false
+
+    This option turns off the endgame heuristics, which are on by default.
+    With them on, whenever the search reaches its ply limit without the game
+    having ended, it plays the position out greedily (each side taking its best
+    move) and scores the result, instead of just reporting the spread as it
+    stands. It also biases move ordering when the opponent holds tiles that
+    cannot be played anywhere: in that case there is time to build, so the
+    solver prefers to hold on to its own tiles and to try short plays that can
+    be extended later (ED, then RED, then AIRED).
+
+    These heuristics only affect leaf estimates and the order moves are tried
+    in, so a search deep enough to play the endgame out reaches the same answer
+    either way. At shallower ply counts the heuristics get much closer to the
+    right answer. Turn them off to compare, or if you suspect a bug.
+
     -multiple-vars 5
 
     Show more than one variation. By default, Macondo will find one of the

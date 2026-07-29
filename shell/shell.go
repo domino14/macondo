@@ -1231,15 +1231,26 @@ func MoveTableRow(idx int, m *move.Move, alph *tilemapping.TileMapping, bd *boar
 		bd.MoveDescriptionWithPlaythrough(m), m.Leave().UserVisible(alph), m.Score(), m.Equity())
 }
 
-func (sc *ShellController) endgameSequenceString(moves []*move.Move) string {
+// endgameSequenceString renders the endgame's best sequence. numSearched is how
+// many of the leading moves the search actually solved; anything past that came
+// from the greedy playout and is marked as an estimate.
+func (sc *ShellController) endgameSequenceString(moves []*move.Move, numSearched int) string {
 	var sb strings.Builder
 	bd := sc.game.Board().Copy()
 	sb.WriteString("Best move: ")
 	sb.WriteString(bd.MoveDescriptionWithPlaythrough(moves[0]) + "\n")
 	sb.WriteString("Best sequence:\n")
 	for idx, m := range moves {
-		fmt.Fprintf(&sb, "%d) %v (%d)\n", idx+1, bd.MoveDescriptionWithPlaythrough(m), m.Score())
+		marker := ""
+		if idx >= numSearched {
+			marker = negamax.EstimatedMoveMarker
+		}
+		fmt.Fprintf(&sb, "%d) %s%v (%d)\n", idx+1, marker, bd.MoveDescriptionWithPlaythrough(m), m.Score())
 		bd.PlaceMoveTiles(m)
+	}
+	if numSearched < len(moves) {
+		fmt.Fprintf(&sb, "(%s = estimated by greedy playout past the search depth)\n",
+			negamax.EstimatedMoveMarker)
 	}
 	return sb.String()
 }

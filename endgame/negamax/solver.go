@@ -68,6 +68,34 @@ const (
 	TilesPlayedBFOffset = 8
 )
 
+// Constants for the greedy leaf playout and the stuck-tile conservation
+// heuristics, ported from MAGPIE (src/impl/endgame.c). Both projects are GPL.
+const (
+	// Conservation bonus weights: penalize playing tiles when the opponent is
+	// stuck. MAGPIE CONSERVATION_TILE_WEIGHT / CONSERVATION_VALUE_WEIGHT.
+	conservationTileWeight  = 7
+	conservationValueWeight = 2
+	// MaxGreedyPlayoutPlies caps how many moves the greedy leaf playout may
+	// play past the negamax ply limit. Two full racks can only produce 14 tile
+	// plays, and each voluntary pass must be followed by a tile play (two
+	// consecutive scoreless turns end the game in endgame mode), so ~23 is the
+	// true worst case. MAGPIE's equivalent bound is MAX_SEARCH_DEPTH + 1 - plies.
+	MaxGreedyPlayoutPlies = MaxVariantLength
+	// maxNonGoingOutEstimate clamps non-going-out estimates so an accumulated
+	// build-chain value can never reach GoingOutBF and masquerade as a move
+	// that plays out the whole rack. macondo's estimate is an int16 with flags
+	// at 1<<11..1<<13; MAGPIE has an int32 with flags at 1<<27..1<<29 and so
+	// needs no clamp.
+	maxNonGoingOutEstimate = GoingOutBF - 1
+	// stuckMemoSize is the per-thread direct-mapped memo for oppStuckFraction.
+	// Must be a power of two.
+	stuckMemoSize = 1024
+)
+
+// EstimatedMoveMarker prefixes moves in a principal variation that came from
+// the greedy playout rather than from the search itself.
+const EstimatedMoveMarker = "~"
+
 var (
 	ErrNoEndgameSolution = errors.New("no endgame solution found")
 )
@@ -79,11 +107,16 @@ type PVLine struct {
 	g         *game.Game
 	score     int16
 	numMoves  int
+	// numSearched is how many of the leading moves came out of the alpha-beta
+	// search proper. Any moves past that are the greedy playout's estimate of
+	// how the rest of the game goes, and are displayed with a "~" prefix.
+	numSearched int
 }
 
 // Clear the principal variation line.
 func (pvLine *PVLine) Clear() {
 	pvLine.numMoves = 0
+	pvLine.numSearched = 0
 }
 
 // Update the principal variation line with a new best move and child PV.
@@ -91,11 +124,28 @@ func (pvLine *PVLine) Clear() {
 func (pvLine *PVLine) Update(sm tinymove.SmallMove, childPV *PVLine, score int16) {
 	pvLine.numMoves = 0
 	pvLine.tinyMoves[0] = sm
-	for i := 0; i < childPV.numMoves; i++ {
+	n := min(childPV.numMoves, MaxVariantLength-1)
+	for i := 0; i < n; i++ {
 		pvLine.tinyMoves[i+1] = childPV.tinyMoves[i]
 	}
-	pvLine.numMoves = childPV.numMoves + 1
+	pvLine.numMoves = n + 1
+	pvLine.numSearched = min(childPV.numSearched+1, pvLine.numMoves)
 	pvLine.score = score
+}
+
+// setPlayout records the greedy playout's moves as the whole of this line.
+// None of them came from the search.
+func (pvLine *PVLine) setPlayout(moves []tinymove.SmallMove) {
+	n := min(len(moves), MaxVariantLength)
+	copy(pvLine.tinyMoves[:n], moves[:n])
+	pvLine.numMoves = n
+	pvLine.numSearched = 0
+}
+
+// NumSearchedMoves returns how many of the leading moves in this variation were
+// found by the search itself; the rest are the greedy playout's estimate.
+func (pvLine *PVLine) NumSearchedMoves() int {
+	return pvLine.numSearched
 }
 
 // MaterializeFull populates Moves[] by replaying the PV from the current
@@ -150,6 +200,11 @@ func (pvLine *PVLine) writePV(sb *strings.Builder, linebreaks bool) {
 		conversions.TinyMoveToMove(sm.TinyMove(), bd, &m)
 		m.SetAlphabet(alph)
 		desc := bd.MoveDescriptionWithPlaythrough(&m)
+		if i >= pvLine.numSearched {
+			// Past the search horizon: this is the greedy playout's guess, not
+			// a solved move.
+			desc = EstimatedMoveMarker + desc
+		}
 		if linebreaks {
 			fmt.Fprintf(sb, "%d: %s (%d)\n", i+1, desc, sm.Score())
 		} else {
@@ -254,6 +309,23 @@ type Solver struct {
 	// prunedKWGOptim builds a smaller word graph before solving, containing
 	// only words playable with the tiles remaining in the endgame position.
 	prunedKWGOptim bool
+	// useHeuristics turns on the MAGPIE-derived endgame heuristics: the greedy
+	// leaf playout (instead of a static spread at depth 0) and the stuck-tile
+	// aware move ordering (conservation bonus + build chains). On by default.
+	useHeuristics bool
+	// magpieOrdering selects MAGPIE's move-ordering estimate over macondo's
+	// older one. Only consulted when useHeuristics is on.
+	//
+	// Off by default, because it measures worse here. Ordering never changes
+	// the minimax value, only the node count, and macondo's existing ordering
+	// needs 20-25% fewer nodes on the wide positions (VsRoy 8 plies: 14.8M vs
+	// 19.3M; VsJoey 14 plies: 14.8M vs 18.7M) while tying everywhere else --
+	// including the stuck EldarVsNigel position, where MAGPIE's build-chain
+	// logic is supposed to earn its keep but comes out within 6 nodes of the
+	// old ordering. The code is kept and tested so the choice can be revisited
+	// on other positions; the greedy leaf playout and its stuck-tile
+	// conservation (which do pay off) are unaffected by this flag.
+	magpieOrdering bool
 
 	// solveMultipleVariations will solve multiple variations in parallel.
 	solveMultipleVariations int
@@ -288,6 +360,33 @@ type Solver struct {
 	// Per-thread bump allocators for SmallMove slices used during recursive
 	// search. Using arenas avoids per-node make+GC overhead.
 	arenas []*tinymove.SmallMoveArena
+
+	// Per-thread scratch for the heuristics. All of these are sized by
+	// ensureArenas, alongside the arenas above.
+	//
+	// stuckMemo is a direct-mapped cache of oppStuckFraction keyed by the
+	// node's Zobrist hash. The stuck fraction is a pure function of the
+	// position (board + opponent rack), which the hash subsumes, so memoizing
+	// on it is safe and kills repeat work across iterative-deepening
+	// iterations, negascout re-searches and transpositions.
+	stuckMemo [][]stuckEntry
+	// stuckGen invalidates the whole memo in O(1) when the game or lexicon
+	// underneath it changes, the way Reset clears the transposition table.
+	stuckGen uint32
+	// Build-chain scratch, only touched when the opponent is stuck.
+	bcValues [][]int
+	bcOrder  [][]int
+	bcMoveA  []move.Move
+	bcMoveB  []move.Move
+}
+
+// stuckEntry is one slot of the per-thread oppStuckFraction memo. A key of 0
+// means "empty"; node key 0 is also how we signal "no transposition table", in
+// which case the memo is bypassed entirely.
+type stuckEntry struct {
+	key  uint64
+	frac float32
+	gen  uint32
 }
 
 // Init initializes the solver
@@ -301,6 +400,9 @@ func (s *Solver) Init(m movegen.MoveGenerator, game *game.Game) error {
 	s.iterativeDeepeningOptim = true
 	s.negascoutOptim = true
 	s.prunedKWGOptim = true
+	s.useHeuristics = true
+	s.magpieOrdering = false
+	s.stuckGen++
 	s.threads = max(1, runtime.NumCPU())
 	s.alsoSolveMove = tinymove.InvalidTinyMove
 	if s.stmMovegen != nil {
@@ -411,6 +513,14 @@ func (s *Solver) ensureArenas() {
 	for i := range s.arenas {
 		s.arenas[i] = tinymove.NewSmallMoveArena(tinymove.DefaultSmallMoveArenaSize)
 	}
+	s.stuckMemo = make([][]stuckEntry, s.threads)
+	for i := range s.stuckMemo {
+		s.stuckMemo[i] = make([]stuckEntry, stuckMemoSize)
+	}
+	s.bcValues = make([][]int, s.threads)
+	s.bcOrder = make([][]int, s.threads)
+	s.bcMoveA = make([]move.Move, s.threads)
+	s.bcMoveB = make([]move.Move, s.threads)
 }
 
 func (s *Solver) makeGameCopies() error {
@@ -467,11 +577,28 @@ func (s *Solver) generateSTMPlays(depth, thread int) ([]tinymove.SmallMove, bool
 	return genPlays, false
 }
 
-func (s *Solver) assignEstimates(moves []tinymove.SmallMove, depth, thread int, ttMove tinymove.TinyMove) {
+// assignEstimates scores each move for move ordering and sorts descending.
+// Estimates never change the minimax value, only the order in which alpha-beta
+// visits moves, and thus how quickly it can cut off.
+//
+// nodeKey is the position's Zobrist hash, used to memoize the opponent's stuck
+// fraction. Note this may generate moves for the opponent, which clobbers the
+// thread's movegen play list -- `moves` must already be a copy (which
+// generateSTMPlays guarantees).
+func (s *Solver) assignEstimates(moves []tinymove.SmallMove, depth, thread int, ttMove tinymove.TinyMove,
+	nodeKey uint64) {
 	g := s.game
 
 	if thread > 0 {
 		g = s.gameCopies[thread-1]
+	}
+	if s.useHeuristics && s.magpieOrdering {
+		mg := s.stmMovegen
+		if thread > 0 {
+			mg = s.movegens[thread-1]
+		}
+		s.assignEstimatesHeuristic(moves, g, mg, thread, ttMove, nodeKey)
+		return
 	}
 
 	stmRack := g.RackFor(g.PlayerOnTurn())
@@ -523,6 +650,93 @@ func (s *Solver) assignEstimates(moves []tinymove.SmallMove, depth, thread int, 
 	})
 }
 
+// assignEstimatesHeuristic is the MAGPIE move ordering (assign_estimates,
+// endgame.c:1641). Compared to the older macondo ordering it replaces the
+// "-5 per tile played" bias with MAGPIE's static endgame equity (score minus
+// the face value of the tiles played), and, when the opponent has stuck tiles,
+// adds the conservation bonus and the build-chain boost.
+func (s *Solver) assignEstimatesHeuristic(moves []tinymove.SmallMove, g *game.Game,
+	mg movegen.MoveGenerator, thread int, ttMove tinymove.TinyMove, nodeKey uint64) {
+
+	stmRack := g.RackFor(g.PlayerOnTurn())
+	pnot := (g.PlayerOnTurn() + 1) % g.NumPlayers()
+	otherRack := g.RackFor(pnot)
+	numTilesOnRack := int(stmRack.NumTiles())
+	ld := g.Bag().LetterDistribution()
+	lastMoveWasPass := g.ScorelessTurns() > g.LastScorelessTurns()
+
+	frac := s.oppStuckFraction(g, mg, nodeKey, thread)
+	buildValues := s.computeBuildChainValues(moves, g.Board(), frac, thread)
+
+	for idx := range moves {
+		m := &moves[idx]
+		tilesPlayed := m.TilesPlayed()
+		isNonPassPartial := !m.IsPass() && tilesPlayed < numTilesOnRack
+
+		bonus := 0
+		if frac > 0 && isNonPassPartial {
+			bonus = conservationBonus(m, ld, frac)
+		}
+
+		if tilesPlayed == numTilesOnRack {
+			// Going out. Credit twice the opponent's rack, as the real
+			// end-of-game scoring does.
+			m.SetEstimatedValue(int16(m.Score()+2*otherRack.ScoreOn(ld)) + GoingOutBF)
+		} else {
+			var estimate int
+			if buildValues != nil {
+				// buildValues[idx] already includes the move's own score plus
+				// any extension chain value; prorate the boost by how stuck the
+				// opponent actually is.
+				estimate = m.Score()
+				if buildValues[idx] > estimate {
+					estimate += int(frac * float32(buildValues[idx]-estimate))
+				}
+				estimate -= bonus
+			} else {
+				estimate = m.Score() - bonus
+				if isNonPassPartial {
+					// Static endgame equity: keep the high-value tiles.
+					estimate -= playedTilesFaceValue(m, ld)
+				}
+			}
+			estimate += threadJitter(s.threads, thread, tilesPlayed)
+			// Clamp so a long build chain can never reach GoingOutBF and get
+			// mistaken for a move that plays out the whole rack.
+			estimate = min(max(estimate, -maxNonGoingOutEstimate), maxNonGoingOutEstimate)
+			m.SetEstimatedValue(int16(estimate))
+		}
+
+		// XXX: should also verify validity of ttMove later.
+		if m.TinyMove() == ttMove {
+			m.AddEstimatedValue(HashMoveBF)
+		}
+
+		if lastMoveWasPass && m.IsPass() {
+			m.AddEstimatedValue(EarlyPassBF)
+		}
+	}
+	slices.SortFunc(moves, func(a, b tinymove.SmallMove) int {
+		return int(b.EstimatedValue()) - int(a.EstimatedValue())
+	})
+}
+
+// threadJitter gives each parallel search thread a slightly different move
+// order so they explore different parts of the tree. Odd threads lean toward
+// playing more tiles, even threads toward playing fewer. Translated from
+// MAGPIE's compute_thread_jitter (endgame.c:1484), minus its random component,
+// so that node counts stay reproducible.
+func threadJitter(threads, thread, tilesPlayed int) int {
+	if threads <= 1 || thread == 0 {
+		return 0
+	}
+	bias := thread * tilesPlayed
+	if thread%2 == 1 {
+		return bias
+	}
+	return -bias
+}
+
 func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error {
 	// Generate first layer of moves.
 	if plies < 2 {
@@ -559,7 +773,7 @@ func (s *Solver) iterativelyDeepenLazySMP(ctx context.Context, plies int) error 
 		s.initialMoves = make([][]tinymove.SmallMove, s.threads)
 		s.initialMoves[0], _ = s.generateSTMPlays(0, 0)
 		// assignEstimates for the very first time around.
-		s.assignEstimates(s.initialMoves[0], 0, 0, tinymove.InvalidTinyMove)
+		s.assignEstimates(s.initialMoves[0], 0, 0, tinymove.InvalidTinyMove, initialHashKey)
 
 		pv := PVLine{g: s.game}
 		// Do initial search so that we can have a good estimate for
@@ -670,7 +884,7 @@ func (s *Solver) iterativelyDeepenABDADA(ctx context.Context, plies int) error {
 		s.currentIDDepths[0] = -1
 		s.initialMoves = make([][]tinymove.SmallMove, s.threads)
 		s.initialMoves[0], _ = s.generateSTMPlays(0, 0)
-		s.assignEstimates(s.initialMoves[0], 0, 0, tinymove.InvalidTinyMove)
+		s.assignEstimates(s.initialMoves[0], 0, 0, tinymove.InvalidTinyMove, initialHashKey)
 
 		// Do initial 1-ply search for move ordering
 		pv := PVLine{g: s.game}
@@ -832,7 +1046,7 @@ func (s *Solver) iterativelyDeepenTreeSplit(ctx context.Context, plies int) erro
 		s.initialMoves = make([][]tinymove.SmallMove, s.threads)
 		s.initialMoves[0], _ = s.generateSTMPlays(0, 0)
 		// assignEstimates for the very first time around
-		s.assignEstimates(s.initialMoves[0], 0, 0, tinymove.InvalidTinyMove)
+		s.assignEstimates(s.initialMoves[0], 0, 0, tinymove.InvalidTinyMove, initialHashKey)
 	} else {
 		// Moves already set, but need to ensure array is sized for threads
 		if len(s.initialMoves) < s.threads {
@@ -1168,7 +1382,6 @@ func (s *Solver) solveWithMultipleVariations(ctx context.Context, plies int,
 	s.currentIDDepths[0] = -1
 	s.initialMoves = make([][]tinymove.SmallMove, s.threads)
 	s.initialMoves[0], _ = s.generateSTMPlays(0, 0)
-	s.assignEstimates(s.initialMoves[0], 0, 0, tinymove.InvalidTinyMove)
 
 	// Do initial 1-ply search ONCE for move ordering, just like the original code
 	initialHashKey := s.ttable.Zobrist().Hash(
@@ -1177,6 +1390,7 @@ func (s *Solver) solveWithMultipleVariations(ctx context.Context, plies int,
 		s.game.RackFor(1-s.solvingPlayer),
 		false, s.game.ScorelessTurns(),
 	)
+	s.assignEstimates(s.initialMoves[0], 0, 0, tinymove.InvalidTinyMove, initialHashKey)
 	α := -HugeNumber
 	β := HugeNumber
 	if s.firstWinOptim {
@@ -1464,7 +1678,7 @@ func (s *Solver) iterativelyDeepen(ctx context.Context, plies int) error {
 	s.initialMoves = make([][]tinymove.SmallMove, 1)
 	s.initialMoves[0], _ = s.generateSTMPlays(0, 0)
 	// assignEstimates for the very first time around.
-	s.assignEstimates(s.initialMoves[0], 0, 0, tinymove.InvalidTinyMove)
+	s.assignEstimates(s.initialMoves[0], 0, 0, tinymove.InvalidTinyMove, initialHashKey)
 	start := 1
 	if !s.iterativeDeepeningOptim {
 		start = plies
@@ -1539,9 +1753,32 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	}
 
 	if depth == 0 || g.Playing() != pb.PlayState_PLAYING {
-		// Evaluate the state.
-		// A very simple evaluation function for now. Just the current spread,
-		// even if the game is not over yet.
+		// Evaluate the state. If the game is still going, play it out greedily
+		// from here; otherwise the spread is already final.
+		if s.useHeuristics && g.Playing() == pb.PlayState_PLAYING {
+			mg := s.stmMovegen
+			if thread > 0 {
+				mg = s.movegens[thread-1]
+			}
+			val := s.greedyPlayout(g, mg, pv, nodeKey, thread)
+			if s.transpositionTableOptim && nodeKey != 0 {
+				// Cache the playout, so that revisiting this leaf -- on the next
+				// iterative-deepening pass, in a re-search, or through a
+				// transposition -- doesn't pay for it again. Only store when
+				// there is nothing deeper to clobber; a real search result is
+				// always worth more than an estimate. Same guard MAGPIE uses
+				// (endgame.c:1957).
+				existing := s.ttable.lookup(nodeKey)
+				if !existing.valid() || existing.depth() == 0 {
+					s.ttable.store(nodeKey, val-int16(ourSpread), TTExact<<6,
+						tinymove.InvalidTinyMove)
+				}
+			}
+			return val, nil
+		}
+		// Nothing follows this node, so don't leave a sibling's variation
+		// sitting in the caller's line.
+		pv.Clear()
 		spreadNow := g.SpreadFor(g.PlayerOnTurn())
 		return int16(spreadNow), nil
 	}
@@ -1555,7 +1792,7 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	if s.currentIDDepths[thread] != depth {
 		// If we're not at the top level, assign estimates. Otherwise,
 		// we assign the values as estimates in the loop below.
-		s.assignEstimates(children, depth, thread, ttMove)
+		s.assignEstimates(children, depth, thread, ttMove, nodeKey)
 	}
 
 	bestValue := -HugeNumber
@@ -1570,8 +1807,10 @@ func (s *Solver) negamax(ctx context.Context, nodeKey uint64, depth int, α, β 
 	// At depth==1 the child call immediately evaluates the spread without
 	// generating any moves, so cross-sets computed during PlaySmallMove would
 	// be discarded by UnplayLastMove without ever being read. Skip them.
+	// With heuristics on, though, the leaf does generate moves (for the greedy
+	// playout and the stuck-tile scan), so the cross-sets must be valid there.
 	playMove := g.PlaySmallMove
-	if depth == 1 {
+	if depth == 1 && !s.useHeuristics {
 		playMove = g.PlaySmallMoveNoCrossSet
 	}
 
@@ -1838,6 +2077,8 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	if s.transpositionTableOptim {
 		s.ttable.Reset(s.game.Config().GetFloat64(config.ConfigTtableMemFraction), s.game.Board().Dim())
 	}
+	// Invalidate the stuck-fraction memo along with the transposition table.
+	s.stuckGen++
 	s.game.SetEndgameMode(true)
 	defer s.game.SetEndgameMode(false)
 
@@ -1846,8 +2087,12 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 	s.nodes.Store(0)
 	var bestV int16
 	var bestSeq []*move.Move
-	// + 2 since lazysmp can search at a higher ply count
-	s.game.SetStateStackLength(plies + 2)
+	// + 2 since lazysmp can search at a higher ply count, and room on top of
+	// that for the greedy leaf playout, which plays moves past the ply limit.
+	// Thread copies inherit this length via game.Copy (makeGameCopies runs
+	// later). Sized unconditionally so that SetUseHeuristics never has to be
+	// called before Solve.
+	s.game.SetStateStackLength(plies + 2 + MaxGreedyPlayoutPlies)
 
 	g := &errgroup.Group{}
 	done := make(chan bool)
@@ -1904,6 +2149,13 @@ func (s *Solver) Solve(ctx context.Context, plies int) (int16, []*move.Move, err
 
 func (s *Solver) ShortDetails() string {
 	return s.principalVariation.NLBString()
+}
+
+// NumSearchedMoves returns how many moves at the front of the sequence returned
+// by Solve were found by the search itself. Any moves past that came from the
+// greedy playout and are only an estimate of how the game finishes.
+func (s *Solver) NumSearchedMoves() int {
+	return s.principalVariation.NumSearchedMoves()
 }
 
 // GetMetrics returns the timing and transposition table stats from the last solve
@@ -2042,6 +2294,21 @@ func (s *Solver) SetNegascoutOptim(n bool) {
 
 func (s *Solver) SetPrunedKWGOptim(v bool) {
 	s.prunedKWGOptim = v
+}
+
+// SetUseHeuristics turns the MAGPIE-derived endgame heuristics on or off. When
+// off, the solver behaves exactly as it did before they were added: a static
+// spread at the leaf and the older move-ordering estimates.
+func (s *Solver) SetUseHeuristics(v bool) {
+	s.useHeuristics = v
+}
+
+// SetMagpieOrdering switches move ordering to MAGPIE's estimate (static endgame
+// equity, plus conservation and build chains when the opponent is stuck).
+// Off by default -- see the field comment for the measurements. Only has an
+// effect while heuristics are on.
+func (s *Solver) SetMagpieOrdering(v bool) {
+	s.magpieOrdering = v
 }
 
 func (s *Solver) IsSolving() bool {
