@@ -104,7 +104,7 @@ func init() {
 		Name:  "peg",
 		Verbs: []string{"stop", "output"},
 		Options: []Option{
-			{Name: "endgameplies", Type: OptInt, Default: 4,
+			{Name: "endgameplies", Type: OptInt, Default: 3,
 				Help: "how many plies to search in each endgame"},
 			{Name: "maxtime", Type: OptInt, Default: 0,
 				Help: "max solve time in seconds; 0 = unlimited"},

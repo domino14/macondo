@@ -499,7 +499,7 @@ func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
 	s.ttable.SetMultiThreadedMode()
 	s.game = g.Copy()
 	s.game.SetBackupMode(game.SimulationMode)
-	s.curEndgamePlies = 4
+	s.curEndgamePlies = 3
 	s.maxEndgamePlies = s.curEndgamePlies
 	s.iterativeDeepening = true
 	s.gaddag = gd

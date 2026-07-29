@@ -39,7 +39,18 @@ import (
 	wmppkg "github.com/domino14/macondo/wmp"
 )
 
+// defaultEndgamePlies is the default depth for `endgame`. This is a single
+// deliberate solve where the point is a proven answer, so it does not follow
+// the pre-endgame default down.
 const defaultEndgamePlies = 4
+
+// defaultPEGEndgamePlies is the default depth of each endgame solved inside
+// `peg`. Lower than defaultEndgamePlies: the pre-endgame runs one endgame per
+// candidate play per tile draw and only needs to know who wins, and the endgame
+// solver now plays the game out greedily past its ply limit instead of
+// reporting the spread as it stands, so shallow searches are much closer to
+// correct than the depth suggests.
+const defaultPEGEndgamePlies = 3
 
 //go:embed render_template.html
 var renderTemplateHTML string
@@ -821,7 +832,7 @@ func (sc *ShellController) pegPrepare(cmd *shellcmd) (*pegParams, error) {
 
 	knownOppRack := cmd.options.String("opprack")
 
-	if endgamePlies, err = cmd.options.IntDefault("endgameplies", defaultEndgamePlies); err != nil {
+	if endgamePlies, err = cmd.options.IntDefault("endgameplies", defaultPEGEndgamePlies); err != nil {
 		return nil, err
 	}
 	if maxtime, err = cmd.options.IntDefault("maxtime", 0); err != nil {

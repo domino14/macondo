@@ -32,7 +32,7 @@ func makeExplainSolver(t *testing.T, bagTailStr string) *Solver {
 	m := move.NewScoringMoveSimple(32, "13M", "P..", "?ANNOY", g.Alphabet())
 	peg.SetSolveOnly([]*move.Move{m})
 	peg.SetThreads(1)
-	peg.SetEndgamePlies(4)
+	peg.SetEndgamePlies(3)
 	peg.SetIterativeDeepening(false)
 	peg.SetNestedDepthLimit(1)
 	peg.SetSkipDeepPass(true)
@@ -139,7 +139,7 @@ func TestExplainModeNoRegression(t *testing.T) {
 	m := move.NewScoringMoveSimple(32, "13M", "P..", "?ANNOY", g.Alphabet())
 	peg.SetSolveOnly([]*move.Move{m})
 	peg.SetThreads(1)
-	peg.SetEndgamePlies(4)
+	peg.SetEndgamePlies(3)
 	peg.SetIterativeDeepening(false)
 	peg.SetSkipTiebreaker(true)
 

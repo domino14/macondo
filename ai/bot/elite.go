@@ -57,8 +57,11 @@ func eliteBestPlay(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 				p.Game.RackFor(p.Game.NextPlayer()).Add(t)
 			}
 		}
-		// Just some sort of estimate
-		endgamePlies = unseen + int(p.Game.RackFor(p.Game.PlayerOnTurn()).NumTiles())
+		// Just some sort of estimate. One less than the tiles left to play:
+		// the endgame solver's greedy leaf playout finishes the game from
+		// wherever the search stops, so the deepest iteration -- by far the
+		// most expensive one -- earns much less than it used to.
+		endgamePlies = unseen + int(p.Game.RackFor(p.Game.PlayerOnTurn()).NumTiles()) - 1
 	} else if unseen > 7 && unseen <= 8 {
 		usePreendgame = true
 	} else if unseen > 8 && unseen <= 14 {
@@ -150,14 +153,12 @@ func preendgameBest(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 	switch {
 	case ourSpread >= 100:
 		p.preendgamer.SetEndgamePlies(2)
-	case ourSpread >= 80:
+	case ourSpread >= 75:
 		p.preendgamer.SetEndgamePlies(3)
-	case ourSpread >= 60:
-		p.preendgamer.SetEndgamePlies(4)
 	case ourSpread >= 50:
-		p.preendgamer.SetEndgamePlies(5)
+		p.preendgamer.SetEndgamePlies(4)
 	default:
-		p.preendgamer.SetEndgamePlies(7)
+		p.preendgamer.SetEndgamePlies(5)
 	}
 	p.preendgamer.SetIterativeDeepening(true)
 	if p.cfg.UseOppRacksInAnalysis {
