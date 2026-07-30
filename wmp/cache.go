@@ -17,13 +17,25 @@ import (
 	"github.com/domino14/word-golib/tilemapping"
 )
 
-// ensureMu serializes concurrent EnsureWMP calls so that only one goroutine
-// attempts to build and write the WMP file for a given lexicon at a time.
-// After the file is on disk the global object cache handles deduplication, so
-// this mutex is only contended during the (rare) initial build.
+// ensureMu serializes the check-build-write sequence in EnsureWMP so that
+// concurrent callers (e.g. autoplay goroutines) don't all race to build the
+// same lexicon. It also guards builtWMPs.
 var ensureMu sync.Mutex
 
+// builtWMPs memoizes WMPs built by EnsureWMP, keyed by .wmp path. Built
+// WMPs can't go into word-golib's global object cache: that cache only
+// populates itself through a load function which it calls with its own
+// non-reentrant mutex held, and building needs kwg.GetKWG and
+// tilemapping.ProbableLetterDistribution, both of which take that same
+// mutex. Building inside a load function deadlocks. So the build happens
+// out here and the result is memoized here.
+var builtWMPs = map[string]*WMP{}
+
 const CacheKeyPrefixWMP = "wmp:"
+
+func wmpPathFor(cfg *wglconfig.Config, name string) string {
+	return filepath.Join(cfg.DataPath, "lexica", name+".wmp")
+}
 
 // CacheLoadFuncWMP loads a WMP for the given lexicon key from disk.
 // It does NOT build the WMP if the file is absent — callers that want
@@ -32,7 +44,7 @@ const CacheKeyPrefixWMP = "wmp:"
 // that writes the file to disk will succeed on the next GetWMP call.
 func CacheLoadFuncWMP(cfg *wglconfig.Config, key string) (interface{}, error) {
 	name := strings.TrimPrefix(key, CacheKeyPrefixWMP)
-	wmpPath := filepath.Join(cfg.DataPath, "lexica", name+".wmp")
+	wmpPath := wmpPathFor(cfg, name)
 	if _, err := os.Stat(wmpPath); err != nil {
 		return nil, fmt.Errorf("WMP file not found for %s at %s", name, wmpPath)
 	}
@@ -55,50 +67,58 @@ func GetWMP(cfg *wglconfig.Config, name string) (*WMP, error) {
 	return w, nil
 }
 
-// EnsureWMP ensures the WMP for the named lexicon is on disk and in the
-// global cache. If the .wmp file is already present, EnsureWMP is equivalent
-// to GetWMP. If not, it builds the WMP from the KWG (which may take several
-// minutes for large lexicons), saves it to disk, and caches it.
+// EnsureWMP returns the WMP for the named lexicon, building it from the KWG
+// when the .wmp file is not on disk. A built WMP is saved for next time if
+// the lexica directory is writable; if it isn't (a read-only data mount, for
+// instance), the WMP is still returned and memoized, so the build cost is
+// paid once per process instead of once per call.
 //
-// This is an interactive / setup operation and should only be called from
-// paths where the user is willing to wait (e.g. shell "set lexicon" or
-// "load" commands). Automated / test paths should use GetWMP (or
-// TryLoadWMP) so they never trigger an unexpectedly long build.
+// Building takes a second or two per lexicon and a few hundred MB of
+// transient memory, so callers on a latency budget should prefer a
+// pre-built .wmp file on disk.
 func EnsureWMP(cfg *wglconfig.Config, name string) (*WMP, error) {
-	wmpPath := filepath.Join(cfg.DataPath, "lexica", name+".wmp")
+	wmpPath := wmpPathFor(cfg, name)
 
-	// Serialize the check-build-write sequence so that concurrent callers
-	// (e.g. autoplay goroutines) don't all race to build the same file.
 	ensureMu.Lock()
-	_, statErr := os.Stat(wmpPath)
-	if statErr != nil {
-		// File not on disk — build from KWG.
-		log.Info().Str("lexicon", name).Msg("WMP not found; building from KWG (this may take a few seconds)...")
-		gd, err := kwg.GetKWG(cfg, name)
-		if err != nil {
-			ensureMu.Unlock()
-			return nil, fmt.Errorf("cannot build WMP for %s: KWG not available: %w", name, err)
-		}
-		ld, err := tilemapping.ProbableLetterDistribution(cfg, name)
-		if err != nil {
-			ensureMu.Unlock()
-			return nil, fmt.Errorf("cannot build WMP for %s: letter distribution unavailable: %w", name, err)
-		}
-		// Use boardDim=15 for standard crossword boards. WMP only supports 15×15 boards.
-		w, buildErr := MakeFromKWG(gd, ld, 15, runtime.NumCPU())
-		if buildErr != nil {
-			ensureMu.Unlock()
-			return nil, fmt.Errorf("WMP build failed for %s: %w", name, buildErr)
-		}
-		if wErr := w.WriteToFile(wmpPath); wErr != nil {
-			log.Warn().Err(wErr).Str("path", wmpPath).
-				Msg("WMP built but could not be saved to disk; it will be rebuilt next session")
-		} else {
-			log.Info().Str("lexicon", name).Str("path", wmpPath).Msg("WMP built and saved")
-		}
-	}
-	ensureMu.Unlock()
+	defer ensureMu.Unlock()
 
-	// File is now on disk (either pre-existing or just written). Load via cache.
-	return GetWMP(cfg, name)
+	if w, ok := builtWMPs[wmpPath]; ok {
+		return w, nil
+	}
+	if _, err := os.Stat(wmpPath); err == nil {
+		// Already on disk; the global object cache dedupes the load.
+		w, err := GetWMP(cfg, name)
+		if err == nil {
+			return w, nil
+		}
+		// The file is there but unreadable — truncated by an interrupted
+		// write, say. Fall through and rebuild rather than failing on it
+		// for the life of the process (and every process after).
+		log.Warn().Err(err).Str("path", wmpPath).Msg("could not load WMP; rebuilding it")
+	}
+
+	log.Info().Str("lexicon", name).Msg("WMP not found; building from KWG (this takes a second or two)...")
+	gd, err := kwg.GetKWG(cfg, name)
+	if err != nil {
+		return nil, fmt.Errorf("cannot build WMP for %s: KWG not available: %w", name, err)
+	}
+	ld, err := tilemapping.ProbableLetterDistribution(cfg, name)
+	if err != nil {
+		return nil, fmt.Errorf("cannot build WMP for %s: letter distribution unavailable: %w", name, err)
+	}
+	// Use boardDim=15 for standard crossword boards. WMP only supports 15×15 boards.
+	w, err := MakeFromKWG(gd, ld, 15, runtime.NumCPU())
+	if err != nil {
+		return nil, fmt.Errorf("WMP build failed for %s: %w", name, err)
+	}
+	w.Name = name
+
+	if wErr := w.WriteToFile(wmpPath); wErr != nil {
+		log.Warn().Err(wErr).Str("path", wmpPath).
+			Msg("WMP built but could not be saved to disk; using it from memory and rebuilding next session")
+	} else {
+		log.Info().Str("lexicon", name).Str("path", wmpPath).Msg("WMP built and saved")
+	}
+	builtWMPs[wmpPath] = w
+	return w, nil
 }
