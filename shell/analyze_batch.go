@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -21,12 +23,12 @@ import (
 
 // GameSource represents a source for loading a game
 type GameSource struct {
-	Type       string // "woogles", "xt", "file", "web"
-	Identifier string // game ID or file path
+	Type       string // "woogles", "xt", "file", "dir", "web"
+	Identifier string // game ID, file path, or directory path
 	Original   string // original source string (for display)
 }
 
-// parseGameSource parses a game source string (e.g., "woog:ABC123", "xt:12345", "/path/to/game.gcg", "woogcollection:UUID")
+// parseGameSource parses a game source string (e.g., "woog:ABC123", "xt:12345", "/path/to/game.gcg", "/path/to/games/", "woogcollection:UUID")
 func parseGameSource(source string) (*GameSource, error) {
 	if strings.HasPrefix(source, "woogcollection:") {
 		return &GameSource{
@@ -53,13 +55,40 @@ func parseGameSource(source string) (*GameSource, error) {
 			Original:   source,
 		}, nil
 	} else {
-		// Assume it's a file path
+		// A path, either a single game or a folder of them. A path that can't
+		// be stat'ed is left as a file so the loader reports what went wrong.
+		if info, err := os.Stat(source); err == nil && info.IsDir() {
+			return &GameSource{
+				Type:       "dir",
+				Identifier: source,
+				Original:   source,
+			}, nil
+		}
 		return &GameSource{
 			Type:       "file",
 			Identifier: source,
 			Original:   source,
 		}, nil
 	}
+}
+
+// gcgFilesInDir returns every .gcg file at or below dir, in the order WalkDir
+// visits them, which is lexical within each directory.
+func gcgFilesInDir(dir string) ([]string, error) {
+	var paths []string
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.EqualFold(filepath.Ext(path), ".gcg") {
+			paths = append(paths, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return paths, nil
 }
 
 // WooglesCollectionGame represents a game in a collection
@@ -179,8 +208,9 @@ func (sc *ShellController) analyzeBatch(cmd *shellcmd) (*Response, error) {
 			return nil, fmt.Errorf("failed to parse source %s: %w", arg, err)
 		}
 
-		// If it's a collection, expand it into individual game sources
-		if source.Type == "collection" {
+		// Collections and folders stand for many games; expand them.
+		switch source.Type {
+		case "collection":
 			sc.showMessage(fmt.Sprintf("Fetching collection: %s", source.Identifier))
 			gameIDs, err := sc.fetchWooglesCollection(source.Identifier)
 			if err != nil {
@@ -200,9 +230,38 @@ func (sc *ShellController) analyzeBatch(cmd *shellcmd) (*Response, error) {
 					Original:   fmt.Sprintf("woog:%s (from woogcollection:%s)", gameID, source.Identifier),
 				})
 			}
-		} else {
+
+		case "dir":
+			sc.showMessage(fmt.Sprintf("Scanning folder for .gcg files: %s", source.Identifier))
+			paths, err := gcgFilesInDir(source.Identifier)
+			if err != nil {
+				if !continueOnError {
+					return nil, fmt.Errorf("failed to scan folder %s: %w", source.Identifier, err)
+				}
+				sc.showMessage(fmt.Sprintf("  Error scanning folder: %v", err))
+				continue
+			}
+			if len(paths) == 0 {
+				sc.showMessage("  No .gcg files found")
+				continue
+			}
+			sc.showMessage(fmt.Sprintf("  Found %d .gcg files", len(paths)))
+
+			for _, path := range paths {
+				sources = append(sources, &GameSource{
+					Type:       "file",
+					Identifier: path,
+					Original:   path,
+				})
+			}
+
+		default:
 			sources = append(sources, source)
 		}
+	}
+
+	if len(sources) == 0 {
+		return nil, errors.New("no games to analyze")
 	}
 
 	// Create batch result
