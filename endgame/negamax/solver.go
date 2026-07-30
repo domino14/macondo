@@ -378,6 +378,10 @@ type Solver struct {
 	bcOrder  [][]int
 	bcMoveA  []move.Move
 	bcMoveB  []move.Move
+	// Candidate scratch for the playout's one-tile fast path: the best
+	// placement plus the pass. Per-thread and solver-owned so that taking a
+	// pointer into it does not force a heap allocation at every leaf.
+	singleTileBuf [][2]tinymove.SmallMove
 }
 
 // stuckEntry is one slot of the per-thread oppStuckFraction memo. A key of 0
@@ -521,6 +525,7 @@ func (s *Solver) ensureArenas() {
 	s.bcOrder = make([][]int, s.threads)
 	s.bcMoveA = make([]move.Move, s.threads)
 	s.bcMoveB = make([]move.Move, s.threads)
+	s.singleTileBuf = make([][2]tinymove.SmallMove, s.threads)
 }
 
 func (s *Solver) makeGameCopies() error {

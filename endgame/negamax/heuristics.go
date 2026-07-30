@@ -105,6 +105,191 @@ func stuckFractionFromBV(ld *tilemapping.LetterDistribution, rack *tilemapping.R
 	return float32(stuckScore) / float32(totalScore)
 }
 
+// bestSingleTilePlay finds the highest-scoring placement of a one-tile rack by
+// scanning the board directly, instead of walking the word graph. Translated
+// from MAGPIE's generate_single_tile_plays (endgame.c:1172).
+//
+// With one tile there is no word to build: legality is decided entirely by the
+// two cross sets at the square, and the score needs no traversal because the
+// perpendicular words' existing tiles are already summed in the cross scores.
+// Returns false when the tile cannot be played anywhere.
+//
+// The caller must pass a rack holding exactly one tile; this does not check,
+// and would silently score a placement of whichever tile it found first.
+//
+// Note the axis convention differs from MAGPIE's. Here GetCrossScore(r, c, D)
+// is the sum of the existing tiles in the word running in direction D through
+// (r, c) -- the argument names the cross word's own direction, which is how
+// board.ScoreWord and TinyMoveToFullMove use it, and which board/cross_set.go
+// documents for the matching cross *sets*. MAGPIE's cross_score is indexed by
+// the perpendicular direction instead, so a literal transliteration scores
+// wrong -- and wrong nearly everywhere, not just where words cross, because a
+// square with no word in direction D stores crossScore(D) = 0, so the swap
+// drops the whole word the tile was attaching to.
+//
+// Only the legality test is direction-blind: it intersects both cross sets,
+// since one tile forms a word in both directions at once.
+//
+// Two things this deliberately does not do. It reports no play on an empty
+// board, where an opening play would in fact be legal -- unreachable here,
+// since an endgame always has tiles down. And when the tile is a blank it takes
+// the lowest allowed designation, which can differ from the one full move
+// generation would have picked; the score is identical either way (a blank is
+// worth nothing) but the letter left on the board differs, so the rest of the
+// rollout can diverge. Both are the same class of freedom as the tie-break
+// between equal-scoring placements.
+func bestSingleTilePlay(b *board.GameBoard, rack *tilemapping.Rack,
+	ld *tilemapping.LetterDistribution) (tinymove.SmallMove, bool) {
+
+	// The single tile on the rack.
+	tile := tilemapping.MachineLetter(0)
+	for ml, count := range rack.LetArr {
+		if count > 0 {
+			tile = tilemapping.MachineLetter(ml)
+			break
+		}
+	}
+	isBlank := tile == 0
+
+	dim := b.Dim()
+	squares := b.SquaresSlice()
+	hCrossSets := b.CrossSetsForDir(board.HorizontalDirection)
+	vCrossSets := b.CrossSetsForDir(board.VerticalDirection)
+	rowMul := b.GetSqIdx(1, 0)
+	colMul := b.GetSqIdx(0, 1)
+
+	var occupied [board.MaxBoardDim]uint32
+	for r := 0; r < dim; r++ {
+		var mask uint32
+		base := r * rowMul
+		for c := 0; c < dim; c++ {
+			if squares[base+c*colMul] != 0 {
+				mask |= 1 << uint(c)
+			}
+		}
+		occupied[r] = mask
+	}
+	occAt := func(r, c int) bool {
+		if r < 0 || r >= dim || c < 0 || c >= dim {
+			return false
+		}
+		return occupied[r]&(1<<uint(c)) != 0
+	}
+
+	found := false
+	bestScore := 0
+	bestRow, bestCol, bestStart, bestLen := 0, 0, 0, 0
+	bestVertical := false
+	bestML := tile
+
+	tileFace := 0
+	if !isBlank {
+		tileFace = ld.Score(tile)
+	}
+
+	for r := 0; r < dim; r++ {
+		base := r * rowMul
+		for c := 0; c < dim; c++ {
+			if occupied[r]&(1<<uint(c)) != 0 {
+				continue
+			}
+			hasH := occAt(r, c-1) || occAt(r, c+1)
+			hasV := occAt(r-1, c) || occAt(r+1, c)
+			if !hasH && !hasV {
+				continue
+			}
+
+			idx := base + c*colMul
+			combined := uint64(hCrossSets[idx]) & uint64(vCrossSets[idx])
+			if isBlank {
+				// A blank plays if the intersection admits any real letter.
+				// Bit 0 is the blank marker, not a letter, so shift it out.
+				if combined>>1 == 0 {
+					continue
+				}
+			} else if combined&(1<<uint(tile)) == 0 {
+				continue
+			}
+
+			lm := b.GetLetterMultiplier(idx)
+			wm := b.GetWordMultiplier(idx)
+			tileLS := tileFace * lm
+			score := 0
+			if hasH {
+				score += (tileLS + b.GetCrossScore(r, c, board.HorizontalDirection)) * wm
+			}
+			if hasV {
+				score += (tileLS + b.GetCrossScore(r, c, board.VerticalDirection)) * wm
+			}
+			if found && score <= bestScore {
+				continue
+			}
+
+			// Only on a strict improvement do we pay for the word extent and,
+			// for a blank, the letter choice.
+			vertical := hasV && !hasH
+			start, end := c, c
+			if !vertical {
+				for start > 0 && occAt(r, start-1) {
+					start--
+				}
+				for end < dim-1 && occAt(r, end+1) {
+					end++
+				}
+			} else {
+				start, end = r, r
+				for start > 0 && occAt(start-1, c) {
+					start--
+				}
+				for end < dim-1 && occAt(end+1, c) {
+					end++
+				}
+			}
+			chosen := tile
+			if isBlank {
+				// A blank scores 0 whatever it is designated, so every allowed
+				// letter ties; take the lowest.
+				numLetters := int(ld.TileMapping().NumLetters())
+				for ml := tilemapping.MachineLetter(1); int(ml) < numLetters; ml++ {
+					if combined&(1<<uint(ml)) != 0 {
+						chosen = ml
+						break
+					}
+				}
+			}
+
+			found = true
+			bestScore = score
+			bestRow, bestCol = r, c
+			bestStart, bestLen = start, end-start+1
+			bestVertical = vertical
+			bestML = chosen
+		}
+	}
+
+	if !found {
+		return tinymove.SmallMove{}, false
+	}
+
+	// Encode exactly as AllPlaysSmallRecorder does: true board coordinates,
+	// with the word's start along the play direction.
+	var moveCode uint64
+	moveCode |= uint64(bestML) << 20
+	if isBlank {
+		moveCode |= 1 << 12
+	}
+	row, col := bestRow, bestStart
+	if bestVertical {
+		moveCode |= 1
+		row, col = bestStart, bestCol
+	}
+	moveCode |= uint64(col) << 1
+	moveCode |= uint64(row) << 6
+
+	return tinymove.TilePlayMove(tinymove.TinyMove(moveCode), int16(bestScore), 1,
+		uint8(bestLen)), true
+}
+
 // boardPlayableTilesBV scans the board once and returns a bitvector of every
 // machine letter that has a legal single-tile play somewhere. Translated from
 // MAGPIE's board_get_playable_tiles_bv (board.h:899); a square is a candidate
@@ -280,8 +465,27 @@ func (s *Solver) greedyPlayout(g *game.Game, mg movegen.MoveGenerator, pv *PVLin
 	played := 0
 	for played < budget && g.Playing() == pb.PlayState_PLAYING {
 		onTurn := g.PlayerOnTurn()
-		mg.GenAll(g.RackFor(onTurn), false)
-		plays := mg.SmallPlays()
+		rack := g.RackFor(onTurn)
+		var plays []tinymove.SmallMove
+		if rack.NumTiles() == 1 {
+			// One tile left: a board scan beats walking the word graph, and it
+			// stays correct under conservation because every placement of the
+			// same lone tile carries the identical conservation bonus (one tile,
+			// one face value), so the highest-scoring placement is still the
+			// one the picker below would choose.
+			buf := &s.singleTileBuf[thread]
+			n := 0
+			if m, ok := bestSingleTilePlay(g.Board(), rack, ld); ok {
+				buf[n] = m
+				n++
+			}
+			buf[n] = tinymove.PassMove()
+			n++
+			plays = buf[:n]
+		} else {
+			mg.GenAll(rack, false)
+			plays = mg.SmallPlays()
+		}
 		if len(plays) == 0 {
 			break
 		}
