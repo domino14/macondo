@@ -208,7 +208,7 @@ func validateWords(lex lexicon.Lexicon, words []tilemapping.MachineWord, variant
 	alph := lex.GetAlphabet()
 	for _, word := range words {
 		var valid bool
-		if variant == VarWordSmog || variant == VarWordSmogSuper {
+		if IsWordSmog(variant) {
 			valid = lex.HasAnagram(word)
 		} else {
 			valid = lex.HasWord(word)

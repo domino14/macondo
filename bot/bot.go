@@ -217,7 +217,6 @@ func (b *Bot) handle(data []byte) *pb.BotResponse {
 		// Generate all possible moves.
 		return b.evaluationResponse(evalReq)
 	}
-	isWordSmog := g.Rules().Variant() == game.VarWordSmog || g.Rules().Variant() == game.VarWordSmogSuper
 	// See if we need to challenge the last move
 	valid := true
 	if g.LastEvent() != nil && g.LastEvent().Type == pb.GameEvent_TILE_PLACEMENT_MOVE {
@@ -238,18 +237,7 @@ func (b *Bot) handle(data []byte) *pb.BotResponse {
 				return errorResponse(ErrNeedSimmingBot.Error(), nil)
 			}
 
-			var moves []*move.Move
-			if !isWordSmog {
-				moves = b.game.GenerateMoves(1)
-			} else {
-				moves, err = wolgesAnalyze(b.config, b.game)
-				if err != nil {
-					log.Err(err).Msg("wolges-analyze-error")
-					// Just generate a move using the regular generator.
-					moves = b.game.GenerateMoves(1)
-				}
-			}
-			m = moves[0]
+			m = b.game.GenerateMoves(1)[0]
 		}
 	} else {
 		m, _ = g.NewPassMove(g.PlayerOnTurn())

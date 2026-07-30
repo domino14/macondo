@@ -58,7 +58,14 @@ func AddAIFields(p *turnplayer.BaseTurnPlayer, conf *config.Config, calculators 
 		return nil, err
 	}
 	gen := movegen.NewGordonGenerator(gd, p.Board(), p.Bag().LetterDistribution())
+	if game.IsWordSmog(p.Rules().Variant()) {
+		gen.SetWordSmog(p.Rules().AlphaDawg())
+	}
 	gen.SetEquityCalculators(calculators)
+	// The top-N recorder computes equity inline and needs the game for bag and
+	// opponent-rack state. Callers that swap in their own game copy (the
+	// simmer, the autoplay runner) still override this afterwards.
+	gen.SetGame(p.Game)
 	ret := &AIStaticTurnPlayer{*p, calculators, gen, conf}
 	return ret, nil
 }
@@ -105,9 +112,15 @@ func (p *AIStaticTurnPlayer) GenerateMoves(numPlays int) []*move.Move {
 	unseen := int(oppRack.NumTiles()) + p.Bag().TilesRemaining()
 	exchAllowed := unseen-game.RackTileLimit >= p.ExchangeLimit()
 	p.gen.SetMaxCanExchange(game.MaxCanExchange(unseen-game.RackTileLimit, p.ExchangeLimit()))
-	p.gen.GenAll(curRack, exchAllowed)
 
-	plays := p.gen.(*movegen.GordonGenerator).Plays()
+	gg := p.gen.(*movegen.GordonGenerator)
+	if plays, ok := GenerateWordSmogTopPlays(gg, curRack, exchAllowed, numPlays); ok {
+		p.AssignEquity(plays, p.Board(), p.Bag(), oppRack)
+		return p.TopPlays(plays, numPlays)
+	}
+
+	p.gen.GenAll(curRack, exchAllowed)
+	plays := gg.Plays()
 	p.AssignEquity(plays, p.Board(), p.Bag(), oppRack)
 	return p.TopPlays(plays, numPlays)
 }

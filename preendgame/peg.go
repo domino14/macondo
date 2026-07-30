@@ -487,6 +487,11 @@ type Solver struct {
 
 // Init initializes the solver. It creates all the parallel endgame solvers.
 func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
+	if game.IsWordSmog(g.Rules().Variant()) {
+		// The pre-endgame solver leans on the endgame solver, which has no
+		// alpha dawg support yet.
+		return errors.New("the pre-endgame solver does not support WordSmog yet")
+	}
 	s.ttable = negamax.GlobalTranspositionTable
 	s.threads = max(1, runtime.NumCPU())
 	s.threadLogs = make([]jobLog, s.threads)

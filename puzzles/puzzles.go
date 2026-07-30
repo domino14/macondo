@@ -376,10 +376,9 @@ func isPhony(k *kwg.KWG, word, variant string) (bool, error) {
 		return false, err
 	}
 	var valid bool
-	switch string(variant) {
-	case string(game.VarWordSmog):
+	if game.IsWordSmog(game.Variant(variant)) {
 		valid = lex.HasAnagram(machineWord)
-	default:
+	} else {
 		valid = lex.HasWord(machineWord)
 	}
 	return !valid, nil
