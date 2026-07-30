@@ -66,6 +66,33 @@ const MaxHeatMapIterations = 7500
 // negligibly higher win probability.
 const winPctSortEpsilon = 1e-9
 
+// winProbsIndistinguishable reports whether two win probabilities are too close,
+// or too saturated, to rank plays by.
+//
+// Differences below winPctSortEpsilon are floating-point noise. Past that, once
+// both plays are certain wins (or both certain losses) the game is decided and
+// all that is left of the win probability is sampling jitter in its last few
+// decimal places. Win probability per iteration is a table lookup on the final
+// spread rather than a win/loss count, so a pair of certain wins lands on values
+// like 0.999999999 and 0.999999989 -- a meaningless gap, but ten times
+// winPctSortEpsilon, enough to sort a play with eight fewer points of equity on
+// top. This is the same regime the autostopper calls decided, where it already
+// ranks and prunes by equity, so ranking by equity here keeps the final results
+// in agreement with the stopping logic that produced them.
+//
+// Comparing against a fixed threshold keeps the ordering strict and weak: plays
+// fall into certain-win, contested, and certain-loss groups; every group beats
+// the next on win probability alone, and the two saturated groups order their
+// own members by equity.
+func winProbsIndistinguishable(wi, wj float64) bool {
+	if math.Abs(wi-wj) <= winPctSortEpsilon {
+		return true
+	}
+	bothWon := wi > 1-defaultMinReasonableWProb && wj > 1-defaultMinReasonableWProb
+	bothLost := wi < defaultMinReasonableWProb && wj < defaultMinReasonableWProb
+	return bothWon || bothLost
+}
+
 type InferenceMode int
 
 const (
@@ -973,7 +1000,7 @@ func (s *Simmer) sortPlaysByWinRate(ignoredAtBottom bool) {
 		sort.Slice(plays, func(i, j int) bool {
 			a, b := plays[i], plays[j]
 			wi, wj := a.winPctStats.Mean(), b.winPctStats.Mean()
-			if math.Abs(wi-wj) > winPctSortEpsilon {
+			if !winProbsIndistinguishable(wi, wj) {
 				return wi > wj
 			}
 			return a.equityStats.Mean() > b.equityStats.Mean()
