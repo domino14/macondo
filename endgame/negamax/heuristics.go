@@ -305,7 +305,7 @@ func (s *Solver) greedyPlayout(g *game.Game, mg movegen.MoveGenerator, pv *PVLin
 				g.RackFor(1-onTurn).ScoreOn(ld)) * frac)
 		}
 
-		best := plays[0]
+		bestIdx := 0
 		bestAdj := math.MinInt32
 		for idx := range plays {
 			adj := plays[idx].Score()
@@ -318,13 +318,17 @@ func (s *Solver) greedyPlayout(g *game.Game, mg movegen.MoveGenerator, pv *PVLin
 			}
 			if adj > bestAdj {
 				bestAdj = adj
-				// Copy by value; the next GenAll overwrites the play list.
-				best = plays[idx]
+				bestIdx = idx
 			}
 		}
 
-		_, err := g.PlaySmallMove(&best)
-		playoutMoves[played] = best
+		// Play straight out of the generator's list rather than through a local
+		// copy: taking the address of a local here would force it onto the heap
+		// once per playout move, which at leaf-node frequency was the entire
+		// allocation cost of the heuristics. plays stays valid until the next
+		// GenAll, and we record the move by value before then.
+		playoutMoves[played] = plays[bestIdx]
+		_, err := g.PlaySmallMove(&plays[bestIdx])
 		played++
 		if err != nil {
 			break
