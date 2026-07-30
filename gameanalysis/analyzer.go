@@ -226,10 +226,23 @@ func (a *Analyzer) AnalyzeSingleTurn(ctx context.Context, history *pb.GameHistor
 		return nil, err
 	}
 
-	// Categorize the mistake (authoritative call — runs after all flags are set)
-	analysis.MistakeCategory = categorizeMistake(analysis)
+	// Grade the turn (authoritative call — runs after all flags are set)
+	finalizeGrade(analysis)
 
 	return analysis, nil
+}
+
+// finalizeGrade records the mistake category and, from it, whether the play was
+// optimal. Up to this point WasOptimal means "is the move the engine picked",
+// which each phase analyzer needs while it works out what the play cost. That
+// is too strict as a verdict: an endgame can have several moves sharing the
+// best final spread, and a sim cannot separate plays whose win probabilities
+// sit inside its own noise. Both cases come out of categorizeMistake as "cost
+// nothing", so a turn is optimal exactly when it has no mistake to report --
+// which also means every turn in a game is either optimal or categorized.
+func finalizeGrade(analysis *TurnAnalysis) {
+	analysis.MistakeCategory = categorizeMistake(analysis)
+	analysis.WasOptimal = analysis.MistakeCategory == ""
 }
 
 // AnalyzeGame analyzes every move in a game and returns the results

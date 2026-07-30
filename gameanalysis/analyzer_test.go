@@ -162,6 +162,74 @@ func TestCategorizeMistake_SaturatedTopPlay(t *testing.T) {
 	}
 }
 
+// TestFinalizeGrade covers #454: a play that ties the engine's move costs
+// nothing and is optimal, even though it is a different move.
+func TestFinalizeGrade(t *testing.T) {
+	tests := []struct {
+		name             string
+		analysis         TurnAnalysis
+		expectedOptimal  bool
+		expectedCategory string
+	}{
+		{
+			name:            "played the engine's move",
+			analysis:        TurnAnalysis{Phase: PhaseEarlyMid, WasOptimal: true},
+			expectedOptimal: true,
+		},
+		{
+			// Several endgame moves can share the best final spread; the solver
+			// proved they are worth the same, so a different move is still optimal.
+			name:            "endgame ties the best final spread",
+			analysis:        TurnAnalysis{Phase: PhaseEndgame, SpreadLoss: 0},
+			expectedOptimal: true,
+		},
+		{
+			name: "endgame gives up spread",
+			analysis: TurnAnalysis{Phase: PhaseEndgame, SpreadLoss: 3,
+				OptimalFinalSpread: 20, CurrentSpread: 50}, // still winning, so not blown
+			expectedOptimal:  false,
+			expectedCategory: "Small",
+		},
+		{
+			// Below the noise threshold the sim cannot tell the plays apart.
+			name:            "sim loss within noise",
+			analysis:        TurnAnalysis{Phase: PhaseEarlyPreEndgame, WinProbLoss: 0.001},
+			expectedOptimal: true,
+		},
+		{
+			name:             "sim loss above noise",
+			analysis:         TurnAnalysis{Phase: PhaseEarlyPreEndgame, WinProbLoss: 0.004},
+			expectedOptimal:  false,
+			expectedCategory: "Small",
+		},
+		{
+			// Tied on win%, but the equity tiebreak separates them.
+			name:             "tied win% but loses spread",
+			analysis:         TurnAnalysis{Phase: PhasePreEndgame, WinProbLoss: 0, SpreadLoss: 9},
+			expectedOptimal:  false,
+			expectedCategory: "Medium",
+		},
+	}
+
+	for _, tt := range tests {
+		analysis := tt.analysis
+		finalizeGrade(&analysis)
+
+		if analysis.WasOptimal != tt.expectedOptimal {
+			t.Errorf("%s: WasOptimal = %v, expected %v", tt.name, analysis.WasOptimal, tt.expectedOptimal)
+		}
+		if analysis.MistakeCategory != tt.expectedCategory {
+			t.Errorf("%s: MistakeCategory = %q, expected %q",
+				tt.name, analysis.MistakeCategory, tt.expectedCategory)
+		}
+		// Every turn is either optimal or carries a category, never both or neither.
+		if analysis.WasOptimal == (analysis.MistakeCategory != "") {
+			t.Errorf("%s: optimal=%v and category=%q disagree",
+				tt.name, analysis.WasOptimal, analysis.MistakeCategory)
+		}
+	}
+}
+
 func TestAnalyzeGame_NilHistory(t *testing.T) {
 	cfg := &config.Config{}
 	analyzer := New(cfg, DefaultAnalysisConfig(), "")
