@@ -42,6 +42,21 @@ const (
 	spreadMediumBlowout = 30
 )
 
+// Search depths for the analyzer's exact solvers. Pinned here rather than left
+// to the solvers' own defaults, so that retuning those for interactive or bot
+// use does not silently change what analysis reports.
+const (
+	// analyzerEndgamePlies is the depth of the single endgame solve per turn.
+	// Analysis wants a proven answer and runs offline, so it can afford more
+	// than the interactive default.
+	analyzerEndgamePlies = 7
+
+	// analyzerPEGEndgamePlies is the depth of each endgame solved inside a
+	// pre-endgame. The pre-endgame runs one per candidate play per tile draw,
+	// so this multiplies out quickly.
+	analyzerPEGEndgamePlies = 4
+)
+
 // AnalysisConfig holds configuration for game analysis
 type AnalysisConfig struct {
 	// Early/mid game (>7 tiles in bag)
@@ -795,6 +810,7 @@ func (a *Analyzer) analyzeWithPEG(ctx context.Context, g *game.Game, analysis *T
 	pegSolver.Init(g, gd)
 
 	// Set options
+	pegSolver.SetEndgamePlies(analyzerPEGEndgamePlies)
 	pegSolver.SetEarlyCutoffOptim(a.analysisCfg.PEGEarlyCutoff)
 	pegSolver.SetAvoidPrune([]*move.Move{analysis.PlayedMove})
 
@@ -1012,8 +1028,7 @@ func (a *Analyzer) analyzeWithEndgame(ctx context.Context, g *game.Game, analysi
 	defer cancel()
 
 	// Solve
-	plies := 7 // default endgame plies
-	bestSpread, principalVariation, err := endgameSolver.Solve(endgameCtx, plies)
+	bestSpread, principalVariation, err := endgameSolver.Solve(endgameCtx, analyzerEndgamePlies)
 	if err != nil {
 		return fmt.Errorf("endgame solve failed: %w", err)
 	}
@@ -1056,8 +1071,11 @@ func (a *Analyzer) analyzeWithEndgame(ctx context.Context, g *game.Game, analysi
 	analysis.PlayedIsBingo = isBingo(analysis.PlayedMove)
 	analysis.MissedBingo = analysis.OptimalIsBingo && !analysis.PlayedIsBingo
 
-	// Extract enriched endgame data: principal variation and other variations
-	analysis.PrincipalVariation = pvLineToResult(principalVariation, bestSpread)
+	// Extract enriched endgame data: principal variation and other variations.
+	// Everything past the searched prefix is the greedy playout's continuation,
+	// so mark it rather than presenting it as solved.
+	analysis.PrincipalVariation = pvLineToResult(principalVariation, bestSpread,
+		endgameSolver.NumSearchedMoves())
 	variations := endgameSolver.Variations()
 	otherVars := make([]*EndgameVariationResult, 0, len(variations))
 	for _, v := range variations {
@@ -1068,15 +1086,17 @@ func (a *Analyzer) analyzeWithEndgame(ctx context.Context, g *game.Game, analysi
 		for i := 0; i < v.NumMoves(); i++ {
 			moves[i] = v.Moves[i]
 		}
-		otherVars = append(otherVars, pvLineToResult(moves, v.Score()))
+		otherVars = append(otherVars, pvLineToResult(moves, v.Score(), v.NumSearchedMoves()))
 	}
 	analysis.OtherVariations = otherVars
 
 	return nil
 }
 
-// pvLineToResult converts a slice of moves and final spread into an EndgameVariationResult.
-func pvLineToResult(moves []*move.Move, finalSpread int16) *EndgameVariationResult {
+// pvLineToResult converts a slice of moves and final spread into an
+// EndgameVariationResult. numSearched is how many leading moves the search
+// itself proved; the rest came from the greedy playout and are marked estimated.
+func pvLineToResult(moves []*move.Move, finalSpread int16, numSearched int) *EndgameVariationResult {
 	moveResults := make([]*EndgameMoveResult, 0, len(moves))
 	for i, m := range moves {
 		if m == nil {
@@ -1086,6 +1106,7 @@ func pvLineToResult(moves []*move.Move, finalSpread int16) *EndgameVariationResu
 			MoveDescription: strings.TrimSpace(m.ShortDescription()),
 			Score:           m.Score(),
 			MoveNumber:      i + 1,
+			IsEstimated:     i >= numSearched,
 		})
 	}
 	return &EndgameVariationResult{
