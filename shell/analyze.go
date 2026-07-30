@@ -138,13 +138,17 @@ func (sc *ShellController) formatAnalysisResults(result *gameanalysis.GameAnalys
 	sb.WriteString("      Medium = 8-15 pts spread = 0.5 pts\n")
 	sb.WriteString("      Large  = 16+ pts spread = 1.0 pts\n")
 	sb.WriteString("      Exception: Blown endgame (win→tie/loss) = Large regardless of spread\n")
+	sb.WriteString("      Losses of ≤0.25% win are within sim noise and are not mistakes\n")
 	sb.WriteString("  Mistake Index = Sum of mistake points for all turns\n")
+	sb.WriteString("  Optimal = Turns that cost nothing measurable, so every turn is either\n")
+	sb.WriteString("            optimal or has a mistake category\n")
 	sb.WriteString("\n")
 	sb.WriteString("  Diff Format:\n")
 	sb.WriteString("    PEG with tied win%: Shows \"0.0% (+N)\" where N is spread difference\n")
 	sb.WriteString("    Endgame: Shows spread difference in points\n")
 	sb.WriteString("    Other phases: Shows win probability loss as percentage\n")
 	sb.WriteString("\n")
+	sb.WriteString("  Tie = Optimal by a different move than the one shown (equal value)\n")
 	sb.WriteString("  ⚠️ Phony = Played unchallenged phony\n")
 	sb.WriteString("  ❌ Missed challenge = Failed to challenge opponent's phony\n")
 	sb.WriteString("  💥 Blown endgame = Mistake changed winning position to loss/tie\n")
@@ -184,6 +188,10 @@ func formatTurnTable(result *gameanalysis.GameAnalysisResult) string {
 		} else {
 			optimal = turn.OptimalMoveStr
 		}
+		// A turn can be optimal without being the engine's move, by tying it.
+		// Say so, or the row reads as though the two columns disagree.
+		tiedBest := turn.WasOptimal && played != optimal
+
 		if len([]rune(played)) > 22 {
 			played = string([]rune(played)[:22])
 		}
@@ -191,7 +199,7 @@ func formatTurnTable(result *gameanalysis.GameAnalysisResult) string {
 			optimal = string([]rune(optimal)[:22])
 		}
 
-		diff := formatDiff(turn.Phase == gameanalysis.PhaseEndgame, turn.WasOptimal, turn.WinProbLoss, int(turn.SpreadLoss))
+		diff := formatDiff(turn.Phase == gameanalysis.PhaseEndgame, turn.WinProbLoss, int(turn.SpreadLoss))
 
 		phaseDisplay := turn.Phase.String()
 		if turn.Phase == gameanalysis.PhaseEarlyMid && turn.TilesInBag <= 50 {
@@ -204,6 +212,9 @@ func formatTurnTable(result *gameanalysis.GameAnalysisResult) string {
 		}
 
 		var notes []string
+		if tiedBest {
+			notes = append(notes, "Tie")
+		}
 		if turn.IsPhony {
 			if turn.PhonyChallenged {
 				notes = append(notes, "Phony(off)")
@@ -358,7 +369,11 @@ func formatSingleTurnAnalysis(turn *gameanalysis.TurnAnalysis) string {
 
 	// Analysis metrics
 	if turn.WasOptimal {
-		sb.WriteString("✓ Optimal play!\n")
+		if turn.PlayedMove.ShortDescription() != turn.OptimalMove.ShortDescription() {
+			sb.WriteString("✓ Optimal play! (ties the move above)\n")
+		} else {
+			sb.WriteString("✓ Optimal play!\n")
+		}
 	} else {
 		if turn.Phase == gameanalysis.PhaseEndgame {
 			sb.WriteString(fmt.Sprintf("Spread Loss: %d points\n", turn.SpreadLoss))
@@ -417,21 +432,18 @@ func formatSingleTurnAnalysis(turn *gameanalysis.TurnAnalysis) string {
 
 // formatDiff formats the equity/win-probability difference for a turn.
 // isEndgame: true if the turn is in the endgame phase.
-// wasOptimal: true if the played move was optimal.
 // winProbLoss: fractional win-probability difference (0–1).
 // spreadLoss: equity/spread loss when win probs are effectively tied.
-func formatDiff(isEndgame, wasOptimal bool, winProbLoss float64, spreadLoss int) string {
+//
+// What is printed is always what was measured, including the sub-threshold
+// losses that still count as optimal — a play the analyzer scores as optimal
+// should not have to render as an exact zero to look like one.
+func formatDiff(isEndgame bool, winProbLoss float64, spreadLoss int) string {
 	if isEndgame {
-		if wasOptimal {
-			return "+0"
-		}
 		return fmt.Sprintf("%+d", spreadLoss)
 	}
-	if !wasOptimal && spreadLoss > 0 {
+	if spreadLoss > 0 {
 		return fmt.Sprintf("%.1f%% (%+d)", winProbLoss*100, spreadLoss)
-	}
-	if wasOptimal {
-		return "0.0%"
 	}
 	return fmt.Sprintf("%.1f%%", winProbLoss*100)
 }

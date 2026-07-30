@@ -122,7 +122,10 @@ type TurnAnalysis struct {
 	OptimalFinalSpread int16 // The final spread with the optimal move (endgame only)
 	CurrentSpread      int   // The spread before this move (endgame only, for blown endgame detection)
 
-	// Whether the played move was optimal
+	// Whether the played move cost nothing measurable: either it is the move
+	// the engine picked, or it ties that move. Several plays can share the best
+	// final spread in an endgame, and a sim can't separate plays whose win
+	// probabilities are within its own noise, so this is not move identity.
 	WasOptimal bool
 
 	// Mistake categorization

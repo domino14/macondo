@@ -4,6 +4,7 @@ Example:
     analyze-batch woog:ABC123 woog:DEF456
     analyze-batch xt:12345 xt:67890
     analyze-batch /path/to/game1.gcg /path/to/game2.gcg
+    analyze-batch /path/to/gcgs
     analyze-batch woog:ABC xt:123 /path/game.gcg
     analyze-batch -player "nickname" woog:ABC woog:DEF
     analyze-batch -summary-only woog:ABC woog:DEF
@@ -25,6 +26,10 @@ It supports loading games from:
   - Woogles Collection: Use format "woogcollection:UUID" (fetches all games in collection)
   - Cross-tables: Use format "xt:GAMEID"
   - Local GCG files: Use file path (e.g., "/path/to/game.gcg")
+  - Folders of GCG files: Use a directory path (e.g., "/path/to/gcgs"). The
+    folder is searched recursively and every .gcg file found is analyzed, in
+    alphabetical order. Each file is stored under its own path, so re-running
+    the command skips the ones already analyzed unless -force is given.
   - Web URLs: Use full HTTP/HTTPS URL
 
 Each game is analyzed using the same phase-appropriate analysis as the `analyze`

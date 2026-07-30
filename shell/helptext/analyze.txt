@@ -21,7 +21,9 @@ The analysis shows:
   - Per-player accuracy statistics
 
 Note: This command requires a game to be loaded. Use `load` to load a GCG file
-or `load woogles <game-id>` to load a game from Woogles.
+or `load woogles <game-id>` to load a game from Woogles. To analyze many games
+at once without loading each one, use `analyze-batch`, which also accepts a
+folder and analyzes every .gcg file in it.
 
 When a game was loaded from a known source (Woogles, cross-tables, a file
 path, or a web URL), the analysis is automatically saved to the local store
