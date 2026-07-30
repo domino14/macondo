@@ -717,18 +717,15 @@ func (a *Analyzer) analyzeWithSim(ctx context.Context, g *game.Game, analysis *T
 	analysis.WinProbLoss = analysis.OptimalWinProb - analysis.PlayedWinProb
 	analysis.WasOptimal = analysis.OptimalMove.Equals(analysis.PlayedMove, checkTrans, true)
 
-	// When all plays are near 0% or 100% win probability, win prob loss is
-	// meaningless. Use equity difference as a spread-based tiebreaker instead,
-	// mirroring how PEG handles tied win probabilities.
-	if !analysis.WasOptimal && playedFound {
-		nearZero := analysis.OptimalWinProb < blowoutWinProbThreshold
-		nearOne := analysis.OptimalWinProb > 1-blowoutWinProbThreshold
-		if nearZero || nearOne {
-			optimalEquity := simmedPlays[0].EquityMean()
-			equityDiff := optimalEquity - playedEquity
-			if equityDiff > 0.5 {
-				analysis.SpreadLoss = int16(equityDiff + 0.5)
-			}
+	// When both plays being compared are near 0% or 100% win probability, win
+	// prob loss is meaningless. Use equity difference as a spread-based
+	// tiebreaker instead, mirroring how PEG handles tied win probabilities.
+	if !analysis.WasOptimal && playedFound &&
+		tiebreakByEquity(analysis.OptimalWinProb, analysis.PlayedWinProb) {
+		optimalEquity := simmedPlays[0].EquityMean()
+		equityDiff := optimalEquity - playedEquity
+		if equityDiff > 0.5 {
+			analysis.SpreadLoss = int16(equityDiff + 0.5)
 		}
 	}
 
@@ -741,6 +738,25 @@ func (a *Analyzer) analyzeWithSim(ctx context.Context, g *game.Game, analysis *T
 	analysis.TopSimPlays = extractTopSimPlays(simmedPlays, analysis.PlayedMove, checkTrans, 5)
 
 	return nil
+}
+
+// tiebreakByEquity reports whether the win probabilities of the optimal and
+// played moves are too saturated to tell them apart, so that the comparison
+// should fall back to equity.
+//
+// The optimal play is the maximum of the field, so a near-zero optimal win prob
+// means every play is hopeless and win% genuinely carries no signal. A
+// near-one optimal win prob says nothing about the rest of the field, though:
+// the played move can still have a real losing chance, and that difference is
+// exactly what the analysis is trying to measure. So the near-one case has to
+// check the played move too — the same conjunction the sim's autostopper uses
+// over the top and bottom unignored plays.
+func tiebreakByEquity(optimalWinProb, playedWinProb float64) bool {
+	if optimalWinProb < blowoutWinProbThreshold {
+		return true
+	}
+	return optimalWinProb > 1-blowoutWinProbThreshold &&
+		playedWinProb > 1-blowoutWinProbThreshold
 }
 
 // extractTopSimPlays returns at most maxTop plays plus ensuring the played move is included.
