@@ -86,10 +86,10 @@ type AnalysisConfig struct {
 // DefaultAnalysisConfig returns sensible defaults
 func DefaultAnalysisConfig() *AnalysisConfig {
 	return &AnalysisConfig{
-		SimPlaysEarlyMid:        40,
+		SimPlaysEarlyMid:        100,
 		SimPliesEarlyMid:        5,
 		SimStopEarlyMid:         99,
-		SimPlaysEarlyPreEndgame: 80,
+		SimPlaysEarlyPreEndgame: 100,
 		SimPliesEarlyPreEndgame: 10,
 		SimStopEarlyPreEndgame:  99,
 		PEGEarlyCutoff:          true,

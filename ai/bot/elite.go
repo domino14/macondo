@@ -65,10 +65,10 @@ func eliteBestPlay(ctx context.Context, p *BotTurnPlayer) (*move.Move, error) {
 	} else if unseen > 7 && unseen <= 8 {
 		usePreendgame = true
 	} else if unseen > 8 && unseen <= 14 {
-		moves = p.GenerateMoves(80)
+		moves = p.GenerateMoves(100)
 		simPlies = unseen
 	} else {
-		moves = p.GenerateMoves(40)
+		moves = p.GenerateMoves(100)
 		if p.minSimPlies > 2 {
 			simPlies = p.minSimPlies
 		} else {

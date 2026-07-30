@@ -29,8 +29,8 @@ func TestAnalyzerCreation(t *testing.T) {
 func TestDefaultAnalysisConfig(t *testing.T) {
 	cfg := DefaultAnalysisConfig()
 
-	if cfg.SimPlaysEarlyMid != 40 {
-		t.Errorf("expected SimPlaysEarlyMid=40, got %d", cfg.SimPlaysEarlyMid)
+	if cfg.SimPlaysEarlyMid != 100 {
+		t.Errorf("expected SimPlaysEarlyMid=100, got %d", cfg.SimPlaysEarlyMid)
 	}
 
 	if cfg.SimPliesEarlyMid != 5 {
@@ -41,8 +41,8 @@ func TestDefaultAnalysisConfig(t *testing.T) {
 		t.Errorf("expected SimStopEarlyMid=99, got %d", cfg.SimStopEarlyMid)
 	}
 
-	if cfg.SimPlaysEarlyPreEndgame != 80 {
-		t.Errorf("expected SimPlaysEarlyPreEndgame=80, got %d", cfg.SimPlaysEarlyPreEndgame)
+	if cfg.SimPlaysEarlyPreEndgame != 100 {
+		t.Errorf("expected SimPlaysEarlyPreEndgame=100, got %d", cfg.SimPlaysEarlyPreEndgame)
 	}
 
 	if cfg.SimPliesEarlyPreEndgame != 10 {
