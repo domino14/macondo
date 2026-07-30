@@ -104,7 +104,7 @@ func init() {
 		Name:  "peg",
 		Verbs: []string{"stop", "output"},
 		Options: []Option{
-			{Name: "endgameplies", Type: OptInt, Default: 4,
+			{Name: "endgameplies", Type: OptInt, Default: 3,
 				Help: "how many plies to search in each endgame"},
 			{Name: "maxtime", Type: OptInt, Default: 0,
 				Help: "max solve time in seconds; 0 = unlimited"},
@@ -157,6 +157,7 @@ func init() {
 			{Name: "prevent-slowroll", Type: OptBool, Values: boolValues},
 			{Name: "disable-negascout", Type: OptBool, Values: boolValues},
 			{Name: "null-window", Type: OptBool, Values: boolValues},
+			{Name: "heuristics", Type: OptBool, Default: true, Values: boolValues},
 			{Name: "log", Type: OptBool, Values: boolValues},
 			{Name: "also-solve-var", Type: OptString},
 		},

@@ -76,7 +76,7 @@ This is done by generating every possible play with 1 tile in the bag, and then 
 
 Note that in rare situations, a pass may be the best move. This situation is also handled correctly. In this case, Macondo will solve all possible endgames from the opponent's perspective, including passing back.
 
-In order for this to be fast, we limit the endgame algorithm to just 4 plies by default (this can be increased). Additionally, the endgame algorithm is set to a mode where it only tries to find any win.
+In order for this to be fast, we limit the endgame algorithm to just 3 plies by default (this can be increased). Additionally, the endgame algorithm is set to a mode where it only tries to find any win. Whenever the endgame search hits its ply limit before the game is over, it plays the remainder out greedily and scores that, rather than reporting the spread as it stands, so these shallow searches are considerably more accurate than the depth suggests.
 
 We have plans to add 2-PEG support in the future.
 

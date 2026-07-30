@@ -9,6 +9,7 @@ import (
 
 	"google.golang.org/protobuf/encoding/protojson"
 
+	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/gameanalysis"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
@@ -299,6 +300,27 @@ func (sc *ShellController) analyzeTurn(cmd *shellcmd) (*Response, error) {
 	return msg(output), nil
 }
 
+// formatEndgameVariation renders one endgame line, prefixing moves the search
+// did not actually prove with negamax.EstimatedMoveMarker.
+func formatEndgameVariation(title string, v *gameanalysis.EndgameVariationResult) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "%s (final spread %+d):\n", title, v.FinalSpread)
+	anyEstimated := false
+	for _, m := range v.Moves {
+		marker := ""
+		if m.IsEstimated {
+			marker = negamax.EstimatedMoveMarker
+			anyEstimated = true
+		}
+		fmt.Fprintf(&sb, "  %d) %s%s (%d)\n", m.MoveNumber, marker, m.MoveDescription, m.Score)
+	}
+	if anyEstimated {
+		fmt.Fprintf(&sb, "  (%s = estimated by greedy playout past the search depth)\n",
+			negamax.EstimatedMoveMarker)
+	}
+	return sb.String()
+}
+
 // formatSingleTurnAnalysis formats detailed analysis for a single turn
 func formatSingleTurnAnalysis(turn *gameanalysis.TurnAnalysis) string {
 	var sb strings.Builder
@@ -349,6 +371,21 @@ func formatSingleTurnAnalysis(turn *gameanalysis.TurnAnalysis) string {
 
 		if turn.MistakeCategory != "" {
 			sb.WriteString(fmt.Sprintf("Mistake Category: %s\n", turn.MistakeCategory))
+		}
+	}
+
+	// Endgame variations. The solver plays the position out greedily past its
+	// ply limit, so the tail of a line is an estimate rather than a proven
+	// continuation; mark those with "~" the way the endgame command does.
+	if v := turn.PrincipalVariation; v != nil && len(v.Moves) > 0 {
+		sb.WriteString("\n")
+		sb.WriteString(formatEndgameVariation("Principal Variation", v))
+		for i, ov := range turn.OtherVariations {
+			if ov == nil || len(ov.Moves) == 0 {
+				continue
+			}
+			sb.WriteString(formatEndgameVariation(
+				fmt.Sprintf("Variation %d", i+2), ov))
 		}
 	}
 

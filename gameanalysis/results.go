@@ -58,6 +58,11 @@ type EndgameMoveResult struct {
 	MoveDescription string
 	Score           int
 	MoveNumber      int
+	// IsEstimated marks a move past the search horizon: the solver played the
+	// position out greedily from where the search stopped, so this is a
+	// plausible continuation rather than a proven one. MoveDescription is left
+	// clean so each client can render the distinction its own way.
+	IsEstimated bool
 }
 
 // GamePhase represents the phase of the game based on tiles remaining in bag.

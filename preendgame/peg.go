@@ -499,7 +499,7 @@ func (s *Solver) Init(g *game.Game, gd *kwg.KWG) error {
 	s.ttable.SetMultiThreadedMode()
 	s.game = g.Copy()
 	s.game.SetBackupMode(game.SimulationMode)
-	s.curEndgamePlies = 4
+	s.curEndgamePlies = 3
 	s.maxEndgamePlies = s.curEndgamePlies
 	s.iterativeDeepening = true
 	s.gaddag = gd
@@ -801,8 +801,10 @@ func (s *Solver) Solve(ctx context.Context) ([]*PreEndgamePlay, error) {
 			// passes ending the game, the pattern "pass, tile, pass, tile,
 			// ..., pass, tile" reaches 2*numinbag PlayMove calls before the
 			// bag is empty. Negamax then adds up to curEndgamePlies more
-			// pushes. Add a small cushion for safety.
-			g.SetStateStackLength(2*s.numinbag + s.curEndgamePlies + 5)
+			// pushes, and its greedy leaf playout adds up to
+			// MaxGreedyPlayoutPlies on top of that. Add a small cushion for
+			// safety.
+			g.SetStateStackLength(2*s.numinbag + s.curEndgamePlies + negamax.MaxGreedyPlayoutPlies + 5)
 			g.SetEndgameMode(true)
 			// Set a fixed order for the bag. This makes it easy for us to control
 			// what tiles we draw after making a move.

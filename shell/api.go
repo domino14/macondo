@@ -39,7 +39,18 @@ import (
 	wmppkg "github.com/domino14/macondo/wmp"
 )
 
+// defaultEndgamePlies is the default depth for `endgame`. This is a single
+// deliberate solve where the point is a proven answer, so it does not follow
+// the pre-endgame default down.
 const defaultEndgamePlies = 4
+
+// defaultPEGEndgamePlies is the default depth of each endgame solved inside
+// `peg`. Lower than defaultEndgamePlies: the pre-endgame runs one endgame per
+// candidate play per tile draw and only needs to know who wins, and the endgame
+// solver now plays the game out greedily past its ply limit instead of
+// reporting the spread as it stands, so shallow searches are much closer to
+// correct than the depth suggests.
+const defaultPEGEndgamePlies = 3
 
 //go:embed render_template.html
 var renderTemplateHTML string
@@ -630,6 +641,10 @@ func (sc *ShellController) endgamePrepare(cmd *shellcmd) (*endgameParams, error)
 	preventSR := cmd.options.Bool("prevent-slowroll")
 	disableNegascout := cmd.options.Bool("disable-negascout")
 	nullWindow := cmd.options.Bool("null-window")
+	useHeuristics, err := cmd.options.BoolDefault("heuristics", true)
+	if err != nil {
+		return nil, err
+	}
 	// clear out the last value of this endgame node; gc should delete the tree.
 	sc.endgameSolver = new(negamax.Solver)
 
@@ -676,6 +691,7 @@ func (sc *ShellController) endgamePrepare(cmd *shellcmd) (*endgameParams, error)
 	sc.endgameSolver.SetSolveMultipleVariations(multipleVars)
 	sc.endgameSolver.SetPreventSlowroll(preventSR)
 	sc.endgameSolver.SetNegascoutOptim(!disableNegascout)
+	sc.endgameSolver.SetUseHeuristics(useHeuristics)
 
 	alsoSolveVarStr := cmd.options.String("also-solve-var")
 	if alsoSolveVarStr != "" {
@@ -714,7 +730,7 @@ func (sc *ShellController) endgameRunSync(params *endgameParams) (string, error)
 		result.WriteString(fmt.Sprintf("Spread diff: %+d. Note: this sequence may not be correct. Turn off first-win-optim to search more accurately.\n", val))
 	}
 	result.WriteString(fmt.Sprintf("Final spread after seq: %+d\n", val+int16(sc.game.CurrentSpread())))
-	result.WriteString(sc.endgameSequenceString(seq))
+	result.WriteString(sc.endgameSequenceString(seq, sc.endgameSolver.NumSearchedMoves()))
 
 	variations := sc.endgameSolver.Variations()
 	if len(variations) > 1 {
@@ -816,7 +832,7 @@ func (sc *ShellController) pegPrepare(cmd *shellcmd) (*pegParams, error) {
 
 	knownOppRack := cmd.options.String("opprack")
 
-	if endgamePlies, err = cmd.options.IntDefault("endgameplies", defaultEndgamePlies); err != nil {
+	if endgamePlies, err = cmd.options.IntDefault("endgameplies", defaultPEGEndgamePlies); err != nil {
 		return nil, err
 	}
 	if maxtime, err = cmd.options.IntDefault("maxtime", 0); err != nil {
