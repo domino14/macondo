@@ -1,6 +1,7 @@
 package dataloaders
 
 import (
+	"errors"
 	"io"
 	"path/filepath"
 	"sync"
@@ -24,6 +25,11 @@ const (
 	legacyLeavesName      = "leaves.klv2"
 	legacySuperLeavesName = "super-leaves.klv2"
 )
+
+// ErrNotPublished is returned by EnsureKLV when no such leave file exists to
+// be fetched. Not every lexicon has leave values published, and only a handful
+// have the SuperCrosswordGame set, so this is an ordinary answer.
+var ErrNotPublished = lexicon.ErrNotPublished
 
 // klvDownloadTried remembers which leave files this process has already tried
 // to download, so a missing one is fetched at most once.
@@ -105,7 +111,11 @@ func LeavesFileForLexicon(cfg *wglconfig.Config, leavefile, lexiconName string) 
 		return nil, err
 	}
 	if derr := EnsureKLV(name, cfg); derr != nil {
-		log.Info().Err(derr).Str("leaves", name).Msg("could not download leave values")
+		if errors.Is(derr, ErrNotPublished) {
+			log.Info().Str("leaves", name).Msg("no such leave values are published")
+		} else {
+			log.Info().Err(derr).Str("leaves", name).Msg("could not download leave values")
+		}
 		return nil, err
 	}
 	file, _, oerr := cache.Open(filepath.Join(dir, name))

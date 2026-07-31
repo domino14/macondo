@@ -20,6 +20,7 @@ import (
 
 	"github.com/chzyer/readline"
 	"github.com/domino14/word-golib/cache"
+	wglconfig "github.com/domino14/word-golib/config"
 	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/kballard/go-shellquote"
@@ -365,6 +366,23 @@ func (sc *ShellController) setExhaustiveLeaveCalculator() error {
 	return nil
 }
 
+// fetchLeaves downloads a leave-values file unless it is already on disk.
+// Nothing here is required: an older lexicon may have no leaves published at
+// all, and only a handful have a SuperCrosswordGame set, so a file that isn't
+// there is reported as the ordinary fact it is rather than as an error.
+func fetchLeaves(cfg *wglconfig.Config, name, description string) {
+	err := dataloaders.EnsureKLV(name, cfg)
+	switch {
+	case err == nil:
+	case errors.Is(err, dataloaders.ErrNotPublished):
+		log.Info().Str("leaves", name+dataloaders.LeavesExtension).
+			Msgf("no %s are published; skipping", description)
+	default:
+		log.Info().Err(err).Str("leaves", name+dataloaders.LeavesExtension).
+			Msgf("could not fetch %s", description)
+	}
+}
+
 func (sc *ShellController) Set(key string, args []string) (string, error) {
 	var err error
 	var ret string
@@ -392,16 +410,12 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 				// both the normal and the SuperCrosswordGame set. Like the WMP
 				// build below, this is worth waiting for during an interactive
 				// lexicon switch: without its own leaves a lexicon falls back
-				// to a relative's, and without any it plays greedily. Not
-				// every lexicon has either published, hence the soft failure.
-				for _, name := range []string{
-					sc.options.Lexicon.Name, "super-" + sc.options.Lexicon.Name,
-				} {
-					if klvErr := dataloaders.EnsureKLV(name, sc.config.WGLConfig()); klvErr != nil {
-						log.Info().Err(klvErr).Str("leaves", name).
-							Msg("no leave values published under this name")
-					}
-				}
+				// to a relative's, and without any it plays greedily.
+				lexName := sc.options.Lexicon.Name
+				fetchLeaves(sc.config.WGLConfig(), lexName,
+					"leave values for "+lexName)
+				fetchLeaves(sc.config.WGLConfig(), "super-"+lexName,
+					"SuperCrosswordGame leave values for "+lexName)
 				// Build WMP if not already on disk (build-on-miss is intentional
 				// here since the user is doing an interactive lexicon switch).
 				if _, wmpErr := wmppkg.EnsureWMP(sc.config.WGLConfig(), sc.options.Lexicon.Name); wmpErr != nil {
