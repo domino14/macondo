@@ -3,10 +3,6 @@ package turnplayer
 import (
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/rs/zerolog/log"
@@ -18,6 +14,7 @@ import (
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/lexicon"
 )
 
 type Lexicon struct {
@@ -55,38 +52,7 @@ func (opts *GameOptions) SetDefaults(cfg *config.Config) {
 // before any code that calls kwg.GetKWG so that load paths other than
 // "set lexicon" also get the file-not-found download behaviour.
 func EnsureKWG(lexname string, cfg *wglconfig.Config) error {
-	fullpath := filepath.Join(cfg.DataPath, "lexica", "gaddag", cfg.KWGPathPrefix,
-		lexname+".kwg")
-	if _, err := os.Stat(fullpath); err == nil {
-		return nil // already present
-	}
-	log.Info().Str("lexicon", lexname).Msg("KWG not found; attempting to download...")
-	url := "https://github.com/woogles-io/liwords/raw/refs/heads/master/liwords-ui/public/wasm/2024/" + lexname + ".kwg"
-
-	out, err := os.CreateTemp(cfg.DataPath, "temp-*.kwg")
-	if err != nil {
-		return fmt.Errorf("failed to create file: %w", err)
-	}
-	defer func() {
-		os.Remove(out.Name())
-	}()
-	resp, err := http.Get(url)
-	if err != nil {
-		return fmt.Errorf("failed to download file: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to download file: received status code %d", resp.StatusCode)
-	}
-	if _, err = io.Copy(out, resp.Body); err != nil {
-		return fmt.Errorf("failed to write file: %w", err)
-	}
-	out.Close()
-	if err = os.Rename(out.Name(), fullpath); err != nil {
-		return fmt.Errorf("failed to rename file: %w", err)
-	}
-	log.Info().Str("path", fullpath).Msg("lexicon word graph successfully downloaded")
-	return nil
+	return lexicon.EnsureWordGraphFile(lexname, ".kwg", cfg)
 }
 
 func (opts *GameOptions) SetLexicon(fields []string, cfg *wglconfig.Config) error {

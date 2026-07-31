@@ -16,6 +16,7 @@ import (
 
 	"github.com/domino14/word-golib/tilemapping"
 
+	"github.com/domino14/macondo/alphadawg"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
@@ -193,6 +194,13 @@ type shadowState struct {
 	// Endgame equity state (bag empty)
 	tilesInBag     int
 	oppRackScore   int
+
+	// WordSmog only: the multiset of tiles the main word would hold if every
+	// rack tile were played -- the whole rack (blanks still undesignated at
+	// index 0) plus the playthrough tiles the current shadow extent covers.
+	// Read only by the bingo gate in shadowRecord.
+	bingoAlphaTally     alphadawg.Tally
+	bingoAlphaTallyCopy alphadawg.Tally
 
 	// Whether shadow is used for this generator. Automatically true for
 	// TopPlayOnly and TopN recorders, false for AllPlays recorders.
@@ -400,6 +408,17 @@ func (gen *GordonGenerator) shadowPlayForAnchor(row, col, lastAnchorCol int, dir
 	copy(s.shadowRackCopy[:], s.shadowRack[:])
 	origRackCrossSet := s.rackCrossSet
 
+	if gen.isWordSmog {
+		// Seed the bingo tally with the whole rack. Blanks stay undesignated;
+		// the gate in shadowRecord designates them. Note that tiles restricted
+		// to a single letter later on are removed from shadowRack but must
+		// stay here: a bingo uses every rack tile wherever each one lands.
+		s.bingoAlphaTally = alphadawg.Tally{}
+		for ml, n := range s.shadowRack {
+			s.bingoAlphaTally[ml] = uint8(n)
+		}
+	}
+
 	curLetter := gen.cache.squares[col].letter
 	if curLetter == 0 {
 		gen.shadowStartNonplaythrough(dir)
@@ -509,6 +528,9 @@ func (gen *GordonGenerator) shadowStartPlaythrough(lastAnchorCol int,
 		s.shadowMainwordRestrictedScore += gen.letterDistribution.Score(curLetter)
 		if gen.wmpMoveGen.IsActive() {
 			gen.wmpMoveGen.AddPlaythroughLetter(byte(curLetter.Unblank()))
+		}
+		if gen.isWordSmog {
+			s.bingoAlphaTally[curLetter.Unblank()]++
 		}
 		if s.currentLeftCol == 0 || s.currentLeftCol == lastAnchorCol+1 {
 			break
@@ -666,6 +688,9 @@ func (gen *GordonGenerator) shadowPlayRight(isUnique bool) {
 	if gen.wmpMoveGen.IsActive() {
 		gen.wmpMoveGen.SavePlaythroughState()
 	}
+	if gen.isWordSmog {
+		s.bingoAlphaTallyCopy = s.bingoAlphaTally
+	}
 
 	dim := gen.boardDim
 
@@ -716,6 +741,9 @@ func (gen *GordonGenerator) shadowPlayRight(isUnique bool) {
 			if gen.wmpMoveGen.IsActive() {
 				gen.wmpMoveGen.AddPlaythroughLetter(byte(nextLetter.Unblank()))
 			}
+			if gen.isWordSmog {
+				s.bingoAlphaTally[nextLetter.Unblank()]++
+			}
 			s.shadowMainwordRestrictedScore += gen.letterDistribution.Score(nextLetter)
 			s.currentRightCol++
 		}
@@ -750,6 +778,9 @@ func (gen *GordonGenerator) shadowPlayRight(isUnique bool) {
 	if gen.wmpMoveGen.IsActive() {
 		gen.wmpMoveGen.RestorePlaythroughState()
 	}
+	if gen.isWordSmog {
+		s.bingoAlphaTally = s.bingoAlphaTallyCopy
+	}
 	gen.shadowMaybeRecalcEffMuls()
 }
 
@@ -783,6 +814,19 @@ func (gen *GordonGenerator) shadowRecord() {
 				useWMPLeaves = true
 			}
 		}
+	}
+
+	// WordSmog gate. Shadow's bound assumes the highest-scoring rack tiles can
+	// be assigned to the highest effective multipliers -- which in WordSmog is
+	// achievable, since any permutation of a legal multiset is legal. The one
+	// piece of slack left is whether the multiset spells anything at all, and
+	// when every rack tile is played the multiset is fully determined (the
+	// rack plus the playthrough tiles this extent covers), so we can settle it
+	// exactly. Partial plays don't determine which subset is used, so there is
+	// nothing to check there.
+	if gen.isWordSmog && gen.tilesPlayed == s.numLettersOnRack &&
+		!alphadawg.AcceptsWithBlanks(gen.alphaDawg, &s.bingoAlphaTally, gen.alphaDistSize()) {
+		return
 	}
 
 	// Compute unrestricted tiles score: inner product of descending tile scores
@@ -1045,7 +1089,6 @@ func (gen *GordonGenerator) genShadow(rack *tilemapping.Rack) {
 // anchor can beat the best move found so far.
 func (gen *GordonGenerator) genRecordScoringPlaysFromAnchors(rack *tilemapping.Rack) {
 	gen.tilesPlayed = 0
-	gd := gen.gaddag
 
 	// Track current orientation to minimize transpose calls.
 	// Anchors were stored in the coordinates of their orientation
@@ -1125,8 +1168,7 @@ func (gen *GordonGenerator) genRecordScoringPlaysFromAnchors(rack *tilemapping.R
 		if gen.wmpMoveGen.IsActive() && anchor.TilesToPlay > 0 {
 			gen.wordmapGen(rack, &anchor)
 		} else {
-			gen.recursiveGen(anchorCol, rack, gd.GetRootNodeIndex(),
-				anchorCol, anchorCol, !gen.vertical, 0, 0, 1)
+			gen.genForAnchor(rack)
 		}
 	}
 

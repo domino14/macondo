@@ -164,8 +164,13 @@ func (p *BotTurnPlayer) GenerateMoves(numPlays int) []*move.Move {
 	unseen := int(oppRack.NumTiles()) + p.Bag().TilesRemaining()
 	exchAllowed := unseen-game.RackTileLimit >= p.ExchangeLimit()
 	gen.SetMaxCanExchange(game.MaxCanExchange(unseen-game.RackTileLimit, p.ExchangeLimit()))
-	gen.GenAll(curRack, exchAllowed)
-	plays := gen.(*movegen.GordonGenerator).Plays()
+
+	gg := gen.(*movegen.GordonGenerator)
+	plays, wordSmog := aiturnplayer.GenerateWordSmogTopPlays(gg, curRack, exchAllowed, numPlays)
+	if !wordSmog {
+		gen.GenAll(curRack, exchAllowed)
+		plays = gg.Plays()
+	}
 
 	p.AssignEquity(plays, p.Board(), p.Bag(), oppRack)
 	if numPlays == 1 {

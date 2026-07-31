@@ -26,6 +26,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/macondo/ai/bot"
+	"github.com/domino14/macondo/alphadawg"
 	"github.com/domino14/macondo/automatic"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cgp"
@@ -90,6 +91,8 @@ func (opts *ShellOptions) Show(key string) (bool, string) {
 		return true, fmt.Sprintf("%v", rule)
 	case "board":
 		return true, opts.BoardLayoutName
+	case "variant":
+		return true, string(opts.Variant)
 	default:
 		return false, "No such option: " + key
 	}
@@ -107,7 +110,7 @@ func (sc *ShellController) ShowConfig(key string) (bool, string) {
 }
 
 func (opts *ShellOptions) ToDisplayText() string {
-	keys := []string{"lexicon", "challenge", "lower", "board"}
+	keys := []string{"lexicon", "challenge", "lower", "board", "variant"}
 	out := strings.Builder{}
 	out.WriteString("Settings:\n")
 	for _, key := range keys {
@@ -407,6 +410,20 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 				}
 			}
 			_, ret = sc.options.Show("board")
+		}
+	case "variant":
+		if sc.IsPlaying() {
+			msg := "Cannot change the variant while a game is active (try `unload` to quit game)"
+			err = errors.New(msg)
+		} else {
+			err = sc.options.SetVariant(args[0])
+			if err == nil && game.IsWordSmog(sc.options.Variant) {
+				// WordSmog plays out of an alpha dawg; fetch it now rather
+				// than at game creation time, since this is the interactive
+				// moment where waiting for a download is acceptable.
+				err = alphadawg.EnsureKAD(sc.options.Lexicon.Name, sc.config.WGLConfig())
+			}
+			_, ret = sc.options.Show("variant")
 		}
 	case "challenge":
 		err = sc.options.SetChallenge(args[0])

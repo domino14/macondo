@@ -334,7 +334,8 @@ func init() {
 	registerSpec(&CommandSpec{
 		Name: "set",
 		ArgsFunc: func(_ *ShellController) []string {
-			return []string{"lexicon", "challenge", "variation", "board", "lowercase"}
+			return []string{"lexicon", "challenge", "board", "variant", "lower",
+				"ttable-mem-fraction"}
 		},
 	})
 	registerSpec(&CommandSpec{

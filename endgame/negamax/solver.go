@@ -394,10 +394,16 @@ type stuckEntry struct {
 }
 
 // Init initializes the solver
-func (s *Solver) Init(m movegen.MoveGenerator, game *game.Game) error {
+func (s *Solver) Init(m movegen.MoveGenerator, g *game.Game) error {
+	if g != nil && game.IsWordSmog(g.Rules().Variant()) {
+		// The endgame solver generates with the small-move recorders and
+		// prunes the KWG, neither of which has an alpha dawg equivalent yet.
+		// Refuse rather than silently solving with classic moves.
+		return errors.New("the endgame solver does not support WordSmog yet")
+	}
 	s.ttable = GlobalTranspositionTable
 	s.stmMovegen = m
-	s.game = game
+	s.game = g
 
 	s.firstWinOptim = false
 	s.transpositionTableOptim = true
