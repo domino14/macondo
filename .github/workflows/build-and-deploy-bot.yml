@@ -16,6 +16,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      # America is the one word graph the tests need that isn't published
+      # alongside the others, so it comes from the private repo; everything
+      # else is fetched below. Publish America and this step, the checkout
+      # above it, and the PAT all go away.
       - name: Clone lexicon repo
         uses: actions/checkout@v4
         with:
@@ -23,15 +27,29 @@ jobs:
           path: word-game-lexica
           token: ${{ secrets.LEXICA_GH_PAT }}
 
-      - run: mv $GITHUB_WORKSPACE/word-game-lexica /opt/word-game-lexica
       - run: cp -r data /opt/data
       - run: mkdir -p /opt/data/lexica/gaddag
-      - run: mv /opt/word-game-lexica/gaddag/*.kwg /opt/data/lexica/gaddag
+      - run: cp "$GITHUB_WORKSPACE/word-game-lexica/gaddag/America.kwg" /opt/data/lexica/gaddag/
 
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: ">=1.22"
+
+      # Fetched into their own directory so the cache holds exactly the
+      # published files and nothing else. The fetch is a no-op on a cache hit,
+      # and the key covers the file list, so editing that list refetches.
+      - name: Cache lexicon data
+        uses: actions/cache@v4
+        with:
+          path: lexica-cache/lexica/gaddag
+          key: lexica-${{ hashFiles('cmd/fetch_lexica/lexica.txt') }}
+
+      - name: Fetch lexicon data
+        run: go run ./cmd/fetch_lexica -data-path lexica-cache
+
+      - name: Install lexicon data
+        run: cp lexica-cache/lexica/gaddag/* /opt/data/lexica/gaddag/
 
       - name: Build
         run: make
