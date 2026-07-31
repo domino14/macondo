@@ -15,6 +15,7 @@ import (
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/lexicon"
 	"github.com/domino14/macondo/move"
 )
 
@@ -355,8 +356,17 @@ func moveContainsBlank(m *move.Move) bool {
 	return false
 }
 
+// celLexicon is the common-word word list an English play is checked against
+// to earn the CEL_ONLY tag. Like the bot filters' copy, it is not the game's
+// lexicon, so nothing else fetches it.
+const celLexicon = "ECWL"
+
 func isCELEvent(event *pb.GameEvent, history *pb.GameHistory, cfg *config.Config) (bool, error) {
-	kwg, err := kwg.GetKWG(cfg.WGLConfig(), "ECWL")
+	if err := lexicon.EnsureLexiconFileOnce(celLexicon, ".kwg", cfg.WGLConfig()); err != nil {
+		log.Info().Err(err).Str("lexicon", celLexicon).
+			Msg("could not fetch the common word lexicon")
+	}
+	kwg, err := kwg.GetKWG(cfg.WGLConfig(), celLexicon)
 	if err != nil {
 		return false, err
 	}

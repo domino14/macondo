@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/rs/zerolog/log"
 
@@ -23,6 +24,26 @@ const lexiconFileURLBase = "https://github.com/woogles-io/liwords/raw/refs/heads
 // have a SuperCrosswordGame set -- so callers should treat this as an answer
 // rather than as a failure.
 var ErrNotPublished = errors.New("no such lexicon data file is published")
+
+// ensureFailed remembers downloads that have already been tried and failed, so
+// EnsureLexiconFileOnce can answer without going back to the network.
+var ensureFailed sync.Map
+
+// EnsureLexiconFileOnce is EnsureLexiconFile, except that a download which has
+// already failed once in this process is not attempted again. Callers on a hot
+// path want this: a bot that needs a file which isn't published, or which can't
+// be written to disk, would otherwise make an HTTP request every single turn.
+func EnsureLexiconFileOnce(lexname, ext string, cfg *wglconfig.Config) error {
+	key := lexname + ext
+	if err, tried := ensureFailed.Load(key); tried {
+		return err.(error)
+	}
+	err := EnsureLexiconFile(lexname, ext, cfg)
+	if err != nil {
+		ensureFailed.Store(key, err)
+	}
+	return err
+}
 
 // EnsureLexiconFile checks whether the per-lexicon data file for lexname with
 // the given extension (".kwg", ".kad", ".klv2") is present in the data

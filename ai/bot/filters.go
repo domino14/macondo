@@ -11,6 +11,7 @@ import (
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/lexicon"
 	"github.com/domino14/macondo/move"
 )
 
@@ -63,6 +64,15 @@ func filter(cfg *config.Config, g *game.Game, rack *tilemapping.Rack, plays []*m
 			return passMove
 		}
 
+		// The common-word dictionary is not the game's lexicon, so no game
+		// setup path has fetched it. Without it every play is rejected below
+		// and the bot passes until the game ends, so it is worth fetching
+		// here; a deployment whose data directory is read-only gets the same
+		// failure it would have had anyway, just once instead of every turn.
+		if err := lexicon.EnsureLexiconFileOnce(commonWordLexicon, ".kwg", cfg.WGLConfig()); err != nil {
+			log.Info().Err(err).Str("commonWordLexicon", commonWordLexicon).
+				Msg("could not fetch the common word lexicon")
+		}
 		gd, err := kwg.GetKWG(cfg.WGLConfig(), commonWordLexicon)
 		if err != nil {
 			log.Err(err).Str("commonWordLexicon", commonWordLexicon).Msg("could-not-load-cwl")
