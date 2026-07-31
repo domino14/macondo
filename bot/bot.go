@@ -191,6 +191,28 @@ func (bot *Bot) evaluationResponse(req *pb.EvaluationRequest) *pb.BotResponse {
 	}
 }
 
+// bestMove returns the move the bot wants to play.
+//
+// WordSmog is generated natively, in-process. It used to be farmed out to a
+// wolges-awsm server, and that path is still here for a deployment that wants
+// to keep using it while the native generator is validated against it: set
+// MACONDO_WOLGES_AWSM_URL and WordSmog goes back through wolges. Nothing else
+// reads that setting, so having it set is the whole opt-in. If the call fails
+// we generate natively rather than serving a classic move, which is what the
+// old fallback did.
+func (b *Bot) bestMove() *move.Move {
+	if game.IsWordSmog(b.game.Rules().Variant()) &&
+		b.config.GetString(mcfg.ConfigWolgesAwsmUrl) != "" {
+
+		moves, err := wolgesAnalyze(b.config, b.game)
+		if err == nil && len(moves) > 0 {
+			return moves[0]
+		}
+		log.Err(err).Msg("wolges-analyze-error; falling back to native generation")
+	}
+	return b.game.GenerateMoves(1)[0]
+}
+
 func (b *Bot) handle(data []byte) *pb.BotResponse {
 	ng, req, err := b.Deserialize(data)
 	if err != nil {
@@ -237,7 +259,7 @@ func (b *Bot) handle(data []byte) *pb.BotResponse {
 				return errorResponse(ErrNeedSimmingBot.Error(), nil)
 			}
 
-			m = b.game.GenerateMoves(1)[0]
+			m = b.bestMove()
 		}
 	} else {
 		m, _ = g.NewPassMove(g.PlayerOnTurn())
