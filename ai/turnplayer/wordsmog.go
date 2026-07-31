@@ -1,16 +1,26 @@
 package turnplayer
 
 import (
+	"github.com/rs/zerolog/log"
+
 	"github.com/domino14/word-golib/tilemapping"
 
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 )
 
-// wordSmogPoolSize is the smallest number of plays a WordSmog generation asks
-// for. Callers that want a single move (the bots) still need a handful of
-// candidates to filter over.
-const wordSmogPoolSize = 20
+const (
+	// wordSmogMinPool is the smallest number of plays a WordSmog generation
+	// asks for. Callers that want a single move (the bots) still need a
+	// handful of candidates to filter over.
+	wordSmogMinPool = 20
+	// wordSmogMaxPool caps it. The top-N recorder deep-copies its way through
+	// the whole array on every insertion, which is fine at 20 and ruinous at
+	// scale: the two-blank opening rack takes 2.5s with a pool of 20 and over
+	// five minutes with a pool of 20000. Callers asking for "everything"
+	// (evalSingleMove passes 100000) get the best 100 instead of a hang.
+	wordSmogMaxPool = 100
+)
 
 // GenerateWordSmogTopPlays generates the best numPlays moves best-first when
 // gen is in WordSmog mode, and reports whether it did.
@@ -30,7 +40,11 @@ func GenerateWordSmogTopPlays(gen *movegen.GordonGenerator, rack *tilemapping.Ra
 	if !gen.IsWordSmog() {
 		return nil, false
 	}
-	pool := max(numPlays, wordSmogPoolSize)
+	pool := min(max(numPlays, wordSmogMinPool), wordSmogMaxPool)
+	if numPlays > pool {
+		log.Debug().Int("asked", numPlays).Int("pool", pool).
+			Msg("WordSmog cannot enumerate; returning the best plays only")
+	}
 	gen.SetRecordNTopPlays(pool)
 	generated := gen.GenAll(rack, addExchange)
 
