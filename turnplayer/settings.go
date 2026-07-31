@@ -52,7 +52,7 @@ func (opts *GameOptions) SetDefaults(cfg *config.Config) {
 // before any code that calls kwg.GetKWG so that load paths other than
 // "set lexicon" also get the file-not-found download behaviour.
 func EnsureKWG(lexname string, cfg *wglconfig.Config) error {
-	return lexicon.EnsureWordGraphFile(lexname, ".kwg", cfg)
+	return lexicon.EnsureLexiconFile(lexname, ".kwg", cfg)
 }
 
 func (opts *GameOptions) SetLexicon(fields []string, cfg *wglconfig.Config) error {

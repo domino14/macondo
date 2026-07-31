@@ -6,8 +6,11 @@ import (
 	"io"
 	"strconv"
 
-	"github.com/domino14/macondo/dataloaders"
 	"github.com/rs/zerolog/log"
+
+	wglconfig "github.com/domino14/word-golib/config"
+
+	"github.com/domino14/macondo/dataloaders"
 )
 
 const (
@@ -15,8 +18,8 @@ const (
 	LeavesFilename        = "leaves.klv2"
 )
 
-func loadKLV(strategyPath, leavefile, lexiconName string) (*KLV, error) {
-	file, err := dataloaders.StratFileForLexicon(strategyPath, leavefile, lexiconName)
+func loadKLV(cfg *wglconfig.Config, leavefile, lexiconName string) (*KLV, error) {
+	file, err := dataloaders.LeavesFileForLexicon(cfg, leavefile, lexiconName)
 	if err != nil {
 		return nil, err
 	}

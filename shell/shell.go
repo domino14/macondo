@@ -31,6 +31,7 @@ import (
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/dataloaders"
 	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/explainer"
@@ -214,7 +215,7 @@ type ShellController struct {
 	volunteerCancel context.CancelFunc
 
 	// Local analysis persistence
-	gameSource    string                  // source identifier for the currently loaded game
+	gameSource    string                      // source identifier for the currently loaded game
 	analysisStore *gameanalysis.AnalysisStore // lazily opened SQLite store
 
 }
@@ -387,6 +388,14 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 				if err != nil {
 					log.Err(err).Msg("error-setting-exhaustive-leave-calculator")
 				}
+				// Fetch this lexicon's leave values if they aren't on disk. Like
+				// the WMP build below, this is worth waiting for during an
+				// interactive lexicon switch; without leaves the bots play
+				// greedily.
+				if klvErr := dataloaders.EnsureKLV(sc.options.Lexicon.Name, sc.config.WGLConfig()); klvErr != nil {
+					log.Info().Err(klvErr).Str("lexicon", sc.options.Lexicon.Name).
+						Msg("no leave values published for this lexicon")
+				}
 				// Build WMP if not already on disk (build-on-miss is intentional
 				// here since the user is doing an interactive lexicon switch).
 				if _, wmpErr := wmppkg.EnsureWMP(sc.config.WGLConfig(), sc.options.Lexicon.Name); wmpErr != nil {
@@ -464,7 +473,6 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 		return "", err
 	}
 }
-
 
 func (sc *ShellController) initGameDataStructures() error {
 	if sc.simmer != nil {
@@ -910,7 +918,7 @@ func (sc *ShellController) initializeVariationTree() {
 	// For each turn in the main line, create a node with the full history
 	for turnNum := 0; turnNum < len(history.Events); turnNum++ {
 		// Create a copy of the full game (with complete history)
-		sc.game.PlayToTurn(originalTurn) // Restore full history position
+		sc.game.PlayToTurn(originalTurn)               // Restore full history position
 		fullGameCopy := sc.game.Game.CopyWithHistory() // Deep copy with independent history
 		botCopy, _ := bot.NewBotTurnPlayerFromGame(fullGameCopy, &bot.BotConfig{Config: *sc.config}, pb.BotRequest_HASTY_BOT)
 
