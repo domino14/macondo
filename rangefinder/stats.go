@@ -77,7 +77,7 @@ func (r *RangeFinder) AnalyzeLeave(leaveStr string) (string, error) {
 	srcTag := ""
 	if r.inference.Complete {
 		if ml, ok := r.measured[key]; ok && ml.count > 0 {
-			srcTag = fmt.Sprintf(" [MEASURED ×%d]", ml.count)
+			srcTag = fmt.Sprintf(" [MEASURED ×%d, %s]", ml.count, roundLabel(ml.round))
 		} else {
 			srcTag = " [IMPUTED]"
 		}
@@ -89,12 +89,24 @@ func (r *RangeFinder) AnalyzeLeave(leaveStr string) (string, error) {
 			100.0*prior, (weight/sumW)/prior)
 	}
 	if ml, ok := r.measured[key]; ok && ml.count > 0 {
-		fmt.Fprintf(&ss, "  measured: evaluated %d time(s), mean likelihood %.6g\n",
-			ml.count, ml.mean())
+		how := "drawn at random from the unseen pool in round 0"
+		if ml.round > 0 {
+			how = fmt.Sprintf("drawn from the imputed posterior in refine round %d", ml.round)
+		}
+		fmt.Fprintf(&ss, "  measured: evaluated %d time(s), mean likelihood %.6g (%s)\n",
+			ml.count, ml.mean(), how)
 		if r.imputeRes != nil && ml.mean() > 0 {
 			fmt.Fprintf(&ss, "  weight = prior × mean likelihood ÷ max = %.4g × %.4g ÷ %.4g = %.6g\n",
 				prior, ml.mean(), math.Exp(r.imputeRes.maxLogW),
 				math.Exp(math.Log(prior)+math.Log(ml.mean())-r.imputeRes.maxLogW))
+			if ml.predicted > 0 {
+				// The out-of-sample prediction that got this leave selected,
+				// made before it was measured. The final model below has
+				// since been fit on this very measurement, so its comparison
+				// is in-sample; this one is not.
+				fmt.Fprintf(&ss, "  the model predicted %.6g before measuring it — measured/predicted = %.4gx\n",
+					ml.predicted, ml.mean()/ml.predicted)
+			}
 			fmt.Fprintf(&ss, "  imputation model comparison (not used for this leave's weight):\n")
 			if lhat, ok := r.writeSubleaveTable(&ss, mls); ok {
 				fmt.Fprintf(&ss, "  measured/imputed likelihood ratio: %.4gx\n",
@@ -111,6 +123,139 @@ func (r *RangeFinder) AnalyzeLeave(leaveStr string) (string, error) {
 		}
 	}
 	return ss.String(), nil
+}
+
+// roundLabel names the round a leave was measured in: r0 is the prior-sampled
+// pass (or exhaustive enumeration), r1 and up are the refinement rounds that
+// drew from the imputed posterior.
+func roundLabel(round int) string {
+	return fmt.Sprintf("r%d", round)
+}
+
+// rankedRack is one row of the posterior ranking.
+type rankedRack struct {
+	rank     int // position in the full posterior, not in a filtered view
+	leave    []tilemapping.MachineLetter
+	weight   float64
+	pct      float64 // share of total posterior weight
+	measured bool
+	count    int
+	round    int
+}
+
+func (rr rankedRack) source() string {
+	if !rr.measured {
+		return "imputed"
+	}
+	return fmt.Sprintf("measured ×%d %s", rr.count, roundLabel(rr.round))
+}
+
+// rankedRacks sorts the whole posterior by weight and tags each leave with
+// where its likelihood came from. Ranks are assigned over the full list, so
+// they stay meaningful after filtering.
+func (r *RangeFinder) rankedRacks() []rankedRack {
+	sumW := 0.0
+	for _, ir := range r.inference.InferredRacks {
+		sumW += ir.Weight
+	}
+	ranked := make([]montecarlo.InferredRack, len(r.inference.InferredRacks))
+	copy(ranked, r.inference.InferredRacks)
+	sort.Slice(ranked, func(i, j int) bool { return ranked[i].Weight > ranked[j].Weight })
+
+	out := make([]rankedRack, len(ranked))
+	for i, ir := range ranked {
+		row := rankedRack{rank: i + 1, leave: ir.Leave, weight: ir.Weight}
+		if sumW > 0 {
+			row.pct = 100.0 * ir.Weight / sumW
+		}
+		if ml, ok := r.measured[leaveKey(ir.Leave)]; ok && ml.count > 0 {
+			row.measured, row.count, row.round = true, ml.count, ml.round
+		}
+		out[i] = row
+	}
+	return out
+}
+
+// RankedRacks renders the posterior ranking, optionally filtered to just the
+// measured or just the imputed leaves. n ≤ 0 means the default page size.
+// Ranks shown are positions in the full posterior, so a filtered view still
+// says where its rows sit overall.
+func (r *RangeFinder) RankedRacks(filter string, n int) (string, error) {
+	switch filter {
+	case "", "all", "measured", "imputed":
+	default:
+		return "", fmt.Errorf("unknown filter %q: use measured, imputed, or nothing for all", filter)
+	}
+	if len(r.inference.InferredRacks) == 0 {
+		return "No inferences. Run `infer` first.", nil
+	}
+	if n <= 0 {
+		n = 15
+	}
+	alph := r.origGame.Alphabet()
+	rows := r.rankedRacks()
+
+	var ss strings.Builder
+	label := "leaves"
+	if filter != "" && filter != "all" {
+		label = filter + " leaves"
+	}
+	fmt.Fprintf(&ss, "Posterior ranking — top %d %s of %d:\n", n, label, len(rows))
+	fmt.Fprintf(&ss, "  %-6s%-12s%-12s%-12s%-14s\n", "Rank", "Leave", "Weight", "Wt %", "Source")
+
+	shown, cumPct := 0, 0.0
+	for _, row := range rows {
+		if (filter == "measured" && !row.measured) || (filter == "imputed" && row.measured) {
+			continue
+		}
+		fmt.Fprintf(&ss, "  %-6d%-12s%-12.4f%-12.1f%-14s\n", row.rank,
+			tilemapping.MachineWord(row.leave).UserVisible(alph),
+			row.weight, row.pct, row.source())
+		cumPct += row.pct
+		shown++
+		if shown >= n {
+			break
+		}
+	}
+	if shown == 0 {
+		fmt.Fprintf(&ss, "  (none)\n")
+		return ss.String(), nil
+	}
+	fmt.Fprintf(&ss, "  these %d hold %.1f%% of the posterior\n", shown, cumPct)
+	return ss.String(), nil
+}
+
+// imputedSummary finds the highest-weight never-evaluated leave and totals the
+// imputed set's share of the posterior. first is nil when every leave was
+// directly evaluated.
+func imputedSummary(rows []rankedRack) (first *rankedRack, count int, pct float64) {
+	for i := range rows {
+		if rows[i].measured {
+			continue
+		}
+		if first == nil {
+			first = &rows[i]
+		}
+		pct += rows[i].pct
+		count++
+	}
+	return first, count, pct
+}
+
+// firstImputedLine reports where the highest-weight never-evaluated leave sits
+// in the ranking, and how much mass the imputed set holds in total. After a
+// refine run the top of the table is usually all measured — this says where
+// the model is still guessing and how much that guess is worth. Returns "" when
+// the space was evaluated exhaustively and nothing was imputed at all.
+func (r *RangeFinder) firstImputedLine(rows []rankedRack) string {
+	first, count, pct := imputedSummary(rows)
+	if first == nil {
+		return ""
+	}
+	return fmt.Sprintf(
+		"  highest-weight imputed leave: %s at rank %d of %d (%.2f%% of mass); %d imputed leaves hold %.1f%% in total\n",
+		tilemapping.MachineWord(first.leave).UserVisible(r.origGame.Alphabet()),
+		first.rank, len(rows), first.pct, count, pct)
 }
 
 // writeSubleaveTable prints every sub-multiset φ term of the leave with its
@@ -215,10 +360,22 @@ func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
 			xfit = fmt.Sprintf(", xfit=%.2fx",
 				math.Exp(r.imputeRes.logCalib-r.imputeRes.logCalibInSample))
 		}
+		refined := ""
+		if r.refinedCount > 0 {
+			// How the refine loop ended, and how close the model's imputed
+			// weights were to the evaluations in its final round.
+			last := r.roundLog[len(r.roundLog)-1]
+			outcome := "budget"
+			if last.converged {
+				outcome = "converged"
+			}
+			refined = fmt.Sprintf(", %d refined over %d round(s), %s (log R̂=%+.3f ±%.3f)",
+				r.refinedCount, len(r.roundLog), outcome, last.logRatio, last.seLogRatio)
+		}
 		headerLine = fmt.Sprintf(
-			"Complete posterior over %d leaves (%s): %d measured holding %.1f%% of mass, %d imputed (marginal order ≤%d), tau=%.3f, ESS=%.1f%s\n",
+			"Complete posterior over %d leaves (%s): %d measured holding %.1f%% of mass, %d imputed (marginal order ≤%d), tau=%.3f, ESS=%.1f%s%s\n",
 			nInferred, src, r.imputeRes.measuredLeaves, 100.0*r.imputeRes.measuredMass,
-			r.imputeRes.imputedLeaves, r.imputeRes.marginalOrder, r.Tau(), ess, xfit)
+			r.imputeRes.imputedLeaves, r.imputeRes.marginalOrder, r.Tau(), ess, xfit, refined)
 	} else if r.exhaustiveTotal > 0 {
 		// Enumeration mode: show leaves simmed vs total, and completion %.
 		pct := 100.0 * float64(nInferred) / float64(r.exhaustiveTotal)
@@ -246,11 +403,7 @@ func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
 
 		// Top inferred racks by weight
 		ss.WriteString("Top inferred racks (by Bayesian weight):\n")
-		ranked := make([]montecarlo.InferredRack, len(r.inference.InferredRacks))
-		copy(ranked, r.inference.InferredRacks)
-		sort.Slice(ranked, func(i, j int) bool {
-			return ranked[i].Weight > ranked[j].Weight
-		})
+		ranked := r.rankedRacks()
 
 		showSource := r.inference.Complete
 		if showSource {
@@ -259,30 +412,37 @@ func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
 			fmt.Fprintf(&ss, "  %-6s%-12s%-12s%-12s\n", "Rank", "Leave", "Weight", "Wt %")
 		}
 
+		if showSource && r.refinedCount > 0 {
+			ss.WriteString("  (r0 = prior-sampled exploration; r1+ = drawn from the imputed posterior)\n")
+		}
+
 		showN := min(len(ranked), 15)
 		for i := 0; i < showN; i++ {
-			ir := ranked[i]
-			leaveStr := tilemapping.MachineWord(ir.Leave).UserVisible(alph)
-			wtPct := 100.0 * ir.Weight / sumW
+			row := ranked[i]
+			leaveStr := tilemapping.MachineWord(row.leave).UserVisible(alph)
 			if showSource {
-				src := "imputed"
-				if ml, ok := r.measured[leaveKey(ir.Leave)]; ok && ml.count > 0 {
-					src = fmt.Sprintf("measured ×%d", ml.count)
-				}
-				fmt.Fprintf(&ss, "  %-6d%-12s%-12.4f%-12.1f%-14s\n", i+1, leaveStr, ir.Weight, wtPct, src)
+				fmt.Fprintf(&ss, "  %-6d%-12s%-12.4f%-12.1f%-14s\n", row.rank, leaveStr,
+					row.weight, row.pct, row.source())
 			} else {
-				fmt.Fprintf(&ss, "  %-6d%-12s%-12.4f%-12.1f\n", i+1, leaveStr, ir.Weight, wtPct)
+				fmt.Fprintf(&ss, "  %-6d%-12s%-12.4f%-12.1f\n", row.rank, leaveStr,
+					row.weight, row.pct)
 			}
 		}
 		if len(ranked) > showN {
-			fmt.Fprintf(&ss, "  ... and %d more\n", len(ranked)-showN)
+			fmt.Fprintf(&ss, "  ... and %d more (`infer ranks [n] [measured|imputed]` to browse)\n",
+				len(ranked)-showN)
+		}
+		if showSource {
+			// After refinement the visible table is usually all measured, so
+			// say where the model is still guessing.
+			ss.WriteString(r.firstImputedLine(ranked))
 		}
 
 		// Weight concentration summary
 		topN := min(len(ranked), 3)
 		topSum := 0.0
 		for i := 0; i < topN; i++ {
-			topSum += ranked[i].Weight
+			topSum += ranked[i].weight
 		}
 		topPct := 100.0 * topSum / sumW
 		fmt.Fprintf(&ss, "\nWeight concentration: top %d hold %.1f%% of total weight (ESS = %.1f of %d)\n",

@@ -246,6 +246,17 @@ type RangeFinder struct {
 	measured  map[string]*measuredLeave
 	imputeRes *imputationResult
 
+	// Refinement state: how many rounds of posterior-guided measurement to
+	// run after round 0 (0 disables it), how many leaves they measured, and
+	// the per-round convergence statistics.
+	maxRounds     int
+	refinedCount  int
+	roundLog      []roundStats
+	stage0Elapsed time.Duration
+	// currentRound stamps newly measured leaves with the round that measured
+	// them. Written only by refineRounds, between batches.
+	currentRound int
+
 	logStream io.Writer
 }
 
@@ -256,6 +267,7 @@ func (r *RangeFinder) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
 	r.equityCalculators = eqCalcs
 	r.threads = max(1, runtime.NumCPU())
 	r.cfg = cfg
+	r.maxRounds = DefaultMaxRefineRounds
 }
 
 func (r *RangeFinder) SetThreads(t int) {
@@ -275,6 +287,15 @@ func (r *RangeFinder) Tau() float64 {
 	}
 	return r.tau
 }
+
+// SetMaxRounds sets how many measure–impute–recalibrate rounds run after the
+// prior-sampled round 0. 0 disables refinement, leaving single-stage
+// inference. Init seeds it with DefaultMaxRefineRounds.
+func (r *RangeFinder) SetMaxRounds(n int) {
+	r.maxRounds = max(0, n)
+}
+
+func (r *RangeFinder) MaxRounds() int { return max(0, r.maxRounds) }
 
 func (r *RangeFinder) SetSimIters(n int) {
 	r.simIters = n
@@ -463,6 +484,9 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 	r.foldAccs = nil
 	r.measured = nil
 	r.imputeRes = nil
+	r.refinedCount = 0
+	r.roundLog = nil
+	r.stage0Elapsed = 0
 	return nil
 }
 
@@ -498,7 +522,7 @@ func (r *RangeFinder) recordPlacementSample(leave []tilemapping.MachineLetter, w
 	}
 	ml := r.measured[key]
 	if ml == nil {
-		ml = &measuredLeave{}
+		ml = &measuredLeave{round: r.currentRound}
 		r.measured[key] = ml
 	}
 	ml.sumW += w
@@ -577,6 +601,24 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 
 	ctrl := errgroup.Group{}
 	writer := errgroup.Group{}
+
+	// Round 0 is blind, prior-sampled exploration. When refinement rounds
+	// will follow, it only gets refineStage0Frac of the budget; the rest pays
+	// for posterior-guided measurement.
+	parentCtx := ctx
+	rounds := 0
+	if r.acc != nil {
+		rounds = r.MaxRounds()
+	}
+	if rounds > 0 {
+		if deadline, ok := parentCtx.Deadline(); ok {
+			stage0End := time.Now().Add(
+				time.Duration(float64(time.Until(deadline)) * refineStage0Frac))
+			var cancelStage0 context.CancelFunc
+			ctx, cancelStage0 = context.WithDeadline(parentCtx, stage0End)
+			defer cancelStage0()
+		}
+	}
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -675,10 +717,15 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 	ctrlErr := ctrl.Wait()
 	log.Debug().Msgf("ctrl errgroup returned err %v", ctrlErr)
 
-	// Sampling has ended (typically by deadline); build the complete
-	// posterior from what was measured. CPU-bound and fast, so it runs
-	// even though ctx is already done.
+	// Round 0 has ended (typically by deadline); build the complete posterior
+	// from what was measured. CPU-bound and fast, so it runs even though ctx
+	// is already done.
+	r.stage0Elapsed = time.Since(inferStart)
 	r.finalizePlacementPosterior()
+
+	// Then alternate measurement and imputation on the remaining budget,
+	// drawing leaves from the posterior the model just produced.
+	r.refineRounds(parentCtx, rounds)
 
 	if ctrlErr == context.Canceled || ctrlErr == context.DeadlineExceeded {
 		// Not actually an error

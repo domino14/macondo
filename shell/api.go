@@ -36,6 +36,7 @@ import (
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/preendgame"
+	"github.com/domino14/macondo/rangefinder"
 	wmppkg "github.com/domino14/macondo/wmp"
 )
 
@@ -1101,6 +1102,7 @@ func (sc *ShellController) inferPrepare(cmd *shellcmd) (*inferParams, error) {
 	var err error
 	var threads, timesec, simIters, maxLeaves int
 	tau := 0.0
+	rounds := rangefinder.DefaultMaxRefineRounds
 
 	for opt := range cmd.options {
 		switch opt {
@@ -1134,6 +1136,12 @@ func (sc *ShellController) inferPrepare(cmd *shellcmd) (*inferParams, error) {
 				return nil, err
 			}
 
+		case "rounds":
+			rounds, err = cmd.options.Int(opt)
+			if err != nil {
+				return nil, err
+			}
+
 		default:
 			return nil, errors.New("option " + opt + " not recognized")
 		}
@@ -1151,6 +1159,9 @@ func (sc *ShellController) inferPrepare(cmd *shellcmd) (*inferParams, error) {
 	// Always set maxLeaves so a previous call's value doesn't persist.
 	// 0 means "use default" inside Infer (DefaultMaxEnumeratedLeaves).
 	sc.rangefinder.SetMaxEnumeratedLeaves(maxLeaves)
+	// Always set rounds so a previous call's value doesn't persist. 0 turns
+	// the refine loop off, leaving single-stage inference.
+	sc.rangefinder.SetMaxRounds(rounds)
 	if timesec == 0 {
 		timesec = 60
 	}
@@ -1215,6 +1226,27 @@ func (sc *ShellController) infer(cmd *shellcmd) (*Response, error) {
 
 		case "output":
 			return msg(sc.rangefinder.AnalyzeInferences(false)), nil
+
+		case "ranks":
+			// infer ranks [n] [measured|imputed], in either order.
+			filter, n := "", 0
+			for _, a := range cmd.args[1:] {
+				switch a {
+				case "measured", "imputed", "all":
+					filter = a
+				default:
+					parsed, err := strconv.Atoi(a)
+					if err != nil || parsed <= 0 {
+						return nil, errors.New("usage: infer ranks [n] [measured|imputed], e.g. `infer ranks 50 imputed`")
+					}
+					n = parsed
+				}
+			}
+			out, err := sc.rangefinder.RankedRacks(filter, n)
+			if err != nil {
+				return nil, err
+			}
+			return msg(out), nil
 
 		case "leave":
 			if len(cmd.args) < 2 {

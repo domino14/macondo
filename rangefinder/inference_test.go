@@ -3,6 +3,7 @@ package rangefinder
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"strings"
 	"testing"
@@ -78,6 +79,21 @@ func TestInferTilePlay(t *testing.T) {
 
 	// Query a specific leave from the complete posterior.
 	is.True(rangeFinder.inference.Complete)
+
+	// The refine loop must have run: leaves drawn from the imputed posterior
+	// and evaluated for real, each round reporting how far the model's
+	// imputed weights were from those evaluations.
+	is.True(rangeFinder.refinedCount > 0)
+	is.True(len(rangeFinder.roundLog) > 0)
+	for _, st := range rangeFinder.roundLog {
+		is.True(st.drawn > 0)
+		is.True(st.evaluated > 0)
+		is.True(st.distinct <= st.drawn)
+		is.True(st.seLogRatio > 0)
+		is.True(!math.IsNaN(st.logRatio))
+	}
+	// Refined leaves are measured, so they carry exact weights.
+	is.True(rangeFinder.imputeRes.measuredLeaves >= rangeFinder.refinedCount)
 	top := rangeFinder.inference.InferredRacks[0]
 	topStr := tilemapping.MachineWord(top.Leave).UserVisible(game.Alphabet())
 	analysis, err := rangeFinder.AnalyzeLeave(topStr)

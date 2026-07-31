@@ -50,14 +50,14 @@ sub-multiset counted once per sample; `subleaveAccumulator.record`). Numerator
 and denominator share the same sample set, so selection noise partially
 cancels.
 
-**Why the weights.** Today every draw comes from the prior
+**Why the weights.** Round 0 draws racks i.i.d. from the prior
 (`SetRandomRack`), so sampling multiplicity *is* prior weight and every
-$u_j = 1$: the sums degenerate to a plain count and likelihood-sum, and this
-is the estimator it has always been. That identity is exactly what breaks if
-leaves are ever drawn from anything else — counting draws equally would then
-estimate a lift under the *proposal* rather than the prior. Weighting each
-draw by $P/q$ makes the estimator target the same population quantity under
-any proposal, including MCMC-style samplers, since the lift is a ratio and $q$
+$u_j = 1$: the sums degenerate to a plain count and likelihood-sum, which is
+what this file described before refinement existed. But the refine rounds
+(§10) draw from the posterior, and then counting draws equally would estimate
+a lift under the *proposal* rather than the prior. Weighting each draw by
+$P/q$ makes the estimator target the same population quantity under any
+proposal — including MCMC-style samplers, since the lift is a ratio and $q$
 need only be known up to a constant. Shrinkage correspondingly keys off
 effective sample size $\mathrm{ESS}(S) = (\sum u)^2/\sum u^2$, which is again
 exactly the observation count when all $u_j = 1$
@@ -145,24 +145,24 @@ aligns them. We choose $C$ by **moment matching over the measured leaves**
 C \;=\; \log\frac{\sum_i c_i w_i}{\sum_i c_i e^{\sum \varphi(L_i)}}
 ```
 
-where $c_i$ is the leave's total importance weight $U_L = \sum_{j: L_j = L}
-u_j$ — its draw count while everything is prior-sampled. Computed with
-log-sum-exp for stability. Under this calibration the model reproduces the
-**arithmetic** mean of the measured likelihoods (`TestCalibrationMomentMatched`).
+computed with log-sum-exp for stability. Under this calibration the model
+reproduces the **arithmetic** mean of the measured likelihoods
+(`TestCalibrationMomentMatched`).
 
-This target is not arbitrary: the measured leaves are i.i.d. draws from the
-prior, so $\frac{1}{n}\sum_i U_i w_i$ estimates $\mathbb{E}_{\text{prior}}[w]$
-over the *whole* leave space — which is exactly the posterior normalizer
-$\sum_L P(L)w(L)$. The moment condition is therefore a population statement,
-and the importance weights of §2 are what keep it one if the draws ever stop
-coming from the prior.
+where $c_i$ is the leave's total importance weight $U_L = \sum_{j: L_j = L}
+u_j$ — its draw count when everything was prior-sampled. This target is not
+arbitrary: $\frac{1}{n}\sum_i U_i w_i$ estimates
+$\mathbb{E}_{\text{prior}}[w]$ over the *whole* leave space, which is exactly
+the posterior normalizer $\sum_L P(L)w(L)$. The moment condition is therefore
+a population statement, and the importance weights are what keep it one when
+the draws stop coming from the prior.
 
 ### Cross-fitting
 
 $C$ is fit on measured leaves but applied to **unmeasured** ones, so the
 predictions in its denominator have to be out-of-sample. With the full-data
 model they are not: every measured leave helped set the very lifts that
-predict it. That self-fit inflates $\sum_i U_i e^{\sum\varphi(L_i)}$ and so
+predict it. That self-fit inflates $\sum_i c_i e^{\sum\varphi(L_i)}$ and so
 biases $C$ **low** — imputed leaves get systematically too little mass.
 
 So each distinct leave is assigned by hash to one of $K = 5$ folds
@@ -170,7 +170,7 @@ So each distinct leave is assigned by hash to one of $K = 5$ folds
 prediction in the denominator comes from the model fit on the other folds:
 
 ```math
-C \;=\; \log\frac{\sum_i U_i w_i}{\sum_i U_i \, e^{\sum \varphi^{(-f(i))}(L_i)}}
+C \;=\; \log\frac{\sum_i c_i w_i}{\sum_i c_i \, e^{\sum \varphi^{(-f(i))}(L_i)}}
 ```
 
 Fold complements are exact subtractions of the accumulators
@@ -181,16 +181,16 @@ back to $\log \bar w$ — the right answer when the lifts carry no information.
 
 Measured effect on synthetic data at production-like densities (26 tile types,
 $k=3$, order 2): the cross-fit constant runs **1.02×–1.07× above** the
-in-sample one, the gap widening as the measured set thins; a real position
-with only 160 of 3431 leaves measured shows 1.12×. $K$ barely matters — $K=5$,
-$K=20$, and leave-one-out agree to within 0.02 in log space.
+in-sample one, the gap widening as the measured set thins. $K$ barely matters
+— $K=5$, $K=20$, and leave-one-out agree to within 0.02 in log space.
 
 One honest caveat: this corrects one bias, not total calibration error. The
 model's *shape* error on unseen leaves is independent, has variable sign, and
 is often larger. In individual positions the two can cancel, so the in-sample
 constant sometimes looks better on held-out leaves by accident —
 `TestCrossFitRemovesSelfFit` therefore pins the mechanism (a leave whose lifts
-come only from its own measurements) rather than a held-out win.
+come only from its own measurements) rather than a held-out win. Attacking the
+shape error is what §10 is for.
 
 The runtime diagnostics print both constants and their ratio (`xfit=1.03x` in
 the `infer analyze` header), which is a direct read on how much the lifts are
@@ -276,16 +276,25 @@ $P(L) \cdot e^{C + \Sigma\varphi}$ normalized by the max.
 
 ## 8. Diagnostics
 
-- `infer analyze` (detailed): posterior header — measured/imputed counts,
-  measured mass, marginal order, $\tau$, effective sample size, and `xfit`
-  (the cross-fit/in-sample calibration ratio; 1.00× means no detectable
-  self-fit) — plus the top racks with their source (`measured ×n` /
-  `imputed`).
+- `infer details`: posterior header — measured/imputed counts, measured mass,
+  marginal order, $\tau$, effective sample size, `xfit` (the
+  cross-fit/in-sample calibration ratio; 1.00× means no detectable self-fit),
+  and the refine summary — plus the top racks with their source
+  (`measured ×n rR` / `imputed`), where `rR` is the round that measured the
+  leave: `r0` for the prior-sampled pass, `r1`+ for refinement rounds. It also
+  reports where the highest-weight *imputed* leave sits, since after
+  refinement the visible table is usually all measured.
+- `infer ranks [n] [measured|imputed]`: browse the full ranking, filtered by
+  source. Ranks are positions in the whole posterior, so `infer ranks imputed`
+  shows how far down the model's extrapolation starts.
 - `infer leave <tiles>`: the full walkthrough above (`AnalyzeLeave` /
   `writeImputationWalkthrough`, rangefinder/stats.go), ending with the exact
   chain `weight = prior × ℓ̂ ÷ max` that reproduces the stored weight — a
   built-in self-check that the display matches the engine
-  (`TestImputationResultReconstructsWeights`).
+  (`TestImputationResultReconstructsWeights`). A refined leave also shows how
+  it was selected and what the model predicted for it *before* it was
+  measured — the only out-of-sample prediction for that leave that survives,
+  since the final model has been refit on the measurement.
 
 The model, calibration constant, and normalization max are persisted on
 `imputationResult` specifically so this replay is exact.
@@ -306,6 +315,7 @@ The model, calibration constant, and normalization max are persisted on
 |---|---|---|
 | Sub-multiset accumulation | `subleaveAccumulator.record` | `TestAccumulatorDistinctSubMultisets`, `TestUnitWeightsMatchCounts` |
 | Importance weighting | `subleaveAccumulator.record` (`u`) | `TestWeightedLiftUnbiasedUnderSkewedProposal` |
+| Refinement loop | `refineRounds`, rangefinder/refine.go | `TestSystematicSampleExpectation`, `TestProposalWeightsTruncated`, `TestRatioStatistic` |
 | Model uncertainty | `imputationModel.uncertainty` | `TestUncertaintyFavorsThinSupport` |
 | Möbius terms | `buildImputationModel` | `TestMobiusTelescoping` |
 | Term enumeration for display | `subleaveTerms` | `TestSubleaveTermsSumMatchesLogImputed` |
@@ -316,3 +326,67 @@ The model, calibration constant, and normalization max are persisted on
 
 Known gap: exchange inference still uses the legacy Monte Carlo sampling path
 without a complete posterior; only tile-placement inference is imputed.
+
+## 10. Refinement: measuring what the model points at
+
+Everything above builds one posterior from one pass of prior-sampled
+evaluations. That leaves the model's *shape* error unchecked: nothing ever
+compares an imputed likelihood against a real evaluation. Refinement closes
+the loop (`rangefinder/refine.go`,
+`docs/development/iterative_inference_plan.md`).
+
+Round 0 is the prior-sampled pass above, on 40% of the time budget. Each later
+round draws leaves from the current posterior — restricted to leaves not yet
+measured — with an exploration bonus:
+
+```math
+q_r(L) \;\propto\; W_r(L)\,\bigl(1 + \lambda_{\text{ex}}\,\mathrm{unc}(L)\bigr),
+\qquad
+\mathrm{unc}(L) = \sqrt{\sum_{S \subseteq L}\mathrm{unc}(S)^2}
+```
+
+where $\mathrm{unc}(S) = (1 - \text{shrink})\,|\log\mathrm{lift}(S)|$ is the
+share of a term's raw signal that shrinkage suppressed for lack of support,
+and a sub-multiset never seen at all takes $\sigma_0$ — the RMS log-lift at its
+order — rather than the zero its $\varphi$ gets. This is the UCB analogue, and
+it targets the motivating failure directly: ZIT is mispriced precisely because
+the (Z,I) pair has thin support, which is what the bonus is largest for. As
+support accumulates the bonus decays, so the loop anneals from exploration to
+exploitation on its own.
+
+The draws are taken by systematic PPS sampling (one uniform offset, $m$ equally
+spaced positions on the CDF), which gives each leave $\lfloor m q\rfloor$ or
+$\lceil m q\rceil$ draws — unbiased, and far less variable than i.i.d. draws.
+A leave drawn more than once is evaluated once and its multiplicity folded
+into the importance weight, which is algebraically identical and saves the
+duplicate mini-sims. (This only arises for a leave holding at least $1/m$ of
+the proposal mass; over thousands of candidates it is rare.)
+
+Each round's draws enter the accumulator with $u_j = P/q_r$, truncated at
+$\sqrt{n}\,\bar u$, and the model is refit and recalibrated before the next
+round.
+
+**Stopping.** Each round yields an out-of-sample verdict on the model, since
+every leave in the batch was unmeasured when it was predicted:
+
+```math
+\hat R_r = \frac{\sum_j u_j w_j}{\sum_j u_j \hat\ell_{r-1}(L_j)}
+```
+
+The loop stops when the whole confidence interval of $\log\hat R_r$ fits inside
+±10% — an equivalence test, not a significance test, so an underpowered batch
+does *not* count as converged — or when the unmeasured leaves hold under 2% of
+the posterior, or the space is exhausted, or the rounds (default 6, `-rounds`)
+or the clock run out.
+
+Measured on the `TestInferTilePlay` position at a 30-second budget, against
+single-stage inference with the same budget:
+
+| | measured leaves | posterior mass measured |
+|---|---|---|
+| single stage (`-rounds 0`) | 698 | 49.5% |
+| 5 refine rounds | 994 | 68.8% |
+
+with per-round $\log\hat R$ of $-0.073, +0.060, -0.034, +0.004, +0.028$ — the
+imputation model is calibrated to within a few percent on the mass it points
+at, which is the first direct evidence for that we have had.

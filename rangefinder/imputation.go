@@ -598,6 +598,16 @@ type measuredLeave struct {
 	// quantities such as the calibration constant. It equals count for
 	// prior-sampled draws.
 	sumU float64
+	// round is where the leave entered the measured set: 0 for round 0
+	// (prior sampling or exhaustive enumeration), r for refine round r. A
+	// leave has exactly one origin round, since refine rounds only ever draw
+	// leaves that are still unmeasured.
+	round int
+	// predicted is the imputed likelihood the model assigned this leave just
+	// before it was measured — a genuinely out-of-sample prediction, unlike
+	// anything the final model produces for it. 0 for round-0 leaves, which
+	// were never predicted before being drawn.
+	predicted float64
 }
 
 // mean is the plain average of the measurements, deliberately unweighted:
