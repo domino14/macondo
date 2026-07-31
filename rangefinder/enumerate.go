@@ -250,7 +250,9 @@ func (r *RangeFinder) inferEnumerated(ctx context.Context) error {
 	r.measured = map[string]*measuredLeave{}
 	for _, res := range results {
 		for _, ir := range res.racks {
-			r.recordPlacementSample(ir.Leave, ir.Weight)
+			// Exhaustive enumeration visits each leave exactly once, so
+			// every draw carries unit importance weight.
+			r.recordPlacementSample(ir.Leave, ir.Weight, 1)
 		}
 	}
 	r.finalizePlacementPosterior()

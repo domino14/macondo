@@ -32,25 +32,150 @@ func TestMarginalOrder(t *testing.T) {
 func TestAccumulatorDistinctSubMultisets(t *testing.T) {
 	is := is.New(t)
 	acc := newSubleaveAccumulator(4, 3)
-	acc.record(mls(1, 1, 2), 0.5)
+	acc.record(mls(1, 1, 2), 0.5, 1)
 
 	is.Equal(acc.n, 1)
-	is.Equal(acc.wTotal, 0.5)
+	is.Equal(acc.likTotal, 0.5)
 
-	is.Equal(acc.cnt1[1], 1.0)
-	is.Equal(acc.cnt1[2], 1.0)
-	is.Equal(acc.cnt1[3], 0.0)
+	is.Equal(acc.wt1[1], 1.0)
+	is.Equal(acc.wt1[2], 1.0)
+	is.Equal(acc.wt1[3], 0.0)
 
-	is.Equal(acc.cnt2[acc.idx2(1, 1)], 1.0) // {1,1}
-	is.Equal(acc.cnt2[acc.idx2(1, 2)], 1.0) // {1,2}
-	is.Equal(acc.cnt2[acc.idx2(2, 2)], 0.0)
+	is.Equal(acc.wt2[acc.idx2(1, 1)], 1.0) // {1,1}
+	is.Equal(acc.wt2[acc.idx2(1, 2)], 1.0) // {1,2}
+	is.Equal(acc.wt2[acc.idx2(2, 2)], 0.0)
 
-	is.Equal(acc.cnt3[acc.idx3(1, 1, 2)], 1.0) // {1,1,2}
-	is.Equal(acc.cnt3[acc.idx3(1, 1, 1)], 0.0)
+	is.Equal(acc.wt3[acc.idx3(1, 1, 2)], 1.0) // {1,1,2}
+	is.Equal(acc.wt3[acc.idx3(1, 1, 1)], 0.0)
 
-	is.Equal(acc.wsum1[1], 0.5)
-	is.Equal(acc.wsum2[acc.idx2(1, 1)], 0.5)
-	is.Equal(acc.wsum3[acc.idx3(1, 1, 2)], 0.5)
+	is.Equal(acc.lik1[1], 0.5)
+	is.Equal(acc.lik2[acc.idx2(1, 1)], 0.5)
+	is.Equal(acc.lik3[acc.idx3(1, 1, 2)], 0.5)
+}
+
+// The importance-weighted accumulator must reduce exactly to plain counting
+// when every draw carries u = 1, so prior-sampled inference is bit-for-bit
+// what it was before weights existed.
+func TestUnitWeightsMatchCounts(t *testing.T) {
+	is := is.New(t)
+	acc := newSubleaveAccumulator(6, 3)
+	leaves := [][]tilemapping.MachineLetter{
+		mls(1, 2, 3), mls(1, 1, 4), mls(2, 3, 5), mls(1, 2, 3), mls(4, 4, 4),
+	}
+	for i, l := range leaves {
+		acc.record(l, 0.1*float64(i+1), 1)
+	}
+
+	// wt is the containment count, wtsq equals it, so ESS is the count.
+	for _, sub := range [][]tilemapping.MachineLetter{
+		mls(1), mls(2), mls(4), mls(1, 2), mls(4, 4), mls(1, 2, 3), mls(4, 4, 4),
+	} {
+		e, wt, _ := acc.accStats(sub)
+		is.Equal(e, wt)
+		is.Equal(wt, math.Round(wt)) // integral: it is a count
+	}
+	e, wt, lik := acc.accStats(mls(1, 2))
+	is.Equal(wt, 2.0) // leaves 0 and 3
+	is.Equal(e, 2.0)
+	is.True(math.Abs(lik-(0.1+0.4)) < 1e-12)
+	is.Equal(acc.wtTotal, 5.0)
+	is.True(math.Abs(acc.likTotal-(0.1+0.2+0.3+0.4+0.5)) < 1e-12)
+}
+
+// The lift estimator must recover the same population quantity under a
+// non-prior proposal — the whole point of importance weighting. A proposal
+// that draws some leaves more often than the prior would, corrected by
+// u = P/q, must produce exactly the prior-weighted lifts.
+//
+// The design is made deterministic by realizing the proposal as integer
+// multiplicities: leaves containing tile 1 are drawn 3× as often as the rest,
+// so q ∝ multiplicity and u = P/q. Since the accumulator is linear in u, this
+// is the exact-expectation version of that sampler, with no Monte Carlo noise
+// to tolerate.
+func TestWeightedLiftUnbiasedUnderSkewedProposal(t *testing.T) {
+	is := is.New(t)
+	bagMap := []uint8{0, 4, 4, 4, 4}
+	k := 2
+	order := marginalOrder(k)
+	truth := func(tiles []tilemapping.MachineLetter) float64 {
+		w := 1.0
+		for _, tl := range tiles {
+			w *= 1.0 + 0.5*float64(tl)
+		}
+		return w
+	}
+	leaves := enumerateLeaves(bagMap, k)
+
+	// Reference: each leave once, weighted by its exact prior — the
+	// population lift with no sampling noise at all.
+	ref := newSubleaveAccumulator(len(bagMap), order)
+	for _, l := range leaves {
+		ref.record(l.tiles, truth(l.tiles), l.prior)
+	}
+
+	multOf := func(l enumLeaf) int {
+		for _, tl := range l.tiles {
+			if tl == 1 {
+				return 3
+			}
+		}
+		return 1
+	}
+	totalMult := 0
+	for _, l := range leaves {
+		totalMult += multOf(l)
+	}
+	skewed := newSubleaveAccumulator(len(bagMap), order)
+	nDraws := 0
+	for _, l := range leaves {
+		m := multOf(l)
+		q := float64(m) / float64(totalMult) // proposal probability
+		u := l.prior / q
+		for i := 0; i < m; i++ { // drawn m times by this proposal
+			skewed.record(l.tiles, truth(l.tiles), u)
+			nDraws++
+		}
+	}
+	is.True(nDraws > len(leaves)) // the proposal really is skewed
+
+	// Lifts must agree exactly. ESS differs — that is the price of the skew —
+	// so shrinkage is off for the comparison.
+	refMod := buildImputationModel(ref, 0, 1e9, 1e9)
+	skewMod := buildImputationModel(skewed, 0, 1e9, 1e9)
+	for _, l := range leaves {
+		runs := runsOf(l.tiles, nil)
+		a, b := refMod.logImputed(runs), skewMod.logImputed(runs)
+		if math.Abs(a-b) > 1e-9 {
+			t.Fatalf("leave %v: prior-weighted %v, importance-weighted %v", l.tiles, a, b)
+		}
+	}
+
+	// And the skew must cost effective sample size relative to the unweighted
+	// count, which is what shrinkage keys off.
+	e, _, _ := skewed.accStats(mls(1))
+	is.True(e < 3*float64(len(leaves)))
+}
+
+// A sub-multiset never observed is the most uncertain term in the model, not
+// the least: it must carry σ₀ rather than the zero its φ gets.
+func TestUncertaintyFavorsThinSupport(t *testing.T) {
+	is := is.New(t)
+	acc := newSubleaveAccumulator(8, 2)
+	// Tiles 1-3 richly observed; tiles 6,7 never seen.
+	for i := 0; i < 60; i++ {
+		acc.record(mls(1, 2), 1.0, 1)
+		acc.record(mls(1, 3), 3.0, 1)
+		acc.record(mls(2, 3), 0.2, 1)
+	}
+	mod := buildImputationModel(acc, imputationLambda, maxAbsLogLift, maxAbsInteraction)
+
+	wellSupported := mod.uncertainty(runsOf(mls(1, 2), nil))
+	unseen := mod.uncertainty(runsOf(mls(6, 7), nil))
+	is.True(unseen > wellSupported)
+	// The unseen pair's φ is zero, so uncertainty is the only thing that can
+	// make the refine loop look at it.
+	is.Equal(mod.logImputed(runsOf(mls(6, 7), nil)), 0.0)
+	is.True(unseen > 0)
 }
 
 // With m = k, no shrinkage, and no clamping, the Möbius expansion must
@@ -70,12 +195,12 @@ func TestMobiusTelescoping(t *testing.T) {
 	}
 	weights := []float64{8, 2, 5, 1, 3, 0.25}
 	for i, l := range leaves {
-		acc.record(l, weights[i])
+		acc.record(l, weights[i], 1)
 	}
 
 	mod := buildImputationModel(acc, 0 /* no shrinkage */, 1e9, 1e9)
 
-	wMean := acc.wTotal / float64(acc.n)
+	wMean := acc.likTotal / acc.wtTotal
 	var runBuf []tileRun
 	for i, l := range leaves {
 		runBuf = runsOf(l, runBuf)
@@ -103,7 +228,7 @@ func TestSubleaveTermsSumMatchesLogImputed(t *testing.T) {
 	}
 	weights := []float64{8, 2, 5, 1, 3, 0.25}
 	for i, l := range leaves {
-		acc.record(l, weights[i])
+		acc.record(l, weights[i], 1)
 	}
 	mod := buildImputationModel(acc, imputationLambda, maxAbsLogLift, maxAbsInteraction)
 
@@ -151,12 +276,13 @@ func TestImputationResultReconstructsWeights(t *testing.T) {
 		if holdout[key] {
 			continue
 		}
-		acc.record(l.tiles, truth(l.tiles))
+		acc.record(l.tiles, truth(l.tiles), 1)
 		if measured[key] == nil {
 			measured[key] = &measuredLeave{}
 		}
 		measured[key].sumW += truth(l.tiles)
 		measured[key].count++
+		measured[key].sumU++
 	}
 
 	res := imputeFullPosterior(bagMap, k, acc, measured, 2)
@@ -208,12 +334,13 @@ func TestCalibrationMomentMatched(t *testing.T) {
 		if holdout[key] {
 			continue
 		}
-		acc.record(l.tiles, truth(l.tiles))
+		acc.record(l.tiles, truth(l.tiles), 1)
 		if measured[key] == nil {
 			measured[key] = &measuredLeave{}
 		}
 		measured[key].sumW += truth(l.tiles)
 		measured[key].count++
+		measured[key].sumU++
 	}
 
 	res := imputeFullPosterior(bagMap, k, acc, measured, 2)
@@ -240,6 +367,8 @@ func TestCalibrationMomentMatched(t *testing.T) {
 	}
 }
 
+
+
 // A fully-measured leave space reproduces exact Bayesian weights:
 // posterior ∝ prior × measured likelihood.
 func TestImputeFullPosteriorMeasuredExact(t *testing.T) {
@@ -261,13 +390,14 @@ func TestImputeFullPosteriorMeasuredExact(t *testing.T) {
 	}
 	for _, l := range leaves {
 		w := likelihood(l.tiles)
-		acc.record(l.tiles, w)
+		acc.record(l.tiles, w, 1)
 		key := leaveKey(l.tiles)
 		if measured[key] == nil {
 			measured[key] = &measuredLeave{}
 		}
 		measured[key].sumW += w
 		measured[key].count++
+		measured[key].sumU++
 	}
 
 	res := imputeFullPosterior(bagMap, k, acc, measured, 2)
@@ -335,7 +465,7 @@ func TestImputeUnmeasuredLift(t *testing.T) {
 		}
 		// Record repeatedly so shrinkage (λ=10) has little effect.
 		for rep := 0; rep < 30; rep++ {
-			acc.record(l.tiles, truth(l.tiles))
+			acc.record(l.tiles, truth(l.tiles), 1)
 		}
 		if measured[key] == nil {
 			measured[key] = &measuredLeave{}
@@ -402,9 +532,9 @@ func TestMeasuredZeroExcluded(t *testing.T) {
 	acc := newSubleaveAccumulator(len(bagMap), marginalOrder(k))
 	measured := map[string]*measuredLeave{}
 
-	acc.record(mls(1), 1.0)
+	acc.record(mls(1), 1.0, 1)
 	measured[leaveKey(mls(1))] = &measuredLeave{sumW: 1.0, count: 1}
-	acc.record(mls(2), 0.0)
+	acc.record(mls(2), 0.0, 1)
 	measured[leaveKey(mls(2))] = &measuredLeave{sumW: 0.0, count: 1}
 
 	res := imputeFullPosterior(bagMap, k, acc, measured, 1)
@@ -440,13 +570,14 @@ func BenchmarkImputeFullPosteriorK6(b *testing.B) {
 		// record sorts in place.
 		acc0 := l
 		sortMLs(acc0)
-		acc.record(acc0, w)
+		acc.record(acc0, w, 1)
 		key := leaveKey(acc0)
 		if measured[key] == nil {
 			measured[key] = &measuredLeave{}
 		}
 		measured[key].sumW += w
 		measured[key].count++
+		measured[key].sumU++
 	}
 
 	b.ResetTimer()

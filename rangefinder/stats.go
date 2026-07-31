@@ -121,7 +121,7 @@ func (r *RangeFinder) writeSubleaveTable(ss *strings.Builder,
 	mls []tilemapping.MachineLetter) (lhat float64, ok bool) {
 
 	if r.imputeRes == nil || r.imputeRes.model == nil || r.acc == nil ||
-		r.acc.n == 0 || r.acc.wTotal <= 0 {
+		r.acc.n == 0 || r.acc.likTotal <= 0 {
 		return 0, false
 	}
 	alph := r.origGame.Alphabet()
@@ -131,23 +131,26 @@ func (r *RangeFinder) writeSubleaveTable(ss *strings.Builder,
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
 	runs := runsOf(sorted, nil)
 	terms := mod.subleaveTerms(runs)
-	wMean := r.acc.wTotal / float64(r.acc.n)
+	wMean := r.acc.likTotal / r.acc.wtTotal
 
+	// "ess" is the effective sample size behind the term — the plain
+	// containment count when every draw was prior-sampled (u = 1), smaller
+	// when the draws carried unequal importance weights.
 	fmt.Fprintf(ss, "  %-6s%-8s%-13s%-11s%-9s%-11s%-9s\n",
-		"sub", "n", "E[lik|sub]", "lift", "shrink", "φ", "e^φ")
+		"sub", "ess", "E[lik|sub]", "lift", "shrink", "φ", "e^φ")
 	sumPhi := 0.0
 	for _, t := range terms {
 		sumPhi += t.phi
 		sub := tilemapping.MachineWord(t.tiles).UserVisible(alph)
-		cnt, wsum := r.acc.accStats(t.tiles)
-		if cnt == 0 {
-			fmt.Fprintf(ss, "  %-6s%-8d%-13s%-11s%-9s%-11s%-9s (no data)\n",
-				sub, 0, "—", "—", "—", "0", "1")
+		e, wt, lik := r.acc.accStats(t.tiles)
+		if wt == 0 {
+			fmt.Fprintf(ss, "  %-6s%-8s%-13s%-11s%-9s%-11s%-9s (no data)\n",
+				sub, "0", "—", "—", "—", "0", "1")
 			continue
 		}
-		condMean := wsum / cnt
-		fmt.Fprintf(ss, "  %-6s%-8d%-13.4g%-11.4g%-9.3f%-+11.4g%-9.4g\n",
-			sub, int(cnt), condMean, condMean/wMean, cnt/(cnt+mod.lambda),
+		condMean := lik / wt
+		fmt.Fprintf(ss, "  %-6s%-8.4g%-13.4g%-11.4g%-9.3f%-+11.4g%-9.4g\n",
+			sub, e, condMean, condMean/wMean, e/(e+mod.lambda),
 			t.phi, math.Exp(t.phi))
 	}
 	logCalib := r.imputeRes.logCalib

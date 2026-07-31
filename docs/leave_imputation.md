@@ -31,23 +31,37 @@ from low-order containment statistics of the measured set.
 
 ## 2. Containment lifts
 
-Every evaluated sample $i$ contributes its leave $L_i$ and measured likelihood
-$w_i \ge 0$ (zero is real evidence — "this leave never produces the observed
-play" — and is recorded, not skipped). Let $\bar w = \frac{1}{n}\sum_i w_i$ be
-the global mean likelihood.
+Every evaluated sample $j$ contributes its leave $L_j$, its measured
+likelihood $w_j \ge 0$ (zero is real evidence — "this leave never produces the
+observed play" — and is recorded, not skipped), and an **importance weight**
+$u_j = P(L_j)/q(L_j)$, where $q$ is the proposal that produced the draw.
 
 For a small sub-multiset $S$ (a single tile, a pair, or a triple — possibly
 with repeats, like $\{A,A\}$), define its **containment lift**:
 
 ```math
 \mathrm{lift}(S) \;=\; \frac{\mathbb{E}[\,w \mid S \subseteq L\,]}{\mathbb{E}[w]}
-\;=\; \frac{\text{wsum}(S)/\text{cnt}(S)}{\bar w}
+\;=\; \frac{\sum_{j:\,S \subseteq L_j} u_j w_j \big/ \sum_{j:\,S \subseteq L_j} u_j}
+           {\sum_j u_j w_j \big/ \sum_j u_j}
 ```
 
-where $\text{cnt}(S)$ and $\text{wsum}(S)$ count/sum over evaluated samples
-whose leave contains $S$ (each *distinct* sub-multiset counted once per
-sample; `subleaveAccumulator.record`). Numerator and denominator share the
-same sample set, so selection noise partially cancels.
+summing over evaluated samples whose leave contains $S$ (each *distinct*
+sub-multiset counted once per sample; `subleaveAccumulator.record`). Numerator
+and denominator share the same sample set, so selection noise partially
+cancels.
+
+**Why the weights.** Today every draw comes from the prior
+(`SetRandomRack`), so sampling multiplicity *is* prior weight and every
+$u_j = 1$: the sums degenerate to a plain count and likelihood-sum, and this
+is the estimator it has always been. That identity is exactly what breaks if
+leaves are ever drawn from anything else — counting draws equally would then
+estimate a lift under the *proposal* rather than the prior. Weighting each
+draw by $P/q$ makes the estimator target the same population quantity under
+any proposal, including MCMC-style samplers, since the lift is a ratio and $q$
+need only be known up to a constant. Shrinkage correspondingly keys off
+effective sample size $\mathrm{ESS}(S) = (\sum u)^2/\sum u^2$, which is again
+exactly the observation count when all $u_j = 1$
+(`TestUnitWeightsMatchCounts`, `TestWeightedLiftUnbiasedUnderSkewedProposal`).
 
 Intuition: $\mathrm{lift}(Z) = 28$ means "evaluated leaves containing Z
 produced the observed play 28× more often than average" — Z is strongly
@@ -131,8 +145,10 @@ aligns them. We choose $C$ by **moment matching over the measured leaves**
 C \;=\; \log\frac{\sum_i c_i w_i}{\sum_i c_i e^{\sum \varphi(L_i)}}
 ```
 
-computed with log-sum-exp for stability. Under this calibration the model
-reproduces the **arithmetic** mean of the measured likelihoods exactly
+where $c_i$ is the leave's total importance weight $U_L = \sum_{j: L_j = L}
+u_j$ — its draw count while everything is prior-sampled. Computed with
+log-sum-exp for stability. Under this calibration the model reproduces the
+**arithmetic** mean of the measured likelihoods exactly
 (`TestCalibrationMomentMatched`).
 
 ### Why not mean-of-logs (historical bug)
@@ -240,7 +256,9 @@ The model, calibration constant, and normalization max are persisted on
 
 | Concern | Code | Tests |
 |---|---|---|
-| Sub-multiset accumulation | `subleaveAccumulator.record` | `TestAccumulatorDistinctSubMultisets` |
+| Sub-multiset accumulation | `subleaveAccumulator.record` | `TestAccumulatorDistinctSubMultisets`, `TestUnitWeightsMatchCounts` |
+| Importance weighting | `subleaveAccumulator.record` (`u`) | `TestWeightedLiftUnbiasedUnderSkewedProposal` |
+| Model uncertainty | `imputationModel.uncertainty` | `TestUncertaintyFavorsThinSupport` |
 | Möbius terms | `buildImputationModel` | `TestMobiusTelescoping` |
 | Term enumeration for display | `subleaveTerms` | `TestSubleaveTermsSumMatchesLogImputed` |
 | Calibration | `imputeFullPosterior` (calibration block) | `TestCalibrationMomentMatched` |

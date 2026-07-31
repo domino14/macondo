@@ -465,10 +465,11 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 
 // recordPlacementSample records one evaluated leave and its measured
 // likelihood into the imputation accumulator and the per-distinct-leave
-// means. The caller must synchronize; leave is sorted in place.
-func (r *RangeFinder) recordPlacementSample(leave []tilemapping.MachineLetter, w float64) {
+// means. u is the draw's importance weight P(L)/q(L); prior-sampled draws
+// pass 1. The caller must synchronize; leave is sorted in place.
+func (r *RangeFinder) recordPlacementSample(leave []tilemapping.MachineLetter, w, u float64) {
 	sort.Slice(leave, func(i, j int) bool { return leave[i] < leave[j] })
-	r.acc.record(leave, w)
+	r.acc.record(leave, w, u)
 	b := make([]byte, len(leave))
 	for i, ml := range leave {
 		b[i] = byte(ml)
@@ -481,6 +482,7 @@ func (r *RangeFinder) recordPlacementSample(leave []tilemapping.MachineLetter, w
 	}
 	ml.sumW += w
 	ml.count++
+	ml.sumU += u
 }
 
 // finalizePlacementPosterior turns the recorded samples into a complete
@@ -492,7 +494,8 @@ func (r *RangeFinder) finalizePlacementPosterior() {
 	if r.acc == nil || r.acc.n == 0 {
 		return
 	}
-	res := imputeFullPosterior(r.inferenceBagMap, r.inference.RackLength, r.acc, r.measured, r.threads)
+	res := imputeFullPosterior(r.inferenceBagMap, r.inference.RackLength, r.acc,
+		r.measured, r.threads)
 	r.imputeRes = res
 	if len(res.racks) == 0 {
 		return
@@ -613,7 +616,8 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 						// Tile-placement path: Weight carries the measured
 						// likelihood; accumulate for imputation.
 						for _, ir := range newRacks {
-							r.recordPlacementSample(ir.Leave, ir.Weight)
+							// Round 0 draws from the prior, so u = 1.
+							r.recordPlacementSample(ir.Leave, ir.Weight, 1)
 						}
 					} else {
 						// Exchange path: keep distinct racks, first weight wins.

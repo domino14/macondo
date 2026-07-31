@@ -86,34 +86,52 @@ func runsOf(sorted []tilemapping.MachineLetter, buf []tileRun) []tileRun {
 	return buf
 }
 
-// subleaveAccumulator accumulates containment-marginal statistics
-// (count and likelihood-sum) for every distinct sub-multiset of order ≤
-// maxOrder of each recorded leave. Not goroutine-safe; callers synchronize.
+// subleaveAccumulator accumulates containment-marginal statistics for every
+// distinct sub-multiset of order ≤ maxOrder of each recorded leave. Not
+// goroutine-safe; callers synchronize.
+//
+// Each draw carries an importance weight u = P(L)/q(L), where q is whatever
+// proposal produced it, so the statistics estimate prior-weighted population
+// quantities under any sampling scheme (docs/development/
+// iterative_inference_plan.md §1):
+//
+//	wt(S)   = Σ u          over draws containing S — the generalized count
+//	wtsq(S) = Σ u²         for effective sample size
+//	lik(S)  = Σ u·w
+//
+// With prior sampling every u = 1, so wt and wtsq both collapse to the raw
+// containment count and ESS = wt²/wtsq = count: the unweighted estimator is
+// the special case, not a different code path.
 type subleaveAccumulator struct {
 	alphaSize int
 	maxOrder  int
 
-	n      int     // total recorded leaves
-	wTotal float64 // total likelihood mass
+	n         int     // raw number of recorded draws
+	wtTotal   float64 // Σ u
+	wtsqTotal float64 // Σ u²
+	likTotal  float64 // Σ u·w
 
-	cnt1, wsum1 []float64 // [A], index t
-	cnt2, wsum2 []float64 // [A*A], index t*A+u with t ≤ u
-	cnt3, wsum3 []float64 // [A*A*A], index (t*A+u)*A+v with t ≤ u ≤ v
+	wt1, wtsq1, lik1 []float64 // [A], index t
+	wt2, wtsq2, lik2 []float64 // [A*A], index t*A+u with t ≤ u
+	wt3, wtsq3, lik3 []float64 // [A*A*A], index (t*A+u)*A+v with t ≤ u ≤ v
 
 	runBuf []tileRun
 }
 
 func newSubleaveAccumulator(alphaSize, maxOrder int) *subleaveAccumulator {
 	acc := &subleaveAccumulator{alphaSize: alphaSize, maxOrder: maxOrder}
-	acc.cnt1 = make([]float64, alphaSize)
-	acc.wsum1 = make([]float64, alphaSize)
+	acc.wt1 = make([]float64, alphaSize)
+	acc.wtsq1 = make([]float64, alphaSize)
+	acc.lik1 = make([]float64, alphaSize)
 	if maxOrder >= 2 {
-		acc.cnt2 = make([]float64, alphaSize*alphaSize)
-		acc.wsum2 = make([]float64, alphaSize*alphaSize)
+		acc.wt2 = make([]float64, alphaSize*alphaSize)
+		acc.wtsq2 = make([]float64, alphaSize*alphaSize)
+		acc.lik2 = make([]float64, alphaSize*alphaSize)
 	}
 	if maxOrder >= 3 {
-		acc.cnt3 = make([]float64, alphaSize*alphaSize*alphaSize)
-		acc.wsum3 = make([]float64, alphaSize*alphaSize*alphaSize)
+		acc.wt3 = make([]float64, alphaSize*alphaSize*alphaSize)
+		acc.wtsq3 = make([]float64, alphaSize*alphaSize*alphaSize)
+		acc.lik3 = make([]float64, alphaSize*alphaSize*alphaSize)
 	}
 	return acc
 }
@@ -126,55 +144,61 @@ func (acc *subleaveAccumulator) idx3(t, u, v tilemapping.MachineLetter) int {
 	return (int(t)*acc.alphaSize+int(u))*acc.alphaSize + int(v)
 }
 
+// ess returns the effective sample size of a (wt, wtsq) pair: wt²/wtsq, which
+// is the plain observation count when every draw carried weight 1.
+func ess(wt, wtsq float64) float64 {
+	if wtsq <= 0 {
+		return 0
+	}
+	return wt * wt / wtsq
+}
+
 // record adds one evaluated leave (sorted ascending) with its measured
-// likelihood w (which may be 0) to the accumulator.
-func (acc *subleaveAccumulator) record(sorted []tilemapping.MachineLetter, w float64) {
+// likelihood w (which may be 0) and its importance weight u to the
+// accumulator. Prior-sampled draws pass u = 1.
+func (acc *subleaveAccumulator) record(sorted []tilemapping.MachineLetter, w, u float64) {
 	acc.n++
-	acc.wTotal += w
+	acc.wtTotal += u
+	acc.wtsqTotal += u * u
+	acc.likTotal += u * w
 	acc.runBuf = runsOf(sorted, acc.runBuf)
 	runs := acc.runBuf
+	uu, uw := u*u, u*w
+
+	add := func(wt, wtsq, lik []float64, j int) {
+		wt[j] += u
+		wtsq[j] += uu
+		lik[j] += uw
+	}
 
 	for _, r := range runs {
-		acc.cnt1[r.t]++
-		acc.wsum1[r.t] += w
+		add(acc.wt1, acc.wtsq1, acc.lik1, int(r.t))
 	}
 	if acc.maxOrder >= 2 {
 		for i, r := range runs {
 			if r.c >= 2 {
-				j := acc.idx2(r.t, r.t)
-				acc.cnt2[j]++
-				acc.wsum2[j] += w
+				add(acc.wt2, acc.wtsq2, acc.lik2, acc.idx2(r.t, r.t))
 			}
 			for _, r2 := range runs[i+1:] {
-				j := acc.idx2(r.t, r2.t)
-				acc.cnt2[j]++
-				acc.wsum2[j] += w
+				add(acc.wt2, acc.wtsq2, acc.lik2, acc.idx2(r.t, r2.t))
 			}
 		}
 	}
 	if acc.maxOrder >= 3 {
 		for i, r := range runs {
 			if r.c >= 3 {
-				j := acc.idx3(r.t, r.t, r.t)
-				acc.cnt3[j]++
-				acc.wsum3[j] += w
+				add(acc.wt3, acc.wtsq3, acc.lik3, acc.idx3(r.t, r.t, r.t))
 			}
 			for j2 := i + 1; j2 < len(runs); j2++ {
 				r2 := runs[j2]
 				if r.c >= 2 {
-					j := acc.idx3(r.t, r.t, r2.t)
-					acc.cnt3[j]++
-					acc.wsum3[j] += w
+					add(acc.wt3, acc.wtsq3, acc.lik3, acc.idx3(r.t, r.t, r2.t))
 				}
 				if r2.c >= 2 {
-					j := acc.idx3(r.t, r2.t, r2.t)
-					acc.cnt3[j]++
-					acc.wsum3[j] += w
+					add(acc.wt3, acc.wtsq3, acc.lik3, acc.idx3(r.t, r2.t, r2.t))
 				}
 				for l := j2 + 1; l < len(runs); l++ {
-					j := acc.idx3(r.t, r2.t, runs[l].t)
-					acc.cnt3[j]++
-					acc.wsum3[j] += w
+					add(acc.wt3, acc.wtsq3, acc.lik3, acc.idx3(r.t, r2.t, runs[l].t))
 				}
 			}
 		}
@@ -182,7 +206,9 @@ func (acc *subleaveAccumulator) record(sorted []tilemapping.MachineLetter, w flo
 }
 
 // imputationModel holds the Möbius interaction terms derived from an
-// accumulator. logImputed sums them over the sub-multisets of a leave.
+// accumulator. logImputed sums them over the sub-multisets of a leave;
+// uncertainty does the same for the per-term uncertainties, which drive the
+// refine loop's exploration bonus.
 type imputationModel struct {
 	alphaSize int
 	maxOrder  int
@@ -190,9 +216,16 @@ type imputationModel struct {
 	phi2      []float64
 	phi3      []float64
 
-	lambda      float64
-	clampLift   float64
-	clampInter  float64
+	// unc* is how much of each term's raw signal was suppressed for lack of
+	// support: (1 − shrink)·|log lift|, and σ₀ for sub-multisets never seen
+	// at all. Same indexing as phi*.
+	unc1 []float64
+	unc2 []float64
+	unc3 []float64
+
+	lambda     float64
+	clampLift  float64
+	clampInter float64
 }
 
 func clampAbs(x, bound float64) float64 {
@@ -214,50 +247,72 @@ func buildImputationModel(acc *subleaveAccumulator, lambda, clampLift, clampInte
 		alphaSize:  A,
 		maxOrder:   acc.maxOrder,
 		phi1:       make([]float64, A),
+		unc1:       make([]float64, A),
 		lambda:     lambda,
 		clampLift:  clampLift,
 		clampInter: clampInter,
 	}
-	if acc.n == 0 || acc.wTotal <= 0 {
+	if acc.n == 0 || acc.likTotal <= 0 {
 		// No usable signal: all φ stay 0 and the imputed likelihood is
 		// constant, so the posterior degrades to the prior.
 		if acc.maxOrder >= 2 {
 			mod.phi2 = make([]float64, A*A)
+			mod.unc2 = make([]float64, A*A)
 		}
 		if acc.maxOrder >= 3 {
 			mod.phi3 = make([]float64, A*A*A)
+			mod.unc3 = make([]float64, A*A*A)
 		}
 		return mod
 	}
 
-	wMean := acc.wTotal / float64(acc.n)
+	// Importance-weighted global mean: Σu·w / Σu. With unit weights this is
+	// the plain sample mean.
+	wMean := acc.likTotal / acc.wtTotal
 	shrink := func(c float64) float64 {
 		return c / (c + lambda)
 	}
-	// rawLogLift = log( (wsum/cnt) / wMean ), clamped. wsum == 0 with cnt > 0
-	// is genuine "containing S kills this play" signal; it clamps low.
-	rawLogLift := func(wsum, cnt float64) float64 {
-		if wsum <= 0 {
+	// rawLogLift = log( (lik/wt) / wMean ), clamped. lik == 0 with wt > 0 is
+	// genuine "containing S kills this play" signal; it clamps low.
+	rawLogLift := func(lik, wt float64) float64 {
+		if lik <= 0 {
 			return -clampLift
 		}
-		return clampAbs(math.Log(wsum/cnt/wMean), clampLift)
+		return clampAbs(math.Log(lik/wt/wMean), clampLift)
+	}
+	// sumSq/count of |raw| per order, for the σ₀ assigned to sub-multisets
+	// never observed at all — the most uncertain terms in the model, not the
+	// least.
+	var sigSum [4]float64
+	var sigCnt [4]float64
+	// uncertainty of a term: the share of its raw signal that shrinkage
+	// suppressed for lack of support.
+	unc := func(order int, raw, e float64) float64 {
+		sigSum[order] += raw * raw
+		sigCnt[order]++
+		return (1 - shrink(e)) * math.Abs(raw)
 	}
 
 	for t := 0; t < A; t++ {
-		if acc.cnt1[t] > 0 {
-			mod.phi1[t] = shrink(acc.cnt1[t]) * rawLogLift(acc.wsum1[t], acc.cnt1[t])
+		if acc.wt1[t] > 0 {
+			e := ess(acc.wt1[t], acc.wtsq1[t])
+			raw := rawLogLift(acc.lik1[t], acc.wt1[t])
+			mod.phi1[t] = shrink(e) * raw
+			mod.unc1[t] = unc(1, raw, e)
 		}
 	}
 
 	if acc.maxOrder >= 2 {
 		mod.phi2 = make([]float64, A*A)
+		mod.unc2 = make([]float64, A*A)
 		for t := 0; t < A; t++ {
 			for u := t; u < A; u++ {
 				j := t*A + u
-				if acc.cnt2[j] == 0 {
+				if acc.wt2[j] == 0 {
 					continue
 				}
-				raw := rawLogLift(acc.wsum2[j], acc.cnt2[j])
+				e := ess(acc.wt2[j], acc.wtsq2[j])
+				raw := rawLogLift(acc.lik2[j], acc.wt2[j])
 				// Subtract φ over proper nonempty sub-multisets: {t} and, if
 				// t ≠ u, {u}. (Divisor lattice: for {t,t} the only proper
 				// nonempty sub-multiset is {t}.)
@@ -265,21 +320,25 @@ func buildImputationModel(acc *subleaveAccumulator, lambda, clampLift, clampInte
 				if u != t {
 					inter -= mod.phi1[u]
 				}
-				mod.phi2[j] = shrink(acc.cnt2[j]) * clampAbs(inter, clampInter)
+				inter = clampAbs(inter, clampInter)
+				mod.phi2[j] = shrink(e) * inter
+				mod.unc2[j] = unc(2, inter, e)
 			}
 		}
 	}
 
 	if acc.maxOrder >= 3 {
 		mod.phi3 = make([]float64, A*A*A)
+		mod.unc3 = make([]float64, A*A*A)
 		for t := 0; t < A; t++ {
 			for u := t; u < A; u++ {
 				for v := u; v < A; v++ {
 					j := (t*A+u)*A + v
-					if acc.cnt3[j] == 0 {
+					if acc.wt3[j] == 0 {
 						continue
 					}
-					raw := rawLogLift(acc.wsum3[j], acc.cnt3[j])
+					e := ess(acc.wt3[j], acc.wtsq3[j])
+					raw := rawLogLift(acc.lik3[j], acc.wt3[j])
 					// Subtract φ over all distinct proper nonempty
 					// sub-multisets of {t,u,v}.
 					var inter float64
@@ -296,12 +355,40 @@ func buildImputationModel(acc *subleaveAccumulator, lambda, clampLift, clampInte
 						inter = raw - mod.phi1[t] - mod.phi1[u] - mod.phi1[v] -
 							mod.phi2[t*A+u] - mod.phi2[t*A+v] - mod.phi2[u*A+v]
 					}
-					mod.phi3[j] = shrink(acc.cnt3[j]) * clampAbs(inter, clampInter)
+					inter = clampAbs(inter, clampInter)
+					mod.phi3[j] = shrink(e) * inter
+					mod.unc3[j] = unc(3, inter, e)
 				}
 			}
 		}
 	}
+
+	// Sub-multisets with no support at all keep φ = 0 but are the *most*
+	// uncertain terms, so they inherit σ₀: the RMS raw magnitude observed at
+	// their order (0.5 nats if nothing at that order was ever seen).
+	for order := 1; order <= mod.maxOrder; order++ {
+		sigma0 := 0.5
+		if sigCnt[order] > 0 {
+			sigma0 = math.Sqrt(sigSum[order] / sigCnt[order])
+		}
+		switch order {
+		case 1:
+			fillUnobserved(mod.unc1, acc.wt1, sigma0)
+		case 2:
+			fillUnobserved(mod.unc2, acc.wt2, sigma0)
+		case 3:
+			fillUnobserved(mod.unc3, acc.wt3, sigma0)
+		}
+	}
 	return mod
+}
+
+func fillUnobserved(unc, wt []float64, sigma0 float64) {
+	for i := range unc {
+		if wt[i] == 0 {
+			unc[i] = sigma0
+		}
+	}
 }
 
 // logImputed returns log ℓ̂(L) (up to the calibration constant) for the leave
@@ -309,41 +396,105 @@ func buildImputationModel(acc *subleaveAccumulator, lambda, clampLift, clampInte
 // order ≤ maxOrder. Its sub-multiset walk is mirrored by subleaveTerms; keep
 // the two in sync.
 func (mod *imputationModel) logImputed(runs []tileRun) float64 {
-	A := mod.alphaSize
 	s := 0.0
+	mod.walkSubleaves(runs, func(order, idx int) {
+		s += mod.phiAt(order, idx)
+	})
+	return s
+}
+
+// uncertainty returns how unsure the model is about logImputed(runs): the
+// terms' individual uncertainties combined in quadrature. It is large for
+// leaves resting on thin or absent support, which is what the refine loop's
+// exploration bonus keys off.
+func (mod *imputationModel) uncertainty(runs []tileRun) float64 {
+	s := 0.0
+	mod.walkSubleaves(runs, func(order, idx int) {
+		u := mod.uncAt(order, idx)
+		s += u * u
+	})
+	return math.Sqrt(s)
+}
+
+func (mod *imputationModel) phiAt(order, idx int) float64 {
+	switch order {
+	case 1:
+		return mod.phi1[idx]
+	case 2:
+		return mod.phi2[idx]
+	default:
+		return mod.phi3[idx]
+	}
+}
+
+func (mod *imputationModel) uncAt(order, idx int) float64 {
+	switch order {
+	case 1:
+		return mod.unc1[idx]
+	case 2:
+		return mod.unc2[idx]
+	default:
+		return mod.unc3[idx]
+	}
+}
+
+// tilesAt inverts the index packing of walkSubleaves, recovering the
+// sub-multiset itself. Diagnostic use only.
+func (mod *imputationModel) tilesAt(order, idx int) []tilemapping.MachineLetter {
+	A := mod.alphaSize
+	switch order {
+	case 1:
+		return []tilemapping.MachineLetter{tilemapping.MachineLetter(idx)}
+	case 2:
+		return []tilemapping.MachineLetter{
+			tilemapping.MachineLetter(idx / A), tilemapping.MachineLetter(idx % A)}
+	default:
+		return []tilemapping.MachineLetter{
+			tilemapping.MachineLetter(idx / (A * A)),
+			tilemapping.MachineLetter((idx / A) % A),
+			tilemapping.MachineLetter(idx % A)}
+	}
+}
+
+// walkSubleaves calls fn once for every distinct sub-multiset of order ≤
+// maxOrder of the leave described by runs, with the sub-multiset's order and
+// its index into the matching phi/unc array. This is the single definition of
+// the expansion's term set: logImputed, uncertainty and subleaveTerms all
+// drive off it, so they cannot drift apart.
+func (mod *imputationModel) walkSubleaves(runs []tileRun, fn func(order, idx int)) {
+	A := mod.alphaSize
 	for _, r := range runs {
-		s += mod.phi1[r.t]
+		fn(1, int(r.t))
 	}
 	if mod.maxOrder >= 2 {
 		for i, r := range runs {
 			if r.c >= 2 {
-				s += mod.phi2[int(r.t)*A+int(r.t)]
+				fn(2, int(r.t)*A+int(r.t))
 			}
 			for _, r2 := range runs[i+1:] {
-				s += mod.phi2[int(r.t)*A+int(r2.t)]
+				fn(2, int(r.t)*A+int(r2.t))
 			}
 		}
 	}
 	if mod.maxOrder >= 3 {
 		for i, r := range runs {
 			if r.c >= 3 {
-				s += mod.phi3[(int(r.t)*A+int(r.t))*A+int(r.t)]
+				fn(3, (int(r.t)*A+int(r.t))*A+int(r.t))
 			}
 			for j := i + 1; j < len(runs); j++ {
 				r2 := runs[j]
 				if r.c >= 2 {
-					s += mod.phi3[(int(r.t)*A+int(r.t))*A+int(r2.t)]
+					fn(3, (int(r.t)*A+int(r.t))*A+int(r2.t))
 				}
 				if r2.c >= 2 {
-					s += mod.phi3[(int(r.t)*A+int(r2.t))*A+int(r2.t)]
+					fn(3, (int(r.t)*A+int(r2.t))*A+int(r2.t))
 				}
 				for l := j + 1; l < len(runs); l++ {
-					s += mod.phi3[(int(r.t)*A+int(r2.t))*A+int(runs[l].t)]
+					fn(3, (int(r.t)*A+int(r2.t))*A+int(runs[l].t))
 				}
 			}
 		}
 	}
-	return s
 }
 
 // subleaveTerm describes one φ term contributing to logImputed.
@@ -353,82 +504,35 @@ type subleaveTerm struct {
 }
 
 // subleaveTerms enumerates every distinct sub-multiset of order ≤ maxOrder of
-// the leave described by runs, with its φ term. It mirrors the walk in
-// logImputed (keep the two in sync); it is diagnostic-only and not on the hot
-// path.
+// the leave described by runs, with its φ term. Diagnostic-only, not on the
+// hot path.
 func (mod *imputationModel) subleaveTerms(runs []tileRun) []subleaveTerm {
-	A := mod.alphaSize
 	var terms []subleaveTerm
-	for _, r := range runs {
+	mod.walkSubleaves(runs, func(order, idx int) {
 		terms = append(terms, subleaveTerm{
-			tiles: []tilemapping.MachineLetter{r.t},
-			phi:   mod.phi1[r.t],
+			tiles: mod.tilesAt(order, idx),
+			phi:   mod.phiAt(order, idx),
 		})
-	}
-	if mod.maxOrder >= 2 {
-		for i, r := range runs {
-			if r.c >= 2 {
-				terms = append(terms, subleaveTerm{
-					tiles: []tilemapping.MachineLetter{r.t, r.t},
-					phi:   mod.phi2[int(r.t)*A+int(r.t)],
-				})
-			}
-			for _, r2 := range runs[i+1:] {
-				terms = append(terms, subleaveTerm{
-					tiles: []tilemapping.MachineLetter{r.t, r2.t},
-					phi:   mod.phi2[int(r.t)*A+int(r2.t)],
-				})
-			}
-		}
-	}
-	if mod.maxOrder >= 3 {
-		for i, r := range runs {
-			if r.c >= 3 {
-				terms = append(terms, subleaveTerm{
-					tiles: []tilemapping.MachineLetter{r.t, r.t, r.t},
-					phi:   mod.phi3[(int(r.t)*A+int(r.t))*A+int(r.t)],
-				})
-			}
-			for j := i + 1; j < len(runs); j++ {
-				r2 := runs[j]
-				if r.c >= 2 {
-					terms = append(terms, subleaveTerm{
-						tiles: []tilemapping.MachineLetter{r.t, r.t, r2.t},
-						phi:   mod.phi3[(int(r.t)*A+int(r.t))*A+int(r2.t)],
-					})
-				}
-				if r2.c >= 2 {
-					terms = append(terms, subleaveTerm{
-						tiles: []tilemapping.MachineLetter{r.t, r2.t, r2.t},
-						phi:   mod.phi3[(int(r.t)*A+int(r2.t))*A+int(r2.t)],
-					})
-				}
-				for l := j + 1; l < len(runs); l++ {
-					terms = append(terms, subleaveTerm{
-						tiles: []tilemapping.MachineLetter{r.t, r2.t, runs[l].t},
-						phi:   mod.phi3[(int(r.t)*A+int(r2.t))*A+int(runs[l].t)],
-					})
-				}
-			}
-		}
-	}
+	})
 	return terms
 }
 
-// accStats returns the accumulator's raw containment stats (sample count and
-// likelihood sum) for a sorted sub-multiset of order 1–3, for diagnostics.
-func (acc *subleaveAccumulator) accStats(sub []tilemapping.MachineLetter) (cnt, wsum float64) {
+// accStats returns the accumulator's containment stats for a sorted
+// sub-multiset of order 1–3, for diagnostics: effective sample size, the
+// importance-weight total, and the weighted likelihood sum.
+func (acc *subleaveAccumulator) accStats(sub []tilemapping.MachineLetter) (e, wt, lik float64) {
 	switch len(sub) {
 	case 1:
-		return acc.cnt1[sub[0]], acc.wsum1[sub[0]]
+		t := sub[0]
+		return ess(acc.wt1[t], acc.wtsq1[t]), acc.wt1[t], acc.lik1[t]
 	case 2:
 		j := acc.idx2(sub[0], sub[1])
-		return acc.cnt2[j], acc.wsum2[j]
+		return ess(acc.wt2[j], acc.wtsq2[j]), acc.wt2[j], acc.lik2[j]
 	case 3:
 		j := acc.idx3(sub[0], sub[1], sub[2])
-		return acc.cnt3[j], acc.wsum3[j]
+		return ess(acc.wt3[j], acc.wtsq3[j]), acc.wt3[j], acc.lik3[j]
 	}
-	return 0, 0
+	return 0, 0, 0
 }
 
 // measuredLeave accumulates repeated likelihood measurements of one distinct
@@ -436,8 +540,16 @@ func (acc *subleaveAccumulator) accStats(sub []tilemapping.MachineLetter) (cnt, 
 type measuredLeave struct {
 	sumW  float64
 	count int
+	// sumU is the total importance weight of the draws that produced those
+	// measurements — the leave's weight when estimating prior-weighted
+	// quantities such as the calibration constant. It equals count for
+	// prior-sampled draws.
+	sumU float64
 }
 
+// mean is the plain average of the measurements, deliberately unweighted:
+// repeat measurements of one leave are equally noisy replicates of the same
+// quantity however the leave came to be selected.
 func (m *measuredLeave) mean() float64 {
 	if m.count == 0 {
 		return 0
@@ -479,6 +591,7 @@ func (a *tileArena) alloc(src []tilemapping.MachineLetter) []tilemapping.Machine
 // bagMap and assigns posterior weight prior(L) × likelihood(L), where the
 // likelihood is the measured mean when L was evaluated and the calibrated
 // imputed value otherwise. Weights are normalized so the max is 1.
+//
 func imputeFullPosterior(bagMap []uint8, k int, acc *subleaveAccumulator,
 	measured map[string]*measuredLeave, threads int) *imputationResult {
 
@@ -486,20 +599,22 @@ func imputeFullPosterior(bagMap []uint8, k int, acc *subleaveAccumulator,
 
 	// Calibration: measured likelihoods live on the raw softmax scale while
 	// logImputed is a sum of lift terms. Moment-match the arithmetic means:
-	// choose logCalib so that Σ c·exp(logCalib + Σφ) = Σ c·w over measured
-	// leaves. (A mean-of-logs anchor would target the geometric mean, which
-	// for heavily right-skewed likelihoods sits orders of magnitude below the
-	// arithmetic scale the lifts are estimated on, starving every imputed
-	// leaf of posterior mass relative to measured ones.)
+	// choose logCalib so that Σ U·exp(logCalib + Σφ) = Σ U·w over measured
+	// leaves, where U is the leave's total importance weight — its draw count
+	// when everything was prior-sampled. (A mean-of-logs anchor would target
+	// the geometric mean, which for heavily right-skewed likelihoods sits
+	// orders of magnitude below the arithmetic scale the lifts are estimated
+	// on, starving every imputed leaf of posterior mass relative to measured
+	// ones.)
 	logCalib := 0.0
 	{
-		var sumCW float64      // Σ c·w
-		var logCPhis []float64 // log c + Σφ per measured leave with w > 0
+		var sumUW float64      // Σ U·w
+		var logUPhis []float64 // log U + Σφ per measured leave with w > 0
 		var runBuf []tileRun
 		tiles := make([]tilemapping.MachineLetter, 0, k)
 		for key, ml := range measured {
 			w := ml.mean()
-			if w <= 0 {
+			if w <= 0 || ml.sumU <= 0 {
 				continue
 			}
 			tiles = tiles[:0]
@@ -507,23 +622,22 @@ func imputeFullPosterior(bagMap []uint8, k int, acc *subleaveAccumulator,
 				tiles = append(tiles, tilemapping.MachineLetter(key[i]))
 			}
 			runBuf = runsOf(tiles, runBuf)
-			sumCW += float64(ml.count) * w
-			logCPhis = append(logCPhis,
-				math.Log(float64(ml.count))+mod.logImputed(runBuf))
+			sumUW += ml.sumU * w
+			logUPhis = append(logUPhis, math.Log(ml.sumU)+mod.logImputed(runBuf))
 		}
-		if sumCW > 0 && len(logCPhis) > 0 {
-			// log Σ c·e^Σφ via log-sum-exp for stability.
+		if sumUW > 0 && len(logUPhis) > 0 {
+			// log Σ U·e^Σφ via log-sum-exp for stability.
 			maxLP := math.Inf(-1)
-			for _, lp := range logCPhis {
+			for _, lp := range logUPhis {
 				if lp > maxLP {
 					maxLP = lp
 				}
 			}
 			var expSum float64
-			for _, lp := range logCPhis {
+			for _, lp := range logUPhis {
 				expSum += math.Exp(lp - maxLP)
 			}
-			logCalib = math.Log(sumCW) - (maxLP + math.Log(expSum))
+			logCalib = math.Log(sumUW) - (maxLP + math.Log(expSum))
 		}
 	}
 
