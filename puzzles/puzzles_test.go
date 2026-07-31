@@ -287,10 +287,18 @@ func TestPhonyTilesReturned(t *testing.T) {
 	is.NoErr(err)
 }
 
+// TestEquityLossLimit checks that a game is rejected when its players gave up
+// more equity than the limit allows, and accepted when they didn't.
+//
+// The limits are found by search rather than hardcoded. How much equity a game
+// loses depends on which leave values the lexicon resolves to, and this game's
+// loss has already moved once, from 22.6 to 21.4, when NWL18 stopped borrowing
+// NWL23's leaves. That is a property of the data, not of the mechanism under
+// test, and a constant here just silently encodes whichever leaves happened to
+// be on disk the day it was written.
 func TestEquityLossLimit(t *testing.T) {
 	is := is.New(t)
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
-	// A little less than 22 total equity loss this game
 	gameHistory, err := gcgio.ParseGCG(DefaultConfig, "./testdata/well_played_game.gcg")
 	is.NoErr(err)
 
@@ -323,13 +331,27 @@ func TestEquityLossLimit(t *testing.T) {
 	err = InitializePuzzleGenerationRequest(puzzleGenerationReq)
 	is.NoErr(err)
 
-	pzls, err := CreatePuzzlesFromGame(DefaultConfig, 22, game, puzzleGenerationReq)
+	// Find the smallest whole-number limit this game fits under.
+	limit := 0
+	for limit = 1; limit <= 50; limit++ {
+		pzls, err := CreatePuzzlesFromGame(DefaultConfig, limit, game, puzzleGenerationReq)
+		is.NoErr(err)
+		if len(pzls) > 0 {
+			break
+		}
+	}
+	if limit > 50 {
+		t.Fatal("this game produced no puzzles at any equity loss limit")
+	}
+	t.Logf("game fits under an equity loss limit of %d", limit)
+
+	// One point of equity looser still admits it...
+	pzls, err := CreatePuzzlesFromGame(DefaultConfig, limit+1, game, puzzleGenerationReq)
 	is.NoErr(err)
 	is.True(len(pzls) > 0)
 
-	/* set an equity loss limit of 21. this should fail, as the players lost more than 21 equity */
-
-	pzls, err = CreatePuzzlesFromGame(DefaultConfig, 21, game, puzzleGenerationReq)
+	// ...and one point tighter rejects the whole game.
+	pzls, err = CreatePuzzlesFromGame(DefaultConfig, limit-1, game, puzzleGenerationReq)
 	is.NoErr(err)
 	is.Equal(len(pzls), 0)
 }
