@@ -48,10 +48,10 @@ func TestLeavesFileForLexicon(t *testing.T) {
 		{"NWL23", ""},                  // its own, in the lexicon data dir
 		{"CSW24", ""},                  //
 		{"NWL23", "super-leaves.klv2"}, // super variant
-		{"CSW21", ""},                  // borrows CSW24's
-		{"NWL18", ""},                  // borrows NWL23's
-		{"CSW19", ""},                  // borrows CSW24's
-		{"OSPS49", ""},                 // borrows OSPS50's
+		{"CSW21", ""},                  // its own
+		{"CSW07", ""},                  // no leaves of its own; borrows CSW24's
+		{"CSW12", ""},                  // borrows CSW24's
+		{"TWL06", ""},                  // borrows NWL23's
 		{"CSW21", "leavesv80i.klv2"},   // explicit file, strategy folder
 	} {
 		f, err := LeavesFileForLexicon(cfg, tc.leavefile, tc.lexicon)

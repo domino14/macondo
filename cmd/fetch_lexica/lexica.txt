@@ -29,12 +29,16 @@ ECWL.kwg
 # Alpha dawg, for the WordSmog tests.
 CSW21.kad
 
-# Leave values. Only the files a lexicon actually resolves to belong here:
-# every CSW borrows CSW24's leaves, every NWL/TWL borrows NWL23's, OSPS49
-# borrows OSPS50's and FRA20 borrows FRA24's. Adding, say, CSW21.klv2 would
-# change which leaves CSW21 tests use and move their equity numbers.
+# Leave values. A lexicon uses its own when they exist, so every lexicon above
+# that has leaves published gets them here. CSW24 and NWL23 also cover the
+# lexicons with none of their own: CSW07 and CSW12 fall back to CSW24's,
+# TWL06 to NWL23's, and America has none at all.
+CSW19.klv2
+CSW21.klv2
 CSW24.klv2
+NWL18.klv2
+NWL20.klv2
 NWL23.klv2
-OSPS50.klv2
-FRA24.klv2
+OSPS49.klv2
+FRA20.klv2
 super-NWL23.klv2

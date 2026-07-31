@@ -388,13 +388,19 @@ func (sc *ShellController) Set(key string, args []string) (string, error) {
 				if err != nil {
 					log.Err(err).Msg("error-setting-exhaustive-leave-calculator")
 				}
-				// Fetch this lexicon's leave values if they aren't on disk. Like
-				// the WMP build below, this is worth waiting for during an
-				// interactive lexicon switch; without leaves the bots play
-				// greedily.
-				if klvErr := dataloaders.EnsureKLV(sc.options.Lexicon.Name, sc.config.WGLConfig()); klvErr != nil {
-					log.Info().Err(klvErr).Str("lexicon", sc.options.Lexicon.Name).
-						Msg("no leave values published for this lexicon")
+				// Fetch this lexicon's leave values if they aren't on disk,
+				// both the normal and the SuperCrosswordGame set. Like the WMP
+				// build below, this is worth waiting for during an interactive
+				// lexicon switch: without its own leaves a lexicon falls back
+				// to a relative's, and without any it plays greedily. Not
+				// every lexicon has either published, hence the soft failure.
+				for _, name := range []string{
+					sc.options.Lexicon.Name, "super-" + sc.options.Lexicon.Name,
+				} {
+					if klvErr := dataloaders.EnsureKLV(name, sc.config.WGLConfig()); klvErr != nil {
+						log.Info().Err(klvErr).Str("leaves", name).
+							Msg("no leave values published under this name")
+					}
 				}
 				// Build WMP if not already on disk (build-on-miss is intentional
 				// here since the user is doing an interactive lexicon switch).
