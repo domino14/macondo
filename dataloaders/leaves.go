@@ -75,8 +75,8 @@ func LeavesFileForLexicon(cfg *wglconfig.Config, leavefile, lexiconName string) 
 		if def := defaultForLexicon(lexiconName); def != "" && def != lexiconName {
 			defName, _ := leavesNameFor(leavefile, def)
 			if file, _, err := cache.Open(filepath.Join(dir, defName)); err == nil {
-				log.Debug().Str("lexicon", lexiconName).Str("leaves", defName).
-					Msg("no lexicon-specific leaves; borrowing")
+				log.Info().Str("lexicon", lexiconName).Str("leaves", defName).
+					Msg("no leaves of its own; borrowing another lexicon's")
 				return file, nil
 			}
 		}
@@ -88,6 +88,8 @@ func LeavesFileForLexicon(cfg *wglconfig.Config, leavefile, lexiconName string) 
 	}
 	file, err := StratFileForLexicon(StrategyParamsPath(cfg), strategyName, lexiconName)
 	if err == nil {
+		log.Info().Str("lexicon", lexiconName).Str("leaves", strategyName).
+			Msg("using leaves from the legacy strategy folder")
 		return file, nil
 	}
 	if !standard {
