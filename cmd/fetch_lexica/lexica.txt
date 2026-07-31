@@ -9,9 +9,11 @@
 # non-test code that tests reach, which is how ECWL below gets in: the
 # common-word puzzle tag and the leveled bot filters both load it by name.
 #
-# NOT in this list, because liwords does not publish them: America, CSW07,
-# CSW12 and TWL06, which several tests use. Those still come from the private
-# word-game-lexica repo.
+# NOT in this list, because liwords does not publish them: America, CSW12 and
+# TWL06, which several tests use. Those come from the private word-game-lexica
+# repo. CSW07 is unpublished too, and isn't fetched anywhere: it appears only
+# in benchmarks, so `go test` never asks for it. Running those benchmarks
+# needs a CSW07.kwg you supply yourself.
 
 # Word graphs, by test usage.
 CSW19.kwg
