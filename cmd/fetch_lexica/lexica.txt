@@ -1,0 +1,40 @@
+# Lexicon data files the test suite needs, one per line, as <name><extension>.
+#
+# These are fetched from the same place and by the same code path as the
+# shell's `set lexicon`: the liwords repo's wasm directory. Anything listed
+# here must be published there.
+#
+# To find what belongs in this list, look for lexicon names in _test.go files
+# (both Go string literals and `lex NAME` inside CGP strings) -- and also in
+# non-test code that tests reach, which is how ECWL below gets in: the
+# common-word puzzle tag and the leveled bot filters both load it by name.
+#
+# NOT in this list, because liwords does not publish them: America, CSW07,
+# CSW12 and TWL06, which several tests use. Those still come from the private
+# word-game-lexica repo.
+
+# Word graphs, by test usage.
+CSW19.kwg
+CSW21.kwg
+CSW24.kwg
+NWL18.kwg
+NWL20.kwg
+NWL23.kwg
+OSPS49.kwg
+FRA20.kwg
+
+# Loaded by name for the common-word puzzle tag and the leveled bot filters.
+ECWL.kwg
+
+# Alpha dawg, for the WordSmog tests.
+CSW21.kad
+
+# Leave values. Only the files a lexicon actually resolves to belong here:
+# every CSW borrows CSW24's leaves, every NWL/TWL borrows NWL23's, OSPS49
+# borrows OSPS50's and FRA20 borrows FRA24's. Adding, say, CSW21.klv2 would
+# change which leaves CSW21 tests use and move their equity numbers.
+CSW24.klv2
+NWL23.klv2
+OSPS50.klv2
+FRA24.klv2
+super-NWL23.klv2
