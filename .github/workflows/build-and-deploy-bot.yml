@@ -16,10 +16,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      # Everything the tests need is published alongside the word graphs and
-      # fetched below, except these three lexicons, which are not published
-      # anywhere public. (CSW07 is in the same boat but only appears in
-      # benchmarks, which `go test` doesn't run, so it isn't needed here.)
+      # America is the one word graph the tests need that isn't published
+      # alongside the others, so it comes from the private repo; everything
+      # else is fetched below. Publish America and this step, the checkout
+      # above it, and the PAT all go away.
       - name: Clone lexicon repo
         uses: actions/checkout@v4
         with:
@@ -29,21 +29,7 @@ jobs:
 
       - run: cp -r data /opt/data
       - run: mkdir -p /opt/data/lexica/gaddag
-      - name: Copy the unpublished lexicons
-        run: |
-          missing=""
-          for lex in America CSW12 TWL06; do
-            src="$GITHUB_WORKSPACE/word-game-lexica/gaddag/$lex.kwg"
-            if [ -f "$src" ]; then
-              cp "$src" /opt/data/lexica/gaddag/
-            else
-              missing="$missing $lex"
-            fi
-          done
-          if [ -n "$missing" ]; then
-            echo "word-game-lexica is missing word graphs needed by tests:$missing" >&2
-            exit 1
-          fi
+      - run: cp "$GITHUB_WORKSPACE/word-game-lexica/gaddag/America.kwg" /opt/data/lexica/gaddag/
 
       - name: Setup Go
         uses: actions/setup-go@v5
