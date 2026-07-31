@@ -285,7 +285,7 @@ func TestImputationResultReconstructsWeights(t *testing.T) {
 		measured[key].sumU++
 	}
 
-	res := imputeFullPosterior(bagMap, k, acc, measured, 2)
+	res := imputeFullPosterior(bagMap, k, acc, nil, measured, 2)
 	is.True(res.model != nil)
 	is.True(len(res.racks) > 0)
 
@@ -343,7 +343,7 @@ func TestCalibrationMomentMatched(t *testing.T) {
 		measured[key].sumU++
 	}
 
-	res := imputeFullPosterior(bagMap, k, acc, measured, 2)
+	res := imputeFullPosterior(bagMap, k, acc, nil, measured, 2)
 	is.True(res.model != nil)
 
 	var predicted, actual float64
@@ -367,7 +367,145 @@ func TestCalibrationMomentMatched(t *testing.T) {
 	}
 }
 
+// recordSample mirrors RangeFinder.recordPlacementSample: one sample feeds
+// the full accumulator, its leave's cross-fitting fold, and the measured map.
+func recordSample(acc *subleaveAccumulator, folds []*subleaveAccumulator,
+	measured map[string]*measuredLeave, tiles []tilemapping.MachineLetter, w float64) {
 
+	key := leaveKey(tiles)
+	acc.record(tiles, w, 1)
+	if len(folds) > 0 {
+		folds[foldForKey(key, len(folds))].record(tiles, w, 1)
+	}
+	if measured[key] == nil {
+		measured[key] = &measuredLeave{}
+	}
+	measured[key].sumW += w
+	measured[key].count++
+	measured[key].sumU++
+}
+
+func newFoldAccumulators(alphaSize, maxOrder, n int) []*subleaveAccumulator {
+	folds := make([]*subleaveAccumulator, n)
+	for i := range folds {
+		folds[i] = newSubleaveAccumulator(alphaSize, maxOrder)
+	}
+	return folds
+}
+
+// Cross-fitting requires that the folds partition the samples exactly (so a
+// complement is a subtraction) and that every measurement of the same leave
+// lands in the same fold (so a complement model has never seen the leave it
+// predicts).
+func TestCrossFitFoldPartition(t *testing.T) {
+	is := is.New(t)
+	bagMap := []uint8{0, 4, 4, 4, 4}
+	k := 3
+	acc := newSubleaveAccumulator(len(bagMap), marginalOrder(k))
+	folds := newFoldAccumulators(len(bagMap), marginalOrder(k), calibrationFolds)
+	measured := map[string]*measuredLeave{}
+
+	for _, l := range enumerateLeaves(bagMap, k) {
+		// Measure each leave three times, so the same-fold invariant has
+		// something to violate.
+		for rep := 0; rep < 3; rep++ {
+			recordSample(acc, folds, measured, l.tiles, 0.5+0.1*float64(rep))
+		}
+	}
+
+	// Partition: fold counts and sums add back up to the full accumulator.
+	sumN, sumW := 0, 0.0
+	for _, f := range folds {
+		sumN += f.n
+		sumW += f.likTotal
+	}
+	is.Equal(sumN, acc.n)
+	is.True(math.Abs(sumW-acc.likTotal) < 1e-9)
+
+	for _, f := range folds {
+		comp := acc.minus(f)
+		is.Equal(comp.n, acc.n-f.n)
+		for i := range comp.wt1 {
+			is.True(math.Abs(comp.wt1[i]-(acc.wt1[i]-f.wt1[i])) < 1e-9)
+			is.True(math.Abs(comp.wtsq1[i]-(acc.wtsq1[i]-f.wtsq1[i])) < 1e-9)
+			is.True(math.Abs(comp.lik1[i]-(acc.lik1[i]-f.lik1[i])) < 1e-9)
+		}
+	}
+
+	// Same leave, same fold: all measurements of one leave go to a single
+	// fold, so its complement model has never seen it.
+	solo := newFoldAccumulators(len(bagMap), marginalOrder(k), calibrationFolds)
+	soloAcc := newSubleaveAccumulator(len(bagMap), marginalOrder(k))
+	for rep := 0; rep < 4; rep++ {
+		recordSample(soloAcc, solo, map[string]*measuredLeave{}, mls(1, 2, 3), 0.25)
+	}
+	nonEmpty := 0
+	for _, f := range solo {
+		if f.n > 0 {
+			nonEmpty++
+			is.Equal(f.n, 4)
+		}
+	}
+	is.Equal(nonEmpty, 1)
+}
+
+// The calibration constant is fit on measured leaves but applied to the
+// unmeasured ones, so the predictions in its denominator must be
+// out-of-sample. Fitting it in-sample lets a leave's own measurements set the
+// very lifts that predict it: the denominator is inflated and C comes out too
+// low, starving every imputed leaf of posterior mass.
+//
+// Here tiles 7 and 8 occur only in one heavily-measured, high-likelihood
+// leave. The full-data model explains that leave through lifts it supplied
+// itself; the model fit on the folds excluding it has never seen those tiles
+// and predicts the flat baseline. Cross-fitting must therefore land
+// materially above the in-sample constant.
+func TestCrossFitRemovesSelfFit(t *testing.T) {
+	is := is.New(t)
+	bagMap := []uint8{0, 5, 5, 5, 5, 5, 5, 5, 5}
+	k := 2 // marginal order 1: φ over single tiles only, so this is by hand
+	order := marginalOrder(k)
+
+	accX := newSubleaveAccumulator(len(bagMap), order)
+	folds := newFoldAccumulators(len(bagMap), order, calibrationFolds)
+	measuredX := map[string]*measuredLeave{}
+	accIn := newSubleaveAccumulator(len(bagMap), order)
+	measuredIn := map[string]*measuredLeave{}
+
+	record := func(tiles []tilemapping.MachineLetter, w float64, reps int) {
+		for i := 0; i < reps; i++ {
+			recordSample(accX, folds, measuredX, tiles, w)
+			recordSample(accIn, nil, measuredIn, tiles, w)
+		}
+	}
+	// Baseline: ordinary leaves over tiles 1-6, likelihood 1.
+	for a := 1; a <= 6; a++ {
+		for b := a + 1; b <= 6; b++ {
+			record(mls(a, b), 1.0, 1)
+		}
+	}
+	// The self-fit leave: tiles 7 and 8 appear nowhere else.
+	record(mls(7, 8), 100.0, 40)
+
+	resX := imputeFullPosterior(bagMap, k, accX, folds, measuredX, 2)
+	resIn := imputeFullPosterior(bagMap, k, accIn, nil, measuredIn, 2)
+	is.True(resX.crossFitted)
+	is.True(!resIn.crossFitted)
+	// Identical samples, so the full-data models agree: only C differs.
+	is.True(math.Abs(resX.logCalibInSample-resIn.logCalib) < 1e-12)
+
+	// The full model has learned a lift for tiles 7/8 from that leave alone.
+	runs := runsOf(mls(7, 8), nil)
+	is.True(resX.model.logImputed(runs) > 0.5)
+
+	t.Logf("C: cross-fit %.4f, in-sample %.4f (%.3fx)", resX.logCalib,
+		resX.logCalibInSample, math.Exp(resX.logCalib-resX.logCalibInSample))
+	// Deterministic inputs: the observed gap is 0.407 (1.50x).
+	if resX.logCalib <= resX.logCalibInSample+0.3 {
+		t.Fatalf("cross-fitting failed to undo the self-fit: C %.4f vs in-sample %.4f",
+			resX.logCalib, resX.logCalibInSample)
+	}
+}
 
 // A fully-measured leave space reproduces exact Bayesian weights:
 // posterior ∝ prior × measured likelihood.
@@ -400,7 +538,7 @@ func TestImputeFullPosteriorMeasuredExact(t *testing.T) {
 		measured[key].sumU++
 	}
 
-	res := imputeFullPosterior(bagMap, k, acc, measured, 2)
+	res := imputeFullPosterior(bagMap, k, acc, nil, measured, 2)
 	is.Equal(res.measuredLeaves, len(leaves))
 	is.Equal(res.imputedLeaves, 0)
 	is.True(res.measuredMass > 0.999)
@@ -474,7 +612,7 @@ func TestImputeUnmeasuredLift(t *testing.T) {
 		measured[key].count += 30
 	}
 
-	res := imputeFullPosterior(bagMap, k, acc, measured, 2)
+	res := imputeFullPosterior(bagMap, k, acc, nil, measured, 2)
 	is.Equal(res.imputedLeaves, 2)
 
 	var w123, w234 float64
@@ -502,7 +640,7 @@ func TestImputeNoSignalIsPrior(t *testing.T) {
 	bagMap := []uint8{0, 4, 3, 2}
 	k := 2
 	acc := newSubleaveAccumulator(len(bagMap), marginalOrder(k))
-	res := imputeFullPosterior(bagMap, k, acc, map[string]*measuredLeave{}, 1)
+	res := imputeFullPosterior(bagMap, k, acc, nil, map[string]*measuredLeave{}, 1)
 
 	leaves := enumerateLeaves(bagMap, k)
 	is.Equal(len(res.racks), len(leaves))
@@ -537,7 +675,7 @@ func TestMeasuredZeroExcluded(t *testing.T) {
 	acc.record(mls(2), 0.0, 1)
 	measured[leaveKey(mls(2))] = &measuredLeave{sumW: 0.0, count: 1}
 
-	res := imputeFullPosterior(bagMap, k, acc, measured, 1)
+	res := imputeFullPosterior(bagMap, k, acc, nil, measured, 1)
 	is.Equal(len(res.racks), 1)
 	is.Equal(res.racks[0].Leave[0], tilemapping.MachineLetter(1))
 }
@@ -583,7 +721,7 @@ func BenchmarkImputeFullPosteriorK6(b *testing.B) {
 	b.ResetTimer()
 	var leafCount int
 	for i := 0; i < b.N; i++ {
-		res := imputeFullPosterior(bagMap, k, acc, measured, 8)
+		res := imputeFullPosterior(bagMap, k, acc, nil, measured, 8)
 		leafCount = len(res.racks)
 	}
 	b.ReportMetric(float64(leafCount), "leaves")

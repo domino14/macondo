@@ -148,8 +148,53 @@ C \;=\; \log\frac{\sum_i c_i w_i}{\sum_i c_i e^{\sum \varphi(L_i)}}
 where $c_i$ is the leave's total importance weight $U_L = \sum_{j: L_j = L}
 u_j$ — its draw count while everything is prior-sampled. Computed with
 log-sum-exp for stability. Under this calibration the model reproduces the
-**arithmetic** mean of the measured likelihoods exactly
-(`TestCalibrationMomentMatched`).
+**arithmetic** mean of the measured likelihoods (`TestCalibrationMomentMatched`).
+
+This target is not arbitrary: the measured leaves are i.i.d. draws from the
+prior, so $\frac{1}{n}\sum_i U_i w_i$ estimates $\mathbb{E}_{\text{prior}}[w]$
+over the *whole* leave space — which is exactly the posterior normalizer
+$\sum_L P(L)w(L)$. The moment condition is therefore a population statement,
+and the importance weights of §2 are what keep it one if the draws ever stop
+coming from the prior.
+
+### Cross-fitting
+
+$C$ is fit on measured leaves but applied to **unmeasured** ones, so the
+predictions in its denominator have to be out-of-sample. With the full-data
+model they are not: every measured leave helped set the very lifts that
+predict it. That self-fit inflates $\sum_i U_i e^{\sum\varphi(L_i)}$ and so
+biases $C$ **low** — imputed leaves get systematically too little mass.
+
+So each distinct leave is assigned by hash to one of $K = 5$ folds
+(`foldForKey`; *every* measurement of a leave lands in the same fold), and its
+prediction in the denominator comes from the model fit on the other folds:
+
+```math
+C \;=\; \log\frac{\sum_i U_i w_i}{\sum_i U_i \, e^{\sum \varphi^{(-f(i))}(L_i)}}
+```
+
+Fold complements are exact subtractions of the accumulators
+(`subleaveAccumulator.minus`), so this costs $K$ extra model builds and no
+extra sims. Degenerate folds need no special case: a complement with no data
+leaves every $\varphi$ at 0, predicts a flat $\hat\ell = 1$, and $C$ falls
+back to $\log \bar w$ — the right answer when the lifts carry no information.
+
+Measured effect on synthetic data at production-like densities (26 tile types,
+$k=3$, order 2): the cross-fit constant runs **1.02×–1.07× above** the
+in-sample one, the gap widening as the measured set thins; a real position
+with only 160 of 3431 leaves measured shows 1.12×. $K$ barely matters — $K=5$,
+$K=20$, and leave-one-out agree to within 0.02 in log space.
+
+One honest caveat: this corrects one bias, not total calibration error. The
+model's *shape* error on unseen leaves is independent, has variable sign, and
+is often larger. In individual positions the two can cancel, so the in-sample
+constant sometimes looks better on held-out leaves by accident —
+`TestCrossFitRemovesSelfFit` therefore pins the mechanism (a leave whose lifts
+come only from its own measurements) rather than a held-out win.
+
+The runtime diagnostics print both constants and their ratio (`xfit=1.03x` in
+the `infer analyze` header), which is a direct read on how much the lifts are
+fitting their own samples in a real position.
 
 ### Why not mean-of-logs (historical bug)
 
@@ -232,8 +277,10 @@ $P(L) \cdot e^{C + \Sigma\varphi}$ normalized by the max.
 ## 8. Diagnostics
 
 - `infer analyze` (detailed): posterior header — measured/imputed counts,
-  measured mass, marginal order, $\tau$, effective sample size — plus the top
-  racks with their source (`measured ×n` / `imputed`).
+  measured mass, marginal order, $\tau$, effective sample size, and `xfit`
+  (the cross-fit/in-sample calibration ratio; 1.00× means no detectable
+  self-fit) — plus the top racks with their source (`measured ×n` /
+  `imputed`).
 - `infer leave <tiles>`: the full walkthrough above (`AnalyzeLeave` /
   `writeImputationWalkthrough`, rangefinder/stats.go), ending with the exact
   chain `weight = prior × ℓ̂ ÷ max` that reproduces the stored weight — a
@@ -252,6 +299,7 @@ The model, calibration constant, and normalization max are persisted on
 | Log-lift clamp | $\pm 13.8$ ($\approx \log 10^6$) | `maxAbsLogLift` |
 | Interaction clamp | $\pm 2.303$ ($\log 10$) | `maxAbsInteraction` |
 | Negligible-mass cutoff | $10^{-15}$ of max weight | `negligibleWeightFraction` |
+| Calibration folds $K$ | 5 | `calibrationFolds`, `foldForKey` |
 | Softmax temperature $\tau$ | configurable, default 0.05 | `SoftmaxTemperature`, `RangeFinder.SetTau` |
 
 | Concern | Code | Tests |
@@ -261,7 +309,8 @@ The model, calibration constant, and normalization max are persisted on
 | Model uncertainty | `imputationModel.uncertainty` | `TestUncertaintyFavorsThinSupport` |
 | Möbius terms | `buildImputationModel` | `TestMobiusTelescoping` |
 | Term enumeration for display | `subleaveTerms` | `TestSubleaveTermsSumMatchesLogImputed` |
-| Calibration | `imputeFullPosterior` (calibration block) | `TestCalibrationMomentMatched` |
+| Calibration | `calibrateLogConstant` | `TestCalibrationMomentMatched` |
+| Cross-fitting | `foldForKey`, `subleaveAccumulator.minus` | `TestCrossFitFoldPartition`, `TestCrossFitRemovesSelfFit` |
 | Posterior assembly | `imputeFullPosterior` | `TestImputeFullPosteriorMeasuredExact`, `TestImputeUnmeasuredLift`, `TestImputeNoSignalIsPrior`, `TestMeasuredZeroExcluded` |
 | Weight replay | `AnalyzeLeave` | `TestImputationResultReconstructsWeights` |
 

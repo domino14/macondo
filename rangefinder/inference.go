@@ -238,9 +238,11 @@ type RangeFinder struct {
 	inference            *Inference
 
 	// Imputation state (tile-placement inference only): containment-marginal
-	// accumulator, per-distinct-leave measured likelihood means, and the
+	// accumulator, the same samples partitioned into cross-fitting folds for
+	// calibration, per-distinct-leave measured likelihood means, and the
 	// diagnostics of the last imputation run.
 	acc       *subleaveAccumulator
+	foldAccs  []*subleaveAccumulator
 	measured  map[string]*measuredLeave
 	imputeRes *imputationResult
 
@@ -458,9 +460,23 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 	r.simCount.Store(0)
 	r.exhaustiveTotal = 0
 	r.acc = nil
+	r.foldAccs = nil
 	r.measured = nil
 	r.imputeRes = nil
 	return nil
+}
+
+// initImputationState (re)allocates the containment-marginal accumulator, the
+// per-fold accumulators used to cross-fit the calibration constant, and the
+// measured-leave map.
+func (r *RangeFinder) initImputationState() {
+	order := marginalOrder(r.inference.RackLength)
+	r.acc = newSubleaveAccumulator(len(r.inferenceBagMap), order)
+	r.foldAccs = make([]*subleaveAccumulator, calibrationFolds)
+	for i := range r.foldAccs {
+		r.foldAccs[i] = newSubleaveAccumulator(len(r.inferenceBagMap), order)
+	}
+	r.measured = map[string]*measuredLeave{}
 }
 
 // recordPlacementSample records one evaluated leave and its measured
@@ -475,6 +491,11 @@ func (r *RangeFinder) recordPlacementSample(leave []tilemapping.MachineLetter, w
 		b[i] = byte(ml)
 	}
 	key := string(b)
+	if n := len(r.foldAccs); n > 0 {
+		// Keyed by leave, not by sample, so every draw of a leave lands in
+		// the same fold and the complement model has never seen it.
+		r.foldAccs[foldForKey(key, n)].record(leave, w, u)
+	}
 	ml := r.measured[key]
 	if ml == nil {
 		ml = &measuredLeave{}
@@ -495,7 +516,7 @@ func (r *RangeFinder) finalizePlacementPosterior() {
 		return
 	}
 	res := imputeFullPosterior(r.inferenceBagMap, r.inference.RackLength, r.acc,
-		r.measured, r.threads)
+		r.foldAccs, r.measured, r.threads)
 	r.imputeRes = res
 	if len(res.racks) == 0 {
 		return
@@ -506,6 +527,8 @@ func (r *RangeFinder) finalizePlacementPosterior() {
 		Int("imputed-leaves", res.imputedLeaves).
 		Float64("measured-mass", res.measuredMass).
 		Int("marginal-order", res.marginalOrder).
+		Float64("log-calib", res.logCalib).
+		Float64("log-calib-in-sample", res.logCalibInSample).
 		Msg("imputed-complete-posterior")
 }
 
@@ -545,8 +568,7 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 		// Monte Carlo sampling path for tile placements: every sampled leave
 		// (whatever its likelihood) feeds the marginal-lift accumulator so a
 		// complete posterior can be imputed after sampling ends.
-		r.acc = newSubleaveAccumulator(len(r.inferenceBagMap), marginalOrder(r.inference.RackLength))
-		r.measured = map[string]*measuredLeave{}
+		r.initImputationState()
 	}
 
 	logChan := make(chan []byte)

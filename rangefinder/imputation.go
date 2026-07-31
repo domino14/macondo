@@ -52,7 +52,26 @@ const (
 	// normalization by the max weight, falls below this fraction. The total
 	// discarded mass is bounded by leafCount * this, i.e. ~1e-9 worst case.
 	negligibleWeightFraction = 1e-15
+
+	// calibrationFolds is the number of cross-fitting folds used to estimate
+	// the calibration constant. Each distinct measured leave is assigned to
+	// one fold; the constant is computed from predictions made by models fit
+	// on the other folds. See calibrateLogConstant.
+	calibrationFolds = 5
 )
+
+// foldForKey assigns a distinct leave (identified by its sorted-tile key) to
+// one of nFolds cross-fitting folds, by FNV-1a hash. Every measurement of the
+// same leave lands in the same fold, so a fold-complement model has never
+// seen the leave whose prediction it supplies.
+func foldForKey(key string, nFolds int) int {
+	var h uint32 = 2166136261
+	for i := 0; i < len(key); i++ {
+		h ^= uint32(key[i])
+		h *= 16777619
+	}
+	return int(h % uint32(nFolds))
+}
 
 // marginalOrder returns the maximum sub-multiset order m estimated for leaves
 // of size k: ceil(k/2), capped at 3.
@@ -203,6 +222,40 @@ func (acc *subleaveAccumulator) record(sorted []tilemapping.MachineLetter, w, u 
 			}
 		}
 	}
+}
+
+// minus returns a new accumulator holding acc's statistics with sub's
+// removed. Every field is an additive count or sum, so the complement of a
+// cross-fitting fold is an exact subtraction — no need to re-walk the
+// samples. Rounding can leave a likelihood sum a hair below zero; those are
+// clamped, since a negative mass is meaningless downstream.
+func (acc *subleaveAccumulator) minus(sub *subleaveAccumulator) *subleaveAccumulator {
+	out := newSubleaveAccumulator(acc.alphaSize, acc.maxOrder)
+	out.n = acc.n - sub.n
+	out.wtTotal = math.Max(0, acc.wtTotal-sub.wtTotal)
+	out.wtsqTotal = math.Max(0, acc.wtsqTotal-sub.wtsqTotal)
+	out.likTotal = math.Max(0, acc.likTotal-sub.likTotal)
+	subInto := func(dst, a, b []float64) {
+		for i := range dst {
+			if d := a[i] - b[i]; d > 0 {
+				dst[i] = d
+			}
+		}
+	}
+	subInto(out.wt1, acc.wt1, sub.wt1)
+	subInto(out.wtsq1, acc.wtsq1, sub.wtsq1)
+	subInto(out.lik1, acc.lik1, sub.lik1)
+	if acc.maxOrder >= 2 {
+		subInto(out.wt2, acc.wt2, sub.wt2)
+		subInto(out.wtsq2, acc.wtsq2, sub.wtsq2)
+		subInto(out.lik2, acc.lik2, sub.lik2)
+	}
+	if acc.maxOrder >= 3 {
+		subInto(out.wt3, acc.wt3, sub.wt3)
+		subInto(out.wtsq3, acc.wtsq3, sub.wtsq3)
+		subInto(out.lik3, acc.lik3, sub.lik3)
+	}
+	return out
 }
 
 // imputationModel holds the Möbius interaction terms derived from an
@@ -570,6 +623,12 @@ type imputationResult struct {
 	model    *imputationModel
 	logCalib float64
 	maxLogW  float64 // log of the pre-normalization max weight
+
+	// logCalibInSample is the constant the full-data model would have
+	// produced without cross-fitting. Diagnostic only: the gap to logCalib
+	// measures how much the lifts are fitting their own samples.
+	logCalibInSample float64
+	crossFitted      bool
 }
 
 // tileArena hands out small tile slices carved from large chunks, avoiding
@@ -587,66 +646,111 @@ func (a *tileArena) alloc(src []tilemapping.MachineLetter) []tilemapping.Machine
 	return a.buf[start:len(a.buf):len(a.buf)]
 }
 
+// logSumExp returns log Σ e^x stably. Returns -Inf for an empty slice.
+func logSumExp(xs []float64) float64 {
+	maxX := math.Inf(-1)
+	for _, x := range xs {
+		if x > maxX {
+			maxX = x
+		}
+	}
+	if math.IsInf(maxX, -1) {
+		return maxX
+	}
+	var sum float64
+	for _, x := range xs {
+		sum += math.Exp(x - maxX)
+	}
+	return maxX + math.Log(sum)
+}
+
+// calibrateLogConstant returns the constant C that aligns the model's lift
+// scale with the raw softmax scale of the measured likelihoods. Measured
+// likelihoods live on the raw softmax scale while logImputed is a sum of lift
+// terms, so we moment-match the arithmetic means over the measured leaves:
+// choose C so that Σ U·exp(C + Σφ) = Σ U·w, where U is the leave's total
+// importance weight (its draw count under prior sampling). (A mean-of-logs anchor would
+// target the geometric mean, which for heavily right-skewed likelihoods sits
+// orders of magnitude below the arithmetic scale the lifts are estimated on,
+// starving every imputed leaf of posterior mass relative to measured ones.)
+//
+// C is fit on the measured leaves but applied to the *unmeasured* ones, so
+// the predictions entering the denominator must be out-of-sample. With the
+// full-data model they are not: every measured leave helped set the very
+// lifts that predict it, which inflates Σ c·e^Σφ and biases C low. When
+// foldModels is non-empty each leave is instead predicted by the model fit on
+// the folds excluding it (cross-fitting), which removes that self-fit. The
+// second return is the uncorrected in-sample constant, for diagnostics.
+//
+// Degenerate folds need no special case: a fold-complement model with no data
+// leaves every φ at 0, so it predicts a flat ê = 1 and C falls back to
+// log(mean w) — the right answer when the lifts carry no information.
+func calibrateLogConstant(measured map[string]*measuredLeave, k int,
+	full *imputationModel, foldModels []*imputationModel) (logCalib, inSample float64) {
+
+	var sumCW float64            // Σ U·w
+	var lpFull, lpFold []float64 // log U + Σφ per measured leave with w > 0
+	var runBuf []tileRun
+	tiles := make([]tilemapping.MachineLetter, 0, k)
+	for key, ml := range measured {
+		w := ml.mean()
+		if w <= 0 || ml.sumU <= 0 {
+			continue
+		}
+		tiles = tiles[:0]
+		for i := 0; i < len(key); i++ {
+			tiles = append(tiles, tilemapping.MachineLetter(key[i]))
+		}
+		runBuf = runsOf(tiles, runBuf)
+		logC := math.Log(ml.sumU)
+		sumCW += ml.sumU * w
+		lpFull = append(lpFull, logC+full.logImputed(runBuf))
+		if len(foldModels) > 0 {
+			lpFold = append(lpFold,
+				logC+foldModels[foldForKey(key, len(foldModels))].logImputed(runBuf))
+		}
+	}
+	if sumCW <= 0 || len(lpFull) == 0 {
+		return 0, 0
+	}
+	logSumCW := math.Log(sumCW)
+	inSample = logSumCW - logSumExp(lpFull)
+	if len(lpFold) > 0 {
+		return logSumCW - logSumExp(lpFold), inSample
+	}
+	return inSample, inSample
+}
+
 // imputeFullPosterior walks every feasible leave of size k drawable from
 // bagMap and assigns posterior weight prior(L) × likelihood(L), where the
 // likelihood is the measured mean when L was evaluated and the calibrated
 // imputed value otherwise. Weights are normalized so the max is 1.
 //
+// foldAccs, when non-nil, holds the same samples as acc partitioned by leave
+// into cross-fitting folds; it is used only to calibrate (see
+// calibrateLogConstant). The imputed likelihoods themselves always come from
+// the full-data model.
 func imputeFullPosterior(bagMap []uint8, k int, acc *subleaveAccumulator,
-	measured map[string]*measuredLeave, threads int) *imputationResult {
+	foldAccs []*subleaveAccumulator, measured map[string]*measuredLeave,
+	threads int) *imputationResult {
 
 	mod := buildImputationModel(acc, imputationLambda, maxAbsLogLift, maxAbsInteraction)
 
-	// Calibration: measured likelihoods live on the raw softmax scale while
-	// logImputed is a sum of lift terms. Moment-match the arithmetic means:
-	// choose logCalib so that Σ U·exp(logCalib + Σφ) = Σ U·w over measured
-	// leaves, where U is the leave's total importance weight — its draw count
-	// when everything was prior-sampled. (A mean-of-logs anchor would target
-	// the geometric mean, which for heavily right-skewed likelihoods sits
-	// orders of magnitude below the arithmetic scale the lifts are estimated
-	// on, starving every imputed leaf of posterior mass relative to measured
-	// ones.)
-	logCalib := 0.0
-	{
-		var sumUW float64      // Σ U·w
-		var logUPhis []float64 // log U + Σφ per measured leave with w > 0
-		var runBuf []tileRun
-		tiles := make([]tilemapping.MachineLetter, 0, k)
-		for key, ml := range measured {
-			w := ml.mean()
-			if w <= 0 || ml.sumU <= 0 {
-				continue
-			}
-			tiles = tiles[:0]
-			for i := 0; i < len(key); i++ {
-				tiles = append(tiles, tilemapping.MachineLetter(key[i]))
-			}
-			runBuf = runsOf(tiles, runBuf)
-			sumUW += ml.sumU * w
-			logUPhis = append(logUPhis, math.Log(ml.sumU)+mod.logImputed(runBuf))
-		}
-		if sumUW > 0 && len(logUPhis) > 0 {
-			// log Σ U·e^Σφ via log-sum-exp for stability.
-			maxLP := math.Inf(-1)
-			for _, lp := range logUPhis {
-				if lp > maxLP {
-					maxLP = lp
-				}
-			}
-			var expSum float64
-			for _, lp := range logUPhis {
-				expSum += math.Exp(lp - maxLP)
-			}
-			logCalib = math.Log(sumUW) - (maxLP + math.Log(expSum))
-		}
+	foldModels := make([]*imputationModel, 0, len(foldAccs))
+	for _, fa := range foldAccs {
+		foldModels = append(foldModels, buildImputationModel(
+			acc.minus(fa), imputationLambda, maxAbsLogLift, maxAbsInteraction))
 	}
+	logCalib, logCalibInSample := calibrateLogConstant(measured, k, mod, foldModels)
 
 	N := 0
 	for _, c := range bagMap {
 		N += int(c)
 	}
 	if k <= 0 || N < k {
-		return &imputationResult{marginalOrder: acc.maxOrder, model: mod, logCalib: logCalib}
+		return &imputationResult{marginalOrder: acc.maxOrder, model: mod,
+			logCalib: logCalib, logCalibInSample: logCalibInSample,
+			crossFitted: len(foldModels) > 0}
 	}
 	logChooseNK := logBinomial(N, k)
 
@@ -764,10 +868,12 @@ func imputeFullPosterior(bagMap []uint8, k int, acc *subleaveAccumulator,
 		}
 	}
 	res := &imputationResult{
-		marginalOrder: acc.maxOrder,
-		model:         mod,
-		logCalib:      logCalib,
-		maxLogW:       maxLogW,
+		marginalOrder:    acc.maxOrder,
+		model:            mod,
+		logCalib:         logCalib,
+		logCalibInSample: logCalibInSample,
+		crossFitted:      len(foldModels) > 0,
+		maxLogW:          maxLogW,
 	}
 	if total == 0 || math.IsInf(maxLogW, -1) {
 		return res

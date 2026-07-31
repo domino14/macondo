@@ -154,7 +154,13 @@ func (r *RangeFinder) writeSubleaveTable(ss *strings.Builder,
 			t.phi, math.Exp(t.phi))
 	}
 	logCalib := r.imputeRes.logCalib
-	fmt.Fprintf(ss, "  Σφ = %.4g, calibration = %.4g\n", sumPhi, logCalib)
+	if r.imputeRes.crossFitted {
+		fmt.Fprintf(ss, "  Σφ = %.4g, calibration = %.4g (cross-fit over %d folds; in-sample %.4g, ratio %.3gx)\n",
+			sumPhi, logCalib, calibrationFolds, r.imputeRes.logCalibInSample,
+			math.Exp(logCalib-r.imputeRes.logCalibInSample))
+	} else {
+		fmt.Fprintf(ss, "  Σφ = %.4g, calibration = %.4g\n", sumPhi, logCalib)
+	}
 	lhat = math.Exp(logCalib + sumPhi)
 	fmt.Fprintf(ss, "  imputed likelihood ℓ̂ = exp(calibration + Σφ) = %.6g\n", lhat)
 	return lhat, true
@@ -202,10 +208,17 @@ func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
 		if r.exhaustiveTotal > 0 {
 			src = "enumeration"
 		}
+		xfit := ""
+		if r.imputeRes.crossFitted {
+			// How much the in-sample constant was depressed by the lifts
+			// fitting their own samples: 1.0x means no detectable overfit.
+			xfit = fmt.Sprintf(", xfit=%.2fx",
+				math.Exp(r.imputeRes.logCalib-r.imputeRes.logCalibInSample))
+		}
 		headerLine = fmt.Sprintf(
-			"Complete posterior over %d leaves (%s): %d measured holding %.1f%% of mass, %d imputed (marginal order ≤%d), tau=%.3f, ESS=%.1f\n",
+			"Complete posterior over %d leaves (%s): %d measured holding %.1f%% of mass, %d imputed (marginal order ≤%d), tau=%.3f, ESS=%.1f%s\n",
 			nInferred, src, r.imputeRes.measuredLeaves, 100.0*r.imputeRes.measuredMass,
-			r.imputeRes.imputedLeaves, r.imputeRes.marginalOrder, r.Tau(), ess)
+			r.imputeRes.imputedLeaves, r.imputeRes.marginalOrder, r.Tau(), ess, xfit)
 	} else if r.exhaustiveTotal > 0 {
 		// Enumeration mode: show leaves simmed vs total, and completion %.
 		pct := 100.0 * float64(nInferred) / float64(r.exhaustiveTotal)

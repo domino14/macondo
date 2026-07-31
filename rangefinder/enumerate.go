@@ -246,8 +246,7 @@ func (r *RangeFinder) inferEnumerated(ctx context.Context) error {
 	// likelihood; any leaves left unevaluated (context timeout, or the
 	// low-prior tail truncated above) get imputed likelihoods from the
 	// marginal lifts of the evaluated set.
-	r.acc = newSubleaveAccumulator(len(r.inferenceBagMap), marginalOrder(r.inference.RackLength))
-	r.measured = map[string]*measuredLeave{}
+	r.initImputationState()
 	for _, res := range results {
 		for _, ir := range res.racks {
 			// Exhaustive enumeration visits each leave exactly once, so
