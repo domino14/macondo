@@ -37,7 +37,7 @@ Resources:
           # generator costs neither. Anything over the limit, or with no word
           # map on the volume, uses the KWG generator.
           MACONDO_WMP_BUILD_IF_MISSING: "false"
-          MACONDO_WMP_MAX_MB: "200"
+          MACONDO_WMP_MAX_MB: "250"
           GOMEMLIMIT: 5500MiB   # lambda uses mebibytes (6000 MiB would be the limit above). Set go mem limit a bit lower.
           # https://docs.aws.amazon.com/lambda/latest/dg/gettingstarted-limits.html
           # DEBUG: 1
