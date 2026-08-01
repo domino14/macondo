@@ -31,6 +31,13 @@ Resources:
           MACONDO_NATS_URL: nats://10.0.0.251:4222
           MACONDO_TTABLE_MEM_FRACTION: 0.25
           MACONDO_KWG_PATH_PREFIX: 2024
+          # Read the word maps seeded on the volume, never build one. A build
+          # is paid on every cold start and buys nothing here: CSW24's takes
+          # about as long to build as to read (~1.4s), and the KWG move
+          # generator costs neither. Anything over the limit, or with no word
+          # map on the volume, uses the KWG generator.
+          MACONDO_WMP_BUILD_IF_MISSING: "false"
+          MACONDO_WMP_MAX_MB: "200"
           GOMEMLIMIT: 5500MiB   # lambda uses mebibytes (6000 MiB would be the limit above). Set go mem limit a bit lower.
           # https://docs.aws.amazon.com/lambda/latest/dg/gettingstarted-limits.html
           # DEBUG: 1

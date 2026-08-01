@@ -10,65 +10,53 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// A word map is a speed/size tradeoff that doesn't pay off the same way
-// everywhere. On a long-lived server with memory to spare it is always worth
-// having. On a Lambda that rebuilds or re-reads it on every cold start, a
-// large one costs more in startup latency than the move generator it replaces
-// saves: SLV26's is 746 MB, which is 8.6s to read off EFS or 10.4s to build,
-// against a KWG move generator that needs neither.
+// A word map buys move generation speed for memory and startup time, and that
+// trade lands differently in different places. Three environment variables
+// decide it, each answering one question:
 //
-// The policy below decides, per lexicon, whether to use a word map at all and
-// whether to read it or rebuild it. It is read from the environment so a
-// deployment can set it without a code change:
+//	MACONDO_WMP_ENABLED            use word maps at all?          (default true)
+//	MACONDO_WMP_BUILD_IF_MISSING   build one that isn't on disk?  (default true)
+//	MACONDO_WMP_MAX_MB             how big may one be?            (default 0, no limit)
 //
-//	MACONDO_WMP_MODE          auto (default) | always | never
-//	MACONDO_WMP_MAX_MB        auto only; a .wmp on disk larger than this is
-//	                          not used at all (default 400)
-//	MACONDO_WMP_MAX_READ_MB   auto only; a .wmp on disk larger than this is
-//	                          rebuilt in memory rather than read from disk
-//	                          (default 0, meaning always read it)
+// The defaults are what a developer wants: build a word map the first time a
+// lexicon needs one, read it from disk every time after, no size limit.
 //
-// "always" ignores both sizes: use whatever word map exists or can be built.
-// That is the setting for an always-on server with a big heap. "never" skips
-// word maps entirely and leaves every caller on the KWG move generator.
-
-type Mode string
+// A Lambda wants the opposite of the build: it pays for one on every cold
+// start, and building CSW24's takes about as long as reading it (1.4s either
+// way), while SLV26's takes 10.4s to build or 8.6s to read against a KWG move
+// generator that costs neither. So it sets
+//
+//	MACONDO_WMP_BUILD_IF_MISSING=false
+//	MACONDO_WMP_MAX_MB=200
+//
+// and gets: read whatever is seeded on the volume and small enough, and fall
+// back to the KWG move generator for anything missing or larger.
 
 const (
-	ModeAuto   Mode = "auto"
-	ModeAlways Mode = "always"
-	ModeNever  Mode = "never"
+	EnvEnabled        = "MACONDO_WMP_ENABLED"
+	EnvBuildIfMissing = "MACONDO_WMP_BUILD_IF_MISSING"
+	EnvMaxMB          = "MACONDO_WMP_MAX_MB"
 )
 
-const (
-	EnvMode      = "MACONDO_WMP_MODE"
-	EnvMaxMB     = "MACONDO_WMP_MAX_MB"
-	EnvMaxReadMB = "MACONDO_WMP_MAX_READ_MB"
-
-	defaultMaxMB     = 400
-	defaultMaxReadMB = 0
-)
-
-// ErrDisabled is returned when policy says not to use a word map for a
-// lexicon. Callers treat it the same as a missing word map: fall back to the
-// KWG move generator.
+// ErrDisabled is returned when policy says not to use a word map. Callers
+// treat it like a missing one: fall back to the KWG move generator.
 var ErrDisabled = errors.New("word map disabled by policy")
 
 // Policy is the resolved word map policy for this process.
 type Policy struct {
-	Mode Mode
-
-	// MaxBytes is the largest word map that will be used at all; a bigger one
-	// is skipped and the caller stays on the KWG move generator.
+	// Enabled false means never use a word map, whatever is on disk.
+	Enabled bool
+	// BuildIfMissing false means only ever use a word map that is already on
+	// disk. A lexicon without one falls back to the KWG move generator rather
+	// than paying the build.
+	BuildIfMissing bool
+	// MaxBytes is the largest word map that will be used; a bigger one is
+	// skipped in favour of the KWG move generator. Zero means no limit.
 	//
-	// MaxReadBytes is the largest that will be read from disk rather than
-	// rebuilt in memory.
-	//
-	// Zero means the limit does not apply, which for MaxReadBytes is how
-	// rebuild-instead-of-read is off unless asked for: MACONDO_WMP_MAX_READ_MB
-	// defaults to 0. Both are consulted in ModeAuto only.
-	MaxBytes     int64
-	MaxReadBytes int64
+	// It can only be applied to a word map already on disk, since the size of
+	// one is not predictable before it is built -- the ratio to the KWG it
+	// comes from runs from 27x to 94x across lexica.
+	MaxBytes int64
 }
 
 var (
@@ -85,9 +73,9 @@ func CurrentPolicy() Policy {
 		policyMu.Lock()
 		policy = p
 		policyMu.Unlock()
-		log.Info().Str("mode", string(p.Mode)).
+		log.Info().Bool("enabled", p.Enabled).
+			Bool("build_if_missing", p.BuildIfMissing).
 			Int64("max_mb", p.MaxBytes/(1<<20)).
-			Int64("max_read_mb", p.MaxReadBytes/(1<<20)).
 			Msg("wmp-policy")
 	})
 	policyMu.RLock()
@@ -98,32 +86,32 @@ func CurrentPolicy() Policy {
 // SetPolicy overrides the policy for this process, for a caller that
 // configures itself by some means other than the environment.
 func SetPolicy(p Policy) {
-	CurrentPolicy() // make sure the once-only env read doesn't clobber this later
+	CurrentPolicy() // so the once-only env read can't clobber this later
 	policyMu.Lock()
 	policy = p
 	policyMu.Unlock()
 }
 
 func policyFromEnv() Policy {
-	p := Policy{
-		Mode:         ModeAuto,
-		MaxBytes:     defaultMaxMB << 20,
-		MaxReadBytes: defaultMaxReadMB << 20,
+	return Policy{
+		Enabled:        boolFromEnv(EnvEnabled, true),
+		BuildIfMissing: boolFromEnv(EnvBuildIfMissing, true),
+		MaxBytes:       mbFromEnv(EnvMaxMB, 0),
 	}
-	switch strings.ToLower(strings.TrimSpace(os.Getenv(EnvMode))) {
-	case "":
-	case string(ModeAuto):
-	case string(ModeAlways):
-		p.Mode = ModeAlways
-	case string(ModeNever):
-		p.Mode = ModeNever
-	default:
-		log.Warn().Str(EnvMode, os.Getenv(EnvMode)).
-			Msg("unrecognized word map mode; using auto")
+}
+
+func boolFromEnv(key string, def bool) bool {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return def
 	}
-	p.MaxBytes = mbFromEnv(EnvMaxMB, defaultMaxMB)
-	p.MaxReadBytes = mbFromEnv(EnvMaxReadMB, defaultMaxReadMB)
-	return p
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		log.Warn().Str(key, v).Bool("using", def).
+			Msg("word map setting is not a boolean")
+		return def
+	}
+	return b
 }
 
 func mbFromEnv(key string, def int64) int64 {
@@ -133,36 +121,16 @@ func mbFromEnv(key string, def int64) int64 {
 	}
 	mb, err := strconv.ParseInt(v, 10, 64)
 	if err != nil || mb < 0 {
-		log.Warn().Str(key, v).Int64("using", def).
+		log.Warn().Str(key, v).Int64("using_mb", def).
 			Msg("word map size limit is not a non-negative number of megabytes")
 		return def << 20
 	}
 	return mb << 20
 }
 
-// useWordMap reports whether a word map should be used at all.
-func (p Policy) useWordMap() bool { return p.Mode != ModeNever }
-
-// allowsSize reports whether a word map of the given size may be used.
+// allowsSize reports whether a word map of the given size may be used. A zero
+// MaxBytes -- the default, and what an unset MACONDO_WMP_MAX_MB produces --
+// means there is no limit.
 func (p Policy) allowsSize(size int64) bool {
-	if p.Mode != ModeAuto || p.MaxBytes == 0 {
-		return true
-	}
-	return size <= p.MaxBytes
-}
-
-// prefersRebuild reports whether an on-disk word map of the given size should
-// be rebuilt in memory rather than read.
-//
-// MaxReadBytes is zero unless MACONDO_WMP_MAX_READ_MB says otherwise, and zero
-// means no limit, so this answers false and every word map on disk gets read.
-// That is the intended default: reading beat rebuilding at every size measured
-// (CSW24 1.41s against 1.42s, SLV26 8.6s against 10.4s). The setting exists for
-// a deployment that would rather spend CPU than the EFS burst credits a read
-// draws down.
-func (p Policy) prefersRebuild(size int64) bool {
-	if p.Mode != ModeAuto || p.MaxReadBytes == 0 {
-		return false
-	}
-	return size > p.MaxReadBytes
+	return p.MaxBytes == 0 || size <= p.MaxBytes
 }

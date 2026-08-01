@@ -83,7 +83,7 @@ func EnsureWMP(cfg *wglconfig.Config, name string) (*WMP, error) {
 	wmpPath := wmpPathFor(cfg, name)
 	p := CurrentPolicy()
 
-	if !p.useWordMap() {
+	if !p.Enabled {
 		logWMP(name, "wmp-disabled").Msg("word maps are turned off; using the KWG move generator")
 		return nil, ErrDisabled
 	}
@@ -100,36 +100,34 @@ func EnsureWMP(cfg *wglconfig.Config, name string) (*WMP, error) {
 		return w, nil
 	}
 
-	rebuild := false
 	if fi, err := os.Stat(wmpPath); err == nil {
 		size := fi.Size()
-		switch {
-		case !p.allowsSize(size):
+		if !p.allowsSize(size) {
 			logWMP(name, "wmp-too-large").Int64("bytes", size).
 				Int64("max_bytes", p.MaxBytes).
 				Msg("word map is larger than the limit; using the KWG move generator")
 			return nil, fmt.Errorf("%s is %d MB, over the %d MB limit: %w",
 				name, size>>20, p.MaxBytes>>20, ErrDisabled)
-		case p.prefersRebuild(size):
-			logWMP(name, "wmp-rebuild-preferred").Int64("bytes", size).
-				Msg("word map is larger than the read limit; building it instead of reading it")
-			rebuild = true
 		}
 
-		if !rebuild {
-			start := time.Now()
-			// Already on disk; the global object cache dedupes the load.
-			w, err := GetWMP(cfg, name)
-			if err == nil {
-				logWMP(name, "wmp-loaded-from-disk").Int64("bytes", size).
-					Dur("took", time.Since(start)).Msg("word map read from disk")
-				return w, nil
-			}
-			// The file is there but unreadable — truncated by an interrupted
-			// write, say. Fall through and rebuild rather than failing on it
-			// for the life of the process (and every process after).
-			log.Warn().Err(err).Str("path", wmpPath).Msg("could not load WMP; rebuilding it")
+		start := time.Now()
+		// Already on disk; the global object cache dedupes the load.
+		w, err := GetWMP(cfg, name)
+		if err == nil {
+			logWMP(name, "wmp-loaded-from-disk").Int64("bytes", size).
+				Dur("took", time.Since(start)).Msg("word map read from disk")
+			return w, nil
 		}
+		// The file is there but unreadable — truncated by an interrupted
+		// write, say. Fall through and rebuild rather than failing on it
+		// for the life of the process (and every process after).
+		log.Warn().Err(err).Str("path", wmpPath).Msg("could not load WMP; rebuilding it")
+	}
+
+	if !p.BuildIfMissing {
+		logWMP(name, "wmp-not-built").
+			Msg("no word map on disk and building is turned off; using the KWG move generator")
+		return nil, fmt.Errorf("no word map on disk for %s: %w", name, ErrDisabled)
 	}
 
 	buildStart := time.Now()
