@@ -22,17 +22,24 @@ import (
 
 // ensureMu serializes the check-build-write sequence in EnsureWMP so that
 // concurrent callers (e.g. autoplay goroutines) don't all race to build the
-// same lexicon. It also guards builtWMPs.
+// same lexicon. It also guards residentWMPs.
 var ensureMu sync.Mutex
 
-// builtWMPs memoizes WMPs built by EnsureWMP, keyed by .wmp path. Built
-// WMPs can't go into word-golib's global object cache: that cache only
-// populates itself through a load function which it calls with its own
-// non-reentrant mutex held, and building needs kwg.GetKWG and
+// residentWMPs memoizes every WMP EnsureWMP has resolved, keyed by .wmp
+// path, whether it was loaded from disk or built from the KWG. A loaded WMP
+// also sits in word-golib's global object cache, but checking here first is
+// what keeps the wmp-loaded-from-disk event honest: without it, every call
+// after the first would hit that cache inside GetWMP and still log a disk
+// read that never happened.
+//
+// Built WMPs are here out of necessity rather than bookkeeping: they can't
+// go into word-golib's cache at all. That cache only populates itself
+// through a load function which it calls with its own non-reentrant mutex
+// held, and building needs kwg.GetKWG and
 // tilemapping.ProbableLetterDistribution, both of which take that same
 // mutex. Building inside a load function deadlocks. So the build happens
 // out here and the result is memoized here.
-var builtWMPs = map[string]*WMP{}
+var residentWMPs = map[string]*WMP{}
 
 const CacheKeyPrefixWMP = "wmp:"
 
@@ -91,11 +98,11 @@ func EnsureWMP(cfg *wglconfig.Config, name string) (*WMP, error) {
 	ensureMu.Lock()
 	defer ensureMu.Unlock()
 
-	if w, ok := builtWMPs[wmpPath]; ok {
+	if w, ok := residentWMPs[wmpPath]; ok {
 		// Already in this process's memory. On a platform that reuses an
 		// execution environment across invocations -- Lambda does -- this is
-		// the common case after the first one, and the whole reason the build
-		// cost is worth paying at all.
+		// the common case after the first one, and the whole reason the load
+		// or build cost is worth paying at all.
 		logWMP(name, "wmp-from-memory").Msg("word map already in memory")
 		return w, nil
 	}
@@ -111,9 +118,9 @@ func EnsureWMP(cfg *wglconfig.Config, name string) (*WMP, error) {
 		}
 
 		start := time.Now()
-		// Already on disk; the global object cache dedupes the load.
 		w, err := GetWMP(cfg, name)
 		if err == nil {
+			residentWMPs[wmpPath] = w
 			logWMP(name, "wmp-loaded-from-disk").Int64("bytes", size).
 				Dur("took", time.Since(start)).Msg("word map read from disk")
 			return w, nil
@@ -164,7 +171,7 @@ func EnsureWMP(cfg *wglconfig.Config, name string) (*WMP, error) {
 	}
 	logWMP(name, "wmp-built").Int64("bytes", built).
 		Dur("took", time.Since(buildStart)).Msg("word map built from the KWG")
-	builtWMPs[wmpPath] = w
+	residentWMPs[wmpPath] = w
 	return w, nil
 }
 
