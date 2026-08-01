@@ -58,6 +58,11 @@ func TestInferTilePlay(t *testing.T) {
 
 	rangeFinder := &RangeFinder{}
 	rangeFinder.Init(game, calcs, DefaultConfig)
+	// Short mini-sims: this exercises the inference pipeline, not simulation
+	// accuracy, and at the default 200 iterations a few seconds of budget on
+	// a loaded machine buys only a handful of evaluated leaves — too few for
+	// the refinement rounds below to have anything to work with.
+	rangeFinder.SetSimIters(25)
 
 	f, err := os.Create("/tmp/inferlog")
 	is.NoErr(err)
@@ -66,7 +71,7 @@ func TestInferTilePlay(t *testing.T) {
 
 	rangeFinder.PrepareFinder(nil)
 	timeout, cancel := context.WithTimeout(
-		context.Background(), 5*time.Second)
+		context.Background(), 10*time.Second)
 	defer cancel()
 
 	err = rangeFinder.Infer(timeout)
@@ -89,8 +94,15 @@ func TestInferTilePlay(t *testing.T) {
 		is.True(st.drawn > 0)
 		is.True(st.evaluated > 0)
 		is.True(st.distinct <= st.drawn)
-		is.True(st.seLogRatio > 0)
+		is.True(st.seLogRatio >= 0)
 		is.True(!math.IsNaN(st.logRatio))
+		is.True(!math.IsNaN(st.seLogRatio))
+		// A batch too small to have a meaningful interval must never be
+		// allowed to declare convergence: with one leaf the ratio fits
+		// exactly and the standard error is 0.
+		if st.converged {
+			is.True(st.evaluated >= refineMinBatch)
+		}
 	}
 	// Refined leaves are measured, so they carry exact weights.
 	is.True(rangeFinder.imputeRes.measuredLeaves >= rangeFinder.refinedCount)

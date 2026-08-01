@@ -220,6 +220,17 @@ gets an equal share of the remainder divided by the rounds left, so early
 termination hands its time back. Evaluations cost the same ~100 ms mini-sim in
 every round — the total `-time` is unchanged, only its allocation moves.
 
+Two things make the split leakier than it looks, and the loop has to tolerate
+both. Round 0 *overruns* its sub-deadline, because the in-flight mini-sims on
+every thread must finish before the sampling loop can exit; on a slow or
+oversubscribed machine that overrun can consume most of what was reserved for
+refinement. And the rate at which leaves can be evaluated is only known after
+round 0 has run. So a round is never refused for being small: a batch below
+`refineMinBatch` still runs and its measurements still count, it just cannot
+satisfy the stopping rule. Refusing it would leave the reserved time unspent
+and make inference strictly worse than never having split the budget — the
+failure mode that motivated this note.
+
 ## 4. Changes
 
 ### `rangefinder/imputation.go` — weighted accumulator

@@ -47,8 +47,11 @@ const (
 	// there cannot move the posterior much.
 	refineMassCovered = 0.02
 
-	// refineMinBatch is the smallest worthwhile round; below this the ratio
-	// statistic is too noisy to learn from.
+	// refineMinBatch is the smallest batch whose ratio statistic is trusted
+	// for the stopping rule. Smaller rounds still run — their measurements
+	// are exact either way — but cannot declare convergence. In particular a
+	// one-leaf batch fits R̂ exactly, leaving a zero residual and a zero
+	// standard error, which would otherwise read as perfect calibration.
 	refineMinBatch = 16
 )
 
@@ -393,8 +396,11 @@ func (r *RangeFinder) refineRounds(ctx context.Context, maxRounds int) {
 			// Equivalence test, not a significance test: stop only when the
 			// entire interval sits inside the tolerance band. A wide interval
 			// means the batch could not detect miscalibration — that is a
-			// reason to keep measuring, not to declare victory.
-			st.converged = math.Abs(st.logRatio)+2*st.seLogRatio < refineConvergedTol
+			// reason to keep measuring, not to declare victory. A batch too
+			// small to have an interval worth the name cannot conclude
+			// anything either way.
+			st.converged = evaluated >= refineMinBatch &&
+				math.Abs(st.logRatio)+2*st.seLogRatio < refineConvergedTol
 		}
 		r.roundLog = append(r.roundLog, st)
 
@@ -417,11 +423,15 @@ func (r *RangeFinder) refineRounds(ctx context.Context, maxRounds int) {
 }
 
 // roundBatchSize divides the time left among the rounds left, converting to a
-// leaf count via the evaluation rate observed in round 0. A round smaller than
-// refineMinBatch is not worth running — the ratio statistic would be pure
-// noise — so a thin share is rounded up to the minimum and the loop simply
-// runs fewer, larger rounds. Returns 0 when even one minimum batch will not
-// fit in the time that remains.
+// leaf count via the evaluation rate observed in round 0. A thin share is
+// rounded up to refineMinBatch so the loop runs fewer, larger rounds rather
+// than a string of rounds too small to learn from.
+//
+// It never returns 0 while any time remains. A round below refineMinBatch
+// cannot *conclude* anything — the stopping rule ignores its ratio — but the
+// leaves it measures are still exact posterior weights, and returning 0 here
+// would leave the rest of the budget simply unspent, making inference
+// strictly worse than not splitting the budget at all.
 func (r *RangeFinder) roundBatchSize(ctx context.Context, round, maxRounds, candidates int) int {
 	deadline, ok := ctx.Deadline()
 	if !ok {
@@ -445,10 +455,8 @@ func (r *RangeFinder) roundBatchSize(ctx context.Context, round, maxRounds, cand
 
 	b := int(rate * remaining.Seconds() / float64(roundsLeft))
 	if b < refineMinBatch {
-		if int(rate*remaining.Seconds()) < refineMinBatch {
-			return 0 // no time for a worthwhile round
-		}
-		b = refineMinBatch
+		// Spend what is left in one go rather than dribbling it away.
+		b = min(refineMinBatch, max(1, int(rate*remaining.Seconds())))
 	}
 	return min(b, candidates)
 }
