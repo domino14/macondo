@@ -57,9 +57,16 @@ var ErrDisabled = errors.New("word map disabled by policy")
 // Policy is the resolved word map policy for this process.
 type Policy struct {
 	Mode Mode
-	// MaxBytes is the largest word map that will be used at all, and
-	// MaxReadBytes the largest that will be read from disk instead of
-	// rebuilt. Zero means no limit. Both apply in ModeAuto only.
+
+	// MaxBytes is the largest word map that will be used at all; a bigger one
+	// is skipped and the caller stays on the KWG move generator.
+	//
+	// MaxReadBytes is the largest that will be read from disk rather than
+	// rebuilt in memory.
+	//
+	// Zero means the limit does not apply, which for MaxReadBytes is how
+	// rebuild-instead-of-read is off unless asked for: MACONDO_WMP_MAX_READ_MB
+	// defaults to 0. Both are consulted in ModeAuto only.
 	MaxBytes     int64
 	MaxReadBytes int64
 }
@@ -145,9 +152,14 @@ func (p Policy) allowsSize(size int64) bool {
 }
 
 // prefersRebuild reports whether an on-disk word map of the given size should
-// be rebuilt in memory rather than read. Reading is faster at every size we
-// have measured, so this is off by default; it exists for a deployment that
-// would rather spend CPU than the EFS burst credits a read draws down.
+// be rebuilt in memory rather than read.
+//
+// MaxReadBytes is zero unless MACONDO_WMP_MAX_READ_MB says otherwise, and zero
+// means no limit, so this answers false and every word map on disk gets read.
+// That is the intended default: reading beat rebuilding at every size measured
+// (CSW24 1.41s against 1.42s, SLV26 8.6s against 10.4s). The setting exists for
+// a deployment that would rather spend CPU than the EFS burst credits a read
+// draws down.
 func (p Policy) prefersRebuild(size int64) bool {
 	if p.Mode != ModeAuto || p.MaxReadBytes == 0 {
 		return false
