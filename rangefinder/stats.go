@@ -369,8 +369,22 @@ func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
 			if last.converged {
 				outcome = "converged"
 			}
-			refined = fmt.Sprintf(", %d refined over %d round(s), %s (log R̂=%+.3f ±%.3f)",
-				r.refinedCount, len(r.roundLog), outcome, last.logRatio, last.seLogRatio)
+			// The batch size belongs with the ratio: a round of one or two
+			// leaves fits R̂ almost exactly and reports a near-zero standard
+			// error, which would otherwise read as a confident verdict rather
+			// than the non-result it is.
+			verdict := fmt.Sprintf("log R̂=%+.3f ±%.3f over %d",
+				last.logRatio, last.seLogRatio, last.evaluated)
+			if last.evaluated < refineMinBatch {
+				noun := "leaves"
+				if last.evaluated == 1 {
+					noun = "leaf"
+				}
+				verdict = fmt.Sprintf("last round only %d %s, too few to test calibration",
+					last.evaluated, noun)
+			}
+			refined = fmt.Sprintf(", %d refined over %d round(s), %s (%s)",
+				r.refinedCount, len(r.roundLog), outcome, verdict)
 		}
 		headerLine = fmt.Sprintf(
 			"Complete posterior over %d leaves (%s): %d measured holding %.1f%% of mass, %d imputed (marginal order ≤%d), tau=%.3f, ESS=%.1f%s%s\n",
