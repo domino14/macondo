@@ -243,10 +243,16 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	// p.simmer.SetAutostopPPScaling(1500)
 
 	if HasInfer(p.botType) && inferenceRan {
-		nInferred := len(p.inferencer.Inferences().InferredRacks)
-		if nInferred > InferencesSimLimit {
+		inferences := p.inferencer.Inferences()
+		nInferred := len(inferences.InferredRacks)
+		if inferences.Complete {
+			// Complete posterior over every feasible leave: sample it
+			// directly, no count threshold or random fallback needed.
+			logger.Info().Int("inferences", nInferred).Msg("using complete inference posterior in sim")
+			p.simmer.SetInferences(inferences.InferredRacks, inferences.RackLength, montecarlo.InferenceCompletePosterior)
+		} else if nInferred > InferencesSimLimit {
 			logger.Info().Int("inferences", nInferred).Msg("using inferences in sim")
-			p.simmer.SetInferences(p.inferencer.Inferences().InferredRacks, p.inferencer.Inferences().RackLength, montecarlo.InferenceWeightedRandomRacks)
+			p.simmer.SetInferences(inferences.InferredRacks, inferences.RackLength, montecarlo.InferenceWeightedRandomRacks)
 		} else {
 			logger.Info().Int("inferences", nInferred).Msg("too few inferences, skipping")
 		}

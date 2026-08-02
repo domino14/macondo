@@ -302,9 +302,15 @@ func (sc *ShellController) setSimmerParams(simmer *montecarlo.Simmer, params sim
 	}
 
 	if params.inferMode != montecarlo.InferenceOff {
-		simmer.SetInferences(sc.rangefinder.Inferences().InferredRacks,
-			sc.rangefinder.Inferences().RackLength,
-			params.inferMode)
+		inferences := sc.rangefinder.Inferences()
+		mode := params.inferMode
+		// Tile-placement inference produces a complete posterior over every
+		// feasible leave; sample from it directly instead of gating between
+		// inferred racks and random draws.
+		if mode == montecarlo.InferenceWeightedRandomRacks && inferences.Complete {
+			mode = montecarlo.InferenceCompletePosterior
+		}
+		simmer.SetInferences(inferences.InferredRacks, inferences.RackLength, mode)
 	}
 	if len(params.avoidTrimMoves) > 0 {
 		simmer.AvoidPruningMoves(params.avoidTrimMoves)

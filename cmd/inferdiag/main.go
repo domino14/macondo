@@ -193,6 +193,7 @@ func runTier2(
 	ev *tier2Evaluator,
 	inferredRacks []montecarlo.InferredRack,
 	rackLength int,
+	completePosterior bool,
 	trueLeave []tilemapping.MachineLetter,
 	trueLeaveFound bool,
 	ctx context.Context,
@@ -238,7 +239,11 @@ func runTier2(
 	// 2. Inferred: use posterior racks.
 	if len(inferredRacks) > 0 {
 		result.Inferred, err = runEval(func() {
-			ev.simmer.SetInferences(inferredRacks, rackLength, montecarlo.InferenceWeightedRandomRacks)
+			mode := montecarlo.InferenceWeightedRandomRacks
+			if completePosterior {
+				mode = montecarlo.InferenceCompletePosterior
+			}
+			ev.simmer.SetInferences(inferredRacks, rackLength, mode)
 		})
 		if err != nil {
 			return nil, fmt.Errorf("tier2 inferred: %w", err)
@@ -470,7 +475,7 @@ func runInference(
 
 	// Tier 2: evaluate move quality under three rack assumptions.
 	if ev != nil {
-		t2, err := runTier2(g, ev, allRacks, inferences.RackLength, trueLeave, trueLeaveFound, ctx)
+		t2, err := runTier2(g, ev, allRacks, inferences.RackLength, inferences.Complete, trueLeave, trueLeaveFound, ctx)
 		if err != nil {
 			log.Debug().Err(err).Msg("tier2-skipped")
 		} else {

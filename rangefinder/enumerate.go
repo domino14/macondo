@@ -3,15 +3,11 @@ package rangefinder
 import (
 	"context"
 	"sort"
-	"sync/atomic"
+	"sync"
+	"time"
 
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
-	"golang.org/x/sync/errgroup"
-
-	"github.com/domino14/macondo/ai/simplesimmer"
-	"github.com/domino14/macondo/montecarlo"
-	"github.com/domino14/macondo/move"
 )
 
 const (
@@ -133,6 +129,7 @@ func enumerateLeaves(bagMap []uint8, k int) []enumLeaf {
 // candidates are evaluated first, enabling early exit when remaining prior
 // mass is negligible.
 func (r *RangeFinder) inferEnumerated(ctx context.Context) error {
+	start := time.Now()
 	leaves := enumerateLeaves(r.inferenceBagMap, r.inference.RackLength)
 	if len(leaves) == 0 {
 		return nil
@@ -172,84 +169,40 @@ func (r *RangeFinder) inferEnumerated(ctx context.Context) error {
 		Int("rack-length", r.inference.RackLength).
 		Msg("exhaustive-inference-start")
 
-	// Fan out over worker threads using a shared atomic index.
-	var nextIdx atomic.Int64
-	type threadResult struct {
-		racks []montecarlo.InferredRack
-	}
-	results := make([]threadResult, r.threads)
-
-	eg := errgroup.Group{}
-	for t := 0; t < r.threads; t++ {
-		t := t
-		eg.Go(func() error {
-			gc := r.gameCopies[t]
-			opp := gc.PlayerOnTurn()
-			simmer := r.aiplayers[t].(*simplesimmer.SimpleSimmer)
-
-			// fullRack is reused across iterations to avoid per-leaf allocation.
-			fullRack := make([]tilemapping.MachineLetter, len(r.lastOppMoveRackTiles)+r.inference.RackLength)
-			copy(fullRack, r.lastOppMoveRackTiles)
-
-			for {
-				i := int(nextIdx.Add(1)) - 1
-				if i >= len(leaves) {
-					return nil
-				}
-				if ctx.Err() != nil {
-					return nil
-				}
-
-				leaf := leaves[i]
-
-				// Build the full deterministic rack: played tiles + this leave.
-				// Passing a full RackTileLimit-length knownRack to SetRandomRack causes it
-				// to: (1) put back the old rack, (2) remove fullRack from the bag, (3) draw
-				// 0 additional tiles — giving us an exact, deterministic rack assignment.
-				copy(fullRack[len(r.lastOppMoveRackTiles):], leaf.tiles)
-				if _, err := gc.SetRandomRack(opp, fullRack); err != nil {
-					return err
-				}
-
-				// Copy lastOppMove and set the correct leave for this iteration.
-				lastOppMove := &move.Move{}
-				lastOppMove.CopyFrom(r.lastOppMove)
-				lastOppMove.SetLeave(leaf.tiles)
-
-				if _, err := simmer.GenAndSim(context.Background(), 10, lastOppMove); err != nil {
-					return err
-				}
-				r.simCount.Add(1)
-
-				bestPlays := simmer.BestPlays().PlaysNoLock()
-				// weight = prior * likelihood  (prior is explicit here; the sampling path omits it
-				// because SetRandomRack already draws from the prior distribution).
-				likelihoodP, _ := softmaxLikelihood(bestPlays, lastOppMove, gc.Board(), r.Tau())
-				if likelihoodP <= 0 {
-					continue
-				}
-
-				tiles := make([]tilemapping.MachineLetter, len(leaf.tiles))
-				copy(tiles, leaf.tiles)
-				results[t].racks = append(results[t].racks, montecarlo.InferredRack{
-					Leave:  tiles,
-					Weight: leaf.prior * likelihoodP,
-				})
-			}
-		})
+	tiles := make([][]tilemapping.MachineLetter, len(leaves))
+	for i, l := range leaves {
+		tiles[i] = l.tiles
 	}
 
-	if err := eg.Wait(); err != nil {
+	// Assemble the complete posterior. Evaluated leaves use prior × measured
+	// likelihood; any leaves left unevaluated (context timeout, or the
+	// low-prior tail truncated above) get imputed likelihoods from the
+	// marginal lifts of the evaluated set.
+	r.initImputationState()
+	var mu sync.Mutex
+	err := r.evaluateLeaves(ctx, tiles, func(leave []tilemapping.MachineLetter, likelihood float64) {
+		// Exhaustive enumeration visits each leave exactly once, so every
+		// draw carries unit importance weight.
+		mu.Lock()
+		defer mu.Unlock()
+		r.recordPlacementSample(leave, likelihood, 1)
+	})
+	if err != nil {
 		return err
 	}
+	r.stage0Elapsed = time.Since(start)
+	r.finalizePlacementPosterior()
 
-	for _, res := range results {
-		r.inference.InferredRacks = append(r.inference.InferredRacks, res.racks...)
-	}
+	// If the enumeration was truncated or cut short by the deadline, the
+	// remaining leaves are imputed — so refine them with whatever budget is
+	// left. A complete enumeration leaves no candidates and this returns
+	// immediately.
+	r.refineRounds(ctx, r.MaxRounds())
 
 	log.Info().
 		Int("inferred-count", len(r.inference.InferredRacks)).
 		Uint64("sim-count", r.simCount.Load()).
+		Int("refined", r.refinedCount).
 		Msg("exhaustive-inference-done")
 
 	return nil

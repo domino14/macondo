@@ -65,7 +65,13 @@ type LogIteration struct {
 type Inference struct {
 	RackLength    int
 	InferredRacks []montecarlo.InferredRack
-	seen          map[string]int // leaveKey -> index in InferredRacks
+	// Complete is true when InferredRacks covers every feasible leave — a
+	// full posterior the simmer can sample from directly, with no random
+	// fallback. Tile-placement inference always produces a complete
+	// posterior (measured leaves use their evaluated likelihood, the rest
+	// are imputed from marginal lifts); exchange inference does not.
+	Complete bool
+	seen     map[string]int // leaveKey -> index in InferredRacks (exchange path)
 }
 
 func NewInference() *Inference {
@@ -231,6 +237,26 @@ type RangeFinder struct {
 	lastOppMoveRackTiles []tilemapping.MachineLetter
 	inference            *Inference
 
+	// Imputation state (tile-placement inference only): containment-marginal
+	// accumulator, the same samples partitioned into cross-fitting folds for
+	// calibration, per-distinct-leave measured likelihood means, and the
+	// diagnostics of the last imputation run.
+	acc       *subleaveAccumulator
+	foldAccs  []*subleaveAccumulator
+	measured  map[string]*measuredLeave
+	imputeRes *imputationResult
+
+	// Refinement state: how many rounds of posterior-guided measurement to
+	// run after round 0 (0 disables it), how many leaves they measured, and
+	// the per-round convergence statistics.
+	maxRounds     int
+	refinedCount  int
+	roundLog      []roundStats
+	stage0Elapsed time.Duration
+	// currentRound stamps newly measured leaves with the round that measured
+	// them. Written only by refineRounds, between batches.
+	currentRound int
+
 	logStream io.Writer
 }
 
@@ -241,6 +267,7 @@ func (r *RangeFinder) Init(game *game.Game, eqCalcs []equity.EquityCalculator,
 	r.equityCalculators = eqCalcs
 	r.threads = max(1, runtime.NumCPU())
 	r.cfg = cfg
+	r.maxRounds = DefaultMaxRefineRounds
 }
 
 func (r *RangeFinder) SetThreads(t int) {
@@ -260,6 +287,15 @@ func (r *RangeFinder) Tau() float64 {
 	}
 	return r.tau
 }
+
+// SetMaxRounds sets how many measure–impute–recalibrate rounds run after the
+// prior-sampled round 0. 0 disables refinement, leaving single-stage
+// inference. Init seeds it with DefaultMaxRefineRounds.
+func (r *RangeFinder) SetMaxRounds(n int) {
+	r.maxRounds = max(0, n)
+}
+
+func (r *RangeFinder) MaxRounds() int { return max(0, r.maxRounds) }
 
 func (r *RangeFinder) SetSimIters(n int) {
 	r.simIters = n
@@ -444,7 +480,80 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 	r.iterationCount = 0
 	r.simCount.Store(0)
 	r.exhaustiveTotal = 0
+	r.acc = nil
+	r.foldAccs = nil
+	r.measured = nil
+	r.imputeRes = nil
+	r.refinedCount = 0
+	r.roundLog = nil
+	r.stage0Elapsed = 0
 	return nil
+}
+
+// initImputationState (re)allocates the containment-marginal accumulator, the
+// per-fold accumulators used to cross-fit the calibration constant, and the
+// measured-leave map.
+func (r *RangeFinder) initImputationState() {
+	order := marginalOrder(r.inference.RackLength)
+	r.acc = newSubleaveAccumulator(len(r.inferenceBagMap), order)
+	r.foldAccs = make([]*subleaveAccumulator, calibrationFolds)
+	for i := range r.foldAccs {
+		r.foldAccs[i] = newSubleaveAccumulator(len(r.inferenceBagMap), order)
+	}
+	r.measured = map[string]*measuredLeave{}
+}
+
+// recordPlacementSample records one evaluated leave and its measured
+// likelihood into the imputation accumulator and the per-distinct-leave
+// means. u is the draw's importance weight P(L)/q(L); prior-sampled draws
+// pass 1. The caller must synchronize; leave is sorted in place.
+func (r *RangeFinder) recordPlacementSample(leave []tilemapping.MachineLetter, w, u float64) {
+	sort.Slice(leave, func(i, j int) bool { return leave[i] < leave[j] })
+	r.acc.record(leave, w, u)
+	b := make([]byte, len(leave))
+	for i, ml := range leave {
+		b[i] = byte(ml)
+	}
+	key := string(b)
+	if n := len(r.foldAccs); n > 0 {
+		// Keyed by leave, not by sample, so every draw of a leave lands in
+		// the same fold and the complement model has never seen it.
+		r.foldAccs[foldForKey(key, n)].record(leave, w, u)
+	}
+	ml := r.measured[key]
+	if ml == nil {
+		ml = &measuredLeave{round: r.currentRound}
+		r.measured[key] = ml
+	}
+	ml.sumW += w
+	ml.count++
+	ml.sumU += u
+}
+
+// finalizePlacementPosterior turns the recorded samples into a complete
+// posterior over every feasible leave: measured leaves keep their evaluated
+// mean likelihood, unmeasured ones get a likelihood imputed from marginal
+// lifts. No-op if nothing was recorded (Complete stays false and the simmer
+// falls back to random racks).
+func (r *RangeFinder) finalizePlacementPosterior() {
+	if r.acc == nil || r.acc.n == 0 {
+		return
+	}
+	res := imputeFullPosterior(r.inferenceBagMap, r.inference.RackLength, r.acc,
+		r.foldAccs, r.measured, r.threads)
+	r.imputeRes = res
+	if len(res.racks) == 0 {
+		return
+	}
+	r.inference.InferredRacks = res.racks
+	r.inference.Complete = true
+	log.Info().Int("measured-leaves", res.measuredLeaves).
+		Int("imputed-leaves", res.imputedLeaves).
+		Float64("measured-mass", res.measuredMass).
+		Int("marginal-order", res.marginalOrder).
+		Float64("log-calib", res.logCalib).
+		Float64("log-calib-in-sample", res.logCalibInSample).
+		Msg("imputed-complete-posterior")
 }
 
 func (r *RangeFinder) Infer(ctx context.Context) error {
@@ -479,12 +588,37 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 			Msg("leaf-space-too-large-using-sampling")
 	}
 
+	if !isExchange && r.inference.RackLength >= 1 {
+		// Monte Carlo sampling path for tile placements: every sampled leave
+		// (whatever its likelihood) feeds the marginal-lift accumulator so a
+		// complete posterior can be imputed after sampling ends.
+		r.initImputationState()
+	}
+
 	logChan := make(chan []byte)
 	syncExitChan := make(chan bool, r.threads)
 	logDone := make(chan bool)
 
 	ctrl := errgroup.Group{}
 	writer := errgroup.Group{}
+
+	// Round 0 is blind, prior-sampled exploration. When refinement rounds
+	// will follow, it only gets refineStage0Frac of the budget; the rest pays
+	// for posterior-guided measurement.
+	parentCtx := ctx
+	rounds := 0
+	if r.acc != nil {
+		rounds = r.MaxRounds()
+	}
+	if rounds > 0 {
+		if deadline, ok := parentCtx.Deadline(); ok {
+			stage0End := time.Now().Add(
+				time.Duration(float64(time.Until(deadline)) * refineStage0Frac))
+			var cancelStage0 context.CancelFunc
+			ctx, cancelStage0 = context.WithDeadline(parentCtx, stage0End)
+			defer cancelStage0()
+		}
+	}
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -542,11 +676,21 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 				}
 				if len(newRacks) > 0 {
 					iterMutex.Lock()
-					for _, ir := range newRacks {
-						key := leaveKey(ir.Leave)
-						if _, exists := r.inference.seen[key]; !exists {
-							r.inference.InferredRacks = append(r.inference.InferredRacks, ir)
-							r.inference.seen[key] = len(r.inference.InferredRacks) - 1
+					if r.acc != nil {
+						// Tile-placement path: Weight carries the measured
+						// likelihood; accumulate for imputation.
+						for _, ir := range newRacks {
+							// Round 0 draws from the prior, so u = 1.
+							r.recordPlacementSample(ir.Leave, ir.Weight, 1)
+						}
+					} else {
+						// Exchange path: keep distinct racks, first weight wins.
+						for _, ir := range newRacks {
+							key := leaveKey(ir.Leave)
+							if _, exists := r.inference.seen[key]; !exists {
+								r.inference.InferredRacks = append(r.inference.InferredRacks, ir)
+								r.inference.seen[key] = len(r.inference.InferredRacks) - 1
+							}
 						}
 					}
 					iterMutex.Unlock()
@@ -572,6 +716,16 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 
 	ctrlErr := ctrl.Wait()
 	log.Debug().Msgf("ctrl errgroup returned err %v", ctrlErr)
+
+	// Round 0 has ended (typically by deadline); build the complete posterior
+	// from what was measured. CPU-bound and fast, so it runs even though ctx
+	// is already done.
+	r.stage0Elapsed = time.Since(inferStart)
+	r.finalizePlacementPosterior()
+
+	// Then alternate measurement and imputation on the remaining budget,
+	// drawing leaves from the posterior the model just produced.
+	r.refineRounds(parentCtx, rounds)
 
 	if ctrlErr == context.Canceled || ctrlErr == context.DeadlineExceeded {
 		// Not actually an error
@@ -625,15 +779,12 @@ func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) ([]m
 		logIter.SimLogFile = logfilename
 	}
 
-	// SetRandomRack already samples racks from the hypergeometric (prior)
-	// distribution, so the IS weight is only the likelihood P(play | leave).
-	// Multiplying by the prior again would double-count it.
+	// The returned Weight is the measured likelihood P(play | leave); the
+	// prior enters later, when the full posterior is assembled (measured
+	// leaves get prior × mean measured likelihood). Zero-likelihood samples
+	// are returned too: they still count toward the containment-marginal
+	// denominators used for imputation.
 	likelihoodP, targetWinProb := softmaxLikelihood(bestPlays, lastOppMove, g.Board(), r.Tau())
-	bayesianWeight := likelihoodP
-
-	if bayesianWeight <= 0 {
-		return nil, nil
-	}
 
 	tiles := make([]tilemapping.MachineLetter, len(extraDrawn))
 	copy(tiles, extraDrawn)
@@ -649,7 +800,7 @@ func (r *RangeFinder) inferSingle(thread, iterNum int, logChan chan []byte) ([]m
 		logChan <- out
 	}
 
-	return []montecarlo.InferredRack{{Leave: tiles, Weight: bayesianWeight}}, nil
+	return []montecarlo.InferredRack{{Leave: tiles, Weight: likelihoodP}}, nil
 }
 
 func (r *RangeFinder) inferSingleExchange(thread, iterNum int, logChan chan []byte) ([]montecarlo.InferredRack, error) {

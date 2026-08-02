@@ -31,6 +31,39 @@ When the inferrer is done running, it prints out stats for the tiles.
 Inferences are saved in memory. You can sim using these inferences.
 See `help sim` or do `sim -useinferences weightedrandom`.
 
+Imputation (tile plays only):
+
+    Within the time budget the engine can directly evaluate only some of the
+    feasible leaves. For tile-play inference it fills in the rest by
+    imputation: for every tile, pair, and triple it tracks how much more (or
+    less) often leaves containing it produced the observed play ("lift"), and
+    combines those lifts — without double-counting overlapping evidence — into
+    an estimated likelihood for each never-evaluated leave. The result is a
+    complete posterior over every feasible leave. Directly evaluated leaves
+    are tagged "measured", the rest "imputed". Exchange inference still uses
+    plain Monte Carlo sampling. Sims automatically sample from the complete
+    posterior when one is available. See docs/leave_imputation.md for the math.
+
+Refinement rounds:
+
+    Inference alternates measuring and imputing. Round 0 draws racks at
+    random from the unseen pool — blind exploration, and the only part that
+    is not steered by the model. It gets 40% of the time budget. Each later
+    round then draws leaves from the *current* posterior, favouring high
+    weight but with a bonus for leaves whose lifts rest on thin evidence,
+    evaluates them with real mini-sims, and refits. So leaves the model
+    thinks are strong get formally checked instead of taken on faith, and
+    what is learned feeds the next round's targeting.
+
+    Each round reports log R̂: the log ratio of measured to imputed likelihood
+    mass over that round's leaves, all of which were unmeasured beforehand —
+    an out-of-sample verdict on the model. 0 means the model was right about
+    the mass it pointed at. The loop stops when that ratio's whole confidence
+    interval fits inside ±10%, when the unmeasured leaves hold under 2% of
+    the posterior, when every leave has been measured, or when the rounds or
+    the clock run out. See -rounds and
+    docs/development/iterative_inference_plan.md.
+
 Note: Sometimes the inference engine will display "No inference details". It
 is not broken; it was unable to find racks where the opponent's play ranked
 highly enough for it to be able to infer anything.
@@ -39,11 +72,51 @@ Optional arguments:
     `infer log` will log to a temporary file.
 
     `infer details` shows detailed inference output including:
-      - Top 15 inferred racks ranked by Bayesian weight
+      - Top 15 inferred racks ranked by Bayesian weight, each marked as
+        "measured ×N rR" (directly evaluated N times with mini-sims, first
+        drawn in round R) or "imputed" (likelihood estimated from marginal
+        lifts). r0 is the prior-sampled pass; r1 and up are refinement
+        rounds, so "measured ×1 r3" means the model pointed at that leave in
+        round 3 and it was then evaluated for real.
+      - Where the highest-weight *imputed* leave sits in the ranking, and how
+        much mass the imputed set holds. After refinement the visible table
+        is usually all measured, so this is the pointer to where the model is
+        still guessing. Omitted when the space was evaluated exhaustively.
       - Weight concentration and effective sample size (ESS)
       - Per-tile found vs expected percentages
 
     `infer output` re-displays the summary bins from the last inference.
+
+    `infer ranks [n] [measured|imputed]` browses the full posterior ranking,
+    not just the top 15. Ranks shown are positions in the whole posterior, so
+    a filtered view still says where its rows sit:
+
+        infer ranks 50            top 50 leaves
+        infer ranks imputed       top 15 never-evaluated leaves
+        infer ranks 30 imputed    top 30 never-evaluated leaves
+        infer ranks 20 measured   top 20 directly evaluated leaves
+
+    `infer ranks imputed` is the quick way to see what the model is still
+    extrapolating and how far down the ranking it starts.
+
+    `infer leave <LEAVE> [<LEAVE> ...]` looks up specific leaves in the
+    posterior, e.g. `infer leave ITZ` or `infer leave ITZ AEZ`. Each leave
+    is tagged [MEASURED ×n, rR] or [IMPUTED] and shows its weight, posterior
+    share and rank, the hypergeometric prior, and the posterior/prior lift,
+    followed by a calculation walkthrough: the per-subleave lift/φ table and
+    the exact chain from prior and likelihood to the final weight.
+
+    A measured leave also says how it was selected — drawn at random in round
+    0, or drawn from the imputed posterior in refine round R — and for the
+    latter, what the model predicted for it *before* it was measured. That
+    prediction is genuinely out of sample; the model has since been refit on
+    the measurement, so the comparison table below it is not. A large
+    measured/predicted ratio is the model having underestimated a strong
+    leave, which is exactly what refinement exists to catch.
+
+    For measured leaves the φ table is shown as a comparison, ending with the
+    measured/imputed likelihood ratio — a ratio far from 1 on a ×1 leave
+    suggests a noisy single evaluation.
 
 Understanding the output:
 
@@ -120,3 +193,12 @@ Options:
 
     Defaults to 5000. Set to 0 to use the default. Set to 1 to always use
     Monte Carlo sampling (useful for comparison).
+
+    -rounds 6
+
+    Maximum number of refinement rounds after round 0 (see "Refinement rounds"
+    above). The loop usually stops earlier — on convergence, mass coverage, or
+    the time budget — so this is a ceiling, not a target. Set to 0 for
+    single-stage inference: round 0 gets the whole budget and nothing is
+    re-measured, which is the useful comparison when judging whether
+    refinement helped. Defaults to 6.
