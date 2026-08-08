@@ -28,9 +28,13 @@ func kadPath(cfg *wglconfig.Config, lexiconName string) string {
 }
 
 // EnsureKAD makes sure the alpha dawg for lexname is on disk, downloading it
-// if necessary. Call it from interactive paths before Get.
+// if necessary. Call it before Get.
+//
+// It checks at most once per lexicon per process, because it is not only an
+// interactive path: NewBasicGameRules calls it for every WordSmog game it
+// builds, which for a bot is once per move.
 func EnsureKAD(lexname string, cfg *wglconfig.Config) error {
-	return lexicon.EnsureLexiconFile(lexname, Extension, cfg)
+	return lexicon.EnsureLexiconFileOnce(lexname, Extension, cfg)
 }
 
 // Get returns the alpha dawg for the named lexicon from the global object

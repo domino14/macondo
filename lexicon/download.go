@@ -25,23 +25,25 @@ const lexiconFileURLBase = "https://github.com/woogles-io/liwords/raw/refs/heads
 // rather than as a failure.
 var ErrNotPublished = errors.New("no such lexicon data file is published")
 
-// ensureFailed remembers downloads that have already been tried and failed, so
-// EnsureLexiconFileOnce can answer without going back to the network.
-var ensureFailed sync.Map
+// ensureTried remembers the answer EnsureLexiconFile gave for a file, keyed by
+// name+extension, so EnsureLexiconFileOnce can repeat it without touching the
+// disk or the network. A nil value means the file was there (or was fetched).
+var ensureTried sync.Map
 
-// EnsureLexiconFileOnce is EnsureLexiconFile, except that a download which has
-// already failed once in this process is not attempted again. Callers on a hot
-// path want this: a bot that needs a file which isn't published, or which can't
-// be written to disk, would otherwise make an HTTP request every single turn.
+// EnsureLexiconFileOnce is EnsureLexiconFile, except that it is attempted at
+// most once per file per process and every call after the first repeats the
+// first one's answer. Callers on a hot path want this: a bot that needs a file
+// which isn't published, or which can't be written to disk, would otherwise
+// make an HTTP request every single turn -- and one that needs a file which is
+// present would stat and log it every single turn.
 func EnsureLexiconFileOnce(lexname, ext string, cfg *wglconfig.Config) error {
 	key := lexname + ext
-	if err, tried := ensureFailed.Load(key); tried {
-		return err.(error)
+	if v, tried := ensureTried.Load(key); tried {
+		err, _ := v.(error) // v is nil, and so err is nil, on the success path
+		return err
 	}
 	err := EnsureLexiconFile(lexname, ext, cfg)
-	if err != nil {
-		ensureFailed.Store(key, err)
-	}
+	ensureTried.Store(key, err)
 	return err
 }
 
