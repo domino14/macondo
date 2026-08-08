@@ -513,9 +513,19 @@ func (s *Simmer) SetWMP(w *wmppkg.WMP) {
 	s.wmp = w
 }
 
+// WMP returns the WMP wired into this simmer, or nil if it is running on
+// the KWG algorithm. A caller that sims in a loop can read the answer back
+// once and re-apply it with SetWMP rather than asking TryLoadWMP again.
+func (s *Simmer) WMP() *wmppkg.WMP {
+	return s.wmp
+}
+
 // TryLoadWMP loads the WMP for lexiconName from the global object cache and
 // wires it into this simmer. If the WMP is unavailable for any reason the
 // simmer falls back to the KWG algorithm.
+//
+// This asks the word map cache, which takes a process-global lock and logs
+// the answer, so it belongs on a per-sim path and not a per-iteration one.
 func (s *Simmer) TryLoadWMP(cfg *wglconfig.Config, lexiconName string) {
 	if s.origGame.Board().Dim() != 15 {
 		log.Info().Int("boardDim", s.origGame.Board().Dim()).

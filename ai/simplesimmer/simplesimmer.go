@@ -14,6 +14,7 @@ import (
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/move"
 	"github.com/domino14/macondo/movegen"
+	wmppkg "github.com/domino14/macondo/wmp"
 )
 
 // A SimpleSimmer is a simple wrapper to allow a simple MonteCarlo simming player
@@ -25,6 +26,33 @@ type SimpleSimmer struct {
 	numPlies    int
 	maxIters    int
 	logging     bool
+
+	// The word map for this simmer's lexicon, resolved once. See resolveWMP.
+	wmp         *wmppkg.WMP
+	wmpResolved bool
+}
+
+// resolveWMP wires the word map into the simmer, asking the word map cache
+// for it only on the first sim.
+//
+// The rangefinder drives GenAndSim in a tight loop -- once per inference
+// iteration per thread, thousands of times per bot turn on both the sampling
+// and the exhaustive path -- and TryLoadWMP is not free at that rate. Every
+// call takes a process-global lock and logs a line, even once the word map
+// has been resident since the first one, so all the inference threads
+// serialize on a lookup whose answer cannot change: a SimpleSimmer is built
+// around one game, and so around one lexicon and one board.
+//
+// Call this after simmer.Init, which is where the simmer learns the board
+// dimension that TryLoadWMP checks.
+func (p *SimpleSimmer) resolveWMP() {
+	if !p.wmpResolved {
+		p.simmer.TryLoadWMP(p.Config().WGLConfig(), p.Game.LexiconName())
+		p.wmp = p.simmer.WMP()
+		p.wmpResolved = true
+		return
+	}
+	p.simmer.SetWMP(p.wmp)
 }
 
 func NewSimpleSimmerFromGame(g *game.Game) (*SimpleSimmer, error) {
@@ -82,7 +110,7 @@ func (p *SimpleSimmer) GenerateMoves(numPlays int) []*move.Move {
 func (p *SimpleSimmer) BestPlay(ctx context.Context) (*move.Move, error) {
 	moves := p.GenerateMoves(20)
 	p.simmer.Init(p.Game, p.simmerCalcs, p.simmerCalcs[0].(*equity.CombinedStaticCalculator), p.Config())
-	p.simmer.TryLoadWMP(p.Config().WGLConfig(), p.Game.LexiconName())
+	p.resolveWMP()
 	p.simmer.SetThreads(1)
 	// 2 plies for this simple simmer. can maybe configure later.
 	p.simmer.PrepareSim(p.numPlies, moves)
@@ -111,7 +139,7 @@ func (p *SimpleSimmer) GenAndSim(ctx context.Context, nMoves int, addedMove *mov
 		}
 	}
 	p.simmer.Init(p.Game, p.simmerCalcs, p.simmerCalcs[0].(*equity.CombinedStaticCalculator), p.Config())
-	p.simmer.TryLoadWMP(p.Config().WGLConfig(), p.Game.LexiconName())
+	p.resolveWMP()
 	p.simmer.SetThreads(1)
 	p.simmer.PrepareSim(p.numPlies, moves)
 	p.simmer.SetAutostopCheckInterval(64)
