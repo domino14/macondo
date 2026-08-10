@@ -22,14 +22,22 @@ import (
 	"github.com/domino14/macondo/turnplayer"
 )
 
-func confidenceInterval(wins, total int, confidenceZ float64) (float64, float64) {
+func wilsonScoreInterval(wins, total int, confidenceZ float64) (lower, upper float64) {
 	if total == 0 {
 		return 0, 0
 	}
-	p := float64(wins) / float64(total)
-	se := math.Sqrt(p * (1 - p) / float64(total))
-	margin := confidenceZ * se
-	return p, margin
+
+	n := float64(total)
+	p := float64(wins) / n
+	z2 := confidenceZ * confidenceZ
+	denom := 1 + z2/n
+	center := (p + z2/(2*n)) / denom
+	halfwidth := (confidenceZ / denom) * math.Sqrt(p*(1-p)/n+z2/(4*n*n))
+
+	lower = math.Max(0, center-halfwidth)
+	upper = math.Min(1, center+halfwidth)
+
+	return lower, upper
 }
 
 // PlayerStats holds per-player statistics accumulators.
@@ -155,7 +163,7 @@ func AnalyzeLogFileData(filepath string) (*AnalysisResult, error) {
 // FormatTable formats analysis results as a side-by-side comparison table.
 func FormatTable(r *AnalysisResult) string {
 	n := float64(r.GamesPlayed)
-	_, cimargin := confidenceInterval(int(r.P1Wins), r.GamesPlayed, stats.Z95)
+	ciLower, ciUpper := wilsonScoreInterval(int(r.P1Wins), r.GamesPlayed, stats.Z95)
 
 	p1name := r.Player1.Name
 	p2name := r.Player2.Name
@@ -168,11 +176,11 @@ func FormatTable(r *AnalysisResult) string {
 	p2wins := n - r.P1Wins
 
 	// Header line
-	s := fmt.Sprintf("Games: %d    %s wins: %.3f%% ± %.3f%%    p = %.2e\n",
+	s := fmt.Sprintf("Games: %d    %s wins: %.3f%%  [%.3f%%, %.3f%%]    p = %.2e\n",
 		r.GamesPlayed,
 		p1name,
 		100.0*r.P1Wins/n,
-		cimargin*100.0,
+		ciLower*100.0, ciUpper*100.0,
 		r.WinPValue,
 	)
 	s += "\n"
