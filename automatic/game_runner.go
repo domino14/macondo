@@ -39,6 +39,15 @@ type GameRunner struct {
 	gamechan           chan string
 	aiplayers          [2]aiturnplayer.AITurnPlayer
 	order              [2]int
+
+	// gamePairs makes each seeded game draw tiles from a fixed bag order, so
+	// that the same seed played twice with the seats swapped deals both bots
+	// the same tiles. See game/pairedbag.go.
+	gamePairs bool
+	// movesPlayed records the game in progress move by move so that the two
+	// games of a pair can be compared. Only filled in while pairing.
+	movesPlayed []*move.Move
+	recordMoves bool
 }
 
 // NewGameRunner just instantiates and initializes a game runner.
@@ -155,6 +164,9 @@ func (r *GameRunner) StartGameWithSeed(gidx int, seed [32]byte) {
 	}
 	// Seed before starting if seed is non-zero
 	var zeroSeed [32]byte
+	// Paired draws are only worth anything on top of a seed: the bag order and
+	// the exchange re-inserts both come out of the seeded RNG.
+	r.game.SetPairedBagMode(r.gamePairs && seed != zeroSeed)
 	if seed != zeroSeed {
 		r.game.SeedBag(seed)
 	}
@@ -199,11 +211,24 @@ func (r *GameRunner) genBestMoveForBot(playerIdx int) *move.Move {
 		return r.genBestStaticTurn(playerIdx)
 	}
 	maxTime := MaxTimePerTurn
-	if r.game.Bag().TilesRemaining() == 0 {
+	endgame := r.game.Bag().TilesRemaining() == 0
+	if endgame {
 		log.Debug().Msg("runner-bag-is-empty")
 		maxTime = MaxTimePerEndgame
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), maxTime)
+	var ctx context.Context
+	var cancel context.CancelFunc
+	if r.game.PairedBagMode() && !endgame {
+		// A wall-clock budget makes the bot's choice depend on how busy the
+		// machine happened to be, which is the sort of noise game pairs exist
+		// to get rid of. A sim stops on its own iteration cutoff, so dropping
+		// the deadline still leaves something to stop it. The endgame solver
+		// searches until it is interrupted, so it keeps its budget -- and stays
+		// the one part of a paired game that does not replay exactly.
+		ctx, cancel = context.WithCancel(context.Background())
+	} else {
+		ctx, cancel = context.WithTimeout(context.Background(), maxTime)
+	}
 	defer cancel()
 	m, err := r.aiplayers[playerIdx].BestPlay(ctx)
 	if err != nil {
@@ -217,6 +242,10 @@ func (r *GameRunner) PlayBestTurn(playerIdx int, addToHistory bool) error {
 	bestPlay := r.genBestMoveForBot(playerIdx)
 	log.Debug().Int("playerIdx", playerIdx).
 		Str("bestPlay", bestPlay.ShortDescription()).Msg("play-best-turn")
+
+	if r.recordMoves {
+		r.movesPlayed = append(r.movesPlayed, bestPlay)
+	}
 
 	// save rackLetters for logging.
 	rackLetters := r.game.RackLettersFor(playerIdx)

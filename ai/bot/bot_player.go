@@ -120,7 +120,7 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 	}
 
 	// If it is a simming bot, add more fields.
-	if hasSimming(botType) {
+	if HasSimming(botType) {
 		log.Info().Msg("adding fields for simmer")
 		leaveFile := "" // use default
 		if p.Rules().BoardName() == board.SuperCrosswordGameLayout {
@@ -256,7 +256,7 @@ func (p *BotTurnPlayer) AddLastMove(m *move.Move) {
 }
 
 func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
-	if hasSimming(p.botType) || HasEndgame(p.botType) || HasInfer(p.botType) || HasPreendgame(p.botType) {
+	if HasSimming(p.botType) || HasEndgame(p.botType) || HasInfer(p.botType) || HasPreendgame(p.botType) {
 		return eliteBestPlay(ctx, p)
 	}
 	if p.botType == pb.BotRequest_FAST_ML_BOT {
@@ -328,7 +328,7 @@ func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
 
 // Returns a string summary of details from a previous call to BestPlay.
 func (p *BotTurnPlayer) BestPlayDetails(ctx context.Context) string {
-	if hasSimming(p.botType) || HasEndgame(p.botType) || HasInfer(p.botType) || HasPreendgame(p.botType) {
+	if HasSimming(p.botType) || HasEndgame(p.botType) || HasInfer(p.botType) || HasPreendgame(p.botType) {
 		return p.lastCalculatedDetails
 	} else {
 		return "(No summary)"

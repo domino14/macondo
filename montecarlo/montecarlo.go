@@ -6,6 +6,8 @@ import (
 	"bufio"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,6 +29,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
 	"gopkg.in/yaml.v3"
+	"lukechampine.com/frand"
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/config"
@@ -329,6 +332,14 @@ type Simmer struct {
 	autostopper          *AutoStopper
 	stochasticStaticEval bool
 
+	// rngs holds one random source per thread. They are seeded from the game's
+	// seed when it has one, which makes a single-threaded sim reproducible.
+	// Crucially they are the sim's own sources and not the game's: borrowing
+	// the game's RNG would let the number of sim iterations shift the tile
+	// order of the real game, and a paired game would stop matching its partner
+	// the moment the two bots simmed for different lengths.
+	rngs []*frand.RNG
+
 	wmp *wmppkg.WMP
 }
 
@@ -566,12 +577,24 @@ func (s *Simmer) makeGameCopies() error {
 	log.Debug().Int("threads", s.threads).Msg("makeGameCopies")
 	s.gameCopies = []*game.Game{}
 	s.aiplayers = []aiturnplayer.AITurnPlayer{}
-	// Pre-shuffle bag so we can make identical copies of it with fixedOrder
+	s.rngs = s.makeRNGs()
+	// Pre-shuffle bag so we can make identical copies of it with fixedOrder.
+	// The live game's bag has to come out of this exactly as it went in: it is
+	// not ours to reorder, and a paired game keeps its tiles in a fixed order
+	// that a sim must not disturb.
+	origOrder := s.origGame.Bag().Peek()
+	defer func() { copy(s.origGame.Bag().Tiles(), origOrder) }()
 	s.origGame.Bag().Shuffle()
 
 	for i := 0; i < s.threads; i++ {
 		s.gameCopies = append(s.gameCopies, s.origGame.Copy())
 		s.gameCopies[i].Bag().SetFixedOrder(true)
+		if s.rngs != nil {
+			// Each copy reshuffles its own bag between iterations, so give each
+			// one its own source: shared sources would race, and the global one
+			// would not replay.
+			s.gameCopies[i].Bag().SetRNG(s.rngs[i])
+		}
 
 		player, err := aiturnplayer.NewAIStaticTurnPlayerFromGame(s.gameCopies[i], s.origGame.Config(), s.equityCalculators)
 		if err != nil {
@@ -587,6 +610,39 @@ func (s *Simmer) makeGameCopies() error {
 	}
 	return nil
 
+}
+
+// makeRNGs builds one random source per thread, derived from the game's seed
+// and the position being simmed. It returns nil for an unseeded game, which
+// leaves the sim on the global source as before.
+//
+// Mixing the turn number in matters: without it every sim in a game would
+// replay the same random stream. Mixing in the thread index keeps the threads
+// from sampling in lockstep.
+func (s *Simmer) makeRNGs() []*frand.RNG {
+	seed := s.origGame.Seed()
+	if seed == ([32]byte{}) {
+		return nil
+	}
+	rngs := make([]*frand.RNG, s.threads)
+	for i := range rngs {
+		var buf [48]byte
+		copy(buf[:32], seed[:])
+		binary.BigEndian.PutUint64(buf[32:40], uint64(s.origGame.Turn()))
+		binary.BigEndian.PutUint64(buf[40:48], uint64(i))
+		derived := sha256.Sum256(buf[:])
+		rngs[i] = frand.NewCustom(derived[:], 0, 0)
+	}
+	return rngs
+}
+
+// float64For returns a random float in [0, 1) from the given thread's source,
+// or from the global one when the game was never seeded.
+func (s *Simmer) float64For(thread int) float64 {
+	if thread < len(s.rngs) {
+		return s.rngs[thread].Float64()
+	}
+	return rand.Float64()
 }
 
 func (s *Simmer) resetStats(plies int, plays []*move.Move) {
@@ -843,7 +899,7 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 		// uncovered leave space to fall back to random draws for.
 		rackToSet = nil
 		if len(s.inferenceCDF) > 0 {
-			rackToSet, err = s.weightedInferredDrawRacks()
+			rackToSet, err = s.weightedInferredDrawRacks(thread)
 			if err != nil {
 				return err
 			}
@@ -862,13 +918,13 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 		numInferences := len(s.inferences)
 		alpha := maxAlpha / (1 + math.Exp(-(float64(numInferences)-midpoint)/sigmoidScale))
 
-		if rand.Float64() >= alpha {
+		if s.float64For(thread) >= alpha {
 			rackToSet = nil
 		} else {
 			if s.inferenceMode == InferenceWeightedRandomTiles {
-				rackToSet, err = s.weightedInferredDrawTiles()
+				rackToSet, err = s.weightedInferredDrawTiles(thread)
 			} else if s.inferenceMode == InferenceWeightedRandomRacks {
-				rackToSet, err = s.weightedInferredDrawRacks()
+				rackToSet, err = s.weightedInferredDrawRacks(thread)
 			}
 			if err != nil {
 				return err
@@ -1238,7 +1294,11 @@ func bagCount(bag []tilemapping.MachineLetter) map[tilemapping.MachineLetter]int
 	return counts
 }
 
-func (s *Simmer) weightedInferredDrawTiles() ([]tilemapping.MachineLetter, error) {
+// weightedInferredDrawTiles samples tiles for the deprecated
+// InferenceWeightedRandomTiles mode. Note that it walks a Go map to build the
+// candidate list, so it does not replay exactly even on a seeded game; the
+// InferenceWeightedRandomRacks mode does.
+func (s *Simmer) weightedInferredDrawTiles(thread int) ([]tilemapping.MachineLetter, error) {
 	chosen := make([]tilemapping.MachineLetter, 0, s.tilesToInfer)
 
 	unseenMap := map[tilemapping.MachineLetter]int{}
@@ -1265,7 +1325,7 @@ func (s *Simmer) weightedInferredDrawTiles() ([]tilemapping.MachineLetter, error
 			break // no more tiles can be drawn
 		}
 		// Randomly pick 1 tile from this distribution
-		picked, err := weightedChoice(tiles, weights)
+		picked, err := weightedChoice(tiles, weights, s.float64For(thread))
 		if err != nil {
 			return chosen, err
 		}
@@ -1280,7 +1340,7 @@ func (s *Simmer) weightedInferredDrawTiles() ([]tilemapping.MachineLetter, error
 }
 
 // weightedChoice selects one element from tiles based on the provided weights
-func weightedChoice(tiles []tilemapping.MachineLetter, weights []float64) (tilemapping.MachineLetter, error) {
+func weightedChoice(tiles []tilemapping.MachineLetter, weights []float64, roll float64) (tilemapping.MachineLetter, error) {
 	if len(tiles) != len(weights) || len(tiles) == 0 {
 		return 0, errors.New("tiles and weights must be of same non-zero length")
 	}
@@ -1293,7 +1353,7 @@ func weightedChoice(tiles []tilemapping.MachineLetter, weights []float64) (tilem
 	}
 
 	// Generate a random number between 0 and total weight
-	r := rand.Float64() * cumulative[len(cumulative)-1]
+	r := roll * cumulative[len(cumulative)-1]
 
 	// Find the first cumulative weight that is greater than r
 	for i, cw := range cumulative {
@@ -1305,12 +1365,12 @@ func weightedChoice(tiles []tilemapping.MachineLetter, weights []float64) (tilem
 	return 0, errors.New("weighted choice failed to select a tile")
 }
 
-func (s *Simmer) weightedInferredDrawRacks() ([]tilemapping.MachineLetter, error) {
+func (s *Simmer) weightedInferredDrawRacks(thread int) ([]tilemapping.MachineLetter, error) {
 	cdf := s.inferenceCDF
 	if len(cdf) == 0 {
 		return nil, errors.New("no inferences available")
 	}
-	r := rand.Float64() * cdf[len(cdf)-1]
+	r := s.float64For(thread) * cdf[len(cdf)-1]
 	// First index whose cumulative weight strictly exceeds r; strict
 	// comparison so zero-weight entries can never be selected.
 	i := sort.Search(len(cdf), func(j int) bool { return cdf[j] > r })

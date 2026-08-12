@@ -51,6 +51,13 @@ type Game struct {
 	letterDistribution *tilemapping.LetterDistribution
 	bag                *tilemapping.Bag
 	customRNG          *frand.RNG // for deterministic bag draws
+	seed               [32]byte   // the seed behind customRNG, if there is one
+	// pairedBag draws tiles from both ends of a fixed-order bag so that the
+	// same seed produces the same game twice. See pairedbag.go.
+	pairedBag bool
+	// startingPlayerIdx is the seat that moved first, which is the seat that
+	// owns the back of the bag in paired-bag mode.
+	startingPlayerIdx int
 
 	playing pb.PlayState
 
@@ -338,11 +345,17 @@ func (g *Game) StartGame() {
 		// Normal path: MakeBag creates and shuffles with global RNG
 		g.bag = g.letterDistribution.MakeBag()
 	}
+	// StartGame always hands the first turn to seat 0, so that is the seat that
+	// draws from the back of the bag for the rest of a paired game.
+	g.startingPlayerIdx = 0
+	if g.pairedBag {
+		g.bag.SetFixedOrder(true)
+	}
 	g.history = newHistory(g.players)
 	// Deal out tiles
 	for i := 0; i < g.NumPlayers(); i++ {
 
-		err := g.bag.Draw(7, g.players[i].placeholderRack)
+		err := g.drawFor(i, 7, g.players[i].placeholderRack)
 		if err != nil {
 			panic(err)
 		}
@@ -371,6 +384,15 @@ func (g *Game) StartGame() {
 func (g *Game) SeedBag(seed [32]byte) {
 	// Create a seeded RNG and store it
 	g.customRNG = frand.NewCustom(seed[:], 0, 0)
+	g.seed = seed
+}
+
+// Seed returns the seed this game's bag was seeded with, or the zero value if
+// SeedBag was never called. Callers that need their own deterministic
+// randomness (a simulation, say) should derive it from this rather than borrow
+// the game's RNG, whose stream has to stay tied to the tile draws alone.
+func (g *Game) Seed() [32]byte {
+	return g.seed
 }
 
 // SetUidFromSeed sets the game UID based on the seed for deterministic identification.
@@ -583,7 +605,7 @@ func (g *Game) playMove(m *move.Move, addToHistory bool, millis int, updateCross
 		if m.TilesPlayed() == RackTileLimit {
 			g.players[g.onturn].bingos++
 		}
-		drew := g.bag.DrawAtMost(m.TilesPlayed(), g.players[g.onturn].placeholderRack)
+		drew := g.drawAtMostFor(g.onturn, m.TilesPlayed(), g.players[g.onturn].placeholderRack)
 		copy(g.players[g.onturn].placeholderRack[drew:], []tilemapping.MachineLetter(m.Leave()))
 		g.players[g.onturn].setRackTiles(g.players[g.onturn].placeholderRack[:drew+len(m.Leave())], g.alph)
 
@@ -645,7 +667,7 @@ func (g *Game) playMove(m *move.Move, addToHistory bool, millis int, updateCross
 		}
 
 	case move.MoveTypeExchange:
-		err := g.bag.Exchange([]tilemapping.MachineLetter(m.Tiles()), g.players[g.onturn].placeholderRack)
+		err := g.exchangeFor(g.onturn, []tilemapping.MachineLetter(m.Tiles()), g.players[g.onturn].placeholderRack)
 		if err != nil {
 			return err
 		}
@@ -782,7 +804,7 @@ func (g *Game) PlaySmallMoveWithDraw(m *tinymove.SmallMove) (
 
 		// Draw replacement tiles from the bag directly into the rack.
 		// placeholderRack is a pre-allocated scratch buffer; Add is zero-alloc.
-		drew := g.bag.DrawAtMost(int(m.TilesPlayed()), g.players[g.onturn].placeholderRack)
+		drew := g.drawAtMostFor(g.onturn, int(m.TilesPlayed()), g.players[g.onturn].placeholderRack)
 		for i := 0; i < drew; i++ {
 			g.players[g.onturn].rack.Add(g.players[g.onturn].placeholderRack[i])
 		}

@@ -290,6 +290,9 @@ func init() {
 			{Name: "genseeds", Type: OptBool, Values: boolValues},
 			{Name: "deterministic", Type: OptBool, Values: boolValues},
 			{Name: "seedfile", Type: OptString},
+			{Name: "gamepairs", Type: OptBool, Values: boolValues,
+				Help: "play each seed twice with the bots swapping seats; numgames counts pairs"},
+			{Name: "seed", Type: OptInt, Help: "master seed for the run; replays the same games"},
 		},
 	})
 

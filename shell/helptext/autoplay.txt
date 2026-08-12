@@ -63,6 +63,14 @@ Config fields:
     seedFile           Path to a seed file for deterministic/reproducible games.
     generateSeeds      If true, generate seeds and save to seedFile, then exit.
     deterministic      If true, load seeds from seedFile and use them for games.
+    seed               Master seed for the run. Every game derives its own seed
+                       from this, so the same value replays the same experiment.
+                       If the run needs seeds and none is given, one is
+                       generated and logged so you can replay it later.
+    gamePairs          If true, play every game twice: same seed, same tile
+                       order, with the two bots swapping who moves first.
+                       numGames then counts pairs, so the run plays 2*numGames
+                       games. See "Game pairs" below.
 
 Per-player fields (player1 / player2):
 
@@ -103,6 +111,8 @@ Available override flags:
     -seedfile PATH        Override the seed file path
     -genseeds             Generate seeds and save to seedFile, then exit
     -deterministic        Load seeds from seedFile for deterministic games
+    -seed N               Master seed for the run
+    -gamepairs            Play each game twice with the bots swapping seats
     -botcode1 CODE        Override player1 bot code
     -botcode2 CODE        Override player2 bot code
     -minsimplies1 N       Override player1 minimum sim plies
@@ -124,6 +134,40 @@ Deterministic workflow example:
     # Run on feature branch with same seeds
     autoplay base.json -numgames 1000 -deterministic -seedfile /tmp/seeds.txt \
         -experimentid feature-run1
+
+Game pairs:
+
+Comparing two bots by playing them a few thousand times mostly measures who
+drew better tiles. Game pairs take that out of the comparison. Each pair plays
+one seed twice: the bag is shuffled once from the seed and then left in that
+fixed order, and the second game repeats it with the bots swapping who moves
+first. Whatever tiles bot 1 saw in the first game, bot 2 sees in the second.
+
+The two seats draw from opposite ends of the bag -- whoever moves first takes
+tiles off the back, their opponent off the front. That is what keeps the two
+games lined up. If both drew from the same end, a player's tiles would depend
+on how many tiles the *other* player had already drawn, so the first time one
+bot played a different number of tiles than the other, every later draw for
+both players would shift and the two games would be back to comparing
+unrelated luck. Separate ends make each seat's tile stream depend only on that
+seat's own draws.
+
+Exchanges put the tiles back at a random spot in the bag and move one tile out
+of the way, so the fixed order survives them nearly intact.
+
+    autoplay -botcode1 HASTY_BOT -botcode2 NO_LEAVE_BOT \
+        -numgames 1000 -gamepairs -seed 42 -threads 8 -block
+
+That plays 2000 games. The per-game log gains two columns: "pair", the index
+of the pair a game belongs to, and "divergent", whether the two halves of that
+pair ever chose different moves. Pairs that never diverge are exact ties and
+tell you nothing; the divergent fraction is where the difference lives.
+
+Reproducibility has limits. HASTY_BOT and the other static bots are fully
+deterministic, so paired runs of those replay exactly. A simming bot only
+replays if its sim does, which means simThreads must be 1 -- autoplay refuses
+to start a game-pair run with a simming bot on more than one sim thread. Game
+threads can still be as high as you like; each one plays whole pairs.
 
 Note: If using a simming or inference bot, set threads to 1 and let
 simThreads use all CPUs, or balance as needed (e.g. threads=32, simThreads=6
