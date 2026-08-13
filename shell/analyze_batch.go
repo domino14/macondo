@@ -14,11 +14,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog/log"
 	"google.golang.org/protobuf/encoding/protojson"
 
+	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gameanalysis"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
+	"github.com/domino14/macondo/turnplayer"
+	wmppkg "github.com/domino14/macondo/wmp"
 )
 
 // GameSource represents a source for loading a game
@@ -55,37 +59,73 @@ func parseGameSource(source string) (*GameSource, error) {
 			Original:   source,
 		}, nil
 	} else {
-		// A path, either a single game or a folder of them. A path that can't
+		// A path, either a single game or a folder of them. Stat follows
+		// symlinks, so a link to a folder is a folder here. A path that can't
 		// be stat'ed is left as a file so the loader reports what went wrong.
-		if info, err := os.Stat(source); err == nil && info.IsDir() {
+		path := expandHomePath(source)
+		if info, err := os.Stat(path); err == nil && info.IsDir() {
 			return &GameSource{
 				Type:       "dir",
-				Identifier: source,
-				Original:   source,
+				Identifier: path,
+				Original:   path,
 			}, nil
 		}
 		return &GameSource{
 			Type:       "file",
-			Identifier: source,
-			Original:   source,
+			Identifier: path,
+			Original:   path,
 		}, nil
 	}
 }
 
-// gcgFilesInDir returns every .gcg file at or below dir, in the order WalkDir
-// visits them, which is lexical within each directory.
+// gcgFilesInDir returns every .gcg file at or below dir, lexically within each
+// directory. Unlike filepath.WalkDir it follows symlinks, since a folder of
+// games is as likely to be a link as a real directory and silently finding
+// nothing there is worse than the cost of resolving them; already-visited
+// directories are remembered so a link back up the tree cannot loop forever.
 func gcgFilesInDir(dir string) ([]string, error) {
 	var paths []string
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+	seen := map[string]bool{}
+
+	var walk func(dir string) error
+	walk = func(dir string) error {
+		// Loop protection keys on the resolved path, so the same directory
+		// reached by two different links is only walked once.
+		resolved, err := filepath.EvalSymlinks(dir)
 		if err != nil {
 			return err
 		}
-		if !d.IsDir() && strings.EqualFold(filepath.Ext(path), ".gcg") {
-			paths = append(paths, path)
+		if seen[resolved] {
+			return nil
+		}
+		seen[resolved] = true
+
+		entries, err := os.ReadDir(dir) // sorted by filename
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			path := filepath.Join(dir, e.Name())
+			isDir := e.IsDir()
+			if e.Type()&fs.ModeSymlink != 0 {
+				info, err := os.Stat(path) // follows the link
+				if err != nil {
+					continue // dangling link; nothing to analyze
+				}
+				isDir = info.IsDir()
+			}
+			if isDir {
+				if err := walk(path); err != nil {
+					return err
+				}
+			} else if strings.EqualFold(filepath.Ext(path), ".gcg") {
+				paths = append(paths, path)
+			}
 		}
 		return nil
-	})
-	if err != nil {
+	}
+
+	if err := walk(dir); err != nil {
 		return nil, err
 	}
 	return paths, nil
@@ -144,6 +184,41 @@ func (sc *ShellController) fetchWooglesCollection(collectionID string) ([]string
 	}
 
 	return gameIDs, nil
+}
+
+// reuseUndecided is the reason reusableAnalysis gives when it cannot decide
+// without the game's player list.
+const reuseUndecided = "undecided"
+
+// reusableAnalysis returns the stored analysis if it can stand in for
+// re-analyzing the game, or nil and the reason it cannot. players may be nil
+// when the game history has not been loaded yet; a reuseUndecided reason means
+// the caller should load it and ask again.
+//
+// The stored row is not proof on its own: it may predate the fields this
+// version reports, or have been produced under a -player filter that answers
+// a narrower question than the one being asked now.
+func reusableAnalysis(stored *gameanalysis.StoredAnalysis, cfg *gameanalysis.AnalysisConfig,
+	players []*pb.PlayerInfo) (*gameanalysis.GameAnalysisResult, string) {
+
+	if stored.AnalysisVersion < gameanalysis.CurrentAnalysisVersion {
+		return nil, fmt.Sprintf("stored analysis is version %d, current is %d",
+			stored.AnalysisVersion, gameanalysis.CurrentAnalysisVersion)
+	}
+	resultProto := &pb.GameAnalysisResult{}
+	if err := protojson.Unmarshal(stored.ResultJSON, resultProto); err != nil {
+		return nil, fmt.Sprintf("stored analysis could not be read: %v", err)
+	}
+	result := gameanalysis.GameAnalysisResultFromProto(resultProto)
+
+	switch result.Covers(cfg, players) {
+	case gameanalysis.CoverageComplete:
+		return result, ""
+	case gameanalysis.CoverageUnknown:
+		return nil, reuseUndecided
+	default:
+		return nil, "stored analysis does not cover the requested player"
+	}
 }
 
 // loadGameHistoryFromSource loads a game history from a GameSource
@@ -279,6 +354,31 @@ func (sc *ShellController) analyzeBatch(cmd *shellcmd) (*Response, error) {
 	}
 	var exportEntries []batchExportEntry
 
+	// Without -continue the first failure stops the batch, but whatever was
+	// analyzed before it is still worth reporting, so the run unwinds through
+	// abortErr rather than returning from inside the loop.
+	var abortErr error
+
+	// Nothing in the batch path goes through `load`, so no lexicon has been
+	// fetched for these games. Do it once per distinct lexicon, remembering
+	// failures so a folder of games in an unavailable lexicon does not retry
+	// the download once per file.
+	ensuredLexica := map[string]error{}
+	ensureLexicon := func(lexicon string) error {
+		if err, done := ensuredLexica[lexicon]; done {
+			return err
+		}
+		err := turnplayer.EnsureKWG(lexicon, sc.config.WGLConfig())
+		if err != nil {
+			err = fmt.Errorf("could not ensure lexicon %s: %w", lexicon, err)
+		} else if _, wmpErr := wmppkg.EnsureWMP(sc.config.WGLConfig(), lexicon); wmpErr != nil {
+			log.Info().Err(wmpErr).Str("lexicon", lexicon).
+				Msg("WMP not available for this lexicon; sim will use the KWG algorithm")
+		}
+		ensuredLexica[lexicon] = err
+		return err
+	}
+
 	for i, source := range sources {
 		sc.showMessage(fmt.Sprintf("Analyzing game %d/%d: %s", i+1, len(sources), source.Original))
 
@@ -286,19 +386,36 @@ func (sc *ShellController) analyzeBatch(cmd *shellcmd) (*Response, error) {
 			GameID: source.Original,
 		}
 
-		// Check if already in DB (skip unless -force)
-		if store != nil && store.Exists(source.Original) && !force {
-			sc.showMessage(fmt.Sprintf("  Skipping '%s' (already analyzed). Use -force to overwrite.", source.Original))
-			// Load from DB so batch stats still include it
-			stored, err := store.Get(source.Original)
-			if err == nil {
-				resultProto := &pb.GameAnalysisResult{}
-				if err := protojson.Unmarshal(stored.ResultJSON, resultProto); err == nil {
-					gameResult.GameInfo = stored.PlayerInfo
-					gameResult.Result = gameanalysis.GameAnalysisResultFromProto(resultProto)
-				}
+		// A stored analysis stands in for re-running the game, but only if it
+		// answers what this run asks. Coverage can depend on the game's player
+		// list, which is not known until the history is loaded, so the check
+		// runs again below for the games that need it.
+		var stored *gameanalysis.StoredAnalysis
+		if store != nil && !force {
+			if s, err := store.Get(source.Original); err == nil {
+				stored = s
 			}
+		}
+		reuse := func(players []*pb.PlayerInfo) bool {
+			if stored == nil {
+				return false
+			}
+			result, reason := reusableAnalysis(stored, cfg, players)
+			if reason == reuseUndecided {
+				return false // decide after the history is loaded
+			}
+			if result == nil {
+				sc.showMessage(fmt.Sprintf("  Re-analyzing '%s': %s", source.Original, reason))
+				stored = nil
+				return false
+			}
+			sc.showMessage(fmt.Sprintf("  Skipping '%s' (already analyzed). Use -force to overwrite.", source.Original))
+			gameResult.GameInfo = stored.PlayerInfo
+			gameResult.Result = result
 			batchResult.AddGameResult(gameResult)
+			return true
+		}
+		if reuse(nil) {
 			continue
 		}
 
@@ -309,7 +426,8 @@ func (sc *ShellController) analyzeBatch(cmd *shellcmd) (*Response, error) {
 			batchResult.AddGameResult(gameResult)
 
 			if !continueOnError {
-				return nil, fmt.Errorf("failed to load game %s: %w", source.Original, err)
+				abortErr = fmt.Errorf("failed to load game %s: %w", source.Original, err)
+				break
 			}
 			sc.showMessage(fmt.Sprintf("  Error loading: %v", err))
 			continue
@@ -322,13 +440,27 @@ func (sc *ShellController) analyzeBatch(cmd *shellcmd) (*Response, error) {
 				history.Players[1].Nickname)
 		}
 
-		// Validate racks before analysis to catch corrupt games early.
-		boardLayout, ldName, variant := game.HistoryToVariant(history)
-		rules, err := game.NewBasicGameRules(sc.config, history.Lexicon, boardLayout, ldName,
-			game.CrossScoreAndSet, variant)
+		// The players are known now, so a reuse decision that depended on
+		// them can be made.
+		if reuse(history.Players) {
+			continue
+		}
+
+		// Make sure the lexicon these games were played in is on disk, the
+		// way `load` does, then validate racks to catch corrupt games early.
+		if history.Lexicon == "" {
+			history.Lexicon = sc.config.GetString(config.ConfigDefaultLexicon)
+		}
+		err = ensureLexicon(history.Lexicon)
 		if err == nil {
-			if vErr := validateGameHistory(history, rules.LetterDistribution().TileMapping()); vErr != nil {
-				err = fmt.Errorf("game history is corrupt: %w", vErr)
+			boardLayout, ldName, variant := game.HistoryToVariant(history)
+			var rules *game.GameRules
+			rules, err = game.NewBasicGameRules(sc.config, history.Lexicon, boardLayout, ldName,
+				game.CrossScoreAndSet, variant)
+			if err == nil {
+				if vErr := validateGameHistory(history, rules.LetterDistribution().TileMapping()); vErr != nil {
+					err = fmt.Errorf("game history is corrupt: %w", vErr)
+				}
 			}
 		}
 		if err != nil {
@@ -336,7 +468,8 @@ func (sc *ShellController) analyzeBatch(cmd *shellcmd) (*Response, error) {
 			batchResult.AddGameResult(gameResult)
 
 			if !continueOnError {
-				return nil, fmt.Errorf("failed to validate game %s: %w", source.Original, err)
+				abortErr = fmt.Errorf("failed to validate game %s: %w", source.Original, err)
+				break
 			}
 			sc.showMessage(fmt.Sprintf("  Error validating: %v", err))
 			continue
@@ -349,7 +482,9 @@ func (sc *ShellController) analyzeBatch(cmd *shellcmd) (*Response, error) {
 			batchResult.AddGameResult(gameResult)
 
 			if !continueOnError {
-				return nil, fmt.Errorf("failed to analyze game %s: %w", source.Original, err)
+				abortErr = fmt.Errorf("failed to analyze game %s: %w (use -continue to skip bad games)",
+					source.Original, err)
+				break
 			}
 			sc.showMessage(fmt.Sprintf("  Error analyzing: %v", err))
 			continue
@@ -399,6 +534,12 @@ func (sc *ShellController) analyzeBatch(cmd *shellcmd) (*Response, error) {
 
 	// Format output
 	output := sc.formatBatchResults(batchResult, summaryOnly)
+	if abortErr != nil {
+		// The shell prints either the response or the error, so show the
+		// results of the games that did finish before reporting the failure.
+		sc.showMessage(output)
+		return nil, abortErr
+	}
 	return msg(output), nil
 }
 
@@ -441,6 +582,7 @@ func (sc *ShellController) formatBatchResults(batch *gameanalysis.BatchAnalysisR
 	sb.WriteString(fmt.Sprintf("Failed: %d\n\n", batch.FailedGames))
 
 	// Per-game results
+	rowsWritten := 0
 	if len(batch.Games) > 0 {
 		sb.WriteString("Per-Game Results:\n")
 		sb.WriteString(fmt.Sprintf("%-25s  %-15s  %-6s  %-6s  %-6s  %-6s  %-6s\n",
@@ -488,8 +630,12 @@ func (sc *ShellController) formatBatchResults(batch *gameanalysis.BatchAnalysisR
 						smallCount,
 						mediumCount,
 						largeCount))
+					rowsWritten++
 				}
 			}
+		}
+		if rowsWritten == 0 {
+			sb.WriteString("(no turns were analyzed in any game)\n")
 		}
 		sb.WriteString("\n")
 	}

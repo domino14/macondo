@@ -1122,18 +1122,28 @@ func (sc *ShellController) loadGameHistoryFromWeb(url string) (*pb.GameHistory, 
 	return gcgio.ParseGCGFromReader(sc.config, resp.Body)
 }
 
+// expandHomePath expands a leading "~" or "~/" to the user's home directory.
+// The shell has no OS shell in front of it, so a tilde arrives verbatim and
+// every path the user types has to go through here. A path that cannot be
+// expanded comes back unchanged, so callers report what the user actually
+// typed.
+func expandHomePath(path string) string {
+	if path != "~" && !strings.HasPrefix(path, "~/") {
+		return path
+	}
+	usr, err := user.Current()
+	if err != nil || usr.HomeDir == "" {
+		return path
+	}
+	if path == "~" {
+		return usr.HomeDir
+	}
+	return filepath.Join(usr.HomeDir, path[2:])
+}
+
 // loadGameHistoryFromFile loads a game from a local GCG file
 func (sc *ShellController) loadGameHistoryFromFile(path string) (*pb.GameHistory, error) {
-	if strings.HasPrefix(path, "~/") {
-		usr, err := user.Current()
-		if err != nil {
-			return nil, err
-		}
-		dir := usr.HomeDir
-		path = filepath.Join(dir, path[2:])
-	}
-
-	return gcgio.ParseGCG(sc.config, path)
+	return gcgio.ParseGCG(sc.config, expandHomePath(path))
 }
 
 // lexiconFromCGP extracts the lexicon name from the ops field of a CGP string
@@ -1735,6 +1745,22 @@ func extractFields(line string) (*shellcmd, error) {
 	options := CmdOptions{}
 	// handle options
 
+	// A declared boolean flag does not take a value unless one is written out,
+	// so `analyze-batch -continue /path/to/games` reads the path as an
+	// argument rather than swallowing it as the flag's value.
+	spec := commandSpecs[cmd]
+	takesFollowingValue := func(name, next string) bool {
+		if spec == nil {
+			return true
+		}
+		opt := spec.lookupOption(name)
+		if opt == nil || opt.Type != OptBool {
+			return true
+		}
+		next = strings.ToLower(next)
+		return next == "true" || next == "false"
+	}
+
 	lastWasOption := false
 	lastOption := ""
 	for idx := 1; idx < len(fields); idx++ {
@@ -1752,7 +1778,12 @@ func extractFields(line string) (*shellcmd, error) {
 		}
 		if lastWasOption {
 			lastWasOption = false
-			options[lastOption] = append(options[lastOption], fields[idx])
+			if takesFollowingValue(lastOption, fields[idx]) {
+				options[lastOption] = append(options[lastOption], fields[idx])
+			} else {
+				options[lastOption] = append(options[lastOption], "true")
+				args = append(args, fields[idx])
+			}
 		} else {
 			args = append(args, fields[idx])
 		}

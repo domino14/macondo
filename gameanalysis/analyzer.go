@@ -250,6 +250,22 @@ func (a *Analyzer) AnalyzeGame(ctx context.Context, history *pb.GameHistory) (*G
 	if history == nil {
 		return nil, errors.New("game history is nil")
 	}
+	if len(history.Players) < 2 {
+		return nil, fmt.Errorf("game has %d players, expected 2", len(history.Players))
+	}
+
+	// Resolve the -player name filter before doing any work. A filter that
+	// matches neither player is an error, not an empty analysis: silently
+	// reporting zero turns for every game looks exactly like a working run
+	// that found nothing.
+	nameFilterIdx := -1
+	if a.analysisCfg.OnlyPlayerByName != "" {
+		nameFilterIdx = playerIndexByName(history.Players, a.analysisCfg.OnlyPlayerByName)
+		if nameFilterIdx == -1 {
+			return nil, fmt.Errorf("no player named %q in this game (players: %s)",
+				a.analysisCfg.OnlyPlayerByName, describePlayers(history.Players))
+		}
+	}
 
 	result := &GameAnalysisResult{
 		Turns:           make([]*TurnAnalysis, 0),
@@ -294,8 +310,8 @@ func (a *Analyzer) AnalyzeGame(ctx context.Context, history *pb.GameHistory) (*G
 	// Determine which player to analyze
 	shouldAnalyzePlayer := func(playerIndex int) bool {
 		// Check name filter first
-		if a.analysisCfg.OnlyPlayerByName != "" {
-			return history.Players[playerIndex].Nickname == a.analysisCfg.OnlyPlayerByName
+		if nameFilterIdx != -1 {
+			return playerIndex == nameFilterIdx
 		}
 		// Then check player index filter
 		if a.analysisCfg.OnlyPlayer == -1 {
@@ -357,6 +373,113 @@ func (a *Analyzer) AnalyzeGame(ctx context.Context, history *pb.GameHistory) (*G
 	a.calculatePlayerSummaries(result)
 
 	return result, nil
+}
+
+// playerIndexByName finds the player a -player name filter refers to, or -1.
+// A GCG nickname is a single whitespace-free token (`#player1 nick Real Name`),
+// so a filter like "Eric Smith" can only ever be a real name; both fields are
+// matched, case-insensitively, so the user does not have to know which form
+// the file used.
+func playerIndexByName(players []*pb.PlayerInfo, name string) int {
+	name = strings.TrimSpace(name)
+	for i, p := range players {
+		if p == nil {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(p.Nickname), name) ||
+			strings.EqualFold(strings.TrimSpace(p.RealName), name) {
+			return i
+		}
+	}
+	return -1
+}
+
+// Coverage says whether an already-computed analysis answers what an
+// AnalysisConfig asks for. An analysis restricted to one player does not
+// answer a question about both, and reusing it would quietly report half a
+// game as the whole of it.
+type Coverage int
+
+const (
+	// CoverageComplete: the analysis covers every player the config asks for.
+	CoverageComplete Coverage = iota
+	// CoveragePartial: some requested player has no analyzed turns.
+	CoveragePartial
+	// CoverageUnknown: the answer depends on the game's player list, which
+	// the caller did not supply. Ask again with it.
+	CoverageUnknown
+)
+
+// Covers reports whether r already answers what cfg asks for. players is the
+// game's player list; pass nil if it is not loaded yet, and handle
+// CoverageUnknown by loading it and asking again.
+//
+// A player with no analyzed turns is how a stored result records "this player
+// was filtered out", since every player in a real game takes at least one turn.
+func (r *GameAnalysisResult) Covers(cfg *AnalysisConfig, players []*pb.PlayerInfo) Coverage {
+	analyzed := func(i int) bool {
+		return i >= 0 && i < len(r.PlayerSummaries) &&
+			r.PlayerSummaries[i] != nil && r.PlayerSummaries[i].TurnsPlayed > 0
+	}
+	bothAnalyzed := func() Coverage {
+		if analyzed(0) && analyzed(1) {
+			return CoverageComplete
+		}
+		return CoveragePartial
+	}
+
+	if cfg.OnlyPlayerByName == "" {
+		if cfg.OnlyPlayer == 0 || cfg.OnlyPlayer == 1 {
+			if analyzed(cfg.OnlyPlayer) {
+				return CoverageComplete
+			}
+			return CoveragePartial
+		}
+		return bothAnalyzed()
+	}
+
+	if len(players) > 0 {
+		// The player list is authoritative, including about a name that
+		// belongs to neither player: re-analyzing is what surfaces that.
+		idx := playerIndexByName(players, cfg.OnlyPlayerByName)
+		if idx != -1 && analyzed(idx) {
+			return CoverageComplete
+		}
+		return CoveragePartial
+	}
+
+	// Summaries carry nicknames only, so a filter naming a player in full
+	// cannot be resolved from a stored analysis alone.
+	for i, s := range r.PlayerSummaries {
+		if s != nil && strings.EqualFold(strings.TrimSpace(s.PlayerName),
+			strings.TrimSpace(cfg.OnlyPlayerByName)) {
+			if analyzed(i) {
+				return CoverageComplete
+			}
+			return CoveragePartial
+		}
+	}
+	return CoverageUnknown
+}
+
+// describePlayers renders the players of a game for error messages, showing
+// both names when they differ so the reader can see what -player would accept.
+func describePlayers(players []*pb.PlayerInfo) string {
+	names := make([]string, 0, len(players))
+	for _, p := range players {
+		if p == nil {
+			continue
+		}
+		name := p.Nickname
+		if p.RealName != "" && !strings.EqualFold(p.RealName, p.Nickname) {
+			name = fmt.Sprintf("%s (%s)", p.Nickname, p.RealName)
+		}
+		names = append(names, name)
+	}
+	if len(names) == 0 {
+		return "none"
+	}
+	return strings.Join(names, ", ")
 }
 
 // isAnalyzableEvent returns true if the event represents a move that can be analyzed

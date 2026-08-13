@@ -46,7 +46,10 @@ func TestPegSpecValidation(t *testing.T) {
 		{"peg -skip-deep-pass false", false, ""},
 		{"peg -only-solve X -only-solve Y", false, ""},
 		{"peg -endgameplies abc", true, "invalid int"},
-		{"peg -skip-loss maybe", true, "invalid bool"},
+		// A boolean flag does not take a non-boolean value: -skip-loss is set
+		// and "maybe" is left as an argument, which peg itself rejects as an
+		// unknown subcommand. This is what lets `-flag /some/path` work.
+		{"peg -skip-loss maybe", false, ""},
 		{"peg -skip-non-emptyers true", true, "unknown option"},
 		{"peg -skip-non-emptying true", true, "-max-tiles-left 0"}, // deprecated → helpful message
 		{"peg stop", false, ""},

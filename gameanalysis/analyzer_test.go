@@ -2,6 +2,7 @@ package gameanalysis
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/domino14/macondo/config"
@@ -238,6 +239,103 @@ func TestAnalyzeGame_NilHistory(t *testing.T) {
 	_, err := analyzer.AnalyzeGame(ctx, nil)
 	if err == nil {
 		t.Error("expected error for nil history")
+	}
+}
+
+func TestPlayerIndexByName(t *testing.T) {
+	// A GCG player line is `#player1 <nickname> <full name>`, so the nickname
+	// never contains a space and a two-word filter can only be a full name.
+	players := []*pb.PlayerInfo{
+		{Nickname: "esmith", RealName: "Eric Smith"},
+		{Nickname: "sammy", RealName: "Sammy Okosagah"},
+	}
+
+	tests := []struct {
+		name string
+		want int
+	}{
+		{"esmith", 0},
+		{"Eric Smith", 0},
+		{"eric smith", 0},
+		{"  Eric Smith  ", 0},
+		{"SAMMY", 1},
+		{"Sammy Okosagah", 1},
+		{"Eric", -1},
+		{"Smith", -1},
+		{"", -1},
+	}
+
+	for _, tt := range tests {
+		if got := playerIndexByName(players, tt.name); got != tt.want {
+			t.Errorf("playerIndexByName(%q) = %d, want %d", tt.name, got, tt.want)
+		}
+	}
+}
+
+// A -player filter that matches nobody must fail loudly. Analyzing zero turns
+// and calling it a success is indistinguishable from a game with no mistakes.
+func TestAnalyzeGame_UnknownPlayerName(t *testing.T) {
+	analysisCfg := DefaultAnalysisConfig()
+	analysisCfg.OnlyPlayerByName = "Nobody Here"
+	analyzer := New(&config.Config{}, analysisCfg, "")
+
+	_, err := analyzer.AnalyzeGame(context.Background(), &pb.GameHistory{
+		Players: []*pb.PlayerInfo{
+			{Nickname: "esmith", RealName: "Eric Smith"},
+			{Nickname: "sammy", RealName: "Sammy Okosagah"},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected an error for a player name that matches neither player")
+	}
+	if !strings.Contains(err.Error(), "Eric Smith") {
+		t.Errorf("error should name the players actually in the game, got: %v", err)
+	}
+}
+
+func TestGameAnalysisResult_Covers(t *testing.T) {
+	players := []*pb.PlayerInfo{
+		{Nickname: "esmith", RealName: "Eric Smith"},
+		{Nickname: "sammy", RealName: "Sammy Okosagah"},
+	}
+	result := func(turns0, turns1 int) *GameAnalysisResult {
+		return &GameAnalysisResult{PlayerSummaries: [2]*PlayerSummary{
+			{PlayerName: "esmith", TurnsPlayed: turns0},
+			{PlayerName: "sammy", TurnsPlayed: turns1},
+		}}
+	}
+	full, firstOnly := result(12, 11), result(12, 0)
+
+	tests := []struct {
+		name     string
+		result   *GameAnalysisResult
+		cfg      *AnalysisConfig
+		players  []*pb.PlayerInfo
+		expected Coverage
+	}{
+		{"both players, full analysis", full, &AnalysisConfig{OnlyPlayer: -1}, nil, CoverageComplete},
+		{"both players, one-sided analysis", firstOnly, &AnalysisConfig{OnlyPlayer: -1}, nil, CoveragePartial},
+		{"player 0, one-sided analysis", firstOnly, &AnalysisConfig{OnlyPlayer: 0}, nil, CoverageComplete},
+		{"player 1, one-sided analysis", firstOnly, &AnalysisConfig{OnlyPlayer: 1}, nil, CoveragePartial},
+		{"nickname resolvable from summaries", firstOnly,
+			&AnalysisConfig{OnlyPlayer: -1, OnlyPlayerByName: "esmith"}, nil, CoverageComplete},
+		{"other nickname, not analyzed", firstOnly,
+			&AnalysisConfig{OnlyPlayer: -1, OnlyPlayerByName: "sammy"}, nil, CoveragePartial},
+		// Summaries hold nicknames, so a full name needs the player list.
+		{"full name without players", firstOnly,
+			&AnalysisConfig{OnlyPlayer: -1, OnlyPlayerByName: "Eric Smith"}, nil, CoverageUnknown},
+		{"full name with players", firstOnly,
+			&AnalysisConfig{OnlyPlayer: -1, OnlyPlayerByName: "Eric Smith"}, players, CoverageComplete},
+		{"full name with players, not analyzed", firstOnly,
+			&AnalysisConfig{OnlyPlayer: -1, OnlyPlayerByName: "Sammy Okosagah"}, players, CoveragePartial},
+		{"name belonging to neither player", full,
+			&AnalysisConfig{OnlyPlayer: -1, OnlyPlayerByName: "Nobody"}, players, CoveragePartial},
+	}
+
+	for _, tt := range tests {
+		if got := tt.result.Covers(tt.cfg, tt.players); got != tt.expected {
+			t.Errorf("%s: Covers = %v, expected %v", tt.name, got, tt.expected)
+		}
 	}
 }
 

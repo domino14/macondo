@@ -16,9 +16,15 @@ Example:
 This command analyzes multiple games from various sources and displays per-game
 analysis tables plus an aggregated summary. Each game's analysis is
 automatically saved to the local store so the results can be revisited later
-with `analyze-view` or listed with `analyze-browse`. If an analysis already
-exists for a game it is skipped (and reloaded from the store so the batch
-stats still include it); use -force to re-analyze and overwrite instead.
+with `analyze-view` or listed with `analyze-browse`.
+
+A game that has already been analyzed is skipped, and its stored analysis is
+reloaded so the batch stats still include it. A stored analysis is only reused
+when it still answers the question being asked: one written by an older
+version of the analyzer, or one produced under a narrower -player filter than
+this run uses, is analyzed again. Use -force to re-analyze everything.
+
+Lexicons the games were played in are downloaded as needed, once per lexicon.
 
 It supports loading games from:
 
@@ -26,10 +32,11 @@ It supports loading games from:
   - Woogles Collection: Use format "woogcollection:UUID" (fetches all games in collection)
   - Cross-tables: Use format "xt:GAMEID"
   - Local GCG files: Use file path (e.g., "/path/to/game.gcg")
-  - Folders of GCG files: Use a directory path (e.g., "/path/to/gcgs"). The
-    folder is searched recursively and every .gcg file found is analyzed, in
-    alphabetical order. Each file is stored under its own path, so re-running
-    the command skips the ones already analyzed unless -force is given.
+  - Folders of GCG files: Use a directory path (e.g., "/path/to/gcgs" or
+    "~/Downloads/wordcup"). The folder is searched recursively, following
+    symlinks, and every .gcg file found is analyzed in alphabetical order.
+    Each file is stored under its own path, so re-running the command skips
+    the ones already analyzed unless -force is given.
   - Web URLs: Use full HTTP/HTTPS URL
 
 Each game is analyzed using the same phase-appropriate analysis as the `analyze`
@@ -49,10 +56,14 @@ Options:
 
     Analyze only moves by player 1 (the second player) in all games.
 
-    -player "nickname"
+    -player "name"
 
-    Analyze only moves by the player with the specified nickname across all
-    games. The nickname must match exactly (case-sensitive).
+    Analyze only moves by the named player across all games. The name is
+    matched, ignoring case, against both the GCG nickname and the full name
+    (a GCG player line is `#player1 <nickname> <full name>`, so a name with a
+    space in it can only be the full name). A game in which no player matches
+    is reported as an error rather than analyzed as zero turns; pass -continue
+    to skip past games the player did not play in.
 
     -continue
 
