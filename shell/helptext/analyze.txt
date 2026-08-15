@@ -42,10 +42,13 @@ Options:
 
     Analyze only moves by player 1 (the second player).
 
-    -player "nickname"
+    -player "name"
 
-    Analyze only moves by the player with the specified nickname. The nickname
-    must match exactly (case-sensitive).
+    Analyze only moves by the named player. The name is matched, ignoring
+    case, against both the GCG nickname and the full name (a GCG player line
+    is `#player1 <nickname> <full name>`, so a name with a space in it can
+    only be the full name). If neither player matches, the command fails
+    instead of analyzing nothing.
 
     -json <file>
 

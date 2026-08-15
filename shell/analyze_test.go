@@ -6,7 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	"google.golang.org/protobuf/encoding/protojson"
+
 	"github.com/domino14/macondo/gameanalysis"
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
 
 // TestParseGameSource_Folder covers #508: a path is a folder source when it is
@@ -90,6 +93,142 @@ func TestGCGFilesInDir(t *testing.T) {
 
 	if _, err := gcgFilesInDir(filepath.Join(dir, "nope")); err == nil {
 		t.Error("expected an error for a missing folder")
+	}
+}
+
+// Symlinked folders are ordinary folders to the user, so they have to be
+// walked; filepath.WalkDir would have skipped them and reported no games.
+func TestGCGFilesInDir_Symlinks(t *testing.T) {
+	root := t.TempDir()
+	real := filepath.Join(root, "real")
+	if err := os.MkdirAll(real, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(real, "a.gcg"), nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	// A link used as the folder argument.
+	paths, err := gcgFilesInDir(link)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(paths) != 1 {
+		t.Errorf("symlinked folder: got %v, expected one .gcg file", paths)
+	}
+
+	// A link nested inside the folder being scanned. "real" and "link" both
+	// resolve to the same directory, so the file is reported once.
+	paths, err = gcgFilesInDir(root)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(paths) != 1 {
+		t.Errorf("folder containing a symlink: got %v, expected one .gcg file", paths)
+	}
+
+	// A link pointing at its own parent must not loop forever.
+	if err := os.Symlink(root, filepath.Join(real, "up")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if _, err := gcgFilesInDir(root); err != nil {
+		t.Fatalf("unexpected error walking a cyclic link: %v", err)
+	}
+
+	// A dangling link is skipped rather than failing the whole scan.
+	if err := os.Symlink(filepath.Join(root, "gone"), filepath.Join(root, "dead.gcg")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if _, err := gcgFilesInDir(root); err != nil {
+		t.Fatalf("unexpected error walking a dangling link: %v", err)
+	}
+}
+
+// The shell has no OS shell in front of it, so "~/games" arrives verbatim and
+// has to be expanded before it can be recognized as a folder.
+func TestParseGameSource_Tilde(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("no home directory: %v", err)
+	}
+	dir, err := os.MkdirTemp(home, "macondo-gcg-test-")
+	if err != nil {
+		t.Skipf("cannot create a folder under home: %v", err)
+	}
+	defer os.RemoveAll(dir)
+
+	rel, err := filepath.Rel(home, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := parseGameSource("~/" + rel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Type != "dir" {
+		t.Errorf("type = %q, expected %q", got.Type, "dir")
+	}
+	if got.Identifier != dir {
+		t.Errorf("identifier = %q, expected %q", got.Identifier, dir)
+	}
+}
+
+// A stored analysis is only a substitute for re-running a game when it
+// answers the question this run is asking.
+func TestReusableAnalysis(t *testing.T) {
+	storedFor := func(version int, turns0, turns1 int32) *gameanalysis.StoredAnalysis {
+		resultJSON, err := protojson.Marshal(&pb.GameAnalysisResult{
+			AnalysisVersion: int32(version),
+			PlayerSummaries: []*pb.PlayerSummary{
+				{PlayerName: "esmith", TurnsPlayed: turns0},
+				{PlayerName: "sammy", TurnsPlayed: turns1},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return &gameanalysis.StoredAnalysis{AnalysisVersion: version, ResultJSON: resultJSON}
+	}
+	current := gameanalysis.CurrentAnalysisVersion
+	players := []*pb.PlayerInfo{
+		{Nickname: "esmith", RealName: "Eric Smith"},
+		{Nickname: "sammy", RealName: "Sammy Okosagah"},
+	}
+	bothPlayers := &gameanalysis.AnalysisConfig{OnlyPlayer: -1}
+	byFullName := &gameanalysis.AnalysisConfig{OnlyPlayer: -1, OnlyPlayerByName: "Eric Smith"}
+
+	tests := []struct {
+		name        string
+		stored      *gameanalysis.StoredAnalysis
+		cfg         *gameanalysis.AnalysisConfig
+		players     []*pb.PlayerInfo
+		expectReuse bool
+		expectWhy   string
+	}{
+		{"complete and current", storedFor(current, 12, 11), bothPlayers, nil, true, ""},
+		{"stale version", storedFor(current-1, 12, 11), bothPlayers, nil, false, "version"},
+		{"analyzed one player only", storedFor(current, 12, 0), bothPlayers, nil, false, "player"},
+		{"full name needs the player list", storedFor(current, 12, 0), byFullName, nil, false, reuseUndecided},
+		{"full name with the player list", storedFor(current, 12, 0), byFullName, players, true, ""},
+		{"unreadable result", &gameanalysis.StoredAnalysis{
+			AnalysisVersion: current, ResultJSON: []byte("not json")}, bothPlayers, nil, false, "could not be read"},
+	}
+
+	for _, tt := range tests {
+		result, why := reusableAnalysis(tt.stored, tt.cfg, tt.players)
+		if (result != nil) != tt.expectReuse {
+			t.Errorf("%s: reuse = %v, expected %v (reason %q)", tt.name, result != nil, tt.expectReuse, why)
+			continue
+		}
+		if !strings.Contains(why, tt.expectWhy) {
+			t.Errorf("%s: reason = %q, expected it to mention %q", tt.name, why, tt.expectWhy)
+		}
 	}
 }
 

@@ -29,6 +29,30 @@ func TestExtractFields(t *testing.T) {
 		},
 		// {"autoplay exhaustiveleave noleave -file",
 		// 	nil, errWrongOptionSyntax},
+
+		// A declared boolean flag does not eat the argument after it...
+		{"analyze-batch -continue /path/to/games",
+			&shellcmd{"analyze-batch",
+				[]string{"/path/to/games"},
+				map[string][]string{"continue": {"true"}}},
+			nil},
+		{"analyze-batch -force -continue /path/to/games",
+			&shellcmd{"analyze-batch",
+				[]string{"/path/to/games"},
+				map[string][]string{"force": {"true"}, "continue": {"true"}}},
+			nil},
+		// ...but still takes a value when one is written out.
+		{"analyze-batch -continue false /path/to/games",
+			&shellcmd{"analyze-batch",
+				[]string{"/path/to/games"},
+				map[string][]string{"continue": {"false"}}},
+			nil},
+		// Options that take a value are unaffected.
+		{"analyze-batch -player \"Eric Smith\" /path/to/games",
+			&shellcmd{"analyze-batch",
+				[]string{"/path/to/games"},
+				map[string][]string{"player": {"Eric Smith"}}},
+			nil},
 	}
 	for _, t := range cases {
 		cmd, err := extractFields(t.line)
