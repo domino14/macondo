@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/aybabtme/uniplot/histogram"
@@ -195,108 +196,252 @@ func addNextPlay(play string, score int, bingo bool, plays map[string]*nextPlay)
 	plays[play].count = plays[play].count + 1
 }
 
-func sortedPlayList(npmap map[string]*nextPlay) []*nextPlay {
-	l := []*nextPlay{}
-	for _, v := range npmap {
-		l = append(l, v)
-	}
-	sort.Slice(l, func(i, j int) bool {
-		return l[i].count > l[j].count // ascending order
-	})
-	return l
+// playFamily groups the plays that make the same word in the same spot and
+// differ only in which tile is played as the blank. (Z)WIEBAcK and (Z)WIEbACK
+// are genuinely different plays - they score differently and need a different
+// tile drawn - but a player thinks of them as one opportunity, so we show them
+// as a single row carrying the combined chance of making the play by any
+// route, with the individual routes listed underneath.
+type playFamily struct {
+	label    string // the play, upper-cased: the key we group on
+	variants []*nextPlay
+	count    int
+	minScore int
+	maxScore int
 }
 
-func sortedPlayListByScore(npmap map[string]*nextPlay) []*nextPlay {
-	l := []*nextPlay{}
-	for _, v := range npmap {
-		l = append(l, v)
+// name labels the family in the table. A family with a single play keeps that
+// play's exact notation; a grouped one is upper-cased, since no single
+// notation is correct for all of its variants.
+func (f *playFamily) name() string {
+	if len(f.variants) == 1 {
+		return f.variants[0].play
 	}
-	sort.Slice(l, func(i, j int) bool {
-		if l[i].score == l[j].score {
-			return l[i].count > l[j].count
+	return f.label
+}
+
+func (f *playFamily) scoreStr() string {
+	if f.minScore == f.maxScore {
+		return strconv.Itoa(f.maxScore)
+	}
+	return fmt.Sprintf("%d-%d", f.minScore, f.maxScore)
+}
+
+// drawStr renders the draws that unlock this family. Each alternative is a
+// complete draw, and they are joined with a pipe meaning "or": {EI|E?|I?}
+// means drawing both E and I, or E and the second blank, or I and the second
+// blank. A "-" alternative is a route that needs no draw at all. A trailing
+// "..." means the list was too wide for the column; every alternative is
+// spelled out on the family's variant lines anyway.
+func (f *playFamily) drawStr() string {
+	if len(f.variants) == 1 {
+		return f.variants[0].ifdraw
+	}
+	seen := map[string]bool{}
+	opts := []string{}
+	for _, np := range f.variants {
+		opt := strings.Trim(np.ifdraw, "{}")
+		if opt == "" {
+			opt = "-"
 		}
-		return l[i].score > l[j].score // ascending order
-	})
-	return l
-}
-
-func playStatsStr(st *SimStats, ourPlayLeave string, nextPlayList []*nextPlay, desc string, maxToDisplay int, totalPlayCount int, showBingos bool,
-	showNeededDraw bool) string {
-	var ss strings.Builder
-	if len(nextPlayList) == 0 {
+		if !seen[opt] {
+			seen[opt] = true
+			opts = append(opts, opt)
+		}
+	}
+	if len(opts) == 1 && opts[0] == "-" {
 		return ""
 	}
+	cell := "{" + strings.Join(opts, "|") + "}"
+	for len(cell) > drawColWidth && len(opts) > 1 {
+		opts = opts[:len(opts)-1]
+		cell = "{" + strings.Join(opts, "|") + "|...}"
+	}
+	return cell
+}
+
+// isTilePlay reports whether the family is a tile placement, as opposed to an
+// exchange or a pass.
+func (f *playFamily) isTilePlay() bool {
+	// Normalize is case-sensitive, so ask a variant rather than the
+	// upper-cased label.
+	p := Normalize(f.variants[0].play)
+	return !strings.HasPrefix(p, "exchange ") && p != "pass" && p != "UNHANDLED"
+}
+
+func groupPlays(npmap map[string]*nextPlay) []*playFamily {
+	byLabel := map[string]*playFamily{}
+	for _, np := range npmap {
+		label := strings.ToUpper(np.play)
+		f, ok := byLabel[label]
+		if !ok {
+			f = &playFamily{label: label, minScore: np.score, maxScore: np.score}
+			byLabel[label] = f
+		}
+		f.variants = append(f.variants, np)
+		f.count += np.count
+		f.minScore = min(f.minScore, np.score)
+		f.maxScore = max(f.maxScore, np.score)
+	}
+	l := make([]*playFamily, 0, len(byLabel))
+	for _, f := range byLabel {
+		sort.Slice(f.variants, func(i, j int) bool {
+			if f.variants[i].count != f.variants[j].count {
+				return f.variants[i].count > f.variants[j].count
+			}
+			if f.variants[i].score != f.variants[j].score {
+				return f.variants[i].score > f.variants[j].score
+			}
+			return f.variants[i].play < f.variants[j].play
+		})
+		l = append(l, f)
+	}
+	return l
+}
+
+func sortedFamilies(npmap map[string]*nextPlay) []*playFamily {
+	l := groupPlays(npmap)
+	sort.Slice(l, func(i, j int) bool {
+		if l[i].count != l[j].count {
+			return l[i].count > l[j].count
+		}
+		if l[i].maxScore != l[j].maxScore {
+			return l[i].maxScore > l[j].maxScore
+		}
+		return l[i].label < l[j].label
+	})
+	return l
+}
+
+func sortedFamiliesByScore(npmap map[string]*nextPlay) []*playFamily {
+	l := groupPlays(npmap)
+	sort.Slice(l, func(i, j int) bool {
+		if l[i].maxScore != l[j].maxScore {
+			return l[i].maxScore > l[j].maxScore
+		}
+		if l[i].count != l[j].count {
+			return l[i].count > l[j].count
+		}
+		return l[i].label < l[j].label
+	})
+	return l
+}
+
+// neededDraw returns the tiles we'd have to draw, on top of the leave from the
+// play being analyzed, to be able to make this play.
+func neededDraw(st *SimStats, ourPlayLeave, play string) string {
+	analyzedPlay := Normalize(play)
+	playFields := strings.Fields(analyzedPlay)
+	if len(playFields) != 2 {
+		panic("unexpected play " + analyzedPlay)
+	}
+	mw, err := tilemapping.ToMachineWord(playFields[1], st.game.Alphabet())
+	if err != nil {
+		panic("error converting to machine word " + err.Error())
+	}
+	leaveMW, err := tilemapping.ToMachineWord(ourPlayLeave, st.game.Alphabet())
+	if err != nil {
+		panic("error converting to machine word " + err.Error())
+	}
+	// check what letters in leaveMW are in mw, and calculate the
+	// letters we'd need to draw to make the play
+	draw := []tilemapping.MachineLetter{}
+
+	avail := make(map[tilemapping.MachineLetter]int)
+	for _, l := range leaveMW {
+		avail[l]++
+	}
+	for _, l := range mw {
+		if l == 0 {
+			continue // playthrough doesn't create heat map
+		}
+		normalizedLetter := l.IntrinsicTileIdx()
+
+		if avail[normalizedLetter] > 0 {
+			avail[normalizedLetter]--
+		} else {
+			draw = append(draw, normalizedLetter)
+		}
+	}
+
+	if len(draw) == 0 {
+		return ""
+	}
+	return "{" + tilemapping.MachineWord(draw).UserVisible(st.game.Alphabet()) + "}"
+}
+
+// Column formats. Every column pads to one less than its width and then emits
+// a literal space, so a value that overflows its column still can't run into
+// the next one - long plays and long lists of alternative draws stay readable
+// and stay parseable.
+const (
+	drawColWidth = 13
+
+	playCol  = "%-19s "
+	drawCol  = "%-13s "
+	scoreCol = "%-8s "
+	countCol = "%-8s "
+	pctCol   = "%-16.2f"
+	// variants are indented under their family; the marker plus the narrower
+	// play column line up with the family's play column.
+	variantMarker  = "  - "
+	variantPlayCol = "%-15s "
+)
+
+func playStatsStr(st *SimStats, ourPlayLeave string, families []*playFamily, desc string, maxToDisplay int, totalPlayCount int, showBingos bool,
+	showNeededDraw bool) string {
+	var ss strings.Builder
+	if len(families) == 0 {
+		return ""
+	}
+	pct := func(count int) float64 {
+		return float64(count*100) / float64(totalPlayCount)
+	}
+
 	ss.WriteString(desc + "\n")
 	if showNeededDraw {
-		fmt.Fprintf(&ss, "%-20s%-14s%-9s%-9s%-16s\n", "Play", "Needed Draw", "Score", "Count", "% of time")
+		fmt.Fprintf(&ss, playCol+drawCol+scoreCol+countCol+"%-16s\n", "Play", "Needed Draw", "Score", "Count", "% of time")
 	} else {
-		fmt.Fprintf(&ss, "%-20s%-9s%-9s%-16s\n", "Play", "Score", "Count", "% of time")
+		fmt.Fprintf(&ss, playCol+scoreCol+countCol+"%-16s\n", "Play", "Score", "Count", "% of time")
 	}
+
 	bingos := 0
-	for i := 0; i < len(nextPlayList); i++ {
-		if nextPlayList[i].bingo {
-			bingos += nextPlayList[i].count
+	for i, fam := range families {
+		for _, np := range fam.variants {
+			if np.bingo {
+				bingos += np.count
+			}
 		}
-		if i < maxToDisplay {
-			if showNeededDraw {
-				// calculate needed draw
-				analyzedPlay := Normalize(nextPlayList[i].play)
+		if i >= maxToDisplay {
+			continue
+		}
 
-				if strings.HasPrefix(analyzedPlay, "exchange ") ||
-					analyzedPlay == "pass" || analyzedPlay == "UNHANDLED" {
-
-				} else {
-					// this is a tile-play move.
-					playFields := strings.Fields(analyzedPlay)
-					if len(playFields) != 2 {
-						panic("unexpected play " + analyzedPlay)
-					}
-					mw, err := tilemapping.ToMachineWord(playFields[1], st.game.Alphabet())
-					if err != nil {
-						panic("error converting to machine word " + err.Error())
-					}
-					leaveMW, err := tilemapping.ToMachineWord(ourPlayLeave, st.game.Alphabet())
-					if err != nil {
-						panic("error converting to machine word " + err.Error())
-					}
-					// check what letters in leaveMW are in mw, and calculate the
-					// letters we'd need to draw to make the play
-					neededDraw := []tilemapping.MachineLetter{}
-
-					avail := make(map[tilemapping.MachineLetter]int)
-					for _, l := range leaveMW {
-						avail[l]++
-					}
-					for _, l := range mw {
-						if l == 0 {
-							continue // playthrough doesn't create heat map
-						}
-						normalizedLetter := l.IntrinsicTileIdx()
-
-						if avail[normalizedLetter] > 0 {
-							avail[normalizedLetter]--
-						} else {
-							neededDraw = append(neededDraw, normalizedLetter)
-						}
-					}
-
-					if len(neededDraw) > 0 {
-						nextPlayList[i].ifdraw = "{" + tilemapping.MachineWord(neededDraw).UserVisible(st.game.Alphabet()) + "}"
-					} else {
-						nextPlayList[i].ifdraw = ""
-					}
-
-					fmt.Fprintf(&ss, "%-20s%-14s%-9d%-9d%-16.2f\n", nextPlayList[i].play,
-						nextPlayList[i].ifdraw,
-						nextPlayList[i].score,
-						nextPlayList[i].count,
-						float64(nextPlayList[i].count*100)/float64(totalPlayCount))
+		if !showNeededDraw {
+			fmt.Fprintf(&ss, playCol+scoreCol+countCol+pctCol+"\n", fam.name(), fam.scoreStr(),
+				strconv.Itoa(fam.count), pct(fam.count))
+			if len(fam.variants) > 1 {
+				for _, np := range fam.variants {
+					fmt.Fprintf(&ss, variantMarker+variantPlayCol+scoreCol+countCol+pctCol+"\n", np.play,
+						strconv.Itoa(np.score), strconv.Itoa(np.count), pct(np.count))
 				}
-			} else {
-				fmt.Fprintf(&ss, "%-20s%-9d%-9d%-16.2f\n", nextPlayList[i].play,
-					nextPlayList[i].score,
-					nextPlayList[i].count,
-					float64(nextPlayList[i].count*100)/float64(totalPlayCount))
+			}
+			continue
+		}
+
+		// The needed-draw table only covers tile plays; exchanges and passes
+		// are left out of it, although they still count towards the totals.
+		if !fam.isTilePlay() {
+			continue
+		}
+		for _, np := range fam.variants {
+			np.ifdraw = neededDraw(st, ourPlayLeave, np.play)
+		}
+		fmt.Fprintf(&ss, playCol+drawCol+scoreCol+countCol+pctCol+"\n", fam.name(), fam.drawStr(),
+			fam.scoreStr(), strconv.Itoa(fam.count), pct(fam.count))
+		if len(fam.variants) > 1 {
+			for _, np := range fam.variants {
+				fmt.Fprintf(&ss, variantMarker+variantPlayCol+drawCol+scoreCol+countCol+pctCol+"\n", np.play,
+					np.ifdraw, strconv.Itoa(np.score), strconv.Itoa(np.count), pct(np.count))
 			}
 		}
 	}
@@ -344,15 +489,15 @@ func (st *SimStats) CalculatePlayStats(play string) (string, error) {
 		}
 	}
 
-	oppResponsesList := sortedPlayListByScore(oppResponses)
+	oppResponsesList := sortedFamiliesByScore(oppResponses)
 
 	ss.WriteString(playStatsStr(st, leave, oppResponsesList, "### Opponent's highest scoring plays", 10, totalOppResponses, false, false))
 	ss.WriteString("\n\n")
 
 	maxToDisplay := 15
 
-	oppResponsesList = sortedPlayList(oppResponses)
-	ourNextPlaysList := sortedPlayList(ourNextPlays)
+	oppResponsesList = sortedFamilies(oppResponses)
+	ourNextPlaysList := sortedFamilies(ourNextPlays)
 
 	ss.WriteString(playStatsStr(st, leave, oppResponsesList, "### Opponent's next play", maxToDisplay, totalOppResponses, true, false))
 	ss.WriteString("\n")

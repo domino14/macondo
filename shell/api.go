@@ -1942,7 +1942,10 @@ func (sc *ShellController) explain(cmd *shellcmd) (*Response, error) {
 	if winningPlay == nil {
 		return nil, errors.New("no winning play found in simulation")
 	}
-	winningPlayStr := winningPlay.Move().ShortDescription()
+	// Use the same playthrough notation as the sim tables (5D (S)PIC(A)), not
+	// ShortDescription's dotted form, since that's the notation the prompt
+	// describes and the one the model is asked to echo back.
+	winningPlayStr := sc.game.Board().MoveDescriptionWithPlaythrough(winningPlay.Move())
 
 	// Get detailed stats for the winning play
 	winningPlayStats, err := sc.simStats.CalculatePlayStats(winningPlayStr)
