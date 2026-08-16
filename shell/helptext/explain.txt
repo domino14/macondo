@@ -13,12 +13,45 @@ explain [options] - Generate AI explanation for the current position
     -plies <n>      Number of simulation plies (default: 5)
     -opprack <rack> Set opponent's rack for simulation
     -stop <n>       Stop simulation at n% confidence level (default: 99)
+    -vs <play>      Explain why the best play beats this one, instead of just
+                    why it is good. Use "off" to turn the comparison off.
+    -show-prompt    Also print the full prompt that was sent to the model
+    -show-previous-prompt
+                    Print the last prompt and response instead of explaining
+                    anything. Nothing is simulated and no API call is made.
 
   Examples
       explain
       explain -plies 3 -stop 95
       explain -opprack AEINRST
+      explain -vs "12J EQU(ID)"
+      explain -vs off
+      explain -show-prompt
+      explain -show-previous-prompt
       explain -plies 4 -stop 95 -opprack TESTING
+
+  Comparing against your own play:
+
+  When you are stepping through a loaded game, `explain` compares the best play
+  against the play you actually made on that turn, and answers "why is this
+  better than what I played?". It finds that play in the game history, so there
+  is nothing to pass. Use `-vs off` for a plain explanation, or `-vs <play>` to
+  ask about some other play instead.
+
+  The play is simulated even if it wouldn't otherwise have made the cut, so a
+  bad move still gets a real answer. Write it the way the tables do, either
+  `12J EQU(ID)` or `12J EQU..`, and quote it if it contains spaces.
+
+  If the play you made is the best one, `explain` says so and compares it
+  against the runner-up instead.
+
+  Seeing the prompt:
+
+  The prompt is assembled from computed facts and whichever strategy concepts
+  the position calls for, so reading the exact text that produced an
+  explanation is the practical way to debug a bad one. `-show-prompt` prints it
+  alongside the answer; `-show-previous-prompt` prints the last one and its
+  response, which still works after you have moved on to another position.
 
   The command will:
   1. Generate top moves if not already done

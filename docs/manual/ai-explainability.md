@@ -85,10 +85,53 @@ macondo> explain -plies 4 -stop 95 -opprack TESTING
 - `-plies <n>`: Number of simulation plies (default: 5)
 - `-opprack <rack>`: Set opponent's rack for simulation
 - `-stop <n>`: Stop simulation at n% confidence level (default: 99)
+- `-vs <play>`: Explain why the best play beats this one (`off` to disable)
+- `-show-prompt`: Also print the full prompt that was sent
+- `-show-previous-prompt`: Print the last prompt and response, without running anything
 
 For more details, use `help explain` or `help setconfig` within Macondo.
 
-**Note that behind the scenes, Macondo is doing a full simulation and passes a lot of the raw data to an LLM to explain it in plain text.**
+### Why is this better than the move I made?
+
+When you step through a loaded game, `explain` compares the best play against
+the play you actually made on that turn, taken from the game history. Instead
+of "here is why this play is good" you get "here is why this play beats yours":
+
+```
+macondo> load ~/games/vs_jesse.gcg
+macondo> turn 12
+macondo> explain
+Comparing against the play you made: 15G I(L)IA (use -vs off to skip)
+```
+
+Your play is simulated even when it wouldn't otherwise have made the cut, so a
+bad move still gets a real answer rather than a shrug, and it gets the same
+follow-up and board analysis the best play gets. Macondo works out the
+head-to-head itself - win%, equity, score, leave value, what the opponent gets
+back, and which follow-up chances each play has that the other doesn't - and
+tells the model when the difference is *not* statistically established, so a
+coin-flip between two plays doesn't get dressed up as a lesson.
+
+Use `-vs <play>` to ask about some other play, and `-vs off` for a plain
+explanation. If the play you made was the best one, Macondo says so and
+compares it against the runner-up instead.
+
+### How it works
+
+Behind the scenes, Macondo runs a full simulation and then does the analysis itself before saying a word to the model:
+
+- **Facts, not tables.** The candidate plays, the leaves, the next two plies, and the sampled follow-up plays are computed as data (`explainer/facts.go`). Judgments the model used to be asked to make - is this a setup? does the top play sacrifice equity for win%? is this really a pre-endgame? - are decided in Go, against the board, and handed over as answers.
+- **Big chances are found, not filtered by probability.** A follow-up is called out when it is a real jump over an ordinary turn *and* comes up often enough to be worth expected points, measured against what a normal next turn is worth in that exact position. A 6% chance at 130 points is the sort of thing a strong player builds a turn around; an 11% chance at 23 is not. Ranking by probability alone buries the first behind the second.
+- **Concept cards.** The Scrabble knowledge lives in `explainer/concepts/`, one card per idea, each with a trigger. A position with a full bag never sees the pre-endgame card; a position with no blank in play never sees the blank-notation card. Only what applies gets sent.
+- **Board dynamics.** The simulation already records every future play it sampled. Macondo buckets those by row and column, so the model can say "this play leaves column A quiet, where a bingo lane runs to the triple" - from measured data rather than from reading a picture of a board.
+
+Because the prompt is assembled rather than written, reading the exact text that produced an explanation is the practical way to debug a bad one. `explain -show-prompt` prints it next to the answer, and `explain -show-previous-prompt` prints the last one and its response — that still works after you have moved on to another position. Both dumps are divided by `========` banners, and each banner labels everything below it up to the next one: Macondo's own notes first, then the tool definitions, the system message and the user message exactly as sent, then the reply. The division is by section rather than by any per-line marker, because the prompt is itself markdown — a heading like `## What to say` is part of the system message and really is sent.
+
+The tool definitions are included because the request carries them in a field of their own rather than in the message text, and their descriptions are substantive: what stops the model inventing a follow-up play is a sentence in `get_our_future_play_metadata`'s description, not anything in the prompt. Sections run in the order the API carries them — tools, system, then messages.
+
+One thing the dumps can't show is the tool-call round trips. The agent SDK owns that loop, so the conversation the model finally answers from also contains its own tool-call messages and the JSON our tools returned.
+
+Set `MACONDO_NO_LLM=1` to print the assembled prompt instead of calling an API at all. `explainer/example/` runs the whole thing end to end on a fixed position.
 
 #### Gemini 2.5 Pro Experimental response:
 

@@ -325,6 +325,12 @@ func init() {
 			{Name: "stop", Type: OptInt, Values: stopValues},
 			{Name: "threads", Type: OptInt},
 			{Name: "opprack", Type: OptString},
+			{Name: "vs", Type: OptString,
+				Help: `play to explain the best one against, or "off"; defaults to the play you made this turn`},
+			{Name: "show-prompt", Type: OptBool,
+				Help: "also print the full prompt that was sent to the model"},
+			{Name: "show-previous-prompt", Type: OptBool,
+				Help: "print the last prompt and response instead of explaining anything"},
 		},
 	})
 

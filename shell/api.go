@@ -1921,6 +1921,16 @@ func (sc *ShellController) mleval(cmd *shellcmd) (*Response, error) {
 }
 
 func (sc *ShellController) explain(cmd *shellcmd) (*Response, error) {
+	// Reading back the last prompt has to work even once the position has
+	// moved on - that's the whole point of it - so it comes before every
+	// other check.
+	if cmd.options.Bool("show-previous-prompt") {
+		if sc.aiexplainer == nil || sc.aiexplainer.LastExchange() == nil {
+			return nil, errors.New("no explanation has been generated yet in this session")
+		}
+		return msg("\n" + sc.aiexplainer.LastExchange().String()), nil
+	}
+
 	// explain with genai
 	if sc.game == nil {
 		return nil, errors.New("please load or create a game first")
@@ -1936,7 +1946,6 @@ func (sc *ShellController) explain(cmd *shellcmd) (*Response, error) {
 	if sc.aiexplainer == nil {
 		sc.aiexplainer = explainer.NewService(sc.config)
 	}
-	sc.aiexplainer.SetGame(sc.game)
 
 	// First generate moves if we haven't already
 	if len(sc.curPlayList) == 0 {
@@ -1957,10 +1966,21 @@ func (sc *ShellController) explain(cmd *shellcmd) (*Response, error) {
 	}
 	simOptions["collect-heatmap"] = []string{"true"}
 
+	// Work out what to contrast the best play with before simming, so the
+	// simulation can be told to evaluate it however low it would otherwise
+	// rank.
+	compare, err := sc.comparisonPlay(simOptions.String("vs"))
+	if err != nil {
+		return nil, err
+	}
+	if compare != nil && compare.FromHistory {
+		sc.showMessage(fmt.Sprintf("Comparing against the play you made: %s (use -vs off to skip)",
+			strings.TrimSpace(sc.game.Board().MoveDescriptionWithPlaythrough(compare.Move))))
+	}
+
 	// Run the simulation
 	sc.showMessage("Running simulation for AI explanation... (sim options " + fmt.Sprint(simOptions) + ")")
-	err := sc.runSimulationForExplain(simOptions)
-	if err != nil {
+	if err := sc.runSimulationForExplain(simOptions, compare); err != nil {
 		return nil, fmt.Errorf("failed to run simulation: %w", err)
 	}
 
@@ -1969,46 +1989,20 @@ func (sc *ShellController) explain(cmd *shellcmd) (*Response, error) {
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	// Collect the game state
-	gameStateResp, err := sc.gameState(&shellcmd{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get game state: %w", err)
-	}
-	gameStateStr := gameStateResp.message
+	// Deliberately no TrimBottom here: it slices off the lowest-ranked plays
+	// without regard for unignorable ones, which would throw away the play we
+	// are being asked to compare against. The explainer caps how many
+	// candidates it shows anyway.
 
-	sc.simmer.TrimBottom(35)
-	// Get simulation results (top 5 plays)
-	simResults := sc.simmer.EquityStats()
-
-	// Get simulation details
-	simDetails := sc.simmer.ScoreDetails()
-
-	// Get the winning play
-	winningPlay := sc.simmer.WinningPlay()
-	if winningPlay == nil {
-		return nil, errors.New("no winning play found in simulation")
-	}
-	// Use the same playthrough notation as the sim tables (5D (S)PIC(A)), not
-	// ShortDescription's dotted form, since that's the notation the prompt
-	// describes and the one the model is asked to echo back.
-	winningPlayStr := sc.game.Board().MoveDescriptionWithPlaythrough(winningPlay.Move())
-
-	// Get detailed stats for the winning play
-	winningPlayStats, err := sc.simStats.CalculatePlayStats(winningPlayStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get play stats: %w", err)
-	}
-
-	// Call the explainer service
+	// The explainer builds its own view of the position from the game and the
+	// simulation - it doesn't want pre-rendered tables.
 	ctx := context.Background()
-	result, err := sc.aiexplainer.Explain(
-		ctx,
-		gameStateStr,
-		simResults,
-		simDetails,
-		winningPlayStr,
-		winningPlayStats,
-	)
+	result, err := sc.aiexplainer.Explain(ctx, &explainer.ExplainInput{
+		Game:     sc.game,
+		Simmer:   sc.simmer,
+		SimStats: sc.simStats,
+		Compare:  compare,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate explanation: %w", err)
 	}
@@ -2019,11 +2013,73 @@ func (sc *ShellController) explain(cmd *shellcmd) (*Response, error) {
 		sc.showMessage(fmt.Sprintf("Output tokens: %d", result.OutputTokens))
 	}
 
-	return msg("\n**Explanation**:\n\n" + result.Explanation), nil
+	out := ""
+	if cmd.options.Bool("show-prompt") {
+		out += "\n" + result.Prompt.Notes("") + result.Prompt.String() + "\n"
+	}
+	return msg(out + "\n**Explanation**:\n\n" + result.Explanation), nil
+}
+
+// comparisonPlay works out which play the explanation should be contrasted
+// with. By default that is the move the player actually made, when the game
+// history has one for this turn; `-vs <play>` names a different one, and
+// `-vs off` asks for no comparison at all.
+func (sc *ShellController) comparisonPlay(vs string) (*explainer.ComparisonRequest, error) {
+	switch strings.ToLower(strings.TrimSpace(vs)) {
+	case "off", "none", "no":
+		return nil, nil
+	case "":
+		m := sc.playedThisTurn()
+		if m == nil {
+			return nil, nil
+		}
+		return &explainer.ComparisonRequest{Move: m, FromHistory: true}, nil
+	}
+	m, err := sc.game.ParseMove(sc.game.PlayerOnTurn(), sc.options.lowercaseMoves,
+		strings.Fields(explainer.DottedPlay(vs)), false)
+	if err != nil {
+		return nil, fmt.Errorf("could not read the play to compare against (%s): %w", vs, err)
+	}
+	return &explainer.ComparisonRequest{Move: m}, nil
+}
+
+// playedThisTurn is the move the player on turn actually made from this
+// position, according to the game history. It is nil when we have caught up
+// with the end of the history, when the next event isn't a play, or when the
+// play was challenged off - a phony that came back off the board is not
+// something the simulation can evaluate.
+func (sc *ShellController) playedThisTurn() *move.Move {
+	if sc.game == nil {
+		return nil
+	}
+	history := sc.game.History()
+	if history == nil || sc.curTurnNum < 0 || sc.curTurnNum >= len(history.Events) {
+		return nil
+	}
+	evt := history.Events[sc.curTurnNum]
+	if int(evt.PlayerIndex) != sc.game.PlayerOnTurn() {
+		return nil
+	}
+	switch evt.Type {
+	case pb.GameEvent_TILE_PLACEMENT_MOVE, pb.GameEvent_EXCHANGE, pb.GameEvent_PASS:
+	default:
+		return nil
+	}
+	if sc.curTurnNum+1 < len(history.Events) &&
+		history.Events[sc.curTurnNum+1].Type == pb.GameEvent_PHONY_TILES_RETURNED {
+		return nil
+	}
+	m, err := game.MoveFromEvent(evt, sc.game.Alphabet(), sc.game.Board())
+	if err != nil {
+		log.Debug().Err(err).Msg("could not read the played move out of the game history")
+		return nil
+	}
+	return m
 }
 
 // runSimulationForExplain runs a simulation with the given options
-func (sc *ShellController) runSimulationForExplain(options CmdOptions) error {
+func (sc *ShellController) runSimulationForExplain(options CmdOptions,
+	compare *explainer.ComparisonRequest) error {
 	if sc.simmer == nil {
 		return errors.New("simmer not initialized")
 	}
@@ -2072,12 +2128,17 @@ func (sc *ShellController) runSimulationForExplain(options CmdOptions) error {
 		}
 	}
 
-	// Set up simulation parameters
+	// Set up simulation parameters. The play we're comparing against has to
+	// be simmed however low it ranks, and AvoidPruningMoves adds it to the
+	// sim when move generation didn't produce it at all.
 	params := simParams{
 		threads:           threads,
 		plies:             plies,
 		stoppingCondition: stoppingCondition,
 		knownOppRack:      kr,
+	}
+	if compare != nil && compare.Move != nil {
+		params.avoidTrimMoves = []*move.Move{compare.Move}
 	}
 
 	// Configure the simmer
