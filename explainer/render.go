@@ -109,41 +109,85 @@ func (f *PositionFacts) renderInference() string {
 		}
 	}
 
-	ss.WriteString("\nTiles they are likelier or less likely to hold than chance would give them.\n")
-	ss.WriteString("\"Tiles\" is the difference in tiles of their rack, which is the figure to quote:\n")
+	ss.WriteString("\nWhat they are holding, against what a random rack would hold:\n")
 	for _, t := range inf.Outliers {
 		word := "more"
 		if t.Tiles < 0 {
 			word = "fewer"
 		}
-		fmt.Fprintf(&ss, "  %-4s %+.2f tiles %s than chance  (%.1f%% of the read vs %.1f%% of the unseen pool, %d unseen)\n",
-			t.Tile, t.Tiles, word, t.FoundPct, t.ExpectedPct, t.Unseen)
+		fmt.Fprintf(&ss, "  %-4s holding one %.1f%% of the time, against %.1f%% by chance"+
+			"  (%+.2f tiles %s than chance; %d unseen)\n",
+			t.Tile, t.HoldsPct, t.ChanceHoldsPct, t.Tiles, word, t.Unseen)
 	}
 
 	ss.WriteString("\nWhat the read changed:\n")
-	if inf.ChangedTopPlay && inf.BaselineBest != nil {
-		fmt.Fprintf(&ss, "  Without the read the recommendation would have been %s. With it, %s.\n",
-			inf.BaselineBest.Play, f.Best.Play)
-	} else {
+	ss.WriteString(f.renderReadEffect())
+	return ss.String()
+}
+
+// renderReadEffect says what believing the read does to the recommendation.
+//
+// When the top play changes, the interesting figures are the two plays' standings
+// within each simulation - which one is ahead, and by how much - not either play's
+// win% across them. The two sims assume different things about the opponent's rack,
+// so a play's win% in one is not the same quantity as its win% in the other; the
+// ordering within a single sim is what a player acts on.
+func (f *PositionFacts) renderReadEffect() string {
+	inf := f.Inference
+	var ss strings.Builder
+
+	if !inf.ChangedTopPlay || inf.BaselineBest == nil {
 		fmt.Fprintf(&ss, "  The recommendation is %s either way.\n", f.Best.Play)
-	}
-	if b := inf.BaselineOfBest; b != nil {
-		fmt.Fprintf(&ss, "  %s wins %.2f%% with the read and %.2f%% without it (%+.2f).\n",
-			f.Best.Play, f.Best.WinPct, b.WinPct, inf.WinPctShift)
-		switch {
-		case inf.Decisive:
-			ss.WriteString("  That shift is outside both sims' confidence intervals and big enough " +
-				"to matter. The two runs stopped independently rather than at a matched iteration " +
-				"count, so treat the direction as solid and the exact size as approximate.\n")
-		case inf.Established:
-			ss.WriteString("  That shift is outside the confidence intervals, but it is small; " +
-				"the read is not what makes this play right.\n")
-		default:
-			ss.WriteString("  That shift is inside the confidence intervals, so the read did not " +
-				"measurably change this play's chances.\n")
+		if b := inf.BaselineOfBest; b != nil {
+			fmt.Fprintf(&ss, "  Believing the read moves its win%% from %.2f%% to %.2f%% (%+.2f), "+
+				"which is %s.\n", b.WinPct, f.Best.WinPct, inf.WinPctShift,
+				establishedPhrase(inf))
 		}
+		return ss.String()
+	}
+
+	fmt.Fprintf(&ss, "  Without the read, %s was the best play. With it, %s is.\n",
+		inf.BaselineBest.Play, f.Best.Play)
+
+	// The same two plays as each simulation ranked them.
+	withRival := findCandidate(f.Candidates, inf.BaselineBest.Play)
+	withoutBest := inf.BaselineOfBest
+	if withRival != nil && withoutBest != nil {
+		fmt.Fprintf(&ss, "  Ignoring the read: %s %.2f%%, %s %.2f%% - %s ahead by %.2f.\n",
+			inf.BaselineBest.Play, inf.BaselineBest.WinPct,
+			f.Best.Play, withoutBest.WinPct,
+			inf.BaselineBest.Play, inf.BaselineBest.WinPct-withoutBest.WinPct)
+		fmt.Fprintf(&ss, "  Believing it:      %s %.2f%%, %s %.2f%% - %s ahead by %.2f.\n",
+			f.Best.Play, f.Best.WinPct,
+			inf.BaselineBest.Play, withRival.WinPct,
+			f.Best.Play, f.Best.WinPct-withRival.WinPct)
+		ss.WriteString("  Compare the two plays inside each simulation rather than one play across " +
+			"them: the two runs assume different things about the opponent's rack, so the same " +
+			"play's win% in each is not quite the same quantity.\n")
 	}
 	return ss.String()
+}
+
+func establishedPhrase(inf *InferenceFacts) string {
+	switch {
+	case inf.Decisive:
+		return "outside both sims' confidence intervals and big enough to matter"
+	case inf.Established:
+		return "outside the confidence intervals, but small enough that the read is not what " +
+			"makes this play right"
+	default:
+		return "inside the confidence intervals, so the read did not measurably change this " +
+			"play's chances"
+	}
+}
+
+func findCandidate(candidates []montecarlo.CandidateStats, play string) *montecarlo.CandidateStats {
+	for i := range candidates {
+		if candidates[i].Play == play {
+			return &candidates[i]
+		}
+	}
+	return nil
 }
 
 // renderComparison is the head-to-head. Everything here is arithmetic the

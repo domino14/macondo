@@ -77,11 +77,10 @@ const (
 	candidatesShown = 8
 
 	// A tile is worth naming in a read when the opponent is likely to be
-	// holding this much more or less of it than chance would give them,
-	// measured in tiles of their rack. A ratio would be the wrong scale: a
-	// tile at three times its expected share is startling until you notice
-	// that still only amounts to a twentieth of a tile.
-	inferenceOutlierTiles = 0.4
+	// holding this much more or less of it than chance would give them. Same
+	// bar the rangefinder's own graph marks tiles at, so the explanation and
+	// `infer output` never disagree about which tiles the read is about.
+	inferenceOutlierTiles = rangefinder.NotableTiles
 	// How far the read has to move the recommended play's win% before it is
 	// worth a sentence. Statistical significance isn't enough on its own: two
 	// well-converged sims have narrow intervals, so a third of a point can

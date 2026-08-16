@@ -158,10 +158,21 @@ func TestInferenceIsSilentOnDifferencesThatDontMatter(t *testing.T) {
 func TestInferenceThatChangesThePlay(t *testing.T) {
 	is := is.New(t)
 
-	f := inferredFacts([]rangefinder.TileDeviation{
-		tile("S", 22.0, 8.0, 3, 7),
-		tile("E", 4.0, 15.0, 6, 7),
-	}, "5D (S)CAP(A)", 30.0, 0.9)
+	// Figures shaped like a real read: the game's only Z, three tiles kept,
+	// 83 unseen. HoldsPct is counted straight off the posterior - the weight
+	// of the racks that contain a Z - and 3.6% is 3 draws from 83.
+	//
+	// The tile-slot figures agree with it here, which is worth knowing when
+	// reading a dump by hand: a rack holds 3 slots and the single Z can only
+	// fill one, so its 26.2% share of slots is a 3 x 26.2% = 78.6% share of
+	// racks. That identity only holds for a tile with one copy, which is why
+	// HoldsPct is counted rather than derived.
+	z := tile("Z", 26.2, 1.2, 1, 3)
+	z.HoldsPct, z.ChanceHoldsPct = 78.6, 3.6
+	e := tile("E", 4.0, 15.0, 6, 7)
+	e.HoldsPct, e.ChanceHoldsPct = 21.0, 62.0
+
+	f := inferredFacts([]rangefinder.TileDeviation{z, e}, "5D (S)CAP(A)", 30.0, 0.9)
 
 	inf := f.Inference
 	is.True(inf.Matters)
@@ -181,13 +192,52 @@ func TestInferenceThatChangesThePlay(t *testing.T) {
 
 	is.True(strings.Contains(p.User, "### What the opponent's last play gave away"))
 	is.True(strings.Contains(p.User, "AEINRS"))
-	is.True(strings.Contains(p.User, "+0.98 tiles more than chance"))
+
+	// The probability leads, because it is the thing a player can act on.
+	is.True(strings.Contains(p.User,
+		"Z    holding one 78.6% of the time, against 3.6% by chance"))
+	is.True(strings.Contains(p.User, "+0.75 tiles more than chance"))
 	is.True(strings.Contains(p.User, "-0.77 tiles fewer than chance"))
 	is.True(strings.Contains(p.User,
-		"Without the read the recommendation would have been 5D (S)CAP(A). With it, 12K QU(ID)."))
-	is.True(strings.Contains(p.User, "outside both sims' confidence intervals and big enough"))
+		"Without the read, 5D (S)CAP(A) was the best play. With it, 12K QU(ID) is."))
+
+	// A share of the posterior's tile slots is not a probability and reads
+	// exactly like one, so it stays out of the prompt entirely. The model
+	// really did turn "26.2% of the read" into "26% of their likely racks".
+	is.True(!strings.Contains(p.User, "of the read vs"))
+	is.True(!strings.Contains(p.User, "of the unseen pool"))
+
 	// The tail of near-expected tiles is left out.
 	is.True(!strings.Contains(p.User, "A    "))
+}
+
+// The two sims assume different things about the opponent's rack, so a play's
+// win% in one is not the same quantity as its win% in the other. When the top
+// play changes, what the reader needs is how the two plays stood inside each
+// simulation.
+func TestChangedPlayShowsBothPlaysInBothSims(t *testing.T) {
+	is := is.New(t)
+
+	f := inferredFacts([]rangefinder.TileDeviation{
+		tile("S", 22.0, 8.0, 3, 7),
+	}, "5D (S)CAP(A)", 30.0, 0.9)
+	// Give the dethroned play a showing in the inference sim too, so both
+	// standings can be printed.
+	f.Candidates[1].WinPct = 26.4
+
+	p, err := BuildPrompt(f, false)
+	is.NoErr(err)
+
+	// 5D (S)CAP(A) led by 5.00 without the read; 12K QU(ID) leads by 11.40 with it.
+	is.True(strings.Contains(p.User,
+		"Ignoring the read: 5D (S)CAP(A) 35.00%, 12K QU(ID) 30.00% - 5D (S)CAP(A) ahead by 5.00."))
+	is.True(strings.Contains(p.User,
+		"Believing it:      12K QU(ID) 37.80%, 5D (S)CAP(A) 26.40% - 12K QU(ID) ahead by 11.40."))
+	is.True(strings.Contains(p.User, "rather than one play across"))
+
+	// The cross-sim figure for a single play is gone: it was the number that
+	// looked like nothing had happened while the recommendation flipped.
+	is.True(!strings.Contains(p.User, "with the read and"))
 }
 
 // A win% shift big enough to clear both intervals is worth reporting even when
@@ -208,7 +258,8 @@ func TestInferenceThatOnlyMovesTheWinPct(t *testing.T) {
 	is.True(slices.Contains(p.Concepts, "inference"))
 	is.True(!slices.Contains(p.Concepts, "inference-changed-play"))
 	is.True(strings.Contains(p.User, "The recommendation is 12K QU(ID) either way."))
-	is.True(strings.Contains(p.User, "wins 37.80% with the read and 30.00% without it (+7.80)"))
+	is.True(strings.Contains(p.User,
+		"Believing the read moves its win% from 30.00% to 37.80% (+7.80)"))
 }
 
 // Without a read at all, nothing about inference reaches the prompt - which is
