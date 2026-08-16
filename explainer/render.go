@@ -75,6 +75,74 @@ func (f *PositionFacts) Render() string {
 		ss.WriteString("\n")
 		ss.WriteString(s)
 	}
+	if s := f.renderInference(); s != "" {
+		ss.WriteString("\n")
+		ss.WriteString(s)
+	}
+	return ss.String()
+}
+
+// renderInference describes the read on the opponent's rack, and what having
+// it changed. It writes nothing at all unless both are worth saying - the
+// deciding is done in buildInference, against the numbers.
+func (f *PositionFacts) renderInference() string {
+	inf := f.Inference
+	if inf == nil || !inf.Matters {
+		return ""
+	}
+	s := inf.Summary
+	var ss strings.Builder
+	ss.WriteString("### What the opponent's last play gave away\n")
+	fmt.Fprintf(&ss, "Their last play was run through an inference: every rack they could be "+
+		"holding, weighted by how likely it is that a good player would have made that play "+
+		"from it. %d leaves came out of it", s.NumRacks)
+	if s.ESS > 0 {
+		fmt.Fprintf(&ss, ", with the top three holding %.0f%% of the weight (effective sample size %.1f)",
+			s.TopWeightPct, s.ESS)
+	}
+	ss.WriteString(".\n")
+
+	if len(s.Racks) > 0 {
+		ss.WriteString("\nMost likely racks:\n")
+		for _, r := range s.Racks {
+			fmt.Fprintf(&ss, "  %-10s %5.1f%% of the posterior\n", dashIfEmpty(r.Leave), r.Pct)
+		}
+	}
+
+	ss.WriteString("\nTiles they are likelier or less likely to hold than chance would give them.\n")
+	ss.WriteString("\"Tiles\" is the difference in tiles of their rack, which is the figure to quote:\n")
+	for _, t := range inf.Outliers {
+		word := "more"
+		if t.Tiles < 0 {
+			word = "fewer"
+		}
+		fmt.Fprintf(&ss, "  %-4s %+.2f tiles %s than chance  (%.1f%% of the read vs %.1f%% of the unseen pool, %d unseen)\n",
+			t.Tile, t.Tiles, word, t.FoundPct, t.ExpectedPct, t.Unseen)
+	}
+
+	ss.WriteString("\nWhat the read changed:\n")
+	if inf.ChangedTopPlay && inf.BaselineBest != nil {
+		fmt.Fprintf(&ss, "  Without the read the recommendation would have been %s. With it, %s.\n",
+			inf.BaselineBest.Play, f.Best.Play)
+	} else {
+		fmt.Fprintf(&ss, "  The recommendation is %s either way.\n", f.Best.Play)
+	}
+	if b := inf.BaselineOfBest; b != nil {
+		fmt.Fprintf(&ss, "  %s wins %.2f%% with the read and %.2f%% without it (%+.2f).\n",
+			f.Best.Play, f.Best.WinPct, b.WinPct, inf.WinPctShift)
+		switch {
+		case inf.Decisive:
+			ss.WriteString("  That shift is outside both sims' confidence intervals and big enough " +
+				"to matter. The two runs stopped independently rather than at a matched iteration " +
+				"count, so treat the direction as solid and the exact size as approximate.\n")
+		case inf.Established:
+			ss.WriteString("  That shift is outside the confidence intervals, but it is small; " +
+				"the read is not what makes this play right.\n")
+		default:
+			ss.WriteString("  That shift is inside the confidence intervals, so the read did not " +
+				"measurably change this play's chances.\n")
+		}
+	}
 	return ss.String()
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/montecarlo/stats"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/rangefinder"
 	"github.com/rs/zerolog/log"
 )
 
@@ -74,7 +75,27 @@ const (
 	// contrasting. The shell trims to 5 before it gets here; this bounds the
 	// prompt for anyone who doesn't.
 	candidatesShown = 8
+
+	// A tile is worth naming in a read when the opponent is likely to be
+	// holding this much more or less of it than chance would give them,
+	// measured in tiles of their rack. A ratio would be the wrong scale: a
+	// tile at three times its expected share is startling until you notice
+	// that still only amounts to a twentieth of a tile.
+	inferenceOutlierTiles = 0.4
+	// How far the read has to move the recommended play's win% before it is
+	// worth a sentence. Statistical significance isn't enough on its own: two
+	// well-converged sims have narrow intervals, so a third of a point can
+	// clear them while meaning nothing to a player.
+	inferenceMinWinShift = 1.0
+	// Win percentages this close to the ceiling or the floor mean the game is
+	// decided, and the read isn't going to change that whatever it says.
+	inferenceDecidedPct = 5.0
 )
+
+// InferredRacksShown is how many of the most likely leaves belong in a prompt.
+// The tail is a long list of near-identical racks and says nothing the top few
+// don't. Exported because the caller is what asks the rangefinder for them.
+const InferredRacksShown = 5
 
 // Phase is where in the game we are. It decides which advice applies.
 type Phase string
@@ -144,6 +165,50 @@ type LaneComparison struct {
 	Play  string
 	Best  bool
 	Stats *stats.LaneStats
+}
+
+// InferenceFacts is what the opponent's last play gave away, and whether it
+// changed anything. Both halves matter: a read that says something startling
+// about their rack but leaves the recommendation untouched is a curiosity, not
+// a lesson, and neither half is worth prompt on its own.
+type InferenceFacts struct {
+	Summary *rangefinder.InferenceSummary `json:"summary"`
+	// Outliers are the tiles the read actually says something about, ordered
+	// by how far they deviate from chance.
+	Outliers []rangefinder.TileDeviation `json:"outliers"`
+
+	// Baseline is the same plays simmed without the read, so we can say what
+	// the read changed rather than only what it concluded.
+	Baseline []montecarlo.CandidateStats `json:"-"`
+	// BaselineBest is the play we would have recommended knowing nothing.
+	BaselineBest *montecarlo.CandidateStats `json:"baseline_best"`
+	// BaselineOfBest is the recommended play's own showing in that sim, which
+	// is what WinPctShift is measured against. Nil if it wasn't simmed there.
+	BaselineOfBest *montecarlo.CandidateStats `json:"baseline_of_best"`
+
+	// ChangedTopPlay is the strongest thing a read can do: recommend a
+	// different play than we would have made without it.
+	ChangedTopPlay bool `json:"changed_top_play"`
+	// WinPctShift is the recommended play's win% with the read minus without.
+	WinPctShift float64 `json:"win_pct_shift"`
+	// Established is true when that shift is outside both sims' confidence
+	// intervals. The two runs stop independently, so they aren't equally
+	// sampled - non-overlapping intervals still means a real difference, but
+	// the size of it shouldn't be read too precisely.
+	Established bool `json:"established"`
+	// Decisive is Established plus a practical significance test. A shift can
+	// be statistically real and mean nothing: in a position already won, win
+	// probabilities saturate, their intervals shrink to almost nothing, and a
+	// swing from 97.9% to 97.0% clears the statistical bar while changing
+	// nothing about how to play. Decisive is what gates the subject.
+	Decisive bool `json:"decisive"`
+
+	// Informative is true when the posterior deviates from chance enough to
+	// be worth a sentence.
+	Informative bool `json:"informative"`
+	// Matters gates the whole subject. An uninformative read, or one that
+	// moves nothing, is not mentioned at all.
+	Matters bool `json:"matters"`
 }
 
 // Deltas is the head-to-head arithmetic between the best play and the one it
@@ -221,8 +286,10 @@ var knownFlags = []string{
 	"has_comparison",
 	"has_grouped_followup",
 	"has_lane_data",
+	"has_inference",
 	"has_needed_draw",
 	"has_setup",
+	"inference_changed_play",
 	"leave_matters",
 	"opp_bingo_pct_high",
 	"pre_endgame",
@@ -266,6 +333,10 @@ type PositionFacts struct {
 	// play - usually the one the player actually made.
 	Comparison *Comparison
 
+	// Inference is set when the position was analyzed with a read on the
+	// opponent's rack. It is nil unless `explain -infer` asked for one.
+	Inference *InferenceFacts
+
 	Flags Flags
 }
 
@@ -277,12 +348,24 @@ type ComparisonRequest struct {
 	FromHistory bool
 }
 
+// InferenceInput is a read on the opponent's rack, together with the same
+// plays simmed without it. Both are needed: the read on its own can't say
+// what it changed.
+type InferenceInput struct {
+	Summary *rangefinder.InferenceSummary
+	// Baseline is CandidateStats from a sim run with inference off, best
+	// win% first.
+	Baseline []montecarlo.CandidateStats
+}
+
 // BuildFacts assembles the fact pack for the current position from a finished
 // simulation, and keeps it as what the tools answer from. It must be called
 // after the sim has stopped. A non-nil req asks for a head-to-head against
 // that play; the simulation must already have evaluated it, which is what
-// Simmer.AvoidPruningMoves is for.
-func (a *Analyzer) BuildFacts(sim *montecarlo.Simmer, ss *stats.SimStats, req *ComparisonRequest) (*PositionFacts, error) {
+// Simmer.AvoidPruningMoves is for. A non-nil inf adds what a read on the
+// opponent's rack changed, if anything.
+func (a *Analyzer) BuildFacts(sim *montecarlo.Simmer, ss *stats.SimStats,
+	req *ComparisonRequest, inf *InferenceInput) (*PositionFacts, error) {
 	if a.game == nil {
 		return nil, fmt.Errorf("no game set")
 	}
@@ -322,6 +405,7 @@ func (a *Analyzer) BuildFacts(sim *montecarlo.Simmer, ss *stats.SimStats, req *C
 		}
 	}
 	f.Lanes = laneComparisons(ss, candidates, f.rivalPlay())
+	f.Inference = buildInference(f, inf)
 
 	f.Flags = computeFlags(f)
 	a.facts = f
@@ -412,6 +496,73 @@ func (a *Analyzer) buildComparison(f *PositionFacts, req *ComparisonRequest, idx
 	c.Deltas.RivalUpside = totalUpside(c.RivalFollowups)
 	c.OnlyBest, c.OnlyRival = followupDiff(f.Followups, c.RivalFollowups)
 	return c, nil
+}
+
+// buildInference works out whether the read on the opponent's rack is worth
+// telling the player about. Two things have to be true. The posterior has to
+// deviate from chance by enough to describe - a flat one tells us nothing -
+// and it has to have changed the analysis, either by recommending a different
+// play or by moving the recommended play's win% outside both sims' intervals.
+// A read that is interesting but changes nothing is a curiosity.
+func buildInference(f *PositionFacts, in *InferenceInput) *InferenceFacts {
+	if in == nil || in.Summary == nil {
+		return nil
+	}
+	inf := &InferenceFacts{Summary: in.Summary}
+	for _, t := range in.Summary.Tiles {
+		if abs(t.Tiles) >= inferenceOutlierTiles {
+			inf.Outliers = append(inf.Outliers, t)
+		}
+	}
+	inf.Informative = len(inf.Outliers) > 0
+
+	inf.Baseline = in.Baseline
+	if len(inf.Baseline) > 0 {
+		inf.BaselineBest = &inf.Baseline[0]
+		inf.ChangedTopPlay = !samePlay(f.Best, inf.BaselineBest)
+		for i := range inf.Baseline {
+			if samePlay(f.Best, &inf.Baseline[i]) {
+				inf.BaselineOfBest = &inf.Baseline[i]
+				break
+			}
+		}
+	}
+	if b := inf.BaselineOfBest; b != nil {
+		inf.WinPctShift = f.Best.WinPct - b.WinPct
+		shift := abs(inf.WinPctShift)
+		inf.Established = shift > f.Best.WinPctCI+b.WinPctCI
+		// A won game is won with or without the read. Once both figures are
+		// up against the ceiling (or the floor) what is left of the win
+		// probability is jitter in its last decimal places, and its interval
+		// has shrunk to match - the same reason the simmer refuses to rank
+		// plays by win probability in that regime.
+		inf.Decisive = inf.Established && shift >= inferenceMinWinShift &&
+			!gameDecided(f.Best.WinPct, b.WinPct)
+	}
+
+	inf.Matters = inf.Informative && (inf.ChangedTopPlay || inf.Decisive)
+	return inf
+}
+
+// gameDecided reports whether both win percentages are so lopsided that the
+// game is over either way.
+func gameDecided(a, b float64) bool {
+	bothWon := a > 100-inferenceDecidedPct && b > 100-inferenceDecidedPct
+	bothLost := a < inferenceDecidedPct && b < inferenceDecidedPct
+	return bothWon || bothLost
+}
+
+// samePlay compares two candidates by the move rather than its notation,
+// since the two sims render the same play from the same board and a string
+// compare would work - but the move is what actually identifies it.
+func samePlay(a, b *montecarlo.CandidateStats) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	if a.Move != nil && b.Move != nil {
+		return a.Move.Equals(b.Move, false, true)
+	}
+	return a.Play == b.Play
 }
 
 // totalUpside adds up what a play's big follow-up chances are worth. Chances
@@ -768,6 +919,13 @@ func computeFlags(f *PositionFacts) Flags {
 	if f.Comparison != nil && f.Comparison.Rival != nil {
 		fl["has_comparison"] = true
 		fl["comparison_was_best"] = f.Comparison.WasBest
+	}
+
+	// A read is only a subject when it says something and that something
+	// changed the answer. Otherwise the model never learns there was one.
+	if f.Inference != nil && f.Inference.Matters {
+		fl["has_inference"] = true
+		fl["inference_changed_play"] = f.Inference.ChangedTopPlay
 	}
 	return fl
 }

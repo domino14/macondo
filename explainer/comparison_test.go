@@ -188,7 +188,7 @@ func TestComparisonEndToEnd(t *testing.T) {
 	is.True(len(all) > candidatesShown) // otherwise the trim isn't exercised
 	worst := all[len(all)-1]
 
-	f, err := an.BuildFacts(simmer, simStats, &ComparisonRequest{Move: worst.Move, FromHistory: true})
+	f, err := an.BuildFacts(simmer, simStats, &ComparisonRequest{Move: worst.Move, FromHistory: true}, nil)
 	is.NoErr(err)
 	is.True(f.Comparison != nil)
 
@@ -234,7 +234,7 @@ func TestComparingAgainstTheBestPlayEndToEnd(t *testing.T) {
 	an, simmer, simStats := simulate(t, examplePosition, 8, 3, 120)
 
 	all := simmer.CandidateStats()
-	f, err := an.BuildFacts(simmer, simStats, &ComparisonRequest{Move: all[0].Move})
+	f, err := an.BuildFacts(simmer, simStats, &ComparisonRequest{Move: all[0].Move}, nil)
 	is.NoErr(err)
 
 	is.True(f.Comparison != nil)
@@ -258,7 +258,7 @@ func TestUnsimmedComparisonIsSkipped(t *testing.T) {
 		strings.Fields(DottedPlay("12K QU(ID)")), false)
 	is.NoErr(err)
 
-	f, err := an.BuildFacts(simmer, simStats, &ComparisonRequest{Move: other})
+	f, err := an.BuildFacts(simmer, simStats, &ComparisonRequest{Move: other}, nil)
 	is.NoErr(err)
 	if f.Comparison != nil {
 		// It was in the sim after all, which is fine - just not what this

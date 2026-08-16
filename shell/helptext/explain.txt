@@ -15,6 +15,9 @@ explain [options] - Generate AI explanation for the current position
     -stop <n>       Stop simulation at n% confidence level (default: 99)
     -vs <play>      Explain why the best play beats this one, instead of just
                     why it is good. Use "off" to turn the comparison off.
+    -infer          Read the opponent's rack from their last play, and
+                    simulate both with and without that read
+    -infer-time <n> Seconds to spend inferring (default 20); implies -infer
     -show-prompt    Also print the full prompt that was sent to the model
     -show-previous-prompt
                     Print the last prompt and response instead of explaining
@@ -44,6 +47,25 @@ explain [options] - Generate AI explanation for the current position
 
   If the play you made is the best one, `explain` says so and compares it
   against the runner-up instead.
+
+  Reading the opponent's rack:
+
+  `explain -infer` runs a 20-second inference on the opponent's last play
+  first, then simulates twice: once sampling their rack from what the read
+  concluded, and once ignoring it. The explanation is built on the first, and
+  the second is what lets it say what the read actually changed.
+
+  Nothing about the read reaches the explanation unless it earns its place. It
+  has to say something - some tile has to be meaningfully likelier or less
+  likely than chance, measured in tiles of a rack rather than as a ratio - and
+  it has to have changed the analysis, either by recommending a different play
+  or by moving the recommended play's win% by enough to matter. A read that is
+  interesting but changes nothing is left out, as is one in a position that is
+  already won or lost.
+
+  Expect this to take a while: a 20-second inference plus two full simulations.
+  If there is nothing to infer from, or the inference concludes nothing, you
+  still get an ordinary explanation.
 
   Seeing the prompt:
 

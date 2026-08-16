@@ -94,6 +94,9 @@ type ExplainInput struct {
 	// one the player actually made. The simulation must already have
 	// evaluated it - see Simmer.AvoidPruningMoves.
 	Compare *ComparisonRequest
+	// Inference is the read on the opponent's rack that Simmer was run with,
+	// plus the same plays simmed without it. Nil when no read was taken.
+	Inference *InferenceInput
 }
 
 // ExplainResult contains the explanation from the AI
@@ -115,7 +118,7 @@ func (s *Service) Explain(ctx context.Context, in *ExplainInput) (*ExplainResult
 	}
 	s.analyzer.SetGame(in.Game)
 
-	facts, err := s.analyzer.BuildFacts(in.Simmer, in.SimStats, in.Compare)
+	facts, err := s.analyzer.BuildFacts(in.Simmer, in.SimStats, in.Compare, in.Inference)
 	if err != nil {
 		return nil, fmt.Errorf("failed to analyze position: %w", err)
 	}

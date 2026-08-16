@@ -86,10 +86,61 @@ macondo> explain -plies 4 -stop 95 -opprack TESTING
 - `-opprack <rack>`: Set opponent's rack for simulation
 - `-stop <n>`: Stop simulation at n% confidence level (default: 99)
 - `-vs <play>`: Explain why the best play beats this one (`off` to disable)
+- `-infer`: Read the opponent's rack from their last play and simulate with and without it
+- `-infer-time <n>`: Seconds to spend inferring (default 20); implies `-infer`
 - `-show-prompt`: Also print the full prompt that was sent
 - `-show-previous-prompt`: Print the last prompt and response, without running anything
 
 For more details, use `help explain` or `help setconfig` within Macondo.
+
+### Reading the opponent's rack
+
+`explain -infer` infers what the opponent is holding from the play they just
+made, then simulates twice — once sampling their rack from that read, once
+ignoring it — and explains the first while using the second to say what the
+read changed:
+
+```
+### What the opponent's last play gave away
+Their last play was run through an inference: every rack they could be holding,
+weighted by how likely it is that a good player would have made that play from
+it. 2622 leaves came out of it, with the top three holding 9% of the weight
+(effective sample size 157.2).
+
+Most likely racks:
+  EST          3.7% of the posterior
+  EIS          3.4% of the posterior
+  ...
+
+Tiles they are likelier or less likely to hold than chance would give them:
+  E    +0.41 tiles more than chance  (24.0% of the read vs 10.4% of the unseen pool, 7 unseen)
+
+What the read changed:
+  The recommendation is D4 BRE(A)DING either way.
+  D4 BRE(A)DING wins 65.25% with the read and 66.96% without it (-1.71).
+```
+
+Deviations are reported in **tiles of a rack**, not as ratios. A tile at three
+times its expected share is startling until you notice that still amounts to a
+twentieth of a tile; the difference a player can act on is "about half a tile
+more vowel-heavy than random".
+
+None of this reaches the explanation unless it earns its place. The read has to
+say something — some tile has to deviate by enough to describe — *and* it has
+to have changed the analysis, either by recommending a different play or by
+moving the recommended play's win% by more than a point. Statistical
+significance alone isn't enough: two well-converged sims have narrow intervals,
+and in a position that is already won the win probabilities saturate and their
+intervals shrink to almost nothing, so a swing from 97.9% to 97.0% clears the
+statistical bar while changing nothing about how to play.
+
+A read that changes which play is best is the most instructive case there is,
+and gets its own treatment: the same position has two different right answers
+depending on whether you believe the read.
+
+Expect `explain -infer` to be slow — a 20-second inference plus two full
+simulations. If there's nothing to infer from, you get an ordinary explanation
+and a note saying why.
 
 ### Why is this better than the move I made?
 

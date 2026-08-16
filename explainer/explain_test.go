@@ -60,7 +60,7 @@ func TestBuildFactsEndToEnd(t *testing.T) {
 	is := is.New(t)
 	an, simmer, simStats := simulate(t, examplePosition, 8, 3, 120)
 
-	f, err := an.BuildFacts(simmer, simStats, nil)
+	f, err := an.BuildFacts(simmer, simStats, nil, nil)
 	is.NoErr(err)
 
 	// The position, read off the game rather than described in prose.
@@ -117,7 +117,7 @@ func TestRenderedPromptHasEverySection(t *testing.T) {
 	is := is.New(t)
 	an, simmer, simStats := simulate(t, examplePosition, 8, 3, 120)
 
-	f, err := an.BuildFacts(simmer, simStats, nil)
+	f, err := an.BuildFacts(simmer, simStats, nil, nil)
 	is.NoErr(err)
 	p, err := BuildPrompt(f, false)
 	is.NoErr(err)

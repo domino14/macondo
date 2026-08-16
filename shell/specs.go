@@ -331,6 +331,10 @@ func init() {
 				Help: "also print the full prompt that was sent to the model"},
 			{Name: "show-previous-prompt", Type: OptBool,
 				Help: "print the last prompt and response instead of explaining anything"},
+			{Name: "infer", Type: OptBool, Values: boolValues,
+				Help: "read the opponent's rack from their last play, and sim with and without it"},
+			{Name: "infer-time", Type: OptInt,
+				Help: "seconds to spend inferring (default 20); implies -infer"},
 		},
 	})
 
