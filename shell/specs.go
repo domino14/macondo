@@ -186,7 +186,7 @@ func init() {
 
 	registerSpec(&CommandSpec{
 		Name:  "infer",
-		Verbs: []string{"log", "details", "output"},
+		Verbs: []string{"log", "details", "output", "leave", "ranks"},
 		Options: []Option{
 			{Name: "threads", Type: OptInt},
 			{Name: "time", Type: OptInt},
@@ -194,6 +194,7 @@ func init() {
 
 			{Name: "inferenceiters", Type: OptInt},
 			{Name: "maxleaves", Type: OptInt},
+			{Name: "rounds", Type: OptInt},
 		},
 	})
 

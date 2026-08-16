@@ -100,6 +100,11 @@ const (
 	// InferenceWeightedRandomTiles is deprecated. Use InferenceWeightedRandomRacks instead.
 	InferenceWeightedRandomTiles
 	InferenceWeightedRandomRacks
+	// InferenceCompletePosterior indicates the inferred racks form a complete
+	// posterior over every feasible opponent leave. The simmer samples from
+	// it on every iteration — no sigmoid-gated fallback to random racks,
+	// since there is no uncovered leave space to fall back for.
+	InferenceCompletePosterior
 )
 
 // InferredRack is a rack leave inferred from the opponent's last move,
@@ -316,6 +321,7 @@ type Simmer struct {
 	// See rangefinder.
 	inferences               []InferredRack
 	inferenceMode            InferenceMode
+	inferenceCDF             []float64 // cumulative weights over inferences, built once
 	tilesToInfer             int
 	adjustedBagProbabilities []float64
 	unseenToSimmingPlayer    map[tilemapping.MachineLetter]int
@@ -503,6 +509,20 @@ func (s *Simmer) SetInferences(racks []InferredRack, rackLength int, mode Infere
 	s.inferences = racks
 	s.tilesToInfer = rackLength
 	s.inferenceMode = mode
+	// Precompute the sampling CDF once; weightedInferredDrawRacks
+	// binary-searches it on every iteration.
+	s.inferenceCDF = nil
+	if len(racks) > 0 {
+		cdf := make([]float64, len(racks))
+		sum := 0.0
+		for i, ir := range racks {
+			sum += ir.Weight
+			cdf[i] = sum
+		}
+		if sum > 0 {
+			s.inferenceCDF = cdf
+		}
+	}
 }
 
 // SetWMP wires a WMP into every per-thread move generator that the simmer
@@ -817,11 +837,24 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 	opp := (s.initialPlayer + 1) % g.NumPlayers()
 	rackToSet := s.knownOppRack
 	var err error
-	if s.inferenceMode != InferenceOff {
-
-		// Use a sigmoid to determine alpha: the probability of sampling from
-		// inferred racks rather than drawing a fully random rack.
-		// Fewer inferences = lower confidence in coverage = more random fallback.
+	if s.inferenceMode == InferenceCompletePosterior {
+		// The inferences cover every feasible leave with Bayesian posterior
+		// weights, so sample from them on every iteration. There is no
+		// uncovered leave space to fall back to random draws for.
+		rackToSet = nil
+		if len(s.inferenceCDF) > 0 {
+			rackToSet, err = s.weightedInferredDrawRacks()
+			if err != nil {
+				return err
+			}
+		}
+	} else if s.inferenceMode != InferenceOff {
+		// Legacy partial-sample modes (currently only exchange inference
+		// produces these): the inferred racks cover an unknown fraction of
+		// the leave space, so use a sigmoid to determine alpha: the
+		// probability of sampling from inferred racks rather than drawing a
+		// fully random rack. Fewer inferences = lower confidence in
+		// coverage = more random fallback.
 		const maxAlpha = 0.95
 		const midpoint = 10.0
 		const sigmoidScale = 5.0
@@ -1268,24 +1301,18 @@ func weightedChoice(tiles []tilemapping.MachineLetter, weights []float64) (tilem
 }
 
 func (s *Simmer) weightedInferredDrawRacks() ([]tilemapping.MachineLetter, error) {
-	if len(s.inferences) == 0 {
+	cdf := s.inferenceCDF
+	if len(cdf) == 0 {
 		return nil, errors.New("no inferences available")
 	}
-
-	// Build cumulative weights over the []InferredRack slice.
-	cumulative := make([]float64, len(s.inferences))
-	cumulative[0] = s.inferences[0].Weight
-	for i := 1; i < len(s.inferences); i++ {
-		cumulative[i] = cumulative[i-1] + s.inferences[i].Weight
+	r := rand.Float64() * cdf[len(cdf)-1]
+	// First index whose cumulative weight strictly exceeds r; strict
+	// comparison so zero-weight entries can never be selected.
+	i := sort.Search(len(cdf), func(j int) bool { return cdf[j] > r })
+	if i >= len(cdf) {
+		i = len(cdf) - 1
 	}
-
-	r := rand.Float64() * cumulative[len(cumulative)-1]
-	for i, cw := range cumulative {
-		if r < cw {
-			return s.inferences[i].Leave, nil
-		}
-	}
-	return s.inferences[len(s.inferences)-1].Leave, nil
+	return s.inferences[i].Leave, nil
 }
 
 func (s *Simmer) calculateWeightedProbabilitiesForBag() {
