@@ -103,7 +103,14 @@ func EnsureWMP(cfg *wglconfig.Config, name string) (*WMP, error) {
 		// execution environment across invocations -- Lambda does -- this is
 		// the common case after the first one, and the whole reason the load
 		// or build cost is worth paying at all.
-		logWMP(name, "wmp-from-memory").Msg("word map already in memory")
+		//
+		// Debug rather than info because it is the boring answer, and because
+		// callers that build a simmer per thread produce one of these per
+		// thread: an inference on a 16-core machine printed sixteen of them
+		// in ten milliseconds. The event still counts towards
+		// wmp_events_this_process, so the next load or build says how many
+		// cache hits preceded it.
+		logWMPDebug(name, "wmp-from-memory").Msg("word map already in memory")
 		return w, nil
 	}
 
@@ -185,7 +192,20 @@ var (
 )
 
 func logWMP(lexicon, event string) *zerolog.Event {
-	return log.Info().
+	return wmpEvent(log.Info(), lexicon, event)
+}
+
+// logWMPDebug is for the events a reader only wants when they are chasing
+// something: the cache hits, which say nothing happened.
+func logWMPDebug(lexicon, event string) *zerolog.Event {
+	return wmpEvent(log.Debug(), lexicon, event)
+}
+
+// wmpEvent counts the event whether or not the level it is logged at is
+// enabled, so wmp_events_this_process stays a true count of how often the
+// cache was consulted rather than a count of the lines that got printed.
+func wmpEvent(e *zerolog.Event, lexicon, event string) *zerolog.Event {
+	return e.
 		Str("event", event).
 		Str("lexicon", lexicon).
 		Int64("wmp_events_this_process", wmpEvents.Add(1)).
