@@ -58,6 +58,10 @@ const (
 	bigChanceScoreRatio = 1.25
 	bigChanceMinUpside  = 1.0
 
+	// Below this share of the follow-ups left over, there is nothing to
+	// measure a chance against: it *is* the turn. See chanceBaseline.
+	minChanceRestShare = 0.01
+
 	// A bingo chance worth remarking on. The average turn is around 20%.
 	ourBingoPctHigh = 35.0
 	oppBingoPctHigh = 30.0
@@ -128,9 +132,13 @@ type FollowupFact struct {
 	// comes up often enough for that to be worth playing for, whether or not
 	// our play is what created it.
 	IsBigChance bool `json:"is_big_chance"`
-	// Upside is expected points above an ordinary next turn: how often this
-	// play comes up times how much bigger than average it is.
+	// Upside is expected points above a next turn without this chance in it:
+	// how often the play comes up times how much bigger it is than the turns
+	// where it doesn't. See judgeChances for why the comparison is against
+	// those turns rather than against the mean of all of them.
 	Upside float64 `json:"upside"`
+	// Baseline is what those turns are worth.
+	Baseline float64 `json:"baseline"`
 }
 
 // AvgScore is the score across the ways of making this play, weighted by how
@@ -177,6 +185,12 @@ type FollowupCluster struct {
 	IsSetup     bool    `json:"is_setup"`
 	IsBigChance bool    `json:"is_big_chance"`
 	Upside      float64 `json:"upside"`
+	// Baseline is what our next turn is worth when this chance does not come
+	// up, which is what Upside is measured over. It is not the play's mean
+	// next turn: a chance that comes up often is a large part of that mean,
+	// and measuring it against a number it dominates hides it. See
+	// chanceBaseline.
+	Baseline float64 `json:"baseline"`
 }
 
 // labelWords is how many of a cluster's plays get named in its label before it
@@ -327,11 +341,20 @@ type Deltas struct {
 	OurMeanScore float64 `json:"our_mean_score"`
 	OurBingoPct  float64 `json:"our_bingo_pct"`
 	// BestUpside and RivalUpside are the expected points each play's big
-	// follow-up chances are worth on top of an ordinary turn. The gap between
-	// them is often the whole reason one play wins, and it is invisible in
-	// every other figure here.
+	// follow-up chances add to its next turn, over a next turn without them.
+	// The gap between them is often the whole reason one play wins, and it is
+	// invisible in every other figure here.
 	BestUpside  float64 `json:"best_upside"`
 	RivalUpside float64 `json:"rival_upside"`
+	// ChancesShare and OrdinaryShare split OurMeanScore into the part that is
+	// the two plays' big chances and the part that is their ordinary turns.
+	// They add to OurMeanScore, which is the whole point of them: without the
+	// split, the mean difference and the upside difference read as two
+	// separate arguments for the same play when they are one argument counted
+	// twice. SplitKnown is false when a play has no second ply to split.
+	ChancesShare  float64 `json:"chances_share"`
+	OrdinaryShare float64 `json:"ordinary_share"`
+	SplitKnown    bool    `json:"split_known"`
 	// Established is true when the two win% confidence intervals don't
 	// overlap. When it is false the simulation has not actually shown one
 	// play to be better, and saying so would be overclaiming.
@@ -358,8 +381,11 @@ type Comparison struct {
 	RivalFollowups []*FollowupFact            `json:"rival_followups"`
 	// RivalChances is RivalFollowups gathered into opportunities.
 	RivalChances []*FollowupCluster `json:"rival_chances"`
-	// TypicalNextScore is what an ordinary next turn is worth after the rival.
+	// TypicalNextScore is what our next turn averages after the rival, and
+	// ChanceBaseline is what it is worth when none of the rival's chances come
+	// up. See judgeChances.
 	TypicalNextScore float64 `json:"typical_next_score"`
+	ChanceBaseline   float64 `json:"chance_baseline"`
 
 	Deltas Deltas `json:"deltas"`
 
@@ -426,9 +452,13 @@ type PositionFacts struct {
 	// upside, biggest first.
 	Chances []*FollowupCluster
 	Lanes   []*LaneComparison
-	// TypicalNextScore is what an ordinary next turn is worth after the best
-	// play. It is the yardstick every follow-up chance is measured against.
+	// TypicalNextScore is what our next turn averages after the best play,
+	// chances and all.
 	TypicalNextScore float64
+	// ChanceBaseline is what that turn is worth when none of the chances come
+	// up, which is what every chance is measured against - see judgeChances.
+	// The gap between the two is what the chances are worth.
+	ChanceBaseline float64
 
 	// BestByEquity is the candidate with the highest equity, which is not
 	// always the one with the highest win%.
@@ -599,9 +629,19 @@ func (a *Analyzer) buildComparison(f *PositionFacts, req *ComparisonRequest, idx
 		return nil, err
 	}
 	c.RivalChances = clusterFollowups(c.RivalFollowups, c.Rival.Play, c.TypicalNextScore)
+	c.ChanceBaseline = chancesBaseline(c.RivalChances, c.TypicalNextScore)
 	c.Deltas = a.deltas(f, c.Rival, c.RivalPlayStats)
 	c.Deltas.BestUpside = totalUpside(f.Chances)
 	c.Deltas.RivalUpside = totalUpside(c.RivalChances)
+	// Each play's upside is the gap between its own mean next turn and its own
+	// chanceless one, so the difference between the two upsides is that much
+	// of the next-turn difference, and the rest of it is the plays' ordinary
+	// turns. Taking the ordinary part as the remainder rather than as its own
+	// subtraction keeps the split adding up to the figure above it even when a
+	// baseline has been clamped.
+	c.Deltas.ChancesShare = c.Deltas.BestUpside - c.Deltas.RivalUpside
+	c.Deltas.OrdinaryShare = c.Deltas.OurMeanScore - c.Deltas.ChancesShare
+	c.Deltas.SplitKnown = f.TypicalNextScore > 0 && c.TypicalNextScore > 0
 	c.OnlyBest, c.OnlyRival = followupDiff(f.Followups, c.RivalFollowups)
 	return c, nil
 }
@@ -839,9 +879,12 @@ func (a *Analyzer) analyzeFollowups(bestPlay string, typicalScore float64,
 		}
 		fact.IsSetup = fact.Requirement() == requiresBestPlay(bestPlay) &&
 			fam.Pct >= setupMinPct && fam.MaxScore >= setupMinScore
-		fact.Upside, fact.IsBigChance = bigChance(fact, typicalScore)
 		out = append(out, fact)
 	}
+	// The plays are weighed as a set, since each of them is a share of the
+	// same distribution of next turns. clusterFollowups weighs the same
+	// distribution again, cut into opportunities rather than into spellings.
+	judgeChances(judgeable(out), typicalScore)
 	return out, nil
 }
 
@@ -850,32 +893,196 @@ func requiresBestPlay(bestPlay string) string {
 }
 
 // bigChance decides whether a follow-up is one of the plays worth building a
-// turn around, and by how much. typicalScore is what an ordinary next turn is
-// worth after this play, so every chance is judged against the alternative
-// the player actually faces rather than against a fixed number of points.
+// turn around, and by how much. meanScore is what our next turn averages after
+// this play, so every chance is judged against the alternative the player
+// actually faces rather than against a fixed number of points.
 //
 // The old rule here was a flat "at least 10% of the time and at least 40
 // points", which quietly discarded the most interesting plays on the board: a
 // 6% chance at 130 failed it, while an 11% chance at 23 passed. Weighing size
 // against frequency is the whole point.
-func bigChance(f *FollowupFact, typicalScore float64) (upside float64, big bool) {
-	return bigChanceOf(f.Pct, f.AvgScore(), typicalScore)
+func bigChance(f *FollowupFact, meanScore float64) (upside float64, big bool) {
+	return bigChanceOf(f.Pct, f.AvgScore(), meanScore)
 }
 
 // bigChanceOf is the same judgment on bare numbers, so that a cluster of plays
-// taking one opportunity is weighed exactly as a single play is.
-func bigChanceOf(pct, score, typicalScore float64) (upside float64, big bool) {
-	if typicalScore <= 0 {
+// taking one opportunity is weighed exactly as a single play is. It weighs the
+// chance on its own, which is how judgeChances seeds itself; the figures that
+// reach the prompt come from there, with every chance taken out at once.
+func bigChanceOf(pct, score, meanScore float64) (upside float64, big bool) {
+	if meanScore <= 0 {
 		// No baseline to judge against - the sim didn't look far enough
 		// ahead - so claim nothing.
 		return 0, false
 	}
-	upside = pct / 100 * (score - typicalScore)
-	return upside, score >= typicalScore*bigChanceScoreRatio && upside >= bigChanceMinUpside
+	baseline := chanceBaseline(pct, score, meanScore)
+	return upsideOver(pct, score, baseline), isBigChance(pct, score, baseline)
 }
 
-// typicalNextScore is what an ordinary turn is worth for us after a play: the
-// mean of our own scores two plies out.
+// upsideOver is expected points: how often the chance comes up times how much
+// bigger it is than a turn without it.
+func upsideOver(pct, score, baseline float64) float64 {
+	return pct / 100 * (score - baseline)
+}
+
+// isBigChance is the pair of gates, against whatever baseline the caller has
+// decided a turn without this chance is worth.
+func isBigChance(pct, score, baseline float64) bool {
+	return score >= baseline*bigChanceScoreRatio &&
+		upsideOver(pct, score, baseline) >= bigChanceMinUpside
+}
+
+// judged is one thing being weighed as a chance: a single follow-up play, or a
+// cluster of plays taking one opportunity between them. Both are a share of
+// the same distribution of next turns, so both are weighed by the same rule.
+type judged interface {
+	// shareAndScore is how often this comes up, as a percentage of our
+	// sampled follow-ups, and what it scores when it does.
+	shareAndScore() (pct, score float64)
+	judge(baseline, upside float64, big bool)
+}
+
+func (f *FollowupFact) shareAndScore() (float64, float64) { return f.Pct, f.AvgScore() }
+
+func (f *FollowupFact) judge(baseline, upside float64, big bool) {
+	f.Baseline, f.Upside, f.IsBigChance = baseline, upside, big
+}
+
+func (c *FollowupCluster) shareAndScore() (float64, float64) { return c.Pct, c.AvgScore }
+
+func (c *FollowupCluster) judge(baseline, upside float64, big bool) {
+	c.Baseline, c.Upside, c.IsBigChance = baseline, upside, big
+}
+
+func judgeable[T judged](items []T) []judged {
+	out := make([]judged, len(items))
+	for i := range items {
+		out[i] = items[i]
+	}
+	return out
+}
+
+// judgeChances weighs a play's follow-ups against the turns where none of its
+// chances came up, marks the ones worth building a turn around, and returns
+// what those chanceless turns are worth.
+//
+// One baseline serves every chance, and that is the point of doing this to the
+// set rather than to each chance in turn. A chance taken out of the mean on
+// its own is still being measured against turns that contain every *other*
+// chance, so two big hooks each hide behind the other: two 40%-at-60-points
+// hooks over 20-point junk report five points of upside apiece when the pair
+// is worth thirty-two. Taking them out together is what makes the upsides add
+// up, and they add up exactly - to the mean minus the baseline, the whole gap
+// between the turn this play gets and the turn it would get with none of its
+// chances in it.
+//
+// The set has to be seeded with the one-at-a-time judgment rather than with
+// the mean, or the case this all exists for never starts. Judged against a
+// mean it makes up most of, a 63% hook does not qualify; nothing is excluded,
+// the baseline never moves, and the loop converges on the bug. Seeding
+// marginally breaks the deadlock, and from there the set only grows - taking a
+// chance out lowers the baseline, and a lower baseline can only let more in -
+// so this settles in at most one round per chance.
+func judgeChances(cs []judged, meanScore float64) float64 {
+	if meanScore <= 0 {
+		for _, c := range cs {
+			c.judge(0, 0, false)
+		}
+		return 0
+	}
+
+	big := make([]bool, len(cs))
+	for i, c := range cs {
+		pct, score := c.shareAndScore()
+		_, big[i] = bigChanceOf(pct, score, meanScore)
+	}
+
+	baseline := meanScore
+	for range len(cs) + 1 {
+		baseline = jointBaseline(cs, big, meanScore)
+		changed := false
+		for i, c := range cs {
+			pct, score := c.shareAndScore()
+			if b := isBigChance(pct, score, baseline); b != big[i] {
+				big[i], changed = b, true
+			}
+		}
+		if !changed {
+			break
+		}
+	}
+
+	for i, c := range cs {
+		pct, score := c.shareAndScore()
+		c.judge(baseline, upsideOver(pct, score, baseline), big[i])
+	}
+	return baseline
+}
+
+// jointBaseline is what our next turn is worth in the samples where none of
+// the chances came up: the mean with all of them taken out at once.
+func jointBaseline(cs []judged, big []bool, meanScore float64) float64 {
+	share, weighted := 0.0, 0.0
+	for i, c := range cs {
+		if !big[i] {
+			continue
+		}
+		pct, score := c.shareAndScore()
+		share += pct / 100
+		weighted += pct / 100 * score
+	}
+	return residualMean(share, weighted, meanScore)
+}
+
+// chanceBaseline is what our next turn is worth in the samples where this
+// chance does not come up: the mean of every other follow-up.
+//
+// Judging a chance against the play's overall mean is circular, and the
+// circularity bites hardest exactly where it matters most. The mean already
+// contains the chance, weighted by how often it comes up, so a chance that
+// comes up most of the time *is* the mean and can never be a quarter bigger
+// than it. On a real position - N10 ME(E)T keeping Q, with a 56-point Q hook
+// available 63% of the time - the mean next turn was 48.6, the ratio gate
+// asked for 60.7, and the biggest thing on the board scored zero. The rival
+// play's rare 6.9% hook passed the same gate comfortably, because being rare
+// is what leaves a play's own baseline alone. Reliability was being punished.
+//
+// Taking the chance back out of the mean is what "an ordinary turn" was always
+// meant to be. The mean is a weighted average of the chance and everything
+// else, so everything else falls straight out of it, and upside becomes a
+// quantity worth printing: how much this play's follow-up is worth *because*
+// of the chance, over a world without it. Rare chances barely move their own
+// baseline and are judged as they always were.
+func chanceBaseline(pct, score, meanScore float64) float64 {
+	return residualMean(pct/100, pct/100*score, meanScore)
+}
+
+// residualMean takes a share of the follow-ups out of the mean and returns
+// what the rest of them average. share is how much of the distribution is
+// being removed and weighted is what that share contributes to the mean.
+//
+// The arithmetic is one line because the mean is a weighted average of the
+// part being removed and the part being kept, so the part being kept falls
+// straight out of it. What it cannot do is separate signal from sample: when
+// almost everything is taken out, the few percent left over carry the whole
+// answer, and it gets noisy. The gates stay right in that case - a chance
+// that is most of the turn towers over whatever is left - but the printed
+// number is worth less than it looks.
+func residualMean(share, weighted, meanScore float64) float64 {
+	rest := 1 - share
+	if rest < minChanceRestShare {
+		// The chances are the whole turn. There is no "otherwise" left to
+		// compare them against, and meanScore is by then their own score, so
+		// nothing will clear the ratio - which is right: what this play is
+		// worth is the mean, and the mean is already reported.
+		return meanScore
+	}
+	baseline := (meanScore - weighted) / rest
+	// Percentages and the mean come from different tallies of the same
+	// simulation, so a dominant chance can drive this slightly out of range.
+	return min(max(baseline, 0), meanScore)
+}
+
 // reCoord is a board coordinate: a row number and a column letter, in either
 // order. Anything else came from a play that isn't a placement, and a
 // coordinate parser will quietly return the top-left square for it.
@@ -954,6 +1161,7 @@ func anchorOf(play string, tilePlay bool) (key, label, through string) {
 func (f *PositionFacts) SetFollowups(fs []*FollowupFact) {
 	f.Followups = fs
 	f.Chances = clusterFollowups(fs, f.Best.Play, f.TypicalNextScore)
+	f.ChanceBaseline = chancesBaseline(f.Chances, f.TypicalNextScore)
 }
 
 // clusterFollowups gathers the follow-ups that take the same opportunity and
@@ -990,11 +1198,21 @@ func clusterFollowups(fs []*FollowupFact, bestPlay string, typical float64) []*F
 		// are counted together.
 		c.IsSetup = c.Requirement() == requiresBestPlay(bestPlay) &&
 			c.Pct >= setupMinPct && c.MaxScore >= setupMinScore
-		c.Upside, c.IsBigChance = bigChanceOf(c.Pct, c.AvgScore, typical)
 		out = append(out, c)
 	}
+	judgeChances(judgeable(out), typical)
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Upside > out[j].Upside })
 	return out
+}
+
+// chancesBaseline is what a play's turns are worth when none of its chances
+// come up. Every cluster carries it - they are all judged against the same one
+// - so this is only reaching for it where the rendering needs it once.
+func chancesBaseline(cs []*FollowupCluster, meanScore float64) float64 {
+	if len(cs) == 0 {
+		return meanScore
+	}
+	return cs[0].Baseline
 }
 
 // clusterAvgScore is the score across every play in the cluster, weighted by
@@ -1012,6 +1230,9 @@ func clusterAvgScore(c *FollowupCluster) float64 {
 	return total / weight
 }
 
+// typicalNextScore is what our next turn averages after a play: the mean of
+// our own scores two plies out. It is the total, chances included, which is
+// why chanceBaseline takes a chance back out of it before judging that chance.
 func typicalNextScore(c *montecarlo.CandidateStats) float64 {
 	if p := plyStats(c, 2); p != nil {
 		return p.MeanScore

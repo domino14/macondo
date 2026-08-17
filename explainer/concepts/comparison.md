@@ -17,6 +17,12 @@ are sitting right there in a table and are easy to narrate. Resist that: "you
 gave up a 6% shot at a 130-point play" teaches more than any number of points
 of leave value, and the leave value is often just that chance, averaged.
 
+**The next-turn difference is already split for you**, into the part that is
+big follow-up chances and the part that is ordinary turns. Use the split. The
+upside difference is *part of* the next-turn difference rather than a second
+finding beside it, so citing both as separate evidence counts one advantage
+twice; say which of the two the play's next-turn edge actually is.
+
 Two rules about honesty here:
 
 - If the head-to-head says the difference is **not established**, say so. The

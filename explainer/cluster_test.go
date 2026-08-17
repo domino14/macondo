@@ -54,7 +54,12 @@ func TestOneHookTakenFourWaysIsOneChance(t *testing.T) {
 	is.Equal(len(c.Plays), 4)
 	near(t, c.Pct, 15.79)
 	near(t, c.AvgScore, 48.60)
-	near(t, c.Upside, 2.30)
+	// The hook is 15.79% of the 34.05-point mean, so the turns without it are
+	// worth 31.32, and the hook is what the other 2.73 points of the mean are:
+	// baseline plus upside is the mean, always.
+	near(t, c.Baseline, 31.32)
+	near(t, c.Upside, 2.73)
+	near(t, c.Baseline+c.Upside, typical)
 	is.True(c.IsBigChance)
 
 	// The likeliest play leads, so a coach naming one names the one a reader
@@ -63,6 +68,97 @@ func TestOneHookTakenFourWaysIsOneChance(t *testing.T) {
 	is.Equal(c.MinScore, 46)
 	is.Equal(c.MaxScore, 52)
 	is.Equal(c.Label(), "(QUAD) in row 2")
+}
+
+// A chance can be so reliable that it becomes its own baseline, and judging it
+// against the play's mean next turn then asks it to be a quarter bigger than
+// itself. These are the sampled follow-ups after N10 ME(E)T, which keeps QU
+// for a hook at B2 worth 56 points 63% of the time: the mean next turn is
+// 48.58 *because of* that hook, and the old rule scored the biggest thing on
+// the board at zero for it.
+func TestADominantChanceIsStillAChance(t *testing.T) {
+	is := is.New(t)
+	const mean = 48.58
+
+	cs := clusterFollowups([]*FollowupFact{
+		followup("B2 Q(U)AFF", 32.34, 56),
+		followup("B2 Q(U)IFF", 30.97, 56),
+		followup("B2 N(U)FF", 2.07, 20),
+		followup("B2 B(U)FF", 1.24, 24),
+		followup("B2 Q(U)OD", 1.16, 28),
+		followup("B2 C(U)FF", 1.16, 24),
+		followup("B2 B(U)FFO", 0.63, 30),
+		followup("B2 B(U)FFY", 0.55, 48),
+		followup("B2 G(U)FF", 0.55, 22),
+		followup("B2 Q(U)ERN", 0.51, 32),
+	}, "N10 ME(E)T", mean)
+
+	is.Equal(len(cs), 1)
+	c := cs[0]
+	is.Equal(c.Label(), "(U) in column B")
+	near(t, c.Pct, 71.18)
+	near(t, c.AvgScore, 52.69)
+
+	// The hook is most of the mean, so it cannot clear a bar set at 1.25 times
+	// that mean. This is the whole bug, kept here as an assertion.
+	is.True(c.AvgScore < mean*bigChanceScoreRatio)
+
+	// Taken back out, the turns without it are worth 38, and the hook is what
+	// the other ten points of the mean are.
+	near(t, c.Baseline, 38.43)
+	near(t, c.Upside, 10.15)
+	near(t, c.Baseline+c.Upside, mean)
+	is.True(c.IsBigChance)
+}
+
+// Two hooks of the same size hide behind each other when each is taken out of
+// the mean on its own: the baseline the first one is measured against still
+// contains the second. Taking both out at once is what makes the pair add up
+// to what it is worth.
+func TestTwoBigChancesDoNotHideBehindEachOther(t *testing.T) {
+	is := is.New(t)
+	// 40% at 60, 40% at 60, 20% at 20 - so the mean next turn is 52, and a
+	// turn with neither hook in it is worth 20.
+	const mean = 52.0
+
+	fs := []*FollowupFact{
+		followup("2F (QUAD)RUPLE", 40, 60),
+		followup("1H (Z)WIEBACK", 40, 60),
+		followup("3L PURL", 20, 20),
+	}
+
+	// One at a time: each hook is weighed against a turn that still has the
+	// other hook in it, which is nearly as good, so each looks like a third of
+	// what it is.
+	marginal, big := bigChance(fs[0], mean)
+	is.True(big)
+	near(t, marginal, 5.33)
+
+	cs := clusterFollowups(fs, "best", mean)
+	is.Equal(len(cs), 3)
+	byPlay := map[string]*FollowupCluster{}
+	for _, c := range cs {
+		byPlay[c.Label()] = c
+	}
+	quad, zwie, junk := byPlay["2F (QUAD)RUPLE"], byPlay["1H (Z)WIEBACK"], byPlay["3L PURL"]
+
+	// Both out at once, and the baseline is the 20-point turn that is what's
+	// actually left when neither hook comes up.
+	near(t, quad.Baseline, 20)
+	near(t, quad.Upside, 16)
+	near(t, zwie.Upside, 16)
+	is.True(quad.IsBigChance)
+	is.True(zwie.IsBigChance)
+	is.True(marginal*2 < quad.Upside+zwie.Upside)
+
+	// Which is the property worth having: the upsides account for the whole
+	// gap between the turn this play gets and the turn it would get with
+	// neither hook available.
+	near(t, quad.Upside+zwie.Upside, mean-quad.Baseline)
+
+	// And the junk that makes up the baseline is not itself promoted by the
+	// baseline dropping to it.
+	is.True(!junk.IsBigChance)
 }
 
 // The same frequency and a third of the size is not the same finding. These
@@ -188,13 +284,14 @@ func TestAClusterIsReportedWithItsPlays(t *testing.T) {
 	}, "C10 TIFO", 34.05)
 
 	out := renderChances("### Chances", &montecarlo.CandidateStats{
-		Play: "C10 TIFO", Leave: "PRU"}, 34.05, cs)
+		Play: "C10 TIFO", Leave: "PRU"}, chancesBaseline(cs, 34.05), cs)
 
-	// The opportunity, sized whole.
+	// The opportunity, sized whole, against the turns it doesn't come up in.
 	is.True(strings.Contains(out, "(QUAD) in row 2"))
 	is.True(strings.Contains(out, "46-52 pts"))
 	is.True(strings.Contains(out, "15.79% of the time"))
-	is.True(strings.Contains(out, "upside +2.3"))
+	is.True(strings.Contains(out, "upside +2.7"))
+	is.True(strings.Contains(out, "none of these chances comes up - is worth about 31"))
 
 	// And every way of taking it, named and priced.
 	for _, play := range []string{"RUPLE", "RUPLY", "RUPED", "RUPOLE"} {
@@ -207,7 +304,7 @@ func TestAClusterIsReportedWithItsPlays(t *testing.T) {
 		followup("15G PREAD(JUST)", 11.5, 57),
 	}, "12K QU(ID)", 34.05)
 	out = renderChances("### Chances", &montecarlo.CandidateStats{
-		Play: "12K QU(ID)"}, 34.05, one)
+		Play: "12K QU(ID)"}, chancesBaseline(one, 34.05), one)
 	is.True(strings.Contains(out, "15G PREAD(JUST)"))
 	is.True(!strings.Contains(out, "in row 15"))
 	is.Equal(strings.Count(out, "15G PREAD(JUST)"), 1)
