@@ -77,11 +77,14 @@ const (
 	// prompt for anyone who doesn't.
 	candidatesShown = 8
 
-	// A tile is worth naming in a read when the opponent is likely to be
-	// holding this much more or less of it than chance would give them. Same
-	// bar the rangefinder's own graph marks tiles at, so the explanation and
-	// `infer output` never disagree about which tiles the read is about.
-	inferenceOutlierTiles = rangefinder.NotableTiles
+	// A tile is worth naming when the read moves the chance they hold one by
+	// this many percentage points. Measuring in expected tiles instead - the
+	// bar this replaced - made the threshold depend on how many tiles the
+	// opponent was holding, since a 3-tile rack has only three slots for any
+	// deviation to live in. A read taking the S from 9% to 34% came out as a
+	// quarter of a tile and was discarded, on a rack where that is a soul
+	// read. The shape of the rack is judged separately, by RackShape.Notable.
+	inferenceOutlierPoints = 15.0
 	// How far the read has to move the recommended play's win% before it is
 	// worth a sentence. Statistical significance isn't enough on its own: two
 	// well-converged sims have narrow intervals, so a third of a point can
@@ -265,8 +268,13 @@ type LaneComparison struct {
 type InferenceFacts struct {
 	Summary *rangefinder.InferenceSummary `json:"summary"`
 	// Outliers are the tiles the read actually says something about, ordered
-	// by how far they deviate from chance.
+	// by how far it moved them.
 	Outliers []rangefinder.TileDeviation `json:"outliers"`
+	// ShapeRead is set when the read is about the makeup of the rack rather
+	// than about any one tile. It is a separate finding because it can be the
+	// only one: a read can leave every letter within a tenth of a tile of
+	// chance and still say, unmistakably, that they kept consonants.
+	ShapeRead *rangefinder.RackShape `json:"shape_read,omitempty"`
 
 	// Baseline is the same plays simmed without the read, so we can say what
 	// the read changed rather than only what it concluded.
@@ -609,12 +617,15 @@ func buildInference(f *PositionFacts, in *InferenceInput) *InferenceFacts {
 		return nil
 	}
 	inf := &InferenceFacts{Summary: in.Summary}
+	if in.Summary.Shape.Notable() {
+		inf.ShapeRead = in.Summary.Shape
+	}
 	for _, t := range in.Summary.Tiles {
-		if abs(t.Tiles) >= inferenceOutlierTiles {
+		if abs(t.HoldsPct-t.ChanceHoldsPct) >= inferenceOutlierPoints {
 			inf.Outliers = append(inf.Outliers, t)
 		}
 	}
-	inf.Informative = len(inf.Outliers) > 0
+	inf.Informative = len(inf.Outliers) > 0 || inf.ShapeRead != nil
 
 	inf.Baseline = in.Baseline
 	if len(inf.Baseline) > 0 {

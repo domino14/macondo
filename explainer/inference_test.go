@@ -10,12 +10,16 @@ import (
 	"github.com/matryer/is"
 )
 
-// tile builds one row of the per-tile read. pct figures are shares; the
-// deviation in tiles of a rack is what the gate actually looks at.
-func tile(name string, found, expected float64, unseen, rackLen int) rangefinder.TileDeviation {
+// tile builds one row of the per-tile read from the pair that matters: the
+// chance they are holding one, against the chance a random rack would be. The
+// slot shares are derived back out of it so the row stays self-consistent, and
+// so is the deviation in tiles - which for a tile you are unlikely to hold two
+// of is the same quantity as the gap in probability, divided by a hundred.
+func tile(name string, holds, chance float64, unseen, rackLen int) rangefinder.TileDeviation {
 	return rangefinder.TileDeviation{
-		Tile: name, FoundPct: found, ExpectedPct: expected, Unseen: unseen,
-		Tiles: float64(rackLen) * (found - expected) / 100.0,
+		Tile: name, HoldsPct: holds, ChanceHoldsPct: chance, Unseen: unseen,
+		FoundPct: holds / float64(rackLen), ExpectedPct: chance / float64(rackLen),
+		Tiles: (holds - chance) / 100.0,
 	}
 }
 
@@ -54,18 +58,24 @@ func inferredFacts(tiles []rangefinder.TileDeviation, baselineBest string, basel
 	return f
 }
 
-// A tile three times likelier than chance is startling as a ratio and
-// meaningless if it still amounts to a twentieth of a tile. The gate measures
-// in tiles of a rack for exactly that reason.
-func TestOutliersAreMeasuredInTiles(t *testing.T) {
+// The gate is on how far the read moves the chance they hold a tile. A tile at
+// three times its expected share is startling as a ratio and can still be
+// nothing - Q here goes from 1.5% to 4.5% - while a tile the read moves by
+// twenty points is worth a sentence whatever the ratio.
+//
+// Measuring in expected tiles instead, which this replaced, made the bar depend
+// on how many tiles the opponent held: a 3-tile rack has only three slots for
+// any deviation to live in, so a read taking a tile from 9% to 34% came out as
+// a quarter of a tile and was thrown away.
+func TestOutliersAreMeasuredInProbability(t *testing.T) {
 	is := is.New(t)
 
 	f := inferredFacts([]rangefinder.TileDeviation{
-		tile("S", 22.0, 8.0, 3, 7),  // +0.98 tiles - a real read
-		tile("Q", 3.0, 1.0, 1, 7),   // +0.14 tiles - 3x expected, and noise
-		tile("V", 0.2, 4.0, 2, 7),   // -0.27 tiles - likelier absent, but barely
-		tile("E", 4.0, 15.0, 6, 7),  // -0.77 tiles - a real absence
-		tile("A", 11.0, 11.4, 5, 7), // about as expected
+		tile("S", 35.0, 12.0, 3, 7), // +23 points - a real read
+		tile("Q", 4.5, 1.5, 1, 7),   // +3 points - three times expected, and noise
+		tile("V", 3.0, 7.0, 2, 7),   // -4 points - likelier absent, but barely
+		tile("E", 20.0, 50.0, 6, 7), // -30 points - a real absence
+		tile("A", 30.0, 31.0, 5, 7), // about as expected
 	}, "5D (S)CAP(A)", 30.0, 0.9)
 
 	inf := f.Inference
@@ -87,8 +97,8 @@ func TestInferenceIsSilentUnlessItMatters(t *testing.T) {
 	// Nothing deviates from chance: no read to speak of, even though the
 	// baseline would have played something else.
 	flat := inferredFacts([]rangefinder.TileDeviation{
-		tile("S", 8.2, 8.0, 3, 7),
-		tile("E", 15.1, 15.0, 6, 7),
+		tile("S", 24.0, 23.5, 3, 7),
+		tile("E", 50.2, 50.0, 6, 7),
 	}, "5D (S)CAP(A)", 30.0, 0.9)
 	is.True(!flat.Inference.Informative)
 	is.True(!flat.Inference.Matters)
@@ -97,7 +107,7 @@ func TestInferenceIsSilentUnlessItMatters(t *testing.T) {
 	// A strong read that moved neither the recommendation nor the win% past
 	// the confidence intervals. Interesting, but not a lesson.
 	inert := inferredFacts([]rangefinder.TileDeviation{
-		tile("S", 22.0, 8.0, 3, 7),
+		tile("S", 35.0, 12.0, 3, 7),
 	}, "12K QU(ID)", 37.5, 2.0)
 	is.True(inert.Inference.Informative)
 	is.True(!inert.Inference.ChangedTopPlay)
@@ -119,7 +129,7 @@ func TestInferenceIsSilentUnlessItMatters(t *testing.T) {
 // are the real figures from a position that behaved exactly that way.
 func TestInferenceIsSilentOnDifferencesThatDontMatter(t *testing.T) {
 	is := is.New(t)
-	strongRead := []rangefinder.TileDeviation{tile("R", 19.1, 5.1, 2, 7)}
+	strongRead := []rangefinder.TileDeviation{tile("R", 40.0, 12.0, 2, 7)}
 
 	// withWinPct rebuilds the read after setting what the recommended play
 	// scored with it, and how tight that figure is.
@@ -167,10 +177,8 @@ func TestInferenceThatChangesThePlay(t *testing.T) {
 	// fill one, so its 26.2% share of slots is a 3 x 26.2% = 78.6% share of
 	// racks. That identity only holds for a tile with one copy, which is why
 	// HoldsPct is counted rather than derived.
-	z := tile("Z", 26.2, 1.2, 1, 3)
-	z.HoldsPct, z.ChanceHoldsPct = 78.6, 3.6
-	e := tile("E", 4.0, 15.0, 6, 7)
-	e.HoldsPct, e.ChanceHoldsPct = 21.0, 62.0
+	z := tile("Z", 78.6, 3.6, 1, 3)
+	e := tile("E", 21.0, 62.0, 6, 7)
 
 	f := inferredFacts([]rangefinder.TileDeviation{z, e}, "5D (S)CAP(A)", 30.0, 0.9)
 
@@ -197,7 +205,7 @@ func TestInferenceThatChangesThePlay(t *testing.T) {
 	is.True(strings.Contains(p.User,
 		"Z    holding one 78.6% of the time, against 3.6% by chance"))
 	is.True(strings.Contains(p.User, "+0.75 tiles more than chance"))
-	is.True(strings.Contains(p.User, "-0.77 tiles fewer than chance"))
+	is.True(strings.Contains(p.User, "-0.41 tiles fewer than chance"))
 	is.True(strings.Contains(p.User,
 		"Without the read, 5D (S)CAP(A) was the best play. With it, 12K QU(ID) is."))
 
@@ -219,7 +227,7 @@ func TestChangedPlayShowsBothPlaysInBothSims(t *testing.T) {
 	is := is.New(t)
 
 	f := inferredFacts([]rangefinder.TileDeviation{
-		tile("S", 22.0, 8.0, 3, 7),
+		tile("S", 35.0, 12.0, 3, 7),
 	}, "5D (S)CAP(A)", 30.0, 0.9)
 	// Give the dethroned play a showing in the inference sim too, so both
 	// standings can be printed.
@@ -246,7 +254,7 @@ func TestInferenceThatOnlyMovesTheWinPct(t *testing.T) {
 	is := is.New(t)
 
 	f := inferredFacts([]rangefinder.TileDeviation{
-		tile("S", 22.0, 8.0, 3, 7),
+		tile("S", 35.0, 12.0, 3, 7),
 	}, "12K QU(ID)", 30.0, 0.9)
 
 	is.True(f.Inference.Matters)
@@ -260,6 +268,83 @@ func TestInferenceThatOnlyMovesTheWinPct(t *testing.T) {
 	is.True(strings.Contains(p.User, "The recommendation is 12K QU(ID) either way."))
 	is.True(strings.Contains(p.User,
 		"Believing the read moves its win% from 30.00% to 37.80% (+7.80)"))
+}
+
+// A read is not always about a tile. These are the real figures from a
+// position whose entire finding was that the opponent kept consonants: the
+// largest single move is N at +8.9 points - a tenth of a tile - and not one
+// letter comes near the per-tile bar. The read is the sum of twenty-six small
+// shifts, and a fact pack that only knew how to talk about tiles said nothing
+// at all about the most useful thing on the board.
+func TestAShapeReadWithNoStandoutTile(t *testing.T) {
+	is := is.New(t)
+
+	f := fakeFacts()
+	f.Inference = buildInference(f, &InferenceInput{
+		Summary: &rangefinder.InferenceSummary{
+			NumRacks: 3404, RackLength: 3, ESS: 812.4, TopWeightPct: 2.2,
+			Tiles: []rangefinder.TileDeviation{
+				tile("N", 25.00, 16.10, 5, 3),
+				tile("B", 12.25, 6.66, 2, 3),
+				tile("A", 23.66, 24.87, 8, 3),
+				tile("U", 3.54, 13.03, 4, 3),
+			},
+			Shape: &rangefinder.RackShape{
+				RackLength: 3,
+				Vowels:     rangefinder.CountPair{Read: 0.9026, Chance: 1.2809},
+				Consonants: rangefinder.CountPair{Read: 2.0084, Chance: 1.6517},
+				Blanks:     rangefinder.CountPair{Read: 0.0890, Chance: 0.0674},
+				VowelCount: []rangefinder.CountPair{
+					{Read: 31.2, Chance: 18.3}, {Read: 45.1, Chance: 42.7},
+					{Read: 20.4, Chance: 31.6}, {Read: 3.3, Chance: 7.4},
+				},
+			},
+		},
+		Baseline: []montecarlo.CandidateStats{
+			{Play: f.Best.Play, WinPct: 30.0, WinPctCI: 0.9},
+		},
+	})
+	f.Flags = computeFlags(f)
+
+	// Not one tile is worth naming...
+	is.Equal(len(f.Inference.Outliers), 0)
+	// ...and the read is still the best thing anyone could be told.
+	is.True(f.Inference.ShapeRead != nil)
+	is.True(f.Inference.Informative)
+	is.True(f.Inference.Matters)
+	is.True(f.Flags["has_inference"])
+
+	p, err := BuildPrompt(f, false)
+	is.NoErr(err)
+	is.True(slices.Contains(p.Concepts, "inference"))
+	is.True(strings.Contains(p.User,
+		"2.01 consonants and 0.90 vowels, where a random rack from this pool holds 1.65 and 1.28"))
+	is.True(strings.Contains(p.User, "consonant-heavy by about a third of a tile"))
+
+	// The distribution too, because a mean of 0.9 vowels is equally consistent
+	// with "usually one" and with "half the time two, half the time none".
+	is.True(strings.Contains(p.User, "vowels held"))
+	is.True(strings.Contains(p.User, "31.2%"))
+
+	// With no tile clearing the bar, the per-tile section is absent entirely
+	// rather than printed empty.
+	is.True(!strings.Contains(p.User, "What they are holding, against"))
+
+	// A read that left the shape alone doesn't raise it.
+	flat := fakeFacts()
+	flat.Inference = buildInference(flat, &InferenceInput{
+		Summary: &rangefinder.InferenceSummary{
+			NumRacks: 3404, RackLength: 3,
+			Tiles: []rangefinder.TileDeviation{tile("N", 16.5, 16.10, 5, 3)},
+			Shape: &rangefinder.RackShape{
+				RackLength: 3,
+				Vowels:     rangefinder.CountPair{Read: 1.30, Chance: 1.2809},
+				Consonants: rangefinder.CountPair{Read: 1.63, Chance: 1.6517},
+			},
+		},
+	})
+	is.True(flat.Inference.ShapeRead == nil)
+	is.True(!flat.Inference.Informative)
 }
 
 // Without a read at all, nothing about inference reaches the prompt - which is

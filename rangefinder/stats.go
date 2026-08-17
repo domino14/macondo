@@ -496,14 +496,18 @@ func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
 		return ss.String()
 	}
 
-	// Summary mode: the read as a graph, banded on the chance they hold each
-	// tile rather than on its ratio to chance. The ratio hid the size of a
-	// read - the game's last Z going from 4% to 71% and a tile going from 1%
-	// to 3% both came out as "way more than chance".
+	// Summary mode: what the read concluded about the shape of the rack, then
+	// what it did to each tile. Both are needed because a read is sometimes one
+	// enormous tile and sometimes twenty-six small shifts that only mean
+	// something added up, and a view that shows only one of those is blind to
+	// half the positions.
 	var ss strings.Builder
 	ss.WriteString(headerLine)
 	ss.WriteString("\n")
-	ss.WriteString(HoldingGraph(r.tileDeviations()))
+	if shape := ShapeSummary(r.rackShape()); shape != "" {
+		ss.WriteString(shape)
+		ss.WriteString("\n")
+	}
+	ss.WriteString(MovementGraph(r.tileDeviations()))
 	return ss.String()
 }
-

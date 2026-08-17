@@ -71,6 +71,10 @@ type InferenceSummary struct {
 	// Tiles is every tile with a non-zero presence, ordered by how far it
 	// deviates from chance.
 	Tiles []TileDeviation `json:"tiles"`
+	// Shape is what the read says about the makeup of the rack rather than
+	// about any one tile. Some reads live entirely here: no letter moves far
+	// on its own and the sum of them is the whole finding.
+	Shape *RackShape `json:"shape,omitempty"`
 }
 
 // InferenceSummary summarizes the last inference. topRacks caps how many
@@ -125,9 +129,14 @@ func (r *RangeFinder) InferenceSummary(topRacks int) *InferenceSummary {
 			s.Tiles = append(s.Tiles, t)
 		}
 	}
+	// Ordered by how far the read moved each tile, in probability, which is
+	// what makes the list readable as a finding: what the read favours at the
+	// top, what it rules out at the bottom.
 	sort.Slice(s.Tiles, func(i, j int) bool {
-		return abs(s.Tiles[i].Tiles) > abs(s.Tiles[j].Tiles)
+		return abs(s.Tiles[i].HoldsPct-s.Tiles[i].ChanceHoldsPct) >
+			abs(s.Tiles[j].HoldsPct-s.Tiles[j].ChanceHoldsPct)
 	})
+	s.Shape = r.rackShape()
 	return s
 }
 
@@ -187,76 +196,69 @@ func (r *RangeFinder) tileDeviations() []TileDeviation {
 	return out
 }
 
-// NotableTiles is how far a tile has to sit from chance, measured in tiles of
-// a rack, before it is worth pointing at. A ratio is the wrong scale here: a
-// tile at three times its expected share is startling until you notice that
-// still only amounts to a twentieth of a tile.
-const NotableTiles = 0.4
+// graphHalf is how many characters each side of the centre line gets. The
+// widest movement in the read fills it and everything else is drawn to scale
+// against that, because the interesting comparison is between tiles in this
+// read, not against some absolute that most positions never approach.
+const graphHalf = 22
 
-const (
-	graphBands    = 10 // 0-10%, 10-20%, ... 90-100%
-	graphBandSize = 100.0 / graphBands
-)
-
-// HoldingGraph draws the read as a picture: one row per band of "chance they
-// are holding at least one", with the tiles that land in it. Tiles nobody can
-// be holding are listed underneath instead of being given a band, because 0%
-// for a tile that has all been played means something different from 0% for
-// one the read has ruled out.
+// MovementGraph draws what the read changed: one row per tile, sorted by how
+// far it moved, with a centre line at "exactly what chance gives" and a bar
+// running right for tiles the read makes likelier and left for tiles it rules
+// out.
 //
-// The bands are on the probability rather than on the ratio to chance, which
-// is what this view used to bin. The ratio buries the thing that matters: with
-// one Z left in the pool, a read putting it in their rack 70% of the time is
-// enormous, and "way more than chance" is the same phrase that view would give
-// a tile it had nudged from 1% to 3%.
-func HoldingGraph(tiles []TileDeviation) string {
-	bands := make([][]string, graphBands)
+// It replaced a histogram banded on the probability itself, which inverted the
+// signal it was supposed to show. Height on that graph was mostly a function
+// of how many copies were left in the bag - nine unseen I's put I near the top
+// whatever the read said - so on a position whose whole finding was "they kept
+// consonants", the vowels floated to the top and the consonants sat in the
+// bottom band. Sorting by movement takes pool size out of the picture
+// entirely, and the shape of the list becomes the finding.
+//
+// Bars are scaled against the largest movement in this read rather than
+// against a fixed span. Most reads move nothing more than ten points, and a
+// fixed scale spends the width on room nothing ever uses.
+func MovementGraph(tiles []TileDeviation) string {
+	moved := []TileDeviation{}
 	played := []string{}
-	standouts := []TileDeviation{}
-
+	widest := 0.0
 	for _, t := range tiles {
 		if t.Unseen == 0 {
+			// Not "they don't have it" but "nobody can", which is a different
+			// fact and belongs in a different sentence.
 			played = append(played, t.Tile)
 			continue
 		}
-		label := t.Tile
-		switch {
-		case t.Tiles >= NotableTiles:
-			label += "+"
-			standouts = append(standouts, t)
-		case t.Tiles <= -NotableTiles:
-			label += "-"
-			standouts = append(standouts, t)
-		}
-		band := min(int(t.HoldsPct/graphBandSize), graphBands-1)
-		bands[band] = append(bands[band], label)
+		moved = append(moved, t)
+		widest = max(widest, abs(t.HoldsPct-t.ChanceHoldsPct))
 	}
+	if len(moved) == 0 {
+		return ""
+	}
+	sort.SliceStable(moved, func(i, j int) bool {
+		return moved[i].HoldsPct-moved[i].ChanceHoldsPct > moved[j].HoldsPct-moved[j].ChanceHoldsPct
+	})
 
 	var ss strings.Builder
-	ss.WriteString("How likely they are to be holding at least one of each tile.\n")
-	ss.WriteString("+ and - mark tiles the read puts well above or below what chance alone gives.\n\n")
-	for b := graphBands - 1; b >= 0; b-- {
-		row := fmt.Sprintf("  %3d-%3d%% | %s", b*int(graphBandSize), (b+1)*int(graphBandSize),
-			strings.Join(bands[b], " "))
-		ss.WriteString(strings.TrimRight(row, " ") + "\n")
+	ss.WriteString("Per tile, sorted by how far the read moved it.\n")
+	ss.WriteString("Left of the line: less likely than chance. Right of it: more.\n\n")
+	for _, t := range moved {
+		diff := t.HoldsPct - t.ChanceHoldsPct
+		n := 0
+		if widest > 0 {
+			n = int(abs(diff)/widest*graphHalf + 0.5)
+		}
+		var bar string
+		if diff >= 0 {
+			bar = strings.Repeat(" ", graphHalf) + "|" + strings.Repeat("+", n)
+		} else {
+			bar = strings.Repeat(" ", graphHalf-n) + strings.Repeat("-", n) + "|"
+		}
+		fmt.Fprintf(&ss, "  %-2s %-*s  %5.1f -> %5.1f%%  %+5.1f  (%d unseen)\n",
+			t.Tile, 2*graphHalf+1, bar, t.ChanceHoldsPct, t.HoldsPct, diff, t.Unseen)
 	}
 	if len(played) > 0 {
 		fmt.Fprintf(&ss, "\n  All played, none left to hold: %s\n", strings.Join(played, " "))
-	}
-
-	// The graph shows the shape; this says what the shape is made of, because
-	// a band is a ten-point range and the difference between 71% and 79% is
-	// worth having.
-	if len(standouts) > 0 {
-		sort.Slice(standouts, func(i, j int) bool {
-			return abs(standouts[i].Tiles) > abs(standouts[j].Tiles)
-		})
-		parts := make([]string, 0, len(standouts))
-		for _, t := range standouts {
-			parts = append(parts, fmt.Sprintf("%s %.0f%% (chance %.0f%%)",
-				t.Tile, t.HoldsPct, t.ChanceHoldsPct))
-		}
-		fmt.Fprintf(&ss, "\n  Standouts: %s\n", strings.Join(parts, ", "))
 	}
 	return ss.String()
 }

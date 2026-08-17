@@ -7,6 +7,7 @@ import (
 
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/montecarlo/stats"
+	"github.com/domino14/macondo/rangefinder"
 )
 
 // Rendering the fact pack for the model. Everything here is derived from
@@ -109,20 +110,67 @@ func (f *PositionFacts) renderInference() string {
 		}
 	}
 
-	ss.WriteString("\nWhat they are holding, against what a random rack would hold:\n")
-	for _, t := range inf.Outliers {
-		word := "more"
-		if t.Tiles < 0 {
-			word = "fewer"
+	// A read is sometimes about the makeup of the rack and not about any one
+	// tile. When it is, no letter is worth naming and this is the entire
+	// finding, so it comes first.
+	if sh := inf.ShapeRead; sh != nil {
+		fmt.Fprintf(&ss, "\nThe shape of their rack: %.2f consonants and %.2f vowels, where a "+
+			"random rack from this pool holds %.2f and %.2f. They are %s by about %s.\n",
+			sh.Consonants.Read, sh.Vowels.Read, sh.Consonants.Chance, sh.Vowels.Chance,
+			shapeWord(sh), tileCount(abs(sh.Vowels.Diff())))
+		if len(sh.VowelCount) > 0 {
+			ss.WriteString("  vowels held    with the read   by chance\n")
+			for k, pair := range sh.VowelCount {
+				if pair.Read < 0.5 && pair.Chance < 0.5 {
+					continue
+				}
+				fmt.Fprintf(&ss, "  %d                    %5.1f%%      %5.1f%%\n",
+					k, pair.Read, pair.Chance)
+			}
 		}
-		fmt.Fprintf(&ss, "  %-4s holding one %.1f%% of the time, against %.1f%% by chance"+
-			"  (%+.2f tiles %s than chance; %d unseen)\n",
-			t.Tile, t.HoldsPct, t.ChanceHoldsPct, t.Tiles, word, t.Unseen)
+	}
+
+	if len(inf.Outliers) > 0 {
+		ss.WriteString("\nWhat they are holding, against what a random rack would hold:\n")
+		for _, t := range inf.Outliers {
+			word := "more"
+			if t.Tiles < 0 {
+				word = "fewer"
+			}
+			fmt.Fprintf(&ss, "  %-4s holding one %.1f%% of the time, against %.1f%% by chance"+
+				"  (%+.2f tiles %s than chance; %d unseen)\n",
+				t.Tile, t.HoldsPct, t.ChanceHoldsPct, t.Tiles, word, t.Unseen)
+		}
 	}
 
 	ss.WriteString("\nWhat the read changed:\n")
 	ss.WriteString(f.renderReadEffect())
 	return ss.String()
+}
+
+// shapeWord names which way the read went. Vowels decide it: the blank barely
+// moves, so consonants are just vowels read backwards.
+func shapeWord(sh *rangefinder.RackShape) string {
+	if sh.Vowels.Diff() < 0 {
+		return "consonant-heavy"
+	}
+	return "vowel-heavy"
+}
+
+// tileCount says a fraction of a tile the way a person would. "0.38 of a tile"
+// is precise and unreadable; a third of a tile is what it means.
+func tileCount(tiles float64) string {
+	switch {
+	case tiles < 0.4:
+		return "a third of a tile"
+	case tiles < 0.6:
+		return "half a tile"
+	case tiles < 0.9:
+		return "three quarters of a tile"
+	case tiles < 1.5:
+		return "a whole tile"
+	}
+	return fmt.Sprintf("%.1f tiles", tiles)
 }
 
 // renderReadEffect says what believing the read does to the recommendation.

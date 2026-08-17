@@ -15,47 +15,127 @@ func closeTo(t *testing.T, got, want, tol float64) {
 	}
 }
 
-// The graph exists because the ratio bins it replaced could not tell a soul
-// read from a rounding error: the game's last Z going from 4% to 71% and a
-// tile nudged from 1% to 3% both came out as "way more than chance".
-func TestHoldingGraph(t *testing.T) {
+// The figures are from a real position whose whole finding was that the
+// opponent kept consonants. No single tile moves much - the largest is N at
+// +8.9 points, a tenth of a tile - so the read lives in the pattern across
+// letters, and a graph has to make that pattern visible or it is useless here.
+//
+// The banded histogram this replaced actively inverted it: height was the
+// probability itself, which is mostly a function of how many copies are left,
+// so the nine unseen I's floated to the top while the read was pushing I down.
+func TestMovementGraph(t *testing.T) {
 	is := is.New(t)
 
-	got := HoldingGraph([]TileDeviation{
-		// One Z left, and the read says they have it four times in five.
-		{Tile: "Z", HoldsPct: 70.9, ChanceHoldsPct: 3.6, Unseen: 1, Tiles: 0.75},
-		// Three times its expected share, and a twentieth of a tile.
-		{Tile: "Q", HoldsPct: 3.6, ChanceHoldsPct: 1.2, Unseen: 1, Tiles: 0.07},
-		// Common, and the read says nothing about it either way.
-		{Tile: "E", HoldsPct: 31.5, ChanceHoldsPct: 30.9, Unseen: 11, Tiles: 0.02},
-		// The read pushes it down, which is a finding too.
-		{Tile: "A", HoldsPct: 21.6, ChanceHoldsPct: 45.8, Unseen: 9, Tiles: -0.62},
-		// Already all played: not "they don't have it", but "nobody can".
-		{Tile: "J", HoldsPct: 0, ChanceHoldsPct: 0, Unseen: 0, Tiles: 0},
-		{Tile: "X", HoldsPct: 0, ChanceHoldsPct: 0, Unseen: 0, Tiles: 0},
+	got := MovementGraph([]TileDeviation{
+		{Tile: "A", HoldsPct: 23.66, ChanceHoldsPct: 24.87, Unseen: 8},
+		{Tile: "B", HoldsPct: 12.25, ChanceHoldsPct: 6.66, Unseen: 2},
+		{Tile: "N", HoldsPct: 25.00, ChanceHoldsPct: 16.10, Unseen: 5},
+		{Tile: "U", HoldsPct: 3.54, ChanceHoldsPct: 13.03, Unseen: 4},
+		{Tile: "Z", HoldsPct: 3.32, ChanceHoldsPct: 3.37, Unseen: 1},
+		{Tile: "K", HoldsPct: 0, ChanceHoldsPct: 0, Unseen: 0},
 	})
 
-	// Position on the graph is the probability, so the Z sits near the top and
-	// the tile with the bigger *ratio* sits at the bottom.
-	is.True(strings.Contains(got, "   70- 80% | Z+\n"))
-	is.True(strings.Contains(got, "    0- 10% | Q\n"))
-	is.True(strings.Contains(got, "   30- 40% | E\n"))
-	is.True(strings.Contains(got, "   20- 30% | A-\n"))
+	// Sorted by movement, so the read is the shape of the list: what it
+	// favours at the top, what it rules out at the bottom. Absolute
+	// probability decides nothing - A is the second likeliest tile here and
+	// sits near the bottom, because the read did not put it there.
+	order := []string{"N", "B", "Z", "A", "U"}
+	at := -1
+	for _, tile := range order {
+		i := strings.Index(got, "\n  "+tile+" ")
+		is.True(i > at)
+		at = i
+	}
 
-	// Empty bands are kept - the gap between the Z and everything else is the
-	// shape of the read - but carry no trailing whitespace.
-	is.True(strings.Contains(got, "   90-100% |\n"))
-	is.True(strings.Contains(got, "   40- 50% |\n"))
+	// Bars run from a centre line, right for likelier and left for less, and
+	// scale against the widest movement in this read - U at -9.5 here.
+	is.True(strings.Contains(got, "|"+strings.Repeat("+", 21))) // N, +8.9
+	is.True(strings.Contains(got, strings.Repeat("-", 22)+"|")) // U, -9.5
+	is.True(strings.Contains(got, "|"+strings.Repeat("+", 13))) // B, +5.6
+	is.True(strings.Contains(got, strings.Repeat("-", 3)+"|"))  // A, -1.2
+
+	// Both figures on every row, because a bar is a picture and the exact
+	// pair is what anyone would actually quote.
+	is.True(strings.Contains(got, " 16.1 ->  25.0%   +8.9  (5 unseen)"))
+	is.True(strings.Contains(got, " 13.0 ->   3.5%   -9.5  (4 unseen)"))
+
+	// A tile the read left alone gets no bar at all, on either side.
+	is.True(strings.Contains(got, "  Z  "+strings.Repeat(" ", graphHalf)+"|"))
 
 	// Tiles nobody can hold are named apart from tiles the read ruled out.
-	is.True(strings.Contains(got, "All played, none left to hold: J X"))
-	is.True(!strings.Contains(got, "| J"))
+	is.True(strings.Contains(got, "All played, none left to hold: K"))
+	is.True(!strings.Contains(got, "\n  K "))
+}
 
-	// And the exact figures survive, because a band is a ten-point range and
-	// the difference between 71% and 79% is worth having.
-	is.True(strings.Contains(got, "Standouts: Z 71% (chance 4%), A 22% (chance 46%)"))
-	// A tile that only looks big as a ratio is not a standout.
-	is.True(!strings.Contains(got, "Q 4%"))
+// A read is sometimes not about any tile. Here it is about the makeup of the
+// rack, and the mean alone would not say how reliably.
+func TestShapeSummary(t *testing.T) {
+	is := is.New(t)
+
+	is.Equal(ShapeSummary(nil), "")
+
+	s := &RackShape{
+		RackLength: 3,
+		Vowels:     CountPair{Read: 0.9026, Chance: 1.2809},
+		Consonants: CountPair{Read: 2.0084, Chance: 1.6517},
+		Blanks:     CountPair{Read: 0.0890, Chance: 0.0674},
+		VowelCount: []CountPair{
+			{Read: 31.2, Chance: 18.3}, {Read: 45.1, Chance: 42.7},
+			{Read: 20.4, Chance: 31.6}, {Read: 3.3, Chance: 7.4},
+		},
+	}
+	is.True(s.Notable()) // 0.38 of a tile of vowels is a real difference
+
+	got := ShapeSummary(s)
+	is.True(strings.Contains(got, "2.01 consonants  where a random rack holds 1.65   +0.36"))
+	is.True(strings.Contains(got, "0.90 vowels      where a random rack holds 1.28   -0.38"))
+	// Both sides of the read are flagged; the blank barely moved and is not.
+	is.Equal(strings.Count(got, "<-- the read"), 2)
+
+	// The distribution follows, because "0.9 vowels on average" is equally
+	// consistent with "usually one" and with "half the time two, half none".
+	is.True(strings.Contains(got, "vowels held"))
+	is.True(strings.Contains(got, "0               31.2%   18.3%"))
+	is.True(strings.Contains(got, "3                3.3%    7.4%"))
+
+	// A read that left the shape alone says so by not bringing it up.
+	flat := &RackShape{
+		RackLength: 3,
+		Vowels:     CountPair{Read: 1.30, Chance: 1.28},
+		Consonants: CountPair{Read: 1.63, Chance: 1.65},
+		VowelCount: []CountPair{{Read: 18.1, Chance: 18.3}},
+	}
+	is.True(!flat.Notable())
+	is.True(!strings.Contains(ShapeSummary(flat), "<-- the read"))
+	is.True(!strings.Contains(ShapeSummary(flat), "vowels held"))
+}
+
+// The chance side of the shape is exact, not sampled: drawing k vowels from a
+// pool is a hypergeometric, and these are the figures for the position above -
+// 38 vowels among 89 unseen, three tiles drawn.
+func TestHypergeometric(t *testing.T) {
+	is := is.New(t)
+
+	closeTo(t, hypergeometric(89, 38, 3, 0), 0.1833768, 1e-7)
+	closeTo(t, hypergeometric(89, 38, 3, 1), 0.4266317, 1e-7)
+	closeTo(t, hypergeometric(89, 38, 3, 2), 0.3157074, 1e-7)
+	closeTo(t, hypergeometric(89, 38, 3, 3), 0.0742841, 1e-7)
+
+	total, mean := 0.0, 0.0
+	for k := range 4 {
+		p := hypergeometric(89, 38, 3, k)
+		total += p
+		mean += float64(k) * p
+	}
+	closeTo(t, total, 1.0, 1e-9)
+	// And the mean agrees with the simple expected count, 3 x 38/89.
+	closeTo(t, mean, 3*38.0/89.0, 1e-9)
+
+	// Impossible draws are zero rather than negative or NaN.
+	is.Equal(hypergeometric(89, 38, 3, 4), 0.0) // more than we drew
+	is.Equal(hypergeometric(10, 2, 3, 3), 0.0)  // more than exist
+	is.Equal(hypergeometric(10, 9, 3, 0), 0.0)  // too few of the others
+	closeTo(t, hypergeometric(10, 10, 3, 3), 1.0, 1e-12)
 }
 
 // The chance of drawing at least one copy is what makes a read legible:
