@@ -39,6 +39,9 @@ const (
 	ConfigGeminiApiKey                     = "gemini-api-key"
 	ConfigOpenaiApiKey                     = "openai-api-key"
 	ConfigOpenaiBaseURL                    = "openai-base-url"
+	ConfigOpenrouterApiKey                 = "openrouter-api-key"
+	ConfigOpenrouterModel                  = "openrouter-model"
+	ConfigOpenrouterBaseURL                = "openrouter-base-url"
 	ConfigDeepseekApiKey                   = "deepseek-api-key"
 	ConfigWooglesApiKey                    = "woogles-api-key"
 	ConfigWooglesURL                       = "woogles-url"
@@ -114,6 +117,10 @@ func (c *Config) Load(args []string) error {
 	c.BindEnv(ConfigDeepseekModel)
 	c.BindEnv(ConfigGeminiApiKey)
 	c.BindEnv(ConfigOpenaiApiKey)
+	c.BindEnv(ConfigOpenaiBaseURL)
+	c.BindEnv(ConfigOpenrouterApiKey)
+	c.BindEnv(ConfigOpenrouterModel)
+	c.BindEnv(ConfigOpenrouterBaseURL)
 	c.BindEnv(ConfigDeepseekApiKey)
 	c.BindEnv(ConfigWooglesApiKey)
 	c.BindEnv(ConfigWooglesURL)
@@ -170,6 +177,8 @@ func (c *Config) Load(args []string) error {
 	c.SetDefault(ConfigDeepseekModel, "deepseek-chat")
 	c.SetDefault(ConfigGeminiApiKey, "")
 	c.SetDefault(ConfigOpenaiApiKey, "")
+	c.SetDefault(ConfigOpenrouterApiKey, "")
+	c.SetDefault(ConfigOpenrouterBaseURL, "https://openrouter.ai/api/v1")
 	c.SetDefault(ConfigDeepseekApiKey, "")
 	c.SetDefault(ConfigWooglesApiKey, "")
 	c.SetDefault(ConfigWooglesURL, "https://woogles.io")
@@ -212,6 +221,7 @@ func (c *Config) SanitizedSettings() map[string]interface{} {
 	apiKeyFields := []string{
 		ConfigGeminiApiKey,
 		ConfigOpenaiApiKey,
+		ConfigOpenrouterApiKey,
 		ConfigDeepseekApiKey,
 		ConfigWooglesApiKey,
 	}

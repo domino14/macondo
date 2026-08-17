@@ -11,30 +11,77 @@ import (
 	"github.com/domino14/macondo/cgp"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/game"
+	"github.com/domino14/macondo/montecarlo"
+	"github.com/domino14/macondo/montecarlo/stats"
 	"github.com/matryer/is"
 
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 )
 
-// A real follow-up table, from a position with ?AEIKUW on our rack. Note the
-// lowercase letters: those plays use the blank. ZWIEBACK and SAWLIKE can each
-// be made in more than one way, so they are grouped.
-const blankyFollowups = `### Our follow-up play
-Play                Needed Draw   Score    Count    % of time
- 7F W(E)AK                        23       273      11.11
- 1H (Z)WIEBACK      {B|C|?}       116-134  165      6.72
-  -  1H (Z)WIEBAcK  {B}           134      70       2.85
-  -  1H (Z)WIEbACK  {C}           125      68       2.77
-  -  1H (Z)WIEbAcK  {?}           116      27       1.10
- I8 SAWLIKE         {S|L}         80-81    146      5.94
-  -  I8 SAWlIKE     {S}           81       82       3.34
-  -  I8 sAWLIKE     {L}           80       64       2.60
-F12 WAKE                          30       85       3.46
- I8 sKIWEAR         {R}           86       78       3.17
- 2D KIT(TI)WAkE     {T}           69       55       2.24
-12A (D)ISCOMBOB(U)LATE {E}        42       25       1.02
-Bingo probability: 34.83%
-`
+// way builds one route to a follow-up play, as montecarlo/stats would export
+// it from the simulation log.
+func way(play, draw string, score int, pct float64, bingo bool) *stats.FollowupWay {
+	return &stats.FollowupWay{Play: play, NeededDraw: draw, Score: score, Pct: pct, Bingo: bingo}
+}
+
+// fam builds a follow-up family. With no ways given it's a play with a single
+// route, the way the exporter builds one.
+func fam(play string, pct float64, minScore, maxScore int, ways ...*stats.FollowupWay) *stats.FollowupFamily {
+	f := &stats.FollowupFamily{
+		Play: play, Pct: pct, MinScore: minScore, MaxScore: maxScore, TilePlay: true,
+	}
+	if len(ways) == 0 {
+		ways = []*stats.FollowupWay{way(play, "", maxScore, pct, false)}
+	}
+	f.Ways = ways
+	f.Bingo = ways[0].Bingo
+	seen := map[string]bool{}
+	for _, w := range ways {
+		if !seen[w.NeededDraw] {
+			seen[w.NeededDraw] = true
+			f.NeededDraws = append(f.NeededDraws, w.NeededDraw)
+		}
+	}
+	return f
+}
+
+// blankyFollowups is a real follow-up table, from a position with ?AEIKUW on
+// our rack. Note the lowercase letters: those plays use the blank. ZWIEBACK
+// and SAWLIKE can each be made in more than one way, so they are grouped.
+func blankyFollowups() []*FollowupFact {
+	fams := []*stats.FollowupFamily{
+		fam("7F W(E)AK", 11.11, 23, 23),
+		fam("1H (Z)WIEBACK", 6.72, 116, 134,
+			way("1H (Z)WIEBAcK", "B", 134, 2.85, false),
+			way("1H (Z)WIEbACK", "C", 125, 2.77, false),
+			way("1H (Z)WIEbAcK", "?", 116, 1.10, false)),
+		fam("I8 SAWLIKE", 5.94, 80, 81,
+			way("I8 SAWlIKE", "S", 81, 3.34, true),
+			way("I8 sAWLIKE", "L", 80, 2.60, true)),
+		fam("F12 WAKE", 3.46, 30, 30),
+		fam("I8 sKIWEAR", 3.17, 86, 86),
+		fam("2D KIT(TI)WAkE", 2.24, 69, 69),
+		fam("12A (D)ISCOMBOB(U)LATE", 1.02, 42, 42),
+	}
+	out := make([]*FollowupFact, 0, len(fams))
+	for _, f := range fams {
+		fact := &FollowupFact{FollowupFamily: f}
+		for range f.Ways {
+			fact.WayRequirements = append(fact.WayRequirements, "none")
+		}
+		out = append(out, fact)
+	}
+	return out
+}
+
+// factsWith wraps follow-ups in the minimum fact pack the tools need.
+func factsWith(bestPlay string, followups []*FollowupFact) *PositionFacts {
+	return &PositionFacts{
+		Best:      &montecarlo.CandidateStats{Play: bestPlay},
+		Followups: followups,
+		Flags:     Flags{},
+	}
+}
 
 func TestGetPlayMetadata(t *testing.T) {
 	is := is.New(t)
@@ -53,7 +100,7 @@ func TestGetPlayMetadata(t *testing.T) {
 	tp, err := bot.NewBotTurnPlayerFromGame(g.Game, conf, pb.BotRequest_HASTY_BOT)
 	is.NoErr(err)
 	an := NewAnalyzer()
-	an.game = tp
+	an.SetGame(tp)
 	an.SetConfig(cfg)
 
 	// Test exchange move with parentheses format (as reported in issue #425)
@@ -98,31 +145,27 @@ func newFollowupAnalyzer(t *testing.T) *Analyzer {
 	tp, err := bot.NewBotTurnPlayerFromGame(g.Game, conf, pb.BotRequest_HASTY_BOT)
 	is.NoErr(err)
 	an := NewAnalyzer()
-	an.game = tp
-	an.winningPlay = "G12 OO"
+	an.SetGame(tp)
+	an.SetConfig(cfg)
 	return an
 }
 
-func TestGetFuturePlayMetadata(t *testing.T) {
+// Whether a follow-up is a setup is decided by putting the best play on the
+// board and seeing whether the follow-up becomes possible - not by reading a
+// percentage off a table.
+func TestFollowupRequirements(t *testing.T) {
 	is := is.New(t)
 	an := newFollowupAnalyzer(t)
-	an.winningStats = `### Our follow-up play
-Play                Needed Draw   Score    Count    % of time
- L9 L(E)AFERY       {E}           38       696      13.24
- L9 L(E)AFY                       26       575      10.94
- 1A (PEC)KY         {K}           39       273      5.19
-I12 LYRA                          33       186      3.54
-H13 RAJ             {J}           33       164      3.12
- L9 R(E)IFY         {I}           26       105      2.00
-14G FRIARLY         {IR}          71       85       1.62
- 1A (PECK)Y                       22       60       1.14
-I13 FLY                           35       60       1.14
-I13 FAY                           34       56       1.07
-14G FRAY                          24       53       1.01
-14B FLAYS           {S}           37       45       0.86
-15A FAY                           41       42       0.80
-14G FLAYERS         {ES}          77       41       0.78
-H13 YAK             {K}           36       39       0.74`
+
+	ps := &stats.PlayStats{OurFollowups: []*stats.FollowupFamily{
+		fam("L9 L(E)AFERY", 13.24, 38, 38, way("L9 L(E)AFERY", "E", 38, 13.24, false)),
+		fam("L9 L(E)AFY", 10.94, 26, 26),
+		fam("I12 LYRA", 3.54, 33, 33),
+		fam("14G FLAYERS", 0.78, 77, 77, way("14G FLAYERS", "ES", 77, 0.78, true)),
+	}}
+	facts, err := an.analyzeFollowups("G12 OO", 40, ps)
+	is.NoErr(err)
+	an.facts = factsWith("G12 OO", facts)
 
 	f, err := an.GetFuturePlayMetadata("L9 L(E)AFERY")
 	is.NoErr(err)
@@ -131,7 +174,6 @@ H13 YAK             {K}           36       39       0.74`
 		NeededDraw:         []string{"E"},
 		Score:              38,
 		ProbabilityPercent: 13.24,
-		IsBingo:            false,
 		RequiresOtherPlay:  "none",
 	})
 
@@ -142,45 +184,154 @@ H13 YAK             {K}           36       39       0.74`
 		NeededDraw:         []string{},
 		Score:              26,
 		ProbabilityPercent: 10.94,
-		IsBingo:            false,
 		RequiresOtherPlay:  "none",
 	})
 
+	// FLAYERS only exists once OO is on the board: that is what makes a play
+	// a setup rather than a coincidence.
 	f, err = an.GetFuturePlayMetadata("14G FLAYERS")
 	is.NoErr(err)
 	is.Equal(f, &FuturePlayMetadata{
 		Play:               "14G FLAYERS",
 		NeededDraw:         []string{"E", "S"},
 		Score:              77,
-		ProbabilityPercent: 0.78,
 		IsBingo:            true,
+		ProbabilityPercent: 0.78,
 		RequiresOtherPlay:  "requires us to play G12 OO first",
 	})
 
+	// LYRA doesn't score what the sim saw on either board, so the opponent
+	// must have added something first.
 	f, err = an.GetFuturePlayMetadata("I12 LYRA")
 	is.NoErr(err)
-	is.Equal(f, &FuturePlayMetadata{
-		Play:               "I12 LYRA",
-		NeededDraw:         []string{},
-		Score:              33,
-		ProbabilityPercent: 3.54,
-		IsBingo:            false,
-		RequiresOtherPlay:  "requires opponent play",
+	is.Equal(f.RequiresOtherPlay, "requires opponent play")
+}
+
+// A follow-up is only a setup if our play enables it *and* it is likely enough
+// and big enough to be worth setting up for.
+func TestSetupThresholds(t *testing.T) {
+	is := is.New(t)
+	an := newFollowupAnalyzer(t)
+
+	ps := &stats.PlayStats{OurFollowups: []*stats.FollowupFamily{
+		// enabled by our play, but a 0.78% chance of 77 points
+		fam("14G FLAYERS", 0.78, 77, 77, way("14G FLAYERS", "ES", 77, 0.78, true)),
+		// enabled by our play, likely and big
+		fam("14G FRIARLY", 8.0, 71, 71, way("14G FRIARLY", "IR", 71, 8.0, false)),
+		// available anyway, and no bigger than an ordinary turn
+		fam("L9 L(E)AFERY", 13.24, 38, 38, way("L9 L(E)AFERY", "E", 38, 13.24, false)),
+	}}
+	facts, err := an.analyzeFollowups("G12 OO", 40, ps)
+	is.NoErr(err)
+
+	is.Equal(facts[0].Requirement(), "requires us to play G12 OO first")
+	is.True(!facts[0].IsSetup) // too unlikely to be the reason for the play
+	is.True(facts[1].IsSetup)
+	is.True(!facts[2].IsSetup)
+	is.True(!facts[2].IsBigChance) // 38 against a 40-point turn is not a chance
+
+	f := factsWith("G12 OO", facts)
+	f.Flags = computeFlags(&PositionFacts{
+		Best: &montecarlo.CandidateStats{Play: "G12 OO", Leave: "AFLRY"}, Followups: facts,
 	})
+	is.True(f.Flags["has_setup"])
+	is.True(f.Flags["has_needed_draw"])
+	is.True(!f.Flags["has_grouped_followup"])
+}
+
+// The regression test for the rule this replaced. A flat "at least 10% of the
+// time and at least 40 points" floor threw away exactly the plays worth
+// building a turn around: it passed an 11% chance at 23 points and rejected a
+// 6% chance at 130. These are the real figures from a position with ?AEIKUW.
+func TestBigChanceWeighsSizeAgainstFrequency(t *testing.T) {
+	is := is.New(t)
+
+	fact := func(f *stats.FollowupFamily) *FollowupFact { return &FollowupFact{FollowupFamily: f} }
+	// An ordinary next turn after E4 (X)U is worth about 44 points.
+	const typical = 44.4
+
+	weak := fact(fam("7F W(E)AK", 11.24, 23, 23))
+	zwieback := fact(fam("1H (Z)WIEBACK", 6.01, 116, 134,
+		way("1H (Z)WIEBAcK", "B", 134, 2.38, false),
+		way("1H (Z)WIEbACK", "C", 125, 2.32, false),
+		way("1H (Z)WIEbAcK", "?", 116, 1.31, false)))
+	sawlike := fact(fam("I8 SAWLIKE", 5.71, 79, 81,
+		way("I8 SAWlIKE", "S", 81, 3.03, true),
+		way("I8 sAWLIKE", "L", 80, 2.56, true),
+		way("I8 sAWlIKE", "?", 79, 0.12, true)))
+	skiwear := fact(fam("I8 sKIWEAR", 4.58, 80, 80))
+
+	// 15G PREAD(JUST) from the position in the manual: modest next to
+	// ZWIEBACK, but still worth naming, and the rule has to keep it.
+	preadjust := fact(fam("15G PREAD(JUST)", 11.07, 57, 57))
+
+	for _, tc := range []struct {
+		f   *FollowupFact
+		big bool
+	}{
+		{weak, false}, // frequent, but half an ordinary turn
+		{zwieback, true},
+		{sawlike, true},
+		{skiwear, true},
+		{preadjust, true},
+	} {
+		upside, big := bigChance(tc.f, typical)
+		if big != tc.big {
+			t.Errorf("%s: big=%v, want %v (upside %.2f)", tc.f.Play, big, tc.big, upside)
+		}
+	}
+
+	// A grouped play is judged on what its routes average, not on its
+	// luckiest one: quoting 134 would overstate a play that lands on 116 a
+	// fifth of the time.
+	is.True(zwieback.AvgScore() < 134)
+	is.True(zwieback.AvgScore() > 125)
+
+	// And the ordering puts the biggest first, which is the order the
+	// explanation should follow.
+	zUpside, _ := bigChance(zwieback, typical)
+	sUpside, _ := bigChance(sawlike, typical)
+	is.True(zUpside > sUpside)
+
+	// Nothing after the play the reader made clears the bar - which is the
+	// contrast the explanation exists to draw.
+	for _, f := range []*FollowupFact{
+		fact(fam("3C OWE", 2.50, 26, 26)),
+		fact(fam("5D WIN(D)", 1.61, 44, 44)),
+		fact(fam("1H (Z)OWIE", 1.43, 18, 18)),
+	} {
+		if _, big := bigChance(f, 39.6); big {
+			t.Errorf("%s should not count as a big chance", f.Play)
+		}
+	}
+}
+
+// Without a baseline there is nothing to call big, and claiming otherwise
+// would make every follow-up look enormous.
+func TestBigChanceNeedsABaseline(t *testing.T) {
+	is := is.New(t)
+	f := &FollowupFact{FollowupFamily: fam("1H (Z)WIEBACK", 6.01, 134, 134)}
+	upside, big := bigChance(f, 0)
+	is.Equal(upside, 0.0)
+	is.True(!big)
 }
 
 // However the model names a grouped play, it gets the whole family back, so
 // it can't mistake one route's chance for the chance of making the play.
 func TestGroupedPlayAlwaysReturnsEveryWay(t *testing.T) {
 	is := is.New(t)
-	an := newFollowupAnalyzer(t)
-	an.winningStats = `### Our follow-up play
-Play                Needed Draw   Score    Count    % of time
- L9 L(E)AFERY       {E|E?}        34-38    750      14.26
-  -  L9 L(E)AFERY   {E}           38       696      13.24
-  -  L9 L(E)AFERy   {E?}          34       54       1.02
- 1A (PEC)KY         {K}           39       273      5.19
-`
+	an := NewAnalyzer()
+	leafery := &FollowupFact{
+		FollowupFamily: fam("L9 L(E)AFERY", 14.26, 34, 38,
+			way("L9 L(E)AFERY", "E", 38, 13.24, false),
+			way("L9 L(E)AFERy", "E?", 34, 1.02, false)),
+		WayRequirements: []string{"none", "none"},
+	}
+	pecky := &FollowupFact{
+		FollowupFamily:  fam("1A (PEC)KY", 5.19, 39, 39, way("1A (PEC)KY", "K", 39, 5.19, false)),
+		WayRequirements: []string{"none"},
+	}
+	an.facts = factsWith("G12 OO", []*FollowupFact{leafery, pecky})
 	tool := NewGetOurFuturePlayMetadataTool(an)
 
 	for _, q := range []string{"L9 L(E)AFERY", "L9 L(E)AFERy", "L9 LEAFERY"} {
@@ -226,55 +377,26 @@ Play                Needed Draw   Score    Count    % of time
 	is.True(strings.Contains(res, `"probability_percent":5.19`))
 }
 
-func TestParseFollowupFamilies(t *testing.T) {
-	is := is.New(t)
-	an := NewAnalyzer()
-	an.winningStats = blankyFollowups
-
-	fams, err := an.parseFollowupFamilies()
-	is.NoErr(err)
-	is.Equal(len(fams), 7)
-
-	is.Equal(fams[0].row, followupRow{play: "7F W(E)AK", scoreLow: 23, scoreHigh: 23, percent: 11.11})
-	is.Equal(len(fams[0].variants), 0)
-
-	// a grouped play: combined count and percentage, score range, and the
-	// alternative draws that unlock it
-	is.Equal(fams[1].row, followupRow{play: "1H (Z)WIEBACK", neededDraw: "B|C|?",
-		scoreLow: 116, scoreHigh: 134, percent: 6.72})
-	is.Equal(len(fams[1].variants), 3)
-	is.Equal(fams[1].variants[2], followupRow{play: "1H (Z)WIEbAcK", neededDraw: "?",
-		scoreLow: 116, scoreHigh: 116, percent: 1.10})
-
-	is.Equal(fams[4].row, followupRow{play: "I8 sKIWEAR", neededDraw: "R",
-		scoreLow: 86, scoreHigh: 86, percent: 3.17})
-	// a play too long for the play column still parses
-	is.Equal(fams[6].row, followupRow{play: "12A (D)ISCOMBOB(U)LATE", neededDraw: "E",
-		scoreLow: 42, scoreHigh: 42, percent: 1.02})
-}
-
 func TestMatchFollowup(t *testing.T) {
 	is := is.New(t)
-	an := NewAnalyzer()
-	an.winningStats = blankyFollowups
-	fams, err := an.parseFollowupFamilies()
-	is.NoErr(err)
+	fams := blankyFollowups()
 
 	match := func(q string) (string, string) {
-		fam, variant := matchFollowup(fams, q)
+		fam, wayIdx := matchFollowup(fams, q)
 		if fam == nil {
 			return "", ""
 		}
-		if variant == nil {
-			return fam.row.play, ""
+		if wayIdx < 0 {
+			return fam.Play, ""
 		}
-		return fam.row.play, variant.play
+		return fam.Play, fam.Ways[wayIdx].Play
 	}
 
-	// exact match on a play with only one way to make it
-	fam, variant := match("I8 sKIWEAR")
+	// exact match on a play with only one way to make it: the family answers,
+	// and no individual way was named
+	fam, wayPlay := match("I8 sKIWEAR")
 	is.Equal(fam, "I8 sKIWEAR")
-	is.Equal(variant, "")
+	is.Equal(wayPlay, "")
 
 	// leading whitespace, as it appears in the table
 	fam, _ = match(" I8 sKIWEAR")
@@ -285,14 +407,14 @@ func TestMatchFollowup(t *testing.T) {
 	is.Equal(fam, "I8 sKIWEAR")
 
 	// the grouped name resolves to the family, with no single way named
-	fam, variant = match("1H (Z)WIEBACK")
+	fam, wayPlay = match("1H (Z)WIEBACK")
 	is.Equal(fam, "1H (Z)WIEBACK")
-	is.Equal(variant, "")
+	is.Equal(wayPlay, "")
 
 	// naming one way still identifies the family it belongs to
-	fam, variant = match("1H (Z)WIEbACK")
+	fam, wayPlay = match("1H (Z)WIEbACK")
 	is.Equal(fam, "1H (Z)WIEBACK")
-	is.Equal(variant, "1H (Z)WIEbACK")
+	is.Equal(wayPlay, "1H (Z)WIEbACK")
 
 	// the model also guessed at the playthrough parens
 	fam, _ = match("I8 S(K)IWEAR")
@@ -308,7 +430,7 @@ func TestMatchFollowup(t *testing.T) {
 func TestFuturePlayNotFoundIsNotAnError(t *testing.T) {
 	is := is.New(t)
 	an := NewAnalyzer()
-	an.winningStats = blankyFollowups
+	an.facts = factsWith("G12 OO", blankyFollowups())
 
 	_, err := an.LookupFuturePlay("8H QUIXOTIC")
 	var notFound *PlayNotFoundError

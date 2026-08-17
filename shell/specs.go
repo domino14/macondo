@@ -325,6 +325,18 @@ func init() {
 			{Name: "stop", Type: OptInt, Values: stopValues},
 			{Name: "threads", Type: OptInt},
 			{Name: "opprack", Type: OptString},
+			{Name: "vs", Type: OptString,
+				Help: `play to explain the best one against, or "off"; defaults to the play you made this turn`},
+			{Name: "model", Type: OptString,
+				Help: "model to use for this explanation only, leaving the config alone"},
+			{Name: "show-prompt", Type: OptBool,
+				Help: "also print the full prompt that was sent to the model"},
+			{Name: "show-previous-prompt", Type: OptBool,
+				Help: "print the last prompt and response instead of explaining anything"},
+			{Name: "infer", Type: OptBool, Values: boolValues,
+				Help: "read the opponent's rack from their last play, and sim with and without it"},
+			{Name: "infer-time", Type: OptInt,
+				Help: "seconds to spend inferring (default 20); implies -infer"},
 		},
 	})
 

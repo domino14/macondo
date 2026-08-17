@@ -64,6 +64,27 @@ const (
 	NoBonus BonusSquare = 32 // space (hex 20)
 )
 
+// Name is a human-readable name for the bonus square, for prose that talks
+// about the board.
+func (b BonusSquare) Name() string {
+	switch b {
+	case Bonus4WS:
+		return "4WS"
+	case Bonus3WS:
+		return "TWS"
+	case Bonus2WS:
+		return "DWS"
+	case Bonus4LS:
+		return "4LS"
+	case Bonus3LS:
+		return "TLS"
+	case Bonus2LS:
+		return "DLS"
+	default:
+		return ""
+	}
+}
+
 func (b BonusSquare) displayString(colorSupport bool) string {
 	repr := string(rune(b))
 	if !colorSupport {

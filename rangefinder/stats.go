@@ -466,18 +466,23 @@ func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
 		}
 
 		ss.WriteString("\n")
-		fmt.Fprintf(&ss, "%-5s%-12s%-12s%-10s\n", "Tile", "Found %", "Expected %", "# unseen")
+		// "Holds" and "By chance" are per-rack probabilities; "Tile share"
+		// and "Pool share" are per-tile shares. Keeping the distinction in
+		// the headers matters: a share of the posterior's tiles reads exactly
+		// like a probability and is not one. With a 3-tile leave the game's
+		// only Z can be 23.6% of the tiles in the posterior and still be in
+		// 70.9% of the racks, because each rack it is in holds two other
+		// tiles alongside it.
+		ss.WriteString("Holds: the chance they are holding at least one, against By chance for a\n" +
+			"random rack. Tile share: this tile's share of all the tiles across the posterior's\n" +
+			"racks; Pool share: its share of the unseen tiles. The summary view bins the ratio\n" +
+			"of those last two.\n\n")
+		fmt.Fprintf(&ss, "%-5s%-11s%-12s%-13s%-12s%-10s\n",
+			"Tile", "Holds %", "By chance", "Tile share", "Pool share", "# unseen")
 
-		printLetterStats := func(i int) {
-			fmt.Fprintf(&ss, "%-5s%-12.3f%-12.3f%d\n",
-				tilemapping.MachineLetter(i).UserVisible(alph, false),
-				100.0*float64(mlcts[tilemapping.MachineLetter(i)])/float64(totalCt), // normalize
-				100.0*float64(bagmap[i])/float64(inbag),
-				bagmap[i])
-		}
-
-		for i := 0; i < int(alph.NumLetters()); i++ {
-			printLetterStats(i)
+		for _, t := range r.tileDeviations() {
+			fmt.Fprintf(&ss, "%-5s%-11.2f%-12.2f%-13.3f%-12.3f%d\n",
+				t.Tile, t.HoldsPct, t.ChanceHoldsPct, t.FoundPct, t.ExpectedPct, t.Unseen)
 		}
 		simCount := r.simCount.Load()
 		elapsed := r.inferElapsed
@@ -491,67 +496,18 @@ func (r *RangeFinder) AnalyzeInferences(detailed bool) string {
 		return ss.String()
 	}
 
-	// Summary (bins) mode
-	bins := [8][]tilemapping.MachineLetter{}
-
-	for i := 0; i < int(alph.NumLetters()); i++ {
-		found := float64(mlcts[tilemapping.MachineLetter(i)]) / float64(totalCt)
-		expected := float64(bagmap[i]) / float64(inbag)
-		if expected == 0 {
-			bins[7] = append(bins[7], tilemapping.MachineLetter(i))
-			continue
-		}
-		ratio := found / expected
-		var bin int
-		switch {
-		case ratio == 0:
-			bin = 7
-		case ratio < 0.25:
-			bin = 6
-		case ratio < 0.75:
-			bin = 5
-		case ratio < 0.9:
-			bin = 4
-		case ratio < 1.1:
-			bin = 3
-		case ratio < 1.25:
-			bin = 2
-		case ratio < 2:
-			bin = 1
-		default:
-			bin = 0
-		}
-		bins[bin] = append(bins[bin], tilemapping.MachineLetter(i))
-	}
-
+	// Summary mode: what the read concluded about the shape of the rack, then
+	// what it did to each tile. Both are needed because a read is sometimes one
+	// enormous tile and sometimes twenty-six small shifts that only mean
+	// something added up, and a view that shows only one of those is blind to
+	// half the positions.
 	var ss strings.Builder
 	ss.WriteString(headerLine)
 	ss.WriteString("\n")
-
-	printTiles := func(tiles []tilemapping.MachineLetter) {
-		for _, t := range tiles {
-			fmt.Fprintf(&ss, " %s ", t.UserVisible(alph, false))
-		}
-		fmt.Fprintln(&ss)
-		fmt.Fprintln(&ss)
+	if shape := ShapeSummary(r.rackShape()); shape != "" {
+		ss.WriteString(shape)
+		ss.WriteString("\n")
 	}
-
-	ss.WriteString("Way more than chance:\n")
-	printTiles(bins[0])
-	ss.WriteString("More than chance:\n")
-	printTiles(bins[1])
-	ss.WriteString("Slightly more than chance:\n")
-	printTiles(bins[2])
-	ss.WriteString("About as expected:\n")
-	printTiles(bins[3])
-	ss.WriteString("Slightly less than chance:\n")
-	printTiles(bins[4])
-	ss.WriteString("Less than chance:\n")
-	printTiles(bins[5])
-	ss.WriteString("Way less than chance:\n")
-	printTiles(bins[6])
-	ss.WriteString("Unpossible:\n")
-	printTiles(bins[7])
+	ss.WriteString(MovementGraph(r.tileDeviations()))
 	return ss.String()
 }
-

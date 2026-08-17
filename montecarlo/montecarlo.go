@@ -1197,6 +1197,11 @@ func (s *Simmer) SimSingleThread(iters, plies int) {
 			log.Err(err).Msg("simsinglethread-errgroup-error")
 		}
 	}
+	// Flush and close the heat map the same way Simulate does, or nothing can
+	// read it back: the gzip stream would be left unterminated.
+	if err := s.closeHeatMap(ctx); err != nil {
+		log.Err(err).Msg("close-heat-map")
+	}
 	s.iterationCount.Add(uint64(iters))
 }
 

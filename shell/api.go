@@ -1920,7 +1920,22 @@ func (sc *ShellController) mleval(cmd *shellcmd) (*Response, error) {
 	}
 }
 
+// defaultExplainInferSeconds is how long `explain -infer` spends reading the
+// opponent's rack. Long enough to be worth having, short enough that it isn't
+// the reason the command feels slow - the two simulations after it cost more.
+const defaultExplainInferSeconds = 20
+
 func (sc *ShellController) explain(cmd *shellcmd) (*Response, error) {
+	// Reading back the last prompt has to work even once the position has
+	// moved on - that's the whole point of it - so it comes before every
+	// other check.
+	if cmd.options.Bool("show-previous-prompt") {
+		if sc.aiexplainer == nil || sc.aiexplainer.LastExchange() == nil {
+			return nil, errors.New("no explanation has been generated yet in this session")
+		}
+		return msg("\n" + sc.aiexplainer.LastExchange().String()), nil
+	}
+
 	// explain with genai
 	if sc.game == nil {
 		return nil, errors.New("please load or create a game first")
@@ -1936,7 +1951,6 @@ func (sc *ShellController) explain(cmd *shellcmd) (*Response, error) {
 	if sc.aiexplainer == nil {
 		sc.aiexplainer = explainer.NewService(sc.config)
 	}
-	sc.aiexplainer.SetGame(sc.game)
 
 	// First generate moves if we haven't already
 	if len(sc.curPlayList) == 0 {
@@ -1957,10 +1971,53 @@ func (sc *ShellController) explain(cmd *shellcmd) (*Response, error) {
 	}
 	simOptions["collect-heatmap"] = []string{"true"}
 
+	// Work out what to contrast the best play with before simming, so the
+	// simulation can be told to evaluate it however low it would otherwise
+	// rank.
+	compare, err := sc.comparisonPlay(simOptions.String("vs"))
+	if err != nil {
+		return nil, err
+	}
+	if compare != nil && compare.FromHistory {
+		sc.showMessage(fmt.Sprintf("Comparing against the play you made: %s (use -vs off to skip)",
+			strings.TrimSpace(sc.game.Board().MoveDescriptionWithPlaythrough(compare.Move))))
+	}
+
+	params, err := sc.explainSimParams(simOptions, compare)
+	if err != nil {
+		return nil, err
+	}
+
+	// Take the read before simming: the simulation has to know about it
+	// before it starts drawing racks for the opponent.
+	var inferInput *explainer.InferenceInput
+	if cmd.options.Bool("infer") || cmd.options.String("infer-time") != "" {
+		summary, err := sc.inferForExplain(cmd.options)
+		switch {
+		case err != nil:
+			// There may be nothing to read - an opening position has no last
+			// play - and that is a perfectly ordinary thing to ask about.
+			// Explain it without the read rather than refusing to explain it.
+			log.Err(err).Msg("inference failed; explaining without a read")
+			sc.showMessage("Could not read the opponent's rack (" + err.Error() +
+				"); explaining without one.")
+		case summary == nil:
+			sc.showMessage("The inference concluded nothing about the opponent's rack; " +
+				"explaining without a read.")
+		default:
+			inferInput = &explainer.InferenceInput{Summary: summary}
+			params.inferMode = montecarlo.InferenceWeightedRandomRacks
+			// A complete posterior covers every feasible leave, so the simmer
+			// can sample it directly instead of mixing in random draws.
+			if inf := sc.rangefinder.Inferences(); inf != nil && inf.Complete {
+				params.inferMode = montecarlo.InferenceCompletePosterior
+			}
+		}
+	}
+
 	// Run the simulation
 	sc.showMessage("Running simulation for AI explanation... (sim options " + fmt.Sprint(simOptions) + ")")
-	err := sc.runSimulationForExplain(simOptions)
-	if err != nil {
+	if err := sc.runSimulationForExplain(params); err != nil {
 		return nil, fmt.Errorf("failed to run simulation: %w", err)
 	}
 
@@ -1969,81 +2026,129 @@ func (sc *ShellController) explain(cmd *shellcmd) (*Response, error) {
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	// Collect the game state
-	gameStateResp, err := sc.gameState(&shellcmd{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get game state: %w", err)
-	}
-	gameStateStr := gameStateResp.message
-
-	sc.simmer.TrimBottom(35)
-	// Get simulation results (top 5 plays)
-	simResults := sc.simmer.EquityStats()
-
-	// Get simulation details
-	simDetails := sc.simmer.ScoreDetails()
-
-	// Get the winning play
-	winningPlay := sc.simmer.WinningPlay()
-	if winningPlay == nil {
-		return nil, errors.New("no winning play found in simulation")
-	}
-	// Use the same playthrough notation as the sim tables (5D (S)PIC(A)), not
-	// ShortDescription's dotted form, since that's the notation the prompt
-	// describes and the one the model is asked to echo back.
-	winningPlayStr := sc.game.Board().MoveDescriptionWithPlaythrough(winningPlay.Move())
-
-	// Get detailed stats for the winning play
-	winningPlayStats, err := sc.simStats.CalculatePlayStats(winningPlayStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get play stats: %w", err)
+	// The read is only reportable next to a run without it: "what it
+	// concluded" is half the story and "what it changed" is the half worth
+	// telling.
+	if inferInput != nil {
+		sc.showMessage("Re-running the simulation without the read, to see what it changed...")
+		baseline, err := sc.runBaselineSim(params)
+		if err != nil {
+			log.Err(err).Msg("baseline sim failed; explaining without the read")
+			sc.showMessage("Could not run the comparison simulation; explaining without the read.")
+			inferInput = nil
+		} else {
+			inferInput.Baseline = baseline
+		}
 	}
 
-	// Call the explainer service
+	// Deliberately no TrimBottom here: it slices off the lowest-ranked plays
+	// without regard for unignorable ones, which would throw away the play we
+	// are being asked to compare against. The explainer caps how many
+	// candidates it shows anyway.
+
+	// The explainer builds its own view of the position from the game and the
+	// simulation - it doesn't want pre-rendered tables.
 	ctx := context.Background()
-	result, err := sc.aiexplainer.Explain(
-		ctx,
-		gameStateStr,
-		simResults,
-		simDetails,
-		winningPlayStr,
-		winningPlayStats,
-	)
+	result, err := sc.aiexplainer.Explain(ctx, &explainer.ExplainInput{
+		Game:      sc.game,
+		Simmer:    sc.simmer,
+		SimStats:  sc.simStats,
+		Compare:   compare,
+		Inference: inferInput,
+		Model:     cmd.options.String("model"),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate explanation: %w", err)
 	}
 
-	// Show token usage if available
+	// Which model answered, and what it cost. Both matter now that the model
+	// can change between one explanation and the next, and the token counts are
+	// the only way to tell a cheap explanation from an expensive one.
+	if result.Model != "" {
+		sc.showMessage(fmt.Sprintf("Answered by %s (%s)", result.Model, result.Provider))
+	}
 	if result.InputTokens > 0 {
 		sc.showMessage(fmt.Sprintf("Input tokens: %d", result.InputTokens))
 		sc.showMessage(fmt.Sprintf("Output tokens: %d", result.OutputTokens))
 	}
 
-	return msg("\n**Explanation**:\n\n" + result.Explanation), nil
+	out := ""
+	if cmd.options.Bool("show-prompt") {
+		out += "\n" + result.Prompt.Notes("") + result.Prompt.String() + "\n"
+	}
+	return msg(out + "\n**Explanation**:\n\n" + result.Explanation), nil
 }
 
-// runSimulationForExplain runs a simulation with the given options
-func (sc *ShellController) runSimulationForExplain(options CmdOptions) error {
-	if sc.simmer == nil {
-		return errors.New("simmer not initialized")
-	}
-	if sc.simmer.IsSimming() {
-		// Stop any existing simulation
-		sc.simCancel()
-		for sc.simmer.IsSimming() {
-			time.Sleep(10 * time.Millisecond)
+// comparisonPlay works out which play the explanation should be contrasted
+// with. By default that is the move the player actually made, when the game
+// history has one for this turn; `-vs <play>` names a different one, and
+// `-vs off` asks for no comparison at all.
+func (sc *ShellController) comparisonPlay(vs string) (*explainer.ComparisonRequest, error) {
+	switch strings.ToLower(strings.TrimSpace(vs)) {
+	case "off", "none", "no":
+		return nil, nil
+	case "":
+		m := sc.playedThisTurn()
+		if m == nil {
+			return nil, nil
 		}
+		return &explainer.ComparisonRequest{Move: m, FromHistory: true}, nil
 	}
+	m, err := sc.game.ParseMove(sc.game.PlayerOnTurn(), sc.options.lowercaseMoves,
+		strings.Fields(explainer.DottedPlay(vs)), false)
+	if err != nil {
+		return nil, fmt.Errorf("could not read the play to compare against (%s): %w", vs, err)
+	}
+	return &explainer.ComparisonRequest{Move: m}, nil
+}
 
-	// Prepare simulation parameters
+// playedThisTurn is the move the player on turn actually made from this
+// position, according to the game history. It is nil when we have caught up
+// with the end of the history, when the next event isn't a play, or when the
+// play was challenged off - a phony that came back off the board is not
+// something the simulation can evaluate.
+func (sc *ShellController) playedThisTurn() *move.Move {
+	if sc.game == nil {
+		return nil
+	}
+	history := sc.game.History()
+	if history == nil || sc.curTurnNum < 0 || sc.curTurnNum >= len(history.Events) {
+		return nil
+	}
+	evt := history.Events[sc.curTurnNum]
+	if int(evt.PlayerIndex) != sc.game.PlayerOnTurn() {
+		return nil
+	}
+	switch evt.Type {
+	case pb.GameEvent_TILE_PLACEMENT_MOVE, pb.GameEvent_EXCHANGE, pb.GameEvent_PASS:
+	default:
+		return nil
+	}
+	if sc.curTurnNum+1 < len(history.Events) &&
+		history.Events[sc.curTurnNum+1].Type == pb.GameEvent_PHONY_TILES_RETURNED {
+		return nil
+	}
+	m, err := game.MoveFromEvent(evt, sc.game.Alphabet(), sc.game.Board())
+	if err != nil {
+		log.Debug().Err(err).Msg("could not read the played move out of the game history")
+		return nil
+	}
+	return m
+}
+
+// explainSimParams reads the sim options `explain` accepts. Both the main run
+// and the no-inference baseline are configured from one of these, so the only
+// thing that differs between them is the read.
+func (sc *ShellController) explainSimParams(options CmdOptions,
+	compare *explainer.ComparisonRequest) (simParams, error) {
+
 	var plies, threads int
 	var err error
-
 	if plies, err = options.IntDefault("plies", 5); err != nil {
-		return err
+		return simParams{}, err
 	}
 	if threads, err = options.IntDefault("threads", 0); err != nil {
-		return err
+		return simParams{}, err
 	}
 
 	stoppingCondition := montecarlo.StopNone
@@ -2068,35 +2173,106 @@ func (sc *ShellController) runSimulationForExplain(options CmdOptions) error {
 		knownOppRack = strings.ToUpper(knownOppRack)
 		kr, err = tilemapping.ToMachineLetters(knownOppRack, sc.game.Alphabet())
 		if err != nil {
-			return err
+			return simParams{}, err
 		}
 	}
 
-	// Set up simulation parameters
+	// The play we're comparing against has to be simmed however low it ranks,
+	// and AvoidPruningMoves adds it to the sim when move generation didn't
+	// produce it at all.
 	params := simParams{
 		threads:           threads,
 		plies:             plies,
 		stoppingCondition: stoppingCondition,
 		knownOppRack:      kr,
 	}
+	if compare != nil && compare.Move != nil {
+		params.avoidTrimMoves = []*move.Move{compare.Move}
+	}
+	return params, nil
+}
 
-	// Configure the simmer
-	err = sc.setSimmerParams(sc.simmer, params)
-	if err != nil {
-		return err
+// runSimulationForExplain runs the simulation the explanation is built on. It
+// collects a heat map, which is where the follow-up tables and the lane
+// breakdown come from.
+func (sc *ShellController) runSimulationForExplain(params simParams) error {
+	if sc.simmer == nil {
+		return errors.New("simmer not initialized")
+	}
+	if sc.simmer.IsSimming() {
+		// Stop any existing simulation
+		sc.simCancel()
+		for sc.simmer.IsSimming() {
+			time.Sleep(10 * time.Millisecond)
+		}
 	}
 
-	// Enable heatmap collection
-	sc.simmer.SetCollectHeatmap(true)
-
-	// Run simulation synchronously
-	ctx := context.Background()
-	err = sc.simmer.Simulate(ctx)
-	if err != nil {
+	if err := sc.setSimmerParams(sc.simmer, params); err != nil {
 		return err
 	}
+	if err := sc.simmer.SetCollectHeatmap(true); err != nil {
+		return err
+	}
+	return sc.simmer.Simulate(context.Background())
+}
 
-	return nil
+// runBaselineSim sims the same plays with the read switched off, so the
+// explanation can say what the read changed rather than only what it
+// concluded.
+//
+// It runs on a simmer of its own. Re-running sc.simmer would take the heat map
+// with it - SetCollectHeatmap opens a new temp file each time, orphaning the
+// log the follow-up tables are built from - and the baseline has no use for
+// one anyway. All it has to do is rank the plays.
+func (sc *ShellController) runBaselineSim(params simParams) ([]montecarlo.CandidateStats, error) {
+	calc, err := equity.NewCombinedStaticCalculator(
+		sc.game.LexiconName(), sc.config, "", equity.PEGAdjustmentFilename)
+	if err != nil {
+		return nil, err
+	}
+	baseline := &montecarlo.Simmer{}
+	baseline.Init(sc.game.Game, []equity.EquityCalculator{calc}, calc, sc.config)
+	baseline.TryLoadWMP(sc.config.WGLConfig(), sc.game.LexiconName())
+
+	params.inferMode = montecarlo.InferenceOff
+	if err := sc.setSimmerParams(baseline, params); err != nil {
+		return nil, err
+	}
+	if err := baseline.Simulate(context.Background()); err != nil {
+		return nil, err
+	}
+	return baseline.CandidateStats(), nil
+}
+
+// inferForExplain takes a read on the opponent's rack. It returns nil, with no
+// error, when the inference concluded nothing usable - a position where the
+// last play was uninformative is a normal thing to explain, just without a
+// read.
+func (sc *ShellController) inferForExplain(options CmdOptions) (*rangefinder.InferenceSummary, error) {
+	if sc.rangefinder == nil {
+		return nil, errors.New("rangefinder not initialized")
+	}
+	timesec, err := options.IntDefault("infer-time", defaultExplainInferSeconds)
+	if err != nil {
+		return nil, err
+	}
+	if timesec <= 0 {
+		return nil, errors.New("-infer-time must be a positive number of seconds")
+	}
+
+	// Go through the same preparation `infer` does, so the two agree about
+	// every default except the time limit.
+	params, err := sc.inferPrepare(&shellcmd{
+		options: CmdOptions{"time": []string{strconv.Itoa(timesec)}},
+	})
+	if err != nil {
+		return nil, err
+	}
+	sc.showMessage(fmt.Sprintf("Inferring the opponent's rack from their last play (%ds)...", timesec))
+	if _, err := sc.inferRunSync(params); err != nil {
+		return nil, err
+	}
+	return sc.rangefinder.InferenceSummary(explainer.InferredRacksShown), nil
 }
 
 // speedtest runs a brief simulation to measure computer performance

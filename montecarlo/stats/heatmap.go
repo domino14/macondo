@@ -451,64 +451,14 @@ func playStatsStr(st *SimStats, ourPlayLeave string, families []*playFamily, des
 	return ss.String()
 }
 
+// CalculatePlayStats renders the follow-up tables for the given play. See
+// CalculatePlayStatsData in playstats.go for the same information as structs.
 func (st *SimStats) CalculatePlayStats(play string) (string, error) {
-	var ss strings.Builder
-
-	iters, err := st.simmer.ReadHeatmap()
+	ps, err := st.CalculatePlayStatsData(play)
 	if err != nil {
 		return "", err
 	}
-	log.Debug().Msgf("Read %d log lines", len(iters))
-	normalizedPlay := Normalize(play)
-
-	oppResponses := map[string]*nextPlay{}
-	ourNextPlays := map[string]*nextPlay{}
-	totalOppResponses := 0
-	totalOurNextPlays := 0
-	oppScores := []float64{}
-	ourScores := []float64{}
-	leave := ""
-	for i := range iters {
-		for j := range iters[i].Plays {
-			if normalizedPlay != Normalize(iters[i].Plays[j].Play) {
-				continue
-			}
-			leave = iters[i].Plays[j].Leave
-			if len(iters[i].Plays[j].Plies) > 0 {
-				nextPlay := iters[i].Plays[j].Plies[0]
-				addNextPlay(nextPlay.Play, nextPlay.Pts, nextPlay.Bingo, oppResponses)
-				oppScores = append(oppScores, float64(nextPlay.Pts))
-				totalOppResponses++
-			}
-			if len(iters[i].Plays[j].Plies) > 1 {
-				nextPlay := iters[i].Plays[j].Plies[1]
-				addNextPlay(nextPlay.Play, nextPlay.Pts, nextPlay.Bingo, ourNextPlays)
-				ourScores = append(ourScores, float64(nextPlay.Pts))
-				totalOurNextPlays++
-			}
-		}
-	}
-
-	oppResponsesList := sortedFamiliesByScore(oppResponses)
-
-	ss.WriteString(playStatsStr(st, leave, oppResponsesList, "### Opponent's highest scoring plays", 10, totalOppResponses, false, false))
-	ss.WriteString("\n\n")
-
-	maxToDisplay := 15
-
-	oppResponsesList = sortedFamilies(oppResponses)
-	ourNextPlaysList := sortedFamilies(ourNextPlays)
-
-	ss.WriteString(playStatsStr(st, leave, oppResponsesList, "### Opponent's next play", maxToDisplay, totalOppResponses, true, false))
-	ss.WriteString("\n")
-
-	ss.WriteString(playStatsStr(st, leave, ourNextPlaysList, "### Our follow-up play", maxToDisplay, totalOurNextPlays, true, true))
-	ss.WriteString("\n")
-
-	st.oppHist = histogram.Hist(15, oppScores)
-	st.ourHist = histogram.Hist(15, ourScores)
-
-	return ss.String(), nil
+	return ps.Render(), nil
 }
 
 func (st *SimStats) LastHistogram() (histogram.Histogram, histogram.Histogram) {
