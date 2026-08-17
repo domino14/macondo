@@ -327,6 +327,8 @@ func init() {
 			{Name: "opprack", Type: OptString},
 			{Name: "vs", Type: OptString,
 				Help: `play to explain the best one against, or "off"; defaults to the play you made this turn`},
+			{Name: "model", Type: OptString,
+				Help: "model to use for this explanation only, leaving the config alone"},
 			{Name: "show-prompt", Type: OptBool,
 				Help: "also print the full prompt that was sent to the model"},
 			{Name: "show-previous-prompt", Type: OptBool,

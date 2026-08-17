@@ -1,6 +1,6 @@
 explain [options] - Generate AI explanation for the current position
 
-  Uses AI (Gemini, OpenAI, or DeepSeek) to provide detailed explanations of the best plays
+  Uses AI (Gemini, OpenAI, OpenRouter, or DeepSeek) to provide detailed explanations of the best plays
   in the current position. The AI analyzes simulation results and provides
   insights about tile leaves, strategic considerations, and play selection.
 
@@ -15,6 +15,8 @@ explain [options] - Generate AI explanation for the current position
     -stop <n>       Stop simulation at n% confidence level (default: 99)
     -vs <play>      Explain why the best play beats this one, instead of just
                     why it is good. Use "off" to turn the comparison off.
+    -model <id>     Use this model for this explanation only, leaving the
+                    configured one alone
     -infer          Read the opponent's rack from their last play, and
                     simulate both with and without that read
     -infer-time <n> Seconds to spend inferring (default 20); implies -infer
@@ -86,6 +88,49 @@ explain [options] - Generate AI explanation for the current position
   - setconfig genai-provider gemini     (or openai, or deepseek)
   - setconfig gemini-api-key <key>      (or openai-api-key, or deepseek-api-key)
   - setconfig gemini-model <model>      (or openai-model, or deepseek-model)
+
+  Explaining for free (OpenRouter):
+
+  OpenRouter fronts most vendors' models behind one key, including a set that
+  costs nothing. Signing up needs no credit card:
+
+  1. Make an account at https://openrouter.ai and create a key under
+     Settings -> Keys. It looks like sk-or-v1-...
+  2. Under Settings -> Privacy, allow the free models to be used. Free
+     endpoints are gated on it, and a request without it fails with a 404
+     mentioning a data policy.
+  3. In the shell:
+     - setconfig genai-provider openrouter
+     - setconfig openrouter-api-key sk-or-v1-...
+     - setconfig openrouter-model google/gemma-4-31b-it:free   (the default)
+
+  Model names are vendor/model, and most of the ":free" ones are served by
+  whoever built the model - Google runs the free Gemma endpoint, Nvidia the
+  free Nemotron ones - so they are the unquantized article with function
+  calling intact. `openrouter/free` picks a free model at random if you don't
+  care which.
+
+  Each free model usually has exactly one endpoint behind it, which cuts both
+  ways: nothing varies between runs, and there is nowhere to fail over to when
+  that one endpoint is busy. A 429 saying "rate-limited upstream" with a
+  limit_source of upstream_provider_shared_pool is not your quota - it is every
+  OpenRouter user sharing one pool.
+
+  A busy endpoint is retried twice on its own, waiting as long as it asks to be
+  left alone, so a passing 429 costs a few seconds rather than the explanation.
+  When it persists, wait or try another model:
+
+      explain -model nvidia/nemotron-3-super-120b-a12b:free
+      explain -model openai/gpt-oss-20b:free
+      explain -model openrouter/free
+
+  Changing models needs no restart; `-model` lasts one explanation, and
+  `setconfig openrouter-model ...` takes effect on the next one.
+
+  What free costs instead of money is throughput and privacy: 20 requests a
+  minute, and 50 a day until you have bought $10 of credits, after which it is
+  1000. One explanation is several requests, because the model calls tools and
+  each round trip counts, so budget roughly a dozen explanations a day.
 
   Local LLM (LM Studio, Ollama, vLLM, etc.):
   Any OpenAI-compatible local server works by pointing the openai provider at it:

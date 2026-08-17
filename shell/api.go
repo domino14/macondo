@@ -2055,12 +2055,18 @@ func (sc *ShellController) explain(cmd *shellcmd) (*Response, error) {
 		SimStats:  sc.simStats,
 		Compare:   compare,
 		Inference: inferInput,
+		Model:     cmd.options.String("model"),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate explanation: %w", err)
 	}
 
-	// Show token usage if available
+	// Which model answered, and what it cost. Both matter now that the model
+	// can change between one explanation and the next, and the token counts are
+	// the only way to tell a cheap explanation from an expensive one.
+	if result.Model != "" {
+		sc.showMessage(fmt.Sprintf("Answered by %s (%s)", result.Model, result.Provider))
+	}
 	if result.InputTokens > 0 {
 		sc.showMessage(fmt.Sprintf("Input tokens: %d", result.InputTokens))
 		sc.showMessage(fmt.Sprintf("Output tokens: %d", result.OutputTokens))

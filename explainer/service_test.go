@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
+	"github.com/Ingenimax/agent-sdk-go/pkg/llm/openai"
 	"github.com/domino14/macondo/config"
 	"github.com/matryer/is"
 )
@@ -112,6 +113,78 @@ func TestToolSchemasAreStable(t *testing.T) {
 	is.True(!strings.Contains(p.String(), toolsBanner))
 	p.Tools = tools
 	is.True(strings.Contains(p.String(), toolsBanner))
+}
+
+// OpenRouter speaks the OpenAI protocol, which makes it tempting to run it as
+// "the openai provider with a different base URL". It gets its own credentials
+// because it is its own account: a person trying a free model through it would
+// otherwise have to overwrite the OpenAI key already in openai-api-key.
+func TestOpenRouterKeepsItsOwnCredentials(t *testing.T) {
+	is := is.New(t)
+
+	cfg := config.DefaultConfig()
+	cfg.Set(config.ConfigGenaiProvider, "openrouter")
+	cfg.Set(config.ConfigOpenaiApiKey, "the-openai-key")
+	cfg.Set(config.ConfigOpenaiModel, "gpt-4.1")
+	cfg.Set(config.ConfigOpenrouterApiKey, "the-openrouter-key")
+	cfg.Set(config.ConfigOpenrouterModel, "google/gemma-4-31b-it:free")
+
+	c := DefaultConfig(cfg)
+	is.Equal(c.Provider, "openrouter")
+	is.Equal(c.APIKey, "the-openrouter-key")
+	is.Equal(c.Model, "google/gemma-4-31b-it:free")
+
+	// Nothing configured beyond the key still reaches a free model, so a fresh
+	// key explains a position without any further setup. DefaultConfig() does
+	// not apply Load()'s defaults, which is the case this covers.
+	bare := config.DefaultConfig()
+	bare.Set(config.ConfigGenaiProvider, "openrouter")
+	bare.Set(config.ConfigOpenrouterApiKey, "the-openrouter-key")
+
+	svc := &Service{config: DefaultConfig(bare)}
+	is.Equal(svc.config.Model, "")   // nothing asked for
+	is.Equal(svc.config.BaseURL, "") // and no endpoint either
+	llm, err := svc.createOpenRouterClient()
+	is.NoErr(err)
+	is.Equal(llm.(*openai.OpenAIClient).GetModel(), openRouterDefaultModel)
+	is.True(strings.Contains(openRouterDefaultModel, "/")) // vendor/model, or it 400s
+}
+
+// The shell builds one Service and reuses it for the rest of the session, so
+// the provider settings have to be re-read per explanation. Without that, a
+// `setconfig genai-provider ...` appears to do nothing until the next restart,
+// which is most of the work in trying a few models against one position.
+func TestConfigIsRereadForEachExplanation(t *testing.T) {
+	is := is.New(t)
+
+	cfg := config.DefaultConfig()
+	cfg.Set(config.ConfigGenaiProvider, "openrouter")
+	cfg.Set(config.ConfigOpenrouterApiKey, "the-openrouter-key")
+	cfg.Set(config.ConfigOpenrouterModel, "google/gemma-4-31b-it:free")
+
+	svc := NewService(cfg)
+	is.Equal(svc.config.Model, "google/gemma-4-31b-it:free")
+
+	// A setconfig between two explanations.
+	cfg.Set(config.ConfigOpenrouterModel, "nvidia/nemotron-3-super-120b-a12b:free")
+	svc.refreshConfig("")
+	is.Equal(svc.config.Model, "nvidia/nemotron-3-super-120b-a12b:free")
+
+	// -model applies to one explanation...
+	svc.refreshConfig("openai/gpt-oss-20b:free")
+	is.Equal(svc.config.Model, "openai/gpt-oss-20b:free")
+	// ...and not to the next, because that one derives everything afresh.
+	svc.refreshConfig("")
+	is.Equal(svc.config.Model, "nvidia/nemotron-3-super-120b-a12b:free")
+
+	// Changing provider outright works too, credentials and all.
+	cfg.Set(config.ConfigGenaiProvider, "gemini")
+	cfg.Set(config.ConfigGeminiApiKey, "the-gemini-key")
+	cfg.Set(config.ConfigGeminiModel, "gemini-3.6-flash")
+	svc.refreshConfig("")
+	is.Equal(svc.config.Provider, "gemini")
+	is.Equal(svc.config.Model, "gemini-3.6-flash")
+	is.Equal(svc.config.APIKey, "the-gemini-key")
 }
 
 func TestExplainRejectsAnEmptyInput(t *testing.T) {
