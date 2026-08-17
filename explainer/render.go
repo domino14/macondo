@@ -275,8 +275,18 @@ func (f *PositionFacts) renderComparison() string {
 		dashIfEmpty(f.Best.Leave), dashIfEmpty(c.Rival.Leave))
 	fmt.Fprintf(&ss, "%-26s %+.2f mean, %+.2f bingo%%\n", "Opponent's reply", d.OppMeanScore, d.OppBingoPct)
 	fmt.Fprintf(&ss, "%-26s %+.2f mean, %+.2f bingo%%\n", "Our next turn", d.OurMeanScore, d.OurBingoPct)
-	fmt.Fprintf(&ss, "%-26s %.1f after %s, %.1f after %s\n", "Big follow-up chances",
+	// Expected points, not a count of chances: the number is what each play's
+	// big follow-ups add to its next turn over a turn without them.
+	fmt.Fprintf(&ss, "%-26s %.1f pts after %s, %.1f pts after %s\n", "Big follow-up upside",
 		d.BestUpside, f.Best.Play, d.RivalUpside, c.Rival.Play)
+	// Which makes the next-turn line above divisible, and it has to be
+	// divided: the mean difference and the upside difference are one fact
+	// counted twice, and a model given both without the split will argue from
+	// each of them in turn.
+	if d.SplitKnown {
+		fmt.Fprintf(&ss, "The %+.2f next-turn difference is %+.2f of big chances and %+.2f of "+
+			"ordinary turns.\n", d.OurMeanScore, d.ChancesShare, d.OrdinaryShare)
+	}
 
 	writeOpportunities(&ss, "Chances only in the sampled follow-ups after "+f.Best.Play, c.OnlyBest)
 	writeOpportunities(&ss, "Chances only in the sampled follow-ups after "+c.Rival.Play, c.OnlyRival)
@@ -284,7 +294,7 @@ func (f *PositionFacts) renderComparison() string {
 	// The rival's own chances, so "your play had nothing like this" is a
 	// statement about data rather than an absence the model has to infer.
 	if s := renderChances("Follow-up chances after "+c.Rival.Play+":",
-		c.Rival, c.TypicalNextScore, c.RivalChances); s != "" {
+		c.Rival, c.ChanceBaseline, c.RivalChances); s != "" {
 		ss.WriteString(s)
 	} else {
 		fmt.Fprintf(&ss, "No follow-up after %s clears the bar for a big chance.\n", c.Rival.Play)
@@ -405,11 +415,11 @@ func (f *PositionFacts) renderPlies() string {
 // against how often it happens, which a percentage on its own hides.
 func (f *PositionFacts) renderFollowupVerdicts() string {
 	return renderChances("### Follow-up chances after "+f.Best.Play+
-		" (already checked against the board)", f.Best, f.TypicalNextScore, f.Chances)
+		" (already checked against the board)", f.Best, f.ChanceBaseline, f.Chances)
 }
 
 func renderChances(heading string, play *montecarlo.CandidateStats,
-	typical float64, chances []*FollowupCluster) string {
+	baseline float64, chances []*FollowupCluster) string {
 
 	worth := []*FollowupCluster{}
 	for _, ch := range chances {
@@ -425,9 +435,13 @@ func renderChances(heading string, play *montecarlo.CandidateStats,
 
 	var ss strings.Builder
 	ss.WriteString(heading + "\n")
-	fmt.Fprintf(&ss, "An ordinary next turn here is worth about %.0f points. Upside is what a "+
-		"chance is worth on top of that: how often it comes up times how much bigger it is.\n",
-		typical)
+	// Only the baseline: the play's mean next turn is already in the ply
+	// table, and why the baseline leaves these chances out is a fact about
+	// this code rather than about the position. Naming the number is enough
+	// to read it by; explaining it invites the model to explain it back.
+	fmt.Fprintf(&ss, "An ordinary next turn here - one where none of these chances comes up - "+
+		"is worth about %.0f points. Upside is what a chance is worth on top of that: how "+
+		"often it comes up times how much bigger it is.\n", baseline)
 	for _, ch := range worth {
 		draw := "no draw needed"
 		if d := drawList(ch.NeededDraws()); d != "" {

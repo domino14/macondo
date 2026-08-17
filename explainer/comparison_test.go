@@ -106,6 +106,8 @@ func comparedFacts(wasBest bool) *PositionFacts {
 			WinPct: 7.7, Equity: -1.5, Score: -2, LeaveValue: 3.2,
 			OppMeanScore: -3.7, OppBingoPct: -1.0,
 			OurMeanScore: 10.4, OurBingoPct: 3.0,
+			BestUpside: 10.15, RivalUpside: 1.62,
+			ChancesShare: 8.53, OrdinaryShare: 1.87, SplitKnown: true,
 			Established: true,
 		},
 		OnlyBest: []*FollowupFact{f.Followups[0]},
@@ -140,7 +142,11 @@ func TestComparisonPrompt(t *testing.T) {
 	is.True(strings.Contains(p.User, "The win% gap is established"))
 	is.True(strings.Contains(p.User, "Chances only in the sampled follow-ups after 12K QU(ID)"))
 	// The upside contrast is the figure that carries "you gave something up".
-	is.True(strings.Contains(p.User, "Big follow-up chances"))
+	is.True(strings.Contains(p.User, "Big follow-up upside"))
+	// And the next-turn edge is split, so the model can't argue the mean
+	// difference and the upside difference as if they were two findings.
+	is.True(strings.Contains(p.User,
+		"The +10.40 next-turn difference is +8.53 of big chances and +1.87 of ordinary turns."))
 
 	// And the question being asked changes accordingly.
 	is.True(strings.Contains(p.User, "why 12K QU(ID) beats 5D (S)CAP(A), the play they played"))
