@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/domino14/macondo/ai/bot"
@@ -124,6 +126,46 @@ func TestGetPlayMetadata(t *testing.T) {
 	is.Equal(md.Play, "pass")
 	is.Equal(md.Score, 0)
 	is.Equal(md.TilesUsed, 0)
+}
+
+// The agent SDK runs a batch of tool calls one goroutine each, and every tool
+// shares the analyzer's one board. Scoring a vertical play transposes that
+// board in place, so a lookup running beside it reads the mirror image of the
+// square it asked about: a legal play comes back as "a played-through marker
+// was specified, but there is no tile at the given location", or, worse,
+// scores against the wrong squares and returns a plausible number. Under
+// -race this also catches the unsynchronized write that causes it.
+func TestConcurrentPlayMetadataIsSafe(t *testing.T) {
+	an := newFollowupAnalyzer(t)
+
+	// The two halves of the collision: G12 OO is vertical, so scoring it
+	// transposes the board, and 13F (L)OAF is horizontal and has to find a
+	// tile already on the board to play through.
+	plays := map[string]int{"G12 OO": 12, "13F (L)OAF": 12}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 4*len(plays)*50)
+	for range 50 {
+		for play, want := range plays {
+			wg.Add(1)
+			go func(play string, want int) {
+				defer wg.Done()
+				md, err := an.GetPlayMetadata(play)
+				if err != nil {
+					errs <- fmt.Errorf("%s: %w", play, err)
+					return
+				}
+				if md.Score != want {
+					errs <- fmt.Errorf("%s scored %d, want %d", play, md.Score, want)
+				}
+			}(play, want)
+		}
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Error(err)
+	}
 }
 
 // newFollowupAnalyzer sets up an analyzer on a position whose best play is

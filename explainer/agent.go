@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/Ingenimax/agent-sdk-go/pkg/interfaces"
 	"github.com/domino14/macondo/ai/bot"
@@ -96,13 +97,19 @@ func (t *GetOurPlayMetadataTool) Execute(ctx context.Context, args string) (stri
 	var params struct {
 		PlayString string `json:"play_string"`
 	}
+	// Every error out of here names the play that caused it. The agent SDK
+	// logs a tool failure as the tool's name and the error text and nothing
+	// else - not the arguments - so an error that doesn't carry its own input
+	// leaves you working out which of four concurrent calls it was. It also
+	// goes back to the model as the tool's result, which is the other reason
+	// to say what was asked about.
 	if err := json.Unmarshal([]byte(args), &params); err != nil {
-		return "", fmt.Errorf("failed to parse parameters: %w", err)
+		return "", fmt.Errorf("failed to parse parameters %s: %w", args, err)
 	}
 
 	metadata, err := t.analyzer.GetPlayMetadata(params.PlayString)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("play %q: %w", params.PlayString, err)
 	}
 
 	result, err := json.Marshal(metadata)
@@ -152,7 +159,7 @@ func (t *GetOurFuturePlayMetadataTool) Execute(ctx context.Context, args string)
 		PlayString string `json:"play_string"`
 	}
 	if err := json.Unmarshal([]byte(args), &params); err != nil {
-		return "", fmt.Errorf("failed to parse parameters: %w", err)
+		return "", fmt.Errorf("failed to parse parameters %s: %w", args, err)
 	}
 
 	lookup, err := t.analyzer.LookupFuturePlay(params.PlayString)
@@ -164,7 +171,7 @@ func (t *GetOurFuturePlayMetadataTool) Execute(ctx context.Context, args string)
 		return notFound.ToolMessage(), nil
 	}
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("future play %q: %w", params.PlayString, err)
 	}
 
 	var result []byte
@@ -233,12 +240,12 @@ func (t *EvaluateLeaveTool) Execute(ctx context.Context, args string) (string, e
 		Leave string `json:"leave"`
 	}
 	if err := json.Unmarshal([]byte(args), &params); err != nil {
-		return "", fmt.Errorf("failed to parse parameters: %w", err)
+		return "", fmt.Errorf("failed to parse parameters %s: %w", args, err)
 	}
 
 	value, err := t.analyzer.EvaluateLeave(params.Leave)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("leave %q: %w", params.Leave, err)
 	}
 
 	return strconv.FormatFloat(value, 'f', 3, 64), nil
@@ -247,6 +254,23 @@ func (t *EvaluateLeaveTool) Execute(ctx context.Context, args string) (string, e
 // Analyzer holds the game and the facts we computed about the position, and
 // answers the tools' questions from them. Nothing here parses the prompt.
 type Analyzer struct {
+	// mu serializes the tools. The agent SDK runs every tool call in a batch
+	// in its own goroutine, and what they call underneath is not built for
+	// that: scoring a vertical play transposes the shared board in place and
+	// transposes it back (game.CreateAndScorePlacementMove), so one lookup
+	// can be reading the board sideways while another is scoring. That is not
+	// theoretical - it is how "D3 OI(LI)ER" came back as "a played-through
+	// marker was specified, but there is no tile at the given location" while
+	// a second vertical play was being scored beside it, and it can as easily
+	// return a plausible wrong score with no error at all. The lazy leave
+	// calculator below is a second, quieter race in the same batch.
+	//
+	// Only the tool entry points take this. BuildFacts touches the same game
+	// but runs to completion before the SDK starts any goroutine, so the go
+	// statement already orders it, and locking it would deadlock against the
+	// EvaluateLeave it calls. The tools are microseconds next to a model
+	// round trip, so serializing them costs nothing worth measuring.
+	mu                        sync.Mutex
 	game                      *bot.BotTurnPlayer
 	facts                     *PositionFacts
 	exhaustiveLeaveCalculator *equity.ExhaustiveLeaveCalculator
@@ -264,6 +288,8 @@ func (a *Analyzer) SetConfig(cfg *config.Config) {
 
 // SetGame sets the position under analysis.
 func (a *Analyzer) SetGame(tp *bot.BotTurnPlayer) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	a.game = tp
 	a.facts = nil
 	a.exhaustiveLeaveCalculator = nil
@@ -276,6 +302,8 @@ func (a *Analyzer) Facts() *PositionFacts {
 
 // EvaluateLeave evaluates the value of a leave
 func (a *Analyzer) EvaluateLeave(leave string) (float64, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	log.Info().Str("leave", leave).Msg("evaluating leave")
 	if a.exhaustiveLeaveCalculator == nil {
 		if a.config == nil {
@@ -350,6 +378,8 @@ func DottedPlay(playString string) string {
 
 // GetPlayMetadata analyzes a play and returns metadata
 func (a *Analyzer) GetPlayMetadata(playString string) (*PlayMetadata, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	m, err := a.game.ParseMove(a.game.PlayerOnTurn(), false, strings.Fields(DottedPlay(playString)), false)
 	if err != nil {
 		return nil, err
@@ -477,6 +507,11 @@ func (a *Analyzer) GetFuturePlayMetadata(playString string) (*FuturePlayMetadata
 // position. It returns a *PlayNotFoundError if the play isn't one the
 // simulation sampled.
 func (a *Analyzer) LookupFuturePlay(playString string) (*FuturePlayLookup, error) {
+	// This one only reads the facts today, but it is a tool entry point and
+	// takes the lock like the rest of them: the next thing it needs from the
+	// board should not have to rediscover why that matters.
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	log.Info().Str("play", playString).Msg("analyzing future play metadata")
 	if a.facts == nil {
 		return nil, errors.New("no analysis available for this position")
