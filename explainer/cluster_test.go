@@ -71,7 +71,7 @@ func TestOneHookTakenFourWaysIsOneChance(t *testing.T) {
 }
 
 // A chance can be so reliable that it becomes its own baseline, and judging it
-// against the play's mean next turn then asks it to be a fifth bigger than
+// against the play's mean next turn then asks it to be a quarter bigger than
 // itself. These are the sampled follow-ups after N10 ME(E)T, which keeps QU
 // for a hook at B2 worth 56 points 63% of the time: the mean next turn is
 // 48.58 *because of* that hook, and the old rule scored the biggest thing on

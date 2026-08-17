@@ -1040,7 +1040,7 @@ func jointBaseline(cs []judged, big []bool, meanScore float64) float64 {
 // Judging a chance against the play's overall mean is circular, and the
 // circularity bites hardest exactly where it matters most. The mean already
 // contains the chance, weighted by how often it comes up, so a chance that
-// comes up most of the time *is* the mean and can never be a fifth bigger
+// comes up most of the time *is* the mean and can never be a quarter bigger
 // than it. On a real position - N10 ME(E)T keeping Q, with a 56-point Q hook
 // available 63% of the time - the mean next turn was 48.6, the ratio gate
 // asked for 60.7, and the biggest thing on the board scored zero. The rival
