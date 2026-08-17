@@ -2,6 +2,7 @@ package explainer
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -144,6 +145,97 @@ func (f *FollowupFact) AvgScore() float64 {
 	return total / weight
 }
 
+// FollowupCluster is one opportunity, and every play that takes it. Plays that
+// start on the same square and run through the same tiles already on the board
+// are the same chance reached by different draws - 2F (QUAD)RUPLE, RUPLY,
+// RUPED and RUPOLE are one hook and four ways of filling it.
+//
+// The distinction is the whole reason this type exists. Judged one at a time
+// those four are 4.91%, 4.81%, 3.49% and 2.58% - each individually too rare to
+// build a turn around, and each rejected. Together they are 15.79% of the time
+// for an average of 48.6 points, which is the single biggest thing about the
+// position. A chance split across spellings is still one chance.
+type FollowupCluster struct {
+	// Anchor is where the opportunity is: the tiles it runs through and the
+	// lane they are in, like "(QUAD) in row 2", or a bare square when there is
+	// nothing on the board to name it by.
+	Anchor string `json:"anchor"`
+	// Through is the letters already on the board that every play here runs
+	// through, empty when the opportunity is an open square rather than a hook.
+	Through string `json:"through"`
+	// Plays are the ways of taking it, most likely first.
+	Plays []*FollowupFact `json:"plays"`
+	// Pct, MinScore and MaxScore cover the cluster as a whole.
+	Pct      float64 `json:"pct"`
+	AvgScore float64 `json:"avg_score"`
+	MinScore int     `json:"min_score"`
+	MaxScore int     `json:"max_score"`
+
+	IsSetup     bool    `json:"is_setup"`
+	IsBigChance bool    `json:"is_big_chance"`
+	Upside      float64 `json:"upside"`
+}
+
+// labelWords is how many of a cluster's plays get named in its label before it
+// gives up and counts the rest. Every play is listed underneath anyway; this is
+// only what a reader sees first.
+const labelWords = 3
+
+// Label names the cluster. One play is named by itself. Several sharing a hook
+// are named by the hook - "(QUAD) in row 2" says what the chance is. Several
+// sharing only a square have no hook to name, and a bare "J9" says nothing at
+// all, so those are named by their words: "J9 CAPERED / PEASCOD".
+func (c *FollowupCluster) Label() string {
+	if len(c.Plays) == 1 {
+		return c.Plays[0].Play
+	}
+	if c.Through != "" {
+		return c.Anchor
+	}
+	words := []string{}
+	for _, p := range c.Plays {
+		if len(words) == labelWords {
+			words = append(words, fmt.Sprintf("+%d more", len(c.Plays)-labelWords))
+			break
+		}
+		if fields := strings.Fields(p.Play); len(fields) > 1 {
+			words = append(words, fields[1])
+		}
+	}
+	return c.Anchor + " " + strings.Join(words, " / ")
+}
+
+// Grouped reports whether this is several plays rather than one.
+func (c *FollowupCluster) Grouped() bool { return len(c.Plays) > 1 }
+
+// Worthwhile reports whether the cluster is worth a sentence.
+func (c *FollowupCluster) Worthwhile() bool { return c.IsSetup || c.IsBigChance }
+
+// NeededDraws is every draw that reaches any play in the cluster, in the order
+// the plays came in and without repeats.
+func (c *FollowupCluster) NeededDraws() []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, p := range c.Plays {
+		for _, d := range p.NeededDraws {
+			if !seen[d] {
+				seen[d] = true
+				out = append(out, d)
+			}
+		}
+	}
+	return out
+}
+
+// Requirement is what has to happen before the cluster's likeliest play is
+// available.
+func (c *FollowupCluster) Requirement() string {
+	if len(c.Plays) == 0 {
+		return "none"
+	}
+	return c.Plays[0].Requirement()
+}
+
 // Requirement is what has to happen before the play's most likely route is
 // available.
 func (f *FollowupFact) Requirement() string {
@@ -256,6 +348,8 @@ type Comparison struct {
 	Rival          *montecarlo.CandidateStats `json:"rival"`
 	RivalPlayStats *stats.PlayStats           `json:"-"`
 	RivalFollowups []*FollowupFact            `json:"rival_followups"`
+	// RivalChances is RivalFollowups gathered into opportunities.
+	RivalChances []*FollowupCluster `json:"rival_chances"`
 	// TypicalNextScore is what an ordinary next turn is worth after the rival.
 	TypicalNextScore float64 `json:"typical_next_score"`
 
@@ -319,7 +413,11 @@ type PositionFacts struct {
 
 	PlayStats *stats.PlayStats
 	Followups []*FollowupFact
-	Lanes     []*LaneComparison
+	// Chances is Followups gathered into opportunities: the plays that take the
+	// same hook are one chance, and are judged and reported as one. Ordered by
+	// upside, biggest first.
+	Chances []*FollowupCluster
+	Lanes   []*LaneComparison
 	// TypicalNextScore is what an ordinary next turn is worth after the best
 	// play. It is the yardstick every follow-up chance is measured against.
 	TypicalNextScore float64
@@ -395,9 +493,11 @@ func (a *Analyzer) BuildFacts(sim *montecarlo.Simmer, ss *stats.SimStats,
 		return nil, fmt.Errorf("failed to analyze follow-up plays: %w", err)
 	}
 	f.TypicalNextScore = typicalNextScore(f.Best)
-	if f.Followups, err = a.analyzeFollowups(f.Best.Play, f.TypicalNextScore, f.PlayStats); err != nil {
+	followups, err := a.analyzeFollowups(f.Best.Play, f.TypicalNextScore, f.PlayStats)
+	if err != nil {
 		return nil, err
 	}
+	f.SetFollowups(followups)
 	if compareIdx >= 0 {
 		if f.Comparison, err = a.buildComparison(f, req, compareIdx, ss); err != nil {
 			return nil, err
@@ -490,9 +590,10 @@ func (a *Analyzer) buildComparison(f *PositionFacts, req *ComparisonRequest, idx
 		c.RivalPlayStats); err != nil {
 		return nil, err
 	}
+	c.RivalChances = clusterFollowups(c.RivalFollowups, c.Rival.Play, c.TypicalNextScore)
 	c.Deltas = a.deltas(f, c.Rival, c.RivalPlayStats)
-	c.Deltas.BestUpside = totalUpside(f.Followups)
-	c.Deltas.RivalUpside = totalUpside(c.RivalFollowups)
+	c.Deltas.BestUpside = totalUpside(f.Chances)
+	c.Deltas.RivalUpside = totalUpside(c.RivalChances)
 	c.OnlyBest, c.OnlyRival = followupDiff(f.Followups, c.RivalFollowups)
 	return c, nil
 }
@@ -567,11 +668,11 @@ func samePlay(a, b *montecarlo.CandidateStats) bool {
 // totalUpside adds up what a play's big follow-up chances are worth. Chances
 // that didn't clear the bar contribute nothing: a long tail of slightly
 // above-average plays isn't what anyone means by upside.
-func totalUpside(fs []*FollowupFact) float64 {
+func totalUpside(cs []*FollowupCluster) float64 {
 	total := 0.0
-	for _, f := range fs {
-		if f.IsBigChance {
-			total += f.Upside
+	for _, c := range cs {
+		if c.IsBigChance {
+			total += c.Upside
 		}
 	}
 	return total
@@ -747,18 +848,159 @@ func requiresBestPlay(bestPlay string) string {
 // 6% chance at 130 failed it, while an 11% chance at 23 passed. Weighing size
 // against frequency is the whole point.
 func bigChance(f *FollowupFact, typicalScore float64) (upside float64, big bool) {
+	return bigChanceOf(f.Pct, f.AvgScore(), typicalScore)
+}
+
+// bigChanceOf is the same judgment on bare numbers, so that a cluster of plays
+// taking one opportunity is weighed exactly as a single play is.
+func bigChanceOf(pct, score, typicalScore float64) (upside float64, big bool) {
 	if typicalScore <= 0 {
 		// No baseline to judge against - the sim didn't look far enough
 		// ahead - so claim nothing.
 		return 0, false
 	}
-	score := f.AvgScore()
-	upside = f.Pct / 100 * (score - typicalScore)
+	upside = pct / 100 * (score - typicalScore)
 	return upside, score >= typicalScore*bigChanceScoreRatio && upside >= bigChanceMinUpside
 }
 
 // typicalNextScore is what an ordinary turn is worth for us after a play: the
 // mean of our own scores two plies out.
+// reCoord is a board coordinate: a row number and a column letter, in either
+// order. Anything else came from a play that isn't a placement, and a
+// coordinate parser will quietly return the top-left square for it.
+var reCoord = regexp.MustCompile(`^(?:[0-9]{1,2}[A-Z]|[A-Z][0-9]{1,2})$`)
+
+// anchorOf identifies the opportunity a follow-up takes, and names it.
+//
+// The identity is where the *playthrough* sits - which tiles already on the
+// board the play runs through, and where they are - never where the play
+// starts. A front extension moves its own starting square: with ZOIC on the
+// board, CENO(ZOIC) and SAPRO(ZOIC) begin four and five squares to its left
+// and would look like different opportunities keyed on the coordinate, when
+// they are one hook taken two ways. Keying on ZOIC itself, they group, and so
+// do HI(THERMOS)T and NE(THERMOS)T, which extend in both directions at once.
+//
+// A play with no playthrough has nothing to hang on to, so its starting square
+// is the opportunity. That groups plays making unrelated words on one open
+// square, which is right: it is one place on the board, reached by one leave.
+func anchorOf(play string, tilePlay bool) (key, label, through string) {
+	fields := strings.Fields(strings.TrimSpace(play))
+	// Exchanges and passes are not places on a board and never group. They
+	// also split into fields like a play does - "(exch AEI)" looks like a
+	// coordinate and a word - so this has to be settled before any parsing.
+	if !tilePlay || len(fields) < 2 || !reCoord.MatchString(strings.ToUpper(fields[0])) {
+		p := strings.TrimSpace(play)
+		return p, p, ""
+	}
+	coord := strings.ToUpper(fields[0])
+	row, col, vertical := move.FromBoardGameCoords(coord, false)
+
+	// Walk the word a square at a time, noting the letters already on the
+	// board and how far in the first of them lies.
+	var runs strings.Builder
+	offset, square, depth := -1, 0, 0
+	for _, r := range fields[1] {
+		switch r {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		default:
+			if depth > 0 || r == '.' {
+				if offset < 0 {
+					offset = square
+				}
+				runs.WriteRune(r)
+			}
+			square++
+		}
+	}
+	if runs.Len() == 0 {
+		return coord, coord, ""
+	}
+
+	// Where the playthrough begins, in board coordinates rather than in the
+	// play's own.
+	index := row
+	if vertical {
+		row += offset
+		index = col
+	} else {
+		col += offset
+	}
+	return fmt.Sprintf("%t/%d/%d/%s", vertical, row, col, runs.String()),
+		fmt.Sprintf("(%s) in %s", runs.String(), stats.LaneLabel(vertical, index)),
+		runs.String()
+}
+
+// SetFollowups records the sampled follow-ups and gathers them into the
+// opportunities they take. The two are always set together - the flat list is
+// the table, the clusters are what gets judged and reported - and going
+// through here is what keeps them from disagreeing.
+//
+// Best and TypicalNextScore have to be set first: a chance is only big or
+// small relative to what an ordinary turn after this play is worth.
+func (f *PositionFacts) SetFollowups(fs []*FollowupFact) {
+	f.Followups = fs
+	f.Chances = clusterFollowups(fs, f.Best.Play, f.TypicalNextScore)
+}
+
+// clusterFollowups gathers the follow-ups that take the same opportunity and
+// judges each opportunity whole. Sizing them one play at a time asks the wrong
+// question: what a player wants to know is how often the hook pays, not how
+// often it pays with a particular spelling.
+//
+// Ordering is by weight, and within a cluster the likeliest play leads, so the
+// explanation names the play a reader is most likely to actually make.
+func clusterFollowups(fs []*FollowupFact, bestPlay string, typical float64) []*FollowupCluster {
+	byAnchor := map[string]*FollowupCluster{}
+	order := []string{}
+	for _, f := range fs {
+		key, label, through := anchorOf(f.Play, f.TilePlay)
+		c, ok := byAnchor[key]
+		if !ok {
+			c = &FollowupCluster{Anchor: label, Through: through, MinScore: f.MinScore}
+			byAnchor[key] = c
+			order = append(order, key)
+		}
+		c.Plays = append(c.Plays, f)
+		c.Pct += f.Pct
+		c.MinScore = min(c.MinScore, f.MinScore)
+		c.MaxScore = max(c.MaxScore, f.MaxScore)
+	}
+
+	out := make([]*FollowupCluster, 0, len(order))
+	for _, anchor := range order {
+		c := byAnchor[anchor]
+		sort.SliceStable(c.Plays, func(i, j int) bool { return c.Plays[i].Pct > c.Plays[j].Pct })
+		c.AvgScore = clusterAvgScore(c)
+		// A setup stays a setup however many spellings take it, and a hook that
+		// no single spelling reaches often enough is still a setup once they
+		// are counted together.
+		c.IsSetup = c.Requirement() == requiresBestPlay(bestPlay) &&
+			c.Pct >= setupMinPct && c.MaxScore >= setupMinScore
+		c.Upside, c.IsBigChance = bigChanceOf(c.Pct, c.AvgScore, typical)
+		out = append(out, c)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Upside > out[j].Upside })
+	return out
+}
+
+// clusterAvgScore is the score across every play in the cluster, weighted by
+// how often each came up - the same reasoning as FollowupFact.AvgScore, one
+// level up. The maximum would be the luckiest spelling of the luckiest draw.
+func clusterAvgScore(c *FollowupCluster) float64 {
+	total, weight := 0.0, 0.0
+	for _, p := range c.Plays {
+		total += p.Pct * p.AvgScore()
+		weight += p.Pct
+	}
+	if weight == 0 {
+		return float64(c.MaxScore)
+	}
+	return total / weight
+}
+
 func typicalNextScore(c *montecarlo.CandidateStats) float64 {
 	if p := plyStats(c, 2); p != nil {
 		return p.MeanScore
@@ -856,12 +1098,20 @@ func computeFlags(f *PositionFacts) Flags {
 	fl["leave_matters"] = f.Best.Leave != ""
 	fl["uses_blank"] = f.Best.UsesBlank
 
+	// Setups and big chances are judged per opportunity, not per play: four
+	// spellings of one hook are one thing to talk about, and each is too rare
+	// on its own to clear a bar the four of them clear together.
+	for _, ch := range f.Chances {
+		if ch.IsSetup {
+			fl["has_setup"] = true
+		}
+		if ch.IsBigChance {
+			fl["has_big_chance"] = true
+		}
+	}
 	for _, fu := range f.Followups {
 		if fu.IsSetup {
 			fl["has_setup"] = true
-		}
-		if fu.IsBigChance {
-			fl["has_big_chance"] = true
 		}
 		if fu.Grouped() {
 			fl["has_grouped_followup"] = true

@@ -78,9 +78,9 @@ func (ls *LaneStats) Lane(vertical bool, index int) *LaneStat {
 	return nil
 }
 
-// laneLabel names a lane the way a player would: rows are numbered from 1,
+// LaneLabel names a lane the way a player would: rows are numbered from 1,
 // columns are lettered from A.
-func laneLabel(vertical bool, index int) string {
+func LaneLabel(vertical bool, index int) string {
 	if vertical {
 		return "column " + string(rune('A'+index))
 	}
@@ -159,7 +159,7 @@ func (ss *SimStats) CalculateLaneStats(play string, ply int) (*LaneStats, error)
 			l, ok := byLane[key]
 			if !ok {
 				l = &LaneStat{
-					Label:    laneLabel(vertical, index),
+					Label:    LaneLabel(vertical, index),
 					Vertical: vertical,
 					Index:    index,
 					premiums: map[board.BonusSquare]int{},

@@ -12,8 +12,8 @@ import (
 // so they have to read the way a player would name a lane.
 func TestLaneLabel(t *testing.T) {
 	is := is.New(t)
-	is.Equal(laneLabel(false, 11), "row 12")  // rows count from 1
-	is.Equal(laneLabel(true, 10), "column K") // columns letter from A
-	is.Equal(laneLabel(true, 0), "column A")
-	is.Equal(laneLabel(false, 0), "row 1")
+	is.Equal(LaneLabel(false, 11), "row 12")  // rows count from 1
+	is.Equal(LaneLabel(true, 10), "column K") // columns letter from A
+	is.Equal(LaneLabel(true, 0), "column A")
+	is.Equal(LaneLabel(false, 0), "row 1")
 }

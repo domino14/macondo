@@ -236,7 +236,7 @@ func (f *PositionFacts) renderComparison() string {
 	// The rival's own chances, so "your play had nothing like this" is a
 	// statement about data rather than an absence the model has to infer.
 	if s := renderChances("Follow-up chances after "+c.Rival.Play+":",
-		c.Rival, c.TypicalNextScore, c.RivalFollowups); s != "" {
+		c.Rival, c.TypicalNextScore, c.RivalChances); s != "" {
 		ss.WriteString(s)
 	} else {
 		fmt.Fprintf(&ss, "No follow-up after %s clears the bar for a big chance.\n", c.Rival.Play)
@@ -357,16 +357,16 @@ func (f *PositionFacts) renderPlies() string {
 // against how often it happens, which a percentage on its own hides.
 func (f *PositionFacts) renderFollowupVerdicts() string {
 	return renderChances("### Follow-up chances after "+f.Best.Play+
-		" (already checked against the board)", f.Best, f.TypicalNextScore, f.Followups)
+		" (already checked against the board)", f.Best, f.TypicalNextScore, f.Chances)
 }
 
 func renderChances(heading string, play *montecarlo.CandidateStats,
-	typical float64, followups []*FollowupFact) string {
+	typical float64, chances []*FollowupCluster) string {
 
-	worth := []*FollowupFact{}
-	for _, fu := range followups {
-		if fu.Worthwhile() {
-			worth = append(worth, fu)
+	worth := []*FollowupCluster{}
+	for _, ch := range chances {
+		if ch.Worthwhile() {
+			worth = append(worth, ch)
 		}
 	}
 	if len(worth) == 0 {
@@ -380,13 +380,13 @@ func renderChances(heading string, play *montecarlo.CandidateStats,
 	fmt.Fprintf(&ss, "An ordinary next turn here is worth about %.0f points. Upside is what a "+
 		"chance is worth on top of that: how often it comes up times how much bigger it is.\n",
 		typical)
-	for _, fu := range worth {
+	for _, ch := range worth {
 		draw := "no draw needed"
-		if d := drawList(fu.NeededDraws); d != "" {
+		if d := drawList(ch.NeededDraws()); d != "" {
 			draw = "needs " + d
 		}
 		notes := []string{}
-		if fu.IsSetup {
+		if ch.IsSetup {
 			notes = append(notes, "SETUP: does not exist on the board until we play "+play.Play)
 		} else {
 			// Not a setup in the board sense, but still a consequence of this
@@ -394,12 +394,21 @@ func renderChances(heading string, play *montecarlo.CandidateStats,
 			notes = append(notes, "the board already allows it; the leave "+
 				dashIfEmpty(play.Leave)+" plus the draw is what makes it available")
 		}
-		if fu.Requirement() == "requires opponent play" {
+		if ch.Requirement() == "requires opponent play" {
 			notes = append(notes, "the opponent has to play something first for it to be legal")
 		}
 		fmt.Fprintf(&ss, "%-22s %8s pts  %5.2f%% of the time  upside %+.1f  (%s) - %s\n",
-			fu.Play, scoreRange(fu.MinScore, fu.MaxScore), fu.Pct, fu.Upside, draw,
+			ch.Label(), scoreRange(ch.MinScore, ch.MaxScore), ch.Pct, ch.Upside, draw,
 			strings.Join(notes, "; "))
+		// One hook reached four ways is one chance, but a coach still has to
+		// name the play. Without this the reader is told about "(QUAD) in row
+		// 2" and never learns that the 52-pointer is RUPLY.
+		if ch.Grouped() {
+			for _, p := range ch.Plays {
+				fmt.Fprintf(&ss, "    %-20s %4d pts  %5.2f%% of the time\n",
+					p.Play, int(p.AvgScore()+0.5), p.Pct)
+			}
+		}
 	}
 	return ss.String()
 }

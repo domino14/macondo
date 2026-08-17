@@ -121,7 +121,7 @@ func fakeFacts() *PositionFacts {
 	}
 	f.Best = &f.Candidates[0]
 	f.BestByEquity = &f.Candidates[1]
-	f.Followups = []*FollowupFact{{
+	f.SetFollowups([]*FollowupFact{{
 		FollowupFamily: &stats.FollowupFamily{
 			Play: "15G PREAD(JUST)", Pct: 11.5, MinScore: 57, MaxScore: 57,
 			NeededDraws: []string{"R"},
@@ -129,7 +129,7 @@ func fakeFacts() *PositionFacts {
 		},
 		WayRequirements: []string{"requires us to play 12K QU(ID) first"},
 		IsSetup:         true,
-	}}
+	}})
 	f.Flags = computeFlags(f)
 	return f
 }
