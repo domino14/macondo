@@ -578,17 +578,24 @@ func (s *Simmer) makeGameCopies() error {
 	s.gameCopies = []*game.Game{}
 	s.aiplayers = []aiturnplayer.AITurnPlayer{}
 	s.rngs = s.makeRNGs()
-	// Pre-shuffle bag so we can make identical copies of it with fixedOrder.
-	// The live game's bag has to come out of this exactly as it went in: it is
-	// not ours to reorder, and a paired game keeps its tiles in a fixed order
-	// that a sim must not disturb.
-	origOrder := s.origGame.Bag().Peek()
-	defer func() { copy(s.origGame.Bag().Tiles(), origOrder) }()
-	s.origGame.Bag().Shuffle()
+	// Work out one shuffled order here and hand every copy the same one, so the
+	// threads all start from an identical bag. The live game's bag is left
+	// alone entirely -- not just its order but its random stream, which belongs
+	// to the tile draws. A paired game draws in a fixed order and only consults
+	// the stream when someone exchanges, so a sim that took a few numbers out
+	// of it would move where a later exchange puts its tiles back, and only in
+	// whichever half of the pair happened to sim more.
+	order := s.origGame.Bag().Peek()
+	shuffle := frand.Shuffle
+	if s.rngs != nil {
+		shuffle = s.rngs[0].Shuffle
+	}
+	shuffle(len(order), func(i, j int) { order[i], order[j] = order[j], order[i] })
 
 	for i := 0; i < s.threads; i++ {
 		s.gameCopies = append(s.gameCopies, s.origGame.Copy())
 		s.gameCopies[i].Bag().SetFixedOrder(true)
+		copy(s.gameCopies[i].Bag().Tiles(), order)
 		if s.rngs != nil {
 			// Each copy reshuffles its own bag between iterations, so give each
 			// one its own source: shared sources would race, and the global one
