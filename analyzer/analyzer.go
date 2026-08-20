@@ -231,6 +231,9 @@ func (an *Analyzer) SimInit() error {
 	simmer.Init(an.game.Game, []equity.EquityCalculator{c}, c, an.config)
 	simmer.TryLoadWMP(an.config.WGLConfig(), an.game.LexiconName())
 	simmer.Reset()
+	// This analyzer only ever sims on the calling goroutine, so PrepareSim has
+	// no reason to build a game copy per CPU and then use one of them.
+	simmer.SetThreads(1)
 	err = simmer.PrepareSim(2, an.moves)
 	if err != nil {
 		return fmt.Errorf("init sim failed: %w", err)
