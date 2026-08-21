@@ -6,6 +6,8 @@ import (
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/matryer/is"
 
+	"github.com/domino14/macondo/config"
+	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
 )
 
@@ -68,4 +70,47 @@ func TestRandomMasterSeedIsNeverZero(t *testing.T) {
 		// back from here.
 		is.True(seed != 0)
 	}
+}
+
+// A bot playing itself must produce two identical halves: same seed, same bag
+// order, and both seats played by something that makes the same choices. That
+// makes it the sharpest test of the pairing -- any difference at all is a bug,
+// not strategy. It also guards the recording itself: move generators hand back
+// one reusable move object per turn, so recording pointers rather than copies
+// used to leave every game holding two moves and flagging every pair divergent.
+func TestSelfPlayPairDoesNotDiverge(t *testing.T) {
+	is := is.New(t)
+
+	players := []AutomaticRunnerPlayer{
+		{BotCode: pb.BotRequest_HASTY_BOT},
+		{BotCode: pb.BotRequest_HASTY_BOT},
+	}
+	r := &GameRunner{config: config.DefaultConfig(), lexicon: "NWL18",
+		letterDistribution: "English", gamePairs: true}
+	is.NoErr(r.Init(players))
+	r.recordMoves = true
+
+	seed := DeriveSeed(1234, 0)
+	halves := make([][]*move.Move, 2)
+	scores := make([][2]int, 2)
+	for half := 0; half < 2; half++ {
+		r.movesPlayed = nil
+		is.NoErr(r.playGame(false, half, seed))
+		halves[half] = r.movesPlayed
+		scores[half] = [2]int{r.game.PointsForNick("p1"), r.game.PointsForNick("p2")}
+	}
+
+	is.True(len(halves[0]) > 1)
+	// Every move is its own object, not the generator's reused one.
+	distinct := map[*move.Move]bool{}
+	for _, m := range halves[0] {
+		distinct[m] = true
+	}
+	is.Equal(len(distinct), len(halves[0]))
+
+	is.True(!movesDiverge(halves[0], halves[1]))
+	// The seats swap between halves, so the same two scores come back mirrored
+	// and the pair is an exact tie.
+	is.Equal(scores[0][0], scores[1][1])
+	is.Equal(scores[0][1], scores[1][0])
 }

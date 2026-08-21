@@ -244,7 +244,14 @@ func (r *GameRunner) PlayBestTurn(playerIdx int, addToHistory bool) error {
 		Str("bestPlay", bestPlay.ShortDescription()).Msg("play-best-turn")
 
 	if r.recordMoves {
-		r.movesPlayed = append(r.movesPlayed, bestPlay)
+		// Take a copy, not the pointer. A move generator hands back the same
+		// move object every turn -- it fills in one reusable "winner" and
+		// returns that -- so storing pointers would leave us holding one move
+		// per bot, showing whatever those two objects were last written with,
+		// and comparing the halves of a pair would be meaningless.
+		recorded := &move.Move{}
+		recorded.CopyFrom(bestPlay)
+		r.movesPlayed = append(r.movesPlayed, recorded)
 	}
 
 	// save rackLetters for logging.
