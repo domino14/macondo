@@ -176,9 +176,17 @@ func (g *Game) Copy() *Game {
 		exchangeLimit:     g.exchangeLimit,
 		players:           copyPlayers(g.players),
 		rules:             g.rules,
+		seed:              g.seed,
+		startingPlayerIdx: g.startingPlayerIdx,
 		// stackPtr only changes during a sim, etc. This Copy should
 		// only be called at the beginning of everything.
 		stackPtr: 0,
+	}
+	// A copy is never itself a paired game -- copies exist to be simmed or
+	// solved on, and those want randomized draws -- so the copied bag must not
+	// come out of here still locked into the original's fixed tile order.
+	if g.pairedBag {
+		copy.bag.SetFixedOrder(false)
 	}
 	// Also set the copy's stack.
 	copy.SetStateStackLength(len(g.stateStack))

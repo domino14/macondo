@@ -6,6 +6,8 @@ import (
 	"bufio"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,6 +29,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
 	"gopkg.in/yaml.v3"
+	"lukechampine.com/frand"
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/config"
@@ -329,6 +332,14 @@ type Simmer struct {
 	autostopper          *AutoStopper
 	stochasticStaticEval bool
 
+	// rngs holds one random source per thread. They are seeded from the game's
+	// seed when it has one, which makes a single-threaded sim reproducible.
+	// Crucially they are the sim's own sources and not the game's: borrowing
+	// the game's RNG would let the number of sim iterations shift the tile
+	// order of the real game, and a paired game would stop matching its partner
+	// the moment the two bots simmed for different lengths.
+	rngs []*frand.RNG
+
 	wmp *wmppkg.WMP
 }
 
@@ -566,12 +577,31 @@ func (s *Simmer) makeGameCopies() error {
 	log.Debug().Int("threads", s.threads).Msg("makeGameCopies")
 	s.gameCopies = []*game.Game{}
 	s.aiplayers = []aiturnplayer.AITurnPlayer{}
-	// Pre-shuffle bag so we can make identical copies of it with fixedOrder
-	s.origGame.Bag().Shuffle()
+	s.rngs = s.makeRNGs()
+	// Work out one shuffled order here and hand every copy the same one, so the
+	// threads all start from an identical bag. The live game's bag is left
+	// alone entirely -- not just its order but its random stream, which belongs
+	// to the tile draws. A paired game draws in a fixed order and only consults
+	// the stream when someone exchanges, so a sim that took a few numbers out
+	// of it would move where a later exchange puts its tiles back, and only in
+	// whichever half of the pair happened to sim more.
+	order := s.origGame.Bag().Peek()
+	shuffle := frand.Shuffle
+	if s.rngs != nil {
+		shuffle = s.rngs[0].Shuffle
+	}
+	shuffle(len(order), func(i, j int) { order[i], order[j] = order[j], order[i] })
 
 	for i := 0; i < s.threads; i++ {
 		s.gameCopies = append(s.gameCopies, s.origGame.Copy())
 		s.gameCopies[i].Bag().SetFixedOrder(true)
+		copy(s.gameCopies[i].Bag().Tiles(), order)
+		if s.rngs != nil {
+			// Each copy reshuffles its own bag between iterations, so give each
+			// one its own source: shared sources would race, and the global one
+			// would not replay.
+			s.gameCopies[i].Bag().SetRNG(s.rngs[i])
+		}
 
 		player, err := aiturnplayer.NewAIStaticTurnPlayerFromGame(s.gameCopies[i], s.origGame.Config(), s.equityCalculators)
 		if err != nil {
@@ -587,6 +617,39 @@ func (s *Simmer) makeGameCopies() error {
 	}
 	return nil
 
+}
+
+// makeRNGs builds one random source per thread, derived from the game's seed
+// and the position being simmed. It returns nil for an unseeded game, which
+// leaves the sim on the global source as before.
+//
+// Mixing the turn number in matters: without it every sim in a game would
+// replay the same random stream. Mixing in the thread index keeps the threads
+// from sampling in lockstep.
+func (s *Simmer) makeRNGs() []*frand.RNG {
+	seed := s.origGame.Seed()
+	if seed == ([32]byte{}) {
+		return nil
+	}
+	rngs := make([]*frand.RNG, s.threads)
+	for i := range rngs {
+		var buf [48]byte
+		copy(buf[:32], seed[:])
+		binary.BigEndian.PutUint64(buf[32:40], uint64(s.origGame.Turn()))
+		binary.BigEndian.PutUint64(buf[40:48], uint64(i))
+		derived := sha256.Sum256(buf[:])
+		rngs[i] = frand.NewCustom(derived[:], 0, 0)
+	}
+	return rngs
+}
+
+// float64For returns a random float in [0, 1) from the given thread's source,
+// or from the global one when the game was never seeded.
+func (s *Simmer) float64For(thread int) float64 {
+	if thread < len(s.rngs) {
+		return s.rngs[thread].Float64()
+	}
+	return rand.Float64()
 }
 
 func (s *Simmer) resetStats(plies int, plays []*move.Move) {
@@ -661,8 +724,18 @@ func (s *Simmer) Ready() bool {
 	return s.readyToSim
 }
 
-// Simulate sims all the plays. It is a blocking function.
+// Simulate sims all the plays. It is a blocking function. It runs on the
+// calling goroutine when the simmer is set to a single thread, and spawns one
+// worker per thread otherwise.
 func (s *Simmer) Simulate(ctx context.Context) error {
+	return s.simulate(ctx, 0, false)
+}
+
+// simulate does the setup and teardown both sim loops share, and picks the loop
+// to run. maxIters caps the iteration count; 0 means "until the stopping
+// condition or the context says to stop". inline forces the single-goroutine
+// loop no matter how many threads the simmer is configured for.
+func (s *Simmer) simulate(ctx context.Context, maxIters int, inline bool) error {
 	logger := zerolog.Ctx(ctx)
 
 	if len(s.simmedPlays.plays) == 0 || len(s.gameCopies) == 0 {
@@ -684,46 +757,107 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 	// This should be zero, but I think something is wrong with Lambda.
 	logger.Debug().Uint64("starting-node-count", nodes).Msg("nodes")
 
-	// use an errgroup here and listen for a ctx done outside this loop, but
-	// in another goroutine.
-	// protect the simmed play statistics with a mutex.
-	logger.Debug().Msgf("Simulating with %v threads", s.threads)
-	syncExitChan := make(chan bool, s.threads)
-
-	logChan := make(chan []byte)
-	done := make(chan bool)
-
-	ctrl := errgroup.Group{}
-	writer := errgroup.Group{}
-
 	if s.inferenceMode == InferenceWeightedRandomTiles {
 		s.calculateWeightedProbabilitiesForBag()
 	}
 
+	// The stopping condition cancels this, which is how the threaded loop's
+	// workers learn to quit. The single-threaded loop just breaks.
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	ctrl.Go(func() error {
-		defer func() {
-			logger.Debug().Msgf("Sim controller thread exiting")
-		}()
-		for range ctx.Done() {
-		}
-		logger.Debug().Msgf("Context is done: %v", ctx.Err())
-		for t := 0; t < s.threads; t++ {
-			syncExitChan <- true
-		}
-		// Send another exit signal to the stopping condition monitor
-		if s.autostopper.stoppingCondition != StopNone {
-			syncExitChan <- true
-		}
-		logger.Debug().Msgf("Sent sync messages to children threads...")
+	tstart := time.Now()
+	s.autostopper.reset()
 
-		return ctx.Err()
-	})
+	if inline || s.threads <= 1 {
+		logger.Debug().Msg("Simulating on the calling goroutine")
+		s.simInline(ctx, maxIters)
+	} else {
+		logger.Debug().Msgf("Simulating with %v threads", s.threads)
+		s.simThreaded(ctx, cancel, maxIters)
+	}
+
+	elapsed := time.Since(tstart) // duration is in nanosecs
+	nodes = s.nodeCount.Load()
+	nps := float64(nodes) / elapsed.Seconds()
+	logger.Info().Msgf("time taken: %v, nps: %f, nodes: %d", elapsed.Seconds(), nps, nodes)
+
+	if err := s.closeHeatMap(ctx); err != nil {
+		logger.Err(err).Msg("close-heat-map")
+	}
+	// sort plays at the end anyway.
+	s.sortPlaysByWinRate(true)
+
+	// A sim that ran out of time, or that was stopped from the shell, did its
+	// job; only a parent context failing for some other reason is an error.
+	if err := ctx.Err(); err != nil &&
+		err != context.Canceled && err != context.DeadlineExceeded {
+		return err
+	}
+	return nil
+}
+
+// runIteration runs one sim iteration on the given thread's game copy and
+// reports whether the caller should keep going. Both loops go through here, so
+// the iteration counter, the stopping-condition cadence and what an iteration
+// error means are decided in exactly one place.
+//
+// A nil logChan means the caller is the only writer and simSingleIteration
+// should write the log stream itself.
+func (s *Simmer) runIteration(ctx context.Context, thread int, logChan chan []byte) bool {
+	logger := zerolog.Ctx(ctx)
+
+	numIters := s.iterationCount.Add(1)
+	if err := s.simSingleIteration(ctx, s.maxPlies, thread, numIters-1, logChan); err != nil {
+		logger.Err(err).Msg("error simming iteration; stopping")
+		return false
+	}
+	if s.autostopper.stoppingCondition != StopNone &&
+		numIters%s.autostopper.stopConditionCheckInterval == 0 {
+		logger.Debug().Uint64("numIters", numIters).Msg("checking-stopping-condition")
+		if s.autostopper.shouldStop(numIters, s.simmedPlays, s.maxPlies) {
+			logger.Info().Uint64("numIters", numIters).Msg("reached stopping condition")
+			return false
+		}
+	}
+	return true
+}
+
+// simInline runs the sim to completion on the calling goroutine. Nothing else
+// runs: no controller, no writer, no workers. The stopping condition is checked
+// on the same cadence as the threaded loop, and the loop leaves on the exact
+// iteration that trips it, so the sim's answer does not depend on how long the
+// scheduler took to deliver the news.
+func (s *Simmer) simInline(ctx context.Context, maxIters int) {
+	done := ctx.Done()
+
+	// The cap counts this call's iterations. s.iterationCount is the position's
+	// running total, which a caller may well have added to already.
+	for ran := 0; maxIters <= 0 || ran < maxIters; ran++ {
+		if !s.runIteration(ctx, 0, nil) {
+			return
+		}
+		select {
+		case <-done:
+			return
+		default:
+		}
+	}
+}
+
+// simThreaded runs the sim across s.threads workers. Workers watch the context
+// directly: whoever trips the stopping condition cancels it, and everyone else
+// sees that at the top of their next iteration.
+func (s *Simmer) simThreaded(ctx context.Context, cancel context.CancelFunc, maxIters int) {
+	logger := zerolog.Ctx(ctx)
+	done := ctx.Done()
+
+	logChan := make(chan []byte)
+	writerDone := make(chan bool)
+	writer := errgroup.Group{}
 
 	if s.logStream != nil {
-
+		// Several workers write log lines, so they go through one writer.
 		writer.Go(func() error {
 			defer func() {
 				logger.Debug().Msgf("Writer routine exiting")
@@ -732,7 +866,7 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 				select {
 				case bytes := <-logChan:
 					s.logStream.Write(bytes)
-				case <-done:
+				case <-writerDone:
 					// Ok, actually quit now.
 					logger.Debug().Msgf("Got quit signal...")
 					return nil
@@ -740,10 +874,12 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 			}
 		})
 	}
-	tstart := time.Now()
-	g := errgroup.Group{}
-	s.autostopper.reset()
 
+	// Iterations run by this call, which is what maxIters caps -- separate from
+	// s.iterationCount, the position's running total.
+	var ran atomic.Int64
+
+	g := errgroup.Group{}
 	for t := 0; t < s.threads; t++ {
 		g.Go(func() error {
 			defer func() {
@@ -751,30 +887,21 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 			}()
 			logger.Debug().Msgf("Thread %v starting sim", t)
 			for {
-				numIters := s.iterationCount.Add(1)
-				err := s.simSingleIteration(ctx, s.maxPlies, t, numIters-1, logChan)
-				if err != nil {
-					logger.Err(err).Msg("error simming iteration; canceling")
-					cancel()
-				}
-				// check if we need to stop
-				if s.autostopper.stoppingCondition != StopNone {
-					if numIters%s.autostopper.stopConditionCheckInterval == 0 {
-						logger.Debug().Uint64("numIters", numIters).Msg("checking-stopping-condition")
-						stop := s.autostopper.shouldStop(numIters, s.simmedPlays, s.maxPlies)
-						if stop {
-							logger.Info().Uint64("numIters", numIters).Msg("reached stopping condition")
-							cancel()
-						}
-					}
-				}
-
 				select {
-				case v := <-syncExitChan:
-					logger.Debug().Msgf("Thread %v got sync msg %v", t, v)
+				case <-done:
 					return nil
 				default:
-					// Do nothing
+				}
+				if maxIters > 0 && ran.Add(1) > int64(maxIters) {
+					return nil
+				}
+				if !s.runIteration(ctx, t, logChan) {
+					// Whoever stops first tells the others through the
+					// context, and they leave at the top of their next
+					// iteration rather than running until a controller
+					// goroutine gets around to waking them.
+					cancel()
+					return nil
 				}
 			}
 		})
@@ -783,30 +910,12 @@ func (s *Simmer) Simulate(ctx context.Context) error {
 	// Wait for threads in errgroup:
 	err := g.Wait()
 	logger.Debug().Msgf("errgroup returned err %v", err)
-	elapsed := time.Since(tstart) // duration is in nanosecs
-	nodes = s.nodeCount.Load()
-	nps := float64(nodes) / elapsed.Seconds()
-	logger.Info().Msgf("time taken: %v, nps: %f, nodes: %d", elapsed.Seconds(), nps, nodes)
 
 	// Writer thread will exit now:
 	if s.logStream != nil {
-		close(done)
+		close(writerDone)
 		writer.Wait()
 	}
-	if err = s.closeHeatMap(ctx); err != nil {
-		logger.Err(err).Msg("close-heat-map")
-	}
-
-	ctrlErr := ctrl.Wait()
-	logger.Debug().Msgf("ctrl errgroup returned err %v", ctrlErr)
-	// sort plays at the end anyway.
-	s.sortPlaysByWinRate(true)
-	if ctrlErr == context.Canceled || ctrlErr == context.DeadlineExceeded {
-		// Not actually an error
-		logger.Debug().AnErr("ctrlErr", ctrlErr).Msg("montecarlo-it's ok, not an error")
-		return nil
-	}
-	return ctrlErr
 }
 
 func (s *Simmer) Iterations() int {
@@ -843,7 +952,7 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 		// uncovered leave space to fall back to random draws for.
 		rackToSet = nil
 		if len(s.inferenceCDF) > 0 {
-			rackToSet, err = s.weightedInferredDrawRacks()
+			rackToSet, err = s.weightedInferredDrawRacks(thread)
 			if err != nil {
 				return err
 			}
@@ -862,13 +971,13 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 		numInferences := len(s.inferences)
 		alpha := maxAlpha / (1 + math.Exp(-(float64(numInferences)-midpoint)/sigmoidScale))
 
-		if rand.Float64() >= alpha {
+		if s.float64For(thread) >= alpha {
 			rackToSet = nil
 		} else {
 			if s.inferenceMode == InferenceWeightedRandomTiles {
-				rackToSet, err = s.weightedInferredDrawTiles()
+				rackToSet, err = s.weightedInferredDrawTiles(thread)
 			} else if s.inferenceMode == InferenceWeightedRandomRacks {
-				rackToSet, err = s.weightedInferredDrawRacks()
+				rackToSet, err = s.weightedInferredDrawRacks(thread)
 			}
 			if err != nil {
 				return err
@@ -996,18 +1105,29 @@ func (s *Simmer) simSingleIteration(ctx context.Context, plies, thread int, iter
 				return err
 			}
 			out = append(out, '\n')
-			logChan <- out
+			s.writeLog(out, logChan)
 		} else if !s.collectHeatMap {
 			out, err = yaml.Marshal([]LogIteration{logIter})
 			if err != nil {
 				logger.Error().Err(err).Msg("marshalling log")
 				return err
 			}
-			logChan <- out
+			s.writeLog(out, logChan)
 		}
 
 	}
 	return nil
+}
+
+// writeLog hands a log line to the writer goroutine, or writes it directly if
+// there isn't one. A nil channel means the sim is running on a single
+// goroutine, so this one is the only writer and needs nobody to serialize it.
+func (s *Simmer) writeLog(out []byte, logChan chan []byte) {
+	if logChan != nil {
+		logChan <- out
+		return
+	}
+	s.logStream.Write(out)
 }
 
 func (s *Simmer) bestStaticTurn(playerID, thread int) *move.Move {
@@ -1152,57 +1272,18 @@ func (s *Simmer) ShortDetails(nplays int) string {
 }
 
 // SimSingleThread is a fast utility function to sim on a single thread with
-// a fixed number of iterations and an optional stopping condition.
+// a fixed number of iterations and an optional stopping condition. It runs on
+// the calling goroutine whatever the simmer's thread count says, and spawns
+// nothing.
+//
+// Iterations accumulate into the simmer's counter as they are run, so a caller
+// that sims the same prepared position again without another PrepareSim sees
+// the running total rather than the size of the last batch.
 func (s *Simmer) SimSingleThread(iters, plies int) {
-	ctx := context.Background()
-	s.iterationCount.Store(0)
-
-	writer := &errgroup.Group{}
-	logChan := make(chan []byte)
-	done := make(chan bool)
-
-	if s.logStream != nil {
-		// I lied, it's not single thread if we're debug logging.
-		writer.Go(func() error {
-			for {
-				select {
-				case bytes := <-logChan:
-					s.logStream.Write(bytes)
-				case <-done:
-					return nil
-				}
-			}
-		})
+	s.maxPlies = plies
+	if err := s.simulate(context.Background(), iters, true); err != nil {
+		log.Err(err).Msg("sim-single-thread")
 	}
-
-	for i := range uint64(iters) {
-
-		s.simSingleIteration(ctx, plies, 0, i, logChan)
-
-		// check if we need to stop
-		if s.autostopper.stoppingCondition != StopNone {
-			if (i+1)%s.autostopper.stopConditionCheckInterval == 0 {
-				stop := s.autostopper.shouldStop(i+1, s.simmedPlays, plies)
-				if stop {
-					log.Debug().Uint64("numIters", i+1).Msg("reached stopping condition")
-					break
-				}
-			}
-		}
-	}
-	if s.logStream != nil {
-		close(done)
-		err := writer.Wait()
-		if err != nil {
-			log.Err(err).Msg("simsinglethread-errgroup-error")
-		}
-	}
-	// Flush and close the heat map the same way Simulate does, or nothing can
-	// read it back: the gzip stream would be left unterminated.
-	if err := s.closeHeatMap(ctx); err != nil {
-		log.Err(err).Msg("close-heat-map")
-	}
-	s.iterationCount.Add(uint64(iters))
 }
 
 func (s *Simmer) WinningPlay() *SimmedPlay {
@@ -1238,7 +1319,11 @@ func bagCount(bag []tilemapping.MachineLetter) map[tilemapping.MachineLetter]int
 	return counts
 }
 
-func (s *Simmer) weightedInferredDrawTiles() ([]tilemapping.MachineLetter, error) {
+// weightedInferredDrawTiles samples tiles for the deprecated
+// InferenceWeightedRandomTiles mode. Note that it walks a Go map to build the
+// candidate list, so it does not replay exactly even on a seeded game; the
+// InferenceWeightedRandomRacks mode does.
+func (s *Simmer) weightedInferredDrawTiles(thread int) ([]tilemapping.MachineLetter, error) {
 	chosen := make([]tilemapping.MachineLetter, 0, s.tilesToInfer)
 
 	unseenMap := map[tilemapping.MachineLetter]int{}
@@ -1265,7 +1350,7 @@ func (s *Simmer) weightedInferredDrawTiles() ([]tilemapping.MachineLetter, error
 			break // no more tiles can be drawn
 		}
 		// Randomly pick 1 tile from this distribution
-		picked, err := weightedChoice(tiles, weights)
+		picked, err := weightedChoice(tiles, weights, s.float64For(thread))
 		if err != nil {
 			return chosen, err
 		}
@@ -1280,7 +1365,7 @@ func (s *Simmer) weightedInferredDrawTiles() ([]tilemapping.MachineLetter, error
 }
 
 // weightedChoice selects one element from tiles based on the provided weights
-func weightedChoice(tiles []tilemapping.MachineLetter, weights []float64) (tilemapping.MachineLetter, error) {
+func weightedChoice(tiles []tilemapping.MachineLetter, weights []float64, roll float64) (tilemapping.MachineLetter, error) {
 	if len(tiles) != len(weights) || len(tiles) == 0 {
 		return 0, errors.New("tiles and weights must be of same non-zero length")
 	}
@@ -1293,7 +1378,7 @@ func weightedChoice(tiles []tilemapping.MachineLetter, weights []float64) (tilem
 	}
 
 	// Generate a random number between 0 and total weight
-	r := rand.Float64() * cumulative[len(cumulative)-1]
+	r := roll * cumulative[len(cumulative)-1]
 
 	// Find the first cumulative weight that is greater than r
 	for i, cw := range cumulative {
@@ -1305,12 +1390,12 @@ func weightedChoice(tiles []tilemapping.MachineLetter, weights []float64) (tilem
 	return 0, errors.New("weighted choice failed to select a tile")
 }
 
-func (s *Simmer) weightedInferredDrawRacks() ([]tilemapping.MachineLetter, error) {
+func (s *Simmer) weightedInferredDrawRacks(thread int) ([]tilemapping.MachineLetter, error) {
 	cdf := s.inferenceCDF
 	if len(cdf) == 0 {
 		return nil, errors.New("no inferences available")
 	}
-	r := rand.Float64() * cdf[len(cdf)-1]
+	r := s.float64For(thread) * cdf[len(cdf)-1]
 	// First index whose cumulative weight strictly exceeds r; strict
 	// comparison so zero-weight entries can never be selected.
 	i := sort.Search(len(cdf), func(j int) bool { return cdf[j] > r })

@@ -23,7 +23,7 @@ func TestWeightedInferredDrawRacksCDF(t *testing.T) {
 	counts := map[tilemapping.MachineLetter]int{}
 	const draws = 40000
 	for i := 0; i < draws; i++ {
-		leave, err := s.weightedInferredDrawRacks()
+		leave, err := s.weightedInferredDrawRacks(0)
 		is.NoErr(err)
 		is.Equal(len(leave), 1)
 		counts[leave[0]]++
@@ -45,6 +45,6 @@ func TestWeightedInferredDrawRacksNoMass(t *testing.T) {
 		{Leave: []tilemapping.MachineLetter{1}, Weight: 0},
 	}, 1, InferenceCompletePosterior)
 	is.Equal(len(s.inferenceCDF), 0)
-	_, err := s.weightedInferredDrawRacks()
+	_, err := s.weightedInferredDrawRacks(0)
 	is.True(err != nil)
 }

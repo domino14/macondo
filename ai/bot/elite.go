@@ -183,7 +183,7 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	// use montecarlo if we have it.
 	logger := zerolog.Ctx(ctx)
 
-	if !hasSimming(p.botType) {
+	if !HasSimming(p.botType) {
 		return moves[0], nil
 	}
 	var inferTimeout context.Context

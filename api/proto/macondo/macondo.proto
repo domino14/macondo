@@ -488,4 +488,13 @@ message AutoplayConfig {
   bool generate_seeds = 12;
   // If true, load seeds from seed_file and use them for deterministic games.
   bool deterministic = 13;
+  // If true, play every game twice: same seed, same tile order, with the two
+  // bots swapping who moves first. num_games counts pairs, so the run plays
+  // 2 * num_games games. Pairing cancels out draw luck, which is what lets a
+  // small strategy improvement show up without being buried in variance.
+  bool game_pairs = 14;
+  // Master seed for the run. Each game (or pair) derives its own seed from
+  // this, so the same value replays the same experiment. If 0 and the run
+  // needs seeds, one is generated and logged.
+  uint64 seed = 15;
 }

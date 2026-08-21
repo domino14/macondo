@@ -1668,6 +1668,14 @@ func (sc *ShellController) handleAutoplay(args []string, options CmdOptions) err
 	if options.Bool("deterministic") {
 		expCfg.Deterministic = true
 	}
+	if options.Bool("gamepairs") {
+		expCfg.GamePairs = true
+	}
+	if v, err2 := options.IntDefault("seed", 0); err2 != nil {
+		return err2
+	} else if v != 0 {
+		expCfg.Seed = uint64(v)
+	}
 
 	// Per-player overrides. Apply only if the flag was explicitly set.
 	if expCfg.Player1 == nil {
