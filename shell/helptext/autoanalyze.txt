@@ -19,3 +19,29 @@ in-depth file. It will export as gid.gcg in the current directory.
 
 The letterdist will default to english if not specified.
 The boardlayout will default to CrosswordGame if not specified.
+
+Game pairs:
+
+For a run made with `autoplay -gamepairs`, add -divergence to find out where
+the two halves of each pair parted ways:
+
+    autoanalyze /tmp/games-auto.txt -divergence
+    autoanalyze /tmp/games-auto.txt -divergence -limit 30
+
+Both halves of a pair are dealt the same tiles, so the only thing that can
+make them differ is a bot choosing differently. For each divergent pair this
+prints the turn they first disagreed on, the rack they both held, and what
+each bot played with it.
+
+A bot playing itself should report no divergences at all, and every pair
+should be an exact tie. Two different bots should diverge often -- pairs that
+never diverge are ties that tell you nothing.
+
+If a pair's halves turn out to hold different racks, that is flagged loudly:
+it means the bag went out of step, so the run is comparing luck again rather
+than strategy.
+
+    -limit N        describe N divergent pairs (default 10); the counts and
+                    the turn statistics always cover all of them
+    -turnlog PATH   read plays from this per-turn log instead of the file
+                    next to the game log

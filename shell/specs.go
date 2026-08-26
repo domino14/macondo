@@ -265,6 +265,11 @@ func init() {
 			{Name: "letterdist", Type: OptString},
 			{Name: "lex", Type: OptString},
 			{Name: "boardlayout", Type: OptString},
+			{Name: "divergence", Type: OptBool, Values: boolValues,
+				Help: "for -gamepairs runs: show where each pair's two halves chose differently"},
+			{Name: "turnlog", Type: OptString,
+				Help: "per-turn log to read plays from (default: the file next to the game log)"},
+			{Name: "limit", Type: OptInt, Help: "how many divergent pairs to describe (default 10)"},
 		},
 	})
 
