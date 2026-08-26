@@ -22,8 +22,20 @@ The boardlayout will default to CrosswordGame if not specified.
 
 Game pairs:
 
-For a run made with `autoplay -gamepairs`, add -divergence to find out where
-the two halves of each pair parted ways:
+For a run made with `autoplay -gamepairs`, autoanalyze adds a "Game pairs"
+section, which is the part to read. The two games of a pair are played from
+one bag with the seats swapped, so they are not independent results and the
+per-game figures above that section overstate the uncertainty. The pair
+section adds each pair's two margins together instead, which cancels the
+tiles and the first-move advantage, and tests those sums. It reports what the
+pairing bought, typically worth several times the number of games.
+
+Its p-values come from a sign-flip test over the pairs, which assumes only
+the symmetry the design already guarantees. Pairs that come out exactly even
+are kept, since a pair that plays out identically is a real result of no
+difference and dropping it would exaggerate the average.
+
+Add -divergence to find out where the two halves of each pair parted ways:
 
     autoanalyze /tmp/games-auto.txt -divergence
     autoanalyze /tmp/games-auto.txt -divergence -limit 30
