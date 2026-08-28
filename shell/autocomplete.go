@@ -39,7 +39,11 @@ var botCodes = []string{
 	"RANDOM_BOT_WITH_TEMPERATURE",
 	"SIMMING_WITH_ML_EVAL_BOT",
 	"CUSTOM_BOT",
+	"COMMON_WORD_PLUS_TWOS_BOT",
 }
+
+// pgShowSections are the sections puzzlegen -show accepts.
+var pgShowSections = []string{"line", "board", "cgp", "answer", "stats", "all"}
 
 // allCommandNames returns all registered command names plus aliases.
 func allCommandNames(aliases map[string]string) []string {

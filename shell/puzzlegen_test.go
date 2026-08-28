@@ -9,8 +9,8 @@ import (
 func makePZ(score int32, words int32, tags ...pb.PuzzleTag) *pb.PuzzleCreationResponse {
 	return &pb.PuzzleCreationResponse{
 		Stats: &pb.PuzzleStats{
-			Score:        score,
-			WordsFormed:  words,
+			Score:       score,
+			WordsFormed: words,
 		},
 		Tags: tags,
 	}
@@ -180,4 +180,72 @@ func TestCompileFilterErrors(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestParseShow(t *testing.T) {
+	tests := []struct {
+		spec    string
+		want    pgShow
+		wantErr bool
+	}{
+		// An unset -show keeps the pre-existing behavior: the summary line only.
+		{"", pgShow{line: true}, false},
+		{"board", pgShow{board: true}, false},
+		{"board,cgp", pgShow{board: true, cgp: true}, false},
+		{" BOARD , Cgp ", pgShow{board: true, cgp: true}, false},
+		{"all", pgShow{line: true, board: true, cgp: true, answer: true, stats: true}, false},
+		{"line,bogus", pgShow{}, true},
+	}
+	for _, tt := range tests {
+		got, err := parseShow(tt.spec)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("parseShow(%q) err=%v, wantErr=%v", tt.spec, err, tt.wantErr)
+			continue
+		}
+		if err == nil && got != tt.want {
+			t.Errorf("parseShow(%q) = %+v, want %+v", tt.spec, got, tt.want)
+		}
+	}
+}
+
+func TestPgSafeFilename(t *testing.T) {
+	// A seeded game's UID carries a colon, which has no business in a filename.
+	if got := pgSafeFilename("seed:zPuHRZuVZGXbCulC3bdx1u6nMdaZWhGa3hVbrodoW4E"); got !=
+		"seed-zPuHRZuVZGXbCulC3bdx1u6nMdaZWhGa3hVbrodoW4E" {
+		t.Errorf("pgSafeFilename kept an unsafe character: %q", got)
+	}
+	if got := pgSafeFilename("abc123_-."); got != "abc123_-." {
+		t.Errorf("pgSafeFilename mangled a safe name: %q", got)
+	}
+}
+
+// TestPgDeriveSeed checks the two properties a run depends on: the same base
+// seed replays the same games, and consecutive games in one run differ.
+func TestPgDeriveSeed(t *testing.T) {
+	base, err := pgParseSeed("puzzles-2026")
+	if err != nil {
+		t.Fatal(err)
+	}
+	same, err := pgParseSeed("puzzles-2026")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pgDeriveSeed(base, 3) != pgDeriveSeed(same, 3) {
+		t.Error("the same seed produced different games")
+	}
+	if pgDeriveSeed(base, 0) == pgDeriveSeed(base, 1) {
+		t.Error("consecutive games in a run got the same seed")
+	}
+	if pgDeriveSeed(base, 0) == pgDeriveSeed(mustSeed(t, "other"), 0) {
+		t.Error("different seeds produced the same game")
+	}
+}
+
+func mustSeed(t *testing.T, s string) [32]byte {
+	t.Helper()
+	b, err := pgParseSeed(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }

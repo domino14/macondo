@@ -159,6 +159,11 @@ message BotRequest {
     // custom bots can be used to run custom algorithms.
     // They should be used with the BotSpec below.
     CUSTOM_BOT = 20;
+    // Plays the best move all of whose words are in the common-word lexicon,
+    // except that any two-letter word from the game's own lexicon is allowed.
+    // Produces boards a casual player can read while still hooking and
+    // overlapping naturally. Used to generate puzzle positions.
+    COMMON_WORD_PLUS_TWOS_BOT = 21;
     // This should have probably been number 0.
     UNKNOWN = 100;
   }
@@ -206,6 +211,10 @@ enum PuzzleTag {
   CEL_ONLY = 7;
   // POINTS fires when the answer is the top-scoring play by at least score_margin points.
   POINTS = 8;
+  // CEL_PLUS_TWOS fires when every word the answer forms is in the common-word
+  // lexicon, or is a two-letter word in the game's lexicon. It is deliberately
+  // separate from CEL_ONLY, whose meaning downstream consumers already depend on.
+  CEL_PLUS_TWOS = 9;
 }
 
 // PuzzleStats holds numeric attributes of a puzzle's answer move.

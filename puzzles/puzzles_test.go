@@ -80,7 +80,8 @@ func TestPuzzles(t *testing.T) {
 			Direction:   pb.GameEvent_HORIZONTAL,
 			PlayedTiles: "ADMITS",
 		},
-		Tags: []pb.PuzzleTag{pb.PuzzleTag_CEL_ONLY, pb.PuzzleTag_NON_BINGO},
+		// CEL_ONLY implies CEL_PLUS_TWOS: the latter's word list is a superset.
+		Tags: []pb.PuzzleTag{pb.PuzzleTag_CEL_ONLY, pb.PuzzleTag_CEL_PLUS_TWOS, pb.PuzzleTag_NON_BINGO},
 	}
 	puzzlesMatch(is, "cel_only", dpgr, celOnlyPuzzle)
 
@@ -783,4 +784,60 @@ func puzzlesByGCG(t *testing.T, gcgfile string, req *pb.PuzzleGenerationRequest)
 		t.Fatalf("CreatePuzzlesFromGame: %v", err)
 	}
 	return pzls
+}
+
+// TestCELPlusTwos pins down the difference between the two common-word tags.
+// CEL_PLUS_TWOS must be a strict superset of CEL_ONLY, and the gap between them
+// must be non-empty on a real game -- otherwise the tag is doing nothing and a
+// board generated from the hybrid word list would be no denser than a plain
+// common-word one.
+func TestCELPlusTwos(t *testing.T) {
+	is := is.New(t)
+	zerolog.SetGlobalLevel(zerolog.Disabled)
+
+	gameHistory, err := gcgio.ParseGCG(DefaultConfig, "./testdata/well_played_game.gcg")
+	is.NoErr(err)
+	gameHistory.ChallengeRule = pb.ChallengeRule_FIVE_POINT
+
+	rules, err := game.NewBasicGameRules(DefaultConfig, "NWL23", board.CrosswordGameLayout,
+		"english", game.CrossScoreAndSet, game.VarClassic)
+	is.NoErr(err)
+	g, err := game.NewFromHistory(gameHistory, rules, 0)
+	is.NoErr(err)
+
+	req := proto.Clone(DefaultPuzzleGenerationReq).(*pb.PuzzleGenerationRequest)
+	is.NoErr(InitializePuzzleGenerationRequest(req))
+
+	pzls, err := CreatePuzzlesFromGame(DefaultConfig, 1000, g, req)
+	is.NoErr(err)
+	is.True(len(pzls) > 0)
+
+	hasTag := func(pzl *pb.PuzzleCreationResponse, tag pb.PuzzleTag) bool {
+		for _, tg := range pzl.Tags {
+			if tg == tag {
+				return true
+			}
+		}
+		return false
+	}
+
+	onlyCount, plusCount, gapCount := 0, 0, 0
+	for _, pzl := range pzls {
+		cel := hasTag(pzl, pb.PuzzleTag_CEL_ONLY)
+		plus := hasTag(pzl, pb.PuzzleTag_CEL_PLUS_TWOS)
+		if cel {
+			onlyCount++
+			// Every CEL_ONLY word is also allowed by the hybrid.
+			is.True(plus)
+		}
+		if plus {
+			plusCount++
+			if !cel {
+				gapCount++
+			}
+		}
+	}
+	is.True(onlyCount > 0)
+	is.True(gapCount > 0)
+	t.Logf("CEL_ONLY=%d CEL_PLUS_TWOS=%d (of which %d are twos-only)", onlyCount, plusCount, gapCount)
 }

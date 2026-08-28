@@ -22,17 +22,31 @@ var BotConfigs = map[pb.BotRequest_BotCode]struct {
 	longWordFindability float64
 	parallelFindability float64
 	isCommonWord        bool
+	// allowFullLexiconTwos widens isCommonWord to admit any two-letter word
+	// from the game's own lexicon. See lexicon.Hybrid for why the twos in
+	// particular are worth letting through.
+	allowFullLexiconTwos bool
 }{
 	pb.BotRequest_LEVEL1_COMMON_WORD_BOT: {baseFindability: 0.3, longWordFindability: 0.1, parallelFindability: 0.3, isCommonWord: true},
 	pb.BotRequest_LEVEL2_COMMON_WORD_BOT: {baseFindability: 0.7, longWordFindability: 0.4, parallelFindability: 0.5, isCommonWord: true},
 	pb.BotRequest_LEVEL3_COMMON_WORD_BOT: {baseFindability: 0.8, longWordFindability: 0.5, parallelFindability: 0.75, isCommonWord: true},
 	pb.BotRequest_LEVEL4_COMMON_WORD_BOT: {baseFindability: 1.0, longWordFindability: 1.0, parallelFindability: 1.0, isCommonWord: true},
 
+	pb.BotRequest_COMMON_WORD_PLUS_TWOS_BOT: {baseFindability: 1.0, longWordFindability: 1.0, parallelFindability: 1.0, isCommonWord: true, allowFullLexiconTwos: true},
+
 	pb.BotRequest_LEVEL1_PROBABILISTIC: {baseFindability: 0.2, longWordFindability: 0.07, parallelFindability: 0.15, isCommonWord: false},
 	pb.BotRequest_LEVEL2_PROBABILISTIC: {baseFindability: 0.4, longWordFindability: 0.2, parallelFindability: 0.3, isCommonWord: false},
 	pb.BotRequest_LEVEL3_PROBABILISTIC: {baseFindability: 0.55, longWordFindability: 0.35, parallelFindability: 0.45, isCommonWord: false},
 	pb.BotRequest_LEVEL4_PROBABILISTIC: {baseFindability: 0.85, longWordFindability: 0.45, parallelFindability: 0.85, isCommonWord: false},
 	pb.BotRequest_LEVEL5_PROBABILISTIC: {baseFindability: 0.9, longWordFindability: 0.8, parallelFindability: 0.85, isCommonWord: false},
+}
+
+// IsCommonWordBot reports whether a bot code restricts the plays it will make
+// to a common-word list. Such a bot loses equity against a full-lexicon
+// evaluator on nearly every turn, by design, so callers that measure equity
+// loss need to know not to hold it against them.
+func IsCommonWordBot(botType pb.BotRequest_BotCode) bool {
+	return BotConfigs[botType].isCommonWord
 }
 
 func filter(cfg *config.Config, g *game.Game, rack *tilemapping.Rack, plays []*move.Move, botType pb.BotRequest_BotCode,
@@ -78,7 +92,14 @@ func filter(cfg *config.Config, g *game.Game, rack *tilemapping.Rack, plays []*m
 			log.Err(err).Str("commonWordLexicon", commonWordLexicon).Msg("could-not-load-cwl")
 			filterFunction = func([]tilemapping.MachineWord, float64) (bool, error) { return false, err }
 		} else {
-			lex := kwg.Lexicon{KWG: *gd}
+			var lex lexicon.Lexicon = kwg.Lexicon{KWG: *gd}
+			if botConfig.allowFullLexiconTwos {
+				lex, err = withFullLexiconTwos(cfg, lex, lexName)
+				if err != nil {
+					log.Err(err).Str("lexicon", lexName).Msg("could-not-build-hybrid-lexicon")
+					return passMove
+				}
+			}
 			filterFunction = func(mws []tilemapping.MachineWord, r float64) (bool, error) {
 				err = g.ValidateWords(lex, mws)
 				if err != nil {
@@ -90,9 +111,11 @@ func filter(cfg *config.Config, g *game.Game, rack *tilemapping.Rack, plays []*m
 		}
 	}
 
-	// LEVEL4_COMMON_WORD_BOT is an unfiltered common-word bot. Only filter if we're
-	// not selecting this particular bot.
-	if botType != pb.BotRequest_LEVEL4_COMMON_WORD_BOT {
+	// LEVEL4_COMMON_WORD_BOT and COMMON_WORD_PLUS_TWOS_BOT are unfiltered
+	// common-word bots: they take the best move their word list allows, with no
+	// findability roll. Only apply findability if we're not one of those.
+	if botType != pb.BotRequest_LEVEL4_COMMON_WORD_BOT &&
+		botType != pb.BotRequest_COMMON_WORD_PLUS_TWOS_BOT {
 		dist := g.Bag().LetterDistribution()
 		// XXX: This should be cached
 		subChooseCombos := createSubCombos(dist)
@@ -142,6 +165,17 @@ func filter(cfg *config.Config, g *game.Game, rack *tilemapping.Rack, plays []*m
 	}
 
 	return passMove
+}
+
+// withFullLexiconTwos wraps a common-word lexicon so that any two-letter word
+// from the game's own lexicon also passes. The game lexicon is already loaded
+// and globally cached by this point, so looking it up again is free.
+func withFullLexiconTwos(cfg *config.Config, common lexicon.Lexicon, lexName string) (lexicon.Lexicon, error) {
+	gd, err := kwg.GetKWG(cfg.WGLConfig(), lexName)
+	if err != nil {
+		return nil, err
+	}
+	return lexicon.NewHybrid(common, kwg.Lexicon{KWG: *gd}, 2)
 }
 
 func probableFindability(wordLen int, combos uint64) float64 {

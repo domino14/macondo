@@ -1,11 +1,15 @@
 package shell
 
 import (
+	"encoding/json"
 	"fmt"
+	"math"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
 
+	aibot "github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/automatic"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
@@ -13,6 +17,92 @@ import (
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/puzzles"
 )
+
+// pgRun carries one puzzlegen invocation's settings and running totals, so the
+// four game sources can share the same collect/emit path.
+type pgRun struct {
+	sc      *ShellController
+	req     *pb.PuzzleGenerationRequest
+	filter  predicate
+	eqLoss  int
+	lexicon string // -lexicon override; "" means take it from the game
+	show    pgShow
+	out     *os.File
+	gcgDir  string
+	max     int // 0 = unlimited
+	seed    string
+
+	totalAll     int
+	totalMatched int
+	tagCounts    map[string]int
+	gcgWritten   map[string]bool
+}
+
+// full reports whether -max has been reached, at which point every remaining
+// game and puzzle is skipped.
+func (r *pgRun) full() bool {
+	return r.max > 0 && r.totalMatched >= r.max
+}
+
+// collect runs one game's puzzles through the filter, printing and writing the
+// ones that match. The game must still hold the history the puzzles came from;
+// emit seeks it around, so nothing may generate from it afterwards.
+func (r *pgRun) collect(g *game.Game, pzls []*pb.PuzzleCreationResponse) (all, matched int) {
+	for _, pz := range pzls {
+		if r.full() {
+			break
+		}
+		// Count only what we actually looked at, so that a run cut short by
+		// -max reports "3/9" rather than "3/40" for a game it barely entered.
+		all++
+		r.totalAll++
+		if r.filter != nil && !r.filter(pz) {
+			continue
+		}
+		matched++
+		r.totalMatched++
+		for _, t := range pz.GetTags() {
+			r.tagCounts[t.String()]++
+		}
+		if err := r.emit(g, pz); err != nil {
+			r.sc.showMessage(fmt.Sprintf("  emit error: %v", err))
+		}
+	}
+	return all, matched
+}
+
+// emit renders one matched puzzle to the terminal, the -out file, and -gcgdir.
+func (r *pgRun) emit(g *game.Game, pz *pb.PuzzleCreationResponse) error {
+	pos, err := pgSeekTo(g, pz.GetTurnNumber())
+	if err != nil {
+		return err
+	}
+	if r.show.any() {
+		r.sc.showMessage(strings.TrimRight(pgFormatFull(pz, pos, r.show), "\n"))
+	}
+	if r.out != nil {
+		rec, err := pgBuildRecord(g, pz, pos, r.seed)
+		if err != nil {
+			return err
+		}
+		line, err := json.Marshal(rec)
+		if err != nil {
+			return err
+		}
+		if _, err := r.out.Write(append(line, '\n')); err != nil {
+			return err
+		}
+	}
+	if r.gcgDir != "" && !r.gcgWritten[pz.GetGameId()] {
+		path, err := pgWriteGCG(r.gcgDir, g)
+		if err != nil {
+			return err
+		}
+		r.gcgWritten[pz.GetGameId()] = true
+		r.sc.showMessage("  wrote " + path)
+	}
+	return nil
+}
 
 // puzzlegen generates puzzles from game sources and prints matching ones.
 // See "help puzzlegen" for full documentation and filter language reference.
@@ -43,11 +133,39 @@ func (sc *ShellController) puzzlegen(cmd *shellcmd) (*Response, error) {
 		}
 		scoreMargin = f
 	}
-	eqLossLimit, err := cmd.options.IntDefault("eqloss-limit", 1000)
+	numGames, err := cmd.options.IntDefault("numgames", 1)
 	if err != nil {
 		return nil, err
 	}
-	numGames, err := cmd.options.IntDefault("numgames", 1)
+	maxPuzzles, err := cmd.options.IntDefault("max", 0)
+	if err != nil {
+		return nil, err
+	}
+	show, err := parseShow(cmd.options.String("show"))
+	if err != nil {
+		return nil, err
+	}
+
+	// The bot only matters for selfplay, but parse it up front so a typo is
+	// reported before a long run starts.
+	botCode := pb.BotRequest_HASTY_BOT
+	if s := cmd.options.String("bot"); s != "" {
+		code, exists := pb.BotRequest_BotCode_value[strings.ToUpper(s)]
+		if !exists {
+			return nil, fmt.Errorf("unknown bot code %q", s)
+		}
+		botCode = pb.BotRequest_BotCode(code)
+	}
+
+	// A common-word bot loses equity to a full-lexicon evaluator on nearly
+	// every turn -- that is what it is for -- so the equity-loss guard, which
+	// exists to throw out sloppy human games, would discard every game it
+	// played. Default it off for those bots; an explicit -eqloss-limit wins.
+	defaultEqLoss := 1000
+	if source == "selfplay" && aibot.IsCommonWordBot(botCode) {
+		defaultEqLoss = math.MaxInt32
+	}
+	eqLossLimit, err := cmd.options.IntDefault("eqloss-limit", defaultEqLoss)
 	if err != nil {
 		return nil, err
 	}
@@ -69,58 +187,62 @@ func (sc *ShellController) puzzlegen(cmd *shellcmd) (*Response, error) {
 		return nil, err
 	}
 
-	totalAll, totalMatched := 0, 0
-	tagCounts := map[string]int{}
+	run := &pgRun{
+		sc:         sc,
+		req:        req,
+		filter:     filter,
+		eqLoss:     eqLossLimit,
+		lexicon:    lexiconOverride,
+		show:       show,
+		gcgDir:     cmd.options.String("gcgdir"),
+		max:        maxPuzzles,
+		seed:       cmd.options.String("seed"),
+		tagCounts:  map[string]int{},
+		gcgWritten: map[string]bool{},
+	}
+
+	if outPath := cmd.options.String("out"); outPath != "" {
+		f, err := os.OpenFile(outPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err != nil {
+			return nil, fmt.Errorf("could not open -out %q: %w", outPath, err)
+		}
+		defer f.Close()
+		run.out = f
+	}
+	if run.gcgDir != "" {
+		if err := os.MkdirAll(run.gcgDir, 0755); err != nil {
+			return nil, fmt.Errorf("could not create -gcgdir %q: %w", run.gcgDir, err)
+		}
+	}
 
 	switch source {
-	case "woogles":
+	case "woogles", "gcg", "xt":
 		if len(sourceArgs) == 0 {
-			return nil, fmt.Errorf("puzzlegen woogles requires at least one game ID")
+			return nil, fmt.Errorf("puzzlegen %s requires at least one %s", source,
+				map[string]string{"woogles": "game ID", "gcg": "file path", "xt": "cross-tables game ID"}[source])
 		}
-		for _, gameID := range sourceArgs {
-			sc.showMessage(fmt.Sprintf("Fetching %s...", gameID))
-			gh, err := sc.loadGameHistoryFromWoogles(gameID)
+		for _, arg := range sourceArgs {
+			if run.full() {
+				break
+			}
+			var gh *pb.GameHistory
+			var err error
+			switch source {
+			case "woogles":
+				sc.showMessage(fmt.Sprintf("Fetching %s...", arg))
+				gh, err = sc.loadGameHistoryFromWoogles(arg)
+			case "gcg":
+				gh, err = sc.loadGameHistoryFromFile(arg)
+			case "xt":
+				sc.showMessage(fmt.Sprintf("Fetching cross-tables game %s...", arg))
+				gh, err = sc.loadGameHistoryFromCrossTables(arg)
+			}
 			if err != nil {
-				sc.showMessage(fmt.Sprintf("  [%s] fetch error: %v", gameID, err))
+				sc.showMessage(fmt.Sprintf("  [%s] error: %v", arg, err))
 				continue
 			}
-			all, matched := sc.processPuzzleHistory(gh, lexiconOverride, eqLossLimit, req, filter, tagCounts)
-			sc.showMessage(fmt.Sprintf("  [%s] %d/%d puzzles matched", gameID, matched, all))
-			totalAll += all
-			totalMatched += matched
-		}
-
-	case "gcg":
-		if len(sourceArgs) == 0 {
-			return nil, fmt.Errorf("puzzlegen gcg requires at least one file path")
-		}
-		for _, path := range sourceArgs {
-			gh, err := sc.loadGameHistoryFromFile(path)
-			if err != nil {
-				sc.showMessage(fmt.Sprintf("  [%s] error: %v", path, err))
-				continue
-			}
-			all, matched := sc.processPuzzleHistory(gh, lexiconOverride, eqLossLimit, req, filter, tagCounts)
-			sc.showMessage(fmt.Sprintf("  [%s] %d/%d puzzles matched", path, matched, all))
-			totalAll += all
-			totalMatched += matched
-		}
-
-	case "xt":
-		if len(sourceArgs) == 0 {
-			return nil, fmt.Errorf("puzzlegen xt requires at least one cross-tables game ID")
-		}
-		for _, gameID := range sourceArgs {
-			sc.showMessage(fmt.Sprintf("Fetching cross-tables game %s...", gameID))
-			gh, err := sc.loadGameHistoryFromCrossTables(gameID)
-			if err != nil {
-				sc.showMessage(fmt.Sprintf("  [%s] fetch error: %v", gameID, err))
-				continue
-			}
-			all, matched := sc.processPuzzleHistory(gh, lexiconOverride, eqLossLimit, req, filter, tagCounts)
-			sc.showMessage(fmt.Sprintf("  [%s] %d/%d puzzles matched", gameID, matched, all))
-			totalAll += all
-			totalMatched += matched
+			all, matched := run.processPuzzleHistory(gh)
+			sc.showMessage(fmt.Sprintf("  [%s] %d/%d puzzles matched", arg, matched, all))
 		}
 
 	case "selfplay":
@@ -134,47 +256,51 @@ func (sc *ShellController) puzzlegen(cmd *shellcmd) (*Response, error) {
 			sc.config.Set(config.ConfigDefaultLexicon, lexicon)
 			defer sc.config.Set(config.ConfigDefaultLexicon, origLexicon)
 		}
-		for i := 0; i < numGames; i++ {
+		players := []automatic.AutomaticRunnerPlayer{{BotCode: botCode}, {BotCode: botCode}}
+
+		var baseSeed [32]byte
+		if run.seed != "" {
+			baseSeed, err = pgParseSeed(run.seed)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		for i := 0; i < numGames && !run.full(); i++ {
 			sc.showMessage(fmt.Sprintf("Self-play game %d/%d...", i+1, numGames))
+			var seed [32]byte
+			if run.seed != "" {
+				seed = pgDeriveSeed(baseSeed, i)
+			}
 			r := automatic.NewGameRunner(nil, sc.config)
-			if err := r.CompVsCompStatic(true); err != nil {
+			if err := r.CompVsCompStaticBots(true, players, i, seed); err != nil {
 				sc.showMessage(fmt.Sprintf("  [game %d] error: %v", i+1, err))
 				continue
 			}
 			g := r.Game()
-			pzls, err := puzzles.CreatePuzzlesFromGame(sc.config, eqLossLimit, g, req)
+			pzls, err := puzzles.CreatePuzzlesFromGame(sc.config, run.eqLoss, g, req)
 			if err != nil {
 				sc.showMessage(fmt.Sprintf("  [game %d] puzzle error: %v", i+1, err))
 				continue
 			}
-			matched := 0
-			for _, pz := range pzls {
-				totalAll++
-				if filter == nil || filter(pz) {
-					totalMatched++
-					matched++
-					for _, t := range pz.GetTags() {
-						tagCounts[t.String()]++
-					}
-					sc.showMessage(pgFormatPuzzle(pz))
-				}
-			}
-			sc.showMessage(fmt.Sprintf("  [game %d] %d/%d puzzles matched", i+1, matched, len(pzls)))
+			all, matched := run.collect(g, pzls)
+			sc.showMessage(fmt.Sprintf("  [game %d] %d/%d puzzles matched", i+1, matched, all))
 		}
 
 	default:
 		return nil, fmt.Errorf("unknown source %q; use woogles, gcg, xt, or selfplay", source)
 	}
 
-	sc.showMessage(fmt.Sprintf("\n━━━ SUMMARY: %d matched / %d total ━━━", totalMatched, totalAll))
-	if len(tagCounts) > 0 {
+	sc.showMessage(fmt.Sprintf("\n━━━ SUMMARY: %d matched / %d total ━━━",
+		run.totalMatched, run.totalAll))
+	if len(run.tagCounts) > 0 {
 		sc.showMessage("Tag distribution (matched puzzles):")
 		type kv struct {
 			k string
 			v int
 		}
-		sorted := make([]kv, 0, len(tagCounts))
-		for k, v := range tagCounts {
+		sorted := make([]kv, 0, len(run.tagCounts))
+		for k, v := range run.tagCounts {
 			sorted = append(sorted, kv{k, v})
 		}
 		sort.Slice(sorted, func(i, j int) bool { return sorted[i].k < sorted[j].k })
@@ -186,13 +312,11 @@ func (sc *ShellController) puzzlegen(cmd *shellcmd) (*Response, error) {
 }
 
 // processPuzzleHistory converts one GameHistory into puzzles and streams matches.
-func (sc *ShellController) processPuzzleHistory(
-	gh *pb.GameHistory, lexiconOverride string, eqLossLimit int,
-	req *pb.PuzzleGenerationRequest, filter predicate, tagCounts map[string]int,
-) (all, matched int) {
+func (r *pgRun) processPuzzleHistory(gh *pb.GameHistory) (all, matched int) {
+	sc := r.sc
 	lexicon := gh.GetLexicon()
-	if lexiconOverride != "" {
-		lexicon = lexiconOverride
+	if r.lexicon != "" {
+		lexicon = r.lexicon
 	}
 	if lexicon == "" {
 		lexicon = sc.config.GetString(config.ConfigDefaultLexicon)
@@ -217,22 +341,12 @@ func (sc *ShellController) processPuzzleHistory(
 		sc.showMessage(fmt.Sprintf("  history error: %v", err))
 		return
 	}
-	pzls, err := puzzles.CreatePuzzlesFromGame(sc.config, eqLossLimit, g, req)
+	pzls, err := puzzles.CreatePuzzlesFromGame(sc.config, r.eqLoss, g, r.req)
 	if err != nil {
 		sc.showMessage(fmt.Sprintf("  puzzle error: %v", err))
 		return
 	}
-	all = len(pzls)
-	for _, pz := range pzls {
-		if filter == nil || filter(pz) {
-			matched++
-			for _, t := range pz.GetTags() {
-				tagCounts[t.String()]++
-			}
-			sc.showMessage(pgFormatPuzzle(pz))
-		}
-	}
-	return
+	return r.collect(g, pzls)
 }
 
 // pgFormatPuzzle formats a single puzzle response for display.
