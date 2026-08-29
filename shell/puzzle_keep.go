@@ -36,21 +36,29 @@ func pgDefaultKeepFile(openFile string) string {
 	return strings.TrimSuffix(openFile, ext) + "-kept" + ext
 }
 
+// pgLooksLikeKeepFile reports whether a path is one pgDefaultKeepFile would
+// have produced. Browsing a collection and keeping out of it again is a second
+// round of curating, and guessing at a name for it gives you
+// puzzles-kept-kept.jsonl -- so that case asks instead of guessing.
+func pgLooksLikeKeepFile(path string) bool {
+	base := filepath.Base(path)
+	return strings.HasSuffix(strings.TrimSuffix(base, filepath.Ext(base)), "-kept")
+}
+
+// pgSamePath reports whether two paths name the same file.
+func pgSamePath(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	absA, errA := filepath.Abs(expandHomePath(a))
+	absB, errB := filepath.Abs(expandHomePath(b))
+	return errA == nil && errB == nil && absA == absB
+}
+
 // puzzleSetKeepFile points keeping at a file and loads what is already in it, so
 // that reopening an old collection does not duplicate its puzzles.
 func (sc *ShellController) puzzleSetKeepFile(path string) error {
 	full := expandHomePath(path)
-
-	// Appending the file you are reading would grow it under you and duplicate
-	// whatever you kept on a later pass.
-	if openPath := expandHomePath(sc.puzzleFile); openPath != "" {
-		a, errA := filepath.Abs(full)
-		b, errB := filepath.Abs(openPath)
-		if errA == nil && errB == nil && a == b {
-			return fmt.Errorf("that is the file you are browsing; keep into a different one")
-		}
-	}
-
 	kept := map[string]bool{}
 	f, err := os.Open(full)
 	if err == nil {
@@ -84,7 +92,18 @@ func (sc *ShellController) puzzleSetKeepFile(path string) error {
 // the first call and reusing it afterwards.
 func (sc *ShellController) puzzleKeep(dest string) (*Response, error) {
 	if dest == "" && sc.puzzleKeepFile == "" {
+		if pgLooksLikeKeepFile(sc.puzzleFile) {
+			return nil, fmt.Errorf(
+				"%s is already a collection; name where these should go, as `puzzle keep <file>` "+
+					"(or `puzzle unkeep` to take one out of it)", sc.puzzleFile)
+		}
 		dest = pgDefaultKeepFile(sc.puzzleFile)
+	}
+	// Checked before the destination is recorded, and again on every keep: a
+	// remembered destination becomes the open file the moment you open it, and
+	// appending there would grow the file under the browser.
+	if pgSamePath(dest, sc.puzzleFile) || pgSamePath(sc.puzzleKeepFile, sc.puzzleFile) {
+		return nil, fmt.Errorf("that is the file you are browsing; keep into a different one")
 	}
 	if dest != "" {
 		if err := sc.puzzleSetKeepFile(dest); err != nil {
@@ -118,25 +137,75 @@ func (sc *ShellController) puzzleKeep(dest string) (*Response, error) {
 		sc.puzzleIdx+1, len(sc.puzzleSet), sc.puzzleKeepFile, len(sc.puzzleKept))), nil
 }
 
-// puzzleUnkeep takes the current puzzle back out of the keep file. Keeping is
-// one keystroke and easy to do before running `gen` and changing your mind, so
-// it needs an undo; the file is rewritten without that record.
+// puzzleUnkeep takes the current puzzle out of the collection it is in.
+//
+// Which collection that is depends on what you are doing. With a keep file
+// named, it is that file -- keeping is one keystroke and easy to do just before
+// running `gen` and changing your mind. With no keep file named you are browsing
+// a collection rather than building one, and the file to take it out of is the
+// one open in front of you; pruning a collection you made earlier is the whole
+// reason to open it again.
 func (sc *ShellController) puzzleUnkeep() (*Response, error) {
-	if sc.puzzleKeepFile == "" {
-		return nil, fmt.Errorf("no keep file is open")
-	}
 	rec := sc.puzzleSet[sc.puzzleIdx]
 	key := pgKeepKey(rec)
-	if !sc.puzzleKept[key] {
+
+	target := sc.puzzleKeepFile
+	pruningOpenFile := target == ""
+	if pruningOpenFile {
+		target = sc.puzzleFile
+	} else if !sc.puzzleKept[key] {
 		return nil, fmt.Errorf("puzzle %d is not in %s", sc.puzzleIdx+1, sc.puzzleKeepFile)
 	}
 
-	full := expandHomePath(sc.puzzleKeepFile)
-	f, err := os.Open(full)
+	removed, err := pgRemoveFromPuzzleFile(expandHomePath(target), key)
 	if err != nil {
 		return nil, err
 	}
+	if removed == 0 {
+		return nil, fmt.Errorf("puzzle %d is not in %s", sc.puzzleIdx+1, target)
+	}
+	delete(sc.puzzleKept, key)
+
+	if !pruningOpenFile {
+		return msg(fmt.Sprintf("Removed puzzle %d from %s (%d kept).",
+			sc.puzzleIdx+1, sc.puzzleKeepFile, len(sc.puzzleKept))), nil
+	}
+
+	gone := sc.dropCurrentFromBrowser()
+	if len(sc.puzzleSet) == 0 {
+		return msg(fmt.Sprintf("Removed puzzle %d from %s. It is now empty.", gone, target)), nil
+	}
+	sc.showMessage(fmt.Sprintf("Removed puzzle %d from %s, the file you are browsing. %d left.",
+		gone, target, len(sc.puzzleSet)))
+	return sc.puzzleGoto(sc.puzzleIdx + 1)
+}
+
+// dropCurrentFromBrowser forgets the puzzle just deleted from the open file and
+// returns its former number. The browser has to lose it too, or its numbering
+// stops matching what reopening the file would show.
+func (sc *ShellController) dropCurrentFromBrowser() int {
+	gone := sc.puzzleIdx + 1
+	sc.puzzleSet = append(sc.puzzleSet[:sc.puzzleIdx], sc.puzzleSet[sc.puzzleIdx+1:]...)
+	if sc.puzzleIdx >= len(sc.puzzleSet) {
+		sc.puzzleIdx = len(sc.puzzleSet) - 1
+	}
+	if sc.puzzleIdx < 0 {
+		sc.puzzleIdx = 0
+	}
+	return gone
+}
+
+// pgRemoveFromPuzzleFile rewrites a puzzle file without the records matching
+// key, and reports how many it dropped. The rewrite goes to a temp file and is
+// renamed into place, so an interrupted one cannot leave a half-written
+// collection behind.
+func pgRemoveFromPuzzleFile(path, key string) (int, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
 	var out []byte
+	removed := 0
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	for scanner.Scan() {
@@ -144,12 +213,13 @@ func (sc *ShellController) puzzleUnkeep() (*Response, error) {
 		if line == "" {
 			continue
 		}
-		var kept pgRecord
-		if err := json.Unmarshal([]byte(line), &kept); err != nil {
+		var rec pgRecord
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
 			f.Close()
-			return nil, fmt.Errorf("%s is not a puzzle file: %w", sc.puzzleKeepFile, err)
+			return 0, fmt.Errorf("%s is not a puzzle file: %w", path, err)
 		}
-		if pgKeepKey(&kept) == key {
+		if pgKeepKey(&rec) == key {
+			removed++
 			continue
 		}
 		out = append(out, line...)
@@ -158,29 +228,29 @@ func (sc *ShellController) puzzleUnkeep() (*Response, error) {
 	scanErr := scanner.Err()
 	f.Close()
 	if scanErr != nil {
-		return nil, scanErr
+		return 0, scanErr
+	}
+	if removed == 0 {
+		return 0, nil
 	}
 
-	// Write beside the target and rename, so an interrupted rewrite cannot
-	// leave a half-written collection behind.
-	tmp := full + ".tmp"
+	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, out, 0644); err != nil {
-		return nil, err
+		return 0, err
 	}
-	if err := os.Rename(tmp, full); err != nil {
+	if err := os.Rename(tmp, path); err != nil {
 		os.Remove(tmp)
-		return nil, err
+		return 0, err
 	}
-
-	delete(sc.puzzleKept, key)
-	return msg(fmt.Sprintf("Removed puzzle %d from %s (%d kept).",
-		sc.puzzleIdx+1, sc.puzzleKeepFile, len(sc.puzzleKept))), nil
+	return removed, nil
 }
 
 // puzzleKeptSummary reports where puzzles are being kept and how many are there.
 func (sc *ShellController) puzzleKeptSummary() string {
 	if sc.puzzleKeepFile == "" {
-		return "No keep file yet. Name one with `puzzle keep <file>`."
+		return fmt.Sprintf(
+			"No keep file yet; `puzzle keep <file>` names one. "+
+				"`puzzle unkeep` would take a puzzle out of %s itself.", sc.puzzleFile)
 	}
 	inThisFile := 0
 	for _, rec := range sc.puzzleSet {

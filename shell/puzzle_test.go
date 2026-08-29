@@ -279,3 +279,93 @@ func TestPuzzleKeepDefaultsToDerivedFile(t *testing.T) {
 		t.Errorf("derived keep file did not get the record: %+v", recs)
 	}
 }
+
+// TestPuzzleUnkeepPrunesOpenFile covers reviewing a collection you built: with
+// no keep file named, unkeep takes the puzzle out of the file in front of you,
+// and out of the browser with it.
+func TestPuzzleUnkeepPrunesOpenFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "favorites.jsonl")
+	writePuzzleFile(t, path, []*pgRecord{
+		{GameID: "g1", Turn: 4, CGP: "one"},
+		{GameID: "g1", Turn: 9, CGP: "two"},
+		{GameID: "g2", Turn: 2, CGP: "three"},
+	})
+
+	sc := &ShellController{puzzleFile: path, puzzleIdx: 1}
+	sc.puzzleSet = readPuzzleFile(t, path)
+
+	// The file rewrite and the browser update, without the redraw that follows
+	// them -- redrawing loads the position, which needs a whole game.
+	removed, err := pgRemoveFromPuzzleFile(path, pgKeepKey(sc.puzzleSet[1]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 1 {
+		t.Fatalf("removed %d records, want 1", removed)
+	}
+	if gone := sc.dropCurrentFromBrowser(); gone != 2 {
+		t.Errorf("dropped puzzle %d, want 2", gone)
+	}
+
+	recs := readPuzzleFile(t, path)
+	if len(recs) != 2 || recs[0].CGP != "one" || recs[1].CGP != "three" {
+		t.Errorf("file after unkeep: %+v", recs)
+	}
+	if len(sc.puzzleSet) != 2 {
+		t.Errorf("browser still holds %d puzzles, want 2", len(sc.puzzleSet))
+	}
+}
+
+// TestPuzzleKeepOnACollection: keeping out of a file that is itself a keep file
+// must ask for a destination rather than inventing puzzles-kept-kept.jsonl.
+func TestPuzzleKeepOnACollection(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "puzzles-kept.jsonl")
+	sc := &ShellController{
+		puzzleFile: path,
+		puzzleSet:  []*pgRecord{{GameID: "g1", Turn: 4}},
+	}
+	_, err := sc.puzzleKeep("")
+	if err == nil {
+		t.Fatal("keeping out of a collection should ask for a destination")
+	}
+	if !strings.Contains(err.Error(), "already a collection") {
+		t.Errorf("unhelpful error: %v", err)
+	}
+	if sc.puzzleKeepFile != "" {
+		t.Errorf("a refused keep left state behind: %q", sc.puzzleKeepFile)
+	}
+}
+
+func TestPgLooksLikeKeepFile(t *testing.T) {
+	for _, tc := range []struct {
+		path string
+		want bool
+	}{
+		{"/tmp/puzzles-kept.jsonl", true},
+		{"favorites-kept.jsonl", true},
+		{"/tmp/puzzles.jsonl", false},
+		{"kept.jsonl", false},
+		{"", false},
+	} {
+		if got := pgLooksLikeKeepFile(tc.path); got != tc.want {
+			t.Errorf("pgLooksLikeKeepFile(%q) = %v, want %v", tc.path, got, tc.want)
+		}
+	}
+}
+
+func writePuzzleFile(t *testing.T, path string, recs []*pgRecord) {
+	t.Helper()
+	var b []byte
+	for _, rec := range recs {
+		line, err := json.Marshal(rec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b = append(append(b, line...), '\n')
+	}
+	if err := os.WriteFile(path, b, 0644); err != nil {
+		t.Fatal(err)
+	}
+}

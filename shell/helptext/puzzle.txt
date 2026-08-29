@@ -37,8 +37,17 @@ Commands:
         puzzles.jsonl becomes puzzles-kept.jsonl. Keeping the same puzzle
         twice does nothing.
 
+        Two cases it will not guess at. Keeping into the file you are browsing
+        is refused, since it would grow under you. And browsing a collection --
+        anything already named <something>-kept -- asks for a destination
+        rather than inventing puzzles-kept-kept.jsonl.
+
     puzzle unkeep
-        Take the puzzle you are on back out of the keep file.
+        Take the puzzle you are on out of the collection it is in. With a keep
+        file named, that is the keep file. With none named you are reviewing a
+        collection rather than building one, so it is the file you have open --
+        which is how you prune a set you made earlier. The puzzle leaves the
+        file and the browser together.
 
     puzzle kept
         Where puzzles are being kept, and how many are there.
@@ -82,6 +91,7 @@ Keeping The Good Ones:
         puzzle kept                     <- where am I putting these?
         ...
         puzzle open favorites.jsonl     <- the collection, on its own
+        puzzle unkeep                   <- and now this prunes favorites.jsonl
 
 A session:
 
