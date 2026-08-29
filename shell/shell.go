@@ -219,6 +219,15 @@ type ShellController struct {
 	gameSource    string                      // source identifier for the currently loaded game
 	analysisStore *gameanalysis.AnalysisStore // lazily opened SQLite store
 
+	// Puzzle set opened by the `puzzle` command
+	puzzleSet  []*pgRecord
+	puzzleFile string
+	puzzleIdx  int
+
+	// Where `puzzle keep` files the puzzles worth keeping, and which ones are
+	// already there. Keyed by pgKeepKey.
+	puzzleKeepFile string
+	puzzleKept     map[string]bool
 }
 
 type Mode int
@@ -1911,6 +1920,8 @@ func (sc *ShellController) standardModeSwitch(line string, sig chan os.Signal) (
 		return sc.autoplay(cmd)
 	case "puzzlegen":
 		return sc.puzzlegen(cmd)
+	case "puzzle":
+		return sc.puzzle(cmd)
 	case "sim":
 		return sc.sim(cmd)
 	case "infer":

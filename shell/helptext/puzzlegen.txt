@@ -13,8 +13,8 @@ Sources:
     puzzlegen xt <gameID> [<gameID>...]
         Fetch GCG(s) from Cross-tables by game ID and generate puzzles.
 
-    puzzlegen selfplay [-numgames N] [-lexicon NAME]
-        Run N HastyBot vs HastyBot games and generate puzzles from each.
+    puzzlegen selfplay [-numgames N] [-lexicon NAME] [-bot CODE] [-seed S]
+        Run N bot vs bot games and generate puzzles from each.
 
 Options:
 
@@ -23,11 +23,53 @@ Options:
     -equity-margin F    Equity gap required for an EQUITY puzzle (default 10).
     -score-margin F     Score gap required for a POINTS puzzle (default 10).
     -eqloss-limit N     Maximum cumulative equity loss per game before skipping
-                        the rest of that game (default 1000).
+                        the rest of that game (default 1000; unlimited when a
+                        selfplay common-word bot is used, since such a bot loses
+                        equity to a full-lexicon evaluator by design).
     -lexicon NAME       Override the lexicon. For woogles/gcg/xt sources the GCG
                         lexicon is used by default; for selfplay the configured
                         default lexicon is used.
     -numgames N         selfplay only: number of games to generate (default 1).
+    -bot CODE           selfplay only: bot code for both players (default
+                        HASTY_BOT). See Making Readable Puzzles below.
+    -seed S             selfplay only: seed the bag so a run is reproducible.
+                        Any string works; the same seed replays the same games.
+    -max N              Stop as soon as N puzzles have matched.
+    -show SECTIONS      Comma-separated sections to print for each match:
+                        line (the one-line summary, the default), board (the
+                        position as `s` draws it), cgp, answer, stats, or all.
+    -out FILE           Append each matched puzzle to FILE as JSON Lines, one
+                        object per puzzle: cgp, board, answer, tags, stats,
+                        game_id, turn, seed, and gcg -- the game up to the
+                        puzzle position, stopping before the answer. Browse the
+                        file afterwards with `puzzle open FILE`; see
+                        `help puzzle`. Field names match the -filter language,
+                        so a stat reads the same in both places.
+    -gcgdir DIR         Also write each matched puzzle's *whole* game to DIR as
+                        <game_id>.gcg, including what was played from the
+                        position onwards. This spoils the answer -- it is for
+                        studying the source game, not for solving. The
+                        spoiler-free copy is the gcg field in -out.
+
+Making Readable Puzzles:
+
+    A puzzle is only useful if the solver recognizes the words already on the
+    board. Self-play with the default HastyBot fills the board with words no
+    ordinary player knows, so:
+
+        -bot COMMON_WORD_PLUS_TWOS_BOT
+
+    restricts both bots to the common-word list (ECWL) plus every two-letter
+    word in the game's own lexicon. The twos matter: ECWL has 66 of them where
+    NWL23 has 107, and those 41 extra twos are what let a board hook and overlap
+    naturally. They are also learnable in an afternoon, unlike the 450 threes
+    NWL23 adds over ECWL, which stay out.
+
+    The answer itself is unconstrained -- it is generated against the game's
+    real lexicon. Constrain it with a tag if you want:
+
+        tag=CEL_ONLY        every word the answer forms is in ECWL
+        tag=CEL_PLUS_TWOS   ... in ECWL, or a two-letter word in the lexicon
 
 Filter Language:
 
@@ -45,7 +87,7 @@ Filter Language:
 
     Valid tag names:
         EQUITY  BINGO  ONLY_BINGO  BLANK_BINGO  NON_BINGO
-        POWER_TILE  BINGO_NINE_OR_ABOVE  CEL_ONLY  POINTS
+        POWER_TILE  BINGO_NINE_OR_ABOVE  CEL_ONLY  POINTS  CEL_PLUS_TWOS
 
     Valid stat fields:
 
@@ -101,3 +143,7 @@ Examples:
 
     puzzlegen woogles xWG4z96MUe -filter "tag=NON_BINGO and total_rack_tile_score<=7 and score>=25 and score_advantage>=10 and (max_played_through_tile_score>=8 or words_formed>=4)"
         One-point-tile rack plays that use a board power tile or form 4+ words.
+
+    puzzlegen selfplay -bot COMMON_WORD_PLUS_TWOS_BOT -numgames 200 -filter "tag=NON_BINGO and tag=CEL_PLUS_TWOS and score>=30 and score_advantage>=10" -max 20 -out puzzles.jsonl
+        Make 20 readable non-bingo puzzles, then browse them with
+        `puzzle open puzzles.jsonl`.

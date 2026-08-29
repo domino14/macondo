@@ -17,6 +17,10 @@ func TestPuzzlegenSpecValidation(t *testing.T) {
 		{"puzzlegen woogles xWG4z96MUe -equity-margin 15", false, ""},
 		{"puzzlegen woogles xWG4z96MUe -bogus foo", true, "unknown option"},
 		{"puzzlegen selfplay -numgames abc", true, "invalid int"},
+		{"puzzlegen xt 58369", false, ""},
+		{"puzzlegen selfplay -bot COMMON_WORD_PLUS_TWOS_BOT -seed abc", false, ""},
+		{"puzzlegen selfplay -show board,cgp -out p.jsonl -gcgdir ./g -max 20", false, ""},
+		{"puzzlegen selfplay -max abc", true, "invalid int"},
 	}
 	for _, tt := range tests {
 		cmd, err := extractFields(tt.line)

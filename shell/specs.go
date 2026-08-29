@@ -295,15 +295,26 @@ func init() {
 
 	registerSpec(&CommandSpec{
 		Name:  "puzzlegen",
-		Verbs: []string{"woogles", "gcg", "selfplay"},
+		Verbs: []string{"woogles", "gcg", "xt", "selfplay"},
 		Options: []Option{
 			{Name: "filter", Type: OptString, Help: `predicate over tags/stats, e.g. "tag=BINGO and words_formed>=3"`},
 			{Name: "equity-margin", Type: OptFloat, Default: 10.0, Help: "equity margin for EQUITY/POINTS detection"},
 			{Name: "score-margin", Type: OptFloat, Default: 10.0, Help: "score margin for POINTS detection"},
-			{Name: "eqloss-limit", Type: OptInt, Default: 1000, Help: "max cumulative equity loss per game before skipping"},
+			{Name: "eqloss-limit", Type: OptInt, Default: 1000, Help: "max cumulative equity loss per game before skipping (unlimited for common-word selfplay bots)"},
 			{Name: "lexicon", Type: OptString, Help: "override lexicon (default: from game, or config default for selfplay)"},
 			{Name: "numgames", Type: OptInt, Default: 1, Help: "selfplay only: number of games to play"},
+			{Name: "bot", Type: OptString, Values: botCodes, Help: "selfplay only: bot code for both players (default HASTY_BOT)"},
+			{Name: "seed", Type: OptString, Help: "selfplay only: seed the bag so a run is reproducible"},
+			{Name: "show", Type: OptString, Values: pgShowSections, Help: "sections to print: line,board,cgp,answer,stats,all (default line)"},
+			{Name: "out", Type: OptString, Help: "append each matched puzzle to this file as JSON Lines"},
+			{Name: "gcgdir", Type: OptString, Help: "write each matched puzzle's game to this directory as a .gcg"},
+			{Name: "max", Type: OptInt, Help: "stop once this many puzzles have matched (0 = no limit)"},
 		},
+	})
+
+	registerSpec(&CommandSpec{
+		Name:  "puzzle",
+		Verbs: []string{"open", "next", "prev", "goto", "keep", "unkeep", "kept", "answer", "info", "list"},
 	})
 
 	// speedtest accepts sim-style options.

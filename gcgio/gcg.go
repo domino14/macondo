@@ -638,6 +638,39 @@ func ParseGCG(cfg *config.Config, filename string) (*pb.GameHistory, error) {
 	return ParseGCGFromReader(cfg, f)
 }
 
+// gameHasEnded reports whether the game this history describes is over. Either
+// signal is enough on its own: a history built by playing to the end carries
+// GAME_OVER, and one parsed from a finished GCG carries final scores.
+func gameHasEnded(h *pb.GameHistory) bool {
+	return h.GetPlayState() == pb.PlayState_GAME_OVER || len(h.GetFinalScores()) > 0
+}
+
+// writeLastKnownRacks records the racks of a game that is still in progress.
+// The parser understands #rack1/#rack2 (see Rack1Regex) but nothing wrote them,
+// so a game written out and read back lost its racks, and a replay to the end
+// of the file redrew them at random.
+//
+// A finished game gets none: no one is on turn to hold a rack, the leftover
+// tiles are already accounted for in the final scoring events, and the pragma
+// would just be a second, contradictory claim about them.
+//
+// This goes at the end of the file, after the moves. The racks describe the
+// state the game is left in, so at the top they would read as the racks it
+// started with. It also has to come after the players either way: the parser
+// treats a rack pragma like a move and rejects one that arrives before both
+// players are defined, so writing it up in the header produces a file that
+// cannot be read back.
+func writeLastKnownRacks(s *strings.Builder, h *pb.GameHistory) {
+	if gameHasEnded(h) {
+		return
+	}
+	for i, rack := range h.GetLastKnownRacks() {
+		if rack != "" {
+			fmt.Fprintf(s, "#rack%d %s\n", i+1, rack)
+		}
+	}
+}
+
 func writeGCGHeader(s *strings.Builder, h *pb.GameHistory, addlInfo bool) {
 	s.WriteString("#character-encoding UTF-8\n")
 	if addlInfo {
@@ -776,6 +809,9 @@ func GameHistoryToGCG(h *pb.GameHistory, addlHeaderInfo bool) (string, error) {
 				return "", err
 			}
 		}
+	}
+	if addlHeaderInfo {
+		writeLastKnownRacks(&str, h)
 	}
 
 	return str.String(), nil

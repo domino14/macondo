@@ -283,3 +283,34 @@ func TestIsBingo(t *testing.T) {
 	assert.True(t, history.Events[0].IsBingo)
 	assert.False(t, history.Events[1].IsBingo)
 }
+
+// TestWriteLastKnownRacks pins the rule for #rack1/#rack2: a game still in
+// progress records the racks so a round-trip keeps them, and a finished game
+// does not, since no one is on turn and the final scoring events already
+// account for the leftover tiles.
+func TestWriteLastKnownRacks(t *testing.T) {
+	is := is.New(t)
+
+	history, err := ParseGCG(DefaultConfig, "./testdata/doug_v_emely.gcg")
+	is.NoErr(err)
+	history.LastKnownRacks = []string{"ACEINRT", ""}
+
+	// As parsed, the game is over: it has final scores.
+	is.True(len(history.FinalScores) > 0)
+	done, err := GameHistoryToGCG(history, true)
+	is.NoErr(err)
+	is.True(!strings.Contains(done, "#rack1"))
+
+	// The same history with its ending removed is a game in progress.
+	history.FinalScores = nil
+	history.PlayState = pb.PlayState_PLAYING
+	inProgress, err := GameHistoryToGCG(history, true)
+	is.NoErr(err)
+	is.True(strings.Contains(inProgress, "#rack1 ACEINRT"))
+	is.True(!strings.Contains(inProgress, "#rack2"))
+
+	// And it survives the round trip, which is the point of writing it.
+	reparsed, err := ParseGCGFromReader(DefaultConfig, strings.NewReader(inProgress))
+	is.NoErr(err)
+	is.Equal(reparsed.LastKnownRacks[0], "ACEINRT")
+}

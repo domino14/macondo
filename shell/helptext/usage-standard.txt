@@ -38,6 +38,11 @@ Examining a game:
     analyze-batch [options] <source> [source ...] - analyze multiple games, or a folder of .gcg files
     analyze-browse [options] - list/browse/delete stored analyses
     analyze-view <name> [name ...] - view a stored analysis
+Puzzles:
+    puzzlegen <source> [options] - find puzzles in games, or in fresh self-play
+    puzzle open <file> - browse a puzzle file made by `puzzlegen -out`
+      then: puzzle next / prev / goto N / answer / info / list
+
 Other:
     export <filepath> - export a game to .gcg
     autoplay [options] - start comp v comp autoplay

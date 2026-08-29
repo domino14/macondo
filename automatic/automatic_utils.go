@@ -43,19 +43,26 @@ type DeterministicConfig struct {
 	NumGames int        // Number of games (used when generating seeds)
 }
 
-// CompVsCompStatic plays out a game to the end using best static turns.
+// CompVsCompStatic plays out a game to the end using best static turns,
+// HastyBot against HastyBot on a randomly seeded bag.
 func (r *GameRunner) CompVsCompStatic(addToHistory bool) error {
-	err := r.Init(
-		[]AutomaticRunnerPlayer{
-			{BotCode: pb.BotRequest_HASTY_BOT},
-			{BotCode: pb.BotRequest_HASTY_BOT},
-		})
+	return r.CompVsCompStaticBots(addToHistory, []AutomaticRunnerPlayer{
+		{BotCode: pb.BotRequest_HASTY_BOT},
+		{BotCode: pb.BotRequest_HASTY_BOT},
+	}, 0, [32]byte{})
+}
 
-	if err != nil {
+// CompVsCompStaticBots plays out one game to the end with the given bots. It is
+// CompVsCompStatic's parameterized form, for callers that want a different bot
+// pair or a reproducible bag: a non-zero seed fixes the tile order and, through
+// SetUidFromSeed, the game's UID as well. gidx alternates who goes first.
+func (r *GameRunner) CompVsCompStaticBots(addToHistory bool, players []AutomaticRunnerPlayer,
+	gidx int, seed [32]byte) error {
+
+	if err := r.Init(players); err != nil {
 		return err
 	}
-	err = r.playFull(addToHistory, 0, [32]byte{})
-	if err != nil {
+	if err := r.playFull(addToHistory, gidx, seed); err != nil {
 		return err
 	}
 	log.Debug().Msgf("Game over. Score: %v - %v", r.game.PointsFor(0),
