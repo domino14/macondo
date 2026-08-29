@@ -74,7 +74,11 @@ func TestHybridRejectsMismatchedAlphabets(t *testing.T) {
 	// one of these is meaningless to the other. (French would pass: it uses the
 	// same 26 tiles as English, so the two are machine-compatible even though
 	// pairing them would be a strange thing to do.)
-	_, err := lexicon.NewHybrid(loadLexicon(t, "ECWL"), loadLexicon(t, "OSPS50"), 2)
+	//
+	// OSPS49 rather than any other Polish edition: it is the one the endgame and
+	// pre-endgame tests use, so it is already in cmd/fetch_lexica/lexica.txt and
+	// present wherever the suite runs.
+	_, err := lexicon.NewHybrid(loadLexicon(t, "ECWL"), loadLexicon(t, "OSPS49"), 2)
 	is.True(err != nil)
 
 	// Same distribution, different TileMapping instances -- must be accepted.
