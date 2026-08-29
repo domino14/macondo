@@ -30,7 +30,7 @@ require (
 	gonum.org/v1/gonum v0.17.0
 	google.golang.org/genai v1.67.0
 	google.golang.org/grpc v1.83.0
-	google.golang.org/protobuf v1.36.11
+	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v3 v3.0.1
 	gorgonia.org/tensor v0.9.24
 	layeh.com/gopher-json v0.0.0-20201124131017-552bb3c4c3bf
