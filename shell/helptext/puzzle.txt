@@ -1,0 +1,52 @@
+puzzle <open|next|prev|goto|answer|info|list> [args...]
+
+Browse a puzzle file made by `puzzlegen -out`. Each puzzle is loaded as the
+current game, so every ordinary command works on it: `s` to redraw the board,
+`gen` to see the top plays, `sim` to simulate. The answer stays hidden until
+you ask for it.
+
+Commands:
+
+    puzzle open <file>
+        Open a puzzle file and show the first puzzle.
+
+    puzzle next        (or: puzzle n)
+    puzzle prev        (or: puzzle p)
+        Step forward or back through the file.
+
+    puzzle goto <N>    (or just: puzzle <N>)
+        Jump to the Nth puzzle.
+
+    puzzle answer
+        Reveal the answer to the puzzle you are on.
+
+    puzzle info
+        Where this puzzle came from -- game, turn, seed, lexicon -- and the
+        stats it was selected on.
+
+    puzzle list
+        One line per puzzle in the file, with a marker on the current one.
+
+A session:
+
+    puzzlegen selfplay -bot COMMON_WORD_PLUS_TWOS_BOT -numgames 200 \
+        -filter "tag=NON_BINGO and score>=30 and score_advantage>=10" \
+        -max 20 -out puzzles.jsonl
+
+    puzzle open puzzles.jsonl
+        Opened puzzles.jsonl: 20 puzzles.
+        Puzzle 1 of 20   EQUITY NON_BINGO POWER_TILE POINTS
+        [the board]
+
+    puzzle answer
+        Answer: 8H QUALM (44, rack ACMOQUZ)
+
+    puzzle next
+        Puzzle 2 of 20 ...
+
+Note that `puzzle` replaces whatever game is loaded, the same way `load` does.
+
+Every record in the file also carries the game up to the puzzle position as a
+GCG, in its "gcg" field. It stops before the answer, so it spoils nothing; it
+is there for anyone who wants to see how the position arose, or to feed the
+puzzles to something other than this shell.

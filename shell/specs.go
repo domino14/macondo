@@ -312,6 +312,11 @@ func init() {
 		},
 	})
 
+	registerSpec(&CommandSpec{
+		Name:  "puzzle",
+		Verbs: []string{"open", "next", "prev", "goto", "answer", "info", "list"},
+	})
+
 	// speedtest accepts sim-style options.
 	registerSpec(&CommandSpec{
 		Name: "speedtest",

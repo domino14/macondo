@@ -5,12 +5,14 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gcgio"
@@ -123,6 +125,11 @@ func pgAnswerString(evt *pb.GameEvent) string {
 	return fmt.Sprintf("%s %s (%d, rack %s)", evt.Position, evt.PlayedTiles, evt.Score, evt.Rack)
 }
 
+// pgProtoJSON writes the record's embedded protos under their .proto field
+// names rather than lowerCamelCase, so that a stat reads the same in the file
+// as it does in a -filter expression (words_formed, not wordsFormed).
+var pgProtoJSON = protojson.MarshalOptions{UseProtoNames: true}
+
 // pgRecord is one line of the -out file. The answer and stats keep their proto
 // shape via protojson rather than being flattened by hand, so a consumer can
 // decode them straight back into GameEvent and PuzzleStats.
@@ -134,6 +141,7 @@ type pgRecord struct {
 	LetterDistribution string          `json:"letter_distribution,omitempty"`
 	CGP                string          `json:"cgp"`
 	Board              string          `json:"board"`
+	GCG                string          `json:"gcg,omitempty"`
 	Answer             json.RawMessage `json:"answer,omitempty"`
 	Tags               []string        `json:"tags"`
 	Stats              json.RawMessage `json:"stats,omitempty"`
@@ -152,15 +160,20 @@ func pgBuildRecord(g *game.Game, pz *pb.PuzzleCreationResponse, pos pgPosition, 
 	if h := g.History(); h != nil {
 		rec.LetterDistribution = h.LetterDistribution
 	}
+	gcgText, err := pgTruncatedGCG(g, pz)
+	if err != nil {
+		return nil, err
+	}
+	rec.GCG = gcgText
 	if pz.GetAnswer() != nil {
-		j, err := protojson.Marshal(pz.GetAnswer())
+		j, err := pgProtoJSON.Marshal(pz.GetAnswer())
 		if err != nil {
 			return nil, err
 		}
 		rec.Answer = j
 	}
 	if pz.GetStats() != nil {
-		j, err := protojson.Marshal(pz.GetStats())
+		j, err := pgProtoJSON.Marshal(pz.GetStats())
 		if err != nil {
 			return nil, err
 		}
@@ -169,8 +182,40 @@ func pgBuildRecord(g *game.Game, pz *pb.PuzzleCreationResponse, pos pgPosition, 
 	return rec, nil
 }
 
-// pgWriteGCG writes a puzzle's whole game so the position can be reloaded:
-// `load <file>` followed by `turn <N>` with the puzzle's turn number.
+// pgTruncatedGCG renders the game up to, but not including, the puzzle's turn.
+// It carries how the position arose, which the CGP cannot, without carrying
+// what was played next -- a whole game in the record would hand the solver the
+// answer, and often a better one than the answer.
+//
+// The on-turn player's rack is recorded as their last known one, so that
+// loading the file and jumping to its end lands on the puzzle position with the
+// right tiles rather than a redrawn guess.
+func pgTruncatedGCG(g *game.Game, pz *pb.PuzzleCreationResponse) (string, error) {
+	h, ok := proto.Clone(g.History()).(*pb.GameHistory)
+	if !ok || h == nil {
+		return "", errors.New("game has no history to write")
+	}
+	turn := int(pz.GetTurnNumber())
+	if turn > len(h.Events) {
+		turn = len(h.Events)
+	}
+	h.Events = h.Events[:turn]
+	// The game does not end here, so nothing about its ending belongs in the
+	// file; leaving them would make a replay think it was over.
+	h.FinalScores = nil
+	h.PlayState = pb.PlayState_PLAYING
+	h.LastKnownRacks = []string{"", ""}
+	if ans := pz.GetAnswer(); ans != nil {
+		if idx := int(ans.GetPlayerIndex()); idx >= 0 && idx < len(h.LastKnownRacks) {
+			h.LastKnownRacks[idx] = ans.GetRack()
+		}
+	}
+	return gcgio.GameHistoryToGCG(h, true)
+}
+
+// pgWriteGCG writes a puzzle's whole game, including what was actually played
+// from the position onwards. Unlike the truncated copy inside the -out record,
+// this one spoils the answer; it is for studying the source game.
 func pgWriteGCG(dir string, g *game.Game) (string, error) {
 	contents, err := gcgio.GameHistoryToGCG(g.History(), true)
 	if err != nil {

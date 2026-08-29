@@ -39,11 +39,17 @@ Options:
                         line (the one-line summary, the default), board (the
                         position as `s` draws it), cgp, answer, stats, or all.
     -out FILE           Append each matched puzzle to FILE as JSON Lines, one
-                        object per puzzle with cgp, board, answer, tags, stats,
-                        game_id, turn and seed.
-    -gcgdir DIR         Write each matched puzzle's whole game to DIR as
-                        <game_id>.gcg. `load <file>` then `turn <N>` with the
-                        puzzle's turn number reproduces the position.
+                        object per puzzle: cgp, board, answer, tags, stats,
+                        game_id, turn, seed, and gcg -- the game up to the
+                        puzzle position, stopping before the answer. Browse the
+                        file afterwards with `puzzle open FILE`; see
+                        `help puzzle`. Field names match the -filter language,
+                        so a stat reads the same in both places.
+    -gcgdir DIR         Also write each matched puzzle's *whole* game to DIR as
+                        <game_id>.gcg, including what was played from the
+                        position onwards. This spoils the answer -- it is for
+                        studying the source game, not for solving. The
+                        spoiler-free copy is the gcg field in -out.
 
 Making Readable Puzzles:
 
@@ -140,6 +146,6 @@ Examples:
 
     puzzlegen selfplay -bot COMMON_WORD_PLUS_TWOS_BOT -numgames 200 \
         -filter "tag=NON_BINGO and tag=CEL_PLUS_TWOS and score>=30 and score_advantage>=10" \
-        -max 20 -show board,cgp -out puzzles.jsonl -gcgdir ./gcgs
-        Make 20 readable non-bingo puzzles: board and CGP to the terminal, a
-        JSON Lines record and a replayable .gcg for each.
+        -max 20 -out puzzles.jsonl
+        Make 20 readable non-bingo puzzles, then browse them with
+        `puzzle open puzzles.jsonl`.
