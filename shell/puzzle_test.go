@@ -249,8 +249,13 @@ func TestPgDefaultKeepFile(t *testing.T) {
 	for _, tc := range []struct{ open, want string }{
 		{"/tmp/puzzles.jsonl", "/tmp/puzzles-kept.jsonl"},
 		{"puzzles.jsonl", "puzzles-kept.jsonl"},
+		{"favorites.jsonl", "favorites-kept.jsonl"},
 		{"/a/b/set", "/a/b/set-kept"},
 		{"", "kept.jsonl"},
+		// A second round advances the number instead of stacking suffixes.
+		{"puzzles-kept.jsonl", "puzzles-kept2.jsonl"},
+		{"puzzles-kept2.jsonl", "puzzles-kept3.jsonl"},
+		{"/tmp/puzzles-kept9.jsonl", "/tmp/puzzles-kept10.jsonl"},
 	} {
 		if got := pgDefaultKeepFile(tc.open); got != tc.want {
 			t.Errorf("pgDefaultKeepFile(%q) = %q, want %q", tc.open, got, tc.want)
@@ -317,41 +322,21 @@ func TestPuzzleUnkeepPrunesOpenFile(t *testing.T) {
 	}
 }
 
-// TestPuzzleKeepOnACollection: keeping out of a file that is itself a keep file
-// must ask for a destination rather than inventing puzzles-kept-kept.jsonl.
+// TestPuzzleKeepOnACollection: curating a collection again is ordinary, so it
+// works, and the name advances the round rather than stacking suffixes.
 func TestPuzzleKeepOnACollection(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "puzzles-kept.jsonl")
 	sc := &ShellController{
 		puzzleFile: path,
-		puzzleSet:  []*pgRecord{{GameID: "g1", Turn: 4}},
+		puzzleSet:  []*pgRecord{{GameID: "g1", Turn: 4, CGP: "one"}},
 	}
-	_, err := sc.puzzleKeep("")
-	if err == nil {
-		t.Fatal("keeping out of a collection should ask for a destination")
+	if _, err := sc.puzzleKeep(""); err != nil {
+		t.Fatalf("keeping out of a collection: %v", err)
 	}
-	if !strings.Contains(err.Error(), "already a collection") {
-		t.Errorf("unhelpful error: %v", err)
-	}
-	if sc.puzzleKeepFile != "" {
-		t.Errorf("a refused keep left state behind: %q", sc.puzzleKeepFile)
-	}
-}
-
-func TestPgLooksLikeKeepFile(t *testing.T) {
-	for _, tc := range []struct {
-		path string
-		want bool
-	}{
-		{"/tmp/puzzles-kept.jsonl", true},
-		{"favorites-kept.jsonl", true},
-		{"/tmp/puzzles.jsonl", false},
-		{"kept.jsonl", false},
-		{"", false},
-	} {
-		if got := pgLooksLikeKeepFile(tc.path); got != tc.want {
-			t.Errorf("pgLooksLikeKeepFile(%q) = %v, want %v", tc.path, got, tc.want)
-		}
+	want := filepath.Join(dir, "puzzles-kept2.jsonl")
+	if sc.puzzleKeepFile != want {
+		t.Errorf("kept into %q, want %q", sc.puzzleKeepFile, want)
 	}
 }
 

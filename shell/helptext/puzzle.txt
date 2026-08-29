@@ -37,10 +37,12 @@ Commands:
         puzzles.jsonl becomes puzzles-kept.jsonl. Keeping the same puzzle
         twice does nothing.
 
-        Two cases it will not guess at. Keeping into the file you are browsing
-        is refused, since it would grow under you. And browsing a collection --
-        anything already named <something>-kept -- asks for a destination
-        rather than inventing puzzles-kept-kept.jsonl.
+        Curating a collection again is ordinary, and the derived name advances
+        the round rather than stacking suffixes: puzzles-kept.jsonl gives
+        puzzles-kept2.jsonl, then puzzles-kept3.jsonl.
+
+        Keeping into the file you are browsing is refused; it would grow under
+        you as it is read.
 
     puzzle unkeep
         Take the puzzle you are on out of the collection it is in. With a keep

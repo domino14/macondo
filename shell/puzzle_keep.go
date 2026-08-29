@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -24,25 +26,34 @@ func pgKeepKey(rec *pgRecord) string {
 	return fmt.Sprintf("%s:%d", rec.GameID, rec.Turn)
 }
 
+// pgKeptRound matches a name this function has already produced.
+var pgKeptRound = regexp.MustCompile(`-kept(\d*)$`)
+
 // pgDefaultKeepFile puts the keepers beside the file they came from and names
 // them after it, so that `puzzle keep` works without anyone having to invent a
 // filename first. Keeping reports the path it used, so nothing is written
 // somewhere the user cannot see.
+//
+// Curating a collection again is an ordinary thing to do, so a name that is
+// already a round of keeping advances the round rather than stacking another
+// suffix: puzzles-kept becomes puzzles-kept2, not puzzles-kept-kept.
 func pgDefaultKeepFile(openFile string) string {
 	if openFile == "" {
 		return "kept.jsonl"
 	}
 	ext := filepath.Ext(openFile)
-	return strings.TrimSuffix(openFile, ext) + "-kept" + ext
-}
+	stem := strings.TrimSuffix(openFile, ext)
 
-// pgLooksLikeKeepFile reports whether a path is one pgDefaultKeepFile would
-// have produced. Browsing a collection and keeping out of it again is a second
-// round of curating, and guessing at a name for it gives you
-// puzzles-kept-kept.jsonl -- so that case asks instead of guessing.
-func pgLooksLikeKeepFile(path string) bool {
-	base := filepath.Base(path)
-	return strings.HasSuffix(strings.TrimSuffix(base, filepath.Ext(base)), "-kept")
+	if m := pgKeptRound.FindStringSubmatch(stem); m != nil {
+		round := 2
+		if m[1] != "" {
+			// A malformed number cannot happen: the pattern only matches digits.
+			n, _ := strconv.Atoi(m[1])
+			round = n + 1
+		}
+		return fmt.Sprintf("%s-kept%d%s", strings.TrimSuffix(stem, m[0]), round, ext)
+	}
+	return stem + "-kept" + ext
 }
 
 // pgSamePath reports whether two paths name the same file.
@@ -92,11 +103,6 @@ func (sc *ShellController) puzzleSetKeepFile(path string) error {
 // the first call and reusing it afterwards.
 func (sc *ShellController) puzzleKeep(dest string) (*Response, error) {
 	if dest == "" && sc.puzzleKeepFile == "" {
-		if pgLooksLikeKeepFile(sc.puzzleFile) {
-			return nil, fmt.Errorf(
-				"%s is already a collection; name where these should go, as `puzzle keep <file>` "+
-					"(or `puzzle unkeep` to take one out of it)", sc.puzzleFile)
-		}
 		dest = pgDefaultKeepFile(sc.puzzleFile)
 	}
 	// Checked before the destination is recorded, and again on every keep: a
