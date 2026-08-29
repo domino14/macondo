@@ -8,9 +8,15 @@ writes them to a file; `puzzle` steps through that file in the shell.
 
 ## Quick start
 
+Generate a file of puzzles:
+
 ```
 puzzlegen selfplay -bot COMMON_WORD_PLUS_TWOS_BOT -numgames 200 -filter "tag=NON_BINGO and tag=CEL_PLUS_TWOS and score>=30 and score_advantage>=10" -max 20 -out puzzles.jsonl
+```
 
+Then step through them:
+
+```
 puzzle open puzzles.jsonl
 ```
 
@@ -211,9 +217,36 @@ Puzzle 1 of 4   EQUITY POINTS   (+3 tag(s) in `puzzle info`)
   NWL23  ·  english  ·  seed:p_pkdfz…  turn 15  ·  seed demo2
 ```
 
-Then the board. `gen` lists the top plays from the position, which checks an
-answer against the engine rather than against the stored one and shows what
-second-best gives up.
+Then the board:
+
+```
+   A B C D E F G H I J K L M N O     ->              player1  CEIPRSZ  154
+   ------------------------------                    player2           104
+ 1|=     '       =       '     = |
+ 2|  -       "       "       -   |   Bag + unseen: (52)
+ 3|    -       '   '       -     |
+ 4|'     -       '       B     ' |   ? ? A A A A B D D E E E E E E F G G G H
+ 5|      E X           - L       |   I I I I J L L M N N N N O O O O O O P Q
+ 6|  "     I F       "   U   "   |   R R R S S T T T T U U V
+ 7|    '     A H   Y O U R '     |
+ 8|M A L I C   A W A I T '     = |
+ 9|    '   A I D E '       '     |
+10|  "     W " R     "       "   |   Turn 0:
+11|        S   O K     -         |
+12|'     -     N E       -     ' |
+13|    -       ' Y '       -     |
+14|  -       E V E N T       -   |
+15|=     '       D       '     = |
+   ------------------------------
+```
+
+Every word here is one an ordinary player knows — MALIC, AWAIT, KEYED — because
+the bot was not allowed to play anything else. The answer is `15A PRIZES` for
+83: 27 across the triple with the Z on a double letter, plus `ES` below
+`EVENT`.
+
+`gen` lists the top plays from the position, which checks an answer against the
+engine rather than against the stored one and shows what second-best gives up.
 
 ### Moving between puzzles
 
