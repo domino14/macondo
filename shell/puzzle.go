@@ -21,7 +21,7 @@ import (
 // See "help puzzle".
 func (sc *ShellController) puzzle(cmd *shellcmd) (*Response, error) {
 	if len(cmd.args) == 0 {
-		return nil, fmt.Errorf("usage: puzzle <open|next|prev|goto|answer|info|list> [args...]")
+		return nil, fmt.Errorf("usage: puzzle <open|next|prev|goto|keep|unkeep|kept|answer|info|list> [args...]")
 	}
 
 	verb := strings.ToLower(cmd.args[0])
@@ -75,9 +75,22 @@ func (sc *ShellController) puzzle(cmd *shellcmd) (*Response, error) {
 
 	case "list":
 		return msg(sc.puzzleList()), nil
+
+	case "keep":
+		dest := ""
+		if len(args) > 0 {
+			dest = args[0]
+		}
+		return sc.puzzleKeep(dest)
+
+	case "unkeep":
+		return sc.puzzleUnkeep()
+
+	case "kept":
+		return msg(sc.puzzleKeptSummary()), nil
 	}
 
-	return nil, fmt.Errorf("unknown puzzle command %q; use open, next, prev, goto, answer, info, or list", verb)
+	return nil, fmt.Errorf("unknown puzzle command %q; use open, next, prev, goto, keep, unkeep, kept, answer, info, or list", verb)
 }
 
 // puzzleOpen reads a JSON Lines puzzle file and shows the first puzzle.
@@ -253,11 +266,19 @@ func (sc *ShellController) puzzleInfo(rec *pgRecord) string {
 // solve them would run first.
 func (sc *ShellController) puzzleList() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s: %d puzzles\n", sc.puzzleFile, len(sc.puzzleSet))
+	fmt.Fprintf(&b, "%s: %d puzzles", sc.puzzleFile, len(sc.puzzleSet))
+	if sc.puzzleKeepFile != "" {
+		fmt.Fprintf(&b, "   (* kept in %s)", sc.puzzleKeepFile)
+	}
+	b.WriteString("\n")
 	for i, rec := range sc.puzzleSet {
 		here := "  "
 		if i == sc.puzzleIdx {
 			here = "->"
+		}
+		mark := " "
+		if sc.puzzleKept[pgKeepKey(rec)] {
+			mark = "*"
 		}
 		shown, hidden := pgVisibleTags(rec.Tags)
 		line := strings.Join(shown, " ")
@@ -267,7 +288,7 @@ func (sc *ShellController) puzzleList() string {
 			}
 			line += fmt.Sprintf("(+%d)", hidden)
 		}
-		fmt.Fprintf(&b, "%s %3d  turn %2d  %s\n", here, i+1, rec.Turn, line)
+		fmt.Fprintf(&b, "%s%s %3d  turn %2d  %s\n", here, mark, i+1, rec.Turn, line)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

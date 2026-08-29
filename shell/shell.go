@@ -223,6 +223,11 @@ type ShellController struct {
 	puzzleSet  []*pgRecord
 	puzzleFile string
 	puzzleIdx  int
+
+	// Where `puzzle keep` files the puzzles worth keeping, and which ones are
+	// already there. Keyed by pgKeepKey.
+	puzzleKeepFile string
+	puzzleKept     map[string]bool
 }
 
 type Mode int

@@ -1,4 +1,4 @@
-puzzle <open|next|prev|goto|answer|info|list> [args...]
+puzzle <open|next|prev|goto|keep|unkeep|kept|answer|info|list> [args...]
 
 Browse a puzzle file made by `puzzlegen -out`. Each puzzle is loaded as the
 current game, so every ordinary command works on it: `s` to redraw the board,
@@ -26,7 +26,22 @@ Commands:
         the spoilers live -- see What Is Hidden below.
 
     puzzle list
-        One line per puzzle in the file, with a marker on the current one.
+        One line per puzzle in the file, with a marker on the current one and
+        a * on the ones you have kept.
+
+    puzzle keep [<file>]
+        Append the puzzle you are on to <file>, which is itself a puzzle file:
+        `puzzle open` reads it back. Name the file once and it is remembered,
+        so the rest of the session is a bare `puzzle keep`. With no file ever
+        named, the keepers go beside the source, named after it --
+        puzzles.jsonl becomes puzzles-kept.jsonl. Keeping the same puzzle
+        twice does nothing.
+
+    puzzle unkeep
+        Take the puzzle you are on back out of the keep file.
+
+    puzzle kept
+        Where puzzles are being kept, and how many are there.
 
 What Is Hidden:
 
@@ -51,6 +66,22 @@ What Is Hidden:
 
     `puzzle info` shows all of it, which is the point of it being a separate
     command.
+
+Keeping The Good Ones:
+
+    Generate a few hundred, browse them, and keep the ones worth keeping. What
+    comes out is an ordinary puzzle file, so it can be browsed, added to from
+    another source file, or handed to anything that reads the format.
+
+        puzzle open puzzles.jsonl
+        puzzle keep favorites.jsonl     <- names the file, keeps puzzle 1
+        puzzle n
+        puzzle n
+        puzzle keep                     <- same file, no need to say so
+        puzzle unkeep                   <- changed your mind
+        puzzle kept                     <- where am I putting these?
+        ...
+        puzzle open favorites.jsonl     <- the collection, on its own
 
 A session:
 

@@ -2,6 +2,8 @@ package shell
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -146,5 +148,134 @@ func TestPgVisibleTags(t *testing.T) {
 				t.Errorf("%s is not classified; decide whether it gives the answer's shape away", name)
 			}
 		}
+	}
+}
+
+// TestPuzzleKeep covers the curation loop: keep a puzzle, refuse to keep it
+// twice, take it back out, and end up with a file that is itself a puzzle file.
+func TestPuzzleKeep(t *testing.T) {
+	dir := t.TempDir()
+	keepPath := filepath.Join(dir, "faves.jsonl")
+
+	sc := &ShellController{
+		puzzleFile: filepath.Join(dir, "source.jsonl"),
+		puzzleSet: []*pgRecord{
+			{GameID: "g1", Turn: 4, CGP: "cgp-one", Tags: []string{"EQUITY"}},
+			{GameID: "g1", Turn: 9, CGP: "cgp-two", Tags: []string{"BINGO"}},
+		},
+	}
+
+	if _, err := sc.puzzleKeep(keepPath); err != nil {
+		t.Fatalf("keep: %v", err)
+	}
+	// The destination sticks, so the common case is a bare `puzzle keep`.
+	sc.puzzleIdx = 1
+	if _, err := sc.puzzleKeep(""); err != nil {
+		t.Fatalf("keep without a path: %v", err)
+	}
+	if len(sc.puzzleKept) != 2 {
+		t.Fatalf("kept %d, want 2", len(sc.puzzleKept))
+	}
+
+	// Keeping the same puzzle again must not duplicate it.
+	if _, err := sc.puzzleKeep(""); err != nil {
+		t.Fatalf("re-keep: %v", err)
+	}
+	if got := countLines(t, keepPath); got != 2 {
+		t.Errorf("keep file has %d lines after a duplicate keep, want 2", got)
+	}
+
+	// What comes back out is a puzzle file, with the records intact.
+	recs := readPuzzleFile(t, keepPath)
+	if len(recs) != 2 || recs[0].CGP != "cgp-one" || recs[1].CGP != "cgp-two" {
+		t.Fatalf("keep file did not round-trip: %+v", recs)
+	}
+
+	if _, err := sc.puzzleUnkeep(); err != nil {
+		t.Fatalf("unkeep: %v", err)
+	}
+	recs = readPuzzleFile(t, keepPath)
+	if len(recs) != 1 || recs[0].CGP != "cgp-one" {
+		t.Errorf("unkeep removed the wrong record: %+v", recs)
+	}
+	if _, err := sc.puzzleUnkeep(); err == nil {
+		t.Error("unkeep of a puzzle that isn't kept should fail")
+	}
+}
+
+// TestPuzzleKeepRefusesOpenFile guards the one destructive mistake available:
+// appending to the file being browsed would grow it while it is read.
+func TestPuzzleKeepRefusesOpenFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "puzzles.jsonl")
+	sc := &ShellController{
+		puzzleFile: path,
+		puzzleSet:  []*pgRecord{{GameID: "g1", Turn: 4}},
+	}
+	if _, err := sc.puzzleKeep(path); err == nil {
+		t.Error("keeping into the open file should be refused")
+	}
+}
+
+func countLines(t *testing.T, path string) int {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(strings.Split(strings.TrimSpace(string(b)), "\n"))
+}
+
+func readPuzzleFile(t *testing.T, path string) []*pgRecord {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []*pgRecord
+	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		var rec pgRecord
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			t.Fatalf("line %q: %v", line, err)
+		}
+		out = append(out, &rec)
+	}
+	return out
+}
+
+// TestPgDefaultKeepFile checks the file `puzzle keep` picks when nobody names
+// one: beside the source, named after it, and never the source itself.
+func TestPgDefaultKeepFile(t *testing.T) {
+	for _, tc := range []struct{ open, want string }{
+		{"/tmp/puzzles.jsonl", "/tmp/puzzles-kept.jsonl"},
+		{"puzzles.jsonl", "puzzles-kept.jsonl"},
+		{"/a/b/set", "/a/b/set-kept"},
+		{"", "kept.jsonl"},
+	} {
+		if got := pgDefaultKeepFile(tc.open); got != tc.want {
+			t.Errorf("pgDefaultKeepFile(%q) = %q, want %q", tc.open, got, tc.want)
+		}
+		if tc.open != "" && pgDefaultKeepFile(tc.open) == tc.open {
+			t.Errorf("default keep file collides with the open file: %q", tc.open)
+		}
+	}
+}
+
+// TestPuzzleKeepDefaultsToDerivedFile checks that keeping works with no setup.
+func TestPuzzleKeepDefaultsToDerivedFile(t *testing.T) {
+	dir := t.TempDir()
+	sc := &ShellController{
+		puzzleFile: filepath.Join(dir, "source.jsonl"),
+		puzzleSet:  []*pgRecord{{GameID: "g1", Turn: 4, CGP: "cgp-one"}},
+	}
+	if _, err := sc.puzzleKeep(""); err != nil {
+		t.Fatalf("keep with no destination named: %v", err)
+	}
+	want := filepath.Join(dir, "source-kept.jsonl")
+	if sc.puzzleKeepFile != want {
+		t.Errorf("kept into %q, want %q", sc.puzzleKeepFile, want)
+	}
+	if recs := readPuzzleFile(t, want); len(recs) != 1 || recs[0].CGP != "cgp-one" {
+		t.Errorf("derived keep file did not get the record: %+v", recs)
 	}
 }
