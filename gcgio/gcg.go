@@ -654,10 +654,12 @@ func gameHasEnded(h *pb.GameHistory) bool {
 // tiles are already accounted for in the final scoring events, and the pragma
 // would just be a second, contradictory claim about them.
 //
-// This must come after the players are written. The parser treats a rack
-// pragma like a move and rejects one that arrives before both players are
-// defined, so writing it up in the header would produce a file that cannot be
-// read back.
+// This goes at the end of the file, after the moves. The racks describe the
+// state the game is left in, so at the top they would read as the racks it
+// started with. It also has to come after the players either way: the parser
+// treats a rack pragma like a move and rejects one that arrives before both
+// players are defined, so writing it up in the header produces a file that
+// cannot be read back.
 func writeLastKnownRacks(s *strings.Builder, h *pb.GameHistory) {
 	if gameHasEnded(h) {
 		return
@@ -799,9 +801,6 @@ func GameHistoryToGCG(h *pb.GameHistory, addlHeaderInfo bool) (string, error) {
 	var str strings.Builder
 	writeGCGHeader(&str, h, addlHeaderInfo)
 	writePlayers(&str, h.Players)
-	if addlHeaderInfo {
-		writeLastKnownRacks(&str, h)
-	}
 
 	for i, evt := range h.Events {
 		if !isPassBeforeEndRackPoints(h, i) {
@@ -810,6 +809,9 @@ func GameHistoryToGCG(h *pb.GameHistory, addlHeaderInfo bool) (string, error) {
 				return "", err
 			}
 		}
+	}
+	if addlHeaderInfo {
+		writeLastKnownRacks(&str, h)
 	}
 
 	return str.String(), nil
