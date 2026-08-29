@@ -97,9 +97,7 @@ Keeping The Good Ones:
 
 A session:
 
-    puzzlegen selfplay -bot COMMON_WORD_PLUS_TWOS_BOT -numgames 200 \
-        -filter "tag=NON_BINGO and score>=30 and score_advantage>=10" \
-        -max 20 -out puzzles.jsonl
+    puzzlegen selfplay -bot COMMON_WORD_PLUS_TWOS_BOT -numgames 200 -filter "tag=NON_BINGO and score>=30 and score_advantage>=10" -max 20 -out puzzles.jsonl
 
     puzzle open puzzles.jsonl
         Opened puzzles.jsonl: 20 puzzles.
