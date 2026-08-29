@@ -137,14 +137,56 @@ func (sc *ShellController) puzzleGoto(n int) (*Response, error) {
 	return msg(sc.puzzleMeta(rec) + "\n\n" + sc.game.ToDisplayText()), nil
 }
 
-// puzzleMeta is the block shown above a puzzle's board: what it is tagged, what
-// it came from, and the numbers it was selected on. Everything here is in the
-// record except the answer itself -- naming the play, or even how many tiles it
-// uses, is most of the puzzle.
+// pgShapeTags name tags that describe the shape of the answer -- how many tiles
+// it uses, which tiles, what vocabulary it comes from. Printing those above the
+// board hands the solver most of the puzzle: BINGO_NINE_OR_ABOVE says the answer
+// is a nine, NON_BINGO rules out a whole class of play, POWER_TILE says a Q or a
+// Z goes down. They are kept for `puzzle info`, which is the deliberate act of
+// asking.
+//
+// EQUITY and POINTS stay visible. They say what kind of question is being asked
+// -- is there one clear best play, is it the top scorer -- rather than anything
+// about the answer's form.
+var pgShapeTags = map[string]bool{
+	"BINGO":               true,
+	"ONLY_BINGO":          true,
+	"BLANK_BINGO":         true,
+	"BINGO_NINE_OR_ABOVE": true,
+	"NON_BINGO":           true,
+	"POWER_TILE":          true,
+	"CEL_ONLY":            true,
+	"CEL_PLUS_TWOS":       true,
+}
+
+// pgVisibleTags splits a puzzle's tags into the ones safe to show beside the
+// board and a count of the ones held back.
+func pgVisibleTags(tags []string) (shown []string, hidden int) {
+	for _, t := range tags {
+		if pgShapeTags[t] {
+			hidden++
+			continue
+		}
+		shown = append(shown, t)
+	}
+	return shown, hidden
+}
+
+// puzzleMeta is the block shown above a puzzle's board: what kind of question it
+// is and where it came from. It deliberately carries neither the answer nor
+// anything describing it -- not the shape tags, and not the stats, which spell
+// out the tile count and the squares covered. `puzzle info` has all of it.
 func (sc *ShellController) puzzleMeta(rec *pgRecord) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Puzzle %d of %d   %s\n",
-		sc.puzzleIdx+1, len(sc.puzzleSet), strings.Join(rec.Tags, " "))
+
+	shown, hidden := pgVisibleTags(rec.Tags)
+	fmt.Fprintf(&b, "Puzzle %d of %d", sc.puzzleIdx+1, len(sc.puzzleSet))
+	if len(shown) > 0 {
+		fmt.Fprintf(&b, "   %s", strings.Join(shown, " "))
+	}
+	if hidden > 0 {
+		fmt.Fprintf(&b, "   (+%d tag(s) in `puzzle info`)", hidden)
+	}
+	b.WriteString("\n")
 
 	provenance := []string{rec.Lexicon}
 	if rec.LetterDistribution != "" {
@@ -154,15 +196,9 @@ func (sc *ShellController) puzzleMeta(rec *pgRecord) string {
 	if rec.Seed != "" {
 		provenance = append(provenance, "seed "+rec.Seed)
 	}
-	fmt.Fprintf(&b, "  %s\n", strings.Join(provenance, "  ·  "))
+	fmt.Fprintf(&b, "  %s", strings.Join(provenance, "  ·  "))
 
-	if len(rec.Stats) > 0 {
-		var stats pb.PuzzleStats
-		if err := protojson.Unmarshal(rec.Stats, &stats); err == nil {
-			fmt.Fprintf(&b, "  %s", pgStatsSummary(&stats))
-		}
-	}
-	return strings.TrimRight(b.String(), "\n")
+	return b.String()
 }
 
 // pgShortID abbreviates a seeded game's UID, which is 43 characters of base64
@@ -188,9 +224,10 @@ func (sc *ShellController) puzzleAnswer(rec *pgRecord) string {
 	return out
 }
 
-// puzzleInfo is the long form of the block shown above the board: the full game
-// ID rather than an abbreviation, the source file, the CGP, and every stat
-// rather than the handful worth a glance.
+// puzzleInfo tells you everything the record holds except the answer itself:
+// every tag including the ones held back from the board header, the full game
+// ID, the source file, the CGP, and every stat. Asking for it is a deliberate
+// act, which is why the spoilers live here.
 func (sc *ShellController) puzzleInfo(rec *pgRecord) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Puzzle %d of %d from %s\n", sc.puzzleIdx+1, len(sc.puzzleSet), sc.puzzleFile)
@@ -210,7 +247,10 @@ func (sc *ShellController) puzzleInfo(rec *pgRecord) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// puzzleList indexes the open file, marking where you are.
+// puzzleList indexes the open file, marking where you are. It hides the same
+// things the board header does -- an index that prints every answer's score and
+// shape spoils the whole file at once, which is exactly what someone about to
+// solve them would run first.
 func (sc *ShellController) puzzleList() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s: %d puzzles\n", sc.puzzleFile, len(sc.puzzleSet))
@@ -219,11 +259,15 @@ func (sc *ShellController) puzzleList() string {
 		if i == sc.puzzleIdx {
 			here = "->"
 		}
-		score := 0
-		if evt := rec.answerEvent(); evt != nil {
-			score = int(evt.GetScore())
+		shown, hidden := pgVisibleTags(rec.Tags)
+		line := strings.Join(shown, " ")
+		if hidden > 0 {
+			if line != "" {
+				line += " "
+			}
+			line += fmt.Sprintf("(+%d)", hidden)
 		}
-		fmt.Fprintf(&b, "%s %3d  score=%3d  %s\n", here, i+1, score, strings.Join(rec.Tags, " "))
+		fmt.Fprintf(&b, "%s %3d  turn %2d  %s\n", here, i+1, rec.Turn, line)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -259,22 +303,6 @@ func pgStatsAll(raw json.RawMessage) string {
 	var parts []string
 	for _, name := range names {
 		parts = append(parts, fmt.Sprintf("%s=%v", name, fields[name]))
-	}
-	return strings.Join(parts, "  ")
-}
-
-// pgStatsSummary renders the handful of stats worth seeing at a glance. The
-// rest stay in the file for filtering.
-func pgStatsSummary(s *pb.PuzzleStats) string {
-	parts := []string{
-		fmt.Sprintf("score=%d", s.GetScore()),
-		fmt.Sprintf("words=%d", s.GetWordsFormed()),
-		fmt.Sprintf("tiles=%d", s.GetTilesPlayed()),
-		fmt.Sprintf("eq_adv=%+.2f", s.GetEquityAdvantage()),
-		fmt.Sprintf("score_adv=%+d", s.GetScoreAdvantage()),
-	}
-	if b := pgBonusSummary(s); b != "" {
-		parts = append(parts, b)
 	}
 	return strings.Join(parts, "  ")
 }

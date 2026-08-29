@@ -118,3 +118,33 @@ func TestPgShortID(t *testing.T) {
 		t.Errorf("pgShortID abbreviated a short id: %q", got)
 	}
 }
+
+// TestPgVisibleTags pins which tags may sit above the board. Anything that
+// describes the answer's shape has to stay in `puzzle info`, or the header
+// solves the puzzle for the reader.
+func TestPgVisibleTags(t *testing.T) {
+	shown, hidden := pgVisibleTags([]string{
+		"EQUITY", "NON_BINGO", "POWER_TILE", "CEL_PLUS_TWOS", "POINTS",
+	})
+	if strings.Join(shown, " ") != "EQUITY POINTS" {
+		t.Errorf("shown = %v, want just the question-type tags", shown)
+	}
+	if hidden != 3 {
+		t.Errorf("hidden = %d, want 3", hidden)
+	}
+
+	// Every tag the proto defines must be classified deliberately -- a new one
+	// defaults to visible, so this fails until someone decides.
+	for name := range pb.PuzzleTag_value {
+		switch name {
+		case "EQUITY", "POINTS":
+			if pgShapeTags[name] {
+				t.Errorf("%s should stay visible", name)
+			}
+		default:
+			if !pgShapeTags[name] {
+				t.Errorf("%s is not classified; decide whether it gives the answer's shape away", name)
+			}
+		}
+	}
+}

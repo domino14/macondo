@@ -21,11 +21,36 @@ Commands:
         Reveal the answer to the puzzle you are on.
 
     puzzle info
-        Where this puzzle came from -- game, turn, seed, lexicon -- and the
-        stats it was selected on.
+        Everything the record holds except the answer: every tag, the full
+        game ID, turn, seed, lexicon, CGP, and all 22 stats. This is where
+        the spoilers live -- see What Is Hidden below.
 
     puzzle list
         One line per puzzle in the file, with a marker on the current one.
+
+What Is Hidden:
+
+    The header above the board tells you what kind of question is being asked
+    and where the position came from. It does not tell you anything about the
+    shape of the answer, because that is most of the puzzle: BINGO says the
+    answer uses all seven tiles, POWER_TILE says a Q or a Z goes down, and
+    NON_BINGO rules out a whole class of play before you have looked.
+
+    So these tags are held back, and counted instead:
+
+        BINGO  ONLY_BINGO  BLANK_BINGO  BINGO_NINE_OR_ABOVE
+        NON_BINGO  POWER_TILE  CEL_ONLY  CEL_PLUS_TWOS
+
+        Puzzle 1 of 4   EQUITY POINTS   (+3 tag(s) in `puzzle info`)
+
+    EQUITY and POINTS stay visible: they say whether there is one clear best
+    play, and whether it is also the top scorer, without describing it. The
+    stats are held back for the same reason -- tiles_played and words_formed
+    give the answer's shape away outright. `puzzle list` hides the same things,
+    since an index that printed every score would spoil the whole file at once.
+
+    `puzzle info` shows all of it, which is the point of it being a separate
+    command.
 
 A session:
 
@@ -35,7 +60,8 @@ A session:
 
     puzzle open puzzles.jsonl
         Opened puzzles.jsonl: 20 puzzles.
-        Puzzle 1 of 20   EQUITY NON_BINGO POWER_TILE POINTS
+        Puzzle 1 of 20   EQUITY POINTS   (+2 tag(s) in `puzzle info`)
+          NWL23  ·  english  ·  seed:p_pkdfz…  turn 15  ·  seed demo2
         [the board]
 
     puzzle answer
