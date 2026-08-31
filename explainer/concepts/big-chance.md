@@ -27,3 +27,10 @@ coordinate, say what has to be drawn, and quote both the score and the
 percentage. If a big chance exists after the recommended play and not after the
 alternatives, that is the headline and the aggregate figures are the
 supporting detail, not the other way round.
+
+State that absence as an absence. A play with no chance in its section has no
+upside figure at all - not an upside of zero - because nothing after it was
+both big enough and frequent enough to count. Say the plain thing: the reader's
+play leaves them an ordinary turn, whatever they draw. Naming a number there
+invites the reader to think their play was measured at zero and found wanting,
+when what happened is that it had nothing to measure.

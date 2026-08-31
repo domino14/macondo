@@ -28,6 +28,53 @@ func TestDottedPlay(t *testing.T) {
 	is.Equal(DottedPlay("  8H QUIXOTIC  "), "8H QUIXOTIC")
 }
 
+func TestWordFormed(t *testing.T) {
+	is := is.New(t)
+
+	// The word is the whole thing, playthrough included: this is the play a
+	// reader would otherwise be told was "FRIED".
+	is.Equal(WordFormed("L5 (BEL)FRIED"), "BELFRIED")
+	is.Equal(WordFormed("5D (S)PIC(A)"), "SPICA")
+	is.Equal(WordFormed("2J TOQUE"), "TOQUE")
+	// A blank is still the letter it was played as, in the word.
+	is.Equal(WordFormed("1H (Z)WIEBAcK"), "ZWIEBACK")
+	// Not words, and not recoverable: exchanges, passes, and the dotted form,
+	// which the fact pack never uses but the model can type.
+	is.Equal(WordFormed("5D .PIC."), "")
+	is.Equal(WordFormed("(exch QU)"), "")
+	is.Equal(WordFormed("pass"), "")
+	is.Equal(WordFormed("(Pass)"), "")
+
+	// The note is only worth writing where the notation hides something.
+	is.Equal(hiddenWord("L5 (BEL)FRIED"), "BELFRIED")
+	is.Equal(hiddenWord("2J TOQUE"), "")
+	is.Equal(hiddenWord("(exch QU)"), "")
+}
+
+// Both places the model reads a play before writing about it have to spell it
+// out, or a play made through BEL comes back to the reader as FRIED.
+func TestRenderedPlaysCarryTheirWord(t *testing.T) {
+	is := is.New(t)
+
+	rival := &montecarlo.CandidateStats{Play: "L5 (BEL)FRIED", Score: 29}
+	best := &montecarlo.CandidateStats{Play: "2J TOQUE", Score: 36}
+	f := &PositionFacts{
+		Best:       best,
+		Candidates: []montecarlo.CandidateStats{*best, *rival},
+		Flags:      Flags{},
+		Comparison: &Comparison{Play: rival.Play, Rival: rival, FromHistory: true},
+	}
+
+	table := f.renderCandidates()
+	is.True(strings.Contains(table, "makes BELFRIED"))
+	// A play with nothing played through says nothing; it is already its word.
+	is.True(!strings.Contains(table, "makes TOQUE"))
+
+	head := f.renderComparison()
+	is.True(strings.Contains(head, "L5 (BEL)FRIED makes the word BELFRIED"))
+	is.True(!strings.Contains(head, "2J TOQUE makes the word"))
+}
+
 // The play we were asked about has to survive the cut however badly it did -
 // the whole point is to explain a move that lost.
 func TestTrimCandidatesKeepsTheComparison(t *testing.T) {
@@ -143,6 +190,7 @@ func TestComparisonPrompt(t *testing.T) {
 	is.True(strings.Contains(p.User, "Chances only in the sampled follow-ups after 12K QU(ID)"))
 	// The upside contrast is the figure that carries "you gave something up".
 	is.True(strings.Contains(p.User, "Big follow-up upside"))
+	is.True(strings.Contains(p.User, "10.2 pts after 12K QU(ID)"))
 	// And the next-turn edge is split, so the model can't argue the mean
 	// difference and the upside difference as if they were two findings.
 	is.True(strings.Contains(p.User,
@@ -150,6 +198,44 @@ func TestComparisonPrompt(t *testing.T) {
 
 	// And the question being asked changes accordingly.
 	is.True(strings.Contains(p.User, "why 12K QU(ID) beats 5D (S)CAP(A), the play they played"))
+}
+
+// A play with nothing that cleared the bar has no upside figure, and must not
+// be given one. "0.0 pts" formats exactly like a measurement, and every figure
+// in that section is one the model is told to quote, so it came back out at
+// readers as "your follow-up upside is 0.0" - a field name and a number that
+// reads like a verdict on their play rather than the absence it is.
+func TestNoChanceIsWordsNotZero(t *testing.T) {
+	is := is.New(t)
+	f := comparedFacts(false)
+	f.Comparison.Deltas.RivalUpside = 0
+
+	p, err := BuildPrompt(f, false)
+	is.NoErr(err)
+	is.True(strings.Contains(p.User,
+		"10.2 pts after 12K QU(ID), no big follow-up chance after 5D (S)CAP(A)"))
+	is.True(!strings.Contains(p.User, "0.0 pts"))
+}
+
+// The head to head renders the rival's chances whether or not the best play
+// has any of its own, so the guidance on how to talk about a big chance has to
+// come along with them. Otherwise a chance belonging to the play the reader
+// actually made reaches the model with nothing telling it what to do with it.
+func TestRivalChanceLoadsTheConcept(t *testing.T) {
+	is := is.New(t)
+	f := comparedFacts(false)
+	f.Chances = nil
+	f.Comparison.RivalChances = []*FollowupCluster{{
+		Anchor: "(QUAD) in row 2", Pct: 6.2, AvgScore: 74,
+		MinScore: 68, MaxScore: 81, IsBigChance: true, Upside: 2.1,
+	}}
+
+	f.Flags = computeFlags(f)
+	is.True(f.Flags["has_big_chance"])
+
+	p, err := BuildPrompt(f, false)
+	is.NoErr(err)
+	is.True(slices.Contains(p.Concepts, "big-chance"))
 }
 
 // An overlapping interval means the simulation has not shown a difference, and

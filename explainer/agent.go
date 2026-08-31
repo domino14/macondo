@@ -13,13 +13,17 @@ import (
 	"github.com/domino14/macondo/ai/bot"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/equity"
+	"github.com/domino14/macondo/move"
 	"github.com/domino14/word-golib/tilemapping"
 	"github.com/rs/zerolog/log"
 )
 
 // PlayMetadata represents metadata about a Scrabble play
 type PlayMetadata struct {
-	Play           string `json:"play"`
+	Play string `json:"play"`
+	// WordFormed is the whole word the play makes, the tiles already on the
+	// board included. Empty for exchanges and passes.
+	WordFormed     string `json:"word_formed,omitempty"`
 	Score          int    `json:"score"`
 	TilesUsed      int    `json:"tiles_used"`
 	IsBingo        bool   `json:"is_bingo"`
@@ -376,6 +380,29 @@ func DottedPlay(playString string) string {
 	return sb.String()
 }
 
+// WordFormed is the whole word a play makes, playthrough included: L5
+// (BEL)FRIED makes BELFRIED, 2J TOQUE makes TOQUE. The letters outside the
+// parentheses are only the ones that came off the rack, so a play named by
+// those alone is a different word - a reader told about "FRIED" has been told
+// about a play that does not exist.
+//
+// It reads the word out of the notation, which every play in the fact pack
+// carries: they are all written by MoveDescriptionWithPlaythrough. A dotted
+// play is not one of those - it can only arrive as input - and its board
+// letters are not in the string to recover, so it gets "", as do exchanges
+// and passes, which are not words.
+func WordFormed(play string) string {
+	fields := strings.Fields(strings.TrimSpace(play))
+	if len(fields) != 2 || !reCoord.MatchString(strings.ToUpper(fields[0])) {
+		return ""
+	}
+	word := strings.ToUpper(fields[1])
+	if strings.Contains(word, ".") {
+		return ""
+	}
+	return parenRepl.Replace(word)
+}
+
 // GetPlayMetadata analyzes a play and returns metadata
 func (a *Analyzer) GetPlayMetadata(playString string) (*PlayMetadata, error) {
 	a.mu.Lock()
@@ -383,6 +410,16 @@ func (a *Analyzer) GetPlayMetadata(playString string) (*PlayMetadata, error) {
 	m, err := a.game.ParseMove(a.game.PlayerOnTurn(), false, strings.Fields(DottedPlay(playString)), false)
 	if err != nil {
 		return nil, err
+	}
+
+	// The word off the board rather than out of the notation: the model can
+	// ask about a play in dotted form, where the played-through letters are
+	// not in the string at all.
+	word := ""
+	if m.Action() == move.MoveTypePlay {
+		if words, err := a.game.Board().FormedWords(m); err == nil && len(words) > 0 {
+			word = words[0].UserVisible(a.game.Alphabet())
+		}
 	}
 
 	// Parse basic info from play string
@@ -413,6 +450,7 @@ func (a *Analyzer) GetPlayMetadata(playString string) (*PlayMetadata, error) {
 
 	md := &PlayMetadata{
 		Play:           playString,
+		WordFormed:     word,
 		Score:          m.Score(),
 		TilesUsed:      tilesUsed,
 		IsBingo:        isBingo,

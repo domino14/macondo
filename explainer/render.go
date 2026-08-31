@@ -253,11 +253,13 @@ func (f *PositionFacts) renderComparison() string {
 		fmt.Fprintf(&ss, "%s is the play %s, and the simulation ranks it first. "+
 			"The comparison below is against the runner-up, %s.\n",
 			c.Play, playSource(c), c.Rival.Play)
+		ss.WriteString(wordNote(c.Play, c.Rival.Play))
 	} else {
 		fmt.Fprintf(&ss, "### Head to head: %s versus %s\n", f.Best.Play, c.Rival.Play)
 		fmt.Fprintf(&ss, "%s is the play %s. Figures below are %s minus %s, so a "+
 			"positive number is the recommended play's advantage.\n",
 			c.Rival.Play, playSource(c), f.Best.Play, c.Rival.Play)
+		ss.WriteString(wordNote(f.Best.Play, c.Rival.Play))
 	}
 
 	d := c.Deltas
@@ -277,8 +279,8 @@ func (f *PositionFacts) renderComparison() string {
 	fmt.Fprintf(&ss, "%-26s %+.2f mean, %+.2f bingo%%\n", "Our next turn", d.OurMeanScore, d.OurBingoPct)
 	// Expected points, not a count of chances: the number is what each play's
 	// big follow-ups add to its next turn over a turn without them.
-	fmt.Fprintf(&ss, "%-26s %.1f pts after %s, %.1f pts after %s\n", "Big follow-up upside",
-		d.BestUpside, f.Best.Play, d.RivalUpside, c.Rival.Play)
+	fmt.Fprintf(&ss, "%-26s %s after %s, %s after %s\n", "Big follow-up upside",
+		upsidePhrase(d.BestUpside), f.Best.Play, upsidePhrase(d.RivalUpside), c.Rival.Play)
 	// Which makes the next-turn line above divisible, and it has to be
 	// divided: the mean difference and the upside difference are one fact
 	// counted twice, and a model given both without the split will argue from
@@ -300,6 +302,53 @@ func (f *PositionFacts) renderComparison() string {
 		fmt.Fprintf(&ss, "No follow-up after %s clears the bar for a big chance.\n", c.Rival.Play)
 	}
 	return ss.String()
+}
+
+// upsidePhrase is what a play's big chances are worth, or that it has none.
+// Zero is not a small upside, it is the absence of a chance that cleared the
+// bar, and the two have to read differently: every figure in this section is
+// one the model is instructed to quote, so a zero formatted like a
+// measurement comes back out at the reader as "your follow-up upside is 0.0"
+// - a field name and a number, which tells a player nothing and sounds like
+// a verdict on their play. Words can only be paraphrased.
+func upsidePhrase(upside float64) string {
+	if upside <= 0 {
+		return "no big follow-up chance"
+	}
+	return fmt.Sprintf("%.1f pts", upside)
+}
+
+// hiddenWord is the word a play's notation hides, and nothing when it hides
+// none: a play with no playthrough is already spelled out, and annotating
+// 2J TOQUE with "makes TOQUE" is noise on every row that needs no help.
+func hiddenWord(play string) string {
+	if !strings.Contains(play, "(") {
+		return ""
+	}
+	return WordFormed(play)
+}
+
+// wordNote spells out whichever plays in the head-to-head have a word hidden
+// by their notation. The reader's own play is usually the one that does, and
+// this is the section the explanation gets written around, so naming BELFRIED
+// here is what stops a player being told about the play FRIED - which is not
+// the play they made, and not a word they can look up.
+func wordNote(plays ...string) string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, p := range plays {
+		w := hiddenWord(p)
+		if w == "" || seen[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, fmt.Sprintf("%s makes the word %s", p, w))
+	}
+	if len(out) == 0 {
+		return ""
+	}
+	return strings.Join(out, ", and ") + ". Name each play by the whole word it makes, " +
+		"never by the letters outside the parentheses alone.\n"
 }
 
 func playSource(c *Comparison) string {
@@ -358,6 +407,11 @@ func (f *PositionFacts) renderCandidates() string {
 			mark = " ❌"
 		}
 		notes := []string{}
+		// The word first: everything else about a play is a fact about a word
+		// the reader has to have read correctly to begin with.
+		if w := hiddenWord(c.Play); w != "" {
+			notes = append(notes, "makes "+w)
+		}
 		if c.IsBingo {
 			notes = append(notes, "bingo")
 		}

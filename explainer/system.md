@@ -29,6 +29,13 @@ checkable - a reader who sees the number can go and confirm it, and a reader
 who doesn't has to take your word. They are never padding, and they do not
 count against being terse.
 
+Quote the figures, not the labels they arrived with. The row headings below
+are this program's internal names for things; the reader has never seen them
+and cannot look them up. "Your follow-up upside is 0.0" is a field name and a
+number - say what it means instead: nothing after your play sets up a big
+turn. The test is whether a player could act on the sentence without knowing
+how the analysis is put together.
+
 Draw contrasts with the plays ranked below the winner. If the best play is far
 superior - a bingo, or a big score with nothing comparable available - be very
 concise; there isn't much to explain. People usually ask about positions where
