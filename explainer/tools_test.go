@@ -128,6 +128,27 @@ func TestGetPlayMetadata(t *testing.T) {
 	is.Equal(md.TilesUsed, 0)
 }
 
+// The word comes off the board, not out of the notation, so the tool answers
+// with LOAF however the model spelled the play - and a model that reads the
+// parentheses as a word boundary gets told otherwise.
+func TestPlayMetadataNamesTheWholeWord(t *testing.T) {
+	is := is.New(t)
+	an := newFollowupAnalyzer(t)
+
+	md, err := an.GetPlayMetadata("13F (L)OAF")
+	is.NoErr(err)
+	is.Equal(md.WordFormed, "LOAF")
+
+	// The dotted form carries no letters to read; the board still has them.
+	md, err = an.GetPlayMetadata("13F .OAF")
+	is.NoErr(err)
+	is.Equal(md.WordFormed, "LOAF")
+
+	md, err = an.GetPlayMetadata("(exch AF)")
+	is.NoErr(err)
+	is.Equal(md.WordFormed, "")
+}
+
 // The agent SDK runs a batch of tool calls one goroutine each, and every tool
 // shares the analyzer's one board. Scoring a vertical play transposes that
 // board in place, so a lookup running beside it reads the mirror image of the

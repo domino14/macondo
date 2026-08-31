@@ -1333,7 +1333,15 @@ func computeFlags(f *PositionFacts) Flags {
 	// Setups and big chances are judged per opportunity, not per play: four
 	// spellings of one hook are one thing to talk about, and each is too rare
 	// on its own to clear a bar the four of them clear together.
-	for _, ch := range f.Chances {
+	// The rival's chances count too. They are rendered in the head to head
+	// whether or not the best play has any, so a chance that belongs to the
+	// play the reader made would otherwise be put in front of the model with
+	// none of the guidance on how to talk about it.
+	chances := f.Chances
+	if f.Comparison != nil {
+		chances = append(slices.Clip(chances), f.Comparison.RivalChances...)
+	}
+	for _, ch := range chances {
 		if ch.IsSetup {
 			fl["has_setup"] = true
 		}
