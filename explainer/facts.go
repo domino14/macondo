@@ -2,12 +2,12 @@ package explainer
 
 import (
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"sort"
 	"strings"
 
-	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/montecarlo"
 	"github.com/domino14/macondo/montecarlo/stats"
@@ -75,6 +75,22 @@ const (
 	laneCandidates = 3
 	laneMinPct     = 4.0
 	lanesShown     = 4
+
+	// How much better the opponent's whole next turn has to be after one play
+	// than after another before the two plays differ in defense at all. Below
+	// these, whatever the lanes did, the opponent is left just as well off and
+	// there is no defensive claim to make.
+	defenseMeanMin   = 3.0
+	defenseBigPctMin = 5.0
+	// Expected points a lane has to account for before it is the place the
+	// difference lives, rather than one more lane that moved a little.
+	laneWorthMin = 3.0
+	// One finding is as much board as an explanation should carry.
+	boardFindingsShown = 1
+
+	// A leave-value gap below this is not something the losing play was going
+	// for; it is two leaves that are the same leave.
+	leaveValueMin = 0.5
 
 	// However many plays the caller simmed, only the top few are worth
 	// contrasting. The shell trims to 5 before it gets here; this bounds the
@@ -268,11 +284,114 @@ func (f *FollowupFact) Worthwhile() bool {
 	return f.IsSetup || f.IsBigChance
 }
 
-// LaneComparison is where one candidate's sampled opponent replies land.
+// LaneComparison is where one candidate's sampled opponent replies land, and
+// how good those replies were board-wide.
 type LaneComparison struct {
 	Play  string
 	Best  bool
 	Stats *stats.LaneStats
+	Reply ReplyProfile
+}
+
+// ReplyProfile is how good the opponent's next turn is after a candidate,
+// taking the whole board at once. The lanes say where their replies landed;
+// this says whether the replies were any good, and it is the only thing a
+// claim about defense can rest on. The opponent answers somewhere every turn,
+// so a lane falling quiet redistributes their plays - on its own it takes
+// nothing away from them.
+type ReplyProfile struct {
+	// MeanScore and BingoPct are the simulation's own figures, so they agree
+	// with the ply table.
+	MeanScore float64 `json:"mean_score"`
+	BingoPct  float64 `json:"bingo_pct"`
+	// BigPct is the share of replies worth stats.BigReplyScore or more - what
+	// an open board actually costs, as against a point or two on the mean. It
+	// is measured over the logged replies, the sample the lanes come from.
+	BigPct float64 `json:"big_pct"`
+	Known  bool    `json:"known"`
+}
+
+// DefenseVerdict is what the board-wide reply profiles say about two plays.
+type DefenseVerdict int
+
+const (
+	// DefenseUnknown is a pair we can't compare, DefenseFlat one where the
+	// opponent does about as well either way - whatever the lanes look like.
+	DefenseUnknown DefenseVerdict = iota
+	DefenseFlat
+	// DefenseTighter means the first play holds the opponent to less;
+	// DefenseLooser means it gives them more.
+	DefenseTighter
+	DefenseLooser
+)
+
+// BoardMechanism is how a lane came to be quiet after one play and busy after
+// another, when the two plays' own squares settle it. Which play sits in the
+// lane does not on its own say which way the traffic went - a play in a lane
+// can take the one scoring spot in it or hand the opponent something to hook
+// onto - so the mechanism is read off the geometry and the measured shares
+// together, never off the geometry alone.
+type BoardMechanism int
+
+const (
+	MechanismNone BoardMechanism = iota
+	// MechanismTakesSpot: the play that leaves the lane quiet is played in
+	// that lane itself. It used the spot up.
+	MechanismTakesSpot
+	// MechanismCrosses: the play that leaves the lane quiet puts tiles across
+	// it from the perpendicular lane.
+	MechanismCrosses
+	// MechanismOpens: the lane is busy only after the play whose own tiles run
+	// through it, so the replies there may be answering those tiles rather
+	// than anything the other play failed to stop.
+	MechanismOpens
+)
+
+// BoardFinding is one thing the board actually does: where the opponent's
+// scoring lived, what the recommended play does to it, and what that was worth
+// across the whole board.
+//
+// The prompt used to carry the lane tables themselves and a set of rules for
+// reading them. That was the wrong shape. Every play makes some lane quieter
+// than some other play, so a table of lane shares is raw material for a
+// defensive story about any play at all, and the rules were an invitation to
+// go looking. What ships now is the conclusion, already gated: no finding
+// means the board is not the reason, and there is nothing left to narrate.
+type BoardFinding struct {
+	Rival string `json:"rival"`
+	// Tighter is true when the best play is the one holding the opponent down.
+	Tighter bool `json:"tighter"`
+	// Best and RivalReply are the two board-wide profiles the finding rests on.
+	Best       ReplyProfile `json:"best"`
+	RivalReply ReplyProfile `json:"rival_reply"`
+	// Lane is where the difference lives, empty when no single lane carries
+	// enough of it to name. The shares and means are that lane's, after each
+	// of the two plays.
+	Lane                string  `json:"lane,omitempty"`
+	BestPct, RivalPct   float64 `json:"-"`
+	BestMean, RivalMean float64 `json:"-"`
+	// Mechanism is how the lane got that way, and MechanismPlay is the play
+	// whose own tiles are in it - the one taking the spot, or the one the
+	// replies are hooking onto.
+	Mechanism     BoardMechanism `json:"mechanism"`
+	MechanismPlay string         `json:"mechanism_play,omitempty"`
+}
+
+// CompareDefense is the gate on every positional claim in the prompt. Two
+// plays differ in defense when the opponent's whole next turn differs: a lower
+// mean, or fewer of the big replies that openness is really about.
+func CompareDefense(best, rival ReplyProfile) DefenseVerdict {
+	if !best.Known || !rival.Known {
+		return DefenseUnknown
+	}
+	meanGap, bigGap := best.MeanScore-rival.MeanScore, best.BigPct-rival.BigPct
+	switch {
+	case meanGap <= -defenseMeanMin || bigGap <= -defenseBigPctMin:
+		return DefenseTighter
+	case meanGap >= defenseMeanMin || bigGap >= defenseBigPctMin:
+		return DefenseLooser
+	}
+	return DefenseFlat
 }
 
 // InferenceFacts is what the opponent's last play gave away, and whether it
@@ -389,6 +508,10 @@ type Comparison struct {
 
 	Deltas Deltas `json:"deltas"`
 
+	// RivalStrengths is every measure the reader's play leads on. Empty means
+	// it leads on none of them, which is a finding of its own.
+	RivalStrengths []string `json:"rival_strengths"`
+
 	// OnlyBest and OnlyRival are the worthwhile follow-up plays each side has
 	// that the other doesn't - the concrete "what you gave up" list.
 	OnlyBest  []*FollowupFact `json:"only_best"`
@@ -452,6 +575,9 @@ type PositionFacts struct {
 	// upside, biggest first.
 	Chances []*FollowupCluster
 	Lanes   []*LaneComparison
+	// BoardFindings is what the board does, already decided. Empty means the
+	// board is not a reason for the play, and nothing about it is sent.
+	BoardFindings []*BoardFinding
 	// TypicalNextScore is what our next turn averages after the best play,
 	// chances and all.
 	TypicalNextScore float64
@@ -542,6 +668,7 @@ func (a *Analyzer) BuildFacts(sim *montecarlo.Simmer, ss *stats.SimStats,
 		}
 	}
 	f.Lanes = laneComparisons(ss, candidates, f.rivalPlay())
+	f.BoardFindings = buildBoardFindings(f.Lanes, f.rivalPlay())
 	f.Inference = buildInference(f, inf)
 
 	f.Flags = computeFlags(f)
@@ -643,7 +770,38 @@ func (a *Analyzer) buildComparison(f *PositionFacts, req *ComparisonRequest, idx
 	c.Deltas.OrdinaryShare = c.Deltas.OurMeanScore - c.Deltas.ChancesShare
 	c.Deltas.SplitKnown = f.TypicalNextScore > 0 && c.TypicalNextScore > 0
 	c.OnlyBest, c.OnlyRival = followupDiff(f.Followups, c.RivalFollowups)
+	c.RivalStrengths = rivalStrengths(f, c)
 	return c, nil
+}
+
+// rivalStrengths is what the reader's play actually had going for it, worked
+// out rather than left to be guessed. Explaining a play they lost with means
+// saying what they were going for, and a model asked for that with only the
+// losing figures in front of it will supply something plausible - "it was
+// going for the bigger score" about a play that scored seven fewer. Every
+// measure the rival genuinely leads on is here, and if it leads on none, that
+// is the honest answer and it is said instead.
+func rivalStrengths(f *PositionFacts, c *Comparison) []string {
+	d, out := c.Deltas, []string{}
+	if d.Score < 0 {
+		out = append(out, fmt.Sprintf("it scores %d more (%d vs %d)",
+			-d.Score, c.Rival.Score, f.Best.Score))
+	}
+	if d.LeaveValue < -leaveValueMin {
+		out = append(out, fmt.Sprintf("it keeps a leave worth %.2f more (%s vs %s)",
+			-d.LeaveValue, dashIfEmpty(c.Rival.Leave), dashIfEmpty(f.Best.Leave)))
+	}
+	if d.OppMeanScore > 0 {
+		out = append(out, fmt.Sprintf("it holds the opponent to %.1f fewer next turn", d.OppMeanScore))
+	}
+	if d.RivalUpside > d.BestUpside {
+		out = append(out, fmt.Sprintf("its follow-up chances are worth %.1f more",
+			d.RivalUpside-d.BestUpside))
+	}
+	if d.OurBingoPct < 0 {
+		out = append(out, fmt.Sprintf("we bingo %.1f%% more often next turn", -d.OurBingoPct))
+	}
+	return out
 }
 
 // buildInference works out whether the read on the opponent's rack is worth
@@ -1301,9 +1459,170 @@ func laneComparisons(ss *stats.SimStats, candidates []montecarlo.CandidateStats,
 			log.Err(err).Str("play", play).Msg("could not compute lane stats")
 			continue
 		}
-		out = append(out, &LaneComparison{Play: play, Best: i == 0, Stats: ls})
+		out = append(out, &LaneComparison{
+			Play:  play,
+			Best:  i == 0,
+			Stats: ls,
+			Reply: replyProfile(findCandidate(candidates, play), ls),
+		})
 	}
 	return out
+}
+
+// replyProfile puts the simulation's figures for the opponent's reply together
+// with the shape of the logged replies. The mean and the bingo rate come from
+// the sim rather than from the log, which is capped: two numbers for the same
+// quantity that disagree by a point would be worse than useless in a prompt
+// that prints the ply table too.
+func replyProfile(c *montecarlo.CandidateStats, ls *stats.LaneStats) ReplyProfile {
+	p := ReplyProfile{}
+	if c == nil || ls == nil || ls.Total == 0 {
+		return p
+	}
+	ps := plyStats(c, 1)
+	if ps == nil {
+		return p
+	}
+	p.MeanScore, p.BingoPct = ps.MeanScore, ps.BingoPct
+	p.BigPct = float64(ls.BigReplies*100) / float64(ls.Total)
+	p.Known = true
+	return p
+}
+
+// boardFlags records only that we have board data at all. Whether the board is
+// worth talking about is decided by whether buildBoardFindings found anything,
+// not by a flag: an empty section is a stronger instruction than any card.
+func (f *PositionFacts) boardFlags() Flags {
+	fl := Flags{}
+	for _, lc := range f.Lanes {
+		if lc.Stats != nil && len(lc.Stats.Lanes) > 0 {
+			fl["has_lane_data"] = true
+		}
+	}
+	return fl
+}
+
+// buildBoardFindings keeps the comparisons where the opponent is genuinely
+// left worse off - or genuinely better off - and throws the rest away.
+//
+// One finding is the cap, and against the reader's own play by preference.
+// The candidates below the top are near-duplicates of each other, so a second
+// finding is usually the same lane described again in the same words, and the
+// mean and big-reply share of every candidate are in the ply table anyway.
+func buildBoardFindings(lanes []*LaneComparison, rivalPlay string) []*BoardFinding {
+	if len(lanes) < 2 || lanes[0].Stats == nil {
+		return nil
+	}
+	best := lanes[0]
+	rivals := slices.Clone(lanes[1:])
+	slices.SortStableFunc(rivals, func(a, b *LaneComparison) int {
+		switch {
+		case a.Play == rivalPlay && b.Play != rivalPlay:
+			return -1
+		case b.Play == rivalPlay && a.Play != rivalPlay:
+			return 1
+		}
+		return 0
+	})
+	out := []*BoardFinding{}
+	for _, rival := range rivals {
+		v := CompareDefense(best.Reply, rival.Reply)
+		if v != DefenseTighter && v != DefenseLooser {
+			continue
+		}
+		fi := &BoardFinding{
+			Rival: rival.Play, Tighter: v == DefenseTighter,
+			Best: best.Reply, RivalReply: rival.Reply,
+		}
+		attachLane(fi, best, rival)
+		out = append(out, fi)
+		if len(out) == boardFindingsShown {
+			break
+		}
+	}
+	return out
+}
+
+// attachLane finds the lane the difference lives in, if one does. It has to
+// point the same way as the board-wide figures: a lane that goes quiet while
+// the opponent ends up better off is their scoring moving, and naming it would
+// hand back exactly the story the finding exists to replace.
+func attachLane(fi *BoardFinding, best, rival *LaneComparison) {
+	var pick *stats.LaneStat
+	var pickBest, pickRival *stats.LaneStat
+	var widest float64
+	for _, l := range candidateLanes(best, rival) {
+		b, r := best.Stats.Lane(l.Vertical, l.Index), rival.Stats.Lane(l.Vertical, l.Index)
+		// Expected points out of the lane, which is the only way a share and a
+		// mean can be compared: a lane taking a fifth of the replies for 20 is
+		// a smaller part of their turn than one taking a twentieth for 90.
+		// A tighter finding wants the lane the best play took away from them,
+		// a looser one the lane it handed over, so the sign has to agree with
+		// the board-wide verdict either way.
+		gain := laneWorth(r) - laneWorth(b)
+		if !fi.Tighter {
+			gain = -gain
+		}
+		if gain >= laneWorthMin && gain > widest {
+			pick, pickBest, pickRival, widest = l, b, r, gain
+		}
+	}
+	if pick == nil {
+		return
+	}
+	fi.Lane = pick.Label
+	fi.BestPct, fi.BestMean = lanePct(pickBest), laneMean(pickBest)
+	fi.RivalPct, fi.RivalMean = lanePct(pickRival), laneMean(pickRival)
+
+	// Which play is quiet in the lane decides what the geometry means. A play
+	// whose tiles are in a lane that then falls silent has taken the scoring
+	// spot in it; a play whose tiles are in a lane that is busy only after it
+	// has given the opponent something to play off.
+	quiet, busy := best, rival
+	if fi.RivalPct < fi.BestPct {
+		quiet, busy = rival, best
+	}
+	qf, bf := footprintOf(quiet), footprintOf(busy)
+	switch {
+	case qf.Touches(pick.Vertical, pick.Index):
+		fi.MechanismPlay = quiet.Play
+		fi.Mechanism = MechanismCrosses
+		if qf.Vertical == pick.Vertical && qf.Index == pick.Index {
+			fi.Mechanism = MechanismTakesSpot
+		}
+	case bf.Touches(pick.Vertical, pick.Index):
+		fi.MechanismPlay, fi.Mechanism = busy.Play, MechanismOpens
+	}
+}
+
+// candidateLanes is every lane either play's replies used enough of to be
+// worth weighing.
+func candidateLanes(comparisons ...*LaneComparison) []*stats.LaneStat {
+	out := []*stats.LaneStat{}
+	seen := map[string]bool{}
+	for _, lc := range comparisons {
+		if lc.Stats == nil {
+			continue
+		}
+		for i, l := range lc.Stats.Lanes {
+			if i >= lanesShown || l.Pct < laneMinPct {
+				break
+			}
+			if !seen[l.Label] {
+				seen[l.Label] = true
+				out = append(out, l)
+			}
+		}
+	}
+	return out
+}
+
+// laneWorth is the expected points the opponent takes out of a lane.
+func laneWorth(l *stats.LaneStat) float64 {
+	if l == nil {
+		return 0
+	}
+	return l.Pct / 100 * l.MeanScore
 }
 
 // computeFlags turns the fact pack into the yes/no answers that select concept
@@ -1399,11 +1718,7 @@ func computeFlags(f *PositionFacts) Flags {
 
 	fl["equity_sacrifice"] = f.BestByEquity != nil && f.BestByEquity.Play != f.Best.Play
 
-	for _, lc := range f.Lanes {
-		if lc.Stats != nil && len(lc.Stats.Lanes) > 0 {
-			fl["has_lane_data"] = true
-		}
-	}
+	maps.Copy(fl, f.boardFlags())
 
 	if f.Comparison != nil && f.Comparison.Rival != nil {
 		fl["has_comparison"] = true
@@ -1417,19 +1732,4 @@ func computeFlags(f *PositionFacts) Flags {
 		fl["inference_changed_play"] = f.Inference.ChangedTopPlay
 	}
 	return fl
-}
-
-// bonusLabel names the premium squares a lane's replies covered, e.g. "TWS,
-// DLS", for prose that talks about what a play opens.
-func bonusLabel(premiums []stats.PremiumUse) string {
-	names := []string{}
-	for _, p := range premiums {
-		if p.Name != "" && p.Bonus != board.NoBonus {
-			names = append(names, p.Name)
-		}
-		if len(names) >= 2 {
-			break
-		}
-	}
-	return strings.Join(names, ", ")
 }
