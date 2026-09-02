@@ -31,7 +31,9 @@ Two rules about honesty here:
   separate them, but here is what differs" is the correct answer, and it is
   more useful than a confident story about a gap that isn't there.
 - Their play is not a blunder just because it lost. Say what it was going for,
-  then what it costs. A play that scores more but hands back a live board is a
-  reasonable idea with a specific flaw, and naming the flaw is the lesson.
+  then what it costs - and take what it was going for from the "had going for
+  it" line, which lists every measure it leads on. Do not supply one of your
+  own: a play that scored seven fewer was not going for the bigger score. When
+  that line says it leads on nothing, say that instead.
 
 Address the reader's play directly - "your play", not "the alternative".

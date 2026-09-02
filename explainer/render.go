@@ -72,7 +72,7 @@ func (f *PositionFacts) Render() string {
 		ss.WriteString("\n### What the simulation saw after " + c.Rival.Play + "\n\n")
 		ss.WriteString(c.RivalPlayStats.RenderWith(promptTables))
 	}
-	if s := f.renderBoardDynamics(); s != "" {
+	if s := f.renderBoardFindings(); s != "" {
 		ss.WriteString("\n")
 		ss.WriteString(s)
 	}
@@ -290,6 +290,16 @@ func (f *PositionFacts) renderComparison() string {
 			"ordinary turns.\n", d.OurMeanScore, d.ChancesShare, d.OrdinaryShare)
 	}
 
+	// What their play had going for it, worked out here so it doesn't have to
+	// be guessed at from a table of figures that are all against it.
+	if len(c.RivalStrengths) > 0 {
+		fmt.Fprintf(&ss, "What %s had going for it: %s.\n", c.Rival.Play,
+			strings.Join(c.RivalStrengths, "; "))
+	} else {
+		fmt.Fprintf(&ss, "%s leads on nothing measured here - not the score, not the "+
+			"leave, not what the opponent gets back.\n", c.Rival.Play)
+	}
+
 	writeOpportunities(&ss, "Chances only in the sampled follow-ups after "+f.Best.Play, c.OnlyBest)
 	writeOpportunities(&ss, "Chances only in the sampled follow-ups after "+c.Rival.Play, c.OnlyRival)
 
@@ -447,14 +457,23 @@ func (f *PositionFacts) renderPlies() string {
 			who = "our next turn"
 		}
 		fmt.Fprintf(&ss, "Ply %d (%s)\n", ply, who)
-		fmt.Fprintf(&ss, "%-20s %-9s %-9s %s\n", "Play", "Mean", "Stdev", "Bingo%")
+		// The share of big replies goes in this table rather than in a section
+		// of its own: it is the same measurement as the mean beside it, and it
+		// is the one that says whether a play left the board dangerous. The
+		// stdev barely moves between plays that differ a lot in it.
+		big := ""
+		if ply == 1 {
+			big = fmt.Sprintf("%d+%%", stats.BigReplyScore)
+		}
+		writeRow(&ss, fmt.Sprintf("%-20s %-9s %-9s %-9s %s", "Play", "Mean", "Stdev", "Bingo%", big))
 		for i := range f.Candidates {
 			c := &f.Candidates[i]
 			for _, p := range c.Plies {
 				if p.Ply != ply {
 					continue
 				}
-				fmt.Fprintf(&ss, "%-20s %-9.2f %-9.2f %.2f\n", c.Play, p.MeanScore, p.Stdev, p.BingoPct)
+				writeRow(&ss, fmt.Sprintf("%-20s %-9.2f %-9.2f %-9.2f %s", c.Play,
+					p.MeanScore, p.Stdev, p.BingoPct, bigReplyCell(f.Lanes, c.Play, ply)))
 			}
 		}
 		ss.WriteString("\n")
@@ -529,135 +548,116 @@ func renderChances(heading string, play *montecarlo.CandidateStats,
 	return ss.String()
 }
 
-func (f *PositionFacts) renderBoardDynamics() string {
-	if !f.Flags["has_lane_data"] {
+// renderBoardFindings is the whole of what the prompt says about the board.
+// It used to be a set of lane tables and a page of rules for reading them; the
+// tables turned out to be raw material for a defensive story about whichever
+// play was being explained, since some lane is always quieter after one play
+// than another. What ships now is the conclusion, and only when there is one:
+// no finding means the board is not the reason, and an absent section asks for
+// nothing back.
+func (f *PositionFacts) renderBoardFindings() string {
+	if len(f.BoardFindings) == 0 {
 		return ""
 	}
 	var ss strings.Builder
-	ss.WriteString("### Board dynamics\n")
-	ss.WriteString("Where the opponent's sampled replies actually landed, by lane. " +
-		"These are the only lanes you may make positional claims about; do not " +
-		"work out anything else about the geometry of the board.\n")
-
-	for _, lc := range f.Lanes {
-		label := lc.Play
-		if lc.Best {
-			label += " (the best play)"
-		}
-		fmt.Fprintf(&ss, "\nAfter %s - %d sampled replies", label, lc.Stats.Total)
-		if lc.Stats.Total > 0 {
-			fmt.Fprintf(&ss, ", %.0f%% of them one-tile plays",
-				float64(lc.Stats.SingleTile*100)/float64(lc.Stats.Total))
-		}
-		ss.WriteString("\n")
-		shown := 0
-		for _, l := range lc.Stats.Lanes {
-			if l.Pct < laneMinPct || shown >= lanesShown {
-				break
-			}
-			shown++
-			// Deliberately no single best reply per lane: the top play in a
-			// lane is one sample out of thousands, and quoting it invites
-			// treating a one-off as a threat. How often the lane is used and
-			// what it pays on average is the part that generalizes.
-			extra := ""
-			if b := bonusLabel(l.Premiums); b != "" {
-				extra = "  covers " + b
-			}
-			fmt.Fprintf(&ss, "  %-12s %5.1f%%  mean %5.1f%s\n",
-				l.Label, l.Pct, l.MeanScore, extra)
-		}
-		if shown == 0 {
-			ss.WriteString("  replies were scattered; no lane stands out\n")
-		}
-	}
-
-	if diffs := f.laneDifferences(); len(diffs) > 0 {
-		ss.WriteString("\nWhat the best play changes about the board:\n")
-		for _, d := range diffs {
-			ss.WriteString("  " + d + "\n")
-		}
+	ss.WriteString("### What the board does\n")
+	ss.WriteString("Checked against the simulation and against the board. This is the " +
+		"only positional fact you have: say it in your own words and stop there.\n")
+	for _, fi := range f.BoardFindings {
+		ss.WriteString(boardFindingText(f.Best.Play, fi))
 	}
 	return ss.String()
 }
 
-// Lane percentage / mean-score gaps below these are noise, not a difference in
-// what the play does to the board.
-const (
-	lanePctDiffMin  = 8.0
-	laneMeanDiffMin = 6.0
-)
-
-// laneDifferences compares the best play against the other candidates lane by
-// lane. This is the whole point of computing lanes for more than one play: a
-// lane that is busy after every candidate isn't something this play opened.
-//
-// Each lane gets one line, against whichever other candidate it differs from
-// most - the top candidates are often near-duplicates of each other, and
-// saying the same thing once per near-duplicate is noise.
-func (f *PositionFacts) laneDifferences() []string {
-	if len(f.Lanes) < 2 || f.Lanes[0].Stats == nil {
-		return nil
+func boardFindingText(bestPlay string, fi *BoardFinding) string {
+	var ss strings.Builder
+	// Led by whichever of the two measures actually established the finding. A
+	// play can hold the opponent to the same mean and still take away the big
+	// turns, and quoting the two means first would have the reader checking a
+	// difference of half a point.
+	if abs(fi.Best.MeanScore-fi.RivalReply.MeanScore) >= defenseMeanMin {
+		holds := "holds the opponent to less than"
+		if !fi.Tighter {
+			holds = "leaves the opponent better off than"
+		}
+		fmt.Fprintf(&ss, "%s %s %s: their next turn averages %.1f against %.1f, and is "+
+			"worth %d or more %.1f%% of the time against %.1f%%.\n",
+			bestPlay, holds, fi.Rival, fi.Best.MeanScore, fi.RivalReply.MeanScore,
+			stats.BigReplyScore, fi.Best.BigPct, fi.RivalReply.BigPct)
+	} else {
+		gives := "gives the opponent fewer big turns than"
+		if !fi.Tighter {
+			gives = "gives the opponent more big turns than"
+		}
+		fmt.Fprintf(&ss, "%s %s %s: a reply worth %d or more comes %.1f%% of the time "+
+			"against %.1f%%, though their mean next turn is much the same either way "+
+			"(%.1f against %.1f).\n",
+			bestPlay, gives, fi.Rival, stats.BigReplyScore, fi.Best.BigPct,
+			fi.RivalReply.BigPct, fi.Best.MeanScore, fi.RivalReply.MeanScore)
 	}
-	best := f.Lanes[0]
-	out := []string{}
-	for _, l := range notableLanes(f.Lanes) {
-		b := best.Stats.Lane(l.Vertical, l.Index)
-		bPct, bMean := lanePct(b), laneMean(b)
-
-		// Find the candidate this lane looks least like after our play.
-		var rival *LaneComparison
-		var rivalPct, rivalMean, widest float64
-		for _, other := range f.Lanes[1:] {
-			if other.Stats == nil {
-				continue
-			}
-			o := other.Stats.Lane(l.Vertical, l.Index)
-			if gap := abs(bPct - lanePct(o)); gap > widest {
-				rival, widest = other, gap
-				rivalPct, rivalMean = lanePct(o), laneMean(o)
-			}
-		}
-		if rival == nil {
-			continue
-		}
-
-		switch {
-		case bPct-rivalPct >= lanePctDiffMin:
-			out = append(out, fmt.Sprintf("%s is busier after %s than after %s (%.1f%% vs %.1f%%)",
-				l.Label, best.Play, rival.Play, bPct, rivalPct))
-		case rivalPct-bPct >= lanePctDiffMin:
-			out = append(out, fmt.Sprintf("%s is quieter after %s than after %s (%.1f%% vs %.1f%%)",
-				l.Label, best.Play, rival.Play, bPct, rivalPct))
-		case rivalMean-bMean >= laneMeanDiffMin && rivalPct > 0 && bPct > 0:
-			out = append(out, fmt.Sprintf("replies in %s score less after %s than after %s (mean %.1f vs %.1f)",
-				l.Label, best.Play, rival.Play, bMean, rivalMean))
-		}
+	if fi.Lane == "" {
+		return ss.String()
 	}
-	sort.Strings(out)
-	return out
+	// Busy side first, with its mean. The other side's mean is a handful of
+	// samples and says nothing; what the reader needs is what the lane was
+	// paying whoever had it, and then that it dries up.
+	busy, busyPct, busyMean := fi.Rival, fi.RivalPct, fi.RivalMean
+	quiet, quietPct := bestPlay, fi.BestPct
+	if fi.BestPct > fi.RivalPct {
+		busy, busyPct, busyMean = bestPlay, fi.BestPct, fi.BestMean
+		quiet, quietPct = fi.Rival, fi.RivalPct
+	}
+	fmt.Fprintf(&ss, "  It is %s that separates them: after %s, %.1f%% of their replies "+
+		"land there for a mean of %.1f, against %.1f%% after %s.%s\n",
+		fi.Lane, busy, busyPct, busyMean, quietPct, quiet, mechanismClause(fi))
+	return ss.String()
 }
 
-// notableLanes is the union of the lanes worth showing for any candidate, so a
-// lane that only one of them opens still gets compared.
-func notableLanes(comparisons []*LaneComparison) []*stats.LaneStat {
-	out := []*stats.LaneStat{}
-	seen := map[string]bool{}
-	for _, lc := range comparisons {
-		if lc.Stats == nil {
-			continue
-		}
-		for i, l := range lc.Stats.Lanes {
-			if i >= lanesShown || l.Pct < laneMinPct {
-				break
-			}
-			if !seen[l.Label] {
-				seen[l.Label] = true
-				out = append(out, l)
-			}
+// mechanismClause says how the lane got that way, and says nothing when the
+// two plays' own squares don't settle it. Being in a lane is not by itself
+// blocking it - a play can just as easily give the opponent something to hook
+// onto - so the clause is only ever the geometry and the measured shares read
+// together.
+func mechanismClause(fi *BoardFinding) string {
+	switch fi.Mechanism {
+	case MechanismTakesSpot:
+		return fmt.Sprintf(" %s is played in %s itself, taking the scoring spot in it.",
+			fi.MechanismPlay, fi.Lane)
+	case MechanismCrosses:
+		return fmt.Sprintf(" %s puts its own tiles across %s.", fi.MechanismPlay, fi.Lane)
+	case MechanismOpens:
+		return fmt.Sprintf(" %s runs its own tiles through %s, which is what the replies "+
+			"there are answering.", fi.MechanismPlay, fi.Lane)
+	}
+	return ""
+}
+
+// writeRow writes a padded table row without the padding that ran off the end
+// of it: the last column is empty on the ply we have no big-reply figures for.
+func writeRow(ss *strings.Builder, row string) {
+	ss.WriteString(strings.TrimRight(row, " ") + "\n")
+}
+
+// bigReplyCell is how often the opponent's reply was a big one, for the plays
+// we have logged replies for. It is blank for the rest rather than zero: a
+// play whose replies were never sampled did not hold anyone to anything.
+func bigReplyCell(lanes []*LaneComparison, play string, ply int) string {
+	if ply != 1 {
+		return ""
+	}
+	for _, lc := range lanes {
+		if lc.Play == play && lc.Reply.Known {
+			return fmt.Sprintf("%.2f", lc.Reply.BigPct)
 		}
 	}
-	return out
+	return "-"
+}
+
+func footprintOf(lc *LaneComparison) *stats.Footprint {
+	if lc == nil || lc.Stats == nil {
+		return nil
+	}
+	return lc.Stats.Footprint
 }
 
 func abs(f float64) float64 {
