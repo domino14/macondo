@@ -385,6 +385,14 @@ func (g *Game) SeedBag(seed [32]byte) {
 	// Create a seeded RNG and store it
 	g.customRNG = frand.NewCustom(seed[:], 0, 0)
 	g.seed = seed
+	if g.bag != nil {
+		// StartGame builds a fresh bag and hands it this RNG, which covers the
+		// usual case. A game rebuilt from history never starts, though -- the
+		// inference engine makes one of those every turn -- so wire up whatever
+		// bag is already here, or its draws would quietly stay on the global
+		// source and nothing downstream could replay.
+		g.bag.SetRNG(g.customRNG)
+	}
 }
 
 // Seed returns the seed this game's bag was seeded with, or the zero value if

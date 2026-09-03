@@ -25,6 +25,7 @@ import (
 	"github.com/domino14/macondo/config"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/rangefinder"
 )
 
 var (
@@ -352,6 +353,17 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 				return fmt.Errorf(
 					"player %d sims and would need simthreads=1 for game pairs to be reproducible (got %d)",
 					idx+1, p.SimThreads)
+			}
+			if bot.HasInfer(p.BotCode) && players[idx].InferenceBudget == 0 {
+				// Inference bounded by the clock measures however many leaves the
+				// machine had time for, so the same position infers differently
+				// on every run and the two halves of a pair drift apart. Bound it
+				// by leaves instead. See rangefinder.DefaultPairedInferenceBudget
+				// for where the number comes from.
+				players[idx].InferenceBudget = rangefinder.DefaultPairedInferenceBudget
+				log.Info().Int("player", idx+1).
+					Int("budget", players[idx].InferenceBudget).
+					Msg("game-pairs-using-inference-budget")
 			}
 		}
 	}

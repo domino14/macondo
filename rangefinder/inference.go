@@ -2,6 +2,8 @@ package rangefinder
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"io"
 	"math"
@@ -226,6 +228,19 @@ type RangeFinder struct {
 	// the bag (countMultisets) is ≤ this value, inferEnumerated is used instead of
 	// inferSingle. 0 means use DefaultMaxEnumeratedLeaves.
 	maxEnumeratedLeaves int
+	// budget is how many leaves may be evaluated, one mini-sim each. When set it
+	// replaces the caller's deadline as the thing that stops inference: a
+	// deadline makes the answer depend on how busy the machine was, which is the
+	// noise a game-pair run exists to remove. 0 leaves inference bounded by time
+	// as before.
+	budget int
+	// seed derives every random choice inference makes, so that the same
+	// position always produces the same posterior. Zero means fall back to the
+	// global source, which is what live play wants.
+	seed [32]byte
+	// stage0Sims is what round 0 spent of the budget, so refinement knows what
+	// is left.
+	stage0Sims int
 
 	working      bool
 	readyToInfer bool
@@ -313,6 +328,79 @@ func (r *RangeFinder) SimIters() int {
 // If 0, DefaultMaxEnumeratedLeaves is used.
 func (r *RangeFinder) SetMaxEnumeratedLeaves(n int) {
 	r.maxEnumeratedLeaves = n
+}
+
+// inferenceSeedTag keeps this stream apart from the simmer's, which derives its
+// own from the same game seed and turn number.
+const inferenceSeedTag uint64 = 0x494e464552 // "INFER"
+
+// deriveSeed builds inference's seed from the game's own, mixing in the turn so
+// that each position gets a fresh stream rather than every inference in a game
+// replaying the same one. An unseeded game returns the zero value, which leaves
+// inference on the global source -- what live play wants.
+func (r *RangeFinder) deriveSeed() [32]byte {
+	live := r.origGame.Seed()
+	if live == ([32]byte{}) {
+		return [32]byte{}
+	}
+	var buf [48]byte
+	copy(buf[:32], live[:])
+	binary.BigEndian.PutUint64(buf[32:40], uint64(r.origGame.Turn()))
+	binary.BigEndian.PutUint64(buf[40:48], inferenceSeedTag)
+	return sha256.Sum256(buf[:])
+}
+
+// refineSeed derives the refinement sampler's seed from the game's, so the
+// leaves it picks to measure are the same on every run. Falls back to a
+// clock-based seed for an unseeded game, where nothing replays anyway.
+func (r *RangeFinder) refineSeed() int64 {
+	if r.seed == ([32]byte{}) {
+		return time.Now().UnixNano()
+	}
+	return int64(binary.BigEndian.Uint64(r.seed[:8]))
+}
+
+// stage0Budget is how many leaves round 0 may measure before refinement takes
+// over. Refinement only earns its share when there are rounds to run.
+func (r *RangeFinder) stage0Budget() int {
+	if r.budget <= 0 {
+		return 0
+	}
+	if r.acc == nil || r.MaxRounds() <= 0 {
+		return r.budget
+	}
+	n := int(float64(r.budget) * refineStage0Frac)
+	if n < 1 {
+		n = 1
+	}
+	return n
+}
+
+// SetBudget bounds inference by leaf evaluations rather than by wall clock.
+// Each unit is one mini-sim, so the cost of a turn becomes predictable and,
+// more to the point, repeatable. Pass 0 to go back to a time bound.
+//
+// When a budget is set it also decides the enumerate-or-sample split unless
+// SetMaxEnumeratedLeaves says otherwise: a leaf space that fits in the budget
+// is measured exactly, and a larger one is sampled to the same count.
+func (r *RangeFinder) SetBudget(n int) {
+	r.budget = n
+}
+
+// Budget returns the leaf-evaluation budget, or 0 when inference is bounded by
+// time instead.
+func (r *RangeFinder) Budget() int { return r.budget }
+
+// enumerationLimit is the leaf count at or below which the space is measured
+// exactly rather than sampled.
+func (r *RangeFinder) enumerationLimit() int {
+	if r.maxEnumeratedLeaves > 0 {
+		return r.maxEnumeratedLeaves
+	}
+	if r.budget > 0 {
+		return r.budget
+	}
+	return DefaultMaxEnumeratedLeaves
 }
 
 func (r *RangeFinder) SetLogStream(l io.Writer) {
@@ -440,6 +528,16 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 		}
 	}
 
+	// Seed the reconstructed position before anything draws from it. This game
+	// is built from history rather than copied, so it arrives with a fresh
+	// unseeded bag; left alone, every rack inference draws -- and every mini-sim
+	// rollout underneath it -- would come off the global source and no two runs
+	// would agree.
+	r.seed = r.deriveSeed()
+	if r.seed != ([32]byte{}) {
+		gameCopy.SeedBag(r.seed)
+	}
+
 	r.inferenceBagMap = gameCopy.Bag().PeekMap()
 	if oppEvt.Type == macondo.GameEvent_TILE_PLACEMENT_MOVE {
 
@@ -464,6 +562,14 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 
 	for i := 0; i < r.threads; i++ {
 		gc := gameCopy.Copy()
+		if r.seed != ([32]byte{}) {
+			// Copy shares the source bag's RNG pointer, so give each thread its
+			// own object. They all start from the same seed on purpose: a leaf's
+			// mini-sim then draws the same numbers whichever thread happens to
+			// pick it up, and the leaves are compared under common random
+			// numbers rather than independent noise.
+			gc.SeedBag(r.seed)
+		}
 		r.gameCopies = append(r.gameCopies, gc)
 		gc.SetRules(gameCopy.Rules())
 		simmer, err := simplesimmer.NewSimpleSimmerFromGame(r.gameCopies[i])
@@ -487,6 +593,7 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 	r.refinedCount = 0
 	r.roundLog = nil
 	r.stage0Elapsed = 0
+	r.stage0Sims = 0
 	return nil
 }
 
@@ -574,10 +681,7 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 	// Exchange moves are excluded because their "leave" semantics differ.
 	isExchange := r.lastOppMove != nil && r.lastOppMove.Action() == move.MoveTypeExchange
 	if !isExchange && r.inference.RackLength >= 1 {
-		maxLeaves := r.maxEnumeratedLeaves
-		if maxLeaves == 0 {
-			maxLeaves = DefaultMaxEnumeratedLeaves
-		}
+		maxLeaves := r.enumerationLimit()
 		m := countMultisets(r.inferenceBagMap, r.inference.RackLength)
 		if m <= maxLeaves {
 			log.Info().Int("leaf-count", m).Int("rack-length", r.inference.RackLength).
@@ -610,7 +714,7 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 	if r.acc != nil {
 		rounds = r.MaxRounds()
 	}
-	if rounds > 0 {
+	if rounds > 0 && r.budget <= 0 {
 		if deadline, ok := parentCtx.Deadline(); ok {
 			stage0End := time.Now().Add(
 				time.Duration(float64(time.Until(deadline)) * refineStage0Frac))
@@ -664,11 +768,19 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 				log.Debug().Msgf("Thread %v exiting inferrer", t)
 			}()
 			log.Debug().Msgf("Thread %v starting inferrer", t)
+			stage0 := r.stage0Budget()
 			for {
 				iterMutex.Lock()
 				r.iterationCount++
 				iterNum := r.iterationCount
 				iterMutex.Unlock()
+				if stage0 > 0 && iterNum > stage0 {
+					// Round 0 has spent its share. Stopping on a count rather
+					// than a clock is what lets the same position produce the
+					// same posterior twice.
+					cancel()
+					return nil
+				}
 				newRacks, err := r.inferSingle(t, iterNum, logChan)
 				if err != nil {
 					log.Err(err).Msg("infer-single-error")
@@ -721,6 +833,7 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 	// from what was measured. CPU-bound and fast, so it runs even though ctx
 	// is already done.
 	r.stage0Elapsed = time.Since(inferStart)
+	r.stage0Sims = int(r.simCount.Load())
 	r.finalizePlacementPosterior()
 
 	// Then alternate measurement and imputation on the remaining budget,

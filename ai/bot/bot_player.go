@@ -44,6 +44,10 @@ type BotConfig struct {
 	// InferenceMaxEnumeratedLeaves is the threshold for switching from Monte Carlo
 	// sampling to exhaustive enumeration. If 0, defaults to DefaultMaxEnumeratedLeaves.
 	InferenceMaxEnumeratedLeaves int
+	// InferenceBudget bounds inference by leaves measured -- one mini-sim each --
+	// instead of by wall clock, which is what makes a position infer the same way
+	// twice. If 0, InferenceTimeSecs applies instead.
+	InferenceBudget int
 	// If UseOppRacksInAnalysis is true, will use opponent rack info for simulation/pre-endgames/etc
 	UseOppRacksInAnalysis bool
 	// OracleInference skips the Bayesian inference loop and instead uses the

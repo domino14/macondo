@@ -2823,8 +2823,15 @@ type AutoplayPlayerConfig struct {
 	// leave is evaluated exactly once with full Bayesian weighting
 	// (prior × likelihood). If 0, the rangefinder default (750) is used.
 	InferenceMaxEnumeratedLeaves int32 `protobuf:"varint,11,opt,name=inference_max_enumerated_leaves,json=inferenceMaxEnumeratedLeaves,proto3" json:"inference_max_enumerated_leaves,omitempty"`
-	unknownFields                protoimpl.UnknownFields
-	sizeCache                    protoimpl.SizeCache
+	// inference_budget is how many leaves inference may evaluate, one mini-sim
+	// each. It replaces the wall-clock budget: a deadline makes the answer depend
+	// on how busy the machine was, which is exactly the noise a game-pair run
+	// exists to remove. When set, inference_time_secs is ignored and the work is
+	// bounded by this count instead, so the same position always produces the
+	// same posterior. If 0, inference is bounded by time as before.
+	InferenceBudget int32 `protobuf:"varint,12,opt,name=inference_budget,json=inferenceBudget,proto3" json:"inference_budget,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *AutoplayPlayerConfig) Reset() {
@@ -2930,6 +2937,13 @@ func (x *AutoplayPlayerConfig) GetOracleInference() bool {
 func (x *AutoplayPlayerConfig) GetInferenceMaxEnumeratedLeaves() int32 {
 	if x != nil {
 		return x.InferenceMaxEnumeratedLeaves
+	}
+	return 0
+}
+
+func (x *AutoplayPlayerConfig) GetInferenceBudget() int32 {
+	if x != nil {
+		return x.InferenceBudget
 	}
 	return 0
 }
@@ -3380,7 +3394,7 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\restimated_elo\x18\n" +
 	" \x01(\x01R\festimatedElo\x12)\n" +
 	"\x10available_bingos\x18\v \x01(\x05R\x0favailableBingos\x12#\n" +
-	"\rmissed_bingos\x18\f \x01(\x05R\fmissedBingos\"\xfa\x03\n" +
+	"\rmissed_bingos\x18\f \x01(\x05R\fmissedBingos\"\xa5\x04\n" +
 	"\x14AutoplayPlayerConfig\x126\n" +
 	"\bbot_code\x18\x01 \x01(\x0e2\x1b.macondo.BotRequest.BotCodeR\abotCode\x12\x1d\n" +
 	"\n" +
@@ -3395,7 +3409,8 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\x13inference_sim_iters\x18\t \x01(\x05R\x11inferenceSimIters\x12)\n" +
 	"\x10oracle_inference\x18\n" +
 	" \x01(\bR\x0foracleInference\x12E\n" +
-	"\x1finference_max_enumerated_leaves\x18\v \x01(\x05R\x1cinferenceMaxEnumeratedLeaves\"\x9d\x04\n" +
+	"\x1finference_max_enumerated_leaves\x18\v \x01(\x05R\x1cinferenceMaxEnumeratedLeaves\x12)\n" +
+	"\x10inference_budget\x18\f \x01(\x05R\x0finferenceBudget\"\x9d\x04\n" +
 	"\x0eAutoplayConfig\x12 \n" +
 	"\vdescription\x18\x01 \x01(\tR\vdescription\x12#\n" +
 	"\rexperiment_id\x18\x02 \x01(\tR\fexperimentId\x12\x18\n" +

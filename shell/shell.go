@@ -1728,6 +1728,9 @@ func applyPlayerOverrides(p *pb.AutoplayPlayerConfig, options CmdOptions, suffix
 	if v, err := options.IntDefault("maxleaves"+suffix, -1); err == nil && v >= 0 {
 		p.InferenceMaxEnumeratedLeaves = int32(v)
 	}
+	if v, err := options.IntDefault("inferencebudget"+suffix, -1); err == nil && v >= 0 {
+		p.InferenceBudget = int32(v)
+	}
 	if options.Bool("oracle" + suffix) {
 		p.OracleInference = true
 	}
