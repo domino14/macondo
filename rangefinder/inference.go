@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"runtime"
+	"slices"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -536,6 +537,14 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 	r.seed = r.deriveSeed()
 	if r.seed != ([32]byte{}) {
 		gameCopy.SeedBag(r.seed)
+		// The bag this position was rebuilt with came from MakeBag, which
+		// shuffles off the global source: its contents follow from the history
+		// but its order does not, and a redraw picks tiles by that order. Sort
+		// it into a canonical order and shuffle again from the seed, so the
+		// order is a function of the seed like everything else.
+		tiles := gameCopy.Bag().Tiles()
+		slices.Sort(tiles)
+		gameCopy.Bag().Shuffle()
 	}
 
 	r.inferenceBagMap = gameCopy.Bag().PeekMap()

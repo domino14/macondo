@@ -136,7 +136,20 @@ func TestUnseededGameStillInfers(t *testing.T) {
 	is.NoErr(err)
 	gen := movegen.NewGordonGenerator(gd, g.Board(), rules.LetterDistribution())
 	plays := gen.GenAll(g.RackFor(g.PlayerOnTurn()), false)
-	is.NoErr(g.PlayMove(plays[0], true, 0))
+	// Play something that keeps tiles back. A bingo leaves nothing to infer,
+	// and this game is deliberately unseeded, so the rack is a fresh draw every
+	// run and the test would pass or fail with it.
+	chosen := -1
+	for i, m := range plays {
+		if m.TilesPlayed() < 7 {
+			chosen = i
+			break
+		}
+	}
+	if chosen < 0 {
+		t.Skip("no non-bingo play available from this random rack")
+	}
+	is.NoErr(g.PlayMove(plays[chosen], true, 0))
 
 	rf := &RangeFinder{}
 	rf.Init(g, defaultSimCalculators(lex), DefaultConfig)
