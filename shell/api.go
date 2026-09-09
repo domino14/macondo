@@ -1750,6 +1750,13 @@ func (sc *ShellController) autoAnalyze(cmd *shellcmd) (*Response, error) {
 		}
 		return msg("exported to " + safeGameID + ".gcg"), nil
 	}
+	if options.Bool("inference") {
+		q, err := automatic.AnalyzeInferenceQuality(filename)
+		if err != nil {
+			return nil, err
+		}
+		return msg(automatic.FormatInferenceQuality(q)), nil
+	}
 	if options.Bool("divergence") {
 		turnlog := options.String("turnlog")
 		if turnlog == "" {

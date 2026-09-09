@@ -41,18 +41,10 @@ func (r *RangeFinder) AnalyzeLeave(leaveStr string) (string, error) {
 	key := leaveKey(mls)
 	display := tilemapping.MachineWord(mls).UserVisible(alph)
 
-	// Find the leave, its rank, and the total weight.
-	sumW := 0.0
-	weight := -1.0
-	for _, ir := range r.inference.InferredRacks {
-		sumW += ir.Weight
-		if weight < 0 && leaveKey(ir.Leave) == key {
-			weight = ir.Weight
-		}
-	}
-	prior := combinatorialPrior(mls, r.inferenceBagMap)
+	score := r.ScoreLeave(mls)
+	prior := score.Prior
 
-	if weight < 0 {
+	if !score.InPosterior {
 		if prior == 0 {
 			return fmt.Sprintf("Leave %s is impossible: its tiles are not all available in the unseen pool.\n", display), nil
 		}
@@ -62,15 +54,9 @@ func (r *RangeFinder) AnalyzeLeave(leaveStr string) (string, error) {
 		}
 		return fmt.Sprintf("Leave %s is not in the posterior (weight below the negligible-mass cutoff).\n", display), nil
 	}
+	weight, rank := score.Weight, score.Rank
 
-	rank := 1
-	for _, ir := range r.inference.InferredRacks {
-		if ir.Weight > weight {
-			rank++
-		}
-	}
-
-	postPct := 100.0 * weight / sumW
+	postPct := 100.0 * score.Posterior
 	var ss strings.Builder
 	// Lead with the leave's provenance so the reader knows up front whether
 	// the weight below comes from direct evaluation or the marginal model.
@@ -86,7 +72,7 @@ func (r *RangeFinder) AnalyzeLeave(leaveStr string) (string, error) {
 		display, srcTag, weight, postPct, rank, len(r.inference.InferredRacks))
 	if prior > 0 {
 		fmt.Fprintf(&ss, "  prior %.6g%%, posterior/prior lift %.6gx\n",
-			100.0*prior, (weight/sumW)/prior)
+			100.0*prior, score.Posterior/prior)
 	}
 	if ml, ok := r.measured[key]; ok && ml.count > 0 {
 		how := "drawn at random from the unseen pool in round 0"

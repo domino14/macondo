@@ -48,6 +48,12 @@ type GameRunner struct {
 	// games of a pair can be compared. Only filled in while pairing.
 	movesPlayed []*move.Move
 	recordMoves bool
+
+	// logInference is true when some bot in this run infers, so every row of the
+	// per-turn log carries the inference columns -- empty ones for the bot that
+	// does not infer. Keeping the rows the same width is what makes the file a
+	// table rather than two interleaved shapes.
+	logInference bool
 }
 
 // NewGameRunner just instantiates and initializes a game runner.
@@ -139,6 +145,11 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 
 	}
 	r.order = [2]int{0, 1}
+	for idx := range players {
+		if bot.HasInfer(players[idx].BotCode) {
+			r.logInference = true
+		}
+	}
 	return nil
 }
 
@@ -256,6 +267,11 @@ func (r *GameRunner) PlayBestTurn(playerIdx int, addToHistory bool) error {
 		r.movesPlayed = append(r.movesPlayed, recorded)
 	}
 
+	// Grade the inference before the move lands. ExtractLastOppLeave reads the
+	// most recent event in the history, which is the opponent's move only until
+	// ours is played.
+	inferFields := r.inferenceFields(playerIdx)
+
 	// save rackLetters for logging.
 	rackLetters := r.game.RackLettersFor(playerIdx)
 	tilesRemaining := r.game.Bag().TilesRemaining()
@@ -269,13 +285,6 @@ func (r *GameRunner) PlayBestTurn(playerIdx int, addToHistory bool) error {
 	r.aiplayers[1].AddLastMove(bestPlay)
 
 	if r.logchan != nil {
-		inferCount := ""
-		if btp, ok := r.aiplayers[playerIdx].(*bot.BotTurnPlayer); ok {
-			ic := btp.LastInferenceCount()
-			if ic >= 0 {
-				inferCount = fmt.Sprintf(",%v", ic)
-			}
-		}
 		r.logchan <- fmt.Sprintf("%v,%v,%v,%v,%v,%v,%v,%v,%v,%.3f,%v,%v%v\n",
 			nickOnTurn,
 			r.game.Uid(),
@@ -289,7 +298,55 @@ func (r *GameRunner) PlayBestTurn(playerIdx int, addToHistory bool) error {
 			bestPlay.Equity(),
 			tilesRemaining,
 			r.game.PointsFor((playerIdx+1)%2),
-			inferCount)
+			inferFields)
 	}
 	return nil
+}
+
+// InferenceLogColumns are the per-turn log columns describing one inference.
+// They are present on every row of a run that has an inferring bot, and empty on
+// the rows of a bot that does not infer. See inferenceFields.
+const InferenceLogColumns = ",inferCount,trueLeave,truePost,truePrior,liftBits,trueRank,inferLeaves,trueMeasured"
+
+// emptyInferenceFields fills those columns in for a row that has no inference
+// behind it: eight empty values, so the row is still as wide as the header.
+const emptyInferenceFields = ",,,,,,,,"
+
+// inferenceFields returns those columns for this bot's most recent inference, or
+// "" for a bot that does not infer.
+//
+// Autoplay knows the opponent's real rack, so inference can be graded here
+// rather than only counted: truePost is the probability the posterior placed on
+// the leave the opponent actually held, truePrior is what the tile counts alone
+// would have said, and liftBits is log2 of their ratio -- the information
+// inference added about the truth. Averaging liftBits over a run gives one
+// number to compare tau values or budgets by. See rangefinder.LeaveScore.
+func (r *GameRunner) inferenceFields(playerIdx int) string {
+	if !r.logInference {
+		return "" // no bot here infers, so the log has no such columns
+	}
+	btp, ok := r.aiplayers[playerIdx].(*bot.BotTurnPlayer)
+	if !ok {
+		return emptyInferenceFields
+	}
+	ic := btp.LastInferenceCount()
+	if ic < 0 {
+		return emptyInferenceFields // this bot has no inferencer at all
+	}
+	// Every early exit still has to emit the same number of fields, or the log
+	// stops being a table.
+	unscored := fmt.Sprintf(",%d,,,,,,,", ic)
+	trueLeave, err := game.ExtractLastOppLeave(r.game)
+	if err != nil {
+		return unscored
+	}
+	score, ok := btp.ScoreLastInference(trueLeave)
+	if !ok {
+		return unscored
+	}
+	return fmt.Sprintf(",%d,%s,%.6g,%.6g,%.4f,%d,%d,%v",
+		ic,
+		tilemapping.MachineWord(trueLeave).UserVisible(r.alphabet),
+		score.Posterior, score.Prior, score.LiftBits,
+		score.Rank, score.Leaves, score.Measured)
 }

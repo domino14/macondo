@@ -270,6 +270,8 @@ func init() {
 			{Name: "turnlog", Type: OptString,
 				Help: "per-turn log to read plays from (default: the file next to the game log)"},
 			{Name: "limit", Type: OptInt, Help: "how many divergent pairs to describe (default 10)"},
+			{Name: "inference", Type: OptBool, Values: boolValues,
+				Help: "grade a per-turn log's inferences against the racks the opponent really held"},
 		},
 	})
 

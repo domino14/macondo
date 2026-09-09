@@ -506,7 +506,15 @@ func StartCompVCompStaticGames(ctx context.Context, cfg *config.Config,
 	})
 
 	g.Go(func() error {
-		logfile.WriteString("playerID,gameID,turn,rack,play,score,totalscore,tilesplayed,leave,equity,tilesremaining,oppscore\n")
+		header := "playerID,gameID,turn,rack,play,score,totalscore,tilesplayed,leave,equity,tilesremaining,oppscore"
+		if lo.SomeBy(players, func(p AutomaticRunnerPlayer) bool {
+			return bot.HasInfer(p.BotCode)
+		}) {
+			// Only rows played by a bot that infers carry these; the other bot's
+			// rows stop at oppscore.
+			header += InferenceLogColumns
+		}
+		logfile.WriteString(header + "\n")
 		for msg := range logChan {
 			logfile.WriteString(msg)
 		}

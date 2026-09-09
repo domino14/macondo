@@ -7,6 +7,8 @@ import (
 	"math"
 	"sort"
 
+	"github.com/domino14/word-golib/tilemapping"
+
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
@@ -357,6 +359,21 @@ func (p *BotTurnPlayer) SetSimThreads(t int) {
 
 func (p *BotTurnPlayer) SetMinSimPlies(t int) {
 	p.minSimPlies = t
+}
+
+// ScoreLastInference grades the posterior from the last call to BestPlay against
+// a leave the caller knows to be the true one. Only useful in a self-play
+// experiment, where the opponent's rack is on hand; ok is false when this bot
+// does not infer or has nothing inferred yet.
+func (p *BotTurnPlayer) ScoreLastInference(leave []tilemapping.MachineLetter) (rangefinder.LeaveScore, bool) {
+	if p.inferencer == nil || !HasInfer(p.botType) {
+		return rangefinder.LeaveScore{}, false
+	}
+	inf := p.inferencer.Inferences()
+	if inf == nil || len(inf.InferredRacks) == 0 || len(leave) != inf.RackLength {
+		return rangefinder.LeaveScore{}, false
+	}
+	return p.inferencer.ScoreLeave(leave), true
 }
 
 // LastInferenceCount returns the number of unique inferred racks found
