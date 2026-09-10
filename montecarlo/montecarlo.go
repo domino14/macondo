@@ -728,14 +728,27 @@ func (s *Simmer) Ready() bool {
 // calling goroutine when the simmer is set to a single thread, and spawns one
 // worker per thread otherwise.
 func (s *Simmer) Simulate(ctx context.Context) error {
-	return s.simulate(ctx, 0, false)
+	return s.simulate(ctx, simRun{})
+}
+
+// simRun is how one call to simulate is configured.
+type simRun struct {
+	// maxIters caps the iteration count. 0 means run until the stopping
+	// condition or the context says to stop.
+	maxIters int
+	// inline forces the single-goroutine loop no matter how many threads the
+	// simmer is configured for.
+	inline bool
+	// quiet drops the per-sim summary lines to debug level. A sim nested inside
+	// something larger has no business narrating: inference runs one mini-sim per
+	// candidate leave, hundreds per turn, and three log lines each buries
+	// everything else in the run.
+	quiet bool
 }
 
 // simulate does the setup and teardown both sim loops share, and picks the loop
-// to run. maxIters caps the iteration count; 0 means "until the stopping
-// condition or the context says to stop". inline forces the single-goroutine
-// loop no matter how many threads the simmer is configured for.
-func (s *Simmer) simulate(ctx context.Context, maxIters int, inline bool) error {
+// to run.
+func (s *Simmer) simulate(ctx context.Context, run simRun) error {
 	logger := zerolog.Ctx(ctx)
 
 	if len(s.simmedPlays.plays) == 0 || len(s.gameCopies) == 0 {
@@ -745,8 +758,8 @@ func (s *Simmer) simulate(ctx context.Context, maxIters int, inline bool) error 
 	s.simming = true
 	defer func() {
 		s.simming = false
-		logger.Info().Int("plies", s.maxPlies).Uint64("iterationCt", s.iterationCount.Load()).
-			Msg("sim-ended")
+		s.event(logger, run.quiet).Int("plies", s.maxPlies).
+			Uint64("iterationCt", s.iterationCount.Load()).Msg("sim-ended")
 	}()
 
 	if !s.collectHeatMap {
@@ -769,18 +782,19 @@ func (s *Simmer) simulate(ctx context.Context, maxIters int, inline bool) error 
 	tstart := time.Now()
 	s.autostopper.reset()
 
-	if inline || s.threads <= 1 {
+	if run.inline || s.threads <= 1 {
 		logger.Debug().Msg("Simulating on the calling goroutine")
-		s.simInline(ctx, maxIters)
+		s.simInline(ctx, run)
 	} else {
 		logger.Debug().Msgf("Simulating with %v threads", s.threads)
-		s.simThreaded(ctx, cancel, maxIters)
+		s.simThreaded(ctx, cancel, run)
 	}
 
 	elapsed := time.Since(tstart) // duration is in nanosecs
 	nodes = s.nodeCount.Load()
 	nps := float64(nodes) / elapsed.Seconds()
-	logger.Info().Msgf("time taken: %v, nps: %f, nodes: %d", elapsed.Seconds(), nps, nodes)
+	s.event(logger, run.quiet).Msgf("time taken: %v, nps: %f, nodes: %d",
+		elapsed.Seconds(), nps, nodes)
 
 	if err := s.closeHeatMap(ctx); err != nil {
 		logger.Err(err).Msg("close-heat-map")
@@ -797,6 +811,15 @@ func (s *Simmer) simulate(ctx context.Context, maxIters int, inline bool) error 
 	return nil
 }
 
+// event returns an Info event, or a Debug one for a nested sim that should not
+// narrate. Keeps the level choice in one place rather than at each call.
+func (s *Simmer) event(logger *zerolog.Logger, quiet bool) *zerolog.Event {
+	if quiet {
+		return logger.Debug()
+	}
+	return logger.Info()
+}
+
 // runIteration runs one sim iteration on the given thread's game copy and
 // reports whether the caller should keep going. Both loops go through here, so
 // the iteration counter, the stopping-condition cadence and what an iteration
@@ -804,7 +827,7 @@ func (s *Simmer) simulate(ctx context.Context, maxIters int, inline bool) error 
 //
 // A nil logChan means the caller is the only writer and simSingleIteration
 // should write the log stream itself.
-func (s *Simmer) runIteration(ctx context.Context, thread int, logChan chan []byte) bool {
+func (s *Simmer) runIteration(ctx context.Context, run simRun, thread int, logChan chan []byte) bool {
 	logger := zerolog.Ctx(ctx)
 
 	numIters := s.iterationCount.Add(1)
@@ -816,7 +839,8 @@ func (s *Simmer) runIteration(ctx context.Context, thread int, logChan chan []by
 		numIters%s.autostopper.stopConditionCheckInterval == 0 {
 		logger.Debug().Uint64("numIters", numIters).Msg("checking-stopping-condition")
 		if s.autostopper.shouldStop(numIters, s.simmedPlays, s.maxPlies) {
-			logger.Info().Uint64("numIters", numIters).Msg("reached stopping condition")
+			s.event(logger, run.quiet).Uint64("numIters", numIters).
+				Msg("reached stopping condition")
 			return false
 		}
 	}
@@ -828,13 +852,13 @@ func (s *Simmer) runIteration(ctx context.Context, thread int, logChan chan []by
 // on the same cadence as the threaded loop, and the loop leaves on the exact
 // iteration that trips it, so the sim's answer does not depend on how long the
 // scheduler took to deliver the news.
-func (s *Simmer) simInline(ctx context.Context, maxIters int) {
+func (s *Simmer) simInline(ctx context.Context, run simRun) {
 	done := ctx.Done()
 
 	// The cap counts this call's iterations. s.iterationCount is the position's
 	// running total, which a caller may well have added to already.
-	for ran := 0; maxIters <= 0 || ran < maxIters; ran++ {
-		if !s.runIteration(ctx, 0, nil) {
+	for ran := 0; run.maxIters <= 0 || ran < run.maxIters; ran++ {
+		if !s.runIteration(ctx, run, 0, nil) {
 			return
 		}
 		select {
@@ -848,7 +872,7 @@ func (s *Simmer) simInline(ctx context.Context, maxIters int) {
 // simThreaded runs the sim across s.threads workers. Workers watch the context
 // directly: whoever trips the stopping condition cancels it, and everyone else
 // sees that at the top of their next iteration.
-func (s *Simmer) simThreaded(ctx context.Context, cancel context.CancelFunc, maxIters int) {
+func (s *Simmer) simThreaded(ctx context.Context, cancel context.CancelFunc, run simRun) {
 	logger := zerolog.Ctx(ctx)
 	done := ctx.Done()
 
@@ -892,10 +916,10 @@ func (s *Simmer) simThreaded(ctx context.Context, cancel context.CancelFunc, max
 					return nil
 				default:
 				}
-				if maxIters > 0 && ran.Add(1) > int64(maxIters) {
+				if run.maxIters > 0 && ran.Add(1) > int64(run.maxIters) {
 					return nil
 				}
-				if !s.runIteration(ctx, t, logChan) {
+				if !s.runIteration(ctx, run, t, logChan) {
 					// Whoever stops first tells the others through the
 					// context, and they leave at the top of their next
 					// iteration rather than running until a controller
@@ -1281,7 +1305,11 @@ func (s *Simmer) ShortDetails(nplays int) string {
 // the running total rather than the size of the last batch.
 func (s *Simmer) SimSingleThread(iters, plies int) {
 	s.maxPlies = plies
-	if err := s.simulate(context.Background(), iters, true); err != nil {
+	// quiet: this is the entry point for sims nested inside something else, and
+	// there are hundreds of them per inference.
+	if err := s.simulate(context.Background(), simRun{
+		maxIters: iters, inline: true, quiet: true,
+	}); err != nil {
 		log.Err(err).Msg("sim-single-thread")
 	}
 }
