@@ -131,7 +131,7 @@ func TestCompVCompSeries(t *testing.T) {
 	for _, gid := range gameIDs {
 		f := new(strings.Builder)
 		err := ExportGCG(DefaultConfig, "/tmp/testcompvcomp.txt", "english", "NWL20", board.CrosswordGameLayout,
-			gid, f)
+			gid, 1, f)
 		is.NoErr(err)
 	}
 

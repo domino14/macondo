@@ -1206,6 +1206,10 @@ func (sc *ShellController) inferRunSync(params *inferParams) (string, error) {
 // inferSync runs inference synchronously and returns the result.
 // This is the preferred method for scripts.
 func (sc *ShellController) inferSync(cmd *shellcmd) (*Response, error) {
+	if resp, handled, err := sc.inferVerb(cmd); handled {
+		return resp, err
+	}
+
 	params, err := sc.inferPrepare(cmd)
 	if err != nil {
 		return nil, err
@@ -1221,66 +1225,77 @@ func (sc *ShellController) inferSync(cmd *shellcmd) (*Response, error) {
 	return msg(result), nil
 }
 
+// inferVerb reads back the inference that has already run -- its details, its
+// ranked racks, one named leave -- rather than starting a new one. handled is
+// false only when there is no subcommand, meaning the arguments describe a
+// fresh inference. Both the interactive and the scripted path go through here,
+// so a script can ask for ranks instead of silently re-running the read with
+// default settings.
+func (sc *ShellController) inferVerb(cmd *shellcmd) (*Response, bool, error) {
+	if len(cmd.args) == 0 {
+		return nil, false, nil
+	}
+	switch cmd.args[0] {
+	case "log":
+		f, err := os.Create(InferLog)
+		if err != nil {
+			return nil, true, err
+		}
+		sc.rangefinderFile = f
+		sc.rangefinder.SetLogStream(f)
+		sc.showMessage("inference engine will log to " + InferLog)
+		return nil, true, nil
+
+	case "details":
+		return msg(sc.rangefinder.AnalyzeInferences(true)), true, nil
+
+	case "output":
+		return msg(sc.rangefinder.AnalyzeInferences(false)), true, nil
+
+	case "ranks":
+		// infer ranks [n] [measured|imputed], in either order.
+		filter, n := "", 0
+		for _, a := range cmd.args[1:] {
+			switch a {
+			case "measured", "imputed", "all":
+				filter = a
+			default:
+				parsed, err := strconv.Atoi(a)
+				if err != nil || parsed <= 0 {
+					return nil, true, errors.New("usage: infer ranks [n] [measured|imputed], e.g. `infer ranks 50 imputed`")
+				}
+				n = parsed
+			}
+		}
+		out, err := sc.rangefinder.RankedRacks(filter, n)
+		if err != nil {
+			return nil, true, err
+		}
+		return msg(out), true, nil
+
+	case "leave":
+		if len(cmd.args) < 2 {
+			return nil, true, errors.New("usage: infer leave <LEAVE> [<LEAVE> ...], e.g. `infer leave ITZ`")
+		}
+		var sb strings.Builder
+		for _, leaveStr := range cmd.args[1:] {
+			analysis, err := sc.rangefinder.AnalyzeLeave(leaveStr)
+			if err != nil {
+				return nil, true, err
+			}
+			sb.WriteString(analysis)
+		}
+		return msg(sb.String()), true, nil
+
+	default:
+		return nil, true, errors.New("don't recognize " + cmd.args[0])
+	}
+}
+
 // infer runs inference asynchronously (for interactive shell use).
 func (sc *ShellController) infer(cmd *shellcmd) (*Response, error) {
-	// Handle subcommands first
-	if len(cmd.args) > 0 {
-		var err error
-		switch cmd.args[0] {
-		case "log":
-			sc.rangefinderFile, err = os.Create(InferLog)
-			if err != nil {
-				return nil, err
-			}
-			sc.rangefinder.SetLogStream(sc.rangefinderFile)
-			sc.showMessage("inference engine will log to " + InferLog)
-
-		case "details":
-			return msg(sc.rangefinder.AnalyzeInferences(true)), nil
-
-		case "output":
-			return msg(sc.rangefinder.AnalyzeInferences(false)), nil
-
-		case "ranks":
-			// infer ranks [n] [measured|imputed], in either order.
-			filter, n := "", 0
-			for _, a := range cmd.args[1:] {
-				switch a {
-				case "measured", "imputed", "all":
-					filter = a
-				default:
-					parsed, err := strconv.Atoi(a)
-					if err != nil || parsed <= 0 {
-						return nil, errors.New("usage: infer ranks [n] [measured|imputed], e.g. `infer ranks 50 imputed`")
-					}
-					n = parsed
-				}
-			}
-			out, err := sc.rangefinder.RankedRacks(filter, n)
-			if err != nil {
-				return nil, err
-			}
-			return msg(out), nil
-
-		case "leave":
-			if len(cmd.args) < 2 {
-				return nil, errors.New("usage: infer leave <LEAVE> [<LEAVE> ...], e.g. `infer leave ITZ`")
-			}
-			var sb strings.Builder
-			for _, leaveStr := range cmd.args[1:] {
-				analysis, err := sc.rangefinder.AnalyzeLeave(leaveStr)
-				if err != nil {
-					return nil, err
-				}
-				sb.WriteString(analysis)
-			}
-			return msg(sb.String()), nil
-
-		default:
-			return nil, errors.New("don't recognize " + cmd.args[0])
-		}
-
-		return nil, nil
+	if resp, handled, err := sc.inferVerb(cmd); handled {
+		return resp, err
 	}
 
 	params, err := sc.inferPrepare(cmd)
@@ -1735,6 +1750,18 @@ func (sc *ShellController) autoAnalyze(cmd *shellcmd) (*Response, error) {
 		safeGameID = strings.ReplaceAll(safeGameID, "/", "_")
 		safeGameID = strings.ReplaceAll(safeGameID, "+", "-")
 
+		half, err := options.Int("half")
+		if err != nil {
+			return nil, err
+		}
+		if half == 0 {
+			half = 1
+		}
+		if half > 1 {
+			// The halves of a pair share an ID, so they would share a filename too.
+			safeGameID = fmt.Sprintf("%s-half%d", safeGameID, half)
+		}
+
 		f, err := os.Create(safeGameID + ".gcg")
 		if err != nil {
 			return nil, err
@@ -1750,7 +1777,7 @@ func (sc *ShellController) autoAnalyze(cmd *shellcmd) (*Response, error) {
 
 		err = automatic.ExportGCG(
 			sc.config, filename, ld, lex,
-			options.String("boardlayout"), options.String("export"), f)
+			options.String("boardlayout"), options.String("export"), half, f)
 		if err != nil {
 			ferr := os.Remove(safeGameID + ".gcg")
 			if ferr != nil {

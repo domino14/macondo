@@ -511,8 +511,30 @@ func AnalyzeLogFile(filepath string) (string, error) {
 	return FormatTable(result), nil
 }
 
+// splitTurnHalves cuts a game's rows wherever the turn counter stops climbing.
+// An unpaired game yields one piece; a pair yields the two seatings of its bag.
+func splitTurnHalves(rows [][]string) [][][]string {
+	halves := [][][]string{}
+	start := 0
+	for i := 1; i < len(rows); i++ {
+		prev, err1 := strconv.Atoi(rows[i-1][2])
+		cur, err2 := strconv.Atoi(rows[i][2])
+		if err1 != nil || err2 != nil {
+			continue
+		}
+		if cur <= prev {
+			halves = append(halves, rows[start:i])
+			start = i
+		}
+	}
+	return append(halves, rows[start:])
+}
+
+// ExportGCG writes one game from an autoplay log as GCG. In a -gamepairs run a
+// game ID names a pair rather than a game, so half picks which of its two
+// seatings to write; it is 1 for anything else.
 func ExportGCG(cfg *config.Config, filename, letterdist, lexicon, boardlayout, gid string,
-	out io.Writer) error {
+	half int, out io.Writer) error {
 	if letterdist == "" {
 		letterdist = "english"
 	}
@@ -572,19 +594,14 @@ func ExportGCG(cfg *config.Config, filename, letterdist, lexicon, boardlayout, g
 	}
 	// Both halves of a game pair carry the same ID -- it comes from the seed they
 	// share -- so a paired log hands back two games' worth of turns here. Replaying
-	// them as one runs the bag out. Keep the first half, which the turn counter
-	// starting over marks the end of.
-	for i := 1; i < len(gameLines); i++ {
-		prev, err1 := strconv.Atoi(gameLines[i-1][2])
-		cur, err2 := strconv.Atoi(gameLines[i][2])
-		if err1 != nil || err2 != nil {
-			continue
-		}
-		if cur <= prev {
-			gameLines = gameLines[:i]
-			break
-		}
+	// them as one runs the bag out, so take only the half asked for. The turn
+	// counter starting over is where one half ends and the next begins.
+	halves := splitTurnHalves(gameLines)
+	if half < 1 || half > len(halves) {
+		return fmt.Errorf("game %s has %d half/halves in this log; asked for half %d",
+			gid, len(halves), half)
 	}
+	gameLines = halves[half-1]
 
 	rules, err := game.NewBasicGameRules(cfg, lexicon, boardlayout,
 		letterdist, game.CrossScoreOnly, game.VarClassic)

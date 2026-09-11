@@ -264,6 +264,8 @@ func init() {
 		Name: "autoanalyze",
 		Options: []Option{
 			{Name: "export", Type: OptString},
+			{Name: "half", Type: OptInt,
+				Help: "for -gamepairs runs: which seating of the pair to export, 1 or 2 (default 1)"},
 			{Name: "letterdist", Type: OptString},
 			{Name: "lex", Type: OptString},
 			{Name: "boardlayout", Type: OptString},
