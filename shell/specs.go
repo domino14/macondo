@@ -194,6 +194,8 @@ func init() {
 
 			{Name: "inferenceiters", Type: OptInt},
 			{Name: "maxleaves", Type: OptInt},
+			{Name: "budget", Type: OptInt,
+				Help: "leaves to measure, instead of a time limit; matches autoplay's -inferencebudget"},
 			{Name: "rounds", Type: OptInt},
 		},
 	})

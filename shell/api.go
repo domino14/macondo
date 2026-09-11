@@ -1100,7 +1100,7 @@ func (sc *ShellController) inferPrepare(cmd *shellcmd) (*inferParams, error) {
 	}
 
 	var err error
-	var threads, timesec, simIters, maxLeaves int
+	var threads, timesec, simIters, maxLeaves, budget int
 	tau := 0.0
 	rounds := rangefinder.DefaultMaxRefineRounds
 
@@ -1130,6 +1130,11 @@ func (sc *ShellController) inferPrepare(cmd *shellcmd) (*inferParams, error) {
 				return nil, err
 			}
 
+		case "budget":
+			budget, err = cmd.options.Int(opt)
+			if err != nil {
+				return nil, err
+			}
 		case "maxleaves":
 			maxLeaves, err = cmd.options.Int(opt)
 			if err != nil {
@@ -1156,12 +1161,21 @@ func (sc *ShellController) inferPrepare(cmd *shellcmd) (*inferParams, error) {
 	if simIters > 0 {
 		sc.rangefinder.SetSimIters(simIters)
 	}
+	// A leaf budget replaces the clock, the same way it does in a game-pair
+	// autoplay run, so a position from one of those can be reproduced here.
+	// Always set it, so a previous call's value does not persist.
+	sc.rangefinder.SetBudget(budget)
 	// Always set maxLeaves so a previous call's value doesn't persist.
 	// 0 means "use default" inside Infer (DefaultMaxEnumeratedLeaves).
 	sc.rangefinder.SetMaxEnumeratedLeaves(maxLeaves)
 	// Always set rounds so a previous call's value doesn't persist. 0 turns
 	// the refine loop off, leaving single-stage inference.
 	sc.rangefinder.SetMaxRounds(rounds)
+	if budget > 0 && timesec == 0 {
+		// Bounded by leaves measured, so the deadline only needs to be generous
+		// enough not to be what stops it.
+		timesec = 3600
+	}
 	if timesec == 0 {
 		timesec = 60
 	}

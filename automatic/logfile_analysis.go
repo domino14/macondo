@@ -570,6 +570,21 @@ func ExportGCG(cfg *config.Config, filename, letterdist, lexicon, boardlayout, g
 	if len(gameLines) == 0 {
 		return errors.New("gameID not found in log file")
 	}
+	// Both halves of a game pair carry the same ID -- it comes from the seed they
+	// share -- so a paired log hands back two games' worth of turns here. Replaying
+	// them as one runs the bag out. Keep the first half, which the turn counter
+	// starting over marks the end of.
+	for i := 1; i < len(gameLines); i++ {
+		prev, err1 := strconv.Atoi(gameLines[i-1][2])
+		cur, err2 := strconv.Atoi(gameLines[i][2])
+		if err1 != nil || err2 != nil {
+			continue
+		}
+		if cur <= prev {
+			gameLines = gameLines[:i]
+			break
+		}
+	}
 
 	rules, err := game.NewBasicGameRules(cfg, lexicon, boardlayout,
 		letterdist, game.CrossScoreOnly, game.VarClassic)
