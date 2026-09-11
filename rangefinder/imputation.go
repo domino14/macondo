@@ -2,6 +2,7 @@ package rangefinder
 
 import (
 	"math"
+	"sort"
 
 	"github.com/domino14/word-golib/tilemapping"
 	"golang.org/x/sync/errgroup"
@@ -702,7 +703,18 @@ func calibrateLogConstant(measured map[string]*measuredLeave, k int,
 	var lpFull, lpFold []float64 // log U + Σφ per measured leave with w > 0
 	var runBuf []tileRun
 	tiles := make([]tilemapping.MachineLetter, 0, k)
-	for key, ml := range measured {
+	// Walk the leaves in a fixed order. Go randomizes map iteration, and both
+	// the running Σ U·w and the log-sum-exp below are floating point, so taking
+	// them in a different order shifts the calibration constant in its last bits
+	// -- and with it every weight in the posterior. Tiny, but it is the
+	// difference between a position inferring the same way twice and not.
+	keys := make([]string, 0, len(measured))
+	for key := range measured {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		ml := measured[key]
 		w := ml.mean()
 		if w <= 0 || ml.sumU <= 0 {
 			continue

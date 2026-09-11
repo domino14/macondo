@@ -183,7 +183,7 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	// use montecarlo if we have it.
 	logger := zerolog.Ctx(ctx)
 
-	if !hasSimming(p.botType) {
+	if !HasSimming(p.botType) {
 		return moves[0], nil
 	}
 	var inferTimeout context.Context
@@ -204,6 +204,7 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 		if p.cfg.InferenceMaxEnumeratedLeaves > 0 {
 			p.inferencer.SetMaxEnumeratedLeaves(p.cfg.InferenceMaxEnumeratedLeaves)
 		}
+		p.inferencer.SetBudget(p.cfg.InferenceBudget)
 		err := p.inferencer.PrepareFinder(p.Game.RackFor(p.Game.PlayerOnTurn()).TilesOn())
 		if err != nil {
 			// Expected early in the game (no events yet, bingo, etc.)
@@ -215,10 +216,19 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 			}
 			logger.Info().Float64("tau", p.inferencer.Tau()).
 				Int("timeSecs", inferTimeSecs).
+				Int("budget", p.cfg.InferenceBudget).
 				Int("simIters", p.inferencer.SimIters()).
 				Msg("inference-tau")
-			inferTimeout, cancel = context.WithTimeout(context.Background(),
-				time.Duration(inferTimeSecs)*time.Second)
+			if p.cfg.InferenceBudget > 0 {
+				// Bounded by leaves measured rather than by the clock, so the
+				// answer no longer depends on how busy the machine was. The
+				// rangefinder stops itself; handing it a deadline as well would
+				// put the timing right back in.
+				inferTimeout, cancel = context.WithCancel(context.Background())
+			} else {
+				inferTimeout, cancel = context.WithTimeout(context.Background(),
+					time.Duration(inferTimeSecs)*time.Second)
+			}
 			defer cancel()
 			err = p.inferencer.Infer(inferTimeout)
 			if err != nil {
@@ -282,4 +292,3 @@ func nonEndgameBest(ctx context.Context, p *BotTurnPlayer, simPlies int, moves [
 	p.lastCalculatedDetails = p.simmer.ShortDetails(4)
 	return play.Move(), nil
 }
-

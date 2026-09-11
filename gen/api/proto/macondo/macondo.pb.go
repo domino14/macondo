@@ -2836,8 +2836,15 @@ type AutoplayPlayerConfig struct {
 	// leave is evaluated exactly once with full Bayesian weighting
 	// (prior × likelihood). If 0, the rangefinder default (750) is used.
 	InferenceMaxEnumeratedLeaves int32 `protobuf:"varint,11,opt,name=inference_max_enumerated_leaves,json=inferenceMaxEnumeratedLeaves,proto3" json:"inference_max_enumerated_leaves,omitempty"`
-	unknownFields                protoimpl.UnknownFields
-	sizeCache                    protoimpl.SizeCache
+	// inference_budget is how many leaves inference may evaluate, one mini-sim
+	// each. It replaces the wall-clock budget: a deadline makes the answer depend
+	// on how busy the machine was, which is exactly the noise a game-pair run
+	// exists to remove. When set, inference_time_secs is ignored and the work is
+	// bounded by this count instead, so the same position always produces the
+	// same posterior. If 0, inference is bounded by time as before.
+	InferenceBudget int32 `protobuf:"varint,12,opt,name=inference_budget,json=inferenceBudget,proto3" json:"inference_budget,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *AutoplayPlayerConfig) Reset() {
@@ -2947,6 +2954,13 @@ func (x *AutoplayPlayerConfig) GetInferenceMaxEnumeratedLeaves() int32 {
 	return 0
 }
 
+func (x *AutoplayPlayerConfig) GetInferenceBudget() int32 {
+	if x != nil {
+		return x.InferenceBudget
+	}
+	return 0
+}
+
 // AutoplayConfig defines a complete autoplay experiment.
 type AutoplayConfig struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -2972,6 +2986,15 @@ type AutoplayConfig struct {
 	GenerateSeeds bool `protobuf:"varint,12,opt,name=generate_seeds,json=generateSeeds,proto3" json:"generate_seeds,omitempty"`
 	// If true, load seeds from seed_file and use them for deterministic games.
 	Deterministic bool `protobuf:"varint,13,opt,name=deterministic,proto3" json:"deterministic,omitempty"`
+	// If true, play every game twice: same seed, same tile order, with the two
+	// bots swapping who moves first. num_games counts pairs, so the run plays
+	// 2 * num_games games. Pairing cancels out draw luck, which is what lets a
+	// small strategy improvement show up without being buried in variance.
+	GamePairs bool `protobuf:"varint,14,opt,name=game_pairs,json=gamePairs,proto3" json:"game_pairs,omitempty"`
+	// Master seed for the run. Each game (or pair) derives its own seed from
+	// this, so the same value replays the same experiment. If 0 and the run
+	// needs seeds, one is generated and logged.
+	Seed          uint64 `protobuf:"varint,15,opt,name=seed,proto3" json:"seed,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3095,6 +3118,20 @@ func (x *AutoplayConfig) GetDeterministic() bool {
 		return x.Deterministic
 	}
 	return false
+}
+
+func (x *AutoplayConfig) GetGamePairs() bool {
+	if x != nil {
+		return x.GamePairs
+	}
+	return false
+}
+
+func (x *AutoplayConfig) GetSeed() uint64 {
+	if x != nil {
+		return x.Seed
+	}
+	return 0
 }
 
 var File_api_proto_macondo_macondo_proto protoreflect.FileDescriptor
@@ -3371,7 +3408,7 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\restimated_elo\x18\n" +
 	" \x01(\x01R\festimatedElo\x12)\n" +
 	"\x10available_bingos\x18\v \x01(\x05R\x0favailableBingos\x12#\n" +
-	"\rmissed_bingos\x18\f \x01(\x05R\fmissedBingos\"\xfa\x03\n" +
+	"\rmissed_bingos\x18\f \x01(\x05R\fmissedBingos\"\xa5\x04\n" +
 	"\x14AutoplayPlayerConfig\x126\n" +
 	"\bbot_code\x18\x01 \x01(\x0e2\x1b.macondo.BotRequest.BotCodeR\abotCode\x12\x1d\n" +
 	"\n" +
@@ -3386,7 +3423,8 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	"\x13inference_sim_iters\x18\t \x01(\x05R\x11inferenceSimIters\x12)\n" +
 	"\x10oracle_inference\x18\n" +
 	" \x01(\bR\x0foracleInference\x12E\n" +
-	"\x1finference_max_enumerated_leaves\x18\v \x01(\x05R\x1cinferenceMaxEnumeratedLeaves\"\xea\x03\n" +
+	"\x1finference_max_enumerated_leaves\x18\v \x01(\x05R\x1cinferenceMaxEnumeratedLeaves\x12)\n" +
+	"\x10inference_budget\x18\f \x01(\x05R\x0finferenceBudget\"\x9d\x04\n" +
 	"\x0eAutoplayConfig\x12 \n" +
 	"\vdescription\x18\x01 \x01(\tR\vdescription\x12#\n" +
 	"\rexperiment_id\x18\x02 \x01(\tR\fexperimentId\x12\x18\n" +
@@ -3402,7 +3440,10 @@ const file_api_proto_macondo_macondo_proto_rawDesc = "" +
 	" \x01(\bR\x05block\x12\x1b\n" +
 	"\tseed_file\x18\v \x01(\tR\bseedFile\x12%\n" +
 	"\x0egenerate_seeds\x18\f \x01(\bR\rgenerateSeeds\x12$\n" +
-	"\rdeterministic\x18\r \x01(\bR\rdeterministic*C\n" +
+	"\rdeterministic\x18\r \x01(\bR\rdeterministic\x12\x1d\n" +
+	"\n" +
+	"game_pairs\x18\x0e \x01(\bR\tgamePairs\x12\x12\n" +
+	"\x04seed\x18\x0f \x01(\x04R\x04seed*C\n" +
 	"\tPlayState\x12\v\n" +
 	"\aPLAYING\x10\x00\x12\x1a\n" +
 	"\x16WAITING_FOR_FINAL_PASS\x10\x01\x12\r\n" +
