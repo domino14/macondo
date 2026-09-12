@@ -126,6 +126,7 @@ type refineCandidate struct {
 	q      float64 // proposal probability, normalized over the candidates
 	u      float64 // importance weight P/q
 	lhat   float64 // the model's current imputed likelihood, for the ratio test
+	unc    float64 // the model's spread on lhat, which earns exploration draws
 }
 
 // buildProposal forms the round's sampling distribution over leaves that have
@@ -152,7 +153,8 @@ func (r *RangeFinder) buildProposal(lambdaEx float64) (cands []refineCandidate, 
 		}
 		unmeasuredW += ir.Weight
 		runBuf = runsOf(ir.Leave, runBuf)
-		q := ir.Weight * (1 + lambdaEx*res.model.uncertainty(runBuf))
+		unc := res.model.uncertainty(runBuf)
+		q := ir.Weight * (1 + lambdaEx*unc)
 		if q <= 0 {
 			continue
 		}
@@ -161,6 +163,7 @@ func (r *RangeFinder) buildProposal(lambdaEx float64) (cands []refineCandidate, 
 			tiles:  ir.Leave,
 			weight: ir.Weight,
 			q:      q,
+			unc:    unc,
 			lhat:   math.Exp(res.logCalib + res.model.logImputed(runBuf)),
 		})
 	}
@@ -377,6 +380,9 @@ func (r *RangeFinder) refineRounds(ctx context.Context, maxRounds int) {
 			if ml, ok := r.measured[leaveKey(c.tiles)]; ok {
 				ml.predicted = c.lhat
 			}
+			r.traceDraw(DrawRecord{Round: round, Q: c.q, U: u, Mult: e.mult,
+				Weight: c.weight, Uncertainty: c.unc, Predicted: c.lhat,
+				Measured: e.w}, c.tiles)
 			r.refinedCount++
 			evaluated++
 			us = append(us, u)
@@ -406,6 +412,13 @@ func (r *RangeFinder) refineRounds(ctx context.Context, maxRounds int) {
 
 		// Refit and re-impute with the new measurements before the next round.
 		r.finalizePlacementPosterior()
+
+		// After the refit, so the calibration figures are the ones this
+		// round produced.
+		r.traceRound(RoundRecord{Round: round, Drawn: st.drawn,
+			Distinct: st.distinct, Evaluated: st.evaluated,
+			LogRatio: st.logRatio, SELogRatio: st.seLogRatio,
+			UnmeasuredMass: st.unmeasured, Converged: st.converged})
 
 		log.Info().Int("round", round).
 			Int("drawn", st.drawn).Int("distinct-leaves", st.distinct).

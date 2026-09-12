@@ -268,6 +268,9 @@ type RangeFinder struct {
 	maxRounds     int
 	refinedCount  int
 	roundLog      []roundStats
+	// tracing records every draw and round for offline diagnosis; see trace.go.
+	tracing bool
+	trace   *InferenceTrace
 	stage0Elapsed time.Duration
 	// currentRound stamps newly measured leaves with the round that measured
 	// them. Written only by refineRounds, between batches.
@@ -601,6 +604,7 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 	r.imputeRes = nil
 	r.refinedCount = 0
 	r.roundLog = nil
+	r.startTrace()
 	r.stage0Elapsed = 0
 	r.stage0Sims = 0
 	return nil
@@ -803,6 +807,8 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 						for _, ir := range newRacks {
 							// Round 0 draws from the prior, so u = 1.
 							r.recordPlacementSample(ir.Leave, ir.Weight, 1)
+							r.traceDraw(DrawRecord{Round: 0, U: 1, Mult: 1,
+								Measured: ir.Weight}, ir.Leave)
 						}
 					} else {
 						// Exchange path: keep distinct racks, first weight wins.
