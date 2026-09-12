@@ -24,11 +24,15 @@ import (
 	"bufio"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"math"
 	"os"
 	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -43,6 +47,21 @@ import (
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/rangefinder"
 )
+
+// nullFloat marshals a non-finite float as JSON null instead of failing. The
+// lift is NaN exactly when the posterior gave the true leave no weight at all,
+// which is the worst outcome there is and the case most worth keeping;
+// encoding/json refuses NaN outright, so without this those were the records
+// being dropped.
+type nullFloat float64
+
+func (f nullFloat) MarshalJSON() ([]byte, error) {
+	v := float64(f)
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return []byte("null"), nil
+	}
+	return json.Marshal(v)
+}
 
 // Record is one replayed position.
 type Record struct {
@@ -63,13 +82,13 @@ type Record struct {
 	LeaveLen       int    `json:"leaveLen"`
 
 	// The answer this replay gave.
-	Posterior float64 `json:"posterior"`
-	Prior     float64 `json:"prior"`
-	LiftBits  float64 `json:"liftBits"`
-	Rank      int     `json:"rank"`
-	Leaves    int     `json:"leaves"`
-	Measured  bool    `json:"measured"`
-	RuledOut  bool    `json:"ruledOut"`
+	Posterior float64   `json:"posterior"`
+	Prior     float64   `json:"prior"`
+	LiftBits  nullFloat `json:"liftBits"`
+	Rank      int       `json:"rank"`
+	Leaves    int       `json:"leaves"`
+	Measured  bool      `json:"measured"`
+	RuledOut  bool      `json:"ruledOut"`
 
 	// What the loop spent and how it thought it was doing.
 	SimCount     int     `json:"simCount"`
@@ -78,13 +97,15 @@ type Record struct {
 	LogCalibIn   float64 `json:"logCalibInSample"`
 	ElapsedMS    int64   `json:"elapsedMs"`
 	Seed         uint64  `json:"seed"`
+	SeedMode     string  `json:"seedMode"`
+	Proposal     string  `json:"proposal"`
 	Repeat       int     `json:"repeat"`
 
 	// What the original run scored this same position, for a sanity check that
 	// the replay is reproducing it.
-	LoggedLiftBits float64 `json:"loggedLiftBits"`
-	LoggedMeasured bool    `json:"loggedMeasured"`
-	HasLogged      bool    `json:"hasLogged"`
+	LoggedLiftBits nullFloat `json:"loggedLiftBits"`
+	LoggedMeasured bool      `json:"loggedMeasured"`
+	HasLogged      bool      `json:"hasLogged"`
 
 	Rounds []rangefinder.RoundRecord `json:"rounds,omitempty"`
 	Draws  []rangefinder.DrawRecord  `json:"draws,omitempty"`
@@ -117,9 +138,16 @@ func main() {
 		maxLeaves   = flag.Int("maxleaves", 0, "enumeration ceiling (0 = default)")
 		inferThread = flag.Int("infer-threads", 1, "threads inside one inference")
 		trace       = flag.Bool("trace", false, "record every measured leaf and what was predicted for it")
-		seed        = flag.Uint64("seed", 1, "common random numbers: every variant replaying a position "+
-			"with the same seed draws the same leaves, so a comparison measures the change and not the RNG. "+
-			"0 leaves each replay unseeded, which is only useful for measuring that noise.")
+		proposal    = flag.String("proposal", "posterior", "how refine rounds pick leaves: "+
+			"posterior (the engine's own), prior (ignore the model and draw from the tile counts), "+
+			"floor (posterior with -floor of each round's mass reserved for the prior)")
+		floor = flag.Float64("floor", 0.25, "share of each round's draws reserved for the prior, with -proposal floor")
+		seed  = flag.String("seed", "original", "which random numbers to replay with. "+
+			"\"original\" takes the game's own seed out of its ID, so the baseline reproduces the run "+
+			"exactly and the logged results serve as a free control. A number instead derives a seed from "+
+			"the position and that number, which is what -repeat varies. \"none\" leaves each replay "+
+			"unseeded, useful only for measuring how noisy a single inference is. "+
+			"Either way every variant sees the same draws on the same position.")
 		repeat = flag.Int("repeat", 1, "replay each position this many times, with seed, seed+1, ... "+
 			"Averaging over repeats is how to see past the per-position noise.")
 	)
@@ -135,6 +163,31 @@ func main() {
 	cfg := config.DefaultConfig()
 	cfg.Set(config.ConfigDefaultLexicon, *lexicon)
 	cfg.Set(config.ConfigDefaultLetterDistribution, *letterd)
+
+	var mode rangefinder.ProposalMode
+	switch *proposal {
+	case "posterior":
+		mode = rangefinder.ProposalPosterior
+	case "prior":
+		mode = rangefinder.ProposalPrior
+	case "floor":
+		mode = rangefinder.ProposalFloor
+	default:
+		fmt.Fprintf(os.Stderr, "unknown -proposal %q: want posterior, prior or floor\n", *proposal)
+		os.Exit(2)
+	}
+
+	seedMode, seedNum := *seed, uint64(0)
+	switch *seed {
+	case "original", "none":
+	default:
+		n, err := strconv.ParseUint(*seed, 10, 64)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "-seed wants \"original\", \"none\" or a number, not %q\n", *seed)
+			os.Exit(2)
+		}
+		seedMode, seedNum = "number", n
+	}
 
 	filter := automatic.CorpusFilter{
 		LeaveLen: *leavelen, MinBag: *minbag, MaxBag: *maxbag,
@@ -182,11 +235,15 @@ func main() {
 					rec := replay(pos, calcs, cfg, *variant, replayOpts{
 						tau: *tau, budget: *budget, rounds: *rounds, simIters: *simIters,
 						maxLeaves: *maxLeaves, threads: *inferThread, trace: *trace,
-						seed: *seed, rep: rep,
+						seed: seedNum, seedMode: seedMode, rep: rep,
+						proposal: mode, floor: *floor,
 					})
 					writeMu.Lock()
 					if err := enc.Encode(rec); err != nil {
-						log.Error().Err(err).Msg("writing record")
+						// A record that will not serialize is a bug, and losing
+						// it quietly biases the corpus toward the cases that do.
+						log.Fatal().Err(err).Str("leave", rec.TrueLeave).
+							Msg("could not write a record")
 					}
 					writeMu.Unlock()
 				}
@@ -213,7 +270,27 @@ type replayOpts struct {
 	budget, rounds, simIters, maxLeaves, threads int
 	trace                                        bool
 	seed                                         uint64
+	seedMode                                     string
 	rep                                          int
+	proposal                                     rangefinder.ProposalMode
+	floor                                        float64
+}
+
+// seedFromGameID recovers the seed a paired run gave a game. The ID is
+// "seed:" followed by its base64, so a replay can take the very stream the run
+// used instead of an independent one.
+func seedFromGameID(gid string) ([32]byte, bool) {
+	var out [32]byte
+	raw, ok := strings.CutPrefix(gid, "seed:")
+	if !ok {
+		return out, false
+	}
+	b, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil || len(b) != 32 {
+		return out, false
+	}
+	copy(out[:], b)
+	return out, true
 }
 
 // positionSeed mixes a position's identity with the run's seed, so the same
@@ -236,19 +313,31 @@ func replay(pos *automatic.CorpusPosition, calcs []equity.EquityCalculator,
 		TrueLeave: pos.TrueLeave, OppRack: pos.OppRack, OppPlay: pos.OppPlay,
 		OppScore: pos.OppScore, TilesRemaining: pos.TilesRemaining,
 		LeaveLen:       pos.LeaveLen,
-		LoggedLiftBits: pos.LoggedLiftBits, LoggedMeasured: pos.LoggedMeasured,
+		LoggedLiftBits: nullFloat(pos.LoggedLiftBits), LoggedMeasured: pos.LoggedMeasured,
 		HasLogged: pos.HasLoggedResult,
 	}
 
 	// Common random numbers. A replayed game carries no seed of its own, so
 	// inference would sample differently every time and a comparison between
-	// two settings would mostly be measuring that. Seeding from the position's
-	// own identity gives every variant the same draws on the same position
-	// while keeping different positions independent.
+	// two settings would mostly be measuring that.
 	g := pos.Game
-	if o.seed != 0 {
+	switch o.seedMode {
+	case "original":
+		// The game's ID is its seed, so the replay can use the very stream the
+		// run used and reproduce its answer rather than merely resemble it.
+		if sd, ok := seedFromGameID(pos.GameID); ok {
+			g = pos.Game.CopyWithHistory()
+			g.SeedBag(sd)
+			rec.SeedMode = "original"
+		} else {
+			rec.SeedMode = "original(unavailable)"
+		}
+	case "number":
 		g = pos.Game.CopyWithHistory()
 		g.SeedBag(positionSeed(pos, o.seed+uint64(o.rep)))
+		rec.SeedMode = "number"
+	default:
+		rec.SeedMode = "none"
 	}
 
 	rf := &rangefinder.RangeFinder{}
@@ -262,8 +351,11 @@ func replay(pos *automatic.CorpusPosition, calcs []equity.EquityCalculator,
 		rf.SetSimIters(o.simIters)
 	}
 	rf.SetTracing(o.trace)
+	rf.SetProposalMode(o.proposal)
+	rf.SetExplorationFloor(o.floor)
 
 	rec.Seed = o.seed + uint64(o.rep)
+	rec.Proposal = []string{"posterior", "prior", "floor"}[o.proposal]
 	rec.Repeat = o.rep
 	myRack := g.RackFor(g.PlayerOnTurn()).TilesOn()
 	if err := rf.PrepareFinder([]tilemapping.MachineLetter(myRack)); err != nil {
@@ -287,7 +379,7 @@ func replay(pos *automatic.CorpusPosition, calcs []equity.EquityCalculator,
 	score := rf.ScoreLeave(truth)
 	rec.Posterior = score.Posterior
 	rec.Prior = score.Prior
-	rec.LiftBits = score.LiftBits
+	rec.LiftBits = nullFloat(score.LiftBits)
 	rec.Rank = score.Rank
 	rec.Leaves = score.Leaves
 	rec.Measured = score.Measured

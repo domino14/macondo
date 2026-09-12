@@ -265,13 +265,17 @@ type RangeFinder struct {
 	// Refinement state: how many rounds of posterior-guided measurement to
 	// run after round 0 (0 disables it), how many leaves they measured, and
 	// the per-round convergence statistics.
-	maxRounds     int
-	refinedCount  int
-	roundLog      []roundStats
+	maxRounds    int
+	refinedCount int
+	roundLog     []roundStats
 	// tracing records every draw and round for offline diagnosis; see trace.go.
 	tracing bool
 	trace   *InferenceTrace
-	stage0Elapsed time.Duration
+	// proposalMode and explorationFloor decide how refine rounds pick the
+	// leaves they measure; see SetProposalMode.
+	proposalMode     ProposalMode
+	explorationFloor float64
+	stage0Elapsed    time.Duration
 	// currentRound stamps newly measured leaves with the round that measured
 	// them. Written only by refineRounds, between batches.
 	currentRound int

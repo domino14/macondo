@@ -157,8 +157,12 @@ func LoadCorpusVerbose(cfg *config.Config, turnFile, lexicon, letterdist, boardl
 		return nil, 0, fmt.Errorf("%s has no header row", turnFile)
 	}
 
+	// CrossScoreAndSet, not CrossScoreOnly: these positions get handed to move
+	// generation, and without cross-sets a generator produces the wrong moves.
+	// The GCG exporter can do without them because it only replays for
+	// notation; anything that has to think about the position cannot.
 	rules, err := game.NewBasicGameRules(cfg, lexicon, boardlayout,
-		letterdist, game.CrossScoreOnly, game.VarClassic)
+		letterdist, game.CrossScoreAndSet, game.VarClassic)
 	if err != nil {
 		return nil, 0, err
 	}
