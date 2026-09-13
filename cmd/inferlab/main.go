@@ -29,8 +29,10 @@ import (
 	"flag"
 	"fmt"
 	"math"
+	"math/rand"
 	"os"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -45,6 +47,7 @@ import (
 	"github.com/domino14/macondo/automatic"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/equity"
+	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/rangefinder"
 )
 
@@ -98,8 +101,15 @@ type Record struct {
 	ElapsedMS    int64   `json:"elapsedMs"`
 	Seed         uint64  `json:"seed"`
 	SeedMode     string  `json:"seedMode"`
-	Proposal     string  `json:"proposal"`
-	Repeat       int     `json:"repeat"`
+	ForcedTruth  bool    `json:"forcedTruth"`
+	// The decoy is a leave drawn at random from the same unseen pool and forced
+	// in beside the truth, so the two are measured under identical conditions.
+	DecoyLeave    string    `json:"decoyLeave,omitempty"`
+	DecoyLiftBits nullFloat `json:"decoyLiftBits"`
+	DecoyRank     int       `json:"decoyRank"`
+	DecoyMeasured bool      `json:"decoyMeasured"`
+	Proposal      string    `json:"proposal"`
+	Repeat        int       `json:"repeat"`
 
 	// What the original run scored this same position, for a sanity check that
 	// the replay is reproducing it.
@@ -141,8 +151,14 @@ func main() {
 		proposal    = flag.String("proposal", "posterior", "how refine rounds pick leaves: "+
 			"posterior (the engine's own), prior (ignore the model and draw from the tile counts), "+
 			"floor (posterior with -floor of each round's mass reserved for the prior)")
-		floor = flag.Float64("floor", 0.25, "share of each round's draws reserved for the prior, with -proposal floor")
-		seed  = flag.String("seed", "original", "which random numbers to replay with. "+
+		floor      = flag.Float64("floor", 0.25, "share of each round's draws reserved for the prior, with -proposal floor")
+		forceTruth = flag.Bool("force-truth", false, "measure the leave the opponent really held, whether "+
+			"or not the proposal would have found it. Uses the answer, so it is a diagnostic only: it says "+
+			"whether a bad read is the model mis-scoring the true leave or never looking at it. A decoy "+
+			"leave, drawn at random from the same unseen pool, is forced in alongside it and scored the "+
+			"same way -- without that control there is no telling a model that recognizes the truth from "+
+			"one that simply flatters whatever it measures.")
+		seed = flag.String("seed", "original", "which random numbers to replay with. "+
 			"\"original\" takes the game's own seed out of its ID, so the baseline reproduces the run "+
 			"exactly and the logged results serve as a free control. A number instead derives a seed from "+
 			"the position and that number, which is what -repeat varies. \"none\" leaves each replay "+
@@ -236,7 +252,7 @@ func main() {
 						tau: *tau, budget: *budget, rounds: *rounds, simIters: *simIters,
 						maxLeaves: *maxLeaves, threads: *inferThread, trace: *trace,
 						seed: seedNum, seedMode: seedMode, rep: rep,
-						proposal: mode, floor: *floor,
+						proposal: mode, floor: *floor, forceTruth: *forceTruth,
 					})
 					writeMu.Lock()
 					if err := enc.Encode(rec); err != nil {
@@ -274,6 +290,7 @@ type replayOpts struct {
 	rep                                          int
 	proposal                                     rangefinder.ProposalMode
 	floor                                        float64
+	forceTruth                                   bool
 }
 
 // seedFromGameID recovers the seed a paired run gave a game. The ID is
@@ -291,6 +308,22 @@ func seedFromGameID(gid string) ([32]byte, bool) {
 	}
 	copy(out[:], b)
 	return out, true
+}
+
+// drawDecoy picks k tiles at random from everything the inferring player cannot
+// see -- the bag plus the opponent's rack, which is exactly the pool the true
+// leave came from. Seeded, so a decoy is the same across variants.
+func drawDecoy(g *game.Game, k int, seed int64) []tilemapping.MachineLetter {
+	pool := append([]tilemapping.MachineLetter{}, g.Bag().Peek()...)
+	pool = append(pool, g.RackFor(1-g.PlayerOnTurn()).TilesOn()...)
+	if len(pool) < k {
+		return nil
+	}
+	rng := rand.New(rand.NewSource(seed))
+	rng.Shuffle(len(pool), func(i, j int) { pool[i], pool[j] = pool[j], pool[i] })
+	out := append([]tilemapping.MachineLetter{}, pool[:k]...)
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
 }
 
 // positionSeed mixes a position's identity with the run's seed, so the same
@@ -357,6 +390,19 @@ func replay(pos *automatic.CorpusPosition, calcs []equity.EquityCalculator,
 	rec.Seed = o.seed + uint64(o.rep)
 	rec.Proposal = []string{"posterior", "prior", "floor"}[o.proposal]
 	rec.Repeat = o.rep
+	truthTiles := tilemapping.RackFromString(pos.TrueLeave, g.Alphabet()).TilesOn()
+	var decoyTiles []tilemapping.MachineLetter
+	if o.forceTruth {
+		decoyTiles = drawDecoy(g, len(truthTiles), int64(o.seed)+int64(o.rep)+int64(pos.Turn))
+		forced := [][]tilemapping.MachineLetter{truthTiles}
+		if decoyTiles != nil {
+			forced = append(forced, decoyTiles)
+			rec.DecoyLeave = tilemapping.MachineWord(decoyTiles).UserVisible(g.Alphabet())
+		}
+		rf.SetForcedLeaves(forced)
+		rec.ForcedTruth = true
+	}
+
 	myRack := g.RackFor(g.PlayerOnTurn()).TilesOn()
 	if err := rf.PrepareFinder([]tilemapping.MachineLetter(myRack)); err != nil {
 		rec.Err = err.Error()
@@ -375,8 +421,13 @@ func replay(pos *automatic.CorpusPosition, calcs []equity.EquityCalculator,
 	}
 	rec.ElapsedMS = time.Since(started).Milliseconds()
 
-	truth := tilemapping.RackFromString(pos.TrueLeave, g.Alphabet()).TilesOn()
-	score := rf.ScoreLeave(truth)
+	score := rf.ScoreLeave(truthTiles)
+	if decoyTiles != nil {
+		d := rf.ScoreLeave(decoyTiles)
+		rec.DecoyLiftBits = nullFloat(d.LiftBits)
+		rec.DecoyRank = d.Rank
+		rec.DecoyMeasured = d.Measured
+	}
 	rec.Posterior = score.Posterior
 	rec.Prior = score.Prior
 	rec.LiftBits = nullFloat(score.LiftBits)

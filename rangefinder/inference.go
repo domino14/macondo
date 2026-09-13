@@ -275,6 +275,9 @@ type RangeFinder struct {
 	// leaves they measure; see SetProposalMode.
 	proposalMode     ProposalMode
 	explorationFloor float64
+	// forcedLeaves are measured whether or not the proposal would have found
+	// them; see SetForcedLeaves.
+	forcedLeaves [][]tilemapping.MachineLetter
 	stage0Elapsed    time.Duration
 	// currentRound stamps newly measured leaves with the round that measured
 	// them. Written only by refineRounds, between batches.
@@ -853,6 +856,7 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 	// is already done.
 	r.stage0Elapsed = time.Since(inferStart)
 	r.stage0Sims = int(r.simCount.Load())
+	r.measureForcedLeaves(parentCtx)
 	r.finalizePlacementPosterior()
 
 	// Then alternate measurement and imputation on the remaining budget,
@@ -1110,4 +1114,53 @@ func uniqueSingleTileKey(m *move.Move) int {
 	// A unique, fast to compute key for this play.
 	return row + tilemapping.MaxAlphabetSize*col +
 		tilemapping.MaxAlphabetSize*tilemapping.MaxAlphabetSize*int(tile)
+}
+
+// SetForcedLeaves names leaves that must get a mini-sim, whether or not the
+// proposal would ever have drawn them. They are measured once round 0 is done,
+// so the first imputation model and every round after it are built knowing what
+// those leaves are really worth.
+//
+// This is a diagnostic, not a setting: naming the leave the opponent actually
+// held means using the answer, which no bot can do. It exists to separate two
+// explanations of a bad read that look identical from the outside -- the model
+// scored the true leave badly, or the model never looked at it. Forcing it in
+// and seeing the read stay wrong rules the second one out.
+//
+// The forced measurements enter as ordinary prior-weight draws, which does
+// slightly flatter the calibration constant: they are evidence the sampler did
+// not pay for. The bias is small next to what the comparison is measuring.
+func (r *RangeFinder) SetForcedLeaves(leaves [][]tilemapping.MachineLetter) {
+	r.forcedLeaves = leaves
+}
+
+// measureForcedLeaves evaluates whatever SetForcedLeaves named, skipping any
+// the sampler already happened to measure.
+func (r *RangeFinder) measureForcedLeaves(ctx context.Context) {
+	if len(r.forcedLeaves) == 0 || r.acc == nil {
+		return
+	}
+	var todo [][]tilemapping.MachineLetter
+	for _, leave := range r.forcedLeaves {
+		sorted := make([]tilemapping.MachineLetter, len(leave))
+		copy(sorted, leave)
+		sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+		if ml, ok := r.measured[leaveKey(sorted)]; ok && ml.count > 0 {
+			continue
+		}
+		todo = append(todo, sorted)
+	}
+	if len(todo) == 0 {
+		return
+	}
+	var mu sync.Mutex
+	err := r.evaluateLeaves(ctx, todo, func(leave []tilemapping.MachineLetter, lik float64) {
+		mu.Lock()
+		defer mu.Unlock()
+		r.recordPlacementSample(leave, lik, 1)
+		r.traceDraw(DrawRecord{Round: 0, U: 1, Mult: 1, Measured: lik}, leave)
+	})
+	if err != nil {
+		log.Err(err).Msg("forced-leaf-evaluate-failed")
+	}
 }
