@@ -864,6 +864,25 @@ type imputationTuning struct {
 	maxOrder int
 }
 
+// imputationLambdaFor is the shrinkage pseudo-count for a k-tile leave.
+//
+// A term's support thins as leaves get longer. A three-tile leave has three
+// pairs, measured across a space of a few hundred; a six-tile leave has fifteen
+// pairs and twenty triples across fifty thousand. Where support is thick,
+// shrinkage costs signal: lambda 100 loses a quarter of a bit on three-tile
+// leaves against the engine's 10. Where it is thin it suppresses noise the
+// model would otherwise take for structure: on six-tile leaves lambda 100
+// gains three bits, and the gain plateaus out to 300 before the model goes flat
+// by 1000. Measured over the same positions with the same draws, so the
+// difference is the constant. Five-tile leaves are untested and keep the
+// lower value.
+func imputationLambdaFor(k int) float64 {
+	if k >= 6 {
+		return 100
+	}
+	return imputationLambda
+}
+
 func imputeFullPosterior(bagMap []uint8, k int, acc *subleaveAccumulator,
 	foldAccs []*subleaveAccumulator, measured map[string]*measuredLeave,
 	threads int) *imputationResult {
@@ -877,7 +896,7 @@ func imputeFullPosteriorTuned(bagMap []uint8, k int, acc *subleaveAccumulator,
 
 	lambda := tune.lambda
 	if lambda <= 0 {
-		lambda = imputationLambda
+		lambda = imputationLambdaFor(k)
 	}
 	mod := buildImputationModel(acc, lambda, maxAbsLogLift, maxAbsInteraction)
 
