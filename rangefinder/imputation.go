@@ -87,6 +87,25 @@ func marginalOrder(k int) int {
 	return m
 }
 
+// marginalOrderCapped is marginalOrder with the cap raised or lowered: the
+// expansion runs to min(k-1, cap). A term of the leave's own order estimates a
+// leave from samples of itself, which an unmeasured leave has none of, so k-1
+// is the last order that can say anything about a leave the model has to
+// impute.
+func marginalOrderCapped(k, cap int) int {
+	if cap <= 0 {
+		return marginalOrder(k)
+	}
+	m := min(k-1, cap)
+	if m < 1 {
+		m = 1
+	}
+	if m > 4 {
+		m = 4
+	}
+	return m
+}
+
 // tileRun is a (tile, count) run of a sorted leave.
 type tileRun struct {
 	t tilemapping.MachineLetter
@@ -134,6 +153,8 @@ type subleaveAccumulator struct {
 	wt1, wtsq1, lik1 []float64 // [A], index t
 	wt2, wtsq2, lik2 []float64 // [A*A], index t*A+u with t ≤ u
 	wt3, wtsq3, lik3 []float64 // [A*A*A], index (t*A+u)*A+v with t ≤ u ≤ v
+	wt4, wtsq4, lik4 []float64 // [C(A+3,4)], ranked by o4; see order4.go
+	o4               *order4Index
 
 	runBuf []tileRun
 }
@@ -152,6 +173,12 @@ func newSubleaveAccumulator(alphaSize, maxOrder int) *subleaveAccumulator {
 		acc.wt3 = make([]float64, alphaSize*alphaSize*alphaSize)
 		acc.wtsq3 = make([]float64, alphaSize*alphaSize*alphaSize)
 		acc.lik3 = make([]float64, alphaSize*alphaSize*alphaSize)
+	}
+	if maxOrder >= 4 {
+		acc.o4 = order4IndexFor(alphaSize)
+		acc.wt4 = make([]float64, acc.o4.size)
+		acc.wtsq4 = make([]float64, acc.o4.size)
+		acc.lik4 = make([]float64, acc.o4.size)
 	}
 	return acc
 }
@@ -223,6 +250,11 @@ func (acc *subleaveAccumulator) record(sorted []tilemapping.MachineLetter, w, u 
 			}
 		}
 	}
+	if acc.maxOrder >= 4 {
+		forSubMultisets(runs, 4, func(sub []tilemapping.MachineLetter) {
+			add(acc.wt4, acc.wtsq4, acc.lik4, acc.o4.rank(sub))
+		})
+	}
 }
 
 // minus returns a new accumulator holding acc's statistics with sub's
@@ -256,6 +288,11 @@ func (acc *subleaveAccumulator) minus(sub *subleaveAccumulator) *subleaveAccumul
 		subInto(out.wtsq3, acc.wtsq3, sub.wtsq3)
 		subInto(out.lik3, acc.lik3, sub.lik3)
 	}
+	if acc.maxOrder >= 4 {
+		subInto(out.wt4, acc.wt4, sub.wt4)
+		subInto(out.wtsq4, acc.wtsq4, sub.wtsq4)
+		subInto(out.lik4, acc.lik4, sub.lik4)
+	}
 	return out
 }
 
@@ -269,6 +306,8 @@ type imputationModel struct {
 	phi1      []float64
 	phi2      []float64
 	phi3      []float64
+	phi4      []float64
+	o4        *order4Index
 
 	// unc* is how much of each term's raw signal was suppressed for lack of
 	// support: (1 − shrink)·|log lift|, and σ₀ for sub-multisets never seen
@@ -276,6 +315,7 @@ type imputationModel struct {
 	unc1 []float64
 	unc2 []float64
 	unc3 []float64
+	unc4 []float64
 
 	lambda     float64
 	clampLift  float64
@@ -317,6 +357,11 @@ func buildImputationModel(acc *subleaveAccumulator, lambda, clampLift, clampInte
 			mod.phi3 = make([]float64, A*A*A)
 			mod.unc3 = make([]float64, A*A*A)
 		}
+		if acc.maxOrder >= 4 {
+			mod.o4 = acc.o4
+			mod.phi4 = make([]float64, acc.o4.size)
+			mod.unc4 = make([]float64, acc.o4.size)
+		}
 		return mod
 	}
 
@@ -337,8 +382,8 @@ func buildImputationModel(acc *subleaveAccumulator, lambda, clampLift, clampInte
 	// sumSq/count of |raw| per order, for the σ₀ assigned to sub-multisets
 	// never observed at all — the most uncertain terms in the model, not the
 	// least.
-	var sigSum [4]float64
-	var sigCnt [4]float64
+	var sigSum [5]float64
+	var sigCnt [5]float64
 	// uncertainty of a term: the share of its raw signal that shrinkage
 	// suppressed for lack of support.
 	unc := func(order int, raw, e float64) float64 {
@@ -417,6 +462,34 @@ func buildImputationModel(acc *subleaveAccumulator, lambda, clampLift, clampInte
 		}
 	}
 
+	if acc.maxOrder >= 4 {
+		// Order four subtracts φ over every proper nonempty sub-multiset of
+		// orders one to three, enumerated rather than unrolled: a 4-multiset
+		// has up to fourteen of them across five repetition patterns.
+		o4 := acc.o4
+		mod.o4 = o4
+		mod.phi4 = make([]float64, o4.size)
+		mod.unc4 = make([]float64, o4.size)
+		var runs4 []tileRun
+		for j := 0; j < o4.size; j++ {
+			if acc.wt4[j] == 0 {
+				continue
+			}
+			e := ess(acc.wt4[j], acc.wtsq4[j])
+			raw := rawLogLift(acc.lik4[j], acc.wt4[j])
+			runs4 = runsOf(o4.tiles[j][:], runs4)
+			inter := raw
+			for m := 1; m <= 3; m++ {
+				forSubMultisets(runs4, m, func(sub []tilemapping.MachineLetter) {
+					inter -= mod.phiAt(m, packIdx(A, sub))
+				})
+			}
+			inter = clampAbs(inter, clampInter)
+			mod.phi4[j] = shrink(e) * inter
+			mod.unc4[j] = unc(4, inter, e)
+		}
+	}
+
 	// Sub-multisets with no support at all keep φ = 0 but are the *most*
 	// uncertain terms, so they inherit σ₀: the RMS raw magnitude observed at
 	// their order (0.5 nats if nothing at that order was ever seen).
@@ -432,6 +505,8 @@ func buildImputationModel(acc *subleaveAccumulator, lambda, clampLift, clampInte
 			fillUnobserved(mod.unc2, acc.wt2, sigma0)
 		case 3:
 			fillUnobserved(mod.unc3, acc.wt3, sigma0)
+		case 4:
+			fillUnobserved(mod.unc4, acc.wt4, sigma0)
 		}
 	}
 	return mod
@@ -476,8 +551,10 @@ func (mod *imputationModel) phiAt(order, idx int) float64 {
 		return mod.phi1[idx]
 	case 2:
 		return mod.phi2[idx]
-	default:
+	case 3:
 		return mod.phi3[idx]
+	default:
+		return mod.phi4[idx]
 	}
 }
 
@@ -487,8 +564,10 @@ func (mod *imputationModel) uncAt(order, idx int) float64 {
 		return mod.unc1[idx]
 	case 2:
 		return mod.unc2[idx]
-	default:
+	case 3:
 		return mod.unc3[idx]
+	default:
+		return mod.unc4[idx]
 	}
 }
 
@@ -502,11 +581,14 @@ func (mod *imputationModel) tilesAt(order, idx int) []tilemapping.MachineLetter 
 	case 2:
 		return []tilemapping.MachineLetter{
 			tilemapping.MachineLetter(idx / A), tilemapping.MachineLetter(idx % A)}
-	default:
+	case 3:
 		return []tilemapping.MachineLetter{
 			tilemapping.MachineLetter(idx / (A * A)),
 			tilemapping.MachineLetter((idx / A) % A),
 			tilemapping.MachineLetter(idx % A)}
+	default:
+		t := mod.o4.tiles[idx]
+		return t[:]
 	}
 }
 
@@ -549,6 +631,11 @@ func (mod *imputationModel) walkSubleaves(runs []tileRun, fn func(order, idx int
 			}
 		}
 	}
+	if mod.maxOrder >= 4 {
+		forSubMultisets(runs, 4, func(sub []tilemapping.MachineLetter) {
+			fn(4, mod.o4.rank(sub))
+		})
+	}
 }
 
 // subleaveTerm describes one φ term contributing to logImputed.
@@ -585,6 +672,12 @@ func (acc *subleaveAccumulator) accStats(sub []tilemapping.MachineLetter) (e, wt
 	case 3:
 		j := acc.idx3(sub[0], sub[1], sub[2])
 		return ess(acc.wt3[j], acc.wtsq3[j]), acc.wt3[j], acc.lik3[j]
+	case 4:
+		if acc.o4 == nil {
+			return 0, 0, 0
+		}
+		j := acc.o4.rank(sub)
+		return ess(acc.wt4[j], acc.wtsq4[j]), acc.wt4[j], acc.lik4[j]
 	}
 	return 0, 0, 0
 }
@@ -767,6 +860,8 @@ type imputationTuning struct {
 	// disturbing their order among themselves.
 	calibShrink float64
 	calibSet    bool
+	// maxOrder caps the sub-leave expansion; 0 means marginalOrder's rule.
+	maxOrder int
 }
 
 func imputeFullPosterior(bagMap []uint8, k int, acc *subleaveAccumulator,

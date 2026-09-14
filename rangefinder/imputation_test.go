@@ -734,3 +734,95 @@ func sortMLs(l []tilemapping.MachineLetter) {
 		}
 	}
 }
+
+// The Möbius inversion at order four has to telescope the way the lower orders
+// do: with no shrinkage and the expansion run to the leave's own order, the
+// imputed log-likelihood of a recorded 4-tile leave is exactly its own raw log
+// lift, whatever the lower-order terms it shares with other leaves.
+func TestMobiusTelescopingOrder4(t *testing.T) {
+	acc := newSubleaveAccumulator(5, 4)
+	leaves := [][]tilemapping.MachineLetter{
+		mls(1, 2, 3, 4),
+		mls(1, 1, 2, 3),
+		mls(1, 1, 1, 2),
+		mls(1, 1, 1, 1),
+		mls(2, 2, 3, 3),
+		mls(1, 2, 2, 4),
+		mls(3, 4, 4, 4),
+		mls(0, 1, 2, 3),
+	}
+	weights := []float64{8, 2, 5, 1, 3, 0.25, 6, 0.5}
+	for i, l := range leaves {
+		acc.record(l, weights[i], 1)
+	}
+	mod := buildImputationModel(acc, 0 /* no shrinkage */, 1e9, 1e9)
+	wMean := acc.likTotal / acc.wtTotal
+	var runBuf []tileRun
+	for i, l := range leaves {
+		runBuf = runsOf(l, runBuf)
+		got := mod.logImputed(runBuf)
+		want := math.Log(weights[i] / wMean)
+		if math.Abs(got-want) > 1e-9 {
+			t.Fatalf("leaf %v: logImputed=%v want=%v", l, got, want)
+		}
+	}
+}
+
+// The sub-multiset enumerator has to produce each distinct sub-multiset once,
+// and the order-four index has to be a bijection onto sorted 4-multisets.
+func TestForSubMultisetsAndOrder4Index(t *testing.T) {
+	count := func(leave []tilemapping.MachineLetter, m int) int {
+		runs := runsOf(leave, nil)
+		seen := map[string]bool{}
+		n := 0
+		forSubMultisets(runs, m, func(sub []tilemapping.MachineLetter) {
+			n++
+			for i := 1; i < len(sub); i++ {
+				if sub[i] < sub[i-1] {
+					t.Fatalf("sub-multiset %v not sorted", sub)
+				}
+			}
+			seen[leaveKey(sub)] = true
+		})
+		if len(seen) != n {
+			t.Fatalf("leave %v order %d: %d calls but %d distinct", leave, m, n, len(seen))
+		}
+		return n
+	}
+	// Six distinct tiles: C(6,4) = 15; AABBCC: 6; AAAABC: 4; AAAAAA: 1.
+	for _, tc := range []struct {
+		leave []tilemapping.MachineLetter
+		want  int
+	}{
+		{mls(1, 2, 3, 4, 5, 6), 15},
+		{mls(1, 1, 2, 2, 3, 3), 6},
+		{mls(1, 1, 1, 1, 2, 3), 4},
+		{mls(1, 1, 1, 1, 1, 1), 1},
+		{mls(1, 2, 3), 0}, // too short for order 4
+	} {
+		if got := count(tc.leave, 4); got != tc.want {
+			t.Fatalf("leave %v: %d sub-multisets of order 4, want %d", tc.leave, got, tc.want)
+		}
+	}
+	// A full walk at order 4 over six distinct tiles: 6 + 15 + 20 + 15 terms.
+	mod := buildImputationModel(newSubleaveAccumulator(7, 4), 0, 1e9, 1e9)
+	terms := 0
+	mod.walkSubleaves(runsOf(mls(1, 2, 3, 4, 5, 6), nil), func(order, idx int) { terms++ })
+	if terms != 56 {
+		t.Fatalf("walk visited %d terms, want 56", terms)
+	}
+
+	ix := order4IndexFor(7)
+	if ix.size != 210 { // C(10,4)
+		t.Fatalf("size %d, want 210", ix.size)
+	}
+	for j := 0; j < ix.size; j++ {
+		tiles := ix.tiles[j]
+		if !(tiles[0] <= tiles[1] && tiles[1] <= tiles[2] && tiles[2] <= tiles[3]) {
+			t.Fatalf("slot %d holds unsorted %v", j, tiles)
+		}
+		if got := ix.rank(tiles[:]); got != j {
+			t.Fatalf("rank(tiles[%d]) = %d", j, got)
+		}
+	}
+}

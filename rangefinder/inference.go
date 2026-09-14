@@ -280,8 +280,8 @@ type RangeFinder struct {
 	forcedLeaves [][]tilemapping.MachineLetter
 	// tuning varies the imputation's own constants; see SetImputationLambda
 	// and SetCalibrationShrink.
-	tuning imputationTuning
-	stage0Elapsed    time.Duration
+	tuning        imputationTuning
+	stage0Elapsed time.Duration
 	// currentRound stamps newly measured leaves with the round that measured
 	// them. Written only by refineRounds, between batches.
 	currentRound int
@@ -624,7 +624,7 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 // per-fold accumulators used to cross-fit the calibration constant, and the
 // measured-leave map.
 func (r *RangeFinder) initImputationState() {
-	order := marginalOrder(r.inference.RackLength)
+	order := marginalOrderCapped(r.inference.RackLength, r.tuning.maxOrder)
 	r.acc = newSubleaveAccumulator(len(r.inferenceBagMap), order)
 	r.foldAccs = make([]*subleaveAccumulator, calibrationFolds)
 	for i := range r.foldAccs {
@@ -1184,3 +1184,9 @@ func (r *RangeFinder) SetCalibrationShrink(s float64) {
 	r.tuning.calibShrink = s
 	r.tuning.calibSet = true
 }
+
+// SetMaxMarginalOrder caps the sub-leave expansion the imputation uses. The
+// engine's rule is ceil(k/2) capped at 3 for a k-tile leave; raising it to 4
+// lets the model carry four-way interactions, which is where a six-tile
+// leave's bingo structure lives. Pass 0 for the engine's rule.
+func (r *RangeFinder) SetMaxMarginalOrder(m int) { r.tuning.maxOrder = m }

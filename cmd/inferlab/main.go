@@ -152,7 +152,9 @@ func main() {
 		proposal    = flag.String("proposal", "posterior", "how refine rounds pick leaves: "+
 			"posterior (the engine's own), prior (ignore the model and draw from the tile counts), "+
 			"floor (posterior with -floor of each round's mass reserved for the prior)")
-		floor     = flag.Float64("floor", 0.25, "share of each round's draws reserved for the prior, with -proposal floor")
+		floor = flag.Float64("floor", 0.25, "share of each round's draws reserved for the prior, with -proposal floor")
+		order = flag.Int("order", 0, "cap on the sub-leave expansion order (0 = the engine's rule, "+
+			"ceil(k/2) capped at 3). 4 lets the model carry four-way interactions.")
 		impLambda = flag.Float64("lambda", 0, "imputation shrinkage pseudo-count (0 = the engine's 10). "+
 			"Larger pulls thin sub-leave terms harder toward no effect.")
 		calibShrink = flag.Float64("calib-shrink", -1, "how far the imputation's calibration constant "+
@@ -265,7 +267,7 @@ func main() {
 						maxLeaves: *maxLeaves, threads: *inferThread, trace: *trace,
 						seed: seedNum, seedMode: seedMode, rep: rep,
 						proposal: mode, floor: *floor, forceTruth: *forceTruth,
-						lambda: *impLambda, calibShrink: *calibShrink,
+						lambda: *impLambda, calibShrink: *calibShrink, order: *order,
 						probe: *probe, probeTop: *probeTop, probeAbove: *probeAbove, probeBelow: *probeBelow,
 					})
 					writeMu.Lock()
@@ -306,6 +308,7 @@ type replayOpts struct {
 	floor                                        float64
 	forceTruth                                   bool
 	lambda, calibShrink                          float64
+	order                                        int
 	probe                                        bool
 	probeTop, probeAbove, probeBelow             int
 }
@@ -408,6 +411,9 @@ func replay(pos *automatic.CorpusPosition, calcs []equity.EquityCalculator,
 	}
 	if o.calibShrink >= 0 {
 		rf.SetCalibrationShrink(o.calibShrink)
+	}
+	if o.order > 0 {
+		rf.SetMaxMarginalOrder(o.order)
 	}
 
 	rec.Seed = o.seed + uint64(o.rep)
