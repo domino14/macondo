@@ -6,7 +6,10 @@ def load(f):
     for line in open(f):
         line=line.strip()
         if not line: continue
-        r=json.loads(line)
+        try:
+            r=json.loads(line)
+        except json.JSONDecodeError:
+            continue  # a partial trailing line from a file still being written
         if r.get('err'): continue
         if r.get('liftBits') is None: r['liftBits']=float('-inf')
         out[(r['gameID'],r['half'],r['turn'])]=r
