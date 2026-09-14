@@ -278,6 +278,9 @@ type RangeFinder struct {
 	// forcedLeaves are measured whether or not the proposal would have found
 	// them; see SetForcedLeaves.
 	forcedLeaves [][]tilemapping.MachineLetter
+	// tuning varies the imputation's own constants; see SetImputationLambda
+	// and SetCalibrationShrink.
+	tuning imputationTuning
 	stage0Elapsed    time.Duration
 	// currentRound stamps newly measured leaves with the round that measured
 	// them. Written only by refineRounds, between batches.
@@ -666,8 +669,8 @@ func (r *RangeFinder) finalizePlacementPosterior() {
 	if r.acc == nil || r.acc.n == 0 {
 		return
 	}
-	res := imputeFullPosterior(r.inferenceBagMap, r.inference.RackLength, r.acc,
-		r.foldAccs, r.measured, r.threads)
+	res := imputeFullPosteriorTuned(r.inferenceBagMap, r.inference.RackLength, r.acc,
+		r.foldAccs, r.measured, r.threads, r.tuning)
 	r.imputeRes = res
 	if len(res.racks) == 0 {
 		return
@@ -1163,4 +1166,21 @@ func (r *RangeFinder) measureForcedLeaves(ctx context.Context) {
 	if err != nil {
 		log.Err(err).Msg("forced-leaf-evaluate-failed")
 	}
+}
+
+// SetImputationLambda sets the shrinkage pseudo-count used when combining
+// sub-leave marginals: a term estimated from c samples is scaled by c/(c+λ), so
+// a larger λ pulls thin terms harder toward no effect. Pass 0 for the default.
+func (r *RangeFinder) SetImputationLambda(l float64) { r.tuning.lambda = l }
+
+// SetCalibrationShrink sets how far the imputation's calibration constant moves
+// from its in-sample fit toward the cross-fitted one. 1 is the engine's
+// behavior, 0 keeps the in-sample constant, and values between interpolate.
+//
+// The constant scales every imputed leave alike, so it decides how imputed
+// leaves weigh against measured ones without changing their order among
+// themselves -- and so barely touches which leaves the proposal draws.
+func (r *RangeFinder) SetCalibrationShrink(s float64) {
+	r.tuning.calibShrink = s
+	r.tuning.calibSet = true
 }

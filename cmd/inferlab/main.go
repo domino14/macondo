@@ -117,8 +117,9 @@ type Record struct {
 	LoggedMeasured bool      `json:"loggedMeasured"`
 	HasLogged      bool      `json:"hasLogged"`
 
-	Rounds []rangefinder.RoundRecord `json:"rounds,omitempty"`
-	Draws  []rangefinder.DrawRecord  `json:"draws,omitempty"`
+	Rounds []rangefinder.RoundRecord  `json:"rounds,omitempty"`
+	Probe  *rangefinder.OrderingProbe `json:"probe,omitempty"`
+	Draws  []rangefinder.DrawRecord   `json:"draws,omitempty"`
 
 	Err string `json:"err,omitempty"`
 }
@@ -151,7 +152,18 @@ func main() {
 		proposal    = flag.String("proposal", "posterior", "how refine rounds pick leaves: "+
 			"posterior (the engine's own), prior (ignore the model and draw from the tile counts), "+
 			"floor (posterior with -floor of each round's mass reserved for the prior)")
-		floor      = flag.Float64("floor", 0.25, "share of each round's draws reserved for the prior, with -proposal floor")
+		floor     = flag.Float64("floor", 0.25, "share of each round's draws reserved for the prior, with -proposal floor")
+		impLambda = flag.Float64("lambda", 0, "imputation shrinkage pseudo-count (0 = the engine's 10). "+
+			"Larger pulls thin sub-leave terms harder toward no effect.")
+		calibShrink = flag.Float64("calib-shrink", -1, "how far the imputation's calibration constant "+
+			"moves from its in-sample fit toward the cross-fitted one: 1 is the engine's behavior, 0 keeps "+
+			"the in-sample constant. -1 leaves it alone.")
+		probe = flag.Bool("probe", false, "after inference, measure leaves the model ranked above and "+
+			"below the true leave without feeding them back, to test whether imputed weights are in the "+
+			"right order. Uses the answer to choose where to look, so diagnostic only.")
+		probeTop   = flag.Int("probe-top", 10, "with -probe: highest-weighted unmeasured leaves above the truth to measure")
+		probeAbove = flag.Int("probe-above", 15, "with -probe: further leaves drawn uniformly from above the truth")
+		probeBelow = flag.Int("probe-below", 15, "with -probe: leaves drawn uniformly from below the truth")
 		forceTruth = flag.Bool("force-truth", false, "measure the leave the opponent really held, whether "+
 			"or not the proposal would have found it. Uses the answer, so it is a diagnostic only: it says "+
 			"whether a bad read is the model mis-scoring the true leave or never looking at it. A decoy "+
@@ -253,6 +265,8 @@ func main() {
 						maxLeaves: *maxLeaves, threads: *inferThread, trace: *trace,
 						seed: seedNum, seedMode: seedMode, rep: rep,
 						proposal: mode, floor: *floor, forceTruth: *forceTruth,
+						lambda: *impLambda, calibShrink: *calibShrink,
+						probe: *probe, probeTop: *probeTop, probeAbove: *probeAbove, probeBelow: *probeBelow,
 					})
 					writeMu.Lock()
 					if err := enc.Encode(rec); err != nil {
@@ -291,6 +305,9 @@ type replayOpts struct {
 	proposal                                     rangefinder.ProposalMode
 	floor                                        float64
 	forceTruth                                   bool
+	lambda, calibShrink                          float64
+	probe                                        bool
+	probeTop, probeAbove, probeBelow             int
 }
 
 // seedFromGameID recovers the seed a paired run gave a game. The ID is
@@ -386,6 +403,12 @@ func replay(pos *automatic.CorpusPosition, calcs []equity.EquityCalculator,
 	rf.SetTracing(o.trace)
 	rf.SetProposalMode(o.proposal)
 	rf.SetExplorationFloor(o.floor)
+	if o.lambda > 0 {
+		rf.SetImputationLambda(o.lambda)
+	}
+	if o.calibShrink >= 0 {
+		rf.SetCalibrationShrink(o.calibShrink)
+	}
 
 	rec.Seed = o.seed + uint64(o.rep)
 	rec.Proposal = []string{"posterior", "prior", "floor"}[o.proposal]
@@ -422,6 +445,15 @@ func replay(pos *automatic.CorpusPosition, calcs []equity.EquityCalculator,
 	rec.ElapsedMS = time.Since(started).Milliseconds()
 
 	score := rf.ScoreLeave(truthTiles)
+	if o.probe {
+		pr, err := rf.ProbeOrdering(ctx, truthTiles, o.probeTop, o.probeAbove, o.probeBelow,
+			int64(o.seed)+int64(o.rep)+int64(pos.Turn)*7919)
+		if err != nil {
+			rec.Err = "probe: " + err.Error()
+		} else {
+			rec.Probe = pr
+		}
+	}
 	if decoyTiles != nil {
 		d := rf.ScoreLeave(decoyTiles)
 		rec.DecoyLiftBits = nullFloat(d.LiftBits)

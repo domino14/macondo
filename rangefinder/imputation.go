@@ -752,11 +752,39 @@ func calibrateLogConstant(measured map[string]*measuredLeave, k int,
 // into cross-fitting folds; it is used only to calibrate (see
 // calibrateLogConstant). The imputed likelihoods themselves always come from
 // the full-data model.
+// imputationTuning holds the knobs a caller may vary. The zero value means the
+// engine's own settings.
+type imputationTuning struct {
+	// lambda is the shrinkage pseudo-count; 0 means imputationLambda. Larger
+	// values pull thin terms harder toward "no effect", which trades the
+	// variance of a term estimated from few samples against its bias.
+	lambda float64
+	// calibShrink scales how far the calibration constant moves from the
+	// in-sample fit toward the cross-fitted one: 1 is the cross-fitted
+	// constant the engine uses, 0 the in-sample constant, and values between
+	// interpolate. The constant multiplies every imputed leave alike, so it
+	// changes how imputed leaves weigh against measured ones without
+	// disturbing their order among themselves.
+	calibShrink float64
+	calibSet    bool
+}
+
 func imputeFullPosterior(bagMap []uint8, k int, acc *subleaveAccumulator,
 	foldAccs []*subleaveAccumulator, measured map[string]*measuredLeave,
 	threads int) *imputationResult {
+	return imputeFullPosteriorTuned(bagMap, k, acc, foldAccs, measured, threads,
+		imputationTuning{})
+}
 
-	mod := buildImputationModel(acc, imputationLambda, maxAbsLogLift, maxAbsInteraction)
+func imputeFullPosteriorTuned(bagMap []uint8, k int, acc *subleaveAccumulator,
+	foldAccs []*subleaveAccumulator, measured map[string]*measuredLeave,
+	threads int, tune imputationTuning) *imputationResult {
+
+	lambda := tune.lambda
+	if lambda <= 0 {
+		lambda = imputationLambda
+	}
+	mod := buildImputationModel(acc, lambda, maxAbsLogLift, maxAbsInteraction)
 
 	foldModels := make([]*imputationModel, 0, len(foldAccs))
 	for _, fa := range foldAccs {
@@ -764,6 +792,11 @@ func imputeFullPosterior(bagMap []uint8, k int, acc *subleaveAccumulator,
 			acc.minus(fa), imputationLambda, maxAbsLogLift, maxAbsInteraction))
 	}
 	logCalib, logCalibInSample := calibrateLogConstant(measured, k, mod, foldModels)
+	if tune.calibSet {
+		// Interpolate between the two fits rather than choosing one, so the
+		// correction can be softened without giving it up.
+		logCalib = logCalibInSample + tune.calibShrink*(logCalib-logCalibInSample)
+	}
 
 	N := 0
 	for _, c := range bagMap {
