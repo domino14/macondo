@@ -8,7 +8,9 @@ Scripts that read `inferlab` JSONL. Each takes file paths.
 - `compare.py base.jsonl v1.jsonl ...` — several runs over the same positions:
   outcome per variant and paired gains against the first.
 - `bylen.py base.jsonl variant.jsonl` — the paired gain broken down by leave
-  length, for judging a global change everywhere it applies.
+  length, for judging a global change everywhere it applies. Pass `logged` as
+  the base to compare against the run the positions came from: a replay with
+  `-seed original` reproduces it exactly, so it never needs replaying.
 - `ordering.py run.jsonl` — one `-probe` run: is the imputed posterior in the
   right order around the true leave.
 - `ordercmp.py a.jsonl b.jsonl ...` — the ordering diagnostics side by side.
