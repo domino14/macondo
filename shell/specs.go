@@ -190,7 +190,8 @@ func init() {
 		Options: []Option{
 			{Name: "threads", Type: OptInt},
 			{Name: "time", Type: OptInt},
-			{Name: "tau", Type: OptFloat},
+			{Name: "tau", Type: OptFloat,
+				Help: "pin the inference softmax temperature for the whole game (default: by phase, rising as the bag empties)"},
 
 			{Name: "inferenceiters", Type: OptInt},
 			{Name: "maxleaves", Type: OptInt},
@@ -308,8 +309,10 @@ func init() {
 			{Name: "outputdir", Type: OptString, Help: "directory for the output files"},
 			{Name: "simthreads1", Type: OptInt, Help: "threads for player 1's sim; must be 1 for game pairs"},
 			{Name: "simthreads2", Type: OptInt, Help: "threads for player 2's sim; must be 1 for game pairs"},
-			{Name: "tau1", Type: OptFloat, Help: "player 1 inference softmax temperature"},
-			{Name: "tau2", Type: OptFloat, Help: "player 2 inference softmax temperature"},
+			{Name: "tau1", Type: OptFloat,
+				Help: "player 1: pin the inference softmax temperature for the whole game (default: by phase, rising as the bag empties)"},
+			{Name: "tau2", Type: OptFloat,
+				Help: "player 2: pin the inference softmax temperature for the whole game (default: by phase, rising as the bag empties)"},
 			{Name: "inferencetime1", Type: OptInt},
 			{Name: "inferencetime2", Type: OptInt},
 			{Name: "inferenceiters1", Type: OptInt},

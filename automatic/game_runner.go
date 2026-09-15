@@ -79,12 +79,15 @@ type AutomaticRunnerPlayer struct {
 	MinSimPlies          int
 	SimThreads           int
 	StochasticStaticEval bool
-	InferenceTau                float64
-	InferenceTimeSecs           int
-	InferenceSimIters           int
+	// InferenceTau pins the softmax temperature for P(play | leave). Leave it
+	// zero to get the engine's schedule, which raises the temperature as the bag
+	// empties; a value here applies to the whole game.
+	InferenceTau                 float64
+	InferenceTimeSecs            int
+	InferenceSimIters            int
 	InferenceMaxEnumeratedLeaves int
-	InferenceBudget             int
-	OracleInference             bool
+	InferenceBudget              int
+	OracleInference              bool
 }
 
 // Init initializes the runner
@@ -122,18 +125,18 @@ func (r *GameRunner) Init(players []AutomaticRunnerPlayer) error {
 		log.Info().Msgf("botcode %v", botcode)
 
 		conf := &bot.BotConfig{
-			Config:               *r.config,
-			PEGAdjustmentFile:    pegfile,
-			LeavesFile:           leavefile,
-			MinSimPlies:          players[idx].MinSimPlies,
-			SimThreads:           players[idx].SimThreads,
-			StochasticStaticEval: players[idx].StochasticStaticEval,
-			InferenceTau:                players[idx].InferenceTau,
-			InferenceTimeSecs:           players[idx].InferenceTimeSecs,
-			InferenceSimIters:           players[idx].InferenceSimIters,
+			Config:                       *r.config,
+			PEGAdjustmentFile:            pegfile,
+			LeavesFile:                   leavefile,
+			MinSimPlies:                  players[idx].MinSimPlies,
+			SimThreads:                   players[idx].SimThreads,
+			StochasticStaticEval:         players[idx].StochasticStaticEval,
+			InferenceTau:                 players[idx].InferenceTau,
+			InferenceTimeSecs:            players[idx].InferenceTimeSecs,
+			InferenceSimIters:            players[idx].InferenceSimIters,
 			InferenceMaxEnumeratedLeaves: players[idx].InferenceMaxEnumeratedLeaves,
-			InferenceBudget:             players[idx].InferenceBudget,
-			OracleInference:             players[idx].OracleInference,
+			InferenceBudget:              players[idx].InferenceBudget,
+			OracleInference:              players[idx].OracleInference,
 		}
 
 		btp, err := bot.NewBotTurnPlayerFromGame(r.game, conf, botcode)
