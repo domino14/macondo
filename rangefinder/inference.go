@@ -40,7 +40,8 @@ var ErrNoInformation = errors.New("not enough information to infer")
 const (
 	// SoftmaxTemperature controls how "rational" we assume the opponent to be
 	// when computing P(play | leave). Lower values assume near-optimal play;
-	// higher values allow more weight for sub-optimal plays.
+	// higher values allow more weight for sub-optimal plays. This is the
+	// early-game value; tauForBag raises it as the bag empties.
 	// Softmax is applied over log-odds of win probabilities, so tau is on the
 	// log-odds scale. Typical positions (20%-80% win prob) span roughly [-1.4, 1.4];
 	// strongly won/lost positions (5%-95%) reach about [-3, 3].
@@ -221,6 +222,9 @@ type RangeFinder struct {
 	// Lower values assume the opponent plays more optimally. Defaults to
 	// SoftmaxTemperature if not set explicitly.
 	tau float64
+	// phaseTau is the schedule's temperature for the current position, used
+	// when tau was not pinned; see tauForBag.
+	phaseTau float64
 	// simIters is the max mini-sim iterations per rack candidate.
 	// 0 means use the SimpleSimmer default (200).
 	simIters int
@@ -310,11 +314,40 @@ func (r *RangeFinder) SetTau(tau float64) {
 	r.tau = tau
 }
 
+// Tau is the softmax temperature in use: the value SetTau pinned, or else
+// the phase schedule for the position PrepareFinder was given.
 func (r *RangeFinder) Tau() float64 {
-	if r.tau == 0 {
-		return SoftmaxTemperature
+	if r.tau != 0 {
+		return r.tau
 	}
-	return r.tau
+	if r.phaseTau != 0 {
+		return r.phaseTau
+	}
+	return SoftmaxTemperature
+}
+
+// tauForBag is the softmax temperature for a position with this many tiles
+// left in the bag, when none was pinned.
+//
+// The temperature says how far the opponent's actual play is trusted to be
+// the mini-sim's best one. Early in the game it should be: replayed over an
+// independent 5,000-pair run, 0.1 loses a quarter of a bit against 0.05 on
+// one-to-four-tile leaves with 21 or more in the bag, and 0.026 is no better.
+// Later it should not. With 8 to 20 in the bag, 0.1 gains two thirds of a bit;
+// with 7 or fewer, 0.3 gains three and a half, and takes the leaves ruled out
+// entirely from 7 to 1 in 143 positions -- at 0.05 a play the mini-sim did not
+// rank first gets almost no likelihood, and in the pre-endgame the play a
+// 5-ply bot makes is the one a 2-ply mini-sim ranks first least often. 0.92,
+// what an MLE fit on real games found for that phase, measures the same as
+// 0.3 there, so the schedule takes the value nearer the rest of it.
+func tauForBag(bag int) float64 {
+	switch {
+	case bag <= 7:
+		return 0.3
+	case bag <= 20:
+		return 0.1
+	}
+	return SoftmaxTemperature
 }
 
 // SetMaxRounds sets how many measure–impute–recalibrate rounds run after the
@@ -449,6 +482,7 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 	if r.origGame.Bag().TilesRemaining() == 0 {
 		return ErrBagEmpty
 	}
+	r.phaseTau = tauForBag(r.origGame.Bag().TilesRemaining())
 
 	oppEvtIdx := len(evts) - 1
 	oppIdx := evts[oppEvtIdx].PlayerIndex

@@ -378,3 +378,30 @@ func TestInferSingle(t *testing.T) {
 	_, err = rangeFinder.inferSingle(0, 0, nil)
 	is.NoErr(err)
 }
+
+// The temperature follows the bag unless something pinned it. The boundaries
+// are the ones the replays were cut on.
+func TestTauSchedule(t *testing.T) {
+	for _, tc := range []struct {
+		bag  int
+		want float64
+	}{
+		{0, 0.3}, {7, 0.3}, {8, 0.1}, {20, 0.1}, {21, SoftmaxTemperature}, {86, SoftmaxTemperature},
+	} {
+		if got := tauForBag(tc.bag); got != tc.want {
+			t.Fatalf("bag %d: tau %v, want %v", tc.bag, got, tc.want)
+		}
+	}
+	r := &RangeFinder{}
+	if r.Tau() != SoftmaxTemperature {
+		t.Fatalf("nothing set: %v", r.Tau())
+	}
+	r.phaseTau = tauForBag(3)
+	if r.Tau() != 0.3 {
+		t.Fatalf("schedule: %v", r.Tau())
+	}
+	r.SetTau(0.05)
+	if r.Tau() != 0.05 {
+		t.Fatalf("pinned value must win over the schedule: %v", r.Tau())
+	}
+}
