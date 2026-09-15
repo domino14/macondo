@@ -79,6 +79,12 @@ type PairedResult struct {
 	// ExactTies counts pairs whose two margins cancel to zero.
 	ExactTies int
 
+	// Swept, Split and Lost count pairs where bot 1 won both games, one each,
+	// and neither -- the plainest statement of a paired result, since the
+	// pairs that split are the ones tile luck decided. WithDraw counts pairs
+	// with a drawn game in them, which fit none of the three.
+	Swept, Split, Lost, WithDraw int
+
 	// Margin is bot 1's score margin summed over a pair's two games, one
 	// observation per pair. Halve it for a per-game figure.
 	Margin *stats.Statistic
@@ -170,6 +176,16 @@ func buildPairedResult(halves map[int][]pairHalf, order []int, naiveSE float64) 
 		winShare := (h[0].winShare + h[1].winShare) / 2
 		p.WinShare.Push(winShare)
 		winDiffs = append(winDiffs, winShare-0.5)
+		switch {
+		case h[0].winShare == 0.5 || h[1].winShare == 0.5:
+			p.WithDraw++
+		case winShare == 1:
+			p.Swept++
+		case winShare == 0:
+			p.Lost++
+		default:
+			p.Split++
+		}
 
 		firstHalves = append(firstHalves, h[0].margin)
 		secondHalves = append(secondHalves, h[1].margin)
@@ -437,6 +453,14 @@ func formatPaired(p *PairedResult, p1name, p2name string) string {
 	b.WriteString("\nGame pairs\n")
 	fmt.Fprintf(&b, "  %d pairs (%d games), %d divergent, %d exact ties\n",
 		p.Pairs, 2*p.Pairs, p.Divergent, p.ExactTies)
+	fmt.Fprintf(&b, "  %s won both games in %d pairs (%.1f%%), split %d (%.1f%%), lost both in %d (%.1f%%)",
+		p1name, p.Swept, 100*float64(p.Swept)/float64(p.Pairs),
+		p.Split, 100*float64(p.Split)/float64(p.Pairs),
+		p.Lost, 100*float64(p.Lost)/float64(p.Pairs))
+	if p.WithDraw > 0 {
+		fmt.Fprintf(&b, "; %d pair(s) had a drawn game", p.WithDraw)
+	}
+	fmt.Fprintf(&b, "\n  net %+d pairs swept over lost\n", p.Swept-p.Lost)
 	if p.Incomplete > 0 {
 		fmt.Fprintf(&b, "  %d incomplete pair(s) left out\n", p.Incomplete)
 	}
