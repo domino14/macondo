@@ -874,12 +874,11 @@ type imputationTuning struct {
 // model would otherwise take for structure: on six-tile leaves lambda 100
 // gains three bits, and the gain plateaus out to 300 before the model goes flat
 // by 1000. Measured over the same positions with the same draws, so the
-// difference is the constant. Five-tile leaves lean the same way as six --
-// +0.29 bits at 100 over 215 positions -- but the interval touches zero and
-// the median position is slightly worse, so they keep the lower value until
-// that is a demonstration rather than a lean.
+// difference is the constant. Five-tile leaves follow six: +0.29 bits at 100
+// on the run the value was tuned on (interval touching zero) and +0.51
+// [+0.14, +0.92] on an independent 5,000-pair run, pooled about +0.4.
 func imputationLambdaFor(k int) float64 {
-	if k >= 6 {
+	if k >= 5 {
 		return 100
 	}
 	return imputationLambda
