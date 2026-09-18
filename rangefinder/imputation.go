@@ -1049,7 +1049,6 @@ func fitValueTerm(mod *imputationModel, measured map[string]*measuredLeave,
 	mod.beta = sxy / sxx
 }
 
-
 func imputeFullPosterior(bagMap []uint8, k int, acc *subleaveAccumulator,
 	foldAccs []*subleaveAccumulator, measured map[string]*measuredLeave,
 	threads int) *imputationResult {
