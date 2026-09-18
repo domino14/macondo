@@ -483,6 +483,7 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 		return ErrBagEmpty
 	}
 	r.phaseTau = tauForBag(r.origGame.Bag().TilesRemaining())
+	r.tuning.valueOf = r.leaveValueFunc()
 
 	oppEvtIdx := len(evts) - 1
 	oppIdx := evts[oppEvtIdx].PlayerIndex
@@ -1224,3 +1225,35 @@ func (r *RangeFinder) SetCalibrationShrink(s float64) {
 // lets the model carry four-way interactions, which is where a six-tile
 // leave's bingo structure lives. Pass 0 for the engine's rule.
 func (r *RangeFinder) SetMaxMarginalOrder(m int) { r.tuning.maxOrder = m }
+
+// SetValueTerm adds the static leave value to the imputation, or removes it.
+// The idea is the collaborator's: a player who lays down one tile has given
+// up points to keep six, so the leave they kept is likely a strong one, and
+// the leave table already knows which leaves are strong. See ValueMode.
+func (r *RangeFinder) SetValueTerm(m ValueMode) { r.tuning.valueMode = m }
+
+// leaveValueFunc returns a function scoring a leave (as tile runs) with the
+// static leave value, or nil when no calculator here can.
+func (r *RangeFinder) leaveValueFunc() func([]tileRun) float64 {
+	type valuer interface {
+		LeaveValue(leave tilemapping.MachineWord) float64
+	}
+	for _, c := range r.equityCalculators {
+		lv, ok := c.(valuer)
+		if !ok {
+			continue
+		}
+		return func(runs []tileRun) float64 {
+			var buf [8]tilemapping.MachineLetter
+			n := 0
+			for _, ru := range runs {
+				for k := 0; k < ru.c && n < len(buf); k++ {
+					buf[n] = ru.t
+					n++
+				}
+			}
+			return lv.LeaveValue(tilemapping.MachineWord(buf[:n]))
+		}
+	}
+	return nil
+}

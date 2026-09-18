@@ -71,6 +71,9 @@ type RoundRecord struct {
 	// MeasuredMass is the share of posterior mass on measured leaves after
 	// the refit.
 	MeasuredMass float64
+	// ValueBeta is the leave-value term's slope after the refit, in nats per
+	// point of static leave value; 0 when the term is off.
+	ValueBeta float64
 }
 
 // InferenceTrace is the record of one inference's draws and rounds.
@@ -115,6 +118,7 @@ func (r *RangeFinder) traceRound(rec RoundRecord) {
 		rec.LogCalib = res.logCalib
 		rec.LogCalibInSample = res.logCalibInSample
 		rec.MeasuredMass = res.measuredMass
+		rec.ValueBeta = res.valueBeta
 	}
 	r.trace.Rounds = append(r.trace.Rounds, rec)
 }

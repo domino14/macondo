@@ -826,3 +826,41 @@ func TestForSubMultisetsAndOrder4Index(t *testing.T) {
 		}
 	}
 }
+
+// The leave-value term has to recover a slope that is really there. Leaves are
+// scored by a made-up value, likelihoods are set to follow it exactly, and the
+// fit -- with the sub-multiset terms switched off so nothing else can absorb
+// it -- must return that slope.
+func TestValueTermRecoversPlantedSlope(t *testing.T) {
+	value := func(runs []tileRun) float64 {
+		v := 0.0
+		for _, r := range runs {
+			v += float64(r.t) * float64(r.c) // sum of tile indices
+		}
+		return v
+	}
+	const beta = 0.37
+	acc := newSubleaveAccumulator(6, 2)
+	measured := map[string]*measuredLeave{}
+	leaves := [][]tilemapping.MachineLetter{
+		mls(1, 2, 3), mls(1, 1, 4), mls(2, 3, 5), mls(0, 4, 5), mls(1, 3, 5), mls(2, 2, 4), mls(0, 1, 5),
+	}
+	for _, l := range leaves {
+		w := math.Exp(beta * value(runsOf(l, nil)))
+		acc.record(l, w, 1)
+		measured[leaveKey(l)] = &measuredLeave{sumW: w, count: 1, sumU: 1}
+	}
+	mod := buildImputationModel(acc, imputationLambda, maxAbsLogLift, maxAbsInteraction)
+	fitValueTerm(mod, measured, value, true /* value only */, -1, 0)
+	if math.Abs(mod.beta-beta) > 1e-9 {
+		t.Fatalf("beta = %v, want %v", mod.beta, beta)
+	}
+	// And with the term on, an unmeasured leave's imputed log-likelihood is
+	// the slope times its centered value, nothing else.
+	l := mls(0, 2, 4)
+	runs := runsOf(l, nil)
+	want := beta * (value(runs) - mod.vbar)
+	if got := mod.logImputed(runs); math.Abs(got-want) > 1e-9 {
+		t.Fatalf("logImputed = %v, want %v", got, want)
+	}
+}

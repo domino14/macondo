@@ -320,6 +320,15 @@ type imputationModel struct {
 	lambda     float64
 	clampLift  float64
 	clampInter float64
+
+	// A leave-value term: log ℓ̂ gains beta·(v(L) − vbar), with v the static
+	// leave value. One parameter fit on every measured leaf, where the
+	// sub-multiset terms are thousands fit on a few each. marginals false
+	// drops the sub-multiset terms entirely, leaving the value alone.
+	valueOf   func(runs []tileRun) float64
+	beta      float64
+	vbar      float64
+	marginals bool
 }
 
 func clampAbs(x, bound float64) float64 {
@@ -340,6 +349,7 @@ func buildImputationModel(acc *subleaveAccumulator, lambda, clampLift, clampInte
 	mod := &imputationModel{
 		alphaSize:  A,
 		maxOrder:   acc.maxOrder,
+		marginals:  true,
 		phi1:       make([]float64, A),
 		unc1:       make([]float64, A),
 		lambda:     lambda,
@@ -526,9 +536,14 @@ func fillUnobserved(unc, wt []float64, sigma0 float64) {
 // the two in sync.
 func (mod *imputationModel) logImputed(runs []tileRun) float64 {
 	s := 0.0
-	mod.walkSubleaves(runs, func(order, idx int) {
-		s += mod.phiAt(order, idx)
-	})
+	if mod.marginals {
+		mod.walkSubleaves(runs, func(order, idx int) {
+			s += mod.phiAt(order, idx)
+		})
+	}
+	if mod.valueOf != nil && mod.beta != 0 {
+		s += mod.beta * (mod.valueOf(runs) - mod.vbar)
+	}
 	return s
 }
 
@@ -733,6 +748,8 @@ type imputationResult struct {
 	// measures how much the lifts are fitting their own samples.
 	logCalibInSample float64
 	crossFitted      bool
+	// valueBeta is the leave-value term's slope, 0 when the term is off.
+	valueBeta float64
 }
 
 // tileArena hands out small tile slices carved from large chunks, avoiding
@@ -862,6 +879,83 @@ type imputationTuning struct {
 	calibSet    bool
 	// maxOrder caps the sub-leave expansion; 0 means marginalOrder's rule.
 	maxOrder int
+	// valueMode adds a static-leave-value term to the imputation; see
+	// RangeFinder.SetValueTerm. valueOf supplies the values.
+	valueMode ValueMode
+	valueOf   func(runs []tileRun) float64
+}
+
+// ValueMode says whether, and how, the static leave value enters the
+// imputation.
+type ValueMode int
+
+const (
+	// ValueOff is the sub-multiset expansion alone.
+	ValueOff ValueMode = iota
+	// ValueResidual adds beta·(v(L) − vbar) on top of the expansion, beta fit
+	// to what the expansion leaves unexplained on the measured leaves.
+	ValueResidual
+	// ValueOnly replaces the expansion with the value term: the smallest
+	// model there is, one slope fit on every measured leaf.
+	ValueOnly
+)
+
+// fitValueTerm gives mod a leave-value term fit on the measured leaves, by
+// weighted least squares of the residual log-likelihood on the centered value.
+// Leaves in fold excl (when nFolds > 0) are left out, so a fold-complement
+// model has never seen the leaves it is calibrated against. Zero-likelihood
+// leaves cannot enter a log regression and are skipped, as the calibration
+// constant skips them.
+func fitValueTerm(mod *imputationModel, measured map[string]*measuredLeave,
+	valueOf func([]tileRun) float64, only bool, excl, nFolds int) {
+
+	mod.valueOf = valueOf
+	mod.marginals = !only
+	mod.beta, mod.vbar = 0, 0
+
+	var runBuf []tileRun
+	tiles := make([]tilemapping.MachineLetter, 0, 8)
+	var sumU, sumUV, sumUR float64
+	type pt struct{ u, v, r float64 }
+	var pts []pt
+	for key, ml := range measured {
+		if nFolds > 0 && foldForKey(key, nFolds) == excl {
+			continue
+		}
+		w := ml.mean()
+		if w <= 0 || ml.sumU <= 0 {
+			continue
+		}
+		tiles = tiles[:0]
+		for i := 0; i < len(key); i++ {
+			tiles = append(tiles, tilemapping.MachineLetter(key[i]))
+		}
+		runBuf = runsOf(tiles, runBuf)
+		base := 0.0
+		if !only {
+			mod.walkSubleaves(runBuf, func(order, idx int) { base += mod.phiAt(order, idx) })
+		}
+		v := valueOf(runBuf)
+		r := math.Log(w) - base
+		pts = append(pts, pt{ml.sumU, v, r})
+		sumU += ml.sumU
+		sumUV += ml.sumU * v
+		sumUR += ml.sumU * r
+	}
+	if len(pts) < 3 || sumU <= 0 {
+		return
+	}
+	vbar, rbar := sumUV/sumU, sumUR/sumU
+	var sxy, sxx float64
+	for _, p := range pts {
+		sxy += p.u * (p.v - vbar) * (p.r - rbar)
+		sxx += p.u * (p.v - vbar) * (p.v - vbar)
+	}
+	if sxx <= 0 {
+		return
+	}
+	mod.vbar = vbar
+	mod.beta = sxy / sxx
 }
 
 // imputationLambdaFor is the shrinkage pseudo-count for a k-tile leave. One
@@ -895,11 +989,19 @@ func imputeFullPosteriorTuned(bagMap []uint8, k int, acc *subleaveAccumulator,
 		lambda = imputationLambdaFor(k)
 	}
 	mod := buildImputationModel(acc, lambda, maxAbsLogLift, maxAbsInteraction)
+	if tune.valueMode != ValueOff && tune.valueOf != nil {
+		fitValueTerm(mod, measured, tune.valueOf, tune.valueMode == ValueOnly, -1, 0)
+	}
 
 	foldModels := make([]*imputationModel, 0, len(foldAccs))
-	for _, fa := range foldAccs {
-		foldModels = append(foldModels, buildImputationModel(
-			acc.minus(fa), imputationLambda, maxAbsLogLift, maxAbsInteraction))
+	for i, fa := range foldAccs {
+		fm := buildImputationModel(acc.minus(fa), lambda, maxAbsLogLift, maxAbsInteraction)
+		if tune.valueMode != ValueOff && tune.valueOf != nil {
+			// Fit without this fold's leaves, so the constant calibrated
+			// against them is calibrated against leaves the model never saw.
+			fitValueTerm(fm, measured, tune.valueOf, tune.valueMode == ValueOnly, i, len(foldAccs))
+		}
+		foldModels = append(foldModels, fm)
 	}
 	logCalib, logCalibInSample := calibrateLogConstant(measured, k, mod, foldModels)
 	if tune.calibSet {
@@ -1037,6 +1139,7 @@ func imputeFullPosteriorTuned(bagMap []uint8, k int, acc *subleaveAccumulator,
 		model:            mod,
 		logCalib:         logCalib,
 		logCalibInSample: logCalibInSample,
+		valueBeta:        mod.beta,
 		crossFitted:      len(foldModels) > 0,
 		maxLogW:          maxLogW,
 	}
