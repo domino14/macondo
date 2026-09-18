@@ -2,6 +2,7 @@ package dataloaders
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -117,4 +118,28 @@ func TestOwnPublishedLeavesBeatBorrowing(t *testing.T) {
 	}
 	is.Equal(read("CSW15"), "csw15") // its own, fetched
 	is.Equal(read("CSW12"), "csw24") // none published; borrows CSW24's
+}
+
+// TestEnsureOwnLeaves separates the three answers a careful caller needs: the
+// leaves are here, none are published (borrowing is fine), or they are
+// published but could not be had (borrowing is not).
+func TestEnsureOwnLeaves(t *testing.T) {
+	is := is.New(t)
+	defer func(orig func(string, *wglconfig.Config) error) { fetchLeaves = orig }(fetchLeaves)
+
+	cfg := &wglconfig.Config{DataPath: t.TempDir()}
+	is.NoErr(os.MkdirAll(LexiconDataPath(cfg), 0o755))
+	is.NoErr(os.WriteFile(filepath.Join(LexiconDataPath(cfg), "CSW24.klv2"), []byte("csw24"), 0o644))
+
+	offline := errors.New("network down")
+	fetchLeaves = func(name string, _ *wglconfig.Config) error {
+		if name == "CSW15.klv2" {
+			return offline
+		}
+		return ErrNotPublished
+	}
+	is.NoErr(EnsureOwnLeaves(cfg, "", "CSW24"))                            // on disk
+	is.True(errors.Is(EnsureOwnLeaves(cfg, "", "CSW12"), ErrNotPublished)) // none to get
+	is.True(errors.Is(EnsureOwnLeaves(cfg, "", "CSW15"), offline))         // published, unreachable
+	is.NoErr(EnsureOwnLeaves(cfg, "leavesv80i.klv2", "CSW21"))             // explicit file
 }

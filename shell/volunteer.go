@@ -2,6 +2,7 @@ package shell
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -9,7 +10,9 @@ import (
 	"github.com/rs/zerolog/log"
 	"google.golang.org/protobuf/encoding/protojson"
 
+	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/dataloaders"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/gameanalysis"
 	"github.com/domino14/macondo/worker"
@@ -231,6 +234,18 @@ func (sc *ShellController) processVolunteerJob(client *worker.WooglesClient, job
 		game.CrossScoreAndSet, variant)
 	if err != nil {
 		return fmt.Errorf("failed to build rules for validation: %w", err)
+	}
+	// Refuse to analyze with a relative's leaves when this lexicon has its own:
+	// a finished analysis can't be redone, so a borrowed-leaves result would be
+	// wrong for good. Returning an error without FailJob hands the job back to
+	// be retried, here or on another worker.
+	leaveFile := ""
+	if boardLayout == board.SuperCrosswordGameLayout {
+		leaveFile = "super-leaves.klv2"
+	}
+	if err := dataloaders.EnsureOwnLeaves(sc.config.WGLConfig(), leaveFile, lexiconName); err != nil &&
+		!errors.Is(err, dataloaders.ErrNotPublished) {
+		return fmt.Errorf("leaves for %s are published but unavailable: %w", lexiconName, err)
 	}
 	if vErr := validateGameHistory(history, rules.LetterDistribution().TileMapping()); vErr != nil {
 		log.Warn().Err(vErr).Str("game-id", job.GameID).Msg("rejecting corrupt game")
