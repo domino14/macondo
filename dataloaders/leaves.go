@@ -3,6 +3,7 @@ package dataloaders
 import (
 	"errors"
 	"io"
+	"os"
 	"path/filepath"
 	"sync"
 
@@ -143,4 +144,24 @@ func EnsureKLV(name string, cfg *wglconfig.Config) error {
 		name = name[:len(name)-len(LeavesExtension)]
 	}
 	return lexicon.EnsureLexiconFile(name, LeavesExtension, cfg)
+}
+
+// EnsureOwnLeaves makes sure a lexicon's own leave file is on disk, fetching
+// it if it is published and missing. It returns an error wrapping
+// ErrNotPublished when the lexicon has no leaves of its own to get, which
+// callers may accept, and any other error when the leaves exist but could not
+// be had -- in which case a caller that cares which numbers it evaluates with
+// should stop rather than let LeavesFileForLexicon borrow a relative's.
+//
+// Unlike LeavesFileForLexicon it retries the download on every call, so one
+// network blip doesn't leave a long-running worker unable to fetch for good.
+func EnsureOwnLeaves(cfg *wglconfig.Config, leavefile, lexiconName string) error {
+	name, standard := leavesNameFor(leavefile, lexiconName)
+	if !standard {
+		return nil // an explicit experiment file; nothing to borrow in its place
+	}
+	if _, err := os.Stat(filepath.Join(LexiconDataPath(cfg), name)); err == nil {
+		return nil
+	}
+	return fetchLeaves(name, cfg)
 }
