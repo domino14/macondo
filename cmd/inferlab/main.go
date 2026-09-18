@@ -144,6 +144,7 @@ func main() {
 
 		// How to infer.
 		tau         = flag.Float64("tau", 0, "softmax temperature (0 = engine default)")
+		tauSchedule = flag.Bool("tau-schedule", false, "use the bag-size tau schedule (0.1 at 8-20 in the bag, 0.3 at 7 or fewer) instead of the fixed default")
 		budget      = flag.Int("budget", 200, "leaves to measure")
 		rounds      = flag.Int("rounds", rangefinder.DefaultMaxRefineRounds, "refine rounds")
 		simIters    = flag.Int("simiters", 0, "mini-sim iterations per leaf (0 = default)")
@@ -286,7 +287,7 @@ func main() {
 			for pos := range work {
 				for rep := 0; rep < max(1, *repeat); rep++ {
 					rec := replay(pos, calcs, cfg, *variant, replayOpts{
-						tau: *tau, budget: *budget, rounds: *rounds, simIters: *simIters,
+						tau: *tau, tauSchedule: *tauSchedule, budget: *budget, rounds: *rounds, simIters: *simIters,
 						maxLeaves: *maxLeaves, threads: *inferThread, trace: *trace,
 						seed: seedNum, seedMode: seedMode, rep: rep,
 						proposal: mode, floor: *floor, forceTruth: *forceTruth,
@@ -322,6 +323,7 @@ func main() {
 
 type replayOpts struct {
 	tau                                          float64
+	tauSchedule                                  bool
 	budget, rounds, simIters, maxLeaves, threads int
 	trace                                        bool
 	seed                                         uint64
@@ -422,6 +424,7 @@ func replay(pos *automatic.CorpusPosition, calcs []equity.EquityCalculator,
 	rf.Init(g, calcs, cfg)
 	rf.SetThreads(max(1, o.threads))
 	rf.SetTau(o.tau)
+	rf.SetTauSchedule(o.tauSchedule)
 	rf.SetBudget(o.budget)
 	rf.SetMaxRounds(o.rounds)
 	rf.SetMaxEnumeratedLeaves(o.maxLeaves)

@@ -80,8 +80,8 @@ type AutomaticRunnerPlayer struct {
 	SimThreads           int
 	StochasticStaticEval bool
 	// InferenceTau pins the softmax temperature for P(play | leave). Leave it
-	// zero to get the engine's schedule, which raises the temperature as the bag
-	// empties; a value here applies to the whole game.
+	// zero for the engine default (SoftmaxTemperature); a value here applies to
+	// the whole game.
 	InferenceTau                 float64
 	InferenceTimeSecs            int
 	InferenceSimIters            int

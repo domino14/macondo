@@ -222,8 +222,12 @@ type RangeFinder struct {
 	// Lower values assume the opponent plays more optimally. Defaults to
 	// SoftmaxTemperature if not set explicitly.
 	tau float64
-	// phaseTau is the schedule's temperature for the current position, used
-	// when tau was not pinned; see tauForBag.
+	// tauSchedule turns on the bag-size temperature schedule (tauForBag) for
+	// positions where tau was not pinned. Off by default: the engine runs at a
+	// fixed SoftmaxTemperature until the schedule is tuned as a whole.
+	tauSchedule bool
+	// phaseTau is the schedule's temperature for the current position, set
+	// by PrepareFinder when tauSchedule is on and tau was not pinned.
 	phaseTau float64
 	// simIters is the max mini-sim iterations per rack candidate.
 	// 0 means use the SimpleSimmer default (200).
@@ -326,8 +330,23 @@ func (r *RangeFinder) Tau() float64 {
 	return SoftmaxTemperature
 }
 
+// SetTauSchedule turns the bag-size temperature schedule on or off. A pinned
+// tau wins over the schedule either way.
+func (r *RangeFinder) SetTauSchedule(on bool) {
+	r.tauSchedule = on
+}
+
+// scheduleTau sets the schedule's temperature for a position with this many
+// tiles left in the bag: tauForBag when the schedule is on, nothing otherwise.
+func (r *RangeFinder) scheduleTau(bag int) {
+	r.phaseTau = 0
+	if r.tauSchedule {
+		r.phaseTau = tauForBag(bag)
+	}
+}
+
 // tauForBag is the softmax temperature for a position with this many tiles
-// left in the bag, when none was pinned.
+// left in the bag, when the schedule is on and none was pinned.
 //
 // The temperature says how far the opponent's actual play is trusted to be
 // the mini-sim's best one. Early in the game it should be: replayed over an
@@ -482,7 +501,7 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 	if r.origGame.Bag().TilesRemaining() == 0 {
 		return ErrBagEmpty
 	}
-	r.phaseTau = tauForBag(r.origGame.Bag().TilesRemaining())
+	r.scheduleTau(r.origGame.Bag().TilesRemaining())
 	r.tuning.valueOf = r.leaveValueFunc()
 
 	oppEvtIdx := len(evts) - 1

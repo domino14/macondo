@@ -191,7 +191,7 @@ func init() {
 			{Name: "threads", Type: OptInt},
 			{Name: "time", Type: OptInt},
 			{Name: "tau", Type: OptFloat,
-				Help: "pin the inference softmax temperature for the whole game (default: by phase, rising as the bag empties)"},
+				Help: "pin the inference softmax temperature for the whole game (default 0.05)"},
 
 			{Name: "inferenceiters", Type: OptInt},
 			{Name: "maxleaves", Type: OptInt},

@@ -396,12 +396,23 @@ func TestTauSchedule(t *testing.T) {
 	if r.Tau() != SoftmaxTemperature {
 		t.Fatalf("nothing set: %v", r.Tau())
 	}
-	r.phaseTau = tauForBag(3)
+	r.scheduleTau(3)
+	if r.Tau() != SoftmaxTemperature {
+		t.Fatalf("the schedule is off by default: %v", r.Tau())
+	}
+	r.SetTauSchedule(true)
+	r.scheduleTau(3)
 	if r.Tau() != 0.3 {
 		t.Fatalf("schedule: %v", r.Tau())
 	}
 	r.SetTau(0.05)
 	if r.Tau() != 0.05 {
 		t.Fatalf("pinned value must win over the schedule: %v", r.Tau())
+	}
+	r.SetTau(0)
+	r.SetTauSchedule(false)
+	r.scheduleTau(3)
+	if r.Tau() != SoftmaxTemperature {
+		t.Fatalf("schedule off again: %v", r.Tau())
 	}
 }
