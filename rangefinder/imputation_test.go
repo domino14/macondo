@@ -899,7 +899,7 @@ func TestValueFirstLeavesNothingForTheMarginals(t *testing.T) {
 // shrinkage that goes with it applies only when the term is in force.
 func TestValueTermByLeaveLength(t *testing.T) {
 	var tune imputationTuning
-	for k, want := range map[int]ValueMode{1: ValueOff, 4: ValueOff, 5: ValueFirst, 6: ValueFirst} {
+	for k, want := range map[int]ValueMode{1: ValueOff, 4: ValueOff, 5: ValueOff, 6: ValueFirst} {
 		if got := effectiveValueMode(tune, k); got != want {
 			t.Fatalf("k=%d: mode %v, want %v", k, got, want)
 		}

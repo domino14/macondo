@@ -1247,10 +1247,10 @@ func (r *RangeFinder) SetMaxMarginalOrder(m int) { r.tuning.maxOrder = m }
 
 // SetValueTerm pins how the static leave value enters the imputation, for
 // every leave length; see ValueMode. Unpinned, the engine uses ValueFirst for
-// leaves of five tiles and up and nothing below, which is where the idea
-// holds: a player who lays down one or two tiles has given up points to keep
-// the rest, so the leave they kept is likely a strong one, and the leave
-// table already knows which leaves are strong.
+// six-tile leaves and nothing below, which is where the idea holds: a player
+// who lays down a single tile has given up points to keep the rest, so the
+// leave they kept is likely a strong one, and the leave table already knows
+// which leaves are strong.
 func (r *RangeFinder) SetValueTerm(m ValueMode) {
 	r.tuning.valueMode = m
 	r.tuning.valueSet = true

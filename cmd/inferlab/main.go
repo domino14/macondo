@@ -158,7 +158,7 @@ func main() {
 		order = flag.Int("order", 0, "cap on the sub-leave expansion order (0 = the engine's rule, "+
 			"ceil(k/2) capped at 3). 4 lets the model carry four-way interactions.")
 		valueTerm = flag.String("value", "auto", "static leave value in the imputation: auto (the engine's "+
-			"rule, value-first at five tiles and up), off, residual "+
+			"rule, value-first at six tiles), off, residual "+
 			"(added on top of the sub-leave terms, slope fit to what they leave unexplained), only "+
 			"(in place of them), or first (value as the baseline, sub-leave terms fit to what it leaves unexplained)")
 		impLambda = flag.Float64("lambda", 0, "imputation shrinkage pseudo-count (0 = the engine's 10). "+

@@ -889,14 +889,16 @@ type imputationTuning struct {
 const (
 	// valueTermMinLeave is the shortest leave the value term applies to by
 	// default. The idea behind the term is length-specific: a player who lays
-	// down one or two tiles has given up points to keep five or six, so the
-	// leave they kept is likely a strong one. Replayed over every leave
-	// length against a finished run, the term is a large gain at six tiles
-	// (+4.3 bits) and five (+2.0), null at four, and a loss at three (-0.5) --
-	// where the fitted slope has a median of +0.002 and is positive in half
-	// of positions: for short leaves there is no slope, and fitting one adds
-	// noise to a model that was working.
-	valueTermMinLeave = 5
+	// down a single tile has given up points to keep the other six, so the
+	// leave they kept is likely a strong one. Replayed at the run's own tau
+	// over every leave length against a finished run, the term is a large
+	// gain at six tiles (+2.8 bits over 206 positions, +4.4 over another 12)
+	// and a loss everywhere else: -0.5 at five (213 positions), -0.3 at
+	// four, -0.5 at three. The fitted slope says why -- +0.07 nats per point
+	// of leave value at six tiles, +0.02 at five, nothing below: for shorter
+	// leaves there is no slope, and fitting one adds noise to a model that
+	// was working.
+	valueTermMinLeave = 6
 
 	// valueFirstLambda is the shrinkage used with the value term. Shrinking
 	// the sub-multiset terms here pulls them toward the value baseline, not
