@@ -894,3 +894,22 @@ func TestValueFirstLeavesNothingForTheMarginals(t *testing.T) {
 		t.Fatalf("logImputed = %v, want %v (the marginals should be flat)", got, want)
 	}
 }
+
+// The value term applies by leave length unless something pinned it, and the
+// shrinkage that goes with it applies only when the term is in force.
+func TestValueTermByLeaveLength(t *testing.T) {
+	var tune imputationTuning
+	for k, want := range map[int]ValueMode{1: ValueOff, 4: ValueOff, 5: ValueFirst, 6: ValueFirst} {
+		if got := effectiveValueMode(tune, k); got != want {
+			t.Fatalf("k=%d: mode %v, want %v", k, got, want)
+		}
+	}
+	tune.valueMode, tune.valueSet = ValueOff, true
+	if got := effectiveValueMode(tune, 6); got != ValueOff {
+		t.Fatalf("pinned off must win: %v", got)
+	}
+	tune.valueMode = ValueOnly
+	if got := effectiveValueMode(tune, 2); got != ValueOnly {
+		t.Fatalf("pinned on must win: %v", got)
+	}
+}

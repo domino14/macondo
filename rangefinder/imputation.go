@@ -882,7 +882,41 @@ type imputationTuning struct {
 	// valueMode adds a static-leave-value term to the imputation; see
 	// RangeFinder.SetValueTerm. valueOf supplies the values.
 	valueMode ValueMode
+	valueSet  bool
 	valueOf   func(runs []tileRun) float64
+}
+
+const (
+	// valueTermMinLeave is the shortest leave the value term applies to by
+	// default. The idea behind the term is length-specific: a player who lays
+	// down one or two tiles has given up points to keep five or six, so the
+	// leave they kept is likely a strong one. Replayed over every leave
+	// length against a finished run, the term is a large gain at six tiles
+	// (+4.3 bits) and five (+2.0), null at four, and a loss at three (-0.5) --
+	// where the fitted slope has a median of +0.002 and is positive in half
+	// of positions: for short leaves there is no slope, and fitting one adds
+	// noise to a model that was working.
+	valueTermMinLeave = 5
+
+	// valueFirstLambda is the shrinkage used with the value term. Shrinking
+	// the sub-multiset terms here pulls them toward the value baseline, not
+	// toward the prior, and over 220 six-tile positions that improves the
+	// ordering and the lift together up to about 30 (head-genuine 31 -> 35%,
+	// rank correlation .524 -> .541, +2.3 -> +4.0 bits); by 100 the ordering
+	// gives way again as the model tends toward the value alone.
+	valueFirstLambda = 30
+)
+
+// effectiveValueMode is the value mode in force for a k-tile leave: what was
+// pinned, or the length rule.
+func effectiveValueMode(tune imputationTuning, k int) ValueMode {
+	if tune.valueSet {
+		return tune.valueMode
+	}
+	if k >= valueTermMinLeave {
+		return ValueFirst
+	}
+	return ValueOff
 }
 
 // ValueMode says whether, and how, the static leave value enters the
@@ -1015,20 +1049,6 @@ func fitValueTerm(mod *imputationModel, measured map[string]*measuredLeave,
 	mod.beta = sxy / sxx
 }
 
-// imputationLambdaFor is the shrinkage pseudo-count for a k-tile leave. One
-// value for now: shrinkage is being tuned last, after the model has whatever
-// structure it is going to have, because it interacts with all of it -- it is
-// what zeroed the fourth-order terms when those were tried. Replayed over two
-// independent runs, 100 gains about three bits on six-tile leaves and half a
-// bit on five-tile ones against 10, and loses a quarter of a bit on three-tile
-// leaves; but what it does is compress the imputed spread toward the prior and
-// lift the tail with it, not reorder, and the head of the imputed posterior
-// still sits above the truth at every value tried. A real fix has to change
-// what the model ranks first. This is where a schedule goes back once there
-// is one.
-func imputationLambdaFor(k int) float64 {
-	return imputationLambda
-}
 
 func imputeFullPosterior(bagMap []uint8, k int, acc *subleaveAccumulator,
 	foldAccs []*subleaveAccumulator, measured map[string]*measuredLeave,
@@ -1041,19 +1061,26 @@ func imputeFullPosteriorTuned(bagMap []uint8, k int, acc *subleaveAccumulator,
 	foldAccs []*subleaveAccumulator, measured map[string]*measuredLeave,
 	threads int, tune imputationTuning) *imputationResult {
 
+	mode := effectiveValueMode(tune, k)
+	if tune.valueOf == nil {
+		mode = ValueOff
+	}
 	lambda := tune.lambda
 	if lambda <= 0 {
-		lambda = imputationLambdaFor(k)
+		lambda = imputationLambda
+		if mode == ValueFirst {
+			lambda = valueFirstLambda
+		}
 	}
-	valueOn := tune.valueMode != ValueOff && tune.valueOf != nil
+	valueOn := mode != ValueOff
 	var mod *imputationModel
-	if valueOn && tune.valueMode == ValueFirst {
+	if valueOn && mode == ValueFirst {
 		mod = valueFirstModel(len(bagMap), acc.maxOrder, measured, tune.valueOf,
 			lambda, maxAbsLogLift, maxAbsInteraction, -1, 0)
 	} else {
 		mod = buildImputationModel(acc, lambda, maxAbsLogLift, maxAbsInteraction)
 		if valueOn {
-			fitValueTerm(mod, measured, tune.valueOf, tune.valueMode == ValueOnly, -1, 0)
+			fitValueTerm(mod, measured, tune.valueOf, mode == ValueOnly, -1, 0)
 		}
 	}
 
@@ -1063,13 +1090,13 @@ func imputeFullPosteriorTuned(bagMap []uint8, k int, acc *subleaveAccumulator,
 		// constant calibrated against them is calibrated against leaves the
 		// model never saw.
 		var fm *imputationModel
-		if valueOn && tune.valueMode == ValueFirst {
+		if valueOn && mode == ValueFirst {
 			fm = valueFirstModel(len(bagMap), acc.maxOrder, measured, tune.valueOf,
 				lambda, maxAbsLogLift, maxAbsInteraction, i, len(foldAccs))
 		} else {
 			fm = buildImputationModel(acc.minus(fa), lambda, maxAbsLogLift, maxAbsInteraction)
 			if valueOn {
-				fitValueTerm(fm, measured, tune.valueOf, tune.valueMode == ValueOnly, i, len(foldAccs))
+				fitValueTerm(fm, measured, tune.valueOf, mode == ValueOnly, i, len(foldAccs))
 			}
 		}
 		foldModels = append(foldModels, fm)

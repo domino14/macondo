@@ -156,7 +156,8 @@ func main() {
 		floor = flag.Float64("floor", 0.25, "share of each round's draws reserved for the prior, with -proposal floor")
 		order = flag.Int("order", 0, "cap on the sub-leave expansion order (0 = the engine's rule, "+
 			"ceil(k/2) capped at 3). 4 lets the model carry four-way interactions.")
-		valueTerm = flag.String("value", "off", "static leave value in the imputation: off, residual "+
+		valueTerm = flag.String("value", "auto", "static leave value in the imputation: auto (the engine's "+
+			"rule, value-first at five tiles and up), off, residual "+
 			"(added on top of the sub-leave terms, slope fit to what they leave unexplained), only "+
 			"(in place of them), or first (value as the baseline, sub-leave terms fit to what it leaves unexplained)")
 		impLambda = flag.Float64("lambda", 0, "imputation shrinkage pseudo-count (0 = the engine's 10). "+
@@ -224,7 +225,10 @@ func main() {
 	}
 
 	var valueMode rangefinder.ValueMode
+	valuePinned := true
 	switch *valueTerm {
+	case "auto":
+		valuePinned = false
 	case "off":
 		valueMode = rangefinder.ValueOff
 	case "residual":
@@ -234,7 +238,7 @@ func main() {
 	case "first":
 		valueMode = rangefinder.ValueFirst
 	default:
-		fmt.Fprintf(os.Stderr, "-value wants off, residual, only or first, not %q\n", *valueTerm)
+		fmt.Fprintf(os.Stderr, "-value wants auto, off, residual, only or first, not %q\n", *valueTerm)
 		os.Exit(2)
 	}
 
@@ -286,7 +290,7 @@ func main() {
 						maxLeaves: *maxLeaves, threads: *inferThread, trace: *trace,
 						seed: seedNum, seedMode: seedMode, rep: rep,
 						proposal: mode, floor: *floor, forceTruth: *forceTruth,
-						lambda: *impLambda, calibShrink: *calibShrink, order: *order, value: valueMode,
+						lambda: *impLambda, calibShrink: *calibShrink, order: *order, value: valueMode, valuePinned: valuePinned,
 						probe: *probe, probeTop: *probeTop, probeAbove: *probeAbove, probeBelow: *probeBelow,
 					})
 					writeMu.Lock()
@@ -329,6 +333,7 @@ type replayOpts struct {
 	lambda, calibShrink                          float64
 	order                                        int
 	value                                        rangefinder.ValueMode
+	valuePinned                                  bool
 	probe                                        bool
 	probeTop, probeAbove, probeBelow             int
 }
@@ -435,7 +440,9 @@ func replay(pos *automatic.CorpusPosition, calcs []equity.EquityCalculator,
 	if o.order > 0 {
 		rf.SetMaxMarginalOrder(o.order)
 	}
-	rf.SetValueTerm(o.value)
+	if o.valuePinned {
+		rf.SetValueTerm(o.value)
+	}
 
 	rec.Seed = o.seed + uint64(o.rep)
 	rec.Proposal = []string{"posterior", "prior", "floor"}[o.proposal]
