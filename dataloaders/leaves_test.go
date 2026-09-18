@@ -9,6 +9,8 @@ import (
 
 	"github.com/matryer/is"
 
+	wglconfig "github.com/domino14/word-golib/config"
+
 	"github.com/domino14/macondo/config"
 )
 
@@ -82,4 +84,37 @@ func TestLeavesFileForLexicon(t *testing.T) {
 				filepath.Base(tc.want), tc.why)
 		}
 	}
+}
+
+// TestOwnPublishedLeavesBeatBorrowing checks that a lexicon with no leaves on
+// disk fetches its own published ones rather than borrowing a relative's that
+// happen to be there -- a worker holding CSW24.klv2 must still get CSW15's.
+func TestOwnPublishedLeavesBeatBorrowing(t *testing.T) {
+	is := is.New(t)
+	defer func(orig func(string, *wglconfig.Config) error) { fetchLeaves = orig }(fetchLeaves)
+
+	cfg := &wglconfig.Config{DataPath: t.TempDir()}
+	dir := LexiconDataPath(cfg)
+	is.NoErr(os.MkdirAll(dir, 0o755))
+	is.NoErr(os.WriteFile(filepath.Join(dir, "CSW24.klv2"), []byte("csw24"), 0o644))
+
+	published := map[string]string{"CSW15.klv2": "csw15"}
+	fetchLeaves = func(name string, cfg *wglconfig.Config) error {
+		body, ok := published[name]
+		if !ok {
+			return ErrNotPublished
+		}
+		return os.WriteFile(filepath.Join(LexiconDataPath(cfg), name), []byte(body), 0o644)
+	}
+
+	read := func(lexicon string) string {
+		f, err := LeavesFileForLexicon(cfg, "", lexicon)
+		is.NoErr(err)
+		defer f.Close()
+		b, err := io.ReadAll(f)
+		is.NoErr(err)
+		return string(b)
+	}
+	is.Equal(read("CSW15"), "csw15") // its own, fetched
+	is.Equal(read("CSW12"), "csw24") // none published; borrows CSW24's
 }
