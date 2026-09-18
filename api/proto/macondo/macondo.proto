@@ -471,6 +471,13 @@ message AutoplayPlayerConfig {
   // leave is evaluated exactly once with full Bayesian weighting
   // (prior × likelihood). If 0, the rangefinder default (750) is used.
   int32 inference_max_enumerated_leaves = 11;
+  // inference_budget is how many leaves inference may evaluate, one mini-sim
+  // each. It replaces the wall-clock budget: a deadline makes the answer depend
+  // on how busy the machine was, which is exactly the noise a game-pair run
+  // exists to remove. When set, inference_time_secs is ignored and the work is
+  // bounded by this count instead, so the same position always produces the
+  // same posterior. If 0, inference is bounded by time as before.
+  int32 inference_budget = 12;
 }
 
 // AutoplayConfig defines a complete autoplay experiment.
@@ -497,4 +504,13 @@ message AutoplayConfig {
   bool generate_seeds = 12;
   // If true, load seeds from seed_file and use them for deterministic games.
   bool deterministic = 13;
+  // If true, play every game twice: same seed, same tile order, with the two
+  // bots swapping who moves first. num_games counts pairs, so the run plays
+  // 2 * num_games games. Pairing cancels out draw luck, which is what lets a
+  // small strategy improvement show up without being buried in variance.
+  bool game_pairs = 14;
+  // Master seed for the run. Each game (or pair) derives its own seed from
+  // this, so the same value replays the same experiment. If 0 and the run
+  // needs seeds, one is generated and logged.
+  uint64 seed = 15;
 }

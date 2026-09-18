@@ -7,6 +7,8 @@ import (
 	"math"
 	"sort"
 
+	"github.com/domino14/word-golib/tilemapping"
+
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
@@ -44,6 +46,10 @@ type BotConfig struct {
 	// InferenceMaxEnumeratedLeaves is the threshold for switching from Monte Carlo
 	// sampling to exhaustive enumeration. If 0, defaults to DefaultMaxEnumeratedLeaves.
 	InferenceMaxEnumeratedLeaves int
+	// InferenceBudget bounds inference by leaves measured -- one mini-sim each --
+	// instead of by wall clock, which is what makes a position infer the same way
+	// twice. If 0, InferenceTimeSecs applies instead.
+	InferenceBudget int
 	// If UseOppRacksInAnalysis is true, will use opponent rack info for simulation/pre-endgames/etc
 	UseOppRacksInAnalysis bool
 	// OracleInference skips the Bayesian inference loop and instead uses the
@@ -120,7 +126,7 @@ func addBotFields(p *turnplayer.BaseTurnPlayer, conf *BotConfig, botType pb.BotR
 	}
 
 	// If it is a simming bot, add more fields.
-	if hasSimming(botType) {
+	if HasSimming(botType) {
 		log.Info().Msg("adding fields for simmer")
 		leaveFile := "" // use default
 		if p.Rules().BoardName() == board.SuperCrosswordGameLayout {
@@ -256,7 +262,7 @@ func (p *BotTurnPlayer) AddLastMove(m *move.Move) {
 }
 
 func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
-	if hasSimming(p.botType) || HasEndgame(p.botType) || HasInfer(p.botType) || HasPreendgame(p.botType) {
+	if HasSimming(p.botType) || HasEndgame(p.botType) || HasInfer(p.botType) || HasPreendgame(p.botType) {
 		return eliteBestPlay(ctx, p)
 	}
 	if p.botType == pb.BotRequest_FAST_ML_BOT {
@@ -328,7 +334,7 @@ func (p *BotTurnPlayer) BestPlay(ctx context.Context) (*move.Move, error) {
 
 // Returns a string summary of details from a previous call to BestPlay.
 func (p *BotTurnPlayer) BestPlayDetails(ctx context.Context) string {
-	if hasSimming(p.botType) || HasEndgame(p.botType) || HasInfer(p.botType) || HasPreendgame(p.botType) {
+	if HasSimming(p.botType) || HasEndgame(p.botType) || HasInfer(p.botType) || HasPreendgame(p.botType) {
 		return p.lastCalculatedDetails
 	} else {
 		return "(No summary)"
@@ -353,6 +359,21 @@ func (p *BotTurnPlayer) SetSimThreads(t int) {
 
 func (p *BotTurnPlayer) SetMinSimPlies(t int) {
 	p.minSimPlies = t
+}
+
+// ScoreLastInference grades the posterior from the last call to BestPlay against
+// a leave the caller knows to be the true one. Only useful in a self-play
+// experiment, where the opponent's rack is on hand; ok is false when this bot
+// does not infer or has nothing inferred yet.
+func (p *BotTurnPlayer) ScoreLastInference(leave []tilemapping.MachineLetter) (rangefinder.LeaveScore, bool) {
+	if p.inferencer == nil || !HasInfer(p.botType) {
+		return rangefinder.LeaveScore{}, false
+	}
+	inf := p.inferencer.Inferences()
+	if inf == nil || len(inf.InferredRacks) == 0 || len(leave) != inf.RackLength {
+		return rangefinder.LeaveScore{}, false
+	}
+	return p.inferencer.ScoreLeave(leave), true
 }
 
 // LastInferenceCount returns the number of unique inferred racks found

@@ -3,11 +3,35 @@ package automatic
 import (
 	"bufio"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"strings"
 )
+
+// DeriveSeed produces the seed for one unit of work (a game, or a pair of
+// games) from the run's master seed. Deriving rather than drawing means a
+// worker can be handed unit 900 without having played the first 899, and the
+// same master seed always replays the same experiment.
+func DeriveSeed(master uint64, unitIdx int) [32]byte {
+	var buf [16]byte
+	binary.BigEndian.PutUint64(buf[0:8], master)
+	binary.BigEndian.PutUint64(buf[8:16], uint64(unitIdx))
+	return sha256.Sum256(buf[:])
+}
+
+// RandomMasterSeed returns a master seed for a run that asked for reproducible
+// games without naming one.
+func RandomMasterSeed() (uint64, error) {
+	var buf [8]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return 0, fmt.Errorf("failed to generate master seed: %w", err)
+	}
+	// Never hand back 0; callers read it as "no seed set".
+	return binary.BigEndian.Uint64(buf[:]) | 1, nil
+}
 
 // GenerateSeeds creates n random 32-byte seeds for deterministic game runs
 func GenerateSeeds(n int) ([][32]byte, error) {

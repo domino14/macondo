@@ -24,6 +24,22 @@ const (
 	// beat MC in practice.
 	DefaultMaxEnumeratedLeaves = 750
 
+	// DefaultPairedInferenceBudget is how many leaves a game-pair run measures
+	// per inference when nothing else is asked for.
+	//
+	// It is a count rather than a stretch of time because a deadline makes the
+	// answer depend on how busy the machine was, which is the noise game pairs
+	// exist to remove. The number comes from measurement: one leaf evaluation
+	// costs about 470 ms single-threaded at the default 200 mini-sim iterations,
+	// and the median position with a small enough leaf space has 197 of them. So
+	// 200 measures half of those positions exactly, with nothing imputed, for
+	// about 94 seconds a turn. Compare the wall-clock default, which measures
+	// around 44 and imputes the rest.
+	//
+	// Raise it for more coverage at proportionally more time; every leaf costs
+	// the same.
+	DefaultPairedInferenceBudget = 200
+
 	// enumerateEarlyExitEps controls how much prior mass we allow to go unprocessed
 	// when the leaf count exceeds enumerateAlwaysFullThreshold.  Leaves are processed
 	// in descending prior order; the lowest-prior tail whose cumulative mass is below
@@ -164,6 +180,15 @@ func (r *RangeFinder) inferEnumerated(ctx context.Context) error {
 		leaves = leaves[:keepN]
 	}
 
+	// A budget caps how many leaves get a mini-sim. They are in descending
+	// prior order, so this keeps the ones worth measuring and leaves the tail to
+	// imputation, which is what the tail is for.
+	if r.budget > 0 && len(leaves) > r.budget {
+		log.Info().Int("leaves", len(leaves)).Int("budget", r.budget).
+			Msg("enumeration-capped-by-budget")
+		leaves = leaves[:r.budget]
+	}
+
 	log.Info().
 		Int("total-leaves", len(leaves)).
 		Int("rack-length", r.inference.RackLength).
@@ -191,6 +216,7 @@ func (r *RangeFinder) inferEnumerated(ctx context.Context) error {
 		return err
 	}
 	r.stage0Elapsed = time.Since(start)
+	r.stage0Sims = int(r.simCount.Load())
 	r.finalizePlacementPosterior()
 
 	// If the enumeration was truncated or cut short by the deadline, the

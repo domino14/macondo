@@ -1750,6 +1750,32 @@ func (sc *ShellController) autoAnalyze(cmd *shellcmd) (*Response, error) {
 		}
 		return msg("exported to " + safeGameID + ".gcg"), nil
 	}
+	if options.Bool("inference") {
+		q, err := automatic.AnalyzeInferenceQuality(filename)
+		if err != nil {
+			return nil, err
+		}
+		return msg(automatic.FormatInferenceQuality(q)), nil
+	}
+	if options.Bool("divergence") {
+		turnlog := options.String("turnlog")
+		if turnlog == "" {
+			turnlog = automatic.TurnLogFor(filename)
+			if turnlog == "" {
+				return nil, errors.New(
+					"could not guess the per-turn log from this filename; pass -turnlog")
+			}
+		}
+		limit, err := options.IntDefault("limit", 10)
+		if err != nil {
+			return nil, err
+		}
+		report, err := automatic.AnalyzeDivergence(filename, turnlog, limit)
+		if err != nil {
+			return nil, err
+		}
+		return msg(automatic.FormatDivergence(report)), nil
+	}
 	analysis, err := automatic.AnalyzeLogFile(filename)
 	if err != nil {
 		return nil, err

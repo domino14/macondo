@@ -61,6 +61,7 @@ func playerFromProto(p *pb.AutoplayPlayerConfig) AutomaticRunnerPlayer {
 		InferenceTimeSecs:           int(p.InferenceTimeSecs),
 		InferenceSimIters:           int(p.InferenceSimIters),
 		InferenceMaxEnumeratedLeaves: int(p.InferenceMaxEnumeratedLeaves),
+		InferenceBudget:             int(p.InferenceBudget),
 		OracleInference:             p.OracleInference,
 	}
 }

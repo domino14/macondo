@@ -289,7 +289,7 @@ func (r *RangeFinder) refineRounds(ctx context.Context, maxRounds int) {
 	if maxRounds <= 0 || r.acc == nil {
 		return
 	}
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	rng := rand.New(rand.NewSource(r.refineSeed()))
 
 	for round := 1; round <= maxRounds; round++ {
 		if ctx.Err() != nil {
@@ -433,6 +433,21 @@ func (r *RangeFinder) refineRounds(ctx context.Context, maxRounds int) {
 // would leave the rest of the budget simply unspent, making inference
 // strictly worse than not splitting the budget at all.
 func (r *RangeFinder) roundBatchSize(ctx context.Context, round, maxRounds, candidates int) int {
+	if r.budget > 0 {
+		// A leaf budget divides by count rather than by clock: whatever is left
+		// of it, split among the rounds still to come. Round 0's spend is
+		// already in simCount, so refinement simply gets the remainder.
+		left := r.budget - int(r.simCount.Load())
+		if left <= 0 {
+			return 0
+		}
+		roundsLeft := maxRounds - round + 1
+		b := left / roundsLeft
+		if b < refineMinBatch {
+			b = min(refineMinBatch, left)
+		}
+		return min(b, candidates)
+	}
 	deadline, ok := ctx.Deadline()
 	if !ok {
 		// No deadline: take an even slice of the candidate space per round.
