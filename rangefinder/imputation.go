@@ -864,23 +864,18 @@ type imputationTuning struct {
 	maxOrder int
 }
 
-// imputationLambdaFor is the shrinkage pseudo-count for a k-tile leave.
-//
-// A term's support thins as leaves get longer. A three-tile leave has three
-// pairs, measured across a space of a few hundred; a six-tile leave has fifteen
-// pairs and twenty triples across fifty thousand. Where support is thick,
-// shrinkage costs signal: lambda 100 loses a quarter of a bit on three-tile
-// leaves against the engine's 10. Where it is thin it suppresses noise the
-// model would otherwise take for structure: on six-tile leaves lambda 100
-// gains three bits, and the gain plateaus out to 300 before the model goes flat
-// by 1000. Measured over the same positions with the same draws, so the
-// difference is the constant. Five-tile leaves follow six: +0.29 bits at 100
-// on the run the value was tuned on (interval touching zero) and +0.51
-// [+0.14, +0.92] on an independent 5,000-pair run, pooled about +0.4.
+// imputationLambdaFor is the shrinkage pseudo-count for a k-tile leave. One
+// value for now: shrinkage is being tuned last, after the model has whatever
+// structure it is going to have, because it interacts with all of it -- it is
+// what zeroed the fourth-order terms when those were tried. Replayed over two
+// independent runs, 100 gains about three bits on six-tile leaves and half a
+// bit on five-tile ones against 10, and loses a quarter of a bit on three-tile
+// leaves; but what it does is compress the imputed spread toward the prior and
+// lift the tail with it, not reorder, and the head of the imputed posterior
+// still sits above the truth at every value tried. A real fix has to change
+// what the model ranks first. This is where a schedule goes back once there
+// is one.
 func imputationLambdaFor(k int) float64 {
-	if k >= 5 {
-		return 100
-	}
 	return imputationLambda
 }
 
