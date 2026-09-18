@@ -99,6 +99,7 @@ type Record struct {
 	LogCalib     float64 `json:"logCalib"`
 	LogCalibIn   float64 `json:"logCalibInSample"`
 	ElapsedMS    int64   `json:"elapsedMs"`
+	ValueBeta    float64 `json:"valueBeta"`
 	Seed         uint64  `json:"seed"`
 	SeedMode     string  `json:"seedMode"`
 	ForcedTruth  bool    `json:"forcedTruth"`
@@ -156,8 +157,8 @@ func main() {
 		order = flag.Int("order", 0, "cap on the sub-leave expansion order (0 = the engine's rule, "+
 			"ceil(k/2) capped at 3). 4 lets the model carry four-way interactions.")
 		valueTerm = flag.String("value", "off", "static leave value in the imputation: off, residual "+
-			"(added on top of the sub-leave terms, slope fit to what they leave unexplained), or only "+
-			"(in place of them)")
+			"(added on top of the sub-leave terms, slope fit to what they leave unexplained), only "+
+			"(in place of them), or first (value as the baseline, sub-leave terms fit to what it leaves unexplained)")
 		impLambda = flag.Float64("lambda", 0, "imputation shrinkage pseudo-count (0 = the engine's 10). "+
 			"Larger pulls thin sub-leave terms harder toward no effect.")
 		calibShrink = flag.Float64("calib-shrink", -1, "how far the imputation's calibration constant "+
@@ -230,8 +231,10 @@ func main() {
 		valueMode = rangefinder.ValueResidual
 	case "only":
 		valueMode = rangefinder.ValueOnly
+	case "first":
+		valueMode = rangefinder.ValueFirst
 	default:
-		fmt.Fprintf(os.Stderr, "-value wants off, residual or only, not %q\n", *valueTerm)
+		fmt.Fprintf(os.Stderr, "-value wants off, residual, only or first, not %q\n", *valueTerm)
 		os.Exit(2)
 	}
 
@@ -493,6 +496,9 @@ func replay(pos *automatic.CorpusPosition, calcs []equity.EquityCalculator,
 	rec.RuledOut = !score.InPosterior || score.Posterior == 0
 	rec.SimCount = int(rf.SimCount())
 
+	if lc, lci, mm, vb, ok := rf.ImputeStats(); ok {
+		rec.LogCalib, rec.LogCalibIn, rec.MeasuredMass, rec.ValueBeta = lc, lci, mm, vb
+	}
 	if tr := rf.Trace(); tr != nil {
 		rec.Rounds = tr.Rounds
 		rec.Draws = tr.Draws

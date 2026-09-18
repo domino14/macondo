@@ -864,3 +864,33 @@ func TestValueTermRecoversPlantedSlope(t *testing.T) {
 		t.Fatalf("logImputed = %v, want %v", got, want)
 	}
 }
+
+// With the value fit first, a world where likelihood follows the value alone
+// leaves the sub-leave terms nothing to explain: the imputed log-likelihood of
+// an unmeasured leave is the slope times its centered value.
+func TestValueFirstLeavesNothingForTheMarginals(t *testing.T) {
+	value := func(runs []tileRun) float64 {
+		v := 0.0
+		for _, r := range runs {
+			v += float64(r.t) * float64(r.c)
+		}
+		return v
+	}
+	const beta = 0.25
+	measured := map[string]*measuredLeave{}
+	for _, l := range [][]tilemapping.MachineLetter{
+		mls(1, 2, 3), mls(1, 1, 4), mls(2, 3, 5), mls(0, 4, 5), mls(1, 3, 5), mls(2, 2, 4), mls(0, 1, 5), mls(3, 4, 4),
+	} {
+		w := math.Exp(beta * value(runsOf(l, nil)))
+		measured[leaveKey(l)] = &measuredLeave{sumW: w, count: 1, sumU: 1}
+	}
+	mod := valueFirstModel(6, 2, measured, value, 0 /* no shrinkage */, 1e9, 1e9, -1, 0)
+	if math.Abs(mod.beta-beta) > 1e-9 {
+		t.Fatalf("beta = %v, want %v", mod.beta, beta)
+	}
+	runs := runsOf(mls(0, 2, 4), nil)
+	want := beta * (value(runs) - mod.vbar)
+	if got := mod.logImputed(runs); math.Abs(got-want) > 1e-9 {
+		t.Fatalf("logImputed = %v, want %v (the marginals should be flat)", got, want)
+	}
+}

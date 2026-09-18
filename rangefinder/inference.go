@@ -1257,3 +1257,15 @@ func (r *RangeFinder) leaveValueFunc() func([]tileRun) float64 {
 	}
 	return nil
 }
+
+// ImputeStats reports the last imputation's calibration and value-term
+// figures without needing a trace: the cross-fitted and in-sample calibration
+// constants, the share of posterior mass on measured leaves, and the value
+// slope. ok is false when nothing has been imputed.
+func (r *RangeFinder) ImputeStats() (logCalib, logCalibInSample, measuredMass, valueBeta float64, ok bool) {
+	res := r.imputeRes
+	if res == nil {
+		return 0, 0, 0, 0, false
+	}
+	return res.logCalib, res.logCalibInSample, res.measuredMass, res.valueBeta, true
+}

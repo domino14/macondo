@@ -898,7 +898,64 @@ const (
 	// ValueOnly replaces the expansion with the value term: the smallest
 	// model there is, one slope fit on every measured leaf.
 	ValueOnly
+	// ValueFirst fits the value slope first, as the baseline, and then fits
+	// the expansion to what the value leaves unexplained -- so the sub-leave
+	// terms carry only position-specific evidence, and shrinkage keeps only
+	// the well-supported parts of it. The other order (ValueResidual) does
+	// not work: the expansion absorbs the value gradient in-sample, noisily,
+	// and leaves the slope nothing to fit.
+	ValueFirst
 )
+
+// accFromMeasured rebuilds a containment accumulator from the measured leaves,
+// each entered once with its mean likelihood divided by adjust(leave) and its
+// total importance weight. Leaves in fold excl (when nFolds > 0) are left out.
+// Walked in key order, so the floating-point sums come out the same every time.
+func accFromMeasured(alphaSize, order int, measured map[string]*measuredLeave,
+	adjust func(runs []tileRun) float64, excl, nFolds int) *subleaveAccumulator {
+
+	acc := newSubleaveAccumulator(alphaSize, order)
+	keys := make([]string, 0, len(measured))
+	for key := range measured {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	var runBuf []tileRun
+	for _, key := range keys {
+		if nFolds > 0 && foldForKey(key, nFolds) == excl {
+			continue
+		}
+		ml := measured[key]
+		if ml.sumU <= 0 {
+			continue
+		}
+		tiles := make([]tilemapping.MachineLetter, len(key))
+		for i := 0; i < len(key); i++ {
+			tiles[i] = tilemapping.MachineLetter(key[i])
+		}
+		runBuf = runsOf(tiles, runBuf)
+		acc.record(tiles, ml.mean()/adjust(runBuf), ml.sumU)
+	}
+	return acc
+}
+
+// valueFirstModel builds the ValueFirst model: the value slope on the
+// measured leaves, then the expansion on likelihoods with that slope divided
+// out. Leaves in fold excl are left out of both fits.
+func valueFirstModel(alphaSize, order int, measured map[string]*measuredLeave,
+	valueOf func([]tileRun) float64, lambda, clampLift, clampInter float64,
+	excl, nFolds int) *imputationModel {
+
+	base := &imputationModel{}
+	fitValueTerm(base, measured, valueOf, true, excl, nFolds)
+	adjust := func(runs []tileRun) float64 {
+		return math.Exp(base.beta * (valueOf(runs) - base.vbar))
+	}
+	acc := accFromMeasured(alphaSize, order, measured, adjust, excl, nFolds)
+	mod := buildImputationModel(acc, lambda, clampLift, clampInter)
+	mod.valueOf, mod.beta, mod.vbar, mod.marginals = valueOf, base.beta, base.vbar, true
+	return mod
+}
 
 // fitValueTerm gives mod a leave-value term fit on the measured leaves, by
 // weighted least squares of the residual log-likelihood on the centered value.
@@ -988,18 +1045,32 @@ func imputeFullPosteriorTuned(bagMap []uint8, k int, acc *subleaveAccumulator,
 	if lambda <= 0 {
 		lambda = imputationLambdaFor(k)
 	}
-	mod := buildImputationModel(acc, lambda, maxAbsLogLift, maxAbsInteraction)
-	if tune.valueMode != ValueOff && tune.valueOf != nil {
-		fitValueTerm(mod, measured, tune.valueOf, tune.valueMode == ValueOnly, -1, 0)
+	valueOn := tune.valueMode != ValueOff && tune.valueOf != nil
+	var mod *imputationModel
+	if valueOn && tune.valueMode == ValueFirst {
+		mod = valueFirstModel(len(bagMap), acc.maxOrder, measured, tune.valueOf,
+			lambda, maxAbsLogLift, maxAbsInteraction, -1, 0)
+	} else {
+		mod = buildImputationModel(acc, lambda, maxAbsLogLift, maxAbsInteraction)
+		if valueOn {
+			fitValueTerm(mod, measured, tune.valueOf, tune.valueMode == ValueOnly, -1, 0)
+		}
 	}
 
 	foldModels := make([]*imputationModel, 0, len(foldAccs))
 	for i, fa := range foldAccs {
-		fm := buildImputationModel(acc.minus(fa), lambda, maxAbsLogLift, maxAbsInteraction)
-		if tune.valueMode != ValueOff && tune.valueOf != nil {
-			// Fit without this fold's leaves, so the constant calibrated
-			// against them is calibrated against leaves the model never saw.
-			fitValueTerm(fm, measured, tune.valueOf, tune.valueMode == ValueOnly, i, len(foldAccs))
+		// Every fold model is fit without its own fold's leaves, so the
+		// constant calibrated against them is calibrated against leaves the
+		// model never saw.
+		var fm *imputationModel
+		if valueOn && tune.valueMode == ValueFirst {
+			fm = valueFirstModel(len(bagMap), acc.maxOrder, measured, tune.valueOf,
+				lambda, maxAbsLogLift, maxAbsInteraction, i, len(foldAccs))
+		} else {
+			fm = buildImputationModel(acc.minus(fa), lambda, maxAbsLogLift, maxAbsInteraction)
+			if valueOn {
+				fitValueTerm(fm, measured, tune.valueOf, tune.valueMode == ValueOnly, i, len(foldAccs))
+			}
 		}
 		foldModels = append(foldModels, fm)
 	}
