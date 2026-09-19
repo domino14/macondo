@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/domino14/word-golib/kwg"
@@ -93,8 +94,23 @@ func TestInlineSimStopsOnACheckBoundary(t *testing.T) {
 	is.Equal(uint64(s.Iterations())%interval, uint64(0))
 }
 
+// liveGoroutines returns the id of every goroutine that exists right now.
+func liveGoroutines() map[string]bool {
+	buf := make([]byte, 1<<20)
+	n := runtime.Stack(buf, true)
+	ids := map[string]bool{}
+	for _, line := range strings.Split(string(buf[:n]), "\n") {
+		if strings.HasPrefix(line, "goroutine ") {
+			ids[strings.Fields(line)[1]] = true
+		}
+	}
+	return ids
+}
+
 // "As few threads as possible" means none: the inline sim must not spawn a
-// controller or a log writer, even with the log stream turned on.
+// controller or a log writer, even with the log stream turned on. The check
+// is by identity, not by count: a goroutine left over from an earlier test
+// can finish while the sim runs, and that must not read as anything.
 func TestInlineSimSpawnsNoGoroutines(t *testing.T) {
 	is := is.New(t)
 
@@ -102,11 +118,13 @@ func TestInlineSimSpawnsNoGoroutines(t *testing.T) {
 	var buf bytes.Buffer
 	s.SetLogStream(&buf)
 
-	before := runtime.NumGoroutine()
+	before := liveGoroutines()
 	s.SimSingleThread(20, 2)
-	after := runtime.NumGoroutine()
-
-	is.Equal(after, before)
+	for id := range liveGoroutines() {
+		if !before[id] {
+			t.Fatalf("goroutine %s was started by the inline sim", id)
+		}
+	}
 	// The log still gets written -- by the sim itself, since it is the only
 	// writer there is.
 	is.True(buf.Len() > 0)
