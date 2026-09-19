@@ -40,7 +40,8 @@ var ErrNoInformation = errors.New("not enough information to infer")
 const (
 	// SoftmaxTemperature controls how "rational" we assume the opponent to be
 	// when computing P(play | leave). Lower values assume near-optimal play;
-	// higher values allow more weight for sub-optimal plays.
+	// higher values allow more weight for sub-optimal plays. This is the
+	// early-game value; tauForBag raises it as the bag empties.
 	// Softmax is applied over log-odds of win probabilities, so tau is on the
 	// log-odds scale. Typical positions (20%-80% win prob) span roughly [-1.4, 1.4];
 	// strongly won/lost positions (5%-95%) reach about [-3, 3].
@@ -221,6 +222,13 @@ type RangeFinder struct {
 	// Lower values assume the opponent plays more optimally. Defaults to
 	// SoftmaxTemperature if not set explicitly.
 	tau float64
+	// tauSchedule turns on the bag-size temperature schedule (tauForBag) for
+	// positions where tau was not pinned. Off by default: the engine runs at a
+	// fixed SoftmaxTemperature until the schedule is tuned as a whole.
+	tauSchedule bool
+	// phaseTau is the schedule's temperature for the current position, set
+	// by PrepareFinder when tauSchedule is on and tau was not pinned.
+	phaseTau float64
 	// simIters is the max mini-sim iterations per rack candidate.
 	// 0 means use the SimpleSimmer default (200).
 	simIters int
@@ -265,9 +273,22 @@ type RangeFinder struct {
 	// Refinement state: how many rounds of posterior-guided measurement to
 	// run after round 0 (0 disables it), how many leaves they measured, and
 	// the per-round convergence statistics.
-	maxRounds     int
-	refinedCount  int
-	roundLog      []roundStats
+	maxRounds    int
+	refinedCount int
+	roundLog     []roundStats
+	// tracing records every draw and round for offline diagnosis; see trace.go.
+	tracing bool
+	trace   *InferenceTrace
+	// proposalMode and explorationFloor decide how refine rounds pick the
+	// leaves they measure; see SetProposalMode.
+	proposalMode     ProposalMode
+	explorationFloor float64
+	// forcedLeaves are measured whether or not the proposal would have found
+	// them; see SetForcedLeaves.
+	forcedLeaves [][]tilemapping.MachineLetter
+	// tuning varies the imputation's own constants; see SetImputationLambda
+	// and SetCalibrationShrink.
+	tuning        imputationTuning
 	stage0Elapsed time.Duration
 	// currentRound stamps newly measured leaves with the round that measured
 	// them. Written only by refineRounds, between batches.
@@ -297,11 +318,55 @@ func (r *RangeFinder) SetTau(tau float64) {
 	r.tau = tau
 }
 
+// Tau is the softmax temperature in use: the value SetTau pinned, or else
+// the phase schedule for the position PrepareFinder was given.
 func (r *RangeFinder) Tau() float64 {
-	if r.tau == 0 {
-		return SoftmaxTemperature
+	if r.tau != 0 {
+		return r.tau
 	}
-	return r.tau
+	if r.phaseTau != 0 {
+		return r.phaseTau
+	}
+	return SoftmaxTemperature
+}
+
+// SetTauSchedule turns the bag-size temperature schedule on or off. A pinned
+// tau wins over the schedule either way.
+func (r *RangeFinder) SetTauSchedule(on bool) {
+	r.tauSchedule = on
+}
+
+// scheduleTau sets the schedule's temperature for a position with this many
+// tiles left in the bag: tauForBag when the schedule is on, nothing otherwise.
+func (r *RangeFinder) scheduleTau(bag int) {
+	r.phaseTau = 0
+	if r.tauSchedule {
+		r.phaseTau = tauForBag(bag)
+	}
+}
+
+// tauForBag is the softmax temperature for a position with this many tiles
+// left in the bag, when the schedule is on and none was pinned.
+//
+// The temperature says how far the opponent's actual play is trusted to be
+// the mini-sim's best one. Early in the game it should be: replayed over an
+// independent 5,000-pair run, 0.1 loses a quarter of a bit against 0.05 on
+// one-to-four-tile leaves with 21 or more in the bag, and 0.026 is no better.
+// Later it should not. With 8 to 20 in the bag, 0.1 gains two thirds of a bit;
+// with 7 or fewer, 0.3 gains three and a half, and takes the leaves ruled out
+// entirely from 7 to 1 in 143 positions -- at 0.05 a play the mini-sim did not
+// rank first gets almost no likelihood, and in the pre-endgame the play a
+// 5-ply bot makes is the one a 2-ply mini-sim ranks first least often. 0.92,
+// what an MLE fit on real games found for that phase, measures the same as
+// 0.3 there, so the schedule takes the value nearer the rest of it.
+func tauForBag(bag int) float64 {
+	switch {
+	case bag <= 7:
+		return 0.3
+	case bag <= 20:
+		return 0.1
+	}
+	return SoftmaxTemperature
 }
 
 // SetMaxRounds sets how many measure–impute–recalibrate rounds run after the
@@ -436,6 +501,8 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 	if r.origGame.Bag().TilesRemaining() == 0 {
 		return ErrBagEmpty
 	}
+	r.scheduleTau(r.origGame.Bag().TilesRemaining())
+	r.tuning.valueOf = r.leaveValueFunc()
 
 	oppEvtIdx := len(evts) - 1
 	oppIdx := evts[oppEvtIdx].PlayerIndex
@@ -601,6 +668,7 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 	r.imputeRes = nil
 	r.refinedCount = 0
 	r.roundLog = nil
+	r.startTrace()
 	r.stage0Elapsed = 0
 	r.stage0Sims = 0
 	return nil
@@ -610,7 +678,7 @@ func (r *RangeFinder) PrepareFinder(myRack []tilemapping.MachineLetter) error {
 // per-fold accumulators used to cross-fit the calibration constant, and the
 // measured-leave map.
 func (r *RangeFinder) initImputationState() {
-	order := marginalOrder(r.inference.RackLength)
+	order := marginalOrderCapped(r.inference.RackLength, r.tuning.maxOrder)
 	r.acc = newSubleaveAccumulator(len(r.inferenceBagMap), order)
 	r.foldAccs = make([]*subleaveAccumulator, calibrationFolds)
 	for i := range r.foldAccs {
@@ -655,8 +723,8 @@ func (r *RangeFinder) finalizePlacementPosterior() {
 	if r.acc == nil || r.acc.n == 0 {
 		return
 	}
-	res := imputeFullPosterior(r.inferenceBagMap, r.inference.RackLength, r.acc,
-		r.foldAccs, r.measured, r.threads)
+	res := imputeFullPosteriorTuned(r.inferenceBagMap, r.inference.RackLength, r.acc,
+		r.foldAccs, r.measured, r.threads, r.tuning)
 	r.imputeRes = res
 	if len(res.racks) == 0 {
 		return
@@ -803,6 +871,8 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 						for _, ir := range newRacks {
 							// Round 0 draws from the prior, so u = 1.
 							r.recordPlacementSample(ir.Leave, ir.Weight, 1)
+							r.traceDraw(DrawRecord{Round: 0, U: 1, Mult: 1,
+								Measured: ir.Weight}, ir.Leave)
 						}
 					} else {
 						// Exchange path: keep distinct racks, first weight wins.
@@ -843,6 +913,7 @@ func (r *RangeFinder) Infer(ctx context.Context) error {
 	// is already done.
 	r.stage0Elapsed = time.Since(inferStart)
 	r.stage0Sims = int(r.simCount.Load())
+	r.measureForcedLeaves(parentCtx)
 	r.finalizePlacementPosterior()
 
 	// Then alternate measurement and imputation on the remaining budget,
@@ -1100,4 +1171,125 @@ func uniqueSingleTileKey(m *move.Move) int {
 	// A unique, fast to compute key for this play.
 	return row + tilemapping.MaxAlphabetSize*col +
 		tilemapping.MaxAlphabetSize*tilemapping.MaxAlphabetSize*int(tile)
+}
+
+// SetForcedLeaves names leaves that must get a mini-sim, whether or not the
+// proposal would ever have drawn them. They are measured once round 0 is done,
+// so the first imputation model and every round after it are built knowing what
+// those leaves are really worth.
+//
+// This is a diagnostic, not a setting: naming the leave the opponent actually
+// held means using the answer, which no bot can do. It exists to separate two
+// explanations of a bad read that look identical from the outside -- the model
+// scored the true leave badly, or the model never looked at it. Forcing it in
+// and seeing the read stay wrong rules the second one out.
+//
+// The forced measurements enter as ordinary prior-weight draws, which does
+// slightly flatter the calibration constant: they are evidence the sampler did
+// not pay for. The bias is small next to what the comparison is measuring.
+func (r *RangeFinder) SetForcedLeaves(leaves [][]tilemapping.MachineLetter) {
+	r.forcedLeaves = leaves
+}
+
+// measureForcedLeaves evaluates whatever SetForcedLeaves named, skipping any
+// the sampler already happened to measure.
+func (r *RangeFinder) measureForcedLeaves(ctx context.Context) {
+	if len(r.forcedLeaves) == 0 || r.acc == nil {
+		return
+	}
+	var todo [][]tilemapping.MachineLetter
+	for _, leave := range r.forcedLeaves {
+		sorted := make([]tilemapping.MachineLetter, len(leave))
+		copy(sorted, leave)
+		sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+		if ml, ok := r.measured[leaveKey(sorted)]; ok && ml.count > 0 {
+			continue
+		}
+		todo = append(todo, sorted)
+	}
+	if len(todo) == 0 {
+		return
+	}
+	var mu sync.Mutex
+	err := r.evaluateLeaves(ctx, todo, func(leave []tilemapping.MachineLetter, lik float64) {
+		mu.Lock()
+		defer mu.Unlock()
+		r.recordPlacementSample(leave, lik, 1)
+		r.traceDraw(DrawRecord{Round: 0, U: 1, Mult: 1, Measured: lik}, leave)
+	})
+	if err != nil {
+		log.Err(err).Msg("forced-leaf-evaluate-failed")
+	}
+}
+
+// SetImputationLambda sets the shrinkage pseudo-count used when combining
+// sub-leave marginals: a term estimated from c samples is scaled by c/(c+λ), so
+// a larger λ pulls thin terms harder toward no effect. Pass 0 for the default.
+func (r *RangeFinder) SetImputationLambda(l float64) { r.tuning.lambda = l }
+
+// SetCalibrationShrink sets how far the imputation's calibration constant moves
+// from its in-sample fit toward the cross-fitted one. 1 is the engine's
+// behavior, 0 keeps the in-sample constant, and values between interpolate.
+//
+// The constant scales every imputed leave alike, so it decides how imputed
+// leaves weigh against measured ones without changing their order among
+// themselves -- and so barely touches which leaves the proposal draws.
+func (r *RangeFinder) SetCalibrationShrink(s float64) {
+	r.tuning.calibShrink = s
+	r.tuning.calibSet = true
+}
+
+// SetMaxMarginalOrder caps the sub-leave expansion the imputation uses. The
+// engine's rule is ceil(k/2) capped at 3 for a k-tile leave; raising it to 4
+// lets the model carry four-way interactions, which is where a six-tile
+// leave's bingo structure lives. Pass 0 for the engine's rule.
+func (r *RangeFinder) SetMaxMarginalOrder(m int) { r.tuning.maxOrder = m }
+
+// SetValueTerm pins how the static leave value enters the imputation, for
+// every leave length; see ValueMode. Unpinned, the engine uses ValueFirst for
+// six-tile leaves and nothing below, which is where the idea holds: a player
+// who lays down a single tile has given up points to keep the rest, so the
+// leave they kept is likely a strong one, and the leave table already knows
+// which leaves are strong.
+func (r *RangeFinder) SetValueTerm(m ValueMode) {
+	r.tuning.valueMode = m
+	r.tuning.valueSet = true
+}
+
+// leaveValueFunc returns a function scoring a leave (as tile runs) with the
+// static leave value, or nil when no calculator here can.
+func (r *RangeFinder) leaveValueFunc() func([]tileRun) float64 {
+	type valuer interface {
+		LeaveValue(leave tilemapping.MachineWord) float64
+	}
+	for _, c := range r.equityCalculators {
+		lv, ok := c.(valuer)
+		if !ok {
+			continue
+		}
+		return func(runs []tileRun) float64 {
+			var buf [8]tilemapping.MachineLetter
+			n := 0
+			for _, ru := range runs {
+				for k := 0; k < ru.c && n < len(buf); k++ {
+					buf[n] = ru.t
+					n++
+				}
+			}
+			return lv.LeaveValue(tilemapping.MachineWord(buf[:n]))
+		}
+	}
+	return nil
+}
+
+// ImputeStats reports the last imputation's calibration and value-term
+// figures without needing a trace: the cross-fitted and in-sample calibration
+// constants, the share of posterior mass on measured leaves, and the value
+// slope. ok is false when nothing has been imputed.
+func (r *RangeFinder) ImputeStats() (logCalib, logCalibInSample, measuredMass, valueBeta float64, ok bool) {
+	res := r.imputeRes
+	if res == nil {
+		return 0, 0, 0, 0, false
+	}
+	return res.logCalib, res.logCalibInSample, res.measuredMass, res.valueBeta, true
 }

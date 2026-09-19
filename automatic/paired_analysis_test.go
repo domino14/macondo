@@ -57,6 +57,11 @@ func TestPairedResultBasics(t *testing.T) {
 	is.Equal(p.Incomplete, 0)
 	is.Equal(p.Divergent, 2)
 	is.Equal(p.ExactTies, 1)
+	// g1 and g3 split, g2 was lost twice.
+	is.Equal(p.Swept, 0)
+	is.Equal(p.Split, 2)
+	is.Equal(p.Lost, 1)
+	is.Equal(p.WithDraw, 0)
 
 	// Mean of +20, -20, 0 is 0 -- and the tied pair is counted, not dropped.
 	is.Equal(p.Margin.Iterations(), 3)
@@ -107,6 +112,9 @@ func TestPairedResultSelfPlay(t *testing.T) {
 	is.Equal(p.Pairs, 3)
 	is.Equal(p.Divergent, 0)
 	is.Equal(p.ExactTies, 3)
+	// Two split pairs, and one whose games were both drawn.
+	is.Equal(p.Split, 2)
+	is.Equal(p.WithDraw, 1)
 	is.True(math.Abs(p.Margin.Mean()) < 1e-9)
 	is.True(math.Abs(p.PairedSE()) < 1e-9) // known exactly
 	is.True(math.Abs(p.WinShare.Mean()-0.5) < 1e-9)

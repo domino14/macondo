@@ -734,3 +734,182 @@ func sortMLs(l []tilemapping.MachineLetter) {
 		}
 	}
 }
+
+// The Möbius inversion at order four has to telescope the way the lower orders
+// do: with no shrinkage and the expansion run to the leave's own order, the
+// imputed log-likelihood of a recorded 4-tile leave is exactly its own raw log
+// lift, whatever the lower-order terms it shares with other leaves.
+func TestMobiusTelescopingOrder4(t *testing.T) {
+	acc := newSubleaveAccumulator(5, 4)
+	leaves := [][]tilemapping.MachineLetter{
+		mls(1, 2, 3, 4),
+		mls(1, 1, 2, 3),
+		mls(1, 1, 1, 2),
+		mls(1, 1, 1, 1),
+		mls(2, 2, 3, 3),
+		mls(1, 2, 2, 4),
+		mls(3, 4, 4, 4),
+		mls(0, 1, 2, 3),
+	}
+	weights := []float64{8, 2, 5, 1, 3, 0.25, 6, 0.5}
+	for i, l := range leaves {
+		acc.record(l, weights[i], 1)
+	}
+	mod := buildImputationModel(acc, 0 /* no shrinkage */, 1e9, 1e9)
+	wMean := acc.likTotal / acc.wtTotal
+	var runBuf []tileRun
+	for i, l := range leaves {
+		runBuf = runsOf(l, runBuf)
+		got := mod.logImputed(runBuf)
+		want := math.Log(weights[i] / wMean)
+		if math.Abs(got-want) > 1e-9 {
+			t.Fatalf("leaf %v: logImputed=%v want=%v", l, got, want)
+		}
+	}
+}
+
+// The sub-multiset enumerator has to produce each distinct sub-multiset once,
+// and the order-four index has to be a bijection onto sorted 4-multisets.
+func TestForSubMultisetsAndOrder4Index(t *testing.T) {
+	count := func(leave []tilemapping.MachineLetter, m int) int {
+		runs := runsOf(leave, nil)
+		seen := map[string]bool{}
+		n := 0
+		forSubMultisets(runs, m, func(sub []tilemapping.MachineLetter) {
+			n++
+			for i := 1; i < len(sub); i++ {
+				if sub[i] < sub[i-1] {
+					t.Fatalf("sub-multiset %v not sorted", sub)
+				}
+			}
+			seen[leaveKey(sub)] = true
+		})
+		if len(seen) != n {
+			t.Fatalf("leave %v order %d: %d calls but %d distinct", leave, m, n, len(seen))
+		}
+		return n
+	}
+	// Six distinct tiles: C(6,4) = 15; AABBCC: 6; AAAABC: 4; AAAAAA: 1.
+	for _, tc := range []struct {
+		leave []tilemapping.MachineLetter
+		want  int
+	}{
+		{mls(1, 2, 3, 4, 5, 6), 15},
+		{mls(1, 1, 2, 2, 3, 3), 6},
+		{mls(1, 1, 1, 1, 2, 3), 4},
+		{mls(1, 1, 1, 1, 1, 1), 1},
+		{mls(1, 2, 3), 0}, // too short for order 4
+	} {
+		if got := count(tc.leave, 4); got != tc.want {
+			t.Fatalf("leave %v: %d sub-multisets of order 4, want %d", tc.leave, got, tc.want)
+		}
+	}
+	// A full walk at order 4 over six distinct tiles: 6 + 15 + 20 + 15 terms.
+	mod := buildImputationModel(newSubleaveAccumulator(7, 4), 0, 1e9, 1e9)
+	terms := 0
+	mod.walkSubleaves(runsOf(mls(1, 2, 3, 4, 5, 6), nil), func(order, idx int) { terms++ })
+	if terms != 56 {
+		t.Fatalf("walk visited %d terms, want 56", terms)
+	}
+
+	ix := order4IndexFor(7)
+	if ix.size != 210 { // C(10,4)
+		t.Fatalf("size %d, want 210", ix.size)
+	}
+	for j := 0; j < ix.size; j++ {
+		tiles := ix.tiles[j]
+		if !(tiles[0] <= tiles[1] && tiles[1] <= tiles[2] && tiles[2] <= tiles[3]) {
+			t.Fatalf("slot %d holds unsorted %v", j, tiles)
+		}
+		if got := ix.rank(tiles[:]); got != j {
+			t.Fatalf("rank(tiles[%d]) = %d", j, got)
+		}
+	}
+}
+
+// The leave-value term has to recover a slope that is really there. Leaves are
+// scored by a made-up value, likelihoods are set to follow it exactly, and the
+// fit -- with the sub-multiset terms switched off so nothing else can absorb
+// it -- must return that slope.
+func TestValueTermRecoversPlantedSlope(t *testing.T) {
+	value := func(runs []tileRun) float64 {
+		v := 0.0
+		for _, r := range runs {
+			v += float64(r.t) * float64(r.c) // sum of tile indices
+		}
+		return v
+	}
+	const beta = 0.37
+	acc := newSubleaveAccumulator(6, 2)
+	measured := map[string]*measuredLeave{}
+	leaves := [][]tilemapping.MachineLetter{
+		mls(1, 2, 3), mls(1, 1, 4), mls(2, 3, 5), mls(0, 4, 5), mls(1, 3, 5), mls(2, 2, 4), mls(0, 1, 5),
+	}
+	for _, l := range leaves {
+		w := math.Exp(beta * value(runsOf(l, nil)))
+		acc.record(l, w, 1)
+		measured[leaveKey(l)] = &measuredLeave{sumW: w, count: 1, sumU: 1}
+	}
+	mod := buildImputationModel(acc, imputationLambda, maxAbsLogLift, maxAbsInteraction)
+	fitValueTerm(mod, measured, value, true /* value only */, -1, 0)
+	if math.Abs(mod.beta-beta) > 1e-9 {
+		t.Fatalf("beta = %v, want %v", mod.beta, beta)
+	}
+	// And with the term on, an unmeasured leave's imputed log-likelihood is
+	// the slope times its centered value, nothing else.
+	l := mls(0, 2, 4)
+	runs := runsOf(l, nil)
+	want := beta * (value(runs) - mod.vbar)
+	if got := mod.logImputed(runs); math.Abs(got-want) > 1e-9 {
+		t.Fatalf("logImputed = %v, want %v", got, want)
+	}
+}
+
+// With the value fit first, a world where likelihood follows the value alone
+// leaves the sub-leave terms nothing to explain: the imputed log-likelihood of
+// an unmeasured leave is the slope times its centered value.
+func TestValueFirstLeavesNothingForTheMarginals(t *testing.T) {
+	value := func(runs []tileRun) float64 {
+		v := 0.0
+		for _, r := range runs {
+			v += float64(r.t) * float64(r.c)
+		}
+		return v
+	}
+	const beta = 0.25
+	measured := map[string]*measuredLeave{}
+	for _, l := range [][]tilemapping.MachineLetter{
+		mls(1, 2, 3), mls(1, 1, 4), mls(2, 3, 5), mls(0, 4, 5), mls(1, 3, 5), mls(2, 2, 4), mls(0, 1, 5), mls(3, 4, 4),
+	} {
+		w := math.Exp(beta * value(runsOf(l, nil)))
+		measured[leaveKey(l)] = &measuredLeave{sumW: w, count: 1, sumU: 1}
+	}
+	mod := valueFirstModel(6, 2, measured, value, 0 /* no shrinkage */, 1e9, 1e9, -1, 0)
+	if math.Abs(mod.beta-beta) > 1e-9 {
+		t.Fatalf("beta = %v, want %v", mod.beta, beta)
+	}
+	runs := runsOf(mls(0, 2, 4), nil)
+	want := beta * (value(runs) - mod.vbar)
+	if got := mod.logImputed(runs); math.Abs(got-want) > 1e-9 {
+		t.Fatalf("logImputed = %v, want %v (the marginals should be flat)", got, want)
+	}
+}
+
+// The value term applies by leave length unless something pinned it, and the
+// shrinkage that goes with it applies only when the term is in force.
+func TestValueTermByLeaveLength(t *testing.T) {
+	var tune imputationTuning
+	for k, want := range map[int]ValueMode{1: ValueOff, 4: ValueOff, 5: ValueOff, 6: ValueFirst} {
+		if got := effectiveValueMode(tune, k); got != want {
+			t.Fatalf("k=%d: mode %v, want %v", k, got, want)
+		}
+	}
+	tune.valueMode, tune.valueSet = ValueOff, true
+	if got := effectiveValueMode(tune, 6); got != ValueOff {
+		t.Fatalf("pinned off must win: %v", got)
+	}
+	tune.valueMode = ValueOnly
+	if got := effectiveValueMode(tune, 2); got != ValueOnly {
+		t.Fatalf("pinned on must win: %v", got)
+	}
+}

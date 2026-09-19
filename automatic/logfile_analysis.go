@@ -79,6 +79,12 @@ type PairedResult struct {
 	// ExactTies counts pairs whose two margins cancel to zero.
 	ExactTies int
 
+	// Swept, Split and Lost count pairs where bot 1 won both games, one each,
+	// and neither -- the plainest statement of a paired result, since the
+	// pairs that split are the ones tile luck decided. WithDraw counts pairs
+	// with a drawn game in them, which fit none of the three.
+	Swept, Split, Lost, WithDraw int
+
 	// Margin is bot 1's score margin summed over a pair's two games, one
 	// observation per pair. Halve it for a per-game figure.
 	Margin *stats.Statistic
@@ -170,6 +176,16 @@ func buildPairedResult(halves map[int][]pairHalf, order []int, naiveSE float64) 
 		winShare := (h[0].winShare + h[1].winShare) / 2
 		p.WinShare.Push(winShare)
 		winDiffs = append(winDiffs, winShare-0.5)
+		switch {
+		case h[0].winShare == 0.5 || h[1].winShare == 0.5:
+			p.WithDraw++
+		case winShare == 1:
+			p.Swept++
+		case winShare == 0:
+			p.Lost++
+		default:
+			p.Split++
+		}
 
 		firstHalves = append(firstHalves, h[0].margin)
 		secondHalves = append(secondHalves, h[1].margin)
@@ -437,6 +453,14 @@ func formatPaired(p *PairedResult, p1name, p2name string) string {
 	b.WriteString("\nGame pairs\n")
 	fmt.Fprintf(&b, "  %d pairs (%d games), %d divergent, %d exact ties\n",
 		p.Pairs, 2*p.Pairs, p.Divergent, p.ExactTies)
+	fmt.Fprintf(&b, "  %s won both games in %d pairs (%.1f%%), split %d (%.1f%%), lost both in %d (%.1f%%)",
+		p1name, p.Swept, 100*float64(p.Swept)/float64(p.Pairs),
+		p.Split, 100*float64(p.Split)/float64(p.Pairs),
+		p.Lost, 100*float64(p.Lost)/float64(p.Pairs))
+	if p.WithDraw > 0 {
+		fmt.Fprintf(&b, "; %d pair(s) had a drawn game", p.WithDraw)
+	}
+	fmt.Fprintf(&b, "\n  net %+d pairs swept over lost\n", p.Swept-p.Lost)
 	if p.Incomplete > 0 {
 		fmt.Fprintf(&b, "  %d incomplete pair(s) left out\n", p.Incomplete)
 	}
@@ -511,8 +535,30 @@ func AnalyzeLogFile(filepath string) (string, error) {
 	return FormatTable(result), nil
 }
 
+// splitTurnHalves cuts a game's rows wherever the turn counter stops climbing.
+// An unpaired game yields one piece; a pair yields the two seatings of its bag.
+func splitTurnHalves(rows [][]string) [][][]string {
+	halves := [][][]string{}
+	start := 0
+	for i := 1; i < len(rows); i++ {
+		prev, err1 := strconv.Atoi(rows[i-1][2])
+		cur, err2 := strconv.Atoi(rows[i][2])
+		if err1 != nil || err2 != nil {
+			continue
+		}
+		if cur <= prev {
+			halves = append(halves, rows[start:i])
+			start = i
+		}
+	}
+	return append(halves, rows[start:])
+}
+
+// ExportGCG writes one game from an autoplay log as GCG. In a -gamepairs run a
+// game ID names a pair rather than a game, so half picks which of its two
+// seatings to write; it is 1 for anything else.
 func ExportGCG(cfg *config.Config, filename, letterdist, lexicon, boardlayout, gid string,
-	out io.Writer) error {
+	half int, out io.Writer) error {
 	if letterdist == "" {
 		letterdist = "english"
 	}
@@ -570,6 +616,16 @@ func ExportGCG(cfg *config.Config, filename, letterdist, lexicon, boardlayout, g
 	if len(gameLines) == 0 {
 		return errors.New("gameID not found in log file")
 	}
+	// Both halves of a game pair carry the same ID -- it comes from the seed they
+	// share -- so a paired log hands back two games' worth of turns here. Replaying
+	// them as one runs the bag out, so take only the half asked for. The turn
+	// counter starting over is where one half ends and the next begins.
+	halves := splitTurnHalves(gameLines)
+	if half < 1 || half > len(halves) {
+		return fmt.Errorf("game %s has %d half/halves in this log; asked for half %d",
+			gid, len(halves), half)
+	}
+	gameLines = halves[half-1]
 
 	rules, err := game.NewBasicGameRules(cfg, lexicon, boardlayout,
 		letterdist, game.CrossScoreOnly, game.VarClassic)

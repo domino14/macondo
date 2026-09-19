@@ -126,7 +126,42 @@ type refineCandidate struct {
 	q      float64 // proposal probability, normalized over the candidates
 	u      float64 // importance weight P/q
 	lhat   float64 // the model's current imputed likelihood, for the ratio test
+	unc    float64 // the model's spread on lhat, which earns exploration draws
+	prior  float64 // P(L) from the tile counts alone
 }
+
+// ProposalMode decides how a refine round picks the leaves it measures.
+type ProposalMode int
+
+const (
+	// ProposalPosterior draws proportional to current posterior weight with a
+	// bonus for the model's own uncertainty. It is the engine's default.
+	ProposalPosterior ProposalMode = iota
+	// ProposalPrior ignores the model and draws from the prior, the way round 0
+	// does, so nothing a round learns can narrow what later rounds are willing
+	// to look at. Diagnostic: comparing the two says whether the leaves the
+	// posterior proposal never reaches were worth reaching.
+	ProposalPrior
+	// ProposalFloor is the posterior proposal with a share of each round's mass
+	// reserved for the prior, so a leave the model has written off can still
+	// come back. See SetExplorationFloor.
+	ProposalFloor
+)
+
+// SetProposalMode chooses how refine rounds pick leaves. The default is
+// ProposalPosterior.
+func (r *RangeFinder) SetProposalMode(m ProposalMode) { r.proposalMode = m }
+
+// SetExplorationFloor sets the share of each round's proposal mass drawn from
+// the prior rather than the posterior, used when the mode is ProposalFloor.
+//
+// The posterior proposal is multiplicative in weight: q ∝ W·(1 + λ·unc), and
+// the uncertainty bonus is a factor of at most 1+λ set against weights that
+// differ by many orders of magnitude. A leave whose imputed likelihood has
+// collapsed therefore has no route back, however wrong the collapse was, and
+// the tiles in it stay excluded for the rest of the inference. A floor of prior
+// mass bounds how far the model's own opinion can exclude anything.
+func (r *RangeFinder) SetExplorationFloor(f float64) { r.explorationFloor = f }
 
 // buildProposal forms the round's sampling distribution over leaves that have
 // not been measured yet:
@@ -142,7 +177,11 @@ func (r *RangeFinder) buildProposal(lambdaEx float64) (cands []refineCandidate, 
 	if res == nil || res.model == nil {
 		return nil, 0
 	}
-	var totalW, unmeasuredW, qTotal float64
+	// An unmeasured leave's stored weight is P·ℓ̂/maxW, so its prior is
+	// Weight·maxW/ℓ̂ — exact, and cheaper than recomputing combinatorialPrior
+	// for tens of thousands of leaves.
+	maxW := math.Exp(res.maxLogW)
+	var totalW, unmeasuredW, qTotal, priorTotal float64
 	var runBuf []tileRun
 	for _, ir := range r.inference.InferredRacks {
 		totalW += ir.Weight
@@ -152,16 +191,28 @@ func (r *RangeFinder) buildProposal(lambdaEx float64) (cands []refineCandidate, 
 		}
 		unmeasuredW += ir.Weight
 		runBuf = runsOf(ir.Leave, runBuf)
-		q := ir.Weight * (1 + lambdaEx*res.model.uncertainty(runBuf))
+		unc := res.model.uncertainty(runBuf)
+		lhat := math.Exp(res.logCalib + res.model.logImputed(runBuf))
+		prior := 0.0
+		if lhat > 0 {
+			prior = ir.Weight * maxW / lhat
+		}
+		q := ir.Weight * (1 + lambdaEx*unc)
+		if r.proposalMode == ProposalPrior {
+			q = prior
+		}
 		if q <= 0 {
 			continue
 		}
 		qTotal += q
+		priorTotal += prior
 		cands = append(cands, refineCandidate{
 			tiles:  ir.Leave,
 			weight: ir.Weight,
 			q:      q,
-			lhat:   math.Exp(res.logCalib + res.model.logImputed(runBuf)),
+			unc:    unc,
+			lhat:   lhat,
+			prior:  prior,
 		})
 	}
 	if totalW > 0 {
@@ -170,17 +221,21 @@ func (r *RangeFinder) buildProposal(lambdaEx float64) (cands []refineCandidate, 
 	if qTotal <= 0 {
 		return nil, unmeasuredMass
 	}
-	// Normalize q and derive u = P/q. An unmeasured leave's stored weight is
-	// P·ℓ̂/maxW, so its prior is Weight·maxW/ℓ̂ — exact, and cheaper than
-	// recomputing combinatorialPrior for tens of thousands of leaves.
-	maxW := math.Exp(res.maxLogW)
+	// Normalize q, mix in the exploration floor when one is set, and derive
+	// u = P/q from whatever came out.
+	floor := 0.0
+	if r.proposalMode == ProposalFloor {
+		floor = min(max(r.explorationFloor, 0), 1)
+	}
 	for i := range cands {
-		cands[i].q /= qTotal
-		prior := 0.0
-		if cands[i].lhat > 0 {
-			prior = cands[i].weight * maxW / cands[i].lhat
+		q := cands[i].q / qTotal
+		if floor > 0 && priorTotal > 0 {
+			q = (1-floor)*q + floor*cands[i].prior/priorTotal
 		}
-		cands[i].u = prior / cands[i].q
+		cands[i].q = q
+		if q > 0 {
+			cands[i].u = cands[i].prior / q
+		}
 	}
 	return cands, unmeasuredMass
 }
@@ -377,6 +432,9 @@ func (r *RangeFinder) refineRounds(ctx context.Context, maxRounds int) {
 			if ml, ok := r.measured[leaveKey(c.tiles)]; ok {
 				ml.predicted = c.lhat
 			}
+			r.traceDraw(DrawRecord{Round: round, Q: c.q, U: u, Mult: e.mult,
+				Weight: c.weight, Uncertainty: c.unc, Predicted: c.lhat,
+				Measured: e.w}, c.tiles)
 			r.refinedCount++
 			evaluated++
 			us = append(us, u)
@@ -406,6 +464,13 @@ func (r *RangeFinder) refineRounds(ctx context.Context, maxRounds int) {
 
 		// Refit and re-impute with the new measurements before the next round.
 		r.finalizePlacementPosterior()
+
+		// After the refit, so the calibration figures are the ones this
+		// round produced.
+		r.traceRound(RoundRecord{Round: round, Drawn: st.drawn,
+			Distinct: st.distinct, Evaluated: st.evaluated,
+			LogRatio: st.logRatio, SELogRatio: st.seLogRatio,
+			UnmeasuredMass: st.unmeasured, Converged: st.converged})
 
 		log.Info().Int("round", round).
 			Int("drawn", st.drawn).Int("distinct-leaves", st.distinct).

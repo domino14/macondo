@@ -153,3 +153,32 @@ func TestAnalyzeDivergenceRejectsTurnLog(t *testing.T) {
 	is.True(err != nil)
 	is.True(strings.Contains(err.Error(), "per-turn log"))
 }
+
+// A pair's two seatings share a game ID, so exporting one to GCG has to be told
+// which is wanted. Replaying both as one game runs the bag out.
+func TestSplitTurnHalves(t *testing.T) {
+	is := is.New(t)
+
+	rows := func(turns ...string) [][]string {
+		out := [][]string{}
+		for _, t := range turns {
+			out = append(out, []string{"p1", "seed:a", t})
+		}
+		return out
+	}
+
+	halves := splitTurnHalves(rows("1", "2", "3", "1", "2"))
+	is.Equal(len(halves), 2)
+	is.Equal(len(halves[0]), 3)
+	is.Equal(len(halves[1]), 2)
+
+	// An unpaired game is one piece, not zero.
+	halves = splitTurnHalves(rows("1", "2", "3"))
+	is.Equal(len(halves), 1)
+	is.Equal(len(halves[0]), 3)
+
+	// A game whose last turn is passed twice in a row keeps climbing, so only a
+	// counter that goes backwards splits.
+	halves = splitTurnHalves(rows("1", "2", "4", "5"))
+	is.Equal(len(halves), 1)
+}

@@ -190,10 +190,13 @@ func init() {
 		Options: []Option{
 			{Name: "threads", Type: OptInt},
 			{Name: "time", Type: OptInt},
-			{Name: "tau", Type: OptFloat},
+			{Name: "tau", Type: OptFloat,
+				Help: "pin the inference softmax temperature for the whole game (default 0.05)"},
 
 			{Name: "inferenceiters", Type: OptInt},
 			{Name: "maxleaves", Type: OptInt},
+			{Name: "budget", Type: OptInt,
+				Help: "leaves to measure, instead of a time limit; matches autoplay's -inferencebudget"},
 			{Name: "rounds", Type: OptInt},
 		},
 	})
@@ -262,6 +265,8 @@ func init() {
 		Name: "autoanalyze",
 		Options: []Option{
 			{Name: "export", Type: OptString},
+			{Name: "half", Type: OptInt,
+				Help: "for -gamepairs runs: which seating of the pair to export, 1 or 2 (default 1)"},
 			{Name: "letterdist", Type: OptString},
 			{Name: "lex", Type: OptString},
 			{Name: "boardlayout", Type: OptString},
@@ -304,8 +309,10 @@ func init() {
 			{Name: "outputdir", Type: OptString, Help: "directory for the output files"},
 			{Name: "simthreads1", Type: OptInt, Help: "threads for player 1's sim; must be 1 for game pairs"},
 			{Name: "simthreads2", Type: OptInt, Help: "threads for player 2's sim; must be 1 for game pairs"},
-			{Name: "tau1", Type: OptFloat, Help: "player 1 inference softmax temperature"},
-			{Name: "tau2", Type: OptFloat, Help: "player 2 inference softmax temperature"},
+			{Name: "tau1", Type: OptFloat,
+				Help: "player 1: pin the inference softmax temperature for the whole game (default: by phase, rising as the bag empties)"},
+			{Name: "tau2", Type: OptFloat,
+				Help: "player 2: pin the inference softmax temperature for the whole game (default: by phase, rising as the bag empties)"},
 			{Name: "inferencetime1", Type: OptInt},
 			{Name: "inferencetime2", Type: OptInt},
 			{Name: "inferenceiters1", Type: OptInt},
