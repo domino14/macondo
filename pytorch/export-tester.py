@@ -69,26 +69,30 @@ def main():
         trt_runner = TrtRunner(EngineFromBytes(open(args.engine, "rb").read()))
         trt_runner.activate()
 
+    outputs = [o.name for o in sess.get_outputs()]
     worst, worst_trt = 0.0, 0.0
     for bs in sizes:
         b = boards[:bs]
         s = scalars[:bs]
         with torch.no_grad():
-            ref = net(torch.from_numpy(b), torch.from_numpy(s))["value"].numpy()
-        (out,) = sess.run(["value"], {"board": b, "scalars": s})
-        assert out.shape == ref.shape, (out.shape, ref.shape)
-        diff = float(np.abs(out - ref).max())
-        worst = max(worst, diff)
-        line = (
-            f"batch {bs:4d}: max|onnx-torch|={diff:.2e}  "
-            f"torch[0]={ref[0]:+.5f} onnx[0]={out[0]:+.5f}"
-        )
-        if trt_runner is not None:
-            tout = trt_runner.infer({"board": b, "scalars": s})["value"]
-            tdiff = float(np.abs(tout.reshape(ref.shape) - ref).max())
-            worst_trt = max(worst_trt, tdiff)
-            line += f"  max|trt-torch|={tdiff:.2e} trt[0]={float(tout.flat[0]):+.5f}"
-        print(line)
+            refs = net(torch.from_numpy(b), torch.from_numpy(s))
+        outs = sess.run(outputs, {"board": b, "scalars": s})
+        touts = trt_runner.infer({"board": b, "scalars": s}) if trt_runner else None
+        for name, out in zip(outputs, outs):
+            ref = refs[name].numpy()
+            assert out.shape == ref.shape, (name, out.shape, ref.shape)
+            diff = float(np.abs(out - ref).max())
+            worst = max(worst, diff)
+            line = (
+                f"batch {bs:4d} {name:>7}: max|onnx-torch|={diff:.2e}  "
+                f"torch[0]={ref[0]:+.5f} onnx[0]={out[0]:+.5f}"
+            )
+            if touts is not None:
+                tout = touts[name]
+                tdiff = float(np.abs(tout.reshape(ref.shape) - ref).max())
+                worst_trt = max(worst_trt, tdiff)
+                line += f"  max|trt-torch|={tdiff:.2e} trt[0]={float(tout.flat[0]):+.5f}"
+            print(line)
 
     if trt_runner is not None:
         trt_runner.deactivate()

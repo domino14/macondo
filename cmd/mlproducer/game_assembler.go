@@ -48,6 +48,10 @@ type gameWindow struct {
 	states     []*[]float32 // feature vectors after each ply (same len)
 	spreadsFor []int
 	game       turnplayer.BaseTurnPlayer
+	// Vectors whose horizon label is done but whose final-result label
+	// (win/draw/loss for the mover) needs the game to end first.
+	pending      []outputVector
+	pendingMover []int
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -93,9 +97,19 @@ func shouldTranspose(id string) bool {
 	return hash%2 == 0
 }
 
+// Training targets, in the order they are written after the features.
+const (
+	TargetValue    = iota // bogowin after the horizon, scaled to [-1, 1]
+	TargetSpread          // spread change over the horizon, tanh-scaled
+	TargetWDL             // final game result for the mover: -1, 0, 1
+	TargetOppBingo        // opponent bingos on their next turn: 0 or 1
+	TargetOppScore        // opponent's next score / 300
+	NumTargets
+)
+
 type outputVector struct {
 	features    *[]float32
-	predictions []float32 // [0]=win (-1 to 1), [1]=points, [2]=bingo_prob, [3]=opp_score
+	predictions []float32 // indexed by the Target* constants
 }
 
 // FeedTurn ingests one ply, updates state, and maybe produces vectors.
@@ -136,8 +150,8 @@ func (ga *GameAssembler) FeedTurn(t Turn) []outputVector {
 
 	// 3) Emit when window deep enough.
 	if len(gw.states) > ga.horizon {
-		vec := makeTrainingVector(ga, gw, gw.states[0], gw.states[1], gw.states[ga.horizon], gw.spreadsFor[0], gw.spreadsFor[ga.horizon])
-		outVecs = append(outVecs, vec)
+		vec := makeTrainingVector(ga, gw, gw.states[0], gw.states[1], gw.states[ga.horizon], gw.moves[1], gw.spreadsFor[0], gw.spreadsFor[ga.horizon])
+		gw.hold(vec, gw.spreadsFor[0])
 
 		// Slide window forward by dropping the oldest ply.
 		gw.turns = gw.turns[1:]
@@ -153,6 +167,10 @@ func (ga *GameAssembler) FeedTurn(t Turn) []outputVector {
 		gw.game.Playing() == pb.PlayState_WAITING_FOR_FINAL_PASS {
 
 		if gw.game.Playing() == pb.PlayState_WAITING_FOR_FINAL_PASS {
+			// The racks were thrown in after the play-out; the bag now holds
+			// exactly the passing player's tiles. Give them back so the
+			// end-of-game bonus is computed from a real rack.
+			setRackFromBag(gw, gw.game.PlayerOnTurn())
 			passMove := move.NewPassMove(gw.game.RackFor(gw.game.PlayerOnTurn()).TilesOn(),
 				gw.game.Alphabet())
 			err := gw.game.PlayMove(passMove, false, 0)
@@ -165,21 +183,60 @@ func (ga *GameAssembler) FeedTurn(t Turn) []outputVector {
 				t.GameID, gw.game.Playing())
 		}
 
-		outVecs = append(outVecs, ga.flushRemainder(gw)...)
+		ga.flushRemainder(gw)
+		outVecs = append(outVecs, gw.release()...)
 		delete(ga.games, t.GameID)
 		ga.gamesProcessed++
 	}
 	return outVecs
 }
 
+// hold parks a vector until the game result is known.
+func (gw *gameWindow) hold(vec outputVector, mover int) {
+	gw.pending = append(gw.pending, vec)
+	gw.pendingMover = append(gw.pendingMover, mover)
+}
+
+// release stamps every held vector with the final result from its mover's
+// side and hands them all back. Only valid once the game is over.
+func (gw *gameWindow) release() []outputVector {
+	for i, vec := range gw.pending {
+		spread := gw.game.SpreadFor(gw.pendingMover[i])
+		switch {
+		case spread > 0:
+			vec.predictions[TargetWDL] = 1.0
+		case spread < 0:
+			vec.predictions[TargetWDL] = -1.0
+		default:
+			vec.predictions[TargetWDL] = 0.0
+		}
+	}
+	out := gw.pending
+	gw.pending, gw.pendingMover = nil, nil
+	return out
+}
+
+// setRackFromBag gives playerIdx every tile left in the bag. When the real
+// bag is empty, the replay's bag (racks thrown in, the other player's rack
+// set) holds exactly this player's tiles. Whatever rack they had goes back
+// in first; SetRackFor deals the non-mover a random one.
+func setRackFromBag(gw *gameWindow, playerIdx int) {
+	gw.game.ThrowRacksInFor(playerIdx)
+	tiles := gw.game.Bag().Peek()
+	rack := tilemapping.NewRack(gw.game.Alphabet())
+	rack.Set(tiles)
+	if err := gw.game.SetRackForOnly(playerIdx, rack); err != nil {
+		log.Fatal().Msgf("Failed to set rack from bag for player %d: %v", playerIdx, err)
+	}
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Flush any remaining positions when a game ends.
 // ──────────────────────────────────────────────────────────────────────────────
-func (ga *GameAssembler) flushRemainder(gw *gameWindow) []outputVector {
+func (ga *GameAssembler) flushRemainder(gw *gameWindow) {
 	if len(gw.states) == 0 {
-		return nil
+		return
 	}
-	outVecs := make([]outputVector, 0)
 	lastIdx := len(gw.states) - 1
 
 	// Emit vectors for every leftover ply i where i < lastIdx
@@ -192,11 +249,10 @@ func (ga *GameAssembler) flushRemainder(gw *gameWindow) []outputVector {
 		if next > lastIdx {
 			next = lastIdx // clamp to final
 		}
-		vec := makeTrainingVector(ga, gw, gw.states[i], gw.states[next], gw.states[future], gw.spreadsFor[i], gw.spreadsFor[future])
-		outVecs = append(outVecs, vec)
+		vec := makeTrainingVector(ga, gw, gw.states[i], gw.states[next], gw.states[future], gw.moves[next], gw.spreadsFor[i], gw.spreadsFor[future])
+		gw.hold(vec, gw.spreadsFor[i])
 	}
 	game.MLVectorPool.Put(gw.states[lastIdx]) // return last state to pool
-	return outVecs
 }
 
 // Given current game window + turn, mutate board state and return features.
@@ -215,6 +271,12 @@ func updateBoardAndExtractFeatures(gw *gameWindow, t Turn, eqCalc *equity.Exhaus
 	m, err := gw.game.ParseMove(gw.game.PlayerOnTurn(), false, strings.Fields(tp), transpose)
 	if err != nil {
 		log.Fatal().Msgf("Failed to parse move: %v, error was %v", t, err)
+	}
+	if t.TilesRemaining == 0 {
+		// The bag is really empty, so everything still in the replay's bag
+		// is the opponent's rack. PlayMove needs it to score the end of the
+		// game (2x the unplayed tiles) correctly if this move plays out.
+		setRackFromBag(gw, 1-gw.game.PlayerOnTurn())
 	}
 	// PlayMove plays the move, updates board, cross-checks, player on turn, scores, etc.
 	// It also draws replenishment tiles from the bag. We don't want that for
@@ -275,14 +337,15 @@ func updateBoardAndExtractFeatures(gw *gameWindow, t Turn, eqCalc *equity.Exhaus
 
 // Build final training vector from state at ply t and ply t+horizon.
 func makeTrainingVector(ga *GameAssembler, gw *gameWindow, stateNow, stateNext, stateFuture *[]float32,
-	spreadForNow, spreadForFuture int) outputVector {
+	moveNext *move.Move, spreadForNow, spreadForFuture int) outputVector {
 	if len(*stateNow) != len(*stateFuture) {
 		log.Fatal().Msgf("State vectors must be of the same length, got %d and %d", len(*stateNow), len(*stateFuture))
 	}
 
-	// Get the actual spread values for the relevant player.
+	// Get the actual spread values for the relevant player. Both are still
+	// raw spreads here; stateNow's is normalized in place further down.
 	futureSpread := (*stateFuture)[len(*stateFuture)-1]
-	// nowSpread := stateNow[len(stateNow)-2]
+	nowSpread := (*stateNow)[len(*stateNow)-1]
 	bagRemaining := int(math.Round(float64((*stateFuture)[len(*stateFuture)-2] * 100.0))) // second to last element is bag remaining
 
 	if spreadForFuture != spreadForNow {
@@ -292,24 +355,16 @@ func makeTrainingVector(ga *GameAssembler, gw *gameWindow, stateNow, stateNext, 
 		futureSpread = -futureSpread // flip the sign of the future spread
 	}
 
-	// spreadDiff := futureSpread - nowSpread
-	// Let's try to just get a win or loss signal. Note we are looking ahead
-	// N Plies and it's not necessarily who won the entire game. We can
-	// train that way later.
-	win := float32(0.0)
+	spreadDiff := futureSpread - nowSpread
+	// The value target is a win/loss-like signal after the horizon, not the
+	// result of the entire game; that is TargetWDL, stamped at game end.
 	bogowin := float32(0.0)
 	if gw.game.Playing() == pb.PlayState_GAME_OVER {
 		switch {
 		case futureSpread > 0:
-			win = 1.0
 			bogowin = 1.0
 		case futureSpread < 0:
-			win = -1.0
-			// scale bogowin to [-1, 1] range
 			bogowin = -1.0
-		case futureSpread == 0:
-			win = 0.0
-			bogowin = 0.0
 		}
 	} else {
 		// We are not at the end of the game, so calculate bogowin (winpct lookup table)
@@ -324,11 +379,6 @@ func makeTrainingVector(ga *GameAssembler, gw *gameWindow, stateNow, stateNext, 
 		}
 		bogowin = ga.winpcts[int(equity.MaxRepresentedWinSpread-futureSpread)][bagRemaining]
 		bogowin = bogowin*2 - 1 // scale to [-1, 1] range
-		if futureSpread > 0 {
-			win = 1.0 // win is after N plies
-		} else if futureSpread < 0 {
-			win = -1.0
-		}
 	}
 
 	// log.Info().Msgf("future state spread %f, now spread %f, spreadForNow: %d, spreadForFuture: %d, Spread diff: %f, normalized: %f",
@@ -339,41 +389,24 @@ func makeTrainingVector(ga *GameAssembler, gw *gameWindow, stateNow, stateNext, 
 	(*stateNow)[len(*stateNow)-1] = game.NormalizeSpreadForML((*stateNow)[len((*stateNow))-1])
 	ov := outputVector{
 		features:    stateNow,
-		predictions: make([]float32, 4),
+		predictions: make([]float32, NumTargets),
 	}
-	// Prediction 0: Win value (-1 to 1)
-	ov.predictions[0] = bogowin // 1 if we win, -1 if we lose, 0 if draw
+	ov.predictions[TargetValue] = bogowin
+	ov.predictions[TargetSpread] = game.NormalizeSpreadForML(spreadDiff)
+	// TargetWDL is filled in by gameWindow.release once the game is over.
 
-	// Prediction 1: Total points scored (pre-scaled to range)
-	totalPts := gw.game.PointsFor(gw.game.PlayerOnTurn()) + gw.game.PointsFor(1-gw.game.PlayerOnTurn())
-	if totalPts > 1600 {
-		totalPts = 1600 // cap at 1600 for normalization
+	// Did the opponent bingo on their next turn?
+	if moveNext.Action() == move.MoveTypePlay && moveNext.TilesPlayed() == game.RackTileLimit {
+		ov.predictions[TargetOppBingo] = 1.0
 	}
-	if totalPts < 0 {
-		totalPts = 0 // cap at 0 for normalization
-	}
-	ov.predictions[1] = float32(totalPts) / 1600.0
 
-	// Prediction 2: Bingo probability (0-1)
-	// This is the probability that the opponent plays a bingo on the next turn
-	bingoed := ((*stateNext)[game.VCRatioRackStartIdx] == 0.0 && (*stateNext)[game.VCRatioRackStartIdx+1] == 0.0)
-	bp := float32(0.0)
-	if bingoed {
-		bp = 1.0
-	}
-	ov.predictions[2] = bp
-
-	// Prediction 3: Opponent's next score
-	oppScaledScore := (*stateNext)[game.AddlFeaturesStartIdx+1] // already scaled with tanh
-	// unscale
+	// Opponent's next score, unscaled from the tanh feature and capped.
+	oppScaledScore := (*stateNext)[game.AddlFeaturesStartIdx+1]
 	score := game.InverseScaleScoreWithTanh(oppScaledScore, 45.0, 40.0)
 	if score > 300 {
-		score = 300 // cap at 300 for normalization
+		score = 300
 	}
-	ov.predictions[3] = score / 300.0
-
-	_ = win
-	// _ = bogowin // ignore bogowin for now, it does badly.
+	ov.predictions[TargetOppScore] = score / 300.0
 
 	return ov
 }

@@ -11,7 +11,12 @@ from collections import Counter
 import onnx
 import torch
 
-from training import build_model, C, H, W, N_SCAL
+from training import build_model, load_state_dict_compat, C, H, W, N_SCAL
+
+# Heads exported, in output order. `value` is what the bot ranks on; `spread`
+# is the predicted spread change, for the simmer's equity stat. The other
+# heads are training-only regularizers.
+EXPORTED_HEADS = ["value", "spread"]
 
 
 # Wrap the model to return a tuple instead of a dictionary for ONNX export
@@ -23,12 +28,7 @@ class ModelWrapper(torch.nn.Module):
     def forward(self, board, scalars):
         outputs = self.model(board, scalars)
         # Return individual tensors in a definite order
-        return (
-            outputs["value"],
-            # outputs["total_game_points"],
-            # outputs["opp_bingo_prob"],
-            # outputs["opp_score"],
-        )
+        return tuple(outputs[h] for h in EXPORTED_HEADS)
 
 
 def load_net(ckpt_path):
@@ -36,7 +36,9 @@ def load_net(ckpt_path):
     arch = ckpt.get("arch", "cnn")
     hparams = ckpt.get("hparams", {"ch": 96, "blocks": 10})
     net = build_model(arch, hparams)
-    net.load_state_dict(ckpt["model"])
+    missing = load_state_dict_compat(net, ckpt["model"])
+    if missing:
+        print(f"note: heads not in checkpoint (random init): {sorted(missing)}")
     net.eval()
     if hasattr(net, "set_export_mode"):
         net.set_export_mode(True)
@@ -66,16 +68,11 @@ def main():
         (dummy_board, dummy_scalars),
         args.out,
         input_names=["board", "scalars"],
-        output_names=[
-            "value"
-        ],  # , "total_game_points", "opp_bingo_prob", "opp_score"],
+        output_names=EXPORTED_HEADS,
         dynamic_axes={
             "board": {0: "batch_size"},
             "scalars": {0: "batch_size"},
-            "value": {0: "batch_size"},
-            # "total_game_points": {0: "batch_size"},
-            # "opp_bingo_prob": {0: "batch_size"},
-            # "opp_score": {0: "batch_size"},
+            **{h: {0: "batch_size"} for h in EXPORTED_HEADS},
         },
         opset_version=args.opset,
         dynamo=False,
@@ -83,7 +80,7 @@ def main():
 
     m = onnx.load(args.out)
     onnx.checker.check_model(m)
-    print(f"Model exported to {args.out} with 1 output head: value")
+    print(f"Model exported to {args.out} with outputs: {EXPORTED_HEADS}")
     print("opset:", [(o.domain or "ai.onnx", o.version) for o in m.opset_import])
     print("ops:", dict(Counter(n.op_type for n in m.graph.node)))
 

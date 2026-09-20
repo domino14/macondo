@@ -336,11 +336,12 @@ def visualize_vector(
         if target is not None:
             ax13 = fig.add_subplot(gs[2, 3])
 
-            # Extract all 4 targets
+            # One bar per target, in frame order (see training.TARGETS)
             target_labels = [
-                "Value\n(W/L)",
-                "Total\nPoints",
-                "Opp Bingo\nProb",
+                "Value\n(bogowin)",
+                "Spread\ndelta",
+                "Final\nW/D/L",
+                "Opp\nBingo",
                 "Opp\nScore",
             ]
 
@@ -348,7 +349,7 @@ def visualize_vector(
             bars = ax13.bar(
                 target_labels,
                 target,
-                color=["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"],
+                color=["#1f77b4", "#ff7f0e", "#9467bd", "#2ca02c", "#d62728"],
             )
 
             # Add value labels above each bar

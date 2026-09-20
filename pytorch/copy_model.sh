@@ -31,12 +31,64 @@ MODELS_ROOT="../data/strategy/default/models"
 MODEL_DIR="$MODELS_ROOT/$MODEL_NAME"
 mkdir -p "$MODEL_DIR"
 
-# A new model name needs its own config.pbtxt; the interface (inputs,
-# outputs, dims) is identical for every architecture, only the name changes.
-if [ ! -f "$MODEL_DIR/config.pbtxt" ]; then
-    sed "s/^name: .*/name: \"$MODEL_NAME\"/" "$MODELS_ROOT/macondo-nn/config.pbtxt" \
-        > "$MODEL_DIR/config.pbtxt"
-    echo "Created $MODEL_DIR/config.pbtxt"
+# Triton's config.pbtxt is per model name, not per version, and it lists
+# the outputs. Every version under a name must therefore expose the same
+# outputs: a model with new heads goes under a new name.
+OUTPUTS=$(python -c 'import sys, onnx; print(" ".join(o.name for o in onnx.load(sys.argv[1]).graph.output))' "$MODEL_NAME.onnx")
+if [ -f "$MODEL_DIR/config.pbtxt" ]; then
+    EXISTING=$(python -c '
+import re, sys
+cfg = open(sys.argv[1]).read()
+body = cfg[cfg.index("output ["):]
+body = body[:body.index("]")]
+print(" ".join(re.findall(r"name: \"([^\"]+)\"", body)))
+' "$MODEL_DIR/config.pbtxt")
+    if [ "$EXISTING" != "$OUTPUTS" ]; then
+        echo "config.pbtxt for $MODEL_NAME lists outputs [$EXISTING] but the export has [$OUTPUTS]." >&2
+        echo "Use a new model name for this export." >&2
+        exit 1
+    fi
+else
+    python - "$MODEL_NAME" "$MODEL_DIR/config.pbtxt" $OUTPUTS <<'PY'
+import sys
+name, path, *outputs = sys.argv[1:]
+out_blocks = ",\n".join(
+    f'  {{\n    name: "{o}"\n    data_type: TYPE_FP32\n    dims: [ -1 ]\n  }}' for o in outputs
+)
+open(path, "w").write(f'''name: "{name}"
+platform: "tensorrt_plan"
+max_batch_size: 0
+input [
+  {{
+    name: "board"
+    data_type: TYPE_FP32
+    dims: [ -1, 85, 15, 15 ]
+  }},
+  {{
+    name: "scalars"
+    data_type: TYPE_FP32
+    dims: [ -1, 72 ]
+  }}
+]
+output [
+{out_blocks}
+]
+
+instance_group [
+  {{
+    count: 1
+    kind: KIND_GPU
+    gpus: [ 0 ]
+  }}
+]
+optimization {{
+  execution_accelerators {{
+    gpu_execution_accelerator : [ {{ name : "tensorrt" }} ]
+  }}
+}}
+''')
+PY
+    echo "Created $MODEL_DIR/config.pbtxt with outputs: $OUTPUTS"
 fi
 
 # Find the next unused version number

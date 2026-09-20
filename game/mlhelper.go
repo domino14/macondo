@@ -447,8 +447,10 @@ func (g *Game) BuildMLVector(m *move.Move, evalMoveLeaveVal float64, lastMoves [
 	bag := g.bag.PeekMap()
 	tr := g.bag.TilesRemaining()
 	for i := 0; i < 27; i++ {
-		rackVector[i] = float32(rack.LetArr[i]) / 7     // Rack tiles
-		unseenVector[i] = float32(bag[i]) / float32(tr) // rough prob of drawing this tile
+		rackVector[i] = float32(rack.LetArr[i]) / 7 // Rack tiles
+		if tr > 0 {
+			unseenVector[i] = float32(bag[i]) / float32(tr) // rough prob of drawing this tile
+		}
 		// power tiles seem very redundant since this info is already in the bag
 		// vector. However, it's not scaled there the same. Let's try it anyway.
 		switch i {

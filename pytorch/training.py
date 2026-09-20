@@ -1,12 +1,24 @@
 #!/usr/bin/env python3
 """
-Streaming trainer for César's Scrabble CNN
------------------------------------------
-stdin  : binary frames  [len | 18 675 board | 58 scalars | 1 target]
-output : best.pt  +  loss_log.csv  (train & val loss)
+Streaming trainer for Macondo's value nets (CNN and transformer)
+----------------------------------------------------------------
+stdin  : binary frames  [len | 19 125 board | 72 scalars | 5 targets]
+output : best.pt  +  loss_log.csv  (train & val loss, per head)
+
+Targets, in frame order (see cmd/mlproducer/game_assembler.go):
+    value     bogowin after the horizon, in [-1, 1]      (smooth-L1, tanh)
+    spread    spread change over the horizon, tanh-scaled (smooth-L1, tanh)
+    wdl       final game result for the mover: -1, 0, 1  (cross-entropy)
+    opp_bingo opponent bingos next turn: 0 or 1          (BCE with logits)
+    opp_score opponent's next score / 300                (smooth-L1)
+
+The bot ranks moves on `value`; the rest are auxiliary heads that
+regularize the trunk (KataGo §4.1). The checkpoint is chosen on the value
+head's validation loss alone, so runs with different head weights stay
+comparable.
 """
 
-import argparse, io, struct, sys, time, csv, os, tempfile
+import argparse, struct, sys, time, csv, os, tempfile
 from multiprocessing import Queue
 from threading import Thread
 import numpy as np
@@ -18,15 +30,24 @@ from torch.amp import GradScaler, autocast
 
 # ── feature sizes ────────────────────────────────────────────────────
 C, H, W = 85, 15, 15
-N_PLANE = C * H * W  # 19_575
+N_PLANE = C * H * W  # 19_125
 N_SCAL = 72
-N_TARGETS = 4  # [win, points, bingo_prob, opp_score]
+TARGETS = ["value", "spread", "wdl", "opp_bingo", "opp_score"]
+N_TARGETS = len(TARGETS)
 ROW_FLOATS = N_PLANE + N_SCAL + N_TARGETS
 DTYPE = np.float32
 
 VAL_SIZE = 150_000  # vectors for validation  (~75 batches)
 VAL_EVERY = 500  # train steps between val checks
 CSV_PATH = "loss_log.csv"
+
+DEFAULT_WEIGHTS = {
+    "value": 1.0,
+    "spread": 0.5,
+    "wdl": 0.25,
+    "opp_bingo": 0.1,
+    "opp_score": 0.1,
+}
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -76,6 +97,15 @@ def producer(val_q, train_q, val_size, num_workers):
         train_q.put(None)
 
 
+def unpack_frame(payload):
+    """One frame -> (board (C,H,W), scalars (N_SCAL,), targets (N_TARGETS,))."""
+    vec = np.frombuffer(payload, dtype=DTYPE, count=ROW_FLOATS).copy()
+    board = torch.from_numpy(vec[:N_PLANE]).view(C, H, W)
+    scalars = torch.from_numpy(vec[N_PLANE : N_PLANE + N_SCAL])
+    targets = torch.from_numpy(vec[N_PLANE + N_SCAL :])
+    return board, scalars, targets
+
+
 class QueueDataset(IterableDataset):
     """An iterable dataset that pulls from a multiprocessing queue."""
 
@@ -94,27 +124,32 @@ class QueueDataset(IterableDataset):
                 self.worker_sentinel_received = True
                 break
 
-            vec = np.frombuffer(payload, dtype=DTYPE, count=ROW_FLOATS).copy()
-            board = torch.from_numpy(vec[:N_PLANE]).view(C, H, W)
-            scalars = torch.from_numpy(vec[N_PLANE : N_PLANE + N_SCAL])
-            target_start = N_PLANE + N_SCAL
-            # Extract multiple targets
-            targets = {
-                "value": torch.tensor(vec[target_start], dtype=torch.float32),
-                "total_game_points": torch.tensor(
-                    vec[target_start + 1], dtype=torch.float32
-                ),
-                "opp_bingo_prob": torch.tensor(
-                    vec[target_start + 2], dtype=torch.float32
-                ),
-                "opp_score": torch.tensor(vec[target_start + 3], dtype=torch.float32),
-            }
-
-            yield board, scalars, targets
-            del payload, vec
+            yield unpack_frame(payload)
+            del payload
 
 
 # ────────────────────────────────────────────────────────────────────
+class Heads(nn.Module):
+    """Output heads shared by every trunk. Takes the 128-wide hidden vector."""
+
+    def __init__(self, hidden=128):
+        super().__init__()
+        self.value = nn.Linear(hidden, 1)
+        self.spread = nn.Linear(hidden, 1)
+        self.wdl = nn.Linear(hidden, 3)  # loss / draw / win logits
+        self.opp_bingo = nn.Linear(hidden, 1)  # logit
+        self.opp_score = nn.Linear(hidden, 1)
+
+    def forward(self, h):
+        return {
+            "value": torch.tanh(self.value(h)).squeeze(1),
+            "spread": torch.tanh(self.spread(h)).squeeze(1),
+            "wdl": self.wdl(h),
+            "opp_bingo": self.opp_bingo(h).squeeze(1),
+            "opp_score": self.opp_score(h).squeeze(1),
+        }
+
+
 class ResidBlock(nn.Module):
     def __init__(self, ch=64):
         super().__init__()
@@ -135,12 +170,7 @@ class ScrabbleValueNet(nn.Module):
         self.res = nn.Sequential(*[ResidBlock(ch) for _ in range(blocks)])
         self.gap = nn.AdaptiveAvgPool2d(1)
         self.fc1 = nn.Linear(ch + scalars, 128)
-
-        # Original value (-1 to 1). The value of the move. (-1 = strong loss, 1 = strong win)
-        self.value_head = nn.Linear(128, 1)
-        self.total_points_head = nn.Linear(128, 1)  # Total points scored
-        self.opp_bingo_prob_head = nn.Linear(128, 1)  # Bingo probability
-        self.opp_score_head = nn.Linear(128, 1)  # Opponent score
+        self.heads = Heads(128)
 
     def forward(self, board, scalars):
         x = F.relu(self.in_bn(self.in_conv(board)))
@@ -148,20 +178,7 @@ class ScrabbleValueNet(nn.Module):
         x = self.gap(x).flatten(1)
         x = torch.cat([x, scalars], 1)
         x = F.relu(self.fc1(x))
-        value = torch.tanh(self.value_head(x)).squeeze(1)  # -1 to 1
-        # total_game_points = self.total_points_head(x).squeeze(
-        #     1
-        # )  # No activation if pre-scaled
-        # opp_bingo_prob = self.opp_bingo_prob_head(x).squeeze(1)
-        # # Opponent score: use ReLU to ensure non-negative
-        # opp_score = F.relu(self.opp_score_head(x)).squeeze(1)
-
-        return {
-            "value": value,
-            # "total_game_points": total_game_points,
-            # "opp_bingo_prob": opp_bingo_prob,
-            # "opp_score": opp_score,
-        }
+        return self.heads(x)
 
 
 def build_model(arch, hparams):
@@ -177,6 +194,31 @@ def build_model(arch, hparams):
 
         return ScrabbleTransformerNet(**hparams)
     raise ValueError(f"unknown arch {arch!r}")
+
+
+def load_state_dict_compat(net, state):
+    """Load a checkpoint saved before the Heads module existed.
+
+    Old checkpoints have `value_head.*` (and the never-trained
+    `total_points_head`, `opp_bingo_prob_head`, `opp_score_head`); the value
+    head is remapped and the rest are dropped, leaving the new heads at
+    their random init.
+    """
+    remapped = {}
+    for k, v in state.items():
+        if k.startswith("value_head."):
+            k = "heads.value." + k[len("value_head.") :]
+        elif k.split(".")[0] in (
+            "total_points_head",
+            "opp_bingo_prob_head",
+            "opp_score_head",
+        ):
+            continue
+        remapped[k] = v
+    missing, unexpected = net.load_state_dict(remapped, strict=False)
+    if unexpected:
+        raise KeyError(f"unexpected keys in checkpoint: {unexpected}")
+    return missing
 
 
 ARCH_DEFAULTS = {
@@ -199,6 +241,9 @@ def parse_args(argv=None):
     p.add_argument("--heads", type=int, default=6)
     p.add_argument("--ff-mult", type=int, default=4)
     p.add_argument("--dropout", type=float, default=0.0)
+    # loss weights per head; 0 disables a head's gradient (it is still logged)
+    for name, w in DEFAULT_WEIGHTS.items():
+        p.add_argument(f"--w-{name.replace('_', '-')}", type=float, default=w)
     # optimisation; None means "use the per-arch default"
     p.add_argument("--batch-size", type=int, default=None)
     p.add_argument(
@@ -231,56 +276,38 @@ def parse_args(argv=None):
             ff_mult=args.ff_mult,
             dropout=args.dropout,
         )
+    args.weights = {name: getattr(args, f"w_{name}") for name in TARGETS}
     return args
 
 
 # ────────────────────────────────────────────────────────────────────
-@torch.no_grad()
-def validate(net, tensors, device, batch=4096, amp_dtype=torch.float16):
-    boards, scalars, targets_dict = tensors
-    total, n = 0.0, 0
-    for i in range(0, len(list(targets_dict.values())[0]), batch):
-        b = boards[i : i + batch].to(device)
-        s = scalars[i : i + batch].to(device)
+def compute_loss(pred, targets, weights):
+    """Per-head losses and their weighted sum.
 
-        # Move all targets to device
-        batch_targets = {
-            k: v[i : i + batch].to(device) for k, v in targets_dict.items()
-        }
-
-        with autocast(
-            device.type, dtype=amp_dtype, enabled=(device.type in ("cuda", "mps"))
-        ):
-            pred = net(b, s)
-            loss, _ = compute_loss(pred, batch_targets)
-            total += loss.item() * b.size(0)
-        n += b.size(0)
-    return total / n
+    targets: (B, N_TARGETS) in frame order. Returns (total, {head: loss})
+    where the per-head losses are detached tensors for accumulation.
+    """
+    losses = {
+        "value": F.smooth_l1_loss(pred["value"], targets[:, 0]),
+        "spread": F.smooth_l1_loss(pred["spread"], targets[:, 1]),
+        # -1/0/1 -> class 0/1/2
+        "wdl": F.cross_entropy(pred["wdl"], (targets[:, 2].round() + 1).long()),
+        "opp_bingo": F.binary_cross_entropy_with_logits(
+            pred["opp_bingo"], targets[:, 3]
+        ),
+        "opp_score": F.smooth_l1_loss(pred["opp_score"], targets[:, 4]),
+    }
+    total = sum(weights[k] * losses[k] for k in TARGETS if weights[k] > 0)
+    return total, {k: v.detach() for k, v in losses.items()}
 
 
-def write_validation_to_file(val_ds, C, H, W, N_SCAL, DTYPE):
+def write_validation_to_file(val_ds):
     val_file = tempfile.NamedTemporaryFile(delete=False)
     val_count = 0
-    for b, s, targets in val_ds:
-        b_bytes = b.numpy().astype(DTYPE).tobytes()
-        s_bytes = s.numpy().astype(DTYPE).tobytes()
-
-        # Pack all targets into a single array
-        targets_array = np.array(
-            [
-                targets["value"].numpy(),
-                # targets["total_game_points"].numpy(),
-                # targets["opp_bingo_prob"].numpy(),
-                # targets["opp_score"].numpy(),
-            ],
-            dtype=DTYPE,
-        )
-
-        t_bytes = targets_array.tobytes()
-        val_file.write(struct.pack("<III", len(b_bytes), len(s_bytes), len(t_bytes)))
-        val_file.write(b_bytes)
-        val_file.write(s_bytes)
-        val_file.write(t_bytes)
+    for b, s, t in val_ds:
+        val_file.write(b.numpy().astype(DTYPE).tobytes())
+        val_file.write(s.numpy().astype(DTYPE).tobytes())
+        val_file.write(t.numpy().astype(DTYPE).tobytes())
         val_count += 1
     val_file.close()
     return val_file.name, val_count
@@ -288,136 +315,34 @@ def write_validation_to_file(val_ds, C, H, W, N_SCAL, DTYPE):
 
 @torch.no_grad()
 def validate_streaming(
-    net, val_filename, val_count, device, batch=1024, amp_dtype=torch.float16
+    net, val_filename, val_count, device, weights, batch=1024, amp_dtype=torch.float16
 ):
+    """Mean loss per head (and weighted total) over the validation file."""
     net.eval()
-    total, n = 0.0, 0
+    sums = {k: torch.zeros((), device=device) for k in ["total", *TARGETS]}
+    n = 0
+    row_bytes = ROW_FLOATS * 4
     with open(val_filename, "rb") as f:
-        batch_boards, batch_scalars, batch_targets = [], [], []
-        for _ in range(val_count):
-            b_size, s_size, t_size = struct.unpack("<III", f.read(12))
-            b_bytes = f.read(b_size)
-            s_bytes = f.read(s_size)
-            t_bytes = f.read(t_size)
-            b = torch.from_numpy(np.frombuffer(b_bytes, dtype=DTYPE).reshape(C, H, W))
-            s = torch.from_numpy(np.frombuffer(s_bytes, dtype=DTYPE))
-            t = np.frombuffer(t_bytes, dtype=DTYPE)
-
-            # Unpack targets
-            targets = {
-                "value": torch.tensor(t[0], dtype=torch.float32),
-                # "total_game_points": torch.tensor(t[1], dtype=torch.float32),
-                # "opp_bingo_prob": torch.tensor(t[2], dtype=torch.float32),
-                # "opp_score": torch.tensor(t[3], dtype=torch.float32),
-            }
-
-            batch_boards.append(b)
-            batch_scalars.append(s)
-            batch_targets.append(targets)
-
-            if len(batch_boards) == batch:
-                b_tensor = torch.stack(batch_boards).to(device)
-                s_tensor = torch.stack(batch_scalars).to(device)
-
-                # Stack targets into dict of tensors
-                stacked_targets = {
-                    k: torch.stack([d[k] for d in batch_targets]).to(device)
-                    for k in batch_targets[0]
-                }
-
-                with autocast(
-                    device.type,
-                    dtype=amp_dtype,
-                    enabled=(device.type in ("cuda", "mps")),
-                ):
-                    pred = net(b_tensor, s_tensor)
-                    loss, _ = compute_loss(pred, stacked_targets)
-                    total += loss.item() * b_tensor.size(0)
-
-                n += b_tensor.size(0)
-                batch_boards, batch_scalars, batch_targets = [], [], []
-
-        if batch_boards:
-            b_tensor = torch.stack(batch_boards).to(device)
-            s_tensor = torch.stack(batch_scalars).to(device)
-
-            # Stack targets into dict of tensors
-            stacked_targets = {
-                k: torch.stack([d[k] for d in batch_targets]).to(device)
-                for k in batch_targets[0]
-            }
-
+        while n < val_count:
+            k = min(batch, val_count - n)
+            raw = np.frombuffer(f.read(row_bytes * k), dtype=DTYPE).reshape(
+                k, ROW_FLOATS
+            )
+            rows = torch.from_numpy(raw.copy()).to(device)
+            b = rows[:, :N_PLANE].view(k, C, H, W)
+            s = rows[:, N_PLANE : N_PLANE + N_SCAL]
+            t = rows[:, N_PLANE + N_SCAL :]
             with autocast(
                 device.type, dtype=amp_dtype, enabled=(device.type in ("cuda", "mps"))
             ):
-                pred = net(b_tensor, s_tensor)
-                loss, _ = compute_loss(pred, stacked_targets)
-                total += loss.item() * b_tensor.size(0)
-                n += b_tensor.size(0)
+                pred = net(b, s)
+                total, losses = compute_loss(pred, t, weights)
+            sums["total"] += total.detach() * k
+            for name, l in losses.items():
+                sums[name] += l * k
+            n += k
     net.train()
-    return total / n
-
-
-def compute_loss(predictions, targets, target_weights=None):
-    """
-    Compute weighted loss across multiple prediction heads.
-
-    Args:
-        predictions: Dictionary of model predictions
-        targets: Dictionary of target values
-        target_weights: Optional dictionary of weights for each loss component
-
-    Returns:
-        total_loss: Combined loss value
-        loss_dict: Dictionary of individual losses for logging
-    """
-    if target_weights is None:
-        # Default weights
-        target_weights = {
-            "value": 1.0,
-            # "total_game_points": 0.25,
-            # "opp_bingo_prob": 0.5,
-            # "opp_score": 0.25,
-        }
-
-    # Unpack predictions
-    pred_value = predictions["value"]
-    # pred_points = predictions["total_game_points"]
-    # pred_bingo_prob = predictions["opp_bingo_prob"]
-    # pred_opp_score = predictions["opp_score"]
-
-    # Unpack targets
-    target_value = targets["value"]
-    # target_points = targets["total_game_points"]
-    # target_bingo_prob = targets["opp_bingo_prob"]
-    # target_opp_score = targets["opp_score"]
-
-    # Calculate individual losses
-    value_loss = F.smooth_l1_loss(pred_value, target_value)
-    # points_loss = F.smooth_l1_loss(pred_points, target_points)
-
-    # # For binary classification, use BCE loss
-    # bingo_loss = F.binary_cross_entropy_with_logits(pred_bingo_prob, target_bingo_prob)
-
-    # # For score prediction
-    # opp_score_loss = F.smooth_l1_loss(pred_opp_score, target_opp_score)
-
-    # Combine losses with weights
-    total_loss = (
-        target_weights["value"]
-        * value_loss
-        # + target_weights["total_game_points"] * points_loss
-        # + target_weights["opp_bingo_prob"] * bingo_loss
-        # + target_weights["opp_score"] * opp_score_loss
-    )
-
-    return total_loss, {
-        "value_loss": value_loss.item(),
-        # "points_loss": points_loss.item(),
-        # "bingo_loss": bingo_loss.item(),
-        # "opp_score_loss": opp_score_loss.item(),
-        "total_loss": total_loss.item(),
-    }
+    return {name: (v / n).item() for name, v in sums.items()}
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -444,7 +369,7 @@ def main():
 
     # ---- collect validation set -----------------------------------
     val_ds = QueueDataset(val_q)
-    val_file_name, val_count = write_validation_to_file(val_ds, C, H, W, N_SCAL, DTYPE)
+    val_file_name, val_count = write_validation_to_file(val_ds)
     print(f"Validation set: {val_count} positions", file=sys.stderr)
 
     # ---- training loader ------------------------------------------
@@ -489,46 +414,34 @@ def main():
         enabled=(device.type in ("cuda", "mps")) and amp_dtype == torch.float16
     )
 
+    def zero_running():
+        return {k: torch.zeros((), device=device) for k in ["total", *TARGETS]}
+
     best_val, step, micro, t0 = float("inf"), 0, 0, time.time()
-    running = {
-        "total": 0.0,
-        "value": 0.0,
-        # "points": 0.0,
-        # "bingo": 0.0,
-        # "opp_score": 0.0,
-    }
+    running = zero_running()
     csv_fh = open(args.csv, "w", newline="")
     csv_writer = csv.writer(csv_fh)
     csv_writer.writerow(
-        [
-            "step",
-            "train_loss",
-            "val_loss",
-            "value_loss",
-            # "points_loss",
-            # "bingo_loss",
-            # "opp_score_loss",
-        ]
+        ["step", "train_loss", "val_loss"]
+        + [f"train_{k}" for k in TARGETS]
+        + [f"val_{k}" for k in TARGETS]
     )
 
     try:
         for board, scal, targets in loader:
             board, scal = board.to(device), scal.to(device)
-            # Move all targets to device
-            targets = {k: v.to(device) for k, v in targets.items()}
+            targets = targets.to(device)
 
             with autocast(
                 device.type, dtype=amp_dtype, enabled=(device.type in ("cuda", "mps"))
             ):
                 pred = net(board, scal)
-                loss, loss_dict = compute_loss(pred, targets)
+                loss, losses = compute_loss(pred, targets, args.weights)
 
-            # Track all loss components (per micro-batch)
-            running["total"] += loss.item()
-            running["value"] += loss_dict["value_loss"]
-            # running["points"] += loss_dict["points_loss"]
-            # running["bingo"] += loss_dict["bingo_loss"]
-            # running["opp_score"] += loss_dict["opp_score_loss"]
+            # Track all loss components (per micro-batch), without syncing
+            running["total"] += loss.detach()
+            for k, l in losses.items():
+                running[k] += l
 
             scaler.scale(loss / args.accum if args.accum > 1 else loss).backward()
             micro += 1
@@ -545,66 +458,53 @@ def main():
 
             if step % args.val_every == 0:
                 n_micro = args.val_every * args.accum
-                train_avg = running["total"] / n_micro
-                # Store current loss components
-                val_loss_dict = {
-                    "value_loss": running["value"] / n_micro,
-                    # "points_loss": running["points"] / n_micro,
-                    # "bingo_loss": running["bingo"] / n_micro,
-                    # "opp_score_loss": running["opp_score"] / n_micro,
-                }
-                # Reset running losses
-                running = {
-                    "total": 0.0,
-                    "value": 0.0,
-                    # "points": 0.0,
-                    # "bingo": 0.0,
-                    # "opp_score": 0.0,
-                }
-                val_loss = validate_streaming(
-                    net, val_file_name, val_count, device, amp_dtype=amp_dtype
+                train = {k: (v / n_micro).item() for k, v in running.items()}
+                running = zero_running()
+                val = validate_streaming(
+                    net,
+                    val_file_name,
+                    val_count,
+                    device,
+                    args.weights,
+                    amp_dtype=amp_dtype,
                 )
                 if step == args.val_every and device.type == "cuda":
                     print(
                         f"peak GPU memory: {torch.cuda.max_memory_allocated() / 2**30:.2f} GiB",
                         file=sys.stderr,
                     )
-                # Include loss components in CSV
                 csv_writer.writerow(
-                    [
-                        step,
-                        f"{train_avg:.6f}",
-                        f"{val_loss:.6f}",
-                        f"{val_loss_dict.get('value_loss', 0.0):.6f}",
-                        # f"{val_loss_dict.get('points_loss', 0.0):.6f}",
-                        # f"{val_loss_dict.get('bingo_loss', 0.0):.6f}",
-                        # f"{val_loss_dict.get('opp_score_loss', 0.0):.6f}",
-                    ]
+                    [step, f"{train['total']:.6f}", f"{val['total']:.6f}"]
+                    + [f"{train[k]:.6f}" for k in TARGETS]
+                    + [f"{val[k]:.6f}" for k in TARGETS]
                 )
                 csv_fh.flush()
 
                 elapsed = time.time() - t0
+                heads = "  ".join(f"{k}={val[k]:.4f}" for k in TARGETS)
                 print(
-                    f"{step:>7}  train={train_avg:.4f}  val={val_loss:.4f}  "
-                    f"v_loss={val_loss_dict.get('value_loss', 0.0):.4f}  "
-                    # f"p_loss={val_loss_dict.get('points_loss', 0.0):.4f}  "
-                    # f"b_loss={val_loss_dict.get('bingo_loss', 0.0):.4f}  "
-                    # f"o_loss={val_loss_dict.get('opp_score_loss', 0.0):.4f}  "
+                    f"{step:>7}  train={train['total']:.4f}  val={val['total']:.4f}  "
+                    f"[{heads}]  "
                     f"{step*args.batch_size*args.accum/elapsed:,.0f} pos/s"
                 )
 
-                if val_loss < best_val:
+                # Checkpoint on the value head alone: it is what the bot
+                # ranks on, and it keeps runs with different head weights
+                # comparable.
+                if val["value"] < best_val:
                     torch.save(
                         {
                             "step": step,
                             "model": net.state_dict(),
                             "arch": args.arch,
                             "hparams": args.hparams,
+                            "weights": args.weights,
+                            "val": val,
                         },
                         args.ckpt,
                     )
-                    best_val = val_loss
-                    print("  ✓ checkpointed (best validation)")
+                    best_val = val["value"]
+                    print("  ✓ checkpointed (best validation value loss)")
 
         # Print total training time
         total_time = time.time() - t0

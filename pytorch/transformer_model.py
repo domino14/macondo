@@ -4,8 +4,8 @@ Transformer value net for Macondo.
 Consumes exactly the same inputs as the CNN in training.py:
     board   : (B, 85, 15, 15)  float32 planes
     scalars : (B, 72)          float32 global features
-and returns {"value": (B,)} in [-1, 1], so the Go producer, the binary
-frame format, ONNX input/output names and the Triton client are unchanged.
+and returns the same head dict as the CNN (see training.Heads), so the Go
+producer, the binary frame format and the Triton client are shared.
 
 Tokenization happens inside the model (254 tokens):
     [CLS] + 225 board squares + 27 tile types (rack count, unseen prob)
@@ -105,7 +105,9 @@ class ScrabbleTransformerNet(nn.Module):
         )
         self.ln_f = nn.LayerNorm(d)
         self.fc1 = nn.Linear(d, 128)
-        self.value_head = nn.Linear(128, 1)
+        from training import Heads  # lazy: training imports this module
+
+        self.heads = Heads(128)
 
     def set_export_mode(self, flag=True):
         for b in self.blocks:
@@ -134,8 +136,7 @@ class ScrabbleTransformerNet(nn.Module):
             x = blk(x, T)
         cls = self.ln_f(x[:, 0])
         h = F.relu(self.fc1(cls))
-        value = torch.tanh(self.value_head(h)).squeeze(1)
-        return {"value": value}
+        return self.heads(h)
 
 
 if __name__ == "__main__":

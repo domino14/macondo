@@ -159,7 +159,7 @@ func main() {
 					resultsChan <- vec
 				}
 			}
-			totalGames.Add(int64(len(assembler.games)))
+			totalGames.Add(assembler.gamesProcessed)
 		}(jobChans[i])
 	}
 	log.Info().Msgf("Started %d worker goroutines", numWorkers)

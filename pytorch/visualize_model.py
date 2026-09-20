@@ -11,7 +11,7 @@ import argparse
 import torch
 from torchviz import make_dot
 
-from training import build_model, parse_args, C, H, W, N_SCAL
+from training import build_model, load_state_dict_compat, parse_args, C, H, W, N_SCAL
 
 
 def main():
@@ -26,7 +26,7 @@ def main():
         arch = ckpt.get("arch", "cnn")
         hparams = ckpt.get("hparams", {"ch": 96, "blocks": 10})
         model = build_model(arch, hparams)
-        model.load_state_dict(ckpt["model"])
+        load_state_dict_compat(model, ckpt["model"])
     else:
         # Any training.py model flags (--arch, --ch, --layers, ...) pass through.
         targs = parse_args(rest)

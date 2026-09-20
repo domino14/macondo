@@ -152,6 +152,9 @@ tau-schedule lesson).
 
 ### Phase 1: heads on existing data (~2 days incl. a training run)
 
+*Code done 2026-09-19; see experiments.md "Auxiliary heads". Training run
+next.*
+
 Go (`cmd/mlproducer`):
 - Buffer a whole game before emitting (needed for the final result). Cost:
   ~25 vectors x 77 KB per live game per worker; fine.

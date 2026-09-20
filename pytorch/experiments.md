@@ -970,3 +970,38 @@ bogowin table, half of whose plies are played by the softmax bot.
 Next: fix the labels. Plan in `plan-bootstrapped-training.md`: auxiliary
 spread + win/draw/loss heads first (KataGo §4.1), then averaged K-ply
 rollout labels with the net at the leaf, on a 25% sample of positions.
+
+### Auxiliary heads (9/19/26) — plan phase 1
+
+Frames now carry five targets (`cmd/mlproducer/game_assembler.go`,
+`training.TARGETS`): `value` (bogowin after 5 plies, as before), `spread`
+(spread change over those 5 plies, tanh/130), `wdl` (final game result for
+the mover, -1/0/1), `opp_bingo` (opponent bingos next turn), `opp_score`
+(opponent's next score / 300). `total_game_points` is gone: it is a
+function of the inputs. The producer holds a game's rows until the game
+ends so the result is known.
+
+Both trunks end in a shared `Heads` module off the 128-wide hidden layer.
+Losses: smooth-L1 for value/spread/opp_score, cross-entropy for wdl, BCE
+for opp_bingo, weights 1 / 0.5 / 0.25 / 0.1 / 0.1 (`--w-<head>` flags).
+The checkpoint is chosen on **value val loss only**, so the number stays
+comparable with the single-head runs. Export writes `value` and `spread`;
+Go still reads `value` by name. Multi-head models must go under a new
+Triton model name (config.pbtxt lists outputs per name, not per version;
+`copy_model.sh` now refuses a mismatch).
+
+Two label fixes came out of this: the end-of-game rack bonus never reached
+the labels (the replay throws racks in before every move, so the game saw
+an empty opponent rack when someone played out; the opponent now gets
+their real rack, reconstructed from the unseen pool, whenever the bag is
+empty), and `opp_bingo` fired on any play that emptied the rack, including
+play-outs, instead of on seven tiles played.
+
+Smoke run on 19k positions: all heads train, ONNX vs torch 3e-7, TensorRT
+fp16 vs torch 9e-4 on both outputs.
+
+Run (same file and hyperparameters as the 0.0913 run):
+
+```
+./train.sh --arch transformer --ckpt best-tf-heads.pt --csv loss_tf_heads.csv
+```
