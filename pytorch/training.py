@@ -6,7 +6,7 @@ stdin  : binary frames  [len | 18 675 board | 58 scalars | 1 target]
 output : best.pt  +  loss_log.csv  (train & val loss)
 """
 
-import io, struct, sys, time, csv, os, tempfile
+import argparse, io, struct, sys, time, csv, os, tempfile
 from multiprocessing import Queue
 from threading import Thread
 import numpy as np
@@ -164,9 +164,79 @@ class ScrabbleValueNet(nn.Module):
         }
 
 
+def build_model(arch, hparams):
+    """Build a model from an arch name and its hyperparameter dict.
+
+    `hparams` is what gets stored in the checkpoint so export.py can rebuild
+    the exact architecture without hardcoding anything.
+    """
+    if arch == "cnn":
+        return ScrabbleValueNet(ch=hparams["ch"], blocks=hparams["blocks"])
+    if arch == "transformer":
+        from transformer_model import ScrabbleTransformerNet  # lazy: no import cycle
+
+        return ScrabbleTransformerNet(**hparams)
+    raise ValueError(f"unknown arch {arch!r}")
+
+
+ARCH_DEFAULTS = {
+    "cnn": dict(batch_size=2048, accum=1, lr=1.0e-3, grad_clip=0.0, amp_dtype="fp16"),
+    "transformer": dict(
+        batch_size=256, accum=8, lr=3.0e-4, grad_clip=1.0, amp_dtype="bf16"
+    ),
+}
+
+
+def parse_args(argv=None):
+    p = argparse.ArgumentParser(description="Streaming trainer for Macondo value nets")
+    p.add_argument("--arch", choices=list(ARCH_DEFAULTS), default="cnn")
+    # cnn
+    p.add_argument("--ch", type=int, default=96)
+    p.add_argument("--blocks", type=int, default=10)
+    # transformer
+    p.add_argument("--d-model", type=int, default=192)
+    p.add_argument("--layers", type=int, default=8)
+    p.add_argument("--heads", type=int, default=6)
+    p.add_argument("--ff-mult", type=int, default=4)
+    p.add_argument("--dropout", type=float, default=0.0)
+    # optimisation; None means "use the per-arch default"
+    p.add_argument("--batch-size", type=int, default=None)
+    p.add_argument(
+        "--accum", type=int, default=None, help="gradient accumulation steps"
+    )
+    p.add_argument("--lr", type=float, default=None)
+    p.add_argument("--grad-clip", type=float, default=None, help="0 disables")
+    p.add_argument("--amp-dtype", choices=["fp16", "bf16"], default=None)
+    p.add_argument("--warmup", type=int, default=2_000)
+    p.add_argument("--total-steps", type=int, default=250_000)
+    p.add_argument("--weight-decay", type=float, default=1e-4)
+    # io
+    p.add_argument("--ckpt", default="best.pt")
+    p.add_argument("--csv", default=CSV_PATH)
+    p.add_argument("--val-size", type=int, default=VAL_SIZE)
+    p.add_argument("--val-every", type=int, default=VAL_EVERY)
+    args = p.parse_args(argv)
+
+    for k, v in ARCH_DEFAULTS[args.arch].items():
+        if getattr(args, k) is None:
+            setattr(args, k, v)
+
+    if args.arch == "cnn":
+        args.hparams = dict(ch=args.ch, blocks=args.blocks)
+    else:
+        args.hparams = dict(
+            d_model=args.d_model,
+            layers=args.layers,
+            heads=args.heads,
+            ff_mult=args.ff_mult,
+            dropout=args.dropout,
+        )
+    return args
+
+
 # ────────────────────────────────────────────────────────────────────
 @torch.no_grad()
-def validate(net, tensors, device, batch=4096):
+def validate(net, tensors, device, batch=4096, amp_dtype=torch.float16):
     boards, scalars, targets_dict = tensors
     total, n = 0.0, 0
     for i in range(0, len(list(targets_dict.values())[0]), batch):
@@ -178,7 +248,9 @@ def validate(net, tensors, device, batch=4096):
             k: v[i : i + batch].to(device) for k, v in targets_dict.items()
         }
 
-        with autocast(device.type, enabled=(device.type in ("cuda", "mps"))):
+        with autocast(
+            device.type, dtype=amp_dtype, enabled=(device.type in ("cuda", "mps"))
+        ):
             pred = net(b, s)
             loss, _ = compute_loss(pred, batch_targets)
             total += loss.item() * b.size(0)
@@ -215,7 +287,9 @@ def write_validation_to_file(val_ds, C, H, W, N_SCAL, DTYPE):
 
 
 @torch.no_grad()
-def validate_streaming(net, val_filename, val_count, device, batch=1024):
+def validate_streaming(
+    net, val_filename, val_count, device, batch=1024, amp_dtype=torch.float16
+):
     net.eval()
     total, n = 0.0, 0
     with open(val_filename, "rb") as f:
@@ -251,7 +325,11 @@ def validate_streaming(net, val_filename, val_count, device, batch=1024):
                     for k in batch_targets[0]
                 }
 
-                with autocast(device.type, enabled=(device.type in ("cuda", "mps"))):
+                with autocast(
+                    device.type,
+                    dtype=amp_dtype,
+                    enabled=(device.type in ("cuda", "mps")),
+                ):
                     pred = net(b_tensor, s_tensor)
                     loss, _ = compute_loss(pred, stacked_targets)
                     total += loss.item() * b_tensor.size(0)
@@ -269,7 +347,9 @@ def validate_streaming(net, val_filename, val_count, device, batch=1024):
                 for k in batch_targets[0]
             }
 
-            with autocast(device.type, enabled=(device.type in ("cuda", "mps"))):
+            with autocast(
+                device.type, dtype=amp_dtype, enabled=(device.type in ("cuda", "mps"))
+            ):
                 pred = net(b_tensor, s_tensor)
                 loss, _ = compute_loss(pred, stacked_targets)
                 total += loss.item() * b_tensor.size(0)
@@ -342,6 +422,11 @@ def compute_loss(predictions, targets, target_weights=None):
 
 # ────────────────────────────────────────────────────────────────────
 def main():
+    args = parse_args()
+    sys.stdout.reconfigure(line_buffering=True)  # progress lines survive a pipe/log
+    amp_dtype = torch.bfloat16 if args.amp_dtype == "bf16" else torch.float16
+    print(f"config: {vars(args)}", file=sys.stderr)
+
     if torch.backends.mps.is_available():
         device = torch.device("mps")
     elif torch.cuda.is_available():
@@ -353,7 +438,7 @@ def main():
     train_q = Queue(maxsize=2048)
 
     num_workers = os.cpu_count()
-    p = Thread(target=producer, args=(val_q, train_q, VAL_SIZE, num_workers))
+    p = Thread(target=producer, args=(val_q, train_q, args.val_size, num_workers))
     p.daemon = True
     p.start()
 
@@ -366,18 +451,24 @@ def main():
     train_ds = QueueDataset(train_q)
     loader = DataLoader(
         train_ds,
-        batch_size=2048,
+        batch_size=args.batch_size,
         num_workers=num_workers,
         pin_memory=False,
     )
 
-    net = ScrabbleValueNet(ch=96, blocks=10).to(device)
+    net = build_model(args.arch, args.hparams).to(device)
+    print(
+        f"{args.arch} params: {sum(p.numel() for p in net.parameters()):,}",
+        file=sys.stderr,
+    )
     # –– Optimiser -----------------------------------------------------------
-    base_lr = 1.0e-3  # peak LR after warm-up
-    warm_up = 2_000  # #steps spent warming up
-    t_total = 250_000  # #scheduler steps before it restarts at 0
+    base_lr = args.lr  # peak LR after warm-up
+    warm_up = args.warmup  # #steps spent warming up
+    t_total = args.total_steps  # #scheduler steps before it restarts at 0
 
-    opt = torch.optim.AdamW(net.parameters(), lr=base_lr, weight_decay=1e-4)
+    opt = torch.optim.AdamW(
+        net.parameters(), lr=base_lr, weight_decay=args.weight_decay
+    )
 
     # 1) linear warm-up from 0 → base_lr
     warmup_sched = torch.optim.lr_scheduler.LinearLR(
@@ -392,9 +483,13 @@ def main():
         opt, schedulers=[warmup_sched, cosine_sched], milestones=[warm_up]
     )
 
-    scaler = GradScaler(enabled=(device.type in ("cuda", "mps")))
+    # bf16 has fp32's exponent range, so loss scaling is unnecessary; with
+    # enabled=False every scaler call below is a no-op passthrough.
+    scaler = GradScaler(
+        enabled=(device.type in ("cuda", "mps")) and amp_dtype == torch.float16
+    )
 
-    best_val, step, t0 = float("inf"), 0, time.time()
+    best_val, step, micro, t0 = float("inf"), 0, 0, time.time()
     running = {
         "total": 0.0,
         "value": 0.0,
@@ -402,7 +497,7 @@ def main():
         # "bingo": 0.0,
         # "opp_score": 0.0,
     }
-    csv_fh = open(CSV_PATH, "w", newline="")
+    csv_fh = open(args.csv, "w", newline="")
     csv_writer = csv.writer(csv_fh)
     csv_writer.writerow(
         [
@@ -422,32 +517,41 @@ def main():
             # Move all targets to device
             targets = {k: v.to(device) for k, v in targets.items()}
 
-            with autocast(device.type, enabled=(device.type in ("cuda", "mps"))):
+            with autocast(
+                device.type, dtype=amp_dtype, enabled=(device.type in ("cuda", "mps"))
+            ):
                 pred = net(board, scal)
                 loss, loss_dict = compute_loss(pred, targets)
 
-            scaler.scale(loss).backward()
-            scaler.step(opt)
-            scaler.update()
-            opt.zero_grad(set_to_none=True)
-            scheduler.step()
-
-            # Track all loss components
+            # Track all loss components (per micro-batch)
             running["total"] += loss.item()
             running["value"] += loss_dict["value_loss"]
             # running["points"] += loss_dict["points_loss"]
             # running["bingo"] += loss_dict["bingo_loss"]
             # running["opp_score"] += loss_dict["opp_score_loss"]
+
+            scaler.scale(loss / args.accum if args.accum > 1 else loss).backward()
+            micro += 1
+            if micro % args.accum:
+                continue  # accumulate; not yet an optimiser step
+            if args.grad_clip > 0:
+                scaler.unscale_(opt)
+                torch.nn.utils.clip_grad_norm_(net.parameters(), args.grad_clip)
+            scaler.step(opt)
+            scaler.update()
+            opt.zero_grad(set_to_none=True)
+            scheduler.step()
             step += 1
 
-            if step % VAL_EVERY == 0:
-                train_avg = running["total"] / VAL_EVERY
+            if step % args.val_every == 0:
+                n_micro = args.val_every * args.accum
+                train_avg = running["total"] / n_micro
                 # Store current loss components
                 val_loss_dict = {
-                    "value_loss": running["value"] / VAL_EVERY,
-                    # "points_loss": running["points"] / VAL_EVERY,
-                    # "bingo_loss": running["bingo"] / VAL_EVERY,
-                    # "opp_score_loss": running["opp_score"] / VAL_EVERY,
+                    "value_loss": running["value"] / n_micro,
+                    # "points_loss": running["points"] / n_micro,
+                    # "bingo_loss": running["bingo"] / n_micro,
+                    # "opp_score_loss": running["opp_score"] / n_micro,
                 }
                 # Reset running losses
                 running = {
@@ -457,7 +561,14 @@ def main():
                     # "bingo": 0.0,
                     # "opp_score": 0.0,
                 }
-                val_loss = validate_streaming(net, val_file_name, val_count, device)
+                val_loss = validate_streaming(
+                    net, val_file_name, val_count, device, amp_dtype=amp_dtype
+                )
+                if step == args.val_every and device.type == "cuda":
+                    print(
+                        f"peak GPU memory: {torch.cuda.max_memory_allocated() / 2**30:.2f} GiB",
+                        file=sys.stderr,
+                    )
                 # Include loss components in CSV
                 csv_writer.writerow(
                     [
@@ -479,11 +590,19 @@ def main():
                     # f"p_loss={val_loss_dict.get('points_loss', 0.0):.4f}  "
                     # f"b_loss={val_loss_dict.get('bingo_loss', 0.0):.4f}  "
                     # f"o_loss={val_loss_dict.get('opp_score_loss', 0.0):.4f}  "
-                    f"{step*loader.batch_size/elapsed:,.0f} pos/s"
+                    f"{step*args.batch_size*args.accum/elapsed:,.0f} pos/s"
                 )
 
                 if val_loss < best_val:
-                    torch.save({"step": step, "model": net.state_dict()}, "best.pt")
+                    torch.save(
+                        {
+                            "step": step,
+                            "model": net.state_dict(),
+                            "arch": args.arch,
+                            "hparams": args.hparams,
+                        },
+                        args.ckpt,
+                    )
                     best_val = val_loss
                     print("  ✓ checkpointed (best validation)")
 

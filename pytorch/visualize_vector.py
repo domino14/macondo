@@ -27,7 +27,7 @@ def visualize_vector(
 
     Args:
         vector_path: Path to the binary vector file
-        show_all_planes: If True, show all 83 planes; otherwise show a summary
+        show_all_planes: If True, show all 85 planes; otherwise show a summary
         output_image: Path to save the output image file. If None, display the plot instead
     """
 
@@ -75,7 +75,8 @@ def visualize_vector(
         "Horizontal Cross-Checks": slice(27, 53),
         "Vertical Cross-Checks": slice(53, 79),
         "Bonus Squares": slice(79, 83),
-        "Opp Last Play": slice(83, 84),
+        "Our Move (evaluated)": slice(83, 84),
+        "Opp Last Play": slice(84, 85),
     }
 
     bonus_labels = ["2L", "3L", "2W", "3W"]
@@ -89,7 +90,7 @@ def visualize_vector(
 
     # Visualize the planes
     if show_all_planes:
-        # Show all 87 planes individually
+        # Show all 85 planes individually
         for i in range(C):
             ax = fig.add_subplot(gs[i // 7, i % 7])
             im = ax.imshow(board_data[i], cmap=cmap, vmin=0, vmax=1)
@@ -105,8 +106,10 @@ def visualize_vector(
                 ax.set_title(f"V-CC {string.ascii_uppercase[i-53]}")
             elif i < 83:
                 ax.set_title(f"Bonus {bonus_labels[i-79]}")
-            elif i < 87:
-                ax.set_title("History")
+            elif i == 83:
+                ax.set_title("Our move (evaluated)")
+            elif i == 84:
+                ax.set_title("Opp last play")
             ax.set_xticks([])
             ax.set_yticks([])
     else:
