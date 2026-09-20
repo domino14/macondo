@@ -18,7 +18,7 @@ head's validation loss alone, so runs with different head weights stay
 comparable.
 """
 
-import argparse, struct, sys, time, csv, os, signal, tempfile
+import argparse, math, struct, sys, time, csv, os, signal, tempfile
 from multiprocessing import Queue
 from threading import Thread
 import numpy as np
@@ -266,6 +266,12 @@ def parse_args(argv=None):
     p.add_argument("--val-size", type=int, default=VAL_SIZE)
     p.add_argument("--val-every", type=int, default=VAL_EVERY)
     p.add_argument(
+        "--grad-batch",
+        type=int,
+        default=256,
+        help="positions in the fixed batch for the per-head trunk gradient report",
+    )
+    p.add_argument(
         "--snapshot-every",
         type=int,
         default=0,
@@ -312,6 +318,41 @@ def compute_loss(pred, targets, weights):
     return total, {k: v.detach() for k, v in losses.items()}
 
 
+def head_grad_norms(net, board, scalars, targets, chunk=64):
+    """How hard each head pulls on the trunk.
+
+    Returns {head: L2 norm of d(loss_head)/d(trunk params)} over the batch,
+    unweighted, accumulated in chunks so the retained graph stays small.
+    The ratio to the value head's norm is what the --w-<head> weights
+    actually scale, since loss values on different scales (cross-entropy
+    vs smooth-L1) say nothing about gradient magnitude.
+    """
+    trunk = [p for n, p in net.named_parameters() if not n.startswith("heads.")]
+    was_training = net.training
+    net.eval()  # no dropout / BN-stat updates from a diagnostic pass
+    n = board.shape[0]
+    acc = {k: [torch.zeros_like(p) for p in trunk] for k in TARGETS}
+    for i in range(0, n, chunk):
+        b, s, t = board[i : i + chunk], scalars[i : i + chunk], targets[i : i + chunk]
+        pred = net(b, s)  # fp32 on purpose: no loss scaling to worry about
+        frac = b.shape[0] / n  # mean over the whole batch
+        for k in TARGETS:
+            loss = compute_loss(
+                pred, t, {kk: 1.0 if kk == k else 0.0 for kk in TARGETS}
+            )[0]
+            grads = torch.autograd.grad(loss, trunk, retain_graph=True, allow_unused=True)
+            for a, g in zip(acc[k], grads):
+                if g is not None:
+                    a.add_(g, alpha=frac)
+        del pred
+    norms = {
+        k: math.sqrt(sum(float(a.pow(2).sum()) for a in acc[k])) for k in TARGETS
+    }
+    net.zero_grad(set_to_none=True)
+    net.train(was_training)
+    return norms
+
+
 def write_validation_to_file(val_ds, directory):
     # ~77 KB per position, so 150k positions is 11.5 GB: keep it on real
     # disk next to the checkpoint, not in a tmpfs /tmp.
@@ -326,6 +367,20 @@ def write_validation_to_file(val_ds, directory):
         val_count += 1
     val_file.close()
     return val_file.name, val_count
+
+
+def read_rows(val_filename, k, offset=0):
+    """Rows [offset, offset+k) of the validation file as (board, scalars, targets) CPU tensors."""
+    row_bytes = ROW_FLOATS * 4
+    with open(val_filename, "rb") as f:
+        f.seek(offset * row_bytes)
+        raw = np.frombuffer(f.read(row_bytes * k), dtype=DTYPE).reshape(k, ROW_FLOATS)
+    rows = torch.from_numpy(raw.copy())
+    return (
+        rows[:, :N_PLANE].view(k, C, H, W),
+        rows[:, N_PLANE : N_PLANE + N_SCAL],
+        rows[:, N_PLANE + N_SCAL :],
+    )
 
 
 @torch.no_grad()
@@ -386,6 +441,9 @@ def main():
     val_ds = QueueDataset(val_q)
     ckpt_dir = os.path.dirname(os.path.abspath(args.ckpt))
     val_file_name, val_count = write_validation_to_file(val_ds, ckpt_dir)
+    # A fixed batch for the per-head gradient report, so the numbers are
+    # comparable from one validation to the next.
+    diag = read_rows(val_file_name, min(args.grad_batch, val_count))
     # Delete the validation file if we are killed, not only on a clean exit.
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
     print(f"Validation set: {val_count} positions", file=sys.stderr)
@@ -443,6 +501,7 @@ def main():
         ["step", "train_loss", "val_loss"]
         + [f"train_{k}" for k in TARGETS]
         + [f"val_{k}" for k in TARGETS]
+        + [f"gnorm_{k}" for k in TARGETS]
     )
 
     try:
@@ -491,20 +550,25 @@ def main():
                         f"peak GPU memory: {torch.cuda.max_memory_allocated() / 2**30:.2f} GiB",
                         file=sys.stderr,
                     )
+                gn = head_grad_norms(net, *(t.to(device) for t in diag))
                 csv_writer.writerow(
                     [step, f"{train['total']:.6f}", f"{val['total']:.6f}"]
                     + [f"{train[k]:.6f}" for k in TARGETS]
                     + [f"{val[k]:.6f}" for k in TARGETS]
+                    + [f"{gn[k]:.6g}" for k in TARGETS]
                 )
                 csv_fh.flush()
 
                 elapsed = time.time() - t0
                 heads = "  ".join(f"{k}={val[k]:.4f}" for k in TARGETS)
+                ref = gn["value"] or 1.0
+                pulls = "  ".join(f"{k}={gn[k]/ref:.2f}" for k in TARGETS)
                 print(
                     f"{step:>7}  train={train['total']:.4f}  val={val['total']:.4f}  "
                     f"[{heads}]  "
                     f"{step*args.batch_size*args.accum/elapsed:,.0f} pos/s"
                 )
+                print(f"         trunk grad vs value head (unweighted): {pulls}")
 
                 # Checkpoint on the value head alone: it is what the bot
                 # ranks on, and it keeps runs with different head weights

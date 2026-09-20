@@ -1043,3 +1043,34 @@ Next: isolate the schedule by training the same 25k run with all
 auxiliary weights at 0 (`--w-spread 0 --w-wdl 0 --w-opp-bingo 0
 --w-opp-score 0`) and matching it. Snapshots best-tf-heads-step{5000..25000}.pt
 are kept for checkpoint-vs-checkpoint matches.
+
+#### Why the heads hurt: trunk gradient shares (9/20/26)
+
+`head_grads.py` measures, per head, the L2 norm of the gradient each head's
+(unweighted) loss puts on the trunk parameters, on 512 real positions.
+Multiplying by the head's weight gives its actual share of the trunk
+gradient relative to the value head. On last night's five-head checkpoint:
+
+```
+      head  grad norm  vs value  weight  weighted share
+     value    0.0773      1.00    1.00      1.00
+    spread    0.0336      0.43    0.50      0.22
+       wdl    0.3703      4.79    0.25      1.20
+ opp_bingo    0.3116      4.03    0.10      0.40
+ opp_score    0.0089      0.11    0.10      0.01
+```
+
+The wdl head, at a nominal weight of 0.25, pulled on the trunk harder than
+the value head did; the auxiliary heads together had 1.8x the value
+head's influence. Cross-entropy and BCE gradients are simply much larger
+than smooth-L1-on-tanh gradients, so "small" weights weren't. This is
+almost certainly the same thing that happened in the June 2025 attempt.
+The ratio also drifts during training (wdl went from 2.5x at step 5k to
+4.8x at the end as the value gradient shrank), so fixed weights are a
+moving target. The trainer now logs these norms (`gnorm_<head>` columns)
+at every validation.
+
+Weights for the next heads run, targeting each auxiliary head at ~0.15 of
+the value head's trunk gradient: spread 0.35, wdl 0.03, opp_bingo 0.03,
+opp_score 0.5 (total auxiliary share ~0.45). Or, better, balance them
+automatically from the measured norms each validation.
