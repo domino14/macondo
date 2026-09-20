@@ -877,3 +877,96 @@ Keep the 96-channel model for now. Don't know if we can ever reproduce the 52.9%
 ### Better data
 
 Let's collect BestBot / simming data. If we collect multiple plays per position with bogowin pct data up to 5 plies we should have a better model. Hopefully it will win significantly more than this model. But it will take a bunch of time to collect this data.
+------
+
+### Transformer (9/18/26)
+
+Someone getting good results said they switched from a CNN to a transformer,
+the argument being that attention handles "global" state (unseen tiles, rack)
+much better than a conv stack, which only sees the scalars after global
+average pooling. Every CNN width above lands within ~0.15% of each other, so
+this is also a test of architecture vs. data ceiling.
+
+`transformer_model.py` consumes exactly the same inputs as the CNN (85 planes
++ 72 scalars) and tokenizes inside the model: 1 CLS + 225 square tokens +
+27 tile-type tokens (rack count, unseen prob) + 1 game-state token = 254
+tokens, 8 pre-norm blocks, d=192, 6 heads. ~3.66M params (CNN: ~1.7M).
+No Go changes; the ONNX/Triton interface is identical.
+
+Training (effective batch stays 2048 via accumulation; B=2048 in one shot
+needs ~29 GB of activations):
+
+```
+cat ~/data/autoplay-softmax-v-hasty-5.txt | ../bin/mlproducer | pv -br | \
+  python training.py --arch transformer --ckpt best-tf.pt --csv loss_tf.csv
+```
+
+Export + deploy next to the CNN, then select it from Go:
+
+```
+./copy_model.sh macondo-nn-tf best-tf.pt
+MACONDO_TRITON_USE_TRITON=true MACONDO_TRITON_MODEL_NAME=macondo-nn-tf ./bin/shell
+```
+
+Results:
+
+Smoke comparison (9/18/26): first 300 MB of `autoplay-softmax-v-hasty-5.txt`
+(~3.9M positions), 20k-position validation set from the same slice, val every
+100 steps, effective batch 2048 for both. Same random-ish slice, so the val
+losses are directly comparable (but it's a tiny run: CNN is still inside its
+2000-step warmup).
+
+```
+step   cnn_val  tf_val
+ 100   0.2754   0.2842
+ 400   0.2176   0.0963
+ 700   0.1305   0.0936
+1000   0.1088   0.0918
+1300   0.1005   0.0923
+1600   0.0977   0.0920
+1900   0.0965   0.0918
+```
+
+CNN (96ch/10 blocks): 5,322 pos/s, peak 4.61 GiB.
+Transformer (d=192, 8 layers): 2,170 pos/s, peak 3.69 GiB (micro-batch 256 x 8).
+Export chain verified: onnxruntime vs torch max diff 2e-7 (batch 1/7/50/128),
+TensorRT fp16 engine builds and passes polygraphy vs onnxruntime at 1e-2.
+
+Next: full run on the whole file, deploy as `macondo-nn-tf`, autoplay vs Hasty.
+
+#### Toolchain bump (9/18/26)
+
+venv is now Python 3.14 / torch 2.11 / TensorRT 11.2.1.2, paired with
+`tritonserver:26.08-py3` (ships TensorRT 11.2.1). TensorRT 11 only builds
+strongly typed networks (no FP16/INT8 builder flags, no INT8 calibrator), so
+`onnx-to-tensorrt.py --precision fp16` now converts the ONNX graph to fp16 in
+memory (fp32 I/O kept) before building. Engines are not portable across
+TensorRT versions: every `model.plan` must be rebuilt from its `model.onnx`
+when the container moves. Parity on the rebuilt engines vs fp32 onnxruntime:
+CNN v1 abs 2.1e-3, CNN v2 abs 2.3e-3, transformer 9.1e-4 (real frames).
+
+#### Result: transformer vs HastyBot (9/19/26)
+
+Full run on `autoplay-softmax-v-hasty-5.txt` (163M positions, 79k steps,
+~21 h). Best val loss 0.0913 at step 72,500 vs the CNN's 0.0917; the
+transformer was ahead by 0.0003-0.0005 at every checkpoint in the second
+half. Deployed as `macondo-nn-tf` v2 (TensorRT fp16, Triton 26.08).
+
+100,000 game pairs (each seed played from both seats), 12 threads,
+`games-tf-v-hasty-pairs.txt`:
+
+```
+games=200000  FastMlBot(transformer) win rate 52.33% +/- 0.18 (paired 95%)
+pairs swept 18.8%   pairs lost 14.2%   spread -6.4 pts/game
+```
+
+Same as the CNN's 52.5% within the interval. The loss edge did not turn
+into a win-rate edge. Two very different architectures (1.7M-param ResNet,
+3.7M-param transformer) landing on the same number, after a CNN width
+sweep that also all landed within 0.15%, says the ceiling is the training
+target, not the network: one real 5-ply continuation looked up in the
+bogowin table, half of whose plies are played by the softmax bot.
+
+Next: fix the labels. Plan in `plan-bootstrapped-training.md`: auxiliary
+spread + win/draw/loss heads first (KataGo §4.1), then averaged K-ply
+rollout labels with the net at the leaf, on a 25% sample of positions.
