@@ -18,7 +18,7 @@ head's validation loss alone, so runs with different head weights stay
 comparable.
 """
 
-import argparse, struct, sys, time, csv, os, tempfile
+import argparse, struct, sys, time, csv, os, signal, tempfile
 from multiprocessing import Queue
 from threading import Thread
 import numpy as np
@@ -312,8 +312,12 @@ def compute_loss(pred, targets, weights):
     return total, {k: v.detach() for k, v in losses.items()}
 
 
-def write_validation_to_file(val_ds):
-    val_file = tempfile.NamedTemporaryFile(delete=False)
+def write_validation_to_file(val_ds, directory):
+    # ~77 KB per position, so 150k positions is 11.5 GB: keep it on real
+    # disk next to the checkpoint, not in a tmpfs /tmp.
+    val_file = tempfile.NamedTemporaryFile(
+        prefix="val-", suffix=".bin", dir=directory, delete=False
+    )
     val_count = 0
     for b, s, t in val_ds:
         val_file.write(b.numpy().astype(DTYPE).tobytes())
@@ -380,7 +384,10 @@ def main():
 
     # ---- collect validation set -----------------------------------
     val_ds = QueueDataset(val_q)
-    val_file_name, val_count = write_validation_to_file(val_ds)
+    ckpt_dir = os.path.dirname(os.path.abspath(args.ckpt))
+    val_file_name, val_count = write_validation_to_file(val_ds, ckpt_dir)
+    # Delete the validation file if we are killed, not only on a clean exit.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
     print(f"Validation set: {val_count} positions", file=sys.stderr)
 
     # ---- training loader ------------------------------------------
