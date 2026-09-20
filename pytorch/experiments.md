@@ -1012,3 +1012,34 @@ like-for-like with 0.0913; the board is the comparison.
 ./train.sh --arch transformer --ckpt best-tf-heads.pt --csv loss_tf_heads.csv \
   --total-steps 25000 --snapshot-every 5000
 ```
+
+#### Result: five heads, 25k-step schedule (9/20/26)
+
+Run: transformer, `--total-steps 25000 --snapshot-every 5000`, 51M
+positions (a third of the file), 6.5 h. Best val_value 0.09176 at step
+24,500 (single-head run: 0.0913 at 72,500, and 0.0923 at step 25,000 of
+that run). Per-head val at the end: spread 0.040, wdl 0.470 (cross-entropy;
+0.47 is a decent 3-class result), opp_bingo 0.425, opp_score 0.0026.
+
+Deployed as `macondo-nn-tf-heads` v1. 100k game pairs vs HastyBot,
+`games-tf-heads-v-hasty-pairs.txt`:
+
+```
+paired win rate 51.76% +/- 0.18   swept 17.8%  lost 14.3%  spread -5.8/game
+```
+
+**Worse than the single-head transformer (52.33% +/- 0.18) by about half a
+point, and the intervals don't overlap.** Two variables changed at once
+(heads, and a schedule that saw a third of the positions), plus the
+end-of-game label fixes, so this does not isolate the heads. The value
+loss at equal step count was better than the old run's (0.0918 vs
+0.0923 at 25k), so by loss the short run looked fine; the board says
+otherwise. Working hypotheses, in order: (1) 51M positions is not enough
+and the old run's long tail mattered after all, (2) the auxiliary heads
+pull the trunk away from what the bot needs, (3) the wdl head on every
+position of a game carries the QANAT-style outcome correlation.
+
+Next: isolate the schedule by training the same 25k run with all
+auxiliary weights at 0 (`--w-spread 0 --w-wdl 0 --w-opp-bingo 0
+--w-opp-score 0`) and matching it. Snapshots best-tf-heads-step{5000..25000}.pt
+are kept for checkpoint-vs-checkpoint matches.
