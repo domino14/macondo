@@ -253,13 +253,24 @@ def parse_args(argv=None):
     p.add_argument("--grad-clip", type=float, default=None, help="0 disables")
     p.add_argument("--amp-dtype", choices=["fp16", "bf16"], default=None)
     p.add_argument("--warmup", type=int, default=2_000)
-    p.add_argument("--total-steps", type=int, default=250_000)
+    p.add_argument(
+        "--total-steps",
+        type=int,
+        default=250_000,
+        help="length of the cosine schedule; training stops here too",
+    )
     p.add_argument("--weight-decay", type=float, default=1e-4)
     # io
     p.add_argument("--ckpt", default="best.pt")
     p.add_argument("--csv", default=CSV_PATH)
     p.add_argument("--val-size", type=int, default=VAL_SIZE)
     p.add_argument("--val-every", type=int, default=VAL_EVERY)
+    p.add_argument(
+        "--snapshot-every",
+        type=int,
+        default=0,
+        help="also save the current model every N steps as <ckpt>-stepN.pt",
+    )
     args = p.parse_args(argv)
 
     for k, v in ARCH_DEFAULTS[args.arch].items():
@@ -506,6 +517,26 @@ def main():
                     best_val = val["value"]
                     print("  ✓ checkpointed (best validation value loss)")
 
+                if args.snapshot_every and step % args.snapshot_every == 0:
+                    stem, ext = os.path.splitext(args.ckpt)
+                    torch.save(
+                        {
+                            "step": step,
+                            "model": net.state_dict(),
+                            "arch": args.arch,
+                            "hparams": args.hparams,
+                            "weights": args.weights,
+                            "val": val,
+                        },
+                        f"{stem}-step{step}{ext}",
+                    )
+
+            if step >= args.total_steps:
+                # The cosine schedule is at zero; CosineAnnealingLR would
+                # climb back up from here, so this is the end of the run.
+                print(f"reached --total-steps {args.total_steps}; stopping")
+                break
+
         # Print total training time
         total_time = time.time() - t0
         print(
@@ -515,6 +546,10 @@ def main():
     finally:
         csv_fh.close()
         os.unlink(val_file_name)
+        sys.stdout.flush()
+        # Leave without waiting on the loader workers or the stdin producer
+        # thread, which may be blocked mid-stream if we stopped early.
+        os._exit(0)
 
 
 if __name__ == "__main__":

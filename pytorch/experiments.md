@@ -1000,8 +1000,15 @@ play-outs, instead of on seven tiles played.
 Smoke run on 19k positions: all heads train, ONNX vs torch 3e-7, TensorRT
 fp16 vs torch 9e-4 on both outputs.
 
-Run (same file and hyperparameters as the 0.0913 run):
+The 0.0913 run's schedule was set for 250k steps and the file ran out at
+79.5k, so the learning rate never dropped below 78% of peak; 60% of the
+loss improvement came in the first 6% of the run and the last 0.0004 took
+11 hours. This run matches the cosine to its length instead (25k steps,
+51M positions, ~6.5 h) and snapshots every 5k steps so a pairs match can
+say whether the tail matters. The value val loss is therefore not
+like-for-like with 0.0913; the board is the comparison.
 
 ```
-./train.sh --arch transformer --ckpt best-tf-heads.pt --csv loss_tf_heads.csv
+./train.sh --arch transformer --ckpt best-tf-heads.pt --csv loss_tf_heads.csv \
+  --total-steps 25000 --snapshot-every 5000
 ```
