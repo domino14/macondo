@@ -244,6 +244,14 @@ def parse_args(argv=None):
     # loss weights per head; 0 disables a head's gradient (it is still logged)
     for name, w in DEFAULT_WEIGHTS.items():
         p.add_argument(f"--w-{name.replace('_', '-')}", type=float, default=w)
+    p.add_argument(
+        "--aux-share",
+        type=float,
+        default=0.0,
+        help="if > 0, rebalance every auxiliary head's weight at each validation "
+        "so its measured trunk-gradient pull is this fraction of the value "
+        "head's (a head whose --w is 0 stays off); overrides the other --w-*",
+    )
     # optimisation; None means "use the per-arch default"
     p.add_argument("--batch-size", type=int, default=None)
     p.add_argument(
@@ -295,6 +303,21 @@ def parse_args(argv=None):
         )
     args.weights = {name: getattr(args, f"w_{name}") for name in TARGETS}
     return args
+
+
+def balance_weights(weights, norms, share, max_w=10.0):
+    """Set each auxiliary weight so weight * norm == share * value norm.
+
+    Heads switched off (weight 0) stay off. Weights are capped so a head
+    whose gradient collapses cannot be amplified without limit.
+    """
+    ref = norms["value"]
+    out = dict(weights)
+    for k in TARGETS:
+        if k == "value" or weights[k] == 0 or norms[k] == 0:
+            continue
+        out[k] = min(max_w, share * ref / norms[k])
+    return out
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -462,6 +485,14 @@ def main():
         f"{args.arch} params: {sum(p.numel() for p in net.parameters()):,}",
         file=sys.stderr,
     )
+    if args.aux_share > 0:
+        gn0 = head_grad_norms(net, *(t.to(device) for t in diag))
+        args.weights = balance_weights(args.weights, gn0, args.aux_share)
+        print(
+            "initial balanced weights: "
+            + "  ".join(f"{k}={args.weights[k]:.3g}" for k in TARGETS),
+            file=sys.stderr,
+        )
     # –– Optimiser -----------------------------------------------------------
     base_lr = args.lr  # peak LR after warm-up
     warm_up = args.warmup  # #steps spent warming up
@@ -502,6 +533,7 @@ def main():
         + [f"train_{k}" for k in TARGETS]
         + [f"val_{k}" for k in TARGETS]
         + [f"gnorm_{k}" for k in TARGETS]
+        + [f"w_{k}" for k in TARGETS]
     )
 
     try:
@@ -551,11 +583,14 @@ def main():
                         file=sys.stderr,
                     )
                 gn = head_grad_norms(net, *(t.to(device) for t in diag))
+                if args.aux_share > 0:
+                    args.weights = balance_weights(args.weights, gn, args.aux_share)
                 csv_writer.writerow(
                     [step, f"{train['total']:.6f}", f"{val['total']:.6f}"]
                     + [f"{train[k]:.6f}" for k in TARGETS]
                     + [f"{val[k]:.6f}" for k in TARGETS]
                     + [f"{gn[k]:.6g}" for k in TARGETS]
+                    + [f"{args.weights[k]:.4g}" for k in TARGETS]
                 )
                 csv_fh.flush()
 
@@ -569,6 +604,9 @@ def main():
                     f"{step*args.batch_size*args.accum/elapsed:,.0f} pos/s"
                 )
                 print(f"         trunk grad vs value head (unweighted): {pulls}")
+                if args.aux_share > 0:
+                    ws = "  ".join(f"{k}={args.weights[k]:.3g}" for k in TARGETS)
+                    print(f"         balanced weights: {ws}")
 
                 # Checkpoint on the value head alone: it is what the bot
                 # ranks on, and it keeps runs with different head weights

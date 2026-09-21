@@ -1074,3 +1074,31 @@ Weights for the next heads run, targeting each auxiliary head at ~0.15 of
 the value head's trunk gradient: spread 0.35, wdl 0.03, opp_bingo 0.03,
 opp_score 0.5 (total auxiliary share ~0.45). Or, better, balance them
 automatically from the measured norms each validation.
+
+#### Result: single head, 25k-step schedule (ablation, 9/20/26)
+
+Same run as the five-head one with all auxiliary weights at 0. Best
+val_value 0.0920 (five-head: 0.0918). 100k game pairs vs HastyBot,
+`games-tf-1head-v-hasty-pairs.txt`:
+
+```
+paired win rate 50.98% +/- 0.18   swept 17.0%  lost 15.0%  spread -9.3/game
+```
+
+Three runs side by side:
+
+| run                    | steps | positions | heads | val_value | vs HastyBot     |
+|------------------------|-------|-----------|-------|-----------|-----------------|
+| single head, long      | 79.5k | 163M      | no    | 0.0913    | 52.33% +/- 0.18 |
+| five heads, short      | 25k   | 51M       | yes   | 0.0918    | 51.76% +/- 0.18 |
+| single head, short     | 25k   | 51M       | no    | 0.0920    | 50.98% +/- 0.18 |
+
+So: the short schedule cost about 1.35 points, and on that schedule the
+heads *gained* about 0.8 points, even with the badly balanced weights
+above. The heads help; the "plateau" in the loss curve is not a plateau
+at the board. Win rate tracks the value loss in the third decimal place
+here (0.0920 -> 0.0918 -> 0.0913 is 50.98 -> 51.76 -> 52.33), which also
+means more data should keep paying: the 52.33% run saw one file once, and
+there are five.
+
+Next: heads with gradient-balanced weights on the full file (79.5k steps).
