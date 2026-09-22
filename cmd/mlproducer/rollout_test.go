@@ -109,3 +109,237 @@ func TestRolloutLabelsLeaveReplayIntact(t *testing.T) {
 		t.Fatalf("expected 23 labeled positions, got %d", rollout.labeled)
 	}
 }
+
+// ── what the rollouts actually do ──────────────────────────────────────────
+//
+// The tests below use a scorer that records every leaf it is asked to score,
+// and check the leaves against what a correct rollout must produce.
+
+const (
+	planeSize  = 15 * 15
+	blankPlane = 26
+	histPlane0 = 83 // the leaf move's tiles
+	histPlane1 = 84 // the previous (opponent's) move's tiles
+	scalRack   = 0  // 27 rack counts / 7
+	scalUnseen = 27 // 27 draw probabilities
+	scalBag    = 70 // tiles unseen / 100
+	totalTiles = 100
+	fullRack   = 7
+	safeUnseen = 21 // with this many unseen at the position, no rollout can run the bag out in 2 plies
+)
+
+type leafVec struct {
+	planes  []float32
+	scalars []float32
+}
+
+// recordingScorer returns a fixed value/spread and keeps every batch.
+type recordingScorer struct {
+	value, spread float32
+	calls         [][]leafVec
+}
+
+func (s *recordingScorer) Infer(planes, scalars []float32, n int) (*triton.ModelOutputs, error) {
+	batch := make([]leafVec, n)
+	for i := range n {
+		batch[i] = leafVec{
+			planes:  append([]float32(nil), planes[i*NPlanes:(i+1)*NPlanes]...),
+			scalars: append([]float32(nil), scalars[i*NScal:(i+1)*NScal]...),
+		}
+	}
+	s.calls = append(s.calls, batch)
+	out := &triton.ModelOutputs{Value: make([]float32, n), Spread: make([]float32, n)}
+	for i := range n {
+		out.Value[i] = s.value
+		out.Spread[i] = s.spread
+	}
+	return out, nil
+}
+
+const (
+	NPlanes = 85 * planeSize
+	NScal   = 72
+)
+
+func sumPlane(planes []float32, p int) int {
+	s := float32(0)
+	for _, v := range planes[p*planeSize : (p+1)*planeSize] {
+		s += v
+	}
+	return int(math.Round(float64(s)))
+}
+
+func tilesOnBoard(planes []float32) int {
+	n := 0
+	for p := 0; p < blankPlane; p++ {
+		n += sumPlane(planes, p)
+	}
+	return n
+}
+
+func rackTiles(scalars []float32) int {
+	s := float32(0)
+	for _, v := range scalars[scalRack : scalRack+27] {
+		s += v
+	}
+	return int(math.Round(float64(s * fullRack)))
+}
+
+func unseenTiles(scalars []float32) int {
+	return int(math.Round(float64(scalars[scalBag] * totalTiles)))
+}
+
+func unseenProbSum(scalars []float32) float32 {
+	s := float32(0)
+	for _, v := range scalars[scalUnseen : scalUnseen+27] {
+		s += v
+	}
+	return s
+}
+
+func runRollouts(t *testing.T, plies, rollouts int, scorer *recordingScorer) ([]outputVector, []outputVector) {
+	t.Helper()
+	table := NewGameAssembler(NPlies, nil, 0, 0, 0)
+	want := feedGame(t, table)
+	shared := &RolloutShared{Client: scorer, Calcs: table.eqCalcsForTest()}
+	got := feedGame(t, NewGameAssembler(NPlies, shared, plies, rollouts, 1.0))
+	if len(want) != 23 || len(got) != 23 || len(scorer.calls) != 23 {
+		t.Fatalf("want 23 positions and 23 scorer calls, got %d %d %d", len(want), len(got), len(scorer.calls))
+	}
+	return want, got
+}
+
+// Every leaf must be a legal training position two plies past the position
+// it belongs to: the leaf mover holds only their leave, everything else is
+// unseen, and the two history planes are exactly the two rollout moves.
+func TestRolloutLeavesAreTwoPliesOn(t *testing.T) {
+	scorer := &recordingScorer{value: 0.4}
+	want, _ := runRollouts(t, 2, 8, scorer)
+
+	for i, batch := range scorer.calls {
+		pos := *want[i].features
+		posBoard := tilesOnBoard(pos)
+		posUnseen := unseenTiles(pos[NPlanes:])
+		if posUnseen >= safeUnseen && len(batch) != 8 {
+			t.Fatalf("position %d: %d leaves, want 8 (no rollout can end the game with %d unseen)", i, len(batch), posUnseen)
+		}
+		if len(batch) > 8 {
+			t.Fatalf("position %d: %d leaves > 8 rollouts", i, len(batch))
+		}
+		for j, leaf := range batch {
+			board, rack, unseen := tilesOnBoard(leaf.planes), rackTiles(leaf.scalars), unseenTiles(leaf.scalars)
+			if board+rack+unseen != totalTiles {
+				t.Fatalf("position %d leaf %d: board %d + rack %d + unseen %d != %d", i, j, board, rack, unseen, totalTiles)
+			}
+			if unseen > 0 && math.Abs(float64(unseenProbSum(leaf.scalars))-1) > 1e-4 {
+				t.Fatalf("position %d leaf %d: unseen probabilities sum to %v", i, j, unseenProbSum(leaf.scalars))
+			}
+			if rack > fullRack {
+				t.Fatalf("position %d leaf %d: rack of %d", i, j, rack)
+			}
+			h0, h1 := sumPlane(leaf.planes, histPlane0), sumPlane(leaf.planes, histPlane1)
+			if h0 > fullRack || h1 > fullRack {
+				t.Fatalf("position %d leaf %d: history planes %d, %d", i, j, h0, h1)
+			}
+			// Two different moves cannot put tiles on the same squares.
+			for sq := 0; sq < planeSize; sq++ {
+				if leaf.planes[histPlane0*planeSize+sq] > 0.5 && leaf.planes[histPlane1*planeSize+sq] > 0.5 {
+					t.Fatalf("position %d leaf %d: both history planes mark square %d: the two rollout moves are the same move", i, j, sq)
+				}
+			}
+			// Two plies were played: the tiles added to the board are exactly
+			// the two rollout moves' tiles (exchanges and passes add none).
+			if board-posBoard != h0+h1 {
+				t.Fatalf("position %d leaf %d: board grew by %d but the two rollout moves show %d + %d tiles",
+					i, j, board-posBoard, h0, h1)
+			}
+			// The leaf mover started the ply with a full rack when the bag
+			// allowed it, so leave + tiles played == 7 for a tile play.
+			if posUnseen >= safeUnseen && h0 > 0 && rack+h0 != fullRack {
+				t.Fatalf("position %d leaf %d: leave %d + played %d != %d", i, j, rack, h0, fullRack)
+			}
+		}
+	}
+}
+
+// With a constant leaf value v: two plies land back on the mover, so the
+// label is +v; one ply lands on the opponent, so it is -v. With one ply the
+// only score change is the opponent's, so the spread label cannot be positive.
+func TestRolloutSignByParity(t *testing.T) {
+	const v = 0.4
+	two := &recordingScorer{value: v}
+	want, got2 := runRollouts(t, 2, 8, two)
+	one := &recordingScorer{value: v}
+	_, got1 := runRollouts(t, 1, 8, one)
+
+	for i := range want {
+		posUnseen := unseenTiles((*want[i].features)[NPlanes:])
+		if posUnseen < safeUnseen {
+			continue // rollouts may end the game and mix in real results
+		}
+		if d := math.Abs(float64(got2[i].label.value - v)); d > 1e-5 {
+			t.Fatalf("position %d, 2 plies: label %v, want +%v", i, got2[i].label.value, v)
+		}
+		if d := math.Abs(float64(got1[i].label.value + v)); d > 1e-5 {
+			t.Fatalf("position %d, 1 ply: label %v, want -%v", i, got1[i].label.value, v)
+		}
+		if got1[i].label.spread > 0 {
+			t.Fatalf("position %d, 1 ply: spread label %v > 0 after only the opponent moved", i, got1[i].label.spread)
+		}
+		// One ply: the leaf move is the opponent's reply, and the "previous
+		// move" plane is the mover's own move from the labeled position.
+		posMove := sumPlane(*want[i].features, histPlane0)
+		posBoard := tilesOnBoard(*want[i].features)
+		for j, leaf := range one.calls[i] {
+			h0, h1 := sumPlane(leaf.planes, histPlane0), sumPlane(leaf.planes, histPlane1)
+			if h1 != posMove {
+				t.Fatalf("position %d leaf %d, 1 ply: previous-move plane has %d tiles, the labeled move had %d", i, j, h1, posMove)
+			}
+			if tilesOnBoard(leaf.planes)-posBoard != h0 {
+				t.Fatalf("position %d leaf %d, 1 ply: board grew by %d, reply shows %d", i, j, tilesOnBoard(leaf.planes)-posBoard, h0)
+			}
+		}
+	}
+}
+
+// An exchange is the awkward case: the mover draws before the exchanged
+// tiles return to the bag. The rollouts must still produce legal leaves.
+func TestRolloutAfterExchange(t *testing.T) {
+	scorer := &recordingScorer{value: 0.2}
+	table := NewGameAssembler(NPlies, nil, 0, 0, 0)
+	shared := &RolloutShared{Client: scorer, Calcs: table.eqCalcsForTest()}
+	ga := NewGameAssembler(NPlies, shared, 2, 8, 1.0)
+
+	hdr := "playerID,gameID,turn,rack,play,score,totalscore,tilesplayed,leave,equity,tilesremaining,oppscore\n"
+	turn := "p1,exchgame,1,AAEIOUV,(exch AAEIOU),0,0,6,V,-20.000,86,0\n"
+	sc := NewTurnScanner(strings.NewReader(hdr + turn))
+	for sc.Scan() {
+		ga.FeedTurn(sc.Turn())
+	}
+	gw := ga.games["exchgame"]
+	if gw == nil || len(gw.labels) != 1 || gw.labels[0] == nil {
+		t.Fatal("exchange position was not labeled")
+	}
+	if len(scorer.calls) != 1 || len(scorer.calls[0]) != 8 {
+		t.Fatalf("want one call with 8 leaves, got %d calls", len(scorer.calls))
+	}
+	for j, leaf := range scorer.calls[0] {
+		board, rack, unseen := tilesOnBoard(leaf.planes), rackTiles(leaf.scalars), unseenTiles(leaf.scalars)
+		if board+rack+unseen != totalTiles {
+			t.Fatalf("leaf %d: board %d + rack %d + unseen %d != %d", j, board, rack, unseen, totalTiles)
+		}
+		if board != sumPlane(leaf.planes, histPlane0)+sumPlane(leaf.planes, histPlane1) {
+			t.Fatalf("leaf %d: board has %d tiles, the two rollout moves show %d",
+				j, board, sumPlane(leaf.planes, histPlane0)+sumPlane(leaf.planes, histPlane1))
+		}
+	}
+	// The producer's own state must be intact for the next turn: the mover
+	// still holds only the leave, and the bag has everything else.
+	g := gw.game.Game
+	if got := g.RackFor(0).NumTiles(); got != 1 {
+		t.Fatalf("mover's rack after labeling has %d tiles, want the 1-tile leave", got)
+	}
+	if got := g.Bag().TilesRemaining(); got != totalTiles-1 {
+		t.Fatalf("bag has %d tiles after labeling, want %d", got, totalTiles-1)
+	}
+}

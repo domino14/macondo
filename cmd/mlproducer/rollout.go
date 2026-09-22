@@ -103,9 +103,8 @@ type leaf struct {
 
 // Label labels the position the game is in: just after `m` by `mover`,
 // mover's rack holding only the leave, opponent's rack thrown into the
-// bag, mover on turn. It returns the game in that state (with random
-// racks, which the caller resets before the next turn anyway) and false
-// if the position cannot be labeled (game already over).
+// bag, mover on turn. The game is returned in that same state. ok is
+// false if the position cannot be labeled (game already over).
 func (rl *RolloutLabeler) Label(g *game.Game, ai aiturnplayer.AITurnPlayer, mover int,
 	m *move.Move, history []*move.Move) (rolloutLabel, bool, error) {
 
@@ -127,7 +126,15 @@ func (rl *RolloutLabeler) Label(g *game.Game, ai aiturnplayer.AITurnPlayer, move
 
 	g.SetBackupMode(game.SimulationMode)
 	defer func() {
+		// Leave the game exactly as we found it: mover on turn holding only
+		// the leave, everything else in the bag.
 		g.SetBackupMode(game.NoBackup)
+		g.ThrowRacksIn()
+		rack := tilemapping.NewRack(g.Alphabet())
+		rack.Set(leave)
+		if err := g.SetRackForOnly(mover, rack); err != nil {
+			panic(fmt.Sprintf("rollout: restoring the mover's leave: %v", err))
+		}
 		g.SetPlayerOnTurn(mover)
 	}()
 
@@ -158,7 +165,11 @@ func (rl *RolloutLabeler) Label(g *game.Game, ai aiturnplayer.AITurnPlayer, move
 			if err := g.PlayMove(best, false, 0); err != nil {
 				return rolloutLabel{}, false, fmt.Errorf("rollout: play %s: %w", best.ShortDescription(), err)
 			}
-			rolloutMoves = append(rolloutMoves, best)
+			// The generator hands back its one reusable "winner" object, so
+			// keep a copy or every ply would alias the last one.
+			kept := &move.Move{}
+			kept.CopyFrom(best)
+			rolloutMoves = append(rolloutMoves, kept)
 		}
 
 		if g.Playing() != pb.PlayState_PLAYING {

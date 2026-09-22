@@ -1167,3 +1167,16 @@ measured trunk gradients. Recipe for future runs: five heads,
 | five heads (bad weights), 25k      | 51.76% +/- 0.18 | 0.0918    |
 | single head, 79.5k                 | 52.33% +/- 0.18 | 0.0913    |
 | five heads (balanced), 79.5k       | 53.19% +/- 0.18 | 0.0910    |
+
+#### Rollout labeler bug found by tests (9/22/26, 00:40)
+
+Tests that check the recorded leaves against what a correct rollout must
+produce (leaf = legal position, board grows by exactly the two rollout
+moves, leave + tiles played = 7, sign flips between 1 and 2 plies, the
+two history planes never overlap) caught one: the move generator's
+top-play recorder reuses a single Move object, so both rollout plies
+aliased the last one and every 2-ply leaf's "opponent's last move" plane
+and scalars showed our own reply. Leaf racks, boards and the sign were
+right; that one input feature was wrong. Fixed by copying each move out
+of the generator. The first generation-1 run (1.76M labels in) was killed
+and restarted on the fixed labeler at 00:45.
