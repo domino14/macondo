@@ -4,6 +4,7 @@ package main
 
 import (
 	"math"
+	"math/rand"
 	"strings"
 
 	"github.com/cespare/xxhash"
@@ -12,6 +13,7 @@ import (
 	"github.com/domino14/word-golib/cache"
 	"github.com/domino14/word-golib/tilemapping"
 
+	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
 	"github.com/domino14/macondo/equity"
@@ -35,6 +37,12 @@ type GameAssembler struct {
 	eqCalc         *equity.ExhaustiveLeaveCalculator // equity calculator for leave values
 	winpcts        [][]float32
 	gamesProcessed int64
+	// Rollout labeling (nil = table lookup after `horizon` real plies).
+	// Only positions that pass the `sample` coin flip are labeled and
+	// emitted; the rest are skipped, since a rollout label is expensive.
+	labeler *RolloutLabeler
+	sample  float64
+	labeled int64
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -47,7 +55,9 @@ type gameWindow struct {
 	moves      []*move.Move
 	states     []*[]float32 // feature vectors after each ply (same len)
 	spreadsFor []int
+	labels     []*rolloutLabel // per state; nil when not rollout-labeled
 	game       turnplayer.BaseTurnPlayer
+	ai         *aiturnplayer.AIStaticTurnPlayer // static best play for rollouts
 	// Vectors whose horizon label is done but whose final-result label
 	// (win/draw/loss for the mover) needs the game to end first.
 	pending      []outputVector
@@ -58,7 +68,10 @@ type gameWindow struct {
 // Constructor
 // ──────────────────────────────────────────────────────────────────────────────
 
-func NewGameAssembler(horizon int) *GameAssembler {
+// NewGameAssembler builds an assembler. With a non-nil `shared`, positions
+// are rollout-labeled (`plies` plies, `rollouts` samples) with probability
+// `sample`; otherwise the label is the table lookup after `horizon` plies.
+func NewGameAssembler(horizon int, shared *RolloutShared, plies, rollouts int, sample float64) *GameAssembler {
 	els, err := equity.NewExhaustiveLeaveCalculator("NWL23", DefaultConfig, "")
 	if err != nil {
 		log.Fatal().Msgf("Failed to create exhaustive leave calculator: %v", err)
@@ -73,12 +86,17 @@ func NewGameAssembler(horizon int) *GameAssembler {
 	if !ok {
 		panic("win percentages not correct type")
 	}
-	return &GameAssembler{
+	ga := &GameAssembler{
 		horizon: horizon,
 		games:   make(map[string]*gameWindow),
 		eqCalc:  els,
 		winpcts: winPcts,
+		sample:  sample,
 	}
+	if shared != nil {
+		ga.labeler = NewRolloutLabeler(shared, plies, rollouts, els)
+	}
+	return ga
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -110,6 +128,9 @@ const (
 type outputVector struct {
 	features    *[]float32
 	predictions []float32 // indexed by the Target* constants
+	gameID      string
+	turn        int
+	label       *rolloutLabel // set when rollout-labeled, for the labels file
 }
 
 // FeedTurn ingests one ply, updates state, and maybe produces vectors.
@@ -136,29 +157,38 @@ func (ga *GameAssembler) FeedTurn(t Turn) []outputVector {
 			panic(err)
 		}
 		gw.game = *tp
+		if ga.labeler != nil {
+			gw.ai, err = aiturnplayer.NewAIStaticTurnPlayerFromGame(gw.game.Game, DefaultConfig, ga.labeler.calcs)
+			if err != nil {
+				panic(err)
+			}
+			gw.game.SetStateStackLength(ga.labeler.StackLength())
+		}
 		ga.games[t.GameID] = gw
 	}
 
 	// 1) Apply move, update board/racks, compute after-move features.
-	m, stateVec, spreadFor := updateBoardAndExtractFeatures(gw, t, ga.eqCalc, gw.moves)
+	m, stateVec, spreadFor, label := updateBoardAndExtractFeatures(ga, gw, t, gw.moves)
 
 	// 2) Push into sliding window.
 	gw.turns = append(gw.turns, t)
 	gw.moves = append(gw.moves, m)
 	gw.states = append(gw.states, stateVec)
 	gw.spreadsFor = append(gw.spreadsFor, spreadFor)
+	gw.labels = append(gw.labels, label)
 
 	// 3) Emit when window deep enough.
 	if len(gw.states) > ga.horizon {
-		vec := makeTrainingVector(ga, gw, gw.states[0], gw.states[1], gw.states[ga.horizon], gw.moves[1], gw.spreadsFor[0], gw.spreadsFor[ga.horizon])
-		gw.hold(vec, gw.spreadsFor[0])
+		if vec, ok := makeTrainingVector(ga, gw, gw.turns[0], gw.states[0], gw.states[1], gw.states[ga.horizon], gw.moves[1], gw.spreadsFor[0], gw.spreadsFor[ga.horizon], gw.labels[0]); ok {
+			gw.hold(vec, gw.spreadsFor[0])
+		}
 
 		// Slide window forward by dropping the oldest ply.
 		gw.turns = gw.turns[1:]
 		gw.spreadsFor = gw.spreadsFor[1:]
-		// game.MLVectorPool.Put(gw.states[0])
 		gw.states = gw.states[1:]
 		gw.moves = gw.moves[1:]
+		gw.labels = gw.labels[1:]
 	}
 	// log.Info().Msgf("Game %s: fed turn %s, now have %d turns in window",
 	// 	t.GameID, t.Play, len(gw.turns))
@@ -249,16 +279,19 @@ func (ga *GameAssembler) flushRemainder(gw *gameWindow) {
 		if next > lastIdx {
 			next = lastIdx // clamp to final
 		}
-		vec := makeTrainingVector(ga, gw, gw.states[i], gw.states[next], gw.states[future], gw.moves[next], gw.spreadsFor[i], gw.spreadsFor[future])
-		gw.hold(vec, gw.spreadsFor[i])
+		if vec, ok := makeTrainingVector(ga, gw, gw.turns[i], gw.states[i], gw.states[next], gw.states[future], gw.moves[next], gw.spreadsFor[i], gw.spreadsFor[future], gw.labels[i]); ok {
+			gw.hold(vec, gw.spreadsFor[i])
+		}
 	}
 	game.MLVectorPool.Put(gw.states[lastIdx]) // return last state to pool
 }
 
 // Given current game window + turn, mutate board state and return features.
-// Must return the *after-move* tensor for that ply.
-func updateBoardAndExtractFeatures(gw *gameWindow, t Turn, eqCalc *equity.ExhaustiveLeaveCalculator,
-	lastMoves []*move.Move) (*move.Move, *[]float32, int) {
+// Must return the *after-move* tensor for that ply. The rollout label is
+// nil when the position was not sampled (or there is no labeler).
+func updateBoardAndExtractFeatures(ga *GameAssembler, gw *gameWindow, t Turn,
+	lastMoves []*move.Move) (*move.Move, *[]float32, int, *rolloutLabel) {
+	eqCalc := ga.eqCalc
 	transpose := shouldTranspose(t.GameID)
 
 	tp := stats.Normalize(t.Play) // normalize play string
@@ -323,23 +356,42 @@ func updateBoardAndExtractFeatures(gw *gameWindow, t Turn, eqCalc *equity.Exhaus
 		gw.game.Bag().PutBack(m.Tiles())
 	}
 
-	// vec := *vecPtr
 	spreadFor := gw.game.PlayerOnTurn()
 	unNormalizedSpread := gw.game.SpreadFor(spreadFor)
 	(*vecPtr)[len(*vecPtr)-1] = float32(unNormalizedSpread) // update spread for player on turn
 
+	// Rollout label, from exactly this state: mover on turn holding the
+	// leave, opponent's rack in the bag. Label leaves random racks behind,
+	// which the next turn's ThrowRacksIn/SetRackFor clean up.
+	var label *rolloutLabel
+	if ga.labeler != nil && rand.Float64() < ga.sample {
+		lbl, ok, err := ga.labeler.Label(gw.game.Game, gw.ai, spreadFor, m, lastMoves)
+		if err != nil {
+			log.Fatal().Msgf("Failed to rollout-label game %s turn %d: %v", t.GameID, t.TurnNumber, err)
+		}
+		if ok {
+			label = &lbl
+			ga.labeled++
+		}
+	}
+
 	// Undo the switch of the player on turn.
 	gw.game.SetPlayerOnTurn(1 - gw.game.PlayerOnTurn())
 
-	// 	game.MLVectorPool.Put(vecPtr) XXX put it back elsewhere.
-	return m, vecPtr, spreadFor
+	return m, vecPtr, spreadFor, label
 }
 
 // Build final training vector from state at ply t and ply t+horizon.
-func makeTrainingVector(ga *GameAssembler, gw *gameWindow, stateNow, stateNext, stateFuture *[]float32,
-	moveNext *move.Move, spreadForNow, spreadForFuture int) outputVector {
+// With a labeler, only rollout-labeled positions are emitted; `ok` is false
+// for the rest and their state vector goes back to the pool.
+func makeTrainingVector(ga *GameAssembler, gw *gameWindow, turn Turn, stateNow, stateNext, stateFuture *[]float32,
+	moveNext *move.Move, spreadForNow, spreadForFuture int, label *rolloutLabel) (outputVector, bool) {
 	if len(*stateNow) != len(*stateFuture) {
 		log.Fatal().Msgf("State vectors must be of the same length, got %d and %d", len(*stateNow), len(*stateFuture))
+	}
+	if ga.labeler != nil && label == nil {
+		game.MLVectorPool.Put(stateNow)
+		return outputVector{}, false
 	}
 
 	// Get the actual spread values for the relevant player. Both are still
@@ -390,6 +442,13 @@ func makeTrainingVector(ga *GameAssembler, gw *gameWindow, stateNow, stateNext, 
 	ov := outputVector{
 		features:    stateNow,
 		predictions: make([]float32, NumTargets),
+		gameID:      turn.GameID,
+		turn:        turn.TurnNumber,
+		label:       label,
+	}
+	if label != nil {
+		bogowin = label.value
+		spreadDiff = label.spread
 	}
 	ov.predictions[TargetValue] = bogowin
 	ov.predictions[TargetSpread] = game.NormalizeSpreadForML(spreadDiff)
@@ -408,5 +467,5 @@ func makeTrainingVector(ga *GameAssembler, gw *gameWindow, stateNow, stateNext, 
 	}
 	ov.predictions[TargetOppScore] = score / 300.0
 
-	return ov
+	return ov, true
 }
