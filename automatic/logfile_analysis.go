@@ -126,6 +126,16 @@ func (p *PairedResult) PairedSE() float64 {
 	return p.Margin.StandardError() / 2
 }
 
+// WinShareCI is the 95% confidence half-width of bot 1's win share, from the
+// spread of the per-pair shares. It is tighter than the per-game binomial
+// interval because the two halves of a pair are negatively correlated.
+func (p *PairedResult) WinShareCI() float64 {
+	if p.Pairs < 2 {
+		return math.NaN()
+	}
+	return stats.TCriticalValue(0.95, p.Pairs) * p.WinShare.StandardError()
+}
+
 // pairHalf is one game of a pair, as the per-game log records it.
 type pairHalf struct {
 	margin    float64
@@ -472,8 +482,8 @@ func formatPaired(p *PairedResult, p1name, p2name string) string {
 	}
 	fmt.Fprintf(&b, "\n  %-22s %+.2f ± %.2f points per game\n",
 		leader+" over "+trailer, math.Abs(margin), ci)
-	fmt.Fprintf(&b, "  %-22s %.3f%% (0.5 = even)\n",
-		p1name+" win share", 100*p.WinShare.Mean())
+	fmt.Fprintf(&b, "  %-22s %.3f%% ± %.3f%% (50%% = even)\n",
+		p1name+" win share", 100*p.WinShare.Mean(), 100*p.WinShareCI())
 
 	kind := "exact"
 	if !p.ExactP {
