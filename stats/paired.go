@@ -23,9 +23,11 @@ import (
 const exactSignFlipLimit = 20
 
 // defaultSignFlipSamples is how many sign assignments are drawn when there are
-// too many pairs to enumerate. At 200k the p-value is resolved to about 2e-3,
-// with a Monte Carlo standard error under 0.0011 anywhere near p = 0.05.
-const defaultSignFlipSamples = 200000
+// too many pairs to enumerate. Each sample sums every pair, so on a 100k-pair
+// log 200k samples took three minutes per test. At 20k the p-value is still
+// resolved to 5e-5 (its floor), with a Monte Carlo standard error of about
+// 0.0015 near p = 0.05, which is well inside how the number gets used.
+const defaultSignFlipSamples = 20000
 
 // SignFlipPValue returns the two-sided p-value for the null hypothesis that
 // diffs are symmetric about zero, by comparing the observed mean against the
