@@ -470,3 +470,24 @@ func TestEndgameSearchLabels(t *testing.T) {
 		}
 	}
 }
+
+// The search returns the opponent's spread change, not the result: a mover
+// who is ahead and gives back a few points still wins.
+func TestEndgameLabelArithmetic(t *testing.T) {
+	for _, tc := range []struct {
+		now    float32
+		change int16 // opponent's gain
+		value  float32
+		spread float32
+	}{
+		{-108, 13, -1, -13}, // behind, loses more: loss
+		{50, 13, 1, -13},    // ahead, gives back 13: still a win
+		{10, 10, 0, -10},    // exactly tied at the end: draw
+		{-5, -20, 1, 20},    // behind, but the opponent is stuck: win
+	} {
+		got := endgameLabel(tc.now, tc.change)
+		if got.value != tc.value || got.spread != tc.spread {
+			t.Fatalf("now %v change %v: got %+v, want value %v spread %v", tc.now, tc.change, got, tc.value, tc.spread)
+		}
+	}
+}

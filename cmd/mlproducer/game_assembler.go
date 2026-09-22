@@ -521,15 +521,31 @@ func (ga *GameAssembler) makeTrainingVector(gw *gameWindow, now, next, future in
 	return ov, true
 }
 
+// endgameLabel turns the mover's current spread and the search's value
+// (the opponent's spread change to the end of the game) into the mover's
+// label: their result and their spread change.
+func endgameLabel(moverSpreadNow float32, oppChange int16) rolloutLabel {
+	change := -float32(oppChange)
+	lbl := rolloutLabel{spread: change}
+	switch final := moverSpreadNow + change; {
+	case final > 0:
+		lbl.value = 1
+	case final < 0:
+		lbl.value = -1
+	}
+	return lbl
+}
+
 // solveEndgame labels the position the game is in (just after `mover`'s
 // play with the bag empty; mover on turn holding `leave`, opponent's tiles
 // in the bag) by a quick endgame search from the opponent's reply:
 // endgamePlies plies of negamax with a greedy playout at the leaves. The
-// search's value is the opponent's spread change to the end of the game,
-// so the mover's is its negation. The game is left as it was found.
+// search's value is the opponent's spread change to the end of the game.
+// The game is left as it was found.
 func (ga *GameAssembler) solveEndgame(gw *gameWindow, mover int, leave *tilemapping.Rack) (rolloutLabel, error) {
 	g := gw.game.Game
 	opp := 1 - mover
+	spreadNow := float32(g.SpreadFor(mover))
 	setRackFromBag(gw, opp) // exactly the opponent's tiles
 	g.SetPlayerOnTurn(opp)
 	g.SetBackupMode(game.SimulationMode)
@@ -560,12 +576,5 @@ func (ga *GameAssembler) solveEndgame(gw *gameWindow, mover int, leave *tilemapp
 	if err != nil {
 		return rolloutLabel{}, err
 	}
-	lbl := rolloutLabel{spread: float32(-v)}
-	switch {
-	case v < 0:
-		lbl.value = 1
-	case v > 0:
-		lbl.value = -1
-	}
-	return lbl, nil
+	return endgameLabel(spreadNow, v), nil
 }
