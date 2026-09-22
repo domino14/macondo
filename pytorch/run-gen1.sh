@@ -8,7 +8,8 @@
 #   3. train four more epochs from the cache (schedule matched to 5 epochs),
 #   4. deploy as macondo-nn-tf-gen1 and run the 100k-pair match vs HastyBot.
 #
-# Logs: producer-gen1.log, train-tf-gen1.log, watch-tf-gen1.log; labels in
+# Logs: producer-gen1.log, train-tf-gen1.log (what watch-tf-heads.sh reads),
+# watch-tf-gen1.log; labels in
 # gen1-labels.csv (gameID,turn,value,spread); frames in gen1-frames.bin.
 # Overridable: TAG (names every output), POSITIONS, EPOCHS, STEPS, WAIT=0
 # (don't wait for the match), WATCH=0 (don't deploy/match afterwards).
@@ -45,7 +46,7 @@ head -n $POSITIONS ~/data/autoplay-softmax-v-hasty-5.txt | \
   ( pv -br ; echo "pv exit=$?" >&2 ) | \
   ( python training.py --arch transformer --ckpt best-tf-$TAG.pt --csv loss_tf_$TAG.csv \
       --aux-share 0.15 --epochs $EPOCHS --cache $TAG-frames.bin --val-size $VAL_SIZE \
-      --total-steps $STEPS --snapshot-every 5000 ; echo "training exit=$?" >&2 )
+      --total-steps $STEPS --snapshot-every 5000 2>&1 | tee train-tf-$TAG.log ; echo "training exit=${PIPESTATUS[0]}" >&2 )
 log "pipeline exit=$?"
 tail -1 producer-$TAG.log
 
