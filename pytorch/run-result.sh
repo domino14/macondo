@@ -6,9 +6,11 @@
 #
 # ~6.8M games in the file, ~80% emit a position -> ~5.4M labels;
 # 5.3M / 2048 ~ 2,600 steps per epoch x 5, so the schedule stops at 12,500.
+# The wait pattern must match generation 1's processes but not this script,
+# which is itself a run-gen1.sh.
 cd "$(dirname "$0")"
 TAG=result \
-WAIT_FOR="run-gen1.sh|bin/shell autoplay" \
+WAIT_FOR="labels-out gen1-labels|ckpt best-tf-gen1|watch-tf-heads.sh|bin/shell autoplay" \
 POSITIONS=999999999 \
 EPOCHS=5 \
 STEPS=12500 \
