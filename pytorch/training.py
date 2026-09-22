@@ -25,7 +25,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import IterableDataset, DataLoader
+from torch.utils.data import Dataset, IterableDataset, DataLoader
 from torch.amp import GradScaler, autocast
 
 # ── feature sizes ────────────────────────────────────────────────────
@@ -36,6 +36,11 @@ TARGETS = ["value", "spread", "wdl", "opp_bingo", "opp_score"]
 N_TARGETS = len(TARGETS)
 ROW_FLOATS = N_PLANE + N_SCAL + N_TARGETS
 DTYPE = np.float32
+
+# Frame cache: planes are 0/1 so they pack to bits; scalars and targets stay
+# float32. 2,699 bytes per position instead of 76,808.
+PLANE_BYTES = (N_PLANE + 7) // 8
+CACHE_ROW_BYTES = PLANE_BYTES + N_SCAL * 4 + N_TARGETS * 4
 
 VAL_SIZE = 150_000  # vectors for validation  (~75 batches)
 VAL_EVERY = 500  # train steps between val checks
@@ -126,6 +131,54 @@ class QueueDataset(IterableDataset):
 
             yield unpack_frame(payload)
             del payload
+
+
+def pack_rows(board, scalars, targets):
+    """CPU batch tensors -> cache bytes, CACHE_ROW_BYTES per position."""
+    n = board.shape[0]
+    bits = np.packbits(board.numpy().reshape(n, -1) > 0.5, axis=1)
+    assert bits.shape[1] == PLANE_BYTES
+    rows = np.concatenate(
+        [
+            bits,
+            np.ascontiguousarray(scalars.numpy(), dtype=np.float32).view(np.uint8),
+            np.ascontiguousarray(targets.numpy(), dtype=np.float32).view(np.uint8),
+        ],
+        axis=1,
+    )
+    return rows.tobytes()
+
+
+def unpack_row(row):
+    """One cache row (uint8 array) -> (board, scalars, targets) tensors."""
+    planes = np.unpackbits(row[:PLANE_BYTES], count=N_PLANE).astype(np.float32)
+    scal = row[PLANE_BYTES : PLANE_BYTES + N_SCAL * 4].view(np.float32).copy()
+    tg = row[PLANE_BYTES + N_SCAL * 4 :].view(np.float32).copy()
+    return (
+        torch.from_numpy(planes).view(C, H, W),
+        torch.from_numpy(scal),
+        torch.from_numpy(tg),
+    )
+
+
+class CacheDataset(Dataset):
+    """Random access into a frame cache; rows [start, end)."""
+
+    def __init__(self, path, start=0, end=None):
+        self.path = path
+        n = os.path.getsize(path) // CACHE_ROW_BYTES
+        self.start = start
+        self.end = n if end is None else min(end, n)
+        self.mm = None  # opened lazily, once per loader worker
+
+    def __len__(self):
+        return max(0, self.end - self.start)
+
+    def __getitem__(self, i):
+        if self.mm is None:
+            self.mm = np.memmap(self.path, dtype=np.uint8, mode="r")
+        off = (self.start + i) * CACHE_ROW_BYTES
+        return unpack_row(np.array(self.mm[off : off + CACHE_ROW_BYTES]))
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -273,6 +326,20 @@ def parse_args(argv=None):
     p.add_argument("--csv", default=CSV_PATH)
     p.add_argument("--val-size", type=int, default=VAL_SIZE)
     p.add_argument("--val-every", type=int, default=VAL_EVERY)
+    # epochs and the frame cache
+    p.add_argument(
+        "--epochs", type=int, default=1, help="passes over the data; >1 needs --cache"
+    )
+    p.add_argument(
+        "--cache",
+        help="write every training frame from stdin here (bit-packed, ~2.7 KB each) "
+        "and read epochs 2.. from it",
+    )
+    p.add_argument(
+        "--from-cache",
+        help="train from an existing cache instead of stdin; its first --val-size "
+        "rows are the validation set",
+    )
     p.add_argument(
         "--grad-batch",
         type=int,
@@ -302,6 +369,8 @@ def parse_args(argv=None):
             dropout=args.dropout,
         )
     args.weights = {name: getattr(args, f"w_{name}") for name in TARGETS}
+    if args.epochs > 1 and not (args.cache or args.from_cache):
+        p.error("--epochs > 1 needs --cache or --from-cache")
     return args
 
 
@@ -377,6 +446,7 @@ def head_grad_norms(net, board, scalars, targets, chunk=64):
 
 
 def write_validation_to_file(val_ds, directory):
+    """val_ds yields (board, scalars, targets) CPU tensors."""
     # ~77 KB per position, so 150k positions is 11.5 GB: keep it on real
     # disk next to the checkpoint, not in a tmpfs /tmp.
     val_file = tempfile.NamedTemporaryFile(
@@ -452,33 +522,68 @@ def main():
     else:
         device = torch.device("cpu")
 
-    val_q = Queue()
-    train_q = Queue(maxsize=2048)
-
     num_workers = os.cpu_count()
-    p = Thread(target=producer, args=(val_q, train_q, args.val_size, num_workers))
-    p.daemon = True
-    p.start()
-
-    # ---- collect validation set -----------------------------------
-    val_ds = QueueDataset(val_q)
     ckpt_dir = os.path.dirname(os.path.abspath(args.ckpt))
-    val_file_name, val_count = write_validation_to_file(val_ds, ckpt_dir)
+    cache_w = None
+
+    if args.from_cache:
+        # ---- validation and every epoch from an existing cache ----------
+        n_rows = os.path.getsize(args.from_cache) // CACHE_ROW_BYTES
+        val_count = min(args.val_size, n_rows)
+        val_ds = CacheDataset(args.from_cache, 0, val_count)
+        val_file_name, val_count = write_validation_to_file(
+            (val_ds[i] for i in range(len(val_ds))), ckpt_dir
+        )
+        train_ds = CacheDataset(args.from_cache, val_count, n_rows)
+        print(
+            f"cache {args.from_cache}: {n_rows:,} rows, {val_count:,} validation, "
+            f"{len(train_ds):,} training x {args.epochs} epochs",
+            file=sys.stderr,
+        )
+
+        def epoch_loaders():
+            for _ in range(args.epochs):
+                yield DataLoader(
+                    train_ds,
+                    batch_size=args.batch_size,
+                    shuffle=True,
+                    num_workers=num_workers,
+                    pin_memory=False,
+                )
+
+    else:
+        # ---- validation from the head of stdin, epoch 1 from the rest ----
+        val_q = Queue()
+        train_q = Queue(maxsize=2048)
+        p = Thread(target=producer, args=(val_q, train_q, args.val_size, num_workers))
+        p.daemon = True
+        p.start()
+        val_file_name, val_count = write_validation_to_file(QueueDataset(val_q), ckpt_dir)
+        if args.cache:
+            cache_w = open(args.cache, "wb")
+
+        def epoch_loaders():
+            yield DataLoader(
+                QueueDataset(train_q),
+                batch_size=args.batch_size,
+                num_workers=num_workers,
+                pin_memory=False,
+            )
+            for _ in range(args.epochs - 1):
+                yield DataLoader(
+                    CacheDataset(args.cache),
+                    batch_size=args.batch_size,
+                    shuffle=True,
+                    num_workers=num_workers,
+                    pin_memory=False,
+                )
+
+    print(f"Validation set: {val_count} positions", file=sys.stderr)
+    # Delete the validation file if we are killed, not only on a clean exit.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
     # A fixed batch for the per-head gradient report, so the numbers are
     # comparable from one validation to the next.
     diag = read_rows(val_file_name, min(args.grad_batch, val_count))
-    # Delete the validation file if we are killed, not only on a clean exit.
-    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
-    print(f"Validation set: {val_count} positions", file=sys.stderr)
-
-    # ---- training loader ------------------------------------------
-    train_ds = QueueDataset(train_q)
-    loader = DataLoader(
-        train_ds,
-        batch_size=args.batch_size,
-        num_workers=num_workers,
-        pin_memory=False,
-    )
 
     net = build_model(args.arch, args.hparams).to(device)
     print(
@@ -536,115 +641,128 @@ def main():
         + [f"w_{k}" for k in TARGETS]
     )
 
+    done = False
     try:
-        for board, scal, targets in loader:
-            board, scal = board.to(device), scal.to(device)
-            targets = targets.to(device)
-
-            with autocast(
-                device.type, dtype=amp_dtype, enabled=(device.type in ("cuda", "mps"))
-            ):
-                pred = net(board, scal)
-                loss, losses = compute_loss(pred, targets, args.weights)
-
-            # Track all loss components (per micro-batch), without syncing
-            running["total"] += loss.detach()
-            for k, l in losses.items():
-                running[k] += l
-
-            scaler.scale(loss / args.accum if args.accum > 1 else loss).backward()
-            micro += 1
-            if micro % args.accum:
-                continue  # accumulate; not yet an optimiser step
-            if args.grad_clip > 0:
-                scaler.unscale_(opt)
-                torch.nn.utils.clip_grad_norm_(net.parameters(), args.grad_clip)
-            scaler.step(opt)
-            scaler.update()
-            opt.zero_grad(set_to_none=True)
-            scheduler.step()
-            step += 1
-
-            if step % args.val_every == 0:
-                n_micro = args.val_every * args.accum
-                train = {k: (v / n_micro).item() for k, v in running.items()}
-                running = zero_running()
-                val = validate_streaming(
-                    net,
-                    val_file_name,
-                    val_count,
-                    device,
-                    args.weights,
-                    amp_dtype=amp_dtype,
-                )
-                if step == args.val_every and device.type == "cuda":
-                    print(
-                        f"peak GPU memory: {torch.cuda.max_memory_allocated() / 2**30:.2f} GiB",
-                        file=sys.stderr,
-                    )
-                gn = head_grad_norms(net, *(t.to(device) for t in diag))
-                if args.aux_share > 0:
-                    args.weights = balance_weights(args.weights, gn, args.aux_share)
-                csv_writer.writerow(
-                    [step, f"{train['total']:.6f}", f"{val['total']:.6f}"]
-                    + [f"{train[k]:.6f}" for k in TARGETS]
-                    + [f"{val[k]:.6f}" for k in TARGETS]
-                    + [f"{gn[k]:.6g}" for k in TARGETS]
-                    + [f"{args.weights[k]:.4g}" for k in TARGETS]
-                )
-                csv_fh.flush()
-
-                elapsed = time.time() - t0
-                heads = "  ".join(f"{k}={val[k]:.4f}" for k in TARGETS)
-                ref = gn["value"] or 1.0
-                pulls = "  ".join(f"{k}={gn[k]/ref:.2f}" for k in TARGETS)
-                print(
-                    f"{step:>7}  train={train['total']:.4f}  val={val['total']:.4f}  "
-                    f"[{heads}]  "
-                    f"{step*args.batch_size*args.accum/elapsed:,.0f} pos/s"
-                )
-                print(f"         trunk grad vs value head (unweighted): {pulls}")
-                if args.aux_share > 0:
-                    ws = "  ".join(f"{k}={args.weights[k]:.3g}" for k in TARGETS)
-                    print(f"         balanced weights: {ws}")
-
-                # Checkpoint on the value head alone: it is what the bot
-                # ranks on, and it keeps runs with different head weights
-                # comparable.
-                if val["value"] < best_val:
-                    torch.save(
-                        {
-                            "step": step,
-                            "model": net.state_dict(),
-                            "arch": args.arch,
-                            "hparams": args.hparams,
-                            "weights": args.weights,
-                            "val": val,
-                        },
-                        args.ckpt,
-                    )
-                    best_val = val["value"]
-                    print("  ✓ checkpointed (best validation value loss)")
-
-                if args.snapshot_every and step % args.snapshot_every == 0:
-                    stem, ext = os.path.splitext(args.ckpt)
-                    torch.save(
-                        {
-                            "step": step,
-                            "model": net.state_dict(),
-                            "arch": args.arch,
-                            "hparams": args.hparams,
-                            "weights": args.weights,
-                            "val": val,
-                        },
-                        f"{stem}-step{step}{ext}",
-                    )
-
-            if step >= args.total_steps:
-                # The cosine schedule is at zero; CosineAnnealingLR would
-                # climb back up from here, so this is the end of the run.
-                print(f"reached --total-steps {args.total_steps}; stopping")
+        for epoch, loader in enumerate(epoch_loaders(), start=1):
+            if done:
                 break
+            if epoch == 2 and cache_w is not None:
+                cache_w.close()
+                cache_w = None
+                n_cached = os.path.getsize(args.cache) // CACHE_ROW_BYTES
+                print(f"cached {n_cached:,} frames in {args.cache}", file=sys.stderr)
+            print(f"epoch {epoch}", file=sys.stderr)
+            for board, scal, targets in loader:
+                if cache_w is not None:
+                    cache_w.write(pack_rows(board, scal, targets))
+                board, scal = board.to(device), scal.to(device)
+                targets = targets.to(device)
+
+                with autocast(
+                    device.type, dtype=amp_dtype, enabled=(device.type in ("cuda", "mps"))
+                ):
+                    pred = net(board, scal)
+                    loss, losses = compute_loss(pred, targets, args.weights)
+
+                # Track all loss components (per micro-batch), without syncing
+                running["total"] += loss.detach()
+                for k, l in losses.items():
+                    running[k] += l
+
+                scaler.scale(loss / args.accum if args.accum > 1 else loss).backward()
+                micro += 1
+                if micro % args.accum:
+                    continue  # accumulate; not yet an optimiser step
+                if args.grad_clip > 0:
+                    scaler.unscale_(opt)
+                    torch.nn.utils.clip_grad_norm_(net.parameters(), args.grad_clip)
+                scaler.step(opt)
+                scaler.update()
+                opt.zero_grad(set_to_none=True)
+                scheduler.step()
+                step += 1
+
+                if step % args.val_every == 0:
+                    n_micro = args.val_every * args.accum
+                    train = {k: (v / n_micro).item() for k, v in running.items()}
+                    running = zero_running()
+                    val = validate_streaming(
+                        net,
+                        val_file_name,
+                        val_count,
+                        device,
+                        args.weights,
+                        amp_dtype=amp_dtype,
+                    )
+                    if step == args.val_every and device.type == "cuda":
+                        print(
+                            f"peak GPU memory: {torch.cuda.max_memory_allocated() / 2**30:.2f} GiB",
+                            file=sys.stderr,
+                        )
+                    gn = head_grad_norms(net, *(t.to(device) for t in diag))
+                    if args.aux_share > 0:
+                        args.weights = balance_weights(args.weights, gn, args.aux_share)
+                    csv_writer.writerow(
+                        [step, f"{train['total']:.6f}", f"{val['total']:.6f}"]
+                        + [f"{train[k]:.6f}" for k in TARGETS]
+                        + [f"{val[k]:.6f}" for k in TARGETS]
+                        + [f"{gn[k]:.6g}" for k in TARGETS]
+                        + [f"{args.weights[k]:.4g}" for k in TARGETS]
+                    )
+                    csv_fh.flush()
+
+                    elapsed = time.time() - t0
+                    heads = "  ".join(f"{k}={val[k]:.4f}" for k in TARGETS)
+                    ref = gn["value"] or 1.0
+                    pulls = "  ".join(f"{k}={gn[k]/ref:.2f}" for k in TARGETS)
+                    print(
+                        f"{step:>7}  train={train['total']:.4f}  val={val['total']:.4f}  "
+                        f"[{heads}]  "
+                        f"{step*args.batch_size*args.accum/elapsed:,.0f} pos/s"
+                    )
+                    print(f"         trunk grad vs value head (unweighted): {pulls}")
+                    if args.aux_share > 0:
+                        ws = "  ".join(f"{k}={args.weights[k]:.3g}" for k in TARGETS)
+                        print(f"         balanced weights: {ws}")
+
+                    # Checkpoint on the value head alone: it is what the bot
+                    # ranks on, and it keeps runs with different head weights
+                    # comparable.
+                    if val["value"] < best_val:
+                        torch.save(
+                            {
+                                "step": step,
+                                "model": net.state_dict(),
+                                "arch": args.arch,
+                                "hparams": args.hparams,
+                                "weights": args.weights,
+                                "val": val,
+                            },
+                            args.ckpt,
+                        )
+                        best_val = val["value"]
+                        print("  ✓ checkpointed (best validation value loss)")
+
+                    if args.snapshot_every and step % args.snapshot_every == 0:
+                        stem, ext = os.path.splitext(args.ckpt)
+                        torch.save(
+                            {
+                                "step": step,
+                                "model": net.state_dict(),
+                                "arch": args.arch,
+                                "hparams": args.hparams,
+                                "weights": args.weights,
+                                "val": val,
+                            },
+                            f"{stem}-step{step}{ext}",
+                        )
+
+                if step >= args.total_steps:
+                    # The cosine schedule is at zero; CosineAnnealingLR would
+                    # climb back up from here, so this is the end of the run.
+                    print(f"reached --total-steps {args.total_steps}; stopping")
+                    done = True
+                    break
 
         # Print total training time
         total_time = time.time() - t0
@@ -653,6 +771,8 @@ def main():
         )
 
     finally:
+        if cache_w is not None:
+            cache_w.close()
         csv_fh.close()
         os.unlink(val_file_name)
         sys.stdout.flush()

@@ -152,8 +152,10 @@ tau-schedule lesson).
 
 ### Phase 1: heads on existing data (~2 days incl. a training run)
 
-*Code done 2026-09-19; see experiments.md "Auxiliary heads". Training run
-next.*
+*Done. 2026-09-20/21: five heads with gradient-balanced weights on the full
+file = best value loss yet (0.0910) and the paired match is ahead of the
+52.33% baseline (see experiments.md). The lesson: auxiliary weights must be
+set from measured trunk gradients, not loss values.*
 
 Go (`cmd/mlproducer`):
 - Buffer a whole game before emitting (needed for the final result). Cost:
@@ -177,6 +179,9 @@ match. Expected: a small gain (tenths of a point); the real payoff is the
 spread head and the regularization for Phase 2.
 
 ### Phase 2: rollout labeler (~1 week)
+
+*Code done 2026-09-21 (`cmd/mlproducer/rollout.go`, `pytorch/run-gen1.sh`);
+generation 1 launched, see experiments.md "Generation 1 run".*
 
 New `cmd/mlproducer -labeler rollout -K 2 -N 16 -sample 0.25`:
 - Per sampled position (game replayed as today, racks thrown in, bag =

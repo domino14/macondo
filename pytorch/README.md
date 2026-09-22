@@ -37,3 +37,21 @@ TensorRT and installs the next version under
 `data/strategy/default/models/<model-name>/`, creating a `config.pbtxt` for a
 new name. Pick the model from Go with `MACONDO_TRITON_MODEL_NAME`.
 `export-tester.py` checks ONNX vs PyTorch parity on real frames.
+
+#### Heads, weights, epochs
+
+Five heads (value, spread, wdl, opp_bingo, opp_score). `--w-<head>` sets a
+fixed loss weight; `--aux-share F` instead rebalances the auxiliary weights
+at every validation so each head's measured pull on the trunk is F times
+the value head's (recommended; `head_grads.py` shows the same measurement
+for a checkpoint). The checkpoint is chosen on value val loss only.
+
+`--epochs N --cache frames.bin` caches every stdin frame (bit-packed, 2.7 KB
+each) during epoch 1 and reads epochs 2..N from it; `--from-cache frames.bin`
+trains from an existing cache (first `--val-size` rows are validation).
+`--total-steps` is the cosine length and the stop point; `--snapshot-every`
+keeps intermediate checkpoints.
+
+`run-gen1.sh` is the unattended generation-1 pipeline (rollout labels ->
+5 epochs -> deploy -> paired match); `watch-tf-heads.sh` is the deploy +
+match step on its own; `pairs-stats.py` summarizes a game-pairs CSV.

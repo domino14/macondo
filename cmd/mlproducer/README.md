@@ -5,6 +5,28 @@ It has two components:
 - turn_scanner scans a file with turns, one per row. This file can be produced using the macondo `autoplay` command. It is saved by default to `/tmp/autoplay.txt`.
 
 - game_assembler assembles games and does the hard work of actually turning it into features for a model. A more in-depth description below.
+- rollout labels positions by sampled rollouts with the value net at the leaf (see below).
+
+#### Labels
+
+Every emitted frame is `[features | value, spread, wdl, opp_bingo, opp_score]`
+(see `Target*` in game_assembler.go and `TARGETS` in pytorch/training.py).
+
+`-labeler table` (default): `value` is the win-percentage table looked up
+with the spread after `NPlies` (5) real plies; `spread` is the spread change
+over those plies. Every position is emitted.
+
+`-labeler rollout -plies K -rollouts N -sample F`: for a fraction F of
+positions, `value` is the mean over N rollouts of K plies of static best
+play (random draws for both sides) scored by the net at the leaf; `spread`
+is the real K-ply change plus the net's predicted change at the leaf. Only
+sampled positions are emitted. Needs Triton (`MACONDO_TRITON_URL`,
+`MACONDO_TRITON_MODEL_NAME`, `MACONDO_TRITON_MODEL_VERSION`) serving a model
+with `value` and `spread` outputs. `-labels-out f.csv` also writes
+`gameID,turn,value,spread` per labeled position.
+
+`wdl` (the mover's final result), `opp_bingo` and `opp_score` come from the
+real game in both modes; a game's frames are held until it ends.
 
 #### Responsibilities for game_assembler
 

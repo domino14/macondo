@@ -1102,3 +1102,43 @@ means more data should keep paying: the 52.33% run saw one file once, and
 there are five.
 
 Next: heads with gradient-balanced weights on the full file (79.5k steps).
+
+### Phase 2: rollout labels (9/21/26)
+
+`mlproducer -labeler rollout -plies 2 -rollouts 16 -sample 0.25`: a
+sampled position is labeled by the mean of 16 two-ply rollouts (random
+draws for both sides, static best play, the net at the leaf from the leaf
+mover's side; real result if the game ends). See cmd/mlproducer/README.md.
+The test in rollout_test.go checks that rollouts leave every feature
+vector identical to the table-mode replay.
+
+On the sample game the rollout label agrees in sign with the table label
+from midgame on, and is near zero in the opening where the single-sample
+table label swings to +-0.6: the noise reduction we wanted. Over 1,400
+positions: value mean +0.01, sd 0.63, 22% beyond +-0.9.
+
+CPU cost ~9 ms per label (16 rollouts x 2 plies of movegen + 16 leaf
+vectors), so 16 cores could do ~1,800 labels/s; the GPU (16 leaf
+evaluations per label) will be the limit. Measured properly once the GPU
+is free.
+
+Known caveat: the heads2 spread head was trained on a 5-ply (odd,
+opponent-first) horizon, so the bootstrapped spread label = real 2-ply
+change + that prediction carries a ~30-point negative bias. The value
+label, which is what the bot ranks on, is horizon-free. Revisit the
+spread target's definition (spread to game end?) after gen 1.
+
+Trainer: `--epochs N --cache f` bit-packs every stdin frame (2.7 KB) and
+trains epochs 2..N from the cache; `--from-cache f` trains from an
+existing cache. `pack/unpack` round trip is exact.
+
+#### Generation 1 run (`run-gen1.sh`, launched 9/21/26 ~21:40)
+
+Waits for the heads2 match, then: first 40M lines of
+`autoplay-softmax-v-hasty-5.txt`, 25% sampled -> ~10M labels with
+`macondo-nn-tf-heads2` v1 at the leaf, streamed into epoch 1 and cached
+(`gen1-frames.bin`, ~27 GB; labels also in `gen1-labels.csv`), then 4 more
+epochs from the cache; 24k steps, aux-share 0.15, snapshots every 5k.
+Then deploy as `macondo-nn-tf-gen1` and 100k pairs vs HastyBot. The value
+val loss is on rollout labels and is not comparable with earlier runs;
+the match is the comparison (baseline: heads2's result).
