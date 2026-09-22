@@ -314,3 +314,57 @@ func TestWriteLastKnownRacks(t *testing.T) {
 	is.NoErr(err)
 	is.Equal(reparsed.LastKnownRacks[0], "ACEINRT")
 }
+
+func TestEventsThatRequireAPrecedingPlay(t *testing.T) {
+	// The parser creates its internal game lazily, on the first
+	// move/pass/exchange/rack token. A gcg whose first event line is a scoring
+	// adjustment has no game to apply that adjustment to, and used to
+	// nil-deref rather than report a parse error. Scrabblecam emits exactly
+	// the end-rack-points case when a game is finalized with no recorded
+	// moves.
+	testcases := []struct {
+		name string
+		gcg  string
+	}{
+		{"end rack points", `#player1 bob Bob
+#player2 alice Alice
+>alice: (AEIOU) +10 10`},
+		{"challenge bonus", `#player1 bob Bob
+#player2 alice Alice
+>alice: AEIOU (challenge) +5 5`},
+		{"last rack penalty", `#player1 bob Bob
+#player2 alice Alice
+>alice: AEIOU (AEIOU) -5 -5`},
+	}
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			history, err := ParseGCGFromReader(DefaultConfig, strings.NewReader(tc.gcg))
+			assert.Nil(t, history)
+			assert.Equal(t, errEventWithoutPlay, err)
+		})
+	}
+}
+
+func TestPhonyTilesReturnedWithoutGame(t *testing.T) {
+	// A time penalty appends an event without creating the game, so this
+	// case's len(Events) == 0 check does not cover a nil game on its own.
+	reader := strings.NewReader(`#player1 bob Bob
+#player2 alice Alice
+>bob: ABC (time) -10 -10
+>alice: DEF -- -5 0`)
+	history, err := ParseGCGFromReader(DefaultConfig, reader)
+	assert.Nil(t, history)
+	assert.EqualError(t, err, "malformed gcg; phony tiles returned without play")
+}
+
+func TestEndRackPointsAfterPlay(t *testing.T) {
+	// The same end-rack-points line parses fine once a play has created the
+	// game, and still ends it.
+	reader := strings.NewReader(`#player1 bob Bob
+#player2 alice Alice
+>bob: ACDEFGT 8H CAT +10 10
+>bob: (AEIOU) +5 15`)
+	history, err := ParseGCGFromReader(DefaultConfig, reader)
+	assert.Nil(t, err)
+	assert.Equal(t, pb.PlayState_GAME_OVER, history.PlayState)
+}

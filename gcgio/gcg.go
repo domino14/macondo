@@ -29,6 +29,12 @@ var (
 	errEncodingWrongPlace = errors.New("encoding line must be first line in file if present")
 	errPlayerNotSupported = errors.New("player number not supported")
 	errPlayerDoesNotExist = errors.New("player does not exist")
+	// Scoring adjustments (challenge bonus, end-rack points, end-rack
+	// penalty) are all applied to a play that already happened. p.game is
+	// only created lazily, on the first move/pass/exchange/rack token, so a
+	// gcg whose first event line is one of these has no game to apply them
+	// to.
+	errEventWithoutPlay = errors.New("malformed gcg; event requires a preceding play")
 )
 
 // A Token is an event in a GCG file.
@@ -350,7 +356,7 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 			return err
 		}
 		// The PlayedTiles attribute should be set to the LAST event's played tiles
-		if len(p.history.Events) == 0 {
+		if len(p.history.Events) == 0 || p.game == nil {
 			return errors.New("malformed gcg; phony tiles returned without play")
 		}
 		evt.PlayedTiles = p.history.Events[len(p.history.Events)-1].PlayedTiles
@@ -415,6 +421,9 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 			return err
 		}
 		evt.Type = pb.GameEvent_END_RACK_PENALTY
+		if p.game == nil {
+			return errEventWithoutPlay
+		}
 		p.history.Events = append(p.history.Events, evt)
 		err = p.game.PlayLatestEvent()
 		// End the game.
@@ -456,6 +465,9 @@ func (p *parser) addEventOrPragma(cfg *config.Config, token Token, match []strin
 		evt.Cumulative, err = matchToInt32(match[4])
 		if err != nil {
 			return err
+		}
+		if p.game == nil {
+			return errEventWithoutPlay
 		}
 		if token == ChallengeBonusToken {
 			evt.Type = pb.GameEvent_CHALLENGE_BONUS
