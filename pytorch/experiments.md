@@ -1180,3 +1180,24 @@ and scalars showed our own reply. Leaf racks, boards and the sign were
 right; that one input feature was wrong. Fixed by copying each move out
 of the generator. The first generation-1 run (1.76M labels in) was killed
 and restarted on the fixed labeler at 00:45.
+
+#### Collaborator's recipe queued: true result, one position per game (9/22/26)
+
+Three comments on the rollout labels: (1) a uniformly random opponent
+rack is optimistic for the mover, since real racks are managed leaves
+plus a draw; (2) the true result has no such bias, so use it as the
+target; (3) sample one position per game, not 25%, because every
+position of a game shares the outcome. Their >54% net was trained that
+way on a few million positions.
+
+`mlproducer -labeler result -per-game` implements exactly that on the
+existing logs (~6.8M games in file 5, ~5.4M positions after the 1..30
+turn draw, no rollouts, no GPU labeling). `run-result.sh` is queued
+behind generation 1: five epochs from the cache, wdl head off (it would
+be the value target again), then deploy as `macondo-nn-tf-result` and
+100k pairs vs HastyBot. Generation 1 (rollouts, 25%) finishes first as
+the test of the other approach; both compare against 53.19%.
+
+If rollouts survive, generation 2 should give the opponent their actual
+rack at ply 1 (the log knows it) or sample racks from the inference
+posterior, to remove the optimism.
