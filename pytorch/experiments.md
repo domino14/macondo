@@ -1201,3 +1201,18 @@ the test of the other approach; both compare against 53.19%.
 If rollouts survive, generation 2 should give the opponent their actual
 rack at ply 1 (the log knows it) or sample racks from the inference
 posterior, to remove the optimism.
+
+#### Endgame timing and the queued run (9/22/26)
+
+`QuickAndDirtySolve` (the PEG's endgame path: single thread, no iterative
+deepening, negascout, greedy playout leaves) on three logged endgames,
+table reset before every solve, machine busy with training: the full-rack
+first position costs 45-160 ms at 1-2 plies and 1-9 s at 3-4 plies; every
+later position of the endgame is 0-5 ms. First-win is just the (-1, 1)
+root window; with it the value is a bound, not the spread.
+
+Queued run now: `-labeler result -per-game -endgame-plies 2`. A sampled
+position whose bag was already empty (~11% of positions) gets its value
+and spread from the 2-ply search from the opponent's reply rather than
+from the greedy logged endgame; on the sample game that reproduces p2's
+RAIN play-out exactly (-13 for p1). Everything else keeps the real result.

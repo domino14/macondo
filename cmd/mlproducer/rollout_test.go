@@ -5,6 +5,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/domino14/word-golib/kwg"
+
+	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/triton"
 )
@@ -405,5 +408,65 @@ func TestResultLabelerOnePositionPerGame(t *testing.T) {
 	}
 	if seen == 0 {
 		t.Fatal("no trial emitted a position")
+	}
+}
+
+// -endgame-plies: a position whose bag was already empty is labeled by a
+// quick search from the opponent's reply. In the sample game p1's turn 23
+// (AIRY, down 108) leaves p2 to play out RAIN for 9 plus 4 for p1's ?OU,
+// so the search must find p2 winning by 13: value -1, spread -13 for p1.
+// Turn 22 empties the bag with the move itself, so the mover's new tiles
+// are not known and the position keeps its logged-result label. The
+// replay must survive the search: features identical to table mode.
+func TestEndgameSearchLabels(t *testing.T) {
+	table := NewGameAssembler(NPlies, nil, 0, 0, 0)
+	want := feedGame(t, table)
+	byTurn := map[int]outputVector{}
+	for _, v := range want {
+		byTurn[v.turn] = v
+	}
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "NWL23")
+	if err != nil {
+		t.Fatal(err)
+	}
+	negamax.GlobalTranspositionTable.Reset(0.01, 15)
+
+	for _, tc := range []struct {
+		turn   int
+		solved bool
+		spread float32 // expected mover's spread change
+	}{{23, true, -13}, {22, false, 121 - 135}} {
+		ga := NewGameAssembler(NPlies, nil, 0, 0, 0)
+		ga.valueFromResult = true
+		ga.fixedPick = tc.turn
+		ga.endgamePlies = 2
+		ga.kwg = gd
+		got := feedGame(t, ga)
+		if len(got) != 1 || got[0].turn != tc.turn {
+			t.Fatalf("turn %d: got %d vectors", tc.turn, len(got))
+		}
+		v := got[0]
+		ref := byTurn[tc.turn]
+		for j := range *ref.features {
+			if (*ref.features)[j] != (*v.features)[j] {
+				t.Fatalf("turn %d: feature %d differs from table mode", tc.turn, j)
+			}
+		}
+		if (v.solved != nil) != tc.solved || int(ga.solved) != map[bool]int{true: 1, false: 0}[tc.solved] {
+			t.Fatalf("turn %d: solved=%v (%d solved), want %v", tc.turn, v.solved != nil, ga.solved, tc.solved)
+		}
+		wantValue := float32(-1) // p1 lost the game either way
+		if tc.turn == 22 {
+			wantValue = 1 // p2's position: p2 won
+		}
+		if v.predictions[TargetValue] != wantValue || v.predictions[TargetWDL] != wantValue {
+			t.Fatalf("turn %d: value %v wdl %v, want %v", tc.turn, v.predictions[TargetValue], v.predictions[TargetWDL], wantValue)
+		}
+		if tc.solved && v.solved.spread != tc.spread {
+			t.Fatalf("turn %d: solved spread %v, want %v", tc.turn, v.solved.spread, tc.spread)
+		}
+		if v.predictions[TargetSpread] != game.NormalizeSpreadForML(tc.spread) {
+			t.Fatalf("turn %d: spread target %v, want %v", tc.turn, v.predictions[TargetSpread], game.NormalizeSpreadForML(tc.spread))
+		}
 	}
 }

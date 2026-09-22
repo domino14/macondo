@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"math/rand"
 	"strings"
 
@@ -10,16 +11,19 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/domino14/word-golib/cache"
+	"github.com/domino14/word-golib/kwg"
 	"github.com/domino14/word-golib/tilemapping"
 
 	aiturnplayer "github.com/domino14/macondo/ai/turnplayer"
 	"github.com/domino14/macondo/board"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/equity"
 	"github.com/domino14/macondo/game"
 	pb "github.com/domino14/macondo/gen/api/proto/macondo"
 	"github.com/domino14/macondo/montecarlo/stats"
 	"github.com/domino14/macondo/move"
+	"github.com/domino14/macondo/movegen"
 	"github.com/domino14/macondo/turnplayer"
 )
 
@@ -43,13 +47,21 @@ type GameAssembler struct {
 	// (the same signal as TargetWDL) and the spread target the spread
 	// change to the end of the game, instead of the horizon lookup.
 	valueFromResult bool
+	// endgamePlies > 0 labels an emitted position whose bag was already
+	// empty by a quick endgame search (that many plies, greedy playout at
+	// the leaves) from the opponent's reply, instead of by how the logged
+	// game happened to play out.
+	endgamePlies int
+	kwg          *kwg.KWG
+	solved       int64
 	// Which positions to label and emit. With pickMax > 0, one turn per
 	// game is drawn uniformly from 1..pickMax up front and only that
 	// position gets a feature vector (and a rollout label); otherwise every
 	// position is emitted, subject to `sample` when rollout-labeling.
-	pickMax int
-	sample  float64
-	labeled int64
+	pickMax   int
+	fixedPick int // tests: the turn to pick for every game instead of drawing one
+	sample    float64
+	labeled   int64
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -65,6 +77,7 @@ type ply struct {
 	spread float32    // raw spread after the move, from the mover's side
 	bag    int        // tiles unseen after the move (bag + opponent's rack)
 	label  *rolloutLabel
+	solved *rolloutLabel // endgame-search label (value, spread change), mover's side
 }
 
 // Sliding window of recent positions for one game.
@@ -76,6 +89,7 @@ type gameWindow struct {
 	// Vectors whose horizon label is done but whose final-result label
 	// (win/draw/loss for the mover) needs the game to end first.
 	pending []outputVector
+	es      *negamax.Solver // endgame search, created on first use
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -147,6 +161,7 @@ type outputVector struct {
 	mover       int
 	spreadNow   float32       // raw spread at the position, mover's side
 	label       *rolloutLabel // set when rollout-labeled, for the labels file
+	solved      *rolloutLabel // set when endgame-search-labeled
 }
 
 // FeedTurn ingests one ply, updates state, and maybe produces vectors.
@@ -179,7 +194,9 @@ func (ga *GameAssembler) FeedTurn(t Turn) []outputVector {
 			}
 			gw.game.SetStateStackLength(ga.labeler.StackLength())
 		}
-		if ga.pickMax > 0 {
+		if ga.fixedPick > 0 {
+			gw.pick = ga.fixedPick
+		} else if ga.pickMax > 0 {
 			gw.pick = 1 + rand.Intn(ga.pickMax)
 		}
 		ga.games[t.GameID] = gw
@@ -245,7 +262,10 @@ func (ga *GameAssembler) release(gw *gameWindow) []outputVector {
 			wdl = -1.0
 		}
 		vec.predictions[TargetWDL] = wdl
-		if ga.valueFromResult {
+		if vec.solved != nil {
+			vec.predictions[TargetValue] = vec.solved.value
+			vec.predictions[TargetSpread] = game.NormalizeSpreadForML(vec.solved.spread)
+		} else if ga.valueFromResult {
 			vec.predictions[TargetValue] = wdl
 			vec.predictions[TargetSpread] = game.NormalizeSpreadForML(final - vec.spreadNow)
 		}
@@ -385,6 +405,18 @@ func (ga *GameAssembler) updateBoardAndExtractFeatures(gw *gameWindow, t Turn) p
 		gw.game.Bag().PutBack(m.Tiles())
 	}
 
+	// Endgame label: the bag was empty before this move, so both racks are
+	// known and a quick search from the opponent's reply beats whatever the
+	// logged game did from here.
+	if wanted && ga.endgamePlies > 0 && t.TilesRemaining == 0 && gw.game.Playing() == pb.PlayState_PLAYING {
+		lbl, err := ga.solveEndgame(gw, mover, rack)
+		if err != nil {
+			log.Fatal().Msgf("Failed to endgame-label game %s turn %d: %v", t.GameID, t.TurnNumber, err)
+		}
+		p.solved = &lbl
+		ga.solved++
+	}
+
 	// Rollout label, from exactly this state: mover on turn holding the
 	// leave, opponent's rack in the bag.
 	if wanted && ga.labeler != nil && (gw.pick > 0 || rand.Float64() < ga.sample) {
@@ -463,6 +495,7 @@ func (ga *GameAssembler) makeTrainingVector(gw *gameWindow, now, next, future in
 		mover:       pNow.mover,
 		spreadNow:   pNow.spread,
 		label:       pNow.label,
+		solved:      pNow.solved,
 	}
 	pNow.state = nil // owned by the output now
 	if pNow.label != nil {
@@ -486,4 +519,53 @@ func (ga *GameAssembler) makeTrainingVector(gw *gameWindow, now, next, future in
 	ov.predictions[TargetOppScore] = score / 300.0
 
 	return ov, true
+}
+
+// solveEndgame labels the position the game is in (just after `mover`'s
+// play with the bag empty; mover on turn holding `leave`, opponent's tiles
+// in the bag) by a quick endgame search from the opponent's reply:
+// endgamePlies plies of negamax with a greedy playout at the leaves. The
+// search's value is the opponent's spread change to the end of the game,
+// so the mover's is its negation. The game is left as it was found.
+func (ga *GameAssembler) solveEndgame(gw *gameWindow, mover int, leave *tilemapping.Rack) (rolloutLabel, error) {
+	g := gw.game.Game
+	opp := 1 - mover
+	setRackFromBag(gw, opp) // exactly the opponent's tiles
+	g.SetPlayerOnTurn(opp)
+	g.SetBackupMode(game.SimulationMode)
+	g.SetStateStackLength(ga.endgamePlies + negamax.MaxGreedyPlayoutPlies + 5)
+	g.SetEndgameMode(true)
+	defer func() {
+		g.SetEndgameMode(false)
+		g.SetBackupMode(game.NoBackup)
+		g.ThrowRacksIn()
+		if err := g.SetRackForOnly(mover, leave); err != nil {
+			panic(err)
+		}
+		g.SetPlayerOnTurn(mover)
+	}()
+
+	if gw.es == nil {
+		gen := movegen.NewGordonGenerator(ga.kwg, g.Board(), g.Bag().LetterDistribution())
+		gw.es = new(negamax.Solver)
+		if err := gw.es.Init(gen, g); err != nil {
+			return rolloutLabel{}, err
+		}
+		gw.es.SetThreads(1)
+		gw.es.SetFirstWinOptim(false) // we want the spread, not just the sign
+		gw.es.SetSkipMaterialize(true)
+		gw.es.SetNegascoutOptim(true)
+	}
+	v, _, err := gw.es.QuickAndDirtySolve(context.Background(), ga.endgamePlies, 0)
+	if err != nil {
+		return rolloutLabel{}, err
+	}
+	lbl := rolloutLabel{spread: float32(-v)}
+	switch {
+	case v < 0:
+		lbl.value = 1
+	case v > 0:
+		lbl.value = -1
+	}
+	return lbl, nil
 }

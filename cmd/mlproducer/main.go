@@ -17,7 +17,9 @@ import (
 
 	"github.com/cespare/xxhash"
 	"github.com/domino14/macondo/config"
+	"github.com/domino14/macondo/endgame/negamax"
 	"github.com/domino14/macondo/game"
+	"github.com/domino14/word-golib/kwg"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -84,7 +86,7 @@ func main() {
 	var sample float64
 	var labelsOut string
 	var perGame bool
-	var pickMax int
+	var pickMax, endgamePlies int
 	flag.BoolVar(&profile, "profile", false, "Enable CPU and memory profiling")
 	flag.StringVar(&labeler, "labeler", "table",
 		"table: win% table after NPlies real plies; result: the mover's real game result (and spread to the end); "+
@@ -93,6 +95,9 @@ func main() {
 		"emit one position per game (a turn drawn uniformly from 1..pick-max; games shorter than the draw emit nothing) "+
 			"instead of every position; with -labeler rollout this replaces -sample")
 	flag.IntVar(&pickMax, "pick-max", 30, "with -per-game: the latest turn that can be drawn")
+	flag.IntVar(&endgamePlies, "endgame-plies", 0,
+		"label emitted positions whose bag was already empty by a quick endgame search of this many plies "+
+			"(greedy playout at the leaves) instead of the logged game's outcome; 0 = off")
 	flag.IntVar(&plies, "plies", 2, "rollout labeler: plies per rollout (K)")
 	flag.IntVar(&rollouts, "rollouts", 16, "rollout labeler: rollouts per position (N)")
 	flag.Float64Var(&sample, "sample", 0.25, "rollout labeler: fraction of positions to label and emit")
@@ -188,12 +193,23 @@ func main() {
 	if perGame {
 		log.Info().Msgf("Emitting one position per game, turn drawn from 1..%d", pickMax)
 	}
+	var gd *kwg.KWG
+	if endgamePlies > 0 {
+		gd, err = kwg.GetKWG(DefaultConfig.WGLConfig(), "NWL23")
+		if err != nil {
+			log.Fatal().Err(err).Msg("loading kwg for endgame search")
+		}
+		// One table, shared by every worker's searches (its entries are
+		// lock-free); a small slice of memory is plenty for 2-ply searches.
+		negamax.GlobalTranspositionTable.Reset(0.02, 15)
+		log.Info().Msgf("Endgame positions labeled by a %d-ply quick search", endgamePlies)
+	}
 	log.Info().Msgf("Using %d workers", numWorkers)
 	jobChans := make([]chan Turn, numWorkers)
 	resultsChan := make(chan outputVector, numWorkers)
 	var workersWg sync.WaitGroup
 	log.Info().Msgf("Creating %d job channels", numWorkers)
-	var totalGames, totalLabeled atomic.Int64
+	var totalGames, totalLabeled, totalSolved atomic.Int64
 	for i := 0; i < numWorkers; i++ {
 		jobChans[i] = make(chan Turn, 128)
 		workersWg.Add(1)
@@ -204,6 +220,8 @@ func main() {
 			if perGame {
 				assembler.pickMax = pickMax
 			}
+			assembler.endgamePlies = endgamePlies
+			assembler.kwg = gd
 			for turn := range jobChan {
 				vecs := assembler.FeedTurn(turn)
 				for _, vec := range vecs {
@@ -212,6 +230,7 @@ func main() {
 			}
 			totalGames.Add(assembler.gamesProcessed)
 			totalLabeled.Add(assembler.labeled)
+			totalSolved.Add(assembler.solved)
 		}(jobChans[i])
 	}
 	log.Info().Msgf("Started %d worker goroutines", numWorkers)
@@ -308,6 +327,7 @@ func main() {
 	}
 	log.Info().Int64("totalGames", totalGames.Load()).
 		Int64("rolloutLabeled", totalLabeled.Load()).
+		Int64("endgameSolved", totalSolved.Load()).
 		Int64("vectorsEmitted", int64(emitted)).
 		Msg("Finished processing turns")
 }
