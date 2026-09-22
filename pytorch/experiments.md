@@ -1142,3 +1142,28 @@ epochs from the cache; 24k steps, aux-share 0.15, snapshots every 5k.
 Then deploy as `macondo-nn-tf-gen1` and 100k pairs vs HastyBot. The value
 val loss is on rollout labels and is not comparable with earlier runs;
 the match is the comparison (baseline: heads2's result).
+
+#### Result: five heads, gradient-balanced, full schedule (9/21/26)
+
+`--aux-share 0.15`, 79.5k steps (whole file once, cosine matched), best
+val_value 0.0910 at step 79,000, below the single-head run at every
+checkpoint from 25k on. Weights drifted to spread ~0.5, wdl ~0.02, bingo
+~0.02, opp_score ~1.4 by the end. Deployed as `macondo-nn-tf-heads2` v1.
+100k game pairs vs HastyBot, `games-tf-heads2-v-hasty-pairs.txt`:
+
+```
+paired win rate 53.19% +/- 0.18   swept 19.4%  lost 13.1%  spread -2.7/game
+```
+
+**Best net so far: +0.86 over the single-head transformer (52.33%), and
+the spread deficit halved (-6.4 -> -2.7/game).** Same data, same schedule
+length; the difference is the four auxiliary heads at weights set from
+measured trunk gradients. Recipe for future runs: five heads,
+`--aux-share 0.15`, cosine matched to the run length.
+
+| run                                | vs HastyBot     | val_value |
+|------------------------------------|-----------------|-----------|
+| single head, 25k                   | 50.98% +/- 0.18 | 0.0920    |
+| five heads (bad weights), 25k      | 51.76% +/- 0.18 | 0.0918    |
+| single head, 79.5k                 | 52.33% +/- 0.18 | 0.0913    |
+| five heads (balanced), 79.5k       | 53.19% +/- 0.18 | 0.0910    |
