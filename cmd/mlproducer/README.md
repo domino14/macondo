@@ -25,8 +25,19 @@ sampled positions are emitted. Needs Triton (`MACONDO_TRITON_URL`,
 with `value` and `spread` outputs. `-labels-out f.csv` also writes
 `gameID,turn,value,spread` per labeled position.
 
+`-labeler result`: `value` is the mover's real game result (-1/0/1, the
+same signal as `wdl`) and `spread` the spread change to the end of the
+game. No table, no rollouts.
+
+`-per-game [-pick-max 30]`: emit one position per game, its turn drawn
+uniformly from 1..pick-max when the game starts (a game shorter than the
+draw emits nothing). Only that position gets a feature vector, so the scan
+is fast, and with `-labeler rollout` only that position is rolled out.
+This is the sampling to use with a whole-game target, which every position
+of a game would otherwise share.
+
 `wdl` (the mover's final result), `opp_bingo` and `opp_score` come from the
-real game in both modes; a game's frames are held until it ends.
+real game in every mode; a game's frames are held until it ends.
 
 #### Responsibilities for game_assembler
 

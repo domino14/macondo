@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/domino14/macondo/game"
 	"github.com/domino14/macondo/triton"
 )
 
@@ -317,7 +318,7 @@ func TestRolloutAfterExchange(t *testing.T) {
 		ga.FeedTurn(sc.Turn())
 	}
 	gw := ga.games["exchgame"]
-	if gw == nil || len(gw.labels) != 1 || gw.labels[0] == nil {
+	if gw == nil || len(gw.plies) != 1 || gw.plies[0].label == nil {
 		t.Fatal("exchange position was not labeled")
 	}
 	if len(scorer.calls) != 1 || len(scorer.calls[0]) != 8 {
@@ -341,5 +342,68 @@ func TestRolloutAfterExchange(t *testing.T) {
 	}
 	if got := g.Bag().TilesRemaining(); got != totalTiles-1 {
 		t.Fatalf("bag has %d tiles after labeling, want %d", got, totalTiles-1)
+	}
+}
+
+// -labeler result -per-game: one position per game, its value target is
+// the mover's real result and its spread target the spread change to the
+// end of the game; the features are the table-mode features for that turn.
+func TestResultLabelerOnePositionPerGame(t *testing.T) {
+	table := NewGameAssembler(NPlies, nil, 0, 0, 0)
+	want := feedGame(t, table)
+	byTurn := map[int]outputVector{}
+	for _, v := range want {
+		byTurn[v.turn] = v
+	}
+	// p2 won the sample game 463-342 (459 + 4 for p1's unplayed ?OU), so
+	// the final spread is +121 for p2 and -121 for p1.
+	const finalP2 = 121.0
+
+	seen := 0
+	for trial := 0; trial < 40; trial++ {
+		ga := NewGameAssembler(NPlies, nil, 0, 0, 0)
+		ga.valueFromResult = true
+		ga.pickMax = 30
+		got := feedGame(t, ga)
+		if len(got) > 1 {
+			t.Fatalf("trial %d: %d vectors from one game, want at most 1", trial, len(got))
+		}
+		if len(got) == 0 {
+			continue // the draw was past the end of the game
+		}
+		seen++
+		v := got[0]
+		ref, ok := byTurn[v.turn]
+		if !ok {
+			t.Fatalf("trial %d: emitted turn %d, which table mode never emits", trial, v.turn)
+		}
+		for j := range *ref.features {
+			if (*ref.features)[j] != (*v.features)[j] {
+				t.Fatalf("trial %d turn %d: feature %d differs from table mode", trial, v.turn, j)
+			}
+		}
+		final := float32(finalP2)
+		if v.mover == 0 {
+			final = -finalP2
+		}
+		wdl := float32(1)
+		if final < 0 {
+			wdl = -1
+		}
+		if v.predictions[TargetValue] != wdl || v.predictions[TargetWDL] != wdl {
+			t.Fatalf("trial %d turn %d: value %v wdl %v, want %v", trial, v.turn, v.predictions[TargetValue], v.predictions[TargetWDL], wdl)
+		}
+		wantSpread := game.NormalizeSpreadForML(final - v.spreadNow)
+		if v.predictions[TargetSpread] != wantSpread {
+			t.Fatalf("trial %d turn %d: spread %v, want %v (final %v, now %v)", trial, v.turn, v.predictions[TargetSpread], wantSpread, final, v.spreadNow)
+		}
+		for _, k := range []int{TargetOppBingo, TargetOppScore} {
+			if v.predictions[k] != ref.predictions[k] {
+				t.Fatalf("trial %d turn %d: target %d differs from table mode", trial, v.turn, k)
+			}
+		}
+	}
+	if seen == 0 {
+		t.Fatal("no trial emitted a position")
 	}
 }

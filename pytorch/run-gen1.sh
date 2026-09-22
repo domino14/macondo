@@ -12,7 +12,10 @@
 # watch-tf-gen1.log; labels in
 # gen1-labels.csv (gameID,turn,value,spread); frames in gen1-frames.bin.
 # Overridable: TAG (names every output), POSITIONS, EPOCHS, STEPS, WAIT=0
-# (don't wait for the match), WATCH=0 (don't deploy/match afterwards).
+# (don't wait), WAIT_FOR (pgrep pattern to wait on), PRODUCER_ARGS (the
+# labeler flags), TRAIN_ARGS (extra trainer flags), WATCH=0 (don't
+# deploy/match afterwards). run-result.sh uses these for the true-result,
+# one-position-per-game variant.
 set -o pipefail
 cd "$(dirname "$0")"
 source venv/bin/activate
@@ -26,12 +29,14 @@ EPOCHS=${EPOCHS:-5}
 # so the cosine reaches zero before the data does.
 STEPS=${STEPS:-24000}
 VAL_SIZE=${VAL_SIZE:-150000}
+WAIT_FOR=${WAIT_FOR:-"bin/shell autoplay.*tf-heads2-v-hasty-pairs"}
+PRODUCER_ARGS=${PRODUCER_ARGS:-"-labeler rollout -plies 2 -rollouts 16 -sample 0.25 -labels-out $TAG-labels.csv"}
+TRAIN_ARGS=${TRAIN_ARGS:-""}
 
 if [ "${WAIT:-1}" = 1 ]; then
-    while pgrep -f "bin/shell autoplay.*tf-heads2-v-hasty-pairs" >/dev/null; do
+    while pgrep -f "$WAIT_FOR" >/dev/null; do
         sleep 60
     done
-    python pairs-stats.py ../games-tf-heads2-v-hasty-pairs.txt
 fi
 log "starting $TAG: labeling + training ($POSITIONS positions, $EPOCHS epochs, $STEPS steps)"
 
@@ -41,12 +46,11 @@ export MACONDO_TRITON_MODEL_VERSION=1
 
 rm -f best-tf-$TAG*.pt $TAG-frames.bin
 head -n $POSITIONS ~/data/autoplay-softmax-v-hasty-5.txt | \
-  ( ../bin/mlproducer -labeler rollout -plies 2 -rollouts 16 -sample 0.25 \
-      -labels-out $TAG-labels.csv 2> producer-$TAG.log ; echo "producer exit=$?" >&2 ) | \
+  ( ../bin/mlproducer $PRODUCER_ARGS 2> producer-$TAG.log ; echo "producer exit=$?" >&2 ) | \
   ( pv -br ; echo "pv exit=$?" >&2 ) | \
   ( python training.py --arch transformer --ckpt best-tf-$TAG.pt --csv loss_tf_$TAG.csv \
       --aux-share 0.15 --epochs $EPOCHS --cache $TAG-frames.bin --val-size $VAL_SIZE \
-      --total-steps $STEPS --snapshot-every 5000 2>&1 | tee train-tf-$TAG.log ; echo "training exit=${PIPESTATUS[0]}" >&2 )
+      --total-steps $STEPS --snapshot-every 5000 $TRAIN_ARGS 2>&1 | tee train-tf-$TAG.log ; echo "training exit=${PIPESTATUS[0]}" >&2 )
 log "pipeline exit=$?"
 tail -1 producer-$TAG.log
 

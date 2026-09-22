@@ -83,9 +83,16 @@ func main() {
 	var plies, rollouts int
 	var sample float64
 	var labelsOut string
+	var perGame bool
+	var pickMax int
 	flag.BoolVar(&profile, "profile", false, "Enable CPU and memory profiling")
 	flag.StringVar(&labeler, "labeler", "table",
-		"table: win% table after NPlies real plies; rollout: mean of N sampled K-ply rollouts scored by the net (needs Triton)")
+		"table: win% table after NPlies real plies; result: the mover's real game result (and spread to the end); "+
+			"rollout: mean of N sampled K-ply rollouts scored by the net (needs Triton)")
+	flag.BoolVar(&perGame, "per-game", false,
+		"emit one position per game (a turn drawn uniformly from 1..pick-max; games shorter than the draw emit nothing) "+
+			"instead of every position; with -labeler rollout this replaces -sample")
+	flag.IntVar(&pickMax, "pick-max", 30, "with -per-game: the latest turn that can be drawn")
 	flag.IntVar(&plies, "plies", 2, "rollout labeler: plies per rollout (K)")
 	flag.IntVar(&rollouts, "rollouts", 16, "rollout labeler: rollouts per position (N)")
 	flag.Float64Var(&sample, "sample", 0.25, "rollout labeler: fraction of positions to label and emit")
@@ -165,6 +172,8 @@ func main() {
 	switch labeler {
 	case "table":
 		log.Info().Msgf("Lookahead: %d plies", NPlies)
+	case "result":
+		log.Info().Msg("Value target: the mover's real game result")
 	case "rollout":
 		shared, err = NewRolloutShared(cfg, "NWL23")
 		if err != nil {
@@ -175,6 +184,9 @@ func main() {
 			cfg.GetString(config.ConfigTritonModelVersion), cfg.GetString(config.ConfigTritonURL))
 	default:
 		log.Fatal().Msgf("unknown -labeler %q", labeler)
+	}
+	if perGame {
+		log.Info().Msgf("Emitting one position per game, turn drawn from 1..%d", pickMax)
 	}
 	log.Info().Msgf("Using %d workers", numWorkers)
 	jobChans := make([]chan Turn, numWorkers)
@@ -188,6 +200,10 @@ func main() {
 		go func(jobChan <-chan Turn) {
 			defer workersWg.Done()
 			assembler := NewGameAssembler(NPlies, shared, plies, rollouts, sample)
+			assembler.valueFromResult = labeler == "result"
+			if perGame {
+				assembler.pickMax = pickMax
+			}
 			for turn := range jobChan {
 				vecs := assembler.FeedTurn(turn)
 				for _, vec := range vecs {

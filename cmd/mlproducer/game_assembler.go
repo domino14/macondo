@@ -3,7 +3,6 @@
 package main
 
 import (
-	"math"
 	"math/rand"
 	"strings"
 
@@ -37,10 +36,18 @@ type GameAssembler struct {
 	eqCalc         *equity.ExhaustiveLeaveCalculator // equity calculator for leave values
 	winpcts        [][]float32
 	gamesProcessed int64
+
 	// Rollout labeling (nil = table lookup after `horizon` real plies).
-	// Only positions that pass the `sample` coin flip are labeled and
-	// emitted; the rest are skipped, since a rollout label is expensive.
 	labeler *RolloutLabeler
+	// valueFromResult makes the value target the mover's real result
+	// (the same signal as TargetWDL) and the spread target the spread
+	// change to the end of the game, instead of the horizon lookup.
+	valueFromResult bool
+	// Which positions to label and emit. With pickMax > 0, one turn per
+	// game is drawn uniformly from 1..pickMax up front and only that
+	// position gets a feature vector (and a rollout label); otherwise every
+	// position is emitted, subject to `sample` when rollout-labeling.
+	pickMax int
 	sample  float64
 	labeled int64
 }
@@ -49,19 +56,26 @@ type GameAssembler struct {
 // Internal helpers
 // ──────────────────────────────────────────────────────────────────────────────
 
+// ply is one turn of a game as replayed, with whatever the labels need.
+type ply struct {
+	turn   Turn
+	move   *move.Move
+	state  *[]float32 // feature vector after the move; nil when not built
+	mover  int        // player index who moved
+	spread float32    // raw spread after the move, from the mover's side
+	bag    int        // tiles unseen after the move (bag + opponent's rack)
+	label  *rolloutLabel
+}
+
 // Sliding window of recent positions for one game.
 type gameWindow struct {
-	turns      []Turn // length ≤ horizon+1
-	moves      []*move.Move
-	states     []*[]float32 // feature vectors after each ply (same len)
-	spreadsFor []int
-	labels     []*rolloutLabel // per state; nil when not rollout-labeled
-	game       turnplayer.BaseTurnPlayer
-	ai         *aiturnplayer.AIStaticTurnPlayer // static best play for rollouts
+	plies []ply // length ≤ horizon+1
+	game  turnplayer.BaseTurnPlayer
+	ai    *aiturnplayer.AIStaticTurnPlayer // static best play for rollouts
+	pick  int                              // the one turn to emit, or 0 for all
 	// Vectors whose horizon label is done but whose final-result label
 	// (win/draw/loss for the mover) needs the game to end first.
-	pending      []outputVector
-	pendingMover []int
+	pending []outputVector
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -117,8 +131,8 @@ func shouldTranspose(id string) bool {
 
 // Training targets, in the order they are written after the features.
 const (
-	TargetValue    = iota // bogowin after the horizon, scaled to [-1, 1]
-	TargetSpread          // spread change over the horizon, tanh-scaled
+	TargetValue    = iota // bogowin after the horizon (or the real result), scaled to [-1, 1]
+	TargetSpread          // spread change over the horizon (or to the end), tanh-scaled
 	TargetWDL             // final game result for the mover: -1, 0, 1
 	TargetOppBingo        // opponent bingos on their next turn: 0 or 1
 	TargetOppScore        // opponent's next score / 300
@@ -130,12 +144,13 @@ type outputVector struct {
 	predictions []float32 // indexed by the Target* constants
 	gameID      string
 	turn        int
+	mover       int
+	spreadNow   float32       // raw spread at the position, mover's side
 	label       *rolloutLabel // set when rollout-labeled, for the labels file
 }
 
 // FeedTurn ingests one ply, updates state, and maybe produces vectors.
 func (ga *GameAssembler) FeedTurn(t Turn) []outputVector {
-	outVecs := []outputVector{}
 	gw := ga.games[t.GameID]
 	if gw == nil {
 		gw = &gameWindow{}
@@ -164,35 +179,29 @@ func (ga *GameAssembler) FeedTurn(t Turn) []outputVector {
 			}
 			gw.game.SetStateStackLength(ga.labeler.StackLength())
 		}
+		if ga.pickMax > 0 {
+			gw.pick = 1 + rand.Intn(ga.pickMax)
+		}
 		ga.games[t.GameID] = gw
 	}
 
 	// 1) Apply move, update board/racks, compute after-move features.
-	m, stateVec, spreadFor, label := updateBoardAndExtractFeatures(ga, gw, t, gw.moves)
+	p := ga.updateBoardAndExtractFeatures(gw, t)
 
 	// 2) Push into sliding window.
-	gw.turns = append(gw.turns, t)
-	gw.moves = append(gw.moves, m)
-	gw.states = append(gw.states, stateVec)
-	gw.spreadsFor = append(gw.spreadsFor, spreadFor)
-	gw.labels = append(gw.labels, label)
+	gw.plies = append(gw.plies, p)
 
 	// 3) Emit when window deep enough.
-	if len(gw.states) > ga.horizon {
-		if vec, ok := makeTrainingVector(ga, gw, gw.turns[0], gw.states[0], gw.states[1], gw.states[ga.horizon], gw.moves[1], gw.spreadsFor[0], gw.spreadsFor[ga.horizon], gw.labels[0]); ok {
-			gw.hold(vec, gw.spreadsFor[0])
+	if len(gw.plies) > ga.horizon {
+		if vec, ok := ga.makeTrainingVector(gw, 0, 1, ga.horizon); ok {
+			gw.pending = append(gw.pending, vec)
 		}
-
 		// Slide window forward by dropping the oldest ply.
-		gw.turns = gw.turns[1:]
-		gw.spreadsFor = gw.spreadsFor[1:]
-		gw.states = gw.states[1:]
-		gw.moves = gw.moves[1:]
-		gw.labels = gw.labels[1:]
+		gw.plies = gw.plies[1:]
 	}
-	// log.Info().Msgf("Game %s: fed turn %s, now have %d turns in window",
-	// 	t.GameID, t.Play, len(gw.turns))
+
 	// 4) Detect end-of-game; flush leftovers then delete.
+	var out []outputVector
 	if gw.game.Playing() == pb.PlayState_GAME_OVER ||
 		gw.game.Playing() == pb.PlayState_WAITING_FOR_FINAL_PASS {
 
@@ -214,35 +223,35 @@ func (ga *GameAssembler) FeedTurn(t Turn) []outputVector {
 		}
 
 		ga.flushRemainder(gw)
-		outVecs = append(outVecs, gw.release()...)
+		out = ga.release(gw)
 		delete(ga.games, t.GameID)
 		ga.gamesProcessed++
 	}
-	return outVecs
-}
-
-// hold parks a vector until the game result is known.
-func (gw *gameWindow) hold(vec outputVector, mover int) {
-	gw.pending = append(gw.pending, vec)
-	gw.pendingMover = append(gw.pendingMover, mover)
+	return out
 }
 
 // release stamps every held vector with the final result from its mover's
-// side and hands them all back. Only valid once the game is over.
-func (gw *gameWindow) release() []outputVector {
-	for i, vec := range gw.pending {
-		spread := gw.game.SpreadFor(gw.pendingMover[i])
+// side (and, with valueFromResult, makes that the value target) and hands
+// them all back. Only valid once the game is over.
+func (ga *GameAssembler) release(gw *gameWindow) []outputVector {
+	for i := range gw.pending {
+		vec := &gw.pending[i]
+		final := float32(gw.game.SpreadFor(vec.mover))
+		var wdl float32
 		switch {
-		case spread > 0:
-			vec.predictions[TargetWDL] = 1.0
-		case spread < 0:
-			vec.predictions[TargetWDL] = -1.0
-		default:
-			vec.predictions[TargetWDL] = 0.0
+		case final > 0:
+			wdl = 1.0
+		case final < 0:
+			wdl = -1.0
+		}
+		vec.predictions[TargetWDL] = wdl
+		if ga.valueFromResult {
+			vec.predictions[TargetValue] = wdl
+			vec.predictions[TargetSpread] = game.NormalizeSpreadForML(final - vec.spreadNow)
 		}
 	}
 	out := gw.pending
-	gw.pending, gw.pendingMover = nil, nil
+	gw.pending = nil
 	return out
 }
 
@@ -264,10 +273,10 @@ func setRackFromBag(gw *gameWindow, playerIdx int) {
 // Flush any remaining positions when a game ends.
 // ──────────────────────────────────────────────────────────────────────────────
 func (ga *GameAssembler) flushRemainder(gw *gameWindow) {
-	if len(gw.states) == 0 {
+	if len(gw.plies) == 0 {
 		return
 	}
-	lastIdx := len(gw.states) - 1
+	lastIdx := len(gw.plies) - 1
 
 	// Emit vectors for every leftover ply i where i < lastIdx
 	for i := 0; i < lastIdx; i++ {
@@ -279,19 +288,28 @@ func (ga *GameAssembler) flushRemainder(gw *gameWindow) {
 		if next > lastIdx {
 			next = lastIdx // clamp to final
 		}
-		if vec, ok := makeTrainingVector(ga, gw, gw.turns[i], gw.states[i], gw.states[next], gw.states[future], gw.moves[next], gw.spreadsFor[i], gw.spreadsFor[future], gw.labels[i]); ok {
-			gw.hold(vec, gw.spreadsFor[i])
+		if vec, ok := ga.makeTrainingVector(gw, i, next, future); ok {
+			gw.pending = append(gw.pending, vec)
 		}
 	}
-	game.MLVectorPool.Put(gw.states[lastIdx]) // return last state to pool
+	if gw.plies[lastIdx].state != nil {
+		game.MLVectorPool.Put(gw.plies[lastIdx].state) // return last state to pool
+	}
 }
 
-// Given current game window + turn, mutate board state and return features.
-// Must return the *after-move* tensor for that ply. The rollout label is
-// nil when the position was not sampled (or there is no labeler).
-func updateBoardAndExtractFeatures(ga *GameAssembler, gw *gameWindow, t Turn,
-	lastMoves []*move.Move) (*move.Move, *[]float32, int, *rolloutLabel) {
-	eqCalc := ga.eqCalc
+// moveHistory is every move of the game still in the window, oldest first.
+func (gw *gameWindow) moveHistory() []*move.Move {
+	h := make([]*move.Move, len(gw.plies))
+	for i := range gw.plies {
+		h[i] = gw.plies[i].move
+	}
+	return h
+}
+
+// Given current game window + turn, mutate board state and return the ply.
+// The feature vector is the *after-move* tensor for that ply; it is only
+// built for positions that can be emitted.
+func (ga *GameAssembler) updateBoardAndExtractFeatures(gw *gameWindow, t Turn) ply {
 	transpose := shouldTranspose(t.GameID)
 
 	tp := stats.Normalize(t.Play) // normalize play string
@@ -314,7 +332,6 @@ func updateBoardAndExtractFeatures(ga *GameAssembler, gw *gameWindow, t Turn,
 	// PlayMove plays the move, updates board, cross-checks, player on turn, scores, etc.
 	// It also draws replenishment tiles from the bag. We don't want that for
 	// training purposes.
-	leaveVal := 0.0
 	err = gw.game.PlayMove(m, false, 0)
 	if err != nil {
 		log.Fatal().Msgf("Failed to play move: %s, error was %v", m.ShortDescription(), err)
@@ -338,16 +355,28 @@ func updateBoardAndExtractFeatures(ga *GameAssembler, gw *gameWindow, t Turn,
 
 	// switch player on turn back to the one who just played the move.
 	gw.game.SetPlayerOnTurn(1 - gw.game.PlayerOnTurn())
+	mover := gw.game.PlayerOnTurn()
 	rack := tilemapping.RackFromString(t.Leave, gw.game.Alphabet())
-	err = gw.game.SetRackForOnly(gw.game.PlayerOnTurn(), rack)
+	err = gw.game.SetRackForOnly(mover, rack)
 	if err != nil {
-		log.Fatal().Msgf("Failed to set rack for player: %d, error was %v", gw.game.PlayerOnTurn(), err)
+		log.Fatal().Msgf("Failed to set rack for player: %d, error was %v", mover, err)
 	}
-	leaveVal = eqCalc.LeaveValue(rack.TilesOn())
 
-	vecPtr, err := gw.game.BuildMLVector(m, leaveVal, lastMoves)
-	if err != nil {
-		log.Fatal().Msgf("Failed to build ML vector: %v", err)
+	p := ply{
+		turn:   t,
+		move:   m,
+		mover:  mover,
+		spread: float32(gw.game.SpreadFor(mover)),
+		bag:    gw.game.Bag().TilesRemaining(),
+	}
+	wanted := gw.pick == 0 || gw.pick == t.TurnNumber
+	if wanted {
+		leaveVal := ga.eqCalc.LeaveValue(rack.TilesOn())
+		p.state, err = gw.game.BuildMLVector(m, leaveVal, gw.moveHistory())
+		if err != nil {
+			log.Fatal().Msgf("Failed to build ML vector: %v", err)
+		}
+		(*p.state)[len(*p.state)-1] = p.spread // raw spread, normalized when emitted
 	}
 
 	if m.Action() == move.MoveTypeExchange {
@@ -356,58 +385,48 @@ func updateBoardAndExtractFeatures(ga *GameAssembler, gw *gameWindow, t Turn,
 		gw.game.Bag().PutBack(m.Tiles())
 	}
 
-	spreadFor := gw.game.PlayerOnTurn()
-	unNormalizedSpread := gw.game.SpreadFor(spreadFor)
-	(*vecPtr)[len(*vecPtr)-1] = float32(unNormalizedSpread) // update spread for player on turn
-
 	// Rollout label, from exactly this state: mover on turn holding the
-	// leave, opponent's rack in the bag. Label leaves random racks behind,
-	// which the next turn's ThrowRacksIn/SetRackFor clean up.
-	var label *rolloutLabel
-	if ga.labeler != nil && rand.Float64() < ga.sample {
-		lbl, ok, err := ga.labeler.Label(gw.game.Game, gw.ai, spreadFor, m, lastMoves)
+	// leave, opponent's rack in the bag.
+	if wanted && ga.labeler != nil && (gw.pick > 0 || rand.Float64() < ga.sample) {
+		lbl, ok, err := ga.labeler.Label(gw.game.Game, gw.ai, mover, m, gw.moveHistory())
 		if err != nil {
 			log.Fatal().Msgf("Failed to rollout-label game %s turn %d: %v", t.GameID, t.TurnNumber, err)
 		}
 		if ok {
-			label = &lbl
+			p.label = &lbl
 			ga.labeled++
 		}
 	}
 
 	// Undo the switch of the player on turn.
 	gw.game.SetPlayerOnTurn(1 - gw.game.PlayerOnTurn())
-
-	return m, vecPtr, spreadFor, label
+	return p
 }
 
-// Build final training vector from state at ply t and ply t+horizon.
-// With a labeler, only rollout-labeled positions are emitted; `ok` is false
-// for the rest and their state vector goes back to the pool.
-func makeTrainingVector(ga *GameAssembler, gw *gameWindow, turn Turn, stateNow, stateNext, stateFuture *[]float32,
-	moveNext *move.Move, spreadForNow, spreadForFuture int, label *rolloutLabel) (outputVector, bool) {
-	if len(*stateNow) != len(*stateFuture) {
-		log.Fatal().Msgf("State vectors must be of the same length, got %d and %d", len(*stateNow), len(*stateFuture))
+// makeTrainingVector builds the training vector for plies[now] using
+// plies[next] (the opponent's reply) and plies[future] (the horizon). ok is
+// false when the position is not emitted: no feature vector was built, or
+// a rollout labeler is on and the position was not labeled; the state
+// vector, if any, goes back to the pool.
+func (ga *GameAssembler) makeTrainingVector(gw *gameWindow, now, next, future int) (outputVector, bool) {
+	pNow, pNext, pFuture := &gw.plies[now], &gw.plies[next], &gw.plies[future]
+	if pNow.state == nil {
+		return outputVector{}, false
 	}
-	if ga.labeler != nil && label == nil {
-		game.MLVectorPool.Put(stateNow)
+	if ga.labeler != nil && pNow.label == nil {
+		game.MLVectorPool.Put(pNow.state)
+		pNow.state = nil
 		return outputVector{}, false
 	}
 
-	// Get the actual spread values for the relevant player. Both are still
-	// raw spreads here; stateNow's is normalized in place further down.
-	futureSpread := (*stateFuture)[len(*stateFuture)-1]
-	nowSpread := (*stateNow)[len(*stateNow)-1]
-	bagRemaining := int(math.Round(float64((*stateFuture)[len(*stateFuture)-2] * 100.0))) // second to last element is bag remaining
-
-	if spreadForFuture != spreadForNow {
-		// The two players are different. We want the future spread to be
-		// for the same player as the current spread.
-
-		futureSpread = -futureSpread // flip the sign of the future spread
+	// Spreads from the mover's side; the future one flips if the other
+	// player moved there.
+	futureSpread := pFuture.spread
+	if pFuture.mover != pNow.mover {
+		futureSpread = -futureSpread
 	}
+	spreadDiff := futureSpread - pNow.spread
 
-	spreadDiff := futureSpread - nowSpread
 	// The value target is a win/loss-like signal after the horizon, not the
 	// result of the entire game; that is TargetWDL, stamped at game end.
 	bogowin := float32(0.0)
@@ -426,6 +445,7 @@ func makeTrainingVector(ga *GameAssembler, gw *gameWindow, turn Turn, stateNow, 
 		} else if futureSpread < -equity.MaxRepresentedWinSpread {
 			futureSpread = -equity.MaxRepresentedWinSpread
 		}
+		bagRemaining := pFuture.bag
 		if bagRemaining >= len(ga.winpcts) || bagRemaining < 0 {
 			log.Fatal().Msgf("Bag remaining %d is out of bounds for winpcts", bagRemaining)
 		}
@@ -433,35 +453,33 @@ func makeTrainingVector(ga *GameAssembler, gw *gameWindow, turn Turn, stateNow, 
 		bogowin = bogowin*2 - 1 // scale to [-1, 1] range
 	}
 
-	// log.Info().Msgf("future state spread %f, now spread %f, spreadForNow: %d, spreadForFuture: %d, Spread diff: %f, normalized: %f",
-	// 	stateFuture[len(stateFuture)-2], stateNow[len(stateNow)-2],
-	// 	spreadForNow, spreadForFuture,
-	// 	spreadDiff, normalizeSpread(spreadDiff))
-	// replace previous element with normalized spread of this move only
-	(*stateNow)[len(*stateNow)-1] = game.NormalizeSpreadForML((*stateNow)[len((*stateNow))-1])
+	// replace the raw spread with the normalized spread of this move only
+	(*pNow.state)[len(*pNow.state)-1] = game.NormalizeSpreadForML(pNow.spread)
 	ov := outputVector{
-		features:    stateNow,
+		features:    pNow.state,
 		predictions: make([]float32, NumTargets),
-		gameID:      turn.GameID,
-		turn:        turn.TurnNumber,
-		label:       label,
+		gameID:      pNow.turn.GameID,
+		turn:        pNow.turn.TurnNumber,
+		mover:       pNow.mover,
+		spreadNow:   pNow.spread,
+		label:       pNow.label,
 	}
-	if label != nil {
-		bogowin = label.value
-		spreadDiff = label.spread
+	pNow.state = nil // owned by the output now
+	if pNow.label != nil {
+		bogowin = pNow.label.value
+		spreadDiff = pNow.label.spread
 	}
 	ov.predictions[TargetValue] = bogowin
 	ov.predictions[TargetSpread] = game.NormalizeSpreadForML(spreadDiff)
-	// TargetWDL is filled in by gameWindow.release once the game is over.
+	// TargetWDL is filled in by release once the game is over.
 
 	// Did the opponent bingo on their next turn?
-	if moveNext.Action() == move.MoveTypePlay && moveNext.TilesPlayed() == game.RackTileLimit {
+	if pNext.move.Action() == move.MoveTypePlay && pNext.move.TilesPlayed() == game.RackTileLimit {
 		ov.predictions[TargetOppBingo] = 1.0
 	}
 
-	// Opponent's next score, unscaled from the tanh feature and capped.
-	oppScaledScore := (*stateNext)[game.AddlFeaturesStartIdx+1]
-	score := game.InverseScaleScoreWithTanh(oppScaledScore, 45.0, 40.0)
+	// Opponent's next score, capped.
+	score := float32(pNext.move.Score())
 	if score > 300 {
 		score = 300
 	}
