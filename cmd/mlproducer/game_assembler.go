@@ -546,6 +546,9 @@ func (ga *GameAssembler) solveEndgame(gw *gameWindow, mover int, leave *tilemapp
 	g := gw.game.Game
 	opp := 1 - mover
 	spreadNow := float32(g.SpreadFor(mover))
+	// ThrowRacksIn clears rack objects in place, so keep the leave's tiles,
+	// not the rack, for the restore.
+	leaveTiles := leave.TilesOn()
 	setRackFromBag(gw, opp) // exactly the opponent's tiles
 	g.SetPlayerOnTurn(opp)
 	g.SetBackupMode(game.SimulationMode)
@@ -555,7 +558,9 @@ func (ga *GameAssembler) solveEndgame(gw *gameWindow, mover int, leave *tilemapp
 		g.SetEndgameMode(false)
 		g.SetBackupMode(game.NoBackup)
 		g.ThrowRacksIn()
-		if err := g.SetRackForOnly(mover, leave); err != nil {
+		rack := tilemapping.NewRack(g.Alphabet())
+		rack.Set(leaveTiles)
+		if err := g.SetRackForOnly(mover, rack); err != nil {
 			panic(err)
 		}
 		g.SetPlayerOnTurn(mover)

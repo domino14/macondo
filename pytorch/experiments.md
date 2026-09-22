@@ -1216,3 +1216,24 @@ position whose bag was already empty (~11% of positions) gets its value
 and spread from the 2-ply search from the opponent's reply rather than
 from the greedy logged endgame; on the sample game that reproduces p2's
 RAIN play-out exactly (-13 for p1). Everything else keeps the real result.
+
+#### Endgame label checks (9/22/26, midday)
+
+Two more bugs found by tests before the queued run started, both in the
+endgame labeler: (1) the result was the sign of the search's spread
+*change*, not of the mover's final spread (a mover ahead by 50 giving
+back 13 was a "loss"); (2) the restore after the search reused the
+mover's rack object, which ThrowRacksIn had cleared in place, so the
+mover came out with an empty rack and their leave in the bag (harmless
+in the queued config only because the next turn resets racks from the
+log). Tests now check the arithmetic on hand cases, that the game state
+after a label is identical to table mode (a mutation check confirms the
+test catches the rack bug), and hand-computed labels on a second game's
+endgame (-10 and 0 for the last two positions).
+
+Quick solve vs 4-ply solve, 500 random logged endgame positions:
+outcome agreement 99.6%, spread change median/p90 error 0. At the START
+of endgames (full rack to move): 97.0% (15 flips, 13 in close games),
+spread MAE 5.1, quick solve ~5 points pessimistic; the logged greedy
+outcome on the same positions: 96.2% (19 flips), MAE 8.1, max 88. So the
+2-ply label is a modest gain on results and a clear gain on spread.
