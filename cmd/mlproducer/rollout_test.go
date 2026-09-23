@@ -620,3 +620,26 @@ func TestEndgameSearchRestoresState(t *testing.T) {
 		}
 	}
 }
+
+// A search that exceeds the timeout is abandoned and the position keeps
+// its logged label.
+func TestEndgameSearchTimeoutFallsBack(t *testing.T) {
+	gd, err := kwg.GetKWG(DefaultConfig.WGLConfig(), "NWL23")
+	if err != nil {
+		t.Fatal(err)
+	}
+	negamax.GlobalTranspositionTable.Reset(0.01, 15)
+	ga := NewGameAssembler(NPlies, nil, 0, 0, 0)
+	ga.valueFromResult = true
+	ga.fixedPick = 23
+	ga.endgamePlies = 2
+	ga.endgameTimeout = 1 // nanosecond: every search times out
+	ga.kwg = gd
+	got := feedGame(t, ga)
+	if len(got) != 1 || got[0].solved != nil || ga.solved != 0 || ga.endgameTimeouts != 1 {
+		t.Fatalf("got %d vectors, solved=%v, solved count %d, timeouts %d", len(got), got[0].solved != nil, ga.solved, ga.endgameTimeouts)
+	}
+	if got[0].predictions[TargetValue] != -1 || got[0].predictions[TargetSpread] != game.NormalizeSpreadForML(-13) {
+		t.Fatalf("logged label expected: value %v spread %v", got[0].predictions[TargetValue], got[0].predictions[TargetSpread])
+	}
+}

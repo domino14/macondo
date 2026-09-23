@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unsafe"
 
 	"github.com/cespare/xxhash"
@@ -87,6 +88,7 @@ func main() {
 	var labelsOut string
 	var perGame bool
 	var pickMax, endgamePlies int
+	var endgameTimeout time.Duration
 	flag.BoolVar(&profile, "profile", false, "Enable CPU and memory profiling")
 	flag.StringVar(&labeler, "labeler", "table",
 		"table: win% table after NPlies real plies; result: the mover's real game result (and spread to the end); "+
@@ -98,6 +100,8 @@ func main() {
 	flag.IntVar(&endgamePlies, "endgame-plies", 0,
 		"label emitted positions whose bag was already empty by a quick endgame search of this many plies "+
 			"(greedy playout at the leaves) instead of the logged game's outcome; 0 = off")
+	flag.DurationVar(&endgameTimeout, "endgame-timeout", 30*time.Second,
+		"abandon an endgame search after this long and keep the logged label")
 	flag.IntVar(&plies, "plies", 2, "rollout labeler: plies per rollout (K)")
 	flag.IntVar(&rollouts, "rollouts", 16, "rollout labeler: rollouts per position (N)")
 	flag.Float64Var(&sample, "sample", 0.25, "rollout labeler: fraction of positions to label and emit")
@@ -209,7 +213,7 @@ func main() {
 	resultsChan := make(chan outputVector, numWorkers)
 	var workersWg sync.WaitGroup
 	log.Info().Msgf("Creating %d job channels", numWorkers)
-	var totalGames, totalLabeled, totalSolved atomic.Int64
+	var totalGames, totalLabeled, totalSolved, totalTimeouts atomic.Int64
 	for i := 0; i < numWorkers; i++ {
 		jobChans[i] = make(chan Turn, 128)
 		workersWg.Add(1)
@@ -221,6 +225,7 @@ func main() {
 				assembler.pickMax = pickMax
 			}
 			assembler.endgamePlies = endgamePlies
+			assembler.endgameTimeout = endgameTimeout
 			assembler.kwg = gd
 			for turn := range jobChan {
 				vecs := assembler.FeedTurn(turn)
@@ -231,6 +236,7 @@ func main() {
 			totalGames.Add(assembler.gamesProcessed)
 			totalLabeled.Add(assembler.labeled)
 			totalSolved.Add(assembler.solved)
+			totalTimeouts.Add(assembler.endgameTimeouts)
 		}(jobChans[i])
 	}
 	log.Info().Msgf("Started %d worker goroutines", numWorkers)
@@ -328,6 +334,7 @@ func main() {
 	log.Info().Int64("totalGames", totalGames.Load()).
 		Int64("rolloutLabeled", totalLabeled.Load()).
 		Int64("endgameSolved", totalSolved.Load()).
+		Int64("endgameTimeouts", totalTimeouts.Load()).
 		Int64("vectorsEmitted", int64(emitted)).
 		Msg("Finished processing turns")
 }

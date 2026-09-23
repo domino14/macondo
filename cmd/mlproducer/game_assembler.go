@@ -4,8 +4,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"math/rand"
 	"strings"
+	"time"
 
 	"github.com/cespare/xxhash"
 	"github.com/rs/zerolog/log"
@@ -54,6 +56,11 @@ type GameAssembler struct {
 	endgamePlies int
 	kwg          *kwg.KWG
 	solved       int64
+	// A search that runs past this is abandoned and the position keeps
+	// its logged label; 2-ply searches take milliseconds, so this only
+	// guards against degenerate positions.
+	endgameTimeout  time.Duration
+	endgameTimeouts int64
 	// Which positions to label and emit. With pickMax > 0, one turn per
 	// game is drawn uniformly from 1..pickMax up front and only that
 	// position gets a feature vector (and a rollout label); otherwise every
@@ -410,11 +417,16 @@ func (ga *GameAssembler) updateBoardAndExtractFeatures(gw *gameWindow, t Turn) p
 	// logged game did from here.
 	if wanted && ga.endgamePlies > 0 && t.TilesRemaining == 0 && gw.game.Playing() == pb.PlayState_PLAYING {
 		lbl, err := ga.solveEndgame(gw, mover, rack)
-		if err != nil {
+		switch {
+		case errors.Is(err, context.DeadlineExceeded):
+			ga.endgameTimeouts++
+			log.Warn().Msgf("endgame search timed out on game %s turn %d; keeping the logged label", t.GameID, t.TurnNumber)
+		case err != nil:
 			log.Fatal().Msgf("Failed to endgame-label game %s turn %d: %v", t.GameID, t.TurnNumber, err)
+		default:
+			p.solved = &lbl
+			ga.solved++
 		}
-		p.solved = &lbl
-		ga.solved++
 	}
 
 	// Rollout label, from exactly this state: mover on turn holding the
@@ -577,7 +589,13 @@ func (ga *GameAssembler) solveEndgame(gw *gameWindow, mover int, leave *tilemapp
 		gw.es.SetSkipMaterialize(true)
 		gw.es.SetNegascoutOptim(true)
 	}
-	v, _, err := gw.es.QuickAndDirtySolve(context.Background(), ga.endgamePlies, 0)
+	ctx := context.Background()
+	if ga.endgameTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, ga.endgameTimeout)
+		defer cancel()
+	}
+	v, _, err := gw.es.QuickAndDirtySolve(ctx, ga.endgamePlies, 0)
 	if err != nil {
 		return rolloutLabel{}, err
 	}
